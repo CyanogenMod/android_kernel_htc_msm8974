@@ -7,17 +7,20 @@
 #include "common.h"
 #include <linux/slab.h>
 
+/* Structure for holding inet domain socket's address. */
 struct tomoyo_inet_addr_info {
-	__be16 port;           
-	const __be32 *address; 
+	__be16 port;           /* In network byte order. */
+	const __be32 *address; /* In network byte order. */
 	bool is_ipv6;
 };
 
+/* Structure for holding unix domain socket's address. */
 struct tomoyo_unix_addr_info {
-	u8 *addr; 
+	u8 *addr; /* This may not be '\0' terminated string. */
 	unsigned int addr_len;
 };
 
+/* Structure for holding socket address. */
 struct tomoyo_addr_info {
 	u8 protocol;
 	u8 operation;
@@ -25,15 +28,24 @@ struct tomoyo_addr_info {
 	struct tomoyo_unix_addr_info unix0;
 };
 
+/* String table for socket's protocols. */
 const char * const tomoyo_proto_keyword[TOMOYO_SOCK_MAX] = {
 	[SOCK_STREAM]    = "stream",
 	[SOCK_DGRAM]     = "dgram",
 	[SOCK_RAW]       = "raw",
 	[SOCK_SEQPACKET] = "seqpacket",
-	[0] = " ", 
-	[4] = " ", 
+	[0] = " ", /* Dummy for avoiding NULL pointer dereference. */
+	[4] = " ", /* Dummy for avoiding NULL pointer dereference. */
 };
 
+/**
+ * tomoyo_parse_ipaddr_union - Parse an IP address.
+ *
+ * @param: Pointer to "struct tomoyo_acl_param".
+ * @ptr:   Pointer to "struct tomoyo_ipaddr_union".
+ *
+ * Returns true on success, false otherwise.
+ */
 bool tomoyo_parse_ipaddr_union(struct tomoyo_acl_param *param,
 			       struct tomoyo_ipaddr_union *ptr)
 {
@@ -64,6 +76,16 @@ bool tomoyo_parse_ipaddr_union(struct tomoyo_acl_param *param,
 	return false;
 }
 
+/**
+ * tomoyo_print_ipv4 - Print an IPv4 address.
+ *
+ * @buffer:     Buffer to write to.
+ * @buffer_len: Size of @buffer.
+ * @min_ip:     Pointer to __be32.
+ * @max_ip:     Pointer to __be32.
+ *
+ * Returns nothing.
+ */
 static void tomoyo_print_ipv4(char *buffer, const unsigned int buffer_len,
 			      const __be32 *min_ip, const __be32 *max_ip)
 {
@@ -71,6 +93,16 @@ static void tomoyo_print_ipv4(char *buffer, const unsigned int buffer_len,
 		 *min_ip == *max_ip ? '\0' : '-', max_ip);
 }
 
+/**
+ * tomoyo_print_ipv6 - Print an IPv6 address.
+ *
+ * @buffer:     Buffer to write to.
+ * @buffer_len: Size of @buffer.
+ * @min_ip:     Pointer to "struct in6_addr".
+ * @max_ip:     Pointer to "struct in6_addr".
+ *
+ * Returns nothing.
+ */
 static void tomoyo_print_ipv6(char *buffer, const unsigned int buffer_len,
 			      const struct in6_addr *min_ip,
 			      const struct in6_addr *max_ip)
@@ -79,6 +111,15 @@ static void tomoyo_print_ipv6(char *buffer, const unsigned int buffer_len,
 		 !memcmp(min_ip, max_ip, 16) ? '\0' : '-', max_ip);
 }
 
+/**
+ * tomoyo_print_ip - Print an IP address.
+ *
+ * @buf:  Buffer to write to.
+ * @size: Size of @buf.
+ * @ptr:  Pointer to "struct ipaddr_union".
+ *
+ * Returns nothing.
+ */
 void tomoyo_print_ip(char *buf, const unsigned int size,
 		     const struct tomoyo_ipaddr_union *ptr)
 {
@@ -89,6 +130,10 @@ void tomoyo_print_ip(char *buf, const unsigned int size,
 				  &ptr->ip[1].s6_addr32[0]);
 }
 
+/*
+ * Mapping table from "enum tomoyo_network_acl_index" to
+ * "enum tomoyo_mac_index" for inet domain socket.
+ */
 static const u8 tomoyo_inet2mac
 [TOMOYO_SOCK_MAX][TOMOYO_MAX_NETWORK_OPERATION] = {
 	[SOCK_STREAM] = {
@@ -108,6 +153,10 @@ static const u8 tomoyo_inet2mac
 	},
 };
 
+/*
+ * Mapping table from "enum tomoyo_network_acl_index" to
+ * "enum tomoyo_mac_index" for unix domain socket.
+ */
 static const u8 tomoyo_unix2mac
 [TOMOYO_SOCK_MAX][TOMOYO_MAX_NETWORK_OPERATION] = {
 	[SOCK_STREAM] = {
@@ -131,6 +180,14 @@ static const u8 tomoyo_unix2mac
 	},
 };
 
+/**
+ * tomoyo_same_inet_acl - Check for duplicated "struct tomoyo_inet_acl" entry.
+ *
+ * @a: Pointer to "struct tomoyo_acl_info".
+ * @b: Pointer to "struct tomoyo_acl_info".
+ *
+ * Returns true if @a == @b except permission bits, false otherwise.
+ */
 static bool tomoyo_same_inet_acl(const struct tomoyo_acl_info *a,
 				 const struct tomoyo_acl_info *b)
 {
@@ -142,6 +199,14 @@ static bool tomoyo_same_inet_acl(const struct tomoyo_acl_info *a,
 		tomoyo_same_number_union(&p1->port, &p2->port);
 }
 
+/**
+ * tomoyo_same_unix_acl - Check for duplicated "struct tomoyo_unix_acl" entry.
+ *
+ * @a: Pointer to "struct tomoyo_acl_info".
+ * @b: Pointer to "struct tomoyo_acl_info".
+ *
+ * Returns true if @a == @b except permission bits, false otherwise.
+ */
 static bool tomoyo_same_unix_acl(const struct tomoyo_acl_info *a,
 				 const struct tomoyo_acl_info *b)
 {
@@ -152,6 +217,15 @@ static bool tomoyo_same_unix_acl(const struct tomoyo_acl_info *a,
 		tomoyo_same_name_union(&p1->name, &p2->name);
 }
 
+/**
+ * tomoyo_merge_inet_acl - Merge duplicated "struct tomoyo_inet_acl" entry.
+ *
+ * @a:         Pointer to "struct tomoyo_acl_info".
+ * @b:         Pointer to "struct tomoyo_acl_info".
+ * @is_delete: True for @a &= ~@b, false for @a |= @b.
+ *
+ * Returns true if @a is empty, false otherwise.
+ */
 static bool tomoyo_merge_inet_acl(struct tomoyo_acl_info *a,
 				  struct tomoyo_acl_info *b,
 				  const bool is_delete)
@@ -169,6 +243,15 @@ static bool tomoyo_merge_inet_acl(struct tomoyo_acl_info *a,
 	return !perm;
 }
 
+/**
+ * tomoyo_merge_unix_acl - Merge duplicated "struct tomoyo_unix_acl" entry.
+ *
+ * @a:         Pointer to "struct tomoyo_acl_info".
+ * @b:         Pointer to "struct tomoyo_acl_info".
+ * @is_delete: True for @a &= ~@b, false for @a |= @b.
+ *
+ * Returns true if @a is empty, false otherwise.
+ */
 static bool tomoyo_merge_unix_acl(struct tomoyo_acl_info *a,
 				  struct tomoyo_acl_info *b,
 				  const bool is_delete)
@@ -186,6 +269,15 @@ static bool tomoyo_merge_unix_acl(struct tomoyo_acl_info *a,
 	return !perm;
 }
 
+/**
+ * tomoyo_write_inet_network - Write "struct tomoyo_inet_acl" list.
+ *
+ * @param: Pointer to "struct tomoyo_acl_param".
+ *
+ * Returns 0 on success, negative value otherwise.
+ *
+ * Caller holds tomoyo_read_lock().
+ */
 int tomoyo_write_inet_network(struct tomoyo_acl_param *param)
 {
 	struct tomoyo_inet_acl e = { .head.type = TOMOYO_TYPE_INET_ACL };
@@ -224,6 +316,13 @@ out:
 	return error;
 }
 
+/**
+ * tomoyo_write_unix_network - Write "struct tomoyo_unix_acl" list.
+ *
+ * @param: Pointer to "struct tomoyo_acl_param".
+ *
+ * Returns 0 on success, negative value otherwise.
+ */
 int tomoyo_write_unix_network(struct tomoyo_acl_param *param)
 {
 	struct tomoyo_unix_acl e = { .head.type = TOMOYO_TYPE_UNIX_ACL };
@@ -249,6 +348,17 @@ int tomoyo_write_unix_network(struct tomoyo_acl_param *param)
 	return error;
 }
 
+/**
+ * tomoyo_audit_net_log - Audit network log.
+ *
+ * @r:         Pointer to "struct tomoyo_request_info".
+ * @family:    Name of socket family ("inet" or "unix").
+ * @protocol:  Name of protocol in @family.
+ * @operation: Name of socket operation.
+ * @address:   Name of address.
+ *
+ * Returns 0 on success, negative value otherwise.
+ */
 static int tomoyo_audit_net_log(struct tomoyo_request_info *r,
 				const char *family, const u8 protocol,
 				const u8 operation, const char *address)
@@ -258,6 +368,13 @@ static int tomoyo_audit_net_log(struct tomoyo_request_info *r,
 				 tomoyo_socket_keyword[operation], address);
 }
 
+/**
+ * tomoyo_audit_inet_log - Audit INET network log.
+ *
+ * @r: Pointer to "struct tomoyo_request_info".
+ *
+ * Returns 0 on success, negative value otherwise.
+ */
 static int tomoyo_audit_inet_log(struct tomoyo_request_info *r)
 {
 	char buf[128];
@@ -276,6 +393,13 @@ static int tomoyo_audit_inet_log(struct tomoyo_request_info *r)
 				    r->param.inet_network.operation, buf);
 }
 
+/**
+ * tomoyo_audit_unix_log - Audit UNIX network log.
+ *
+ * @r: Pointer to "struct tomoyo_request_info".
+ *
+ * Returns 0 on success, negative value otherwise.
+ */
 static int tomoyo_audit_unix_log(struct tomoyo_request_info *r)
 {
 	return tomoyo_audit_net_log(r, "unix", r->param.unix_network.protocol,
@@ -283,6 +407,14 @@ static int tomoyo_audit_unix_log(struct tomoyo_request_info *r)
 				    r->param.unix_network.address->name);
 }
 
+/**
+ * tomoyo_check_inet_acl - Check permission for inet domain socket operation.
+ *
+ * @r:   Pointer to "struct tomoyo_request_info".
+ * @ptr: Pointer to "struct tomoyo_acl_info".
+ *
+ * Returns true if granted, false otherwise.
+ */
 static bool tomoyo_check_inet_acl(struct tomoyo_request_info *r,
 				  const struct tomoyo_acl_info *ptr)
 {
@@ -305,6 +437,14 @@ static bool tomoyo_check_inet_acl(struct tomoyo_request_info *r,
 		       &acl->address.ip[1], size) <= 0;
 }
 
+/**
+ * tomoyo_check_unix_acl - Check permission for unix domain socket operation.
+ *
+ * @r:   Pointer to "struct tomoyo_request_info".
+ * @ptr: Pointer to "struct tomoyo_acl_info".
+ *
+ * Returns true if granted, false otherwise.
+ */
 static bool tomoyo_check_unix_acl(struct tomoyo_request_info *r,
 				  const struct tomoyo_acl_info *ptr)
 {
@@ -316,6 +456,13 @@ static bool tomoyo_check_unix_acl(struct tomoyo_request_info *r,
 					  &acl->name);
 }
 
+/**
+ * tomoyo_inet_entry - Check permission for INET network operation.
+ *
+ * @address: Pointer to "struct tomoyo_addr_info".
+ *
+ * Returns 0 on success, negative value otherwise.
+ */
 static int tomoyo_inet_entry(const struct tomoyo_addr_info *address)
 {
 	const int idx = tomoyo_read_lock();
@@ -340,6 +487,16 @@ static int tomoyo_inet_entry(const struct tomoyo_addr_info *address)
 	return error;
 }
 
+/**
+ * tomoyo_check_inet_address - Check permission for inet domain socket's operation.
+ *
+ * @addr:     Pointer to "struct sockaddr".
+ * @addr_len: Size of @addr.
+ * @port:     Port number.
+ * @address:  Pointer to "struct tomoyo_addr_info".
+ *
+ * Returns 0 on success, negative value otherwise.
+ */
 static int tomoyo_check_inet_address(const struct sockaddr *addr,
 				     const unsigned int addr_len,
 				     const u16 port,
@@ -374,6 +531,13 @@ skip:
 	return 0;
 }
 
+/**
+ * tomoyo_unix_entry - Check permission for UNIX network operation.
+ *
+ * @address: Pointer to "struct tomoyo_addr_info".
+ *
+ * Returns 0 on success, negative value otherwise.
+ */
 static int tomoyo_unix_entry(const struct tomoyo_addr_info *address)
 {
 	const int idx = tomoyo_read_lock();
@@ -414,6 +578,15 @@ static int tomoyo_unix_entry(const struct tomoyo_addr_info *address)
 	return error;
 }
 
+/**
+ * tomoyo_check_unix_address - Check permission for unix domain socket's operation.
+ *
+ * @addr:     Pointer to "struct sockaddr".
+ * @addr_len: Size of @addr.
+ * @address:  Pointer to "struct tomoyo_addr_info".
+ *
+ * Returns 0 on success, negative value otherwise.
+ */
 static int tomoyo_check_unix_address(struct sockaddr *addr,
 				     const unsigned int addr_len,
 				     struct tomoyo_addr_info *address)
@@ -427,12 +600,24 @@ static int tomoyo_check_unix_address(struct sockaddr *addr,
 	return tomoyo_unix_entry(address);
 }
 
+/**
+ * tomoyo_kernel_service - Check whether I'm kernel service or not.
+ *
+ * Returns true if I'm kernel service, false otherwise.
+ */
 static bool tomoyo_kernel_service(void)
 {
-	
+	/* Nothing to do if I am a kernel service. */
 	return segment_eq(get_fs(), KERNEL_DS);
 }
 
+/**
+ * tomoyo_sock_family - Get socket's family.
+ *
+ * @sk: Pointer to "struct sock".
+ *
+ * Returns one of PF_INET, PF_INET6, PF_UNIX or 0.
+ */
 static u8 tomoyo_sock_family(struct sock *sk)
 {
 	u8 family;
@@ -450,6 +635,13 @@ static u8 tomoyo_sock_family(struct sock *sk)
 	}
 }
 
+/**
+ * tomoyo_socket_listen_permission - Check permission for listening a socket.
+ *
+ * @sock: Pointer to "struct socket".
+ *
+ * Returns 0 on success, negative value otherwise.
+ */
 int tomoyo_socket_listen_permission(struct socket *sock)
 {
 	struct tomoyo_addr_info address;
@@ -476,6 +668,15 @@ int tomoyo_socket_listen_permission(struct socket *sock)
 					 0, &address);
 }
 
+/**
+ * tomoyo_socket_connect_permission - Check permission for setting the remote address of a socket.
+ *
+ * @sock:     Pointer to "struct socket".
+ * @addr:     Pointer to "struct sockaddr".
+ * @addr_len: Size of @addr.
+ *
+ * Returns 0 on success, negative value otherwise.
+ */
 int tomoyo_socket_connect_permission(struct socket *sock,
 				     struct sockaddr *addr, int addr_len)
 {
@@ -504,6 +705,15 @@ int tomoyo_socket_connect_permission(struct socket *sock,
 					 &address);
 }
 
+/**
+ * tomoyo_socket_bind_permission - Check permission for setting the local address of a socket.
+ *
+ * @sock:     Pointer to "struct socket".
+ * @addr:     Pointer to "struct sockaddr".
+ * @addr_len: Size of @addr.
+ *
+ * Returns 0 on success, negative value otherwise.
+ */
 int tomoyo_socket_bind_permission(struct socket *sock, struct sockaddr *addr,
 				  int addr_len)
 {
@@ -530,6 +740,15 @@ int tomoyo_socket_bind_permission(struct socket *sock, struct sockaddr *addr,
 					 &address);
 }
 
+/**
+ * tomoyo_socket_sendmsg_permission - Check permission for sending a datagram.
+ *
+ * @sock: Pointer to "struct socket".
+ * @msg:  Pointer to "struct msghdr".
+ * @size: Unused.
+ *
+ * Returns 0 on success, negative value otherwise.
+ */
 int tomoyo_socket_sendmsg_permission(struct socket *sock, struct msghdr *msg,
 				     int size)
 {

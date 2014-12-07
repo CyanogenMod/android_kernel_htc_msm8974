@@ -20,6 +20,13 @@
 #include <asm/mipsregs.h>
 #include <asm/bootinfo.h>
 
+/* special SNI prom calls */
+/*
+ * This does not exist in all proms - SINIX compares
+ * the prom env variable "version" against "2.0008"
+ * or greater. If lesser it tries to probe interesting
+ * registers
+ */
 #define PROM_GET_MEMCONF	58
 #define PROM_GET_HWCONF         61
 
@@ -81,6 +88,10 @@ void __init prom_free_prom_memory(void)
 {
 }
 
+/*
+ * /proc/cpuinfo system type
+ *
+ */
 char *system_type = "Unknown";
 const char *get_system_type(void)
 {
@@ -100,12 +111,12 @@ static void __init sni_mem_init(void)
 	int brd_type = *(unsigned char *)SNI_IDPROM_BRDTYPE;
 
 
-	
+	/* MemSIZE from prom in 16MByte chunks */
 	memsize = *((unsigned char *) SNI_IDPROM_MEMSIZE) * 16;
 
 	pr_debug("IDProm memsize: %u MByte\n", memsize);
 
-	
+	/* get memory bank layout from prom */
 	_prom_get_memconf(&memconf);
 
 	pr_debug("prom_get_mem_conf memory configuration:\n");
@@ -131,7 +142,7 @@ void __init prom_init(void)
 
 	sni_mem_init();
 
-	
+	/* copy prom cmdline parameters to kernel cmdline */
 	for (i = 1; i < argc; i++) {
 		strcat(arcs_cmdline, (char *)CKSEG0ADDR(argv[i]));
 		if (i < (argc - 1))

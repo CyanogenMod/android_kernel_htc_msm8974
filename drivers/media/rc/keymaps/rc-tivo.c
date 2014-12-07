@@ -11,24 +11,32 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/*
+ * Initial mapping is for the TiVo remote included in the Nero LiquidTV bundle,
+ * which also ships with a TiVo-branded IR transceiver, supported by the mceusb
+ * driver. Note that the remote uses an NEC-ish protocol, but instead of having
+ * a command/not_command pair, it has a vendor ID of 0xa10c, but some keys, the
+ * NEC extended checksums do pass, so the table presently has the intended
+ * values and the checksum-passed versions for those keys.
+ */
 static struct rc_map_table tivo[] = {
-	{ 0xa10c900f, KEY_MEDIA },	
-	{ 0xa10c0807, KEY_POWER2 },	
-	{ 0xa10c8807, KEY_TV },		
-	{ 0xa10c2c03, KEY_VIDEO_NEXT },	
+	{ 0xa10c900f, KEY_MEDIA },	/* TiVo Button */
+	{ 0xa10c0807, KEY_POWER2 },	/* TV Power */
+	{ 0xa10c8807, KEY_TV },		/* Live TV/Swap */
+	{ 0xa10c2c03, KEY_VIDEO_NEXT },	/* TV Input */
 	{ 0xa10cc807, KEY_INFO },
-	{ 0xa10cfa05, KEY_CYCLEWINDOWS }, 
+	{ 0xa10cfa05, KEY_CYCLEWINDOWS }, /* Window */
 	{ 0x0085305f, KEY_CYCLEWINDOWS },
-	{ 0xa10c6c03, KEY_EPG },	
+	{ 0xa10c6c03, KEY_EPG },	/* Guide */
 
 	{ 0xa10c2807, KEY_UP },
 	{ 0xa10c6807, KEY_DOWN },
 	{ 0xa10ce807, KEY_LEFT },
 	{ 0xa10ca807, KEY_RIGHT },
 
-	{ 0xa10c1807, KEY_SCROLLDOWN },	
+	{ 0xa10c1807, KEY_SCROLLDOWN },	/* Red Thumbs Down */
 	{ 0xa10c9807, KEY_SELECT },
-	{ 0xa10c5807, KEY_SCROLLUP },	
+	{ 0xa10c5807, KEY_SCROLLUP },	/* Green Thumbs Up */
 
 	{ 0xa10c3807, KEY_VOLUMEUP },
 	{ 0xa10cb807, KEY_VOLUMEDOWN },
@@ -44,11 +52,11 @@ static struct rc_map_table tivo[] = {
 	{ 0xa10c440b, KEY_REWIND },
 	{ 0xa10c240b, KEY_FASTFORWARD },
 	{ 0xa10c640b, KEY_PREVIOUS },
-	{ 0xa10ce40b, KEY_NEXT },	
+	{ 0xa10ce40b, KEY_NEXT },	/* ->| */
 
-	{ 0xa10c220d, KEY_ZOOM },	
+	{ 0xa10c220d, KEY_ZOOM },	/* Aspect */
 	{ 0xa10c120d, KEY_STOP },
-	{ 0xa10c520d, KEY_DVD },	
+	{ 0xa10c520d, KEY_DVD },	/* DVD Menu */
 
 	{ 0xa10c140b, KEY_NUMERIC_1 },
 	{ 0xa10c940b, KEY_NUMERIC_2 },

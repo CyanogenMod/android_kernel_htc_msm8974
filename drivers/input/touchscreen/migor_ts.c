@@ -50,17 +50,27 @@ static irqreturn_t migor_ts_isr(int irq, void *dev_id)
 	unsigned char event;
 	u_int8_t buf[16];
 
+	/*
+	 * The touch screen controller chip is hooked up to the CPU
+	 * using I2C and a single interrupt line. The interrupt line
+	 * is pulled low whenever someone taps the screen. To deassert
+	 * the interrupt line we need to acknowledge the interrupt by
+	 * communicating with the controller over the slow i2c bus.
+	 *
+	 * Since I2C bus controller may sleep we are using threaded
+	 * IRQ here.
+	 */
 
 	memset(buf, 0, sizeof(buf));
 
-	
+	/* Set Index 0 */
 	buf[0] = 0;
 	if (i2c_master_send(priv->client, buf, 1) != 1) {
 		dev_err(&priv->client->dev, "Unable to write i2c index\n");
 		goto out;
 	}
 
-	
+	/* Now do Page Read */
 	if (i2c_master_recv(priv->client, buf, sizeof(buf)) != sizeof(buf)) {
 		dev_err(&priv->client->dev, "Unable to read i2c page\n");
 		goto out;
@@ -74,7 +84,7 @@ static irqreturn_t migor_ts_isr(int irq, void *dev_id)
 	case EVENT_PENDOWN:
 	case EVENT_REPEAT:
 		input_report_key(priv->input, BTN_TOUCH, 1);
-		input_report_abs(priv->input, ABS_X, ypos); 
+		input_report_abs(priv->input, ABS_X, ypos); /*X-Y swap*/
 		input_report_abs(priv->input, ABS_Y, xpos);
 		input_sync(priv->input);
 		break;
@@ -95,7 +105,7 @@ static int migor_ts_open(struct input_dev *dev)
 	struct i2c_client *client = priv->client;
 	int count;
 
-	
+	/* enable controller */
 	count = i2c_master_send(client, migor_ts_ena_seq,
 				sizeof(migor_ts_ena_seq));
 	if (count != sizeof(migor_ts_ena_seq)) {
@@ -113,7 +123,7 @@ static void migor_ts_close(struct input_dev *dev)
 
 	disable_irq(priv->irq);
 
-	
+	/* disable controller */
 	i2c_master_send(client, migor_ts_dis_seq, sizeof(migor_ts_dis_seq));
 
 	enable_irq(priv->irq);

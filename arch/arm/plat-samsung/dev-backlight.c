@@ -34,7 +34,7 @@ static int samsung_bl_init(struct device *dev)
 		return ret;
 	}
 
-	
+	/* Configure GPIO pin with specific GPIO function for PWM timer */
 	s3c_gpio_cfgpin(bl_gpio_info->no, bl_gpio_info->func);
 
 	return 0;
@@ -51,6 +51,14 @@ static void samsung_bl_exit(struct device *dev)
 	gpio_free(bl_gpio_info->no);
 }
 
+/* Initialize few important fields of platform_pwm_backlight_data
+ * structure with default values. These fields can be overridden by
+ * board-specific values sent from machine file.
+ * For ease of operation, these fields are initialized with values
+ * used by most samsung boards.
+ * Users has the option of sending info about other parameters
+ * for their specific boards
+ */
 
 static struct platform_pwm_backlight_data samsung_dfl_bl_data __initdata = {
 	.max_brightness = 255,
@@ -64,6 +72,11 @@ static struct platform_device samsung_dfl_bl_device __initdata = {
 	.name		= "pwm-backlight",
 };
 
+/* samsung_bl_set - Set board specific data (if any) provided by user for
+ * PWM Backlight control and register specific PWM and backlight device.
+ * @gpio_info:	structure containing GPIO info for PWM timer
+ * @bl_data:	structure containing Backlight control data
+ */
 void __init samsung_bl_set(struct samsung_bl_gpio_info *gpio_info,
 	struct platform_pwm_backlight_data *bl_data)
 {
@@ -85,7 +98,7 @@ void __init samsung_bl_set(struct samsung_bl_gpio_info *gpio_info,
 		goto err_data;
 	}
 
-	
+	/* Copy board specific data provided by user */
 	samsung_bl_data->pwm_id = bl_data->pwm_id;
 	samsung_bl_device->dev.parent =
 			&s3c_device_timer[samsung_bl_data->pwm_id].dev;
@@ -109,10 +122,10 @@ void __init samsung_bl_set(struct samsung_bl_gpio_info *gpio_info,
 	if (bl_data->check_fb)
 		samsung_bl_data->check_fb = bl_data->check_fb;
 
-	
+	/* Keep the GPIO info for future use */
 	s3c_device_timer[samsung_bl_data->pwm_id].dev.platform_data = gpio_info;
 
-	
+	/* Register the specific PWM timer dev for Backlight control */
 	ret = platform_device_register(
 			&s3c_device_timer[samsung_bl_data->pwm_id]);
 	if (ret) {
@@ -120,7 +133,7 @@ void __init samsung_bl_set(struct samsung_bl_gpio_info *gpio_info,
 		goto err_plat_reg1;
 	}
 
-	
+	/* Register the Backlight dev */
 	ret = platform_device_register(samsung_bl_device);
 	if (ret) {
 		printk(KERN_ERR "failed to register backlight device: %d\n", ret);

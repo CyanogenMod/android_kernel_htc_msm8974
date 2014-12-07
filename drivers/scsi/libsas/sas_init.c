@@ -65,6 +65,7 @@ void sas_free_task(struct sas_task *task)
 }
 EXPORT_SYMBOL_GPL(sas_free_task);
 
+/*------------ SAS addr hash -----------*/
 void sas_hash_addr(u8 *hashed, const u8 *sas_addr)
 {
         const u32 poly = 0x00DB2777;
@@ -89,6 +90,7 @@ void sas_hash_addr(u8 *hashed, const u8 *sas_addr)
 }
 
 
+/* ---------- HA events ---------- */
 
 void sas_hae_reset(struct work_struct *work)
 {
@@ -109,7 +111,7 @@ int sas_register_ha(struct sas_ha_struct *sas_ha)
 	if (sas_ha->lldd_queue_size == 0)
 		sas_ha->lldd_queue_size = 1;
 	else if (sas_ha->lldd_queue_size == -1)
-		sas_ha->lldd_queue_size = 128; 
+		sas_ha->lldd_queue_size = 128; /* Sanity */
 
 	set_bit(SAS_HA_REGISTERED, &sas_ha->state);
 	spin_lock_init(&sas_ha->state_lock);
@@ -157,6 +159,9 @@ Undo_phys:
 
 int sas_unregister_ha(struct sas_ha_struct *sas_ha)
 {
+	/* Set the state to unregistered to avoid further unchained
+	 * events to be queued, and flush any in-progress drainers
+	 */
 	mutex_lock(&sas_ha->drain_mutex);
 	spin_lock_irq(&sas_ha->state_lock);
 	clear_bit(SAS_HA_REGISTERED, &sas_ha->state);
@@ -166,7 +171,7 @@ int sas_unregister_ha(struct sas_ha_struct *sas_ha)
 
 	sas_unregister_ports(sas_ha);
 
-	
+	/* flush unregistration work */
 	mutex_lock(&sas_ha->drain_mutex);
 	__sas_drain_work(sas_ha);
 	mutex_unlock(&sas_ha->drain_mutex);
@@ -198,11 +203,11 @@ int sas_try_ata_reset(struct asd_sas_phy *asd_phy)
 {
 	struct domain_device *dev = NULL;
 
-	
+	/* try to route user requested link resets through libata */
 	if (asd_phy->port)
 		dev = asd_phy->port->port_dev;
 
-	
+	/* validate that dev has been probed */
 	if (dev)
 		dev = sas_find_dev_by_rphy(dev->rphy);
 
@@ -215,6 +220,12 @@ int sas_try_ata_reset(struct asd_sas_phy *asd_phy)
 	return -ENODEV;
 }
 
+/**
+ * transport_sas_phy_reset - reset a phy and permit libata to manage the link
+ *
+ * phy reset request via sysfs in host workqueue context so we know we
+ * can block on eh and safely traverse the domain_device topology
+ */
 static int transport_sas_phy_reset(struct sas_phy *phy, int hard_reset)
 {
 	enum phy_func reset_type;
@@ -395,7 +406,7 @@ static int queue_phy_reset(struct sas_phy *phy, int hard_reset)
 	if (!d)
 		return -ENOMEM;
 
-	
+	/* libsas workqueue coordinates ata-eh reset with discovery */
 	mutex_lock(&d->event_lock);
 	d->reset_result = 0;
 	d->hard_reset = hard_reset;
@@ -422,7 +433,7 @@ static int queue_phy_enable(struct sas_phy *phy, int enable)
 	if (!d)
 		return -ENOMEM;
 
-	
+	/* libsas workqueue coordinates ata-eh reset with discovery */
 	mutex_lock(&d->event_lock);
 	d->enable_result = 0;
 	d->enable = enable;
@@ -475,6 +486,7 @@ void sas_domain_release_transport(struct scsi_transport_template *stt)
 }
 EXPORT_SYMBOL_GPL(sas_domain_release_transport);
 
+/* ---------- SAS Class register/unregister ---------- */
 
 static int __init sas_class_init(void)
 {

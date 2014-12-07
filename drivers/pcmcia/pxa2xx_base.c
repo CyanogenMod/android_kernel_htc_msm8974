@@ -38,40 +38,43 @@
 #include "soc_common.h"
 #include "pxa2xx_base.h"
 
+/*
+ * Personal Computer Memory Card International Association (PCMCIA) sockets
+ */
 
-#define PCMCIAPrtSp	0x04000000	
-#define PCMCIASp	(4*PCMCIAPrtSp)	
-#define PCMCIAIOSp	PCMCIAPrtSp	
-#define PCMCIAAttrSp	PCMCIAPrtSp	
-#define PCMCIAMemSp	PCMCIAPrtSp	
+#define PCMCIAPrtSp	0x04000000	/* PCMCIA Partition Space [byte]   */
+#define PCMCIASp	(4*PCMCIAPrtSp)	/* PCMCIA Space [byte]             */
+#define PCMCIAIOSp	PCMCIAPrtSp	/* PCMCIA I/O Space [byte]         */
+#define PCMCIAAttrSp	PCMCIAPrtSp	/* PCMCIA Attribute Space [byte]   */
+#define PCMCIAMemSp	PCMCIAPrtSp	/* PCMCIA Memory Space [byte]      */
 
-#define PCMCIA0Sp	PCMCIASp	
-#define PCMCIA0IOSp	PCMCIAIOSp	
-#define PCMCIA0AttrSp	PCMCIAAttrSp	
-#define PCMCIA0MemSp	PCMCIAMemSp	
+#define PCMCIA0Sp	PCMCIASp	/* PCMCIA 0 Space [byte]           */
+#define PCMCIA0IOSp	PCMCIAIOSp	/* PCMCIA 0 I/O Space [byte]       */
+#define PCMCIA0AttrSp	PCMCIAAttrSp	/* PCMCIA 0 Attribute Space [byte] */
+#define PCMCIA0MemSp	PCMCIAMemSp	/* PCMCIA 0 Memory Space [byte]    */
 
-#define PCMCIA1Sp	PCMCIASp	
-#define PCMCIA1IOSp	PCMCIAIOSp	
-#define PCMCIA1AttrSp	PCMCIAAttrSp	
-#define PCMCIA1MemSp	PCMCIAMemSp	
+#define PCMCIA1Sp	PCMCIASp	/* PCMCIA 1 Space [byte]           */
+#define PCMCIA1IOSp	PCMCIAIOSp	/* PCMCIA 1 I/O Space [byte]       */
+#define PCMCIA1AttrSp	PCMCIAAttrSp	/* PCMCIA 1 Attribute Space [byte] */
+#define PCMCIA1MemSp	PCMCIAMemSp	/* PCMCIA 1 Memory Space [byte]    */
 
-#define _PCMCIA(Nb)			 \
+#define _PCMCIA(Nb)			/* PCMCIA [0..1]                   */ \
 			(0x20000000 + (Nb) * PCMCIASp)
-#define _PCMCIAIO(Nb)	_PCMCIA(Nb)	
-#define _PCMCIAAttr(Nb)			 \
+#define _PCMCIAIO(Nb)	_PCMCIA(Nb)	/* PCMCIA I/O [0..1]               */
+#define _PCMCIAAttr(Nb)			/* PCMCIA Attribute [0..1]         */ \
 			(_PCMCIA(Nb) + 2 * PCMCIAPrtSp)
-#define _PCMCIAMem(Nb)			 \
+#define _PCMCIAMem(Nb)			/* PCMCIA Memory [0..1]            */ \
 			(_PCMCIA(Nb) + 3 * PCMCIAPrtSp)
 
-#define _PCMCIA0	_PCMCIA(0)	
-#define _PCMCIA0IO	_PCMCIAIO(0)	
-#define _PCMCIA0Attr	_PCMCIAAttr(0)	
-#define _PCMCIA0Mem	_PCMCIAMem(0)	
+#define _PCMCIA0	_PCMCIA(0)	/* PCMCIA 0                        */
+#define _PCMCIA0IO	_PCMCIAIO(0)	/* PCMCIA 0 I/O                    */
+#define _PCMCIA0Attr	_PCMCIAAttr(0)	/* PCMCIA 0 Attribute              */
+#define _PCMCIA0Mem	_PCMCIAMem(0)	/* PCMCIA 0 Memory                 */
 
-#define _PCMCIA1	_PCMCIA(1)	
-#define _PCMCIA1IO	_PCMCIAIO(1)	
-#define _PCMCIA1Attr	_PCMCIAAttr(1)	
-#define _PCMCIA1Mem	_PCMCIAMem(1)	
+#define _PCMCIA1	_PCMCIA(1)	/* PCMCIA 1                        */
+#define _PCMCIA1IO	_PCMCIAIO(1)	/* PCMCIA 1 I/O                    */
+#define _PCMCIA1Attr	_PCMCIAAttr(1)	/* PCMCIA 1 Attribute              */
+#define _PCMCIA1Mem	_PCMCIAMem(1)	/* PCMCIA 1 Memory                 */
 
 
 #define MCXX_SETUP_MASK     (0x7f)
@@ -102,6 +105,9 @@ static inline u_int pxa2xx_mcxx_setup(u_int pcmcia_cycle_ns,
 	return (code / 100000) + ((code % 100000) ? 1 : 0) - 1;
 }
 
+/* This function returns the (approximate) command assertion period, in
+ * nanoseconds, for a given CPU clock frequency and MCXX_ASST value:
+ */
 static inline u_int pxa2xx_pcmcia_cmd_time(u_int mem_clk_10khz,
 					   u_int pcmcia_mcxx_asst)
 {
@@ -211,9 +217,13 @@ pxa2xx_pcmcia_frequency_change(struct soc_pcmcia_socket *skt,
 void pxa2xx_configure_sockets(struct device *dev)
 {
 	struct pcmcia_low_level *ops = dev->platform_data;
+	/*
+	 * We have at least one socket, so set MECR:CIT
+	 * (Card Is There)
+	 */
 	uint32_t mecr = MECR_CIT;
 
-	
+	/* Set MECR:NOS (Number Of Sockets) */
 	if ((ops->first + ops->nr) > 1 ||
 	    machine_is_viper() || machine_is_arcom_zeus())
 		mecr |= MECR_NOS;
@@ -258,7 +268,7 @@ EXPORT_SYMBOL(pxa2xx_drv_pcmcia_add_one);
 
 void pxa2xx_drv_pcmcia_ops(struct pcmcia_low_level *ops)
 {
-	
+	/* Provide our PXA2xx specific timing routines. */
 	ops->set_timing  = pxa2xx_pcmcia_set_timing;
 #ifdef CONFIG_CPU_FREQ
 	ops->frequency_change = pxa2xx_pcmcia_frequency_change;
@@ -301,7 +311,7 @@ static int pxa2xx_drv_pcmcia_probe(struct platform_device *dev)
 	sinfo->nskt = ops->nr;
 	sinfo->clk = clk;
 
-	
+	/* Initialize processor specific parameters */
 	for (i = 0; i < ops->nr; i++) {
 		skt = &sinfo->skt[i];
 

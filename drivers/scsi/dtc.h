@@ -90,8 +90,10 @@ static int dtc_bus_reset(Scsi_Cmnd *);
 #define NCR5380_bus_reset		dtc_bus_reset
 #define NCR5380_proc_info		dtc_proc_info 
 
+/* 15 12 11 10
+   1001 1100 0000 0000 */
 
 #define DTC_IRQS 0x9c00
 
 
-#endif 
+#endif /* DTC3280_H */

@@ -65,6 +65,14 @@ UNWIND(	.fnend		)
 ENDPROC(\name		)
 	.endm
 
+/**
+ * testop - implement a test_and_xxx_bit operation.
+ * @instr: operational instruction
+ * @store: store instruction
+ *
+ * Note: we can trivially conditionalise the store instruction
+ * to avoid dirtying the data cache.
+ */
 	.macro	testop, name, instr, store
 ENTRY(	\name		)
 UNWIND(	.fnstart	)

@@ -52,6 +52,11 @@
 #include "iwl-trans.h"
 #include "iwl-op-mode.h"
 
+/*****************************************************************************
+ *
+ * mac80211 entry point functions
+ *
+ *****************************************************************************/
 
 static const struct ieee80211_iface_limit iwlagn_sta_ap_limits[] = {
 	{
@@ -124,6 +129,10 @@ iwlagn_iface_combinations_p2p[] = {
 	},
 };
 
+/*
+ * Not a mac80211 entry point function, but it fits in with all the
+ * other mac80211 functions grouped here.
+ */
 int iwlagn_mac_setup_register(struct iwl_priv *priv,
 			      const struct iwl_ucode_capabilities *capa)
 {
@@ -133,13 +142,19 @@ int iwlagn_mac_setup_register(struct iwl_priv *priv,
 
 	hw->rate_control_algorithm = "iwl-agn-rs";
 
-	
+	/* Tell mac80211 our characteristics */
 	hw->flags = IEEE80211_HW_SIGNAL_DBM |
 		    IEEE80211_HW_AMPDU_AGGREGATION |
 		    IEEE80211_HW_NEED_DTIM_PERIOD |
 		    IEEE80211_HW_SPECTRUM_MGMT |
 		    IEEE80211_HW_REPORTS_TX_ACK_STATUS;
 
+	/*
+	 * Including the following line will crash some AP's.  This
+	 * workaround removes the stimulus which causes the crash until
+	 * the AP software can be fixed.
+	hw->max_tx_aggregation_subframes = LINK_QUAL_AGG_FRAME_LIMIT_DEF;
+	 */
 
 	hw->flags |= IEEE80211_HW_SUPPORTS_PS |
 		     IEEE80211_HW_SUPPORTS_DYNAMIC_PS;
@@ -149,9 +164,9 @@ int iwlagn_mac_setup_register(struct iwl_priv *priv,
 			     IEEE80211_HW_SUPPORTS_STATIC_SMPS;
 
 #ifndef CONFIG_IWLWIFI_EXPERIMENTAL_MFP
-	
+	/* enable 11w if the uCode advertise */
 	if (capa->flags & IWL_UCODE_TLV_FLAGS_MFP)
-#endif 
+#endif /* !CONFIG_IWLWIFI_EXPERIMENTAL_MFP */
 		hw->flags |= IEEE80211_HW_MFP_CAPABLE;
 
 	hw->sta_data_size = sizeof(struct iwl_station_priv);
@@ -206,10 +221,10 @@ int iwlagn_mac_setup_register(struct iwl_priv *priv,
 		hw->wiphy->flags &= ~WIPHY_FLAG_PS_ON_BY_DEFAULT;
 
 	hw->wiphy->max_scan_ssids = PROBE_OPTION_MAX;
-	
+	/* we create the 802.11 header and a zero-length SSID element */
 	hw->wiphy->max_scan_ie_len = capa->max_probe_length - 24 - 2;
 
-	
+	/* Default value; 4 EDCA QOS priorities */
 	hw->queues = 4;
 
 	hw->max_listen_interval = IWL_CONN_MAX_LISTEN_INTERVAL;
@@ -297,7 +312,7 @@ static int iwlagn_mac_start(struct ieee80211_hw *hw)
 
 	IWL_DEBUG_MAC80211(priv, "enter\n");
 
-	
+	/* we should be verifying the device is ready to be opened */
 	mutex_lock(&priv->mutex);
 	ret = __iwl_up(priv);
 	mutex_unlock(&priv->mutex);
@@ -306,7 +321,7 @@ static int iwlagn_mac_start(struct ieee80211_hw *hw)
 
 	IWL_DEBUG_INFO(priv, "Start UP work done.\n");
 
-	
+	/* Now we should be done, and the READY bit should be set. */
 	if (WARN_ON(!test_bit(STATUS_READY, &priv->status)))
 		ret = -EIO;
 
@@ -336,6 +351,10 @@ static void iwlagn_mac_stop(struct ieee80211_hw *hw)
 
 	flush_workqueue(priv->workqueue);
 
+	/* User space software may expect getting rfkill changes
+	 * even if interface is down, trans->down will leave the RF
+	 * kill interrupt enabled
+	 */
 	iwl_trans_stop_hw(trans(priv));
 
 	IWL_DEBUG_MAC80211(priv, "leave\n");
@@ -382,7 +401,7 @@ static int iwlagn_mac_suspend(struct ieee80211_hw *hw,
 	IWL_DEBUG_MAC80211(priv, "enter\n");
 	mutex_lock(&priv->mutex);
 
-	
+	/* Don't attempt WoWLAN when not associated, tear down instead. */
 	if (!ctx->vif || ctx->vif->type != NL80211_IFTYPE_STATION ||
 	    !iwl_is_associated_ctx(ctx)) {
 		ret = 1;
@@ -455,7 +474,7 @@ static int iwlagn_mac_resume(struct ieee80211_hw *hw)
 #endif
 	}
 
-	
+	/* we'll clear ctx->vif during iwlagn_prepare_restart() */
 	vif = ctx->vif;
 
 	priv->wowlan = false;
@@ -521,7 +540,7 @@ static int iwlagn_mac_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 	switch (key->cipher) {
 	case WLAN_CIPHER_SUITE_TKIP:
 		key->flags |= IEEE80211_KEY_FLAG_GENERATE_MMIC;
-		
+		/* fall through */
 	case WLAN_CIPHER_SUITE_CCMP:
 		key->flags |= IEEE80211_KEY_FLAG_GENERATE_IV;
 		break;
@@ -529,13 +548,20 @@ static int iwlagn_mac_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 		break;
 	}
 
+	/*
+	 * We could program these keys into the hardware as well, but we
+	 * don't expect much multicast traffic in IBSS and having keys
+	 * for more stations is probably more useful.
+	 *
+	 * Mark key TX-only and return 0.
+	 */
 	if (vif->type == NL80211_IFTYPE_ADHOC &&
 	    !(key->flags & IEEE80211_KEY_FLAG_PAIRWISE)) {
 		key->hw_key_idx = WEP_INVALID_OFFSET;
 		return 0;
 	}
 
-	
+	/* If they key was TX-only, accept deletion */
 	if (cmd == DISABLE_KEY && key->hw_key_idx == WEP_INVALID_OFFSET)
 		return 0;
 
@@ -544,6 +570,12 @@ static int iwlagn_mac_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 
 	BUILD_BUG_ON(WEP_INVALID_OFFSET == IWLAGN_HW_KEY_DEFAULT);
 
+	/*
+	 * If we are getting WEP group key and we didn't receive any key mapping
+	 * so far, we are in legacy wep mode (group key only), otherwise we are
+	 * in 1X mode.
+	 * In legacy wep mode, we use another host command to the uCode.
+	 */
 	if ((key->cipher == WLAN_CIPHER_SUITE_WEP40 ||
 	     key->cipher == WLAN_CIPHER_SUITE_WEP104) && !sta) {
 		if (cmd == SET_KEY)
@@ -562,6 +594,10 @@ static int iwlagn_mac_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 		}
 		ret = iwl_set_dynamic_key(priv, vif_priv->ctx, key, sta);
 		if (ret) {
+			/*
+			 * can't add key for RX, but we don't need it
+			 * in the device for TX so still return 0
+			 */
 			ret = 0;
 			key->hw_key_idx = WEP_INVALID_OFFSET;
 		}
@@ -632,6 +668,9 @@ static int iwlagn_mac_ampdu_action(struct ieee80211_hw *hw,
 		}
 		if (!priv->agg_tids_count &&
 		    hw_params(priv).use_rts_for_aggregation) {
+			/*
+			 * switch off RTS/CTS if it was previously enabled
+			 */
 			sta_priv->lq_sta.lq.general_params.flags &=
 				~LINK_QUAL_FLAGS_SET_STA_TLC_RTS_MSK;
 			iwl_send_lq_cmd(priv, iwl_rxon_ctx_from_vif(vif),
@@ -671,7 +710,7 @@ static int iwlagn_mac_sta_add(struct ieee80211_hw *hw,
 	if (ret) {
 		IWL_ERR(priv, "Unable to add station %pM (%d)\n",
 			sta->addr, ret);
-		
+		/* Should we return success if return code is EEXIST ? */
 		return ret;
 	}
 
@@ -691,6 +730,11 @@ static int iwlagn_mac_sta_remove(struct ieee80211_hw *hw,
 	IWL_DEBUG_INFO(priv, "proceeding to remove station %pM\n", sta->addr);
 
 	if (vif->type == NL80211_IFTYPE_STATION) {
+		/*
+		 * Station will be removed from device when the RXON
+		 * is set to unassociated -- just deactivate it here
+		 * to avoid re-programming it.
+		 */
 		ret = 0;
 		iwl_deactivate_station(priv, sta_priv->sta_id, sta->addr);
 	} else {
@@ -749,7 +793,7 @@ static int iwlagn_mac_sta_state(struct ieee80211_hw *hw,
 		ret = iwlagn_mac_sta_add(hw, vif, sta);
 		if (ret)
 			break;
-		
+		/* Initialize rate scaling */
 		IWL_DEBUG_INFO(priv,
 			       "Initializing rate scaling for station %pM\n",
 			       sta->addr);
@@ -757,7 +801,7 @@ static int iwlagn_mac_sta_state(struct ieee80211_hw *hw,
 		ret = 0;
 		break;
 	case HT_RATE_INIT:
-		
+		/* Initialize rate scaling */
 		ret = iwl_sta_update_ht(priv, vif_priv->ctx, sta);
 		if (ret)
 			break;
@@ -772,6 +816,10 @@ static int iwlagn_mac_sta_state(struct ieee80211_hw *hw,
 		break;
 	}
 
+	/*
+	 * mac80211 might WARN if we fail, but due the way we
+	 * (badly) handle hard rfkill, we might fail here
+	 */
 	if (iwl_is_rfkill(priv))
 		ret = 0;
 
@@ -789,6 +837,14 @@ static void iwlagn_mac_channel_switch(struct ieee80211_hw *hw,
 	struct ieee80211_conf *conf = &hw->conf;
 	struct ieee80211_channel *channel = ch_switch->channel;
 	struct iwl_ht_config *ht_conf = &priv->current_ht_config;
+	/*
+	 * MULTI-FIXME
+	 * When we add support for multiple interfaces, we need to
+	 * revisit this. The channel switch command in the device
+	 * only affects the BSS context, but what does that really
+	 * mean? And what if we get a CSA on the second interface?
+	 * This needs a lot of work.
+	 */
 	struct iwl_rxon_context *ctx = &priv->contexts[IWL_RXON_CTX_BSS];
 	u16 ch;
 
@@ -822,7 +878,7 @@ static void iwlagn_mac_channel_switch(struct ieee80211_hw *hw,
 
 	priv->current_ht_config.smps = conf->smps_mode;
 
-	
+	/* Configure HT40 channels */
 	ctx->ht.enabled = conf_is_ht(conf);
 	if (ctx->ht.enabled)
 		iwlagn_config_ht40(conf, ctx);
@@ -837,6 +893,10 @@ static void iwlagn_mac_channel_switch(struct ieee80211_hw *hw,
 	iwl_set_flags_for_band(priv, ctx, channel->band, ctx->vif);
 
 	iwl_set_rate(priv);
+	/*
+	 * at this point, staging_rxon has the
+	 * configuration for channel switch
+	 */
 	set_bit(STATUS_CHANNEL_SWITCH_PENDING, &priv->status);
 	priv->switch_channel = cpu_to_le16(ch);
 	if (cfg(priv)->lib->set_channel_switch(priv, ch_switch)) {
@@ -870,7 +930,7 @@ static void iwlagn_configure_filter(struct ieee80211_hw *hw,
 			changed_flags, *total_flags);
 
 	CHK(FIF_OTHER_BSS | FIF_PROMISC_IN_BSS, RXON_FILTER_PROMISC_MSK);
-	
+	/* Setting _just_ RXON_FILTER_CTL2HOST_MSK causes FH errors */
 	CHK(FIF_CONTROL, RXON_FILTER_CTL2HOST_MSK | RXON_FILTER_PROMISC_MSK);
 	CHK(FIF_BCN_PRBRESP_PROMISC, RXON_FILTER_BCON_AWARE_MSK);
 
@@ -882,10 +942,20 @@ static void iwlagn_configure_filter(struct ieee80211_hw *hw,
 		ctx->staging.filter_flags &= ~filter_nand;
 		ctx->staging.filter_flags |= filter_or;
 
+		/*
+		 * Not committing directly because hardware can perform a scan,
+		 * but we'll eventually commit the filter flags change anyway.
+		 */
 	}
 
 	mutex_unlock(&priv->mutex);
 
+	/*
+	 * Receiving all multicast frames is always enabled by the
+	 * default flags setup in iwl_connection_init_rx_config()
+	 * since we currently do not support programming multicast
+	 * filters into the device.
+	 */
 	*total_flags &= FIF_OTHER_BSS | FIF_ALLMULTI | FIF_PROMISC_IN_BSS |
 			FIF_BCN_PRBRESP_PROMISC | FIF_CONTROL;
 }
@@ -906,6 +976,10 @@ static void iwlagn_mac_flush(struct ieee80211_hw *hw, bool drop)
 		goto done;
 	}
 
+	/*
+	 * mac80211 will not push any more frames for transmit
+	 * until the flush is completed
+	 */
 	if (drop) {
 		IWL_DEBUG_MAC80211(priv, "send flush command\n");
 		if (iwlagn_txfifo_flush(priv, IWL_DROP_ALL)) {
@@ -945,7 +1019,7 @@ static int iwlagn_mac_remain_on_channel(struct ieee80211_hw *hw,
 
 	priv->hw_roc_channel = channel;
 	priv->hw_roc_chantype = channel_type;
-	
+	/* convert from ms to TU */
 	priv->hw_roc_duration = DIV_ROUND_UP(1000 * duration, 1024);
 	priv->hw_roc_start_notified = false;
 	cancel_delayed_work(&priv->hw_roc_disable_work);
@@ -1133,6 +1207,11 @@ static int iwl_setup_interface(struct iwl_priv *priv,
 
 	lockdep_assert_held(&priv->mutex);
 
+	/*
+	 * This variable will be correct only when there's just
+	 * a single context, but all code using it is for hardware
+	 * that supports only one context.
+	 */
 	priv->iw_mode = vif->type;
 
 	ctx->is_active = true;
@@ -1146,6 +1225,11 @@ static int iwl_setup_interface(struct iwl_priv *priv,
 
 	if (cfg(priv)->bt_params && cfg(priv)->bt_params->advanced_bt_coexist &&
 	    vif->type == NL80211_IFTYPE_ADHOC) {
+		/*
+		 * pretend to have high BT traffic as long as we
+		 * are operating in IBSS mode, as this will cause
+		 * the rate scaling etc. to behave as intended.
+		 */
 		priv->bt_traffic_load = IWL_BT_COEX_TRAFFIC_LOAD_HIGH;
 	}
 
@@ -1182,14 +1266,14 @@ static int iwlagn_mac_add_interface(struct ieee80211_hw *hw,
 			tmp->interface_modes | tmp->exclusive_interface_modes;
 
 		if (tmp->vif) {
-			
+			/* On reset we need to add the same interface again */
 			if (tmp->vif == vif) {
 				reset = true;
 				ctx = tmp;
 				break;
 			}
 
-			
+			/* check if this busy context is exclusive */
 			if (tmp->exclusive_interface_modes &
 						BIT(tmp->vif->type)) {
 				err = -EINVAL;
@@ -1201,7 +1285,7 @@ static int iwlagn_mac_add_interface(struct ieee80211_hw *hw,
 		if (!(possible_modes & BIT(viftype)))
 			continue;
 
-		
+		/* have maybe usable context w/o interface */
 		ctx = tmp;
 		break;
 	}
@@ -1246,6 +1330,13 @@ static void iwl_teardown_interface(struct iwl_priv *priv,
 			ctx->is_active = false;
 	}
 
+	/*
+	 * When removing the IBSS interface, overwrite the
+	 * BT traffic load with the stored one from the last
+	 * notification, if any. If this is a device that
+	 * doesn't implement this, this has no effect since
+	 * both values are the same and zero.
+	 */
 	if (vif->type == NL80211_IFTYPE_ADHOC)
 		priv->bt_traffic_load = priv->last_bt_traffic_load;
 }
@@ -1296,6 +1387,10 @@ static int iwlagn_mac_change_interface(struct ieee80211_hw *hw,
 	mutex_lock(&priv->mutex);
 
 	if (!ctx->vif || !iwl_is_ready_rf(priv)) {
+		/*
+		 * Huh? But wait ... this can maybe happen when
+		 * we're in the middle of a firmware restart!
+		 */
 		err = -EBUSY;
 		goto out;
 	}
@@ -1307,6 +1402,11 @@ static int iwlagn_mac_change_interface(struct ieee80211_hw *hw,
 		goto out;
 	}
 
+	/*
+	 * Refuse a change that should be done by moving from the PAN
+	 * context to the BSS context instead, if the BSS context is
+	 * available and can support the new interface type.
+	 */
 	if (ctx->ctxid == IWL_RXON_CTX_PAN && !bss_ctx->vif &&
 	    (bss_ctx->interface_modes & BIT(newtype) ||
 	     bss_ctx->exclusive_interface_modes & BIT(newtype))) {
@@ -1323,17 +1423,28 @@ static int iwlagn_mac_change_interface(struct ieee80211_hw *hw,
 			if (!tmp->vif)
 				continue;
 
+			/*
+			 * The current mode switch would be exclusive, but
+			 * another context is active ... refuse the switch.
+			 */
 			err = -EBUSY;
 			goto out;
 		}
 	}
 
-	
+	/* success */
 	iwl_teardown_interface(priv, vif, true);
 	vif->type = newviftype;
 	vif->p2p = newp2p;
 	err = iwl_setup_interface(priv, ctx);
 	WARN_ON(err);
+	/*
+	 * We've switched internally, but submitting to the
+	 * device may have failed for some reason. Mask this
+	 * error, because otherwise mac80211 will not switch
+	 * (and set the interface type back) and we'll be
+	 * out of sync with it.
+	 */
 	err = 0;
 
  out:
@@ -1357,6 +1468,10 @@ static int iwlagn_mac_hw_scan(struct ieee80211_hw *hw,
 
 	mutex_lock(&priv->mutex);
 
+	/*
+	 * If an internal scan is in progress, just set
+	 * up the scan_request as per above.
+	 */
 	if (priv->scan_type != IWL_SCAN_NORMAL) {
 		IWL_DEBUG_SCAN(priv,
 			       "SCAN request during internal scan - defer\n");
@@ -1366,6 +1481,10 @@ static int iwlagn_mac_hw_scan(struct ieee80211_hw *hw,
 	} else {
 		priv->scan_request = req;
 		priv->scan_vif = vif;
+		/*
+		 * mac80211 will only ask for one band at a time
+		 * so using channels[0] here is ok
+		 */
 		ret = iwl_scan_initiate(priv, vif, IWL_SCAN_NORMAL,
 					req->channels[0]->band);
 		if (ret) {
@@ -1458,10 +1577,13 @@ struct ieee80211_ops iwlagn_hw_ops = {
 	.set_tim = iwlagn_mac_set_tim,
 };
 
+/* This function both allocates and initializes hw and priv. */
 struct ieee80211_hw *iwl_alloc_all(void)
 {
 	struct iwl_priv *priv;
 	struct iwl_op_mode *op_mode;
+	/* mac80211 allocates memory for this device instance, including
+	 *   space for this driver's private structure */
 	struct ieee80211_hw *hw;
 
 	hw = ieee80211_alloc_hw(sizeof(struct iwl_priv) +

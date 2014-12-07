@@ -9,21 +9,30 @@
  * applications using hidraw.
  */
 
+/* Linux */
 #include <linux/types.h>
 #include <linux/input.h>
 #include <linux/hidraw.h>
 
+/*
+ * Ugly hack to work around failing compilation on systems that don't
+ * yet populate new version of hidraw.h to userspace.
+ *
+ * If you need this, please have your distro update the kernel headers.
+ */
 #ifndef HIDIOCSFEATURE
 #define HIDIOCSFEATURE(len)    _IOC(_IOC_WRITE|_IOC_READ, 'H', 0x06, len)
 #define HIDIOCGFEATURE(len)    _IOC(_IOC_WRITE|_IOC_READ, 'H', 0x07, len)
 #endif
 
+/* Unix */
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
 
+/* C */
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -39,6 +48,8 @@ int main(int argc, char **argv)
 	struct hidraw_report_descriptor rpt_desc;
 	struct hidraw_devinfo info;
 
+	/* Open the Device with non-blocking reads. In real life,
+	   don't use a hard coded path; use libudev instead. */
 	fd = open("/dev/hidraw0", O_RDWR|O_NONBLOCK);
 
 	if (fd < 0) {
@@ -50,14 +61,14 @@ int main(int argc, char **argv)
 	memset(&info, 0x0, sizeof(info));
 	memset(buf, 0x0, sizeof(buf));
 
-	
+	/* Get Report Descriptor Size */
 	res = ioctl(fd, HIDIOCGRDESCSIZE, &desc_size);
 	if (res < 0)
 		perror("HIDIOCGRDESCSIZE");
 	else
 		printf("Report Descriptor Size: %d\n", desc_size);
 
-	
+	/* Get Report Descriptor */
 	rpt_desc.size = desc_size;
 	res = ioctl(fd, HIDIOCGRDESC, &rpt_desc);
 	if (res < 0) {
@@ -69,21 +80,21 @@ int main(int argc, char **argv)
 		puts("\n");
 	}
 
-	
+	/* Get Raw Name */
 	res = ioctl(fd, HIDIOCGRAWNAME(256), buf);
 	if (res < 0)
 		perror("HIDIOCGRAWNAME");
 	else
 		printf("Raw Name: %s\n", buf);
 
-	
+	/* Get Physical Location */
 	res = ioctl(fd, HIDIOCGRAWPHYS(256), buf);
 	if (res < 0)
 		perror("HIDIOCGRAWPHYS");
 	else
 		printf("Raw Phys: %s\n", buf);
 
-	
+	/* Get Raw Info */
 	res = ioctl(fd, HIDIOCGRAWINFO, &info);
 	if (res < 0) {
 		perror("HIDIOCGRAWINFO");
@@ -95,8 +106,8 @@ int main(int argc, char **argv)
 		printf("\tproduct: 0x%04hx\n", info.product);
 	}
 
-	
-	buf[0] = 0x9; 
+	/* Set Feature */
+	buf[0] = 0x9; /* Report Number */
 	buf[1] = 0xff;
 	buf[2] = 0xff;
 	buf[3] = 0xff;
@@ -106,8 +117,8 @@ int main(int argc, char **argv)
 	else
 		printf("ioctl HIDIOCGFEATURE returned: %d\n", res);
 
-	
-	buf[0] = 0x9; 
+	/* Get Feature */
+	buf[0] = 0x9; /* Report Number */
 	res = ioctl(fd, HIDIOCGFEATURE(256), buf);
 	if (res < 0) {
 		perror("HIDIOCGFEATURE");
@@ -119,8 +130,8 @@ int main(int argc, char **argv)
 		puts("\n");
 	}
 
-	
-	buf[0] = 0x1; 
+	/* Send a Report to the Device */
+	buf[0] = 0x1; /* Report Number */
 	buf[1] = 0x77;
 	res = write(fd, buf, 2);
 	if (res < 0) {
@@ -130,7 +141,7 @@ int main(int argc, char **argv)
 		printf("write() wrote %d bytes\n", res);
 	}
 
-	
+	/* Get a report from the device */
 	res = read(fd, buf, 16);
 	if (res < 0) {
 		perror("read");

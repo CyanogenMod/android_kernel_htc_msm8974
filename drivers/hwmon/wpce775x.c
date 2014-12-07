@@ -25,6 +25,7 @@
 
 static struct i2c_client *g_i2cec_client;
 
+/* General structure to hold the driver data */
 struct i2cec_drv_data {
 		struct i2c_client *i2cec_client;
 		struct work_struct work;
@@ -78,6 +79,8 @@ static int __devinit wpce_probe(struct i2c_client *client,
 	int err = -ENOMEM;
 	struct i2cec_drv_data *context = 0;
 
+	/* there is no need to call i2c_check_functionality() since it is the
+	client's job to use the interface (I2C vs SMBUS) appropriate for it. */
 	client->driver = &wpce_driver;
 	context = kzalloc(sizeof(struct i2cec_drv_data), GFP_KERNEL);
 	if (!context)

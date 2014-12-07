@@ -16,6 +16,10 @@
 #include <net/af_rxrpc.h>
 #include "ar-internal.h"
 
+/*
+ * removal a call's user ID from the socket tree to make the user ID available
+ * again and so that it won't be seen again in association with that call
+ */
 void rxrpc_remove_user_ID(struct rxrpc_sock *rx, struct rxrpc_call *call)
 {
 	_debug("RELEASE CALL %d", call->debug_id);
@@ -34,6 +38,11 @@ void rxrpc_remove_user_ID(struct rxrpc_sock *rx, struct rxrpc_call *call)
 	read_unlock_bh(&call->state_lock);
 }
 
+/*
+ * receive a message from an RxRPC socket
+ * - we need to be careful about two or more threads calling recvmsg
+ *   simultaneously
+ */
 int rxrpc_recvmsg(struct kiocb *iocb, struct socket *sock,
 		  struct msghdr *msg, size_t len, int flags)
 {
@@ -60,6 +69,8 @@ int rxrpc_recvmsg(struct kiocb *iocb, struct socket *sock,
 	lock_sock(&rx->sk);
 
 	for (;;) {
+		/* return immediately if a client socket has no outstanding
+		 * calls */
 		if (RB_EMPTY_ROOT(&rx->calls)) {
 			if (copied)
 				goto out;
@@ -71,15 +82,15 @@ int rxrpc_recvmsg(struct kiocb *iocb, struct socket *sock,
 			}
 		}
 
-		
+		/* get the next message on the Rx queue */
 		skb = skb_peek(&rx->sk.sk_receive_queue);
 		if (!skb) {
-			
+			/* nothing remains on the queue */
 			if (copied &&
 			    (msg->msg_flags & MSG_PEEK || timeo == 0))
 				goto out;
 
-			
+			/* wait for a message to turn up */
 			release_sock(&rx->sk);
 			prepare_to_wait_exclusive(sk_sleep(&rx->sk), &wait,
 						  TASK_INTERRUPTIBLE);
@@ -104,7 +115,7 @@ int rxrpc_recvmsg(struct kiocb *iocb, struct socket *sock,
 
 		_debug("next pkt %s", rxrpc_pkts[sp->hdr.type]);
 
-		
+		/* make sure we wait for the state to be updated in this call */
 		spin_lock_bh(&call->lock);
 		spin_unlock_bh(&call->lock);
 
@@ -116,7 +127,7 @@ int rxrpc_recvmsg(struct kiocb *iocb, struct socket *sock,
 			continue;
 		}
 
-		
+		/* determine whether to continue last data receive */
 		if (continue_call) {
 			_debug("maybe cont");
 			if (call != continue_call ||
@@ -130,7 +141,7 @@ int rxrpc_recvmsg(struct kiocb *iocb, struct socket *sock,
 
 		rxrpc_get_call(call);
 
-		
+		/* copy the peer address and timestamp */
 		if (!continue_call) {
 			if (msg->msg_name && msg->msg_namelen > 0)
 				memcpy(msg->msg_name,
@@ -139,7 +150,7 @@ int rxrpc_recvmsg(struct kiocb *iocb, struct socket *sock,
 			sock_recv_ts_and_drops(msg, &rx->sk, skb);
 		}
 
-		
+		/* receive the message */
 		if (skb->mark != RXRPC_SKB_MARK_DATA)
 			goto receive_non_data_message;
 
@@ -147,7 +158,7 @@ int rxrpc_recvmsg(struct kiocb *iocb, struct socket *sock,
 		       ntohl(sp->hdr.seq), skb->len, sp->offset);
 
 		if (!continue_call) {
-			
+			/* only set the control data once per recvmsg() */
 			ret = put_cmsg(msg, SOL_RXRPC, RXRPC_USER_CALL_ID,
 				       ullen, &call->user_call_ID);
 			if (ret < 0)
@@ -179,7 +190,7 @@ int rxrpc_recvmsg(struct kiocb *iocb, struct socket *sock,
 		if (ret < 0)
 			goto copy_error;
 
-		
+		/* handle piecemeal consumption of data packets */
 		_debug("copied %d+%d", copy, copied);
 
 		offset += copy;
@@ -194,16 +205,16 @@ int rxrpc_recvmsg(struct kiocb *iocb, struct socket *sock,
 			break;
 		}
 
-		
+		/* we transferred the whole data packet */
 		if (sp->hdr.flags & RXRPC_LAST_PACKET) {
 			_debug("last");
 			if (call->conn->out_clientflag) {
-				 
+				 /* last byte of reply received */
 				ret = copied;
 				goto terminal_message;
 			}
 
-			
+			/* last bit of request received */
 			if (!(flags & MSG_PEEK)) {
 				_debug("eat packet");
 				if (skb_dequeue(&rx->sk.sk_receive_queue) !=
@@ -215,7 +226,7 @@ int rxrpc_recvmsg(struct kiocb *iocb, struct socket *sock,
 			break;
 		}
 
-		
+		/* move on to the next data message */
 		_debug("next");
 		if (!continue_call)
 			continue_call = sp->call;
@@ -237,7 +248,7 @@ int rxrpc_recvmsg(struct kiocb *iocb, struct socket *sock,
 		rxrpc_free_skb(skb);
 	}
 
-	
+	/* end of non-terminal data packet reception for the moment */
 	_debug("end rcv data");
 out:
 	release_sock(&rx->sk);
@@ -248,6 +259,8 @@ out:
 	_leave(" = %d [data]", copied);
 	return copied;
 
+	/* handle non-DATA messages such as aborts, incoming connections and
+	 * final ACKs */
 receive_non_data_message:
 	_debug("non-data");
 
@@ -354,6 +367,13 @@ wait_error:
 
 }
 
+/**
+ * rxrpc_kernel_data_delivered - Record delivery of data message
+ * @skb: Message holding data
+ *
+ * Record the delivery of a data message.  This permits RxRPC to keep its
+ * tracking correct.  The socket buffer will be deleted.
+ */
 void rxrpc_kernel_data_delivered(struct sk_buff *skb)
 {
 	struct rxrpc_skb_priv *sp = rxrpc_skb(skb);
@@ -369,6 +389,12 @@ void rxrpc_kernel_data_delivered(struct sk_buff *skb)
 
 EXPORT_SYMBOL(rxrpc_kernel_data_delivered);
 
+/**
+ * rxrpc_kernel_is_data_last - Determine if data message is last one
+ * @skb: Message holding data
+ *
+ * Determine if data message is last one for the parent call.
+ */
 bool rxrpc_kernel_is_data_last(struct sk_buff *skb)
 {
 	struct rxrpc_skb_priv *sp = rxrpc_skb(skb);
@@ -380,6 +406,12 @@ bool rxrpc_kernel_is_data_last(struct sk_buff *skb)
 
 EXPORT_SYMBOL(rxrpc_kernel_is_data_last);
 
+/**
+ * rxrpc_kernel_get_abort_code - Get the abort code from an RxRPC abort message
+ * @skb: Message indicating an abort
+ *
+ * Get the abort code from an RxRPC abort message.
+ */
 u32 rxrpc_kernel_get_abort_code(struct sk_buff *skb)
 {
 	struct rxrpc_skb_priv *sp = rxrpc_skb(skb);
@@ -391,6 +423,12 @@ u32 rxrpc_kernel_get_abort_code(struct sk_buff *skb)
 
 EXPORT_SYMBOL(rxrpc_kernel_get_abort_code);
 
+/**
+ * rxrpc_kernel_get_error - Get the error number from an RxRPC error message
+ * @skb: Message indicating an error
+ *
+ * Get the error number from an RxRPC error message.
+ */
 int rxrpc_kernel_get_error_number(struct sk_buff *skb)
 {
 	struct rxrpc_skb_priv *sp = rxrpc_skb(skb);

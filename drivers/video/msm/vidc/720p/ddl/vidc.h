@@ -2170,6 +2170,7 @@ VIDC_REG_1137_METADATA_DISPLAY_INDEX_SHFT          0
 #define VIDC_REG_926519_OUT(v) \
 		out_dword(VIDC_REG_926519_ADDR, v)
 
+/** List all the levels and their register valus */
 
 #define VIDC_720P_PROFILE_MPEG4_SP      0
 #define VIDC_720P_PROFILE_MPEG4_ASP     1

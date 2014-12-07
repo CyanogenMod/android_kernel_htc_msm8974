@@ -36,7 +36,7 @@ void *dma_alloc_coherent(struct device *dev, size_t size,
 		goto done;
 	}
 
-	
+	/* ignore region specifiers */
 	gfp &= ~(__GFP_DMA | __GFP_HIGHMEM);
 
 	if (dev == NULL || dev->coherent_dma_mask < 0xffffffff)
@@ -46,13 +46,13 @@ void *dma_alloc_coherent(struct device *dev, size_t size,
 	if (!addr)
 		return NULL;
 
-	
+	/* map the coherent memory through the uncached memory window */
 	ret = (void *) (addr | 0x20000000);
 
-	
+	/* fill the memory with obvious rubbish */
 	memset((void *) addr, 0xfb, size);
 
-	
+	/* write back and evict all cache lines covering this region */
 	mn10300_dcache_flush_inv_range2(virt_to_phys((void *) addr), PAGE_SIZE);
 
 done:

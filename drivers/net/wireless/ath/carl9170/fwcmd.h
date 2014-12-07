@@ -57,18 +57,18 @@ enum carl9170_cmd_oids {
 	CARL9170_CMD_WOL		= 0x08,
 	CARL9170_CMD_TALLY		= 0x09,
 
-	
+	/* CAM */
 	CARL9170_CMD_EKEY		= 0x10,
 	CARL9170_CMD_DKEY		= 0x11,
 
-	
+	/* RF / PHY */
 	CARL9170_CMD_FREQUENCY		= 0x20,
 	CARL9170_CMD_RF_INIT		= 0x21,
 	CARL9170_CMD_SYNTH		= 0x22,
 	CARL9170_CMD_FREQ_START		= 0x23,
 	CARL9170_CMD_PSM		= 0x24,
 
-	
+	/* Asychronous command flag */
 	CARL9170_CMD_ASYNC_FLAG		= 0x40,
 	CARL9170_CMD_WREG_ASYNC		= (CARL9170_CMD_WREG |
 					   CARL9170_CMD_ASYNC_FLAG),
@@ -79,7 +79,7 @@ enum carl9170_cmd_oids {
 	CARL9170_CMD_PSM_ASYNC		= (CARL9170_CMD_PSM |
 					   CARL9170_CMD_ASYNC_FLAG),
 
-	
+	/* responses and traps */
 	CARL9170_RSP_FLAG		= 0xc0,
 	CARL9170_RSP_PRETBTT		= 0xc0,
 	CARL9170_RSP_TXCOMP		= 0xc1,
@@ -141,13 +141,13 @@ struct carl9170_rf_init {
 #define CARL9170_RF_INIT_SIZE		28
 
 struct carl9170_rf_init_result {
-	__le32		ret;		
+	__le32		ret;		/* AR9170_PHY_REG_AGC_CONTROL */
 } __packed;
 #define	CARL9170_RF_INIT_RESULT_SIZE	4
 
 #define	CARL9170_PSM_SLEEP		0x1000
 #define	CARL9170_PSM_SOFTWARE		0
-#define	CARL9170_PSM_WAKE		0 
+#define	CARL9170_PSM_WAKE		0 /* internally used. */
 #define	CARL9170_PSM_COUNTER		0xfff
 #define	CARL9170_PSM_COUNTER_S		0
 
@@ -236,7 +236,15 @@ struct carl9170_cmd {
 #define	CARL9170_TX_STATUS_SUCCESS	0x80
 
 #ifdef __CARL9170FW__
+/*
+ * NOTE:
+ * Both structs [carl9170_tx_status and _carl9170_tx_status]
+ * need to be "bit for bit" in sync.
+ */
 struct carl9170_tx_status {
+	/*
+	 * Beware of compiler bugs in all gcc pre 4.4!
+	 */
 
 	u8 cookie;
 	u8 queue:2;
@@ -244,9 +252,12 @@ struct carl9170_tx_status {
 	u8 tries:3;
 	u8 success:1;
 } __packed;
-#endif 
+#endif /* __CARL9170FW__ */
 
 struct _carl9170_tx_status {
+	/*
+	 * This version should be immune to all alignment bugs.
+	 */
 
 	u8 cookie;
 	u8 info;
@@ -294,7 +305,7 @@ struct carl9170_rsp {
 		struct carl9170_u32_list	echo;
 #ifdef __CARL9170FW__
 		struct carl9170_tx_status	tx_status[0];
-#endif 
+#endif /* __CARL9170FW__ */
 		struct _carl9170_tx_status	_tx_status[0];
 		struct carl9170_gpio		gpio;
 		struct carl9170_tsf_rsp		tsf;
@@ -304,4 +315,4 @@ struct carl9170_rsp {
 	} __packed;
 } __packed __aligned(4);
 
-#endif 
+#endif /* __CARL9170_SHARED_FWCMD_H */

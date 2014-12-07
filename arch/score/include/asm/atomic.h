@@ -4,4 +4,4 @@
 #include <asm/cmpxchg.h>
 #include <asm-generic/atomic.h>
 
-#endif 
+#endif /* _ASM_SCORE_ATOMIC_H */

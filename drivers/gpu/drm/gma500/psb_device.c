@@ -37,8 +37,11 @@ static int psb_output_init(struct drm_device *dev)
 
 #ifdef CONFIG_BACKLIGHT_CLASS_DEVICE
 
+/*
+ *	Poulsbo Backlight Interfaces
+ */
 
-#define BLC_PWM_PRECISION_FACTOR 100	
+#define BLC_PWM_PRECISION_FACTOR 100	/* 10000000 */
 #define BLC_PWM_FREQ_CALC_CONSTANT 32
 #define MHz 1000000
 
@@ -54,7 +57,9 @@ static struct backlight_device *psb_backlight_device;
 
 static int psb_get_brightness(struct backlight_device *bd)
 {
-	
+	/* return locally cached var instead of HW read (due to DPST etc.) */
+	/* FIXME: ideally return actual value in case firmware fiddled with
+	   it */
 	return psb_brightness;
 }
 
@@ -63,13 +68,13 @@ static int psb_backlight_setup(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
 	unsigned long core_clock;
-	
-	
+	/* u32 bl_max_freq; */
+	/* unsigned long value; */
 	u16 bl_max_freq;
 	uint32_t value;
 	uint32_t blc_pwm_precision_factor;
 
-	
+	/* get bl_max_freq and pol from dev_priv*/
 	if (!dev_priv->lvds_bl) {
 		dev_err(dev->dev, "Has no valid LVDS backlight info\n");
 		return -ENOENT;
@@ -100,7 +105,7 @@ static int psb_set_brightness(struct backlight_device *bd)
 	struct drm_device *dev = bl_get_data(psb_backlight_device);
 	int level = bd->props.brightness;
 
-	
+	/* Percentage 1-100% being valid */
 	if (level < 1)
 		level = 1;
 
@@ -144,18 +149,29 @@ static int psb_backlight_init(struct drm_device *dev)
 
 #endif
 
+/*
+ *	Provide the Poulsbo specific chip logic and low level methods
+ *	for power management
+ */
 
 static void psb_init_pm(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
 
 	u32 gating = PSB_RSGX32(PSB_CR_CLKGATECTL);
-	gating &= ~3;	
+	gating &= ~3;	/* Disable 2D clock gating */
 	gating |= 1;
 	PSB_WSGX32(gating, PSB_CR_CLKGATECTL);
 	PSB_RSGX32(PSB_CR_CLKGATECTL);
 }
 
+/**
+ *	psb_save_display_registers	-	save registers lost on suspend
+ *	@dev: our DRM device
+ *
+ *	Save the state we need in order to be able to restore the interface
+ *	upon resume from suspend
+ */
 static int psb_save_display_registers(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -163,7 +179,7 @@ static int psb_save_display_registers(struct drm_device *dev)
 	struct drm_connector *connector;
 	struct psb_state *regs = &dev_priv->regs.psb;
 
-	
+	/* Display arbitration control + watermarks */
 	regs->saveDSPARB = PSB_RVDC32(DSPARB);
 	regs->saveDSPFW1 = PSB_RVDC32(DSPFW1);
 	regs->saveDSPFW2 = PSB_RVDC32(DSPFW2);
@@ -173,7 +189,7 @@ static int psb_save_display_registers(struct drm_device *dev)
 	regs->saveDSPFW6 = PSB_RVDC32(DSPFW6);
 	regs->saveCHICKENBIT = PSB_RVDC32(DSPCHICKENBIT);
 
-	
+	/* Save crtc and output state */
 	mutex_lock(&dev->mode_config.mutex);
 	list_for_each_entry(crtc, &dev->mode_config.crtc_list, head) {
 		if (drm_helper_crtc_in_use(crtc))
@@ -187,6 +203,12 @@ static int psb_save_display_registers(struct drm_device *dev)
 	return 0;
 }
 
+/**
+ *	psb_restore_display_registers	-	restore lost register state
+ *	@dev: our DRM device
+ *
+ *	Restore register state that was lost during suspend and resume.
+ */
 static int psb_restore_display_registers(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -194,7 +216,7 @@ static int psb_restore_display_registers(struct drm_device *dev)
 	struct drm_connector *connector;
 	struct psb_state *regs = &dev_priv->regs.psb;
 
-	
+	/* Display arbitration + watermarks */
 	PSB_WVDC32(regs->saveDSPARB, DSPARB);
 	PSB_WVDC32(regs->saveDSPFW1, DSPFW1);
 	PSB_WVDC32(regs->saveDSPFW2, DSPFW2);
@@ -204,7 +226,7 @@ static int psb_restore_display_registers(struct drm_device *dev)
 	PSB_WVDC32(regs->saveDSPFW6, DSPFW6);
 	PSB_WVDC32(regs->saveCHICKENBIT, DSPCHICKENBIT);
 
-	
+	/*make sure VGA plane is off. it initializes to on after reset!*/
 	PSB_WVDC32(0x80000000, VGACNTRL);
 
 	mutex_lock(&dev->mode_config.mutex);
@@ -235,8 +257,8 @@ static void psb_get_core_freq(struct drm_device *dev)
 	struct pci_dev *pci_root = pci_get_bus_and_slot(0, 0);
 	struct drm_psb_private *dev_priv = dev->dev_private;
 
-	
-	
+	/*pci_write_config_dword(pci_root, 0xD4, 0x00C32004);*/
+	/*pci_write_config_dword(pci_root, 0xD0, 0xE0033000);*/
 
 	pci_write_config_dword(pci_root, 0xD0, 0xD0050300);
 	pci_read_config_dword(pci_root, 0xD4, &clock);

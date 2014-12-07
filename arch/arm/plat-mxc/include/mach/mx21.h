@@ -72,6 +72,7 @@
 #define MX21_SAHB1_SIZE			SZ_1M
 #define MX21_CSI_BASE_ADDR			(MX2x_SAHB1_BASE_ADDR + 0x0000)
 
+/* Memory regions and CS */
 #define MX21_SDRAM_BASE_ADDR		0xc0000000
 #define MX21_CSD1_BASE_ADDR		0xc4000000
 
@@ -83,6 +84,7 @@
 #define MX21_PCMCIA_MEM_BASE_ADDR	0xd4000000
 #define MX21_CS5_BASE_ADDR		0xdd000000
 
+/* NAND, SDRAM, WEIM etc controllers */
 #define MX21_X_MEMC_BASE_ADDR		0xdf000000
 #define MX21_X_MEMC_SIZE		SZ_256K
 
@@ -91,11 +93,12 @@
 #define MX21_PCMCIA_CTL_BASE_ADDR	(MX21_X_MEMC_BASE_ADDR + 0x2000)
 #define MX21_NFC_BASE_ADDR		(MX21_X_MEMC_BASE_ADDR + 0x3000)
 
-#define MX21_IRAM_BASE_ADDR		0xffffe800	
+#define MX21_IRAM_BASE_ADDR		0xffffe800	/* internal ram */
 
 #define MX21_IO_P2V(x)			IMX_IO_P2V(x)
 #define MX21_IO_ADDRESS(x)		IOMEM(MX21_IO_P2V(x))
 
+/* fixed interrupt numbers */
 #define MX21_INT_CSPI3		6
 #define MX21_INT_GPIO		8
 #define MX21_INT_FIRI		9
@@ -150,6 +153,7 @@
 #define MX21_INT_SLCDC		60
 #define MX21_INT_LCDC		61
 
+/* fixed DMA request numbers */
 #define MX21_DMA_REQ_CSPI3_RX	1
 #define MX21_DMA_REQ_CSPI3_TX	2
 #define MX21_DMA_REQ_EXT	3
@@ -181,4 +185,4 @@
 #define MX21_DMA_REQ_CSI_STAT	30
 #define MX21_DMA_REQ_CSI_RX	31
 
-#endif 
+#endif /* ifndef __MACH_MX21_H__ */

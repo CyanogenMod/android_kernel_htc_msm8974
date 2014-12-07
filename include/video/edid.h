@@ -11,4 +11,4 @@ extern struct edid_info edid_info;
 #endif
 #endif
 
-#endif 
+#endif /* __linux_video_edid_h__ */

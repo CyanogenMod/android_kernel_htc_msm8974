@@ -20,9 +20,11 @@
 
 #include "ssb_private.h"
 
+/* Define the following to 1 to enable a printk on each coreswitch. */
 #define SSB_VERBOSE_SDIOCORESWITCH_DEBUG		0
 
 
+/* Hardware invariants CIS tuples */
 #define SSB_SDIO_CIS			0x80
 #define  SSB_SDIO_CIS_SROMREV		0x00
 #define  SSB_SDIO_CIS_ID		0x01
@@ -43,30 +45,68 @@
 #define  SSB_SDIO_CIS_BFLAGS		0x08
 #define  SSB_SDIO_CIS_LEDS		0x09
 
-#define CISTPL_FUNCE_LAN_NODE_ID        0x04	
+#define CISTPL_FUNCE_LAN_NODE_ID        0x04	/* same as in PCMCIA */
 
 
-#define SBSDIO_FUNC1_SBADDRLOW	0x1000a	
-#define SBSDIO_FUNC1_SBADDRMID	0x1000b	
-#define SBSDIO_FUNC1_SBADDRHIGH	0x1000c	
+/*
+ * Function 1 miscellaneous registers.
+ *
+ * Definitions match src/include/sbsdio.h from the
+ * Android Open Source Project
+ * http://android.git.kernel.org/?p=platform/system/wlan/broadcom.git
+ *
+ */
+#define SBSDIO_FUNC1_SBADDRLOW	0x1000a	/* SB Address window Low (b15) */
+#define SBSDIO_FUNC1_SBADDRMID	0x1000b	/* SB Address window Mid (b23-b16) */
+#define SBSDIO_FUNC1_SBADDRHIGH	0x1000c	/* SB Address window High (b24-b31) */
 
-#define SBSDIO_SBADDRLOW_MASK	0x80	
-#define SBSDIO_SBADDRMID_MASK	0xff	
-#define SBSDIO_SBADDRHIGH_MASK	0xff	
+/* valid bits in SBSDIO_FUNC1_SBADDRxxx regs */
+#define SBSDIO_SBADDRLOW_MASK	0x80	/* Valid address bits in SBADDRLOW */
+#define SBSDIO_SBADDRMID_MASK	0xff	/* Valid address bits in SBADDRMID */
+#define SBSDIO_SBADDRHIGH_MASK	0xff	/* Valid address bits in SBADDRHIGH */
 
-#define SBSDIO_SB_OFT_ADDR_MASK	0x7FFF	
+#define SBSDIO_SB_OFT_ADDR_MASK	0x7FFF	/* sb offset addr is <= 15 bits, 32k */
 
-#define SBSDIO_SB_ACCESS_2_4B_FLAG	0x8000	
+/* REVISIT: this flag doesn't seem to matter */
+#define SBSDIO_SB_ACCESS_2_4B_FLAG	0x8000	/* forces 32-bit SB access */
 
 
+/*
+ * Address map within the SDIO function address space (128K).
+ *
+ *   Start   End     Description
+ *   ------- ------- ------------------------------------------
+ *   0x00000 0x0ffff selected backplane address window (64K)
+ *   0x10000 0x1ffff backplane control registers (max 64K)
+ *
+ * The current address window is configured by writing to registers
+ * SBADDRLOW, SBADDRMID and SBADDRHIGH.
+ *
+ * In order to access the contents of a 32-bit Silicon Backplane address
+ * the backplane address window must be first loaded with the highest
+ * 16 bits of the target address. Then, an access must be done to the
+ * SDIO function address space using the lower 15 bits of the address.
+ * Bit 15 of the address must be set when doing 32 bit accesses.
+ *
+ * 10987654321098765432109876543210
+ * WWWWWWWWWWWWWWWWW                 SB Address Window
+ *                 OOOOOOOOOOOOOOOO  Offset within SB Address Window
+ *                 a                 32-bit access flag
+ */
 
 
+/*
+ * SSB I/O via SDIO.
+ *
+ * NOTE: SDIO address @addr is 17 bits long (SDIO address space is 128K).
+ */
 
 static inline struct device *ssb_sdio_dev(struct ssb_bus *bus)
 {
 	return &bus->host_sdio->dev;
 }
 
+/* host claimed */
 static int ssb_sdio_writeb(struct ssb_bus *bus, unsigned int addr, u8 val)
 {
 	int error = 0;
@@ -96,6 +136,7 @@ static u8 ssb_sdio_readb(struct ssb_bus *bus, unsigned int addr)
 }
 #endif
 
+/* host claimed */
 static int ssb_sdio_set_sbaddr_window(struct ssb_bus *bus, u32 address)
 {
 	int error;
@@ -122,6 +163,7 @@ out:
 	return error;
 }
 
+/* for enumeration use only */
 u32 ssb_sdio_scan_read32(struct ssb_bus *bus, u16 offset)
 {
 	u32 val;
@@ -138,6 +180,7 @@ u32 ssb_sdio_scan_read32(struct ssb_bus *bus, u16 offset)
 	return val;
 }
 
+/* for enumeration use only */
 int ssb_sdio_scan_switch_coreidx(struct ssb_bus *bus, u8 coreidx)
 {
 	u32 sbaddr;
@@ -156,6 +199,7 @@ out:
 	return error;
 }
 
+/* host must be already claimed */
 int ssb_sdio_switch_core(struct ssb_bus *bus, struct ssb_device *dev)
 {
 	u8 coreidx = dev->core_index;
@@ -237,7 +281,7 @@ static u32 ssb_sdio_read32(struct ssb_device *dev, u16 offset)
 		goto out;
 	offset |= bus->sdio_sbaddr & 0xffff;
 	offset &= SBSDIO_SB_OFT_ADDR_MASK;
-	offset |= SBSDIO_SB_ACCESS_2_4B_FLAG;	
+	offset |= SBSDIO_SB_ACCESS_2_4B_FLAG;	/* 32 bit data access */
 	val = sdio_readl(bus->host_sdio, offset, &error);
 	if (error) {
 		dev_dbg(ssb_sdio_dev(bus), "%04X:%04X > %08x, error %d\n",
@@ -278,7 +322,7 @@ static void ssb_sdio_block_read(struct ssb_device *dev, void *buffer,
 	}
 	case sizeof(u32): {
 		SSB_WARN_ON(count & 3);
-		offset |= SBSDIO_SB_ACCESS_2_4B_FLAG;	
+		offset |= SBSDIO_SB_ACCESS_2_4B_FLAG;	/* 32 bit data access */
 		error = sdio_readsb(bus->host_sdio, buffer, offset, count);
 		break;
 	}
@@ -294,7 +338,7 @@ err_out:
 out:
 	sdio_release_host(bus->host_sdio);
 }
-#endif 
+#endif /* CONFIG_SSB_BLOCKIO */
 
 static void ssb_sdio_write8(struct ssb_device *dev, u16 offset, u8 val)
 {
@@ -344,7 +388,7 @@ static void ssb_sdio_write32(struct ssb_device *dev, u16 offset, u32 val)
 		goto out;
 	offset |= bus->sdio_sbaddr & 0xffff;
 	offset &= SBSDIO_SB_OFT_ADDR_MASK;
-	offset |= SBSDIO_SB_ACCESS_2_4B_FLAG;	
+	offset |= SBSDIO_SB_ACCESS_2_4B_FLAG;	/* 32 bit data access */
 	sdio_writel(bus->host_sdio, val, offset, &error);
 	if (error) {
 		dev_dbg(ssb_sdio_dev(bus), "%04X:%04X < %08x, error %d\n",
@@ -385,7 +429,7 @@ static void ssb_sdio_block_write(struct ssb_device *dev, const void *buffer,
 		break;
 	case sizeof(u32):
 		SSB_WARN_ON(count & 3);
-		offset |= SBSDIO_SB_ACCESS_2_4B_FLAG;	
+		offset |= SBSDIO_SB_ACCESS_2_4B_FLAG;	/* 32 bit data access */
 		error = sdio_writesb(bus->host_sdio, offset,
 				     (void *)buffer, count);
 		break;
@@ -402,8 +446,9 @@ out:
 	sdio_release_host(bus->host_sdio);
 }
 
-#endif 
+#endif /* CONFIG_SSB_BLOCKIO */
 
+/* Not "static", as it's used in main.c */
 const struct ssb_bus_ops ssb_sdio_ops = {
 	.read8		= ssb_sdio_read8,
 	.read16		= ssb_sdio_read16,
@@ -440,13 +485,13 @@ int ssb_sdio_get_invariants(struct ssb_bus *bus,
 	tuple = bus->host_sdio->tuples;
 	while (tuple) {
 		switch (tuple->code) {
-		case 0x22: 
+		case 0x22: /* extended function */
 			switch (tuple->data[0]) {
 			case CISTPL_FUNCE_LAN_NODE_ID:
 				GOTO_ERROR_ON((tuple->size != 7) &&
 					      (tuple->data[1] != 6),
 					      "mac tpl size");
-				
+				/* fetch the MAC address. */
 				mac = tuple->data + 2;
 				memcpy(sprom->il0mac, mac, ETH_ALEN);
 				memcpy(sprom->et1mac, mac, ETH_ALEN);
@@ -455,7 +500,7 @@ int ssb_sdio_get_invariants(struct ssb_bus *bus,
 				break;
 			}
 			break;
-		case 0x80: 
+		case 0x80: /* vendor specific tuple */
 			switch (tuple->data[0]) {
 			case SSB_SDIO_CIS_SROMREV:
 				GOTO_ERROR_ON(tuple->size != 2,
@@ -490,7 +535,7 @@ int ssb_sdio_get_invariants(struct ssb_bus *bus,
 				sprom->maxpwr_bg = tuple->data[8];
 				break;
 			case SSB_SDIO_CIS_OEMNAME:
-				
+				/* Not present */
 				break;
 			case SSB_SDIO_CIS_CCODE:
 				GOTO_ERROR_ON(tuple->size != 2,
@@ -547,7 +592,7 @@ void ssb_sdio_exit(struct ssb_bus *bus)
 {
 	if (bus->bustype != SSB_BUSTYPE_SDIO)
 		return;
-	
+	/* Nothing to do here. */
 }
 
 int ssb_sdio_init(struct ssb_bus *bus)

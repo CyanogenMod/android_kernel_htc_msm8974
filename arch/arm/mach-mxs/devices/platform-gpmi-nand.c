@@ -25,17 +25,17 @@
 const struct mxs_gpmi_nand_data mx23_gpmi_nand_data __initconst = {
 	.devid = "imx23-gpmi-nand",
 	.res = {
-		
+		/* GPMI */
 		DEFINE_RES_MEM_NAMED(MX23_GPMI_BASE_ADDR, SZ_8K,
 					GPMI_NAND_GPMI_REGS_ADDR_RES_NAME),
 		DEFINE_RES_IRQ_NAMED(MX23_INT_GPMI_ATTENTION,
 					GPMI_NAND_GPMI_INTERRUPT_RES_NAME),
-		
+		/* BCH */
 		DEFINE_RES_MEM_NAMED(MX23_BCH_BASE_ADDR, SZ_8K,
 					GPMI_NAND_BCH_REGS_ADDR_RES_NAME),
 		DEFINE_RES_IRQ_NAMED(MX23_INT_BCH,
 					GPMI_NAND_BCH_INTERRUPT_RES_NAME),
-		
+		/* DMA */
 		DEFINE_RES_NAMED(MX23_DMA_GPMI0,
 					MX23_DMA_GPMI3 - MX23_DMA_GPMI0 + 1,
 					GPMI_NAND_DMA_CHANNELS_RES_NAME,
@@ -50,17 +50,17 @@ const struct mxs_gpmi_nand_data mx23_gpmi_nand_data __initconst = {
 const struct mxs_gpmi_nand_data mx28_gpmi_nand_data __initconst = {
 	.devid = "imx28-gpmi-nand",
 	.res = {
-		
+		/* GPMI */
 		DEFINE_RES_MEM_NAMED(MX28_GPMI_BASE_ADDR, SZ_8K,
 					GPMI_NAND_GPMI_REGS_ADDR_RES_NAME),
 		DEFINE_RES_IRQ_NAMED(MX28_INT_GPMI,
 					GPMI_NAND_GPMI_INTERRUPT_RES_NAME),
-		
+		/* BCH */
 		DEFINE_RES_MEM_NAMED(MX28_BCH_BASE_ADDR, SZ_8K,
 					GPMI_NAND_BCH_REGS_ADDR_RES_NAME),
 		DEFINE_RES_IRQ_NAMED(MX28_INT_BCH,
 					GPMI_NAND_BCH_INTERRUPT_RES_NAME),
-		
+		/* DMA */
 		DEFINE_RES_NAMED(MX28_DMA_GPMI0,
 					MX28_DMA_GPMI7 - MX28_DMA_GPMI0 + 1,
 					GPMI_NAND_DMA_CHANNELS_RES_NAME,

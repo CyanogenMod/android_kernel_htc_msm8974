@@ -24,6 +24,7 @@
 #ifndef __NI_REG_H__
 #define __NI_REG_H__
 
+/* northern islands - DCE5 */
 
 #define NI_INPUT_GAMMA_CONTROL                         0x6840
 #       define NI_GRPH_INPUT_GAMMA_MODE(x)             (((x) & 0x3) << 0)

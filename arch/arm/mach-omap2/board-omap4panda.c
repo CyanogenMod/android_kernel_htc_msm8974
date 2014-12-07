@@ -53,10 +53,11 @@
 #define GPIO_HUB_NRESET		62
 #define GPIO_WIFI_PMENA		43
 #define GPIO_WIFI_IRQ		53
-#define HDMI_GPIO_CT_CP_HPD 60 
-#define HDMI_GPIO_LS_OE 41 
-#define HDMI_GPIO_HPD  63 
+#define HDMI_GPIO_CT_CP_HPD 60 /* HPD mode enable/disable */
+#define HDMI_GPIO_LS_OE 41 /* Level shifter for HDMI */
+#define HDMI_GPIO_HPD  63 /* Hotplug detect */
 
+/* wl127x BT, FM, GPS connectivity chip */
 static int wl1271_gpios[] = {46, -1, -1};
 static struct platform_device wl1271_device = {
 	.name	= "kim",
@@ -93,17 +94,17 @@ static struct platform_device leds_gpio = {
 };
 
 static struct omap_abe_twl6040_data panda_abe_audio_data = {
-	
+	/* Audio out */
 	.has_hs		= ABE_TWL6040_LEFT | ABE_TWL6040_RIGHT,
-	
+	/* HandsFree through expasion connector */
 	.has_hf		= ABE_TWL6040_LEFT | ABE_TWL6040_RIGHT,
-	
+	/* PandaBoard: FM TX, PandaBoardES: can be connected to audio out */
 	.has_aux	= ABE_TWL6040_LEFT | ABE_TWL6040_RIGHT,
-	
+	/* PandaBoard: FM RX, PandaBoardES: audio in */
 	.has_afm	= ABE_TWL6040_LEFT | ABE_TWL6040_RIGHT,
-	
+	/* No jack detection. */
 	.jack_detection	= 0,
-	
+	/* MCLK input is 38.4MHz */
 	.mclk_freq	= 38400000,
 
 };
@@ -148,7 +149,7 @@ static void __init omap4_ehci_init(void)
 	int ret;
 	struct clk *phy_ref_clk;
 
-	
+	/* FREF_CLK3 provides the 19.2 MHz reference clock to the PHY */
 	phy_ref_clk = clk_get(NULL, "auxclk3_ck");
 	if (IS_ERR(phy_ref_clk)) {
 		pr_err("Cannot request auxclk3\n");
@@ -157,7 +158,7 @@ static void __init omap4_ehci_init(void)
 	clk_set_rate(phy_ref_clk, 19200000);
 	clk_enable(phy_ref_clk);
 
-	
+	/* disable the power to the usb hub prior to init and reset phy+hub */
 	ret = gpio_request_array(panda_ehci_gpios,
 				 ARRAY_SIZE(panda_ehci_gpios));
 	if (ret) {
@@ -171,7 +172,7 @@ static void __init omap4_ehci_init(void)
 
 	usbhs_init(&usbhs_bdata);
 
-	
+	/* enable power to hub */
 	gpio_set_value(GPIO_HUB_POWER, 1);
 }
 
@@ -197,7 +198,7 @@ static struct omap2_hsmmc_info mmc[] = {
 		.ocr_mask	= MMC_VDD_165_195,
 		.nonremovable	= true,
 	},
-	{}	
+	{}	/* Terminator */
 };
 
 static struct regulator_consumer_supply omap4_panda_vmmc5_supply[] = {
@@ -214,9 +215,9 @@ static struct regulator_init_data panda_vmmc5 = {
 
 static struct fixed_voltage_config panda_vwlan = {
 	.supply_name = "vwl1271",
-	.microvolts = 1800000, 
+	.microvolts = 1800000, /* 1.8V */
 	.gpio = GPIO_WIFI_PMENA,
-	.startup_delay = 70000, 
+	.startup_delay = 70000, /* 70msec */
 	.enable_high = 1,
 	.enabled_at_boot = 0,
 	.init_data = &panda_vmmc5,
@@ -231,7 +232,7 @@ static struct platform_device omap_vwlan_device = {
 };
 
 struct wl12xx_platform_data omap_panda_wlan_data  __initdata = {
-	
+	/* PANDA ref clock is 38.4 MHz */
 	.board_ref_clock = 2,
 };
 
@@ -246,7 +247,7 @@ static int omap4_twl6030_hsmmc_late_init(struct device *dev)
 		dev_err(dev, "%s: NULL platform data\n", __func__);
 		return -EINVAL;
 	}
-	
+	/* Setting MMC1 Card detect Irq */
 	if (pdev->id == 0) {
 		irq = twl6030_mmc_card_detect_config();
 		if (irq < 0) {
@@ -263,7 +264,7 @@ static __init void omap4_twl6030_hsmmc_set_late_init(struct device *dev)
 {
 	struct omap_mmc_platform_data *pdata;
 
-	
+	/* dev can be null if CONFIG_MMC_OMAP_HS is not set */
 	if (!dev) {
 		pr_err("Failed omap4_twl6030_hsmmc_set_late_init\n");
 		return;
@@ -285,7 +286,7 @@ static int __init omap4_twl6030_hsmmc_init(struct omap2_hsmmc_info *controllers)
 }
 
 static struct twl6040_codec_data twl6040_codec = {
-	
+	/* single-step ramp for headset and handsfree */
 	.hs_left_step	= 0x0f,
 	.hs_right_step	= 0x0f,
 	.hf_left_step	= 0x1d,
@@ -298,8 +299,13 @@ static struct twl6040_platform_data twl6040_data = {
 	.irq_base	= TWL6040_CODEC_IRQ_BASE,
 };
 
+/* Panda board uses the common PMIC configuration */
 static struct twl4030_platform_data omap4_panda_twldata;
 
+/*
+ * Display monitor features are burnt in their EEPROM as EDID data. The EEPROM
+ * is connected as I2C slave device, and can be accessed at address 0x50
+ */
 static struct i2c_board_info __initdata panda_i2c_eeprom[] = {
 	{
 		I2C_BOARD_INFO("eeprom", 0x50),
@@ -321,6 +327,10 @@ static int __init omap4_panda_i2c_init(void)
 	omap4_pmic_init("twl6030", &omap4_panda_twldata,
 			&twl6040_data, OMAP44XX_IRQ_SYS_2N);
 	omap_register_i2c_bus(2, 400, NULL, 0);
+	/*
+	 * Bus 3 is attached to the DVI port where devices like the pico DLP
+	 * projector don't work reliably with 400kHz
+	 */
 	omap_register_i2c_bus(3, 100, panda_i2c_eeprom,
 					ARRAY_SIZE(panda_i2c_eeprom));
 	omap_register_i2c_bus(4, 400, NULL, 0);
@@ -329,76 +339,76 @@ static int __init omap4_panda_i2c_init(void)
 
 #ifdef CONFIG_OMAP_MUX
 static struct omap_board_mux board_mux[] __initdata = {
-	
+	/* WLAN IRQ - GPIO 53 */
 	OMAP4_MUX(GPMC_NCS3, OMAP_MUX_MODE3 | OMAP_PIN_INPUT),
-	
+	/* WLAN POWER ENABLE - GPIO 43 */
 	OMAP4_MUX(GPMC_A19, OMAP_MUX_MODE3 | OMAP_PIN_OUTPUT),
-	
+	/* WLAN SDIO: MMC5 CMD */
 	OMAP4_MUX(SDMMC5_CMD, OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLUP),
-	
+	/* WLAN SDIO: MMC5 CLK */
 	OMAP4_MUX(SDMMC5_CLK, OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLUP),
-	
+	/* WLAN SDIO: MMC5 DAT[0-3] */
 	OMAP4_MUX(SDMMC5_DAT0, OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLUP),
 	OMAP4_MUX(SDMMC5_DAT1, OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLUP),
 	OMAP4_MUX(SDMMC5_DAT2, OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLUP),
 	OMAP4_MUX(SDMMC5_DAT3, OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLUP),
-	
+	/* gpio 0 - TFP410 PD */
 	OMAP4_MUX(KPD_COL1, OMAP_PIN_OUTPUT | OMAP_MUX_MODE3),
-	
+	/* dispc2_data23 */
 	OMAP4_MUX(USBB2_ULPITLL_STP, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data22 */
 	OMAP4_MUX(USBB2_ULPITLL_DIR, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data21 */
 	OMAP4_MUX(USBB2_ULPITLL_NXT, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data20 */
 	OMAP4_MUX(USBB2_ULPITLL_DAT0, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data19 */
 	OMAP4_MUX(USBB2_ULPITLL_DAT1, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data18 */
 	OMAP4_MUX(USBB2_ULPITLL_DAT2, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data15 */
 	OMAP4_MUX(USBB2_ULPITLL_DAT3, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data14 */
 	OMAP4_MUX(USBB2_ULPITLL_DAT4, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data13 */
 	OMAP4_MUX(USBB2_ULPITLL_DAT5, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data12 */
 	OMAP4_MUX(USBB2_ULPITLL_DAT6, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data11 */
 	OMAP4_MUX(USBB2_ULPITLL_DAT7, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data10 */
 	OMAP4_MUX(DPM_EMU3, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data9 */
 	OMAP4_MUX(DPM_EMU4, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data16 */
 	OMAP4_MUX(DPM_EMU5, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data17 */
 	OMAP4_MUX(DPM_EMU6, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_hsync */
 	OMAP4_MUX(DPM_EMU7, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_pclk */
 	OMAP4_MUX(DPM_EMU8, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_vsync */
 	OMAP4_MUX(DPM_EMU9, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_de */
 	OMAP4_MUX(DPM_EMU10, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data8 */
 	OMAP4_MUX(DPM_EMU11, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data7 */
 	OMAP4_MUX(DPM_EMU12, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data6 */
 	OMAP4_MUX(DPM_EMU13, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data5 */
 	OMAP4_MUX(DPM_EMU14, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data4 */
 	OMAP4_MUX(DPM_EMU15, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data3 */
 	OMAP4_MUX(DPM_EMU16, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data2 */
 	OMAP4_MUX(DPM_EMU17, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data1 */
 	OMAP4_MUX(DPM_EMU18, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
-	
+	/* dispc2_data0 */
 	OMAP4_MUX(DPM_EMU19, OMAP_PIN_OUTPUT | OMAP_MUX_MODE5),
 	{ .reg_offset = OMAP_MUX_TERMINATOR },
 };
@@ -407,6 +417,7 @@ static struct omap_board_mux board_mux[] __initdata = {
 #define board_mux	NULL
 #endif
 
+/* Display DVI */
 #define PANDA_DVI_TFP410_POWER_DOWN_GPIO	0
 
 static int omap4_panda_enable_dvi(struct omap_dss_device *dssdev)
@@ -420,6 +431,7 @@ static void omap4_panda_disable_dvi(struct omap_dss_device *dssdev)
 	gpio_set_value(dssdev->reset_gpio, 0);
 }
 
+/* Using generic display panel */
 static struct panel_dvi_platform_data omap4_dvi_panel = {
 	.platform_enable	= omap4_panda_enable_dvi,
 	.platform_disable	= omap4_panda_disable_dvi,
@@ -440,7 +452,7 @@ int __init omap4_panda_dvi_init(void)
 {
 	int r;
 
-	
+	/* Requesting TFP410 DVI GPIO and disabling it, at bootup */
 	r = gpio_request_one(omap4_panda_dvi_device.reset_gpio,
 				GPIOF_OUT_INIT_LOW, "DVI PD");
 	if (r)
@@ -507,6 +519,10 @@ void __init omap4_panda_display_init(void)
 
 	omap_display_init(&omap4_panda_dss_data);
 
+	/*
+	 * OMAP4460SDP/Blaze and OMAP4430 ES2.3 SDP/Blaze boards and
+	 * later have external pull up on the HDMI I2C lines
+	 */
 	if (cpu_is_omap446x() || omap_rev() > OMAP4430_REV_ES2_2)
 		omap_hdmi_init(OMAP_HDMI_SDA_SCL_EXTERNAL_PULLUP);
 	else
@@ -520,13 +536,13 @@ void __init omap4_panda_display_init(void)
 static void omap4_panda_init_rev(void)
 {
 	if (cpu_is_omap443x()) {
-		
-		
+		/* PandaBoard 4430 */
+		/* ASoC audio configuration */
 		panda_abe_audio_data.card_name = "PandaBoard";
 		panda_abe_audio_data.has_hsmic = 1;
 	} else {
-		
-		
+		/* PandaBoard ES */
+		/* ASoC audio configuration */
 		panda_abe_audio_data.card_name = "PandaBoardES";
 	}
 }
@@ -558,7 +574,7 @@ static void __init omap4_panda_init(void)
 }
 
 MACHINE_START(OMAP4_PANDA, "OMAP4 Panda board")
-	
+	/* Maintainer: David Anders - Texas Instruments Inc */
 	.atag_offset	= 0x100,
 	.reserve	= omap_reserve,
 	.map_io		= omap4_map_io,

@@ -75,6 +75,11 @@ static int proc_ipc_callback_dointvec(ctl_table *table, int write,
 	rc = proc_dointvec(&ipc_table, write, buffer, lenp, ppos);
 
 	if (write && !rc && lenp_bef == *lenp)
+		/*
+		 * Tunable has successfully been changed by hand. Disable its
+		 * automatic adjustment. This simply requires unregistering
+		 * the notifiers that trigger recalculation.
+		 */
 		unregister_ipcns_notifier(current->nsproxy->ipc_ns);
 
 	return rc;
@@ -105,6 +110,10 @@ static void ipc_auto_callback(int val)
 	if (!val)
 		unregister_ipcns_notifier(current->nsproxy->ipc_ns);
 	else {
+		/*
+		 * Re-enable automatic recomputing only if not already
+		 * enabled.
+		 */
 		recompute_msgmni(current->nsproxy->ipc_ns);
 		cond_register_ipcns_notifier(current->nsproxy->ipc_ns);
 	}
@@ -126,6 +135,11 @@ static int proc_ipcauto_dointvec_minmax(ctl_table *table, int write,
 
 	if (write && !rc && lenp_bef == *lenp) {
 		int newval = *((int *)(ipc_table.data));
+		/*
+		 * The file "auto_msgmni" has correctly been set.
+		 * React by (un)registering the corresponding tunable, if the
+		 * value has changed.
+		 */
 		if (newval != oldval)
 			ipc_auto_callback(newval);
 	}

@@ -6,4 +6,4 @@
 
 #include <asm-generic/irqflags.h>
 
-#endif 
+#endif /* __ASM_SH_IRQFLAGS_H */

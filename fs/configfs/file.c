@@ -33,6 +33,12 @@
 #include <linux/configfs.h>
 #include "configfs_internal.h"
 
+/*
+ * A simple attribute can only be 4096 characters.  Why 4k?  Because the
+ * original code limited it to PAGE_SIZE.  That's a bad idea, though,
+ * because an attribute of 16k on ia64 won't work on x86.  So we limit to
+ * 4k, our minimum common page size.
+ */
 #define SIMPLE_ATTR_SIZE 4096
 
 struct configfs_buffer {
@@ -45,6 +51,16 @@ struct configfs_buffer {
 };
 
 
+/**
+ *	fill_read_buffer - allocate and fill buffer from item.
+ *	@dentry:	dentry pointer.
+ *	@buffer:	data buffer for file.
+ *
+ *	Allocate @buffer->page, if it hasn't been already, then call the
+ *	config_item's show() method to fill the buffer with this attribute's
+ *	data.
+ *	This is called only once, on the file's first read.
+ */
 static int fill_read_buffer(struct dentry * dentry, struct configfs_buffer * buffer)
 {
 	struct configfs_attribute * attr = to_attr(dentry);
@@ -68,6 +84,24 @@ static int fill_read_buffer(struct dentry * dentry, struct configfs_buffer * buf
 	return ret;
 }
 
+/**
+ *	configfs_read_file - read an attribute.
+ *	@file:	file pointer.
+ *	@buf:	buffer to fill.
+ *	@count:	number of bytes to read.
+ *	@ppos:	starting offset in file.
+ *
+ *	Userspace wants to read an attribute file. The attribute descriptor
+ *	is in the file's ->d_fsdata. The target item is in the directory's
+ *	->d_fsdata.
+ *
+ *	We call fill_read_buffer() to allocate and fill the buffer from the
+ *	item's show() method exactly once (if the read is happening from
+ *	the beginning of the file). That should fill the entire buffer with
+ *	all the data the item has to offer for that attribute.
+ *	We then call flush_read_buffer() to copy the buffer to userspace
+ *	in the increments specified.
+ */
 
 static ssize_t
 configfs_read_file(struct file *file, char __user *buf, size_t count, loff_t *ppos)
@@ -90,6 +124,15 @@ out:
 }
 
 
+/**
+ *	fill_write_buffer - copy buffer from userspace.
+ *	@buffer:	data buffer for file.
+ *	@buf:		data from user.
+ *	@count:		number of bytes in @userbuf.
+ *
+ *	Allocate @buffer->page if it hasn't been already, then
+ *	copy the user-supplied buffer into it.
+ */
 
 static int
 fill_write_buffer(struct configfs_buffer * buffer, const char __user * buf, size_t count)
@@ -105,11 +148,23 @@ fill_write_buffer(struct configfs_buffer * buffer, const char __user * buf, size
 		count = SIMPLE_ATTR_SIZE - 1;
 	error = copy_from_user(buffer->page,buf,count);
 	buffer->needs_read_fill = 1;
+	/* if buf is assumed to contain a string, terminate it by \0,
+	 * so e.g. sscanf() can scan the string easily */
 	buffer->page[count] = 0;
 	return error ? -EFAULT : count;
 }
 
 
+/**
+ *	flush_write_buffer - push buffer to config_item.
+ *	@dentry:	dentry to the attribute
+ *	@buffer:	data buffer for file.
+ *	@count:		number of bytes
+ *
+ *	Get the correct pointers for the config_item and the attribute we're
+ *	dealing with, then call the store() method for the attribute,
+ *	passing the buffer that we acquired in fill_write_buffer().
+ */
 
 static int
 flush_write_buffer(struct dentry * dentry, struct configfs_buffer * buffer, size_t count)
@@ -122,6 +177,22 @@ flush_write_buffer(struct dentry * dentry, struct configfs_buffer * buffer, size
 }
 
 
+/**
+ *	configfs_write_file - write an attribute.
+ *	@file:	file pointer
+ *	@buf:	data to write
+ *	@count:	number of bytes
+ *	@ppos:	starting offset
+ *
+ *	Similar to configfs_read_file(), though working in the opposite direction.
+ *	We allocate and fill the data from the user in fill_write_buffer(),
+ *	then push it to the config_item in flush_write_buffer().
+ *	There is no easy way for us to know if userspace is only doing a partial
+ *	write, so we don't support them. We expect the entire buffer to come
+ *	on the first write.
+ *	Hint: if you're writing a value, first read the file, modify only the
+ *	the value you're changing, then write entire buffer back.
+ */
 
 static ssize_t
 configfs_write_file(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
@@ -150,7 +221,7 @@ static int check_perm(struct inode * inode, struct file * file)
 	if (!item || !attr)
 		goto Einval;
 
-	
+	/* Grab the module reference for this attribute if we have one */
 	if (!try_module_get(attr->ca_owner)) {
 		error = -ENODEV;
 		goto Done;
@@ -161,6 +232,10 @@ static int check_perm(struct inode * inode, struct file * file)
 	else
 		goto Eaccess;
 
+	/* File needs write support.
+	 * The inode's perms must say it's ok,
+	 * and we must have a store method.
+	 */
 	if (file->f_mode & FMODE_WRITE) {
 
 		if (!(inode->i_mode & S_IWUGO) || !ops->store_attribute)
@@ -168,11 +243,18 @@ static int check_perm(struct inode * inode, struct file * file)
 
 	}
 
+	/* File needs read support.
+	 * The inode's perms must say it's ok, and we there
+	 * must be a show method for it.
+	 */
 	if (file->f_mode & FMODE_READ) {
 		if (!(inode->i_mode & S_IRUGO) || !ops->show_attribute)
 			goto Eaccess;
 	}
 
+	/* No error? Great, allocate a buffer for the file, and store it
+	 * it in file->private_data for easy access.
+	 */
 	buffer = kzalloc(sizeof(struct configfs_buffer),GFP_KERNEL);
 	if (!buffer) {
 		error = -ENOMEM;
@@ -211,7 +293,7 @@ static int configfs_release(struct inode * inode, struct file * filp)
 
 	if (item)
 		config_item_put(item);
-	
+	/* After this point, attr should not be accessed. */
 	module_put(owner);
 
 	if (buffer) {
@@ -246,6 +328,11 @@ int configfs_add_file(struct dentry * dir, const struct configfs_attribute * att
 }
 
 
+/**
+ *	configfs_create_file - create an attribute file for an item.
+ *	@item:	item we're creating for.
+ *	@attr:	atrribute descriptor.
+ */
 
 int configfs_create_file(struct config_item * item, const struct configfs_attribute * attr)
 {

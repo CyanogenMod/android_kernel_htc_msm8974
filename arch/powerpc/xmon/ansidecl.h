@@ -85,9 +85,15 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 #define	_ANSIDECL_H	1
 
 
+/* Every source file includes this file,
+   so they will all get the switch for lint.  */
+/* LINTLIBRARY */
 
 
 #if defined (__STDC__) || defined (_AIX) || (defined (__mips) && defined (_SYSTYPE_SVR4)) || defined(WIN32)
+/* All known AIX compilers implement these things (but don't always
+   define __STDC__).  The RISC/OS MIPS compiler defines these things
+   in SVR4 mode, but does not define __STDC__.  */
 
 #define	PTR		void *
 #define	PTRCONST	void *CONST
@@ -108,7 +114,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 #define PARAMS(paramlist)		paramlist
 #define ANSI_PROTOTYPES			1
 
-#else	
+#else	/* Not ANSI C.  */
 
 #define	PTR		char *
 #define	PTRCONST	PTR
@@ -117,7 +123,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 #define	AND		;
 #define	NOARGS
 #define	CONST
-#ifndef const 
+#ifndef const /* some systems define it in header files for non-ansi mode */
 #define	const
 #endif
 #define	VOLATILE
@@ -130,6 +136,6 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
 #define PROTO(type, name, arglist) type name ()
 #define PARAMS(paramlist)		()
 
-#endif	
+#endif	/* ANSI C.  */
 
-#endif	
+#endif	/* ansidecl.h	*/

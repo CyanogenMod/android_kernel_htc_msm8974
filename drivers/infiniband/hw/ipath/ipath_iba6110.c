@@ -31,6 +31,10 @@
  * SOFTWARE.
  */
 
+/*
+ * This file contains all of the code that is specific to the InfiniPath
+ * HT chip.
+ */
 
 #include <linux/vmalloc.h>
 #include <linux/pci.h>
@@ -44,6 +48,14 @@
 static void ipath_setup_ht_setextled(struct ipath_devdata *, u64, u64);
 
 
+/*
+ * This lists the InfiniPath registers, in the actual chip layout.
+ * This structure should never be directly accessed.
+ *
+ * The names are in InterCap form because they're taken straight from
+ * the chip specification.  Since they're only used in this file, they
+ * don't pollute the rest of the source.
+*/
 
 struct _infinipath_do_not_use_kernel_regs {
 	unsigned long long Revision;
@@ -126,9 +138,9 @@ struct _infinipath_do_not_use_kernel_regs {
 	unsigned long long RcvHdrTailAddr7;
 	unsigned long long RcvHdrTailAddr8;
 	unsigned long long ReservedRHTA[7];
-	unsigned long long Sync;	
-	unsigned long long Dump;	
-	unsigned long long SimVer;	
+	unsigned long long Sync;	/* Software only */
+	unsigned long long Dump;	/* Software only */
+	unsigned long long SimVer;	/* Software only */
 	unsigned long long ReservedSW[5];
 	unsigned long long SerdesConfig0;
 	unsigned long long SerdesConfig1;
@@ -247,6 +259,10 @@ static const struct ipath_kregs ipath_ht_kregs = {
 	.kr_serdesconfig1 = IPATH_KREG_OFFSET(SerdesConfig1),
 	.kr_serdesstatus = IPATH_KREG_OFFSET(SerdesStatus),
 	.kr_xgxsconfig = IPATH_KREG_OFFSET(XGXSConfig),
+	/*
+	 * These should not be used directly via ipath_write_kreg64(),
+	 * use them with ipath_write_kreg64_port(),
+	 */
 	.kr_rcvhdraddr = IPATH_KREG_OFFSET(RcvHdrAddr0),
 	.kr_rcvhdrtailaddr = IPATH_KREG_OFFSET(RcvHdrTailAddr0)
 };
@@ -264,7 +280,7 @@ static const struct ipath_cregs ipath_ht_cregs = {
 	.cr_errtidvalid = IPATH_CREG_OFFSET(RxTIDValidErrCnt),
 	.cr_errvcrccnt = IPATH_CREG_OFFSET(RxVCRCErrCnt),
 	.cr_ibstatuschange = IPATH_CREG_OFFSET(IBStatusChangeCnt),
-	
+	/* calc from Reg_CounterRegBase + offset */
 	.cr_intcnt = IPATH_CREG_OFFSET(LBIntCnt),
 	.cr_invalidrlencnt = IPATH_CREG_OFFSET(RxMaxMinLenErrCnt),
 	.cr_invalidslencnt = IPATH_CREG_OFFSET(TxMaxMinLenErrCnt),
@@ -288,11 +304,13 @@ static const struct ipath_cregs ipath_ht_cregs = {
 	.cr_ibsymbolerrcnt = IPATH_CREG_OFFSET(IBSymbolErrCnt)
 };
 
+/* kr_intstatus, kr_intclear, kr_intmask bits */
 #define INFINIPATH_I_RCVURG_MASK ((1U<<9)-1)
 #define INFINIPATH_I_RCVURG_SHIFT 0
 #define INFINIPATH_I_RCVAVAIL_MASK ((1U<<9)-1)
 #define INFINIPATH_I_RCVAVAIL_SHIFT 12
 
+/* kr_hwerrclear, kr_hwerrmask, kr_hwerrstatus, bits */
 #define INFINIPATH_HWE_HTCMEMPARITYERR_SHIFT 0
 #define INFINIPATH_HWE_HTCMEMPARITYERR_MASK 0x3FFFFFULL
 #define INFINIPATH_HWE_HTCLNKABYTE0CRCERR   0x0000000000800000ULL
@@ -317,13 +335,15 @@ static const struct ipath_cregs ipath_ht_cregs = {
 #define IBA6110_IBCS_LINKTRAININGSTATE_MASK 0xf
 #define IBA6110_IBCS_LINKSTATE_SHIFT 4
 
+/* kr_extstatus bits */
 #define INFINIPATH_EXTS_FREQSEL 0x2
 #define INFINIPATH_EXTS_SERDESSEL 0x4
 #define INFINIPATH_EXTS_MEMBIST_ENDTEST     0x0000000000004000
 #define INFINIPATH_EXTS_MEMBIST_CORRECT     0x0000000000008000
 
 
-#define INFINIPATH_RT_ADDR_MASK 0xFFFFFFFFFFULL	
+/* TID entries (memory), HT-only */
+#define INFINIPATH_RT_ADDR_MASK 0xFFFFFFFFFFULL	/* 40 bits valid */
 #define INFINIPATH_RT_VALID 0x8000000000000000ULL
 #define INFINIPATH_RT_ADDR_SHIFT 0
 #define INFINIPATH_RT_BUFSIZE_MASK 0x3FFFULL
@@ -332,8 +352,13 @@ static const struct ipath_cregs ipath_ht_cregs = {
 #define INFINIPATH_R_INTRAVAIL_SHIFT 16
 #define INFINIPATH_R_TAILUPD_SHIFT 31
 
+/* kr_xgxsconfig bits */
 #define INFINIPATH_XGXS_RESET          0x7ULL
 
+/*
+ * masks and bits that are different in different chips, or present only
+ * in one
+ */
 static const ipath_err_t infinipath_hwe_htcmemparityerr_mask =
     INFINIPATH_HWE_HTCMEMPARITYERR_MASK;
 static const ipath_err_t infinipath_hwe_htcmemparityerr_shift =
@@ -356,6 +381,7 @@ static const ipath_err_t infinipath_hwe_htclnkbbyte1crcerr =
 #define IPATH_GPIO_SCL \
 	(1ULL << (_IPATH_GPIO_SCL_NUM+INFINIPATH_EXTC_GPIOOE_SHIFT))
 
+/* keep the code below somewhat more readable; not used elsewhere */
 #define _IPATH_HTLINK0_CRCBITS (infinipath_hwe_htclnkabyte0crcerr |	\
 				infinipath_hwe_htclnkabyte1crcerr)
 #define _IPATH_HTLINK1_CRCBITS (infinipath_hwe_htclnkbbyte0crcerr |	\
@@ -371,12 +397,16 @@ static void hwerr_crcbits(struct ipath_devdata *dd, ipath_err_t hwerrs,
 	char bitsmsg[64];
 	ipath_err_t crcbits = hwerrs &
 		(_IPATH_HTLINK0_CRCBITS | _IPATH_HTLINK1_CRCBITS);
-	
+	/* don't check if 8bit HT */
 	if (dd->ipath_flags & IPATH_8BIT_IN_HT0)
 		crcbits &= ~infinipath_hwe_htclnkabyte1crcerr;
-	
+	/* don't check if 8bit HT */
 	if (dd->ipath_flags & IPATH_8BIT_IN_HT1)
 		crcbits &= ~infinipath_hwe_htclnkbbyte1crcerr;
+	/*
+	 * we'll want to ignore link errors on link that is
+	 * not in use, if any.  For now, complain about both
+	 */
 	if (crcbits) {
 		u16 ctrl0, ctrl1;
 		snprintf(bitsmsg, sizeof bitsmsg,
@@ -389,6 +419,10 @@ static void hwerr_crcbits(struct ipath_devdata *dd, ipath_err_t hwerrs,
 			    "0+1"), (unsigned long long) crcbits);
 		strlcat(msg, bitsmsg, msgl);
 
+		/*
+		 * print extra info for debugging.  slave/primary
+		 * config word 4, 8 (link control 0, 1)
+		 */
 
 		if (pci_read_config_word(dd->pcidev,
 					 dd->ipath_ht_slave_off + 0x4,
@@ -397,7 +431,7 @@ static void hwerr_crcbits(struct ipath_devdata *dd, ipath_err_t hwerrs,
 				 "linkctrl0 of slave/primary "
 				 "config block\n");
 		else if (!(ctrl0 & 1 << 6))
-			
+			/* not if EOC bit set */
 			ipath_dbg("HT linkctrl0 0x%x%s%s\n", ctrl0,
 				  ((ctrl0 >> 8) & 7) ? " CRC" : "",
 				  ((ctrl0 >> 4) & 1) ? "linkfail" :
@@ -409,13 +443,13 @@ static void hwerr_crcbits(struct ipath_devdata *dd, ipath_err_t hwerrs,
 				 "linkctrl1 of slave/primary "
 				 "config block\n");
 		else if (!(ctrl1 & 1 << 6))
-			
+			/* not if EOC bit set */
 			ipath_dbg("HT linkctrl1 0x%x%s%s\n", ctrl1,
 				  ((ctrl1 >> 8) & 7) ? " CRC" : "",
 				  ((ctrl1 >> 4) & 1) ? "linkfail" :
 				  "");
 
-		
+		/* disable until driver reloaded */
 		dd->ipath_hwerrmask &= ~crcbits;
 		ipath_write_kreg(dd, dd->ipath_kregs->kr_hwerrmask,
 				 dd->ipath_hwerrmask);
@@ -427,6 +461,7 @@ static void hwerr_crcbits(struct ipath_devdata *dd, ipath_err_t hwerrs,
 				     _IPATH_HTLINK1_CRCBITS)));
 }
 
+/* 6110 specific hardware errors... */
 static const struct ipath_hwerror_msgs ipath_6110_hwerror_msgs[] = {
 	INFINIPATH_HWE_MSG(HTCBUSIREQPARITYERR, "HTC Ireq Parity"),
 	INFINIPATH_HWE_MSG(HTCBUSTREQPARITYERR, "HTC Treq Parity"),
@@ -452,6 +487,17 @@ static void ipath_ht_txe_recover(struct ipath_devdata *dd)
 }
 
 
+/**
+ * ipath_ht_handle_hwerrors - display hardware errors.
+ * @dd: the infinipath device
+ * @msg: the output buffer
+ * @msgl: the size of the output buffer
+ *
+ * Use same msg buffer as regular errors to avoid excessive stack
+ * use.  Most hardware errors are catastrophic, but for right now,
+ * we'll print them and continue.  We reuse the same message buffer as
+ * ipath_handle_errors() to avoid excessive stack usage.
+ */
 static void ipath_ht_handle_hwerrors(struct ipath_devdata *dd, char *msg,
 				     size_t msgl)
 {
@@ -465,6 +511,11 @@ static void ipath_ht_handle_hwerrors(struct ipath_devdata *dd, char *msg,
 
 	if (!hwerrs) {
 		ipath_cdbg(VERBOSE, "Called but no hardware errors set\n");
+		/*
+		 * better than printing cofusing messages
+		 * This seems to be related to clearing the crc error, or
+		 * the pll error during init.
+		 */
 		goto bail;
 	} else if (hwerrs == -1LL) {
 		ipath_dev_err(dd, "Read of hardware error status failed "
@@ -473,16 +524,26 @@ static void ipath_ht_handle_hwerrors(struct ipath_devdata *dd, char *msg,
 	}
 	ipath_stats.sps_hwerrs++;
 
+	/* Always clear the error status register, except MEMBISTFAIL,
+	 * regardless of whether we continue or stop using the chip.
+	 * We want that set so we know it failed, even across driver reload.
+	 * We'll still ignore it in the hwerrmask.  We do this partly for
+	 * diagnostics, but also for support */
 	ipath_write_kreg(dd, dd->ipath_kregs->kr_hwerrclear,
 			 hwerrs&~INFINIPATH_HWE_MEMBISTFAILED);
 
 	hwerrs &= dd->ipath_hwerrmask;
 
-	
+	/* We log some errors to EEPROM, check if we have any of those. */
 	for (log_idx = 0; log_idx < IPATH_EEP_LOG_CNT; ++log_idx)
 		if (hwerrs & dd->ipath_eep_st_masks[log_idx].hwerrs_to_log)
 			ipath_inc_eeprom_err(dd, log_idx, 1);
 
+	/*
+	 * make sure we get this much out, unless told to be quiet,
+	 * it's a parity error we may recover from,
+	 * or it's occurred within the last 5 seconds
+	 */
 	if ((hwerrs & ~(dd->ipath_lasthwerror | TXE_PIO_PARITY |
 		RXE_EAGER_PARITY)) ||
 		(ipath_debug & __IPATH_VERBDBG))
@@ -497,6 +558,14 @@ static void ipath_ht_handle_hwerrors(struct ipath_devdata *dd, char *msg,
 
 	ctrl = ipath_read_kreg32(dd, dd->ipath_kregs->kr_control);
 	if ((ctrl & INFINIPATH_C_FREEZEMODE) && !ipath_diag_inuse) {
+		/*
+		 * parity errors in send memory are recoverable,
+		 * just cancel the send (if indicated in * sendbuffererror),
+		 * count the occurrence, unfreeze (if no other handled
+		 * hardware error bits are set), and continue. They can
+		 * occur if a processor speculative read is done to the PIO
+		 * buffer while we are sending a packet, for example.
+		 */
 		if (hwerrs & TXE_PIO_PARITY) {
 			ipath_ht_txe_recover(dd);
 			hwerrs &= ~TXE_PIO_PARITY;
@@ -511,6 +580,10 @@ static void ipath_ht_handle_hwerrors(struct ipath_devdata *dd, char *msg,
 
 	*msg = '\0';
 
+	/*
+	 * may someday want to decode into which bits are which
+	 * functional area for parity errors, etc.
+	 */
 	if (hwerrs & (infinipath_hwe_htcmemparityerr_mask
 		      << INFINIPATH_HWE_HTCMEMPARITYERR_SHIFT)) {
 		bits = (u32) ((hwerrs >>
@@ -533,7 +606,7 @@ static void ipath_ht_handle_hwerrors(struct ipath_devdata *dd, char *msg,
 	if (hwerrs & INFINIPATH_HWE_MEMBISTFAILED) {
 		strlcat(msg, "[Memory BIST test failed, InfiniPath hardware unusable]",
 			msgl);
-		
+		/* ignore from now on, so disable until driver reloaded */
 		dd->ipath_hwerrmask &= ~INFINIPATH_HWE_MEMBISTFAILED;
 		ipath_write_kreg(dd, dd->ipath_kregs->kr_hwerrmask,
 				 dd->ipath_hwerrmask);
@@ -550,19 +623,31 @@ static void ipath_ht_handle_hwerrors(struct ipath_devdata *dd, char *msg,
 			 "[PLL failed (%llx), InfiniPath hardware unusable]",
 			 (unsigned long long) (hwerrs & _IPATH_PLL_FAIL));
 		strlcat(msg, bitsmsg, msgl);
-		
+		/* ignore from now on, so disable until driver reloaded */
 		dd->ipath_hwerrmask &= ~(hwerrs & _IPATH_PLL_FAIL);
 		ipath_write_kreg(dd, dd->ipath_kregs->kr_hwerrmask,
 				 dd->ipath_hwerrmask);
 	}
 
 	if (hwerrs & INFINIPATH_HWE_SERDESPLLFAILED) {
+		/*
+		 * If it occurs, it is left masked since the eternal
+		 * interface is unused
+		 */
 		dd->ipath_hwerrmask &= ~INFINIPATH_HWE_SERDESPLLFAILED;
 		ipath_write_kreg(dd, dd->ipath_kregs->kr_hwerrmask,
 				 dd->ipath_hwerrmask);
 	}
 
 	if (hwerrs) {
+		/*
+		 * if any set that we aren't ignoring; only
+		 * make the complaint once, in case it's stuck
+		 * or recurring, and we get here multiple
+		 * times.
+		 * force link down, so switch knows, and
+		 * LEDs are turned off
+		 */
 		if (dd->ipath_flags & IPATH_INITTED) {
 			ipath_set_linkstate(dd, IPATH_IB_LINKDOWN);
 			ipath_setup_ht_setextled(dd,
@@ -574,21 +659,38 @@ static void ipath_ht_handle_hwerrors(struct ipath_devdata *dd, char *msg,
 			isfatal = 1;
 		}
 		*dd->ipath_statusp &= ~IPATH_STATUS_IB_READY;
-		
+		/* mark as having had error */
 		*dd->ipath_statusp |= IPATH_STATUS_HWERROR;
+		/*
+		 * mark as not usable, at a minimum until driver
+		 * is reloaded, probably until reboot, since no
+		 * other reset is possible.
+		 */
 		dd->ipath_flags &= ~IPATH_INITTED;
 	}
 	else
-		*msg = 0; 
+		*msg = 0; /* recovered from all of them */
 	if (*msg)
 		ipath_dev_err(dd, "%s hardware error\n", msg);
 	if (isfatal && !ipath_diag_inuse && dd->ipath_freezemsg)
+		/*
+		 * for status file; if no trailing brace is copied,
+		 * we'll know it was truncated.
+		 */
 		snprintf(dd->ipath_freezemsg,
 			 dd->ipath_freezelen, "{%s}", msg);
 
 bail:;
 }
 
+/**
+ * ipath_ht_boardname - fill in the board name
+ * @dd: the infinipath device
+ * @name: the output buffer
+ * @namelen: the size of the output buffer
+ *
+ * fill in the board name, based on the board revision register
+ */
 static int ipath_ht_boardname(struct ipath_devdata *dd, char *name,
 			      size_t namelen)
 {
@@ -598,13 +700,19 @@ static int ipath_ht_boardname(struct ipath_devdata *dd, char *name,
 
 	switch (boardrev) {
 	case 5:
+		/*
+		 * original production board; two production levels, with
+		 * different serial number ranges.   See ipath_ht_early_init() for
+		 * case where we enable IPATH_GPIO_INTR for later serial # range.
+		 * Original 112* serial number is no longer supported.
+		 */
 		n = "InfiniPath_QHT7040";
 		break;
 	case 7:
-		
+		/* small form factor production board */
 		n = "InfiniPath_QHT7140";
 		break;
-	default:		
+	default:		/* don't know, just print the number */
 		ipath_dev_err(dd, "Don't yet know about board "
 			      "with ID %u\n", boardrev);
 		snprintf(name, namelen, "Unknown_InfiniPath_QHT7xxx_%u",
@@ -620,12 +728,20 @@ static int ipath_ht_boardname(struct ipath_devdata *dd, char *name,
 	}
 	if (dd->ipath_majrev != 3 || (dd->ipath_minrev < 2 ||
 		dd->ipath_minrev > 4)) {
+		/*
+		 * This version of the driver only supports Rev 3.2 - 3.4
+		 */
 		ipath_dev_err(dd,
 			      "Unsupported InfiniPath hardware revision %u.%u!\n",
 			      dd->ipath_majrev, dd->ipath_minrev);
 		ret = 1;
 		goto bail;
 	}
+	/*
+	 * pkt/word counters are 32 bit, and therefore wrap fast enough
+	 * that we snapshot them from a timer, and maintain 64 bit shadow
+	 * copies
+	 */
 	dd->ipath_flags |= IPATH_32BITCOUNTERS;
 	dd->ipath_flags |= IPATH_GPIO_INTR;
 	if (dd->ipath_lbus_speed != 800)
@@ -633,6 +749,10 @@ static int ipath_ht_boardname(struct ipath_devdata *dd, char *name,
 			      "Incorrectly configured for HT @ %uMHz\n",
 			      dd->ipath_lbus_speed);
 
+	/*
+	 * set here, not in ipath_init_*_funcs because we have to do
+	 * it after we can read chip registers.
+	 */
 	dd->ipath_ureg_align =
 		ipath_read_kreg32(dd, dd->ipath_kregs->kr_pagealign);
 
@@ -653,6 +773,10 @@ static void ipath_check_htlink(struct ipath_devdata *dd)
 		else if (linkerr & 0xf0) {
 			ipath_cdbg(VERBOSE, "HT linkerr%d bits 0x%x set, "
 				   "clearing\n", linkerr >> 4, i);
+			/*
+			 * writing the linkerr bits that are set should
+			 * clear them
+			 */
 			if (pci_write_config_byte(dd->pcidev, link_off,
 						  linkerr))
 				ipath_dbg("Failed write to clear HT "
@@ -677,9 +801,17 @@ static int ipath_setup_ht_reset(struct ipath_devdata *dd)
 	return 0;
 }
 
-#define HT_INTR_DISC_CONFIG  0x80	
-#define HT_INTR_REG_INDEX    2	
+#define HT_INTR_DISC_CONFIG  0x80	/* HT interrupt and discovery cap */
+#define HT_INTR_REG_INDEX    2	/* intconfig requires indirect accesses */
 
+/*
+ * Bits 13-15 of command==0 is slave/primary block.  Clear any HT CRC
+ * errors.  We only bother to do this at load time, because it's OK if
+ * it happened before we were loaded (first time after boot/reset),
+ * but any time after that, it's fatal anyway.  Also need to not check
+ * for upper byte errors if we are in 8 bit mode, so figure out
+ * our width.  For now, at least, also complain if it's 8 bit.
+ */
 static void slave_or_pri_blk(struct ipath_devdata *dd, struct pci_dev *pdev,
 			     int pos, u8 cap_type)
 {
@@ -688,8 +820,8 @@ static void slave_or_pri_blk(struct ipath_devdata *dd, struct pci_dev *pdev,
 	int i;
 
 	dd->ipath_ht_slave_off = pos;
-	
-	
+	/* command word, master_host bit */
+	/* master host || slave */
 	if ((cap_type >> 2) & 1)
 		link_a_b_off = 4;
 	else
@@ -700,6 +832,10 @@ static void slave_or_pri_blk(struct ipath_devdata *dd, struct pci_dev *pdev,
 
 	link_a_b_off += pos;
 
+	/*
+	 * check both link control registers; clear both HT CRC sets if
+	 * necessary.
+	 */
 	for (i = 0; i < 2; i++) {
 		link_off = pos + i * 4 + 0x4;
 		if (pci_read_config_word(pdev, link_off, &linkctrl))
@@ -708,11 +844,18 @@ static void slave_or_pri_blk(struct ipath_devdata *dd, struct pci_dev *pdev,
 		else if (linkctrl & (0xf << 8)) {
 			ipath_cdbg(VERBOSE, "Clear linkctrl%d CRC Error "
 				   "bits %x\n", i, linkctrl & (0xf << 8));
+			/*
+			 * now write them back to clear the error.
+			 */
 			pci_write_config_word(pdev, link_off,
 					      linkctrl & (0xf << 8));
 		}
 	}
 
+	/*
+	 * As with HT CRC bits, same for protocol errors that might occur
+	 * during boot.
+	 */
 	for (i = 0; i < 2; i++) {
 		link_off = pos + i * 4 + 0xd;
 		if (pci_read_config_byte(pdev, link_off, &linkerr))
@@ -721,6 +864,10 @@ static void slave_or_pri_blk(struct ipath_devdata *dd, struct pci_dev *pdev,
 		else if (linkerr & 0xf0) {
 			ipath_cdbg(VERBOSE, "HT linkerr%d bits 0x%x set, "
 				   "clearing\n", linkerr >> 4, i);
+			/*
+			 * writing the linkerr bits that are set will clear
+			 * them
+			 */
 			if (pci_write_config_byte
 			    (pdev, link_off, linkerr))
 				ipath_dbg("Failed write to clear HT "
@@ -736,6 +883,10 @@ static void slave_or_pri_blk(struct ipath_devdata *dd, struct pci_dev *pdev,
 		}
 	}
 
+	/*
+	 * this is just for our link to the host, not devices connected
+	 * through tunnel.
+	 */
 
 	if (pci_read_config_byte(pdev, link_a_b_off + 7, &linkwidth))
 		ipath_dev_err(dd, "Couldn't read HT link width "
@@ -756,7 +907,7 @@ static void slave_or_pri_blk(struct ipath_devdata *dd, struct pci_dev *pdev,
 			width = 16;
 			break;
 		case 0:
-		default:	
+		default:	/* if wrong, assume 8 bit */
 			width = 8;
 			break;
 		}
@@ -773,6 +924,10 @@ static void slave_or_pri_blk(struct ipath_devdata *dd, struct pci_dev *pdev,
 		}
 	}
 
+	/*
+	 * this is just for our link to the host, not devices connected
+	 * through tunnel.
+	 */
 	if (pci_read_config_byte(pdev, link_a_b_off + 0xd, &linkwidth))
 		ipath_dev_err(dd, "Couldn't read HT link frequency "
 			      "config register\n");
@@ -798,6 +953,9 @@ static void slave_or_pri_blk(struct ipath_devdata *dd, struct pci_dev *pdev,
 			speed = 300;
 			break;
 		default:
+			/*
+			 * assume reserved and vendor-specific are 200...
+			 */
 		case 0:
 			speed = 200;
 			break;
@@ -817,7 +975,7 @@ static int ipath_ht_intconfig(struct ipath_devdata *dd)
 
 	if (dd->ipath_intconfig) {
 		ipath_write_kreg(dd, dd->ipath_kregs->kr_interruptconfig,
-				 dd->ipath_intconfig);	
+				 dd->ipath_intconfig);	/* interrupt address */
 		ret = 0;
 	} else {
 		ipath_dev_err(dd, "No interrupts enabled, couldn't setup "
@@ -837,10 +995,26 @@ static void ipath_ht_irq_update(struct pci_dev *dev, int irq,
 	dd->ipath_intconfig = msg->address_lo;
 	dd->ipath_intconfig |= ((u64) msg->address_hi) << 32;
 
+	/*
+	 * If the previous value of dd->ipath_intconfig is zero, we're
+	 * getting configured for the first time, and must not program the
+	 * intconfig register here (it will be programmed later, when the
+	 * hardware is ready).  Otherwise, we should.
+	 */
 	if (prev_intconfig)
 		ipath_ht_intconfig(dd);
 }
 
+/**
+ * ipath_setup_ht_config - setup the interruptconfig register
+ * @dd: the infinipath device
+ * @pdev: the PCI device
+ *
+ * setup the interruptconfig register from the HT config info.
+ * Also clear CRC errors in HT linkcontrol, if necessary.
+ * This is done only for the real hardware.  It is done before
+ * chip address space is initted, so can't touch infinipath registers
+ */
 static int ipath_setup_ht_config(struct ipath_devdata *dd,
 				 struct pci_dev *pdev)
 {
@@ -855,6 +1029,11 @@ static int ipath_setup_ht_config(struct ipath_devdata *dd,
 	dd->ipath_irq = ret;
 	ret = 0;
 
+	/*
+	 * Handle clearing CRC errors in linkctrl register if necessary.  We
+	 * do this early, before we ever enable errors or hardware errors,
+	 * mostly to avoid causing the chip to enter freeze mode.
+	 */
 	pos = pci_find_capability(pdev, PCI_CAP_ID_HT);
 	if (!pos) {
 		ipath_dev_err(dd, "Couldn't find HyperTransport "
@@ -865,6 +1044,10 @@ static int ipath_setup_ht_config(struct ipath_devdata *dd,
 	do {
 		u8 cap_type;
 
+		/*
+		 * The HT capability type byte is 3 bytes after the
+		 * capability byte.
+		 */
 		if (pci_read_config_byte(pdev, pos + 3, &cap_type)) {
 			dev_info(&pdev->dev, "Couldn't read config "
 				 "command @ %d\n", pos);
@@ -881,20 +1064,51 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_setup_ht_cleanup - clean up any per-chip chip-specific stuff
+ * @dd: the infinipath device
+ *
+ * Called during driver unload.
+ * This is currently a nop for the HT chip, not for all chips
+ */
 static void ipath_setup_ht_cleanup(struct ipath_devdata *dd)
 {
 }
 
+/**
+ * ipath_setup_ht_setextled - set the state of the two external LEDs
+ * @dd: the infinipath device
+ * @lst: the L state
+ * @ltst: the LT state
+ *
+ * Set the state of the two external LEDs, to indicate physical and
+ * logical state of IB link.   For this chip (at least with recommended
+ * board pinouts), LED1 is Green (physical state), and LED2 is Yellow
+ * (logical state)
+ *
+ * Note:  We try to match the Mellanox HCA LED behavior as best
+ * we can.  Green indicates physical link state is OK (something is
+ * plugged in, and we can train).
+ * Amber indicates the link is logically up (ACTIVE).
+ * Mellanox further blinks the amber LED to indicate data packet
+ * activity, but we have no hardware support for that, so it would
+ * require waking up every 10-20 msecs and checking the counters
+ * on the chip, and then turning the LED off if appropriate.  That's
+ * visible overhead, so not something we will do.
+ *
+ */
 static void ipath_setup_ht_setextled(struct ipath_devdata *dd,
 				     u64 lst, u64 ltst)
 {
 	u64 extctl;
 	unsigned long flags = 0;
 
+	/* the diags use the LED to indicate diag info, so we leave
+	 * the external LED alone when the diags are running */
 	if (ipath_diag_inuse)
 		return;
 
-	
+	/* Allow override of LED display for, e.g. Locating system in rack */
 	if (dd->ipath_led_override) {
 		ltst = (dd->ipath_led_override & IPATH_LED_PHYS)
 			? INFINIPATH_IBCS_LT_STATE_LINKUP
@@ -905,7 +1119,16 @@ static void ipath_setup_ht_setextled(struct ipath_devdata *dd,
 	}
 
 	spin_lock_irqsave(&dd->ipath_gpio_lock, flags);
-	if (dd->ipath_boardrev == 8) { 
+	/*
+	 * start by setting both LED control bits to off, then turn
+	 * on the appropriate bit(s).
+	 */
+	if (dd->ipath_boardrev == 8) { /* LS/X-1 uses different pins */
+		/*
+		 * major difference is that INFINIPATH_EXTC_LEDGBLERR_OFF
+		 * is inverted,  because it is normally used to indicate
+		 * a hardware fault at reset, if there were errors
+		 */
 		extctl = (dd->ipath_extctrl & ~INFINIPATH_EXTC_LEDGBLOK_ON)
 			| INFINIPATH_EXTC_LEDGBLERR_OFF;
 		if (ltst == INFINIPATH_IBCS_LT_STATE_LINKUP)
@@ -929,6 +1152,10 @@ static void ipath_setup_ht_setextled(struct ipath_devdata *dd,
 
 static void ipath_init_ht_variables(struct ipath_devdata *dd)
 {
+	/*
+	 * setup the register offsets, since they are different for each
+	 * chip
+	 */
 	dd->ipath_kregs = &ipath_ht_kregs;
 	dd->ipath_cregs = &ipath_ht_cregs;
 
@@ -937,6 +1164,13 @@ static void ipath_init_ht_variables(struct ipath_devdata *dd)
 	dd->ipath_gpio_sda = IPATH_GPIO_SDA;
 	dd->ipath_gpio_scl = IPATH_GPIO_SCL;
 
+	/*
+	 * Fill in data for field-values that change in newer chips.
+	 * We dynamically specify only the mask for LINKTRAININGSTATE
+	 * and only the shift for LINKSTATE, as they are the only ones
+	 * that change.  Also precalculate the 3 link states of interest
+	 * and the combined mask.
+	 */
 	dd->ibcs_ls_shift = IBA6110_IBCS_LINKSTATE_SHIFT;
 	dd->ibcs_lts_mask = IBA6110_IBCS_LINKTRAININGSTATE_MASK;
 	dd->ibcs_mask = (INFINIPATH_IBCS_LINKSTATE_MASK <<
@@ -951,15 +1185,21 @@ static void ipath_init_ht_variables(struct ipath_devdata *dd)
 		INFINIPATH_IBCS_LINKTRAININGSTATE_SHIFT) |
 		(INFINIPATH_IBCS_L_STATE_ACTIVE << dd->ibcs_ls_shift);
 
+	/*
+	 * Fill in data for ibcc field-values that change in newer chips.
+	 * We dynamically specify only the mask for LINKINITCMD
+	 * and only the shift for LINKCMD and MAXPKTLEN, as they are
+	 * the only ones that change.
+	 */
 	dd->ibcc_lic_mask = INFINIPATH_IBCC_LINKINITCMD_MASK;
 	dd->ibcc_lc_shift = INFINIPATH_IBCC_LINKCMD_SHIFT;
 	dd->ibcc_mpl_shift = INFINIPATH_IBCC_MAXPKTLEN_SHIFT;
 
-	
+	/* Fill in shifts for RcvCtrl. */
 	dd->ipath_r_portenable_shift = INFINIPATH_R_PORTENABLE_SHIFT;
 	dd->ipath_r_intravail_shift = INFINIPATH_R_INTRAVAIL_SHIFT;
 	dd->ipath_r_tailupd_shift = INFINIPATH_R_TAILUPD_SHIFT;
-	dd->ipath_r_portcfg_shift = 0; 
+	dd->ipath_r_portcfg_shift = 0; /* Not on IBA6110 */
 
 	dd->ipath_i_bitsextant =
 		(INFINIPATH_I_RCVURG_MASK << INFINIPATH_I_RCVURG_SHIFT) |
@@ -1020,6 +1260,10 @@ static void ipath_init_ht_variables(struct ipath_devdata *dd)
 	dd->ipath_i_rcvavail_shift = INFINIPATH_I_RCVAVAIL_SHIFT;
 	dd->ipath_i_rcvurg_shift = INFINIPATH_I_RCVURG_SHIFT;
 
+	/*
+	 * EEPROM error log 0 is TXE Parity errors. 1 is RXE Parity.
+	 * 2 is Some Misc, 3 is reserved for future.
+	 */
 	dd->ipath_eep_st_masks[0].hwerrs_to_log =
 		INFINIPATH_HWE_TXEMEMPARITYERR_MASK <<
 		INFINIPATH_HWE_TXEMEMPARITYERR_SHIFT;
@@ -1030,17 +1274,27 @@ static void ipath_init_ht_variables(struct ipath_devdata *dd)
 
 	dd->ipath_eep_st_masks[2].errs_to_log = INFINIPATH_E_RESET;
 
-	dd->delay_mult = 2; 
+	dd->delay_mult = 2; /* SDR, 4X, can't change */
 
 	dd->ipath_link_width_supported = IB_WIDTH_1X | IB_WIDTH_4X;
 	dd->ipath_link_speed_supported = IPATH_IB_SDR;
 	dd->ipath_link_width_enabled = IB_WIDTH_4X;
 	dd->ipath_link_speed_enabled = dd->ipath_link_speed_supported;
-	
+	/* these can't change for this chip, so set once */
 	dd->ipath_link_width_active = dd->ipath_link_width_enabled;
 	dd->ipath_link_speed_active = dd->ipath_link_speed_enabled;
 }
 
+/**
+ * ipath_ht_init_hwerrors - enable hardware errors
+ * @dd: the infinipath device
+ *
+ * now that we have finished initializing everything that might reasonably
+ * cause a hardware error, and cleared those errors bits as they occur,
+ * we can enable hardware errors in the mask (potentially enabling
+ * freeze mode), and enable hardware errors as errors (along with
+ * everything else) in errormask
+ */
 static void ipath_ht_init_hwerrors(struct ipath_devdata *dd)
 {
 	ipath_err_t val;
@@ -1055,20 +1309,36 @@ static void ipath_ht_init_hwerrors(struct ipath_devdata *dd)
 
 	ipath_check_htlink(dd);
 
-	
+	/* barring bugs, all hwerrors become interrupts, which can */
 	val = -1LL;
-	
+	/* don't look at crc lane1 if 8 bit */
 	if (dd->ipath_flags & IPATH_8BIT_IN_HT0)
 		val &= ~infinipath_hwe_htclnkabyte1crcerr;
-	
+	/* don't look at crc lane1 if 8 bit */
 	if (dd->ipath_flags & IPATH_8BIT_IN_HT1)
 		val &= ~infinipath_hwe_htclnkbbyte1crcerr;
 
+	/*
+	 * disable RXDSYNCMEMPARITY because external serdes is unused,
+	 * and therefore the logic will never be used or initialized,
+	 * and uninitialized state will normally result in this error
+	 * being asserted.  Similarly for the external serdess pll
+	 * lock signal.
+	 */
 	val &= ~(INFINIPATH_HWE_SERDESPLLFAILED |
 		 INFINIPATH_HWE_RXDSYNCMEMPARITYERR);
 
+	/*
+	 * Disable MISCERR4 because of an inversion in the HT core
+	 * logic checking for errors that cause this bit to be set.
+	 * The errata can also cause the protocol error bit to be set
+	 * in the HT config space linkerror register(s).
+	 */
 	val &= ~INFINIPATH_HWE_HTCMISCERR4;
 
+	/*
+	 * PLL ignored because unused MDIO interface has a logic problem
+	 */
 	if (dd->ipath_boardrev == 4 || dd->ipath_boardrev == 9)
 		val &= ~INFINIPATH_HWE_SERDESPLLFAILED;
 	dd->ipath_hwerrmask = val;
@@ -1077,6 +1347,10 @@ static void ipath_ht_init_hwerrors(struct ipath_devdata *dd)
 
 
 
+/**
+ * ipath_ht_bringup_serdes - bring up the serdes
+ * @dd: the infinipath device
+ */
 static int ipath_ht_bringup_serdes(struct ipath_devdata *dd)
 {
 	u64 val, config1;
@@ -1104,25 +1378,32 @@ static int ipath_ht_bringup_serdes(struct ipath_devdata *dd)
 		   (unsigned long long)
 		   ipath_read_kreg64(dd, dd->ipath_kregs->kr_xgxsconfig));
 
-	
+	/* force reset on */
 	val |= INFINIPATH_SERDC0_RESET_PLL
-		
+		/* | INFINIPATH_SERDC0_RESET_MASK */
 		;
 	ipath_write_kreg(dd, dd->ipath_kregs->kr_serdesconfig0, val);
-	udelay(15);		
+	udelay(15);		/* need pll reset set at least for a bit */
 
 	if (val & INFINIPATH_SERDC0_RESET_PLL) {
 		u64 val2 = val &= ~INFINIPATH_SERDC0_RESET_PLL;
-		
+		/* set lane resets, and tx idle, during pll reset */
 		val2 |= INFINIPATH_SERDC0_RESET_MASK |
 			INFINIPATH_SERDC0_TXIDLE;
 		ipath_cdbg(VERBOSE, "Clearing serdes PLL reset (writing "
 			   "%llx)\n", (unsigned long long) val2);
 		ipath_write_kreg(dd, dd->ipath_kregs->kr_serdesconfig0,
 				 val2);
+		/*
+		 * be sure chip saw it
+		 */
 		val = ipath_read_kreg64(dd, dd->ipath_kregs->kr_scratch);
+		/*
+		 * need pll reset clear at least 11 usec before lane
+		 * resets cleared; give it a few more
+		 */
 		udelay(15);
-		val = val2;	
+		val = val2;	/* for check below */
 	}
 
 	if (val & (INFINIPATH_SERDC0_RESET_PLL |
@@ -1131,20 +1412,20 @@ static int ipath_ht_bringup_serdes(struct ipath_devdata *dd)
 		val &= ~(INFINIPATH_SERDC0_RESET_PLL |
 			 INFINIPATH_SERDC0_RESET_MASK |
 			 INFINIPATH_SERDC0_TXIDLE);
-		
+		/* clear them */
 		ipath_write_kreg(dd, dd->ipath_kregs->kr_serdesconfig0,
 				 val);
 	}
 
 	val = ipath_read_kreg64(dd, dd->ipath_kregs->kr_xgxsconfig);
 	if (val & INFINIPATH_XGXS_RESET) {
-		
+		/* normally true after boot */
 		val &= ~INFINIPATH_XGXS_RESET;
 		change = 1;
 	}
 	if (((val >> INFINIPATH_XGXS_RX_POL_SHIFT) &
 	     INFINIPATH_XGXS_RX_POL_MASK) != dd->ipath_rx_pol_inv ) {
-		
+		/* need to compensate for Tx inversion in partner */
 		val &= ~(INFINIPATH_XGXS_RX_POL_MASK <<
 		         INFINIPATH_XGXS_RX_POL_SHIFT);
 		val |= dd->ipath_rx_pol_inv <<
@@ -1156,11 +1437,11 @@ static int ipath_ht_bringup_serdes(struct ipath_devdata *dd)
 
 	val = ipath_read_kreg64(dd, dd->ipath_kregs->kr_serdesconfig0);
 
-	
+	/* clear current and de-emphasis bits */
 	config1 &= ~0x0ffffffff00ULL;
-	
+	/* set current to 20ma */
 	config1 |= 0x00000000000ULL;
-	
+	/* set de-emphasis to -5.68dB */
 	config1 |= 0x0cccc000000ULL;
 	ipath_write_kreg(dd, dd->ipath_kregs->kr_serdesconfig1, config1);
 
@@ -1172,9 +1453,14 @@ static int ipath_ht_bringup_serdes(struct ipath_devdata *dd)
 		   (unsigned long long)
 		   ipath_read_kreg64(dd, dd->ipath_kregs->kr_xgxsconfig));
 
-	return ret;		
+	return ret;		/* for now, say we always succeeded */
 }
 
+/**
+ * ipath_ht_quiet_serdes - set serdes to txidle
+ * @dd: the infinipath device
+ * driver is being unloaded
+ */
 static void ipath_ht_quiet_serdes(struct ipath_devdata *dd)
 {
 	u64 val = ipath_read_kreg64(dd, dd->ipath_kregs->kr_serdesconfig0);
@@ -1185,6 +1471,17 @@ static void ipath_ht_quiet_serdes(struct ipath_devdata *dd)
 	ipath_write_kreg(dd, dd->ipath_kregs->kr_serdesconfig0, val);
 }
 
+/**
+ * ipath_pe_put_tid - write a TID in chip
+ * @dd: the infinipath device
+ * @tidptr: pointer to the expected TID (in chip) to update
+ * @tidtype: RCVHQ_RCV_TYPE_EAGER (1) for eager, RCVHQ_RCV_TYPE_EXPECTED (0) for expected
+ * @pa: physical address of in memory buffer; ipath_tidinvalid if freeing
+ *
+ * This exists as a separate routine to allow for special locking etc.
+ * It's used for both the full cleanup on exit, as well as the normal
+ * setup and teardown.
+ */
 static void ipath_ht_put_tid(struct ipath_devdata *dd,
 			     u64 __iomem *tidptr, u32 type,
 			     unsigned long pa)
@@ -1202,7 +1499,7 @@ static void ipath_ht_put_tid(struct ipath_devdata *dd,
 		if (type == RCVHQ_RCV_TYPE_EAGER)
 			pa |= dd->ipath_tidtemplate;
 		else {
-			
+			/* in words (fixed, full page).  */
 			u64 lenvalid = PAGE_SIZE >> 2;
 			lenvalid <<= INFINIPATH_RT_BUFSIZE_SHIFT;
 			pa |= lenvalid | INFINIPATH_RT_VALID;
@@ -1213,6 +1510,13 @@ static void ipath_ht_put_tid(struct ipath_devdata *dd,
 }
 
 
+/**
+ * ipath_ht_clear_tid - clear all TID entries for a port, expected and eager
+ * @dd: the infinipath device
+ * @port: the port
+ *
+ * Used from ipath_close(), and at chip initialization.
+ */
 static void ipath_ht_clear_tids(struct ipath_devdata *dd, unsigned port)
 {
 	u64 __iomem *tidbase;
@@ -1223,6 +1527,11 @@ static void ipath_ht_clear_tids(struct ipath_devdata *dd, unsigned port)
 
 	ipath_cdbg(VERBOSE, "Invalidate TIDs for port %u\n", port);
 
+	/*
+	 * need to invalidate all of the expected TID entries for this
+	 * port, so we don't have valid entries that might somehow get
+	 * used (early in next use of this port, or through some bug)
+	 */
 	tidbase = (u64 __iomem *) ((char __iomem *)(dd->ipath_kregbase) +
 				   dd->ipath_rcvtidbase +
 				   port * dd->ipath_rcvtidcnt *
@@ -1241,12 +1550,22 @@ static void ipath_ht_clear_tids(struct ipath_devdata *dd, unsigned port)
 				 dd->ipath_tidinvalid);
 }
 
+/**
+ * ipath_ht_tidtemplate - setup constants for TID updates
+ * @dd: the infinipath device
+ *
+ * We setup stuff that we use a lot, to avoid calculating each time
+ */
 static void ipath_ht_tidtemplate(struct ipath_devdata *dd)
 {
 	dd->ipath_tidtemplate = dd->ipath_ibmaxlen >> 2;
 	dd->ipath_tidtemplate <<= INFINIPATH_RT_BUFSIZE_SHIFT;
 	dd->ipath_tidtemplate |= INFINIPATH_RT_VALID;
 
+	/*
+	 * work around chip errata bug 7358, by marking invalid tids
+	 * as having max length
+	 */
 	dd->ipath_tidinvalid = (-1LL & INFINIPATH_RT_BUFSIZE_MASK) <<
 		INFINIPATH_RT_BUFSIZE_SHIFT;
 }
@@ -1257,29 +1576,72 @@ static int ipath_ht_early_init(struct ipath_devdata *dd)
 	u32 pioincr, val32;
 	int i;
 
+	/*
+	 * one cache line; long IB headers will spill over into received
+	 * buffer
+	 */
 	dd->ipath_rcvhdrentsize = 16;
 	dd->ipath_rcvhdrsize = IPATH_DFLT_RCVHDRSIZE;
 
+	/*
+	 * For HT, we allocate a somewhat overly large eager buffer,
+	 * such that we can guarantee that we can receive the largest
+	 * packet that we can send out.  To truly support a 4KB MTU,
+	 * we need to bump this to a large value.  To date, other than
+	 * testing, we have never encountered an HCA that can really
+	 * send 4KB MTU packets, so we do not handle that (we'll get
+	 * errors interrupts if we ever see one).
+	 */
 	dd->ipath_rcvegrbufsize = dd->ipath_piosize2k;
 
+	/*
+	 * the min() check here is currently a nop, but it may not
+	 * always be, depending on just how we do ipath_rcvegrbufsize
+	 */
 	dd->ipath_ibmaxlen = min(dd->ipath_piosize2k,
 				 dd->ipath_rcvegrbufsize);
 	dd->ipath_init_ibmaxlen = dd->ipath_ibmaxlen;
 	ipath_ht_tidtemplate(dd);
 
+	/*
+	 * zero all the TID entries at startup.  We do this for sanity,
+	 * in case of a previous driver crash of some kind, and also
+	 * because the chip powers up with these memories in an unknown
+	 * state.  Use portcnt, not cfgports, since this is for the
+	 * full chip, not for current (possibly different) configuration
+	 * value.
+	 * Chip Errata bug 6447
+	 */
 	for (val32 = 0; val32 < dd->ipath_portcnt; val32++)
 		ipath_ht_clear_tids(dd, val32);
 
+	/*
+	 * write the pbc of each buffer, to be sure it's initialized, then
+	 * cancel all the buffers, and also abort any packets that might
+	 * have been in flight for some reason (the latter is for driver
+	 * unload/reload, but isn't a bad idea at first init).	PIO send
+	 * isn't enabled at this point, so there is no danger of sending
+	 * these out on the wire.
+	 * Chip Errata bug 6610
+	 */
 	piobuf = (u32 __iomem *) (((char __iomem *)(dd->ipath_kregbase)) +
 				  dd->ipath_piobufbase);
 	pioincr = dd->ipath_palign / sizeof(*piobuf);
 	for (i = 0; i < dd->ipath_piobcnt2k; i++) {
+		/*
+		 * reasonable word count, just to init pbc
+		 */
 		writel(16, piobuf);
 		piobuf += pioincr;
 	}
 
 	ipath_get_eeprom_info(dd);
 	if (dd->ipath_boardrev == 5) {
+		/*
+		 * Later production QHT7040 has same changes as QHT7140, so
+		 * can use GPIO interrupts.  They have serial #'s starting
+		 * with 128, rather than 112.
+		 */
 		if (dd->ipath_serial[0] == '1' &&
 		    dd->ipath_serial[1] == '2' &&
 		    dd->ipath_serial[2] == '8')
@@ -1293,7 +1655,7 @@ static int ipath_ht_early_init(struct ipath_devdata *dd)
 	}
 
 	if (dd->ipath_minrev >= 4) {
-		
+		/* Rev4+ reports extra errors via internal GPIO pins */
 		dd->ipath_flags |= IPATH_GPIO_ERRINTRS;
 		dd->ipath_gpio_mask |= IPATH_GPIO_ERRINTR_MASK;
 		ipath_write_kreg(dd, dd->ipath_kregs->kr_gpio_mask,
@@ -1304,6 +1666,14 @@ static int ipath_ht_early_init(struct ipath_devdata *dd)
 }
 
 
+/**
+ * ipath_init_ht_get_base_info - set chip-specific flags for user code
+ * @dd: the infinipath device
+ * @kbase: ipath_base_info pointer
+ *
+ * We set the PCIE flag because the lower bandwidth on PCIe vs
+ * HyperTransport can affect some user packet algorithms.
+ */
 static int ipath_ht_get_base_info(struct ipath_portdata *pd, void *kbase)
 {
 	struct ipath_base_info *kinfo = kbase;
@@ -1446,19 +1816,26 @@ static void ipath_ht_read_counters(struct ipath_devdata *dd,
 }
 
 
+/* no interrupt fallback for these chips */
 static int ipath_ht_nointr_fallback(struct ipath_devdata *dd)
 {
 	return 0;
 }
 
 
+/*
+ * reset the XGXS (between serdes and IBC).  Slightly less intrusive
+ * than resetting the IBC or external link state, and useful in some
+ * cases to cause some retraining.  To do this right, we reset IBC
+ * as well.
+ */
 static void ipath_ht_xgxs_reset(struct ipath_devdata *dd)
 {
 	u64 val, prev_val;
 
 	prev_val = ipath_read_kreg64(dd, dd->ipath_kregs->kr_xgxsconfig);
 	val = prev_val | INFINIPATH_XGXS_RESET;
-	prev_val &= ~INFINIPATH_XGXS_RESET; 
+	prev_val &= ~INFINIPATH_XGXS_RESET; /* be sure */
 	ipath_write_kreg(dd, dd->ipath_kregs->kr_control,
 			 dd->ipath_control & ~INFINIPATH_C_LINKENABLE);
 	ipath_write_kreg(dd, dd->ipath_kregs->kr_xgxsconfig, val);
@@ -1494,6 +1871,7 @@ static int ipath_ht_get_ib_cfg(struct ipath_devdata *dd, int which)
 }
 
 
+/* we assume range checking is already done, if needed */
 static int ipath_ht_set_ib_cfg(struct ipath_devdata *dd, int which, u32 val)
 {
 	int ret = 0;
@@ -1521,6 +1899,13 @@ static int ipath_ht_ib_updown(struct ipath_devdata *dd, int ibup, u64 ibcs)
 }
 
 
+/**
+ * ipath_init_iba6110_funcs - set up the chip-specific function pointers
+ * @dd: the infinipath device
+ *
+ * This is global, and is called directly at init to set up the
+ * chip-specific function pointers for later use.
+ */
 void ipath_init_iba6110_funcs(struct ipath_devdata *dd)
 {
 	dd->ipath_f_intrsetup = ipath_ht_intconfig;
@@ -1549,5 +1934,8 @@ void ipath_init_iba6110_funcs(struct ipath_devdata *dd)
 	dd->ipath_f_config_jint = ipath_ht_config_jint;
 	dd->ipath_f_ib_updown = ipath_ht_ib_updown;
 
+	/*
+	 * initialize chip-specific variables
+	 */
 	ipath_init_ht_variables(dd);
 }

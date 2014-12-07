@@ -179,7 +179,66 @@ static __printf(2, 3)
 	va_end(args);
 }
 
+/* ======================================================================
+ * D-Channel out
+ */
 
+/*
+  D OUT state machine:
+  ====================
+
+  Transmit short frame (< 16 bytes of encoded data):
+
+  L1 FRAME    D_OUT_STATE           USB                  D CHANNEL
+  --------    -----------           ---                  ---------
+
+  FIXME
+
+  -> [xx..xx]  SHORT_INIT            -> [7Exx..xxC1C27EFF]
+  SHORT_WAIT_DEN        <> OUT_D_COUNTER=16
+
+  END_OF_SHORT          <- DEN_EVENT         -> 7Exx
+  xxxx
+  xxxx
+  xxxx
+  xxxx
+  xxxx
+  C1C1
+  7EFF
+  WAIT_FOR_RESET_IDLE   <- D_UNDERRUN        <- (8ms)
+  IDLE                  <> Reset pipe
+
+
+
+  Transmit long frame (>= 16 bytes of encoded data):
+
+  L1 FRAME    D_OUT_STATE           USB                  D CHANNEL
+  --------    -----------           ---                  ---------
+
+  -> [xx...xx] IDLE
+  WAIT_FOR_STOP         <> OUT_D_COUNTER=0
+  WAIT_FOR_RESET        <> Reset pipe
+  STOP
+  INIT_LONG_FRAME       -> [7Exx..xx]
+  WAIT_DEN              <> OUT_D_COUNTER=16
+  OUT_NORMAL            <- DEN_EVENT       -> 7Exx
+  END_OF_FRAME_BUSY     -> [xxxx]             xxxx
+  END_OF_FRAME_NOT_BUSY -> [xxxx]             xxxx
+  -> [xxxx]		  xxxx
+  -> [C1C2]		  xxxx
+  -> [7EFF]		  xxxx
+  xxxx
+  xxxx
+  ....
+  xxxx
+  C1C2
+  7EFF
+  <- D_UNDERRUN      <- (> 8ms)
+  WAIT_FOR_STOP         <> OUT_D_COUNTER=0
+  WAIT_FOR_RESET        <> Reset pipe
+  STOP
+
+*/
 
 static struct Fsm dout_fsm;
 
@@ -230,6 +289,9 @@ static void dout_stop_event(void *context)
 	FsmEvent(&adapter->d_out.fsm, EV_DOUT_STOPPED, NULL);
 }
 
+/*
+ * Start the transfer of a D channel frame.
+ */
 static void usb_d_out(struct st5481_adapter *adapter, int buf_nr)
 {
 	struct st5481_d_out *d_out = &adapter->d_out;
@@ -258,7 +320,7 @@ static void usb_d_out(struct st5481_adapter *adapter, int buf_nr)
 				      urb->transfer_buffer, buf_size);
 		skb_pull(skb, bytes_sent);
 	} else {
-		
+		// Send flags or idle
 		len = isdnhdlc_encode(&d_out->hdlc_state,
 				      NULL, 0, &bytes_sent,
 				      urb->transfer_buffer, buf_size);
@@ -273,7 +335,7 @@ static void usb_d_out(struct st5481_adapter *adapter, int buf_nr)
 		dev_kfree_skb_any(skb);
 	}
 
-	
+	// Prepare the URB
 	urb->transfer_buffer_length = len;
 	num_packets = 0;
 	packet_offset = 0;
@@ -288,16 +350,16 @@ static void usb_d_out(struct st5481_adapter *adapter, int buf_nr)
 	}
 	urb->number_of_packets = num_packets;
 
-	
+	// Prepare the URB
 	urb->dev = adapter->usb_dev;
-	
+	// Need to transmit the next buffer 2ms after the DEN_EVENT
 	urb->transfer_flags = 0;
 	urb->start_frame = usb_get_current_frame_number(adapter->usb_dev) + 2;
 
 	DBG_ISO_PACKET(0x20, urb);
 
 	if (usb_submit_urb(urb, GFP_KERNEL) < 0) {
-		
+		// There is another URB queued up
 		urb->transfer_flags = URB_ISO_ASAP;
 		SUBMIT_URB(urb, GFP_KERNEL);
 	}
@@ -335,16 +397,17 @@ static void usb_d_out_complete(struct urb *urb)
 			}
 			break;
 		}
-		return; 
+		return; // Give up
 	}
 
 	FsmEvent(&adapter->d_out.fsm, EV_DOUT_COMPLETE, (void *) buf_nr);
 }
 
+/* ====================================================================== */
 
 static void dout_start_xmit(struct FsmInst *fsm, int event, void *arg)
 {
-	
+	// FIXME unify?
 	struct st5481_adapter *adapter = fsm->userdata;
 	struct st5481_d_out *d_out = &adapter->d_out;
 	struct urb *urb;
@@ -381,13 +444,14 @@ static void dout_start_xmit(struct FsmInst *fsm, int event, void *arg)
 		dev_kfree_skb_any(skb);
 	}
 
+// Prepare the URB
 	urb->transfer_buffer_length = len;
 
 	urb->iso_frame_desc[0].offset = 0;
 	urb->iso_frame_desc[0].length = len;
 	urb->number_of_packets = 1;
 
-	
+	// Prepare the URB
 	urb->dev = adapter->usb_dev;
 	urb->transfer_flags = URB_ISO_ASAP;
 
@@ -476,7 +540,7 @@ static void dout_reseted(struct FsmInst *fsm, int event, void *arg)
 	struct st5481_d_out *d_out = &adapter->d_out;
 
 	FsmChangeState(&d_out->fsm, ST_DOUT_NONE);
-	
+	// FIXME locking
 	if (d_out->tx_skb)
 		FsmEvent(&d_out->fsm, EV_DOUT_START_XMIT, NULL);
 }
@@ -544,7 +608,12 @@ void st5481_d_l2l1(struct hisax_if *hisax_d_if, int pr, void *arg)
 	}
 }
 
+/* ======================================================================
+ */
 
+/*
+ * Start receiving on the D channel since entered state F7.
+ */
 static void ph_connect(struct st5481_adapter *adapter)
 {
 	struct st5481_d_out *d_out = &adapter->d_out;
@@ -554,29 +623,32 @@ static void ph_connect(struct st5481_adapter *adapter)
 
 	FsmChangeState(&d_out->fsm, ST_DOUT_NONE);
 
-	
+	//	st5481_usb_device_ctrl_msg(adapter, FFMSK_D, OUT_UNDERRUN, NULL, NULL);
 	st5481_usb_device_ctrl_msg(adapter, FFMSK_D, 0xfc, NULL, NULL);
 	st5481_in_mode(d_in, L1_MODE_HDLC);
 
 #ifdef LOOPBACK
-	
+	// Turn loopback on (data sent on B and D looped back)
 	st5481_usb_device_ctrl_msg(cs, LBB, 0x04, NULL, NULL);
 #endif
 
 	st5481_usb_pipe_reset(adapter, EP_D_OUT | USB_DIR_OUT, NULL, NULL);
 
-	
+	// Turn on the green LED to tell that we are in state F7
 	adapter->leds |= GREEN_LED;
 	st5481_usb_device_ctrl_msg(adapter, GPIO_OUT, adapter->leds, NULL, NULL);
 }
 
+/*
+ * Stop receiving on the D channel since not in state F7.
+ */
 static void ph_disconnect(struct st5481_adapter *adapter)
 {
 	DBG(8, "");
 
 	st5481_in_mode(&adapter->d_in, L1_MODE_NULL);
 
-	
+	// Turn off the green LED to tell that we left state F7
 	adapter->leds &= ~GREEN_LED;
 	st5481_usb_device_ctrl_msg(adapter, GPIO_OUT, adapter->leds, NULL, NULL);
 }
@@ -597,7 +669,7 @@ static int st5481_setup_d_out(struct st5481_adapter *adapter)
 	if (!altsetting)
 		return -ENXIO;
 
-	
+	// Allocate URBs and buffers for the D channel out
 	endpoint = &altsetting->endpoint[EP_D_OUT-1];
 
 	DBG(2, "endpoint address=%02x,packet size=%d",
@@ -668,6 +740,9 @@ void st5481_release_d(struct st5481_adapter *adapter)
 	st5481_release_d_out(adapter);
 }
 
+/* ======================================================================
+ * init / exit
+ */
 
 int __init st5481_d_init(void)
 {
@@ -697,6 +772,7 @@ err:
 	return retval;
 }
 
+// can't be __exit
 void st5481_d_exit(void)
 {
 	FsmFree(&l1fsm);

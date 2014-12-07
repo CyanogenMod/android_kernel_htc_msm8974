@@ -33,22 +33,27 @@
 #include "ap_bus.h"
 #include <asm/zcrypt.h>
 
+/* deprecated status calls */
 #define ICAZ90STATUS		_IOR(ZCRYPT_IOCTL_MAGIC, 0x10, struct ica_z90_status)
 #define Z90STAT_PCIXCCCOUNT	_IOR(ZCRYPT_IOCTL_MAGIC, 0x43, int)
 
+/**
+ * This structure is deprecated and the corresponding ioctl() has been
+ * replaced with individual ioctl()s for each piece of data!
+ */
 struct ica_z90_status {
 	int totalcount;
-	int leedslitecount; 
-	int leeds2count;    
-	
+	int leedslitecount; // PCICA
+	int leeds2count;    // PCICC
+	// int PCIXCCCount; is not in struct for backward compatibility
 	int requestqWaitCount;
 	int pendingqWaitCount;
 	int totalOpenCount;
 	int cryptoDomain;
-	
-	
+	// status: 0=not there, 1=PCICA, 2=PCICC, 3=PCIXCC_MCL2, 4=PCIXCC_MCL3,
+	//	   5=CEX2C
 	unsigned char status[64];
-	
+	// qdepth: # work elements waiting for each device
 	unsigned char qdepth[64];
 };
 
@@ -69,6 +74,11 @@ struct ica_z90_status {
 #define ZCRYPT_CEX3C		7
 #define ZCRYPT_CEX3A		8
 
+/**
+ * Large random numbers are pulled in 4096 byte chunks from the crypto cards
+ * and stored in a page. Be careful when increasing this buffer due to size
+ * limitations for AP requests.
+ */
 #define ZCRYPT_RNG_BUFFER_SIZE	4096
 
 struct zcrypt_device;
@@ -82,23 +92,23 @@ struct zcrypt_ops {
 };
 
 struct zcrypt_device {
-	struct list_head list;		
-	spinlock_t lock;		
-	struct kref refcount;		
-	struct ap_device *ap_dev;	
-	struct zcrypt_ops *ops;		
-	int online;			
+	struct list_head list;		/* Device list. */
+	spinlock_t lock;		/* Per device lock. */
+	struct kref refcount;		/* device refcounting */
+	struct ap_device *ap_dev;	/* The "real" ap device. */
+	struct zcrypt_ops *ops;		/* Crypto operations. */
+	int online;			/* User online/offline */
 
-	int user_space_type;		
-	char *type_string;		
-	int min_mod_size;		
-	int max_mod_size;		
-	int short_crt;			
-	int speed_rating;		
+	int user_space_type;		/* User space device id. */
+	char *type_string;		/* User space device name. */
+	int min_mod_size;		/* Min number of bits. */
+	int max_mod_size;		/* Max number of bits. */
+	int short_crt;			/* Card has crt length restriction. */
+	int speed_rating;		/* Speed of the crypto device. */
 
-	int request_count;		
+	int request_count;		/* # current requests. */
 
-	struct ap_message reply;	
+	struct ap_message reply;	/* Per-device reply structure. */
 	int max_exp_bit_length;
 };
 
@@ -111,4 +121,4 @@ void zcrypt_device_unregister(struct zcrypt_device *);
 int zcrypt_api_init(void);
 void zcrypt_api_exit(void);
 
-#endif 
+#endif /* _ZCRYPT_API_H_ */

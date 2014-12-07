@@ -37,6 +37,10 @@
 #include "aic94xx_seq.h"
 #include "aic94xx_dump.h"
 
+/* It takes no more than 0.05 us for an instruction
+ * to complete. So waiting for 1 us should be more than
+ * plenty.
+ */
 #define PAUSE_DELAY 1
 #define PAUSE_TRIES 1000
 
@@ -49,7 +53,14 @@ static u32 cseq_code_size, lseq_code_size;
 static u16 first_scb_site_no = 0xFFFF;
 static u16 last_scb_site_no;
 
+/* ---------- Pause/Unpause CSEQ/LSEQ ---------- */
 
+/**
+ * asd_pause_cseq - pause the central sequencer
+ * @asd_ha: pointer to host adapter structure
+ *
+ * Return 0 on success, negative on failure.
+ */
 static int asd_pause_cseq(struct asd_ha_struct *asd_ha)
 {
 	int	count = PAUSE_TRIES;
@@ -71,6 +82,12 @@ static int asd_pause_cseq(struct asd_ha_struct *asd_ha)
 	return -1;
 }
 
+/**
+ * asd_unpause_cseq - unpause the central sequencer.
+ * @asd_ha: pointer to host adapter structure.
+ *
+ * Return 0 on success, negative on error.
+ */
 static int asd_unpause_cseq(struct asd_ha_struct *asd_ha)
 {
 	u32	arp2ctl;
@@ -92,6 +109,13 @@ static int asd_unpause_cseq(struct asd_ha_struct *asd_ha)
 	return -1;
 }
 
+/**
+ * asd_seq_pause_lseq - pause a link sequencer
+ * @asd_ha: pointer to a host adapter structure
+ * @lseq: link sequencer of interest
+ *
+ * Return 0 on success, negative on error.
+ */
 static int asd_seq_pause_lseq(struct asd_ha_struct *asd_ha, int lseq)
 {
 	u32    arp2ctl;
@@ -113,6 +137,13 @@ static int asd_seq_pause_lseq(struct asd_ha_struct *asd_ha, int lseq)
 	return -1;
 }
 
+/**
+ * asd_pause_lseq - pause the link sequencer(s)
+ * @asd_ha: pointer to host adapter structure
+ * @lseq_mask: mask of link sequencers of interest
+ *
+ * Return 0 on success, negative on failure.
+ */
 static int asd_pause_lseq(struct asd_ha_struct *asd_ha, u8 lseq_mask)
 {
 	int lseq;
@@ -127,6 +158,13 @@ static int asd_pause_lseq(struct asd_ha_struct *asd_ha, u8 lseq_mask)
 	return err;
 }
 
+/**
+ * asd_seq_unpause_lseq - unpause a link sequencer
+ * @asd_ha: pointer to host adapter structure
+ * @lseq: link sequencer of interest
+ *
+ * Return 0 on success, negative on error.
+ */
 static int asd_seq_unpause_lseq(struct asd_ha_struct *asd_ha, int lseq)
 {
 	u32 arp2ctl;
@@ -149,6 +187,7 @@ static int asd_seq_unpause_lseq(struct asd_ha_struct *asd_ha, int lseq)
 }
 
 
+/* ---------- Downloading CSEQ/LSEQ microcode ---------- */
 
 static int asd_verify_cseq(struct asd_ha_struct *asd_ha, const u8 *_prog,
 			   u32 size)
@@ -172,6 +211,18 @@ static int asd_verify_cseq(struct asd_ha_struct *asd_ha, const u8 *_prog,
 	return 0;
 }
 
+/**
+ * asd_verify_lseq - verify the microcode of a link sequencer
+ * @asd_ha: pointer to host adapter structure
+ * @_prog: pointer to the microcode
+ * @size: size of the microcode in bytes
+ * @lseq: link sequencer of interest
+ *
+ * The link sequencer code is accessed in 4 KB pages, which are selected
+ * by setting LmRAMPAGE (bits 8 and 9) of the LmBISTCTL1 register.
+ * The 10 KB LSEQm instruction code is mapped, page at a time, at
+ * LmSEQRAM address.
+ */
 static int asd_verify_lseq(struct asd_ha_struct *asd_ha, const u8 *_prog,
 			   u32 size, int lseq)
 {
@@ -204,6 +255,15 @@ static int asd_verify_lseq(struct asd_ha_struct *asd_ha, const u8 *_prog,
 	return 0;
 }
 
+/**
+ * asd_verify_seq -- verify CSEQ/LSEQ microcode
+ * @asd_ha: pointer to host adapter structure
+ * @prog: pointer to microcode
+ * @size: size of the microcode
+ * @lseq_mask: if 0, verify CSEQ microcode, else mask of LSEQs of interest
+ *
+ * Return 0 if microcode is correct, negative on mismatch.
+ */
 static int asd_verify_seq(struct asd_ha_struct *asd_ha, const u8 *prog,
 			      u32 size, u8 lseq_mask)
 {
@@ -223,6 +283,7 @@ static int asd_verify_seq(struct asd_ha_struct *asd_ha, const u8 *prog,
 }
 #define ASD_DMA_MODE_DOWNLOAD
 #ifdef ASD_DMA_MODE_DOWNLOAD
+/* This is the size of the CSEQ Mapped instruction page */
 #define MAX_DMA_OVLY_COUNT ((1U << 14)-1)
 static int asd_download_seq(struct asd_ha_struct *asd_ha,
 			    const u8 * const prog, u32 size, u8 lseq_mask)
@@ -242,7 +303,7 @@ static int asd_download_seq(struct asd_ha_struct *asd_ha,
 	asd_pause_cseq(asd_ha);
 	asd_pause_lseq(asd_ha, 0xFF);
 
-	
+	/* save, disable and clear interrupts */
 	comstaten = asd_read_reg_dword(asd_ha, COMSTATEN);
 	asd_write_reg_dword(asd_ha, COMSTATEN, 0);
 	asd_write_reg_dword(asd_ha, COMSTAT, COMSTAT_MASK);
@@ -269,7 +330,7 @@ static int asd_download_seq(struct asd_ha_struct *asd_ha,
 		reg = !page ? RESETOVLYDMA : 0;
 		reg |= (STARTOVLYDMA | OVLYHALTERR);
 		reg |= (lseq_mask ? (((u32)lseq_mask) << 8) : OVLYCSEQ);
-		
+		/* Start DMA. */
 		asd_write_reg_dword(asd_ha, OVLYDMACTL, reg);
 
 		for (i = PAUSE_TRIES*100; i > 0; i--) {
@@ -294,7 +355,7 @@ static int asd_download_seq(struct asd_ha_struct *asd_ha,
 
 	return err ? : asd_verify_seq(asd_ha, prog, size, lseq_mask);
 }
-#else 
+#else /* ASD_DMA_MODE_DOWNLOAD */
 static int asd_download_seq(struct asd_ha_struct *asd_ha, const u8 *_prog,
 			    u32 size, u8 lseq_mask)
 {
@@ -327,8 +388,14 @@ static int asd_download_seq(struct asd_ha_struct *asd_ha, const u8 *_prog,
 
 	return asd_verify_seq(asd_ha, _prog, size, lseq_mask);
 }
-#endif 
+#endif /* ASD_DMA_MODE_DOWNLOAD */
 
+/**
+ * asd_seq_download_seqs - download the sequencer microcode
+ * @asd_ha: pointer to host adapter structure
+ *
+ * Download the central and link sequencer microcode.
+ */
 static int asd_seq_download_seqs(struct asd_ha_struct *asd_ha)
 {
 	int 	err;
@@ -338,7 +405,7 @@ static int asd_seq_download_seqs(struct asd_ha_struct *asd_ha)
 		return -ENODEV;
 	}
 
-	
+	/* Download the CSEQ */
 	ASD_DPRINTK("downloading CSEQ...\n");
 	err = asd_download_seq(asd_ha, cseq_code, cseq_code_size, 0);
 	if (err) {
@@ -346,11 +413,14 @@ static int asd_seq_download_seqs(struct asd_ha_struct *asd_ha)
 		return err;
 	}
 
+	/* Download the Link Sequencers code. All of the Link Sequencers
+	 * microcode can be downloaded at the same time.
+	 */
 	ASD_DPRINTK("downloading LSEQs...\n");
 	err = asd_download_seq(asd_ha, lseq_code, lseq_code_size,
 			       asd_ha->hw_prof.enabled_phys);
 	if (err) {
-		
+		/* Try it one at a time */
 		u8 lseq;
 		u8 lseq_mask = asd_ha->hw_prof.enabled_phys;
 
@@ -367,10 +437,15 @@ static int asd_seq_download_seqs(struct asd_ha_struct *asd_ha)
 	return err;
 }
 
+/* ---------- Initializing the chip, chip memory, etc. ---------- */
 
+/**
+ * asd_init_cseq_mip - initialize CSEQ mode independent pages 4-7
+ * @asd_ha: pointer to host adapter structure
+ */
 static void asd_init_cseq_mip(struct asd_ha_struct *asd_ha)
 {
-	
+	/* CSEQ Mode Independent, page 4 setup. */
 	asd_write_reg_word(asd_ha, CSEQ_Q_EXE_HEAD, 0xFFFF);
 	asd_write_reg_word(asd_ha, CSEQ_Q_EXE_TAIL, 0xFFFF);
 	asd_write_reg_word(asd_ha, CSEQ_Q_DONE_HEAD, 0xFFFF);
@@ -392,7 +467,7 @@ static void asd_init_cseq_mip(struct asd_ha_struct *asd_ha)
 	}
 	asd_write_reg_word(asd_ha, CSEQ_FREE_LIST_HACK_COUNT, 0);
 
-	
+	/* CSEQ Mode independent, page 5 setup. */
 	asd_write_reg_dword(asd_ha, CSEQ_EST_NEXUS_REQ_QUEUE, 0);
 	asd_write_reg_dword(asd_ha, CSEQ_EST_NEXUS_REQ_QUEUE+4, 0);
 	asd_write_reg_dword(asd_ha, CSEQ_EST_NEXUS_REQ_COUNT, 0);
@@ -404,7 +479,7 @@ static void asd_init_cseq_mip(struct asd_ha_struct *asd_ha)
 	asd_write_reg_byte(asd_ha, CSEQ_EST_NEXUS_REQ_TAIL, 0);
 	asd_write_reg_byte(asd_ha, CSEQ_EST_NEXUS_SCB_OFFSET, 0);
 
-	
+	/* CSEQ Mode independent, page 6 setup. */
 	asd_write_reg_word(asd_ha, CSEQ_INT_ROUT_RET_ADDR0, 0);
 	asd_write_reg_word(asd_ha, CSEQ_INT_ROUT_RET_ADDR1, 0);
 	asd_write_reg_word(asd_ha, CSEQ_INT_ROUT_SCBPTR, 0);
@@ -414,7 +489,7 @@ static void asd_init_cseq_mip(struct asd_ha_struct *asd_ha)
 	asd_write_reg_word(asd_ha, CSEQ_ISR_SAVE_DINDEX, 0);
 	asd_write_reg_word(asd_ha, CSEQ_Q_MONIRTT_HEAD, 0xFFFF);
 	asd_write_reg_word(asd_ha, CSEQ_Q_MONIRTT_TAIL, 0xFFFF);
-	
+	/* Calculate the free scb mask. */
 	{
 		u16 cmdctx = asd_get_cmdctx_size(asd_ha);
 		cmdctx = (~((cmdctx/128)-1)) >> 8;
@@ -427,7 +502,7 @@ static void asd_init_cseq_mip(struct asd_ha_struct *asd_ha)
 	asd_write_reg_word(asd_ha, CSEQ_EXTENDED_FREE_SCB_HEAD, 0xFFFF);
 	asd_write_reg_word(asd_ha, CSEQ_EXTENDED_FREE_SCB_TAIL, 0xFFFF);
 
-	
+	/* CSEQ Mode independent, page 7 setup. */
 	asd_write_reg_dword(asd_ha, CSEQ_EMPTY_REQ_QUEUE, 0);
 	asd_write_reg_dword(asd_ha, CSEQ_EMPTY_REQ_QUEUE+4, 0);
 	asd_write_reg_dword(asd_ha, CSEQ_EMPTY_REQ_COUNT, 0);
@@ -442,6 +517,10 @@ static void asd_init_cseq_mip(struct asd_ha_struct *asd_ha)
 	asd_write_reg_dword(asd_ha, CSEQ_TIMEOUT_CONST, 0);
 }
 
+/**
+ * asd_init_cseq_mdp - initialize CSEQ Mode dependent pages
+ * @asd_ha: pointer to host adapter structure
+ */
 static void asd_init_cseq_mdp(struct asd_ha_struct *asd_ha)
 {
 	int	i;
@@ -449,7 +528,7 @@ static void asd_init_cseq_mdp(struct asd_ha_struct *asd_ha)
 
 	moffs = CSEQ_PAGE_SIZE * 2;
 
-	
+	/* CSEQ Mode dependent, modes 0-7, page 0 setup. */
 	for (i = 0; i < 8; i++) {
 		asd_write_reg_word(asd_ha, i*moffs+CSEQ_LRM_SAVE_SINDEX, 0);
 		asd_write_reg_word(asd_ha, i*moffs+CSEQ_LRM_SAVE_SCBPTR, 0);
@@ -458,9 +537,9 @@ static void asd_init_cseq_mdp(struct asd_ha_struct *asd_ha)
 		asd_write_reg_byte(asd_ha, i*moffs+CSEQ_LRM_SAVE_SCRPAGE, 0);
 	}
 
-	
+	/* CSEQ Mode dependent, mode 0-7, page 1 and 2 shall be ignored. */
 
-	
+	/* CSEQ Mode dependent, mode 8, page 0 setup. */
 	asd_write_reg_word(asd_ha, CSEQ_RET_ADDR, 0xFFFF);
 	asd_write_reg_word(asd_ha, CSEQ_RET_SCBPTR, 0);
 	asd_write_reg_word(asd_ha, CSEQ_SAVE_SCBPTR, 0);
@@ -478,42 +557,55 @@ static void asd_init_cseq_mdp(struct asd_ha_struct *asd_ha)
 	asd_write_reg_word(asd_ha, CSEQ_FIRST_INV_DDB_SITE,
 			   (u16)asd_ha->hw_prof.max_ddbs);
 
-	
+	/* CSEQ Mode dependent, mode 8, page 1 setup. */
 	asd_write_reg_dword(asd_ha, CSEQ_LUN_TO_CLEAR, 0);
 	asd_write_reg_dword(asd_ha, CSEQ_LUN_TO_CLEAR + 4, 0);
 	asd_write_reg_dword(asd_ha, CSEQ_LUN_TO_CHECK, 0);
 	asd_write_reg_dword(asd_ha, CSEQ_LUN_TO_CHECK + 4, 0);
 
-	
-	
+	/* CSEQ Mode dependent, mode 8, page 2 setup. */
+	/* Tell the sequencer the bus address of the first SCB. */
 	asd_write_reg_addr(asd_ha, CSEQ_HQ_NEW_POINTER,
 			   asd_ha->seq.next_scb.dma_handle);
 	ASD_DPRINTK("First SCB dma_handle: 0x%llx\n",
 		    (unsigned long long)asd_ha->seq.next_scb.dma_handle);
 
-	
+	/* Tell the sequencer the first Done List entry address. */
 	asd_write_reg_addr(asd_ha, CSEQ_HQ_DONE_BASE,
 			   asd_ha->seq.actual_dl->dma_handle);
 
+	/* Initialize the Q_DONE_POINTER with the least significant
+	 * 4 bytes of the first Done List address. */
 	asd_write_reg_dword(asd_ha, CSEQ_HQ_DONE_POINTER,
 			    ASD_BUSADDR_LO(asd_ha->seq.actual_dl->dma_handle));
 
 	asd_write_reg_byte(asd_ha, CSEQ_HQ_DONE_PASS, ASD_DEF_DL_TOGGLE);
 
-	
+	/* CSEQ Mode dependent, mode 8, page 3 shall be ignored. */
 }
 
+/**
+ * asd_init_cseq_scratch -- setup and init CSEQ
+ * @asd_ha: pointer to host adapter structure
+ *
+ * Setup and initialize Central sequencers. Initialize the mode
+ * independent and dependent scratch page to the default settings.
+ */
 static void asd_init_cseq_scratch(struct asd_ha_struct *asd_ha)
 {
 	asd_init_cseq_mip(asd_ha);
 	asd_init_cseq_mdp(asd_ha);
 }
 
+/**
+ * asd_init_lseq_mip -- initialize LSEQ Mode independent pages 0-3
+ * @asd_ha: pointer to host adapter structure
+ */
 static void asd_init_lseq_mip(struct asd_ha_struct *asd_ha, u8 lseq)
 {
 	int i;
 
-	
+	/* LSEQ Mode independent page 0 setup. */
 	asd_write_reg_word(asd_ha, LmSEQ_Q_TGTXFR_HEAD(lseq), 0xFFFF);
 	asd_write_reg_word(asd_ha, LmSEQ_Q_TGTXFR_TAIL(lseq), 0xFFFF);
 	asd_write_reg_byte(asd_ha, LmSEQ_LINK_NUMBER(lseq), lseq);
@@ -529,7 +621,7 @@ static void asd_init_lseq_mip(struct asd_ha_struct *asd_ha, u8 lseq)
 	asd_write_reg_dword(asd_ha, LmSEQ_REG0_ISR(lseq), 0);
 	asd_write_reg_dword(asd_ha, LmSEQ_REG0_ISR(lseq)+4, 0);
 
-	
+	/* LSEQ Mode independent page 1 setup. */
 	asd_write_reg_word(asd_ha, LmSEQ_EST_NEXUS_SCBPTR0(lseq), 0xFFFF);
 	asd_write_reg_word(asd_ha, LmSEQ_EST_NEXUS_SCBPTR1(lseq), 0xFFFF);
 	asd_write_reg_word(asd_ha, LmSEQ_EST_NEXUS_SCBPTR2(lseq), 0xFFFF);
@@ -545,7 +637,7 @@ static void asd_init_lseq_mip(struct asd_ha_struct *asd_ha, u8 lseq)
 	asd_write_reg_word(asd_ha, LmSEQ_ISR_SAVE_SINDEX(lseq), 0);
 	asd_write_reg_word(asd_ha, LmSEQ_ISR_SAVE_DINDEX(lseq), 0);
 
-	
+	/* LSEQ Mode Independent page 2 setup. */
 	asd_write_reg_word(asd_ha, LmSEQ_EMPTY_SCB_PTR0(lseq), 0xFFFF);
 	asd_write_reg_word(asd_ha, LmSEQ_EMPTY_SCB_PTR1(lseq), 0xFFFF);
 	asd_write_reg_word(asd_ha, LmSEQ_EMPTY_SCB_PTR2(lseq), 0xFFFF);
@@ -560,16 +652,18 @@ static void asd_init_lseq_mip(struct asd_ha_struct *asd_ha, u8 lseq)
 	for (i = 0; i < 12; i += 4)
 		asd_write_reg_dword(asd_ha, LmSEQ_ATA_SCR_REGS(lseq) + i, 0);
 
-	
+	/* LSEQ Mode Independent page 3 setup. */
 
-	
+	/* Device present timer timeout */
 	asd_write_reg_dword(asd_ha, LmSEQ_DEV_PRES_TMR_TOUT_CONST(lseq),
 			    ASD_DEV_PRESENT_TIMEOUT);
 
-	
+	/* SATA interlock timer disabled */
 	asd_write_reg_dword(asd_ha, LmSEQ_SATA_INTERLOCK_TIMEOUT(lseq),
 			    ASD_SATA_INTERLOCK_TIMEOUT);
 
+	/* STP shutdown timer timeout constant, IGNORED by the sequencer,
+	 * always 0. */
 	asd_write_reg_dword(asd_ha, LmSEQ_STP_SHUTDOWN_TIMEOUT(lseq),
 			    ASD_STP_SHUTDOWN_TIMEOUT);
 
@@ -582,7 +676,7 @@ static void asd_init_lseq_mip(struct asd_ha_struct *asd_ha, u8 lseq)
 	asd_write_reg_dword(asd_ha, LmSEQ_ONE_MILLISEC_TIMEOUT(lseq),
 			    ASD_ONE_MILLISEC_TIMEOUT);
 
-	
+	/* COM_INIT timer */
 	asd_write_reg_dword(asd_ha, LmSEQ_TEN_MS_COMINIT_TIMEOUT(lseq),
 			    ASD_TEN_MILLISEC_TIMEOUT);
 
@@ -590,19 +684,27 @@ static void asd_init_lseq_mip(struct asd_ha_struct *asd_ha, u8 lseq)
 			    ASD_SMP_RCV_TIMEOUT);
 }
 
+/**
+ * asd_init_lseq_mdp -- initialize LSEQ mode dependent pages.
+ * @asd_ha: pointer to host adapter structure
+ */
 static void asd_init_lseq_mdp(struct asd_ha_struct *asd_ha,  int lseq)
 {
 	int    i;
 	u32    moffs;
 	u16 ret_addr[] = {
-		0xFFFF,		  
-		0xFFFF,		  
-		mode2_task,	  
+		0xFFFF,		  /* mode 0 */
+		0xFFFF,		  /* mode 1 */
+		mode2_task,	  /* mode 2 */
 		0,
-		0xFFFF,		  
-		0xFFFF,		  
+		0xFFFF,		  /* mode 4/5 */
+		0xFFFF,		  /* mode 4/5 */
 	};
 
+	/*
+	 * Mode 0,1,2 and 4/5 have common field on page 0 for the first
+	 * 14 bytes.
+	 */
 	for (i = 0; i < 3; i++) {
 		moffs = i * LSEQ_MODE_SCRATCH_SIZE;
 		asd_write_reg_word(asd_ha, LmSEQ_RET_ADDR(lseq)+moffs,
@@ -614,6 +716,9 @@ static void asd_init_lseq_mdp(struct asd_ha_struct *asd_ha,  int lseq)
 		asd_write_reg_byte(asd_ha, LmSEQ_OPCODE_TO_CSEQ(lseq)+moffs,0);
 		asd_write_reg_word(asd_ha, LmSEQ_DATA_TO_CSEQ(lseq)+moffs,0);
 	}
+	/*
+	 *  Mode 5 page 0 overlaps the same scratch page with Mode 0 page 3.
+	 */
 	asd_write_reg_word(asd_ha,
 			 LmSEQ_RET_ADDR(lseq)+LSEQ_MODE5_PAGE0_OFFSET,
 			   ret_addr[5]);
@@ -630,7 +735,7 @@ static void asd_init_lseq_mdp(struct asd_ha_struct *asd_ha,  int lseq)
 	asd_write_reg_word(asd_ha,
 		         LmSEQ_DATA_TO_CSEQ(lseq)+LSEQ_MODE5_PAGE0_OFFSET, 0);
 
-	
+	/* LSEQ Mode dependent 0, page 0 setup. */
 	asd_write_reg_word(asd_ha, LmSEQ_FIRST_INV_DDB_SITE(lseq),
 			   (u16)asd_ha->hw_prof.max_ddbs);
 	asd_write_reg_word(asd_ha, LmSEQ_EMPTY_TRANS_CTX(lseq), 0);
@@ -647,7 +752,7 @@ static void asd_init_lseq_mdp(struct asd_ha_struct *asd_ha,  int lseq)
 	asd_write_reg_byte(asd_ha, LmSEQ_LAST_LOADED_SGE(lseq), 0);
 	asd_write_reg_word(asd_ha, LmSEQ_SAVE_SCBPTR(lseq), 0);
 
-	
+	/* LSEQ mode dependent, mode 1, page 0 setup. */
 	asd_write_reg_word(asd_ha, LmSEQ_Q_XMIT_HEAD(lseq), 0xFFFF);
 	asd_write_reg_word(asd_ha, LmSEQ_M1_EMPTY_TRANS_CTX(lseq), 0);
 	asd_write_reg_word(asd_ha, LmSEQ_INI_CONN_TAG(lseq), 0);
@@ -657,7 +762,7 @@ static void asd_init_lseq_mdp(struct asd_ha_struct *asd_ha,  int lseq)
 	asd_write_reg_byte(asd_ha, LmSEQ_M1_LAST_LOADED_SGE(lseq), 0);
 	asd_write_reg_word(asd_ha, LmSEQ_M1_SAVE_SCBPTR(lseq), 0);
 
-	
+	/* LSEQ Mode dependent mode 2, page 0 setup */
 	asd_write_reg_word(asd_ha, LmSEQ_PORT_COUNTER(lseq), 0);
 	asd_write_reg_word(asd_ha, LmSEQ_PM_TABLE_PTR(lseq), 0);
 	asd_write_reg_word(asd_ha, LmSEQ_SATA_INTERLOCK_TMR_SAVE(lseq), 0);
@@ -665,7 +770,7 @@ static void asd_init_lseq_mdp(struct asd_ha_struct *asd_ha,  int lseq)
 	asd_write_reg_word(asd_ha, LmSEQ_COPY_SMP_CONN_TAG(lseq), 0);
 	asd_write_reg_byte(asd_ha, LmSEQ_P0M2_OFFS1AH(lseq), 0);
 
-	
+	/* LSEQ Mode dependent, mode 4/5, page 0 setup. */
 	asd_write_reg_byte(asd_ha, LmSEQ_SAVED_OOB_STATUS(lseq), 0);
 	asd_write_reg_byte(asd_ha, LmSEQ_SAVED_OOB_MODE(lseq), 0);
 	asd_write_reg_word(asd_ha, LmSEQ_Q_LINK_HEAD(lseq), 0xFFFF);
@@ -675,30 +780,34 @@ static void asd_init_lseq_mdp(struct asd_ha_struct *asd_ha,  int lseq)
 	asd_write_reg_byte(asd_ha, LmSEQ_LINK_RESET_RETRY_COUNT(lseq), 0);
 	asd_write_reg_byte(asd_ha, LmSEQ_NUM_LINK_RESET_RETRIES(lseq), 0);
 	asd_write_reg_word(asd_ha, LmSEQ_OOB_INT_ENABLES(lseq), 0);
+	/*
+	 * Set the desired interval between transmissions of the NOTIFY
+	 * (ENABLE SPINUP) primitive.  Must be initialized to val - 1.
+	 */
 	asd_write_reg_word(asd_ha, LmSEQ_NOTIFY_TIMER_TIMEOUT(lseq),
 			   ASD_NOTIFY_TIMEOUT - 1);
-	
+	/* No delay for the first NOTIFY to be sent to the attached target. */
 	asd_write_reg_word(asd_ha, LmSEQ_NOTIFY_TIMER_DOWN_COUNT(lseq),
 			   ASD_NOTIFY_DOWN_COUNT);
 	asd_write_reg_word(asd_ha, LmSEQ_NOTIFY_TIMER_INITIAL_COUNT(lseq),
 			   ASD_NOTIFY_DOWN_COUNT);
 
-	
+	/* LSEQ Mode dependent, mode 0 and 1, page 1 setup. */
 	for (i = 0; i < 2; i++)	{
 		int j;
-		
+		/* Start from Page 1 of Mode 0 and 1. */
 		moffs = LSEQ_PAGE_SIZE + i*LSEQ_MODE_SCRATCH_SIZE;
-		
+		/* All the fields of page 1 can be initialized to 0. */
 		for (j = 0; j < LSEQ_PAGE_SIZE; j += 4)
 			asd_write_reg_dword(asd_ha, LmSCRATCH(lseq)+moffs+j,0);
 	}
 
-	
+	/* LSEQ Mode dependent, mode 2, page 1 setup. */
 	asd_write_reg_dword(asd_ha, LmSEQ_INVALID_DWORD_COUNT(lseq), 0);
 	asd_write_reg_dword(asd_ha, LmSEQ_DISPARITY_ERROR_COUNT(lseq), 0);
 	asd_write_reg_dword(asd_ha, LmSEQ_LOSS_OF_SYNC_COUNT(lseq), 0);
 
-	
+	/* LSEQ Mode dependent, mode 4/5, page 1. */
 	for (i = 0; i < LSEQ_PAGE_SIZE; i+=4)
 		asd_write_reg_dword(asd_ha, LmSEQ_FRAME_TYPE_MASK(lseq)+i, 0);
 	asd_write_reg_byte(asd_ha, LmSEQ_FRAME_TYPE_MASK(lseq), 0xFF);
@@ -710,21 +819,23 @@ static void asd_init_lseq_mdp(struct asd_ha_struct *asd_ha,  int lseq)
 	asd_write_reg_byte(asd_ha, LmSEQ_HASHED_SRC_ADDR_MASK(lseq)+2, 0xFF);
 	asd_write_reg_dword(asd_ha, LmSEQ_DATA_OFFSET(lseq), 0xFFFFFFFF);
 
-	
+	/* LSEQ Mode dependent, mode 0, page 2 setup. */
 	asd_write_reg_dword(asd_ha, LmSEQ_SMP_RCV_TIMER_TERM_TS(lseq), 0);
 	asd_write_reg_byte(asd_ha, LmSEQ_DEVICE_BITS(lseq), 0);
 	asd_write_reg_word(asd_ha, LmSEQ_SDB_DDB(lseq), 0);
 	asd_write_reg_byte(asd_ha, LmSEQ_SDB_NUM_TAGS(lseq), 0);
 	asd_write_reg_byte(asd_ha, LmSEQ_SDB_CURR_TAG(lseq), 0);
 
-	
+	/* LSEQ Mode Dependent 1, page 2 setup. */
 	asd_write_reg_dword(asd_ha, LmSEQ_TX_ID_ADDR_FRAME(lseq), 0);
 	asd_write_reg_dword(asd_ha, LmSEQ_TX_ID_ADDR_FRAME(lseq)+4, 0);
 	asd_write_reg_dword(asd_ha, LmSEQ_OPEN_TIMER_TERM_TS(lseq), 0);
 	asd_write_reg_dword(asd_ha, LmSEQ_SRST_AS_TIMER_TERM_TS(lseq), 0);
 	asd_write_reg_dword(asd_ha, LmSEQ_LAST_LOADED_SG_EL(lseq), 0);
 
-	
+	/* LSEQ Mode Dependent 2, page 2 setup. */
+	/* The LmSEQ_STP_SHUTDOWN_TIMER_TERM_TS is IGNORED by the sequencer,
+	 * i.e. always 0. */
 	asd_write_reg_dword(asd_ha, LmSEQ_STP_SHUTDOWN_TIMER_TERM_TS(lseq),0);
 	asd_write_reg_dword(asd_ha, LmSEQ_CLOSE_TIMER_TERM_TS(lseq), 0);
 	asd_write_reg_dword(asd_ha, LmSEQ_BREAK_TIMER_TERM_TS(lseq), 0);
@@ -732,13 +843,17 @@ static void asd_init_lseq_mdp(struct asd_ha_struct *asd_ha,  int lseq)
 	asd_write_reg_dword(asd_ha,LmSEQ_SATA_INTERLOCK_TIMER_TERM_TS(lseq),0);
 	asd_write_reg_dword(asd_ha, LmSEQ_MCTL_TIMER_TERM_TS(lseq), 0);
 
-	
+	/* LSEQ Mode Dependent 4/5, page 2 setup. */
 	asd_write_reg_dword(asd_ha, LmSEQ_COMINIT_TIMER_TERM_TS(lseq), 0);
 	asd_write_reg_dword(asd_ha, LmSEQ_RCV_ID_TIMER_TERM_TS(lseq), 0);
 	asd_write_reg_dword(asd_ha, LmSEQ_RCV_FIS_TIMER_TERM_TS(lseq), 0);
 	asd_write_reg_dword(asd_ha, LmSEQ_DEV_PRES_TIMER_TERM_TS(lseq),	0);
 }
 
+/**
+ * asd_init_lseq_scratch -- setup and init link sequencers
+ * @asd_ha: pointer to host adapter struct
+ */
 static void asd_init_lseq_scratch(struct asd_ha_struct *asd_ha)
 {
 	u8 lseq;
@@ -751,6 +866,14 @@ static void asd_init_lseq_scratch(struct asd_ha_struct *asd_ha)
 	}
 }
 
+/**
+ * asd_init_scb_sites -- initialize sequencer SCB sites (memory).
+ * @asd_ha: pointer to host adapter structure
+ *
+ * This should be done before initializing common CSEQ and LSEQ
+ * scratch since those areas depend on some computed values here,
+ * last_scb_site_no, etc.
+ */
 static void asd_init_scb_sites(struct asd_ha_struct *asd_ha)
 {
 	u16	site_no;
@@ -761,25 +884,33 @@ static void asd_init_scb_sites(struct asd_ha_struct *asd_ha)
 	     site_no--) {
 		u16	i;
 
-		
+		/* Initialize all fields in the SCB site to 0. */
 		for (i = 0; i < ASD_SCB_SIZE; i += 4)
 			asd_scbsite_write_dword(asd_ha, site_no, i, 0);
 
-		
+		/* Initialize SCB Site Opcode field to invalid. */
 		asd_scbsite_write_byte(asd_ha, site_no,
 				       offsetof(struct scb_header, opcode),
 				       0xFF);
 
+		/* Initialize SCB Site Flags field to mean a response
+		 * frame has been received.  This means inadvertent
+		 * frames received to be dropped. */
 		asd_scbsite_write_byte(asd_ha, site_no, 0x49, 0x01);
 
+		/* Workaround needed by SEQ to fix a SATA issue is to exclude
+		 * certain SCB sites from the free list. */
 		if (!SCB_SITE_VALID(site_no))
 			continue;
 
 		if (last_scb_site_no == 0)
 			last_scb_site_no = site_no;
 
+		/* For every SCB site, we need to initialize the
+		 * following fields: Q_NEXT, SCB_OPCODE, SCB_FLAGS,
+		 * and SG Element Flag. */
 
-		
+		/* Q_NEXT field of the last SCB is invalidated. */
 		asd_scbsite_write_word(asd_ha, site_no, 0, first_scb_site_no);
 
 		first_scb_site_no = site_no;
@@ -791,6 +922,10 @@ static void asd_init_scb_sites(struct asd_ha_struct *asd_ha)
 	ASD_DPRINTK("last_scb_site_no:0x%x\n", last_scb_site_no);
 }
 
+/**
+ * asd_init_cseq_cio - initialize CSEQ CIO registers
+ * @asd_ha: pointer to host adapter structure
+ */
 static void asd_init_cseq_cio(struct asd_ha_struct *asd_ha)
 {
 	int i;
@@ -803,126 +938,138 @@ static void asd_init_cseq_cio(struct asd_ha_struct *asd_ha)
 	asd_write_reg_dword(asd_ha, SCBPRO, 0);
 	asd_write_reg_dword(asd_ha, CSEQCON, 0);
 
+	/* Initialize CSEQ Mode 11 Interrupt Vectors.
+	 * The addresses are 16 bit wide and in dword units.
+	 * The values of their macros are in byte units.
+	 * Thus we have to divide by 4. */
 	asd_write_reg_word(asd_ha, CM11INTVEC0, cseq_vecs[0]);
 	asd_write_reg_word(asd_ha, CM11INTVEC1, cseq_vecs[1]);
 	asd_write_reg_word(asd_ha, CM11INTVEC2, cseq_vecs[2]);
 
-	
+	/* Enable ARP2HALTC (ARP2 Halted from Halt Code Write). */
 	asd_write_reg_byte(asd_ha, CARP2INTEN, EN_ARP2HALTC);
 
-	
+	/* Initialize CSEQ Scratch Page to 0x04. */
 	asd_write_reg_byte(asd_ha, CSCRATCHPAGE, 0x04);
 
-	
-	
+	/* Initialize CSEQ Mode[0-8] Dependent registers. */
+	/* Initialize Scratch Page to 0. */
 	for (i = 0; i < 9; i++)
 		asd_write_reg_byte(asd_ha, CMnSCRATCHPAGE(i), 0);
 
-	
+	/* Reset the ARP2 Program Count. */
 	asd_write_reg_word(asd_ha, CPRGMCNT, cseq_idle_loop);
 
 	for (i = 0; i < 8; i++) {
-		
+		/* Initialize Mode n Link m Interrupt Enable. */
 		asd_write_reg_dword(asd_ha, CMnINTEN(i), EN_CMnRSPMBXF);
-		
+		/* Initialize Mode n Request Mailbox. */
 		asd_write_reg_dword(asd_ha, CMnREQMBX(i), 0);
 	}
 }
 
+/**
+ * asd_init_lseq_cio -- initialize LmSEQ CIO registers
+ * @asd_ha: pointer to host adapter structure
+ */
 static void asd_init_lseq_cio(struct asd_ha_struct *asd_ha, int lseq)
 {
 	u8  *sas_addr;
 	int  i;
 
-	
+	/* Enable ARP2HALTC (ARP2 Halted from Halt Code Write). */
 	asd_write_reg_dword(asd_ha, LmARP2INTEN(lseq), EN_ARP2HALTC);
 
 	asd_write_reg_byte(asd_ha, LmSCRATCHPAGE(lseq), 0);
 
-	
+	/* Initialize Mode 0,1, and 2 SCRATCHPAGE to 0. */
 	for (i = 0; i < 3; i++)
 		asd_write_reg_byte(asd_ha, LmMnSCRATCHPAGE(lseq, i), 0);
 
-	
+	/* Initialize Mode 5 SCRATCHPAGE to 0. */
 	asd_write_reg_byte(asd_ha, LmMnSCRATCHPAGE(lseq, 5), 0);
 
 	asd_write_reg_dword(asd_ha, LmRSPMBX(lseq), 0);
+	/* Initialize Mode 0,1,2 and 5 Interrupt Enable and
+	 * Interrupt registers. */
 	asd_write_reg_dword(asd_ha, LmMnINTEN(lseq, 0), LmM0INTEN_MASK);
 	asd_write_reg_dword(asd_ha, LmMnINT(lseq, 0), 0xFFFFFFFF);
-	
+	/* Mode 1 */
 	asd_write_reg_dword(asd_ha, LmMnINTEN(lseq, 1), LmM1INTEN_MASK);
 	asd_write_reg_dword(asd_ha, LmMnINT(lseq, 1), 0xFFFFFFFF);
-	
+	/* Mode 2 */
 	asd_write_reg_dword(asd_ha, LmMnINTEN(lseq, 2), LmM2INTEN_MASK);
 	asd_write_reg_dword(asd_ha, LmMnINT(lseq, 2), 0xFFFFFFFF);
-	
+	/* Mode 5 */
 	asd_write_reg_dword(asd_ha, LmMnINTEN(lseq, 5), LmM5INTEN_MASK);
 	asd_write_reg_dword(asd_ha, LmMnINT(lseq, 5), 0xFFFFFFFF);
 
-	
+	/* Enable HW Timer status. */
 	asd_write_reg_byte(asd_ha, LmHWTSTATEN(lseq), LmHWTSTATEN_MASK);
 
-	
+	/* Enable Primitive Status 0 and 1. */
 	asd_write_reg_dword(asd_ha, LmPRIMSTAT0EN(lseq), LmPRIMSTAT0EN_MASK);
 	asd_write_reg_dword(asd_ha, LmPRIMSTAT1EN(lseq), LmPRIMSTAT1EN_MASK);
 
-	
+	/* Enable Frame Error. */
 	asd_write_reg_dword(asd_ha, LmFRMERREN(lseq), LmFRMERREN_MASK);
 	asd_write_reg_byte(asd_ha, LmMnHOLDLVL(lseq, 0), 0x50);
 
-	
+	/* Initialize Mode 0 Transfer Level to 512. */
 	asd_write_reg_byte(asd_ha,  LmMnXFRLVL(lseq, 0), LmMnXFRLVL_512);
-	
+	/* Initialize Mode 1 Transfer Level to 256. */
 	asd_write_reg_byte(asd_ha, LmMnXFRLVL(lseq, 1), LmMnXFRLVL_256);
 
-	
+	/* Initialize Program Count. */
 	asd_write_reg_word(asd_ha, LmPRGMCNT(lseq), lseq_idle_loop);
 
-	
+	/* Enable Blind SG Move. */
 	asd_write_reg_dword(asd_ha, LmMODECTL(lseq), LmBLIND48);
 	asd_write_reg_word(asd_ha, LmM3SATATIMER(lseq),
 			   ASD_SATA_INTERLOCK_TIMEOUT);
 
 	(void) asd_read_reg_dword(asd_ha, LmREQMBX(lseq));
 
-	
+	/* Clear Primitive Status 0 and 1. */
 	asd_write_reg_dword(asd_ha, LmPRMSTAT0(lseq), 0xFFFFFFFF);
 	asd_write_reg_dword(asd_ha, LmPRMSTAT1(lseq), 0xFFFFFFFF);
 
-	
+	/* Clear HW Timer status. */
 	asd_write_reg_byte(asd_ha, LmHWTSTAT(lseq), 0xFF);
 
-	
+	/* Clear DMA Errors for Mode 0 and 1. */
 	asd_write_reg_byte(asd_ha, LmMnDMAERRS(lseq, 0), 0xFF);
 	asd_write_reg_byte(asd_ha, LmMnDMAERRS(lseq, 1), 0xFF);
 
-	
+	/* Clear SG DMA Errors for Mode 0 and 1. */
 	asd_write_reg_byte(asd_ha, LmMnSGDMAERRS(lseq, 0), 0xFF);
 	asd_write_reg_byte(asd_ha, LmMnSGDMAERRS(lseq, 1), 0xFF);
 
-	
+	/* Clear Mode 0 Buffer Parity Error. */
 	asd_write_reg_byte(asd_ha, LmMnBUFSTAT(lseq, 0), LmMnBUFPERR);
 
-	
+	/* Clear Mode 0 Frame Error register. */
 	asd_write_reg_dword(asd_ha, LmMnFRMERR(lseq, 0), 0xFFFFFFFF);
 
-	
+	/* Reset LSEQ external interrupt arbiter. */
 	asd_write_reg_byte(asd_ha, LmARP2INTCTL(lseq), RSTINTCTL);
 
-	
+	/* Set the Phy SAS for the LmSEQ WWN. */
 	sas_addr = asd_ha->phys[lseq].phy_desc->sas_addr;
 	for (i = 0; i < SAS_ADDR_SIZE; i++)
 		asd_write_reg_byte(asd_ha, LmWWN(lseq) + i, sas_addr[i]);
 
-	
+	/* Set the Transmit Size to 1024 bytes, 0 = 256 Dwords. */
 	asd_write_reg_byte(asd_ha, LmMnXMTSIZE(lseq, 1), 0);
 
-	
+	/* Set the Bus Inactivity Time Limit Timer. */
 	asd_write_reg_word(asd_ha, LmBITL_TIMER(lseq), 9);
 
-	
+	/* Enable SATA Port Multiplier. */
 	asd_write_reg_byte(asd_ha, LmMnSATAFS(lseq, 1), 0x80);
 
+	/* Initialize Interrupt Vector[0-10] address in Mode 3.
+	 * See the comment on CSEQ_INT_* */
 	asd_write_reg_word(asd_ha, LmM3INTVEC0(lseq), lseq_vecs[0]);
 	asd_write_reg_word(asd_ha, LmM3INTVEC1(lseq), lseq_vecs[1]);
 	asd_write_reg_word(asd_ha, LmM3INTVEC2(lseq), lseq_vecs[2]);
@@ -934,15 +1081,23 @@ static void asd_init_lseq_cio(struct asd_ha_struct *asd_ha, int lseq)
 	asd_write_reg_word(asd_ha, LmM3INTVEC8(lseq), lseq_vecs[8]);
 	asd_write_reg_word(asd_ha, LmM3INTVEC9(lseq), lseq_vecs[9]);
 	asd_write_reg_word(asd_ha, LmM3INTVEC10(lseq), lseq_vecs[10]);
+	/*
+	 * Program the Link LED control, applicable only for
+	 * Chip Rev. B or later.
+	 */
 	asd_write_reg_dword(asd_ha, LmCONTROL(lseq),
 			    (LEDTIMER | LEDMODE_TXRX | LEDTIMERS_100ms));
 
-	
+	/* Set the Align Rate for SAS and STP mode. */
 	asd_write_reg_byte(asd_ha, LmM1SASALIGN(lseq), SAS_ALIGN_DEFAULT);
 	asd_write_reg_byte(asd_ha, LmM1STPALIGN(lseq), STP_ALIGN_DEFAULT);
 }
 
 
+/**
+ * asd_post_init_cseq -- clear CSEQ Mode n Int. status and Response mailbox
+ * @asd_ha: pointer to host adapter struct
+ */
 static void asd_post_init_cseq(struct asd_ha_struct *asd_ha)
 {
 	int i;
@@ -951,15 +1106,21 @@ static void asd_post_init_cseq(struct asd_ha_struct *asd_ha)
 		asd_write_reg_dword(asd_ha, CMnINT(i), 0xFFFFFFFF);
 	for (i = 0; i < 8; i++)
 		asd_read_reg_dword(asd_ha, CMnRSPMBX(i));
-	
+	/* Reset the external interrupt arbiter. */
 	asd_write_reg_byte(asd_ha, CARP2INTCTL, RSTINTCTL);
 }
 
+/**
+ * asd_init_ddb_0 -- initialize DDB 0
+ * @asd_ha: pointer to host adapter structure
+ *
+ * Initialize DDB site 0 which is used internally by the sequencer.
+ */
 static void asd_init_ddb_0(struct asd_ha_struct *asd_ha)
 {
 	int	i;
 
-	
+	/* Zero out the DDB explicitly */
 	for (i = 0; i < sizeof(struct asd_ddb_seq_shared); i+=4)
 		asd_ddbsite_write_dword(asd_ha, 0, i, 0);
 
@@ -989,7 +1150,7 @@ static void asd_init_ddb_0(struct asd_ha_struct *asd_ha)
 	       offsetof(struct asd_ddb_seq_shared, conn_not_active), 0xFF);
 	asd_ddbsite_write_byte(asd_ha, 0,
 	       offsetof(struct asd_ddb_seq_shared, phy_is_up), 0x00);
-	
+	/* DDB 0 is reserved */
 	set_bit(0, asd_ha->hw_prof.ddb_bitmap);
 }
 
@@ -1003,28 +1164,34 @@ static void asd_seq_init_ddb_sites(struct asd_ha_struct *asd_ha)
 			asd_ddbsite_write_dword(asd_ha, ddb_site, i, 0);
 }
 
+/**
+ * asd_seq_setup_seqs -- setup and initialize central and link sequencers
+ * @asd_ha: pointer to host adapter structure
+ */
 static void asd_seq_setup_seqs(struct asd_ha_struct *asd_ha)
 {
 	int 		lseq;
 	u8		lseq_mask;
 
-	
+	/* Initialize DDB sites */
 	asd_seq_init_ddb_sites(asd_ha);
 
+	/* Initialize SCB sites. Done first to compute some values which
+	 * the rest of the init code depends on. */
 	asd_init_scb_sites(asd_ha);
 
-	
+	/* Initialize CSEQ Scratch RAM registers. */
 	asd_init_cseq_scratch(asd_ha);
 
-	
+	/* Initialize LmSEQ Scratch RAM registers. */
 	asd_init_lseq_scratch(asd_ha);
 
-	
+	/* Initialize CSEQ CIO registers. */
 	asd_init_cseq_cio(asd_ha);
 
 	asd_init_ddb_0(asd_ha);
 
-	
+	/* Initialize LmSEQ CIO registers. */
 	lseq_mask = asd_ha->hw_prof.enabled_phys;
 	for_each_sequencer(lseq_mask, lseq_mask, lseq)
 		asd_init_lseq_cio(asd_ha, lseq);
@@ -1032,21 +1199,30 @@ static void asd_seq_setup_seqs(struct asd_ha_struct *asd_ha)
 }
 
 
+/**
+ * asd_seq_start_cseq -- start the central sequencer, CSEQ
+ * @asd_ha: pointer to host adapter structure
+ */
 static int asd_seq_start_cseq(struct asd_ha_struct *asd_ha)
 {
-	
+	/* Reset the ARP2 instruction to location zero. */
 	asd_write_reg_word(asd_ha, CPRGMCNT, cseq_idle_loop);
 
-	
+	/* Unpause the CSEQ  */
 	return asd_unpause_cseq(asd_ha);
 }
 
+/**
+ * asd_seq_start_lseq -- start a link sequencer
+ * @asd_ha: pointer to host adapter structure
+ * @lseq: the link sequencer of interest
+ */
 static int asd_seq_start_lseq(struct asd_ha_struct *asd_ha, int lseq)
 {
-	
+	/* Reset the ARP2 instruction to location zero. */
 	asd_write_reg_word(asd_ha, LmPRGMCNT(lseq), lseq_idle_loop);
 
-	
+	/* Unpause the LmSEQ  */
 	return asd_seq_unpause_lseq(asd_ha, lseq);
 }
 
@@ -1066,7 +1242,7 @@ static int asd_request_firmware(struct asd_ha_struct *asd_ha)
 	u16 *ptr_cseq_vecs, *ptr_lseq_vecs;
 
 	if (sequencer_fw)
-		
+		/* already loaded */
 		return 0;
 
 	err = request_firmware(&sequencer_fw,
@@ -1186,6 +1362,23 @@ int asd_start_seqs(struct asd_ha_struct *asd_ha)
 	return 0;
 }
 
+/**
+ * asd_update_port_links -- update port_map_by_links and phy_is_up
+ * @sas_phy: pointer to the phy which has been added to a port
+ *
+ * 1) When a link reset has completed and we got BYTES DMAED with a
+ * valid frame we call this function for that phy, to indicate that
+ * the phy is up, i.e. we update the phy_is_up in DDB 0.  The
+ * sequencer checks phy_is_up when pending SCBs are to be sent, and
+ * when an open address frame has been received.
+ *
+ * 2) When we know of ports, we call this function to update the map
+ * of phys participaing in that port, i.e. we update the
+ * port_map_by_links in DDB 0.  When a HARD_RESET primitive has been
+ * received, the sequencer disables all phys in that port.
+ * port_map_by_links is also used as the conn_mask byte in the
+ * initiator/target port DDB.
+ */
 void asd_update_port_links(struct asd_ha_struct *asd_ha, struct asd_phy *phy)
 {
 	const u8 phy_mask = (u8) phy->asd_port->phy_mask;

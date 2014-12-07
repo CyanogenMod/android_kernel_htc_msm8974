@@ -1096,7 +1096,7 @@ u32 send_rtac_asm_apr(void *buf, u32 opcode)
 		if (data_size > rtac_cal[ASM_RTAC_CAL].map_data.map_size) {
 			pr_err("%s: Invalid data size = %d\n",
 				__func__, data_size);
-			goto done;
+			goto err; 
 		}
 		payload_size = 4 * sizeof(u32);
 
@@ -1115,7 +1115,7 @@ u32 send_rtac_asm_apr(void *buf, u32 opcode)
 		if (payload_size > MAX_PAYLOAD_SIZE) {
 			pr_err("%s: Invalid payload size = %d\n",
 				__func__, payload_size);
-			goto done;
+			goto err; 
 		}
 
 		
@@ -1134,6 +1134,11 @@ u32 send_rtac_asm_apr(void *buf, u32 opcode)
 	asm_params.pkt_size = APR_PKT_SIZE(APR_HDR_SIZE,
 		payload_size);
 	asm_params.src_svc = q6asm_get_apr_service_id(session_id);
+	if (asm_params.src_svc == -EINVAL) {
+		pr_err("%s: Could not get service id form session %d", __func__, session_id);
+		goto err;
+	}
+
 	asm_params.src_domain = APR_DOMAIN_APPS;
 	asm_params.src_port = (session_id << 8) | 0x0001;
 	asm_params.dest_svc = APR_SVC_ASM;

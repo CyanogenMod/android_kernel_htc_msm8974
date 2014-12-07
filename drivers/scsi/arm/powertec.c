@@ -48,6 +48,10 @@
 
 #define VERSION	"1.10 (19/01/2003 2.5.59)"
 
+/*
+ * Use term=0,1,0,0,0 to turn terminators on/off.
+ * One entry per slot.
+ */
 static int term[MAX_ECARDS] = { 1, 1, 1, 1, 1, 1, 1, 1 };
 
 #define NR_SG	256
@@ -60,6 +64,11 @@ struct powertec_info {
 	struct scatterlist	sg[NR_SG];
 };
 
+/* Prototype: void powertecscsi_irqenable(ec, irqnr)
+ * Purpose  : Enable interrupts on Powertec SCSI card
+ * Params   : ec    - expansion card structure
+ *          : irqnr - interrupt number
+ */
 static void
 powertecscsi_irqenable(struct expansion_card *ec, int irqnr)
 {
@@ -67,6 +76,11 @@ powertecscsi_irqenable(struct expansion_card *ec, int irqnr)
 	writeb(POWERTEC_INTR_ENABLE, info->base + POWERTEC_INTR_CONTROL);
 }
 
+/* Prototype: void powertecscsi_irqdisable(ec, irqnr)
+ * Purpose  : Disable interrupts on Powertec SCSI card
+ * Params   : ec    - expansion card structure
+ *          : irqnr - interrupt number
+ */
 static void
 powertecscsi_irqdisable(struct expansion_card *ec, int irqnr)
 {
@@ -79,6 +93,11 @@ static const expansioncard_ops_t powertecscsi_ops = {
 	.irqdisable	= powertecscsi_irqdisable,
 };
 
+/* Prototype: void powertecscsi_terminator_ctl(host, on_off)
+ * Purpose  : Turn the Powertec SCSI terminators on or off
+ * Params   : host   - card to turn on/off
+ *          : on_off - !0 to turn on, 0 to turn off
+ */
 static void
 powertecscsi_terminator_ctl(struct Scsi_Host *host, int on_off)
 {
@@ -88,6 +107,11 @@ powertecscsi_terminator_ctl(struct Scsi_Host *host, int on_off)
 	writeb(info->term_ctl, info->base + POWERTEC_TERM_CONTROL);
 }
 
+/* Prototype: void powertecscsi_intr(irq, *dev_id, *regs)
+ * Purpose  : handle interrupts from Powertec SCSI card
+ * Params   : irq    - interrupt number
+ *	      dev_id - user-defined (Scsi_Host structure)
+ */
 static irqreturn_t powertecscsi_intr(int irq, void *dev_id)
 {
 	struct powertec_info *info = dev_id;
@@ -95,6 +119,14 @@ static irqreturn_t powertecscsi_intr(int irq, void *dev_id)
 	return fas216_intr(&info->info);
 }
 
+/* Prototype: fasdmatype_t powertecscsi_dma_setup(host, SCpnt, direction, min_type)
+ * Purpose  : initialises DMA/PIO
+ * Params   : host      - host
+ *	      SCpnt     - command
+ *	      direction - DMA on to/off of card
+ *	      min_type  - minimum DMA support that we must have for this transfer
+ * Returns  : type of transfer to be performed
+ */
 static fasdmatype_t
 powertecscsi_dma_setup(struct Scsi_Host *host, struct scsi_pointer *SCp,
 		       fasdmadir_t direction, fasdmatype_t min_type)
@@ -125,9 +157,18 @@ powertecscsi_dma_setup(struct Scsi_Host *host, struct scsi_pointer *SCp,
 		return fasdma_real_all;
 	}
 
+	/*
+	 * If we're not doing DMA,
+	 *  we'll do slow PIO
+	 */
 	return fasdma_pio;
 }
 
+/* Prototype: int powertecscsi_dma_stop(host, SCpnt)
+ * Purpose  : stops DMA/PIO
+ * Params   : host  - host
+ *	      SCpnt - command
+ */
 static void
 powertecscsi_dma_stop(struct Scsi_Host *host, struct scsi_pointer *SCp)
 {
@@ -136,6 +177,11 @@ powertecscsi_dma_stop(struct Scsi_Host *host, struct scsi_pointer *SCp)
 		disable_dma(info->info.scsi.dma);
 }
 
+/* Prototype: const char *powertecscsi_info(struct Scsi_Host * host)
+ * Purpose  : returns a descriptive string about this interface,
+ * Params   : host - driver host structure to return info for.
+ * Returns  : pointer to a static buffer containing null terminated string.
+ */
 const char *powertecscsi_info(struct Scsi_Host *host)
 {
 	struct powertec_info *info = (struct powertec_info *)host->hostdata;
@@ -148,6 +194,13 @@ const char *powertecscsi_info(struct Scsi_Host *host)
 	return string;
 }
 
+/* Prototype: int powertecscsi_set_proc_info(struct Scsi_Host *host, char *buffer, int length)
+ * Purpose  : Set a driver specific function
+ * Params   : host   - host to setup
+ *          : buffer - buffer containing string describing operation
+ *          : length - length of string
+ * Returns  : -EINVAL, or 0
+ */
 static int
 powertecscsi_set_proc_info(struct Scsi_Host *host, char *buffer, int length)
 {
@@ -292,9 +345,9 @@ powertecscsi_probe(struct expansion_card *ec, const struct ecard_id *id)
 	info->info.scsi.io_shift	= POWERTEC_FAS216_SHIFT;
 	info->info.scsi.irq		= ec->irq;
 	info->info.scsi.dma		= ec->dma;
-	info->info.ifcfg.clockrate	= 40; 
+	info->info.ifcfg.clockrate	= 40; /* MHz */
 	info->info.ifcfg.select_timeout	= 255;
-	info->info.ifcfg.asyncperiod	= 200; 
+	info->info.ifcfg.asyncperiod	= 200; /* ns */
 	info->info.ifcfg.sync_max_depth	= 7;
 	info->info.ifcfg.cntl3		= CNTL3_BS8 | CNTL3_FASTSCSI | CNTL3_FASTCLK;
 	info->info.ifcfg.disconnect_ok	= 1;

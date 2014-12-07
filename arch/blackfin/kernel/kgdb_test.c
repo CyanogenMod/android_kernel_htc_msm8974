@@ -16,6 +16,7 @@
 
 #include <asm/blackfin.h>
 
+/* Symbols are here for kgdb test to poke directly */
 static char cmdline[256];
 static size_t len;
 

@@ -25,6 +25,10 @@
 #include <asm/mmu_context.h>
 #include <asm/cacheflush.h>
 
+/*
+ * The 32KB cache on the SH7705 suffers from the same synonym problem
+ * as SH4 CPUs
+ */
 static inline void cache_wback_all(void)
 {
 	unsigned long ways, waysize, addrstart;
@@ -55,6 +59,11 @@ static inline void cache_wback_all(void)
 	} while (--ways);
 }
 
+/*
+ * Write back the range of D-cache, and purge the I-cache.
+ *
+ * Called from kernel/module.c:sys_init_module and routine for a.out format.
+ */
 static void sh7705_flush_icache_range(void *args)
 {
 	struct flusher_data *data = args;
@@ -66,6 +75,9 @@ static void sh7705_flush_icache_range(void *args)
 	__flush_wback_region((void *)start, end - start);
 }
 
+/*
+ * Writeback&Invalidate the D-cache of the page
+ */
 static void __flush_dcache_page(unsigned long phys)
 {
 	unsigned long ways, waysize, addrstart;
@@ -73,6 +85,19 @@ static void __flush_dcache_page(unsigned long phys)
 
 	phys |= SH_CACHE_VALID;
 
+	/*
+	 * Here, phys is the physical address of the page. We check all the
+	 * tags in the cache for those with the same page number as this page
+	 * (by masking off the lowest 2 bits of the 19-bit tag; these bits are
+	 * derived from the offset within in the 4k page). Matching valid
+	 * entries are invalidated.
+	 *
+	 * Since 2 bits of the cache index are derived from the virtual page
+	 * number, knowing this would reduce the number of cache entries to be
+	 * searched by a factor of 4. However this function exists to deal with
+	 * potential cache aliasing, therefore the optimisation is probably not
+	 * possible.
+	 */
 	local_irq_save(flags);
 	jump_to_uncached();
 
@@ -104,6 +129,10 @@ static void __flush_dcache_page(unsigned long phys)
 	local_irq_restore(flags);
 }
 
+/*
+ * Write back & invalidate the D-cache of the page.
+ * (To avoid "alias" issues)
+ */
 static void sh7705_flush_dcache_page(void *arg)
 {
 	struct page *page = arg;
@@ -127,6 +156,11 @@ static void sh7705_flush_cache_all(void *args)
 	local_irq_restore(flags);
 }
 
+/*
+ * Write back and invalidate I/D-caches for the page.
+ *
+ * ADDRESS: Virtual Address (U0 address)
+ */
 static void sh7705_flush_cache_page(void *args)
 {
 	struct flusher_data *data = args;
@@ -135,6 +169,14 @@ static void sh7705_flush_cache_page(void *args)
 	__flush_dcache_page(pfn << PAGE_SHIFT);
 }
 
+/*
+ * This is called when a page-cache page is about to be mapped into a
+ * user process' address space.  It offers an opportunity for a
+ * port to ensure d-cache/i-cache coherency if necessary.
+ *
+ * Not entirely sure why this is necessary on SH3 with 32K cache but
+ * without it we get occasional "Memory fault" when loading a program.
+ */
 static void sh7705_flush_icache_page(void *page)
 {
 	__flush_purge_region(page_address(page), PAGE_SIZE);

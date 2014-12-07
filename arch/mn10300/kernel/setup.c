@@ -35,6 +35,7 @@
 
 struct mn10300_cpuinfo boot_cpu_data;
 
+/* For PCI or other memory-mapped resources */
 unsigned long pci_mem_start = 0x18000000;
 
 char redboot_command_line[COMMAND_LINE_SIZE] =
@@ -72,14 +73,17 @@ static const char *const mn10300_cputypes[] = {
 	"unknown"
 };
 
+/*
+ *
+ */
 static void __init parse_mem_cmdline(char **cmdline_p)
 {
 	char *from, *to, c;
 
-	
+	/* save unparsed command line copy for /proc/cmdline */
 	strcpy(boot_command_line, redboot_command_line);
 
-	
+	/* see if there's an explicit memory size option */
 	from = redboot_command_line;
 	to = redboot_command_line;
 	c = ' ';
@@ -110,6 +114,9 @@ static void __init parse_mem_cmdline(char **cmdline_p)
 		memory_end = phys_memory_end;
 }
 
+/*
+ * architecture specific setup
+ */
 void __init setup_arch(char **cmdline_p)
 {
 	unsigned long bootmap_size;
@@ -147,6 +154,8 @@ void __init setup_arch(char **cmdline_p)
 	free_bootmem(PFN_PHYS(free_pfn),
 		     PFN_PHYS(end_pfn - free_pfn));
 
+	/* If interrupt vector table is in main ram, then we need to
+	   reserve the page it is occupying. */
 	if (CONFIG_INTERRUPT_VECTOR_BASE >= CONFIG_KERNEL_RAM_BASE_ADDRESS &&
 	    CONFIG_INTERRUPT_VECTOR_BASE < memory_end)
 		reserve_bootmem(CONFIG_INTERRUPT_VECTOR_BASE, PAGE_SIZE,
@@ -166,6 +175,9 @@ void __init setup_arch(char **cmdline_p)
 	paging_init();
 }
 
+/*
+ * perform CPU initialisation
+ */
 void __init cpu_init(void)
 {
 	unsigned long cpurev = CPUREV, type;
@@ -198,16 +210,19 @@ static int __init topology_init(void)
 
 subsys_initcall(topology_init);
 
+/*
+ * Get CPU information for use by the procfs.
+ */
 static int show_cpuinfo(struct seq_file *m, void *v)
 {
 #ifdef CONFIG_SMP
 	struct mn10300_cpuinfo *c = v;
 	unsigned long cpu_id = c - cpu_data;
 	unsigned long cpurev = c->type, type, icachesz, dcachesz;
-#else  
+#else  /* CONFIG_SMP */
 	unsigned long cpu_id = 0;
 	unsigned long cpurev = CPUREV, type, icachesz, dcachesz;
-#endif 
+#endif /* CONFIG_SMP */
 
 #ifdef CONFIG_SMP
 	if (!cpu_online(cpu_id))
@@ -251,10 +266,10 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 #ifdef CONFIG_SMP
 		   c->loops_per_jiffy / (500000 / HZ),
 		   (c->loops_per_jiffy / (5000 / HZ)) % 100
-#else  
+#else  /* CONFIG_SMP */
 		   loops_per_jiffy / (500000 / HZ),
 		   (loops_per_jiffy / (5000 / HZ)) % 100
-#endif 
+#endif /* CONFIG_SMP */
 		   );
 
 	return 0;

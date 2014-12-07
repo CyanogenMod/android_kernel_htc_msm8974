@@ -18,7 +18,7 @@
 
 int main(void)
 {
-	
+	/* offsets into the task struct */
 	DEFINE(TASK_STATE, offsetof(struct task_struct, state));
 	DEFINE(TASK_FLAGS, offsetof(struct task_struct, flags));
 	DEFINE(TASK_PTRACE, offsetof(struct task_struct, ptrace));
@@ -29,11 +29,11 @@ int main(void)
 	DEFINE(TASK_ACTIVE_MM, offsetof(struct task_struct, active_mm));
 	DEFINE(TASK_SIGPENDING, offsetof(struct task_struct, pending));
 
-	
+	/* offsets into the irq_cpustat_t struct */
 	DEFINE(CPUSTAT_SOFTIRQ_PENDING,
 	       offsetof(irq_cpustat_t, __softirq_pending));
 
-	
+	/* offsets into the thread struct */
 	DEFINE(THREAD_KSP, offsetof(struct thread_struct, ksp));
 	DEFINE(THREAD_USP, offsetof(struct thread_struct, usp));
 	DEFINE(THREAD_SR, offsetof(struct thread_struct, seqstat));
@@ -42,7 +42,7 @@ int main(void)
 	DEFINE(THREAD_PC, offsetof(struct thread_struct, pc));
 	DEFINE(KERNEL_STACK_SIZE, THREAD_SIZE);
 
-	
+	/* offsets into the pt_regs */
 	DEFINE(PT_ORIG_R0, offsetof(struct pt_regs, orig_r0));
 	DEFINE(PT_ORIG_P0, offsetof(struct pt_regs, orig_p0));
 	DEFINE(PT_ORIG_PC, offsetof(struct pt_regs, orig_pc));
@@ -101,17 +101,17 @@ int main(void)
 	DEFINE(PT_SYSCFG, offsetof(struct pt_regs, syscfg));
 	DEFINE(PT_IPEND, offsetof(struct pt_regs, ipend));
 	DEFINE(SIZEOF_PTREGS, sizeof(struct pt_regs));
-	DEFINE(PT_TEXT_ADDR, sizeof(struct pt_regs));        
-	DEFINE(PT_TEXT_END_ADDR, 4 + sizeof(struct pt_regs));
-	DEFINE(PT_DATA_ADDR, 8 + sizeof(struct pt_regs));    
-	DEFINE(PT_FDPIC_EXEC, 12 + sizeof(struct pt_regs));  
-	DEFINE(PT_FDPIC_INTERP, 16 + sizeof(struct pt_regs));
+	DEFINE(PT_TEXT_ADDR, sizeof(struct pt_regs));        /* Needed by gdb */
+	DEFINE(PT_TEXT_END_ADDR, 4 + sizeof(struct pt_regs));/* Needed by gdb */
+	DEFINE(PT_DATA_ADDR, 8 + sizeof(struct pt_regs));    /* Needed by gdb */
+	DEFINE(PT_FDPIC_EXEC, 12 + sizeof(struct pt_regs));  /* Needed by gdb */
+	DEFINE(PT_FDPIC_INTERP, 16 + sizeof(struct pt_regs));/* Needed by gdb */
 
-	
+	/* signal defines */
 	DEFINE(SIGSEGV, SIGSEGV);
 	DEFINE(SIGTRAP, SIGTRAP);
 
-	
+	/* PDA management (in L1 scratchpad) */
 	DEFINE(PDA_SYSCFG, offsetof(struct blackfin_pda, syscfg));
 #ifdef CONFIG_SMP
 	DEFINE(PDA_IRQFLAGS, offsetof(struct blackfin_pda, imask));
@@ -140,7 +140,7 @@ int main(void)
 	DEFINE(PDA_DF_RETX, offsetof(struct blackfin_pda, retx_doublefault));
 #endif
 
-	
+	/* PDA initial management */
 	DEFINE(PDA_INIT_RETX, offsetof(struct blackfin_initial_pda, retx));
 #ifdef CONFIG_DEBUG_DOUBLEFAULT
 	DEFINE(PDA_INIT_DF_DCPLB, offsetof(struct blackfin_initial_pda, dcplb_doublefault_addr));
@@ -150,7 +150,7 @@ int main(void)
 #endif
 
 #ifdef CONFIG_SMP
-	
+	/* Inter-core lock (in L2 SRAM) */
 	DEFINE(SIZEOF_CORELOCK, sizeof(struct corelock_slot));
 #endif
 

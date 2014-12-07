@@ -188,7 +188,7 @@ static int oaktrail_hdmi_mode_valid(struct drm_connector *connector,
 	if (mode->flags & DRM_MODE_FLAG_DBLSCAN)
 		return MODE_NO_DBLESCAN;
 
-	
+	/* We assume worst case scenario of 32 bpp here, since we don't know */
 	if ((ALIGN(mode->hdisplay * 4, 64) * mode->vdisplay) >
 	    dev_priv->vram_stolen_size)
 		return MODE_MEM;
@@ -252,7 +252,7 @@ static int oaktrail_hdmi_get_modes(struct drm_connector *connector)
 		edid = (struct edid *)raw_edid;
 	} else {
 		edid = (struct edid *)raw_edid;
-		
+		/* FIXME ? edid = drm_get_edid(connector, i2c_adap); */
 	}
 
 	if (edid) {
@@ -261,6 +261,9 @@ static int oaktrail_hdmi_get_modes(struct drm_connector *connector)
 		connector->display_info.raw_edid = NULL;
 	}
 
+	/*
+	 * prune modes that require frame buffer bigger than stolen mem
+	 */
 	list_for_each_entry_safe(mode, t, &connector->probed_modes, head) {
 		if ((mode->hdisplay * mode->vdisplay * 4) >= dev_priv->vram_stolen_size) {
 			i++;
@@ -400,7 +403,7 @@ void oaktrail_hdmi_setup(struct drm_device *dev)
 	hdmi_dev->dev = pdev;
 	pci_set_drvdata(pdev, hdmi_dev);
 
-	
+	/* Initialize i2c controller */
 	ret = oaktrail_hdmi_i2c_init(hdmi_dev->dev);
 	if (ret)
 		dev_err(dev->dev, "HDMI I2C initialization failed\n");
@@ -431,6 +434,7 @@ void oaktrail_hdmi_teardown(struct drm_device *dev)
 	}
 }
 
+/* save HDMI register state */
 void oaktrail_hdmi_save(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -438,14 +442,14 @@ void oaktrail_hdmi_save(struct drm_device *dev)
 	struct psb_state *regs = &dev_priv->regs.psb;
 	int i;
 
-	
+	/* dpll */
 	hdmi_dev->saveDPLL_CTRL = PSB_RVDC32(DPLL_CTRL);
 	hdmi_dev->saveDPLL_DIV_CTRL = PSB_RVDC32(DPLL_DIV_CTRL);
 	hdmi_dev->saveDPLL_ADJUST = PSB_RVDC32(DPLL_ADJUST);
 	hdmi_dev->saveDPLL_UPDATE = PSB_RVDC32(DPLL_UPDATE);
 	hdmi_dev->saveDPLL_CLK_ENABLE = PSB_RVDC32(DPLL_CLK_ENABLE);
 
-	
+	/* pipe B */
 	regs->savePIPEBCONF = PSB_RVDC32(PIPEBCONF);
 	regs->savePIPEBSRC  = PSB_RVDC32(PIPEBSRC);
 	regs->saveHTOTAL_B  = PSB_RVDC32(HTOTAL_B);
@@ -464,7 +468,7 @@ void oaktrail_hdmi_save(struct drm_device *dev)
 	hdmi_dev->savePCH_VBLANK_B = PSB_RVDC32(PCH_VBLANK_B);
 	hdmi_dev->savePCH_VSYNC_B  = PSB_RVDC32(PCH_VSYNC_B);
 
-	
+	/* plane */
 	regs->saveDSPBCNTR = PSB_RVDC32(DSPBCNTR);
 	regs->saveDSPBSTRIDE = PSB_RVDC32(DSPBSTRIDE);
 	regs->saveDSPBADDR = PSB_RVDC32(DSPBBASE);
@@ -472,16 +476,17 @@ void oaktrail_hdmi_save(struct drm_device *dev)
 	regs->saveDSPBLINOFF = PSB_RVDC32(DSPBLINOFF);
 	regs->saveDSPBTILEOFF = PSB_RVDC32(DSPBTILEOFF);
 
-	
+	/* cursor B */
 	regs->saveDSPBCURSOR_CTRL = PSB_RVDC32(CURBCNTR);
 	regs->saveDSPBCURSOR_BASE = PSB_RVDC32(CURBBASE);
 	regs->saveDSPBCURSOR_POS = PSB_RVDC32(CURBPOS);
 
-	
+	/* save palette */
 	for (i = 0; i < 256; i++)
 		regs->save_palette_b[i] = PSB_RVDC32(PALETTE_B + (i << 2));
 }
 
+/* restore HDMI register state */
 void oaktrail_hdmi_restore(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -489,7 +494,7 @@ void oaktrail_hdmi_restore(struct drm_device *dev)
 	struct psb_state *regs = &dev_priv->regs.psb;
 	int i;
 
-	
+	/* dpll */
 	PSB_WVDC32(hdmi_dev->saveDPLL_CTRL, DPLL_CTRL);
 	PSB_WVDC32(hdmi_dev->saveDPLL_DIV_CTRL, DPLL_DIV_CTRL);
 	PSB_WVDC32(hdmi_dev->saveDPLL_ADJUST, DPLL_ADJUST);
@@ -497,7 +502,7 @@ void oaktrail_hdmi_restore(struct drm_device *dev)
 	PSB_WVDC32(hdmi_dev->saveDPLL_CLK_ENABLE, DPLL_CLK_ENABLE);
 	DRM_UDELAY(150);
 
-	
+	/* pipe */
 	PSB_WVDC32(regs->savePIPEBSRC, PIPEBSRC);
 	PSB_WVDC32(regs->saveHTOTAL_B, HTOTAL_B);
 	PSB_WVDC32(regs->saveHBLANK_B, HBLANK_B);
@@ -517,19 +522,19 @@ void oaktrail_hdmi_restore(struct drm_device *dev)
 	PSB_WVDC32(regs->savePIPEBCONF, PIPEBCONF);
 	PSB_WVDC32(hdmi_dev->savePCH_PIPEBCONF, PCH_PIPEBCONF);
 
-	
+	/* plane */
 	PSB_WVDC32(regs->saveDSPBLINOFF, DSPBLINOFF);
 	PSB_WVDC32(regs->saveDSPBSTRIDE, DSPBSTRIDE);
 	PSB_WVDC32(regs->saveDSPBTILEOFF, DSPBTILEOFF);
 	PSB_WVDC32(regs->saveDSPBCNTR, DSPBCNTR);
 	PSB_WVDC32(regs->saveDSPBSURF, DSPBSURF);
 
-	
+	/* cursor B */
 	PSB_WVDC32(regs->saveDSPBCURSOR_CTRL, CURBCNTR);
 	PSB_WVDC32(regs->saveDSPBCURSOR_POS, CURBPOS);
 	PSB_WVDC32(regs->saveDSPBCURSOR_BASE, CURBBASE);
 
-	
+	/* restore palette */
 	for (i = 0; i < 256; i++)
 		PSB_WVDC32(regs->save_palette_b[i], PALETTE_B + (i << 2));
 }

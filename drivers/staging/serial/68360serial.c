@@ -49,15 +49,20 @@ extern int  kgdb_output_string (const char* s, unsigned int count);
 #endif
 
 
- 
+/* #ifdef CONFIG_SERIAL_CONSOLE */ /* This seems to be a post 2.0 thing - mles */
 #include <linux/console.h>
 #include <linux/jiffies.h>
 
+/* this defines the index into rs_table for the port to use
+ */
 #ifndef CONFIG_SERIAL_CONSOLE_PORT
-#define CONFIG_SERIAL_CONSOLE_PORT	1 
+#define CONFIG_SERIAL_CONSOLE_PORT	1 /* ie SMC2 - note USE_SMC2 must be defined */
 #endif
+/* #endif */
 
 #if 0
+/* SCC2 for console
+ */
 #undef CONFIG_SERIAL_CONSOLE_PORT
 #define CONFIG_SERIAL_CONSOLE_PORT	2
 #endif
@@ -71,10 +76,14 @@ static char *serial_version = "0.03";
 static struct tty_driver *serial_driver;
 int serial_console_setup(struct console *co, char *options);
 
+/*
+ * Serial driver configuration section.  Here are the various options:
+ */
 #define SERIAL_PARANOIA_CHECK
 #define CONFIG_SERIAL_NOPAUSE_IO
 #define SERIAL_DO_RESTART
 
+/* Set of debugging defines */
 
 #undef SERIAL_DEBUG_INTR
 #undef SERIAL_DEBUG_OPEN
@@ -85,6 +94,17 @@ int serial_console_setup(struct console *co, char *options);
   
 #define DBG_CNT(s)
 
+/* We overload some of the items in the data structure to meet our
+ * needs.  For example, the port address is the CPM parameter ram
+ * offset for the SCC or SMC.  The maximum number of ports is 4 SCCs and
+ * 2 SMCs.  The "hub6" field is used to indicate the channel number, with
+ * a flag indicating SCC or SMC, and the number is used as an index into
+ * the CPM parameter area for this device.
+ * The "type" field is currently set to 0, for PORT_UNKNOWN.  It is
+ * not currently used.  I should probably use it to indicate the port
+ * type of SMC or SCC.
+ * The SMCs do not support any modem control signals.
+ */
 #define smc_scc_num	hub6
 #define NUM_IS_SCC	((int)0x00010000)
 #define PORT_NUM(P)	((P) & 0x0000ffff)
@@ -93,13 +113,26 @@ int serial_console_setup(struct console *co, char *options);
 #if defined (CONFIG_UCQUICC)
 
 volatile extern void *_periph_base;
+/* sipex transceiver
+ *   mode bits for       are on pins
+ *
+ *    SCC2                d16..19
+ *    SCC3                d20..23
+ *    SCC4                d24..27
+ */
 #define SIPEX_MODE(n,m) ((m & 0x0f)<<(16+4*(n-1)))
 
 static uint sipex_mode_bits = 0x00000000;
 
 #endif
 
+/* There is no `serial_state' defined back here in 2.0.
+ * Try to get by with serial_struct
+ */
+/* #define serial_state serial_struct */
 
+/* 2.4 -> 2.0 portability problem: async_icount in 2.4 has a few
+ * extras: */
 
 #if 0
 struct async_icount_24 {
@@ -120,14 +153,14 @@ struct serial_state {
         int     hub6;
         int     type;
         int     line;
-        int     revision;       
+        int     revision;       /* Chip revision (950) */
         int     xmit_fifo_size;
         int     custom_divisor;
         int     count;
         u8      *iomem_base;
         u16     iomem_reg_shift;
         unsigned short  close_delay;
-        unsigned short  closing_wait; 
+        unsigned short  closing_wait; /* time to wait before closing */
         struct async_icount_24     icount; 
         int     io_type;
         struct async_struct *info;
@@ -138,30 +171,51 @@ struct serial_state {
 
 
 
+/* SMC2 is sometimes used for low performance TDM interfaces.  Define
+ * this as 1 if you want SMC2 as a serial port UART managed by this driver.
+ * Define this as 0 if you wish to use SMC2 for something else.
+ */
 #define USE_SMC2 1
 
 #if 0
-#define SCC_NUM_BASE	(USE_SMC2 + 1)	
+/* Define SCC to ttySx mapping. */
+#define SCC_NUM_BASE	(USE_SMC2 + 1)	/* SCC base tty "number" */
 
-#define SCC_IDX_BASE	1	
+/* Define which SCC is the first one to use for a serial port.  These
+ * are 0-based numbers, i.e. this assumes the first SCC (SCC1) is used
+ * for Ethernet, and the first available SCC for serial UART is SCC2.
+ * NOTE:  IF YOU CHANGE THIS, you have to change the PROFF_xxx and
+ * interrupt vectors in the table below to match.
+ */
+#define SCC_IDX_BASE	1	/* table index */
 #endif
 
 
+/* Processors other than the 860 only get SMCs configured by default.
+ * Either they don't have SCCs or they are allocated somewhere else.
+ * Of course, there are now 860s without some SCCs, so we will need to
+ * address that someday.
+ * The Embedded Planet Multimedia I/O cards use TDM interfaces to the
+ * stereo codec parts, and we use SMC2 to help support that.
+ */
 static struct serial_state rs_table[] = {
-	{  0,     0, PRSLOT_SMC1, CPMVEC_SMC1,   0,    0 }    
+/*  type   line   PORT           IRQ       FLAGS  smc_scc_num (F.K.A. hub6) */
+	{  0,     0, PRSLOT_SMC1, CPMVEC_SMC1,   0,    0 }    /* SMC1 ttyS0 */
 #if USE_SMC2
-	,{ 0,     0, PRSLOT_SMC2, CPMVEC_SMC2,   0,    1 }     
+	,{ 0,     0, PRSLOT_SMC2, CPMVEC_SMC2,   0,    1 }     /* SMC2 ttyS1 */
 #endif
 
 #if defined(CONFIG_SERIAL_68360_SCC)
-	,{ 0,     0, PRSLOT_SCC2, CPMVEC_SCC2,   0, (NUM_IS_SCC | 1) }    
-	,{ 0,     0, PRSLOT_SCC3, CPMVEC_SCC3,   0, (NUM_IS_SCC | 2) }    
-	,{ 0,     0, PRSLOT_SCC4, CPMVEC_SCC4,   0, (NUM_IS_SCC | 3) }    
+	,{ 0,     0, PRSLOT_SCC2, CPMVEC_SCC2,   0, (NUM_IS_SCC | 1) }    /* SCC2 ttyS2 */
+	,{ 0,     0, PRSLOT_SCC3, CPMVEC_SCC3,   0, (NUM_IS_SCC | 2) }    /* SCC3 ttyS3 */
+	,{ 0,     0, PRSLOT_SCC4, CPMVEC_SCC4,   0, (NUM_IS_SCC | 3) }    /* SCC4 ttyS4 */
 #endif
 };
 
 #define NR_PORTS	(sizeof(rs_table)/sizeof(struct serial_state))
 
+/* The number of buffer descriptors and their sizes.
+ */
 #define RX_NUM_FIFO	4
 #define RX_BUF_SIZE	32
 #define TX_NUM_FIFO	4
@@ -172,32 +226,37 @@ static struct serial_state rs_table[] = {
 
 char *console_fifos[CONSOLE_NUM_FIFO * CONSOLE_BUF_SIZE];
 
+/* The async_struct in serial.h does not really give us what we
+ * need, so define our own here.
+ */
 typedef struct serial_info {
 	int			magic;
 	int			flags;
 
 	struct serial_state	*state;
- 	
- 	
+ 	/* struct serial_struct	*state; */
+ 	/* struct async_struct	*state; */
 	
 	struct tty_struct 	*tty;
 	int			read_status_mask;
 	int			ignore_status_mask;
 	int			timeout;
 	int			line;
-	int			x_char;	
+	int			x_char;	/* xon/xoff character */
 	int			close_delay;
 	unsigned short		closing_wait;
 	unsigned short		closing_wait2;
 	unsigned long		event;
 	unsigned long		last_active;
-	int			blocked_open; 
+	int			blocked_open; /* # of blocked opens */
 	struct work_struct	tqueue;
 	struct work_struct	tqueue_hangup;
  	wait_queue_head_t	open_wait; 
  	wait_queue_head_t	close_wait; 
 
 	
+/* CPM Buffer Descriptor pointers.
+	*/
 	QUICC_BD			*rx_bd_base;
 	QUICC_BD			*rx_cur;
 	QUICC_BD			*tx_bd_base;
@@ -205,6 +264,7 @@ typedef struct serial_info {
 } ser_info_t;
 
 
+/* since kmalloc_init() does not get called until much after this initialization: */
 static ser_info_t  quicc_ser_info[NR_PORTS];
 static char rx_buf_pool[NR_PORTS * RX_NUM_FIFO * RX_BUF_SIZE];
 static char tx_buf_pool[NR_PORTS * TX_NUM_FIFO * TX_BUF_SIZE];
@@ -233,10 +293,16 @@ static inline int serial_paranoia_check(ser_info_t *info,
 	return 0;
 }
 
+/*
+ * This is used to figure out the divisor speeds and the timeouts,
+ * indexed by the termio value.  The generic CPM functions are responsible
+ * for setting and assigning baud rate generators for us.
+ */
 static int baud_table[] = {
 	0, 50, 75, 110, 134, 150, 200, 300, 600, 1200, 1800, 2400, 4800,
 	9600, 19200, 38400, 57600, 115200, 230400, 460800, 0 };
 
+/* This sucks. There is a better way: */
 #if defined(CONFIG_CONSOLE_9600)
   #define CONSOLE_BAUDRATE 9600
 #elif defined(CONFIG_CONSOLE_19200)
@@ -248,6 +314,14 @@ static int baud_table[] = {
   #define CONSOLE_BAUDRATE 9600
 #endif
 
+/*
+ * ------------------------------------------------------------
+ * rs_stop() and rs_start()
+ *
+ * This routines are called before setting or resetting tty->stopped.
+ * They enable or disable transmitter interrupts, as necessary.
+ * ------------------------------------------------------------
+ */
 static void rs_360_stop(struct tty_struct *tty)
 {
 	ser_info_t *info = (ser_info_t *)tty->driver_data;
@@ -265,7 +339,7 @@ static void rs_360_stop(struct tty_struct *tty)
 		sccp = &pquicc->scc_regs[idx];
 		sccp->scc_sccm &= ~UART_SCCM_TX;
 	} else {
-		
+		/* smcp = &cpmp->cp_smc[idx]; */
 		smcp = &pquicc->smc_regs[idx];
 		smcp->smc_smcm &= ~SMCM_TX;
 	}
@@ -296,25 +370,55 @@ static void rs_360_start(struct tty_struct *tty)
 	local_irq_restore(flags);
 }
 
+/*
+ * ----------------------------------------------------------------------
+ *
+ * Here starts the interrupt handling routines.  All of the following
+ * subroutines are declared as inline and are folded into
+ * rs_interrupt().  They were separated out for readability's sake.
+ *
+ * Note: rs_interrupt() is a "fast" interrupt, which means that it
+ * runs with interrupts turned off.  People who may want to modify
+ * rs_interrupt() should try to keep the interrupt handler as fast as
+ * possible.  After you are done making modifications, it is not a bad
+ * idea to do:
+ * 
+ * gcc -S -DKERNEL -Wall -Wstrict-prototypes -O6 -fomit-frame-pointer serial.c
+ *
+ * and look at the resulting assemble code in serial.s.
+ *
+ * 				- Ted Ts'o (tytso@mit.edu), 7-Mar-93
+ * -----------------------------------------------------------------------
+ */
 
 static _INLINE_ void receive_chars(ser_info_t *info)
 {
 	struct tty_struct *tty = info->port.tty;
 	unsigned char ch, flag, *cp;
-	
+	/*int	ignored = 0;*/
 	int	i;
 	ushort	status;
 	 struct	async_icount *icount; 
-	
+	/* struct	async_icount_24 *icount; */
 	volatile QUICC_BD	*bdp;
 
 	icount = &info->state->icount;
 
+	/* Just loop through the closed BDs and copy the characters into
+	 * the buffer.
+	 */
 	bdp = info->rx_cur;
 	for (;;) {
-		if (bdp->status & BD_SC_EMPTY)	
-			break;			
+		if (bdp->status & BD_SC_EMPTY)	/* If this one is empty */
+			break;			/*   we are all done */
 
+		/* The read status mask tell us what we should do with
+		 * incoming characters, especially if errors occur.
+		 * One special case is the use of BD_SC_EMPTY.  If
+		 * this is not set, we are supposed to be ignoring
+		 * inputs.  In this case, just mark the buffer empty and
+		 * continue.
+		 */
 		if (!(info->read_status_mask & BD_SC_EMPTY)) {
 			bdp->status |= BD_SC_EMPTY;
 			bdp->status &=
@@ -327,8 +431,10 @@ static _INLINE_ void receive_chars(ser_info_t *info)
 			continue;
 		}
 
+		/* Get the number of characters and the buffer pointer.
+		*/
 		i = bdp->length;
-		
+		/* cp = (unsigned char *)__va(bdp->buf); */
 		cp = (char *)bdp->buf;
 		status = bdp->status;
 
@@ -343,6 +449,9 @@ static _INLINE_ void receive_chars(ser_info_t *info)
 
 			if (status & (BD_SC_BR | BD_SC_FR |
 				       BD_SC_PR | BD_SC_OV)) {
+				/*
+				 * For statistics only
+				 */
 				if (status & BD_SC_BR)
 					icount->brk++;
 				else if (status & BD_SC_PR)
@@ -352,6 +461,16 @@ static _INLINE_ void receive_chars(ser_info_t *info)
 				if (status & BD_SC_OV)
 					icount->overrun++;
 
+				/*
+				 * Now check to see if character should be
+				 * ignored, and mask off conditions which
+				 * should be ignored.
+				if (status & info->ignore_status_mask) {
+					if (++ignored > 100)
+						break;
+					continue;
+				}
+				 */
 				status &= info->read_status_mask;
 		
 				if (status & (BD_SC_BR)) {
@@ -368,9 +487,17 @@ static _INLINE_ void receive_chars(ser_info_t *info)
 			}
 			tty_insert_flip_char(tty, ch, flag);
 			if (status & BD_SC_OV)
+				/*
+				 * Overrun is special, since it's
+				 * reported immediately, and doesn't
+				 * affect the current character
+				 */
 				tty_insert_flip_char(tty, 0, TTY_OVERRUN);
 		}
 
+		/* This BD is ready to be used again.  Clear status.
+		 * Get next BD.
+		 */
 		bdp->status |= BD_SC_EMPTY;
 		bdp->status &= ~(BD_SC_BR | BD_SC_FR | BD_SC_PR | BD_SC_OV);
 
@@ -390,6 +517,9 @@ static _INLINE_ void receive_break(ser_info_t *info)
 	struct tty_struct *tty = info->port.tty;
 
 	info->state->icount.brk++;
+	/* Check to see if there is room in the tty buffer for
+	 * the break.  If not, we exit now, losing the break.  FIXME
+	 */
 	tty_insert_flip_char(tty, 0, TTY_BREAK);
 	tty_schedule_flip(tty);
 }
@@ -408,17 +538,19 @@ static _INLINE_ void transmit_chars(ser_info_t *info)
 }
 
 #ifdef notdef
+	/* I need to do this for the SCCs, so it is left as a reminder.
+	*/
 static _INLINE_ void check_modem_status(struct async_struct *info)
 {
 	int	status;
-	
+	/* struct	async_icount *icount; */
 	struct	async_icount_24 *icount;
 	
 	status = serial_in(info, UART_MSR);
 
 	if (status & UART_MSR_ANY_DELTA) {
 		icount = &info->state->icount;
-		
+		/* update input line counters */
 		if (status & UART_MSR_TERI)
 			icount->rng++;
 		if (status & UART_MSR_DDSR)
@@ -477,7 +609,10 @@ static _INLINE_ void check_modem_status(struct async_struct *info)
 }
 #endif
 
- 
+/*
+ * This is the serial driver's interrupt routine for a single port
+ */
+/* static void rs_360_interrupt(void *dev_id) */ /* until and if we start servicing irqs here */
 static void rs_360_interrupt(int vec, void *dev_id)
 {
 	u_char	events;
@@ -523,6 +658,11 @@ static void rs_360_interrupt(int vec, void *dev_id)
 }
 
 
+/*
+ * -------------------------------------------------------------------
+ * Here ends the serial interrupt routines.
+ * -------------------------------------------------------------------
+ */
 
 
 static void do_softint(void *private_)
@@ -539,6 +679,15 @@ static void do_softint(void *private_)
 }
 
 
+/*
+ * This routine is called from the scheduler tqueue when the interrupt
+ * routine has signalled that a hangup has occurred.  The path of
+ * hangup processing is:
+ *
+ * 	serial interrupt routine -> (scheduler tqueue) ->
+ * 	do_serial_hangup() -> tty->hangup() -> rs_hangup()
+ * 
+ */
 static void do_serial_hangup(void *private_)
 {
 	struct async_struct	*info = (struct async_struct *) private_;
@@ -557,7 +706,7 @@ static int startup(ser_info_t *info)
 	unsigned long flags;
 	int	retval=0;
 	int	idx;
-	
+	/*struct serial_state *state = info->state;*/
 	volatile struct smc_regs *smcp;
 	volatile struct scc_regs *sccp;
 	volatile struct smc_uart_pram	*up;
@@ -592,6 +741,9 @@ static int startup(ser_info_t *info)
 	if (info->port.tty)
 		clear_bit(TTY_IO_ERROR, &info->port.tty->flags);
 
+	/*
+	 * and set the speed of the serial port
+	 */
 	change_speed(info);
 
 	idx = PORT_NUM(info->state->smc_scc_num);
@@ -608,17 +760,27 @@ static int startup(ser_info_t *info)
 	} else {
 		smcp = &pquicc->smc_regs[idx];
 
+		/* Enable interrupts and I/O.
+		*/
 		smcp->smc_smcm |= (SMCM_RX | SMCM_TX);
 		smcp->smc_smcmr |= (SMCMR_REN | SMCMR_TEN);
 
-		
-		
+		/* We can tune the buffer length and idle characters
+		 * to take advantage of the entire incoming buffer size.
+		 * If mrblr is something other than 1, maxidl has to be
+		 * non-zero or we never get an interrupt.  The maxidl
+		 * is the number of character times we wait after reception
+		 * of the last character before we decide no more characters
+		 * are coming.
+		 */
+		/* up = (smc_uart_t *)&pquicc->cp_dparam[state->port]; */
+		/* holy unionized structures, Batman: */
 		up = &pquicc->pram[info->state->port].scc.pothers.idma_smc.psmc.u;
 
 		up->mrblr = RX_BUF_SIZE;
 		up->max_idl = RX_BUF_SIZE;
 
-		up->brkcr = 1;	
+		up->brkcr = 1;	/* number of break chars */
 	}
 
 	info->flags |= ASYNC_INITIALIZED;
@@ -630,6 +792,10 @@ errout:
 	return retval;
 }
 
+/*
+ * This routine will shutdown a serial port; interrupts are disabled, and
+ * DTR is dropped if the hangup on close termio flag is on.
+ */
 static void shutdown(ser_info_t *info)
 {
 	unsigned long	flags;
@@ -655,14 +821,22 @@ static void shutdown(ser_info_t *info)
 		sccp = &pquicc->scc_regs[idx];
 		sccp->scc_gsmr.w.low &= ~(SCC_GSMRL_ENR | SCC_GSMRL_ENT);
 #ifdef CONFIG_SERIAL_CONSOLE
+		/* We can't disable the transmitter if this is the
+		 * system console.
+		 */
 		if ((state - rs_table) != CONFIG_SERIAL_CONSOLE_PORT)
 #endif
 		sccp->scc_sccm &= ~(UART_SCCM_TX | UART_SCCM_RX);
 	} else {
 		smcp = &pquicc->smc_regs[idx];
 
+		/* Disable interrupts and I/O.
+		 */
 		smcp->smc_smcm &= ~(SMCM_RX | SMCM_TX);
 #ifdef CONFIG_SERIAL_CONSOLE
+		/* We can't disable the transmitter if this is the
+		 * system console.
+		 */
 		if ((state - rs_table) != CONFIG_SERIAL_CONSOLE_PORT)
 #endif
 			smcp->smc_smcmr &= ~(SMCMR_REN | SMCMR_TEN);
@@ -675,6 +849,10 @@ static void shutdown(ser_info_t *info)
 	local_irq_restore(flags);
 }
 
+/*
+ * This routine is called to set the UART divisor registers to match
+ * the specified baud rate for a serial port.
+ */
 static void change_speed(ser_info_t *info)
 {
 	int	baud_rate;
@@ -691,22 +869,27 @@ static void change_speed(ser_info_t *info)
 
 	state = info->state;
 
+	/* Character length programmed into the mode register is the
+	 * sum of: 1 start bit, number of data bits, 0 or 1 parity bit,
+	 * 1 or 2 stop bits, minus 1.
+	 * The value 'bits' counts this for us.
+	 */
 	cval = 0;
 	scval = 0;
 
-	
+	/* byte size and parity */
 	switch (cflag & CSIZE) {
 	      case CS5: bits = 5; break;
 	      case CS6: bits = 6; break;
 	      case CS7: bits = 7; break;
 	      case CS8: bits = 8; break;
-	      
+	      /* Never happens, but GCC is too dumb to figure it out */
 	      default:  bits = 8; break;
 	}
 	sbits = bits - 5;
 
 	if (cflag & CSTOPB) {
-		cval |= SMCMR_SL;	
+		cval |= SMCMR_SL;	/* Two stops */
 		scval |= SCU_PMSR_SL;
 		bits++;
 	}
@@ -720,7 +903,7 @@ static void change_speed(ser_info_t *info)
 		scval |= (SCU_PMSR_REVP | SCU_PMSR_TEVP);
 	}
 
-	
+	/* Determine divisor based on baud rate */
 	i = cflag & CBAUD;
 	if (i >= (sizeof(baud_table)/sizeof(int)))
 		baud_rate = 9600;
@@ -728,10 +911,10 @@ static void change_speed(ser_info_t *info)
 		baud_rate = baud_table[i];
 
 	info->timeout = (TX_BUF_SIZE*HZ*bits);
-	info->timeout += HZ/50;		
+	info->timeout += HZ/50;		/* Add .02 seconds of slop */
 
 #ifdef modem_control
-	
+	/* CTS flow control flag and modem status interrupts */
 	info->IER &= ~UART_IER_MSI;
 	if (info->flags & ASYNC_HARDPPS_CD)
 		info->IER |= UART_IER_MSI;
@@ -749,24 +932,41 @@ static void change_speed(ser_info_t *info)
 	serial_out(info, UART_IER, info->IER);
 #endif
 
+	/*
+	 * Set up parity check flag
+	 */
 	info->read_status_mask = (BD_SC_EMPTY | BD_SC_OV);
 	if (I_INPCK(info->port.tty))
 		info->read_status_mask |= BD_SC_FR | BD_SC_PR;
 	if (I_BRKINT(info->port.tty) || I_PARMRK(info->port.tty))
 		info->read_status_mask |= BD_SC_BR;
 	
+	/*
+	 * Characters to ignore
+	 */
 	info->ignore_status_mask = 0;
 	if (I_IGNPAR(info->port.tty))
 		info->ignore_status_mask |= BD_SC_PR | BD_SC_FR;
 	if (I_IGNBRK(info->port.tty)) {
 		info->ignore_status_mask |= BD_SC_BR;
+		/*
+		 * If we're ignore parity and break indicators, ignore 
+		 * overruns too.  (For real raw support).
+		 */
 		if (I_IGNPAR(info->port.tty))
 			info->ignore_status_mask |= BD_SC_OV;
 	}
+	/*
+	 * !!! ignore all characters if CREAD is not set
+	 */
 	if ((cflag & CREAD) == 0)
 	 info->read_status_mask &= ~BD_SC_EMPTY;
 	 local_irq_save(flags);
 
+	 /* Start bit has not been added (so don't, because we would just
+	  * subtract it later), and we need to add one for the number of
+	  * stops bits (there is always at least one).
+	  */
 	 bits++;
 	 idx = PORT_NUM(state->smc_scc_num);
 	 if (state->smc_scc_num & NUM_IS_SCC) {
@@ -775,6 +975,10 @@ static void change_speed(ser_info_t *info)
      } else {
          smcp = &pquicc->smc_regs[idx];
 
+		/* Set the mode register.  We want to keep a copy of the
+		 * enables, because we want to put them back if they were
+		 * present.
+		 */
 		prev_mode = smcp->smc_smcmr;
 		smcp->smc_smcmr = smcr_mk_clen(bits) | cval |  SMCMR_SM_UART;
 		smcp->smc_smcmr |= (prev_mode & (SMCMR_REN | SMCMR_TEN));
@@ -799,11 +1003,13 @@ static void rs_360_put_char(struct tty_struct *tty, unsigned char ch)
 	bdp = info->tx_cur;
 	while (bdp->status & BD_SC_READY);
 
-	
+	/* *((char *)__va(bdp->buf)) = ch; */
 	*((char *)bdp->buf) = ch;
 	bdp->length = 1;
 	bdp->status |= BD_SC_READY;
 
+	/* Get next BD.
+	*/
 	if (bdp->status & BD_SC_WRAP)
 		bdp = info->tx_bd_base;
 	else
@@ -822,7 +1028,7 @@ static int rs_360_write(struct tty_struct * tty,
 	volatile QUICC_BD *bdp;
 
 #ifdef CONFIG_KGDB
-	 
+	/* Try to let stub handle output. Returns true if it did. */ 
 	if (kgdb_output_string(buf, count))
 		return ret;
 #endif
@@ -846,7 +1052,7 @@ static int rs_360_write(struct tty_struct * tty,
 			break;
 		}
 
-		
+		/* memcpy(__va(bdp->buf), buf, c); */
 		memcpy((void *)bdp->buf, buf, c);
 
 		bdp->length = c;
@@ -856,6 +1062,8 @@ static int rs_360_write(struct tty_struct * tty,
 		count -= c;
 		ret += c;
 
+		/* Get next BD.
+		*/
 		if (bdp->status & BD_SC_WRAP)
 			bdp = info->tx_bd_base;
 		else
@@ -884,6 +1092,8 @@ static int rs_360_write_room(struct tty_struct *tty)
 	return ret;
 }
 
+/* I could track this with transmit counters....maybe later.
+*/
 static int rs_360_chars_in_buffer(struct tty_struct *tty)
 {
 	ser_info_t *info = (ser_info_t *)tty->driver_data;
@@ -900,10 +1110,17 @@ static void rs_360_flush_buffer(struct tty_struct *tty)
 	if (serial_paranoia_check(info, tty->name, "rs_flush_buffer"))
 		return;
 
+	/* There is nothing to "flush", whatever we gave the CPM
+	 * is on its way out.
+	 */
 	tty_wakeup(tty);
 	info->flags &= ~TX_WAKEUP;
 }
 
+/*
+ * This function is used to send a high-priority XON/XOFF character to
+ * the device
+ */
 static void rs_360_send_xchar(struct tty_struct *tty, char ch)
 {
 	volatile QUICC_BD	*bdp;
@@ -916,11 +1133,13 @@ static void rs_360_send_xchar(struct tty_struct *tty, char ch)
 	bdp = info->tx_cur;
 	while (bdp->status & BD_SC_READY);
 
-	
+	/* *((char *)__va(bdp->buf)) = ch; */
 	*((char *)bdp->buf) = ch;
 	bdp->length = 1;
 	bdp->status |= BD_SC_READY;
 
+	/* Get next BD.
+	*/
 	if (bdp->status & BD_SC_WRAP)
 		bdp = info->tx_bd_base;
 	else
@@ -929,6 +1148,14 @@ static void rs_360_send_xchar(struct tty_struct *tty, char ch)
 	info->tx_cur = (QUICC_BD *)bdp;
 }
 
+/*
+ * ------------------------------------------------------------
+ * rs_throttle()
+ * 
+ * This routine is called by the upper-layer tty layer to signal that
+ * incoming characters should be throttled.
+ * ------------------------------------------------------------
+ */
 static void rs_360_throttle(struct tty_struct * tty)
 {
 	ser_info_t *info = (ser_info_t *)tty->driver_data;
@@ -983,6 +1210,11 @@ static void rs_360_unthrottle(struct tty_struct * tty)
 #endif
 }
 
+/*
+ * ------------------------------------------------------------
+ * rs_ioctl() and friends
+ * ------------------------------------------------------------
+ */
 
 #ifdef maybe
 /*
@@ -1051,7 +1283,7 @@ static int rs_360_tiocmset(struct tty_struct *tty,
 
 	if (tty->flags & (1 << TTY_IO_ERROR))
 		return -EIO;
-	
+	/* FIXME: locking on info->mcr */
  	if (set & TIOCM_RTS)
  		info->mcr |= UART_MCR_RTS;
  	if (set & TIOCM_DTR)
@@ -1079,6 +1311,11 @@ static int rs_360_tiocmset(struct tty_struct *tty,
 	return 0;
 }
 
+/* Sending a break is a two step process on the SMC/SCC.  It is accomplished
+ * by sending a STOP TRANSMIT command followed by a RESTART TRANSMIT
+ * command.  We take advantage of the begin/end functions to make this
+ * happen.
+ */
 static ushort	smc_chan_map[] = {
 	CPM_CR_CH_SMC1,
 	CPM_CR_CH_SMC2
@@ -1127,6 +1364,9 @@ static void end_break(ser_info_t *info)
 	while (cp->cp_cr & CPM_CR_FLG);
 }
 
+/*
+ * This routine sends a break character out the serial port.
+ */
 static void send_break(ser_info_t *info, unsigned int duration)
 {
 #ifdef SERIAL_DEBUG_SEND_BREAK
@@ -1141,6 +1381,12 @@ static void send_break(ser_info_t *info, unsigned int duration)
 }
 
 
+/*
+ * Get counter of input serial line interrupts (DCD,RI,DSR,CTS)
+ * Return: write counters to the user passed counter struct
+ * NB: both 1->0 and 0->1 transitions are counted except for
+ *     RI where only 0->1 is counted.
+ */
 static int rs_360_get_icount(struct tty_struct *tty,
 				struct serial_icounter_struct *icount)
 {
@@ -1166,8 +1412,8 @@ static int rs_360_ioctl(struct tty_struct *tty,
 	ser_info_t *info = (ser_info_t *)tty->driver_data;
 	int retval;
 	struct async_icount cnow; 
-	 	
-	struct serial_icounter_struct *p_cuser;	
+	/* struct async_icount_24 cnow;*/ 	/* kernel counter temps */
+	struct serial_icounter_struct *p_cuser;	/* user space */
 
 	if (serial_paranoia_check(info, tty->name, "rs_ioctl"))
 		return -ENODEV;
@@ -1178,7 +1424,7 @@ static int rs_360_ioctl(struct tty_struct *tty,
 	}
 	
 	switch (cmd) {
-		case TCSBRK:	
+		case TCSBRK:	/* SVID version: non-zero arg --> no break */
 			retval = tty_check_change(tty);
 			if (retval)
 				return retval;
@@ -1186,12 +1432,12 @@ static int rs_360_ioctl(struct tty_struct *tty,
 			if (signal_pending(current))
 				return -EINTR;
 			if (!arg) {
-				send_break(info, 250);	
+				send_break(info, 250);	/* 1/4 second */
 				if (signal_pending(current))
 					return -EINTR;
 			}
 			return 0;
-		case TCSBRKP:	
+		case TCSBRKP:	/* support for POSIX tcsendbreak() */
 			retval = tty_check_change(tty);
 			if (retval)
 				return retval;
@@ -1216,26 +1462,32 @@ static int rs_360_ioctl(struct tty_struct *tty,
 			end_break(info);
 			return 0;
 #ifdef maybe
-		case TIOCSERGETLSR: 
+		case TIOCSERGETLSR: /* Get line status register */
 			return get_lsr_info(info, (unsigned int *) arg);
 #endif
+		/*
+		 * Wait for any of the 4 modem inputs (DCD,RI,DSR,CTS) to change
+		 * - mask passed in arg for lines of interest
+ 		 *   (use |'ed TIOCM_RNG/DSR/CD/CTS for masking)
+		 * Caller should use TIOCGICOUNT to see which one it was
+		 */
 		 case TIOCMIWAIT:
 #ifdef modem_control
 			local_irq_disable();
-			
+			/* note the counters on entry */
 			cprev = info->state->icount;
 			local_irq_enable();
 			while (1) {
 				interruptible_sleep_on(&info->delta_msr_wait);
-				
+				/* see if a signal did it */
 				if (signal_pending(current))
 					return -ERESTARTSYS;
 				local_irq_disable();
-				cnow = info->state->icount; 
+				cnow = info->state->icount; /* atomic copy */
 				local_irq_enable();
 				if (cnow.rng == cprev.rng && cnow.dsr == cprev.dsr && 
 				    cnow.dcd == cprev.dcd && cnow.cts == cprev.cts)
-					return -EIO; 
+					return -EIO; /* no change => error */
 				if ( ((arg & TIOCM_RNG) && (cnow.rng != cprev.rng)) ||
 				     ((arg & TIOCM_DSR) && (cnow.dsr != cprev.dsr)) ||
 				     ((arg & TIOCM_CD)  && (cnow.dcd != cprev.dcd)) ||
@@ -1244,7 +1496,7 @@ static int rs_360_ioctl(struct tty_struct *tty,
 				}
 				cprev = cnow;
 			}
-			
+			/* NOTREACHED */
 #else
 			return 0;
 #endif
@@ -1256,6 +1508,8 @@ static int rs_360_ioctl(struct tty_struct *tty,
 	return 0;
 }
 
+/* FIX UP modem control here someday......
+*/
 static void rs_360_set_termios(struct tty_struct *tty, struct ktermios *old_termios)
 {
 	ser_info_t *info = (ser_info_t *)tty->driver_data;
@@ -1263,7 +1517,7 @@ static void rs_360_set_termios(struct tty_struct *tty, struct ktermios *old_term
 	change_speed(info);
 
 #ifdef modem_control
-	
+	/* Handle transition to B0 status */
 	if ((old_termios->c_cflag & CBAUD) &&
 	    !(tty->termios->c_cflag & CBAUD)) {
 		info->MCR &= ~(UART_MCR_DTR|UART_MCR_RTS);
@@ -1272,7 +1526,7 @@ static void rs_360_set_termios(struct tty_struct *tty, struct ktermios *old_term
 		local_irq_enable();
 	}
 	
-	
+	/* Handle transition away from B0 status */
 	if (!(old_termios->c_cflag & CBAUD) &&
 	    (tty->termios->c_cflag & CBAUD)) {
 		info->MCR |= UART_MCR_DTR;
@@ -1285,7 +1539,7 @@ static void rs_360_set_termios(struct tty_struct *tty, struct ktermios *old_term
 		local_irq_enable();
 	}
 	
-	
+	/* Handle turning off CRTSCTS */
 	if ((old_termios->c_cflag & CRTSCTS) &&
 	    !(tty->termios->c_cflag & CRTSCTS)) {
 		tty->hw_stopped = 0;
@@ -1294,16 +1548,32 @@ static void rs_360_set_termios(struct tty_struct *tty, struct ktermios *old_term
 #endif
 
 #if 0
+	/*
+	 * No need to wake up processes in open wait, since they
+	 * sample the CLOCAL flag once, and don't recheck it.
+	 * XXX  It's not clear whether the current behavior is correct
+	 * or not.  Hence, this may change.....
+	 */
 	if (!(old_termios->c_cflag & CLOCAL) &&
 	    (tty->termios->c_cflag & CLOCAL))
 		wake_up_interruptible(&info->open_wait);
 #endif
 }
 
+/*
+ * ------------------------------------------------------------
+ * rs_close()
+ * 
+ * This routine is called when the serial port gets closed.  First, we
+ * wait for the last remaining data to be sent.  Then, we unlink its
+ * async structure from the interrupt chain if necessary, and we free
+ * that IRQ if nothing is left in the chain.
+ * ------------------------------------------------------------
+ */
 static void rs_360_close(struct tty_struct *tty, struct file * filp)
 {
 	ser_info_t *info = (ser_info_t *)tty->driver_data;
-	
+	/* struct async_state *state; */
 	struct serial_state *state;
 	unsigned long	flags;
 	int		idx;
@@ -1327,6 +1597,13 @@ static void rs_360_close(struct tty_struct *tty, struct file * filp)
 	printk("rs_close ttys%d, count = %d\n", info->line, state->count);
 #endif
 	if ((tty->count == 1) && (state->count != 1)) {
+		/*
+		 * Uh, oh.  tty->count is 1, which means that the tty
+		 * structure will be freed.  state->count should always
+		 * be one in these conditions.  If it's greater than
+		 * one, we've got real problems, since it means the
+		 * serial port won't be shutdown.
+		 */
 		printk("rs_close: bad serial port count; tty->count is 1, "
 		       "state->count is %d\n", state->count);
 		state->count = 1;
@@ -1342,9 +1619,19 @@ static void rs_360_close(struct tty_struct *tty, struct file * filp)
 		return;
 	}
 	info->flags |= ASYNC_CLOSING;
+	/*
+	 * Now we wait for the transmit buffer to clear; and we notify 
+	 * the line discipline to only process XON/XOFF characters.
+	 */
 	tty->closing = 1;
 	if (info->closing_wait != ASYNC_CLOSING_WAIT_NONE)
 		tty_wait_until_sent(tty, info->closing_wait);
+	/*
+	 * At this point we stop accepting input.  To do this, we
+	 * disable the receive line status interrupts, and tell the
+	 * interrupt driver to stop checking the data ready bit in the
+	 * line status register.
+	 */
 	info->read_status_mask &= ~BD_SC_EMPTY;
 	if (info->flags & ASYNC_INITIALIZED) {
 
@@ -1358,6 +1645,11 @@ static void rs_360_close(struct tty_struct *tty, struct file * filp)
 			smcp->smc_smcm &= ~SMCM_RX;
 			smcp->smc_smcmr &= ~SMCMR_REN;
 		}
+		/*
+		 * Before we drop DTR, make sure the UART transmitter
+		 * has completely drained; this is especially
+		 * important if there is a transmit FIFO!
+		 */
 		rs_360_wait_until_sent(tty, info->timeout);
 	}
 	shutdown(info);
@@ -1377,11 +1669,14 @@ static void rs_360_close(struct tty_struct *tty, struct file * filp)
 	local_irq_restore(flags);
 }
 
+/*
+ * rs_wait_until_sent() --- wait until the transmitter is empty
+ */
 static void rs_360_wait_until_sent(struct tty_struct *tty, int timeout)
 {
 	ser_info_t *info = (ser_info_t *)tty->driver_data;
 	unsigned long orig_jiffies, char_time;
-	
+	/*int lsr;*/
 	volatile QUICC_BD *bdp;
 	
 	if (serial_paranoia_check(info, tty->name, "rs_wait_until_sent"))
@@ -1393,6 +1688,14 @@ static void rs_360_wait_until_sent(struct tty_struct *tty, int timeout)
 #endif
 
 	orig_jiffies = jiffies;
+	/*
+	 * Set the check interval to be 1/5 of the estimated time to
+	 * send a single character, and make it at least 1.  The check
+	 * interval should also be less than the timeout.
+	 * 
+	 * Note: we have to use pretty tight timings here to satisfy
+	 * the NIST-PCTS.
+	 */
 	char_time = 1;
 	if (timeout)
 		char_time = min(char_time, (unsigned long)timeout);
@@ -1401,15 +1704,27 @@ static void rs_360_wait_until_sent(struct tty_struct *tty, int timeout)
 	printk("jiff=%lu...", jiffies);
 #endif
 
+	/* We go through the loop at least once because we can't tell
+	 * exactly when the last character exits the shifter.  There can
+	 * be at least two characters waiting to be sent after the buffers
+	 * are empty.
+	 */
 	do {
 #ifdef SERIAL_DEBUG_RS_WAIT_UNTIL_SENT
 		printk("lsr = %d (jiff=%lu)...", lsr, jiffies);
 #endif
+/*		current->counter = 0;	 make us low-priority */
 		msleep_interruptible(jiffies_to_msecs(char_time));
 		if (signal_pending(current))
 			break;
 		if (timeout && (time_after(jiffies, orig_jiffies + timeout)))
 			break;
+		/* The 'tx_cur' is really the next buffer to send.  We
+		 * have to back up to the previous BD and wait for it
+		 * to go.  This isn't perfect, because all this indicates
+		 * is the buffer is available.  There are still characters
+		 * in the CPM FIFO.
+		 */
 		bdp = info->tx_cur;
 		if (bdp == info->tx_bd_base)
 			bdp += (TX_NUM_FIFO-1);
@@ -1422,6 +1737,9 @@ static void rs_360_wait_until_sent(struct tty_struct *tty, int timeout)
 #endif
 }
 
+/*
+ * rs_hangup() --- called by tty_hangup() when a hangup is signaled.
+ */
 static void rs_360_hangup(struct tty_struct *tty)
 {
 	ser_info_t *info = (ser_info_t *)tty->driver_data;
@@ -1441,6 +1759,11 @@ static void rs_360_hangup(struct tty_struct *tty)
 	wake_up_interruptible(&info->open_wait);
 }
 
+/*
+ * ------------------------------------------------------------
+ * rs_open() and friends
+ * ------------------------------------------------------------
+ */
 static int block_til_ready(struct tty_struct *tty, struct file * filp,
 			   ser_info_t *info)
 {
@@ -1451,6 +1774,10 @@ static int block_til_ready(struct tty_struct *tty, struct file * filp,
 	int		retval;
 	int		do_clocal = 0;
 
+	/*
+	 * If the device is in the middle of being closed, then block
+	 * until it's done, and then try again.
+	 */
 	if (tty_hung_up_p(filp) ||
 	    (info->flags & ASYNC_CLOSING)) {
 		if (info->flags & ASYNC_CLOSING)
@@ -1465,6 +1792,12 @@ static int block_til_ready(struct tty_struct *tty, struct file * filp,
 #endif
 	}
 
+	/*
+	 * If non-blocking mode is set, or the port is not enabled,
+	 * then make the check up front and then exit.
+	 * If this is an SMC port, we don't have modem control to wait
+	 * for, so just get out here.
+	 */
 	if ((filp->f_flags & O_NONBLOCK) ||
 	    (tty->flags & (1 << TTY_IO_ERROR)) ||
 	    !(info->state->smc_scc_num & NUM_IS_SCC)) {
@@ -1475,6 +1808,13 @@ static int block_til_ready(struct tty_struct *tty, struct file * filp,
 	if (tty->termios->c_cflag & CLOCAL)
 		do_clocal = 1;
 	
+	/*
+	 * Block waiting for the carrier detect and the line to become
+	 * free (i.e., not in use by the callout).  While we are in
+	 * this loop, state->count is dropped by one, so that
+	 * rs_close() knows when to free things.  We restore it upon
+	 * exit, either normal or abnormal.
+	 */
 	retval = 0;
 #ifdef DO_THIS_LATER
 	add_wait_queue(&info->open_wait, &wait);
@@ -1532,7 +1872,7 @@ static int block_til_ready(struct tty_struct *tty, struct file * filp,
 	printk("block_til_ready after blocking: ttys%d, count = %d\n",
 	       info->line, state->count);
 #endif
-#endif 
+#endif /* DO_THIS_LATER */
 	if (retval)
 		return retval;
 	info->flags |= ASYNC_NORMAL_ACTIVE;
@@ -1554,6 +1894,12 @@ static int get_async_struct(int line, ser_info_t **ret_info)
 	}
 }
 
+/*
+ * This routine is called whenever a serial port is opened.  It
+ * enables interrupts for a serial port, linking in its async structure into
+ * the IRQ chain.   It also performs the serial-specific
+ * initialization for the tty structure.
+ */
 static int rs_360_open(struct tty_struct *tty, struct file * filp)
 {
 	ser_info_t	*info;
@@ -1574,6 +1920,9 @@ static int rs_360_open(struct tty_struct *tty, struct file * filp)
 	tty->driver_data = info;
 	info->port.tty = tty;
 
+	/*
+	 * Start up serial port
+	 */
 	retval = startup(info);
 	if (retval)
 		return retval;
@@ -1593,6 +1942,9 @@ static int rs_360_open(struct tty_struct *tty, struct file * filp)
 	return 0;
 }
 
+/*
+ * /proc fs routines....
+ */
 
 static inline int line_info(char *buf, struct serial_state *state)
 {
@@ -1613,8 +1965,11 @@ static inline int line_info(char *buf, struct serial_state *state)
 	}
 
 #ifdef notdef
+	/*
+	 * Figure out the current RS-232 lines
+	 */
 	if (!info) {
-		info = &scr_info;	
+		info = &scr_info;	/* This is just for serial_{in,out} */
 
 		info->magic = SERIAL_MAGIC;
 		info->port = state->port;
@@ -1662,6 +2017,9 @@ static inline int line_info(char *buf, struct serial_state *state)
 	if (state->icount.overrun)
 		ret += sprintf(buf+ret, " oe:%d", state->icount.overrun);
 
+	/*
+	 * Last thing is the RS-232 status lines
+	 */
 	ret += sprintf(buf+ret, " %s\n", stat_buf+1);
 #endif
 	return ret;
@@ -1691,16 +2049,38 @@ done:
 	return ((count < begin+len-off) ? count : begin+len-off);
 }
 
+/*
+ * ---------------------------------------------------------------------
+ * rs_init() and friends
+ *
+ * rs_init() is called at boot-time to initialize the serial driver.
+ * ---------------------------------------------------------------------
+ */
 
+/*
+ * This routine prints out the appropriate serial driver version
+ * number, and identifies which options were configured into this
+ * driver.
+ */
 static _INLINE_ void show_serial_version(void)
 {
  	printk(KERN_INFO "%s version %s\n", serial_name, serial_version);
 }
 
 
+/*
+ * The serial console driver used during boot.  Note that these names
+ * clash with those found in "serial.c", so we currently can't support
+ * the 16xxx uarts and these at the same time.  I will fix this to become
+ * an indirect function call from tty_io.c (or something).
+ */
 
 #ifdef CONFIG_SERIAL_CONSOLE
 
+/*
+ * Print a string to the serial port trying not to disturb any possible
+ * real use of the port...
+ */
 static void my_console_write(int idx, const char *s,
 				unsigned count)
 {
@@ -1714,21 +2094,45 @@ static void my_console_write(int idx, const char *s,
 	ser = rs_table + idx;
 
 
+	/* If the port has been initialized for general use, we have
+	 * to use the buffer descriptors allocated there.  Otherwise,
+	 * we simply use the single buffer allocated.
+	 */
 	if ((info = (ser_info_t *)ser->info) != NULL) {
 		bdp = info->tx_cur;
 		bdbase = info->tx_bd_base;
 	}
 	else {
-		
+		/* Pointer to UART in parameter ram.
+		*/
+		/* up = (smc_uart_t *)&cpmp->cp_dparam[ser->port]; */
 		up = &pquicc->pram[ser->port].scc.pothers.idma_smc.psmc.u;
 
+		/* Get the address of the host memory buffer.
+		 */
 		bdp = bdbase = (QUICC_BD *)((uint)pquicc + (uint)up->tbase);
 	}
 
+	/*
+	 * We need to gracefully shut down the transmitter, disable
+	 * interrupts, then send our bytes out.
+	 */
 
+	/*
+	 * Now, do each character.  This is not as bad as it looks
+	 * since this is a holding FIFO and not a transmitting FIFO.
+	 * We could add the complexity of filling the entire transmit
+	 * buffer, but we would just wait longer between accesses......
+	 */
 	for (i = 0; i < count; i++, s++) {
+		/* Wait for transmitter fifo to empty.
+		 * Ready indicates output is ready, and xmt is doing
+		 * that, not that it is ready for us to send.
+		 */
 		while (bdp->status & BD_SC_READY);
 
+		/* Send the character out.
+		 */
 		cp = bdp->buf;
 		*cp = *s;
 		
@@ -1740,10 +2144,10 @@ static void my_console_write(int idx, const char *s,
 		else
 			bdp++;
 
-		
+		/* if a LF, also do CR... */
 		if (*s == 10) {
 			while (bdp->status & BD_SC_READY);
-			
+			/* cp = __va(bdp->buf); */
 			cp = bdp->buf;
 			*cp = 13;
 			bdp->length = 1;
@@ -1758,6 +2162,10 @@ static void my_console_write(int idx, const char *s,
 		}
 	}
 
+	/*
+	 * Finally, Wait for transmitter & holding register to empty
+	 *  and restore the IER
+	 */
 	while (bdp->status & BD_SC_READY);
 
 	if (info)
@@ -1768,7 +2176,7 @@ static void serial_console_write(struct console *c, const char *s,
 				unsigned count)
 {
 #ifdef CONFIG_KGDB
-	 
+	/* Try to let stub handle output. Returns true if it did. */ 
 	if (kgdb_output_string(s, count))
 		return;
 #endif
@@ -1777,6 +2185,20 @@ static void serial_console_write(struct console *c, const char *s,
 
 
 
+/*void console_print_68360(const char *p)
+{
+	const char *cp = p;
+	int i;
+
+	for (i=0;cp[i]!=0;i++);
+
+	serial_console_write (p, i);
+
+	//Comment this if you want to have a strict interrupt-driven output
+	//rs_fair_output();
+
+	return;
+}*/
 
 
 
@@ -1800,6 +2222,10 @@ putDebugChar(char ch)
 }
 #endif
 
+/*
+ * Receive character from the serial port.  This only works well
+ * before the port is initialized for real use.
+ */
 static int my_console_wait_key(int idx, int xmon, char *obuf)
 {
 	struct serial_state		*ser;
@@ -1811,15 +2237,27 @@ static int my_console_wait_key(int idx, int xmon, char *obuf)
 
 	ser = rs_table + idx;
 
+	/* Get the address of the host memory buffer.
+	 * If the port has been initialized for general use, we must
+	 * use information from the port structure.
+	 */
 	if ((info = (ser_info_t *)ser->info))
 		bdp = info->rx_cur;
 	else
-		
+		/* bdp = (QUICC_BD *)&cpmp->cp_dpmem[up->smc_rbase]; */
 		bdp = (QUICC_BD *)((uint)pquicc + (uint)up->tbase);
 
-	
+	/* Pointer to UART in parameter ram.
+	 */
+	/* up = (smc_uart_t *)&cpmp->cp_dparam[ser->port]; */
 	up = &pquicc->pram[info->state->port].scc.pothers.idma_smc.psmc.u;
 
+	/*
+	 * We need to gracefully shut down the receiver, disable
+	 * interrupts, then read the input.
+	 * XMON just wants a poll.  If no character, return -1, else
+	 * return the character.
+	 */
 	if (!xmon) {
 		while (bdp->status & BD_SC_EMPTY);
 	}
@@ -1900,20 +2338,35 @@ void kgdb_map_scc(void)
 
 	cpmp = (cpm360_t *)&(((immap_t *)IMAP_ADDR)->im_cpm);
 
+	/* To avoid data cache CPM DMA coherency problems, allocate a
+	 * buffer in the CPM DPRAM.  This will work until the CPM and
+	 * serial ports are initialized.  At that time a memory buffer
+	 * will be allocated.
+	 * The port is already initialized from the boot procedure, all
+	 * we do here is give it a different buffer and make it a FIFO.
+	 */
 
 	ser = rs_table;
 
+	/* Right now, assume we are using SMCs.
+	*/
 	up = (smc_uart_t *)&cpmp->cp_dparam[ser->port];
 
+	/* Allocate space for an input FIFO, plus a few bytes for output.
+	 * Allocate bytes to maintain word alignment.
+	 */
 	mem_addr = (uint)(&cpmp->cp_dpmem[0x1000]);
 
+	/* Set the physical address of the host memory buffers in
+	 * the buffer descriptors.
+	 */
 	bdp = (QUICC_BD *)&cpmp->cp_dpmem[up->smc_rbase];
 	bdp->buf = mem_addr;
 
 	bdp = (QUICC_BD *)&cpmp->cp_dpmem[up->smc_tbase];
 	bdp->buf = mem_addr+RX_BUF_SIZE;
 
-	up->smc_mrblr = RX_BUF_SIZE;		
+	up->smc_mrblr = RX_BUF_SIZE;		/* receive buffer length */
 	up->smc_maxidl = RX_BUF_SIZE;
 }
 #endif
@@ -1937,14 +2390,21 @@ struct console sercons = {
 
 
 
+/*
+ *	Register console.
+ */
 long console_360_init(long kmem_start, long kmem_end)
 {
 	register_console(&sercons);
+	/*register_console (console_print_68360); - 2.0.38 only required a write
+      function pointer. */
 	return kmem_start;
 }
 
 #endif
 
+/* Index in baud rate table of the default console baud rate.
+*/
 static	int	baud_idx;
 
 static const struct tty_operations rs_360_ops = {
@@ -1959,13 +2419,13 @@ static const struct tty_operations rs_360_ops = {
 	.ioctl = rs_360_ioctl,
 	.throttle = rs_360_throttle,
 	.unthrottle = rs_360_unthrottle,
-	
+	/* .send_xchar = rs_360_send_xchar, */
 	.set_termios = rs_360_set_termios,
 	.stop = rs_360_stop,
 	.start = rs_360_start,
 	.hangup = rs_360_hangup,
-	
-	
+	/* .wait_until_sent = rs_360_wait_until_sent, */
+	/* .read_proc = rs_360_read_proc, */
 	.tiocmget = rs_360_tiocmget,
 	.tiocmset = rs_360_tiocmset,
 	.get_icount = rs_360_get_icount,
@@ -1985,7 +2445,7 @@ static int __init rs_360_init(void)
 	volatile	struct smc_uart_pram	*up;
 	volatile	struct scc_regs	*scp;
 	volatile	struct uart_pram	*sup;
-	
+	/* volatile	immap_t		*immap; */
 	
 	serial_driver = alloc_tty_driver(NR_PORTS);
 	if (!serial_driver)
@@ -2007,27 +2467,52 @@ static int __init rs_360_init(void)
 	if (tty_register_driver(serial_driver))
 		panic("Couldn't register serial driver\n");
 
-	cp = pquicc;	
-		
+	cp = pquicc;	/* Get pointer to Communication Processor */
+	/* immap = (immap_t *)IMAP_ADDR; */	/* and to internal registers */
 
 
+	/* Configure SCC2, SCC3, and SCC4 instead of port A parallel I/O.
+	 */
+	/* The "standard" configuration through the 860.
+	*/
+/* 	immap->im_ioport.iop_papar |= 0x00fc; */
+/* 	immap->im_ioport.iop_padir &= ~0x00fc; */
+/* 	immap->im_ioport.iop_paodr &= ~0x00fc; */
 	cp->pio_papar |= 0x00fc;
 	cp->pio_padir &= ~0x00fc;
-	
+	/* cp->pio_paodr &= ~0x00fc; */
+
+
+	/* Since we don't yet do modem control, connect the port C pins
+	 * as general purpose I/O.  This will assert CTS and CD for the
+	 * SCC ports.
+	 */
+	/* FIXME: see 360um p.7-365 and 860um p.34-12 
+	 * I can't make sense of these bits - mleslie*/
+/* 	immap->im_ioport.iop_pcdir |= 0x03c6; */
+/* 	immap->im_ioport.iop_pcpar &= ~0x03c6; */
+
+/* 	cp->pio_pcdir |= 0x03c6; */
+/* 	cp->pio_pcpar &= ~0x03c6; */
 
 
 
-
-
-
+	/* Connect SCC2 and SCC3 to NMSI.  Connect BRG3 to SCC2 and
+	 * BRG4 to SCC3.
+	 */
 	cp->si_sicr &= ~0x00ffff00;
 	cp->si_sicr |=  0x001b1200;
 
 #ifdef CONFIG_PP04
+	/* Frequentis PP04 forced to RS-232 until we know better.
+	 * Port C 12 and 13 low enables RS-232 on SCC3 and SCC4.
+	 */
 	immap->im_ioport.iop_pcdir |= 0x000c;
 	immap->im_ioport.iop_pcpar &= ~0x000c;
 	immap->im_ioport.iop_pcdat &= ~0x000c;
 
+	/* This enables the TX driver.
+	*/
 	cp->cp_pbpar &= ~0x6000;
 	cp->cp_pbdat &= ~0x6000;
 #endif
@@ -2049,14 +2534,26 @@ static int __init rs_360_init(void)
 		       (state->smc_scc_num & NUM_IS_SCC) ? "SCC" : "SMC");
 
 #ifdef CONFIG_SERIAL_CONSOLE
+		/* If we just printed the message on the console port, and
+		 * we are about to initialize it for general use, we have
+		 * to wait a couple of character times for the CR/NL to
+		 * make it out of the transmit buffer.
+		 */
 		if (i == CONFIG_SERIAL_CONSOLE_PORT)
 			mdelay(8);
 
 
+/* 		idx = PORT_NUM(info->state->smc_scc_num); */
+/* 		if (info->state->smc_scc_num & NUM_IS_SCC) */
+/* 			chan = scc_chan_map[idx]; */
+/* 		else */
+/* 			chan = smc_chan_map[idx]; */
 
+/* 		cp->cp_cr = mk_cr_cmd(chan, CPM_CR_STOP_TX) | CPM_CR_FLG; */
+/* 		while (cp->cp_cr & CPM_CR_FLG); */
 
 #endif
-		
+		/* info = kmalloc(sizeof(ser_info_t), GFP_KERNEL); */
 		info = &quicc_ser_info[i];
 		if (info) {
 			memset (info, 0, sizeof(ser_info_t));
@@ -2070,16 +2567,27 @@ static int __init rs_360_init(void)
 			info->state = state;
 			state->info = (struct async_struct *)info;
 
+			/* We need to allocate a transmit and receive buffer
+			 * descriptors from dual port ram, and a character
+			 * buffer area from host mem.
+			 */
 			dp_addr = m360_cpm_dpalloc(sizeof(QUICC_BD) * RX_NUM_FIFO);
 
-			
-			
+			/* Allocate space for FIFOs in the host memory.
+			 *  (for now this is from a static array of buffers :(
+			 */
+			/* mem_addr = m360_cpm_hostalloc(RX_NUM_FIFO * RX_BUF_SIZE); */
+			/* mem_addr = kmalloc (RX_NUM_FIFO * RX_BUF_SIZE, GFP_BUFFER); */
 			mem_addr = &rx_buf_pool[i * RX_NUM_FIFO * RX_BUF_SIZE];
 
+			/* Set the physical address of the host memory
+			 * buffers in the buffer descriptors, and the
+			 * virtual address for us to work with.
+			 */
 			bdp = (QUICC_BD *)((uint)pquicc + dp_addr);
 			info->rx_cur = info->rx_bd_base = bdp;
 
-			
+			/* initialize rx buffer descriptors */
 			for (j=0; j<(RX_NUM_FIFO-1); j++) {
 				bdp->buf = &rx_buf_pool[(i * RX_NUM_FIFO + j ) * RX_BUF_SIZE];
 				bdp->status = BD_SC_EMPTY | BD_SC_INTRPT;
@@ -2094,25 +2602,31 @@ static int __init rs_360_init(void)
 			if (info->state->smc_scc_num & NUM_IS_SCC) {
 
 #if defined (CONFIG_UCQUICC) && 1
-				
-				sipex_mode_bits &= ~(uint)SIPEX_MODE(idx,0x0f); 
+				/* set the transceiver mode to RS232 */
+				sipex_mode_bits &= ~(uint)SIPEX_MODE(idx,0x0f); /* clear current mode */
 				sipex_mode_bits |= (uint)SIPEX_MODE(idx,0x02);
 				*(uint *)_periph_base = sipex_mode_bits;
-				
+				/* printk ("sipex bits = 0x%08x\n", sipex_mode_bits); */
 #endif
 			}
 
 			dp_addr = m360_cpm_dpalloc(sizeof(QUICC_BD) * TX_NUM_FIFO);
 
-			
-			
+			/* Allocate space for FIFOs in the host memory.
+			*/
+			/* mem_addr = m360_cpm_hostalloc(TX_NUM_FIFO * TX_BUF_SIZE); */
+			/* mem_addr = kmalloc (TX_NUM_FIFO * TX_BUF_SIZE, GFP_BUFFER); */
 			mem_addr = &tx_buf_pool[i * TX_NUM_FIFO * TX_BUF_SIZE];
 
-			
+			/* Set the physical address of the host memory
+			 * buffers in the buffer descriptors, and the
+			 * virtual address for us to work with.
+			 */
+			/* bdp = (QUICC_BD *)&cp->cp_dpmem[dp_addr]; */
 			bdp = (QUICC_BD *)((uint)pquicc + dp_addr);
 			info->tx_cur = info->tx_bd_base = (QUICC_BD *)bdp;
 
-			
+			/* initialize tx buffer descriptors */
 			for (j=0; j<(TX_NUM_FIFO-1); j++) {
 				bdp->buf = &tx_buf_pool[(i * TX_NUM_FIFO + j ) * TX_BUF_SIZE];
 				bdp->status = BD_SC_INTRPT;
@@ -2128,9 +2642,16 @@ static int __init rs_360_init(void)
 				sup->rbase = dp_addr;
 				sup->tbase = dp_addr;
 
+				/* Set up the uart parameters in the
+				 * parameter ram.
+				 */
 				sup->rfcr = SMC_EB;
 				sup->tfcr = SMC_EB;
 
+				/* Set this to 1 for now, so we get single
+				 * character interrupts.  Using idle character
+				 * time requires some additional tuning.
+				 */
 				sup->mrblr = 1;
 				sup->max_idl = 0;
 				sup->brkcr = 1;
@@ -2148,27 +2669,40 @@ static int __init rs_360_init(void)
 				}
 				sup->rccm = 0xc0ff;
 
+				/* Send the CPM an initialize command.
+				*/
 				chan = scc_chan_map[idx];
 
-				
+				/* execute the INIT RX & TX PARAMS command for this channel. */
 				cp->cp_cr = mk_cr_cmd(chan, CPM_CR_INIT_TRX) | CPM_CR_FLG;
 				while (cp->cp_cr & CPM_CR_FLG);
 
+				/* Set UART mode, 8 bit, no parity, one stop.
+				 * Enable receive and transmit.
+				 */
 				scp->scc_gsmr.w.high = 0;
 				scp->scc_gsmr.w.low = 
 					(SCC_GSMRL_MODE_UART | SCC_GSMRL_TDCR_16 | SCC_GSMRL_RDCR_16);
 
+				/* Disable all interrupts and clear all pending
+				 * events.
+				 */
 				scp->scc_sccm = 0;
 				scp->scc_scce = 0xffff;
 				scp->scc_dsr = 0x7e7e;
 				scp->scc_psmr = 0x3000;
 
+				/* If the port is the console, enable Rx and Tx.
+				*/
 #ifdef CONFIG_SERIAL_CONSOLE
 				if (i == CONFIG_SERIAL_CONSOLE_PORT)
 					scp->scc_gsmr.w.low |= (SCC_GSMRL_ENR | SCC_GSMRL_ENT);
 #endif
 			}
 			else {
+				/* Configure SMCs Tx/Rx instead of port B
+				 * parallel I/O.
+				 */
 				up = &pquicc->pram[info->state->port].scc.pothers.idma_smc.psmc.u;
 				up->rbase = dp_addr;
 
@@ -2178,18 +2712,31 @@ static int __init rs_360_init(void)
 				cp->pip_pbodr &= ~iobits;
 
 
+				/* Connect the baud rate generator to the
+				 * SMC based upon index in rs_table.  Also
+				 * make sure it is connected to NMSI.
+				 */
 				cp->si_simode &= ~(0xffff << (idx * 16));
 				cp->si_simode |= (i << ((idx * 16) + 12));
 
 				up->tbase = dp_addr;
 
+				/* Set up the uart parameters in the
+				 * parameter ram.
+				 */
 				up->rfcr = SMC_EB;
 				up->tfcr = SMC_EB;
 
+				/* Set this to 1 for now, so we get single
+				 * character interrupts.  Using idle character
+				 * time requires some additional tuning.
+				 */
 				up->mrblr = 1;
 				up->max_idl = 0;
 				up->brkcr = 1;
 
+				/* Send the CPM an initialize command.
+				*/
 				chan = smc_chan_map[idx];
 
 				cp->cp_cr = mk_cr_cmd(chan,
@@ -2200,23 +2747,35 @@ static int __init rs_360_init(void)
 #endif
 				while (cp->cp_cr & CPM_CR_FLG);
 
+				/* Set UART mode, 8 bit, no parity, one stop.
+				 * Enable receive and transmit.
+				 */
 				sp = &cp->smc_regs[idx];
 				sp->smc_smcmr = smcr_mk_clen(9) | SMCMR_SM_UART;
 
+				/* Disable all interrupts and clear all pending
+				 * events.
+				 */
 				sp->smc_smcm = 0;
 				sp->smc_smce = 0xff;
 
+				/* If the port is the console, enable Rx and Tx.
+				*/
 #ifdef CONFIG_SERIAL_CONSOLE
 				if (i == CONFIG_SERIAL_CONSOLE_PORT)
 					sp->smc_smcmr |= SMCMR_REN | SMCMR_TEN;
 #endif
 			}
 
-			
-			
+			/* Install interrupt handler.
+			*/
+			/* cpm_install_handler(IRQ_MACHSPEC | state->irq, rs_360_interrupt, info);  */
+			/*request_irq(IRQ_MACHSPEC | state->irq, rs_360_interrupt, */
 			request_irq(state->irq, rs_360_interrupt, 0, "ttyS",
 				    (void *)info);
 
+			/* Set up the baud rate generator.
+			*/
 			m360_cpm_setbrg(i, baud_table[baud_idx]);
 
 		}
@@ -2226,6 +2785,10 @@ static int __init rs_360_init(void)
 }
 module_init(rs_360_init);
 
+/* This must always be called before the rs_360_init() function, otherwise
+ * it blows away the port control information.
+ */
+//static int __init serial_console_setup( struct console *co, char *options)
 int serial_console_setup( struct console *co, char *options)
 {
 	struct		serial_state	*ser;
@@ -2238,25 +2801,28 @@ int serial_console_setup( struct console *co, char *options)
 	volatile	struct smc_uart_pram	*up;
 	volatile	struct uart_pram		*sup;
 
+/* mleslie TODO:
+ * add something to the 68k bootloader to store a desired initial console baud rate */
 
- 
+/* 	bd_t						*bd; */ /* a board info struct used by EPPC-bug */
+/* 	bd = (bd_t *)__res; */
 
  	for (bidx = 0; bidx < (sizeof(baud_table) / sizeof(int)); bidx++)
-	 
+	 /* if (bd->bi_baudrate == baud_table[bidx]) */
  		if (CONSOLE_BAUDRATE == baud_table[bidx])
 			break;
 
-	
+	/* co->cflag = CREAD|CLOCAL|bidx|CS8; */
 	baud_idx = bidx;
 
 	ser = rs_table + CONFIG_SERIAL_CONSOLE_PORT;
 
-	cp = pquicc;	
+	cp = pquicc;	/* Get pointer to Communication Processor */
 
 	idx = PORT_NUM(ser->smc_scc_num);
 	if (ser->smc_scc_num & NUM_IS_SCC) {
 
-		
+		/* TODO: need to set up SCC pin assignment etc. here */
 		
 	}
 	else {
@@ -2265,36 +2831,64 @@ int serial_console_setup( struct console *co, char *options)
 		cp->pip_pbdir &= ~iobits;
 		cp->pip_pbodr &= ~iobits;
 
+		/* Connect the baud rate generator to the
+		 * SMC based upon index in rs_table.  Also
+		 * make sure it is connected to NMSI.
+		 */
 		cp->si_simode &= ~(0xffff << (idx * 16));
 		cp->si_simode |= (idx << ((idx * 16) + 12));
 	}
 
+	/* When we get here, the CPM has been reset, so we need
+	 * to configure the port.
+	 * We need to allocate a transmit and receive buffer descriptor
+	 * from dual port ram, and a character buffer area from host mem.
+	 */
 
+	/* Allocate space for two buffer descriptors in the DP ram.
+	*/
 	dp_addr = m360_cpm_dpalloc(sizeof(QUICC_BD) * CONSOLE_NUM_FIFO);
 
-	
+	/* Allocate space for two 2 byte FIFOs in the host memory.
+	 */
+	/* mem_addr = m360_cpm_hostalloc(8); */
 	mem_addr = (uint)console_fifos;
 
 
-	
+	/* Set the physical address of the host memory buffers in
+	 * the buffer descriptors.
+	 */
+	/* bdp = (QUICC_BD *)&cp->cp_dpmem[dp_addr]; */
 	bdp = (QUICC_BD *)((uint)pquicc + dp_addr);
 	bdp->buf = (char *)mem_addr;
 	(bdp+1)->buf = (char *)(mem_addr+4);
 
+	/* For the receive, set empty and wrap.
+	 * For transmit, set wrap.
+	 */
 	bdp->status = BD_SC_EMPTY | BD_SC_WRAP;
 	(bdp+1)->status = BD_SC_WRAP;
 
+	/* Set up the uart parameters in the parameter ram.
+	 */
 	if (ser->smc_scc_num & NUM_IS_SCC) {
 		scp = &cp->scc_regs[idx];
-		
+		/* sup = (scc_uart_t *)&cp->cp_dparam[ser->port]; */
 		sup = &pquicc->pram[ser->port].scc.pscc.u;
 
 		sup->rbase = dp_addr;
 		sup->tbase = dp_addr + sizeof(QUICC_BD);
 
+		/* Set up the uart parameters in the
+		 * parameter ram.
+		 */
 		sup->rfcr = SMC_EB;
 		sup->tfcr = SMC_EB;
 
+		/* Set this to 1 for now, so we get single
+		 * character interrupts.  Using idle character
+		 * time requires some additional tuning.
+		 */
 		sup->mrblr = 1;
 		sup->max_idl = 0;
 		sup->brkcr = 1;
@@ -2312,15 +2906,23 @@ int serial_console_setup( struct console *co, char *options)
 		}
 		sup->rccm = 0xc0ff;
 
+		/* Send the CPM an initialize command.
+		*/
 		chan = scc_chan_map[idx];
 
 		cp->cp_cr = mk_cr_cmd(chan, CPM_CR_INIT_TRX) | CPM_CR_FLG;
 		while (cp->cp_cr & CPM_CR_FLG);
 
+		/* Set UART mode, 8 bit, no parity, one stop.
+		 * Enable receive and transmit.
+		 */
 		scp->scc_gsmr.w.high = 0;
 		scp->scc_gsmr.w.low = 
 			(SCC_GSMRL_MODE_UART | SCC_GSMRL_TDCR_16 | SCC_GSMRL_RDCR_16);
 
+		/* Disable all interrupts and clear all pending
+		 * events.
+		 */
 		scp->scc_sccm = 0;
 		scp->scc_scce = 0xffff;
 		scp->scc_dsr = 0x7e7e;
@@ -2330,30 +2932,48 @@ int serial_console_setup( struct console *co, char *options)
 
 	}
 	else {
-		
+		/* up = (smc_uart_t *)&cp->cp_dparam[ser->port]; */
 		up = &pquicc->pram[ser->port].scc.pothers.idma_smc.psmc.u;
 
-		up->rbase = dp_addr;	
-		up->tbase = dp_addr+sizeof(QUICC_BD);	
+		up->rbase = dp_addr;	/* Base of receive buffer desc. */
+		up->tbase = dp_addr+sizeof(QUICC_BD);	/* Base of xmt buffer desc. */
 		up->rfcr = SMC_EB;
 		up->tfcr = SMC_EB;
 
-		up->mrblr = 1;		
-		up->max_idl = 0;		
+		/* Set this to 1 for now, so we get single character interrupts.
+		*/
+		up->mrblr = 1;		/* receive buffer length */
+		up->max_idl = 0;		/* wait forever for next char */
 
+		/* Send the CPM an initialize command.
+		*/
 		chan = smc_chan_map[idx];
 		cp->cp_cr = mk_cr_cmd(chan, CPM_CR_INIT_TRX) | CPM_CR_FLG;
 		while (cp->cp_cr & CPM_CR_FLG);
 
+		/* Set UART mode, 8 bit, no parity, one stop.
+		 * Enable receive and transmit.
+		 */
 		sp = &cp->smc_regs[idx];
 		sp->smc_smcmr = smcr_mk_clen(9) |  SMCMR_SM_UART;
 
+		/* And finally, enable Rx and Tx.
+		*/
 		sp->smc_smcmr |= SMCMR_REN | SMCMR_TEN;
 	}
 
-	
+	/* Set up the baud rate generator.
+	*/
+	/* m360_cpm_setbrg((ser - rs_table), bd->bi_baudrate); */
 	m360_cpm_setbrg((ser - rs_table), CONSOLE_BAUDRATE);
 
 	return 0;
 }
 
+/*
+ * Local variables:
+ *  c-indent-level: 4
+ *  c-basic-offset: 4
+ *  tab-width: 4
+ * End:
+ */

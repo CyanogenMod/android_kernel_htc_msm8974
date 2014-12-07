@@ -33,22 +33,22 @@ MODULE_AUTHOR("Kristoffer Ericson <Kristoffer.Ericson@gmail.com>");
 MODULE_DESCRIPTION("HP Jornada 710/720/728 keyboard driver");
 MODULE_LICENSE("GPL v2");
 
-static unsigned short jornada_std_keymap[128] = {					
-	0, KEY_ESC, KEY_F1, KEY_F2, KEY_F3, KEY_F4, KEY_F5, KEY_F6, KEY_F7,		
-	KEY_F8, KEY_F9, KEY_F10, KEY_F11, KEY_VOLUMEUP, KEY_VOLUMEDOWN, KEY_MUTE,	
-	0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9,		
-	KEY_0, KEY_MINUS, KEY_EQUAL,0, 0, 0,						
-	0, KEY_Q, KEY_W, KEY_E, KEY_R, KEY_T, KEY_Y, KEY_U, KEY_I, KEY_O,		
-	KEY_P, KEY_BACKSLASH, KEY_BACKSPACE, 0, 0, 0,					
-	0, KEY_A, KEY_S, KEY_D, KEY_F, KEY_G, KEY_H, KEY_J, KEY_K, KEY_L,		
-	KEY_SEMICOLON, KEY_LEFTBRACE, KEY_RIGHTBRACE, 0, 0, 0,				
-	0, KEY_Z, KEY_X, KEY_C, KEY_V, KEY_B, KEY_N, KEY_M, KEY_COMMA,			
-	KEY_DOT, KEY_KPMINUS, KEY_APOSTROPHE, KEY_ENTER, 0, 0,0,			
-	0, KEY_TAB, 0, KEY_LEFTSHIFT, 0, KEY_APOSTROPHE, 0, 0, 0, 0,			
-	KEY_UP, 0, KEY_RIGHTSHIFT, 0, 0, 0,0, 0, 0, 0, 0, KEY_LEFTALT, KEY_GRAVE,	
-	0, 0, KEY_LEFT, KEY_DOWN, KEY_RIGHT, 0, 0, 0, 0,0, KEY_KPASTERISK,		
-	KEY_LEFTCTRL, 0, KEY_SPACE, 0, 0, 0, KEY_SLASH, KEY_DELETE, 0, 0,		
-	0, 0, 0, KEY_POWER,								
+static unsigned short jornada_std_keymap[128] = {					/* ROW */
+	0, KEY_ESC, KEY_F1, KEY_F2, KEY_F3, KEY_F4, KEY_F5, KEY_F6, KEY_F7,		/* #1  */
+	KEY_F8, KEY_F9, KEY_F10, KEY_F11, KEY_VOLUMEUP, KEY_VOLUMEDOWN, KEY_MUTE,	/*  -> */
+	0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9,		/* #2  */
+	KEY_0, KEY_MINUS, KEY_EQUAL,0, 0, 0,						/*  -> */
+	0, KEY_Q, KEY_W, KEY_E, KEY_R, KEY_T, KEY_Y, KEY_U, KEY_I, KEY_O,		/* #3  */
+	KEY_P, KEY_BACKSLASH, KEY_BACKSPACE, 0, 0, 0,					/*  -> */
+	0, KEY_A, KEY_S, KEY_D, KEY_F, KEY_G, KEY_H, KEY_J, KEY_K, KEY_L,		/* #4  */
+	KEY_SEMICOLON, KEY_LEFTBRACE, KEY_RIGHTBRACE, 0, 0, 0,				/*  -> */
+	0, KEY_Z, KEY_X, KEY_C, KEY_V, KEY_B, KEY_N, KEY_M, KEY_COMMA,			/* #5  */
+	KEY_DOT, KEY_KPMINUS, KEY_APOSTROPHE, KEY_ENTER, 0, 0,0,			/*  -> */
+	0, KEY_TAB, 0, KEY_LEFTSHIFT, 0, KEY_APOSTROPHE, 0, 0, 0, 0,			/* #6  */
+	KEY_UP, 0, KEY_RIGHTSHIFT, 0, 0, 0,0, 0, 0, 0, 0, KEY_LEFTALT, KEY_GRAVE,	/*  -> */
+	0, 0, KEY_LEFT, KEY_DOWN, KEY_RIGHT, 0, 0, 0, 0,0, KEY_KPASTERISK,		/*  -> */
+	KEY_LEFTCTRL, 0, KEY_SPACE, 0, 0, 0, KEY_SLASH, KEY_DELETE, 0, 0,		/*  -> */
+	0, 0, 0, KEY_POWER,								/*  -> */
 };
 
 struct jornadakbd {
@@ -63,7 +63,7 @@ static irqreturn_t jornada720_kbd_interrupt(int irq, void *dev_id)
 	struct input_dev *input = jornadakbd->input;
 	u8 count, kbd_data, scan_code;
 
-	
+	/* startup ssp with spinlock */
 	jornada_ssp_start();
 
 	if (jornada_ssp_inout(GETSCANKEYCODE) != TXDUMMY) {
@@ -72,12 +72,12 @@ static irqreturn_t jornada720_kbd_interrupt(int irq, void *dev_id)
 			"GetKeycode command failed with ETIMEDOUT, "
 			"flushed bus\n");
 	} else {
-		
+		/* How many keycodes are waiting for us? */
 		count = jornada_ssp_byte(TXDUMMY);
 
-		
+		/* Lets drag them out one at a time */
 		while (count--) {
-			
+			/* Exchange TxDummy for location (keymap[kbddata]) */
 			kbd_data = jornada_ssp_byte(TXDUMMY);
 			scan_code = kbd_data & 0x7f;
 
@@ -88,7 +88,7 @@ static irqreturn_t jornada720_kbd_interrupt(int irq, void *dev_id)
 		}
 	}
 
-	
+	/* release spinlock and turn off ssp */
 	jornada_ssp_end();
 
 	return IRQ_HANDLED;
@@ -143,9 +143,9 @@ static int __devinit jornada720_kbd_probe(struct platform_device *pdev)
 
 	return 0;
 
- fail2:	
+ fail2:	/* IRQ, DEVICE, MEMORY */
 	free_irq(IRQ_GPIO0, pdev);
- fail1:	
+ fail1:	/* DEVICE, MEMORY */
 	platform_set_drvdata(pdev, NULL);
 	input_free_device(input_dev);
 	kfree(jornadakbd);
@@ -164,6 +164,7 @@ static int __devexit jornada720_kbd_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:jornada720_kbd");
 
 static struct platform_driver jornada720_kbd_driver = {

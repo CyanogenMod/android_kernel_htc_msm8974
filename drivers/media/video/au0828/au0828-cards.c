@@ -27,6 +27,8 @@
 
 void hvr950q_cs5340_audio(void *priv, int enable)
 {
+	/* Because the HVR-950q shares an i2s bus between the cs5340 and the
+	   au8522, we need to hold cs5340 in reset when using the au8522 */
 	struct au0828_dev *dev = priv;
 	if (enable == 1)
 		au0828_set(dev, REG_000, 0x10);
@@ -69,6 +71,12 @@ struct au0828_board au0828_boards[] = {
 		.name	= "Hauppauge HVR950Q",
 		.tuner_type = TUNER_XC5000,
 		.tuner_addr = 0x61,
+		/* The au0828 hardware i2c implementation does not properly
+		   support the xc5000's i2c clock stretching.  So we need to
+		   lower the clock frequency enough where the 15us clock
+		   stretch fits inside of a normal clock cycle, or else the
+		   au0828 fails to set the STOP bit.  A 30 KHz clock puts the
+		   clock pulse width at 18us */
 		.i2c_clk_divider = AU0828_I2C_CLK_30KHZ,
 		.input = {
 			{
@@ -110,6 +118,9 @@ struct au0828_board au0828_boards[] = {
 	},
 };
 
+/* Tuner callback function for au0828 boards. Currently only needed
+ * for HVR1500Q, which has an xc5000 tuner.
+ */
 int au0828_tuner_callback(void *priv, int component, int command, int arg)
 {
 	struct au0828_dev *dev = priv;
@@ -122,8 +133,8 @@ int au0828_tuner_callback(void *priv, int component, int command, int arg)
 	case AU0828_BOARD_HAUPPAUGE_HVR950Q_MXL:
 	case AU0828_BOARD_DVICO_FUSIONHDTV7:
 		if (command == 0) {
-			
-			
+			/* Tuner Reset Command from xc5000 */
+			/* Drive the tuner into reset and out */
 			au0828_clear(dev, REG_001, 2);
 			mdelay(10);
 			au0828_set(dev, REG_001, 2);
@@ -137,7 +148,7 @@ int au0828_tuner_callback(void *priv, int component, int command, int arg)
 		break;
 	}
 
-	return 0; 
+	return 0; /* Should never be here */
 }
 
 static void hauppauge_eeprom(struct au0828_dev *dev, u8 *eeprom_data)
@@ -147,20 +158,20 @@ static void hauppauge_eeprom(struct au0828_dev *dev, u8 *eeprom_data)
 	tveeprom_hauppauge_analog(&dev->i2c_client, &tv, eeprom_data);
 	dev->board.tuner_type = tv.tuner_type;
 
-	
+	/* Make sure we support the board model */
 	switch (tv.model) {
-	case 72000: 
-	case 72001: 
-	case 72101: 
-	case 72201: 
-	case 72211: 
-	case 72221: 
-	case 72231: 
-	case 72241: 
-	case 72251: 
-	case 72261: 
-	case 72301: 
-	case 72500: 
+	case 72000: /* WinTV-HVR950q (Retail, IR, ATSC/QAM */
+	case 72001: /* WinTV-HVR950q (Retail, IR, ATSC/QAM and analog video */
+	case 72101: /* WinTV-HVR950q (Retail, IR, ATSC/QAM and analog video */
+	case 72201: /* WinTV-HVR950q (OEM, IR, ATSC/QAM and analog video */
+	case 72211: /* WinTV-HVR950q (OEM, IR, ATSC/QAM and analog video */
+	case 72221: /* WinTV-HVR950q (OEM, IR, ATSC/QAM and analog video */
+	case 72231: /* WinTV-HVR950q (OEM, IR, ATSC/QAM and analog video */
+	case 72241: /* WinTV-HVR950q (OEM, No IR, ATSC/QAM and analog video */
+	case 72251: /* WinTV-HVR950q (Retail, IR, ATSC/QAM and analog video */
+	case 72261: /* WinTV-HVR950q (OEM, IR, ATSC/QAM and analog video */
+	case 72301: /* WinTV-HVR850 (Retail, IR, ATSC and analog video */
+	case 72500: /* WinTV-HVR950q (OEM, No IR, ATSC/QAM */
 		break;
 	default:
 		printk(KERN_WARNING "%s: warning: "
@@ -199,15 +210,18 @@ void au0828_card_setup(struct au0828_dev *dev)
 	}
 
 	if (AUVI_INPUT(0).type != AU0828_VMUX_UNDEFINED) {
+		/* Load the analog demodulator driver (note this would need to
+		   be abstracted out if we ever need to support a different
+		   demod) */
 		sd = v4l2_i2c_new_subdev(&dev->v4l2_dev, &dev->i2c_adap,
 				"au8522", 0x8e >> 1, NULL);
 		if (sd == NULL)
 			printk(KERN_ERR "analog subdev registration failed\n");
 	}
 
-	
+	/* Setup tuners */
 	if (dev->board.tuner_type != TUNER_ABSENT) {
-		
+		/* Load the tuner module, which does the attach */
 		sd = v4l2_i2c_new_subdev(&dev->v4l2_dev, &dev->i2c_adap,
 				"tuner", dev->board.tuner_addr, NULL);
 		if (sd == NULL)
@@ -222,6 +236,11 @@ void au0828_card_setup(struct au0828_dev *dev)
 	}
 }
 
+/*
+ * The bridge has between 8 and 12 gpios.
+ * Regs 1 and 0 deal with output enables.
+ * Regs 3 and 2 deal with direction.
+ */
 void au0828_gpio_setup(struct au0828_dev *dev)
 {
 	dprintk(1, "%s()\n", __func__);
@@ -231,15 +250,22 @@ void au0828_gpio_setup(struct au0828_dev *dev)
 	case AU0828_BOARD_HAUPPAUGE_HVR950Q:
 	case AU0828_BOARD_HAUPPAUGE_HVR950Q_MXL:
 	case AU0828_BOARD_HAUPPAUGE_WOODBURY:
+		/* GPIO's
+		 * 4 - CS5340
+		 * 5 - AU8522 Demodulator
+		 * 6 - eeprom W/P
+		 * 7 - power supply
+		 * 9 - XC5000 Tuner
+		 */
 
-		
+		/* Into reset */
 		au0828_write(dev, REG_003, 0x02);
 		au0828_write(dev, REG_002, 0x80 | 0x20 | 0x10);
 		au0828_write(dev, REG_001, 0x0);
 		au0828_write(dev, REG_000, 0x0);
 		msleep(100);
 
-		
+		/* Out of reset (leave the cs5340 in reset until needed) */
 		au0828_write(dev, REG_003, 0x02);
 		au0828_write(dev, REG_001, 0x02);
 		au0828_write(dev, REG_002, 0x80 | 0x20 | 0x10);
@@ -248,15 +274,20 @@ void au0828_gpio_setup(struct au0828_dev *dev)
 		msleep(250);
 		break;
 	case AU0828_BOARD_DVICO_FUSIONHDTV7:
+		/* GPIO's
+		 * 6 - ?
+		 * 8 - AU8522 Demodulator
+		 * 9 - XC5000 Tuner
+		 */
 
-		
+		/* Into reset */
 		au0828_write(dev, REG_003, 0x02);
 		au0828_write(dev, REG_002, 0xa0);
 		au0828_write(dev, REG_001, 0x0);
 		au0828_write(dev, REG_000, 0x0);
 		msleep(100);
 
-		
+		/* Out of reset */
 		au0828_write(dev, REG_003, 0x02);
 		au0828_write(dev, REG_002, 0xa0);
 		au0828_write(dev, REG_001, 0x02);
@@ -266,6 +297,7 @@ void au0828_gpio_setup(struct au0828_dev *dev)
 	}
 }
 
+/* table of devices that work with this driver */
 struct usb_device_id au0828_usb_id_table[] = {
 	{ USB_DEVICE(0x2040, 0x7200),
 		.driver_info = AU0828_BOARD_HAUPPAUGE_HVR950Q },

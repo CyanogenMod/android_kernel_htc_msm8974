@@ -9,25 +9,34 @@
  *
  */
 
+/* includes */
 #include <linux/platform_device.h>
 #include <linux/gpio.h>
 #include <linux/usb.h>
 #include <msp_usb.h>
 
+/* stream disable*/
 #define USB_CTRL_MODE_STREAM_DISABLE	0x10
 
+/* threshold */
 #define USB_CTRL_FIFO_THRESH		0x00300000
 
+/* register offset for usb_mode */
 #define USB_EHCI_REG_USB_MODE		0x68
 
+/* register offset for usb fifo */
 #define USB_EHCI_REG_USB_FIFO		0x24
 
+/* register offset for usb status */
 #define USB_EHCI_REG_USB_STATUS		0x44
 
+/* serial/parallel transceiver */
 #define USB_EHCI_REG_BIT_STAT_STS	(1<<29)
 
+/* TWI USB0 host device pin */
 #define MSP_PIN_USB0_HOST_DEV		49
 
+/* TWI USB1 host device pin */
 #define MSP_PIN_USB1_HOST_DEV		50
 
 
@@ -39,31 +48,32 @@ static void usb_hcd_tdi_set_mode(struct ehci_hcd *ehci)
 	u32 val;
 	struct ehci_regs *reg_base = ehci->regs;
 
-	
+	/* get register base */
 	base = (u8 *)reg_base + USB_EHCI_REG_USB_MODE;
 	statreg = (u8 *)reg_base + USB_EHCI_REG_USB_STATUS;
 	fiforeg = (u8 *)reg_base + USB_EHCI_REG_USB_FIFO;
 
-	
+	/* Disable controller mode stream */
 	val = ehci_readl(ehci, (u32 *)base);
 	ehci_writel(ehci, (val | USB_CTRL_MODE_STREAM_DISABLE),
 			(u32 *)base);
 
-	
+	/* clear STS to select parallel transceiver interface */
 	val = ehci_readl(ehci, (u32 *)statreg);
 	val = val & ~USB_EHCI_REG_BIT_STAT_STS;
 	ehci_writel(ehci, val, (u32 *)statreg);
 
-	
+	/* write to set the proper fifo threshold */
 	ehci_writel(ehci, USB_CTRL_FIFO_THRESH, (u32 *)fiforeg);
 
-	
+	/* set TWI GPIO USB_HOST_DEV pin high */
 	gpio_direction_output(MSP_PIN_USB0_HOST_DEV, 1);
 #ifdef CONFIG_MSP_HAS_DUAL_USB
 	gpio_direction_output(MSP_PIN_USB1_HOST_DEV, 1);
 #endif
 }
 
+/* called during probe() after chip reset completes */
 static int ehci_msp_setup(struct usb_hcd *hcd)
 {
 	struct ehci_hcd		*ehci = hcd_to_ehci(hcd);
@@ -77,7 +87,7 @@ static int ehci_msp_setup(struct usb_hcd *hcd)
 	dbg_hcs_params(ehci, "reset");
 	dbg_hcc_params(ehci, "reset");
 
-	
+	/* cache this readonly data; minimize chip reads */
 	ehci->hcs_params = ehci_readl(ehci, &ehci->caps->hcs_params);
 	hcd->has_tt = 1;
 
@@ -87,7 +97,7 @@ static int ehci_msp_setup(struct usb_hcd *hcd)
 
 	ehci_reset(ehci);
 
-	
+	/* data structure init */
 	retval = ehci_init(hcd);
 	if (retval)
 		return retval;
@@ -99,6 +109,9 @@ static int ehci_msp_setup(struct usb_hcd *hcd)
 }
 
 
+/* configure so an HC device and id are always provided
+ * always called with process context; sleeping is OK
+ */
 
 static int usb_hcd_msp_map_regs(struct mspusb_device *dev)
 {
@@ -107,7 +120,7 @@ static int usb_hcd_msp_map_regs(struct mspusb_device *dev)
 	u32 res_len;
 	int retval;
 
-	
+	/* MAB register space */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	if (res == NULL)
 		return -ENOMEM;
@@ -121,7 +134,7 @@ static int usb_hcd_msp_map_regs(struct mspusb_device *dev)
 		goto err1;
 	}
 
-	
+	/* MSP USB register space */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
 	if (res == NULL) {
 		retval = -ENOMEM;
@@ -153,6 +166,15 @@ err1:
 	return retval;
 }
 
+/**
+ * usb_hcd_msp_probe - initialize PMC MSP-based HCDs
+ * Context: !in_interrupt()
+ *
+ * Allocates basic resources for this USB host controller, and
+ * then invokes the start() method for the HCD associated with it
+ * through the hotplug entry's driver_data.
+ *
+ */
 int usb_hcd_msp_probe(const struct hc_driver *driver,
 			  struct platform_device *dev)
 {
@@ -191,7 +213,7 @@ int usb_hcd_msp_probe(const struct hc_driver *driver,
 		goto err3;
 	}
 
-	
+	/* Map non-EHCI register spaces */
 	retval = usb_hcd_msp_map_regs(to_mspusb_device(dev));
 	if (retval != 0)
 		goto err3;
@@ -218,6 +240,18 @@ err1:
 
 
 
+/**
+ * usb_hcd_msp_remove - shutdown processing for PMC MSP-based HCDs
+ * @dev: USB Host Controller being removed
+ * Context: !in_interrupt()
+ *
+ * Reverses the effect of usb_hcd_msp_probe(), first invoking
+ * the HCD's stop() method.  It is always called from a thread
+ * context, normally "rmmod", "apmd", or something similar.
+ *
+ * may be called without controller electrically present
+ * may be called with controller, bus, and devices active
+ */
 void usb_hcd_msp_remove(struct usb_hcd *hcd, struct platform_device *dev)
 {
 	usb_remove_hcd(hcd);
@@ -227,6 +261,11 @@ void usb_hcd_msp_remove(struct usb_hcd *hcd, struct platform_device *dev)
 }
 
 #ifdef CONFIG_MSP_HAS_DUAL_USB
+/*
+ * Wrapper around the main ehci_irq.  Since both USB host controllers are
+ * sharing the same IRQ, need to first determine whether we're the intended
+ * recipient of this interrupt.
+ */
 static irqreturn_t ehci_msp_irq(struct usb_hcd *hcd)
 {
 	u32 int_src;
@@ -234,25 +273,28 @@ static irqreturn_t ehci_msp_irq(struct usb_hcd *hcd)
 	struct platform_device *pdev;
 	struct mspusb_device *mdev;
 	struct ehci_hcd	*ehci = hcd_to_ehci(hcd);
-	
+	/* need to reverse-map a couple of containers to get our device */
 	pdev = to_platform_device(dev);
 	mdev = to_mspusb_device(pdev);
 
-	
+	/* Check to see if this interrupt is for this host controller */
 	int_src = ehci_readl(ehci, &mdev->mab_regs->int_stat);
 	if (int_src & (1 << pdev->id))
 		return ehci_irq(hcd);
 
-	
+	/* Not for this device */
 	return IRQ_NONE;
 }
-#endif 
+#endif /* DUAL_USB */
 
 static const struct hc_driver ehci_msp_hc_driver = {
 	.description =		hcd_name,
 	.product_desc =		"PMC MSP EHCI",
 	.hcd_priv_size =	sizeof(struct ehci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 #ifdef CONFIG_MSP_HAS_DUAL_USB
 	.irq =			ehci_msp_irq,
 #else
@@ -260,19 +302,31 @@ static const struct hc_driver ehci_msp_hc_driver = {
 #endif
 	.flags =		HCD_MEMORY | HCD_USB2,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.reset =		ehci_msp_setup,
 	.start =		ehci_run,
 	.shutdown		= ehci_shutdown,
 	.start			= ehci_run,
 	.stop			= ehci_stop,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue		= ehci_urb_enqueue,
 	.urb_dequeue		= ehci_urb_dequeue,
 	.endpoint_disable	= ehci_endpoint_disable,
 	.endpoint_reset		= ehci_endpoint_reset,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number	= ehci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data	= ehci_hub_status_data,
 	.hub_control		= ehci_hub_control,
 	.bus_suspend		= ehci_bus_suspend,
@@ -308,7 +362,7 @@ static int ehci_hcd_msp_drv_remove(struct platform_device *pdev)
 
 	usb_hcd_msp_remove(hcd, pdev);
 
-	
+	/* free TWI GPIO USB_HOST_DEV pin */
 	gpio_free(MSP_PIN_USB0_HOST_DEV);
 #ifdef CONFIG_MSP_HAS_DUAL_USB
 	gpio_free(MSP_PIN_USB1_HOST_DEV);

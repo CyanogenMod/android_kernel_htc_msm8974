@@ -8,6 +8,17 @@
  * for more info.  
  */
 
+/*  
+ * An ALSA lowlevel driver for Turtle Beach ICS2115 wavetable synth
+ *                                             (Maui, Tropez, Tropez Plus)
+ *
+ * This driver supports the onboard wavetable synthesizer (an ICS2115),
+ * including patch, sample and program loading and unloading, conversion
+ * of GUS patches during loading, and full user-level access to all
+ * WaveFront commands. It tries to provide semi-intelligent patch and
+ * sample management as well.
+ *
+ */
 
 #include <asm/io.h>
 #include <linux/interrupt.h>
@@ -23,26 +34,57 @@
 #include <sound/snd_wavefront.h>
 #include <sound/initval.h>
 
-static int wf_raw = 0; 
+static int wf_raw = 0; /* we normally check for "raw state" to firmware
+			  loading. if non-zero, then during driver loading, the
+			  state of the board is ignored, and we reset the
+			  board and load the firmware anyway.
+		       */
 		   
-static int fx_raw = 1; 
+static int fx_raw = 1; /* if this is zero, we'll leave the FX processor in
+			  whatever state it is when the driver is loaded.
+			  The default is to download the microprogram and
+			  associated coefficients to set it up for "default"
+			  operation, whatever that means.
+		       */
 
-static int debug_default = 0;  
+static int debug_default = 0;  /* you can set this to control debugging
+				  during driver loading. it takes any combination
+				  of the WF_DEBUG_* flags defined in
+				  wavefront.h
+			       */
 
+/* XXX this needs to be made firmware and hardware version dependent */
 
 #define DEFAULT_OSPATH	"wavefront.os"
-static char *ospath = DEFAULT_OSPATH; 
+static char *ospath = DEFAULT_OSPATH; /* the firmware file name */
 
-static int wait_usecs = 150; 
+static int wait_usecs = 150; /* This magic number seems to give pretty optimal
+				throughput based on my limited experimentation.
+				If you want to play around with it and find a better
+				value, be my guest. Remember, the idea is to
+				get a number that causes us to just busy wait
+				for as many WaveFront commands as possible, without
+				coming up with a number so large that we hog the
+				whole CPU.
 
-static int sleep_interval = 100;   
-static int sleep_tries = 50;       
+				Specifically, with this number, out of about 134,000
+				status waits, only about 250 result in a sleep.
+			    */
 
-static int reset_time = 2;        
+static int sleep_interval = 100;   /* HZ/sleep_interval seconds per sleep */
+static int sleep_tries = 50;       /* number of times we'll try to sleep */
 
-static int ramcheck_time = 20;    
+static int reset_time = 2;        /* hundreths of a second we wait after a HW
+				     reset for the expected interrupt.
+				  */
 
-static int osrun_time = 10;       
+static int ramcheck_time = 20;    /* time in seconds to wait while ROM code
+				     checks on-board RAM.
+				  */
+
+static int osrun_time = 10;       /* time in seconds we wait for the OS to
+				     start running.
+				  */
 module_param(wf_raw, int, 0444);
 MODULE_PARM_DESC(wf_raw, "if non-zero, assume that we need to boot the OS");
 module_param(fx_raw, int, 0444);
@@ -64,6 +106,11 @@ MODULE_PARM_DESC(ramcheck_time, "how many seconds to wait for the RAM test");
 module_param(osrun_time, int, 0444);
 MODULE_PARM_DESC(osrun_time, "how many seconds to wait for the ICS2115 OS");
 
+/* if WF_DEBUG not defined, no run-time debugging messages will
+   be available via the debug flag setting. Given the current
+   beta state of the driver, this will remain set until a future 
+   version.
+*/
 
 #define WF_DEBUG 1
 
@@ -75,10 +122,11 @@ MODULE_PARM_DESC(osrun_time, "how many seconds to wait for the ICS2115 OS");
        }
 #else
 #define DPRINT(cond, args...)
-#endif 
+#endif /* WF_DEBUG */
 
 #define LOGNAME "WaveFront: "
 
+/* bitmasks for WaveFront status port value */
 
 #define STAT_RINTR_ENABLED	0x01
 #define STAT_CAN_READ		0x02
@@ -151,6 +199,10 @@ static struct wavefront_command wavefront_commands[] = {
 
 	{ WFC_DOWNLOAD_MULTISAMPLE, "download multisample", 0, 0, NEEDS_ACK },
 
+	/* This one is a hack as well. We just read the first byte of the
+	   response, don't fetch an ACK, and leave the rest to the 
+	   calling function. Ugly, ugly, ugly.
+	*/
 
 	{ WFC_UPLOAD_MULTISAMPLE, "upload multisample", 2, 1, 0 },
 	{ WFC_DOWNLOAD_SAMPLE_ALIAS, "download sample alias",
@@ -228,6 +280,9 @@ wavefront_wait (snd_wavefront_t *dev, int mask)
 {
 	int             i;
 
+	/* Spin for a short period of time, because >99% of all
+	   requests to the WaveFront can be serviced inline like this.
+	*/
 
 	for (i = 0; i < wait_usecs; i += 5) {
 		if (wavefront_status (dev) & mask) {
@@ -292,6 +347,10 @@ snd_wavefront_cmd (snd_wavefront_t *dev,
 		return 1;
 	}
 
+	/* Hack to handle the one variable-size write command. See
+	   wavefront_send_multisample() for the other half of this
+	   gross and ugly strategy.
+	*/
 
 	if (cmd == WFC_DOWNLOAD_MULTISAMPLE) {
 		wfcmd->write_cnt = (unsigned long) rbuf;
@@ -341,7 +400,7 @@ snd_wavefront_cmd (snd_wavefront_t *dev,
 				return 1;
 			}
 
-			
+			/* Now handle errors. Lots of special cases here */
 	    
 			if (c == 0xff) { 
 				if ((c = wavefront_read (dev)) == -1) {
@@ -354,7 +413,7 @@ snd_wavefront_cmd (snd_wavefront_t *dev,
 					return 1;
 				}
 
-				
+				/* Can you believe this madness ? */
 
 				if (c == 1 &&
 				    wfcmd->cmd == WFC_IDENTIFY_SAMPLE_TYPE) {
@@ -398,6 +457,9 @@ snd_wavefront_cmd (snd_wavefront_t *dev,
 
 		DPRINT (WF_DEBUG_CMD, "reading ACK for 0x%x\n", cmd);
 
+		/* Some commands need an ACK, but return zero instead
+		   of the standard value.
+		*/
 	    
 		if ((ack = wavefront_read (dev)) == 0) {
 			ack = WF_ACK;
@@ -411,9 +473,9 @@ snd_wavefront_cmd (snd_wavefront_t *dev,
 				return 1;
 		
 			} else {
-				int err = -1; 
+				int err = -1; /* something unknown */
 
-				if (ack == 0xff) { 
+				if (ack == 0xff) { /* explicit error */
 		    
 					if ((err = wavefront_read (dev)) == -1) {
 						DPRINT (WF_DEBUG_DATA,
@@ -471,9 +533,9 @@ munge_int32 (unsigned int src,
 	unsigned int i;
 
 	for (i = 0; i < dst_size; i++) {
-		*dst = src & 0x7F;  
-		src = src >> 7;     
-	                             
+		*dst = src & 0x7F;  /* Mask high bit of LSB */
+		src = src >> 7;     /* Rotate Right 7 bits  */
+	                            /* Note: we leave the upper bits in place */ 
 
 		dst++;
  	};
@@ -519,7 +581,7 @@ demunge_buf (unsigned char *src, unsigned char *dst, unsigned int src_bytes)
     
 	end = src + src_bytes;
 
-	
+	/* NOTE: src and dst *CAN* point to the same address */
 
 	for (i = 0; src != end; i++) {
 		dst[i] = *src++;
@@ -529,6 +591,9 @@ demunge_buf (unsigned char *src, unsigned char *dst, unsigned int src_bytes)
 	return dst;
 }
 
+/***********************************************************************
+WaveFront: sample, patch and program management.
+***********************************************************************/
 
 static int
 wavefront_delete_sample (snd_wavefront_t *dev, int sample_num)
@@ -555,7 +620,7 @@ wavefront_get_sample_status (snd_wavefront_t *dev, int assume_rom)
 	unsigned char rbuf[32], wbuf[32];
 	unsigned int    sc_real, sc_alias, sc_multi;
 
-	
+	/* check sample status */
     
 	if (snd_wavefront_cmd (dev, WFC_GET_NSAMPLES, rbuf, wbuf)) {
 		snd_printk ("cannot request sample count.\n");
@@ -637,7 +702,7 @@ wavefront_get_patch_status (snd_wavefront_t *dev)
 				[p->sample_number|(p->sample_msb<<7)] |=
 				WF_SLOT_USED;
 	    
-		} else if (x == 3) { 
+		} else if (x == 3) { /* Bad patch number */
 			dev->patch_status[i] = 0;
 		} else {
 			snd_printk ("upload patch "
@@ -647,7 +712,7 @@ wavefront_get_patch_status (snd_wavefront_t *dev)
 		}
 	}
 
-	
+	/* program status has already filled in slot_used bits */
 
 	for (i = 0, cnt = 0, cnt2 = 0; i < WF_MAX_PATCH; i++) {
 		if (dev->patch_status[i] & WF_SLOT_FILLED) {
@@ -690,7 +755,7 @@ wavefront_get_program_status (snd_wavefront_t *dev)
 						WF_SLOT_USED;
 				}
 			}
-		} else if (x == 1) { 
+		} else if (x == 1) { /* Bad program number */
 			dev->prog_status[i] = 0;
 		} else {
 			snd_printk ("upload program "
@@ -755,6 +820,9 @@ wavefront_send_program (snd_wavefront_t *dev, wavefront_patch_info *header)
 			dev->patch_status[header->hdr.pr.layer[i].patch_number] |=
 				WF_SLOT_USED;
 
+			/* XXX need to mark SLOT_USED for sample used by
+			   patch_number, but this means we have to load it. Ick.
+			*/
 		}
 	}
 
@@ -790,6 +858,14 @@ wavefront_send_sample (snd_wavefront_t *dev,
 		       int data_is_unsigned)
 
 {
+	/* samples are downloaded via a 16-bit wide i/o port
+	   (you could think of it as 2 adjacent 8-bit wide ports
+	   but its less efficient that way). therefore, all
+	   the blocksizes and so forth listed in the documentation,
+	   and used conventionally to refer to sample sizes,
+	   which are given in 8-bit units (bytes), need to be
+	   divided by 2.
+        */
 
 	u16 sample_short = 0;
 	u32 length;
@@ -824,6 +900,28 @@ wavefront_send_sample (snd_wavefront_t *dev,
 
 	if (header->size) {
 
+		/* XXX it's a debatable point whether or not RDONLY semantics
+		   on the ROM samples should cover just the sample data or
+		   the sample header. For now, it only covers the sample data,
+		   so anyone is free at all times to rewrite sample headers.
+
+		   My reason for this is that we have the sample headers
+		   available in the WFB file for General MIDI, and so these
+		   can always be reset if needed. The sample data, however,
+		   cannot be recovered without a complete reset and firmware
+		   reload of the ICS2115, which is a very expensive operation.
+
+		   So, doing things this way allows us to honor the notion of
+		   "RESETSAMPLES" reasonably cheaply. Note however, that this
+		   is done purely at user level: there is no WFB parser in
+		   this driver, and so a complete reset (back to General MIDI,
+		   or theoretically some other configuration) is the
+		   responsibility of the user level library. 
+
+		   To try to do this in the kernel would be a little
+		   crazy: we'd need 158K of kernel space just to hold
+		   a copy of the patch/program/sample header data.
+		*/
 
 		if (dev->rom_samples_rdonly) {
 			if (dev->sample_status[header->number] & WF_SLOT_ROM) {
@@ -893,13 +991,21 @@ wavefront_send_sample (snd_wavefront_t *dev,
 				      WF_GET_CHANNEL (&header->hdr.s),
 				      initial_skip, skip);
     
-	
+	/* Be safe, and zero the "Unused" bits ... */
 
 	WF_SET_CHANNEL(&header->hdr.s, 0);
 
+	/* adjust size for 16 bit samples by dividing by two.  We always
+	   send 16 bits per write, even for 8 bit samples, so the length
+	   is always half the size of the sample data in bytes.
+	*/
 
 	length = header->size / 2;
 
+	/* the data we're sent has not been munged, and in fact, the
+	   header we have to send isn't just a munged copy either.
+	   so, build the sample header right here.
+	*/
 
 	shptr = &sample_hdr[0];
 
@@ -909,6 +1015,9 @@ wavefront_send_sample (snd_wavefront_t *dev,
 		shptr = munge_int32 (length, shptr, 4);
 	}
 
+	/* Yes, a 4 byte result doesn't contain all of the offset bits,
+	   but the offset only uses 24 bits.
+	*/
 
 	shptr = munge_int32 (*((u32 *) &header->hdr.s.sampleStartOffset),
 			     shptr, 4);
@@ -919,9 +1028,17 @@ wavefront_send_sample (snd_wavefront_t *dev,
 	shptr = munge_int32 (*((u32 *) &header->hdr.s.sampleEndOffset),
 			     shptr, 4);
 	
+	/* This one is truly weird. What kind of weirdo decided that in
+	   a system dominated by 16 and 32 bit integers, they would use
+	   a just 12 bits ?
+	*/
 	
 	shptr = munge_int32 (header->hdr.s.FrequencyBias, shptr, 3);
 	
+	/* Why is this nybblified, when the MSB is *always* zero ? 
+	   Anyway, we can't take address of bitfield, so make a
+	   good-faith guess at where it starts.
+	*/
 	
 	shptr = munge_int32 (*(&header->hdr.s.FrequencyBias+1),
 			     shptr, 2);
@@ -936,12 +1053,12 @@ wavefront_send_sample (snd_wavefront_t *dev,
 	}
 
 	if (header->size == 0) {
-		goto sent; 
+		goto sent; /* Sorry. Just had to have one somewhere */
 	}
     
 	data_end = dataptr + length;
 
-	
+	/* Do any initial skip over an unused channel's data */
 
 	dataptr += initial_skip;
     
@@ -951,7 +1068,7 @@ wavefront_send_sample (snd_wavefront_t *dev,
 		if ((length - written) > max_blksize) {
 			blocksize = max_blksize;
 		} else {
-			
+			/* round to nearest 16-byte value */
 			blocksize = ALIGN(length - written, 8);
 		}
 
@@ -968,10 +1085,14 @@ wavefront_send_sample (snd_wavefront_t *dev,
 				__get_user (sample_short, dataptr);
 				dataptr += skip;
 		
-				if (data_is_unsigned) { 
+				if (data_is_unsigned) { /* GUS ? */
 
 					if (WF_SAMPLE_IS_8BIT(&header->hdr.s)) {
 			
+						/* 8 bit sample
+						 resolution, sign
+						 extend both bytes.
+						*/
 			
 						((unsigned char*)
 						 &sample_short)[0] += 0x7f;
@@ -980,6 +1101,10 @@ wavefront_send_sample (snd_wavefront_t *dev,
 			
 					} else {
 			
+						/* 16 bit sample
+						 resolution, sign
+						 extend the MSB.
+						*/
 			
 						sample_short += 0x7fff;
 					}
@@ -987,6 +1112,12 @@ wavefront_send_sample (snd_wavefront_t *dev,
 
 			} else {
 
+				/* In padding section of final block:
+
+				   Don't fetch unsupplied data from
+				   user space, just continue with
+				   whatever the final value was.
+				*/
 			}
 	    
 			if (i < blocksize - 1) {
@@ -996,6 +1127,9 @@ wavefront_send_sample (snd_wavefront_t *dev,
 			}
 		}
 
+		/* Get "DMA page acknowledge", even though its really
+		   nothing to do with DMA at all.
+		*/
 	
 		if ((dma_ack = wavefront_read (dev)) != WF_DMA_ACK) {
 			if (dma_ack == -1) {
@@ -1013,6 +1147,9 @@ wavefront_send_sample (snd_wavefront_t *dev,
 
 	dev->sample_status[header->number] = (WF_SLOT_FILLED|WF_ST_SAMPLE);
 
+	/* Note, label is here because sending the sample header shouldn't
+	   alter the sample_status info at all.
+	*/
 
  sent:
 	return (0);
@@ -1065,6 +1202,10 @@ wavefront_send_multisample (snd_wavefront_t *dev, wavefront_patch_info *header)
 
 	munge_int32 (header->number, &msample_hdr[0], 2);
 
+	/* You'll recall at this point that the "number of samples" value
+	   in a wavefront_multisample struct is actually the log2 of the
+	   real number of samples.
+	*/
 
 	num_samples = (1<<(header->hdr.ms.NumberOfSamples&7));
 	msample_hdr[2] = (unsigned char) header->hdr.ms.NumberOfSamples;
@@ -1121,7 +1262,7 @@ wavefront_fetch_multisample (snd_wavefront_t *dev,
 
 	header->hdr.ms.NumberOfSamples = log_ns[0];
 
-	
+	/* get the number of samples ... */
 
 	num_samples = (1 << log_ns[0]);
     
@@ -1238,7 +1379,7 @@ wavefront_load_patch (snd_wavefront_t *dev, const char __user *addr)
 				      header->size);
 
 	switch (header->subkey) {
-	case WF_ST_SAMPLE:  
+	case WF_ST_SAMPLE:  /* sample or sample_header, based on patch->size */
 
 		if (copy_from_user (&header->hdr.s, header->hdrptr,
 				    sizeof (wavefront_sample))) {
@@ -1313,6 +1454,9 @@ wavefront_load_patch (snd_wavefront_t *dev, const char __user *addr)
 	return err;
 }
 
+/***********************************************************************
+WaveFront: hardware-dependent interface
+***********************************************************************/
 
 static void
 process_sample_hdr (u8 *buf)
@@ -1323,6 +1467,12 @@ process_sample_hdr (u8 *buf)
 
 	ptr = buf;
 
+	/* The board doesn't send us an exact copy of a "wavefront_sample"
+	   in response to an Upload Sample Header command. Instead, we 
+	   have to convert the data format back into our data structure,
+	   just as in the Download Sample command, where we have to do
+	   something very similar in the reverse direction.
+	*/
 
 	*((u32 *) &s.sampleStartOffset) = demunge_int32 (ptr, 4); ptr += 4;
 	*((u32 *) &s.loopStartOffset) = demunge_int32 (ptr, 4); ptr += 4;
@@ -1335,7 +1485,7 @@ process_sample_hdr (u8 *buf)
 	s.Bidirectional = *ptr & 0x10;
 	s.Reverse = *ptr & 0x40;
 
-	
+	/* Now copy it back to where it came from */
 
 	memcpy (buf, (unsigned char *) &s, sizeof (wavefront_sample));
 }
@@ -1352,7 +1502,7 @@ wavefront_synth_control (snd_wavefront_card_t *acard,
 	DPRINT (WF_DEBUG_CMD, "synth control with "
 		"cmd 0x%x\n", wc->cmd);
 
-	
+	/* Pre-handling of or for various commands */
 
 	switch (wc->cmd) {
 		
@@ -1400,6 +1550,9 @@ wavefront_synth_control (snd_wavefront_card_t *acard,
 		break;
 
 	case WFC_UPLOAD_MULTISAMPLE:
+		/* multisamples have to be handled differently, and
+		   cannot be dealt with properly by snd_wavefront_cmd() alone.
+		*/
 		wc->status = wavefront_fetch_multisample
 			(dev, (wavefront_patch_info *) wc->rbuf);
 		return 0;
@@ -1413,9 +1566,18 @@ wavefront_synth_control (snd_wavefront_card_t *acard,
 
 	wc->status = snd_wavefront_cmd (dev, wc->cmd, wc->rbuf, wc->wbuf);
 
+	/* Post-handling of certain commands.
+
+	   In particular, if the command was an upload, demunge the data
+	   so that the user-level doesn't have to think about it.
+	*/
 
 	if (wc->status == 0) {
 		switch (wc->cmd) {
+			/* intercept any freemem requests so that we know
+			   we are always current with the user-level view
+			   of things.
+			*/
 
 		case WFC_REPORT_FREE_MEMORY:
 			dev->freemem = demunge_int32 (wc->rbuf, 4);
@@ -1525,12 +1687,34 @@ snd_wavefront_synth_ioctl (struct snd_hwdep *hw, struct file *file,
 }
 
 
+/***********************************************************************/
+/*  WaveFront: interface for card-level wavefront module               */
+/***********************************************************************/
 
 void
 snd_wavefront_internal_interrupt (snd_wavefront_card_t *card)
 {
 	snd_wavefront_t *dev = &card->wavefront;
 
+	/*
+	   Some comments on interrupts. I attempted a version of this
+	   driver that used interrupts throughout the code instead of
+	   doing busy and/or sleep-waiting. Alas, it appears that once
+	   the Motorola firmware is downloaded, the card *never*
+	   generates an RX interrupt. These are successfully generated
+	   during firmware loading, and after that wavefront_status()
+	   reports that an interrupt is pending on the card from time
+	   to time, but it never seems to be delivered to this
+	   driver. Note also that wavefront_status() continues to
+	   report that RX interrupts are enabled, suggesting that I
+	   didn't goof up and disable them by mistake.
+
+	   Thus, I stepped back to a prior version of
+	   wavefront_wait(), the only place where this really
+	   matters. Its sad, but I've looked through the code to check
+	   on things, and I really feel certain that the Motorola
+	   firmware prevents RX-ready interrupts.
+	*/
 
 	if ((wavefront_status(dev) & (STAT_INTR_READ|STAT_INTR_WRITE)) == 0) {
 		return;
@@ -1543,6 +1727,17 @@ snd_wavefront_internal_interrupt (snd_wavefront_card_t *card)
 	wake_up(&dev->interrupt_sleeper);
 }
 
+/* STATUS REGISTER 
+
+0 Host Rx Interrupt Enable (1=Enabled)
+1 Host Rx Register Full (1=Full)
+2 Host Rx Interrupt Pending (1=Interrupt)
+3 Unused
+4 Host Tx Interrupt (1=Enabled)
+5 Host Tx Register empty (1=Empty)
+6 Host Tx Interrupt Pending (1=Interrupt)
+7 Unused
+*/
 
 static int __devinit
 snd_wavefront_interrupt_bits (int irq)
@@ -1598,29 +1793,97 @@ wavefront_reset_to_cleanliness (snd_wavefront_t *dev)
 	int bits;
 	int hwv[2];
 
-	
+	/* IRQ already checked */
 
 	bits = snd_wavefront_interrupt_bits (dev->irq);
 
-	
+	/* try reset of port */
 
 	outb (0x0, dev->control_port); 
   
+	/* At this point, the board is in reset, and the H/W initialization
+	   register is accessed at the same address as the data port.
+     
+	   Bit 7 - Enable IRQ Driver	
+	   0 - Tri-state the Wave-Board drivers for the PC Bus IRQs
+	   1 - Enable IRQ selected by bits 5:3 to be driven onto the PC Bus.
+     
+	   Bit 6 - MIDI Interface Select
 
+	   0 - Use the MIDI Input from the 26-pin WaveBlaster
+	   compatible header as the serial MIDI source
+	   1 - Use the MIDI Input from the 9-pin D connector as the
+	   serial MIDI source.
+     
+	   Bits 5:3 - IRQ Selection
+	   0 0 0 - IRQ 2/9
+	   0 0 1 - IRQ 5
+	   0 1 0 - IRQ 12
+	   0 1 1 - IRQ 15
+	   1 0 0 - Reserved
+	   1 0 1 - Reserved
+	   1 1 0 - Reserved
+	   1 1 1 - Reserved
+     
+	   Bits 2:1 - Reserved
+	   Bit 0 - Disable Boot ROM
+	   0 - memory accesses to 03FC30-03FFFFH utilize the internal Boot ROM
+	   1 - memory accesses to 03FC30-03FFFFH are directed to external 
+	   storage.
+     
+	*/
+
+	/* configure hardware: IRQ, enable interrupts, 
+	   plus external 9-pin MIDI interface selected
+	*/
 
 	outb (0x80 | 0x40 | bits, dev->data_port);	
   
+	/* CONTROL REGISTER
+
+	   0 Host Rx Interrupt Enable (1=Enabled)      0x1
+	   1 Unused                                    0x2
+	   2 Unused                                    0x4
+	   3 Unused                                    0x8
+	   4 Host Tx Interrupt Enable                 0x10
+	   5 Mute (0=Mute; 1=Play)                    0x20
+	   6 Master Interrupt Enable (1=Enabled)      0x40
+	   7 Master Reset (0=Reset; 1=Run)            0x80
+
+	   Take us out of reset, mute output, master + TX + RX interrupts on.
+	   
+	   We'll get an interrupt presumably to tell us that the TX
+	   register is clear.
+	*/
 
 	wavefront_should_cause_interrupt(dev, 0x80|0x40|0x10|0x1,
 					 dev->control_port,
 					 (reset_time*HZ)/100);
 
+	/* Note: data port is now the data port, not the h/w initialization
+	   port.
+	 */
 
 	if (!dev->irq_ok) {
 		snd_printk ("intr not received after h/w un-reset.\n");
 		goto gone_bad;
 	} 
 
+	/* Note: data port is now the data port, not the h/w initialization
+	   port.
+
+	   At this point, only "HW VERSION" or "DOWNLOAD OS" commands
+	   will work. So, issue one of them, and wait for TX
+	   interrupt. This can take a *long* time after a cold boot,
+	   while the ISC ROM does its RAM test. The SDK says up to 4
+	   seconds - with 12MB of RAM on a Tropez+, it takes a lot
+	   longer than that (~16secs). Note that the card understands
+	   the difference between a warm and a cold boot, so
+	   subsequent ISC2115 reboots (say, caused by module
+	   reloading) will get through this much faster.
+
+	   XXX Interesting question: why is no RX interrupt received first ?
+	*/
 
 	wavefront_should_cause_interrupt(dev, WFC_HARDWARE_VERSION, 
 					 dev->data_port, ramcheck_time*HZ);
@@ -1640,8 +1903,11 @@ wavefront_reset_to_cleanliness (snd_wavefront_t *dev)
 		goto gone_bad;
 	}
 
-	if (hwv[0] == 0xFF) { 
+	if (hwv[0] == 0xFF) { /* NAK */
 
+		/* Board's RAM test failed. Try to read error code,
+		   and tell us about it either way.
+		*/
 		
 		if ((hwv[0] = wavefront_read (dev)) == -1) {
 			snd_printk ("on-board RAM test failed "
@@ -1654,7 +1920,7 @@ wavefront_reset_to_cleanliness (snd_wavefront_t *dev)
 		goto gone_bad;
 	}
 
-	
+	/* We're OK, just get the next byte of the HW version response */
 
 	if ((hwv[1] = wavefront_read (dev)) == -1) {
 		snd_printk ("incorrect h/w response.\n");
@@ -1706,7 +1972,7 @@ wavefront_download_firmware (snd_wavefront_t *dev, char *path)
 			goto failure;
 		}
 
-		
+		/* Send command */
 		if (wavefront_write(dev, WFC_DOWNLOAD_OS))
 			goto failure;
 	
@@ -1717,7 +1983,7 @@ wavefront_download_firmware (snd_wavefront_t *dev, char *path)
 			len++;
 		}
 	
-		
+		/* get ACK */
 		if (!wavefront_wait(dev, STAT_CAN_READ)) {
 			snd_printk(KERN_ERR "time out for firmware ACK.\n");
 			goto failure;
@@ -1762,6 +2028,13 @@ wavefront_do_reset (snd_wavefront_t *dev)
 
 		dev->israw = 0;
 
+		/* Wait for the OS to get running. The protocol for
+		   this is non-obvious, and was determined by
+		   using port-IO tracing in DOSemu and some
+		   experimentation here.
+		   
+		   Rather than using timed waits, use interrupts creatively.
+		*/
 
 		wavefront_should_cause_interrupt (dev, WFC_NOOP,
 						  dev->data_port,
@@ -1772,7 +2045,7 @@ wavefront_do_reset (snd_wavefront_t *dev)
 			goto gone_bad;
 		}
 		
-		
+		/* Now, do it again ! */
 		
 		wavefront_should_cause_interrupt (dev, WFC_NOOP,
 						  dev->data_port, (10*HZ));
@@ -1782,10 +2055,17 @@ wavefront_do_reset (snd_wavefront_t *dev)
 			goto gone_bad;
 		}
 
+		/* OK, no (RX/TX) interrupts any more, but leave mute
+		   in effect. 
+		*/
 		
 		outb (0x80|0x40, dev->control_port); 
 	}
 
+	/* SETUPSND.EXE asks for sample memory config here, but since i
+	   have no idea how to interpret the result, we'll forget
+	   about it.
+	*/
 	
 	if ((dev->freemem = wavefront_freemem (dev)) < 0) {
 		goto gone_bad;
@@ -1812,7 +2092,7 @@ wavefront_do_reset (snd_wavefront_t *dev)
 	return 0;
 
  gone_bad:
-	
+	/* reset that sucker so that it doesn't bother us. */
 
 	outb (0x0, dev->control_port);
 	dev->interrupts_are_midi = 0;
@@ -1825,11 +2105,14 @@ snd_wavefront_start (snd_wavefront_t *dev)
 {
 	int samples_are_from_rom;
 
+	/* IMPORTANT: assumes that snd_wavefront_detect() and/or
+	   wavefront_reset_to_cleanliness() has already been called 
+	*/
 
 	if (dev->israw) {
 		samples_are_from_rom = 1;
 	} else {
-		
+		/* XXX is this always true ? */
 		samples_are_from_rom = 0;
 	}
 
@@ -1838,7 +2121,7 @@ snd_wavefront_start (snd_wavefront_t *dev)
 			return -1;
 		}
 	}
-	
+	/* Check for FX device, present only on Tropez+ */
 
 	dev->has_fx = (snd_wavefront_fx_detect (dev) == 0);
 
@@ -1850,6 +2133,8 @@ snd_wavefront_start (snd_wavefront_t *dev)
 	wavefront_get_program_status (dev);
 	wavefront_get_patch_status (dev);
 
+	/* Start normal operation: unreset, master interrupt enabled, no mute
+	*/
 
 	outb (0x80|0x40|0x20, dev->control_port); 
 
@@ -1863,6 +2148,9 @@ snd_wavefront_detect (snd_wavefront_card_t *card)
 	unsigned char   rbuf[4], wbuf[4];
 	snd_wavefront_t *dev = &card->wavefront;
 	
+	/* returns zero if a WaveFront card is successfully detected.
+	   negative otherwise.
+	*/
 
 	dev->israw = 0;
 	dev->has_fx = 0;
@@ -1879,7 +2167,7 @@ snd_wavefront_detect (snd_wavefront_card_t *card)
 		snd_printk ("firmware %d.%d already loaded.\n",
 			    rbuf[0], rbuf[1]);
 
-		
+		/* check that a command actually works */
       
 		if (snd_wavefront_cmd (dev, WFC_HARDWARE_VERSION,
 				       rbuf, wbuf) == 0) {

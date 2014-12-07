@@ -21,6 +21,7 @@
 #define HDPVR_MAX 8
 #define HDPVR_I2C_MAX_SIZE 128
 
+/* Define these values to match your devices */
 #define HD_PVR_VENDOR_ID	0x2040
 #define HD_PVR_PRODUCT_ID	0x4900
 #define HD_PVR_PRODUCT_ID1	0x4901
@@ -37,6 +38,7 @@
 #define HDPVR_FIRMWARE_VERSION_0X12	0x12
 #define HDPVR_FIRMWARE_VERSION_0X15	0x15
 
+/* #define HDPVR_DEBUG */
 
 extern int hdpvr_debug;
 
@@ -47,8 +49,8 @@ struct hdpvr_options {
 	u8	video_std;
 	u8	video_input;
 	u8	audio_input;
-	u8	bitrate;	
-	u8	peak_bitrate;	
+	u8	bitrate;	/* in 100kbps */
+	u8	peak_bitrate;	/* in 100kbps */
 	u8	bitrate_mode;
 	u8	gop_mode;
 	enum v4l2_mpeg_audio_encoding	audio_codec;
@@ -59,55 +61,56 @@ struct hdpvr_options {
 	u8	sharpness;
 };
 
+/* Structure to hold all of our device specific stuff */
 struct hdpvr_device {
-	
+	/* the v4l device for this device */
 	struct video_device	*video_dev;
-	
+	/* the usb device for this device */
 	struct usb_device	*udev;
-	
+	/* v4l2-device unused */
 	struct v4l2_device	v4l2_dev;
 
-	
+	/* the max packet size of the bulk endpoint */
 	size_t			bulk_in_size;
-	
+	/* the address of the bulk in endpoint */
 	__u8			bulk_in_endpointAddr;
 
-	
+	/* holds the current device status */
 	__u8			status;
-	
+	/* count the number of openers */
 	uint			open_count;
 
-	
+	/* holds the cureent set options */
 	struct hdpvr_options	options;
 
 	uint			flags;
 
-	
+	/* synchronize I/O */
 	struct mutex		io_mutex;
-	
+	/* available buffers */
 	struct list_head	free_buff_list;
-	
+	/* in progress buffers */
 	struct list_head	rec_buff_list;
-	
+	/* waitqueue for buffers */
 	wait_queue_head_t	wait_buffer;
-	
+	/* waitqueue for data */
 	wait_queue_head_t	wait_data;
-	
+	/**/
 	struct workqueue_struct	*workqueue;
-	
+	/**/
 	struct work_struct	worker;
 
-	
+	/* I2C adapter */
 	struct i2c_adapter	i2c_adapter;
-	
+	/* I2C lock */
 	struct mutex		i2c_mutex;
-	
+	/* I2C message buffer space */
 	char			i2c_buf[HDPVR_I2C_MAX_SIZE];
 
-	
+	/* For passing data to ir-kbd-i2c */
 	struct IR_i2c_init_data	ir_i2c_init_data;
 
-	
+	/* usb control transfer buffer and lock */
 	struct mutex		usbc_mutex;
 	u8			*usbc_buf;
 	u8			fw_ver;
@@ -119,6 +122,7 @@ static inline struct hdpvr_device *to_hdpvr_dev(struct v4l2_device *v4l2_dev)
 }
 
 
+/* buffer one bulk urb of data */
 struct hdpvr_buffer {
 	struct list_head	buff_list;
 
@@ -131,6 +135,7 @@ struct hdpvr_buffer {
 	__u8			status;
 };
 
+/* */
 
 struct hdpvr_video_info {
 	u16	width;
@@ -177,20 +182,67 @@ enum {
 #define CTRL_DEFAULT_INDEX		0x0003
 
 
+	/* :0 s 38 01 1000 0003 0004 4 = 0a00ca00
+	 * BITRATE SETTING
+	 *   1st and 2nd byte (little endian): average bitrate in 100 000 bit/s
+	 *                                     min: 1 mbit/s, max: 13.5 mbit/s
+	 *   3rd and 4th byte (little endian): peak bitrate in 100 000 bit/s
+	 *                                     min: average + 100kbit/s,
+	 *                                      max: 20.2 mbit/s
+	 */
+
+	/* :0 s 38 01 1200 0003 0001 1 = 02
+	 * BIT RATE MODE
+	 *  constant = 1, variable (peak) = 2, variable (average) = 3
+	 */
+
+	/* :0 s 38 01 1300 0003 0001 1 = 03
+	 * GOP MODE (2 bit)
+	 *    low bit 0/1: advanced/simple GOP
+	 *   high bit 0/1: IDR(4/32/128) / no IDR (4/32/0)
+	 */
+
+	/* :0 s 38 01 1700 0003 0001 1 = 00
+	 * VIDEO STANDARD or FREQUNCY 0 = 60hz, 1 = 50hz
+	 */
+
+	/* :0 s 38 01 3100 0003 0004 4 = 03030000
+	 * FILTER CONTROL
+	 *   1st byte luma low pass filter strength,
+	 *   2nd byte chroma low pass filter strength,
+	 *   3rd byte MF enable chroma, min=0, max=1
+	 *   4th byte n
+	 */
+
+
+	/* :0 s 38 b9 0001 0000 0000 0 */
 
 
 
+/* :0 s 38 d3 0000 0000 0001 1 = 00 */
+/* 		ret = usb_control_msg(dev->udev, */
+/* 				      usb_sndctrlpipe(dev->udev, 0), */
+/* 				      0xd3, 0x38, */
+/* 				      0, 0, */
+/* 				      "\0", 1, */
+/* 				      1000); */
+
+/* 		info("control request returned %d", ret); */
+/* 		msleep(5000); */
 
 
+	/* :0 s b8 81 1400 0003 0005 5 <
+	 * :0 0 5 = d0024002 19
+	 * QUERY FRAME SIZE AND RATE
+	 *   1st and 2nd byte (little endian): horizontal resolution
+	 *   3rd and 4th byte (little endian): vertical resolution
+	 *   5th byte: frame rate
+	 */
 
-	
-
-
-
-
-
-
-
+	/* :0 s b8 81 1800 0003 0003 3 <
+	 * :0 0 3 = 030104
+	 * QUERY SIGNAL AND DETECTED LINES, maybe INPUT
+	 */
 
 enum hdpvr_video_std {
 	HDPVR_60HZ = 0,
@@ -226,6 +278,8 @@ enum hdpvr_gop_mode {
 
 void hdpvr_delete(struct hdpvr_device *dev);
 
+/*========================================================================*/
+/* hardware control functions */
 int hdpvr_set_options(struct hdpvr_device *dev);
 
 int hdpvr_set_bitrate(struct hdpvr_device *dev);
@@ -238,18 +292,26 @@ int hdpvr_config_call(struct hdpvr_device *dev, uint value,
 
 struct hdpvr_video_info *get_video_info(struct hdpvr_device *dev);
 
+/* :0 s b8 81 1800 0003 0003 3 < */
+/* :0 0 3 = 0301ff */
 int get_input_lines_info(struct hdpvr_device *dev);
 
 
+/*========================================================================*/
+/* v4l2 registration */
 int hdpvr_register_videodev(struct hdpvr_device *dev, struct device *parent,
 			    int devnumber);
 
 int hdpvr_cancel_queue(struct hdpvr_device *dev);
 
+/*========================================================================*/
+/* i2c adapter registration */
 int hdpvr_register_i2c_adapter(struct hdpvr_device *dev);
 
 struct i2c_client *hdpvr_register_ir_rx_i2c(struct hdpvr_device *dev);
 struct i2c_client *hdpvr_register_ir_tx_i2c(struct hdpvr_device *dev);
 
+/*========================================================================*/
+/* buffer management */
 int hdpvr_free_buffers(struct hdpvr_device *dev);
 int hdpvr_alloc_buffers(struct hdpvr_device *dev, uint count);

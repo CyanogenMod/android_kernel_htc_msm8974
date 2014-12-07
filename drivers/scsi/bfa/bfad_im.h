@@ -45,6 +45,9 @@ void bfad_im_scsi_host_free(struct bfad_s *bfad,
 #define ScsiResult(host_code, scsi_code) (((host_code) << 16) | scsi_code)
 #define BFA_QUEUE_FULL_RAMP_UP_TIME 120
 
+/*
+ * itnim flags
+ */
 #define IO_DONE_BIT			0
 
 struct bfad_itnim_data_s {
@@ -73,6 +76,9 @@ enum bfad_itnim_state {
 	ITNIM_STATE_FREE,
 };
 
+/*
+ * Per itnim data structure
+ */
 struct bfad_itnim_s {
 	struct list_head list_entry;
 	struct bfa_fcs_itnim_s fcs_itnim;
@@ -122,6 +128,7 @@ struct bfad_im_s {
 	spin_unlock_irqrestore(&(_drv)->bfad_aen_spinlock, _flags);	\
 } while (0)
 
+/* post fc_host vendor event */
 #define bfad_im_post_vendor_event(_entry, _drv, _cnt, _cat, _evt) do {	      \
 	do_gettimeofday(&(_entry)->aen_tv);				      \
 	(_entry)->bfad_num = (_drv)->inst_no;				      \
@@ -160,6 +167,13 @@ irqreturn_t bfad_intx(int irq, void *dev_id);
 int bfad_im_bsg_request(struct fc_bsg_job *job);
 int bfad_im_bsg_timeout(struct fc_bsg_job *job);
 
+/*
+ * Macro to set the SCSI device sdev_bflags - sdev_bflags are used by the
+ * SCSI mid-layer to choose LUN Scanning mode REPORT_LUNS vs. Sequential Scan
+ *
+ * Internally iterate's over all the ITNIM's part of the im_port & set's the
+ * sdev_bflags for the scsi_device associated with LUN #0.
+ */
 #define bfad_reset_sdev_bflags(__im_port, __lunmask_cfg) do {		\
 	struct scsi_device *__sdev = NULL;				\
 	struct bfad_itnim_s *__itnim = NULL;				\

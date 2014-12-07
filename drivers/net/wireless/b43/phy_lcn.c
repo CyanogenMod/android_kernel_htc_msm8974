@@ -54,30 +54,32 @@ enum lcn_sense_type {
 	B43_SENSE_VBAT,
 };
 
+/* In theory it's PHY common function, move if needed */
+/* brcms_b_switch_macfreq */
 static void b43_phy_switch_macfreq(struct b43_wldev *dev, u8 spurmode)
 {
 	if (dev->dev->chip_id == 43224 || dev->dev->chip_id == 43225) {
 		switch (spurmode) {
-		case 2:		
+		case 2:		/* 126 Mhz */
 			b43_write16(dev, B43_MMIO_TSF_CLK_FRAC_LOW, 0x2082);
 			b43_write16(dev, B43_MMIO_TSF_CLK_FRAC_HIGH, 0x8);
 			break;
-		case 1:		
+		case 1:		/* 123 Mhz */
 			b43_write16(dev, B43_MMIO_TSF_CLK_FRAC_LOW, 0x5341);
 			b43_write16(dev, B43_MMIO_TSF_CLK_FRAC_HIGH, 0x8);
 			break;
-		default:	
+		default:	/* 120 Mhz */
 			b43_write16(dev, B43_MMIO_TSF_CLK_FRAC_LOW, 0x8889);
 			b43_write16(dev, B43_MMIO_TSF_CLK_FRAC_HIGH, 0x8);
 			break;
 		}
 	} else if (dev->phy.type == B43_PHYTYPE_LCN) {
 		switch (spurmode) {
-		case 1:		
+		case 1:		/* 82 Mhz */
 			b43_write16(dev, B43_MMIO_TSF_CLK_FRAC_LOW, 0x7CE0);
 			b43_write16(dev, B43_MMIO_TSF_CLK_FRAC_HIGH, 0xC);
 			break;
-		default:	
+		default:	/* 80 Mhz */
 			b43_write16(dev, B43_MMIO_TSF_CLK_FRAC_LOW, 0xCCCD);
 			b43_write16(dev, B43_MMIO_TSF_CLK_FRAC_HIGH, 0xC);
 			break;
@@ -85,7 +87,11 @@ static void b43_phy_switch_macfreq(struct b43_wldev *dev, u8 spurmode)
 	}
 }
 
+/**************************************************
+ * Radio 2064.
+ **************************************************/
 
+/* wlc_lcnphy_radio_2064_channel_tune_4313 */
 static void b43_radio_2064_channel_setup(struct b43_wldev *dev)
 {
 	u16 save[2];
@@ -93,7 +99,7 @@ static void b43_radio_2064_channel_setup(struct b43_wldev *dev)
 	b43_radio_set(dev, 0x09d, 0x4);
 	b43_radio_write(dev, 0x09e, 0xf);
 
-	
+	/* Channel specific values in theory, in practice always the same */
 	b43_radio_write(dev, 0x02a, 0xb);
 	b43_radio_maskset(dev, 0x030, ~0x3, 0xa);
 	b43_radio_maskset(dev, 0x091, ~0x3, 0);
@@ -109,7 +115,7 @@ static void b43_radio_2064_channel_setup(struct b43_wldev *dev)
 	b43_radio_set(dev, 0x044, 0x7);
 	b43_radio_set(dev, 0x12b, 0xe);
 
-	
+	/* TODO */
 
 	b43_radio_write(dev, 0x040, 0xfb);
 
@@ -117,7 +123,7 @@ static void b43_radio_2064_channel_setup(struct b43_wldev *dev)
 	b43_radio_write(dev, 0x042, 0xa3);
 	b43_radio_write(dev, 0x043, 0x0c);
 
-	
+	/* TODO */
 
 	b43_radio_set(dev, 0x044, 0x0c);
 	udelay(1);
@@ -126,19 +132,20 @@ static void b43_radio_2064_channel_setup(struct b43_wldev *dev)
 	b43_radio_write(dev, 0x12b, save[1]);
 
 	if (dev->phy.rev == 1) {
-		
+		/* brcmsmac uses outdated 0x3 for 0x038 */
 		b43_radio_write(dev, 0x038, 0x0);
 		b43_radio_write(dev, 0x091, 0x7);
 	}
 }
 
+/* wlc_radio_2064_init */
 static void b43_radio_2064_init(struct b43_wldev *dev)
 {
 	if (b43_current_band(dev->wl) == IEEE80211_BAND_2GHZ) {
 		b43_radio_write(dev, 0x09c, 0x0020);
 		b43_radio_write(dev, 0x105, 0x0008);
 	} else {
-		
+		/* TODO */
 	}
 	b43_radio_write(dev, 0x032, 0x0062);
 	b43_radio_write(dev, 0x033, 0x0019);
@@ -167,7 +174,7 @@ static void b43_radio_2064_init(struct b43_wldev *dev)
 	b43_radio_set(dev, 0x057, 0x1);
 	b43_radio_set(dev, 0x05b, 0x2);
 
-	
+	/* TODO: wait for some bit to be set */
 	b43_radio_read(dev, 0x05c);
 
 	b43_radio_mask(dev, 0x05b, (u16) ~0xff02);
@@ -183,7 +190,11 @@ static void b43_radio_2064_init(struct b43_wldev *dev)
 	b43_radio_write(dev, 0x0c2, 0x006f);
 }
 
+/**************************************************
+ * Various PHY ops
+ **************************************************/
 
+/* wlc_lcnphy_toggle_afe_pwdn */
 static void b43_phy_lcn_afe_set_unset(struct b43_wldev *dev)
 {
 	u16 afe_ctl2 = b43_phy_read(dev, B43_PHY_LCN_AFE_CTL2);
@@ -199,11 +210,13 @@ static void b43_phy_lcn_afe_set_unset(struct b43_wldev *dev)
 	b43_phy_write(dev, B43_PHY_LCN_AFE_CTL1, afe_ctl1);
 }
 
+/* wlc_lcnphy_get_pa_gain */
 static u16 b43_phy_lcn_get_pa_gain(struct b43_wldev *dev)
 {
 	return (b43_phy_read(dev, 0x4fb) & 0x7f00) >> 8;
 }
 
+/* wlc_lcnphy_set_dac_gain */
 static void b43_phy_lcn_set_dac_gain(struct b43_wldev *dev, u16 dac_gain)
 {
 	u16 dac_ctrl;
@@ -214,16 +227,18 @@ static void b43_phy_lcn_set_dac_gain(struct b43_wldev *dev, u16 dac_gain)
 	b43_phy_maskset(dev, 0x439, ~0xfff, dac_ctrl);
 }
 
+/* wlc_lcnphy_set_bbmult */
 static void b43_phy_lcn_set_bbmult(struct b43_wldev *dev, u8 m0)
 {
 	b43_lcntab_write(dev, B43_LCNTAB16(0x00, 0x57), m0 << 8);
 }
 
+/* wlc_lcnphy_clear_tx_power_offsets */
 static void b43_phy_lcn_clear_tx_power_offsets(struct b43_wldev *dev)
 {
 	u8 i;
 
-	if (1) { 
+	if (1) { /* FIXME */
 		b43_phy_write(dev, B43_PHY_LCN_TABLE_ADDR, (0x7 << 10) | 0x340);
 		for (i = 0; i < 30; i++) {
 			b43_phy_write(dev, B43_PHY_LCN_TABLE_DATAHI, 0);
@@ -238,6 +253,7 @@ static void b43_phy_lcn_clear_tx_power_offsets(struct b43_wldev *dev)
 	}
 }
 
+/* wlc_lcnphy_rev0_baseband_init */
 static void b43_phy_lcn_rev0_baseband_init(struct b43_wldev *dev)
 {
 	b43_radio_write(dev, 0x11c, 0);
@@ -258,7 +274,7 @@ static void b43_phy_lcn_rev0_baseband_init(struct b43_wldev *dev)
 	b43_phy_write(dev, 0x44a, 0x80);
 
 	if (!(dev->dev->bus_sprom->boardflags_lo & B43_BFL_FEM))
-		; 
+		; /* TODO */
 	b43_phy_maskset(dev, 0x634, ~0xff, 0xc);
 	if (dev->dev->bus_sprom->boardflags_lo & B43_BFL_FEM) {
 		b43_phy_maskset(dev, 0x634, ~0xff, 0xa);
@@ -272,6 +288,7 @@ static void b43_phy_lcn_rev0_baseband_init(struct b43_wldev *dev)
 	b43_phy_maskset(dev, 0x604, ~0x7ff, 0x3ea);
 }
 
+/* wlc_lcnphy_bu_tweaks */
 static void b43_phy_lcn_bu_tweaks(struct b43_wldev *dev)
 {
 	b43_phy_set(dev, 0x805, 0x1);
@@ -301,9 +318,9 @@ static void b43_phy_lcn_bu_tweaks(struct b43_wldev *dev)
 	if (dev->phy.rev == 1) {
 		b43_phy_maskset(dev, 0x423, ~0xff, 0x46);
 		b43_phy_maskset(dev, 0x411, ~0xff, 1);
-		b43_phy_set(dev, 0x434, 0xff); 
+		b43_phy_set(dev, 0x434, 0xff); /* FIXME: update to wl */
 
-		
+		/* TODO: wl operates on PHY 0x416, brcmsmac is outdated here */
 
 		b43_phy_maskset(dev, 0x656, ~0xf, 2);
 		b43_phy_set(dev, 0x44d, 4);
@@ -318,10 +335,11 @@ static void b43_phy_lcn_bu_tweaks(struct b43_wldev *dev)
 
 		b43_phy_lcn_clear_tx_power_offsets(dev);
 
-		
+		/* TODO: something more? */
 	}
 }
 
+/* wlc_lcnphy_vbat_temp_sense_setup */
 static void b43_phy_lcn_sense_setup(struct b43_wldev *dev,
 				    enum lcn_sense_type sense_type)
 {
@@ -344,7 +362,7 @@ static void b43_phy_lcn_sense_setup(struct b43_wldev *dev,
 
 	msleep(1);
 
-	
+	/* Save */
 	for (i = 0; i < 6; i++)
 		save_radio_regs[i][1] = b43_radio_read(dev,
 						       save_radio_regs[i][0]);
@@ -352,11 +370,11 @@ static void b43_phy_lcn_sense_setup(struct b43_wldev *dev,
 		save_phy_regs[i][1] = b43_phy_read(dev, save_phy_regs[i][0]);
 	b43_mac_suspend(dev);
 	save_radio_4a4 = b43_radio_read(dev, 0x4a4);
-	
+	/* wlc_lcnphy_set_tx_pwr_ctrl(pi, LCNPHY_TX_PWR_CTRL_OFF); */
 	tx_pwr_idx = dev->phy.lcn->tx_pwr_curr_idx;
 
-	
-	
+	/* Setup */
+	/* TODO: wlc_lcnphy_set_tx_pwr_by_index(pi, 127); */
 	b43_radio_set(dev, 0x007, 0x1);
 	b43_radio_set(dev, 0x0ff, 0x10);
 	b43_radio_set(dev, 0x11f, 0x4);
@@ -386,7 +404,7 @@ static void b43_phy_lcn_sense_setup(struct b43_wldev *dev,
 	b43_phy_set(dev, 0x939, 0x4);
 	b43_phy_set(dev, 0x4a4, 0x1000);
 
-	
+	/* FIXME: don't hardcode */
 	b43_lcntab_write(dev, B43_LCNTAB16(0x8, 0x6), 0x640);
 
 	switch (sense_type) {
@@ -416,17 +434,17 @@ static void b43_phy_lcn_sense_setup(struct b43_wldev *dev,
 	b43_radio_write(dev, 0x112, 0x6);
 
 	b43_dummy_transmission(dev, true, false);
-	
+	/* Wait if not done */
 	if (!(b43_phy_read(dev, 0x476) & 0x8000))
 		udelay(10);
 
-	
+	/* Restore */
 	for (i = 0; i < 6; i++)
 		b43_radio_write(dev, save_radio_regs[i][0],
 				save_radio_regs[i][1]);
 	for (i = 0; i < 14; i++)
 		b43_phy_write(dev, save_phy_regs[i][0], save_phy_regs[i][1]);
-	
+	/* TODO: wlc_lcnphy_set_tx_pwr_by_index(tx_pwr_idx) */
 	b43_radio_write(dev, 0x4a4, save_radio_4a4);
 
 	b43_mac_enable(dev);
@@ -441,6 +459,8 @@ static bool b43_phy_lcn_load_tx_iir_cck_filter(struct b43_wldev *dev,
 	u16 phy_regs[] = { 0x910, 0x91e, 0x91f, 0x924, 0x925, 0x926, 0x920,
 			   0x921, 0x927, 0x928, 0x929, 0x922, 0x923, 0x930,
 			   0x931, 0x932 };
+	/* Table is from brcmsmac, values for type 25 were outdated, probably
+	 * others need updating too */
 	struct lcn_tx_iir_filter tx_iir_filters_cck[] = {
 		{ 0,  { 1, 415, 1874, 64, 128, 64, 792, 1656, 64, 128, 64, 778,
 			1582, 64, 128, 64 } },
@@ -462,6 +482,8 @@ static bool b43_phy_lcn_load_tx_iir_cck_filter(struct b43_wldev *dev,
 			1760, 256, 1881, 256 } },
 		{ 25, { 1, 299, 1884, 51, 64, 51, 736, 1720, 256, 471, 256, 765,
 			1760, 262, 1878, 262 } },
+		/* brcmsmac version { 25, { 1, 299, 1884, 51, 64, 51, 736, 1720,
+		 * 256, 471, 256, 765, 1760, 256, 1881, 256 } }, */
 		{ 26, { 1, 277, 1943, 39, 117, 88, 637, 1838, 64, 192, 144, 614,
 			1864, 128, 384, 288 } },
 		{ 27, { 1, 245, 1943, 49, 147, 110, 626, 1838, 256, 768, 576,
@@ -510,6 +532,7 @@ static bool b43_phy_lcn_load_tx_iir_ofdm_filter(struct b43_wldev *dev,
 	return false;
 }
 
+/* wlc_lcnphy_set_tx_gain_override */
 static void b43_phy_lcn_set_tx_gain_override(struct b43_wldev *dev, bool enable)
 {
 	b43_phy_maskset(dev, 0x4b0, ~(0x1 << 7), enable << 7);
@@ -517,6 +540,7 @@ static void b43_phy_lcn_set_tx_gain_override(struct b43_wldev *dev, bool enable)
 	b43_phy_maskset(dev, 0x43b, ~(0x1 << 6), enable << 6);
 }
 
+/* wlc_lcnphy_set_tx_gain */
 static void b43_phy_lcn_set_tx_gain(struct b43_wldev *dev,
 				    struct lcn_tx_gains *target_gains)
 {
@@ -535,6 +559,7 @@ static void b43_phy_lcn_set_tx_gain(struct b43_wldev *dev,
 	b43_phy_lcn_set_tx_gain_override(dev, true);
 }
 
+/* wlc_lcnphy_tx_pwr_ctrl_init */
 static void b43_phy_lcn_tx_pwr_ctl_init(struct b43_wldev *dev)
 {
 	struct lcn_tx_gains tx_gains;
@@ -566,6 +591,7 @@ static void b43_phy_lcn_tx_pwr_ctl_init(struct b43_wldev *dev)
 	b43_mac_enable(dev);
 }
 
+/* wlc_lcnphy_txrx_spur_avoidance_mode */
 static void b43_phy_lcn_txrx_spur_avoidance_mode(struct b43_wldev *dev,
 						 bool enable)
 {
@@ -586,7 +612,11 @@ static void b43_phy_lcn_txrx_spur_avoidance_mode(struct b43_wldev *dev,
 	b43_phy_switch_macfreq(dev, enable);
 }
 
+/**************************************************
+ * Channel switching ops.
+ **************************************************/
 
+/* wlc_lcnphy_set_chanspec_tweaks */
 static void b43_phy_lcn_set_channel_tweaks(struct b43_wldev *dev, int channel)
 {
 	struct bcma_drv_cc *cc = &dev->dev->bdev->bus->drv_cc;
@@ -624,6 +654,7 @@ static void b43_phy_lcn_set_channel_tweaks(struct b43_wldev *dev, int channel)
 	b43_phy_write(dev, 0x44a, 0x80);
 }
 
+/* wlc_phy_chanspec_set_lcnphy */
 static int b43_phy_lcn_set_channel(struct b43_wldev *dev,
 				   struct ieee80211_channel *channel,
 				   enum nl80211_channel_type channel_type)
@@ -652,10 +683,10 @@ static int b43_phy_lcn_set_channel(struct b43_wldev *dev,
 		b43_phy_lcn_load_tx_iir_cck_filter(dev, 3);
 	} else {
 		b43_phy_maskset(dev, 0x448, ~(0x3 << 8), (1) << 8);
-		
+		/* brcmsmac uses filter_type 2, we follow wl with 25 */
 		b43_phy_lcn_load_tx_iir_cck_filter(dev, 25);
 	}
-	
+	/* brcmsmac uses filter_type 2, we follow wl with 0 */
 	b43_phy_lcn_load_tx_iir_ofdm_filter(dev, 0);
 
 	b43_phy_maskset(dev, 0x4eb, ~(0x7 << 3), 0x1 << 3);
@@ -663,6 +694,9 @@ static int b43_phy_lcn_set_channel(struct b43_wldev *dev,
 	return 0;
 }
 
+/**************************************************
+ * Basic PHY ops.
+ **************************************************/
 
 static int b43_phy_lcn_op_allocate(struct b43_wldev *dev)
 {
@@ -693,6 +727,7 @@ static void b43_phy_lcn_op_prepare_structs(struct b43_wldev *dev)
 	memset(phy_lcn, 0, sizeof(*phy_lcn));
 }
 
+/* wlc_phy_init_lcnphy */
 static int b43_phy_lcn_op_init(struct b43_wldev *dev)
 {
 	struct bcma_drv_cc *cc = &dev->dev->bdev->bus->drv_cc;
@@ -726,13 +761,13 @@ static int b43_phy_lcn_op_init(struct b43_wldev *dev)
 	bcma_chipco_regctl_maskset(cc, 0, 0xf, 0x9);
 	bcma_chipco_chipctl_maskset(cc, 0, 0, 0x03cddddd);
 
-	
+	/* TODO */
 
 	b43_phy_set(dev, 0x448, 0x4000);
 	udelay(100);
 	b43_phy_mask(dev, 0x448, ~0x4000);
 
-	
+	/* TODO */
 
 	return 0;
 }
@@ -803,6 +838,9 @@ static void b43_phy_lcn_op_adjust_txpower(struct b43_wldev *dev)
 {
 }
 
+/**************************************************
+ * R/W ops.
+ **************************************************/
 
 static u16 b43_phy_lcn_op_read(struct b43_wldev *dev, u16 reg)
 {
@@ -826,7 +864,7 @@ static void b43_phy_lcn_op_maskset(struct b43_wldev *dev, u16 reg, u16 mask,
 
 static u16 b43_phy_lcn_op_radio_read(struct b43_wldev *dev, u16 reg)
 {
-	
+	/* LCN-PHY needs 0x200 for read access */
 	reg |= 0x200;
 
 	b43_write16(dev, B43_MMIO_RADIO24_CONTROL, reg);
@@ -840,6 +878,9 @@ static void b43_phy_lcn_op_radio_write(struct b43_wldev *dev, u16 reg,
 	b43_write16(dev, B43_MMIO_RADIO24_DATA, value);
 }
 
+/**************************************************
+ * PHY ops struct.
+ **************************************************/
 
 const struct b43_phy_operations b43_phyops_lcn = {
 	.allocate		= b43_phy_lcn_op_allocate,

@@ -40,6 +40,9 @@
 #include <net/ip.h>
 #include <net/arp.h>
 
+/*
+ *	Callsign/UID mapper. This is in kernel space for security on multi-amateur machines.
+ */
 
 static HLIST_HEAD(ax25_uid_list);
 static DEFINE_RWLOCK(ax25_uid_lock);
@@ -136,7 +139,7 @@ int ax25_uid_ioctl(int cmd, struct sockaddr_ax25 *sax)
 		return -EINVAL;
 	}
 
-	return -EINVAL;	
+	return -EINVAL;	/*NOTREACHED */
 }
 
 #ifdef CONFIG_PROC_FS
@@ -196,6 +199,9 @@ const struct file_operations ax25_uid_fops = {
 
 #endif
 
+/*
+ *	Free all memory associated with UID/Callsign structures.
+ */
 void __exit ax25_uid_free(void)
 {
 	ax25_uid_assoc *ax25_uid;

@@ -31,8 +31,10 @@
 
 MODULE_LICENSE("GPL");
 
+/* Addresses to scan */
 static const unsigned short normal_i2c[] = { 0x2c, 0x2d, 0x2e, I2C_CLIENT_END };
 
+/* Insmod parameters */
 enum chips { thmc50, adm1022 };
 
 static unsigned short adm1022_temp3[16];
@@ -41,11 +43,17 @@ module_param_array(adm1022_temp3, ushort, &adm1022_temp3_num, 0);
 MODULE_PARM_DESC(adm1022_temp3, "List of adapter,address pairs "
 			"to enable 3rd temperature (ADM1022 only)");
 
+/* Many THMC50 constants specified below */
 
+/* The THMC50 registers */
 #define THMC50_REG_CONF				0x40
 #define THMC50_REG_COMPANY_ID			0x3E
 #define THMC50_REG_DIE_CODE			0x3F
 #define THMC50_REG_ANALOG_OUT			0x19
+/*
+ * The mirror status register cannot be used as
+ * reading it does not clear alarms.
+ */
 #define THMC50_REG_INTR				0x41
 
 static const u8 THMC50_REG_TEMP[] = { 0x27, 0x26, 0x20 };
@@ -57,16 +65,17 @@ static const u8 THMC50_REG_TEMP_DEFAULT[] = { 0x17, 0x18, 0x18 };
 #define THMC50_REG_CONF_nFANOFF			0x20
 #define THMC50_REG_CONF_PROGRAMMED		0x08
 
+/* Each client has this additional data */
 struct thmc50_data {
 	struct device *hwmon_dev;
 
 	struct mutex update_lock;
 	enum chips type;
-	unsigned long last_updated;	
-	char has_temp3;		
-	char valid;		
+	unsigned long last_updated;	/* In jiffies */
+	char has_temp3;		/* !=0 if it is ADM1022 in temp3 mode */
+	char valid;		/* !=0 if following fields are valid */
 
-	
+	/* Register values */
 	s8 temp_input[3];
 	s8 temp_max[3];
 	s8 temp_min[3];
@@ -139,12 +148,14 @@ static ssize_t set_analog_out(struct device *dev,
 	return count;
 }
 
+/* There is only one PWM mode = DC */
 static ssize_t show_pwm_mode(struct device *dev, struct device_attribute *attr,
 			     char *buf)
 {
 	return sprintf(buf, "0\n");
 }
 
+/* Temperatures */
 static ssize_t show_temp(struct device *dev, struct device_attribute *attr,
 			 char *buf)
 {
@@ -274,6 +285,7 @@ static const struct attribute_group thmc50_group = {
 	.attrs = thmc50_attributes,
 };
 
+/* for ADM1022 3rd temperature mode */
 static struct attribute *temp3_attributes[] = {
 	&sensor_dev_attr_temp3_max.dev_attr.attr,
 	&sensor_dev_attr_temp3_min.dev_attr.attr,
@@ -288,6 +300,7 @@ static const struct attribute_group temp3_group = {
 	.attrs = temp3_attributes,
 };
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int thmc50_detect(struct i2c_client *client,
 			 struct i2c_board_info *info)
 {
@@ -320,7 +333,7 @@ static int thmc50_detect(struct i2c_client *client,
 		for (i = 0; i + 1 < adm1022_temp3_num; i += 2)
 			if (adm1022_temp3[i] == id &&
 			    adm1022_temp3[i + 1] == client->addr) {
-				
+				/* enable 2nd remote temp */
 				config |= (1 << 7);
 				i2c_smbus_write_byte_data(client,
 							  THMC50_REG_CONF,
@@ -361,19 +374,19 @@ static int thmc50_probe(struct i2c_client *client,
 
 	thmc50_init_client(client);
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&client->dev.kobj, &thmc50_group);
 	if (err)
 		goto exit_free;
 
-	
+	/* Register ADM1022 sysfs hooks */
 	if (data->has_temp3) {
 		err = sysfs_create_group(&client->dev.kobj, &temp3_group);
 		if (err)
 			goto exit_remove_sysfs_thmc50;
 	}
 
-	
+	/* Register a new directory entry with module sensors */
 	data->hwmon_dev = hwmon_device_register(&client->dev);
 	if (IS_ERR(data->hwmon_dev)) {
 		err = PTR_ERR(data->hwmon_dev);
@@ -414,14 +427,14 @@ static void thmc50_init_client(struct i2c_client *client)
 
 	data->analog_out = i2c_smbus_read_byte_data(client,
 						    THMC50_REG_ANALOG_OUT);
-	
+	/* set up to at least 1 */
 	if (data->analog_out == 0) {
 		data->analog_out = 1;
 		i2c_smbus_write_byte_data(client, THMC50_REG_ANALOG_OUT,
 					  data->analog_out);
 	}
 	config = i2c_smbus_read_byte_data(client, THMC50_REG_CONF);
-	config |= 0x1;	
+	config |= 0x1;	/* start the chip if it is in standby mode */
 	if (data->type == adm1022 && (config & (1 << 7)))
 		data->has_temp3 = 1;
 	i2c_smbus_write_byte_data(client, THMC50_REG_CONF, config);

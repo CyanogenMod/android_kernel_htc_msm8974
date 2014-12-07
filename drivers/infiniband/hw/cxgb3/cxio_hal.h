@@ -56,7 +56,7 @@
 #define T3_MAX_CQ_DEPTH 65536
 #define T3_MAX_NUM_STAG (1<<15)
 #define T3_MAX_MR_SIZE 0x100000000ULL
-#define T3_PAGESIZE_MASK 0xffff000  
+#define T3_PAGESIZE_MASK 0xffff000  /* 4KB-128MB */
 
 #define T3_STAG_UNSET 0xffffffff
 
@@ -67,10 +67,10 @@
 struct cxio_hal_ctrl_qp {
 	u32 wptr;
 	u32 rptr;
-	struct mutex lock;	
-	wait_queue_head_t waitq;
-	union t3_wr *workq;	
-	dma_addr_t dma_addr;	
+	struct mutex lock;	/* for the wtpr, can sleep */
+	wait_queue_head_t waitq;/* wait for RspQ/CQE msg */
+	union t3_wr *workq;	/* the work request queue */
+	dma_addr_t dma_addr;	/* pci bus address of the workq */
 	DEFINE_DMA_UNMAP_ADDR(mapping);
 	void __iomem *doorbell;
 };
@@ -140,10 +140,10 @@ typedef void (*cxio_hal_ev_callback_func_t) (struct cxio_rdev * rdev_p,
 #define RSPQ_CREDIT_THRESH(rsp) ((be32_to_cpu(rsp->flags) >> 22) & 1)
 
 struct respQ_msg_t {
-	__be32 flags;		
+	__be32 flags;		/* flit 0 */
 	__be32 cq_ptrid;
-	__be64 rsvd;		
-	struct t3_cqe cqe;	
+	__be64 rsvd;		/* flit 1 */
+	struct t3_cqe cqe;	/* flits 2-3 */
 };
 
 enum t3_cq_opcode {

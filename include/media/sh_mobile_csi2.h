@@ -30,9 +30,9 @@ struct platform_device;
 
 struct sh_csi2_client_config {
 	enum sh_csi2_phy phy;
-	unsigned char lanes;		
-	unsigned char channel;		
-	struct platform_device *pdev;	
+	unsigned char lanes;		/* bitmask[3:0] */
+	unsigned char channel;		/* 0..3 */
+	struct platform_device *pdev;	/* client platform device */
 };
 
 struct v4l2_device;

@@ -18,6 +18,8 @@
 #include "ozpd.h"
 #include "ozproto.h"
 #include "ozevent.h"
+/*------------------------------------------------------------------------------
+ */
 #define OZ_RD_BUF_SZ	256
 struct oz_cdev {
 	dev_t devnum;
@@ -28,6 +30,7 @@ struct oz_cdev {
 	struct oz_pd *active_pd;
 };
 
+/* Per PD context for the serial service stored in the PD. */
 struct oz_serial_ctx {
 	atomic_t ref_count;
 	u8 tx_seq_num;
@@ -36,8 +39,15 @@ struct oz_serial_ctx {
 	int rd_in;
 	int rd_out;
 };
+/*------------------------------------------------------------------------------
+ */
 int g_taction;
+/*------------------------------------------------------------------------------
+ */
 static struct oz_cdev g_cdev;
+/*------------------------------------------------------------------------------
+ * Context: process and softirq
+ */
 static struct oz_serial_ctx *oz_cdev_claim_ctx(struct oz_pd *pd)
 {
 	struct oz_serial_ctx *ctx;
@@ -48,6 +58,9 @@ static struct oz_serial_ctx *oz_cdev_claim_ctx(struct oz_pd *pd)
 	spin_unlock_bh(&pd->app_lock[OZ_APPID_SERIAL-1]);
 	return ctx;
 }
+/*------------------------------------------------------------------------------
+ * Context: softirq or process
+ */
 static void oz_cdev_release_ctx(struct oz_serial_ctx *ctx)
 {
 	if (atomic_dec_and_test(&ctx->ref_count)) {
@@ -55,6 +68,9 @@ static void oz_cdev_release_ctx(struct oz_serial_ctx *ctx)
 		kfree(ctx);
 	}
 }
+/*------------------------------------------------------------------------------
+ * Context: process
+ */
 int oz_cdev_open(struct inode *inode, struct file *filp)
 {
 	struct oz_cdev *dev;
@@ -64,11 +80,17 @@ int oz_cdev_open(struct inode *inode, struct file *filp)
 	filp->private_data = dev;
 	return 0;
 }
+/*------------------------------------------------------------------------------
+ * Context: process
+ */
 int oz_cdev_release(struct inode *inode, struct file *filp)
 {
 	oz_trace("oz_cdev_release()\n");
 	return 0;
 }
+/*------------------------------------------------------------------------------
+ * Context: process
+ */
 ssize_t oz_cdev_read(struct file *filp, char __user *buf, size_t count,
 		loff_t *fpos)
 {
@@ -118,6 +140,9 @@ out2:
 	oz_pd_put(pd);
 	return count;
 }
+/*------------------------------------------------------------------------------
+ * Context: process
+ */
 ssize_t oz_cdev_write(struct file *filp, const char __user *buf, size_t count,
 		loff_t *fpos)
 {
@@ -172,6 +197,9 @@ out:
 	oz_pd_put(pd);
 	return count;
 }
+/*------------------------------------------------------------------------------
+ * Context: process
+ */
 static int oz_set_active_pd(u8 *addr)
 {
 	int rc = 0;
@@ -202,6 +230,9 @@ static int oz_set_active_pd(u8 *addr)
 	}
 	return rc;
 }
+/*------------------------------------------------------------------------------
+ * Context: process
+ */
 long oz_cdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
 	int rc = 0;
@@ -258,7 +289,7 @@ long oz_cdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			return -EFAULT;
 		}
 		break;
-#endif 
+#endif /* WANT_EVENT_TRACE */
 	case OZ_IOCTL_ADD_BINDING:
 	case OZ_IOCTL_REMOVE_BINDING: {
 			struct oz_binding_info b;
@@ -266,7 +297,7 @@ long oz_cdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				sizeof(struct oz_binding_info))) {
 				return -EFAULT;
 			}
-			
+			/* Make sure name is null terminated. */
 			b.name[OZ_MAX_BINDING_LEN-1] = 0;
 			if (cmd == OZ_IOCTL_ADD_BINDING)
 				oz_binding_add(b.name);
@@ -277,6 +308,9 @@ long oz_cdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	}
 	return rc;
 }
+/*------------------------------------------------------------------------------
+ * Context: process
+ */
 unsigned int oz_cdev_poll(struct file *filp, poll_table *wait)
 {
 	unsigned int ret = 0;
@@ -296,6 +330,8 @@ unsigned int oz_cdev_poll(struct file *filp, poll_table *wait)
 		poll_wait(filp, &dev->rdq, wait);
 	return ret;
 }
+/*------------------------------------------------------------------------------
+ */
 const struct file_operations oz_fops = {
 	.owner =	THIS_MODULE,
 	.open =		oz_cdev_open,
@@ -305,6 +341,9 @@ const struct file_operations oz_fops = {
 	.unlocked_ioctl = oz_cdev_ioctl,
 	.poll =		oz_cdev_poll
 };
+/*------------------------------------------------------------------------------
+ * Context: process
+ */
 int oz_cdev_register(void)
 {
 	int err;
@@ -322,23 +361,35 @@ int oz_cdev_register(void)
 	err = cdev_add(&g_cdev.cdev, g_cdev.devnum, 1);
 	return 0;
 }
+/*------------------------------------------------------------------------------
+ * Context: process
+ */
 int oz_cdev_deregister(void)
 {
 	cdev_del(&g_cdev.cdev);
 	unregister_chrdev_region(g_cdev.devnum, 1);
 	return 0;
 }
+/*------------------------------------------------------------------------------
+ * Context: process
+ */
 int oz_cdev_init(void)
 {
 	oz_event_log(OZ_EVT_SERVICE, 1, OZ_APPID_SERIAL, 0, 0);
 	oz_app_enable(OZ_APPID_SERIAL, 1);
 	return 0;
 }
+/*------------------------------------------------------------------------------
+ * Context: process
+ */
 void oz_cdev_term(void)
 {
 	oz_event_log(OZ_EVT_SERVICE, 2, OZ_APPID_SERIAL, 0, 0);
 	oz_app_enable(OZ_APPID_SERIAL, 0);
 }
+/*------------------------------------------------------------------------------
+ * Context: softirq-serialized
+ */
 int oz_cdev_start(struct oz_pd *pd, int resume)
 {
 	struct oz_serial_ctx *ctx;
@@ -373,6 +424,9 @@ int oz_cdev_start(struct oz_pd *pd, int resume)
 	oz_trace("Serial service started.\n");
 	return 0;
 }
+/*------------------------------------------------------------------------------
+ * Context: softirq or process
+ */
 void oz_cdev_stop(struct oz_pd *pd, int pause)
 {
 	struct oz_serial_ctx *ctx;
@@ -399,6 +453,9 @@ void oz_cdev_stop(struct oz_pd *pd, int pause)
 	}
 	oz_trace("Serial service stopped.\n");
 }
+/*------------------------------------------------------------------------------
+ * Context: softirq-serialized
+ */
 void oz_cdev_rx(struct oz_pd *pd, struct oz_elt *elt)
 {
 	struct oz_serial_ctx *ctx;
@@ -416,9 +473,11 @@ void oz_cdev_rx(struct oz_pd *pd, struct oz_elt *elt)
 	}
 
 	app_hdr = (struct oz_app_hdr *)(elt+1);
+	/* If sequence number is non-zero then check it is not a duplicate.
+	 */
 	if (app_hdr->elt_seq_num != 0) {
 		if (((ctx->rx_seq_num - app_hdr->elt_seq_num) & 0x80) == 0) {
-			
+			/* Reject duplicate element. */
 			oz_trace("Duplicate element:%02x %02x\n",
 				app_hdr->elt_seq_num, ctx->rx_seq_num);
 			goto out;
@@ -454,6 +513,9 @@ void oz_cdev_rx(struct oz_pd *pd, struct oz_elt *elt)
 out:
 	oz_cdev_release_ctx(ctx);
 }
+/*------------------------------------------------------------------------------
+ * Context: softirq
+ */
 void oz_cdev_heartbeat(struct oz_pd *pd)
 {
 }

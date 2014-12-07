@@ -295,7 +295,7 @@ static int nouveau_init_engine_ptrs(struct drm_device *dev)
 		engine->vram.flags_valid	= nouveau_mem_flags_valid;
 		break;
 	case 0x50:
-	case 0x80: 
+	case 0x80: /* gotta love NVIDIA's consistency.. */
 	case 0x90:
 	case 0xa0:
 		engine->instmem.init		= nv50_instmem_init;
@@ -525,7 +525,7 @@ static int nouveau_init_engine_ptrs(struct drm_device *dev)
 		return 1;
 	}
 
-	
+	/* headless mode */
 	if (nouveau_modeset == 2) {
 		engine->display.early_init = nouveau_stub_init;
 		engine->display.late_takedown = nouveau_stub_takedown;
@@ -674,7 +674,7 @@ nouveau_card_init(struct drm_device *dev)
 				       nouveau_switcheroo_reprobe,
 				       nouveau_switcheroo_can_switch);
 
-	
+	/* Initialise internal driver API hooks */
 	ret = nouveau_init_engine_ptrs(dev);
 	if (ret)
 		goto out;
@@ -684,31 +684,35 @@ nouveau_card_init(struct drm_device *dev)
 	spin_lock_init(&dev_priv->context_switch_lock);
 	spin_lock_init(&dev_priv->vm_lock);
 
-	
+	/* Make the CRTCs and I2C buses accessible */
 	ret = engine->display.early_init(dev);
 	if (ret)
 		goto out;
 
-	
+	/* Parse BIOS tables / Run init tables if card not POSTed */
 	ret = nouveau_bios_init(dev);
 	if (ret)
 		goto out_display_early;
 
+	/* workaround an odd issue on nvc1 by disabling the device's
+	 * nosnoop capability.  hopefully won't cause issues until a
+	 * better fix is found - assuming there is one...
+	 */
 	if (dev_priv->chipset == 0xc1) {
 		nv_mask(dev, 0x00088080, 0x00000800, 0x00000000);
 	}
 
-	
+	/* PMC */
 	ret = engine->mc.init(dev);
 	if (ret)
 		goto out_bios;
 
-	
+	/* PTIMER */
 	ret = engine->timer.init(dev);
 	if (ret)
 		goto out_mc;
 
-	
+	/* PFB */
 	ret = engine->fb.init(dev);
 	if (ret)
 		goto out_timer;
@@ -717,7 +721,7 @@ nouveau_card_init(struct drm_device *dev)
 	if (ret)
 		goto out_fb;
 
-	
+	/* PGPIO */
 	ret = nouveau_gpio_create(dev);
 	if (ret)
 		goto out_vram;
@@ -827,7 +831,7 @@ nouveau_card_init(struct drm_device *dev)
 			}
 		}
 
-		
+		/* PFIFO */
 		ret = engine->fifo.init(dev);
 		if (ret)
 			goto out_engine;
@@ -1003,6 +1007,8 @@ nouveau_open(struct drm_device *dev, struct drm_file *file_priv)
 	return 0;
 }
 
+/* here a client dies, release the stuff that was allocated for its
+ * file_priv */
 void nouveau_preclose(struct drm_device *dev, struct drm_file *file_priv)
 {
 	nouveau_channel_cleanup(dev, file_priv);
@@ -1016,11 +1022,14 @@ nouveau_postclose(struct drm_device *dev, struct drm_file *file_priv)
 	kfree(fpriv);
 }
 
+/* first module load, setup the mmio/fb mapping */
+/* KMS: we need mmio at load time, not when the first drm client opens. */
 int nouveau_firstopen(struct drm_device *dev)
 {
 	return 0;
 }
 
+/* if we have an OF card, copy vbios to RAMIN */
 static void nouveau_OF_copy_vbios_to_ramin(struct drm_device *dev)
 {
 #if defined(__powerpc__)
@@ -1107,17 +1116,17 @@ int nouveau_load(struct drm_device *dev, unsigned long flags)
 	NV_DEBUG(dev, "vendor: 0x%X device: 0x%X class: 0x%X\n",
 		 dev->pci_vendor, dev->pci_device, dev->pdev->class);
 
-	
+	/* first up, map the start of mmio and determine the chipset */
 	dev_priv->mmio = ioremap(pci_resource_start(dev->pdev, 0), PAGE_SIZE);
 	if (dev_priv->mmio) {
 #ifdef __BIG_ENDIAN
-		
+		/* put the card into big-endian mode if it's not */
 		if (nv_rd32(dev, NV03_PMC_BOOT_1) != 0x01000001)
 			nv_wr32(dev, NV03_PMC_BOOT_1, 0x01000001);
 		DRM_MEMORYBARRIER();
 #endif
 
-		
+		/* determine chipset and derive architecture from it */
 		reg0 = nv_rd32(dev, NV03_PMC_BOOT_0);
 		if ((reg0 & 0x0f000000) > 0) {
 			dev_priv->chipset = (reg0 & 0xff00000) >> 20;
@@ -1170,7 +1179,7 @@ int nouveau_load(struct drm_device *dev, unsigned long flags)
 	NV_INFO(dev, "Detected an NV%2x generation card (0x%08x)\n",
 		     dev_priv->card_type, reg0);
 
-	
+	/* map the mmio regs, limiting the amount to preserve vmap space */
 	offset = pci_resource_start(dev->pdev, 0);
 	length = pci_resource_len(dev->pdev, 0);
 	if (dev_priv->card_type < NV_E0)
@@ -1185,7 +1194,7 @@ int nouveau_load(struct drm_device *dev, unsigned long flags)
 	}
 	NV_DEBUG(dev, "regs mapped ok at 0x%llx\n", offset);
 
-	
+	/* determine frequency of timing crystal */
 	strap = nv_rd32(dev, 0x101000);
 	if ( dev_priv->chipset < 0x17 ||
 	    (dev_priv->chipset >= 0x20 && dev_priv->chipset <= 0x25))
@@ -1202,10 +1211,14 @@ int nouveau_load(struct drm_device *dev, unsigned long flags)
 
 	NV_DEBUG(dev, "crystal freq: %dKHz\n", dev_priv->crystal);
 
+	/* Determine whether we'll attempt acceleration or not, some
+	 * cards are disabled by default here due to them being known
+	 * non-functional, or never been tested due to lack of hw.
+	 */
 	dev_priv->noaccel = !!nouveau_noaccel;
 	if (nouveau_noaccel == -1) {
 		switch (dev_priv->chipset) {
-		case 0xd9: 
+		case 0xd9: /* known broken */
 			NV_INFO(dev, "acceleration disabled by default, pass "
 				     "noaccel=0 to force enable\n");
 			dev_priv->noaccel = true;
@@ -1220,7 +1233,7 @@ int nouveau_load(struct drm_device *dev, unsigned long flags)
 	if (ret)
 		goto err_mmio;
 
-	
+	/* Map PRAMIN BAR, or on older cards, the aperture within BAR0 */
 	if (dev_priv->card_type >= NV_40) {
 		int ramin_bar = 2;
 		if (pci_resource_len(dev->pdev, ramin_bar) == 0)
@@ -1248,13 +1261,13 @@ int nouveau_load(struct drm_device *dev, unsigned long flags)
 
 	nouveau_OF_copy_vbios_to_ramin(dev);
 
-	
+	/* Special flags */
 	if (dev->pci_device == 0x01a0)
 		dev_priv->flags |= NV_NFORCE;
 	else if (dev->pci_device == 0x01f0)
 		dev_priv->flags |= NV_NFORCE2;
 
-	
+	/* For kernel modesetting, init card now and bring up fbcon */
 	ret = nouveau_card_init(dev);
 	if (ret)
 		goto err_ramin;
@@ -1322,7 +1335,7 @@ int nouveau_ioctl_getparam(struct drm_device *dev, void *data,
 		getparam->value = dev_priv->gart_info.aper_size;
 		break;
 	case NOUVEAU_GETPARAM_VM_VRAM_BASE:
-		getparam->value = 0; 
+		getparam->value = 0; /* deprecated */
 		break;
 	case NOUVEAU_GETPARAM_PTIMER_TIME:
 		getparam->value = dev_priv->engine.timer.read(dev);
@@ -1334,11 +1347,14 @@ int nouveau_ioctl_getparam(struct drm_device *dev, void *data,
 		getparam->value = 1;
 		break;
 	case NOUVEAU_GETPARAM_GRAPH_UNITS:
+		/* NV40 and NV50 versions are quite different, but register
+		 * address is the same. User is supposed to know the card
+		 * family anyway... */
 		if (dev_priv->chipset >= 0x40) {
 			getparam->value = nv_rd32(dev, NV40_PMC_GRAPH_UNITS);
 			break;
 		}
-		
+		/* FALLTHRU */
 	default:
 		NV_DEBUG(dev, "unknown parameter %lld\n", getparam->param);
 		return -EINVAL;
@@ -1362,6 +1378,7 @@ nouveau_ioctl_setparam(struct drm_device *dev, void *data,
 	return 0;
 }
 
+/* Wait until (value(reg) & mask) == val, up until timeout has hit */
 bool
 nouveau_wait_eq(struct drm_device *dev, uint64_t timeout,
 		uint32_t reg, uint32_t mask, uint32_t val)
@@ -1378,6 +1395,7 @@ nouveau_wait_eq(struct drm_device *dev, uint64_t timeout,
 	return false;
 }
 
+/* Wait until (value(reg) & mask) != val, up until timeout has hit */
 bool
 nouveau_wait_ne(struct drm_device *dev, uint64_t timeout,
 		uint32_t reg, uint32_t mask, uint32_t val)
@@ -1394,6 +1412,7 @@ nouveau_wait_ne(struct drm_device *dev, uint64_t timeout,
 	return false;
 }
 
+/* Wait until cond(data) == true, up until timeout has hit */
 bool
 nouveau_wait_cb(struct drm_device *dev, u64 timeout,
 		bool (*cond)(void *), void *data)
@@ -1410,6 +1429,7 @@ nouveau_wait_cb(struct drm_device *dev, u64 timeout,
 	return false;
 }
 
+/* Waits for PGRAPH to go completely idle */
 bool nouveau_wait_for_idle(struct drm_device *dev)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;

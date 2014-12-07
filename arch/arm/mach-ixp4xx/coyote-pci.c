@@ -26,6 +26,7 @@
 #define SLOT0_DEVID	14
 #define SLOT1_DEVID	15
 
+/* PCI controller GPIO to IRQ pin mappings */
 #define SLOT0_INTA	6
 #define SLOT1_INTA	11
 

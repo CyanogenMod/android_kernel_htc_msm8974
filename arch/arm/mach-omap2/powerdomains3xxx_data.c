@@ -26,7 +26,13 @@
 #include "cm2xxx_3xxx.h"
 #include "cm-regbits-34xx.h"
 
+/*
+ * 34XX-specific powerdomains, dependencies
+ */
 
+/*
+ * Powerdomains
+ */
 
 static struct powerdomain iva2_pwrdm = {
 	.name		  = "iva2_pwrdm",
@@ -65,6 +71,16 @@ static struct powerdomain mpu_3xxx_pwrdm = {
 	.voltdm           = { .name = "mpu_iva" },
 };
 
+/*
+ * The USBTLL Save-and-Restore mechanism is broken on
+ * 3430s up to ES3.0 and 3630ES1.0. Hence this feature
+ * needs to be disabled on these chips.
+ * Refer: 3430 errata ID i459 and 3630 errata ID i579
+ *
+ * Note: setting the SAR flag could help for errata ID i478
+ *  which applies to 3430 <= ES3.1, but since the SAR feature
+ *  is broken, do not use it.
+ */
 static struct powerdomain core_3xxx_pre_es3_1_pwrdm = {
 	.name		  = "core_pwrdm",
 	.prcm_offs	  = CORE_MOD,
@@ -72,12 +88,12 @@ static struct powerdomain core_3xxx_pre_es3_1_pwrdm = {
 	.pwrsts_logic_ret = PWRSTS_OFF_RET,
 	.banks		  = 2,
 	.pwrsts_mem_ret	  = {
-		[0] = PWRSTS_OFF_RET,	 
-		[1] = PWRSTS_OFF_RET,	 
+		[0] = PWRSTS_OFF_RET,	 /* MEM1RETSTATE */
+		[1] = PWRSTS_OFF_RET,	 /* MEM2RETSTATE */
 	},
 	.pwrsts_mem_on	  = {
-		[0] = PWRSTS_OFF_RET_ON, 
-		[1] = PWRSTS_OFF_RET_ON, 
+		[0] = PWRSTS_OFF_RET_ON, /* MEM1ONSTATE */
+		[1] = PWRSTS_OFF_RET_ON, /* MEM2ONSTATE */
 	},
 	.voltdm           = { .name = "core" },
 };
@@ -87,15 +103,19 @@ static struct powerdomain core_3xxx_es3_1_pwrdm = {
 	.prcm_offs	  = CORE_MOD,
 	.pwrsts		  = PWRSTS_OFF_RET_ON,
 	.pwrsts_logic_ret = PWRSTS_OFF_RET,
-	.flags		  = PWRDM_HAS_HDWR_SAR, 
+	/*
+	 * Setting the SAR flag for errata ID i478 which applies
+	 *  to 3430 <= ES3.1
+	 */
+	.flags		  = PWRDM_HAS_HDWR_SAR, /* for USBTLL only */
 	.banks		  = 2,
 	.pwrsts_mem_ret	  = {
-		[0] = PWRSTS_OFF_RET,	 
-		[1] = PWRSTS_OFF_RET,	 
+		[0] = PWRSTS_OFF_RET,	 /* MEM1RETSTATE */
+		[1] = PWRSTS_OFF_RET,	 /* MEM2RETSTATE */
 	},
 	.pwrsts_mem_on	  = {
-		[0] = PWRSTS_OFF_RET_ON, 
-		[1] = PWRSTS_OFF_RET_ON, 
+		[0] = PWRSTS_OFF_RET_ON, /* MEM1ONSTATE */
+		[1] = PWRSTS_OFF_RET_ON, /* MEM2ONSTATE */
 	},
 	.voltdm           = { .name = "core" },
 };
@@ -107,26 +127,31 @@ static struct powerdomain dss_pwrdm = {
 	.pwrsts_logic_ret = PWRSTS_RET,
 	.banks		  = 1,
 	.pwrsts_mem_ret	  = {
-		[0] = PWRSTS_RET, 
+		[0] = PWRSTS_RET, /* MEMRETSTATE */
 	},
 	.pwrsts_mem_on	  = {
-		[0] = PWRSTS_ON,  
+		[0] = PWRSTS_ON,  /* MEMONSTATE */
 	},
 	.voltdm           = { .name = "core" },
 };
 
+/*
+ * Although the 34XX TRM Rev K Table 4-371 notes that retention is a
+ * possible SGX powerstate, the SGX device itself does not support
+ * retention.
+ */
 static struct powerdomain sgx_pwrdm = {
 	.name		  = "sgx_pwrdm",
 	.prcm_offs	  = OMAP3430ES2_SGX_MOD,
-	
+	/* XXX This is accurate for 3430 SGX, but what about GFX? */
 	.pwrsts		  = PWRSTS_OFF_ON,
 	.pwrsts_logic_ret = PWRSTS_RET,
 	.banks		  = 1,
 	.pwrsts_mem_ret	  = {
-		[0] = PWRSTS_RET, 
+		[0] = PWRSTS_RET, /* MEMRETSTATE */
 	},
 	.pwrsts_mem_on	  = {
-		[0] = PWRSTS_ON,  
+		[0] = PWRSTS_ON,  /* MEMONSTATE */
 	},
 	.voltdm           = { .name = "core" },
 };
@@ -138,10 +163,10 @@ static struct powerdomain cam_pwrdm = {
 	.pwrsts_logic_ret = PWRSTS_RET,
 	.banks		  = 1,
 	.pwrsts_mem_ret	  = {
-		[0] = PWRSTS_RET, 
+		[0] = PWRSTS_RET, /* MEMRETSTATE */
 	},
 	.pwrsts_mem_on	  = {
-		[0] = PWRSTS_ON,  
+		[0] = PWRSTS_ON,  /* MEMONSTATE */
 	},
 	.voltdm           = { .name = "core" },
 };
@@ -153,10 +178,10 @@ static struct powerdomain per_pwrdm = {
 	.pwrsts_logic_ret = PWRSTS_OFF_RET,
 	.banks		  = 1,
 	.pwrsts_mem_ret	  = {
-		[0] = PWRSTS_RET, 
+		[0] = PWRSTS_RET, /* MEMRETSTATE */
 	},
 	.pwrsts_mem_on	  = {
-		[0] = PWRSTS_ON,  
+		[0] = PWRSTS_ON,  /* MEMONSTATE */
 	},
 	.voltdm           = { .name = "core" },
 };
@@ -180,13 +205,19 @@ static struct powerdomain usbhost_pwrdm = {
 	.prcm_offs	  = OMAP3430ES2_USBHOST_MOD,
 	.pwrsts		  = PWRSTS_OFF_RET_ON,
 	.pwrsts_logic_ret = PWRSTS_RET,
-	 
+	/*
+	 * REVISIT: Enabling usb host save and restore mechanism seems to
+	 * leave the usb host domain permanently in ACTIVE mode after
+	 * changing the usb host power domain state from OFF to active once.
+	 * Disabling for now.
+	 */
+	/*.flags	  = PWRDM_HAS_HDWR_SAR,*/ /* for USBHOST ctrlr only */
 	.banks		  = 1,
 	.pwrsts_mem_ret	  = {
-		[0] = PWRSTS_RET, 
+		[0] = PWRSTS_RET, /* MEMRETSTATE */
 	},
 	.pwrsts_mem_on	  = {
-		[0] = PWRSTS_ON,  
+		[0] = PWRSTS_ON,  /* MEMONSTATE */
 	},
 	.voltdm           = { .name = "core" },
 };
@@ -221,6 +252,7 @@ static struct powerdomain dpll5_pwrdm = {
 	.voltdm           = { .name = "core" },
 };
 
+/* As powerdomains are added or removed above, this list must also be changed */
 static struct powerdomain *powerdomains_omap3430_common[] __initdata = {
 	&wkup_omap2_pwrdm,
 	&iva2_pwrdm,
@@ -243,6 +275,7 @@ static struct powerdomain *powerdomains_omap3430es1[] __initdata = {
 	NULL
 };
 
+/* also includes 3630ES1.0 */
 static struct powerdomain *powerdomains_omap3430es2_es3_0[] __initdata = {
 	&core_3xxx_pre_es3_1_pwrdm,
 	&sgx_pwrdm,
@@ -251,6 +284,7 @@ static struct powerdomain *powerdomains_omap3430es2_es3_0[] __initdata = {
 	NULL
 };
 
+/* also includes 3630ES1.1+ */
 static struct powerdomain *powerdomains_omap3430es3_1plus[] __initdata = {
 	&core_3xxx_es3_1_pwrdm,
 	&sgx_pwrdm,

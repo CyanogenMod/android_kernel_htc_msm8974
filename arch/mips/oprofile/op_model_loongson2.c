@@ -13,7 +13,7 @@
 #include <linux/oprofile.h>
 #include <linux/interrupt.h>
 
-#include <loongson.h>			
+#include <loongson.h>			/* LOONGSON2_PERFCNT_IRQ */
 #include "op_impl.h"
 
 #define LOONGSON2_CPU_TYPE	"mips/loongson2"
@@ -56,6 +56,10 @@ static void loongson2_reg_setup(struct op_counter_config *cfg)
 	reg.reset_counter1 = 0;
 	reg.reset_counter2 = 0;
 
+	/*
+	 * Compute the performance counter ctrl word.
+	 * For now, count kernel and user mode.
+	 */
 	if (cfg[0].enabled) {
 		ctrl |= LOONGSON2_PERFCTRL_EVENT(0, cfg[0].event);
 		reg.reset_counter1 = 0x80000000ULL - cfg[0].count;
@@ -87,14 +91,14 @@ static void loongson2_cpu_setup(void *args)
 
 static void loongson2_cpu_start(void *args)
 {
-	
+	/* Start all counters on current CPU */
 	if (reg.cnt1_enabled || reg.cnt2_enabled)
 		write_c0_perfctrl(reg.ctrl);
 }
 
 static void loongson2_cpu_stop(void *args)
 {
-	
+	/* Stop all counters on current CPU */
 	write_c0_perfctrl(0);
 	memset(&reg, 0, sizeof(reg));
 }
@@ -105,7 +109,7 @@ static irqreturn_t loongson2_perfcount_handler(int irq, void *dev_id)
 	struct pt_regs *regs = get_irq_regs();
 	int enabled;
 
-	
+	/* Check whether the irq belongs to me */
 	enabled = read_c0_perfctrl() & LOONGSON2_PERFCTRL_ENABLE;
 	if (!enabled)
 		return IRQ_NONE;

@@ -31,18 +31,63 @@
 #include "btree.h"
 #include "datastream.h"
 
+/*
+ * The btree functions in this file are built on top of the
+ * datastream.c interface, which is in turn built on top of the
+ * io.c interface.
+ */
 
+/* Befs B+tree structure:
+ * 
+ * The first thing in the tree is the tree superblock. It tells you
+ * all kinds of useful things about the tree, like where the rootnode
+ * is located, and the size of the nodes (always 1024 with current version
+ * of BeOS).
+ *
+ * The rest of the tree consists of a series of nodes. Nodes contain a header
+ * (struct befs_btree_nodehead), the packed key data, an array of shorts 
+ * containing the ending offsets for each of the keys, and an array of
+ * befs_off_t values. In interior nodes, the keys are the ending keys for 
+ * the childnode they point to, and the values are offsets into the 
+ * datastream containing the tree. 
+ */
 
+/* Note:
+ * 
+ * The book states 2 confusing things about befs b+trees. First, 
+ * it states that the overflow field of node headers is used by internal nodes
+ * to point to another node that "effectively continues this one". Here is what
+ * I believe that means. Each key in internal nodes points to another node that
+ * contains key values less than itself. Inspection reveals that the last key 
+ * in the internal node is not the last key in the index. Keys that are 
+ * greater than the last key in the internal node go into the overflow node. 
+ * I imagine there is a performance reason for this.
+ *
+ * Second, it states that the header of a btree node is sufficient to 
+ * distinguish internal nodes from leaf nodes. Without saying exactly how. 
+ * After figuring out the first, it becomes obvious that internal nodes have
+ * overflow nodes and leafnodes do not.
+ */
 
+/* 
+ * Currently, this code is only good for directory B+trees.
+ * In order to be used for other BFS indexes, it needs to be extended to handle
+ * duplicate keys and non-string keytypes (int32, int64, float, double).
+ */
 
+/*
+ * In memory structure of each btree node
+ */
 typedef struct {
-	befs_host_btree_nodehead head;	
+	befs_host_btree_nodehead head;	/* head of node converted to cpu byteorder */
 	struct buffer_head *bh;
-	befs_btree_nodehead *od_node;	
+	befs_btree_nodehead *od_node;	/* on disk node */
 } befs_btree_node;
 
+/* local constants */
 static const befs_off_t befs_bt_inval = 0xffffffffffffffffULL;
 
+/* local functions */
 static int befs_btree_seekleaf(struct super_block *sb, befs_data_stream * ds,
 			       befs_btree_super * bt_super,
 			       befs_btree_node * this_node,
@@ -71,6 +116,20 @@ static char *befs_bt_get_key(struct super_block *sb, befs_btree_node * node,
 static int befs_compare_strings(const void *key1, int keylen1,
 				const void *key2, int keylen2);
 
+/**
+ * befs_bt_read_super - read in btree superblock convert to cpu byteorder
+ * @sb: Filesystem superblock
+ * @ds: Datastream to read from
+ * @sup: Buffer in which to place the btree superblock
+ *
+ * Calls befs_read_datastream to read in the btree superblock and
+ * makes sure it is in cpu byteorder, byteswapping if necessary.
+ *
+ * On success, returns BEFS_OK and *@sup contains the btree superblock,
+ * in cpu byte order.
+ *
+ * On failure, BEFS_ERR is returned.
+ */
 static int
 befs_bt_read_super(struct super_block *sb, befs_data_stream * ds,
 		   befs_btree_super * sup)
@@ -111,6 +170,24 @@ befs_bt_read_super(struct super_block *sb, befs_data_stream * ds,
 	return BEFS_ERR;
 }
 
+/**
+ * befs_bt_read_node - read in btree node and convert to cpu byteorder
+ * @sb: Filesystem superblock
+ * @ds: Datastream to read from
+ * @node: Buffer in which to place the btree node
+ * @node_off: Starting offset (in bytes) of the node in @ds
+ *
+ * Calls befs_read_datastream to read in the indicated btree node and
+ * makes sure its header fields are in cpu byteorder, byteswapping if
+ * necessary.
+ * Note: node->bh must be NULL when this function called first
+ * time. Don't forget brelse(node->bh) after last call.
+ *
+ * On success, returns BEFS_OK and *@node contains the btree node that
+ * starts at @node_off, with the node->head fields in cpu byte order.
+ *
+ * On failure, BEFS_ERR is returned.
+ */
 
 static int
 befs_bt_read_node(struct super_block *sb, befs_data_stream * ds,
@@ -148,6 +225,24 @@ befs_bt_read_node(struct super_block *sb, befs_data_stream * ds,
 	return BEFS_OK;
 }
 
+/**
+ * befs_btree_find - Find a key in a befs B+tree
+ * @sb: Filesystem superblock
+ * @ds: Datastream containing btree
+ * @key: Key string to lookup in btree
+ * @value: Value stored with @key
+ *
+ * On success, returns BEFS_OK and sets *@value to the value stored
+ * with @key (usually the disk block number of an inode).
+ *
+ * On failure, returns BEFS_ERR or BEFS_BT_NOT_FOUND.
+ * 
+ * Algorithm: 
+ *   Read the superblock and rootnode of the b+tree.
+ *   Drill down through the interior nodes using befs_find_key().
+ *   Once at the correct leaf node, use befs_find_key() again to get the
+ *   actuall value stored with the key.
+ */
 int
 befs_btree_find(struct super_block *sb, befs_data_stream * ds,
 		const char *key, befs_off_t * value)
@@ -175,7 +270,7 @@ befs_btree_find(struct super_block *sb, befs_data_stream * ds,
 
 	this_node->bh = NULL;
 
-	
+	/* read in root node */
 	node_off = bt_super.root_node_ptr;
 	if (befs_bt_read_node(sb, ds, this_node, node_off) != BEFS_OK) {
 		befs_error(sb, "befs_btree_find() failed to read "
@@ -187,7 +282,7 @@ befs_btree_find(struct super_block *sb, befs_data_stream * ds,
 		res = befs_find_key(sb, this_node, key, &node_off);
 		if (res == BEFS_BT_NOT_FOUND)
 			node_off = this_node->head.overflow;
-		
+		/* if no match, go to overflow node */
 		if (befs_bt_read_node(sb, ds, this_node, node_off) != BEFS_OK) {
 			befs_error(sb, "befs_btree_find() failed to read "
 				   "node at %Lu", node_off);
@@ -195,7 +290,7 @@ befs_btree_find(struct super_block *sb, befs_data_stream * ds,
 		}
 	}
 
-	
+	/* at the correct leaf node now */
 
 	res = befs_find_key(sb, this_node, key, value);
 
@@ -219,6 +314,24 @@ befs_btree_find(struct super_block *sb, befs_data_stream * ds,
 	return BEFS_ERR;
 }
 
+/**
+ * befs_find_key - Search for a key within a node
+ * @sb: Filesystem superblock
+ * @node: Node to find the key within
+ * @key: Keystring to search for
+ * @value: If key is found, the value stored with the key is put here
+ *
+ * finds exact match if one exists, and returns BEFS_BT_MATCH
+ * If no exact match, finds first key in node that is greater
+ * (alphabetically) than the search key and returns BEFS_BT_PARMATCH
+ * (for partial match, I guess). Can you think of something better to
+ * call it?
+ *
+ * If no key was a match or greater than the search key, return
+ * BEFS_BT_NOT_FOUND.
+ *
+ * Use binary search instead of a linear.
+ */
 static int
 befs_find_key(struct super_block *sb, befs_btree_node * node,
 	      const char *findkey, befs_off_t * value)
@@ -236,7 +349,7 @@ befs_find_key(struct super_block *sb, befs_btree_node * node,
 
 	findkey_len = strlen(findkey);
 
-	
+	/* if node can not contain key, just skeep this node */
 	last = node->head.all_key_count - 1;
 	thiskey = befs_bt_get_key(sb, node, last, &keylen);
 
@@ -248,7 +361,7 @@ befs_find_key(struct super_block *sb, befs_btree_node * node,
 
 	valarray = befs_bt_valarray(node);
 
-	
+	/* simple binary search */
 	first = 0;
 	mid = 0;
 	while (last >= first) {
@@ -279,6 +392,26 @@ befs_find_key(struct super_block *sb, befs_btree_node * node,
 	return BEFS_BT_PARMATCH;
 }
 
+/**
+ * befs_btree_read - Traverse leafnodes of a btree
+ * @sb: Filesystem superblock
+ * @ds: Datastream containing btree
+ * @key_no: Key number (alphabetical order) of key to read
+ * @bufsize: Size of the buffer to return key in
+ * @keybuf: Pointer to a buffer to put the key in
+ * @keysize: Length of the returned key
+ * @value: Value stored with the returned key
+ *
+ * Heres how it works: Key_no is the index of the key/value pair to 
+ * return in keybuf/value.
+ * Bufsize is the size of keybuf (BEFS_NAME_LEN+1 is a good size). Keysize is 
+ * the number of charecters in the key (just a convenience).
+ *
+ * Algorithm:
+ *   Get the first leafnode of the tree. See if the requested key is in that
+ *   node. If not, follow the node->right link to the next leafnode. Repeat 
+ *   until the (key_no)th key is found or the tree is out of keys.
+ */
 int
 befs_btree_read(struct super_block *sb, befs_data_stream * ds,
 		loff_t key_no, size_t bufsize, char *keybuf, size_t * keysize,
@@ -313,7 +446,7 @@ befs_btree_read(struct super_block *sb, befs_data_stream * ds,
 	node_off = bt_super.root_node_ptr;
 	this_node->bh = NULL;
 
-	
+	/* seeks down to first leafnode, reads it into this_node */
 	res = befs_btree_seekleaf(sb, ds, &bt_super, this_node, &node_off);
 	if (res == BEFS_BT_EMPTY) {
 		brelse(this_node->bh);
@@ -326,11 +459,11 @@ befs_btree_read(struct super_block *sb, befs_data_stream * ds,
 		goto error_alloc;
 	}
 
-	
+	/* find the leaf node containing the key_no key */
 
 	while (key_sum + this_node->head.all_key_count <= key_no) {
 
-		
+		/* no more nodes to look in: key_no is too large */
 		if (this_node->head.right == befs_bt_inval) {
 			*keysize = 0;
 			*value = 0;
@@ -352,10 +485,10 @@ befs_btree_read(struct super_block *sb, befs_data_stream * ds,
 		}
 	}
 
-	
+	/* how many keys into this_node is key_no */
 	cur_key = key_no - key_sum;
 
-	
+	/* get pointers to datastructures within the node body */
 	valarray = befs_bt_valarray(this_node);
 
 	keystart = befs_bt_get_key(sb, this_node, cur_key, &keylen);
@@ -394,6 +527,21 @@ befs_btree_read(struct super_block *sb, befs_data_stream * ds,
 	return BEFS_ERR;
 }
 
+/**
+ * befs_btree_seekleaf - Find the first leafnode in the btree
+ * @sb: Filesystem superblock
+ * @ds: Datastream containing btree
+ * @bt_super: Pointer to the superblock of the btree
+ * @this_node: Buffer to return the leafnode in
+ * @node_off: Pointer to offset of current node within datastream. Modified
+ * 		by the function.
+ *
+ *
+ * Helper function for btree traverse. Moves the current position to the 
+ * start of the first leaf node.
+ *
+ * Also checks for an empty tree. If there are no keys, returns BEFS_BT_EMPTY.
+ */
 static int
 befs_btree_seekleaf(struct super_block *sb, befs_data_stream * ds,
 		    befs_btree_super * bt_super, befs_btree_node * this_node,
@@ -443,16 +591,36 @@ befs_btree_seekleaf(struct super_block *sb, befs_data_stream * ds,
 	return BEFS_ERR;
 }
 
+/**
+ * befs_leafnode - Determine if the btree node is a leaf node or an 
+ * interior node
+ * @node: Pointer to node structure to test
+ * 
+ * Return 1 if leaf, 0 if interior
+ */
 static int
 befs_leafnode(befs_btree_node * node)
 {
-	
+	/* all interior nodes (and only interior nodes) have an overflow node */
 	if (node->head.overflow == befs_bt_inval)
 		return 1;
 	else
 		return 0;
 }
 
+/**
+ * befs_bt_keylen_index - Finds start of keylen index in a node
+ * @node: Pointer to the node structure to find the keylen index within
+ *
+ * Returns a pointer to the start of the key length index array
+ * of the B+tree node *@node
+ *
+ * "The length of all the keys in the node is added to the size of the
+ * header and then rounded up to a multiple of four to get the beginning
+ * of the key length index" (p.88, practical filesystem design).
+ *
+ * Except that rounding up to 8 works, and rounding up to 4 doesn't.
+ */
 static fs16 *
 befs_bt_keylen_index(befs_btree_node * node)
 {
@@ -467,6 +635,13 @@ befs_bt_keylen_index(befs_btree_node * node)
 	return (fs16 *) ((void *) node->od_node + off);
 }
 
+/**
+ * befs_bt_valarray - Finds the start of value array in a node
+ * @node: Pointer to the node structure to find the value array within
+ *
+ * Returns a pointer to the start of the value array
+ * of the node pointed to by the node header
+ */
 static fs64 *
 befs_bt_valarray(befs_btree_node * node)
 {
@@ -476,12 +651,29 @@ befs_bt_valarray(befs_btree_node * node)
 	return (fs64 *) (keylen_index_start + keylen_index_size);
 }
 
+/**
+ * befs_bt_keydata - Finds start of keydata array in a node
+ * @node: Pointer to the node structure to find the keydata array within
+ *
+ * Returns a pointer to the start of the keydata array
+ * of the node pointed to by the node header 
+ */
 static char *
 befs_bt_keydata(befs_btree_node * node)
 {
 	return (char *) ((void *) node->od_node + sizeof (befs_btree_nodehead));
 }
 
+/**
+ * befs_bt_get_key - returns a pointer to the start of a key
+ * @sb: filesystem superblock
+ * @node: node in which to look for the key
+ * @index: the index of the key to get
+ * @keylen: modified to be the length of the key at @index
+ *
+ * Returns a valid pointer into @node on success.
+ * Returns NULL on failure (bad input) and sets *@keylen = 0
+ */
 static char *
 befs_bt_get_key(struct super_block *sb, befs_btree_node * node,
 		int index, u16 * keylen)
@@ -508,6 +700,17 @@ befs_bt_get_key(struct super_block *sb, befs_btree_node * node,
 	return keystart + prev_key_end;
 }
 
+/**
+ * befs_compare_strings - compare two strings
+ * @key1: pointer to the first key to be compared 
+ * @keylen1: length in bytes of key1
+ * @key2: pointer to the second key to be compared
+ * @kelen2: length in bytes of key2
+ *
+ * Returns 0 if @key1 and @key2 are equal.
+ * Returns >0 if @key1 is greater.
+ * Returns <0 if @key2 is greater..
+ */
 static int
 befs_compare_strings(const void *key1, int keylen1,
 		     const void *key2, int keylen2)
@@ -519,6 +722,7 @@ befs_compare_strings(const void *key1, int keylen1,
 	return result;
 }
 
+/* These will be used for non-string keyed btrees */
 #if 0
 static int
 btree_compare_int32(cont void *key1, int keylen1, const void *key2, int keylen2)
@@ -580,4 +784,4 @@ btree_compare_double(cont void *key1, int keylen1,
 
 	return (result < 0.0) ? -1 : 1;
 }
-#endif				
+#endif				//0

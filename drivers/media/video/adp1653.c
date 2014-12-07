@@ -46,6 +46,7 @@
 				 / TIMEOUT_STEP)
 #define TIMEOUT_CODE_TO_US(c)	(TIMEOUT_MAX - (c) * TIMEOUT_STEP)
 
+/* Write values into ADP1653 registers. */
 static int adp1653_update_hw(struct adp1653_flash *flash)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&flash->subdev);
@@ -61,13 +62,13 @@ static int adp1653_update_hw(struct adp1653_flash *flash)
 	case V4L2_FLASH_LED_MODE_NONE:
 		break;
 	case V4L2_FLASH_LED_MODE_FLASH:
-		
+		/* Flash mode, light on with strobe, duration from timer */
 		config = ADP1653_REG_CONFIG_TMR_CFG;
 		config |= TIMEOUT_US_TO_CODE(flash->flash_timeout->val)
 			  << ADP1653_REG_CONFIG_TMR_SET_SHIFT;
 		break;
 	case V4L2_FLASH_LED_MODE_TORCH:
-		
+		/* Torch mode, light immediately on, duration indefinite */
 		out_sel |= ADP1653_FLASH_INTENSITY_mA_TO_REG(
 			flash->torch_intensity->val)
 			<< ADP1653_REG_OUT_SEL_HPLED_SHIFT;
@@ -100,7 +101,7 @@ static int adp1653_get_fault(struct adp1653_flash *flash)
 	if (!flash->fault)
 		return 0;
 
-	
+	/* Clear faults. */
 	rval = i2c_smbus_write_byte_data(client, ADP1653_REG_OUT_SEL, 0);
 	if (IS_ERR_VALUE(rval))
 		return rval;
@@ -136,7 +137,7 @@ static int adp1653_strobe(struct adp1653_flash *flash, int enable)
 	if (rval)
 		return rval;
 
-	
+	/* Software strobe using i2c */
 	rval = i2c_smbus_write_byte_data(client, ADP1653_REG_SW_STROBE,
 		ADP1653_REG_SW_STROBE_SW_STROBE);
 	if (rval)
@@ -144,6 +145,9 @@ static int adp1653_strobe(struct adp1653_flash *flash, int enable)
 	return i2c_smbus_write_byte_data(client, ADP1653_REG_SW_STROBE, 0);
 }
 
+/* --------------------------------------------------------------------------
+ * V4L2 controls
+ */
 
 static int adp1653_get_ctrl(struct v4l2_ctrl *ctrl)
 {
@@ -261,6 +265,9 @@ static int adp1653_init_controls(struct adp1653_flash *flash)
 	return 0;
 }
 
+/* --------------------------------------------------------------------------
+ * V4L2 subdev operations
+ */
 
 static int
 adp1653_init_device(struct adp1653_flash *flash)
@@ -268,7 +275,7 @@ adp1653_init_device(struct adp1653_flash *flash)
 	struct i2c_client *client = v4l2_get_subdevdata(&flash->subdev);
 	int rval;
 
-	
+	/* Clear FAULT register by writing zero to OUT_SEL */
 	rval = i2c_smbus_write_byte_data(client, ADP1653_REG_OUT_SEL, 0);
 	if (rval < 0) {
 		dev_err(&client->dev, "failed writing fault register\n");
@@ -276,7 +283,7 @@ adp1653_init_device(struct adp1653_flash *flash)
 	}
 
 	mutex_lock(&flash->ctrls.lock);
-	
+	/* Reset faults before reading new ones. */
 	flash->fault = 0;
 	rval = adp1653_get_fault(flash);
 	mutex_unlock(&flash->ctrls.lock);
@@ -324,13 +331,16 @@ adp1653_set_power(struct v4l2_subdev *subdev, int on)
 
 	mutex_lock(&flash->power_lock);
 
+	/* If the power count is modified from 0 to != 0 or from != 0 to 0,
+	 * update the power state.
+	 */
 	if (flash->power_count == !on) {
 		ret = __adp1653_set_power(flash, !!on);
 		if (ret < 0)
 			goto done;
 	}
 
-	
+	/* Update the power count. */
 	flash->power_count += on ? 1 : -1;
 	WARN_ON(flash->power_count < 0);
 
@@ -362,6 +372,9 @@ static const struct v4l2_subdev_internal_ops adp1653_internal_ops = {
 	.close = adp1653_close,
 };
 
+/* --------------------------------------------------------------------------
+ * I2C driver
+ */
 #ifdef CONFIG_PM
 
 static int adp1653_suspend(struct device *dev)
@@ -393,7 +406,7 @@ static int adp1653_resume(struct device *dev)
 #define adp1653_suspend	NULL
 #define adp1653_resume	NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
 static int adp1653_probe(struct i2c_client *client,
 			 const struct i2c_device_id *devid)
@@ -401,7 +414,7 @@ static int adp1653_probe(struct i2c_client *client,
 	struct adp1653_flash *flash;
 	int ret;
 
-	
+	/* we couldn't work without platform data */
 	if (client->dev.platform_data == NULL)
 		return -ENODEV;
 

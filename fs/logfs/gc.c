@@ -9,13 +9,24 @@
 #include <linux/sched.h>
 #include <linux/slab.h>
 
+/*
+ * Wear leveling needs to kick in when the difference between low erase
+ * counts and high erase counts gets too big.  A good value for "too big"
+ * may be somewhat below 10% of maximum erase count for the device.
+ * Why not 397, to pick a nice round number with no specific meaning? :)
+ *
+ * WL_RATELIMIT is the minimum time between two wear level events.  A huge
+ * number of segments may fulfil the requirements for wear leveling at the
+ * same time.  If that happens we don't want to cause a latency from hell,
+ * but just gently pick one segment every so often and minimize overhead.
+ */
 #define WL_DELTA 397
 #define WL_RATELIMIT 100
 #define MAX_OBJ_ALIASES	2600
-#define SCAN_RATIO 512	
-#define LIST_SIZE 64	
-#define SCAN_ROUNDS 128	
-#define SCAN_ROUNDS_HIGH 4 
+#define SCAN_RATIO 512	/* number of scanned segments per gc'd segment */
+#define LIST_SIZE 64	/* base size of candidate lists */
+#define SCAN_ROUNDS 128	/* maximum number of complete medium scans */
+#define SCAN_ROUNDS_HIGH 4 /* maximum number of higher-level scans */
 
 static int no_free_segments(struct super_block *sb)
 {
@@ -24,23 +35,24 @@ static int no_free_segments(struct super_block *sb)
 	return super->s_free_list.count;
 }
 
+/* journal has distance -1, top-most ifile layer distance 0 */
 static u8 root_distance(struct super_block *sb, gc_level_t __gc_level)
 {
 	struct logfs_super *super = logfs_super(sb);
 	u8 gc_level = (__force u8)__gc_level;
 
 	switch (gc_level) {
-	case 0: 
-	case 1: 
-	case 2: 
+	case 0: /* fall through */
+	case 1: /* fall through */
+	case 2: /* fall through */
 	case 3:
-		
+		/* file data or indirect blocks */
 		return super->s_ifile_levels + super->s_iblock_levels - gc_level;
-	case 6: 
-	case 7: 
-	case 8: 
+	case 6: /* fall through */
+	case 7: /* fall through */
+	case 8: /* fall through */
 	case 9:
-		
+		/* inode file data or indirect blocks */
 		return super->s_ifile_levels - (gc_level - 6);
 	default:
 		printk(KERN_ERR"LOGFS: segment of unknown level %x found\n",
@@ -57,12 +69,12 @@ static int segment_is_reserved(struct super_block *sb, u32 segno)
 	void *reserved;
 	int i;
 
-	
+	/* Some segments are reserved.  Just pretend they were all valid */
 	reserved = btree_lookup32(&super->s_reserved_segments, segno);
 	if (reserved)
 		return 1;
 
-	
+	/* Currently open segments */
 	for_each_area(i) {
 		area = super->s_area[i];
 		if (area->a_is_open && area->a_segno == segno)
@@ -77,6 +89,10 @@ static void logfs_mark_segment_bad(struct super_block *sb, u32 segno)
 	BUG();
 }
 
+/*
+ * Returns the bytes consumed by valid objects in this segment.  Object headers
+ * are counted, the segment header is not.
+ */
 static u32 logfs_valid_bytes(struct super_block *sb, u32 segno, u32 *ec,
 		gc_level_t *gc_level)
 {
@@ -153,7 +169,7 @@ static u32 logfs_gc_segment(struct super_block *sb, u32 segno)
 			logfs_cleanse_block(sb, ofs, ino, bix, gc_level);
 			cleaned += len;
 		} else if (valid == 2) {
-			
+			/* Will be invalid upon journal commit */
 			cleaned += len;
 		}
 		seg_ofs += len;
@@ -231,13 +247,31 @@ u32 get_best_cand(struct super_block *sb, struct candidate_list *list, u32 *ec)
 	return segno;
 }
 
+/*
+ * We have several lists to manage segments with.  The reserve_list is used to
+ * deal with bad blocks.  We try to keep the best (lowest ec) segments on this
+ * list.
+ * The free_list contains free segments for normal usage.  It usually gets the
+ * second pick after the reserve_list.  But when the free_list is running short
+ * it is more important to keep the free_list full than to keep a reserve.
+ *
+ * Segments that are not free are put onto a per-level low_list.  If we have
+ * to run garbage collection, we pick a candidate from there.  All segments on
+ * those lists should have at least some free space so GC will make progress.
+ *
+ * And last we have the ec_list, which is used to pick segments for wear
+ * leveling.
+ *
+ * If all appropriate lists are full, we simply free the candidate and forget
+ * about that segment for a while.  We have better candidates for each purpose.
+ */
 static void __add_candidate(struct super_block *sb, struct gc_candidate *cand)
 {
 	struct logfs_super *super = logfs_super(sb);
 	u32 full = super->s_segsize - LOGFS_SEGMENT_RESERVE;
 
 	if (cand->valid == 0) {
-		
+		/* 100% free segments */
 		log_gc_noisy("add reserve segment %x (ec %x) at %llx\n",
 				cand->segno, cand->erase_count,
 				dev_ofs(sb, cand->segno, 0));
@@ -249,7 +283,7 @@ static void __add_candidate(struct super_block *sb, struct gc_candidate *cand)
 			cand = add_list(cand, &super->s_free_list);
 		}
 	} else {
-		
+		/* good candidates for Garbage Collection */
 		if (cand->valid < full)
 			cand = add_list(cand, &super->s_low_list[cand->dist]);
 		/* good candidates for wear leveling,
@@ -318,6 +352,15 @@ static struct gc_candidate *first_in_list(struct candidate_list *list)
 	return rb_entry(rb_first(&list->rb_tree), struct gc_candidate, rb_node);
 }
 
+/*
+ * Find the best segment for garbage collection.  Main criterion is
+ * the segment requiring the least effort to clean.  Secondary
+ * criterion is to GC on the lowest level available.
+ *
+ * So we search the least effort segment on the lowest level first,
+ * then move up and pick another segment iff is requires significantly
+ * less effort.  Hence the LOGFS_MAX_OBJECTSIZE in the comparison.
+ */
 static struct gc_candidate *get_candidate(struct super_block *sb)
 {
 	struct logfs_super *super = logfs_super(sb);
@@ -375,6 +418,7 @@ static int logfs_gc_once(struct super_block *sb)
 	return __logfs_gc_once(sb, cand);
 }
 
+/* returns 1 if a wrap occurs, 0 otherwise */
 static int logfs_scan_some(struct super_block *sb)
 {
 	struct logfs_super *super = logfs_super(sb);
@@ -387,6 +431,10 @@ static int logfs_scan_some(struct super_block *sb)
 		if (segno >= super->s_no_segs) {
 			segno = 0;
 			ret = 1;
+			/* Break out of the loop.  We want to read a single
+			 * block from the segment size on next invocation if
+			 * SCAN_RATIO is set to match block size
+			 */
 			break;
 		}
 
@@ -396,12 +444,26 @@ static int logfs_scan_some(struct super_block *sb)
 	return ret;
 }
 
+/*
+ * In principle, this function should loop forever, looking for GC candidates
+ * and moving data.  LogFS is designed in such a way that this loop is
+ * guaranteed to terminate.
+ *
+ * Limiting the loop to some iterations serves purely to catch cases when
+ * these guarantees have failed.  An actual endless loop is an obvious bug
+ * and should be reported as such.
+ */
 static void __logfs_gc_pass(struct super_block *sb, int target)
 {
 	struct logfs_super *super = logfs_super(sb);
 	struct logfs_block *block;
 	int round, progress, last_progress = 0;
 
+	/*
+	 * Doing too many changes to the segfile at once would result
+	 * in a large number of aliases.  Write the journal before
+	 * things get out of hand.
+	 */
 	if (super->s_shadow_tree.no_shadowed_segments >= MAX_OBJ_ALIASES)
 		logfs_write_anchor(sb);
 
@@ -414,6 +476,8 @@ static void __logfs_gc_pass(struct super_block *sb, int target)
 		if (no_free_segments(sb) >= target)
 			goto write_alias;
 
+		/* Sync in-memory state with on-medium state in case they
+		 * diverged */
 		logfs_write_anchor(sb);
 		round += logfs_scan_some(sb);
 		if (no_free_segments(sb) >= target)
@@ -425,17 +489,33 @@ static void __logfs_gc_pass(struct super_block *sb, int target)
 			break;
 		continue;
 
+		/*
+		 * The goto logic is nasty, I just don't know a better way to
+		 * code it.  GC is supposed to ensure two things:
+		 * 1. Enough free segments are available.
+		 * 2. The number of aliases is bounded.
+		 * When 1. is achieved, we take a look at 2. and write back
+		 * some alias-containing blocks, if necessary.  However, after
+		 * each such write we need to go back to 1., as writes can
+		 * consume free segments.
+		 */
 write_alias:
 		if (super->s_no_object_aliases < MAX_OBJ_ALIASES)
 			return;
 		if (list_empty(&super->s_object_alias)) {
-			
+			/* All aliases are still in btree */
 			return;
 		}
 		log_gc("Write back one alias\n");
 		block = list_entry(super->s_object_alias.next,
 				struct logfs_block, alias_list);
 		block->ops->write_block(block);
+		/*
+		 * To round off the nasty goto logic, we reset round here.  It
+		 * is a safety-net for GC not making any progress and limited
+		 * to something reasonably small.  If incremented it for every
+		 * single alias, the loop could terminate rather quickly.
+		 */
 		round = 0;
 	}
 	LOGFS_BUG(sb);
@@ -506,7 +586,7 @@ static void logfs_journal_wl_pass(struct super_block *sb)
 		return;
 
 	if (super->s_reserve_list.count < super->s_no_journal_segs) {
-		
+		/* Reserve is not full enough to move complete journal */
 		return;
 	}
 
@@ -536,7 +616,10 @@ void logfs_gc_pass(struct super_block *sb)
 {
 	struct logfs_super *super = logfs_super(sb);
 
-	
+	//BUG_ON(mutex_trylock(&logfs_super(sb)->s_w_mutex));
+	/* Write journal before free space is getting saturated with dirty
+	 * objects.
+	 */
 	if (super->s_dirty_used_bytes + super->s_dirty_free_bytes
 			+ LOGFS_MAX_OBJECTSIZE >= super->s_free_bytes)
 		logfs_write_anchor(sb);
@@ -635,6 +718,11 @@ void logfs_cleanup_gc(struct super_block *sb)
 	if (!super->s_free_list.count)
 		return;
 
+	/*
+	 * FIXME: The btree may still contain a single empty node.  So we
+	 * call the grim visitor to clean up that mess.  Btree code should
+	 * do it for us, really.
+	 */
 	btree_grim_visitor32(&super->s_cand_tree, 0, NULL);
 	logfs_cleanup_list(sb, &super->s_free_list);
 	logfs_cleanup_list(sb, &super->s_reserve_list);

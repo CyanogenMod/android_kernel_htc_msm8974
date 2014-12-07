@@ -32,6 +32,9 @@
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Alexander Shishkin");
 
+/*
+ * ETM tracer state
+ */
 struct tracectx {
 	unsigned int	etb_bufsz;
 	void __iomem	*etb_regs;
@@ -71,6 +74,8 @@ static int etm_setup_address_range(struct tracectx *t, int id, int n,
 	if (n < 1 || n > t->ncmppairs)
 		return -EINVAL;
 
+	/* comparators and ranges are numbered starting with 1 as opposed
+	 * to bits in a word */
 	n--;
 
 	if (data)
@@ -78,11 +83,11 @@ static int etm_setup_address_range(struct tracectx *t, int id, int n,
 	else
 		flags |= ETMAAT_IEXEC;
 
-	
+	/* first comparator for the range */
 	etm_writel(t, id, flags, ETMR_COMP_ACC_TYPE(n * 2));
 	etm_writel(t, id, start, ETMR_COMP_VAL(n * 2));
 
-	
+	/* second comparator is right next to it */
 	etm_writel(t, id, flags, ETMR_COMP_ACC_TYPE(n * 2 + 1));
 	etm_writel(t, id, end, ETMR_COMP_VAL(n * 2 + 1));
 
@@ -188,7 +193,7 @@ static int trace_start(struct tracectx *t)
 
 	etb_lock(t);
 
-	
+	/* configure etm(s) */
 	for (id = 0; id < t->etm_regs_count; id++) {
 		ret = trace_start_etm(t, id);
 		if (ret)
@@ -293,6 +298,7 @@ static int etb_getdatalen(struct tracectx *t)
 	return wp;
 }
 
+/* sysrq+v will always stop the running trace and leave it at that */
 static void etm_dump(void)
 {
 	struct tracectx *t = &tracer;
@@ -417,7 +423,7 @@ out:
 
 static int etb_release(struct inode *inode, struct file *file)
 {
-	
+	/* there's nothing to do here, actually */
 	return 0;
 }
 
@@ -459,7 +465,7 @@ static int __devinit etb_probe(struct amba_device *dev, const struct amba_id *id
 	t->etb_bufsz = etb_readl(t, ETBR_DEPTH);
 	dev_dbg(&dev->dev, "Size: %x\n", t->etb_bufsz);
 
-	
+	/* make sure trace capture is disabled */
 	etb_writel(t, 0, ETBR_CTRL);
 	etb_writel(t, 0x1000, ETBR_FORMATTERCTRL);
 	etb_lock(t);
@@ -471,7 +477,7 @@ static int __devinit etb_probe(struct amba_device *dev, const struct amba_id *id
 	if (ret)
 		goto out_unmap;
 
-	
+	/* Get optional clock. Currently used to select clock source on omap3 */
 	t->emu_clk = clk_get(&dev->dev, "emu_src_ck");
 	if (IS_ERR(t->emu_clk))
 		dev_dbg(&dev->dev, "Failed to obtain emu_src_ck.\n");
@@ -533,6 +539,7 @@ static struct amba_driver etb_driver = {
 	.id_table	= etb_ids,
 };
 
+/* use a sysfs file "trace_running" to start/stop tracing */
 static ssize_t trace_running_show(struct kobject *kobj,
 				  struct kobj_attribute *attr,
 				  char *buf)
@@ -655,7 +662,7 @@ static ssize_t trace_contextid_size_show(struct kobject *kobj,
 					 struct kobj_attribute *attr,
 					 char *buf)
 {
-	
+	/* 0: No context id tracing, 1: One byte, 2: Two bytes, 3: Four bytes */
 	return sprintf(buf, "%d\n", (1 << tracer.etm_contextid_size) >> 1);
 }
 
@@ -701,7 +708,7 @@ static ssize_t trace_branch_output_store(struct kobject *kobj,
 	mutex_lock(&tracer.mutex);
 	if (branch_output) {
 		tracer.flags |= TRACER_BRANCHOUTPUT;
-		
+		/* Branch broadcasting is incompatible with the return stack */
 		tracer.flags &= ~TRACER_RETURN_STACK;
 	} else {
 		tracer.flags &= ~TRACER_BRANCHOUTPUT;
@@ -734,7 +741,7 @@ static ssize_t trace_return_stack_store(struct kobject *kobj,
 	mutex_lock(&tracer.mutex);
 	if (return_stack) {
 		tracer.flags |= TRACER_RETURN_STACK;
-		
+		/* Return stack is incompatible with branch broadcasting */
 		tracer.flags &= ~TRACER_BRANCHOUTPUT;
 	} else {
 		tracer.flags &= ~TRACER_RETURN_STACK;
@@ -891,7 +898,7 @@ static int __devinit etm_probe(struct amba_device *dev, const struct amba_id *id
 
 	etm_unlock(t, t->etm_regs_count);
 	(void)etm_readl(t, t->etm_regs_count, ETMMR_PDSR);
-	
+	/* dummy first read */
 	(void)etm_readl(&tracer, t->etm_regs_count, ETMMR_OSSRR);
 
 	etmccr = etm_readl(t, t->etm_regs_count, ETMR_CONFCODE);
@@ -911,7 +918,7 @@ static int __devinit etm_probe(struct amba_device *dev, const struct amba_id *id
 	if (ret)
 		goto out_unmap;
 
-	
+	/* failing to create any of these two is not fatal */
 	ret = sysfs_create_file(&dev->dev.kobj, &trace_info_attr.attr);
 	if (ret)
 		dev_dbg(&dev->dev, "Failed to create trace_info in sysfs\n");
@@ -964,7 +971,7 @@ static int __devinit etm_probe(struct amba_device *dev, const struct amba_id *id
 
 	dev_dbg(&dev->dev, "ETM AMBA driver initialized.\n");
 
-	
+	/* Enable formatter if there are multiple trace sources */
 	if (new_count > 1)
 		t->etb_fc = ETBFF_ENFCONT | ETBFF_ENFTC;
 
@@ -1059,7 +1066,7 @@ static int __init etm_init(void)
 		return retval;
 	}
 
-	
+	/* not being able to install this handler is not fatal */
 	(void)register_sysrq_key('v', &sysrq_etm_op);
 
 	return 0;

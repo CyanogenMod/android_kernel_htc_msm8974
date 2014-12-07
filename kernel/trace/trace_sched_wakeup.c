@@ -42,10 +42,10 @@ static int save_lat_flag;
 
 static struct tracer_opt trace_opts[] = {
 #ifdef CONFIG_FUNCTION_GRAPH_TRACER
-	
+	/* display latency trace as call graph */
 	{ TRACER_OPT(display-graph, TRACE_DISPLAY_GRAPH) },
 #endif
-	{ } 
+	{ } /* Empty entry */
 };
 
 static struct tracer_flags tracer_flags = {
@@ -57,6 +57,20 @@ static struct tracer_flags tracer_flags = {
 
 #ifdef CONFIG_FUNCTION_TRACER
 
+/*
+ * Prologue for the wakeup function tracers.
+ *
+ * Returns 1 if it is OK to continue, and preemption
+ *            is disabled and data->disabled is incremented.
+ *         0 if the trace is to be ignored, and preemption
+ *            is not disabled and data->disabled is
+ *            kept the same.
+ *
+ * Note, this function is also used outside this ifdef but
+ *  inside the #ifdef of the function graph tracer below.
+ *  This is OK, since the function graph tracer is
+ *  dependent on the function tracer.
+ */
 static int
 func_prolog_preempt_disable(struct trace_array *tr,
 			    struct trace_array_cpu **data,
@@ -90,6 +104,9 @@ out_enable:
 	return 0;
 }
 
+/*
+ * wakeup uses its own tracer function to keep the overhead down:
+ */
 static void
 wakeup_tracer_call(unsigned long ip, unsigned long parent_ip)
 {
@@ -114,7 +131,7 @@ static struct ftrace_ops trace_ops __read_mostly =
 	.func = wakeup_tracer_call,
 	.flags = FTRACE_OPS_FL_GLOBAL,
 };
-#endif 
+#endif /* CONFIG_FUNCTION_TRACER */
 
 static int start_func_tracer(int graph)
 {
@@ -216,6 +233,10 @@ static void wakeup_trace_close(struct trace_iterator *iter)
 
 static enum print_line_t wakeup_print_line(struct trace_iterator *iter)
 {
+	/*
+	 * In graph mode call the graph tracer output function,
+	 * otherwise go with the TRACE_FN event handler
+	 */
 	if (is_graph())
 		return print_graph_function_flags(iter, GRAPH_TRACER_FLAGS);
 
@@ -272,9 +293,12 @@ static void wakeup_print_header(struct seq_file *s)
 {
 	trace_latency_header(s);
 }
-#endif 
-#endif 
+#endif /* CONFIG_FUNCTION_TRACER */
+#endif /* CONFIG_FUNCTION_GRAPH_TRACER */
 
+/*
+ * Should this new latency be reported/recorded?
+ */
 static int report_latency(cycle_t delta)
 {
 	if (tracing_thresh) {
@@ -312,6 +336,13 @@ probe_wakeup_sched_switch(void *ignore,
 	if (unlikely(!tracer_enabled))
 		return;
 
+	/*
+	 * When we start a new trace, we set wakeup_task to NULL
+	 * and then set tracer_enabled = 1. We want to make sure
+	 * that another CPU does not see the tracer_enabled = 1
+	 * and the wakeup_task with an older task, that might
+	 * actually be the same as next.
+	 */
 	smp_rmb();
 
 	if (next != wakeup_task)
@@ -319,7 +350,7 @@ probe_wakeup_sched_switch(void *ignore,
 
 	pc = preempt_count();
 
-	
+	/* disable local data, not wakeup_cpu data */
 	cpu = raw_smp_processor_id();
 	disabled = atomic_inc_return(&wakeup_trace->data[cpu]->disabled);
 	if (likely(disabled != 1))
@@ -328,11 +359,11 @@ probe_wakeup_sched_switch(void *ignore,
 	local_irq_save(flags);
 	arch_spin_lock(&wakeup_lock);
 
-	
+	/* We could race with grabbing wakeup_lock */
 	if (unlikely(!tracer_enabled || next != wakeup_task))
 		goto out_unlock;
 
-	
+	/* The task we are waiting for is waking up */
 	data = wakeup_trace->data[wakeup_cpu];
 
 	__trace_function(wakeup_trace, CALLER_ADDR0, CALLER_ADDR1, flags, pc);
@@ -407,14 +438,14 @@ probe_wakeup(void *ignore, struct task_struct *p, int success)
 	if (unlikely(disabled != 1))
 		goto out;
 
-	
+	/* interrupts should be off from try_to_wake_up */
 	arch_spin_lock(&wakeup_lock);
 
-	
+	/* check for races. */
 	if (!tracer_enabled || p->prio >= wakeup_prio)
 		goto out_locked;
 
-	
+	/* reset the trace */
 	__wakeup_reset(wakeup_trace);
 
 	wakeup_cpu = task_cpu(p);
@@ -430,6 +461,11 @@ probe_wakeup(void *ignore, struct task_struct *p, int success)
 	data->preempt_timestamp = ftrace_now(cpu);
 	tracing_sched_wakeup_trace(wakeup_trace, p, current, flags, pc);
 
+	/*
+	 * We must be careful in using CALLER_ADDR2. But since wake_up
+	 * is not called by an assembly function  (where as schedule is)
+	 * it should be safe to use it here.
+	 */
 	__trace_function(wakeup_trace, CALLER_ADDR1, CALLER_ADDR2, flags, pc);
 
 out_locked:
@@ -472,6 +508,13 @@ static void start_wakeup_tracer(struct trace_array *tr)
 
 	wakeup_reset(tr);
 
+	/*
+	 * Don't let the tracer_enabled = 1 show up before
+	 * the wakeup_task is reset. This may be overkill since
+	 * wakeup_reset does a spin_unlock after setting the
+	 * wakeup_task to NULL, but I want to be safe.
+	 * This is a slow path anyway.
+	 */
 	smp_wmb();
 
 	if (start_func_tracer(is_graph()))
@@ -520,7 +563,7 @@ static int wakeup_rt_tracer_init(struct trace_array *tr)
 static void wakeup_tracer_reset(struct trace_array *tr)
 {
 	stop_wakeup_tracer(tr);
-	
+	/* make sure we put back any tasks we are tracing */
 	wakeup_reset(tr);
 
 	if (!save_lat_flag)

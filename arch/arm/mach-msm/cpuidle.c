@@ -101,6 +101,13 @@ static void __devinit msm_cpuidle_set_states(void)
 
 	for (i = 0; i < ARRAY_SIZE(msm_cstates); i++) {
 		cstate = &msm_cstates[i];
+		/* We have an asymmetric CPU C-State in MSMs.
+		 * The primary CPU can do PC while all secondary cpus
+		 * can only do standalone PC as part of their idle LPM.
+		 * However, the secondary cpus can do PC when hotplugged
+		 * We do not care about the hotplug here.
+		 * Register the C-States available for Core0.
+		 */
 		if (cstate->cpu)
 			continue;
 
@@ -138,7 +145,7 @@ static void __init msm_cpuidle_set_cpu_statedata(struct cpuidle_device *dev)
 		BUG_ON(state_count > msm_cpuidle_driver.state_count);
 	}
 
-	dev->state_count = state_count; 
+	dev->state_count = state_count; /* Per cpu state count */
 }
 
 int __devinit msm_cpuidle_init(void)

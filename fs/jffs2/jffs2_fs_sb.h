@@ -24,8 +24,8 @@
 #include <linux/rwsem.h>
 
 #define JFFS2_SB_FLAG_RO 1
-#define JFFS2_SB_FLAG_SCANNING 2 
-#define JFFS2_SB_FLAG_BUILDING 4 
+#define JFFS2_SB_FLAG_SCANNING 2 /* Flash scanning is in progress */
+#define JFFS2_SB_FLAG_BUILDING 4 /* File system building is in progress */
 
 struct jffs2_inodirty;
 
@@ -34,6 +34,10 @@ struct jffs2_mount_opts {
 	unsigned int compr;
 };
 
+/* A struct for the overall file system control.  Pointers to
+   jffs2_sb_info structs are named `c' in the source code.
+   Nee jffs_control
+*/
 struct jffs2_sb_info {
 	struct mtd_info *mtd;
 
@@ -42,12 +46,15 @@ struct jffs2_sb_info {
 
 	unsigned int flags;
 
-	struct task_struct *gc_task;	
-	struct completion gc_thread_start; 
-	struct completion gc_thread_exit; 
+	struct task_struct *gc_task;	/* GC task struct */
+	struct completion gc_thread_start; /* GC thread start completion */
+	struct completion gc_thread_exit; /* GC thread exit completion port */
 
-	struct mutex alloc_sem;		
-	uint32_t cleanmarker_size;	
+	struct mutex alloc_sem;		/* Used to protect all the following
+					   fields, and also to protect against
+					   out-of-order writing of nodes. And GC. */
+	uint32_t cleanmarker_size;	/* Size of an _inline_ CLEANMARKER
+					 (i.e. zero for OOB CLEANMARKER */
 
 	uint32_t flash_size;
 	uint32_t used_size;
@@ -62,63 +69,68 @@ struct jffs2_sb_info {
 	uint32_t nr_free_blocks;
 	uint32_t nr_erasing_blocks;
 
-	
-	uint8_t resv_blocks_write;	
-	uint8_t resv_blocks_deletion;	
-	uint8_t resv_blocks_gctrigger;	
-	uint8_t resv_blocks_gcbad;	
-	uint8_t resv_blocks_gcmerge;	
-	
+	/* Number of free blocks there must be before we... */
+	uint8_t resv_blocks_write;	/* ... allow a normal filesystem write */
+	uint8_t resv_blocks_deletion;	/* ... allow a normal filesystem deletion */
+	uint8_t resv_blocks_gctrigger;	/* ... wake up the GC thread */
+	uint8_t resv_blocks_gcbad;	/* ... pick a block from the bad_list to GC */
+	uint8_t resv_blocks_gcmerge;	/* ... merge pages when garbage collecting */
+	/* Number of 'very dirty' blocks before we trigger immediate GC */
 	uint8_t vdirty_blocks_gctrigger;
 
 	uint32_t nospc_dirty_size;
 
 	uint32_t nr_blocks;
-	struct jffs2_eraseblock *blocks;	
-	struct jffs2_eraseblock *nextblock;	
+	struct jffs2_eraseblock *blocks;	/* The whole array of blocks. Used for getting blocks
+						 * from the offset (blocks[ofs / sector_size]) */
+	struct jffs2_eraseblock *nextblock;	/* The block we're currently filling */
 
-	struct jffs2_eraseblock *gcblock;	
+	struct jffs2_eraseblock *gcblock;	/* The block we're currently garbage-collecting */
 
-	struct list_head clean_list;		
-	struct list_head very_dirty_list;	
-	struct list_head dirty_list;		
-	struct list_head erasable_list;		
-	struct list_head erasable_pending_wbuf_list;	
-	struct list_head erasing_list;		
-	struct list_head erase_checking_list;	
-	struct list_head erase_pending_list;	
+	struct list_head clean_list;		/* Blocks 100% full of clean data */
+	struct list_head very_dirty_list;	/* Blocks with lots of dirty space */
+	struct list_head dirty_list;		/* Blocks with some dirty space */
+	struct list_head erasable_list;		/* Blocks which are completely dirty, and need erasing */
+	struct list_head erasable_pending_wbuf_list;	/* Blocks which need erasing but only after the current wbuf is flushed */
+	struct list_head erasing_list;		/* Blocks which are currently erasing */
+	struct list_head erase_checking_list;	/* Blocks which are being checked and marked */
+	struct list_head erase_pending_list;	/* Blocks which need erasing now */
 	struct list_head erase_complete_list;	/* Blocks which are erased and need the clean marker written to them */
-	struct list_head free_list;		
-	struct list_head bad_list;		
-	struct list_head bad_used_list;		
+	struct list_head free_list;		/* Blocks which are free and ready to be used */
+	struct list_head bad_list;		/* Bad blocks. */
+	struct list_head bad_used_list;		/* Bad blocks with valid data in. */
 
-	spinlock_t erase_completion_lock;	
-	wait_queue_head_t erase_wait;		
+	spinlock_t erase_completion_lock;	/* Protect free_list and erasing_list
+						   against erase completion handler */
+	wait_queue_head_t erase_wait;		/* For waiting for erases to complete */
 
 	wait_queue_head_t inocache_wq;
 	int inocache_hashsize;
 	struct jffs2_inode_cache **inocache_list;
 	spinlock_t inocache_lock;
 
+	/* Sem to allow jffs2_garbage_collect_deletion_dirent to
+	   drop the erase_completion_lock while it's holding a pointer
+	   to an obsoleted node. I don't like this. Alternatives welcomed. */
 	struct mutex erase_free_sem;
 
-	uint32_t wbuf_pagesize; 
+	uint32_t wbuf_pagesize; /* 0 for NOR and other flashes with no wbuf */
 
 #ifdef CONFIG_JFFS2_FS_WBUF_VERIFY
-	unsigned char *wbuf_verify; 
+	unsigned char *wbuf_verify; /* read-back buffer for verification */
 #endif
 #ifdef CONFIG_JFFS2_FS_WRITEBUFFER
-	unsigned char *wbuf; 
+	unsigned char *wbuf; /* Write-behind buffer for NAND flash */
 	uint32_t wbuf_ofs;
 	uint32_t wbuf_len;
 	struct jffs2_inodirty *wbuf_inodes;
-	struct rw_semaphore wbuf_sem;	
+	struct rw_semaphore wbuf_sem;	/* Protects the write buffer */
 
 	unsigned char *oobbuf;
-	int oobavail; 
+	int oobavail; /* How many bytes are available for JFFS2 in OOB */
 #endif
 
-	struct jffs2_summary *summary;		
+	struct jffs2_summary *summary;		/* Summary information */
 	struct jffs2_mount_opts mount_opts;
 
 #ifdef CONFIG_JFFS2_FS_XATTR
@@ -134,8 +146,8 @@ struct jffs2_sb_info {
 	uint32_t xdatum_mem_usage;
 	uint32_t xdatum_mem_threshold;
 #endif
-	
+	/* OS-private pointer for getting back to master superblock info */
 	void *os_priv;
 };
 
-#endif 
+#endif /* _JFFS2_FS_SB */

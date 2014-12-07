@@ -15,6 +15,7 @@
 #ifndef ATARI_SCSI_H
 #define ATARI_SCSI_H
 
+/* (I_HAVE_OVERRUNS stuff removed) */
 
 #ifndef ASM
 int atari_scsi_detect (struct scsi_host_template *);
@@ -22,8 +23,15 @@ const char *atari_scsi_info (struct Scsi_Host *);
 int atari_scsi_reset (Scsi_Cmnd *, unsigned int);
 int atari_scsi_release (struct Scsi_Host *);
 
+/* The values for CMD_PER_LUN and CAN_QUEUE are somehow arbitrary. Higher
+ * values should work, too; try it! (but cmd_per_lun costs memory!) */
 
+/* But there seems to be a bug somewhere that requires CAN_QUEUE to be
+ * 2*CMD_PER_LUN. At least on a TT, no spurious timeouts seen since
+ * changed CMD_PER_LUN... */
 
+/* Note: The Falcon currently uses 8/1 setting due to unsolved problems with
+ * cmd_per_lun != 1 */
 
 #define ATARI_TT_CAN_QUEUE		16
 #define ATARI_TT_CMD_PER_LUN		8
@@ -36,7 +44,7 @@ int atari_scsi_release (struct Scsi_Host *);
 #define	DEFAULT_USE_TAGGED_QUEUING	0
 
 
-#define	NCR5380_implementation_fields	
+#define	NCR5380_implementation_fields	/* none */
 
 #define NCR5380_read(reg)		  atari_scsi_reg_read( reg )
 #define NCR5380_write(reg, value) atari_scsi_reg_write( reg, value )
@@ -51,6 +59,7 @@ int atari_scsi_release (struct Scsi_Host *);
 #define	NCR5380_dma_xfer_len(i,cmd,phase) \
 	atari_dma_xfer_len(cmd->SCp.this_residual,cmd,((phase) & SR_IO) ? 0 : 1)
 
+/* former generic SCSI error handling stuff */
 
 #define SCSI_ABORT_SNOOZE 0
 #define SCSI_ABORT_SUCCESS 1
@@ -76,6 +85,33 @@ int atari_scsi_release (struct Scsi_Host *);
 #define SCSI_RESET_HOST_RESET 0x200
 #define SCSI_RESET_ACTION   0xff
 
+/* Debugging printk definitions:
+ *
+ *  ARB  -> arbitration
+ *  ASEN -> auto-sense
+ *  DMA  -> DMA
+ *  HSH  -> PIO handshake
+ *  INF  -> information transfer
+ *  INI  -> initialization
+ *  INT  -> interrupt
+ *  LNK  -> linked commands
+ *  MAIN -> NCR5380_main() control flow
+ *  NDAT -> no data-out phase
+ *  NWR  -> no write commands
+ *  PIO  -> PIO transfers
+ *  PDMA -> pseudo DMA (unused on Atari)
+ *  QU   -> queues
+ *  RSL  -> reselections
+ *  SEL  -> selections
+ *  USL  -> usleep cpde (unused on Atari)
+ *  LBS  -> last byte sent (unused on Atari)
+ *  RSS  -> restarting of selections
+ *  EXT  -> extended messages
+ *  ABRT -> aborting and resetting
+ *  TAG  -> queue tag handling
+ *  MER  -> merging of consec. buffers
+ *
+ */
 
 #define dprint(flg, format...)			\
 ({						\
@@ -130,6 +166,7 @@ int atari_scsi_release (struct Scsi_Host *);
 #define MER_PRINTK(format, args...) \
 	dprint(NDEBUG_MERGING, format , ## args)
 
+/* conditional macros for NCR5380_print_{,phase,status} */
 
 #define NCR_PRINT(mask)	\
 	((NDEBUG & (mask)) ? NCR5380_print(instance) : (void)0)
@@ -141,7 +178,7 @@ int atari_scsi_release (struct Scsi_Host *);
 	((NDEBUG & (mask)) ? NCR5380_print_status(instance) : (void)0)
 
 
-#endif 
-#endif 
+#endif /* ndef ASM */
+#endif /* ATARI_SCSI_H */
 
 

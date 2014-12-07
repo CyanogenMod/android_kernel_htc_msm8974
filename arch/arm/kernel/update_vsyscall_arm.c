@@ -14,6 +14,10 @@
 #include <linux/clocksource.h>
 #include <linux/time.h>
 #include "update_vsyscall_arm.h"
+/*
+ * See entry-armv.S for the offsets into the kernel user helper for
+ * these fields.
+ */
 #define ARM_VSYSCALL_TIMER_TZ			0xf20
 #define ARM_VSYSCALL_TIMER_SEQ			0xf28
 #define ARM_VSYSCALL_TIMER_OFFSET		0xf30
@@ -45,6 +49,11 @@ struct kernel_wtm_t {
 	u32  tv_nsec;
 };
 
+/*
+ * Updates the kernel user helper area with the current timespec
+ * data, as well as additional fields needed to calculate
+ * gettimeofday, clock_gettime, etc.
+ */
 void
 update_vsyscall(struct timespec *ts, struct timespec *wtm,
 	struct clocksource *c, u32 mult)

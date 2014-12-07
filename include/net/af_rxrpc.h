@@ -16,14 +16,17 @@
 
 struct rxrpc_call;
 
+/*
+ * the mark applied to socket buffers that may be intercepted
+ */
 enum {
-	RXRPC_SKB_MARK_DATA,		
-	RXRPC_SKB_MARK_FINAL_ACK,	
-	RXRPC_SKB_MARK_BUSY,		
-	RXRPC_SKB_MARK_REMOTE_ABORT,	
-	RXRPC_SKB_MARK_NET_ERROR,	
-	RXRPC_SKB_MARK_LOCAL_ERROR,	
-	RXRPC_SKB_MARK_NEW_CALL,	
+	RXRPC_SKB_MARK_DATA,		/* data message */
+	RXRPC_SKB_MARK_FINAL_ACK,	/* final ACK received message */
+	RXRPC_SKB_MARK_BUSY,		/* server busy message */
+	RXRPC_SKB_MARK_REMOTE_ABORT,	/* remote abort message */
+	RXRPC_SKB_MARK_NET_ERROR,	/* network error message */
+	RXRPC_SKB_MARK_LOCAL_ERROR,	/* local error message */
+	RXRPC_SKB_MARK_NEW_CALL,	/* local error message */
 };
 
 typedef void (*rxrpc_interceptor_t)(struct sock *, unsigned long,
@@ -48,4 +51,4 @@ extern struct rxrpc_call *rxrpc_kernel_accept_call(struct socket *,
 						   unsigned long);
 extern int rxrpc_kernel_reject_call(struct socket *);
 
-#endif 
+#endif /* _NET_RXRPC_H */

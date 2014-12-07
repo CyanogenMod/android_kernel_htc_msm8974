@@ -54,7 +54,7 @@ static struct mv_sata_platform_data openrd_sata_data = {
 };
 
 static struct mvsdio_platform_data openrd_mvsdio_data = {
-	.gpio_card_detect = 29,	
+	.gpio_card_detect = 29,	/* MPP29 used as SD card detect */
 };
 
 static unsigned int openrd_mpp_config[] __initdata = {
@@ -70,6 +70,7 @@ static unsigned int openrd_mpp_config[] __initdata = {
 	0
 };
 
+/* Configure MPP for UART1 */
 static unsigned int openrd_uart1_mpp_config[] __initdata = {
 	MPP13_UART1_TXD,
 	MPP14_UART1_RXD,
@@ -93,13 +94,16 @@ static int __init sd_uart_selection(char *str)
 {
 	uart1 = -EINVAL;
 
-	
+	/* Default is SD. Change if required, for UART */
 	if (!str)
 		return 0;
 
 	if (!strncmp(str, "232", 3)) {
 		uart1 = 232;
 	} else if (!strncmp(str, "485", 3)) {
+		/* OpenRD-Base doesn't have RS485. Treat is as an
+		 * unknown argument & just have default setting -
+		 * which is SD */
 		if (machine_is_openrd_base()) {
 			uart1 = -ENODEV;
 			return 1;
@@ -109,6 +113,7 @@ static int __init sd_uart_selection(char *str)
 	}
 	return 1;
 }
+/* Parse boot_command_line string kw_openrd_init_uart1=232/485 */
 __setup("kw_openrd_init_uart1=", sd_uart_selection);
 
 static int __init uart1_mpp_config(void)
@@ -128,8 +133,12 @@ static int __init uart1_mpp_config(void)
 		return -EIO;
 	}
 
+	/* Select UART1
+	 * Pin # 34: 0 => UART1, 1 => SD */
 	gpio_direction_output(34, 0);
 
+	/* Select RS232 OR RS485
+	 * Pin # 28: 0 => RS232, 1 => RS485 */
 	if (uart1 == 232)
 		gpio_direction_output(28, 0);
 	else
@@ -143,6 +152,9 @@ static int __init uart1_mpp_config(void)
 
 static void __init openrd_init(void)
 {
+	/*
+	 * Basic setup. Needs to be called early.
+	 */
 	kirkwood_init();
 	kirkwood_mpp_conf(openrd_mpp_config);
 
@@ -177,6 +189,8 @@ static void __init openrd_init(void)
 				"UART1. Defaulting to SD. ERROR CODE: %d\n",
 				uart1);
 
+		/* Select SD
+		 * Pin # 34: 0 => UART1, 1 => SD */
 		if (gpio_request(34, "SD_UART1_SEL")) {
 			printk(KERN_ERR "GPIO request failed for SD/UART1 "
 					"selection, gpio: 34\n");
@@ -205,7 +219,7 @@ subsys_initcall(openrd_pci_init);
 
 #ifdef CONFIG_MACH_OPENRD_BASE
 MACHINE_START(OPENRD_BASE, "Marvell OpenRD Base Board")
-	
+	/* Maintainer: Dhaval Vasa <dhaval.vasa@einfochips.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= openrd_init,
 	.map_io		= kirkwood_map_io,
@@ -218,7 +232,7 @@ MACHINE_END
 
 #ifdef CONFIG_MACH_OPENRD_CLIENT
 MACHINE_START(OPENRD_CLIENT, "Marvell OpenRD Client Board")
-	
+	/* Maintainer: Dhaval Vasa <dhaval.vasa@einfochips.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= openrd_init,
 	.map_io		= kirkwood_map_io,
@@ -231,7 +245,7 @@ MACHINE_END
 
 #ifdef CONFIG_MACH_OPENRD_ULTIMATE
 MACHINE_START(OPENRD_ULTIMATE, "Marvell OpenRD Ultimate Board")
-	
+	/* Maintainer: Dhaval Vasa <dhaval.vasa@einfochips.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= openrd_init,
 	.map_io		= kirkwood_map_io,

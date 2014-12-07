@@ -46,6 +46,8 @@ static int init_hw(struct echoaudio *chip, u16 device_id, u16 subdevice_id)
 	chip->subdevice_id = subdevice_id;
 	chip->bad_board = TRUE;
 	chip->dsp_code_to_load = FW_DARLA24_DSP;
+	/* Since this card has no ASIC, mark it as loaded so everything
+	   works OK */
 	chip->asic_loaded = TRUE;
 	chip->input_clock_types = ECHO_CLOCK_BIT_INTERNAL |
 		ECHO_CLOCK_BIT_ESYNC;
@@ -71,6 +73,8 @@ static u32 detect_input_clocks(const struct echoaudio *chip)
 {
 	u32 clocks_from_dsp, clock_bits;
 
+	/* Map the DSP clock detect bits to the generic driver clock
+	   detect bits */
 	clocks_from_dsp = le32_to_cpu(chip->comm_page->status_clocks);
 
 	clock_bits = ECHO_CLOCK_BIT_INTERNAL;
@@ -83,6 +87,7 @@ static u32 detect_input_clocks(const struct echoaudio *chip)
 
 
 
+/* The Darla24 has no ASIC. Just do nothing */
 static int load_asic(struct echoaudio *chip)
 {
 	return 0;
@@ -134,11 +139,11 @@ static int set_sample_rate(struct echoaudio *chip, u32 rate)
 	DE_ACT(("set_sample_rate: %d clock %d\n", rate, clock));
 	chip->sample_rate = rate;
 
-	
+	/* Override the sample rate if this card is set to Echo sync. */
 	if (chip->input_clock == ECHO_CLOCK_ESYNC)
 		clock = GD24_EXT_SYNC;
 
-	chip->comm_page->sample_rate = cpu_to_le32(rate);	
+	chip->comm_page->sample_rate = cpu_to_le32(rate);	/* ignored by the DSP ? */
 	chip->comm_page->gd_clock_state = clock;
 	clear_handshake(chip);
 	return send_vector(chip, DSP_VC_SET_GD_AUDIO_STATE);

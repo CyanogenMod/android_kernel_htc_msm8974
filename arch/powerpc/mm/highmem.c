@@ -23,12 +23,18 @@
 #include <linux/highmem.h>
 #include <linux/module.h>
 
+/*
+ * The use of kmap_atomic/kunmap_atomic is discouraged - kmap/kunmap
+ * gives a more generic (and caching) interface. But kmap_atomic can
+ * be used in IRQ contexts, so in some (very limited) cases we need
+ * it.
+ */
 void *kmap_atomic_prot(struct page *page, pgprot_t prot)
 {
 	unsigned long vaddr;
 	int idx, type;
 
-	
+	/* even !CONFIG_PREEMPT needs this, for in_atomic in do_page_fault */
 	pagefault_disable();
 	if (!PageHighMem(page))
 		return page_address(page);
@@ -65,6 +71,10 @@ void __kunmap_atomic(void *kvaddr)
 		idx = type + KM_TYPE_NR * smp_processor_id();
 		BUG_ON(vaddr != __fix_to_virt(FIX_KMAP_BEGIN + idx));
 
+		/*
+		 * force other mappings to Oops if they'll try to access
+		 * this pte without first remap it
+		 */
 		pte_clear(&init_mm, vaddr, kmap_pte-idx);
 		local_flush_tlb_page(NULL, vaddr);
 	}

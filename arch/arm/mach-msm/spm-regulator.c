@@ -38,6 +38,7 @@ struct voltage_range {
 	int step_uV;
 };
 
+/* Properties for FTS2 type QPNP PMIC regulators. */
 
 static const struct voltage_range fts2_range0 = {0, 350000, 1275000,  5000};
 static const struct voltage_range fts2_range1 = {0, 700000, 2040000, 10000};
@@ -60,12 +61,19 @@ static const struct voltage_range fts2_range1 = {0, 700000, 2040000, 10000};
 #define QPNP_FTS2_STEP_CTRL_DELAY_MASK	0x07
 #define QPNP_FTS2_STEP_CTRL_DELAY_SHIFT	0
 
+/* Clock rate in kHz of the FTS2 regulator reference clock. */
 #define QPNP_FTS2_CLOCK_RATE		19200
 
+/* Time to delay in us to ensure that a mode change has completed. */
 #define QPNP_FTS2_MODE_CHANGE_DELAY	50
 
+/* Minimum time in us that it takes to complete a single SPMI write. */
 #define QPNP_SPMI_WRITE_MIN_DELAY	8
 
+/*
+ * The ratio QPNP_FTS2_STEP_MARGIN_NUM/QPNP_FTS2_STEP_MARGIN_DEN is use to
+ * adjust the step rate in order to account for oscillator variance.
+ */
 #define QPNP_FTS2_STEP_MARGIN_NUM	4
 #define QPNP_FTS2_STEP_MARGIN_DEN	5
 
@@ -107,29 +115,29 @@ static int _spm_regulator_set_voltage(struct regulator_dev *rdev)
 
 	if (!(vreg->init_mode & QPNP_FTS2_MODE_PWM)
 	    && vreg->uV > vreg->last_set_uV) {
-		
+		/* Switch to PWM mode so that voltage ramping is fast. */
 		rc = qpnp_fts2_set_mode(vreg, QPNP_FTS2_MODE_PWM);
 		if (rc)
 			return rc;
 	}
 
-	rc = msm_spm_set_vdd(0, vreg->vlevel); 
+	rc = msm_spm_set_vdd(0, vreg->vlevel); /* value of CPU is don't care */
 	if (rc) {
 		pr_err("%s: msm_spm_set_vdd failed %d\n", vreg->rdesc.name, rc);
 		return rc;
 	}
 
 	if (vreg->uV > vreg->last_set_uV) {
-		
+		/* Wait for voltage stepping to complete. */
 		udelay(DIV_ROUND_UP(vreg->uV - vreg->last_set_uV,
 					vreg->step_rate));
 	}
 
 	if (!(vreg->init_mode & QPNP_FTS2_MODE_PWM)
 	    && vreg->uV > vreg->last_set_uV) {
-		
+		/* Wait for mode transition to complete. */
 		udelay(QPNP_FTS2_MODE_CHANGE_DELAY - QPNP_SPMI_WRITE_MIN_DELAY);
-		
+		/* Switch to AUTO mode so that power consumption is lowered. */
 		rc = qpnp_fts2_set_mode(vreg, QPNP_FTS2_MODE_AUTO);
 		if (rc)
 			return rc;
@@ -361,14 +369,14 @@ static int qpnp_fts2_init_step_rate(struct spm_vreg *vreg)
 	delay = (reg & QPNP_FTS2_STEP_CTRL_DELAY_MASK)
 		>> QPNP_FTS2_STEP_CTRL_DELAY_SHIFT;
 
-	
+	/* step_rate has units of uV/us. */
 	vreg->step_rate = QPNP_FTS2_CLOCK_RATE * vreg->range->step_uV
 				* (1 << step);
 	vreg->step_rate /= 1000 * (8 << delay);
 	vreg->step_rate = vreg->step_rate * QPNP_FTS2_STEP_MARGIN_NUM
 				/ QPNP_FTS2_STEP_MARGIN_DEN;
 
-	
+	/* Ensure that the stepping rate is greater than 0. */
 	vreg->step_rate = max(vreg->step_rate, 1);
 
 	return rc;
@@ -406,6 +414,11 @@ static int __devinit spm_regulator_probe(struct spmi_device *spmi)
 	if (rc)
 		return rc;
 
+	/*
+	 * The FTS2 regulator must be initialized to range 0 or range 1 during
+	 * PMIC power on sequence.  Once it is set, it cannot be changed
+	 * dynamically.
+	 */
 	rc = qpnp_fts2_init_range(vreg);
 	if (rc)
 		return rc;
@@ -498,6 +511,14 @@ static struct spmi_driver spm_regulator_driver = {
 	.id_table	= spm_regulator_id,
 };
 
+/**
+ * spm_regulator_init() - register spmi driver for spm-regulator
+ *
+ * This initialization function should be called in systems in which driver
+ * registration ordering must be controlled precisely.
+ *
+ * Returns 0 on success or errno on failure.
+ */
 int __init spm_regulator_init(void)
 {
 	static bool has_registered;

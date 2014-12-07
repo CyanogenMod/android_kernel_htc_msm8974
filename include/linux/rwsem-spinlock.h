@@ -13,6 +13,13 @@
 #endif
 
 #ifdef __KERNEL__
+/*
+ * the rw-semaphore definition
+ * - if activity is 0 then there are no active readers or writers
+ * - if activity is +ve then that is the number of active readers
+ * - if activity is -1 then there is one active writer
+ * - if wait_list is not empty, then there are processes waiting for the semaphore
+ */
 struct rw_semaphore {
 	__s32			activity;
 	raw_spinlock_t		wait_lock;
@@ -34,5 +41,5 @@ extern void __up_write(struct rw_semaphore *sem);
 extern void __downgrade_write(struct rw_semaphore *sem);
 extern int rwsem_is_locked(struct rw_semaphore *sem);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _LINUX_RWSEM_SPINLOCK_H */

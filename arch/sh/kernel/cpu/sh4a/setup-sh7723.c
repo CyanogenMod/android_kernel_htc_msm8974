@@ -20,6 +20,7 @@
 #include <asm/mmzone.h>
 #include <cpu/sh7723.h>
 
+/* Serial */
 static struct plat_sci_port scif0_platform_data = {
 	.mapbase        = 0xffe00000,
 	.port_reg	= 0xa4050160,
@@ -145,7 +146,7 @@ static struct resource vpu_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -173,7 +174,7 @@ static struct resource veu0_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -201,7 +202,7 @@ static struct resource veu1_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* place holder for contiguous memory */
 	},
 };
 
@@ -415,17 +416,17 @@ static struct resource rtc_resources[] = {
 		.flags	= IORESOURCE_IO,
 	},
 	[1] = {
-		
+		/* Period IRQ */
 		.start	= 69,
 		.flags	= IORESOURCE_IRQ,
 	},
 	[2] = {
-		
+		/* Carry IRQ */
 		.start	= 70,
 		.flags	= IORESOURCE_IRQ,
 	},
 	[3] = {
-		
+		/* Alarm IRQ */
 		.start	= 68,
 		.flags	= IORESOURCE_IRQ,
 	},
@@ -459,7 +460,7 @@ static struct platform_device sh7723_usb_host_device = {
 	.name		= "r8a66597_hcd",
 	.id		= 0,
 	.dev = {
-		.dma_mask		= NULL,         
+		.dma_mask		= NULL,         /*  not use dma */
 		.coherent_dma_mask	= 0xffffffff,
 		.platform_data		= &r8a66597_data,
 	},
@@ -483,7 +484,7 @@ static struct resource iic_resources[] = {
 
 static struct platform_device iic_device = {
 	.name           = "i2c-sh_mobile",
-	.id             = 0, 
+	.id             = 0, /* "i2c0" clock */
 	.num_resources  = ARRAY_SIZE(iic_resources),
 	.resource       = iic_resources,
 };
@@ -549,7 +550,7 @@ void __init plat_early_device_setup(void)
 
 void l2_cache_init(void)
 {
-	
+	/* Enable L2 cache */
 	__raw_writel(L2_CACHE_ENABLE, RAMCR);
 }
 
@@ -558,7 +559,7 @@ enum {
 	ENABLED,
 	DISABLED,
 
-	
+	/* interrupt sources */
 	IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7,
 	HUDI,
 	DMAC1A_DEI0,DMAC1A_DEI1,DMAC1A_DEI2,DMAC1A_DEI3,
@@ -590,7 +591,7 @@ enum {
 	LCDC_LCDCI,
 	TMU1_TUNI0,TMU1_TUNI1,TMU1_TUNI2,
 
-	
+	/* interrupt groups */
 	DMAC1A, DMAC0A, VIO, DMAC0B, FLCTL, I2C, _2DG,
 	SDHI1, RTC, DMAC1B, SDHI0,
 };
@@ -698,63 +699,63 @@ static struct intc_group groups[] __initdata = {
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xa4080080, 0xa40800c0, 8, 
+	{ 0xa4080080, 0xa40800c0, 8, /* IMR0 / IMCR0 */
 	  { 0, TMU1_TUNI2, TMU1_TUNI1, TMU1_TUNI0,
 	    0, ENABLED, ENABLED, ENABLED } },
-	{ 0xa4080084, 0xa40800c4, 8, 
+	{ 0xa4080084, 0xa40800c4, 8, /* IMR1 / IMCR1 */
 	  { VIO_VOUI, VIO_VEU2HI,VIO_BEUI,VIO_CEUI,DMAC0A_DEI3,DMAC0A_DEI2,DMAC0A_DEI1,DMAC0A_DEI0 } },
-	{ 0xa4080088, 0xa40800c8, 8, 
+	{ 0xa4080088, 0xa40800c8, 8, /* IMR2 / IMCR2 */
 	  { 0, 0, 0, VPU_VPUI,0,0,0,SCIFA_SCIFA0 } },
-	{ 0xa408008c, 0xa40800cc, 8, 
+	{ 0xa408008c, 0xa40800cc, 8, /* IMR3 / IMCR3 */
 	  { DMAC1A_DEI3,DMAC1A_DEI2,DMAC1A_DEI1,DMAC1A_DEI0,0,0,0,IRDA_IRDAI } },
-	{ 0xa4080090, 0xa40800d0, 8, 
+	{ 0xa4080090, 0xa40800d0, 8, /* IMR4 / IMCR4 */
 	  { 0,TMU0_TUNI2,TMU0_TUNI1,TMU0_TUNI0,VEU2H1_VEU2HI,0,0,LCDC_LCDCI } },
-	{ 0xa4080094, 0xa40800d4, 8, 
+	{ 0xa4080094, 0xa40800d4, 8, /* IMR5 / IMCR5 */
 	  { KEYSC_KEYI,DMAC0B_DADERR,DMAC0B_DEI5,DMAC0B_DEI4,0,SCIF_SCIF2,SCIF_SCIF1,SCIF_SCIF0 } },
-	{ 0xa4080098, 0xa40800d8, 8, 
+	{ 0xa4080098, 0xa40800d8, 8, /* IMR6 / IMCR6 */
 	  { 0,0,0,SCIFA_SCIFA1,ADC_ADI,0,MSIOF_MSIOFI1,MSIOF_MSIOFI0 } },
-	{ 0xa408009c, 0xa40800dc, 8, 
+	{ 0xa408009c, 0xa40800dc, 8, /* IMR7 / IMCR7 */
 	  { I2C_DTEI, I2C_WAITI, I2C_TACKI, I2C_ALI,
 	    FLCTL_FLTREQ1I, FLCTL_FLTREQ0I, FLCTL_FLTENDI, FLCTL_FLSTEI } },
-	{ 0xa40800a0, 0xa40800e0, 8, 
+	{ 0xa40800a0, 0xa40800e0, 8, /* IMR8 / IMCR8 */
 	  { 0, ENABLED, ENABLED, ENABLED,
 	    0, 0, SCIFA_SCIFA2, SIU_SIUI } },
-	{ 0xa40800a4, 0xa40800e4, 8, 
+	{ 0xa40800a4, 0xa40800e4, 8, /* IMR9 / IMCR9 */
 	  { 0, 0, 0, CMT_CMTI, 0, 0, USB_USI0,0 } },
-	{ 0xa40800a8, 0xa40800e8, 8, 
+	{ 0xa40800a8, 0xa40800e8, 8, /* IMR10 / IMCR10 */
 	  { 0, DMAC1B_DADERR,DMAC1B_DEI5,DMAC1B_DEI4,0,RTC_ATI,RTC_PRI,RTC_CUI } },
-	{ 0xa40800ac, 0xa40800ec, 8, 
+	{ 0xa40800ac, 0xa40800ec, 8, /* IMR11 / IMCR11 */
 	  { 0,_2DG_CEI,_2DG_INI,_2DG_TRI,0,TPU_TPUI,0,TSIF_TSIFI } },
-	{ 0xa40800b0, 0xa40800f0, 8, 
+	{ 0xa40800b0, 0xa40800f0, 8, /* IMR12 / IMCR12 */
 	  { 0,0,0,0,0,0,0,ATAPI_ATAPII } },
-	{ 0xa4140044, 0xa4140064, 8, 
+	{ 0xa4140044, 0xa4140064, 8, /* INTMSK00 / INTMSKCLR00 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xa4080000, 0, 16, 4,  { TMU0_TUNI0, TMU0_TUNI1, TMU0_TUNI2, IRDA_IRDAI } },
-	{ 0xa4080004, 0, 16, 4,  { VEU2H1_VEU2HI, LCDC_LCDCI, DMAC1A, 0} },
-	{ 0xa4080008, 0, 16, 4,  { TMU1_TUNI0, TMU1_TUNI1, TMU1_TUNI2, 0} },
-	{ 0xa408000c, 0, 16, 4,  { } },
-	{ 0xa4080010, 0, 16, 4,  { DMAC0A, VIO, SCIFA_SCIFA0, VPU_VPUI } },
-	{ 0xa4080014, 0, 16, 4,  { KEYSC_KEYI, DMAC0B, USB_USI0, CMT_CMTI } },
-	{ 0xa4080018, 0, 16, 4,  { SCIF_SCIF0, SCIF_SCIF1, SCIF_SCIF2,0 } },
-	{ 0xa408001c, 0, 16, 4,  { MSIOF_MSIOFI0,MSIOF_MSIOFI1, FLCTL, I2C } },
-	{ 0xa4080020, 0, 16, 4,  { SCIFA_SCIFA1,0,TSIF_TSIFI,_2DG } },
-	{ 0xa4080024, 0, 16, 4,  { ADC_ADI,0,SIU_SIUI,SDHI1 } },
-	{ 0xa4080028, 0, 16, 4,  { RTC,DMAC1B,0,SDHI0 } },
-	{ 0xa408002c, 0, 16, 4,  { SCIFA_SCIFA2,0,TPU_TPUI,ATAPI_ATAPII } },
-	{ 0xa4140010, 0, 32, 4, 
+	{ 0xa4080000, 0, 16, 4, /* IPRA */ { TMU0_TUNI0, TMU0_TUNI1, TMU0_TUNI2, IRDA_IRDAI } },
+	{ 0xa4080004, 0, 16, 4, /* IPRB */ { VEU2H1_VEU2HI, LCDC_LCDCI, DMAC1A, 0} },
+	{ 0xa4080008, 0, 16, 4, /* IPRC */ { TMU1_TUNI0, TMU1_TUNI1, TMU1_TUNI2, 0} },
+	{ 0xa408000c, 0, 16, 4, /* IPRD */ { } },
+	{ 0xa4080010, 0, 16, 4, /* IPRE */ { DMAC0A, VIO, SCIFA_SCIFA0, VPU_VPUI } },
+	{ 0xa4080014, 0, 16, 4, /* IPRF */ { KEYSC_KEYI, DMAC0B, USB_USI0, CMT_CMTI } },
+	{ 0xa4080018, 0, 16, 4, /* IPRG */ { SCIF_SCIF0, SCIF_SCIF1, SCIF_SCIF2,0 } },
+	{ 0xa408001c, 0, 16, 4, /* IPRH */ { MSIOF_MSIOFI0,MSIOF_MSIOFI1, FLCTL, I2C } },
+	{ 0xa4080020, 0, 16, 4, /* IPRI */ { SCIFA_SCIFA1,0,TSIF_TSIFI,_2DG } },
+	{ 0xa4080024, 0, 16, 4, /* IPRJ */ { ADC_ADI,0,SIU_SIUI,SDHI1 } },
+	{ 0xa4080028, 0, 16, 4, /* IPRK */ { RTC,DMAC1B,0,SDHI0 } },
+	{ 0xa408002c, 0, 16, 4, /* IPRL */ { SCIFA_SCIFA2,0,TPU_TPUI,ATAPI_ATAPII } },
+	{ 0xa4140010, 0, 32, 4, /* INTPRI00 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
 static struct intc_sense_reg sense_registers[] __initdata = {
-	{ 0xa414001c, 16, 2, 
+	{ 0xa414001c, 16, 2, /* ICR1 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
 static struct intc_mask_reg ack_registers[] __initdata = {
-	{ 0xa4140024, 0, 8, 
+	{ 0xa4140024, 0, 8, /* INTREQ00 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 

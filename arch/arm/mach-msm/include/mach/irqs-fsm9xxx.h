@@ -13,6 +13,7 @@
 #ifndef __ASM_ARCH_MSM_IRQS_FSM9XXX_H
 #define __ASM_ARCH_MSM_IRQS_FSM9XXX_H
 
+/* MSM ACPU Interrupt Numbers */
 
 #define INT_DEBUG_TIMER_EXP	0
 #define INT_GPT0_TIMER_EXP	1
@@ -27,6 +28,7 @@
 #define INT_AVS_REQ_DOWN	10
 #define INT_AVS_REQ_UP		11
 #define INT_SC_ACG		12
+/* SCSS_VICFIQSTS0[13:15] are RESERVED */
 #define INT_BPU_CPU		16
 #define INT_L2_SVICDMANSIRPTREQ 17
 #define INT_L2_SVICDMASIRPTREQ  18
@@ -37,6 +39,7 @@
 #define INT_SEAWOLF_IRQ3	23
 #define INT_CARIBE_SUPSS_IRQ	24
 #define INT_ADM_SEC0_IRQ	25
+/* SCSS_VICFIQSTS0[26] is RESERVED */
 #define INT_GMII_PHY		27
 #define INT_SBD_IRQ		28
 #define INT_HH_SUPSS_IRQ	29
@@ -73,7 +76,11 @@
 #define INT_SPB_XPU_IRQ		(32 + 27)
 #define INT_FPB_XPU_IRQ		(32 + 28)
 #define INT_Q6_XPU_IRQ		(32 + 29)
+/* SCSS_VICFIQSTS1[30:31] are RESERVED */
+/* SCSS_VICFIQSTS2[0:31] are RESERVED */
+/* SCSS_VICFIQSTS3[0:31] are RESERVED */
 
+/* Retrofit universal macro names */
 #define INT_ADM_AARM		INT_ADM_SEC3_IRQ
 #define INT_GP_TIMER_EXP	INT_GPT0_TIMER_EXP
 #define INT_ADSP_A11		INT_Q6_SW_IRQ_0
@@ -89,4 +96,4 @@
 
 #define NR_MSM_GPIOS		168
 
-#endif 
+#endif /* __ASM_ARCH_MSM_IRQS_FSM9XXX_H */

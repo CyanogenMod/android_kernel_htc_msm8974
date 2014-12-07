@@ -25,11 +25,11 @@ unsigned int nlm_xlr_uart_in(struct uart_port *p, int offset)
 	uint64_t uartbase;
 	unsigned int value;
 
-	
+	/* sign extend to 64 bits, if needed */
 	uartbase = (uint64_t)(long)p->membase;
 	value = nlm_read_reg(uartbase, offset);
 
-	
+	/* See XLR/XLS errata */
 	if (offset == UART_MSR)
 		value ^= 0xF0;
 	else if (offset == UART_MCR)
@@ -42,10 +42,10 @@ void nlm_xlr_uart_out(struct uart_port *p, int offset, int value)
 {
 	uint64_t uartbase;
 
-	
+	/* sign extend to 64 bits, if needed */
 	uartbase = (uint64_t)(long)p->membase;
 
-	
+	/* See XLR/XLS errata */
 	if (offset == UART_MSR)
 		value ^= 0xF0;
 	else if (offset == UART_MCR)

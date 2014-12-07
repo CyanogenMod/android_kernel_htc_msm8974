@@ -73,6 +73,10 @@ static struct device_node *dlpar_parse_cc_node(struct cc_workarea *ccwa)
 	if (!dn)
 		return NULL;
 
+	/* The configure connector reported name does not contain a
+	 * preceding '/', so we allocate a buffer large enough to
+	 * prepend this to the full_name.
+	 */
 	name = (char *)ccwa + ccwa->name_offset;
 	dn->full_name = kasprintf(GFP_KERNEL, "/%s", name);
 	if (!dn->full_name) {
@@ -142,6 +146,10 @@ struct device_node *dlpar_configure_connector(u32 drc_index)
 	ccwa->zero = 0;
 
 	do {
+		/* Since we release the rtas_data_buf lock between configure
+		 * connector calls we want to re-populate the rtas_data_buffer
+		 * with the contents of the previous call.
+		 */
 		spin_lock(&rtas_data_buf_lock);
 
 		memcpy(rtas_data_buf, data_buf, RTAS_DATA_BUF_SIZE);
@@ -294,7 +302,7 @@ int dlpar_detach_node(struct device_node *dn)
 
 	pSeries_reconfig_notify(PSERIES_RECONFIG_REMOVE, dn);
 	of_detach_node(dn);
-	of_node_put(dn); 
+	of_node_put(dn); /* Must decrement the refcount */
 
 	return 0;
 }
@@ -414,6 +422,10 @@ static ssize_t dlpar_cpu_probe(const char *buf, size_t count)
 		goto out;
 	}
 
+	/* configure-connector reports cpus as living in the base
+	 * directory of the device tree.  CPUs actually live in the
+	 * cpus directory so we need to fixup the full_name.
+	 */
 	cpu_name = kasprintf(GFP_KERNEL, "/cpus%s", dn->full_name);
 	if (!cpu_name) {
 		dlpar_free_cc_nodes(dn);
@@ -478,6 +490,10 @@ static int dlpar_offline_cpu(struct device_node *dn)
 
 			}
 
+			/*
+			 * The cpu is in CPU_STATE_INACTIVE.
+			 * Upgrade it's state to CPU_STATE_OFFLINE.
+			 */
 			set_preferred_offline_state(cpu, CPU_STATE_OFFLINE);
 			BUG_ON(plpar_hcall_norets(H_PROD, intserv[i])
 								!= H_SUCCESS);
@@ -546,4 +562,4 @@ static int __init pseries_dlpar_init(void)
 }
 machine_device_initcall(pseries, pseries_dlpar_init);
 
-#endif 
+#endif /* CONFIG_ARCH_CPU_PROBE_RELEASE */

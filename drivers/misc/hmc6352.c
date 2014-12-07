@@ -83,7 +83,7 @@ static ssize_t compass_heading_data_show(struct device *dev,
 		mutex_unlock(&compass_mutex);
 		return ret;
 	}
-	msleep(10); 
+	msleep(10); /* sending 'A' cmd we need to wait for 7-10 millisecs */
 	ret = i2c_master_recv(client, i2c_data, 2);
 	mutex_unlock(&compass_mutex);
 	if (ret < 0) {

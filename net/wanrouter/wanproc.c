@@ -20,12 +20,12 @@
 * Dec 13, 1996	Gene Kozin	Initial version (based on Sangoma's WANPIPE)
 *****************************************************************************/
 
-#include <linux/init.h>		
-#include <linux/stddef.h>	
-#include <linux/errno.h>	
+#include <linux/init.h>		/* __initfunc et al. */
+#include <linux/stddef.h>	/* offsetof(), etc. */
+#include <linux/errno.h>	/* return codes */
 #include <linux/kernel.h>
 #include <linux/module.h>
-#include <linux/wanrouter.h>	
+#include <linux/wanrouter.h>	/* WAN router API definitions */
 #include <linux/seq_file.h>
 #include <linux/mutex.h>
 
@@ -34,6 +34,7 @@
 
 #define PROC_STATS_FORMAT "%30s: %12lu\n"
 
+/****** Defines and Macros **************************************************/
 
 #define PROT_DECODE(prot) ((prot == WANCONFIG_FR) ? " FR" :\
 			      (prot == WANCONFIG_X25) ? " X25" : \
@@ -42,19 +43,43 @@
 				       (prot == WANCONFIG_MPPP) ? " MPPP" : \
 					   " Unknown" )
 
+/****** Function Prototypes *************************************************/
 
 #ifdef CONFIG_PROC_FS
 
+/* Miscellaneous */
 
+/*
+ *	Structures for interfacing with the /proc filesystem.
+ *	Router creates its own directory /proc/net/router with the following
+ *	entries:
+ *	config		device configuration
+ *	status		global device statistics
+ *	<device>	entry for each WAN device
+ */
 
+/*
+ *	Generic /proc/net/router/<file> file and inode operations
+ */
 
+/*
+ *	/proc/net/router
+ */
 
 static DEFINE_MUTEX(config_mutex);
 static struct proc_dir_entry *proc_router;
 
+/* Strings */
 
+/*
+ *	Interface functions
+ */
 
+/****** Proc filesystem entry points ****************************************/
 
+/*
+ *	Iterator
+ */
 static void *r_start(struct seq_file *m, loff_t *pos)
 {
 	struct wan_device *wandev;
@@ -193,7 +218,7 @@ static int wandev_show(struct seq_file *m, void *v)
 		return 0;
 	}
 
-	
+	/* Update device statistics */
 	if (wandev->update) {
 		int err = wandev->update(wandev);
 		if (err == -EAGAIN) {
@@ -257,6 +282,9 @@ static const struct file_operations wandev_fops = {
 	.unlocked_ioctl  = wanrouter_ioctl,
 };
 
+/*
+ *	Initialize router proc interface.
+ */
 
 int __init wanrouter_proc_init(void)
 {
@@ -280,6 +308,9 @@ fail:
 	return -ENOMEM;
 }
 
+/*
+ *	Clean up router proc interface.
+ */
 
 void wanrouter_proc_cleanup(void)
 {
@@ -288,6 +319,9 @@ void wanrouter_proc_cleanup(void)
 	remove_proc_entry(ROUTER_NAME, init_net.proc_net);
 }
 
+/*
+ *	Add directory entry for WAN device.
+ */
 
 int wanrouter_proc_add(struct wan_device* wandev)
 {
@@ -302,6 +336,9 @@ int wanrouter_proc_add(struct wan_device* wandev)
 	return 0;
 }
 
+/*
+ *	Delete directory entry for WAN device.
+ */
 int wanrouter_proc_delete(struct wan_device* wandev)
 {
 	if (wandev->magic != ROUTER_MAGIC)
@@ -312,6 +349,9 @@ int wanrouter_proc_delete(struct wan_device* wandev)
 
 #else
 
+/*
+ *	No /proc - output stubs
+ */
 
 int __init wanrouter_proc_init(void)
 {
@@ -334,4 +374,7 @@ int wanrouter_proc_delete(struct wan_device *wandev)
 
 #endif
 
+/*
+ *	End
+ */
 

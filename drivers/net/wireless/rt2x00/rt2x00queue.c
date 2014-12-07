@@ -20,6 +20,10 @@
 	59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+/*
+	Module: rt2x00lib
+	Abstract: rt2x00 queue specific routines.
+ */
 
 #include <linux/slab.h>
 #include <linux/kernel.h>
@@ -38,22 +42,46 @@ struct sk_buff *rt2x00queue_alloc_rxskb(struct queue_entry *entry)
 	unsigned int head_size = 0;
 	unsigned int tail_size = 0;
 
+	/*
+	 * The frame size includes descriptor size, because the
+	 * hardware directly receive the frame into the skbuffer.
+	 */
 	frame_size = entry->queue->data_size + entry->queue->desc_size;
 
+	/*
+	 * The payload should be aligned to a 4-byte boundary,
+	 * this means we need at least 3 bytes for moving the frame
+	 * into the correct offset.
+	 */
 	head_size = 4;
 
+	/*
+	 * For IV/EIV/ICV assembly we must make sure there is
+	 * at least 8 bytes bytes available in headroom for IV/EIV
+	 * and 8 bytes for ICV data as tailroon.
+	 */
 	if (test_bit(CAPABILITY_HW_CRYPTO, &rt2x00dev->cap_flags)) {
 		head_size += 8;
 		tail_size += 8;
 	}
 
+	/*
+	 * Allocate skbuffer.
+	 */
 	skb = dev_alloc_skb(frame_size + head_size + tail_size);
 	if (!skb)
 		return NULL;
 
+	/*
+	 * Make sure we not have a frame with the requested bytes
+	 * available in the head and tail.
+	 */
 	skb_reserve(skb, head_size);
 	skb_put(skb, frame_size);
 
+	/*
+	 * Populate skbdesc.
+	 */
 	skbdesc = get_skb_frame_desc(skb);
 	memset(skbdesc, 0, sizeof(*skbdesc));
 	skbdesc->entry = entry;
@@ -127,30 +155,41 @@ void rt2x00queue_insert_l2pad(struct sk_buff *skb, unsigned int header_length)
 	unsigned int payload_align = ALIGN_SIZE(skb, header_length);
 	unsigned int l2pad = payload_length ? L2PAD_SIZE(header_length) : 0;
 
+	/*
+	 * Adjust the header alignment if the payload needs to be moved more
+	 * than the header.
+	 */
 	if (payload_align > header_align)
 		header_align += 4;
 
-	
+	/* There is nothing to do if no alignment is needed */
 	if (!header_align)
 		return;
 
-	
+	/* Reserve the amount of space needed in front of the frame */
 	skb_push(skb, header_align);
 
+	/*
+	 * Move the header.
+	 */
 	memmove(skb->data, skb->data + header_align, header_length);
 
-	
+	/* Move the payload, if present and if required */
 	if (payload_length && payload_align)
 		memmove(skb->data + header_length + l2pad,
 			skb->data + header_length + l2pad + payload_align,
 			payload_length);
 
-	
+	/* Trim the skb to the correct size */
 	skb_trim(skb, header_length + l2pad + payload_length);
 }
 
 void rt2x00queue_remove_l2pad(struct sk_buff *skb, unsigned int header_length)
 {
+	/*
+	 * L2 padding is only present if the skb contains more than just the
+	 * IEEE 802.11 header.
+	 */
 	unsigned int l2pad = (skb->len > header_length) ?
 				L2PAD_SIZE(header_length) : 0;
 
@@ -177,6 +216,17 @@ static void rt2x00queue_create_tx_descriptor_seq(struct rt2x00_dev *rt2x00dev,
 	if (!test_bit(REQUIRE_SW_SEQNO, &rt2x00dev->cap_flags))
 		return;
 
+	/*
+	 * The hardware is not able to insert a sequence number. Assign a
+	 * software generated one here.
+	 *
+	 * This is wrong because beacons are not getting sequence
+	 * numbers assigned properly.
+	 *
+	 * A secondary problem exists for drivers that cannot toggle
+	 * sequence counting per-frame, since those will override the
+	 * sequence counter given by mac80211.
+	 */
 	spin_lock(&intf->seqlock);
 
 	if (test_bit(ENTRY_TXD_FIRST_FRAGMENT, &txdesc->flags))
@@ -199,15 +249,24 @@ static void rt2x00queue_create_tx_descriptor_plcp(struct rt2x00_dev *rt2x00dev,
 	unsigned int duration;
 	unsigned int residual;
 
+	/*
+	 * Determine with what IFS priority this frame should be send.
+	 * Set ifs to IFS_SIFS when the this is not the first fragment,
+	 * or this fragment came after RTS/CTS.
+	 */
 	if (test_bit(ENTRY_TXD_FIRST_FRAGMENT, &txdesc->flags))
 		txdesc->u.plcp.ifs = IFS_BACKOFF;
 	else
 		txdesc->u.plcp.ifs = IFS_SIFS;
 
-	
+	/* Data length + CRC + Crypto overhead (IV/EIV/ICV/MIC) */
 	data_length = skb->len + 4;
 	data_length += rt2x00crypto_tx_overhead(rt2x00dev, skb);
 
+	/*
+	 * PLCP setup
+	 * Length calculation depends on OFDM/CCK rate.
+	 */
 	txdesc->u.plcp.signal = hwrate->plcp;
 	txdesc->u.plcp.service = 0x04;
 
@@ -215,12 +274,18 @@ static void rt2x00queue_create_tx_descriptor_plcp(struct rt2x00_dev *rt2x00dev,
 		txdesc->u.plcp.length_high = (data_length >> 6) & 0x3f;
 		txdesc->u.plcp.length_low = data_length & 0x3f;
 	} else {
+		/*
+		 * Convert length to microseconds.
+		 */
 		residual = GET_DURATION_RES(data_length, hwrate->bitrate);
 		duration = GET_DURATION(data_length, hwrate->bitrate);
 
 		if (residual != 0) {
 			duration++;
 
+			/*
+			 * Check if we need to set the Length Extension
+			 */
 			if (hwrate->bitrate == 110 && residual <= 30)
 				txdesc->u.plcp.service |= 0x80;
 		}
@@ -228,6 +293,10 @@ static void rt2x00queue_create_tx_descriptor_plcp(struct rt2x00_dev *rt2x00dev,
 		txdesc->u.plcp.length_high = (duration >> 8) & 0xff;
 		txdesc->u.plcp.length_low = duration & 0xff;
 
+		/*
+		 * When preamble is enabled we should set the
+		 * preamble bit for the signal.
+		 */
 		if (txrate->flags & IEEE80211_TX_RC_USE_SHORT_PREAMBLE)
 			txdesc->u.plcp.signal |= 0x08;
 	}
@@ -251,14 +320,25 @@ static void rt2x00queue_create_tx_descriptor_ht(struct rt2x00_dev *rt2x00dev,
 		txdesc->u.ht.wcid = sta_priv->wcid;
 	}
 
-	txdesc->u.ht.ba_size = 7;	
+	txdesc->u.ht.ba_size = 7;	/* FIXME: What value is needed? */
 
+	/*
+	 * Only one STBC stream is supported for now.
+	 */
 	if (tx_info->flags & IEEE80211_TX_CTL_STBC)
 		txdesc->u.ht.stbc = 1;
 
+	/*
+	 * If IEEE80211_TX_RC_MCS is set txrate->idx just contains the
+	 * mcs rate to be used
+	 */
 	if (txrate->flags & IEEE80211_TX_RC_MCS) {
 		txdesc->u.ht.mcs = txrate->idx;
 
+		/*
+		 * MIMO PS should be set to 1 for STA's using dynamic SM PS
+		 * when using more then one tx stream (>MCS7).
+		 */
 		if (tx_info->control.sta && txdesc->u.ht.mcs > 7 &&
 		    ((tx_info->control.sta->ht_cap.cap &
 		      IEEE80211_HT_CAP_SM_PS) >>
@@ -271,16 +351,33 @@ static void rt2x00queue_create_tx_descriptor_ht(struct rt2x00_dev *rt2x00dev,
 			txdesc->u.ht.mcs |= 0x08;
 	}
 
+	/*
+	 * This frame is eligible for an AMPDU, however, don't aggregate
+	 * frames that are intended to probe a specific tx rate.
+	 */
 	if (tx_info->flags & IEEE80211_TX_CTL_AMPDU &&
 	    !(tx_info->flags & IEEE80211_TX_CTL_RATE_CTRL_PROBE))
 		__set_bit(ENTRY_TXD_HT_AMPDU, &txdesc->flags);
 
+	/*
+	 * Set 40Mhz mode if necessary (for legacy rates this will
+	 * duplicate the frame to both channels).
+	 */
 	if (txrate->flags & IEEE80211_TX_RC_40_MHZ_WIDTH ||
 	    txrate->flags & IEEE80211_TX_RC_DUP_DATA)
 		__set_bit(ENTRY_TXD_HT_BW_40, &txdesc->flags);
 	if (txrate->flags & IEEE80211_TX_RC_SHORT_GI)
 		__set_bit(ENTRY_TXD_HT_SHORT_GI, &txdesc->flags);
 
+	/*
+	 * Determine IFS values
+	 * - Use TXOP_BACKOFF for management frames except beacons
+	 * - Use TXOP_SIFS for fragment bursts
+	 * - Use TXOP_HTTXOP for everything else
+	 *
+	 * Note: rt2800 devices won't use CTS protection (if used)
+	 * for frames not transmitted with TXOP_HTTXOP
+	 */
 	if (ieee80211_is_mgmt(hdr->frame_control) &&
 	    !ieee80211_is_beacon(hdr->frame_control))
 		txdesc->u.ht.txop = TXOP_BACKOFF;
@@ -302,12 +399,21 @@ static void rt2x00queue_create_tx_descriptor(struct rt2x00_dev *rt2x00dev,
 
 	memset(txdesc, 0, sizeof(*txdesc));
 
+	/*
+	 * Header and frame information.
+	 */
 	txdesc->length = skb->len;
 	txdesc->header_length = ieee80211_get_hdrlen_from_skb(skb);
 
+	/*
+	 * Check whether this frame is to be acked.
+	 */
 	if (!(tx_info->flags & IEEE80211_TX_CTL_NO_ACK))
 		__set_bit(ENTRY_TXD_ACK, &txdesc->flags);
 
+	/*
+	 * Check if this is a RTS/CTS frame
+	 */
 	if (ieee80211_is_rts(hdr->frame_control) ||
 	    ieee80211_is_cts(hdr->frame_control)) {
 		__set_bit(ENTRY_TXD_BURST, &txdesc->flags);
@@ -320,18 +426,31 @@ static void rt2x00queue_create_tx_descriptor(struct rt2x00_dev *rt2x00dev,
 			    ieee80211_get_rts_cts_rate(rt2x00dev->hw, tx_info);
 	}
 
+	/*
+	 * Determine retry information.
+	 */
 	txdesc->retry_limit = tx_info->control.rates[0].count - 1;
 	if (txdesc->retry_limit >= rt2x00dev->long_retry)
 		__set_bit(ENTRY_TXD_RETRY_MODE, &txdesc->flags);
 
+	/*
+	 * Check if more fragments are pending
+	 */
 	if (ieee80211_has_morefrags(hdr->frame_control)) {
 		__set_bit(ENTRY_TXD_BURST, &txdesc->flags);
 		__set_bit(ENTRY_TXD_MORE_FRAG, &txdesc->flags);
 	}
 
+	/*
+	 * Check if more frames (!= fragments) are pending
+	 */
 	if (tx_info->flags & IEEE80211_TX_CTL_MORE_FRAMES)
 		__set_bit(ENTRY_TXD_BURST, &txdesc->flags);
 
+	/*
+	 * Beacons and probe responses require the tsf timestamp
+	 * to be inserted into the frame.
+	 */
 	if (ieee80211_is_beacon(hdr->frame_control) ||
 	    ieee80211_is_probe_resp(hdr->frame_control))
 		__set_bit(ENTRY_TXD_REQ_TIMESTAMP, &txdesc->flags);
@@ -340,6 +459,9 @@ static void rt2x00queue_create_tx_descriptor(struct rt2x00_dev *rt2x00dev,
 	    !test_bit(ENTRY_TXD_RTS_FRAME, &txdesc->flags))
 		__set_bit(ENTRY_TXD_FIRST_FRAGMENT, &txdesc->flags);
 
+	/*
+	 * Determine rate modulation.
+	 */
 	if (txrate->flags & IEEE80211_TX_RC_GREEN_FIELD)
 		txdesc->rate_mode = RATE_MODE_HT_GREENFIELD;
 	else if (txrate->flags & IEEE80211_TX_RC_MCS)
@@ -353,6 +475,9 @@ static void rt2x00queue_create_tx_descriptor(struct rt2x00_dev *rt2x00dev,
 			txdesc->rate_mode = RATE_MODE_CCK;
 	}
 
+	/*
+	 * Apply TX descriptor handling by components
+	 */
 	rt2x00crypto_create_tx_descriptor(rt2x00dev, skb, txdesc);
 	rt2x00queue_create_tx_descriptor_seq(rt2x00dev, skb, txdesc);
 
@@ -369,6 +494,11 @@ static int rt2x00queue_write_tx_data(struct queue_entry *entry,
 {
 	struct rt2x00_dev *rt2x00dev = entry->queue->rt2x00dev;
 
+	/*
+	 * This should not happen, we already checked the entry
+	 * was ours. When the hardware disagrees there has been
+	 * a queue corruption!
+	 */
 	if (unlikely(rt2x00dev->ops->lib->get_entry_state &&
 		     rt2x00dev->ops->lib->get_entry_state(entry))) {
 		ERROR(rt2x00dev,
@@ -378,12 +508,21 @@ static int rt2x00queue_write_tx_data(struct queue_entry *entry,
 		return -EINVAL;
 	}
 
+	/*
+	 * Add the requested extra tx headroom in front of the skb.
+	 */
 	skb_push(entry->skb, rt2x00dev->ops->extra_tx_headroom);
 	memset(entry->skb->data, 0, rt2x00dev->ops->extra_tx_headroom);
 
+	/*
+	 * Call the driver's write_tx_data function, if it exists.
+	 */
 	if (rt2x00dev->ops->lib->write_tx_data)
 		rt2x00dev->ops->lib->write_tx_data(entry, txdesc);
 
+	/*
+	 * Map the skb to DMA.
+	 */
 	if (test_bit(REQUIRE_DMA, &rt2x00dev->cap_flags))
 		rt2x00queue_map_txskb(entry);
 
@@ -397,12 +536,25 @@ static void rt2x00queue_write_tx_descriptor(struct queue_entry *entry,
 
 	queue->rt2x00dev->ops->lib->write_tx_desc(entry, txdesc);
 
+	/*
+	 * All processing on the frame has been completed, this means
+	 * it is now ready to be dumped to userspace through debugfs.
+	 */
 	rt2x00debug_dump_frame(queue->rt2x00dev, DUMP_FRAME_TX, entry->skb);
 }
 
 static void rt2x00queue_kick_tx_queue(struct data_queue *queue,
 				      struct txentry_desc *txdesc)
 {
+	/*
+	 * Check if we need to kick the queue, there are however a few rules
+	 *	1) Don't kick unless this is the last in frame in a burst.
+	 *	   When the burst flag is set, this frame is always followed
+	 *	   by another frame which in some way are related to eachother.
+	 *	   This is true for fragments, RTS or CTS-to-self frames.
+	 *	2) Rule 1 can be broken when the available entries
+	 *	   in the queue are less then a certain threshold.
+	 */
 	if (rt2x00queue_threshold(queue) ||
 	    !test_bit(ENTRY_TXD_BURST, &txdesc->flags))
 		queue->rt2x00dev->ops->lib->kick_queue(queue);
@@ -418,8 +570,18 @@ int rt2x00queue_write_tx_frame(struct data_queue *queue, struct sk_buff *skb,
 	u8 rate_idx, rate_flags;
 	int ret = 0;
 
+	/*
+	 * Copy all TX descriptor information into txdesc,
+	 * after that we are free to use the skb->cb array
+	 * for our information.
+	 */
 	rt2x00queue_create_tx_descriptor(queue->rt2x00dev, skb, &txdesc);
 
+	/*
+	 * All information is retrieved from the skb->cb array,
+	 * now we should claim ownership of the driver part of that
+	 * array, preserving the bitrate index and flags.
+	 */
 	tx_info = IEEE80211_SKB_CB(skb);
 	rate_idx = tx_info->control.rates[0].idx;
 	rate_flags = tx_info->control.rates[0].flags;
@@ -431,6 +593,11 @@ int rt2x00queue_write_tx_frame(struct data_queue *queue, struct sk_buff *skb,
 	if (local)
 		skbdesc->flags |= SKBDESC_NOT_MAC80211;
 
+	/*
+	 * When hardware encryption is supported, and this frame
+	 * is to be encrypted, we should strip the IV/EIV data from
+	 * the frame so we can provide it to the driver separately.
+	 */
 	if (test_bit(ENTRY_TXD_ENCRYPT, &txdesc.flags) &&
 	    !test_bit(ENTRY_TXD_ENCRYPT_IV, &txdesc.flags)) {
 		if (test_bit(REQUIRE_COPY_IV, &queue->rt2x00dev->cap_flags))
@@ -439,11 +606,22 @@ int rt2x00queue_write_tx_frame(struct data_queue *queue, struct sk_buff *skb,
 			rt2x00crypto_tx_remove_iv(skb, &txdesc);
 	}
 
+	/*
+	 * When DMA allocation is required we should guarantee to the
+	 * driver that the DMA is aligned to a 4-byte boundary.
+	 * However some drivers require L2 padding to pad the payload
+	 * rather then the header. This could be a requirement for
+	 * PCI and USB devices, while header alignment only is valid
+	 * for PCI devices.
+	 */
 	if (test_bit(REQUIRE_L2PAD, &queue->rt2x00dev->cap_flags))
 		rt2x00queue_insert_l2pad(skb, txdesc.header_length);
 	else if (test_bit(REQUIRE_DMA, &queue->rt2x00dev->cap_flags))
 		rt2x00queue_align_frame(skb);
 
+	/*
+	 * That function must be called with bh disabled.
+	 */
 	spin_lock(&queue->tx_lock);
 
 	if (unlikely(rt2x00queue_full(queue))) {
@@ -468,6 +646,11 @@ int rt2x00queue_write_tx_frame(struct data_queue *queue, struct sk_buff *skb,
 	skbdesc->entry = entry;
 	entry->skb = skb;
 
+	/*
+	 * It could be possible that the queue was corrupted and this
+	 * call failed. Since we always return NETDEV_TX_OK to mac80211,
+	 * this frame will simply be dropped.
+	 */
 	if (unlikely(rt2x00queue_write_tx_data(entry, &txdesc))) {
 		clear_bit(ENTRY_OWNER_DEVICE_DATA, &entry->flags);
 		entry->skb = NULL;
@@ -496,8 +679,15 @@ int rt2x00queue_clear_beacon(struct rt2x00_dev *rt2x00dev,
 
 	mutex_lock(&intf->beacon_skb_mutex);
 
+	/*
+	 * Clean up the beacon skb.
+	 */
 	rt2x00queue_free_skb(intf->beacon);
 
+	/*
+	 * Clear beacon (single bssid devices don't need to clear the beacon
+	 * since the beacon queue will get stopped anyway).
+	 */
 	if (rt2x00dev->ops->lib->clear_beacon)
 		rt2x00dev->ops->lib->clear_beacon(intf->beacon);
 
@@ -516,18 +706,32 @@ int rt2x00queue_update_beacon_locked(struct rt2x00_dev *rt2x00dev,
 	if (unlikely(!intf->beacon))
 		return -ENOBUFS;
 
+	/*
+	 * Clean up the beacon skb.
+	 */
 	rt2x00queue_free_skb(intf->beacon);
 
 	intf->beacon->skb = ieee80211_beacon_get(rt2x00dev->hw, vif);
 	if (!intf->beacon->skb)
 		return -ENOMEM;
 
+	/*
+	 * Copy all TX descriptor information into txdesc,
+	 * after that we are free to use the skb->cb array
+	 * for our information.
+	 */
 	rt2x00queue_create_tx_descriptor(rt2x00dev, intf->beacon->skb, &txdesc);
 
+	/*
+	 * Fill in skb descriptor
+	 */
 	skbdesc = get_skb_frame_desc(intf->beacon->skb);
 	memset(skbdesc, 0, sizeof(*skbdesc));
 	skbdesc->entry = intf->beacon;
 
+	/*
+	 * Send beacon to hardware.
+	 */
 	rt2x00dev->ops->lib->write_beacon(intf->beacon, &txdesc);
 
 	return 0;
@@ -566,11 +770,21 @@ bool rt2x00queue_for_each_entry(struct data_queue *queue,
 		return true;
 	}
 
+	/*
+	 * Only protect the range we are going to loop over,
+	 * if during our loop a extra entry is set to pending
+	 * it should not be kicked during this run, since it
+	 * is part of another TX operation.
+	 */
 	spin_lock_irqsave(&queue->index_lock, irqflags);
 	index_start = queue->index[start];
 	index_end = queue->index[end];
 	spin_unlock_irqrestore(&queue->index_lock, irqflags);
 
+	/*
+	 * Start from the TX done pointer, this guarantees that we will
+	 * send out all frames in the correct order.
+	 */
 	if (index_start < index_end) {
 		for (i = index_start; i < index_end; i++) {
 			if (fn(&queue->entries[i], data))
@@ -655,6 +869,10 @@ void rt2x00queue_pause_queue(struct data_queue *queue)
 	case QID_AC_VI:
 	case QID_AC_BE:
 	case QID_AC_BK:
+		/*
+		 * For TX queues, we have to disable the queue
+		 * inside mac80211.
+		 */
 		ieee80211_stop_queue(queue->rt2x00dev->hw, queue->qid);
 		break;
 	default:
@@ -675,9 +893,17 @@ void rt2x00queue_unpause_queue(struct data_queue *queue)
 	case QID_AC_VI:
 	case QID_AC_BE:
 	case QID_AC_BK:
+		/*
+		 * For TX queues, we have to enable the queue
+		 * inside mac80211.
+		 */
 		ieee80211_wake_queue(queue->rt2x00dev->hw, queue->qid);
 		break;
 	case QID_RX:
+		/*
+		 * For RX we need to kick the queue now in order to
+		 * receive frames.
+		 */
 		queue->rt2x00dev->ops->lib->kick_queue(queue);
 	default:
 		break;
@@ -733,20 +959,47 @@ void rt2x00queue_flush_queue(struct data_queue *queue, bool drop)
 
 	mutex_lock(&queue->status_lock);
 
+	/*
+	 * If the queue has been started, we must stop it temporarily
+	 * to prevent any new frames to be queued on the device. If
+	 * we are not dropping the pending frames, the queue must
+	 * only be stopped in the software and not the hardware,
+	 * otherwise the queue will never become empty on its own.
+	 */
 	started = test_bit(QUEUE_STARTED, &queue->flags);
 	if (started) {
+		/*
+		 * Pause the queue
+		 */
 		rt2x00queue_pause_queue(queue);
 
+		/*
+		 * If we are not supposed to drop any pending
+		 * frames, this means we must force a start (=kick)
+		 * to the queue to make sure the hardware will
+		 * start transmitting.
+		 */
 		if (!drop && tx_queue)
 			queue->rt2x00dev->ops->lib->kick_queue(queue);
 	}
 
+	/*
+	 * Check if driver supports flushing, if that is the case we can
+	 * defer the flushing to the driver. Otherwise we must use the
+	 * alternative which just waits for the queue to become empty.
+	 */
 	if (likely(queue->rt2x00dev->ops->lib->flush_queue))
 		queue->rt2x00dev->ops->lib->flush_queue(queue, drop);
 
+	/*
+	 * The queue flush has failed...
+	 */
 	if (unlikely(!rt2x00queue_empty(queue)))
 		WARNING(queue->rt2x00dev, "Queue %d failed to flush\n", queue->qid);
 
+	/*
+	 * Restore the queue to the previous status
+	 */
 	if (started)
 		rt2x00queue_unpause_queue(queue);
 
@@ -758,6 +1011,10 @@ void rt2x00queue_start_queues(struct rt2x00_dev *rt2x00dev)
 {
 	struct data_queue *queue;
 
+	/*
+	 * rt2x00queue_start_queue will call ieee80211_wake_queue
+	 * for each queue after is has been properly initialized.
+	 */
 	tx_queue_for_each(rt2x00dev, queue)
 		rt2x00queue_start_queue(queue);
 
@@ -769,6 +1026,12 @@ void rt2x00queue_stop_queues(struct rt2x00_dev *rt2x00dev)
 {
 	struct data_queue *queue;
 
+	/*
+	 * rt2x00queue_stop_queue will call ieee80211_stop_queue
+	 * as well, but we are completely shutting doing everything
+	 * now, so it is much safer to stop all TX queues at once,
+	 * and use rt2x00queue_stop_queue for cleaning up.
+	 */
 	ieee80211_stop_queues(rt2x00dev->hw);
 
 	tx_queue_for_each(rt2x00dev, queue)
@@ -832,6 +1095,9 @@ static int rt2x00queue_alloc_entries(struct data_queue *queue,
 	queue->data_size = qdesc->data_size;
 	queue->desc_size = qdesc->desc_size;
 
+	/*
+	 * Allocate all queue entries.
+	 */
 	entry_size = sizeof(*entries) + qdesc->priv_size;
 	entries = kcalloc(queue->limit, entry_size, GFP_KERNEL);
 	if (!entries)
@@ -959,6 +1225,13 @@ int rt2x00queue_allocate(struct rt2x00_dev *rt2x00dev)
 	unsigned int req_atim =
 	    !!test_bit(REQUIRE_ATIM_QUEUE, &rt2x00dev->cap_flags);
 
+	/*
+	 * We need the following queues:
+	 * RX: 1
+	 * TX: ops->tx_queues
+	 * Beacon: 1
+	 * Atim: 1 (if required)
+	 */
 	rt2x00dev->data_queues = 2 + rt2x00dev->ops->tx_queues + req_atim;
 
 	queue = kcalloc(rt2x00dev->data_queues, sizeof(*queue), GFP_KERNEL);
@@ -967,11 +1240,23 @@ int rt2x00queue_allocate(struct rt2x00_dev *rt2x00dev)
 		return -ENOMEM;
 	}
 
+	/*
+	 * Initialize pointers
+	 */
 	rt2x00dev->rx = queue;
 	rt2x00dev->tx = &queue[1];
 	rt2x00dev->bcn = &queue[1 + rt2x00dev->ops->tx_queues];
 	rt2x00dev->atim = req_atim ? &queue[2 + rt2x00dev->ops->tx_queues] : NULL;
 
+	/*
+	 * Initialize queue parameters.
+	 * RX: qid = QID_RX
+	 * TX: qid = QID_AC_VO + index
+	 * TX: cw_min: 2^5 = 32.
+	 * TX: cw_max: 2^10 = 1024.
+	 * BCN: qid = QID_BEACON
+	 * ATIM: qid = QID_ATIM
+	 */
 	rt2x00queue_init(rt2x00dev, rt2x00dev->rx, QID_RX);
 
 	qid = QID_AC_VO;

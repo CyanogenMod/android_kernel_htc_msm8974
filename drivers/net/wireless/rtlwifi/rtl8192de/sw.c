@@ -45,19 +45,43 @@ static void rtl92d_init_aspm_vars(struct ieee80211_hw *hw)
 {
 	struct rtl_pci *rtlpci = rtl_pcidev(rtl_pcipriv(hw));
 
-	
+	/*close ASPM for AMD defaultly */
 	rtlpci->const_amdpci_aspm = 0;
 
+	/*
+	 * ASPM PS mode.
+	 * 0 - Disable ASPM,
+	 * 1 - Enable ASPM without Clock Req,
+	 * 2 - Enable ASPM with Clock Req,
+	 * 3 - Alwyas Enable ASPM with Clock Req,
+	 * 4 - Always Enable ASPM without Clock Req.
+	 * set defult to RTL8192CE:3 RTL8192E:2
+	 * */
 	rtlpci->const_pci_aspm = 3;
 
-	
+	/*Setting for PCI-E device */
 	rtlpci->const_devicepci_aspm_setting = 0x03;
 
-	
+	/*Setting for PCI-E bridge */
 	rtlpci->const_hostpci_aspm_setting = 0x02;
 
+	/*
+	 * In Hw/Sw Radio Off situation.
+	 * 0 - Default,
+	 * 1 - From ASPM setting without low Mac Pwr,
+	 * 2 - From ASPM setting with low Mac Pwr,
+	 * 3 - Bus D3
+	 * set default to RTL8192CE:0 RTL8192SE:2
+	 */
 	rtlpci->const_hwsw_rfoff_d3 = 0;
 
+	/*
+	 * This setting works for those device with
+	 * backdoor ASPM setting such as EPHY setting.
+	 * 0 - Not support ASPM,
+	 * 1 - Support ASPM,
+	 * 2 - According to chipset.
+	 */
 	rtlpci->const_support_pciaspm = 1;
 }
 
@@ -74,7 +98,7 @@ static int rtl92d_init_sw_vars(struct ieee80211_hw *hw)
 	rtlpriv->dm.thermalvalue = 0;
 	rtlpriv->dm.useramask = true;
 
-	
+	/* dual mac */
 	if (rtlpriv->rtlhal.current_bandtype == BAND_ON_5G)
 		rtlpriv->phy.current_channel = 36;
 	else
@@ -82,7 +106,7 @@ static int rtl92d_init_sw_vars(struct ieee80211_hw *hw)
 
 	if (rtlpriv->rtlhal.macphymode != SINGLEMAC_SINGLEPHY) {
 		rtlpriv->rtlhal.disable_amsdu_8k = true;
-		
+		/* No long RX - reduce fragmentation */
 		rtlpci->rxbuffersize = 4096;
 	}
 
@@ -118,9 +142,9 @@ static int rtl92d_init_sw_vars(struct ieee80211_hw *hw)
 
 	rtlpci->irq_mask[1] = (u32) (IMR_CPWM | IMR_C2HCMD);
 
-	
+	/* for debug level */
 	rtlpriv->dbg.global_debuglevel = rtlpriv->cfg->mod_params->debug;
-	
+	/* for LPS & IPS */
 	rtlpriv->psc.inactiveps = rtlpriv->cfg->mod_params->inactiveps;
 	rtlpriv->psc.swctrl_lps = rtlpriv->cfg->mod_params->swctrl_lps;
 	rtlpriv->psc.fwctrl_lps = rtlpriv->cfg->mod_params->fwctrl_lps;
@@ -130,6 +154,8 @@ static int rtl92d_init_sw_vars(struct ieee80211_hw *hw)
 		pr_info("FW Power Save off (module option)\n");
 	rtlpriv->psc.reg_fwctrl_lps = 3;
 	rtlpriv->psc.reg_max_lps_awakeintvl = 5;
+	/* for ASPM, you can close aspm through
+	 * set const_support_pciaspm = 0 */
 	rtl92d_init_aspm_vars(hw);
 
 	if (rtlpriv->psc.reg_fwctrl_lps == 1)
@@ -139,12 +165,12 @@ static int rtl92d_init_sw_vars(struct ieee80211_hw *hw)
 	else if (rtlpriv->psc.reg_fwctrl_lps == 3)
 		rtlpriv->psc.fwctrl_psmode = FW_PS_DTIM_MODE;
 
-	
+	/* for early mode */
 	rtlpriv->rtlhal.earlymode_enable = true;
 	for (tid = 0; tid < 8; tid++)
 		skb_queue_head_init(&rtlpriv->mac80211.skb_waitq[tid]);
 
-	
+	/* for firmware buf */
 	rtlpriv->rtlhal.pfirmware = vzalloc(0x8000);
 	if (!rtlpriv->rtlhal.pfirmware) {
 		RT_TRACE(rtlpriv, COMP_ERR, DBG_EMERG,
@@ -156,7 +182,7 @@ static int rtl92d_init_sw_vars(struct ieee80211_hw *hw)
 	pr_info("Driver for Realtek RTL8192DE WLAN interface\n");
 	pr_info("Loading firmware file %s\n", rtlpriv->cfg->fw_name);
 
-	
+	/* request fw */
 	err = request_firmware_nowait(THIS_MODULE, 1, rtlpriv->cfg->fw_name,
 				      rtlpriv->io.dev, GFP_KERNEL, hw,
 				      rtl_fw_cb);
@@ -253,12 +279,12 @@ static struct rtl_hal_cfg rtl92de_hal_cfg = {
 
 	.maps[EFUSE_TEST] = REG_EFUSE_TEST,
 	.maps[EFUSE_CTRL] = REG_EFUSE_CTRL,
-	.maps[EFUSE_CLK] = 0,	
+	.maps[EFUSE_CLK] = 0,	/* just for 92se */
 	.maps[EFUSE_CLK_CTRL] = REG_EFUSE_CTRL,
 	.maps[EFUSE_PWC_EV12V] = PWC_EV12V,
 	.maps[EFUSE_FEN_ELDR] = FEN_ELDR,
 	.maps[EFUSE_LOADER_CLK_EN] = LOADER_CLK_EN,
-	.maps[EFUSE_ANA8M] = 0,	
+	.maps[EFUSE_ANA8M] = 0,	/* just for 92se */
 	.maps[EFUSE_HWSET_MAX_SIZE] = HWSET_MAX_SIZE,
 	.maps[EFUSE_MAX_SECTION_MAP] = EFUSE_MAX_SECTION,
 	.maps[EFUSE_REAL_CONTENT_SIZE] = EFUSE_REAL_CONTENT_LEN,
@@ -369,6 +395,8 @@ static struct pci_driver rtl92de_driver = {
 	.driver.pm = &rtlwifi_pm_ops,
 };
 
+/* add global spin lock to solve the problem that
+ * Dul mac register operation on the same time */
 spinlock_t globalmutex_power;
 spinlock_t globalmutex_for_fwdownload;
 spinlock_t globalmutex_for_power_and_efuse;

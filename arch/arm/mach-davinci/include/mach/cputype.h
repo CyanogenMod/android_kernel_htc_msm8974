@@ -19,13 +19,14 @@
 #include <mach/common.h>
 
 struct davinci_id {
-	u8	variant;	
-	u16	part_no;	
-	u16	manufacturer;	
+	u8	variant;	/* JTAG ID bits 31:28 */
+	u16	part_no;	/* JTAG ID bits 27:12 */
+	u16	manufacturer;	/* JTAG ID bits 11:1 */
 	u32	cpu_id;
 	char	*name;
 };
 
+/* Can use lower 16 bits of cpu id  for a variant when required */
 #define	DAVINCI_CPU_ID_DM6446		0x64460000
 #define	DAVINCI_CPU_ID_DM6467		0x64670000
 #define	DAVINCI_CPU_ID_DM355		0x03550000

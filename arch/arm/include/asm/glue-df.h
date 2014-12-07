@@ -13,6 +13,21 @@
 
 #include <asm/glue.h>
 
+/*
+ *	Data Abort Model
+ *	================
+ *
+ *	We have the following to choose from:
+ *	  arm6          - ARM6 style
+ *	  arm7		- ARM7 style
+ *	  v4_early	- ARMv4 without Thumb early abort handler
+ *	  v4t_late	- ARMv4 with Thumb late abort handler
+ *	  v4t_early	- ARMv4 with Thumb early abort handler
+ *	  v5tej_early	- ARMv5 with Thumb and Java early abort handler
+ *	  xscale	- ARMv5 with Thumb with Xscale extensions
+ *	  v6_early	- ARMv6 generic early abort handler
+ *	  v7_early	- ARMv7 generic early abort handler
+ */
 #undef CPU_DABORT_HANDLER
 #undef MULTI_DABORT
 

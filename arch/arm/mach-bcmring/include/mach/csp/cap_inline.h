@@ -15,9 +15,11 @@
 #ifndef CAP_INLINE_H
 #define CAP_INLINE_H
 
+/* ---- Include Files ---------------------------------------------------- */
 #include <mach/csp/cap.h>
 #include <cfg_global.h>
 
+/* ---- Public Constants and Types --------------------------------------- */
 #define CAP_CONFIG0_VPM_DIS          0x00000001
 #define CAP_CONFIG0_ETH_PHY0_DIS     0x00000002
 #define CAP_CONFIG0_ETH_PHY1_DIS     0x00000004
@@ -109,7 +111,21 @@
 #error CFG_GLOBAL_CHIP type capabilities not defined
 #endif
 
+/* ---- Public Variable Externs ------------------------------------------ */
+/* ---- Public Function Prototypes --------------------------------------- */
 
+/****************************************************************************
+*  cap_isPresent -
+*
+*  PURPOSE:
+*     Determines if the chip has a certain capability present
+*
+*  PARAMETERS:
+*     capability - type of capability to determine if present
+*
+*  RETURNS:
+*     CAP_PRESENT or CAP_NOT_PRESENT
+****************************************************************************/
 static inline CAP_RC_T cap_isPresent(CAP_CAPABILITY_T capability, int index)
 {
 	CAP_RC_T returnVal = CAP_NOT_PRESENT;
@@ -322,6 +338,18 @@ static inline CAP_RC_T cap_isPresent(CAP_CAPABILITY_T capability, int index)
 	return returnVal;
 }
 
+/****************************************************************************
+*  cap_getMaxArmSpeedHz -
+*
+*  PURPOSE:
+*     Determines the maximum speed of the ARM CPU
+*
+*  PARAMETERS:
+*     none
+*
+*  RETURNS:
+*     clock speed in Hz that the ARM processor is able to run at
+****************************************************************************/
 static inline uint32_t cap_getMaxArmSpeedHz(void)
 {
 #if   ((CFG_GLOBAL_CHIP == BCM11107) || (CFG_GLOBAL_CHIP == FPGA11107))
@@ -335,6 +363,18 @@ static inline uint32_t cap_getMaxArmSpeedHz(void)
 #endif
 }
 
+/****************************************************************************
+*  cap_getMaxVpmSpeedHz -
+*
+*  PURPOSE:
+*     Determines the maximum speed of the VPM
+*
+*  PARAMETERS:
+*     none
+*
+*  RETURNS:
+*     clock speed in Hz that the VPM is able to run at
+****************************************************************************/
 static inline uint32_t cap_getMaxVpmSpeedHz(void)
 {
 #if ((CFG_GLOBAL_CHIP == BCM11107) || (CFG_GLOBAL_CHIP == BCM11211) || (CFG_GLOBAL_CHIP == FPGA11107))
@@ -346,6 +386,19 @@ static inline uint32_t cap_getMaxVpmSpeedHz(void)
 #endif
 }
 
+/****************************************************************************
+*  cap_getMaxLcdRes -
+*
+*  PURPOSE:
+*     Determines the maximum LCD resolution capabilities
+*
+*  PARAMETERS:
+*     none
+*
+*  RETURNS:
+*   CAP_LCD_WVGA, CAP_LCD_VGA, CAP_LCD_WQVGA or CAP_LCD_QVGA
+*
+****************************************************************************/
 static inline CAP_LCD_RES_T cap_getMaxLcdRes(void)
 {
 	return (CAP_LCD_RES_T)

@@ -20,7 +20,17 @@
 #include "cm2xxx_3xxx.h"
 #include "cm-regbits-24xx.h"
 
+/* Private functions */
 
+/**
+ * _allow_idle - enable DPLL autoidle bits
+ * @clk: struct clk * of the DPLL to operate on
+ *
+ * Enable DPLL automatic idle control.  The DPLL will enter low-power
+ * stop when its downstream clocks are gated.  No return value.
+ * REVISIT: DPLL can optionally enter low-power bypass by writing 0x1
+ * instead.  Add some mechanism to optionally enter this mode.
+ */
 static void _allow_idle(struct clk *clk)
 {
 	if (!clk || !clk->dpll_data)
@@ -29,6 +39,12 @@ static void _allow_idle(struct clk *clk)
 	omap2xxx_cm_set_dpll_auto_low_power_stop();
 }
 
+/**
+ * _deny_idle - prevent DPLL from automatically idling
+ * @clk: struct clk * of the DPLL to operate on
+ *
+ * Disable DPLL automatic idle control.  No return value.
+ */
 static void _deny_idle(struct clk *clk)
 {
 	if (!clk || !clk->dpll_data)
@@ -38,6 +54,7 @@ static void _deny_idle(struct clk *clk)
 }
 
 
+/* Public data */
 
 const struct clkops clkops_omap2xxx_dpll_ops = {
 	.allow_idle	= _allow_idle,

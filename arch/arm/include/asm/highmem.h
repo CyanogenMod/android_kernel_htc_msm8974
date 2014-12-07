@@ -22,6 +22,17 @@ extern pte_t *pkmap_page_table;
 extern void *kmap_high(struct page *page);
 extern void kunmap_high(struct page *page);
 
+/*
+ * The reason for kmap_high_get() is to ensure that the currently kmap'd
+ * page usage count does not decrease to zero while we're using its
+ * existing virtual mapping in an atomic context.  With a VIVT cache this
+ * is essential to do, but with a VIPT cache this is only an optimization
+ * so not to pay the price of establishing a second mapping if an existing
+ * one can be used.  However, on platforms without hardware TLB maintenance
+ * broadcast, we simply cannot use ARCH_NEEDS_KMAP_HIGH_GET at all since
+ * the locking involved must also disable IRQs which is incompatible with
+ * the IPI mechanism used by global TLB operations.
+ */
 #define ARCH_NEEDS_KMAP_HIGH_GET
 #if defined(CONFIG_SMP) && defined(CONFIG_CPU_TLB_V6)
 #undef ARCH_NEEDS_KMAP_HIGH_GET
@@ -39,6 +50,10 @@ static inline void *kmap_high_get(struct page *page)
 }
 #endif
 
+/*
+ * The following functions are already defined by <linux/highmem.h>
+ * when CONFIG_HIGHMEM is not set.
+ */
 #ifdef CONFIG_HIGHMEM
 extern void *kmap(struct page *page);
 extern void kunmap(struct page *page);

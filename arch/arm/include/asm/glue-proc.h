@@ -13,9 +13,15 @@
 
 #include <asm/glue.h>
 
+/*
+ * Work out if we need multiple CPU support
+ */
 #undef MULTI_CPU
 #undef CPU_NAME
 
+/*
+ * CPU_NAME - the prefix for CPU related functions
+ */
 
 #ifdef CONFIG_CPU_ARM610
 # ifdef CPU_NAME

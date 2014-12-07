@@ -80,4 +80,4 @@ static int __maybe_unused msm_sdio_dmux_is_ch_low(uint32_t id)
 
 #endif
 
-#endif 
+#endif /* _SDIO_DMUX_H */

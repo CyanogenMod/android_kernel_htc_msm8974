@@ -15,6 +15,9 @@
 #include <linux/err.h>
 #include <asm/ptrace.h>
 
+/*
+ * Get the system call number or -1
+ */
 static inline long syscall_get_nr(struct task_struct *task,
 				  struct pt_regs *regs)
 {
@@ -31,18 +34,28 @@ static inline void syscall_rollback(struct task_struct *task,
 	regs->gr8 = regs->orig_gr8;
 }
 
+/*
+ * See if the syscall return value is an error, returning it if it is and 0 if
+ * not
+ */
 static inline long syscall_get_error(struct task_struct *task,
 				     struct pt_regs *regs)
 {
 	return IS_ERR_VALUE(regs->gr8) ? regs->gr8 : 0;
 }
 
+/*
+ * Get the syscall return value
+ */
 static inline long syscall_get_return_value(struct task_struct *task,
 					    struct pt_regs *regs)
 {
 	return regs->gr8;
 }
 
+/*
+ * Set the syscall return value
+ */
 static inline void syscall_set_return_value(struct task_struct *task,
 					    struct pt_regs *regs,
 					    int error, long val)
@@ -53,14 +66,23 @@ static inline void syscall_set_return_value(struct task_struct *task,
 		regs->gr8 = val;
 }
 
+/*
+ * Retrieve the system call arguments
+ */
 static inline void syscall_get_arguments(struct task_struct *task,
 					 struct pt_regs *regs,
 					 unsigned int i, unsigned int n,
 					 unsigned long *args)
 {
+	/*
+	 * Do this simply for now. If we need to start supporting
+	 * fetching arguments from arbitrary indices, this will need some
+	 * extra logic. Presently there are no in-tree users that depend
+	 * on this behaviour.
+	 */
 	BUG_ON(i);
 
-	
+	/* Argument pattern is: GR8, GR9, GR10, GR11, GR12, GR13 */
 	switch (n) {
 	case 6: args[5] = regs->gr13;
 	case 5: args[4] = regs->gr12;
@@ -74,12 +96,15 @@ static inline void syscall_get_arguments(struct task_struct *task,
 	}
 }
 
+/*
+ * Alter the system call arguments
+ */
 static inline void syscall_set_arguments(struct task_struct *task,
 					 struct pt_regs *regs,
 					 unsigned int i, unsigned int n,
 					 const unsigned long *args)
 {
-	
+	/* Same note as above applies */
 	BUG_ON(i);
 
 	switch (n) {
@@ -95,4 +120,4 @@ static inline void syscall_set_arguments(struct task_struct *task,
 	}
 }
 
-#endif 
+#endif /* _ASM_SYSCALL_H */

@@ -215,7 +215,7 @@ static DEFINE_PXA3_CKEN(pxa95x_gpio, GPIO, 13000000, 0);
 
 static struct clk_lookup pxa95x_clkregs[] = {
 	INIT_CLKREG(&clk_pxa95x_pout, NULL, "CLK_POUT"),
-	
+	/* Power I2C clock is always on */
 	INIT_CLKREG(&clk_dummy, "pxa3xx-pwri2c.1", NULL),
 	INIT_CLKREG(&clk_pxa95x_lcd, "pxa2xx-fb", NULL),
 	INIT_CLKREG(&clk_pxa95x_ffuart, "pxa2xx-uart.0", NULL),
@@ -239,6 +239,9 @@ void __init pxa95x_init_irq(void)
 	pxa_init_irq(96, NULL);
 }
 
+/*
+ * device registration specific to PXA93x.
+ */
 
 void __init pxa95x_set_i2c_power_info(struct i2c_pxa_platform_data *info)
 {
@@ -267,6 +270,12 @@ static int __init pxa95x_init(void)
 
 		reset_status = ARSR;
 
+		/*
+		 * clear RDH bit every time after reset
+		 *
+		 * Note: the last 3 bits DxS are write-1-to-clear so carefully
+		 * preserve them here in case they will be referenced later
+		 */
 		ASCR &= ~(ASCR_RDH | ASCR_D1S | ASCR_D2S | ASCR_D3S);
 
 		clkdev_add_table(pxa95x_clkregs, ARRAY_SIZE(pxa95x_clkregs));

@@ -9,5 +9,5 @@ void snd_emuusb_set_samplerate(struct snd_usb_audio *chip,
 void snd_usb_mixer_rc_memory_change(struct usb_mixer_interface *mixer,
 				    int unitid);
 
-#endif 
+#endif /* SND_USB_MIXER_QUIRKS_H */
 

@@ -80,7 +80,7 @@ __wsum csum_and_copy_to_user(const void *src, void __user *dst, int len,
 
 	if (unlikely((len < 0) || !access_ok(VERIFY_WRITE, dst, len))) {
 		*err_ptr = -EFAULT;
-		csum = -1; 
+		csum = -1; /* invalid checksum */
 		goto out;
 	}
 
@@ -92,7 +92,7 @@ __wsum csum_and_copy_to_user(const void *src, void __user *dst, int len,
 
 		if (copy_to_user(dst, src, len)) {
 			*err_ptr = -EFAULT;
-			csum = -1; 
+			csum = -1; /* invalid checksum */
 		}
 	}
 

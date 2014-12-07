@@ -167,7 +167,7 @@ ready:
 
 void leon_flush_icache_all(void)
 {
-	__asm__ __volatile__(" flush ");	
+	__asm__ __volatile__(" flush ");	/*iflush*/
 }
 
 void leon_flush_dcache_all(void)
@@ -185,7 +185,7 @@ void leon_flush_pcache_all(struct vm_area_struct *vma, unsigned long page)
 
 void leon_flush_cache_all(void)
 {
-	__asm__ __volatile__(" flush ");	
+	__asm__ __volatile__(" flush ");	/*iflush*/
 	__asm__ __volatile__("sta %%g0, [%%g0] %0\n\t" : :
 			     "i"(ASI_LEON_DFLUSH) : "memory");
 }
@@ -197,28 +197,35 @@ void leon_flush_tlb_all(void)
 			     "i"(ASI_LEON_MMUFLUSH) : "memory");
 }
 
+/* get all cache regs */
 void leon3_getCacheRegs(struct leon3_cacheregs *regs)
 {
 	unsigned long ccr, iccr, dccr;
 
 	if (!regs)
 		return;
-	
+	/* Get Cache regs from "Cache ASI" address 0x0, 0x8 and 0xC */
 	__asm__ __volatile__("lda [%%g0] %3, %0\n\t"
 			     "mov 0x08, %%g1\n\t"
 			     "lda [%%g1] %3, %1\n\t"
 			     "mov 0x0c, %%g1\n\t"
 			     "lda [%%g1] %3, %2\n\t"
 			     : "=r"(ccr), "=r"(iccr), "=r"(dccr)
-			       
-			     : "i"(ASI_LEON_CACHEREGS)	
-			     : "g1"	
+			       /* output */
+			     : "i"(ASI_LEON_CACHEREGS)	/* input */
+			     : "g1"	/* clobber list */
 	    );
 	regs->ccr = ccr;
 	regs->iccr = iccr;
 	regs->dccr = dccr;
 }
 
+/* Due to virtual cache we need to check cache configuration if
+ * it is possible to skip flushing in some cases.
+ *
+ * Leon2 and Leon3 differ in their way of telling cache information
+ *
+ */
 int __init leon_flush_needed(void)
 {
 	int flush_needed = -1;
@@ -227,16 +234,18 @@ int __init leon_flush_needed(void)
 	    { "direct mapped", "2-way associative", "3-way associative",
 		"4-way associative"
 	};
-	
+	/* leon 3 */
 	struct leon3_cacheregs cregs;
 	leon3_getCacheRegs(&cregs);
 	sets = (cregs.dccr & LEON3_XCCR_SETS_MASK) >> 24;
-	
+	/* (ssize=>realsize) 0=>1k, 1=>2k, 2=>4k, 3=>8k ... */
 	ssize = 1 << ((cregs.dccr & LEON3_XCCR_SSIZE_MASK) >> 20);
 
 	printk(KERN_INFO "CACHE: %s cache, set size %dk\n",
 	       sets > 3 ? "unknown" : setStr[sets], ssize);
 	if ((ssize <= (PAGE_SIZE / 1024)) && (sets == 0)) {
+		/* Set Size <= Page size  ==>
+		   flush on every context switch not needed. */
 		flush_needed = 0;
 		printk(KERN_INFO "CACHE: not flushing on every context switch\n");
 	}

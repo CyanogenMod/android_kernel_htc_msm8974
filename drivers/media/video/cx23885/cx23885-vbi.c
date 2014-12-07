@@ -39,9 +39,10 @@ MODULE_PARM_DESC(vbi_debug, "enable debug messages [vbi]");
 		printk(KERN_DEBUG "%s/0: " fmt, dev->name, ## arg);\
 	} while (0)
 
+/* ------------------------------------------------------------------ */
 
 #define VBI_LINE_LENGTH 1440
-#define NTSC_VBI_START_LINE 10        
+#define NTSC_VBI_START_LINE 10        /* line 10 - 21 */
 #define NTSC_VBI_END_LINE   21
 #define NTSC_VBI_LINES      (NTSC_VBI_END_LINE - NTSC_VBI_START_LINE + 1)
 
@@ -53,7 +54,7 @@ int cx23885_vbi_fmt(struct file *file, void *priv,
 	struct cx23885_dev *dev = fh->dev;
 
 	if (dev->tvnorm & V4L2_STD_525_60) {
-		
+		/* ntsc */
 		f->fmt.vbi.samples_per_line = VBI_LINE_LENGTH;
 		f->fmt.vbi.sampling_rate = 27000000;
 		f->fmt.vbi.sample_format = V4L2_PIX_FMT_GREY;
@@ -64,7 +65,7 @@ int cx23885_vbi_fmt(struct file *file, void *priv,
 		f->fmt.vbi.start[1] = 263 + 10 + 1;
 		f->fmt.vbi.count[1] = 17;
 	} else if (dev->tvnorm & V4L2_STD_625_50) {
-		
+		/* pal */
 		f->fmt.vbi.sampling_rate = 35468950;
 		f->fmt.vbi.start[0] = 7 - 1;
 		f->fmt.vbi.start[1] = 319 - 1;
@@ -73,6 +74,12 @@ int cx23885_vbi_fmt(struct file *file, void *priv,
 	return 0;
 }
 
+/* We're given the Video Interrupt status register.
+ * The cx23885_video_irq() func has already validated
+ * the potential error bits, we just need to
+ * deal with vbi payload and return indication if
+ * we actually processed any payload.
+ */
 int cx23885_vbi_irq(struct cx23885_dev *dev, u32 status)
 {
 	u32 count;
@@ -105,23 +112,23 @@ static int cx23885_start_vbi_dma(struct cx23885_dev    *dev,
 {
 	dprintk(1, "%s()\n", __func__);
 
-	
+	/* setup fifo + format */
 	cx23885_sram_channel_setup(dev, &dev->sram_channels[SRAM_CH02],
 				buf->vb.width, buf->risc.dma);
 
-	
+	/* reset counter */
 	cx_write(VID_A_GPCNT_CTL, 3);
 	cx_write(VID_A_VBI_CTRL, 3);
 	cx_write(VBI_A_GPCNT_CTL, 3);
 	q->count = 1;
 
-	
+	/* enable irq */
 	cx23885_irq_add_enable(dev, 0x01);
 	cx_set(VID_A_INT_MSK, 0x000022);
 
-	
+	/* start dma */
 	cx_set(DEV_CNTRL2, (1<<5));
-	cx_set(VID_A_DMA_CTL, 0x22); 
+	cx_set(VID_A_DMA_CTL, 0x22); /* FIFO and RISC enable */
 
 	return 0;
 }
@@ -155,7 +162,7 @@ void cx23885_vbi_timeout(unsigned long data)
 	struct cx23885_buffer *buf;
 	unsigned long flags;
 
-	
+	/* Stop the VBI engine */
 	cx_clear(VID_A_DMA_CTL, 0x22);
 
 	spin_lock_irqsave(&dev->slock, flags);
@@ -172,6 +179,7 @@ void cx23885_vbi_timeout(unsigned long data)
 	spin_unlock_irqrestore(&dev->slock, flags);
 }
 
+/* ------------------------------------------------------------------ */
 #define VBI_LINE_LENGTH 1440
 #define VBI_LINE_COUNT 17
 
@@ -237,10 +245,10 @@ vbi_queue(struct videobuf_queue *vq, struct videobuf_buffer *vb)
 	struct cx23885_dev      *dev  = fh->dev;
 	struct cx23885_dmaqueue *q    = &dev->vbiq;
 
-	
+	/* add jump to stopper */
 	buf->risc.jmp[0] = cpu_to_le32(RISC_JUMP | RISC_IRQ1 | RISC_CNT_INC);
 	buf->risc.jmp[1] = cpu_to_le32(q->stopper.dma);
-	buf->risc.jmp[2] = cpu_to_le32(0); 
+	buf->risc.jmp[2] = cpu_to_le32(0); /* bits 63-32 */
 
 	if (list_empty(&q->active)) {
 		list_add_tail(&buf->vb.queue, &q->active);
@@ -258,7 +266,7 @@ vbi_queue(struct videobuf_queue *vq, struct videobuf_buffer *vb)
 		buf->vb.state = VIDEOBUF_ACTIVE;
 		buf->count    = q->count++;
 		prev->risc.jmp[1] = cpu_to_le32(buf->risc.dma);
-		prev->risc.jmp[2] = cpu_to_le32(0); 
+		prev->risc.jmp[2] = cpu_to_le32(0); /* Bits 63-32 */
 		dprintk(2, "[%p/%d] buffer_queue - append to active\n",
 			buf, buf->vb.i);
 	}
@@ -279,3 +287,9 @@ struct videobuf_queue_ops cx23885_vbi_qops = {
 	.buf_release  = vbi_release,
 };
 
+/* ------------------------------------------------------------------ */
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

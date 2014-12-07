@@ -17,12 +17,22 @@
 #include <asm/mtrr.h>
 #include <asm/suspend.h>
 
+/* References to section boundaries */
 extern const void __nosave_begin, __nosave_end;
 
+/* Defined in hibernate_asm_64.S */
 extern int restore_image(void);
 
+/*
+ * Address to jump to in the last phase of restore in order to get to the image
+ * kernel's text (this value is passed in the image header).
+ */
 unsigned long restore_jump_address;
 
+/*
+ * Value of the cr3 register from before the hibernation (this value is passed
+ * in the image header).
+ */
 unsigned long restore_cr3;
 
 pgd_t *temp_level4_pgt;
@@ -69,11 +79,11 @@ static int set_up_temporary_mappings(void)
 	if (!temp_level4_pgt)
 		return -ENOMEM;
 
-	
+	/* It is safe to reuse the original kernel mapping */
 	set_pgd(temp_level4_pgt + pgd_index(__START_KERNEL_map),
 		init_level4_pgt[pgd_index(__START_KERNEL_map)]);
 
-	
+	/* Set up the direct mapping from scratch */
 	start = (unsigned long)pfn_to_kaddr(0);
 	end = (unsigned long)pfn_to_kaddr(max_pfn);
 
@@ -96,7 +106,7 @@ int swsusp_arch_resume(void)
 {
 	int error;
 
-	
+	/* We have got enough memory and from now on we cannot recover */
 	if ((error = set_up_temporary_mappings()))
 		return error;
 
@@ -110,6 +120,9 @@ int swsusp_arch_resume(void)
 	return 0;
 }
 
+/*
+ *	pfn_is_nosave - check if given pfn is in the 'nosave' section
+ */
 
 int pfn_is_nosave(unsigned long pfn)
 {
@@ -126,6 +139,11 @@ struct restore_data_record {
 
 #define RESTORE_MAGIC	0x0123456789ABCDEFUL
 
+/**
+ *	arch_hibernation_header_save - populate the architecture specific part
+ *		of a hibernation image header
+ *	@addr: address to save the data at
+ */
 int arch_hibernation_header_save(void *addr, unsigned int max_size)
 {
 	struct restore_data_record *rdr = addr;
@@ -138,6 +156,11 @@ int arch_hibernation_header_save(void *addr, unsigned int max_size)
 	return 0;
 }
 
+/**
+ *	arch_hibernation_header_restore - read the architecture specific data
+ *		from the hibernation image header
+ *	@addr: address to read the data from
+ */
 int arch_hibernation_header_restore(void *addr)
 {
 	struct restore_data_record *rdr = addr;

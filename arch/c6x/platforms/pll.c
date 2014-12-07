@@ -94,6 +94,7 @@ long clk_round_rate(struct clk *clk, unsigned long rate)
 }
 EXPORT_SYMBOL(clk_round_rate);
 
+/* Propagate rate to children */
 static void propagate_rate(struct clk *root)
 {
 	struct clk *clk;
@@ -135,7 +136,7 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 	if (clk == NULL || IS_ERR(clk))
 		return -EINVAL;
 
-	
+	/* Cannot change parent on enabled clock */
 	if (WARN_ON(clk->usecount))
 		return -EINVAL;
 
@@ -171,15 +172,15 @@ int clk_register(struct clk *clk)
 		list_add_tail(&clk->childnode, &clk->parent->children);
 	mutex_unlock(&clocks_mutex);
 
-	
+	/* If rate is already set, use it */
 	if (clk->rate)
 		return 0;
 
-	
+	/* Else, see if there is a way to calculate it */
 	if (clk->recalc)
 		clk->rate = clk->recalc(clk);
 
-	
+	/* Otherwise, default to parent rate */
 	else if (clk->parent)
 		clk->rate = clk->parent->rate;
 
@@ -216,13 +217,13 @@ static unsigned long clk_sysclk_recalc(struct clk *clk)
 
 	rate = clk->parent->rate;
 
-	
+	/* the parent must be a PLL */
 	if (WARN_ON(!clk->parent->pll_data))
 		return rate;
 
 	pll = clk->parent->pll_data;
 
-	
+	/* If pre-PLL, source clock is before the multiplier and divider(s) */
 	if (clk->flags & PRE_PLL)
 		rate = pll->input_rate;
 
@@ -330,15 +331,15 @@ static void __init __init_clk(struct clk *clk)
 
 	if (!clk->recalc) {
 
-		
+		/* Check if clock is a PLL */
 		if (clk->pll_data)
 			clk->recalc = clk_pllclk_recalc;
 
-		
+		/* Else, if it is a PLL-derived clock */
 		else if (clk->flags & CLK_PLL)
 			clk->recalc = clk_sysclk_recalc;
 
-		
+		/* Otherwise, it is a leaf clock (PSC clock) */
 		else if (clk->parent)
 			clk->recalc = clk_leafclk_recalc;
 	}
@@ -357,7 +358,7 @@ void __init c6x_clks_init(struct clk_lookup *clocks)
 		clk_register(clk);
 		num_clocks++;
 
-		
+		/* Turn on clocks that Linux doesn't otherwise manage */
 		if (clk->flags & ALWAYS_ENABLED)
 			clk_enable(clk);
 	}
@@ -370,7 +371,7 @@ void __init c6x_clks_init(struct clk_lookup *clocks)
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 
-#define CLKNAME_MAX	10		
+#define CLKNAME_MAX	10		/* longest clock name */
 #define NEST_DELTA	2
 #define NEST_MAX	4
 
@@ -387,7 +388,7 @@ dump_clock(struct seq_file *s, unsigned nest, struct clk *parent)
 	else
 		state = "";
 
-	
+	/* <nest spaces> name <pad to end> */
 	memset(buf, ' ', sizeof(buf) - 1);
 	buf[sizeof(buf) - 1] = 0;
 	i = strlen(parent->name);
@@ -396,9 +397,9 @@ dump_clock(struct seq_file *s, unsigned nest, struct clk *parent)
 
 	seq_printf(s, "%s users=%2d %-3s %9ld Hz\n",
 		   buf, parent->usecount, state, clk_get_rate(parent));
-	
+	/* REVISIT show device associations too */
 
-	
+	/* cost is now small, but not linear... */
 	list_for_each_entry(clk, &parent->children, childnode) {
 		dump_clock(s, nest + NEST_DELTA, clk);
 	}
@@ -408,6 +409,9 @@ static int c6x_ck_show(struct seq_file *m, void *v)
 {
 	struct clk *clk;
 
+	/*
+	 * Show clock tree; We trust nonzero usecounts equate to PSC enables...
+	 */
 	mutex_lock(&clocks_mutex);
 	list_for_each_entry(clk, &clocks, node)
 		if (!clk->parent)
@@ -437,4 +441,4 @@ static int __init c6x_clk_debugfs_init(void)
 	return 0;
 }
 device_initcall(c6x_clk_debugfs_init);
-#endif 
+#endif /* CONFIG_DEBUG_FS */

@@ -31,15 +31,15 @@
 #define JASPER_NR_IRQS		(MMP_NR_IRQS + 48)
 
 static unsigned long jasper_pin_config[] __initdata = {
-	
+	/* UART1 */
 	GPIO29_UART1_RXD,
 	GPIO30_UART1_TXD,
 
-	
+	/* UART3 */
 	GPIO51_UART3_RXD,
 	GPIO52_UART3_TXD,
 
-	
+	/* DFI */
 	GPIO168_DFI_D0,
 	GPIO167_DFI_D1,
 	GPIO166_DFI_D2,
@@ -65,10 +65,10 @@ static unsigned long jasper_pin_config[] __initdata = {
 	GPIO112_ND_RDY0,
 	GPIO160_ND_RDY1,
 
-	
+	/* PMIC */
 	PMIC_PMIC_INT | MFP_LPM_EDGE_FALL,
 
-	
+	/* MMC1 */
 	GPIO131_MMC1_DAT3,
 	GPIO132_MMC1_DAT2,
 	GPIO133_MMC1_DAT1,
@@ -78,7 +78,7 @@ static unsigned long jasper_pin_config[] __initdata = {
 	GPIO140_MMC1_CD,
 	GPIO141_MMC1_WP,
 
-	
+	/* MMC2 */
 	GPIO37_MMC2_DAT3,
 	GPIO38_MMC2_DAT2,
 	GPIO39_MMC2_DAT1,
@@ -86,7 +86,7 @@ static unsigned long jasper_pin_config[] __initdata = {
 	GPIO41_MMC2_CMD,
 	GPIO42_MMC2_CLK,
 
-	
+	/* MMC3 */
 	GPIO165_MMC3_DAT7,
 	GPIO162_MMC3_DAT6,
 	GPIO166_MMC3_DAT5,
@@ -117,7 +117,7 @@ static struct regulator_init_data max8649_init_data = {
 };
 
 static struct max8649_platform_data jasper_max8649_info = {
-	.mode		= 2,	
+	.mode		= 2,	/* VID1 = 1, VID0 = 0 */
 	.extclk		= 0,
 	.ramp_timing	= MAX8649_RAMP_32MV,
 	.regulator	= &max8649_init_data,
@@ -128,7 +128,7 @@ static struct max8925_backlight_pdata jasper_backlight_data = {
 };
 
 static struct max8925_power_pdata jasper_power_data = {
-	.batt_detect		= 0,	
+	.batt_detect		= 0,	/* can't detect battery by ID pin */
 	.topoff_threshold	= MAX8925_TOPOFF_THR_10PER,
 	.fast_charge		= MAX8925_FCHG_1000MA,
 };
@@ -161,11 +161,11 @@ static void __init jasper_init(void)
 {
 	mfp_config(ARRAY_AND_SIZE(jasper_pin_config));
 
-	
+	/* on-chip devices */
 	mmp2_add_uart(1);
 	mmp2_add_uart(3);
 	mmp2_add_twsi(1, NULL, ARRAY_AND_SIZE(jasper_twsi1_info));
-	mmp2_add_sdhost(0, &mmp2_sdh_platdata_mmc0); 
+	mmp2_add_sdhost(0, &mmp2_sdh_platdata_mmc0); /* SD/MMC */
 
 	regulator_has_full_constraints();
 }

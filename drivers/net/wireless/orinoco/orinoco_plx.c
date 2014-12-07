@@ -96,14 +96,17 @@
 #include "orinoco.h"
 #include "orinoco_pci.h"
 
-#define COR_OFFSET	(0x3e0)	
-#define COR_VALUE	(COR_LEVEL_REQ | COR_FUNC_ENA) 
-#define COR_RESET     (0x80)	
-#define PLX_RESET_TIME	(500)	
+#define COR_OFFSET	(0x3e0)	/* COR attribute offset of Prism2 PC card */
+#define COR_VALUE	(COR_LEVEL_REQ | COR_FUNC_ENA) /* Enable PC card with interrupt in level trigger */
+#define COR_RESET     (0x80)	/* reset bit in the COR register */
+#define PLX_RESET_TIME	(500)	/* milliseconds */
 
-#define PLX_INTCSR		0x4c 
-#define PLX_INTCSR_INTEN	(1 << 6) 
+#define PLX_INTCSR		0x4c /* Interrupt Control & Status Register */
+#define PLX_INTCSR_INTEN	(1 << 6) /* Interrupt Enable bit */
 
+/*
+ * Do a soft reset of the card using the Configuration Option Register
+ */
 static int orinoco_plx_cor_reset(struct orinoco_private *priv)
 {
 	struct hermes *hw = &priv->hw;
@@ -117,7 +120,7 @@ static int orinoco_plx_cor_reset(struct orinoco_private *priv)
 	iowrite8(COR_VALUE, card->attr_io + COR_OFFSET);
 	mdelay(1);
 
-	
+	/* Just in case, wait more until the card is no longer busy */
 	timeout = jiffies + (PLX_RESET_TIME * HZ / 1000);
 	reg = hermes_read_regn(hw, CMD);
 	while (time_before(jiffies, timeout) && (reg & HERMES_CMD_BUSY)) {
@@ -125,7 +128,7 @@ static int orinoco_plx_cor_reset(struct orinoco_private *priv)
 		reg = hermes_read_regn(hw, CMD);
 	}
 
-	
+	/* Still busy? */
 	if (reg & HERMES_CMD_BUSY) {
 		printk(KERN_ERR PFX "Busy timeout\n");
 		return -ETIMEDOUT;
@@ -147,8 +150,8 @@ static int orinoco_plx_hw_init(struct orinoco_pci_card *card)
 		printk("%02X:", ioread8(card->attr_io + (i << 1)));
 	printk("\n");
 
-	
-	
+	/* Verify whether a supported PC card is present */
+	/* FIXME: we probably need to be smarted about this */
 	for (i = 0; i < sizeof(cis_magic); i++) {
 		if (cis_magic[i] != ioread8(card->attr_io + (i << 1))) {
 			printk(KERN_ERR PFX "The CIS value of Prism2 PC "
@@ -157,6 +160,9 @@ static int orinoco_plx_hw_init(struct orinoco_pci_card *card)
 		}
 	}
 
+	/* bjoern: We need to tell the card to enable interrupts, in
+	   case the serial eprom didn't do this already.  See the
+	   PLX9052 data book, p8-1 and 8-24 for reference. */
 	csr_reg = ioread32(card->bridge_io + PLX_INTCSR);
 	if (!(csr_reg & PLX_INTCSR_INTEN)) {
 		csr_reg |= PLX_INTCSR_INTEN;
@@ -212,7 +218,7 @@ static int orinoco_plx_init_one(struct pci_dev *pdev,
 		goto fail_map_hermes;
 	}
 
-	
+	/* Allocate network device */
 	priv = alloc_orinocodev(sizeof(*card), &pdev->dev,
 				orinoco_plx_cor_reset, NULL);
 	if (!priv) {
@@ -305,16 +311,20 @@ static void __devexit orinoco_plx_remove_one(struct pci_dev *pdev)
 }
 
 static DEFINE_PCI_DEVICE_TABLE(orinoco_plx_id_table) = {
-	{0x111a, 0x1023, PCI_ANY_ID, PCI_ANY_ID,},	
-	{0x1385, 0x4100, PCI_ANY_ID, PCI_ANY_ID,},	
-	{0x15e8, 0x0130, PCI_ANY_ID, PCI_ANY_ID,},	
-	{0x1638, 0x1100, PCI_ANY_ID, PCI_ANY_ID,},	
-	{0x16ab, 0x1100, PCI_ANY_ID, PCI_ANY_ID,},	
-	{0x16ab, 0x1101, PCI_ANY_ID, PCI_ANY_ID,},	
-	{0x16ab, 0x1102, PCI_ANY_ID, PCI_ANY_ID,},	
-	{0x16ec, 0x3685, PCI_ANY_ID, PCI_ANY_ID,},	
-	{0xec80, 0xec00, PCI_ANY_ID, PCI_ANY_ID,},	
-	{0x10b7, 0x7770, PCI_ANY_ID, PCI_ANY_ID,},	
+	{0x111a, 0x1023, PCI_ANY_ID, PCI_ANY_ID,},	/* Siemens SpeedStream SS1023 */
+	{0x1385, 0x4100, PCI_ANY_ID, PCI_ANY_ID,},	/* Netgear MA301 */
+	{0x15e8, 0x0130, PCI_ANY_ID, PCI_ANY_ID,},	/* Correga  - does this work? */
+	{0x1638, 0x1100, PCI_ANY_ID, PCI_ANY_ID,},	/* SMC EZConnect SMC2602W,
+							   Eumitcom PCI WL11000,
+							   Addtron AWA-100 */
+	{0x16ab, 0x1100, PCI_ANY_ID, PCI_ANY_ID,},	/* Global Sun Tech GL24110P */
+	{0x16ab, 0x1101, PCI_ANY_ID, PCI_ANY_ID,},	/* Reported working, but unknown */
+	{0x16ab, 0x1102, PCI_ANY_ID, PCI_ANY_ID,},	/* Linksys WDT11 */
+	{0x16ec, 0x3685, PCI_ANY_ID, PCI_ANY_ID,},	/* USR 2415 */
+	{0xec80, 0xec00, PCI_ANY_ID, PCI_ANY_ID,},	/* Belkin F5D6000 tested by
+							   Brendan W. McAdams <rit AT jacked-in.org> */
+	{0x10b7, 0x7770, PCI_ANY_ID, PCI_ANY_ID,},	/* 3Com AirConnect PCI tested by
+							   Damien Persohn <damien AT persohn.net> */
 	{0,},
 };
 
@@ -351,3 +361,10 @@ static void __exit orinoco_plx_exit(void)
 module_init(orinoco_plx_init);
 module_exit(orinoco_plx_exit);
 
+/*
+ * Local variables:
+ *  c-indent-level: 8
+ *  c-basic-offset: 8
+ *  tab-width: 8
+ * End:
+ */

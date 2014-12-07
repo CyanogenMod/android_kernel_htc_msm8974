@@ -31,4 +31,4 @@ extern struct task_struct *__switch_to(struct task_struct *,
 	r = __switch_to((p), (n), (r));\
 } while (0)
 
-#endif 
+#endif /* _ASM_SWITCH_TO_H */

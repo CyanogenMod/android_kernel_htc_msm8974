@@ -134,7 +134,7 @@ static int find_index(struct mlx4_dev *dev,
 		    (MLX4_MAC_MASK & be64_to_cpu(table->entries[i])))
 			return i;
 	}
-	
+	/* Mac not found */
 	return -EINVAL;
 }
 
@@ -261,7 +261,7 @@ int __mlx4_register_mac(struct mlx4_dev *dev, u8 port, u64 mac)
 		}
 
 		if (mac == (MLX4_MAC_MASK & be64_to_cpu(table->entries[i]))) {
-			
+			/* MAC already registered, Must not have duplicates */
 			err = -EEXIST;
 			goto out;
 		}
@@ -270,12 +270,12 @@ int __mlx4_register_mac(struct mlx4_dev *dev, u8 port, u64 mac)
 	mlx4_dbg(dev, "Free MAC index is %d\n", free);
 
 	if (table->total == table->max) {
-		
+		/* No free mac entries */
 		err = -ENOSPC;
 		goto out;
 	}
 
-	
+	/* Register new MAC */
 	table->entries[free] = cpu_to_be64(mac | MLX4_MAC_VALID);
 
 	err = mlx4_set_port_mac_table(dev, port, table->entries);
@@ -372,7 +372,7 @@ int mlx4_replace_mac(struct mlx4_dev *dev, u8 port, int qpn, u64 new_mac)
 		return err;
 	}
 
-	
+	/* CX1 doesn't support multi-functions */
 	mutex_lock(&table->mutex);
 
 	err = validate_index(dev, table, index);
@@ -423,7 +423,7 @@ int mlx4_find_cached_vlan(struct mlx4_dev *dev, u8 port, u16 vid, int *idx)
 		if (table->refs[i] &&
 		    (vid == (MLX4_VLAN_MASK &
 			      be32_to_cpu(table->entries[i])))) {
-			
+			/* VLAN already registered, increase reference count */
 			*idx = i;
 			return 0;
 		}
@@ -443,7 +443,7 @@ static int __mlx4_register_vlan(struct mlx4_dev *dev, u8 port, u16 vlan,
 	mutex_lock(&table->mutex);
 
 	if (table->total == table->max) {
-		
+		/* No free vlan entries */
 		err = -ENOSPC;
 		goto out;
 	}
@@ -457,7 +457,7 @@ static int __mlx4_register_vlan(struct mlx4_dev *dev, u8 port, u16 vlan,
 		if (table->refs[i] &&
 		    (vlan == (MLX4_VLAN_MASK &
 			      be32_to_cpu(table->entries[i])))) {
-			
+			/* Vlan already registered, increase references count */
 			*index = i;
 			++table->refs[i];
 			goto out;
@@ -469,7 +469,7 @@ static int __mlx4_register_vlan(struct mlx4_dev *dev, u8 port, u16 vlan,
 		goto out;
 	}
 
-	
+	/* Register new VLAN */
 	table->refs[free] = 1;
 	table->entries[free] = cpu_to_be32(vlan | MLX4_VLAN_VALID);
 
@@ -616,7 +616,7 @@ static int mlx4_common_set_port(struct mlx4_dev *dev, int slave, u32 in_mod,
 	is_eth = op_mod;
 	port_info = &priv->port[port];
 
-	
+	/* Slaves cannot perform SET_PORT operations except changing MTU */
 	if (is_eth) {
 		if (slave != dev->caps.function &&
 		    in_modifier != MLX4_SET_PORT_GENERAL) {
@@ -643,6 +643,8 @@ static int mlx4_common_set_port(struct mlx4_dev *dev, int slave, u32 in_mod,
 			break;
 		case MLX4_SET_PORT_GENERAL:
 			gen_context = inbox->buf;
+			/* Mtu is configured as the max MTU among all the
+			 * the functions on the port. */
 			mtu = be16_to_cpu(gen_context->mtu);
 			mtu = min_t(int, mtu, dev->caps.eth_mtu_cap[port]);
 			prev_mtu = slave_st->mtu[port];
@@ -668,6 +670,11 @@ static int mlx4_common_set_port(struct mlx4_dev *dev, int slave, u32 in_mod,
 				MLX4_CMD_NATIVE);
 	}
 
+	/* For IB, we only consider:
+	 * - The capability mask, which is set to the aggregate of all
+	 *   slave function capabilities
+	 * - The QKey violatin counter - reset according to each request.
+	 */
 
 	if (dev->flags & MLX4_FLAG_OLD_PORT_CMDS) {
 		reset_qkey_viols = (*(u8 *) inbox->buf) & 0x40;
@@ -685,6 +692,9 @@ static int mlx4_common_set_port(struct mlx4_dev *dev, int slave, u32 in_mod,
 		agg_cap_mask |=
 			priv->mfunc.master.slave_state[i].ib_cap_mask[port];
 
+	/* only clear mailbox for guests.  Master may be setting
+	* MTU or PKEY table size
+	*/
 	if (slave != dev->caps.function)
 		memset(inbox->buf, 0, 256);
 	if (dev->flags & MLX4_FLAG_OLD_PORT_CMDS) {
@@ -713,9 +723,10 @@ int mlx4_SET_PORT_wrapper(struct mlx4_dev *dev, int slave,
 				    vhcr->op_modifier, inbox);
 }
 
+/* bit locations for set port command with zero op modifier */
 enum {
-	MLX4_SET_PORT_VL_CAP	 = 4, 
-	MLX4_SET_PORT_MTU_CAP	 = 12, 
+	MLX4_SET_PORT_VL_CAP	 = 4, /* bits 7:4 */
+	MLX4_SET_PORT_MTU_CAP	 = 12, /* bits 15:12 */
 	MLX4_CHANGE_PORT_VL_CAP	 = 21,
 	MLX4_CHANGE_PORT_MTU_CAP = 22,
 };
@@ -736,7 +747,7 @@ int mlx4_SET_PORT(struct mlx4_dev *dev, u8 port)
 
 	((__be32 *) mailbox->buf)[1] = dev->caps.ib_port_def_cap[port];
 
-	
+	/* IB VL CAP enum isn't used by the firmware, just numerical values */
 	for (vl_cap = 8; vl_cap >= 1; vl_cap >>= 1) {
 		((__be32 *) mailbox->buf)[0] = cpu_to_be32(
 			(1 << MLX4_CHANGE_PORT_MTU_CAP) |

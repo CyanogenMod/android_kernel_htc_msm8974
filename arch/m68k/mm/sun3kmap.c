@@ -70,7 +70,7 @@ void __iomem *sun3_ioremap(unsigned long phys, unsigned long size,
 	if(!size)
 		return NULL;
 
-	
+	/* page align */
 	offset = phys & (PAGE_SIZE-1);
 	phys &= ~(PAGE_SIZE-1);
 
@@ -122,6 +122,16 @@ void iounmap(void __iomem *addr)
 }
 EXPORT_SYMBOL(iounmap);
 
+/* sun3_map_test(addr, val) -- Reads a byte from addr, storing to val,
+ * trapping the potential read fault.  Returns 0 if the access faulted,
+ * 1 on success.
+ *
+ * This function is primarily used to check addresses on the VME bus.
+ *
+ * Mucking with the page fault handler seems a little hackish to me, but
+ * SunOS, NetBSD, and Mach all implemented this check in such a manner,
+ * so I figure we're allowed.
+ */
 int sun3_map_test(unsigned long addr, char *val)
 {
 	int ret = 0;

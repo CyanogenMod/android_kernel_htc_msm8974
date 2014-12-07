@@ -32,6 +32,7 @@
 #ifndef _MEGARAID_SAS_FUSION_H_
 #define _MEGARAID_SAS_FUSION_H_
 
+/* Fusion defines */
 #define MEGASAS_MAX_SZ_CHAIN_FRAME 1024
 #define MFI_FUSION_ENABLE_INTERRUPT_MASK (0x00000009)
 #define MEGA_MPI2_RAID_DEFAULT_IO_FRAME_SIZE 256
@@ -44,6 +45,7 @@
 #define MEGASAS_FUSION_MAX_RESET_TRIES		    3
 #define MAX_MSIX_QUEUES_FUSION			    16
 
+/* Invader defines */
 #define MPI2_TYPE_CUDA				    0x2
 #define MPI25_SAS_DEVICE0_FLAGS_ENABLED_FAST_PATH   0x4000
 #define	MR_RL_FLAGS_GRANT_DESTINATION_CPU0	    0x00
@@ -51,6 +53,7 @@
 #define	MR_RL_FLAGS_GRANT_DESTINATION_CUDA	    0x80
 #define MR_RL_FLAGS_SEQ_NUM_ENABLE		    0x8
 
+/* T10 PI defines */
 #define MR_PROT_INFO_TYPE_CONTROLLER                0x8
 #define MEGASAS_SCSI_VARIABLE_LENGTH_CMD            0x7f
 #define MEGASAS_SCSI_SERVICE_ACTION_READ32          0x9
@@ -60,6 +63,9 @@
 #define MEGASAS_RD_WR_PROTECT_CHECK_NONE	    0x60
 #define MEGASAS_EEDPBLOCKSIZE			    512
 
+/*
+ * Raid context flags
+ */
 
 #define MR_RAID_CTX_RAID_FLAGS_IO_SUB_TYPE_SHIFT   0x4
 #define MR_RAID_CTX_RAID_FLAGS_IO_SUB_TYPE_MASK    0x30
@@ -68,6 +74,9 @@ enum MR_RAID_FLAGS_IO_SUB_TYPE {
 	MR_RAID_FLAGS_IO_SUB_TYPE_SYSTEM_PD = 1,
 };
 
+/*
+ * Request descriptor types
+ */
 #define MEGASAS_REQ_DESCRIPT_FLAGS_LD_IO           0x7
 #define MEGASAS_REQ_DESCRIPT_FLAGS_MFA             0x1
 #define MEGASAS_REQ_DESCRIPT_FLAGS_NO_LOCK	   0x2
@@ -76,6 +85,10 @@ enum MR_RAID_FLAGS_IO_SUB_TYPE {
 #define MEGASAS_FP_CMD_LEN	16
 #define MEGASAS_FUSION_IN_RESET 0
 
+/*
+ * Raid Context structure which describes MegaRAID specific IO Paramenters
+ * This resides at offset 0x60 where the SGL normally starts in MPT IO Frames
+ */
 
 struct RAID_CONTEXT {
 	u8	Type:4;
@@ -103,6 +116,9 @@ struct RAID_CONTEXT {
 #define RAID_CTX_SPANARM_SPAN_SHIFT	(5)
 #define RAID_CTX_SPANARM_SPAN_MASK	(0xE0)
 
+/*
+ * define region lock types
+ */
 enum REGION_TYPE {
 	REGION_TYPE_UNUSED       = 0,
 	REGION_TYPE_SHARED_READ  = 1,
@@ -110,7 +126,8 @@ enum REGION_TYPE {
 	REGION_TYPE_EXCLUSIVE    = 3,
 };
 
-#define MPI2_FUNCTION_IOC_INIT              (0x02) 
+/* MPI2 defines */
+#define MPI2_FUNCTION_IOC_INIT              (0x02) /* IOC Init */
 #define MPI2_WHOINIT_HOST_DRIVER            (0x04)
 #define MPI2_VERSION_MAJOR                  (0x02)
 #define MPI2_VERSION_MINOR                  (0x00)
@@ -135,7 +152,7 @@ enum REGION_TYPE {
 #define MPI2_SCSIIO_EEDPFLAGS_CHECK_APPTAG          (0x0200)
 #define MPI2_SCSIIO_EEDPFLAGS_CHECK_GUARD           (0x0100)
 #define MPI2_SCSIIO_EEDPFLAGS_INSERT_OP             (0x0004)
-#define MPI2_FUNCTION_SCSI_IO_REQUEST               (0x00) 
+#define MPI2_FUNCTION_SCSI_IO_REQUEST               (0x00) /* SCSI IO */
 #define MPI2_REQ_DESCRIPT_FLAGS_HIGH_PRIORITY           (0x06)
 #define MPI2_REQ_DESCRIPT_FLAGS_SCSI_IO                 (0x00)
 #define MPI2_SGE_FLAGS_64_BIT_ADDRESSING        (0x02)
@@ -171,11 +188,11 @@ struct MPI2_SGE_SIMPLE_UNION {
 };
 
 struct MPI2_SCSI_IO_CDB_EEDP32 {
-	u8                      CDB[20];                    
-	u32                     PrimaryReferenceTag;        
-	u16                     PrimaryApplicationTag;      
-	u16                     PrimaryApplicationTagMask;  
-	u32                     TransferLength;             
+	u8                      CDB[20];                    /* 0x00 */
+	u32                     PrimaryReferenceTag;        /* 0x14 */
+	u16                     PrimaryApplicationTag;      /* 0x18 */
+	u16                     PrimaryApplicationTagMask;  /* 0x1A */
+	u32                     TransferLength;             /* 0x1C */
 };
 
 struct MPI2_SGE_CHAIN_UNION {
@@ -237,86 +254,99 @@ union MPI2_SCSI_IO_CDB_UNION {
 	struct MPI2_SGE_SIMPLE_UNION SGE;
 };
 
+/*
+ * RAID SCSI IO Request Message
+ * Total SGE count will be one less than  _MPI2_SCSI_IO_REQUEST
+ */
 struct MPI2_RAID_SCSI_IO_REQUEST {
-	u16                     DevHandle;                      
-	u8                      ChainOffset;                    
-	u8                      Function;                       
-	u16                     Reserved1;                      
-	u8                      Reserved2;                      
-	u8                      MsgFlags;                       
-	u8                      VP_ID;                          
-	u8                      VF_ID;                          
-	u16                     Reserved3;                      
-	u32                     SenseBufferLowAddress;          
-	u16                     SGLFlags;                       
-	u8                      SenseBufferLength;              
-	u8                      Reserved4;                      
-	u8                      SGLOffset0;                     
-	u8                      SGLOffset1;                     
-	u8                      SGLOffset2;                     
-	u8                      SGLOffset3;                     
-	u32                     SkipCount;                      
-	u32                     DataLength;                     
-	u32                     BidirectionalDataLength;        
-	u16                     IoFlags;                        
-	u16                     EEDPFlags;                      
-	u32                     EEDPBlockSize;                  
-	u32                     SecondaryReferenceTag;          
-	u16                     SecondaryApplicationTag;        
-	u16                     ApplicationTagTranslationMask;  
-	u8                      LUN[8];                         
-	u32                     Control;                        
-	union MPI2_SCSI_IO_CDB_UNION  CDB;			
-	struct RAID_CONTEXT	RaidContext;                    
-	union MPI2_SGE_IO_UNION       SGL;			
+	u16                     DevHandle;                      /* 0x00 */
+	u8                      ChainOffset;                    /* 0x02 */
+	u8                      Function;                       /* 0x03 */
+	u16                     Reserved1;                      /* 0x04 */
+	u8                      Reserved2;                      /* 0x06 */
+	u8                      MsgFlags;                       /* 0x07 */
+	u8                      VP_ID;                          /* 0x08 */
+	u8                      VF_ID;                          /* 0x09 */
+	u16                     Reserved3;                      /* 0x0A */
+	u32                     SenseBufferLowAddress;          /* 0x0C */
+	u16                     SGLFlags;                       /* 0x10 */
+	u8                      SenseBufferLength;              /* 0x12 */
+	u8                      Reserved4;                      /* 0x13 */
+	u8                      SGLOffset0;                     /* 0x14 */
+	u8                      SGLOffset1;                     /* 0x15 */
+	u8                      SGLOffset2;                     /* 0x16 */
+	u8                      SGLOffset3;                     /* 0x17 */
+	u32                     SkipCount;                      /* 0x18 */
+	u32                     DataLength;                     /* 0x1C */
+	u32                     BidirectionalDataLength;        /* 0x20 */
+	u16                     IoFlags;                        /* 0x24 */
+	u16                     EEDPFlags;                      /* 0x26 */
+	u32                     EEDPBlockSize;                  /* 0x28 */
+	u32                     SecondaryReferenceTag;          /* 0x2C */
+	u16                     SecondaryApplicationTag;        /* 0x30 */
+	u16                     ApplicationTagTranslationMask;  /* 0x32 */
+	u8                      LUN[8];                         /* 0x34 */
+	u32                     Control;                        /* 0x3C */
+	union MPI2_SCSI_IO_CDB_UNION  CDB;			/* 0x40 */
+	struct RAID_CONTEXT	RaidContext;                    /* 0x60 */
+	union MPI2_SGE_IO_UNION       SGL;			/* 0x80 */
 };
 
+/*
+ * MPT RAID MFA IO Descriptor.
+ */
 struct MEGASAS_RAID_MFA_IO_REQUEST_DESCRIPTOR {
 	u32     RequestFlags:8;
-	u32     MessageAddress1:24; 
-	u32     MessageAddress2;      
+	u32     MessageAddress1:24; /* bits 31:8*/
+	u32     MessageAddress2;      /* bits 61:32 */
 };
 
+/* Default Request Descriptor */
 struct MPI2_DEFAULT_REQUEST_DESCRIPTOR {
-	u8              RequestFlags;               
-	u8              MSIxIndex;                  
-	u16             SMID;                       
-	u16             LMID;                       
-	u16             DescriptorTypeDependent;    
+	u8              RequestFlags;               /* 0x00 */
+	u8              MSIxIndex;                  /* 0x01 */
+	u16             SMID;                       /* 0x02 */
+	u16             LMID;                       /* 0x04 */
+	u16             DescriptorTypeDependent;    /* 0x06 */
 };
 
+/* High Priority Request Descriptor */
 struct MPI2_HIGH_PRIORITY_REQUEST_DESCRIPTOR {
-	u8              RequestFlags;               
-	u8              MSIxIndex;                  
-	u16             SMID;                       
-	u16             LMID;                       
-	u16             Reserved1;                  
+	u8              RequestFlags;               /* 0x00 */
+	u8              MSIxIndex;                  /* 0x01 */
+	u16             SMID;                       /* 0x02 */
+	u16             LMID;                       /* 0x04 */
+	u16             Reserved1;                  /* 0x06 */
 };
 
+/* SCSI IO Request Descriptor */
 struct MPI2_SCSI_IO_REQUEST_DESCRIPTOR {
-	u8              RequestFlags;               
-	u8              MSIxIndex;                  
-	u16             SMID;                       
-	u16             LMID;                       
-	u16             DevHandle;                  
+	u8              RequestFlags;               /* 0x00 */
+	u8              MSIxIndex;                  /* 0x01 */
+	u16             SMID;                       /* 0x02 */
+	u16             LMID;                       /* 0x04 */
+	u16             DevHandle;                  /* 0x06 */
 };
 
+/* SCSI Target Request Descriptor */
 struct MPI2_SCSI_TARGET_REQUEST_DESCRIPTOR {
-	u8              RequestFlags;               
-	u8              MSIxIndex;                  
-	u16             SMID;                       
-	u16             LMID;                       
-	u16             IoIndex;                    
+	u8              RequestFlags;               /* 0x00 */
+	u8              MSIxIndex;                  /* 0x01 */
+	u16             SMID;                       /* 0x02 */
+	u16             LMID;                       /* 0x04 */
+	u16             IoIndex;                    /* 0x06 */
 };
 
+/* RAID Accelerator Request Descriptor */
 struct MPI2_RAID_ACCEL_REQUEST_DESCRIPTOR {
-	u8              RequestFlags;               
-	u8              MSIxIndex;                  
-	u16             SMID;                       
-	u16             LMID;                       
-	u16             Reserved;                   
+	u8              RequestFlags;               /* 0x00 */
+	u8              MSIxIndex;                  /* 0x01 */
+	u16             SMID;                       /* 0x02 */
+	u16             LMID;                       /* 0x04 */
+	u16             Reserved;                   /* 0x06 */
 };
 
+/* union of Request Descriptors */
 union MEGASAS_REQUEST_DESCRIPTOR_UNION {
 	struct MPI2_DEFAULT_REQUEST_DESCRIPTOR             Default;
 	struct MPI2_HIGH_PRIORITY_REQUEST_DESCRIPTOR       HighPriority;
@@ -333,53 +363,60 @@ union MEGASAS_REQUEST_DESCRIPTOR_UNION {
 	};
 };
 
+/* Default Reply Descriptor */
 struct MPI2_DEFAULT_REPLY_DESCRIPTOR {
-	u8              ReplyFlags;                 
-	u8              MSIxIndex;                  
-	u16             DescriptorTypeDependent1;   
-	u32             DescriptorTypeDependent2;   
+	u8              ReplyFlags;                 /* 0x00 */
+	u8              MSIxIndex;                  /* 0x01 */
+	u16             DescriptorTypeDependent1;   /* 0x02 */
+	u32             DescriptorTypeDependent2;   /* 0x04 */
 };
 
+/* Address Reply Descriptor */
 struct MPI2_ADDRESS_REPLY_DESCRIPTOR {
-	u8              ReplyFlags;                 
-	u8              MSIxIndex;                  
-	u16             SMID;                       
-	u32             ReplyFrameAddress;          
+	u8              ReplyFlags;                 /* 0x00 */
+	u8              MSIxIndex;                  /* 0x01 */
+	u16             SMID;                       /* 0x02 */
+	u32             ReplyFrameAddress;          /* 0x04 */
 };
 
+/* SCSI IO Success Reply Descriptor */
 struct MPI2_SCSI_IO_SUCCESS_REPLY_DESCRIPTOR {
-	u8              ReplyFlags;                 
-	u8              MSIxIndex;                  
-	u16             SMID;                       
-	u16             TaskTag;                    
-	u16             Reserved1;                  
+	u8              ReplyFlags;                 /* 0x00 */
+	u8              MSIxIndex;                  /* 0x01 */
+	u16             SMID;                       /* 0x02 */
+	u16             TaskTag;                    /* 0x04 */
+	u16             Reserved1;                  /* 0x06 */
 };
 
+/* TargetAssist Success Reply Descriptor */
 struct MPI2_TARGETASSIST_SUCCESS_REPLY_DESCRIPTOR {
-	u8              ReplyFlags;                 
-	u8              MSIxIndex;                  
-	u16             SMID;                       
-	u8              SequenceNumber;             
-	u8              Reserved1;                  
-	u16             IoIndex;                    
+	u8              ReplyFlags;                 /* 0x00 */
+	u8              MSIxIndex;                  /* 0x01 */
+	u16             SMID;                       /* 0x02 */
+	u8              SequenceNumber;             /* 0x04 */
+	u8              Reserved1;                  /* 0x05 */
+	u16             IoIndex;                    /* 0x06 */
 };
 
+/* Target Command Buffer Reply Descriptor */
 struct MPI2_TARGET_COMMAND_BUFFER_REPLY_DESCRIPTOR {
-	u8              ReplyFlags;                 
-	u8              MSIxIndex;                  
-	u8              VP_ID;                      
-	u8              Flags;                      
-	u16             InitiatorDevHandle;         
-	u16             IoIndex;                    
+	u8              ReplyFlags;                 /* 0x00 */
+	u8              MSIxIndex;                  /* 0x01 */
+	u8              VP_ID;                      /* 0x02 */
+	u8              Flags;                      /* 0x03 */
+	u16             InitiatorDevHandle;         /* 0x04 */
+	u16             IoIndex;                    /* 0x06 */
 };
 
+/* RAID Accelerator Success Reply Descriptor */
 struct MPI2_RAID_ACCELERATOR_SUCCESS_REPLY_DESCRIPTOR {
-	u8              ReplyFlags;                 
-	u8              MSIxIndex;                  
-	u16             SMID;                       
-	u32             Reserved;                   
+	u8              ReplyFlags;                 /* 0x00 */
+	u8              MSIxIndex;                  /* 0x01 */
+	u16             SMID;                       /* 0x02 */
+	u32             Reserved;                   /* 0x04 */
 };
 
+/* union of Reply Descriptors */
 union MPI2_REPLY_DESCRIPTORS_UNION {
 	struct MPI2_DEFAULT_REPLY_DESCRIPTOR                   Default;
 	struct MPI2_ADDRESS_REPLY_DESCRIPTOR                   AddressReply;
@@ -391,35 +428,37 @@ union MPI2_REPLY_DESCRIPTORS_UNION {
 	u64                                             Words;
 };
 
+/* IOCInit Request message */
 struct MPI2_IOC_INIT_REQUEST {
-	u8                      WhoInit;                        
-	u8                      Reserved1;                      
-	u8                      ChainOffset;                    
-	u8                      Function;                       
-	u16                     Reserved2;                      
-	u8                      Reserved3;                      
-	u8                      MsgFlags;                       
-	u8                      VP_ID;                          
-	u8                      VF_ID;                          
-	u16                     Reserved4;                      
-	u16                     MsgVersion;                     
-	u16                     HeaderVersion;                  
-	u32                     Reserved5;                      
-	u16                     Reserved6;                      
-	u8                      Reserved7;                      
-	u8                      HostMSIxVectors;                
-	u16                     Reserved8;                      
-	u16                     SystemRequestFrameSize;         
-	u16                     ReplyDescriptorPostQueueDepth;  
-	u16                     ReplyFreeQueueDepth;            
-	u32                     SenseBufferAddressHigh;         
-	u32                     SystemReplyAddressHigh;         
-	u64                     SystemRequestFrameBaseAddress;  
-	u64                     ReplyDescriptorPostQueueAddress;
-	u64                     ReplyFreeQueueAddress;          
-	u64                     TimeStamp;                      
+	u8                      WhoInit;                        /* 0x00 */
+	u8                      Reserved1;                      /* 0x01 */
+	u8                      ChainOffset;                    /* 0x02 */
+	u8                      Function;                       /* 0x03 */
+	u16                     Reserved2;                      /* 0x04 */
+	u8                      Reserved3;                      /* 0x06 */
+	u8                      MsgFlags;                       /* 0x07 */
+	u8                      VP_ID;                          /* 0x08 */
+	u8                      VF_ID;                          /* 0x09 */
+	u16                     Reserved4;                      /* 0x0A */
+	u16                     MsgVersion;                     /* 0x0C */
+	u16                     HeaderVersion;                  /* 0x0E */
+	u32                     Reserved5;                      /* 0x10 */
+	u16                     Reserved6;                      /* 0x14 */
+	u8                      Reserved7;                      /* 0x16 */
+	u8                      HostMSIxVectors;                /* 0x17 */
+	u16                     Reserved8;                      /* 0x18 */
+	u16                     SystemRequestFrameSize;         /* 0x1A */
+	u16                     ReplyDescriptorPostQueueDepth;  /* 0x1C */
+	u16                     ReplyFreeQueueDepth;            /* 0x1E */
+	u32                     SenseBufferAddressHigh;         /* 0x20 */
+	u32                     SystemReplyAddressHigh;         /* 0x24 */
+	u64                     SystemRequestFrameBaseAddress;  /* 0x28 */
+	u64                     ReplyDescriptorPostQueueAddress;/* 0x30 */
+	u64                     ReplyFreeQueueAddress;          /* 0x38 */
+	u64                     TimeStamp;                      /* 0x40 */
 };
 
+/* mrpriv defines */
 #define MR_PD_INVALID 0xFFFF
 #define MAX_SPAN_DEPTH 8
 #define MAX_RAIDMAP_SPAN_DEPTH (MAX_SPAN_DEPTH)
@@ -593,6 +632,10 @@ struct megasas_cmd_fusion {
 	u8 retry_for_fw_reset;
 	union MEGASAS_REQUEST_DESCRIPTOR_UNION  *request_desc;
 
+	/*
+	 * Context for a MFI frame.
+	 * Used to get the mfi cmd from list when a MFI cmd is completed
+	 */
 	u32 sync_cmd_idx;
 	u32 index;
 	u8 flags;
@@ -660,4 +703,4 @@ union desc_value {
 	} u;
 };
 
-#endif 
+#endif /* _MEGARAID_SAS_FUSION_H_ */

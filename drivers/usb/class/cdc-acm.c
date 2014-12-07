@@ -61,7 +61,14 @@ static struct acm *acm_table[ACM_TTY_MINORS];
 
 static DEFINE_MUTEX(acm_table_lock);
 
+/*
+ * acm_table accessors
+ */
 
+/*
+ * Look up an ACM structure by index. If found and not disconnected, increment
+ * its refcount and return it with its mutex held.
+ */
 static struct acm *acm_get_by_index(unsigned index)
 {
 	struct acm *acm;
@@ -82,6 +89,9 @@ static struct acm *acm_get_by_index(unsigned index)
 	return acm;
 }
 
+/*
+ * Try to find an available minor number and if found, associate it with 'acm'.
+ */
 static int acm_alloc_minor(struct acm *acm)
 {
 	int minor;
@@ -98,6 +108,7 @@ static int acm_alloc_minor(struct acm *acm)
 	return minor;
 }
 
+/* Release the minor number associated with 'acm'.  */
 static void acm_release_minor(struct acm *acm)
 {
 	mutex_lock(&acm_table_lock);
@@ -105,6 +116,9 @@ static void acm_release_minor(struct acm *acm)
 	mutex_unlock(&acm_table_lock);
 }
 
+/*
+ * Functions for ACM control messages.
+ */
 
 static int acm_ctrl_msg(struct acm *acm, int request, int value,
 							void *buf, int len)
@@ -119,6 +133,9 @@ static int acm_ctrl_msg(struct acm *acm, int request, int value,
 	return retval < 0 ? retval : 0;
 }
 
+/* devices aren't required to support these requests.
+ * the cdc acm descriptor tells whether they do...
+ */
 #define acm_set_control(acm, control) \
 	acm_ctrl_msg(acm, USB_CDC_REQ_SET_CONTROL_LINE_STATE, control, NULL, 0)
 #define acm_set_line(acm, line) \
@@ -126,6 +143,10 @@ static int acm_ctrl_msg(struct acm *acm, int request, int value,
 #define acm_send_break(acm, ms) \
 	acm_ctrl_msg(acm, USB_CDC_REQ_SEND_BREAK, ms, NULL, 0)
 
+/*
+ * Write buffer management.
+ * All of these assume proper locks taken by the caller.
+ */
 
 static int acm_wb_alloc(struct acm *acm)
 {
@@ -159,6 +180,9 @@ static int acm_wb_is_avail(struct acm *acm)
 	return n;
 }
 
+/*
+ * Finish write. Caller must hold acm->write_lock
+ */
 static void acm_write_done(struct acm *acm, struct acm_wb *wb)
 {
 	wb->use = 0;
@@ -166,6 +190,11 @@ static void acm_write_done(struct acm *acm, struct acm_wb *wb)
 	usb_autopm_put_interface_async(acm->control);
 }
 
+/*
+ * Poke write.
+ *
+ * the caller is responsible for locking
+ */
 
 static int acm_start_wb(struct acm *acm, struct acm_wb *wb)
 {
@@ -210,7 +239,7 @@ static int acm_write_start(struct acm *acm, int wbn)
 		else
 			usb_autopm_put_interface_async(acm->control);
 		spin_unlock_irqrestore(&acm->write_lock, flags);
-		return 0;	
+		return 0;	/* A white lie */
 	}
 	usb_mark_last_busy(acm->dev);
 
@@ -220,6 +249,9 @@ static int acm_write_start(struct acm *acm, int wbn)
 	return rc;
 
 }
+/*
+ * attributes exported through sysfs
+ */
 static ssize_t show_caps
 (struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -252,7 +284,11 @@ static ssize_t show_country_rel_date
 }
 
 static DEVICE_ATTR(iCountryCodeRelDate, S_IRUGO, show_country_rel_date, NULL);
+/*
+ * Interrupt handlers for various ACM device responses
+ */
 
+/* control interface reports status changes with "interrupt" transfers */
 static void acm_ctrl_irq(struct urb *urb)
 {
 	struct acm *acm = urb->context;
@@ -265,12 +301,12 @@ static void acm_ctrl_irq(struct urb *urb)
 
 	switch (status) {
 	case 0:
-		
+		/* success */
 		break;
 	case -ECONNRESET:
 	case -ENOENT:
 	case -ESHUTDOWN:
-		
+		/* this urb is terminated, clean up */
 		dev_dbg(&acm->control->dev,
 				"%s - urb shutting down with status: %d\n",
 				__func__, status);
@@ -413,7 +449,7 @@ static void acm_read_bulk_callback(struct urb *urb)
 	}
 	acm_process_read_urb(acm, urb);
 
-	
+	/* throttle device if requested by tty */
 	spin_lock_irqsave(&acm->read_lock, flags);
 	acm->throttled = acm->throttle_req;
 	if (!acm->throttled && !acm->susp_count) {
@@ -424,6 +460,7 @@ static void acm_read_bulk_callback(struct urb *urb)
 	}
 }
 
+/* data interface wrote those outgoing bytes */
 static void acm_write_bulk(struct urb *urb)
 {
 	struct acm_wb *wb = urb->context;
@@ -457,6 +494,9 @@ static void acm_softint(struct work_struct *work)
 	tty_kref_put(tty);
 }
 
+/*
+ * TTY handlers
+ */
 
 static int acm_tty_install(struct tty_driver *driver, struct tty_struct *tty)
 {
@@ -506,6 +546,10 @@ static int acm_port_activate(struct tty_port *port, struct tty_struct *tty)
 	if (retval)
 		goto error_get_interface;
 
+	/*
+	 * FIXME: Why do we need this? Allocating 64K of physically contiguous
+	 * memory is really nasty...
+	 */
 	set_bit(TTY_NO_WRITE_SPLIT, &tty->flags);
 	acm->control->needs_remote_wakeup = 1;
 
@@ -636,14 +680,25 @@ static int acm_tty_write(struct tty_struct *tty,
 static int acm_tty_write_room(struct tty_struct *tty)
 {
 	struct acm *acm = tty->driver_data;
+	/*
+	 * Do not let the line discipline to know that we have a reserve,
+	 * or it might get too enthusiastic.
+	 */
 	return acm_wb_is_avail(acm) ? acm->writesize : 0;
 }
 
 static int acm_tty_chars_in_buffer(struct tty_struct *tty)
 {
 	struct acm *acm = tty->driver_data;
+	/*
+	 * if the device was unplugged then any remaining characters fell out
+	 * of the connector ;)
+	 */
 	if (acm->disconnected)
 		return 0;
+	/*
+	 * This is inaccurate (overcounts), but it works.
+	 */
 	return (ACM_NW - acm_wb_is_avail(acm)) * acm->writesize;
 }
 
@@ -739,7 +794,7 @@ static int acm_tty_ioctl(struct tty_struct *tty,
 	int rv = -ENOIOCTLCMD;
 
 	switch (cmd) {
-	case TIOCGSERIAL: 
+	case TIOCGSERIAL: /* gets serial port data */
 		rv = get_serial_info(acm, (struct serial_struct __user *) arg);
 		break;
 	}
@@ -773,7 +828,7 @@ static void acm_tty_set_termios(struct tty_struct *tty,
 				(termios->c_cflag & PARODD ? 1 : 2) +
 				(termios->c_cflag & CMSPAR ? 2 : 0) : 0;
 	newline.bDataBits = acm_tty_size[(termios->c_cflag & CSIZE) >> 4];
-	
+	/* FIXME: Needs to clear unsupported bits in the termios */
 	acm->clocal = ((termios->c_cflag & CLOCAL) != 0);
 
 	if (!newline.dwDTERate) {
@@ -802,7 +857,11 @@ static const struct tty_port_operations acm_port_ops = {
 	.destruct = acm_port_destruct,
 };
 
+/*
+ * USB probe and disconnect routines.
+ */
 
+/* Little helpers: write/read buffers free */
 static void acm_write_buffers_free(struct acm *acm)
 {
 	int i;
@@ -823,6 +882,7 @@ static void acm_read_buffers_free(struct acm *acm)
 			  acm->read_buffers[i].base, acm->read_buffers[i].dma);
 }
 
+/* Little helper: write buffers allocate */
 static int acm_write_buffers_alloc(struct acm *acm)
 {
 	int i;
@@ -870,18 +930,18 @@ static int acm_probe(struct usb_interface *intf,
 	int i;
 	int combined_interfaces = 0;
 
-	
+	/* normal quirks */
 	quirks = (unsigned long)id->driver_info;
 	num_rx_buf = (quirks == SINGLE_RX_URB) ? 1 : ACM_NR;
 
-	
+	/* handle quirks deadly to normal probing*/
 	if (quirks == NO_UNION_NORMAL) {
 		data_interface = usb_ifnum_to_if(usb_dev, 1);
 		control_interface = usb_ifnum_to_if(usb_dev, 0);
 		goto skip_normal_probe;
 	}
 
-	
+	/* normal probing*/
 	if (!buffer) {
 		dev_err(&intf->dev, "Weird descriptor references\n");
 		return -EINVAL;
@@ -909,7 +969,7 @@ static int acm_probe(struct usb_interface *intf,
 		}
 
 		switch (buffer[2]) {
-		case USB_CDC_UNION_TYPE: 
+		case USB_CDC_UNION_TYPE: /* we've found it */
 			if (union_header) {
 				dev_err(&intf->dev, "More than one "
 					"union descriptor, skipping ...\n");
@@ -917,11 +977,11 @@ static int acm_probe(struct usb_interface *intf,
 			}
 			union_header = (struct usb_cdc_union_desc *)buffer;
 			break;
-		case USB_CDC_COUNTRY_TYPE: 
+		case USB_CDC_COUNTRY_TYPE: /* export through sysfs*/
 			cfd = (struct usb_cdc_country_functional_desc *)buffer;
 			break;
-		case USB_CDC_HEADER_TYPE: 
-			break; 
+		case USB_CDC_HEADER_TYPE: /* maybe check version */
+			break; /* for now we ignore it */
 		case USB_CDC_ACM_TYPE:
 			ac_management_function = buffer[3];
 			break;
@@ -932,6 +992,9 @@ static int acm_probe(struct usb_interface *intf,
 				dev_err(&intf->dev, "This device cannot do calls on its own. It is not a modem.\n");
 			break;
 		default:
+			/* there are LOTS more CDC descriptors that
+			 * could legitimately be found here.
+			 */
 			dev_dbg(&intf->dev, "Ignoring descriptor: "
 					"type %02x, length %d\n",
 					buffer[2], buffer[0]);
@@ -945,7 +1008,7 @@ next_desc:
 	if (!union_header) {
 		if (call_interface_num > 0) {
 			dev_dbg(&intf->dev, "No union descriptor, using call management descriptor\n");
-			
+			/* quirks for Droids MuIn LCD */
 			if (quirks & NO_DATA_INTERFACE)
 				data_interface = usb_ifnum_to_if(usb_dev, 0);
 			else
@@ -975,10 +1038,10 @@ next_desc:
 		dev_dbg(&intf->dev, "Separate call control interface. That is not fully supported.\n");
 
 	if (control_interface == data_interface) {
-		
+		/* some broken devices designed for windows work this way */
 		dev_warn(&intf->dev,"Control and data interfaces are not separated!\n");
 		combined_interfaces = 1;
-		
+		/* a popular other OS doesn't use it */
 		quirks |= NO_CAP_LINE;
 		if (data_interface->cur_altsetting->desc.bNumEndpoints != 3) {
 			dev_err(&intf->dev, "This needs exactly 3 endpoints\n");
@@ -1006,7 +1069,7 @@ look_for_collapsed_interface:
 
 skip_normal_probe:
 
-	
+	/*workaround for switched interfaces */
 	if (data_interface->cur_altsetting->desc.bInterfaceClass
 						!= CDC_DATA_INTERFACE_TYPE) {
 		if (control_interface->cur_altsetting->desc.bInterfaceClass
@@ -1022,12 +1085,12 @@ skip_normal_probe:
 		}
 	}
 
-	
+	/* Accept probe requests only for the control interface */
 	if (!combined_interfaces && intf != control_interface)
 		return -ENODEV;
 
 	if (!combined_interfaces && usb_interface_claimed(data_interface)) {
-		
+		/* valid in this context */
 		dev_dbg(&intf->dev, "The data interface isn't available\n");
 		return -EBUSY;
 	}
@@ -1041,9 +1104,9 @@ skip_normal_probe:
 	epwrite = &data_interface->cur_altsetting->endpoint[1].desc;
 
 
-	
+	/* workaround for switched endpoints */
 	if (!usb_endpoint_dir_in(epread)) {
-		
+		/* descriptors are swapped */
 		struct usb_endpoint_descriptor *t;
 		dev_dbg(&intf->dev,
 			"The data interface has switched endpoints\n");
@@ -1178,7 +1241,7 @@ made_compressed_probe:
 	if (i < 0)
 		goto alloc_fail7;
 
-	if (cfd) { 
+	if (cfd) { /* export the country data */
 		acm->country_codes = kmalloc(cfd->bLength - 4, GFP_KERNEL);
 		if (!acm->country_codes)
 			goto skip_countries;
@@ -1210,7 +1273,7 @@ skip_countries:
 	usb_fill_int_urb(acm->ctrlurb, usb_dev,
 			 usb_rcvintpipe(usb_dev, epctrl->bEndpointAddress),
 			 acm->ctrl_buffer, ctrlsize, acm_ctrl_irq, acm,
-			 
+			 /* works around buggy devices */
 			 epctrl->bInterval ? epctrl->bInterval : 0xff);
 	acm->ctrlurb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 	acm->ctrlurb->transfer_dma = acm->ctrl_dma;
@@ -1273,7 +1336,7 @@ static void acm_disconnect(struct usb_interface *intf)
 
 	dev_dbg(&intf->dev, "%s\n", __func__);
 
-	
+	/* sibling interface is already cleaning up */
 	if (!acm)
 		return;
 
@@ -1373,6 +1436,10 @@ static int acm_resume(struct usb_interface *intf)
 			spin_unlock_irq(&acm->write_lock);
 		}
 
+		/*
+		 * delayed error checking because we must
+		 * do the write path at all cost
+		 */
 		if (rv < 0)
 			goto err_out;
 
@@ -1399,7 +1466,7 @@ static int acm_reset_resume(struct usb_interface *intf)
 	return acm_resume(intf);
 }
 
-#endif 
+#endif /* CONFIG_PM */
 
 #define NOKIA_PCSUITE_ACM_INFO(x) \
 		USB_DEVICE_AND_INTERFACE_INFO(0x0421, x, \
@@ -1411,149 +1478,161 @@ static int acm_reset_resume(struct usb_interface *intf)
 		USB_CLASS_COMM, USB_CDC_SUBCLASS_ACM, \
 		USB_CDC_ACM_PROTO_VENDOR)
 
+/*
+ * USB driver structure.
+ */
 
 static const struct usb_device_id acm_ids[] = {
-	
-	{ USB_DEVICE(0x0870, 0x0001), 
-	.driver_info = NO_UNION_NORMAL, 
+	/* quirky and broken devices */
+	{ USB_DEVICE(0x0870, 0x0001), /* Metricom GS Modem */
+	.driver_info = NO_UNION_NORMAL, /* has no union descriptor */
 	},
-	{ USB_DEVICE(0x0e8d, 0x0003), 
-	.driver_info = NO_UNION_NORMAL, 
+	{ USB_DEVICE(0x0e8d, 0x0003), /* FIREFLY, MediaTek Inc; andrey.arapov@gmail.com */
+	.driver_info = NO_UNION_NORMAL, /* has no union descriptor */
 	},
-	{ USB_DEVICE(0x0e8d, 0x3329), 
-	.driver_info = NO_UNION_NORMAL, 
+	{ USB_DEVICE(0x0e8d, 0x3329), /* MediaTek Inc GPS */
+	.driver_info = NO_UNION_NORMAL, /* has no union descriptor */
 	},
-	{ USB_DEVICE(0x0482, 0x0203), 
-	.driver_info = NO_UNION_NORMAL, 
+	{ USB_DEVICE(0x0482, 0x0203), /* KYOCERA AH-K3001V */
+	.driver_info = NO_UNION_NORMAL, /* has no union descriptor */
 	},
-	{ USB_DEVICE(0x079b, 0x000f), 
-	.driver_info = NO_UNION_NORMAL, 
+	{ USB_DEVICE(0x079b, 0x000f), /* BT On-Air USB MODEM */
+	.driver_info = NO_UNION_NORMAL, /* has no union descriptor */
 	},
-	{ USB_DEVICE(0x0ace, 0x1602), 
+	{ USB_DEVICE(0x0ace, 0x1602), /* ZyDAS 56K USB MODEM */
 	.driver_info = SINGLE_RX_URB,
 	},
-	{ USB_DEVICE(0x0ace, 0x1608), 
-	.driver_info = SINGLE_RX_URB, 
+	{ USB_DEVICE(0x0ace, 0x1608), /* ZyDAS 56K USB MODEM */
+	.driver_info = SINGLE_RX_URB, /* firmware bug */
 	},
-	{ USB_DEVICE(0x0ace, 0x1611), 
-	.driver_info = SINGLE_RX_URB, 
+	{ USB_DEVICE(0x0ace, 0x1611), /* ZyDAS 56K USB MODEM - new version */
+	.driver_info = SINGLE_RX_URB, /* firmware bug */
 	},
-	{ USB_DEVICE(0x22b8, 0x7000), 
-	.driver_info = NO_UNION_NORMAL, 
+	{ USB_DEVICE(0x22b8, 0x7000), /* Motorola Q Phone */
+	.driver_info = NO_UNION_NORMAL, /* has no union descriptor */
 	},
-	{ USB_DEVICE(0x0803, 0x3095), 
-	.driver_info = NO_UNION_NORMAL, 
+	{ USB_DEVICE(0x0803, 0x3095), /* Zoom Telephonics Model 3095F USB MODEM */
+	.driver_info = NO_UNION_NORMAL, /* has no union descriptor */
 	},
-	{ USB_DEVICE(0x0572, 0x1321), 
-	.driver_info = NO_UNION_NORMAL, 
+	{ USB_DEVICE(0x0572, 0x1321), /* Conexant USB MODEM CX93010 */
+	.driver_info = NO_UNION_NORMAL, /* has no union descriptor */
 	},
-	{ USB_DEVICE(0x0572, 0x1324), 
-	.driver_info = NO_UNION_NORMAL, 
+	{ USB_DEVICE(0x0572, 0x1324), /* Conexant USB MODEM RD02-D400 */
+	.driver_info = NO_UNION_NORMAL, /* has no union descriptor */
 	},
-	{ USB_DEVICE(0x0572, 0x1328), 
-	.driver_info = NO_UNION_NORMAL, 
+	{ USB_DEVICE(0x0572, 0x1328), /* Shiro / Aztech USB MODEM UM-3100 */
+	.driver_info = NO_UNION_NORMAL, /* has no union descriptor */
 	},
-	{ USB_DEVICE(0x22b8, 0x6425), 
+	{ USB_DEVICE(0x22b8, 0x6425), /* Motorola MOTOMAGX phones */
 	},
-	
-	{ USB_DEVICE(0x22b8, 0x2d91) }, 
-	{ USB_DEVICE(0x22b8, 0x2d92) }, 
-	{ USB_DEVICE(0x22b8, 0x2d93) }, 
-	{ USB_DEVICE(0x22b8, 0x2d95) }, 
-	{ USB_DEVICE(0x22b8, 0x2d96) }, 
-	{ USB_DEVICE(0x22b8, 0x2d97) }, 
-	{ USB_DEVICE(0x22b8, 0x2d99) }, 
-	{ USB_DEVICE(0x22b8, 0x2d9a) }, 
+	/* Motorola H24 HSPA module: */
+	{ USB_DEVICE(0x22b8, 0x2d91) }, /* modem                                */
+	{ USB_DEVICE(0x22b8, 0x2d92) }, /* modem           + diagnostics        */
+	{ USB_DEVICE(0x22b8, 0x2d93) }, /* modem + AT port                      */
+	{ USB_DEVICE(0x22b8, 0x2d95) }, /* modem + AT port + diagnostics        */
+	{ USB_DEVICE(0x22b8, 0x2d96) }, /* modem                         + NMEA */
+	{ USB_DEVICE(0x22b8, 0x2d97) }, /* modem           + diagnostics + NMEA */
+	{ USB_DEVICE(0x22b8, 0x2d99) }, /* modem + AT port               + NMEA */
+	{ USB_DEVICE(0x22b8, 0x2d9a) }, /* modem + AT port + diagnostics + NMEA */
 
-	{ USB_DEVICE(0x0572, 0x1329), 
-	.driver_info = NO_UNION_NORMAL, 
+	{ USB_DEVICE(0x0572, 0x1329), /* Hummingbird huc56s (Conexant) */
+	.driver_info = NO_UNION_NORMAL, /* union descriptor misplaced on
+					   data interface instead of
+					   communications interface.
+					   Maybe we should define a new
+					   quirk for this. */
 	},
-	{ USB_DEVICE(0x1bbb, 0x0003), 
-	.driver_info = NO_UNION_NORMAL, 
+	{ USB_DEVICE(0x1bbb, 0x0003), /* Alcatel OT-I650 */
+	.driver_info = NO_UNION_NORMAL, /* reports zero length descriptor */
 	},
-	{ USB_DEVICE(0x1576, 0x03b1), 
-	.driver_info = NO_UNION_NORMAL, 
+	{ USB_DEVICE(0x1576, 0x03b1), /* Maretron USB100 */
+	.driver_info = NO_UNION_NORMAL, /* reports zero length descriptor */
 	},
 
-	{ NOKIA_PCSUITE_ACM_INFO(0x042D), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x04D8), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x04C9), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0419), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x044D), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0001), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0475), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0508), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0418), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0425), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0486), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x04DF), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x000e), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0445), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x042F), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x048E), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0420), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x04E6), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x04B2), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0134), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x046E), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x002f), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0088), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x00fc), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0042), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x00b0), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x00ab), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0481), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0007), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0071), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x04F0), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0070), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x00e9), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0099), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0128), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x008f), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x00a0), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x007b), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0094), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x003a), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x00e9), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0108), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x01f5), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x02e3), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0178), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x010e), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x02d9), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x01d0), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0223), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0275), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x026c), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0154), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x04ce), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x01d4), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0302), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x0335), }, 
-	{ NOKIA_PCSUITE_ACM_INFO(0x03cd), }, 
-	{ SAMSUNG_PCSUITE_ACM_INFO(0x6651), }, 
+	/* Nokia S60 phones expose two ACM channels. The first is
+	 * a modem and is picked up by the standard AT-command
+	 * information below. The second is 'vendor-specific' but
+	 * is treated as a serial device at the S60 end, so we want
+	 * to expose it on Linux too. */
+	{ NOKIA_PCSUITE_ACM_INFO(0x042D), }, /* Nokia 3250 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x04D8), }, /* Nokia 5500 Sport */
+	{ NOKIA_PCSUITE_ACM_INFO(0x04C9), }, /* Nokia E50 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0419), }, /* Nokia E60 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x044D), }, /* Nokia E61 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0001), }, /* Nokia E61i */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0475), }, /* Nokia E62 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0508), }, /* Nokia E65 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0418), }, /* Nokia E70 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0425), }, /* Nokia N71 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0486), }, /* Nokia N73 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x04DF), }, /* Nokia N75 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x000e), }, /* Nokia N77 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0445), }, /* Nokia N80 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x042F), }, /* Nokia N91 & N91 8GB */
+	{ NOKIA_PCSUITE_ACM_INFO(0x048E), }, /* Nokia N92 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0420), }, /* Nokia N93 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x04E6), }, /* Nokia N93i  */
+	{ NOKIA_PCSUITE_ACM_INFO(0x04B2), }, /* Nokia 5700 XpressMusic */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0134), }, /* Nokia 6110 Navigator (China) */
+	{ NOKIA_PCSUITE_ACM_INFO(0x046E), }, /* Nokia 6110 Navigator */
+	{ NOKIA_PCSUITE_ACM_INFO(0x002f), }, /* Nokia 6120 classic &  */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0088), }, /* Nokia 6121 classic */
+	{ NOKIA_PCSUITE_ACM_INFO(0x00fc), }, /* Nokia 6124 classic */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0042), }, /* Nokia E51 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x00b0), }, /* Nokia E66 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x00ab), }, /* Nokia E71 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0481), }, /* Nokia N76 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0007), }, /* Nokia N81 & N81 8GB */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0071), }, /* Nokia N82 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x04F0), }, /* Nokia N95 & N95-3 NAM */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0070), }, /* Nokia N95 8GB  */
+	{ NOKIA_PCSUITE_ACM_INFO(0x00e9), }, /* Nokia 5320 XpressMusic */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0099), }, /* Nokia 6210 Navigator, RM-367 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0128), }, /* Nokia 6210 Navigator, RM-419 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x008f), }, /* Nokia 6220 Classic */
+	{ NOKIA_PCSUITE_ACM_INFO(0x00a0), }, /* Nokia 6650 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x007b), }, /* Nokia N78 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0094), }, /* Nokia N85 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x003a), }, /* Nokia N96 & N96-3  */
+	{ NOKIA_PCSUITE_ACM_INFO(0x00e9), }, /* Nokia 5320 XpressMusic */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0108), }, /* Nokia 5320 XpressMusic 2G */
+	{ NOKIA_PCSUITE_ACM_INFO(0x01f5), }, /* Nokia N97, RM-505 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x02e3), }, /* Nokia 5230, RM-588 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0178), }, /* Nokia E63 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x010e), }, /* Nokia E75 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x02d9), }, /* Nokia 6760 Slide */
+	{ NOKIA_PCSUITE_ACM_INFO(0x01d0), }, /* Nokia E52 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0223), }, /* Nokia E72 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0275), }, /* Nokia X6 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x026c), }, /* Nokia N97 Mini */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0154), }, /* Nokia 5800 XpressMusic */
+	{ NOKIA_PCSUITE_ACM_INFO(0x04ce), }, /* Nokia E90 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x01d4), }, /* Nokia E55 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0302), }, /* Nokia N8 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x0335), }, /* Nokia E7 */
+	{ NOKIA_PCSUITE_ACM_INFO(0x03cd), }, /* Nokia C7 */
+	{ SAMSUNG_PCSUITE_ACM_INFO(0x6651), }, /* Samsung GTi8510 (INNOV8) */
 
-	
-	{ USB_DEVICE(0x03eb, 0x0030), }, 
+	/* Support for Owen devices */
+	{ USB_DEVICE(0x03eb, 0x0030), }, /* Owen SI30 */
 
-	
+	/* NOTE: non-Nokia COMM/ACM/0xff is likely MSFT RNDIS... NOT a modem! */
 
-	
+	/* Support Lego NXT using pbLua firmware */
 	{ USB_DEVICE(0x0694, 0xff00),
 	.driver_info = NOT_A_MODEM,
 	},
 
-	
+	/* Support for Droids MuIn LCD */
 	{ USB_DEVICE(0x04d8, 0x000b),
 	.driver_info = NO_DATA_INTERFACE,
 	},
 
-	
+	/* control interfaces without any protocol set */
 	{ USB_INTERFACE_INFO(USB_CLASS_COMM, USB_CDC_SUBCLASS_ACM,
 		USB_CDC_PROTO_NONE) },
 
-	
+	/* control interfaces with various AT-command sets */
 	{ USB_INTERFACE_INFO(USB_CLASS_COMM, USB_CDC_SUBCLASS_ACM,
 		USB_CDC_ACM_PROTO_AT_V25TER) },
 	{ USB_INTERFACE_INFO(USB_CLASS_COMM, USB_CDC_SUBCLASS_ACM,
@@ -1587,6 +1666,9 @@ static struct usb_driver acm_driver = {
 #endif
 };
 
+/*
+ * TTY driver structures.
+ */
 
 static const struct tty_operations acm_ops = {
 	.install =		acm_tty_install,
@@ -1606,6 +1688,9 @@ static const struct tty_operations acm_ops = {
 	.tiocmset =		acm_tty_tiocmset,
 };
 
+/*
+ * Init / exit.
+ */
 
 static int __init acm_init(void)
 {

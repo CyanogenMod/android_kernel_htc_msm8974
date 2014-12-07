@@ -39,9 +39,9 @@ MODULE_SUPPORTED_DEVICE("{{Yamaha,YMF724},"
 		"{Yamaha,YMF744},"
 		"{Yamaha,YMF754}}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	/* Enable this card */
 static long fm_port[SNDRV_CARDS];
 static long mpu_port[SNDRV_CARDS];
 #ifdef SUPPORT_JOYSTICK
@@ -67,12 +67,12 @@ module_param_array(rear_switch, bool, NULL, 0444);
 MODULE_PARM_DESC(rear_switch, "Enable shared rear/line-in switch");
 
 static DEFINE_PCI_DEVICE_TABLE(snd_ymfpci_ids) = {
-	{ PCI_VDEVICE(YAMAHA, 0x0004), 0, },   
-	{ PCI_VDEVICE(YAMAHA, 0x000d), 0, },   
-	{ PCI_VDEVICE(YAMAHA, 0x000a), 0, },   
-	{ PCI_VDEVICE(YAMAHA, 0x000c), 0, },   
-	{ PCI_VDEVICE(YAMAHA, 0x0010), 0, },   
-	{ PCI_VDEVICE(YAMAHA, 0x0012), 0, },   
+	{ PCI_VDEVICE(YAMAHA, 0x0004), 0, },   /* YMF724 */
+	{ PCI_VDEVICE(YAMAHA, 0x000d), 0, },   /* YMF724F */
+	{ PCI_VDEVICE(YAMAHA, 0x000a), 0, },   /* YMF740 */
+	{ PCI_VDEVICE(YAMAHA, 0x000c), 0, },   /* YMF740C */
+	{ PCI_VDEVICE(YAMAHA, 0x0010), 0, },   /* YMF744 */
+	{ PCI_VDEVICE(YAMAHA, 0x0012), 0, },   /* YMF754 */
 	{ 0, }
 };
 
@@ -89,16 +89,16 @@ static int __devinit snd_ymfpci_create_gameport(struct snd_ymfpci *chip, int dev
 	if (!io_port)
 		return -ENODEV;
 
-	if (chip->pci->device >= 0x0010) { 
+	if (chip->pci->device >= 0x0010) { /* YMF 744/754 */
 
 		if (io_port == 1) {
-			
+			/* auto-detect */
 			if (!(io_port = pci_resource_start(chip->pci, 2)))
 				return -ENODEV;
 		}
 	} else {
 		if (io_port == 1) {
-			
+			/* auto-detect */
 			for (io_port = 0x201; io_port <= 0x205; io_port++) {
 				if (io_port == 0x203)
 					continue;
@@ -140,7 +140,7 @@ static int __devinit snd_ymfpci_create_gameport(struct snd_ymfpci *chip, int dev
 	gp->io = io_port;
 	gameport_set_port_data(gp, r);
 
-	if (chip->pci->device >= 0x0010) 
+	if (chip->pci->device >= 0x0010) /* YMF 744/754 */
 		pci_write_config_word(chip->pci, PCIR_DSXG_JOYBASE, io_port);
 
 	pci_write_config_word(chip->pci, PCIR_DSXG_LEGACY, legacy_ctrl | YMFPCI_LEGACY_JPEN);
@@ -165,7 +165,7 @@ void snd_ymfpci_free_gameport(struct snd_ymfpci *chip)
 #else
 static inline int snd_ymfpci_create_gameport(struct snd_ymfpci *chip, int dev, int l, int l2) { return -ENOSYS; }
 void snd_ymfpci_free_gameport(struct snd_ymfpci *chip) { }
-#endif 
+#endif /* SUPPORT_JOYSTICK */
 
 static int __devinit snd_card_ymfpci_probe(struct pci_dev *pci,
 					   const struct pci_device_id *pci_id)
@@ -202,11 +202,11 @@ static int __devinit snd_card_ymfpci_probe(struct pci_dev *pci,
 	}
 
 	legacy_ctrl = 0;
-	legacy_ctrl2 = 0x0800;	
+	legacy_ctrl2 = 0x0800;	/* SBEN = 0, SMOD = 01, LAD = 0 */
 
-	if (pci_id->device >= 0x0010) { 
+	if (pci_id->device >= 0x0010) { /* YMF 744/754 */
 		if (fm_port[dev] == 1) {
-			
+			/* auto-detect */
 			fm_port[dev] = pci_resource_start(pci, 1);
 		}
 		if (fm_port[dev] > 0 &&
@@ -215,7 +215,7 @@ static int __devinit snd_card_ymfpci_probe(struct pci_dev *pci,
 			pci_write_config_word(pci, PCIR_DSXG_FMBASE, fm_port[dev]);
 		}
 		if (mpu_port[dev] == 1) {
-			
+			/* auto-detect */
 			mpu_port[dev] = pci_resource_start(pci, 1) + 0x20;
 		}
 		if (mpu_port[dev] > 0 &&
@@ -314,7 +314,7 @@ static int __devinit snd_card_ymfpci_probe(struct pci_dev *pci,
 					       MPU401_INFO_IRQ_HOOK,
 					       -1, &chip->rawmidi)) < 0) {
 			printk(KERN_WARNING "ymfpci: cannot initialize MPU401 at 0x%lx, skipping...\n", mpu_port[dev]);
-			legacy_ctrl &= ~YMFPCI_LEGACY_MIEN; 
+			legacy_ctrl &= ~YMFPCI_LEGACY_MIEN; /* disable MPU401 irq */
 			pci_write_config_word(pci, PCIR_DSXG_LEGACY, legacy_ctrl);
 		}
 	}

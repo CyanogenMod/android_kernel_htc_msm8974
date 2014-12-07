@@ -15,6 +15,6 @@ int coda_fsync(struct file *coda_file, loff_t start, loff_t end, int datasync);
 void coda_sysctl_init(void);
 void coda_sysctl_clean(void);
 
-#endif  
+#endif  /*  _CODA_INT_  */
 
 

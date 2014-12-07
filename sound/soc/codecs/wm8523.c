@@ -37,6 +37,7 @@ static const char *wm8523_supply_names[WM8523_NUM_SUPPLIES] = {
 
 #define WM8523_NUM_RATES 7
 
+/* codec private data */
 struct wm8523_priv {
 	enum snd_soc_control_type control_type;
 	struct regulator_bulk_data supplies[WM8523_NUM_SUPPLIES];
@@ -46,15 +47,15 @@ struct wm8523_priv {
 };
 
 static const u16 wm8523_reg[WM8523_REGISTER_COUNT] = {
-	0x8523,     
-	0x0001,     
-	0x0000,     
-	0x1812,     
-	0x0000,     
-	0x0001,     
-	0x0190,     
-	0x0190,     
-	0x0000,     
+	0x8523,     /* R0 - DEVICE_ID */
+	0x0001,     /* R1 - REVISION */
+	0x0000,     /* R2 - PSCTRL1 */
+	0x1812,     /* R3 - AIF_CTRL1 */
+	0x0000,     /* R4 - AIF_CTRL2 */
+	0x0001,     /* R5 - DAC_CTRL3 */
+	0x0190,     /* R6 - DAC_GAINL */
+	0x0190,     /* R7 - DAC_GAINR */
+	0x0000,     /* R8 - ZERO_DETECT */
 };
 
 static int wm8523_volatile_register(struct snd_soc_codec *codec, unsigned int reg)
@@ -124,6 +125,9 @@ static int wm8523_startup(struct snd_pcm_substream *substream,
 	struct snd_soc_codec *codec = dai->codec;
 	struct wm8523_priv *wm8523 = snd_soc_codec_get_drvdata(codec);
 
+	/* The set of sample rates that can be supported depends on the
+	 * MCLK supplied to the CODEC - enforce this.
+	 */
 	if (!wm8523->sysclk) {
 		dev_err(codec->dev,
 			"No MCLK configured, call set_sysclk() on init\n");
@@ -148,14 +152,14 @@ static int wm8523_hw_params(struct snd_pcm_substream *substream,
 	u16 aifctrl1 = snd_soc_read(codec, WM8523_AIF_CTRL1);
 	u16 aifctrl2 = snd_soc_read(codec, WM8523_AIF_CTRL2);
 
-	
+	/* Find a supported LRCLK ratio */
 	for (i = 0; i < ARRAY_SIZE(lrclk_ratios); i++) {
 		if (wm8523->sysclk / params_rate(params) ==
 		    lrclk_ratios[i].ratio)
 			break;
 	}
 
-	
+	/* Should never happen, should be handled by constraints */
 	if (i == ARRAY_SIZE(lrclk_ratios)) {
 		dev_err(codec->dev, "MCLK/fs ratio %d unsupported\n",
 			wm8523->sysclk / params_rate(params));
@@ -199,6 +203,10 @@ static int wm8523_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 	wm8523->rate_constraint.count = 0;
 	for (i = 0; i < ARRAY_SIZE(lrclk_ratios); i++) {
 		val = freq / lrclk_ratios[i].ratio;
+		/* Check that it's a standard rate since core can't
+		 * cope with others and having the odd rates confuses
+		 * constraint matching.
+		 */
 		switch (val) {
 		case 8000:
 		case 11025:
@@ -223,7 +231,7 @@ static int wm8523_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 		}
 	}
 
-	
+	/* Need at least one supported rate... */
 	if (wm8523->rate_constraint.count == 0)
 		return -EINVAL;
 
@@ -302,7 +310,7 @@ static int wm8523_set_bias_level(struct snd_soc_codec *codec,
 		break;
 
 	case SND_SOC_BIAS_PREPARE:
-		
+		/* Full power on */
 		snd_soc_update_bits(codec, WM8523_PSCTRL1,
 				    WM8523_SYS_ENA_MASK, 3);
 		break;
@@ -318,11 +326,11 @@ static int wm8523_set_bias_level(struct snd_soc_codec *codec,
 				return ret;
 			}
 
-			
+			/* Initial power up */
 			snd_soc_update_bits(codec, WM8523_PSCTRL1,
 					    WM8523_SYS_ENA_MASK, 1);
 
-			
+			/* Sync back default/cached values */
 			for (i = WM8523_AIF_CTRL1;
 			     i < WM8523_MAX_REGISTER; i++)
 				snd_soc_write(codec, i, reg_cache[i]);
@@ -331,14 +339,14 @@ static int wm8523_set_bias_level(struct snd_soc_codec *codec,
 			msleep(100);
 		}
 
-		
+		/* Power up to mute */
 		snd_soc_update_bits(codec, WM8523_PSCTRL1,
 				    WM8523_SYS_ENA_MASK, 2);
 
 		break;
 
 	case SND_SOC_BIAS_OFF:
-		
+		/* The chip runs through the power down sequence for us. */
 		snd_soc_update_bits(codec, WM8523_PSCTRL1,
 				    WM8523_SYS_ENA_MASK, 0);
 		msleep(100);
@@ -367,7 +375,7 @@ static struct snd_soc_dai_driver wm8523_dai = {
 	.name = "wm8523-hifi",
 	.playback = {
 		.stream_name = "Playback",
-		.channels_min = 2,  
+		.channels_min = 2,  /* Mono modes not yet supported */
 		.channels_max = 2,
 		.rates = WM8523_RATES,
 		.formats = WM8523_FORMATS,
@@ -449,14 +457,14 @@ static int wm8523_probe(struct snd_soc_codec *codec)
 		goto err_enable;
 	}
 
-	
+	/* Change some default settings - latch VU and enable ZC */
 	snd_soc_update_bits(codec, WM8523_DAC_GAINR,
 			    WM8523_DACR_VU, WM8523_DACR_VU);
 	snd_soc_update_bits(codec, WM8523_DAC_CTRL3, WM8523_ZC, WM8523_ZC);
 
 	wm8523_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
-	
+	/* Bias level configuration will have done an extra enable */
 	regulator_bulk_disable(ARRAY_SIZE(wm8523->supplies), wm8523->supplies);
 
 	return 0;

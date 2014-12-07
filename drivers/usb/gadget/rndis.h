@@ -20,18 +20,24 @@
 #define RNDIS_MAXIMUM_FRAME_SIZE	1518
 #define RNDIS_MAX_TOTAL_SIZE		1558
 
+/* Remote NDIS Versions */
 #define RNDIS_MAJOR_VERSION		1
 #define RNDIS_MINOR_VERSION		0
 
-#define RNDIS_STATUS_SUCCESS		0x00000000U	
-#define RNDIS_STATUS_FAILURE		0xC0000001U	
-#define RNDIS_STATUS_INVALID_DATA	0xC0010015U	
-#define RNDIS_STATUS_NOT_SUPPORTED	0xC00000BBU	
-#define RNDIS_STATUS_MEDIA_CONNECT	0x4001000BU	
-#define RNDIS_STATUS_MEDIA_DISCONNECT	0x4001000CU	
+/* Status Values */
+#define RNDIS_STATUS_SUCCESS		0x00000000U	/* Success           */
+#define RNDIS_STATUS_FAILURE		0xC0000001U	/* Unspecified error */
+#define RNDIS_STATUS_INVALID_DATA	0xC0010015U	/* Invalid data      */
+#define RNDIS_STATUS_NOT_SUPPORTED	0xC00000BBU	/* Unsupported request */
+#define RNDIS_STATUS_MEDIA_CONNECT	0x4001000BU	/* Device connected  */
+#define RNDIS_STATUS_MEDIA_DISCONNECT	0x4001000CU	/* Device disconnected */
+/* For all not specified status messages:
+ * RNDIS_STATUS_Xxx -> NDIS_STATUS_Xxx
+ */
 
+/* Message Set for Connectionless (802.3) Devices */
 #define REMOTE_NDIS_PACKET_MSG		0x00000001U
-#define REMOTE_NDIS_INITIALIZE_MSG	0x00000002U	
+#define REMOTE_NDIS_INITIALIZE_MSG	0x00000002U	/* Initialize device */
 #define REMOTE_NDIS_HALT_MSG		0x00000003U
 #define REMOTE_NDIS_QUERY_MSG		0x00000004U
 #define REMOTE_NDIS_SET_MSG		0x00000005U
@@ -39,17 +45,20 @@
 #define REMOTE_NDIS_INDICATE_STATUS_MSG	0x00000007U
 #define REMOTE_NDIS_KEEPALIVE_MSG	0x00000008U
 
+/* Message completion */
 #define REMOTE_NDIS_INITIALIZE_CMPLT	0x80000002U
 #define REMOTE_NDIS_QUERY_CMPLT		0x80000004U
 #define REMOTE_NDIS_SET_CMPLT		0x80000005U
 #define REMOTE_NDIS_RESET_CMPLT		0x80000006U
 #define REMOTE_NDIS_KEEPALIVE_CMPLT	0x80000008U
 
+/* Device Flags */
 #define RNDIS_DF_CONNECTIONLESS		0x00000001U
 #define RNDIS_DF_CONNECTION_ORIENTED	0x00000002U
 
 #define RNDIS_MEDIUM_802_3		0x00000000U
 
+/* from drivers/net/sk98lin/h/skgepnmi.h */
 #define OID_PNP_CAPABILITIES			0xFD010100
 #define OID_PNP_SET_POWER			0xFD010101
 #define OID_PNP_QUERY_POWER			0xFD010102
@@ -195,6 +204,7 @@ struct rndis_config_parameter
 	__le32	ParameterValueLength;
 };
 
+/* implementation specific */
 enum rndis_state
 {
 	RNDIS_UNINITIALIZED,
@@ -233,6 +243,7 @@ typedef struct rndis_params
 	struct list_head	resp_queue;
 } rndis_params;
 
+/* RNDIS Message parser and other useless functions */
 int  rndis_msg_parser (u8 configNr, u8 *buf);
 int  rndis_register(void (*resp_avail)(void *v), void *v);
 void rndis_deregister (int configNr);
@@ -257,4 +268,4 @@ extern void rndis_set_host_mac (int configNr, const u8 *addr);
 int rndis_init(void);
 void rndis_exit (void);
 
-#endif  
+#endif  /* _LINUX_RNDIS_H */

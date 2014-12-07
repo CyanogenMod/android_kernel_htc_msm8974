@@ -31,6 +31,7 @@
 
 #define	TMP102_TEMP_REG			0x00
 #define	TMP102_CONF_REG			0x01
+/* note: these bit definitions are byte swapped */
 #define		TMP102_CONF_SD		0x0100
 #define		TMP102_CONF_TM		0x0200
 #define		TMP102_CONF_POL		0x0400
@@ -54,11 +55,13 @@ struct tmp102 {
 	int temp[3];
 };
 
+/* convert left adjusted 13-bit TMP102 register value to milliCelsius */
 static inline int tmp102_reg_to_mC(s16 val)
 {
 	return ((val & ~0x01) * 1000) / 128;
 }
 
+/* convert milliCelsius to left adjusted 13-bit TMP102 register value */
 static inline u16 tmp102_mC_to_reg(int val)
 {
 	return (val * 128) / 1000;
@@ -223,7 +226,7 @@ static int __devexit tmp102_remove(struct i2c_client *client)
 	hwmon_device_unregister(tmp102->hwmon_dev);
 	sysfs_remove_group(&client->dev.kobj, &tmp102_attr_group);
 
-	
+	/* Stop monitoring if device was stopped originally */
 	if (tmp102->config_orig & TMP102_CONF_SD) {
 		int config;
 
@@ -273,7 +276,7 @@ static const struct dev_pm_ops tmp102_dev_pm_ops = {
 #define TMP102_DEV_PM_OPS (&tmp102_dev_pm_ops)
 #else
 #define	TMP102_DEV_PM_OPS NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static const struct i2c_device_id tmp102_id[] = {
 	{ "tmp102", 0 },

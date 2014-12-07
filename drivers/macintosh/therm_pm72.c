@@ -143,6 +143,9 @@
 #endif
 
 
+/*
+ * Driver statics
+ */
 
 static struct platform_device *		of_dev;
 static struct i2c_adapter *		u3_0;
@@ -167,15 +170,29 @@ static int 				fcu_rpm_shift;
 static int				fcu_tickle_ticks;
 static DEFINE_MUTEX(driver_lock);
 
+/*
+ * We have 3 types of CPU PID control. One is "split" old style control
+ * for intake & exhaust fans, the other is "combined" control for both
+ * CPUs that also deals with the pumps when present. To be "compatible"
+ * with OS X at this point, we only use "COMBINED" on the machines that
+ * are identified as having the pumps (though that identification is at
+ * least dodgy). Ultimately, we could probably switch completely to this
+ * algorithm provided we hack it to deal with the UP case
+ */
 #define CPU_PID_TYPE_SPLIT	0
 #define CPU_PID_TYPE_COMBINED	1
 #define CPU_PID_TYPE_RACKMAC	2
 
+/*
+ * This table describes all fans in the FCU. The "id" and "type" values
+ * are defaults valid for all earlier machines. Newer machines will
+ * eventually override the table content based on the device-tree
+ */
 struct fcu_fan_table
 {
-	char*	loc;	
-	int	type;	
-	int	id;	
+	char*	loc;	/* location code */
+	int	type;	/* 0 = rpm, 1 = pwm, 2 = pump */
+	int	id;	/* id or -1 */
 };
 
 #define FCU_FAN_RPM		0
@@ -221,6 +238,9 @@ struct fcu_fan_table	fcu_fans[] = {
 		.type	= FCU_FAN_RPM,
 		.id	= CPUB_EXHAUST_FAN_RPM_DEFAULT_ID,
 	},
+	/* pumps aren't present by default, have to be looked up in the
+	 * device-tree
+	 */
 	[CPUA_PUMP_RPM_INDEX] = {
 		.loc	= "CPU A PUMP",
 		.type	= FCU_FAN_RPM,		
@@ -231,7 +251,7 @@ struct fcu_fan_table	fcu_fans[] = {
 		.type	= FCU_FAN_RPM,
 		.id	= FCU_FAN_ABSENT_ID,
 	},
-	
+	/* Xserve fans */
 	[CPU_A1_FAN_RPM_INDEX] = {
 		.loc	= "CPU A 1",
 		.type	= FCU_FAN_RPM,
@@ -266,6 +286,10 @@ struct fcu_fan_table	fcu_fans[] = {
 
 static struct i2c_driver therm_pm72_driver;
 
+/*
+ * Utility function to create an i2c_client structure and
+ * attach it to one of u3 adapters
+ */
 static struct i2c_client *attach_i2c_chip(int id, const char *name)
 {
 	struct i2c_client *clt;
@@ -290,23 +314,35 @@ static struct i2c_client *attach_i2c_chip(int id, const char *name)
 		return NULL;
 	}
 
+	/*
+	 * Let i2c-core delete that device on driver removal.
+	 * This is safe because i2c-core holds the core_lock mutex for us.
+	 */
 	list_add_tail(&clt->detected, &therm_pm72_driver.clients);
 	return clt;
 }
 
+/*
+ * Here are the i2c chip access wrappers
+ */
 
 static void initialize_adc(struct cpu_pid_state *state)
 {
 	int rc;
 	u8 buf[2];
 
+	/* Read ADC the configuration register and cache it. We
+	 * also make sure Config2 contains proper values, I've seen
+	 * cases where we got stale grabage in there, thus preventing
+	 * proper reading of conv. values
+	 */
 
-	
+	/* Clear Config2 */
 	buf[0] = 5;
 	buf[1] = 0;
 	i2c_master_send(state->monitor, buf, 2);
 
-	
+	/* Read & cache Config1 */
 	buf[0] = 1;
 	rc = i2c_master_send(state->monitor, buf, 1);
 	if (rc > 0) {
@@ -314,7 +350,7 @@ static void initialize_adc(struct cpu_pid_state *state)
 		if (rc > 0) {
 			state->adc_config = buf[0];
 			DBG("ADC config reg: %02x\n", state->adc_config);
-			
+			/* Disable shutdown mode */
 		       	state->adc_config &= 0xfe;
 			buf[0] = 1;
 			buf[1] = state->adc_config;
@@ -332,20 +368,20 @@ static int read_smon_adc(struct cpu_pid_state *state, int chan)
 	u8 buf[2];
 
 	for (;;) {
-		
+		/* Set channel */
 		buf[0] = 1;
 		buf[1] = (state->adc_config & 0x1f) | (chan << 5);
 		rc = i2c_master_send(state->monitor, buf, 2);
 		if (rc <= 0)
 			goto error;
-		
+		/* Wait for conversion */
 		msleep(1);
-		
+		/* Switch to data register */
 		buf[0] = 4;
 		rc = i2c_master_send(state->monitor, buf, 1);
 		if (rc <= 0)
 			goto error;
-		
+		/* Read result */
 		rc = i2c_master_recv(state->monitor, buf, 2);
 		if (rc < 0)
 			goto error;
@@ -367,7 +403,7 @@ static int read_lm87_reg(struct i2c_client * chip, int reg)
 	u8 buf;
 
 	for (;;) {
-		
+		/* Set address */
 		buf = (u8)reg;
 		rc = i2c_master_send(chip, &buf, 1);
 		if (rc <= 0)
@@ -508,7 +544,7 @@ static int get_rpm_fan(int fan_index, int programmed)
 	if ((active & (1 << id)) == 0)
 		return -ENXIO;
 
-	
+	/* Programmed value or real current speed */
 	reg_base = programmed ? 0x10 : 0x11;
 	rc = fan_read_reg(reg_base + (id * 2), buf, 2);
 	if (rc != 2)
@@ -564,7 +600,7 @@ static int get_pwm_fan(int fan_index)
 	if ((active & (1 << id)) == 0)
 		return -ENXIO;
 
-	
+	/* Programmed value or real current speed */
 	rc = fan_read_reg(0x30 + (id * 2), buf, 1);
 	if (rc != 1)
 		return -EIO;
@@ -587,11 +623,15 @@ static void tickle_fcu(void)
 	} else if (pwm < SLOTS_PID_OUTPUT_MIN)
 		pwm = SLOTS_PID_OUTPUT_MIN;
 
-	
+	/* That is hopefully enough to make the FCU happy */
 	set_pwm_fan(SLOTS_FAN_PWM_INDEX, pwm);
 }
 
 
+/*
+ * Utility routine to read the CPU calibration EEPROM data
+ * from the device-tree
+ */
 static int read_eeprom(int cpu, struct mpu_data *out)
 {
 	struct device_node *np;
@@ -599,6 +639,10 @@ static int read_eeprom(int cpu, struct mpu_data *out)
 	const u8 *data;
 	int len;
 
+	/* prom.c routine for finding a node by path is a bit brain dead
+	 * and requires exact @xxx unit numbers. This is a bit ugly but
+	 * will work for these machines
+	 */
 	sprintf(nodename, "/u3@0,f8000000/i2c@f8001000/cpuid@a%d", cpu ? 2 : 0);
 	np = of_find_node_by_path(nodename);
 	if (np == NULL) {
@@ -624,7 +668,7 @@ static void fetch_cpu_pumps_minmax(void)
 	u16 pump_min = 0, pump_max = 0xffff;
 	u16 tmp[4];
 
-	
+	/* Try to fetch pumps min/max infos from eeprom */
 
 	memcpy(&tmp, &state0->mpu.processor_part_num, 8);
 	if (tmp[0] != 0xffff && tmp[1] != 0xffff) {
@@ -636,6 +680,10 @@ static void fetch_cpu_pumps_minmax(void)
 		pump_max = min(pump_max, tmp[3]);
 	}
 
+	/* Double check the values, this _IS_ needed as the EEPROM on
+	 * some dual 2.5Ghz G5s seem, at least, to have both min & max
+	 * same to the same value ... (grrrr)
+	 */
 	if (pump_min == pump_max || pump_min == 0 || pump_max == 0xffff) {
 		pump_min = CPU_PUMP_OUTPUT_MIN;
 		pump_max = CPU_PUMP_OUTPUT_MAX;
@@ -645,6 +693,14 @@ static void fetch_cpu_pumps_minmax(void)
 	state0->pump_max = state1->pump_max = pump_max;
 }
 
+/* 
+ * Now, unfortunately, sysfs doesn't give us a nice void * we could
+ * pass around to the attribute functions, so we don't really have
+ * choice but implement a bunch of them...
+ *
+ * That sucks a bit, we take the lock because FIX32TOPRINT evaluates
+ * the input twice... I accept patches :)
+ */
 #define BUILD_SHOW_FUNC_FIX(name, data)				\
 static ssize_t show_##name(struct device *dev, struct device_attribute *attr, char *buf)	\
 {								\
@@ -706,13 +762,16 @@ static DEVICE_ATTR(slots_fan_pwm,S_IRUGO,show_slots_fan_pwm,NULL);
 
 static DEVICE_ATTR(dimms_temperature,S_IRUGO,show_dimms_temperature,NULL);
 
+/*
+ * CPUs fans control loop
+ */
 
 static int do_read_one_cpu_values(struct cpu_pid_state *state, s32 *temp, s32 *power)
 {
 	s32 ltemp, volts, amps;
 	int index, rc = 0;
 
-	
+	/* Default (in case of error) */
 	*temp = state->cur_temp;
 	*power = state->cur_power;
 
@@ -723,24 +782,29 @@ static int do_read_one_cpu_values(struct cpu_pid_state *state, s32 *temp, s32 *p
 		index = (state->index == 0) ?
 			CPUA_EXHAUST_FAN_RPM_INDEX : CPUB_EXHAUST_FAN_RPM_INDEX;
 
-	
+	/* Read current fan status */
 	rc = get_rpm_fan(index, !RPM_PID_USE_ACTUAL_SPEED);
 	if (rc < 0) {
+		/* XXX What do we do now ? Nothing for now, keep old value, but
+		 * return error upstream
+		 */
 		DBG("  cpu %d, fan reading error !\n", state->index);
 	} else {
 		state->rpm = rc;
 		DBG("  cpu %d, exhaust RPM: %d\n", state->index, state->rpm);
 	}
 
-	
+	/* Get some sensor readings and scale it */
 	ltemp = read_smon_adc(state, 1);
 	if (ltemp == -1) {
-		
+		/* XXX What do we do now ? */
 		state->overtemp++;
 		if (rc == 0)
 			rc = -EIO;
 		DBG("  cpu %d, temp reading error !\n", state->index);
 	} else {
+		/* Fixup temperature according to diode calibration
+		 */
 		DBG("  cpu %d, temp raw: %04x, m_diode: %04x, b_diode: %04x\n",
 		    state->index,
 		    ltemp, state->mpu.mdiode, state->mpu.bdiode);
@@ -749,9 +813,15 @@ static int do_read_one_cpu_values(struct cpu_pid_state *state, s32 *temp, s32 *p
 		DBG("  temp: %d.%03d\n", FIX32TOPRINT((*temp)));
 	}
 
+	/*
+	 * Read voltage & current and calculate power
+	 */
 	volts = read_smon_adc(state, 3);
 	amps = read_smon_adc(state, 4);
 
+	/* Scale voltage and current raw sensor values according to fixed scales
+	 * obtained in Darwin and calculate power from I and V
+	 */
 	volts *= ADC_CPU_VOLTAGE_SCALE;
 	amps *= ADC_CPU_CURRENT_SCALE;
 	*power = (((u64)volts) * ((u64)amps)) >> 16;
@@ -772,18 +842,21 @@ static void do_cpu_pid(struct cpu_pid_state *state, s32 temp, s32 power)
 	s64 integ_p, deriv_p, prop_p, sum; 
 	int i;
 
+	/* Calculate power target value (could be done once for all)
+	 * and convert to a 16.16 fp number
+	 */
 	power_target = ((u32)(state->mpu.pmaxh - state->mpu.padjmax)) << 16;
 	DBG("  power target: %d.%03d, error: %d.%03d\n",
 	    FIX32TOPRINT(power_target), FIX32TOPRINT(power_target - power));
 
-	
+	/* Store temperature and power in history array */
 	state->cur_temp = (state->cur_temp + 1) % CPU_TEMP_HISTORY_SIZE;
 	state->temp_history[state->cur_temp] = temp;
 	state->cur_power = (state->cur_power + 1) % state->count_power;
 	state->power_history[state->cur_power] = power;
 	state->error_history[state->cur_power] = power_target - power;
 	
-	
+	/* If first loop, fill the history table */
 	if (state->first) {
 		for (i = 0; i < (state->count_power - 1); i++) {
 			state->cur_power = (state->cur_power + 1) % state->count_power;
@@ -797,7 +870,7 @@ static void do_cpu_pid(struct cpu_pid_state *state, s32 temp, s32 power)
 		state->first = 0;
 	}
 
-	
+	/* Calculate the integral term normally based on the "power" values */
 	sum = 0;
 	integral = 0;
 	for (i = 0; i < state->count_power; i++)
@@ -805,6 +878,13 @@ static void do_cpu_pid(struct cpu_pid_state *state, s32 temp, s32 power)
 	integral *= CPU_PID_INTERVAL;
 	DBG("  integral: %08x\n", integral);
 
+	/* Calculate the adjusted input (sense value).
+	 *   G_r is 12.20
+	 *   integ is 16.16
+	 *   so the result is 28.36
+	 *
+	 * input target is mpu.ttarget, input max is mpu.tmax
+	 */
 	integ_p = ((s64)state->mpu.pid_gr) * (s64)integral;
 	DBG("   integ_p: %d\n", (int)(integ_p >> 36));
 	sval = (state->mpu.tmax << 16) - ((integ_p >> 20) & 0xffffffff);
@@ -814,7 +894,7 @@ static void do_cpu_pid(struct cpu_pid_state *state, s32 temp, s32 power)
 	DBG("   adj_in_target: %d.%03d, ttarget: %d\n", FIX32TOPRINT(adj_in_target),
 	    state->mpu.ttarget);
 
-	
+	/* Calculate the derivative term */
 	derivative = state->temp_history[state->cur_temp] -
 		state->temp_history[(state->cur_temp + CPU_TEMP_HISTORY_SIZE - 1)
 				    % CPU_TEMP_HISTORY_SIZE];
@@ -823,13 +903,13 @@ static void do_cpu_pid(struct cpu_pid_state *state, s32 temp, s32 power)
 	DBG("   deriv_p: %d\n", (int)(deriv_p >> 36));
 	sum += deriv_p;
 
-	
+	/* Calculate the proportional term */
 	proportional = temp - adj_in_target;
 	prop_p = ((s64)state->mpu.pid_gp) * (s64)proportional;
 	DBG("   prop_p: %d\n", (int)(prop_p >> 36));
 	sum += prop_p;
 
-	
+	/* Scale sum */
 	sum >>= 36;
 
 	DBG("   sum: %d\n", (int)sum);
@@ -846,12 +926,12 @@ static void do_monitor_cpu_combined(void)
 
 	rc = do_read_one_cpu_values(state0, &temp0, &power0);
 	if (rc < 0) {
-		
+		/* XXX What do we do now ? */
 	}
 	state1->overtemp = 0;
 	rc = do_read_one_cpu_values(state1, &temp1, &power1);
 	if (rc < 0) {
-		
+		/* XXX What do we do now ? */
 	}
 	if (state1->overtemp)
 		state0->overtemp++;
@@ -859,6 +939,9 @@ static void do_monitor_cpu_combined(void)
 	temp_combi = max(temp0, temp1);
 	power_combi = max(power0, power1);
 
+	/* Check tmax, increment overtemp if we are there. At tmax+8, we go
+	 * full blown immediately and try to trigger a shutdown
+	 */
 	if (temp_combi >= ((state0->mpu.tmax + 8) << 16)) {
 		printk(KERN_WARNING "Warning ! Temperature way above maximum (%d) !\n",
 		       temp_combi >> 16);
@@ -882,33 +965,38 @@ static void do_monitor_cpu_combined(void)
 		goto do_set_fans;
 	}
 
-	
+	/* Do the PID */
 	do_cpu_pid(state0, temp_combi, power_combi);
 
-	
+	/* Range check */
 	state0->rpm = max(state0->rpm, (int)state0->mpu.rminn_exhaust_fan);
 	state0->rpm = min(state0->rpm, (int)state0->mpu.rmaxn_exhaust_fan);
 
-	
+	/* Calculate intake fan speed */
 	intake = (state0->rpm * CPU_INTAKE_SCALE) >> 16;
 	intake = max(intake, (int)state0->mpu.rminn_intake_fan);
 	intake = min(intake, (int)state0->mpu.rmaxn_intake_fan);
 	state0->intake_rpm = intake;
 
-	
+	/* Calculate pump speed */
 	pump = (state0->rpm * state0->pump_max) /
 		state0->mpu.rmaxn_exhaust_fan;
 	pump = min(pump, state0->pump_max);
 	pump = max(pump, state0->pump_min);
 	
  do_set_fans:
-	
+	/* We copy values from state 0 to state 1 for /sysfs */
 	state1->rpm = state0->rpm;
 	state1->intake_rpm = state0->intake_rpm;
 
 	DBG("** CPU %d RPM: %d Ex, %d, Pump: %d, In, overtemp: %d\n",
 	    state1->index, (int)state1->rpm, intake, pump, state1->overtemp);
 
+	/* We should check for errors, shouldn't we ? But then, what
+	 * do we do once the error occurs ? For FCU notified fan
+	 * failures (-EFAULT) we probably want to notify userland
+	 * some way...
+	 */
 	set_rpm_fan(CPUA_INTAKE_FAN_RPM_INDEX, intake);
 	set_rpm_fan(CPUA_EXHAUST_FAN_RPM_INDEX, state0->rpm);
 	set_rpm_fan(CPUB_INTAKE_FAN_RPM_INDEX, intake);
@@ -925,12 +1013,15 @@ static void do_monitor_cpu_split(struct cpu_pid_state *state)
 	s32 temp, power;
 	int rc, intake;
 
-	
+	/* Read current fan status */
 	rc = do_read_one_cpu_values(state, &temp, &power);
 	if (rc < 0) {
-		
+		/* XXX What do we do now ? */
 	}
 
+	/* Check tmax, increment overtemp if we are there. At tmax+8, we go
+	 * full blown immediately and try to trigger a shutdown
+	 */
 	if (temp >= ((state->mpu.tmax + 8) << 16)) {
 		printk(KERN_WARNING "Warning ! CPU %d temperature way above maximum"
 		       " (%d) !\n",
@@ -954,14 +1045,14 @@ static void do_monitor_cpu_split(struct cpu_pid_state *state)
 		goto do_set_fans;
 	}
 
-	
+	/* Do the PID */
 	do_cpu_pid(state, temp, power);
 
-	
+	/* Range check */
 	state->rpm = max(state->rpm, (int)state->mpu.rminn_exhaust_fan);
 	state->rpm = min(state->rpm, (int)state->mpu.rmaxn_exhaust_fan);
 
-	
+	/* Calculate intake fan */
 	intake = (state->rpm * CPU_INTAKE_SCALE) >> 16;
 	intake = max(intake, (int)state->mpu.rminn_intake_fan);
 	intake = min(intake, (int)state->mpu.rmaxn_intake_fan);
@@ -971,6 +1062,11 @@ static void do_monitor_cpu_split(struct cpu_pid_state *state)
 	DBG("** CPU %d RPM: %d Ex, %d In, overtemp: %d\n",
 	    state->index, (int)state->rpm, intake, state->overtemp);
 
+	/* We should check for errors, shouldn't we ? But then, what
+	 * do we do once the error occurs ? For FCU notified fan
+	 * failures (-EFAULT) we probably want to notify userland
+	 * some way...
+	 */
 	if (state->index == 0) {
 		set_rpm_fan(CPUA_INTAKE_FAN_RPM_INDEX, intake);
 		set_rpm_fan(CPUA_EXHAUST_FAN_RPM_INDEX, state->rpm);
@@ -985,12 +1081,15 @@ static void do_monitor_cpu_rack(struct cpu_pid_state *state)
 	s32 temp, power, fan_min;
 	int rc;
 
-	
+	/* Read current fan status */
 	rc = do_read_one_cpu_values(state, &temp, &power);
 	if (rc < 0) {
-		
+		/* XXX What do we do now ? */
 	}
 
+	/* Check tmax, increment overtemp if we are there. At tmax+8, we go
+	 * full blown immediately and try to trigger a shutdown
+	 */
 	if (temp >= ((state->mpu.tmax + 8) << 16)) {
 		printk(KERN_WARNING "Warning ! CPU %d temperature way above maximum"
 		       " (%d) !\n",
@@ -1013,10 +1112,10 @@ static void do_monitor_cpu_rack(struct cpu_pid_state *state)
 		goto do_set_fans;
 	}
 
-	
+	/* Do the PID */
 	do_cpu_pid(state, temp, power);
 
-	
+	/* Check clamp from dimms */
 	fan_min = dimm_output_clamp;
 	fan_min = max(fan_min, (int)state->mpu.rminn_intake_fan);
 
@@ -1031,6 +1130,11 @@ static void do_monitor_cpu_rack(struct cpu_pid_state *state)
 	DBG("** CPU %d RPM: %d overtemp: %d\n",
 	    state->index, (int)state->rpm, state->overtemp);
 
+	/* We should check for errors, shouldn't we ? But then, what
+	 * do we do once the error occurs ? For FCU notified fan
+	 * failures (-EFAULT) we probably want to notify userland
+	 * some way...
+	 */
 	if (state->index == 0) {
 		set_rpm_fan(CPU_A1_FAN_RPM_INDEX, state->rpm);
 		set_rpm_fan(CPU_A2_FAN_RPM_INDEX, state->rpm);
@@ -1042,6 +1146,9 @@ static void do_monitor_cpu_rack(struct cpu_pid_state *state)
 	}
 }
 
+/*
+ * Initialize the state structure for one CPU control loop
+ */
 static int init_processor_state(struct cpu_pid_state *state, int index)
 {
 	int err;
@@ -1094,6 +1201,9 @@ static int init_processor_state(struct cpu_pid_state *state, int index)
 	return -ENODEV;
 }
 
+/*
+ * Dispose of the state data for one CPU control loop
+ */
 static void dispose_processor_state(struct cpu_pid_state *state)
 {
 	if (state->monitor == NULL)
@@ -1116,6 +1226,9 @@ static void dispose_processor_state(struct cpu_pid_state *state)
 	state->monitor = NULL;
 }
 
+/*
+ * Motherboard backside & U3 heatsink fan control loop
+ */
 static void do_monitor_backside(struct backside_pid_state *state)
 {
 	s32 temp, integral, derivative, fan_min;
@@ -1128,27 +1241,27 @@ static void do_monitor_backside(struct backside_pid_state *state)
 
 	DBG("backside:\n");
 
-	
+	/* Check fan status */
 	rc = get_pwm_fan(BACKSIDE_FAN_PWM_INDEX);
 	if (rc < 0) {
 		printk(KERN_WARNING "Error %d reading backside fan !\n", rc);
-		
+		/* XXX What do we do now ? */
 	} else
 		state->pwm = rc;
 	DBG("  current pwm: %d\n", state->pwm);
 
-	
+	/* Get some sensor readings */
 	temp = i2c_smbus_read_byte_data(state->monitor, MAX6690_EXT_TEMP) << 16;
 	state->last_temp = temp;
 	DBG("  temp: %d.%03d, target: %d.%03d\n", FIX32TOPRINT(temp),
 	    FIX32TOPRINT(backside_params.input_target));
 
-	
+	/* Store temperature and error in history array */
 	state->cur_sample = (state->cur_sample + 1) % BACKSIDE_PID_HISTORY_SIZE;
 	state->sample_history[state->cur_sample] = temp;
 	state->error_history[state->cur_sample] = temp - backside_params.input_target;
 	
-	
+	/* If first loop, fill the history table */
 	if (state->first) {
 		for (i = 0; i < (BACKSIDE_PID_HISTORY_SIZE - 1); i++) {
 			state->cur_sample = (state->cur_sample + 1) %
@@ -1160,7 +1273,7 @@ static void do_monitor_backside(struct backside_pid_state *state)
 		state->first = 0;
 	}
 
-	
+	/* Calculate the integral term */
 	sum = 0;
 	integral = 0;
 	for (i = 0; i < BACKSIDE_PID_HISTORY_SIZE; i++)
@@ -1171,7 +1284,7 @@ static void do_monitor_backside(struct backside_pid_state *state)
 	DBG("   integ_p: %d\n", (int)(integ_p >> 36));
 	sum += integ_p;
 
-	
+	/* Calculate the derivative term */
 	derivative = state->error_history[state->cur_sample] -
 		state->error_history[(state->cur_sample + BACKSIDE_PID_HISTORY_SIZE - 1)
 				    % BACKSIDE_PID_HISTORY_SIZE];
@@ -1180,12 +1293,12 @@ static void do_monitor_backside(struct backside_pid_state *state)
 	DBG("   deriv_p: %d\n", (int)(deriv_p >> 36));
 	sum += deriv_p;
 
-	
+	/* Calculate the proportional term */
 	prop_p = ((s64)backside_params.G_p) * (s64)(state->error_history[state->cur_sample]);
 	DBG("   prop_p: %d\n", (int)(prop_p >> 36));
 	sum += prop_p;
 
-	
+	/* Scale sum */
 	sum >>= 36;
 
 	DBG("   sum: %d\n", (int)sum);
@@ -1194,7 +1307,7 @@ static void do_monitor_backside(struct backside_pid_state *state)
 	else
 		state->pwm = sum;
 
-	
+	/* Check for clamp */
 	fan_min = (dimm_output_clamp * 100) / 14000;
 	fan_min = max(fan_min, backside_params.output_min);
 
@@ -1205,12 +1318,19 @@ static void do_monitor_backside(struct backside_pid_state *state)
 	set_pwm_fan(BACKSIDE_FAN_PWM_INDEX, state->pwm);
 }
 
+/*
+ * Initialize the state structure for the backside fan control loop
+ */
 static int init_backside_state(struct backside_pid_state *state)
 {
 	struct device_node *u3;
-	int u3h = 1; 
+	int u3h = 1; /* conservative by default */
 	int err;
 
+	/*
+	 * There are different PID params for machines with U3 and machines
+	 * with U3H, pick the right ones now
+	 */
 	u3 = of_find_node_by_path("/u3@0,f8000000");
 	if (u3 != NULL) {
 		const u32 *vers = of_get_property(u3, "device-rev", NULL);
@@ -1266,6 +1386,9 @@ static int init_backside_state(struct backside_pid_state *state)
 	return 0;
 }
 
+/*
+ * Dispose of the state data for the backside control loop
+ */
 static void dispose_backside_state(struct backside_pid_state *state)
 {
 	if (state->monitor == NULL)
@@ -1277,6 +1400,9 @@ static void dispose_backside_state(struct backside_pid_state *state)
 	state->monitor = NULL;
 }
  
+/*
+ * Drives bay fan control loop
+ */
 static void do_monitor_drives(struct drives_pid_state *state)
 {
 	s32 temp, integral, derivative;
@@ -1289,28 +1415,28 @@ static void do_monitor_drives(struct drives_pid_state *state)
 
 	DBG("drives:\n");
 
-	
+	/* Check fan status */
 	rc = get_rpm_fan(DRIVES_FAN_RPM_INDEX, !RPM_PID_USE_ACTUAL_SPEED);
 	if (rc < 0) {
 		printk(KERN_WARNING "Error %d reading drives fan !\n", rc);
-		
+		/* XXX What do we do now ? */
 	} else
 		state->rpm = rc;
 	DBG("  current rpm: %d\n", state->rpm);
 
-	
+	/* Get some sensor readings */
 	temp = le16_to_cpu(i2c_smbus_read_word_data(state->monitor,
 						    DS1775_TEMP)) << 8;
 	state->last_temp = temp;
 	DBG("  temp: %d.%03d, target: %d.%03d\n", FIX32TOPRINT(temp),
 	    FIX32TOPRINT(DRIVES_PID_INPUT_TARGET));
 
-	
+	/* Store temperature and error in history array */
 	state->cur_sample = (state->cur_sample + 1) % DRIVES_PID_HISTORY_SIZE;
 	state->sample_history[state->cur_sample] = temp;
 	state->error_history[state->cur_sample] = temp - DRIVES_PID_INPUT_TARGET;
 	
-	
+	/* If first loop, fill the history table */
 	if (state->first) {
 		for (i = 0; i < (DRIVES_PID_HISTORY_SIZE - 1); i++) {
 			state->cur_sample = (state->cur_sample + 1) %
@@ -1322,7 +1448,7 @@ static void do_monitor_drives(struct drives_pid_state *state)
 		state->first = 0;
 	}
 
-	
+	/* Calculate the integral term */
 	sum = 0;
 	integral = 0;
 	for (i = 0; i < DRIVES_PID_HISTORY_SIZE; i++)
@@ -1333,7 +1459,7 @@ static void do_monitor_drives(struct drives_pid_state *state)
 	DBG("   integ_p: %d\n", (int)(integ_p >> 36));
 	sum += integ_p;
 
-	
+	/* Calculate the derivative term */
 	derivative = state->error_history[state->cur_sample] -
 		state->error_history[(state->cur_sample + DRIVES_PID_HISTORY_SIZE - 1)
 				    % DRIVES_PID_HISTORY_SIZE];
@@ -1342,12 +1468,12 @@ static void do_monitor_drives(struct drives_pid_state *state)
 	DBG("   deriv_p: %d\n", (int)(deriv_p >> 36));
 	sum += deriv_p;
 
-	
+	/* Calculate the proportional term */
 	prop_p = ((s64)DRIVES_PID_G_p) * (s64)(state->error_history[state->cur_sample]);
 	DBG("   prop_p: %d\n", (int)(prop_p >> 36));
 	sum += prop_p;
 
-	
+	/* Scale sum */
 	sum >>= 36;
 
 	DBG("   sum: %d\n", (int)sum);
@@ -1360,6 +1486,9 @@ static void do_monitor_drives(struct drives_pid_state *state)
 	set_rpm_fan(DRIVES_FAN_RPM_INDEX, state->rpm);
 }
 
+/*
+ * Initialize the state structure for the drives bay fan control loop
+ */
 static int init_drives_state(struct drives_pid_state *state)
 {
 	int err;
@@ -1381,6 +1510,9 @@ static int init_drives_state(struct drives_pid_state *state)
 	return 0;
 }
 
+/*
+ * Dispose of the state data for the drives control loop
+ */
 static void dispose_drives_state(struct drives_pid_state *state)
 {
 	if (state->monitor == NULL)
@@ -1392,6 +1524,9 @@ static void dispose_drives_state(struct drives_pid_state *state)
 	state->monitor = NULL;
 }
 
+/*
+ * DIMMs temp control loop
+ */
 static void do_monitor_dimms(struct dimm_pid_state *state)
 {
 	s32 temp, integral, derivative, fan_min;
@@ -1414,12 +1549,12 @@ static void do_monitor_dimms(struct dimm_pid_state *state)
 	DBG("  temp: %d.%03d, target: %d.%03d\n", FIX32TOPRINT(temp),
 	    FIX32TOPRINT(DIMM_PID_INPUT_TARGET));
 
-	
+	/* Store temperature and error in history array */
 	state->cur_sample = (state->cur_sample + 1) % DIMM_PID_HISTORY_SIZE;
 	state->sample_history[state->cur_sample] = temp;
 	state->error_history[state->cur_sample] = temp - DIMM_PID_INPUT_TARGET;
 
-	
+	/* If first loop, fill the history table */
 	if (state->first) {
 		for (i = 0; i < (DIMM_PID_HISTORY_SIZE - 1); i++) {
 			state->cur_sample = (state->cur_sample + 1) %
@@ -1431,7 +1566,7 @@ static void do_monitor_dimms(struct dimm_pid_state *state)
 		state->first = 0;
 	}
 
-	
+	/* Calculate the integral term */
 	sum = 0;
 	integral = 0;
 	for (i = 0; i < DIMM_PID_HISTORY_SIZE; i++)
@@ -1442,7 +1577,7 @@ static void do_monitor_dimms(struct dimm_pid_state *state)
 	DBG("   integ_p: %d\n", (int)(integ_p >> 36));
 	sum += integ_p;
 
-	
+	/* Calculate the derivative term */
 	derivative = state->error_history[state->cur_sample] -
 		state->error_history[(state->cur_sample + DIMM_PID_HISTORY_SIZE - 1)
 				    % DIMM_PID_HISTORY_SIZE];
@@ -1451,12 +1586,12 @@ static void do_monitor_dimms(struct dimm_pid_state *state)
 	DBG("   deriv_p: %d\n", (int)(deriv_p >> 36));
 	sum += deriv_p;
 
-	
+	/* Calculate the proportional term */
 	prop_p = ((s64)DIMM_PID_G_p) * (s64)(state->error_history[state->cur_sample]);
 	DBG("   prop_p: %d\n", (int)(prop_p >> 36));
 	sum += prop_p;
 
-	
+	/* Scale sum */
 	sum >>= 36;
 
 	DBG("   sum: %d\n", (int)sum);
@@ -1467,7 +1602,7 @@ static void do_monitor_dimms(struct dimm_pid_state *state)
 
 	DBG("** DIMM clamp value: %d\n", (int)state->output);
 
-	
+	/* Backside PID is only every 5 seconds, force backside fan clamping now */
 	fan_min = (dimm_output_clamp * 100) / 14000;
 	fan_min = max(fan_min, backside_params.output_min);
 	if (backside_state.pwm < fan_min) {
@@ -1477,6 +1612,9 @@ static void do_monitor_dimms(struct dimm_pid_state *state)
 	}
 }
 
+/*
+ * Initialize the state structure for the DIMM temp control loop
+ */
 static int init_dimms_state(struct dimm_pid_state *state)
 {
 	state->ticks = 1;
@@ -1494,6 +1632,9 @@ static int init_dimms_state(struct dimm_pid_state *state)
 	return 0;
 }
 
+/*
+ * Dispose of the state data for the DIMM control loop
+ */
 static void dispose_dimms_state(struct dimm_pid_state *state)
 {
 	if (state->monitor == NULL)
@@ -1504,6 +1645,9 @@ static void dispose_dimms_state(struct dimm_pid_state *state)
 	state->monitor = NULL;
 }
 
+/*
+ * Slots fan control loop
+ */
 static void do_monitor_slots(struct slots_pid_state *state)
 {
 	s32 temp, integral, derivative;
@@ -1516,28 +1660,28 @@ static void do_monitor_slots(struct slots_pid_state *state)
 
 	DBG("slots:\n");
 
-	
+	/* Check fan status */
 	rc = get_pwm_fan(SLOTS_FAN_PWM_INDEX);
 	if (rc < 0) {
 		printk(KERN_WARNING "Error %d reading slots fan !\n", rc);
-		
+		/* XXX What do we do now ? */
 	} else
 		state->pwm = rc;
 	DBG("  current pwm: %d\n", state->pwm);
 
-	
+	/* Get some sensor readings */
 	temp = le16_to_cpu(i2c_smbus_read_word_data(state->monitor,
 						    DS1775_TEMP)) << 8;
 	state->last_temp = temp;
 	DBG("  temp: %d.%03d, target: %d.%03d\n", FIX32TOPRINT(temp),
 	    FIX32TOPRINT(SLOTS_PID_INPUT_TARGET));
 
-	
+	/* Store temperature and error in history array */
 	state->cur_sample = (state->cur_sample + 1) % SLOTS_PID_HISTORY_SIZE;
 	state->sample_history[state->cur_sample] = temp;
 	state->error_history[state->cur_sample] = temp - SLOTS_PID_INPUT_TARGET;
 
-	
+	/* If first loop, fill the history table */
 	if (state->first) {
 		for (i = 0; i < (SLOTS_PID_HISTORY_SIZE - 1); i++) {
 			state->cur_sample = (state->cur_sample + 1) %
@@ -1549,7 +1693,7 @@ static void do_monitor_slots(struct slots_pid_state *state)
 		state->first = 0;
 	}
 
-	
+	/* Calculate the integral term */
 	sum = 0;
 	integral = 0;
 	for (i = 0; i < SLOTS_PID_HISTORY_SIZE; i++)
@@ -1560,7 +1704,7 @@ static void do_monitor_slots(struct slots_pid_state *state)
 	DBG("   integ_p: %d\n", (int)(integ_p >> 36));
 	sum += integ_p;
 
-	
+	/* Calculate the derivative term */
 	derivative = state->error_history[state->cur_sample] -
 		state->error_history[(state->cur_sample + SLOTS_PID_HISTORY_SIZE - 1)
 				    % SLOTS_PID_HISTORY_SIZE];
@@ -1569,12 +1713,12 @@ static void do_monitor_slots(struct slots_pid_state *state)
 	DBG("   deriv_p: %d\n", (int)(deriv_p >> 36));
 	sum += deriv_p;
 
-	
+	/* Calculate the proportional term */
 	prop_p = ((s64)SLOTS_PID_G_p) * (s64)(state->error_history[state->cur_sample]);
 	DBG("   prop_p: %d\n", (int)(prop_p >> 36));
 	sum += prop_p;
 
-	
+	/* Scale sum */
 	sum >>= 36;
 
 	DBG("   sum: %d\n", (int)sum);
@@ -1587,6 +1731,9 @@ static void do_monitor_slots(struct slots_pid_state *state)
 	set_pwm_fan(SLOTS_FAN_PWM_INDEX, state->pwm);
 }
 
+/*
+ * Initialize the state structure for the slots bay fan control loop
+ */
 static int init_slots_state(struct slots_pid_state *state)
 {
 	int err;
@@ -1608,6 +1755,9 @@ static int init_slots_state(struct slots_pid_state *state)
 	return 0;
 }
 
+/*
+ * Dispose of the state data for the slots control loop
+ */
 static void dispose_slots_state(struct slots_pid_state *state)
 {
 	if (state->monitor == NULL)
@@ -1633,6 +1783,9 @@ static int call_critical_overtemp(void)
 }
 
 
+/*
+ * Here's the kernel thread that calls the various control loops
+ */
 static int main_control_loop(void *x)
 {
 	DBG("main_control_loop started\n");
@@ -1645,11 +1798,11 @@ static int main_control_loop(void *x)
 		goto out;
 	}
 
-	
+	/* Set the PCI fan once for now on non-RackMac */
 	if (!rackmac)
 		set_pwm_fan(SLOTS_FAN_PWM_INDEX, SLOTS_FAN_DEFAULT_PWM);
 
-	
+	/* Initialize ADCs */
 	initialize_adc(&processor_state[0]);
 	if (processor_state[1].monitor != NULL)
 		initialize_adc(&processor_state[1]);
@@ -1665,31 +1818,31 @@ static int main_control_loop(void *x)
 
 		mutex_lock(&driver_lock);
 
-		
+		/* Tickle the FCU just in case */
 		if (--fcu_tickle_ticks < 0) {
 			fcu_tickle_ticks = FCU_TICKLE_TICKS;
 			tickle_fcu();
 		}
 
-		
+		/* First, we always calculate the new DIMMs state on an Xserve */
 		if (rackmac)
 			do_monitor_dimms(&dimms_state);
 
-		
+		/* Then, the CPUs */
 		if (cpu_pid_type == CPU_PID_TYPE_COMBINED)
 			do_monitor_cpu_combined();
 		else if (cpu_pid_type == CPU_PID_TYPE_RACKMAC) {
 			do_monitor_cpu_rack(&processor_state[0]);
 			if (processor_state[1].monitor != NULL)
 				do_monitor_cpu_rack(&processor_state[1]);
-			
+			// better deal with UP
 		} else {
 			do_monitor_cpu_split(&processor_state[0]);
 			if (processor_state[1].monitor != NULL)
 				do_monitor_cpu_split(&processor_state[1]);
-			
+			// better deal with UP
 		}
-		
+		/* Then, the rest */
 		do_monitor_backside(&backside_state);
 		if (rackmac)
 			do_monitor_slots(&slots_state);
@@ -1713,7 +1866,7 @@ static int main_control_loop(void *x)
 			machine_power_off();
 		}
 
-		
+		// FIXME: Deal with signals
 		elapsed = jiffies - start;
 		if (elapsed < HZ)
 			schedule_timeout_interruptible(HZ - elapsed);
@@ -1726,6 +1879,9 @@ static int main_control_loop(void *x)
 	complete_and_exit(&ctrl_complete, 0);
 }
 
+/*
+ * Dispose the control loops when tearing down
+ */
 static void dispose_control_loops(void)
 {
 	dispose_processor_state(&processor_state[0]);
@@ -1736,16 +1892,27 @@ static void dispose_control_loops(void)
 	dispose_dimms_state(&dimms_state);
 }
 
+/*
+ * Create the control loops. U3-0 i2c bus is up, so we can now
+ * get to the various sensors
+ */
 static int create_control_loops(void)
 {
 	struct device_node *np;
 
+	/* Count CPUs from the device-tree, we don't care how many are
+	 * actually used by Linux
+	 */
 	cpu_count = 0;
 	for (np = NULL; NULL != (np = of_find_node_by_type(np, "cpu"));)
 		cpu_count++;
 
 	DBG("counted %d CPUs in the device-tree\n", cpu_count);
 
+	/* Decide the type of PID algorithm to use based on the presence of
+	 * the pumps, though that may not be the best way, that is good enough
+	 * for now
+	 */
 	if (rackmac)
 		cpu_pid_type = CPU_PID_TYPE_RACKMAC;
 	else if (of_machine_is_compatible("PowerMac7,3")
@@ -1757,6 +1924,9 @@ static int create_control_loops(void)
 	} else
 		cpu_pid_type = CPU_PID_TYPE_SPLIT;
 
+	/* Create control loops for everything. If any fail, everything
+	 * fails
+	 */
 	if (init_processor_state(&processor_state[0], 0))
 		goto fail;
 	if (cpu_pid_type == CPU_PID_TYPE_COMBINED)
@@ -1785,6 +1955,10 @@ static int create_control_loops(void)
 	return -ENODEV;
 }
 
+/*
+ * Start the control loops after everything is up, that is create
+ * the thread that will make them run
+ */
 static void start_control_loops(void)
 {
 	init_completion(&ctrl_complete);
@@ -1792,12 +1966,18 @@ static void start_control_loops(void)
 	ctrl_task = kthread_run(main_control_loop, NULL, "kfand");
 }
 
+/*
+ * Stop the control loops when tearing down
+ */
 static void stop_control_loops(void)
 {
 	if (ctrl_task)
 		wait_for_completion(&ctrl_complete);
 }
 
+/*
+ * Attach to the i2c FCU after detecting U3-1 bus
+ */
 static int attach_fcu(void)
 {
 	fcu = attach_i2c_chip(FAN_CTRLER_ID, "fcu");
@@ -1809,16 +1989,24 @@ static int attach_fcu(void)
 	return 0;
 }
 
+/*
+ * Detach from the i2c FCU when tearing down
+ */
 static void detach_fcu(void)
 {
 	fcu = NULL;
 }
 
+/*
+ * Attach to the i2c controller. We probe the various chips based
+ * on the device-tree nodes and build everything for the driver to
+ * run, we then kick the driver monitoring thread
+ */
 static int therm_pm72_attach(struct i2c_adapter *adapter)
 {
 	mutex_lock(&driver_lock);
 
-	
+	/* Check state */
 	if (state == state_detached)
 		state = state_attaching;
 	if (state != state_attaching) {
@@ -1826,7 +2014,7 @@ static int therm_pm72_attach(struct i2c_adapter *adapter)
 		return 0;
 	}
 
-	
+	/* Check if we are looking for one of these */
 	if (u3_0 == NULL && !strcmp(adapter->name, "u3 0")) {
 		u3_0 = adapter;
 		DBG("found U3-0\n");
@@ -1845,7 +2033,7 @@ static int therm_pm72_attach(struct i2c_adapter *adapter)
 			if (create_control_loops())
 				k2 = NULL;
 	}
-	
+	/* We got all we need, start control loops */
 	if (u3_0 != NULL && u3_1 != NULL && (k2 || !rackmac)) {
 		DBG("everything up, starting control loops\n");
 		state = state_attached;
@@ -1859,10 +2047,14 @@ static int therm_pm72_attach(struct i2c_adapter *adapter)
 static int therm_pm72_probe(struct i2c_client *client,
 			    const struct i2c_device_id *id)
 {
-	
+	/* Always succeed, the real work was done in therm_pm72_attach() */
 	return 0;
 }
 
+/*
+ * Called when any of the devices which participates into thermal management
+ * is going away.
+ */
 static int therm_pm72_remove(struct i2c_client *client)
 {
 	struct i2c_adapter *adapter = client->adapter;
@@ -1872,7 +2064,7 @@ static int therm_pm72_remove(struct i2c_client *client)
 	if (state != state_detached)
 		state = state_detaching;
 
-	
+	/* Stop control loops if any */
 	DBG("stopping control loops\n");
 	mutex_unlock(&driver_lock);
 	stop_control_loops();
@@ -1897,8 +2089,16 @@ static int therm_pm72_remove(struct i2c_client *client)
 	return 0;
 }
 
+/*
+ * i2c_driver structure to attach to the host i2c controller
+ */
 
 static const struct i2c_device_id therm_pm72_id[] = {
+	/*
+	 * Fake device name, thermal management is done by several
+	 * chips but we don't need to differentiate between them at
+	 * this point.
+	 */
 	{ "therm_pm72", 0 },
 	{ }
 };
@@ -1939,6 +2139,11 @@ static void fcu_lookup_fans(struct device_node *fcu_node)
 	struct device_node *np = NULL;
 	int i;
 
+	/* The table is filled by default with values that are suitable
+	 * for the old machines without device-tree informations. We scan
+	 * the device-tree and override those values with whatever is
+	 * there
+	 */
 
 	DBG("Looking up FCU controls in device-tree...\n");
 
@@ -1949,18 +2154,18 @@ static void fcu_lookup_fans(struct device_node *fcu_node)
 
 		DBG(" control: %s, type: %s\n", np->name, np->type);
 
-		
+		/* Detect control type */
 		if (!strcmp(np->type, "fan-rpm-control") ||
 		    !strcmp(np->type, "fan-rpm"))
 			type = FCU_FAN_RPM;
 		if (!strcmp(np->type, "fan-pwm-control") ||
 		    !strcmp(np->type, "fan-pwm"))
 			type = FCU_FAN_PWM;
-		
+		/* Only care about fans for now */
 		if (type == -1)
 			continue;
 
-		
+		/* Lookup for a matching location */
 		loc = of_get_property(np, "location", NULL);
 		reg = of_get_property(np, "reg", NULL);
 		if (loc == NULL || reg == NULL)
@@ -1993,7 +2198,7 @@ static void fcu_lookup_fans(struct device_node *fcu_node)
 		}
 	}
 
-	
+	/* Now dump the array */
 	printk(KERN_INFO "Detected fan controls:\n");
 	for (i = 0; i < FCU_FAN_COUNT; i++) {
 		if (fcu_fans[i].id == FCU_FAN_ABSENT_ID)
@@ -2011,10 +2216,10 @@ static int fcu_of_probe(struct platform_device* dev)
 
 	dev_info(&dev->dev, "PowerMac G5 Thermal control driver %s\n", VERSION);
 
-	
+	/* Lookup the fans in the device tree */
 	fcu_lookup_fans(dev->dev.of_node);
 
-	
+	/* Add the driver */
 	return i2c_add_driver(&therm_pm72_driver);
 }
 
@@ -2045,6 +2250,9 @@ static struct platform_driver fcu_of_platform_driver =
 	.remove		= fcu_of_remove
 };
 
+/*
+ * Check machine type, attach to i2c controller
+ */
 static int __init therm_pm72_init(void)
 {
 	rackmac = of_machine_is_compatible("RackMac3,1");

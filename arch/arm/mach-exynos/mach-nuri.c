@@ -57,6 +57,7 @@
 
 #include "common.h"
 
+/* Following are default values for UCON, ULCON and UFCON UART registers */
 #define NURI_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
 				 S3C2410_UCON_RXILEVEL |	\
 				 S3C2410_UCON_TXIRQMODE |	\
@@ -105,6 +106,7 @@ static struct s3c2410_uartcfg nuri_uartcfgs[] __initdata = {
 	},
 };
 
+/* eMMC */
 static struct s3c_sdhci_platdata nuri_hsmmc0_data __initdata = {
 	.max_width		= 8,
 	.host_caps		= (MMC_CAP_8_BIT_DATA | MMC_CAP_4_BIT_DATA |
@@ -145,16 +147,18 @@ static struct platform_device emmc_fixed_voltage = {
 	},
 };
 
+/* SD */
 static struct s3c_sdhci_platdata nuri_hsmmc2_data __initdata = {
 	.max_width		= 4,
 	.host_caps		= MMC_CAP_4_BIT_DATA |
 				MMC_CAP_MMC_HIGHSPEED | MMC_CAP_SD_HIGHSPEED,
-	.ext_cd_gpio		= EXYNOS4_GPX3(3),	
+	.ext_cd_gpio		= EXYNOS4_GPX3(3),	/* XEINT_27 */
 	.ext_cd_gpio_invert	= 1,
 	.cd_type		= S3C_SDHCI_CD_GPIO,
 	.clk_type		= S3C_SDHCI_CLK_DIV_EXTERNAL,
 };
 
+/* WLAN */
 static struct s3c_sdhci_platdata nuri_hsmmc3_data __initdata = {
 	.max_width		= 4,
 	.host_caps		= MMC_CAP_4_BIT_DATA |
@@ -170,24 +174,25 @@ static void __init nuri_sdhci_init(void)
 	s3c_sdhci3_set_platdata(&nuri_hsmmc3_data);
 }
 
+/* GPIO KEYS */
 static struct gpio_keys_button nuri_gpio_keys_tables[] = {
 	{
 		.code			= KEY_VOLUMEUP,
-		.gpio			= EXYNOS4_GPX2(0),	
+		.gpio			= EXYNOS4_GPX2(0),	/* XEINT16 */
 		.desc			= "gpio-keys: KEY_VOLUMEUP",
 		.type			= EV_KEY,
 		.active_low		= 1,
 		.debounce_interval	= 1,
 	}, {
 		.code			= KEY_VOLUMEDOWN,
-		.gpio			= EXYNOS4_GPX2(1),	
+		.gpio			= EXYNOS4_GPX2(1),	/* XEINT17 */
 		.desc			= "gpio-keys: KEY_VOLUMEDOWN",
 		.type			= EV_KEY,
 		.active_low		= 1,
 		.debounce_interval	= 1,
 	}, {
 		.code			= KEY_POWER,
-		.gpio			= EXYNOS4_GPX2(7),	
+		.gpio			= EXYNOS4_GPX2(7),	/* XEINT23 */
 		.desc			= "gpio-keys: KEY_POWER",
 		.type			= EV_KEY,
 		.active_low		= 1,
@@ -208,6 +213,7 @@ static struct platform_device nuri_gpio_keys = {
 	},
 };
 
+/* Frame Buffer */
 static struct s3c_fb_pd_win nuri_fb_win0 = {
 	.win_mode = {
 		.left_margin	= 64,
@@ -264,6 +270,7 @@ static void nuri_bl_exit(struct device *dev)
 	gpio_free(EXYNOS4_GPE2(3));
 }
 
+/* nuri pwm backlight */
 static struct platform_pwm_backlight_data nuri_backlight_data = {
 	.pwm_id			= 0,
 	.pwm_period_ns		= 30000,
@@ -295,10 +302,12 @@ static struct platform_device nuri_lcd_device = {
 	},
 };
 
+/* I2C1 */
 static struct i2c_board_info i2c1_devs[] __initdata = {
-	
+	/* Gyro, To be updated */
 };
 
+/* TSP */
 static struct mxt_platform_data mxt_platform_data = {
 	.x_line			= 18,
 	.y_line			= 11,
@@ -306,7 +315,7 @@ static struct mxt_platform_data mxt_platform_data = {
 	.y_size			= 600,
 	.blen			= 0x1,
 	.threshold		= 0x28,
-	.voltage		= 2800000,		
+	.voltage		= 2800000,		/* 2.8V */
 	.orient			= MXT_DIAGONAL_COUNTER,
 	.irqflags		= IRQF_TRIGGER_FALLING,
 };
@@ -331,7 +340,7 @@ static void __init nuri_tsp_init(void)
 {
 	int gpio;
 
-	
+	/* TOUCH_INT: XEINT_4 */
 	gpio = EXYNOS4_GPX0(4);
 	gpio_request(gpio, "TOUCH_INT");
 	s3c_gpio_cfgpin(gpio, S3C_GPIO_SFN(0xf));
@@ -339,75 +348,75 @@ static void __init nuri_tsp_init(void)
 }
 
 static struct regulator_consumer_supply __initdata max8997_ldo1_[] = {
-	REGULATOR_SUPPLY("vdd", "s5p-adc"), 
+	REGULATOR_SUPPLY("vdd", "s5p-adc"), /* Used by CPU's ADC drv */
 };
 static struct regulator_consumer_supply __initdata max8997_ldo3_[] = {
-	REGULATOR_SUPPLY("vdd11", "s5p-mipi-csis.0"), 
+	REGULATOR_SUPPLY("vdd11", "s5p-mipi-csis.0"), /* MIPI */
 };
 static struct regulator_consumer_supply __initdata max8997_ldo4_[] = {
-	REGULATOR_SUPPLY("vdd18", "s5p-mipi-csis.0"), 
+	REGULATOR_SUPPLY("vdd18", "s5p-mipi-csis.0"), /* MIPI */
 };
 static struct regulator_consumer_supply __initdata max8997_ldo5_[] = {
-	REGULATOR_SUPPLY("vhsic", "modemctl"), 
+	REGULATOR_SUPPLY("vhsic", "modemctl"), /* MODEM */
 };
 static struct regulator_consumer_supply nuri_max8997_ldo6_consumer[] = {
-	REGULATOR_SUPPLY("vdd_reg", "6-003c"), 
+	REGULATOR_SUPPLY("vdd_reg", "6-003c"), /* S5K6AA camera */
 };
 static struct regulator_consumer_supply __initdata max8997_ldo7_[] = {
-	REGULATOR_SUPPLY("dig_18", "0-001f"), 
+	REGULATOR_SUPPLY("dig_18", "0-001f"), /* HCD803 */
 };
 static struct regulator_consumer_supply __initdata max8997_ldo8_[] = {
-	REGULATOR_SUPPLY("vusb_d", NULL), 
-	REGULATOR_SUPPLY("vdac", NULL), 
+	REGULATOR_SUPPLY("vusb_d", NULL), /* Used by CPU */
+	REGULATOR_SUPPLY("vdac", NULL), /* Used by CPU */
 };
 static struct regulator_consumer_supply __initdata max8997_ldo11_[] = {
-	REGULATOR_SUPPLY("vcc", "platform-lcd"), 
+	REGULATOR_SUPPLY("vcc", "platform-lcd"), /* U804 LVDS */
 };
 static struct regulator_consumer_supply __initdata max8997_ldo12_[] = {
-	REGULATOR_SUPPLY("vddio", "6-003c"), 
+	REGULATOR_SUPPLY("vddio", "6-003c"), /* HDC802 */
 };
 static struct regulator_consumer_supply __initdata max8997_ldo13_[] = {
-	REGULATOR_SUPPLY("vmmc", "exynos4-sdhci.2"), 
+	REGULATOR_SUPPLY("vmmc", "exynos4-sdhci.2"), /* TFLASH */
 };
 static struct regulator_consumer_supply __initdata max8997_ldo14_[] = {
 	REGULATOR_SUPPLY("inmotor", "max8997-haptic"),
 };
 static struct regulator_consumer_supply __initdata max8997_ldo15_[] = {
-	REGULATOR_SUPPLY("avdd", "3-004a"), 
+	REGULATOR_SUPPLY("avdd", "3-004a"), /* Touch Screen */
 };
 static struct regulator_consumer_supply __initdata max8997_ldo16_[] = {
-	REGULATOR_SUPPLY("d_sensor", "0-001f"), 
+	REGULATOR_SUPPLY("d_sensor", "0-001f"), /* HDC803 */
 };
 static struct regulator_consumer_supply __initdata max8997_ldo18_[] = {
-	REGULATOR_SUPPLY("vdd", "3-004a"), 
+	REGULATOR_SUPPLY("vdd", "3-004a"), /* Touch Screen */
 };
 static struct regulator_consumer_supply __initdata max8997_buck1_[] = {
-	REGULATOR_SUPPLY("vdd_arm", NULL), 
+	REGULATOR_SUPPLY("vdd_arm", NULL), /* CPUFREQ */
 };
 static struct regulator_consumer_supply __initdata max8997_buck2_[] = {
-	REGULATOR_SUPPLY("vdd_int", "exynos4210-busfreq.0"), 
+	REGULATOR_SUPPLY("vdd_int", "exynos4210-busfreq.0"), /* CPUFREQ */
 };
 static struct regulator_consumer_supply __initdata max8997_buck3_[] = {
-	REGULATOR_SUPPLY("vdd", "mali_dev.0"), 
+	REGULATOR_SUPPLY("vdd", "mali_dev.0"), /* G3D of Exynos 4 */
 };
 static struct regulator_consumer_supply __initdata max8997_buck4_[] = {
-	REGULATOR_SUPPLY("core", "0-001f"), 
+	REGULATOR_SUPPLY("core", "0-001f"), /* HDC803 */
 };
 static struct regulator_consumer_supply __initdata max8997_buck6_[] = {
-	REGULATOR_SUPPLY("dig_28", "0-001f"), 
+	REGULATOR_SUPPLY("dig_28", "0-001f"), /* pin "7" of HDC803 */
 };
 static struct regulator_consumer_supply __initdata max8997_esafeout1_[] = {
-	REGULATOR_SUPPLY("usb_vbus", NULL), 
+	REGULATOR_SUPPLY("usb_vbus", NULL), /* CPU's USB OTG */
 };
 static struct regulator_consumer_supply __initdata max8997_esafeout2_[] = {
-	REGULATOR_SUPPLY("usb_vbus", "modemctl"), 
+	REGULATOR_SUPPLY("usb_vbus", "modemctl"), /* VBUS of Modem */
 };
 
 static struct regulator_consumer_supply __initdata max8997_charger_[] = {
 	REGULATOR_SUPPLY("vinchg1", "charger-manager.0"),
 };
 static struct regulator_consumer_supply __initdata max8997_chg_toff_[] = {
-	REGULATOR_SUPPLY("vinchg_stop", NULL), 
+	REGULATOR_SUPPLY("vinchg_stop", NULL), /* for jack interrupt handlers */
 };
 
 static struct regulator_consumer_supply __initdata max8997_32khz_ap_[] = {
@@ -914,34 +923,35 @@ static struct max8997_platform_data __initdata nuri_max8997_pdata = {
 
 	.buck125_gpios = { EXYNOS4_GPX0(5), EXYNOS4_GPX0(6), EXYNOS4_GPL0(0) },
 
-	.buck1_voltage[0] = 1350000, 
-	.buck1_voltage[1] = 1300000, 
-	.buck1_voltage[2] = 1250000, 
-	.buck1_voltage[3] = 1200000, 
-	.buck1_voltage[4] = 1150000, 
-	.buck1_voltage[5] = 1100000, 
-	.buck1_voltage[6] = 1000000, 
-	.buck1_voltage[7] = 950000, 
+	.buck1_voltage[0] = 1350000, /* 1.35V */
+	.buck1_voltage[1] = 1300000, /* 1.3V */
+	.buck1_voltage[2] = 1250000, /* 1.25V */
+	.buck1_voltage[3] = 1200000, /* 1.2V */
+	.buck1_voltage[4] = 1150000, /* 1.15V */
+	.buck1_voltage[5] = 1100000, /* 1.1V */
+	.buck1_voltage[6] = 1000000, /* 1.0V */
+	.buck1_voltage[7] = 950000, /* 0.95V */
 
-	.buck2_voltage[0] = 1100000, 
-	.buck2_voltage[1] = 1000000, 
-	.buck2_voltage[2] = 950000, 
-	.buck2_voltage[3] = 900000, 
-	.buck2_voltage[4] = 1100000, 
-	.buck2_voltage[5] = 1000000, 
-	.buck2_voltage[6] = 950000, 
-	.buck2_voltage[7] = 900000, 
+	.buck2_voltage[0] = 1100000, /* 1.1V */
+	.buck2_voltage[1] = 1000000, /* 1.0V */
+	.buck2_voltage[2] = 950000, /* 0.95V */
+	.buck2_voltage[3] = 900000, /* 0.9V */
+	.buck2_voltage[4] = 1100000, /* 1.1V */
+	.buck2_voltage[5] = 1000000, /* 1.0V */
+	.buck2_voltage[6] = 950000, /* 0.95V */
+	.buck2_voltage[7] = 900000, /* 0.9V */
 
-	.buck5_voltage[0] = 1200000, 
-	.buck5_voltage[1] = 1200000, 
-	.buck5_voltage[2] = 1200000, 
-	.buck5_voltage[3] = 1200000, 
-	.buck5_voltage[4] = 1200000, 
-	.buck5_voltage[5] = 1200000, 
-	.buck5_voltage[6] = 1200000, 
-	.buck5_voltage[7] = 1200000, 
+	.buck5_voltage[0] = 1200000, /* 1.2V */
+	.buck5_voltage[1] = 1200000, /* 1.2V */
+	.buck5_voltage[2] = 1200000, /* 1.2V */
+	.buck5_voltage[3] = 1200000, /* 1.2V */
+	.buck5_voltage[4] = 1200000, /* 1.2V */
+	.buck5_voltage[5] = 1200000, /* 1.2V */
+	.buck5_voltage[6] = 1200000, /* 1.2V */
+	.buck5_voltage[7] = 1200000, /* 1.2V */
 };
 
+/* GPIO I2C 5 (PMIC) */
 enum { I2C5_MAX8997 };
 static struct i2c_board_info i2c5_devs[] __initdata = {
 	[I2C5_MAX8997] = {
@@ -953,9 +963,10 @@ static struct i2c_board_info i2c5_devs[] __initdata = {
 static struct max17042_platform_data nuri_battery_platform_data = {
 };
 
+/* GPIO I2C 9 (Fuel Gauge) */
 static struct i2c_gpio_platform_data i2c9_gpio_data = {
-	.sda_pin		= EXYNOS4_GPY4(0),      
-	.scl_pin		= EXYNOS4_GPY4(1),      
+	.sda_pin		= EXYNOS4_GPY4(0),      /* XM0ADDR_8 */
+	.scl_pin		= EXYNOS4_GPY4(1),      /* XM0ADDR_9 */
 };
 static struct platform_device i2c9_gpio = {
 	.name			= "i2c-gpio",
@@ -972,6 +983,7 @@ static struct i2c_board_info i2c9_devs[] __initdata = {
 	},
 };
 
+/* MAX8903 Secondary Charger */
 static struct regulator_consumer_supply supplies_max8903[] = {
 	REGULATOR_SUPPLY("vinchg2", "charger-manager.0"),
 };
@@ -988,9 +1000,9 @@ static struct regulator_init_data max8903_charger_en_data = {
 
 static struct fixed_voltage_config max8903_charger_en = {
 	.supply_name = "VOUT_CHARGER",
-	.microvolts = 5000000, 
-	.gpio = EXYNOS4_GPY4(5), 
-	.enable_high = 0, 
+	.microvolts = 5000000, /* Assume 5VDC */
+	.gpio = EXYNOS4_GPY4(5), /* TA_EN negaged */
+	.enable_high = 0, /* Enable = Low */
 	.enabled_at_boot = 1,
 	.init_data = &max8903_charger_en_data,
 };
@@ -1002,14 +1014,18 @@ static struct platform_device max8903_fixed_reg_dev = {
 };
 
 static struct max8903_pdata nuri_max8903 = {
-	.dok = EXYNOS4_GPX1(4), 
-	
-	.chg = EXYNOS4_GPE2(0), 
-	
-	.dcm = EXYNOS4_GPL0(1), 
+	/*
+	 * cen: don't control with the driver, let it be
+	 * controlled by regulator above
+	 */
+	.dok = EXYNOS4_GPX1(4), /* TA_nCONNECTED */
+	/* uok, usus: not connected */
+	.chg = EXYNOS4_GPE2(0), /* TA_nCHG */
+	/* flt: vcc_1.8V_pda */
+	.dcm = EXYNOS4_GPL0(1), /* CURR_ADJ */
 
 	.dc_valid = true,
-	.usb_valid = false, 
+	.usb_valid = false, /* USB is not wired to MAX8903 */
 };
 
 static struct platform_device nuri_max8903_device = {
@@ -1053,6 +1069,7 @@ static void __init nuri_power_init(void)
 	gpio_direction_output(gpio, ta_en);
 }
 
+/* USB EHCI */
 static struct s5p_ehci_platdata nuri_ehci_pdata;
 
 static void __init nuri_ehci_init(void)
@@ -1062,6 +1079,7 @@ static void __init nuri_ehci_init(void)
 	s5p_ehci_set_platdata(pdata);
 }
 
+/* CAMERA */
 static struct regulator_consumer_supply cam_vt_cam15_supply =
 	REGULATOR_SUPPLY("vdd_core", "6-003c");
 
@@ -1074,7 +1092,7 @@ static struct regulator_init_data cam_vt_cam15_reg_init_data = {
 static struct fixed_voltage_config cam_vt_cam15_fixed_voltage_cfg = {
 	.supply_name	= "VT_CAM_1.5V",
 	.microvolts	= 1500000,
-	.gpio		= EXYNOS4_GPE2(2), 
+	.gpio		= EXYNOS4_GPE2(2), /* VT_CAM_1.5V_EN */
 	.enable_high	= 1,
 	.init_data	= &cam_vt_cam15_reg_init_data,
 };
@@ -1098,7 +1116,7 @@ static struct regulator_init_data cam_vdda_reg_init_data = {
 static struct fixed_voltage_config cam_vdda_fixed_voltage_cfg = {
 	.supply_name	= "CAM_IO_EN",
 	.microvolts	= 2800000,
-	.gpio		= EXYNOS4_GPE2(1), 
+	.gpio		= EXYNOS4_GPE2(1), /* CAM_IO_EN */
 	.enable_high	= 1,
 	.init_data	= &cam_vdda_reg_init_data,
 };
@@ -1122,7 +1140,7 @@ static struct regulator_init_data cam_8m_12v_reg_init_data = {
 static struct fixed_voltage_config cam_8m_12v_fixed_voltage_cfg = {
 	.supply_name	= "8M_1.2V",
 	.microvolts	= 1200000,
-	.gpio		= EXYNOS4_GPE2(5), 
+	.gpio		= EXYNOS4_GPE2(5), /* 8M_1.2V_EN */
 	.enable_high	= 1,
 	.init_data	= &cam_8m_12v_reg_init_data,
 };
@@ -1140,7 +1158,7 @@ static struct s5p_platform_mipi_csis mipi_csis_platdata = {
 	.phy_enable	= s5p_csis_phy_enable,
 };
 
-#define GPIO_CAM_MEGA_RST	EXYNOS4_GPY3(7) 
+#define GPIO_CAM_MEGA_RST	EXYNOS4_GPY3(7) /* ISP_RESET */
 #define GPIO_CAM_8M_ISP_INT	EXYNOS4_GPL2(5)
 #define GPIO_CAM_VT_NSTBY	EXYNOS4_GPL2(0)
 #define GPIO_CAM_VT_NRST	EXYNOS4_GPL2(1)
@@ -1216,7 +1234,7 @@ static void __init nuri_camera_init(void)
 	else
 		pr_err("%s: Failed to configure 8M_ISP_INT GPIO\n", __func__);
 
-	
+	/* Free GPIOs controlled directly by the sensor drivers. */
 	gpio_free(GPIO_CAM_VT_NRST);
 	gpio_free(GPIO_CAM_VT_NSTBY);
 	gpio_free(GPIO_CAM_MEGA_RST);
@@ -1225,7 +1243,7 @@ static void __init nuri_camera_init(void)
 		pr_err("%s: Camera port A setup failed\n", __func__);
 		return;
 	}
-	
+	/* Increase drive strength of the sensor clock output */
 	s5p_gpio_set_drvstr(EXYNOS4_GPJ1(3), S5P_GPIO_DRVSTR_LV4);
 }
 
@@ -1240,13 +1258,14 @@ static struct s3c2410_platform_i2c nuri_i2c0_platdata __initdata = {
 	.sda_delay	= 200,
 };
 
+/* DEVFREQ controlling memory/bus */
 static struct platform_device exynos4_bus_devfreq = {
 	.name			= "exynos4210-busfreq",
 };
 
 static struct platform_device *nuri_devices[] __initdata = {
-	
-	&s3c_device_i2c5, 
+	/* Samsung Platform Devices */
+	&s3c_device_i2c5, /* PMIC should initialize first */
 	&s3c_device_i2c0,
 	&s3c_device_i2c6,
 	&emmc_fixed_voltage,
@@ -1273,7 +1292,7 @@ static struct platform_device *nuri_devices[] __initdata = {
 	&s5p_device_mfc_r,
 	&s5p_device_fimc_md,
 
-	
+	/* NURI Devices */
 	&nuri_gpio_keys,
 	&nuri_lcd_device,
 	&nuri_backlight_device,
@@ -1321,12 +1340,12 @@ static void __init nuri_machine_init(void)
 
 	nuri_ehci_init();
 
-	
+	/* Last */
 	platform_add_devices(nuri_devices, ARRAY_SIZE(nuri_devices));
 }
 
 MACHINE_START(NURI, "NURI")
-	
+	/* Maintainer: Kyungmin Park <kyungmin.park@samsung.com> */
 	.atag_offset	= 0x100,
 	.init_irq	= exynos4_init_irq,
 	.map_io		= nuri_map_io,

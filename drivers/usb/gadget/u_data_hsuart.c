@@ -40,8 +40,9 @@ static const char *ghsuart_data_names[] = {
 #define GHSUART_DATA_RX_REQ_SIZE		2048
 #define GHSUART_DATA_TX_INTR_THRESHOLD		1
 
-#define ACM_CTRL_RTS		(1 << 1)	
-#define ACM_CTRL_DTR		(1 << 0)	
+/* from cdc-acm.h */
+#define ACM_CTRL_RTS		(1 << 1)	/* unused with full duplex */
+#define ACM_CTRL_DTR		(1 << 0)	/* host is ready for data r/w */
 #define ACM_CTRL_OVERRUN	(1 << 6)
 #define ACM_CTRL_PARITY		(1 << 5)
 #define ACM_CTRL_FRAMING	(1 << 4)
@@ -75,10 +76,10 @@ module_param(ghsuart_data_tx_intr_thld, uint, S_IRUGO | S_IWUSR);
 #define CH_CONNECTED 2
 
 struct ghsuart_data_port {
-	
+	/* port */
 	unsigned		port_num;
 
-	
+	/* gadget */
 	atomic_t		connected;
 	struct usb_ep		*in;
 	struct usb_ep		*out;
@@ -88,7 +89,7 @@ struct ghsuart_data_port {
 	void *port_usb;
 
 	struct completion	close_complete;
-	
+	/* data transfer queues */
 	unsigned int		tx_q_size;
 	struct list_head	tx_idle;
 	struct sk_buff_head	tx_skb_q;
@@ -99,7 +100,7 @@ struct ghsuart_data_port {
 	struct sk_buff_head	rx_skb_q;
 	spinlock_t		rx_lock;
 
-	
+	/* work */
 	struct workqueue_struct	*wq;
 	struct work_struct	connect_w;
 	struct work_struct	disconnect_w;
@@ -107,18 +108,18 @@ struct ghsuart_data_port {
 	struct work_struct	write_tohost_w;
 	void *ctx;
 	unsigned int ch_id;
-	
+	/* flow control bits */
 	unsigned long flags;
-	
+	/* channel status */
 	unsigned long		channel_sts;
 
 	unsigned int		n_tx_req_queued;
 
-	
+	/* control bits */
 	unsigned		cbits_tomodem;
 	unsigned		cbits_tohost;
 
-	
+	/* counters */
 	unsigned long		to_modem;
 	unsigned long		to_host;
 	unsigned int		tomodem_drp_cnt;
@@ -249,7 +250,7 @@ static void ghsuart_data_write_tomdm(struct work_struct *w)
 		ret = msm_smux_write(port->ch_id, skb, skb->data, skb->len);
 		if (ret < 0) {
 			if (ret == -EAGAIN) {
-				
+				/*flow control*/
 				set_bit(TX_THROTTLED, &port->flags);
 				__skb_queue_head(&port->rx_skb_q, skb);
 				break;
@@ -275,11 +276,11 @@ static void ghsuart_data_epin_complete(struct usb_ep *ep,
 
 	switch (status) {
 	case 0:
-		
+		/* successful completion */
 		break;
 	case -ECONNRESET:
 	case -ESHUTDOWN:
-		
+		/* connection gone */
 		dev_kfree_skb_any(skb);
 		req->buf = 0;
 		usb_ep_free_request(ep, req);
@@ -313,7 +314,7 @@ ghsuart_data_epout_complete(struct usb_ep *ep, struct usb_request *req)
 		break;
 	case -ECONNRESET:
 	case -ESHUTDOWN:
-		
+		/* cable disconnection */
 		dev_kfree_skb_any(skb);
 		req->buf = 0;
 		usb_ep_free_request(ep, req);
@@ -435,7 +436,7 @@ static void ghsuart_data_start_io(struct ghsuart_data_port *port)
 	}
 	spin_unlock_irqrestore(&port->tx_lock, flags);
 
-	
+	/* queue out requests */
 	ghsuart_data_start_rx(port);
 }
 
@@ -674,13 +675,14 @@ static int ghsuart_data_probe(struct platform_device *pdev)
 	port = ghsuart_data_ports[pdev->id].port;
 	set_bit(CH_READY, &port->channel_sts);
 
-	
+	/* if usb is online, try opening bridge */
 	if (atomic_read(&port->connected))
 		queue_work(port->wq, &port->connect_w);
 
 	return 0;
 }
 
+/* mdm disconnect */
 static int ghsuart_data_remove(struct platform_device *pdev)
 {
 	struct ghsuart_data_port *port;
@@ -766,7 +768,7 @@ ghsuart_send_controlbits_tomodem(void *gptr, u8 portno, int cbits)
 	if (!test_bit(CH_CONNECTED, &port->channel_sts))
 		return;
 
-	
+	/* if DTR is high, update latest modem info to Host */
 	if (port->cbits_tomodem & ACM_CTRL_DTR) {
 		unsigned int i;
 
@@ -775,7 +777,7 @@ ghsuart_send_controlbits_tomodem(void *gptr, u8 portno, int cbits)
 	}
 
 	pr_debug("%s: ctrl_tomodem:%d\n", __func__, cbits);
-	
+	/* Send the control bits to the Modem */
 	msm_smux_tiocm_set(port->ch_id, cbits, ~cbits);
 }
 
@@ -797,7 +799,7 @@ static int ghsuart_data_port_alloc(unsigned port_num, enum gadget_type gtype)
 	}
 	port->port_num = port_num;
 
-	
+	/* port initialization */
 	spin_lock_init(&port->port_lock);
 	spin_lock_init(&port->rx_lock);
 	spin_lock_init(&port->tx_lock);
@@ -857,7 +859,7 @@ void ghsuart_data_disconnect(void *gptr, int port_num)
 
 	ghsuart_data_free_buffers(port);
 
-	
+	/* disable endpoints */
 	if (port->in) {
 		usb_ep_disable(port->in);
 		port->in->driver_data = NULL;
@@ -1117,7 +1119,7 @@ int ghsuart_data_setup(unsigned num_ports, enum gadget_type gtype)
 
 	for (i = first_port_id; i < total_num_ports; i++) {
 
-		
+		/*probe can be called while port_alloc,so update no_data_ports*/
 		num_data_ports++;
 		ret = ghsuart_data_port_alloc(i, gtype);
 		if (ret) {
@@ -1127,7 +1129,7 @@ int ghsuart_data_setup(unsigned num_ports, enum gadget_type gtype)
 		}
 	}
 
-	
+	/*return the starting index*/
 	return first_port_id;
 
 free_ports:

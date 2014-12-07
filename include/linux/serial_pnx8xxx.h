@@ -29,6 +29,7 @@ struct pnx8xxx_port {
 	unsigned int		old_status;
 };
 
+/* register offsets */
 #define PNX8XXX_LCR		0
 #define PNX8XXX_MCR		0x004
 #define PNX8XXX_BAUD		0x008

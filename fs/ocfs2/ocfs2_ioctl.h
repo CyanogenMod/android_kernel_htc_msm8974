@@ -20,19 +20,29 @@
 #ifndef OCFS2_IOCTL_H
 #define OCFS2_IOCTL_H
 
+/*
+ * ioctl commands
+ */
 #define OCFS2_IOC_GETFLAGS	FS_IOC_GETFLAGS
 #define OCFS2_IOC_SETFLAGS	FS_IOC_SETFLAGS
 #define OCFS2_IOC32_GETFLAGS	FS_IOC32_GETFLAGS
 #define OCFS2_IOC32_SETFLAGS	FS_IOC32_SETFLAGS
 
+/*
+ * Space reservation / allocation / free ioctls and argument structure
+ * are designed to be compatible with XFS.
+ *
+ * ALLOCSP* and FREESP* are not and will never be supported, but are
+ * included here for completeness.
+ */
 struct ocfs2_space_resv {
 	__s16		l_type;
 	__s16		l_whence;
 	__s64		l_start;
-	__s64		l_len;		
+	__s64		l_len;		/* len == 0 means until end of file */
 	__s32		l_sysid;
 	__u32		l_pid;
-	__s32		l_pad[4];	
+	__s32		l_pad[4];	/* reserve area			    */
 };
 
 #define OCFS2_IOC_ALLOCSP		_IOW ('X', 10, struct ocfs2_space_resv)
@@ -44,11 +54,12 @@ struct ocfs2_space_resv {
 #define OCFS2_IOC_RESVSP64	_IOW ('X', 42, struct ocfs2_space_resv)
 #define OCFS2_IOC_UNRESVSP64	_IOW ('X', 43, struct ocfs2_space_resv)
 
+/* Used to pass group descriptor data when online resize is done */
 struct ocfs2_new_group_input {
-	__u64 group;		
-	__u32 clusters;		
-	__u32 frees;		
-	__u16 chain;		
+	__u64 group;		/* Group descriptor's blkno. */
+	__u32 clusters;		/* Total number of clusters in this group */
+	__u32 frees;		/* Total free clusters in this group */
+	__u16 chain;		/* Chain for this group */
 	__u16 reserved1;
 	__u32 reserved2;
 };
@@ -57,6 +68,7 @@ struct ocfs2_new_group_input {
 #define OCFS2_IOC_GROUP_ADD	_IOW('o', 2,struct ocfs2_new_group_input)
 #define OCFS2_IOC_GROUP_ADD64	_IOW('o', 3,struct ocfs2_new_group_input)
 
+/* Used to pass 2 file names to reflink. */
 struct reflink_arguments {
 	__u64 old_path;
 	__u64 new_path;
@@ -64,23 +76,29 @@ struct reflink_arguments {
 };
 #define OCFS2_IOC_REFLINK	_IOW('o', 4, struct reflink_arguments)
 
+/* Following definitions dedicated for ocfs2_info_request ioctls. */
 #define OCFS2_INFO_MAX_REQUEST		(50)
 #define OCFS2_TEXT_UUID_LEN		(OCFS2_VOL_UUID_LEN * 2)
 
+/* Magic number of all requests */
 #define OCFS2_INFO_MAGIC		(0x4F32494E)
 
+/*
+ * Always try to separate info request into small pieces to
+ * guarantee the backward&forward compatibility.
+ */
 struct ocfs2_info {
-	__u64 oi_requests;	
-	__u32 oi_count;		
+	__u64 oi_requests;	/* Array of __u64 pointers to requests */
+	__u32 oi_count;		/* Number of requests in info_requests */
 	__u32 oi_pad;
 };
 
 struct ocfs2_info_request {
-	__u32 ir_magic;	
-	__u32 ir_code;	
-	__u32 ir_size;	
-	__u32 ir_flags;	
-			
+/*00*/	__u32 ir_magic;	/* Magic number */
+	__u32 ir_code;	/* Info request code */
+	__u32 ir_size;	/* Size of request */
+	__u32 ir_flags;	/* Request flags */
+/*10*/			/* Request specific fields */
 };
 
 struct ocfs2_info_clustersize {
@@ -130,7 +148,7 @@ struct ocfs2_info_freeinode {
 		__u64 lfi_total;
 		__u64 lfi_free;
 	} ifi_stat[OCFS2_MAX_SLOTS];
-	__u32 ifi_slotnum; 
+	__u32 ifi_slotnum; /* out */
 	__u32 ifi_pad;
 };
 
@@ -138,7 +156,7 @@ struct ocfs2_info_freeinode {
 
 struct ocfs2_info_freefrag {
 	struct ocfs2_info_request iff_req;
-	struct ocfs2_info_freefrag_stats { 
+	struct ocfs2_info_freefrag_stats { /* (out) */
 		struct ocfs2_info_free_chunk_list {
 			__u32 fc_chunks[OCFS2_INFO_MAX_HIST];
 			__u32 fc_clusters[OCFS2_INFO_MAX_HIST];
@@ -147,15 +165,16 @@ struct ocfs2_info_freefrag {
 		__u32 ffs_free_clusters;
 		__u32 ffs_free_chunks;
 		__u32 ffs_free_chunks_real;
-		__u32 ffs_min; 
+		__u32 ffs_min; /* Minimum free chunksize in clusters */
 		__u32 ffs_max;
 		__u32 ffs_avg;
 		__u32 ffs_pad;
 	} iff_ffs;
-	__u32 iff_chunksize; 
+	__u32 iff_chunksize; /* chunksize in clusters(in) */
 	__u32 iff_pad;
 };
 
+/* Codes for ocfs2_info_request */
 enum ocfs2_info_type {
 	OCFS2_INFO_CLUSTERSIZE = 1,
 	OCFS2_INFO_BLOCKSIZE,
@@ -169,30 +188,55 @@ enum ocfs2_info_type {
 	OCFS2_INFO_NUM_TYPES
 };
 
-#define OCFS2_INFO_FL_NON_COHERENT	(0x00000001)	
-#define OCFS2_INFO_FL_FILLED		(0x40000000)	
+/* Flags for struct ocfs2_info_request */
+/* Filled by the caller */
+#define OCFS2_INFO_FL_NON_COHERENT	(0x00000001)	/* Cluster coherency not
+							   required. This is a hint.
+							   It is up to ocfs2 whether
+							   the request can be fulfilled
+							   without locking. */
+/* Filled by ocfs2 */
+#define OCFS2_INFO_FL_FILLED		(0x40000000)	/* Filesystem understood
+							   this request and
+							   filled in the answer */
 
-#define OCFS2_INFO_FL_ERROR		(0x80000000)	
+#define OCFS2_INFO_FL_ERROR		(0x80000000)	/* Error happened during
+							   request handling. */
 
 #define OCFS2_IOC_INFO		_IOR('o', 5, struct ocfs2_info)
 
 struct ocfs2_move_extents {
-	
-	__u64 me_start;		
-	__u64 me_len;		
-	__u64 me_goal;		
-	__u64 me_threshold;	
-	__u64 me_flags;		
-	
-	__u64 me_moved_len;	
-	__u64 me_new_offset;	
-	__u32 me_reserved[2];	
+/* All values are in bytes */
+	/* in */
+	__u64 me_start;		/* Virtual start in the file to move */
+	__u64 me_len;		/* Length of the extents to be moved */
+	__u64 me_goal;		/* Physical offset of the goal,
+				   it's in block unit */
+	__u64 me_threshold;	/* Maximum distance from goal or threshold
+				   for auto defragmentation */
+	__u64 me_flags;		/* Flags for the operation:
+				 * - auto defragmentation.
+				 * - refcount,xattr cases.
+				 */
+	/* out */
+	__u64 me_moved_len;	/* Moved/defraged length */
+	__u64 me_new_offset;	/* Resulting physical location */
+	__u32 me_reserved[2];	/* Reserved for futhure */
 };
 
-#define OCFS2_MOVE_EXT_FL_AUTO_DEFRAG	(0x00000001)	
-#define OCFS2_MOVE_EXT_FL_PART_DEFRAG	(0x00000002)	
-#define OCFS2_MOVE_EXT_FL_COMPLETE	(0x00000004)	
+#define OCFS2_MOVE_EXT_FL_AUTO_DEFRAG	(0x00000001)	/* Kernel manages to
+							   claim new clusters
+							   as the goal place
+							   for extents moving */
+#define OCFS2_MOVE_EXT_FL_PART_DEFRAG	(0x00000002)	/* Allow partial extent
+							   moving, is to make
+							   movement less likely
+							   to fail, may make fs
+							   even more fragmented */
+#define OCFS2_MOVE_EXT_FL_COMPLETE	(0x00000004)	/* Move or defragmenation
+							   completely gets done.
+							 */
 
 #define OCFS2_IOC_MOVE_EXT	_IOW('o', 6, struct ocfs2_move_extents)
 
-#endif 
+#endif /* OCFS2_IOCTL_H */

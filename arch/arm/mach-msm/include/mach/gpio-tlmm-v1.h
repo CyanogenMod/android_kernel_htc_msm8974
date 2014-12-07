@@ -16,13 +16,17 @@
 #ifndef __ASM_ARCH_MSM_GPIO_TLMM_V1_H
 #define __ASM_ARCH_MSM_GPIO_TLMM_V1_H
 
+/* GPIO TLMM (Top Level Multiplexing) Definitions */
 
+/* GPIO TLMM: Function -- GPIO specific */
 
+/* GPIO TLMM: Direction */
 enum {
 	GPIO_CFG_INPUT,
 	GPIO_CFG_OUTPUT,
 };
 
+/* GPIO TLMM: Pullup/Pulldown */
 enum {
 	GPIO_CFG_NO_PULL,
 	GPIO_CFG_PULL_DOWN,
@@ -30,6 +34,7 @@ enum {
 	GPIO_CFG_PULL_UP,
 };
 
+/* GPIO TLMM: Drive Strength */
 enum {
 	GPIO_CFG_2MA,
 	GPIO_CFG_4MA,
@@ -53,6 +58,9 @@ enum {
 	(((pull) & 0x3) << 15)          |	\
 	(((drvstr) & 0xF) << 17))
 
+/**
+ * extract GPIO pin from bit-field used for gpio_tlmm_config
+ */
 #define GPIO_PIN(gpio_cfg)    (((gpio_cfg) >>  4) & 0x3ff)
 #define GPIO_FUNC(gpio_cfg)   (((gpio_cfg) >>  0) & 0xf)
 #define GPIO_DIR(gpio_cfg)    (((gpio_cfg) >> 14) & 0x1)

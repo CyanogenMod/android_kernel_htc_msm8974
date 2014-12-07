@@ -22,7 +22,7 @@ static void shmobile_enter_wfi(void)
 }
 
 void (*shmobile_cpuidle_modes[CPUIDLE_STATE_MAX])(void) = {
-	shmobile_enter_wfi, 
+	shmobile_enter_wfi, /* regular sleep mode */
 };
 
 static int shmobile_cpuidle_enter(struct cpuidle_device *dev,
@@ -40,7 +40,7 @@ static struct cpuidle_driver shmobile_cpuidle_driver = {
 	.owner			= THIS_MODULE,
 	.en_core_tk_irqen	= 1,
 	.states[0]		= ARM_CPUIDLE_WFI_STATE,
-	.safe_state_index	= 0, 
+	.safe_state_index	= 0, /* C1 */
 	.state_count		= 1,
 };
 

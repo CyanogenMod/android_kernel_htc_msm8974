@@ -39,7 +39,7 @@ static void t3e3_remove_channel(struct channel *channel)
 	struct pci_dev *pdev = channel->pdev;
 	struct net_device *dev = channel->dev;
 
-	
+	/* system hangs if board asserts irq while module is unloaded */
 	cpld_stop_intr(channel);
 	free_irq(dev->irq, dev);
 	dc_drop_descriptor_list(channel);
@@ -85,7 +85,7 @@ static int __devinit t3e3_init_channel(struct channel *channel, struct pci_dev *
 	if (setup_device(dev, channel))
 		goto free_regions;
 
-	pci_read_config_dword(channel->pdev, 0x40, &val); 
+	pci_read_config_dword(channel->pdev, 0x40, &val); /* mask sleep mode */
 	pci_write_config_dword(channel->pdev, 0x40, val & 0x3FFFFFFF);
 
 	pci_read_config_byte(channel->pdev, PCI_CACHE_LINE_SIZE, &channel->h.cache_size);
@@ -123,7 +123,7 @@ static void __devexit t3e3_remove_card(struct pci_dev *pdev)
 
 static int __devinit t3e3_init_card(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
-	
+	/* pdev points to channel #0 */
 	struct pci_dev *pdev1 = NULL;
 	struct card *card;
 	int channels = 1, err;
@@ -133,15 +133,15 @@ static int __devinit t3e3_init_card(struct pci_dev *pdev, const struct pci_devic
 					       PCI_VENDOR_ID_SBE, PCI_SUBDEVICE_ID_SBE_2T3E3_P1,
 					       pdev1)))
 			if (pdev1->bus == pdev->bus &&
-			    pdev1->devfn == pdev->devfn + 8 )
-				break; 
+			    pdev1->devfn == pdev->devfn + 8 /* next device on the same bus */)
+				break; /* found the second channel */
 
 		if (!pdev1) {
 			printk(KERN_ERR "SBE 2T3E3" ": Can't find the second channel\n");
 			return -EFAULT;
 		}
 		channels = 2;
-		
+		/* holds the reference for pdev1 */
 	}
 
 	card = kzalloc(sizeof(struct card) + channels * sizeof(struct channel), GFP_KERNEL);
@@ -165,7 +165,7 @@ static int __devinit t3e3_init_card(struct pci_dev *pdev, const struct pci_devic
 		}
 	}
 
-	
+	/* start LED timer */
 	init_timer(&card->timer);
 	card->timer.function = check_leds;
 	card->timer.expires = jiffies + HZ / 10;
@@ -183,7 +183,7 @@ static struct pci_device_id t3e3_pci_tbl[] __devinitdata = {
 	  PCI_VENDOR_ID_SBE, PCI_SUBDEVICE_ID_SBE_T3E3, 0, 0, 0 },
 	{ PCI_VENDOR_ID_DEC, PCI_DEVICE_ID_DEC_21142,
 	  PCI_VENDOR_ID_SBE, PCI_SUBDEVICE_ID_SBE_2T3E3_P0, 0, 0, 0 },
-	
+	/* channel 1 will be initialized after channel 0 */
 	{ 0, }
 };
 

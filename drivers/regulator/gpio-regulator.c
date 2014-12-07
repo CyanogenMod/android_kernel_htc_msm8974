@@ -209,7 +209,7 @@ static int __devinit gpio_regulator_probe(struct platform_device *pdev)
 
 	drvdata->desc.owner = THIS_MODULE;
 
-	
+	/* handle regulator type*/
 	switch (config->type) {
 	case REGULATOR_VOLTAGE:
 		drvdata->desc.type = REGULATOR_VOLTAGE;
@@ -241,6 +241,9 @@ static int __devinit gpio_regulator_probe(struct platform_device *pdev)
 			goto err_memstate;
 		}
 
+		/* set output direction without changing state
+		 * to prevent glitch
+		 */
 		if (config->enabled_at_boot) {
 			drvdata->is_enabled = true;
 			ret = gpio_direction_output(config->enable_gpio,
@@ -258,6 +261,9 @@ static int __devinit gpio_regulator_probe(struct platform_device *pdev)
 			goto err_enablegpio;
 		}
 	} else {
+		/* Regulator without GPIO control is considered
+		 * always enabled
+		 */
 		drvdata->is_enabled = true;
 	}
 
@@ -269,7 +275,7 @@ static int __devinit gpio_regulator_probe(struct platform_device *pdev)
 		goto err_enablegpio;
 	}
 
-	
+	/* build initial state from gpio init data. */
 	state = 0;
 	for (ptr = 0; ptr < drvdata->nr_gpios; ptr++) {
 		if (config->gpios[ptr].flags & GPIOF_OUT_INIT_HIGH)

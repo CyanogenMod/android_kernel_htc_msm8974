@@ -28,6 +28,7 @@
 
 #define profile_pc(regs) instruction_pointer(regs)
 
+/* kprobe-based event tracer support */
 extern int regs_query_register_offset(const char *name);
 extern const char *regs_query_register_name(unsigned int offset);
 

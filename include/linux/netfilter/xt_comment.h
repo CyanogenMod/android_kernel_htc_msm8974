@@ -7,4 +7,4 @@ struct xt_comment_info {
 	char comment[XT_MAX_COMMENT_LEN];
 };
 
-#endif 
+#endif /* XT_COMMENT_H */

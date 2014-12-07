@@ -12,15 +12,20 @@
 
 #include <linux/watchdog.h>
 
-#define WIOCSTART _IO (WATCHDOG_IOCTL_BASE, 10)		
-#define WIOCSTOP  _IO (WATCHDOG_IOCTL_BASE, 11)		
-#define WIOCGSTAT _IOR(WATCHDOG_IOCTL_BASE, 12, int)
+/* Solaris compatibility ioctls--
+ * Ref. <linux/watchdog.h> for standard linux watchdog ioctls
+ */
+#define WIOCSTART _IO (WATCHDOG_IOCTL_BASE, 10)		/* Start Timer		*/
+#define WIOCSTOP  _IO (WATCHDOG_IOCTL_BASE, 11)		/* Stop Timer		*/
+#define WIOCGSTAT _IOR(WATCHDOG_IOCTL_BASE, 12, int)/* Get Timer Status	*/
 
-#define WD_FREERUN	0x01	
-#define WD_EXPIRED	0x02	
-#define WD_RUNNING	0x04	
-#define WD_STOPPED	0x08	
-#define WD_SERVICED 0x10	
+/* Status flags from WIOCGSTAT ioctl
+ */
+#define WD_FREERUN	0x01	/* timer is running, interrupts disabled	*/
+#define WD_EXPIRED	0x02	/* timer has expired						*/
+#define WD_RUNNING	0x04	/* timer is running, interrupts enabled		*/
+#define WD_STOPPED	0x08	/* timer has not been started				*/
+#define WD_SERVICED 0x10	/* timer interrupt was serviced				*/
 
-#endif 
+#endif /* ifndef _SPARC64_WATCHDOG_H */
 

@@ -62,7 +62,7 @@ void pci_ohci_write_reg(int reg, u32 value)
 	case PCI_OHCI_INT_REG:
 		_rdmsr(DIVIL_MSR_REG(PIC_YSEL_LOW), &hi, &lo);
 		lo &= ~(0xf << PIC_YSEL_LOW_USB_SHIFT);
-		if (value)	
+		if (value)	/* enable all the usb interrupt in PIC */
 			lo |= (CS5536_USB_INTR << PIC_YSEL_LOW_USB_SHIFT);
 		_wrmsr(DIVIL_MSR_REG(PIC_YSEL_LOW), hi, lo);
 		break;
@@ -116,7 +116,7 @@ u32 pci_ohci_read_reg(int reg)
 		} else {
 			_rdmsr(USB_MSR_REG(USB_OHCI), &hi, &lo);
 			conf_data = lo & 0xffffff00;
-			conf_data &= ~0x0000000f;	
+			conf_data &= ~0x0000000f;	/* 32bit mem */
 		}
 		break;
 	case PCI_CARDBUS_CIS:

@@ -13,6 +13,9 @@
 #include <linux/export.h>
 #include <linux/bcma/bcma.h>
 
+/**************************************************
+ * R/W ops.
+ **************************************************/
 
 u32 bcma_pcie_read(struct bcma_drv_pci *pc, u32 address)
 {
@@ -61,7 +64,7 @@ static u16 bcma_pcie_mdio_read(struct bcma_drv_pci *pc, u8 device, u8 address)
 	u32 v;
 	int i;
 
-	
+	/* enable mdio access to SERDES */
 	v = BCMA_CORE_PCI_MDIOCTL_PREAM_EN;
 	v |= BCMA_CORE_PCI_MDIOCTL_DIVISOR_VAL;
 	pcicore_write32(pc, BCMA_CORE_PCI_MDIO_CONTROL, v);
@@ -82,7 +85,7 @@ static u16 bcma_pcie_mdio_read(struct bcma_drv_pci *pc, u8 device, u8 address)
 	v |= BCMA_CORE_PCI_MDIODATA_TA;
 
 	pcicore_write32(pc, BCMA_CORE_PCI_MDIO_DATA, v);
-	
+	/* Wait for the device to complete the transaction */
 	udelay(10);
 	for (i = 0; i < max_retries; i++) {
 		v = pcicore_read32(pc, BCMA_CORE_PCI_MDIO_CONTROL);
@@ -104,7 +107,7 @@ static void bcma_pcie_mdio_write(struct bcma_drv_pci *pc, u8 device,
 	u32 v;
 	int i;
 
-	
+	/* enable mdio access to SERDES */
 	v = BCMA_CORE_PCI_MDIOCTL_PREAM_EN;
 	v |= BCMA_CORE_PCI_MDIOCTL_DIVISOR_VAL;
 	pcicore_write32(pc, BCMA_CORE_PCI_MDIO_CONTROL, v);
@@ -125,7 +128,7 @@ static void bcma_pcie_mdio_write(struct bcma_drv_pci *pc, u8 device,
 	v |= BCMA_CORE_PCI_MDIODATA_TA;
 	v |= data;
 	pcicore_write32(pc, BCMA_CORE_PCI_MDIO_DATA, v);
-	
+	/* Wait for the device to complete the transaction */
 	udelay(10);
 	for (i = 0; i < max_retries; i++) {
 		v = pcicore_read32(pc, BCMA_CORE_PCI_MDIO_CONTROL);
@@ -136,6 +139,9 @@ static void bcma_pcie_mdio_write(struct bcma_drv_pci *pc, u8 device,
 	pcicore_write32(pc, BCMA_CORE_PCI_MDIO_CONTROL, 0);
 }
 
+/**************************************************
+ * Workarounds.
+ **************************************************/
 
 static u8 bcma_pcicore_polarity_workaround(struct bcma_drv_pci *pc)
 {
@@ -164,6 +170,9 @@ static void bcma_pcicore_serdes_workaround(struct bcma_drv_pci *pc)
 		                     tmp & ~BCMA_CORE_PCI_PLL_CTRL_FREQDET_EN);
 }
 
+/**************************************************
+ * Init.
+ **************************************************/
 
 static void __devinit bcma_core_pci_clientmode_init(struct bcma_drv_pci *pc)
 {
@@ -179,7 +188,7 @@ void __devinit bcma_core_pci_init(struct bcma_drv_pci *pc)
 	pc->hostmode = bcma_core_pci_is_in_hostmode(pc);
 	if (pc->hostmode)
 		bcma_core_pci_hostmode_init(pc);
-#endif 
+#endif /* CONFIG_BCMA_DRIVER_PCI_HOSTMODE */
 
 	if (!pc->hostmode)
 		bcma_core_pci_clientmode_init(pc);
@@ -193,6 +202,9 @@ int bcma_core_pci_irq_ctl(struct bcma_drv_pci *pc, struct bcma_device *core,
 	int err = 0;
 
 	if (core->bus->hosttype != BCMA_HOSTTYPE_PCI) {
+		/* This bcma device is not on a PCI host-bus. So the IRQs are
+		 * not routed through the PCI core.
+		 * So we must not enable routing through the PCI core. */
 		goto out;
 	}
 

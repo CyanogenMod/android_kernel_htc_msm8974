@@ -132,16 +132,16 @@ int mxc_gpio_mode(int gpio_mode)
 	if (port >= imx_iomuxv1_numports)
 		return -EINVAL;
 
-	
+	/* Pullup enable */
 	imx_iomuxv1_set_puen(port, pin, gpio_mode & GPIO_PUEN);
 
-	
+	/* Data direction */
 	imx_iomuxv1_set_ddir(port, pin, gpio_mode & GPIO_OUT);
 
-	
+	/* Primary / alternate function */
 	imx_iomuxv1_set_gpr(port, pin, gpio_mode & GPIO_AF);
 
-	
+	/* use as gpio? */
 	imx_iomuxv1_set_gius(port, pin, !(gpio_mode & (GPIO_PF | GPIO_AF)));
 
 	imx_iomuxv1_set_ocr(port, pin, ocr);

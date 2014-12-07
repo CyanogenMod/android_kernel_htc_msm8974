@@ -103,6 +103,7 @@ struct ibmveth_stat ibmveth_stats[] = {
 	{ "fw_enabled_ipv6_csum", IBMVETH_STAT_OFF(fw_ipv6_csum_support) },
 };
 
+/* simple methods of getting data from the current rxq entry */
 static inline u32 ibmveth_rxq_flags(struct ibmveth_adapter *adapter)
 {
 	return adapter->rx_queue.queue_addr[adapter->rx_queue.index].flags_off;
@@ -139,6 +140,7 @@ static inline int ibmveth_rxq_csum_good(struct ibmveth_adapter *adapter)
 	return ibmveth_rxq_flags(adapter) & IBMVETH_RXQ_CSUM_GOOD;
 }
 
+/* setup the initial settings for a buffer pool */
 static void ibmveth_init_buffer_pool(struct ibmveth_buff_pool *pool,
 				     u32 pool_index, u32 pool_size,
 				     u32 buff_size, u32 pool_active)
@@ -150,6 +152,7 @@ static void ibmveth_init_buffer_pool(struct ibmveth_buff_pool *pool,
 	pool->active = pool_active;
 }
 
+/* allocate and setup an buffer pool - called during open */
 static int ibmveth_alloc_buffer_pool(struct ibmveth_buff_pool *pool)
 {
 	int i;
@@ -197,6 +200,9 @@ static inline void ibmveth_flush_buffer(void *addr, unsigned long length)
 		asm("dcbfl %0,%1" :: "b" (addr), "r" (offset));
 }
 
+/* replenish the buffers for a pool.  note that we don't need to
+ * skb_reserve these since they are used for incoming...
+ */
 static void ibmveth_replenish_buffer_pool(struct ibmveth_adapter *adapter,
 					  struct ibmveth_buff_pool *pool)
 {
@@ -287,6 +293,7 @@ failure:
 	atomic_add(buffers_added, &(pool->available));
 }
 
+/* replenish routine */
 static void ibmveth_replenish_task(struct ibmveth_adapter *adapter)
 {
 	int i;
@@ -305,6 +312,7 @@ static void ibmveth_replenish_task(struct ibmveth_adapter *adapter)
 						4096 - 8);
 }
 
+/* empty and free ana buffer pool - also used to do cleanup in error paths */
 static void ibmveth_free_buffer_pool(struct ibmveth_adapter *adapter,
 				     struct ibmveth_buff_pool *pool)
 {
@@ -338,6 +346,7 @@ static void ibmveth_free_buffer_pool(struct ibmveth_adapter *adapter,
 	}
 }
 
+/* remove a buffer from a pool */
 static void ibmveth_remove_buffer_from_pool(struct ibmveth_adapter *adapter,
 					    u64 correlator)
 {
@@ -372,6 +381,7 @@ static void ibmveth_remove_buffer_from_pool(struct ibmveth_adapter *adapter,
 	atomic_dec(&(adapter->rx_buff_pool[pool].available));
 }
 
+/* get the current buffer on the rx queue */
 static inline struct sk_buff *ibmveth_rxq_get_buffer(struct ibmveth_adapter *adapter)
 {
 	u64 correlator = adapter->rx_queue.queue_addr[adapter->rx_queue.index].correlator;
@@ -384,6 +394,7 @@ static inline struct sk_buff *ibmveth_rxq_get_buffer(struct ibmveth_adapter *ada
 	return adapter->rx_buff_pool[pool].skbuff[index];
 }
 
+/* recycle the current buffer on the rx queue */
 static int ibmveth_rxq_recycle_buffer(struct ibmveth_adapter *adapter)
 {
 	u32 q_index = adapter->rx_queue.index;
@@ -495,6 +506,11 @@ static int ibmveth_register_logical_lan(struct ibmveth_adapter *adapter,
 {
 	int rc, try_again = 1;
 
+	/*
+	 * After a kexec the adapter will still be open, so our attempt to
+	 * open it will fail. So if we get a failure we free the adapter and
+	 * try again, but only once.
+	 */
 retry:
 	rc = h_register_logical_lan(adapter->vdev->unit_address,
 				    adapter->buffer_list_dma, rxq_desc.desc,
@@ -722,6 +738,14 @@ static void netdev_get_drvinfo(struct net_device *dev,
 static netdev_features_t ibmveth_fix_features(struct net_device *dev,
 	netdev_features_t features)
 {
+	/*
+	 * Since the ibmveth firmware interface does not have the
+	 * concept of separate tx/rx checksum offload enable, if rx
+	 * checksum is disabled we also have to disable tx checksum
+	 * offload. Once we disable rx checksum offload, we are no
+	 * longer allowed to send tx buffers that are not properly
+	 * checksummed.
+	 */
 
 	if (!(features & NETIF_F_RXCSUM))
 		features &= ~NETIF_F_ALL_CSUM;
@@ -886,6 +910,10 @@ static int ibmveth_send(struct ibmveth_adapter *adapter,
 	unsigned int retry_count;
 	unsigned long ret;
 
+	/*
+	 * The retry count sets a maximum for the number of broadcast and
+	 * multicast destinations within the system.
+	 */
 	retry_count = 1024;
 	correlator = 0;
 	do {
@@ -915,12 +943,16 @@ static netdev_tx_t ibmveth_start_xmit(struct sk_buff *skb,
 	int force_bounce = 0;
 	dma_addr_t dma_addr;
 
+	/*
+	 * veth handles a maximum of 6 segments including the header, so
+	 * we have to linearize the skb if there are more than this.
+	 */
 	if (skb_shinfo(skb)->nr_frags > 5 && __skb_linearize(skb)) {
 		netdev->stats.tx_dropped++;
 		goto out;
 	}
 
-	
+	/* veth can't checksum offload UDP */
 	if (skb->ip_summed == CHECKSUM_PARTIAL &&
 	    ((skb->protocol == htons(ETH_P_IP) &&
 	      ip_hdr(skb)->protocol != IPPROTO_TCP) ||
@@ -941,7 +973,7 @@ static netdev_tx_t ibmveth_start_xmit(struct sk_buff *skb,
 
 		desc_flags |= (IBMVETH_BUF_NO_CSUM | IBMVETH_BUF_CSUM_GOOD);
 
-		
+		/* Need to zero out the checksum */
 		buf[0] = 0;
 		buf[1] = 0;
 	}
@@ -949,6 +981,11 @@ static netdev_tx_t ibmveth_start_xmit(struct sk_buff *skb,
 retry_bounce:
 	memset(descs, 0, sizeof(descs));
 
+	/*
+	 * If a linear packet is below the rx threshold then
+	 * copy it into the static bounce buffer. This avoids the
+	 * cost of a TCE insert and remove.
+	 */
 	if (force_bounce || (!skb_is_nonlinear(skb) &&
 				(skb->len < tx_copybreak))) {
 		skb_copy_from_linear_data(skb, adapter->bounce_buffer,
@@ -968,7 +1005,7 @@ retry_bounce:
 		goto out;
 	}
 
-	
+	/* Map the header */
 	dma_addr = dma_map_single(&adapter->vdev->dev, skb->data,
 				  skb_headlen(skb), DMA_TO_DEVICE);
 	if (dma_mapping_error(&adapter->vdev->dev, dma_addr))
@@ -977,7 +1014,7 @@ retry_bounce:
 	descs[0].fields.flags_len = desc_flags | skb_headlen(skb);
 	descs[0].fields.address = dma_addr;
 
-	
+	/* Map the frags */
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
 		const skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
 
@@ -1044,7 +1081,7 @@ restart_poll:
 
 		smp_rmb();
 		if (!ibmveth_rxq_buffer_valid(adapter)) {
-			wmb(); 
+			wmb(); /* suggested by larson1 */
 			adapter->rx_invalid_buffer++;
 			netdev_dbg(netdev, "recycling invalid buffer\n");
 			ibmveth_rxq_recycle_buffer(adapter);
@@ -1081,7 +1118,7 @@ restart_poll:
 			if (csum_good)
 				skb->ip_summed = CHECKSUM_UNNECESSARY;
 
-			netif_receive_skb(skb);	
+			netif_receive_skb(skb);	/* send it up */
 
 			netdev->stats.rx_packets++;
 			netdev->stats.rx_bytes += length;
@@ -1092,6 +1129,9 @@ restart_poll:
 	ibmveth_replenish_task(adapter);
 
 	if (frames_processed < budget) {
+		/* We think we are done - reenable interrupts,
+		 * then check once more to make sure we are done.
+		 */
 		lpar_rc = h_vio_signal(adapter->vdev->unit_address,
 				       VIO_IRQ_ENABLE);
 
@@ -1142,7 +1182,7 @@ static void ibmveth_set_multicast_list(struct net_device *netdev)
 		}
 	} else {
 		struct netdev_hw_addr *ha;
-		
+		/* clear the filter table & disable filtering */
 		lpar_rc = h_multicast_ctrl(adapter->vdev->unit_address,
 					   IbmVethMcastEnableRecv |
 					   IbmVethMcastDisableFiltering |
@@ -1153,9 +1193,9 @@ static void ibmveth_set_multicast_list(struct net_device *netdev)
 				   "attempting to clear filter table\n",
 				   lpar_rc);
 		}
-		
+		/* add the addresses to the filter table */
 		netdev_for_each_mc_addr(ha, netdev) {
-			
+			/* add the multicast address to the filter table */
 			unsigned long mcast_addr = 0;
 			memcpy(((char *)&mcast_addr)+2, ha->addr, 6);
 			lpar_rc = h_multicast_ctrl(adapter->vdev->unit_address,
@@ -1168,7 +1208,7 @@ static void ibmveth_set_multicast_list(struct net_device *netdev)
 			}
 		}
 
-		
+		/* re-enable filtering */
 		lpar_rc = h_multicast_ctrl(adapter->vdev->unit_address,
 					   IbmVethMcastEnableFiltering,
 					   0);
@@ -1197,6 +1237,8 @@ static int ibmveth_change_mtu(struct net_device *dev, int new_mtu)
 	if (i == IBMVETH_NUM_BUFF_POOLS)
 		return -EINVAL;
 
+	/* Deactivate all the buffer pools so that the next loop can activate
+	   only the buffer pools necessary to hold the new MTU */
 	if (netif_running(adapter->netdev)) {
 		need_restart = 1;
 		adapter->pool_config = 1;
@@ -1204,7 +1246,7 @@ static int ibmveth_change_mtu(struct net_device *dev, int new_mtu)
 		adapter->pool_config = 0;
 	}
 
-	
+	/* Look for an active buffer pool that can hold the new MTU */
 	for (i = 0; i < IBMVETH_NUM_BUFF_POOLS; i++) {
 		adapter->rx_buff_pool[i].active = 1;
 
@@ -1234,6 +1276,14 @@ static void ibmveth_poll_controller(struct net_device *dev)
 }
 #endif
 
+/**
+ * ibmveth_get_desired_dma - Calculate IO memory desired by the driver
+ *
+ * @vdev: struct vio_dev for the device whose desired IO mem is to be returned
+ *
+ * Return value:
+ *	Number of bytes of IO data the driver will need to perform well.
+ */
 static unsigned long ibmveth_get_desired_dma(struct vio_dev *vdev)
 {
 	struct net_device *netdev = dev_get_drvdata(&vdev->dev);
@@ -1242,7 +1292,7 @@ static unsigned long ibmveth_get_desired_dma(struct vio_dev *vdev)
 	int i;
 	int rxqentries = 1;
 
-	
+	/* netdev inits at probe time along with the structures we need below*/
 	if (netdev == NULL)
 		return IOMMU_PAGE_ALIGN(IBMVETH_IO_ENTITLEMENT_DEFAULT);
 
@@ -1252,7 +1302,7 @@ static unsigned long ibmveth_get_desired_dma(struct vio_dev *vdev)
 	ret += IOMMU_PAGE_ALIGN(netdev->mtu);
 
 	for (i = 0; i < IBMVETH_NUM_BUFF_POOLS; i++) {
-		
+		/* add the size of the active receive buffers */
 		if (adapter->rx_buff_pool[i].active)
 			ret +=
 			    adapter->rx_buff_pool[i].size *
@@ -1260,7 +1310,7 @@ static unsigned long ibmveth_get_desired_dma(struct vio_dev *vdev)
 			            buff_size);
 		rxqentries += adapter->rx_buff_pool[i].size;
 	}
-	
+	/* add the size of the receive queue entries */
 	ret += IOMMU_PAGE_ALIGN(rxqentries * sizeof(struct ibmveth_rx_q_entry));
 
 	return ret;
@@ -1324,6 +1374,14 @@ static int __devinit ibmveth_probe(struct vio_dev *dev,
 
 	netif_napi_add(netdev, &adapter->napi, ibmveth_poll, 16);
 
+	/*
+	 * Some older boxes running PHYP non-natively have an OF that returns
+	 * a 8-byte local-mac-address field (and the first 2 bytes have to be
+	 * ignored) while newer boxes' OF return a 6-byte field. Note that
+	 * IEEE 1275 specifies that local-mac-address must be a 6-byte field.
+	 * The RPA doc specifies that the first byte must be 10b, so we'll
+	 * just look for it to solve this 8 vs. 6 byte field issue
+	 */
 	if ((*mac_addr_p & 0x3) != 0x02)
 		mac_addr_p += 2;
 
@@ -1445,6 +1503,8 @@ static ssize_t veth_pool_store(struct kobject *kobj, struct attribute *attr,
 		} else if (!value && pool->active) {
 			int mtu = netdev->mtu + IBMVETH_BUFF_OH;
 			int i;
+			/* Make sure there is a buffer pool with buffers that
+			   can hold a packet of the size of the MTU */
 			for (i = 0; i < IBMVETH_NUM_BUFF_POOLS; i++) {
 				if (pool == &adapter->rx_buff_pool[i])
 					continue;
@@ -1501,7 +1561,7 @@ static ssize_t veth_pool_store(struct kobject *kobj, struct attribute *attr,
 		}
 	}
 
-	
+	/* kick the interrupt handler to allocate/deallocate pools */
 	ibmveth_interrupt(netdev->irq, netdev);
 	return count;
 }

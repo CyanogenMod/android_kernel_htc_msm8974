@@ -31,11 +31,11 @@ static int diag8_noresponse(int cmdlen)
 	asm volatile(
 #ifndef CONFIG_64BIT
 		"	diag	%1,%0,0x8\n"
-#else 
+#else /* CONFIG_64BIT */
 		"	sam31\n"
 		"	diag	%1,%0,0x8\n"
 		"	sam64\n"
-#endif 
+#endif /* CONFIG_64BIT */
 		: "+d" (reg3) : "d" (reg2) : "cc");
 	return reg3;
 }
@@ -52,13 +52,13 @@ static int diag8_response(int cmdlen, char *response, int *rlen)
 		"	diag	%2,%0,0x8\n"
 		"	brc	8,1f\n"
 		"	ar	%1,%4\n"
-#else 
+#else /* CONFIG_64BIT */
 		"	sam31\n"
 		"	diag	%2,%0,0x8\n"
 		"	sam64\n"
 		"	brc	8,1f\n"
 		"	agr	%1,%4\n"
-#endif 
+#endif /* CONFIG_64BIT */
 		"1:\n"
 		: "+d" (reg4), "+d" (reg5)
 		: "d" (reg2), "d" (reg3), "d" (*rlen) : "cc");
@@ -66,6 +66,11 @@ static int diag8_response(int cmdlen, char *response, int *rlen)
 	return reg4;
 }
 
+/*
+ * __cpcmd has some restrictions over cpcmd
+ *  - the response buffer must reside below 2GB (if any)
+ *  - __cpcmd is unlocked and therefore not SMP-safe
+ */
 int  __cpcmd(const char *cmd, char *response, int rlen, int *response_code)
 {
 	int cmdlen;

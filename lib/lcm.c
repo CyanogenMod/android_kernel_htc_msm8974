@@ -3,6 +3,7 @@
 #include <linux/export.h>
 #include <linux/lcm.h>
 
+/* Lowest common multiple */
 unsigned long lcm(unsigned long a, unsigned long b)
 {
 	if (a && b)

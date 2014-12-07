@@ -184,6 +184,9 @@ static void mxs_auart_rx_char(struct mxs_auart_port *s)
 		s->port.icount.frame++;
 	}
 
+	/*
+	 * Mask off conditions which should be ingored.
+	 */
 	stat &= s->port.read_status_mask;
 
 	if (stat & AUART_STAT_BERR) {
@@ -290,7 +293,7 @@ static void mxs_auart_settermios(struct uart_port *u,
 	ctrl = AUART_LINECTRL_FEN;
 	ctrl2 = readl(u->membase + AUART_CTRL2);
 
-	
+	/* byte size */
 	switch (cflag & CSIZE) {
 	case CS5:
 		bm = 0;
@@ -310,7 +313,7 @@ static void mxs_auart_settermios(struct uart_port *u,
 
 	ctrl |= AUART_LINECTRL_WLEN(bm);
 
-	
+	/* parity */
 	if (cflag & PARENB) {
 		ctrl |= AUART_LINECTRL_PEN;
 		if ((cflag & PARODD) == 0)
@@ -324,31 +327,41 @@ static void mxs_auart_settermios(struct uart_port *u,
 	if (termios->c_iflag & (BRKINT | PARMRK))
 		u->read_status_mask |= AUART_STAT_BERR;
 
+	/*
+	 * Characters to ignore
+	 */
 	u->ignore_status_mask = 0;
 	if (termios->c_iflag & IGNPAR)
 		u->ignore_status_mask |= AUART_STAT_PERR;
 	if (termios->c_iflag & IGNBRK) {
 		u->ignore_status_mask |= AUART_STAT_BERR;
+		/*
+		 * If we're ignoring parity and break indicators,
+		 * ignore overruns too (for real raw support).
+		 */
 		if (termios->c_iflag & IGNPAR)
 			u->ignore_status_mask |= AUART_STAT_OERR;
 	}
 
+	/*
+	 * ignore all characters if CREAD is not set
+	 */
 	if (cflag & CREAD)
 		ctrl2 |= AUART_CTRL2_RXE;
 	else
 		ctrl2 &= ~AUART_CTRL2_RXE;
 
-	
+	/* figure out the stop bits requested */
 	if (cflag & CSTOPB)
 		ctrl |= AUART_LINECTRL_STP2;
 
-	
+	/* figure out the hardware flow control settings */
 	if (cflag & CRTSCTS)
 		ctrl2 |= AUART_CTRL2_CTSEN;
 	else
 		ctrl2 &= ~AUART_CTRL2_CTSEN;
 
-	
+	/* set baud rate */
 	baud = uart_get_baud_rate(u, termios, old, 0, u->uartclk);
 	div = u->uartclk * 32 / baud;
 	ctrl |= AUART_LINECTRL_BAUD_DIVFRAC(div & 0x3F);
@@ -456,7 +469,7 @@ static void mxs_auart_start_tx(struct uart_port *u)
 {
 	struct mxs_auart_port *s = to_auart_port(u);
 
-	
+	/* enable transmitter */
 	writel(AUART_CTRL2_TXE, u->membase + AUART_CTRL2_SET);
 
 	mxs_auart_tx_chars(s);
@@ -484,7 +497,7 @@ static void mxs_auart_break_ctl(struct uart_port *u, int ctl)
 
 static void mxs_auart_enable_ms(struct uart_port *port)
 {
-	
+	/* just empty */
 }
 
 static struct uart_ops mxs_auart_ops = {
@@ -538,7 +551,7 @@ auart_console_write(struct console *co, const char *str, unsigned int count)
 
 	clk_enable(s->clk);
 
-	
+	/* First save the CR then disable the interrupts */
 	old_ctrl2 = readl(port->membase + AUART_CTRL2);
 	old_ctrl0 = readl(port->membase + AUART_CTRL0);
 
@@ -549,6 +562,10 @@ auart_console_write(struct console *co, const char *str, unsigned int count)
 
 	uart_console_write(port, str, count, mxs_auart_console_putchar);
 
+	/*
+	 * Finally, wait for transmitter to become empty
+	 * and restore the TCR
+	 */
 	while (readl(port->membase + AUART_STAT) & AUART_STAT_BUSY) {
 		if (!to--)
 			break;
@@ -607,6 +624,11 @@ auart_console_setup(struct console *co, char *options)
 	int flow = 'n';
 	int ret;
 
+	/*
+	 * Check whether an invalid uart number has been specified, and
+	 * if so, search for the first available port that does have
+	 * console support.
+	 */
 	if (co->index == -1 || co->index >= ARRAY_SIZE(auart_port))
 		co->index = 0;
 	s = auart_port[co->index];

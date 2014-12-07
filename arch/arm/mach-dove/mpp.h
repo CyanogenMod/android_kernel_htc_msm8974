@@ -2,10 +2,10 @@
 #define __ARCH_DOVE_MPP_CODED_H
 
 #define MPP(_num, _sel, _in, _out) ( \
-			((_num) & 0xff) | \
-			(((_sel) & 0xf) << 8) | \
-		((!!(_in)) << 12) | \
-		((!!(_out)) << 13))
+	/* MPP number */		((_num) & 0xff) | \
+	/* MPP select value */		(((_sel) & 0xf) << 8) | \
+	/* may be input signal */	((!!(_in)) << 12) | \
+	/* may be output signal */	((!!(_out)) << 13))
 
 #define MPP0_GPIO0		MPP(0, 0x0, 1, 1)
 #define MPP0_UA2_RTSn		MPP(0, 0x2, 0, 0)
@@ -146,6 +146,7 @@
 
 #define MPP_GRP(_grp, _mode)	MPP((_grp), (_mode), 0, 0)
 
+/* for MPP groups _num is a group index */
 enum dove_mpp_grp_idx {
 	MPP_24_39 = 2,
 	MPP_40_45 = 0,
@@ -170,9 +171,15 @@ enum dove_mpp_grp_idx {
 #define MPP_GRP_62_63_GPIO		MPP_GRP(MPP_62_63, 0x1)
 #define MPP_GRP_62_63_UA1		MPP_GRP(MPP_62_63, 0x0)
 
+/* The MPP[64:71] control differs from other groups */
 #define MPP_GRP_NFC_64_71_GPO		0x1
 #define MPP_GRP_NFC_64_71_NFC		0x0
 
+/*
+ * The MPP[52:57] functionality is encoded by 4 bits in different
+ * registers. The _num field in this case encodes those bits in
+ * correspodence with Table 135 of 88AP510 Functional specification
+ */
 #define MPP_GRP_AU1_52_57_AU1		0x0
 #define MPP_GRP_AU1_52_57_AU1_GPIO57	0x2
 #define MPP_GRP_AU1_52_57_GPIO		0xa
@@ -186,4 +193,4 @@ void dove_mpp_conf(unsigned int *mpp_list,
 		   unsigned int grp_au1_52_57,
 		   unsigned int grp_nfc_64_71);
 
-#endif	
+#endif	/* __ARCH_DOVE_MPP_CODED_H */

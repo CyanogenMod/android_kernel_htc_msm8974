@@ -7,10 +7,12 @@
 #include "flexcop-usb.h"
 #include "flexcop-common.h"
 
+/* Version information */
 #define DRIVER_VERSION "0.1"
 #define DRIVER_NAME "Technisat/B2C2 FlexCop II/IIb/III Digital TV USB Driver"
 #define DRIVER_AUTHOR "Patrick Boettcher <patrick.boettcher@desy.de>"
 
+/* debug */
 #ifdef CONFIG_DVB_B2C2_FLEXCOP_DEBUG
 #define dprintk(level,args...) \
 	do { if ((debug & level)) printk(args); } while (0)
@@ -41,11 +43,29 @@ MODULE_PARM_DESC(debug, "set debugging level (1=info,ts=2,"
 #define deb_i2c(args...) dprintk(0x08, args)
 #define deb_v8(args...) dprintk(0x10, args)
 
+/* JLP 111700: we will include the 1 bit gap between the upper and lower 3 bits
+ * in the IBI address, to make the V8 code simpler.
+ * PCI ADDRESS FORMAT: 0x71C -> 0000 0111 0001 1100 (the six bits used)
+ *                  in general: 0000 0HHH 000L LL00
+ * IBI ADDRESS FORMAT:                    RHHH BLLL
+ *
+ * where R is the read(1)/write(0) bit, B is the busy bit
+ * and HHH and LLL are the two sets of three bits from the PCI address.
+ */
 #define B2C2_FLEX_PCIOFFSET_TO_INTERNALADDR(usPCI) (u8) \
 	(((usPCI >> 2) & 0x07) + ((usPCI >> 4) & 0x70))
 #define B2C2_FLEX_INTERNALADDR_TO_PCIOFFSET(ucAddr) (u16) \
 	(((ucAddr & 0x07) << 2) + ((ucAddr & 0x70) << 4))
 
+/*
+ * DKT 020228
+ * - forget about this VENDOR_BUFFER_SIZE, read and write register
+ *   deal with DWORD or 4 bytes, that should be should from now on
+ * - from now on, we don't support anything older than firm 1.00
+ *   I eliminated the write register as a 2 trip of writing hi word and lo word
+ *   and force this to write only 4 bytes at a time.
+ *   NOTE: this should work with all the firmware from 1.00 and newer
+ */
 static int flexcop_usb_readwrite_dw(struct flexcop_device *fc, u16 wRegOffsPCI, u32 *val, u8 read)
 {
 	struct flexcop_usb *fc_usb = fc->bus_specific;
@@ -57,7 +77,7 @@ static int flexcop_usb_readwrite_dw(struct flexcop_device *fc, u16 wRegOffsPCI, 
 	int len = usb_control_msg(fc_usb->udev,
 			read ? B2C2_USB_CTRL_PIPE_IN : B2C2_USB_CTRL_PIPE_OUT,
 			request,
-			request_type, 
+			request_type, /* 0xc0 read or 0x40 write */
 			wAddress,
 			0,
 			val,
@@ -71,6 +91,9 @@ static int flexcop_usb_readwrite_dw(struct flexcop_device *fc, u16 wRegOffsPCI, 
 	}
 	return 0;
 }
+/*
+ * DKT 010817 - add support for V8 memory read/write and flash update
+ */
 static int flexcop_usb_v8_memory_req(struct flexcop_usb *fc_usb,
 		flexcop_usb_request_t req, u8 page, u16 wAddress,
 		u8 *pbBuffer, u32 buflen)
@@ -196,6 +219,7 @@ static int flexcop_usb_utility_req(struct flexcop_usb *fc_usb, int set,
 }
 #endif
 
+/* usb i2c stuff */
 static int flexcop_usb_i2c_req(struct flexcop_i2c_adapter *i2c,
 		flexcop_usb_request_t req, flexcop_usb_i2c_function_t func,
 		u8 chipaddr, u8 addr, u8 *buf, u8 buflen)
@@ -209,7 +233,7 @@ static int flexcop_usb_i2c_req(struct flexcop_i2c_adapter *i2c,
 	case USB_FUNC_I2C_WRITE:
 	case USB_FUNC_I2C_MULTIWRITE:
 	case USB_FUNC_I2C_REPEATWRITE:
-		
+		/* DKT 020208 - add this to support special case of DiSEqC */
 	case USB_FUNC_I2C_CHECKWRITE:
 		pipe = B2C2_USB_CTRL_PIPE_OUT;
 		nWaitTime = 2;
@@ -244,6 +268,8 @@ static int flexcop_usb_i2c_req(struct flexcop_i2c_adapter *i2c,
 	return len == buflen ? 0 : -EREMOTEIO;
 }
 
+/* actual bus specific access functions,
+   make sure prototype are/will be equal to pci */
 static flexcop_ibi_value flexcop_usb_read_ibi_reg(struct flexcop_device *fc,
 	flexcop_ibi_register reg)
 {
@@ -293,7 +319,7 @@ static void flexcop_usb_process_frame(struct flexcop_usb *fc_usb,
 	while (l >= 190) {
 		if (*b == 0xff) {
 			switch (*(b+1) & 0x03) {
-			case 0x01: 
+			case 0x01: /* media packet */
 				if (*(b+2) == 0x47)
 					flexcop_pass_dmx_packets(
 							fc_usb->fc_dev, b+2, 1);
@@ -352,7 +378,7 @@ static void flexcop_usb_urb_complete(struct urb *urb)
 
 static int flexcop_usb_stream_control(struct flexcop_device *fc, int onoff)
 {
-	
+	/* submit/kill iso packets */
 	return 0;
 }
 
@@ -392,7 +418,7 @@ static int flexcop_usb_transfer_init(struct flexcop_usb *fc_usb)
 	memset(fc_usb->iso_buffer, 0, bufsize);
 	fc_usb->buffer_size = bufsize;
 
-	
+	/* creating iso urbs */
 	for (i = 0; i < B2C2_USB_NUM_ISO_URB; i++) {
 		fc_usb->iso_urb[i] = usb_alloc_urb(B2C2_USB_FRAMES_PER_ISO,
 			GFP_ATOMIC);
@@ -402,7 +428,7 @@ static int flexcop_usb_transfer_init(struct flexcop_usb *fc_usb)
 		}
 	}
 
-	
+	/* initialising and submitting iso urbs */
 	for (i = 0; i < B2C2_USB_NUM_ISO_URB; i++) {
 		int frame_offset = 0;
 		struct urb *urb = fc_usb->iso_urb[i];
@@ -435,7 +461,7 @@ static int flexcop_usb_transfer_init(struct flexcop_usb *fc_usb)
 		deb_ts("submitted urb no. %d.\n",i);
 	}
 
-	
+	/* SRAM */
 	flexcop_sram_set_dest(fc_usb->fc_dev, FC_SRAM_DEST_MEDIA |
 			FC_SRAM_DEST_NET | FC_SRAM_DEST_CAO | FC_SRAM_DEST_CAI,
 			FC_SRAM_DEST_TARGET_WAN_USB);
@@ -450,7 +476,7 @@ urb_error:
 
 static int flexcop_usb_init(struct flexcop_usb *fc_usb)
 {
-	
+	/* use the alternate setting with the larges buffer */
 	usb_set_interface(fc_usb->udev,0,1);
 	switch (fc_usb->udev->speed) {
 	case USB_SPEED_LOW:
@@ -463,7 +489,7 @@ static int flexcop_usb_init(struct flexcop_usb *fc_usb)
 	case USB_SPEED_HIGH:
 		info("running at HIGH speed.");
 		break;
-	case USB_SPEED_UNKNOWN: 
+	case USB_SPEED_UNKNOWN: /* fall through */
 	default:
 		err("cannot handle USB speed because it is unknown.");
 		return -ENODEV;
@@ -490,7 +516,7 @@ static int flexcop_usb_probe(struct usb_interface *intf,
 		return -ENOMEM;
 	}
 
-	
+	/* general flexcop init */
 	fc_usb = fc->bus_specific;
 	fc_usb->fc_dev = fc;
 
@@ -507,17 +533,17 @@ static int flexcop_usb_probe(struct usb_interface *intf,
 	fc->dev = &udev->dev;
 	fc->owner = THIS_MODULE;
 
-	
+	/* bus specific part */
 	fc_usb->udev = udev;
 	fc_usb->uintf = intf;
 	if ((ret = flexcop_usb_init(fc_usb)) != 0)
 		goto err_kfree;
 
-	
+	/* init flexcop */
 	if ((ret = flexcop_device_initialize(fc)) != 0)
 		goto err_usb_exit;
 
-	
+	/* xfer init */
 	if ((ret = flexcop_usb_transfer_init(fc_usb)) != 0)
 		goto err_fc_exit;
 
@@ -549,6 +575,7 @@ static struct usb_device_id flexcop_usb_table [] = {
 };
 MODULE_DEVICE_TABLE (usb, flexcop_usb_table);
 
+/* usb specific object needed to register this driver with the usb subsystem */
 static struct usb_driver flexcop_usb_driver = {
 	.name		= "b2c2_flexcop_usb",
 	.probe		= flexcop_usb_probe,

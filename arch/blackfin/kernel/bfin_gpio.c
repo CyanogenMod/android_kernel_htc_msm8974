@@ -41,7 +41,7 @@ enum {
 	AWA_inen = DMA1_1_CONFIG,
 #endif
 };
-	
+	/* Anomaly Workaround */
 #define AWA_DUMMY_READ(name) bfin_read16(AWA_ ## name)
 #else
 #define AWA_DUMMY_READ(...)  do { } while (0)
@@ -91,13 +91,13 @@ static unsigned short * const port_mux[] = {
 static const
 u8 pmux_offset[][16] = {
 #  if defined(CONFIG_BF52x)
-	{ 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 4, 6, 8, 8, 10, 10 }, 
-	{ 0, 0, 0, 0, 0, 2, 2, 4, 4, 6, 8, 10, 10, 10, 12, 12 }, 
-	{ 0, 0, 0, 0, 0, 0, 0, 0, 2, 4, 4, 4, 4, 4, 4, 4 }, 
+	{ 0, 0, 0, 0, 0, 0, 0, 0, 2, 2, 4, 6, 8, 8, 10, 10 }, /* PORTF */
+	{ 0, 0, 0, 0, 0, 2, 2, 4, 4, 6, 8, 10, 10, 10, 12, 12 }, /* PORTG */
+	{ 0, 0, 0, 0, 0, 0, 0, 0, 2, 4, 4, 4, 4, 4, 4, 4 }, /* PORTH */
 #  elif defined(CONFIG_BF51x)
-	{ 0, 2, 2, 2, 2, 2, 2, 4, 6, 6, 6, 8, 8, 8, 8, 10 }, 
-	{ 0, 0, 0, 2, 4, 6, 6, 6, 8, 10, 10, 12, 14, 14, 14, 14 }, 
-	{ 0, 0, 0, 0, 2, 2, 4, 6, 10, 10, 10, 10, 10, 10, 10, 10 }, 
+	{ 0, 2, 2, 2, 2, 2, 2, 4, 6, 6, 6, 8, 8, 8, 8, 10 }, /* PORTF */
+	{ 0, 0, 0, 2, 4, 6, 6, 6, 8, 10, 10, 12, 14, 14, 14, 14 }, /* PORTG */
+	{ 0, 0, 0, 0, 2, 2, 4, 6, 10, 10, 10, 10, 10, 10, 10, 10 }, /* PORTH */
 #  endif
 };
 # endif
@@ -181,6 +181,12 @@ inline int check_gpio(unsigned gpio)
 static void port_setup(unsigned gpio, unsigned short usage)
 {
 #if defined(BF538_FAMILY)
+	/*
+	 * BF538/9 Port C,D and E are special.
+	 * Inverted PORT_FER polarity on CDE and no PORF_FER on F
+	 * Regular PORT F GPIOs are handled here, CDE are exclusively
+	 * managed by GPIOLIB
+	 */
 
 	if (gpio < MAX_BLACKFIN_GPIOS || gpio >= MAX_RESOURCES)
 		return;
@@ -372,7 +378,24 @@ static int portmux_group_check(unsigned short per)
 #endif
 
 #ifndef CONFIG_BF54x
+/***********************************************************
+*
+* FUNCTIONS: Blackfin General Purpose Ports Access Functions
+*
+* INPUTS/OUTPUTS:
+* gpio - GPIO Number between 0 and MAX_BLACKFIN_GPIOS
+*
+*
+* DESCRIPTION: These functions abstract direct register access
+*              to Blackfin processor General Purpose
+*              Ports Regsiters
+*
+* CAUTION: These functions do not belong to the GPIO Driver API
+*************************************************************
+* MODIFICATION HISTORY :
+**************************************************************/
 
+/* Set a specific bit */
 
 #define SET_GPIO(name) \
 void set_gpio_ ## name(unsigned gpio, unsigned short arg) \
@@ -388,11 +411,11 @@ void set_gpio_ ## name(unsigned gpio, unsigned short arg) \
 } \
 EXPORT_SYMBOL(set_gpio_ ## name);
 
-SET_GPIO(dir)   
-SET_GPIO(inen)  
-SET_GPIO(polar) 
-SET_GPIO(edge)  
-SET_GPIO(both)  
+SET_GPIO(dir)   /* set_gpio_dir() */
+SET_GPIO(inen)  /* set_gpio_inen() */
+SET_GPIO(polar) /* set_gpio_polar() */
+SET_GPIO(edge)  /* set_gpio_edge() */
+SET_GPIO(both)  /* set_gpio_both() */
 
 
 #define SET_GPIO_SC(name) \
@@ -430,6 +453,7 @@ void set_gpio_toggle(unsigned gpio)
 EXPORT_SYMBOL(set_gpio_toggle);
 
 
+/*Set current PORT date (16-bit word)*/
 
 #define SET_GPIO_P(name) \
 void set_gpiop_ ## name(unsigned gpio, unsigned short arg) \
@@ -454,6 +478,7 @@ SET_GPIO_P(both)
 SET_GPIO_P(maska)
 SET_GPIO_P(maskb)
 
+/* Get a specific bit */
 #define GET_GPIO(name) \
 unsigned short get_gpio_ ## name(unsigned gpio) \
 { \
@@ -479,6 +504,7 @@ GET_GPIO(both)
 GET_GPIO(maska)
 GET_GPIO(maskb)
 
+/*Get current PORT date (16-bit word)*/
 
 #define GET_GPIO_P(name) \
 unsigned short get_gpiop_ ## name(unsigned gpio) \
@@ -525,6 +551,25 @@ static const unsigned int sic_iwr_irqs[] = {
 #endif
 };
 
+/***********************************************************
+*
+* FUNCTIONS: Blackfin PM Setup API
+*
+* INPUTS/OUTPUTS:
+* gpio - GPIO Number between 0 and MAX_BLACKFIN_GPIOS
+* type -
+*	PM_WAKE_RISING
+*	PM_WAKE_FALLING
+*	PM_WAKE_HIGH
+*	PM_WAKE_LOW
+*	PM_WAKE_BOTH_EDGES
+*
+* DESCRIPTION: Blackfin PM Driver API
+*
+* CAUTION:
+*************************************************************
+* MODIFICATION HISTORY :
+**************************************************************/
 int gpio_pm_wakeup_ctrl(unsigned gpio, unsigned ctrl)
 {
 	unsigned long flags;
@@ -635,7 +680,7 @@ void bfin_gpio_pm_hibernate_restore(void)
 
 
 #endif
-#else 
+#else /* CONFIG_BF54x */
 #ifdef CONFIG_PM
 
 int bfin_pm_standby_ctrl(unsigned ctrl)
@@ -681,14 +726,32 @@ unsigned short get_gpio_dir(unsigned gpio)
 }
 EXPORT_SYMBOL(get_gpio_dir);
 
-#endif 
+#endif /* CONFIG_BF54x */
 
+/***********************************************************
+*
+* FUNCTIONS:	Blackfin Peripheral Resource Allocation
+*		and PortMux Setup
+*
+* INPUTS/OUTPUTS:
+* per	Peripheral Identifier
+* label	String
+*
+* DESCRIPTION: Blackfin Peripheral Resource Allocation and Setup API
+*
+* CAUTION:
+*************************************************************
+* MODIFICATION HISTORY :
+**************************************************************/
 
 int peripheral_request(unsigned short per, const char *label)
 {
 	unsigned long flags;
 	unsigned short ident = P_IDENT(per);
 
+	/*
+	 * Don't cares are pins with only one dedicated function
+	 */
 
 	if (per & P_DONTCARE)
 		return 0;
@@ -700,6 +763,9 @@ int peripheral_request(unsigned short per, const char *label)
 
 	flags = hard_local_irq_save();
 
+	/* If a pin can be muxed as either GPIO or peripheral, make
+	 * sure it is not already a GPIO pin when we request it.
+	 */
 	if (unlikely(!check_gpio(ident) && is_reserved(gpio, ident, 1))) {
 		if (system_state == SYSTEM_BOOTING)
 			dump_stack();
@@ -712,12 +778,20 @@ int peripheral_request(unsigned short per, const char *label)
 
 	if (unlikely(is_reserved(peri, ident, 1))) {
 
+		/*
+		 * Pin functions like AMC address strobes my
+		 * be requested and used by several drivers
+		 */
 
 #ifdef CONFIG_BF54x
 		if (!((per & P_MAYSHARE) && get_portmux(per) == P_FUNCT2MUX(per))) {
 #else
 		if (!(per & P_MAYSHARE)) {
 #endif
+			/*
+			 * Allow that the identical pin function can
+			 * be requested from the same driver twice
+			 */
 
 			if (cmp_label(ident, label) == 0)
 				goto anyway;
@@ -807,6 +881,20 @@ void peripheral_free_list(const unsigned short per[])
 }
 EXPORT_SYMBOL(peripheral_free_list);
 
+/***********************************************************
+*
+* FUNCTIONS: Blackfin GPIO Driver
+*
+* INPUTS/OUTPUTS:
+* gpio	PIO Number between 0 and MAX_BLACKFIN_GPIOS
+* label	String
+*
+* DESCRIPTION: Blackfin GPIO Driver API
+*
+* CAUTION:
+*************************************************************
+* MODIFICATION HISTORY :
+**************************************************************/
 
 int bfin_gpio_request(unsigned gpio, const char *label)
 {
@@ -817,6 +905,11 @@ int bfin_gpio_request(unsigned gpio, const char *label)
 
 	flags = hard_local_irq_save();
 
+	/*
+	 * Allow that the identical GPIO can
+	 * be requested from the same driver twice
+	 * Do nothing and return -
+	 */
 
 	if (cmp_label(gpio, label) == 0) {
 		hard_local_irq_restore(flags);
@@ -845,7 +938,7 @@ int bfin_gpio_request(unsigned gpio, const char *label)
 		       " (Documentation/blackfin/bfin-gpio-notes.txt)\n", gpio);
 	}
 #ifndef CONFIG_BF54x
-	else {	
+	else {	/* Reset POLAR setting when acquiring a gpio for the first time */
 		set_gpio_polar(gpio, 0);
 	}
 #endif
@@ -897,6 +990,11 @@ int bfin_special_gpio_request(unsigned gpio, const char *label)
 
 	flags = hard_local_irq_save();
 
+	/*
+	 * Allow that the identical GPIO can
+	 * be requested from the same driver twice
+	 * Do nothing and return -
+	 */
 
 	if (cmp_label(gpio, label) == 0) {
 		hard_local_irq_restore(flags);
@@ -1109,6 +1207,16 @@ int bfin_gpio_get_value(unsigned gpio)
 }
 EXPORT_SYMBOL(bfin_gpio_get_value);
 
+/* If we are booting from SPI and our board lacks a strong enough pull up,
+ * the core can reset and execute the bootrom faster than the resistor can
+ * pull the signal logically high.  To work around this (common) error in
+ * board design, we explicitly set the pin back to GPIO mode, force /CS
+ * high, and wait for the electrons to do their thing.
+ *
+ * This function only makes sense to be called from reset code, but it
+ * lives here as we need to force all the GPIO states w/out going through
+ * BUG() checks and such.
+ */
 void bfin_reset_boot_spi_cs(unsigned short pin)
 {
 	unsigned short gpio = P_IDENT(pin);

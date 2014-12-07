@@ -43,6 +43,7 @@
 #define OP_31_XOP_EIOIO		854
 #define OP_31_XOP_SLBMFEE	915
 
+/* DCBZ is actually 1014, but we patch it to 1010 so we get a trap */
 #define OP_31_XOP_DCBZ		1010
 
 #define OP_LFS			48
@@ -59,6 +60,8 @@
 #define SPRN_GQR6		918
 #define SPRN_GQR7		919
 
+/* Book3S_32 defines mfsrin(v) - but that messes up our abstract
+ * function pointers, so let's just disable the define. */
 #undef mfsrin
 
 enum priv_level {
@@ -69,11 +72,11 @@ enum priv_level {
 
 static bool spr_allowed(struct kvm_vcpu *vcpu, enum priv_level level)
 {
-	
+	/* PAPR VMs only access supervisor SPRs */
 	if (vcpu->arch.papr_enabled && (level > PRIV_SUPER))
 		return false;
 
-	
+	/* Limit user space to its own small SPR set */
 	if ((vcpu->arch.shared->msr & MSR_PR) && level > PRIV_PROBLEM)
 		return false;
 
@@ -207,7 +210,7 @@ int kvmppc_core_emulate_op(struct kvm_run *run, struct kvm_vcpu *vcpu,
 			}
 			break;
 		case OP_31_XOP_DCBA:
-			
+			/* Gets treated as NOP */
 			break;
 		case OP_31_XOP_DCBZ:
 		{
@@ -269,7 +272,7 @@ void kvmppc_set_bat(struct kvm_vcpu *vcpu, struct kvmppc_bat *bat, bool upper,
                     u32 val)
 {
 	if (upper) {
-		
+		/* Upper BAT */
 		u32 bl = (val >> 2) & 0x7ff;
 		bat->bepi_mask = (~bl << 17);
 		bat->bepi = val & 0xfffe0000;
@@ -277,7 +280,7 @@ void kvmppc_set_bat(struct kvm_vcpu *vcpu, struct kvmppc_bat *bat, bool upper,
 		bat->vp = (val & 1) ? 1 : 0;
 		bat->raw = (bat->raw & 0xffffffff00000000ULL) | val;
 	} else {
-		
+		/* Lower BAT */
 		bat->brpn = val & 0xfffe0000;
 		bat->wimg = (val >> 3) & 0xf;
 		bat->pp = val & 3;
@@ -338,6 +341,8 @@ int kvmppc_core_emulate_mtspr(struct kvm_vcpu *vcpu, int sprn, int rs)
 		struct kvmppc_bat *bat = kvmppc_find_bat(vcpu, sprn);
 
 		kvmppc_set_bat(vcpu, bat, !(sprn % 2), (u32)spr_val);
+		/* BAT writes happen so rarely that we're ok to flush
+		 * everything here */
 		kvmppc_mmu_pte_flush(vcpu, 0, 0);
 		kvmppc_mmu_flush_segments(vcpu);
 		break;
@@ -353,20 +358,20 @@ int kvmppc_core_emulate_mtspr(struct kvm_vcpu *vcpu, int sprn, int rs)
 		break;
 	case SPRN_HID2_GEKKO:
 		to_book3s(vcpu)->hid[2] = spr_val;
-		
+		/* HID2.PSE controls paired single on gekko */
 		switch (vcpu->arch.pvr) {
-		case 0x00080200:	
-		case 0x00088202:	
-		case 0x70000100:	
-		case 0x00080100:	
-		case 0x00083203:	
-		case 0x00083213:	
-		case 0x00083204:	
-		case 0x00083214:	
-		case 0x00087200:	
+		case 0x00080200:	/* lonestar 2.0 */
+		case 0x00088202:	/* lonestar 2.2 */
+		case 0x70000100:	/* gekko 1.0 */
+		case 0x00080100:	/* gekko 2.0 */
+		case 0x00083203:	/* gekko 2.3a */
+		case 0x00083213:	/* gekko 2.3b */
+		case 0x00083204:	/* gekko 2.4 */
+		case 0x00083214:	/* gekko 2.4e (8SE) - retail HW2 */
+		case 0x00087200:	/* broadway */
 			if (vcpu->arch.hflags & BOOK3S_HFLAG_NATIVE_PS) {
-				
-			} else if (spr_val & (1 << 29)) { 
+				/* Native paired singles */
+			} else if (spr_val & (1 << 29)) { /* HID2.PSE */
 				vcpu->arch.hflags |= BOOK3S_HFLAG_PAIRED_SINGLE;
 				kvmppc_giveup_ext(vcpu, MSR_FP);
 			} else {
@@ -381,7 +386,7 @@ int kvmppc_core_emulate_mtspr(struct kvm_vcpu *vcpu, int sprn, int rs)
 		break;
 	case SPRN_HID5:
 		to_book3s(vcpu)->hid[5] = spr_val;
-		
+		/* guest HID5 set can change is_dcbz32 */
 		if (vcpu->arch.mmu.is_dcbz32(vcpu) &&
 		    (mfmsr() & MSR_HV))
 			vcpu->arch.hflags |= BOOK3S_HFLAG_DCBZ32;
@@ -519,28 +524,40 @@ u32 kvmppc_alignment_dsisr(struct kvm_vcpu *vcpu, unsigned int inst)
 {
 	u32 dsisr = 0;
 
+	/*
+	 * This is what the spec says about DSISR bits (not mentioned = 0):
+	 *
+	 * 12:13		[DS]	Set to bits 30:31
+	 * 15:16		[X]	Set to bits 29:30
+	 * 17			[X]	Set to bit 25
+	 *			[D/DS]	Set to bit 5
+	 * 18:21		[X]	Set to bits 21:24
+	 *			[D/DS]	Set to bits 1:4
+	 * 22:26			Set to bits 6:10 (RT/RS/FRT/FRS)
+	 * 27:31			Set to bits 11:15 (RA)
+	 */
 
 	switch (get_op(inst)) {
-	
+	/* D-form */
 	case OP_LFS:
 	case OP_LFD:
 	case OP_STFD:
 	case OP_STFS:
-		dsisr |= (inst >> 12) & 0x4000;	
-		dsisr |= (inst >> 17) & 0x3c00; 
+		dsisr |= (inst >> 12) & 0x4000;	/* bit 17 */
+		dsisr |= (inst >> 17) & 0x3c00; /* bits 18:21 */
 		break;
-	
+	/* X-form */
 	case 31:
-		dsisr |= (inst << 14) & 0x18000; 
-		dsisr |= (inst << 8)  & 0x04000; 
-		dsisr |= (inst << 3)  & 0x03c00; 
+		dsisr |= (inst << 14) & 0x18000; /* bits 15:16 */
+		dsisr |= (inst << 8)  & 0x04000; /* bit 17 */
+		dsisr |= (inst << 3)  & 0x03c00; /* bits 18:21 */
 		break;
 	default:
 		printk(KERN_INFO "KVM: Unaligned instruction 0x%x\n", inst);
 		break;
 	}
 
-	dsisr |= (inst >> 16) & 0x03ff; 
+	dsisr |= (inst >> 16) & 0x03ff; /* bits 22:31 */
 
 	return dsisr;
 }

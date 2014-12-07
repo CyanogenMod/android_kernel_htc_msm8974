@@ -6,14 +6,14 @@
  * Licensed under the GPL-2 or later.
  */
 
-#include <linux/input.h>	
+#include <linux/input.h>	/* BUS_SPI */
 #include <linux/pm.h>
 #include <linux/spi/spi.h>
 #include <linux/module.h>
 
 #include "ad7879.h"
 
-#define AD7879_DEVID		0x7A	
+#define AD7879_DEVID		0x7A	/* AD7879/AD7889 */
 
 #define MAX_SPI_FREQ_HZ      5000000
 #define AD7879_CMD_MAGIC     0xE000
@@ -22,6 +22,10 @@
 #define AD7879_WRITECMD(reg) (AD7879_CMD(reg))
 #define AD7879_READCMD(reg)  (AD7879_CMD(reg) | AD7879_CMD_READ)
 
+/*
+ * ad7879_read/write are only used for initial setup and for sysfs controls.
+ * The main traffic is done in ad7879_collect().
+ */
 
 static int ad7879_spi_xfer(struct spi_device *spi,
 			   u16 cmd, u8 count, u16 *tx_buf, u16 *rx_buf)
@@ -30,7 +34,7 @@ static int ad7879_spi_xfer(struct spi_device *spi,
 	struct spi_transfer *xfers;
 	void *spi_data;
 	u16 *command;
-	u16 *_rx_buf = _rx_buf; 
+	u16 *_rx_buf = _rx_buf; /* shut gcc up */
 	u8 idx;
 	int ret;
 
@@ -43,7 +47,7 @@ static int ad7879_spi_xfer(struct spi_device *spi,
 	command = spi_data;
 	command[0] = cmd;
 	if (count == 1) {
-		
+		/* ad7879_spi_{read,write} gave us buf on stack */
 		command[1] = *tx_buf;
 		tx_buf = &command[1];
 		_rx_buf = rx_buf;
@@ -111,7 +115,7 @@ static int __devinit ad7879_spi_probe(struct spi_device *spi)
 	struct ad7879 *ts;
 	int err;
 
-	
+	/* don't exceed max specified SPI CLK frequency */
 	if (spi->max_speed_hz > MAX_SPI_FREQ_HZ) {
 		dev_err(&spi->dev, "SPI CLK %d Hz?\n", spi->max_speed_hz);
 		return -EINVAL;

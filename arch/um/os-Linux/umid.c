@@ -19,8 +19,10 @@
 
 #define UMID_LEN 64
 
+/* Changed by set_umid, which is run early in boot */
 static char umid[UMID_LEN] = { 0 };
 
+/* Changed by set_uml_dir and make_uml_dir, which are run early in boot */
 static char *uml_dir = UML_DIR;
 
 static int __init make_uml_dir(void)
@@ -67,6 +69,12 @@ err:
 	return err;
 }
 
+/*
+ * Unlinks the files contained in @dir and then removes @dir.
+ * Doesn't handle directory trees, so it's not like rm -rf, but almost such. We
+ * ignore ENOENT errors for anything (they happen, strangely enough - possibly
+ * due to races between multiple dying UML threads).
+ */
 static int remove_files_and_dir(char *dir)
 {
 	DIR *directory;
@@ -110,6 +118,18 @@ out:
 	return ret;
 }
 
+/*
+ * This says that there isn't already a user of the specified directory even if
+ * there are errors during the checking.  This is because if these errors
+ * happen, the directory is unusable by the pre-existing UML, so we might as
+ * well take it over.  This could happen either by
+ * 	the existing UML somehow corrupting its umid directory
+ * 	something other than UML sticking stuff in the directory
+ *	this boot racing with a shutdown of the other UML
+ * In any of these cases, the directory isn't useful for anything else.
+ *
+ * Boolean return: 1 if in use, 0 otherwise.
+ */
 static inline int is_umdir_used(char *dir)
 {
 	char file[strlen(uml_dir) + UMID_LEN + sizeof("/pid\0")];
@@ -165,6 +185,12 @@ out:
 	return 0;
 }
 
+/*
+ * Try to remove the directory @dir unless it's in use.
+ * Precondition: @dir exists.
+ * Returns 0 for success, < 0 for failure in removal or if the directory is in
+ * use.
+ */
 static int umdir_take_if_dead(char *dir)
 {
 	int ret;
@@ -214,6 +240,7 @@ int __init set_umid(char *name)
 	return 0;
 }
 
+/* Changed in make_umid, which is called during early boot */
 static int umid_setup = 0;
 
 static int __init make_umid(void)
@@ -241,6 +268,11 @@ static int __init make_umid(void)
 
 		set_umid(&tmp[strlen(uml_dir)]);
 
+		/*
+		 * There's a nice tiny little race between this unlink and
+		 * the mkdir below.  It'd be nice if there were a mkstemp
+		 * for directories.
+		 */
 		if (unlink(tmp)) {
 			err = -errno;
 			goto err;
@@ -280,6 +312,10 @@ static int __init make_umid_init(void)
 	if (!make_umid())
 		return 0;
 
+	/*
+	 * If initializing with the given umid failed, then try again with
+	 * a random one.
+	 */
 	printk(UM_KERN_ERR "Failed to initialize umid \"%s\", trying with a "
 	       "random umid\n", umid);
 	*umid = '\0';
@@ -328,6 +364,10 @@ static int __init set_uml_dir(char *name, int *add)
 	if (uml_dir == NULL) {
 		printf("Failed to malloc uml_dir - error = %d\n", errno);
 
+		/*
+		 * Return 0 here because do_initcalls doesn't look at
+		 * the return value.
+		 */
 		return 0;
 	}
 	sprintf(uml_dir, "%s/", name);

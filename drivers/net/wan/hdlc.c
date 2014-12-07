@@ -75,7 +75,7 @@ netdev_tx_t hdlc_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (hdlc->proto->xmit)
 		return hdlc->proto->xmit(skb, dev);
 
-	return hdlc->xmit(skb, dev); 
+	return hdlc->xmit(skb, dev); /* call hardware driver directly */
 }
 
 static inline void hdlc_proto_start(struct net_device *dev)
@@ -108,10 +108,10 @@ static int hdlc_device_event(struct notifier_block *this, unsigned long event,
 		return NOTIFY_DONE;
 
 	if (!(dev->priv_flags & IFF_WAN_HDLC))
-		return NOTIFY_DONE; 
+		return NOTIFY_DONE; /* not an HDLC device */
 
 	if (event != NETDEV_CHANGE)
-		return NOTIFY_DONE; 
+		return NOTIFY_DONE; /* Only interested in carrier changes */
 
 	on = netif_carrier_ok(dev);
 
@@ -124,7 +124,7 @@ static int hdlc_device_event(struct notifier_block *this, unsigned long event,
 	spin_lock_irqsave(&hdlc->state_lock, flags);
 
 	if (hdlc->carrier == on)
-		goto carrier_exit; 
+		goto carrier_exit; /* no change in DCD line level */
 
 	hdlc->carrier = on;
 
@@ -146,6 +146,7 @@ carrier_exit:
 
 
 
+/* Must be called by hardware driver when HDLC device is being opened */
 int hdlc_open(struct net_device *dev)
 {
 	hdlc_device *hdlc = dev_to_hdlc(dev);
@@ -155,7 +156,7 @@ int hdlc_open(struct net_device *dev)
 #endif
 
 	if (hdlc->proto == NULL)
-		return -ENOSYS;	
+		return -ENOSYS;	/* no protocol attached */
 
 	if (hdlc->proto->open) {
 		int result = hdlc->proto->open(dev);
@@ -179,6 +180,7 @@ int hdlc_open(struct net_device *dev)
 
 
 
+/* Must be called by hardware driver when HDLC device is being closed */
 void hdlc_close(struct net_device *dev)
 {
 	hdlc_device *hdlc = dev_to_hdlc(dev);
@@ -215,7 +217,7 @@ int hdlc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 			return result;
 	}
 
-	
+	/* Not handled by currently attached protocol (if any) */
 
 	while (proto) {
 		if ((result = proto->ioctl(dev, ifr)) != -EINVAL)
@@ -229,6 +231,9 @@ static const struct header_ops hdlc_null_ops;
 
 static void hdlc_setup_dev(struct net_device *dev)
 {
+	/* Re-init all variables changed by HDLC protocol drivers,
+	 * including ether_setup() called from hdlc_raw_eth.c.
+	 */
 	dev->flags		 = IFF_POINTOPOINT | IFF_NOARP;
 	dev->priv_flags		 = IFF_WAN_HDLC;
 	dev->mtu		 = HDLC_MAX_MTU;

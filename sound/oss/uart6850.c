@@ -25,6 +25,9 @@
 #include <linux/interrupt.h>
 #include <linux/module.h>
 #include <linux/spinlock.h>
+/* Mon Nov 22 22:38:35 MET 1993 marco@driq.home.usn.nl:
+ *      added 6850 support, used with COVOX SoundMaster II and custom cards.
+ */
 
 #include "sound_config.h"
 
@@ -59,8 +62,8 @@ static void uart6850_write(unsigned char byte)
 	outb(byte, DATAPORT);
 }
 
-#define	OUTPUT_READY	0x02	
-#define	INPUT_AVAIL	0x01	
+#define	OUTPUT_READY	0x02	/* Mask for data ready Bit */
+#define	INPUT_AVAIL	0x01	/* Mask for Data Send Ready Bit */
 
 #define	UART_RESET	0x95
 #define	UART_MODE_ON	0x03
@@ -83,6 +86,9 @@ static void uart6850_input_loop(void)
 
 	while (count)
 	{
+		/*
+		 * Not timed out
+		 */
 		if (input_avail())
 		{
 			unsigned char c = uart6850_read();
@@ -105,13 +111,17 @@ static irqreturn_t m6850intr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ *	It looks like there is no input interrupts in the UART mode. Let's try
+ *	polling.
+ */
 
 static void poll_uart6850(unsigned long dummy)
 {
 	unsigned long flags;
 
 	if (!(uart6850_opened & OPEN_READ))
-		return;		
+		return;		/* Device has been closed */
 
 	spin_lock_irqsave(&lock,flags);
 	if (input_avail())
@@ -120,6 +130,9 @@ static void poll_uart6850(unsigned long dummy)
 	uart6850_timer.expires = 1 + jiffies;
 	add_timer(&uart6850_timer);
 	
+	/*
+	 *	Come back later
+	 */
 
 	spin_unlock_irqrestore(&lock,flags);
 }
@@ -131,6 +144,7 @@ static int uart6850_open(int dev, int mode,
 {
 	if (uart6850_opened)
 	{
+/*		  printk("Midi6850: Midi busy\n");*/
 		  return -EBUSY;
 	};
 
@@ -138,7 +152,9 @@ static int uart6850_open(int dev, int mode,
 	uart6850_input_loop();
 	midi_input_intr = input;
 	uart6850_opened = mode;
-	poll_uart6850(0);	
+	poll_uart6850(0);	/*
+				 * Enable input polling
+				 */
 
 	return 0;
 }
@@ -155,6 +171,9 @@ static int uart6850_out(int dev, unsigned char midi_byte)
 	int timeout;
 	unsigned long flags;
 
+	/*
+	 * Test for input since pending input seems to block the output.
+	 */
 
 	spin_lock_irqsave(&lock,flags);
 
@@ -163,8 +182,14 @@ static int uart6850_out(int dev, unsigned char midi_byte)
 
 	spin_unlock_irqrestore(&lock,flags);
 
+	/*
+	 * Sometimes it takes about 13000 loops before the output becomes ready
+	 * (After reset). Normally it takes just about 10 loops.
+	 */
 
-	for (timeout = 30000; timeout > 0 && !output_ready(); timeout--);	
+	for (timeout = 30000; timeout > 0 && !output_ready(); timeout--);	/*
+										 * Wait
+										 */
 	if (!output_ready())
 	{
 		printk(KERN_WARNING "Midi6850: Timeout\n");
@@ -195,7 +220,9 @@ static inline void uart6850_kick(int dev)
 
 static inline int uart6850_buffer_status(int dev)
 {
-	return 0;		
+	return 0;		/*
+				 * No data in buffers
+				 */
 }
 
 #define MIDI_SYNTH_NAME	"6850 UART Midi"
@@ -238,7 +265,9 @@ static void __init attach_uart6850(struct address_info *hw_config)
 
 	spin_lock_irqsave(&lock,flags);
 
-	for (timeout = 30000; timeout > 0 && !output_ready(); timeout--);	
+	for (timeout = 30000; timeout > 0 && !output_ready(); timeout--);	/*
+										 * Wait
+										 */
 	uart6850_cmd(UART_MODE_ON);
 	ok = 1;
 	spin_unlock_irqrestore(&lock,flags);
@@ -254,7 +283,9 @@ static void __init attach_uart6850(struct address_info *hw_config)
 static inline int reset_uart6850(void)
 {
 	uart6850_read();
-	return 1;		
+	return 1;		/*
+				 * OK
+				 */
 }
 
 static int __init probe_uart6850(struct address_info *hw_config)
@@ -315,7 +346,7 @@ module_exit(cleanup_uart6850);
 #ifndef MODULE
 static int __init setup_uart6850(char *str)
 {
-	
+	/* io, irq */
 	int ints[3];
 	
 	str = get_options(str, ARRAY_SIZE(ints), ints);

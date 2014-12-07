@@ -44,9 +44,9 @@ static const char* devname = "RISCom/N2";
 
 #define USE_WINDOWSIZE 16384
 #define USE_BUS16BITS 1
-#define CLOCK_BASE 9830400	
-#define MAX_PAGES      16	
-#define MAX_RAM_SIZE 0x80000	
+#define CLOCK_BASE 9830400	/* 9.8304 MHz */
+#define MAX_PAGES      16	/* 16 RAM pages at max */
+#define MAX_RAM_SIZE 0x80000	/* 512 KB */
 #if MAX_RAM_SIZE > MAX_PAGES * USE_WINDOWSIZE
 #undef MAX_RAM_SIZE
 #define MAX_RAM_SIZE (MAX_PAGES * USE_WINDOWSIZE)
@@ -56,19 +56,23 @@ static const char* devname = "RISCom/N2";
 #define NEED_SCA_MSCI_INTR
 #define MAX_TX_BUFFERS 10
 
-static char *hw;	
+static char *hw;	/* pointer to hw=xxx command line string */
 
+/* RISCom/N2 Board Registers */
 
+/* PC Control Register */
 #define N2_PCR 0
-#define PCR_RUNSCA 1     
-#define PCR_VPM    2     
-#define PCR_ENWIN  4     
-#define PCR_BUS16  8     
+#define PCR_RUNSCA 1     /* Run 64570 */
+#define PCR_VPM    2     /* Enable VPM - needed if using RAM above 1 MB */
+#define PCR_ENWIN  4     /* Open window */
+#define PCR_BUS16  8     /* 16-bit bus */
 
 
+/* Memory Base Address Register */
 #define N2_BAR 2
 
 
+/* Page Scan Register  */
 #define N2_PSR 4
 #define WIN16K       0x00
 #define WIN32K       0x20
@@ -78,6 +82,7 @@ static char *hw;
 #define PSR_PAGEBITS 0x0F
 
 
+/* Modem Control Reg */
 #define N2_MCR 6
 #define CLOCK_OUT_PORT1 0x80
 #define CLOCK_OUT_PORT0 0x40
@@ -92,31 +97,31 @@ static char *hw;
 typedef struct port_s {
 	struct net_device *dev;
 	struct card_s *card;
-	spinlock_t lock;	
+	spinlock_t lock;	/* TX lock */
 	sync_serial_settings settings;
-	int valid;		
-	int rxpart;		
+	int valid;		/* port enabled */
+	int rxpart;		/* partial frame received, next frame invalid*/
 	unsigned short encoding;
 	unsigned short parity;
-	u16 rxin;		
-	u16 txin;		
+	u16 rxin;		/* rx ring buffer 'in' pointer */
+	u16 txin;		/* tx ring buffer 'in' and 'last' pointers */
 	u16 txlast;
-	u8 rxs, txs, tmc;	
-	u8 phy_node;		
-	u8 log_node;		
+	u8 rxs, txs, tmc;	/* SCA registers */
+	u8 phy_node;		/* physical port # - 0 or 1 */
+	u8 log_node;		/* logical port # */
 }port_t;
 
 
 
 typedef struct card_s {
-	u8 __iomem *winbase;		
-	u32 phy_winbase;	
-	u32 ram_size;		
-	u16 io;			
-	u16 buff_offset;	
-	u16 rx_ring_buffers;	
+	u8 __iomem *winbase;		/* ISA window base address */
+	u32 phy_winbase;	/* ISA physical base address */
+	u32 ram_size;		/* number of bytes */
+	u16 io;			/* IO Base address */
+	u16 buff_offset;	/* offset of first buffer of first channel */
+	u16 rx_ring_buffers;	/* number of buffers in a ring */
 	u16 tx_ring_buffers;
-	u8 irq;			
+	u8 irq;			/* IRQ (3-15) */
 
 	port_t ports[2];
 	struct card_s *next_card;
@@ -171,26 +176,26 @@ static void n2_set_iface(port_t *port)
 	switch(port->settings.clock_type) {
 	case CLOCK_INT:
 		mcr |= port->phy_node ? CLOCK_OUT_PORT1 : CLOCK_OUT_PORT0;
-		rxs |= CLK_BRG_RX; 
-		txs |= CLK_RXCLK_TX; 
+		rxs |= CLK_BRG_RX; /* BRG output */
+		txs |= CLK_RXCLK_TX; /* RX clock */
 		break;
 
 	case CLOCK_TXINT:
 		mcr |= port->phy_node ? CLOCK_OUT_PORT1 : CLOCK_OUT_PORT0;
-		rxs |= CLK_LINE_RX; 
-		txs |= CLK_BRG_TX; 
+		rxs |= CLK_LINE_RX; /* RXC input */
+		txs |= CLK_BRG_TX; /* BRG output */
 		break;
 
 	case CLOCK_TXFROMRX:
 		mcr |= port->phy_node ? CLOCK_OUT_PORT1 : CLOCK_OUT_PORT0;
-		rxs |= CLK_LINE_RX; 
-		txs |= CLK_RXCLK_TX; 
+		rxs |= CLK_LINE_RX; /* RXC input */
+		txs |= CLK_RXCLK_TX; /* RX clock */
 		break;
 
-	default:		
+	default:		/* Clock EXTernal */
 		mcr &= port->phy_node ? ~CLOCK_OUT_PORT1 : ~CLOCK_OUT_PORT0;
-		rxs |= CLK_LINE_RX; 
-		txs |= CLK_LINE_TX; 
+		rxs |= CLK_LINE_RX; /* RXC input */
+		txs |= CLK_LINE_TX; /* TXC input */
 	}
 
 	outb(mcr, io + N2_MCR);
@@ -214,11 +219,11 @@ static int n2_open(struct net_device *dev)
 	if (result)
 		return result;
 
-	mcr &= port->phy_node ? ~DTR_PORT1 : ~DTR_PORT0; 
+	mcr &= port->phy_node ? ~DTR_PORT1 : ~DTR_PORT0; /* set DTR ON */
 	outb(mcr, io + N2_MCR);
 
-	outb(inb(io + N2_PCR) | PCR_ENWIN, io + N2_PCR); 
-	outb(inb(io + N2_PSR) | PSR_DMAEN, io + N2_PSR); 
+	outb(inb(io + N2_PCR) | PCR_ENWIN, io + N2_PCR); /* open window */
+	outb(inb(io + N2_PSR) | PSR_DMAEN, io + N2_PSR); /* enable dma */
 	sca_open(dev);
 	n2_set_iface(port);
 	return 0;
@@ -233,7 +238,7 @@ static int n2_close(struct net_device *dev)
 	u8 mcr = inb(io+N2_MCR) | (port->phy_node ? TX422_PORT1 : TX422_PORT0);
 
 	sca_close(dev);
-	mcr |= port->phy_node ? DTR_PORT1 : DTR_PORT0; 
+	mcr |= port->phy_node ? DTR_PORT1 : DTR_PORT0; /* set DTR OFF */
 	outb(mcr, io + N2_MCR);
 	hdlc_close(dev);
 	return 0;
@@ -261,7 +266,7 @@ static int n2_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	case IF_GET_IFACE:
 		ifr->ifr_settings.type = IF_IFACE_SYNC_SERIAL;
 		if (ifr->ifr_settings.size < size) {
-			ifr->ifr_settings.size = size; 
+			ifr->ifr_settings.size = size; /* data size wanted */
 			return -ENOBUFS;
 		}
 		if (copy_to_user(line, &port->settings, size))
@@ -279,12 +284,12 @@ static int n2_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		    new_line.clock_type != CLOCK_TXFROMRX &&
 		    new_line.clock_type != CLOCK_INT &&
 		    new_line.clock_type != CLOCK_TXINT)
-			return -EINVAL;	
+			return -EINVAL;	/* No such clock setting */
 
 		if (new_line.loopback != 0 && new_line.loopback != 1)
 			return -EINVAL;
 
-		memcpy(&port->settings, &new_line, size); 
+		memcpy(&port->settings, &new_line, size); /* Update settings */
 		n2_set_iface(port);
 		return 0;
 
@@ -342,7 +347,7 @@ static int __init n2_run(unsigned long io, unsigned long irq,
 		return -ENODEV;
 	}
 
-	if (irq < 3 || irq > 15 || irq == 6)  {
+	if (irq < 3 || irq > 15 || irq == 6) /* FIXME */ {
 		pr_err("invalid IRQ value\n");
 		return -ENODEV;
 	}
@@ -418,7 +423,7 @@ static int __init n2_run(unsigned long io, unsigned long irq,
 
 	card->ram_size = sca_detect_ram(card, card->winbase, MAX_RAM_SIZE);
 
-	
+	/* number of TX + RX buffers for one port */
 	i = card->ram_size / ((valid0 + valid1) * (sizeof(pkt_desc) +
 						   HDLC_MAX_MRU));
 
@@ -438,7 +443,7 @@ static int __init n2_run(unsigned long io, unsigned long irq,
 		return -EIO;
 	}
 
-	pcr |= PCR_RUNSCA;		
+	pcr |= PCR_RUNSCA;		/* run SCA */
 	outb(pcr, io + N2_PCR);
 	outb(0, io + N2_MCR);
 
@@ -474,7 +479,7 @@ static int __init n2_run(unsigned long io, unsigned long irq,
 			n2_destroy_card(card);
 			return -ENOBUFS;
 		}
-		sca_init_port(port); 
+		sca_init_port(port); /* Set up SCA memory */
 
 		netdev_info(dev, "RISCom/N2 node %d\n", port->phy_node);
 	}
@@ -493,14 +498,14 @@ static int __init n2_init(void)
 #ifdef MODULE
 		pr_info("no card initialized\n");
 #endif
-		return -EINVAL;	
+		return -EINVAL;	/* no parameters specified, abort */
 	}
 
 	pr_info("%s\n", version);
 
 	do {
 		unsigned long io, irq, ram;
-		long valid[2] = { 0, 0 }; 
+		long valid[2] = { 0, 0 }; /* Default = both ports disabled */
 
 		io = simple_strtoul(hw, &hw, 0);
 
@@ -516,16 +521,16 @@ static int __init n2_init(void)
 			break;
 		while(1) {
 			if (*hw == '0' && !valid[0])
-				valid[0] = 1; 
+				valid[0] = 1; /* Port 0 enabled */
 			else if (*hw == '1' && !valid[1])
-				valid[1] = 1; 
+				valid[1] = 1; /* Port 1 enabled */
 			else
 				break;
 			hw++;
 		}
 
 		if (!valid[0] && !valid[1])
-			break;	
+			break;	/* at least one port must be used */
 
 		if (*hw == ':' || *hw == '\x0')
 			n2_run(io, irq, ram, valid[0], valid[1]);

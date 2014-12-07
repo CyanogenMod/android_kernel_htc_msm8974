@@ -33,8 +33,11 @@
 #ifndef	_C2_STATUS_H_
 #define _C2_STATUS_H_
 
+/*
+ * Verbs Status Codes
+ */
 enum c2_status {
-	C2_OK = 0,		
+	C2_OK = 0,		/* This must be zero */
 	CCERR_INSUFFICIENT_RESOURCES = 1,
 	CCERR_INVALID_MODIFIER = 2,
 	CCERR_INVALID_MODE = 3,
@@ -114,8 +117,8 @@ enum c2_status {
 	CCERR_INVALID_VERSION = 77,
 	CCERR_INVALID_MTU = 78,
 	CCERR_INVALID_IMAGE = 79,
-	CCERR_PENDING = 98,	
-	CCERR_DEFER = 99,	
+	CCERR_PENDING = 98,	/* not an error; user internally by adapter */
+	CCERR_DEFER = 99,	/* not an error; used internally by adapter */
 	CCERR_FAILED_WRITE = 100,
 	CCERR_FAILED_ERASE = 101,
 	CCERR_FAILED_VERIFICATION = 102,
@@ -123,6 +126,9 @@ enum c2_status {
 
 };
 
+/*
+ * CCAE_ACTIVE_CONNECT_RESULTS status result codes.
+ */
 enum c2_connect_status {
 	C2_CONN_STATUS_SUCCESS = C2_OK,
 	C2_CONN_STATUS_NO_MEM = CCERR_INSUFFICIENT_RESOURCES,
@@ -137,6 +143,9 @@ enum c2_connect_status {
 	C2_CONN_STATUS_ADDR_NOT_AVAIL = CCERR_ADDR_NOT_AVAIL,
 };
 
+/*
+ * Flash programming status codes.
+ */
 enum c2_flash_status {
 	C2_FLASH_STATUS_SUCCESS = 0x0000,
 	C2_FLASH_STATUS_VERIFY_ERR = 0x0002,
@@ -146,4 +155,4 @@ enum c2_flash_status {
 	C2_FLASH_STATUS_VPENS = 0x1000,
 };
 
-#endif				
+#endif				/* _C2_STATUS_H_ */

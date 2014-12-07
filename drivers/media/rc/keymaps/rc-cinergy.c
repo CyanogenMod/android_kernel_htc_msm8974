@@ -26,15 +26,15 @@ static struct rc_map_table cinergy[] = {
 	{ 0x09, KEY_9 },
 
 	{ 0x0a, KEY_POWER },
-	{ 0x0b, KEY_MEDIA },		
-	{ 0x0c, KEY_ZOOM },		
-	{ 0x0d, KEY_CHANNELUP },	
-	{ 0x0e, KEY_CHANNELDOWN },	
+	{ 0x0b, KEY_MEDIA },		/* app */
+	{ 0x0c, KEY_ZOOM },		/* zoom/fullscreen */
+	{ 0x0d, KEY_CHANNELUP },	/* channel */
+	{ 0x0e, KEY_CHANNELDOWN },	/* channel- */
 	{ 0x0f, KEY_VOLUMEUP },
 	{ 0x10, KEY_VOLUMEDOWN },
-	{ 0x11, KEY_TUNER },		
-	{ 0x12, KEY_NUMLOCK },		
-	{ 0x13, KEY_AUDIO },		
+	{ 0x11, KEY_TUNER },		/* AV */
+	{ 0x12, KEY_NUMLOCK },		/* -/-- */
+	{ 0x13, KEY_AUDIO },		/* audio */
 	{ 0x14, KEY_MUTE },
 	{ 0x15, KEY_UP },
 	{ 0x16, KEY_DOWN },
@@ -42,7 +42,7 @@ static struct rc_map_table cinergy[] = {
 	{ 0x18, KEY_RIGHT },
 	{ 0x19, BTN_LEFT, },
 	{ 0x1a, BTN_RIGHT, },
-	{ 0x1b, KEY_WWW },		
+	{ 0x1b, KEY_WWW },		/* text */
 	{ 0x1c, KEY_REWIND },
 	{ 0x1d, KEY_FORWARD },
 	{ 0x1e, KEY_RECORD },
@@ -57,7 +57,7 @@ static struct rc_map_list cinergy_map = {
 	.map = {
 		.scan    = cinergy,
 		.size    = ARRAY_SIZE(cinergy),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_CINERGY,
 	}
 };

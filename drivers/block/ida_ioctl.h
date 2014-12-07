@@ -38,6 +38,14 @@ typedef struct _ida_pci_info_struct
 	unsigned char 	dev_fn;
 	__u32 		board_id;
 } ida_pci_info_struct;
+/*
+ * Normally, the ioctl determines the logical unit for this command by
+ * the major,minor number of the fd passed to ioctl.  If you need to send
+ * a command to a different/nonexistant unit (such as during config), you
+ * can override the normal behavior by setting the unit valid bit. (Normally,
+ * it should be zero) The controller the command is sent to is still
+ * determined by the major number of the open device.
+ */
 
 #define UNITVALID	0x80
 typedef struct {
@@ -47,6 +55,7 @@ typedef struct {
 	__u32	blk;
 	__u16	blk_cnt;
 
+/* currently, sg_cnt is assumed to be 1: only the 0th element of sg is used */
 	struct {
 		void	__user *addr;
 		size_t	size;
@@ -75,4 +84,4 @@ typedef struct {
 	} c;
 } ida_ioctl_t;
 
-#endif 
+#endif /* IDA_IOCTL_H */

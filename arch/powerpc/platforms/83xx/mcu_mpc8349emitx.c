@@ -26,6 +26,10 @@
 #include <asm/prom.h>
 #include <asm/machdep.h>
 
+/*
+ * I don't have specifications for the MCU firmware, I found this register
+ * and bits positions by the trial&error method.
+ */
 #define MCU_REG_CTRL	0x20
 #define MCU_CTRL_POFF	0x40
 #define MCU_CTRL_BTN	0x80
@@ -164,7 +168,7 @@ static int __devinit mcu_probe(struct i2c_client *client,
 	if (ret)
 		goto err;
 
-	
+	/* XXX: this is potentially racy, but there is no lock for ppc_md */
 	if (!ppc_md.power_off) {
 		glob_mcu = mcu;
 		ppc_md.power_off = mcu_power_off;

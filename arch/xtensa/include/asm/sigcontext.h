@@ -25,4 +25,4 @@ struct sigcontext {
 	void *sc_xtregs;
 };
 
-#endif 
+#endif /* _XTENSA_SIGCONTEXT_H */

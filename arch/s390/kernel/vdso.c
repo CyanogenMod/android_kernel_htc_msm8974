@@ -44,8 +44,12 @@ extern char vdso64_start, vdso64_end;
 static void *vdso64_kbase = &vdso64_start;
 static unsigned int vdso64_pages;
 static struct page **vdso64_pagelist;
-#endif 
+#endif /* CONFIG_64BIT */
 
+/*
+ * Should the kernel map a VDSO page into processes and pass its
+ * address down to glibc upon exec()?
+ */
 unsigned int __read_mostly vdso_enabled = 1;
 
 static int __init vdso_setup(char *s)
@@ -66,18 +70,27 @@ static int __init vdso_setup(char *s)
 }
 __setup("vdso=", vdso_setup);
 
+/*
+ * The vdso data page
+ */
 static union {
 	struct vdso_data	data;
 	u8			page[PAGE_SIZE];
 } vdso_data_store __page_aligned_data;
 struct vdso_data *vdso_data = &vdso_data_store.data;
 
+/*
+ * Setup vdso data page.
+ */
 static void vdso_init_data(struct vdso_data *vd)
 {
 	vd->ectg_available = user_mode != HOME_SPACE_MODE && test_facility(31);
 }
 
 #ifdef CONFIG_64BIT
+/*
+ * Allocate/free per cpu vdso data.
+ */
 #define SEGMENT_ORDER	2
 
 int vdso_alloc_per_cpu(struct _lowcore *lowcore)
@@ -156,8 +169,12 @@ static void vdso_init_cr5(void)
 	cr5 = offsetof(struct _lowcore, paste);
 	__ctl_load(cr5, 5, 5);
 }
-#endif 
+#endif /* CONFIG_64BIT */
 
+/*
+ * This is called from binfmt_elf, we create the special vma for the
+ * vDSO and insert it into the mm struct tree
+ */
 int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 {
 	struct mm_struct *mm = current->mm;
@@ -168,6 +185,9 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 
 	if (!vdso_enabled)
 		return 0;
+	/*
+	 * Only map the vdso for dynamically linked elf binaries.
+	 */
 	if (!uses_interp)
 		return 0;
 
@@ -185,11 +205,20 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 	vdso_pages = vdso32_pages;
 #endif
 
+	/*
+	 * vDSO has a problem and was disabled, just don't "enable" it for
+	 * the process
+	 */
 	if (vdso_pages == 0)
 		return 0;
 
 	current->mm->context.vdso_base = 0;
 
+	/*
+	 * pick a base address for the vDSO in process space. We try to put
+	 * it at vdso_base which is the "natural" base for it, but we might
+	 * fail and end up putting it elsewhere.
+	 */
 	down_write(&mm->mmap_sem);
 	vdso_base = get_unmapped_area(NULL, 0, vdso_pages << PAGE_SHIFT, 0, 0);
 	if (IS_ERR_VALUE(vdso_base)) {
@@ -197,8 +226,23 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 		goto out_up;
 	}
 
+	/*
+	 * Put vDSO base into mm struct. We need to do this before calling
+	 * install_special_mapping or the perf counter mmap tracking code
+	 * will fail to recognise it as a vDSO (since arch_vma_name fails).
+	 */
 	current->mm->context.vdso_base = vdso_base;
 
+	/*
+	 * our vma flags don't have VM_WRITE so by default, the process
+	 * isn't allowed to write those pages.
+	 * gdb can break that with ptrace interface, and thus trigger COW
+	 * on those pages but it's then your responsibility to never do that
+	 * on the "data" page of the vDSO or you'll stop getting kernel
+	 * updates and your nice userland gettimeofday will be totally dead.
+	 * It's fine to use that for setting breakpoints in the vDSO code
+	 * pages though.
+	 */
 	rc = install_special_mapping(mm, vdso_base, vdso_pages << PAGE_SHIFT,
 				     VM_READ|VM_EXEC|
 				     VM_MAYREAD|VM_MAYWRITE|VM_MAYEXEC,
@@ -225,11 +269,11 @@ static int __init vdso_init(void)
 		return 0;
 	vdso_init_data(vdso_data);
 #if defined(CONFIG_32BIT) || defined(CONFIG_COMPAT)
-	
+	/* Calculate the size of the 32 bit vDSO */
 	vdso32_pages = ((&vdso32_end - &vdso32_start
 			 + PAGE_SIZE - 1) >> PAGE_SHIFT) + 1;
 
-	
+	/* Make sure pages are in the correct state */
 	vdso32_pagelist = kzalloc(sizeof(struct page *) * (vdso32_pages + 1),
 				  GFP_KERNEL);
 	BUG_ON(vdso32_pagelist == NULL);
@@ -244,11 +288,11 @@ static int __init vdso_init(void)
 #endif
 
 #ifdef CONFIG_64BIT
-	
+	/* Calculate the size of the 64 bit vDSO */
 	vdso64_pages = ((&vdso64_end - &vdso64_start
 			 + PAGE_SIZE - 1) >> PAGE_SHIFT) + 1;
 
-	
+	/* Make sure pages are in the correct state */
 	vdso64_pagelist = kzalloc(sizeof(struct page *) * (vdso64_pages + 1),
 				  GFP_KERNEL);
 	BUG_ON(vdso64_pagelist == NULL);
@@ -263,7 +307,7 @@ static int __init vdso_init(void)
 	if (vdso_alloc_per_cpu(&S390_lowcore))
 		BUG();
 	vdso_init_cr5();
-#endif 
+#endif /* CONFIG_64BIT */
 
 	get_page(virt_to_page(vdso_data));
 

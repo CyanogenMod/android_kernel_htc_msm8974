@@ -19,6 +19,9 @@ extern void gpio_set_value(unsigned gpio, int value);
 extern int gpio_get_value(unsigned gpio);
 extern int gpio_cansleep(unsigned gpio);
 
+/* The chip can do interrupt
+ * but it has not been tested and doc not clear
+ */
 static inline int gpio_to_irq(int gpio)
 {
 	return -EINVAL;
@@ -29,4 +32,4 @@ static inline int irq_to_gpio(int gpio)
 	return -EINVAL;
 }
 
-#endif				
+#endif				/* __STLS2F_GPIO_H */

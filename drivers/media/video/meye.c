@@ -50,21 +50,28 @@ MODULE_DESCRIPTION("v4l2 driver for the MotionEye camera");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(MEYE_DRIVER_VERSION);
 
+/* number of grab buffers */
 static unsigned int gbuffers = 2;
 module_param(gbuffers, int, 0444);
 MODULE_PARM_DESC(gbuffers, "number of capture buffers, default is 2 (32 max)");
 
+/* size of a grab buffer */
 static unsigned int gbufsize = MEYE_MAX_BUFSIZE;
 module_param(gbufsize, int, 0444);
 MODULE_PARM_DESC(gbufsize, "size of the capture buffers, default is 614400"
 		 " (will be rounded up to a page multiple)");
 
+/* /dev/videoX registration number */
 static int video_nr = -1;
 module_param(video_nr, int, 0444);
 MODULE_PARM_DESC(video_nr, "video device to register (0=/dev/video0, etc)");
 
+/* driver structure - only one possible */
 static struct meye meye;
 
+/****************************************************************************/
+/* Memory allocation routines (stolen from bttv-driver.c)                   */
+/****************************************************************************/
 static void *rvmalloc(unsigned long size)
 {
 	void *mem;
@@ -99,6 +106,12 @@ static void rvfree(void * mem, unsigned long size)
 	}
 }
 
+/*
+ * return a page table pointing to N pages of locked memory
+ *
+ * NOTE: The meye device expects DMA addresses on 32 bits, we build
+ * a table of 1024 entries = 4 bytes * 1024 = 4096 bytes.
+ */
 static int ptable_alloc(void)
 {
 	u32 *pt;
@@ -106,7 +119,7 @@ static int ptable_alloc(void)
 
 	memset(meye.mchip_ptable, 0, sizeof(meye.mchip_ptable));
 
-	
+	/* give only 32 bit DMA addresses */
 	if (dma_set_mask(&meye.mchip_dev->dev, DMA_BIT_MASK(32)))
 		return -1;
 
@@ -176,6 +189,7 @@ static void ptable_free(void)
 	meye.mchip_dmahandle = 0;
 }
 
+/* copy data from ptable into buf */
 static void ptable_copy(u8 *buf, int start, int size, int pt_pages)
 {
 	int i;
@@ -188,7 +202,11 @@ static void ptable_copy(u8 *buf, int start, int size, int pt_pages)
 	memcpy(buf + i, meye.mchip_ptable[start], size % PAGE_SIZE);
 }
 
+/****************************************************************************/
+/* JPEG tables at different qualities to load into the VRJ chip             */
+/****************************************************************************/
 
+/* return a set of quantisation tables based on a quality from 1 to 10 */
 static u16 *jpeg_quantisation_tables(int *length, int quality)
 {
 	static u16 jpeg_tables[][70] = { {
@@ -334,6 +352,7 @@ static u16 *jpeg_quantisation_tables(int *length, int quality)
 	return jpeg_tables[quality];
 }
 
+/* return a generic set of huffman tables */
 static u16 *jpeg_huffman_tables(int *length)
 {
 	static u16 tables[] = {
@@ -373,17 +392,23 @@ static u16 *jpeg_huffman_tables(int *length)
 	return tables;
 }
 
+/****************************************************************************/
+/* MCHIP low-level functions                                                */
+/****************************************************************************/
 
+/* returns the horizontal capture size */
 static inline int mchip_hsize(void)
 {
 	return meye.params.subsample ? 320 : 640;
 }
 
+/* returns the vertical capture size */
 static inline int mchip_vsize(void)
 {
 	return meye.params.subsample ? 240 : 480;
 }
 
+/* waits for a register to be available */
 static void mchip_sync(int reg)
 {
 	u32 status;
@@ -417,18 +442,21 @@ static void mchip_sync(int reg)
 	       reg, status);
 }
 
+/* sets a value into the register */
 static inline void mchip_set(int reg, u32 v)
 {
 	mchip_sync(reg);
 	writel(v, meye.mchip_mmregs + reg);
 }
 
+/* get the register value */
 static inline u32 mchip_read(int reg)
 {
 	mchip_sync(reg);
 	return readl(meye.mchip_mmregs + reg);
 }
 
+/* wait for a register to become a particular value */
 static inline int mchip_delay(u32 reg, u32 v)
 {
 	int n = 10;
@@ -437,6 +465,7 @@ static inline int mchip_delay(u32 reg, u32 v)
 	return n;
 }
 
+/* setup subsampling */
 static void mchip_subsample(void)
 {
 	mchip_set(MCHIP_MCC_R_SAMPLING, meye.params.subsample);
@@ -447,11 +476,14 @@ static void mchip_subsample(void)
 	mchip_delay(MCHIP_HIC_STATUS, MCHIP_HIC_STATUS_IDLE);
 }
 
+/* set the framerate into the mchip */
 static void mchip_set_framerate(void)
 {
 	mchip_set(MCHIP_HIC_S_RATE, meye.params.framerate);
 }
 
+/* load some huffman and quantisation tables into the VRJ chip ready
+   for JPEG compression */
 static void mchip_load_tables(void)
 {
 	int i;
@@ -467,6 +499,7 @@ static void mchip_load_tables(void)
 		writel(tables[i], meye.mchip_mmregs + MCHIP_VRJ_TABLE_DATA);
 }
 
+/* setup the VRJ parameters in the chip */
 static void mchip_vrj_setup(u8 mode)
 {
 	mchip_set(MCHIP_VRJ_BUS_MODE, 5);
@@ -490,6 +523,7 @@ static void mchip_vrj_setup(u8 mode)
 	mchip_load_tables();
 }
 
+/* sets the DMA parameters into the chip */
 static void mchip_dma_setup(dma_addr_t dma_addr)
 {
 	int i;
@@ -500,6 +534,7 @@ static void mchip_dma_setup(dma_addr_t dma_addr)
 	meye.mchip_fnum = 0;
 }
 
+/* setup for DMA transfers - also zeros the framebuffer */
 static int mchip_dma_alloc(void)
 {
 	if (!meye.mchip_dmahandle)
@@ -508,6 +543,7 @@ static int mchip_dma_alloc(void)
 	return 0;
 }
 
+/* frees the DMA buffer */
 static void mchip_dma_free(void)
 {
 	if (meye.mchip_dmahandle) {
@@ -516,6 +552,8 @@ static void mchip_dma_free(void)
 	}
 }
 
+/* stop any existing HIC action and wait for any dma to complete then
+   reset the dma engine */
 static void mchip_hic_stop(void)
 {
 	int i, j;
@@ -540,7 +578,11 @@ static void mchip_hic_stop(void)
 	printk(KERN_ERR "meye: resetting HIC hanged!\n");
 }
 
+/****************************************************************************/
+/* MCHIP frame processing functions                                         */
+/****************************************************************************/
 
+/* get the next ready frame from the dma engine */
 static u32 mchip_get_frame(void)
 {
 	u32 v;
@@ -549,6 +591,7 @@ static u32 mchip_get_frame(void)
 	return v;
 }
 
+/* frees the current frame from the dma engine */
 static void mchip_free_frame(void)
 {
 	mchip_set(MCHIP_MM_FIR(meye.mchip_fnum), 0);
@@ -556,6 +599,8 @@ static void mchip_free_frame(void)
 	meye.mchip_fnum %= 4;
 }
 
+/* read one frame from the framebuffer assuming it was captured using
+   a uncompressed transfer */
 static void mchip_cont_read_frame(u32 v, u8 *buf, int size)
 {
 	int pt_id;
@@ -565,6 +610,7 @@ static void mchip_cont_read_frame(u32 v, u8 *buf, int size)
 	ptable_copy(buf, pt_id, size, MCHIP_NB_PAGES);
 }
 
+/* read a compressed frame from the framebuffer */
 static int mchip_comp_read_frame(u32 v, u8 *buf, int size)
 {
 	int pt_start, pt_end, trailer;
@@ -591,6 +637,13 @@ static int mchip_comp_read_frame(u32 v, u8 *buf, int size)
 
 #ifdef MEYE_JPEG_CORRECTION
 
+	/* Some mchip generated jpeg frames are incorrect. In most
+	 * (all ?) of those cases, the final EOI (0xff 0xd9) marker
+	 * is not present at the end of the frame.
+	 *
+	 * Since adding the final marker is not enough to restore
+	 * the jpeg integrity, we drop the frame.
+	 */
 
 	for (i = fsize - 1; i > 0 && buf[i] == 0xff; i--) ;
 
@@ -602,6 +655,7 @@ static int mchip_comp_read_frame(u32 v, u8 *buf, int size)
 	return fsize;
 }
 
+/* take a picture into SDRAM */
 static void mchip_take_picture(void)
 {
 	int i;
@@ -622,6 +676,7 @@ static void mchip_take_picture(void)
 	}
 }
 
+/* dma a previously taken picture into a buffer */
 static void mchip_get_picture(u8 *buf, int bufsize)
 {
 	u32 v;
@@ -646,6 +701,7 @@ static void mchip_get_picture(u8 *buf, int bufsize)
 	}
 }
 
+/* start continuous dma capture */
 static void mchip_continuous_start(void)
 {
 	mchip_hic_stop();
@@ -661,6 +717,7 @@ static void mchip_continuous_start(void)
 	mchip_delay(MCHIP_HIC_CMD, 0);
 }
 
+/* compress one frame into a buffer */
 static int mchip_compress_frame(u8 *buf, int bufsize)
 {
 	u32 v;
@@ -691,6 +748,7 @@ static int mchip_compress_frame(u8 *buf, int bufsize)
 }
 
 #if 0
+/* uncompress one image into a buffer */
 static int mchip_uncompress_frame(u8 *img, int imgsize, u8 *buf, int bufsize)
 {
 	mchip_vrj_setup(0x3f);
@@ -705,6 +763,7 @@ static int mchip_uncompress_frame(u8 *img, int imgsize, u8 *buf, int bufsize)
 }
 #endif
 
+/* start continuous compressed capture */
 static void mchip_cont_compression_start(void)
 {
 	mchip_hic_stop();
@@ -721,6 +780,9 @@ static void mchip_cont_compression_start(void)
 	mchip_delay(MCHIP_HIC_CMD, 0);
 }
 
+/****************************************************************************/
+/* Interrupt handling                                                       */
+/****************************************************************************/
 
 static irqreturn_t meye_irq(int irq, void *dev_id)
 {
@@ -780,6 +842,9 @@ again:
 	goto again;
 }
 
+/****************************************************************************/
+/* video4linux integration                                                  */
+/****************************************************************************/
 
 static int meye_open(struct file *file)
 {
@@ -835,7 +900,7 @@ static int meyeioc_s_params(struct meye_params *jp)
 
 	if (meye.params.subsample != jp->subsample ||
 	    meye.params.quality != jp->quality)
-		mchip_hic_stop();	
+		mchip_hic_stop();	/* need restart */
 
 	meye.params = *jp;
 	sony_pic_camera_command(SONY_PIC_COMMAND_SETCAMERASHARPNESS,
@@ -858,7 +923,7 @@ static int meyeioc_qbuf_capt(int *nb)
 		return -EINVAL;
 
 	if (*nb < 0) {
-		
+		/* stop capture */
 		mchip_hic_stop();
 		return 0;
 	}
@@ -902,7 +967,7 @@ static int meyeioc_sync(struct file *file, void *fh, int *i)
 			mutex_unlock(&meye.lock);
 			return -EINTR;
 		}
-		
+		/* fall through */
 	case MEYE_BUF_DONE:
 		meye.grab_buffer[*i].state = MEYE_BUF_UNUSED;
 		if (kfifo_out_locked(&meye.doneq, (unsigned char *)&unused,
@@ -1057,6 +1122,9 @@ static int vidioc_queryctrl(struct file *file, void *fh,
 		c->step = 1;
 		c->default_value = 32;
 
+		/* Continue to report legacy private SHARPNESS ctrl but
+		 * say it is disabled in preference to ctrl in the spec
+		 */
 		c->flags = (c->id == V4L2_CID_SHARPNESS) ? 0 :
 						V4L2_CTRL_FLAG_DISABLED;
 		break;
@@ -1197,12 +1265,12 @@ static int vidioc_enum_fmt_vid_cap(struct file *file, void *fh,
 		return -EINVAL;
 
 	if (f->index == 0) {
-		
+		/* standard YUV 422 capture */
 		f->flags = 0;
 		strcpy(f->description, "YUV422");
 		f->pixelformat = V4L2_PIX_FMT_YUYV;
 	} else {
-		
+		/* compressed MJPEG capture */
 		f->flags = V4L2_FMT_FLAG_COMPRESSED;
 		strcpy(f->description, "MJPEG");
 		f->pixelformat = V4L2_PIX_FMT_MJPEG;
@@ -1316,7 +1384,7 @@ static int vidioc_reqbufs(struct file *file, void *fh,
 		return -EINVAL;
 
 	if (meye.grab_fbuffer && req->count == gbuffers) {
-		
+		/* already allocated, no modifications */
 		return 0;
 	}
 
@@ -1551,7 +1619,7 @@ static int meye_mmap(struct file *file, struct vm_area_struct *vma)
 	if (!meye.grab_fbuffer) {
 		int i;
 
-		
+		/* lazy allocation */
 		meye.grab_fbuffer = rvmalloc(gbuffers*gbufsize);
 		if (!meye.grab_fbuffer) {
 			printk(KERN_ERR "meye: v4l framebuffer allocation failed\n");
@@ -1578,8 +1646,8 @@ static int meye_mmap(struct file *file, struct vm_area_struct *vma)
 	}
 
 	vma->vm_ops = &meye_vm_ops;
-	vma->vm_flags &= ~VM_IO;	
-	vma->vm_flags |= VM_RESERVED;	
+	vma->vm_flags &= ~VM_IO;	/* not I/O memory */
+	vma->vm_flags |= VM_RESERVED;	/* avoid to swap out this VMA */
 	vma->vm_private_data = (void *) (offset / gbufsize);
 	meye_vm_open(vma);
 
@@ -1749,7 +1817,7 @@ static int __devinit meye_probe(struct pci_dev *pcidev,
 
 	pci_set_master(meye.mchip_dev);
 
-	
+	/* Ask the camera to perform a soft reset. */
 	pci_write_config_word(meye.mchip_dev, MCHIP_PCI_SOFTRESET_SET, 1);
 
 	mchip_delay(MCHIP_HIC_CMD, 0);
@@ -1829,7 +1897,7 @@ static void __devexit meye_remove(struct pci_dev *pcidev)
 
 	mchip_dma_free();
 
-	
+	/* disable interrupts */
 	mchip_set(MCHIP_MM_INTA, 0x0);
 
 	free_irq(meye.mchip_irq, meye_irq);

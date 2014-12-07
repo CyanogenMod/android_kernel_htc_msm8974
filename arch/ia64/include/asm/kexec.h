@@ -3,12 +3,16 @@
 
 #include <asm/setup.h>
 
+/* Maximum physical address we can use pages from */
 #define KEXEC_SOURCE_MEMORY_LIMIT (-1UL)
+/* Maximum address we can reach in physical address mode */
 #define KEXEC_DESTINATION_MEMORY_LIMIT (-1UL)
+/* Maximum address we can use for the control code buffer */
 #define KEXEC_CONTROL_MEMORY_LIMIT TASK_SIZE
 
 #define KEXEC_CONTROL_PAGE_SIZE (8192 + 8192 + 4096)
 
+/* The native architecture */
 #define KEXEC_ARCH KEXEC_ARCH_IA_64
 
 #define kexec_flush_icache_page(page) do { \
@@ -38,4 +42,4 @@ extern int kdump_status[];
 extern atomic_t kdump_cpu_freezed;
 extern atomic_t kdump_in_progress;
 
-#endif 
+#endif /* _ASM_IA64_KEXEC_H */

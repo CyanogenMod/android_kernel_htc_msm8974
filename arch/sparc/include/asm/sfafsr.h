@@ -3,6 +3,7 @@
 
 #include <linux/const.h>
 
+/* Spitfire Asynchronous Fault Status register, ASI=0x4C VA<63:0>=0x0 */
 
 #define SFAFSR_ME		(_AC(1,UL) << SFAFSR_ME_SHIFT)
 #define SFAFSR_ME_SHIFT		32
@@ -35,11 +36,25 @@
 #define SFAFSR_PSYND		(_AC(0xffff,UL) << SFAFSR_PSYND_SHIFT)
 #define SFAFSR_PSYND_SHIFT	0
 
+/* UDB Error Register, ASI=0x7f VA<63:0>=0x0(High),0x18(Low) for read
+ *                     ASI=0x77 VA<63:0>=0x0(High),0x18(Low) for write
+ */
 
 #define UDBE_UE			(_AC(1,UL) << 9)
 #define UDBE_CE			(_AC(1,UL) << 8)
 #define UDBE_E_SYNDR		(_AC(0xff,UL) << 0)
 
+/* The trap handlers for asynchronous errors encode the AFSR and
+ * other pieces of information into a 64-bit argument for C code
+ * encoded as follows:
+ *
+ * -----------------------------------------------
+ * |  UDB_H  |  UDB_L  | TL>1  |  TT  |   AFSR   |
+ * -----------------------------------------------
+ *  63     54 53     44    42   41  33 32       0
+ *
+ * The AFAR is passed in unchanged.
+ */
 #define SFSTAT_UDBH_MASK	(_AC(0x3ff,UL) << SFSTAT_UDBH_SHIFT)
 #define SFSTAT_UDBH_SHIFT	54
 #define SFSTAT_UDBL_MASK	(_AC(0x3ff,UL) << SFSTAT_UDBH_SHIFT)
@@ -51,15 +66,17 @@
 #define SFSTAT_AFSR_MASK	(_AC(0x1ffffffff,UL) << SFSTAT_AFSR_SHIFT)
 #define SFSTAT_AFSR_SHIFT	0
 
-#define ESTATE_ERR_CE		0x1 
-#define ESTATE_ERR_NCE		0x2 
-#define ESTATE_ERR_ISAP		0x4 
+/* ESTATE Error Enable Register, ASI=0x4b VA<63:0>=0x0 */
+#define ESTATE_ERR_CE		0x1 /* Correctable errors                    */
+#define ESTATE_ERR_NCE		0x2 /* TO, BERR, LDP, ETP, EDP, WP, UE, IVUE */
+#define ESTATE_ERR_ISAP		0x4 /* System address parity error           */
 #define ESTATE_ERR_ALL		(ESTATE_ERR_CE | \
 				 ESTATE_ERR_NCE | \
 				 ESTATE_ERR_ISAP)
 
-#define TRAP_TYPE_IAE		0x09 
-#define TRAP_TYPE_DAE		0x32 
-#define TRAP_TYPE_CEE		0x63 
+/* The various trap types that report using the above state. */
+#define TRAP_TYPE_IAE		0x09 /* Instruction Access Error             */
+#define TRAP_TYPE_DAE		0x32 /* Data Access Error                    */
+#define TRAP_TYPE_CEE		0x63 /* Correctable ECC Error                */
 
-#endif 
+#endif /* _SPARC64_SFAFSR_H */

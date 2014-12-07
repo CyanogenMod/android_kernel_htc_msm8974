@@ -1,3 +1,8 @@
+/*
+ *      linux/arch/alpha/kernel/core_polaris.c
+ *
+ * POLARIS chip-specific code
+ */
 
 #define __EXTERN_INLINE inline
 #include <asm/io.h>
@@ -14,6 +19,9 @@
 #include "proto.h"
 #include "pci_impl.h"
 
+/*
+ * BIOS32-style PCI interface:
+ */
 
 #define DEBUG_CONFIG 0
 
@@ -24,6 +32,35 @@
 #endif
 
 
+/*
+ * Given a bus, device, and function number, compute resulting
+ * configuration space address.  This is fairly straightforward
+ * on POLARIS, since the chip itself generates Type 0 or Type 1
+ * cycles automatically depending on the bus number (Bus 0 is
+ * hardwired to Type 0, all others are Type 1.  Peer bridges
+ * are not supported).
+ *
+ * All types:
+ *
+ *  3 3 3 3|3 3 3 3|3 3 2 2|2 2 2 2|2 2 2 2|1 1 1 1|1 1 1 1|1 1 
+ *  9 8 7 6|5 4 3 2|1 0 9 8|7 6 5 4|3 2 1 0|9 8 7 6|5 4 3 2|1 0 9 8|7 6 5 4|3 2 1 0
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |1|1|1|1|1|0|0|1|1|1|1|1|1|1|1|0|B|B|B|B|B|B|B|B|D|D|D|D|D|F|F|F|R|R|R|R|R|R|x|x|
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ *	23:16	bus number (8 bits = 128 possible buses)
+ *	15:11	Device number (5 bits)
+ *	10:8	function number
+ *	 7:2	register number
+ *  
+ * Notes:
+ *	The function number selects which function of a multi-function device 
+ *	(e.g., scsi and ethernet).
+ * 
+ *	The register selects a DWORD (32 bit) register offset.  Hence it
+ *	doesn't get shifted by 2 bits as we want to "drop" the bottom two
+ *	bits.
+ */
 
 static int
 mk_conf_addr(struct pci_bus *pbus, unsigned int device_fn, int where,
@@ -110,10 +147,17 @@ polaris_init_arch(void)
 {
 	struct pci_controller *hose;
 
+	/* May need to initialize error reporting (see PCICTL0/1), but
+	 * for now assume that the firmware has done the right thing
+	 * already.
+	 */
 #if 0
 	printk("polaris_init_arch(): trusting firmware for setup\n");
 #endif
 
+	/*
+	 * Create our single hose.
+	 */
 
 	pci_isa_hose = hose = alloc_pci_controller();
 	hose->io_space = &ioport_resource;
@@ -127,7 +171,7 @@ polaris_init_arch(void)
 
 	hose->sg_isa = hose->sg_pci = NULL;
 
-	
+	/* The I/O window is fixed at 2G @ 2G.  */
 	__direct_map_base = 0x80000000;
 	__direct_map_size = 0x80000000;
 }
@@ -136,7 +180,7 @@ static inline void
 polaris_pci_clr_err(void)
 {
 	*(vusp)POLARIS_W_STATUS;
-	
+	/* Write 1's to settable bits to clear errors */
 	*(vusp)POLARIS_W_STATUS = 0x7800;
 	mb();
 	*(vusp)POLARIS_W_STATUS;
@@ -145,7 +189,7 @@ polaris_pci_clr_err(void)
 void
 polaris_machine_check(unsigned long vector, unsigned long la_ptr)
 {
-	
+	/* Clear the error before any reporting.  */
 	mb();
 	mb();
 	draina();

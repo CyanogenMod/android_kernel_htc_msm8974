@@ -1,3 +1,12 @@
+/*
+ * 802_3
+ *
+ * Author:
+ * Chris Vitale csv@bluetail.com
+ *
+ * May 2003
+ *
+ */
 #include <linux/module.h>
 #include <linux/netfilter/x_tables.h>
 #include <linux/netfilter_bridge/ebtables.h>

@@ -8,6 +8,9 @@
 
 #define KALLSYMS_MAGIC			(0xA0B1C2D3)
 
+/*
+ * the structure of `kallsyms_data' must be consisent with bootloader
+ */
 struct kallsyms_data {
 	unsigned int magic;
 	unsigned int addresses;
@@ -22,6 +25,9 @@ struct kallsyms_data {
 	unsigned int end;
 };
 
+/*
+ * export the nessararily symbols from kallsyms.c
+ */
 extern const unsigned long kallsyms_addresses[] __attribute__((weak));
 extern const u8 kallsyms_names[] __attribute__((weak));
 extern const unsigned long kallsyms_num_syms
@@ -65,7 +71,7 @@ static int __init kallsyms_addr_export(void)
 	struct htc_debug_info_data info;
 	struct kallsyms_data* data;
 
-	
+	/* Retrieve various information from the /htc_debug_info node */
 	of_scan_flat_dt(dt_scan_htc_debug_info, &info);
 	pr_debug("%s: &info: %08x\n",       __func__, (unsigned int) &info);
 	pr_debug("%s: info->start: %08x\n", __func__, info.start);

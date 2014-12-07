@@ -32,10 +32,16 @@ static void vlsapic_write_xtp(struct kvm_vcpu *v, uint8_t val)
 	VLSAPIC_XTP(v) = val;
 }
 
+/*
+ * LSAPIC OFFSET
+ */
 #define PIB_LOW_HALF(ofst)     !(ofst & (1 << 20))
 #define PIB_OFST_INTA          0x1E0000
 #define PIB_OFST_XTP           0x1E0008
 
+/*
+ * execute write IPI op.
+ */
 static void vlsapic_write_ipi(struct kvm_vcpu *vcpu,
 					uint64_t addr, uint64_t data)
 {
@@ -71,13 +77,13 @@ void lsapic_write(struct kvm_vcpu *v, unsigned long addr,
 		break;
 	default:
 		if (PIB_LOW_HALF(addr)) {
-			
+			/*Lower half */
 			if (length != 8)
 				panic_vm(v, "Can't LHF write with size %ld!\n",
 						length);
 			else
 				vlsapic_write_ipi(v, addr, val);
-		} else {   
+		} else {   /*Upper half */
 			panic_vm(v, "IPI-UHF write %lx\n", addr);
 		}
 		break;
@@ -93,8 +99,8 @@ unsigned long lsapic_read(struct kvm_vcpu *v, unsigned long addr,
 
 	switch (addr) {
 	case PIB_OFST_INTA:
-		if (length == 1) 
-			; 
+		if (length == 1) /* 1 byte load */
+			; /* There is no i8259, there is no INTA access*/
 		else
 			panic_vm(v, "Undefined read on PIB INTA\n");
 
@@ -124,7 +130,7 @@ static void mmio_access(struct kvm_vcpu *vcpu, u64 src_pa, u64 *dest,
 
 	local_irq_save(psr);
 
-	
+	/*Intercept the access for PIB range*/
 	if (iot == GPFN_PIB) {
 		if (!dir)
 			lsapic_write(vcpu, src_pa, s, *dest);
@@ -143,7 +149,7 @@ static void mmio_access(struct kvm_vcpu *vcpu, u64 src_pa, u64 *dest,
 
 	if (p->u.ioreq.state == STATE_IORESP_READY) {
 		if (dir == IOREQ_READ)
-			
+			/* it's necessary to ensure zero extending */
 			*dest = p->u.ioreq.data & (~0UL >> (64-(s*8)));
 	} else
 		panic_vm(vcpu, "Unhandled mmio access returned!\n");
@@ -152,8 +158,12 @@ out:
 	return ;
 }
 
-#define SL_INTEGER	0	
-#define SL_FLOATING	1     	
+/*
+   dir 1: read 0:write
+   inst_type 0:integer 1:floating point
+ */
+#define SL_INTEGER	0	/* store/load interger*/
+#define SL_FLOATING	1     	/* store/load floating*/
 
 void emulate_io_inst(struct kvm_vcpu *vcpu, u64 padr, u64 ma)
 {
@@ -169,7 +179,7 @@ void emulate_io_inst(struct kvm_vcpu *vcpu, u64 padr, u64 ma)
 	regs = vcpu_regs(vcpu);
 
 	if (fetch_code(vcpu, regs->cr_iip, &bundle)) {
-		
+		/* if fetch code fail, return and try again */
 		return;
 	}
 	slot = ((struct ia64_psr *)&(regs->cr_ipsr))->ri;
@@ -182,20 +192,20 @@ void emulate_io_inst(struct kvm_vcpu *vcpu, u64 padr, u64 ma)
 	} else if (slot == 2)
 		inst.inst = bundle.slot2;
 
-	
+	/* Integer Load/Store */
 	if (inst.M1.major == 4 && inst.M1.m == 0 && inst.M1.x == 0) {
 		inst_type = SL_INTEGER;
 		size = (inst.M1.x6 & 0x3);
 		if ((inst.M1.x6 >> 2) > 0xb) {
-			
+			/*write*/
 			dir = IOREQ_WRITE;
 			data = vcpu_get_gr(vcpu, inst.M4.r2);
 		} else if ((inst.M1.x6 >> 2) < 0xb) {
-			
+			/*read*/
 			dir = IOREQ_READ;
 		}
 	} else if (inst.M2.major == 4 && inst.M2.m == 1 && inst.M2.x == 0) {
-		
+		/* Integer Load + Reg update */
 		inst_type = SL_INTEGER;
 		dir = IOREQ_READ;
 		size = (inst.M2.x6 & 0x3);
@@ -204,11 +214,11 @@ void emulate_io_inst(struct kvm_vcpu *vcpu, u64 padr, u64 ma)
 		temp += update_reg;
 		vcpu_set_gr(vcpu, inst.M2.r3, temp, 0);
 	} else if (inst.M3.major == 5) {
-		
+		/*Integer Load/Store + Imm update*/
 		inst_type = SL_INTEGER;
 		size = (inst.M3.x6&0x3);
 		if ((inst.M5.x6 >> 2) > 0xb) {
-			
+			/*write*/
 			dir = IOREQ_WRITE;
 			data = vcpu_get_gr(vcpu, inst.M5.r2);
 			temp = vcpu_get_gr(vcpu, inst.M5.r3);
@@ -218,7 +228,7 @@ void emulate_io_inst(struct kvm_vcpu *vcpu, u64 padr, u64 ma)
 			vcpu_set_gr(vcpu, inst.M5.r3, temp, 0);
 
 		} else if ((inst.M3.x6 >> 2) < 0xb) {
-			
+			/*read*/
 			dir = IOREQ_READ;
 			temp = vcpu_get_gr(vcpu, inst.M3.r3);
 			imm = (inst.M3.s << 31) | (inst.M3.i << 30) |
@@ -229,20 +239,20 @@ void emulate_io_inst(struct kvm_vcpu *vcpu, u64 padr, u64 ma)
 		}
 	} else if (inst.M9.major == 6 && inst.M9.x6 == 0x3B
 				&& inst.M9.m == 0 && inst.M9.x == 0) {
-		
+		/* Floating-point spill*/
 		struct ia64_fpreg v;
 
 		inst_type = SL_FLOATING;
 		dir = IOREQ_WRITE;
 		vcpu_get_fpreg(vcpu, inst.M9.f2, &v);
-		
+		/* Write high word. FIXME: this is a kludge!  */
 		v.u.bits[1] &= 0x3ffff;
 		mmio_access(vcpu, padr + 8, (u64 *)&v.u.bits[1], 8,
 			    ma, IOREQ_WRITE);
 		data = v.u.bits[0];
 		size = 3;
 	} else if (inst.M10.major == 7 && inst.M10.x6 == 0x3B) {
-		
+		/* Floating-point spill + Imm update */
 		struct ia64_fpreg v;
 
 		inst_type = SL_FLOATING;
@@ -254,20 +264,20 @@ void emulate_io_inst(struct kvm_vcpu *vcpu, u64 padr, u64 ma)
 		temp += imm >> 23;
 		vcpu_set_gr(vcpu, inst.M10.r3, temp, 0);
 
-		
+		/* Write high word.FIXME: this is a kludge!  */
 		v.u.bits[1] &= 0x3ffff;
 		mmio_access(vcpu, padr + 8, (u64 *)&v.u.bits[1],
 			    8, ma, IOREQ_WRITE);
 		data = v.u.bits[0];
 		size = 3;
 	} else if (inst.M10.major == 7 && inst.M10.x6 == 0x31) {
-		
+		/* Floating-point stf8 + Imm update */
 		struct ia64_fpreg v;
 		inst_type = SL_FLOATING;
 		dir = IOREQ_WRITE;
 		size = 3;
 		vcpu_get_fpreg(vcpu, inst.M10.f2, &v);
-		data = v.u.bits[0]; 
+		data = v.u.bits[0]; /* Significand.  */
 		temp = vcpu_get_gr(vcpu, inst.M10.r3);
 		imm = (inst.M10.s << 31) | (inst.M10.i << 30) |
 			(inst.M10.imm7 << 23);
@@ -285,12 +295,12 @@ void emulate_io_inst(struct kvm_vcpu *vcpu, u64 padr, u64 ma)
 		return;
 	} else if (inst.M12.major == 6 && inst.M12.m == 1
 			&& inst.M12.x == 1 && inst.M12.x6 == 1) {
-		
+		/* Floating-point Load Pair + Imm ldfp8 M12*/
 		struct ia64_fpreg v;
 
 		inst_type = SL_FLOATING;
 		dir = IOREQ_READ;
-		size = 8;     
+		size = 8;     /*ldfd*/
 		mmio_access(vcpu, padr, &data, size, ma, dir);
 		v.u.bits[0] = data;
 		v.u.bits[1] = 0x1003E;

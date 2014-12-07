@@ -63,7 +63,7 @@ static const struct i2c_device_id pca953x_id[] = {
 	{ "pca6107", 8  | PCA953X_TYPE | PCA_INT, },
 	{ "tca6408", 8  | PCA953X_TYPE | PCA_INT, },
 	{ "tca6416", 16 | PCA953X_TYPE | PCA_INT, },
-	
+	/* NYET:  { "tca6424", 24, }, */
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, pca953x_id);
@@ -179,7 +179,7 @@ static int pca953x_gpio_direction_output(struct gpio_chip *gc,
 	chip = container_of(gc, struct pca953x_chip, gpio_chip);
 
 	mutex_lock(&chip->i2c_lock);
-	
+	/* set output level */
 	if (val)
 		reg_val = chip->reg_output | (1u << off);
 	else
@@ -199,7 +199,7 @@ static int pca953x_gpio_direction_output(struct gpio_chip *gc,
 
 	chip->reg_output = reg_val;
 
-	
+	/* then direction */
 	reg_val = chip->reg_direction & ~(1u << off);
 	switch (chip->chip_type) {
 	case PCA953X_TYPE:
@@ -240,6 +240,10 @@ static int pca953x_gpio_get_value(struct gpio_chip *gc, unsigned off)
 	ret = pca953x_read_reg(chip, offset, &reg_val);
 	mutex_unlock(&chip->i2c_lock);
 	if (ret < 0) {
+		/* NOTE:  diagnostic already emitted; that's all we should
+		 * do unless gpio_*_value_cansleep() calls become different
+		 * from their nonsleeping siblings (and report faults).
+		 */
 		return 0;
 	}
 
@@ -333,7 +337,7 @@ static void pca953x_irq_bus_sync_unlock(struct irq_data *d)
 	uint16_t new_irqs;
 	uint16_t level;
 
-	
+	/* Look for any newly setup interrupt */
 	new_irqs = chip->irq_trig_fall | chip->irq_trig_raise;
 	new_irqs &= ~chip->reg_direction;
 
@@ -400,7 +404,7 @@ static uint16_t pca953x_irq_pending(struct pca953x_chip *chip)
 	if (ret)
 		return 0;
 
-	
+	/* Remove output pins from the equation */
 	cur_stat &= chip->reg_direction;
 
 	old_stat = chip->irq_stat;
@@ -462,6 +466,11 @@ static int pca953x_irq_setup(struct pca953x_chip *chip,
 		if (ret)
 			goto out_failed;
 
+		/*
+		 * There is no way to know which GPIO line generated the
+		 * interrupt.  We have to rely on the previous read for
+		 * this purpose.
+		 */
 		chip->irq_stat &= chip->reg_direction;
 		mutex_init(&chip->irq_lock);
 
@@ -511,7 +520,7 @@ static void pca953x_irq_teardown(struct pca953x_chip *chip)
 		free_irq(chip->client->irq, chip);
 	}
 }
-#else 
+#else /* CONFIG_GPIO_PCA953X_IRQ */
 static int pca953x_irq_setup(struct pca953x_chip *chip,
 			     const struct i2c_device_id *id,
 			     int irq_base)
@@ -529,7 +538,14 @@ static void pca953x_irq_teardown(struct pca953x_chip *chip)
 }
 #endif
 
+/*
+ * Handlers for alternative sources of platform_data
+ */
 #ifdef CONFIG_OF_GPIO
+/*
+ * Translate OpenFirmware node properties into platform_data
+ * WARNING: This is DEPRECATED and will be removed eventually!
+ */
 static void
 pca953x_get_alt_pdata(struct i2c_client *client, int *gpio_base, int *invert)
 {
@@ -578,7 +594,7 @@ static int __devinit device_pca953x_init(struct pca953x_chip *chip, int invert)
 	if (ret)
 		goto out;
 
-	
+	/* set platform specific polarity inversion */
 	ret = pca953x_write_reg(chip, PCA953X_INVERT, invert);
 out:
 	return ret;
@@ -589,7 +605,7 @@ static int __devinit device_pca957x_init(struct pca953x_chip *chip, int invert)
 	int ret;
 	uint16_t val = 0;
 
-	
+	/* Let every port in proper state, that could save power */
 	pca953x_write_reg(chip, PCA957X_PUPD, 0x0);
 	pca953x_write_reg(chip, PCA957X_CFG, 0xffff);
 	pca953x_write_reg(chip, PCA957X_OUT, 0x0);
@@ -604,10 +620,10 @@ static int __devinit device_pca957x_init(struct pca953x_chip *chip, int invert)
 	if (ret)
 		goto out;
 
-	
+	/* set platform specific polarity inversion */
 	pca953x_write_reg(chip, PCA957X_INVRT, invert);
 
-	
+	/* To enable register 6, 7 to controll pull up and pull down */
 	pca953x_write_reg(chip, PCA957X_BKEN, 0x202);
 
 	return 0;
@@ -636,7 +652,7 @@ static int __devinit pca953x_probe(struct i2c_client *client,
 	} else {
 		pca953x_get_alt_pdata(client, &chip->gpio_start, &invert);
 #ifdef CONFIG_OF_GPIO
-		
+		/* If I2C node has no interrupts property, disable GPIO interrupts */
 		if (of_find_property(client->dev.of_node, "interrupts", NULL) == NULL)
 			irq_base = -1;
 #endif
@@ -648,6 +664,9 @@ static int __devinit pca953x_probe(struct i2c_client *client,
 
 	mutex_init(&chip->i2c_lock);
 
+	/* initialize cached registers from their original values.
+	 * we can't share this chip with another i2c master.
+	 */
 	pca953x_setup_gpio(chip, id->driver_data & PCA_GPIO_MASK);
 
 	if (chip->chip_type == PCA953X_TYPE)
@@ -723,6 +742,9 @@ static int __init pca953x_init(void)
 {
 	return i2c_add_driver(&pca953x_driver);
 }
+/* register after i2c postcore initcall and before
+ * subsys initcalls that may rely on these GPIOs
+ */
 subsys_initcall(pca953x_init);
 
 static void __exit pca953x_exit(void)

@@ -31,6 +31,12 @@
 #include <drm/radeon_drm.h>
 #include "radeon.h"
 
+/**
+ * radeon_mem_type_to_domain - return domain corresponding to mem_type
+ * @mem_type:	ttm memory type
+ *
+ * Returns corresponding domain of the ttm mem_type
+ */
 static inline unsigned radeon_mem_type_to_domain(u32 mem_type)
 {
 	switch (mem_type) {
@@ -53,6 +59,15 @@ static inline void radeon_bo_unreserve(struct radeon_bo *bo)
 	ttm_bo_unreserve(&bo->tbo);
 }
 
+/**
+ * radeon_bo_gpu_offset - return GPU offset of bo
+ * @bo:	radeon object for which we query the offset
+ *
+ * Returns current GPU offset of the object.
+ *
+ * Note: object should either be pinned or reserved when calling this
+ * function, it might be useful to add check for this for debugging.
+ */
 static inline u64 radeon_bo_gpu_offset(struct radeon_bo *bo)
 {
 	return bo->tbo.offset;
@@ -78,6 +93,15 @@ static inline unsigned radeon_bo_gpu_page_alignment(struct radeon_bo *bo)
 	return (bo->tbo.mem.page_alignment << PAGE_SHIFT) / RADEON_GPU_PAGE_SIZE;
 }
 
+/**
+ * radeon_bo_mmap_offset - return mmap offset of bo
+ * @bo:	radeon object for which we query the offset
+ *
+ * Returns mmap offset of the object.
+ *
+ * Note: addr_space_offset is constant after ttm bo init thus isn't protected
+ * by any lock.
+ */
 static inline u64 radeon_bo_mmap_offset(struct radeon_bo *bo)
 {
 	return bo->tbo.addr_space_offset;
@@ -119,6 +143,9 @@ extern int radeon_bo_get_surface_reg(struct radeon_bo *bo);
 extern struct radeon_bo_va *radeon_bo_va(struct radeon_bo *rbo,
 					 struct radeon_vm *vm);
 
+/*
+ * sub allocation
+ */
 extern int radeon_sa_bo_manager_init(struct radeon_device *rdev,
 				     struct radeon_sa_manager *sa_manager,
 				     unsigned size, u32 domain);

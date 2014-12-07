@@ -60,6 +60,9 @@ static const struct chipset_bus_clock_list_entry aec6xxx_34_base [] = {
 	{	0,		0x00,	0x00	}
 };
 
+/*
+ * TO DO: active tuning and correction of cards without a bios.
+ */
 static u8 pci_bus_clock_list (u8 speed, struct chipset_bus_clock_list_entry * chipset_table)
 {
 	for ( ; chipset_table->xfer_speed ; chipset_table++)
@@ -90,7 +93,7 @@ static void aec6210_set_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	unsigned long flags;
 
 	local_irq_save(flags);
-	
+	/* 0x40|(2*drive->dn): Active, 0x41|(2*drive->dn): Recovery */
 	pci_read_config_word(dev, 0x40|(2*drive->dn), &d_conf);
 	tmp0 = pci_bus_clock_list(speed, bus_clock);
 	d_conf = ((tmp0 & 0xf0) << 4) | (tmp0 & 0xf);
@@ -118,7 +121,7 @@ static void aec6260_set_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	unsigned long flags;
 
 	local_irq_save(flags);
-	
+	/* high 4-bits: Active, low 4-bits: Recovery */
 	pci_read_config_byte(dev, 0x40|drive->dn, &drive_conf);
 	drive_conf = pci_bus_clock_list(speed, bus_clock);
 	pci_write_config_byte(dev, 0x40|drive->dn, drive_conf);
@@ -139,17 +142,17 @@ static void aec_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 
 static int init_chipset_aec62xx(struct pci_dev *dev)
 {
-	
+	/* These are necessary to get AEC6280 Macintosh cards to work */
 	if ((dev->device == PCI_DEVICE_ID_ARTOP_ATP865) ||
 	    (dev->device == PCI_DEVICE_ID_ARTOP_ATP865R)) {
 		u8 reg49h = 0, reg4ah = 0;
-		
+		/* Clear reset and test bits.  */
 		pci_read_config_byte(dev, 0x49, &reg49h);
 		pci_write_config_byte(dev, 0x49, reg49h & ~0x30);
-		
+		/* Enable chip interrupt output.  */
 		pci_read_config_byte(dev, 0x4a, &reg4ah);
 		pci_write_config_byte(dev, 0x4a, reg4ah & ~0x01);
-		
+		/* Enable burst mode. */
 		pci_read_config_byte(dev, 0x4a, &reg4ah);
 		pci_write_config_byte(dev, 0x4a, reg4ah | 0x80);
 	}
@@ -179,7 +182,7 @@ static const struct ide_port_ops atp86x_port_ops = {
 };
 
 static const struct ide_port_info aec62xx_chipsets[] __devinitdata = {
-	{	
+	{	/* 0: AEC6210 */
 		.name		= DRV_NAME,
 		.init_chipset	= init_chipset_aec62xx,
 		.enablebits	= {{0x4a,0x02,0x02}, {0x4a,0x04,0x04}},
@@ -192,7 +195,7 @@ static const struct ide_port_info aec62xx_chipsets[] __devinitdata = {
 		.mwdma_mask	= ATA_MWDMA2,
 		.udma_mask	= ATA_UDMA2,
 	},
-	{	
+	{	/* 1: AEC6260 */
 		.name		= DRV_NAME,
 		.init_chipset	= init_chipset_aec62xx,
 		.port_ops	= &atp86x_port_ops,
@@ -202,7 +205,7 @@ static const struct ide_port_info aec62xx_chipsets[] __devinitdata = {
 		.mwdma_mask	= ATA_MWDMA2,
 		.udma_mask	= ATA_UDMA4,
 	},
-	{	
+	{	/* 2: AEC6260R */
 		.name		= DRV_NAME,
 		.init_chipset	= init_chipset_aec62xx,
 		.enablebits	= {{0x4a,0x02,0x02}, {0x4a,0x04,0x04}},
@@ -213,7 +216,7 @@ static const struct ide_port_info aec62xx_chipsets[] __devinitdata = {
 		.mwdma_mask	= ATA_MWDMA2,
 		.udma_mask	= ATA_UDMA4,
 	},
-	{	
+	{	/* 3: AEC6280 */
 		.name		= DRV_NAME,
 		.init_chipset	= init_chipset_aec62xx,
 		.port_ops	= &atp86x_port_ops,
@@ -223,7 +226,7 @@ static const struct ide_port_info aec62xx_chipsets[] __devinitdata = {
 		.mwdma_mask	= ATA_MWDMA2,
 		.udma_mask	= ATA_UDMA5,
 	},
-	{	
+	{	/* 4: AEC6280R */
 		.name		= DRV_NAME,
 		.init_chipset	= init_chipset_aec62xx,
 		.enablebits	= {{0x4a,0x02,0x02}, {0x4a,0x04,0x04}},
@@ -236,6 +239,17 @@ static const struct ide_port_info aec62xx_chipsets[] __devinitdata = {
 	}
 };
 
+/**
+ *	aec62xx_init_one	-	called when a AEC is found
+ *	@dev: the aec62xx device
+ *	@id: the matching pci id
+ *
+ *	Called when the PCI registration layer (or the IDE initialization)
+ *	finds a device matching our IDE device tables.
+ *
+ *	NOTE: since we're going to modify the 'name' field for AEC-6[26]80[R]
+ *	chips, pass a local copy of 'struct ide_port_info' down the call chain.
+ */
 
 static int __devinit aec62xx_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {

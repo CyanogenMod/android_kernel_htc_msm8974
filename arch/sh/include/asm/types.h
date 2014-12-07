@@ -3,6 +3,9 @@
 
 #include <asm-generic/types.h>
 
+/*
+ * These aren't exported outside the kernel to avoid name space clashes
+ */
 #ifdef __KERNEL__
 #ifndef __ASSEMBLY__
 
@@ -14,7 +17,7 @@ typedef u32 insn_size_t;
 typedef u64 reg_size_t;
 #endif
 
-#endif 
-#endif 
+#endif /* __ASSEMBLY__ */
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ASM_SH_TYPES_H */

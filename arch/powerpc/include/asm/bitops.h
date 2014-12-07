@@ -46,6 +46,9 @@
 #include <asm/asm-compat.h>
 #include <asm/synch.h>
 
+/*
+ * clear_bit doesn't imply a memory barrier
+ */
 #define smp_mb__before_clear_bit()	smp_mb()
 #define smp_mb__after_clear_bit()	smp_mb()
 
@@ -53,6 +56,7 @@
 #define BITOP_WORD(nr)		((nr) / BITS_PER_LONG)
 #define BITOP_LE_SWIZZLE	((BITS_PER_LONG-1) & ~0x7)
 
+/* Macro for generating the ***_bits() functions */
 #define DEFINE_BITOP(fn, op, prefix, postfix)	\
 static __inline__ void fn(unsigned long mask,	\
 		volatile unsigned long *_p)	\
@@ -97,6 +101,8 @@ static __inline__ void change_bit(int nr, volatile unsigned long *addr)
 	change_bits(BITOP_MASK(nr), addr + BITOP_WORD(nr));
 }
 
+/* Like DEFINE_BITOP(), with changes to the arguments to 'op' and the output
+ * operands. */
 #define DEFINE_TESTOP(fn, op, prefix, postfix, eh)	\
 static __inline__ unsigned long fn(			\
 		unsigned long mask,			\
@@ -160,6 +166,10 @@ static __inline__ void __clear_bit_unlock(int nr, volatile unsigned long *addr)
 	__clear_bit(nr, addr);
 }
 
+/*
+ * Return the zero-based bit position (LE, not IBM bit numbering) of
+ * the most significant 1-bit in a double word.
+ */
 static __inline__ __attribute__((const))
 int __ilog2(unsigned long x)
 {
@@ -187,12 +197,23 @@ int __ilog2_u64(u64 n)
 }
 #endif
 
+/*
+ * Determines the bit position of the least significant 0 bit in the
+ * specified double word. The returned bit position will be
+ * zero-based, starting from the right side (63/31 - 0).
+ */
 static __inline__ unsigned long ffz(unsigned long x)
 {
-	
+	/* no zero exists anywhere in the 8 byte area. */
 	if ((x = ~x) == 0)
 		return BITS_PER_LONG;
 
+	/*
+	 * Calculate the bit position of the least significant '1' bit in x
+	 * (since x has been changed this will actually be the least significant
+	 * '0' bit in * the original x).  Note: (x & -x) gives us a mask that
+	 * is the least significant * (RIGHT-most) 1-bit of the value in x.
+	 */
 	return __ilog2(x & -x);
 }
 
@@ -201,12 +222,21 @@ static __inline__ int __ffs(unsigned long x)
 	return __ilog2(x & -x);
 }
 
+/*
+ * ffs: find first bit set. This is defined the same way as
+ * the libc and compiler builtin ffs routines, therefore
+ * differs in spirit from the above ffz (man ffs).
+ */
 static __inline__ int ffs(int x)
 {
 	unsigned long i = (unsigned long)x;
 	return __ilog2(i & -i) + 1;
 }
 
+/*
+ * fls: find last (most-significant) bit set.
+ * Note fls(0) = 0, fls(1) = 1, fls(0x80000000) = 32.
+ */
 static __inline__ int fls(unsigned int x)
 {
 	int lz;
@@ -220,6 +250,11 @@ static __inline__ unsigned long __fls(unsigned long x)
 	return __ilog2(x);
 }
 
+/*
+ * 64-bit can do this using one cntlzd (count leading zeroes doubleword)
+ * instruction; for 32-bit we use the generic version, which does two
+ * 32-bit fls calls.
+ */
 #ifdef __powerpc64__
 static __inline__ int fls64(__u64 x)
 {
@@ -230,7 +265,7 @@ static __inline__ int fls64(__u64 x)
 }
 #else
 #include <asm-generic/bitops/fls64.h>
-#endif 
+#endif /* __powerpc64__ */
 
 #ifdef CONFIG_PPC64
 unsigned int __arch_hweight8(unsigned int w);
@@ -244,6 +279,7 @@ unsigned long __arch_hweight64(__u64 w);
 
 #include <asm-generic/bitops/find.h>
 
+/* Little-endian versions */
 
 static __inline__ int test_bit_le(unsigned long nr,
 				  __const__ void *addr)
@@ -289,11 +325,12 @@ unsigned long find_next_zero_bit_le(const void *addr,
 
 unsigned long find_next_bit_le(const void *addr,
 				    unsigned long size, unsigned long offset);
+/* Bitmap functions for the ext2 filesystem */
 
 #include <asm-generic/bitops/ext2-atomic-setbit.h>
 
 #include <asm-generic/bitops/sched.h>
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_POWERPC_BITOPS_H */

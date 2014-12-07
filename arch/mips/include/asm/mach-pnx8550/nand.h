@@ -90,6 +90,7 @@
 #define PNX8550_DMA_CTRL_INIT_DMA    0x00000010
 #define PNX8550_DMA_CTRL_CMD_TYPE    0x0000000F
 
+/* see PCI system arch, page 100 for the full list: */
 #define PNX8550_DMA_CTRL_PCI_CMD_READ    0x00000006
 #define PNX8550_DMA_CTRL_PCI_CMD_WRITE   0x00000007
 

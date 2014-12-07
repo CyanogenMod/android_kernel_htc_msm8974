@@ -21,7 +21,7 @@
 struct cfserl {
 	struct cflayer layer;
 	struct cfpkt *incomplete_frm;
-	
+	/* Protects parallel processing of incoming packets */
 	spinlock_t sync;
 	bool usestx;
 };
@@ -75,7 +75,7 @@ static int cfserl_receive(struct cflayer *l, struct cfpkt *newpkt)
 	layr->incomplete_frm = NULL;
 
 	do {
-		
+		/* Search for STX at start of pkt if STX is used */
 		if (layr->usestx) {
 			cfpkt_extr_head(pkt, &tmp8, 1);
 			if (tmp8 != CFSERL_STX) {
@@ -94,6 +94,11 @@ static int cfserl_receive(struct cflayer *l, struct cfpkt *newpkt)
 
 		pkt_len = cfpkt_getlen(pkt);
 
+		/*
+		 *  pkt_len is the accumulated length of the packet data
+		 *  we have received so far.
+		 *  Exit if frame doesn't hold length.
+		 */
 
 		if (pkt_len < 2) {
 			if (layr->usestx)
@@ -103,8 +108,15 @@ static int cfserl_receive(struct cflayer *l, struct cfpkt *newpkt)
 			return 0;
 		}
 
+		/*
+		 *  Find length of frame.
+		 *  expectlen is the length we need for a full frame.
+		 */
 		cfpkt_peek_head(pkt, &tmp, 2);
 		expectlen = le16_to_cpu(tmp) + 2;
+		/*
+		 * Frame error handling
+		 */
 		if (expectlen < SERIAL_MINIUM_PACKET_SIZE
 		    || expectlen > SERIAL_MAX_FRAMESIZE) {
 			if (!layr->usestx) {
@@ -119,7 +131,7 @@ static int cfserl_receive(struct cflayer *l, struct cfpkt *newpkt)
 		}
 
 		if (pkt_len < expectlen) {
-			
+			/* Too little received data */
 			if (layr->usestx)
 				cfpkt_add_head(pkt, &stx, 1);
 			layr->incomplete_frm = pkt;
@@ -127,12 +139,16 @@ static int cfserl_receive(struct cflayer *l, struct cfpkt *newpkt)
 			return 0;
 		}
 
+		/*
+		 * Enough data for at least one frame.
+		 * Split the frame, if too long
+		 */
 		if (pkt_len > expectlen)
 			tail_pkt = cfpkt_split(pkt, expectlen);
 		else
 			tail_pkt = NULL;
 
-		
+		/* Send the first part of packet upwards.*/
 		spin_unlock(&layr->sync);
 		ret = layr->layer.up->receive(layr->layer.up, pkt);
 		spin_lock(&layr->sync);
@@ -140,7 +156,7 @@ static int cfserl_receive(struct cflayer *l, struct cfpkt *newpkt)
 			if (layr->usestx) {
 				if (tail_pkt != NULL)
 					pkt = cfpkt_append(pkt, tail_pkt, 0);
-				
+				/* Start search for next STX if frame failed */
 				continue;
 			} else {
 				cfpkt_destroy(pkt);

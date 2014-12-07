@@ -28,6 +28,13 @@
 *
 *****************************************************************************/
 
+/*
+ * This dongle does no framing, and requires polling to receive the
+ * data.  The STIr4200 has bulk in and out endpoints just like
+ * usr-irda devices, but the data it sends and receives is raw; like
+ * irtty, it needs to call the wrap and unwrap functions to add and
+ * remove SOF/BOF and escape characters to/from the frame.
+ */
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -55,21 +62,21 @@ MODULE_AUTHOR("Stephen Hemminger <shemminger@linux-foundation.org>");
 MODULE_DESCRIPTION("IrDA-USB Dongle Driver for SigmaTel STIr4200");
 MODULE_LICENSE("GPL");
 
-static int qos_mtt_bits = 0x07;	
+static int qos_mtt_bits = 0x07;	/* 1 ms or more */
 module_param(qos_mtt_bits, int, 0);
 MODULE_PARM_DESC(qos_mtt_bits, "Minimum Turn Time");
 
-static int rx_sensitivity = 1;	
+static int rx_sensitivity = 1;	/* FIR 0..4, SIR 0..6 */
 module_param(rx_sensitivity, int, 0);
 MODULE_PARM_DESC(rx_sensitivity, "Set Receiver sensitivity (0-6, 0 is most sensitive)");
 
-static int tx_power = 0;	
+static int tx_power = 0;	/* 0 = highest ... 3 = lowest */
 module_param(tx_power, int, 0);
 MODULE_PARM_DESC(tx_power, "Set Transmitter power (0-3, 0 is highest power)");
 
 #define STIR_IRDA_HEADER  	4
-#define CTRL_TIMEOUT		100	   
-#define TRANSMIT_TIMEOUT	200	   
+#define CTRL_TIMEOUT		100	   /* milliseconds */
+#define TRANSMIT_TIMEOUT	200	   /* milliseconds */
 #define STIR_FIFO_SIZE		4096
 #define FIFO_REGS_SIZE		3
 
@@ -86,6 +93,7 @@ enum StirRequests {
 	REQ_WRITE_SINGLE =	0x03,
 };
 
+/* Register offsets */
 enum StirRegs {
 	REG_RSVD=0,
 	REG_MODE,
@@ -153,34 +161,36 @@ enum StirTestMask {
 };
 
 struct stir_cb {
-        struct usb_device *usbdev;      
-        struct net_device *netdev;      
-        struct irlap_cb   *irlap;       
+        struct usb_device *usbdev;      /* init: probe_irda */
+        struct net_device *netdev;      /* network layer */
+        struct irlap_cb   *irlap;       /* The link layer we are binded to */
 
         struct qos_info   qos;
-	unsigned 	  speed;	
+	unsigned 	  speed;	/* Current speed */
 
-        struct task_struct *thread;     
+        struct task_struct *thread;     /* transmit thread */
 
 	struct sk_buff	  *tx_pending;
-	void		  *io_buf;	
+	void		  *io_buf;	/* transmit/receive buffer */
 	__u8		  *fifo_status;
 
-	iobuff_t  	  rx_buff;	
+	iobuff_t  	  rx_buff;	/* receive unwrap state machine */
 	struct timeval	  rx_time;
 	int		  receiving;
 	struct urb	 *rx_urb;
 };
 
 
+/* These are the currently known USB ids */
 static struct usb_device_id dongles[] = {
-    
+    /* SigmaTel, Inc,  STIr4200 IrDA/USB Bridge */
     { USB_DEVICE(0x066f, 0x4200) },
     { }
 };
 
 MODULE_DEVICE_TABLE(usb, dongles);
 
+/* Send control message to set dongle register */
 static int write_reg(struct stir_cb *stir, __u16 reg, __u8 value)
 {
 	struct usb_device *dev = stir->usbdev;
@@ -194,6 +204,7 @@ static int write_reg(struct stir_cb *stir, __u16 reg, __u8 value)
 			       CTRL_TIMEOUT);
 }
 
+/* Send control message to read multiple registers */
 static inline int read_reg(struct stir_cb *stir, __u16 reg,
 		    __u8 *data, __u16 count)
 {
@@ -211,6 +222,20 @@ static inline int isfir(u32 speed)
 	return speed == 4000000;
 }
 
+/*
+ * Prepare a FIR IrDA frame for transmission to the USB dongle.  The
+ * FIR transmit frame is documented in the datasheet.  It consists of
+ * a two byte 0x55 0xAA sequence, two little-endian length bytes, a
+ * sequence of exactly 16 XBOF bytes of 0x7E, two BOF bytes of 0x7E,
+ * then the data escaped as follows:
+ *
+ *    0x7D -> 0x7D 0x5D
+ *    0x7E -> 0x7D 0x5E
+ *    0x7F -> 0x7D 0x5F
+ *
+ * Then, 4 bytes of little endian (stuffed) FCS follow, then two
+ * trailing EOF bytes of 0x7E.
+ */
 static inline __u8 *stuff_fir(__u8 *p, __u8 c)
 {
 	switch(c) {
@@ -219,13 +244,14 @@ static inline __u8 *stuff_fir(__u8 *p, __u8 c)
 	case 0x7f:
 		*p++ = 0x7d;
 		c ^= IRDA_TRANS;
-		
+		/* fall through */
 	default:
 		*p++ = c;
 	}
 	return p;
 }
 
+/* Take raw data in skb and put it wrapped into buf */
 static unsigned wrap_fir_skb(const struct sk_buff *skb, __u8 *buf)
 {
 	__u8 *ptr = buf;
@@ -233,7 +259,7 @@ static unsigned wrap_fir_skb(const struct sk_buff *skb, __u8 *buf)
 	__u16 wraplen;
 	int i;
 
-	
+	/* Header */
 	buf[0] = 0x55;
 	buf[1] = 0xAA;
 
@@ -241,25 +267,25 @@ static unsigned wrap_fir_skb(const struct sk_buff *skb, __u8 *buf)
 	memset(ptr, 0x7f, 16);
 	ptr += 16;
 
-	
+	/* BOF */
 	*ptr++  = 0x7e;
 	*ptr++  = 0x7e;
 
-	
+	/* Address / Control / Information */
 	for (i = 0; i < skb->len; i++)
 		ptr = stuff_fir(ptr, skb->data[i]);
 
-	
+	/* FCS */
 	ptr = stuff_fir(ptr, fcs & 0xff);
 	ptr = stuff_fir(ptr, (fcs >> 8) & 0xff);
 	ptr = stuff_fir(ptr, (fcs >> 16) & 0xff);
 	ptr = stuff_fir(ptr, (fcs >> 24) & 0xff);
 
-	
+	/* EOFs */
 	*ptr++ = 0x7e;
 	*ptr++ = 0x7e;
 
-	
+	/* Total length, minus the header */
 	wraplen = (ptr - buf) - STIR_IRDA_HEADER;
 	buf[2] = wraplen & 0xff;
 	buf[3] = (wraplen >> 8) & 0xff;
@@ -281,6 +307,11 @@ static unsigned wrap_sir_skb(struct sk_buff *skb, __u8 *buf)
 	return wraplen + STIR_IRDA_HEADER;
 }
 
+/*
+ * Frame is fully formed in the rx_buff so check crc
+ * and pass up to irlap
+ * setup for next receive
+ */
 static void fir_eof(struct stir_cb *stir)
 {
 	iobuff_t *rx_buff = &stir->rx_buff;
@@ -305,7 +336,7 @@ static void fir_eof(struct stir_cb *stir)
 		return;
 	}
 
-	
+	/* if frame is short then just copy it */
 	if (len < IRDA_RX_COPY_THRESHOLD) {
 		nskb = dev_alloc_skb(len + 1);
 		if (unlikely(!nskb)) {
@@ -342,6 +373,7 @@ static void fir_eof(struct stir_cb *stir)
 	rx_buff->len = 0;
 }
 
+/* Unwrap FIR stuffed data and bump it to IrLAP */
 static void stir_fir_chars(struct stir_cb *stir,
 			    const __u8 *bytes, int len)
 {
@@ -353,13 +385,13 @@ static void stir_fir_chars(struct stir_cb *stir,
 
 		switch(rx_buff->state) {
 		case OUTSIDE_FRAME:
-			
+			/* ignore garbage till start of frame */
 			if (unlikely(byte != FIR_EOF))
 				continue;
-			
+			/* Now receiving frame */
 			rx_buff->state = BEGIN_FRAME;
 
-			
+			/* Time to initialize receive buffer */
 			rx_buff->data = rx_buff->head;
 			rx_buff->len = 0;
 			continue;
@@ -375,20 +407,20 @@ static void stir_fir_chars(struct stir_cb *stir,
 			break;
 
 		case BEGIN_FRAME:
-			
+			/* ignore multiple BOF/EOF */
 			if (byte == FIR_EOF)
 				continue;
 			rx_buff->state = INSIDE_FRAME;
 			rx_buff->in_frame = TRUE;
 
-			
+			/* fall through */
 		case INSIDE_FRAME:
 			switch(byte) {
 			case FIR_CE:
 				rx_buff->state = LINK_ESCAPE;
 				continue;
 			case FIR_XBOF:
-				
+				/* 0x7f is not used in this framing */
 				pr_debug("%s: got XBOF without escape\n",
 					 stir->netdev->name);
 				goto frame_error;
@@ -401,7 +433,7 @@ static void stir_fir_chars(struct stir_cb *stir,
 			break;
 		}
 
-		
+		/* add byte to rx buffer */
 		if (unlikely(rx_buff->len >= rx_buff->truesize)) {
 			pr_debug("%s: fir frame exceeds %d\n",
 				 stir->netdev->name, rx_buff->truesize);
@@ -422,6 +454,7 @@ static void stir_fir_chars(struct stir_cb *stir,
 	}
 }
 
+/* Unwrap SIR stuffed data and bump it up to IrLAP */
 static void stir_sir_chars(struct stir_cb *stir,
 			    const __u8 *bytes, int len)
 {
@@ -441,6 +474,7 @@ static inline void unwrap_chars(struct stir_cb *stir,
 		stir_sir_chars(stir, bytes, length);
 }
 
+/* Mode parameters for each speed */
 static const struct {
 	unsigned speed;
 	__u8 pdclk;
@@ -455,6 +489,13 @@ static const struct {
 };
 
 
+/*
+ * Setup chip for speed.
+ *  Called at startup to initialize the chip
+ *  and on speed changes.
+ *
+ * Note: Write multiple registers doesn't appear to work
+ */
 static int change_speed(struct stir_cb *stir, unsigned speed)
 {
 	int i, err;
@@ -471,17 +512,17 @@ static int change_speed(struct stir_cb *stir, unsigned speed)
  found:
 	pr_debug("speed change from %d to %d\n", stir->speed, speed);
 
-	
+	/* Reset modulator */
 	err = write_reg(stir, REG_CTRL1, CTRL1_SRESET);
 	if (err)
 		goto out;
 
-	
+	/* Undocumented magic to tweak the DPLL */
 	err = write_reg(stir, REG_DPLL, 0x15);
 	if (err)
 		goto out;
 
-	
+	/* Set clock */
 	err = write_reg(stir, REG_PDCLK, stir_modes[i].pdclk);
 	if (err)
 		goto out;
@@ -499,7 +540,7 @@ static int change_speed(struct stir_cb *stir, unsigned speed)
 	if (err)
 		goto out;
 
-	
+	/* This resets TEMIC style transceiver if any. */
 	err = write_reg(stir, REG_CTRL1,
 			CTRL1_SDMODE | (tx_power & 3) << 1);
 	if (err)
@@ -509,13 +550,16 @@ static int change_speed(struct stir_cb *stir, unsigned speed)
 	if (err)
 		goto out;
 
-	
+	/* Reset sensitivity */
 	err = write_reg(stir, REG_CTRL2, (rx_sensitivity & 7) << 5);
  out:
 	stir->speed = speed;
 	return err;
 }
 
+/*
+ * Called from net/core when new frame is available.
+ */
 static netdev_tx_t stir_hard_xmit(struct sk_buff *skb,
 					struct net_device *netdev)
 {
@@ -523,13 +567,13 @@ static netdev_tx_t stir_hard_xmit(struct sk_buff *skb,
 
 	netif_stop_queue(netdev);
 
-	
+	/* the IRDA wrapping routines don't deal with non linear skb */
 	SKB_LINEAR_ASSERT(skb);
 
 	skb = xchg(&stir->tx_pending, skb);
         wake_up_process(stir->thread);
 	
-	
+	/* this should never happen unless stop/wakeup problem */
 	if (unlikely(skb)) {
 		WARN_ON(1);
 		dev_kfree_skb(skb);
@@ -538,13 +582,19 @@ static netdev_tx_t stir_hard_xmit(struct sk_buff *skb,
 	return NETDEV_TX_OK;
 }
 
+/*
+ * Wait for the transmit FIFO to have space for next data
+ *
+ * If space < 0 then wait till FIFO completely drains.
+ * FYI: can take up to 13 seconds at 2400baud.
+ */
 static int fifo_txwait(struct stir_cb *stir, int space)
 {
 	int err;
 	unsigned long count, status;
 	unsigned long prev_count = 0x1fff;
 
-	
+	/* Read FIFO status and count */
 	for (;; prev_count = count) {
 		err = read_reg(stir, REG_FIFOCTL, stir->fifo_status, 
 				   FIFO_REGS_SIZE);
@@ -561,7 +611,7 @@ static int fifo_txwait(struct stir_cb *stir, int space)
 
 		pr_debug("fifo status 0x%lx count %lu\n", status, count);
 
-		
+		/* is fifo receiving already, or empty */
 		if (!(status & FIFOCTL_DIR) ||
 		    (status & FIFOCTL_EMPTY))
 			return 0;
@@ -569,20 +619,20 @@ static int fifo_txwait(struct stir_cb *stir, int space)
 		if (signal_pending(current))
 			return -EINTR;
 
-		
+		/* shutting down? */
 		if (!netif_running(stir->netdev) ||
 		    !netif_device_present(stir->netdev))
 			return -ESHUTDOWN;
 
-		
+		/* only waiting for some space */
 		if (space >= 0 && STIR_FIFO_SIZE - 4 > space + count)
 			return 0;
 
-		
+		/* queue confused */
 		if (prev_count < count)
 			break;
 
-		
+		/* estimate transfer time for remaining chars */
 		msleep((count * 8000) / stir->speed);
 	}
 			
@@ -597,6 +647,7 @@ static int fifo_txwait(struct stir_cb *stir, int space)
 }
 
 
+/* Wait for turnaround delay before starting transmit.  */
 static void turnaround_delay(const struct stir_cb *stir, long us)
 {
 	long ticks;
@@ -619,9 +670,13 @@ static void turnaround_delay(const struct stir_cb *stir, long us)
 		udelay(us);
 }
 
+/*
+ * Start receiver by submitting a request to the receive pipe.
+ * If nothing is available it will return after rx_interval.
+ */
 static int receive_start(struct stir_cb *stir)
 {
-	
+	/* reset state */
 	stir->receiving = 1;
 
 	stir->rx_buff.in_frame = FALSE;
@@ -631,6 +686,7 @@ static int receive_start(struct stir_cb *stir)
 	return usb_submit_urb(stir->rx_urb, GFP_KERNEL);
 }
 
+/* Stop all pending receive Urb's */
 static void receive_stop(struct stir_cb *stir)
 {
 	stir->receiving = 0;
@@ -639,12 +695,15 @@ static void receive_stop(struct stir_cb *stir)
 	if (stir->rx_buff.in_frame) 
 		stir->netdev->stats.collisions++;
 }
+/*
+ * Wrap data in socket buffer and send it.
+ */
 static void stir_send(struct stir_cb *stir, struct sk_buff *skb)
 {
 	unsigned wraplen;
 	int first_frame = 0;
 
-	
+	/* if receiving, need to turnaround */
 	if (stir->receiving) {
 		receive_stop(stir);
 		turnaround_delay(stir, irda_get_mtt(skb));
@@ -656,7 +715,7 @@ static void stir_send(struct stir_cb *stir, struct sk_buff *skb)
 	else
 		wraplen = wrap_sir_skb(skb, stir->io_buf);
 		
-	
+	/* check for space available in fifo */
 	if (!first_frame)
 		fifo_txwait(stir, wraplen);
 
@@ -671,6 +730,9 @@ static void stir_send(struct stir_cb *stir, struct sk_buff *skb)
 		stir->netdev->stats.tx_errors++;
 }
 
+/*
+ * Transmit state machine thread
+ */
 static int stir_transmit_thread(void *arg)
 {
 	struct stir_cb *stir = arg;
@@ -679,7 +741,7 @@ static int stir_transmit_thread(void *arg)
 
         while (!kthread_should_stop()) {
 #ifdef CONFIG_PM
-		
+		/* if suspending, then power off and wait */
 		if (unlikely(freezing(current))) {
 			if (stir->receiving)
 				receive_stop(stir);
@@ -695,7 +757,7 @@ static int stir_transmit_thread(void *arg)
 		}
 #endif
 
-		
+		/* if something to send? */
 		skb = xchg(&stir->tx_pending, NULL);
 		if (skb) {
 			unsigned new_speed = irda_get_next_speed(skb);
@@ -713,10 +775,10 @@ static int stir_transmit_thread(void *arg)
 			continue;
 		}
 
-		
+		/* nothing to send? start receiving */
 		if (!stir->receiving &&
 		    irda_device_txqueue_empty(dev)) {
-			
+			/* Wait otherwise chip gets confused. */
 			if (fifo_txwait(stir, -1))
 				break;
 
@@ -731,7 +793,7 @@ static int stir_transmit_thread(void *arg)
 			}
 		}
 
-		
+		/* sleep if nothing to send */
                 set_current_state(TASK_INTERRUPTIBLE);
                 schedule();
 
@@ -740,16 +802,21 @@ static int stir_transmit_thread(void *arg)
 }
 
 
+/*
+ * USB bulk receive completion callback.
+ * Wakes up every ms (usb round trip) with wrapped 
+ * data.
+ */
 static void stir_rcv_irq(struct urb *urb)
 {
 	struct stir_cb *stir = urb->context;
 	int err;
 
-	
+	/* in process of stopping, just drop data */
 	if (!netif_running(stir->netdev))
 		return;
 
-	
+	/* unlink, shutdown, unplug, other nasties */
 	if (urb->status != 0) 
 		return;
 
@@ -761,14 +828,14 @@ static void stir_rcv_irq(struct urb *urb)
 		do_gettimeofday(&stir->rx_time);
 	}
 
-	
+	/* kernel thread is stopping receiver don't resubmit */
 	if (!stir->receiving)
 		return;
 
-	
+	/* resubmit existing urb */
 	err = usb_submit_urb(urb, GFP_ATOMIC);
 
-	
+	/* in case of error, the kernel thread will restart us */
 	if (err) {
 		dev_warn(&stir->netdev->dev, "usb receive submit error: %d\n",
 			 err);
@@ -777,6 +844,11 @@ static void stir_rcv_irq(struct urb *urb)
 	}
 }
 
+/*
+ * Function stir_net_open (dev)
+ *
+ *    Network device is taken up. Usually this is done by "ifconfig irda0 up"
+ */
 static int stir_net_open(struct net_device *netdev)
 {
 	struct stir_cb *stir = netdev_priv(netdev);
@@ -796,7 +868,7 @@ static int stir_net_open(struct net_device *netdev)
 
 	err = -ENOMEM;
 
-	
+	/* Initialize for SIR/FIR to copy data directly into skb.  */
 	stir->receiving = 0;
 	stir->rx_buff.truesize = IRDA_SKB_MAX_MTU;
 	stir->rx_buff.skb = dev_alloc_skb(IRDA_SKB_MAX_MTU);
@@ -824,6 +896,11 @@ static int stir_net_open(struct net_device *netdev)
 	if (!stir->fifo_status) 
 		goto err_out4;
 		
+	/*
+	 * Now that everything should be initialized properly,
+	 * Open new IrLAP layer instance to take care of us...
+	 * Note : will send immediately a speed change...
+	 */
 	sprintf(hwname, "usb#%d", stir->usbdev->devnum);
 	stir->irlap = irlap_open(netdev, &stir->qos, hwname);
 	if (!stir->irlap) {
@@ -831,7 +908,7 @@ static int stir_net_open(struct net_device *netdev)
 		goto err_out5;
 	}
 
-	
+	/** Start kernel thread for transmit.  */
 	stir->thread = kthread_run(stir_transmit_thread, stir,
 				   "%s", stir->netdev->name);
         if (IS_ERR(stir->thread)) {
@@ -858,25 +935,31 @@ static int stir_net_open(struct net_device *netdev)
 	return err;
 }
 
+/*
+ * Function stir_net_close (stir)
+ *
+ *    Network device is taken down. Usually this is done by
+ *    "ifconfig irda0 down"
+ */
 static int stir_net_close(struct net_device *netdev)
 {
 	struct stir_cb *stir = netdev_priv(netdev);
 
-	
+	/* Stop transmit processing */
 	netif_stop_queue(netdev);
 
-	
+	/* Kill transmit thread */
 	kthread_stop(stir->thread);
 	kfree(stir->fifo_status);
 
-	
+	/* Mop up receive urb's */
 	usb_kill_urb(stir->rx_urb);
 	
 	kfree(stir->io_buf);
 	usb_free_urb(stir->rx_urb);
 	kfree_skb(stir->rx_buff.skb);
 
-	
+	/* Stop and remove instance of IrLAP */
 	if (stir->irlap)
 		irlap_close(stir->irlap);
 
@@ -885,6 +968,9 @@ static int stir_net_close(struct net_device *netdev)
 	return 0;
 }
 
+/*
+ * IOCTLs : Extra out-of-band network commands...
+ */
 static int stir_net_ioctl(struct net_device *netdev, struct ifreq *rq, int cmd)
 {
 	struct if_irda_req *irq = (struct if_irda_req *) rq;
@@ -892,26 +978,26 @@ static int stir_net_ioctl(struct net_device *netdev, struct ifreq *rq, int cmd)
 	int ret = 0;
 
 	switch (cmd) {
-	case SIOCSBANDWIDTH: 
+	case SIOCSBANDWIDTH: /* Set bandwidth */
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
 
-		
+		/* Check if the device is still there */
 		if (netif_device_present(stir->netdev))
 			ret = change_speed(stir, irq->ifr_baudrate);
 		break;
 
-	case SIOCSMEDIABUSY: 
+	case SIOCSMEDIABUSY: /* Set media busy */
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
 
-		
+		/* Check if the IrDA stack is still there */
 		if (netif_running(stir->netdev))
 			irda_device_set_media_busy(stir->netdev, TRUE);
 		break;
 
 	case SIOCGRECEIVING:
-		
+		/* Only approximately true */
 		irq->ifr_receiving = stir->receiving;
 		break;
 
@@ -929,6 +1015,13 @@ static const struct net_device_ops stir_netdev_ops = {
 	.ndo_do_ioctl   = stir_net_ioctl,
 };
 
+/*
+ * This routine is called by the USB subsystem for each new device
+ * in the system. We need to check if the device is ours, and in
+ * this case start handling it.
+ * Note : it might be worth protecting this function by a global
+ * spinlock... Or not, because maybe USB already deal with that...
+ */
 static int stir_probe(struct usb_interface *intf,
 		      const struct usb_device_id *id)
 {
@@ -937,7 +1030,7 @@ static int stir_probe(struct usb_interface *intf,
 	struct net_device *net;
 	int ret = -ENOMEM;
 
-	
+	/* Allocate network device container. */
 	net = alloc_irdadev(sizeof(*stir));
 	if(!net)
 		goto err_out1;
@@ -958,17 +1051,17 @@ static int stir_probe(struct usb_interface *intf,
 	       dev->devnum, le16_to_cpu(dev->descriptor.idVendor),
 	       le16_to_cpu(dev->descriptor.idProduct));
 
-	
+	/* Initialize QoS for this device */
 	irda_init_max_qos_capabilies(&stir->qos);
 
-	
+	/* That's the Rx capability. */
 	stir->qos.baud_rate.bits       &= IR_2400 | IR_9600 | IR_19200 |
 					 IR_38400 | IR_57600 | IR_115200 |
 					 (IR_4000000 << 8);
 	stir->qos.min_turn_time.bits   &= qos_mtt_bits;
 	irda_qos_bits_to_value(&stir->qos);
 
-	
+	/* Override the network functions we need to use */
 	net->netdev_ops = &stir_netdev_ops;
 
 	ret = register_netdev(net);
@@ -988,6 +1081,9 @@ err_out1:
 	return ret;
 }
 
+/*
+ * The current device is removed, the USB layer tell us to shut it down...
+ */
 static void stir_disconnect(struct usb_interface *intf)
 {
 	struct stir_cb *stir = usb_get_intfdata(intf);
@@ -1002,6 +1098,7 @@ static void stir_disconnect(struct usb_interface *intf)
 }
 
 #ifdef CONFIG_PM
+/* USB suspend, so power off the transmitter/receiver */
 static int stir_suspend(struct usb_interface *intf, pm_message_t message)
 {
 	struct stir_cb *stir = usb_get_intfdata(intf);
@@ -1010,17 +1107,21 @@ static int stir_suspend(struct usb_interface *intf, pm_message_t message)
 	return 0;
 }
 
+/* Coming out of suspend, so reset hardware */
 static int stir_resume(struct usb_interface *intf)
 {
 	struct stir_cb *stir = usb_get_intfdata(intf);
 
 	netif_device_attach(stir->netdev);
 
-	
+	/* receiver restarted when send thread wakes up */
 	return 0;
 }
 #endif
 
+/*
+ * USB device callbacks
+ */
 static struct usb_driver irda_driver = {
 	.name		= "stir4200",
 	.probe		= stir_probe,

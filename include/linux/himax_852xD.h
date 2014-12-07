@@ -301,5 +301,5 @@ enum input_protocol_type {
 	PROTOCOL_TYPE_A	= 0x00,
 	PROTOCOL_TYPE_B	= 0x01,
 };
-
+extern int proximity_enable_from_ps(int on);
 #endif

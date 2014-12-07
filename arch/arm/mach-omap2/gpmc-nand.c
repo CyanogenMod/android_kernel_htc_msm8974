@@ -45,7 +45,7 @@ static int omap2_nand_gpmc_retime(struct omap_nand_platform_data *gpmc_nand_data
 	t.cs_on = gpmc_round_ns_to_ticks(gpmc_nand_data->gpmc_t->cs_on);
 	t.adv_on = gpmc_round_ns_to_ticks(gpmc_nand_data->gpmc_t->adv_on);
 
-	
+	/* Read */
 	t.adv_rd_off = gpmc_round_ns_to_ticks(
 				gpmc_nand_data->gpmc_t->adv_rd_off);
 	t.oe_on  = t.adv_on;
@@ -54,7 +54,7 @@ static int omap2_nand_gpmc_retime(struct omap_nand_platform_data *gpmc_nand_data
 	t.cs_rd_off = gpmc_round_ns_to_ticks(gpmc_nand_data->gpmc_t->cs_rd_off);
 	t.rd_cycle  = gpmc_round_ns_to_ticks(gpmc_nand_data->gpmc_t->rd_cycle);
 
-	
+	/* Write */
 	t.adv_wr_off = gpmc_round_ns_to_ticks(
 				gpmc_nand_data->gpmc_t->adv_wr_off);
 	t.we_on  = t.oe_on;
@@ -68,7 +68,7 @@ static int omap2_nand_gpmc_retime(struct omap_nand_platform_data *gpmc_nand_data
 	t.cs_wr_off = gpmc_round_ns_to_ticks(gpmc_nand_data->gpmc_t->cs_wr_off);
 	t.wr_cycle  = gpmc_round_ns_to_ticks(gpmc_nand_data->gpmc_t->wr_cycle);
 
-	
+	/* Configure GPMC */
 	if (gpmc_nand_data->devsize == NAND_BUSWIDTH_16)
 		gpmc_cs_configure(gpmc_nand_data->cs, GPMC_CONFIG_DEV_SIZE, 1);
 	else
@@ -96,14 +96,14 @@ int __init gpmc_nand_init(struct omap_nand_platform_data *gpmc_nand_data)
 		return err;
 	}
 
-	 
+	 /* Set timings in GPMC */
 	err = omap2_nand_gpmc_retime(gpmc_nand_data);
 	if (err < 0) {
 		dev_err(dev, "Unable to set gpmc timings: %d\n", err);
 		return err;
 	}
 
-	
+	/* Enable RD PIN Monitoring Reg */
 	if (gpmc_nand_data->dev_ready) {
 		gpmc_cs_configure(gpmc_nand_data->cs, GPMC_CONFIG_RDY_BSY, 1);
 	}

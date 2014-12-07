@@ -99,7 +99,7 @@ static void smartq_usb_host_enableoc(struct s3c2410_hcd_info *info, int on)
 {
 	int ret;
 
-	
+	/* This isn't present on a SmartQ 5 board */
 	if (machine_is_smartq5())
 		return;
 
@@ -173,13 +173,13 @@ static struct s3c_sdhci_platdata smartq_internal_hsmmc_pdata = {
 };
 
 static struct s3c_hwmon_pdata smartq_hwmon_pdata __initdata = {
-	
+	/* Battery voltage (?-4.2V) */
 	.in[0] = &(struct s3c_hwmon_chcfg) {
 		.name		= "smartq:battery-voltage",
 		.mult		= 3300,
 		.div		= 2048,
 	},
-	
+	/* Reference voltage (1.2V) */
 	.in[1] = &(struct s3c_hwmon_chcfg) {
 		.name		= "smartq:reference-voltage",
 		.mult		= 3300,
@@ -197,12 +197,13 @@ static int __init smartq_lcd_setup_gpio(void)
 	if (ret < 0)
 		return ret;
 
-	
+	/* turn power off */
 	gpio_direction_output(S3C64XX_GPM(3), 0);
 
 	return 0;
 }
 
+/* GPM0 -> CS */
 static struct spi_gpio_platform_data smartq_lcd_control = {
 	.sck			= S3C64XX_GPM(1),
 	.mosi			= S3C64XX_GPM(2),
@@ -235,8 +236,8 @@ static struct i2c_board_info smartq_i2c_devs[] __initdata = {
 };
 
 static struct platform_device *smartq_devices[] __initdata = {
-	&s3c_device_hsmmc1,	
-	&s3c_device_hsmmc0,	
+	&s3c_device_hsmmc1,	/* Init iNAND first, ... */
+	&s3c_device_hsmmc0,	/* ... then the external SD card */
 	&s3c_device_hsmmc2,
 	&s3c_device_adc,
 	&s3c_device_fb,
@@ -258,13 +259,13 @@ static void __init smartq_lcd_mode_set(void)
 {
 	u32 tmp;
 
-	
+	/* set the LCD type */
 	tmp = __raw_readl(S3C64XX_SPCON);
 	tmp &= ~S3C64XX_SPCON_LCD_SEL_MASK;
 	tmp |= S3C64XX_SPCON_LCD_SEL_RGB;
 	__raw_writel(tmp, S3C64XX_SPCON);
 
-	
+	/* remove the LCD bypass */
 	tmp = __raw_readl(S3C64XX_MODEM_MIFPCON);
 	tmp &= ~MIFPCON_LCD_BYPASS;
 	__raw_writel(tmp, S3C64XX_MODEM_MIFPCON);
@@ -285,7 +286,7 @@ static int __init smartq_power_off_init(void)
 		return ret;
 	}
 
-	
+	/* leave power on */
 	gpio_direction_output(S3C64XX_GPK(15), 0);
 
 	pm_power_off = smartq_power_off;
@@ -310,7 +311,7 @@ static int __init smartq_usb_host_init(void)
 	}
 
 	if (!machine_is_smartq5()) {
-		
+		/* This isn't present on a SmartQ 5 board */
 		ret = gpio_request(S3C64XX_GPL(10), "USB host overcurrent");
 		if (ret < 0) {
 			pr_err("%s: failed to get GPL10\n", __func__);
@@ -318,7 +319,7 @@ static int __init smartq_usb_host_init(void)
 		}
 	}
 
-	
+	/* turn power off */
 	gpio_direction_output(S3C64XX_GPL(0), 0);
 	gpio_direction_output(S3C64XX_GPL(1), 0);
 	if (!machine_is_smartq5())
@@ -359,10 +360,10 @@ static int __init smartq_wifi_init(void)
 		return ret;
 	}
 
-	
+	/* turn power on */
 	gpio_direction_output(S3C64XX_GPK(1), 1);
 
-	
+	/* reset device */
 	gpio_direction_output(S3C64XX_GPK(2), 0);
 	mdelay(100);
 	gpio_set_value(S3C64XX_GPK(2), 1);

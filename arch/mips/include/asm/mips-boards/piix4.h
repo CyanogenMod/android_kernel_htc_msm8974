@@ -20,6 +20,9 @@
 #ifndef __ASM_MIPS_BOARDS_PIIX4_H
 #define __ASM_MIPS_BOARDS_PIIX4_H
 
+/************************************************************************
+ *  IO register offsets
+ ************************************************************************/
 #define PIIX4_ICTLR1_ICW1	0x20
 #define PIIX4_ICTLR1_ICW2	0x21
 #define PIIX4_ICTLR1_ICW3	0x21
@@ -38,6 +41,9 @@
 #define PIIX4_ICTLR2_OCW4	0xa0
 
 
+/************************************************************************
+ *  Register encodings.
+ ************************************************************************/
 #define PIIX4_OCW2_NSEOI	(0x1 << 5)
 #define PIIX4_OCW2_SEOI		(0x3 << 5)
 #define PIIX4_OCW2_RNSEOI	(0x5 << 5)
@@ -71,4 +77,4 @@
 #define PIIX4_OCW3_IRR          0x2
 #define PIIX4_OCW3_ISR          0x3
 
-#endif 
+#endif /* __ASM_MIPS_BOARDS_PIIX4_H */

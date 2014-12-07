@@ -109,6 +109,7 @@ static int msm_chg_init_rpc(unsigned long vers)
 		return -ENODATA;
 }
 
+/* rpc connect for hsusb */
 int msm_hsusb_rpc_connect(void)
 {
 
@@ -117,7 +118,7 @@ int msm_hsusb_rpc_connect(void)
 		return 0;
 	}
 
-	
+	/* Initialize rpc ids */
 	if (msm_hsusb_init_rpc_ids(0x00010001)) {
 		pr_err("%s: rpc ids initialization failed\n"
 			, __func__);
@@ -132,7 +133,7 @@ int msm_hsusb_rpc_connect(void)
 		pr_err("%s: connect compatible failed vers = %lx\n",
 			 __func__, usb_rpc_ids.vers_comp);
 
-		
+		/* Initialize rpc ids */
 		if (msm_hsusb_init_rpc_ids(0x00010002)) {
 			pr_err("%s: rpc ids initialization failed\n",
 				__func__);
@@ -155,6 +156,7 @@ int msm_hsusb_rpc_connect(void)
 }
 EXPORT_SYMBOL(msm_hsusb_rpc_connect);
 
+/* rpc connect for charging */
 int msm_chg_rpc_connect(void)
 {
 	uint32_t chg_vers;
@@ -194,6 +196,7 @@ chg_found:
 }
 EXPORT_SYMBOL(msm_chg_rpc_connect);
 
+/* rpc call for phy_reset */
 int msm_hsusb_phy_reset(void)
 {
 	int rc = 0;
@@ -220,6 +223,7 @@ int msm_hsusb_phy_reset(void)
 }
 EXPORT_SYMBOL(msm_hsusb_phy_reset);
 
+/* rpc call for vbus powerup */
 int msm_hsusb_vbus_powerup(void)
 {
 	int rc = 0;
@@ -246,6 +250,7 @@ int msm_hsusb_vbus_powerup(void)
 }
 EXPORT_SYMBOL(msm_hsusb_vbus_powerup);
 
+/* rpc call for vbus shutdown */
 int msm_hsusb_vbus_shutdown(void)
 {
 	int rc = 0;
@@ -315,6 +320,10 @@ int msm_hsusb_send_serial_number(const char *serial_number)
 		return -EAGAIN;
 	}
 
+	/*
+	 * USB driver passes null terminated string to us. Modem processor
+	 * expects serial number to be 32 bit aligned.
+	 */
 	serial_len  = strlen(serial_number)+1;
 	rlen = sizeof(struct rpc_request_hdr) + sizeof(uint32_t) +
 			((serial_len + 3) & ~3);
@@ -462,6 +471,7 @@ int msm_chg_usb_charger_disconnected(void)
 }
 EXPORT_SYMBOL(msm_chg_usb_charger_disconnected);
 
+/* rpc call to close connection */
 int msm_hsusb_rpc_close(void)
 {
 	int rc = 0;
@@ -486,6 +496,7 @@ int msm_hsusb_rpc_close(void)
 }
 EXPORT_SYMBOL(msm_hsusb_rpc_close);
 
+/* rpc call to close charging connection */
 int msm_chg_rpc_close(void)
 {
 	int rc = 0;
@@ -585,6 +596,7 @@ int msm_hsusb_disable_pmic_ulpidata0(void)
 EXPORT_SYMBOL(msm_hsusb_disable_pmic_ulpidata0);
 
 
+/* wrapper for sending pid and serial# info to bootloader */
 int usb_diag_update_pid_and_serial_num(uint32_t pid, const char *snum)
 {
 	int ret;
@@ -611,6 +623,7 @@ int usb_diag_update_pid_and_serial_num(uint32_t pid, const char *snum)
 
 
 #ifdef CONFIG_USB_MSM_72K
+/* charger api wrappers */
 int hsusb_chg_init(int connect)
 {
 	if (connect)

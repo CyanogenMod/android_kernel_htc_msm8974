@@ -15,6 +15,13 @@
 
 #define DRV_NAME "it8213"
 
+/**
+ *	it8213_set_pio_mode	-	set host controller for PIO mode
+ *	@hwif: port
+ *	@drive: drive
+ *
+ *	Set the interface PIO mode.
+ */
 
 static void it8213_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
@@ -40,11 +47,11 @@ static void it8213_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	pci_read_config_word(dev, master_port, &master_data);
 
 	if (pio > 1)
-		control |= 1;	
+		control |= 1;	/* Programmable timing on */
 	if (drive->media != ide_disk)
-		control |= 4;	
+		control |= 4;	/* ATAPI */
 	if (ide_pio_need_iordy(drive, pio))
-		control |= 2;	
+		control |= 2;	/* IORDY */
 	if (is_slave) {
 		master_data |=  0x4000;
 		master_data &= ~0x0070;
@@ -65,6 +72,13 @@ static void it8213_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	spin_unlock_irqrestore(&tune_lock, flags);
 }
 
+/**
+ *	it8213_set_dma_mode	-	set host controller for DMA mode
+ *	@hwif: port
+ *	@drive: drive
+ *
+ *	Tune the ITE chipset for the DMA mode.
+ */
 
 static void it8213_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
@@ -120,7 +134,7 @@ static void it8213_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 			drive->pio_mode =
 				mwdma_to_pio[speed - XFER_MW_DMA_0] + XFER_PIO_0;
 		else
-			drive->pio_mode = XFER_PIO_2; 
+			drive->pio_mode = XFER_PIO_2; /* for SWDMA2 */
 
 		it8213_set_pio_mode(hwif, drive);
 	}
@@ -153,6 +167,15 @@ static const struct ide_port_info it8213_chipset __devinitdata = {
 	.udma_mask	= ATA_UDMA6,
 };
 
+/**
+ *	it8213_init_one	-	pci layer discovery entry
+ *	@dev: PCI device
+ *	@id: ident table entry
+ *
+ *	Called by the PCI code when it finds an ITE8213 controller. As
+ *	this device follows the standard interfaces we can use the
+ *	standard helper functions to do almost all the work for us.
+ */
 
 static int __devinit it8213_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {

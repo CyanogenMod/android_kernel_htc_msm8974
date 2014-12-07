@@ -1,6 +1,9 @@
 #ifndef _ASM_UNISTD_H_
 #define _ASM_UNISTD_H_
 
+/*
+ * This file contains the system call numbers.
+ */
 
 #define __NR_restart_syscall      0
 #define __NR_exit		  1
@@ -61,6 +64,7 @@
 #define __NR_mpx		 56
 #define __NR_setpgid		 57
 #define __NR_ulimit		 58
+// #define __NR_oldolduname	 /* 59 */ obsolete
 #define __NR_umask		 60
 #define __NR_chroot		 61
 #define __NR_ustat		 62
@@ -77,7 +81,7 @@
 #define __NR_sigpending		 73
 #define __NR_sethostname	 74
 #define __NR_setrlimit		 75
-#define __NR_getrlimit		 76	
+#define __NR_getrlimit		 76	/* Back compatible 2Gig limited rlimit */
 #define __NR_getrusage		 77
 #define __NR_gettimeofday	 78
 #define __NR_settimeofday	 79
@@ -91,6 +95,7 @@
 #define __NR_swapon		 87
 #define __NR_reboot		 88
 #define __NR_readdir		 89
+// #define __NR_mmap		 90	/* obsolete - not implemented */
 #define __NR_munmap		 91
 #define __NR_truncate		 92
 #define __NR_ftruncate		 93
@@ -98,8 +103,10 @@
 #define __NR_fchown		 95
 #define __NR_getpriority	 96
 #define __NR_setpriority	 97
+// #define __NR_profil		 /* 98 */ obsolete
 #define __NR_statfs		 99
 #define __NR_fstatfs		100
+// #define __NR_ioperm		/* 101 */ not supported
 #define __NR_socketcall		102
 #define __NR_syslog		103
 #define __NR_setitimer		104
@@ -107,7 +114,11 @@
 #define __NR_stat		106
 #define __NR_lstat		107
 #define __NR_fstat		108
+// #define __NR_olduname		/* 109 */ obsolete
+// #define __NR_iopl		/* 110 */ not supported
 #define __NR_vhangup		111
+// #define __NR_idle		/* 112 */ Obsolete
+// #define __NR_vm86old		/* 113 */ not supported
 #define __NR_wait4		114
 #define __NR_swapoff		115
 #define __NR_sysinfo		116
@@ -117,6 +128,7 @@
 #define __NR_clone		120
 #define __NR_setdomainname	121
 #define __NR_uname		122
+// #define __NR_modify_ldt	/* 123 */ not supported
 #define __NR_cacheflush		123
 #define __NR_adjtimex		124
 #define __NR_mprotect		125
@@ -131,7 +143,7 @@
 #define __NR_bdflush		134
 #define __NR_sysfs		135
 #define __NR_personality	136
-#define __NR_afs_syscall	137 
+#define __NR_afs_syscall	137 /* Syscall for Andrew File System */
 #define __NR_setfsuid		138
 #define __NR_setfsgid		139
 #define __NR__llseek		140
@@ -160,6 +172,7 @@
 #define __NR_mremap		163
 #define __NR_setresuid		164
 #define __NR_getresuid		165
+// #define __NR_vm86		/* 166 */ not supported
 #define __NR_query_module	167
 #define __NR_poll		168
 #define __NR_nfsservctl		169
@@ -181,10 +194,10 @@
 #define __NR_capset		185
 #define __NR_sigaltstack	186
 #define __NR_sendfile		187
-#define __NR_getpmsg		188	
-#define __NR_putpmsg		189	
+#define __NR_getpmsg		188	/* some people actually want streams */
+#define __NR_putpmsg		189	/* some people actually want streams */
 #define __NR_vfork		190
-#define __NR_ugetrlimit		191	
+#define __NR_ugetrlimit		191	/* SuS compliant getrlimit */
 #define __NR_mmap2		192
 #define __NR_truncate64		193
 #define __NR_ftruncate64	194
@@ -216,7 +229,7 @@
 
 #define __NR_getdents64		220
 #define __NR_fcntl64		221
-#define __NR_security		223	
+#define __NR_security		223	/* syscall for security modules */
 #define __NR_gettid		224
 #define __NR_readahead		225
 #define __NR_setxattr		226
@@ -278,6 +291,7 @@
 #define __NR_mq_getsetattr	(__NR_mq_open+5)
 #define __NR_kexec_load		283
 #define __NR_waitid		284
+/* #define __NR_sys_setaltroot	285 */
 #define __NR_add_key		286
 #define __NR_request_key	287
 #define __NR_keyctl		288
@@ -336,11 +350,15 @@
 #define NR_syscalls 338
 
 #define __ARCH_WANT_IPC_PARSE_VERSION
+/* #define __ARCH_WANT_OLD_READDIR */
 #define __ARCH_WANT_OLD_STAT
 #define __ARCH_WANT_STAT64
 #define __ARCH_WANT_SYS_ALARM
+/* #define __ARCH_WANT_SYS_GETHOSTNAME */
 #define __ARCH_WANT_SYS_IPC
 #define __ARCH_WANT_SYS_PAUSE
+/* #define __ARCH_WANT_SYS_SGETMASK */
+/* #define __ARCH_WANT_SYS_SIGNAL */
 #define __ARCH_WANT_SYS_TIME
 #define __ARCH_WANT_SYS_UTIME
 #define __ARCH_WANT_SYS_WAITPID
@@ -349,14 +367,22 @@
 #define __ARCH_WANT_SYS_GETPGRP
 #define __ARCH_WANT_SYS_LLSEEK
 #define __ARCH_WANT_SYS_NICE
+/* #define __ARCH_WANT_SYS_OLD_GETRLIMIT */
 #define __ARCH_WANT_SYS_OLDUMOUNT
+/* #define __ARCH_WANT_SYS_SIGPENDING */
 #define __ARCH_WANT_SYS_SIGPROCMASK
 #define __ARCH_WANT_SYS_RT_SIGACTION
 #define __ARCH_WANT_SYS_RT_SIGSUSPEND
 
+/*
+ * "Conditional" syscalls
+ *
+ * What we want is __attribute__((weak,alias("sys_ni_syscall"))),
+ * but it doesn't work on all toolchains, so we just do it by hand
+ */
 #ifndef cond_syscall
 #define cond_syscall(x) asm(".weak\t" #x "\n\t.set\t" #x ",sys_ni_syscall")
 #endif
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_UNISTD_H_ */

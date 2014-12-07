@@ -14,6 +14,9 @@
 
 #define PTRACE_GET_THREAD_AREA	22
 
+/*
+ * PSR bits
+ */
 #define USER_MODE	0x00000010
 #define REAL_MODE	0x00000011
 #define INTR_MODE	0x00000012
@@ -29,11 +32,19 @@
 #define PSR_Z_BIT	0x40000000
 #define PSR_S_BIT	0x80000000
 
-#define PSR_f		0xff000000	
-#define PSR_c		0x000000ff	
+/*
+ * Groups of PSR bits
+ */
+#define PSR_f		0xff000000	/* Flags		*/
+#define PSR_c		0x000000ff	/* Control		*/
 
 #ifndef __ASSEMBLY__
 
+/*
+ * This struct defines the way the registers are stored on the
+ * stack during a system call.  Note that sizeof(struct pt_regs)
+ * has to be a multiple of 8.
+ */
 struct pt_regs {
 	unsigned long uregs[34];
 };
@@ -87,10 +98,16 @@ struct pt_regs {
 #define fast_interrupts_enabled(regs) \
 	(!((regs)->UCreg_asr & PSR_R_BIT))
 
+/* Are the current registers suitable for user mode?
+ * (used to maintain security in signal handlers)
+ */
 static inline int valid_user_regs(struct pt_regs *regs)
 {
 	unsigned long mode = regs->UCreg_asr & MODE_MASK;
 
+	/*
+	 * Always clear the R (REAL) bits
+	 */
 	regs->UCreg_asr &= ~(PSR_R_BIT);
 
 	if ((regs->UCreg_asr & PSR_I_BIT) == 0) {
@@ -98,6 +115,9 @@ static inline int valid_user_regs(struct pt_regs *regs)
 			return 1;
 	}
 
+	/*
+	 * Force ASR to something logical...
+	 */
 	regs->UCreg_asr &= PSR_f | USER_MODE;
 
 	return 0;
@@ -105,9 +125,9 @@ static inline int valid_user_regs(struct pt_regs *regs)
 
 #define instruction_pointer(regs)	((regs)->UCreg_pc)
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #endif
 

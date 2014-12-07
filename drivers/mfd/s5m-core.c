@@ -146,7 +146,7 @@ static int s5m87xx_i2c_probe(struct i2c_client *i2c,
 					ARRAY_SIZE(s5m8767_devs), NULL, 0);
 		break;
 	default:
-		
+		/* If this happens the probe function is problem */
 		BUG();
 	}
 

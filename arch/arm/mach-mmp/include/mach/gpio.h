@@ -5,4 +5,4 @@
 
 #include <mach/cputype.h>
 
-#endif 
+#endif /* __ASM_MACH_GPIO_H */

@@ -4,6 +4,7 @@
 #include <linux/notifier.h>
 #include <linux/workqueue.h>
 
+/* DCON registers */
 
 #define DCON_REG_ID		 0
 #define DCON_REG_MODE		 1
@@ -31,16 +32,19 @@
 #define DCON_REG_SCAN_INT	9
 #define DCON_REG_BRIGHT		10
 
+/* Status values */
 
 #define DCONSTAT_SCANINT	0
 #define DCONSTAT_SCANINT_DCON	1
 #define DCONSTAT_DISPLAYLOAD	2
 #define DCONSTAT_MISSED		3
 
+/* Source values */
 
 #define DCON_SOURCE_DCON        0
 #define DCON_SOURCE_CPU         1
 
+/* Interrupt */
 #define DCON_IRQ                6
 
 struct dcon_priv {
@@ -52,27 +56,27 @@ struct dcon_priv {
 	struct notifier_block reboot_nb;
 	struct notifier_block fbevent_nb;
 
-	
+	/* Shadow register for the DCON_REG_MODE register */
 	u8 disp_mode;
 
-	
+	/* The current backlight value - this saves us some smbus traffic */
 	u8 bl_val;
 
-	
+	/* Current source, initialized at probe time */
 	int curr_src;
 
-	
+	/* Desired source */
 	int pending_src;
 
-	
+	/* Variables used during switches */
 	bool switched;
 	struct timespec irq_time;
 	struct timespec load_time;
 
-	
+	/* Current output type; true == mono, false == color */
 	bool mono;
 	bool asleep;
-	
+	/* This get set while controlling fb blank state from the driver */
 	bool ignore_fb_events;
 };
 

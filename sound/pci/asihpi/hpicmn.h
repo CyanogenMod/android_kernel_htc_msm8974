@@ -20,11 +20,12 @@
 
 struct hpi_adapter_obj;
 
+/* a function that takes an adapter obj and returns an int */
 typedef int adapter_int_func(struct hpi_adapter_obj *pao);
 
 struct hpi_adapter_obj {
-	struct hpi_pci pci;	
-	u16 type;		
+	struct hpi_pci pci;	/* PCI info - bus#,dev#,address etc */
+	u16 type;		/* 0x6644 == ASI6644 etc */
 	u16 index;
 
 	struct hpios_spinlock dsp_lock;
@@ -35,14 +36,14 @@ struct hpi_adapter_obj {
 };
 
 struct hpi_control_cache {
-	
+	/** indicates whether the structures are initialized */
 	u16 init;
 	u16 adap_idx;
 	u32 control_count;
 	u32 cache_size_in_bytes;
-	
+	/** pointer to allocated memory of lookup pointers. */
 	struct hpi_control_cache_info **p_info;
-	
+	/** pointer to DSP's control cache. */
 	u8 *p_cache;
 };
 

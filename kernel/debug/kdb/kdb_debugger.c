@@ -15,6 +15,9 @@
 #include "kdb_private.h"
 #include "../debug_core.h"
 
+/*
+ * KDB interface to KGDB internals
+ */
 get_char_func kdb_poll_funcs[] = {
 	dbg_io_get_char,
 	NULL,
@@ -65,6 +68,13 @@ int kdb_stub(struct kgdb_state *ks)
 			if (bp->bp_addr == addr) {
 				bp->bp_delay = 1;
 				bp->bp_delayed = 1;
+	/*
+	 * SSBPT is set when the kernel debugger must single step a
+	 * task in order to re-establish an instruction breakpoint
+	 * which uses the instruction replacement mechanism.  It is
+	 * cleared by any action that removes the need to single-step
+	 * the breakpoint.
+	 */
 				reason = KDB_REASON_BREAK;
 				db_result = KDB_DB_BPT;
 				KDB_STATE_SET(SSBPT);
@@ -78,17 +88,17 @@ int kdb_stub(struct kgdb_state *ks)
 		reason = KDB_REASON_SSTEP;
 		db_result = KDB_DB_BPT;
 	}
-	
+	/* Set initial kdb state variables */
 	KDB_STATE_CLEAR(KGDB_TRANS);
 	kdb_initial_cpu = atomic_read(&kgdb_active);
 	kdb_current_task = kgdb_info[ks->cpu].task;
 	kdb_current_regs = kgdb_info[ks->cpu].debuggerinfo;
-	
+	/* Remove any breakpoints as needed by kdb and clear single step */
 	kdb_bp_remove();
 	KDB_STATE_CLEAR(DOING_SS);
 	KDB_STATE_CLEAR(DOING_SSB);
 	KDB_STATE_SET(PAGER);
-	
+	/* zero out any offline cpu data */
 	for_each_present_cpu(i) {
 		if (!cpu_online(i)) {
 			kgdb_info[i].debuggerinfo = NULL;
@@ -103,10 +113,14 @@ int kdb_stub(struct kgdb_state *ks)
 		KDB_STATE_CLEAR(SSBPT);
 		KDB_STATE_CLEAR(DOING_SS);
 	} else {
-		
+		/* Start kdb main loop */
 		error = kdb_main_loop(KDB_REASON_ENTER, reason,
 				      ks->err_code, db_result, ks->linux_regs);
 	}
+	/*
+	 * Upon exit from the kdb main loop setup break points and restart
+	 * the system based on the requested continue state
+	 */
 	kdb_initial_cpu = -1;
 	kdb_current_task = NULL;
 	kdb_current_regs = NULL;
@@ -119,7 +133,7 @@ int kdb_stub(struct kgdb_state *ks)
 	}
 	kdb_bp_install(ks->linux_regs);
 	dbg_activate_sw_breakpoints();
-	
+	/* Set the exit state to a single step or a continue */
 	if (KDB_STATE(DOING_SS))
 		gdbstub_state(ks, "s");
 	else
@@ -127,12 +141,16 @@ int kdb_stub(struct kgdb_state *ks)
 
 	KDB_FLAG_CLEAR(CATASTROPHIC);
 
-	
+	/* Invoke arch specific exception handling prior to system resume */
 	kgdb_info[ks->cpu].ret_state = gdbstub_state(ks, "e");
 	if (ks->pass_exception)
 		kgdb_info[ks->cpu].ret_state = 1;
 	if (error == KDB_CMD_CPU) {
 		KDB_STATE_SET(REENTRY);
+		/*
+		 * Force clear the single step bit because kdb emulates this
+		 * differently vs the gdbstub
+		 */
 		kgdb_single_step = 0;
 		dbg_deactivate_sw_breakpoints();
 		return DBG_SWITCH_CPU_EVENT;

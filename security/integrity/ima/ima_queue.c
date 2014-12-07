@@ -25,16 +25,22 @@
 
 #define AUDIT_CAUSE_LEN_MAX 32
 
-LIST_HEAD(ima_measurements);	
+LIST_HEAD(ima_measurements);	/* list of all measurements */
 
+/* key: inode (before secure-hashing a file) */
 struct ima_h_table ima_htable = {
 	.len = ATOMIC_LONG_INIT(0),
 	.violations = ATOMIC_LONG_INIT(0),
 	.queue[0 ... IMA_MEASURE_HTABLE_SIZE - 1] = HLIST_HEAD_INIT
 };
 
+/* mutex protects atomicity of extending measurement list
+ * and extending the TPM PCR aggregate. Since tpm_extend can take
+ * long (and the tpm driver uses a mutex), we can't use the spinlock.
+ */
 static DEFINE_MUTEX(ima_extend_list_mutex);
 
+/* lookup up the digest value in the hash table, and return the entry */
 static struct ima_queue_entry *ima_lookup_digest_entry(u8 *digest_value)
 {
 	struct ima_queue_entry *qe, *ret = NULL;
@@ -55,6 +61,11 @@ static struct ima_queue_entry *ima_lookup_digest_entry(u8 *digest_value)
 	return ret;
 }
 
+/* ima_add_template_entry helper function:
+ * - Add template entry to measurement list and hash table.
+ *
+ * (Called with ima_extend_list_mutex held.)
+ */
 static int ima_add_digest_entry(struct ima_template_entry *entry)
 {
 	struct ima_queue_entry *qe;
@@ -90,6 +101,9 @@ static int ima_pcr_extend(const u8 *hash)
 	return result;
 }
 
+/* Add template entry to the measurement list and hash table,
+ * and extend the pcr.
+ */
 int ima_add_template_entry(struct ima_template_entry *entry, int violation,
 			   const char *op, struct inode *inode)
 {
@@ -116,7 +130,7 @@ int ima_add_template_entry(struct ima_template_entry *entry, int violation,
 		goto out;
 	}
 
-	if (violation)		
+	if (violation)		/* invalidate pcr */
 		memset(digest, 0xff, sizeof digest);
 
 	tpmresult = ima_pcr_extend(digest);

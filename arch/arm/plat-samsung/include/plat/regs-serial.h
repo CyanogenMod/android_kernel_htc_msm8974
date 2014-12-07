@@ -122,6 +122,7 @@
 #define S3C2410_UFCON_RXTRIG8	  (1<<4)
 #define S3C2410_UFCON_RXTRIG12	  (2<<4)
 
+/* S3C2440 FIFO trigger levels */
 #define S3C2440_UFCON_RXTRIG1	  (0<<4)
 #define S3C2440_UFCON_RXTRIG8	  (1<<4)
 #define S3C2440_UFCON_RXTRIG16	  (2<<4)
@@ -143,7 +144,7 @@
 #define	S3C2410_UMCOM_AFC	  (1<<4)
 #define	S3C2410_UMCOM_RTS_LOW	  (1<<0)
 
-#define S3C2412_UMCON_AFC_63	(0<<5)		
+#define S3C2412_UMCON_AFC_63	(0<<5)		/* same as s3c2443 */
 #define S3C2412_UMCON_AFC_56	(1<<5)
 #define S3C2412_UMCON_AFC_48	(2<<5)
 #define S3C2412_UMCON_AFC_40	(3<<5)
@@ -159,6 +160,7 @@
 #define S3C2410_UFSTAT_RXMASK	  (15<<0)
 #define S3C2410_UFSTAT_RXSHIFT	  (0)
 
+/* UFSTAT S3C2443 same as S3C2440 */
 #define S3C2440_UFSTAT_TXFULL	  (1<<14)
 #define S3C2440_UFSTAT_RXFULL	  (1<<6)
 #define S3C2440_UFSTAT_TXSHIFT	  (8)
@@ -184,6 +186,7 @@
 
 #define S3C2443_DIVSLOT		  (0x2C)
 
+/* S3C64XX interrupt registers. */
 #define S3C64XX_UINTP		0x30
 #define S3C64XX_UINTSP		0x34
 #define S3C64XX_UINTM		0x38
@@ -193,6 +196,7 @@
 #define S3C64XX_UINTM_RXD_MSK	(1 << S3C64XX_UINTM_RXD)
 #define S3C64XX_UINTM_TXD_MSK	(1 << S3C64XX_UINTM_TXD)
 
+/* Following are specific to S5PV210 */
 #define S5PV210_UCON_CLKMASK	(1<<10)
 #define S5PV210_UCON_CLKSHIFT	(10)
 #define S5PV210_UCON_PCLK	(0<<10)
@@ -228,6 +232,7 @@
 #define S3C2410_UCON_CLKSEL2	(1 << 2)
 #define S3C2410_UCON_CLKSEL3	(1 << 3)
 
+/* Default values for s5pv210 UCON and UFCON uart registers */
 #define S5PV210_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
 				 S3C2410_UCON_RXILEVEL |	\
 				 S3C2410_UCON_TXIRQMODE |	\
@@ -241,25 +246,36 @@
 
 #ifndef __ASSEMBLY__
 
+/* configuration structure for per-machine configurations for the
+ * serial port
+ *
+ * the pointer is setup by the machine specific initialisation from the
+ * arch/arm/mach-s3c2410/ directory.
+*/
 
 struct s3c2410_uartcfg {
-	unsigned char	   hwport;	 
+	unsigned char	   hwport;	 /* hardware port number */
 	unsigned char	   unused;
 	unsigned short	   flags;
-	upf_t		   uart_flags;	 
+	upf_t		   uart_flags;	 /* default uart flags */
 	unsigned int	   clk_sel;
 
 	unsigned int	   has_fracval;
 
-	unsigned long	   ucon;	 
-	unsigned long	   ulcon;	 
-	unsigned long	   ufcon;	 
+	unsigned long	   ucon;	 /* value of ucon for port */
+	unsigned long	   ulcon;	 /* value of ulcon for port */
+	unsigned long	   ufcon;	 /* value of ufcon for port */
 };
 
+/* s3c24xx_uart_devs
+ *
+ * this is exported from the core as we cannot use driver_register(),
+ * or platform_add_device() before the console_initcall()
+*/
 
 extern struct platform_device *s3c24xx_uart_devs[4];
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* __ASM_ARM_REGS_SERIAL_H */
 

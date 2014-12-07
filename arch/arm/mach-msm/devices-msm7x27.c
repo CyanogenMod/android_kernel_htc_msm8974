@@ -727,6 +727,7 @@ static struct platform_device msm_tvenc_device = {
 	.resource       = msm_tvenc_resources,
 };
 
+/* TSIF begin */
 #if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
 
 #define MSM_TSIF_PHYS        (0xa0100000)
@@ -764,7 +765,8 @@ struct platform_device msm_device_tsif = {
 		.release       = tsif_release,
 	},
 };
-#endif 
+#endif /* defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE) */
+/* TSIF end   */
 
 #define MSM_TSSC_PHYS         0xAA300000
 static struct resource resources_tssc[] = {
@@ -856,6 +858,11 @@ static struct resource kgsl_3d0_resources[] = {
 };
 
 static struct kgsl_device_platform_data kgsl_3d0_pdata = {
+	/* bus_freq has been set to 160000 for power savings.
+	* OEMs may modify the value at their discretion for performance
+	* The appropriate maximum replacement for 160000 is:
+	* msm7x2x_clock_data.max_axi_khz
+	*/
 	.pwrlevel = {
 		{
 			.gpu_freq = 0,

@@ -31,6 +31,11 @@
 #include "xfs_inode_item.h"
 #include "xfs_trace.h"
 
+/*
+ * Note that we only accept fileids which are long enough rather than allow
+ * the parent generation number to default to zero.  XFS considers zero a
+ * valid generation number not an invalid/wildcard value.
+ */
 static int xfs_fileid_length(int fileid_type)
 {
 	switch (fileid_type) {
@@ -43,7 +48,7 @@ static int xfs_fileid_length(int fileid_type)
 	case FILEID_INO32_GEN_PARENT | XFS_FILEID_TYPE_64FLAG:
 		return 6;
 	}
-	return 255; 
+	return 255; /* invalid */
 }
 
 STATIC int
@@ -59,16 +64,30 @@ xfs_fs_encode_fh(
 	int			fileid_type;
 	int			len;
 
-	
+	/* Directories don't need their parent encoded, they have ".." */
 	if (S_ISDIR(inode->i_mode) || !connectable)
 		fileid_type = FILEID_INO32_GEN;
 	else
 		fileid_type = FILEID_INO32_GEN_PARENT;
 
+	/*
+	 * If the the filesystem may contain 64bit inode numbers, we need
+	 * to use larger file handles that can represent them.
+	 *
+	 * While we only allocate inodes that do not fit into 32 bits any
+	 * large enough filesystem may contain them, thus the slightly
+	 * confusing looking conditional below.
+	 */
 	if (!(XFS_M(inode->i_sb)->m_flags & XFS_MOUNT_SMALL_INUMS) ||
 	    (XFS_M(inode->i_sb)->m_flags & XFS_MOUNT_32BITINODES))
 		fileid_type |= XFS_FILEID_TYPE_64FLAG;
 
+	/*
+	 * Only encode if there is enough space given.  In practice
+	 * this means we can't export a filesystem with 64bit inodes
+	 * over NFSv2 with the subtree_check export option; the other
+	 * seven combinations work.  The real answer is "don't use v2".
+	 */
 	len = xfs_fileid_length(fileid_type);
 	if (*max_len < len) {
 		*max_len = len;
@@ -82,7 +101,7 @@ xfs_fs_encode_fh(
 		fid->i32.parent_ino = XFS_I(dentry->d_parent->d_inode)->i_ino;
 		fid->i32.parent_gen = dentry->d_parent->d_inode->i_generation;
 		spin_unlock(&dentry->d_lock);
-		
+		/*FALLTHRU*/
 	case FILEID_INO32_GEN:
 		fid->i32.ino = XFS_I(inode)->i_ino;
 		fid->i32.gen = inode->i_generation;
@@ -92,7 +111,7 @@ xfs_fs_encode_fh(
 		fid64->parent_ino = XFS_I(dentry->d_parent->d_inode)->i_ino;
 		fid64->parent_gen = dentry->d_parent->d_inode->i_generation;
 		spin_unlock(&dentry->d_lock);
-		
+		/*FALLTHRU*/
 	case FILEID_INO32_GEN | XFS_FILEID_TYPE_64FLAG:
 		fid64->ino = XFS_I(inode)->i_ino;
 		fid64->gen = inode->i_generation;
@@ -112,11 +131,26 @@ xfs_nfs_get_inode(
 	xfs_inode_t		*ip;
 	int			error;
 
+	/*
+	 * NFS can sometimes send requests for ino 0.  Fail them gracefully.
+	 */
 	if (ino == 0)
 		return ERR_PTR(-ESTALE);
 
+	/*
+	 * The XFS_IGET_UNTRUSTED means that an invalid inode number is just
+	 * fine and not an indication of a corrupted filesystem as clients can
+	 * send invalid file handles and we have to handle it gracefully..
+	 */
 	error = xfs_iget(mp, NULL, ino, XFS_IGET_UNTRUSTED, 0, &ip);
 	if (error) {
+		/*
+		 * EINVAL means the inode cluster doesn't exist anymore.
+		 * This implies the filehandle is stale, so we should
+		 * translate it here.
+		 * We don't use ESTALE directly down the chain to not
+		 * confuse applications using bulkstat that expect EINVAL.
+		 */
 		if (error == EINVAL || error == ENOENT)
 			error = ESTALE;
 		return ERR_PTR(-error);

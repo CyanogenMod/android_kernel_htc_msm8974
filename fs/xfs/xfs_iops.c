@@ -69,6 +69,12 @@ xfs_initxattrs(
 	return error;
 }
 
+/*
+ * Hook in SELinux.  This is not quite correct yet, what we really need
+ * here (as we do for default ACLs) is a mechanism by which creation of
+ * these attrs can be journalled at inode creation time (along with the
+ * inode, of course, such that log replay can't cause these to be lost).
+ */
 
 STATIC int
 xfs_init_security(
@@ -97,6 +103,11 @@ xfs_cleanup_inode(
 {
 	struct xfs_name	teardown;
 
+	/* Oh, the horror.
+	 * If we can't add the ACL or we fail in
+	 * xfs_init_security we must back out.
+	 * ENOSPC can hit here, among other things.
+	 */
 	xfs_dentry_to_name(&teardown, dentry);
 
 	xfs_remove(XFS_I(dir), &teardown, XFS_I(inode));
@@ -116,6 +127,10 @@ xfs_vn_mknod(
 	struct xfs_name	name;
 	int		error;
 
+	/*
+	 * Irix uses Missed'em'V split, but doesn't want to see
+	 * the upper 5 bits of (14bit) major.
+	 */
 	if (S_ISCHR(mode) || S_ISBLK(mode)) {
 		if (unlikely(!sysv_valid_dev(rdev) || MAJOR(rdev) & ~0x1ff))
 			return -EINVAL;
@@ -226,14 +241,19 @@ xfs_vn_ci_lookup(
 	if (unlikely(error)) {
 		if (unlikely(error != ENOENT))
 			return ERR_PTR(-error);
+		/*
+		 * call d_add(dentry, NULL) here when d_drop_negative_children
+		 * is called in xfs_vn_mknod (ie. allow negative dentries
+		 * with CI filesystems).
+		 */
 		return NULL;
 	}
 
-	
+	/* if exact match, just splice and exit */
 	if (!ci_name.name)
 		return d_splice_alias(VFS_I(ip), dentry);
 
-	
+	/* else case-insensitive match... */
 	dname.name = ci_name.name;
 	dname.len = ci_name.len;
 	dentry = d_add_ci(dentry, VFS_I(ip), &dname);
@@ -276,6 +296,11 @@ xfs_vn_unlink(
 	if (error)
 		return error;
 
+	/*
+	 * With unlink, the VFS makes the dentry "negative": no inode,
+	 * but still hashed. This is incompatible with case-insensitive
+	 * mode, so invalidate (unhash) the dentry in CI-mode.
+	 */
 	if (xfs_sb_version_hasasciici(&XFS_M(dir->i_sb)->m_sb))
 		d_invalidate(dentry);
 	return 0;
@@ -335,6 +360,11 @@ xfs_vn_rename(
 			   			XFS_I(new_inode) : NULL);
 }
 
+/*
+ * careful here - this function can get called recursively, so
+ * we need to be very careful about how much stack we use.
+ * uio is kmalloced for this reason...
+ */
 STATIC void *
 xfs_vn_follow_link(
 	struct dentry		*dentry,
@@ -411,6 +441,11 @@ xfs_vn_getattr(
 		break;
 	default:
 		if (XFS_IS_REALTIME_INODE(ip)) {
+			/*
+			 * If the file blocks are being allocated from a
+			 * realtime volume, then return the inode's realtime
+			 * extent size or the realtime volume's extent size.
+			 */
 			stat->blksize =
 				xfs_get_extsz_hint(ip) << mp->m_sb.sb_blocklog;
 		} else
@@ -452,6 +487,14 @@ xfs_setattr_nonsize(
 
 	ASSERT((mask & ATTR_SIZE) == 0);
 
+	/*
+	 * If disk quotas is on, we make sure that the dquots do exist on disk,
+	 * before we start any other transactions. Trying to do this later
+	 * is messy. We don't care to take a readlock to look at the ids
+	 * in inode here, because we can't hold it across the trans_reserve.
+	 * If the IDs do change before we take the ilock, we're covered
+	 * because the i_*dquot fields will get updated anyway.
+	 */
 	if (XFS_IS_QUOTA_ON(mp) && (mask & (ATTR_UID|ATTR_GID))) {
 		uint	qflags = 0;
 
@@ -468,6 +511,11 @@ xfs_setattr_nonsize(
 			gid = ip->i_d.di_gid;
 		}
 
+		/*
+		 * We take a reference when we initialize udqp and gdqp,
+		 * so it is important that we never blindly double trip on
+		 * the same variable. See xfs_create() for an example.
+		 */
 		ASSERT(udqp == NULL);
 		ASSERT(gdqp == NULL);
 		error = xfs_qm_vop_dqalloc(ip, uid, gid, xfs_get_projid(ip),
@@ -483,12 +531,25 @@ xfs_setattr_nonsize(
 
 	xfs_ilock(ip, XFS_ILOCK_EXCL);
 
+	/*
+	 * Change file ownership.  Must be the owner or privileged.
+	 */
 	if (mask & (ATTR_UID|ATTR_GID)) {
+		/*
+		 * These IDs could have changed since we last looked at them.
+		 * But, we're assured that if the ownership did change
+		 * while we didn't have the inode locked, inode's dquot(s)
+		 * would have changed also.
+		 */
 		iuid = ip->i_d.di_uid;
 		igid = ip->i_d.di_gid;
 		gid = (mask & ATTR_GID) ? iattr->ia_gid : igid;
 		uid = (mask & ATTR_UID) ? iattr->ia_uid : iuid;
 
+		/*
+		 * Do a quota reservation only if uid/gid is actually
+		 * going to change.
+		 */
 		if (XFS_IS_QUOTA_RUNNING(mp) &&
 		    ((XFS_IS_UQUOTA_ON(mp) && iuid != uid) ||
 		     (XFS_IS_GQUOTA_ON(mp) && igid != gid))) {
@@ -496,18 +557,31 @@ xfs_setattr_nonsize(
 			error = xfs_qm_vop_chown_reserve(tp, ip, udqp, gdqp,
 						capable(CAP_FOWNER) ?
 						XFS_QMOPT_FORCE_RES : 0);
-			if (error)	
+			if (error)	/* out of quota */
 				goto out_trans_cancel;
 		}
 	}
 
 	xfs_trans_ijoin(tp, ip, 0);
 
+	/*
+	 * Change file ownership.  Must be the owner or privileged.
+	 */
 	if (mask & (ATTR_UID|ATTR_GID)) {
+		/*
+		 * CAP_FSETID overrides the following restrictions:
+		 *
+		 * The set-user-ID and set-group-ID bits of a file will be
+		 * cleared upon successful return from chown()
+		 */
 		if ((ip->i_d.di_mode & (S_ISUID|S_ISGID)) &&
 		    !capable(CAP_FSETID))
 			ip->i_d.di_mode &= ~(S_ISUID|S_ISGID);
 
+		/*
+		 * Change the ownerships and register quota modifications
+		 * in the transaction.
+		 */
 		if (iuid != uid) {
 			if (XFS_IS_QUOTA_RUNNING(mp) && XFS_IS_UQUOTA_ON(mp)) {
 				ASSERT(mask & ATTR_UID);
@@ -531,6 +605,9 @@ xfs_setattr_nonsize(
 		}
 	}
 
+	/*
+	 * Change file access modes.
+	 */
 	if (mask & ATTR_MODE) {
 		umode_t mode = iattr->ia_mode;
 
@@ -544,6 +621,9 @@ xfs_setattr_nonsize(
 		inode->i_mode |= mode & ~S_IFMT;
 	}
 
+	/*
+	 * Change file access or modified times.
+	 */
 	if (mask & ATTR_ATIME) {
 		inode->i_atime = iattr->ia_atime;
 		ip->i_d.di_atime.t_sec = iattr->ia_atime.tv_sec;
@@ -570,6 +650,9 @@ xfs_setattr_nonsize(
 
 	xfs_iunlock(ip, XFS_ILOCK_EXCL);
 
+	/*
+	 * Release any dquot(s) the inode had kept before chown.
+	 */
 	xfs_qm_dqrele(olddquot1);
 	xfs_qm_dqrele(olddquot2);
 	xfs_qm_dqrele(udqp);
@@ -578,6 +661,13 @@ xfs_setattr_nonsize(
 	if (error)
 		return XFS_ERROR(error);
 
+	/*
+	 * XXX(hch): Updating the ACL entries is not atomic vs the i_mode
+	 * 	     update.  We could avoid this with linked transactions
+	 * 	     and passing down the transaction pointer all the way
+	 *	     to attr_set.  No previous user of the generic
+	 * 	     Posix ACL code seems to care about this issue either.
+	 */
 	if ((mask & ATTR_MODE) && !(flags & XFS_ATTR_NOACL)) {
 		error = -xfs_acl_chmod(inode);
 		if (error)
@@ -595,6 +685,9 @@ out_dqrele:
 	return error;
 }
 
+/*
+ * Truncate file.  Must have write permission and not be a directory.
+ */
 int
 xfs_setattr_size(
 	struct xfs_inode	*ip,
@@ -635,20 +728,42 @@ xfs_setattr_size(
 	oldsize = inode->i_size;
 	newsize = iattr->ia_size;
 
+	/*
+	 * Short circuit the truncate case for zero length files.
+	 */
 	if (newsize == 0 && oldsize == 0 && ip->i_d.di_nextents == 0) {
 		if (!(mask & (ATTR_CTIME|ATTR_MTIME)))
 			goto out_unlock;
 
+		/*
+		 * Use the regular setattr path to update the timestamps.
+		 */
 		xfs_iunlock(ip, lock_flags);
 		iattr->ia_valid &= ~ATTR_SIZE;
 		return xfs_setattr_nonsize(ip, iattr, 0);
 	}
 
+	/*
+	 * Make sure that the dquots are attached to the inode.
+	 */
 	error = xfs_qm_dqattach_locked(ip, 0);
 	if (error)
 		goto out_unlock;
 
+	/*
+	 * Now we can make the changes.  Before we join the inode to the
+	 * transaction, take care of the part of the truncation that must be
+	 * done without the inode lock.  This needs to be done before joining
+	 * the inode to the transaction, because the inode cannot be unlocked
+	 * once it is a part of the transaction.
+	 */
 	if (newsize > oldsize) {
+		/*
+		 * Do the first part of growing a file: zero any data in the
+		 * last block that is beyond the old EOF.  We need to do this
+		 * before the inode is joined to the transaction to modify
+		 * i_size.
+		 */
 		error = xfs_zero_eof(ip, newsize, oldsize);
 		if (error)
 			goto out_unlock;
@@ -675,6 +790,9 @@ xfs_setattr_size(
 			goto out_unlock;
 	}
 
+	/*
+	 * Wait for all direct I/O to complete.
+	 */
 	inode_dio_wait(inode);
 
 	error = -block_truncate_page(inode->i_mapping, newsize, xfs_get_blocks);
@@ -697,6 +815,16 @@ xfs_setattr_size(
 
 	xfs_trans_ijoin(tp, ip, 0);
 
+	/*
+	 * Only change the c/mtime if we are changing the size or we are
+	 * explicitly asked to change it.  This handles the semantic difference
+	 * between truncate() and ftruncate() as implemented in the VFS.
+	 *
+	 * The regular truncate() case without ATTR_CTIME and ATTR_MTIME is a
+	 * special case where we need to update the times despite not having
+	 * these flags set.  For all other operations the VFS set these flags
+	 * explicitly if it wants a timestamp update.
+	 */
 	if (newsize != oldsize && (!(mask & (ATTR_CTIME | ATTR_MTIME)))) {
 		iattr->ia_ctime = iattr->ia_mtime =
 			current_fs_time(inode->i_sb);
@@ -723,6 +851,13 @@ xfs_setattr_size(
 		if (error)
 			goto out_trans_abort;
 
+		/*
+		 * Truncated "down", so we're removing references to old data
+		 * here - if we delay flushing for a long time, we expose
+		 * ourselves unduly to the notorious NULL files problem.  So,
+		 * we mark this inode and flush it when the file is closed,
+		 * and do not wait the usual (long) time for writeout.
+		 */
 		xfs_iflags_set(ip, XFS_ITRUNCATED);
 	}
 
@@ -769,6 +904,10 @@ xfs_vn_setattr(
 
 #define XFS_FIEMAP_FLAGS	(FIEMAP_FLAG_SYNC|FIEMAP_FLAG_XATTR)
 
+/*
+ * Call fiemap helper to fill in user data.
+ * Returns positive errors to xfs_getbmap.
+ */
 STATIC int
 xfs_fiemap_format(
 	void			**arg,
@@ -780,7 +919,7 @@ xfs_fiemap_format(
 	u32			fiemap_flags = 0;
 	u64			logical, physical, length;
 
-	
+	/* Do nothing for a hole */
 	if (bmv->bmv_block == -1LL)
 		return 0;
 
@@ -792,7 +931,7 @@ xfs_fiemap_format(
 		fiemap_flags |= FIEMAP_EXTENT_UNWRITTEN;
 	else if (bmv->bmv_oflags & BMV_OF_DELALLOC) {
 		fiemap_flags |= FIEMAP_EXTENT_DELALLOC;
-		physical = 0;   
+		physical = 0;   /* no block yet */
 	}
 	if (bmv->bmv_oflags & BMV_OF_LAST)
 		fiemap_flags |= FIEMAP_EXTENT_LAST;
@@ -801,7 +940,7 @@ xfs_fiemap_format(
 					length, fiemap_flags);
 	if (error > 0) {
 		error = 0;
-		*full = 1;	
+		*full = 1;	/* user array now full */
 	}
 
 	return -error;
@@ -822,15 +961,15 @@ xfs_vn_fiemap(
 	if (error)
 		return error;
 
-	
+	/* Set up bmap header for xfs internal routine */
 	bm.bmv_offset = BTOBB(start);
-	
+	/* Special case for whole file */
 	if (length == FIEMAP_MAX_OFFSET)
 		bm.bmv_length = -1LL;
 	else
 		bm.bmv_length = BTOBB(length);
 
-	
+	/* We add one because in getbmap world count includes the header */
 	bm.bmv_count = !fieinfo->fi_extents_max ? MAXEXTNUM :
 					fieinfo->fi_extents_max + 1;
 	bm.bmv_count = min_t(__s32, bm.bmv_count,
@@ -866,6 +1005,12 @@ static const struct inode_operations xfs_dir_inode_operations = {
 	.unlink			= xfs_vn_unlink,
 	.symlink		= xfs_vn_symlink,
 	.mkdir			= xfs_vn_mkdir,
+	/*
+	 * Yes, XFS uses the same method for rmdir and unlink.
+	 *
+	 * There are some subtile differences deeper in the code,
+	 * but we use S_ISDIR to check for those.
+	 */
 	.rmdir			= xfs_vn_unlink,
 	.mknod			= xfs_vn_mknod,
 	.rename			= xfs_vn_rename,
@@ -885,6 +1030,12 @@ static const struct inode_operations xfs_dir_ci_inode_operations = {
 	.unlink			= xfs_vn_unlink,
 	.symlink		= xfs_vn_symlink,
 	.mkdir			= xfs_vn_mkdir,
+	/*
+	 * Yes, XFS uses the same method for rmdir and unlink.
+	 *
+	 * There are some subtile differences deeper in the code,
+	 * but we use S_ISDIR to check for those.
+	 */
 	.rmdir			= xfs_vn_unlink,
 	.mknod			= xfs_vn_mknod,
 	.rename			= xfs_vn_rename,
@@ -933,6 +1084,18 @@ xfs_diflags_to_iflags(
 		inode->i_flags &= ~S_NOATIME;
 }
 
+/*
+ * Initialize the Linux inode, set up the operation vectors and
+ * unlock the inode.
+ *
+ * When reading existing inodes from disk this is called directly
+ * from xfs_iget, when creating a new inode it is called from
+ * xfs_ialloc after setting up the inode.
+ *
+ * We are always called with an uninitialised linux inode here.
+ * We need to initialise the necessary fields and take a reference
+ * on it.
+ */
 void
 xfs_setup_inode(
 	struct xfs_inode	*ip)
@@ -943,7 +1106,7 @@ xfs_setup_inode(
 	inode->i_state = I_NEW;
 
 	inode_sb_list_add(inode);
-	
+	/* make the inode look hashed for the writeback code */
 	hlist_add_fake(&inode->i_hash);
 
 	inode->i_mode	= ip->i_d.di_mode;
@@ -997,6 +1160,10 @@ xfs_setup_inode(
 		break;
 	}
 
+	/*
+	 * If there is no attribute fork no ACL can exist on this inode,
+	 * and it can't have any file capabilities attached to it either.
+	 */
 	if (!XFS_IFORK_Q(ip)) {
 		inode_has_no_xattr(inode);
 		cache_no_acl(inode);

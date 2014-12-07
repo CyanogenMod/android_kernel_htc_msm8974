@@ -58,7 +58,7 @@ static int dma_setup(struct scsi_cmnd *cmd, int dir_in)
 	int bank_mask;
 	static int scsi_alloc_out_of_range = 0;
 
-	
+	/* use bounce buffer if the physical address is bad */
 	if (addr & wh->dma_xfer_mask) {
 		wh->dma_bounce_len = (cmd->SCp.this_residual + 511) & ~0x1ff;
 
@@ -82,11 +82,11 @@ static int dma_setup(struct scsi_cmnd *cmd, int dir_in)
 			wh->dma_buffer_pool = BUF_CHIP_ALLOCED;
 		}
 
-		
+		/* check if the address of the bounce buffer is OK */
 		addr = virt_to_bus(wh->dma_bounce_buffer);
 
 		if (addr & wh->dma_xfer_mask) {
-			
+			/* fall back to Chip RAM if address out of range */
 			if (wh->dma_buffer_pool == BUF_SCSI_ALLOCED) {
 				kfree(wh->dma_bounce_buffer);
 				scsi_alloc_out_of_range = 1;
@@ -108,27 +108,27 @@ static int dma_setup(struct scsi_cmnd *cmd, int dir_in)
 		}
 
 		if (!dir_in) {
-			
+			/* copy to bounce buffer for a write */
 			memcpy(wh->dma_bounce_buffer, cmd->SCp.ptr,
 			       cmd->SCp.this_residual);
 		}
 	}
 
-	
+	/* setup dma direction */
 	if (!dir_in)
 		cntr |= GVP11_DMAC_DIR_WRITE;
 
 	wh->dma_dir = dir_in;
 	regs->CNTR = cntr;
 
-	
+	/* setup DMA *physical* address */
 	regs->ACR = addr;
 
 	if (dir_in) {
-		
+		/* invalidate any cache */
 		cache_clear(addr, cmd->SCp.this_residual);
 	} else {
-		
+		/* push any dirty cache */
 		cache_push(addr, cmd->SCp.this_residual);
 	}
 
@@ -136,10 +136,10 @@ static int dma_setup(struct scsi_cmnd *cmd, int dir_in)
 	if (bank_mask)
 		regs->BANK = bank_mask & (addr >> 18);
 
-	
+	/* start DMA */
 	regs->ST_DMA = 1;
 
-	
+	/* return success */
 	return 0;
 }
 
@@ -150,12 +150,12 @@ static void dma_stop(struct Scsi_Host *instance, struct scsi_cmnd *SCpnt,
 	struct WD33C93_hostdata *wh = &hdata->wh;
 	struct gvp11_scsiregs *regs = hdata->regs;
 
-	
+	/* stop DMA */
 	regs->SP_DMA = 1;
-	
+	/* remove write bit from CONTROL bits */
 	regs->CNTR = GVP11_DMAC_INT_ENABLE;
 
-	
+	/* copy from a bounce buffer, if necessary */
 	if (status && wh->dma_bounce_buffer) {
 		if (wh->dma_dir && SCpnt)
 			memcpy(SCpnt->SCp.ptr, wh->dma_bounce_buffer,
@@ -175,8 +175,11 @@ static int gvp11_bus_reset(struct scsi_cmnd *cmd)
 {
 	struct Scsi_Host *instance = cmd->device->host;
 
-	
+	/* FIXME perform bus-specific reset */
 
+	/* FIXME 2: shouldn't we no-op this function (return
+	   FAILED), and fall back to host reset function,
+	   wd33c93_host_reset ? */
 
 	spin_lock_irq(instance->host_lock);
 	wd33c93_host_reset(cmd);
@@ -208,30 +211,43 @@ static int __devinit check_wd33c93(struct gvp11_scsiregs *regs)
 	unsigned char save_sasr;
 	unsigned char q, qq;
 
+	/*
+	 * These darn GVP boards are a problem - it can be tough to tell
+	 * whether or not they include a SCSI controller. This is the
+	 * ultimate Yet-Another-GVP-Detection-Hack in that it actually
+	 * probes for a WD33c93 chip: If we find one, it's extremely
+	 * likely that this card supports SCSI, regardless of Product_
+	 * Code, Board_Size, etc.
+	 */
 
-	
+	/* Get pointers to the presumed register locations and save contents */
 
 	sasr_3393 = &regs->SASR;
 	scmd_3393 = &regs->SCMD;
 	save_sasr = *sasr_3393;
 
-	
+	/* First test the AuxStatus Reg */
 
-	q = *sasr_3393;	
-	if (q & 0x08)	
+	q = *sasr_3393;	/* read it */
+	if (q & 0x08)	/* bit 3 should always be clear */
 		return -ENODEV;
-	*sasr_3393 = WD_AUXILIARY_STATUS;	
-	if (*sasr_3393 == WD_AUXILIARY_STATUS) {	
-		*sasr_3393 = save_sasr;	
+	*sasr_3393 = WD_AUXILIARY_STATUS;	/* setup indirect address */
+	if (*sasr_3393 == WD_AUXILIARY_STATUS) {	/* shouldn't retain the write */
+		*sasr_3393 = save_sasr;	/* Oops - restore this byte */
 		return -ENODEV;
 	}
-	if (*sasr_3393 != q) {	
-		*sasr_3393 = save_sasr;	
+	if (*sasr_3393 != q) {	/* should still read the same */
+		*sasr_3393 = save_sasr;	/* Oops - restore this byte */
 		return -ENODEV;
 	}
-	if (*scmd_3393 != q)	
+	if (*scmd_3393 != q)	/* and so should the image at 0x1f */
 		return -ENODEV;
 
+	/*
+	 * Ok, we probably have a wd33c93, but let's check a few other places
+	 * for good measure. Make sure that this works for both 'A and 'B
+	 * chip versions.
+	 */
 
 	*sasr_3393 = WD_SCSI_STATUS;
 	q = *scmd_3393;
@@ -241,9 +257,9 @@ static int __devinit check_wd33c93(struct gvp11_scsiregs *regs)
 	qq = *scmd_3393;
 	*sasr_3393 = WD_SCSI_STATUS;
 	*scmd_3393 = q;
-	if (qq != q)	
+	if (qq != q)	/* should be read only */
 		return -ENODEV;
-	*sasr_3393 = 0x1e;	
+	*sasr_3393 = 0x1e;	/* this register is unimplemented */
 	q = *scmd_3393;
 	*sasr_3393 = 0x1e;
 	*scmd_3393 = ~q;
@@ -251,7 +267,7 @@ static int __devinit check_wd33c93(struct gvp11_scsiregs *regs)
 	qq = *scmd_3393;
 	*sasr_3393 = 0x1e;
 	*scmd_3393 = q;
-	if (qq != q || qq != 0xff)	
+	if (qq != q || qq != 0xff)	/* should be read only, all 1's */
 		return -ENODEV;
 	*sasr_3393 = WD_TIMEOUT_PERIOD;
 	q = *scmd_3393;
@@ -261,9 +277,9 @@ static int __devinit check_wd33c93(struct gvp11_scsiregs *regs)
 	qq = *scmd_3393;
 	*sasr_3393 = WD_TIMEOUT_PERIOD;
 	*scmd_3393 = q;
-	if (qq != (~q & 0xff))	
+	if (qq != (~q & 0xff))	/* should be read/write */
 		return -ENODEV;
-#endif 
+#endif /* CHECK_WD33C93 */
 
 	return 0;
 }
@@ -282,6 +298,11 @@ static int __devinit gvp11_probe(struct zorro_dev *z,
 
 	default_dma_xfer_mask = ent->driver_data;
 
+	/*
+	 * Rumors state that some GVP ram boards use the same product
+	 * code as the SCSI controllers. Therefore if the board-size
+	 * is not 64KB we assume it is a ram board and bail out.
+	 */
 	if (zorro_resource_len(z) != 0x10000)
 		return -ENODEV;
 
@@ -327,6 +348,9 @@ static int __devinit gvp11_probe(struct zorro_dev *z,
 	hdata->wh.dma_mode = CTRL_DMA;
 	hdata->regs = regs;
 
+	/*
+	 * Check for 14MHz SCSI clock
+	 */
 	epc = *(unsigned short *)(ZTWO_VADDR(address) + 0x8000);
 	wd33c93_init(instance, wdregs, dma_setup, dma_stop,
 		     (epc & GVP_SCSICLKMASK) ? WD33C93_FS_8_10
@@ -368,6 +392,11 @@ static void __devexit gvp11_remove(struct zorro_dev *z)
 	release_mem_region(z->resource.start, 256);
 }
 
+	/*
+	 * This should (hopefully) be the correct way to identify
+	 * all the different GVP SCSI controllers (except for the
+	 * SERIES I though).
+	 */
 
 static struct zorro_device_id gvp11_zorro_tbl[] __devinitdata = {
 	{ ZORRO_PROD_GVP_COMBO_030_R3_SCSI,	~0x00ffffff },

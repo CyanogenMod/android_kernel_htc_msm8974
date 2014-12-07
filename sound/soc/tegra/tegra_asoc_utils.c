@@ -78,7 +78,7 @@ int tegra_asoc_utils_set_rate(struct tegra_asoc_utils_data *data, int srate,
 		return err;
 	}
 
-	
+	/* Don't set cdev1 rate; its locked to pll_a_out0 */
 
 	err = clk_enable(data->clk_pll_a);
 	if (err) {

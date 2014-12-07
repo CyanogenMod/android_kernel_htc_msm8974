@@ -22,6 +22,9 @@
 #define smp_mb__before_clear_bit()	barrier()
 #define smp_mb__after_clear_bit()	barrier()
 
+/*
+ * set bit
+ */
 #define __set_bit(nr, addr)					\
 ({								\
 	volatile unsigned char *_a = (unsigned char *)(addr);	\
@@ -36,6 +39,9 @@
 
 #define set_bit(nr, addr) __set_bit((nr), (addr))
 
+/*
+ * clear bit
+ */
 #define ___clear_bit(nr, addr)					\
 ({								\
 	volatile unsigned char *_a = (unsigned char *)(addr);	\
@@ -61,11 +67,17 @@ static inline void __clear_bit(unsigned long nr, volatile void *addr)
 	*a &= ~mask;
 }
 
+/*
+ * test bit
+ */
 static inline int test_bit(unsigned long nr, const volatile void *addr)
 {
 	return 1UL & (((const volatile unsigned int *) addr)[nr >> 5] >> (nr & 31));
 }
 
+/*
+ * change bit
+ */
 static inline void __change_bit(unsigned long nr, volatile void *addr)
 {
 	int	mask;
@@ -78,6 +90,9 @@ static inline void __change_bit(unsigned long nr, volatile void *addr)
 
 extern void change_bit(unsigned long nr, volatile void *addr);
 
+/*
+ * test and set bit
+ */
 #define __test_and_set_bit(nr,addr)				\
 ({								\
 	volatile unsigned char *_a = (unsigned char *)(addr);	\
@@ -96,6 +111,9 @@ extern void change_bit(unsigned long nr, volatile void *addr);
 
 #define test_and_set_bit(nr, addr) __test_and_set_bit((nr), (addr))
 
+/*
+ * test and clear bit
+ */
 #define __test_and_clear_bit(nr, addr)				\
 ({								\
         volatile unsigned char *_a = (unsigned char *)(addr);	\
@@ -114,6 +132,9 @@ extern void change_bit(unsigned long nr, volatile void *addr);
 
 #define test_and_clear_bit(nr, addr) __test_and_clear_bit((nr), (addr))
 
+/*
+ * test and change bit
+ */
 static inline int __test_and_change_bit(unsigned long nr, volatile void *addr)
 {
 	int	mask, retval;
@@ -133,6 +154,13 @@ extern int test_and_change_bit(unsigned long nr, volatile void *addr);
 
 #ifdef __KERNEL__
 
+/**
+ * __ffs - find first bit set
+ * @x: the word to search
+ *
+ * - return 31..0 to indicate bit 31..0 most least significant bit set
+ * - if no bits are set in x, the result is undefined
+ */
 static inline __attribute__((const))
 unsigned long __ffs(unsigned long x)
 {
@@ -141,6 +169,10 @@ unsigned long __ffs(unsigned long x)
 	return bit;
 }
 
+/*
+ * special slimline version of fls() for calculating ilog2_u32()
+ * - note: no protection against n == 0
+ */
 static inline __attribute__((const))
 int __ilog2_u32(u32 n)
 {
@@ -149,20 +181,44 @@ int __ilog2_u32(u32 n)
 	return bit;
 }
 
+/**
+ * fls - find last bit set
+ * @x: the word to search
+ *
+ * This is defined the same way as ffs:
+ * - return 32..1 to indicate bit 31..0 most significant bit set
+ * - return 0 to indicate no bits set
+ */
 static inline __attribute__((const))
 int fls(int x)
 {
 	return (x != 0) ? __ilog2_u32(x) + 1 : 0;
 }
 
+/**
+ * __fls - find last (most-significant) set bit in a long word
+ * @word: the word to search
+ *
+ * Undefined if no set bit exists, so code should check against 0 first.
+ */
 static inline unsigned long __fls(unsigned long word)
 {
 	return __ilog2_u32(word);
 }
 
+/**
+ * ffs - find first bit set
+ * @x: the word to search
+ *
+ * - return 32..1 to indicate bit 31..0 most least significant bit set
+ * - return 0 to indicate no bits set
+ */
 static inline __attribute__((const))
 int ffs(int x)
 {
+	/* Note: (x & -x) gives us a mask that is the least significant
+	 * (rightmost) 1-bit of the value in x.
+	 */
 	return fls(x & -x);
 }
 
@@ -174,5 +230,5 @@ int ffs(int x)
 #include <asm-generic/bitops/ext2-atomic-setbit.h>
 #include <asm-generic/bitops/le.h>
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASM_BITOPS_H */

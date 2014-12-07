@@ -22,33 +22,40 @@
 #include <hv/hypervisor.h>
 #include <arch/interrupts.h>
 
+/* All messages are stored here */
 static DEFINE_PER_CPU(HV_MsgState, msg_state);
 
 void __cpuinit init_messaging(void)
 {
-	
+	/* Allocate storage for messages in kernel space */
 	HV_MsgState *state = &__get_cpu_var(msg_state);
 	int rc = hv_register_message_state(state);
 	if (rc != HV_OK)
 		panic("hv_register_message_state: error %d", rc);
 
-	
+	/* Make sure downcall interrupts will be enabled. */
 	arch_local_irq_unmask(INT_INTCTRL_K);
 }
 
 void hv_message_intr(struct pt_regs *regs, int intnum)
 {
+	/*
+	 * We enter with interrupts disabled and leave them disabled,
+	 * to match expectations of called functions (e.g.
+	 * do_ccupdate_local() in mm/slab.c).  This is also consistent
+	 * with normal call entry for device interrupts.
+	 */
 
 	int message[HV_MAX_MESSAGE_SIZE/sizeof(int)];
 	HV_RcvMsgInfo rmi;
 	int nmsgs = 0;
 
-	
+	/* Track time spent here in an interrupt context */
 	struct pt_regs *old_regs = set_irq_regs(regs);
 	irq_enter();
 
 #ifdef CONFIG_DEBUG_STACKOVERFLOW
-	
+	/* Debugging check for stack overflow: less than 1/8th stack free? */
 	{
 		long sp = stack_pointer - (long) current_thread_info();
 		if (unlikely(sp < (sizeof(struct thread_info) + STACK_WARN))) {
@@ -75,7 +82,7 @@ void hv_message_intr(struct pt_regs *regs, int intnum)
 		if (rmi.source == HV_MSG_TILE) {
 			int tag;
 
-			
+			/* we just send tags for now */
 			BUG_ON(rmi.msglen != sizeof(int));
 
 			tag = message[0];
@@ -93,9 +100,17 @@ void hv_message_intr(struct pt_regs *regs, int intnum)
 		}
 	}
 
+	/*
+	 * We shouldn't have gotten a message downcall with no
+	 * messages available.
+	 */
 	if (nmsgs == 0)
 		panic("Message downcall invoked with no messages!");
 
+	/*
+	 * Track time spent against the current process again and
+	 * process any softirqs if they are waiting.
+	 */
 	irq_exit();
 	set_irq_regs(old_regs);
 }

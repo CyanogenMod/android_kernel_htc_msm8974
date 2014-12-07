@@ -120,6 +120,8 @@ static ssize_t write_att(struct device *dev, struct device_attribute *attr,
 			disable_irq_nosync(gpio_to_irq(hl->gpio_att));
 			disable_irq_nosync(gpio_to_irq(hl->gpio_att_s));
 			hl->hall_enable = 0;
+			irq_set_irq_wake(gpio_to_irq(hl->gpio_att_s), 0);
+			irq_set_irq_wake(gpio_to_irq(hl->gpio_att), 0);
 		}
 		else if(hl->hall_enable == 0 && buf[0] == '1')
 		{
@@ -129,6 +131,8 @@ static ssize_t write_att(struct device *dev, struct device_attribute *attr,
 			enable_irq(gpio_to_irq(hl->gpio_att));
 			enable_irq(gpio_to_irq(hl->gpio_att_s));
 			hl->hall_enable = 1;
+			irq_set_irq_wake(gpio_to_irq(hl->gpio_att_s), 1);
+			irq_set_irq_wake(gpio_to_irq(hl->gpio_att), 1);
 		}
 		else
 			HL_LOG("Invalid paramater(0:Disable 1:Enable) hall enable = %d\n", hl->hall_enable);
@@ -369,6 +373,7 @@ static int __devinit hall_sensor_probe(struct platform_device *pdev)
 	g_hl = hl;
 
 	HL_LOG("------------------");
+	kfree(pdata);
 	return 0;
 
 err_request_irq_failed:

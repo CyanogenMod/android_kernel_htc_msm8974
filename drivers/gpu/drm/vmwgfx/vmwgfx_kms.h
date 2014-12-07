@@ -38,6 +38,12 @@
 #define vmw_framebuffer_to_vfb(x) \
 	container_of(x, struct vmw_framebuffer, base)
 
+/**
+ * Base class for framebuffers
+ *
+ * @pin is called the when ever a crtc uses this framebuffer
+ * @unpin is called
+ */
 struct vmw_framebuffer {
 	struct drm_framebuffer base;
 	int (*pin)(struct vmw_framebuffer *fb);
@@ -51,6 +57,9 @@ struct vmw_framebuffer {
 #define vmw_crtc_to_du(x) \
 	container_of(x, struct vmw_display_unit, crtc)
 
+/*
+ * Basic cursor manipulation
+ */
 int vmw_cursor_update_image(struct vmw_private *dev_priv,
 			    u32 *image, u32 width, u32 height,
 			    u32 hotspotX, u32 hotspotY);
@@ -62,6 +71,13 @@ void vmw_cursor_update_position(struct vmw_private *dev_priv,
 				bool show, int x, int y);
 
 
+/**
+ * Base class display unit.
+ *
+ * Since the SVGA hw doesn't have a concept of a crtc, encoder or connector
+ * so the display unit is all of them at the same time. This is true for both
+ * legacy multimon and screen objects.
+ */
 struct vmw_display_unit {
 	struct drm_crtc crtc;
 	struct drm_encoder encoder;
@@ -79,11 +95,17 @@ struct vmw_display_unit {
 
 	unsigned unit;
 
+	/*
+	 * Prefered mode tracking.
+	 */
 	unsigned pref_width;
 	unsigned pref_height;
 	bool pref_active;
 	struct drm_display_mode *pref_mode;
 
+	/*
+	 * Gui positioning
+	 */
 	int gui_x;
 	int gui_y;
 	bool is_implicit;
@@ -95,6 +117,9 @@ struct vmw_display_unit {
 	container_of(x, struct vmw_display_unit, connector)
 
 
+/*
+ * Shared display unit functions - vmwgfx_kms.c
+ */
 void vmw_display_unit_cleanup(struct vmw_display_unit *du);
 int vmw_du_page_flip(struct drm_crtc *crtc,
 		     struct drm_framebuffer *fb,
@@ -119,9 +144,15 @@ int vmw_du_connector_set_property(struct drm_connector *connector,
 				  uint64_t val);
 
 
+/*
+ * Legacy display unit functions - vmwgfx_ldu.c
+ */
 int vmw_kms_init_legacy_display_system(struct vmw_private *dev_priv);
 int vmw_kms_close_legacy_display_system(struct vmw_private *dev_priv);
 
+/*
+ * Screen Objects display functions - vmwgfx_scrn.c
+ */
 int vmw_kms_init_screen_object_display(struct vmw_private *dev_priv);
 int vmw_kms_close_screen_object_display(struct vmw_private *dev_priv);
 int vmw_kms_sou_update_layout(struct vmw_private *dev_priv, unsigned num,

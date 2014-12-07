@@ -24,6 +24,9 @@ enum fsid_source {
 extern enum fsid_source fsid_source(struct svc_fh *fhp);
 
 
+/* This might look a little large to "inline" but in all calls except
+ * one, 'vers' is constant so moste of the function disappears.
+ */
 static inline void mk_fsid(int vers, u32 *fsidv, dev_t dev, ino_t ino,
 			   u32 fsid, unsigned char *uuid)
 {
@@ -49,26 +52,26 @@ static inline void mk_fsid(int vers, u32 *fsidv, dev_t dev, ino_t ino,
 		break;
 
 	case FSID_UUID4_INUM:
-		
+		/* 4 byte fsid and inode number */
 		up = (u32*)uuid;
 		fsidv[0] = ino_t_to_u32(ino);
 		fsidv[1] = up[0] ^ up[1] ^ up[2] ^ up[3];
 		break;
 
 	case FSID_UUID8:
-		
+		/* 8 byte fsid  */
 		up = (u32*)uuid;
 		fsidv[0] = up[0] ^ up[2];
 		fsidv[1] = up[1] ^ up[3];
 		break;
 
 	case FSID_UUID16:
-		
+		/* 16 byte fsid - NFSv3+ only */
 		memcpy(fsidv, uuid, 16);
 		break;
 
 	case FSID_UUID16_INUM:
-		
+		/* 8 byte inode and 16 byte fsid */
 		*(u64*)fsidv = (u64)ino;
 		memcpy(fsidv+2, uuid, 16);
 		break;
@@ -91,8 +94,14 @@ static inline int key_len(int type)
 	}
 }
 
+/*
+ * Shorthand for dprintk()'s
+ */
 extern char * SVCFH_fmt(struct svc_fh *fhp);
 
+/*
+ * Function prototypes
+ */
 __be32	fh_verify(struct svc_rqst *, struct svc_fh *, umode_t, int);
 __be32	fh_compose(struct svc_fh *, struct svc_export *, struct dentry *, struct svc_fh *);
 __be32	fh_update(struct svc_fh *);
@@ -123,6 +132,9 @@ fh_init(struct svc_fh *fhp, int maxsize)
 }
 
 #ifdef CONFIG_NFSD_V3
+/*
+ * Fill in the pre_op attr for the wcc data
+ */
 static inline void
 fill_pre_wcc(struct svc_fh *fhp)
 {
@@ -142,9 +154,15 @@ extern void fill_post_wcc(struct svc_fh *);
 #else
 #define	fill_pre_wcc(ignored)
 #define fill_post_wcc(notused)
-#endif 
+#endif /* CONFIG_NFSD_V3 */
 
 
+/*
+ * Lock a file handle/inode
+ * NOTE: both fh_lock and fh_unlock are done "by hand" in
+ * vfs.c:nfsd_rename as it needs to grab 2 i_mutex's at once
+ * so, any changes here should be reflected there.
+ */
 
 static inline void
 fh_lock_nested(struct svc_fh *fhp, unsigned int subclass)
@@ -172,6 +190,9 @@ fh_lock(struct svc_fh *fhp)
 	fh_lock_nested(fhp, I_MUTEX_NORMAL);
 }
 
+/*
+ * Unlock a file handle/inode
+ */
 static inline void
 fh_unlock(struct svc_fh *fhp)
 {
@@ -182,4 +203,4 @@ fh_unlock(struct svc_fh *fhp)
 	}
 }
 
-#endif 
+#endif /* _LINUX_NFSD_FH_INT_H */

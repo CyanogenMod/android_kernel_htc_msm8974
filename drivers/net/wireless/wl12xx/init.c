@@ -39,7 +39,7 @@ int wl1271_init_templates_config(struct wl1271 *wl)
 	int ret, i;
 	size_t max_size;
 
-	
+	/* send empty templates for fw memory reservation */
 	ret = wl1271_cmd_template_set(wl, WL12XX_INVALID_ROLE_ID,
 				      CMD_TEMPL_CFG_PROBE_REQ_2_4, NULL,
 				      WL1271_CMD_TEMPL_MAX_SIZE,
@@ -99,6 +99,10 @@ int wl1271_init_templates_config(struct wl1271 *wl)
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * Put very large empty placeholders for all templates. These
+	 * reserve memory for later.
+	 */
 	ret = wl1271_cmd_template_set(wl, WL12XX_INVALID_ROLE_ID,
 				      CMD_TEMPL_AP_PROBE_RESPONSE, NULL,
 				      WL1271_CMD_TEMPL_MAX_SIZE,
@@ -177,7 +181,7 @@ static int wl1271_ap_init_null_template(struct wl1271 *wl,
 					      IEEE80211_STYPE_NULLFUNC |
 					      IEEE80211_FCTL_FROMDS);
 
-	
+	/* nullfunc->addr1 is filled by FW */
 
 	memcpy(nullfunc->addr2, vif->addr, ETH_ALEN);
 	memcpy(nullfunc->addr3, vif->addr, ETH_ALEN);
@@ -210,7 +214,7 @@ static int wl1271_ap_init_qos_null_template(struct wl1271 *wl,
 					     IEEE80211_STYPE_QOS_NULLFUNC |
 					     IEEE80211_FCTL_FROMDS);
 
-	
+	/* qosnull->addr1 is filled by FW */
 
 	memcpy(qosnull->addr2, vif->addr, ETH_ALEN);
 	memcpy(qosnull->addr3, vif->addr, ETH_ALEN);
@@ -265,7 +269,7 @@ static int wl1271_init_sta_beacon_filter(struct wl1271 *wl,
 	if (ret < 0)
 		return ret;
 
-	
+	/* enable beacon filtering */
 	ret = wl1271_acx_beacon_filter_opt(wl, wlvif, true);
 	if (ret < 0)
 		return ret;
@@ -325,16 +329,17 @@ static int wl12xx_init_fwlog(struct wl1271 *wl)
 	return 0;
 }
 
+/* generic sta initialization (non vif-specific) */
 static int wl1271_sta_hw_init(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 {
 	int ret;
 
-	
+	/* PS config */
 	ret = wl12xx_acx_config_ps(wl, wlvif);
 	if (ret < 0)
 		return ret;
 
-	
+	/* FM WLAN coexistence */
 	ret = wl1271_acx_fm_coex(wl);
 	if (ret < 0)
 		return ret;
@@ -352,7 +357,7 @@ static int wl1271_sta_hw_init_post_mem(struct wl1271 *wl,
 	struct wl12xx_vif *wlvif = wl12xx_vif_to_data(vif);
 	int ret, i;
 
-	
+	/* disable all keep-alive templates */
 	for (i = 0; i < CMD_TEMPL_KLV_IDX_MAX; i++) {
 		ret = wl1271_acx_keep_alive_config(wl, wlvif, i,
 						   ACX_KEEP_ALIVE_TPL_INVALID);
@@ -360,7 +365,7 @@ static int wl1271_sta_hw_init_post_mem(struct wl1271 *wl,
 			return ret;
 	}
 
-	
+	/* disable the keep-alive feature */
 	ret = wl1271_acx_keep_alive_mode(wl, wlvif, false);
 	if (ret < 0)
 		return ret;
@@ -368,6 +373,7 @@ static int wl1271_sta_hw_init_post_mem(struct wl1271 *wl,
 	return 0;
 }
 
+/* generic ap initialization (non vif-specific) */
 static int wl1271_ap_hw_init(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 {
 	int ret;
@@ -396,6 +402,10 @@ int wl1271_ap_init_templates(struct wl1271 *wl, struct ieee80211_vif *vif)
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * when operating as AP we want to receive external beacons for
+	 * configuring ERP protection.
+	 */
 	ret = wl1271_acx_beacon_filter_opt(wl, wlvif, false);
 	if (ret < 0)
 		return ret;
@@ -429,7 +439,7 @@ int wl1271_init_ap_rates(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 	if (ret < 0)
 		return ret;
 
-	
+	/* use the min basic rate for AP broadcast/multicast */
 	rc.enabled_rates = wl1271_tx_min_rate_get(wl, wlvif->basic_rate_set);
 	rc.short_retry_limit = 10;
 	rc.long_retry_limit = 10;
@@ -438,15 +448,19 @@ int wl1271_init_ap_rates(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * If the basic rates contain OFDM rates, use OFDM only
+	 * rates for unicast TX as well. Else use all supported rates.
+	 */
 	if ((wlvif->basic_rate_set & CONF_TX_OFDM_RATES))
 		supported_rates = CONF_TX_OFDM_RATES;
 	else
 		supported_rates = CONF_TX_AP_ENABLED_RATES;
 
-	
+	/* unconditionally enable HT rates */
 	supported_rates |= CONF_TX_MCS_RATES;
 
-	
+	/* configure unicast TX rate classes */
 	for (i = 0; i < wl->conf.tx.ac_conf_count; i++) {
 		rc.enabled_rates = supported_rates;
 		rc.short_retry_limit = 10;
@@ -463,11 +477,11 @@ int wl1271_init_ap_rates(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 
 static int wl1271_set_ba_policies(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 {
-	
+	/* Reset the BA RX indicators */
 	wlvif->ba_allowed = true;
 	wl->ba_rx_session_count = 0;
 
-	
+	/* BA is supported in STA/AP modes */
 	if (wlvif->bss_type != BSS_TYPE_AP_BSS &&
 	    wlvif->bss_type != BSS_TYPE_STA_BSS) {
 		wlvif->ba_support = false;
@@ -476,7 +490,7 @@ static int wl1271_set_ba_policies(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 
 	wlvif->ba_support = true;
 
-	
+	/* 802.11n initiator BA session setting */
 	return wl12xx_acx_set_ba_initiator_policy(wl, wlvif);
 }
 
@@ -488,10 +502,10 @@ int wl1271_chip_specific_init(struct wl1271 *wl)
 		u32 host_cfg_bitmap = HOST_IF_CFG_RX_FIFO_ENABLE;
 
 		if (!(wl->quirks & WL12XX_QUIRK_NO_BLOCKSIZE_ALIGNMENT))
-			
+			/* Enable SDIO padding */
 			host_cfg_bitmap |= HOST_IF_CFG_TX_PAD_TO_SDIO_BLK;
 
-		
+		/* Must be before wl1271_acx_init_mem_config() */
 		ret = wl1271_acx_host_if_cfg_bitmap(wl, host_cfg_bitmap);
 		if (ret < 0)
 			goto out;
@@ -500,6 +514,7 @@ out:
 	return ret;
 }
 
+/* vif-specifc initialization */
 static int wl12xx_init_sta_role(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 {
 	int ret;
@@ -508,22 +523,22 @@ static int wl12xx_init_sta_role(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Initialize connection monitoring thresholds */
 	ret = wl1271_acx_conn_monit_params(wl, wlvif, false);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Beacon filtering */
 	ret = wl1271_init_sta_beacon_filter(wl, wlvif);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Beacons and broadcast settings */
 	ret = wl1271_init_beacon_broadcast(wl, wlvif);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Configure rssi/snr averaging weights */
 	ret = wl1271_acx_rssi_snr_avg_weights(wl, wlvif);
 	if (ret < 0)
 		return ret;
@@ -531,6 +546,7 @@ static int wl12xx_init_sta_role(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 	return 0;
 }
 
+/* vif-specific intialization */
 static int wl12xx_init_ap_role(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 {
 	int ret;
@@ -539,7 +555,7 @@ static int wl12xx_init_ap_role(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 	if (ret < 0)
 		return ret;
 
-	
+	/* initialize Tx power */
 	ret = wl1271_acx_tx_power(wl, wlvif, wlvif->power_level);
 	if (ret < 0)
 		return ret;
@@ -555,21 +571,25 @@ int wl1271_init_vif_specific(struct wl1271 *wl, struct ieee80211_vif *vif)
 	bool is_ap = (wlvif->bss_type == BSS_TYPE_AP_BSS);
 	int ret, i;
 
+	/*
+	 * consider all existing roles before configuring psm.
+	 * TODO: reconfigure on interface removal.
+	 */
 	if (!wl->ap_count) {
 		if (is_ap) {
-			
+			/* Configure for power always on */
 			ret = wl1271_acx_sleep_auth(wl, WL1271_PSM_CAM);
 			if (ret < 0)
 				return ret;
 		} else if (!wl->sta_count) {
-			
+			/* Configure for ELP power saving */
 			ret = wl1271_acx_sleep_auth(wl, WL1271_PSM_ELP);
 			if (ret < 0)
 				return ret;
 		}
 	}
 
-	
+	/* Mode specific init */
 	if (is_ap) {
 		ret = wl1271_ap_hw_init(wl, wlvif);
 		if (ret < 0)
@@ -590,7 +610,7 @@ int wl1271_init_vif_specific(struct wl1271 *wl, struct ieee80211_vif *vif)
 
 	wl12xx_init_phy_vif_config(wl, wlvif);
 
-	
+	/* Default TID/AC configuration */
 	BUG_ON(wl->conf.tx.tid_conf_count != wl->conf.tx.ac_conf_count);
 	for (i = 0; i < wl->conf.tx.tid_conf_count; i++) {
 		conf_ac = &wl->conf.tx.ac_conf[i];
@@ -613,12 +633,12 @@ int wl1271_init_vif_specific(struct wl1271 *wl, struct ieee80211_vif *vif)
 			return ret;
 	}
 
-	
+	/* Configure HW encryption */
 	ret = wl1271_acx_feature_cfg(wl, wlvif);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Mode specific init - post mem init */
 	if (is_ap)
 		ret = wl1271_ap_hw_init_post_mem(wl, vif);
 	else
@@ -627,7 +647,7 @@ int wl1271_init_vif_specific(struct wl1271 *wl, struct ieee80211_vif *vif)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Configure initiator BA sessions policies */
 	ret = wl1271_set_ba_policies(wl, wlvif);
 	if (ret < 0)
 		return ret;
@@ -658,12 +678,12 @@ int wl1271_hw_init(struct wl1271 *wl)
 			return ret;
 	}
 
-	
+	/* Chip-specific init */
 	ret = wl1271_chip_specific_init(wl);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Init templates */
 	ret = wl1271_init_templates_config(wl);
 	if (ret < 0)
 		return ret;
@@ -672,22 +692,22 @@ int wl1271_hw_init(struct wl1271 *wl)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Configure the FW logger */
 	ret = wl12xx_init_fwlog(wl);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Bluetooth WLAN coexistence */
 	ret = wl1271_init_pta(wl);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Default memory configuration */
 	ret = wl1271_acx_init_mem_config(wl);
 	if (ret < 0)
 		return ret;
 
-	
+	/* RX config */
 	ret = wl12xx_init_rx_config(wl);
 	if (ret < 0)
 		goto out_free_memmap;
@@ -696,32 +716,32 @@ int wl1271_hw_init(struct wl1271 *wl)
 	if (ret < 0)
 		goto out_free_memmap;
 
-	
+	/* Configure TX patch complete interrupt behavior */
 	ret = wl1271_acx_tx_config_options(wl);
 	if (ret < 0)
 		goto out_free_memmap;
 
-	
+	/* RX complete interrupt pacing */
 	ret = wl1271_acx_init_rx_interrupt(wl);
 	if (ret < 0)
 		goto out_free_memmap;
 
-	
+	/* Energy detection */
 	ret = wl1271_init_energy_detection(wl);
 	if (ret < 0)
 		goto out_free_memmap;
 
-	
+	/* Default fragmentation threshold */
 	ret = wl1271_acx_frag_threshold(wl, wl->hw->wiphy->frag_threshold);
 	if (ret < 0)
 		goto out_free_memmap;
 
-	
+	/* Enable data path */
 	ret = wl1271_cmd_data_path(wl, 1);
 	if (ret < 0)
 		goto out_free_memmap;
 
-	
+	/* configure PM */
 	ret = wl1271_acx_pm_config(wl);
 	if (ret < 0)
 		goto out_free_memmap;
@@ -730,7 +750,7 @@ int wl1271_hw_init(struct wl1271 *wl)
 	if (ret < 0)
 		goto out_free_memmap;
 
-	
+	/* configure hangover */
 	ret = wl12xx_acx_config_hangover(wl);
 	if (ret < 0)
 		goto out_free_memmap;

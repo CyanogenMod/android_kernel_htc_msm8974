@@ -7,6 +7,9 @@
 #include "../trigger.h"
 #include "adis16260.h"
 
+/**
+ * adis16260_data_rdy_trigger_set_state() set datardy interrupt state
+ **/
 static int adis16260_data_rdy_trigger_set_state(struct iio_trigger *trig,
 						bool state)
 {
@@ -47,7 +50,7 @@ int adis16260_probe_trigger(struct iio_dev *indio_dev)
 	st->trig->private_data = indio_dev;
 	ret = iio_trigger_register(st->trig);
 
-	
+	/* select default trigger */
 	indio_dev->trig = st->trig;
 	if (ret)
 		goto error_free_irq;

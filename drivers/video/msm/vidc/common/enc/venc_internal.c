@@ -1620,7 +1620,7 @@ u32 vid_enc_set_buffer(struct video_client_ctx *client_ctx,
 		vcd_buffer_t = VCD_BUFFER_OUTPUT;
 	}
 	length = buffer_info->sz;
-	
+	/*If buffer cannot be set, ignore */
 	if (!vidc_insert_addr_table(client_ctx, dir_buffer,
 					(unsigned long)buffer_info->pbuffer,
 					&kernel_vaddr,
@@ -1658,7 +1658,7 @@ u32 vid_enc_free_buffer(struct video_client_ctx *client_ctx,
 		dir_buffer = BUFFER_TYPE_OUTPUT;
 		buffer_vcd = VCD_BUFFER_OUTPUT;
 	}
-	
+	/*If buffer NOT set, ignore */
 	if (!vidc_delete_addr_table(client_ctx, dir_buffer,
 				(unsigned long)buffer_info->pbuffer,
 				&kernel_vaddr)) {
@@ -1698,7 +1698,7 @@ u32 vid_enc_encode_frame(struct video_client_ctx *client_ctx,
 			&phy_addr, &pmem_fd, &file,
 			&buffer_index)) {
 
-		
+		/* kernel_vaddr  is found. send the frame to VCD */
 		memset((void *)&vcd_input_buffer, 0,
 					sizeof(struct vcd_frame_data));
 
@@ -1713,7 +1713,7 @@ u32 vid_enc_encode_frame(struct video_client_ctx *client_ctx,
 		vcd_input_buffer.data_len = input_frame_info->len;
 		vcd_input_buffer.time_stamp = input_frame_info->timestamp;
 
-		
+		/* Rely on VCD using the same flags as OMX */
 		vcd_input_buffer.flags = input_frame_info->flags;
 
 		ion_flag = vidc_get_fd_info(client_ctx, BUFFER_TYPE_INPUT,

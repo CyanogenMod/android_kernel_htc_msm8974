@@ -28,6 +28,7 @@
 
 #include "ch7006_priv.h"
 
+/* DRM encoder functions */
 
 static void ch7006_encoder_set_config(struct drm_encoder *encoder,
 				      void *params)
@@ -92,6 +93,8 @@ static bool ch7006_encoder_mode_fixup(struct drm_encoder *encoder,
 {
 	struct ch7006_priv *priv = to_ch7006_priv(encoder);
 
+	/* The ch7006 is painfully picky with the input timings so no
+	 * custom modes for now... */
 
 	priv->mode = ch7006_lookup_mode(encoder, mode);
 
@@ -354,6 +357,8 @@ static int ch7006_encoder_set_property(struct drm_encoder *encoder,
 	if (modes_changed) {
 		drm_helper_probe_single_connector_modes(connector, 0, 0);
 
+		/* Disable the crtc to ensure a full modeset is
+		 * performed whenever it's turned on again. */
 		if (crtc) {
 			struct drm_mode_set modeset = {
 				.crtc = crtc,
@@ -382,6 +387,7 @@ static struct drm_encoder_slave_funcs ch7006_encoder_funcs = {
 };
 
 
+/* I2C driver functions */
 
 static int ch7006_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
@@ -401,6 +407,9 @@ static int ch7006_probe(struct i2c_client *client, const struct i2c_device_id *i
 
 	ch7006_info(client, "Detected version ID: %x\n", val);
 
+	/* I don't know what this is for, but otherwise I get no
+	 * signal.
+	 */
 	ch7006_write(client, 0x3d, 0x0);
 
 	return 0;
@@ -508,6 +517,7 @@ static struct drm_i2c_encoder_driver ch7006_driver = {
 };
 
 
+/* Module initialization */
 
 static int __init ch7006_init(void)
 {

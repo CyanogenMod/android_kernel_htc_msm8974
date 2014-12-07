@@ -17,6 +17,6 @@ int kgsl_device_htc_init(struct kgsl_device *device);
 
 void kgsl_dump_contextpid_locked(struct idr *context_idr);
 
-void adreno_fault_panic(struct kgsl_device *device, unsigned int pid);
+void adreno_fault_panic(struct kgsl_device *device, unsigned int pid, int fault);
 
 #endif

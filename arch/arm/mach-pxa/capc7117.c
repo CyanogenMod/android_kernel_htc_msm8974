@@ -33,6 +33,7 @@
 
 #include "generic.h"
 
+/* IDE (PATA) Support */
 static struct pata_platform_info pata_platform_data = {
 	.ioport_shift = 1
 };
@@ -61,7 +62,7 @@ static struct platform_device capc7117_ide_device = {
 	.resource = capc7117_ide_resources,
 	.dev = {
 		.platform_data = &pata_platform_data,
-		.coherent_dma_mask = ~0		
+		.coherent_dma_mask = ~0		/* grumble */
 	}
 };
 
@@ -70,6 +71,7 @@ static void __init capc7117_ide_init(void)
 	platform_device_register(&capc7117_ide_device);
 }
 
+/* TI16C752 UART support */
 #define	TI16C752_FLAGS		(UPF_BOOT_AUTOCONF | \
 					UPF_IOREMAP | \
 					UPF_BUGGY_UART | \
@@ -113,7 +115,7 @@ static struct plat_serial8250_port ti16c752_platform_data[] = {
 	       .uartclk = TI16C752_UARTCLK
 	},
 	[4] = {
-	       
+	       /* end of array */
 	}
 };
 
@@ -132,10 +134,10 @@ static void __init capc7117_uarts_init(void)
 
 static void __init capc7117_init(void)
 {
-	
+	/* Init CoM */
 	mxm_8x10_barebones_init();
 
-	
+	/* Init evaluation board peripherals */
 	mxm_8x10_ac97_init();
 	mxm_8x10_usb_host_init();
 	mxm_8x10_mmc_init();

@@ -25,51 +25,63 @@
 #include "be_iscsi.h"
 #include "be_main.h"
 
+/**
+ * Pseudo amap definition in which each bit of the actual structure is defined
+ * as a byte: used to calculate offset/shift/mask of each field
+ */
 struct amap_mcc_sge {
-	u8 pa_lo[32];		
-	u8 pa_hi[32];		
-	u8 length[32];		
+	u8 pa_lo[32];		/* dword 0 */
+	u8 pa_hi[32];		/* dword 1 */
+	u8 length[32];		/* DWORD 2 */
 } __packed;
 
+/**
+ * Pseudo amap definition in which each bit of the actual structure is defined
+ * as a byte: used to calculate offset/shift/mask of each field
+ */
 struct amap_mcc_wrb_payload {
 	union {
 		struct amap_mcc_sge sgl[19];
-		u8 embedded[59 * 32];	
+		u8 embedded[59 * 32];	/* DWORDS 57 to 115 */
 	} u;
 } __packed;
 
+/**
+ * Pseudo amap definition in which each bit of the actual structure is defined
+ * as a byte: used to calculate offset/shift/mask of each field
+ */
 struct amap_mcc_wrb {
-	u8 embedded;		
-	u8 rsvd0[2];		
-	u8 sge_count[5];	
-	u8 rsvd1[16];		
-	u8 special[8];		
+	u8 embedded;		/* DWORD 0 */
+	u8 rsvd0[2];		/* DWORD 0 */
+	u8 sge_count[5];	/* DWORD 0 */
+	u8 rsvd1[16];		/* DWORD 0 */
+	u8 special[8];		/* DWORD 0 */
 	u8 payload_length[32];
-	u8 tag[64];		
-	u8 rsvd2[32];		
+	u8 tag[64];		/* DWORD 2 */
+	u8 rsvd2[32];		/* DWORD 4 */
 	struct amap_mcc_wrb_payload payload;
 };
 
 struct mcc_sge {
-	u32 pa_lo;		
-	u32 pa_hi;		
-	u32 length;		
+	u32 pa_lo;		/* dword 0 */
+	u32 pa_hi;		/* dword 1 */
+	u32 length;		/* DWORD 2 */
 } __packed;
 
 struct mcc_wrb_payload {
 	union {
 		struct mcc_sge sgl[19];
-		u32 embedded[59];	
+		u32 embedded[59];	/* DWORDS 57 to 115 */
 	} u;
 } __packed;
 
 #define MCC_WRB_EMBEDDED_MASK                0x00000001
 
 struct mcc_wrb {
-	u32 dw[0];		
+	u32 dw[0];		/* DWORD 0 */
 	u32 payload_length;
-	u32 tag[2];		
-	u32 rsvd2[1];		
+	u32 tag[2];		/* DWORD 2 */
+	u32 rsvd2[1];		/* DWORD 4 */
 	struct mcc_wrb_payload payload;
 };
 
@@ -192,15 +204,19 @@ struct be_mgmt_controller_attributes_resp {
 	struct mgmt_controller_attributes params;
 } __packed;
 
+/* configuration management */
 
 #define GET_MGMT_CONTROLLER_WS(phba)    (phba->pmgmt_ws)
 
+/* MGMT CMD flags */
 
 #define MGMT_CMDH_FREE                (1<<0)
 
-#define MGMT_STATUS_SUCCESS 0	
-#define MGMT_STATUS_FAILED 1	
-				
+/*  --- MGMT_ERROR_CODES --- */
+/*  Error Codes returned in the status field of the CMD response header */
+#define MGMT_STATUS_SUCCESS 0	/* The CMD completed without errors */
+#define MGMT_STATUS_FAILED 1	/* Error status in the Status field of */
+				/* the CMD_RESPONSE_HEADER  */
 
 #define ISCSI_GET_PDU_TEMPLATE_ADDRESS(pc, pa) {\
     pa->lo = phba->init_mem[ISCSI_MEM_GLOBAL_HEADER].mem_array[0].\

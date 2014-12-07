@@ -160,14 +160,14 @@ static int __devinit ad7476_probe(struct spi_device *spi)
 
 	st->spi = spi;
 
-	
+	/* Establish that the iio_dev is a child of the spi device */
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->name = spi_get_device_id(spi)->name;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->channels = st->chip_info->channel;
 	indio_dev->num_channels = 2;
 	indio_dev->info = &ad7476_info;
-	
+	/* Setup default message */
 
 	st->xfer.rx_buf = &st->data;
 	st->xfer.len = st->chip_info->channel[0].scan_type.storagebits / 8;

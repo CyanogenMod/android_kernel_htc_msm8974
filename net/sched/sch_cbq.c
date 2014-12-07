@@ -21,17 +21,65 @@
 #include <net/pkt_sched.h>
 
 
+/*	Class-Based Queueing (CBQ) algorithm.
+	=======================================
+
+	Sources: [1] Sally Floyd and Van Jacobson, "Link-sharing and Resource
+		 Management Models for Packet Networks",
+		 IEEE/ACM Transactions on Networking, Vol.3, No.4, 1995
+
+		 [2] Sally Floyd, "Notes on CBQ and Guaranteed Service", 1995
+
+		 [3] Sally Floyd, "Notes on Class-Based Queueing: Setting
+		 Parameters", 1996
+
+		 [4] Sally Floyd and Michael Speer, "Experimental Results
+		 for Class-Based Queueing", 1998, not published.
+
+	-----------------------------------------------------------------------
+
+	Algorithm skeleton was taken from NS simulator cbq.cc.
+	If someone wants to check this code against the LBL version,
+	he should take into account that ONLY the skeleton was borrowed,
+	the implementation is different. Particularly:
+
+	--- The WRR algorithm is different. Our version looks more
+	reasonable (I hope) and works when quanta are allowed to be
+	less than MTU, which is always the case when real time classes
+	have small rates. Note, that the statement of [3] is
+	incomplete, delay may actually be estimated even if class
+	per-round allotment is less than MTU. Namely, if per-round
+	allotment is W*r_i, and r_1+...+r_k = r < 1
+
+	delay_i <= ([MTU/(W*r_i)]*W*r + W*r + k*MTU)/B
+
+	In the worst case we have IntServ estimate with D = W*r+k*MTU
+	and C = MTU*r. The proof (if correct at all) is trivial.
+
+
+	--- It seems that cbq-2.0 is not very accurate. At least, I cannot
+	interpret some places, which look like wrong translations
+	from NS. Anyone is advised to find these differences
+	and explain to me, why I am wrong 8).
+
+	--- Linux has no EOI event, so that we cannot estimate true class
+	idle time. Workaround is to consider the next dequeue event
+	as sign that previous packet is finished. This is wrong because of
+	internal device queueing, but on a permanently loaded link it is true.
+	Moreover, combined with clock integrator, this scheme looks
+	very close to an ideal solution.  */
 
 struct cbq_sched_data;
 
 
 struct cbq_class {
 	struct Qdisc_class_common common;
-	struct cbq_class	*next_alive;	
+	struct cbq_class	*next_alive;	/* next class with backlog in this priority band */
 
-	unsigned char		priority;	
-	unsigned char		priority2;	
-	unsigned char		ewma_log;	
+/* Parameters */
+	unsigned char		priority;	/* class priority */
+	unsigned char		priority2;	/* priority to be used after overlimit */
+	unsigned char		ewma_log;	/* time constant for idle time calculation */
 	unsigned char		ovl_strategy;
 #ifdef CONFIG_NET_CLS_ACT
 	unsigned char		police;
@@ -39,41 +87,46 @@ struct cbq_class {
 
 	u32			defmap;
 
-	
-	long			maxidle;	
+	/* Link-sharing scheduler parameters */
+	long			maxidle;	/* Class parameters: see below. */
 	long			offtime;
 	long			minidle;
 	u32			avpkt;
 	struct qdisc_rate_table	*R_tab;
 
-	
+	/* Overlimit strategy parameters */
 	void			(*overlimit)(struct cbq_class *cl);
 	psched_tdiff_t		penalty;
 
-	
+	/* General scheduler (WRR) parameters */
 	long			allot;
-	long			quantum;	
-	long			weight;		
+	long			quantum;	/* Allotment per WRR round */
+	long			weight;		/* Relative allotment: see below */
 
-	struct Qdisc		*qdisc;		
-	struct cbq_class	*split;		
-	struct cbq_class	*share;		
-	struct cbq_class	*tparent;	
-	struct cbq_class	*borrow;	
-	struct cbq_class	*sibling;	
-	struct cbq_class	*children;	
+	struct Qdisc		*qdisc;		/* Ptr to CBQ discipline */
+	struct cbq_class	*split;		/* Ptr to split node */
+	struct cbq_class	*share;		/* Ptr to LS parent in the class tree */
+	struct cbq_class	*tparent;	/* Ptr to tree parent in the class tree */
+	struct cbq_class	*borrow;	/* NULL if class is bandwidth limited;
+						   parent otherwise */
+	struct cbq_class	*sibling;	/* Sibling chain */
+	struct cbq_class	*children;	/* Pointer to children chain */
 
-	struct Qdisc		*q;		
+	struct Qdisc		*q;		/* Elementary queueing discipline */
 
 
-	unsigned char		cpriority;	
+/* Variables */
+	unsigned char		cpriority;	/* Effective priority */
 	unsigned char		delayed;
-	unsigned char		level;		
+	unsigned char		level;		/* level of the class in hierarchy:
+						   0 for leaf classes, and maximal
+						   level of children + 1 for nodes.
+						 */
 
-	psched_time_t		last;		
+	psched_time_t		last;		/* Last end of service */
 	psched_time_t		undertime;
 	long			avgidle;
-	long			deficit;	
+	long			deficit;	/* Saved deficit for WRR */
 	psched_time_t		penalized;
 	struct gnet_stats_basic_packed bstats;
 	struct gnet_stats_queue qstats;
@@ -89,14 +142,15 @@ struct cbq_class {
 };
 
 struct cbq_sched_data {
-	struct Qdisc_class_hash	clhash;			
+	struct Qdisc_class_hash	clhash;			/* Hash table of all classes */
 	int			nclasses[TC_CBQ_MAXPRIO + 1];
 	unsigned int		quanta[TC_CBQ_MAXPRIO + 1];
 
 	struct cbq_class	link;
 
 	unsigned int		activemask;
-	struct cbq_class	*active[TC_CBQ_MAXPRIO + 1];	
+	struct cbq_class	*active[TC_CBQ_MAXPRIO + 1];	/* List of all classes
+								   with backlog */
 
 #ifdef CONFIG_NET_CLS_ACT
 	struct cbq_class	*rx_class;
@@ -104,12 +158,15 @@ struct cbq_sched_data {
 	struct cbq_class	*tx_class;
 	struct cbq_class	*tx_borrowed;
 	int			tx_len;
-	psched_time_t		now;		
-	psched_time_t		now_rt;		
+	psched_time_t		now;		/* Cached timestamp */
+	psched_time_t		now_rt;		/* Cached real time */
 	unsigned int		pmask;
 
 	struct hrtimer		delay_timer;
-	struct qdisc_watchdog	watchdog;	
+	struct qdisc_watchdog	watchdog;	/* Watchdog timer,
+						   started when CBQ has
+						   backlog, but cannot
+						   transmit just now */
 	psched_tdiff_t		wd_expires;
 	int			toplevel;
 	u32			hgenerator;
@@ -147,6 +204,15 @@ cbq_reclassify(struct sk_buff *skb, struct cbq_class *this)
 
 #endif
 
+/* Classify packet. The procedure is pretty complicated, but
+ * it allows us to combine link sharing and priority scheduling
+ * transparently.
+ *
+ * Namely, you can put link sharing rules (f.e. route based) at root of CBQ,
+ * so that it resolves to split nodes. Then packets are classified
+ * by logical priority, or a more specific classifier may be attached
+ * to the split node.
+ */
 
 static struct cbq_class *
 cbq_classify(struct sk_buff *skb, struct Qdisc *sch, int *qerr)
@@ -158,6 +224,9 @@ cbq_classify(struct sk_buff *skb, struct Qdisc *sch, int *qerr)
 	u32 prio = skb->priority;
 	struct tcf_result res;
 
+	/*
+	 *  Step 1. If skb->priority points to one of our classes, use it.
+	 */
 	if (TC_H_MAJ(prio ^ sch->handle) == 0 &&
 	    (cl = cbq_class_lookup(q, prio)) != NULL)
 		return cl;
@@ -167,6 +236,9 @@ cbq_classify(struct sk_buff *skb, struct Qdisc *sch, int *qerr)
 		int result = 0;
 		defmap = head->defaults;
 
+		/*
+		 * Step 2+n. Apply classifier.
+		 */
 		if (!head->filter_list ||
 		    (result = tc_classify_compat(skb, head->filter_list, &res)) < 0)
 			goto fallback;
@@ -196,12 +268,20 @@ cbq_classify(struct sk_buff *skb, struct Qdisc *sch, int *qerr)
 		if (cl->level == 0)
 			return cl;
 
+		/*
+		 * Step 3+n. If classifier selected a link sharing class,
+		 *	   apply agency specific classifier.
+		 *	   Repeat this procdure until we hit a leaf node.
+		 */
 		head = cl;
 	}
 
 fallback:
 	cl = head;
 
+	/*
+	 * Step 4. No success...
+	 */
 	if (TC_H_MAJ(prio) == 0 &&
 	    !(cl = head->defaults[prio & TC_PRIO_MAX]) &&
 	    !(cl = head->defaults[TC_PRIO_BESTEFFORT]))
@@ -210,6 +290,11 @@ fallback:
 	return cl;
 }
 
+/*
+ * A packet has just been enqueued on the empty class.
+ * cbq_activate_class adds it to the tail of active class list
+ * of its priority band.
+ */
 
 static inline void cbq_activate_class(struct cbq_class *cl)
 {
@@ -229,6 +314,11 @@ static inline void cbq_activate_class(struct cbq_class *cl)
 	}
 }
 
+/*
+ * Unlink class from active chain.
+ * Note that this same procedure is done directly in cbq_dequeue*
+ * during round-robin procedure.
+ */
 
 static void cbq_deactivate_class(struct cbq_class *this)
 {
@@ -315,7 +405,9 @@ cbq_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 	return ret;
 }
 
+/* Overlimit actions */
 
+/* TC_CBQ_OVL_CLASSIC: (default) penalize leaf class by adding offtime */
 
 static void cbq_ovl_classic(struct cbq_class *cl)
 {
@@ -325,6 +417,13 @@ static void cbq_ovl_classic(struct cbq_class *cl)
 	if (!cl->delayed) {
 		delay += cl->offtime;
 
+		/*
+		 * Class goes to sleep, so that it will have no
+		 * chance to work avgidle. Let's forgive it 8)
+		 *
+		 * BTW cbq-2.0 has a crap in this
+		 * place, apparently they forgot to shift it by cl->ewma_log.
+		 */
 		if (cl->avgidle < 0)
 			delay -= (-cl->avgidle) - ((-cl->avgidle) >> cl->ewma_log);
 		if (cl->avgidle < cl->minidle)
@@ -339,6 +438,10 @@ static void cbq_ovl_classic(struct cbq_class *cl)
 	if (q->wd_expires == 0 || q->wd_expires > delay)
 		q->wd_expires = delay;
 
+	/* Dirty work! We must schedule wakeups based on
+	 * real available rate, rather than leaf rate,
+	 * which may be tiny (even zero).
+	 */
 	if (q->toplevel == TC_CBQ_MAXLEVEL) {
 		struct cbq_class *b;
 		psched_tdiff_t base_delay = q->wd_expires;
@@ -356,6 +459,9 @@ static void cbq_ovl_classic(struct cbq_class *cl)
 	}
 }
 
+/* TC_CBQ_OVL_RCLASSIC: penalize by offtime classes in hierarchy, when
+ * they go overlimit
+ */
 
 static void cbq_ovl_rclassic(struct cbq_class *cl)
 {
@@ -374,6 +480,7 @@ static void cbq_ovl_rclassic(struct cbq_class *cl)
 	cbq_ovl_classic(cl);
 }
 
+/* TC_CBQ_OVL_DELAY: delay until it will go to underlimit */
 
 static void cbq_ovl_delay(struct cbq_class *cl)
 {
@@ -419,6 +526,7 @@ static void cbq_ovl_delay(struct cbq_class *cl)
 		q->wd_expires = delay;
 }
 
+/* TC_CBQ_OVL_LOWPRIO: penalize class by lowering its priority band */
 
 static void cbq_ovl_lowprio(struct cbq_class *cl)
 {
@@ -434,6 +542,7 @@ static void cbq_ovl_lowprio(struct cbq_class *cl)
 	cbq_ovl_classic(cl);
 }
 
+/* TC_CBQ_OVL_DROP: penalize class by dropping */
 
 static void cbq_ovl_drop(struct cbq_class *cl)
 {
@@ -554,6 +663,14 @@ static int cbq_reshape_fail(struct sk_buff *skb, struct Qdisc *child)
 }
 #endif
 
+/*
+ * It is mission critical procedure.
+ *
+ * We "regenerate" toplevel cutoff, if transmitting class
+ * has backlog and it is not regulated. It is not part of
+ * original CBQ description, but looks more reasonable.
+ * Probably, it is wrong. This question needs further investigation.
+ */
 
 static inline void
 cbq_update_toplevel(struct cbq_sched_data *q, struct cbq_class *cl,
@@ -569,6 +686,9 @@ cbq_update_toplevel(struct cbq_sched_data *q, struct cbq_class *cl,
 			} while ((borrowed = borrowed->borrow) != NULL);
 		}
 #if 0
+	/* It is not necessary now. Uncommenting it
+	   will save CPU cycles, but decrease fairness.
+	 */
 		q->toplevel = TC_CBQ_MAXLEVEL;
 #endif
 	}
@@ -590,6 +710,12 @@ cbq_update(struct cbq_sched_data *q)
 		cl->bstats.packets++;
 		cl->bstats.bytes += len;
 
+		/*
+		 * (now - last) is total time between packet right edges.
+		 * (last_pktlen/rate) is "virtual" busy time, so that
+		 *
+		 *	idle = (now - last) - last_pktlen/rate
+		 */
 
 		idle = q->now - cl->last;
 		if ((unsigned long)idle > 128*1024*1024) {
@@ -597,26 +723,47 @@ cbq_update(struct cbq_sched_data *q)
 		} else {
 			idle -= L2T(cl, len);
 
+		/* true_avgidle := (1-W)*true_avgidle + W*idle,
+		 * where W=2^{-ewma_log}. But cl->avgidle is scaled:
+		 * cl->avgidle == true_avgidle/W,
+		 * hence:
+		 */
 			avgidle += idle - (avgidle>>cl->ewma_log);
 		}
 
 		if (avgidle <= 0) {
-			
+			/* Overlimit or at-limit */
 
 			if (avgidle < cl->minidle)
 				avgidle = cl->minidle;
 
 			cl->avgidle = avgidle;
 
+			/* Calculate expected time, when this class
+			 * will be allowed to send.
+			 * It will occur, when:
+			 * (1-W)*true_avgidle + W*delay = 0, i.e.
+			 * idle = (1/W - 1)*(-true_avgidle)
+			 * or
+			 * idle = (1 - W)*(-cl->avgidle);
+			 */
 			idle = (-avgidle) - ((-avgidle) >> cl->ewma_log);
 
+			/*
+			 * That is not all.
+			 * To maintain the rate allocated to the class,
+			 * we add to undertime virtual clock,
+			 * necessary to complete transmitted packet.
+			 * (len/phys_bandwidth has been already passed
+			 * to the moment of cbq_update)
+			 */
 
 			idle -= L2T(&q->link, len);
 			idle += L2T(cl, len);
 
 			cl->undertime = q->now + idle;
 		} else {
-			
+			/* Underlimit */
 
 			cl->undertime = PSCHED_PASTPERFECT;
 			if (avgidle > cl->maxidle)
@@ -645,6 +792,16 @@ cbq_under_limit(struct cbq_class *cl)
 	}
 
 	do {
+		/* It is very suspicious place. Now overlimit
+		 * action is generated for not bounded classes
+		 * only if link is completely congested.
+		 * Though it is in agree with ancestor-only paradigm,
+		 * it looks very stupid. Particularly,
+		 * it means that this chunk of code will either
+		 * never be called or result in strong amplification
+		 * of burstiness. Dangerous, silly, and, however,
+		 * no another solution exists.
+		 */
 		cl = cl->borrow;
 		if (!cl) {
 			this_cl->qstats.overlimits++;
@@ -673,7 +830,7 @@ cbq_dequeue_prio(struct Qdisc *sch, int prio)
 	do {
 		deficit = 0;
 
-		
+		/* Start round */
 		do {
 			struct cbq_class *borrow = cl;
 
@@ -682,6 +839,9 @@ cbq_dequeue_prio(struct Qdisc *sch, int prio)
 				goto skip_class;
 
 			if (cl->deficit <= 0) {
+				/* Class exhausted its allotment per
+				 * this round. Switch to the next one.
+				 */
 				deficit = 1;
 				cl->deficit += cl->quantum;
 				goto next_class;
@@ -689,6 +849,10 @@ cbq_dequeue_prio(struct Qdisc *sch, int prio)
 
 			skb = cl->q->dequeue(cl->q);
 
+			/* Class did not give us any skb :-(
+			 * It could occur even if cl->q->q.qlen != 0
+			 * f.e. if cl->q == "tbf"
+			 */
 			if (skb == NULL)
 				goto skip_class;
 
@@ -715,17 +879,20 @@ cbq_dequeue_prio(struct Qdisc *sch, int prio)
 
 skip_class:
 			if (cl->q->q.qlen == 0 || prio != cl->cpriority) {
+				/* Class is empty or penalized.
+				 * Unlink it from active chain.
+				 */
 				cl_prev->next_alive = cl->next_alive;
 				cl->next_alive = NULL;
 
-				
+				/* Did cl_tail point to it? */
 				if (cl == cl_tail) {
-					
+					/* Repair it! */
 					cl_tail = cl_prev;
 
-					
+					/* Was it the last class in this band? */
 					if (cl == cl_tail) {
-						
+						/* Kill the band! */
 						q->active[prio] = NULL;
 						q->activemask &= ~(1<<prio);
 						if (cl->q->q.qlen)
@@ -783,6 +950,13 @@ cbq_dequeue(struct Qdisc *sch)
 
 	if (q->tx_class) {
 		psched_tdiff_t incr2;
+		/* Time integrator. We calculate EOS time
+		 * by adding expected packet transmission time.
+		 * If real time is greater, we warp artificial clock,
+		 * so that:
+		 *
+		 * cbq_time = max(real_time, work);
+		 */
 		incr2 = L2T(&q->link, q->tx_len);
 		q->now += incr2;
 		cbq_update(q);
@@ -803,6 +977,23 @@ cbq_dequeue(struct Qdisc *sch)
 			return skb;
 		}
 
+		/* All the classes are overlimit.
+		 *
+		 * It is possible, if:
+		 *
+		 * 1. Scheduler is empty.
+		 * 2. Toplevel cutoff inhibited borrowing.
+		 * 3. Root class is overlimit.
+		 *
+		 * Reset 2d and 3d conditions and retry.
+		 *
+		 * Note, that NS and cbq-2.0 are buggy, peeking
+		 * an arbitrary class is appropriate for ancestor-only
+		 * sharing, but not for toplevel algorithm.
+		 *
+		 * Our version is better, but slower, because it requires
+		 * two passes, but it is unavoidable with top-level sharing.
+		 */
 
 		if (q->toplevel == TC_CBQ_MAXLEVEL &&
 		    q->link.undertime == PSCHED_PASTPERFECT)
@@ -812,6 +1003,9 @@ cbq_dequeue(struct Qdisc *sch)
 		q->link.undertime = PSCHED_PASTPERFECT;
 	}
 
+	/* No packets in scheduler or nobody wants to give them to us :-(
+	 * Sigh... start watchdog timer in the last case.
+	 */
 
 	if (sch->q.qlen) {
 		sch->qstats.overlimits++;
@@ -822,6 +1016,7 @@ cbq_dequeue(struct Qdisc *sch)
 	return NULL;
 }
 
+/* CBQ class maintanance routines */
 
 static void cbq_adjust_levels(struct cbq_class *this)
 {
@@ -854,6 +1049,9 @@ static void cbq_normalize_quanta(struct cbq_sched_data *q, int prio)
 
 	for (h = 0; h < q->clhash.hashsize; h++) {
 		hlist_for_each_entry(cl, n, &q->clhash.hash[h], common.hnode) {
+			/* BUGGGG... Beware! This expression suffer of
+			 * arithmetic overflows!
+			 */
 			if (cl->priority == prio) {
 				cl->quantum = (cl->weight*cl->allot*q->nclasses[prio])/
 					q->quanta[prio];
@@ -1500,6 +1698,11 @@ static void cbq_destroy(struct Qdisc *sch)
 #ifdef CONFIG_NET_CLS_ACT
 	q->rx_class = NULL;
 #endif
+	/*
+	 * Filters must be destroyed first because we don't destroy the
+	 * classes from root to leafs which means that filters can still
+	 * be bound to classes which have been destroyed already. --TGR '04
+	 */
 	for (h = 0; h < q->clhash.hashsize; h++) {
 		hlist_for_each_entry(cl, n, &q->clhash.hash[h], common.hnode)
 			tcf_destroy_chain(&cl->filter_list);
@@ -1551,7 +1754,7 @@ cbq_change_class(struct Qdisc *sch, u32 classid, u32 parentid, struct nlattr **t
 		return err;
 
 	if (cl) {
-		
+		/* Check parent */
 		if (parentid) {
 			if (cl->tparent &&
 			    cl->tparent->common.classid != parentid)
@@ -1578,7 +1781,7 @@ cbq_change_class(struct Qdisc *sch, u32 classid, u32 parentid, struct nlattr **t
 			}
 		}
 
-		
+		/* Change class parameters */
 		sch_tree_lock(sch);
 
 		if (cl->next_alive != NULL)
@@ -1758,6 +1961,10 @@ static int cbq_delete(struct Qdisc *sch, unsigned long arg)
 	sch_tree_unlock(sch);
 
 	BUG_ON(--cl->refcnt == 0);
+	/*
+	 * This shouldn't happen: we "hold" one cops->get() when called
+	 * from tc_ctl_tclass; the destroy method is done from cops->put().
+	 */
 
 	return 0;
 }

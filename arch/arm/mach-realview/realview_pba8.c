@@ -118,6 +118,9 @@ static struct pl022_ssp_controller ssp0_plat_data = {
 	.num_chipselect = 1,
 };
 
+/*
+ * RealView PBA8Core AMBA devices
+ */
 
 #define GPIO2_IRQ		{ IRQ_PBA8_GPIO2 }
 #define GPIO3_IRQ		{ IRQ_PBA8_GPIO3 }
@@ -141,12 +144,14 @@ static struct pl022_ssp_controller ssp0_plat_data = {
 #define PBA8_UART3_IRQ		{ IRQ_PBA8_UART3 }
 #define PBA8_SSP_IRQ		{ IRQ_PBA8_SSP }
 
+/* FPGA Primecells */
 APB_DEVICE(aaci,	"fpga:aaci",	AACI,		NULL);
 APB_DEVICE(mmc0,	"fpga:mmc0",	MMCI0,		&realview_mmc0_plat_data);
 APB_DEVICE(kmi0,	"fpga:kmi0",	KMI0,		NULL);
 APB_DEVICE(kmi1,	"fpga:kmi1",	KMI1,		NULL);
 APB_DEVICE(uart3,	"fpga:uart3",	PBA8_UART3,	NULL);
 
+/* DevChip Primecells */
 AHB_DEVICE(smc,		"dev:smc",	PBA8_SMC,	NULL);
 AHB_DEVICE(sctl,	"dev:sctl",	SCTL,		NULL);
 APB_DEVICE(wdog,	"dev:wdog",	PBA8_WATCHDOG, NULL);
@@ -160,6 +165,7 @@ APB_DEVICE(uart1,	"dev:uart1",	PBA8_UART1,	NULL);
 APB_DEVICE(uart2,	"dev:uart2",	PBA8_UART2,	NULL);
 APB_DEVICE(ssp0,	"dev:ssp0",	PBA8_SSP,	&ssp0_plat_data);
 
+/* Primecells on the NEC ISSP chip */
 AHB_DEVICE(clcd,	"issp:clcd",	PBA8_CLCD,	&clcd_plat_data);
 AHB_DEVICE(dmac,	"issp:dmac",	DMAC,		NULL);
 
@@ -185,6 +191,9 @@ static struct amba_device *amba_devs[] __initdata = {
 	&kmi1_device,
 };
 
+/*
+ * RealView PB-A8 platform devices
+ */
 static struct resource realview_pba8_flash_resource[] = {
 	[0] = {
 		.start		= REALVIEW_PBA8_FLASH0_BASE,
@@ -239,7 +248,7 @@ static struct platform_device pmu_device = {
 
 static void __init gic_init_irq(void)
 {
-	
+	/* ARM PB-A8 on-board GIC */
 	gic_init(0, IRQ_PBA8_GIC_START,
 		 __io_address(REALVIEW_PBA8_GIC_DIST_BASE),
 		 __io_address(REALVIEW_PBA8_GIC_CPU_BASE));
@@ -264,6 +273,10 @@ static void realview_pba8_restart(char mode, const char *cmd)
 	void __iomem *reset_ctrl = __io_address(REALVIEW_SYS_RESETCTL);
 	void __iomem *lock_ctrl = __io_address(REALVIEW_SYS_LOCK);
 
+	/*
+	 * To reset, we hit the on-board reset register
+	 * in the system FPGA
+	 */
 	__raw_writel(REALVIEW_SYS_LOCK_VAL, lock_ctrl);
 	__raw_writel(0x0000, reset_ctrl);
 	__raw_writel(0x0004, reset_ctrl);
@@ -293,7 +306,7 @@ static void __init realview_pba8_init(void)
 }
 
 MACHINE_START(REALVIEW_PBA8, "ARM-RealView PB-A8")
-	
+	/* Maintainer: ARM Ltd/Deep Blue Solutions Ltd */
 	.atag_offset	= 0x100,
 	.fixup		= realview_fixup,
 	.map_io		= realview_pba8_map_io,

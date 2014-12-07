@@ -32,12 +32,20 @@ static DECLARE_COMPLETION(suspend_work);
 static struct rtas_suspend_me_data suspend_data;
 static atomic_t suspending;
 
+/**
+ * pseries_suspend_begin - First phase of hibernation
+ *
+ * Check to ensure we are in a valid state to hibernate
+ *
+ * Return value:
+ * 	0 on success / other on failure
+ **/
 static int pseries_suspend_begin(suspend_state_t state)
 {
 	long vasi_state, rc;
 	unsigned long retbuf[PLPAR_HCALL_BUFSIZE];
 
-	
+	/* Make sure the state is valid */
 	rc = plpar_hcall(H_VASI_STATE, retbuf, stream_id);
 
 	vasi_state = retbuf[0];
@@ -56,6 +64,12 @@ static int pseries_suspend_begin(suspend_state_t state)
 	return 0;
 }
 
+/**
+ * pseries_suspend_cpu - Suspend a single CPU
+ *
+ * Makes the H_JOIN call to suspend the CPU
+ *
+ **/
 static int pseries_suspend_cpu(void)
 {
 	if (atomic_read(&suspending))
@@ -63,6 +77,12 @@ static int pseries_suspend_cpu(void)
 	return 0;
 }
 
+/**
+ * pseries_suspend_enter - Final phase of hibernation
+ *
+ * Return value:
+ * 	0 on success / other on failure
+ **/
 static int pseries_suspend_enter(suspend_state_t state)
 {
 	int rc = rtas_suspend_last_cpu(&suspend_data);
@@ -72,6 +92,12 @@ static int pseries_suspend_enter(suspend_state_t state)
 	return rc;
 }
 
+/**
+ * pseries_prepare_late - Prepare to suspend all other CPUs
+ *
+ * Return value:
+ * 	0 on success / other on failure
+ **/
 static int pseries_prepare_late(void)
 {
 	atomic_set(&suspending, 1);
@@ -83,6 +109,19 @@ static int pseries_prepare_late(void)
 	return 0;
 }
 
+/**
+ * store_hibernate - Initiate partition hibernation
+ * @dev:		subsys root device
+ * @attr:		device attribute struct
+ * @buf:		buffer
+ * @count:		buffer size
+ *
+ * Write the stream ID received from the HMC to this file
+ * to trigger hibernating the partition
+ *
+ * Return value:
+ * 	number of bytes printed to buffer / other on failure
+ **/
 static ssize_t store_hibernate(struct device *dev,
 			       struct device_attribute *attr,
 			       const char *buf, size_t count)
@@ -127,6 +166,12 @@ static const struct platform_suspend_ops pseries_suspend_ops = {
 	.enter		= pseries_suspend_enter,
 };
 
+/**
+ * pseries_suspend_sysfs_register - Register with sysfs
+ *
+ * Return value:
+ * 	0 on success / other on failure
+ **/
 static int pseries_suspend_sysfs_register(struct device *dev)
 {
 	int rc;
@@ -147,6 +192,12 @@ subsys_unregister:
 	return rc;
 }
 
+/**
+ * pseries_suspend_init - initcall for pSeries suspend
+ *
+ * Return value:
+ * 	0 on success / other on failure
+ **/
 static int __init pseries_suspend_init(void)
 {
 	int rc;

@@ -1,3 +1,9 @@
+/*
+ * drivers/pcmcia/sa1100_assabet.c
+ *
+ * PCMCIA implementation routines for Assabet
+ *
+ */
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/errno.h>
@@ -28,7 +34,7 @@ static int assabet_pcmcia_hw_init(struct soc_pcmcia_socket *skt)
 static void
 assabet_pcmcia_socket_state(struct soc_pcmcia_socket *skt, struct pcmcia_state *state)
 {
-	state->vs_3v  = 1; 
+	state->vs_3v  = 1; /* Can only apply 3.3V on Assabet. */
 	state->vs_Xv  = 0;
 }
 
@@ -46,7 +52,7 @@ assabet_pcmcia_configure_socket(struct soc_pcmcia_socket *skt, const socket_stat
 		printk(KERN_WARNING "%s(): CS asked for 5V, applying 3.3V...\n",
 			__func__);
 
-	case 33:  
+	case 33:  /* Can only apply 3.3V to the CF slot. */
 		mask = ASSABET_BCR_CF_PWR;
 		break;
 
@@ -56,7 +62,7 @@ assabet_pcmcia_configure_socket(struct soc_pcmcia_socket *skt, const socket_stat
 		return -1;
 	}
 
-	
+	/* Silently ignore Vpp, speaker enable. */
 
 	if (state->flags & SS_RESET)
 		mask |= ASSABET_BCR_CF_RST;
@@ -69,8 +75,15 @@ assabet_pcmcia_configure_socket(struct soc_pcmcia_socket *skt, const socket_stat
 	return 0;
 }
 
+/*
+ * Disable card status IRQs on suspend.
+ */
 static void assabet_pcmcia_socket_suspend(struct soc_pcmcia_socket *skt)
 {
+	/*
+	 * Tristate the CF bus signals.  Also assert CF
+	 * reset as per user guide page 4-11.
+	 */
 	ASSABET_BCR_set(ASSABET_BCR_CF_BUS_OFF | ASSABET_BCR_CF_RST);
 }
 

@@ -32,12 +32,21 @@ static unsigned int user_getsp32(unsigned int sp, int is_first)
 	if (!access_ok(VERIFY_READ, p, sizeof(stack_frame)))
 		return 0;
 
+	/*
+	 * The most likely reason for this is that we returned -EFAULT,
+	 * which means that we've done all that we can do from
+	 * interrupt context.
+	 */
 	if (__copy_from_user_inatomic(stack_frame, p, sizeof(stack_frame)))
 		return 0;
 
 	if (!is_first)
 		oprofile_add_trace(STACK_LR32(stack_frame));
 
+	/*
+	 * We do not enforce increasing stack addresses here because
+	 * we may transition to a different stack, eg a signal handler.
+	 */
 	return STACK_SP(stack_frame);
 }
 
@@ -70,6 +79,12 @@ static unsigned long kernel_getsp(unsigned long sp, int is_first)
 	if (!is_first)
 		oprofile_add_trace(STACK_LR(stack_frame));
 
+	/*
+	 * We do not enforce increasing stack addresses here because
+	 * we might be transitioning from an interrupt stack to a kernel
+	 * stack. validate_sp() is designed to understand this, so just
+	 * use it.
+	 */
 	return STACK_SP(stack_frame);
 }
 
@@ -78,7 +93,7 @@ void op_powerpc_backtrace(struct pt_regs * const regs, unsigned int depth)
 	unsigned long sp = regs->gpr[1];
 	int first_frame = 1;
 
-	
+	/* We ditch the top stackframe so need to loop through an extra time */
 	depth += 1;
 
 	if (!user_mode(regs)) {

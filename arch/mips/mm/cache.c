@@ -21,6 +21,7 @@
 #include <asm/cpu.h>
 #include <asm/cpu-features.h>
 
+/* Cache operations. */
 void (*flush_cache_all)(void);
 void (*__flush_cache_all)(void);
 void (*flush_cache_mm)(struct mm_struct *mm);
@@ -39,6 +40,7 @@ void (*__invalidate_kernel_vmap_range)(unsigned long vaddr, int size);
 
 EXPORT_SYMBOL_GPL(__flush_kernel_vmap_range);
 
+/* MIPS specific cache operations */
 void (*flush_cache_sigtramp)(unsigned long addr);
 void (*local_flush_data_cache_page)(void * addr);
 void (*flush_data_cache_page)(unsigned long addr);
@@ -49,14 +51,19 @@ EXPORT_SYMBOL(flush_data_cache_page);
 
 #ifdef CONFIG_DMA_NONCOHERENT
 
+/* DMA cache operations. */
 void (*_dma_cache_wback_inv)(unsigned long start, unsigned long size);
 void (*_dma_cache_wback)(unsigned long start, unsigned long size);
 void (*_dma_cache_inv)(unsigned long start, unsigned long size);
 
 EXPORT_SYMBOL(_dma_cache_wback_inv);
 
-#endif 
+#endif /* CONFIG_DMA_NONCOHERENT */
 
+/*
+ * We could optimize the case where the cache argument is not BCACHE but
+ * that seems very atypical use ...
+ */
 SYSCALL_DEFINE3(cacheflush, unsigned long, addr, unsigned long, bytes,
 	unsigned int, cache)
 {
@@ -82,6 +89,11 @@ void __flush_dcache_page(struct page *page)
 		return;
 	}
 
+	/*
+	 * We could delay the flush for the !page_mapping case too.  But that
+	 * case is for exec env/arg pages and those are %99 certainly going to
+	 * get faulted into the tlb (and thus flushed) anyways.
+	 */
 	addr = (unsigned long) page_address(page);
 	flush_data_cache_page(addr);
 }

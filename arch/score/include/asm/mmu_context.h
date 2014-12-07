@@ -10,6 +10,11 @@
 #include <asm/tlbflush.h>
 #include <asm/scoreregs.h>
 
+/*
+ * For the fast tlb miss handlers, we keep a per cpu array of pointers
+ * to the current pgd for each processor. Also, the proc. id is stuffed
+ * into the context register.
+ */
 extern unsigned long asid_cache;
 extern unsigned long pgd_current;
 
@@ -21,9 +26,16 @@ do {							\
 	TLBMISS_HANDLER_SETUP_PGD(swapper_pg_dir)	\
 } while (0)
 
+/*
+ * All unused by hardware upper bits will be considered
+ * as a software asid extension.
+ */
 #define ASID_VERSION_MASK	0xfffff000
 #define ASID_FIRST_VERSION	0x1000
 
+/* PEVN    --------- VPN ---------- --ASID--- -NA- */
+/* binary: 0000 0000 0000 0000 0000 0000 0001 0000 */
+/* binary: 0000 0000 0000 0000 0000 1111 1111 0000 */
 #define ASID_INC	0x10
 #define ASID_MASK	0xff0
 
@@ -37,8 +49,8 @@ get_new_mmu_context(struct mm_struct *mm)
 	unsigned long asid = asid_cache + ASID_INC;
 
 	if (!(asid & ASID_MASK)) {
-		local_flush_tlb_all();		
-		if (!asid)			
+		local_flush_tlb_all();		/* start new asid cycle */
+		if (!asid)			/* fix version if needed */
 			asid = ASID_FIRST_VERSION;
 	}
 
@@ -46,6 +58,10 @@ get_new_mmu_context(struct mm_struct *mm)
 	asid_cache = asid;
 }
 
+/*
+ * Initialize the context related info for a new mm_struct
+ * instance.
+ */
 static inline int
 init_new_context(struct task_struct *tsk, struct mm_struct *mm)
 {
@@ -67,6 +83,10 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 	local_irq_restore(flags);
 }
 
+/*
+ * Destroy context related info for an mm_struct that is about
+ * to be put to rest.
+ */
 static inline void destroy_context(struct mm_struct *mm)
 {}
 
@@ -74,6 +94,10 @@ static inline void
 deactivate_mm(struct task_struct *task, struct mm_struct *mm)
 {}
 
+/*
+ * After we have set current->mm to a new value, this activates
+ * the context for the new mm so we see the new mappings.
+ */
 static inline void
 activate_mm(struct mm_struct *prev, struct mm_struct *next)
 {
@@ -86,4 +110,4 @@ activate_mm(struct mm_struct *prev, struct mm_struct *next)
 	local_irq_restore(flags);
 }
 
-#endif 
+#endif /* _ASM_SCORE_MMU_CONTEXT_H */

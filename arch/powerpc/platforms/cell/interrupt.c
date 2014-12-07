@@ -58,13 +58,14 @@ static DEFINE_PER_CPU(struct iic, cpu_iic);
 #define IIC_NODE_COUNT	2
 static struct irq_domain *iic_host;
 
+/* Convert between "pending" bits and hw irq number */
 static irq_hw_number_t iic_pending_to_hwnum(struct cbe_iic_pending_bits bits)
 {
 	unsigned char unit = bits.source & 0xf;
 	unsigned char node = bits.source >> 4;
 	unsigned char class = bits.class & 3;
 
-	
+	/* Decode IPIs */
 	if (bits.flags & CBE_IIC_IRQ_IPI)
 		return IIC_IRQ_TYPE_IPI | (bits.prio >> 4);
 	else
@@ -111,11 +112,11 @@ static void iic_ioexc_cascade(unsigned int irq, struct irq_desc *desc)
 		bits = in_be64(&node_iic->iic_is);
 		if (bits == 0)
 			break;
-		
+		/* pre-ack edge interrupts */
 		ack = bits & IIC_ISR_EDGE_MASK;
 		if (ack)
 			out_be64(&node_iic->iic_is, ack);
-		
+		/* handle them */
 		for (cascade = 63; cascade >= 0; cascade--)
 			if (bits & (0x8000000000000000UL >> cascade)) {
 				unsigned int cirq =
@@ -124,7 +125,7 @@ static void iic_ioexc_cascade(unsigned int irq, struct irq_desc *desc)
 				if (cirq != NO_IRQ)
 					generic_handle_irq(cirq);
 			}
-		
+		/* post-ack level interrupts */
 		ack = bits & ~IIC_ISR_EDGE_MASK;
 		if (ack)
 			out_be64(&node_iic->iic_is, ack);
@@ -140,6 +141,7 @@ static struct irq_chip iic_ioexc_chip = {
 	.irq_eoi = iic_ioexc_eoi,
 };
 
+/* Get an IRQ number from the pending state register of the IIC */
 static unsigned int iic_get_irq(void)
 {
 	struct cbe_iic_pending_bits pending;
@@ -173,6 +175,7 @@ EXPORT_SYMBOL_GPL(iic_get_target_id);
 
 #ifdef CONFIG_SMP
 
+/* Use the highest interrupt priorities for IPI */
 static inline int iic_msg_to_irq(int msg)
 {
 	return IIC_IRQ_TYPE_IPI + 0xf - msg;
@@ -200,6 +203,10 @@ static void iic_request_ipi(int msg)
 		return;
 	}
 
+	/*
+	 * If smp_request_message_ipi encounters an error it will notify
+	 * the error.  If a message is not needed it will return non-zero.
+	 */
 	if (smp_request_message_ipi(virq, msg))
 		irq_dispose_mapping(virq);
 }
@@ -212,7 +219,7 @@ void iic_request_IPIs(void)
 	iic_request_ipi(PPC_MSG_DEBUGGER_BREAK);
 }
 
-#endif 
+#endif /* CONFIG_SMP */
 
 
 static int iic_host_match(struct irq_domain *h, struct device_node *node)
@@ -260,11 +267,11 @@ static int iic_host_xlate(struct irq_domain *h, struct device_node *ct,
 	class = (intspec[0] >> 8) & 0xff;
 	unit = intspec[0] & 0xff;
 
-	
+	/* Check if node is in supported range */
 	if (node > 1)
 		return -EINVAL;
 
-	
+	/* Build up interrupt number, special case for IO exceptions */
 	*out_hwirq = (node << IIC_IRQ_NODE_SHIFT);
 	if (unit == IIC_UNIT_IIC && class == 1)
 		*out_hwirq |= IIC_IRQ_TYPE_IOEXC | ext;
@@ -272,7 +279,7 @@ static int iic_host_xlate(struct irq_domain *h, struct device_node *ct,
 		*out_hwirq |= IIC_IRQ_TYPE_NORMAL |
 			(class << IIC_IRQ_CLASS_SHIFT) | unit;
 
-	
+	/* Dummy flags, ignored by iic code */
 	*out_flags = IRQ_TYPE_EDGE_RISING;
 
 	return 0;
@@ -287,6 +294,9 @@ static const struct irq_domain_ops iic_host_ops = {
 static void __init init_one_iic(unsigned int hw_cpu, unsigned long addr,
 				struct device_node *node)
 {
+	/* XXX FIXME: should locate the linux CPU number from the HW cpu
+	 * number properly. We are lucky for now
+	 */
 	struct iic *iic = &per_cpu(cpu_iic, hw_cpu);
 
 	iic->regs = ioremap(addr, sizeof(struct cbe_iic_thread_regs));
@@ -330,6 +340,11 @@ static int __init setup_iic(void)
 		init_one_iic(np[0], r0.start, dn);
 		init_one_iic(np[1], r1.start, dn);
 
+		/* Setup cascade for IO exceptions. XXX cleanup tricks to get
+		 * node vs CPU etc...
+		 * Note that we configure the IIC_IRR here with a hard coded
+		 * priority of 1. We might want to improve that later.
+		 */
 		node = np[0] >> 1;
 		node_iic = cbe_get_cpu_iic_regs(np[0]);
 		cascade = node << IIC_IRQ_NODE_SHIFT;
@@ -338,12 +353,19 @@ static int __init setup_iic(void)
 		cascade = irq_create_mapping(iic_host, cascade);
 		if (cascade == NO_IRQ)
 			continue;
+		/*
+		 * irq_data is a generic pointer that gets passed back
+		 * to us later, so the forced cast is fine.
+		 */
 		irq_set_handler_data(cascade, (void __force *)node_iic);
 		irq_set_chained_handler(cascade, iic_ioexc_cascade);
 		out_be64(&node_iic->iic_ir,
-			 (1 << 12)		 |
-			 (node << 4)		 |
-			 IIC_UNIT_THREAD_0	);
+			 (1 << 12)		/* priority */ |
+			 (node << 4)		/* dest node */ |
+			 IIC_UNIT_THREAD_0	/* route them to thread 0 */);
+		/* Flush pending (make sure it triggers if there is
+		 * anything pending
+		 */
 		out_be64(&node_iic->iic_is, 0xfffffffffffffffful);
 	}
 
@@ -355,20 +377,20 @@ static int __init setup_iic(void)
 
 void __init iic_init_IRQ(void)
 {
-	
+	/* Setup an irq host data structure */
 	iic_host = irq_domain_add_linear(NULL, IIC_SOURCE_COUNT, &iic_host_ops,
 					 NULL);
 	BUG_ON(iic_host == NULL);
 	irq_set_default_host(iic_host);
 
-	
+	/* Discover and initialize iics */
 	if (setup_iic() < 0)
 		panic("IIC: Failed to initialize !\n");
 
-	
+	/* Set master interrupt handling function */
 	ppc_md.get_irq = iic_get_irq;
 
-	
+	/* Enable on current CPU */
 	iic_setup_cpu();
 }
 
@@ -378,7 +400,7 @@ void iic_set_interrupt_routing(int cpu, int thread, int priority)
 	u64 iic_ir = 0;
 	int node = cpu >> 1;
 
-	
+	/* Set which node and thread will handle the next interrupt */
 	iic_ir |= CBE_IIC_IR_PRIO(priority) |
 		  CBE_IIC_IR_DEST_NODE(node);
 	if (thread == 0)

@@ -33,8 +33,8 @@ static const struct __weak osd_obj_id osd_root_object = {0, 0};
 struct osd_attr {
 	u32 attr_page;
 	u32 attr_id;
-	u16 len;		
-	void *val_ptr;		
+	u16 len;		/* byte count of operand */
+	void *val_ptr;		/* in network order */
 };
 
 struct osd_sg_entry {
@@ -42,4 +42,4 @@ struct osd_sg_entry {
 	u64 len;
 };
 
-#endif 
+#endif /* ndef __OSD_TYPES_H__ */

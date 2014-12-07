@@ -2,15 +2,20 @@
 #define LINUX_BCMA_DRIVER_MIPS_H_
 
 #define BCMA_MIPS_IPSFLAG		0x0F08
+/* which sbflags get routed to mips interrupt 1 */
 #define  BCMA_MIPS_IPSFLAG_IRQ1		0x0000003F
 #define  BCMA_MIPS_IPSFLAG_IRQ1_SHIFT	0
+/* which sbflags get routed to mips interrupt 2 */
 #define  BCMA_MIPS_IPSFLAG_IRQ2		0x00003F00
 #define  BCMA_MIPS_IPSFLAG_IRQ2_SHIFT	8
+/* which sbflags get routed to mips interrupt 3 */
 #define  BCMA_MIPS_IPSFLAG_IRQ3		0x003F0000
 #define  BCMA_MIPS_IPSFLAG_IRQ3_SHIFT	16
+/* which sbflags get routed to mips interrupt 4 */
 #define  BCMA_MIPS_IPSFLAG_IRQ4		0x3F000000
 #define  BCMA_MIPS_IPSFLAG_IRQ4_SHIFT	24
 
+/* MIPS 74K core registers */
 #define BCMA_MIPS_MIPS74K_CORECTL	0x0000
 #define BCMA_MIPS_MIPS74K_EXCEPTBASE	0x0004
 #define BCMA_MIPS_MIPS74K_BIST		0x000C
@@ -43,4 +48,4 @@ extern u32 bcma_cpu_clock(struct bcma_drv_mips *mcore);
 
 extern unsigned int bcma_core_mips_irq(struct bcma_device *dev);
 
-#endif 
+#endif /* LINUX_BCMA_DRIVER_MIPS_H_ */

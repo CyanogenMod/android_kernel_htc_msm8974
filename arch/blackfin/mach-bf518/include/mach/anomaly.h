@@ -10,6 +10,9 @@
  *   https://docs.blackfin.uclinux.org/doku.php?id=adi_bsd
  */
 
+/* This file should be up to date with:
+ *  - Revision F, 05/23/2011; ADSP-BF512/BF514/BF516/BF518 Blackfin Processor Anomaly List
+ */
 
 #if __SILICON_REVISION__ < 0
 # error will not work on BF518 silicon version
@@ -18,46 +21,86 @@
 #ifndef _MACH_ANOMALY_H_
 #define _MACH_ANOMALY_H_
 
+/* Multi-Issue Instruction with dsp32shiftimm in slot1 and P-reg Store in slot2 Not Supported */
 #define ANOMALY_05000074 (1)
+/* DMA_RUN Bit Is Not Valid after a Peripheral Receive Channel DMA Stops */
 #define ANOMALY_05000119 (1)
+/* Rx.H Cannot Be Used to Access 16-bit System MMR Registers */
 #define ANOMALY_05000122 (1)
+/* False Hardware Error from an Access in the Shadow of a Conditional Branch */
 #define ANOMALY_05000245 (1)
+/* Incorrect Timer Pulse Width in Single-Shot PWM_OUT Mode with External Clock */
 #define ANOMALY_05000254 (1)
+/* Sensitivity To Noise with Slow Input Edge Rates on External SPORT TX and RX Clocks */
 #define ANOMALY_05000265 (1)
+/* False Hardware Errors Caused by Fetches at the Boundary of Reserved Memory */
 #define ANOMALY_05000310 (1)
+/* PPI Underflow Error Goes Undetected in ITU-R 656 Mode */
 #define ANOMALY_05000366 (1)
+/* Lockbox SESR Firmware Does Not Save/Restore Full Context */
 #define ANOMALY_05000405 (1)
+/* Lockbox Firmware Memory Cleanup Routine Does not Clear Registers */
 #define ANOMALY_05000408 (1)
+/* Speculative Fetches Can Cause Undesired External FIFO Operations */
 #define ANOMALY_05000416 (1)
+/* TWI Fall Time (Tof) May Violate the Minimum I2C Specification */
 #define ANOMALY_05000421 (1)
+/* TWI Input Capacitance (Ci) May Violate the Maximum I2C Specification */
 #define ANOMALY_05000422 (1)
+/* Speculative Fetches of Indirect-Pointer Instructions Can Cause False Hardware Errors */
 #define ANOMALY_05000426 (1)
+/* Software System Reset Corrupts PLL_LOCKCNT Register */
 #define ANOMALY_05000430 (__SILICON_REVISION__ < 1)
+/* Incorrect Use of Stack in Lockbox Firmware During Authentication */
 #define ANOMALY_05000431 (1)
+/* SW Breakpoints Ignored Upon Return From Lockbox Authentication */
 #define ANOMALY_05000434 (1)
+/* Certain SIC Registers are not Reset After Soft or Core Double Fault Reset */
 #define ANOMALY_05000435 (__SILICON_REVISION__ < 1)
+/* PORTx_DRIVE and PORTx_HYSTERESIS Registers Read Back Incorrect Values */
 #define ANOMALY_05000438 (__SILICON_REVISION__ < 1)
+/* Preboot Cannot be Used to Alter the PLL_DIV Register */
 #define ANOMALY_05000439 (__SILICON_REVISION__ < 1)
+/* bfrom_SysControl() Cannot be Used to Write the PLL_DIV Register */
 #define ANOMALY_05000440 (__SILICON_REVISION__ < 1)
+/* IFLUSH Instruction at End of Hardware Loop Causes Infinite Stall */
 #define ANOMALY_05000443 (1)
+/* Incorrect L1 Instruction Bank B Memory Map Location */
 #define ANOMALY_05000444 (__SILICON_REVISION__ < 1)
+/* Incorrect Default Hysteresis Setting for RESET, NMI, and BMODE Signals */
 #define ANOMALY_05000452 (__SILICON_REVISION__ < 1)
+/* PWM_TRIPB Signal Not Available on PG10 */
 #define ANOMALY_05000453 (__SILICON_REVISION__ < 1)
+/* PPI_FS3 is Driven One Half Cycle Later Than PPI Data */
 #define ANOMALY_05000455 (__SILICON_REVISION__ < 1)
+/* False Hardware Error when RETI Points to Invalid Memory */
 #define ANOMALY_05000461 (1)
+/* Synchronization Problem at Startup May Cause SPORT Transmit Channels to Misalign */
 #define ANOMALY_05000462 (__SILICON_REVISION__ < 2)
+/* Incorrect Default MSEL Value in PLL_CTL */
 #define ANOMALY_05000472 (__SILICON_REVISION__ < 2)
+/* Interrupted SPORT Receive Data Register Read Results In Underflow when SLEN > 15 */
 #define ANOMALY_05000473 (1)
+/* TESTSET Instruction Cannot Be Interrupted */
 #define ANOMALY_05000477 (1)
+/* Reads of ITEST_COMMAND and ITEST_DATA Registers Cause Cache Corruption */
 #define ANOMALY_05000481 (1)
+/* PLL Latches Incorrect Settings During Reset */
 #define ANOMALY_05000482 (__SILICON_REVISION__ < 2)
+/* PLL_CTL Change Using bfrom_SysControl() Can Result in Processor Overclocking */
 #define ANOMALY_05000485 (__SILICON_REVISION__ < 2)
+/* SPI Master Boot Can Fail Under Certain Conditions */
 #define ANOMALY_05000490 (1)
+/* Instruction Memory Stalls Can Cause IFLUSH to Fail */
 #define ANOMALY_05000491 (1)
+/* EXCPT Instruction May Be Lost If NMI Happens Simultaneously */
 #define ANOMALY_05000494 (1)
+/* CNT_COMMAND Functionality Depends on CNT_IMASK Configuration */
 #define ANOMALY_05000498 (1)
+/* RXS Bit in SPI_STAT May Become Stuck In RX DMA Modes */
 #define ANOMALY_05000501 (1)
 
+/* Anomalies that don't exist on this proc */
 #define ANOMALY_05000099 (0)
 #define ANOMALY_05000120 (0)
 #define ANOMALY_05000125 (0)

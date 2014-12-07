@@ -69,7 +69,7 @@ static void build_key_data(void)
 	memset(key_offsets, 0, sizeof(key_offsets));
 	kp = state_tbl + nstates + 1;
 	while (*kp++) {
-		
+		/* count occurrences of each function */
 		for (i = 0; i < nstates; i++, kp++) {
 			if (!*kp)
 				continue;
@@ -86,6 +86,10 @@ static void build_key_data(void)
 		if (offset >= MAXKEYS)
 			break;
 	}
+/* leave counters set so high keycodes come first.
+ * this is done so num pad and other extended keys maps are spoken before
+ * the alpha with speakup type mapping.
+ */
 	kp = state_tbl + nstates + 1;
 	while ((ch = *kp++)) {
 		for (i = 0; i < nstates; i++) {
@@ -147,7 +151,7 @@ int handle_help(struct vc_data *vc, u_char type, u_char ch, u_short key)
 			synth_printf("%s\n", msg_get(MSG_LEAVING_HELP));
 			return 1;
 		}
-		ch |= 32; 
+		ch |= 32; /* lower case */
 		if (ch < 'a' || ch > 'z')
 			return -1;
 		if (letter_offsets[ch-'a'] == -1) {
@@ -168,7 +172,7 @@ int handle_help(struct vc_data *vc, u_char type, u_char ch, u_short key)
 	} else if (type == KT_SPKUP && ch == SPEAKUP_HELP && !special_handler) {
 		special_handler = handle_help;
 		synth_printf("%s\n", msg_get(MSG_HELP_INFO));
-		build_key_data(); 
+		build_key_data(); /* rebuild each time in case new mapping */
 		return 1;
 	} else {
 		name = NULL;

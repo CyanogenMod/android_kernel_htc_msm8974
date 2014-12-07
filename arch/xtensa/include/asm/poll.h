@@ -17,4 +17,4 @@
 
 #include <asm-generic/poll.h>
 
-#endif 
+#endif /* _XTENSA_POLL_H */

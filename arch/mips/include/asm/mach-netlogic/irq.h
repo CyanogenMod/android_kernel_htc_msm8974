@@ -11,4 +11,4 @@
 #define NR_IRQS			64
 #define MIPS_CPU_IRQ_BASE	0
 
-#endif 
+#endif /* __ASM_NETLOGIC_IRQ_H */

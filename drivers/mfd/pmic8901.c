@@ -19,6 +19,7 @@
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/module.h>
 
+/* PMIC8901 Revision */
 #define PM8901_REG_REV			0x002
 #define PM8901_VERSION_MASK		0xF0
 #define PM8901_REVISION_MASK		0x0F
@@ -304,7 +305,7 @@ static int __devinit pm8901_probe(struct platform_device *pdev)
 	pm8901_drvdata.pm_chip_data = pmic;
 	platform_set_drvdata(pdev, &pm8901_drvdata);
 
-	
+	/* Read PMIC chip revision */
 	rc = pm8901_readb(pmic->dev, PM8901_REG_REV, &pmic->revision);
 	if (rc)
 		pr_err("%s: Failed reading version register rc=%d.\n",

@@ -25,5 +25,13 @@
  */
 #ifndef __DIVA_XDI_DSRV_BRI_INC__
 #define __DIVA_XDI_DSRV_BRI_INC__
+/*
+  Functions exported from os dependent part of
+  BRI card configuration and used in
+  OS independed part
+*/
+/*
+  Prepare OS dependent part of BRI functions
+*/
 void diva_os_prepare_maestra_functions(PISDN_ADAPTER IoAdapter);
 #endif

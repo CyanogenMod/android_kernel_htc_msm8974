@@ -35,11 +35,11 @@ MODULE_DESCRIPTION("Digigram VX222 V2/Mic");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{Digigram," CARD_NAME "}}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	
-static bool mic[SNDRV_CARDS]; 
-static int ibl[SNDRV_CARDS]; 
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	/* Enable this card */
+static bool mic[SNDRV_CARDS]; /* microphone */
+static int ibl[SNDRV_CARDS]; /* microphone */
 
 module_param_array(index, int, NULL, 0444);
 MODULE_PARM_DESC(index, "Index value for Digigram " CARD_NAME " soundcard.");
@@ -52,6 +52,8 @@ MODULE_PARM_DESC(mic, "Enable Microphone.");
 module_param_array(ibl, int, NULL, 0444);
 MODULE_PARM_DESC(ibl, "Capture IBL size.");
 
+/*
+ */
 
 enum {
 	VX_PCI_VX222_OLD,
@@ -59,14 +61,16 @@ enum {
 };
 
 static DEFINE_PCI_DEVICE_TABLE(snd_vx222_ids) = {
-	{ 0x10b5, 0x9050, 0x1369, PCI_ANY_ID, 0, 0, VX_PCI_VX222_OLD, },   
-	{ 0x10b5, 0x9030, 0x1369, PCI_ANY_ID, 0, 0, VX_PCI_VX222_NEW, },   
+	{ 0x10b5, 0x9050, 0x1369, PCI_ANY_ID, 0, 0, VX_PCI_VX222_OLD, },   /* PLX */
+	{ 0x10b5, 0x9030, 0x1369, PCI_ANY_ID, 0, 0, VX_PCI_VX222_NEW, },   /* PLX */
 	{ 0, }
 };
 
 MODULE_DEVICE_TABLE(pci, snd_vx222_ids);
 
 
+/*
+ */
 
 static const DECLARE_TLV_DB_SCALE(db_scale_old_vol, -11350, 50, 0);
 static const DECLARE_TLV_DB_SCALE(db_scale_akm, -7350, 50, 0);
@@ -75,7 +79,7 @@ static struct snd_vx_hardware vx222_old_hw = {
 
 	.name = "VX222/Old",
 	.type = VX_TYPE_BOARD,
-	
+	/* hw specs */
 	.num_codecs = 1,
 	.num_ins = 1,
 	.num_outs = 1,
@@ -87,7 +91,7 @@ static struct snd_vx_hardware vx222_v2_hw = {
 
 	.name = "VX222/v2",
 	.type = VX_TYPE_V2,
-	
+	/* hw specs */
 	.num_codecs = 1,
 	.num_ins = 1,
 	.num_outs = 1,
@@ -99,7 +103,7 @@ static struct snd_vx_hardware vx222_mic_hw = {
 
 	.name = "VX222/Mic",
 	.type = VX_TYPE_MIC,
-	
+	/* hw specs */
 	.num_codecs = 1,
 	.num_ins = 1,
 	.num_outs = 1,
@@ -108,6 +112,8 @@ static struct snd_vx_hardware vx222_mic_hw = {
 };
 
 
+/*
+ */
 static int snd_vx222_free(struct vx_core *chip)
 {
 	struct snd_vx222 *vx = (struct snd_vx222 *)chip;
@@ -140,7 +146,7 @@ static int __devinit snd_vx222_create(struct snd_card *card, struct pci_dev *pci
 	};
 	struct snd_vx_ops *vx_ops;
 
-	
+	/* enable PCI device */
 	if ((err = pci_enable_device(pci)) < 0)
 		return err;
 	pci_set_master(pci);

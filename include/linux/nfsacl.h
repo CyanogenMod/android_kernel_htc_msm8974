@@ -1,3 +1,8 @@
+/*
+ * File: linux/nfsacl.h
+ *
+ * (C) 2003 Andreas Gruenbacher <agruen@suse.de>
+ */
 #ifndef __LINUX_NFSACL_H
 #define __LINUX_NFSACL_H
 
@@ -12,11 +17,13 @@
 #define ACLPROC3_SETACL		2
 
 
+/* Flags for the getacl/setacl mode */
 #define NFS_ACL			0x0001
 #define NFS_ACLCNT		0x0002
 #define NFS_DFACL		0x0004
 #define NFS_DFACLCNT		0x0008
 
+/* Flag for Default ACL entries */
 #define NFS_ACL_DEFAULT		0x1000
 
 #ifdef __KERNEL__
@@ -24,6 +31,7 @@
 #include <linux/posix_acl.h>
 #include <linux/sunrpc/xdr.h>
 
+/* Maximum number of ACL entries over NFS */
 #define NFS_ACL_MAX_ENTRIES	1024
 
 #define NFSACL_MAXWORDS		(2*(2+3*NFS_ACL_MAX_ENTRIES))
@@ -50,5 +58,5 @@ extern int
 nfsacl_decode(struct xdr_buf *buf, unsigned int base, unsigned int *aclcnt,
 	      struct posix_acl **pacl);
 
-#endif 
-#endif  
+#endif /* __KERNEL__ */
+#endif  /* __LINUX_NFSACL_H */

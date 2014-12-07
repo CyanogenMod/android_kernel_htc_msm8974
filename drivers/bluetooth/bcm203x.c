@@ -40,10 +40,10 @@
 #define VERSION "1.2"
 
 static const struct usb_device_id bcm203x_table[] = {
-	
+	/* Broadcom Blutonium (BCM2033) */
 	{ USB_DEVICE(0x0a5c, 0x2033) },
 
-	{ }	
+	{ }	/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, bcm203x_table);

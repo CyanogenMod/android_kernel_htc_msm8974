@@ -18,6 +18,7 @@
 #ifndef __FSL_QE_UDC_H
 #define __FSL_QE_UDC_H
 
+/* SoC type */
 #define PORT_CPM	0
 #define PORT_QE		1
 
@@ -35,6 +36,7 @@
 #define R_BUF_MAXSIZE			0x800
 #define USB_EP_PARA_ALIGNMENT		32
 
+/* USB Mode Register bit define */
 #define USB_MODE_EN		0x01
 #define USB_MODE_HOST		0x02
 #define USB_MODE_TEST		0x04
@@ -42,8 +44,10 @@
 #define USB_MODE_RESUME		0x40
 #define USB_MODE_LSS		0x80
 
+/* USB Slave Address Register Mask */
 #define USB_SLVADDR_MASK	0x7F
 
+/* USB Endpoint register define */
 #define USB_EPNUM_MASK		0xF000
 #define USB_EPNUM_SHIFT		12
 
@@ -72,12 +76,14 @@
 
 #define USB_RTHS_MASK		0x000f
 
+/* USB Command Register define */
 #define USB_CMD_STR_FIFO	0x80
 #define USB_CMD_FLUSH_FIFO	0x40
 #define USB_CMD_ISFT		0x20
 #define USB_CMD_DSFT		0x10
 #define USB_CMD_EP_MASK		0x03
 
+/* USB Event and Mask Register define */
 #define USB_E_MSF_MASK		0x0800
 #define USB_E_SFT_MASK		0x0400
 #define USB_E_RESET_MASK	0x0200
@@ -99,10 +105,13 @@
 
 #define USB_E_TXE_MASK         (USB_E_TXE4_MASK | USB_E_TXE3_MASK|\
 				 USB_E_TXE2_MASK | USB_E_TXE1_MASK)
+/* USB Status Register define */
 #define USB_IDLE_STATUS_MASK	0x01
 
+/* USB Start of Frame Timer */
 #define USB_USSFT_MASK		0x3FFF
 
+/* USB Frame Number Register */
 #define USB_USFRN_MASK		0xFFFF
 
 struct usb_device_para{
@@ -143,23 +152,29 @@ struct usb_ep_para{
 #define USB_BUSMODE_CETM	0x04
 #define USB_BUSMODE_DTB		0x02
 
+/* Endpoint basic handle */
 #define ep_index(EP)		((EP)->desc->bEndpointAddress & 0xF)
 #define ep_maxpacket(EP)	((EP)->ep.maxpacket)
 #define ep_is_in(EP)	((ep_index(EP) == 0) ? (EP->udc->ep0_dir == \
 			USB_DIR_IN) : ((EP)->desc->bEndpointAddress \
 			& USB_DIR_IN) == USB_DIR_IN)
 
+/* ep0 transfer state */
 #define WAIT_FOR_SETUP          0
 #define DATA_STATE_XMIT         1
 #define DATA_STATE_NEED_ZLP     2
 #define WAIT_FOR_OUT_STATUS     3
 #define DATA_STATE_RECV         4
 
+/* ep tramsfer mode */
 #define USBP_TM_CTL	0
 #define USBP_TM_ISO	1
 #define USBP_TM_BULK	2
 #define USBP_TM_INT	3
 
+/*-----------------------------------------------------------------------------
+	USB RX And TX DATA Frame
+ -----------------------------------------------------------------------------*/
 struct qe_frame{
 	u8 *data;
 	u32 len;
@@ -170,42 +185,48 @@ struct qe_frame{
 	struct list_head node;
 };
 
-#define PID_DATA0              0x80000000 
-#define PID_DATA1              0x40000000 
-#define PID_SETUP              0x20000000 
-#define SETUP_STATUS           0x10000000 
-#define SETADDR_STATUS         0x08000000 
-#define NO_REQ                 0x04000000 
-#define HOST_DATA              0x02000000 
-#define FIRST_PACKET_IN_FRAME  0x01000000 
-#define TOKEN_FRAME            0x00800000 
-#define ZLP                    0x00400000 
-#define IN_TOKEN_FRAME         0x00200000 
-#define OUT_TOKEN_FRAME        0x00100000 
-#define SETUP_TOKEN_FRAME      0x00080000 
-#define STALL_FRAME            0x00040000 
-#define NACK_FRAME             0x00020000 
-#define NO_PID                 0x00010000 
-#define NO_CRC                 0x00008000 
-#define HOST_COMMAND           0x00004000 
+/* Frame structure, info field. */
+#define PID_DATA0              0x80000000 /* Data toggle zero */
+#define PID_DATA1              0x40000000 /* Data toggle one  */
+#define PID_SETUP              0x20000000 /* setup bit */
+#define SETUP_STATUS           0x10000000 /* setup status bit */
+#define SETADDR_STATUS         0x08000000 /* setupup address status bit */
+#define NO_REQ                 0x04000000 /* Frame without request */
+#define HOST_DATA              0x02000000 /* Host data frame */
+#define FIRST_PACKET_IN_FRAME  0x01000000 /* first packet in the frame */
+#define TOKEN_FRAME            0x00800000 /* Host token frame */
+#define ZLP                    0x00400000 /* Zero length packet */
+#define IN_TOKEN_FRAME         0x00200000 /* In token package */
+#define OUT_TOKEN_FRAME        0x00100000 /* Out token package */
+#define SETUP_TOKEN_FRAME      0x00080000 /* Setup token package */
+#define STALL_FRAME            0x00040000 /* Stall handshake */
+#define NACK_FRAME             0x00020000 /* Nack handshake */
+#define NO_PID                 0x00010000 /* No send PID */
+#define NO_CRC                 0x00008000 /* No send CRC */
+#define HOST_COMMAND           0x00004000 /* Host command frame   */
 
-#define FRAME_OK               0x00000000 
-#define FRAME_ERROR            0x80000000 
-#define START_FRAME_LOST       0x40000000 
-#define END_FRAME_LOST         0x20000000 
-#define RX_ER_NONOCT           0x10000000 
-#define RX_ER_BITSTUFF         0x08000000 
-#define RX_ER_CRC              0x04000000 
-#define RX_ER_OVERUN           0x02000000 
-#define RX_ER_PID              0x01000000 
-#define TX_ER_NAK              0x00800000 
-#define TX_ER_STALL            0x00400000 
-#define TX_ER_TIMEOUT          0x00200000 
-#define TX_ER_UNDERUN          0x00100000 
-#define FRAME_INPROGRESS       0x00080000 
-#define ER_DATA_UNDERUN        0x00040000 
-#define ER_DATA_OVERUN         0x00020000 
+/* Frame status field */
+/* Receive side */
+#define FRAME_OK               0x00000000 /* Frame transmitted or received OK */
+#define FRAME_ERROR            0x80000000 /* Error occurred on frame */
+#define START_FRAME_LOST       0x40000000 /* START_FRAME_LOST */
+#define END_FRAME_LOST         0x20000000 /* END_FRAME_LOST */
+#define RX_ER_NONOCT           0x10000000 /* Rx Non Octet Aligned Packet */
+#define RX_ER_BITSTUFF         0x08000000 /* Frame Aborted --Received packet
+					     with bit stuff error */
+#define RX_ER_CRC              0x04000000 /* Received packet with CRC error */
+#define RX_ER_OVERUN           0x02000000 /* Over-run occurred on reception */
+#define RX_ER_PID              0x01000000 /* Wrong PID received */
+/* Tranmit side */
+#define TX_ER_NAK              0x00800000 /* Received NAK handshake */
+#define TX_ER_STALL            0x00400000 /* Received STALL handshake */
+#define TX_ER_TIMEOUT          0x00200000 /* Transmit time out */
+#define TX_ER_UNDERUN          0x00100000 /* Transmit underrun */
+#define FRAME_INPROGRESS       0x00080000 /* Frame is being transmitted */
+#define ER_DATA_UNDERUN        0x00040000 /* Frame is shorter then expected */
+#define ER_DATA_OVERUN         0x00020000 /* Frame is longer then expected */
 
+/* QE USB frame operation functions */
 #define frame_get_length(frm) (frm->len)
 #define frame_set_length(frm, leng) (frm->len = leng)
 #define frame_get_data(frm) (frm->data)
@@ -235,6 +256,8 @@ static inline void qe_frame_init(struct qe_frame *frm)
 struct qe_req {
 	struct usb_request req;
 	struct list_head queue;
+	/* ep_queue() func will add
+	 a request->queue into a udc_ep->queue 'd tail */
 	struct qe_ep *ep;
 	unsigned mapped:1;
 };
@@ -265,19 +288,19 @@ struct qe_ep {
 
 	struct qe_frame *txframe;
 	struct qe_req *tx_req;
-	int sent;  
-	int last;  
+	int sent;  /*data already sent */
+	int last;  /*data sent in the last time*/
 
 	u8 dir;
 	u8 epnum;
-	u8 tm; 
+	u8 tm; /* transfer mode */
 	u8 data01;
 	u8 init;
 
 	u8 already_seen;
 	u8 enable_tasklet;
 	u8 setup_stage;
-	u32 last_io;            
+	u32 last_io;            /* timestamp */
 
 	char name[14];
 
@@ -300,25 +323,26 @@ struct qe_udc {
 	struct device *dev;
 	struct qe_ep eps[USB_MAX_ENDPOINTS];
 	struct usb_ctrlrequest local_setup_buff;
-	spinlock_t lock;	
-	unsigned long soc_type;		
+	spinlock_t lock;	/* lock for set/config qe_udc */
+	unsigned long soc_type;		/* QE or CPM soc */
 
-	struct qe_req *status_req;	
+	struct qe_req *status_req;	/* ep0 status request */
 
-	
+	/* USB and EP Parameter Block pointer */
 	struct usb_device_para __iomem *usb_param;
 	struct usb_ep_para __iomem *ep_param[4];
 
-	u32 max_pipes;          
-	u32 max_use_endpts;     
-	u32 bus_reset;          
-	u32 resume_state;       
-	u32 usb_state;          
-	u32 usb_next_state;     
-	u32 ep0_state;          
-	u32 ep0_dir;            
-	u32 usb_sof_count;      
-	u32 errors;             
+	u32 max_pipes;          /* Device max pipes */
+	u32 max_use_endpts;     /* Max endpointes to be used */
+	u32 bus_reset;          /* Device is bus reseting */
+	u32 resume_state;       /* USB state to resume*/
+	u32 usb_state;          /* USB current state */
+	u32 usb_next_state;     /* USB next state */
+	u32 ep0_state;          /* Enpoint zero state */
+	u32 ep0_dir;            /* Enpoint zero direction: can be
+				USB_DIR_IN or USB_DIR_OUT*/
+	u32 usb_sof_count;      /* SOF count */
+	u32 errors;             /* USB ERRORs count */
 
 	u8 *tmpbuf;
 	u32 c_start;
@@ -328,7 +352,7 @@ struct qe_udc {
 	u8 *statusbuf;
 	dma_addr_t nullp;
 	u8 nullmap;
-	u8 device_address;	
+	u8 device_address;	/* Device USB address */
 
 	unsigned int usb_clock;
 	unsigned int usb_irq;
@@ -336,25 +360,28 @@ struct qe_udc {
 
 	struct tasklet_struct rx_tasklet;
 
-	struct completion *done;	
+	struct completion *done;	/* to make sure release() is done */
 };
 
 #define EP_STATE_IDLE	0
 #define EP_STATE_NACK	1
 #define EP_STATE_STALL	2
 
-#define T_R           0x80000000         
-#define T_W           0x20000000         
-#define T_I           0x10000000         
-#define T_L           0x08000000         
-#define T_TC          0x04000000         
-#define T_CNF         0x02000000         
-#define T_LSP         0x01000000         
-#define T_PID         0x00c00000         
-#define T_NAK         0x00100000         
-#define T_STAL        0x00080000         
-#define T_TO          0x00040000         
-#define T_UN          0x00020000         
+/*
+ * transmit BD's status
+ */
+#define T_R           0x80000000         /* ready bit */
+#define T_W           0x20000000         /* wrap bit */
+#define T_I           0x10000000         /* interrupt on completion */
+#define T_L           0x08000000         /* last */
+#define T_TC          0x04000000         /* transmit CRC */
+#define T_CNF         0x02000000         /* wait for  transmit confirm */
+#define T_LSP         0x01000000         /* Low-speed transaction */
+#define T_PID         0x00c00000         /* packet id */
+#define T_NAK         0x00100000         /* No ack. */
+#define T_STAL        0x00080000         /* Stall received */
+#define T_TO          0x00040000         /* time out */
+#define T_UN          0x00020000         /* underrun */
 
 #define DEVICE_T_ERROR    (T_UN | T_TO)
 #define HOST_T_ERROR      (T_UN | T_TO | T_NAK | T_STAL)
@@ -362,19 +389,22 @@ struct qe_udc {
 #define HOST_T_BD_MASK    HOST_T_ERROR
 
 #define T_PID_SHIFT   6
-#define T_PID_DATA0   0x00800000         
-#define T_PID_DATA1   0x00c00000         
+#define T_PID_DATA0   0x00800000         /* Data 0 toggle */
+#define T_PID_DATA1   0x00c00000         /* Data 1 toggle */
 
-#define R_E           0x80000000         
-#define R_W           0x20000000         
-#define R_I           0x10000000         
-#define R_L           0x08000000         
-#define R_F           0x04000000         
-#define R_PID         0x00c00000         
-#define R_NO          0x00100000         
-#define R_AB          0x00080000         
-#define R_CR          0x00040000         
-#define R_OV          0x00020000         
+/*
+ * receive BD's status
+ */
+#define R_E           0x80000000         /* buffer empty */
+#define R_W           0x20000000         /* wrap bit */
+#define R_I           0x10000000         /* interrupt on reception */
+#define R_L           0x08000000         /* last */
+#define R_F           0x04000000         /* first */
+#define R_PID         0x00c00000         /* packet id */
+#define R_NO          0x00100000         /* Rx Non Octet Aligned Packet */
+#define R_AB          0x00080000         /* Frame Aborted */
+#define R_CR          0x00040000         /* CRC Error */
+#define R_OV          0x00020000         /* Overrun */
 
 #define R_ERROR       (R_NO | R_AB | R_CR | R_OV)
 #define R_BD_MASK     R_ERROR
@@ -389,4 +419,4 @@ struct qe_udc {
 #define CPM_USB_RESTART_TX_OPCODE 0x0b
 #define CPM_USB_EP_SHIFT 5
 
-#endif  
+#endif  /* __FSL_QE_UDC_H */

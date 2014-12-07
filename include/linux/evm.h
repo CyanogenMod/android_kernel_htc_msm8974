@@ -96,5 +96,5 @@ static inline int evm_inode_init_security(struct inode *inode,
 	return 0;
 }
 
-#endif 
-#endif 
+#endif /* CONFIG_EVM_H */
+#endif /* LINUX_EVM_H */

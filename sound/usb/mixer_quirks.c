@@ -42,21 +42,29 @@
 
 extern struct snd_kcontrol_new *snd_usb_feature_unit_ctl;
 
+/*
+ * Sound Blaster remote control configuration
+ *
+ * format of remote control data:
+ * Extigy:       xx 00
+ * Audigy 2 NX:  06 80 xx 00 00 00
+ * Live! 24-bit: 06 80 xx yy 22 83
+ */
 static const struct rc_config {
 	u32 usb_id;
 	u8  offset;
 	u8  length;
 	u8  packet_length;
-	u8  min_packet_length; 
+	u8  min_packet_length; /* minimum accepted length of the URB result */
 	u8  mute_mixer_id;
 	u32 mute_code;
 } rc_configs[] = {
-	{ USB_ID(0x041e, 0x3000), 0, 1, 2, 1,  18, 0x0013 }, 
-	{ USB_ID(0x041e, 0x3020), 2, 1, 6, 6,  18, 0x0013 }, 
-	{ USB_ID(0x041e, 0x3040), 2, 2, 6, 6,  2,  0x6e91 }, 
-	{ USB_ID(0x041e, 0x3042), 0, 1, 1, 1,  1,  0x000d }, 
-	{ USB_ID(0x041e, 0x30df), 0, 1, 1, 1,  1,  0x000d }, 
-	{ USB_ID(0x041e, 0x3048), 2, 2, 6, 6,  2,  0x6e91 }, 
+	{ USB_ID(0x041e, 0x3000), 0, 1, 2, 1,  18, 0x0013 }, /* Extigy       */
+	{ USB_ID(0x041e, 0x3020), 2, 1, 6, 6,  18, 0x0013 }, /* Audigy 2 NX  */
+	{ USB_ID(0x041e, 0x3040), 2, 2, 6, 6,  2,  0x6e91 }, /* Live! 24-bit */
+	{ USB_ID(0x041e, 0x3042), 0, 1, 1, 1,  1,  0x000d }, /* Usb X-Fi S51 */
+	{ USB_ID(0x041e, 0x30df), 0, 1, 1, 1,  1,  0x000d }, /* Usb X-Fi S51 Pro */
+	{ USB_ID(0x041e, 0x3048), 2, 2, 6, 6,  2,  0x6e91 }, /* Toshiba SB0500 */
 };
 
 static void snd_usb_soundblaster_remote_complete(struct urb *urb)
@@ -72,7 +80,7 @@ static void snd_usb_soundblaster_remote_complete(struct urb *urb)
 	if (rc->length == 2)
 		code |= mixer->rc_buffer[rc->offset + 1] << 8;
 
-	
+	/* the Mute button actually changes the mixer control */
 	if (code == rc->mute_code)
 		snd_usb_mixer_notify_id(mixer, rc->mute_mixer_id);
 	mixer->rc_code = code;
@@ -183,7 +191,7 @@ static int snd_audigy2nx_led_put(struct snd_kcontrol *kcontrol, struct snd_ctl_e
 			      usb_sndctrlpipe(mixer->chip->dev, 0), 0x24,
 			      USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_OTHER,
 			      !value, 0, NULL, 0);
-	
+	/* USB X-Fi S51 Pro */
 	if (mixer->chip->usb_id == USB_ID(0x041e, 0x30df))
 		err = snd_usb_ctl_msg(mixer->chip->dev,
 			      usb_sndctrlpipe(mixer->chip->dev, 0), 0x24,
@@ -232,13 +240,13 @@ static int snd_audigy2nx_controls_create(struct usb_mixer_interface *mixer)
 	int i, err;
 
 	for (i = 0; i < ARRAY_SIZE(snd_audigy2nx_controls); ++i) {
-		
+		/* USB X-Fi S51 doesn't have a CMSS LED */
 		if ((mixer->chip->usb_id == USB_ID(0x041e, 0x3042)) && i == 0)
 			continue;
-		
+		/* USB X-Fi S51 Pro doesn't have one either */
 		if ((mixer->chip->usb_id == USB_ID(0x041e, 0x30df)) && i == 0)
 			continue;
-		if (i > 1 && 
+		if (i > 1 && /* Live24ext has 2 LEDs only */
 			(mixer->chip->usb_id == USB_ID(0x041e, 0x3040) ||
 			 mixer->chip->usb_id == USB_ID(0x041e, 0x3042) ||
 			 mixer->chip->usb_id == USB_ID(0x041e, 0x30df) ||
@@ -249,7 +257,7 @@ static int snd_audigy2nx_controls_create(struct usb_mixer_interface *mixer)
 		if (err < 0)
 			return err;
 	}
-	mixer->audigy2nx_leds[1] = 1; 
+	mixer->audigy2nx_leds[1] = 1; /* Power LED is on by default */
 	return 0;
 }
 
@@ -266,9 +274,9 @@ static void snd_audigy2nx_proc_read(struct snd_info_entry *entry,
 		{20, "hph out"},
 		{-1, NULL}
 	}, jacks_live24ext[] = {
-		{4,  "line in"}, 
-		{3,  "hph out"}, 
-		{0,  "RC     "}, 
+		{4,  "line in"}, /* &1=Line, &2=Mic*/
+		{3,  "hph out"}, /* headphones */
+		{0,  "RC     "}, /* last command, 6 bytes see rc_config above */
 		{-1, NULL}
 	};
 	const struct sb_jack *jacks;
@@ -351,6 +359,7 @@ static int snd_xonar_u1_controls_create(struct usb_mixer_interface *mixer)
 	return 0;
 }
 
+/* Native Instruments device quirks */
 
 #define _MAKE_NI_CONTROL(bRequest,wIndex) ((bRequest) << 16 | (wIndex))
 
@@ -485,7 +494,9 @@ static int snd_nativeinstruments_create_mixer(struct usb_mixer_interface *mixer,
 	return err;
 }
 
+/* M-Audio FastTrack Ultra quirks */
 
+/* private_free callback */
 static void usb_mixer_elem_free(struct snd_kcontrol *kctl)
 {
 	kfree(kctl->private_data);
@@ -551,7 +562,7 @@ void snd_emuusb_set_samplerate(struct snd_usb_audio *chip,
 {
 	struct usb_mixer_interface *mixer;
 	struct usb_mixer_elem_info *cval;
-	int unitid = 12; 
+	int unitid = 12; /* SamleRate ExtensionUnit ID */
 
 	list_for_each_entry(mixer, &chip->mixer_list, list) {
 		cval = mixer->id_elems[unitid];
@@ -587,8 +598,8 @@ int snd_usb_mixer_apply_create_quirk(struct usb_mixer_interface *mixer)
 					      snd_audigy2nx_proc_read);
 		break;
 
-	case USB_ID(0x0763, 0x2080): 
-	case USB_ID(0x0763, 0x2081): 
+	case USB_ID(0x0763, 0x2080): /* M-Audio Fast Track Ultra */
+	case USB_ID(0x0763, 0x2081): /* M-Audio Fast Track Ultra 8R */
 		err = snd_maudio_ftu_create_mixer(mixer);
 		break;
 
@@ -597,13 +608,13 @@ int snd_usb_mixer_apply_create_quirk(struct usb_mixer_interface *mixer)
 		err = snd_xonar_u1_controls_create(mixer);
 		break;
 
-	case USB_ID(0x17cc, 0x1011): 
+	case USB_ID(0x17cc, 0x1011): /* Traktor Audio 6 */
 		err = snd_nativeinstruments_create_mixer(mixer,
 				snd_nativeinstruments_ta6_mixers,
 				ARRAY_SIZE(snd_nativeinstruments_ta6_mixers));
 		break;
 
-	case USB_ID(0x17cc, 0x1021): 
+	case USB_ID(0x17cc, 0x1021): /* Traktor Audio 10 */
 		err = snd_nativeinstruments_create_mixer(mixer,
 				snd_nativeinstruments_ta10_mixers,
 				ARRAY_SIZE(snd_nativeinstruments_ta10_mixers));
@@ -618,19 +629,19 @@ void snd_usb_mixer_rc_memory_change(struct usb_mixer_interface *mixer,
 {
 	if (!mixer->rc_cfg)
 		return;
-	
+	/* unit ids specific to Extigy/Audigy 2 NX: */
 	switch (unitid) {
-	case 0: 
+	case 0: /* remote control */
 		mixer->rc_urb->dev = mixer->chip->dev;
 		usb_submit_urb(mixer->rc_urb, GFP_ATOMIC);
 		break;
-	case 4: 
-	case 7: 
-	case 19: 
-	case 20: 
+	case 4: /* digital in jack */
+	case 7: /* line in jacks */
+	case 19: /* speaker out jacks */
+	case 20: /* headphones out jack */
 		break;
-	
-	case 3:	
+	/* live24ext: 4 = line-in jack */
+	case 3:	/* hp-out jack (may actuate Mute) */
 		if (mixer->chip->usb_id == USB_ID(0x041e, 0x3040) ||
 		    mixer->chip->usb_id == USB_ID(0x041e, 0x3048))
 			snd_usb_mixer_notify_id(mixer, mixer->rc_cfg->mute_mixer_id);

@@ -116,7 +116,7 @@ static int gpio_switch_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto err_request_irq;
 
-	
+	/* Perform initial detection */
 	gpio_switch_work(&switch_data->work);
 
 	return 0;

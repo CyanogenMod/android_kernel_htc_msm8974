@@ -14,54 +14,74 @@
 #include <linux/fb.h>
 #include <linux/module.h>
 
+/* apollo video HW definitions */
 
+/*
+ * Control Registers.   IOBASE + $x
+ *
+ * Note: these are the Memory/IO BASE definitions for a mono card set to the
+ * alternate address
+ *
+ * Control 3A and 3B serve identical functions except that 3A
+ * deals with control 1 and 3b deals with Color LUT reg.
+ */
 
-#define AP_IOBASE       0x3b0	
-#define AP_STATUS       isaIO2mem(AP_IOBASE+0)	
-#define AP_WRITE_ENABLE isaIO2mem(AP_IOBASE+0)	
-#define AP_DEVICE_ID    isaIO2mem(AP_IOBASE+1)	
-#define AP_ROP_1        isaIO2mem(AP_IOBASE+2)	
-#define AP_DIAG_MEM_REQ isaIO2mem(AP_IOBASE+4)	
-#define AP_CONTROL_0    isaIO2mem(AP_IOBASE+8)	
-#define AP_CONTROL_1    isaIO2mem(AP_IOBASE+0xa)	
-#define AP_CONTROL_3A   isaIO2mem(AP_IOBASE+0xe)	
-#define AP_CONTROL_2    isaIO2mem(AP_IOBASE+0xc)	
+#define AP_IOBASE       0x3b0	/* Base address of 1 plane board. */
+#define AP_STATUS       isaIO2mem(AP_IOBASE+0)	/* Status register.  Read */
+#define AP_WRITE_ENABLE isaIO2mem(AP_IOBASE+0)	/* Write Enable Register Write */
+#define AP_DEVICE_ID    isaIO2mem(AP_IOBASE+1)	/* Device ID Register. Read */
+#define AP_ROP_1        isaIO2mem(AP_IOBASE+2)	/* Raster Operation reg. Write Word */
+#define AP_DIAG_MEM_REQ isaIO2mem(AP_IOBASE+4)	/* Diagnostic Memory Request. Write Word */
+#define AP_CONTROL_0    isaIO2mem(AP_IOBASE+8)	/* Control Register 0.  Read/Write */
+#define AP_CONTROL_1    isaIO2mem(AP_IOBASE+0xa)	/* Control Register 1.  Read/Write */
+#define AP_CONTROL_3A   isaIO2mem(AP_IOBASE+0xe)	/* Control Register 3a. Read/Write */
+#define AP_CONTROL_2    isaIO2mem(AP_IOBASE+0xc)	/* Control Register 2. Read/Write */
 
 
 #define FRAME_BUFFER_START 0x0FA0000
 #define FRAME_BUFFER_LEN 0x40000
 
-#define VECTOR_MODE 0x40	
-#define DBLT_MODE   0x80	
-#define NORMAL_MODE 0xE0	
-#define SHIFT_BITS  0x1F	
-	
+/* CREG 0 */
+#define VECTOR_MODE 0x40	/* 010x.xxxx */
+#define DBLT_MODE   0x80	/* 100x.xxxx */
+#define NORMAL_MODE 0xE0	/* 111x.xxxx */
+#define SHIFT_BITS  0x1F	/* xxx1.1111 */
+	/* other bits are Shift value */
 
-#define AD_BLT      0x80	
-#define NORMAL      0x80 	
-#define INVERSE     0x00 	
-#define PIX_BLT     0x00	
+/* CREG 1 */
+#define AD_BLT      0x80	/* 1xxx.xxxx */
+#define NORMAL      0x80 /* 1xxx.xxxx */	/* What is happening here ?? */
+#define INVERSE     0x00 /* 0xxx.xxxx */	/* Clearing this reverses the screen */
+#define PIX_BLT     0x00	/* 0xxx.xxxx */
 
-#define AD_HIBIT        0x40	
+#define AD_HIBIT        0x40	/* xIxx.xxxx */
 
-#define ROP_EN          0x10	
-#define DST_EQ_SRC      0x00	
-#define nRESET_SYNC     0x08	
-#define SYNC_ENAB       0x02	
+#define ROP_EN          0x10	/* xxx1.xxxx */
+#define DST_EQ_SRC      0x00	/* xxx0.xxxx */
+#define nRESET_SYNC     0x08	/* xxxx.1xxx */
+#define SYNC_ENAB       0x02	/* xxxx.xx1x */
 
-#define BLANK_DISP      0x00	
-#define ENAB_DISP       0x01	
+#define BLANK_DISP      0x00	/* xxxx.xxx0 */
+#define ENAB_DISP       0x01	/* xxxx.xxx1 */
 
-#define NORM_CREG1      (nRESET_SYNC | SYNC_ENAB | ENAB_DISP)	
+#define NORM_CREG1      (nRESET_SYNC | SYNC_ENAB | ENAB_DISP)	/* no reset sync */
 
+/* CREG 2 */
 
+/*
+ * Following 3 defines are common to 1, 4 and 8 plane.
+ */
 
-#define S_DATA_1s   0x00 	
-#define S_DATA_PIX  0x40 	
-#define S_DATA_PLN  0xC0 	
+#define S_DATA_1s   0x00 /* 00xx.xxxx */	/* set source to all 1's -- vector drawing */
+#define S_DATA_PIX  0x40 /* 01xx.xxxx */	/* takes source from ls-bits and replicates over 16 bits */
+#define S_DATA_PLN  0xC0 /* 11xx.xxxx */	/* normal, each data access =16-bits in
+						   one plane of image mem */
 
-#       define RESET_CREG 0x80	
+/* CREG 3A/CREG 3B */
+#       define RESET_CREG 0x80	/* 1000.0000 */
 
+/* ROP REG  -  all one nibble */
+/*      ********* NOTE : this is used r0,r1,r2,r3 *********** */
 #define ROP(r2,r3,r0,r1) ( (U_SHORT)((r0)|((r1)<<4)|((r2)<<8)|((r3)<<12)) )
 #define DEST_ZERO               0x0
 #define SRC_AND_DEST    0x1
@@ -82,6 +102,7 @@
 
 #define SWAP(A) ((A>>8) | ((A&0xff) <<8))
 
+/* frame buffer operations */
 
 static int dnfb_blank(int blank, struct fb_info *info);
 static void dnfb_copyarea(struct fb_info *info, const struct fb_copyarea *area);
@@ -199,6 +220,9 @@ void dnfb_copyarea(struct fb_info *info, const struct fb_copyarea *area)
 	out_8(AP_CONTROL_0, NORMAL_MODE);
 }
 
+/*
+ * Initialization
+ */
 
 static int __devinit dnfb_probe(struct platform_device *dev)
 {
@@ -231,7 +255,7 @@ static int __devinit dnfb_probe(struct platform_device *dev)
 	}
 	platform_set_drvdata(dev, info);
 
-	
+	/* now we have registered we can safely setup the hardware */
 	out_8(AP_CONTROL_3A, RESET_CREG);
 	out_be16(AP_WRITE_ENABLE, 0x0);
 	out_8(AP_CONTROL_0, NORMAL_MODE);

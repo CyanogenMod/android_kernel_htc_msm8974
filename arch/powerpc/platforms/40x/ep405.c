@@ -34,6 +34,7 @@
 static struct device_node *bcsr_node;
 static void __iomem *bcsr_regs;
 
+/* BCSR registers  */
 #define BCSR_ID			0
 #define BCSR_PCI_CTRL	       	1
 #define BCSR_FLASH_NV_POR_CTRL	2
@@ -45,6 +46,7 @@ static void __iomem *bcsr_regs;
 #define BCSR_XIRQ_STATUS2	8
 #define BCSR_SW_STAT_LED_CTRL	9
 #define BCSR_GPIO_IRQ_PAR_CTRL	10
+/* there's more, can't be bothered typing them tho */
 
 
 static __initdata struct of_device_id ep405_of_bus[] = {
@@ -67,7 +69,7 @@ static void __init ep405_init_bcsr(void)
 	const u8 *irq_routing;
 	int i;
 
-	
+	/* Find the bloody thing & map it */
 	bcsr_node = of_find_compatible_node(NULL, NULL, "ep405-bcsr");
 	if (bcsr_node == NULL) {
 		printk(KERN_ERR "EP405 BCSR not found !\n");
@@ -79,7 +81,7 @@ static void __init ep405_init_bcsr(void)
 		return;
 	}
 
-	
+	/* Get the irq-routing property and apply the routing to the CPLD */
 	irq_routing = of_get_property(bcsr_node, "irq-routing", NULL);
 	if (irq_routing == NULL)
 		return;
@@ -95,7 +97,7 @@ static void __init ep405_init_bcsr(void)
 
 static void __init ep405_setup_arch(void)
 {
-	
+	/* Find & init the BCSR CPLD */
 	ep405_init_bcsr();
 
 	pci_set_flags(PCI_REASSIGN_ALL_RSRC);

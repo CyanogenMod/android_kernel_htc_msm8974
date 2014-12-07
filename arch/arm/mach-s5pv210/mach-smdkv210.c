@@ -50,6 +50,7 @@
 
 #include "common.h"
 
+/* Following are default values for UCON, ULCON and UFCON UART registers */
 #define SMDKV210_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
 				 S3C2410_UCON_RXILEVEL |	\
 				 S3C2410_UCON_TXIRQMODE |	\
@@ -99,7 +100,7 @@ static struct s3c_ide_platdata smdkv210_ide_pdata __initdata = {
 };
 
 static uint32_t smdkv210_keymap[] __initdata = {
-	
+	/* KEY(row, col, keycode) */
 	KEY(0, 3, KEY_1), KEY(0, 4, KEY_2), KEY(0, 5, KEY_3),
 	KEY(0, 6, KEY_4), KEY(0, 7, KEY_5),
 	KEY(1, 3, KEY_A), KEY(1, 4, KEY_B), KEY(1, 5, KEY_C),
@@ -159,7 +160,7 @@ static void smdkv210_lte480wv_set_power(struct plat_lcd_data *pd,
 		gpio_free(S5PV210_GPD0(3));
 #endif
 
-		
+		/* fire nRESET on power up */
 		gpio_request_one(S5PV210_GPH0(6), GPIOF_OUT_INIT_HIGH, "GPH0");
 
 		gpio_set_value(S5PV210_GPH0(6), 0);
@@ -259,18 +260,19 @@ static void __init smdkv210_dm9000_init(void)
 }
 
 static struct i2c_board_info smdkv210_i2c_devs0[] __initdata = {
-	{ I2C_BOARD_INFO("24c08", 0x50), },     
+	{ I2C_BOARD_INFO("24c08", 0x50), },     /* Samsung S524AD0XD1 */
 	{ I2C_BOARD_INFO("wm8580", 0x1b), },
 };
 
 static struct i2c_board_info smdkv210_i2c_devs1[] __initdata = {
-	
+	/* To Be Updated */
 };
 
 static struct i2c_board_info smdkv210_i2c_devs2[] __initdata = {
-	
+	/* To Be Updated */
 };
 
+/* LCD Backlight data */
 static struct samsung_bl_gpio_info smdkv210_bl_gpio_info = {
 	.no = S5PV210_GPD0(3),
 	.func = S3C_GPIO_SFN(2),
@@ -323,7 +325,7 @@ static void __init smdkv210_machine_init(void)
 }
 
 MACHINE_START(SMDKV210, "SMDKV210")
-	
+	/* Maintainer: Kukjin Kim <kgene.kim@samsung.com> */
 	.atag_offset	= 0x100,
 	.init_irq	= s5pv210_init_irq,
 	.handle_irq	= vic_handle_irq,

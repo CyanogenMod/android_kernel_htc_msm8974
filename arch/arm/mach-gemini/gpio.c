@@ -24,6 +24,7 @@
 
 #define GPIO_BASE(x)		IO_ADDRESS(GEMINI_GPIO_BASE(x))
 
+/* GPIO registers definition */
 #define GPIO_DATA_OUT		0x0
 #define GPIO_DATA_IN		0x4
 #define GPIO_DIR		0x8
@@ -209,7 +210,7 @@ void __init gemini_gpio_init(void)
 	int i, j;
 
 	for (i = 0; i < GPIO_PORT_NUM; i++) {
-		
+		/* disable, unmask and clear all interrupts */
 		__raw_writel(0x0, GPIO_BASE(i) + GPIO_INT_EN);
 		__raw_writel(0x0, GPIO_BASE(i) + GPIO_INT_MASK);
 		__raw_writel(~0x0, GPIO_BASE(i) + GPIO_INT_CLR);

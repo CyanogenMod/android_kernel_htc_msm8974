@@ -23,14 +23,14 @@ static int ehci_xls_setup(struct usb_hcd *hcd)
 	dbg_hcs_params(ehci, "reset");
 	dbg_hcc_params(ehci, "reset");
 
-	
+	/* cache this readonly data; minimize chip reads */
 	ehci->hcs_params = ehci_readl(ehci, &ehci->caps->hcs_params);
 
 	retval = ehci_halt(ehci);
 	if (retval)
 		return retval;
 
-	
+	/* data structure init */
 	retval = ehci_init(hcd);
 	if (retval)
 		return retval;
@@ -47,7 +47,7 @@ int ehci_xls_probe_internal(const struct hc_driver *driver,
 	struct resource *res;
 	int retval, irq;
 
-	
+	/* Get our IRQ from an earlier registered Platform Resource */
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0) {
 		dev_err(&pdev->dev, "Found HC with no IRQ. Check %s setup!\n",
@@ -55,7 +55,7 @@ int ehci_xls_probe_internal(const struct hc_driver *driver,
 		return -ENODEV;
 	}
 
-	
+	/* Get our Memory Handle */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		dev_err(&pdev->dev, "Error: MMIO Handle %s setup!\n",

@@ -39,89 +39,96 @@
  *	document number TBD                   : Lynx Point
  */
 
+/*
+ *	Includes, defines, variables, module parameters, ...
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
+/* Module and version information */
 #define DRV_NAME	"iTCO_wdt"
 #define DRV_VERSION	"1.07"
 
-#include <linux/module.h>		
-#include <linux/moduleparam.h>		
-#include <linux/types.h>		
-#include <linux/errno.h>		
-#include <linux/kernel.h>		
-#include <linux/miscdevice.h>		
-#include <linux/watchdog.h>		
-#include <linux/init.h>			
-#include <linux/fs.h>			
-#include <linux/platform_device.h>	
-#include <linux/pci.h>			
-#include <linux/ioport.h>		
-#include <linux/spinlock.h>		
-#include <linux/uaccess.h>		
-#include <linux/io.h>			
+/* Includes */
+#include <linux/module.h>		/* For module specific items */
+#include <linux/moduleparam.h>		/* For new moduleparam's */
+#include <linux/types.h>		/* For standard types (like size_t) */
+#include <linux/errno.h>		/* For the -ENODEV/... values */
+#include <linux/kernel.h>		/* For printk/panic/... */
+#include <linux/miscdevice.h>		/* For MODULE_ALIAS_MISCDEV
+							(WATCHDOG_MINOR) */
+#include <linux/watchdog.h>		/* For the watchdog specific items */
+#include <linux/init.h>			/* For __init/__exit/... */
+#include <linux/fs.h>			/* For file operations */
+#include <linux/platform_device.h>	/* For platform_driver framework */
+#include <linux/pci.h>			/* For pci functions */
+#include <linux/ioport.h>		/* For io-port access */
+#include <linux/spinlock.h>		/* For spin_lock/spin_unlock/... */
+#include <linux/uaccess.h>		/* For copy_to_user/put_user/... */
+#include <linux/io.h>			/* For inb/outb/... */
 
 #include "iTCO_vendor.h"
 
+/* TCO related info */
 enum iTCO_chipsets {
-	TCO_ICH = 0,	
-	TCO_ICH0,	
-	TCO_ICH2,	
-	TCO_ICH2M,	
-	TCO_ICH3,	
-	TCO_ICH3M,	
-	TCO_ICH4,	
-	TCO_ICH4M,	
-	TCO_CICH,	
-	TCO_ICH5,	
-	TCO_6300ESB,	
-	TCO_ICH6,	
-	TCO_ICH6M,	
-	TCO_ICH6W,	
-	TCO_631XESB,	
-	TCO_ICH7,	
-	TCO_ICH7DH,	
-	TCO_ICH7M,	
-	TCO_ICH7MDH,	
-	TCO_NM10,	
-	TCO_ICH8,	
-	TCO_ICH8DH,	
-	TCO_ICH8DO,	
-	TCO_ICH8M,	
-	TCO_ICH8ME,	
-	TCO_ICH9,	
-	TCO_ICH9R,	
-	TCO_ICH9DH,	
-	TCO_ICH9DO,	
-	TCO_ICH9M,	
-	TCO_ICH9ME,	
-	TCO_ICH10,	
-	TCO_ICH10R,	
-	TCO_ICH10D,	
-	TCO_ICH10DO,	
-	TCO_PCH,	
-	TCO_PCHM,	
-	TCO_P55,	
-	TCO_PM55,	
-	TCO_H55,	
-	TCO_QM57,	
-	TCO_H57,	
-	TCO_HM55,	
-	TCO_Q57,	
-	TCO_HM57,	
-	TCO_PCHMSFF,	
-	TCO_QS57,	
-	TCO_3400,	
-	TCO_3420,	
-	TCO_3450,	
-	TCO_EP80579,	
-	TCO_CPT,	
-	TCO_CPTD,	
-	TCO_CPTM,	
-	TCO_PBG,	
-	TCO_DH89XXCC,	
-	TCO_PPT,	
-	TCO_LPT,	
+	TCO_ICH = 0,	/* ICH */
+	TCO_ICH0,	/* ICH0 */
+	TCO_ICH2,	/* ICH2 */
+	TCO_ICH2M,	/* ICH2-M */
+	TCO_ICH3,	/* ICH3-S */
+	TCO_ICH3M,	/* ICH3-M */
+	TCO_ICH4,	/* ICH4 */
+	TCO_ICH4M,	/* ICH4-M */
+	TCO_CICH,	/* C-ICH */
+	TCO_ICH5,	/* ICH5 & ICH5R */
+	TCO_6300ESB,	/* 6300ESB */
+	TCO_ICH6,	/* ICH6 & ICH6R */
+	TCO_ICH6M,	/* ICH6-M */
+	TCO_ICH6W,	/* ICH6W & ICH6RW */
+	TCO_631XESB,	/* 631xESB/632xESB */
+	TCO_ICH7,	/* ICH7 & ICH7R */
+	TCO_ICH7DH,	/* ICH7DH */
+	TCO_ICH7M,	/* ICH7-M & ICH7-U */
+	TCO_ICH7MDH,	/* ICH7-M DH */
+	TCO_NM10,	/* NM10 */
+	TCO_ICH8,	/* ICH8 & ICH8R */
+	TCO_ICH8DH,	/* ICH8DH */
+	TCO_ICH8DO,	/* ICH8DO */
+	TCO_ICH8M,	/* ICH8M */
+	TCO_ICH8ME,	/* ICH8M-E */
+	TCO_ICH9,	/* ICH9 */
+	TCO_ICH9R,	/* ICH9R */
+	TCO_ICH9DH,	/* ICH9DH */
+	TCO_ICH9DO,	/* ICH9DO */
+	TCO_ICH9M,	/* ICH9M */
+	TCO_ICH9ME,	/* ICH9M-E */
+	TCO_ICH10,	/* ICH10 */
+	TCO_ICH10R,	/* ICH10R */
+	TCO_ICH10D,	/* ICH10D */
+	TCO_ICH10DO,	/* ICH10DO */
+	TCO_PCH,	/* PCH Desktop Full Featured */
+	TCO_PCHM,	/* PCH Mobile Full Featured */
+	TCO_P55,	/* P55 */
+	TCO_PM55,	/* PM55 */
+	TCO_H55,	/* H55 */
+	TCO_QM57,	/* QM57 */
+	TCO_H57,	/* H57 */
+	TCO_HM55,	/* HM55 */
+	TCO_Q57,	/* Q57 */
+	TCO_HM57,	/* HM57 */
+	TCO_PCHMSFF,	/* PCH Mobile SFF Full Featured */
+	TCO_QS57,	/* QS57 */
+	TCO_3400,	/* 3400 */
+	TCO_3420,	/* 3420 */
+	TCO_3450,	/* 3450 */
+	TCO_EP80579,	/* EP80579 */
+	TCO_CPT,	/* Cougar Point */
+	TCO_CPTD,	/* Cougar Point Desktop */
+	TCO_CPTM,	/* Cougar Point Mobile */
+	TCO_PBG,	/* Patsburg */
+	TCO_DH89XXCC,	/* DH89xxCC */
+	TCO_PPT,	/* Panther Point */
+	TCO_LPT,	/* Lynx Point */
 };
 
 static struct {
@@ -189,6 +196,12 @@ static struct {
 	{NULL, 0}
 };
 
+/*
+ * This data only exists for exporting the supported PCI ids
+ * via MODULE_DEVICE_TABLE.  We do not actually register a
+ * pci_driver, because the I/O Controller Hub has also other
+ * functions that probably will be registered by other drivers.
+ */
 static DEFINE_PCI_DEVICE_TABLE(iTCO_wdt_pci_tbl) = {
 	{ PCI_VDEVICE(INTEL, 0x2410), TCO_ICH},
 	{ PCI_VDEVICE(INTEL, 0x2420), TCO_ICH0},
@@ -354,42 +367,48 @@ static DEFINE_PCI_DEVICE_TABLE(iTCO_wdt_pci_tbl) = {
 	{ PCI_VDEVICE(INTEL, 0x8c5d), TCO_LPT},
 	{ PCI_VDEVICE(INTEL, 0x8c5e), TCO_LPT},
 	{ PCI_VDEVICE(INTEL, 0x8c5f), TCO_LPT},
-	{ 0, },			
+	{ 0, },			/* End of list */
 };
 MODULE_DEVICE_TABLE(pci, iTCO_wdt_pci_tbl);
 
+/* Address definitions for the TCO */
+/* TCO base address */
 #define TCOBASE		(iTCO_wdt_private.ACPIBASE + 0x60)
+/* SMI Control and Enable Register */
 #define SMI_EN		(iTCO_wdt_private.ACPIBASE + 0x30)
 
-#define TCO_RLD		(TCOBASE + 0x00) 
-#define TCOv1_TMR	(TCOBASE + 0x01) 
-#define TCO_DAT_IN	(TCOBASE + 0x02) 
-#define TCO_DAT_OUT	(TCOBASE + 0x03) 
-#define TCO1_STS	(TCOBASE + 0x04) 
-#define TCO2_STS	(TCOBASE + 0x06) 
-#define TCO1_CNT	(TCOBASE + 0x08) 
-#define TCO2_CNT	(TCOBASE + 0x0a) 
-#define TCOv2_TMR	(TCOBASE + 0x12) 
+#define TCO_RLD		(TCOBASE + 0x00) /* TCO Timer Reload and Curr. Value */
+#define TCOv1_TMR	(TCOBASE + 0x01) /* TCOv1 Timer Initial Value	*/
+#define TCO_DAT_IN	(TCOBASE + 0x02) /* TCO Data In Register	*/
+#define TCO_DAT_OUT	(TCOBASE + 0x03) /* TCO Data Out Register	*/
+#define TCO1_STS	(TCOBASE + 0x04) /* TCO1 Status Register	*/
+#define TCO2_STS	(TCOBASE + 0x06) /* TCO2 Status Register	*/
+#define TCO1_CNT	(TCOBASE + 0x08) /* TCO1 Control Register	*/
+#define TCO2_CNT	(TCOBASE + 0x0a) /* TCO2 Control Register	*/
+#define TCOv2_TMR	(TCOBASE + 0x12) /* TCOv2 Timer Initial Value	*/
 
+/* internal variables */
 static unsigned long is_active;
 static char expect_release;
-static struct {		
-	
+static struct {		/* this is private data for the iTCO_wdt device */
+	/* TCO version/generation */
 	unsigned int iTCO_version;
-	
+	/* The device's ACPIBASE address (TCOBASE = ACPIBASE+0x60) */
 	unsigned long ACPIBASE;
-	
+	/* NO_REBOOT flag is Memory-Mapped GCS register bit 5 (TCO version 2)*/
 	unsigned long __iomem *gcs;
-	
+	/* the lock for io operations */
 	spinlock_t io_lock;
-	
+	/* the PCI-device */
 	struct pci_dev *pdev;
 } iTCO_wdt_private;
 
+/* the watchdog platform device */
 static struct platform_device *iTCO_wdt_platform_device;
 
-#define WATCHDOG_HEARTBEAT 30	
-static int heartbeat = WATCHDOG_HEARTBEAT;  
+/* module parameters */
+#define WATCHDOG_HEARTBEAT 30	/* 30 sec default heartbeat */
+static int heartbeat = WATCHDOG_HEARTBEAT;  /* in seconds */
 module_param(heartbeat, int, 0);
 MODULE_PARM_DESC(heartbeat, "Watchdog timeout in seconds. "
 	"5..76 (TCO v1) or 3..614 (TCO v2), default="
@@ -406,9 +425,14 @@ module_param(turn_SMI_watchdog_clear_off, int, 0);
 MODULE_PARM_DESC(turn_SMI_watchdog_clear_off,
 	"Turn off SMI clearing watchdog (depends on TCO-version)(default=1)");
 
+/*
+ * Some TCO specific functions
+ */
 
 static inline unsigned int seconds_to_ticks(int seconds)
 {
+	/* the internal timer is stored as ticks which decrement
+	 * every 0.6 seconds */
 	return (seconds * 10) / 6;
 }
 
@@ -416,7 +440,7 @@ static void iTCO_wdt_set_NO_REBOOT_bit(void)
 {
 	u32 val32;
 
-	
+	/* Set the NO_REBOOT bit: this disables reboots */
 	if (iTCO_wdt_private.iTCO_version == 2) {
 		val32 = readl(iTCO_wdt_private.gcs);
 		val32 |= 0x00000020;
@@ -433,7 +457,7 @@ static int iTCO_wdt_unset_NO_REBOOT_bit(void)
 	int ret = 0;
 	u32 val32;
 
-	
+	/* Unset the NO_REBOOT bit: this enables reboots */
 	if (iTCO_wdt_private.iTCO_version == 2) {
 		val32 = readl(iTCO_wdt_private.gcs);
 		val32 &= 0xffffffdf;
@@ -452,7 +476,7 @@ static int iTCO_wdt_unset_NO_REBOOT_bit(void)
 			ret = -EIO;
 	}
 
-	return ret; 
+	return ret; /* returns: 0 = OK, -EIO = Error */
 }
 
 static int iTCO_wdt_start(void)
@@ -463,19 +487,21 @@ static int iTCO_wdt_start(void)
 
 	iTCO_vendor_pre_start(iTCO_wdt_private.ACPIBASE, heartbeat);
 
-	
+	/* disable chipset's NO_REBOOT bit */
 	if (iTCO_wdt_unset_NO_REBOOT_bit()) {
 		spin_unlock(&iTCO_wdt_private.io_lock);
 		pr_err("failed to reset NO_REBOOT flag, reboot disabled by hardware/BIOS\n");
 		return -EIO;
 	}
 
+	/* Force the timer to its reload value by writing to the TCO_RLD
+	   register */
 	if (iTCO_wdt_private.iTCO_version == 2)
 		outw(0x01, TCO_RLD);
 	else if (iTCO_wdt_private.iTCO_version == 1)
 		outb(0x01, TCO_RLD);
 
-	
+	/* Bit 11: TCO Timer Halt -> 0 = The TCO timer is enabled to count */
 	val = inw(TCO1_CNT);
 	val &= 0xf7ff;
 	outw(val, TCO1_CNT);
@@ -495,13 +521,13 @@ static int iTCO_wdt_stop(void)
 
 	iTCO_vendor_pre_stop(iTCO_wdt_private.ACPIBASE);
 
-	
+	/* Bit 11: TCO Timer Halt -> 1 = The TCO timer is disabled */
 	val = inw(TCO1_CNT);
 	val |= 0x0800;
 	outw(val, TCO1_CNT);
 	val = inw(TCO1_CNT);
 
-	
+	/* Set the NO_REBOOT bit to prevent later reboots, just for sure */
 	iTCO_wdt_set_NO_REBOOT_bit();
 
 	spin_unlock(&iTCO_wdt_private.io_lock);
@@ -517,11 +543,13 @@ static int iTCO_wdt_keepalive(void)
 
 	iTCO_vendor_pre_keepalive(iTCO_wdt_private.ACPIBASE, heartbeat);
 
-	
+	/* Reload the timer by writing to the TCO Timer Counter register */
 	if (iTCO_wdt_private.iTCO_version == 2)
 		outw(0x01, TCO_RLD);
 	else if (iTCO_wdt_private.iTCO_version == 1) {
-		outw(0x0008, TCO1_STS);	
+		/* Reset the timeout status bit so that the timer
+		 * needs to count down twice again before rebooting */
+		outw(0x0008, TCO1_STS);	/* write 1 to clear bit */
 
 		outb(0x01, TCO_RLD);
 	}
@@ -538,12 +566,12 @@ static int iTCO_wdt_set_heartbeat(int t)
 
 	tmrval = seconds_to_ticks(t);
 
-	
+	/* For TCO v1 the timer counts down twice before rebooting */
 	if (iTCO_wdt_private.iTCO_version == 1)
 		tmrval /= 2;
 
-	
-	
+	/* from the specs: */
+	/* "Values of 0h-3h are ignored and should not be attempted" */
 	if (tmrval < 0x04)
 		return -EINVAL;
 	if (((iTCO_wdt_private.iTCO_version == 2) && (tmrval > 0x3ff)) ||
@@ -552,7 +580,7 @@ static int iTCO_wdt_set_heartbeat(int t)
 
 	iTCO_vendor_pre_set_heartbeat(tmrval);
 
-	
+	/* Write new heartbeat to watchdog */
 	if (iTCO_wdt_private.iTCO_version == 2) {
 		spin_lock(&iTCO_wdt_private.io_lock);
 		val16 = inw(TCOv2_TMR);
@@ -586,7 +614,7 @@ static int iTCO_wdt_get_timeleft(int *time_left)
 	unsigned int val16;
 	unsigned char val8;
 
-	
+	/* read the TCO Timer */
 	if (iTCO_wdt_private.iTCO_version == 2) {
 		spin_lock(&iTCO_wdt_private.io_lock);
 		val16 = inw(TCO_RLD);
@@ -608,19 +636,28 @@ static int iTCO_wdt_get_timeleft(int *time_left)
 	return 0;
 }
 
+/*
+ *	/dev/watchdog handling
+ */
 
 static int iTCO_wdt_open(struct inode *inode, struct file *file)
 {
-	
+	/* /dev/watchdog can only be opened once */
 	if (test_and_set_bit(0, &is_active))
 		return -EBUSY;
 
+	/*
+	 *      Reload and activate timer
+	 */
 	iTCO_wdt_start();
 	return nonseekable_open(inode, file);
 }
 
 static int iTCO_wdt_release(struct inode *inode, struct file *file)
 {
+	/*
+	 *      Shut off the timer.
+	 */
 	if (expect_release == 42) {
 		iTCO_wdt_stop();
 	} else {
@@ -635,13 +672,17 @@ static int iTCO_wdt_release(struct inode *inode, struct file *file)
 static ssize_t iTCO_wdt_write(struct file *file, const char __user *data,
 			      size_t len, loff_t *ppos)
 {
-	
+	/* See if we got the magic character 'V' and reload the timer */
 	if (len) {
 		if (!nowayout) {
 			size_t i;
 
+			/* note: just in case someone wrote the magic
+			   character five months ago... */
 			expect_release = 0;
 
+			/* scan to see whether or not we got the
+			   magic character */
 			for (i = 0; i != len; i++) {
 				char c;
 				if (get_user(c, data + i))
@@ -651,7 +692,7 @@ static ssize_t iTCO_wdt_write(struct file *file, const char __user *data,
 			}
 		}
 
-		
+		/* someone wrote to us, we should reload the timer */
 		iTCO_wdt_keepalive();
 	}
 	return len;
@@ -706,7 +747,7 @@ static long iTCO_wdt_ioctl(struct file *file, unsigned int cmd,
 		if (iTCO_wdt_set_heartbeat(new_heartbeat))
 			return -EINVAL;
 		iTCO_wdt_keepalive();
-		
+		/* Fall */
 	}
 	case WDIOC_GETTIMEOUT:
 		return put_user(heartbeat, p);
@@ -722,6 +763,9 @@ static long iTCO_wdt_ioctl(struct file *file, unsigned int cmd,
 	}
 }
 
+/*
+ *	Kernel Interfaces
+ */
 
 static const struct file_operations iTCO_wdt_fops = {
 	.owner =		THIS_MODULE,
@@ -738,6 +782,9 @@ static struct miscdevice iTCO_wdt_miscdev = {
 	.fops =		&iTCO_wdt_fops,
 };
 
+/*
+ *	Init & exit routines
+ */
 
 static int __devinit iTCO_wdt_init(struct pci_dev *pdev,
 		const struct pci_device_id *ent, struct platform_device *dev)
@@ -747,10 +794,15 @@ static int __devinit iTCO_wdt_init(struct pci_dev *pdev,
 	unsigned long RCBA;
 	unsigned long val32;
 
+	/*
+	 *      Find the ACPI/PM base I/O address which is the base
+	 *      for the TCO registers (TCOBASE=ACPIBASE + 0x60)
+	 *      ACPIBASE is bits [15:7] from 0x40-0x43
+	 */
 	pci_read_config_dword(pdev, 0x40, &base_address);
 	base_address &= 0x0000ff80;
 	if (base_address == 0x00000000) {
-		
+		/* Something's wrong here, ACPIBASE has to be set */
 		pr_err("failed to get TCOBASE address, device disabled by hardware/BIOS\n");
 		return -ENODEV;
 	}
@@ -759,6 +811,10 @@ static int __devinit iTCO_wdt_init(struct pci_dev *pdev,
 	iTCO_wdt_private.ACPIBASE = base_address;
 	iTCO_wdt_private.pdev = pdev;
 
+	/* Get the Memory-Mapped GCS register, we need it for the
+	   NO_REBOOT flag (TCO v2). To get access to it you have to
+	   read RCBA from PCI Config space 0xf0 and use it as base.
+	   GCS = RCBA + ICH6_GCS(0x3410). */
 	if (iTCO_wdt_private.iTCO_version == 2) {
 		pci_read_config_dword(pdev, 0xf0, &base_address);
 		if ((base_address & 1) == 0) {
@@ -770,17 +826,17 @@ static int __devinit iTCO_wdt_init(struct pci_dev *pdev,
 		iTCO_wdt_private.gcs = ioremap((RCBA + 0x3410), 4);
 	}
 
-	
+	/* Check chipset's NO_REBOOT bit */
 	if (iTCO_wdt_unset_NO_REBOOT_bit() && iTCO_vendor_check_noreboot_on()) {
 		pr_info("unable to reset NO_REBOOT flag, device disabled by hardware/BIOS\n");
-		ret = -ENODEV;	
+		ret = -ENODEV;	/* Cannot reset NO_REBOOT bit */
 		goto out_unmap;
 	}
 
-	
+	/* Set the NO_REBOOT bit to prevent later reboots, just for sure */
 	iTCO_wdt_set_NO_REBOOT_bit();
 
-	
+	/* The TCO logic uses the TCO_EN bit in the SMI_EN register */
 	if (!request_region(SMI_EN, 4, "iTCO_wdt")) {
 		pr_err("I/O address 0x%04lx already in use, device disabled\n",
 		       SMI_EN);
@@ -788,12 +844,14 @@ static int __devinit iTCO_wdt_init(struct pci_dev *pdev,
 		goto out_unmap;
 	}
 	if (turn_SMI_watchdog_clear_off >= iTCO_wdt_private.iTCO_version) {
-		
+		/* Bit 13: TCO_EN -> 0 = Disables TCO logic generating an SMI# */
 		val32 = inl(SMI_EN);
-		val32 &= 0xffffdfff;	
+		val32 &= 0xffffdfff;	/* Turn off SMI clearing watchdog */
 		outl(val32, SMI_EN);
 	}
 
+	/* The TCO I/O registers reside in a 32-byte range pointed to
+	   by the TCOBASE value */
 	if (!request_region(TCOBASE, 0x20, "iTCO_wdt")) {
 		pr_err("I/O address 0x%04lx already in use, device disabled\n",
 		       TCOBASE);
@@ -806,14 +864,16 @@ static int __devinit iTCO_wdt_init(struct pci_dev *pdev,
 		iTCO_chipset_info[ent->driver_data].iTCO_version,
 		TCOBASE);
 
-	
-	outw(0x0008, TCO1_STS);	
-	outw(0x0002, TCO2_STS);	
-	outw(0x0004, TCO2_STS);	
+	/* Clear out the (probably old) status */
+	outw(0x0008, TCO1_STS);	/* Clear the Time Out Status bit */
+	outw(0x0002, TCO2_STS);	/* Clear SECOND_TO_STS bit */
+	outw(0x0004, TCO2_STS);	/* Clear BOOT_STS bit */
 
-	
+	/* Make sure the watchdog is not running */
 	iTCO_wdt_stop();
 
+	/* Check that the heartbeat value is within it's range;
+	   if not reset to the default */
 	if (iTCO_wdt_set_heartbeat(heartbeat)) {
 		iTCO_wdt_set_heartbeat(WATCHDOG_HEARTBEAT);
 		pr_info("timeout value out of range, using %d\n", heartbeat);
@@ -845,11 +905,11 @@ out:
 
 static void __devexit iTCO_wdt_cleanup(void)
 {
-	
+	/* Stop the timer before we leave */
 	if (!nowayout)
 		iTCO_wdt_stop();
 
-	
+	/* Deregister */
 	misc_deregister(&iTCO_wdt_miscdev);
 	release_region(TCOBASE, 0x20);
 	release_region(SMI_EN, 4);

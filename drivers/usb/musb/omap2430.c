@@ -68,7 +68,7 @@ static void musb_do_idle(unsigned long _musb)
 		}
 		break;
 	case OTG_STATE_A_SUSPEND:
-		
+		/* finish RESUME signaling? */
 		if (musb->port1_status & MUSB_PORT_STAT_RESUME) {
 			power = musb_readb(musb->mregs, MUSB_POWER);
 			power &= ~MUSB_POWER_RESUME;
@@ -79,7 +79,7 @@ static void musb_do_idle(unsigned long _musb)
 						| MUSB_PORT_STAT_RESUME);
 			musb->port1_status |= USB_PORT_STAT_C_SUSPEND << 16;
 			usb_hcd_poll_rh_status(musb_to_hcd(musb));
-			
+			/* NOTE: it might really be A_WAIT_BCON ... */
 			musb->xceiv->state = OTG_STATE_A_HOST;
 		}
 		break;
@@ -104,7 +104,7 @@ static void omap2430_musb_try_idle(struct musb *musb, unsigned long timeout)
 	if (timeout == 0)
 		timeout = default_timeout;
 
-	
+	/* Never idle if active, or when VBUS timeout is not set as host */
 	if (musb->is_active || ((musb->a_wait_bcon == 0)
 			&& (musb->xceiv->state == OTG_STATE_A_WAIT_BCON))) {
 		dev_dbg(musb->controller, "%s active, deleting timer\n",
@@ -136,14 +136,22 @@ static void omap2430_musb_set_vbus(struct musb *musb, int is_on)
 	u8		devctl;
 	unsigned long timeout = jiffies + msecs_to_jiffies(1000);
 	int ret = 1;
+	/* HDRC controls CPEN, but beware current surges during device
+	 * connect.  They can trigger transient overcurrent conditions
+	 * that must be ignored.
+	 */
 
 	devctl = musb_readb(musb->mregs, MUSB_DEVCTL);
 
 	if (is_on) {
 		if (musb->xceiv->state == OTG_STATE_A_IDLE) {
-			
+			/* start the session */
 			devctl |= MUSB_DEVCTL_SESSION;
 			musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
+			/*
+			 * Wait for the musb to set as A device to enable the
+			 * VBUS
+			 */
 			while (musb_readb(musb->mregs, MUSB_DEVCTL) & 0x80) {
 
 				cpu_relax();
@@ -168,6 +176,9 @@ static void omap2430_musb_set_vbus(struct musb *musb, int is_on)
 	} else {
 		musb->is_active = 0;
 
+		/* NOTE:  we're skipping A_WAIT_VFALL -> A_IDLE and
+		 * jumping right to B_IDLE...
+		 */
 
 		otg->default_a = 0;
 		musb->xceiv->state = OTG_STATE_B_IDLE;
@@ -178,7 +189,7 @@ static void omap2430_musb_set_vbus(struct musb *musb, int is_on)
 	musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
 
 	dev_dbg(musb->controller, "VBUS %s, devctl %02x "
-		 "\n",
+		/* otg %3x conf %08x prcm %08x */ "\n",
 		otg_state_string(musb->xceiv->state),
 		musb_readb(musb->mregs, MUSB_DEVCTL));
 }
@@ -197,9 +208,9 @@ static inline void omap2430_low_level_exit(struct musb *musb)
 {
 	u32 l;
 
-	
+	/* in any role */
 	l = musb_readl(musb->mregs, OTG_FORCESTDBY);
-	l |= ENABLEFORCE;	
+	l |= ENABLEFORCE;	/* enable MSTANDBY */
 	musb_writel(musb->mregs, OTG_FORCESTDBY, l);
 }
 
@@ -208,7 +219,7 @@ static inline void omap2430_low_level_init(struct musb *musb)
 	u32 l;
 
 	l = musb_readl(musb->mregs, OTG_FORCESTDBY);
-	l &= ~ENABLEFORCE;	
+	l &= ~ENABLEFORCE;	/* disable MSTANDBY */
 	musb_writel(musb->mregs, OTG_FORCESTDBY, l);
 }
 
@@ -277,6 +288,10 @@ static int omap2430_musb_init(struct musb *musb)
 	struct musb_hdrc_platform_data *plat = dev->platform_data;
 	struct omap_musb_board_data *data = plat->board_data;
 
+	/* We require some kind of external transceiver, hooked
+	 * up through ULPI.  TWL4030-family PMICs include one,
+	 * which needs a driver, drivers aren't always needed.
+	 */
 	musb->xceiv = usb_get_transceiver();
 	if (!musb->xceiv) {
 		pr_err("HS USB OTG: no transceiver configured\n");
@@ -294,9 +309,9 @@ static int omap2430_musb_init(struct musb *musb)
 	l = musb_readl(musb->mregs, OTG_INTERFSEL);
 
 	if (data->interface_type == MUSB_INTERFACE_UTMI) {
-		
-		l &= ~ULPI_12PIN;       
-		l |= UTMI_8BIT;         
+		/* OMAP4 uses Internal PHY GS70 which uses UTMI interface */
+		l &= ~ULPI_12PIN;       /* Disable ULPI */
+		l |= UTMI_8BIT;         /* Enable UTMI  */
 	} else {
 		l |= ULPI_12PIN;
 	}
@@ -341,7 +356,7 @@ static void omap2430_musb_enable(struct musb *musb)
 		if (data->interface_type != MUSB_INTERFACE_UTMI)
 			break;
 		devctl = musb_readb(musb->mregs, MUSB_DEVCTL);
-		
+		/* start the session */
 		devctl |= MUSB_DEVCTL_SESSION;
 		musb_writeb(musb->mregs, MUSB_DEVCTL, devctl);
 		while (musb_readb(musb->mregs, MUSB_DEVCTL) &

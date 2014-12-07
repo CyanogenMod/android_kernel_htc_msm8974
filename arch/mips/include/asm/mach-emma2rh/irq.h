@@ -12,4 +12,4 @@
 
 #include_next <irq.h>
 
-#endif 
+#endif /* __ASM_MACH_EMMA2RH_IRQ_H */

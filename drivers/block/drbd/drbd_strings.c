@@ -93,7 +93,7 @@ static const char *drbd_state_sw_errors[] = {
 
 const char *drbd_conn_str(enum drbd_conns s)
 {
-	
+	/* enums are unsigned... */
 	return s > C_BEHIND ? "TOO_LARGE" : drbd_conn_s_names[s];
 }
 

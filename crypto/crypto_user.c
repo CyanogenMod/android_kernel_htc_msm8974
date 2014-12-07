@@ -32,6 +32,7 @@
 
 DEFINE_MUTEX(crypto_cfg_mutex);
 
+/* The crypto netlink socket */
 static struct sock *crypto_nlsk;
 
 struct crypto_dump_info {
@@ -290,6 +291,11 @@ static int crypto_del_alg(struct sk_buff *skb, struct nlmsghdr *nlh,
 	if (!alg)
 		return -ENOENT;
 
+	/* We can not unregister core algorithms such as aes-generic.
+	 * We would loose the reference in the crypto_alg_list to this algorithm
+	 * if we try to unregister. Unregistering such an algorithm without
+	 * removing the module is not possible, so we restrict to crypto
+	 * instances that are build from templates. */
 	if (!(alg->cra_flags & CRYPTO_ALG_INSTANCE))
 		return -EINVAL;
 

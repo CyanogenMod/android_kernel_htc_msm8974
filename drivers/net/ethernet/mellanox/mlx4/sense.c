@@ -80,6 +80,11 @@ void mlx4_do_sense_ports(struct mlx4_dev *dev,
 			stype[i - 1] = defaults[i - 1];
 	}
 
+	/*
+	 * Adjust port configuration:
+	 * If port 1 sensed nothing and port 2 is IB, set both as IB
+	 * If port 2 sensed nothing and port 1 is Eth, set both as Eth
+	 */
 	if (stype[0] == MLX4_PORT_TYPE_ETH) {
 		for (i = 1; i < dev->caps.num_ports; i++)
 			stype[i] = stype[i] ? stype[i] : MLX4_PORT_TYPE_ETH;
@@ -89,6 +94,9 @@ void mlx4_do_sense_ports(struct mlx4_dev *dev,
 			stype[i] = stype[i] ? stype[i] : MLX4_PORT_TYPE_IB;
 	}
 
+	/*
+	 * If sensed nothing, remain in current configuration.
+	 */
 	for (i = 0; i < dev->caps.num_ports; i++)
 		stype[i] = stype[i] ? stype[i] : defaults[i];
 

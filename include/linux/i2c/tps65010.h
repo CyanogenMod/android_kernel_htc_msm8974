@@ -28,6 +28,11 @@
 #ifndef __LINUX_I2C_TPS65010_H
 #define __LINUX_I2C_TPS65010_H
 
+/*
+ * ----------------------------------------------------------------------------
+ * Registers, all 8 bits
+ * ----------------------------------------------------------------------------
+ */
 
 #define	TPS_CHGSTATUS		0x01
 #	define	TPS_CHG_USB		(1 << 7)
@@ -42,7 +47,7 @@
 #	define	TPS_REG_ONOFF		(1 << 7)
 #	define	TPS_REG_COVER		(1 << 6)
 #	define	TPS_REG_UVLO		(1 << 5)
-#	define	TPS_REG_NO_CHG		(1 << 4)	
+#	define	TPS_REG_NO_CHG		(1 << 4)	/* tps65013 */
 #	define	TPS_REG_PG_LD02		(1 << 3)
 #	define	TPS_REG_PG_LD01		(1 << 2)
 #	define	TPS_REG_PG_MAIN		(1 << 1)
@@ -52,8 +57,8 @@
 #define	TPS_ACKINT1		0x05
 #define	TPS_ACKINT2		0x06
 #define	TPS_CHGCONFIG		0x07
-#	define	TPS_CHARGE_POR		(1 << 7)	
-#	define	TPS65013_AUA		(1 << 7)	
+#	define	TPS_CHARGE_POR		(1 << 7)	/* 65010/65012 */
+#	define	TPS65013_AUA		(1 << 7)	/* 65011/65013 */
 #	define	TPS_CHARGE_RESET	(1 << 6)
 #	define	TPS_CHARGE_FAST		(1 << 5)
 #	define	TPS_CHARGE_CURRENT	(3 << 3)
@@ -98,6 +103,11 @@
 #define	TPS_MASK3		0x0f
 #define	TPS_DEFGPIO		0x10
 
+/*
+ * ----------------------------------------------------------------------------
+ * Macros used by exported functions
+ * ----------------------------------------------------------------------------
+ */
 
 #define LED1  1
 #define LED2  2
@@ -111,15 +121,39 @@
 #define LOW   0
 #define HIGH  1
 
+/*
+ * ----------------------------------------------------------------------------
+ * Exported functions
+ * ----------------------------------------------------------------------------
+ */
 
+/* Draw from VBUS:
+ *   0 mA -- DON'T DRAW (might supply power instead)
+ * 100 mA -- usb unit load (slowest charge rate)
+ * 500 mA -- usb high power (fast battery charge)
+ */
 extern int tps65010_set_vbus_draw(unsigned mA);
 
+/* tps65010_set_gpio_out_value parameter:
+ * gpio:  GPIO1, GPIO2, GPIO3 or GPIO4
+ * value: LOW or HIGH
+ */
 extern int tps65010_set_gpio_out_value(unsigned gpio, unsigned value);
 
+/* tps65010_set_led parameter:
+ * led:  LED1 or LED2
+ * mode: ON, OFF or BLINK
+ */
 extern int tps65010_set_led(unsigned led, unsigned mode);
 
+/* tps65010_set_vib parameter:
+ * value: ON or OFF
+ */
 extern int tps65010_set_vib(unsigned value);
 
+/* tps65010_set_low_pwr parameter:
+ * mode: ON or OFF
+ */
 extern int tps65010_set_low_pwr(unsigned mode);
 
 /* tps65010_config_vregs1 parameter:
@@ -128,6 +162,9 @@ extern int tps65010_set_low_pwr(unsigned mode);
  */
 extern int tps65010_config_vregs1(unsigned value);
 
+/* tps65013_set_low_pwr parameter:
+ * mode: ON or OFF
+ */
 extern int tps65013_set_low_pwr(unsigned mode);
 
 /* tps65010_set_vdcdc2
@@ -137,6 +174,24 @@ extern int tps65010_config_vdcdc2(unsigned value);
 
 struct i2c_client;
 
+/**
+ * struct tps65010_board - packages GPIO and LED lines
+ * @base: the GPIO number to assign to GPIO-1
+ * @outmask: bit (N-1) is set to allow GPIO-N to be used as an
+ *	(open drain) output
+ * @setup: optional callback issued once the GPIOs are valid
+ * @teardown: optional callback issued before the GPIOs are invalidated
+ * @context: optional parameter passed to setup() and teardown()
+ *
+ * Board data may be used to package the GPIO (and LED) lines for use
+ * in by the generic GPIO and LED frameworks.  The first four GPIOs
+ * starting at gpio_base are GPIO1..GPIO4.  The next two are LED1/nPG
+ * and LED2 (with hardware blinking capability, not currently exposed).
+ *
+ * The @setup callback may be used with the kind of board-specific glue
+ * which hands the (now-valid) GPIOs to other drivers, or which puts
+ * devices in their initial states using these GPIOs.
+ */
 struct tps65010_board {
 	int				base;
 	unsigned			outmask;
@@ -146,5 +201,5 @@ struct tps65010_board {
 	void		*context;
 };
 
-#endif 
+#endif /*  __LINUX_I2C_TPS65010_H */
 

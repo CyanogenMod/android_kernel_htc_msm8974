@@ -80,6 +80,7 @@ struct sdhci_host {
 #define SDHCI_QUIRK2_USE_RESERVED_MAX_TIMEOUT		(1<<8)
 #define SDHCI_QUIRK2_DIVIDE_TOUT_BY_4 (1 << 9)
 
+#define SDHCI_QUIRK2_IGN_DATA_END_BIT_ERROR             (1<<9)
 	int irq;		
 	void __iomem *ioaddr;	
 
@@ -172,6 +173,9 @@ struct sdhci_host {
 	struct mutex ios_mutex;
 	enum sdhci_power_policy power_policy;
 
+	bool irq_enabled; 
+	bool async_int_supp;  
+	bool disable_sdio_irq_deferred; 
 	u32 auto_cmd_err_sts;
 	unsigned long private[0] ____cacheline_aligned;
 	int disable_sdcard_uhs;

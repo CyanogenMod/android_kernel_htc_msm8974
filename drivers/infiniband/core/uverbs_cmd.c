@@ -57,6 +57,30 @@ static struct lock_class_key xrcd_lock_key;
 		(udata)->outlen = (olen);				\
 	} while (0)
 
+/*
+ * The ib_uobject locking scheme is as follows:
+ *
+ * - ib_uverbs_idr_lock protects the uverbs idrs themselves, so it
+ *   needs to be held during all idr operations.  When an object is
+ *   looked up, a reference must be taken on the object's kref before
+ *   dropping this lock.
+ *
+ * - Each object also has an rwsem.  This rwsem must be held for
+ *   reading while an operation that uses the object is performed.
+ *   For example, while registering an MR, the associated PD's
+ *   uobject.mutex must be held for reading.  The rwsem must be held
+ *   for writing while initializing or destroying an object.
+ *
+ * - In addition, each object has a "live" flag.  If this flag is not
+ *   set, then lookups of the object will fail even if it is found in
+ *   the idr.  This handles a reader that blocks and does not acquire
+ *   the rwsem until after the object is destroyed.  The destroy
+ *   operation will set the live flag to 0 and then drop the rwsem;
+ *   this will allow the reader to acquire the rwsem, see that the
+ *   live flag is 0, and then drop the rwsem and its reference to
+ *   object.  The underlying storage will not be freed until the last
+ *   reference to the object is dropped.
+ */
 
 static void init_uobj(struct ib_uobject *uobj, u64 user_handle,
 		      struct ib_ucontext *context, struct lock_class_key *key)
@@ -694,7 +718,7 @@ ssize_t ib_uverbs_open_xrcd(struct ib_uverbs_file *file,
 	mutex_lock(&file->device->xrcd_tree_mutex);
 
 	if (cmd.fd != -1) {
-		
+		/* search for file descriptor */
 		f = fget(cmd.fd);
 		if (!f) {
 			ret = -EBADF;
@@ -709,7 +733,7 @@ ssize_t ib_uverbs_open_xrcd(struct ib_uverbs_file *file,
 
 		xrcd = find_xrcd(file->device, inode);
 		if (!xrcd && !(cmd.oflags & O_CREAT)) {
-			
+			/* no file descriptor. Need CREATE flag */
 			ret = -EAGAIN;
 			goto err_tree_mutex_unlock;
 		}
@@ -757,7 +781,7 @@ ssize_t ib_uverbs_open_xrcd(struct ib_uverbs_file *file,
 
 	if (inode) {
 		if (new_xrcd) {
-			
+			/* create new inode/xrcd table entry */
 			ret = xrcd_table_insert(file->device, inode, xrcd);
 			if (ret)
 				goto err_insert_xrcd;
@@ -911,6 +935,10 @@ ssize_t ib_uverbs_reg_mr(struct ib_uverbs_file *file,
 	if ((cmd.start & ~PAGE_MASK) != (cmd.hca_va & ~PAGE_MASK))
 		return -EINVAL;
 
+	/*
+	 * Local write permission is required if remote write or
+	 * remote atomic permission is also requested.
+	 */
 	if (cmd.access_flags & (IB_ACCESS_REMOTE_ATOMIC | IB_ACCESS_REMOTE_WRITE) &&
 	    !(cmd.access_flags & IB_ACCESS_LOCAL_WRITE))
 		return -EINVAL;
@@ -1241,7 +1269,7 @@ ssize_t ib_uverbs_poll_cq(struct ib_uverbs_file *file,
 	if (!cq)
 		return -EINVAL;
 
-	
+	/* we copy a struct ib_uverbs_poll_cq_resp to user space */
 	header_ptr = (void __user *)(unsigned long) cmd.response;
 	data_ptr = header_ptr + sizeof resp;
 
@@ -1722,6 +1750,7 @@ out:
 	return ret ? ret : in_len;
 }
 
+/* Remove ignored fields set in the attribute mask */
 static int modify_qp_mask(enum ib_qp_type qp_type, int mask)
 {
 	switch (qp_type) {

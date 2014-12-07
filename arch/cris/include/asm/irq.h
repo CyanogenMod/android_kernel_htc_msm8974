@@ -8,6 +8,6 @@ static inline int irq_canonicalize(int irq)
   return irq; 
 }
 
-#endif  
+#endif  /* _ASM_IRQ_H */
 
 

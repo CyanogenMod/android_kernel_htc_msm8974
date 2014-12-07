@@ -43,9 +43,9 @@ static u32 config_port_ref;
 
 static DEFINE_SPINLOCK(config_lock);
 
-static const void *req_tlv_area;	
-static int req_tlv_space;		
-static int rep_headroom;		
+static const void *req_tlv_area;	/* request message TLV area */
+static int req_tlv_space;		/* request message TLV area size */
+static int rep_headroom;		/* reply message headroom to use */
 
 
 struct sk_buff *tipc_cfg_reply_alloc(int payload_size)
@@ -130,7 +130,7 @@ static struct sk_buff *tipc_show_stats(void)
 
 	tipc_printf(&pb, "TIPC version " TIPC_MOD_VER "\n");
 
-	
+	/* Use additional tipc_printf()'s to return more info ... */
 
 	str_len = tipc_printbuf_validate(&pb);
 	skb_put(buf, TLV_SPACE(str_len));
@@ -183,6 +183,14 @@ static struct sk_buff *cfg_set_own_addr(void)
 		return tipc_cfg_reply_error_string(TIPC_CFG_NOT_SUPPORTED
 						   " (cannot change node address once assigned)");
 
+	/*
+	 * Must temporarily release configuration spinlock while switching into
+	 * networking mode as it calls tipc_eth_media_start(), which may sleep.
+	 * Releasing the lock is harmless as other locally-issued configuration
+	 * commands won't occur until this one completes, and remotely-issued
+	 * configuration commands can't be received until a local configuration
+	 * command to enable the first bearer is received and processed.
+	 */
 
 	spin_unlock_bh(&config_lock);
 	tipc_core_start_net(addr);
@@ -274,16 +282,16 @@ struct sk_buff *tipc_cfg_do_cmd(u32 orig_node, u16 cmd, const void *request_area
 
 	spin_lock_bh(&config_lock);
 
-	
+	/* Save request and reply details in a well-known location */
 
 	req_tlv_area = request_area;
 	req_tlv_space = request_space;
 	rep_headroom = reply_headroom;
 
-	
+	/* Check command authorization */
 
 	if (likely(orig_node == tipc_own_addr)) {
-		
+		/* command is permitted */
 	} else if (cmd >= 0x8000) {
 		rep_tlv_buf = tipc_cfg_reply_error_string(TIPC_CFG_NOT_SUPPORTED
 							  " (cannot be done remotely)");
@@ -301,7 +309,7 @@ struct sk_buff *tipc_cfg_do_cmd(u32 orig_node, u16 cmd, const void *request_area
 		}
 	}
 
-	
+	/* Call appropriate processing routine */
 
 	switch (cmd) {
 	case TIPC_CMD_NOOP:
@@ -405,7 +413,7 @@ struct sk_buff *tipc_cfg_do_cmd(u32 orig_node, u16 cmd, const void *request_area
 		break;
 	}
 
-	
+	/* Return reply buffer */
 exit:
 	spin_unlock_bh(&config_lock);
 	return rep_tlv_buf;
@@ -424,7 +432,7 @@ static void cfg_named_msg_event(void *userdata,
 	struct tipc_cfg_msg_hdr *rep_hdr;
 	struct sk_buff *rep_buf;
 
-	
+	/* Validate configuration message header (ignore invalid message) */
 
 	req_hdr = (struct tipc_cfg_msg_hdr *)msg;
 	if ((size < sizeof(*req_hdr)) ||
@@ -434,7 +442,7 @@ static void cfg_named_msg_event(void *userdata,
 		return;
 	}
 
-	
+	/* Generate reply for request (if can't, return request) */
 
 	rep_buf = tipc_cfg_do_cmd(orig->node,
 				  ntohs(req_hdr->tcm_type),
@@ -452,7 +460,7 @@ static void cfg_named_msg_event(void *userdata,
 		*buf = NULL;
 	}
 
-	
+	/* NEED TO ADD CODE TO HANDLE FAILED SEND (SUCH AS CONGESTION) */
 	tipc_send_buf2port(port_ref, orig, rep_buf, rep_buf->len);
 }
 

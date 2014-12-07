@@ -35,13 +35,18 @@
 #include "80211hdr.h"
 #include "80211mgr.h"
 
+/*---------------------  Export Definitions -------------------------*/
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Types  ------------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 bool IEEE11hbMSRRepTx (
     void *pMgmtHandle
     );
 
-#endif 
+#endif // __IEEE11h_H__

@@ -25,16 +25,20 @@
 
 #define FLUSH_ALL (void*)0xffffffff
 
+/* Vector of locks used for various atomic operations */
 spinlock_t cris_atomic_locks[] = {
 	[0 ... LOCK_COUNT - 1] = __SPIN_LOCK_UNLOCKED(cris_atomic_locks)
 };
 
+/* CPU masks */
 cpumask_t phys_cpu_present_map = CPU_MASK_NONE;
 EXPORT_SYMBOL(phys_cpu_present_map);
 
+/* Variables used during SMP boot */
 volatile int cpu_now_booting = 0;
 volatile struct thread_info *smp_init_current_idle_thread;
 
+/* Variables used during IPI */
 static DEFINE_SPINLOCK(call_lock);
 static DEFINE_SPINLOCK(tlbstate_lock);
 
@@ -50,6 +54,7 @@ static struct mm_struct* flush_mm;
 static struct vm_area_struct* flush_vma;
 static unsigned long flush_addr;
 
+/* Mode registers */
 static unsigned long irq_regs[NR_CPUS] = {
   regi_irq,
   regi_irq2
@@ -66,20 +71,24 @@ static struct irqaction irq_ipi  = {
 extern void cris_mmu_init(void);
 extern void cris_timer_init(void);
 
+/* SMP initialization */
 void __init smp_prepare_cpus(unsigned int max_cpus)
 {
 	int i;
 
-	
+	/* From now on we can expect IPIs so set them up */
 	setup_irq(IPI_INTR_VECT, &irq_ipi);
 
-	
+	/* Mark all possible CPUs as present */
 	for (i = 0; i < max_cpus; i++)
 		cpumask_set_cpu(i, &phys_cpu_present_map);
 }
 
 void __devinit smp_prepare_boot_cpu(void)
 {
+	/* PGD pointer has moved after per_cpu initialization so
+	 * update the MMU.
+	 */
   	pgd_t **pgd;
 	pgd = (pgd_t**)&per_cpu(current_pgd, smp_processor_id());
 
@@ -97,6 +106,7 @@ void __init smp_cpus_done(unsigned int max_cpus)
 {
 }
 
+/* Bring one cpu online.*/
 static int __init
 smp_boot_one_cpu(int cpuid)
 {
@@ -111,22 +121,22 @@ smp_boot_one_cpu(int cpuid)
 
 	task_thread_info(idle)->cpu = cpuid;
 
-	
+	/* Information to the CPU that is about to boot */
 	smp_init_current_idle_thread = task_thread_info(idle);
 	cpu_now_booting = cpuid;
 
-	
+	/* Kick it */
 	set_cpu_online(cpuid, true);
 	cpumask_set_cpu(cpuid, &cpu_mask);
 	send_ipi(IPI_BOOT, 0, cpu_mask);
 	set_cpu_online(cpuid, false);
 
-	
+	/* Wait for CPU to come online */
 	for (timeout = 0; timeout < 10000; timeout++) {
 		if(cpu_online(cpuid)) {
 			cpu_now_booting = 0;
 			smp_init_current_idle_thread = NULL;
-			return 0; 
+			return 0; /* CPU online */
 		}
 		udelay(100);
 		barrier();
@@ -139,6 +149,8 @@ smp_boot_one_cpu(int cpuid)
 	return -1;
 }
 
+/* Secondary CPUs starts using C here. Here we need to setup CPU
+ * specific stuff such as the local timer and the MMU. */
 void __init smp_callin(void)
 {
 	extern void cpu_idle(void);
@@ -146,18 +158,18 @@ void __init smp_callin(void)
 	int cpu = cpu_now_booting;
 	reg_intr_vect_rw_mask vect_mask = {0};
 
-	
+	/* Initialise the idle task for this CPU */
 	atomic_inc(&init_mm.mm_count);
 	current->active_mm = &init_mm;
 
-	
+	/* Set up MMU */
 	cris_mmu_init();
 	__flush_tlb_all();
 
-	
+	/* Setup local timer. */
 	cris_timer_init();
 
-	
+	/* Enable IRQ and idle */
 	REG_WR(intr_vect, irq_regs[cpu], rw_mask, vect_mask);
 	crisv32_unmask_irq(IPI_INTR_VECT);
 	crisv32_unmask_irq(TIMER0_INTR_VECT);
@@ -169,12 +181,14 @@ void __init smp_callin(void)
 	cpu_idle();
 }
 
+/* Stop execution on this CPU.*/
 void stop_this_cpu(void* dummy)
 {
 	local_irq_disable();
 	asm volatile("halt");
 }
 
+/* Other calls */
 void smp_send_stop(void)
 {
 	smp_call_function(stop_this_cpu, NULL, 0);
@@ -186,6 +200,11 @@ int setup_profiling_timer(unsigned int multiplier)
 }
 
 
+/* cache_decay_ticks is used by the scheduler to decide if a process
+ * is "hot" on one CPU. A higher value means a higher penalty to move
+ * a process to another CPU. Our cache is rather small so we report
+ * 1 tick.
+ */
 unsigned long cache_decay_ticks = 1;
 
 int __cpuinit __cpu_up(unsigned int cpu)
@@ -202,6 +221,12 @@ void smp_send_reschedule(int cpu)
 	send_ipi(IPI_SCHEDULE, 0, cpu_mask);
 }
 
+/* TLB flushing
+ *
+ * Flush needs to be done on the local CPU and on any other CPU that
+ * may have the same mapping. The mm->cpu_vm_mask is used to keep track
+ * of which CPUs that a specific process has been executed on.
+ */
 void flush_tlb_common(struct mm_struct* mm, struct vm_area_struct* vma, unsigned long addr)
 {
 	unsigned long flags;
@@ -227,7 +252,7 @@ void flush_tlb_mm(struct mm_struct *mm)
 {
 	__flush_tlb_mm(mm);
 	flush_tlb_common(mm, FLUSH_ALL, 0);
-	
+	/* No more mappings in other CPUs */
 	cpumask_clear(mm_cpumask(mm));
 	cpumask_set_cpu(smp_processor_id(), mm_cpumask(mm));
 }
@@ -239,6 +264,13 @@ void flush_tlb_page(struct vm_area_struct *vma,
 	flush_tlb_common(vma->vm_mm, vma, addr);
 }
 
+/* Inter processor interrupts
+ *
+ * The IPIs are used for:
+ *   * Force a schedule on a CPU
+ *   * FLush TLB on other CPUs
+ *   * Call a function on other CPUs
+ */
 
 int send_ipi(int vector, int wait, cpumask_t cpu_mask)
 {
@@ -246,17 +278,17 @@ int send_ipi(int vector, int wait, cpumask_t cpu_mask)
 	reg_intr_vect_rw_ipi ipi = REG_RD(intr_vect, irq_regs[i], rw_ipi);
 	int ret = 0;
 
-	
+	/* Calculate CPUs to send to. */
 	cpumask_and(&cpu_mask, &cpu_mask, cpu_online_mask);
 
-	
+	/* Send the IPI. */
 	for_each_cpu(i, &cpu_mask)
 	{
 		ipi.vector |= vector;
 		REG_WR(intr_vect, irq_regs[i], rw_ipi, ipi);
 	}
 
-	
+	/* Wait for IPI to finish on other CPUS */
 	if (wait) {
 		for_each_cpu(i, &cpu_mask) {
                         int j;
@@ -267,7 +299,7 @@ int send_ipi(int vector, int wait, cpumask_t cpu_mask)
 				udelay(100);
 			}
 
-			
+			/* Timeout? */
 			if (ipi.vector) {
 				printk("SMP call timeout from %d to %d\n", smp_processor_id(), i);
 				ret = -ETIMEDOUT;
@@ -278,6 +310,10 @@ int send_ipi(int vector, int wait, cpumask_t cpu_mask)
 	return ret;
 }
 
+/*
+ * You must not call this function with disabled interrupts or from a
+ * hardware interrupt handler or from a bottom half handler.
+ */
 int smp_call_function(void (*func)(void *info), void *info, int wait)
 {
 	cpumask_t cpu_mask;

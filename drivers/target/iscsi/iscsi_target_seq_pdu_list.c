@@ -93,6 +93,10 @@ redo:
 	}
 }
 
+/*
+ *	Generate count random values into array.
+ *	Use 0x80000000 to mark generates valued in array[].
+ */
 static void iscsit_create_random_array(u32 *array, u32 count)
 {
 	int i, j, k;
@@ -278,6 +282,10 @@ static void iscsit_determine_counts_for_list(
 }
 
 
+/*
+ *	Builds PDU and/or Sequence list,  called while DataSequenceInOrder=No
+ *	and DataPDUInOrder=No.
+ */
 static int iscsit_build_pdu_and_seq_list(
 	struct iscsi_cmd *cmd,
 	struct iscsi_build_list *bl)
@@ -484,6 +492,9 @@ static int iscsit_build_pdu_and_seq_list(
 	return 0;
 }
 
+/*
+ *	Only called while DataSequenceInOrder=No or DataPDUInOrder=No.
+ */
 int iscsit_do_build_list(
 	struct iscsi_cmd *cmd,
 	struct iscsi_build_list *bl)

@@ -21,6 +21,7 @@
 
 #define IDE_GD_VERSION	"1.18"
 
+/* module parameters */
 static DEFINE_MUTEX(ide_gd_mutex);
 static unsigned long debug_mask;
 module_param(debug_mask, ulong, 0644);
@@ -90,6 +91,11 @@ static void ide_disk_release(struct device *dev)
 	kfree(idkp);
 }
 
+/*
+ * On HPA drives the capacity needs to be
+ * reinitialized on resume otherwise the disk
+ * can not be used and a hard reset is required
+ */
 static void ide_gd_resume(ide_drive_t *drive)
 {
 	if (ata_id_hpa_enabled(drive->id))
@@ -98,7 +104,7 @@ static void ide_gd_resume(ide_drive_t *drive)
 
 static const struct dmi_system_id ide_coldreboot_table[] = {
 	{
-		
+		/* Acer TravelMate 66x cuts power during reboot */
 		.ident   = "Acer TravelMate 660",
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "Acer"),
@@ -106,12 +112,23 @@ static const struct dmi_system_id ide_coldreboot_table[] = {
 		},
 	},
 
-	{ }	
+	{ }	/* terminate list */
 };
 
 static void ide_gd_shutdown(ide_drive_t *drive)
 {
 #ifdef	CONFIG_ALPHA
+	/* On Alpha, halt(8) doesn't actually turn the machine off,
+	   it puts you into the sort of firmware monitor. Typically,
+	   it's used to boot another kernel image, so it's not much
+	   different from reboot(8). Therefore, we don't need to
+	   spin down the disk in this case, especially since Alpha
+	   firmware doesn't handle disks in standby mode properly.
+	   On the other hand, it's reasonably safe to turn the power
+	   off when the shutdown process reaches the firmware prompt,
+	   as the firmware initialization takes rather long time -
+	   at least 10 seconds, which should be sufficient for
+	   the disk to expire its write cache. */
 	if (system_state != SYSTEM_POWER_OFF) {
 #else
 	if (system_state == SYSTEM_RESTART &&
@@ -182,10 +199,15 @@ static int ide_gd_open(struct block_device *bdev, fmode_t mode)
 
 	if ((drive->dev_flags & IDE_DFLAG_REMOVABLE) && idkp->openers == 1) {
 		drive->dev_flags &= ~IDE_DFLAG_FORMAT_IN_PROGRESS;
-		
+		/* Just in case */
 
 		ret = drive->disk_ops->init_media(drive, disk);
 
+		/*
+		 * Allow O_NDELAY to open a drive without a disk, or with an
+		 * unreadable disk, so that we can get the format capacity
+		 * of the drive or begin the format - Sam
+		 */
 		if (ret && (mode & FMODE_NDELAY) == 0) {
 			ret = -EIO;
 			goto out_put_idkp;
@@ -196,6 +218,11 @@ static int ide_gd_open(struct block_device *bdev, fmode_t mode)
 			goto out_put_idkp;
 		}
 
+		/*
+		 * Ignore the return code from door_lock,
+		 * since the open() has already succeeded,
+		 * and the door_lock is irrelevant at this point.
+		 */
 		drive->disk_ops->set_doorlock(drive, disk, 1);
 		drive->dev_flags |= IDE_DFLAG_MEDIA_CHANGED;
 		check_disk_change(bdev);
@@ -254,7 +281,7 @@ static int ide_gd_getgeo(struct block_device *bdev, struct hd_geometry *geo)
 
 	geo->heads = drive->bios_head;
 	geo->sectors = drive->bios_sect;
-	geo->cylinders = (u16)drive->bios_cyl; 
+	geo->cylinders = (u16)drive->bios_cyl; /* truncate */
 	return 0;
 }
 
@@ -265,12 +292,18 @@ static unsigned int ide_gd_check_events(struct gendisk *disk,
 	ide_drive_t *drive = idkp->drive;
 	bool ret;
 
-	
+	/* do not scan partitions twice if this is a removable device */
 	if (drive->dev_flags & IDE_DFLAG_ATTACH) {
 		drive->dev_flags &= ~IDE_DFLAG_ATTACH;
 		return 0;
 	}
 
+	/*
+	 * The following is used to force revalidation on the first open on
+	 * removeable devices, and never gets reported to userland as
+	 * genhd->events is 0.  This is intended as removeable ide disk
+	 * can't really detect MEDIA_CHANGE events.
+	 */
 	ret = drive->dev_flags & IDE_DFLAG_MEDIA_CHANGED;
 	drive->dev_flags &= ~IDE_DFLAG_MEDIA_CHANGED;
 
@@ -325,7 +358,7 @@ static int ide_gd_probe(ide_drive_t *drive)
 	struct ide_disk_obj *idkp;
 	struct gendisk *g;
 
-	
+	/* strstr("foo", "") is non-NULL */
 	if (!strstr("ide-gd", drive->driver_req))
 		goto failed;
 

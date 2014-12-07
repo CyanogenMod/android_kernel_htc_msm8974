@@ -27,7 +27,7 @@ static __be32 __iomem *restart_reg_base;
 
 static int __init mpc83xx_restart_init(void)
 {
-	
+	/* map reset restart_reg_baseister space */
 	restart_reg_base = ioremap(get_immrbase() + 0x900, 0xff);
 
 	return 0;
@@ -44,10 +44,10 @@ void mpc83xx_restart(char *cmd)
 	local_irq_disable();
 
 	if (restart_reg_base) {
-		
+		/* enable software reset "RSTE" */
 		out_be32(restart_reg_base + (RST_PROT_REG >> 2), 0x52535445);
 
-		
+		/* set software hard reset */
 		out_be32(restart_reg_base + (RST_CTRL_REG >> 2), 0x2);
 	} else {
 		printk (KERN_EMERG "Error: Restart registers not mapped, spinning!\n");
@@ -75,7 +75,7 @@ void __init mpc83xx_ipic_init_IRQ(void)
 {
 	struct device_node *np;
 
-	
+	/* looking for fsl,pq2pro-pic which is asl compatible with fsl,ipic */
 	np = of_find_compatible_node(NULL, NULL, "fsl,ipic");
 	if (!np)
 		np = of_find_node_by_type(NULL, "ipic");
@@ -86,6 +86,9 @@ void __init mpc83xx_ipic_init_IRQ(void)
 
 	of_node_put(np);
 
+	/* Initialize the default interrupt mapping priorities,
+	 * in case the boot rom changed something on us.
+	 */
 	ipic_set_default_priority();
 }
 
@@ -109,7 +112,7 @@ void __init mpc83xx_ipic_and_qe_init_IRQ(void)
 	mpc83xx_ipic_init_IRQ();
 	mpc83xx_qe_init_IRQ();
 }
-#endif 
+#endif /* CONFIG_QUICC_ENGINE */
 
 static struct of_device_id __initdata of_bus_ids[] = {
 	{ .type = "soc", },

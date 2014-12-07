@@ -87,4 +87,4 @@ uint32_t jz4740_dma_get_residue(const struct jz4740_dma_chan *dma);
 void jz4740_dma_set_complete_cb(struct jz4740_dma_chan *dma,
 	jz4740_dma_complete_callback_t cb);
 
-#endif  
+#endif  /* __ASM_JZ4740_DMA_H__ */

@@ -10,6 +10,7 @@
 
 #include <linux/const.h>
 
+/* PAGE_SHIFT determines the page size */
 #define PAGE_SHIFT	12
 #define PAGE_SIZE	(_AC(1, UL) << PAGE_SHIFT)
 #define PAGE_MASK	(~(PAGE_SIZE-1))
@@ -25,6 +26,9 @@ extern void copy_page(void *to, void *from);
 #define clear_user_page(page, vaddr, pg)	clear_page(page)
 #define copy_user_page(to, from, vaddr, pg)	copy_page(to, from)
 
+/*
+ * These are used to make use of C type-checking..
+ */
 typedef struct { unsigned long pte; } pte_t;
 typedef struct { unsigned long pgd; } pgd_t;
 typedef struct { unsigned long pgprot; } pgprot_t;
@@ -38,8 +42,10 @@ typedef struct page *pgtable_t;
 #define __pgd(x)		((pgd_t) { (x) })
 #define __pgprot(x)		((pgprot_t) { (x) })
 
+/* FIXME: These should be removed soon */
 extern unsigned long memory_start, memory_end;
 
+/* Pure 2^n version of get_order */
 static inline int get_order(unsigned long size)
 {
 	unsigned lz;
@@ -49,10 +55,24 @@ static inline int get_order(unsigned long size)
 	return 32 - lz;
 }
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
+/*
+ * The hardware maps the virtual addresses 0x80000000 -> 0x9fffffff
+ * permanently to the physical addresses 0x00000000 -> 0x1fffffff when
+ * segmentation is enabled. We want to make use of this in order to
+ * minimize TLB pressure.
+ */
 #define PAGE_OFFSET		(0x80000000UL)
 
+/*
+ * ALSA uses virt_to_page() on DMA pages, which I'm not entirely sure
+ * is a good idea. Anyway, we can't simply subtract PAGE_OFFSET here
+ * in that case, so we'll have to mask out the three most significant
+ * bits of the address instead...
+ *
+ * What's the difference between __pa() and virt_to_phys() anyway?
+ */
 #define __pa(x)		PHYSADDR(x)
 #define __va(x)		((void *)(P1SEGADDR(x)))
 
@@ -68,7 +88,7 @@ static inline int get_order(unsigned long size)
 #define pfn_to_page(pfn)	(mem_map + ((pfn) - PHYS_PFN_OFFSET))
 #define page_to_pfn(page)	((unsigned long)((page) - mem_map) + PHYS_PFN_OFFSET)
 #define pfn_valid(pfn)		((pfn) >= PHYS_PFN_OFFSET && (pfn) < (PHYS_PFN_OFFSET + max_mapnr))
-#endif 
+#endif /* CONFIG_NEED_MULTIPLE_NODES */
 
 #define virt_to_page(kaddr)	pfn_to_page(__pa(kaddr) >> PAGE_SHIFT)
 #define virt_addr_valid(kaddr)	pfn_valid(__pa(kaddr) >> PAGE_SHIFT)
@@ -76,6 +96,9 @@ static inline int get_order(unsigned long size)
 #define VM_DATA_DEFAULT_FLAGS	(VM_READ | VM_WRITE |	\
 				 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
 
+/*
+ * Memory above this physical address will be considered highmem.
+ */
 #define HIGHMEM_START		0x20000000UL
 
-#endif 
+#endif /* __ASM_AVR32_PAGE_H */

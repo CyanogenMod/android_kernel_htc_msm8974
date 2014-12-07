@@ -42,7 +42,7 @@ iptable_filter_hook(unsigned int hook, struct sk_buff *skb,
 	if (hook == NF_INET_LOCAL_OUT &&
 	    (skb->len < sizeof(struct iphdr) ||
 	     ip_hdrlen(skb) < sizeof(struct iphdr)))
-		
+		/* root is playing with raw sockets. */
 		return NF_ACCEPT;
 
 	net = dev_net((in != NULL) ? in : out);
@@ -51,6 +51,7 @@ iptable_filter_hook(unsigned int hook, struct sk_buff *skb,
 
 static struct nf_hook_ops *filter_ops __read_mostly;
 
+/* Default to forward because I got too much mail already. */
 static bool forward = true;
 module_param(forward, bool, 0000);
 
@@ -61,7 +62,7 @@ static int __net_init iptable_filter_net_init(struct net *net)
 	repl = ipt_alloc_initial_table(&packet_filter);
 	if (repl == NULL)
 		return -ENOMEM;
-	
+	/* Entry 1 is the FORWARD hook */
 	((struct ipt_standard *)repl->entries)[1].target.verdict =
 		forward ? -NF_ACCEPT - 1 : -NF_DROP - 1;
 
@@ -91,7 +92,7 @@ static int __init iptable_filter_init(void)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Register hooks */
 	filter_ops = xt_hook_link(&packet_filter, iptable_filter_hook);
 	if (IS_ERR(filter_ops)) {
 		ret = PTR_ERR(filter_ops);

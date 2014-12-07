@@ -54,6 +54,10 @@
 #define FRAMEDONE2_IRQ_SHIFT	22
 #define FRAMEDONETV_IRQ_SHIFT	24
 
+/*
+ * FRAMEDONE_IRQ_TIMEOUT: how long (in milliseconds) to wait during DISPC
+ *     reset before deciding that something has gone wrong
+ */
 #define FRAMEDONE_IRQ_TIMEOUT		100
 
 static struct platform_device omap_display_device = {
@@ -107,6 +111,11 @@ static void __init omap4_hdmi_mux_pads(enum omap_hdmi_flags flags)
 	omap_mux_init_signal("hdmi_ddc_sda",
 			OMAP_PIN_INPUT_PULLUP);
 
+	/*
+	 * CONTROL_I2C_1: HDMI_DDC_SDA_PULLUPRESX (bit 28) and
+	 * HDMI_DDC_SCL_PULLUPRESX (bit 24) are set to disable
+	 * internal pull up resistor.
+	 */
 	if (flags & OMAP_HDMI_SDA_SCL_EXTERNAL_PULLUP) {
 		control_i2c_1 = OMAP4_CTRL_MODULE_PAD_CORE_CONTROL_I2C_1;
 		reg = omap4_ctrl_pad_readl(control_i2c_1);
@@ -249,20 +258,24 @@ static void dispc_disable_outputs(void)
 
 	da = (struct omap_dss_dispc_dev_attr *)oh->dev_attr;
 
-	
+	/* store value of LCDENABLE and DIGITENABLE bits */
 	v = omap_hwmod_read(oh, DISPC_CONTROL);
 	lcd_en = v & LCD_EN_MASK;
 	digit_en = v & DIGIT_EN_MASK;
 
-	
+	/* store value of LCDENABLE for LCD2 */
 	if (da->manager_count > 2) {
 		v = omap_hwmod_read(oh, DISPC_CONTROL2);
 		lcd2_en = v & LCD_EN_MASK;
 	}
 
 	if (!(lcd_en | digit_en | lcd2_en))
-		return; 
+		return; /* no managers currently enabled */
 
+	/*
+	 * If any manager was enabled, we need to disable it before
+	 * DSS clocks are disabled or DISPC module is reset
+	 */
 	if (lcd_en)
 		irq_mask |= 1 << FRAMEDONE_IRQ_SHIFT;
 
@@ -278,14 +291,18 @@ static void dispc_disable_outputs(void)
 	if (lcd2_en)
 		irq_mask |= 1 << FRAMEDONE2_IRQ_SHIFT;
 
+	/*
+	 * clear any previous FRAMEDONE, FRAMEDONETV,
+	 * EVSYNC_EVEN/ODD or FRAMEDONE2 interrupts
+	 */
 	omap_hwmod_write(irq_mask, oh, DISPC_IRQSTATUS);
 
-	
+	/* disable LCD and TV managers */
 	v = omap_hwmod_read(oh, DISPC_CONTROL);
 	v &= ~(LCD_EN_MASK | DIGIT_EN_MASK);
 	omap_hwmod_write(v, oh, DISPC_CONTROL);
 
-	
+	/* disable LCD2 manager */
 	if (da->manager_count > 2) {
 		v = omap_hwmod_read(oh, DISPC_CONTROL2);
 		v &= ~LCD_EN_MASK;
@@ -322,12 +339,16 @@ int omap_dss_reset(struct omap_hwmod *oh)
 
 	dispc_disable_outputs();
 
-	
+	/* clear SDI registers */
 	if (cpu_is_omap3430()) {
 		omap_hwmod_write(0x0, oh, DSS_SDI_CONTROL);
 		omap_hwmod_write(0x0, oh, DSS_PLL_CONTROL);
 	}
 
+	/*
+	 * clear DSS_CONTROL register to switch DSS clock sources to
+	 * PRCM clock, if any
+	 */
 	omap_hwmod_write(0x0, oh, DSS_CONTROL);
 
 	omap_test_timeout((omap_hwmod_read(oh, oh->class->sysc->syss_offs)

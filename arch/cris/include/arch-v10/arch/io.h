@@ -3,6 +3,7 @@
 
 #include <arch/svinto.h>
 
+/* Etrax shadow registers - which live in arch/cris/kernel/shadows.c */
 
 extern unsigned long gen_config_ii_shadow;
 extern unsigned long port_g_data_shadow;
@@ -22,9 +23,16 @@ extern volatile unsigned long *port_cse1_addr;
 extern volatile unsigned long *port_csp0_addr;
 extern volatile unsigned long *port_csp4_addr;
 
+/* macro for setting regs through a shadow -
+ * r = register name (like R_PORT_PA_DATA)
+ * s = shadow name (like port_pa_data_shadow)
+ * b = bit number
+ * v = value (0 or 1)
+ */
 
 #define REG_SHADOW_SET(r,s,b,v) *r = s = (s & ~(1 << (b))) | ((v) << (b))
 
+/* The LED's on various Etrax-based products are set differently. */
 
 #if defined(CONFIG_ETRAX_NO_LEDS) || defined(CONFIG_SVINTO_SIM)
 #undef CONFIG_ETRAX_PA_LEDS
@@ -163,8 +171,10 @@ extern volatile unsigned long *port_csp4_addr;
 #define SOFT_SHUTDOWN()
 #endif
 
+/* Console I/O for simulated etrax100.  Use #ifdef so erroneous
+   use will be evident. */
 #ifdef CONFIG_SVINTO_SIM
-  
+  /* Let's use the ucsim interface since it lets us do write(2, ...) */
 #define SIMCOUT(s,len)							\
   asm ("moveq 4,$r9	\n\t"						\
        "moveq 2,$r10	\n\t"						\
@@ -184,6 +194,6 @@ extern volatile unsigned long *port_csp4_addr;
 #define SIM_END() do { __asm__ volatile ("bmod [%0],%0" :: "r" (28)); } while (0)
 #define CRIS_CYCLES() __extension__ \
  ({ unsigned long c; asm ("bmod [%1],%0" : "=r" (c) : "r" (27)); c;})
-#endif 
+#endif /* ! defined CONFIG_SVINTO_SIM */
 
 #endif

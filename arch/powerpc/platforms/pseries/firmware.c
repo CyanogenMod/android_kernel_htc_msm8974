@@ -58,6 +58,10 @@ firmware_features_table[FIRMWARE_MAX_FEATURES] = {
 	{FW_FEATURE_VPHN,		"hcall-vphn"},
 };
 
+/* Build up the firmware features bitmask using the contents of
+ * device-tree/ibm,hypertas-functions.  Ultimately this functionality may
+ * be moved into prom.c prom_init().
+ */
 void __init fw_feature_init(const char *hypertas, unsigned long len)
 {
 	const char *s;
@@ -67,12 +71,12 @@ void __init fw_feature_init(const char *hypertas, unsigned long len)
 
 	for (s = hypertas; s < hypertas + len; s += strlen(s) + 1) {
 		for (i = 0; i < FIRMWARE_MAX_FEATURES; i++) {
-			
+			/* check value against table of strings */
 			if (!firmware_features_table[i].name ||
 			    strcmp(firmware_features_table[i].name, s))
 				continue;
 
-			
+			/* we have a match */
 			powerpc_firmware_features |=
 				firmware_features_table[i].val;
 			break;

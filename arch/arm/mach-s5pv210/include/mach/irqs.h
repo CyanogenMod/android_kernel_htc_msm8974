@@ -15,6 +15,7 @@
 
 #include <plat/irqs.h>
 
+/* VIC0: System, DMA, Timer */
 
 #define IRQ_EINT16_31		S5P_IRQ_VIC0(16)
 #define IRQ_BATF		S5P_IRQ_VIC0(17)
@@ -33,6 +34,7 @@
 #define IRQ_GPIOINT		S5P_IRQ_VIC0(30)
 #define IRQ_FIMC3		S5P_IRQ_VIC0(31)
 
+/* VIC1: ARM, Power, Memory, Connectivity, Storage */
 
 #define IRQ_PMU			S5P_IRQ_VIC1(0)
 #define IRQ_CORTEX1		S5P_IRQ_VIC1(1)
@@ -67,6 +69,7 @@
 #define IRQ_MIPIDSI		S5P_IRQ_VIC1(30)
 #define IRQ_ONENAND_AUDI	S5P_IRQ_VIC1(31)
 
+/* VIC2: Multimedia, Audio, Security */
 
 #define IRQ_LCD0		S5P_IRQ_VIC2(0)
 #define IRQ_LCD1		S5P_IRQ_VIC2(1)
@@ -102,6 +105,7 @@
 #define IRQ_SDMIRQ		S5P_IRQ_VIC2(30)
 #define IRQ_SDMFIQ		S5P_IRQ_VIC2(31)
 
+/* VIC3: Etc */
 
 #define IRQ_IPC			S5P_IRQ_VIC3(0)
 #define IRQ_HOSTIF		S5P_IRQ_VIC3(1)
@@ -119,14 +123,17 @@
 #define S5P_EINT_BASE1		(S5P_IRQ_VIC0(0))
 #define S5P_EINT_BASE2		(IRQ_VIC_END + 1)
 
+/* GPIO interrupt */
 #define S5P_GPIOINT_BASE	(IRQ_EINT(31) + 1)
 #define S5P_GPIOINT_GROUP_MAXNR	22
 
+/* Set the default NR_IRQS */
 #define NR_IRQS			(IRQ_EINT(31) + S5P_GPIOINT_COUNT + 1)
 
+/* Compatibility */
 #define IRQ_LCD_FIFO		IRQ_LCD0
 #define IRQ_LCD_VSYNC		IRQ_LCD1
 #define IRQ_LCD_SYSTEM		IRQ_LCD2
 #define IRQ_MIPI_CSIS0		IRQ_MIPI_CSIS
 
-#endif 
+#endif /* ASM_ARCH_IRQS_H */

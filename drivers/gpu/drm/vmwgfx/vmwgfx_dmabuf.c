@@ -31,6 +31,22 @@
 #include "vmwgfx_drv.h"
 
 
+/**
+ * vmw_dmabuf_to_placement - Validate a buffer to placement.
+ *
+ * @dev_priv:  Driver private.
+ * @buf:  DMA buffer to move.
+ * @pin:  Pin buffer if true.
+ * @interruptible:  Use interruptible wait.
+ *
+ * May only be called by the current master since it assumes that the
+ * master lock is the current master's lock.
+ * This function takes the master's lock in write mode.
+ * Flushes and unpins the query bo to avoid failures.
+ *
+ * Returns
+ *  -ERESTARTSYS if interrupted by a signal.
+ */
 int vmw_dmabuf_to_placement(struct vmw_private *dev_priv,
 			    struct vmw_dma_buffer *buf,
 			    struct ttm_placement *placement,
@@ -59,6 +75,22 @@ err:
 	return ret;
 }
 
+/**
+ * vmw_dmabuf_to_vram_or_gmr - Move a buffer to vram or gmr.
+ *
+ * May only be called by the current master since it assumes that the
+ * master lock is the current master's lock.
+ * This function takes the master's lock in write mode.
+ * Flushes and unpins the query bo if @pin == true to avoid failures.
+ *
+ * @dev_priv:  Driver private.
+ * @buf:  DMA buffer to move.
+ * @pin:  Pin buffer if true.
+ * @interruptible:  Use interruptible wait.
+ *
+ * Returns
+ * -ERESTARTSYS if interrupted by a signal.
+ */
 int vmw_dmabuf_to_vram_or_gmr(struct vmw_private *dev_priv,
 			      struct vmw_dma_buffer *buf,
 			      bool pin, bool interruptible)
@@ -79,6 +111,12 @@ int vmw_dmabuf_to_vram_or_gmr(struct vmw_private *dev_priv,
 	if (unlikely(ret != 0))
 		goto err;
 
+	/**
+	 * Put BO in VRAM if there is space, otherwise as a GMR.
+	 * If there is no space in VRAM and GMR ids are all used up,
+	 * start evicting GMRs to make room. If the DMA buffer can't be
+	 * used as a GMR, this will return -ENOMEM.
+	 */
 
 	if (pin)
 		placement = &vmw_vram_gmr_ne_placement;
@@ -90,6 +128,10 @@ int vmw_dmabuf_to_vram_or_gmr(struct vmw_private *dev_priv,
 		goto err_unreserve;
 
 
+	/**
+	 * If that failed, try VRAM again, this time evicting
+	 * previous contents.
+	 */
 
 	if (pin)
 		placement = &vmw_vram_ne_placement;
@@ -105,6 +147,21 @@ err:
 	return ret;
 }
 
+/**
+ * vmw_dmabuf_to_vram - Move a buffer to vram.
+ *
+ * May only be called by the current master since it assumes that the
+ * master lock is the current master's lock.
+ * This function takes the master's lock in write mode.
+ *
+ * @dev_priv:  Driver private.
+ * @buf:  DMA buffer to move.
+ * @pin:  Pin buffer in vram if true.
+ * @interruptible:  Use interruptible wait.
+ *
+ * Returns
+ * -ERESTARTSYS if interrupted by a signal.
+ */
 int vmw_dmabuf_to_vram(struct vmw_private *dev_priv,
 		       struct vmw_dma_buffer *buf,
 		       bool pin, bool interruptible)
@@ -121,6 +178,22 @@ int vmw_dmabuf_to_vram(struct vmw_private *dev_priv,
 				       interruptible);
 }
 
+/**
+ * vmw_dmabuf_to_start_of_vram - Move a buffer to start of vram.
+ *
+ * May only be called by the current master since it assumes that the
+ * master lock is the current master's lock.
+ * This function takes the master's lock in write mode.
+ * Flushes and unpins the query bo if @pin == true to avoid failures.
+ *
+ * @dev_priv:  Driver private.
+ * @buf:  DMA buffer to move.
+ * @pin:  Pin buffer in vram if true.
+ * @interruptible:  Use interruptible wait.
+ *
+ * Returns
+ * -ERESTARTSYS if interrupted by a signal.
+ */
 int vmw_dmabuf_to_start_of_vram(struct vmw_private *dev_priv,
 				struct vmw_dma_buffer *buf,
 				bool pin, bool interruptible)
@@ -147,7 +220,7 @@ int vmw_dmabuf_to_start_of_vram(struct vmw_private *dev_priv,
 	if (unlikely(ret != 0))
 		goto err_unlock;
 
-	
+	/* Is this buffer already in vram but not at the start of it? */
 	if (bo->mem.mem_type == TTM_PL_VRAM &&
 	    bo->mem.start < bo->num_pages &&
 	    bo->mem.start > 0)
@@ -156,7 +229,7 @@ int vmw_dmabuf_to_start_of_vram(struct vmw_private *dev_priv,
 
 	ret = ttm_bo_validate(bo, &placement, interruptible, false, false);
 
-	
+	/* For some reason we didn't up at the start of vram */
 	WARN_ON(ret == 0 && bo->offset != 0);
 
 	ttm_bo_unreserve(bo);
@@ -167,16 +240,42 @@ err_unlock:
 }
 
 
+/**
+ * vmw_dmabuf_upin - Unpin the buffer given buffer, does not move the buffer.
+ *
+ * May only be called by the current master since it assumes that the
+ * master lock is the current master's lock.
+ * This function takes the master's lock in write mode.
+ *
+ * @dev_priv:  Driver private.
+ * @buf:  DMA buffer to unpin.
+ * @interruptible:  Use interruptible wait.
+ *
+ * Returns
+ * -ERESTARTSYS if interrupted by a signal.
+ */
 int vmw_dmabuf_unpin(struct vmw_private *dev_priv,
 		     struct vmw_dma_buffer *buf,
 		     bool interruptible)
 {
+	/*
+	 * We could in theory early out if the buffer is
+	 * unpinned but we need to lock and reserve the buffer
+	 * anyways so we don't gain much by that.
+	 */
 	return vmw_dmabuf_to_placement(dev_priv, buf,
 				       &vmw_evictable_placement,
 				       interruptible);
 }
 
 
+/**
+ * vmw_bo_get_guest_ptr - Get the guest ptr representing the current placement
+ * of a buffer.
+ *
+ * @bo: Pointer to a struct ttm_buffer_object. Must be pinned or reserved.
+ * @ptr: SVGAGuestPtr returning the result.
+ */
 void vmw_bo_get_guest_ptr(const struct ttm_buffer_object *bo,
 			  SVGAGuestPtr *ptr)
 {
@@ -190,6 +289,14 @@ void vmw_bo_get_guest_ptr(const struct ttm_buffer_object *bo,
 }
 
 
+/**
+ * vmw_bo_pin - Pin or unpin a buffer object without moving it.
+ *
+ * @bo: The buffer object. Must be reserved, and present either in VRAM
+ * or GMR memory.
+ * @pin: Whether to pin or unpin.
+ *
+ */
 void vmw_bo_pin(struct ttm_buffer_object *bo, bool pin)
 {
 	uint32_t pl_flags;

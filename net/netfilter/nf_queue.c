@@ -13,10 +13,17 @@
 
 #include "nf_internals.h"
 
+/*
+ * A queue handler may be registered for each protocol.  Each is protected by
+ * long term mutex.  The handler must provide an an outfn() to accept packets
+ * for queueing and must reinject all packets it receives, no matter what.
+ */
 static const struct nf_queue_handler __rcu *queue_handler[NFPROTO_NUMPROTO] __read_mostly;
 
 static DEFINE_MUTEX(queue_handler_mutex);
 
+/* return EBUSY when somebody else is registered, return EEXIST if the
+ * same handler is registered, return 0 in case of success. */
 int nf_register_queue_handler(u_int8_t pf, const struct nf_queue_handler *qh)
 {
 	int ret;
@@ -42,6 +49,7 @@ int nf_register_queue_handler(u_int8_t pf, const struct nf_queue_handler *qh)
 }
 EXPORT_SYMBOL(nf_register_queue_handler);
 
+/* The caller must flush their queue before this */
 int nf_unregister_queue_handler(u_int8_t pf, const struct nf_queue_handler *qh)
 {
 	const struct nf_queue_handler *old;
@@ -86,7 +94,7 @@ EXPORT_SYMBOL_GPL(nf_unregister_queue_handlers);
 
 static void nf_queue_entry_release_refs(struct nf_queue_entry *entry)
 {
-	
+	/* Release those devices we held, or Alexey will kill me. */
 	if (entry->indev)
 		dev_put(entry->indev);
 	if (entry->outdev)
@@ -101,10 +109,14 @@ static void nf_queue_entry_release_refs(struct nf_queue_entry *entry)
 			dev_put(nf_bridge->physoutdev);
 	}
 #endif
-	
+	/* Drop reference to owner of hook which queued us. */
 	module_put(entry->elem->owner);
 }
 
+/*
+ * Any packet that leaves via this function must come back
+ * through nf_reinject().
+ */
 static int __nf_queue(struct sk_buff *skb,
 		      struct list_head *elem,
 		      u_int8_t pf, unsigned int hook,
@@ -122,7 +134,7 @@ static int __nf_queue(struct sk_buff *skb,
 	const struct nf_afinfo *afinfo;
 	const struct nf_queue_handler *qh;
 
-	
+	/* QUEUE == DROP if no one is waiting, to be safe. */
 	rcu_read_lock();
 
 	qh = rcu_dereference(queue_handler[pf]);
@@ -151,12 +163,12 @@ static int __nf_queue(struct sk_buff *skb,
 		.okfn	= okfn,
 	};
 
-	
+	/* If it's going away, ignore hook. */
 	if (!try_module_get(entry->elem->owner)) {
 		status = -ECANCELED;
 		goto err_unlock;
 	}
-	
+	/* Bump dev refs so they don't vanish while packet is out */
 	if (indev)
 		dev_hold(indev);
 	if (outdev)
@@ -192,6 +204,10 @@ err:
 }
 
 #ifdef CONFIG_BRIDGE_NETFILTER
+/* When called from bridge netfilter, skb->data must point to MAC header
+ * before calling skb_gso_segment(). Else, original MAC header is lost
+ * and segmented skbs will be sent to wrong destination.
+ */
 static void nf_bridge_adjust_skb_data(struct sk_buff *skb)
 {
 	if (skb->nf_bridge)
@@ -235,6 +251,10 @@ int nf_queue(struct sk_buff *skb,
 
 	nf_bridge_adjust_skb_data(skb);
 	segs = skb_gso_segment(skb, 0);
+	/* Does not use PTR_ERR to limit the number of error codes that can be
+	 * returned by nf_queue.  For instance, callers rely on -ECANCELED to mean
+	 * 'ignore this hook'.
+	 */
 	if (IS_ERR(segs))
 		goto out_err;
 	queued = 0;
@@ -275,7 +295,7 @@ void nf_reinject(struct nf_queue_entry *entry, unsigned int verdict)
 
 	nf_queue_entry_release_refs(entry);
 
-	
+	/* Continue traversal iff userspace said ok... */
 	if (verdict == NF_REPEAT) {
 		elem = elem->prev;
 		verdict = NF_ACCEPT;
@@ -385,7 +405,7 @@ static const struct file_operations nfqueue_file_ops = {
 	.llseek	 = seq_lseek,
 	.release = seq_release,
 };
-#endif 
+#endif /* PROC_FS */
 
 
 int __init netfilter_queue_init(void)

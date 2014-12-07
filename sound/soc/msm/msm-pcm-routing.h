@@ -47,6 +47,11 @@
 #define LPASS_BE_SLIMBUS_4_RX "SLIMBUS_4_RX"
 #define LPASS_BE_SLIMBUS_4_TX "SLIMBUS_4_TX"
 
+/* For multimedia front-ends, asm session is allocated dynamically.
+ * Hence, asm session/multimedia front-end mapping has to be maintained.
+ * Due to this reason, additional multimedia front-end must be placed before
+ * non-multimedia front-ends.
+ */
 
 enum {
 	MSM_FRONTEND_DAI_MULTIMEDIA1 = 0,
@@ -115,6 +120,10 @@ enum msm_pcm_routing_event {
 	MSM_PCM_RT_EVT_DEVSWITCH,
 	MSM_PCM_RT_EVT_MAX,
 };
+/* dai_id: front-end ID,
+ * dspst_id:  DSP audio stream ID
+ * stream_type: playback or capture
+ */
 void msm_pcm_routing_reg_phy_stream(int fedai_id, bool perf_mode,
 				int dspst_id, int stream_type);
 void msm_pcm_routing_reg_psthr_stream(int fedai_id, int dspst_id,
@@ -147,4 +156,4 @@ int compressed_set_volume(unsigned volume);
 
 void multi_ch_pcm_set_channel_map(char *channel_mapping);
 
-#endif 
+#endif /*_MSM_PCM_H*/

@@ -27,6 +27,7 @@
 #include <mach/clock.h>
 #include "clock.h"
 
+/*forward declaration*/
 static struct clk per_ck;
 static struct clk hclk_ck;
 static struct clk ck_1MHz;
@@ -88,7 +89,7 @@ static int clk_wait_for_pll_lock(struct clk *clk)
 {
 	int i;
 	i = 0;
-	while (i++ < 0xFFF && !(__raw_readl(clk->scale_reg) & 1)) ;	
+	while (i++ < 0xFFF && !(__raw_readl(clk->scale_reg) & 1)) ;	/*wait for PLL to lock */
 
 	if (!(__raw_readl(clk->scale_reg) & 1)) {
 		printk(KERN_ERR
@@ -111,12 +112,12 @@ static int switch_to_dirty_13mhz(struct clk *clk)
 		clk_reg_enable1(clk);
 
 	tmp_reg = __raw_readl(clk->parent_switch_reg);
-	
+	/*if 13Mhz clock selected, select 13'MHz (dirty) source from OSC */
 	if (!(tmp_reg & 1)) {
-		tmp_reg |= (1 << 1);	
+		tmp_reg |= (1 << 1);	/* Trigger switch to 13'MHz (dirty) clock */
 		__raw_writel(tmp_reg, clk->parent_switch_reg);
 		i = 0;
-		while (i++ < 0xFFF && !(__raw_readl(clk->parent_switch_reg) & 1)) ;	
+		while (i++ < 0xFFF && !(__raw_readl(clk->parent_switch_reg) & 1)) ;	/*wait for 13'MHz selection status */
 
 		if (!(__raw_readl(clk->parent_switch_reg) & 1)) {
 			printk(KERN_ERR
@@ -144,12 +145,12 @@ static int switch_to_clean_13mhz(struct clk *clk)
 		clk_reg_enable1(clk);
 
 	tmp_reg = __raw_readl(clk->parent_switch_reg);
-	
+	/*if 13'Mhz clock selected, select 13MHz (clean) source from OSC */
 	if (tmp_reg & 1) {
-		tmp_reg &= ~(1 << 1);	
+		tmp_reg &= ~(1 << 1);	/* Trigger switch to 13MHz (clean) clock */
 		__raw_writel(tmp_reg, clk->parent_switch_reg);
 		i = 0;
-		while (i++ < 0xFFF && (__raw_readl(clk->parent_switch_reg) & 1)) ;	
+		while (i++ < 0xFFF && (__raw_readl(clk->parent_switch_reg) & 1)) ;	/*wait for 13MHz selection status */
 
 		if (__raw_readl(clk->parent_switch_reg) & 1) {
 			printk(KERN_ERR
@@ -180,6 +181,15 @@ static int set_13MHz_parent(struct clk *clk, struct clk *parent)
 #define PLL160_MIN_FCCO 156000
 #define PLL160_MAX_FCCO 320000
 
+/*
+ * Calculate pll160 settings.
+ * Possible input: up to 320MHz with step of clk->parent->rate.
+ * In PNX4008 parent rate for pll160s may be either 1 or 13MHz.
+ * Ignored paths: "feedback" (bit 13 set), "div-by-N".
+ * Setting ARM PLL4 rate to 0 will put CPU into direct run mode.
+ * Setting PLL5 and PLL3 rate to 0 will disable USB and DSP clock input.
+ * Please refer to PNX4008 IC manual for details.
+ */
 
 static int pll160_set_rate(struct clk *clk, u32 rate)
 {
@@ -192,17 +202,17 @@ static int pll160_set_rate(struct clk *clk, u32 rate)
 	if (!parent_rate)
 		goto out;
 
-	
+	/* set direct run for ARM or disable output for others  */
 	clk_reg_disable(clk);
 
-	
+	/* disable source input as well (ignored for ARM) */
 	clk_reg_disable1(clk);
 
 	tmp_reg = __raw_readl(clk->scale_reg);
-	tmp_reg &= ~0x1ffff;	
+	tmp_reg &= ~0x1ffff;	/*clear all settings, power down */
 	__raw_writel(tmp_reg, clk->scale_reg);
 
-	rate -= rate % parent_rate;	
+	rate -= rate % parent_rate;	/*round down the input */
 
 	if (rate > PLL160_MAX_FCCO)
 		rate = PLL160_MAX_FCCO;
@@ -217,7 +227,7 @@ static int pll160_set_rate(struct clk *clk, u32 rate)
 	tmp_reg = __raw_readl(clk->scale_reg);
 
 	if (rate == parent_rate) {
-		
+		/*enter direct bypass mode */
 		tmp_reg |= ((1 << 14) | (1 << 15));
 		__raw_writel(tmp_reg, clk->scale_reg);
 		clk->rate = parent_rate;
@@ -236,13 +246,13 @@ static int pll160_set_rate(struct clk *clk, u32 rate)
 	if (tmp_2p > 1)
 		tmp_reg |= ((i - 1) << 11);
 	else
-		tmp_reg |= (1 << 14);	
+		tmp_reg |= (1 << 14);	/*direct mode, no divide */
 
 	tmp_m = rate * tmp_2p;
 	tmp_m /= parent_rate;
 
-	tmp_reg |= (tmp_m - 1) << 1;	
-	tmp_reg |= (1 << 16);	
+	tmp_reg |= (tmp_m - 1) << 1;	/*calculate M */
+	tmp_reg |= (1 << 16);	/*power up PLL */
 	__raw_writel(tmp_reg, clk->scale_reg);
 
 	if (clk_wait_for_pll_lock(clk) < 0) {
@@ -250,7 +260,7 @@ static int pll160_set_rate(struct clk *clk, u32 rate)
 		clk_reg_disable1(clk);
 
 		tmp_reg = __raw_readl(clk->scale_reg);
-		tmp_reg &= ~0x1ffff;	
+		tmp_reg &= ~0x1ffff;	/*clear all settings, power down */
 		__raw_writel(tmp_reg, clk->scale_reg);
 		clk->rate = 0;
 		ret = -EFAULT;
@@ -269,6 +279,7 @@ out:
 	return ret;
 }
 
+/*configure PER_CLK*/
 static int per_clk_set_rate(struct clk *clk, u32 rate)
 {
 	u32 tmp;
@@ -281,6 +292,7 @@ static int per_clk_set_rate(struct clk *clk, u32 rate)
 	return 0;
 }
 
+/*configure HCLK*/
 static int hclk_set_rate(struct clk *clk, u32 rate)
 {
 	u32 tmp;
@@ -332,7 +344,7 @@ static int on_off_set_rate(struct clk *clk, u32 rate)
 static int on_off_inv_set_rate(struct clk *clk, u32 rate)
 {
 	if (rate) {
-		clk_reg_disable(clk);	
+		clk_reg_disable(clk);	/*enable bit is inverted */
 		clk->rate = 1;
 	} else {
 		clk_reg_enable(clk);
@@ -375,7 +387,7 @@ static u32 ck_13MHz_round_rate(struct clk *clk, u32 rate)
 static int ck_13MHz_set_rate(struct clk *clk, u32 rate)
 {
 	if (rate) {
-		clk_reg_disable(clk);	
+		clk_reg_disable(clk);	/*enable bit is inverted */
 		udelay(500);
 		clk->rate = CLK_RATE_13MHZ;
 		ck_1MHz.rate = CLK_RATE_1MHZ;
@@ -389,9 +401,9 @@ static int ck_13MHz_set_rate(struct clk *clk, u32 rate)
 
 static int pll1_set_rate(struct clk *clk, u32 rate)
 {
-#if 0 
+#if 0 /* doesn't work on some boards, probably a HW BUG */
 	if (rate) {
-		clk_reg_disable(clk);	
+		clk_reg_disable(clk);	/*enable bit is inverted */
 		if (!clk_wait_for_pll_lock(clk)) {
 			clk->rate = CLK_RATE_13MHZ;
 		} else {
@@ -407,6 +419,7 @@ static int pll1_set_rate(struct clk *clk, u32 rate)
 	return 0;
 }
 
+/* Clock sources */
 
 static struct clk osc_13MHz = {
 	.name = "osc_13MHz",
@@ -431,12 +444,14 @@ static struct clk osc_32KHz = {
 	.rate = CLK_RATE_32KHZ,
 };
 
+/*attached to PLL5*/
 static struct clk ck_1MHz = {
 	.name = "ck_1MHz",
 	.flags = FIXED_RATE | PARENT_SET_RATE,
 	.parent = &ck_13MHz,
 };
 
+/* PLL1 (397) - provides 13' MHz clock */
 static struct clk ck_pll1 = {
 	.name = "ck_pll1",
 	.parent = &osc_32KHz,
@@ -449,6 +464,7 @@ static struct clk ck_pll1 = {
 	.rate = CLK_RATE_13MHZ,
 };
 
+/* CPU/Bus PLL */
 static struct clk ck_pll4 = {
 	.name = "ck_pll4",
 	.parent = &ck_pll1,
@@ -464,6 +480,7 @@ static struct clk ck_pll4 = {
 	.set_parent = &set_13MHz_parent,
 };
 
+/* USB PLL */
 static struct clk ck_pll5 = {
 	.name = "ck_pll5",
 	.parent = &ck_1MHz,
@@ -477,6 +494,7 @@ static struct clk ck_pll5 = {
 	.enable_shift1 = 17,
 };
 
+/* XPERTTeak DSP PLL */
 static struct clk ck_pll3 = {
 	.name = "ck_pll3",
 	.parent = &ck_pll1,
@@ -612,7 +630,7 @@ static struct clk flash_ck = {
 	.parent = &hclk_ck,
 	.round_rate = &on_off_round_rate,
 	.set_rate = &on_off_set_rate,
-	.enable_shift = 1,	
+	.enable_shift = 1,	/* Only MLC clock supported */
 	.enable_reg = FLASHCLKCTRL_REG,
 };
 
@@ -730,6 +748,9 @@ static struct clk wdt_ck = {
 	.disable = clk_reg_disable,
 };
 
+/* These clocks are visible outside this module
+ * and can be initialized
+ */
 static struct clk *onchip_clks[] __initdata = {
 	&ck_13MHz,
 	&ck_pll1,
@@ -839,7 +860,7 @@ static int local_set_rate(struct clk *clk, u32 rate)
 	if (clk->set_rate) {
 
 		if (clk->user_rate == clk->rate && clk->parent->rate) {
-			
+			/* if clock enabled or rate not set */
 			clk->user_rate = clk->round_rate(clk, rate);
 			ret = clk->set_rate(clk, clk->user_rate);
 		} else
@@ -860,6 +881,8 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 	if ((clk->flags & PARENT_SET_RATE) && clk->parent) {
 
 		clk->user_rate = clk->round_rate(clk, rate);
+		/* parent clock needs to be refreshed
+		   for the setting to take effect */
 	} else {
 		ret = local_set_rate(clk, rate);
 	}
@@ -939,7 +962,7 @@ static int __init clk_init(void)
 {
 	struct clk **clkp;
 
-	
+	/* Disable autoclocking, as it doesn't seem to work */
 	__raw_writel(0xff, AUTOCLK_CTRL);
 
 	for (clkp = onchip_clks; clkp < onchip_clks + ARRAY_SIZE(onchip_clks);
@@ -963,11 +986,11 @@ static int __init clk_init(void)
 
 	local_clk_enable(&ck_pll4);
 
-	
+	/* if ck_13MHz is not used, disable it. */
 	if (ck_13MHz.usecount == 0)
 		local_clk_disable(&ck_13MHz);
 
-	
+	/* Disable autoclocking */
 	__raw_writeb(0xff, AUTOCLK_CTRL);
 
 	clkdev_add_table(onchip_clkreg, ARRAY_SIZE(onchip_clkreg));

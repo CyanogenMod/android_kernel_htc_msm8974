@@ -40,7 +40,7 @@ struct zd_reg_alpha2_map {
 static struct zd_reg_alpha2_map reg_alpha2_map[] = {
 	{ ZD_REGDOMAIN_FCC, "US" },
 	{ ZD_REGDOMAIN_IC, "CA" },
-	{ ZD_REGDOMAIN_ETSI, "DE" }, 
+	{ ZD_REGDOMAIN_ETSI, "DE" }, /* Generic ETSI, use most restrictive */
 	{ ZD_REGDOMAIN_JAPAN, "JP" },
 	{ ZD_REGDOMAIN_JAPAN_2, "JP" },
 	{ ZD_REGDOMAIN_JAPAN_3, "JP" },
@@ -48,6 +48,7 @@ static struct zd_reg_alpha2_map reg_alpha2_map[] = {
 	{ ZD_REGDOMAIN_FRANCE, "FR" },
 };
 
+/* This table contains the hardware specific values for the modulation rates. */
 static const struct ieee80211_rate zd_rates[] = {
 	{ .bitrate = 10,
 	  .hw_value = ZD_CCK_RATE_1M, },
@@ -89,20 +90,32 @@ static const struct ieee80211_rate zd_rates[] = {
 	  .flags = 0 },
 };
 
+/*
+ * Zydas retry rates table. Each line is listed in the same order as
+ * in zd_rates[] and contains all the rate used when a packet is sent
+ * starting with a given rates. Let's consider an example :
+ *
+ * "11 Mbits : 4, 3, 2, 1, 0" means :
+ * - packet is sent using 4 different rates
+ * - 1st rate is index 3 (ie 11 Mbits)
+ * - 2nd rate is index 2 (ie 5.5 Mbits)
+ * - 3rd rate is index 1 (ie 2 Mbits)
+ * - 4th rate is index 0 (ie 1 Mbits)
+ */
 
 static const struct tx_retry_rate zd_retry_rates[] = {
-	{ 	1, { 0 }},
-	{ 	2, { 1,  0 }},
-	{ 	3, { 2,  1, 0 }},
-	{ 	4, { 3,  2, 1, 0 }},
-	{ 	5, { 4,  3, 2, 1, 0 }},
-	{ 	6, { 5,  4, 3, 2, 1, 0}},
-	{ 	5, { 6,  3, 2, 1, 0 }},
-	{ 	6, { 7,  6, 3, 2, 1, 0 }},
-	{ 	6, { 8,  6, 3, 2, 1, 0 }},
-	{ 	7, { 9,  8, 6, 3, 2, 1, 0 }},
-	{ 	8, {10,  9, 8, 6, 3, 2, 1, 0 }},
-	{ 	9, {11, 10, 9, 8, 6, 3, 2, 1, 0 }}
+	{ /*  1 Mbits */	1, { 0 }},
+	{ /*  2 Mbits */	2, { 1,  0 }},
+	{ /*  5.5 Mbits */	3, { 2,  1, 0 }},
+	{ /* 11 Mbits */	4, { 3,  2, 1, 0 }},
+	{ /*  6 Mbits */	5, { 4,  3, 2, 1, 0 }},
+	{ /*  9 Mbits */	6, { 5,  4, 3, 2, 1, 0}},
+	{ /* 12 Mbits */	5, { 6,  3, 2, 1, 0 }},
+	{ /* 18 Mbits */	6, { 7,  6, 3, 2, 1, 0 }},
+	{ /* 24 Mbits */	6, { 8,  6, 3, 2, 1, 0 }},
+	{ /* 36 Mbits */	7, { 9,  8, 6, 3, 2, 1, 0 }},
+	{ /* 48 Mbits */	8, {10,  9, 8, 6, 3, 2, 1, 0 }},
+	{ /* 54 Mbits */	9, {11, 10, 9, 8, 6, 3, 2, 1, 0 }}
 };
 
 static const struct ieee80211_channel zd_channels[] = {
@@ -202,6 +215,8 @@ int zd_mac_init_hw(struct ieee80211_hw *hw)
 	mac->regdomain = mac->default_regdomain = default_regdomain;
 	spin_unlock_irq(&mac->lock);
 
+	/* We must inform the device that we are doing encryption/decryption in
+	 * software at the moment. */
 	r = zd_set_encryption_type(chip, ENC_SNIFFER);
 	if (r)
 		goto disable_int;
@@ -249,6 +264,9 @@ static int set_mac_and_bssid(struct zd_mac *mac)
 	if (r)
 		return r;
 
+	/* Vendor driver after setting MAC either sets BSSID for AP or
+	 * filter for other modes.
+	 */
 	if (mac->type != NL80211_IFTYPE_AP)
 		return set_rx_filter(mac);
 	else
@@ -289,6 +307,10 @@ int zd_op_start(struct ieee80211_hw *hw)
 	if (r)
 		goto disable_int;
 
+	/* Wait after setting the multicast hash table and powering on
+	 * the radio otherwise interface bring up will fail. This matches
+	 * what the vendor driver did.
+	 */
 	msleep(10);
 
 	r = zd_chip_switch_radio_on(chip);
@@ -327,6 +349,10 @@ void zd_op_stop(struct ieee80211_hw *hw)
 
 	clear_bit(ZD_DEVICE_RUNNING, &mac->flags);
 
+	/* The order here deliberately is a little different from the open()
+	 * method, since we need to make sure there is no opportunity for RX
+	 * frames to be processed by mac80211 after we have stopped it.
+	 */
 
 	zd_chip_disable_rxtx(chip);
 	beacon_disable(mac);
@@ -402,6 +428,20 @@ int zd_restore_settings(struct zd_mac *mac)
 	return 0;
 }
 
+/**
+ * zd_mac_tx_status - reports tx status of a packet if required
+ * @hw - a &struct ieee80211_hw pointer
+ * @skb - a sk-buffer
+ * @flags: extra flags to set in the TX status info
+ * @ackssi: ACK signal strength
+ * @success - True for successful transmission of the frame
+ *
+ * This information calls ieee80211_tx_status_irqsafe() if required by the
+ * control information. It copies the control information into the status
+ * information.
+ *
+ * If no status information has been requested, the skb is freed.
+ */
 static void zd_mac_tx_status(struct ieee80211_hw *hw, struct sk_buff *skb,
 		      int ackssi, struct tx_status *tx_status)
 {
@@ -419,10 +459,10 @@ static void zd_mac_tx_status(struct ieee80211_hw *hw, struct sk_buff *skb,
 	}
 
 	if (success) {
-		
+		/* success */
 		info->flags |= IEEE80211_TX_STAT_ACK;
 	} else {
-		
+		/* failure */
 		info->flags &= ~IEEE80211_TX_STAT_ACK;
 	}
 
@@ -432,23 +472,31 @@ static void zd_mac_tx_status(struct ieee80211_hw *hw, struct sk_buff *skb,
 	ZD_ASSERT(1 <= retry && retry <= retries->count);
 
 	info->status.rates[0].idx = retries->rate[0];
-	info->status.rates[0].count = 1; 
+	info->status.rates[0].count = 1; // (retry > 1 ? 2 : 1);
 
 	for (i=1; i<IEEE80211_TX_MAX_RATES-1 && i<retry; i++) {
 		info->status.rates[i].idx = retries->rate[i];
-		info->status.rates[i].count = 1; 
+		info->status.rates[i].count = 1; // ((i==retry-1) && success ? 1:2);
 	}
 	for (; i<IEEE80211_TX_MAX_RATES && i<retry; i++) {
 		info->status.rates[i].idx = retries->rate[retry - 1];
-		info->status.rates[i].count = 1; 
+		info->status.rates[i].count = 1; // (success ? 1:2);
 	}
 	if (i<IEEE80211_TX_MAX_RATES)
-		info->status.rates[i].idx = -1; 
+		info->status.rates[i].idx = -1; /* terminate */
 
 	info->status.ack_signal = zd_check_signal(hw, ackssi);
 	ieee80211_tx_status_irqsafe(hw, skb);
 }
 
+/**
+ * zd_mac_tx_failed - callback for failed frames
+ * @dev: the mac80211 wireless device
+ *
+ * This function is called if a frame couldn't be successfully
+ * transferred. The first frame from the tx queue, will be selected and
+ * reported as error to the upper layers.
+ */
 void zd_mac_tx_failed(struct urb *urb)
 {
 	struct ieee80211_hw * hw = zd_usb_to_hw(urb->context);
@@ -474,6 +522,9 @@ void zd_mac_tx_failed(struct urb *urb)
 
 		position ++;
 
+		/* if the hardware reports a failure and we had a 802.11 ACK
+		 * pending, then we skip the first skb when searching for a
+		 * matching frame */
 		if (tx_status->failure && mac->ack_pending &&
 		    skb_queue_is_first(q, skb)) {
 			continue;
@@ -481,12 +532,12 @@ void zd_mac_tx_failed(struct urb *urb)
 
 		tx_hdr = (struct ieee80211_hdr *)skb->data;
 
-		
+		/* we skip all frames not matching the reported destination */
 		if (unlikely(memcmp(tx_hdr->addr1, tx_status->mac, ETH_ALEN))) {
 			continue;
 		}
 
-		
+		/* we skip all frames not matching the reported final rate */
 
 		info = IEEE80211_SKB_CB(skb);
 		first_idx = info->status.rates[0].idx;
@@ -519,6 +570,16 @@ void zd_mac_tx_failed(struct urb *urb)
 	spin_unlock_irqrestore(&q->lock, flags);
 }
 
+/**
+ * zd_mac_tx_to_dev - callback for USB layer
+ * @skb: a &sk_buff pointer
+ * @error: error value, 0 if transmission successful
+ *
+ * Informs the MAC layer that the frame has successfully transferred to the
+ * device. If an ACK is required and the transfer to the device has been
+ * successful, the packets are put on the @ack_wait_queue with
+ * the control set removed.
+ */
 void zd_mac_tx_to_dev(struct sk_buff *skb, int error)
 {
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
@@ -530,6 +591,9 @@ void zd_mac_tx_to_dev(struct sk_buff *skb, int error)
 	skb_pull(skb, sizeof(struct zd_ctrlset));
 	if (unlikely(error ||
 	    (info->flags & IEEE80211_TX_CTL_NO_ACK))) {
+		/*
+		 * FIXME : do we need to fill in anything ?
+		 */
 		ieee80211_tx_status_irqsafe(hw, skb);
 	} else {
 		struct sk_buff_head *q = &mac->ack_wait_queue;
@@ -546,10 +610,13 @@ void zd_mac_tx_to_dev(struct sk_buff *skb, int error)
 
 static int zd_calc_tx_length_us(u8 *service, u8 zd_rate, u16 tx_length)
 {
+	/* ZD_PURE_RATE() must be used to remove the modulation type flag of
+	 * the zd-rate values.
+	 */
 	static const u8 rate_divisor[] = {
 		[ZD_PURE_RATE(ZD_CCK_RATE_1M)]   =  1,
 		[ZD_PURE_RATE(ZD_CCK_RATE_2M)]	 =  2,
-		
+		/* Bits must be doubled. */
 		[ZD_PURE_RATE(ZD_CCK_RATE_5_5M)] = 11,
 		[ZD_PURE_RATE(ZD_CCK_RATE_11M)]	 = 11,
 		[ZD_PURE_RATE(ZD_OFDM_RATE_6M)]  =  6,
@@ -571,7 +638,7 @@ static int zd_calc_tx_length_us(u8 *service, u8 zd_rate, u16 tx_length)
 
 	switch (zd_rate) {
 	case ZD_CCK_RATE_5_5M:
-		bits = (2*bits) + 10; 
+		bits = (2*bits) + 10; /* round up to the next integer */
 		break;
 	case ZD_CCK_RATE_11M:
 		if (service) {
@@ -581,7 +648,7 @@ static int zd_calc_tx_length_us(u8 *service, u8 zd_rate, u16 tx_length)
 				*service |= ZD_PLCP_SERVICE_LENGTH_EXTENSION;
 			}
 		}
-		bits += 10; 
+		bits += 10; /* round up to the next integer */
 		break;
 	}
 
@@ -592,18 +659,23 @@ static void cs_set_control(struct zd_mac *mac, struct zd_ctrlset *cs,
 	                   struct ieee80211_hdr *header,
 	                   struct ieee80211_tx_info *info)
 {
+	/*
+	 * CONTROL TODO:
+	 * - if backoff needed, enable bit 0
+	 * - if burst (backoff not needed) disable bit 0
+	 */
 
 	cs->control = 0;
 
-	
+	/* First fragment */
 	if (info->flags & IEEE80211_TX_CTL_FIRST_FRAGMENT)
 		cs->control |= ZD_CS_NEED_RANDOM_BACKOFF;
 
-	
+	/* No ACK expected (multicast, etc.) */
 	if (info->flags & IEEE80211_TX_CTL_NO_ACK)
 		cs->control |= ZD_CS_NO_ACK;
 
-	
+	/* PS-POLL */
 	if (ieee80211_is_pspoll(header->frame_control))
 		cs->control |= ZD_CS_PS_POLL_FRAME;
 
@@ -613,7 +685,7 @@ static void cs_set_control(struct zd_mac *mac, struct zd_ctrlset *cs,
 	if (info->control.rates[0].flags & IEEE80211_TX_RC_USE_CTS_PROTECT)
 		cs->control |= ZD_CS_SELF_CTS;
 
-	
+	/* FIXME: Management frame? */
 }
 
 static bool zd_mac_match_cur_beacon(struct zd_mac *mac, struct sk_buff *beacon)
@@ -648,20 +720,20 @@ static int zd_mac_config_beacon(struct ieee80211_hw *hw, struct sk_buff *beacon,
 	struct zd_mac *mac = zd_hw_mac(hw);
 	int r, ret, num_cmds, req_pos = 0;
 	u32 tmp, j = 0;
-	
+	/* 4 more bytes for tail CRC */
 	u32 full_len = beacon->len + 4;
 	unsigned long end_jiffies, message_jiffies;
 	struct zd_ioreq32 *ioreqs;
 
 	mutex_lock(&mac->chip.mutex);
 
-	
+	/* Check if hw already has this beacon. */
 	if (zd_mac_match_cur_beacon(mac, beacon)) {
 		r = 0;
 		goto out_nofree;
 	}
 
-	
+	/* Alloc memory for full beacon write at once. */
 	num_cmds = 1 + zd_chip_is_zd1211b(&mac->chip) + full_len;
 	ioreqs = kmalloc(num_cmds * sizeof(struct zd_ioreq32), GFP_KERNEL);
 	if (!ioreqs) {
@@ -680,8 +752,8 @@ static int zd_mac_config_beacon(struct ieee80211_hw *hw, struct sk_buff *beacon,
 		goto release_sema;
 	}
 
-	end_jiffies = jiffies + HZ / 2; 
-	message_jiffies = jiffies + HZ / 10; 
+	end_jiffies = jiffies + HZ / 2; /*~500ms*/
+	message_jiffies = jiffies + HZ / 10; /*~100ms*/
 	while (tmp & 0x2) {
 		r = zd_ioread32_locked(&mac->chip, &tmp, CR_BCN_FIFO_SEMAPHORE);
 		if (r < 0)
@@ -726,7 +798,11 @@ static int zd_mac_config_beacon(struct ieee80211_hw *hw, struct sk_buff *beacon,
 	r = zd_iowrite32a_locked(&mac->chip, ioreqs, num_cmds);
 
 release_sema:
-	end_jiffies = jiffies + HZ / 2; 
+	/*
+	 * Try very hard to release device beacon semaphore, as otherwise
+	 * device/driver can be left in unusable state.
+	 */
+	end_jiffies = jiffies + HZ / 2; /*~500ms*/
 	ret = zd_iowrite32_locked(&mac->chip, 1, CR_BCN_FIFO_SEMAPHORE);
 	while (ret < 0) {
 		if (in_intr || time_is_before_eq_jiffies(end_jiffies)) {
@@ -778,7 +854,7 @@ reset_device:
 	mutex_unlock(&mac->chip.mutex);
 	kfree(ioreqs);
 
-	
+	/* semaphore stuck, reset device to avoid fw freeze later */
 	dev_warn(zd_mac_dev(mac), "CR_BCN_FIFO_SEMAPHORE stuck, "
 				  "resetting device...");
 	usb_queue_reset_device(mac->chip.usb.intf);
@@ -800,6 +876,11 @@ static int fill_ctrlset(struct zd_mac *mac,
 
 	ZD_ASSERT(frag_len <= 0xffff);
 
+	/*
+	 * Firmware computes the duration itself (for all frames except PSPoll)
+	 * and needs the field set to 0 at input, otherwise firmware messes up
+	 * duration_id and sets bits 14 and 15 on.
+	 */
 	if (!ieee80211_is_pspoll(hdr->frame_control))
 		hdr->duration_id = 0;
 
@@ -815,9 +896,25 @@ static int fill_ctrlset(struct zd_mac *mac,
 
 	packet_length = frag_len + sizeof(struct zd_ctrlset) + 10;
 	ZD_ASSERT(packet_length <= 0xffff);
+	/* ZD1211B: Computing the length difference this way, gives us
+	 * flexibility to compute the packet length.
+	 */
 	cs->packet_length = cpu_to_le16(zd_chip_is_zd1211b(&mac->chip) ?
 			packet_length - frag_len : packet_length);
 
+	/*
+	 * CURRENT LENGTH:
+	 * - transmit frame length in microseconds
+	 * - seems to be derived from frame length
+	 * - see Cal_Us_Service() in zdinlinef.h
+	 * - if macp->bTxBurstEnable is enabled, then multiply by 4
+	 *  - bTxBurstEnable is never set in the vendor driver
+	 *
+	 * SERVICE:
+	 * - "for PLCP configuration"
+	 * - always 0 except in some situations at 802.11b 11M
+	 * - see line 53 of zdinlinef.h
+	 */
 	cs->service = 0;
 	r = zd_calc_tx_length_us(&cs->service, ZD_RATE(cs->modulation),
 		                 le16_to_cpu(cs->tx_length));
@@ -829,6 +926,17 @@ static int fill_ctrlset(struct zd_mac *mac,
 	return 0;
 }
 
+/**
+ * zd_op_tx - transmits a network frame to the device
+ *
+ * @dev: mac80211 hardware device
+ * @skb: socket buffer
+ * @control: the control structure
+ *
+ * This function transmit an IEEE 802.11 network frame to the device. The
+ * control block of the skbuff will be initialized. If necessary the incoming
+ * mac80211 queues will be stopped.
+ */
 static void zd_op_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 {
 	struct zd_mac *mac = zd_hw_mac(hw);
@@ -850,6 +958,20 @@ fail:
 	dev_kfree_skb(skb);
 }
 
+/**
+ * filter_ack - filters incoming packets for acknowledgements
+ * @dev: the mac80211 device
+ * @rx_hdr: received header
+ * @stats: the status for the received packet
+ *
+ * This functions looks for ACK packets and tries to match them with the
+ * frames in the tx queue. If a match is found the frame will be dequeued and
+ * the upper layers is informed about the successful transmission. If
+ * mac80211 queues have been stopped and the number of frames still to be
+ * transmitted is low the queues will be opened again.
+ *
+ * Returns 1 if the frame was an ACK, 0 if it was ignored.
+ */
 static int filter_ack(struct ieee80211_hw *hw, struct ieee80211_hdr *rx_hdr,
 		      struct ieee80211_rx_status *stats)
 {
@@ -893,7 +1015,7 @@ static int filter_ack(struct ieee80211_hw *hw, struct ieee80211_hdr *rx_hdr,
 		mac->ack_pending = 1;
 		mac->ack_signal = stats->signal;
 
-		
+		/* Prevent pending tx-packet on AP-mode */
 		if (mac->type == NL80211_IFTYPE_AP) {
 			skb = __skb_dequeue(q);
 			zd_mac_tx_status(hw, skb, mac->ack_signal, NULL);
@@ -917,14 +1039,22 @@ int zd_mac_rx(struct ieee80211_hw *hw, const u8 *buffer, unsigned int length)
 	int i;
 	u8 rate;
 
-	if (length < ZD_PLCP_HEADER_SIZE + 10  +
+	if (length < ZD_PLCP_HEADER_SIZE + 10 /* IEEE80211_1ADDR_LEN */ +
 	             FCS_LEN + sizeof(struct rx_status))
 		return -EINVAL;
 
 	memset(&stats, 0, sizeof(stats));
 
+	/* Note about pass_failed_fcs and pass_ctrl access below:
+	 * mac locking intentionally omitted here, as this is the only unlocked
+	 * reader and the only writer is configure_filter. Plus, if there were
+	 * any races accessing these variables, it wouldn't really matter.
+	 * If mac80211 ever provides a way for us to access filter flags
+	 * from outside configure_filter, we could improve on this. Also, this
+	 * situation may change once we implement some kind of DMA-into-skb
+	 * RX path. */
 
-	
+	/* Caller has to ensure that length >= sizeof(struct rx_status). */
 	status = (struct rx_status *)
 		(buffer + (length - sizeof(struct rx_status)));
 	if (status->frame_status & ZD_RX_ERROR) {
@@ -943,7 +1073,7 @@ int zd_mac_rx(struct ieee80211_hw *hw, const u8 *buffer, unsigned int length)
 
 	rate = zd_rx_rate(buffer, status);
 
-	
+	/* todo: return index in the big switches in zd_rx_rate instead */
 	for (i = 0; i < mac->band.n_bitrates; i++)
 		if (rate == mac->band.bitrates[i].hw_value)
 			stats.rate_idx = i;
@@ -951,6 +1081,11 @@ int zd_mac_rx(struct ieee80211_hw *hw, const u8 *buffer, unsigned int length)
 	length -= ZD_PLCP_HEADER_SIZE + sizeof(struct rx_status);
 	buffer += ZD_PLCP_HEADER_SIZE;
 
+	/* Except for bad frames, filter each frame to see if it is an ACK, in
+	 * which case our internal TX tracking is updated. Normally we then
+	 * bail here as there's no need to pass ACKs on up to the stack, but
+	 * there is also the case where the stack has requested us to pass
+	 * control frames on up (pass_ctrl) which we must consider. */
 	if (!bad_frame &&
 			filter_ack(hw, (struct ieee80211_hdr *)buffer, &stats)
 			&& !mac->pass_ctrl)
@@ -963,11 +1098,11 @@ int zd_mac_rx(struct ieee80211_hw *hw, const u8 *buffer, unsigned int length)
 	if (skb == NULL)
 		return -ENOMEM;
 	if (need_padding) {
-		
+		/* Make sure the payload data is 4 byte aligned. */
 		skb_reserve(skb, 2);
 	}
 
-	
+	/* FIXME : could we avoid this big memcpy ? */
 	memcpy(skb_put(skb, length), buffer, length);
 
 	memcpy(IEEE80211_SKB_RXCB(skb), &stats, sizeof(stats));
@@ -980,7 +1115,7 @@ static int zd_op_add_interface(struct ieee80211_hw *hw,
 {
 	struct zd_mac *mac = zd_hw_mac(hw);
 
-	
+	/* using NL80211_IFTYPE_UNSPECIFIED to indicate no mode selected */
 	if (mac->type != NL80211_IFTYPE_UNSPECIFIED)
 		return -EOPNOTSUPP;
 
@@ -1034,6 +1169,9 @@ static void zd_beacon_done(struct zd_mac *mac)
 	if (!mac->vif || mac->vif->type != NL80211_IFTYPE_AP)
 		return;
 
+	/*
+	 * Send out buffered broad- and multicast frames.
+	 */
 	while (!ieee80211_queue_stopped(mac->hw, 0)) {
 		skb = ieee80211_get_buffered_bc(mac->hw, mac->vif);
 		if (!skb)
@@ -1041,6 +1179,9 @@ static void zd_beacon_done(struct zd_mac *mac)
 		zd_op_tx(mac->hw, skb);
 	}
 
+	/*
+	 * Fetch next beacon so that tim_count is updated.
+	 */
 	beacon = ieee80211_beacon_get(mac->hw, mac->vif);
 	if (beacon)
 		zd_mac_config_beacon(mac->hw, beacon, true);
@@ -1061,7 +1202,7 @@ static void zd_process_intr(struct work_struct *work)
 	spin_unlock_irqrestore(&mac->lock, flags);
 
 	if (int_status & INT_CFG_NEXT_BCN) {
-		
+		/*dev_dbg_f_limit(zd_mac_dev(mac), "INT_CFG_NEXT_BCN\n");*/
 		zd_beacon_done(mac);
 	} else {
 		dev_dbg_f(zd_mac_dev(mac), "Unsupported interrupt\n");
@@ -1104,10 +1245,17 @@ static void zd_op_configure_filter(struct ieee80211_hw *hw,
 	unsigned long flags;
 	int r;
 
-	
+	/* Only deal with supported flags */
 	changed_flags &= SUPPORTED_FIF_FLAGS;
 	*new_flags &= SUPPORTED_FIF_FLAGS;
 
+	/*
+	 * If multicast parameter (as returned by zd_op_prepare_multicast)
+	 * has changed, no bit in changed_flags is set. To handle this
+	 * situation, we do not return if changed_flags is 0. If we do so,
+	 * we will have some issue with IPv6 which uses multicast for link
+	 * layer address resolution.
+	 */
 	if (*new_flags & (FIF_PROMISC_IN_BSS | FIF_ALLMULTI))
 		zd_mc_add_all(&hash);
 
@@ -1125,6 +1273,14 @@ static void zd_op_configure_filter(struct ieee80211_hw *hw,
 			dev_err(zd_mac_dev(mac), "set_rx_filter error %d\n", r);
 	}
 
+	/* no handling required for FIF_OTHER_BSS as we don't currently
+	 * do BSSID filtering */
+	/* FIXME: in future it would be nice to enable the probe response
+	 * filter (so that the driver doesn't see them) until
+	 * FIF_BCN_PRBRESP_PROMISC is set. however due to atomicity here, we'd
+	 * have to schedule work to enable prbresp reception, which might
+	 * happen too late. For now we'll just listen and forward them all the
+	 * time. */
 }
 
 static void set_rts_cts(struct zd_mac *mac, unsigned int short_preamble)
@@ -1183,7 +1339,7 @@ static void zd_op_bss_info_changed(struct ieee80211_hw *hw,
 	mac->associated = associated;
 	spin_unlock_irq(&mac->lock);
 
-	
+	/* TODO: do hardware bssid filtering */
 
 	if (changes & BSS_CHANGED_ERP_PREAMBLE) {
 		spin_lock_irq(&mac->lock);
@@ -1255,8 +1411,11 @@ struct ieee80211_hw *zd_mac_alloc_hw(struct usb_interface *intf)
 	hw->queues = 1;
 	hw->extra_tx_headroom = sizeof(struct zd_ctrlset);
 
+	/*
+	 * Tell mac80211 that we support multi rate retries
+	 */
 	hw->max_rates = IEEE80211_TX_MAX_RATES;
-	hw->max_rate_tries = 18;	
+	hw->max_rate_tries = 18;	/* 9 rates * 2 retries/rate */
 
 	skb_queue_head_init(&mac->ack_wait_queue);
 	mac->ack_pending = 0;

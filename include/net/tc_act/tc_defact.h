@@ -11,4 +11,4 @@ struct tcf_defact {
 #define to_defact(pc) \
 	container_of(pc, struct tcf_defact, common)
 
-#endif 
+#endif /* __NET_TC_DEF_H */

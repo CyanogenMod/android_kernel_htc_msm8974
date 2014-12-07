@@ -28,6 +28,7 @@
 #define SPEAR310_RS485_1_BASE		UL(0xB3800000)
 #define SPEAR310_SOC_CONFIG_BASE	UL(0xB4000000)
 
+/* Interrupt registers offsets and masks */
 #define SPEAR310_INT_STS_MASK_REG	0x04
 #define SPEAR310_SMII0_IRQ_MASK		(1 << 0)
 #define SPEAR310_SMII1_IRQ_MASK		(1 << 1)
@@ -52,6 +53,6 @@
 #define SPEAR310_SHIRQ_RAS3_MASK	0x02000
 #define SPEAR310_SHIRQ_INTRCOMM_RAS_MASK	0x1C000
 
-#endif 
+#endif /* __MACH_SPEAR310_H */
 
-#endif 
+#endif /* CONFIG_MACH_SPEAR310 */

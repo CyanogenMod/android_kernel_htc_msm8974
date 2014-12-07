@@ -38,16 +38,33 @@
 #include <asm/pgtable.h>
 #include <asm/machdep.h>
 
+/*
+ * ZERO_PAGE is a special page that is used for zero-initialized
+ * data and COW.
+ */
 void *empty_zero_page;
 
+/*
+ * paging_init() continues the virtual memory environment setup which
+ * was begun by the code in arch/head.S.
+ * The parameters are pointers to where to stick the starting and ending
+ * addresses of available kernel virtual memory.
+ */
 void __init paging_init(void)
 {
+	/*
+	 * Make sure start_mem is page aligned, otherwise bootmem and
+	 * page_alloc get different views of the world.
+	 */
 	unsigned long end_mem   = memory_end & PAGE_MASK;
 	unsigned long zones_size[MAX_NR_ZONES] = {0, };
 
 	empty_zero_page = alloc_bootmem_pages(PAGE_SIZE);
 	memset(empty_zero_page, 0, PAGE_SIZE);
 
+	/*
+	 * Set up SFC/DFC registers (user data space).
+	 */
 	set_fs (USER_DS);
 
 	zones_size[ZONE_DMA] = (end_mem - PAGE_OFFSET) >> PAGE_SHIFT;
@@ -59,8 +76,8 @@ void __init mem_init(void)
 	int codek = 0, datak = 0, initk = 0;
 	unsigned long tmp;
 	unsigned long len = _ramend - _rambase;
-	unsigned long start_mem = memory_start; 
-	unsigned long end_mem   = memory_end; 
+	unsigned long start_mem = memory_start; /* DAVIDM - these must start at end of kernel */
+	unsigned long end_mem   = memory_end; /* DAVIDM - this must not include kernel stack at top */
 
 	pr_debug("Mem_init: start=%lx, end=%lx\n", start_mem, end_mem);
 
@@ -70,7 +87,7 @@ void __init mem_init(void)
 	start_mem = PAGE_ALIGN(start_mem);
 	max_mapnr = num_physpages = (((unsigned long) high_memory) - PAGE_OFFSET) >> PAGE_SHIFT;
 
-	
+	/* this will put all memory onto the freelists */
 	totalram_pages = free_all_bootmem();
 
 	codek = (_etext - _stext) >> 10;
@@ -107,8 +124,12 @@ void free_initmem(void)
 {
 #ifdef CONFIG_RAMKERNEL
 	unsigned long addr;
+	/*
+	 * The following code should be cool even if these sections
+	 * are not page aligned.
+	 */
 	addr = PAGE_ALIGN((unsigned long) __init_begin);
-	
+	/* next to check that the page we free is not a partial page */
 	for (; addr + PAGE_SIZE < ((unsigned long) __init_end); addr += PAGE_SIZE) {
 		ClearPageReserved(virt_to_page(addr));
 		init_page_count(virt_to_page(addr));

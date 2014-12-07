@@ -22,6 +22,7 @@
 
 #include "clock.h"
 
+/* at32 clock list */
 static LIST_HEAD(at32_clock_list);
 
 static DEFINE_SPINLOCK(clk_lock);
@@ -30,7 +31,7 @@ static DEFINE_SPINLOCK(clk_list_lock);
 void at32_clk_register(struct clk *clk)
 {
 	spin_lock(&clk_list_lock);
-	
+	/* add the new item to the end of the list */
 	list_add_tail(&clk->list, &at32_clock_list);
 	spin_unlock(&clk_list_lock);
 }
@@ -63,7 +64,7 @@ EXPORT_SYMBOL(clk_get);
 
 void clk_put(struct clk *clk)
 {
-	
+	/* clocks are static for now, we can't free them */
 }
 EXPORT_SYMBOL(clk_put);
 
@@ -181,6 +182,7 @@ EXPORT_SYMBOL(clk_get_parent);
 
 #ifdef CONFIG_DEBUG_FS
 
+/* /sys/kernel/debug/at32ap_clk */
 
 #include <linux/io.h>
 #include <linux/debugfs.h>
@@ -204,11 +206,11 @@ dump_clock(struct clk *parent, struct clkinf *r)
 	struct clk	*clk;
 	unsigned	i;
 
-	
+	/* skip clocks coupled to devices that aren't registered */
 	if (parent->dev && !dev_name(parent->dev) && !parent->users)
 		return;
 
-	
+	/* <nest spaces> name <pad to end> */
 	memset(buf, ' ', sizeof(buf) - 1);
 	buf[sizeof(buf) - 1] = 0;
 	i = strlen(parent->name);
@@ -218,13 +220,13 @@ dump_clock(struct clk *parent, struct clkinf *r)
 	seq_printf(r->s, "%s%c users=%2d %-3s %9ld Hz",
 		buf, parent->set_parent ? '*' : ' ',
 		parent->users,
-		parent->users ? "on" : "off",	
+		parent->users ? "on" : "off",	/* NOTE: not-paranoid!! */
 		clk_get_rate(parent));
 	if (parent->dev)
 		seq_printf(r->s, ", for %s", dev_name(parent->dev));
 	seq_printf(r->s, "\n");
 
-	
+	/* cost of this scan is small, but not linear... */
 	r->nest = nest + NEST_DELTA;
 
 	list_for_each_entry(clk, &at32_clock_list, list) {
@@ -240,7 +242,7 @@ static int clk_show(struct seq_file *s, void *unused)
 	int		i;
 	struct clk 	*clk;
 
-	
+	/* show all the power manager registers */
 	seq_printf(s, "MCCTRL  = %8x\n", pm_readl(MCCTRL));
 	seq_printf(s, "CKSEL   = %8x\n", pm_readl(CKSEL));
 	seq_printf(s, "CPUMASK = %8x\n", pm_readl(CPU_MASK));
@@ -260,10 +262,10 @@ static int clk_show(struct seq_file *s, void *unused)
 
 	r.s = s;
 	r.nest = 0;
-	
+	/* protected from changes on the list while dumping */
 	spin_lock(&clk_list_lock);
 
-	
+	/* show clock tree as derived from the three oscillators */
 	clk = __clk_get(NULL, "osc32k");
 	dump_clock(clk, &r);
 	clk_put(clk);

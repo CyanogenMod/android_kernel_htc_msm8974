@@ -83,7 +83,7 @@ static int switch_drv_probe(struct platform_device *pdev)
 	psw->debounce.function = switch_timer;
 	psw->debounce.data = (unsigned long)psw;
 
-	
+	/* Workqueue API brain-damage */
 	psw->pdev = pdev;
 
 	platform_set_drvdata(pdev, psw);

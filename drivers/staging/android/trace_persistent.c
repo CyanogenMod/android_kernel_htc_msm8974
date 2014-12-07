@@ -89,6 +89,10 @@ static void persistent_trace_call(unsigned long ip, unsigned long parent_ip)
 	if (unlikely(oops_in_progress))
 		return;
 
+	/*
+	 * Need to use raw, since this must be called before the
+	 * recursive protection is performed.
+	 */
 	local_irq_save(flags);
 	cpu = raw_smp_processor_id();
 	data = tr->data[cpu];

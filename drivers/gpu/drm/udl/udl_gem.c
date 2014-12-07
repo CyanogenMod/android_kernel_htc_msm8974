@@ -205,6 +205,8 @@ void udl_gem_free_object(struct drm_gem_object *gem_obj)
 		drm_gem_free_mmap_offset(gem_obj);
 }
 
+/* the dumb interface doesn't work with the GEM straight MMAP
+   interface, it expects to do MMAP on the drm fd, like normal */
 int udl_gem_mmap(struct drm_file *file, struct drm_device *dev,
 		 uint32_t handle, uint64_t *offset)
 {

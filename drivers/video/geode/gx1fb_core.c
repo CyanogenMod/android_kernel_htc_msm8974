@@ -28,56 +28,57 @@ static char mode_option[32] = "640x480-16@60";
 static int  crt_option = 1;
 static char panel_option[32] = "";
 
+/* Modes relevant to the GX1 (taken from modedb.c) */
 static const struct fb_videomode __devinitdata gx1_modedb[] = {
-	
+	/* 640x480-60 VESA */
 	{ NULL, 60, 640, 480, 39682,  48, 16, 33, 10, 96, 2,
 	  0, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 640x480-75 VESA */
 	{ NULL, 75, 640, 480, 31746, 120, 16, 16, 01, 64, 3,
 	  0, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 640x480-85 VESA */
 	{ NULL, 85, 640, 480, 27777, 80, 56, 25, 01, 56, 3,
 	  0, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 800x600-60 VESA */
 	{ NULL, 60, 800, 600, 25000, 88, 40, 23, 01, 128, 4,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 800x600-75 VESA */
 	{ NULL, 75, 800, 600, 20202, 160, 16, 21, 01, 80, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 800x600-85 VESA */
 	{ NULL, 85, 800, 600, 17761, 152, 32, 27, 01, 64, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 1024x768-60 VESA */
 	{ NULL, 60, 1024, 768, 15384, 160, 24, 29, 3, 136, 6,
 	  0, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 1024x768-75 VESA */
 	{ NULL, 75, 1024, 768, 12690, 176, 16, 28, 1, 96, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 1024x768-85 VESA */
 	{ NULL, 85, 1024, 768, 10582, 208, 48, 36, 1, 96, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 1280x960-60 VESA */
 	{ NULL, 60, 1280, 960, 9259, 312, 96, 36, 1, 112, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 1280x960-85 VESA */
 	{ NULL, 85, 1280, 960, 6734, 224, 64, 47, 1, 160, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 1280x1024-60 VESA */
 	{ NULL, 60, 1280, 1024, 9259, 248, 48, 38, 1, 112, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 1280x1024-75 VESA */
 	{ NULL, 75, 1280, 1024, 7407, 248, 16, 38, 1, 144, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 1280x1024-85 VESA */
 	{ NULL, 85, 1280, 1024, 6349, 224, 64, 44, 1, 160, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
@@ -100,14 +101,14 @@ static int gx1fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 {
 	struct geodefb_par *par = info->par;
 
-	
+	/* Maximum resolution is 1280x1024. */
 	if (var->xres > 1280 || var->yres > 1024)
 		return -EINVAL;
 
 	if (par->panel_x && (var->xres > par->panel_x || var->yres > par->panel_y))
 		return -EINVAL;
 
-	
+	/* Only 16 bpp and 8 bpp is supported by the hardware. */
 	if (var->bits_per_pixel == 16) {
 		var->red.offset   = 11; var->red.length   = 5;
 		var->green.offset =  5; var->green.length = 6;
@@ -121,11 +122,11 @@ static int gx1fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 	} else
 		return -EINVAL;
 
-	
+	/* Enough video memory? */
 	if (gx1_line_delta(var->xres, var->bits_per_pixel) * var->yres > info->fix.smem_len)
 		return -EINVAL;
 
-	
+	/* FIXME: Check timing parameters here? */
 
 	return 0;
 }
@@ -160,11 +161,11 @@ static int gx1fb_setcolreg(unsigned regno, unsigned red, unsigned green,
 	struct geodefb_par *par = info->par;
 
 	if (info->var.grayscale) {
-		
+		/* grayscale = 0.30*R + 0.59*G + 0.11*B */
 		red = green = blue = (red * 77 + green * 151 + blue * 28) >> 8;
 	}
 
-	
+	/* Truecolor has hardware independent palette */
 	if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
 		u32 *pal = info->pseudo_palette;
 		u32 v;
@@ -261,7 +262,7 @@ static struct fb_ops gx1fb_ops = {
 	.fb_set_par	= gx1fb_set_par,
 	.fb_setcolreg	= gx1fb_setcolreg,
 	.fb_blank       = gx1fb_blank,
-	
+	/* No HW acceleration for now. */
 	.fb_fillrect	= cfb_fillrect,
 	.fb_copyarea	= cfb_copyarea,
 	.fb_imageblit	= cfb_imageblit,
@@ -272,7 +273,7 @@ static struct fb_info * __devinit gx1fb_init_fbinfo(struct device *dev)
 	struct geodefb_par *par;
 	struct fb_info *info;
 
-	
+	/* Alloc enough space for the pseudo palette. */
 	info = framebuffer_alloc(sizeof(struct geodefb_par) + sizeof(u32) * 16, dev);
 	if (!info)
 		return NULL;
@@ -303,12 +304,12 @@ static struct fb_info * __devinit gx1fb_init_fbinfo(struct device *dev)
 
 	info->var.grayscale	= 0;
 
-	
+	/* CRT and panel options */
 	par->enable_crt = crt_option;
 	if (parse_panel_option(info) < 0)
 		printk(KERN_WARNING "gx1fb: invalid 'panel' option -- disabling flat panel\n");
 	if (!par->panel_x)
-		par->enable_crt = 1; 
+		par->enable_crt = 1; /* fall back to CRT if no panel is specified */
 
 	if (fb_alloc_cmap(&info->cmap, 256, 0) < 0) {
 		framebuffer_release(info);
@@ -328,7 +329,7 @@ static int __devinit gx1fb_probe(struct pci_dev *pdev, const struct pci_device_i
 		return -ENOMEM;
 	par = info->par;
 
-	
+	/* GX1 display controller and CS5530 video device */
 	par->dc_ops  = &gx1_dc_ops;
 	par->vid_ops = &cs5530_vid_ops;
 
@@ -345,7 +346,7 @@ static int __devinit gx1fb_probe(struct pci_dev *pdev, const struct pci_device_i
 		goto err;
 	}
 
-        
+        /* Clear the frame buffer of garbage. */
         memset_io(info->screen_base, 0, info->fix.smem_len);
 
 	gx1fb_check_var(&info->var, info);

@@ -34,6 +34,9 @@ extern const unsigned long long relocate_kernel_len;
 
 void *fill_cpu_elf_notes(void *ptr, struct save_area *sa);
 
+/*
+ * Create ELF notes for one CPU
+ */
 static void add_elf_notes(int cpu)
 {
 	struct save_area *sa = (void *) 4608 + store_prefix();
@@ -45,6 +48,9 @@ static void add_elf_notes(int cpu)
 	memset(ptr, 0, sizeof(struct elf_note));
 }
 
+/*
+ * Initialize CPU ELF notes
+ */
 void setup_regs(void)
 {
 	unsigned long sa = S390_lowcore.prefixreg_save_area + SAVE_AREA_BASE;
@@ -59,12 +65,15 @@ void setup_regs(void)
 			continue;
 		add_elf_notes(cpu);
 	}
-	
+	/* Copy dump CPU store status info to absolute zero */
 	memcpy((void *) SAVE_AREA_BASE, (void *) sa, sizeof(struct save_area));
 }
 
 #endif
 
+/*
+ * Start kdump: We expect here that a store status has been done on our CPU
+ */
 static void __do_machine_kdump(void *image)
 {
 #ifdef CONFIG_CRASH_DUMP
@@ -76,21 +85,27 @@ static void __do_machine_kdump(void *image)
 #endif
 }
 
+/*
+ * Check if kdump checksums are valid: We call purgatory with parameter "0"
+ */
 static int kdump_csum_valid(struct kimage *image)
 {
 #ifdef CONFIG_CRASH_DUMP
 	int (*start_kdump)(int) = (void *)image->start;
 	int rc;
 
-	__arch_local_irq_stnsm(0xfb); 
+	__arch_local_irq_stnsm(0xfb); /* disable DAT */
 	rc = start_kdump(0);
-	__arch_local_irq_stosm(0x04); 
+	__arch_local_irq_stosm(0x04); /* enable DAT */
 	return rc ? 0 : -EINVAL;
 #else
 	return -EINVAL;
 #endif
 }
 
+/*
+ * Map or unmap crashkernel memory
+ */
 static void crash_map_pages(int enable)
 {
 	unsigned long size = resource_size(&crashk_res);
@@ -103,16 +118,25 @@ static void crash_map_pages(int enable)
 		vmem_remove_mapping(crashk_res.start, size);
 }
 
+/*
+ * Map crashkernel memory
+ */
 void crash_map_reserved_pages(void)
 {
 	crash_map_pages(1);
 }
 
+/*
+ * Unmap crashkernel memory
+ */
 void crash_unmap_reserved_pages(void)
 {
 	crash_map_pages(0);
 }
 
+/*
+ * Give back memory to hypervisor before new kdump is loaded
+ */
 static int machine_kexec_prepare_kdump(void)
 {
 #ifdef CONFIG_CRASH_DUMP
@@ -129,21 +153,21 @@ int machine_kexec_prepare(struct kimage *image)
 {
 	void *reboot_code_buffer;
 
-	
+	/* Can't replace kernel image since it is read-only. */
 	if (ipl_flags & IPL_NSS_VALID)
 		return -ENOSYS;
 
 	if (image->type == KEXEC_TYPE_CRASH)
 		return machine_kexec_prepare_kdump();
 
-	
+	/* We don't support anything but the default image type for now. */
 	if (image->type != KEXEC_TYPE_DEFAULT)
 		return -EINVAL;
 
-	
+	/* Get the destination where the assembler code should be copied to.*/
 	reboot_code_buffer = (void *) page_to_phys(image->control_code_page);
 
-	
+	/* Then copy it */
 	memcpy(reboot_code_buffer, relocate_kernel, relocate_kernel_len);
 	return 0;
 }
@@ -163,6 +187,9 @@ void machine_shutdown(void)
 {
 }
 
+/*
+ * Do normal kexec
+ */
 static void __do_machine_kexec(void *data)
 {
 	relocate_kernel_t data_mover;
@@ -170,10 +197,13 @@ static void __do_machine_kexec(void *data)
 
 	data_mover = (relocate_kernel_t) page_to_phys(image->control_code_page);
 
-	
+	/* Call the moving routine */
 	(*data_mover)(&image->head, image->start);
 }
 
+/*
+ * Reset system and call either kdump or normal kexec
+ */
 static void __machine_kexec(void *data)
 {
 	struct kimage *image = data;
@@ -190,6 +220,10 @@ static void __machine_kexec(void *data)
 	disabled_wait((unsigned long) __builtin_return_address(0));
 }
 
+/*
+ * Do either kdump or normal kexec. In case of kdump we first ask
+ * purgatory, if kdump checksums are valid.
+ */
 void machine_kexec(struct kimage *image)
 {
 	if (image->type == KEXEC_TYPE_CRASH && !kdump_csum_valid(image))

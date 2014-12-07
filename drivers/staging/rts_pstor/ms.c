@@ -79,12 +79,12 @@ static int ms_transfer_tpc(struct rtsx_chip *chip, u8 trans_mode, u8 tpc, u8 cnt
 
 	ptr = rtsx_get_cmd_data(chip) + 1;
 
-	if (!(tpc & 0x08)) {		
+	if (!(tpc & 0x08)) {		/* Read Packet */
 		if (*ptr & MS_CRC16_ERR) {
 			ms_set_err_code(chip, MS_CRC16_ERROR);
 			TRACE_RET(chip, ms_parse_err_code(chip));
 		}
-	} else {			
+	} else {			/* Write Packet */
 		if (CHK_MSPRO(ms_card) && !(*ptr & 0x80)) {
 			if (*ptr & (MS_INT_ERR | MS_INT_CMDNK)) {
 				ms_set_err_code(chip, MS_CMD_NK);
@@ -623,7 +623,7 @@ static int ms_confirm_cpu_startup(struct rtsx_chip *chip)
 	int retval, i, k;
 	u8 val;
 
-	
+	/* Confirm CPU StartUp */
 	k = 0;
 	do {
 		if (detect_card_cd(chip, MS_CARD) != STATUS_SUCCESS) {
@@ -664,7 +664,7 @@ static int ms_confirm_cpu_startup(struct rtsx_chip *chip)
 			TRACE_RET(chip, STATUS_FAIL);
 		}
 	}
-	
+	/* --  end confirm CPU startup */
 
 	return STATUS_SUCCESS;
 }
@@ -760,7 +760,7 @@ static int ms_pro_reset_flow(struct rtsx_chip *chip, int switch_8bit_bus)
 		TRACE_RET(chip, STATUS_FAIL);
 	}
 
-	
+	/* Switch MS-PRO into Parallel mode */
 	RTSX_WRITE_REG(chip, MS_CFG, 0x18, MS_BUS_WIDTH_4);
 	RTSX_WRITE_REG(chip, MS_CFG, PUSH_TIME_ODD, PUSH_TIME_ODD);
 
@@ -769,7 +769,7 @@ static int ms_pro_reset_flow(struct rtsx_chip *chip, int switch_8bit_bus)
 		TRACE_RET(chip, STATUS_FAIL);
 	}
 
-	
+	/* If MSPro HG Card, We shall try to switch to 8-bit bus */
 	if (CHK_MSHG(ms_card) && chip->support_ms_8bit && switch_8bit_bus) {
 		retval = ms_switch_8bit_bus(chip);
 		if (retval != STATUS_SUCCESS) {
@@ -922,7 +922,7 @@ static int ms_read_attribute_info(struct rtsx_chip *chip)
 	}
 
 	if ((buf[0] != 0xa5) && (buf[1] != 0xc3)) {
-		
+		/* Signature code is wrong */
 		kfree(buf);
 		TRACE_RET(chip, STATUS_FAIL);
 	}
@@ -1216,10 +1216,10 @@ static int ms_read_extra_data(struct rtsx_chip *chip,
 	}
 
 	if (CHK_MS4BIT(ms_card)) {
-		
+		/* Parallel interface */
 		data[0] = 0x88;
 	} else {
-		
+		/* Serial interface */
 		data[0] = 0x80;
 	}
 	data[1] = 0;
@@ -1553,10 +1553,10 @@ static void ms_set_page_status(u16 log_blk, u8 type, u8 *extra, int extra_len)
 	memset(extra, 0xFF, MS_EXTRA_SIZE);
 
 	if (type == setPS_NG) {
-		
+		/* set page status as 1:NG,and block status keep 1:OK */
 		extra[0] = 0xB8;
 	} else {
-		
+		/* set page status as 0:Data Error,and block status keep 1:OK */
 		extra[0] = 0x98;
 	}
 
@@ -1571,7 +1571,7 @@ static int ms_init_page(struct rtsx_chip *chip, u16 phy_blk, u16 log_blk, u8 sta
 
 	memset(extra, 0xff, MS_EXTRA_SIZE);
 
-	extra[0] = 0xf8;	
+	extra[0] = 0xf8;	/* Block, page OK, data erased */
 	extra[1] = 0xff;
 	extra[2] = (u8)(log_blk >> 8);
 	extra[3] = (u8)log_blk;
@@ -1874,7 +1874,7 @@ static int reset_ms(struct rtsx_chip *chip)
 	i = 0;
 
 RE_SEARCH:
-	
+	/* Search Boot Block */
 	while (i < (MAX_DEFECTIVE_BLOCK + 2)) {
 		if (detect_card_cd(chip, MS_CARD) != STATUS_SUCCESS) {
 			ms_set_err_code(chip, MS_NO_CARD);
@@ -1917,7 +1917,7 @@ RE_SEARCH:
 		TRACE_RET(chip, STATUS_FAIL);
 	}
 
-	
+	/* Read MS system information as sys_info */
 	rtsx_init_cmd(chip);
 
 	for (i = 0; i < 96; i++) {
@@ -1932,7 +1932,7 @@ RE_SEARCH:
 	ptr = rtsx_get_cmd_data(chip);
 	memcpy(ms_card->raw_sys_info, ptr, 96);
 
-	
+	/* Read useful block contents */
 	rtsx_init_cmd(chip);
 
 	rtsx_add_cmd(chip, READ_REG_CMD, HEADER_ID0, 0, 0);
@@ -1959,11 +1959,17 @@ RE_SEARCH:
 	RTSX_DEBUGP("Boot block data:\n");
 	RTSX_DUMP(ptr, 16);
 
+	/* Block ID error
+	 * HEADER_ID0, HEADER_ID1
+	 */
 	if (ptr[0] != 0x00 || ptr[1] != 0x01) {
 		i = ms_card->boot_block + 1;
 		goto RE_SEARCH;
 	}
 
+	/* Page size error
+	 * PAGE_SIZE_0, PAGE_SIZE_1
+	 */
 	if (ptr[12] != 0x02 || ptr[13] != 0x00) {
 		i = ms_card->boot_block + 1;
 		goto RE_SEARCH;
@@ -1973,43 +1979,43 @@ RE_SEARCH:
 		chip->card_wp |= MS_CARD;
 	}
 
-	
+	/* BLOCK_SIZE_0, BLOCK_SIZE_1 */
 	block_size = ((u16)ptr[6] << 8) | ptr[7];
 	if (block_size == 0x0010) {
-		
+		/* Block size 16KB */
 		ms_card->block_shift = 5;
 		ms_card->page_off = 0x1F;
 	} else if (block_size == 0x0008) {
-		
+		/* Block size 8KB */
 		ms_card->block_shift = 4;
 		ms_card->page_off = 0x0F;
 	}
 
-	
+	/* BLOCK_COUNT_0, BLOCK_COUNT_1 */
 	ms_card->total_block = ((u16)ptr[8] << 8) | ptr[9];
 
 #ifdef SUPPORT_MAGIC_GATE
 	j = ptr[10];
 
-	if (ms_card->block_shift == 4)  { 
-		if (j < 2)  { 
+	if (ms_card->block_shift == 4)  { /* 4MB or 8MB */
+		if (j < 2)  { /* Effective block for 4MB: 0x1F0 */
 			ms_card->capacity = 0x1EE0;
-		} else { 
+		} else { /* Effective block for 8MB: 0x3E0 */
 			ms_card->capacity = 0x3DE0;
 		}
-	} else  { 
-		if (j < 5)  { 
+	} else  { /* 16MB, 32MB, 64MB or 128MB */
+		if (j < 5)  { /* Effective block for 16MB: 0x3E0 */
 			ms_card->capacity = 0x7BC0;
-		} else if (j < 0xA) { 
+		} else if (j < 0xA) { /* Effective block for 32MB: 0x7C0 */
 			ms_card->capacity = 0xF7C0;
-		} else if (j < 0x11) { 
+		} else if (j < 0x11) { /* Effective block for 64MB: 0xF80 */
 			ms_card->capacity = 0x1EF80;
-		} else { 
+		} else { /* Effective block for 128MB: 0x1F00 */
 			ms_card->capacity = 0x3DF00;
 		}
 	}
 #else
-	
+	/* EBLOCK_COUNT_0, EBLOCK_COUNT_1 */
 	eblock_cnt = ((u16)ptr[10] << 8) | ptr[11];
 
 	ms_card->capacity = ((u32)eblock_cnt - 2) << ms_card->block_shift;
@@ -2017,7 +2023,7 @@ RE_SEARCH:
 
 	chip->capacity[chip->card2lun[MS_CARD]] = ms_card->capacity;
 
-	
+	/* Switch I/F Mode */
 	if (ptr[15]) {
 		retval = ms_set_rw_reg_addr(chip, 0, 0, SystemParm, 1);
 		if (retval != STATUS_SUCCESS) {
@@ -2360,7 +2366,7 @@ static int ms_build_l2p_tbl(struct rtsx_chip *chip, int seg_no)
 
 	RTSX_DEBUGP("unused block count: %d\n", segment->unused_blk_cnt);
 
-	
+	/* Logical Address Confirmation Process */
 	if (seg_no == ms_card->segment_cnt - 1) {
 		if (segment->unused_blk_cnt < 2) {
 			chip->card_wp |= MS_CARD;
@@ -2400,7 +2406,7 @@ static int ms_build_l2p_tbl(struct rtsx_chip *chip, int seg_no)
 		}
 	}
 
-	
+	/* Make boot block be the first normal block */
 	if (seg_no == 0) {
 		for (log_blk = 0; log_blk < 494; log_blk++) {
 			tmp_blk = segment->l2p_table[log_blk];
@@ -2481,6 +2487,9 @@ int reset_ms_card(struct rtsx_chip *chip)
 	}
 
 	if (!CHK_MSPRO(ms_card)) {
+		/* Build table for the last segment,
+		 * to check if L2P talbe block exist,erasing it
+		 */
 		retval = ms_build_l2p_tbl(chip, ms_card->total_block / 512 - 1);
 		if (retval != STATUS_SUCCESS) {
 			TRACE_RET(chip, STATUS_FAIL);
@@ -4147,7 +4156,7 @@ SetICVFinish:
 	return retval;
 }
 
-#endif 
+#endif /* SUPPORT_MAGIC_GATE */
 
 void ms_cleanup_work(struct rtsx_chip *chip)
 {

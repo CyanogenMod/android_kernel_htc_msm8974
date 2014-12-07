@@ -10,19 +10,25 @@
 #ifdef __KERNEL__
 
 enum {
+	/* Force re-assigning all resources (ignore firmware
+	 * setup completely)
+	 */
 	PCI_REASSIGN_ALL_RSRC	= 0x00000001,
 
-	
+	/* Re-assign all bus numbers */
 	PCI_REASSIGN_ALL_BUS	= 0x00000002,
 
-	
+	/* Do not try to assign, just use existing setup */
 	PCI_PROBE_ONLY		= 0x00000004,
 
+	/* Don't bother with ISA alignment unless the bridge has
+	 * ISA forwarding enabled
+	 */
 	PCI_CAN_SKIP_ISA_ALIGN	= 0x00000008,
 
-	
+	/* Enable domain numbers in /proc */
 	PCI_ENABLE_PROC_DOMAINS	= 0x00000010,
-	
+	/* ... except for domain 0 */
 	PCI_COMPAT_DOMAIN_0	= 0x00000020,
 };
 
@@ -56,7 +62,7 @@ static inline int pci_has_flag(int flag)
 {
 	return 0;
 }
-#endif	
+#endif	/* CONFIG_PCI */
 
-#endif	
-#endif	
+#endif	/* __KERNEL__ */
+#endif	/* _ASM_GENERIC_PCI_BRIDGE_H */

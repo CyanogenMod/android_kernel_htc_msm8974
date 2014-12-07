@@ -36,4 +36,4 @@ static inline struct dvb_frontend *simple_tuner_attach(struct dvb_frontend *fe,
 }
 #endif
 
-#endif 
+#endif /* __TUNER_SIMPLE_H__ */

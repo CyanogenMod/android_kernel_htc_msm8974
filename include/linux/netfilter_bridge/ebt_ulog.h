@@ -5,7 +5,7 @@
 
 #define EBT_ULOG_DEFAULT_NLGROUP 0
 #define EBT_ULOG_DEFAULT_QTHRESHOLD 1
-#define EBT_ULOG_MAXNLGROUPS 32 
+#define EBT_ULOG_MAXNLGROUPS 32 /* hardcoded netlink max */
 #define EBT_ULOG_PREFIX_LEN 32
 #define EBT_ULOG_MAX_QLEN 50
 #define EBT_ULOG_WATCHER "ulog"
@@ -29,8 +29,10 @@ typedef struct ebt_ulog_packet_msg {
 	unsigned long mark;
 	unsigned int hook;
 	size_t data_len;
+	/* The complete packet, including Ethernet header and perhaps
+	 * the VLAN header is appended */
 	unsigned char data[0] __attribute__
 	                      ((aligned (__alignof__(struct ebt_ulog_info))));
 } ebt_ulog_packet_msg_t;
 
-#endif 
+#endif /* _EBT_ULOG_H */

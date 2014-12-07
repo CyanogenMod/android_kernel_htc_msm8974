@@ -38,17 +38,17 @@ static int lpddr_pfow_present(struct map_info *map,
 			struct lpddr_private *lpddr);
 
 static struct qinfo_query_info qinfo_array[] = {
-	
+	/* General device info */
 	{0, 0, "DevSizeShift", "Device size 2^n bytes"},
 	{0, 3, "BufSizeShift", "Program buffer size 2^n bytes"},
-	
+	/* Erase block information */
 	{1, 1, "TotalBlocksNum", "Total number of blocks"},
 	{1, 2, "UniformBlockSizeShift", "Uniform block size 2^n bytes"},
-	
+	/* Partition information */
 	{2, 1, "HWPartsNum", "Number of hardware partitions"},
-	
+	/* Optional features */
 	{5, 1, "SuspEraseSupp", "Suspend erase supported"},
-	
+	/* Operation typical time */
 	{10, 0, "SingleWordProgTime", "Single word program 2^n u-sec"},
 	{10, 1, "ProgBufferTime", "Program buffer write 2^n u-sec"},
 	{10, 2, "BlockEraseTime", "Block erase 2^n m-sec"},
@@ -81,7 +81,7 @@ static uint16_t lpddr_info_query(struct map_info *map, char *id_str)
 	unsigned long adr = lpddr_get_qinforec_pos(map, id_str);
 	int attempts = 20;
 
-	
+	/* Write a request for the PFOW record */
 	map_write(map, CMD(LPDDR_INFO_QUERY),
 			map->pfow_base + PFOW_COMMAND_CODE);
 	map_write(map, CMD(adr & ((1 << bits_per_chip) - 1)),
@@ -106,7 +106,7 @@ static int lpddr_pfow_present(struct map_info *map, struct lpddr_private *lpddr)
 {
 	map_word pfow_val[4];
 
-	
+	/* Check identification string */
 	pfow_val[0] = map_read(map, map->pfow_base + PFOW_QUERY_STRING_P);
 	pfow_val[1] = map_read(map, map->pfow_base + PFOW_QUERY_STRING_F);
 	pfow_val[2] = map_read(map, map->pfow_base + PFOW_QUERY_STRING_O);
@@ -124,7 +124,7 @@ static int lpddr_pfow_present(struct map_info *map, struct lpddr_private *lpddr)
 	if (!map_word_equal(map, CMD('W'), pfow_val[3]))
 		goto out;
 
-	return 1;	
+	return 1;	/* "PFOW" is found */
 out:
 	printk(KERN_WARNING"%s: PFOW string at 0x%lx is not found \n",
 					map->name, map->pfow_base);
@@ -141,11 +141,11 @@ static int lpddr_chip_setup(struct map_info *map, struct lpddr_private *lpddr)
 		return 0;
 	}
 
-	
+	/* Get the ManuID */
 	lpddr->ManufactId = CMDVAL(map_read(map, map->pfow_base + PFOW_MANUFACTURER_ID));
-	
+	/* Get the DeviceID */
 	lpddr->DevId = CMDVAL(map_read(map, map->pfow_base + PFOW_DEVICE_ID));
-	
+	/* read parameters from chip qinfo table */
 	lpddr->qinfo->DevSizeShift = lpddr_info_query(map, "DevSizeShift");
 	lpddr->qinfo->TotalBlocksNum = lpddr_info_query(map, "TotalBlocksNum");
 	lpddr->qinfo->BufSizeShift = lpddr_info_query(map, "BufSizeShift");
@@ -179,7 +179,7 @@ static struct lpddr_private *lpddr_probe_chip(struct map_info *map)
 	if (!lpddr_chip_setup(map, &lpddr))
 		return NULL;
 
-	
+	/* Ok so we found a chip */
 	lpddr.chipshift = lpddr.qinfo->DevSizeShift;
 	lpddr.numchips = 1;
 
@@ -203,7 +203,7 @@ struct mtd_info *lpddr_probe(struct map_info *map)
 	struct mtd_info *mtd = NULL;
 	struct lpddr_private *lpddr;
 
-	
+	/* First probe the map to see if we havecan open PFOW here */
 	lpddr = lpddr_probe_chip(map);
 	if (!lpddr)
 		return NULL;

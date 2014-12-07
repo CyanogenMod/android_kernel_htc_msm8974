@@ -1,3 +1,10 @@
+/**
+ * \file drm_dma.c
+ * DMA IOCTL and function support
+ *
+ * \author Rickard E. (Rik) Faith <faith@valinux.com>
+ * \author Gareth Hughes <gareth@valinux.com>
+ */
 
 /*
  * Created: Fri Mar 19 14:30:16 1999 by faith@valinux.com
@@ -29,6 +36,14 @@
 #include <linux/export.h>
 #include "drmP.h"
 
+/**
+ * Initialize the DMA data.
+ *
+ * \param dev DRM device.
+ * \return zero on success or a negative value on failure.
+ *
+ * Allocate and initialize a drm_device_dma structure.
+ */
 int drm_dma_setup(struct drm_device *dev)
 {
 	int i;
@@ -43,6 +58,14 @@ int drm_dma_setup(struct drm_device *dev)
 	return 0;
 }
 
+/**
+ * Cleanup the DMA resources.
+ *
+ * \param dev DRM device.
+ *
+ * Free all pages associated with DMA buffers, the buffers and pages lists, and
+ * finally the drm_device::dma structure itself.
+ */
 void drm_dma_takedown(struct drm_device *dev)
 {
 	struct drm_device_dma *dma = dev->dma;
@@ -51,7 +74,7 @@ void drm_dma_takedown(struct drm_device *dev)
 	if (!dma)
 		return;
 
-	
+	/* Clear dma buffers */
 	for (i = 0; i <= DRM_MAX_ORDER; i++) {
 		if (dma->bufs[i].seg_count) {
 			DRM_DEBUG("order %d: buf_count = %d,"
@@ -80,6 +103,14 @@ void drm_dma_takedown(struct drm_device *dev)
 	dev->dma = NULL;
 }
 
+/**
+ * Free a buffer.
+ *
+ * \param dev DRM device.
+ * \param buf buffer to free.
+ *
+ * Resets the fields of \p buf.
+ */
 void drm_free_buffer(struct drm_device *dev, struct drm_buf * buf)
 {
 	if (!buf)
@@ -96,6 +127,13 @@ void drm_free_buffer(struct drm_device *dev, struct drm_buf * buf)
 	}
 }
 
+/**
+ * Reclaim the buffers.
+ *
+ * \param file_priv DRM file private.
+ *
+ * Frees each buffer associated with \p file_priv not already on the hardware.
+ */
 void drm_core_reclaim_buffers(struct drm_device *dev,
 			      struct drm_file *file_priv)
 {
@@ -114,7 +152,7 @@ void drm_core_reclaim_buffers(struct drm_device *dev,
 				dma->buflist[i]->list = DRM_LIST_RECLAIM;
 				break;
 			default:
-				
+				/* Buffer already on hardware. */
 				break;
 			}
 		}

@@ -33,6 +33,21 @@ static int sh7786_pcie_config_access(unsigned char access_type,
 	if (bus->number > 255 || dev > 31 || func > 7)
 		return PCIBIOS_FUNC_NOT_SUPPORTED;
 
+	/*
+	 * While each channel has its own memory-mapped extended config
+	 * space, it's generally only accessible when in endpoint mode.
+	 * When in root complex mode, the controller is unable to target
+	 * itself with either type 0 or type 1 accesses, and indeed, any
+	 * controller initiated target transfer to its own config space
+	 * result in a completer abort.
+	 *
+	 * Each channel effectively only supports a single device, but as
+	 * the same channel <-> device access works for any PCI_SLOT()
+	 * value, we cheat a bit here and bind the controller's config
+	 * space to devfn 0 in order to enable self-enumeration. In this
+	 * case the regular PAR/PDR path is sidelined and the mangled
+	 * config access itself is initiated as a SuperHyway transaction.
+	 */
 	if (pci_is_root_bus(bus)) {
 		if (dev == 0) {
 			if (access_type == PCI_ACCESS_READ)
@@ -45,21 +60,21 @@ static int sh7786_pcie_config_access(unsigned char access_type,
 			return PCIBIOS_DEVICE_NOT_FOUND;
 	}
 
-	
+	/* Clear errors */
 	pci_write_reg(chan, pci_read_reg(chan, SH4A_PCIEERRFR), SH4A_PCIEERRFR);
 
-	
+	/* Set the PIO address */
 	pci_write_reg(chan, (bus->number << 24) | (dev << 19) |
 				(func << 16) | reg, SH4A_PCIEPAR);
 
-	
+	/* Enable the configuration access */
 	pci_write_reg(chan, (1 << 31) | (type << 8), SH4A_PCIEPCTLR);
 
-	
+	/* Check for errors */
 	if (pci_read_reg(chan, SH4A_PCIEERRFR) & 0x10)
 		return PCIBIOS_DEVICE_NOT_FOUND;
 
-	
+	/* Check for master and target aborts */
 	if (pci_read_reg(chan, SH4A_PCIEPCICONF1) & ((1 << 29) | (1 << 28)))
 		return PCIBIOS_DEVICE_NOT_FOUND;
 
@@ -68,7 +83,7 @@ static int sh7786_pcie_config_access(unsigned char access_type,
 	else
 		pci_write_reg(chan, *data, SH4A_PCIEPDR);
 
-	
+	/* Disable the configuration access */
 	pci_write_reg(chan, 0, SH4A_PCIEPCTLR);
 
 	return PCIBIOS_SUCCESSFUL;

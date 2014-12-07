@@ -72,6 +72,9 @@ struct fb_info_platinum {
 	struct resource			rsrc_fb, rsrc_reg;
 };
 
+/*
+ * Frame buffer device API
+ */
 
 static int platinumfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	u_int transp, struct fb_info *info);
@@ -79,6 +82,9 @@ static int platinumfb_blank(int blank_mode, struct fb_info *info);
 static int platinumfb_set_par (struct fb_info *info);
 static int platinumfb_check_var (struct fb_var_screeninfo *var, struct fb_info *info);
 
+/*
+ * internal functions
+ */
 
 static inline int platinum_vram_reqd(int video_mode, int color_mode);
 static int read_platinum_sense(struct fb_info_platinum *pinfo);
@@ -88,6 +94,9 @@ static int platinum_var_to_par(struct fb_var_screeninfo *var,
 			       struct fb_info_platinum *pinfo,
 			       int check_only);
 
+/*
+ * Interface used by the world
+ */
 
 static struct fb_ops platinumfb_ops = {
 	.owner =	THIS_MODULE,
@@ -100,11 +109,17 @@ static struct fb_ops platinumfb_ops = {
 	.fb_imageblit	= cfb_imageblit,
 };
 
+/*
+ * Checks a var structure
+ */
 static int platinumfb_check_var (struct fb_var_screeninfo *var, struct fb_info *info)
 {
 	return platinum_var_to_par(var, info->par, 1);
 }
 
+/*
+ * Applies current var to display
+ */
 static int platinumfb_set_par (struct fb_info *info)
 {
 	struct fb_info_platinum *pinfo = info->par;
@@ -138,6 +153,31 @@ static int platinumfb_set_par (struct fb_info *info)
 
 static int platinumfb_blank(int blank,  struct fb_info *fb)
 {
+/*
+ *  Blank the screen if blank_mode != 0, else unblank. If blank == NULL
+ *  then the caller blanks by setting the CLUT (Color Look Up Table) to all
+ *  black. Return 0 if blanking succeeded, != 0 if un-/blanking failed due
+ *  to e.g. a video mode which doesn't support it. Implements VESA suspend
+ *  and powerdown modes on hardware that supports disabling hsync/vsync:
+ *    blank_mode == 2: suspend vsync
+ *    blank_mode == 3: suspend hsync
+ *    blank_mode == 4: powerdown
+ */
+/* [danj] I think there's something fishy about those constants... */
+/*
+	struct fb_info_platinum *info = (struct fb_info_platinum *) fb;
+	int	ctrl;
+
+	ctrl = ld_le32(&info->platinum_regs->ctrl.r) | 0x33;
+	if (blank)
+		--blank_mode;
+	if (blank & VESA_VSYNC_SUSPEND)
+		ctrl &= ~3;
+	if (blank & VESA_HSYNC_SUSPEND)
+		ctrl &= ~0x30;
+	out_le32(&info->platinum_regs->ctrl.r, ctrl);
+*/
+/* TODO: Figure out how the heck to powerdown this thing! */
 	return 0;
 }
 
@@ -158,9 +198,9 @@ static int platinumfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	pinfo->palette[regno].green = green;
 	pinfo->palette[regno].blue = blue;
 
-	out_8(&cmap_regs->addr, regno);		
-	out_8(&cmap_regs->lut, red);		
-	out_8(&cmap_regs->lut, green);		
+	out_8(&cmap_regs->addr, regno);		/* tell clut what addr to fill	*/
+	out_8(&cmap_regs->lut, red);		/* send one color channel at	*/
+	out_8(&cmap_regs->lut, green);		/* a time...			*/
 	out_8(&cmap_regs->lut, blue);
 
 	if (regno < 16) {
@@ -222,6 +262,8 @@ static void set_platinum_clock(struct fb_info_platinum *pinfo)
 }
 
 
+/* Now how about actually saying, Make it so! */
+/* Some things in here probably don't need to be done each time. */
 static void platinum_set_hardware(struct fb_info_platinum *pinfo)
 {
 	volatile struct platinum_regs	__iomem *platinum_regs = pinfo->platinum_regs;
@@ -235,8 +277,8 @@ static void platinum_set_hardware(struct fb_info_platinum *pinfo)
 
 	init = platinum_reg_init[vmode - 1];
 
-	
-	out_be32(&platinum_regs->reg[24].r, 7);	
+	/* Initialize display timing registers */
+	out_be32(&platinum_regs->reg[24].r, 7);	/* turn display off */
 
 	for (i = 0; i < 26; ++i)
 		out_be32(&platinum_regs->reg[i+32].r, init->regs[i]);
@@ -255,7 +297,7 @@ static void platinum_set_hardware(struct fb_info_platinum *pinfo)
 	out_be32(&platinum_regs->reg[23].r, 1);
 	out_be32(&platinum_regs->reg[26].r, 0xc00);
 	out_be32(&platinum_regs->reg[27].r, 0x235);
-	
+	/* out_be32(&platinum_regs->reg[27].r, 0x2aa); */
 
 	STORE_D2(0, (pinfo->total_vram == 0x100000 ?
 		     init->dacula_ctrl[cmode] & 0xf :
@@ -265,12 +307,15 @@ static void platinum_set_hardware(struct fb_info_platinum *pinfo)
 
 	set_platinum_clock(pinfo);
 
-	out_be32(&platinum_regs->reg[24].r, 0);	
+	out_be32(&platinum_regs->reg[24].r, 0);	/* turn display on */
 }
 
+/*
+ * Set misc info vars for this driver
+ */
 static void __devinit platinum_init_info(struct fb_info *info, struct fb_info_platinum *pinfo)
 {
-	
+	/* Fill fb_info */
 	info->fbops = &platinumfb_ops;
 	info->pseudo_palette = pinfo->pseudo_palette;
         info->flags = FBINFO_DEFAULT;
@@ -278,12 +323,12 @@ static void __devinit platinum_init_info(struct fb_info *info, struct fb_info_pl
 
 	fb_alloc_cmap(&info->cmap, 256, 0);
 
-	
+	/* Fill fix common fields */
 	strcpy(info->fix.id, "platinum");
 	info->fix.mmio_start = pinfo->platinum_regs_phys;
 	info->fix.mmio_len = 0x1000;
 	info->fix.type = FB_TYPE_PACKED_PIXELS;
-	info->fix.smem_start = pinfo->frame_buffer_phys + 0x20; 
+	info->fix.smem_start = pinfo->frame_buffer_phys + 0x20; /* will be updated later */
 	info->fix.smem_len = pinfo->total_vram - 0x20;
         info->fix.ywrapstep = 0;
 	info->fix.xpanstep = 0;
@@ -320,15 +365,18 @@ static int __devinit platinum_init_fb(struct fb_info *info)
 #endif
 	if (default_cmode < CMODE_8 || default_cmode > CMODE_32)
 		default_cmode = CMODE_8;
+	/*
+	 * Reduce the pixel size if we don't have enough VRAM.
+	 */
 	while(default_cmode > CMODE_8 &&
 	      platinum_vram_reqd(default_vmode, default_cmode) > pinfo->total_vram)
 		default_cmode--;
 
 	printk("platinumfb:  Using video mode %d and color mode %d.\n", default_vmode, default_cmode);
 
-	
+	/* Setup default var */
 	if (mac_vmode_to_var(default_vmode, default_cmode, &var) < 0) {
-		
+		/* This shouldn't happen! */
 		printk("mac_vmode_to_var(%d, %d,) failed\n", default_vmode, default_cmode);
 try_again:
 		default_vmode = VMODE_640_480_60;
@@ -339,17 +387,17 @@ try_again:
 		}
 	}
 
-	
+	/* Initialize info structure */
 	platinum_init_info(info, pinfo);
 
-	
+	/* Apply default var */
 	info->var = var;
 	var.activate = FB_ACTIVATE_NOW;
 	rc = fb_set_var(info, &var);
 	if (rc && (default_vmode != VMODE_640_480_60 || default_cmode != CMODE_8))
 		goto try_again;
 
-	
+	/* Register with fbdev layer */
 	rc = register_framebuffer(info);
 	if (rc < 0)
 		return rc;
@@ -359,32 +407,41 @@ try_again:
 	return 0;
 }
 
+/*
+ * Get the monitor sense value.
+ * Note that this can be called before calibrate_delay,
+ * so we can't use udelay.
+ */
 static int read_platinum_sense(struct fb_info_platinum *info)
 {
 	volatile struct platinum_regs __iomem *platinum_regs = info->platinum_regs;
 	int sense;
 
-	out_be32(&platinum_regs->reg[23].r, 7);	
+	out_be32(&platinum_regs->reg[23].r, 7);	/* turn off drivers */
 	__delay(2000);
 	sense = (~in_be32(&platinum_regs->reg[23].r) & 7) << 8;
 
-	
-	out_be32(&platinum_regs->reg[23].r, 3);	
+	/* drive each sense line low in turn and collect the other 2 */
+	out_be32(&platinum_regs->reg[23].r, 3);	/* drive A low */
 	__delay(2000);
 	sense |= (~in_be32(&platinum_regs->reg[23].r) & 3) << 4;
-	out_be32(&platinum_regs->reg[23].r, 5);	
+	out_be32(&platinum_regs->reg[23].r, 5);	/* drive B low */
 	__delay(2000);
 	sense |= (~in_be32(&platinum_regs->reg[23].r) & 4) << 1;
 	sense |= (~in_be32(&platinum_regs->reg[23].r) & 1) << 2;
-	out_be32(&platinum_regs->reg[23].r, 6);	
+	out_be32(&platinum_regs->reg[23].r, 6);	/* drive C low */
 	__delay(2000);
 	sense |= (~in_be32(&platinum_regs->reg[23].r) & 6) >> 1;
 
-	out_be32(&platinum_regs->reg[23].r, 7);	
+	out_be32(&platinum_regs->reg[23].r, 7);	/* turn off drivers */
 
 	return sense;
 }
 
+/*
+ * This routine takes a user-supplied var, and picks the best vmode/cmode from it.
+ * It also updates the var structure to the actual mode data obtained
+ */
 static int platinum_var_to_par(struct fb_var_screeninfo *var, 
 			       struct fb_info_platinum *pinfo,
 			       int check_only)
@@ -432,6 +489,9 @@ static int platinum_var_to_par(struct fb_var_screeninfo *var,
 }
 
 
+/* 
+ * Parse user specified options (`video=platinumfb:')
+ */
 static int __init platinumfb_setup(char *options)
 {
 	char *this_opt;
@@ -503,6 +563,9 @@ static int __devinit platinumfb_probe(struct platform_device* odev)
 		(unsigned long long)pinfo->rsrc_fb.start,
 		(unsigned long long)pinfo->rsrc_fb.end);
 
+	/* Do not try to request register space, they overlap with the
+	 * northbridge and that can fail. Only request framebuffer
+	 */
 	if (!request_mem_region(pinfo->rsrc_fb.start,
 				resource_size(&pinfo->rsrc_fb),
 				"platinumfb framebuffer")) {
@@ -511,24 +574,24 @@ static int __devinit platinumfb_probe(struct platform_device* odev)
 		return -ENXIO;
 	}
 
-	
+	/* frame buffer - map only 4MB */
 	pinfo->frame_buffer_phys = pinfo->rsrc_fb.start;
 	pinfo->frame_buffer = __ioremap(pinfo->rsrc_fb.start, 0x400000,
 					_PAGE_WRITETHRU);
 	pinfo->base_frame_buffer = pinfo->frame_buffer;
 
-	
+	/* registers */
 	pinfo->platinum_regs_phys = pinfo->rsrc_reg.start;
 	pinfo->platinum_regs = ioremap(pinfo->rsrc_reg.start, 0x1000);
 
-	pinfo->cmap_regs_phys = 0xf301b000;	
+	pinfo->cmap_regs_phys = 0xf301b000;	/* XXX not in prom? */
 	request_mem_region(pinfo->cmap_regs_phys, 0x1000, "platinumfb cmap");
 	pinfo->cmap_regs = ioremap(pinfo->cmap_regs_phys, 0x1000);
 
-	
+	/* Grok total video ram */
 	out_be32(&pinfo->platinum_regs->reg[16].r, (unsigned)pinfo->frame_buffer_phys);
-	out_be32(&pinfo->platinum_regs->reg[20].r, 0x1011);	
-	out_be32(&pinfo->platinum_regs->reg[24].r, 0);	
+	out_be32(&pinfo->platinum_regs->reg[20].r, 0x1011);	/* select max vram */
+	out_be32(&pinfo->platinum_regs->reg[24].r, 0);	/* switch in vram */
 
 	fbuffer = pinfo->base_frame_buffer;
 	fbuffer[0x100000] = 0x34;
@@ -540,7 +603,7 @@ static int __devinit platinumfb_probe(struct platform_device* odev)
 	fbuffer[0x300000] = 0x78;
 	fbuffer[0x300008] = 0x0;
 	invalidate_cache(&fbuffer[0x300000]);
-	bank0 = 1; 
+	bank0 = 1; /* builtin 1MB vram, always there */
 	bank1 = fbuffer[0x100000] == 0x34;
 	bank2 = fbuffer[0x200000] == 0x56;
 	bank3 = fbuffer[0x300000] == 0x78;
@@ -549,6 +612,9 @@ static int __devinit platinumfb_probe(struct platform_device* odev)
 	       (unsigned int) (pinfo->total_vram / 1024 / 1024),
 	       bank3, bank2, bank1, bank0);
 
+	/*
+	 * Try to determine whether we have an old or a new DACula.
+	 */
 	out_8(&pinfo->cmap_regs->addr, 0x40);
 	pinfo->dactype = in_8(&pinfo->cmap_regs->d2);
 	switch (pinfo->dactype) {
@@ -586,7 +652,7 @@ static int __devexit platinumfb_remove(struct platform_device* odev)
 	
         unregister_framebuffer (info);
 	
-	
+	/* Unmap frame buffer and registers */
 	iounmap(pinfo->frame_buffer);
 	iounmap(pinfo->platinum_regs);
 	iounmap(pinfo->cmap_regs);

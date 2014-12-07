@@ -21,8 +21,9 @@
 
 #define IOCLK (3686400L)
 
+/* Onchip peripherals */
 
-#define IO_VIRT			0xf0000000	
+#define IO_VIRT			0xf0000000	/* IO peripherals */
 #define IO_PHYS			0x80000000
 #define IO_SIZE			0x00050000
 
@@ -34,12 +35,17 @@
 #error machine definition mismatch
 #endif
 
+/* Macro to access the CPU IO */
 #define CPU_IO(x) (*(volatile u32*)(x))
 
+/* Macro to access general purpose regs (base, offset) */
 #define CPU_REG(x,y) CPU_IO(x+y)
 
+/* Macro to access irq related regs */
 #define IRQ_REG(x) CPU_REG(IRQC_VIRT,x)
 
+/* CPU registers */
+/* general purpose I/O */
 #define GPIO_VIRT(x)		(IO_VIRT + 0x23000 + ((x)<<5))
 #define GPIO_A_VIRT		(GPIO_VIRT(0))
 #define GPIO_B_VIRT		(GPIO_VIRT(1))
@@ -55,6 +61,7 @@
 #define AMULSEL_IRDIN	(1<<15)
 #define AMULSEL_IRDOUT	(1<<7)
 
+/* Register offsets general purpose I/O */
 #define GPIO_DATA		0x00
 #define GPIO_DIR		0x04
 #define GPIO_MASK		0x08
@@ -64,11 +71,15 @@
 #define GPIO_POL		0x18
 #define GPIO_EN			0x1C
 
+/*interrupt controller */
 #define IRQC_VIRT		(IO_VIRT + 0x24000)
+/* register offset interrupt controller */
 #define IRQC_IER		0x00
 #define IRQC_ISR		0x04
 
+/* timer unit */
 #define TIMER_VIRT		(IO_VIRT + 0x25000)
+/* Register offsets timer unit */
 #define TM0_PERIOD   		0x00
 #define TM0_COUNT    		0x08
 #define TM0_CTRL     		0x10
@@ -85,13 +96,16 @@
 #define T64_CTRL		0x88
 #define T64_BASEL		0x94
 #define T64_BASEH		0x98
+/* Bitmaks timer unit TOPSTAT reg */
 #define TSTAT_T0INT		0x1
 #define TSTAT_T1INT		0x2
 #define TSTAT_T2INT		0x4
 #define TSTAT_T3INT		0x8
+/* Bit description of TMx_CTRL register */
 #define TM_START  		0x1
 #define TM_REPEAT 		0x2
 #define TM_RESET  		0x4
+/* Bit description of TIMER_CTRL register */
 #define ENABLE_TM0_INTR  	0x1
 #define ENABLE_TM1_INTR  	0x2
 #define ENABLE_TM2_INTR  	0x4
@@ -99,11 +113,13 @@
 #define ENABLE_TIMER64   	0x10
 #define ENABLE_TIMER64_INT	0x20
 
+/* PMU & PLL */
 #define PMU_BASE 		(IO_VIRT + 0x1000)
 #define PMU_MODE		0x00
 #define PMU_STAT   		0x20
 #define PMU_PLL_CTRL 		0x28
 
+/* PMU Mode bits */
 #define PMU_MODE_SLOW		0x00
 #define PMU_MODE_RUN		0x01
 #define PMU_MODE_IDLE		0x02
@@ -112,13 +128,16 @@
 #define PMU_MODE_DEEPSLEEP	0x07
 #define PMU_MODE_WAKEUP		0x08
 
+/* PMU ... */
 #define PLL_2_EN		0x8000
 #define PLL_1_EN		0x4000
 #define PLL_3_MUTE		0x0080
 
+/* Control bits for PMU/ PLL */
 #define PMU_WARMRESET		0x00010000
 #define PLL_CTRL_MASK23		0x000080ff
 
+/* LCD Controller */
 #define LCD_BASE 		(IO_VIRT + 0x10000)
 #define LCD_CTRL 		0x00
 #define LCD_STATUS		0x04
@@ -131,7 +150,9 @@
 #define LCD_TIMING2 		0x28
 #define LCD_TEST		0x40
 
+/* LCD Control Bits */
 #define LCD_CTRL_LCD_ENABLE   	0x00000001
+/* Bits per pixel */
 #define LCD_CTRL_LCD_BPP_MASK 	0x00000006
 #define LCD_CTRL_LCD_4BPP    	0x00000000
 #define LCD_CTRL_LCD_8BPP    	0x00000002
@@ -145,8 +166,10 @@
 #define LCD_CTRL_LCD_BLE	0x00800000
 #define LCD_CTRL_LDBUSEN	0x01000000
 
+/* Palette */
 #define LCD_PALETTE_BASE 	(IO_VIRT + 0x10400)
 
+/* Serial ports */
 #define SERIAL0_OFS		0x20000
 #define SERIAL0_VIRT 		(IO_VIRT + SERIAL0_OFS)
 #define SERIAL0_BASE		(IO_PHYS + SERIAL0_OFS)
@@ -158,9 +181,10 @@
 #define SERIAL_ENABLE		0x30
 #define SERIAL_ENABLE_EN	(1<<0)
 
+/* General defines to pacify gcc */
 
 #define __ASM_ARCH_HARDWARE_INCMACH_H
 #include "boards.h"
 #undef __ASM_ARCH_HARDWARE_INCMACH_H
 
-#endif				
+#endif				/* __ASM_ARCH_HARDWARE_H */

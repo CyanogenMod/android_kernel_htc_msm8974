@@ -370,6 +370,15 @@ static inline struct wm8350_irq_data *irq_to_wm8350_irq(struct wm8350 *wm8350,
 	return &wm8350_irqs[irq - wm8350->irq_base];
 }
 
+/*
+ * This is a threaded IRQ handler so can access I2C/SPI.  Since all
+ * interrupts are clear on read the IRQ line will be reasserted and
+ * the physical IRQ will be handled again if another interrupt is
+ * asserted while we run - in the normal course of events this is a
+ * rare occurrence so we save I2C/SPI reads.  We're also assuming that
+ * it's rare to get lots of interrupts firing simultaneously so try to
+ * minimise I/O.
+ */
 static irqreturn_t wm8350_irq(int irq, void *irq_data)
 {
 	struct wm8350 *wm8350 = irq_data;
@@ -421,6 +430,8 @@ static void wm8350_irq_sync_unlock(struct irq_data *data)
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(wm8350->irq_masks); i++) {
+		/* If there's been a change in the mask write it back
+		 * to the hardware. */
 		if (wm8350->irq_masks[i] !=
 		    wm8350->reg_cache[WM8350_INT_STATUS_1_MASK + i])
 			WARN_ON(wm8350_reg_write(wm8350,
@@ -469,9 +480,12 @@ int wm8350_irq_init(struct wm8350 *wm8350, int irq,
 		return 0;
 	}
 
-	
+	/* Mask top level interrupts */
 	wm8350_reg_write(wm8350, WM8350_SYSTEM_INTERRUPTS_MASK, 0xFFFF);
 
+	/* Mask all individual interrupts by default and cache the
+	 * masks.  We read the masks back since there are unwritable
+	 * bits in the mask registers. */
 	for (i = 0; i < ARRAY_SIZE(wm8350->irq_masks); i++) {
 		wm8350_reg_write(wm8350, WM8350_INT_STATUS_1_MASK + i,
 				 0xFFFF);
@@ -505,7 +519,7 @@ int wm8350_irq_init(struct wm8350 *wm8350, int irq,
 				  WM8350_IRQ_POL);
 	}
 
-	
+	/* Register with genirq */
 	for (cur_irq = wm8350->irq_base;
 	     cur_irq < ARRAY_SIZE(wm8350_irqs) + wm8350->irq_base;
 	     cur_irq++) {
@@ -514,6 +528,8 @@ int wm8350_irq_init(struct wm8350 *wm8350, int irq,
 					 handle_edge_irq);
 		irq_set_nested_thread(cur_irq, 1);
 
+		/* ARM needs us to explicitly flag the IRQ as valid
+		 * and will set them noprobe when we do so. */
 #ifdef CONFIG_ARM
 		set_irq_flags(cur_irq, IRQF_VALID);
 #else
@@ -526,7 +542,7 @@ int wm8350_irq_init(struct wm8350 *wm8350, int irq,
 	if (ret != 0)
 		dev_err(wm8350->dev, "Failed to request IRQ: %d\n", ret);
 
-	
+	/* Allow interrupts to fire */
 	wm8350_reg_write(wm8350, WM8350_SYSTEM_INTERRUPTS_MASK, 0);
 
 	return ret;

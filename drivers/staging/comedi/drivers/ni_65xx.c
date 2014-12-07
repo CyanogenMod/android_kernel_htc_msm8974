@@ -23,7 +23,30 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 */
+/*
+Driver: ni_65xx
+Description: National Instruments 65xx static dio boards
+Author: Jon Grierson <jd@renko.co.uk>,
+	Frank Mori Hess <fmhess@users.sourceforge.net>
+Status: testing
+Devices: [National Instruments] PCI-6509 (ni_65xx), PXI-6509, PCI-6510,
+  PCI-6511, PXI-6511, PCI-6512, PXI-6512, PCI-6513, PXI-6513, PCI-6514,
+  PXI-6514, PCI-6515, PXI-6515, PCI-6516, PCI-6517, PCI-6518, PCI-6519,
+  PCI-6520, PCI-6521, PXI-6521, PCI-6528, PXI-6528
+Updated: Wed Oct 18 08:59:11 EDT 2006
 
+Based on the PCI-6527 driver by ds.
+The interrupt subdevice (subdevice 3) is probably broken for all boards
+except maybe the 6514.
+
+*/
+
+/*
+   Manuals (available from ftp://ftp.natinst.com/support/manuals)
+
+	370106b.pdf	6514 Register Level Programmer Manual
+
+ */
 
 #define _GNU_SOURCE
 #define DEBUG 1
@@ -431,10 +454,15 @@ static int ni_65xx_dio_insn_bits(struct comedi_device *dev,
 			writeb(bits,
 			       private(dev)->mite->daq_io_addr +
 			       Port_Data(port));
+/* printk("wrote 0x%x to port %i\n", bits, port); */
 		}
 		port_read_bits =
 		    readb(private(dev)->mite->daq_io_addr + Port_Data(port));
+/* printk("read 0x%x from port %i\n", port_read_bits, port); */
 		if (s->type == COMEDI_SUBD_DO && board(dev)->invert_outputs) {
+			/* Outputs inverted, so invert value read back from
+			 * DO subdevice.  (Does not apply to boards with DIO
+			 * subdevice.) */
 			port_read_bits ^= 0xFF;
 		}
 		if (bitshift > 0)
@@ -476,7 +504,7 @@ static int ni_65xx_intr_cmdtest(struct comedi_device *dev,
 	int err = 0;
 	int tmp;
 
-	
+	/* step 1: make sure trigger sources are trivially valid */
 
 	tmp = cmd->start_src;
 	cmd->start_src &= TRIG_NOW;
@@ -506,11 +534,13 @@ static int ni_65xx_intr_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 1;
 
+	/* step 2: make sure trigger sources are unique and mutually
+	compatible */
 
 	if (err)
 		return 2;
 
-	
+	/* step 3: make sure arguments are trivially compatible */
 
 	if (cmd->start_arg != 0) {
 		cmd->start_arg = 0;
@@ -537,7 +567,7 @@ static int ni_65xx_intr_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 3;
 
-	
+	/* step 4: fix up any arguments */
 
 	if (err)
 		return 4;
@@ -548,7 +578,7 @@ static int ni_65xx_intr_cmdtest(struct comedi_device *dev,
 static int ni_65xx_intr_cmd(struct comedi_device *dev,
 			    struct comedi_subdevice *s)
 {
-	
+	/* struct comedi_cmd *cmd = &s->async->cmd; */
 
 	writeb(ClrEdge | ClrOverflow,
 	       private(dev)->mite->daq_io_addr + Clear_Register);
@@ -702,7 +732,7 @@ static int ni_65xx_attach(struct comedi_device *dev,
 			return -ENOMEM;
 		sprivate(s)->base_port = 0;
 		for (i = 0; i < board(dev)->num_dio_ports; ++i) {
-			
+			/*  configure all ports for input */
 			writeb(0x1,
 			       private(dev)->mite->daq_io_addr +
 			       Port_Select(i));
@@ -739,7 +769,7 @@ static int ni_65xx_attach(struct comedi_device *dev,
 	writeb(0x00,
 	       private(dev)->mite->daq_io_addr + Master_Interrupt_Control);
 
-	
+	/* Set filter interval to 0  (32bit reg) */
 	writeb(0x00000000, private(dev)->mite->daq_io_addr + Filter_Interval);
 
 	ret = request_irq(dev->irq, ni_65xx_interrupt, IRQF_SHARED,

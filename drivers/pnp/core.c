@@ -21,6 +21,11 @@ static LIST_HEAD(pnp_protocols);
 LIST_HEAD(pnp_global);
 DEFINE_SPINLOCK(pnp_lock);
 
+/*
+ * ACPI or PNPBIOS should tell us about all platform devices, so we can
+ * skip some blind probes.  ISAPNP typically enumerates only plug-in ISA
+ * devices, not built-in things like COM ports.
+ */
 int pnp_platform_devices;
 EXPORT_SYMBOL(pnp_platform_devices);
 
@@ -36,6 +41,12 @@ void *pnp_alloc(long size)
 	return result;
 }
 
+/**
+ * pnp_protocol_register - adds a pnp protocol to the pnp layer
+ * @protocol: pointer to the corresponding pnp_protocol structure
+ *
+ *  Ex protocols: ISAPNP, PNPBIOS, etc
+ */
 int pnp_register_protocol(struct pnp_protocol *protocol)
 {
 	int nodenum;
@@ -46,7 +57,7 @@ int pnp_register_protocol(struct pnp_protocol *protocol)
 	nodenum = 0;
 	spin_lock(&pnp_lock);
 
-	
+	/* assign the lowest unused number */
 	list_for_each(pos, &pnp_protocols) {
 		struct pnp_protocol *cur = to_pnp_protocol(pos);
 		if (cur->number == nodenum) {
@@ -63,6 +74,10 @@ int pnp_register_protocol(struct pnp_protocol *protocol)
 	return device_register(&protocol->dev);
 }
 
+/**
+ * pnp_protocol_unregister - removes a pnp protocol from the pnp layer
+ * @protocol: pointer to the corresponding pnp_protocol structure
+ */
 void pnp_unregister_protocol(struct pnp_protocol *protocol)
 {
 	spin_lock(&pnp_lock);
@@ -156,6 +171,12 @@ int __pnp_add_device(struct pnp_dev *dev)
 	return device_register(&dev->dev);
 }
 
+/*
+ * pnp_add_device - adds a pnp device to the pnp layer
+ * @dev: pointer to dev to add
+ *
+ *  adds to driver model, name database, fixups, interface, etc.
+ */
 int pnp_add_device(struct pnp_dev *dev)
 {
 	int ret;

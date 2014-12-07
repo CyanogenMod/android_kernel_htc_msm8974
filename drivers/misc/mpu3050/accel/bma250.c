@@ -17,7 +17,19 @@
   $
  */
 
+/**
+ *  @defgroup   ACCELDL (Motion Library - Accelerometer Driver Layer)
+ *  @brief      Provides the interface to setup and handle an accelerometers
+ *              connected to the secondary I2C interface of the gyroscope.
+ *
+ *  @{
+ *      @file   bma250.c
+ *      @brief  Accelerometer setup and handling methods.
+ */
 
+/* ------------------ */
+/* - Include Files. - */
+/* ------------------ */
 
 #ifdef __KERNEL__
 #include <linux/module.h>
@@ -33,17 +45,18 @@
 #undef MPL_LOG_TAG
 #define MPL_LOG_TAG "MPL-acc"
 
+/* full scale setting - register and mask */
 #define BOSCH_CTRL_REG      (0x0F)
 #define BOSCH_INT_REG       (0x16)
 #define BOSCH_PWR_REG       (0x11)
 #define BMA250_REG_SOFT_RESET (0x14)
-#define BMA250_BW_REG        (0x10)    
+#define BMA250_BW_REG        (0x10)    /* BMA250 : BW setting register */
 
 #define ACCEL_BOSCH_CTRL_MASK              (0x0F)
 #define ACCEL_BOSCH_CTRL_MASK_FSR          (0xF8)
 #define ACCEL_BOSCH_INT_MASK_WUP           (0xF8)
 #define ACCEL_BOSCH_INT_MASK_IRQ           (0xDF)
-#define BMA250_BW_MASK      (0xE0)    
+#define BMA250_BW_MASK      (0xE0)    /* BMA250 : BW setting mask */
 
 #define D(x...) printk(KERN_DEBUG "[GSNR][BMA250] " x)
 #define I(x...) printk(KERN_INFO "[GSNR][BMA250] " x)
@@ -314,14 +327,17 @@ static int (*gsensor_power_LPM)(int on) = NULL;
 
 EXPORT_SYMBOL(cir_flag);
 #endif
+/* --------------------- */
+/* -    Variables.     - */
+/* --------------------- */
 
 struct bma250_config {
-	unsigned int odr; 
-	unsigned int fsr; 
+	unsigned int odr; /* Output data rate mHz */
+	unsigned int fsr; /* full scale range mg */
 	unsigned int irq_type;
 	unsigned int power_mode;
-	unsigned char ctrl_reg; 
-	unsigned char bw_reg; 
+	unsigned char ctrl_reg; /* range */
+	unsigned char bw_reg; /* bandwidth */
 	unsigned char int_reg;
 };
 
@@ -498,70 +514,70 @@ static int bma250_set_Int_Enable(void *mlsl_handle, struct ext_slave_platform_da
 	value = value & 1;
 	switch (InterruptType) {
 	case 0:
-		
+		/* Low G Interrupt  */
 		data2 = BMA250_SET_BITSLICE(data2, BMA250_EN_LOWG_INT, value);
 		break;
 	case 1:
-		
+		/* High G X Interrupt */
 
 		data2 = BMA250_SET_BITSLICE(data2, BMA250_EN_HIGHG_X_INT,
 				value);
 		break;
 	case 2:
-		
+		/* High G Y Interrupt */
 
 		data2 = BMA250_SET_BITSLICE(data2, BMA250_EN_HIGHG_Y_INT,
 				value);
 		break;
 	case 3:
-		
+		/* High G Z Interrupt */
 
 		data2 = BMA250_SET_BITSLICE(data2, BMA250_EN_HIGHG_Z_INT,
 				value);
 		break;
 	case 4:
-		
+		/* New Data Interrupt  */
 
 		data2 = BMA250_SET_BITSLICE(data2, BMA250_EN_NEW_DATA_INT,
 				value);
 		break;
 	case 5:
-		
+		/* Slope X Interrupt */
 
 		data1 = BMA250_SET_BITSLICE(data1, BMA250_EN_SLOPE_X_INT,
 				value);
 		break;
 	case 6:
-		
+		/* Slope Y Interrupt */
 
 		data1 = BMA250_SET_BITSLICE(data1, BMA250_EN_SLOPE_Y_INT,
 				value);
 		break;
 	case 7:
-		
+		/* Slope Z Interrupt */
 
 		data1 = BMA250_SET_BITSLICE(data1, BMA250_EN_SLOPE_Z_INT,
 				value);
 		break;
 	case 8:
-		
+		/* Single Tap Interrupt */
 
 		data1 = BMA250_SET_BITSLICE(data1, BMA250_EN_SINGLE_TAP_INT,
 				value);
 		break;
 	case 9:
-		
+		/* Double Tap Interrupt */
 
 		data1 = BMA250_SET_BITSLICE(data1, BMA250_EN_DOUBLE_TAP_INT,
 				value);
 		break;
 	case 10:
-		
+		/* Orient Interrupt  */
 
 		data1 = BMA250_SET_BITSLICE(data1, BMA250_EN_ORIENT_INT, value);
 		break;
 	case 11:
-		
+		/* Flat Interrupt */
 
 		data1 = BMA250_SET_BITSLICE(data1, BMA250_EN_FLAT_INT, value);
 		break;
@@ -592,7 +608,21 @@ static int set_normal_mode(void *mlsl_handle,
 
 	return 0;
 }
+/*********************************************
+    Accelerometer Initialization Functions
+**********************************************/
 
+/**
+ * Sets the IRQ to fire when one of the IRQ events occur.  Threshold and
+ * duration will not be used uless the type is MOT or NMOT.
+ *
+ * @param config configuration to apply to, suspend or resume
+ * @param irq_type The type of IRQ.  Valid values are
+ * - MPU_SLAVE_IRQ_TYPE_NONE
+ * - MPU_SLAVE_IRQ_TYPE_MOTION
+ * - MPU_SLAVE_IRQ_TYPE_DATA_READY
+ *
+ */
 static int bma250_set_irq(void *mlsl_handle,
 			struct ext_slave_platform_data *pdata,
 			struct bma250_config *config,
@@ -602,7 +632,7 @@ static int bma250_set_irq(void *mlsl_handle,
 	unsigned char irq_bits = 0;
 	int result = ML_SUCCESS;
 
-	
+	/* TODO Use irq when necessary */
 	return ML_SUCCESS;
 
 	if (irq_type == MPU_SLAVE_IRQ_TYPE_MOTION)
@@ -625,7 +655,7 @@ static int bma250_set_irq(void *mlsl_handle,
 
 #ifndef CONFIG_CIR_ALWAYS_READY
 		if (!config->power_mode) {
-			
+			/* BMA250: Software reset */
 			result = MLSLSerialWriteSingle(mlsl_handle,
 					pdata->address, BMA250_REG_SOFT_RESET,
 					0xB6);
@@ -660,6 +690,12 @@ static int bma250_set_irq(void *mlsl_handle,
 	return result;
 }
 
+/**
+ * Set the Output data rate for the particular configuration
+ *
+ * @param config Config to modify with new ODR
+ * @param odr Output data rate in units of 1/1000Hz
+ */
 static int bma250_set_odr(void *mlsl_handle,
 			struct ext_slave_platform_data *pdata,
 			struct bma250_config *config,
@@ -671,7 +707,32 @@ static int bma250_set_odr(void *mlsl_handle,
 	unsigned char read_from_chip_bw = 0;
 	int result = ML_SUCCESS;
 
-	
+	/* TO DO use dynamic bandwidth when stability safe */
+	/*if (odr > 100000) {
+		config->odr = 125000;
+		odr_bits = 0x0C;
+		config->power_mode = 1;
+	} else if (odr > 50000) {
+		config->odr = 62500;
+		odr_bits = 0x0B;
+		config->power_mode = 1;
+	} else if (odr > 20000) {
+		config->odr = 31250;
+		odr_bits = 0x0A;
+		config->power_mode = 1;
+	} else if (odr > 15000) {
+		config->odr = 15630;
+		odr_bits = 0x09;
+		config->power_mode = 1;
+	} else if (odr > 0) {
+		config->odr = 7810;
+		odr_bits = 0x08;
+		config->power_mode = 1;
+	} else {
+		config->odr = 0;
+		wup_bits = 0x00;
+		config->power_mode = 0;
+	}*/
 	if (odr > 100000) {
 		config->odr = 31250;
 		odr_bits = 0x0A;
@@ -715,8 +776,8 @@ static int bma250_set_odr(void *mlsl_handle,
 	MPL_LOGV("ODR: %d \n", config->odr);
 	if (apply) {
 #ifndef CONFIG_CIR_ALWAYS_READY
-#if 0 
-			
+#if 0 /*remove for G-Sensor values error when set odr */
+			/* BMA250: Software reset */
 			result = MLSLSerialWriteSingle(mlsl_handle,
 					pdata->address, BMA250_REG_SOFT_RESET,
 					0xB6);
@@ -736,11 +797,16 @@ static int bma250_set_odr(void *mlsl_handle,
 						pdata->address, BMA250_BW_REG,
 						config->bw_reg);
 				ERROR_CHECK(result);
-				
+				/* Make sure G-Sensor data is ready */
 				MLOSSleep(25);
 			}
 
-			
+			/* TODO Use irq when necessary */
+			/*
+			result = MLSLSerialWriteSingle(mlsl_handle,
+					pdata->address,	BOSCH_INT_REG,
+					config->int_reg);
+			ERROR_CHECK(result);*/
 
 			if (!config->power_mode) {
 				result = MLSLSerialWriteSingle(mlsl_handle,
@@ -749,7 +815,7 @@ static int bma250_set_odr(void *mlsl_handle,
 				ERROR_CHECK(result);
 				MLOSSleep(1);
 			} else {
-#if 0 
+#if 0 /* remove for G-Sensor values error when set odr */
 				result = set_normal_mode(mlsl_handle, pdata);
 				ERROR_CHECK(result);
 #endif
@@ -759,6 +825,12 @@ static int bma250_set_odr(void *mlsl_handle,
 	return result;
 }
 
+/**
+ * Set the full scale range of the accels
+ *
+ * @param config pointer to configuration
+ * @param fsr requested full scale range
+ */
 static int bma250_set_fsr(void *mlsl_handle,
 			struct ext_slave_platform_data *pdata,
 			struct bma250_config *config,
@@ -768,7 +840,23 @@ static int bma250_set_fsr(void *mlsl_handle,
 	unsigned char fsr_bits;
 	int result = ML_SUCCESS;
 
-	
+	/* TO DO use dynamic range when stability safe */
+	/*if (fsr <= 2048) {
+		fsr_bits = 0x03;
+		config->fsr = 2048;
+	} else if (fsr <= 4096) {
+		fsr_bits = 0x05;
+		config->fsr = 4096;
+	} else if (fsr <= 8192) {
+		fsr_bits = 0x08;
+		config->fsr = 8192;
+	} else if (fsr <= 16384) {
+		fsr_bits = 0x0C;
+		config->fsr = 16384;
+	} else {
+		fsr_bits = 0x03;
+		config->fsr = 2048;
+	}*/
 	if (fsr <= 2048) {
 		fsr_bits = 0x03;
 		config->fsr = 2048;
@@ -793,7 +881,7 @@ static int bma250_set_fsr(void *mlsl_handle,
 	if (apply) {
 #ifndef CONFIG_CIR_ALWAYS_READY
 		if (!config->power_mode) {
-			
+			/* BMA250: Software reset */
 			result = MLSLSerialWriteSingle(mlsl_handle,
 				pdata->address, BMA250_REG_SOFT_RESET, 0xB6);
 			ERROR_CHECK(result);
@@ -837,13 +925,24 @@ static int bma250_suspend(void *mlsl_handle,
 
 	private_data->state = 1;
 
-	
-	
+	/* TO DO sync from bma150 of MPL3.3.0, comment follows */
+	/* BMA250: Software reset */
+	/*result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
+		BMA250_REG_SOFT_RESET, 0xB6);
+	ERROR_CHECK(result);
+	MLOSSleep(1);
 
-	
+	result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
+		BOSCH_CTRL_REG, ctrl_reg);
+	ERROR_CHECK(result);*/
+
+	/* TODO Use irq when necessary */
+	/*result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
+		BOSCH_INT_REG, int_reg);
+	ERROR_CHECK(result);*/
 
 #ifdef CONFIG_CIR_ALWAYS_READY
-	
+	//Add CIR Flag for always ready feature
 	if ((!private_data->suspend.power_mode && !cir_flag)) {
 #else
 	if ((!private_data->suspend.power_mode)) {
@@ -880,7 +979,7 @@ static int bma250_resume(void *mlsl_handle,
 
 #ifndef CONFIG_CIR_ALWAYS_READY
 	result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
-		BMA250_REG_SOFT_RESET, 0xB6);  
+		BMA250_REG_SOFT_RESET, 0xB6);  /* BMA250: Software reset */
 	ERROR_CHECK(result);
 	MLOSSleep(1);
 #endif
@@ -893,7 +992,10 @@ static int bma250_resume(void *mlsl_handle,
 		BMA250_BW_REG, bw_reg);
 	ERROR_CHECK(result);
 
-	
+	/* TODO Use irq when necessary */
+	/*result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
+		BOSCH_INT_REG, int_reg);
+	ERROR_CHECK(result);*/
 
 	if (!private_data->resume.power_mode) {
 		result = MLSLSerialWriteSingle(mlsl_handle, pdata->address,
@@ -935,24 +1037,24 @@ static ssize_t bma250_enable_interrupt(struct device *dev,
 		if (error)
 		    return error;
 	printk(KERN_INFO "[BMA250] bma250_enable_interrupt, power_key_pressed = %d\n", power_key_pressed);
-	if(enable == 1 && !power_key_pressed){ 
+	if(enable == 1 && !power_key_pressed){ // Slope interrupt
 		
 
-	    
+	    //Don't change to low power mode due to enabling interrupt mode
 	    if(gsensor_power_LPM){
 		I("Non Low Power Mode\n");
 		gsensor_power_LPM(0);
 
 	    }
-	    
-	    error = bma250_set_Int_Mode(g_mlsl_handle, g_pdata, 1);
+	    /*Set the related parameters*/
+	    error = bma250_set_Int_Mode(g_mlsl_handle, g_pdata, 1);/*latch interrupt 250ms*/
 
-	    error += bma250_set_slope_duration(g_mlsl_handle, g_pdata, 0x01);
-	    error += bma250_set_slope_threshold(g_mlsl_handle, g_pdata, 0x07);
-	    
-	    error += bma250_set_Int_Enable(g_mlsl_handle, g_pdata,5, 1);
-	    error += bma250_set_Int_Enable(g_mlsl_handle, g_pdata,6, 1);
-	    error += bma250_set_Int_Enable(g_mlsl_handle, g_pdata,7, 0);
+	    error += bma250_set_slope_duration(g_mlsl_handle, g_pdata, 0x01);//dur+1
+	    error += bma250_set_slope_threshold(g_mlsl_handle, g_pdata, 0x07);//0x07 * 3.91  = 
+	    /*Enable the interrupts*/
+	    error += bma250_set_Int_Enable(g_mlsl_handle, g_pdata,5, 1);//Slope X
+	    error += bma250_set_Int_Enable(g_mlsl_handle, g_pdata,6, 1);//Slope Y
+	    error += bma250_set_Int_Enable(g_mlsl_handle, g_pdata,7, 0);//Slope Z
 	    error += bma250_set_int1_pad_sel(g_mlsl_handle, g_pdata, PAD_SLOP);
 	    error += bma250_set_mode(g_mlsl_handle, g_pdata, BMA250_MODE_NORMAL);
 
@@ -963,9 +1065,9 @@ static ssize_t bma250_enable_interrupt(struct device *dev,
 		
 	} else if(enable == 0){
 
-	    error += bma250_set_Int_Enable(g_mlsl_handle, g_pdata,5, 0);
-	    error += bma250_set_Int_Enable(g_mlsl_handle, g_pdata,6, 0);
-	    error += bma250_set_Int_Enable(g_mlsl_handle, g_pdata,7, 0);
+	    error += bma250_set_Int_Enable(g_mlsl_handle, g_pdata,5, 0);//Slope X
+	    error += bma250_set_Int_Enable(g_mlsl_handle, g_pdata,6, 0);//Slope Y
+	    error += bma250_set_Int_Enable(g_mlsl_handle, g_pdata,7, 0);//Slope Z	    
 	
 	    power_key_pressed = 0;
 	    cir_flag = 0;
@@ -1091,7 +1193,7 @@ static int bma250_init(void *mlsl_handle,
 
 	result =
 	    MLSLSerialWriteSingle(mlsl_handle, pdata->address,
-		BMA250_REG_SOFT_RESET, 0xB6);  
+		BMA250_REG_SOFT_RESET, 0xB6);  /* BMA250: Software reset */
 	ERROR_CHECK(result);
 	MLOSSleep(1);
 
@@ -1111,7 +1213,10 @@ static int bma250_init(void *mlsl_handle,
 	private_data->resume.bw_reg = bw_reg;
 	private_data->suspend.bw_reg = bw_reg;
 
-	
+	/* TODO Use irq when necessary */
+	/*result =
+	    MLSLSerialRead(mlsl_handle, pdata->address, BOSCH_INT_REG, 1, &reg);
+	ERROR_CHECK(result);*/
 
 	private_data->resume.int_reg = reg;
 	private_data->suspend.int_reg = reg;
@@ -1130,7 +1235,13 @@ static int bma250_init(void *mlsl_handle,
 	bma250_set_fsr(mlsl_handle, pdata, &private_data->resume,
 			FALSE, 2048);
 
-	
+	/* TODO Use irq when necessary */
+	/*bma250_set_irq(mlsl_handle, pdata, &private_data->suspend,
+			FALSE,
+			MPU_SLAVE_IRQ_TYPE_NONE);
+	bma250_set_irq(mlsl_handle, pdata, &private_data->resume,
+			FALSE,
+			MPU_SLAVE_IRQ_TYPE_NONE);*/
 
 	result =
 	    MLSLSerialWriteSingle(mlsl_handle, pdata->address, BOSCH_PWR_REG,
@@ -1253,20 +1364,20 @@ static int bma250_get_config(void *mlsl_handle,
 }
 
 static struct ext_slave_descr bma250_descr = {
-	 bma250_init,
-	 bma250_exit,
-	 bma250_suspend,
-	 bma250_resume,
-	 bma250_read,
-	 bma250_config,
-	 bma250_get_config,
-	 "bma250",
-	 EXT_SLAVE_TYPE_ACCELEROMETER,
-	 ACCEL_ID_BMA250,
-	 0x02,
-	 6,
-	 EXT_SLAVE_LITTLE_ENDIAN,
-	 {2, 0},
+	/*.init             = */ bma250_init,
+	/*.exit             = */ bma250_exit,
+	/*.suspend          = */ bma250_suspend,
+	/*.resume           = */ bma250_resume,
+	/*.read             = */ bma250_read,
+	/*.config           = */ bma250_config,
+	/*.get_config       = */ bma250_get_config,
+	/*.name             = */ "bma250",
+	/*.type             = */ EXT_SLAVE_TYPE_ACCELEROMETER,
+	/*.id               = */ ACCEL_ID_BMA250,
+	/*.reg              = */ 0x02,
+	/*.len              = */ 6,
+	/*.endian           = */ EXT_SLAVE_LITTLE_ENDIAN,
+	/*.range            = */ {2, 0},
 };
 
 struct ext_slave_descr *bma250_get_slave_descr(void)
@@ -1282,3 +1393,6 @@ MODULE_LICENSE("GPL");
 MODULE_ALIAS("bma");
 #endif
 
+/**
+ *  @}
+ */

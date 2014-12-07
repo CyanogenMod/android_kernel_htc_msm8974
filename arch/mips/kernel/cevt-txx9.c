@@ -18,7 +18,7 @@
 #include <asm/txx9tmr.h>
 
 #define TCR_BASE (TXx9_TMTCR_CCDE | TXx9_TMTCR_CRE | TXx9_TMTCR_TMODE_ITVL)
-#define TIMER_CCD	0	
+#define TIMER_CCD	0	/* 1/2 */
 #define TIMER_CLK(imclk)	((imclk) / (2 << TIMER_CCD))
 
 struct txx9_clocksource {
@@ -33,6 +33,7 @@ static cycle_t txx9_cs_read(struct clocksource *cs)
 	return __raw_readl(&txx9_cs->tmrptr->trr);
 }
 
+/* Use 1 bit smaller width to use full bits in that width */
 #define TXX9_CLOCKSOURCE_BITS (TXX9_TIMER_BITS - 1)
 
 static struct txx9_clocksource txx9_clocksource = {
@@ -69,9 +70,9 @@ struct txx9_clock_event_device {
 
 static void txx9tmr_stop_and_clear(struct txx9_tmr_reg __iomem *tmrptr)
 {
-	
+	/* stop and reset counter */
 	__raw_writel(TCR_BASE, &tmrptr->tcr);
-	
+	/* clear pending interrupt */
 	__raw_writel(0, &tmrptr->tisr);
 }
 
@@ -87,7 +88,7 @@ static void txx9tmr_set_mode(enum clock_event_mode mode,
 	case CLOCK_EVT_MODE_PERIODIC:
 		__raw_writel(TXx9_TMITMR_TIIE | TXx9_TMITMR_TZCE,
 			     &tmrptr->itmr);
-		
+		/* start timer */
 		__raw_writel(((u64)(NSEC_PER_SEC / HZ) * evt->mult) >>
 			     evt->shift,
 			     &tmrptr->cpra);
@@ -115,7 +116,7 @@ static int txx9tmr_set_next_event(unsigned long delta,
 	struct txx9_tmr_reg __iomem *tmrptr = txx9_cd->tmrptr;
 
 	txx9tmr_stop_and_clear(tmrptr);
-	
+	/* start timer */
 	__raw_writel(delta, &tmrptr->cpra);
 	__raw_writel(TCR_BASE | TXx9_TMTCR_TCE, &tmrptr->tcr);
 	return 0;
@@ -138,7 +139,7 @@ static irqreturn_t txx9tmr_interrupt(int irq, void *dev_id)
 	struct clock_event_device *cd = &txx9_cd->cd;
 	struct txx9_tmr_reg __iomem *tmrptr = txx9_cd->tmrptr;
 
-	__raw_writel(0, &tmrptr->tisr);	
+	__raw_writel(0, &tmrptr->tisr);	/* ack interrupt */
 	cd->event_handler(cd);
 	return IRQ_HANDLED;
 }
@@ -179,9 +180,9 @@ void __init txx9_tmr_init(unsigned long baseaddr)
 	struct txx9_tmr_reg __iomem *tmrptr;
 
 	tmrptr = ioremap(baseaddr, sizeof(struct txx9_tmr_reg));
-	
+	/* Start once to make CounterResetEnable effective */
 	__raw_writel(TXx9_TMTCR_CRE | TXx9_TMTCR_TCE, &tmrptr->tcr);
-	
+	/* Stop and reset the counter */
 	__raw_writel(TXx9_TMTCR_CRE, &tmrptr->tcr);
 	__raw_writel(0, &tmrptr->tisr);
 	__raw_writel(0xffffffff, &tmrptr->cpra);

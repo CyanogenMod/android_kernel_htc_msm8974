@@ -12,4 +12,4 @@
 
 #include <asm-generic/gpio.h>
 
-#endif 
+#endif /* __ASM_MIPS_MACH_BCM63XX_GPIO_H */

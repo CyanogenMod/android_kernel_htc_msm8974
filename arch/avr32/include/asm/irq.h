@@ -15,7 +15,10 @@
 int nmi_enable(void);
 void nmi_disable(void);
 
+/*
+ * Returns a bitmask of pending interrupts in a group.
+ */
 extern unsigned long intc_get_pending(unsigned int group);
 #endif
 
-#endif 
+#endif /* __ASM_AVR32_IOCTLS_H */

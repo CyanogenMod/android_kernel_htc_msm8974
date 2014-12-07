@@ -33,4 +33,4 @@ int enic_process_get_pp_request(struct enic *enic, int vf,
 	int request, u16 *response);
 int enic_is_valid_pp_vf(struct enic *enic, int vf, int *err);
 
-#endif 
+#endif /* _ENIC_PP_H_ */

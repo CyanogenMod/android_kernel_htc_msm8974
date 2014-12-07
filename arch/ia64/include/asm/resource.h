@@ -4,4 +4,4 @@
 #include <asm/ustack.h>
 #include <asm-generic/resource.h>
 
-#endif 
+#endif /* _ASM_IA64_RESOURCE_H */

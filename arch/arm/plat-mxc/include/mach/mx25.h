@@ -50,6 +50,11 @@
 #define MX25_SDMA_BASE_ADDR		0x53fd4000
 #define MX25_USB_BASE_ADDR		0x53ff4000
 #define MX25_USB_OTG_BASE_ADDR			(MX25_USB_BASE_ADDR + 0x0000)
+/*
+ * The reference manual (IMX25RM, Rev. 1, 06/2009) specifies an offset of 0x200
+ * for the host controller.  Early documentation drafts specified 0x400 and
+ * Freescale internal sources confirm only the latter value to work.
+ */
 #define MX25_USB_HS_BASE_ADDR			(MX25_USB_BASE_ADDR + 0x0400)
 #define MX25_CSI_BASE_ADDR		0x53ff8000
 
@@ -104,4 +109,4 @@
 extern int mx25_revision(void);
 #endif
 
-#endif 
+#endif /* ifndef __MACH_MX25_H__ */

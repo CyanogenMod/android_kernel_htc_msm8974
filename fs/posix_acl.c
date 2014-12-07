@@ -7,6 +7,10 @@
  *     (Reported by Charles Bertsch, <CBertsch@microtest.com>).
  */
 
+/*
+ *  This file contains generic functions for manipulating
+ *  POSIX 1003.1e draft standard 17 ACLs.
+ */
 
 #include <linux/kernel.h>
 #include <linux/slab.h>
@@ -24,6 +28,9 @@ EXPORT_SYMBOL(posix_acl_valid);
 EXPORT_SYMBOL(posix_acl_equiv_mode);
 EXPORT_SYMBOL(posix_acl_from_mode);
 
+/*
+ * Init a fresh posix_acl
+ */
 void
 posix_acl_init(struct posix_acl *acl, int count)
 {
@@ -31,6 +38,9 @@ posix_acl_init(struct posix_acl *acl, int count)
 	acl->a_count = count;
 }
 
+/*
+ * Allocate a new ACL with the specified number of entries.
+ */
 struct posix_acl *
 posix_acl_alloc(int count, gfp_t flags)
 {
@@ -42,6 +52,9 @@ posix_acl_alloc(int count, gfp_t flags)
 	return acl;
 }
 
+/*
+ * Clone an ACL.
+ */
 static struct posix_acl *
 posix_acl_clone(const struct posix_acl *acl, gfp_t flags)
 {
@@ -57,12 +70,15 @@ posix_acl_clone(const struct posix_acl *acl, gfp_t flags)
 	return clone;
 }
 
+/*
+ * Check if an acl is valid. Returns 0 if it is, or -E... otherwise.
+ */
 int
 posix_acl_valid(const struct posix_acl *acl)
 {
 	const struct posix_acl_entry *pa, *pe;
 	int state = ACL_USER_OBJ;
-	unsigned int id = 0;  
+	unsigned int id = 0;  /* keep gcc happy */
 	int needs_mask = 0;
 
 	FOREACH_ACL_ENTRY(pa, acl, pe) {
@@ -128,6 +144,10 @@ posix_acl_valid(const struct posix_acl *acl)
 	return -EINVAL;
 }
 
+/*
+ * Returns 0 if the acl can be exactly represented in the traditional
+ * file mode permission bits, or else 1. Returns -E... on error.
+ */
 int
 posix_acl_equiv_mode(const struct posix_acl *acl, umode_t *mode_p)
 {
@@ -164,6 +184,9 @@ posix_acl_equiv_mode(const struct posix_acl *acl, umode_t *mode_p)
         return not_equiv;
 }
 
+/*
+ * Create an ACL representing the file mode permission bits of an inode.
+ */
 struct posix_acl *
 posix_acl_from_mode(umode_t mode, gfp_t flags)
 {
@@ -185,6 +208,10 @@ posix_acl_from_mode(umode_t mode, gfp_t flags)
 	return acl;
 }
 
+/*
+ * Return 0 if current is granted want access to the inode
+ * by the acl. Returns -E... otherwise.
+ */
 int
 posix_acl_permission(struct inode *inode, const struct posix_acl *acl, int want)
 {
@@ -196,7 +223,7 @@ posix_acl_permission(struct inode *inode, const struct posix_acl *acl, int want)
 	FOREACH_ACL_ENTRY(pa, acl, pe) {
                 switch(pa->e_tag) {
                         case ACL_USER_OBJ:
-				
+				/* (May have been checked already) */
 				if (inode->i_uid == current_fsuid())
                                         goto check_perm;
                                 break;
@@ -246,6 +273,14 @@ check_perm:
 	return -EACCES;
 }
 
+/*
+ * Modify acl when creating a new inode. The caller must ensure the acl is
+ * only referenced once.
+ *
+ * mode_p initially must contain the mode parameter to the open() / creat()
+ * system calls. All permissions that are not granted by the acl are removed.
+ * The permissions in the acl are changed to reflect the mode_p parameter.
+ */
 static int posix_acl_create_masq(struct posix_acl *acl, umode_t *mode_p)
 {
 	struct posix_acl_entry *pa, *pe;
@@ -253,7 +288,7 @@ static int posix_acl_create_masq(struct posix_acl *acl, umode_t *mode_p)
 	umode_t mode = *mode_p;
 	int not_equiv = 0;
 
-	
+	/* assert(atomic_read(acl->a_refcount) == 1); */
 
 	FOREACH_ACL_ENTRY(pa, acl, pe) {
                 switch(pa->e_tag) {
@@ -300,12 +335,15 @@ static int posix_acl_create_masq(struct posix_acl *acl, umode_t *mode_p)
         return not_equiv;
 }
 
+/*
+ * Modify the ACL for the chmod syscall.
+ */
 static int posix_acl_chmod_masq(struct posix_acl *acl, umode_t mode)
 {
 	struct posix_acl_entry *group_obj = NULL, *mask_obj = NULL;
 	struct posix_acl_entry *pa, *pe;
 
-	
+	/* assert(atomic_read(acl->a_refcount) == 1); */
 
 	FOREACH_ACL_ENTRY(pa, acl, pe) {
 		switch(pa->e_tag) {

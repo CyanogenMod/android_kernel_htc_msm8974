@@ -44,7 +44,7 @@ static void nfc_llcp_socket_release(struct nfc_llcp_local *local)
 		if (parent == NULL)
 			continue;
 
-		
+		/* Release all child sockets */
 		list_for_each_entry_safe(s, n, &parent->list, list) {
 			list_del_init(&s->list);
 			sk = &s->sk;
@@ -146,7 +146,7 @@ struct nfc_llcp_local *nfc_llcp_find_local(struct nfc_dev *dev)
 
 static char *wks[] = {
 	NULL,
-	NULL, 
+	NULL, /* SDP */
 	"urn:nfc:sn:ip",
 	"urn:nfc:sn:obex",
 	"urn:nfc:sn:snep",
@@ -186,7 +186,7 @@ u8 nfc_llcp_get_sdp_ssap(struct nfc_llcp_local *local,
 		if (ssap > 0) {
 			pr_debug("WKS %d\n", ssap);
 
-			
+			/* This is a WKS, let's check if it's free */
 			if (local->local_wks & BIT(ssap)) {
 				mutex_unlock(&local->sdp_lock);
 
@@ -199,6 +199,10 @@ u8 nfc_llcp_get_sdp_ssap(struct nfc_llcp_local *local,
 			return ssap;
 		}
 
+		/*
+		 * This is not a well known service,
+		 * we should try to find a local SDP free spot
+		 */
 		ssap = find_first_zero_bit(&local->local_sdp, LLCP_SDP_NUM_SAP);
 		if (ssap == LLCP_SDP_NUM_SAP) {
 			mutex_unlock(&local->sdp_lock);
@@ -310,7 +314,7 @@ static int nfc_llcp_build_gb(struct nfc_llcp_local *local)
 					 1, &version_length);
 	gb_len += version_length;
 
-	
+	/* 1500 ms */
 	lto = 150;
 	lto_tlv = nfc_llcp_build_tlv(LLCP_TLV_VERSION, &lto, 1, &lto_length);
 	gb_len += lto_length;
@@ -609,10 +613,10 @@ enqueue:
 
 	new_sk->sk_state = LLCP_CONNECTED;
 
-	
+	/* Wake the listening processes */
 	parent->sk_data_ready(parent, 0);
 
-	
+	/* Send CC */
 	nfc_llcp_send_cc(new_sock);
 
 	release_sock(&sock->sk);
@@ -621,7 +625,7 @@ enqueue:
 	return;
 
 fail:
-	
+	/* Send DM */
 	nfc_llcp_send_dm(local, dsap, ssap, reason);
 
 	return;
@@ -637,7 +641,7 @@ int nfc_llcp_queue_i_frames(struct nfc_llcp_sock *sock)
 		 sock->remote_ready, skb_queue_len(&sock->tx_pending_queue),
 		 local->remote_rw);
 
-	
+	/* Try to queue some I frames for transmission */
 	while (sock->remote_ready &&
 	       skb_queue_len(&sock->tx_pending_queue) < local->remote_rw) {
 		struct sk_buff *pdu, *pending_pdu;
@@ -646,7 +650,7 @@ int nfc_llcp_queue_i_frames(struct nfc_llcp_sock *sock)
 		if (pdu == NULL)
 			break;
 
-		
+		/* Update N(S)/N(R) */
 		nfc_llcp_set_nrns(sock, pdu);
 
 		pending_pdu = skb_clone(pdu, GFP_KERNEL);
@@ -687,7 +691,7 @@ static void nfc_llcp_recv_hdlc(struct nfc_llcp_local *local,
 		nfc_llcp_sock_put(llcp_sock);
 	}
 
-	
+	/* Pass the payload upstream */
 	if (ptype == LLCP_PDU_I) {
 		pr_debug("I frame, queueing on %p\n", &llcp_sock->sk);
 
@@ -703,7 +707,7 @@ static void nfc_llcp_recv_hdlc(struct nfc_llcp_local *local,
 		}
 	}
 
-	
+	/* Remove skbs from the pending queue */
 	if (llcp_sock->send_ack_n != nr) {
 		struct sk_buff *s, *tmp;
 
@@ -873,7 +877,7 @@ void nfc_llcp_mac_is_down(struct nfc_dev *dev)
 
 	nfc_llcp_clear_sdp(local);
 
-	
+	/* Close and purge all existing sockets */
 	nfc_llcp_socket_release(local);
 }
 

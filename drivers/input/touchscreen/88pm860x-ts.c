@@ -19,6 +19,7 @@
 #define MEAS_LEN		(8)
 #define ACCURATE_BIT		(12)
 
+/* touch register */
 #define MEAS_EN3		(0x52)
 
 #define MEAS_TSIX_1		(0x8D)
@@ -30,6 +31,7 @@
 #define MEAS_TSIZ2_1		(0x93)
 #define MEAS_TSIZ2_2		(0x94)
 
+/* bit definitions of touch */
 #define MEAS_PD_EN		(1 << 3)
 #define MEAS_TSIX_EN		(1 << 4)
 #define MEAS_TSIY_EN		(1 << 5)
@@ -41,7 +43,7 @@ struct pm860x_touch {
 	struct i2c_client *i2c;
 	struct pm860x_chip *chip;
 	int irq;
-	int res_x;		
+	int res_x;		/* resistor of Xplate */
 };
 
 static irqreturn_t pm860x_touch_handler(int irq, void *data)

@@ -1,3 +1,24 @@
+/*
+ *	Media Vision Pro Movie Studio
+ *			or
+ *	"all you need is an I2C bus some RAM and a prayer"
+ *
+ *	This draws heavily on code
+ *
+ *	(c) Wolfgang Koehler,  wolf@first.gmd.de, Dec. 1994
+ *	Kiefernring 15
+ *	14478 Potsdam, Germany
+ *
+ *	Most of this code is directly derived from his userspace driver.
+ *	His driver works so send any reports to alan@lxorguk.ukuu.org.uk
+ *	unless the userspace driver also doesn't work for you...
+ *
+ *      Changes:
+ *	25-11-2009 	Hans Verkuil <hverkuil@xs4all.nl>
+ * 			- converted to version 2 of the V4L API.
+ *      08/07/2003      Daniele Bellucci <bellucda@tiscali.it>
+ *                      - pms_capture: report back -EFAULT
+ */
 
 #include <linux/module.h>
 #include <linux/delay.h>
@@ -20,9 +41,9 @@ MODULE_LICENSE("GPL");
 MODULE_VERSION("0.0.4");
 
 #define MOTOROLA	1
-#define PHILIPS2	2               
+#define PHILIPS2	2               /* SAA7191 */
 #define PHILIPS1	3
-#define MVVMEMORYWIDTH	0x40		
+#define MVVMEMORYWIDTH	0x40		/* 512 bytes */
 
 struct i2c_info {
 	u8 slave;
@@ -44,7 +65,7 @@ struct pms {
 	struct i2c_info i2cinfo[64];
 
 	int decoder;
-	int standard;	
+	int standard;	/* 0 - auto 1 - ntsc 2 - pal 3 - secam */
 	v4l2_std_id std;
 	int io;
 	int data;
@@ -53,6 +74,9 @@ struct pms {
 
 static struct pms pms_card;
 
+/*
+ *	I/O ports and Shared Memory
+ */
 
 static int io_port = 0x250;
 module_param(io_port, int, 0);
@@ -181,6 +205,9 @@ static void pms_i2c_andor(struct pms *dev, int slave, int sub, int and, int or)
 	pms_i2c_write(dev, slave, sub, tmp);
 }
 
+/*
+ *	Control functions
+ */
 
 
 static void pms_videosource(struct pms *dev, short source)
@@ -195,6 +222,9 @@ static void pms_videosource(struct pms *dev, short source)
 		break;
 	}
 	mvv_write(dev, 0x2E, 0x31);
+	/* Was: mvv_write(dev, 0x2E, source ? 0x31 : 0x30);
+	   But could not make this work correctly. Only Composite input
+	   worked for me. */
 }
 
 static void pms_hue(struct pms *dev, short hue)
@@ -266,19 +296,19 @@ static void pms_format(struct pms *dev, short format)
 		return;
 
 	switch (format) {
-	case 0:	
+	case 0:	/* Auto */
 		pms_i2c_andor(dev, target, 0x0d, 0xfe, 0x00);
 		pms_i2c_andor(dev, target, 0x0f, 0x3f, 0x80);
 		break;
-	case 1: 
+	case 1: /* NTSC */
 		pms_i2c_andor(dev, target, 0x0d, 0xfe, 0x00);
 		pms_i2c_andor(dev, target, 0x0f, 0x3f, 0x40);
 		break;
-	case 2: 
+	case 2: /* PAL */
 		pms_i2c_andor(dev, target, 0x0d, 0xfe, 0x00);
 		pms_i2c_andor(dev, target, 0x0f, 0x3f, 0x00);
 		break;
-	case 3:	
+	case 3:	/* SECAM */
 		pms_i2c_andor(dev, target, 0x0d, 0xfe, 0x01);
 		pms_i2c_andor(dev, target, 0x0f, 0x3f, 0x00);
 		break;
@@ -287,6 +317,11 @@ static void pms_format(struct pms *dev, short format)
 
 #ifdef FOR_FUTURE_EXPANSION
 
+/*
+ *	These features of the PMS card are not currently exposes. They
+ *	could become a private v4l ioctl for PMSCONFIG or somesuch if
+ *	people need it. We also don't yet use the PMS interrupt.
+ */
 
 static void pms_hstart(struct pms *dev, short start)
 {
@@ -302,6 +337,9 @@ static void pms_hstart(struct pms *dev, short start)
 	}
 }
 
+/*
+ *	Bandpass filters
+ */
 
 static void pms_bandpass(struct pms *dev, short pass)
 {
@@ -455,26 +493,38 @@ static void pms_framerate(struct pms *dev, short frr)
 
 static void pms_vert(struct pms *dev, u8 deciden, u8 decinum)
 {
-	mvv_write(dev, 0x1c, deciden);	
-	mvv_write(dev, 0x1d, decinum);	
+	mvv_write(dev, 0x1c, deciden);	/* Denominator */
+	mvv_write(dev, 0x1d, decinum);	/* Numerator */
 }
 
+/*
+ *	Turn 16bit ratios into best small ratio the chipset can grok
+ */
 
 static void pms_vertdeci(struct pms *dev, unsigned short decinum, unsigned short deciden)
 {
-	
+	/* Knock it down by / 5 once */
 	if (decinum % 5 == 0) {
 		deciden /= 5;
 		decinum /= 5;
 	}
+	/*
+	 *	3's
+	 */
 	while (decinum % 3 == 0 && deciden % 3 == 0) {
 		deciden /= 3;
 		decinum /= 3;
 	}
+	/*
+	 *	2's
+	 */
 	while (decinum % 2 == 0 && deciden % 2 == 0) {
 		decinum /= 2;
 		deciden /= 2;
 	}
+	/*
+	 *	Fudgyify
+	 */
 	while (deciden > 32) {
 		deciden /= 2;
 		decinum = (decinum + 1) / 2;
@@ -493,7 +543,7 @@ static void pms_horzdeci(struct pms *dev, short decinum, short deciden)
 		}
 	} else {
 		decinum = 512;
-		deciden = 640;	
+		deciden = 640;	/* 768 would be ideal */
 	}
 
 	while (((decinum | deciden) & 1) == 0) {
@@ -559,6 +609,9 @@ static void pms_resolution(struct pms *dev, short width, short height)
 }
 
 
+/*
+ *	Set Input
+ */
 
 static void pms_vcrinput(struct pms *dev, short input)
 {
@@ -573,23 +626,31 @@ static int pms_capture(struct pms *dev, char __user *buf, int rgb555, int count)
 {
 	int y;
 	int dw = 2 * dev->width;
-	char tmp[dw + 32]; 
+	char tmp[dw + 32]; /* using a temp buffer is faster than direct  */
 	int cnt = 0;
 	int len = 0;
-	unsigned char r8 = 0x5;  
+	unsigned char r8 = 0x5;  /* value for reg8  */
 
 	if (rgb555)
-		r8 |= 0x20; 
-	mvv_write(dev, 0x08, r8); 
+		r8 |= 0x20; /* else use untranslated rgb = 565 */
+	mvv_write(dev, 0x08, r8); /* capture rgb555/565, init DRAM, PC enable */
 
+/*	printf("%d %d %d %d %d %x %x\n",width,height,voff,nom,den,mvv_buf); */
 
 	for (y = 0; y < dev->height; y++) {
-		writeb(0, dev->mem);  
+		writeb(0, dev->mem);  /* synchronisiert neue Zeile */
 
+		/*
+		 *	This is in truth a fifo, be very careful as if you
+		 *	forgot this odd things will occur 8)
+		 */
 
-		memcpy_fromio(tmp, dev->mem, dw + 32); 
+		memcpy_fromio(tmp, dev->mem, dw + 32); /* discard 16 word   */
 		cnt -= dev->height;
 		while (cnt <= 0) {
+			/*
+			 *	Don't copy too far
+			 */
 			int dt = dw;
 			if (dt + len > count)
 				dt = count - len;
@@ -604,6 +665,9 @@ static int pms_capture(struct pms *dev, char __user *buf, int rgb555, int count)
 }
 
 
+/*
+ *	Video4linux interfacing
+ */
 
 static int pms_querycap(struct file *file, void  *priv,
 					struct v4l2_capability *vcap)
@@ -690,6 +754,14 @@ static int pms_s_std(struct file *file, void *fh, v4l2_std_id *std)
 	} else {
 		ret = -EINVAL;
 	}
+	/*
+	switch (v->mode) {
+	case VIDEO_MODE_AUTO:
+		pms_framerate(dev, 25);
+		pms_secamcross(dev, 0);
+		pms_format(dev, 0);
+		break;
+	}*/
 	mutex_unlock(&dev->lock);
 	return 0;
 }
@@ -780,7 +852,7 @@ static int pms_g_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *fm
 	pix->field = V4L2_FIELD_NONE;
 	pix->bytesperline = 2 * dev->width;
 	pix->sizeimage = 2 * dev->width * dev->height;
-	
+	/* Just a guess */
 	pix->colorspace = V4L2_COLORSPACE_SRGB;
 	return 0;
 }
@@ -799,7 +871,7 @@ static int pms_try_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *
 	pix->field = V4L2_FIELD_NONE;
 	pix->bytesperline = 2 * pix->width;
 	pix->sizeimage = 2 * pix->width * pix->height;
-	
+	/* Just a guess */
 	pix->colorspace = V4L2_COLORSPACE_SRGB;
 	return 0;
 }
@@ -817,7 +889,7 @@ static int pms_s_fmt_vid_cap(struct file *file, void *fh, struct v4l2_format *fm
 	dev->height = pix->height;
 	dev->depth = (pix->pixelformat == V4L2_PIX_FMT_RGB555) ? 15 : 16;
 	pms_resolution(dev, dev->width, dev->height);
-	
+	/* Ok we figured out what to use from our wide choice */
 	mutex_unlock(&dev->lock);
 	return 0;
 }
@@ -878,6 +950,9 @@ static const struct v4l2_ioctl_ops pms_ioctl_ops = {
 	.vidioc_try_fmt_vid_cap  	    = pms_try_fmt_vid_cap,
 };
 
+/*
+ *	Probe for and initialise the Mediavision PMS
+ */
 
 static int init_mediavision(struct pms *dev)
 {
@@ -909,8 +984,8 @@ static int init_mediavision(struct pms *dev)
 		iounmap(dev->mem);
 		return -EBUSY;
 	}
-	outb(0xb8, 0x9a01);		
-	outb(dev->io >> 4, 0x9a01);	
+	outb(0xb8, 0x9a01);		/* Unlock */
+	outb(dev->io >> 4, 0x9a01);	/* Set IO port */
 
 
 	id = mvv_read(dev, 3);
@@ -933,10 +1008,13 @@ static int init_mediavision(struct pms *dev)
 		return -ENODEV;
 	}
 
+	/*
+	 *	Ok we have a PMS of some sort
+	 */
 
-	mvv_write(dev, 0x04, mem_base >> 12);	
+	mvv_write(dev, 0x04, mem_base >> 12);	/* Set the memory area */
 
-	
+	/* Ok now load the defaults */
 
 	for (i = 0; i < 0x19; i++) {
 		if (i2c_defs[i] == 0xff)
@@ -981,6 +1059,9 @@ static int init_mediavision(struct pms *dev)
 	return 0;
 }
 
+/*
+ *	Initialization and module stuff
+ */
 
 #ifndef MODULE
 static int enable;

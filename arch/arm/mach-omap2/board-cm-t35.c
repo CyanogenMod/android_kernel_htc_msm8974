@@ -147,28 +147,28 @@ static inline void cm_t35_init_led(void) {}
 static struct mtd_partition cm_t35_nand_partitions[] = {
 	{
 		.name           = "xloader",
-		.offset         = 0,			
+		.offset         = 0,			/* Offset = 0x00000 */
 		.size           = 4 * NAND_BLOCK_SIZE,
 		.mask_flags     = MTD_WRITEABLE
 	},
 	{
 		.name           = "uboot",
-		.offset         = MTDPART_OFS_APPEND,	
+		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x80000 */
 		.size           = 15 * NAND_BLOCK_SIZE,
 	},
 	{
 		.name           = "uboot environment",
-		.offset         = MTDPART_OFS_APPEND,	
+		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x260000 */
 		.size           = 2 * NAND_BLOCK_SIZE,
 	},
 	{
 		.name           = "linux",
-		.offset         = MTDPART_OFS_APPEND,	
+		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x2A0000 */
 		.size           = 32 * NAND_BLOCK_SIZE,
 	},
 	{
 		.name           = "rootfs",
-		.offset         = MTDPART_OFS_APPEND,	
+		.offset         = MTDPART_OFS_APPEND,	/* Offset = 0x6A0000 */
 		.size           = MTDPART_SIZ_FULL,
 	},
 };
@@ -361,6 +361,7 @@ static struct regulator_consumer_supply cm_t35_vio_supplies[] = {
 	REGULATOR_SUPPLY("vdds_dsi", "omapdss_dsi1"),
 };
 
+/* VMMC1 for MMC1 pins CMD, CLK, DAT0..DAT3 (20 mA, plus card == max 220 mA) */
 static struct regulator_init_data cm_t35_vmmc1 = {
 	.constraints = {
 		.min_uV			= 1850000,
@@ -375,6 +376,7 @@ static struct regulator_init_data cm_t35_vmmc1 = {
 	.consumer_supplies	= cm_t35_vmmc1_supply,
 };
 
+/* VSIM for MMC1 pins DAT4..DAT7 (2 mA, plus card == max 50 mA) */
 static struct regulator_init_data cm_t35_vsim = {
 	.constraints = {
 		.min_uV			= 1800000,
@@ -434,9 +436,9 @@ static struct omap2_hsmmc_info mmc[] = {
 		.transceiver	= 1,
 		.gpio_cd	= -EINVAL,
 		.gpio_wp	= -EINVAL,
-		.ocr_mask	= 0x00100000,	
+		.ocr_mask	= 0x00100000,	/* 3.3V */
 	},
-	{}	
+	{}	/* Terminator */
 };
 
 static struct usbhs_omap_board_data usbhs_bdata __initdata = {
@@ -482,7 +484,7 @@ static int cm_t35_twl_gpio_setup(struct device *dev, unsigned gpio,
 		pr_err("CM-T35: could not obtain gpio for WiFi reset\n");
 	}
 
-	
+	/* gpio + 0 is "mmc0_cd" (input/IRQ) */
 	mmc[0].gpio_cd = gpio + 0;
 	omap_hsmmc_late_init(mmc);
 
@@ -497,7 +499,7 @@ static struct twl4030_gpio_platform_data cm_t35_gpio_data = {
 };
 
 static struct twl4030_platform_data cm_t35_twldata = {
-	
+	/* platform_data for children goes here */
 	.keypad		= &cm_t35_kp_data,
 	.gpio		= &cm_t35_gpio_data,
 	.vmmc1		= &cm_t35_vmmc1,
@@ -516,18 +518,18 @@ static void __init cm_t35_init_i2c(void)
 
 #ifdef CONFIG_OMAP_MUX
 static struct omap_board_mux board_mux[] __initdata = {
-	
+	/* nCS and IRQ for CM-T35 ethernet */
 	OMAP3_MUX(GPMC_NCS5, OMAP_MUX_MODE0),
 	OMAP3_MUX(UART3_CTS_RCTX, OMAP_MUX_MODE4 | OMAP_PIN_INPUT_PULLUP),
 
-	
+	/* nCS and IRQ for SB-T35 ethernet */
 	OMAP3_MUX(GPMC_NCS4, OMAP_MUX_MODE0),
 	OMAP3_MUX(GPMC_WAIT3, OMAP_MUX_MODE4 | OMAP_PIN_INPUT_PULLUP),
 
-	
+	/* PENDOWN GPIO */
 	OMAP3_MUX(GPMC_NCS6, OMAP_MUX_MODE4 | OMAP_PIN_INPUT),
 
-	
+	/* mUSB */
 	OMAP3_MUX(HSUSB0_CLK, OMAP_MUX_MODE0 | OMAP_PIN_INPUT),
 	OMAP3_MUX(HSUSB0_STP, OMAP_MUX_MODE0 | OMAP_PIN_OUTPUT),
 	OMAP3_MUX(HSUSB0_DIR, OMAP_MUX_MODE0 | OMAP_PIN_INPUT),
@@ -541,37 +543,37 @@ static struct omap_board_mux board_mux[] __initdata = {
 	OMAP3_MUX(HSUSB0_DATA6, OMAP_MUX_MODE0 | OMAP_PIN_INPUT),
 	OMAP3_MUX(HSUSB0_DATA7, OMAP_MUX_MODE0 | OMAP_PIN_INPUT),
 
-	
+	/* MMC 2 */
 	OMAP3_MUX(SDMMC2_DAT4, OMAP_MUX_MODE1 | OMAP_PIN_OUTPUT),
 	OMAP3_MUX(SDMMC2_DAT5, OMAP_MUX_MODE1 | OMAP_PIN_OUTPUT),
 	OMAP3_MUX(SDMMC2_DAT6, OMAP_MUX_MODE1 | OMAP_PIN_OUTPUT),
 	OMAP3_MUX(SDMMC2_DAT7, OMAP_MUX_MODE1 | OMAP_PIN_INPUT),
 
-	
+	/* McSPI 1 */
 	OMAP3_MUX(MCSPI1_CLK, OMAP_MUX_MODE0 | OMAP_PIN_INPUT),
 	OMAP3_MUX(MCSPI1_SIMO, OMAP_MUX_MODE0 | OMAP_PIN_INPUT),
 	OMAP3_MUX(MCSPI1_SOMI, OMAP_MUX_MODE0 | OMAP_PIN_INPUT),
 	OMAP3_MUX(MCSPI1_CS0, OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLDOWN),
 
-	
+	/* McSPI 4 */
 	OMAP3_MUX(MCBSP1_CLKR, OMAP_MUX_MODE1 | OMAP_PIN_INPUT),
 	OMAP3_MUX(MCBSP1_DX, OMAP_MUX_MODE1 | OMAP_PIN_INPUT),
 	OMAP3_MUX(MCBSP1_DR, OMAP_MUX_MODE1 | OMAP_PIN_INPUT),
 	OMAP3_MUX(MCBSP1_FSX, OMAP_MUX_MODE1 | OMAP_PIN_INPUT_PULLUP),
 
-	
+	/* McBSP 2 */
 	OMAP3_MUX(MCBSP2_FSX, OMAP_MUX_MODE0 | OMAP_PIN_INPUT),
 	OMAP3_MUX(MCBSP2_CLKX, OMAP_MUX_MODE0 | OMAP_PIN_INPUT),
 	OMAP3_MUX(MCBSP2_DR, OMAP_MUX_MODE0 | OMAP_PIN_INPUT),
 	OMAP3_MUX(MCBSP2_DX, OMAP_MUX_MODE0 | OMAP_PIN_OUTPUT),
 
-	
+	/* serial ports */
 	OMAP3_MUX(MCBSP3_CLKX, OMAP_MUX_MODE1 | OMAP_PIN_OUTPUT),
 	OMAP3_MUX(MCBSP3_FSX, OMAP_MUX_MODE1 | OMAP_PIN_INPUT),
 	OMAP3_MUX(UART1_TX, OMAP_MUX_MODE0 | OMAP_PIN_OUTPUT),
 	OMAP3_MUX(UART1_RX, OMAP_MUX_MODE0 | OMAP_PIN_INPUT),
 
-	
+	/* common DSS */
 	OMAP3_MUX(DSS_PCLK, OMAP_MUX_MODE0 | OMAP_PIN_OUTPUT),
 	OMAP3_MUX(DSS_HSYNC, OMAP_MUX_MODE0 | OMAP_PIN_OUTPUT),
 	OMAP3_MUX(DSS_VSYNC, OMAP_MUX_MODE0 | OMAP_PIN_OUTPUT),
@@ -589,12 +591,12 @@ static struct omap_board_mux board_mux[] __initdata = {
 	OMAP3_MUX(DSS_DATA16, OMAP_MUX_MODE0 | OMAP_PIN_OUTPUT),
 	OMAP3_MUX(DSS_DATA17, OMAP_MUX_MODE0 | OMAP_PIN_OUTPUT),
 
-	
+	/* display controls */
 	OMAP3_MUX(MCBSP1_FSR, OMAP_MUX_MODE4 | OMAP_PIN_OUTPUT),
 	OMAP3_MUX(GPMC_NCS7, OMAP_MUX_MODE4 | OMAP_PIN_OUTPUT),
 	OMAP3_MUX(GPMC_NCS3, OMAP_MUX_MODE4 | OMAP_PIN_OUTPUT),
 
-	
+	/* TPS IRQ */
 	OMAP3_MUX(SYS_NIRQ, OMAP_MUX_MODE0 | OMAP_WAKEUP_EN | \
 		  OMAP_PIN_INPUT_PULLUP),
 

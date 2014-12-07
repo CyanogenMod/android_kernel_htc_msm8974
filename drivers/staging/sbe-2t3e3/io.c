@@ -14,7 +14,10 @@
 #include "2t3e3.h"
 #include "ctrl.h"
 
+/* All access to registers done via the 21143 on port 0 must be
+ * protected via the card->bootrom_lock. */
 
+/* priviate define to be used here only - must be protected by card->bootrom_lock */
 #define cpld_write_nolock(channel, reg, val)			\
 	bootrom_write((channel), CPLD_MAP_REG(reg, channel), val)
 
@@ -29,26 +32,29 @@ u32 cpld_read(struct channel *channel, u32 reg)
 	return val;
 }
 
+/****************************************
+ * Access via BootROM port
+ ****************************************/
 
 u32 bootrom_read(struct channel *channel, u32 reg)
 {
 	unsigned long addr = channel->card->bootrom_addr;
 	u32 result;
 
-	
+	/* select BootROM address */
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_PROGRAMMING_ADDRESS, reg & 0x3FFFF);
 
-	
+	/* select reading from BootROM */
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT,
 		 SBE_2T3E3_21143_VAL_READ_OPERATION |
 		 SBE_2T3E3_21143_VAL_BOOT_ROM_SELECT);
 
-	udelay(2); 
+	udelay(2); /* 20 PCI cycles */
 
-	
+	/* read from BootROM */
 	result = dc_read(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT) & 0xff;
 
-	
+	/* reset CSR9 */
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT, 0);
 
 	return result;
@@ -58,22 +64,25 @@ void bootrom_write(struct channel *channel, u32 reg, u32 val)
 {
 	unsigned long addr = channel->card->bootrom_addr;
 
-	
+	/* select BootROM address */
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_PROGRAMMING_ADDRESS, reg & 0x3FFFF);
 
-	
+	/* select writting to BootROM */
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT,
 		 SBE_2T3E3_21143_VAL_WRITE_OPERATION |
 		 SBE_2T3E3_21143_VAL_BOOT_ROM_SELECT |
 		 (val & 0xff));
 
-	udelay(2); 
+	udelay(2); /* 20 PCI cycles */
 
-	
+	/* reset CSR9 */
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT, 0);
 }
 
 
+/****************************************
+ * Access via Serial I/O port
+ ****************************************/
 
 static u32 serialrom_read_bit(struct channel *channel)
 {
@@ -84,7 +93,7 @@ static u32 serialrom_read_bit(struct channel *channel)
 		 SBE_2T3E3_21143_VAL_READ_OPERATION |
 		 SBE_2T3E3_21143_VAL_SERIAL_ROM_SELECT |
 		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CLOCK |
-		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);	
+		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);	/* clock high */
 
 	bit = (dc_read(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT) &
 	       SBE_2T3E3_21143_VAL_SERIAL_ROM_DATA_OUT) > 0 ? 1 : 0;
@@ -92,7 +101,7 @@ static u32 serialrom_read_bit(struct channel *channel)
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT,
 		 SBE_2T3E3_21143_VAL_READ_OPERATION |
 		 SBE_2T3E3_21143_VAL_SERIAL_ROM_SELECT |
-		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);	
+		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);	/* clock low */
 
 	return bit;
 }
@@ -109,7 +118,7 @@ static void serialrom_write_bit(struct channel *channel, u32 bit)
 			 SBE_2T3E3_21143_VAL_WRITE_OPERATION |
 			 SBE_2T3E3_21143_VAL_SERIAL_ROM_SELECT |
 			 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT |
-			 (bit << 2)); 
+			 (bit << 2)); /* clock low */
 
 		lastbit = bit;
 	}
@@ -119,15 +128,18 @@ static void serialrom_write_bit(struct channel *channel, u32 bit)
 		 SBE_2T3E3_21143_VAL_SERIAL_ROM_SELECT |
 		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CLOCK |
 		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT |
-		 (bit << 2)); 
+		 (bit << 2)); /* clock high */
 
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT,
 		 SBE_2T3E3_21143_VAL_WRITE_OPERATION |
 		 SBE_2T3E3_21143_VAL_SERIAL_ROM_SELECT |
 		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT |
-		 (bit << 2)); 
+		 (bit << 2)); /* clock low */
 }
 
+/****************************************
+ * Access to SerialROM (eeprom)
+ ****************************************/
 
 u32 t3e3_eeprom_read_word(struct channel *channel, u32 address)
 {
@@ -139,17 +151,17 @@ u32 t3e3_eeprom_read_word(struct channel *channel, u32 address)
 
 	spin_lock_irqsave(&channel->card->bootrom_lock, flags);
 
-	
+	/* select correct Serial Chip */
 	cpld_write_nolock(channel, SBE_2T3E3_CPLD_REG_SERIAL_CHIP_SELECT,
 			  SBE_2T3E3_CPLD_VAL_EEPROM_SELECT);
 
-	
+	/* select reading from Serial I/O Bus */
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT,
 		 SBE_2T3E3_21143_VAL_READ_OPERATION |
 		 SBE_2T3E3_21143_VAL_SERIAL_ROM_SELECT |
-		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);        
+		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);        /* clock low */
 
-	
+	/* select read operation */
 	serialrom_write_bit(channel, 0);
 	serialrom_write_bit(channel, 1);
 	serialrom_write_bit(channel, 1);
@@ -162,14 +174,14 @@ u32 t3e3_eeprom_read_word(struct channel *channel, u32 address)
 	for (i = 0x8000; i; i >>= 1)
 		val |= (serialrom_read_bit(channel) ? i : 0);
 
-	
+	/* Reset 21143's CSR9 */
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT,
 		 SBE_2T3E3_21143_VAL_READ_OPERATION |
 		 SBE_2T3E3_21143_VAL_SERIAL_ROM_SELECT |
-		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);        
+		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);        /* clock low */
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT, 0);
 
-	
+	/* Unselect Serial Chip */
 	cpld_write_nolock(channel, SBE_2T3E3_CPLD_REG_SERIAL_CHIP_SELECT, 0);
 
 	spin_unlock_irqrestore(&channel->card->bootrom_lock, flags);
@@ -178,6 +190,9 @@ u32 t3e3_eeprom_read_word(struct channel *channel, u32 address)
 }
 
 
+/****************************************
+ * Access to Framer
+ ****************************************/
 
 u32 exar7250_read(struct channel *channel, u32 reg)
 {
@@ -219,6 +234,9 @@ void exar7250_write(struct channel *channel, u32 reg, u32 val)
 }
 
 
+/****************************************
+ * Access to LIU
+ ****************************************/
 
 u32 exar7300_read(struct channel *channel, u32 reg)
 {
@@ -237,41 +255,41 @@ u32 exar7300_read(struct channel *channel, u32 reg)
 	}
 #endif
 
-	
+	/* select correct Serial Chip */
 
 	spin_lock_irqsave(&channel->card->bootrom_lock, flags);
 
 	cpld_write_nolock(channel, SBE_2T3E3_CPLD_REG_SERIAL_CHIP_SELECT,
 			  cpld_val_map[SBE_2T3E3_CPLD_VAL_LIU_SELECT][channel->h.slot]);
 
-	
+	/* select reading from Serial I/O Bus */
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT,
 		 SBE_2T3E3_21143_VAL_READ_OPERATION |
 		 SBE_2T3E3_21143_VAL_SERIAL_ROM_SELECT |
-		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);	
+		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);	/* clock low */
 
-	
+	/* select read operation */
 	serialrom_write_bit(channel, 1);
 
-	
+	/* Exar7300 register address is 4 bit long */
 	reg = t3e3_liu_reg_map[reg];
-	for (i = 0; i < 4; i++, reg >>= 1) 
+	for (i = 0; i < 4; i++, reg >>= 1) /* 4 bits of SerialROM address */
 		serialrom_write_bit(channel, reg & 1);
-	for (i = 0; i < 3; i++)	
+	for (i = 0; i < 3; i++)	/* remaining 3 bits of SerialROM address */
 		serialrom_write_bit(channel, 0);
 
-	val = 0; 
-	for (i = 0; i < 8; i++)	
+	val = 0; /* Exar7300 register value is 5 bit long */
+	for (i = 0; i < 8; i++)	/* 8 bits of SerialROM value */
 		val += (serialrom_read_bit(channel) << i);
 
-	
+	/* Reset 21143's CSR9 */
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT,
 		 SBE_2T3E3_21143_VAL_READ_OPERATION |
 		 SBE_2T3E3_21143_VAL_SERIAL_ROM_SELECT |
-		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);	
+		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);	/* clock low */
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT, 0);
 
-	
+	/* Unselect Serial Chip */
 	cpld_write_nolock(channel, SBE_2T3E3_CPLD_REG_SERIAL_CHIP_SELECT, 0);
 
 	spin_unlock_irqrestore(&channel->card->bootrom_lock, flags);
@@ -286,47 +304,47 @@ void exar7300_write(struct channel *channel, u32 reg, u32 val)
 
 	channel->liu_regs[reg] = val;
 
-	
+	/* select correct Serial Chip */
 
 	spin_lock_irqsave(&channel->card->bootrom_lock, flags);
 
 	cpld_write_nolock(channel, SBE_2T3E3_CPLD_REG_SERIAL_CHIP_SELECT,
 			  cpld_val_map[SBE_2T3E3_CPLD_VAL_LIU_SELECT][channel->h.slot]);
 
-	
+	/* select writting to Serial I/O Bus */
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT,
 		 SBE_2T3E3_21143_VAL_WRITE_OPERATION |
 		 SBE_2T3E3_21143_VAL_SERIAL_ROM_SELECT |
-		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);	
+		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);	/* clock low */
 
-	
+	/* select write operation */
 	serialrom_write_bit(channel, 0);
 
-	
+	/* Exar7300 register address is 4 bit long */
 	reg = t3e3_liu_reg_map[reg];
-	for (i = 0; i < 4; i++) {	
+	for (i = 0; i < 4; i++) {	/* 4 bits */
 		serialrom_write_bit(channel, reg & 1);
 		reg >>= 1;
 	}
-	for (i = 0; i < 3; i++)	
+	for (i = 0; i < 3; i++)	/* remaining 3 bits of SerialROM address */
 		serialrom_write_bit(channel, 0);
 
-	
+	/* Exar7300 register value is 5 bit long */
 	for (i = 0; i < 5; i++) {
 		serialrom_write_bit(channel, val & 1);
 		val >>= 1;
 	}
-	for (i = 0; i < 3; i++)	
+	for (i = 0; i < 3; i++)	/* remaining 3 bits of SerialROM value */
 		serialrom_write_bit(channel, 0);
 
-	
+	/* Reset 21143_CSR9 */
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT,
 		 SBE_2T3E3_21143_VAL_WRITE_OPERATION |
 		 SBE_2T3E3_21143_VAL_SERIAL_ROM_SELECT |
-		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);	
+		 SBE_2T3E3_21143_VAL_SERIAL_ROM_CHIP_SELECT);	/* clock low */
 	dc_write(addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT, 0);
 
-	
+	/* Unselect Serial Chip */
 	cpld_write_nolock(channel, SBE_2T3E3_CPLD_REG_SERIAL_CHIP_SELECT, 0);
 
 	spin_unlock_irqrestore(&channel->card->bootrom_lock, flags);

@@ -26,7 +26,7 @@ static void mpc86xx_8259_cascade(unsigned int irq, struct irq_desc *desc)
 
 	chip->irq_eoi(&desc->irq_data);
 }
-#endif	
+#endif	/* CONFIG_PPC_I8259 */
 
 void __init mpc86xx_init_irq(void)
 {
@@ -44,7 +44,7 @@ void __init mpc86xx_init_irq(void)
 	mpic_init(mpic);
 
 #ifdef CONFIG_PPC_I8259
-	
+	/* Initialize i8259 controller */
 	for_each_node_by_type(np, "interrupt-controller")
 		if (of_device_is_compatible(np, "chrp,iic")) {
 			cascade_node = np;

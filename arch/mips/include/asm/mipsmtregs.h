@@ -12,6 +12,9 @@
 
 #ifndef __ASSEMBLY__
 
+/*
+ * C macros
+ */
 
 #define read_c0_mvpcontrol()		__read_32bit_c0_register($0, 1)
 #define write_c0_mvpcontrol(val)	__write_32bit_c0_register($0, 1, val)
@@ -33,7 +36,10 @@
 #define read_c0_tccontext()		__read_32bit_c0_register($2, 5)
 #define write_c0_tccontext(val)		__write_32bit_c0_register($2, 5, val)
 
-#else 
+#else /* Assembly */
+/*
+ * Macros for use in assembly language code
+ */
 
 #define CP0_MVPCONTROL		$0, 1
 #define CP0_MVPCONF0		$0, 2
@@ -59,6 +65,7 @@
 
 #endif
 
+/* MVPControl fields */
 #define MVPCONTROL_EVP		(_ULCAST_(1))
 
 #define MVPCONTROL_VPC_SHIFT	1
@@ -68,6 +75,7 @@
 #define MVPCONTROL_STLB		(_ULCAST_(1) << MVPCONTROL_STLB_SHIFT)
 
 
+/* MVPConf0 fields */
 #define MVPCONF0_PTC_SHIFT	0
 #define MVPCONF0_PTC		( _ULCAST_(0xff))
 #define MVPCONF0_PVPE_SHIFT	10
@@ -82,10 +90,12 @@
 #define MVPCONF0_M		(_ULCAST_(0x1) << MVPCONF0_M_SHIFT)
 
 
+/* config3 fields */
 #define CONFIG3_MT_SHIFT	2
 #define CONFIG3_MT		(_ULCAST_(1) << CONFIG3_MT_SHIFT)
 
 
+/* VPEControl fields (per VPE) */
 #define VPECONTROL_TARGTC	(_ULCAST_(0xff))
 
 #define VPECONTROL_TE_SHIFT	15
@@ -93,6 +103,7 @@
 #define VPECONTROL_EXCPT_SHIFT	16
 #define VPECONTROL_EXCPT	(_ULCAST_(0x7) << VPECONTROL_EXCPT_SHIFT)
 
+/* Thread Exception Codes for EXCPT field */
 #define THREX_TU		0
 #define THREX_TO		1
 #define THREX_IYQ		2
@@ -105,6 +116,7 @@
 #define VPECONTROL_YSI_SHIFT	21
 #define VPECONTROL_YSI		(_ULCAST_(1) << VPECONTROL_YSI_SHIFT)
 
+/* VPEConf0 fields (per VPE) */
 #define VPECONF0_VPA_SHIFT	0
 #define VPECONF0_VPA		(_ULCAST_(1) << VPECONF0_VPA_SHIFT)
 #define VPECONF0_MVP_SHIFT	1
@@ -112,6 +124,7 @@
 #define VPECONF0_XTC_SHIFT	21
 #define VPECONF0_XTC		(_ULCAST_(0xff) << VPECONF0_XTC_SHIFT)
 
+/* TCStatus fields (per TC) */
 #define TCSTATUS_TASID		(_ULCAST_(0xff))
 #define TCSTATUS_IXMT_SHIFT	10
 #define TCSTATUS_IXMT		(_ULCAST_(1) << TCSTATUS_IXMT_SHIFT)
@@ -129,6 +142,7 @@
 #define TCSTATUS_TSST		(_ULCAST_(1) << TCSTATUS_TSST_SHIFT)
 #define TCSTATUS_RNST_SHIFT	23
 #define TCSTATUS_RNST		(_ULCAST_(3) << TCSTATUS_RNST_SHIFT)
+/* Codes for RNST */
 #define TC_RUNNING		0
 #define TC_WAITING		1
 #define TC_YIELDING		2
@@ -136,7 +150,9 @@
 
 #define TCSTATUS_TMX_SHIFT	27
 #define TCSTATUS_TMX		(_ULCAST_(1) << TCSTATUS_TMX_SHIFT)
+/* TCStatus TCU bits can use same definitions/offsets as CU bits in Status */
 
+/* TCBind */
 #define TCBIND_CURVPE_SHIFT	0
 #define TCBIND_CURVPE		(_ULCAST_(0xf))
 
@@ -144,6 +160,7 @@
 
 #define TCBIND_CURTC		(_ULCAST_(0xff) << TCBIND_CURTC_SHIFT)
 
+/* TCHalt */
 #define TCHALT_H		(_ULCAST_(1))
 
 #ifndef __ASSEMBLY__
@@ -180,6 +197,8 @@ static inline void __raw_evpe(void)
 	"	.set	pop						\n");
 }
 
+/* Enable virtual processor execution if previous suggested it should be.
+   EVPE_ENABLE to force */
 
 #define EVPE_ENABLE MVPCONTROL_EVP
 
@@ -219,6 +238,8 @@ static inline void __raw_emt(void)
 	"	.set	reorder");
 }
 
+/* enable multi-threaded execution if previous suggested it should be.
+   EMT_ENABLE to force */
 
 #define EMT_ENABLE VPECONTROL_TE
 
@@ -324,6 +345,7 @@ do {									\
 } while (0)
 
 
+/* you *must* set the target tc (settc) before trying to use these */
 #define read_vpe_c0_vpecontrol()	mftc0(1, 1)
 #define write_vpe_c0_vpecontrol(val)	mttc0(1, 1, val)
 #define read_vpe_c0_vpeconf0()		mftc0(1, 2)
@@ -348,6 +370,7 @@ do {									\
 #define write_vpe_c0_epc(val)		mttc0(14, 0, val)
 
 
+/* TC */
 #define read_tc_c0_tcstatus()		mftc0(2, 1)
 #define write_tc_c0_tcstatus(val)	mttc0(2, 1, val)
 #define read_tc_c0_tcbind()		mftc0(2, 2)
@@ -359,6 +382,7 @@ do {									\
 #define read_tc_c0_tccontext()		mftc0(2, 5)
 #define write_tc_c0_tccontext(val)	mttc0(2, 5, val)
 
+/* GPR */
 #define read_tc_gpr_sp()		mftgpr(29)
 #define write_tc_gpr_sp(val)		mttgpr(29, val)
 #define read_tc_gpr_gp()		mftgpr(28)
@@ -366,6 +390,6 @@ do {									\
 
 __BUILD_SET_C0(mvpcontrol)
 
-#endif 
+#endif /* Not __ASSEMBLY__ */
 
 #endif

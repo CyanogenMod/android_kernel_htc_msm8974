@@ -28,6 +28,7 @@
 #include <scsi/scsi_transport_sas.h>
 #include "../scsi_sas_internal.h"
 
+/* ---------- Phy events ---------- */
 
 static void sas_phye_loss_of_signal(struct work_struct *work)
 {
@@ -93,6 +94,7 @@ static void sas_phye_spinup_hold(struct work_struct *work)
 	i->dft->lldd_control_phy(phy, PHY_FUNC_RELEASE_SPINUP_HOLD, NULL);
 }
 
+/* ---------- Phy class registration ---------- */
 
 int sas_register_phys(struct sas_ha_struct *sas_ha)
 {
@@ -113,7 +115,7 @@ int sas_register_phys(struct sas_ha_struct *sas_ha)
 		[PORTE_HARD_RESET] = sas_porte_hard_reset,
 	};
 
-	
+	/* Now register the phys. */
 	for (i = 0; i < sas_ha->num_phys; i++) {
 		int k;
 		struct asd_sas_phy *phy = sas_ha->sas_phy[i];

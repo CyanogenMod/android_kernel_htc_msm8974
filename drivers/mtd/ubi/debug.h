@@ -42,14 +42,20 @@
 #define ubi_dbg_msg(type, fmt, ...) \
 	pr_debug("UBI DBG " type ": " fmt "\n", ##__VA_ARGS__)
 
+/* Just a debugging messages not related to any specific UBI subsystem */
 #define dbg_msg(fmt, ...)                                    \
 	printk(KERN_DEBUG "UBI DBG (pid %d): %s: " fmt "\n", \
 	       current->pid, __func__, ##__VA_ARGS__)
 
+/* General debugging messages */
 #define dbg_gen(fmt, ...) ubi_dbg_msg("gen", fmt, ##__VA_ARGS__)
+/* Messages from the eraseblock association sub-system */
 #define dbg_eba(fmt, ...) ubi_dbg_msg("eba", fmt, ##__VA_ARGS__)
+/* Messages from the wear-leveling sub-system */
 #define dbg_wl(fmt, ...)  ubi_dbg_msg("wl", fmt, ##__VA_ARGS__)
+/* Messages from the input/output sub-system */
 #define dbg_io(fmt, ...)  ubi_dbg_msg("io", fmt, ##__VA_ARGS__)
+/* Initialization and build messages */
 #define dbg_bld(fmt, ...) ubi_dbg_msg("bld", fmt, ##__VA_ARGS__)
 
 void ubi_dbg_dump_ec_hdr(const struct ubi_ec_hdr *ec_hdr);
@@ -70,9 +76,29 @@ void ubi_debugfs_exit(void);
 int ubi_debugfs_init_dev(struct ubi_device *ubi);
 void ubi_debugfs_exit_dev(struct ubi_device *ubi);
 
+/*
+ * The UBI debugfs directory name pattern and maximum name length (3 for "ubi"
+ * + 2 for the number plus 1 for the trailing zero byte.
+ */
 #define UBI_DFS_DIR_NAME "ubi%d"
 #define UBI_DFS_DIR_LEN  (3 + 2 + 1)
 
+/**
+ * struct ubi_debug_info - debugging information for an UBI device.
+ *
+ * @chk_gen: if UBI general extra checks are enabled
+ * @chk_io: if UBI I/O extra checks are enabled
+ * @disable_bgt: disable the background task for testing purposes
+ * @emulate_bitflips: emulate bit-flips for testing purposes
+ * @emulate_io_failures: emulate write/erase failures for testing purposes
+ * @dfs_dir_name: name of debugfs directory containing files of this UBI device
+ * @dfs_dir: direntry object of the UBI device debugfs directory
+ * @dfs_chk_gen: debugfs knob to enable UBI general extra checks
+ * @dfs_chk_io: debugfs knob to enable UBI I/O extra checks
+ * @dfs_disable_bgt: debugfs knob to disable the background task
+ * @dfs_emulate_bitflips: debugfs knob to emulate bit-flips
+ * @dfs_emulate_io_failures: debugfs knob to emulate write/erase failures
+ */
 struct ubi_debug_info {
 	unsigned int chk_gen:1;
 	unsigned int chk_io:1;
@@ -88,11 +114,24 @@ struct ubi_debug_info {
 	struct dentry *dfs_emulate_io_failures;
 };
 
+/**
+ * ubi_dbg_is_bgt_disabled - if the background thread is disabled.
+ * @ubi: UBI device description object
+ *
+ * Returns non-zero if the UBI background thread is disabled for testing
+ * purposes.
+ */
 static inline int ubi_dbg_is_bgt_disabled(const struct ubi_device *ubi)
 {
 	return ubi->dbg->disable_bgt;
 }
 
+/**
+ * ubi_dbg_is_bitflip - if it is time to emulate a bit-flip.
+ * @ubi: UBI device description object
+ *
+ * Returns non-zero if a bit-flip should be emulated, otherwise returns zero.
+ */
 static inline int ubi_dbg_is_bitflip(const struct ubi_device *ubi)
 {
 	if (ubi->dbg->emulate_bitflips)
@@ -100,6 +139,13 @@ static inline int ubi_dbg_is_bitflip(const struct ubi_device *ubi)
 	return 0;
 }
 
+/**
+ * ubi_dbg_is_write_failure - if it is time to emulate a write failure.
+ * @ubi: UBI device description object
+ *
+ * Returns non-zero if a write failure should be emulated, otherwise returns
+ * zero.
+ */
 static inline int ubi_dbg_is_write_failure(const struct ubi_device *ubi)
 {
 	if (ubi->dbg->emulate_io_failures)
@@ -107,6 +153,13 @@ static inline int ubi_dbg_is_write_failure(const struct ubi_device *ubi)
 	return 0;
 }
 
+/**
+ * ubi_dbg_is_erase_failure - if its time to emulate an erase failure.
+ * @ubi: UBI device description object
+ *
+ * Returns non-zero if an erase failure should be emulated, otherwise returns
+ * zero.
+ */
 static inline int ubi_dbg_is_erase_failure(const struct ubi_device *ubi)
 {
 	if (ubi->dbg->emulate_io_failures)
@@ -116,6 +169,7 @@ static inline int ubi_dbg_is_erase_failure(const struct ubi_device *ubi)
 
 #else
 
+/* Use "if (0)" to make compiler check arguments even if debugging is off */
 #define ubi_assert(expr)  do {                                               \
 	if (0) {                                                             \
 		printk(KERN_CRIT "UBI assert failed in %s at %u (pid %d)\n", \
@@ -181,5 +235,5 @@ ubi_dbg_is_write_failure(const struct ubi_device *ubi)             { return 0; }
 static inline int
 ubi_dbg_is_erase_failure(const struct ubi_device *ubi)             { return 0; }
 
-#endif 
-#endif 
+#endif /* !CONFIG_MTD_UBI_DEBUG */
+#endif /* !__UBI_DEBUG_H__ */

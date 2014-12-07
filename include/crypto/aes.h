@@ -1,3 +1,6 @@
+/*
+ * Common values for AES algorithms
+ */
 
 #ifndef _CRYPTO_AES_H
 #define _CRYPTO_AES_H
@@ -14,6 +17,10 @@
 #define AES_MAX_KEYLENGTH	(15 * 16)
 #define AES_MAX_KEYLENGTH_U32	(AES_MAX_KEYLENGTH / sizeof(u32))
 
+/*
+ * Please ensure that the first two fields are 16-byte aligned
+ * relative to the start of the structure, i.e., don't move them!
+ */
 struct crypto_aes_ctx {
 	u32 key_enc[AES_MAX_KEYLENGTH_U32];
 	u32 key_dec[AES_MAX_KEYLENGTH_U32];

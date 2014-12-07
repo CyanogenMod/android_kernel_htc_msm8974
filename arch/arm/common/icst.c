@@ -19,6 +19,9 @@
 
 #include <asm/hardware/icst.h>
 
+/*
+ * Divisors for each OD setting.
+ */
 const unsigned char icst307_s2div[8] = { 10, 2, 8, 4, 5, 7, 3, 6 };
 const unsigned char icst525_s2div[8] = { 10, 2, 8, 4, 5, 7, 9, 6 };
 EXPORT_SYMBOL(icst307_s2div);
@@ -31,6 +34,9 @@ unsigned long icst_hz(const struct icst_params *p, struct icst_vco vco)
 
 EXPORT_SYMBOL(icst_hz);
 
+/*
+ * Ascending divisor S values.
+ */
 const unsigned char icst307_idx2s[8] = { 1, 6, 3, 4, 7, 5, 2, 0 };
 const unsigned char icst525_idx2s[8] = { 1, 3, 4, 7, 5, 2, 6, 0 };
 EXPORT_SYMBOL(icst307_idx2s);
@@ -43,6 +49,10 @@ icst_hz_to_vco(const struct icst_params *p, unsigned long freq)
 	unsigned long f;
 	unsigned int i = 0, rd, best = (unsigned int)-1;
 
+	/*
+	 * First, find the PLL output divisor such
+	 * that the PLL output is within spec.
+	 */
 	do {
 		f = freq * p->s2div[p->idx2s[i]];
 
@@ -55,6 +65,10 @@ icst_hz_to_vco(const struct icst_params *p, unsigned long freq)
 
 	vco.s = p->idx2s[i];
 
+	/*
+	 * Now find the closest divisor combination
+	 * which gives a PLL output of 'f'.
+	 */
 	for (rd = p->rd_min; rd <= p->rd_max; rd++) {
 		unsigned long fref_div, f_pll;
 		unsigned int vd;

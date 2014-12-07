@@ -11,6 +11,13 @@
 
 extern __wsum csum_partial(const void *buff, int len, __wsum sum);
 
+/*
+ *	Note: when you get a NULL pointer exception here this means someone
+ *	passed in an incorrect kernel address to one of these functions.
+ *
+ *	If you use these functions directly please don't forget the
+ *	access_ok().
+ */
 
 static __inline__
 __wsum csum_partial_copy_nocheck(const void *src, void *dst,
@@ -32,6 +39,14 @@ __wsum csum_partial_copy_from_user(const void __user *src,
         return csum_partial(dst, len, sum);
 }
 
+/**
+ * csum_fold - Fold and invert a 32bit checksum.
+ * sum: 32bit unfolded sum
+ *
+ * Fold a 32bit running checksum to 16bit and invert it. This is usually
+ * the last step before putting a checksum into a packet.
+ * Make sure not to mix with 64bit checksums.
+ */
 static inline __sum16 csum_fold(__wsum sum)
 {
 	__asm__(
@@ -44,6 +59,17 @@ static inline __sum16 csum_fold(__wsum sum)
 	return (__force __sum16)(~(__force u32)sum >> 16);
 }
 
+/**
+ * csum_tcpup_nofold - Compute an IPv4 pseudo header checksum.
+ * @saddr: source address
+ * @daddr: destination address
+ * @len: length of packet
+ * @proto: ip protocol of packet
+ * @sum: initial sum to be added in (32bit unfolded)
+ *
+ * Returns the pseudo header checksum the input data. Result is
+ * 32bit unfolded.
+ */
 static inline __wsum
 csum_tcpudp_nofold(__be32 saddr, __be32 daddr, unsigned short len,
 		   unsigned short proto, __wsum sum)
@@ -57,6 +83,10 @@ csum_tcpudp_nofold(__be32 saddr, __be32 daddr, unsigned short len,
 	return sum;
 }
 
+/*
+ * computes the checksum of the TCP/UDP pseudo-header
+ * returns a 16-bit checksum, already complemented
+ */
 static inline __sum16 csum_tcpudp_magic(__be32 saddr, __be32 daddr,
 					   unsigned short len,
 					   unsigned short proto,
@@ -65,6 +95,11 @@ static inline __sum16 csum_tcpudp_magic(__be32 saddr, __be32 daddr,
 	return csum_fold(csum_tcpudp_nofold(saddr,daddr,len,proto,sum));
 }
 
+/**
+ * ip_fast_csum - Compute the IPv4 header checksum efficiently.
+ * iph: ipv4 header
+ * ihl: length of header / 4
+ */
 static inline __sum16 ip_fast_csum(const void *iph, unsigned int ihl)
 {
 	unsigned int sum;
@@ -86,6 +121,9 @@ static inline __sum16 ip_fast_csum(const void *iph, unsigned int ihl)
 		"  adcl $0, %0\n"
 		"  notl %0\n"
 		"2:"
+	/* Since the input registers which are loaded with iph and ipl
+	   are modified, we must also specify them as outputs, or gcc
+	   will assume they contain their original values. */
 	: "=r" (sum), "=r" (iph), "=r" (ihl)
 	: "1" (iph), "2" (ihl)
 	: "memory");

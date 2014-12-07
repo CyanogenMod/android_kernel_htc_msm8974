@@ -16,10 +16,18 @@
 #include <asm/cacheflush.h>
 #include <asm/uaccess.h>
 
+/* Transfer the section to the L1 memory */
 int
 module_frob_arch_sections(Elf_Ehdr *hdr, Elf_Shdr *sechdrs,
 			  char *secstrings, struct module *mod)
 {
+	/*
+	 * XXX: sechdrs are vmalloced in kernel/module.c
+	 * and would be vfreed just after module is loaded,
+	 * so we hack to keep the only information we needed
+	 * in mod->arch to correctly free L1 I/D sram later.
+	 * NOTE: this breaks the semantic of mod->arch structure.
+	 */
 	Elf_Shdr *s, *sechdrs_end = sechdrs + hdr->e_shnum;
 	void *dest;
 
@@ -129,6 +137,16 @@ module_frob_arch_sections(Elf_Ehdr *hdr, Elf_Shdr *sechdrs,
 	return 0;
 }
 
+/*************************************************************************/
+/* FUNCTION : apply_relocate_add                                         */
+/* ABSTRACT : Blackfin specific relocation handling for the loadable     */
+/*            modules. Modules are expected to be .o files.              */
+/*            Arithmetic relocations are handled.                        */
+/*            We do not expect LSETUP to be split and hence is not       */
+/*            handled.                                                   */
+/*            R_BFIN_BYTE and R_BFIN_BYTE2 are also not handled as the   */
+/*            gas does not generate it.                                  */
+/*************************************************************************/
 int
 apply_relocate_add(Elf_Shdr *sechdrs, const char *strtab,
 		   unsigned int symindex, unsigned int relsec,
@@ -143,10 +161,12 @@ apply_relocate_add(Elf_Shdr *sechdrs, const char *strtab,
 		relsec, sechdrs[relsec].sh_info);
 
 	for (i = 0; i < sechdrs[relsec].sh_size / sizeof(*rel); i++) {
-		
+		/* This is where to make the change */
 		location = sechdrs[sechdrs[relsec].sh_info].sh_addr +
 		           rel[i].r_offset;
 
+		/* This is the symbol it is referring to. Note that all
+		   undefined symbols have been resolved. */
 		sym = (Elf32_Sym *) sechdrs[symindex].sh_addr
 		    + ELF32_R_SYM(rel[i].r_info);
 		value = sym->st_value;
@@ -221,7 +241,7 @@ module_finalize(const Elf_Ehdr * hdr,
 	secstrings = (void *)hdr + sechdrs[hdr->e_shstrndx].sh_offset;
 
 	for (i = 1; i < hdr->e_shnum; i++) {
-		
+		/* Internal symbols and strings. */
 		if (sechdrs[i].sh_type == SHT_SYMTAB) {
 			symindex = i;
 			strindex = sechdrs[i].sh_link;
@@ -233,11 +253,11 @@ module_finalize(const Elf_Ehdr * hdr,
 		unsigned int info = sechdrs[i].sh_info;
 		const char *shname = secstrings + sechdrs[i].sh_name;
 
-		
+		/* Not a valid relocation section? */
 		if (info >= hdr->e_shnum)
 			continue;
 
-		
+		/* Only support RELA relocation types */
 		if (sechdrs[i].sh_type != SHT_RELA)
 			continue;
 

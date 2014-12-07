@@ -20,4 +20,4 @@ static inline void arch_reset(char mode, const char *cmd)
 		     IO_ADDRESS(GEMINI_GLOBAL_BASE) + GLOBAL_RESET);
 }
 
-#endif 
+#endif /* __MACH_SYSTEM_H */

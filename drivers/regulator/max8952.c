@@ -30,6 +30,7 @@
 #include <linux/io.h>
 #include <linux/slab.h>
 
+/* Registers */
 enum {
 	MAX8952_REG_MODE0,
 	MAX8952_REG_MODE1,
@@ -94,7 +95,7 @@ static int max8952_enable(struct regulator_dev *rdev)
 {
 	struct max8952_data *max8952 = rdev_get_drvdata(rdev);
 
-	
+	/* If not valid, assume "ALWAYS_HIGH" */
 	if (gpio_is_valid(max8952->pdata->gpio_en))
 		gpio_set_value(max8952->pdata->gpio_en, 1);
 
@@ -106,7 +107,7 @@ static int max8952_disable(struct regulator_dev *rdev)
 {
 	struct max8952_data *max8952 = rdev_get_drvdata(rdev);
 
-	
+	/* If not valid, assume "ALWAYS_HIGH" -> not permitted */
 	if (gpio_is_valid(max8952->pdata->gpio_en))
 		gpio_set_value(max8952->pdata->gpio_en, 0);
 	else
@@ -137,14 +138,14 @@ static int max8952_set_voltage(struct regulator_dev *rdev,
 
 	if (!gpio_is_valid(max8952->pdata->gpio_vid0) ||
 			!gpio_is_valid(max8952->pdata->gpio_vid1)) {
-		
+		/* DVS not supported */
 		return -EPERM;
 	}
 
 	for (i = 0; i < MAX8952_NUM_DVS_MODE; i++) {
 		int volt = max8952_voltage(max8952, i);
 
-		
+		/* Set the voltage as low as possible within the range */
 		if (volt <= max_uV && volt >= min_uV)
 			if (vid == -1 || max8952_voltage(max8952, vid) > volt)
 				vid = i;
@@ -231,7 +232,7 @@ static int __devinit max8952_pmic_probe(struct i2c_client *client,
 		dev_info(max8952->dev, "EN gpio invalid: assume that EN"
 				"is always High\n");
 		max8952->en = 1;
-		pdata->gpio_en = -1; 
+		pdata->gpio_en = -1; /* Mark invalid */
 	}
 
 	err = 0;
@@ -261,16 +262,24 @@ static int __devinit max8952_pmic_probe(struct i2c_client *client,
 				"DVS not available.\n");
 		max8952->vid0 = 0;
 		max8952->vid1 = 0;
-		
+		/* Mark invalid */
 		pdata->gpio_vid0 = -1;
 		pdata->gpio_vid1 = -1;
 
-		
+		/* Disable Pulldown of EN only */
 		max8952_write_reg(max8952, MAX8952_REG_CONTROL, 0x60);
 
 		dev_err(max8952->dev, "DVS modes disabled because VID0 and VID1"
 				" do not have proper controls.\n");
 	} else {
+		/*
+		 * Disable Pulldown on EN, VID0, VID1 to reduce
+		 * leakage current of MAX8952 assuming that MAX8952
+		 * is turned on (EN==1). Note that without having VID0/1
+		 * properly connected, turning pulldown off can be
+		 * problematic. Thus, turn this off only when they are
+		 * controllable by GPIO.
+		 */
 		max8952_write_reg(max8952, MAX8952_REG_CONTROL, 0x0);
 	}
 

@@ -38,14 +38,19 @@ static int setkey(struct crypto_tfm *parent, const u8 *key,
 	u32 *flags = &parent->crt_flags;
 	int err;
 
+	/* key consists of keys of equal size concatenated, therefore
+	 * the length must be even */
 	if (keylen % 2) {
-		
+		/* tell the user why there was an error */
 		*flags |= CRYPTO_TFM_RES_BAD_KEY_LEN;
 		return -EINVAL;
 	}
 
+	/* we need two cipher instances: one to compute the initial 'tweak'
+	 * by encrypting the IV (usually the 'plain' iv) and the other
+	 * one to encrypt and decrypt the data */
 
-	
+	/* tweak cipher, uses Key2 i.e. the second half of *key */
 	crypto_cipher_clear_flags(child, CRYPTO_TFM_REQ_MASK);
 	crypto_cipher_set_flags(child, crypto_tfm_get_flags(parent) &
 				       CRYPTO_TFM_REQ_MASK);
@@ -58,7 +63,7 @@ static int setkey(struct crypto_tfm *parent, const u8 *key,
 
 	child = ctx->child;
 
-	
+	/* data cipher, uses Key1 i.e. the first half of *key */
 	crypto_cipher_clear_flags(child, CRYPTO_TFM_REQ_MASK);
 	crypto_cipher_set_flags(child, crypto_tfm_get_flags(parent) &
 				       CRYPTO_TFM_REQ_MASK);
@@ -80,9 +85,9 @@ struct sinfo {
 
 static inline void xts_round(struct sinfo *s, void *dst, const void *src)
 {
-	be128_xor(dst, s->t, src);		
-	s->fn(s->tfm, dst, dst);		
-	be128_xor(dst, dst, s->t);		
+	be128_xor(dst, s->t, src);		/* PP <- T xor P */
+	s->fn(s->tfm, dst, dst);		/* CC <- E(Key1,PP) */
+	be128_xor(dst, dst, s->t);		/* C <- T xor CC */
 }
 
 static int crypt(struct blkcipher_desc *d,
@@ -110,7 +115,7 @@ static int crypt(struct blkcipher_desc *d,
 	wsrc = w->src.virt.addr;
 	wdst = w->dst.virt.addr;
 
-	
+	/* calculate first value of T */
 	tw(crypto_cipher_tfm(ctx->tweak), w->iv, w->iv);
 
 	goto first;
@@ -186,7 +191,7 @@ int xts_crypt(struct blkcipher_desc *desc, struct scatterlist *sdst,
 	src = (be128 *)walk.src.virt.addr;
 	dst = (be128 *)walk.dst.virt.addr;
 
-	
+	/* calculate first value of T */
 	req->tweak_fn(req->tweak_ctx, (u8 *)&t_buf[0], walk.iv);
 
 	i = 0;
@@ -199,15 +204,15 @@ int xts_crypt(struct blkcipher_desc *desc, struct scatterlist *sdst,
 first:
 				t = &t_buf[i];
 
-				
+				/* PP <- T xor P */
 				be128_xor(dst + i, t, src + i);
 			}
 
-			
+			/* CC <- E(Key2,PP) */
 			req->crypt_fn(req->crypt_ctx, (u8 *)dst,
 				      nblocks * bsize);
 
-			
+			/* C <- T xor CC */
 			for (i = 0; i < nblocks; i++)
 				be128_xor(dst + i, dst + i, &t_buf[i]);
 
@@ -259,7 +264,7 @@ static int init_tfm(struct crypto_tfm *tfm)
 		return PTR_ERR(cipher);
 	}
 
-	
+	/* this check isn't really needed, leave it here just in case */
 	if (crypto_cipher_blocksize(cipher) != XTS_BLOCK_SIZE) {
 		crypto_free_cipher(cipher);
 		crypto_free_cipher(ctx->child);

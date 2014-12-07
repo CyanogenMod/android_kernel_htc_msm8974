@@ -195,6 +195,8 @@ int main(int argc, char **argv)
 			goto error_ret;
 		}
 	} else {
+		/* If we can't find a IIO device by name assume device_name is a
+		   IIO chrdev */
 		chrdev_name = strdup(device_name);
 	}
 

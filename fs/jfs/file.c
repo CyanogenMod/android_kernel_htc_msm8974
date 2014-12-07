@@ -40,7 +40,7 @@ int jfs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	mutex_lock(&inode->i_mutex);
 	if (!(inode->i_state & I_DIRTY) ||
 	    (datasync && !(inode->i_state & I_DIRTY_DATASYNC))) {
-		
+		/* Make sure committed changes hit the disk */
 		jfs_flush_journal(JFS_SBI(inode->i_sb)->log, 1);
 		mutex_unlock(&inode->i_mutex);
 		return rc;

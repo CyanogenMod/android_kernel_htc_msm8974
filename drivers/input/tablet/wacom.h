@@ -91,6 +91,9 @@
 #include <linux/power_supply.h>
 #include <asm/unaligned.h>
 
+/*
+ * Version Information
+ */
 #define DRIVER_VERSION "v1.53"
 #define DRIVER_AUTHOR "Vojtech Pavlik <vojtech@ucw.cz>"
 #define DRIVER_DESC "USB Wacom tablet driver"
@@ -114,10 +117,10 @@ struct wacom {
 	bool open;
 	char phys[32];
 	struct wacom_led {
-		u8 select[2]; 
-		u8 llv;       
-		u8 hlv;       
-		u8 img_lum;   
+		u8 select[2]; /* status led selector (0..3) */
+		u8 llv;       /* status led brightness no button (1..127) */
+		u8 hlv;       /* status led brightness button pressed (1..127) */
+		u8 img_lum;   /* OLED matrix display brightness */
 	} led;
 	struct power_supply battery;
 };

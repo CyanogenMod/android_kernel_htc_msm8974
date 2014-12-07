@@ -17,4 +17,4 @@ struct xt_nflog_info {
 	char		prefix[64];
 };
 
-#endif 
+#endif /* _XT_NFLOG_TARGET */

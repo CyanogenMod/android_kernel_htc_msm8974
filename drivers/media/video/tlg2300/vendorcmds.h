@@ -17,6 +17,10 @@ enum tlg__analog_audio_standard {
 	TLG_TUNE_ASTD_ALL	= 0x0000003f
 };
 
+/*
+ * identifiers for Custom Parameter messages.
+ * @typedef cmd_custom_param_id_t
+ */
 enum cmd_custom_param_id {
 	CUST_PARM_ID_NONE		= 0x00,
 	CUST_PARM_ID_BRIGHTNESS_CTRL	= 0x01,
@@ -29,36 +33,36 @@ enum cmd_custom_param_id {
 };
 
 struct  tuner_custom_parameter_s {
-	uint16_t	param_id;	 
-	uint16_t	param_value;	 
+	uint16_t	param_id;	 /*  Parameter identifier  */
+	uint16_t	param_value;	 /*  Parameter value	   */
 };
 
 struct  tuner_ber_rate_s {
-	uint32_t	ber_rate;  
+	uint32_t	ber_rate;  /*  BER sample rate in seconds   */
 };
 
 struct tuner_atv_sig_stat_s {
 	uint32_t	sig_present;
 	uint32_t	sig_locked;
 	uint32_t	sig_lock_busy;
-	uint32_t	sig_strength;	   
-	uint32_t	tv_audio_chan;	  
-	uint32_t 	mvision_stat;	   
+	uint32_t	sig_strength;	   /*  milliDb	  */
+	uint32_t	tv_audio_chan;	  /*  mono/stereo/sap*/
+	uint32_t 	mvision_stat;	   /*  macrovision status */
 };
 
 struct tuner_dtv_sig_stat_s {
-	uint32_t sig_present;   
-	uint32_t sig_locked;	
-	uint32_t sig_lock_busy; 
-	uint32_t sig_strength;  
+	uint32_t sig_present;   /*  Boolean*/
+	uint32_t sig_locked;	/*  Boolean */
+	uint32_t sig_lock_busy; /*  Boolean	(Can this time-out?) */
+	uint32_t sig_strength;  /*  milliDb*/
 };
 
 struct tuner_fm_sig_stat_s {
-	uint32_t sig_present;	
-	uint32_t sig_locked;	 
-	uint32_t sig_lock_busy;  
-	uint32_t sig_stereo_mono;
-	uint32_t sig_strength;   
+	uint32_t sig_present;	/* Boolean*/
+	uint32_t sig_locked;	 /* Boolean */
+	uint32_t sig_lock_busy;  /* Boolean */
+	uint32_t sig_stereo_mono;/* TBD*/
+	uint32_t sig_strength;   /* milliDb*/
 };
 
 enum _tag_tlg_tune_srv_cmd {
@@ -69,17 +73,17 @@ enum _tag_tlg_tune_srv_cmd {
 enum  _tag_tune_atv_audio_mode_caps {
 	TLG_TUNE_TVAUDIO_MODE_MONO	= 0x00000001,
 	TLG_TUNE_TVAUDIO_MODE_STEREO	= 0x00000002,
-	TLG_TUNE_TVAUDIO_MODE_LANG_A	= 0x00000010,
-	TLG_TUNE_TVAUDIO_MODE_LANG_B	= 0x00000020,
+	TLG_TUNE_TVAUDIO_MODE_LANG_A	= 0x00000010,/* Primary language*/
+	TLG_TUNE_TVAUDIO_MODE_LANG_B	= 0x00000020,/* 2nd avail language*/
 	TLG_TUNE_TVAUDIO_MODE_LANG_C	= 0x00000040
 };
 
 
 enum   _tag_tuner_atv_audio_rates {
-	ATV_AUDIO_RATE_NONE	= 0x00,
-	ATV_AUDIO_RATE_32K	= 0x01,
-	ATV_AUDIO_RATE_48K	= 0x02, 
-	ATV_AUDIO_RATE_31_25K	= 0x04 
+	ATV_AUDIO_RATE_NONE	= 0x00,/* Audio not supported*/
+	ATV_AUDIO_RATE_32K	= 0x01,/* Audio rate = 32 KHz*/
+	ATV_AUDIO_RATE_48K	= 0x02, /* Audio rate = 48 KHz*/
+	ATV_AUDIO_RATE_31_25K	= 0x04 /* Audio rate = 31.25KHz */
 };
 
 enum  _tag_tune_atv_vid_res_caps {
@@ -96,31 +100,31 @@ enum _tag_tuner_analog_video_format {
 };
 
 enum  tlg_ext_audio_support {
-	TLG_EXT_AUDIO_NONE 	= 0x00,
-	TLG_EXT_AUDIO_LR	= 0x01
+	TLG_EXT_AUDIO_NONE 	= 0x00,/*  No external audio input supported */
+	TLG_EXT_AUDIO_LR	= 0x01/*  LR external audio inputs supported*/
 };
 
 enum {
-	TLG_MODE_NONE			= 0x00, 
-	TLG_MODE_ANALOG_TV		= 0x01, 
-	TLG_MODE_ANALOG_TV_UNCOMP	= 0x01, 
-	TLG_MODE_ANALOG_TV_COMP  	= 0x02, 
-	TLG_MODE_FM_RADIO		= 0x04, 
-	TLG_MODE_DVB_T			= 0x08, 
+	TLG_MODE_NONE			= 0x00, /* No Mode specified*/
+	TLG_MODE_ANALOG_TV		= 0x01, /* Analog Television mode*/
+	TLG_MODE_ANALOG_TV_UNCOMP	= 0x01, /* Analog Television mode*/
+	TLG_MODE_ANALOG_TV_COMP  	= 0x02, /* Analog TV mode (compressed)*/
+	TLG_MODE_FM_RADIO		= 0x04, /* FM Radio mode*/
+	TLG_MODE_DVB_T			= 0x08, /* Digital TV (DVB-T)*/
 };
 
 enum  tlg_signal_sources_t {
-	TLG_SIG_SRC_NONE	= 0x00,
-	TLG_SIG_SRC_ANTENNA	= 0x01,
-	TLG_SIG_SRC_CABLE	= 0x02,
-	TLG_SIG_SRC_SVIDEO	= 0x04,
-	TLG_SIG_SRC_COMPOSITE   = 0x08 
+	TLG_SIG_SRC_NONE	= 0x00,/* Signal source not specified */
+	TLG_SIG_SRC_ANTENNA	= 0x01,/* Signal src is: Antenna */
+	TLG_SIG_SRC_CABLE	= 0x02,/* Signal src is: Coax Cable*/
+	TLG_SIG_SRC_SVIDEO	= 0x04,/* Signal src is: S_VIDEO   */
+	TLG_SIG_SRC_COMPOSITE   = 0x08 /* Signal src is: Composite Video */
 };
 
 enum tuner_analog_video_standard {
 	TLG_TUNE_VSTD_NONE	= 0x00000000,
 	TLG_TUNE_VSTD_NTSC_M	= 0x00000001,
-	TLG_TUNE_VSTD_NTSC_M_J	= 0x00000002,
+	TLG_TUNE_VSTD_NTSC_M_J	= 0x00000002,/* Japan   */
 	TLG_TUNE_VSTD_PAL_B	= 0x00000010,
 	TLG_TUNE_VSTD_PAL_D	= 0x00000020,
 	TLG_TUNE_VSTD_PAL_G	= 0x00000040,
@@ -140,11 +144,11 @@ enum tuner_analog_video_standard {
 };
 
 enum tlg_mode_caps {
-	TLG_MODE_CAPS_NONE		= 0x00,  
-	TLG_MODE_CAPS_ANALOG_TV_UNCOMP  = 0x01,  
-	TLG_MODE_CAPS_ANALOG_TV_COMP	= 0x02,  
-	TLG_MODE_CAPS_FM_RADIO		= 0x04,  
-	TLG_MODE_CAPS_DVB_T		= 0x08,  
+	TLG_MODE_CAPS_NONE		= 0x00,  /*  No Mode specified	*/
+	TLG_MODE_CAPS_ANALOG_TV_UNCOMP  = 0x01,  /*  Analog TV mode     */
+	TLG_MODE_CAPS_ANALOG_TV_COMP	= 0x02,  /*  Analog TV (compressed)*/
+	TLG_MODE_CAPS_FM_RADIO		= 0x04,  /*  FM Radio mode	*/
+	TLG_MODE_CAPS_DVB_T		= 0x08,  /*  Digital TV (DVB-T)	*/
 };
 
 enum poseidon_vendor_cmds {
@@ -195,8 +199,8 @@ enum poseidon_vendor_cmds {
 	TUNER_SETUP_ANALOG	= 0x40,
 	TUNER_SETUP_DIGITAL	= 0x41,
 	TUNER_SETUP_FM_RADIO	= 0x42,
-	TAKE_REQUEST		= 0x43, 
-	PLAY_SERVICE		= 0x44, 
+	TAKE_REQUEST		= 0x43, /* Take effect of the command */
+	PLAY_SERVICE		= 0x44, /* Play start or Play stop */
 	TUNER_STATUS		= 0x45,
 	TUNE_PROP_DVBT		= 0x46,
 	ERR_RATE_STATS		= 0x47,
@@ -236,4 +240,4 @@ struct cmd_firmware_vers_s {
 	uint8_t	 fw_rev_minor;
 	uint16_t fw_patch;
 };
-#endif 
+#endif /* VENDOR_CMD_H_ */

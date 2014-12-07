@@ -21,6 +21,9 @@
 
 #include <mach/iomux-v3.h>
 
+/*
+ * IOMUX/PAD Bit field definitions
+ */
 
 #define MX25_PAD_A10__A10		IOMUX_PAD(0x000, 0x008, 0x00, 0, 0, NO_PAD_CTRL)
 #define MX25_PAD_A10__GPIO_4_0		IOMUX_PAD(0x000, 0x008, 0x05, 0, 0, NO_PAD_CTRL)
@@ -518,4 +521,4 @@
 #define MX25_PAD_CTL_GRP_DVS_SDHC1	IOMUX_PAD(0x458, 0x000, 0, 0, 0, NO_PAD_CTRL)
 #define MX25_PAD_CTL_GRP_DVS_LCD	IOMUX_PAD(0x45c, 0x000, 0, 0, 0, NO_PAD_CTRL)
 
-#endif 
+#endif /* __MACH_IOMUX_MX25_H__ */

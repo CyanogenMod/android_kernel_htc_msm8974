@@ -6,19 +6,25 @@
 #include <linux/platform_device.h>
 #include <plat/gpio-nomadik.h>
 
+/*
+ * There are two busses in the 8815NHK.
+ * They could, in theory, be driven by the hardware component, but we
+ * use bit-bang through GPIO by now, to keep things simple
+ */
 
 static struct i2c_gpio_platform_data nhk8815_i2c_data0 = {
-	
+	/* keep defaults for timeouts; pins are push-pull bidirectional */
 	.scl_pin = 62,
 	.sda_pin = 63,
 };
 
 static struct i2c_gpio_platform_data nhk8815_i2c_data1 = {
-	
+	/* keep defaults for timeouts; pins are push-pull bidirectional */
 	.scl_pin = 53,
 	.sda_pin = 54,
 };
 
+/* first bus: GPIO XX and YY */
 static struct platform_device nhk8815_i2c_dev0 = {
 	.name	= "i2c-gpio",
 	.id	= 0,
@@ -26,6 +32,7 @@ static struct platform_device nhk8815_i2c_dev0 = {
 		.platform_data = &nhk8815_i2c_data0,
 	},
 };
+/* second bus: GPIO XX and YY */
 static struct platform_device nhk8815_i2c_dev1 = {
 	.name	= "i2c-gpio",
 	.id	= 1,

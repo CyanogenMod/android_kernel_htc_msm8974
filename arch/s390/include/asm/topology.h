@@ -37,13 +37,13 @@ void topology_schedule_update(void);
 void store_topology(struct sysinfo_15_1_x *info);
 void topology_expect_change(void);
 
-#else 
+#else /* CONFIG_SCHED_BOOK */
 
 static inline void topology_schedule_update(void) { }
 static inline int topology_cpu_init(struct cpu *cpu) { return 0; }
 static inline void topology_expect_change(void) { }
 
-#endif 
+#endif /* CONFIG_SCHED_BOOK */
 
 #define POLARIZATION_UNKNOWN	(-1)
 #define POLARIZATION_HRZ	(0)
@@ -81,4 +81,4 @@ static inline void s390_init_cpu_topology(void)
 
 #include <asm-generic/topology.h>
 
-#endif 
+#endif /* _ASM_S390_TOPOLOGY_H */

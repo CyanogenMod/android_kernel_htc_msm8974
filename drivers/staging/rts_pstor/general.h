@@ -28,4 +28,4 @@
 
 int bit1cnt_long(u32 data);
 
-#endif 
+#endif /* __RTSX_GENERAL_H */

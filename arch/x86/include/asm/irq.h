@@ -1,5 +1,11 @@
 #ifndef _ASM_X86_IRQ_H
 #define _ASM_X86_IRQ_H
+/*
+ *	(C) 1992, 1993 Linus Torvalds, (C) 1997 Ingo Molnar
+ *
+ *	IRQ/IPI changes taken from work by Thomas Radke
+ *	<tomsoft@informatik.tu-chemnitz.de>
+ */
 
 #include <asm/apicdef.h>
 #include <asm/irq_vectors.h>
@@ -29,9 +35,10 @@ extern bool handle_irq(unsigned irq, struct pt_regs *regs);
 
 extern unsigned int do_IRQ(struct pt_regs *regs);
 
+/* Interrupt vector management */
 extern DECLARE_BITMAP(used_vectors, NR_VECTORS);
 extern int vector_used_by_percpu_irq(unsigned int vector);
 
 extern void init_ISA_irqs(void);
 
-#endif 
+#endif /* _ASM_X86_IRQ_H */

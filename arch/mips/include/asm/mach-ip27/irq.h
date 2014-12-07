@@ -10,8 +10,13 @@
 #ifndef __ASM_MACH_IP27_IRQ_H
 #define __ASM_MACH_IP27_IRQ_H
 
+/*
+ * A hardwired interrupt number is completly stupid for this system - a
+ * large configuration might have thousands if not tenthousands of
+ * interrupts.
+ */
 #define NR_IRQS 256
 
 #include_next <irq.h>
 
-#endif 
+#endif /* __ASM_MACH_IP27_IRQ_H */

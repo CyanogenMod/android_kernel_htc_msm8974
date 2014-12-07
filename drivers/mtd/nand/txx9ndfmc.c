@@ -21,14 +21,16 @@
 #include <linux/io.h>
 #include <asm/txx9/ndfmc.h>
 
+/* TXX9 NDFMC Registers */
 #define TXX9_NDFDTR	0x00
 #define TXX9_NDFMCR	0x04
 #define TXX9_NDFSR	0x08
 #define TXX9_NDFISR	0x0c
 #define TXX9_NDFIMR	0x10
 #define TXX9_NDFSPR	0x14
-#define TXX9_NDFRSTR	0x18	
+#define TXX9_NDFRSTR	0x18	/* not TX4939 */
 
+/* NDFMCR : NDFMC Mode Control */
 #define TXX9_NDFMCR_WE	0x80
 #define TXX9_NDFMCR_ECC_ALL	0x60
 #define TXX9_NDFMCR_ECC_RESET	0x60
@@ -36,9 +38,10 @@
 #define TXX9_NDFMCR_ECC_ON	0x20
 #define TXX9_NDFMCR_ECC_OFF	0x00
 #define TXX9_NDFMCR_CE	0x10
-#define TXX9_NDFMCR_BSPRT	0x04	
+#define TXX9_NDFMCR_BSPRT	0x04	/* TX4925/TX4926 only */
 #define TXX9_NDFMCR_ALE	0x02
 #define TXX9_NDFMCR_CLE	0x01
+/* TX4939 only */
 #define TXX9_NDFMCR_X16	0x0400
 #define TXX9_NDFMCR_DMAREQ_MASK	0x0300
 #define TXX9_NDFMCR_DMAREQ_NODMA	0x0000
@@ -48,9 +51,12 @@
 #define TXX9_NDFMCR_CS_MASK	0x0c
 #define TXX9_NDFMCR_CS(ch)	((ch) << 2)
 
+/* NDFMCR : NDFMC Status */
 #define TXX9_NDFSR_BUSY	0x80
+/* TX4939 only */
 #define TXX9_NDFSR_DMARUN	0x40
 
+/* NDFMCR : NDFMC Reset */
 #define TXX9_NDFRSTR_RST	0x01
 
 struct txx9ndfmc_priv {
@@ -65,8 +71,8 @@ struct txx9ndfmc_priv {
 struct txx9ndfmc_drvdata {
 	struct mtd_info *mtds[MAX_TXX9NDFMC_DEV];
 	void __iomem *base;
-	unsigned char hold;	
-	unsigned char spw;	
+	unsigned char hold;	/* in gbusclock */
+	unsigned char spw;	/* in gbusclock */
 	struct nand_hw_control hw_control;
 };
 
@@ -151,7 +157,7 @@ static void txx9ndfmc_cmd_ctrl(struct mtd_info *mtd, int cmd,
 		mcr &= ~(TXX9_NDFMCR_CLE | TXX9_NDFMCR_ALE | TXX9_NDFMCR_CE);
 		mcr |= ctrl & NAND_CLE ? TXX9_NDFMCR_CLE : 0;
 		mcr |= ctrl & NAND_ALE ? TXX9_NDFMCR_ALE : 0;
-		
+		/* TXX9_NDFMCR_CE bit is 0:high 1:low */
 		mcr |= ctrl & NAND_NCE ? TXX9_NDFMCR_CE : 0;
 		if (txx9_priv->cs >= 0 && (ctrl & NAND_NCE)) {
 			mcr &= ~TXX9_NDFMCR_CS_MASK;
@@ -162,7 +168,7 @@ static void txx9ndfmc_cmd_ctrl(struct mtd_info *mtd, int cmd,
 	if (cmd != NAND_CMD_NONE)
 		txx9ndfmc_write(dev, cmd & 0xff, TXX9_NDFDTR);
 	if (plat->flags & NDFMC_PLAT_FLAG_DUMMYWRITE) {
-		
+		/* dummy write to update external latch */
 		if ((ctrl & NAND_CTRL_CHANGE) && cmd == NAND_CMD_NONE)
 			txx9ndfmc_write(dev, 0, TXX9_NDFDTR);
 	}
@@ -235,9 +241,9 @@ static void txx9ndfmc_initialize(struct platform_device *dev)
 	int tmout = 100;
 
 	if (plat->flags & NDFMC_PLAT_FLAG_NO_RSTR)
-		; 
+		; /* no NDFRSTR.  Write to NDFSPR resets the NDFMC. */
 	else {
-		
+		/* reset NDFMC */
 		txx9ndfmc_write(dev,
 				txx9ndfmc_read(dev, TXX9_NDFRSTR) |
 				TXX9_NDFRSTR_RST,
@@ -250,7 +256,7 @@ static void txx9ndfmc_initialize(struct platform_device *dev)
 			udelay(1);
 		}
 	}
-	
+	/* setup Hold Time, Strobe Pulse Width */
 	txx9ndfmc_write(dev, (drvdata->hold << 4) | drvdata->spw, TXX9_NDFSPR);
 	txx9ndfmc_write(dev,
 			(plat->flags & NDFMC_PLAT_FLAG_USE_BSPRT) ?
@@ -268,7 +274,7 @@ static int txx9ndfmc_nand_scan(struct mtd_info *mtd)
 	ret = nand_scan_ident(mtd, 1, NULL);
 	if (!ret) {
 		if (mtd->writesize >= 512) {
-			
+			/* Hardware ECC 6 byte ECC per 512 Byte data */
 			chip->ecc.size = 512;
 			chip->ecc.bytes = 6;
 		}
@@ -296,14 +302,14 @@ static int __init txx9ndfmc_probe(struct platform_device *dev)
 	if (!drvdata->base)
 		return -EBUSY;
 
-	hold = plat->hold ?: 20; 
-	spw = plat->spw ?: 90; 
+	hold = plat->hold ?: 20; /* tDH */
+	spw = plat->spw ?: 90; /* max(tREADID, tWP, tRP) */
 
 	hold = TXX9NDFMC_NS_TO_CYC(gbusclk, hold);
 	spw = TXX9NDFMC_NS_TO_CYC(gbusclk, spw);
 	if (plat->flags & NDFMC_PLAT_FLAG_HOLDADD)
-		hold -= 2;	
-	spw -= 1;	
+		hold -= 2;	/* actual hold time : (HOLD + 2) BUSCLK */
+	spw -= 1;	/* actual wait time : (SPW + 1) BUSCLK */
 	hold = clamp(hold, 1, 15);
 	drvdata->hold = hold;
 	spw = clamp(spw, 1, 15);
@@ -347,7 +353,7 @@ static int __init txx9ndfmc_probe(struct platform_device *dev)
 		chip->ecc.correct = txx9ndfmc_correct_data;
 		chip->ecc.hwctl = txx9ndfmc_enable_hwecc;
 		chip->ecc.mode = NAND_ECC_HW;
-		
+		/* txx9ndfmc_nand_scan will overwrite ecc.size and ecc.bytes */
 		chip->ecc.size = 256;
 		chip->ecc.bytes = 3;
 		chip->ecc.strength = 1;

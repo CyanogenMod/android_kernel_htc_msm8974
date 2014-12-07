@@ -1,3 +1,28 @@
+/*
+ * DECnet       An implementation of the DECnet protocol suite for the LINUX
+ *              operating system.  DECnet is implemented using the  BSD Socket
+ *              interface as the means of communication with the user level.
+ *
+ *              DECnet Device Layer
+ *
+ * Authors:     Steve Whitehouse <SteveW@ACM.org>
+ *              Eduardo Marcelo Serrat <emserrat@geocities.com>
+ *
+ * Changes:
+ *          Steve Whitehouse : Devices now see incoming frames so they
+ *                             can mark on who it came from.
+ *          Steve Whitehouse : Fixed bug in creating neighbours. Each neighbour
+ *                             can now have a device specific setup func.
+ *          Steve Whitehouse : Added /proc/sys/net/decnet/conf/<dev>/
+ *          Steve Whitehouse : Fixed bug which sometimes killed timer
+ *          Steve Whitehouse : Multiple ifaddr support
+ *          Steve Whitehouse : SIOCGIFCONF is now a compile time option
+ *          Steve Whitehouse : /proc/sys/net/decnet/conf/<sys>/forwarding
+ *          Steve Whitehouse : Removed timer1 - it's a user space issue now
+ *         Patrick Caulfield : Fixed router hello message format
+ *          Steve Whitehouse : Got rid of constant sizes for blksize for
+ *                             devices. All mtu based now.
+ */
 
 #include <linux/capability.h>
 #include <linux/module.h>
@@ -38,6 +63,9 @@ static unsigned char dn_eco_version[3]    = {0x02,0x00,0x00};
 
 extern struct neigh_table dn_neigh_table;
 
+/*
+ * decnet_address is kept in network order.
+ */
 __le16 decnet_address = 0;
 
 static DEFINE_SPINLOCK(dndev_lock);
@@ -55,7 +83,7 @@ static void dn_send_ptp_hello(struct net_device *dev, struct dn_ifaddr *ifa);
 
 static struct dn_dev_parms dn_dev_list[] =  {
 {
-	.type =		ARPHRD_ETHER, 
+	.type =		ARPHRD_ETHER, /* Ethernet */
 	.mode =		DN_DEV_BCAST,
 	.state =	DN_DEV_S_RU,
 	.t2 =		1,
@@ -66,7 +94,7 @@ static struct dn_dev_parms dn_dev_list[] =  {
 	.timer3 =	dn_send_brd_hello,
 },
 {
-	.type =		ARPHRD_IPGRE, 
+	.type =		ARPHRD_IPGRE, /* DECnet tunneled over GRE in IP */
 	.mode =		DN_DEV_BCAST,
 	.state =	DN_DEV_S_RU,
 	.t2 =		1,
@@ -76,7 +104,7 @@ static struct dn_dev_parms dn_dev_list[] =  {
 },
 #if 0
 {
-	.type =		ARPHRD_X25, 
+	.type =		ARPHRD_X25, /* Bog standard X.25 */
 	.mode =		DN_DEV_UCAST,
 	.state =	DN_DEV_S_DS,
 	.t2 =		1,
@@ -87,7 +115,7 @@ static struct dn_dev_parms dn_dev_list[] =  {
 #endif
 #if 0
 {
-	.type =		ARPHRD_PPP, 
+	.type =		ARPHRD_PPP, /* DECnet over PPP */
 	.mode =		DN_DEV_BCAST,
 	.state =	DN_DEV_S_RU,
 	.t2 =		1,
@@ -97,7 +125,7 @@ static struct dn_dev_parms dn_dev_list[] =  {
 },
 #endif
 {
-	.type =		ARPHRD_DDCMP, 
+	.type =		ARPHRD_DDCMP, /* DECnet over DDCMP */
 	.mode =		DN_DEV_UCAST,
 	.state =	DN_DEV_S_DS,
 	.t2 =		1,
@@ -106,7 +134,7 @@ static struct dn_dev_parms dn_dev_list[] =  {
 	.timer3 =	dn_send_ptp_hello,
 },
 {
-	.type =		ARPHRD_LOOPBACK, 
+	.type =		ARPHRD_LOOPBACK, /* Loopback interface - always last */
 	.mode =		DN_DEV_BCAST,
 	.state =	DN_DEV_S_RU,
 	.t2 =		1,
@@ -123,12 +151,12 @@ static struct dn_dev_parms dn_dev_list[] =  {
 #ifdef CONFIG_SYSCTL
 
 static int min_t2[] = { 1 };
-static int max_t2[] = { 60 }; 
+static int max_t2[] = { 60 }; /* No max specified, but this seems sensible */
 static int min_t3[] = { 1 };
-static int max_t3[] = { 8191 }; 
+static int max_t3[] = { 8191 }; /* Must fit in 16 bits when multiplied by BCT3MULT or T3MULT */
 
 static int min_priority[1];
-static int max_priority[] = { 127 }; 
+static int max_priority[] = { 127 }; /* From DECnet spec */
 
 static int dn_forwarding_proc(ctl_table *, int,
 			void __user *, size_t *, loff_t *);
@@ -187,7 +215,7 @@ static void dn_dev_sysctl_register(struct net_device *dev, struct dn_dev_parms *
 		{ .procname = "net",  },
 		{ .procname = "decnet",  },
 		{ .procname = "conf",  },
-		{  },
+		{ /* to be set */ },
 		{ },
 	};
 
@@ -248,6 +276,12 @@ static int dn_forwarding_proc(ctl_table *table, int write,
 			dn_db->parms.forwarding = 0;
 		if (dn_db->parms.forwarding > 2)
 			dn_db->parms.forwarding = 2;
+		/*
+		 * What an ugly hack this is... its works, just. It
+		 * would be nice if sysctl/proc were just that little
+		 * bit more flexible so I don't have to write a special
+		 * routine, or suffer hacks like this - SJW
+		 */
 		tmp = dn_db->parms.forwarding;
 		dn_db->parms.forwarding = old;
 		if (dn_db->parms.down)
@@ -263,7 +297,7 @@ static int dn_forwarding_proc(ctl_table *table, int write,
 #endif
 }
 
-#else 
+#else /* CONFIG_SYSCTL */
 static void dn_dev_sysctl_unregister(struct dn_dev_parms *parms)
 {
 }
@@ -271,7 +305,7 @@ static void dn_dev_sysctl_register(struct net_device *dev, struct dn_dev_parms *
 {
 }
 
-#endif 
+#endif /* CONFIG_SYSCTL */
 
 static inline __u16 mtu2blksize(struct net_device *dev)
 {
@@ -337,7 +371,7 @@ static int dn_dev_insert_ifa(struct dn_dev *dn_db, struct dn_ifaddr *ifa)
 
 	ASSERT_RTNL();
 
-	
+	/* Check for duplicates */
 	for (ifa1 = rtnl_dereference(dn_db->ifa_list);
 	     ifa1 != NULL;
 	     ifa1 = rtnl_dereference(ifa1->ifa_next)) {
@@ -518,6 +552,9 @@ static void dn_dev_check_default(struct net_device *dev)
 		dev_put(dev);
 }
 
+/*
+ * Called with RTNL
+ */
 static struct dn_dev *dn_dev_by_index(int ifindex)
 {
 	struct net_device *dev;
@@ -635,9 +672,9 @@ static int dn_nl_newaddr(struct sk_buff *skb, struct nlmsghdr *nlh, void *arg)
 static inline size_t dn_ifaddr_nlmsg_size(void)
 {
 	return NLMSG_ALIGN(sizeof(struct ifaddrmsg))
-	       + nla_total_size(IFNAMSIZ) 
-	       + nla_total_size(2) 
-	       + nla_total_size(2); 
+	       + nla_total_size(IFNAMSIZ) /* IFA_LABEL */
+	       + nla_total_size(2) /* IFA_ADDRESS */
+	       + nla_total_size(2); /* IFA_LOCAL */
 }
 
 static int dn_nl_fill_ifaddr(struct sk_buff *skb, struct dn_ifaddr *ifa,
@@ -682,7 +719,7 @@ static void dn_ifaddr_notify(int event, struct dn_ifaddr *ifa)
 
 	err = dn_nl_fill_ifaddr(skb, ifa, 0, 0, event, 0);
 	if (err < 0) {
-		
+		/* -EMSGSIZE implies BUG in dn_ifaddr_nlmsg_size() */
 		WARN_ON(err == -EMSGSIZE);
 		kfree_skb(skb);
 		goto errout;
@@ -714,6 +751,8 @@ static int dn_nl_dump_ifaddr(struct sk_buff *skb, struct netlink_callback *cb)
 		if (idx < skip_ndevs)
 			goto cont;
 		else if (idx > skip_ndevs) {
+			/* Only skip over addresses for first dev dumped
+			 * in this iteration (idx == skip_ndevs) */
 			skip_naddr = 0;
 		}
 
@@ -762,6 +801,16 @@ out:
 	return rv;
 }
 
+/*
+ * Find a default address to bind to.
+ *
+ * This is one of those areas where the initial VMS concepts don't really
+ * map onto the Linux concepts, and since we introduced multiple addresses
+ * per interface we have to cope with slightly odd ways of finding out what
+ * "our address" really is. Mostly it's not a problem; for this we just guess
+ * a sensible default. Eventually the routing code will take care of all the
+ * nasties for us I hope.
+ */
 int dn_dev_bind_default(__le16 *addr)
 {
 	struct net_device *dev;
@@ -825,19 +874,19 @@ static void dn_send_endnode_hello(struct net_device *dev, struct dn_ifaddr *ifa)
 
 static int dn_am_i_a_router(struct dn_neigh *dn, struct dn_dev *dn_db, struct dn_ifaddr *ifa)
 {
-	
+	/* First check time since device went up */
 	if ((jiffies - dn_db->uptime) < DRDELAY)
 		return 0;
 
-	
+	/* If there is no router, then yes... */
 	if (!dn_db->router)
 		return 1;
 
-	
+	/* otherwise only if we have a higher priority or.. */
 	if (dn->priority < dn_db->parms.priority)
 		return 1;
 
-	
+	/* if we have equal priority and a higher node number */
 	if (dn->priority != dn_db->parms.priority)
 		return 0;
 
@@ -877,7 +926,7 @@ static void dn_send_router_hello(struct net_device *dev, struct dn_ifaddr *ifa)
 	ptr = skb_put(skb, size);
 
 	*ptr++ = DN_RT_PKT_CNTL | DN_RT_PKT_ERTH;
-	*ptr++ = 2; 
+	*ptr++ = 2; /* ECO */
 	*ptr++ = 0;
 	*ptr++ = 0;
 	dn_dn2eth(ptr, ifa->ifa_local);
@@ -887,13 +936,13 @@ static void dn_send_router_hello(struct net_device *dev, struct dn_ifaddr *ifa)
 			DN_RT_INFO_L1RT : DN_RT_INFO_L2RT;
 	*((__le16 *)ptr) = cpu_to_le16(mtu2blksize(dev));
 	ptr += 2;
-	*ptr++ = dn_db->parms.priority; 
-	*ptr++ = 0; 
+	*ptr++ = dn_db->parms.priority; /* Priority */
+	*ptr++ = 0; /* Area: Reserved */
 	*((__le16 *)ptr) = cpu_to_le16((unsigned short)dn_db->parms.t3);
 	ptr += 2;
-	*ptr++ = 0; 
+	*ptr++ = 0; /* MPD: Reserved */
 	i1 = ptr++;
-	memset(ptr, 0, 7); 
+	memset(ptr, 0, 7); /* Name: Reserved */
 	ptr += 7;
 	i2 = ptr++;
 
@@ -1074,6 +1123,16 @@ static struct dn_dev *dn_dev_create(struct net_device *dev, int *err)
 }
 
 
+/*
+ * This processes a device up event. We only start up
+ * the loopback device & ethernet devices with correct
+ * MAC addresses automatically. Others must be started
+ * specifically.
+ *
+ * FIXME: How should we configure the loopback address ? If we could dispense
+ * with using decnet_address here and for autobind, it will be one less thing
+ * for users to worry about setting up.
+ */
 
 void dn_dev_up(struct net_device *dev)
 {
@@ -1085,6 +1144,12 @@ void dn_dev_up(struct net_device *dev)
 	if ((dev->type != ARPHRD_ETHER) && (dev->type != ARPHRD_LOOPBACK))
 		return;
 
+	/*
+	 * Need to ensure that loopback device has a dn_db attached to it
+	 * to allow creation of neighbours against it, even though it might
+	 * not have a local address of its own. Might as well do the same for
+	 * all autoconfigured interfaces.
+	 */
 	if (dn_db == NULL) {
 		int err;
 		dn_db = dn_dev_create(dev, &err);
@@ -1112,6 +1177,10 @@ void dn_dev_up(struct net_device *dev)
 
 	dn_dev_set_ifa(dev, ifa);
 
+	/*
+	 * Automagically set the default device to the first automatically
+	 * configured ethernet card in the system.
+	 */
 	if (maybe_default) {
 		dev_hold(dev);
 		if (dn_dev_set_default(dev, 0))
@@ -1322,7 +1391,7 @@ static const struct file_operations dn_dev_seq_fops = {
 	.release = seq_release,
 };
 
-#endif 
+#endif /* CONFIG_PROC_FS */
 
 static int addr[2];
 module_param_array(addr, int, NULL, 0444);
@@ -1356,7 +1425,7 @@ void __init dn_dev_init(void)
 		for(i = 0; i < DN_DEV_LIST_SIZE; i++)
 			dn_dev_sysctl_register(NULL, &dn_dev_list[i]);
 	}
-#endif 
+#endif /* CONFIG_SYSCTL */
 }
 
 void __exit dn_dev_cleanup(void)
@@ -1367,7 +1436,7 @@ void __exit dn_dev_cleanup(void)
 		for(i = 0; i < DN_DEV_LIST_SIZE; i++)
 			dn_dev_sysctl_unregister(&dn_dev_list[i]);
 	}
-#endif 
+#endif /* CONFIG_SYSCTL */
 
 	proc_net_remove(&init_net, "decnet_dev");
 

@@ -32,29 +32,37 @@
 
 #include "pnfs.h"
 
+/*
+ * Field testing shows we need to support up to 4096 stripe indices.
+ * We store each index as a u8 (u32 on the wire) to keep the memory footprint
+ * reasonable. This in turn means we support a maximum of 256
+ * RFC 5661 multipath_list4 structures.
+ */
 #define NFS4_PNFS_MAX_STRIPE_CNT 4096
-#define NFS4_PNFS_MAX_MULTI_CNT  256 
+#define NFS4_PNFS_MAX_MULTI_CNT  256 /* 256 fit into a u8 stripe_index */
 
 enum stripetype4 {
 	STRIPE_SPARSE = 1,
 	STRIPE_DENSE = 2
 };
 
+/* Individual ip address */
 struct nfs4_pnfs_ds_addr {
 	struct sockaddr_storage	da_addr;
 	size_t			da_addrlen;
-	struct list_head	da_node;  
-	char			*da_remotestr;	
+	struct list_head	da_node;  /* nfs4_pnfs_dev_hlist dev_dslist */
+	char			*da_remotestr;	/* human readable addr+port */
 };
 
 struct nfs4_pnfs_ds {
-	struct list_head	ds_node;  
-	char			*ds_remotestr;	
+	struct list_head	ds_node;  /* nfs4_pnfs_dev_hlist dev_dslist */
+	char			*ds_remotestr;	/* comma sep list of addrs */
 	struct list_head	ds_addrs;
 	struct nfs_client	*ds_clp;
 	atomic_t		ds_count;
 };
 
+/* nfs4_file_layout_dsaddr flags */
 #define NFS4_DEVICE_ID_NEG_ENTRY	0x00000001
 
 struct nfs4_file_layout_dsaddr {
@@ -78,10 +86,10 @@ struct nfs4_filelayout_segment {
 	u32 stripe_unit;
 	u32 first_stripe_index;
 	u64 pattern_offset;
-	struct nfs4_file_layout_dsaddr *dsaddr; 
+	struct nfs4_file_layout_dsaddr *dsaddr; /* Point to GETDEVINFO data */
 	unsigned int num_fh;
 	struct nfs_fh **fh_array;
-	struct nfs4_fl_commit_bucket *commit_buckets; 
+	struct nfs4_fl_commit_bucket *commit_buckets; /* Sort commits to ds */
 	int number_of_buckets;
 };
 
@@ -112,4 +120,4 @@ extern void nfs4_fl_free_deviceid(struct nfs4_file_layout_dsaddr *dsaddr);
 struct nfs4_file_layout_dsaddr *
 get_device_info(struct inode *inode, struct nfs4_deviceid *dev_id, gfp_t gfp_flags);
 
-#endif 
+#endif /* FS_NFS_NFS4FILELAYOUT_H */

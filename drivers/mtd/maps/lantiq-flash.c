@@ -73,6 +73,13 @@ ltq_write16(struct map_info *map, map_word d, unsigned long adr)
 	spin_unlock_irqrestore(&ebu_lock, flags);
 }
 
+/*
+ * The following 2 functions copy data between iomem and a cached memory
+ * section. As memcpy() makes use of pre-fetching we cannot use it here.
+ * The normal alternative of using memcpy_{to,from}io also makes use of
+ * memcpy() on MIPS so it is not applicable either. We are therefore stuck
+ * with having to use our own loop.
+ */
 static void
 ltq_copy_from(struct map_info *map, void *to,
 	unsigned long from, ssize_t len)

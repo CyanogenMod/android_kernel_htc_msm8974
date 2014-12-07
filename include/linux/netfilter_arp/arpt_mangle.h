@@ -23,4 +23,4 @@ struct arpt_mangle
 #define ARPT_MANGLE_TIP 0x08
 #define ARPT_MANGLE_MASK 0x0f
 
-#endif 
+#endif /* _ARPT_MANGLE_H */

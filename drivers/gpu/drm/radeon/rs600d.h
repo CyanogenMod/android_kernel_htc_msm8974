@@ -28,6 +28,7 @@
 #ifndef __RS600D_H__
 #define __RS600D_H__
 
+/* Registers */
 #define R_000040_GEN_INT_CNTL                        0x000040
 #define   S_000040_SCRATCH_INT_MASK(x)                 (((x) & 0x1) << 18)
 #define   G_000040_SCRATCH_INT_MASK(x)                 (((x) >> 18) & 0x1)
@@ -485,6 +486,7 @@
 #define   G_007D18_DC_HOT_PLUG_DETECT2_INT_EN(x)       (((x) >> 16) & 0x1)
 #define   C_007D18_DC_HOT_PLUG_DETECT2_INT_EN          0xFFFEFFFF
 
+/* MC registers */
 #define R_000000_MC_STATUS                           0x000000
 #define   S_000000_MC_IDLE(x)                          (((x) & 0x1) << 0)
 #define   G_000000_MC_IDLE(x)                          (((x) >> 0) & 0x1)
@@ -515,6 +517,7 @@
 #define   S_000009_ENABLE_PAGE_TABLES(x)               (((x) & 0x1) << 26)
 #define   G_000009_ENABLE_PAGE_TABLES(x)               (((x) >> 26) & 0x1)
 #define   C_000009_ENABLE_PAGE_TABLES                  0xFBFFFFFF
+/* FIXME don't know the various field size need feedback from AMD */
 #define R_000100_MC_PT0_CNTL                         0x000100
 #define   S_000100_ENABLE_PT(x)                        (((x) & 0x1) << 0)
 #define   G_000100_ENABLE_PT(x)                        (((x) >> 0) & 0x1)
@@ -539,6 +542,7 @@
 #define   G_000102_PAGE_TABLE_DEPTH(x)                 (((x) >> 1) & 0x3)
 #define   C_000102_PAGE_TABLE_DEPTH                    0xFFFFFFF9
 #define   V_000102_PAGE_TABLE_FLAT                     0
+/* R600 documentation suggest that this should be a number of pages */
 #define R_000112_MC_PT0_SYSTEM_APERTURE_LOW_ADDR     0x000112
 #define R_000114_MC_PT0_SYSTEM_APERTURE_HIGH_ADDR    0x000114
 #define R_00011C_MC_PT0_CONTEXT0_DEFAULT_READ_ADDR   0x00011C
@@ -630,6 +634,7 @@
 #define   G_006D4C_D2MODE_PRIORITY_B_FORCE_MASK(x)     (((x) >> 24) & 0x1)
 #define   C_006D4C_D2MODE_PRIORITY_B_FORCE_MASK        0xFEFFFFFF
 
+/* PLL regs */
 #define GENERAL_PWRMGT                                 0x8
 #define   GLOBAL_PWRMGT_EN                             (1 << 0)
 #define   MOBILE_SU                                    (1 << 2)
@@ -653,6 +658,7 @@
 #define DYN_BACKBIAS_CNTL                              0x29
 #define   IO_CG_BACKBIAS_EN                            (1 << 0)
 
+/* mmreg */
 #define DOUT_POWER_MANAGEMENT_CNTL                     0x7ee0
 #define   PWRDN_WAIT_BUSY_OFF                          (1 << 0)
 #define   PWRDN_WAIT_PWRSEQ_OFF                        (1 << 4)

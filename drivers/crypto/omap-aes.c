@@ -32,6 +32,8 @@
 #include <plat/cpu.h>
 #include <plat/dma.h>
 
+/* OMAP TRM gives bitfields as start:end, where start is the higher bit
+   number. For example 7:0 */
 #define FLD_MASK(start, end)	(((1 << ((start) - (end) + 1)) - 1) << (end))
 #define FLD_VAL(val, start, end) (((val) << (end)) & FLD_MASK(start, end))
 
@@ -126,6 +128,7 @@ struct omap_aes_dev {
 	dma_addr_t		dma_addr_out;
 };
 
+/* keep registered devices data here */
 static LIST_HEAD(dev_list);
 static DEFINE_SPINLOCK(list_lock);
 
@@ -173,12 +176,21 @@ static int omap_aes_wait(struct omap_aes_dev *dd, u32 offset, u32 bit)
 
 static int omap_aes_hw_init(struct omap_aes_dev *dd)
 {
+	/*
+	 * clocks are enabled when request starts and disabled when finished.
+	 * It may be long delays between requests.
+	 * Device might go to off mode to save power.
+	 */
 	clk_enable(dd->iclk);
 
 	if (!(dd->flags & FLAGS_INIT)) {
-		
+		/* is it necessary to reset before every operation? */
 		omap_aes_write_mask(dd, AES_REG_MASK, AES_REG_MASK_SOFTRESET,
 					AES_REG_MASK_SOFTRESET);
+		/*
+		 * prevent OCP bus error (SRESP) in case an access to the module
+		 * is performed while the module is coming out of soft reset
+		 */
 		__asm__ __volatile__("nop");
 		__asm__ __volatile__("nop");
 
@@ -215,7 +227,7 @@ static int omap_aes_write_ctrl(struct omap_aes_dev *dd)
 
 	key32 = dd->ctx->keylen / sizeof(u32);
 
-	
+	/* it seems a key should always be set even if it has not changed */
 	for (i = 0; i < key32; i++) {
 		omap_aes_write(dd, AES_REG_KEY(i),
 			__le32_to_cpu(dd->ctx->key[i]));
@@ -235,14 +247,14 @@ static int omap_aes_write_ctrl(struct omap_aes_dev *dd)
 
 	omap_aes_write_mask(dd, AES_REG_CTRL, val, mask);
 
-	
+	/* IN */
 	omap_set_dma_dest_params(dd->dma_lch_in, 0, OMAP_DMA_AMODE_CONSTANT,
 				 dd->phys_base + AES_REG_DATA, 0, 4);
 
 	omap_set_dma_dest_burst_mode(dd->dma_lch_in, OMAP_DMA_DATA_BURST_4);
 	omap_set_dma_src_burst_mode(dd->dma_lch_in, OMAP_DMA_DATA_BURST_4);
 
-	
+	/* OUT */
 	omap_set_dma_src_params(dd->dma_lch_out, 0, OMAP_DMA_AMODE_CONSTANT,
 				dd->phys_base + AES_REG_DATA, 0, 4);
 
@@ -259,13 +271,13 @@ static struct omap_aes_dev *omap_aes_find_dev(struct omap_aes_ctx *ctx)
 	spin_lock_bh(&list_lock);
 	if (!ctx->dd) {
 		list_for_each_entry(tmp, &dev_list, list) {
-			
+			/* FIXME: take fist available aes core */
 			dd = tmp;
 			break;
 		}
 		ctx->dd = dd;
 	} else {
-		
+		/* already found before */
 		dd = ctx->dd;
 	}
 	spin_unlock_bh(&list_lock);
@@ -280,12 +292,12 @@ static void omap_aes_dma_callback(int lch, u16 ch_status, void *data)
 	if (ch_status != OMAP_DMA_BLOCK_IRQ) {
 		pr_err("omap-aes DMA error status: 0x%hx\n", ch_status);
 		dd->err = -EIO;
-		dd->flags &= ~FLAGS_INIT; 
+		dd->flags &= ~FLAGS_INIT; /* request to re-initialize */
 	} else if (lch == dd->dma_lch_in) {
 		return;
 	}
 
-	
+	/* dma_lch_out - completed */
 	tasklet_schedule(&dd->done_task);
 }
 
@@ -306,7 +318,7 @@ static int omap_aes_dma_init(struct omap_aes_dev *dd)
 		goto err_alloc;
 	}
 
-	
+	/* MAP here */
 	dd->dma_addr_in = dma_map_single(dd->dev, dd->buf_in, dd->buflen,
 					 DMA_TO_DEVICE);
 	if (dma_mapping_error(dd->dev, dd->dma_addr_in)) {
@@ -391,6 +403,10 @@ static int sg_copy(struct scatterlist **sg, size_t *offset, void *buf,
 		if (!count)
 			return off;
 
+		/*
+		 * buflen and total are AES_BLOCK_SIZE size aligned,
+		 * so count should be also aligned
+		 */
 
 		sg_copy_buf(buf + off, *sg, *offset, count, out);
 
@@ -428,7 +444,7 @@ static int omap_aes_crypt_dma(struct crypto_tfm *tfm, dma_addr_t dma_addr_in,
 
 	len32 = DIV_ROUND_UP(length, sizeof(u32));
 
-	
+	/* IN */
 	omap_set_dma_transfer_params(dd->dma_lch_in, OMAP_DMA_DATA_TYPE_S32,
 				     len32, 1, OMAP_DMA_SYNC_PACKET, dd->dma_in,
 					OMAP_DMA_DST_SYNC);
@@ -436,7 +452,7 @@ static int omap_aes_crypt_dma(struct crypto_tfm *tfm, dma_addr_t dma_addr_in,
 	omap_set_dma_src_params(dd->dma_lch_in, 0, OMAP_DMA_AMODE_POST_INC,
 				dma_addr_in, 0, 0);
 
-	
+	/* OUT */
 	omap_set_dma_transfer_params(dd->dma_lch_out, OMAP_DMA_DATA_TYPE_S32,
 				     len32, 1, OMAP_DMA_SYNC_PACKET,
 					dd->dma_out, OMAP_DMA_SRC_SYNC);
@@ -447,7 +463,7 @@ static int omap_aes_crypt_dma(struct crypto_tfm *tfm, dma_addr_t dma_addr_in,
 	omap_start_dma(dd->dma_lch_in);
 	omap_start_dma(dd->dma_lch_out);
 
-	
+	/* start DMA or disable idle mode */
 	omap_aes_write_mask(dd, AES_REG_MASK, AES_REG_MASK_START,
 			    AES_REG_MASK_START);
 
@@ -465,7 +481,7 @@ static int omap_aes_crypt_dma_start(struct omap_aes_dev *dd)
 	pr_debug("total: %d\n", dd->total);
 
 	if (sg_is_last(dd->in_sg) && sg_is_last(dd->out_sg)) {
-		
+		/* check for alignment */
 		in = IS_ALIGNED((u32)dd->in_sg->offset, sizeof(u32));
 		out = IS_ALIGNED((u32)dd->out_sg->offset, sizeof(u32));
 
@@ -502,7 +518,7 @@ static int omap_aes_crypt_dma_start(struct omap_aes_dev *dd)
 		dd->flags |= FLAGS_FAST;
 
 	} else {
-		
+		/* use cache buffers */
 		count = sg_copy(&dd->in_sg, &dd->in_offset, dd->buf_in,
 				 dd->buflen, dd->total, 0);
 
@@ -555,7 +571,7 @@ static int omap_aes_crypt_dma_stop(struct omap_aes_dev *dd)
 		dma_sync_single_for_device(dd->dev, dd->dma_addr_out,
 					   dd->dma_size, DMA_FROM_DEVICE);
 
-		
+		/* copy data */
 		count = sg_copy(&dd->out_sg, &dd->out_offset, dd->buf_out,
 				 dd->buflen, dd->dma_size, 1);
 		if (count != dd->dma_size) {
@@ -597,7 +613,7 @@ static int omap_aes_handle_queue(struct omap_aes_dev *dd,
 
 	req = ablkcipher_request_cast(async_req);
 
-	
+	/* assign new request to device */
 	dd->req = req;
 	dd->total = req->nbytes;
 	dd->in_offset = 0;
@@ -617,12 +633,12 @@ static int omap_aes_handle_queue(struct omap_aes_dev *dd,
 	if (!err)
 		err = omap_aes_crypt_dma_start(dd);
 	if (err) {
-		
+		/* aes_task will not finish it, so do it here */
 		omap_aes_finish_req(dd, err);
 		tasklet_schedule(&dd->queue_task);
 	}
 
-	return ret; 
+	return ret; /* return ret, which is enqueue return value */
 }
 
 static void omap_aes_done_task(unsigned long data)
@@ -639,7 +655,7 @@ static void omap_aes_done_task(unsigned long data)
 	if (dd->total && !err) {
 		err = omap_aes_crypt_dma_start(dd);
 		if (!err)
-			return; 
+			return; /* DMA started. Not fininishing. */
 	}
 
 	omap_aes_finish_req(dd, err);
@@ -680,6 +696,7 @@ static int omap_aes_crypt(struct ablkcipher_request *req, unsigned long mode)
 	return omap_aes_handle_queue(dd, req);
 }
 
+/* ********************** ALG API ************************************ */
 
 static int omap_aes_setkey(struct crypto_ablkcipher *tfm, const u8 *key,
 			   unsigned int keylen)
@@ -732,6 +749,7 @@ static void omap_aes_cra_exit(struct crypto_tfm *tfm)
 	pr_debug("enter\n");
 }
 
+/* ********************** ALGS ************************************ */
 
 static struct crypto_alg algs[] = {
 {
@@ -800,7 +818,7 @@ static int omap_aes_probe(struct platform_device *pdev)
 	spin_lock_init(&dd->lock);
 	crypto_init_queue(&dd->queue, OMAP_AES_QUEUE_LENGTH);
 
-	
+	/* Get the base address */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		dev_err(dev, "invalid resource type\n");
@@ -809,21 +827,21 @@ static int omap_aes_probe(struct platform_device *pdev)
 	}
 	dd->phys_base = res->start;
 
-	
+	/* Get the DMA */
 	res = platform_get_resource(pdev, IORESOURCE_DMA, 0);
 	if (!res)
 		dev_info(dev, "no DMA info\n");
 	else
 		dd->dma_out = res->start;
 
-	
+	/* Get the DMA */
 	res = platform_get_resource(pdev, IORESOURCE_DMA, 1);
 	if (!res)
 		dev_info(dev, "no DMA info\n");
 	else
 		dd->dma_in = res->start;
 
-	
+	/* Initializing the clock */
 	dd->iclk = clk_get(dev, "ick");
 	if (IS_ERR(dd->iclk)) {
 		dev_err(dev, "clock intialization failed.\n");

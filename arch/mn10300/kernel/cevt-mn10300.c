@@ -19,7 +19,7 @@
 #if (CONFIG_NR_CPUS > 2) && !defined(CONFIG_GEENERIC_CLOCKEVENTS_BROADCAST)
 #error "This doesn't scale well! Need per-core local timers."
 #endif
-#else 
+#else /* CONFIG_SMP */
 #define stop_jiffies_counter1()
 #define reload_jiffies_counter1(x)
 #define TMJC1IRQ TMJCIRQ
@@ -44,7 +44,7 @@ static int next_event(unsigned long delta,
 static void set_clock_mode(enum clock_event_mode mode,
 			   struct clock_event_device *evt)
 {
-	
+	/* Nothing to do ...  */
 }
 
 static DEFINE_PER_CPU(struct clock_event_device, mn10300_clockevent_device);
@@ -89,10 +89,10 @@ int __init init_clockevents(void)
 	cd->name		= "Timestamp";
 	cd->features		= CLOCK_EVT_FEAT_ONESHOT;
 
-	
+	/* Calculate shift/mult. We want to spawn at least 1 second */
 	clockevents_calc_mult_shift(cd, MN10300_JCCLK, 1);
 
-	
+	/* Calculate the min / max delta */
 	cd->max_delta_ns	= clockevent_delta2ns(TMJCBR_MAX, cd);
 	cd->min_delta_ns	= clockevent_delta2ns(100, cd);
 
@@ -109,7 +109,7 @@ int __init init_clockevents(void)
 	clockevents_register_device(cd);
 
 #if defined(CONFIG_SMP) && !defined(CONFIG_GENERIC_CLOCKEVENTS_BROADCAST)
-	
+	/* setup timer irq affinity so it only runs on this cpu */
 	{
 		struct irq_data *data;
 		data = irq_get_irq_data(cd->irq);

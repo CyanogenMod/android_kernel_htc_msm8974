@@ -117,7 +117,7 @@
 #define PSB_CR_USE_CODE_BASE(_i)	(0x0A0C + ((_i) << 2))
 #define _PSB_CUC_BASE_DM_SHIFT			(25)
 #define _PSB_CUC_BASE_DM_MASK			(0x3 << 25)
-#define _PSB_CUC_BASE_ADDR_SHIFT		(0)	
+#define _PSB_CUC_BASE_ADDR_SHIFT		(0)	/* 1024-bit aligned address? */
 #define _PSB_CUC_BASE_ADDR_ALIGNSHIFT		(7)
 #define _PSB_CUC_BASE_ADDR_MASK			(0x1FFFFFF << 0)
 #define _PSB_CUC_DM_VERTEX			(0)
@@ -126,11 +126,11 @@
 #define _PSB_CUC_DM_EDM				(3)
 
 #define PSB_CR_PDS_EXEC_BASE		0x0AB8
-#define _PSB_CR_PDS_EXEC_BASE_ADDR_SHIFT	(20)	
+#define _PSB_CR_PDS_EXEC_BASE_ADDR_SHIFT	(20)	/* 1MB aligned address */
 #define _PSB_CR_PDS_EXEC_BASE_ADDR_ALIGNSHIFT	(20)
 
 #define PSB_CR_EVENT_KICKER		0x0AC4
-#define _PSB_CE_KICKER_ADDRESS_SHIFT		(4)	
+#define _PSB_CE_KICKER_ADDRESS_SHIFT		(4)	/* 128-bit aligned address */
 
 #define PSB_CR_EVENT_KICK		0x0AC8
 #define _PSB_CE_KICK_NOW			(1 << 0)
@@ -174,7 +174,13 @@
 #define _PSB_C2B_STATUS_COMPLETE_SHIFT		(0)
 #define _PSB_C2B_STATUS_COMPLETE_MASK		(0xFFFFFF << 0)
 
+/*
+ * 2D defs.
+ */
 
+/*
+ * 2D Slave Port Data : Block Header's Object Type
+ */
 
 #define	PSB_2D_CLIP_BH			(0x00000000)
 #define	PSB_2D_PAT_BH			(0x10000000)
@@ -193,16 +199,21 @@
 #define	PSB_2D_MASK_SURF_BH		(0xE0000000)
 #define	PSB_2D_FLUSH_BH			(0xF0000000)
 
+/*
+ * Clip Definition block (PSB_2D_CLIP_BH)
+ */
 #define PSB_2D_CLIPCOUNT_MAX		(1)
 #define PSB_2D_CLIPCOUNT_MASK		(0x00000000)
 #define PSB_2D_CLIPCOUNT_CLRMASK	(0xFFFFFFFF)
 #define PSB_2D_CLIPCOUNT_SHIFT		(0)
+/* clip rectangle min & max */
 #define PSB_2D_CLIP_XMAX_MASK		(0x00FFF000)
 #define PSB_2D_CLIP_XMAX_CLRMASK	(0xFF000FFF)
 #define PSB_2D_CLIP_XMAX_SHIFT		(12)
 #define PSB_2D_CLIP_XMIN_MASK		(0x00000FFF)
 #define PSB_2D_CLIP_XMIN_CLRMASK	(0x00FFF000)
 #define PSB_2D_CLIP_XMIN_SHIFT		(0)
+/* clip rectangle offset */
 #define PSB_2D_CLIP_YMAX_MASK		(0x00FFF000)
 #define PSB_2D_CLIP_YMAX_CLRMASK	(0xFF000FFF)
 #define PSB_2D_CLIP_YMAX_SHIFT		(12)
@@ -210,6 +221,9 @@
 #define PSB_2D_CLIP_YMIN_CLRMASK	(0x00FFF000)
 #define PSB_2D_CLIP_YMIN_SHIFT		(0)
 
+/*
+ * Pattern Control (PSB_2D_PAT_BH)
+ */
 #define PSB_2D_PAT_HEIGHT_MASK		(0x0000001F)
 #define PSB_2D_PAT_HEIGHT_SHIFT		(0)
 #define PSB_2D_PAT_WIDTH_MASK		(0x000003E0)
@@ -219,15 +233,22 @@
 #define PSB_2D_PAT_XSTART_MASK		(0x000F8000)
 #define PSB_2D_PAT_XSTART_SHIFT		(15)
 
+/*
+ * 2D Control block (PSB_2D_CTRL_BH)
+ */
+/* Present Flags */
 #define PSB_2D_SRCCK_CTRL		(0x00000001)
 #define PSB_2D_DSTCK_CTRL		(0x00000002)
 #define PSB_2D_ALPHA_CTRL		(0x00000004)
+/* Colour Key Colour (SRC/DST)*/
 #define PSB_2D_CK_COL_MASK		(0xFFFFFFFF)
 #define PSB_2D_CK_COL_CLRMASK		(0x00000000)
 #define PSB_2D_CK_COL_SHIFT		(0)
+/* Colour Key Mask (SRC/DST)*/
 #define PSB_2D_CK_MASK_MASK		(0xFFFFFFFF)
 #define PSB_2D_CK_MASK_CLRMASK		(0x00000000)
 #define PSB_2D_CK_MASK_SHIFT		(0)
+/* Alpha Control (Alpha/RGB)*/
 #define PSB_2D_GBLALPHA_MASK		(0x000FF000)
 #define PSB_2D_GBLALPHA_CLRMASK		(0xFFF00FFF)
 #define PSB_2D_GBLALPHA_SHIFT		(12)
@@ -261,17 +282,29 @@
 #define PSB_2D_ZERO_SOURCE_ALPHA_ENABLE		(0x20000000)
 #define PSB_2D_ZERO_SOURCE_ALPHA_CLRMASK	(0xDFFFFFFF)
 
+/*
+ *Source Offset (PSB_2D_SRC_OFF_BH)
+ */
 #define PSB_2D_SRCOFF_XSTART_MASK	((0x00000FFF) << 12)
 #define PSB_2D_SRCOFF_XSTART_SHIFT	(12)
 #define PSB_2D_SRCOFF_YSTART_MASK	(0x00000FFF)
 #define PSB_2D_SRCOFF_YSTART_SHIFT	(0)
 
+/*
+ * Mask Offset (PSB_2D_MASK_OFF_BH)
+ */
 #define PSB_2D_MASKOFF_XSTART_MASK	((0x00000FFF) << 12)
 #define PSB_2D_MASKOFF_XSTART_SHIFT	(12)
 #define PSB_2D_MASKOFF_YSTART_MASK	(0x00000FFF)
 #define PSB_2D_MASKOFF_YSTART_SHIFT	(0)
 
+/*
+ * 2D Fence (see PSB_2D_FENCE_BH): bits 0:27 are ignored
+ */
 
+/*
+ *Blit Rectangle (PSB_2D_BLIT_BH)
+ */
 
 #define PSB_2D_ROT_MASK			(3 << 25)
 #define PSB_2D_ROT_CLRMASK		(~PSB_2D_ROT_MASK)
@@ -305,23 +338,43 @@
 #define PSB_2D_PAT_MASK			(0x00010000)
 #define PSB_2D_USE_PAT			(0x00010000)
 #define PSB_2D_USE_FILL			(0x00000000)
+/*
+ * Tungsten Graphics note on rop codes: If rop A and rop B are
+ * identical, the mask surface will not be read and need not be
+ * set up.
+ */
 
 #define PSB_2D_ROP3B_MASK		(0x0000FF00)
 #define PSB_2D_ROP3B_CLRMASK		(0xFFFF00FF)
 #define PSB_2D_ROP3B_SHIFT		(8)
+/* rop code A */
 #define PSB_2D_ROP3A_MASK		(0x000000FF)
 #define PSB_2D_ROP3A_CLRMASK		(0xFFFFFF00)
 #define PSB_2D_ROP3A_SHIFT		(0)
 
 #define PSB_2D_ROP4_MASK		(0x0000FFFF)
+/*
+ *	DWORD0:	(Only pass if Pattern control == Use Fill Colour)
+ *	Fill Colour RGBA8888
+ */
 #define PSB_2D_FILLCOLOUR_MASK		(0xFFFFFFFF)
 #define PSB_2D_FILLCOLOUR_SHIFT		(0)
+/*
+ *	DWORD1: (Always Present)
+ *	X Start (Dest)
+ *	Y Start (Dest)
+ */
 #define PSB_2D_DST_XSTART_MASK		(0x00FFF000)
 #define PSB_2D_DST_XSTART_CLRMASK	(0xFF000FFF)
 #define PSB_2D_DST_XSTART_SHIFT		(12)
 #define PSB_2D_DST_YSTART_MASK		(0x00000FFF)
 #define PSB_2D_DST_YSTART_CLRMASK	(0xFFFFF000)
 #define PSB_2D_DST_YSTART_SHIFT		(0)
+/*
+ *	DWORD2: (Always Present)
+ *	X Size (Dest)
+ *	Y Size (Dest)
+ */
 #define PSB_2D_DST_XSIZE_MASK		(0x00FFF000)
 #define PSB_2D_DST_XSIZE_CLRMASK	(0xFF000FFF)
 #define PSB_2D_DST_XSIZE_SHIFT		(12)
@@ -329,6 +382,12 @@
 #define PSB_2D_DST_YSIZE_CLRMASK	(0xFFFFF000)
 #define PSB_2D_DST_YSIZE_SHIFT		(0)
 
+/*
+ * Source Surface (PSB_2D_SRC_SURF_BH)
+ */
+/*
+ * WORD 0
+ */
 
 #define PSB_2D_SRC_FORMAT_MASK		(0x00078000)
 #define PSB_2D_SRC_1_PAL		(0x00000000)
@@ -352,11 +411,20 @@
 #define PSB_2D_SRC_STRIDE_MASK		(0x00007FFF)
 #define PSB_2D_SRC_STRIDE_CLRMASK	(0xFFFF8000)
 #define PSB_2D_SRC_STRIDE_SHIFT		(0)
+/*
+ *  WORD 1 - Base Address
+ */
 #define PSB_2D_SRC_ADDR_MASK		(0x0FFFFFFC)
 #define PSB_2D_SRC_ADDR_CLRMASK		(0x00000003)
 #define PSB_2D_SRC_ADDR_SHIFT		(2)
 #define PSB_2D_SRC_ADDR_ALIGNSHIFT	(2)
 
+/*
+ * Pattern Surface (PSB_2D_PAT_SURF_BH)
+ */
+/*
+ *  WORD 0
+ */
 
 #define PSB_2D_PAT_FORMAT_MASK		(0x00078000)
 #define PSB_2D_PAT_1_PAL		(0x00000000)
@@ -376,11 +444,20 @@
 #define PSB_2D_PAT_STRIDE_MASK		(0x00007FFF)
 #define PSB_2D_PAT_STRIDE_CLRMASK	(0xFFFF8000)
 #define PSB_2D_PAT_STRIDE_SHIFT		(0)
+/*
+ *  WORD 1 - Base Address
+ */
 #define PSB_2D_PAT_ADDR_MASK		(0x0FFFFFFC)
 #define PSB_2D_PAT_ADDR_CLRMASK		(0x00000003)
 #define PSB_2D_PAT_ADDR_SHIFT		(2)
 #define PSB_2D_PAT_ADDR_ALIGNSHIFT	(2)
 
+/*
+ * Destination Surface (PSB_2D_DST_SURF_BH)
+ */
+/*
+ * WORD 0
+ */
 
 #define PSB_2D_DST_FORMAT_MASK		(0x00078000)
 #define PSB_2D_DST_332RGB		(0x00030000)
@@ -395,31 +472,52 @@
 #define PSB_2D_DST_STRIDE_MASK		(0x00007FFF)
 #define PSB_2D_DST_STRIDE_CLRMASK	(0xFFFF8000)
 #define PSB_2D_DST_STRIDE_SHIFT		(0)
+/*
+ * WORD 1 - Base Address
+ */
 #define PSB_2D_DST_ADDR_MASK		(0x0FFFFFFC)
 #define PSB_2D_DST_ADDR_CLRMASK		(0x00000003)
 #define PSB_2D_DST_ADDR_SHIFT		(2)
 #define PSB_2D_DST_ADDR_ALIGNSHIFT	(2)
 
+/*
+ * Mask Surface (PSB_2D_MASK_SURF_BH)
+ */
+/*
+ * WORD 0
+ */
 #define PSB_2D_MASK_STRIDE_MASK		(0x00007FFF)
 #define PSB_2D_MASK_STRIDE_CLRMASK	(0xFFFF8000)
 #define PSB_2D_MASK_STRIDE_SHIFT	(0)
+/*
+ *  WORD 1 - Base Address
+ */
 #define PSB_2D_MASK_ADDR_MASK		(0x0FFFFFFC)
 #define PSB_2D_MASK_ADDR_CLRMASK	(0x00000003)
 #define PSB_2D_MASK_ADDR_SHIFT		(2)
 #define PSB_2D_MASK_ADDR_ALIGNSHIFT	(2)
 
+/*
+ * Source Palette (PSB_2D_SRC_PAL_BH)
+ */
 
 #define PSB_2D_SRCPAL_ADDR_SHIFT	(0)
 #define PSB_2D_SRCPAL_ADDR_CLRMASK	(0xF0000007)
 #define PSB_2D_SRCPAL_ADDR_MASK		(0x0FFFFFF8)
 #define PSB_2D_SRCPAL_BYTEALIGN		(1024)
 
+/*
+ * Pattern Palette (PSB_2D_PAT_PAL_BH)
+ */
 
 #define PSB_2D_PATPAL_ADDR_SHIFT	(0)
 #define PSB_2D_PATPAL_ADDR_CLRMASK	(0xF0000007)
 #define PSB_2D_PATPAL_ADDR_MASK		(0x0FFFFFF8)
 #define PSB_2D_PATPAL_BYTEALIGN		(1024)
 
+/*
+ * Rop3 Codes (2 LS bytes)
+ */
 
 #define PSB_2D_ROP3_SRCCOPY		(0xCCCC)
 #define PSB_2D_ROP3_PATCOPY		(0xF0F0)
@@ -429,19 +527,29 @@
 #define PSB_2D_ROP3_PAT			(0xF0)
 #define PSB_2D_ROP3_DST			(0xAA)
 
+/*
+ * Sizes.
+ */
 
 #define PSB_SCENE_HW_COOKIE_SIZE	16
 #define PSB_TA_MEM_HW_COOKIE_SIZE	16
 
+/*
+ * Scene stuff.
+ */
 
 #define PSB_NUM_HW_SCENES		2
 
+/*
+ * Scheduler completion actions.
+ */
 
 #define PSB_RASTER_BLOCK		0
 #define PSB_RASTER			1
 #define PSB_RETURN			2
 #define PSB_TA				3
 
+/* Power management */
 #define PSB_PUNIT_PORT			0x04
 #define PSB_OSPMBA			0x78
 #define PSB_APMBA			0x7a
@@ -453,12 +561,13 @@
 
 #define PSB_PM_SSC			0x20
 #define PSB_PM_SSS			0x30
-#define PSB_PWRGT_DISPLAY_MASK		0xc 
+#define PSB_PWRGT_DISPLAY_MASK		0xc /*on a different BA than video/gfx*/
 #define MDFLD_PWRGT_DISPLAY_A_CNTR	0x0000000c
 #define MDFLD_PWRGT_DISPLAY_B_CNTR	0x0000c000
 #define MDFLD_PWRGT_DISPLAY_C_CNTR	0x00030000
 #define MDFLD_PWRGT_DISP_MIPI_CNTR	0x000c0000
-#define MDFLD_PWRGT_DISPLAY_CNTR    (MDFLD_PWRGT_DISPLAY_A_CNTR | MDFLD_PWRGT_DISPLAY_B_CNTR | MDFLD_PWRGT_DISPLAY_C_CNTR | MDFLD_PWRGT_DISP_MIPI_CNTR) 
+#define MDFLD_PWRGT_DISPLAY_CNTR    (MDFLD_PWRGT_DISPLAY_A_CNTR | MDFLD_PWRGT_DISPLAY_B_CNTR | MDFLD_PWRGT_DISPLAY_C_CNTR | MDFLD_PWRGT_DISP_MIPI_CNTR) /* 0x000fc00c */
+/* Display SSS register bits are different in A0 vs. B0 */
 #define PSB_PWRGT_GFX_MASK		0x3
 #define MDFLD_PWRGT_DISPLAY_A_STS	0x000000c0
 #define MDFLD_PWRGT_DISPLAY_B_STS	0x00000300
@@ -468,6 +577,6 @@
 #define MDFLD_PWRGT_DISPLAY_B_STS_B0	0x0000c000
 #define MDFLD_PWRGT_DISPLAY_C_STS_B0	0x00030000
 #define MDFLD_PWRGT_DISP_MIPI_STS	0x000c0000
-#define MDFLD_PWRGT_DISPLAY_STS_A0    (MDFLD_PWRGT_DISPLAY_A_STS | MDFLD_PWRGT_DISPLAY_B_STS | MDFLD_PWRGT_DISPLAY_C_STS | MDFLD_PWRGT_DISP_MIPI_STS) 
-#define MDFLD_PWRGT_DISPLAY_STS_B0    (MDFLD_PWRGT_DISPLAY_A_STS_B0 | MDFLD_PWRGT_DISPLAY_B_STS_B0 | MDFLD_PWRGT_DISPLAY_C_STS_B0 | MDFLD_PWRGT_DISP_MIPI_STS) 
+#define MDFLD_PWRGT_DISPLAY_STS_A0    (MDFLD_PWRGT_DISPLAY_A_STS | MDFLD_PWRGT_DISPLAY_B_STS | MDFLD_PWRGT_DISPLAY_C_STS | MDFLD_PWRGT_DISP_MIPI_STS) /* 0x000fc00c */
+#define MDFLD_PWRGT_DISPLAY_STS_B0    (MDFLD_PWRGT_DISPLAY_A_STS_B0 | MDFLD_PWRGT_DISPLAY_B_STS_B0 | MDFLD_PWRGT_DISPLAY_C_STS_B0 | MDFLD_PWRGT_DISP_MIPI_STS) /* 0x000fc00c */
 #endif

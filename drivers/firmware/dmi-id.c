@@ -60,7 +60,7 @@ DEFINE_DMI_ATTR_WITH_SHOW(chassis_asset_tag,	0444, DMI_CHASSIS_ASSET_TAG);
 
 static void ascii_filter(char *d, const char *s)
 {
-	
+	/* Filter out characters we don't want to see in the modalias string */
 	for (; *s; s++)
 		if (*s > ' ' && *s < 127 && *s != ':')
 			*(d++) = *s;
@@ -167,15 +167,21 @@ static struct class dmi_class = {
 
 static struct device *dmi_dev;
 
+/* Initialization */
 
 #define ADD_DMI_ATTR(_name, _field) \
 	if (dmi_get_system_info(_field)) \
 		sys_dmi_attributes[i++] = &sys_dmi_##_name##_attr.dev_attr.attr;
 
+/* In a separate function to keep gcc 3.2 happy - do NOT merge this in
+   dmi_id_init! */
 static void __init dmi_id_init_attr_table(void)
 {
 	int i;
 
+	/* Not necessarily all DMI fields are available on all
+	 * systems, hence let's built an attribute table of just
+	 * what's available */
 	i = 0;
 	ADD_DMI_ATTR(bios_vendor,       DMI_BIOS_VENDOR);
 	ADD_DMI_ATTR(bios_version,      DMI_BIOS_VERSION);

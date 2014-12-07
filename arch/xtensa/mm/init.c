@@ -27,10 +27,25 @@
 #include <asm/bootparam.h>
 #include <asm/page.h>
 
+/* References to section boundaries */
 
 extern char _ftext, _etext, _fdata, _edata, _rodata_end;
 extern char __init_begin, __init_end;
 
+/*
+ * mem_reserve(start, end, must_exist)
+ *
+ * Reserve some memory from the memory pool.
+ *
+ * Parameters:
+ *  start	Start of region,
+ *  end		End of region,
+ *  must_exist	Must exist in memory pool.
+ *
+ * Returns:
+ *  0 (memory area couldn't be mapped)
+ * -1 (success)
+ */
 
 int __init mem_reserve(unsigned long start, unsigned long end, int must_exist)
 {
@@ -56,7 +71,7 @@ int __init mem_reserve(unsigned long start, unsigned long end, int must_exist)
 
 	if (start > sysmem.bank[i].start) {
 		if (end < sysmem.bank[i].end) {
-			
+			/* split entry */
 			if (sysmem.nr_banks >= SYSMEM_BANKS_MAX)
 				panic("meminfo overflow\n");
 			sysmem.bank[sysmem.nr_banks].start = end;
@@ -68,7 +83,7 @@ int __init mem_reserve(unsigned long start, unsigned long end, int must_exist)
 		if (end < sysmem.bank[i].end)
 			sysmem.bank[i].start = end;
 		else {
-			
+			/* remove entry */
 			sysmem.nr_banks--;
 			sysmem.bank[i].start = sysmem.bank[sysmem.nr_banks].start;
 			sysmem.bank[i].end   = sysmem.bank[sysmem.nr_banks].end;
@@ -78,6 +93,9 @@ int __init mem_reserve(unsigned long start, unsigned long end, int must_exist)
 }
 
 
+/*
+ * Initialize the bootmem system and give it all the memory we have available.
+ */
 
 void __init bootmem_init(void)
 {
@@ -103,7 +121,7 @@ void __init bootmem_init(void)
 	max_low_pfn = max_pfn < MAX_MEM_PFN >> PAGE_SHIFT ?
 		max_pfn : MAX_MEM_PFN >> PAGE_SHIFT;
 
-	
+	/* Find an area to use for the bootmem bitmap. */
 
 	bootmap_size = bootmem_bootmap_pages(max_low_pfn - min_low_pfn);
 	bootmap_size <<= PAGE_SHIFT;
@@ -118,7 +136,7 @@ void __init bootmem_init(void)
 	if (bootmap_start == ~0UL)
 		panic("Cannot find %ld bytes for bootmap\n", bootmap_size);
 
-	
+	/* Reserve the bootmem bitmap area */
 
 	mem_reserve(bootmap_start, bootmap_start + bootmap_size, 1);
 	bootmap_size = init_bootmem_node(NODE_DATA(0),
@@ -126,7 +144,7 @@ void __init bootmem_init(void)
 					 min_low_pfn,
 					 max_low_pfn);
 
-	
+	/* Add all remaining memory pieces into the bootmem map */
 
 	for (i=0; i<sysmem.nr_banks; i++)
 		free_bootmem(sysmem.bank[i].start,
@@ -140,7 +158,7 @@ void __init zones_init(void)
 	unsigned long zones_size[MAX_NR_ZONES];
 	int i;
 
-	
+	/* All pages are DMA-able, so we put them all in the DMA zone. */
 
 	zones_size[ZONE_DMA] = max_low_pfn - ARCH_PFN_OFFSET;
 	for (i = 1; i < MAX_NR_ZONES; i++)
@@ -153,6 +171,9 @@ void __init zones_init(void)
 	free_area_init_node(0, zones_size, ARCH_PFN_OFFSET, NULL);
 }
 
+/*
+ * Initialize memory pages.
+ */
 
 void __init mem_init(void)
 {

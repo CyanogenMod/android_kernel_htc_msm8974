@@ -47,4 +47,5 @@ void machine_restart(char *cmd)
 	hv_restart((HV_VirtAddr) "vmlinux", (HV_VirtAddr) cmd);
 }
 
+/* No interesting distinction to be made here. */
 void (*pm_power_off)(void) = NULL;

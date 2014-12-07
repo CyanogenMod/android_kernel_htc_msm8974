@@ -12,4 +12,4 @@ struct old_sigaction {
 	void (*sa_restorer)(void);
 };
 
-#endif 
+#endif /* __ASM_SH_SIGNAL_H */

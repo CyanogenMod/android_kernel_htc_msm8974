@@ -74,7 +74,7 @@ int vp_setup_buffers(struct vcap_client_data *c_data)
 		return -EPERM;
 	}
 
-	
+	/* No need to verify vp_client is not NULL caller does so */
 	vp_act = &dev->vp_client->vp_action;
 
 	spin_lock_irqsave(&dev->vp_client->cap_slock, flags);
@@ -119,7 +119,7 @@ static void mov_buf_to_vc(struct work_struct *work)
 
 	p.memory = V4L2_MEMORY_USERPTR;
 
-	
+	/* This loop exits when there is no more buffers left */
 	while (1) {
 		p.type = V4L2_BUF_TYPE_INTERLACED_IN_DECODER;
 		if (!vp_work->cd->streaming)
@@ -149,7 +149,7 @@ static void mov_buf_to_vc(struct work_struct *work)
 		buf_vp->paddr = 0;
 
 		p.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-		
+		/* This call should not fail */
 		rc = vcvp_qbuf(&vp_work->cd->vc_vidq, &p);
 		if (rc < 0) {
 			pr_err("%s: qbuf to vc failed\n", __func__);
@@ -223,7 +223,7 @@ static void vp_wq_fnc(struct work_struct *work)
 		update_nr_value(dev);
 	spin_unlock_irqrestore(&dev->vp_client->cap_slock, flags);
 
-	
+	/* Queue the done buffers */
 	if (vp_act->vp_state == VP_NORMAL &&
 			vp_act->bufNR.nr_pos != TM1_BUF) {
 		vb2_buffer_done(&vp_act->bufTm1->vb, VB2_BUF_STATE_DONE);
@@ -237,11 +237,11 @@ static void vp_wq_fnc(struct work_struct *work)
 	}
 	vb2_buffer_done(&vp_act->bufOut->vb, VB2_BUF_STATE_DONE);
 
-	
+	/* Cycle to next state */
 	if (vp_act->vp_state != VP_NORMAL)
 		vp_act->vp_state++;
 
-	
+	/* Cycle Buffers*/
 	if (dev->nr_param.mode) {
 		if (vp_act->bufNR.nr_pos == TM1_BUF)
 			vp_act->bufNR.nr_pos = BUF_NOT_IN_USE;
@@ -262,7 +262,7 @@ static void vp_wq_fnc(struct work_struct *work)
 
 	rc = vp_setup_buffers(vp_work->cd);
 	if (rc < 0) {
-		
+		/* setup_buf failed because we are waiting for buffers */
 		writel_relaxed(0x00000000, VCAP_VP_INTERRUPT_ENABLE);
 		writel_iowmb(irq, VCAP_VP_INT_CLEAR);
 		atomic_set(&dev->vp_enabled, 0);
@@ -271,7 +271,7 @@ static void vp_wq_fnc(struct work_struct *work)
 		return;
 	}
 
-	
+	/* Config VP */
 	if (vp_act->bufT2->vb.v4l2_buf.field == V4L2_FIELD_BOTTOM)
 		top_field = 1;
 
@@ -377,7 +377,7 @@ int vp_sw_reset(struct vcap_dev *dev)
 			break;
 		timeout--;
 		if (timeout == 0) {
-			
+			/* This should not happen */
 			pr_err("VP is not resetting properly\n");
 			writel_iowmb(0x00000000, VCAP_SW_RESET_REQ);
 			return -EINVAL;
@@ -399,7 +399,7 @@ void vp_stop_capture(struct vcap_client_data *c_data)
 				!atomic_read(&dev->vp_enabled),
 				msecs_to_jiffies(50));
 		if (rc == 0 && atomic_read(&dev->vp_enabled) == 1) {
-			
+			/* This should not happen, if it does hw is stuck */
 			disable_irq_nosync(dev->vpirq->start);
 			atomic_set(&dev->vp_enabled, 0);
 			pr_err("%s: VP Timeout and VP still running\n",
@@ -419,12 +419,12 @@ int config_vp_format(struct vcap_client_data *c_data)
 	INIT_WORK(&dev->vp_to_vc_work.work, mov_buf_to_vc);
 	dev->vp_to_vc_work.cd = c_data;
 
-	
+	/* SW restart VP */
 	rc = vp_sw_reset(dev);
 	if (rc < 0)
 		return rc;
 
-	
+	/* Film Mode related settings */
 	writel_iowmb(0x00000000, VCAP_VP_FILM_PROJECTION_T0);
 	writel_relaxed(0x00000000, VCAP_VP_FILM_PROJECTION_T2);
 	writel_relaxed(0x00000000, VCAP_VP_FILM_PAST_MAX_PROJ);
@@ -609,7 +609,7 @@ int nr_s_param(struct vcap_client_data *c_data, struct nr_param *param)
 	if (param->mode != NR_MANUAL)
 		return 0;
 
-	
+	/* Verify values in range */
 	if (param->window > VP_NR_MAX_WINDOW)
 		return -EINVAL;
 	if (param->luma.max_blend_ratio > VP_NR_MAX_RATIO)
@@ -821,7 +821,7 @@ int kickoff_vp(struct vcap_client_data *c_data)
 	config_in_buffer(c_data, vp_act->bufT2);
 	config_out_buffer(c_data, vp_act->bufOut);
 
-	
+	/* Config VP */
 	if (c_data->vp_in_fmt.pixfmt == V4L2_PIX_FMT_NV16)
 		chroma_fmt = 1;
 	writel_relaxed((c_data->vp_in_fmt.width / 16) << 20 |
@@ -834,7 +834,7 @@ int kickoff_vp(struct vcap_client_data *c_data)
 	writel_relaxed((c_data->vp_out_fmt.width / 16) << 20 |
 			chroma_fmt << 11 | 0x1 << 4, VCAP_VP_OUT_CONFIG);
 
-	
+	/* Enable Interrupt */
 	if (vp_act->bufT2->vb.v4l2_buf.field == V4L2_FIELD_BOTTOM)
 		top_field = 1;
 	vp_act->vp_state = VP_FRAME2;
@@ -881,7 +881,7 @@ int continue_vp(struct vcap_client_data *c_data)
 	if (vp_act->bufT2->vb.v4l2_buf.field == V4L2_FIELD_BOTTOM)
 		top_field = 1;
 
-	
+	/* Config VP & Enable Interrupt */
 	writel_relaxed(0x01100001, VCAP_VP_INTERRUPT_ENABLE);
 	writel_iowmb(0x00000000 | top_field, VCAP_VP_CTRL);
 	writel_iowmb(0x00010000 | top_field, VCAP_VP_CTRL);

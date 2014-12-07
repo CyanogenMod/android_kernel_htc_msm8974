@@ -43,11 +43,13 @@
 #define PLL2_N_VAL_ADDR		(MSM_CLK_CTL_BASE + 0x344)
 #define PLL2_CONFIG_ADDR	(MSM_CLK_CTL_BASE + 0x34C)
 
-#define VREF_SEL     1	
-#define V_STEP       (25 * (2 - VREF_SEL)) 
+#define VREF_SEL     1	/* 0: 0.625V (50mV step), 1: 0.3125V (25mV step). */
+#define V_STEP       (25 * (2 - VREF_SEL)) /* Minimum voltage step size. */
 #define VREG_DATA    (VREG_CONFIG | (VREF_SEL << 5))
-#define VREG_CONFIG  (BIT(7) | BIT(6)) 
+#define VREG_CONFIG  (BIT(7) | BIT(6)) /* Enable VREG, pull-down if disabled. */
+/* Cause a compile error if the voltage is not a multiple of the step size. */
 #define MV(mv)      ((mv) / (!((mv) % V_STEP)))
+/* mv = (750mV + (raw * 25mV)) * (2 - VREF_SEL) */
 #define VDD_RAW(mv) (((MV(mv) / V_STEP) - 30) | VREG_DATA)
 
 #define MAX_AXI_KHZ 192000
@@ -75,20 +77,22 @@ struct clkctl_acpu_speed {
 	unsigned int	vdd_mv;
 	unsigned int	vdd_raw;
 	struct pll	*pll_rate;
-	unsigned long	lpj; 
+	unsigned long	lpj; /* loops_per_jiffy */
 };
 
 static struct clock_state drv_state = { 0 };
 
+/* Switch to this when reprogramming PLL2 */
 static struct clkctl_acpu_speed *backup_s;
 
 static struct pll pll2_tbl[] = {
-	{  42, 0, 1, 0 }, 
-	{  53, 1, 3, 0 }, 
-	{ 125, 0, 1, 1 }, 
-	{  73, 0, 1, 0 }, 
+	{  42, 0, 1, 0 }, /*  806 MHz */
+	{  53, 1, 3, 0 }, /* 1024 MHz */
+	{ 125, 0, 1, 1 }, /* 1200 MHz */
+	{  73, 0, 1, 0 }, /* 1401 MHz */
 };
 
+/* Use negative numbers for sources that can't be enabled/disabled */
 
 enum acpuclk_source {
 	LPXO	= -2,
@@ -102,6 +106,12 @@ enum acpuclk_source {
 
 static struct clk *acpuclk_sources[MAX_SOURCE];
 
+/*
+ * Each ACPU frequency has a certain minimum MSMC1 voltage requirement
+ * that is implicitly met by voting for a specific minimum AXI frequency.
+ * Do NOT change the AXI frequency unless you are _absoulutely_ sure you
+ * know all the h/w requirements.
+ */
 static struct clkctl_acpu_speed acpu_freq_tbl[] = {
 	{ 0, 24576,  LPXO, 0, 0,  30720000,  900, VDD_RAW(900) },
 	{ 0, 61440,  PLL_3,    5, 11, 61440000,  900, VDD_RAW(900) },
@@ -110,8 +120,11 @@ static struct clkctl_acpu_speed acpu_freq_tbl[] = {
 	{ 0, MAX_AXI_KHZ, AXI, 1, 0, 61440000, 900, VDD_RAW(900) },
 	{ 1, 245760, PLL_3,    5, 2,  61440000,  900, VDD_RAW(900) },
 	{ 1, 368640, PLL_3,    5, 1,  122800000, 900, VDD_RAW(900) },
-	
+	/* AXI has MSMC1 implications. See above. */
 	{ 1, 768000, PLL_1,    2, 0,  153600000, 1050, VDD_RAW(1050) },
+	/*
+	 * AXI has MSMC1 implications. See above.
+	 */
 	{ 1, 806400,  PLL_2, 3, 0, UINT_MAX, 1100, VDD_RAW(1100), &pll2_tbl[0]},
 	{ 1, 1024000, PLL_2, 3, 0, UINT_MAX, 1200, VDD_RAW(1200), &pll2_tbl[1]},
 	{ 1, 1200000, PLL_2, 3, 0, UINT_MAX, 1200, VDD_RAW(1200), &pll2_tbl[2]},
@@ -125,15 +138,18 @@ static int acpuclk_set_acpu_vdd(struct clkctl_acpu_speed *s)
 	if (ret)
 		return ret;
 
-	
+	/* Wait for voltage to stabilize. */
 	udelay(62);
 	return 0;
 }
 
+/* Assumes PLL2 is off and the acpuclock isn't sourced from PLL2 */
 static void acpuclk_config_pll2(struct pll *pll)
 {
 	uint32_t config = readl_relaxed(PLL2_CONFIG_ADDR);
 
+	/* Make sure write to disable PLL_2 has completed
+	 * before reconfiguring that PLL. */
 	mb();
 	writel_relaxed(pll->l, PLL2_L_VAL_ADDR);
 	writel_relaxed(pll->m, PLL2_M_VAL_ADDR);
@@ -143,33 +159,34 @@ static void acpuclk_config_pll2(struct pll *pll)
 	else
 		config &= ~BIT(15);
 	writel_relaxed(config, PLL2_CONFIG_ADDR);
-	
+	/* Make sure PLL is programmed before returning. */
 	mb();
 }
 
+/* Set clock source and divider given a clock speed */
 static void acpuclk_set_src(const struct clkctl_acpu_speed *s)
 {
 	uint32_t reg_clksel, reg_clkctl, src_sel;
 
 	reg_clksel = readl_relaxed(SCSS_CLK_SEL_ADDR);
 
-	
+	/* CLK_SEL_SRC1NO */
 	src_sel = reg_clksel & 1;
 
-	
+	/* Program clock source and divider. */
 	reg_clkctl = readl_relaxed(SCSS_CLK_CTL_ADDR);
 	reg_clkctl &= ~(0xFF << (8 * src_sel));
 	reg_clkctl |= s->acpu_src_sel << (4 + 8 * src_sel);
 	reg_clkctl |= s->acpu_src_div << (0 + 8 * src_sel);
 	writel_relaxed(reg_clkctl, SCSS_CLK_CTL_ADDR);
 
-	
+	/* Toggle clock source. */
 	reg_clksel ^= 1;
 
-	
+	/* Program clock source selection. */
 	writel_relaxed(reg_clksel, SCSS_CLK_SEL_ADDR);
 
-	
+	/* Make sure switch to new source is complete. */
 	mb();
 }
 
@@ -197,7 +214,7 @@ static int acpuclk_7x30_set_rate(int cpu, unsigned long rate,
 	}
 
 	if (reason == SETRATE_CPUFREQ) {
-		
+		/* Increase VDD if needed. */
 		if (tgt_s->vdd_mv > strt_s->vdd_mv) {
 			rc = acpuclk_set_acpu_vdd(tgt_s);
 			if (rc < 0) {
@@ -211,6 +228,9 @@ static int acpuclk_7x30_set_rate(int cpu, unsigned long rate,
 	pr_debug("Switching from ACPU rate %u KHz -> %u KHz\n",
 	       strt_s->acpu_clk_khz, tgt_s->acpu_clk_khz);
 
+	/* Increase the AXI bus frequency if needed. This must be done before
+	 * increasing the ACPU frequency, since voting for high AXI rates
+	 * implicitly takes care of increasing the MSMC1 voltage, as needed. */
 	if (tgt_s->axi_clk_hz > strt_s->axi_clk_hz) {
 		rc = clk_set_rate(drv_state.ebi1_clk, tgt_s->axi_clk_hz);
 		if (rc < 0) {
@@ -219,25 +239,25 @@ static int acpuclk_7x30_set_rate(int cpu, unsigned long rate,
 		}
 	}
 
-	
+	/* Move off of PLL2 if we're reprogramming it */
 	if (tgt_s->src == PLL_2 && strt_s->src == PLL_2) {
 		clk_enable(acpuclk_sources[backup_s->src]);
 		acpuclk_set_src(backup_s);
 		clk_disable(acpuclk_sources[strt_s->src]);
 	}
 
-	
+	/* Reconfigure PLL2 if we're moving to it */
 	if (tgt_s->src == PLL_2)
 		acpuclk_config_pll2(tgt_s->pll_rate);
 
-	
+	/* Make sure target PLL is on. */
 	if ((strt_s->src != tgt_s->src && tgt_s->src >= 0) ||
 	    (tgt_s->src == PLL_2 && strt_s->src == PLL_2)) {
 		pr_debug("Enabling PLL %d\n", tgt_s->src);
 		clk_enable(acpuclk_sources[tgt_s->src]);
 	}
 
-	
+	/* Perform the frequency switch */
 	acpuclk_set_src(tgt_s);
 	drv_state.current_speed = tgt_s;
 	loops_per_jiffy = tgt_s->lpj;
@@ -245,28 +265,28 @@ static int acpuclk_7x30_set_rate(int cpu, unsigned long rate,
 	if (tgt_s->src == PLL_2 && strt_s->src == PLL_2)
 		clk_disable(acpuclk_sources[backup_s->src]);
 
-	
+	/* Nothing else to do for SWFI. */
 	if (reason == SETRATE_SWFI)
 		goto out;
 
-	
+	/* Turn off previous PLL if not used. */
 	if (strt_s->src != tgt_s->src && strt_s->src >= 0) {
 		pr_debug("Disabling PLL %d\n", strt_s->src);
 		clk_disable(acpuclk_sources[strt_s->src]);
 	}
 
-	
+	/* Decrease the AXI bus frequency if we can. */
 	if (tgt_s->axi_clk_hz < strt_s->axi_clk_hz) {
 		res = clk_set_rate(drv_state.ebi1_clk, tgt_s->axi_clk_hz);
 		if (res < 0)
 			pr_warning("Setting AXI min rate failed (%d)\n", res);
 	}
 
-	
+	/* Nothing else to do for power collapse. */
 	if (reason == SETRATE_PC)
 		goto out;
 
-	
+	/* Drop VDD level if we can. */
 	if (tgt_s->vdd_mv < strt_s->vdd_mv) {
 		res = acpuclk_set_acpu_vdd(tgt_s);
 		if (res)
@@ -292,6 +312,9 @@ static unsigned long acpuclk_7x30_get_rate(int cpu)
 		return 0;
 }
 
+/*----------------------------------------------------------------------------
+ * Clock driver initialization
+ *---------------------------------------------------------------------------*/
 
 static void __devinit acpuclk_hw_init(void)
 {
@@ -306,15 +329,15 @@ static void __devinit acpuclk_hw_init(void)
 
 	reg_clksel = readl_relaxed(SCSS_CLK_SEL_ADDR);
 
-	
+	/* Determine the ACPU clock rate. */
 	switch ((reg_clksel >> 1) & 0x3) {
-	case 0:	
+	case 0:	/* Running off the output of the raw clock source mux. */
 		reg_clkctl = readl_relaxed(SCSS_CLK_CTL_ADDR);
 		src_num = reg_clksel & 0x1;
 		sel = (reg_clkctl >> (12 - (8 * src_num))) & 0x7;
 		div = (reg_clkctl >> (8 -  (8 * src_num))) & 0xF;
 
-		
+		/* Check frequency table for matching sel/div pair. */
 		for (s = acpu_freq_tbl; s->acpu_clk_khz != 0; s++) {
 			if (s->acpu_src_sel == sel && s->acpu_src_div == div)
 				break;
@@ -324,38 +347,40 @@ static void __devinit acpuclk_hw_init(void)
 			return;
 		}
 		break;
-	case 2:	
+	case 2:	/* Running off of the SCPLL selected through the core mux. */
+		/* Switch to run off of the SCPLL selected through the raw
+		 * clock source mux. */
 		for (s = acpu_freq_tbl; s->acpu_clk_khz != 0
 			&& s->src != PLL_2 && s->acpu_src_div == 0; s++)
 			;
 		if (s->acpu_clk_khz != 0) {
-			
+			/* Program raw clock source mux. */
 			acpuclk_set_src(s);
 
-			
+			/* Switch to raw clock source input of the core mux. */
 			reg_clksel = readl_relaxed(SCSS_CLK_SEL_ADDR);
 			reg_clksel &= ~(0x3 << 1);
 			writel_relaxed(reg_clksel, SCSS_CLK_SEL_ADDR);
 			break;
 		}
-		
+		/* else fall through */
 	default:
 		pr_err("Error - ACPU clock reports invalid source\n");
 		return;
 	}
 
-	
+	/* Look at PLL2's L val to determine what speed PLL2 is running at */
 	if (s->src == PLL_2)
 		for ( ; s->acpu_clk_khz; s++)
 			if (s->pll_rate && s->pll_rate->l == pll2_l)
 				break;
 
-	
+	/* Set initial ACPU VDD. */
 	acpuclk_set_acpu_vdd(s);
 
 	drv_state.current_speed = s;
 
-	
+	/* Initialize current PLL's reference count. */
 	if (s->src >= 0)
 		clk_enable(acpuclk_sources[s->src]);
 
@@ -368,6 +393,7 @@ static void __devinit acpuclk_hw_init(void)
 	return;
 }
 
+/* Initalize the lpj field in the acpu_freq_tbl. */
 static void __devinit lpj_init(void)
 {
 	int i;
@@ -402,6 +428,10 @@ static void setup_cpufreq_table(void)
 static inline void setup_cpufreq_table(void) { }
 #endif
 
+/*
+ * Truncate the frequency table at the current PLL2 rate and determine the
+ * backup PLL to use when scaling PLL2.
+ */
 void __devinit pll2_fixup(void)
 {
 	struct clkctl_acpu_speed *speed = acpu_freq_tbl;
@@ -432,6 +462,11 @@ static void __devinit populate_plls(void)
 	BUG_ON(IS_ERR(acpuclk_sources[PLL_2]));
 	acpuclk_sources[PLL_3] = clk_get_sys("acpu", "pll3_clk");
 	BUG_ON(IS_ERR(acpuclk_sources[PLL_3]));
+	/*
+	 * Prepare all the PLLs because we enable/disable them
+	 * from atomic context and can't always ensure they're
+	 * all prepared in non-atomic context.
+	 */
 	BUG_ON(clk_prepare(acpuclk_sources[PLL_1]));
 	BUG_ON(clk_prepare(acpuclk_sources[PLL_2]));
 	BUG_ON(clk_prepare(acpuclk_sources[PLL_3]));

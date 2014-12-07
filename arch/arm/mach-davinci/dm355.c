@@ -36,7 +36,10 @@
 
 #define DM355_UART2_BASE	(IO_PHYS + 0x206000)
 
-#define DM355_REF_FREQ		24000000	
+/*
+ * Device specific clocks
+ */
+#define DM355_REF_FREQ		24000000	/* 24 or 36 MHz */
 
 static struct pll_data pll1_data = {
 	.num       = 1,
@@ -52,7 +55,7 @@ static struct pll_data pll2_data = {
 
 static struct clk ref_clk = {
 	.name = "ref_clk",
-	
+	/* FIXME -- crystal rate is board-specific */
 	.rate = DM355_REF_FREQ,
 };
 
@@ -126,7 +129,7 @@ static struct clk vpss_slave_clk = {
 static struct clk clkout1_clk = {
 	.name = "clkout1",
 	.parent = &pll1_aux_clk,
-	
+	/* NOTE:  clkout1 can be externally gated by muxing GPIO-18 */
 };
 
 static struct clk clkout2_clk = {
@@ -158,7 +161,7 @@ static struct clk pll2_sysclkbp = {
 static struct clk clkout3_clk = {
 	.name = "clkout3",
 	.parent = &pll2_sysclkbp,
-	
+	/* NOTE:  clkout3 can be externally gated by muxing GPIO-16 */
 };
 
 static struct clk arm_clk = {
@@ -168,6 +171,24 @@ static struct clk arm_clk = {
 	.flags = ALWAYS_ENABLED,
 };
 
+/*
+ * NOT LISTED below, and not touched by Linux
+ *   - in SyncReset state by default
+ *	.lpsc = DAVINCI_LPSC_TPCC,
+ *	.lpsc = DAVINCI_LPSC_TPTC0,
+ *	.lpsc = DAVINCI_LPSC_TPTC1,
+ *	.lpsc = DAVINCI_LPSC_DDR_EMIF, .parent = &sysclk2_clk,
+ *	.lpsc = DAVINCI_LPSC_MEMSTICK,
+ *   - in Enabled state by default
+ *	.lpsc = DAVINCI_LPSC_SYSTEM_SUBSYS,
+ *	.lpsc = DAVINCI_LPSC_SCR2,	// "bus"
+ *	.lpsc = DAVINCI_LPSC_SCR3,	// "bus"
+ *	.lpsc = DAVINCI_LPSC_SCR4,	// "bus"
+ *	.lpsc = DAVINCI_LPSC_CROSSBAR,	// "emulation"
+ *	.lpsc = DAVINCI_LPSC_CFG27,	// "test"
+ *	.lpsc = DAVINCI_LPSC_CFG3,	// "test"
+ *	.lpsc = DAVINCI_LPSC_CFG5,	// "test"
+ */
 
 static struct clk mjcp_clk = {
 	.name = "mjcp",
@@ -293,7 +314,7 @@ static struct clk timer2_clk = {
 	.name = "timer2",
 	.parent = &pll1_aux_clk,
 	.lpsc = DAVINCI_LPSC_TIMER2,
-	.usecount = 1,              
+	.usecount = 1,              /* REVISIT: why can't this be disabled? */
 };
 
 static struct clk timer3_clk = {
@@ -360,6 +381,7 @@ static struct clk_lookup dm355_clks[] = {
 	CLK(NULL, NULL, NULL),
 };
 
+/*----------------------------------------------------------------------*/
 
 static u64 dm355_spi0_dma_mask = DMA_BIT_MASK(32);
 
@@ -404,10 +426,10 @@ static struct platform_device dm355_spi0_device = {
 void __init dm355_init_spi0(unsigned chipselect_mask,
 		struct spi_board_info *info, unsigned len)
 {
-	
+	/* for now, assume we need MISO */
 	davinci_cfg_reg(DM355_SPI0_SDI);
 
-	
+	/* not all slaves will be wired up */
 	if (chipselect_mask & BIT(0))
 		davinci_cfg_reg(DM355_SPI0_SDENA0);
 	if (chipselect_mask & BIT(1))
@@ -418,10 +440,17 @@ void __init dm355_init_spi0(unsigned chipselect_mask,
 	platform_device_register(&dm355_spi0_device);
 }
 
+/*----------------------------------------------------------------------*/
 
 #define INTMUX		0x18
 #define EVTMUX		0x1c
 
+/*
+ * Device specific mux setup
+ *
+ *	soc	description	mux  mode   mode  mux	 dbg
+ *				reg  offset mask  mode
+ */
 static const struct mux_config dm355_pins[] = {
 #ifdef CONFIG_DAVINCI_MUX
 MUX_CFG(DM355,	MMCSD0,		4,   2,     1,	  0,	 false)
@@ -487,10 +516,10 @@ static u8 dm355_default_priorities[DAVINCI_N_AINTC_IRQ] = {
 	[IRQ_DM355_RTOINT]		= 4,
 	[IRQ_DM355_UARTINT2]		= 7,
 	[IRQ_DM355_TINT6]		= 7,
-	[IRQ_CCINT0]			= 5,	
-	[IRQ_CCERRINT]			= 5,	
-	[IRQ_TCERRINT0]			= 5,	
-	[IRQ_TCERRINT]			= 5,	
+	[IRQ_CCINT0]			= 5,	/* dma */
+	[IRQ_CCERRINT]			= 5,	/* dma */
+	[IRQ_TCERRINT0]			= 5,	/* dma */
+	[IRQ_TCERRINT]			= 5,	/* dma */
 	[IRQ_DM355_SPINT2_1]		= 7,
 	[IRQ_DM355_TINT7]		= 4,
 	[IRQ_DM355_SDIOINT0]		= 7,
@@ -502,10 +531,10 @@ static u8 dm355_default_priorities[DAVINCI_N_AINTC_IRQ] = {
 	[IRQ_DDRINT]			= 7,
 	[IRQ_AEMIFINT]			= 7,
 	[IRQ_DM355_SDIOINT1]		= 4,
-	[IRQ_TINT0_TINT12]		= 2,	
-	[IRQ_TINT0_TINT34]		= 2,	
-	[IRQ_TINT1_TINT12]		= 7,	
-	[IRQ_TINT1_TINT34]		= 7,	
+	[IRQ_TINT0_TINT12]		= 2,	/* clockevent */
+	[IRQ_TINT0_TINT34]		= 2,	/* clocksource */
+	[IRQ_TINT1_TINT12]		= 7,	/* DSP timer */
+	[IRQ_TINT1_TINT34]		= 7,	/* system tick */
 	[IRQ_PWMINT0]			= 7,
 	[IRQ_PWMINT1]			= 7,
 	[IRQ_PWMINT2]			= 7,
@@ -536,10 +565,11 @@ static u8 dm355_default_priorities[DAVINCI_N_AINTC_IRQ] = {
 	[IRQ_EMUINT]			= 7,
 };
 
+/*----------------------------------------------------------------------*/
 
 static const s8
 queue_tc_mapping[][2] = {
-	
+	/* {event queue no, TC no} */
 	{0, 0},
 	{1, 1},
 	{-1, -1},
@@ -547,7 +577,7 @@ queue_tc_mapping[][2] = {
 
 static const s8
 queue_priority_mapping[][2] = {
-	
+	/* {event queue no, Priority} */
 	{0, 3},
 	{1, 7},
 	{-1, -1},
@@ -597,7 +627,7 @@ static struct resource edma_resources[] = {
 		.start	= IRQ_CCERRINT,
 		.flags	= IORESOURCE_IRQ,
 	},
-	
+	/* not using (or muxing) TC*_ERR */
 };
 
 static struct platform_device dm355_edma_device = {
@@ -646,14 +676,14 @@ static void dm355_ccdc_setup_pinmux(void)
 
 static struct resource dm355_vpss_resources[] = {
 	{
-		
+		/* VPSS BL Base address */
 		.name		= "vpss",
 		.start          = 0x01c70800,
 		.end            = 0x01c70800 + 0xff,
 		.flags          = IORESOURCE_MEM,
 	},
 	{
-		
+		/* VPSS CLK Base address */
 		.name		= "vpss",
 		.start          = 0x01c70000,
 		.end            = 0x01c70000 + 0xf,
@@ -684,7 +714,7 @@ static struct resource vpfe_resources[] = {
 
 static u64 vpfe_capture_dma_mask = DMA_BIT_MASK(32);
 static struct resource dm355_ccdc_resource[] = {
-	
+	/* CCDC Base address */
 	{
 		.flags          = IORESOURCE_MEM,
 		.start          = 0x01c70600,
@@ -719,6 +749,7 @@ void dm355_set_vpfe_config(struct vpfe_config *cfg)
 	vpfe_capture_dev.dev.platform_data = cfg;
 }
 
+/*----------------------------------------------------------------------*/
 
 static struct map_desc dm355_io_desc[] = {
 	{
@@ -735,6 +766,7 @@ static struct map_desc dm355_io_desc[] = {
 	},
 };
 
+/* Contents of JTAG ID register used to identify exact cpu type */
 static struct davinci_id dm355_ids[] = {
 	{
 		.variant	= 0x0,
@@ -747,6 +779,12 @@ static struct davinci_id dm355_ids[] = {
 
 static u32 dm355_psc_bases[] = { DAVINCI_PWR_SLEEP_CNTRL_BASE };
 
+/*
+ * T0_BOT: Timer 0, bottom:  clockevent source for hrtimers
+ * T0_TOP: Timer 0, top   :  clocksource for generic timekeeping
+ * T1_BOT: Timer 1, bottom:  (used by DSP in TI DSPLink code)
+ * T1_TOP: Timer 1, top   :  <unused>
+ */
 static struct davinci_timer_info dm355_timer_info = {
 	.timers		= davinci_timer_instance,
 	.clockevent_id	= T0_BOT,
@@ -819,7 +857,7 @@ static struct davinci_soc_info davinci_soc_info_dm355 = {
 
 void __init dm355_init_asp1(u32 evt_enable, struct snd_platform_data *pdata)
 {
-	
+	/* we don't use ASP1 IRQs, or we'd need to mux them ... */
 	if (evt_enable & ASP1_TX_EVT_EN)
 		davinci_cfg_reg(DM355_EVT8_ASP1_TX);
 
@@ -841,7 +879,7 @@ static int __init dm355_init_devices(void)
 	if (!cpu_is_davinci_dm355())
 		return 0;
 
-	
+	/* Add ccdc clock aliases */
 	clk_add_alias("master", dm355_ccdc_dev.name, "vpss_master", NULL);
 	clk_add_alias("slave", dm355_ccdc_dev.name, "vpss_master", NULL);
 	davinci_cfg_reg(DM355_INT_EDMA_CC);

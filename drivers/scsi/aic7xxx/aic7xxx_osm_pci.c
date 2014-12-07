@@ -42,25 +42,27 @@
 #include "aic7xxx_osm.h"
 #include "aic7xxx_pci.h"
 
+/* Define the macro locally since it's different for different class of chips.
+*/
 #define ID(x)	ID_C(x, PCI_CLASS_STORAGE_SCSI)
 
 static const struct pci_device_id ahc_linux_pci_id_table[] = {
-	
+	/* aic7850 based controllers */
 	ID(ID_AHA_2902_04_10_15_20C_30C),
-	
+	/* aic7860 based controllers */
 	ID(ID_AHA_2930CU),
 	ID(ID_AHA_1480A & ID_DEV_VENDOR_MASK),
 	ID(ID_AHA_2940AU_0 & ID_DEV_VENDOR_MASK),
 	ID(ID_AHA_2940AU_CN & ID_DEV_VENDOR_MASK),
 	ID(ID_AHA_2930C_VAR & ID_DEV_VENDOR_MASK),
-	
+	/* aic7870 based controllers */
 	ID(ID_AHA_2940),
 	ID(ID_AHA_3940),
 	ID(ID_AHA_398X),
 	ID(ID_AHA_2944),
 	ID(ID_AHA_3944),
 	ID(ID_AHA_4944),
-	
+	/* aic7880 based controllers */
 	ID(ID_AHA_2940U & ID_DEV_VENDOR_MASK),
 	ID(ID_AHA_3940U & ID_DEV_VENDOR_MASK),
 	ID(ID_AHA_2944U & ID_DEV_VENDOR_MASK),
@@ -70,7 +72,7 @@ static const struct pci_device_id ahc_linux_pci_id_table[] = {
 	ID(ID_AHA_2930U & ID_DEV_VENDOR_MASK),
 	ID(ID_AHA_2940U_PRO & ID_DEV_VENDOR_MASK),
 	ID(ID_AHA_2940U_CN & ID_DEV_VENDOR_MASK),
-	
+	/* aic7890 based controllers */
 	ID(ID_AHA_2930U2),
 	ID(ID_AHA_2940U2B),
 	ID(ID_AHA_2940U2_OEM),
@@ -78,7 +80,7 @@ static const struct pci_device_id ahc_linux_pci_id_table[] = {
 	ID(ID_AHA_2950U2B),
 	ID16(ID_AIC7890_ARO & ID_AIC7895_ARO_MASK),
 	ID(ID_AAA_131U2),
-	
+	/* aic7890 based controllers */
 	ID(ID_AHA_29160),
 	ID(ID_AHA_29160_CPQ),
 	ID(ID_AHA_29160N),
@@ -86,7 +88,7 @@ static const struct pci_device_id ahc_linux_pci_id_table[] = {
 	ID(ID_AHA_29160B),
 	ID(ID_AHA_19160B),
 	ID(ID_AIC7892_ARO),
-	
+	/* aic7892 based controllers */
 	ID(ID_AHA_2940U_DUAL),
 	ID(ID_AHA_3940AU),
 	ID(ID_AHA_3944AU),
@@ -96,11 +98,11 @@ static const struct pci_device_id ahc_linux_pci_id_table[] = {
 	ID(ID_AHA_3950U2D_0),
 	ID(ID_AHA_3950U2D_1),
 	ID(ID_AIC7896_ARO),
-	
+	/* aic7899 based controllers */
 	ID(ID_AHA_3960D),
 	ID(ID_AHA_3960D_CPQ),
 	ID(ID_AIC7899_ARO),
-	
+	/* Generic chip probes for devices we don't know exactly. */
 	ID(ID_AIC7850 & ID_DEV_VENDOR_MASK),
 	ID(ID_AIC7855 & ID_DEV_VENDOR_MASK),
 	ID(ID_AIC7859 & ID_DEV_VENDOR_MASK),
@@ -214,6 +216,11 @@ ahc_linux_pci_dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (entry == NULL)
 		return (-ENODEV);
 
+	/*
+	 * Allocate a softc for this card and
+	 * set it up for attachment by our
+	 * common detect routine.
+	 */
 	sprintf(buf, "ahc_pci:%d:%d:%d",
 		ahc_get_pci_bus(pci),
 		ahc_get_pci_slot(pci),
@@ -250,6 +257,10 @@ ahc_linux_pci_dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		return (-error);
 	}
 
+	/*
+	 * Second Function PCI devices need to inherit some
+	 * settings from function 0.
+	 */
 	if ((ahc->features & AHC_MULTI_FUNC) && PCI_FUNC(pdev->devfn) != 0)
 		ahc_linux_pci_inherit_flags(ahc);
 
@@ -258,6 +269,7 @@ ahc_linux_pci_dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	return (0);
 }
 
+/******************************* PCI Routines *********************************/
 uint32_t
 ahc_pci_read_config(ahc_dev_softc_t pci, int reg, int width)
 {
@@ -283,7 +295,7 @@ ahc_pci_read_config(ahc_dev_softc_t pci, int reg, int width)
 	}
 	default:
 		panic("ahc_pci_read_config: Read size too big");
-		
+		/* NOTREACHED */
 		return (0);
 	}
 }
@@ -303,7 +315,7 @@ ahc_pci_write_config(ahc_dev_softc_t pci, int reg, uint32_t value, int width)
 		break;
 	default:
 		panic("ahc_pci_write_config: Write size too big");
-		
+		/* NOTREACHED */
 	}
 }
 
@@ -379,6 +391,9 @@ ahc_pci_map_registers(struct ahc_softc *ahc)
 	uint8_t	__iomem *maddr;
 	int	 error;
 
+	/*
+	 * If its allowed, we prefer memory mapped access.
+	 */
 	command = ahc_pci_read_config(ahc->dev_softc, PCIR_COMMAND, 4);
 	command &= ~(PCIM_CMD_PORTEN|PCIM_CMD_MEMEN);
 	base = 0;
@@ -391,6 +406,10 @@ ahc_pci_map_registers(struct ahc_softc *ahc)
 		ahc_pci_write_config(ahc->dev_softc, PCIR_COMMAND,
 				     command | PCIM_CMD_MEMEN, 4);
 
+		/*
+		 * Do a quick test to see if memory mapped
+		 * I/O is functioning correctly.
+		 */
 		if (ahc_pci_test_register_access(ahc) != 0) {
 
 			printk("aic7xxx: PCI Device %d:%d:%d "
@@ -414,6 +433,9 @@ ahc_pci_map_registers(struct ahc_softc *ahc)
 		       (unsigned long long)base);
 	}
 
+	/*
+	 * We always prefer memory mapped access.
+	 */
 	if (maddr == NULL) {
 
 		error = ahc_linux_pci_reserve_io_region(ahc, &base);

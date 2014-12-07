@@ -20,6 +20,11 @@ static inline unsigned int hugepd_shift(hugepd_t hpd)
 static inline pte_t *hugepte_offset(hugepd_t *hpdp, unsigned long addr,
 				    unsigned pdshift)
 {
+	/*
+	 * On FSL BookE, we have multiple higher-level table entries that
+	 * point to the same hugepte.  Just use the first one since they're all
+	 * identical.  So for that case, idx=0.
+	 */
 	unsigned long idx = 0;
 
 	pte_t *dir = hugepd_page(*hpdp);
@@ -55,8 +60,16 @@ void hugetlb_free_pgd_range(struct mmu_gather *tlb, unsigned long addr,
 			    unsigned long end, unsigned long floor,
 			    unsigned long ceiling);
 
+/*
+ * The version of vma_mmu_pagesize() in arch/powerpc/mm/hugetlbpage.c needs
+ * to override the version in mm/hugetlb.c
+ */
 #define vma_mmu_pagesize vma_mmu_pagesize
 
+/*
+ * If the arch doesn't supply something else, assume that hugepage
+ * size aligned regions are ok without further preparation.
+ */
 static inline int prepare_hugepage_range(struct file *file,
 			unsigned long addr, unsigned long len)
 {
@@ -112,6 +125,11 @@ static inline int huge_ptep_set_access_flags(struct vm_area_struct *vma,
 					     pte_t pte, int dirty)
 {
 #ifdef HUGETLB_NEED_PRELOAD
+	/*
+	 * The "return 1" forces a call of update_mmu_cache, which will write a
+	 * TLB entry.  Without this, platforms that don't do a write of the TLB
+	 * entry in the TLB miss handler asm will fault ad infinitum.
+	 */
 	ptep_set_access_flags(vma, addr, ptep, pte, dirty);
 	return 1;
 #else
@@ -133,14 +151,19 @@ static inline void arch_release_hugepage(struct page *page)
 {
 }
 
-#else 
+#else /* ! CONFIG_HUGETLB_PAGE */
 static inline void flush_hugetlb_page(struct vm_area_struct *vma,
 				      unsigned long vmaddr)
 {
 }
-#endif 
+#endif /* CONFIG_HUGETLB_PAGE */
 
 
+/*
+ * FSL Book3E platforms require special gpage handling - the gpages
+ * are reserved early in the boot process by memblock instead of via
+ * the .dts as on IBM platforms.
+ */
 #if defined(CONFIG_HUGETLB_PAGE) && defined(CONFIG_PPC_FSL_BOOK3E)
 extern void __init reserve_hugetlb_gpages(void);
 #else
@@ -149,4 +172,4 @@ static inline void reserve_hugetlb_gpages(void)
 }
 #endif
 
-#endif 
+#endif /* _ASM_POWERPC_HUGETLB_H */

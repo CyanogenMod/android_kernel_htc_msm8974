@@ -59,6 +59,9 @@ static DEFINE_SPINLOCK(dev_list_lock);
 static LIST_HEAD(dev_list);
 static struct task_struct *nvme_thread;
 
+/*
+ * Represents an NVM Express device.  Each nvme_dev is a PCI function.
+ */
 struct nvme_dev {
 	struct list_head node;
 	struct nvme_queue **queues;
@@ -78,6 +81,9 @@ struct nvme_dev {
 	char firmware_rev[8];
 };
 
+/*
+ * An NVM Express namespace is equivalent to a SCSI LUN
+ */
 struct nvme_ns {
 	struct list_head list;
 
@@ -89,6 +95,10 @@ struct nvme_ns {
 	int lba_shift;
 };
 
+/*
+ * An NVM Express queue.  Each device has at least two (one for admin
+ * commands and one for I/O commands).
+ */
 struct nvme_queue {
 	struct device *q_dmadev;
 	struct nvme_dev *dev;
@@ -110,6 +120,9 @@ struct nvme_queue {
 	unsigned long cmdid_data[];
 };
 
+/*
+ * Check we didin't inadvertently grow the command struct
+ */
 static inline void _nvme_check_size(void)
 {
 	BUILD_BUG_ON(sizeof(struct nvme_rw_command) != 64);
@@ -137,6 +150,21 @@ static struct nvme_cmd_info *nvme_cmd_info(struct nvme_queue *nvmeq)
 	return (void *)&nvmeq->cmdid_data[BITS_TO_LONGS(nvmeq->q_depth)];
 }
 
+/**
+ * alloc_cmdid() - Allocate a Command ID
+ * @nvmeq: The queue that will be used for this command
+ * @ctx: A pointer that will be passed to the handler
+ * @handler: The function to call on completion
+ *
+ * Allocate a Command ID for a queue.  The data passed in will
+ * be passed to the completion handler.  This is implemented by using
+ * the bottom two bits of the ctx pointer to store the handler ID.
+ * Passing in a pointer that's not 4-byte aligned will cause a BUG.
+ * We can change this if it becomes a problem.
+ *
+ * May be called with local interrupts disabled and the q_lock held,
+ * or with interrupts enabled and no locks held.
+ */
 static int alloc_cmdid(struct nvme_queue *nvmeq, void *ctx,
 				nvme_completion_fn handler, unsigned timeout)
 {
@@ -165,6 +193,7 @@ static int alloc_cmdid_killable(struct nvme_queue *nvmeq, void *ctx,
 	return (cmdid < 0) ? -EINTR : cmdid;
 }
 
+/* Special values must be less than 0x1000 */
 #define CMD_CTX_BASE		((void *)POISON_POINTER_DELTA)
 #define CMD_CTX_CANCELLED	(0x30C + CMD_CTX_BASE)
 #define CMD_CTX_COMPLETED	(0x310 + CMD_CTX_BASE)
@@ -194,6 +223,9 @@ static void special_completion(struct nvme_dev *dev, void *ctx,
 	dev_warn(&dev->pci_dev->dev, "Unknown special completion %p\n", ctx);
 }
 
+/*
+ * Called with local interrupts disabled and the q_lock held.  May not sleep.
+ */
 static void *free_cmdid(struct nvme_queue *nvmeq, int cmdid,
 						nvme_completion_fn *fn)
 {
@@ -236,6 +268,13 @@ static void put_nvmeq(struct nvme_queue *nvmeq)
 	put_cpu();
 }
 
+/**
+ * nvme_submit_cmd() - Copy a command into a queue and ring the doorbell
+ * @nvmeq: The queue to use
+ * @cmd: The command to send
+ *
+ * Safe to use from interrupt context
+ */
 static int nvme_submit_cmd(struct nvme_queue *nvmeq, struct nvme_command *cmd)
 {
 	unsigned long flags;
@@ -252,12 +291,18 @@ static int nvme_submit_cmd(struct nvme_queue *nvmeq, struct nvme_command *cmd)
 	return 0;
 }
 
+/*
+ * The nvme_iod describes the data in an I/O, including the list of PRP
+ * entries.  You can't see it in this data structure because C doesn't let
+ * me express that.  Use nvme_alloc_iod to ensure there's enough space
+ * allocated to store the PRP list.
+ */
 struct nvme_iod {
-	void *private;		
-	int npages;		
-	int offset;		
-	int nents;		
-	int length;		
+	void *private;		/* For the use of the submitter of the I/O */
+	int npages;		/* In the PRP list. 0 means small pool in use */
+	int offset;		/* Of PRP list */
+	int nents;		/* Used in scatterlist */
+	int length;		/* Of data, in bytes */
 	dma_addr_t first_dma;
 	struct scatterlist sg[0];
 };
@@ -267,6 +312,11 @@ static __le64 **iod_list(struct nvme_iod *iod)
 	return ((void *)iod) + iod->offset;
 }
 
+/*
+ * Will slightly overestimate the number of pages needed.  This is OK
+ * as it only leads to a small amount of wasted memory for the lifetime of
+ * the I/O.
+ */
 static int nvme_npages(unsigned size)
 {
 	unsigned nprps = DIV_ROUND_UP(size + PAGE_SIZE, PAGE_SIZE);
@@ -336,6 +386,7 @@ static void bio_completion(struct nvme_dev *dev, void *ctx,
 	}
 }
 
+/* length is in bytes.  gfp flags indicates whether we may sleep. */
 static int nvme_setup_prps(struct nvme_dev *dev,
 			struct nvme_common_command *cmd, struct nvme_iod *iod,
 			int total_len, gfp_t gfp)
@@ -417,6 +468,7 @@ static int nvme_setup_prps(struct nvme_dev *dev,
 	return total_len;
 }
 
+/* NVMe scatterlists require no holes in the virtual address */
 #define BIOVEC_NOT_VIRT_MERGEABLE(vec1, vec2)	((vec2)->bv_offset || \
 			(((vec1)->bv_offset + (vec1)->bv_len) % PAGE_SIZE))
 
@@ -480,6 +532,9 @@ static int nvme_submit_flush_data(struct nvme_queue *nvmeq, struct nvme_ns *ns)
 	return nvme_submit_flush(nvmeq, ns, cmdid);
 }
 
+/*
+ * Called with local interrupts disabled and the q_lock held.  May not sleep.
+ */
 static int nvme_submit_bio_queue(struct nvme_queue *nvmeq, struct nvme_ns *ns,
 								struct bio *bio)
 {
@@ -601,6 +656,12 @@ static irqreturn_t nvme_process_cq(struct nvme_queue *nvmeq)
 		fn(nvmeq->dev, ctx, &cqe);
 	}
 
+	/* If the controller ignores the cq head doorbell and continuously
+	 * writes to the queue, it is theoretically possible to wrap around
+	 * the queue twice and mistakenly return IRQ_NONE.  Linux only
+	 * requires that 0.1% of your interrupts are handled, so this isn't
+	 * a big problem.
+	 */
 	if (head == nvmeq->cq_head && phase == nvmeq->cq_phase)
 		return IRQ_NONE;
 
@@ -652,6 +713,10 @@ static void sync_completion(struct nvme_dev *dev, void *ctx,
 	wake_up_process(cmdinfo->task);
 }
 
+/*
+ * Returns 0 on success.  If the result is negative, it's a Linux error code;
+ * if the result is positive, it's an NVM Express status code
+ */
 static int nvme_submit_sync_cmd(struct nvme_queue *nvmeq,
 			struct nvme_command *cmd, u32 *result, unsigned timeout)
 {
@@ -805,7 +870,7 @@ static void nvme_free_queue(struct nvme_dev *dev, int qid)
 	irq_set_affinity_hint(vector, NULL);
 	free_irq(vector, nvmeq);
 
-	
+	/* Don't tell the adapter to delete the admin queue */
 	if (qid) {
 		adapter_delete_sq(dev, qid);
 		adapter_delete_cq(dev, qid);
@@ -1060,10 +1125,16 @@ static int nvme_submit_io(struct nvme_ns *ns, struct nvme_user_io __user *uio)
 	c.rw.reftag = io.reftag;
 	c.rw.apptag = io.apptag;
 	c.rw.appmask = io.appmask;
-	
+	/* XXX: metadata */
 	length = nvme_setup_prps(dev, &c.common, iod, length, GFP_KERNEL);
 
 	nvmeq = get_nvmeq(dev);
+	/*
+	 * Since nvme_submit_sync_cmd sleeps, we can't keep preemption
+	 * disabled.  We may be preempted at any point, and be rescheduled
+	 * to a different CPU.  That will cause cacheline bouncing, but no
+	 * additional races since q_lock already protects against other CPUs.
+	 */
 	put_nvmeq(nvmeq);
 	if (length != (io.nblocks + 1) << ns->lba_shift)
 		status = -ENOMEM;
@@ -1256,6 +1327,7 @@ static struct nvme_ns *nvme_alloc_ns(struct nvme_dev *dev, int nsid,
 	ns->queue->queue_flags = QUEUE_FLAG_DEFAULT;
 	queue_flag_set_unlocked(QUEUE_FLAG_NOMERGES, ns->queue);
 	queue_flag_set_unlocked(QUEUE_FLAG_NONROT, ns->queue);
+/*	queue_flag_set_unlocked(QUEUE_FLAG_DISCARD, ns->queue); */
 	blk_queue_make_request(ns->queue, nvme_make_request);
 	ns->dev = dev;
 	ns->queue->queuedata = ns;
@@ -1320,7 +1392,7 @@ static int __devinit nvme_setup_io_queues(struct nvme_dev *dev)
 	if (result < nr_io_queues)
 		nr_io_queues = result;
 
-	
+	/* Deregister the admin queue's interrupt */
 	free_irq(dev->entry[0].vector, dev->queues[0]);
 
 	db_bar_size = 4096 + ((nr_io_queues + 1) << (dev->db_stride + 3));
@@ -1349,7 +1421,7 @@ static int __devinit nvme_setup_io_queues(struct nvme_dev *dev)
 	}
 
 	result = queue_request_irq(dev, dev->queues[0], "nvme admin");
-	
+	/* XXX: handle failure here */
 
 	cpu = cpumask_first(cpu_online_mask);
 	for (i = 0; i < nr_io_queues; i++) {
@@ -1451,7 +1523,7 @@ static int nvme_dev_remove(struct nvme_dev *dev)
 	list_del(&dev->node);
 	spin_unlock(&dev_list_lock);
 
-	
+	/* TODO: wait all I/O finished or cancel them */
 
 	list_for_each_entry_safe(ns, next, &dev->namespaces, list) {
 		list_del(&ns->list);
@@ -1472,7 +1544,7 @@ static int nvme_setup_prp_pools(struct nvme_dev *dev)
 	if (!dev->prp_page_pool)
 		return -ENOMEM;
 
-	
+	/* Optimisation for I/Os between 4k and 128k */
 	dev->prp_small_pool = dma_pool_create("prp list 256", dmadev,
 						256, 256, 0);
 	if (!dev->prp_small_pool) {
@@ -1488,6 +1560,7 @@ static void nvme_release_prp_pools(struct nvme_dev *dev)
 	dma_pool_destroy(dev->prp_small_pool);
 }
 
+/* XXX: Use an ida or something to let remove / add work correctly */
 static void nvme_set_instance(struct nvme_dev *dev)
 {
 	static int instance;
@@ -1593,6 +1666,7 @@ static void __devexit nvme_remove(struct pci_dev *pdev)
 	kfree(dev);
 }
 
+/* These functions are yet to be implemented */
 #define nvme_error_detected NULL
 #define nvme_dump_registers NULL
 #define nvme_link_reset NULL
@@ -1609,6 +1683,7 @@ static struct pci_error_handlers nvme_err_handler = {
 	.resume		= nvme_error_resume,
 };
 
+/* Move to pci_ids.h later */
 #define PCI_CLASS_STORAGE_EXPRESS	0x010802
 
 static DEFINE_PCI_DEVICE_TABLE(nvme_id_table) = {

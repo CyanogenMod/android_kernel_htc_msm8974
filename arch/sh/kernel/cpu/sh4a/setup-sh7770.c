@@ -489,7 +489,7 @@ void __init plat_early_device_setup(void)
 enum {
 	UNUSED = 0,
 
-	
+	/* interrupt sources */
 	IRL_LLLL, IRL_LLLH, IRL_LLHL, IRL_LLHH,
 	IRL_LHLL, IRL_LHLH, IRL_LHHL, IRL_LHHH,
 	IRL_HLLL, IRL_HLLH, IRL_HLHL, IRL_HLHH,
@@ -515,7 +515,7 @@ enum {
 	BBDMAC_15_18, BBDMAC_19_22, BBDMAC_23_26, BBDMAC_27,
 	BBDMAC_28, BBDMAC_29, BBDMAC_30, BBDMAC_31,
 
-	
+	/* interrupt groups */
 	TMU, DMAC, I2S, SRC, GFX3D, SPI, SCIF, BBDMAC,
 };
 
@@ -584,38 +584,39 @@ static struct intc_group groups[] __initdata = {
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xffe00040, 0xffe00044, 32, 
+	{ 0xffe00040, 0xffe00044, 32, /* INT2MSKR / INT2MSKCR */
 	  { 0, BBDMAC, ADC, SCIF, SPI, EXBUS_ATA, GFX3D, GFX2D,
 	    GPS, CAN, ATAPI, USB, YUV, REMOTE, VIDEO_IN, DU, SRC, I2S,
 	    DMAC, I2C, HUDI, SPDIF, IPI, HAC, TMU, GPIO } },
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xffe00000, 0, 32, 8,  { GPIO, TMU0, 0, HAC } },
-	{ 0xffe00004, 0, 32, 8,  { IPI, SPDIF, HUDI, I2C } },
-	{ 0xffe00008, 0, 32, 8,  { DMAC, I2S, SRC, DU } },
-	{ 0xffe0000c, 0, 32, 8,  { VIDEO_IN, REMOTE, YUV, USB } },
-	{ 0xffe00010, 0, 32, 8,  { ATAPI, CAN, GPS, GFX2D } },
-	{ 0xffe00014, 0, 32, 8,  { 0, GFX3D, EXBUS_ATA, SPI } },
-	{ 0xffe00018, 0, 32, 8,  { SCIF1234, SCIF567, SCIF089 } },
-	{ 0xffe0001c, 0, 32, 8,  { ADC, 0, 0, BBDMAC_0_3 } },
-	{ 0xffe00020, 0, 32, 8, 
+	{ 0xffe00000, 0, 32, 8, /* INT2PRI0 */ { GPIO, TMU0, 0, HAC } },
+	{ 0xffe00004, 0, 32, 8, /* INT2PRI1 */ { IPI, SPDIF, HUDI, I2C } },
+	{ 0xffe00008, 0, 32, 8, /* INT2PRI2 */ { DMAC, I2S, SRC, DU } },
+	{ 0xffe0000c, 0, 32, 8, /* INT2PRI3 */ { VIDEO_IN, REMOTE, YUV, USB } },
+	{ 0xffe00010, 0, 32, 8, /* INT2PRI4 */ { ATAPI, CAN, GPS, GFX2D } },
+	{ 0xffe00014, 0, 32, 8, /* INT2PRI5 */ { 0, GFX3D, EXBUS_ATA, SPI } },
+	{ 0xffe00018, 0, 32, 8, /* INT2PRI6 */ { SCIF1234, SCIF567, SCIF089 } },
+	{ 0xffe0001c, 0, 32, 8, /* INT2PRI7 */ { ADC, 0, 0, BBDMAC_0_3 } },
+	{ 0xffe00020, 0, 32, 8, /* INT2PRI8 */
 	  { BBDMAC_4_7, BBDMAC_8_10, BBDMAC_11_14, BBDMAC_15_18 } },
-	{ 0xffe00024, 0, 32, 8, 
+	{ 0xffe00024, 0, 32, 8, /* INT2PRI9 */
 	  { BBDMAC_19_22, BBDMAC_23_26, BBDMAC_27, BBDMAC_28 } },
-	{ 0xffe00028, 0, 32, 8, 
+	{ 0xffe00028, 0, 32, 8, /* INT2PRI10 */
 	  { BBDMAC_29, BBDMAC_30, BBDMAC_31 } },
-	{ 0xffe0002c, 0, 32, 8, 
+	{ 0xffe0002c, 0, 32, 8, /* INT2PRI11 */
 	  { TMU1, TMU2, TMU2_TICPI, TMU3 } },
-	{ 0xffe00030, 0, 32, 8, 
+	{ 0xffe00030, 0, 32, 8, /* INT2PRI12 */
 	  { TMU4, TMU5, TMU5_TICPI, TMU6 } },
-	{ 0xffe00034, 0, 32, 8, 
+	{ 0xffe00034, 0, 32, 8, /* INT2PRI13 */
 	  { TMU7, TMU8 } },
 };
 
 static DECLARE_INTC_DESC(intc_desc, "sh7770", vectors, groups,
 			 mask_registers, prio_registers, NULL);
 
+/* Support for external interrupt pins in IRQ mode */
 static struct intc_vect irq_vectors[] __initdata = {
 	INTC_VECT(IRQ0, 0x240), INTC_VECT(IRQ1, 0x280),
 	INTC_VECT(IRQ2, 0x2c0), INTC_VECT(IRQ3, 0x300),
@@ -623,17 +624,17 @@ static struct intc_vect irq_vectors[] __initdata = {
 };
 
 static struct intc_mask_reg irq_mask_registers[] __initdata = {
-	{ 0xffd00044, 0xffd00064, 32, 
+	{ 0xffd00044, 0xffd00064, 32, /* INTMSK0 / INTMSKCLR0 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, } },
 };
 
 static struct intc_prio_reg irq_prio_registers[] __initdata = {
-	{ 0xffd00010, 0, 32, 4,  { IRQ0, IRQ1, IRQ2, IRQ3,
+	{ 0xffd00010, 0, 32, 4, /* INTPRI */ { IRQ0, IRQ1, IRQ2, IRQ3,
 					       IRQ4, IRQ5, } },
 };
 
 static struct intc_sense_reg irq_sense_registers[] __initdata = {
-	{ 0xffd0001c, 32, 2,    { IRQ0, IRQ1, IRQ2, IRQ3,
+	{ 0xffd0001c, 32, 2, /* ICR1 */   { IRQ0, IRQ1, IRQ2, IRQ3,
 					    IRQ4, IRQ5, } },
 };
 
@@ -641,6 +642,7 @@ static DECLARE_INTC_DESC(intc_irq_desc, "sh7770-irq", irq_vectors,
 			 NULL, irq_mask_registers, irq_prio_registers,
 			 irq_sense_registers);
 
+/* External interrupt pins in IRL mode */
 static struct intc_vect irl_vectors[] __initdata = {
 	INTC_VECT(IRL_LLLL, 0x200), INTC_VECT(IRL_LLLH, 0x220),
 	INTC_VECT(IRL_LLHL, 0x240), INTC_VECT(IRL_LLHH, 0x260),
@@ -653,7 +655,7 @@ static struct intc_vect irl_vectors[] __initdata = {
 };
 
 static struct intc_mask_reg irl3210_mask_registers[] __initdata = {
-	{ 0xffd40080, 0xffd40084, 32, 
+	{ 0xffd40080, 0xffd40084, 32, /* INTMSK2 / INTMSKCLR2 */
 	  { IRL_LLLL, IRL_LLLH, IRL_LLHL, IRL_LLHH,
 	    IRL_LHLL, IRL_LHLH, IRL_LHHL, IRL_LHHH,
 	    IRL_HLLL, IRL_HLLH, IRL_HLHL, IRL_HLHH,
@@ -661,7 +663,7 @@ static struct intc_mask_reg irl3210_mask_registers[] __initdata = {
 };
 
 static struct intc_mask_reg irl7654_mask_registers[] __initdata = {
-	{ 0xffd40080, 0xffd40084, 32, 
+	{ 0xffd40080, 0xffd40084, 32, /* INTMSK2 / INTMSKCLR2 */
 	  { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	    IRL_LLLL, IRL_LLLH, IRL_LLHL, IRL_LLHH,
 	    IRL_LHLL, IRL_LHLH, IRL_LHHL, IRL_LHHH,
@@ -684,17 +686,17 @@ static DECLARE_INTC_DESC(intc_irl3210_desc, "sh7780-irl3210", irl_vectors,
 
 void __init plat_irq_setup(void)
 {
-	
+	/* disable IRQ7-0 */
 	__raw_writel(0xff000000, INTC_INTMSK0);
 
-	
+	/* disable IRL3-0 + IRL7-4 */
 	__raw_writel(0xc0000000, INTC_INTMSK1);
 	__raw_writel(0xfffefffe, INTC_INTMSK2);
 
-	
+	/* select IRL mode for IRL3-0 + IRL7-4 */
 	__raw_writel(__raw_readl(INTC_ICR0) & ~0x00c00000, INTC_ICR0);
 
-	
+	/* disable holding function, ie enable "SH-4 Mode" */
 	__raw_writel(__raw_readl(INTC_ICR0) | 0x00200000, INTC_ICR0);
 
 	register_intc_controller(&intc_desc);
@@ -704,27 +706,27 @@ void __init plat_irq_setup_pins(int mode)
 {
 	switch (mode) {
 	case IRQ_MODE_IRQ:
-		
+		/* select IRQ mode for IRL3-0 + IRL7-4 */
 		__raw_writel(__raw_readl(INTC_ICR0) | 0x00c00000, INTC_ICR0);
 		register_intc_controller(&intc_irq_desc);
 		break;
 	case IRQ_MODE_IRL7654:
-		
+		/* enable IRL7-4 but don't provide any masking */
 		__raw_writel(0x40000000, INTC_INTMSKCLR1);
 		__raw_writel(0x0000fffe, INTC_INTMSKCLR2);
 		break;
 	case IRQ_MODE_IRL3210:
-		
+		/* enable IRL0-3 but don't provide any masking */
 		__raw_writel(0x80000000, INTC_INTMSKCLR1);
 		__raw_writel(0xfffe0000, INTC_INTMSKCLR2);
 		break;
 	case IRQ_MODE_IRL7654_MASK:
-		
+		/* enable IRL7-4 and mask using cpu intc controller */
 		__raw_writel(0x40000000, INTC_INTMSKCLR1);
 		register_intc_controller(&intc_irl7654_desc);
 		break;
 	case IRQ_MODE_IRL3210_MASK:
-		
+		/* enable IRL0-3 and mask using cpu intc controller */
 		__raw_writel(0x80000000, INTC_INTMSKCLR1);
 		register_intc_controller(&intc_irl3210_desc);
 		break;

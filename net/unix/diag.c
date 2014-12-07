@@ -79,6 +79,11 @@ static int sk_diag_dump_icons(struct sock *sk, struct sk_buff *nlskb)
 			struct sock *req, *peer;
 
 			req = skb->sk;
+			/*
+			 * The state lock is outer for the same sk's
+			 * queue lock. With the other's queue locked it's
+			 * OK to lock the state.
+			 */
 			unix_state_lock_nested(req);
 			peer = unix_sk(req)->peer;
 			buf[i++] = (peer ? sock_i_ino(peer) : 0);
@@ -323,4 +328,4 @@ static void __exit unix_diag_exit(void)
 module_init(unix_diag_init);
 module_exit(unix_diag_exit);
 MODULE_LICENSE("GPL");
-MODULE_ALIAS_NET_PF_PROTO_TYPE(PF_NETLINK, NETLINK_SOCK_DIAG, 1 );
+MODULE_ALIAS_NET_PF_PROTO_TYPE(PF_NETLINK, NETLINK_SOCK_DIAG, 1 /* AF_LOCAL */);

@@ -31,7 +31,7 @@ struct s5h1432_state {
 
 	struct i2c_adapter *i2c;
 
-	
+	/* configuration settings */
 	const struct s5h1432_config *config;
 
 	struct dvb_frontend frontend;
@@ -100,7 +100,7 @@ static int s5h1432_set_channel_bandwidth(struct dvb_frontend *fe,
 
 	u8 reg = 0;
 
-	
+	/* Register [0x2E] bit 3:2 : 8MHz = 0; 7MHz = 1; 6MHz = 2 */
 	reg = s5h1432_readreg(state, S5H1432_I2C_TOP_ADDR, 0x2E);
 	reg &= ~(0x0C);
 	switch (bandwidth) {
@@ -177,6 +177,7 @@ static int s5h1432_set_IF(struct dvb_frontend *fe, u32 ifFreqHz)
 	return 1;
 }
 
+/* Talk to the demod, set the FEC, GUARD, QAM settings etc */
 static int s5h1432_set_frontend(struct dvb_frontend *fe)
 {
 	struct dtv_frontend_properties *p = &fe->dtv_property_cache;
@@ -184,8 +185,8 @@ static int s5h1432_set_frontend(struct dvb_frontend *fe)
 	struct s5h1432_state *state = fe->demodulator_priv;
 
 	if (p->frequency == state->current_frequency) {
-		
-		
+		/*current_frequency = p->frequency; */
+		/*state->current_frequency = p->frequency; */
 	} else {
 		fe->ops.tuner_ops.set_params(fe);
 		msleep(300);
@@ -206,7 +207,8 @@ static int s5h1432_set_frontend(struct dvb_frontend *fe)
 		default:
 			return 0;
 		}
-		
+		/*fe->ops.tuner_ops.set_params(fe); */
+/*Soft Reset chip*/
 		msleep(30);
 		s5h1432_writereg(state, S5H1432_I2C_TOP_ADDR, 0x09, 0x1a);
 		msleep(30);
@@ -229,8 +231,8 @@ static int s5h1432_set_frontend(struct dvb_frontend *fe)
 		default:
 			return 0;
 		}
-		
-		
+		/*fe->ops.tuner_ops.set_params(fe); */
+		/*Soft Reset chip*/
 		msleep(30);
 		s5h1432_writereg(state, S5H1432_I2C_TOP_ADDR, 0x09, 0x1a);
 		msleep(30);
@@ -251,8 +253,8 @@ static int s5h1432_init(struct dvb_frontend *fe)
 	state->current_frequency = 0;
 	printk(KERN_INFO " s5h1432_init().\n");
 
-	
-	
+	/*Set VSB mode as default, this also does a soft reset */
+	/*Initialize registers */
 
 	s5h1432_writereg(state, S5H1432_I2C_TOP_ADDR, 0x04, 0xa8);
 	s5h1432_writereg(state, S5H1432_I2C_TOP_ADDR, 0x05, 0x01);
@@ -272,25 +274,25 @@ static int s5h1432_init(struct dvb_frontend *fe)
 	s5h1432_writereg(state, S5H1432_I2C_TOP_ADDR, 0xcc, 0x9c);
 	s5h1432_writereg(state, S5H1432_I2C_TOP_ADDR, 0xDA, 0x00);
 	s5h1432_writereg(state, S5H1432_I2C_TOP_ADDR, 0xe1, 0x94);
-	
+	/* s5h1432_writereg(state, S5H1432_I2C_TOP_ADDR, 0xf4, 0xa1); */
 	s5h1432_writereg(state, S5H1432_I2C_TOP_ADDR, 0xf9, 0x00);
 
-	
+	/*For NXP tuner*/
 
-	
+	/*Set 3.3MHz as default IF frequency */
 	s5h1432_writereg(state, S5H1432_I2C_TOP_ADDR, 0xe4, 0x66);
 	s5h1432_writereg(state, S5H1432_I2C_TOP_ADDR, 0xe5, 0x66);
 	s5h1432_writereg(state, S5H1432_I2C_TOP_ADDR, 0xe7, 0xEE);
-	
+	/* Set reg 0x1E to get the full dynamic range */
 	s5h1432_writereg(state, S5H1432_I2C_TOP_ADDR, 0x1e, 0x31);
 
-	
+	/* Mode setting in demod */
 	reg = s5h1432_readreg(state, S5H1432_I2C_TOP_ADDR, 0x42);
 	reg |= 0x80;
 	s5h1432_writereg(state, S5H1432_I2C_TOP_ADDR, 0x42, reg);
-	
+	/* Serial mode */
 
-	
+	/* Soft Reset chip */
 
 	s5h1432_writereg(state, S5H1432_I2C_TOP_ADDR, 0x09, 0x1a);
 	msleep(30);
@@ -347,18 +349,18 @@ struct dvb_frontend *s5h1432_attach(const struct s5h1432_config *config,
 	struct s5h1432_state *state = NULL;
 
 	printk(KERN_INFO " Enter s5h1432_attach(). attach success!\n");
-	
+	/* allocate memory for the internal state */
 	state = kmalloc(sizeof(struct s5h1432_state), GFP_KERNEL);
 	if (state == NULL)
 		goto error;
 
-	
+	/* setup the state */
 	state->config = config;
 	state->i2c = i2c;
 	state->current_modulation = QAM_16;
 	state->inversion = state->config->inversion;
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &s5h1432_ops,
 	       sizeof(struct dvb_frontend_ops));
 

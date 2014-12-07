@@ -32,4 +32,4 @@ enum {
 
 extern struct davinci_timer_instance davinci_timer_instance[];
 
-#endif 
+#endif /* __ARCH_ARM_MACH_DAVINCI_TIME_H */

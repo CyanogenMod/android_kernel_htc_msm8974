@@ -65,6 +65,7 @@
 		       IRQ_DB5500_SDMMC4, pdata		\
 		       0x10480180)
 
+/* This one has a bad peripheral ID in the U5500 silicon */
 #define db5500_add_spi0(parent, pdata) \
 	dbx500_add_spi(parent, "spi0", U5500_SPI0_BASE, \
 		       IRQ_DB5500_SPI0, pdata,		\

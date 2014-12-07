@@ -33,28 +33,33 @@
 
 #define DBG(fmt...) pr_debug(fmt)
 
+/* see 970FX user manual */
 
-#define SCOM_PCR 0x0aa001			
+#define SCOM_PCR 0x0aa001			/* PCR scom addr */
 
-#define PCR_HILO_SELECT		0x80000000U	
-#define PCR_SPEED_FULL		0x00000000U	
-#define PCR_SPEED_HALF		0x00020000U	
-#define PCR_SPEED_QUARTER	0x00040000U	
-#define PCR_SPEED_MASK		0x000e0000U	
+#define PCR_HILO_SELECT		0x80000000U	/* 1 = PCR, 0 = PCRH */
+#define PCR_SPEED_FULL		0x00000000U	/* 1:1 speed value */
+#define PCR_SPEED_HALF		0x00020000U	/* 1:2 speed value */
+#define PCR_SPEED_QUARTER	0x00040000U	/* 1:4 speed value */
+#define PCR_SPEED_MASK		0x000e0000U	/* speed mask */
 #define PCR_SPEED_SHIFT		17
-#define PCR_FREQ_REQ_VALID	0x00010000U	
-#define PCR_VOLT_REQ_VALID	0x00008000U	
-#define PCR_TARGET_TIME_MASK	0x00006000U	
-#define PCR_STATLAT_MASK	0x00001f00U	
-#define PCR_SNOOPLAT_MASK	0x000000f0U	
-#define PCR_SNOOPACC_MASK	0x0000000fU	
+#define PCR_FREQ_REQ_VALID	0x00010000U	/* freq request valid */
+#define PCR_VOLT_REQ_VALID	0x00008000U	/* volt request valid */
+#define PCR_TARGET_TIME_MASK	0x00006000U	/* target time */
+#define PCR_STATLAT_MASK	0x00001f00U	/* STATLAT value */
+#define PCR_SNOOPLAT_MASK	0x000000f0U	/* SNOOPLAT value */
+#define PCR_SNOOPACC_MASK	0x0000000fU	/* SNOOPACC value */
 
-#define SCOM_PSR 0x408001			
-#define PSR_CMD_RECEIVED	0x2000000000000000U   
-#define PSR_CMD_COMPLETED	0x1000000000000000U   
-#define PSR_CUR_SPEED_MASK	0x0300000000000000U   
+#define SCOM_PSR 0x408001			/* PSR scom addr */
+/* warning: PSR is a 64 bits register */
+#define PSR_CMD_RECEIVED	0x2000000000000000U   /* command received */
+#define PSR_CMD_COMPLETED	0x1000000000000000U   /* command completed */
+#define PSR_CUR_SPEED_MASK	0x0300000000000000U   /* current speed */
 #define PSR_CUR_SPEED_SHIFT	(56)
 
+/*
+ * The G5 only supports two frequencies (Quarter speed is not supported)
+ */
 #define CPUFREQ_HIGH                  0
 #define CPUFREQ_LOW                   1
 
@@ -69,6 +74,9 @@ static struct freq_attr* g5_cpu_freqs_attr[] = {
 	NULL,
 };
 
+/* Power mode data is an array of the 32 bits PCR values to use for
+ * the various frequencies, retrieved from the device-tree
+ */
 static int g5_pmode_cur;
 
 static void (*g5_switch_volt)(int speed_mode);
@@ -84,10 +92,13 @@ static unsigned long transition_latency;
 static const u32 *g5_pmode_data;
 static int g5_pmode_max;
 
-static struct smu_sdbp_fvt *g5_fvt_table;	
-static int g5_fvt_count;			
-static int g5_fvt_cur;				
+static struct smu_sdbp_fvt *g5_fvt_table;	/* table of op. points */
+static int g5_fvt_count;			/* number of op. points */
+static int g5_fvt_cur;				/* current op. point */
 
+/*
+ * SMU based voltage switching for Neo2 platforms
+ */
 
 static void g5_smu_switch_volt(int speed_mode)
 {
@@ -100,6 +111,9 @@ static void g5_smu_switch_volt(int speed_mode)
 	wait_for_completion(&comp);
 }
 
+/*
+ * Platform function based voltage/vdnap switching for Neo2
+ */
 
 static struct pmf_function *pfunc_set_vdnap0;
 static struct pmf_function *pfunc_vdnap0_complete;
@@ -116,6 +130,10 @@ static void g5_vdnap_switch_volt(int speed_mode)
 
 	pmf_call_one(pfunc_set_vdnap0, &args);
 
+	/* It's an irq GPIO so we should be able to just block here,
+	 * I'll do that later after I've properly tested the IRQ code for
+	 * platform functions
+	 */
 	timeout = jiffies + HZ/10;
 	while(!time_after(jiffies, timeout)) {
 		args.count = 1;
@@ -130,26 +148,29 @@ static void g5_vdnap_switch_volt(int speed_mode)
 }
 
 
+/*
+ * SCOM based frequency switching for 970FX rev3
+ */
 static int g5_scom_switch_freq(int speed_mode)
 {
 	unsigned long flags;
 	int to;
 
-	
+	/* If frequency is going up, first ramp up the voltage */
 	if (speed_mode < g5_pmode_cur)
 		g5_switch_volt(speed_mode);
 
 	local_irq_save(flags);
 
-	
+	/* Clear PCR high */
 	scom970_write(SCOM_PCR, 0);
-	
+	/* Clear PCR low */
        	scom970_write(SCOM_PCR, PCR_HILO_SELECT | 0);
-	
+	/* Set PCR low */
 	scom970_write(SCOM_PCR, PCR_HILO_SELECT |
 		      g5_pmode_data[speed_mode]);
 
-	
+	/* Wait for completion */
 	for (to = 0; to < 10; to++) {
 		unsigned long psr = scom970_read(SCOM_PSR);
 
@@ -165,7 +186,7 @@ static int g5_scom_switch_freq(int speed_mode)
 
 	local_irq_restore(flags);
 
-	
+	/* If frequency is going down, last ramp the voltage */
 	if (speed_mode > g5_pmode_cur)
 		g5_switch_volt(speed_mode);
 
@@ -187,13 +208,19 @@ static int g5_scom_query_freq(void)
 	return i;
 }
 
+/*
+ * Fake voltage switching for platforms with missing support
+ */
 
 static void g5_dummy_switch_volt(int speed_mode)
 {
 }
 
-#endif 
+#endif /* CONFIG_PMAC_SMU */
 
+/*
+ * Platform function based voltage switching for PowerMac7,2 & 7,3
+ */
 
 static struct pmf_function *pfunc_cpu0_volt_high;
 static struct pmf_function *pfunc_cpu0_volt_low;
@@ -213,9 +240,12 @@ static void g5_pfunc_switch_volt(int speed_mode)
 		if (pfunc_cpu1_volt_low)
 			pmf_call_one(pfunc_cpu1_volt_low, NULL);
 	}
-	msleep(10); 
+	msleep(10); /* should be faster , to fix */
 }
 
+/*
+ * Platform function based frequency switching for PowerMac7,2 & 7,3
+ */
 
 static struct pmf_function *pfunc_cpu_setfreq_high;
 static struct pmf_function *pfunc_cpu_setfreq_low;
@@ -231,11 +261,11 @@ static int g5_pfunc_switch_freq(int speed_mode)
 
 	DBG("g5_pfunc_switch_freq(%d)\n", speed_mode);
 
-	
+	/* If frequency is going up, first ramp up the voltage */
 	if (speed_mode < g5_pmode_cur)
 		g5_switch_volt(speed_mode);
 
-	
+	/* Do it */
 	if (speed_mode == CPUFREQ_HIGH)
 		rc = pmf_call_one(pfunc_cpu_setfreq_high, NULL);
 	else
@@ -244,6 +274,10 @@ static int g5_pfunc_switch_freq(int speed_mode)
 	if (rc)
 		printk(KERN_WARNING "cpufreq: pfunc switch error %d\n", rc);
 
+	/* It's an irq GPIO so we should be able to just block here,
+	 * I'll do that later after I've properly tested the IRQ code for
+	 * platform functions
+	 */
 	timeout = jiffies + HZ/10;
 	while(!time_after(jiffies, timeout)) {
 		args.count = 1;
@@ -256,7 +290,7 @@ static int g5_pfunc_switch_freq(int speed_mode)
 	if (done == 0)
 		printk(KERN_WARNING "cpufreq: Timeout in clock slewing !\n");
 
-	
+	/* If frequency is going down, last ramp the voltage */
 	if (speed_mode > g5_pmode_cur)
 		g5_switch_volt(speed_mode);
 
@@ -278,6 +312,9 @@ static int g5_pfunc_query_freq(void)
 }
 
 
+/*
+ * Common interface to the cpufreq core
+ */
 
 static int g5_cpufreq_verify(struct cpufreq_policy *policy)
 {
@@ -322,6 +359,9 @@ static int g5_cpufreq_cpu_init(struct cpufreq_policy *policy)
 {
 	policy->cpuinfo.transition_latency = transition_latency;
 	policy->cur = g5_cpu_freqs[g5_query_freq()].frequency;
+	/* secondary CPUs are tied to the primary one by the
+	 * cpufreq core if in the secondary policy we tell it that
+	 * it actually must be one policy together with all others. */
 	cpumask_copy(policy->cpus, cpu_online_mask);
 	cpufreq_frequency_table_get_attr(g5_cpu_freqs, policy->cpu);
 
@@ -356,7 +396,7 @@ static int __init g5_neo2_cpufreq_init(struct device_node *cpus)
 	int use_volts_smu = 0;
 	int rc = -ENODEV;
 
-	
+	/* Check supported platforms */
 	if (of_machine_is_compatible("PowerMac8,1") ||
 	    of_machine_is_compatible("PowerMac8,2") ||
 	    of_machine_is_compatible("PowerMac9,1"))
@@ -366,7 +406,7 @@ static int __init g5_neo2_cpufreq_init(struct device_node *cpus)
 	else
 		return -ENODEV;
 
-	
+	/* Get first CPU node */
 	for (cpunode = NULL;
 	     (cpunode = of_get_next_child(cpus, cpunode)) != NULL;) {
 		const u32 *reg = of_get_property(cpunode, "reg", NULL);
@@ -380,7 +420,7 @@ static int __init g5_neo2_cpufreq_init(struct device_node *cpus)
 		return -ENODEV;
 	}
 
-	
+	/* Check 970FX for now */
 	valp = of_get_property(cpunode, "cpu-version", NULL);
 	if (!valp) {
 		DBG("No cpu-version property !\n");
@@ -392,7 +432,7 @@ static int __init g5_neo2_cpufreq_init(struct device_node *cpus)
 		goto bail_noprops;
 	}
 
-	
+	/* Look for the powertune data in the device-tree */
 	g5_pmode_data = of_get_property(cpunode, "power-mode-data",&psize);
 	if (!g5_pmode_data) {
 		DBG("No power-mode-data !\n");
@@ -403,7 +443,7 @@ static int __init g5_neo2_cpufreq_init(struct device_node *cpus)
 	if (use_volts_smu) {
 		const struct smu_sdbp_header *shdr;
 
-		
+		/* Look for the FVT table */
 		shdr = smu_get_sdb_partition(SMU_SDB_FVT_ID, NULL);
 		if (!shdr)
 			goto bail_noprops;
@@ -413,7 +453,7 @@ static int __init g5_neo2_cpufreq_init(struct device_node *cpus)
 		g5_fvt_count = ssize / sizeof(struct smu_sdbp_fvt);
 		g5_fvt_cur = 0;
 
-		
+		/* Sanity checking */
 		if (g5_fvt_count < 1 || g5_pmode_max < 1)
 			goto bail_noprops;
 
@@ -445,6 +485,13 @@ static int __init g5_neo2_cpufreq_init(struct device_node *cpus)
 		volt_method = "none";
 	}
 
+	/*
+	 * From what I see, clock-frequency is always the maximal frequency.
+	 * The current driver can not slew sysclk yet, so we really only deal
+	 * with powertune steps for now. We also only implement full freq and
+	 * half freq in this version. So far, I haven't yet seen a machine
+	 * supporting anything else.
+	 */
 	valp = of_get_property(cpunode, "clock-frequency", NULL);
 	if (!valp)
 		return -ENODEV;
@@ -452,12 +499,16 @@ static int __init g5_neo2_cpufreq_init(struct device_node *cpus)
 	g5_cpu_freqs[0].frequency = max_freq;
 	g5_cpu_freqs[1].frequency = max_freq/2;
 
-	
+	/* Set callbacks */
 	transition_latency = 12000;
 	g5_switch_freq = g5_scom_switch_freq;
 	g5_query_freq = g5_scom_query_freq;
 	freq_method = "SCOM";
 
+	/* Force apply current frequency to make sure everything is in
+	 * sync (voltage is right for example). Firmware may leave us with
+	 * a strange setting ...
+	 */
 	g5_switch_volt(CPUFREQ_HIGH);
 	msleep(10);
 	g5_pmode_cur = -1;
@@ -473,6 +524,9 @@ static int __init g5_neo2_cpufreq_init(struct device_node *cpus)
 
 	rc = cpufreq_register_driver(&g5_cpufreq_driver);
 
+	/* We keep the CPU node on hold... hopefully, Apple G5 don't have
+	 * hotplug CPU with a dynamic device-tree ...
+	 */
 	return rc;
 
  bail_noprops:
@@ -481,7 +535,7 @@ static int __init g5_neo2_cpufreq_init(struct device_node *cpus)
 	return rc;
 }
 
-#endif 
+#endif /* CONFIG_PMAC_SMU */
 
 
 static int __init g5_pm72_cpufreq_init(struct device_node *cpus)
@@ -495,7 +549,7 @@ static int __init g5_pm72_cpufreq_init(struct device_node *cpus)
 	DBG("cpufreq: Initializing for PowerMac7,2, PowerMac7,3 and"
 	    " RackMac3,1...\n");
 
-	
+	/* Get first CPU node */
 	for (cpunode = NULL;
 	     (cpunode = of_get_next_child(cpus, cpunode)) != NULL;) {
 		if (!strcmp(cpunode->type, "cpu"))
@@ -506,7 +560,7 @@ static int __init g5_pm72_cpufreq_init(struct device_node *cpus)
 		return -ENODEV;
 	}
 
-	
+	/* Lookup the cpuid eeprom node */
         cpuid = of_find_node_by_path("/u3@0,f8000000/i2c@f8001000/cpuid@a0");
 	if (cpuid != NULL)
 		eeprom = of_get_property(cpuid, "cpuid", NULL);
@@ -516,7 +570,7 @@ static int __init g5_pm72_cpufreq_init(struct device_node *cpus)
 		goto bail;
 	}
 
-	
+	/* Lookup the i2c hwclock */
 	for (hwclock = NULL;
 	     (hwclock = of_find_node_by_name(hwclock, "i2c-hwclock")) != NULL;){
 		const char *loc = of_get_property(hwclock,
@@ -537,7 +591,7 @@ static int __init g5_pm72_cpufreq_init(struct device_node *cpus)
 
 	DBG("cpufreq: i2c clock chip found: %s\n", hwclock->full_name);
 
-	
+	/* Now get all the platform functions */
 	pfunc_cpu_getfreq =
 		pmf_find_function(hwclock, "get-frequency");
 	pfunc_cpu_setfreq_high =
@@ -555,7 +609,7 @@ static int __init g5_pm72_cpufreq_init(struct device_node *cpus)
 	pfunc_cpu1_volt_low =
 		pmf_find_function(hwclock, "set-voltage-low-1");
 
-	
+	/* Check we have minimum requirements */
 	if (pfunc_cpu_getfreq == NULL || pfunc_cpu_setfreq_high == NULL ||
 	    pfunc_cpu_setfreq_low == NULL || pfunc_slewing_done == NULL) {
 		printk(KERN_ERR "cpufreq: Can't find platform functions !\n");
@@ -563,7 +617,7 @@ static int __init g5_pm72_cpufreq_init(struct device_node *cpus)
 		goto bail;
 	}
 
-	
+	/* Check that we have complete sets */
 	if (pfunc_cpu0_volt_high == NULL || pfunc_cpu0_volt_low == NULL) {
 		pmf_put_function(pfunc_cpu0_volt_high);
 		pmf_put_function(pfunc_cpu0_volt_low);
@@ -577,8 +631,13 @@ static int __init g5_pm72_cpufreq_init(struct device_node *cpus)
 		pfunc_cpu1_volt_high = pfunc_cpu1_volt_low = NULL;
 	}
 
+	/* Note: The device tree also contains a "platform-set-values"
+	 * function for which I haven't quite figured out the usage. It
+	 * might have to be called on init and/or wakeup, I'm not too sure
+	 * but things seem to work fine without it so far ...
+	 */
 
-	
+	/* Get max frequency from device-tree */
 	valp = of_get_property(cpunode, "clock-frequency", NULL);
 	if (!valp) {
 		printk(KERN_ERR "cpufreq: Can't find CPU frequency !\n");
@@ -588,10 +647,14 @@ static int __init g5_pm72_cpufreq_init(struct device_node *cpus)
 
 	max_freq = (*valp)/1000;
 
+	/* Now calculate reduced frequency by using the cpuid input freq
+	 * ratio. This requires 64 bits math unless we are willing to lose
+	 * some precision
+	 */
 	ih = *((u32 *)(eeprom + 0x10));
 	il = *((u32 *)(eeprom + 0x20));
 
-	
+	/* Check for machines with no useful settings */
 	if (il == ih) {
 		printk(KERN_WARNING "cpufreq: No low frequency mode available"
 		       " on this model !\n");
@@ -603,7 +666,7 @@ static int __init g5_pm72_cpufreq_init(struct device_node *cpus)
 	if (ih != 0 && il != 0)
 		min_freq = (max_freq * il) / ih;
 
-	
+	/* Sanity check */
 	if (min_freq >= max_freq || min_freq < 1000) {
 		printk(KERN_ERR "cpufreq: Can't calculate low frequency !\n");
 		rc = -ENXIO;
@@ -612,12 +675,16 @@ static int __init g5_pm72_cpufreq_init(struct device_node *cpus)
 	g5_cpu_freqs[0].frequency = max_freq;
 	g5_cpu_freqs[1].frequency = min_freq;
 
-	
+	/* Set callbacks */
 	transition_latency = CPUFREQ_ETERNAL;
 	g5_switch_volt = g5_pfunc_switch_volt;
 	g5_switch_freq = g5_pfunc_switch_freq;
 	g5_query_freq = g5_pfunc_query_freq;
 
+	/* Force apply current frequency to make sure everything is in
+	 * sync (voltage is right for example). Firmware may leave us with
+	 * a strange setting ...
+	 */
 	g5_switch_volt(CPUFREQ_HIGH);
 	msleep(10);
 	g5_pmode_cur = -1;
@@ -668,7 +735,7 @@ static int __init g5_cpufreq_init(void)
 #ifdef CONFIG_PMAC_SMU
 	else
 		rc = g5_neo2_cpufreq_init(cpus);
-#endif 
+#endif /* CONFIG_PMAC_SMU */
 
 	of_node_put(cpus);
 	return rc;

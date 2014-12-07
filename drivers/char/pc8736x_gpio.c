@@ -28,7 +28,7 @@ MODULE_AUTHOR("Jim Cromie <jim.cromie@gmail.com>");
 MODULE_DESCRIPTION("NatSemi/Winbond PC-8736x GPIO Pin Driver");
 MODULE_LICENSE("GPL");
 
-static int major;		
+static int major;		/* default to dynamic major */
 module_param(major, int, 0);
 MODULE_PARM_DESC(major, "Major device number");
 
@@ -36,42 +36,46 @@ static DEFINE_MUTEX(pc8736x_gpio_config_lock);
 static unsigned pc8736x_gpio_base;
 static u8 pc8736x_gpio_shadow[4];
 
-#define SIO_BASE1       0x2E	
-#define SIO_BASE2       0x4E	
+#define SIO_BASE1       0x2E	/* 1st command-reg to check */
+#define SIO_BASE2       0x4E	/* alt command-reg to check */
 
-#define SIO_SID		0x20	
-#define SIO_SID_PC87365	0xe5	
-#define SIO_SID_PC87366	0xe9	
+#define SIO_SID		0x20	/* SuperI/O ID Register */
+#define SIO_SID_PC87365	0xe5	/* Expected value in ID Register for PC87365 */
+#define SIO_SID_PC87366	0xe9	/* Expected value in ID Register for PC87366 */
 
-#define SIO_CF1		0x21	
+#define SIO_CF1		0x21	/* chip config, bit0 is chip enable */
 
-#define PC8736X_GPIO_RANGE	16 
-#define PC8736X_GPIO_CT		32 
+#define PC8736X_GPIO_RANGE	16 /* ioaddr range */
+#define PC8736X_GPIO_CT		32 /* minors matching 4 8 bit ports */
 
-#define SIO_UNIT_SEL	0x7	
-#define SIO_UNIT_ACT	0x30	
-#define SIO_GPIO_UNIT	0x7	
+#define SIO_UNIT_SEL	0x7	/* unit select reg */
+#define SIO_UNIT_ACT	0x30	/* unit enable */
+#define SIO_GPIO_UNIT	0x7	/* unit number of GPIO */
 #define SIO_VLM_UNIT	0x0D
 #define SIO_TMS_UNIT	0x0E
 
+/* config-space addrs to read/write each unit's runtime addr */
 #define SIO_BASE_HADDR		0x60
 #define SIO_BASE_LADDR		0x61
 
+/* GPIO config-space pin-control addresses */
 #define SIO_GPIO_PIN_SELECT	0xF0
 #define SIO_GPIO_PIN_CONFIG     0xF1
 #define SIO_GPIO_PIN_EVENT      0xF2
 
 static unsigned char superio_cmd = 0;
-static unsigned char selected_device = 0xFF;	
+static unsigned char selected_device = 0xFF;	/* bogus start val */
 
-static int port_offset[] = { 0, 4, 8, 10 };	
+/* GPIO port runtime access, functionality */
+static int port_offset[] = { 0, 4, 8, 10 };	/* non-uniform offsets ! */
+/* static int event_capable[] = { 1, 1, 0, 0 };   ports 2,3 are hobbled */
 
 #define PORT_OUT	0
 #define PORT_IN		1
 #define PORT_EVT_EN	2
 #define PORT_EVT_STST	3
 
-static struct platform_device *pdev;  
+static struct platform_device *pdev;  /* use in dev_*() */
 
 static inline void superio_outb(int addr, int val)
 {
@@ -89,7 +93,7 @@ static int pc8736x_superio_present(void)
 {
 	int id;
 
-	
+	/* try the 2 possible values, read a hardware reg to verify */
 	superio_cmd = SIO_BASE1;
 	id = superio_inb(SIO_SID);
 	if (id == SIO_SID_PC87365 || id == SIO_SID_PC87366)
@@ -111,7 +115,7 @@ static void device_select(unsigned devldn)
 
 static void select_pin(unsigned iminor)
 {
-	
+	/* select GPIO port/pin from device minor number */
 	device_select(SIO_GPIO_UNIT);
 	superio_outb(SIO_GPIO_PIN_SELECT,
 		     ((iminor << 1) & 0xF0) | (iminor & 0x7));
@@ -127,10 +131,10 @@ static inline u32 pc8736x_gpio_configure_fn(unsigned index, u32 mask, u32 bits,
 	device_select(SIO_GPIO_UNIT);
 	select_pin(index);
 
-	
+	/* read current config value */
 	config = superio_inb(func_slct);
 
-	
+	/* set new config */
 	new_config = (config & mask) | bits;
 	superio_outb(func_slct, new_config);
 
@@ -237,7 +241,7 @@ static void __init pc8736x_init_shadow(void)
 {
 	int port;
 
-	
+	/* read the current values driven on the GPIO signals */
 	for (port = 0; port < 4; ++port)
 		pc8736x_gpio_shadow[port]
 		    = inb_p(pc8736x_gpio_base + port_offset[port]
@@ -270,6 +274,9 @@ static int __init pc8736x_gpio_init(void)
 	}
 	pc8736x_gpio_ops.dev = &pdev->dev;
 
+	/* Verify that chip and it's GPIO unit are both enabled.
+	   My BIOS does this, so I take minimum action here
+	 */
 	rc = superio_inb(SIO_CF1);
 	if (!(rc & 0x01)) {
 		rc = -ENODEV;
@@ -283,7 +290,7 @@ static int __init pc8736x_gpio_init(void)
 		goto undo_platform_dev_add;
 	}
 
-	
+	/* read the GPIO unit base addr that chip responds to */
 	pc8736x_gpio_base = (superio_inb(SIO_BASE_HADDR) << 8
 			     | superio_inb(SIO_BASE_LADDR));
 
@@ -314,7 +321,7 @@ static int __init pc8736x_gpio_init(void)
 
 	pc8736x_init_shadow();
 
-	
+	/* ignore minor errs, and succeed */
 	cdev_init(&pc8736x_gpio_cdev, &pc8736x_gpio_fileops);
 	cdev_add(&pc8736x_gpio_cdev, devid, PC8736X_GPIO_CT);
 

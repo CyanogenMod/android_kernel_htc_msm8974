@@ -16,7 +16,7 @@ unsigned long intc_phys_to_virt(struct intc_desc_int *d, unsigned long address)
 	struct intc_window *window;
 	int k;
 
-	
+	/* scan through physical windows and convert address */
 	for (k = 0; k < d->nr_windows; k++) {
 		window = d->window + k;
 
@@ -32,7 +32,7 @@ unsigned long intc_phys_to_virt(struct intc_desc_int *d, unsigned long address)
 		return address;
 	}
 
-	
+	/* no windows defined, register must be 1:1 mapped virt:phys */
 	return address;
 }
 
@@ -94,7 +94,7 @@ static unsigned long write_8(unsigned long addr, unsigned long h,
 			     unsigned long data)
 {
 	__raw_writeb(intc_set_field_from_handle(0, data, h), addr);
-	(void)__raw_readb(addr);	
+	(void)__raw_readb(addr);	/* Defeat write posting */
 	return 0;
 }
 
@@ -102,7 +102,7 @@ static unsigned long write_16(unsigned long addr, unsigned long h,
 			      unsigned long data)
 {
 	__raw_writew(intc_set_field_from_handle(0, data, h), addr);
-	(void)__raw_readw(addr);	
+	(void)__raw_readw(addr);	/* Defeat write posting */
 	return 0;
 }
 
@@ -110,7 +110,7 @@ static unsigned long write_32(unsigned long addr, unsigned long h,
 			      unsigned long data)
 {
 	__raw_writel(intc_set_field_from_handle(0, data, h), addr);
-	(void)__raw_readl(addr);	
+	(void)__raw_readl(addr);	/* Defeat write posting */
 	return 0;
 }
 
@@ -122,7 +122,7 @@ static unsigned long modify_8(unsigned long addr, unsigned long h,
 	local_irq_save(flags);
 	value = intc_set_field_from_handle(__raw_readb(addr), data, h);
 	__raw_writeb(value, addr);
-	(void)__raw_readb(addr);	
+	(void)__raw_readb(addr);	/* Defeat write posting */
 	local_irq_restore(flags);
 	return 0;
 }
@@ -135,7 +135,7 @@ static unsigned long modify_16(unsigned long addr, unsigned long h,
 	local_irq_save(flags);
 	value = intc_set_field_from_handle(__raw_readw(addr), data, h);
 	__raw_writew(value, addr);
-	(void)__raw_readw(addr);	
+	(void)__raw_readw(addr);	/* Defeat write posting */
 	local_irq_restore(flags);
 	return 0;
 }
@@ -148,7 +148,7 @@ static unsigned long modify_32(unsigned long addr, unsigned long h,
 	local_irq_save(flags);
 	value = intc_set_field_from_handle(__raw_readl(addr), data, h);
 	__raw_writel(value, addr);
-	(void)__raw_readl(addr);	
+	(void)__raw_readl(addr);	/* Defeat write posting */
 	local_irq_restore(flags);
 	return 0;
 }

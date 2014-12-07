@@ -24,12 +24,13 @@
 #include <sound/apr_audio.h>
 #include "snddev_mi2s.h"
 
-#define SNDDEV_MI2S_PCM_SZ 32 
-#define SNDDEV_MI2S_MUL_FACTOR 3 
+#define SNDDEV_MI2S_PCM_SZ 32 /* 16 bit / sample stereo mode */
+#define SNDDEV_MI2S_MUL_FACTOR 3 /* Multi by 8 Shift by 3  */
 #define SNDDEV_MI2S_CLK_RATE(freq) \
 	(((freq) * (SNDDEV_MI2S_PCM_SZ)) << (SNDDEV_MI2S_MUL_FACTOR))
 
 
+/* Global state for the driver */
 struct snddev_mi2s_drv_state {
 
 	struct clk *tx_osrclk;
@@ -98,7 +99,7 @@ static int mi2s_get_gpios(struct platform_device *pdev)
 	int rc = 0;
 	struct resource *res;
 
-	
+	/* Claim all of the GPIOs. */
 	res = platform_get_resource_byname(pdev, IORESOURCE_IO, "mi2s_ws");
 	if (!res) {
 		pr_err("%s: failed to get gpio MI2S_WS\n", __func__);
@@ -182,7 +183,7 @@ static int snddev_mi2s_open(struct msm_snddev_info *dev_info)
 		return -EINVAL;
 	}
 
-	
+	/* set up osr clk */
 	drv->tx_osrclk = clk_get_sys(NULL, "mi2s_osr_clk");
 	if (IS_ERR(drv->tx_osrclk))
 		pr_err("%s master clock Error\n", __func__);
@@ -195,7 +196,7 @@ static int snddev_mi2s_open(struct msm_snddev_info *dev_info)
 	}
 	clk_prepare_enable(drv->tx_osrclk);
 
-	
+	/* set up bit clk */
 	drv->tx_bitclk = clk_get_sys(NULL, "mi2s_bit_clk");
 	if (IS_ERR(drv->tx_bitclk))
 		pr_err("%s clock Error\n", __func__);
@@ -322,7 +323,7 @@ static int snddev_mi2s_open(struct msm_snddev_info *dev_info)
 		goto error_invalid_data;
 	}
 
-	
+	/*enable fm gpio here*/
 	rc = mi2s_gpios_request();
 	if (rc < 0) {
 		pr_err("%s: GPIO request failed\n", __func__);

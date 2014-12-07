@@ -38,6 +38,11 @@ static const u8 magic[] = {
 	0xc5, 0x3a, 0xa3, 0x5c, 0xc5, 0x3a, 0xa3, 0x5c
 };
 
+/*
+ * Read the 64 bit we'd like to have - It a series
+ * of 64 bits showing up in the LSB of the base register.
+ *
+ */
 static void ds1216_read(u8 __iomem *ioaddr, u8 *buf)
 {
 	unsigned char c;
@@ -67,9 +72,9 @@ static void ds1216_write(u8 __iomem *ioaddr, const u8 *buf)
 
 static void ds1216_switch_ds_to_clock(u8 __iomem *ioaddr)
 {
-	
+	/* Reset magic pointer */
 	readb(ioaddr);
-	
+	/* Write 64 bit magic to DS1216 */
 	ds1216_write(ioaddr, magic);
 }
 
@@ -85,7 +90,7 @@ static int ds1216_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	tm->tm_sec = bcd2bin(regs.sec);
 	tm->tm_min = bcd2bin(regs.min);
 	if (regs.hour & DS1216_HOUR_1224) {
-		
+		/* AM/PM mode */
 		tm->tm_hour = bcd2bin(regs.hour & 0x1f);
 		if (regs.hour & DS1216_HOUR_AMPM)
 			tm->tm_hour += 12;
@@ -110,7 +115,7 @@ static int ds1216_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	ds1216_switch_ds_to_clock(priv->ioaddr);
 	ds1216_read(priv->ioaddr, (u8 *)&regs);
 
-	regs.tsec = 0; 
+	regs.tsec = 0; /* clear 0.1 and 0.01 seconds */
 	regs.sec = bin2bcd(tm->tm_sec);
 	regs.min = bin2bcd(tm->tm_min);
 	regs.hour &= DS1216_HOUR_1224;
@@ -169,7 +174,7 @@ static int __init ds1216_rtc_probe(struct platform_device *pdev)
 		goto out;
 	}
 
-	
+	/* dummy read to get clock into a known state */
 	ds1216_read(priv->ioaddr, dummy);
 	return 0;
 

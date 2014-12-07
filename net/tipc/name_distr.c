@@ -40,6 +40,24 @@
 
 #define ITEM_SIZE sizeof(struct distr_item)
 
+/**
+ * struct distr_item - publication info distributed to other nodes
+ * @type: name sequence type
+ * @lower: name sequence lower bound
+ * @upper: name sequence upper bound
+ * @ref: publishing port reference
+ * @key: publication key
+ *
+ * ===> All fields are stored in network byte order. <===
+ *
+ * First 3 fields identify (name or) name sequence being published.
+ * Reference field uniquely identifies port that published name sequence.
+ * Key field uniquely identifies publication, in the event a port has
+ * multiple publications of the same name sequence.
+ *
+ * Note: There is no field that identifies the publishing node because it is
+ * the same for all items contained within a publication message.
+ */
 
 struct distr_item {
 	__be32 type;
@@ -49,10 +67,17 @@ struct distr_item {
 	__be32 key;
 };
 
+/**
+ * List of externally visible publications by this node --
+ * that is, all publications having scope > TIPC_NODE_SCOPE.
+ */
 
 static LIST_HEAD(publ_root);
 static u32 publ_cnt;
 
+/**
+ * publ_to_item - add publication info to a publication message
+ */
 
 static void publ_to_item(struct distr_item *i, struct publication *p)
 {
@@ -63,6 +88,9 @@ static void publ_to_item(struct distr_item *i, struct publication *p)
 	i->key = htonl(p->key);
 }
 
+/**
+ * named_prepare_buf - allocate & initialize a publication message
+ */
 
 static struct sk_buff *named_prepare_buf(u32 type, u32 size, u32 dest)
 {
@@ -95,6 +123,9 @@ static void named_cluster_distribute(struct sk_buff *buf)
 	kfree_skb(buf);
 }
 
+/**
+ * tipc_named_publish - tell other nodes about a new publication by this node
+ */
 
 void tipc_named_publish(struct publication *publ)
 {
@@ -115,6 +146,9 @@ void tipc_named_publish(struct publication *publ)
 	named_cluster_distribute(buf);
 }
 
+/**
+ * tipc_named_withdraw - tell other nodes about a withdrawn publication by this node
+ */
 
 void tipc_named_withdraw(struct publication *publ)
 {
@@ -135,6 +169,9 @@ void tipc_named_withdraw(struct publication *publ)
 	named_cluster_distribute(buf);
 }
 
+/**
+ * tipc_named_node_up - tell specified node about all publications by this node
+ */
 
 void tipc_named_node_up(unsigned long nodearg)
 {
@@ -149,7 +186,7 @@ void tipc_named_node_up(unsigned long nodearg)
 	u32 rest;
 	u32 max_item_buf = 0;
 
-	
+	/* compute maximum amount of publication data to send per message */
 
 	read_lock_bh(&tipc_net_lock);
 	n_ptr = tipc_node_find(node);
@@ -165,7 +202,7 @@ void tipc_named_node_up(unsigned long nodearg)
 	if (!max_item_buf)
 		return;
 
-	
+	/* create list of publication messages, then send them as a unit */
 
 	INIT_LIST_HEAD(&message_list);
 
@@ -197,6 +234,12 @@ exit:
 	tipc_link_send_names(&message_list, (u32)node);
 }
 
+/**
+ * named_purge_publ - remove publication associated with a failed node
+ *
+ * Invoked for each publication issued by a newly failed node.
+ * Removes publication structure from name table & deletes it.
+ */
 
 static void named_purge_publ(struct publication *publ)
 {
@@ -218,6 +261,9 @@ static void named_purge_publ(struct publication *publ)
 	kfree(p);
 }
 
+/**
+ * tipc_named_recv - process name table update message sent by another node
+ */
 
 void tipc_named_recv(struct sk_buff *buf)
 {
@@ -269,6 +315,13 @@ void tipc_named_recv(struct sk_buff *buf)
 	kfree_skb(buf);
 }
 
+/**
+ * tipc_named_reinit - re-initialize local publication list
+ *
+ * This routine is called whenever TIPC networking is enabled.
+ * All existing publications by this node that have "cluster" or "zone" scope
+ * are updated to reflect the node's new network address.
+ */
 
 void tipc_named_reinit(void)
 {

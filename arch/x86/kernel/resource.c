@@ -7,7 +7,7 @@ static void resource_clip(struct resource *res, resource_size_t start,
 	resource_size_t low = 0, high = 0;
 
 	if (res->end < start || res->start > end)
-		return;		
+		return;		/* no conflict */
 
 	if (res->start < start)
 		low = start - res->start;
@@ -15,7 +15,7 @@ static void resource_clip(struct resource *res, resource_size_t start,
 	if (res->end > end)
 		high = res->end - end;
 
-	
+	/* Keep the area above or below the conflict, whichever is larger */
 	if (low > high)
 		res->end = start - 1;
 	else
@@ -37,7 +37,7 @@ static void remove_e820_regions(struct resource *avail)
 
 void arch_remove_reservations(struct resource *avail)
 {
-	
+	/* Trim out BIOS areas (low 1MB and high 2MB) and E820 regions */
 	if (avail->flags & IORESOURCE_MEM) {
 		if (avail->start < BIOS_END)
 			avail->start = BIOS_END;

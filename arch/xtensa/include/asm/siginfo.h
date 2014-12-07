@@ -13,4 +13,4 @@
 
 #include <asm-generic/siginfo.h>
 
-#endif	
+#endif	/* _XTENSA_SIGINFO_H */

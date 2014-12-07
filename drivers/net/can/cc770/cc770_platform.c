@@ -13,6 +13,34 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * If platform data are used you should have similar definitions
+ * in your board-specific code:
+ *
+ *   static struct cc770_platform_data myboard_cc770_pdata = {
+ *           .osc_freq = 16000000,
+ *           .cir = 0x41,
+ *           .cor = 0x20,
+ *           .bcr = 0x40,
+ *   };
+ *
+ * Please see include/linux/can/platform/cc770.h for description of
+ * above fields.
+ *
+ * If the device tree is used, you need a CAN node definition in your
+ * DTS file similar to:
+ *
+ *   can@3,100 {
+ *           compatible = "bosch,cc770";
+ *           reg = <3 0x100 0x80>;
+ *           interrupts = <2 0>;
+ *           interrupt-parent = <&mpic>;
+ *           bosch,external-clock-frequency = <16000000>;
+ *   };
+ *
+ * See "Documentation/devicetree/bindings/net/can/cc770.txt" for further
+ * information.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -59,16 +87,16 @@ static int __devinit cc770_get_of_node_data(struct platform_device *pdev,
 	if (prop && (prop_size ==  sizeof(u32)))
 		clkext = *prop;
 	else
-		clkext = CC770_PLATFORM_CAN_CLOCK; 
+		clkext = CC770_PLATFORM_CAN_CLOCK; /* default */
 	priv->can.clock.freq = clkext;
 
-	
+	/* The system clock may not exceed 10 MHz */
 	if (priv->can.clock.freq > 10000000) {
 		priv->cpu_interface |= CPUIF_DSC;
 		priv->can.clock.freq /= 2;
 	}
 
-	
+	/* The memory clock may not exceed 8 MHz */
 	if (priv->can.clock.freq > 8000000)
 		priv->cpu_interface |= CPUIF_DMC;
 
@@ -102,7 +130,7 @@ static int __devinit cc770_get_of_node_data(struct platform_device *pdev,
 			if (prop && (prop_size == sizeof(u32))) {
 				slew = *prop;
 			} else {
-				
+				/* Determine default slew rate */
 				slew = (CLKOUT_SL_MASK >>
 					CLKOUT_SL_SHIFT) -
 					((cdv * clkext - 1) / 8000000);
@@ -226,8 +254,8 @@ static int __devexit cc770_platform_remove(struct platform_device *pdev)
 }
 
 static struct of_device_id __devinitdata cc770_platform_table[] = {
-	{.compatible = "bosch,cc770"}, 
-	{.compatible = "intc,82527"},  
+	{.compatible = "bosch,cc770"}, /* CC770 from Bosch */
+	{.compatible = "intc,82527"},  /* AN82527 from Intel CP */
 	{},
 };
 

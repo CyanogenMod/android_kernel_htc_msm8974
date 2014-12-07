@@ -77,58 +77,76 @@ struct dmx_index_entry {
 
 #define DMX_IDX_EVENT_QUEUE_SIZE	100
 struct dvb_demux_rec_info {
-	
+	/* Reference counter for number of feeds using this information */
 	int ref_count;
 
-	
+	/* Counter for number of TS packets output to recording buffer */
 	u64 ts_output_count;
 
-	
+	/* Indexing information */
 	struct {
+		/*
+		 * Minimum TS packet number encountered in recording filter
+		 * among all feeds that search for video patterns
+		 */
 		u64 min_pattern_tsp_num;
 
-		
+		/* Number of feeds with video pattern search request */
 		u8 pattern_search_feeds_num;
 
-		
+		/* Index entries pool */
 		struct dmx_index_entry events[DMX_IDX_EVENT_QUEUE_SIZE];
 
-		
+		/* List of free entries that can be used for new index events */
 		struct list_head free_list;
 
-		
+		/* List holding ready index entries not notified to user yet */
 		struct list_head ready_list;
 	} idx_info;
 };
 
 #define DVB_DMX_MAX_PATTERN_LEN			6
 struct dvb_dmx_video_patterns {
-	
+	/* the byte pattern to look for */
 	u8 pattern[DVB_DMX_MAX_PATTERN_LEN];
 
-	
+	/* the byte mask to use (same length as pattern) */
 	u8 mask[DVB_DMX_MAX_PATTERN_LEN];
 
-	
+	/* the length of the pattern, in bytes */
 	size_t size;
 
-	
+	/* the type of the pattern. One of DMX_IDX_* definitions */
 	u64 type;
 };
 
 #define DVB_DMX_MAX_FOUND_PATTERNS					20
 #define DVB_DMX_MAX_SEARCH_PATTERN_NUM				20
 struct dvb_dmx_video_prefix_size_masks {
+	/*
+	 * a bit mask (per pattern) of possible prefix sizes to use
+	 * when searching for a pattern that started in the previous TS packet.
+	 * Updated by dvb_dmx_video_pattern_search for use in the next lookup.
+	 */
 	u32 size_mask[DVB_DMX_MAX_FOUND_PATTERNS];
 };
 
 struct dvb_dmx_video_patterns_results {
 	struct {
+		/*
+		 * The offset in the buffer where the pattern was found.
+		 * If a pattern is found using a prefix (i.e. started on the
+		 * previous buffer), offset is zero.
+		 */
 		u32 offset;
 
+		/*
+		 * The type of the pattern found.
+		 * One of DMX_IDX_* definitions.
+		 */
 		u64 type;
 
-		
+		/* The prefix size that was used to find this pattern */
 		u32 used_prefix_size;
 	} info[DVB_DMX_MAX_FOUND_PATTERNS];
 };
@@ -168,7 +186,7 @@ struct dvb_demux_feed {
 
 	int cc;
 	int first_cc;
-	int pusi_seen;		
+	int pusi_seen;		/* prevents feeding of garbage from previous section */
 
 	u8 scrambling_bits;
 
@@ -193,7 +211,7 @@ struct dvb_demux_feed {
 	u32 pes_ts_packets_num;
 
 	struct list_head list_head;
-	unsigned int index;	
+	unsigned int index;	/* a unique index for each feed (can be used as hardware pid filter index) */
 
 	enum dmx_video_codec video_codec;
 	struct dmx_indexing_params idx_params;
@@ -248,10 +266,10 @@ struct dvb_demux {
 	struct mutex mutex;
 	spinlock_t lock;
 
-	uint8_t *cnt_storage; 
+	uint8_t *cnt_storage; /* for TS continuity check */
 
-	struct timespec speed_last_time; 
-	uint32_t speed_pkts_cnt; 
+	struct timespec speed_last_time; /* for TS speed check */
+	uint32_t speed_pkts_cnt; /* for TS speed check */
 
 	enum dmx_tsp_format_t tsp_format;
 	size_t ts_packet_size;
@@ -266,6 +284,10 @@ struct dvb_demux {
 
 	struct dvb_demux_rec_info *rec_info_pool;
 
+	/*
+	 * the following is used for debugfs exposing info
+	 * about dvb demux performance.
+	 */
 #define MAX_DVB_DEMUX_NAME_LEN 10
 	char alias[MAX_DVB_DEMUX_NAME_LEN];
 
@@ -307,6 +329,14 @@ void dvb_dmx_notify_idx_events(struct dvb_demux_feed *feed);
 int dvb_dmx_notify_section_event(struct dvb_demux_feed *feed,
 	struct dmx_data_ready *event, int should_lock);
 
+/**
+ * dvb_dmx_is_video_feed - Returns whether the PES feed
+ * is video one.
+ *
+ * @feed: The feed to be checked.
+ *
+ * Return     1 if feed is video feed, 0 otherwise.
+ */
 static inline int dvb_dmx_is_video_feed(struct dvb_demux_feed *feed)
 {
 	if (feed->type != DMX_TYPE_TS)
@@ -324,6 +354,14 @@ static inline int dvb_dmx_is_video_feed(struct dvb_demux_feed *feed)
 	return 0;
 }
 
+/**
+ * dvb_dmx_is_pcr_feed - Returns whether the PES feed
+ * is PCR one.
+ *
+ * @feed: The feed to be checked.
+ *
+ * Return     1 if feed is PCR feed, 0 otherwise.
+ */
 static inline int dvb_dmx_is_pcr_feed(struct dvb_demux_feed *feed)
 {
 	if (feed->type != DMX_TYPE_TS)
@@ -341,11 +379,25 @@ static inline int dvb_dmx_is_pcr_feed(struct dvb_demux_feed *feed)
 	return 0;
 }
 
+/**
+ * dvb_dmx_is_sec_feed - Returns whether this is a section feed
+ *
+ * @feed: The feed to be checked.
+ *
+ * Return 1 if feed is a section feed, 0 otherwise.
+ */
 static inline int dvb_dmx_is_sec_feed(struct dvb_demux_feed *feed)
 {
 	return (feed->type == DMX_TYPE_SEC);
 }
 
+/**
+ * dvb_dmx_is_rec_feed - Returns whether this is a recording feed
+ *
+ * @feed: The feed to be checked.
+ *
+ * Return 1 if feed is recording feed, 0 otherwise.
+ */
 static inline int dvb_dmx_is_rec_feed(struct dvb_demux_feed *feed)
 {
 	if (feed->type != DMX_TYPE_TS)
@@ -358,4 +410,4 @@ static inline int dvb_dmx_is_rec_feed(struct dvb_demux_feed *feed)
 }
 
 
-#endif 
+#endif /* _DVB_DEMUX_H_ */

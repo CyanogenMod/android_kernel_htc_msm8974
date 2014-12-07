@@ -27,4 +27,4 @@ D(14)	KM_TYPE_NR
 
 #undef D
 
-#endif 
+#endif /* __ASM_AVR32_KMAP_TYPES_H */

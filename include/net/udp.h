@@ -32,6 +32,13 @@
 #include <linux/seq_file.h>
 #include <linux/poll.h>
 
+/**
+ *	struct udp_skb_cb  -  UDP(-Lite) private variables
+ *
+ *	@header:      private variables used by IPv4/IPv6
+ *	@cscov:       checksum coverage length (UDP-Lite only)
+ *	@partial_cov: if set indicates partial csum coverage
+ */
 struct udp_skb_cb {
 	union {
 		struct inet_skb_parm	h4;
@@ -44,12 +51,27 @@ struct udp_skb_cb {
 };
 #define UDP_SKB_CB(__skb)	((struct udp_skb_cb *)((__skb)->cb))
 
+/**
+ *	struct udp_hslot - UDP hash slot
+ *
+ *	@head:	head of list of sockets
+ *	@count:	number of sockets in 'head' list
+ *	@lock:	spinlock protecting changes to head/count
+ */
 struct udp_hslot {
 	struct hlist_nulls_head	head;
 	int			count;
 	spinlock_t		lock;
 } __attribute__((aligned(2 * sizeof(long))));
 
+/**
+ *	struct udp_table - UDP table
+ *
+ *	@hash:	hash table, sockets are hashed on (local port)
+ *	@hash2:	hash table, sockets are hashed on (local port, local address)
+ *	@mask:	number of slots in hash tables, minus 1
+ *	@log:	log2(number of slots in hash table)
+ */
 struct udp_table {
 	struct udp_hslot	*hash;
 	struct udp_hslot	*hash2;
@@ -63,28 +85,39 @@ static inline struct udp_hslot *udp_hashslot(struct udp_table *table,
 {
 	return &table->hash[udp_hashfn(net, num, table->mask)];
 }
+/*
+ * For secondary hash, net_hash_mix() is performed before calling
+ * udp_hashslot2(), this explains difference with udp_hashslot()
+ */
 static inline struct udp_hslot *udp_hashslot2(struct udp_table *table,
 					      unsigned int hash)
 {
 	return &table->hash2[hash & table->mask];
 }
 
+/* Note: this must match 'valbool' in sock_setsockopt */
 #define UDP_CSUM_NOXMIT		1
 
+/* Used by SunRPC/xprt layer. */
 #define UDP_CSUM_NORCV		2
 
+/* Default, as per the RFC, is to always do csums. */
 #define UDP_CSUM_DEFAULT	0
 
 extern struct proto udp_prot;
 
 extern atomic_long_t udp_memory_allocated;
 
+/* sysctl variables for udp */
 extern long sysctl_udp_mem[3];
 extern int sysctl_udp_rmem_min;
 extern int sysctl_udp_wmem_min;
 
 struct sk_buff;
 
+/*
+ *	Generic checksumming routines for UDP(-Lite) v4 and v6
+ */
 static inline __sum16 __udp_lib_checksum_complete(struct sk_buff *skb)
 {
 	return __skb_checksum_complete_head(skb, UDP_SKB_CB(skb)->cscov);
@@ -96,6 +129,12 @@ static inline int udp_lib_checksum_complete(struct sk_buff *skb)
 		__udp_lib_checksum_complete(skb);
 }
 
+/**
+ * 	udp_csum_outgoing  -  compute UDPv4/v6 checksum over fragments
+ * 	@sk: 	socket we are writing to
+ * 	@skb: 	sk_buff containing the filled-in UDP header
+ * 	        (checksum field must be zeroed out)
+ */
 static inline __wsum udp_csum_outgoing(struct sock *sk, struct sk_buff *skb)
 {
 	__wsum csum = csum_partial(skb_transport_header(skb),
@@ -117,6 +156,7 @@ static inline __wsum udp_csum(struct sk_buff *skb)
 	return csum;
 }
 
+/* hash routines shared between UDPv4/6 and UDP-Litev4/6 */
 static inline void udp_lib_hash(struct sock *sk)
 {
 	BUG();
@@ -134,6 +174,7 @@ extern int udp_lib_get_port(struct sock *sk, unsigned short snum,
 			    int (*)(const struct sock *,const struct sock *),
 			    unsigned int hash2_nulladdr);
 
+/* net/ipv4/udp.c */
 extern int udp_get_port(struct sock *sk, unsigned short snum,
 			int (*saddr_cmp)(const struct sock *,
 					 const struct sock *));
@@ -164,6 +205,9 @@ extern struct sock *__udp6_lib_lookup(struct net *net, const struct in6_addr *sa
 				    const struct in6_addr *daddr, __be16 dport,
 				    int dif, struct udp_table *tbl);
 
+/*
+ * 	SNMP statistics for UDP and UDP-Lite
+ */
 #define UDP_INC_STATS_USER(net, field, is_udplite)	      do { \
 	if (is_udplite) SNMP_INC_STATS_USER((net)->mib.udplite_statistics, field);       \
 	else		SNMP_INC_STATS_USER((net)->mib.udp_statistics, field);  }  while(0)
@@ -192,6 +236,7 @@ extern struct sock *__udp6_lib_lookup(struct net *net, const struct in6_addr *sa
 #define UDPX_INC_STATS_BH(sk, field) UDP_INC_STATS_BH(sock_net(sk), field, 0)
 #endif
 
+/* /proc */
 int udp_seq_open(struct inode *inode, struct file *file);
 
 struct udp_seq_afinfo {
@@ -222,4 +267,4 @@ extern void udp_init(void);
 extern int udp4_ufo_send_check(struct sk_buff *skb);
 extern struct sk_buff *udp4_ufo_fragment(struct sk_buff *skb,
 	netdev_features_t features);
-#endif	
+#endif	/* _UDP_H */

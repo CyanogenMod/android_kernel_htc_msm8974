@@ -8,6 +8,9 @@
 #ifndef __ASM_MACH_IP27_CPU_FEATURE_OVERRIDES_H
 #define __ASM_MACH_IP27_CPU_FEATURE_OVERRIDES_H
 
+/*
+ * IP27 only comes with R10000 family processors all using the same config
+ */
 #define cpu_has_watch		1
 #define cpu_has_mips16		0
 #define cpu_has_divec		0
@@ -48,4 +51,4 @@
 #define cpu_has_mips64r1	0
 #define cpu_has_mips64r2	0
 
-#endif 
+#endif /* __ASM_MACH_IP27_CPU_FEATURE_OVERRIDES_H */

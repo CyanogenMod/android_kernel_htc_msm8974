@@ -33,6 +33,15 @@ MODULE_AUTHOR("Boaz Harrosh <bharrosh@panasas.com>");
 MODULE_DESCRIPTION("Objects Raid Engine ore.ko");
 MODULE_LICENSE("GPL");
 
+/* ore_verify_layout does a couple of things:
+ * 1. Given a minimum number of needed parameters fixes up the rest of the
+ *    members to be operatonals for the ore. The needed parameters are those
+ *    that are defined by the pnfs-objects layout STD.
+ * 2. Check to see if the current ore code actually supports these parameters
+ *    for example stripe_unit must be a multple of the system PAGE_SIZE,
+ *    and etc...
+ * 3. Cache some havily used calculations that will be needed by users.
+ */
 
 enum { BIO_MAX_PAGES_KMALLOC =
 		(PAGE_SIZE - sizeof(struct bio)) / sizeof(struct bio_vec),};
@@ -182,6 +191,9 @@ int  _ore_get_io_state(struct ore_layout *layout,
 
 		pages = num_par_pages ? extra_part->pages : NULL;
 		sgilist = sgs_per_dev ? extra_part->sglist : NULL;
+		/* In this case the per_dev[0].sgilist holds the pointer to
+		 * be freed
+		 */
 		ios = &_aio_small->ios;
 		ios->extra_part_alloc = true;
 	}
@@ -206,6 +218,22 @@ int  _ore_get_io_state(struct ore_layout *layout,
 	return 0;
 }
 
+/* Allocate an io_state for only a single group of devices
+ *
+ * If a user needs to call ore_read/write() this version must be used becase it
+ * allocates extra stuff for striping and raid.
+ * The ore might decide to only IO less then @length bytes do to alignmets
+ * and constrains as follows:
+ * - The IO cannot cross group boundary.
+ * - In raid5/6 The end of the IO must align at end of a stripe eg.
+ *   (@offset + @length) % strip_size == 0. Or the complete range is within a
+ *   single stripe.
+ * - Memory condition only permitted a shorter IO. (A user can use @length=~0
+ *   And check the returned ios->length for max_io_size.)
+ *
+ * The caller must check returned ios->length (and/or ios->nr_pages) and
+ * re-issue these pages that fall outside of ios->length
+ */
 int  ore_get_rw_state(struct ore_layout *layout, struct ore_components *oc,
 		      bool is_reading, u64 offset, u64 length,
 		      struct ore_io_state **pios)
@@ -230,13 +258,17 @@ int  ore_get_rw_state(struct ore_layout *layout, struct ore_components *oc,
 		num_raid_units =  num_stripes * layout->parity;
 
 		if (is_reading) {
-			
+			/* For reads add per_dev sglist array */
+			/* TODO: Raid 6 we need twice more. Actually:
+			*         num_stripes / LCMdP(W,P);
+			*         if (W%P != 0) num_stripes *= parity;
+			*/
 
-			
+			/* first/last seg is split */
 			num_raid_units += layout->group_width;
 			sgs_per_dev = div_u64(num_raid_units, data_devs) + 2;
 		} else {
-			
+			/* For Writes add parity pages array. */
 			max_par_pages = num_raid_units * pages_in_unit *
 						sizeof(struct page *);
 		}
@@ -263,6 +295,13 @@ int  ore_get_rw_state(struct ore_layout *layout, struct ore_components *oc,
 }
 EXPORT_SYMBOL(ore_get_rw_state);
 
+/* Allocate an io_state for all the devices in the comps array
+ *
+ * This version of io_state allocation is used mostly by create/remove
+ * and trunc where we currently need all the devices. The only wastful
+ * bit is the read/write_attributes with no IO. Those sites should
+ * be converted to use ore_get_rw_state() with length=0
+ */
 int  ore_get_io_state(struct ore_layout *layout, struct ore_components *oc,
 		      struct ore_io_state **pios)
 {
@@ -392,14 +431,14 @@ int ore_check_io(struct ore_io_state *ios, ore_on_dev_error on_dev_error)
 			continue;
 
 		if (OSD_ERR_PRI_CLEAR_PAGES == osi.osd_err_pri) {
-			
+			/* start read offset passed endof file */
 			_clear_bio(per_dev->bio);
 			ORE_DBGMSG("start read offset passed end of file "
 				"offset=0x%llx, length=0x%llx\n",
 				_LLU(per_dev->offset),
 				_LLU(per_dev->length));
 
-			continue; 
+			continue; /* we recovered */
 		}
 
 		if (on_dev_error) {
@@ -422,6 +461,58 @@ int ore_check_io(struct ore_io_state *ios, ore_on_dev_error on_dev_error)
 }
 EXPORT_SYMBOL(ore_check_io);
 
+/*
+ * L - logical offset into the file
+ *
+ * D - number of Data devices
+ *	D = group_width - parity
+ *
+ * U - The number of bytes in a stripe within a group
+ *	U =  stripe_unit * D
+ *
+ * T - The number of bytes striped within a group of component objects
+ *     (before advancing to the next group)
+ *	T = U * group_depth
+ *
+ * S - The number of bytes striped across all component objects
+ *     before the pattern repeats
+ *	S = T * group_count
+ *
+ * M - The "major" (i.e., across all components) cycle number
+ *	M = L / S
+ *
+ * G - Counts the groups from the beginning of the major cycle
+ *	G = (L - (M * S)) / T	[or (L % S) / T]
+ *
+ * H - The byte offset within the group
+ *	H = (L - (M * S)) % T	[or (L % S) % T]
+ *
+ * N - The "minor" (i.e., across the group) stripe number
+ *	N = H / U
+ *
+ * C - The component index coresponding to L
+ *
+ *	C = (H - (N * U)) / stripe_unit + G * D
+ *	[or (L % U) / stripe_unit + G * D]
+ *
+ * O - The component offset coresponding to L
+ *	O = L % stripe_unit + N * stripe_unit + M * group_depth * stripe_unit
+ *
+ * LCMdP – Parity cycle: Lowest Common Multiple of group_width, parity
+ *          divide by parity
+ *	LCMdP = lcm(group_width, parity) / parity
+ *
+ * R - The parity Rotation stripe
+ *     (Note parity cycle always starts at a group's boundary)
+ *	R = N % LCMdP
+ *
+ * I = the first parity device index
+ *	I = (group_width + group_width - R*parity - parity) % group_width
+ *
+ * Craid - The component index Rotated
+ *	Craid = (group_width + C - R*parity) % group_width
+ *      (We add the group_width to avoid negative numbers modulo math)
+ */
 void ore_calc_stripe_info(struct ore_layout *layout, u64 file_offset,
 			  u64 length, struct ore_striping_info *si)
 {
@@ -436,13 +527,17 @@ void ore_calc_stripe_info(struct ore_layout *layout, u64 file_offset,
 	u64	S = T * layout->group_count;
 	u64	M = div64_u64(file_offset, S);
 
+	/*
+	G = (L - (M * S)) / T
+	H = (L - (M * S)) % T
+	*/
 	u64	LmodS = file_offset - M * S;
 	u32	G = div64_u64(LmodS, T);
 	u64	H = LmodS - G * T;
 
 	u32	N = div_u64(H, U);
 
-	
+	/* "H - (N * U)" is just "H % U" so it's bound to u32 */
 	u32	C = (u32)(H - (N * U)) / stripe_unit + G * group_width;
 
 	div_u64_rem(file_offset, stripe_unit, &si->unit_off);
@@ -452,7 +547,7 @@ void ore_calc_stripe_info(struct ore_layout *layout, u64 file_offset,
 
 	if (parity) {
 		u32 LCMdP = lcm(group_width, parity) / parity;
-		
+		/* R     = N % LCMdP; */
 		u32 RxP   = (N % LCMdP) * parity;
 		u32 first_dev = C - C % group_width;
 
@@ -462,7 +557,7 @@ void ore_calc_stripe_info(struct ore_layout *layout, u64 file_offset,
 		si->bytes_in_stripe = U;
 		si->first_stripe_start = M * S + G * T + N * U;
 	} else {
-		
+		/* Make the math correct see _prepare_one_group */
 		si->par_dev = group_width;
 		si->dev = C;
 	}
@@ -529,7 +624,11 @@ int _ore_add_stripe_unit(struct ore_io_state *ios,  unsigned *cur_pg,
 	per_dev->length += len;
 	*cur_pg = pg;
 	ret = 0;
-out:	
+out:	/* we fail the complete unit on an error eg don't advance
+	 * per_dev->length and cur_pg. This means that we might have a bigger
+	 * bio than the CDB requested length (per_dev->length). That's fine
+	 * only the oposite is fatal.
+	 */
 	return ret;
 }
 
@@ -575,7 +674,7 @@ static int _prepare_for_striping(struct ore_io_state *ios)
 				if (si->cur_comp > dev_order)
 					per_dev->offset =
 						si->obj_offset - si->unit_off;
-				else 
+				else /* si->cur_comp < dev_order */
 					per_dev->offset =
 						si->obj_offset + stripe_unit -
 								   si->unit_off;
@@ -600,12 +699,22 @@ static int _prepare_for_striping(struct ore_io_state *ios)
 		si->cur_comp = (si->cur_comp + 1) % group_width;
 		if (unlikely((dev == si->par_dev) || (!length && ios->sp2d))) {
 			if (!length && ios->sp2d) {
+				/* If we are writing and this is the very last
+				 * stripe. then operate on parity dev.
+				 */
 				dev = si->par_dev;
 			}
 			if (ios->sp2d)
+				/* In writes cur_len just means if it's the
+				 * last one. See _ore_add_parity_unit.
+				 */
 				cur_len = length;
 			per_dev = &ios->per_dev[dev - first_dev];
 			if (!per_dev->length) {
+				/* Only/always the parity unit of the first
+				 * stripe will be empty. So this is a chance to
+				 * initialize the per_dev info.
+				 */
 				per_dev->dev = dev;
 				per_dev->offset = si->obj_offset - si->unit_off;
 			}
@@ -614,11 +723,11 @@ static int _prepare_for_striping(struct ore_io_state *ios)
 			if (unlikely(ret))
 					goto out;
 
-			
+			/* Rotate next par_dev backwards with wraping */
 			si->par_dev = (devs_in_group + si->par_dev -
 				       ios->layout->parity * mirrors_p1) %
 				      devs_in_group + first_dev;
-			
+			/* Next stripe, start fresh */
 			si->cur_comp = 0;
 			si->cur_pg = 0;
 		}
@@ -693,7 +802,7 @@ static int _write_mirror(struct ore_io_state *ios, int cur_comp)
 	int ret = 0;
 
 	if (ios->pages && !master_dev->length)
-		return 0; 
+		return 0; /* Just an empty slot */
 
 	for (; cur_comp < last_comp; ++cur_comp, ++dev) {
 		struct ore_per_dev_state *per_dev = &ios->per_dev[cur_comp];
@@ -730,7 +839,7 @@ static int _write_mirror(struct ore_io_state *ios, int cur_comp)
 				per_dev->dev = dev;
 			} else {
 				bio = master_dev->bio;
-				
+				/* FIXME: bio_set_dir() */
 				bio->bi_rw |= REQ_WRITE;
 			}
 
@@ -745,7 +854,7 @@ static int _write_mirror(struct ore_io_state *ios, int cur_comp)
 			per_dev->offset = ios->si.obj_offset;
 			per_dev->dev = ios->si.dev + dev;
 
-			
+			/* no cross device without page array */
 			BUG_ON((ios->layout->group_width > 1) &&
 			       (ios->si.unit_off + ios->length >
 				ios->layout->stripe_unit));
@@ -786,6 +895,9 @@ int ore_write(struct ore_io_state *ios)
 	int ret;
 
 	if (unlikely(ios->sp2d && !ios->r4w)) {
+		/* A library is attempting a RAID-write without providing
+		 * a pages lock interface.
+		 */
 		WARN_ON_ONCE(1);
 		return -ENOTSUPP;
 	}
@@ -813,7 +925,7 @@ int _ore_read_mirror(struct ore_io_state *ios, unsigned cur_comp)
 	unsigned first_dev = (unsigned)obj->id;
 
 	if (ios->pages && !per_dev->length)
-		return 0; 
+		return 0; /* Just an empty slot */
 
 	first_dev = per_dev->dev + first_dev % ios->layout->mirrors_p1;
 	or = osd_start_request(_ios_od(ios, first_dev), GFP_KERNEL);
@@ -825,15 +937,15 @@ int _ore_read_mirror(struct ore_io_state *ios, unsigned cur_comp)
 
 	if (ios->pages) {
 		if (per_dev->cur_sg) {
-			
+			/* finalize the last sg_entry */
 			_ore_add_sg_seg(per_dev, 0, false);
 			if (unlikely(!per_dev->cur_sg))
-				return 0; 
+				return 0; /* Skip parity only device */
 
 			osd_req_read_sg(or, obj, per_dev->bio,
 					per_dev->sglist, per_dev->cur_sg);
 		} else {
-			
+			/* The no raid case */
 			osd_req_read(or, obj, per_dev->offset,
 				     per_dev->bio, per_dev->length);
 		}
@@ -881,7 +993,7 @@ EXPORT_SYMBOL(ore_read);
 
 int extract_attr_from_ios(struct ore_io_state *ios, struct osd_attr *attr)
 {
-	struct osd_attr cur_attr = {.attr_page = 0}; 
+	struct osd_attr cur_attr = {.attr_page = 0}; /* start with zeros */
 	void *iter = NULL;
 	int nelem;
 
@@ -981,12 +1093,12 @@ int ore_truncate(struct ore_layout *layout, struct ore_components *oc,
 			obj_size = ti.prev_group_obj_off;
 		else if (i >= ti.nex_group_dev)
 			obj_size = ti.next_group_obj_off;
-		else if (i < ti.si.dev) 
+		else if (i < ti.si.dev) /* dev within this group */
 			obj_size = ti.si.obj_offset +
 				      ios->layout->stripe_unit - ti.si.unit_off;
 		else if (i == ti.si.dev)
 			obj_size = ti.si.obj_offset;
-		else 
+		else /* i > ti.dev */
 			obj_size = ti.si.obj_offset - ti.si.unit_off;
 
 		size_attr->newsize = cpu_to_be64(obj_size);

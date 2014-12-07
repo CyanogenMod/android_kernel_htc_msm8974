@@ -24,6 +24,9 @@
 #include <mach/hardware.h>
 #include <mach/platform.h>
 
+/*
+ * Uncompress output is hardcoded to standard UART 5
+ */
 
 #define UART_FIFO_CTL_TX_RESET	(1 << 2)
 #define UART_STATUS_TX_MT	(1 << 6)
@@ -36,7 +39,7 @@
 
 static inline void putc(int ch)
 {
-	
+	/* Wait for transmit FIFO to empty */
 	while ((__raw_readl(_UARTREG(LPC32XX_UART_LSR_O)) &
 		UART_STATUS_TX_MT) == 0)
 		;
@@ -50,6 +53,7 @@ static inline void flush(void)
 		UART_FIFO_CTL_TX_RESET, _UARTREG(LPC32XX_UART_IIRFCR_O));
 }
 
+/* NULL functions; we don't presently need them */
 #define arch_decomp_setup()
 #define arch_decomp_wdog()
 

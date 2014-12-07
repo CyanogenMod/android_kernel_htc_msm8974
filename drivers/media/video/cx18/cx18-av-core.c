@@ -101,18 +101,27 @@ int cx18_av_and_or4(struct cx18 *cx, u16 addr, u32 and_mask,
 
 static void cx18_av_init(struct cx18 *cx)
 {
+	/*
+	 * The crystal freq used in calculations in this driver will be
+	 * 28.636360 MHz.
+	 * Aim to run the PLLs' VCOs near 400 MHz to minimze errors.
+	 */
 
+	/*
+	 * VDCLK  Integer = 0x0f, Post Divider = 0x04
+	 * AIMCLK Integer = 0x0e, Post Divider = 0x16
+	 */
 	cx18_av_write4(cx, CXADEC_PLL_CTRL1, 0x160e040f);
 
-	
-	
+	/* VDCLK Fraction = 0x2be2fe */
+	/* xtal * 0xf.15f17f0/4 = 108 MHz: 432 MHz before post divide */
 	cx18_av_write4(cx, CXADEC_VID_PLL_FRAC, 0x002be2fe);
 
-	
-	
+	/* AIMCLK Fraction = 0x05227ad */
+	/* xtal * 0xe.2913d68/0x16 = 48000 * 384: 406 MHz pre post-div*/
 	cx18_av_write4(cx, CXADEC_AUX_PLL_FRAC, 0x005227ad);
 
-	
+	/* SA_MCLK_SEL=1, SA_MCLK_DIV=0x16 */
 	cx18_av_write(cx, CXADEC_I2S_MCLK, 0x56);
 }
 
@@ -124,83 +133,132 @@ static void cx18_av_initialize(struct v4l2_subdev *sd)
 	u32 v;
 
 	cx18_av_loadfw(cx);
-	
+	/* Stop 8051 code execution */
 	cx18_av_write4_expect(cx, CXADEC_DL_CTL, 0x03000000,
 						 0x03000000, 0x13000000);
 
-	
+	/* initallize the PLL by toggling sleep bit */
 	v = cx18_av_read4(cx, CXADEC_HOST_REG1);
-	
+	/* enable sleep mode - register appears to be read only... */
 	cx18_av_write4_expect(cx, CXADEC_HOST_REG1, v | 1, v, 0xfffe);
-	
+	/* disable sleep mode */
 	cx18_av_write4_expect(cx, CXADEC_HOST_REG1, v & 0xfffe,
 						    v & 0xfffe, 0xffff);
 
-	
+	/* initialize DLLs */
 	v = cx18_av_read4(cx, CXADEC_DLL1_DIAG_CTRL) & 0xE1FFFEFF;
-	
+	/* disable FLD */
 	cx18_av_write4(cx, CXADEC_DLL1_DIAG_CTRL, v);
-	
+	/* enable FLD */
 	cx18_av_write4(cx, CXADEC_DLL1_DIAG_CTRL, v | 0x10000100);
 
 	v = cx18_av_read4(cx, CXADEC_DLL2_DIAG_CTRL) & 0xE1FFFEFF;
-	
+	/* disable FLD */
 	cx18_av_write4(cx, CXADEC_DLL2_DIAG_CTRL, v);
-	
+	/* enable FLD */
 	cx18_av_write4(cx, CXADEC_DLL2_DIAG_CTRL, v | 0x06000100);
 
-	
+	/* set analog bias currents. Set Vreg to 1.20V. */
 	cx18_av_write4(cx, CXADEC_AFE_DIAG_CTRL1, 0x000A1802);
 
 	v = cx18_av_read4(cx, CXADEC_AFE_DIAG_CTRL3) | 1;
-	
+	/* enable TUNE_FIL_RST */
 	cx18_av_write4_expect(cx, CXADEC_AFE_DIAG_CTRL3, v, v, 0x03009F0F);
-	
+	/* disable TUNE_FIL_RST */
 	cx18_av_write4_expect(cx, CXADEC_AFE_DIAG_CTRL3,
 			      v & 0xFFFFFFFE, v & 0xFFFFFFFE, 0x03009F0F);
 
-	
+	/* enable 656 output */
 	cx18_av_and_or4(cx, CXADEC_PIN_CTRL1, ~0, 0x040C00);
 
-	
+	/* video output drive strength */
 	cx18_av_and_or4(cx, CXADEC_PIN_CTRL2, ~0, 0x2);
 
-	
+	/* reset video */
 	cx18_av_write4(cx, CXADEC_SOFT_RST_CTRL, 0x8000);
 	cx18_av_write4(cx, CXADEC_SOFT_RST_CTRL, 0);
 
+	/*
+	 * Disable Video Auto-config of the Analog Front End and Video PLL.
+	 *
+	 * Since we only use BT.656 pixel mode, which works for both 525 and 625
+	 * line systems, it's just easier for us to set registers
+	 * 0x102 (CXADEC_CHIP_CTRL), 0x104-0x106 (CXADEC_AFE_CTRL),
+	 * 0x108-0x109 (CXADEC_PLL_CTRL1), and 0x10c-0x10f (CXADEC_VID_PLL_FRAC)
+	 * ourselves, than to run around cleaning up after the auto-config.
+	 *
+	 * (Note: my CX23418 chip doesn't seem to let the ACFG_DIS bit
+	 * get set to 1, but OTOH, it doesn't seem to do AFE and VID PLL
+	 * autoconfig either.)
+	 *
+	 * As a default, also turn off Dual mode for ADC2 and set ADC2 to CH3.
+	 */
 	cx18_av_and_or4(cx, CXADEC_CHIP_CTRL, 0xFFFBFFFF, 0x00120000);
 
-	
+	/* Setup the Video and and Aux/Audio PLLs */
 	cx18_av_init(cx);
 
-	
-	
-	
+	/* set video to auto-detect */
+	/* Clear bits 11-12 to enable slow locking mode.  Set autodetect mode */
+	/* set the comb notch = 1 */
 	cx18_av_and_or4(cx, CXADEC_MODE_CTRL, 0xFFF7E7F0, 0x02040800);
 
-	
-	
+	/* Enable wtw_en in CRUSH_CTRL (Set bit 22) */
+	/* Enable maj_sel in CRUSH_CTRL (Set bit 20) */
 	cx18_av_and_or4(cx, CXADEC_CRUSH_CTRL, ~0, 0x00500000);
 
-	
+	/* Set VGA_TRACK_RANGE to 0x20 */
 	cx18_av_and_or4(cx, CXADEC_DFE_CTRL2, 0xFFFF00FF, 0x00002000);
 
+	/*
+	 * Initial VBI setup
+	 * VIP-1.1, 10 bit mode, enable Raw, disable sliced,
+	 * don't clamp raw samples when codes are in use, 1 byte user D-words,
+	 * IDID0 has line #, RP code V bit transition on VBLANK, data during
+	 * blanking intervals
+	 */
 	cx18_av_write4(cx, CXADEC_OUT_CTRL1, 0x4013252e);
 
-	
-	
+	/* Set the video input.
+	   The setting in MODE_CTRL gets lost when we do the above setup */
+	/* EncSetSignalStd(dwDevNum, pEnc->dwSigStd); */
+	/* EncSetVideoInput(dwDevNum, pEnc->VidIndSelection); */
 
+	/*
+	 * Analog Front End (AFE)
+	 * Default to luma on ch1/ADC1, chroma on ch2/ADC2, SIF on ch3/ADC2
+	 *  bypass_ch[1-3]     use filter
+	 *  droop_comp_ch[1-3] disable
+	 *  clamp_en_ch[1-3]   disable
+	 *  aud_in_sel         ADC2
+	 *  luma_in_sel        ADC1
+	 *  chroma_in_sel      ADC2
+	 *  clamp_sel_ch[2-3]  midcode
+	 *  clamp_sel_ch1      video decoder
+	 *  vga_sel_ch3        audio decoder
+	 *  vga_sel_ch[1-2]    video decoder
+	 *  half_bw_ch[1-3]    disable
+	 *  +12db_ch[1-3]      disable
+	 */
 	cx18_av_and_or4(cx, CXADEC_AFE_CTRL, 0xFF000000, 0x00005D00);
 
+/* 	if(dwEnable && dw3DCombAvailable) { */
+/*      	CxDevWrReg(CXADEC_SRC_COMB_CFG, 0x7728021F); */
+/*    } else { */
+/*      	CxDevWrReg(CXADEC_SRC_COMB_CFG, 0x6628021F); */
+/*    } */
 	cx18_av_write4(cx, CXADEC_SRC_COMB_CFG, 0x6628021F);
 	default_volume = cx18_av_read(cx, 0x8d4);
+	/*
+	 * Enforce the legacy volume scale mapping limits to avoid
+	 * -ERANGE errors when initializing the volume control
+	 */
 	if (default_volume > 228) {
-		
+		/* Bottom out at -96 dB, v4l2 vol range 0x2e00-0x2fff */
 		default_volume = 228;
 		cx18_av_write(cx, 0x8d4, 228);
 	} else if (default_volume < 20) {
-		
+		/* Top out at + 8 dB, v4l2 vol range 0xfe00-0xffff */
 		default_volume = 20;
 		cx18_av_write(cx, 0x8d4, 20);
 	}
@@ -220,7 +278,7 @@ static int cx18_av_load_fw(struct v4l2_subdev *sd)
 	struct cx18_av_state *state = to_cx18_av_state(sd);
 
 	if (!state->is_initialized) {
-		
+		/* initialize on first use */
 		state->is_initialized = 1;
 		cx18_av_initialize(sd);
 	}
@@ -233,6 +291,10 @@ void cx18_av_std_setup(struct cx18 *cx)
 	struct v4l2_subdev *sd = &state->sd;
 	v4l2_std_id std = state->std;
 
+	/*
+	 * Video ADC crystal clock to pixel clock SRC decimation ratio
+	 * 28.636360 MHz/13.5 Mpps * 256 = 0x21f.07b
+	 */
 	const int src_decimation = 0x21f;
 
 	int hblank, hactive, burst, vblank, vactive, sc;
@@ -240,70 +302,156 @@ void cx18_av_std_setup(struct cx18 *cx)
 	int luma_lpf, uv_lpf, comb;
 	u32 pll_int, pll_frac, pll_post;
 
-	
+	/* datasheet startup, step 8d */
 	if (std & ~V4L2_STD_NTSC)
 		cx18_av_write(cx, 0x49f, 0x11);
 	else
 		cx18_av_write(cx, 0x49f, 0x14);
 
+	/*
+	 * Note: At the end of a field, there are 3 sets of half line duration
+	 * (double horizontal rate) pulses:
+	 *
+	 * 5 (625) or 6 (525) half-lines to blank for the vertical retrace
+	 * 5 (625) or 6 (525) vertical sync pulses of half line duration
+	 * 5 (625) or 6 (525) half-lines of equalization pulses
+	 */
 	if (std & V4L2_STD_625_50) {
-		vblank656 = 48; 
-		vblank = 38;    
-		vactive = 579;  
+		/*
+		 * The following relationships of half line counts should hold:
+		 * 625 = vblank656 + vactive
+		 * 10 = vblank656 - vblank = vsync pulses + equalization pulses
+		 *
+		 * vblank656: half lines after line 625/mid-313 of blanked video
+		 * vblank:    half lines, after line 5/317, of blanked video
+		 * vactive:   half lines of active video +
+		 * 		5 half lines after the end of active video
+		 *
+		 * As far as I can tell:
+		 * vblank656 starts counting from the falling edge of the first
+		 * 	vsync pulse (start of line 1 or mid-313)
+		 * vblank starts counting from the after the 5 vsync pulses and
+		 * 	5 or 4 equalization pulses (start of line 6 or 318)
+		 *
+		 * For 625 line systems the driver will extract VBI information
+		 * from lines 6-23 and lines 318-335 (but the slicer can only
+		 * handle 17 lines, not the 18 in the vblank region).
+		 * In addition, we need vblank656 and vblank to be one whole
+		 * line longer, to cover line 24 and 336, so the SAV/EAV RP
+		 * codes get generated such that the encoder can actually
+		 * extract line 23 & 335 (WSS).  We'll lose 1 line in each field
+		 * at the top of the screen.
+		 *
+		 * It appears the 5 half lines that happen after active
+		 * video must be included in vactive (579 instead of 574),
+		 * otherwise the colors get badly displayed in various regions
+		 * of the screen.  I guess the chroma comb filter gets confused
+		 * without them (at least when a PVR-350 is the PAL source).
+		 */
+		vblank656 = 48; /* lines  1 -  24  &  313 - 336 */
+		vblank = 38;    /* lines  6 -  24  &  318 - 336 */
+		vactive = 579;  /* lines 24 - 313  &  337 - 626 */
 
+		/*
+		 * For a 13.5 Mpps clock and 15,625 Hz line rate, a line is
+		 * is 864 pixels = 720 active + 144 blanking.  ITU-R BT.601
+		 * specifies 12 luma clock periods or ~ 0.9 * 13.5 Mpps after
+		 * the end of active video to start a horizontal line, so that
+		 * leaves 132 pixels of hblank to ignore.
+		 */
 		hblank = 132;
 		hactive = 720;
 
+		/*
+		 * Burst gate delay (for 625 line systems)
+		 * Hsync leading edge to color burst rise = 5.6 us
+		 * Color burst width = 2.25 us
+		 * Gate width = 4 pixel clocks
+		 * (5.6 us + 2.25/2 us) * 13.5 Mpps + 4/2 clocks = 92.79 clocks
+		 */
 		burst = 93;
 		luma_lpf = 2;
 		if (std & V4L2_STD_PAL) {
 			uv_lpf = 1;
 			comb = 0x20;
-			
+			/* sc = 4433618.75 * src_decimation/28636360 * 2^13 */
 			sc = 688700;
 		} else if (std == V4L2_STD_PAL_Nc) {
 			uv_lpf = 1;
 			comb = 0x20;
-			
+			/* sc = 3582056.25 * src_decimation/28636360 * 2^13 */
 			sc = 556422;
-		} else { 
+		} else { /* SECAM */
 			uv_lpf = 0;
 			comb = 0;
-			
-			
+			/* (fr + fb)/2 = (4406260 + 4250000)/2 = 4328130 */
+			/* sc = 4328130 * src_decimation/28636360 * 2^13 */
 			sc = 672314;
 		}
 	} else {
-		vblank656 = 38; 
-		vblank = 26;	
-		vactive = 481;  
+		/*
+		 * The following relationships of half line counts should hold:
+		 * 525 = prevsync + vblank656 + vactive
+		 * 12 = vblank656 - vblank = vsync pulses + equalization pulses
+		 *
+		 * prevsync:  6 half-lines before the vsync pulses
+		 * vblank656: half lines, after line 3/mid-266, of blanked video
+		 * vblank:    half lines, after line 9/272, of blanked video
+		 * vactive:   half lines of active video
+		 *
+		 * As far as I can tell:
+		 * vblank656 starts counting from the falling edge of the first
+		 * 	vsync pulse (start of line 4 or mid-266)
+		 * vblank starts counting from the after the 6 vsync pulses and
+		 * 	6 or 5 equalization pulses (start of line 10 or 272)
+		 *
+		 * For 525 line systems the driver will extract VBI information
+		 * from lines 10-21 and lines 273-284.
+		 */
+		vblank656 = 38; /* lines  4 -  22  &  266 - 284 */
+		vblank = 26;	/* lines 10 -  22  &  272 - 284 */
+		vactive = 481;  /* lines 23 - 263  &  285 - 525 */
 
+		/*
+		 * For a 13.5 Mpps clock and 15,734.26 Hz line rate, a line is
+		 * is 858 pixels = 720 active + 138 blanking.  The Hsync leading
+		 * edge should happen 1.2 us * 13.5 Mpps ~= 16 pixels after the
+		 * end of active video, leaving 122 pixels of hblank to ignore
+		 * before active video starts.
+		 */
 		hactive = 720;
 		hblank = 122;
 		luma_lpf = 1;
 		uv_lpf = 1;
 
+		/*
+		 * Burst gate delay (for 525 line systems)
+		 * Hsync leading edge to color burst rise = 5.3 us
+		 * Color burst width = 2.5 us
+		 * Gate width = 4 pixel clocks
+		 * (5.3 us + 2.5/2 us) * 13.5 Mpps + 4/2 clocks = 90.425 clocks
+		 */
 		if (std == V4L2_STD_PAL_60) {
 			burst = 90;
 			luma_lpf = 2;
 			comb = 0x20;
-			
+			/* sc = 4433618.75 * src_decimation/28636360 * 2^13 */
 			sc = 688700;
 		} else if (std == V4L2_STD_PAL_M) {
-			
+			/* The 97 needs to be verified against PAL-M timings */
 			burst = 97;
 			comb = 0x20;
-			
+			/* sc = 3575611.49 * src_decimation/28636360 * 2^13 */
 			sc = 555421;
 		} else {
 			burst = 90;
 			comb = 0x66;
-			
+			/* sc = 3579545.45.. * src_decimation/28636360 * 2^13 */
 			sc = 556032;
 		}
 	}
 
-	
+	/* DEBUG: Displays configured PLL frequency */
 	pll_int = cx18_av_read(cx, 0x108);
 	pll_frac = cx18_av_read4(cx, 0x10c) & 0x1ffffff;
 	pll_post = cx18_av_read(cx, 0x109);
@@ -341,33 +489,33 @@ void cx18_av_std_setup(struct cx18 *cx)
 				    comb, sc);
 	}
 
-	
+	/* Sets horizontal blanking delay and active lines */
 	cx18_av_write(cx, 0x470, hblank);
 	cx18_av_write(cx, 0x471, 0xff & (((hblank >> 8) & 0x3) |
 						(hactive << 4)));
 	cx18_av_write(cx, 0x472, hactive >> 4);
 
-	
+	/* Sets burst gate delay */
 	cx18_av_write(cx, 0x473, burst);
 
-	
+	/* Sets vertical blanking delay and active duration */
 	cx18_av_write(cx, 0x474, vblank);
 	cx18_av_write(cx, 0x475, 0xff & (((vblank >> 8) & 0x3) |
 						(vactive << 4)));
 	cx18_av_write(cx, 0x476, vactive >> 4);
 	cx18_av_write(cx, 0x477, vblank656);
 
-	
+	/* Sets src decimation rate */
 	cx18_av_write(cx, 0x478, 0xff & src_decimation);
 	cx18_av_write(cx, 0x479, 0xff & (src_decimation >> 8));
 
-	
+	/* Sets Luma and UV Low pass filters */
 	cx18_av_write(cx, 0x47a, luma_lpf << 6 | ((uv_lpf << 4) & 0x30));
 
-	
+	/* Enables comb filters */
 	cx18_av_write(cx, 0x47b, comb);
 
-	
+	/* Sets SC Step*/
 	cx18_av_write(cx, 0x47c, sc);
 	cx18_av_write(cx, 0x47d, 0xff & sc >> 8);
 	cx18_av_write(cx, 0x47e, 0xff & sc >> 16);
@@ -388,38 +536,38 @@ static void input_change(struct cx18 *cx)
 	v4l2_std_id std = state->std;
 	u8 v;
 
-	
+	/* Follow step 8c and 8d of section 3.16 in the cx18_av datasheet */
 	cx18_av_write(cx, 0x49f, (std & V4L2_STD_NTSC) ? 0x14 : 0x11);
 	cx18_av_and_or(cx, 0x401, ~0x60, 0);
 	cx18_av_and_or(cx, 0x401, ~0x60, 0x60);
 
 	if (std & V4L2_STD_525_60) {
 		if (std == V4L2_STD_NTSC_M_JP) {
-			
+			/* Japan uses EIAJ audio standard */
 			cx18_av_write_expect(cx, 0x808, 0xf7, 0xf7, 0xff);
 			cx18_av_write_expect(cx, 0x80b, 0x02, 0x02, 0x3f);
 		} else if (std == V4L2_STD_NTSC_M_KR) {
-			
+			/* South Korea uses A2 audio standard */
 			cx18_av_write_expect(cx, 0x808, 0xf8, 0xf8, 0xff);
 			cx18_av_write_expect(cx, 0x80b, 0x03, 0x03, 0x3f);
 		} else {
-			
+			/* Others use the BTSC audio standard */
 			cx18_av_write_expect(cx, 0x808, 0xf6, 0xf6, 0xff);
 			cx18_av_write_expect(cx, 0x80b, 0x01, 0x01, 0x3f);
 		}
 	} else if (std & V4L2_STD_PAL) {
-		
+		/* Follow tuner change procedure for PAL */
 		cx18_av_write_expect(cx, 0x808, 0xff, 0xff, 0xff);
 		cx18_av_write_expect(cx, 0x80b, 0x03, 0x03, 0x3f);
 	} else if (std & V4L2_STD_SECAM) {
-		
+		/* Select autodetect for SECAM */
 		cx18_av_write_expect(cx, 0x808, 0xff, 0xff, 0xff);
 		cx18_av_write_expect(cx, 0x80b, 0x03, 0x03, 0x3f);
 	}
 
 	v = cx18_av_read(cx, 0x803);
 	if (v & 0x10) {
-		
+		/* restart audio decoder microcontroller */
 		v &= ~0x10;
 		cx18_av_write_expect(cx, 0x803, v, v, 0x1f);
 		v |= 0x10;
@@ -512,7 +660,7 @@ static int set_input(struct cx18 *cx, enum cx18_av_video_input vid_input,
 	switch (aud_input) {
 	case CX18_AV_AUDIO_SERIAL1:
 	case CX18_AV_AUDIO_SERIAL2:
-		
+		/* do nothing, use serial audio input */
 		break;
 	case CX18_AV_AUDIO4:
 		afe_mux_cfg &= ~0x30;
@@ -541,56 +689,60 @@ static int set_input(struct cx18 *cx, enum cx18_av_video_input vid_input,
 		return -EINVAL;
 	}
 
-	
+	/* Set up analog front end multiplexers */
 	cx18_av_write_expect(cx, 0x103, afe_mux_cfg, afe_mux_cfg, 0xf7);
-	
+	/* Set INPUT_MODE to Composite, S-Video, or Component */
 	cx18_av_and_or(cx, 0x401, ~0x6, input_mode);
 
-	
+	/* Set CH_SEL_ADC2 to 1 if input comes from CH3 */
 	adc2_cfg = cx18_av_read(cx, 0x102);
 	if (ch[2] == NONE)
-		adc2_cfg &= ~0x2; 
+		adc2_cfg &= ~0x2; /* No sig on CH3, set ADC2 to CH2 for input */
 	else
-		adc2_cfg |= 0x2;  
+		adc2_cfg |= 0x2;  /* Signal on CH3, set ADC2 to CH3 for input */
 
-	
+	/* Set DUAL_MODE_ADC2 to 1 if input comes from both CH2 and CH3 */
 	if (ch[1] != NONE && ch[2] != NONE)
-		adc2_cfg |= 0x4; 
+		adc2_cfg |= 0x4; /* Set dual mode */
 	else
-		adc2_cfg &= ~0x4; 
+		adc2_cfg &= ~0x4; /* Clear dual mode */
 	cx18_av_write_expect(cx, 0x102, adc2_cfg, adc2_cfg, 0x17);
 
-	
+	/* Configure the analog front end */
 	afe_cfg = cx18_av_read4(cx, CXADEC_AFE_CTRL);
 	afe_cfg &= 0xff000000;
-	afe_cfg |= 0x00005000; 
+	afe_cfg |= 0x00005000; /* CHROMA_IN, AUD_IN: ADC2; LUMA_IN: ADC1 */
 	if (ch[1] != NONE && ch[2] != NONE)
-		afe_cfg |= 0x00000030; 
+		afe_cfg |= 0x00000030; /* half_bw_ch[2-3] since in dual mode */
 
 	for (i = 0; i < 3; i++) {
 		switch (ch[i]) {
 		default:
 		case NONE:
-			
+			/* CLAMP_SEL = Fixed to midcode clamp level */
 			afe_cfg |= (0x00000200 << i);
 			break;
 		case CVBS:
 		case Y:
 			if (i > 0)
-				afe_cfg |= 0x00002000; 
+				afe_cfg |= 0x00002000; /* LUMA_IN_SEL: ADC2 */
 			break;
 		case C:
 		case Pb:
 		case Pr:
-			
+			/* CLAMP_SEL = Fixed to midcode clamp level */
 			afe_cfg |= (0x00000200 << i);
 			if (i == 0 && ch[i] == C)
-				afe_cfg &= ~0x00001000; 
+				afe_cfg &= ~0x00001000; /* CHROMA_IN_SEL ADC1 */
 			break;
 		case SIF:
+			/*
+			 * VGA_GAIN_SEL = Audio Decoder
+			 * CLAMP_SEL = Fixed to midcode clamp level
+			 */
 			afe_cfg |= (0x00000240 << i);
 			if (i == 0)
-				afe_cfg &= ~0x00004000; 
+				afe_cfg &= ~0x00004000; /* AUD_IN_SEL ADC1 */
 			break;
 		}
 	}
@@ -640,7 +792,7 @@ static int cx18_av_g_tuner(struct v4l2_subdev *sd, struct v4l2_tuner *vt)
 
 	mode = cx18_av_read(cx, 0x804);
 
-	
+	/* get rxsubchans and audmode */
 	if ((mode & 0xf) == 1)
 		val |= V4L2_TUNER_SUB_STEREO;
 	else
@@ -671,15 +823,27 @@ static int cx18_av_s_tuner(struct v4l2_subdev *sd, struct v4l2_tuner *vt)
 
 	switch (vt->audmode) {
 	case V4L2_TUNER_MODE_MONO:
+		/* mono      -> mono
+		   stereo    -> mono
+		   bilingual -> lang1 */
 		break;
 	case V4L2_TUNER_MODE_STEREO:
 	case V4L2_TUNER_MODE_LANG1:
+		/* mono      -> mono
+		   stereo    -> stereo
+		   bilingual -> lang1 */
 		v |= 0x4;
 		break;
 	case V4L2_TUNER_MODE_LANG1_LANG2:
+		/* mono      -> mono
+		   stereo    -> stereo
+		   bilingual -> lang1/lang2 */
 		v |= 0x7;
 		break;
 	case V4L2_TUNER_MODE_LANG2:
+		/* mono      -> mono
+		   stereo    -> stereo
+		   bilingual -> lang2 */
 		v |= 0x1;
 		break;
 	default:
@@ -695,7 +859,7 @@ static int cx18_av_s_std(struct v4l2_subdev *sd, v4l2_std_id norm)
 	struct cx18_av_state *state = to_cx18_av_state(sd);
 	struct cx18 *cx = v4l2_get_subdevdata(sd);
 
-	u8 fmt = 0; 	
+	u8 fmt = 0; 	/* zero is autodetect */
 	u8 pal_m = 0;
 
 	if (state->radio == 0 && state->std == norm)
@@ -704,7 +868,7 @@ static int cx18_av_s_std(struct v4l2_subdev *sd, v4l2_std_id norm)
 	state->radio = 0;
 	state->std = norm;
 
-	
+	/* First tests should be against specific std */
 	if (state->std == V4L2_STD_NTSC_M_JP) {
 		fmt = 0x2;
 	} else if (state->std == V4L2_STD_NTSC_443) {
@@ -719,7 +883,7 @@ static int cx18_av_s_std(struct v4l2_subdev *sd, v4l2_std_id norm)
 	} else if (state->std == V4L2_STD_PAL_60) {
 		fmt = 0x8;
 	} else {
-		
+		/* Then, test against generic ones */
 		if (state->std & V4L2_STD_NTSC)
 			fmt = 0x1;
 		else if (state->std & V4L2_STD_PAL)
@@ -730,10 +894,13 @@ static int cx18_av_s_std(struct v4l2_subdev *sd, v4l2_std_id norm)
 
 	CX18_DEBUG_INFO_DEV(sd, "changing video std to fmt %i\n", fmt);
 
+	/* Follow step 9 of section 3.16 in the cx18_av datasheet.
+	   Without this PAL may display a vertical ghosting effect.
+	   This happens for example with the Yuan MPC622. */
 	if (fmt >= 4 && fmt < 8) {
-		
+		/* Set format to NTSC-M */
 		cx18_av_and_or(cx, 0x400, ~0xf, 1);
-		
+		/* Turn off LCOMB */
 		cx18_av_and_or(cx, 0x47b, ~6, 0);
 	}
 	cx18_av_and_or(cx, 0x400, ~0x2f, fmt | 0x20);
@@ -798,8 +965,22 @@ static int cx18_av_s_mbus_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt 
 	Hsrc = (cx18_av_read(cx, 0x472) & 0x3f) << 4;
 	Hsrc |= (cx18_av_read(cx, 0x471) & 0xf0) >> 4;
 
+	/*
+	 * This adjustment reflects the excess of vactive, set in
+	 * cx18_av_std_setup(), above standard values:
+	 *
+	 * 480 + 1 for 60 Hz systems
+	 * 576 + 3 for 50 Hz systems
+	 */
 	Vlines = fmt->height + (is_50Hz ? 3 : 1);
 
+	/*
+	 * Invalid height and width scaling requests are:
+	 * 1. width less than 1/16 of the source width
+	 * 2. width greater than the source width
+	 * 3. height less than 1/8 of the source height
+	 * 4. height greater than the source height
+	 */
 	if ((fmt->width * 16 < Hsrc) || (Hsrc < fmt->width) ||
 	    (Vlines * 8 < Vsrc) || (Vsrc < Vlines)) {
 		CX18_ERR_DEV(sd, "%dx%d is not a valid size!\n",
@@ -824,14 +1005,14 @@ static int cx18_av_s_mbus_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt 
 			    "decoder set size %dx%d -> scale  %ux%u\n",
 			    fmt->width, fmt->height, HSC, VSC);
 
-	
+	/* HSCALE=HSC */
 	cx18_av_write(cx, 0x418, HSC & 0xff);
 	cx18_av_write(cx, 0x419, (HSC >> 8) & 0xff);
 	cx18_av_write(cx, 0x41a, HSC >> 16);
-	
+	/* VSCALE=VSC */
 	cx18_av_write(cx, 0x41c, VSC & 0xff);
 	cx18_av_write(cx, 0x41d, VSC >> 8);
-	
+	/* VS_INTRLACE=1 VFILT=filter */
 	cx18_av_write(cx, 0x41e, 0x8 | filter);
 	return 0;
 }

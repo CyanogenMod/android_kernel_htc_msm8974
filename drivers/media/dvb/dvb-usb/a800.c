@@ -25,10 +25,11 @@ DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 
 static int a800_power_ctrl(struct dvb_usb_device *d, int onoff)
 {
-	
+	/* do nothing for the AVerMedia */
 	return 0;
 }
 
+/* assure to put cold to 0 for iManufacturer == 1 */
 static int a800_identify_state(struct usb_device *udev, struct dvb_usb_device_properties *props,
 	struct dvb_usb_device_description **desc, int *cold)
 {
@@ -37,41 +38,41 @@ static int a800_identify_state(struct usb_device *udev, struct dvb_usb_device_pr
 }
 
 static struct rc_map_table rc_map_a800_table[] = {
-	{ 0x0201, KEY_MODE },      
-	{ 0x0200, KEY_POWER2 },      
-	{ 0x0205, KEY_1 },           
-	{ 0x0206, KEY_2 },           
-	{ 0x0207, KEY_3 },           
-	{ 0x0209, KEY_4 },           
-	{ 0x020a, KEY_5 },           
-	{ 0x020b, KEY_6 },           
-	{ 0x020d, KEY_7 },           
-	{ 0x020e, KEY_8 },           
-	{ 0x020f, KEY_9 },           
-	{ 0x0212, KEY_LEFT },        
-	{ 0x0211, KEY_0 },           
-	{ 0x0213, KEY_RIGHT },       
-	{ 0x0217, KEY_CAMERA },      
-	{ 0x0210, KEY_LAST },        
-	{ 0x021e, KEY_VOLUMEDOWN },  
-	{ 0x020c, KEY_ZOOM },        
-	{ 0x021f, KEY_VOLUMEUP },    
-	{ 0x0214, KEY_MUTE },        
-	{ 0x0208, KEY_AUDIO },       
-	{ 0x0219, KEY_RECORD },      
-	{ 0x0218, KEY_PLAY },        
-	{ 0x021b, KEY_STOP },        
-	{ 0x021a, KEY_PLAYPAUSE },   
-	{ 0x021d, KEY_BACK },        
-	{ 0x021c, KEY_FORWARD },     
-	{ 0x0203, KEY_TEXT },        
-	{ 0x0204, KEY_EPG },         
-	{ 0x0215, KEY_MENU },        
+	{ 0x0201, KEY_MODE },      /* SOURCE */
+	{ 0x0200, KEY_POWER2 },      /* POWER */
+	{ 0x0205, KEY_1 },           /* 1 */
+	{ 0x0206, KEY_2 },           /* 2 */
+	{ 0x0207, KEY_3 },           /* 3 */
+	{ 0x0209, KEY_4 },           /* 4 */
+	{ 0x020a, KEY_5 },           /* 5 */
+	{ 0x020b, KEY_6 },           /* 6 */
+	{ 0x020d, KEY_7 },           /* 7 */
+	{ 0x020e, KEY_8 },           /* 8 */
+	{ 0x020f, KEY_9 },           /* 9 */
+	{ 0x0212, KEY_LEFT },        /* L / DISPLAY */
+	{ 0x0211, KEY_0 },           /* 0 */
+	{ 0x0213, KEY_RIGHT },       /* R / CH RTN */
+	{ 0x0217, KEY_CAMERA },      /* SNAP SHOT */
+	{ 0x0210, KEY_LAST },        /* 16-CH PREV */
+	{ 0x021e, KEY_VOLUMEDOWN },  /* VOL DOWN */
+	{ 0x020c, KEY_ZOOM },        /* FULL SCREEN */
+	{ 0x021f, KEY_VOLUMEUP },    /* VOL UP */
+	{ 0x0214, KEY_MUTE },        /* MUTE */
+	{ 0x0208, KEY_AUDIO },       /* AUDIO */
+	{ 0x0219, KEY_RECORD },      /* RECORD */
+	{ 0x0218, KEY_PLAY },        /* PLAY */
+	{ 0x021b, KEY_STOP },        /* STOP */
+	{ 0x021a, KEY_PLAYPAUSE },   /* TIMESHIFT / PAUSE */
+	{ 0x021d, KEY_BACK },        /* << / RED */
+	{ 0x021c, KEY_FORWARD },     /* >> / YELLOW */
+	{ 0x0203, KEY_TEXT },        /* TELETEXT */
+	{ 0x0204, KEY_EPG },         /* EPG */
+	{ 0x0215, KEY_MENU },        /* MENU */
 
-	{ 0x0303, KEY_CHANNELUP },   
-	{ 0x0302, KEY_CHANNELDOWN }, 
-	{ 0x0301, KEY_FIRST },       
-	{ 0x0300, KEY_LAST },        
+	{ 0x0303, KEY_CHANNELUP },   /* CH UP */
+	{ 0x0302, KEY_CHANNELDOWN }, /* CH DOWN */
+	{ 0x0301, KEY_FIRST },       /* |<< / GREEN */
+	{ 0x0300, KEY_LAST },        /* >>| / BLUE */
 
 };
 
@@ -89,7 +90,7 @@ static int a800_rc_query(struct dvb_usb_device *d, u32 *event, int *state)
 		goto out;
 	}
 
-	
+	/* call the universal NEC remote processor, to find out the key's state and event */
 	dvb_usb_nec_rc_key_to_event(d,key,event,state);
 	if (key[0] != 0)
 		deb_rc("key: %x %x %x %x %x\n",key[0],key[1],key[2],key[3],key[4]);
@@ -99,6 +100,7 @@ out:
 	return ret;
 }
 
+/* USB Driver stuff */
 static struct dvb_usb_device_properties a800_properties;
 
 static int a800_probe(struct usb_interface *intf,
@@ -108,10 +110,11 @@ static int a800_probe(struct usb_interface *intf,
 				   THIS_MODULE, NULL, adapter_nr);
 }
 
+/* do not change the order of the ID table */
 static struct usb_device_id a800_table [] = {
-	{ USB_DEVICE(USB_VID_AVERMEDIA,     USB_PID_AVERMEDIA_DVBT_USB2_COLD) },
-	{ USB_DEVICE(USB_VID_AVERMEDIA,     USB_PID_AVERMEDIA_DVBT_USB2_WARM) },
-			{ }		
+/* 00 */	{ USB_DEVICE(USB_VID_AVERMEDIA,     USB_PID_AVERMEDIA_DVBT_USB2_COLD) },
+/* 01 */	{ USB_DEVICE(USB_VID_AVERMEDIA,     USB_PID_AVERMEDIA_DVBT_USB2_WARM) },
+			{ }		/* Terminating entry */
 };
 MODULE_DEVICE_TABLE (usb, a800_table);
 
@@ -135,7 +138,7 @@ static struct dvb_usb_device_properties a800_properties = {
 			.frontend_attach  = dibusb_dib3000mc_frontend_attach,
 			.tuner_attach     = dibusb_dib3000mc_tuner_attach,
 
-			
+			/* parameter for the MPEG2-data transfer */
 					.stream = {
 						.type = USB_BULK,
 				.count = 7,

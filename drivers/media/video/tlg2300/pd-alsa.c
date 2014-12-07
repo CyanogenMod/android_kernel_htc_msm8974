@@ -43,6 +43,13 @@ static struct snd_pcm_hardware snd_pd_hw_capture = {
 	.period_bytes_max = PERIOD_SIZE,
 	.periods_min = PERIOD_MIN,
 	.periods_max = PERIOD_MAX,
+	/*
+	.buffer_bytes_max = 62720 * 8,
+	.period_bytes_min = 64,
+	.period_bytes_max = 12544,
+	.periods_min = 2,
+	.periods_max = 98
+	*/
 };
 
 static int snd_pd_capture_open(struct snd_pcm_substream *substream)
@@ -138,7 +145,7 @@ static inline void handle_audio_data(struct urb *urb, int *period_elapsed)
 	if (urb->actual_length == AUDIO_BUF_SIZE - 4)
 		len -= (AUDIO_TRAILER_SIZE / stride);
 
-	
+	/* do the copy */
 	if (oldptr + len >= runtime->buffer_size) {
 		unsigned int cnt = runtime->buffer_size - oldptr;
 
@@ -148,7 +155,7 @@ static inline void handle_audio_data(struct urb *urb, int *period_elapsed)
 	} else
 		memcpy(runtime->dma_area + oldptr * stride, cp, len * stride);
 
-	
+	/* update the statas */
 	snd_pcm_stream_lock(pa->capture_pcm_substream);
 	pa->rcv_position	+= len;
 	if (pa->rcv_position >= runtime->buffer_size)
@@ -173,7 +180,7 @@ static void complete_handler_audio(struct urb *urb)
 		return;
 
 	if (urb->status != 0) {
-		
+		/*if (urb->status == -ESHUTDOWN)*/
 			return;
 	}
 

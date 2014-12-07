@@ -62,11 +62,12 @@ enum symbol_type {
 	S_UNKNOWN, S_BOOLEAN, S_TRISTATE, S_INT, S_HEX, S_STRING, S_OTHER
 };
 
+/* enum values are used as index to symbol.def[] */
 enum {
-	S_DEF_USER,		
-	S_DEF_AUTO,		
-	S_DEF_DEF3,		
-	S_DEF_DEF4,		
+	S_DEF_USER,		/* main user value */
+	S_DEF_AUTO,		/* values read from auto.conf */
+	S_DEF_DEF3,		/* Reserved for UI usage */
+	S_DEF_DEF4,		/* Reserved for UI usage */
 	S_DEF_COUNT
 };
 
@@ -85,50 +86,64 @@ struct symbol {
 
 #define for_all_symbols(i, sym) for (i = 0; i < SYMBOL_HASHSIZE; i++) for (sym = symbol_hash[i]; sym; sym = sym->next) if (sym->type != S_OTHER)
 
-#define SYMBOL_CONST      0x0001  
-#define SYMBOL_CHECK      0x0008  
-#define SYMBOL_CHOICE     0x0010  
-#define SYMBOL_CHOICEVAL  0x0020  
-#define SYMBOL_VALID      0x0080  
-#define SYMBOL_OPTIONAL   0x0100  
-#define SYMBOL_WRITE      0x0200  
-#define SYMBOL_CHANGED    0x0400  
-#define SYMBOL_AUTO       0x1000  
-#define SYMBOL_CHECKED    0x2000  
-#define SYMBOL_WARNED     0x8000  
+#define SYMBOL_CONST      0x0001  /* symbol is const */
+#define SYMBOL_CHECK      0x0008  /* used during dependency checking */
+#define SYMBOL_CHOICE     0x0010  /* start of a choice block (null name) */
+#define SYMBOL_CHOICEVAL  0x0020  /* used as a value in a choice block */
+#define SYMBOL_VALID      0x0080  /* set when symbol.curr is calculated */
+#define SYMBOL_OPTIONAL   0x0100  /* choice is optional - values can be 'n' */
+#define SYMBOL_WRITE      0x0200  /* ? */
+#define SYMBOL_CHANGED    0x0400  /* ? */
+#define SYMBOL_AUTO       0x1000  /* value from environment variable */
+#define SYMBOL_CHECKED    0x2000  /* used during dependency checking */
+#define SYMBOL_WARNED     0x8000  /* warning has been issued */
 
-#define SYMBOL_DEF        0x10000  
-#define SYMBOL_DEF_USER   0x10000  
-#define SYMBOL_DEF_AUTO   0x20000  
-#define SYMBOL_DEF3       0x40000  
-#define SYMBOL_DEF4       0x80000  
+/* Set when symbol.def[] is used */
+#define SYMBOL_DEF        0x10000  /* First bit of SYMBOL_DEF */
+#define SYMBOL_DEF_USER   0x10000  /* symbol.def[S_DEF_USER] is valid */
+#define SYMBOL_DEF_AUTO   0x20000  /* symbol.def[S_DEF_AUTO] is valid */
+#define SYMBOL_DEF3       0x40000  /* symbol.def[S_DEF_3] is valid */
+#define SYMBOL_DEF4       0x80000  /* symbol.def[S_DEF_4] is valid */
 
 #define SYMBOL_MAXLENGTH	256
 #define SYMBOL_HASHSIZE		9973
 
+/* A property represent the config options that can be associated
+ * with a config "symbol".
+ * Sample:
+ * config FOO
+ *         default y
+ *         prompt "foo prompt"
+ *         select BAR
+ * config BAZ
+ *         int "BAZ Value"
+ *         range 1..255
+ */
 enum prop_type {
 	P_UNKNOWN,
-	P_PROMPT,   
-	P_COMMENT,  
-	P_MENU,     
-	P_DEFAULT,  
-	P_CHOICE,   
-	P_SELECT,   
-	P_RANGE,    
-	P_ENV,      
-	P_SYMBOL,   
+	P_PROMPT,   /* prompt "foo prompt" or "BAZ Value" */
+	P_COMMENT,  /* text associated with a comment */
+	P_MENU,     /* prompt associated with a menuconfig option */
+	P_DEFAULT,  /* default y */
+	P_CHOICE,   /* choice value */
+	P_SELECT,   /* select BAR */
+	P_RANGE,    /* range 7..100 (for a symbol) */
+	P_ENV,      /* value from environment variable */
+	P_SYMBOL,   /* where a symbol is defined */
 };
 
 struct property {
-	struct property *next;     
-	struct symbol *sym;        
-	enum prop_type type;       
-	const char *text;          
+	struct property *next;     /* next property - null if last */
+	struct symbol *sym;        /* the symbol for which the property is associated */
+	enum prop_type type;       /* type of property */
+	const char *text;          /* the prompt value - P_PROMPT, P_MENU, P_COMMENT */
 	struct expr_value visible;
-	struct expr *expr;         
-	struct menu *menu;         
-	struct file *file;         
-	int lineno;                
+	struct expr *expr;         /* the optional conditional part of the property */
+	struct menu *menu;         /* the menu the property are associated with
+	                            * valid for: P_SELECT, P_RANGE, P_CHOICE,
+	                            * P_PROMPT, P_DEFAULT, P_MENU, P_COMMENT */
+	struct file *file;         /* what file was this property defined */
+	int lineno;                /* what lineno was this property defined */
 };
 
 #define for_all_properties(sym, st, tok) \
@@ -190,7 +205,7 @@ struct expr *expr_trans_compare(struct expr *e, enum expr_type type, struct symb
 struct expr *expr_simplify_unmet_dep(struct expr *e1, struct expr *e2);
 
 void expr_fprint(struct expr *e, FILE *out);
-struct gstr; 
+struct gstr; /* forward */
 void expr_gstr_print(struct expr *e, struct gstr *gs);
 
 static inline int expr_is_yes(struct expr *e)
@@ -207,4 +222,4 @@ static inline int expr_is_no(struct expr *e)
 }
 #endif
 
-#endif 
+#endif /* EXPR_H */

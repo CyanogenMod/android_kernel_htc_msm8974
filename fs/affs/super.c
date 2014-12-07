@@ -177,7 +177,7 @@ parse_options(char *options, uid_t *uid, gid_t *gid, int *mode, int *reserved, s
 	char *p;
 	substring_t args[MAX_OPT_ARGS];
 
-	
+	/* Fill in defaults */
 
 	*uid        = current_uid();
 	*gid        = current_gid();
@@ -257,7 +257,7 @@ parse_options(char *options, uid_t *uid, gid_t *gid, int *mode, int *reserved, s
 			break;
 		}
 		case Opt_ignore:
-		 	
+		 	/* Silently ignore the quota options */
 			break;
 		default:
 			printk("AFFS: Unrecognized mount option \"%s\" "
@@ -268,6 +268,9 @@ parse_options(char *options, uid_t *uid, gid_t *gid, int *mode, int *reserved, s
 	return 1;
 }
 
+/* This function definitely needs to be split up. Some fine day I'll
+ * hopefully have the guts to do so. Until then: sorry for the mess.
+ */
 
 static int affs_fill_super(struct super_block *sb, void *data, int silent)
 {
@@ -285,7 +288,7 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
 	gid_t			 gid;
 	int			 reserved;
 	unsigned long		 mount_flags;
-	int			 tmp_flags;	
+	int			 tmp_flags;	/* fix remount prototype... */
 	u8			 sig[4];
 	int			 ret = -EINVAL;
 
@@ -313,7 +316,7 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
 		kfree(sbi);
 		return -EINVAL;
 	}
-	
+	/* N.B. after this point s_prefix must be released */
 
 	sbi->s_flags   = mount_flags;
 	sbi->s_mode    = i;
@@ -321,12 +324,16 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
 	sbi->s_gid     = gid;
 	sbi->s_reserved= reserved;
 
+	/* Get the size of the device in 512-byte blocks.
+	 * If we later see that the partition uses bigger
+	 * blocks, we will have to change it.
+	 */
 
 	size = sb->s_bdev->bd_inode->i_size >> 9;
 	pr_debug("AFFS: initial blocksize=%d, #blocks=%d\n", 512, size);
 
 	affs_set_blocksize(sb, PAGE_SIZE);
-	
+	/* Try to find root block. Its location depends on the block size. */
 
 	i = 512;
 	j = 4096;
@@ -342,6 +349,16 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
 		affs_set_blocksize(sb, blocksize);
 		sbi->s_partition_size = size;
 
+		/* The root block location that was calculated above is not
+		 * correct if the partition size is an odd number of 512-
+		 * byte blocks, which will be rounded down to a number of
+		 * 1024-byte blocks, and if there were an even number of
+		 * reserved blocks. Ideally, all partition checkers should
+		 * report the real number of blocks of the real blocksize,
+		 * but since this just cannot be done, we have to try to
+		 * find the root block anyways. In the above case, it is one
+		 * block behind the calculated one. So we check this one, too.
+		 */
 		for (num_bm = 0; num_bm < 2; num_bm++) {
 			pr_debug("AFFS: Dev %s, trying root=%u, bs=%d, "
 				"size=%d, reserved=%d\n",
@@ -368,11 +385,11 @@ static int affs_fill_super(struct super_block *sb, void *data, int silent)
 			sb->s_id);
 	goto out_error;
 
-	
+	/* N.B. after this point bh must be released */
 got_root:
 	root_block = sbi->s_root_block;
 
-	
+	/* Find out which kind of FS we have */
 	boot_bh = sb_bread(sb, 0);
 	if (!boot_bh) {
 		printk(KERN_ERR "AFFS: Cannot read boot block\n");
@@ -382,6 +399,10 @@ got_root:
 	brelse(boot_bh);
 	chksum = be32_to_cpu(*(__be32 *)sig);
 
+	/* Dircache filesystems are compatible with non-dircache ones
+	 * when reading. As long as they aren't supported, writing is
+	 * not recommended.
+	 */
 	if ((chksum == FS_DCFFS || chksum == MUFS_DCFFS || chksum == FS_DCOFS
 	     || chksum == MUFS_DCOFS) && !(sb->s_flags & MS_RDONLY)) {
 		printk(KERN_NOTICE "AFFS: Dircache FS - mounting %s read only\n",
@@ -393,7 +414,7 @@ got_root:
 		case MUFS_INTLFFS:
 		case MUFS_DCFFS:
 			sbi->s_flags |= SF_MUFS;
-			
+			/* fall thru */
 		case FS_INTLFFS:
 		case FS_DCFFS:
 			sbi->s_flags |= SF_INTL;
@@ -405,7 +426,7 @@ got_root:
 			break;
 		case MUFS_OFS:
 			sbi->s_flags |= SF_MUFS;
-			
+			/* fall thru */
 		case FS_OFS:
 			sbi->s_flags |= SF_OFS;
 			sb->s_flags |= MS_NOEXEC;
@@ -438,16 +459,16 @@ got_root:
 	if (sbi->s_flags & SF_OFS)
 		sbi->s_data_blksize -= 24;
 
-	
+	/* Keep super block in cache */
 	sbi->s_root_bh = root_bh;
-	
+	/* N.B. after this point s_root_bh must be released */
 
 	tmp_flags = sb->s_flags;
 	if (affs_init_bitmap(sb, &tmp_flags))
 		goto out_error;
 	sb->s_flags = tmp_flags;
 
-	
+	/* set up enough so that it can read an inode */
 
 	root_inode = affs_iget(sb, root_block);
 	if (IS_ERR(root_inode)) {
@@ -469,6 +490,9 @@ got_root:
 	pr_debug("AFFS: s_flags=%lX\n",sb->s_flags);
 	return 0;
 
+	/*
+	 * Begin the cascaded cleanup ...
+	 */
 out_error:
 	kfree(sbi->s_bitmap);
 	affs_brelse(root_bh);
@@ -513,7 +537,7 @@ affs_remount(struct super_block *sb, int *flags, char *data)
 	sbi->s_mode  = mode;
 	sbi->s_uid   = uid;
 	sbi->s_gid   = gid;
-	
+	/* protect against readers */
 	spin_lock(&sbi->symlink_lock);
 	if (prefix) {
 		kfree(sbi->s_prefix);

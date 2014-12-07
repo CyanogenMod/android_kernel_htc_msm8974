@@ -31,19 +31,31 @@ DRV_NAME ".c:v" DRV_VERSION " " DRV_RELDATE " becker@scyld.com and others\n";
 
 #define CORKSCREW 1
 
+/* "Knobs" that adjust features and parameters. */
+/* Set the copy breakpoint for the copy-only-tiny-frames scheme.
+   Setting to > 1512 effectively disables this feature. */
 static int rx_copybreak = 200;
 
+/* Allow setting MTU to a larger size, bypassing the normal ethernet setup. */
 static const int mtu = 1500;
 
+/* Maximum events (Rx packets, etc.) to handle at each interrupt. */
 static int max_interrupt_work = 20;
 
+/* Enable the automatic media selection code -- usually set. */
 #define AUTOMEDIA 1
 
+/* Allow the use of fragment bus master transfers instead of only
+   programmed-I/O for Vortex cards.  Full-bus-master transfers are always
+   enabled by default on Boomerang cards.  If VORTEX_BUS_MASTER is defined,
+   the feature may be turned on using 'options'. */
 #define VORTEX_BUS_MASTER
 
+/* A few values that may be tweaked. */
+/* Keep the ring sizes a power of two for efficiency. */
 #define TX_RING_SIZE	16
 #define RX_RING_SIZE	16
-#define PKT_BUF_SZ		1536	
+#define PKT_BUF_SZ		1536	/* Size of each temporary Rx buffer. */
 
 #include <linux/module.h>
 #include <linux/isapnp.h>
@@ -74,13 +86,23 @@ MODULE_DESCRIPTION("3Com 3c515 Corkscrew driver");
 MODULE_LICENSE("GPL");
 MODULE_VERSION(DRV_VERSION);
 
+/* "Knobs" for adjusting internal parameters. */
+/* Put out somewhat more debugging messages. (0 - no msg, 1 minimal msgs). */
 #define DRIVER_DEBUG 1
+/* Some values here only for performance evaluation and path-coverage
+   debugging. */
 static int rx_nocopy, rx_copy, queued_packet;
 
+/* Number of times to check to see if the Tx FIFO has space, used in some
+   limited cases. */
 #define WAIT_TX_AVAIL 200
 
-#define TX_TIMEOUT  ((4*HZ)/10)	
+/* Operational parameter that usually are not changed. */
+#define TX_TIMEOUT  ((4*HZ)/10)	/* Time in jiffies before concluding Tx hung */
 
+/* The size here is somewhat misleading: the Corkscrew also uses the ISA
+   aliased registers at <base>+0x400.
+   */
 #define CORKSCREW_TOTAL_SIZE 0x20
 
 #ifdef DRIVER_DEBUG
@@ -91,7 +113,65 @@ static int corkscrew_debug = 1;
 
 #define CORKSCREW_ID 10
 
+/*
+				Theory of Operation
 
+I. Board Compatibility
+
+This device driver is designed for the 3Com 3c515 ISA Fast EtherLink XL,
+3Com's ISA bus adapter for Fast Ethernet.  Due to the unique I/O port layout,
+it's not practical to integrate this driver with the other EtherLink drivers.
+
+II. Board-specific settings
+
+The Corkscrew has an EEPROM for configuration, but no special settings are
+needed for Linux.
+
+III. Driver operation
+
+The 3c515 series use an interface that's very similar to the 3c900 "Boomerang"
+PCI cards, with the bus master interface extensively modified to work with
+the ISA bus.
+
+The card is capable of full-bus-master transfers with separate
+lists of transmit and receive descriptors, similar to the AMD LANCE/PCnet,
+DEC Tulip and Intel Speedo3.
+
+This driver uses a "RX_COPYBREAK" scheme rather than a fixed intermediate
+receive buffer.  This scheme allocates full-sized skbuffs as receive
+buffers.  The value RX_COPYBREAK is used as the copying breakpoint: it is
+chosen to trade-off the memory wasted by passing the full-sized skbuff to
+the queue layer for all frames vs. the copying cost of copying a frame to a
+correctly-sized skbuff.
+
+
+IIIC. Synchronization
+The driver runs as two independent, single-threaded flows of control.  One
+is the send-packet routine, which enforces single-threaded use by the netif
+layer.  The other thread is the interrupt handler, which is single
+threaded by the hardware and other software.
+
+IV. Notes
+
+Thanks to Terry Murphy of 3Com for providing documentation and a development
+board.
+
+The names "Vortex", "Boomerang" and "Corkscrew" are the internal 3Com
+project names.  I use these names to eliminate confusion -- 3Com product
+numbers and names are very similar and often confused.
+
+The new chips support both ethernet (1.5K) and FDDI (4.5K) frame sizes!
+This driver only supports ethernet frames because of the recent MTU limit
+of 1.5K, but the changes to support 4.5K are minimal.
+*/
+
+/* Operational definitions.
+   These are not used by other compilation units and thus are not
+   exported in a ".h" file.
+
+   First the windows.  There are eight register windows, with the command
+   and status registers available in each.
+   */
 #define EL3WINDOW(win_num) outw(SelectWindow + (win_num), ioaddr + EL3_CMD)
 #define EL3_CMD 0x0e
 #define EL3_STATUS 0x0e
@@ -115,46 +195,51 @@ enum corkscrew_cmd {
 	StatsDisable = 22 << 11, StopCoax = 23 << 11,
 };
 
+/* The SetRxFilter command accepts the following classes: */
 enum RxFilter {
 	RxStation = 1, RxMulticast = 2, RxBroadcast = 4, RxProm = 8
 };
 
+/* Bits in the general status register. */
 enum corkscrew_status {
 	IntLatch = 0x0001, AdapterFailure = 0x0002, TxComplete = 0x0004,
 	TxAvailable = 0x0008, RxComplete = 0x0010, RxEarly = 0x0020,
 	IntReq = 0x0040, StatsFull = 0x0080,
 	DMADone = 1 << 8, DownComplete = 1 << 9, UpComplete = 1 << 10,
-	DMAInProgress = 1 << 11,	
-	CmdInProgress = 1 << 12,	
+	DMAInProgress = 1 << 11,	/* DMA controller is still busy. */
+	CmdInProgress = 1 << 12,	/* EL3_CMD is still busy. */
 };
 
+/* Register window 1 offsets, the window used in normal operation.
+   On the Corkscrew this window is always mapped at offsets 0x10-0x1f. */
 enum Window1 {
 	TX_FIFO = 0x10, RX_FIFO = 0x10, RxErrors = 0x14,
 	RxStatus = 0x18, Timer = 0x1A, TxStatus = 0x1B,
-	TxFree = 0x1C,		
+	TxFree = 0x1C,		/* Remaining free bytes in Tx buffer. */
 };
 enum Window0 {
 	Wn0IRQ = 0x08,
 #if defined(CORKSCREW)
-	Wn0EepromCmd = 0x200A,	
-	Wn0EepromData = 0x200C,	
+	Wn0EepromCmd = 0x200A,	/* Corkscrew EEPROM command register. */
+	Wn0EepromData = 0x200C,	/* Corkscrew EEPROM results register. */
 #else
-	Wn0EepromCmd = 10,	
-	Wn0EepromData = 12,	
+	Wn0EepromCmd = 10,	/* Window 0: EEPROM command register. */
+	Wn0EepromData = 12,	/* Window 0: EEPROM results register. */
 #endif
 };
 enum Win0_EEPROM_bits {
 	EEPROM_Read = 0x80, EEPROM_WRITE = 0x40, EEPROM_ERASE = 0xC0,
-	EEPROM_EWENB = 0x30,	
-	EEPROM_EWDIS = 0x00,	
+	EEPROM_EWENB = 0x30,	/* Enable erasing/writing for 10 msec. */
+	EEPROM_EWDIS = 0x00,	/* Disable EWENB before 10 msec timeout. */
 };
 
+/* EEPROM locations. */
 enum eeprom_offset {
 	PhysAddr01 = 0, PhysAddr23 = 1, PhysAddr45 = 2, ModelID = 3,
 	EtherLink3ID = 7,
 };
 
-enum Window3 {			
+enum Window3 {			/* Window 3: MAC/config bits. */
 	Wn3_Config = 0, Wn3_MAC_Ctrl = 6, Wn3_Options = 8,
 };
 enum wn3_config {
@@ -170,24 +255,28 @@ enum wn3_config {
 };
 
 enum Window4 {
-	Wn4_NetDiag = 6, Wn4_Media = 10,	
+	Wn4_NetDiag = 6, Wn4_Media = 10,	/* Window 4: Xcvr/media bits. */
 };
 enum Win4_Media_bits {
-	Media_SQE = 0x0008,	
-	Media_10TP = 0x00C0,	
-	Media_Lnk = 0x0080,	
+	Media_SQE = 0x0008,	/* Enable SQE error counting for AUI. */
+	Media_10TP = 0x00C0,	/* Enable link beat and jabber for 10baseT. */
+	Media_Lnk = 0x0080,	/* Enable just link beat for 100TX/100FX. */
 	Media_LnkBeat = 0x0800,
 };
-enum Window7 {			
+enum Window7 {			/* Window 7: Bus Master control. */
 	Wn7_MasterAddr = 0, Wn7_MasterLen = 6, Wn7_MasterStatus = 12,
 };
 
+/* Boomerang-style bus master control registers.  Note ISA aliases! */
 enum MasterCtrl {
 	PktStatus = 0x400, DownListPtr = 0x404, FragAddr = 0x408, FragLen =
 	    0x40c,
 	TxFreeThreshold = 0x40f, UpPktStatus = 0x410, UpListPtr = 0x418,
 };
 
+/* The Rx and Tx descriptor lists.
+   Caution Alpha hackers: these types are 32 bits!  Note also the 8 byte
+   alignment contraint on tx_ring[] and rx_ring[]. */
 struct boom_rx_desc {
 	u32 next;
 	s32 status;
@@ -195,9 +284,10 @@ struct boom_rx_desc {
 	s32 length;
 };
 
+/* Values for the Rx status entry. */
 enum rx_desc_status {
 	RxDComplete = 0x00008000, RxDError = 0x4000,
-	
+	/* See boomerang_rx() for actual error bits */
 };
 
 struct boom_tx_desc {
@@ -211,29 +301,32 @@ struct corkscrew_private {
 	const char *product_name;
 	struct list_head list;
 	struct net_device *our_dev;
-	
+	/* The Rx and Tx rings are here to keep them quad-word-aligned. */
 	struct boom_rx_desc rx_ring[RX_RING_SIZE];
 	struct boom_tx_desc tx_ring[TX_RING_SIZE];
-	
+	/* The addresses of transmit- and receive-in-place skbuffs. */
 	struct sk_buff *rx_skbuff[RX_RING_SIZE];
 	struct sk_buff *tx_skbuff[TX_RING_SIZE];
-	unsigned int cur_rx, cur_tx;	
-	unsigned int dirty_rx, dirty_tx;
-	struct sk_buff *tx_skb;	
-	struct timer_list timer;	
-	int capabilities	;	
-	int options;			
-	int last_rx_packets;		
-	unsigned int available_media:8,	
-		media_override:3,	
-		default_media:3,	
-		full_duplex:1, autoselect:1, bus_master:1,	
-		full_bus_master_tx:1, full_bus_master_rx:1,	
+	unsigned int cur_rx, cur_tx;	/* The next free ring entry */
+	unsigned int dirty_rx, dirty_tx;/* The ring entries to be free()ed. */
+	struct sk_buff *tx_skb;	/* Packet being eaten by bus master ctrl.  */
+	struct timer_list timer;	/* Media selection timer. */
+	int capabilities	;	/* Adapter capabilities word. */
+	int options;			/* User-settable misc. driver options. */
+	int last_rx_packets;		/* For media autoselection. */
+	unsigned int available_media:8,	/* From Wn3_Options */
+		media_override:3,	/* Passed-in media type. */
+		default_media:3,	/* Read from the EEPROM. */
+		full_duplex:1, autoselect:1, bus_master:1,	/* Vortex can only do a fragment bus-m. */
+		full_bus_master_tx:1, full_bus_master_rx:1,	/* Boomerang  */
 		tx_full:1;
 	spinlock_t lock;
 	struct device *dev;
 };
 
+/* The action to take with a media selection timer tick.
+   Note that we deviate from the 3Com order by checking 10base2 before AUI.
+ */
 enum xcvr_types {
 	XCVR_10baseT = 0, XCVR_AUI, XCVR_10baseTOnly, XCVR_10base2, XCVR_100baseTx,
 	XCVR_100baseFx, XCVR_MII = 6, XCVR_Default = 8,
@@ -241,10 +334,10 @@ enum xcvr_types {
 
 static struct media_table {
 	char *name;
-	unsigned int media_bits:16,	
-		mask:8,			
-		next:8;			
-	short wait;			
+	unsigned int media_bits:16,	/* Bits to set in Wn4_Media register. */
+		mask:8,			/* The transceiver-present bit in Wn3_Config. */
+		next:8;			/* The media type to try next. */
+	short wait;			/* Time before we check media status. */
 } media_tbl[] = {
 	{ "10baseT", Media_10TP, 0x08, XCVR_10base2, (14 * HZ) / 10 },
 	{ "10Mbs AUI", Media_SQE, 0x20, XCVR_Default, (1 * HZ) / 10},
@@ -262,13 +355,13 @@ static struct isapnp_device_id corkscrew_isapnp_adapters[] = {
 	{	ISAPNP_ANY_ID, ISAPNP_ANY_ID,
 		ISAPNP_VENDOR('T', 'C', 'M'), ISAPNP_FUNCTION(0x5051),
 		(long) "3Com Fast EtherLink ISA" },
-	{ }	
+	{ }	/* terminate list */
 };
 
 MODULE_DEVICE_TABLE(isapnp, corkscrew_isapnp_adapters);
 
 static int nopnp;
-#endif 
+#endif /* __ISAPNP__ */
 
 static struct net_device *corkscrew_scan(int unit);
 static int corkscrew_setup(struct net_device *dev, int ioaddr,
@@ -288,6 +381,20 @@ static void set_rx_mode(struct net_device *dev);
 static const struct ethtool_ops netdev_ethtool_ops;
 
 
+/*
+   Unfortunately maximizing the shared code between the integrated and
+   module version of the driver results in a complicated set of initialization
+   procedures.
+   init_module() -- modules /  tc59x_init()  -- built-in
+		The wrappers for corkscrew_scan()
+   corkscrew_scan()  		 The common routine that scans for PCI and EISA cards
+   corkscrew_found_device() Allocate a device structure when we find a card.
+					Different versions exist for modules and built-in.
+   corkscrew_probe1()		Fill in the device structure -- this is separated
+					so that the modules code can put it in dev->init.
+*/
+/* This driver uses 'options' to pass the media type, full-duplex flag, etc. */
+/* Note: this is the only limit on the number of cards supported!! */
 static int options[MAX_UNITS] = { -1, -1, -1, -1, -1, -1, -1, -1, };
 
 #ifdef MODULE
@@ -302,6 +409,8 @@ MODULE_PARM_DESC(options, "3c515: Bits 0-2: media type, bit 3: full duplex, bit 
 MODULE_PARM_DESC(rx_copybreak, "3c515 copy breakpoint for copy-only-tiny-frames");
 MODULE_PARM_DESC(max_interrupt_work, "3c515 maximum events handled per interrupt");
 
+/* A list of all installed Vortex devices, for removing the driver module. */
+/* we will need locking (and refcounting) if we ever use it for more */
 static LIST_HEAD(root_corkscrew_dev);
 
 int init_module(void)
@@ -332,7 +441,7 @@ struct net_device *tc515_probe(int unit)
 
 	return dev;
 }
-#endif				
+#endif				/* not MODULE */
 
 static int check_device(unsigned ioaddr)
 {
@@ -340,14 +449,14 @@ static int check_device(unsigned ioaddr)
 
 	if (!request_region(ioaddr, CORKSCREW_TOTAL_SIZE, "3c515"))
 		return 0;
-	
+	/* Check the resource configuration for a matching ioaddr. */
 	if ((inw(ioaddr + 0x2002) & 0x1f0) != (ioaddr & 0x1f0)) {
 		release_region(ioaddr, CORKSCREW_TOTAL_SIZE);
 		return 0;
 	}
-	
+	/* Verify by reading the device ID from the EEPROM. */
 	outw(EEPROM_Read + 7, ioaddr + Wn0EepromCmd);
-	
+	/* Pause for at least 162 us. for the read to take place. */
 	for (timer = 4; timer >= 0; timer--) {
 		udelay(162);
 		if ((inw(ioaddr + Wn0EepromCmd) & 0x0200) == 0)
@@ -425,7 +534,7 @@ static struct net_device *corkscrew_scan(int unit)
 					(char*) corkscrew_isapnp_adapters[i].driver_data, ioaddr, irq);
 			pr_info("3c515 Resource configuration register %#4.4x, DCR %4.4x.\n",
 		     		inl(ioaddr + 0x2002), inw(ioaddr + 0x2000));
-			 
+			/* irq = inw(ioaddr + 0x2002) & 15; */ /* Use the irq from isapnp */
 			SET_NETDEV_DEV(dev, &idev->dev);
 			pnp_cards++;
 			err = corkscrew_setup(dev, ioaddr, idev, cards_found++);
@@ -435,9 +544,9 @@ static struct net_device *corkscrew_scan(int unit)
 		}
 	}
 no_pnp:
-#endif 
+#endif /* __ISAPNP__ */
 
-	
+	/* Check all locations on the ISA bus -- evil! */
 	for (ioaddr = 0x100; ioaddr < 0x400; ioaddr += 0x20) {
 		if (!check_device(ioaddr))
 			continue;
@@ -471,7 +580,7 @@ static int corkscrew_setup(struct net_device *dev, int ioaddr,
 			    struct pnp_dev *idev, int card_number)
 {
 	struct corkscrew_private *vp = netdev_priv(dev);
-	unsigned int eeprom[0x40], checksum = 0;	
+	unsigned int eeprom[0x40], checksum = 0;	/* EEPROM contents */
 	int i;
 	int irq;
 
@@ -519,13 +628,13 @@ static int corkscrew_setup(struct net_device *dev, int ioaddr,
 
 	spin_lock_init(&vp->lock);
 
-	
+	/* Read the station address from the EEPROM. */
 	EL3WINDOW(0);
 	for (i = 0; i < 0x18; i++) {
 		__be16 *phys_addr = (__be16 *) dev->dev_addr;
 		int timer;
 		outw(EEPROM_Read + i, ioaddr + Wn0EepromCmd);
-		
+		/* Pause for at least 162 us. for the read to take place. */
 		for (timer = 4; timer >= 0; timer--) {
 			udelay(162);
 			if ((inw(ioaddr + Wn0EepromCmd) & 0x0200) == 0)
@@ -540,7 +649,7 @@ static int corkscrew_setup(struct net_device *dev, int ioaddr,
 	if (checksum != 0x00)
 		pr_cont(" ***INVALID CHECKSUM %4.4x*** ", checksum);
 	pr_cont(" %pM", dev->dev_addr);
-	if (eeprom[16] == 0x11c7) {	
+	if (eeprom[16] == 0x11c7) {	/* Corkscrew */
 		if (request_dma(dev->dma, "3c515")) {
 			pr_cont(", DMA %d allocation failed", dev->dma);
 			dev->dma = 0;
@@ -548,7 +657,7 @@ static int corkscrew_setup(struct net_device *dev, int ioaddr,
 			pr_cont(", DMA %d", dev->dma);
 	}
 	pr_cont(", IRQ %d\n", dev->irq);
-	
+	/* Tell them about an invalid IRQ. */
 	if (corkscrew_debug && (dev->irq <= 0 || dev->irq > 15))
 		pr_warning(" *** Warning: this IRQ is unlikely to work! ***\n");
 
@@ -582,11 +691,11 @@ static int corkscrew_setup(struct net_device *dev, int ioaddr,
 
 	vp->capabilities = eeprom[16];
 	vp->full_bus_master_tx = (vp->capabilities & 0x20) ? 1 : 0;
-	
-	
+	/* Rx is broken at 10mbps, so we always disable it. */
+	/* vp->full_bus_master_rx = 0; */
 	vp->full_bus_master_rx = (vp->capabilities & 0x20) ? 1 : 0;
 
-	
+	/* The 3c51x-specific entries in the device structure. */
 	dev->netdev_ops = &netdev_ops;
 	dev->watchdog_timeo = (400 * HZ) / 1000;
 	dev->ethtool_ops = &netdev_ethtool_ops;
@@ -602,10 +711,10 @@ static int corkscrew_open(struct net_device *dev)
 	__u32 config;
 	int i;
 
-	
+	/* Before initializing select the active media port. */
 	EL3WINDOW(3);
 	if (vp->full_duplex)
-		outb(0x20, ioaddr + Wn3_MAC_Ctrl);	
+		outb(0x20, ioaddr + Wn3_MAC_Ctrl);	/* Set the full-duplex bit. */
 	config = inl(ioaddr + Wn3_Config);
 
 	if (vp->media_override != 7) {
@@ -615,7 +724,7 @@ static int corkscrew_open(struct net_device *dev)
 				media_tbl[vp->media_override].name);
 		dev->if_port = vp->media_override;
 	} else if (vp->autoselect) {
-		
+		/* Find first available media type, starting with 100baseTx. */
 		dev->if_port = 4;
 		while (!(vp->available_media & media_tbl[dev->if_port].mask))
 			dev->if_port = media_tbl[dev->if_port].next;
@@ -627,7 +736,7 @@ static int corkscrew_open(struct net_device *dev)
 		init_timer(&vp->timer);
 		vp->timer.expires = jiffies + media_tbl[dev->if_port].wait;
 		vp->timer.data = (unsigned long) dev;
-		vp->timer.function = corkscrew_timer;	
+		vp->timer.function = corkscrew_timer;	/* timer handler */
 		add_timer(&vp->timer);
 	} else
 		dev->if_port = vp->default_media;
@@ -646,16 +755,16 @@ static int corkscrew_open(struct net_device *dev)
 			break;
 
 	outw(RxReset, ioaddr + EL3_CMD);
-	
+	/* Wait a few ticks for the RxReset command to complete. */
 	for (i = 20; i >= 0; i--)
 		if (!(inw(ioaddr + EL3_STATUS) & CmdInProgress))
 			break;
 
 	outw(SetStatusEnb | 0x00, ioaddr + EL3_CMD);
 
-	
+	/* Use the now-standard shared IRQ implementation. */
 	if (vp->capabilities == 0x11c7) {
-		
+		/* Corkscrew: Cannot share ISA resources. */
 		if (dev->irq == 0 ||
 		    dev->dma == 0 ||
 		    request_irq(dev->irq, corkscrew_interrupt, 0,
@@ -674,7 +783,7 @@ static int corkscrew_open(struct net_device *dev)
 		       dev->name, dev->irq, inw(ioaddr + Wn4_Media));
 	}
 
-	
+	/* Set the station address and mask in window 2 each time opened. */
 	EL3WINDOW(2);
 	for (i = 0; i < 6; i++)
 		outb(dev->dev_addr[i], ioaddr + i);
@@ -682,29 +791,29 @@ static int corkscrew_open(struct net_device *dev)
 		outw(0, ioaddr + i);
 
 	if (dev->if_port == 3)
-		
+		/* Start the thinnet transceiver. We should really wait 50ms... */
 		outw(StartCoax, ioaddr + EL3_CMD);
 	EL3WINDOW(4);
 	outw((inw(ioaddr + Wn4_Media) & ~(Media_10TP | Media_SQE)) |
 	     media_tbl[dev->if_port].media_bits, ioaddr + Wn4_Media);
 
-	
+	/* Switch to the stats window, and clear all stats by reading. */
 	outw(StatsDisable, ioaddr + EL3_CMD);
 	EL3WINDOW(6);
 	for (i = 0; i < 10; i++)
 		inb(ioaddr + i);
 	inw(ioaddr + 10);
 	inw(ioaddr + 12);
-	
+	/* New: On the Vortex we must also clear the BadSSD counter. */
 	EL3WINDOW(4);
 	inb(ioaddr + 12);
-	
+	/* ..and on the Boomerang we enable the extra statistics bits. */
 	outw(0x0040, ioaddr + Wn4_NetDiag);
 
-	
+	/* Switch to register set 7 for normal use. */
 	EL3WINDOW(7);
 
-	if (vp->full_bus_master_rx) {	
+	if (vp->full_bus_master_rx) {	/* Boomerang bus master. */
 		vp->cur_rx = vp->dirty_rx = 0;
 		if (corkscrew_debug > 2)
 			pr_debug("%s:  Filling in the Rx ring.\n", dev->name);
@@ -715,42 +824,42 @@ static int corkscrew_open(struct net_device *dev)
 				    isa_virt_to_bus(&vp->rx_ring[i + 1]);
 			else
 				vp->rx_ring[i].next = 0;
-			vp->rx_ring[i].status = 0;	
+			vp->rx_ring[i].status = 0;	/* Clear complete bit. */
 			vp->rx_ring[i].length = PKT_BUF_SZ | 0x80000000;
 			skb = netdev_alloc_skb(dev, PKT_BUF_SZ);
 			vp->rx_skbuff[i] = skb;
 			if (skb == NULL)
-				break;	
-			skb_reserve(skb, 2);	
+				break;	/* Bad news!  */
+			skb_reserve(skb, 2);	/* Align IP on 16 byte boundaries */
 			vp->rx_ring[i].addr = isa_virt_to_bus(skb->data);
 		}
 		if (i != 0)
 			vp->rx_ring[i - 1].next =
-				isa_virt_to_bus(&vp->rx_ring[0]);	
+				isa_virt_to_bus(&vp->rx_ring[0]);	/* Wrap the ring. */
 		outl(isa_virt_to_bus(&vp->rx_ring[0]), ioaddr + UpListPtr);
 	}
-	if (vp->full_bus_master_tx) {	
+	if (vp->full_bus_master_tx) {	/* Boomerang bus master Tx. */
 		vp->cur_tx = vp->dirty_tx = 0;
-		outb(PKT_BUF_SZ >> 8, ioaddr + TxFreeThreshold);	
-		
+		outb(PKT_BUF_SZ >> 8, ioaddr + TxFreeThreshold);	/* Room for a packet. */
+		/* Clear the Tx ring. */
 		for (i = 0; i < TX_RING_SIZE; i++)
 			vp->tx_skbuff[i] = NULL;
 		outl(0, ioaddr + DownListPtr);
 	}
-	
+	/* Set receiver mode: presumably accept b-case and phys addr only. */
 	set_rx_mode(dev);
-	outw(StatsEnable, ioaddr + EL3_CMD);	
+	outw(StatsEnable, ioaddr + EL3_CMD);	/* Turn on statistics. */
 
 	netif_start_queue(dev);
 
-	outw(RxEnable, ioaddr + EL3_CMD);	
-	outw(TxEnable, ioaddr + EL3_CMD);	
-	
+	outw(RxEnable, ioaddr + EL3_CMD);	/* Enable the receiver. */
+	outw(TxEnable, ioaddr + EL3_CMD);	/* Enable transmitter. */
+	/* Allow status bits to be seen. */
 	outw(SetStatusEnb | AdapterFailure | IntReq | StatsFull |
 	     (vp->full_bus_master_tx ? DownComplete : TxAvailable) |
 	     (vp->full_bus_master_rx ? UpComplete : RxComplete) |
 	     (vp->bus_master ? DMADone : 0), ioaddr + EL3_CMD);
-	
+	/* Ack all pending events, and set active indicator mask. */
 	outw(AckIntr | IntLatch | TxAvailable | RxEarly | IntReq,
 	     ioaddr + EL3_CMD);
 	outw(SetIntrEnb | IntLatch | TxAvailable | RxComplete | StatsFull
@@ -783,7 +892,7 @@ static void corkscrew_timer(unsigned long data)
 		switch (dev->if_port) {
 		case 0:
 		case 4:
-		case 5:	
+		case 5:	/* 10baseT, 100baseTX, 100baseFX  */
 			if (media_status & Media_LnkBeat) {
 				ok = 1;
 				if (corkscrew_debug > 1)
@@ -798,7 +907,7 @@ static void corkscrew_timer(unsigned long data)
 					media_status);
 
 			break;
-		default:	
+		default:	/* Other media types handled by Tx timeouts. */
 			if (corkscrew_debug > 1)
 				pr_debug("%s: Media %s is has no indication, %x.\n",
 					dev->name,
@@ -815,7 +924,7 @@ static void corkscrew_timer(unsigned long data)
 			}
 			while (!(vp->available_media & media_tbl[dev->if_port].mask));
 
-			if (dev->if_port == 8) {	
+			if (dev->if_port == 8) {	/* Go back to default. */
 				dev->if_port = vp->default_media;
 				if (corkscrew_debug > 1)
 					pr_debug("%s: Media selection failing, using default %s port.\n",
@@ -849,7 +958,7 @@ static void corkscrew_timer(unsigned long data)
 		pr_debug("%s: Media selection timer finished, %s.\n",
 		       dev->name, media_tbl[dev->if_port].name);
 
-#endif				
+#endif				/* AUTOMEDIA */
 }
 
 static void corkscrew_timeout(struct net_device *dev)
@@ -861,7 +970,7 @@ static void corkscrew_timeout(struct net_device *dev)
 	pr_warning("%s: transmit timed out, tx_status %2.2x status %4.4x.\n",
 	       dev->name, inb(ioaddr + TxStatus),
 	       inw(ioaddr + EL3_STATUS));
-	
+	/* Slight code bloat to be user friendly. */
 	if ((inb(ioaddr + TxStatus) & 0x88) == 0x88)
 		pr_warning("%s: Transmitter encountered 16 collisions --"
 		       " network cable problem?\n", dev->name);
@@ -877,13 +986,13 @@ static void corkscrew_timeout(struct net_device *dev)
 		       vp->tx_ring[i].length, vp->tx_ring[i].status);
 	}
 #endif
-	
+	/* Issue TX_RESET and TX_START commands. */
 	outw(TxReset, ioaddr + EL3_CMD);
 	for (i = 20; i >= 0; i--)
 		if (!(inw(ioaddr + EL3_STATUS) & CmdInProgress))
 			break;
 	outw(TxEnable, ioaddr + EL3_CMD);
-	dev->trans_start = jiffies; 
+	dev->trans_start = jiffies; /* prevent tx timeout */
 	dev->stats.tx_errors++;
 	dev->stats.tx_dropped++;
 	netif_wake_queue(dev);
@@ -895,18 +1004,18 @@ static netdev_tx_t corkscrew_start_xmit(struct sk_buff *skb,
 	struct corkscrew_private *vp = netdev_priv(dev);
 	int ioaddr = dev->base_addr;
 
-	
+	/* Block a timer-based transmit from overlapping. */
 
 	netif_stop_queue(dev);
 
-	if (vp->full_bus_master_tx) {	
-		
+	if (vp->full_bus_master_tx) {	/* BOOMERANG bus-master */
+		/* Calculate the next Tx descriptor entry. */
 		int entry = vp->cur_tx % TX_RING_SIZE;
 		struct boom_tx_desc *prev_entry;
 		unsigned long flags;
 		int i;
 
-		if (vp->tx_full)	
+		if (vp->tx_full)	/* No room to transmit with */
 			return NETDEV_TX_BUSY;
 		if (vp->cur_tx != 0)
 			prev_entry = &vp->tx_ring[(vp->cur_tx - 1) % TX_RING_SIZE];
@@ -915,7 +1024,7 @@ static netdev_tx_t corkscrew_start_xmit(struct sk_buff *skb,
 		if (corkscrew_debug > 3)
 			pr_debug("%s: Trying to send a packet, Tx index %d.\n",
 				dev->name, vp->cur_tx);
-		
+		/* vp->tx_full = 1; */
 		vp->tx_skbuff[entry] = skb;
 		vp->tx_ring[entry].next = 0;
 		vp->tx_ring[entry].addr = isa_virt_to_bus(skb->data);
@@ -924,7 +1033,7 @@ static netdev_tx_t corkscrew_start_xmit(struct sk_buff *skb,
 
 		spin_lock_irqsave(&vp->lock, flags);
 		outw(DownStall, ioaddr + EL3_CMD);
-		
+		/* Wait for the stall to complete. */
 		for (i = 20; i >= 0; i--)
 			if ((inw(ioaddr + EL3_STATUS) & CmdInProgress) == 0)
 				break;
@@ -941,54 +1050,54 @@ static netdev_tx_t corkscrew_start_xmit(struct sk_buff *skb,
 		vp->cur_tx++;
 		if (vp->cur_tx - vp->dirty_tx > TX_RING_SIZE - 1)
 			vp->tx_full = 1;
-		else {		
+		else {		/* Clear previous interrupt enable. */
 			if (prev_entry)
 				prev_entry->status &= ~0x80000000;
 			netif_wake_queue(dev);
 		}
 		return NETDEV_TX_OK;
 	}
-	
+	/* Put out the doubleword header... */
 	outl(skb->len, ioaddr + TX_FIFO);
 	dev->stats.tx_bytes += skb->len;
 #ifdef VORTEX_BUS_MASTER
 	if (vp->bus_master) {
-		
+		/* Set the bus-master controller to transfer the packet. */
 		outl((int) (skb->data), ioaddr + Wn7_MasterAddr);
 		outw((skb->len + 3) & ~3, ioaddr + Wn7_MasterLen);
 		vp->tx_skb = skb;
 		outw(StartDMADown, ioaddr + EL3_CMD);
-		
+		/* queue will be woken at the DMADone interrupt. */
 	} else {
-		
+		/* ... and the packet rounded to a doubleword. */
 		outsl(ioaddr + TX_FIFO, skb->data, (skb->len + 3) >> 2);
 		dev_kfree_skb(skb);
 		if (inw(ioaddr + TxFree) > 1536) {
 			netif_wake_queue(dev);
 		} else
-			
+			/* Interrupt us when the FIFO has room for max-sized packet. */
 			outw(SetTxThreshold + (1536 >> 2),
 			     ioaddr + EL3_CMD);
 	}
 #else
-	
+	/* ... and the packet rounded to a doubleword. */
 	outsl(ioaddr + TX_FIFO, skb->data, (skb->len + 3) >> 2);
 	dev_kfree_skb(skb);
 	if (inw(ioaddr + TxFree) > 1536) {
 		netif_wake_queue(dev);
 	} else
-		
+		/* Interrupt us when the FIFO has room for max-sized packet. */
 		outw(SetTxThreshold + (1536 >> 2), ioaddr + EL3_CMD);
-#endif				
+#endif				/* bus master */
 
 
-	
+	/* Clear the Tx status stack. */
 	{
 		short tx_status;
 		int i = 4;
 
 		while (--i > 0 && (tx_status = inb(ioaddr + TxStatus)) > 0) {
-			if (tx_status & 0x3C) {	
+			if (tx_status & 0x3C) {	/* A Tx-disabling error occurred.  */
 				if (corkscrew_debug > 2)
 					pr_debug("%s: Tx error, status %2.2x.\n",
 						dev->name, tx_status);
@@ -1005,16 +1114,18 @@ static netdev_tx_t corkscrew_start_xmit(struct sk_buff *skb,
 				}
 				outw(TxEnable, ioaddr + EL3_CMD);
 			}
-			outb(0x00, ioaddr + TxStatus);	
+			outb(0x00, ioaddr + TxStatus);	/* Pop the status stack. */
 		}
 	}
 	return NETDEV_TX_OK;
 }
 
+/* The interrupt handler does all of the Rx thread work and cleans up
+   after the Tx thread. */
 
 static irqreturn_t corkscrew_interrupt(int irq, void *dev_id)
 {
-	
+	/* Use the now-standard shared IRQ implementation. */
 	struct net_device *dev = dev_id;
 	struct corkscrew_private *lp = netdev_priv(dev);
 	int ioaddr, status;
@@ -1033,6 +1144,9 @@ static irqreturn_t corkscrew_interrupt(int irq, void *dev_id)
 			dev->name, status, latency);
 	if ((status & 0xE000) != 0xE000) {
 		static int donedidthis;
+		/* Some interrupt controllers store a bogus interrupt from boot-time.
+		   Ignore a single early interrupt, but don't hang the machine for
+		   other interrupt problems. */
 		if (donedidthis++ > 100) {
 			pr_err("%s: Bogus interrupt, bailing. Status %4.4x, start=%d.\n",
 				   dev->name, status, netif_running(dev));
@@ -1051,7 +1165,7 @@ static irqreturn_t corkscrew_interrupt(int irq, void *dev_id)
 		if (status & TxAvailable) {
 			if (corkscrew_debug > 5)
 				pr_debug("	TX room bit was handled.\n");
-			
+			/* There's room in the FIFO for a full-sized packet. */
 			outw(AckIntr | TxAvailable, ioaddr + EL3_CMD);
 			netif_wake_queue(dev);
 		}
@@ -1061,7 +1175,7 @@ static irqreturn_t corkscrew_interrupt(int irq, void *dev_id)
 			while (lp->cur_tx - dirty_tx > 0) {
 				int entry = dirty_tx % TX_RING_SIZE;
 				if (inl(ioaddr + DownListPtr) == isa_virt_to_bus(&lp->tx_ring[entry]))
-					break;	
+					break;	/* It still hasn't been processed. */
 				if (lp->tx_skbuff[entry]) {
 					dev_kfree_skb_irq(lp->tx_skbuff[entry]);
 					lp->tx_skbuff[entry] = NULL;
@@ -1077,8 +1191,8 @@ static irqreturn_t corkscrew_interrupt(int irq, void *dev_id)
 		}
 #ifdef VORTEX_BUS_MASTER
 		if (status & DMADone) {
-			outw(0x1000, ioaddr + Wn7_MasterStatus);	
-			dev_kfree_skb_irq(lp->tx_skb);	
+			outw(0x1000, ioaddr + Wn7_MasterStatus);	/* Ack the event. */
+			dev_kfree_skb_irq(lp->tx_skb);	/* Release the transferred buffer */
 			netif_wake_queue(dev);
 		}
 #endif
@@ -1087,18 +1201,18 @@ static irqreturn_t corkscrew_interrupt(int irq, void *dev_id)
 			outw(AckIntr | UpComplete, ioaddr + EL3_CMD);
 		}
 		if (status & (AdapterFailure | RxEarly | StatsFull)) {
-			
-			if (status & RxEarly) {	
+			/* Handle all uncommon interrupts at once. */
+			if (status & RxEarly) {	/* Rx early is unused. */
 				corkscrew_rx(dev);
 				outw(AckIntr | RxEarly, ioaddr + EL3_CMD);
 			}
-			if (status & StatsFull) {	
+			if (status & StatsFull) {	/* Empty statistics. */
 				static int DoneDidThat;
 				if (corkscrew_debug > 4)
 					pr_debug("%s: Updating stats.\n", dev->name);
 				update_stats(ioaddr, dev);
-				
-				
+				/* DEBUG HACK: Disable statistics as an interrupt source. */
+				/* This occurs when we have the wrong media type! */
 				if (DoneDidThat == 0 && inw(ioaddr + EL3_STATUS) & StatsFull) {
 					int win, reg;
 					pr_notice("%s: Updating stats failed, disabling stats as an interrupt source.\n",
@@ -1119,11 +1233,11 @@ static irqreturn_t corkscrew_interrupt(int irq, void *dev_id)
 				}
 			}
 			if (status & AdapterFailure) {
-				
+				/* Adapter failure requires Rx reset and reinit. */
 				outw(RxReset, ioaddr + EL3_CMD);
-				
+				/* Set the Rx filter to the current state. */
 				set_rx_mode(dev);
-				outw(RxEnable, ioaddr + EL3_CMD);	
+				outw(RxEnable, ioaddr + EL3_CMD);	/* Re-enable the receiver. */
 				outw(AckIntr | AdapterFailure,
 				     ioaddr + EL3_CMD);
 			}
@@ -1132,12 +1246,12 @@ static irqreturn_t corkscrew_interrupt(int irq, void *dev_id)
 		if (--i < 0) {
 			pr_err("%s: Too much work in interrupt, status %4.4x. Disabling functions (%4.4x).\n",
 				dev->name, status, SetStatusEnb | ((~status) & 0x7FE));
-			
+			/* Disable all pending interrupts. */
 			outw(SetStatusEnb | ((~status) & 0x7FE), ioaddr + EL3_CMD);
 			outw(AckIntr | 0x7FF, ioaddr + EL3_CMD);
 			break;
 		}
-		
+		/* Acknowledge the IRQ. */
 		outw(AckIntr | IntReq | IntLatch, ioaddr + EL3_CMD);
 
 	} while ((status = inw(ioaddr + EL3_STATUS)) & (IntLatch | RxComplete));
@@ -1159,7 +1273,7 @@ static int corkscrew_rx(struct net_device *dev)
 		pr_debug("   In rx_packet(), status %4.4x, rx_status %4.4x.\n",
 		     inw(ioaddr + EL3_STATUS), inw(ioaddr + RxStatus));
 	while ((rx_status = inw(ioaddr + RxStatus)) > 0) {
-		if (rx_status & 0x4000) {	
+		if (rx_status & 0x4000) {	/* Error, update stats. */
 			unsigned char rx_error = inb(ioaddr + RxErrors);
 			if (corkscrew_debug > 2)
 				pr_debug(" Rx error: status %2.2x.\n",
@@ -1176,7 +1290,7 @@ static int corkscrew_rx(struct net_device *dev)
 			if (rx_error & 0x10)
 				dev->stats.rx_length_errors++;
 		} else {
-			
+			/* The packet length: up to 4.5K!. */
 			short pkt_len = rx_status & 0x1fff;
 			struct sk_buff *skb;
 
@@ -1185,17 +1299,17 @@ static int corkscrew_rx(struct net_device *dev)
 				pr_debug("Receiving packet size %d status %4.4x.\n",
 				     pkt_len, rx_status);
 			if (skb != NULL) {
-				skb_reserve(skb, 2);	
-				
+				skb_reserve(skb, 2);	/* Align IP on 16 byte boundaries */
+				/* 'skb_put()' points to the start of sk_buff data area. */
 				insl(ioaddr + RX_FIFO,
 				     skb_put(skb, pkt_len),
 				     (pkt_len + 3) >> 2);
-				outw(RxDiscard, ioaddr + EL3_CMD);	
+				outw(RxDiscard, ioaddr + EL3_CMD);	/* Pop top Rx packet. */
 				skb->protocol = eth_type_trans(skb, dev);
 				netif_rx(skb);
 				dev->stats.rx_packets++;
 				dev->stats.rx_bytes += pkt_len;
-				
+				/* Wait a limited time to go to next packet. */
 				for (i = 200; i >= 0; i--)
 					if (! (inw(ioaddr + EL3_STATUS) & CmdInProgress))
 						break;
@@ -1205,7 +1319,7 @@ static int corkscrew_rx(struct net_device *dev)
 		}
 		outw(RxDiscard, ioaddr + EL3_CMD);
 		dev->stats.rx_dropped++;
-		
+		/* Wait a limited time to skip this packet. */
 		for (i = 200; i >= 0; i--)
 			if (!(inw(ioaddr + EL3_STATUS) & CmdInProgress))
 				break;
@@ -1224,7 +1338,7 @@ static int boomerang_rx(struct net_device *dev)
 		pr_debug("   In boomerang_rx(), status %4.4x, rx_status %4.4x.\n",
 			inw(ioaddr + EL3_STATUS), inw(ioaddr + RxStatus));
 	while ((rx_status = vp->rx_ring[entry].status) & RxDComplete) {
-		if (rx_status & RxDError) {	
+		if (rx_status & RxDError) {	/* Error, update stats. */
 			unsigned char rx_error = rx_status >> 16;
 			if (corkscrew_debug > 2)
 				pr_debug(" Rx error: status %2.2x.\n",
@@ -1241,7 +1355,7 @@ static int boomerang_rx(struct net_device *dev)
 			if (rx_error & 0x10)
 				dev->stats.rx_length_errors++;
 		} else {
-			
+			/* The packet length: up to 4.5K!. */
 			short pkt_len = rx_status & 0x1fff;
 			struct sk_buff *skb;
 
@@ -1250,21 +1364,23 @@ static int boomerang_rx(struct net_device *dev)
 				pr_debug("Receiving packet size %d status %4.4x.\n",
 				     pkt_len, rx_status);
 
+			/* Check if the packet is long enough to just accept without
+			   copying to a properly sized skbuff. */
 			if (pkt_len < rx_copybreak &&
 			    (skb = netdev_alloc_skb(dev, pkt_len + 4)) != NULL) {
-				skb_reserve(skb, 2);	
-				
+				skb_reserve(skb, 2);	/* Align IP on 16 byte boundaries */
+				/* 'skb_put()' points to the start of sk_buff data area. */
 				memcpy(skb_put(skb, pkt_len),
 				       isa_bus_to_virt(vp->rx_ring[entry].
 						   addr), pkt_len);
 				rx_copy++;
 			} else {
 				void *temp;
-				
+				/* Pass up the skbuff already on the Rx ring. */
 				skb = vp->rx_skbuff[entry];
 				vp->rx_skbuff[entry] = NULL;
 				temp = skb_put(skb, pkt_len);
-				
+				/* Remove this checking code for final release. */
 				if (isa_bus_to_virt(vp->rx_ring[entry].addr) != temp)
 					pr_warning("%s: Warning -- the skbuff addresses do not match"
 					     " in boomerang_rx: %p vs. %p / %p.\n",
@@ -1281,19 +1397,19 @@ static int boomerang_rx(struct net_device *dev)
 		}
 		entry = (++vp->cur_rx) % RX_RING_SIZE;
 	}
-	
+	/* Refill the Rx ring buffers. */
 	for (; vp->cur_rx - vp->dirty_rx > 0; vp->dirty_rx++) {
 		struct sk_buff *skb;
 		entry = vp->dirty_rx % RX_RING_SIZE;
 		if (vp->rx_skbuff[entry] == NULL) {
 			skb = netdev_alloc_skb(dev, PKT_BUF_SZ);
 			if (skb == NULL)
-				break;	
-			skb_reserve(skb, 2);	
+				break;	/* Bad news!  */
+			skb_reserve(skb, 2);	/* Align IP on 16 byte boundaries */
 			vp->rx_ring[entry].addr = isa_virt_to_bus(skb->data);
 			vp->rx_skbuff[entry] = skb;
 		}
-		vp->rx_ring[entry].status = 0;	
+		vp->rx_ring[entry].status = 0;	/* Clear complete bit. */
 	}
 	return 0;
 }
@@ -1316,15 +1432,15 @@ static int corkscrew_close(struct net_device *dev)
 
 	del_timer(&vp->timer);
 
-	
+	/* Turn off statistics ASAP.  We update lp->stats below. */
 	outw(StatsDisable, ioaddr + EL3_CMD);
 
-	
+	/* Disable the receiver and transmitter. */
 	outw(RxDisable, ioaddr + EL3_CMD);
 	outw(TxDisable, ioaddr + EL3_CMD);
 
 	if (dev->if_port == XCVR_10base2)
-		
+		/* Turn off thinnet power.  Green! */
 		outw(StopCoax, ioaddr + EL3_CMD);
 
 	free_irq(dev->irq, dev);
@@ -1332,7 +1448,7 @@ static int corkscrew_close(struct net_device *dev)
 	outw(SetIntrEnb | 0x0000, ioaddr + EL3_CMD);
 
 	update_stats(ioaddr, dev);
-	if (vp->full_bus_master_rx) {	
+	if (vp->full_bus_master_rx) {	/* Free Boomerang bus master Rx buffers. */
 		outl(0, ioaddr + UpListPtr);
 		for (i = 0; i < RX_RING_SIZE; i++)
 			if (vp->rx_skbuff[i]) {
@@ -1340,7 +1456,7 @@ static int corkscrew_close(struct net_device *dev)
 				vp->rx_skbuff[i] = NULL;
 			}
 	}
-	if (vp->full_bus_master_tx) {	
+	if (vp->full_bus_master_tx) {	/* Free Boomerang bus master Tx buffers. */
 		outl(0, ioaddr + DownListPtr);
 		for (i = 0; i < TX_RING_SIZE; i++)
 			if (vp->tx_skbuff[i]) {
@@ -1365,32 +1481,46 @@ static struct net_device_stats *corkscrew_get_stats(struct net_device *dev)
 	return &dev->stats;
 }
 
+/*  Update statistics.
+	Unlike with the EL3 we need not worry about interrupts changing
+	the window setting from underneath us, but we must still guard
+	against a race condition with a StatsUpdate interrupt updating the
+	table.  This is done by checking that the ASM (!) code generated uses
+	atomic updates with '+='.
+	*/
 static void update_stats(int ioaddr, struct net_device *dev)
 {
-	
-	
+	/* Unlike the 3c5x9 we need not turn off stats updates while reading. */
+	/* Switch to the stats window, and read everything. */
 	EL3WINDOW(6);
 	dev->stats.tx_carrier_errors += inb(ioaddr + 0);
 	dev->stats.tx_heartbeat_errors += inb(ioaddr + 1);
-	 inb(ioaddr + 2);
+	/* Multiple collisions. */ inb(ioaddr + 2);
 	dev->stats.collisions += inb(ioaddr + 3);
 	dev->stats.tx_window_errors += inb(ioaddr + 4);
 	dev->stats.rx_fifo_errors += inb(ioaddr + 5);
 	dev->stats.tx_packets += inb(ioaddr + 6);
 	dev->stats.tx_packets += (inb(ioaddr + 9) & 0x30) << 4;
-						 inb(ioaddr + 7);
-						
-	 inb(ioaddr + 8);
-	inw(ioaddr + 10);	
+						/* Rx packets   */ inb(ioaddr + 7);
+						/* Must read to clear */
+	/* Tx deferrals */ inb(ioaddr + 8);
+	/* Don't bother with register 9, an extension of registers 6&7.
+	   If we do use the 6&7 values the atomic update assumption above
+	   is invalid. */
+	inw(ioaddr + 10);	/* Total Rx and Tx octets. */
 	inw(ioaddr + 12);
-	
+	/* New: On the Vortex we must also clear the BadSSD counter. */
 	EL3WINDOW(4);
 	inb(ioaddr + 12);
 
-	
+	/* We change back to window 7 (not 1) with the Vortex. */
 	EL3WINDOW(7);
 }
 
+/* This new version of set_rx_mode() supports v1.4 kernels.
+   The Vortex chip has no documented multicast filter, so the only
+   multicast setting is to receive all multicast frames.  At least
+   the chip has a very clean way to set the mode, unlike many others. */
 static void set_rx_mode(struct net_device *dev)
 {
 	int ioaddr = dev->base_addr;
@@ -1449,4 +1579,4 @@ void cleanup_module(void)
 		free_netdev(dev);
 	}
 }
-#endif				
+#endif				/* MODULE */

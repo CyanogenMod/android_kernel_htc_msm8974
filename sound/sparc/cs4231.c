@@ -37,8 +37,9 @@
 #include <asm/ebus_dma.h>
 #endif
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+/* Enable this card */
 static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;
 
 module_param_array(index, int, NULL, 0444);
@@ -54,7 +55,7 @@ MODULE_SUPPORTED_DEVICE("{{Sun,CS4231}}");
 
 #ifdef SBUS_SUPPORT
 struct sbus_dma_info {
-       spinlock_t	lock;	
+       spinlock_t	lock;	/* DMA access lock */
        int		dir;
        void __iomem	*regs;
 };
@@ -77,7 +78,7 @@ struct cs4231_dma_control {
 };
 
 struct snd_cs4231 {
-	spinlock_t		lock;	
+	spinlock_t		lock;	/* registers access lock */
 	void __iomem		*port;
 
 	struct cs4231_dma_control	p_dma;
@@ -104,11 +105,11 @@ struct snd_cs4231 {
 #define CS4231_MODE_OPEN	(CS4231_MODE_PLAY | CS4231_MODE_RECORD | \
 				 CS4231_MODE_TIMER)
 
-	unsigned char		image[32];	
+	unsigned char		image[32];	/* registers image */
 	int			mce_bit;
 	int			calibrate_mute;
-	struct mutex		mce_mutex;	
-	struct mutex		open_mutex;	
+	struct mutex		mce_mutex;	/* mutex for mce register */
+	struct mutex		open_mutex;	/* mutex for ALSA open/close */
 
 	struct platform_device	*op;
 	unsigned int		irq[2];
@@ -116,75 +117,87 @@ struct snd_cs4231 {
 	struct snd_cs4231	*next;
 };
 
+/* Eventually we can use sound/isa/cs423x/cs4231_lib.c directly, but for
+ * now....  -DaveM
+ */
 
+/* IO ports */
 #include <sound/cs4231-regs.h>
 
+/* XXX offsets are different than PC ISA chips... */
 #define CS4231U(chip, x)	((chip)->port + ((c_d_c_CS4231##x) << 2))
 
+/* SBUS DMA register defines.  */
 
-#define APCCSR	0x10UL	
-#define APCCVA	0x20UL	
-#define APCCC	0x24UL	
-#define APCCNVA	0x28UL	
-#define APCCNC	0x2cUL	
-#define APCPVA	0x30UL	
-#define APCPC	0x34UL	
-#define APCPNVA	0x38UL	
-#define APCPNC	0x3cUL	
+#define APCCSR	0x10UL	/* APC DMA CSR */
+#define APCCVA	0x20UL	/* APC Capture DMA Address */
+#define APCCC	0x24UL	/* APC Capture Count */
+#define APCCNVA	0x28UL	/* APC Capture DMA Next Address */
+#define APCCNC	0x2cUL	/* APC Capture Next Count */
+#define APCPVA	0x30UL	/* APC Play DMA Address */
+#define APCPC	0x34UL	/* APC Play Count */
+#define APCPNVA	0x38UL	/* APC Play DMA Next Address */
+#define APCPNC	0x3cUL	/* APC Play Next Count */
 
+/* Defines for SBUS DMA-routines */
 
-#define APCVA  0x0UL	
-#define APCC   0x4UL	
-#define APCNVA 0x8UL	
-#define APCNC  0xcUL	
-#define APC_PLAY 0x30UL	
-#define APC_RECORD 0x20UL 
+#define APCVA  0x0UL	/* APC DMA Address */
+#define APCC   0x4UL	/* APC Count */
+#define APCNVA 0x8UL	/* APC DMA Next Address */
+#define APCNC  0xcUL	/* APC Next Count */
+#define APC_PLAY 0x30UL	/* Play registers start at 0x30 */
+#define APC_RECORD 0x20UL /* Record registers start at 0x20 */
 
+/* APCCSR bits */
 
-#define APC_INT_PENDING 0x800000 
-#define APC_PLAY_INT    0x400000 
-#define APC_CAPT_INT    0x200000 
-#define APC_GENL_INT    0x100000 
-#define APC_XINT_ENA    0x80000  
-#define APC_XINT_PLAY   0x40000  
-#define APC_XINT_CAPT   0x20000  
-#define APC_XINT_GENL   0x10000  
-#define APC_XINT_EMPT   0x8000   
-#define APC_XINT_PEMP   0x4000   
-#define APC_XINT_PNVA   0x2000   
-#define APC_XINT_PENA   0x1000   
-#define APC_XINT_COVF   0x800    
-#define APC_XINT_CNVA   0x400    
-#define APC_XINT_CEMP   0x200    
-#define APC_XINT_CENA   0x100    
-#define APC_PPAUSE      0x80     
-#define APC_CPAUSE      0x40     
-#define APC_CDC_RESET   0x20     
-#define APC_PDMA_READY  0x08     
-#define APC_CDMA_READY  0x04     
-#define APC_CHIP_RESET  0x01     
+#define APC_INT_PENDING 0x800000 /* Interrupt Pending */
+#define APC_PLAY_INT    0x400000 /* Playback interrupt */
+#define APC_CAPT_INT    0x200000 /* Capture interrupt */
+#define APC_GENL_INT    0x100000 /* General interrupt */
+#define APC_XINT_ENA    0x80000  /* General ext int. enable */
+#define APC_XINT_PLAY   0x40000  /* Playback ext intr */
+#define APC_XINT_CAPT   0x20000  /* Capture ext intr */
+#define APC_XINT_GENL   0x10000  /* Error ext intr */
+#define APC_XINT_EMPT   0x8000   /* Pipe empty interrupt (0 write to pva) */
+#define APC_XINT_PEMP   0x4000   /* Play pipe empty (pva and pnva not set) */
+#define APC_XINT_PNVA   0x2000   /* Playback NVA dirty */
+#define APC_XINT_PENA   0x1000   /* play pipe empty Int enable */
+#define APC_XINT_COVF   0x800    /* Cap data dropped on floor */
+#define APC_XINT_CNVA   0x400    /* Capture NVA dirty */
+#define APC_XINT_CEMP   0x200    /* Capture pipe empty (cva and cnva not set) */
+#define APC_XINT_CENA   0x100    /* Cap. pipe empty int enable */
+#define APC_PPAUSE      0x80     /* Pause the play DMA */
+#define APC_CPAUSE      0x40     /* Pause the capture DMA */
+#define APC_CDC_RESET   0x20     /* CODEC RESET */
+#define APC_PDMA_READY  0x08     /* Play DMA Go */
+#define APC_CDMA_READY  0x04     /* Capture DMA Go */
+#define APC_CHIP_RESET  0x01     /* Reset the chip */
 
+/* EBUS DMA register offsets  */
 
-#define EBDMA_CSR	0x00UL	
-#define EBDMA_ADDR	0x04UL	
-#define EBDMA_COUNT	0x08UL	
+#define EBDMA_CSR	0x00UL	/* Control/Status */
+#define EBDMA_ADDR	0x04UL	/* DMA Address */
+#define EBDMA_COUNT	0x08UL	/* DMA Count */
 
+/*
+ *  Some variables
+ */
 
 static unsigned char freq_bits[14] = {
-		0x00 | CS4231_XTAL2,
-		0x0E | CS4231_XTAL2,
-		0x00 | CS4231_XTAL1,
-		0x0E | CS4231_XTAL1,
-		0x02 | CS4231_XTAL2,
-		0x02 | CS4231_XTAL1,
-		0x04 | CS4231_XTAL2,
-		0x06 | CS4231_XTAL2,
-		0x04 | CS4231_XTAL1,
-		0x06 | CS4231_XTAL1,
-		0x0C | CS4231_XTAL2,
-		0x08 | CS4231_XTAL2,
-		0x0A | CS4231_XTAL2,
-		0x0C | CS4231_XTAL1
+	/* 5510 */	0x00 | CS4231_XTAL2,
+	/* 6620 */	0x0E | CS4231_XTAL2,
+	/* 8000 */	0x00 | CS4231_XTAL1,
+	/* 9600 */	0x0E | CS4231_XTAL1,
+	/* 11025 */	0x02 | CS4231_XTAL2,
+	/* 16000 */	0x02 | CS4231_XTAL1,
+	/* 18900 */	0x04 | CS4231_XTAL2,
+	/* 22050 */	0x06 | CS4231_XTAL2,
+	/* 27042 */	0x04 | CS4231_XTAL1,
+	/* 32000 */	0x06 | CS4231_XTAL1,
+	/* 33075 */	0x0C | CS4231_XTAL2,
+	/* 37800 */	0x08 | CS4231_XTAL2,
+	/* 44100 */	0x0A | CS4231_XTAL2,
+	/* 48000 */	0x0C | CS4231_XTAL1
 };
 
 static unsigned int rates[14] = {
@@ -206,38 +219,38 @@ static int snd_cs4231_xrate(struct snd_pcm_runtime *runtime)
 
 static unsigned char snd_cs4231_original_image[32] =
 {
-	0x00,			
-	0x00,			
-	0x9f,			
-	0x9f,			
-	0x9f,			
-	0x9f,			
-	0xbf,			
-	0xbf,			
-	0x20,			
-	CS4231_AUTOCALIB,	
-	0x00,			
-	0x00,			
-	CS4231_MODE2,		
-	0x00,			
-	0x00,			
-	0x00,			
-	0x80,			
-	0x01,			
-	0x9f,			
-	0x9f,			
-	0x00,			
-	0x00,			
-	0x00,			
-	0x00,			
-	0x00,			
-	0x00,			
-	0x00,			
-	0x00,			
-	0x20,			
-	0x00,			
-	0x00,			
-	0x00,			
+	0x00,			/* 00/00 - lic */
+	0x00,			/* 01/01 - ric */
+	0x9f,			/* 02/02 - la1ic */
+	0x9f,			/* 03/03 - ra1ic */
+	0x9f,			/* 04/04 - la2ic */
+	0x9f,			/* 05/05 - ra2ic */
+	0xbf,			/* 06/06 - loc */
+	0xbf,			/* 07/07 - roc */
+	0x20,			/* 08/08 - pdfr */
+	CS4231_AUTOCALIB,	/* 09/09 - ic */
+	0x00,			/* 0a/10 - pc */
+	0x00,			/* 0b/11 - ti */
+	CS4231_MODE2,		/* 0c/12 - mi */
+	0x00,			/* 0d/13 - lbc */
+	0x00,			/* 0e/14 - pbru */
+	0x00,			/* 0f/15 - pbrl */
+	0x80,			/* 10/16 - afei */
+	0x01,			/* 11/17 - afeii */
+	0x9f,			/* 12/18 - llic */
+	0x9f,			/* 13/19 - rlic */
+	0x00,			/* 14/20 - tlb */
+	0x00,			/* 15/21 - thb */
+	0x00,			/* 16/22 - la3mic/reserved */
+	0x00,			/* 17/23 - ra3mic/reserved */
+	0x00,			/* 18/24 - afs */
+	0x00,			/* 19/25 - lamoc/version */
+	0x00,			/* 1a/26 - mioc */
+	0x00,			/* 1b/27 - ramoc/reserved */
+	0x20,			/* 1c/28 - cdfr */
+	0x00,			/* 1d/29 - res4 */
+	0x00,			/* 1e/30 - cbru */
+	0x00,			/* 1f/31 - cbrl */
 };
 
 static u8 __cs4231_readb(struct snd_cs4231 *cp, void __iomem *reg_addr)
@@ -257,6 +270,9 @@ static void __cs4231_writeb(struct snd_cs4231 *cp, u8 val,
 		return sbus_writeb(val, reg_addr);
 }
 
+/*
+ *  Basic I/O functions
+ */
 
 static void snd_cs4231_ready(struct snd_cs4231 *chip)
 {
@@ -317,16 +333,19 @@ static unsigned char snd_cs4231_in(struct snd_cs4231 *chip, unsigned char reg)
 	return __cs4231_readb(chip, CS4231U(chip, REG));
 }
 
+/*
+ *  CS4231 detection / MCE routines
+ */
 
 static void snd_cs4231_busy_wait(struct snd_cs4231 *chip)
 {
 	int timeout;
 
-	
+	/* looks like this sequence is proper for CS4231A chip (GUS MAX) */
 	for (timeout = 5; timeout > 0; timeout--)
 		__cs4231_readb(chip, CS4231U(chip, REGSEL));
 
-	
+	/* end of cleanup sequence */
 	for (timeout = 500; timeout > 0; timeout--) {
 		int val = __cs4231_readb(chip, CS4231U(chip, REGSEL));
 		if ((val & CS4231_INIT) == 0)
@@ -382,6 +401,9 @@ static void snd_cs4231_mce_down(struct snd_cs4231 *chip)
 		return;
 	}
 
+	/*
+	 * Wait for auto-calibration (AC) process to finish, i.e. ACI to go low.
+	 */
 	timeout = jiffies + msecs_to_jiffies(250);
 	do {
 		spin_unlock_irqrestore(&chip->lock, flags);
@@ -492,6 +514,9 @@ static int snd_cs4231_trigger(struct snd_pcm_substream *substream, int cmd)
 	return result;
 }
 
+/*
+ *  CODEC I/O
+ */
 
 static unsigned char snd_cs4231_get_rate(unsigned int rate)
 {
@@ -626,6 +651,9 @@ static void snd_cs4231_capture_format(struct snd_cs4231 *chip,
 	mutex_unlock(&chip->mce_mutex);
 }
 
+/*
+ *  Timer interface
+ */
 
 static unsigned long snd_cs4231_timer_resolution(struct snd_timer *timer)
 {
@@ -752,14 +780,14 @@ static int snd_cs4231_open(struct snd_cs4231 *chip, unsigned int mode)
 		mutex_unlock(&chip->open_mutex);
 		return 0;
 	}
-	
+	/* ok. now enable and ack CODEC IRQ */
 	spin_lock_irqsave(&chip->lock, flags);
 	snd_cs4231_out(chip, CS4231_IRQ_STATUS, CS4231_PLAYBACK_IRQ |
 		       CS4231_RECORD_IRQ |
 		       CS4231_TIMER_IRQ);
 	snd_cs4231_out(chip, CS4231_IRQ_STATUS, 0);
-	__cs4231_writeb(chip, 0, CS4231U(chip, STATUS));	
-	__cs4231_writeb(chip, 0, CS4231U(chip, STATUS));	
+	__cs4231_writeb(chip, 0, CS4231U(chip, STATUS));	/* clear IRQ */
+	__cs4231_writeb(chip, 0, CS4231U(chip, STATUS));	/* clear IRQ */
 
 	snd_cs4231_out(chip, CS4231_IRQ_STATUS, CS4231_PLAYBACK_IRQ |
 		       CS4231_RECORD_IRQ |
@@ -785,13 +813,13 @@ static void snd_cs4231_close(struct snd_cs4231 *chip, unsigned int mode)
 	}
 	snd_cs4231_calibrate_mute(chip, 1);
 
-	
+	/* disable IRQ */
 	spin_lock_irqsave(&chip->lock, flags);
 	snd_cs4231_out(chip, CS4231_IRQ_STATUS, 0);
-	__cs4231_writeb(chip, 0, CS4231U(chip, STATUS));	
-	__cs4231_writeb(chip, 0, CS4231U(chip, STATUS));	
+	__cs4231_writeb(chip, 0, CS4231U(chip, STATUS));	/* clear IRQ */
+	__cs4231_writeb(chip, 0, CS4231U(chip, STATUS));	/* clear IRQ */
 
-	
+	/* now disable record & playback */
 
 	if (chip->image[CS4231_IFACE_CTRL] &
 	    (CS4231_PLAYBACK_ENABLE | CS4231_PLAYBACK_PIO |
@@ -809,10 +837,10 @@ static void snd_cs4231_close(struct snd_cs4231 *chip, unsigned int mode)
 		spin_lock_irqsave(&chip->lock, flags);
 	}
 
-	
+	/* clear IRQ again */
 	snd_cs4231_out(chip, CS4231_IRQ_STATUS, 0);
-	__cs4231_writeb(chip, 0, CS4231U(chip, STATUS));	
-	__cs4231_writeb(chip, 0, CS4231U(chip, STATUS));	
+	__cs4231_writeb(chip, 0, CS4231U(chip, STATUS));	/* clear IRQ */
+	__cs4231_writeb(chip, 0, CS4231U(chip, STATUS));	/* clear IRQ */
 	spin_unlock_irqrestore(&chip->lock, flags);
 
 	snd_cs4231_calibrate_mute(chip, 0);
@@ -821,6 +849,9 @@ static void snd_cs4231_close(struct snd_cs4231 *chip, unsigned int mode)
 	mutex_unlock(&chip->open_mutex);
 }
 
+/*
+ *  timer open/close
+ */
 
 static int snd_cs4231_timer_open(struct snd_timer *timer)
 {
@@ -847,6 +878,9 @@ static struct snd_timer_hardware snd_cs4231_timer_table = {
 	.stop		=	snd_cs4231_timer_stop,
 };
 
+/*
+ *  ok.. exported functions..
+ */
 
 static int snd_cs4231_playback_hw_params(struct snd_pcm_substream *substream,
 					 struct snd_pcm_hw_params *hw_params)
@@ -930,7 +964,7 @@ static void snd_cs4231_overrange(struct snd_cs4231 *chip)
 	res = snd_cs4231_in(chip, CS4231_TEST_INIT);
 	spin_unlock_irqrestore(&chip->lock, flags);
 
-	
+	/* detect overrange only above 0dB; may be user selectable? */
 	if (res & (0x08 | 0x02))
 		chip->capture_substream->runtime->overrange++;
 }
@@ -1004,16 +1038,16 @@ static int __devinit snd_cs4231_probe(struct snd_cs4231 *chip)
 			vers = snd_cs4231_in(chip, CS4231_VERSION);
 			spin_unlock_irqrestore(&chip->lock, flags);
 			if (id == 0x0a)
-				break;	
+				break;	/* this is valid value */
 		}
 	}
 	snd_printdd("cs4231: port = %p, id = 0x%x\n", chip->port, id);
 	if (id != 0x0a)
-		return -ENODEV;	
+		return -ENODEV;	/* no valid device found */
 
 	spin_lock_irqsave(&chip->lock, flags);
 
-	
+	/* clear any pendings IRQ */
 	__cs4231_readb(chip, CS4231U(chip, STATUS));
 	__cs4231_writeb(chip, 0, CS4231U(chip, STATUS));
 	mb();
@@ -1034,7 +1068,7 @@ static int __devinit snd_cs4231_probe(struct snd_cs4231 *chip)
 
 	spin_lock_irqsave(&chip->lock, flags);
 
-	for (i = 0; i < 32; i++)	
+	for (i = 0; i < 32; i++)	/* ok.. fill all CS4231 registers */
 		snd_cs4231_out(chip, i, *ptr++);
 
 	spin_unlock_irqrestore(&chip->lock, flags);
@@ -1045,7 +1079,7 @@ static int __devinit snd_cs4231_probe(struct snd_cs4231 *chip)
 
 	mdelay(2);
 
-	return 0;		
+	return 0;		/* all things are ok.. */
 }
 
 static struct snd_pcm_hardware snd_cs4231_playback = {
@@ -1158,6 +1192,9 @@ static int snd_cs4231_capture_close(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+/* XXX We can do some power-management, in particular on EBUS using
+ * XXX the audio AUXIO register...
+ */
 
 static struct snd_pcm_ops snd_cs4231_playback_ops = {
 	.open		=	snd_cs4231_playback_open,
@@ -1196,7 +1233,7 @@ static int __devinit snd_cs4231_pcm(struct snd_card *card)
 	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE,
 			&snd_cs4231_capture_ops);
 
-	
+	/* global setup */
 	pcm->private_data = chip;
 	pcm->info_flags = SNDRV_PCM_INFO_JOINT_DUPLEX;
 	strcpy(pcm->name, "CS4231");
@@ -1217,7 +1254,7 @@ static int __devinit snd_cs4231_timer(struct snd_card *card)
 	struct snd_timer_id tid;
 	int err;
 
-	
+	/* Timer initialization */
 	tid.dev_class = SNDRV_TIMER_CLASS_CARD;
 	tid.dev_sclass = SNDRV_TIMER_SCLASS_NONE;
 	tid.card = card->number;
@@ -1234,6 +1271,9 @@ static int __devinit snd_cs4231_timer(struct snd_card *card)
 	return 0;
 }
 
+/*
+ *  MIXER part
+ */
 
 static int snd_cs4231_info_mux(struct snd_kcontrol *kcontrol,
 			       struct snd_ctl_elem_info *uinfo)
@@ -1492,6 +1532,7 @@ CS4231_DOUBLE("Mic Boost", 0, CS4231_LEFT_INPUT, CS4231_RIGHT_INPUT, 5, 5,
 		1, 0),
 CS4231_SINGLE("Loopback Capture Switch", 0, CS4231_LOOPBACK, 0, 1, 0),
 CS4231_SINGLE("Loopback Capture Volume", 0, CS4231_LOOPBACK, 2, 63, 1),
+/* SPARC specific uses of XCTL{0,1} general purpose outputs.  */
 CS4231_SINGLE("Line Out Switch", 0, CS4231_PIN_CTRL, 6, 1, 1),
 CS4231_SINGLE("Headphone Out Switch", 0, CS4231_PIN_CTRL, 7, 1, 1)
 };
@@ -1588,11 +1629,11 @@ static irqreturn_t snd_cs4231_sbus_interrupt(int irq, void *dev_id)
 	u32 csr;
 	struct snd_cs4231 *chip = dev_id;
 
-	
+	/*This is IRQ is not raised by the cs4231*/
 	if (!(__cs4231_readb(chip, CS4231U(chip, STATUS)) & CS4231_GLOBALIRQ))
 		return IRQ_NONE;
 
-	
+	/* ACK the APC interrupt. */
 	csr = sbus_readl(chip->port + APCCSR);
 
 	sbus_writel(csr, chip->port + APCCSR);
@@ -1619,7 +1660,7 @@ static irqreturn_t snd_cs4231_sbus_interrupt(int irq, void *dev_id)
 	if ((status & CS4231_RECORD_IRQ) && (csr & APC_CDMA_READY))
 		snd_cs4231_overrange(chip);
 
-	
+	/* ACK the CS4231 interrupt. */
 	spin_lock_irqsave(&chip->lock, flags);
 	snd_cs4231_outm(chip, CS4231_IRQ_STATUS, ~CS4231_ALL_IRQS | ~status, 0);
 	spin_unlock_irqrestore(&chip->lock, flags);
@@ -1627,6 +1668,9 @@ static irqreturn_t snd_cs4231_sbus_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * SBUS DMA routines
+ */
 
 static int sbus_dma_request(struct cs4231_dma_control *dma_cont,
 			    dma_addr_t bus_addr, size_t len)
@@ -1721,6 +1765,9 @@ static unsigned int sbus_dma_addr(struct cs4231_dma_control *dma_cont)
 	return sbus_readl(base->regs + base->dir + APCVA);
 }
 
+/*
+ * Init and exit routines
+ */
 
 static int snd_cs4231_sbus_free(struct snd_cs4231 *chip)
 {
@@ -1853,6 +1900,9 @@ static void snd_cs4231_ebus_capture_callback(struct ebus_dma_info *p,
 	snd_cs4231_capture_callback(chip);
 }
 
+/*
+ * EBUS DMA wrappers
+ */
 
 static int _ebus_dma_request(struct cs4231_dma_control *dma_cont,
 			     dma_addr_t bus_addr, size_t len)
@@ -1875,6 +1925,9 @@ static unsigned int _ebus_dma_addr(struct cs4231_dma_control *dma_cont)
 	return ebus_dma_addr(&dma_cont->ebus_info);
 }
 
+/*
+ * Init and exit routines
+ */
 
 static int snd_cs4231_ebus_free(struct snd_cs4231 *chip)
 {

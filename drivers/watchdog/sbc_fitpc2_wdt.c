@@ -27,7 +27,7 @@
 
 
 static bool nowayout = WATCHDOG_NOWAYOUT;
-static unsigned int margin = 60;	
+static unsigned int margin = 60;	/* (secs) Default is 1 minute */
 static unsigned long wdt_status;
 static DEFINE_MUTEX(wdt_lock);
 
@@ -154,7 +154,7 @@ static long fitpc2_wdt_ioctl(struct file *file, unsigned int cmd,
 
 		margin = time;
 		wdt_enable();
-		
+		/* Fall through */
 
 	case WDIOC_GETTIMEOUT:
 		ret = put_user(margin, (int *)arg);

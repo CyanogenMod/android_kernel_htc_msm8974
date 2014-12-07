@@ -1,3 +1,4 @@
+/* ashrdi3.c extracted from gcc-2.95.2/libgcc2.c which is: */
 /* Copyright (C) 1989, 92-98, 1999 Free Software Foundation, Inc.
 
 This file is part of GNU CC.

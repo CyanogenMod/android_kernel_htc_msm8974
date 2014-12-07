@@ -102,6 +102,10 @@ bool vmw_seqno_passed(struct vmw_private *dev_priv,
 	    vmw_fifo_idle(dev_priv, seqno))
 		return true;
 
+	/**
+	 * Then check if the seqno is higher than what we've actually
+	 * emitted. Then the fence is stale and signaled.
+	 */
 
 	ret = ((atomic_read(&dev_priv->marker_seq) - seqno)
 	       > VMW_FENCE_WRAP);
@@ -128,6 +132,9 @@ int vmw_fallback_wait(struct vmw_private *dev_priv,
 	wait_condition = (fifo_idle) ? &vmw_fifo_idle :
 		&vmw_seqno_passed;
 
+	/**
+	 * Block command submission while waiting for idle.
+	 */
 
 	if (fifo_idle)
 		down_read(&fifo_state->rwsem);
@@ -147,6 +154,10 @@ int vmw_fallback_wait(struct vmw_private *dev_priv,
 		if (lazy)
 			schedule_timeout(1);
 		else if ((++count & 0x0F) == 0) {
+			/**
+			 * FIXME: Use schedule_hr_timeout here for
+			 * newer kernels and lower CPU utilization.
+			 */
 
 			__set_current_state(TASK_RUNNING);
 			schedule();

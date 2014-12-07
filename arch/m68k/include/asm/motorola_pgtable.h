@@ -2,19 +2,22 @@
 #define _MOTOROLA_PGTABLE_H
 
 
+/*
+ * Definitions for MMU descriptors
+ */
 #define _PAGE_PRESENT	0x001
 #define _PAGE_SHORT	0x002
 #define _PAGE_RONLY	0x004
 #define _PAGE_READWRITE	0x000
 #define _PAGE_ACCESSED	0x008
 #define _PAGE_DIRTY	0x010
-#define _PAGE_SUPER	0x080	
-#define _PAGE_GLOBAL040	0x400	
-#define _PAGE_NOCACHE030 0x040	
-#define _PAGE_NOCACHE	0x060	
-#define _PAGE_NOCACHE_S	0x040	
-#define _PAGE_CACHE040	0x020	
-#define _PAGE_CACHE040W	0x000	
+#define _PAGE_SUPER	0x080	/* 68040 supervisor only */
+#define _PAGE_GLOBAL040	0x400	/* 68040 global bit, used for kva descs */
+#define _PAGE_NOCACHE030 0x040	/* 68030 no-cache mode */
+#define _PAGE_NOCACHE	0x060	/* 68040 cache mode, non-serialized */
+#define _PAGE_NOCACHE_S	0x040	/* 68040 no-cache mode, serialized */
+#define _PAGE_CACHE040	0x020	/* 68040 cache mode, cachable, copyback */
+#define _PAGE_CACHE040W	0x000	/* 68040 cache mode, cachable, write-through */
 
 #define _DESCTYPE_MASK	0x003
 
@@ -25,12 +28,18 @@
 #define _PAGE_CHG_MASK  (PAGE_MASK | _PAGE_ACCESSED | _PAGE_DIRTY | _PAGE_NOCACHE)
 
 #define _PAGE_PROTNONE	0x004
-#define _PAGE_FILE	0x008	
+#define _PAGE_FILE	0x008	/* pagecache or swap? */
 
 #ifndef __ASSEMBLY__
 
+/* This is the cache mode to be used for pages containing page descriptors for
+ * processors >= '040. It is in pte_mknocache(), and the variable is defined
+ * and initialized in head.S */
 extern int m68k_pgtable_cachemode;
 
+/* This is the cache mode for normal pages, for supervisor access on
+ * processors >= '040. It is used in pte_mkcache(), and the variable is
+ * defined and initialized in head.S */
 
 #if defined(CPU_M68060_ONLY) && defined(CONFIG_060_WRITETHROUGH)
 #define m68k_supervisor_cachemode _PAGE_CACHE040W
@@ -56,11 +65,17 @@ extern unsigned long mm_cachebits;
 #define PAGE_READONLY	__pgprot(_PAGE_PRESENT | _PAGE_RONLY | _PAGE_ACCESSED | mm_cachebits)
 #define PAGE_KERNEL	__pgprot(_PAGE_PRESENT | _PAGE_DIRTY | _PAGE_ACCESSED | mm_cachebits)
 
+/* Alternate definitions that are compile time constants, for
+   initializing protection_map.  The cachebits are fixed later.  */
 #define PAGE_NONE_C	__pgprot(_PAGE_PROTNONE | _PAGE_ACCESSED)
 #define PAGE_SHARED_C	__pgprot(_PAGE_PRESENT | _PAGE_ACCESSED)
 #define PAGE_COPY_C	__pgprot(_PAGE_PRESENT | _PAGE_RONLY | _PAGE_ACCESSED)
 #define PAGE_READONLY_C	__pgprot(_PAGE_PRESENT | _PAGE_RONLY | _PAGE_ACCESSED)
 
+/*
+ * The m68k can't do page protection for execute, and considers that the same are read.
+ * Also, write permissions imply read permissions. This is the closest we can get..
+ */
 #define __P000	PAGE_NONE_C
 #define __P001	PAGE_READONLY_C
 #define __P010	PAGE_COPY_C
@@ -79,6 +94,10 @@ extern unsigned long mm_cachebits;
 #define __S110	PAGE_SHARED_C
 #define __S111	PAGE_SHARED_C
 
+/*
+ * Conversion functions: convert a page and protection to a page entry,
+ * and a page entry and page directory to the page they refer to.
+ */
 #define mk_pte(page, pgprot) pfn_pte(page_to_pfn(page), (pgprot))
 
 static inline pte_t pte_modify(pte_t pte, pgprot_t newprot)
@@ -142,6 +161,10 @@ static inline void pgd_set(pgd_t *pgdp, pmd_t *pmdp)
 	printk("%s:%d: bad pgd %08lx.\n", __FILE__, __LINE__, pgd_val(e))
 
 
+/*
+ * The following only work if pte_present() is true.
+ * Undefined behaviour if not..
+ */
 static inline int pte_write(pte_t pte)		{ return !(pte_val(pte) & _PAGE_RONLY); }
 static inline int pte_dirty(pte_t pte)		{ return pte_val(pte) & _PAGE_DIRTY; }
 static inline int pte_young(pte_t pte)		{ return pte_val(pte) & _PAGE_ACCESSED; }
@@ -170,6 +193,7 @@ static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
 
 #define pgd_index(address)     ((address) >> PGDIR_SHIFT)
 
+/* to find an entry in a page-table-directory */
 static inline pgd_t *pgd_offset(const struct mm_struct *mm,
 				unsigned long address)
 {
@@ -185,11 +209,13 @@ static inline pgd_t *pgd_offset_k(unsigned long address)
 }
 
 
+/* Find an entry in the second-level page table.. */
 static inline pmd_t *pmd_offset(pgd_t *dir, unsigned long address)
 {
 	return (pmd_t *)__pgd_page(*dir) + ((address >> PMD_SHIFT) & (PTRS_PER_PMD-1));
 }
 
+/* Find an entry in the third-level page table.. */
 static inline pte_t *pte_offset_kernel(pmd_t *pmdp, unsigned long address)
 {
 	return (pte_t *)__pmd_page(*pmdp) + ((address >> PAGE_SHIFT) & (PTRS_PER_PTE - 1));
@@ -198,7 +224,16 @@ static inline pte_t *pte_offset_kernel(pmd_t *pmdp, unsigned long address)
 #define pte_offset_map(pmdp,address) ((pte_t *)__pmd_page(*pmdp) + (((address) >> PAGE_SHIFT) & (PTRS_PER_PTE - 1)))
 #define pte_unmap(pte)		((void)0)
 
+/*
+ * Allocate and free page tables. The xxx_kernel() versions are
+ * used to allocate a kernel page table - this turns on ASN bits
+ * if any.
+ */
 
+/* Prior to calling these routines, the page should have been flushed
+ * from both the cache and ATC, or the CPU might not notice that the
+ * cache setting for the page has been changed. -jskov
+ */
 static inline void nocache_page(void *vaddr)
 {
 	unsigned long addr = (unsigned long)vaddr;
@@ -244,11 +279,12 @@ static inline pte_t pgoff_to_pte(unsigned off)
 	return pte;
 }
 
+/* Encode and de-code a swap entry (must be !pte_none(e) && !pte_present(e)) */
 #define __swp_type(x)		(((x).val >> 4) & 0xff)
 #define __swp_offset(x)		((x).val >> 12)
 #define __swp_entry(type, offset) ((swp_entry_t) { ((type) << 4) | ((offset) << 12) })
 #define __pte_to_swp_entry(pte)	((swp_entry_t) { pte_val(pte) })
 #define __swp_entry_to_pte(x)	((pte_t) { (x).val })
 
-#endif	
-#endif 
+#endif	/* !__ASSEMBLY__ */
+#endif /* _MOTOROLA_PGTABLE_H */

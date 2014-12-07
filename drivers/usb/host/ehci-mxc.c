@@ -36,6 +36,7 @@ struct ehci_mxc_priv {
 	struct usb_hcd *hcd;
 };
 
+/* called during probe() after chip reset completes */
 static int ehci_mxc_setup(struct usb_hcd *hcd)
 {
 	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
@@ -44,7 +45,7 @@ static int ehci_mxc_setup(struct usb_hcd *hcd)
 	dbg_hcs_params(ehci, "reset");
 	dbg_hcc_params(ehci, "reset");
 
-	
+	/* cache this readonly data; minimize chip reads */
 	ehci->hcs_params = ehci_readl(ehci, &ehci->caps->hcs_params);
 
 	hcd->has_tt = 1;
@@ -53,7 +54,7 @@ static int ehci_mxc_setup(struct usb_hcd *hcd)
 	if (retval)
 		return retval;
 
-	
+	/* data structure init */
 	retval = ehci_init(hcd);
 	if (retval)
 		return retval;
@@ -71,21 +72,36 @@ static const struct hc_driver ehci_mxc_hc_driver = {
 	.product_desc = "Freescale On-Chip EHCI Host Controller",
 	.hcd_priv_size = sizeof(struct ehci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq = ehci_irq,
 	.flags = HCD_USB2 | HCD_MEMORY,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.reset = ehci_mxc_setup,
 	.start = ehci_run,
 	.stop = ehci_stop,
 	.shutdown = ehci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue = ehci_urb_enqueue,
 	.urb_dequeue = ehci_urb_dequeue,
 	.endpoint_disable = ehci_endpoint_disable,
 	.endpoint_reset = ehci_endpoint_reset,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number = ehci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data = ehci_hub_status_data,
 	.hub_control = ehci_hub_control,
 	.bus_suspend = ehci_bus_suspend,
@@ -149,7 +165,7 @@ static int ehci_mxc_drv_probe(struct platform_device *pdev)
 		goto err_ioremap;
 	}
 
-	
+	/* enable clocks */
 	priv->usbclk = clk_get(dev, "usb");
 	if (IS_ERR(priv->usbclk)) {
 		ret = PTR_ERR(priv->usbclk);
@@ -166,7 +182,7 @@ static int ehci_mxc_drv_probe(struct platform_device *pdev)
 		clk_enable(priv->ahbclk);
 	}
 
-	
+	/* "dr" device has its own clock on i.MX51 */
 	if (cpu_is_mx51() && (pdev->id == 0)) {
 		priv->phy1clk = clk_get(dev, "usb_phy1");
 		if (IS_ERR(priv->phy1clk)) {
@@ -177,31 +193,31 @@ static int ehci_mxc_drv_probe(struct platform_device *pdev)
 	}
 
 
-	
+	/* call platform specific init function */
 	if (pdata->init) {
 		ret = pdata->init(pdev);
 		if (ret) {
 			dev_err(dev, "platform init failed\n");
 			goto err_init;
 		}
-		
+		/* platforms need some time to settle changed IO settings */
 		mdelay(10);
 	}
 
 	ehci = hcd_to_ehci(hcd);
 
-	
+	/* EHCI registers start at offset 0x100 */
 	ehci->caps = hcd->regs + 0x100;
 	ehci->regs = hcd->regs + 0x100 +
 		HC_LENGTH(ehci, ehci_readl(ehci, &ehci->caps->hc_capbase));
 
-	
+	/* set up the PORTSCx register */
 	ehci_writel(ehci, pdata->portsc, &ehci->regs->port_status[0]);
 
-	
+	/* is this really needed? */
 	msleep(10);
 
-	
+	/* Initialize the transceiver */
 	if (pdata->otg) {
 		pdata->otg->io_priv = hcd->regs + ULPI_VIEWPORT_OFFSET;
 		ret = usb_phy_init(pdata->otg);
@@ -225,6 +241,11 @@ static int ehci_mxc_drv_probe(struct platform_device *pdev)
 		goto err_add;
 
 	if (pdata->otg) {
+		/*
+		 * efikamx and efikasb have some hardware bug which is
+		 * preventing usb to work unless CHRGVBUS is set.
+		 * It's in violation of USB specs
+		 */
 		if (machine_is_mx51_efikamx() || machine_is_mx51_efikasb()) {
 			flags = usb_phy_io_read(pdata->otg,
 							ULPI_OTG_CTRL);

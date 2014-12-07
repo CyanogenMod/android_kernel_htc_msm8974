@@ -68,6 +68,15 @@ MODULE_AUTHOR("Julien Lerouge, Karol Kozimor, Corentin Chary");
 MODULE_DESCRIPTION(ASUS_LAPTOP_NAME);
 MODULE_LICENSE("GPL");
 
+/*
+ * WAPF defines the behavior of the Fn+Fx wlan key
+ * The significance of values is yet to be found, but
+ * most of the time:
+ * Bit | Bluetooth | WLAN
+ *  0  | Hardware  | Hardware
+ *  1  | Hardware  | Software
+ *  4  | Software  | Software
+ */
 static uint wapf = 1;
 module_param(wapf, uint, 0444);
 MODULE_PARM_DESC(wapf, "WAPF value");
@@ -116,56 +125,81 @@ MODULE_PARM_DESC(als_status, "Set the ALS status on boot "
 		 "(0 = disabled, 1 = enabled). "
 		 "default is 0");
 
-#define ATKD_BR_UP	0x10	
-#define ATKD_BR_DOWN	0x20	
+/*
+ * Some events we use, same for all Asus
+ */
+#define ATKD_BR_UP	0x10	/* (event & ~ATKD_BR_UP) = brightness level */
+#define ATKD_BR_DOWN	0x20	/* (event & ~ATKD_BR_DOWN) = britghness level */
 #define ATKD_BR_MIN	ATKD_BR_UP
-#define ATKD_BR_MAX	(ATKD_BR_DOWN | 0xF)	
+#define ATKD_BR_MAX	(ATKD_BR_DOWN | 0xF)	/* 0x2f */
 #define ATKD_LCD_ON	0x33
 #define ATKD_LCD_OFF	0x34
 
+/*
+ * Known bits returned by \_SB.ATKD.HWRS
+ */
 #define WL_HWRS		0x80
 #define BT_HWRS		0x100
 
-#define WL_RSTS		0x01	
-#define BT_RSTS		0x02	
-#define WM_RSTS		0x08    
-#define WW_RSTS		0x20    
+/*
+ * Flags for hotk status
+ * WL_ON and BT_ON are also used for wireless_status()
+ */
+#define WL_RSTS		0x01	/* internal Wifi */
+#define BT_RSTS		0x02	/* internal Bluetooth */
+#define WM_RSTS		0x08    /* internal wimax */
+#define WW_RSTS		0x20    /* internal wwan */
 
+/* WLED and BLED type */
 #define TYPE_UNKNOWN	0
 #define TYPE_LED	1
 #define TYPE_RFKILL	2
 
+/* LED */
 #define METHOD_MLED		"MLED"
 #define METHOD_TLED		"TLED"
-#define METHOD_RLED		"RLED"	
-#define METHOD_PLED		"PLED"	
-#define METHOD_GLED		"GLED"	
+#define METHOD_RLED		"RLED"	/* W1JC */
+#define METHOD_PLED		"PLED"	/* A7J */
+#define METHOD_GLED		"GLED"	/* G1, G2 (probably) */
 
+/* LEDD */
 #define METHOD_LEDD		"SLCM"
 
+/*
+ * Bluetooth and WLAN
+ * WLED and BLED are not handled like other XLED, because in some dsdt
+ * they also control the WLAN/Bluetooth device.
+ */
 #define METHOD_WLAN		"WLED"
 #define METHOD_BLUETOOTH	"BLED"
 
+/* WWAN and WIMAX */
 #define METHOD_WWAN		"GSMC"
 #define METHOD_WIMAX		"WMXC"
 
 #define METHOD_WL_STATUS	"RSTS"
 
+/* Brightness */
 #define METHOD_BRIGHTNESS_SET	"SPLV"
 #define METHOD_BRIGHTNESS_GET	"GPLV"
 
+/* Display */
 #define METHOD_SWITCH_DISPLAY	"SDSP"
 
-#define METHOD_ALS_CONTROL	"ALSC" 
-#define METHOD_ALS_LEVEL	"ALSL" 
+#define METHOD_ALS_CONTROL	"ALSC" /* Z71A Z71V */
+#define METHOD_ALS_LEVEL	"ALSL" /* Z71A Z71V */
 
+/* GPS */
+/* R2H use different handle for GPS on/off */
 #define METHOD_GPS_ON		"SDON"
 #define METHOD_GPS_OFF		"SDOF"
 #define METHOD_GPS_STATUS	"GPST"
 
+/* Keyboard light */
 #define METHOD_KBD_LIGHT_SET	"SLKB"
 #define METHOD_KBD_LIGHT_GET	"GLKB"
 
+/* For Pegatron Lucid tablet */
 #define DEVICE_NAME_PEGA	"Lucid"
 
 #define METHOD_PEGA_ENABLE	"ENPR"
@@ -185,9 +219,12 @@ MODULE_PARM_DESC(als_status, "Set the ALS status on boot "
 #define METHOD_XLRX "XLRX"
 #define METHOD_XLRY "XLRY"
 #define METHOD_XLRZ "XLRZ"
-#define PEGA_ACC_CLAMP 512 
+#define PEGA_ACC_CLAMP 512 /* 1G accel is reported as ~256, so clamp to 2G */
 #define PEGA_ACC_RETRIES 3
 
+/*
+ * Define a specific led structure to keep the main structure clean
+ */
 struct asus_led {
 	int wk;
 	struct work_struct work;
@@ -196,19 +233,26 @@ struct asus_led {
 	const char *method;
 };
 
+/*
+ * Same thing for rfkill
+ */
 struct asus_rfkill {
-	
+	/* type of control. Maps to PEGA_* values or *_RSTS  */
 	int control_id;
 	struct rfkill *rfkill;
 	struct asus_laptop *asus;
 };
 
+/*
+ * This is the main structure, we can use it to store anything interesting
+ * about the hotk device
+ */
 struct asus_laptop {
-	char *name;		
+	char *name;		/* laptop name */
 
 	struct acpi_table_header *dsdt_info;
 	struct platform_device *platform_device;
-	struct acpi_device *device;		
+	struct acpi_device *device;		/* the device we are in */
 	struct backlight_device *backlight_device;
 
 	struct input_dev *inputdev;
@@ -241,22 +285,22 @@ struct asus_laptop {
 	struct asus_rfkill wimax;
 	struct asus_rfkill gps;
 
-	acpi_handle handle;	
-	u32 ledd_status;	
-	u8 light_level;		
-	u8 light_switch;	
-	u16 event_count[128];	
+	acpi_handle handle;	/* the handle of the hotk device */
+	u32 ledd_status;	/* status of the LED display */
+	u8 light_level;		/* light sensor level */
+	u8 light_switch;	/* light sensor switch value */
+	u16 event_count[128];	/* count for each event TODO make this better */
 };
 
 static const struct key_entry asus_keymap[] = {
-	
+	/* Lenovo SL Specific keycodes */
 	{KE_KEY, 0x02, { KEY_SCREENLOCK } },
 	{KE_KEY, 0x05, { KEY_WLAN } },
 	{KE_KEY, 0x08, { KEY_F13 } },
-	{KE_KEY, 0x09, { KEY_PROG2 } }, 
+	{KE_KEY, 0x09, { KEY_PROG2 } }, /* Dock */
 	{KE_KEY, 0x17, { KEY_ZOOM } },
 	{KE_KEY, 0x1f, { KEY_BATTERY } },
-	
+	/* End of Lenovo SL Specific keycodes */
 	{KE_KEY, 0x30, { KEY_VOLUMEUP } },
 	{KE_KEY, 0x31, { KEY_VOLUMEDOWN } },
 	{KE_KEY, 0x32, { KEY_MUTE } },
@@ -270,7 +314,7 @@ static const struct key_entry asus_keymap[] = {
 	{KE_KEY, 0x50, { KEY_EMAIL } },
 	{KE_KEY, 0x51, { KEY_WWW } },
 	{KE_KEY, 0x55, { KEY_CALC } },
-	{KE_KEY, 0x5C, { KEY_SCREENLOCK } },  
+	{KE_KEY, 0x5C, { KEY_SCREENLOCK } },  /* Screenlock */
 	{KE_KEY, 0x5D, { KEY_WLAN } },
 	{KE_KEY, 0x5E, { KEY_WLAN } },
 	{KE_KEY, 0x5F, { KEY_WLAN } },
@@ -278,9 +322,9 @@ static const struct key_entry asus_keymap[] = {
 	{KE_KEY, 0x61, { KEY_SWITCHVIDEOMODE } },
 	{KE_KEY, 0x62, { KEY_SWITCHVIDEOMODE } },
 	{KE_KEY, 0x63, { KEY_SWITCHVIDEOMODE } },
-	{KE_KEY, 0x6B, { KEY_F13 } }, 
-	{KE_KEY, 0x6C, { KEY_SLEEP } }, 
-	{KE_KEY, 0x6D, { KEY_SLEEP } }, 
+	{KE_KEY, 0x6B, { KEY_F13 } }, /* Lock Touchpad */
+	{KE_KEY, 0x6C, { KEY_SLEEP } }, /* Suspend */
+	{KE_KEY, 0x6D, { KEY_SLEEP } }, /* Hibernate */
 	{KE_KEY, 0x7E, { KEY_BLUETOOTH } },
 	{KE_KEY, 0x7D, { KEY_BLUETOOTH } },
 	{KE_KEY, 0x82, { KEY_CAMERA } },
@@ -305,8 +349,8 @@ static const struct key_entry asus_keymap[] = {
 static int write_acpi_int_ret(acpi_handle handle, const char *method, int val,
 			      struct acpi_buffer *output)
 {
-	struct acpi_object_list params;	
-	union acpi_object in_obj;	
+	struct acpi_object_list params;	/* list of input parameters (an int) */
+	union acpi_object in_obj;	/* the only param we use */
 	acpi_status status;
 
 	if (!handle)
@@ -376,6 +420,12 @@ static int pega_acc_axis(struct asus_laptop *asus, int curr, char *method)
 	for (i = 0; i < PEGA_ACC_RETRIES; i++) {
 		acpi_evaluate_integer(asus->handle, method, NULL, &val);
 
+		/* The output is noisy.  From reading the ASL
+		 * dissassembly, timeout errors are returned with 1's
+		 * in the high word, and the lack of locking around
+		 * thei hi/lo byte reads means that a transition
+		 * between (for example) -1 and 0 could be read as
+		 * 0xff00 or 0x00ff. */
 		delta = abs(curr - (short)val);
 		if (delta < 128 && !(val & ~0xffff))
 			break;
@@ -388,6 +438,10 @@ static void pega_accel_poll(struct input_polled_dev *ipd)
 	struct device *parent = ipd->input->dev.parent;
 	struct asus_laptop *asus = dev_get_drvdata(parent);
 
+	/* In some cases, the very first call to poll causes a
+	 * recursive fault under the polldev worker.  This is
+	 * apparently related to very early userspace access to the
+	 * device, and perhaps a firmware bug. Fake the first report. */
 	if (!asus->pega_acc_live) {
 		asus->pega_acc_live = true;
 		input_report_abs(ipd->input, ABS_X, 0);
@@ -401,6 +455,9 @@ static void pega_accel_poll(struct input_polled_dev *ipd)
 	asus->pega_acc_y = pega_acc_axis(asus, asus->pega_acc_y, METHOD_XLRY);
 	asus->pega_acc_z = pega_acc_axis(asus, asus->pega_acc_z, METHOD_XLRZ);
 
+	/* Note transform, convert to "right/up/out" in the native
+	 * landscape orientation (i.e. the vector is the direction of
+	 * "real up" in the device's cartiesian coordinates). */
 	input_report_abs(ipd->input, ABS_X, -asus->pega_acc_x);
 	input_report_abs(ipd->input, ABS_Y, -asus->pega_acc_y);
 	input_report_abs(ipd->input, ABS_Z,  asus->pega_acc_z);
@@ -463,6 +520,7 @@ exit:
 	return err;
 }
 
+/* Generic LED function */
 static int asus_led_set(struct asus_laptop *asus, const char *method,
 			 int value)
 {
@@ -476,6 +534,10 @@ static int asus_led_set(struct asus_laptop *asus, const char *method,
 	return write_acpi_int(asus->handle, method, value);
 }
 
+/*
+ * LEDs
+ */
+/* /sys/class/led handlers */
 static void asus_led_cdev_set(struct led_classdev *led_cdev,
 			 enum led_brightness value)
 {
@@ -499,6 +561,9 @@ static enum led_brightness asus_led_cdev_get(struct led_classdev *led_cdev)
 	return led_cdev->brightness;
 }
 
+/*
+ * Keyboard backlight (also a LED)
+ */
 static int asus_kled_lvl(struct asus_laptop *asus)
 {
 	unsigned long long kblv;
@@ -584,6 +649,7 @@ static void asus_led_exit(struct asus_laptop *asus)
 	}
 }
 
+/*  Ugly macro, need to fix that later */
 static int asus_led_register(struct asus_laptop *asus,
 			     struct asus_led *led,
 			     const char *name, const char *method)
@@ -591,7 +657,7 @@ static int asus_led_register(struct asus_laptop *asus,
 	struct led_classdev *led_cdev = &led->led;
 
 	if (!method || acpi_check_handle(asus->handle, method, NULL))
-		return 0; 
+		return 0; /* Led not present */
 
 	led->asus = asus;
 	led->method = method;
@@ -608,9 +674,19 @@ static int asus_led_init(struct asus_laptop *asus)
 {
 	int r = 0;
 
+	/*
+	 * The Pegatron Lucid has no physical leds, but all methods are
+	 * available in the DSDT...
+	 */
 	if (asus->is_pega_lucid)
 		return 0;
 
+	/*
+	 * Functions that actually update the LED's are called from a
+	 * workqueue. By doing this as separate work rather than when the LED
+	 * subsystem asks, we avoid messing with the Asus ACPI stuff during a
+	 * potentially bad time, such as a timer interrupt.
+	 */
 	asus->led_workqueue = create_singlethread_workqueue("led_workqueue");
 	if (!asus->led_workqueue)
 		return -ENOMEM;
@@ -660,6 +736,9 @@ error:
 	return r;
 }
 
+/*
+ * Backlight device
+ */
 static int asus_read_brightness(struct backlight_device *bd)
 {
 	struct asus_laptop *asus = bl_get_data(bd);
@@ -743,6 +822,9 @@ static void asus_backlight_exit(struct asus_laptop *asus)
 	asus->backlight_device = NULL;
 }
 
+/*
+ * Platform device handlers
+ */
 
 /*
  * We write our info in page, we begin at offset off and cannot write more
@@ -755,20 +837,43 @@ static ssize_t show_infos(struct device *dev,
 	struct asus_laptop *asus = dev_get_drvdata(dev);
 	int len = 0;
 	unsigned long long temp;
-	char buf[16];		
+	char buf[16];		/* enough for all info */
 	acpi_status rv = AE_OK;
 
+	/*
+	 * We use the easy way, we don't care of off and count,
+	 * so we don't set eof to 1
+	 */
 
 	len += sprintf(page, ASUS_LAPTOP_NAME " " ASUS_LAPTOP_VERSION "\n");
 	len += sprintf(page + len, "Model reference    : %s\n", asus->name);
+	/*
+	 * The SFUN method probably allows the original driver to get the list
+	 * of features supported by a given model. For now, 0x0100 or 0x0800
+	 * bit signifies that the laptop is equipped with a Wi-Fi MiniPCI card.
+	 * The significance of others is yet to be found.
+	 */
 	rv = acpi_evaluate_integer(asus->handle, "SFUN", NULL, &temp);
 	if (!ACPI_FAILURE(rv))
 		len += sprintf(page + len, "SFUN value         : %#x\n",
 			       (uint) temp);
+	/*
+	 * The HWRS method return informations about the hardware.
+	 * 0x80 bit is for WLAN, 0x100 for Bluetooth.
+	 * The significance of others is yet to be found.
+	 * If we don't find the method, we assume the device are present.
+	 */
 	rv = acpi_evaluate_integer(asus->handle, "HRWS", NULL, &temp);
 	if (!ACPI_FAILURE(rv))
 		len += sprintf(page + len, "HRWS value         : %#x\n",
 			       (uint) temp);
+	/*
+	 * Another value for userspace: the ASYM method returns 0x02 for
+	 * battery low and 0x04 for battery critical, its readings tend to be
+	 * more accurate than those provided by _BST.
+	 * Note: since not all the laptops provide this method, errors are
+	 * silently ignored.
+	 */
 	rv = acpi_evaluate_integer(asus->handle, "ASYM", NULL, &temp);
 	if (!ACPI_FAILURE(rv))
 		len += sprintf(page + len, "ASYM value         : %#x\n",
@@ -822,6 +927,9 @@ static ssize_t sysfs_acpi_set(struct asus_laptop *asus,
 	return rv;
 }
 
+/*
+ * LEDD display
+ */
 static ssize_t show_ledd(struct device *dev,
 			 struct device_attribute *attr, char *buf)
 {
@@ -847,6 +955,9 @@ static ssize_t store_ledd(struct device *dev, struct device_attribute *attr,
 	return rv;
 }
 
+/*
+ * Wireless
+ */
 static int asus_wireless_status(struct asus_laptop *asus, int mask)
 {
 	unsigned long long status;
@@ -864,6 +975,9 @@ static int asus_wireless_status(struct asus_laptop *asus, int mask)
 	return !!(status & mask);
 }
 
+/*
+ * WLAN
+ */
 static int asus_wlan_set(struct asus_laptop *asus, int status)
 {
 	if (write_acpi_int(asus->handle, METHOD_WLAN, !!status)) {
@@ -889,6 +1003,9 @@ static ssize_t store_wlan(struct device *dev, struct device_attribute *attr,
 	return sysfs_acpi_set(asus, buf, count, METHOD_WLAN);
 }
 
+/*e
+ * Bluetooth
+ */
 static int asus_bluetooth_set(struct asus_laptop *asus, int status)
 {
 	if (write_acpi_int(asus->handle, METHOD_BLUETOOTH, !!status)) {
@@ -915,6 +1032,9 @@ static ssize_t store_bluetooth(struct device *dev,
 	return sysfs_acpi_set(asus, buf, count, METHOD_BLUETOOTH);
 }
 
+/*
+ * Wimax
+ */
 static int asus_wimax_set(struct asus_laptop *asus, int status)
 {
 	if (write_acpi_int(asus->handle, METHOD_WIMAX, !!status)) {
@@ -941,6 +1061,9 @@ static ssize_t store_wimax(struct device *dev,
 	return sysfs_acpi_set(asus, buf, count, METHOD_WIMAX);
 }
 
+/*
+ * Wwan
+ */
 static int asus_wwan_set(struct asus_laptop *asus, int status)
 {
 	if (write_acpi_int(asus->handle, METHOD_WWAN, !!status)) {
@@ -967,14 +1090,24 @@ static ssize_t store_wwan(struct device *dev,
 	return sysfs_acpi_set(asus, buf, count, METHOD_WWAN);
 }
 
+/*
+ * Display
+ */
 static void asus_set_display(struct asus_laptop *asus, int value)
 {
-	
+	/* no sanity check needed for now */
 	if (write_acpi_int(asus->handle, METHOD_SWITCH_DISPLAY, value))
 		pr_warn("Error setting display\n");
 	return;
 }
 
+/*
+ * Experimental support for display switching. As of now: 1 should activate
+ * the LCD output, 2 should do for CRT, 4 for TV-Out and 8 for DVI.
+ * Any combination (bitwise) of these will suffice. I never actually tested 4
+ * displays hooked up simultaneously, so be warned. See the acpi4asus README
+ * for more info.
+ */
 static ssize_t store_disp(struct device *dev, struct device_attribute *attr,
 			  const char *buf, size_t count)
 {
@@ -987,6 +1120,9 @@ static ssize_t store_disp(struct device *dev, struct device_attribute *attr,
 	return rv;
 }
 
+/*
+ * Light Sens
+ */
 static void asus_als_switch(struct asus_laptop *asus, int value)
 {
 	int ret;
@@ -1049,7 +1185,7 @@ static ssize_t store_lslvl(struct device *dev, struct device_attribute *attr,
 	rv = parse_arg(buf, count, &value);
 	if (rv > 0) {
 		value = (0 < value) ? ((15 < value) ? 15 : value) : 0;
-		
+		/* 0 <= value <= 15 */
 		asus_als_level(asus, value);
 	}
 
@@ -1085,6 +1221,9 @@ static ssize_t show_lsvalue(struct device *dev,
 	return err;
 }
 
+/*
+ * GPS
+ */
 static int asus_gps_status(struct asus_laptop *asus)
 {
 	unsigned long long status;
@@ -1133,6 +1272,9 @@ static ssize_t store_gps(struct device *dev, struct device_attribute *attr,
 	return rv;
 }
 
+/*
+ * rfkill
+ */
 static int asus_gps_rfkill_set(void *data, bool blocked)
 {
 	struct asus_laptop *asus = data;
@@ -1306,6 +1448,9 @@ exit:
 	return ret;
 }
 
+/*
+ * Input device (i.e. hotkeys)
+ */
 static void asus_input_notify(struct asus_laptop *asus, int event)
 {
 	if (!asus->inputdev)
@@ -1359,30 +1504,33 @@ static void asus_input_exit(struct asus_laptop *asus)
 	asus->inputdev = NULL;
 }
 
+/*
+ * ACPI driver
+ */
 static void asus_acpi_notify(struct acpi_device *device, u32 event)
 {
 	struct asus_laptop *asus = acpi_driver_data(device);
 	u16 count;
 
-	
+	/* TODO Find a better way to handle events count. */
 	count = asus->event_count[event % 128]++;
 	acpi_bus_generate_proc_event(asus->device, event, count);
 	acpi_bus_generate_netlink_event(asus->device->pnp.device_class,
 					dev_name(&asus->device->dev), event,
 					count);
 
-	
+	/* Brightness events are special */
 	if (event >= ATKD_BR_MIN && event <= ATKD_BR_MAX) {
 
-		
+		/* Ignore them completely if the acpi video driver is used */
 		if (asus->backlight_device != NULL) {
-			
+			/* Update the backlight device. */
 			asus_backlight_notify(asus);
 		}
 		return ;
 	}
 
-	
+	/* Accelerometer "coarse orientation change" event */
 	if (asus->pega_accel_poll && event == 0xEA) {
 		kobject_uevent(&asus->pega_accel_poll->input->dev.kobj,
 			       KOBJ_CHANGE);
@@ -1431,7 +1579,7 @@ static umode_t asus_sysfs_is_visible(struct kobject *kobj,
 	bool supported;
 
 	if (asus->is_pega_lucid) {
-		
+		/* no ls_level interface on the Lucid */
 		if (attr == &dev_attr_ls_switch.attr)
 			supported = true;
 		else if (attr == &dev_attr_ls_level.attr)
@@ -1525,6 +1673,11 @@ static struct platform_driver platform_driver = {
 	},
 };
 
+/*
+ * This function is used to initialize the context with right values. In this
+ * method, we can make all the detection we want, and modify the asus_laptop
+ * struct
+ */
 static int asus_laptop_get_info(struct asus_laptop *asus)
 {
 	struct acpi_buffer buffer = { ACPI_ALLOCATE_BUFFER, NULL };
@@ -1533,17 +1686,24 @@ static int asus_laptop_get_info(struct asus_laptop *asus)
 	char *string = NULL;
 	acpi_status status;
 
+	/*
+	 * Get DSDT headers early enough to allow for differentiating between
+	 * models, but late enough to allow acpi_bus_register_driver() to fail
+	 * before doing anything ACPI-specific. Should we encounter a machine,
+	 * which needs special handling (i.e. its hotkey device has a different
+	 * HID), this bit will be moved.
+	 */
 	status = acpi_get_table(ACPI_SIG_DSDT, 1, &asus->dsdt_info);
 	if (ACPI_FAILURE(status))
 		pr_warn("Couldn't get the DSDT table header\n");
 
-	
+	/* We have to write 0 on init this far for all ASUS models */
 	if (write_acpi_int_ret(asus->handle, "INIT", 0, &buffer)) {
 		pr_err("Hotkey initialization failed\n");
 		return -ENODEV;
 	}
 
-	
+	/* This needs to be called for some laptops to init properly */
 	status =
 	    acpi_evaluate_integer(asus->handle, "BSTS", NULL, &bsts_result);
 	if (ACPI_FAILURE(status))
@@ -1552,9 +1712,15 @@ static int asus_laptop_get_info(struct asus_laptop *asus)
 		pr_notice("BSTS called, 0x%02x returned\n",
 		       (uint) bsts_result);
 
-	
+	/* This too ... */
 	if (write_acpi_int(asus->handle, "CWAP", wapf))
 		pr_err("Error calling CWAP(%d)\n", wapf);
+	/*
+	 * Try to match the object returned by INIT to the specific model.
+	 * Handle every possible object (or the lack of thereof) the DSDT
+	 * writers might throw at us. When in trouble, we pass NULL to
+	 * asus_model_match() and try something completely different.
+	 */
 	if (buffer.pointer) {
 		model = buffer.pointer;
 		switch (model->type) {
@@ -1578,6 +1744,12 @@ static int asus_laptop_get_info(struct asus_laptop *asus)
 	if (*string)
 		pr_notice("  %s model detected\n", string);
 
+	/*
+	 * The HWRS method return informations about the hardware.
+	 * 0x80 bit is for WLAN, 0x100 for Bluetooth,
+	 * 0x40 for WWAN, 0x10 for WIMAX.
+	 * The significance of others is yet to be found.
+	 */
 	status =
 	    acpi_evaluate_integer(asus->handle, "HRWS", NULL, &hwrs_result);
 	if (!ACPI_FAILURE(status))
@@ -1629,16 +1801,16 @@ static int __devinit asus_acpi_init(struct asus_laptop *asus)
 	if (wwan_status >= 0)
 		asus_wwan_set(asus, !!wwan_status);
 
-	
+	/* Keyboard Backlight is on by default */
 	if (!acpi_check_handle(asus->handle, METHOD_KBD_LIGHT_SET, NULL))
 		asus_kled_set(asus, 1);
 
-	
+	/* LED display is off by default */
 	asus->ledd_status = 0xFFF;
 
-	
+	/* Set initial values of light sensor and level */
 	asus->light_switch = !!als_status;
-	asus->light_level = 5;	
+	asus->light_level = 5;	/* level 5 for sensor sensitivity */
 
 	if (asus->is_pega_lucid) {
 		asus_als_switch(asus, asus->light_switch);
@@ -1659,7 +1831,7 @@ static void __devinit asus_dmi_check(void)
 	if (!model)
 		return;
 
-	
+	/* On L1400B WLED control the sound card, don't mess with it ... */
 	if (strncmp(model, "L1400B", 6) == 0) {
 		wlan_status = -1;
 	}
@@ -1689,6 +1861,10 @@ static int __devinit asus_acpi_add(struct acpi_device *device)
 	if (result)
 		goto fail_platform;
 
+	/*
+	 * Need platform type detection first, then the platform
+	 * device.  It is used as a parent for the sub-devices below.
+	 */
 	asus->is_pega_lucid = asus_check_pega_lucid(asus);
 	result = asus_platform_init(asus);
 	if (result)

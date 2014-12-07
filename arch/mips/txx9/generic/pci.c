@@ -40,7 +40,7 @@ early_read_config_word(struct pci_controller *hose,
 	fake_bus.ops = hose->pci_ops;
 
 	if (bus != top_bus)
-		
+		/* Fake a parent bus structure. */
 		fake_bus.parent = &fake_bus;
 	else
 		fake_bus.parent = NULL;
@@ -56,7 +56,7 @@ int __init txx9_pci66_check(struct pci_controller *hose, int top_bus,
 	int cap66 = -1;
 	u16 stat;
 
-	
+	/* It seems SLC90E66 needs some time after PCI reset... */
 	mdelay(80);
 
 	printk(KERN_INFO "PCI: Checking 66MHz capabilities...\n");
@@ -71,7 +71,7 @@ int __init txx9_pci66_check(struct pci_controller *hose, int top_bus,
 		if (vid == 0xffff)
 			continue;
 
-		
+		/* check 66MHz capability */
 		if (cap66 < 0)
 			cap66 = 1;
 		if (cap66) {
@@ -105,6 +105,12 @@ int txx9_pci_mem_high __initdata = 1;
 int txx9_pci_mem_high __initdata;
 #endif
 
+/*
+ * allocate pci_controller and resources.
+ * mem_base, io_base: physical address.  0 for auto assignment.
+ * mem_size and io_size means max size on auto assignment.
+ * pcic must be &txx9_primary_pcic or NULL.
+ */
 struct pci_controller *__init
 txx9_alloc_pci_controller(struct pci_controller *pcic,
 			  unsigned long mem_base, unsigned long mem_size,
@@ -131,25 +137,29 @@ txx9_alloc_pci_controller(struct pci_controller *pcic,
 		BUG_ON(pcic != &txx9_primary_pcic);
 	pcic->io_resource->flags = IORESOURCE_IO;
 
+	/*
+	 * for auto assignment, first search a (big) region for PCI
+	 * MEM, then search a region for PCI IO.
+	 */
 	if (mem_base) {
 		pcic->mem_resource[0].start = mem_base;
 		pcic->mem_resource[0].end = mem_base + mem_size - 1;
 		if (request_resource(&iomem_resource, &pcic->mem_resource[0]))
 			goto free_and_exit;
 	} else {
-		unsigned long min = 0, max = 0x20000000; 
+		unsigned long min = 0, max = 0x20000000; /* low 512MB */
 		if (!mem_size) {
-			
+			/* default size for auto assignment */
 			if (txx9_pci_mem_high)
-				mem_size = 0x20000000;	
+				mem_size = 0x20000000;	/* mem:512M(max) */
 			else
-				mem_size = 0x08000000;	
+				mem_size = 0x08000000;	/* mem:128M(max) */
 		}
 		if (txx9_pci_mem_high) {
 			min = 0x20000000;
 			max = 0xe0000000;
 		}
-		
+		/* search free region for PCI MEM */
 		for (; mem_size >= min_size; mem_size /= 2) {
 			if (allocate_resource(&iomem_resource,
 					      &pcic->mem_resource[0],
@@ -169,9 +179,9 @@ txx9_alloc_pci_controller(struct pci_controller *pcic,
 			goto release_and_exit;
 	} else {
 		if (!io_size)
-			
-			io_size = 0x01000000;	
-		
+			/* default size for auto assignment */
+			io_size = 0x01000000;	/* io:16M(max) */
+		/* search free region for PCI IO in low 512MB */
 		for (; io_size >= min_size; io_size /= 2) {
 			if (allocate_resource(&iomem_resource,
 					      &pcic->mem_resource[1],
@@ -187,13 +197,13 @@ txx9_alloc_pci_controller(struct pci_controller *pcic,
 	pcic->mem_resource[0].flags = IORESOURCE_MEM;
 	if (pcic == &txx9_primary_pcic &&
 	    mips_io_port_base == (unsigned long)-1) {
-		
+		/* map ioport 0 to PCI I/O space address 0 */
 		set_io_port_base(IO_BASE + pcic->mem_resource[1].start);
 		pcic->io_resource->start = 0;
-		pcic->io_offset = 0;	
+		pcic->io_offset = 0;	/* busaddr == ioaddr */
 		pcic->io_map_base = IO_BASE + pcic->mem_resource[1].start;
 	} else {
-		
+		/* physaddr to ioaddr */
 		pcic->io_resource->start =
 			io_base - (mips_io_port_base - IO_BASE);
 		pcic->io_offset = io_base - (mips_io_port_base - IO_BASE);
@@ -201,12 +211,12 @@ txx9_alloc_pci_controller(struct pci_controller *pcic,
 	}
 	pcic->io_resource->end = pcic->io_resource->start + io_size - 1;
 
-	pcic->mem_offset = 0;	
+	pcic->mem_offset = 0;	/* busaddr == physaddr */
 
 	printk(KERN_INFO "PCI: IO %pR MEM %pR\n",
 	       &pcic->mem_resource[1], &pcic->mem_resource[0]);
 
-	
+	/* register_pci_controller() will request MEM resource */
 	release_resource(&pcic->mem_resource[0]);
 	return pcic;
  release_and_exit:
@@ -220,11 +230,12 @@ txx9_alloc_pci_controller(struct pci_controller *pcic,
 static int __init
 txx9_arch_pci_init(void)
 {
-	PCIBIOS_MIN_IO = 0x8000;	
+	PCIBIOS_MIN_IO = 0x8000;	/* reseve legacy I/O space */
 	return 0;
 }
 arch_initcall(txx9_arch_pci_init);
 
+/* IRQ/IDSEL mapping */
 int txx9_pci_option =
 #ifdef CONFIG_PICMG_PCI_BACKPLANE_DEFAULT
 	TXX9_PCI_OPT_PICMG |
@@ -260,22 +271,22 @@ txx9_i8259_irq_setup(int irq)
 
 static void __init quirk_slc90e66_bridge(struct pci_dev *dev)
 {
-	int irq;	
+	int irq;	/* PCI/ISA Bridge interrupt */
 	u8 reg_64;
 	u32 reg_b0;
 	u8 reg_e1;
-	irq = pcibios_map_irq(dev, PCI_SLOT(dev->devfn), 1); 
+	irq = pcibios_map_irq(dev, PCI_SLOT(dev->devfn), 1); /* INTA */
 	if (!irq)
 		return;
 	txx9_i8259_irq_setup(irq);
 	pci_read_config_byte(dev, 0x64, &reg_64);
 	pci_read_config_dword(dev, 0xb0, &reg_b0);
 	pci_read_config_byte(dev, 0xe1, &reg_e1);
-	
+	/* serial irq control */
 	reg_64 = 0xd0;
-	
+	/* serial irq pin */
 	reg_b0 |= 0x00010000;
-	
+	/* ide irq on isa14 */
 	reg_e1 &= 0xf0;
 	reg_e1 |= 0x0d;
 	pci_write_config_byte(dev, 0x64, reg_64);
@@ -299,11 +310,11 @@ static void quirk_slc90e66_ide(struct pci_dev *dev)
 	int regs[2] = {0x41, 0x43};
 	int i;
 
-	
+	/* SMSC SLC90E66 IDE uses irq 14, 15 (default) */
 	pci_write_config_byte(dev, PCI_INTERRUPT_LINE, 14);
 	pci_read_config_byte(dev, PCI_INTERRUPT_LINE, &dat);
 	printk(KERN_INFO "PCI: %s: IRQ %02x", pci_name(dev), dat);
-	
+	/* enable SMSC SLC90E66 IDE */
 	for (i = 0; i < ARRAY_SIZE(regs); i++) {
 		pci_read_config_byte(dev, regs[i], &dat);
 		pci_write_config_byte(dev, regs[i], dat | 0x80);
@@ -311,17 +322,26 @@ static void quirk_slc90e66_ide(struct pci_dev *dev)
 		printk(KERN_CONT " IDETIM%d %02x", i, dat);
 	}
 	pci_read_config_byte(dev, 0x5c, &dat);
+	/*
+	 * !!! DO NOT REMOVE THIS COMMENT IT IS REQUIRED BY SMSC !!!
+	 *
+	 * This line of code is intended to provide the user with a work
+	 * around solution to the anomalies cited in SMSC's anomaly sheet
+	 * entitled, "SLC90E66 Functional Rev.J_0.1 Anomalies"".
+	 *
+	 * !!! DO NOT REMOVE THIS COMMENT IT IS REQUIRED BY SMSC !!!
+	 */
 	dat |= 0x01;
 	pci_write_config_byte(dev, regs[i], dat);
 	pci_read_config_byte(dev, 0x5c, &dat);
 	printk(KERN_CONT " REG5C %02x", dat);
 	printk(KERN_CONT "\n");
 }
-#endif 
+#endif /* CONFIG_TOSHIBA_FPCIB0 */
 
 static void tc35815_fixup(struct pci_dev *dev)
 {
-	
+	/* This device may have PM registers but not they are not suported. */
 	if (dev->pm_cap) {
 		dev_info(&dev->dev, "PM disabled\n");
 		dev->pm_cap = 0;
@@ -332,14 +352,14 @@ static void final_fixup(struct pci_dev *dev)
 {
 	unsigned char bist;
 
-	
+	/* Do build-in self test */
 	if (pci_read_config_byte(dev, PCI_BIST, &bist) == PCIBIOS_SUCCESSFUL &&
 	    (bist & PCI_BIST_CAPABLE)) {
 		unsigned long timeout;
 		pci_set_power_state(dev, PCI_D0);
 		printk(KERN_INFO "PCI: %s BIST...", pci_name(dev));
 		pci_write_config_byte(dev, PCI_BIST, PCI_BIST_START);
-		timeout = jiffies + HZ * 2;	
+		timeout = jiffies + HZ * 2;	/* timeout after 2 sec */
 		do {
 			pci_read_config_byte(dev, PCI_BIST, &bist);
 			if (time_after(jiffies, timeout))
@@ -385,9 +405,13 @@ char *__devinit txx9_pcibios_setup(char *str)
 	if (txx9_board_pcibios_setup && !txx9_board_pcibios_setup(str))
 		return NULL;
 	if (!strcmp(str, "picmg")) {
+		/* PICMG compliant backplane (TOSHIBA JMB-PICMG-ATX
+		   (5V or 3.3V), JMB-PICMG-L2 (5V only), etc.) */
 		txx9_pci_option |= TXX9_PCI_OPT_PICMG;
 		return NULL;
 	} else if (!strcmp(str, "nopicmg")) {
+		/* non-PICMG compliant backplane (TOSHIBA
+		   RBHBK4100,RBHBK4200, Interface PCM-PCM05, etc.) */
 		txx9_pci_option &= ~TXX9_PCI_OPT_PICMG;
 		return NULL;
 	} else if (!strncmp(str, "clk=", 4)) {
@@ -397,7 +421,7 @@ char *__devinit txx9_pcibios_setup(char *str)
 			txx9_pci_option |= TXX9_PCI_OPT_CLK_33;
 		else if (strcmp(val, "66") == 0)
 			txx9_pci_option |= TXX9_PCI_OPT_CLK_66;
-		else 
+		else /* "auto" */
 			txx9_pci_option |= TXX9_PCI_OPT_CLK_AUTO;
 		return NULL;
 	} else if (!strncmp(str, "err=", 4)) {

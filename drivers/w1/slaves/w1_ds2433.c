@@ -48,6 +48,10 @@ struct w1_f23_data {
 	u32	validcrc;
 };
 
+/**
+ * Check the file size bounds and adjusts count as needed.
+ * This would not be needed if the file size didn't reset to 0 after a write.
+ */
 static inline size_t w1_f23_fix_count(loff_t off, size_t count, size_t size)
 {
 	if (off > size)
@@ -80,13 +84,13 @@ static int w1_f23_refresh_block(struct w1_slave *sl, struct w1_f23_data *data,
 	w1_write_block(sl->master, wrbuf, 3);
 	w1_read_block(sl->master, &data->memory[off], W1_PAGE_SIZE);
 
-	
+	/* cache the block if the CRC is valid */
 	if (crc16(CRC16_INIT, &data->memory[off], W1_PAGE_SIZE) == CRC16_VALID)
 		data->validcrc |= (1 << block);
 
 	return 0;
 }
-#endif	
+#endif	/* CONFIG_W1_SLAVE_DS2433_CRC */
 
 static ssize_t w1_f23_read_bin(struct file *filp, struct kobject *kobj,
 			       struct bin_attribute *bin_attr,
@@ -117,9 +121,9 @@ static ssize_t w1_f23_read_bin(struct file *filp, struct kobject *kobj,
 	}
 	memcpy(buf, &data->memory[off], count);
 
-#else 	
+#else 	/* CONFIG_W1_SLAVE_DS2433_CRC */
 
-	
+	/* read directly from the EEPROM */
 	if (w1_reset_select_slave(sl)) {
 		count = -EIO;
 		goto out_up;
@@ -131,7 +135,7 @@ static ssize_t w1_f23_read_bin(struct file *filp, struct kobject *kobj,
 	w1_write_block(sl->master, wrbuf, 3);
 	w1_read_block(sl->master, buf, count);
 
-#endif	
+#endif	/* CONFIG_W1_SLAVE_DS2433_CRC */
 
 out_up:
 	mutex_unlock(&sl->master->mutex);
@@ -139,6 +143,18 @@ out_up:
 	return count;
 }
 
+/**
+ * Writes to the scratchpad and reads it back for verification.
+ * Then copies the scratchpad to EEPROM.
+ * The data must be on one page.
+ * The master must be locked.
+ *
+ * @param sl	The slave structure
+ * @param addr	Address for the write
+ * @param len   length must be <= (W1_PAGE_SIZE - (addr & W1_PAGE_MASK))
+ * @param data	The data to write
+ * @return	0=Success -1=failure
+ */
 static int w1_f23_write(struct w1_slave *sl, int addr, int len, const u8 *data)
 {
 #ifdef CONFIG_W1_SLAVE_DS2433_CRC
@@ -148,7 +164,7 @@ static int w1_f23_write(struct w1_slave *sl, int addr, int len, const u8 *data)
 	u8 rdbuf[W1_PAGE_SIZE + 3];
 	u8 es = (addr + len - 1) & 0x1f;
 
-	
+	/* Write the data to the scratchpad */
 	if (w1_reset_select_slave(sl))
 		return -1;
 
@@ -159,7 +175,7 @@ static int w1_f23_write(struct w1_slave *sl, int addr, int len, const u8 *data)
 	w1_write_block(sl->master, wrbuf, 3);
 	w1_write_block(sl->master, data, len);
 
-	
+	/* Read the scratchpad and verify */
 	if (w1_reset_select_slave(sl))
 		return -1;
 
@@ -171,7 +187,7 @@ static int w1_f23_write(struct w1_slave *sl, int addr, int len, const u8 *data)
 	    (rdbuf[2] != es) || (memcmp(data, &rdbuf[3], len) != 0))
 		return -1;
 
-	
+	/* Copy the scratchpad to EEPROM */
 	if (w1_reset_select_slave(sl))
 		return -1;
 
@@ -179,10 +195,10 @@ static int w1_f23_write(struct w1_slave *sl, int addr, int len, const u8 *data)
 	wrbuf[3] = es;
 	w1_write_block(sl->master, wrbuf, 4);
 
-	
+	/* Sleep for 5 ms to wait for the write to complete */
 	msleep(5);
 
-	
+	/* Reset the bus to wake up the EEPROM (this may not be needed) */
 	w1_reset_bus(sl->master);
 #ifdef CONFIG_W1_SLAVE_DS2433_CRC
 	f23->validcrc &= ~(1 << (addr >> W1_PAGE_BITS));
@@ -201,25 +217,25 @@ static ssize_t w1_f23_write_bin(struct file *filp, struct kobject *kobj,
 		return 0;
 
 #ifdef CONFIG_W1_SLAVE_DS2433_CRC
-	
+	/* can only write full blocks in cached mode */
 	if ((off & W1_PAGE_MASK) || (count & W1_PAGE_MASK)) {
 		dev_err(&sl->dev, "invalid offset/count off=%d cnt=%zd\n",
 			(int)off, count);
 		return -EINVAL;
 	}
 
-	
+	/* make sure the block CRCs are valid */
 	for (idx = 0; idx < count; idx += W1_PAGE_SIZE) {
 		if (crc16(CRC16_INIT, &buf[idx], W1_PAGE_SIZE) != CRC16_VALID) {
 			dev_err(&sl->dev, "bad CRC at offset %d\n", (int)off);
 			return -EINVAL;
 		}
 	}
-#endif	
+#endif	/* CONFIG_W1_SLAVE_DS2433_CRC */
 
 	mutex_lock(&sl->master->mutex);
 
-	
+	/* Can only write data to one page at a time */
 	idx = 0;
 	while (idx < count) {
 		addr = off + idx;
@@ -261,14 +277,14 @@ static int w1_f23_add_slave(struct w1_slave *sl)
 		return -ENOMEM;
 	sl->family_data = data;
 
-#endif	
+#endif	/* CONFIG_W1_SLAVE_DS2433_CRC */
 
 	err = sysfs_create_bin_file(&sl->dev.kobj, &w1_f23_bin_attr);
 
 #ifdef CONFIG_W1_SLAVE_DS2433_CRC
 	if (err)
 		kfree(data);
-#endif	
+#endif	/* CONFIG_W1_SLAVE_DS2433_CRC */
 
 	return err;
 }
@@ -278,7 +294,7 @@ static void w1_f23_remove_slave(struct w1_slave *sl)
 #ifdef CONFIG_W1_SLAVE_DS2433_CRC
 	kfree(sl->family_data);
 	sl->family_data = NULL;
-#endif	
+#endif	/* CONFIG_W1_SLAVE_DS2433_CRC */
 	sysfs_remove_bin_file(&sl->dev.kobj, &w1_f23_bin_attr);
 }
 

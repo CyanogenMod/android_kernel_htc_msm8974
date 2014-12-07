@@ -40,6 +40,7 @@
 DEFINE_PER_CPU_SHARED_ALIGNED(struct rds_statistics, rds_stats);
 EXPORT_PER_CPU_SYMBOL_GPL(rds_stats);
 
+/* :.,$s/unsigned long\>.*\<s_\(.*\);/"\1",/g */
 
 static const char *const rds_stat_names[] = {
 	"conn_reset",
@@ -93,6 +94,16 @@ void rds_stats_info_copy(struct rds_info_iterator *iter,
 }
 EXPORT_SYMBOL_GPL(rds_stats_info_copy);
 
+/*
+ * This gives global counters across all the transports.  The strings
+ * are copied in so that the tool doesn't need knowledge of the specific
+ * stats that we're exporting.  Some are pretty implementation dependent
+ * and may change over time.  That doesn't stop them from being useful.
+ *
+ * This is the only function in the chain that knows about the byte granular
+ * length in userspace.  It converts it to number of stat entries that the
+ * rest of the functions operate in.
+ */
 static void rds_stats_info(struct socket *sock, unsigned int len,
 			   struct rds_info_iterator *iter,
 			   struct rds_info_lengths *lens)

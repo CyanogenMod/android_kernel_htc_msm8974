@@ -40,6 +40,7 @@ const struct imx_spi_imx_data imx21_cspi_data[] __initconst = {
 #endif
 
 #ifdef CONFIG_SOC_IMX25
+/* i.mx25 has the i.mx35 type cspi */
 const struct imx_spi_imx_data imx25_cspi_data[] __initconst = {
 #define imx25_cspi_data_entry(_id, _hwid)				\
 	imx_spi_imx_data_entry(MX25, CSPI, "imx35-cspi", _id, _hwid, SZ_16K)
@@ -47,7 +48,7 @@ const struct imx_spi_imx_data imx25_cspi_data[] __initconst = {
 	imx25_cspi_data_entry(1, 2),
 	imx25_cspi_data_entry(2, 3),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX25 */
 
 #ifdef CONFIG_SOC_IMX27
 const struct imx_spi_imx_data imx27_cspi_data[] __initconst = {
@@ -57,7 +58,7 @@ const struct imx_spi_imx_data imx27_cspi_data[] __initconst = {
 	imx27_cspi_data_entry(1, 2),
 	imx27_cspi_data_entry(2, 3),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX27 */
 
 #ifdef CONFIG_SOC_IMX31
 const struct imx_spi_imx_data imx31_cspi_data[] __initconst = {
@@ -67,7 +68,7 @@ const struct imx_spi_imx_data imx31_cspi_data[] __initconst = {
 	imx31_cspi_data_entry(1, 2),
 	imx31_cspi_data_entry(2, 3),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX31 */
 
 #ifdef CONFIG_SOC_IMX35
 const struct imx_spi_imx_data imx35_cspi_data[] __initconst = {
@@ -76,9 +77,10 @@ const struct imx_spi_imx_data imx35_cspi_data[] __initconst = {
 	imx35_cspi_data_entry(0, 1),
 	imx35_cspi_data_entry(1, 2),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX35 */
 
 #ifdef CONFIG_SOC_IMX51
+/* i.mx51 has the i.mx35 type cspi */
 const struct imx_spi_imx_data imx51_cspi_data __initconst =
 	imx_spi_imx_data_entry_single(MX51, CSPI, "imx35-cspi", 2, , SZ_4K);
 
@@ -88,19 +90,21 @@ const struct imx_spi_imx_data imx51_ecspi_data[] __initconst = {
 	imx51_ecspi_data_entry(0, 1),
 	imx51_ecspi_data_entry(1, 2),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX51 */
 
 #ifdef CONFIG_SOC_IMX53
+/* i.mx53 has the i.mx35 type cspi */
 const struct imx_spi_imx_data imx53_cspi_data __initconst =
 	imx_spi_imx_data_entry_single(MX53, CSPI, "imx35-cspi", 0, , SZ_4K);
 
+/* i.mx53 has the i.mx51 type ecspi */
 const struct imx_spi_imx_data imx53_ecspi_data[] __initconst = {
 #define imx53_ecspi_data_entry(_id, _hwid)				\
 	imx_spi_imx_data_entry(MX53, ECSPI, "imx51-ecspi", _id, _hwid, SZ_4K)
 	imx53_ecspi_data_entry(0, 1),
 	imx53_ecspi_data_entry(1, 2),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX53 */
 
 struct platform_device *__init imx_add_spi_imx(
 		const struct imx_spi_imx_data *data,

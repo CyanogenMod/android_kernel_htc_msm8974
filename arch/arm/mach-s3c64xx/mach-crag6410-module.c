@@ -66,8 +66,8 @@ static struct wm5100_pdata wm5100_pdata = {
 		0,
 		0,
 		0,
-		0x2, 
-		0x3, 
+		0x2, /* IRQ: CMOS output */
+		0x3, /* CLKOUT: CMOS output */
 	},
 };
 
@@ -102,11 +102,11 @@ static struct wm8996_pdata wm8996_pdata __initdata = {
 	.irq_flags = IRQF_TRIGGER_RISING,
 
 	.gpio_default = {
-		0x8001, 
-		0x8001, 
-		0x0141, 
-		0x0002, 
-		0x020e, 
+		0x8001, /* GPIO1 == ADCLRCLK1 */
+		0x8001, /* GPIO2 == ADCLRCLK2, input due to CPU */
+		0x0141, /* GPIO3 == HP_SEL */
+		0x0002, /* GPIO4 == IRQ */
+		0x020e, /* GPIO5 == CLKOUT */
 	},
 
 	.retune_mobile_cfgs = wm8996_retune,
@@ -120,7 +120,7 @@ static struct wm8962_pdata wm8962_pdata __initdata = {
 		WM8962_GPIO_FN_DMICCLK,
 		0,
 		0x8000 | WM8962_GPIO_FN_DMICDAT,
-		WM8962_GPIO_FN_IRQ,    
+		WM8962_GPIO_FN_IRQ,    /* Open drain mode */
 	},
 	.in4_dc_measure = true,
 };
@@ -166,7 +166,7 @@ static struct regulator_init_data wm8994_ldo2 = {
 static struct wm8994_pdata wm8994_pdata = {
 	.gpio_base = CODEC_GPIO_BASE,
 	.gpio_defaults = {
-		0x3,          
+		0x3,          /* IRQ out, active high, CMOS */
 	},
 	.irq_base = CODEC_IRQ_BASE,
 	.ldo = {
@@ -176,7 +176,7 @@ static struct wm8994_pdata wm8994_pdata = {
 };
 
 static const struct i2c_board_info wm1277_devs[] = {
-	{ I2C_BOARD_INFO("wm8958", 0x1a),  
+	{ I2C_BOARD_INFO("wm8958", 0x1a),  /* WM8958 is the superset */
 	  .platform_data = &wm8994_pdata,
 	  .irq = GLENFARCLAS_PMIC_IRQ_BASE + WM831X_IRQ_GPIO_2,
 	},

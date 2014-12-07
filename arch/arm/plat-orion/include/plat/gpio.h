@@ -14,6 +14,9 @@
 #include <linux/init.h>
 #include <linux/types.h>
 
+/*
+ * Orion-specific GPIO API extensions.
+ */
 void orion_gpio_set_unused(unsigned pin);
 void orion_gpio_set_blink(unsigned pin, int blink);
 
@@ -21,9 +24,13 @@ void orion_gpio_set_blink(unsigned pin, int blink);
 #define GPIO_OUTPUT_OK		(1 << 1)
 void orion_gpio_set_valid(unsigned pin, int mode);
 
+/* Initialize gpiolib. */
 void __init orion_gpio_init(int gpio_base, int ngpio,
 			    u32 base, int mask_offset, int secondary_irq_base);
 
+/*
+ * GPIO interrupt handling.
+ */
 void orion_gpio_irq_handler(int irqoff);
 
 

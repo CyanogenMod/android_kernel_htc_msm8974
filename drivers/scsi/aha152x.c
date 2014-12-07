@@ -266,7 +266,9 @@
 static LIST_HEAD(aha152x_host_list);
 
 
+/* DEFINES */
 
+/* For PCMCIA cards, always use AUTOCONF */
 #if defined(PCMCIA) || defined(MODULE)
 #if !defined(AUTOCONF)
 #define AUTOCONF
@@ -342,18 +344,18 @@ CMD_INC_RESID(struct scsi_cmnd *cmd, int inc)
 #endif
 
 enum {
-	not_issued	= 0x0001,	
-	selecting	= 0x0002, 	
-	identified	= 0x0004,	
-	disconnected	= 0x0008,	
-	completed	= 0x0010,	 
-	aborted		= 0x0020,	
-	resetted	= 0x0040,	
-	spiordy		= 0x0080,	
-	syncneg		= 0x0100,	
-	aborting	= 0x0200,	
-	resetting	= 0x0400,	
-	check_condition = 0x0800,	
+	not_issued	= 0x0001,	/* command not yet issued */
+	selecting	= 0x0002, 	/* target is beeing selected */
+	identified	= 0x0004,	/* IDENTIFY was sent */
+	disconnected	= 0x0008,	/* target disconnected */
+	completed	= 0x0010,	/* target sent COMMAND COMPLETE */ 
+	aborted		= 0x0020,	/* ABORT was sent */
+	resetted	= 0x0040,	/* BUS DEVICE RESET was sent */
+	spiordy		= 0x0080,	/* waiting for SPIORDY to raise */
+	syncneg		= 0x0100,	/* synchronous negotiation in progress */
+	aborting	= 0x0200,	/* ABORT is pending */
+	resetting	= 0x0400,	/* BUS DEVICE RESET is pending */
+	check_condition = 0x0800,	/* requesting sense after CHECK CONDITION */
 };
 
 MODULE_AUTHOR("Jürgen Fischer");
@@ -414,8 +416,8 @@ MODULE_PARM_DESC(aha152x, "parameters for first controller");
 static int aha152x1[]  = {0, 11, 7, 1, 1, 1, DELAY_DEFAULT, 0, DEBUG_DEFAULT};
 module_param_array(aha152x1, int, NULL, 0);
 MODULE_PARM_DESC(aha152x1, "parameters for second controller");
-#endif 
-#endif 
+#endif /* !defined(AHA152X_DEBUG) */
+#endif /* MODULE */
 
 #ifdef __ISAPNP__
 static struct isapnp_device_id id_table[] __devinitdata = {
@@ -435,13 +437,16 @@ static struct isapnp_device_id id_table[] __devinitdata = {
 	{ ISAPNP_DEVICE_SINGLE_END, }
 };
 MODULE_DEVICE_TABLE(isapnp, id_table);
-#endif 
+#endif /* ISAPNP */
 
-#endif 
+#endif /* !PCMCIA */
 
 static struct scsi_host_template aha152x_driver_template;
 
- 
+/*
+ * internal states of the host
+ *
+ */ 
 enum aha152x_state {
 	idle=0,
 	unknown,
@@ -460,28 +465,32 @@ enum aha152x_state {
 	maxstate
 };
 
+/*
+ * current state information of the host
+ *
+ */
 struct aha152x_hostdata {
 	Scsi_Cmnd *issue_SC;
-		
+		/* pending commands to issue */
 
 	Scsi_Cmnd *current_SC;
-		
+		/* current command on the bus */
 
 	Scsi_Cmnd *disconnected_SC;
-		
+		/* commands that disconnected */
 
 	Scsi_Cmnd *done_SC;
-		
+		/* command that was completed */
 
 	spinlock_t lock;
-		
+		/* host lock */
 
 #if defined(AHA152X_DEBUG)
 	const char *locker;
-		
-	int lockerl;	
+		/* which function has the lock */
+	int lockerl;	/* where did it get it */
 
-	int debug;	
+	int debug;	/* current debugging setting */
 #endif
 
 #if defined(AHA152X_STAT)
@@ -497,43 +506,50 @@ struct aha152x_hostdata {
 	unsigned long time[maxstate];
 #endif
 
-	int commands;		
+	int commands;		/* current number of commands */
 
-	int reconnect;		
-	int parity;		
-	int synchronous;	
-	int delay;		
-	int ext_trans;		
+	int reconnect;		/* disconnection allowed */
+	int parity;		/* parity checking enabled */
+	int synchronous;	/* synchronous transferes enabled */
+	int delay;		/* reset out delay */
+	int ext_trans;		/* extended translation enabled */
 
-	int swint; 		
-	int service;		
-	int in_intr;		
+	int swint; 		/* software-interrupt was fired during detect() */
+	int service;		/* bh needs to be run */
+	int in_intr;		/* bh is running */
 
+	/* current state,
+	   previous state,
+	   last state different from current state */
 	enum aha152x_state state, prevstate, laststate;
 
 	int target;
-		
+		/* reconnecting target */
 
 	unsigned char syncrate[8];
-		
+		/* current synchronous transfer agreements */
 
 	unsigned char syncneg[8];
+		/* 0: no negotiation;
+		 * 1: negotiation in progress;
+		 * 2: negotiation completed
+		 */
 
 	int cmd_i;
-		
+		/* number of sent bytes of current command */
 
 	int msgi_len;
-		
+		/* number of received message bytes */
 	unsigned char msgi[256];
-		
+		/* received message bytes */
 
 	int msgo_i, msgo_len;	
-		
+		/* number of sent bytes and length of current messages */
 	unsigned char msgo[256];
-		
+		/* pending messages */
 
 	int data_len;
-		
+		/* number of sent/received bytes in dataphase */
 
 	unsigned long io_port0;
 	unsigned long io_port1;
@@ -545,12 +561,17 @@ struct aha152x_hostdata {
 };
 
 
+/*
+ * host specific command extension
+ *
+ */
 struct aha152x_scdata {
-	Scsi_Cmnd *next;	
-	struct completion *done;
+	Scsi_Cmnd *next;	/* next sc in queue */
+	struct completion *done;/* semaphore to block on */
 	struct scsi_eh_save ses;
 };
 
+/* access macros for hostdata */
 
 #define HOSTDATA(shpnt)		((struct aha152x_hostdata *) &shpnt->hostdata)
 
@@ -602,6 +623,7 @@ struct aha152x_scdata {
 
 #define SG_ADDRESS(buffer)	((char *) sg_virt((buffer)))
 
+/* state handling */
 static void seldi_run(struct Scsi_Host *shpnt);
 static void seldo_run(struct Scsi_Host *shpnt);
 static void selto_run(struct Scsi_Host *shpnt);
@@ -633,6 +655,10 @@ static void rsti_run(struct Scsi_Host *shpnt);
 
 static void is_complete(struct Scsi_Host *shpnt);
 
+/*
+ * driver states
+ *
+ */
 static struct {
 	char		*name;
 	void		(*init)(struct Scsi_Host *);
@@ -656,17 +682,23 @@ static struct {
 	{ "rsti",	NULL,		rsti_run,	NULL,		0},
 };
 
+/* setup & interrupt */
 static irqreturn_t intr(int irq, void *dev_id);
 static void reset_ports(struct Scsi_Host *shpnt);
 static void aha152x_error(struct Scsi_Host *shpnt, char *msg);
 static void done(struct Scsi_Host *shpnt, int error);
 
+/* diagnostics */
 static void disp_ports(struct Scsi_Host *shpnt);
 static void show_command(Scsi_Cmnd * ptr);
 static void show_queues(struct Scsi_Host *shpnt);
 static void disp_enintr(struct Scsi_Host *shpnt);
 
 
+/*
+ *  queue services:
+ *
+ */
 static inline void append_SC(Scsi_Cmnd **SC, Scsi_Cmnd *new_SC)
 {
 	Scsi_Cmnd *end;
@@ -758,7 +790,7 @@ struct Scsi_Host *aha152x_probe_one(struct aha152x_setup *setup)
 	memset(HOSTDATA(shpnt), 0, sizeof *HOSTDATA(shpnt));
 	INIT_LIST_HEAD(&HOSTDATA(shpnt)->host_list);
 
-	
+	/* need to have host registered before triggering any interrupt */
 	list_add_tail(&HOSTDATA(shpnt)->host_list, &aha152x_host_list);
 
 	shpnt->io_port   = setup->io_port;
@@ -790,7 +822,7 @@ struct Scsi_Host *aha152x_probe_one(struct aha152x_setup *setup)
 	if (setup->reconnect)
 		shpnt->can_queue = AHA152X_MAXQUEUE;
 
-	
+	/* RESET OUT */
 	printk("aha152x: resetting bus...\n");
 	SETPORT(SCSISEQ, SCSIRSTO);
 	mdelay(256);
@@ -821,7 +853,7 @@ struct Scsi_Host *aha152x_probe_one(struct aha152x_setup *setup)
 	       DELAY,
 	       EXT_TRANS ? "enabled" : "disabled");
 
-	
+	/* not expecting any interrupts */
 	SETPORT(SIMODE0, 0);
 	SETPORT(SIMODE1, 0);
 
@@ -855,7 +887,7 @@ struct Scsi_Host *aha152x_probe_one(struct aha152x_setup *setup)
 	printk("ok.\n");
 
 
-	
+	/* clear interrupts */
 	SETPORT(SSTAT0, 0x7f);
 	SETPORT(SSTAT1, 0xef);
 
@@ -905,7 +937,11 @@ void aha152x_release(struct Scsi_Host *shpnt)
 }
 
 
- 
+/*
+ * setup controller to generate interrupts depending
+ * on current state (lock has to be acquired)
+ *
+ */ 
 static int setup_expected_interrupts(struct Scsi_Host *shpnt)
 {
 	if(CURRENT_SC) {
@@ -941,6 +977,9 @@ static int setup_expected_interrupts(struct Scsi_Host *shpnt)
 }
 
 
+/* 
+ *  Queue a command and setup interrupts for a free bus.
+ */
 static int aha152x_internal_queue(Scsi_Cmnd *SCpnt, struct completion *complete,
 		int phase, void (*done)(Scsi_Cmnd *))
 {
@@ -958,7 +997,7 @@ static int aha152x_internal_queue(Scsi_Cmnd *SCpnt, struct completion *complete,
 
 	SCpnt->scsi_done	= done;
 	SCpnt->SCp.phase	= not_issued | phase;
-	SCpnt->SCp.Status	= 0x1; 
+	SCpnt->SCp.Status	= 0x1; /* Ilegal status by SCSI standard */
 	SCpnt->SCp.Message	= 0;
 	SCpnt->SCp.have_data_in	= 0;
 	SCpnt->SCp.sent_command	= 0;
@@ -979,6 +1018,12 @@ static int aha152x_internal_queue(Scsi_Cmnd *SCpnt, struct completion *complete,
 	SCNEXT(SCpnt)		= NULL;
 	SCSEM(SCpnt)		= complete;
 
+	/* setup scratch area
+	   SCp.ptr              : buffer pointer
+	   SCp.this_residual    : buffer length
+	   SCp.buffer           : next buffer
+	   SCp.buffers_residual : left buffers in list
+	   SCp.phase            : current state of the command */
 
 	if ((phase & resetting) || !scsi_sglist(SCpnt)) {
 		SCpnt->SCp.ptr           = NULL;
@@ -1000,7 +1045,7 @@ static int aha152x_internal_queue(Scsi_Cmnd *SCpnt, struct completion *complete,
 	HOSTDATA(shpnt)->total_commands++;
 #endif
 
-	
+	/* Turn led on, when this is the first command. */
 	HOSTDATA(shpnt)->commands++;
 	if (HOSTDATA(shpnt)->commands==1)
 		SETPORT(PORTA, 1);
@@ -1015,6 +1060,10 @@ static int aha152x_internal_queue(Scsi_Cmnd *SCpnt, struct completion *complete,
 	return 0;
 }
 
+/*
+ *  queue a command
+ *
+ */
 static int aha152x_queue_lck(Scsi_Cmnd *SCpnt, void (*done)(Scsi_Cmnd *))
 {
 #if 0
@@ -1032,6 +1081,10 @@ static int aha152x_queue_lck(Scsi_Cmnd *SCpnt, void (*done)(Scsi_Cmnd *))
 static DEF_SCSI_QCMD(aha152x_queue)
 
 
+/*
+ *  
+ *
+ */
 static void reset_done(Scsi_Cmnd *SCpnt)
 {
 #if 0
@@ -1045,6 +1098,10 @@ static void reset_done(Scsi_Cmnd *SCpnt)
 	}
 }
 
+/*
+ *  Abort a command
+ *
+ */
 static int aha152x_abort(Scsi_Cmnd *SCpnt)
 {
 	struct Scsi_Host *shpnt = SCpnt->device->host;
@@ -1078,12 +1135,22 @@ static int aha152x_abort(Scsi_Cmnd *SCpnt)
 
 	DO_UNLOCK(flags);
 
+	/*
+	 * FIXME:
+	 * for current command: queue ABORT for message out and raise ATN
+	 * for disconnected command: pseudo SC with ABORT message or ABORT on reselection?
+	 *
+	 */
 
 	printk(ERR_LEAD "cannot abort running or disconnected command\n", CMDINFO(SCpnt));
 
 	return FAILED;
 }
 
+/*
+ * Reset a device
+ *
+ */
 static int aha152x_device_reset(Scsi_Cmnd * SCpnt)
 {
 	struct Scsi_Host *shpnt = SCpnt->device->host;
@@ -1116,7 +1183,7 @@ static int aha152x_device_reset(Scsi_Cmnd * SCpnt)
 
 	timeleft = wait_for_completion_timeout(&done, 100*HZ);
 	if (!timeleft) {
-		
+		/* remove command from issue queue */
 		DO_LOCK(flags);
 		remove_SC(&ISSUE_SC, SCpnt);
 		DO_UNLOCK(flags);
@@ -1135,7 +1202,7 @@ static int aha152x_device_reset(Scsi_Cmnd * SCpnt)
 
 		ret = SUCCESS;
 	} else {
-		
+		/* requeue */
 		if(!issued) {
 			append_SC(&ISSUE_SC, SCpnt);
 		} else if(disconnected) {
@@ -1176,6 +1243,10 @@ static void free_hard_reset_SCs(struct Scsi_Host *shpnt, Scsi_Cmnd **SCs)
 	}
 }
 
+/*
+ * Reset the bus
+ *
+ */
 static int aha152x_bus_reset_host(struct Scsi_Host *shpnt)
 {
 	unsigned long flags;
@@ -1210,16 +1281,24 @@ static int aha152x_bus_reset_host(struct Scsi_Host *shpnt)
 	return SUCCESS;
 }
 
+/*
+ * Reset the bus
+ *
+ */
 static int aha152x_bus_reset(Scsi_Cmnd *SCpnt)
 {
 	return aha152x_bus_reset_host(SCpnt->device->host);
 }
 
+/*
+ *  Restore default values to the AIC-6260 registers and reset the fifos
+ *
+ */
 static void reset_ports(struct Scsi_Host *shpnt)
 {
 	unsigned long flags;
 
-	
+	/* disable interrupts */
 	SETPORT(DMACNTRL0, RSTFIFO);
 
 	SETPORT(SCSISEQ, 0);
@@ -1228,7 +1307,7 @@ static void reset_ports(struct Scsi_Host *shpnt)
 	SETPORT(SCSISIG, 0);
 	SETRATE(0);
 
-	
+	/* clear all interrupt conditions */
 	SETPORT(SSTAT0, 0x7f);
 	SETPORT(SSTAT1, 0xef);
 
@@ -1239,7 +1318,7 @@ static void reset_ports(struct Scsi_Host *shpnt)
 
 	SETPORT(BRSTCNTRL, 0xf1);
 
-	
+	/* clear SCSI fifos and transfer count */
 	SETPORT(SXFRCTL0, CH1|CLRCH1|CLRSTCNT);
 	SETPORT(SXFRCTL0, CH1);
 
@@ -1248,6 +1327,10 @@ static void reset_ports(struct Scsi_Host *shpnt)
 	DO_UNLOCK(flags);
 }
 
+/*
+ * Reset the host (bus and controller)
+ *
+ */
 int aha152x_host_reset_host(struct Scsi_Host *shpnt)
 {
 	DPRINTK(debug_eh, KERN_DEBUG "scsi%d: host reset\n", shpnt->host_no);
@@ -1260,26 +1343,34 @@ int aha152x_host_reset_host(struct Scsi_Host *shpnt)
 	return SUCCESS;
 }
 
+/*
+ * Reset the host (bus and controller)
+ * 
+ */
 static int aha152x_host_reset(Scsi_Cmnd *SCpnt)
 {
 	return aha152x_host_reset_host(SCpnt->device->host);
 }
 
+/*
+ * Return the "logical geometry"
+ *
+ */
 static int aha152x_biosparam(struct scsi_device *sdev, struct block_device *bdev,
 		sector_t capacity, int *info_array)
 {
 	struct Scsi_Host *shpnt = sdev->host;
 
-	
+	/* try default translation */
 	info_array[0] = 64;
 	info_array[1] = 32;
 	info_array[2] = (unsigned long)capacity / (64 * 32);
 
-	
+	/* for disks >1GB do some guessing */
 	if (info_array[2] >= 1024) {
 		int info[3];
 
-		
+		/* try to figure out the geometry from the partition table */
 		if (scsicam_bios_param(bdev, capacity, info) < 0 ||
 		    !((info[0] == 64 && info[1] == 32) || (info[0] == 255 && info[1] == 63))) {
 			if (EXT_TRANS) {
@@ -1312,6 +1403,10 @@ static int aha152x_biosparam(struct scsi_device *sdev, struct block_device *bdev
 	return 0;
 }
 
+/*
+ *  Internal done function
+ *
+ */
 static void done(struct Scsi_Host *shpnt, int error)
 {
 	if (CURRENT_SC) {
@@ -1327,6 +1422,10 @@ static void done(struct Scsi_Host *shpnt, int error)
 
 static struct work_struct aha152x_tq;
 
+/*
+ * Run service completions on the card with interrupts enabled.
+ *
+ */
 static void run(struct work_struct *work)
 {
 	struct aha152x_hostdata *hd;
@@ -1338,12 +1437,29 @@ static void run(struct work_struct *work)
 	}
 }
 
+/*
+ * Interrupt handler
+ *
+ */
 static irqreturn_t intr(int irqno, void *dev_id)
 {
 	struct Scsi_Host *shpnt = dev_id;
 	unsigned long flags;
 	unsigned char rev, dmacntrl0;
 
+	/*
+	 * Read a couple of registers that are known to not be all 1's. If
+	 * we read all 1's (-1), that means that either:
+	 *
+	 * a. The host adapter chip has gone bad, and we cannot control it,
+	 *	OR
+	 * b. The host adapter is a PCMCIA card that has been ejected
+	 *
+	 * In either case, we cannot do anything with the host adapter at
+	 * this point in time. So just ignore the interrupt and return.
+	 * In the latter case, the interrupt might actually be meant for
+	 * someone else sharing this IRQ, and that driver will handle it.
+	 */
 	rev = GETPORT(REV);
 	dmacntrl0 = GETPORT(DMACNTRL0);
 	if ((rev == 0xFF) && (dmacntrl0 == 0xFF))
@@ -1352,13 +1468,15 @@ static irqreturn_t intr(int irqno, void *dev_id)
 	if( TESTLO(DMASTAT, INTSTAT) )
 		return IRQ_NONE;	
 
+	/* no more interrupts from the controller, while we're busy.
+	   INTEN is restored by the BH handler */
 	CLRBITS(DMACNTRL0, INTEN);
 
 	DO_LOCK(flags);
 	if( HOSTDATA(shpnt)->service==0 ) {
 		HOSTDATA(shpnt)->service=1;
 
-		
+		/* Poke the BH handler */
 		INIT_WORK(&aha152x_tq, run);
 		schedule_work(&aha152x_tq);
 	}
@@ -1367,6 +1485,11 @@ static irqreturn_t intr(int irqno, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * busfree phase
+ * - handle completition/disconnection/error of current command
+ * - start selection for next command (if any)
+ */
 static void busfree_run(struct Scsi_Host *shpnt)
 {
 	unsigned long flags;
@@ -1386,7 +1509,7 @@ static void busfree_run(struct Scsi_Host *shpnt)
 		CURRENT_SC->SCp.phase &= ~syncneg;
 
 		if(CURRENT_SC->SCp.phase & completed) {
-			
+			/* target sent COMMAND COMPLETE */
 			done(shpnt, (CURRENT_SC->SCp.Status & 0xff) | ((CURRENT_SC->SCp.Message & 0xff) << 8) | (DID_OK << 16));
 
 		} else if(CURRENT_SC->SCp.phase & aborted) {
@@ -1398,7 +1521,7 @@ static void busfree_run(struct Scsi_Host *shpnt)
 			done(shpnt, (CURRENT_SC->SCp.Status & 0xff) | ((CURRENT_SC->SCp.Message & 0xff) << 8) | (DID_RESET << 16));
 
 		} else if(CURRENT_SC->SCp.phase & disconnected) {
-			
+			/* target sent DISCONNECT */
 			DPRINTK(debug_selection, DEBUG_LEAD "target disconnected at %d/%d\n",
 				CMDINFO(CURRENT_SC),
 				scsi_get_resid(CURRENT_SC),
@@ -1443,7 +1566,7 @@ static void busfree_run(struct Scsi_Host *shpnt)
 
 			HOSTDATA(shpnt)->commands--;
 			if (!HOSTDATA(shpnt)->commands)
-				SETPORT(PORTA, 0);	
+				SETPORT(PORTA, 0);	/* turn led off */
 		} else if(DONE_SC->SCp.Status==SAM_STAT_CHECK_CONDITION) {
 #if defined(AHA152X_STAT)
 			HOSTDATA(shpnt)->busfree_with_check_condition++;
@@ -1461,7 +1584,7 @@ static void busfree_run(struct Scsi_Host *shpnt)
 #endif
 
 				sc = SCDATA(ptr);
-				
+				/* It was allocated in aha152x_internal_queue? */
 				BUG_ON(!sc);
 				scsi_eh_prep_cmnd(ptr, &sc->ses, NULL, 0, ~0);
 
@@ -1484,10 +1607,10 @@ static void busfree_run(struct Scsi_Host *shpnt)
 			Scsi_Cmnd *ptr = DONE_SC;
 			DONE_SC=NULL;
 
-			
+			/* turn led off, when no commands are in the driver */
 			HOSTDATA(shpnt)->commands--;
 			if (!HOSTDATA(shpnt)->commands)
-				SETPORT(PORTA, 0);	
+				SETPORT(PORTA, 0);	/* turn led off */
 
 			if(ptr->scsi_done != reset_done) {
 				kfree(ptr->host_scribble);
@@ -1521,7 +1644,7 @@ static void busfree_run(struct Scsi_Host *shpnt)
 
 		DPRINTK(debug_selection, DEBUG_LEAD "selecting target\n", CMDINFO(CURRENT_SC));
 
-		
+		/* clear selection timeout */
 		SETPORT(SSTAT1, SELTO);
 
 		SETPORT(SCSIID, (shpnt->this_id << OID_) | CURRENT_SC->device->id);
@@ -1540,6 +1663,11 @@ static void busfree_run(struct Scsi_Host *shpnt)
 #endif
 }
 
+/*
+ * Selection done (OUT)
+ * - queue IDENTIFY message and SDTR to selected target for message out
+ *   (ATN asserted automagically via ENAUTOATNO in busfree())
+ */
 static void seldo_run(struct Scsi_Host *shpnt)
 {
 	SETPORT(SCSISIG, 0);
@@ -1567,12 +1695,17 @@ static void seldo_run(struct Scsi_Host *shpnt)
 	} else if (SYNCNEG==0 && SYNCHRONOUS) {
     		CURRENT_SC->SCp.phase |= syncneg;
 		MSGOLEN += spi_populate_sync_msg(&MSGO(MSGOLEN), 50, 8);
-		SYNCNEG=1;		
+		SYNCNEG=1;		/* negotiation in progress */
 	}
 
 	SETRATE(SYNCRATE);
 }
 
+/*
+ * Selection timeout
+ * - return command to mid-level with failure cause
+ *
+ */
 static void selto_run(struct Scsi_Host *shpnt)
 {
 	SETPORT(SCSISEQ, 0);		
@@ -1594,12 +1727,19 @@ static void selto_run(struct Scsi_Host *shpnt)
 		DPRINTK(debug_selection, DEBUG_LEAD "arbitration not won\n", CMDINFO(CURRENT_SC));
 		done(shpnt, DID_BUS_BUSY << 16);
 	} else {
-		
+		/* ARBITRATION won, but SELECTION failed */
 		DPRINTK(debug_selection, DEBUG_LEAD "selection failed\n", CMDINFO(CURRENT_SC));
 		done(shpnt, DID_NO_CONNECT << 16);
 	}
 }
 
+/*
+ * Selection in done
+ * - put current command back to issue queue
+ *   (reconnection of a disconnected nexus instead
+ *    of successful selection out)
+ *
+ */
 static void seldi_run(struct Scsi_Host *shpnt)
 {
 	int selid;
@@ -1656,6 +1796,19 @@ static void seldi_run(struct Scsi_Host *shpnt)
 	DPRINTK(debug_selection, DEBUG_LEAD "target %d reselected (%02x).\n", CMDINFO(CURRENT_SC), target, selid);
 }
 
+/*
+ * message in phase
+ * - handle initial message after reconnection to identify
+ *   reconnecting nexus
+ * - queue command on DISCONNECTED_SC on DISCONNECT message
+ * - set completed flag on COMMAND COMPLETE
+ *   (other completition code moved to busfree_run)
+ * - handle response to SDTR
+ * - clear synchronous transfer agreements on BUS RESET
+ *
+ * FIXME: what about SAVE POINTERS, RESTORE POINTERS?
+ *
+ */
 static void msgi_run(struct Scsi_Host *shpnt)
 {
 	for(;;) {
@@ -1684,6 +1837,9 @@ static void msgi_run(struct Scsi_Host *shpnt)
 				printk(KERN_ERR "aha152x%d: message in w/o current command not after reselection\n", HOSTNO);
 			}
 
+			/*
+	 	 	 * Handle reselection
+	 		 */
 			if(!(MSGI(0) & IDENTIFY_BASE)) {
 				printk(KERN_ERR "aha152x%d: target didn't identify after reselection\n", HOSTNO);
 				continue;
@@ -1704,7 +1860,7 @@ static void msgi_run(struct Scsi_Host *shpnt)
 
 			MSGILEN=0;
 
-			
+			/* next message if any */
 			continue;
 		} 
 
@@ -1728,7 +1884,7 @@ static void msgi_run(struct Scsi_Host *shpnt)
 		case MESSAGE_REJECT:
 			if (SYNCNEG==1) {
 				printk(INFO_LEAD "Synchronous Data Transfer Request was rejected\n", CMDINFO(CURRENT_SC));
-				SYNCNEG=2;	
+				SYNCNEG=2;	/* negotiation completed */
 			} else
 				printk(INFO_LEAD "inbound message (MESSAGE REJECT)\n", CMDINFO(CURRENT_SC));
 			break;
@@ -1741,7 +1897,7 @@ static void msgi_run(struct Scsi_Host *shpnt)
 
 		case EXTENDED_MESSAGE:
 			if(MSGILEN<2 || MSGILEN<MSGI(1)+2) {
-				
+				/* not yet completed */
 				continue;
 			}
 
@@ -1765,7 +1921,7 @@ static void msgi_run(struct Scsi_Host *shpnt)
 					ticks = (MSGI(3) * 4 + 49) / 50;
 
 					if (syncneg) {
-						
+						/* negotiation in progress */
 						if (ticks > 9 || MSGI(4) < 1 || MSGI(4) > 8) {
 							ADDMSGO(MESSAGE_REJECT);
 							printk(INFO_LEAD "received Synchronous Data Transfer Request invalid - rejected\n", CMDINFO(CURRENT_SC));
@@ -1790,12 +1946,12 @@ static void msgi_run(struct Scsi_Host *shpnt)
 
 						SYNCRATE |= ((ticks - 2) << 4) + MSGI(4);
 					} else {
-						
+						/* requested SDTR is too slow, do it asynchronously */
 						printk(INFO_LEAD "Synchronous Data Transfer Request too slow - Rejecting\n", CMDINFO(CURRENT_SC));
 						ADDMSGO(MESSAGE_REJECT);
 					}
 
-					SYNCNEG=2;		
+					SYNCNEG=2;		/* negotiation completed */
 					SETRATE(SYNCRATE);
 				}
 				break;
@@ -1837,6 +1993,10 @@ static void msgi_end(struct Scsi_Host *shpnt)
 	} 
 }
 
+/*
+ * message out phase
+ *
+ */
 static void msgo_init(struct Scsi_Host *shpnt)
 {
 	if(MSGOLEN==0) {
@@ -1860,6 +2020,10 @@ static void msgo_init(struct Scsi_Host *shpnt)
 #endif
 }
 
+/*
+ * message out phase
+ *
+ */
 static void msgo_run(struct Scsi_Host *shpnt)
 {
 	if(MSGO_I==MSGOLEN)
@@ -1874,7 +2038,7 @@ static void msgo_run(struct Scsi_Host *shpnt)
 		}
 
 		if (MSGO_I==MSGOLEN-1) {
-			
+			/* Leave MESSAGE OUT after transfer */
 			SETPORT(SSTAT1, CLRATNO);
 		}
 
@@ -1906,6 +2070,10 @@ static void msgo_end(struct Scsi_Host *shpnt)
 	MSGOLEN = 0;
 }
 
+/* 
+ * command phase
+ *
+ */
 static void cmd_init(struct Scsi_Host *shpnt)
 {
 	if (CURRENT_SC->SCp.sent_command) {
@@ -1924,6 +2092,10 @@ static void cmd_init(struct Scsi_Host *shpnt)
 	CMD_I=0;
 }
 
+/*
+ * command phase
+ *
+ */
 static void cmd_run(struct Scsi_Host *shpnt)
 {
 	if(CMD_I==CURRENT_SC->cmd_len) {
@@ -1951,6 +2123,10 @@ static void cmd_end(struct Scsi_Host *shpnt)
 		CURRENT_SC->SCp.sent_command++;
 }
 
+/*
+ * status phase
+ *
+ */
 static void status_run(struct Scsi_Host *shpnt)
 {
 	if(TESTLO(SSTAT0,SPIORDY)) {
@@ -1969,6 +2145,10 @@ static void status_run(struct Scsi_Host *shpnt)
 #endif
 }
 
+/*
+ * data in phase
+ *
+ */
 static void datai_init(struct Scsi_Host *shpnt)
 {
 	SETPORT(DMACNTRL0, RSTFIFO);
@@ -1992,7 +2172,15 @@ static void datai_run(struct Scsi_Host *shpnt)
 	unsigned long the_time;
 	int fifodata, data_count;
 
+	/*
+	 * loop while the phase persists or the fifos are not empty
+	 *
+	 */
 	while(TESTLO(DMASTAT, INTSTAT) || TESTLO(DMASTAT, DFIFOEMP) || TESTLO(SSTAT2, SEMPTY)) {
+		/* FIXME: maybe this should be done by setting up
+		 * STCNT to trigger ENSWRAP interrupt, instead of
+		 * polling for DFIFOFULL
+		 */
 		the_time=jiffies + 100*HZ;
 		while(TESTLO(DMASTAT, DFIFOFULL|INTSTAT) && time_before(jiffies,the_time))
 			barrier();
@@ -2045,7 +2233,7 @@ static void datai_run(struct Scsi_Host *shpnt)
                         	}
 	
                         	if(CURRENT_SC->SCp.this_residual==0 && CURRENT_SC->SCp.buffers_residual>0) {
-                               		
+                               		/* advance to next buffer */
                                		CURRENT_SC->SCp.buffers_residual--;
                                		CURRENT_SC->SCp.buffer++;
                                		CURRENT_SC->SCp.ptr           = SG_ADDRESS(CURRENT_SC->SCp.buffer);
@@ -2070,6 +2258,10 @@ static void datai_run(struct Scsi_Host *shpnt)
 	   TESTLO(DMASTAT, DFIFOEMP) ||
 	   TESTLO(SSTAT2, SEMPTY) ||
 	   GETPORT(FIFOSTAT)>0) {
+	   	/*
+		 * something went wrong, if there's something left in the fifos
+		 * or the phase didn't change
+		 */
 		printk(ERR_LEAD "fifos should be empty and phase should have changed\n", CMDINFO(CURRENT_SC));
 		disp_ports(shpnt);
 	}
@@ -2096,6 +2288,10 @@ static void datai_end(struct Scsi_Host *shpnt)
 	SETPORT(DMACNTRL0, 0);
 }
 
+/*
+ * data out phase
+ *
+ */
 static void datao_init(struct Scsi_Host *shpnt)
 {
 	SETPORT(DMACNTRL0, WRITE_READ | RSTFIFO);
@@ -2120,7 +2316,7 @@ static void datao_run(struct Scsi_Host *shpnt)
 	unsigned long the_time;
 	int data_count;
 
-	
+	/* until phase changes or all data sent */
 	while(TESTLO(DMASTAT, INTSTAT) && CURRENT_SC->SCp.this_residual>0) {
 		data_count = 128;
 		if(data_count > CURRENT_SC->SCp.this_residual)
@@ -2149,7 +2345,7 @@ static void datao_run(struct Scsi_Host *shpnt)
 	  	}
 
 		if(CURRENT_SC->SCp.this_residual==0 && CURRENT_SC->SCp.buffers_residual>0) {
-			
+			/* advance to next buffer */
 			CURRENT_SC->SCp.buffers_residual--;
 			CURRENT_SC->SCp.buffer++;
 			CURRENT_SC->SCp.ptr           = SG_ADDRESS(CURRENT_SC->SCp.buffer);
@@ -2207,6 +2403,10 @@ static void datao_end(struct Scsi_Host *shpnt)
 	SETPORT(DMACNTRL0, 0);
 }
 
+/*
+ * figure out what state we're in
+ *
+ */
 static int update_state(struct Scsi_Host *shpnt)
 {
 	int dataphase=0;
@@ -2256,12 +2456,22 @@ static int update_state(struct Scsi_Host *shpnt)
 	return dataphase;
 }
 
+/*
+ * handle parity error
+ *
+ * FIXME: in which phase?
+ *
+ */
 static void parerr_run(struct Scsi_Host *shpnt)
 {
 	printk(ERR_LEAD "parity error\n", CMDINFO(CURRENT_SC));
 	done(shpnt, DID_PARITY << 16);
 }
 
+/*
+ * handle reset in
+ *
+ */
 static void rsti_run(struct Scsi_Host *shpnt)
 {
 	Scsi_Cmnd *ptr;
@@ -2290,6 +2500,10 @@ static void rsti_run(struct Scsi_Host *shpnt)
 }
 
 
+/*
+ * bottom-half handler
+ *
+ */
 static void is_complete(struct Scsi_Host *shpnt)
 {
 	int dataphase;
@@ -2310,11 +2524,15 @@ static void is_complete(struct Scsi_Host *shpnt)
 
 	if(HOSTDATA(shpnt)->in_intr) {
 		DO_UNLOCK(flags);
-		
+		/* aha152x_error never returns.. */
 		aha152x_error(shpnt, "bottom-half already running!?");
 	}
 	HOSTDATA(shpnt)->in_intr++;
 
+	/*
+	 * loop while there are interrupt conditions pending
+	 *
+	 */
 	do {
 		unsigned long start = jiffies;
 		DO_UNLOCK(flags);
@@ -2323,9 +2541,18 @@ static void is_complete(struct Scsi_Host *shpnt)
 
 		DPRINTK(debug_phases, LEAD "start %s %s(%s)\n", CMDINFO(CURRENT_SC), states[STATE].name, states[PREVSTATE].name, states[LASTSTATE].name);
 
+		/*
+		 * end previous state
+		 *
+		 */
 		if(PREVSTATE!=STATE && states[PREVSTATE].end)
 			states[PREVSTATE].end(shpnt);
 
+		/*
+		 * disable SPIO mode if previous phase used it
+		 * and this one doesn't
+		 *
+		 */
 		if(states[PREVSTATE].spio && !states[STATE].spio) {
 			SETPORT(SXFRCTL0, CH1);
 			SETPORT(DMACNTRL0, 0);
@@ -2333,12 +2560,21 @@ static void is_complete(struct Scsi_Host *shpnt)
 				CURRENT_SC->SCp.phase &= ~spiordy;
 		}
 
+		/*
+		 * accept current dataphase phase
+		 *
+		 */
 		if(dataphase) {
 			SETPORT(SSTAT0, REQINIT);
 			SETPORT(SCSISIG, GETPORT(SCSISIG) & P_MASK);
 			SETPORT(SSTAT1, PHASECHG);  
 		}
 		
+		/*
+		 * enable SPIO mode if previous didn't use it
+		 * and this one does
+		 *
+		 */
 		if(!states[PREVSTATE].spio && states[STATE].spio) {
 			SETPORT(DMACNTRL0, 0);
 			SETPORT(SXFRCTL0, CH1|SPIOEN);
@@ -2346,14 +2582,28 @@ static void is_complete(struct Scsi_Host *shpnt)
 				CURRENT_SC->SCp.phase |= spiordy;
 		}
 		
+		/*
+		 * initialize for new state
+		 *
+		 */
 		if(PREVSTATE!=STATE && states[STATE].init)
 			states[STATE].init(shpnt);
 		
+		/*
+		 * handle current state
+		 *
+		 */
 		if(states[STATE].run)
 			states[STATE].run(shpnt);
 		else
 			printk(ERR_LEAD "unexpected state (%x)\n", CMDINFO(CURRENT_SC), STATE);
 		
+		/*
+		 * setup controller to interrupt on
+		 * the next expected condition and
+		 * loop if it's already there
+		 *
+		 */
 		DO_LOCK(flags);
 		pending=setup_expected_interrupts(shpnt);
 #if defined(AHA152X_STAT)
@@ -2366,12 +2616,19 @@ static void is_complete(struct Scsi_Host *shpnt)
 		DPRINTK(debug_phases, LEAD "end %s %s(%s)\n", CMDINFO(CURRENT_SC), states[STATE].name, states[PREVSTATE].name, states[LASTSTATE].name);
 	} while(pending);
 
+	/*
+	 * enable interrupts and leave bottom-half
+	 *
+	 */
 	HOSTDATA(shpnt)->in_intr--;
 	SETBITS(DMACNTRL0, INTEN);
 	DO_UNLOCK(flags);
 }
 
 
+/* 
+ * Dump the current driver status and panic
+ */
 static void aha152x_error(struct Scsi_Host *shpnt, char *msg)
 {
 	printk(KERN_EMERG "\naha152x%d: %s\n", HOSTNO, msg);
@@ -2379,6 +2636,9 @@ static void aha152x_error(struct Scsi_Host *shpnt, char *msg)
 	panic("aha152x panic\n");
 }
 
+/*
+ * Display registers of AIC-6260
+ */
 static void disp_ports(struct Scsi_Host *shpnt)
 {
 #if defined(AHA152X_DEBUG)
@@ -2608,6 +2868,9 @@ static void disp_ports(struct Scsi_Host *shpnt)
 #endif
 }
 
+/*
+ * display enabled interrupts
+ */
 static void disp_enintr(struct Scsi_Host *shpnt)
 {
 	int s;
@@ -2648,6 +2911,9 @@ static void disp_enintr(struct Scsi_Host *shpnt)
 	printk(")\n");
 }
 
+/*
+ * Show the command data of a command
+ */
 static void show_command(Scsi_Cmnd *ptr)
 {
 	scmd_printk(KERN_DEBUG, ptr, "%p: cmnd=(", ptr);
@@ -2682,6 +2948,9 @@ static void show_command(Scsi_Cmnd *ptr)
 	}
 }
 
+/*
+ * Dump the queued data
+ */
 static void show_queues(struct Scsi_Host *shpnt)
 {
 	Scsi_Cmnd *ptr;
@@ -3220,22 +3489,31 @@ static struct scsi_host_template aha152x_driver_template = {
 static int setup_count;
 static struct aha152x_setup setup[2];
 
+/* possible i/o addresses for the AIC-6260; default first */
 static unsigned short ports[] = { 0x340, 0x140 };
 
 #if !defined(SKIP_BIOSTEST)
+/* possible locations for the Adaptec BIOS; defaults first */
 static unsigned int addresses[] =
 {
-	0xdc000,		
+	0xdc000,		/* default first */
 	0xc8000,
 	0xcc000,
 	0xd0000,
 	0xd4000,
 	0xd8000,
 	0xe0000,
-	0xeb800,		
+	0xeb800,		/* VTech Platinum SMP */
 	0xf0000,
 };
 
+/* signatures for various AIC-6[23]60 based controllers.
+   The point in detecting signatures is to avoid useless and maybe
+   harmful probes on ports. I'm not sure that all listed boards pass
+   auto-configuration. For those which fail the BIOS signature is
+   obsolete, because user intervention to supply the configuration is
+   needed anyway.  May be an information whether or not the BIOS supports
+   extended translation could be also useful here. */
 static struct signature {
 	unsigned char *signature;
 	int sig_offset;
@@ -3243,43 +3521,47 @@ static struct signature {
 } signatures[] =
 {
 	{ "Adaptec AHA-1520 BIOS",	0x102e, 21 },
-		
+		/* Adaptec 152x */
 	{ "Adaptec AHA-1520B",		0x000b, 17 },
-		
+		/* Adaptec 152x rev B */
 	{ "Adaptec AHA-1520B",		0x0026, 17 },
-		
+		/* Iomega Jaz Jet ISA (AIC6370Q) */
 	{ "Adaptec ASW-B626 BIOS",	0x1029, 21 },
-		
+		/* on-board controller */
 	{ "Adaptec BIOS: ASW-B626",	0x000f, 22 },
-		
+		/* on-board controller */
 	{ "Adaptec ASW-B626 S2",	0x2e6c, 19 },
-		
+		/* on-board controller */
 	{ "Adaptec BIOS:AIC-6360",	0x000c, 21 },
-		
+		/* on-board controller */
 	{ "ScsiPro SP-360 BIOS",	0x2873, 19 },
-		
+		/* ScsiPro-Controller  */
 	{ "GA-400 LOCAL BUS SCSI BIOS", 0x102e, 26 },
-		
+		/* Gigabyte Local-Bus-SCSI */
 	{ "Adaptec BIOS:AVA-282X",	0x000c, 21 },
-		
+		/* Adaptec 282x */
 	{ "Adaptec IBM Dock II SCSI",   0x2edd, 24 },
-		
+		/* IBM Thinkpad Dock II */
 	{ "Adaptec BIOS:AHA-1532P",     0x001c, 22 },
-		
+		/* IBM Thinkpad Dock II SCSI */
 	{ "DTC3520A Host Adapter BIOS", 0x318a, 26 },
-		
+		/* DTC 3520A ISA SCSI */
 };
-#endif 
+#endif /* !SKIP_BIOSTEST */
 
+/*
+ * Test, if port_base is valid.
+ *
+ */
 static int aha152x_porttest(int io_port)
 {
 	int i;
 
-	SETPORT(io_port + O_DMACNTRL1, 0);	
+	SETPORT(io_port + O_DMACNTRL1, 0);	/* reset stack pointer */
 	for (i = 0; i < 16; i++)
 		SETPORT(io_port + O_STACK, i);
 
-	SETPORT(io_port + O_DMACNTRL1, 0);	
+	SETPORT(io_port + O_DMACNTRL1, 0);	/* reset stack pointer */
 	for (i = 0; i < 16 && GETPORT(io_port + O_STACK) == i; i++)
 		;
 
@@ -3290,11 +3572,11 @@ static int tc1550_porttest(int io_port)
 {
 	int i;
 
-	SETPORT(io_port + O_TC_DMACNTRL1, 0);	
+	SETPORT(io_port + O_TC_DMACNTRL1, 0);	/* reset stack pointer */
 	for (i = 0; i < 16; i++)
 		SETPORT(io_port + O_STACK, i);
 
-	SETPORT(io_port + O_TC_DMACNTRL1, 0);	
+	SETPORT(io_port + O_TC_DMACNTRL1, 0);	/* reset stack pointer */
 	for (i = 0; i < 16 && GETPORT(io_port + O_TC_STACK) == i; i++)
 		;
 
@@ -3564,7 +3846,7 @@ static int __init aha152x_init(void)
 		printk(KERN_INFO "aha152x: BIOS test: passed, ");
 #else
 		printk(KERN_INFO "aha152x: ");
-#endif				
+#endif				/* !SKIP_BIOSTEST */
 
 		ok = 0;
 		for (i = 0; i < ARRAY_SIZE(ports) && setup_count < 2; i++) {
@@ -3685,7 +3967,7 @@ static int __init aha152x_setup(char *str)
 		printk(KERN_NOTICE "aha152x: usage: aha152x=<IOBASE>[,<IRQ>[,<SCSI ID>"
 		       "[,<RECONNECT>[,<PARITY>[,<SYNCHRONOUS>[,<DELAY>[,<EXT_TRANS>[,<DEBUG>]]]]]]]]\n");
 #else
-	if (ints[0] > 8) {                                                
+	if (ints[0] > 8) {                                                /*}*/
 		printk(KERN_NOTICE "aha152x: usage: aha152x=<IOBASE>[,<IRQ>[,<SCSI ID>"
 		       "[,<RECONNECT>[,<PARITY>[,<SYNCHRONOUS>[,<DELAY>[,<EXT_TRANS>]]]]]]]\n");
 #endif
@@ -3699,4 +3981,4 @@ static int __init aha152x_setup(char *str)
 __setup("aha152x=", aha152x_setup);
 #endif
 
-#endif 
+#endif /* !PCMCIA */

@@ -93,7 +93,7 @@ static void max8997_led_set_mode(struct max8997_led *led,
 	struct i2c_client *client = led->iodev->i2c;
 	u8 mask = 0;
 
-	
+	/* First, clear the previous mode */
 	max8997_led_clear_mode(led, led->led_mode);
 
 	switch (mode) {
@@ -291,7 +291,7 @@ static int __devinit max8997_led_probe(struct platform_device *pdev)
 	led->cdev.brightness = 0;
 	led->iodev = iodev;
 
-	
+	/* initialize mode and brightness according to platform_data */
 	if (pdata->led_pdata) {
 		u8 mode = 0, brightness = 0;
 

@@ -35,6 +35,7 @@
 
 #include "common.h"
 
+/* Following are default values for UCON, ULCON and UFCON UART registers */
 #define SMDKC110_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
 				 S3C2410_UCON_RXILEVEL |	\
 				 S3C2410_UCON_TXIRQMODE |	\
@@ -104,16 +105,16 @@ static struct platform_device *smdkc110_devices[] __initdata = {
 };
 
 static struct i2c_board_info smdkc110_i2c_devs0[] __initdata = {
-	{ I2C_BOARD_INFO("24c08", 0x50), },     
+	{ I2C_BOARD_INFO("24c08", 0x50), },     /* Samsung S524AD0XD1 */
 	{ I2C_BOARD_INFO("wm8580", 0x1b), },
 };
 
 static struct i2c_board_info smdkc110_i2c_devs1[] __initdata = {
-	
+	/* To Be Updated */
 };
 
 static struct i2c_board_info smdkc110_i2c_devs2[] __initdata = {
-	
+	/* To Be Updated */
 };
 
 static void __init smdkc110_map_io(void)
@@ -149,7 +150,7 @@ static void __init smdkc110_machine_init(void)
 }
 
 MACHINE_START(SMDKC110, "SMDKC110")
-	
+	/* Maintainer: Kukjin Kim <kgene.kim@samsung.com> */
 	.atag_offset	= 0x100,
 	.init_irq	= s5pv210_init_irq,
 	.handle_irq	= vic_handle_irq,

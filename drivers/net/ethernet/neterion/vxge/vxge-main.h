@@ -87,8 +87,13 @@
 #define TTI_TX_UFC_D	100
 #define TTI_T1A_TX_UFC_A	30
 #define TTI_T1A_TX_UFC_B	80
+/* Slope - (max_mtu - min_mtu)/(max_mtu_ufc - min_mtu_ufc) */
+/* Slope - 93 */
+/* 60 - 9k Mtu, 140 - 1.5k mtu */
 #define TTI_T1A_TX_UFC_C(mtu)	(60 + ((VXGE_HW_MAX_MTU - mtu) / 93))
 
+/* Slope - 37 */
+/* 100 - 9k Mtu, 300 - 1.5k mtu */
 #define TTI_T1A_TX_UFC_D(mtu)	(100 + ((VXGE_HW_MAX_MTU - mtu) / 37))
 
 
@@ -106,9 +111,16 @@
 #define RTI_T1A_RX_UFC_C	50
 #define RTI_T1A_RX_UFC_D	60
 
+/*
+ * The interrupt rate is maintained at 3k per second with the moderation
+ * parameters for most traffic but not all. This is the maximum interrupt
+ * count allowed per function with INTA or per vector in the case of
+ * MSI-X in a 10 millisecond time period. Enabled only for Titan 1A.
+ */
 #define VXGE_T1A_MAX_INTERRUPT_COUNT	100
 #define VXGE_T1A_MAX_TX_INTERRUPT_COUNT	200
 
+/* Milli secs timer period */
 #define VXGE_TIMER_DELAY		10000
 
 #define VXGE_LL_MAX_FRAME_SIZE(dev) ((dev)->mtu + VXGE_HW_MAC_HEADER_MAX_SIZE)
@@ -119,20 +131,21 @@
 	(function_mode == VXGE_HW_FUNCTION_MODE_SRIOV_4))
 
 enum vxge_reset_event {
-	
+	/* reset events */
 	VXGE_LL_VPATH_RESET	= 0,
 	VXGE_LL_DEVICE_RESET	= 1,
 	VXGE_LL_FULL_RESET	= 2,
 	VXGE_LL_START_RESET	= 3,
 	VXGE_LL_COMPL_RESET	= 4
 };
+/* These flags represent the devices temporary state */
 enum vxge_device_state_t {
 __VXGE_STATE_RESET_CARD = 0,
 __VXGE_STATE_CARD_UP
 };
 
 enum vxge_mac_addr_state {
-	
+	/* mac address states */
 	VXGE_LL_MAC_ADDR_IN_LIST        = 0,
 	VXGE_LL_MAC_ADDR_IN_DA_TABLE    = 1
 };
@@ -180,21 +193,22 @@ struct vxge_config {
 };
 
 struct vxge_msix_entry {
-	
+	/* Mimicing the msix_entry struct of Kernel. */
 	u16 vector;
 	u16 entry;
 	u16 in_use;
 	void *arg;
 };
 
+/* Software Statistics */
 
 struct vxge_sw_stats {
 
-	
+	/* Virtual Path */
 	unsigned long vpaths_open;
 	unsigned long vpath_open_fail;
 
-	
+	/* Misc. */
 	unsigned long link_up;
 	unsigned long link_down;
 };
@@ -228,12 +242,12 @@ struct vxge_fifo {
 	int tx_steering_type;
 	int indicate_max_pkts;
 
-	
+	/* Adaptive interrupt moderation parameters used in T1A */
 	unsigned long interrupt_count;
 	unsigned long jiffies;
 
 	u32 tx_vector_no;
-	
+	/* Tx stats */
 	struct vxge_fifo_stats stats;
 } ____cacheline_aligned;
 
@@ -254,13 +268,16 @@ struct vxge_ring {
 	struct net_device	*ndev;
 	struct pci_dev		*pdev;
 	struct __vxge_hw_ring	*handle;
+	/* The vpath id maintained in the driver -
+	 * 0 to 'maximum_vpaths_in_function - 1'
+	 */
 	int driver_id;
 
-	
+	/* Adaptive interrupt moderation parameters used in T1A */
 	unsigned long interrupt_count;
 	unsigned long jiffies;
 
-	
+	/* copy of the flag indicating whether rx_hwts is to be used */
 	u32 rx_hwts:1;
 
 	int pkts_processed;
@@ -275,7 +292,7 @@ struct vxge_ring {
 	u32 rx_vector_no;
 	enum vxge_hw_status last_status;
 
-	
+	/* Rx stats */
 	struct vxge_ring_stats stats;
 } ____cacheline_aligned;
 
@@ -285,7 +302,7 @@ struct vxge_vpath {
 
 	struct __vxge_hw_vpath_handle *handle;
 
-	
+	/* Actual vpath id for this vpath in the device - 0 to 16 */
 	int device_id;
 	int max_mac_addr_cnt;
 	int is_configured;
@@ -295,7 +312,7 @@ struct vxge_vpath {
 	u8 macmask[ETH_ALEN];
 
 #define VXGE_MAX_LEARN_MAC_ADDR_CNT	2048
-	
+	/* mac addresses currently programmed into NIC */
 	u16 mac_addr_cnt;
 	u16 mcast_addr_cnt;
 	struct list_head mac_addr_list;
@@ -321,23 +338,31 @@ struct vxgedev {
 	struct vxge_config	config;
 	unsigned long	state;
 
-	
+	/* Indicates which vpath to reset */
 	unsigned long  vp_reset;
 
-	
+	/* Timer used for polling vpath resets */
 	struct timer_list vp_reset_timer;
 
-	
+	/* Timer used for polling vpath lockup */
 	struct timer_list vp_lockup_timer;
 
+	/*
+	 * Flags to track whether device is in All Multicast
+	 * or in promiscuous mode.
+	 */
 	u16		all_multi_flg;
 
-	
+	/* A flag indicating whether rx_hwts is to be used or not. */
 	u32	rx_hwts:1,
 		titan1:1;
 
 	struct vxge_msix_entry *vxge_entries;
 	struct msix_entry *entries;
+	/*
+	 * 4 for each vpath * 17;
+	 * total is 68
+	 */
 #define	VXGE_MAX_REQUESTED_MSIX	68
 #define VXGE_INTR_STRLEN 80
 	char desc[VXGE_MAX_REQUESTED_MSIX][VXGE_INTR_STRLEN];
@@ -348,6 +373,14 @@ struct vxgedev {
 	int no_of_vpath;
 
 	struct napi_struct napi;
+	/* A debug option, when enabled and if error condition occurs,
+	 * the driver will do following steps:
+	 * - mask all interrupts
+	 * - Not clear the source of the alarm
+	 * - gracefully stop all I/O
+	 * A diagnostic dump of register and stats at this point
+	 * reveals very useful information.
+	 */
 	int exec_mode;
 	int max_config_port;
 	struct vxge_vpath	*vpaths;
@@ -356,7 +389,7 @@ struct vxgedev {
 	void __iomem *bar0;
 	struct vxge_sw_stats	stats;
 	int		mtu;
-	
+	/* Below variables are used for vpath selection to transmit a packet */
 	u8 		vpath_selector[VXGE_HW_MAX_VIRTUAL_PATHS];
 	u64		vpaths_deployed;
 
@@ -394,6 +427,15 @@ void vxge_initialize_ethtool_ops(struct net_device *ndev);
 enum vxge_hw_status vxge_reset_all_vpaths(struct vxgedev *vdev);
 int vxge_fw_upgrade(struct vxgedev *vdev, char *fw_name, int override);
 
+/**
+ * #define VXGE_DEBUG_INIT: debug for initialization functions
+ * #define VXGE_DEBUG_TX	 : debug transmit related functions
+ * #define VXGE_DEBUG_RX  : debug recevice related functions
+ * #define VXGE_DEBUG_MEM : debug memory module
+ * #define VXGE_DEBUG_LOCK: debug locks
+ * #define VXGE_DEBUG_SEM : debug semaphore
+ * #define VXGE_DEBUG_ENTRYEXIT: debug functions by adding entry exit statements
+*/
 #define VXGE_DEBUG_INIT		0x00000001
 #define VXGE_DEBUG_TX		0x00000002
 #define VXGE_DEBUG_RX		0x00000004
@@ -404,6 +446,7 @@ int vxge_fw_upgrade(struct vxgedev *vdev, char *fw_name, int override);
 #define VXGE_DEBUG_INTR		0x00000080
 #define VXGE_DEBUG_LL_CONFIG	0x00000100
 
+/* Debug tracing for VXGE driver */
 #ifndef VXGE_DEBUG_MASK
 #define VXGE_DEBUG_MASK	0x0
 #endif

@@ -7,9 +7,10 @@
 
 #include "linux/types.h"
 
+/* the following taken from <asm-ppc/ptrace.h> */
 
 #ifdef CONFIG_PPC64
-#define PPC_REG unsigned long 
+#define PPC_REG unsigned long /*long*/
 #else
 #define PPC_REG unsigned long
 #endif
@@ -17,17 +18,17 @@ struct sys_pt_regs_s {
 	PPC_REG gpr[32];
 	PPC_REG nip;
 	PPC_REG msr;
-	PPC_REG orig_gpr3;	
+	PPC_REG orig_gpr3;	/* Used for restarting system calls */
 	PPC_REG ctr;
 	PPC_REG link;
 	PPC_REG xer;
 	PPC_REG ccr;
-	PPC_REG mq;		
-				
-	PPC_REG trap;		
-	PPC_REG dar;		
+	PPC_REG mq;		/* 601 only (not used at present) */
+				/* Used on APUS to hold IPL value. */
+	PPC_REG trap;		/* Reason for being here */
+	PPC_REG dar;		/* Fault registers */
 	PPC_REG dsisr;
-	PPC_REG result; 	
+	PPC_REG result; 	/* Result of a system call */
 };
 
 #define NUM_REGS (sizeof(struct sys_pt_regs_s) / sizeof(PPC_REG))
@@ -80,6 +81,9 @@ do {                                                    \
 extern void shove_aux_table(unsigned long sp);
 #define UM_FIX_EXEC_STACK(sp) shove_aux_table(sp);
 
+/* These aren't actually defined.  The undefs are just to make sure
+ * everyone's clear on the concept.
+ */
 #undef UML_HAVE_GETREGS
 #undef UML_HAVE_GETFPREGS
 #undef UML_HAVE_SETREGS

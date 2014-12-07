@@ -23,6 +23,9 @@ struct plat_nand_data {
 	void __iomem		*io_base;
 };
 
+/*
+ * Probe for the NAND device.
+ */
 static int __devinit plat_nand_probe(struct platform_device *pdev)
 {
 	struct platform_nand_data *pdata = pdev->dev.platform_data;
@@ -39,7 +42,7 @@ static int __devinit plat_nand_probe(struct platform_device *pdev)
 	if (!res)
 		return -ENXIO;
 
-	
+	/* Allocate memory for the device structure (and zero it) */
 	data = kzalloc(sizeof(struct plat_nand_data), GFP_KERNEL);
 	if (!data) {
 		dev_err(&pdev->dev, "failed to allocate device structure.\n");
@@ -82,14 +85,14 @@ static int __devinit plat_nand_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, data);
 
-	
+	/* Handle any platform specific setup */
 	if (pdata->ctrl.probe) {
 		err = pdata->ctrl.probe(pdev);
 		if (err)
 			goto out;
 	}
 
-	
+	/* Scan to find existence of the device */
 	if (nand_scan(&data->mtd, pdata->chip.nr_chips)) {
 		err = -ENXIO;
 		goto out;
@@ -116,6 +119,9 @@ out_free:
 	return err;
 }
 
+/*
+ * Remove a NAND device.
+ */
 static int __devexit plat_nand_remove(struct platform_device *pdev)
 {
 	struct plat_nand_data *data = platform_get_drvdata(pdev);

@@ -32,6 +32,7 @@
 #define POLL_INTERVAL		100
 #define POLL_INTERVAL_MAX	500
 
+/* register definitions */
 #define MMA8450_STATUS		0x00
 #define MMA8450_STATUS_ZXYDR	0x08
 
@@ -51,6 +52,7 @@
 #define MMA8450_CTRL_REG1	0x38
 #define MMA8450_CTRL_REG2	0x39
 
+/* mma8450 status */
 struct mma8450 {
 	struct i2c_client	*client;
 	struct input_polled_dev	*idev;
@@ -131,16 +133,22 @@ static void mma8450_poll(struct input_polled_dev *dev)
 	input_sync(dev->input);
 }
 
+/* Initialize the MMA8450 chip */
 static void mma8450_open(struct input_polled_dev *dev)
 {
 	struct mma8450 *m = dev->private;
 	int err;
 
-	
+	/* enable all events from X/Y/Z, no FIFO */
 	err = mma8450_write(m, MMA8450_XYZ_DATA_CFG, 0x07);
 	if (err)
 		return;
 
+	/*
+	 * Sleep mode poll rate - 50Hz
+	 * System output data rate - 400Hz
+	 * Full scale selection - Active, +/- 2G
+	 */
 	err = mma8450_write(m, MMA8450_CTRL_REG1, 0x01);
 	if (err < 0)
 		return;
@@ -156,6 +164,9 @@ static void mma8450_close(struct input_polled_dev *dev)
 	mma8450_write(m, MMA8450_CTRL_REG2, 0x01);
 }
 
+/*
+ * I2C init/probing/exit functions
+ */
 static int __devinit mma8450_probe(struct i2c_client *c,
 				   const struct i2c_device_id *id)
 {
@@ -221,7 +232,7 @@ MODULE_DEVICE_TABLE(i2c, mma8450_id);
 
 static const struct of_device_id mma8450_dt_ids[] = {
 	{ .compatible = "fsl,mma8450", },
-	{  }
+	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, mma8450_dt_ids);
 

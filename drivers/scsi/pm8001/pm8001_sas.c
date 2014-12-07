@@ -41,6 +41,11 @@
 #include <linux/slab.h>
 #include "pm8001_sas.h"
 
+/**
+ * pm8001_find_tag - from sas task to find out  tag that belongs to this task
+ * @task: the task sent to the LLDD
+ * @tag: the found tag associated with the task
+ */
 static int pm8001_find_tag(struct sas_task *task, u32 *tag)
 {
 	if (task->lldd_task) {
@@ -52,6 +57,11 @@ static int pm8001_find_tag(struct sas_task *task, u32 *tag)
 	return 0;
 }
 
+/**
+  * pm8001_tag_clear - clear the tags bitmap
+  * @pm8001_ha: our hba struct
+  * @tag: the found tag associated with the task
+  */
 static void pm8001_tag_clear(struct pm8001_hba_info *pm8001_ha, u32 tag)
 {
 	void *bitmap = pm8001_ha->tags;
@@ -69,6 +79,11 @@ static void pm8001_tag_set(struct pm8001_hba_info *pm8001_ha, u32 tag)
 	set_bit(tag, bitmap);
 }
 
+/**
+  * pm8001_tag_alloc - allocate a empty tag for task used.
+  * @pm8001_ha: our hba struct
+  * @tag_out: the found empty tag .
+  */
 inline int pm8001_tag_alloc(struct pm8001_hba_info *pm8001_ha, u32 *tag_out)
 {
 	unsigned int index, tag;
@@ -90,6 +105,14 @@ void pm8001_tag_init(struct pm8001_hba_info *pm8001_ha)
 		pm8001_tag_clear(pm8001_ha, i);
 }
 
+ /**
+  * pm8001_mem_alloc - allocate memory for pm8001.
+  * @pdev: pci device.
+  * @virt_addr: the allocated virtual address
+  * @pphys_addr_hi: the physical address high byte address.
+  * @pphys_addr_lo: the physical address low byte address.
+  * @mem_size: memory size.
+  */
 int pm8001_mem_alloc(struct pci_dev *pdev, void **virt_addr,
 	dma_addr_t *pphys_addr, u32 *pphys_addr_hi,
 	u32 *pphys_addr_lo, u32 mem_size, u32 align)
@@ -114,6 +137,11 @@ int pm8001_mem_alloc(struct pci_dev *pdev, void **virt_addr,
 	*pphys_addr_lo = lower_32_bits(phys_align);
 	return 0;
 }
+/**
+  * pm8001_find_ha_by_dev - from domain device which come from sas layer to
+  * find out our hba struct.
+  * @dev: the domain device which from sas layer.
+  */
 static
 struct pm8001_hba_info *pm8001_find_ha_by_dev(struct domain_device *dev)
 {
@@ -122,6 +150,15 @@ struct pm8001_hba_info *pm8001_find_ha_by_dev(struct domain_device *dev)
 	return pm8001_ha;
 }
 
+/**
+  * pm8001_phy_control - this function should be registered to
+  * sas_domain_function_template to provide libsas used, note: this is just
+  * control the HBA phy rather than other expander phy if you want control
+  * other phy, you should use SMP command.
+  * @sas_phy: which phy in HBA phys.
+  * @func: the operation.
+  * @funcdata: always NULL.
+  */
 int pm8001_phy_control(struct asd_sas_phy *sas_phy, enum phy_func func,
 	void *funcdata)
 {
@@ -201,6 +238,11 @@ int pm8001_phy_control(struct asd_sas_phy *sas_phy, enum phy_func func,
 	return rc;
 }
 
+/**
+  * pm8001_scan_start - we should enable all HBA phys by sending the phy_start
+  * command to HBA.
+  * @shost: the scsi host data.
+  */
 void pm8001_scan_start(struct Scsi_Host *shost)
 {
 	int i;
@@ -216,13 +258,20 @@ int pm8001_scan_finished(struct Scsi_Host *shost, unsigned long time)
 {
 	struct sas_ha_struct *ha = SHOST_TO_SAS_HA(shost);
 
+	/* give the phy enabling interrupt event time to come in (1s
+	* is empirically about all it takes) */
 	if (time < HZ)
 		return 0;
-	
+	/* Wait for discovery to finish */
 	sas_drain_work(ha);
 	return 1;
 }
 
+/**
+  * pm8001_task_prep_smp - the dispatcher function, prepare data for smp task
+  * @pm8001_ha: our hba card information
+  * @ccb: the ccb which attached to smp task
+  */
 static int pm8001_task_prep_smp(struct pm8001_hba_info *pm8001_ha,
 	struct pm8001_ccb_info *ccb)
 {
@@ -242,30 +291,46 @@ u32 pm8001_get_ncq_tag(struct sas_task *task, u32 *tag)
 	return 0;
 }
 
+/**
+  * pm8001_task_prep_ata - the dispatcher function, prepare data for sata task
+  * @pm8001_ha: our hba card information
+  * @ccb: the ccb which attached to sata task
+  */
 static int pm8001_task_prep_ata(struct pm8001_hba_info *pm8001_ha,
 	struct pm8001_ccb_info *ccb)
 {
 	return PM8001_CHIP_DISP->sata_req(pm8001_ha, ccb);
 }
 
+/**
+  * pm8001_task_prep_ssp_tm - the dispatcher function, prepare task management data
+  * @pm8001_ha: our hba card information
+  * @ccb: the ccb which attached to TM
+  * @tmf: the task management IU
+  */
 static int pm8001_task_prep_ssp_tm(struct pm8001_hba_info *pm8001_ha,
 	struct pm8001_ccb_info *ccb, struct pm8001_tmf_task *tmf)
 {
 	return PM8001_CHIP_DISP->ssp_tm_req(pm8001_ha, ccb, tmf);
 }
 
+/**
+  * pm8001_task_prep_ssp - the dispatcher function,prepare ssp data for ssp task
+  * @pm8001_ha: our hba card information
+  * @ccb: the ccb which attached to ssp task
+  */
 static int pm8001_task_prep_ssp(struct pm8001_hba_info *pm8001_ha,
 	struct pm8001_ccb_info *ccb)
 {
 	return PM8001_CHIP_DISP->ssp_io_req(pm8001_ha, ccb);
 }
 
- 
+ /* Find the local port id that's attached to this device */
 static int sas_find_local_port_id(struct domain_device *dev)
 {
 	struct domain_device *pdev = dev->parent;
 
-	
+	/* Directly attached device */
 	if (!pdev)
 		return dev->port->id;
 	while (pdev) {
@@ -277,6 +342,15 @@ static int sas_find_local_port_id(struct domain_device *dev)
 	return 0;
 }
 
+/**
+  * pm8001_task_exec - queue the task(ssp, smp && ata) to the hardware.
+  * @task: the task to be execute.
+  * @num: if can_queue great than 1, the task can be queued up. for SMP task,
+  * we always execute one one time.
+  * @gfp_flags: gfp_flags.
+  * @is_tmf: if it is task management task.
+  * @tmf: the task management IU
+  */
 #define DEV_IS_GONE(pm8001_dev)	\
 	((!pm8001_dev || (pm8001_dev->dev_type == NO_DEVICE)))
 static int pm8001_task_exec(struct sas_task *task, const int num,
@@ -384,7 +458,7 @@ static int pm8001_task_exec(struct sas_task *task, const int num,
 				pm8001_printk("rc is %x\n", rc));
 			goto err_out_tag;
 		}
-		
+		/* TODO: select normal or high priority */
 		spin_lock(&t->task_state_lock);
 		t->task_state_flags |= SAS_TASK_AT_INITIATOR;
 		spin_unlock(&t->task_state_lock);
@@ -408,6 +482,14 @@ out_done:
 	return rc;
 }
 
+/**
+  * pm8001_queue_command - register for upper layer used, all IO commands sent
+  * to HBA are from this interface.
+  * @task: the task to be execute.
+  * @num: if can_queue great than 1, the task can be queued up. for SMP task,
+  * we always execute one one time
+  * @gfp_flags: gfp_flags
+  */
 int pm8001_queue_command(struct sas_task *task, const int num,
 		gfp_t gfp_flags)
 {
@@ -419,6 +501,13 @@ void pm8001_ccb_free(struct pm8001_hba_info *pm8001_ha, u32 ccb_idx)
 	pm8001_tag_clear(pm8001_ha, ccb_idx);
 }
 
+/**
+  * pm8001_ccb_task_free - free the sg for ssp and smp command, free the ccb.
+  * @pm8001_ha: our hba card information
+  * @ccb: the ccb which attached to ssp task
+  * @task: the task to be free.
+  * @ccb_idx: ccb index.
+  */
 void pm8001_ccb_task_free(struct pm8001_hba_info *pm8001_ha,
 	struct sas_task *task, struct pm8001_ccb_info *ccb, u32 ccb_idx)
 {
@@ -441,7 +530,7 @@ void pm8001_ccb_task_free(struct pm8001_hba_info *pm8001_ha,
 	case SAS_PROTOCOL_STP:
 	case SAS_PROTOCOL_SSP:
 	default:
-		
+		/* do nothing */
 		break;
 	}
 	task->lldd_task = NULL;
@@ -451,6 +540,10 @@ void pm8001_ccb_task_free(struct pm8001_hba_info *pm8001_ha,
 	pm8001_ccb_free(pm8001_ha, ccb_idx);
 }
 
+ /**
+  * pm8001_alloc_dev - find a empty pm8001_device
+  * @pm8001_ha: our hba card information
+  */
 struct pm8001_device *pm8001_alloc_dev(struct pm8001_hba_info *pm8001_ha)
 {
 	u32 dev;
@@ -478,6 +571,18 @@ static void pm8001_free_dev(struct pm8001_device *pm8001_dev)
 	pm8001_dev->sas_device = NULL;
 }
 
+/**
+  * pm8001_dev_found_notify - libsas notify a device is found.
+  * @dev: the device structure which sas layer used.
+  *
+  * when libsas find a sas domain device, it should tell the LLDD that
+  * device is found, and then LLDD register this device to HBA firmware
+  * by the command "OPC_INB_REG_DEV", after that the HBA will assign a
+  * device ID(according to device's sas address) and returned it to LLDD. From
+  * now on, we communicate with HBA FW with the device ID which HBA assigned
+  * rather than sas address. it is the necessary step for our HBA but it is
+  * the optional for other HBA driver.
+  */
 static int pm8001_dev_found_notify(struct domain_device *dev)
 {
 	unsigned long flags = 0;
@@ -522,9 +627,9 @@ static int pm8001_dev_found_notify(struct domain_device *dev)
 		if (dev->dev_type == SATA_DEV) {
 			pm8001_device->attached_phy =
 				dev->rphy->identify.phy_identifier;
-				flag = 1; 
+				flag = 1; /* directly sata*/
 		}
-	} 
+	} /*register this device to HBA*/
 	PM8001_DISC_DBG(pm8001_ha, pm8001_printk("Found device\n"));
 	PM8001_CHIP_DISP->reg_dev_req(pm8001_ha, pm8001_device, flag);
 	spin_unlock_irqrestore(&pm8001_ha->lock, flags);
@@ -559,6 +664,17 @@ static void pm8001_tmf_timedout(unsigned long data)
 }
 
 #define PM8001_TASK_TIMEOUT 20
+/**
+  * pm8001_exec_internal_tmf_task - execute some task management commands.
+  * @dev: the wanted device.
+  * @tmf: which task management wanted to be take.
+  * @para_len: para_len.
+  * @parameter: ssp task parameter.
+  *
+  * when errors or exception happened, we may want to do something, for example
+  * abort the issued task which result in this execption, it is done by calling
+  * this function, note it is also with the task execute interface.
+  */
 static int pm8001_exec_internal_tmf_task(struct domain_device *dev,
 	void *parameter, u32 para_len, struct pm8001_tmf_task *tmf)
 {
@@ -591,7 +707,7 @@ static int pm8001_exec_internal_tmf_task(struct domain_device *dev,
 		}
 		wait_for_completion(&task->completion);
 		res = -TMF_RESP_FUNC_FAILED;
-		
+		/* Even TMF timed out, return direct. */
 		if ((task->task_state_flags & SAS_TASK_STATE_ABORTED)) {
 			if (!(task->task_state_flags & SAS_TASK_STATE_DONE)) {
 				PM8001_FAIL_DBG(pm8001_ha,
@@ -609,6 +725,8 @@ static int pm8001_exec_internal_tmf_task(struct domain_device *dev,
 
 		if (task->task_status.resp == SAS_TASK_COMPLETE &&
 		task->task_status.stat == SAS_DATA_UNDERRUN) {
+			/* no error, but return the number of bytes of
+			* underrun */
 			res = task->task_status.residual;
 			break;
 		}
@@ -679,7 +797,7 @@ pm8001_exec_internal_task_abort(struct pm8001_hba_info *pm8001_ha,
 		}
 		wait_for_completion(&task->completion);
 		res = TMF_RESP_FUNC_FAILED;
-		
+		/* Even TMF timed out, return direct. */
 		if ((task->task_state_flags & SAS_TASK_STATE_ABORTED)) {
 			if (!(task->task_state_flags & SAS_TASK_STATE_DONE)) {
 				PM8001_FAIL_DBG(pm8001_ha,
@@ -710,6 +828,10 @@ ex_err:
 	return res;
 }
 
+/**
+  * pm8001_dev_gone_notify - see the comments for "pm8001_dev_found_notify"
+  * @dev: the device structure which sas layer used.
+  */
 static void pm8001_dev_gone_notify(struct domain_device *dev)
 {
 	unsigned long flags = 0;
@@ -759,6 +881,7 @@ static int pm8001_issue_ssp_tmf(struct domain_device *dev,
 		tmf);
 }
 
+/* retry commands by ha, by task and/or by device */
 void pm8001_open_reject_retry(
 	struct pm8001_hba_info *pm8001_ha,
 	struct sas_task *task_to_close,
@@ -801,7 +924,7 @@ void pm8001_open_reject_retry(
 			continue;
 		ts = &task->task_status;
 		ts->resp = SAS_TASK_COMPLETE;
-		
+		/* Force the midlayer to retry */
 		ts->stat = SAS_OPEN_REJECT;
 		ts->open_rej_reason = SAS_OREJ_RSVD_RETRY;
 		if (pm8001_dev)
@@ -819,7 +942,7 @@ void pm8001_open_reject_retry(
 			spin_unlock_irqrestore(&task->task_state_lock,
 				flags1);
 			pm8001_ccb_task_free(pm8001_ha, task, ccb, tag);
-			mb();
+			mb();/* in order to force CPU ordering */
 			spin_unlock_irqrestore(&pm8001_ha->lock, flags);
 			task->task_done(task);
 			spin_lock_irqsave(&pm8001_ha->lock, flags);
@@ -829,6 +952,10 @@ void pm8001_open_reject_retry(
 	spin_unlock_irqrestore(&pm8001_ha->lock, flags);
 }
 
+/**
+  * Standard mandates link reset for ATA  (type 0) and hard reset for
+  * SSP (type 1) , only for RECOVERY
+  */
 int pm8001_I_T_nexus_reset(struct domain_device *dev)
 {
 	int rc = TMF_RESP_FUNC_FAILED;
@@ -867,6 +994,7 @@ int pm8001_I_T_nexus_reset(struct domain_device *dev)
 	return rc;
 }
 
+/* mandatory SAM-3, the task reset the specified LUN*/
 int pm8001_lu_reset(struct domain_device *dev, u8 *lun)
 {
 	int rc = TMF_RESP_FUNC_FAILED;
@@ -886,12 +1014,13 @@ int pm8001_lu_reset(struct domain_device *dev, u8 *lun)
 		tmf_task.tmf = TMF_LU_RESET;
 		rc = pm8001_issue_ssp_tmf(dev, lun, &tmf_task);
 	}
-	
+	/* If failed, fall-through I_T_Nexus reset */
 	PM8001_EH_DBG(pm8001_ha, pm8001_printk("for device[%x]:rc=%d\n",
 		pm8001_dev->device_id, rc));
 	return rc;
 }
 
+/* optional SAM-3 */
 int pm8001_query_task(struct sas_task *task)
 {
 	u32 tag = 0xdeadbeef;
@@ -923,12 +1052,12 @@ int pm8001_query_task(struct sas_task *task)
 
 		rc = pm8001_issue_ssp_tmf(dev, lun.scsi_lun, &tmf_task);
 		switch (rc) {
-		
+		/* The task is still in Lun, release it then */
 		case TMF_RESP_FUNC_SUCC:
 			PM8001_EH_DBG(pm8001_ha,
 				pm8001_printk("The task is still in Lun\n"));
 			break;
-		
+		/* The task is not in Lun or failed, reset the phy */
 		case TMF_RESP_FUNC_FAILED:
 		case TMF_RESP_FUNC_COMPLETE:
 			PM8001_EH_DBG(pm8001_ha,
@@ -941,6 +1070,7 @@ int pm8001_query_task(struct sas_task *task)
 	return rc;
 }
 
+/*  mandatory SAM-3, still need free task/ccb info, abord the specified task */
 int pm8001_abort_task(struct sas_task *task)
 {
 	unsigned long flags;
@@ -997,7 +1127,7 @@ int pm8001_abort_task(struct sas_task *task)
 		rc = pm8001_exec_internal_task_abort(pm8001_ha, pm8001_dev,
 			pm8001_dev->sas_device, 0, tag);
 	} else if (task->task_proto & SAS_PROTOCOL_SMP) {
-		
+		/* SMP */
 		dev = task->dev;
 		pm8001_dev = dev->lldd_dev;
 		pm8001_ha = pm8001_find_ha_by_dev(dev);

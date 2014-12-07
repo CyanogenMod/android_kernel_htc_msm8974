@@ -60,7 +60,7 @@ static int v1_read_dqblk(struct dquot *dquot)
 	if (!sb_dqopt(dquot->dq_sb)->files[type])
 		return -EINVAL;
 
-	
+	/* Set structure to 0s in case read fails/is after end of file */
 	memset(&dqblk, 0, sizeof(struct v1_disk_dqblk));
 	dquot->dq_sb->s_op->quota_read(dquot->dq_sb, type, (char *)&dqblk,
 			sizeof(struct v1_disk_dqblk), v1_dqoff(dquot->dq_id));
@@ -108,14 +108,16 @@ out:
 	return ret;
 }
 
+/* Magics of new quota format */
 #define V2_INITQMAGICS {\
-	0xd9c01f11,     \
-	0xd9c01927      \
+	0xd9c01f11,     /* USRQUOTA */\
+	0xd9c01927      /* GRPQUOTA */\
 }
 
+/* Header of new quota format */
 struct v2_disk_dqheader {
-	__le32 dqh_magic;        
-	__le32 dqh_version;      
+	__le32 dqh_magic;        /* Magic number identifying file */
+	__le32 dqh_version;      /* File version */
 };
 
 static int v1_check_quota_file(struct super_block *sb, int type)
@@ -136,16 +138,18 @@ static int v1_check_quota_file(struct super_block *sb, int type)
 	if ((blocks % sizeof(struct v1_disk_dqblk) * BLOCK_SIZE + off) %
 	    sizeof(struct v1_disk_dqblk))
 		return 0;
+	/* Doublecheck whether we didn't get file with new format - with old
+	 * quotactl() this could happen */
 	size = sb->s_op->quota_read(sb, type, (char *)&dqhead,
 				    sizeof(struct v2_disk_dqheader), 0);
 	if (size != sizeof(struct v2_disk_dqheader))
-		return 1;	
+		return 1;	/* Probably not new format */
 	if (le32_to_cpu(dqhead.dqh_magic) != quota_magics[type])
-		return 1;	
+		return 1;	/* Definitely not new format */
 	printk(KERN_INFO
 	       "VFS: %s: Refusing to turn on old quota format on given file."
 	       " It probably contains newer quota format.\n", sb->s_id);
-        return 0;		
+        return 0;		/* Seems like a new format file -> refuse it */
 }
 
 static int v1_read_file_info(struct super_block *sb, int type)
@@ -162,7 +166,7 @@ static int v1_read_file_info(struct super_block *sb, int type)
 		goto out;
 	}
 	ret = 0;
-	
+	/* limits are stored as unsigned 32-bit data */
 	dqopt->info[type].dqi_maxblimit = 0xffffffff;
 	dqopt->info[type].dqi_maxilimit = 0xffffffff;
 	dqopt->info[type].dqi_igrace =

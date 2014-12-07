@@ -75,7 +75,7 @@ struct i2c_adapter *dib3000mc_get_tuner_i2c_master(struct dvb_frontend *demod,
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_DVB_DIB3000MC
 
 extern int dib3000mc_pid_control(struct dvb_frontend *fe, int index, int pid,int onoff);
 extern int dib3000mc_pid_parse(struct dvb_frontend *fe, int onoff);

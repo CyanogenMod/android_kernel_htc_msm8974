@@ -1,3 +1,5 @@
+/* termios.h: generic termios/termio user copying/translation
+ */
 
 #ifndef _ASM_GENERIC_TERMIOS_BASE_H
 #define _ASM_GENERIC_TERMIOS_BASE_H
@@ -6,6 +8,9 @@
 
 #ifndef __ARCH_TERMIO_GETPUT
 
+/*
+ * Translate a "termio" structure into a "termios". Ugh.
+ */
 static inline int user_termio_to_kernel_termios(struct ktermios *termios,
 						struct termio __user *termio)
 {
@@ -39,6 +44,9 @@ static inline int user_termio_to_kernel_termios(struct ktermios *termios,
 	return -EFAULT;
 }
 
+/*
+ * Translate a "termios" structure into a "termio". Ugh.
+ */
 static inline int kernel_termios_to_user_termio(struct termio __user *termio,
 						struct ktermios *termios)
 {
@@ -64,6 +72,6 @@ static inline int kernel_termios_to_user_termio(struct termio __user *termio,
 #define user_termios_to_kernel_termios_1(k, u) copy_from_user(k, u, sizeof(struct termios))
 #define kernel_termios_to_user_termios_1(u, k) copy_to_user(u, k, sizeof(struct termios))
 
-#endif	
+#endif	/* __ARCH_TERMIO_GETPUT */
 
-#endif 
+#endif /* _ASM_GENERIC_TERMIOS_BASE_H */

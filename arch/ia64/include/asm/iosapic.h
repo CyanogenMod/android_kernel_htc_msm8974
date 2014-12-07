@@ -7,11 +7,17 @@
 
 #define	IOSAPIC_VERSION		0x1
 
+/*
+ * Redirection table entry
+ */
 #define	IOSAPIC_RTE_LOW(i)	(0x10+i*2)
 #define	IOSAPIC_RTE_HIGH(i)	(0x11+i*2)
 
 #define	IOSAPIC_DEST_SHIFT		16
 
+/*
+ * Delivery mode
+ */
 #define	IOSAPIC_DELIVERY_SHIFT		8
 #define	IOSAPIC_FIXED			0x0
 #define	IOSAPIC_LOWEST_PRIORITY	0x1
@@ -20,14 +26,23 @@
 #define	IOSAPIC_INIT			0x5
 #define	IOSAPIC_EXTINT			0x7
 
+/*
+ * Interrupt polarity
+ */
 #define	IOSAPIC_POLARITY_SHIFT		13
 #define	IOSAPIC_POL_HIGH		0
 #define	IOSAPIC_POL_LOW		1
 
+/*
+ * Trigger mode
+ */
 #define	IOSAPIC_TRIGGER_SHIFT		15
 #define	IOSAPIC_EDGE			0
 #define	IOSAPIC_LEVEL			1
 
+/*
+ * Mask bit
+ */
 
 #define	IOSAPIC_MASK_SHIFT		16
 #define	IOSAPIC_MASK			(1<<IOSAPIC_MASK_SHIFT)
@@ -78,7 +93,7 @@ extern int __devinit iosapic_init (unsigned long address,
 extern int iosapic_remove (unsigned int gsi_base);
 #else
 #define iosapic_remove(gsi_base)				(-EINVAL)
-#endif 
+#endif /* CONFIG_HOTPLUG */
 extern int gsi_to_irq (unsigned int gsi);
 extern int iosapic_register_intr (unsigned int gsi, unsigned long polarity,
 				  unsigned long trigger);
@@ -107,5 +122,5 @@ extern void __devinit map_iosapic_to_node (unsigned int, int);
 	polarity,trigger)					(gsi)
 #endif
 
-# endif 
-#endif 
+# endif /* !__ASSEMBLY__ */
+#endif /* __ASM_IA64_IOSAPIC_H */

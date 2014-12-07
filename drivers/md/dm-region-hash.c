@@ -18,14 +18,50 @@
 
 #define	DM_MSG_PREFIX	"region hash"
 
+/*-----------------------------------------------------------------
+ * Region hash
+ *
+ * The mirror splits itself up into discrete regions.  Each
+ * region can be in one of three states: clean, dirty,
+ * nosync.  There is no need to put clean regions in the hash.
+ *
+ * In addition to being present in the hash table a region _may_
+ * be present on one of three lists.
+ *
+ *   clean_regions: Regions on this list have no io pending to
+ *   them, they are in sync, we are no longer interested in them,
+ *   they are dull.  dm_rh_update_states() will remove them from the
+ *   hash table.
+ *
+ *   quiesced_regions: These regions have been spun down, ready
+ *   for recovery.  rh_recovery_start() will remove regions from
+ *   this list and hand them to kmirrord, which will schedule the
+ *   recovery io with kcopyd.
+ *
+ *   recovered_regions: Regions that kcopyd has successfully
+ *   recovered.  dm_rh_update_states() will now schedule any delayed
+ *   io, up the recovery_count, and remove the region from the
+ *   hash.
+ *
+ * There are 2 locks:
+ *   A rw spin lock 'hash_lock' protects just the hash table,
+ *   this is never held in write mode from interrupt context,
+ *   which I believe means that we only have to disable irqs when
+ *   doing a write lock.
+ *
+ *   An ordinary spin lock 'region_lock' that protects the three
+ *   lists in the region_hash, with the 'state', 'list' and
+ *   'delayed_bios' fields of the regions.  This is used from irq
+ *   context, so all other uses will have to suspend local irqs.
+ *---------------------------------------------------------------*/
 struct dm_region_hash {
 	uint32_t region_size;
 	unsigned region_shift;
 
-	
+	/* holds persistent region state */
 	struct dm_dirty_log *log;
 
-	
+	/* hash table */
 	rwlock_t hash_lock;
 	mempool_t *region_pool;
 	unsigned mask;
@@ -34,7 +70,7 @@ struct dm_region_hash {
 	unsigned shift;
 	struct list_head *buckets;
 
-	unsigned max_recovery; 
+	unsigned max_recovery; /* Max # of regions to recover in parallel */
 
 	spinlock_t region_lock;
 	atomic_t recovery_in_flight;
@@ -44,23 +80,26 @@ struct dm_region_hash {
 	struct list_head recovered_regions;
 	struct list_head failed_recovered_regions;
 
+	/*
+	 * If there was a flush failure no regions can be marked clean.
+	 */
 	int flush_failure;
 
 	void *context;
 	sector_t target_begin;
 
-	
+	/* Callback function to schedule bios writes */
 	void (*dispatch_bios)(void *context, struct bio_list *bios);
 
-	
+	/* Callback function to wakeup callers worker thread. */
 	void (*wakeup_workers)(void *context);
 
-	
+	/* Callback function to wakeup callers recovery waiters. */
 	void (*wakeup_all_recovery_waiters)(void *context);
 };
 
 struct dm_region {
-	struct dm_region_hash *rh;	
+	struct dm_region_hash *rh;	/* FIXME: can we get rid of this ? */
 	region_t key;
 	int state;
 
@@ -71,6 +110,9 @@ struct dm_region {
 	struct bio_list delayed_bios;
 };
 
+/*
+ * Conversion fns
+ */
 static region_t dm_rh_sector_to_region(struct dm_region_hash *rh, sector_t sector)
 {
 	return sector >> rh->region_shift;
@@ -106,6 +148,10 @@ sector_t dm_rh_get_region_size(struct dm_region_hash *rh)
 }
 EXPORT_SYMBOL_GPL(dm_rh_get_region_size);
 
+/*
+ * FIXME: shall we pass in a structure instead of all these args to
+ * dm_region_hash_create()????
+ */
 #define RH_HASH_MULT 2654435387U
 #define RH_HASH_SHIFT 12
 
@@ -123,6 +169,10 @@ struct dm_region_hash *dm_region_hash_create(
 	unsigned nr_buckets, max_buckets;
 	size_t i;
 
+	/*
+	 * Calculate a suitable number of buckets for our hash
+	 * table.
+	 */
 	max_buckets = nr_regions >> 6;
 	for (nr_buckets = 128u; nr_buckets < max_buckets; nr_buckets <<= 1)
 		;
@@ -253,7 +303,7 @@ static struct dm_region *__rh_alloc(struct dm_region_hash *rh, region_t region)
 	write_lock_irq(&rh->hash_lock);
 	reg = __rh_lookup(rh, region);
 	if (reg)
-		
+		/* We lost the race. */
 		mempool_free(nreg, rh->region_pool);
 	else {
 		__rh_insert(rh, nreg);
@@ -296,8 +346,16 @@ int dm_rh_get_state(struct dm_region_hash *rh, region_t region, int may_block)
 	if (reg)
 		return reg->state;
 
+	/*
+	 * The region wasn't in the hash, so we fall back to the
+	 * dirty log.
+	 */
 	r = rh->log->type->in_sync(rh->log, region, may_block);
 
+	/*
+	 * Any error from the dirty log (eg. -EWOULDBLOCK) gets
+	 * taken as a DM_RH_NOSYNC
+	 */
 	return r == 1 ? DM_RH_CLEAN : DM_RH_NOSYNC;
 }
 EXPORT_SYMBOL_GPL(dm_rh_get_state);
@@ -308,6 +366,15 @@ static void complete_resync_work(struct dm_region *reg, int success)
 
 	rh->log->type->set_region_sync(rh->log, reg->key, success);
 
+	/*
+	 * Dispatch the bios before we call 'wake_up_all'.
+	 * This is important because if we are suspending,
+	 * we want to know that recovery is complete and
+	 * the work queue is flushed.  If we wake_up_all
+	 * before we dispatch_bios (queue bios and call wake()),
+	 * then we risk suspending before the work queue
+	 * has been properly flushed.
+	 */
 	rh->dispatch_bios(rh->context, &reg->delayed_bios);
 	if (atomic_dec_and_test(&rh->recovery_in_flight))
 		rh->wakeup_all_recovery_waiters(rh->context);
@@ -337,18 +404,25 @@ void dm_rh_mark_nosync(struct dm_region_hash *rh, struct bio *bio)
 		return;
 	}
 
-	
+	/* We must inform the log that the sync count has changed. */
 	log->type->set_region_sync(log, region, 0);
 
 	read_lock(&rh->hash_lock);
 	reg = __rh_find(rh, region);
 	read_unlock(&rh->hash_lock);
 
-	
+	/* region hash entry should exist because write was in-flight */
 	BUG_ON(!reg);
 	BUG_ON(!list_empty(&reg->list));
 
 	spin_lock_irqsave(&rh->region_lock, flags);
+	/*
+	 * Possible cases:
+	 *   1) DM_RH_DIRTY
+	 *   2) DM_RH_NOSYNC: was dirty, other preceding writes failed
+	 *   3) DM_RH_RECOVERING: flushing pending writes
+	 * Either case, the region should have not been connected to list.
+	 */
 	recovering = (reg->state == DM_RH_RECOVERING);
 	reg->state = DM_RH_NOSYNC;
 	BUG_ON(!list_empty(&reg->list));
@@ -367,6 +441,9 @@ void dm_rh_update_states(struct dm_region_hash *rh, int errors_handled)
 	LIST_HEAD(recovered);
 	LIST_HEAD(failed_recovered);
 
+	/*
+	 * Quickly grab the lists.
+	 */
 	write_lock_irq(&rh->hash_lock);
 	spin_lock(&rh->region_lock);
 	if (!list_empty(&rh->clean_regions)) {
@@ -394,6 +471,11 @@ void dm_rh_update_states(struct dm_region_hash *rh, int errors_handled)
 	spin_unlock(&rh->region_lock);
 	write_unlock_irq(&rh->hash_lock);
 
+	/*
+	 * All the regions on the recovered and clean lists have
+	 * now been pulled out of the system, so no need to do
+	 * any more locking.
+	 */
 	list_for_each_entry_safe(reg, next, &recovered, list) {
 		rh->log->type->clear_region(rh->log, reg->key);
 		complete_resync_work(reg, 1);
@@ -426,7 +508,7 @@ static void rh_inc(struct dm_region_hash *rh, region_t region)
 
 	if (reg->state == DM_RH_CLEAN) {
 		reg->state = DM_RH_DIRTY;
-		list_del_init(&reg->list);	
+		list_del_init(&reg->list);	/* take off the clean list */
 		spin_unlock_irq(&rh->region_lock);
 
 		rh->log->type->mark_region(rh->log, reg->key);
@@ -461,9 +543,24 @@ void dm_rh_dec(struct dm_region_hash *rh, region_t region)
 
 	spin_lock_irqsave(&rh->region_lock, flags);
 	if (atomic_dec_and_test(&reg->pending)) {
+		/*
+		 * There is no pending I/O for this region.
+		 * We can move the region to corresponding list for next action.
+		 * At this point, the region is not yet connected to any list.
+		 *
+		 * If the state is DM_RH_NOSYNC, the region should be kept off
+		 * from clean list.
+		 * The hash entry for DM_RH_NOSYNC will remain in memory
+		 * until the region is recovered or the map is reloaded.
+		 */
 
-		
+		/* do nothing for DM_RH_NOSYNC */
 		if (unlikely(rh->flush_failure)) {
+			/*
+			 * If a write flush failed some time ago, we
+			 * don't know whether or not this write made it
+			 * to the disk, so we must resync the device.
+			 */
 			reg->state = DM_RH_NOSYNC;
 		} else if (reg->state == DM_RH_RECOVERING) {
 			list_add_tail(&reg->list, &rh->quiesced_regions);
@@ -480,16 +577,26 @@ void dm_rh_dec(struct dm_region_hash *rh, region_t region)
 }
 EXPORT_SYMBOL_GPL(dm_rh_dec);
 
+/*
+ * Starts quiescing a region in preparation for recovery.
+ */
 static int __rh_recovery_prepare(struct dm_region_hash *rh)
 {
 	int r;
 	region_t region;
 	struct dm_region *reg;
 
+	/*
+	 * Ask the dirty log what's next.
+	 */
 	r = rh->log->type->get_resync_work(rh->log, &region);
 	if (r <= 0)
 		return r;
 
+	/*
+	 * Get this region, and start it quiescing by setting the
+	 * recovering flag.
+	 */
 	read_lock(&rh->hash_lock);
 	reg = __rh_find(rh, region);
 	read_unlock(&rh->hash_lock);
@@ -497,7 +604,7 @@ static int __rh_recovery_prepare(struct dm_region_hash *rh)
 	spin_lock_irq(&rh->region_lock);
 	reg->state = DM_RH_RECOVERING;
 
-	
+	/* Already quiesced ? */
 	if (atomic_read(&reg->pending))
 		list_del_init(&reg->list);
 	else
@@ -510,7 +617,7 @@ static int __rh_recovery_prepare(struct dm_region_hash *rh)
 
 void dm_rh_recovery_prepare(struct dm_region_hash *rh)
 {
-	
+	/* Extra reference to avoid race with dm_rh_stop_recovery */
 	atomic_inc(&rh->recovery_in_flight);
 
 	while (!down_trylock(&rh->recovery_count)) {
@@ -522,12 +629,15 @@ void dm_rh_recovery_prepare(struct dm_region_hash *rh)
 		}
 	}
 
-	
+	/* Drop the extra reference */
 	if (atomic_dec_and_test(&rh->recovery_in_flight))
 		rh->wakeup_all_recovery_waiters(rh->context);
 }
 EXPORT_SYMBOL_GPL(dm_rh_recovery_prepare);
 
+/*
+ * Returns any quiesced regions.
+ */
 struct dm_region *dm_rh_recovery_start(struct dm_region_hash *rh)
 {
 	struct dm_region *reg = NULL;
@@ -536,7 +646,7 @@ struct dm_region *dm_rh_recovery_start(struct dm_region_hash *rh)
 	if (!list_empty(&rh->quiesced_regions)) {
 		reg = list_entry(rh->quiesced_regions.next,
 				 struct dm_region, list);
-		list_del_init(&reg->list);  
+		list_del_init(&reg->list);  /* remove from the quiesced list */
 	}
 	spin_unlock_irq(&rh->region_lock);
 
@@ -560,6 +670,7 @@ void dm_rh_recovery_end(struct dm_region *reg, int success)
 }
 EXPORT_SYMBOL_GPL(dm_rh_recovery_end);
 
+/* Return recovery in flight count. */
 int dm_rh_recovery_in_flight(struct dm_region_hash *rh)
 {
 	return atomic_read(&rh->recovery_in_flight);
@@ -587,7 +698,7 @@ void dm_rh_stop_recovery(struct dm_region_hash *rh)
 {
 	int i;
 
-	
+	/* wait for any recovering regions */
 	for (i = 0; i < rh->max_recovery; i++)
 		down(&rh->recovery_count);
 }

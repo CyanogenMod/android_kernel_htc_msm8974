@@ -55,7 +55,7 @@
 #include <asm/txx9/generic.h>
 #include <asm/txx9/pci.h>
 #include <asm/txx9/rbtx4927.h>
-#include <asm/txx9/tx4938.h>	
+#include <asm/txx9/tx4938.h>	/* for TX4937 */
 
 #ifdef CONFIG_PCI
 static void __init tx4927_pci_setup(void)
@@ -68,17 +68,17 @@ static void __init tx4927_pci_setup(void)
 	if (__raw_readq(&tx4927_ccfgptr->ccfg) & TX4927_CCFG_PCI66)
 		txx9_pci_option =
 			(txx9_pci_option & ~TXX9_PCI_OPT_CLK_MASK) |
-			TXX9_PCI_OPT_CLK_66; 
+			TXX9_PCI_OPT_CLK_66; /* already configured */
 
-	
+	/* Reset PCI Bus */
 	writeb(1, rbtx4927_pcireset_addr);
-	
+	/* Reset PCIC */
 	txx9_set64(&tx4927_ccfgptr->clkctr, TX4927_CLKCTR_PCIRST);
 	if ((txx9_pci_option & TXX9_PCI_OPT_CLK_MASK) ==
 	    TXX9_PCI_OPT_CLK_66)
 		tx4927_pciclk66_setup();
 	mdelay(10);
-	
+	/* clear PCIC reset */
 	txx9_clear64(&tx4927_ccfgptr->clkctr, TX4927_CLKCTR_PCIRST);
 	writeb(0, rbtx4927_pcireset_addr);
 	iob();
@@ -88,17 +88,17 @@ static void __init tx4927_pci_setup(void)
 	if ((txx9_pci_option & TXX9_PCI_OPT_CLK_MASK) ==
 	    TXX9_PCI_OPT_CLK_AUTO &&
 	    txx9_pci66_check(c, 0, 0)) {
-		
+		/* Reset PCI Bus */
 		writeb(1, rbtx4927_pcireset_addr);
-		
+		/* Reset PCIC */
 		txx9_set64(&tx4927_ccfgptr->clkctr, TX4927_CLKCTR_PCIRST);
 		tx4927_pciclk66_setup();
 		mdelay(10);
-		
+		/* clear PCIC reset */
 		txx9_clear64(&tx4927_ccfgptr->clkctr, TX4927_CLKCTR_PCIRST);
 		writeb(0, rbtx4927_pcireset_addr);
 		iob();
-		
+		/* Reinitialize PCIC */
 		tx4927_report_pciclk();
 		tx4927_pcic_setup(tx4927_pcicptr, c, extarb);
 	}
@@ -115,17 +115,17 @@ static void __init tx4937_pci_setup(void)
 	if (__raw_readq(&tx4938_ccfgptr->ccfg) & TX4938_CCFG_PCI66)
 		txx9_pci_option =
 			(txx9_pci_option & ~TXX9_PCI_OPT_CLK_MASK) |
-			TXX9_PCI_OPT_CLK_66; 
+			TXX9_PCI_OPT_CLK_66; /* already configured */
 
-	
+	/* Reset PCI Bus */
 	writeb(1, rbtx4927_pcireset_addr);
-	
+	/* Reset PCIC */
 	txx9_set64(&tx4938_ccfgptr->clkctr, TX4938_CLKCTR_PCIRST);
 	if ((txx9_pci_option & TXX9_PCI_OPT_CLK_MASK) ==
 	    TXX9_PCI_OPT_CLK_66)
 		tx4938_pciclk66_setup();
 	mdelay(10);
-	
+	/* clear PCIC reset */
 	txx9_clear64(&tx4938_ccfgptr->clkctr, TX4938_CLKCTR_PCIRST);
 	writeb(0, rbtx4927_pcireset_addr);
 	iob();
@@ -135,17 +135,17 @@ static void __init tx4937_pci_setup(void)
 	if ((txx9_pci_option & TXX9_PCI_OPT_CLK_MASK) ==
 	    TXX9_PCI_OPT_CLK_AUTO &&
 	    txx9_pci66_check(c, 0, 0)) {
-		
+		/* Reset PCI Bus */
 		writeb(1, rbtx4927_pcireset_addr);
-		
+		/* Reset PCIC */
 		txx9_set64(&tx4938_ccfgptr->clkctr, TX4938_CLKCTR_PCIRST);
 		tx4938_pciclk66_setup();
 		mdelay(10);
-		
+		/* clear PCIC reset */
 		txx9_clear64(&tx4938_ccfgptr->clkctr, TX4938_CLKCTR_PCIRST);
 		writeb(0, rbtx4927_pcireset_addr);
 		iob();
-		
+		/* Reinitialize PCIC */
 		tx4938_report_pciclk();
 		tx4927_pcic_setup(tx4938_pcicptr, c, extarb);
 	}
@@ -164,21 +164,21 @@ static void __init rbtx4937_arch_init(void)
 #else
 #define rbtx4927_arch_init NULL
 #define rbtx4937_arch_init NULL
-#endif 
+#endif /* CONFIG_PCI */
 
 static void toshiba_rbtx4927_restart(char *command)
 {
-	
+	/* enable the s/w reset register */
 	writeb(1, rbtx4927_softresetlock_addr);
 
-	
+	/* wait for enable to be seen */
 	while (!(readb(rbtx4927_softresetlock_addr) & 1))
 		;
 
-	
+	/* do a s/w reset */
 	writeb(1, rbtx4927_softreset_addr);
 
-	
+	/* fallback */
 	(*_machine_halt)();
 }
 
@@ -206,7 +206,7 @@ static void __init rbtx4927_mem_setup(void)
 	set_io_port_base(KSEG1 + RBTX4927_ISA_IO_OFFSET);
 #endif
 
-	
+	/* TX4927-SIO DTR on (PIO[15]) */
 	gpio_request(15, "sio-dtr");
 	gpio_direction_output(15, 1);
 
@@ -215,31 +215,55 @@ static void __init rbtx4927_mem_setup(void)
 
 static void __init rbtx4927_clock_init(void)
 {
+	/*
+	 * ASSUMPTION: PCIDIVMODE is configured for PCI 33MHz or 66MHz.
+	 *
+	 * For TX4927:
+	 * PCIDIVMODE[12:11]'s initial value is given by S9[4:3] (ON:0, OFF:1).
+	 * CPU 166MHz: PCI 66MHz : PCIDIVMODE: 00 (1/2.5)
+	 * CPU 200MHz: PCI 66MHz : PCIDIVMODE: 01 (1/3)
+	 * CPU 166MHz: PCI 33MHz : PCIDIVMODE: 10 (1/5)
+	 * CPU 200MHz: PCI 33MHz : PCIDIVMODE: 11 (1/6)
+	 * i.e. S9[3]: ON (83MHz), OFF (100MHz)
+	 */
 	switch ((unsigned long)__raw_readq(&tx4927_ccfgptr->ccfg) &
 		TX4927_CCFG_PCIDIVMODE_MASK) {
 	case TX4927_CCFG_PCIDIVMODE_2_5:
 	case TX4927_CCFG_PCIDIVMODE_5:
-		txx9_cpu_clock = 166666666;	
+		txx9_cpu_clock = 166666666;	/* 166MHz */
 		break;
 	default:
-		txx9_cpu_clock = 200000000;	
+		txx9_cpu_clock = 200000000;	/* 200MHz */
 	}
 }
 
 static void __init rbtx4937_clock_init(void)
 {
+	/*
+	 * ASSUMPTION: PCIDIVMODE is configured for PCI 33MHz or 66MHz.
+	 *
+	 * For TX4937:
+	 * PCIDIVMODE[12:11]'s initial value is given by S1[5:4] (ON:0, OFF:1)
+	 * PCIDIVMODE[10] is 0.
+	 * CPU 266MHz: PCI 33MHz : PCIDIVMODE: 000 (1/8)
+	 * CPU 266MHz: PCI 66MHz : PCIDIVMODE: 001 (1/4)
+	 * CPU 300MHz: PCI 33MHz : PCIDIVMODE: 010 (1/9)
+	 * CPU 300MHz: PCI 66MHz : PCIDIVMODE: 011 (1/4.5)
+	 * CPU 333MHz: PCI 33MHz : PCIDIVMODE: 100 (1/10)
+	 * CPU 333MHz: PCI 66MHz : PCIDIVMODE: 101 (1/5)
+	 */
 	switch ((unsigned long)__raw_readq(&tx4938_ccfgptr->ccfg) &
 		TX4938_CCFG_PCIDIVMODE_MASK) {
 	case TX4938_CCFG_PCIDIVMODE_8:
 	case TX4938_CCFG_PCIDIVMODE_4:
-		txx9_cpu_clock = 266666666;	
+		txx9_cpu_clock = 266666666;	/* 266MHz */
 		break;
 	case TX4938_CCFG_PCIDIVMODE_9:
 	case TX4938_CCFG_PCIDIVMODE_4_5:
-		txx9_cpu_clock = 300000000;	
+		txx9_cpu_clock = 300000000;	/* 300MHz */
 		break;
 	default:
-		txx9_cpu_clock = 333333333;	
+		txx9_cpu_clock = 333333333;	/* 333MHz */
 	}
 }
 

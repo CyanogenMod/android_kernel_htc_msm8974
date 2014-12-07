@@ -33,9 +33,15 @@ static void led_heartbeat_function(unsigned long data)
 	unsigned long brightness = LED_OFF;
 	unsigned long delay = 0;
 
-	
+	/* acts like an actual heart beat -- ie thump-thump-pause... */
 	switch (heartbeat_data->phase) {
 	case 0:
+		/*
+		 * The hyperbolic function below modifies the
+		 * heartbeat period length in dependency of the
+		 * current (1min) load. It goes through the points
+		 * f(0)=1260, f(1)=860, f(5)=510, f(inf)->300.
+		 */
 		heartbeat_data->period = 300 +
 			(6720 << FSHIFT) / (5 * avenrun[0] + (7 << FSHIFT));
 		heartbeat_data->period =

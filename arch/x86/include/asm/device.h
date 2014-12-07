@@ -9,11 +9,11 @@ struct dev_archdata {
 struct dma_map_ops *dma_ops;
 #endif
 #if defined(CONFIG_INTEL_IOMMU) || defined(CONFIG_AMD_IOMMU)
-	void *iommu; 
+	void *iommu; /* hook for IOMMU specific extension */
 #endif
 };
 
 struct pdev_archdata {
 };
 
-#endif 
+#endif /* _ASM_X86_DEVICE_H */

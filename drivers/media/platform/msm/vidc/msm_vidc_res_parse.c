@@ -419,7 +419,7 @@ static int msm_vidc_load_iommu_groups(struct msm_vidc_platform_resources *res)
 		goto err_no_of_node;
 	}
 
-	
+	/* set up each context bank */
 	for_each_child_of_node(domains_parent_node, domains_child_node) {
 		struct device_node *ctx_node = of_parse_phandle(
 						domains_child_node,
@@ -435,7 +435,7 @@ static int msm_vidc_load_iommu_groups(struct msm_vidc_platform_resources *res)
 			goto err_load_groups;
 		}
 
-		
+		/* domain info from domains.dtsi */
 		rc = of_property_read_string(ctx_node, "label",
 				&(iommu_map->name));
 		if (rc) {
@@ -484,7 +484,7 @@ static int msm_vidc_load_iommu_groups(struct msm_vidc_platform_resources *res)
 				iommu_map->name,
 				iommu_map->is_secure);
 
-		
+		/* setup partitions and buffer type per partition */
 		rc = of_property_read_u32_array(domains_child_node,
 				"qcom,vidc-partition-buffer-types",
 				iommu_map->buffer_type,

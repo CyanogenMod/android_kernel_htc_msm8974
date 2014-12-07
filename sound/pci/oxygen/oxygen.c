@@ -17,6 +17,36 @@
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  */
 
+/*
+ * CMI8788:
+ *
+ *   SPI 0 -> 1st AK4396 (front)
+ *   SPI 1 -> 2nd AK4396 (surround)
+ *   SPI 2 -> 3rd AK4396 (center/LFE)
+ *   SPI 3 -> WM8785
+ *   SPI 4 -> 4th AK4396 (back)
+ *
+ *   GPIO 0 -> DFS0 of AK5385
+ *   GPIO 1 -> DFS1 of AK5385
+ *
+ * X-Meridian models:
+ *   GPIO 4 -> enable extension S/PDIF input
+ *   GPIO 6 -> enable on-board S/PDIF input
+ *
+ * Claro models:
+ *   GPIO 6 -> S/PDIF from optical (0) or coaxial (1) input
+ *   GPIO 8 -> enable headphone amplifier
+ *
+ * CM9780:
+ *
+ *   LINE_OUT -> input of ADC
+ *
+ *   AUX_IN <- aux
+ *   CD_IN  <- CD
+ *   MIC_IN <- mic
+ *
+ *   GPO 0 -> route line-in (0) or AC97 output (1) to ADC input
+ */
 
 #include <linux/delay.h>
 #include <linux/mutex.h>
@@ -67,7 +97,7 @@ enum {
 };
 
 static DEFINE_PCI_DEVICE_TABLE(oxygen_ids) = {
-	
+	/* C-Media's reference design */
 	{ OXYGEN_PCI_SUBID(0x10b0, 0x0216), .driver_data = MODEL_CMEDIA_REF },
 	{ OXYGEN_PCI_SUBID(0x10b0, 0x0217), .driver_data = MODEL_CMEDIA_REF },
 	{ OXYGEN_PCI_SUBID(0x10b0, 0x0218), .driver_data = MODEL_CMEDIA_REF },
@@ -77,23 +107,23 @@ static DEFINE_PCI_DEVICE_TABLE(oxygen_ids) = {
 	{ OXYGEN_PCI_SUBID(0x13f6, 0x8788), .driver_data = MODEL_CMEDIA_REF },
 	{ OXYGEN_PCI_SUBID(0x147a, 0xa017), .driver_data = MODEL_CMEDIA_REF },
 	{ OXYGEN_PCI_SUBID(0x1a58, 0x0910), .driver_data = MODEL_CMEDIA_REF },
-	
+	/* Asus Xonar DG */
 	{ OXYGEN_PCI_SUBID(0x1043, 0x8467), .driver_data = MODEL_XONAR_DG },
-	
+	/* PCI 2.0 HD Audio */
 	{ OXYGEN_PCI_SUBID(0x13f6, 0x8782), .driver_data = MODEL_2CH_OUTPUT },
-	
+	/* Kuroutoshikou CMI8787-HG2PCI */
 	{ OXYGEN_PCI_SUBID(0x13f6, 0xffff), .driver_data = MODEL_HG2PCI },
-	
+	/* TempoTec HiFier Fantasia */
 	{ OXYGEN_PCI_SUBID(0x14c3, 0x1710), .driver_data = MODEL_FANTASIA },
-	
+	/* TempoTec HiFier Serenade */
 	{ OXYGEN_PCI_SUBID(0x14c3, 0x1711), .driver_data = MODEL_SERENADE },
-	
+	/* AuzenTech X-Meridian */
 	{ OXYGEN_PCI_SUBID(0x415a, 0x5431), .driver_data = MODEL_MERIDIAN },
-	
+	/* AuzenTech X-Meridian 2G */
 	{ OXYGEN_PCI_SUBID(0x5431, 0x017a), .driver_data = MODEL_MERIDIAN_2G },
-	
+	/* HT-Omega Claro */
 	{ OXYGEN_PCI_SUBID(0x7284, 0x9761), .driver_data = MODEL_CLARO },
-	
+	/* HT-Omega Claro halo */
 	{ OXYGEN_PCI_SUBID(0x7284, 0x9781), .driver_data = MODEL_CLARO_HALO },
 	{ }
 };
@@ -121,7 +151,7 @@ struct generic_data {
 static void ak4396_write(struct oxygen *chip, unsigned int codec,
 			 u8 reg, u8 value)
 {
-	
+	/* maps ALSA channel pair number to SPI output */
 	static const u8 codec_spi_map[4] = {
 		0, 1, 2, 4
 	};
@@ -324,7 +354,7 @@ static void set_ak4396_params(struct oxygen *chip,
 	else
 		value |= AK4396_DFS_QUAD;
 
-	msleep(1); 
+	msleep(1); /* wait for the new MCLK to become stable */
 
 	if (value != data->ak4396_regs[0][AK4396_CONTROL_2]) {
 		for (i = 0; i < data->dacs; ++i) {

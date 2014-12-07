@@ -76,10 +76,10 @@ int ehca_calc_ipd(struct ehca_shca *shca, int port,
 	link = ib_width_enum_to_int(pa.active_width) * pa.active_speed;
 
 	if (path >= link)
-		
+		/* no need to throttle if path faster than link */
 		*ipd = 0;
 	else
-		
+		/* IPD = round((link / path) - 1) */
 		*ipd = ((link + (path >> 1)) / path) - 1;
 
 	return 0;
@@ -123,7 +123,7 @@ struct ib_ah *ehca_create_ah(struct ib_pd *pd, struct ib_ah_attr *ah_attr)
 	av->av.grh.word_0 |= EHCA_BMASK_SET(GRH_HOPLIMIT_MASK,
 					    ah_attr->grh.hop_limit);
 	av->av.grh.word_0 |= EHCA_BMASK_SET(GRH_NEXTHEADER_MASK, 0x1B);
-	
+	/* set sgid in grh.word_1 */
 	if (ah_attr->ah_flags & IB_AH_GRH) {
 		int rc;
 		struct ib_port_attr port_attr;
@@ -131,7 +131,7 @@ struct ib_ah *ehca_create_ah(struct ib_pd *pd, struct ib_ah_attr *ah_attr)
 		memset(&port_attr, 0, sizeof(port_attr));
 		rc = ehca_query_port(pd->device, ah_attr->port_num,
 				     &port_attr);
-		if (rc) { 
+		if (rc) { /* invalid port number */
 			ret = -EINVAL;
 			ehca_err(pd->device, "Invalid port number "
 				 "ehca_query_port() returned %x "
@@ -153,7 +153,7 @@ struct ib_ah *ehca_create_ah(struct ib_pd *pd, struct ib_ah_attr *ah_attr)
 	}
 	av->av.pmtu = shca->max_mtu;
 
-	
+	/* dgid comes in grh.word_3 */
 	memcpy(&av->av.grh.word_3, &ah_attr->grh.dgid,
 	       sizeof(ah_attr->grh.dgid));
 
@@ -187,7 +187,7 @@ int ehca_modify_ah(struct ib_ah *ah, struct ib_ah_attr *ah_attr)
 						 ah_attr->grh.hop_limit);
 	new_ehca_av.grh.word_0 |= EHCA_BMASK_SET(GRH_NEXTHEADER_MASK, 0x1b);
 
-	
+	/* set sgid in grh.word_1 */
 	if (ah_attr->ah_flags & IB_AH_GRH) {
 		int rc;
 		struct ib_port_attr port_attr;
@@ -195,7 +195,7 @@ int ehca_modify_ah(struct ib_ah *ah, struct ib_ah_attr *ah_attr)
 		memset(&port_attr, 0, sizeof(port_attr));
 		rc = ehca_query_port(ah->device, ah_attr->port_num,
 				     &port_attr);
-		if (rc) { 
+		if (rc) { /* invalid port number */
 			ehca_err(ah->device, "Invalid port number "
 				 "ehca_query_port() returned %x "
 				 "ah=%p ah_attr=%p port_num=%x",

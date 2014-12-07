@@ -19,15 +19,22 @@
 #include <linux/types.h>
 #include <asm/byteorder.h>
 
+/*
+ *	IGMP protocol structures
+ */
 
+/*
+ *	Header in on cable format
+ */
 
 struct igmphdr {
 	__u8 type;
-	__u8 code;		
+	__u8 code;		/* For newer IGMP */
 	__sum16 csum;
 	__be32 group;
 };
 
+/* V3 group record types [grec_type] */
 #define IGMPV3_MODE_IS_INCLUDE		1
 #define IGMPV3_MODE_IS_EXCLUDE		2
 #define IGMPV3_CHANGE_TO_INCLUDE	3
@@ -73,19 +80,22 @@ struct igmpv3_query {
 	__be32 srcs[0];
 };
 
-#define IGMP_HOST_MEMBERSHIP_QUERY	0x11	
-#define IGMP_HOST_MEMBERSHIP_REPORT	0x12	
-#define IGMP_DVMRP			0x13	
-#define IGMP_PIM			0x14	
+#define IGMP_HOST_MEMBERSHIP_QUERY	0x11	/* From RFC1112 */
+#define IGMP_HOST_MEMBERSHIP_REPORT	0x12	/* Ditto */
+#define IGMP_DVMRP			0x13	/* DVMRP routing */
+#define IGMP_PIM			0x14	/* PIM routing */
 #define IGMP_TRACE			0x15
-#define IGMPV2_HOST_MEMBERSHIP_REPORT	0x16	
+#define IGMPV2_HOST_MEMBERSHIP_REPORT	0x16	/* V2 version of 0x12 */
 #define IGMP_HOST_LEAVE_MESSAGE 	0x17
-#define IGMPV3_HOST_MEMBERSHIP_REPORT	0x22	
+#define IGMPV3_HOST_MEMBERSHIP_REPORT	0x22	/* V3 version of 0x12 */
 
 #define IGMP_MTRACE_RESP		0x1e
 #define IGMP_MTRACE			0x1f
 
 
+/*
+ *	Use the BSD names for these for compatibility
+ */
 
 #define IGMP_DELAYING_MEMBER		0x01
 #define IGMP_IDLE_MEMBER		0x02
@@ -95,15 +105,15 @@ struct igmpv3_query {
 
 #define IGMP_MINLEN			8
 
-#define IGMP_MAX_HOST_REPORT_DELAY	10	
-						
+#define IGMP_MAX_HOST_REPORT_DELAY	10	/* max delay for response to */
+						/* query (in seconds)	*/
 
-#define IGMP_TIMER_SCALE		10	
-						
+#define IGMP_TIMER_SCALE		10	/* denotes that the igmphdr->timer field */
+						/* specifies time in 10th of seconds	 */
 
-#define IGMP_AGE_THRESHOLD		400	
-						
-						
+#define IGMP_AGE_THRESHOLD		400	/* If this host don't hear any IGMP V1	*/
+						/* message in this period of time,	*/
+						/* revert to IGMP v2 router.		*/
 
 #define IGMP_ALL_HOSTS		htonl(0xE0000001L)
 #define IGMP_ALL_ROUTER 	htonl(0xE0000002L)
@@ -111,6 +121,9 @@ struct igmpv3_query {
 #define IGMP_LOCAL_GROUP	htonl(0xE0000000L)
 #define IGMP_LOCAL_GROUP_MASK	htonl(0xFFFFFF00L)
 
+/*
+ * struct for keeping the multicast list in
+ */
 
 #ifdef __KERNEL__
 #include <linux/skbuff.h>
@@ -147,13 +160,16 @@ struct ip_sf_socklist {
 #define IP_SFLSIZE(count)	(sizeof(struct ip_sf_socklist) + \
 	(count) * sizeof(__be32))
 
-#define IP_SFBLOCK	10	
+#define IP_SFBLOCK	10	/* allocate this many at once */
 
+/* ip_mc_socklist is real list now. Speed is not argument;
+   this list never used in fast path code
+ */
 
 struct ip_mc_socklist {
 	struct ip_mc_socklist __rcu *next_rcu;
 	struct ip_mreqn		multi;
-	unsigned int		sfmode;		
+	unsigned int		sfmode;		/* MCAST_{INCLUDE,EXCLUDE} */
 	struct ip_sf_socklist __rcu	*sflist;
 	struct rcu_head		rcu;
 };
@@ -161,10 +177,10 @@ struct ip_mc_socklist {
 struct ip_sf_list {
 	struct ip_sf_list	*sf_next;
 	__be32			sf_inaddr;
-	unsigned long		sf_count[2];	
-	unsigned char		sf_gsresp;	
-	unsigned char		sf_oldin;	
-	unsigned char		sf_crcount;	
+	unsigned long		sf_count[2];	/* include/exclude counts */
+	unsigned char		sf_gsresp;	/* include in g & s response? */
+	unsigned char		sf_oldin;	/* change state */
+	unsigned char		sf_crcount;	/* retrans. left to send */
 };
 
 struct ip_mc_list {
@@ -186,11 +202,12 @@ struct ip_mc_list {
 	char			reporter;
 	char			unsolicit_count;
 	char			loaded;
-	unsigned char		gsquery;	
+	unsigned char		gsquery;	/* check source marks? */
 	unsigned char		crcount;
 	struct rcu_head		rcu;
 };
 
+/* V3 exponential field decoding */
 #define IGMPV3_MASK(value, nb) ((nb)>=32 ? (value) : ((1<<(nb))-1) & (value))
 #define IGMPV3_EXP(thresh, nbmant, nbexp, value) \
 	((value) < (thresh) ? (value) : \

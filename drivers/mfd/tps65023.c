@@ -15,6 +15,7 @@
 #include <linux/mfd/tps65023.h>
 #include <linux/module.h>
 
+/* TPS65023_registers */
 #define TPS65023_VERSION	0
 #define TPS65023_PGOODZ		1
 #define TPS65023_MASK		2

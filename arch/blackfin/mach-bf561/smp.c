@@ -15,13 +15,19 @@
 
 static DEFINE_SPINLOCK(boot_lock);
 
+/*
+ * platform_init_cpus() - Tell the world about how many cores we
+ * have. This is called while setting up the architecture support
+ * (setup_arch()), so don't be too demanding here with respect to
+ * available kernel services.
+ */
 
 void __init platform_init_cpus(void)
 {
 	struct cpumask mask;
 
-	cpumask_set_cpu(0, &mask); 
-	cpumask_set_cpu(1, &mask); 
+	cpumask_set_cpu(0, &mask); /* CoreA */
+	cpumask_set_cpu(1, &mask); /* CoreB */
 	init_cpu_possible(&mask);
 }
 
@@ -31,25 +37,25 @@ void __init platform_prepare_cpus(unsigned int max_cpus)
 
 	bfin_relocate_coreb_l1_mem();
 
-	
-	cpumask_set_cpu(0, &mask); 
-	cpumask_set_cpu(1, &mask); 
+	/* Both cores ought to be present on a bf561! */
+	cpumask_set_cpu(0, &mask); /* CoreA */
+	cpumask_set_cpu(1, &mask); /* CoreB */
 	init_cpu_present(&mask);
 }
 
-int __init setup_profiling_timer(unsigned int multiplier) 
+int __init setup_profiling_timer(unsigned int multiplier) /* not supported */
 {
 	return -EINVAL;
 }
 
 void __cpuinit platform_secondary_init(unsigned int cpu)
 {
-	
+	/* Clone setup for peripheral interrupt sources from CoreA. */
 	bfin_write_SICB_IMASK0(bfin_read_SIC_IMASK0());
 	bfin_write_SICB_IMASK1(bfin_read_SIC_IMASK1());
 	SSYNC();
 
-	
+	/* Clone setup for IARs from CoreA. */
 	bfin_write_SICB_IAR0(bfin_read_SIC_IAR0());
 	bfin_write_SICB_IAR1(bfin_read_SIC_IAR1());
 	bfin_write_SICB_IAR2(bfin_read_SIC_IAR2());
@@ -62,7 +68,7 @@ void __cpuinit platform_secondary_init(unsigned int cpu)
 	bfin_write_SICB_IWR1(IWR_DISABLE_ALL);
 	SSYNC();
 
-	
+	/* We are done with local CPU inits, unblock the boot CPU. */
 	set_cpu_online(cpu, true);
 	spin_lock(&boot_lock);
 	spin_unlock(&boot_lock);
@@ -77,10 +83,10 @@ int __cpuinit platform_boot_secondary(unsigned int cpu, struct task_struct *idle
 	spin_lock(&boot_lock);
 
 	if ((bfin_read_SYSCR() & COREB_SRAM_INIT) == 0) {
-		
+		/* CoreB already running, sending ipi to wakeup it */
 		smp_send_reschedule(cpu);
 	} else {
-		
+		/* Kick CoreB, which should start execution from CORE_SRAM_BASE. */
 		bfin_write_SYSCR(bfin_read_SYSCR() & ~COREB_SRAM_INIT);
 		SSYNC();
 	}
@@ -94,7 +100,7 @@ int __cpuinit platform_boot_secondary(unsigned int cpu, struct task_struct *idle
 	}
 
 	if (cpu_online(cpu)) {
-		
+		/* release the lock and let coreb run */
 		spin_unlock(&boot_lock);
 		return 0;
 	} else
@@ -145,6 +151,10 @@ void platform_clear_ipi(unsigned int cpu, int irq)
 	SSYNC();
 }
 
+/*
+ * Setup core B's local core timer.
+ * In SMP, core timer is used for clock event device.
+ */
 void __cpuinit bfin_local_timer_setup(void)
 {
 #if defined(CONFIG_TICKSOURCE_CORETMR)
@@ -156,7 +166,7 @@ void __cpuinit bfin_local_timer_setup(void)
 
 	chip->irq_unmask(data);
 #else
-	
+	/* Power down the core timer, just to play safe. */
 	bfin_write_TCNTL(0);
 #endif
 

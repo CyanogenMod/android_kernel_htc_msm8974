@@ -14,6 +14,11 @@
 
 #include <linux/thread_info.h>
 
+/*
+ * switch_to(prev, next) should switch from task `prev' to `next'
+ * `prev' will never be the same as `next'.
+ * The `mb' is to tell GCC not to cache `current' across this call.
+ */
 extern asmlinkage
 struct task_struct *__switch_to(struct thread_struct *prev_thread,
 				struct thread_struct *next_thread,
@@ -27,4 +32,4 @@ do {									\
 	mb();								\
 } while(0)
 
-#endif 
+#endif /* _ASM_SWITCH_TO_H */

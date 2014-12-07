@@ -56,6 +56,11 @@ static void pca9665_reset(void *pd)
 	pca_outw(adap, I2C_PCA_IND, 0x5A);
 }
 
+/*
+ * Generate a start condition on the i2c bus.
+ *
+ * returns after the start condition has occurred
+ */
 static int pca_start(struct i2c_algo_pca_data *adap)
 {
 	int sta = pca_get_con(adap);
@@ -66,6 +71,11 @@ static int pca_start(struct i2c_algo_pca_data *adap)
 	return pca_wait(adap);
 }
 
+/*
+ * Generate a repeated start condition on the i2c bus
+ *
+ * return after the repeated start condition has occurred
+ */
 static int pca_repeated_start(struct i2c_algo_pca_data *adap)
 {
 	int sta = pca_get_con(adap);
@@ -76,6 +86,15 @@ static int pca_repeated_start(struct i2c_algo_pca_data *adap)
 	return pca_wait(adap);
 }
 
+/*
+ * Generate a stop condition on the i2c bus
+ *
+ * returns after the stop condition has been generated
+ *
+ * STOPs do not generate an interrupt or set the SI flag, since the
+ * part returns the idle state (0xf8). Hence we don't need to
+ * pca_wait here.
+ */
 static void pca_stop(struct i2c_algo_pca_data *adap)
 {
 	int sta = pca_get_con(adap);
@@ -85,6 +104,11 @@ static void pca_stop(struct i2c_algo_pca_data *adap)
 	pca_set_con(adap, sta);
 }
 
+/*
+ * Send the slave address and R/W bit
+ *
+ * returns after the address has been sent
+ */
 static int pca_address(struct i2c_algo_pca_data *adap,
 		       struct i2c_msg *msg)
 {
@@ -105,6 +129,11 @@ static int pca_address(struct i2c_algo_pca_data *adap,
 	return pca_wait(adap);
 }
 
+/*
+ * Transmit a byte.
+ *
+ * Returns after the byte has been transmitted
+ */
 static int pca_tx_byte(struct i2c_algo_pca_data *adap,
 		       __u8 b)
 {
@@ -118,6 +147,11 @@ static int pca_tx_byte(struct i2c_algo_pca_data *adap,
 	return pca_wait(adap);
 }
 
+/*
+ * Receive a byte
+ *
+ * returns immediately.
+ */
 static void pca_rx_byte(struct i2c_algo_pca_data *adap,
 			__u8 *b, int ack)
 {
@@ -125,6 +159,11 @@ static void pca_rx_byte(struct i2c_algo_pca_data *adap,
 	DEB2("=== READ %#04x %s\n", *b, ack ? "ACK" : "NACK");
 }
 
+/*
+ * Setup ACK or NACK for next received byte and wait for it to arrive.
+ *
+ * Returns after next byte has arrived.
+ */
 static int pca_rx_ack(struct i2c_algo_pca_data *adap,
 		      int ack)
 {
@@ -194,17 +233,17 @@ static int pca_xfer(struct i2c_adapter *i2c_adap,
 		msg = &msgs[curmsg];
 
 		switch (state) {
-		case 0xf8: 
+		case 0xf8: /* On reset or stop the bus is idle */
 			completed = pca_start(adap);
 			break;
 
-		case 0x08: 
-		case 0x10: 
+		case 0x08: /* A START condition has been transmitted */
+		case 0x10: /* A repeated start condition has been transmitted */
 			completed = pca_address(adap, msg);
 			break;
 
-		case 0x18: 
-		case 0x28: 
+		case 0x18: /* SLA+W has been transmitted; ACK has been received */
+		case 0x28: /* Data byte in I2CDAT has been transmitted; ACK has been received */
 			if (numbytes < msg->len) {
 				completed = pca_tx_byte(adap,
 							msg->buf[numbytes]);
@@ -218,17 +257,17 @@ static int pca_xfer(struct i2c_adapter *i2c_adap,
 				completed = pca_repeated_start(adap);
 			break;
 
-		case 0x20: 
+		case 0x20: /* SLA+W has been transmitted; NOT ACK has been received */
 			DEB2("NOT ACK received after SLA+W\n");
 			pca_stop(adap);
 			ret = -ENXIO;
 			goto out;
 
-		case 0x40: 
+		case 0x40: /* SLA+R has been transmitted; ACK has been received */
 			completed = pca_rx_ack(adap, msg->len > 1);
 			break;
 
-		case 0x50: 
+		case 0x50: /* Data bytes has been received; ACK has been returned */
 			if (numbytes < msg->len) {
 				pca_rx_byte(adap, &msg->buf[numbytes], 1);
 				numbytes++;
@@ -243,23 +282,32 @@ static int pca_xfer(struct i2c_adapter *i2c_adap,
 				completed = pca_repeated_start(adap);
 			break;
 
-		case 0x48: 
+		case 0x48: /* SLA+R has been transmitted; NOT ACK has been received */
 			DEB2("NOT ACK received after SLA+R\n");
 			pca_stop(adap);
 			ret = -ENXIO;
 			goto out;
 
-		case 0x30: 
+		case 0x30: /* Data byte in I2CDAT has been transmitted; NOT ACK has been received */
 			DEB2("NOT ACK received after data byte\n");
 			pca_stop(adap);
 			goto out;
 
-		case 0x38: 
+		case 0x38: /* Arbitration lost during SLA+W, SLA+R or data bytes */
 			DEB2("Arbitration lost\n");
+			/*
+			 * The PCA9564 data sheet (2006-09-01) says "A
+			 * START condition will be transmitted when the
+			 * bus becomes free (STOP or SCL and SDA high)"
+			 * when the STA bit is set (p. 11).
+			 *
+			 * In case this won't work, try pca_reset()
+			 * instead.
+			 */
 			pca_start(adap);
 			goto out;
 
-		case 0x58: 
+		case 0x58: /* Data byte has been received; NOT ACK has been returned */
 			if (numbytes == msg->len - 1) {
 				pca_rx_byte(adap, &msg->buf[numbytes], 0);
 				curmsg++; numbytes = 0;
@@ -275,15 +323,15 @@ static int pca_xfer(struct i2c_adapter *i2c_adap,
 				goto out;
 			}
 			break;
-		case 0x70: 
+		case 0x70: /* Bus error - SDA stuck low */
 			DEB2("BUS ERROR - SDA Stuck low\n");
 			pca_reset(adap);
 			goto out;
-		case 0x90: 
+		case 0x90: /* Bus error - SCL stuck low */
 			DEB2("BUS ERROR - SCL Stuck low\n");
 			pca_reset(adap);
 			goto out;
-		case 0x00: 
+		case 0x00: /* Bus error during master or slave mode due to illegal START or STOP condition */
 			DEB2("BUS ERROR - Illegal START or STOP\n");
 			pca_reset(adap);
 			goto out;
@@ -318,6 +366,11 @@ static const struct i2c_algorithm pca_algo = {
 static unsigned int pca_probe_chip(struct i2c_adapter *adap)
 {
 	struct i2c_algo_pca_data *pca_data = adap->algo_data;
+	/* The trick here is to check if there is an indirect register
+	 * available. If there is one, we will read the value we first
+	 * wrote on I2C_PCA_IADR. Otherwise, we will read the last value
+	 * we wrote on I2C_PCA_ADR
+	 */
 	pca_outw(pca_data, I2C_PCA_INDPTR, I2C_PCA_IADR);
 	pca_outw(pca_data, I2C_PCA_IND, 0xAA);
 	pca_outw(pca_data, I2C_PCA_INDPTR, I2C_PCA_ITO);
@@ -392,10 +445,20 @@ static int pca_init(struct i2c_adapter *adap)
 		int clock;
 		int mode;
 		int tlow, thi;
-		
+		/* Values can be found on PCA9665 datasheet section 7.3.2.6 */
 		int min_tlow, min_thi;
+		/* These values are the maximum raise and fall values allowed
+		 * by the I2C operation mode (Standard, Fast or Fast+)
+		 * They are used (added) below to calculate the clock dividers
+		 * of PCA9665. Note that they are slightly different of the
+		 * real maximum, to allow the change on mode exactly on the
+		 * maximum clock rate for each mode
+		 */
 		int raise_fall_time;
 
+		/* Ignore the reset function from the module,
+		 * we can use the parallel bus reset
+		 */
 		pca_data->reset_chip = pca9665_reset;
 
 		if (pca_data->i2c_clock > 1265800) {
@@ -410,31 +473,35 @@ static int pca_init(struct i2c_adapter *adap)
 			pca_data->i2c_clock = 60300;
 		}
 
-		
+		/* To avoid integer overflow, use clock/100 for calculations */
 		clock = pca_clock(pca_data) / 100;
 
 		if (pca_data->i2c_clock > 10000) {
 			mode = I2C_PCA_MODE_TURBO;
 			min_tlow = 14;
 			min_thi  = 5;
-			raise_fall_time = 22; 
+			raise_fall_time = 22; /* Raise 11e-8s, Fall 11e-8s */
 		} else if (pca_data->i2c_clock > 4000) {
 			mode = I2C_PCA_MODE_FASTP;
 			min_tlow = 17;
 			min_thi  = 9;
-			raise_fall_time = 22; 
+			raise_fall_time = 22; /* Raise 11e-8s, Fall 11e-8s */
 		} else if (pca_data->i2c_clock > 1000) {
 			mode = I2C_PCA_MODE_FAST;
 			min_tlow = 44;
 			min_thi  = 20;
-			raise_fall_time = 58; 
+			raise_fall_time = 58; /* Raise 29e-8s, Fall 29e-8s */
 		} else {
 			mode = I2C_PCA_MODE_STD;
 			min_tlow = 157;
 			min_thi  = 134;
-			raise_fall_time = 127; 
+			raise_fall_time = 127; /* Raise 29e-8s, Fall 98e-8s */
 		}
 
+		/* The minimum clock that respects the thi/tlow = 134/157 is
+		 * 64800 Hz. Below that, we have to fix the tlow to 255 and
+		 * calculate the thi factor.
+		 */
 		if (clock < 648) {
 			tlow = 255;
 			thi = 1000000 - clock * raise_fall_time;
@@ -459,11 +526,14 @@ static int pca_init(struct i2c_adapter *adap)
 
 		pca_set_con(pca_data, I2C_PCA_CON_ENSIO);
 	}
-	udelay(500); 
+	udelay(500); /* 500 us for oscilator to stabilise */
 
 	return 0;
 }
 
+/*
+ * registering functions to load algorithms at runtime
+ */
 int i2c_pca_add_bus(struct i2c_adapter *adap)
 {
 	int rval;

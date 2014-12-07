@@ -134,6 +134,6 @@ static inline int kgsl_cff_dump_enable_get(void *data, u64 *val)
 	return -EINVAL;
 }
 
-#endif 
+#endif /* CONFIG_MSM_KGSL_CFF_DUMP */
 
-#endif 
+#endif /* __KGSL_CFFDUMP_H */

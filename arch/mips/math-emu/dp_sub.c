@@ -1,3 +1,6 @@
+/* IEEE754 floating point arithmetic
+ * double precision: common utilities
+ */
 /*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.
@@ -65,6 +68,8 @@ ieee754dp ieee754dp_sub(ieee754dp x, ieee754dp y)
 		return x;
 
 
+		/* Infinity handling
+		 */
 
 	case CLPAIR(IEEE754_CLASS_INF, IEEE754_CLASS_INF):
 		if (xs != ys)
@@ -82,6 +87,8 @@ ieee754dp ieee754dp_sub(ieee754dp x, ieee754dp y)
 	case CLPAIR(IEEE754_CLASS_INF, IEEE754_CLASS_DNORM):
 		return x;
 
+		/* Zero handling
+		 */
 
 	case CLPAIR(IEEE754_CLASS_ZERO, IEEE754_CLASS_ZERO):
 		if (xs != ys)
@@ -96,43 +103,47 @@ ieee754dp ieee754dp_sub(ieee754dp x, ieee754dp y)
 
 	case CLPAIR(IEEE754_CLASS_ZERO, IEEE754_CLASS_NORM):
 	case CLPAIR(IEEE754_CLASS_ZERO, IEEE754_CLASS_DNORM):
-		
+		/* quick fix up */
 		DPSIGN(y) ^= 1;
 		return y;
 
 	case CLPAIR(IEEE754_CLASS_DNORM, IEEE754_CLASS_DNORM):
 		DPDNORMX;
-		
+		/* FALL THROUGH */
 
 	case CLPAIR(IEEE754_CLASS_NORM, IEEE754_CLASS_DNORM):
-		
+		/* normalize ym,ye */
 		DPDNORMY;
 		break;
 
 	case CLPAIR(IEEE754_CLASS_DNORM, IEEE754_CLASS_NORM):
-		
+		/* normalize xm,xe */
 		DPDNORMX;
 		break;
 
 	case CLPAIR(IEEE754_CLASS_NORM, IEEE754_CLASS_NORM):
 		break;
 	}
-	
+	/* flip sign of y and handle as add */
 	ys ^= 1;
 
 	assert(xm & DP_HIDDEN_BIT);
 	assert(ym & DP_HIDDEN_BIT);
 
 
-	
+	/* provide guard,round and stick bit dpace */
 	xm <<= 3;
 	ym <<= 3;
 
 	if (xe > ye) {
+		/* have to shift y fraction right to align
+		 */
 		int s = xe - ye;
 		ym = XDPSRS(ym, s);
 		ye += s;
 	} else if (ye > xe) {
+		/* have to shift x fraction right to align
+		 */
 		int s = ye - xe;
 		xm = XDPSRS(xm, s);
 		xe += s;
@@ -141,12 +152,14 @@ ieee754dp ieee754dp_sub(ieee754dp x, ieee754dp y)
 	assert(xe <= DP_EMAX);
 
 	if (xs == ys) {
+		/* generate 28 bit result of adding two 27 bit numbers
+		 */
 		xm = xm + ym;
 		xe = xe;
 		xs = xs;
 
-		if (xm >> (DP_MBITS + 1 + 3)) {	
-			xm = XDPSRS1(xm);	
+		if (xm >> (DP_MBITS + 1 + 3)) {	/* carry out */
+			xm = XDPSRS1(xm);	/* shift preserving sticky */
 			xe++;
 		}
 	} else {
@@ -161,11 +174,13 @@ ieee754dp ieee754dp_sub(ieee754dp x, ieee754dp y)
 		}
 		if (xm == 0) {
 			if (ieee754_csr.rm == IEEE754_RD)
-				return ieee754dp_zero(1);	
+				return ieee754dp_zero(1);	/* round negative inf. => sign = -1 */
 			else
-				return ieee754dp_zero(0);	
+				return ieee754dp_zero(0);	/* other round modes   => sign = 1 */
 		}
 
+		/* normalize to rounding precision
+		 */
 		while ((xm >> (DP_MBITS + 3)) == 0) {
 			xm <<= 1;
 			xe--;

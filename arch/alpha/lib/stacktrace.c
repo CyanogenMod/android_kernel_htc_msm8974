@@ -7,9 +7,9 @@ typedef unsigned int instr;
 #define STQ_OP		0xb4000000
 #define BR_OP		0xc0000000
 
-#define STK_ALLOC_1	0x23de8000 
+#define STK_ALLOC_1	0x23de8000 /* lda $30,-X($30) */
 #define STK_ALLOC_1M	0xffff8000
-#define STK_ALLOC_2	0x43c0153e 
+#define STK_ALLOC_2	0x43c0153e /* subq $30,X,$30 */
 #define STK_ALLOC_2M	0xffe01fff
 
 #define MEM_REG		0x03e00000
@@ -28,6 +28,7 @@ typedef unsigned int instr;
 #define MEM_OP_REG(INSTR) \
   (((INSTR) & MEM_REG) >> 22)
 
+/* Branches, jumps, PAL calls, and illegal opcodes end a basic block. */
 #define BB_END(INSTR)						\
   (((instr)(INSTR) >= BR_OP) | ((instr)(INSTR) < LDA_OP) |	\
    ((((instr)(INSTR) ^ 0x60000000) < 0x20000000) &		\
@@ -78,7 +79,7 @@ stack_increment(instr * prologue_pc)
 	while (!STK_ALLOC_MATCH(*prologue_pc))
 		++prologue_pc;
 
-	
+	/* Count the bytes allocated. */
 	if ((*prologue_pc & STK_ALLOC_1M) == STK_ALLOC_1M)
 		return -(((long)(*prologue_pc) << 48) >> 48);
 	else

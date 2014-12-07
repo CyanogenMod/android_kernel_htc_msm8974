@@ -56,4 +56,4 @@ struct p80211msg {
 	u8 devname[WLAN_DEVNAMELEN_MAX];
 } __packed;
 
-#endif 
+#endif /* _P80211MSG_H */

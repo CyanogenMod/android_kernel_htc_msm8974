@@ -26,7 +26,14 @@
 #include "pci_impl.h"
 
 
+/*
+ * BIOS32-style PCI interface:
+ */
 
+/*
+ * Machine check reasons.  Defined according to PALcode sources
+ * (osf.h and platform.h).
+ */
 #define MCHK_K_TPERR		0x0080
 #define MCHK_K_TCPERR		0x0082
 #define MCHK_K_HERR		0x0084
@@ -40,11 +47,55 @@
 #define MCHK_K_ICPERR		0x0094
 
 
-#define MCHK_K_SIO_SERR		0x204	
-#define MCHK_K_SIO_IOCHK	0x206	
-#define MCHK_K_DCSR		0x208	
+/*
+ * Platform-specific machine-check reasons:
+ */
+#define MCHK_K_SIO_SERR		0x204	/* all platforms so far */
+#define MCHK_K_SIO_IOCHK	0x206	/* all platforms so far */
+#define MCHK_K_DCSR		0x208	/* all but Noname */
 
 
+/*
+ * Given a bus, device, and function number, compute resulting
+ * configuration space address and setup the LCA_IOC_CONF register
+ * accordingly.  It is therefore not safe to have concurrent
+ * invocations to configuration space access routines, but there
+ * really shouldn't be any need for this.
+ *
+ * Type 0:
+ *
+ *  3 3|3 3 2 2|2 2 2 2|2 2 2 2|1 1 1 1|1 1 1 1|1 1 
+ *  3 2|1 0 9 8|7 6 5 4|3 2 1 0|9 8 7 6|5 4 3 2|1 0 9 8|7 6 5 4|3 2 1 0
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | | | | | | | | | | | | | | | | | | | | | | | |F|F|F|R|R|R|R|R|R|0|0|
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ *	31:11	Device select bit.
+ * 	10:8	Function number
+ * 	 7:2	Register number
+ *
+ * Type 1:
+ *
+ *  3 3|3 3 2 2|2 2 2 2|2 2 2 2|1 1 1 1|1 1 1 1|1 1 
+ *  3 2|1 0 9 8|7 6 5 4|3 2 1 0|9 8 7 6|5 4 3 2|1 0 9 8|7 6 5 4|3 2 1 0
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * | | | | | | | | | | |B|B|B|B|B|B|B|B|D|D|D|D|D|F|F|F|R|R|R|R|R|R|0|1|
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ *	31:24	reserved
+ *	23:16	bus number (8 bits = 128 possible buses)
+ *	15:11	Device number (5 bits)
+ *	10:8	function number
+ *	 7:2	register number
+ *  
+ * Notes:
+ *	The function number selects which function of a multi-function device 
+ *	(e.g., SCSI and Ethernet).
+ * 
+ *	The register selects a DWORD (32 bit) register offset.  Hence it
+ *	doesn't get shifted by 2 bits as we want to "drop" the bottom two
+ *	bits.
+ */
 
 static int
 mk_conf_addr(struct pci_bus *pbus, unsigned int device_fn, int where,
@@ -57,7 +108,7 @@ mk_conf_addr(struct pci_bus *pbus, unsigned int device_fn, int where,
 		int device = device_fn >> 3;
 		int func = device_fn & 0x7;
 
-		
+		/* Type 0 configuration cycle.  */
 
 		if (device > 12) {
 			return -1;
@@ -66,7 +117,7 @@ mk_conf_addr(struct pci_bus *pbus, unsigned int device_fn, int where,
 		*(vulp)LCA_IOC_CONF = 0;
 		addr = (1 << (11 + device)) | (func << 8) | where;
 	} else {
-		
+		/* Type 1 configuration cycle.  */
 		*(vulp)LCA_IOC_CONF = 1;
 		addr = (bus << 16) | (device_fn << 8) | where;
 	}
@@ -82,12 +133,12 @@ conf_read(unsigned long addr)
 
 	local_irq_save(flags);
 
-	
+	/* Reset status register to avoid losing errors.  */
 	stat0 = *(vulp)LCA_IOC_STAT0;
 	*(vulp)LCA_IOC_STAT0 = stat0;
 	mb();
 
-	
+	/* Access configuration space.  */
 	value = *(vuip)addr;
 	draina();
 
@@ -99,11 +150,11 @@ conf_read(unsigned long addr)
 			printk("lca.c:conf_read: got stat0=%lx\n", stat0);
 		}
 
-		
+		/* Reset error status.  */
 		*(vulp)LCA_IOC_STAT0 = stat0;
 		mb();
 
-		
+		/* Reset machine check.  */
 		wrmces(0x7);
 
 		value = 0xffffffff;
@@ -117,14 +168,14 @@ conf_write(unsigned long addr, unsigned int value)
 {
 	unsigned long flags, code, stat0;
 
-	local_irq_save(flags);	
+	local_irq_save(flags);	/* avoid getting hit by machine check */
 
-	
+	/* Reset status register to avoid losing errors.  */
 	stat0 = *(vulp)LCA_IOC_STAT0;
 	*(vulp)LCA_IOC_STAT0 = stat0;
 	mb();
 
-	
+	/* Access configuration space.  */
 	*(vuip)addr = value;
 	draina();
 
@@ -136,11 +187,11 @@ conf_write(unsigned long addr, unsigned int value)
 			printk("lca.c:conf_write: got stat0=%lx\n", stat0);
 		}
 
-		
+		/* Reset error status.  */
 		*(vulp)LCA_IOC_STAT0 = stat0;
 		mb();
 
-		
+		/* Reset machine check. */
 		wrmces(0x7);
 	}
 	local_irq_restore(flags);
@@ -199,6 +250,9 @@ lca_init_arch(void)
 {
 	struct pci_controller *hose;
 
+	/*
+	 * Create our single hose.
+	 */
 
 	pci_isa_hose = hose = alloc_pci_controller();
 	hose->io_space = &ioport_resource;
@@ -210,6 +264,16 @@ lca_init_arch(void)
 	hose->sparse_io_base = LCA_IO - IDENT_ADDR;
 	hose->dense_io_base = 0;
 
+	/*
+	 * Set up the PCI to main memory translation windows.
+	 *
+	 * Mimic the SRM settings for the direct-map window.
+	 *   Window 0 is scatter-gather 8MB at 8MB (for isa).
+	 *   Window 1 is direct access 1GB at 1GB.
+	 *
+	 * Note that we do not try to save any of the DMA window CSRs
+	 * before setting them, since we cannot read those CSRs on LCA.
+	 */
 	hose->sg_isa = iommu_arena_new(hose, 0x00800000, 0x00800000, 0);
 	hose->sg_pci = NULL;
 	__direct_map_base = 0x40000000;
@@ -227,24 +291,40 @@ lca_init_arch(void)
 
 	lca_pci_tbi(hose, 0, -1);
 
+	/*
+	 * Disable PCI parity for now.  The NCR53c810 chip has
+	 * troubles meeting the PCI spec which results in
+	 * data parity errors.
+	 */
 	*(vulp)LCA_IOC_PAR_DIS = 1UL<<5;
 
+	/*
+	 * Finally, set up for restoring the correct HAE if using SRM.
+	 * Again, since we cannot read many of the CSRs on the LCA,
+	 * one of which happens to be the HAE, we save the value that
+	 * the SRM will expect...
+	 */
 	if (alpha_using_srm)
 		srm_hae = 0x80000000UL;
 }
 
+/*
+ * Constants used during machine-check handling.  I suppose these
+ * could be moved into lca.h but I don't see much reason why anybody
+ * else would want to use them.
+ */
 
-#define ESR_EAV		(1UL<< 0)	
-#define ESR_CEE		(1UL<< 1)	
-#define ESR_UEE		(1UL<< 2)	
-#define ESR_WRE		(1UL<< 3)	
-#define ESR_SOR		(1UL<< 4)	
-#define ESR_CTE		(1UL<< 7)	
-#define ESR_MSE		(1UL<< 9)	
-#define ESR_MHE		(1UL<<10)	
-#define ESR_NXM		(1UL<<12)	
+#define ESR_EAV		(1UL<< 0)	/* error address valid */
+#define ESR_CEE		(1UL<< 1)	/* correctable error */
+#define ESR_UEE		(1UL<< 2)	/* uncorrectable error */
+#define ESR_WRE		(1UL<< 3)	/* write-error */
+#define ESR_SOR		(1UL<< 4)	/* error source */
+#define ESR_CTE		(1UL<< 7)	/* cache-tag error */
+#define ESR_MSE		(1UL<< 9)	/* multiple soft errors */
+#define ESR_MHE		(1UL<<10)	/* multiple hard errors */
+#define ESR_NXM		(1UL<<12)	/* non-existent memory */
 
-#define IOC_ERR		(  1<<4)	
+#define IOC_ERR		(  1<<4)	/* ioc logs an error */
 #define IOC_CMD_SHIFT	0
 #define IOC_CMD		(0xf<<IOC_CMD_SHIFT)
 #define IOC_CODE_SHIFT	8
@@ -314,11 +394,18 @@ lca_machine_check(unsigned long vector, unsigned long la_ptr)
 
 	el.c = (struct el_common *) la_ptr;
 
-	wrmces(rdmces());	
+	wrmces(rdmces());	/* reset machine check pending flag */
 
 	printk(KERN_CRIT "LCA machine check: vector=%#lx pc=%#lx code=%#x\n",
 	       vector, get_irq_regs()->pc, (unsigned int) el.c->code);
 
+	/*
+	 * The first quadword after the common header always seems to
+	 * be the machine check reason---don't know why this isn't
+	 * part of the common header instead.  In the case of a long
+	 * logout frame, the upper 32 bits is the machine check
+	 * revision level, which we ignore for now.
+	 */
 	switch ((unsigned int) el.c->code) {
 	case MCHK_K_TPERR:	reason = "tag parity error"; break;
 	case MCHK_K_TCPERR:	reason = "tag control parity error"; break;
@@ -370,7 +457,7 @@ lca_machine_check(unsigned long vector, unsigned long la_ptr)
 		printk(KERN_CRIT "  Unknown errorlog size %d\n", el.c->size);
 	}
 
-	
+	/* Dump the logout area to give all info.  */
 #ifdef CONFIG_VERBOSE_MCHECK
 	if (alpha_verbose_mcheck > 1) {
 		unsigned long * ptr = (unsigned long *) la_ptr;
@@ -380,9 +467,13 @@ lca_machine_check(unsigned long vector, unsigned long la_ptr)
 			       i*sizeof(long), ptr[i], ptr[i+1]);
 		}
 	}
-#endif 
+#endif /* CONFIG_VERBOSE_MCHECK */
 }
 
+/*
+ * The following routines are needed to support the SPEED changing
+ * necessary to successfully manage the thermal problem on the AlphaBook1.
+ */
 
 void
 lca_clock_print(void)
@@ -418,7 +509,7 @@ lca_clock_fiddle(int divisor)
 
         pmr_reg = LCA_READ_PMR;
         LCA_SET_PRIMARY_CLOCK(pmr_reg, divisor);
-	
+	/* lca_norm_clock = divisor; */
         LCA_WRITE_PMR(pmr_reg);
         mb();
 }

@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * Qualcomm PMIC8XXX NFC driver
+ *
+ */
 
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -19,9 +23,11 @@
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/mfd/pm8xxx/nfc.h>
 
+/* PM8XXX NFC */
 #define SSBI_REG_NFC_CTRL	0x14D
 #define SSBI_REG_NFC_TEST	0x14E
 
+/* NFC_CTRL */
 #define PM8XXX_NFC_SUPPORT_EN		0x80
 #define PM8XXX_NFC_LDO_EN		0x40
 #define PM8XXX_NFC_EN			0x20
@@ -30,6 +36,7 @@
 #define PM8XXX_NFC_RESERVED		0x04
 #define PM8XXX_NFC_VDDLDO_LEVEL		0x03
 
+/* NFC_TEST */
 #define PM8XXX_NFC_VDDLDO_MON_EN	0x80
 #define PM8XXX_NFC_ATEST_EN		0x40
 #define PM8XXX_NFC_DTEST1_EN		0x20
@@ -47,12 +54,23 @@ struct pm8xxx_nfc_device {
 };
 static struct pm8xxx_nfc_device	*nfc_dev;
 
+/* APIs */
+/*
+ * pm8xxx_nfc_request - request a handle to access NFC device
+ */
 struct pm8xxx_nfc_device *pm8xxx_nfc_request(void)
 {
 	return nfc_dev;
 }
 EXPORT_SYMBOL(pm8xxx_nfc_request);
 
+/*
+ * pm8xxx_nfc_config - configure NFC signals
+ *
+ * @nfcdev: the NFC device
+ * @mask: signal mask to configure
+ * @flags: control flags
+ */
 int pm8xxx_nfc_config(struct pm8xxx_nfc_device *nfcdev, u32 mask, u32 flags)
 {
 	u8	nfc_ctrl, nfc_test, m, f;
@@ -114,6 +132,13 @@ config_done:
 }
 EXPORT_SYMBOL(pm8xxx_nfc_config);
 
+/*
+ * pm8xxx_nfc_get_status - get NFC status
+ *
+ * @nfcdev: the NFC device
+ * @mask: of status mask to read
+ * @status: pointer to the status variable
+ */
 int pm8xxx_nfc_get_status(struct pm8xxx_nfc_device *nfcdev,
 			  u32 mask, u32 *status)
 {
@@ -156,9 +181,12 @@ get_status_done:
 }
 EXPORT_SYMBOL(pm8xxx_nfc_get_status);
 
+/*
+ * pm8xxx_nfc_free - free the NFC device
+ */
 void pm8xxx_nfc_free(struct pm8xxx_nfc_device *nfcdev)
 {
-	
+	/* Disable all signals */
 	pm8xxx_nfc_config(nfcdev, PM_NFC_CTRL_REQ, 0);
 }
 EXPORT_SYMBOL(pm8xxx_nfc_free);

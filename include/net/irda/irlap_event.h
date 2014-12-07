@@ -36,29 +36,32 @@
 
 #include <net/irda/irda.h>
 
+/* A few forward declarations (to make compiler happy) */
 struct irlap_cb;
 struct irlap_info;
 
+/* IrLAP States */
 typedef enum {
-	LAP_NDM,         
+	LAP_NDM,         /* Normal disconnected mode */
 	LAP_QUERY,
 	LAP_REPLY,
-	LAP_CONN,        
-	LAP_SETUP,       
-	LAP_OFFLINE,     
+	LAP_CONN,        /* Connect indication */
+	LAP_SETUP,       /* Setting up connection */
+	LAP_OFFLINE,     /* A really boring state */
 	LAP_XMIT_P,
 	LAP_PCLOSE,
-	LAP_NRM_P,       
+	LAP_NRM_P,       /* Normal response mode as primary */
 	LAP_RESET_WAIT,
 	LAP_RESET,
-	LAP_NRM_S,       
+	LAP_NRM_S,       /* Normal response mode as secondary */
 	LAP_XMIT_S,
 	LAP_SCLOSE,
 	LAP_RESET_CHECK,
 } IRLAP_STATE;
 
+/* IrLAP Events */
 typedef enum {
-	
+	/* Services events */
 	DISCOVERY_REQUEST,
 	CONNECT_REQUEST,
 	CONNECT_RESPONSE,
@@ -67,11 +70,11 @@ typedef enum {
 	RESET_REQUEST,
 	RESET_RESPONSE,
 
-	
+	/* Send events */
 	SEND_I_CMD,
 	SEND_UI_FRAME,
 
-	
+	/* Receive events */
 	RECV_DISCOVERY_XID_CMD,
 	RECV_DISCOVERY_XID_RSP,
 	RECV_SNRM_CMD,
@@ -94,7 +97,7 @@ typedef enum {
 	RECV_SREJ_RSP,
 	RECV_DISC_CMD,
 
-	
+	/* Timer events */
 	SLOT_TIMER_EXPIRED,
 	QUERY_TIMER_EXPIRED,
 	FINAL_TIMER_EXPIRED,
@@ -105,11 +108,14 @@ typedef enum {
 	MEDIA_BUSY_TIMER_EXPIRED,
 } IRLAP_EVENT;
 
-typedef enum { 
-	LAP_DISC_INDICATION=1, 
-	LAP_NO_RESPONSE,       
-	LAP_RESET_INDICATION,  
-	LAP_FOUND_NONE,        
+/*
+ * Disconnect reason code
+ */
+typedef enum { /* FIXME check the two first reason codes */
+	LAP_DISC_INDICATION=1, /* Received a disconnect request from peer */
+	LAP_NO_RESPONSE,       /* To many retransmits without response */
+	LAP_RESET_INDICATION,  /* To many retransmits, or invalid nr/ns */
+	LAP_FOUND_NONE,        /* No devices were discovered */
 	LAP_MEDIA_BUSY,
 	LAP_PRIMARY_CONFLICT,
 } LAP_REASON;

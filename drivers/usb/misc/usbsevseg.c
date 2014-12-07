@@ -26,12 +26,14 @@
 #define PRODUCT_ID	0x1227
 #define MAXLEN		8
 
+/* table of devices that work with this driver */
 static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(VENDOR_ID, PRODUCT_ID) },
 	{ },
 };
 MODULE_DEVICE_TABLE(usb, id_table);
 
+/* the different text display modes the device is capable of */
 static char *display_textmodes[] = {"raw", "hex", "ascii", NULL};
 
 struct usb_sevsegdev {
@@ -46,10 +48,15 @@ struct usb_sevsegdev {
 	u8 text[MAXLEN];
 	u16 textlength;
 
-	u8 shadow_power; 
+	u8 shadow_power; /* for PM */
 	u8 has_interface_pm;
 };
 
+/* sysfs_streq can't replace this completely
+ * If the device was in hex mode, and the user wanted a 0,
+ * if str commands are used, we would assume the end of string
+ * so mem commands are used.
+ */
 inline size_t my_memlen(const char *buf, size_t count)
 {
 	if (count > 0 && buf[count-1] == '\n')
@@ -76,7 +83,7 @@ static void update_display_powered(struct usb_sevsegdev *mydev)
 			usb_sndctrlpipe(mydev->udev, 0),
 			0x12,
 			0x48,
-			(80 * 0x100) + 10, 
+			(80 * 0x100) + 10, /*  (power mode) */
 			(0x00 * 0x100) + (mydev->powered ? 1 : 0),
 			NULL,
 			0,
@@ -101,7 +108,7 @@ static void update_display_mode(struct usb_sevsegdev *mydev)
 			usb_sndctrlpipe(mydev->udev, 0),
 			0x12,
 			0x48,
-			(82 * 0x100) + 10, 
+			(82 * 0x100) + 10, /* (set mode) */
 			(mydev->mode_msb * 0x100) + mydev->mode_lsb,
 			NULL,
 			0,
@@ -127,7 +134,7 @@ static void update_display_visual(struct usb_sevsegdev *mydev, gfp_t mf)
 		return;
 	}
 
-	
+	/* The device is right to left, where as you write left to right */
 	for (i = 0; i < mydev->textlength; i++)
 		buffer[i] = mydev->text[mydev->textlength-1-i];
 
@@ -135,8 +142,8 @@ static void update_display_visual(struct usb_sevsegdev *mydev, gfp_t mf)
 			usb_sndctrlpipe(mydev->udev, 0),
 			0x12,
 			0x48,
-			(85 * 0x100) + 10, 
-			(0 * 0x100) + mydev->textmode, 
+			(85 * 0x100) + 10, /* (write text) */
+			(0 * 0x100) + mydev->textmode, /* mode  */
 			buffer,
 			mydev->textlength,
 			2000);
@@ -146,7 +153,7 @@ static void update_display_visual(struct usb_sevsegdev *mydev, gfp_t mf)
 
 	kfree(buffer);
 
-	
+	/* The device is right to left, where as you write left to right */
 	for (i = 0; i < sizeof(mydev->decimals); i++)
 		decimals |= mydev->decimals[i] << i;
 
@@ -154,8 +161,8 @@ static void update_display_visual(struct usb_sevsegdev *mydev, gfp_t mf)
 			usb_sndctrlpipe(mydev->udev, 0),
 			0x12,
 			0x48,
-			(86 * 0x100) + 10, 
-			(0 * 0x100) + decimals, 
+			(86 * 0x100) + 10, /* (set decimal) */
+			(0 * 0x100) + decimals, /* decimals */
 			NULL,
 			0,
 			2000);
@@ -349,14 +356,14 @@ static int sevseg_probe(struct usb_interface *interface,
 	mydev->intf = interface;
 	usb_set_intfdata(interface, mydev);
 
-	
-	mydev->shadow_power = 1; 
-	mydev->has_interface_pm = 0; 
+	/* PM */
+	mydev->shadow_power = 1; /* currently active */
+	mydev->has_interface_pm = 0; /* have not issued autopm_get */
 
-	
-	mydev->textmode = 0x02; 
-	mydev->mode_msb = 0x06; 
-	mydev->mode_lsb = 0x3f; 
+	/*set defaults */
+	mydev->textmode = 0x02; /* ascii mode */
+	mydev->mode_msb = 0x06; /* 6 characters */
+	mydev->mode_lsb = 0x3f; /* scanmode for 6 chars */
 
 	rc = sysfs_create_group(&interface->dev.kobj, &dev_attr_grp);
 	if (rc)

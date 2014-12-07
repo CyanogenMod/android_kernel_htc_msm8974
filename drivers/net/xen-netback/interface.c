@@ -84,11 +84,11 @@ static int xenvif_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	if (vif->netbk == NULL)
 		goto drop;
 
-	
+	/* Drop the packet if the target domain has no receive buffers. */
 	if (!xenvif_rx_schedulable(vif))
 		goto drop;
 
-	
+	/* Reserve ring slots for the worst-case number of fragments. */
 	vif->rx_req_cons_peek += xen_netbk_count_skb_slots(vif, skb);
 	xenvif_get(vif);
 
@@ -272,7 +272,7 @@ struct xenvif *xenvif_alloc(struct device *parent, domid_t domid,
 	vif->credit_bytes = vif->remaining_credit = ~0UL;
 	vif->credit_usec  = 0UL;
 	init_timer(&vif->credit_timeout);
-	
+	/* Initialize 'expires' now: it's used to track the credit window. */
 	vif->credit_timeout.expires = jiffies;
 
 	dev->netdev_ops	= &xenvif_netdev_ops;
@@ -282,6 +282,12 @@ struct xenvif *xenvif_alloc(struct device *parent, domid_t domid,
 
 	dev->tx_queue_len = XENVIF_QUEUE_LENGTH;
 
+	/*
+	 * Initialise a dummy MAC address. We choose the numerically
+	 * largest non-broadcast address to prevent the address getting
+	 * stolen by an Ethernet bridge for STP purposes.
+	 * (FE:FF:FF:FF:FF:FF)
+	 */
 	memset(dev->dev_addr, 0xFF, ETH_ALEN);
 	dev->dev_addr[0] &= ~0x01;
 
@@ -303,7 +309,7 @@ int xenvif_connect(struct xenvif *vif, unsigned long tx_ring_ref,
 {
 	int err = -ENOMEM;
 
-	
+	/* Already connected through? */
 	if (vif->irq)
 		return 0;
 
@@ -342,7 +348,7 @@ void xenvif_disconnect(struct xenvif *vif)
 	struct net_device *dev = vif->dev;
 	if (netif_carrier_ok(dev)) {
 		rtnl_lock();
-		netif_carrier_off(dev); 
+		netif_carrier_off(dev); /* discard queued packets */
 		if (netif_running(dev))
 			xenvif_down(vif);
 		rtnl_unlock();

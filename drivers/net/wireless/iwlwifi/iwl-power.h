@@ -53,4 +53,4 @@ void iwl_power_initialize(struct iwl_priv *priv);
 
 extern bool no_sleep_autoadjust;
 
-#endif  
+#endif  /* __iwl_power_setting_h__ */

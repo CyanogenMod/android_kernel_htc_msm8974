@@ -59,4 +59,4 @@ static inline int msm_thermal_set_frequency(uint32_t cpu, uint32_t freq,
 }
 #endif
 
-#endif 
+#endif /*__MSM_THERMAL_H*/

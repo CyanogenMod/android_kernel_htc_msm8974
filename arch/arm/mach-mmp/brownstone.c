@@ -33,15 +33,15 @@
 #define GPIO_5V_ENABLE		(89)
 
 static unsigned long brownstone_pin_config[] __initdata = {
-	
+	/* UART1 */
 	GPIO29_UART1_RXD,
 	GPIO30_UART1_TXD,
 
-	
+	/* UART3 */
 	GPIO51_UART3_RXD,
 	GPIO52_UART3_TXD,
 
-	
+	/* DFI */
 	GPIO168_DFI_D0,
 	GPIO167_DFI_D1,
 	GPIO166_DFI_D2,
@@ -67,10 +67,10 @@ static unsigned long brownstone_pin_config[] __initdata = {
 	GPIO112_ND_RDY0,
 	GPIO160_ND_RDY1,
 
-	
+	/* PMIC */
 	PMIC_PMIC_INT | MFP_LPM_EDGE_FALL,
 
-	
+	/* MMC0 */
 	GPIO131_MMC1_DAT3 | MFP_PULL_HIGH,
 	GPIO132_MMC1_DAT2 | MFP_PULL_HIGH,
 	GPIO133_MMC1_DAT1 | MFP_PULL_HIGH,
@@ -80,7 +80,7 @@ static unsigned long brownstone_pin_config[] __initdata = {
 	GPIO140_MMC1_CD | MFP_PULL_LOW,
 	GPIO141_MMC1_WP | MFP_PULL_LOW,
 
-	
+	/* MMC1 */
 	GPIO37_MMC2_DAT3 | MFP_PULL_HIGH,
 	GPIO38_MMC2_DAT2 | MFP_PULL_HIGH,
 	GPIO39_MMC2_DAT1 | MFP_PULL_HIGH,
@@ -88,7 +88,7 @@ static unsigned long brownstone_pin_config[] __initdata = {
 	GPIO41_MMC2_CMD | MFP_PULL_HIGH,
 	GPIO42_MMC2_CLK,
 
-	
+	/* MMC2 */
 	GPIO165_MMC3_DAT7 | MFP_PULL_HIGH,
 	GPIO162_MMC3_DAT6 | MFP_PULL_HIGH,
 	GPIO166_MMC3_DAT5 | MFP_PULL_HIGH,
@@ -100,7 +100,7 @@ static unsigned long brownstone_pin_config[] __initdata = {
 	GPIO112_MMC3_CMD | MFP_PULL_HIGH,
 	GPIO151_MMC3_CLK,
 
-	
+	/* 5V regulator */
 	GPIO89_GPIO,
 };
 
@@ -122,7 +122,7 @@ static struct regulator_init_data max8649_init_data = {
 };
 
 static struct max8649_platform_data brownstone_max8649_info = {
-	.mode		= 2,	
+	.mode		= 2,	/* VID1 = 1, VID0 = 0 */
 	.extclk		= 0,
 	.ramp_timing	= MAX8649_RAMP_32MV,
 	.regulator	= &max8649_init_data,
@@ -199,22 +199,22 @@ static void __init brownstone_init(void)
 {
 	mfp_config(ARRAY_AND_SIZE(brownstone_pin_config));
 
-	
+	/* on-chip devices */
 	mmp2_add_uart(1);
 	mmp2_add_uart(3);
 	platform_device_register(&mmp2_device_gpio);
 	mmp2_add_twsi(1, NULL, ARRAY_AND_SIZE(brownstone_twsi1_info));
-	mmp2_add_sdhost(0, &mmp2_sdh_platdata_mmc0); 
-	mmp2_add_sdhost(2, &mmp2_sdh_platdata_mmc2); 
+	mmp2_add_sdhost(0, &mmp2_sdh_platdata_mmc0); /* SD/MMC */
+	mmp2_add_sdhost(2, &mmp2_sdh_platdata_mmc2); /* eMMC */
 	mmp2_add_asram(&mmp2_asram_platdata);
 	mmp2_add_isram(&mmp2_isram_platdata);
 
-	
+	/* enable 5v regulator */
 	platform_device_register(&brownstone_v_5vp_device);
 }
 
 MACHINE_START(BROWNSTONE, "Brownstone Development Platform")
-	
+	/* Maintainer: Haojian Zhuang <haojian.zhuang@marvell.com> */
 	.map_io		= mmp_map_io,
 	.nr_irqs	= BROWNSTONE_NR_IRQS,
 	.init_irq	= mmp2_init_irq,

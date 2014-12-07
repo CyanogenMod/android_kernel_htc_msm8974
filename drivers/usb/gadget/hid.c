@@ -19,11 +19,20 @@
 #define DRIVER_DESC		"HID Gadget"
 #define DRIVER_VERSION		"2010/03/16"
 
+/*-------------------------------------------------------------------------*/
 
-#define HIDG_VENDOR_NUM		0x0525	
-#define HIDG_PRODUCT_NUM	0xa4ac	
+#define HIDG_VENDOR_NUM		0x0525	/* XXX NetChip */
+#define HIDG_PRODUCT_NUM	0xa4ac	/* Linux-USB HID gadget */
 
+/*-------------------------------------------------------------------------*/
 
+/*
+ * kbuild is not very cooperative with respect to linking separately
+ * compiled library objects into one module.  So for now we won't use
+ * separate compilation ... ensuring init/exit sections work to shrink
+ * the runtime footprint, and giving us at least some parts of what
+ * a "gcc --combine ... part1.c part2.c part3.c ... " build would.
+ */
 
 #include "composite.c"
 #include "usbstring.c"
@@ -40,6 +49,7 @@ struct hidg_func_node {
 
 static LIST_HEAD(hidg_func_list);
 
+/*-------------------------------------------------------------------------*/
 
 static struct usb_device_descriptor device_desc = {
 	.bLength =		sizeof device_desc,
@@ -47,21 +57,21 @@ static struct usb_device_descriptor device_desc = {
 
 	.bcdUSB =		cpu_to_le16(0x0200),
 
-	
-	
-	
+	/* .bDeviceClass =		USB_CLASS_COMM, */
+	/* .bDeviceSubClass =	0, */
+	/* .bDeviceProtocol =	0, */
 	.bDeviceClass =		USB_CLASS_PER_INTERFACE,
 	.bDeviceSubClass =	0,
 	.bDeviceProtocol =	0,
-	
+	/* .bMaxPacketSize0 = f(hardware) */
 
-	
+	/* Vendor and product id can be overridden by module parameters.  */
 	.idVendor =		cpu_to_le16(HIDG_VENDOR_NUM),
 	.idProduct =		cpu_to_le16(HIDG_PRODUCT_NUM),
-	
-	
-	
-	
+	/* .bcdDevice = f(hardware) */
+	/* .iManufacturer = DYNAMIC */
+	/* .iProduct = DYNAMIC */
+	/* NO SERIAL NUMBER */
 	.bNumConfigurations =	1,
 };
 
@@ -69,6 +79,9 @@ static struct usb_otg_descriptor otg_descriptor = {
 	.bLength =		sizeof otg_descriptor,
 	.bDescriptorType =	USB_DT_OTG,
 
+	/* REVISIT SRP-only hardware is possible, although
+	 * it would not be called "OTG" ...
+	 */
 	.bmAttributes =		USB_OTG_SRP | USB_OTG_HNP,
 };
 
@@ -78,6 +91,7 @@ static const struct usb_descriptor_header *otg_desc[] = {
 };
 
 
+/* string IDs are assigned dynamically */
 
 #define STRING_MANUFACTURER_IDX		0
 #define STRING_PRODUCT_IDX		1
@@ -87,11 +101,11 @@ static char manufacturer[50];
 static struct usb_string strings_dev[] = {
 	[STRING_MANUFACTURER_IDX].s = manufacturer,
 	[STRING_PRODUCT_IDX].s = DRIVER_DESC,
-	{  } 
+	{  } /* end of list */
 };
 
 static struct usb_gadget_strings stringtab_dev = {
-	.language	= 0x0409,	
+	.language	= 0x0409,	/* en-us */
 	.strings	= strings_dev,
 };
 
@@ -102,6 +116,7 @@ static struct usb_gadget_strings *dev_strings[] = {
 
 
 
+/****************************** Configurations ******************************/
 
 static int __init do_config(struct usb_configuration *c)
 {
@@ -125,10 +140,11 @@ static int __init do_config(struct usb_configuration *c)
 static struct usb_configuration config_driver = {
 	.label			= "HID Gadget",
 	.bConfigurationValue	= 1,
-	
+	/* .iConfiguration = DYNAMIC */
 	.bmAttributes		= USB_CONFIG_ATT_SELFPOWER,
 };
 
+/****************************** Gadget Bind ******************************/
 
 static int __init hid_bind(struct usb_composite_dev *cdev)
 {
@@ -142,7 +158,7 @@ static int __init hid_bind(struct usb_composite_dev *cdev)
 	if (!funcs)
 		return -ENODEV;
 
-	
+	/* set up HID */
 	status = ghid_setup(cdev->gadget, funcs);
 	if (status < 0)
 		return status;
@@ -154,8 +170,11 @@ static int __init hid_bind(struct usb_composite_dev *cdev)
 		device_desc.bcdDevice = cpu_to_le16(0x0300 | 0x0099);
 
 
+	/* Allocate string descriptor numbers ... note that string
+	 * contents can be overridden by the composite_dev glue.
+	 */
 
-	
+	/* device descriptor strings: manufacturer, product */
 	snprintf(manufacturer, sizeof manufacturer, "%s %s with %s",
 		init_utsname()->sysname, init_utsname()->release,
 		gadget->name);
@@ -171,7 +190,7 @@ static int __init hid_bind(struct usb_composite_dev *cdev)
 	strings_dev[STRING_PRODUCT_IDX].id = status;
 	device_desc.iProduct = status;
 
-	
+	/* register our configuration */
 	status = usb_add_config(cdev, &config_driver, do_config);
 	if (status < 0)
 		return status;
@@ -220,6 +239,7 @@ static int __devexit hidg_plat_driver_remove(struct platform_device *pdev)
 }
 
 
+/****************************** Some noise ******************************/
 
 
 static struct usb_composite_driver hidg_driver = {

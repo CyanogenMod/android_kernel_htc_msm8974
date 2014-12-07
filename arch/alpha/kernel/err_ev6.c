@@ -105,8 +105,8 @@ ev6_parse_cbox(u64 c_addr, u64 c1_syn, u64 c2_syn,
 #define EV6__C_STAT__DSTREAM_MEM_ERR	(0x03)
 #define EV6__C_STAT__DSTREAM_BC_ERR	(0x04)
 #define EV6__C_STAT__DSTREAM_DC_ERR	(0x05)
-#define EV6__C_STAT__PROBE_BC_ERR0	(0x06)	
-#define EV6__C_STAT__PROBE_BC_ERR1	(0x07)	
+#define EV6__C_STAT__PROBE_BC_ERR0	(0x06)	/* both 6 and 7 indicate... */
+#define EV6__C_STAT__PROBE_BC_ERR1	(0x07)	/* ...probe bc error.       */
 #define EV6__C_STAT__ISTREAM_MEM_ERR	(0x0B)
 #define EV6__C_STAT__ISTREAM_BC_ERR	(0x0C)
 #define EV6__C_STAT__DSTREAM_MEM_DBL	(0x13)
@@ -180,7 +180,7 @@ ev6_parse_cbox(u64 c_addr, u64 c1_syn, u64 c2_syn,
 void
 ev6_register_error_handlers(void)
 {
-	
+	/* None right now. */
 }
 
 int
@@ -203,6 +203,9 @@ ev6_process_logout_frame(struct el_common *mchk_header, int print)
 	if (status != MCHK_DISPOSITION_DISMISS) {
 		char *saved_err_prefix = err_print_prefix;
 
+		/*
+		 * Dump some additional information from the frame
+		 */
 		printk("%s    EXC_ADDR: 0x%016lx   IER_CM: 0x%016lx"
 		            "   ISUM: 0x%016lx\n"
 		         "    PAL_BASE: 0x%016lx   I_CTL:  0x%016lx"
@@ -215,7 +218,7 @@ ev6_process_logout_frame(struct el_common *mchk_header, int print)
 			printk("%s    UNKNOWN error, frame follows:\n",
 			       err_print_prefix);
 		} else {
-			
+			/* had decode -- downgrade print level for frame */
 			err_print_prefix = KERN_NOTICE;
 		}
 
@@ -232,14 +235,27 @@ ev6_machine_check(unsigned long vector, unsigned long la_ptr)
 {
 	struct el_common *mchk_header = (struct el_common *)la_ptr;
 
+	/*
+	 * Sync the processor
+	 */
 	mb();
 	draina();
 
+	/*
+	 * Parse the logout frame without printing first. If the only error(s)
+	 * found are have a disposition of "dismiss", then just dismiss them
+	 * and don't print any message
+	 */
 	if (ev6_process_logout_frame(mchk_header, 0) != 
 	    MCHK_DISPOSITION_DISMISS) {
 		char *saved_err_prefix = err_print_prefix;
 		err_print_prefix = KERN_CRIT;
 
+		/*
+		 * Either a nondismissable error was detected or no
+		 * recognized error was detected  in the logout frame 
+		 * -- report the error in either case
+		 */
 		printk("%s*CPU %s Error (Vector 0x%x) reported on CPU %d:\n", 
 		       err_print_prefix,
 		       (vector == SCB_Q_PROCERR)?"Correctable":"Uncorrectable",
@@ -251,6 +267,9 @@ ev6_machine_check(unsigned long vector, unsigned long la_ptr)
 		err_print_prefix = saved_err_prefix;
 	}
 
+	/* 
+	 * Release the logout frame 
+	 */
 	wrmces(0x7);
 	mb();
 }

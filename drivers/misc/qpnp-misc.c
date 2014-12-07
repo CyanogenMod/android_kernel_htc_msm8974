@@ -27,6 +27,17 @@
 static DEFINE_MUTEX(qpnp_misc_dev_list_mutex);
 static LIST_HEAD(qpnp_misc_dev_list);
 
+/**
+ * struct qpnp_misc_dev - holds controller device specific information
+ * @list:			Doubly-linked list parameter linking to other
+ *				qpnp_misc devices.
+ * @mutex:			Mutex lock that is used to ensure mutual
+ *				exclusion between probing and accessing misc
+ *				driver information
+ * @dev:			Device pointer to the misc device
+ * @resource:			Resource pointer that holds base address
+ * @spmi:			Spmi pointer which holds spmi information
+ */
 struct qpnp_misc_dev {
 	struct list_head		list;
 	struct mutex			mutex;
@@ -59,9 +70,9 @@ static u8 qpnp_read_byte(struct spmi_device *spmi, u16 addr)
 }
 
 static struct qpnp_misc_version irq_support_version[] = {
-	{0x01, 0x02}, 
-	{0x07, 0x00}, 
-	{0x09, 0x00}, 
+	{0x01, 0x02}, /* PM8941 */
+	{0x07, 0x00}, /* PM8226 */
+	{0x09, 0x00}, /* PMA8084 */
 };
 
 static bool __misc_irqs_available(struct qpnp_misc_dev *dev)
@@ -112,6 +123,9 @@ int qpnp_misc_irqs_available(struct device *consumer_dev)
 	mutex_unlock(&qpnp_misc_dev_list_mutex);
 
 	if (!mdev_found) {
+		/* No MISC device was found. This API should only
+		 * be called by drivers which have specified the
+		 * misc phandle in their device tree node */
 		pr_err("no probed misc device found\n");
 		return -EPROBE_DEFER;
 	}

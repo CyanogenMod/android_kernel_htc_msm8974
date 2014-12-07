@@ -71,11 +71,12 @@ extern int ethtool_ioctl(struct ifreq *ifr);
 #define ATL2_READ_REG_ARRAY(a, reg, offset) \
 	(ioread32(((a)->hw_addr + (reg)) + ((offset) << 2)))
 
-#endif 
+#endif /* _ATL2_OSDEP_H_ */
 
 struct atl2_adapter;
 struct atl2_hw;
 
+/* function prototype */
 static s32 atl2_reset_hw(struct atl2_hw *hw);
 static s32 atl2_read_mac_addr(struct atl2_hw *hw);
 static s32 atl2_init_hw(struct atl2_hw *hw);
@@ -94,60 +95,93 @@ static s32 atl2_phy_init(struct atl2_hw *hw);
 static int atl2_check_eeprom_exist(struct atl2_hw *hw);
 static void atl2_force_ps(struct atl2_hw *hw);
 
+/* register definition */
 
-#define IDLE_STATUS_RXMAC	1	
-#define IDLE_STATUS_TXMAC	2	
-#define IDLE_STATUS_DMAR	8	
-#define IDLE_STATUS_DMAW	4	
+/* Block IDLE Status Register */
+#define IDLE_STATUS_RXMAC	1	/* 1: RXMAC is non-IDLE */
+#define IDLE_STATUS_TXMAC	2	/* 1: TXMAC is non-IDLE */
+#define IDLE_STATUS_DMAR	8	/* 1: DMAR is non-IDLE */
+#define IDLE_STATUS_DMAW	4	/* 1: DMAW is non-IDLE */
 
+/* MDIO Control Register */
 #define MDIO_WAIT_TIMES		10
 
-#define MAC_CTRL_DBG_TX_BKPRESURE	0x100000	
-#define MAC_CTRL_MACLP_CLK_PHY		0x8000000	
+/* MAC Control Register */
+#define MAC_CTRL_DBG_TX_BKPRESURE	0x100000	/* 1: TX max backoff */
+#define MAC_CTRL_MACLP_CLK_PHY		0x8000000	/* 1: 25MHz from phy */
 #define MAC_CTRL_HALF_LEFT_BUF_SHIFT	28
-#define MAC_CTRL_HALF_LEFT_BUF_MASK	0xF		
+#define MAC_CTRL_HALF_LEFT_BUF_MASK	0xF		/* MAC retry buf x32B */
 
-#define REG_SRAM_TXRAM_END	0x1500	
-#define REG_SRAM_RXRAM_END	0x1502	
+/* Internal SRAM Partition Register */
+#define REG_SRAM_TXRAM_END	0x1500	/* Internal tail address of TXRAM
+					 * default: 2byte*1024 */
+#define REG_SRAM_RXRAM_END	0x1502	/* Internal tail address of RXRAM
+					 * default: 2byte*1024 */
 
-#define REG_TXD_BASE_ADDR_LO	0x1544	
-#define REG_TXD_MEM_SIZE	0x1548	
-#define REG_TXS_BASE_ADDR_LO	0x154C	
-#define REG_TXS_MEM_SIZE	0x1550	
-#define REG_RXD_BASE_ADDR_LO	0x1554	
-#define REG_RXD_BUF_NUM		0x1558	
+/* Descriptor Control register */
+#define REG_TXD_BASE_ADDR_LO	0x1544	/* The base address of the Transmit
+					 * Data Mem low 32-bit(dword align) */
+#define REG_TXD_MEM_SIZE	0x1548	/* Transmit Data Memory size(by
+					 * double word , max 256KB) */
+#define REG_TXS_BASE_ADDR_LO	0x154C	/* The base address of the Transmit
+					 * Status Memory low 32-bit(dword word
+					 * align) */
+#define REG_TXS_MEM_SIZE	0x1550	/* double word unit, max 4*2047
+					 * bytes. */
+#define REG_RXD_BASE_ADDR_LO	0x1554	/* The base address of the Transmit
+					 * Status Memory low 32-bit(unit 8
+					 * bytes) */
+#define REG_RXD_BUF_NUM		0x1558	/* Receive Data & Status Memory buffer
+					 * number (unit 1536bytes, max
+					 * 1536*2047) */
 
+/* DMAR Control Register */
 #define REG_DMAR	0x1580
-#define     DMAR_EN	0x1	
+#define     DMAR_EN	0x1	/* 1: Enable DMAR */
 
-#define REG_TX_CUT_THRESH	0x1590	
+/* TX Cur-Through (early tx threshold) Control Register */
+#define REG_TX_CUT_THRESH	0x1590	/* TxMac begin transmit packet
+					 * threshold(unit word) */
 
+/* DMAW Control Register */
 #define REG_DMAW	0x15A0
 #define     DMAW_EN	0x1
 
-#define REG_PAUSE_ON_TH		0x15A8	
-#define REG_PAUSE_OFF_TH	0x15AA	
+/* Flow control register */
+#define REG_PAUSE_ON_TH		0x15A8	/* RXD high watermark of overflow
+					 * threshold configuration register */
+#define REG_PAUSE_OFF_TH	0x15AA	/* RXD lower watermark of overflow
+					 * threshold configuration register */
 
-#define REG_MB_TXD_WR_IDX	0x15f0	
-#define REG_MB_RXD_RD_IDX	0x15F4	
+/* Mailbox Register */
+#define REG_MB_TXD_WR_IDX	0x15f0	/* double word align */
+#define REG_MB_RXD_RD_IDX	0x15F4	/* RXD Read index (unit: 1536byets) */
 
-#define ISR_TIMER	1	
-#define ISR_MANUAL	2	
-#define ISR_RXF_OV	4	
-#define ISR_TXF_UR	8	
-#define ISR_TXS_OV	0x10	
-#define ISR_RXS_OV	0x20	
-#define ISR_LINK_CHG	0x40	
+/* Interrupt Status Register */
+#define ISR_TIMER	1	/* Interrupt when Timer counts down to zero */
+#define ISR_MANUAL	2	/* Software manual interrupt, for debug. Set
+				 * when SW_MAN_INT_EN is set in Table 51
+				 * Selene Master Control Register
+				 * (Offset 0x1400). */
+#define ISR_RXF_OV	4	/* RXF overflow interrupt */
+#define ISR_TXF_UR	8	/* TXF underrun interrupt */
+#define ISR_TXS_OV	0x10	/* Internal transmit status buffer full
+				 * interrupt */
+#define ISR_RXS_OV	0x20	/* Internal receive status buffer full
+				 * interrupt */
+#define ISR_LINK_CHG	0x40	/* Link Status Change Interrupt */
 #define ISR_HOST_TXD_UR	0x80
-#define ISR_HOST_RXD_OV	0x100	
-#define ISR_DMAR_TO_RST	0x200	
+#define ISR_HOST_RXD_OV	0x100	/* Host rx data memory full , one pulse */
+#define ISR_DMAR_TO_RST	0x200	/* DMAR op timeout interrupt. SW should
+				 * do Reset */
 #define ISR_DMAW_TO_RST	0x400
-#define ISR_PHY		0x800	
+#define ISR_PHY		0x800	/* phy interrupt */
 #define ISR_TS_UPDATE	0x10000	/* interrupt after new tx pkt status written
 				 * to host */
 #define ISR_RS_UPDATE	0x20000	/* interrupt ater new rx pkt status written
 				 * to host. */
-#define ISR_TX_EARLY	0x40000	
+#define ISR_TX_EARLY	0x40000	/* interrupt when txmac begin transmit one
+				 * packet */
 
 #define ISR_TX_EVENT (ISR_TXF_UR | ISR_TXS_OV | ISR_HOST_TXD_UR |\
 	ISR_TS_UPDATE | ISR_TX_EARLY)
@@ -155,7 +189,7 @@ static void atl2_force_ps(struct atl2_hw *hw);
 	 ISR_RS_UPDATE)
 
 #define IMR_NORMAL_MASK		(\
-	\
+	/*ISR_LINK_CHG		|*/\
 	ISR_MANUAL		|\
 	ISR_DMAR_TO_RST		|\
 	ISR_DMAW_TO_RST		|\
@@ -164,16 +198,23 @@ static void atl2_force_ps(struct atl2_hw *hw);
 	ISR_TS_UPDATE		|\
 	ISR_RS_UPDATE)
 
-#define REG_STS_RX_PAUSE	0x1700	
-#define REG_STS_RXD_OV		0x1704	
-#define REG_STS_RXS_OV		0x1708	
-#define REG_STS_RX_FILTER	0x170C	
+/* Receive MAC Statistics Registers */
+#define REG_STS_RX_PAUSE	0x1700	/* Num pause packets received */
+#define REG_STS_RXD_OV		0x1704	/* Num frames dropped due to RX
+					 * FIFO overflow */
+#define REG_STS_RXS_OV		0x1708	/* Num frames dropped due to RX
+					 * Status Buffer Overflow */
+#define REG_STS_RX_FILTER	0x170C	/* Num packets dropped due to
+					 * address filtering */
 
+/* MII definitions */
 
+/* PHY Common Register */
 #define MII_SMARTSPEED	0x14
 #define MII_DBG_ADDR	0x1D
 #define MII_DBG_DATA	0x1E
 
+/* PCI Command Register Bit Definitions */
 #define PCI_REG_COMMAND		0x04
 #define CMD_IO_SPACE		0x0001
 #define CMD_MEMORY_SPACE	0x0002
@@ -184,21 +225,23 @@ static void atl2_force_ps(struct atl2_hw *hw);
 #define MEDIA_TYPE_10M_FULL	3
 #define MEDIA_TYPE_10M_HALF	4
 
-#define AUTONEG_ADVERTISE_SPEED_DEFAULT	0x000F	
+#define AUTONEG_ADVERTISE_SPEED_DEFAULT	0x000F	/* Everything */
 
+/* The size (in bytes) of a ethernet packet */
 #define ENET_HEADER_SIZE		14
-#define MAXIMUM_ETHERNET_FRAME_SIZE	1518	
-#define MINIMUM_ETHERNET_FRAME_SIZE	64	
+#define MAXIMUM_ETHERNET_FRAME_SIZE	1518	/* with FCS */
+#define MINIMUM_ETHERNET_FRAME_SIZE	64	/* with FCS */
 #define ETHERNET_FCS_SIZE		4
 #define MAX_JUMBO_FRAME_SIZE		0x2000
 #define VLAN_SIZE                                               4
 
 struct tx_pkt_header {
 	unsigned pkt_size:11;
-	unsigned:4;			
-	unsigned ins_vlan:1;		
-	unsigned short vlan;		
+	unsigned:4;			/* reserved */
+	unsigned ins_vlan:1;		/* txmac should insert vlan */
+	unsigned short vlan;		/* vlan tag */
 };
+/* FIXME: replace above bitfields with MASK/SHIFT defines below */
 #define TX_PKT_HEADER_SIZE_MASK		0x7FF
 #define TX_PKT_HEADER_SIZE_SHIFT	0
 #define TX_PKT_HEADER_INS_VLAN_MASK	0x1
@@ -208,22 +251,24 @@ struct tx_pkt_header {
 
 struct tx_pkt_status {
 	unsigned pkt_size:11;
-	unsigned:5;		
-	unsigned ok:1;		
-	unsigned bcast:1;	
-	unsigned mcast:1;	
-	unsigned pause:1;	
+	unsigned:5;		/* reserved */
+	unsigned ok:1;		/* current packet transmitted without error */
+	unsigned bcast:1;	/* broadcast packet */
+	unsigned mcast:1;	/* multicast packet */
+	unsigned pause:1;	/* transmiited a pause frame */
 	unsigned ctrl:1;
-	unsigned defer:1;    	
+	unsigned defer:1;    	/* current packet is xmitted with defer */
 	unsigned exc_defer:1;
 	unsigned single_col:1;
 	unsigned multi_col:1;
 	unsigned late_col:1;
 	unsigned abort_col:1;
-	unsigned underun:1;	
-	unsigned:3;		
-	unsigned update:1;	
+	unsigned underun:1;	/* current packet is aborted
+				 * due to txram underrun */
+	unsigned:3;		/* reserved */
+	unsigned update:1;	/* always 1'b1 in tx_status_buf */
 };
+/* FIXME: replace above bitfields with MASK/SHIFT defines below */
 #define TX_PKT_STATUS_SIZE_MASK		0x7FF
 #define TX_PKT_STATUS_SIZE_SHIFT	0
 #define TX_PKT_STATUS_OK_MASK		0x1
@@ -254,25 +299,28 @@ struct tx_pkt_status {
 #define TX_PKT_STATUS_UPDATE_SHIFT	31
 
 struct rx_pkt_status {
-	unsigned pkt_size:11;	
-	unsigned:5;		
-	unsigned ok:1;		
-	unsigned bcast:1;	
-	unsigned mcast:1;	
+	unsigned pkt_size:11;	/* packet size, max 2047 bytes */
+	unsigned:5;		/* reserved */
+	unsigned ok:1;		/* current packet received ok without error */
+	unsigned bcast:1;	/* current packet is broadcast */
+	unsigned mcast:1;	/* current packet is multicast */
 	unsigned pause:1;
 	unsigned ctrl:1;
-	unsigned crc:1;		
-	unsigned code:1;	
-	unsigned runt:1;	
-	unsigned frag:1;	
-	unsigned trunc:1;	
-	unsigned align:1;	
-	unsigned vlan:1;	
-	unsigned:3;		
+	unsigned crc:1;		/* received a packet with crc error */
+	unsigned code:1;	/* received a packet with code error */
+	unsigned runt:1;	/* received a packet less than 64 bytes
+				 * with good crc */
+	unsigned frag:1;	/* received a packet less than 64 bytes
+				 * with bad crc */
+	unsigned trunc:1;	/* current frame truncated due to rxram full */
+	unsigned align:1;	/* this packet is alignment error */
+	unsigned vlan:1;	/* this packet has vlan */
+	unsigned:3;		/* reserved */
 	unsigned update:1;
-	unsigned short vtag;	
+	unsigned short vtag;	/* vlan tag */
 	unsigned:16;
 };
+/* FIXME: replace above bitfields with MASK/SHIFT defines below */
 #define RX_PKT_STATUS_SIZE_MASK		0x7FF
 #define RX_PKT_STATUS_SIZE_SHIFT	0
 #define RX_PKT_STATUS_OK_MASK		0x1
@@ -317,8 +365,8 @@ enum atl2_speed_duplex {
 };
 
 struct atl2_spi_flash_dev {
-	const char *manu_name;	
-	
+	const char *manu_name;	/* manufacturer id */
+	/* op-code */
 	u8 cmdWRSR;
 	u8 cmdREAD;
 	u8 cmdPROGRAM;
@@ -330,22 +378,30 @@ struct atl2_spi_flash_dev {
 	u8 cmdCHIP_ERASE;
 };
 
+/* Structure containing variables used by the shared code (atl2_hw.c) */
 struct atl2_hw {
 	u8 __iomem *hw_addr;
 	void *back;
 
 	u8 preamble_len;
-	u8 max_retry;          
-	u8 jam_ipg;            
-	u8 ipgt;               
-	u8 min_ifg;            
-	u8 ipgr1;              
-	u8 ipgr2;              
-	u8 retry_buf;          
+	u8 max_retry;          /* Retransmission maximum, afterwards the
+				* packet will be discarded. */
+	u8 jam_ipg;            /* IPG to start JAM for collision based flow
+				* control in half-duplex mode. In unit of
+				* 8-bit time. */
+	u8 ipgt;               /* Desired back to back inter-packet gap. The
+				* default is 96-bit time. */
+	u8 min_ifg;            /* Minimum number of IFG to enforce in between
+				* RX frames. Frame gap below such IFP is
+				* dropped. */
+	u8 ipgr1;              /* 64bit Carrier-Sense window */
+	u8 ipgr2;              /* 96-bit IPG window */
+	u8 retry_buf;          /* When half-duplex mode, should hold some
+				* bytes for mac retry . (8*4bytes unit) */
 
 	u16 fc_rxd_hi;
 	u16 fc_rxd_lo;
-	u16 lcol;              
+	u16 lcol;              /* Collision Window */
 	u16 max_frame_size;
 
 	u16 MediaType;
@@ -368,31 +424,32 @@ struct atl2_hw {
 	u16 subsystem_vendor_id;
 	u8 revision_id;
 
-	
+	/* spi flash */
 	u8 flash_vendor;
 
 	u8 dma_fairness;
 	u8 mac_addr[ETH_ALEN];
 	u8 perm_mac_addr[ETH_ALEN];
 
-	
-	
+	/* FIXME */
+	/* bool phy_preamble_sup; */
 	bool phy_configured;
 };
 
-#endif 
+#endif /* _ATL2_HW_H_ */
 
 struct atl2_ring_header {
-    
+    /* pointer to the descriptor ring memory */
     void *desc;
-    
+    /* physical address of the descriptor ring */
     dma_addr_t dma;
-    
+    /* length of descriptor ring in bytes */
     unsigned int size;
 };
 
+/* board specific private data structure */
 struct atl2_adapter {
-	
+	/* OS defined structs */
 	struct net_device *netdev;
 	struct pci_dev *pdev;
 	u32 wol;
@@ -409,7 +466,7 @@ struct atl2_adapter {
 	unsigned long cfg_phy;
 	bool mac_disabled;
 
-	
+	/* All Descriptor memory */
 	dma_addr_t	ring_dma;
 	void		*ring_vir_addr;
 	int		ring_size;
@@ -423,36 +480,36 @@ struct atl2_adapter {
 	struct rx_desc	*rxd_ring;
 	dma_addr_t	rxd_dma;
 
-	u32 txd_ring_size;         
-	u32 txs_ring_size;         
-	u32 rxd_ring_size;         
+	u32 txd_ring_size;         /* bytes per unit */
+	u32 txs_ring_size;         /* dwords per unit */
+	u32 rxd_ring_size;         /* 1536 bytes per unit */
 
-	
-	
+	/* read /write ptr: */
+	/* host */
 	u32 txd_write_ptr;
 	u32 txs_next_clear;
 	u32 rxd_read_ptr;
 
-	
+	/* nic */
 	atomic_t txd_read_ptr;
 	atomic_t txs_write_ptr;
 	u32 rxd_write_ptr;
 
-	
+	/* Interrupt Moderator timer ( 2us resolution) */
 	u16 imt;
-	
+	/* Interrupt Clear timer (2us resolution) */
 	u16 ict;
 
 	unsigned long flags;
-	
-	u32 bd_number;     
+	/* structs defined in atl2_hw.h */
+	u32 bd_number;     /* board number */
 	bool pci_using_64;
 	bool have_msi;
 	struct atl2_hw hw;
 
 	u32 usr_cmd;
-	
-	
+	/* FIXME */
+	/* u32 regs_buff[ATL2_REGS_LEN]; */
 	u32 pci_state[16];
 
 	u32 *config_space;
@@ -464,4 +521,4 @@ enum atl2_state_t {
 	__ATL2_DOWN
 };
 
-#endif 
+#endif /* _ATL2_H_ */

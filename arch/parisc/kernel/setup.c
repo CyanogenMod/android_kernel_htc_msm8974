@@ -40,7 +40,7 @@
 #include <asm/processor.h>
 #include <asm/pdc.h>
 #include <asm/led.h>
-#include <asm/machdep.h>	
+#include <asm/machdep.h>	/* for pa7300lc_init() proto */
 #include <asm/pdc_chassis.h>
 #include <asm/io.h>
 #include <asm/setup.h>
@@ -48,12 +48,13 @@
 
 static char __initdata command_line[COMMAND_LINE_SIZE];
 
+/* Intended for ccio/sba/cpu statistics under /proc/bus/{runway|gsc} */
 struct proc_dir_entry * proc_runway_root __read_mostly = NULL;
 struct proc_dir_entry * proc_gsc_root __read_mostly = NULL;
 struct proc_dir_entry * proc_mckinley_root __read_mostly = NULL;
 
 #if !defined(CONFIG_PA20) && (defined(CONFIG_IOMMU_CCIO) || defined(CONFIG_IOMMU_SBA))
-int parisc_bus_is_phys __read_mostly = 1;	
+int parisc_bus_is_phys __read_mostly = 1;	/* Assume no IOMMU is present */
 EXPORT_SYMBOL(parisc_bus_is_phys);
 #endif
 
@@ -61,17 +62,17 @@ void __init setup_cmdline(char **cmdline_p)
 {
 	extern unsigned int boot_args[];
 
-	
+	/* Collect stuff passed in from the boot loader */
 
-	
+	/* boot_args[0] is free-mem start, boot_args[1] is ptr to command line */
 	if (boot_args[0] < 64) {
-		
+		/* called from hpux boot loader */
 		boot_command_line[0] = '\0';
 	} else {
 		strcpy(boot_command_line, (char *)__va(boot_args[1]));
 
 #ifdef CONFIG_BLK_DEV_INITRD
-		if (boot_args[2] != 0) 
+		if (boot_args[2] != 0) /* did palo pass us a ramdisk? */
 		{
 		    initrd_start = (unsigned long)__va(boot_args[2]);
 		    initrd_end = (unsigned long)__va(boot_args[3]);
@@ -88,6 +89,10 @@ void __init dma_ops_init(void)
 {
 	switch (boot_cpu_data.cpu_type) {
 	case pcx:
+		/*
+		 * We've got way too many dependencies on 1.1 semantics
+		 * to support 1.0 boxes at this point.
+		 */
 		panic(	"PA-RISC Linux currently only supports machines that conform to\n"
 			"the PA-RISC 1.1 or 2.0 architecture specification.\n");
 
@@ -97,7 +102,7 @@ void __init dma_ops_init(void)
 		break;
 	case pcxl2:
 		pa7300lc_init();
-	case pcxl: 
+	case pcxl: /* falls through */
 		hppa_dma_ops = &pcxl_dma_ops;
 		break;
 	default:
@@ -116,7 +121,7 @@ void __init setup_arch(char **cmdline_p)
 #endif
 	unwind_init();
 
-	init_per_cpu(smp_processor_id());	
+	init_per_cpu(smp_processor_id());	/* Set Modes & Enable FP */
 
 #ifdef CONFIG_64BIT
 	printk(KERN_INFO "The 64-bit Kernel has started...\n");
@@ -134,13 +139,13 @@ void __init setup_arch(char **cmdline_p)
 	setup_pdc();
 	setup_cmdline(cmdline_p);
 	collect_boot_cpu_data();
-	do_memory_inventory();  
+	do_memory_inventory();  /* probe for physical memory */
 	parisc_cache_init();
 	paging_init();
 
 #ifdef CONFIG_CHASSIS_LCD_LED
-	
-	led_init();		
+	/* initialize the LCD/LED after boot_cpu_data is available ! */
+	led_init();		/* LCD/LED initialization */
 #endif
 
 #ifdef CONFIG_PA11
@@ -148,16 +153,25 @@ void __init setup_arch(char **cmdline_p)
 #endif
 
 #if defined(CONFIG_VT) && defined(CONFIG_DUMMY_CONSOLE)
-	conswitchp = &dummy_con;	
+	conswitchp = &dummy_con;	/* we use take_over_console() later ! */
 #endif
 
 }
 
+/*
+ * Display CPU info for all CPUs.
+ * for parisc this is in processor.c
+ */
 extern int show_cpuinfo (struct seq_file *m, void *v);
 
 static void *
 c_start (struct seq_file *m, loff_t *pos)
 {
+    	/* Looks like the caller will call repeatedly until we return
+	 * 0, signaling EOF perhaps.  This could be used to sequence
+	 * through CPUs for example.  Since we print all cpu info in our
+	 * show_cpuinfo() disregarding 'pos' (which I assume is 'v' above)
+	 * we only allow for one "position".  */
 	return ((long)*pos < 1) ? (void *)1 : NULL;
 }
 
@@ -182,6 +196,12 @@ const struct seq_operations cpuinfo_op = {
 
 static void __init parisc_proc_mkdir(void)
 {
+	/*
+	** Can't call proc_mkdir() until after proc_root_init() has been
+	** called by start_kernel(). In other words, this code can't
+	** live in arch/.../setup.c because start_parisc() calls
+	** start_kernel().
+	*/
 	switch (boot_cpu_data.cpu_type) {
 	case pcxl:
 	case pcxl2:
@@ -209,6 +229,9 @@ static void __init parisc_proc_mkdir(void)
                 }
                 break;
 	default:
+		/* FIXME: this was added to prevent the compiler 
+		 * complaining about missing pcx, pcxs and pcxt
+		 * I'm assuming they have neither gsc nor runway */
 		break;
 	}
 }
@@ -281,14 +304,14 @@ static int __init parisc_init(void)
 
 	parisc_proc_mkdir();
 	parisc_init_resources();
-	do_device_inventory();                  
+	do_device_inventory();                  /* probe for hardware */
 
 	parisc_pdc_chassis_init();
 	
-	
+	/* set up a new led state on systems shipped LED State panel */
 	pdc_chassis_send_status(PDC_CHASSIS_DIRECT_BSTART);
 
-	
+	/* tell PDC we're Linux. Nevermind failure. */
 	pdc_stable_write(0x40, &osid, sizeof(osid));
 	
 	processor_init();
@@ -300,7 +323,7 @@ static int __init parisc_init(void)
 
 	parisc_setup_cache_timing();
 
-	
+	/* These are in a non-obvious order, will fix when we have an iotree */
 #if defined(CONFIG_IOSAPIC)
 	iosapic_init();
 #endif
@@ -311,11 +334,16 @@ static int __init parisc_init(void)
 	lba_init();
 #endif
 
-	
+	/* CCIO before any potential subdevices */
 #if defined(CONFIG_IOMMU_CCIO)
 	ccio_init();
 #endif
 
+	/*
+	 * Need to register Asp & Wax before the EISA adapters for the IRQ
+	 * regions.  EISA must come before PCI to be sure it gets IRQ region
+	 * 0.
+	 */
 #if defined(CONFIG_GSC_LASI) || defined(CONFIG_GSC_WAX)
 	gsc_init();
 #endif
@@ -332,7 +360,7 @@ static int __init parisc_init(void)
 #endif
 
 #ifdef CONFIG_CHASSIS_LCD_LED
-	register_led_regions();	
+	register_led_regions();	/* register LED port info in procfs */
 #endif
 
 	return 0;
@@ -363,5 +391,5 @@ void start_parisc(void)
 	}
 
 	start_kernel();
-	
+	// not reached
 }

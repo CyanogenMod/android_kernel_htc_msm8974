@@ -1,3 +1,9 @@
+/*
+ * self test for change_page_attr.
+ *
+ * Clears the a test pte bit on random pages in the direct mapping,
+ * then reverts and compares page tables forwards and afterwards.
+ */
 #include <linux/bootmem.h>
 #include <linux/kthread.h>
 #include <linux/random.h>
@@ -9,6 +15,9 @@
 #include <asm/pgtable.h>
 #include <asm/kdebug.h>
 
+/*
+ * Only print the results of the first pass:
+ */
 static __read_mostly int print = 1;
 
 enum {
@@ -99,6 +108,7 @@ static int print_split(struct split_state *s)
 static unsigned long addr[NTEST];
 static unsigned int len[NTEST];
 
+/* Change the global bit on random pages in the direct mapping */
 static int pageattr_test(void)
 {
 	struct split_state sa, sb, sc;
@@ -133,7 +143,7 @@ static int pageattr_test(void)
 			len[i] = 1;
 
 		pte = NULL;
-		pte0 = pfn_pte(0, __pgprot(0)); 
+		pte0 = pfn_pte(0, __pgprot(0)); /* shut gcc up */
 
 		for (k = 0; k < len[i]; k++) {
 			pte = lookup_address(addr[i] + k*PAGE_SIZE, &level);

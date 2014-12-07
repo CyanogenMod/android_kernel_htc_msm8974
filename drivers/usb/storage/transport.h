@@ -41,20 +41,36 @@
 
 #include <linux/blkdev.h>
 
+/*
+ * usb_stor_bulk_transfer_xxx() return codes, in order of severity
+ */
 
-#define USB_STOR_XFER_GOOD	0	
-#define USB_STOR_XFER_SHORT	1	
-#define USB_STOR_XFER_STALLED	2	
-#define USB_STOR_XFER_LONG	3	
-#define USB_STOR_XFER_ERROR	4	
+#define USB_STOR_XFER_GOOD	0	/* good transfer                 */
+#define USB_STOR_XFER_SHORT	1	/* transferred less than expected */
+#define USB_STOR_XFER_STALLED	2	/* endpoint stalled              */
+#define USB_STOR_XFER_LONG	3	/* device tried to send too much */
+#define USB_STOR_XFER_ERROR	4	/* transfer died in the middle   */
 
+/*
+ * Transport return codes
+ */
 
-#define USB_STOR_TRANSPORT_GOOD	   0   
-#define USB_STOR_TRANSPORT_FAILED  1   
-#define USB_STOR_TRANSPORT_NO_SENSE 2  
-#define USB_STOR_TRANSPORT_ERROR   3   
+#define USB_STOR_TRANSPORT_GOOD	   0   /* Transport good, command good	   */
+#define USB_STOR_TRANSPORT_FAILED  1   /* Transport good, command failed   */
+#define USB_STOR_TRANSPORT_NO_SENSE 2  /* Command failed, no auto-sense    */
+#define USB_STOR_TRANSPORT_ERROR   3   /* Transport bad (i.e. device dead) */
 
+/*
+ * We used to have USB_STOR_XFER_ABORTED and USB_STOR_TRANSPORT_ABORTED
+ * return codes.  But now the transport and low-level transfer routines
+ * treat an abort as just another error (-ENOENT for a cancelled URB).
+ * It is up to the invoke_transport() function to test for aborts and
+ * distinguish them from genuine communication errors.
+ */
 
+/*
+ * CBI accept device specific command
+ */
 
 #define US_CBI_ADSC		0
 

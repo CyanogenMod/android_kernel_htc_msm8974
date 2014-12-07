@@ -27,11 +27,11 @@
 
 struct tlbe_ref {
 	pfn_t pfn;
-	unsigned int flags; 
+	unsigned int flags; /* E500_TLB_* */
 };
 
 struct tlbe_priv {
-	struct tlbe_ref ref; 
+	struct tlbe_ref ref; /* TLB0 only -- TLB1 uses tlb_refs */
 };
 
 struct vcpu_id_table;
@@ -41,19 +41,29 @@ struct kvmppc_e500_tlb_params {
 };
 
 struct kvmppc_vcpu_e500 {
-	
+	/* Unmodified copy of the guest's TLB -- shared with host userspace. */
 	struct kvm_book3e_206_tlb_entry *gtlb_arch;
 
-	
+	/* Starting entry number in gtlb_arch[] */
 	int gtlb_offset[E500_TLB_NUM];
 
-	
+	/* KVM internal information associated with each guest TLB entry */
 	struct tlbe_priv *gtlb_priv[E500_TLB_NUM];
 
 	struct kvmppc_e500_tlb_params gtlb_params[E500_TLB_NUM];
 
 	unsigned int gtlb_nv[E500_TLB_NUM];
 
+	/*
+	 * information associated with each host TLB entry --
+	 * TLB1 only for now.  If/when guest TLB1 entries can be
+	 * mapped with host TLB0, this will be used for that too.
+	 *
+	 * We don't want to use this for guest TLB0 because then we'd
+	 * have the overhead of doing the translation again even if
+	 * the entry is still in the guest TLB (e.g. we swapped out
+	 * and back, and our host TLB entries got evicted).
+	 */
 	struct tlbe_ref *tlb_refs[E500_TLB_NUM];
 	unsigned int host_tlb1_nv;
 
@@ -61,7 +71,7 @@ struct kvmppc_vcpu_e500 {
 	u32 pid[E500_PID_NUM];
 	u32 svr;
 
-	
+	/* vcpu id table */
 	struct vcpu_id_table *idt;
 
 	u32 l1csr0;
@@ -83,4 +93,4 @@ static inline struct kvmppc_vcpu_e500 *to_e500(struct kvm_vcpu *vcpu)
 	return container_of(vcpu, struct kvmppc_vcpu_e500, vcpu);
 }
 
-#endif 
+#endif /* __ASM_KVM_E500_H__ */

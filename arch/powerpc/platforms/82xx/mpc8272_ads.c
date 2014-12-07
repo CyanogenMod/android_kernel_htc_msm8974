@@ -43,7 +43,7 @@ static void __init mpc8272_ads_pic_init(void)
 	cpm2_pic_init(np);
 	of_node_put(np);
 
-	
+	/* Initialize stuff for the 82xx CPLD IC and install demux  */
 	pq2ads_pci_init_irq();
 }
 
@@ -52,15 +52,15 @@ struct cpm_pin {
 };
 
 static struct cpm_pin mpc8272_ads_pins[] = {
-	
+	/* SCC1 */
 	{3, 30, CPM_PIN_OUTPUT | CPM_PIN_SECONDARY},
 	{3, 31, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 
-	
+	/* SCC4 */
 	{3, 21, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY},
 	{3, 22, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 
-	
+	/* FCC1 */
 	{0, 14, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{0, 15, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{0, 16, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
@@ -78,7 +78,7 @@ static struct cpm_pin mpc8272_ads_pins[] = {
 	{2, 21, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 22, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 
-	
+	/* FCC2 */
 	{1, 18, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{1, 19, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{1, 20, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
@@ -96,11 +96,11 @@ static struct cpm_pin mpc8272_ads_pins[] = {
 	{2, 16, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 17, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 
-	
+	/* I2C */
 	{3, 14, CPM_PIN_INPUT | CPM_PIN_SECONDARY | CPM_PIN_OPENDRAIN},
 	{3, 15, CPM_PIN_INPUT | CPM_PIN_SECONDARY | CPM_PIN_OPENDRAIN},
 
-	
+	/* USB */
 	{2, 10, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 11, CPM_PIN_INPUT | CPM_PIN_PRIMARY},
 	{2, 20, CPM_PIN_OUTPUT | CPM_PIN_PRIMARY},
@@ -188,12 +188,15 @@ static struct of_device_id __initdata of_bus_ids[] = {
 
 static int __init declare_of_platform_devices(void)
 {
-	
+	/* Publish the QE devices */
 	of_platform_bus_probe(NULL, of_bus_ids, NULL);
 	return 0;
 }
 machine_device_initcall(mpc8272_ads, declare_of_platform_devices);
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init mpc8272_ads_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();

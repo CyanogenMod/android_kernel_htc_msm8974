@@ -27,9 +27,19 @@
 #include <linux/seq_file.h>
 
 #define DEVPTS_DEFAULT_MODE 0600
+/*
+ * ptmx is a new node in /dev/pts and will be unused in legacy (single-
+ * instance) mode. To prevent surprises in user space, set permissions of
+ * ptmx to 0. Use 'chmod' or remount with '-o ptmxmode' to set meaningful
+ * permissions.
+ */
 #define DEVPTS_DEFAULT_PTMX_MODE 0000
 #define PTMX_MINOR	2
 
+/*
+ * sysctl support for setting limits on the number of Unix98 ptys allocated.
+ * Otherwise one can eat up all kernel memory by opening /dev/ptmx repeatedly.
+ */
 static int pty_limit = NR_UNIX98_PTY_DEFAULT;
 static int pty_reserve = NR_UNIX98_PTY_RESERVE;
 static int pty_limit_min;
@@ -136,6 +146,15 @@ static inline struct super_block *pts_sb_from_inode(struct inode *inode)
 #define PARSE_MOUNT	0
 #define PARSE_REMOUNT	1
 
+/*
+ * parse_mount_options():
+ * 	Set @opts to mount options specified in @data. If an option is not
+ * 	specified in @data, set it to its default value. The exception is
+ * 	'newinstance' option which can only be set/cleared on a mount (i.e.
+ * 	cannot be changed during remount).
+ *
+ * Note: @data may be NULL (in which case all options are set to default).
+ */
 static int parse_mount_options(char *data, int op, struct pts_mount_opts *opts)
 {
 	char *p;
@@ -148,7 +167,7 @@ static int parse_mount_options(char *data, int op, struct pts_mount_opts *opts)
 	opts->ptmxmode = DEVPTS_DEFAULT_PTMX_MODE;
 	opts->max     = NR_UNIX98_PTY_MAX;
 
-	
+	/* newinstance makes sense only on initial mount */
 	if (op == PARSE_MOUNT)
 		opts->newinstance = 0;
 
@@ -186,7 +205,7 @@ static int parse_mount_options(char *data, int op, struct pts_mount_opts *opts)
 			opts->ptmxmode = option & S_IALLUGO;
 			break;
 		case Opt_newinstance:
-			
+			/* newinstance makes sense only on initial mount */
 			if (op == PARSE_MOUNT)
 				opts->newinstance = 1;
 			break;
@@ -219,7 +238,7 @@ static int mknod_ptmx(struct super_block *sb)
 
 	mutex_lock(&root->d_inode->i_mutex);
 
-	
+	/* If we have already created ptmx node, return */
 	if (fsi->ptmx_dentry) {
 		rc = 0;
 		goto out;
@@ -231,6 +250,9 @@ static int mknod_ptmx(struct super_block *sb)
 		goto out;
 	}
 
+	/*
+	 * Create a new 'ptmx' node in this mount of devpts.
+	 */
 	inode = new_inode(sb);
 	if (!inode) {
 		printk(KERN_ERR "Unable to alloc inode for ptmx node\n");
@@ -276,6 +298,12 @@ static int devpts_remount(struct super_block *sb, int *flags, char *data)
 
 	err = parse_mount_options(data, PARSE_REMOUNT, opts);
 
+	/*
+	 * parse_mount_options() restores options to default values
+	 * before parsing and may have changed ptmxmode. So, update the
+	 * mode in the inode too. Bogus options don't fail the remount,
+	 * so do this even on error return.
+	 */
 	update_ptmx_mode(fsi);
 
 	return err;
@@ -364,6 +392,33 @@ static int compare_init_pts_sb(struct super_block *s, void *p)
 	return 0;
 }
 
+/*
+ * devpts_mount()
+ *
+ *     If the '-o newinstance' mount option was specified, mount a new
+ *     (private) instance of devpts.  PTYs created in this instance are
+ *     independent of the PTYs in other devpts instances.
+ *
+ *     If the '-o newinstance' option was not specified, mount/remount the
+ *     initial kernel mount of devpts.  This type of mount gives the
+ *     legacy, single-instance semantics.
+ *
+ *     The 'newinstance' option is needed to support multiple namespace
+ *     semantics in devpts while preserving backward compatibility of the
+ *     current 'single-namespace' semantics. i.e all mounts of devpts
+ *     without the 'newinstance' mount option should bind to the initial
+ *     kernel mount, like mount_single().
+ *
+ *     Mounts with 'newinstance' option create a new, private namespace.
+ *
+ *     NOTE:
+ *
+ *     For single-mount semantics, devpts cannot use mount_single(),
+ *     because mount_single()/sget() find and use the super-block from
+ *     the most recent mount of devpts. But that recent mount may be a
+ *     'newinstance' mount and mount_single() would pick the newinstance
+ *     super-block instead of the initial super-block.
+ */
 static struct dentry *devpts_mount(struct file_system_type *fs_type,
 	int flags, const char *dev_name, void *data)
 {
@@ -405,6 +460,10 @@ out_undo_sget:
 }
 
 #else
+/*
+ * This supports only the legacy single-instance semantics (no
+ * multiple-instance semantics)
+ */
 static struct dentry *devpts_mount(struct file_system_type *fs_type, int flags,
 		const char *dev_name, void *data)
 {
@@ -426,6 +485,10 @@ static struct file_system_type devpts_fs_type = {
 	.kill_sb	= devpts_kill_sb,
 };
 
+/*
+ * The normal naming convention is simply /dev/pts/<number>; this conforms
+ * to the System V naming convention
+ */
 
 int devpts_new_index(struct inode *ptmx_inode)
 {
@@ -476,7 +539,7 @@ void devpts_kill_index(struct inode *ptmx_inode, int idx)
 
 int devpts_pty_new(struct inode *ptmx_inode, struct tty_struct *tty)
 {
-	
+	/* tty layer puts index from devpts_new_index() in here */
 	int number = tty->index;
 	struct tty_driver *driver = tty->driver;
 	dev_t device = MKDEV(driver->major, driver->minor_start+number);
@@ -489,7 +552,7 @@ int devpts_pty_new(struct inode *ptmx_inode, struct tty_struct *tty)
 	int ret = 0;
 	char s[12];
 
-	
+	/* We're supposed to be given the slave end of a pty */
 	BUG_ON(driver->type != TTY_DRIVER_TYPE_PTY);
 	BUG_ON(driver->subtype != PTY_TYPE_SLAVE);
 
@@ -529,7 +592,7 @@ struct tty_struct *devpts_get_tty(struct inode *pts_inode, int number)
 
 	BUG_ON(pts_inode->i_rdev == MKDEV(TTYAUX_MAJOR, PTMX_MINOR));
 
-	
+	/* Ensure dentry has not been deleted by devpts_pty_kill() */
 	dentry = d_find_alias(pts_inode);
 	if (!dentry)
 		return NULL;
@@ -558,8 +621,8 @@ void devpts_pty_kill(struct tty_struct *tty)
 
 	drop_nlink(inode);
 	d_delete(dentry);
-	dput(dentry);	
-	dput(dentry);		
+	dput(dentry);	/* d_alloc_name() in devpts_pty_new() */
+	dput(dentry);		/* d_find_alias above */
 
 	mutex_unlock(&root->d_inode->i_mutex);
 }

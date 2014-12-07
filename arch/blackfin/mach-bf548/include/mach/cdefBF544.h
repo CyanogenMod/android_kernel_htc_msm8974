@@ -7,9 +7,12 @@
 #ifndef _CDEF_BF544_H
 #define _CDEF_BF544_H
 
+/* include cdefBF54x_base.h for the set of #defines that are common to all ADSP-BF54x bfin_read_()rocessors */
 #include "cdefBF54x_base.h"
 
+/* The following are the #defines needed by ADSP-BF544 that are not in the common header */
 
+/* Timer Registers */
 
 #define bfin_read_TIMER8_CONFIG()		bfin_read16(TIMER8_CONFIG)
 #define bfin_write_TIMER8_CONFIG(val)		bfin_write16(TIMER8_CONFIG, val)
@@ -36,6 +39,7 @@
 #define bfin_read_TIMER10_WIDTH()		bfin_read32(TIMER10_WIDTH)
 #define bfin_write_TIMER10_WIDTH(val)		bfin_write32(TIMER10_WIDTH, val)
 
+/* Timer Groubfin_read_() of 3 */
 
 #define bfin_read_TIMER_ENABLE1()		bfin_read16(TIMER_ENABLE1)
 #define bfin_write_TIMER_ENABLE1(val)		bfin_write16(TIMER_ENABLE1, val)
@@ -44,6 +48,7 @@
 #define bfin_read_TIMER_STATUS1()		bfin_read32(TIMER_STATUS1)
 #define bfin_write_TIMER_STATUS1(val)		bfin_write32(TIMER_STATUS1, val)
 
+/* EPPI0 Registers */
 
 #define bfin_read_EPPI0_STATUS()		bfin_read16(EPPI0_STATUS)
 #define bfin_write_EPPI0_STATUS(val)		bfin_write16(EPPI0_STATUS, val)
@@ -74,7 +79,9 @@
 #define bfin_read_EPPI0_CLIP()			bfin_read32(EPPI0_CLIP)
 #define bfin_write_EPPI0_CLIP(val)		bfin_write32(EPPI0_CLIP, val)
 
+/* Two Wire Interface Registers (TWI1) */
 
+/* CAN Controller 1 Config 1 Registers */
 
 #define bfin_read_CAN1_MC1()		bfin_read16(CAN1_MC1)
 #define bfin_write_CAN1_MC1(val)	bfin_write16(CAN1_MC1, val)
@@ -103,6 +110,7 @@
 #define bfin_read_CAN1_OPSS1()		bfin_read16(CAN1_OPSS1)
 #define bfin_write_CAN1_OPSS1(val)	bfin_write16(CAN1_OPSS1, val)
 
+/* CAN Controller 1 Config 2 Registers */
 
 #define bfin_read_CAN1_MC2()		bfin_read16(CAN1_MC2)
 #define bfin_write_CAN1_MC2(val)	bfin_write16(CAN1_MC2, val)
@@ -131,6 +139,7 @@
 #define bfin_read_CAN1_OPSS2()		bfin_read16(CAN1_OPSS2)
 #define bfin_write_CAN1_OPSS2(val)	bfin_write16(CAN1_OPSS2, val)
 
+/* CAN Controller 1 Clock/Interrubfin_read_()t/Counter Registers */
 
 #define bfin_read_CAN1_CLOCK()		bfin_read16(CAN1_CLOCK)
 #define bfin_write_CAN1_CLOCK(val)	bfin_write16(CAN1_CLOCK, val)
@@ -165,6 +174,7 @@
 #define bfin_read_CAN1_UCCNF()		bfin_read16(CAN1_UCCNF)
 #define bfin_write_CAN1_UCCNF(val)	bfin_write16(CAN1_UCCNF, val)
 
+/* CAN Controller 1 Mailbox Accebfin_read_()tance Registers */
 
 #define bfin_read_CAN1_AM00L()		bfin_read16(CAN1_AM00L)
 #define bfin_write_CAN1_AM00L(val)	bfin_write16(CAN1_AM00L, val)
@@ -231,6 +241,7 @@
 #define bfin_read_CAN1_AM15H()		bfin_read16(CAN1_AM15H)
 #define bfin_write_CAN1_AM15H(val)	bfin_write16(CAN1_AM15H, val)
 
+/* CAN Controller 1 Mailbox Accebfin_read_()tance Registers */
 
 #define bfin_read_CAN1_AM16L()		bfin_read16(CAN1_AM16L)
 #define bfin_write_CAN1_AM16L(val)	bfin_write16(CAN1_AM16L, val)
@@ -297,6 +308,7 @@
 #define bfin_read_CAN1_AM31H()		bfin_read16(CAN1_AM31H)
 #define bfin_write_CAN1_AM31H(val)	bfin_write16(CAN1_AM31H, val)
 
+/* CAN Controller 1 Mailbox Data Registers */
 
 #define bfin_read_CAN1_MB00_DATA0()		bfin_read16(CAN1_MB00_DATA0)
 #define bfin_write_CAN1_MB00_DATA0(val)		bfin_write16(CAN1_MB00_DATA0, val)
@@ -555,6 +567,7 @@
 #define bfin_read_CAN1_MB15_ID1()		bfin_read16(CAN1_MB15_ID1)
 #define bfin_write_CAN1_MB15_ID1(val)		bfin_write16(CAN1_MB15_ID1, val)
 
+/* CAN Controller 1 Mailbox Data Registers */
 
 #define bfin_read_CAN1_MB16_DATA0()		bfin_read16(CAN1_MB16_DATA0)
 #define bfin_write_CAN1_MB16_DATA0(val)		bfin_write16(CAN1_MB16_DATA0, val)
@@ -813,6 +826,7 @@
 #define bfin_read_CAN1_MB31_ID1()		bfin_read16(CAN1_MB31_ID1)
 #define bfin_write_CAN1_MB31_ID1(val)		bfin_write16(CAN1_MB31_ID1, val)
 
+/* HOST Port Registers */
 
 #define bfin_read_HOST_CONTROL()		bfin_read16(HOST_CONTROL)
 #define bfin_write_HOST_CONTROL(val)		bfin_write16(HOST_CONTROL, val)
@@ -821,6 +835,7 @@
 #define bfin_read_HOST_TIMEOUT()		bfin_read16(HOST_TIMEOUT)
 #define bfin_write_HOST_TIMEOUT(val)		bfin_write16(HOST_TIMEOUT, val)
 
+/* Pixel Combfin_read_()ositor (PIXC) Registers */
 
 #define bfin_read_PIXC_CTL()		bfin_read16(PIXC_CTL)
 #define bfin_write_PIXC_CTL(val)	bfin_write16(PIXC_CTL, val)
@@ -861,6 +876,7 @@
 #define bfin_read_PIXC_TC()		bfin_read32(PIXC_TC)
 #define bfin_write_PIXC_TC(val)		bfin_write32(PIXC_TC, val)
 
+/* Handshake MDMA 0 Registers */
 
 #define bfin_read_HMDMA0_CONTROL()		bfin_read16(HMDMA0_CONTROL)
 #define bfin_write_HMDMA0_CONTROL(val)		bfin_write16(HMDMA0_CONTROL, val)
@@ -877,6 +893,7 @@
 #define bfin_read_HMDMA0_BCOUNT()		bfin_read16(HMDMA0_BCOUNT)
 #define bfin_write_HMDMA0_BCOUNT(val)		bfin_write16(HMDMA0_BCOUNT, val)
 
+/* Handshake MDMA 1 Registers */
 
 #define bfin_read_HMDMA1_CONTROL()		bfin_read16(HMDMA1_CONTROL)
 #define bfin_write_HMDMA1_CONTROL(val)		bfin_write16(HMDMA1_CONTROL, val)
@@ -893,4 +910,4 @@
 #define bfin_read_HMDMA1_BCOUNT()		bfin_read16(HMDMA1_BCOUNT)
 #define bfin_write_HMDMA1_BCOUNT(val)		bfin_write16(HMDMA1_BCOUNT, val)
 
-#endif 
+#endif /* _CDEF_BF544_H */

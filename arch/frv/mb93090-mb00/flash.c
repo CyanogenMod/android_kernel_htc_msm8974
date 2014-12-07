@@ -14,11 +14,15 @@
 #include <linux/mtd/partitions.h>
 #include <linux/mtd/physmap.h>
 
-#define MB93090_BOOTROM_ADDR	0xFF000000	
+#define MB93090_BOOTROM_ADDR	0xFF000000	/* Boot ROM */
 #define MB93090_BOOTROM_SIZE	(2 * 1024 * 1024)
-#define MB93090_USERROM_ADDR	0xFF200000	
+#define MB93090_USERROM_ADDR	0xFF200000	/* User ROM */
 #define MB93090_USERROM_SIZE	(2 * 1024 * 1024)
 
+/*
+ * default MTD partition table for both main flash devices, expected to be
+ * overridden by RedBoot
+ */
 static struct mtd_partition mb93090_partitions[] = {
 	{
 		.name		= "Filesystem",
@@ -27,6 +31,9 @@ static struct mtd_partition mb93090_partitions[] = {
 	}
 };
 
+/*
+ * Definition of the MB93090 Boot ROM (on the CPU card)
+ */
 static struct physmap_flash_data mb93090_bootrom_data = {
 	.width		= 2,
 	.nr_parts	= 2,
@@ -47,6 +54,9 @@ static struct platform_device mb93090_bootrom = {
 	.resource	= &mb93090_bootrom_resource,
 };
 
+/*
+ * Definition of the MB93090 User ROM definition (on the motherboard)
+ */
 static struct physmap_flash_data mb93090_userrom_data = {
 	.width		= 2,
 	.nr_parts	= 2,
@@ -67,6 +77,9 @@ static struct platform_device mb93090_userrom = {
 	.resource	= &mb93090_userrom_resource,
 };
 
+/*
+ * register the MB93090 flashes
+ */
 static int __init mb93090_mtd_init(void)
 {
 	platform_device_register(&mb93090_bootrom);

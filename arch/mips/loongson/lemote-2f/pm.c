@@ -60,14 +60,14 @@ void setup_wakeup_events(void)
 	switch (mips_machtype) {
 	case MACH_LEMOTE_ML2F7:
 	case MACH_LEMOTE_YL2F89:
-		
+		/* open the keyboard irq in i8259A */
 		outb((0xff & ~(1 << I8042_KBD_IRQ)), PIC_MASTER_IMR);
 		irq_mask = inb(PIC_MASTER_IMR);
 
-		
+		/* enable keyboard port */
 		i8042_enable_kbd_port();
 
-		
+		/* Wakeup CPU via SCI lid open event */
 		outb(irq_mask & ~(1 << PIC_CASCADE_IR), PIC_MASTER_IMR);
 		inb(PIC_MASTER_IMR);
 		outb(0xff & ~(1 << (SCI_IRQ_NUM - 8)), PIC_SLAVE_IMR);
@@ -82,6 +82,7 @@ void setup_wakeup_events(void)
 
 static struct delayed_work lid_task;
 static int initialized;
+/* yeeloong_report_lid_status will be implemented in yeeloong_laptop.c */
 sci_handler yeeloong_report_lid_status;
 EXPORT_SYMBOL(yeeloong_report_lid_status);
 static void yeeloong_lid_update_task(struct work_struct *work)
@@ -94,7 +95,7 @@ int wakeup_loongson(void)
 {
 	int irq;
 
-	
+	/* query the interrupt number */
 	irq = mach_i8259_irq();
 	if (irq < 0)
 		return 0;
@@ -105,7 +106,7 @@ int wakeup_loongson(void)
 		return 1;
 	else if (irq == SCI_IRQ_NUM) {
 		int ret, sci_event;
-		
+		/* query the event number */
 		ret = ec_query_seq(CMD_GET_EVENT_NUM);
 		if (ret < 0)
 			return 0;
@@ -114,10 +115,15 @@ int wakeup_loongson(void)
 			return 0;
 		if (sci_event == EVENT_LID) {
 			int lid_status;
-			
+			/* check the LID status */
 			lid_status = ec_read(REG_LID_DETECT);
-			
+			/* wakeup cpu when people open the LID */
 			if (lid_status == BIT_LID_DETECT_ON) {
+				/* If we call it directly here, the WARNING
+				 * will be sent out by getnstimeofday
+				 * via "WARN_ON(timekeeping_suspended);"
+				 * because we can not schedule in suspend mode.
+				 */
 				if (initialized == 0) {
 					INIT_DELAYED_WORK(&lid_task,
 						yeeloong_lid_update_task);

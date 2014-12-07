@@ -1,3 +1,10 @@
+/*
+ *  linux/fs/hpfs/super.c
+ *
+ *  Mikulas Patocka (mikulas@artax.karlin.mff.cuni.cz), 1998-1999
+ *
+ *  mounting, unmounting, error handling
+ */
 
 #include "hpfs_fn.h"
 #include <linux/module.h>
@@ -9,6 +16,7 @@
 #include <linux/bitmap.h>
 #include <linux/slab.h>
 
+/* Mark the filesystem dirty, so that chkdsk checks it when os/2 booted */
 
 static void mark_dirty(struct super_block *s, int remount)
 {
@@ -25,6 +33,8 @@ static void mark_dirty(struct super_block *s, int remount)
 	}
 }
 
+/* Mark the filesystem clean (mark it dirty for chkdsk if chkdsk==2 or if there
+   were errors) */
 
 static void unmark_dirty(struct super_block *s)
 {
@@ -41,6 +51,7 @@ static void unmark_dirty(struct super_block *s)
 	}
 }
 
+/* Filesystem error... */
 static char err_buf[1024];
 
 void hpfs_error(struct super_block *s, const char *fmt, ...)
@@ -70,6 +81,13 @@ void hpfs_error(struct super_block *s, const char *fmt, ...)
 	hpfs_sb(s)->sb_was_error = 1;
 }
 
+/* 
+ * A little trick to detect cycles in many hpfs structures and don't let the
+ * kernel crash on corrupted filesystem. When first called, set c2 to 0.
+ *
+ * BTW. chkdsk doesn't detect cycles correctly. When I had 2 lost directories
+ * nested each in other, chkdsk locked up happilly.
+ */
 
 int hpfs_stop_cycles(struct super_block *s, int key, int *c1, int *c2,
 		char *msg)
@@ -128,10 +146,10 @@ static int hpfs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	u64 id = huge_encode_dev(s->s_bdev->bd_dev);
 	hpfs_lock(s);
 
-	
+	/*if (sbi->sb_n_free == -1) {*/
 		sbi->sb_n_free = count_bitmaps(s);
 		sbi->sb_n_free_dnodes = hpfs_count_one_bitmap(s, sbi->sb_dmap);
-	
+	/*}*/
 	buf->f_type = s->s_magic;
 	buf->f_bsize = 512;
 	buf->f_blocks = sbi->sb_fs_size;
@@ -195,6 +213,11 @@ static void destroy_inodecache(void)
 	kmem_cache_destroy(hpfs_inode_cachep);
 }
 
+/*
+ * A tiny parser for option strings, stolen from dosfs.
+ * Stolen again from read-only hpfs.
+ * And updated for table-driven option parsing.
+ */
 
 enum {
 	Opt_help, Opt_uid, Opt_gid, Opt_umask, Opt_case_lower, Opt_case_asis,
@@ -238,7 +261,7 @@ static int parse_opts(char *opts, uid_t *uid, gid_t *gid, umode_t *umask,
 	if (!opts)
 		return 1;
 
-	
+	/*printk("Parsing opts: '%s'\n",opts);*/
 
 	while ((p = strsep(&opts, ",")) != NULL) {
 		substring_t args[MAX_OPT_ARGS];
@@ -410,6 +433,7 @@ out_err:
 	return -EINVAL;
 }
 
+/* Super operations */
 
 static const struct super_operations hpfs_sops =
 {
@@ -476,22 +500,22 @@ static int hpfs_fill_super(struct super_block *s, void *options, int silent)
 		goto bail0;
 	}
 
-	
+	/*sbi->sb_mounting = 1;*/
 	sb_set_blocksize(s, 512);
 	sbi->sb_fs_size = -1;
 	if (!(bootblock = hpfs_map_sector(s, 0, &bh0, 0))) goto bail1;
 	if (!(superblock = hpfs_map_sector(s, 16, &bh1, 1))) goto bail2;
 	if (!(spareblock = hpfs_map_sector(s, 17, &bh2, 0))) goto bail3;
 
-	
-	if (
- le32_to_cpu(superblock->magic) != SB_MAGIC
+	/* Check magics */
+	if (/*le16_to_cpu(bootblock->magic) != BB_MAGIC
+	    ||*/ le32_to_cpu(superblock->magic) != SB_MAGIC
 	    || le32_to_cpu(spareblock->magic) != SP_MAGIC) {
 		if (!silent) printk("HPFS: Bad magic ... probably not HPFS\n");
 		goto bail4;
 	}
 
-	
+	/* Check version */
 	if (!(s->s_flags & MS_RDONLY) &&
 	      superblock->funcversion != 2 && superblock->funcversion != 3) {
 		printk("HPFS: Bad version %d,%d. Mount readonly to go around\n",
@@ -502,7 +526,7 @@ static int hpfs_fill_super(struct super_block *s, void *options, int silent)
 
 	s->s_flags |= MS_NOATIME;
 
-	
+	/* Fill superblock stuff */
 	s->s_magic = HPFS_SUPER_MAGIC;
 	s->s_op = &hpfs_sops;
 	s->s_d_op = &hpfs_dentry_operations;
@@ -529,11 +553,11 @@ static int hpfs_fill_super(struct super_block *s, void *options, int silent)
 	sbi->sb_c_bitmap = -1;
 	sbi->sb_max_fwd_alloc = 0xffffff;
 	
-	
+	/* Load bitmap directory */
 	if (!(sbi->sb_bmp_dir = hpfs_load_bitmap_directory(s, le32_to_cpu(superblock->bitmaps))))
 		goto bail4;
 	
-	
+	/* Check for general fs errors*/
 	if (spareblock->dirty && !spareblock->old_wrote) {
 		if (errs == 2) {
 			printk("HPFS: Improperly stopped, not mounted\n");
@@ -586,7 +610,7 @@ static int hpfs_fill_super(struct super_block *s, void *options, int silent)
 		sbi->sb_dirband_size = a;
 	} else printk("HPFS: You really don't want any checks? You are crazy...\n");
 
-	
+	/* Load code page table */
 	if (le32_to_cpu(spareblock->n_code_pages))
 		if (!(sbi->sb_cp_table = hpfs_load_code_page(s, le32_to_cpu(spareblock->code_page_dir))))
 			printk("HPFS: Warning: code page support is disabled\n");
@@ -605,6 +629,9 @@ static int hpfs_fill_super(struct super_block *s, void *options, int silent)
 	if (!s->s_root)
 		goto bail0;
 
+	/*
+	 * find the root directory's . pointer & finish filling in the inode
+	 */
 
 	root_dno = hpfs_fnode_dno(s, sbi->sb_root);
 	if (root_dno)

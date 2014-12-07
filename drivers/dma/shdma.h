@@ -19,7 +19,7 @@
 
 #define SH_DMAC_MAX_CHANNELS 20
 #define SH_DMA_SLAVE_NUMBER 256
-#define SH_DMA_TCR_MAX 0x00FFFFFF	
+#define SH_DMA_TCR_MAX 0x00FFFFFF	/* 16MB */
 
 struct device;
 
@@ -30,18 +30,18 @@ enum dmae_pm_state {
 };
 
 struct sh_dmae_chan {
-	spinlock_t desc_lock;		
-	struct list_head ld_queue;	
-	struct list_head ld_free;	
-	struct dma_chan common;		
-	struct device *dev;		
-	struct tasklet_struct tasklet;	
-	int descs_allocated;		
-	int xmit_shift;			
+	spinlock_t desc_lock;		/* Descriptor operation lock */
+	struct list_head ld_queue;	/* Link descriptors queue */
+	struct list_head ld_free;	/* Link descriptors free */
+	struct dma_chan common;		/* DMA common channel */
+	struct device *dev;		/* Channel device */
+	struct tasklet_struct tasklet;	/* Tasklet */
+	int descs_allocated;		/* desc count */
+	int xmit_shift;			/* log_2(bytes_per_xfer) */
 	int irq;
-	int id;				
+	int id;				/* Raw id of this channel */
 	u32 __iomem *base;
-	char dev_id[16];		
+	char dev_id[16];		/* unique name per DMAC of channel */
 	int pm_error;
 	enum dmae_pm_state pm_state;
 };
@@ -63,4 +63,4 @@ struct sh_dmae_device {
 #define to_sh_dev(chan) container_of(chan->common.device,\
 				     struct sh_dmae_device, common)
 
-#endif	
+#endif	/* __DMA_SHDMA_H */

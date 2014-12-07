@@ -26,6 +26,7 @@
 #define Z180_DEVICE(device) \
 		KGSL_CONTAINER_OF(device, struct z180_device, dev)
 
+/* Wait a maximum of 10 seconds when trying to idle the core */
 #define Z180_IDLE_TIMEOUT (20 * 1000)
 
 struct z180_ringbuffer {
@@ -34,7 +35,7 @@ struct z180_ringbuffer {
 };
 
 struct z180_device {
-	struct kgsl_device dev;    
+	struct kgsl_device dev;    /* Must be first field in this struct */
 	int current_timestamp;
 	int timestamp;
 	struct z180_ringbuffer ringbuffer;
@@ -44,4 +45,4 @@ struct z180_device {
 int z180_dump(struct kgsl_device *, int);
 int z180_idle(struct kgsl_device *);
 
-#endif 
+#endif /* __Z180_H */

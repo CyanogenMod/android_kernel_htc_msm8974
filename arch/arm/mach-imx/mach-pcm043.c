@@ -42,7 +42,7 @@
 
 static const struct fb_videomode fb_modedb[] = {
 	{
-		
+		/* 240x320 @ 60 Hz */
 		.name		= "Sharp-LQ035Q7",
 		.refresh	= 60,
 		.xres		= 240,
@@ -58,7 +58,7 @@ static const struct fb_videomode fb_modedb[] = {
 		.vmode		= FB_VMODE_NONINTERLACED,
 		.flag		= 0,
 	}, {
-		
+		/* 240x320 @ 60 Hz */
 		.name		= "TX090",
 		.refresh	= 60,
 		.xres		= 240,
@@ -122,7 +122,7 @@ static struct at24_platform_data board_eeprom = {
 
 static struct i2c_board_info pcm043_i2c_devices[] = {
 	{
-		I2C_BOARD_INFO("at24", 0x52), 
+		I2C_BOARD_INFO("at24", 0x52), /* E0=0, E1=1, E2=0 */
 		.platform_data = &board_eeprom,
 	}, {
 		I2C_BOARD_INFO("pcf8563", 0x51),
@@ -134,17 +134,17 @@ static struct platform_device *devices[] __initdata = {
 };
 
 static iomux_v3_cfg_t pcm043_pads[] = {
-	
+	/* UART1 */
 	MX35_PAD_CTS1__UART1_CTS,
 	MX35_PAD_RTS1__UART1_RTS,
 	MX35_PAD_TXD1__UART1_TXD_MUX,
 	MX35_PAD_RXD1__UART1_RXD_MUX,
-	
+	/* UART2 */
 	MX35_PAD_CTS2__UART2_CTS,
 	MX35_PAD_RTS2__UART2_RTS,
 	MX35_PAD_TXD2__UART2_TXD_MUX,
 	MX35_PAD_RXD2__UART2_RXD_MUX,
-	
+	/* FEC */
 	MX35_PAD_FEC_TX_CLK__FEC_TX_CLK,
 	MX35_PAD_FEC_RX_CLK__FEC_RX_CLK,
 	MX35_PAD_FEC_RX_DV__FEC_RX_DV,
@@ -163,10 +163,10 @@ static iomux_v3_cfg_t pcm043_pads[] = {
 	MX35_PAD_FEC_TDATA2__FEC_TDATA_2,
 	MX35_PAD_FEC_RDATA3__FEC_RDATA_3,
 	MX35_PAD_FEC_TDATA3__FEC_TDATA_3,
-	
+	/* I2C1 */
 	MX35_PAD_I2C1_CLK__I2C1_SCL,
 	MX35_PAD_I2C1_DAT__I2C1_SDA,
-	
+	/* Display */
 	MX35_PAD_LD0__IPU_DISPB_DAT_0,
 	MX35_PAD_LD1__IPU_DISPB_DAT_1,
 	MX35_PAD_LD2__IPU_DISPB_DAT_2,
@@ -192,28 +192,28 @@ static iomux_v3_cfg_t pcm043_pads[] = {
 	MX35_PAD_D3_VSYNC__IPU_DISPB_D3_VSYNC,
 	MX35_PAD_D3_REV__IPU_DISPB_D3_REV,
 	MX35_PAD_D3_CLS__IPU_DISPB_D3_CLS,
-	
+	/* gpio */
 	MX35_PAD_ATA_CS0__GPIO2_6,
-	
+	/* USB host */
 	MX35_PAD_I2C2_CLK__USB_TOP_USBH2_PWR,
 	MX35_PAD_I2C2_DAT__USB_TOP_USBH2_OC,
-	
+	/* SSI */
 	MX35_PAD_STXFS4__AUDMUX_AUD4_TXFS,
 	MX35_PAD_STXD4__AUDMUX_AUD4_TXD,
 	MX35_PAD_SRXD4__AUDMUX_AUD4_RXD,
 	MX35_PAD_SCK4__AUDMUX_AUD4_TXC,
-	
+	/* CAN2 */
 	MX35_PAD_TX5_RX0__CAN2_TXCAN,
 	MX35_PAD_TX4_RX1__CAN2_RXCAN,
-	
+	/* esdhc */
 	MX35_PAD_SD1_CMD__ESDHC1_CMD,
 	MX35_PAD_SD1_CLK__ESDHC1_CLK,
 	MX35_PAD_SD1_DATA0__ESDHC1_DAT0,
 	MX35_PAD_SD1_DATA1__ESDHC1_DAT1,
 	MX35_PAD_SD1_DATA2__ESDHC1_DAT2,
 	MX35_PAD_SD1_DATA3__ESDHC1_DAT3,
-	MX35_PAD_ATA_DATA10__GPIO2_23, 
-	MX35_PAD_ATA_DATA11__GPIO2_24, 
+	MX35_PAD_ATA_DATA10__GPIO2_23, /* WriteProtect */
+	MX35_PAD_ATA_DATA11__GPIO2_24, /* CardDetect */
 };
 
 #define AC97_GPIO_TXFS	IMX_GPIO_NR(2, 31)
@@ -236,7 +236,7 @@ static void pcm043_ac97_warm_reset(struct snd_ac97 *ac97)
 
 	mxc_iomux_v3_setup_pad(txfs_gpio);
 
-	
+	/* warm reset */
 	gpio_direction_output(AC97_GPIO_TXFS, 1);
 	udelay(2);
 	gpio_set_value(AC97_GPIO_TXFS, 0);
@@ -273,7 +273,7 @@ static void pcm043_ac97_cold_reset(struct snd_ac97 *ac97)
 	gpio_direction_output(AC97_GPIO_TXFS, 0);
 	gpio_direction_output(AC97_GPIO_TXD, 0);
 
-	
+	/* cold reset */
 	gpio_direction_output(AC97_GPIO_RESET, 0);
 	udelay(10);
 	gpio_direction_output(AC97_GPIO_RESET, 1);
@@ -352,6 +352,9 @@ static struct esdhc_platform_data sd1_pdata = {
 	.cd_type = ESDHC_CD_GPIO,
 };
 
+/*
+ * Board specific initialization.
+ */
 static void __init pcm043_init(void)
 {
 	imx35_soc_init();
@@ -401,7 +404,7 @@ struct sys_timer pcm043_timer = {
 };
 
 MACHINE_START(PCM043, "Phytec Phycore pcm043")
-	
+	/* Maintainer: Pengutronix */
 	.atag_offset = 0x100,
 	.map_io = mx35_map_io,
 	.init_early = imx35_init_early,

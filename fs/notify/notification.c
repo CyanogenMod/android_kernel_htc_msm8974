@@ -16,6 +16,20 @@
  *  the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*
+ * Basic idea behind the notification queue: An fsnotify group (like inotify)
+ * sends the userspace notification about events asyncronously some time after
+ * the event happened.  When inotify gets an event it will need to add that
+ * event to the group notify queue.  Since a single event might need to be on
+ * multiple group's notification queues we can't add the event directly to each
+ * queue and instead add a small "event_holder" to each queue.  This event_holder
+ * has a pointer back to the original event.  Since the majority of events are
+ * going to end up on one, and only one, notification queue we embed one
+ * event_holder into each event.  This means we have a single allocation instead
+ * of always needing two.  If the embedded event_holder is already in use by
+ * another group a new event_holder (from fsnotify_event_holder_cachep) will be
+ * allocated and used.
+ */
 
 #include <linux/fs.h>
 #include <linux/init.h>
@@ -36,15 +50,26 @@
 
 static struct kmem_cache *fsnotify_event_cachep;
 static struct kmem_cache *fsnotify_event_holder_cachep;
+/*
+ * This is a magic event we send when the q is too full.  Since it doesn't
+ * hold real event information we just keep one system wide and use it any time
+ * it is needed.  It's refcnt is set 1 at kernel init time and will never
+ * get set to 0 so it will never get 'freed'
+ */
 static struct fsnotify_event *q_overflow_event;
 static atomic_t fsnotify_sync_cookie = ATOMIC_INIT(0);
 
+/**
+ * fsnotify_get_cookie - return a unique cookie for use in synchronizing events.
+ * Called from fsnotify_move, which is inlined into filesystem modules.
+ */
 u32 fsnotify_get_cookie(void)
 {
 	return atomic_inc_return(&fsnotify_sync_cookie);
 }
 EXPORT_SYMBOL_GPL(fsnotify_get_cookie);
 
+/* return true if the notify queue is empty, false otherwise */
 bool fsnotify_notify_queue_is_empty(struct fsnotify_group *group)
 {
 	BUG_ON(!mutex_is_locked(&group->notification_mutex));
@@ -86,6 +111,10 @@ void fsnotify_destroy_event_holder(struct fsnotify_event_holder *holder)
 		kmem_cache_free(fsnotify_event_holder_cachep, holder);
 }
 
+/*
+ * Find the private data that the group previously attached to this event when
+ * the group added the event to the notification queue (fsnotify_add_notify_event)
+ */
 struct fsnotify_event_private_data *fsnotify_remove_priv_from_event(struct fsnotify_group *group, struct fsnotify_event *event)
 {
 	struct fsnotify_event_private_data *lpriv;
@@ -103,6 +132,11 @@ struct fsnotify_event_private_data *fsnotify_remove_priv_from_event(struct fsnot
 	return priv;
 }
 
+/*
+ * Add an event to the group notification queue.  The group can later pull this
+ * event off the queue to deal with.  If the event is successfully added to the
+ * group's notification queue, a reference is taken on event.
+ */
 struct fsnotify_event *fsnotify_add_notify_event(struct fsnotify_group *group, struct fsnotify_event *event,
 						 struct fsnotify_event_private_data *priv,
 						 struct fsnotify_event *(*merge)(struct list_head *,
@@ -114,6 +148,14 @@ struct fsnotify_event *fsnotify_add_notify_event(struct fsnotify_group *group, s
 
 	pr_debug("%s: group=%p event=%p priv=%p\n", __func__, group, event, priv);
 
+	/*
+	 * There is one fsnotify_event_holder embedded inside each fsnotify_event.
+	 * Check if we expect to be able to use that holder.  If not alloc a new
+	 * holder.
+	 * For the overflow event it's possible that something will use the in
+	 * event holder before we get the lock so we may need to jump back and
+	 * alloc a new holder, this can't happen for most events...
+	 */
 	if (!list_empty(&event->holder.event_list)) {
 alloc_holder:
 		holder = fsnotify_alloc_event_holder();
@@ -126,10 +168,14 @@ alloc_holder:
 	if (group->q_len >= group->max_events) {
 		event = q_overflow_event;
 
+		/*
+		 * we need to return the overflow event
+		 * which means we need a ref
+		 */
 		fsnotify_get_event(event);
 		return_event = event;
 
-		
+		/* sorry, no private data on the overflow event */
 		priv = NULL;
 	}
 
@@ -155,6 +201,8 @@ alloc_holder:
 			fsnotify_destroy_event_holder(holder);
 		holder = &event->holder;
 	} else if (unlikely(!holder)) {
+		/* between the time we checked above and got the lock the in
+		 * event holder was used, go back and get a new one */
 		spin_unlock(&event->lock);
 		mutex_unlock(&group->notification_mutex);
 
@@ -180,6 +228,11 @@ alloc_holder:
 	return return_event;
 }
 
+/*
+ * Remove and return the first event from the notification list.  There is a
+ * reference held on this event since it was on the list.  It is the responsibility
+ * of the caller to drop this reference.
+ */
 struct fsnotify_event *fsnotify_remove_notify_event(struct fsnotify_group *group)
 {
 	struct fsnotify_event *event;
@@ -198,7 +251,7 @@ struct fsnotify_event *fsnotify_remove_notify_event(struct fsnotify_group *group
 	list_del_init(&holder->event_list);
 	spin_unlock(&event->lock);
 
-	
+	/* event == holder means we are referenced through the in event holder */
 	if (holder != &event->holder)
 		fsnotify_destroy_event_holder(holder);
 
@@ -207,6 +260,9 @@ struct fsnotify_event *fsnotify_remove_notify_event(struct fsnotify_group *group
 	return event;
 }
 
+/*
+ * This will not remove the event, that must be done with fsnotify_remove_notify_event()
+ */
 struct fsnotify_event *fsnotify_peek_notify_event(struct fsnotify_group *group)
 {
 	struct fsnotify_event *event;
@@ -220,6 +276,10 @@ struct fsnotify_event *fsnotify_peek_notify_event(struct fsnotify_group *group)
 	return event;
 }
 
+/*
+ * Called when a group is being torn down to clean up any outstanding
+ * event notifications.
+ */
 void fsnotify_flush_notify(struct fsnotify_group *group)
 {
 	struct fsnotify_event *event;
@@ -228,7 +288,7 @@ void fsnotify_flush_notify(struct fsnotify_group *group)
 	mutex_lock(&group->notification_mutex);
 	while (!fsnotify_notify_queue_is_empty(group)) {
 		event = fsnotify_remove_notify_event(group);
-		
+		/* if they don't implement free_event_priv they better not have attached any */
 		if (group->ops->free_event_priv) {
 			spin_lock(&event->lock);
 			priv = fsnotify_remove_priv_from_event(group, event);
@@ -236,7 +296,7 @@ void fsnotify_flush_notify(struct fsnotify_group *group)
 			if (priv)
 				group->ops->free_event_priv(priv);
 		}
-		fsnotify_put_event(event); 
+		fsnotify_put_event(event); /* matches fsnotify_add_notify_event */
 	}
 	mutex_unlock(&group->notification_mutex);
 }
@@ -251,6 +311,11 @@ static void initialize_event(struct fsnotify_event *event)
 	INIT_LIST_HEAD(&event->private_data_list);
 }
 
+/*
+ * Caller damn well better be holding whatever mutex is protecting the
+ * old_holder->event_list and the new_event must be a clean event which
+ * cannot be found anywhere else in the kernel.
+ */
 int fsnotify_replace_event(struct fsnotify_event_holder *old_holder,
 			   struct fsnotify_event *new_event)
 {
@@ -264,6 +329,10 @@ int fsnotify_replace_event(struct fsnotify_event_holder *old_holder,
 
 	pr_debug("%s: old_event=%p new_event=%p\n", __func__, old_event, new_event);
 
+	/*
+	 * if the new_event's embedded holder is in use someone
+	 * screwed up and didn't give us a clean new event.
+	 */
 	BUG_ON(!list_empty(&new_holder->event_list));
 
 	spin_lock_nested(&old_event->lock, SPINLOCK_OLD);
@@ -275,12 +344,12 @@ int fsnotify_replace_event(struct fsnotify_event_holder *old_holder,
 	spin_unlock(&new_event->lock);
 	spin_unlock(&old_event->lock);
 
-	
+	/* event == holder means we are referenced through the in event holder */
 	if (old_holder != &old_event->holder)
 		fsnotify_destroy_event_holder(old_holder);
 
-	fsnotify_get_event(new_event); 
-	fsnotify_put_event(old_event); 
+	fsnotify_get_event(new_event); /* on the list take reference */
+	fsnotify_put_event(old_event); /* off the list, drop reference */
 
 	return 0;
 }
@@ -312,6 +381,18 @@ struct fsnotify_event *fsnotify_clone_event(struct fsnotify_event *old_event)
 	return event;
 }
 
+/*
+ * fsnotify_create_event - Allocate a new event which will be sent to each
+ * group's handle_event function if the group was interested in this
+ * particular event.
+ *
+ * @to_tell the inode which is supposed to receive the event (sometimes a
+ *	parent of the inode to which the event happened.
+ * @mask what actually happened.
+ * @data pointer to the object which was actually affected
+ * @data_type flag indication if the data is a file, path, inode, nothing...
+ * @name the filename, if available
+ */
 struct fsnotify_event *fsnotify_create_event(struct inode *to_tell, __u32 mask, void *data,
 					     int data_type, const unsigned char *name,
 					     u32 cookie, gfp_t gfp)

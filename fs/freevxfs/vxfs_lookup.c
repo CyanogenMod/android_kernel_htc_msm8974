@@ -27,6 +27,9 @@
  * SUCH DAMAGE.
  */
 
+/*
+ * Veritas filesystem driver - lookup and other directory related code.
+ */
 #include <linux/fs.h>
 #include <linux/time.h>
 #include <linux/mm.h>
@@ -39,6 +42,9 @@
 #include "vxfs_inode.h"
 #include "vxfs_extern.h"
 
+/*
+ * Number of VxFS blocks per page.
+ */
 #define VXFS_BLOCK_PER_PAGE(sbp)  ((PAGE_CACHE_SIZE / (sbp)->s_blocksize))
 
 
@@ -69,6 +75,11 @@ dir_blocks(struct inode *ip)
 	return (ip->i_size + bsize - 1) & ~(bsize - 1);
 }
 
+/*
+ * NOTE! unlike strncmp, vxfs_match returns 1 for success, 0 for failure.
+ *
+ * len <= VXFS_NAMELEN and de != NULL are guaranteed by caller.
+ */
 static inline int
 vxfs_match(int len, const char * const name, struct vxfs_direct *de)
 {
@@ -85,6 +96,20 @@ vxfs_next_entry(struct vxfs_direct *de)
 	return ((struct vxfs_direct *)((char*)de + de->d_reclen));
 }
 
+/**
+ * vxfs_find_entry - find a mathing directory entry for a dentry
+ * @ip:		directory inode
+ * @dp:		dentry for which we want to find a direct
+ * @ppp:	gets filled with the page the return value sits in
+ *
+ * Description:
+ *   vxfs_find_entry finds a &struct vxfs_direct for the VFS directory
+ *   cache entry @dp.  @ppp will be filled with the page the return
+ *   value resides in.
+ *
+ * Returns:
+ *   The wanted direct on success, else a NULL pointer.
+ */
 static struct vxfs_direct *
 vxfs_find_entry(struct inode *ip, struct dentry *dp, struct page **ppp)
 {
@@ -134,6 +159,18 @@ vxfs_find_entry(struct inode *ip, struct dentry *dp, struct page **ppp)
 	return NULL;
 }
 
+/**
+ * vxfs_inode_by_name - find inode number for dentry
+ * @dip:	directory to search in
+ * @dp:		dentry we search for
+ *
+ * Description:
+ *   vxfs_inode_by_name finds out the inode number of
+ *   the path component described by @dp in @dip.
+ *
+ * Returns:
+ *   The wanted inode number on success, else Zero.
+ */
 static ino_t
 vxfs_inode_by_name(struct inode *dip, struct dentry *dp)
 {
@@ -151,6 +188,20 @@ vxfs_inode_by_name(struct inode *dip, struct dentry *dp)
 	return (ino);
 }
 
+/**
+ * vxfs_lookup - lookup pathname component
+ * @dip:	dir in which we lookup
+ * @dp:		dentry we lookup
+ * @nd:		lookup nameidata
+ *
+ * Description:
+ *   vxfs_lookup tries to lookup the pathname component described
+ *   by @dp in @dip.
+ *
+ * Returns:
+ *   A NULL-pointer on success, else an negative error code encoded
+ *   in the return pointer.
+ */
 static struct dentry *
 vxfs_lookup(struct inode *dip, struct dentry *dp, struct nameidata *nd)
 {
@@ -170,6 +221,19 @@ vxfs_lookup(struct inode *dip, struct dentry *dp, struct nameidata *nd)
 	return NULL;
 }
 
+/**
+ * vxfs_readdir - read a directory
+ * @fp:		the directory to read
+ * @retp:	return buffer
+ * @filler:	filldir callback
+ *
+ * Description:
+ *   vxfs_readdir fills @retp with directory entries from @fp
+ *   using the VFS supplied callback @filler.
+ *
+ * Returns:
+ *   Zero.
+ */
 static int
 vxfs_readdir(struct file *fp, void *retp, filldir_t filler)
 {
@@ -184,12 +248,12 @@ vxfs_readdir(struct file *fp, void *retp, filldir_t filler)
 		if (filler(retp, ".", 1, fp->f_pos, ip->i_ino, DT_DIR) < 0)
 			goto out;
 		fp->f_pos++;
-		
+		/* fallthrough */
 	case 1:
 		if (filler(retp, "..", 2, fp->f_pos, VXFS_INO(ip)->vii_dotdot, DT_DIR) < 0)
 			goto out;
 		fp->f_pos++;
-		
+		/* fallthrough */
 	}
 
 	pos = fp->f_pos - 2;

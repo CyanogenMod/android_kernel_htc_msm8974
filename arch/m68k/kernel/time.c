@@ -28,6 +28,10 @@
 #include <linux/timex.h>
 #include <linux/profile.h>
 
+/*
+ * timer_interrupt() needs to keep up the real-time clock,
+ * as well as call the "xtime_update()" routine every clocktick
+ */
 static irqreturn_t timer_interrupt(int irq, void *dummy)
 {
 	xtime_update(1);
@@ -35,7 +39,9 @@ static irqreturn_t timer_interrupt(int irq, void *dummy)
 	profile_tick(CPU_PROFILING);
 
 #ifdef CONFIG_HEARTBEAT
-	
+	/* use power LED as a heartbeat instead -- much more useful
+	   for debugging -- based on the version for PReP by Cort */
+	/* acts like an actual heart beat -- ie thump-thump-pause... */
 	if (mach_heartbeat) {
 	    static unsigned cnt = 0, period = 0, dist = 0;
 
@@ -46,11 +52,15 @@ static irqreturn_t timer_interrupt(int irq, void *dummy)
 
 	    if (++cnt > period) {
 		cnt = 0;
+		/* The hyperbolic function below modifies the heartbeat period
+		 * length in dependency of the current (5min) load. It goes
+		 * through the points f(0)=126, f(1)=86, f(5)=51,
+		 * f(inf)->30. */
 		period = ((672<<FSHIFT)/(5*avenrun[0]+(7<<FSHIFT))) + 30;
 		dist = period / 4;
 	    }
 	}
-#endif 
+#endif /* CONFIG_HEARTBEAT */
 	return IRQ_HANDLED;
 }
 
@@ -98,4 +108,4 @@ static int __init rtc_init(void)
 
 module_init(rtc_init);
 
-#endif 
+#endif /* CONFIG_M68KCLASSIC */

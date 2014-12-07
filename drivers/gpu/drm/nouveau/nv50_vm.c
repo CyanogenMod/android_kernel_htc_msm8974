@@ -35,11 +35,11 @@ nv50_vm_map_pgt(struct nouveau_gpuobj *pgd, u32 pde,
 	u32 coverage = 0;
 
 	if (pgt[0]) {
-		phys = 0x00000003 | pgt[0]->vinst; 
+		phys = 0x00000003 | pgt[0]->vinst; /* present, 4KiB pages */
 		coverage = (pgt[0]->size >> 3) << 12;
 	} else
 	if (pgt[1]) {
-		phys = 0x00000001 | pgt[1]->vinst; 
+		phys = 0x00000001 | pgt[1]->vinst; /* present */
 		coverage = (pgt[1]->size >> 3) << 16;
 	}
 
@@ -59,7 +59,7 @@ nv50_vm_map_pgt(struct nouveau_gpuobj *pgd, u32 pde,
 static inline u64
 vm_addr(struct nouveau_vma *vma, u64 phys, u32 memtype, u32 target)
 {
-	phys |= 1; 
+	phys |= 1; /* present */
 	phys |= (u64)memtype << 40;
 	phys |= target << 4;
 	if (vma->access & NV_MEM_ACCESS_SYS)
@@ -78,7 +78,7 @@ nv50_vm_map(struct nouveau_vma *vma, struct nouveau_gpuobj *pgt,
 	u32 block, target;
 	int i;
 
-	
+	/* IGPs don't have real VRAM, re-target to stolen system memory */
 	target = 0;
 	if (dev_priv->vram_sys_base) {
 		phys += dev_priv->vram_sys_base;
@@ -152,7 +152,7 @@ nv50_vm_flush(struct nouveau_vm *vm)
 
 	pinstmem->flush(vm->dev);
 
-	
+	/* BAR */
 	if (vm == dev_priv->bar1_vm || vm == dev_priv->bar3_vm) {
 		nv50_vm_flush_engine(vm->dev, 6);
 		return;

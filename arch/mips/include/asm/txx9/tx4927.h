@@ -71,7 +71,7 @@
 #define TX4927_IR_ACLCPME	25
 #define TX4927_NUM_IR	32
 
-#define TX4927_IRC_INT	2	
+#define TX4927_IRC_INT	2	/* IP[2] in Status register */
 
 #define TX4927_NUM_PIO	16
 
@@ -100,6 +100,10 @@ struct tx4927_ccfg_reg {
 	u64 ramp;
 };
 
+/*
+ * CCFG
+ */
+/* CCFG : Chip Configuration */
 #define TX4927_CCFG_WDRST	0x0000020000000000ULL
 #define TX4927_CCFG_WDREXEN	0x0000010000000000ULL
 #define TX4927_CCFG_BCFG_MASK	0x000000ff00000000ULL
@@ -130,6 +134,7 @@ struct tx4927_ccfg_reg {
 #define TX4927_CCFG_ACEHOLD	0x00000001
 #define TX4927_CCFG_W1CBITS	(TX4927_CCFG_WDRST | TX4927_CCFG_BEOW)
 
+/* PCFG : Pin Configuration */
 #define TX4927_PCFG_SDCLKDLY_MASK	0x30000000
 #define TX4927_PCFG_SDCLKDLY(d)	((d)<<28)
 #define TX4927_PCFG_SYSCLKEN	0x08000000
@@ -152,16 +157,17 @@ struct tx4927_ccfg_reg {
 #define TX4927_PCFG_DMASEL1_SIO1	0x00000004
 #define TX4927_PCFG_DMASEL1_ACL1	0x00000008
 #define TX4927_PCFG_DMASEL1_ACL3	0x0000000c
-#define TX4927_PCFG_DMASEL2_DRQ2	0x00000000	
-#define TX4927_PCFG_DMASEL2_SIO0	0x00000010	
-#define TX4927_PCFG_DMASEL2_ACL1	0x00000000	
-#define TX4927_PCFG_DMASEL2_ACL2	0x00000020	
-#define TX4927_PCFG_DMASEL2_ACL0	0x00000030	
+#define TX4927_PCFG_DMASEL2_DRQ2	0x00000000	/* SEL2=0 */
+#define TX4927_PCFG_DMASEL2_SIO0	0x00000010	/* SEL2=0 */
+#define TX4927_PCFG_DMASEL2_ACL1	0x00000000	/* SEL2=1 */
+#define TX4927_PCFG_DMASEL2_ACL2	0x00000020	/* SEL2=1 */
+#define TX4927_PCFG_DMASEL2_ACL0	0x00000030	/* SEL2=1 */
 #define TX4927_PCFG_DMASEL3_DRQ3	0x00000000
 #define TX4927_PCFG_DMASEL3_SIO0	0x00000040
 #define TX4927_PCFG_DMASEL3_ACL3	0x00000080
 #define TX4927_PCFG_DMASEL3_ACL1	0x000000c0
 
+/* CLKCTR : Clock Control */
 #define TX4927_CLKCTR_ACLCKD	0x02000000
 #define TX4927_CLKCTR_PIOCKD	0x01000000
 #define TX4927_CLKCTR_DMACKD	0x00800000
@@ -206,6 +212,7 @@ struct tx4927_ccfg_reg {
 #define TX4927_EBUSC_WIDTH(ch)	\
 	(64 >> ((__u32)(TX4927_EBUSC_CR(ch) >> 20) & 0x3))
 
+/* utilities */
 static inline void txx9_clear64(__u64 __iomem *adr, __u64 bits)
 {
 #ifdef CONFIG_32BIT
@@ -229,6 +236,7 @@ static inline void txx9_set64(__u64 __iomem *adr, __u64 bits)
 #endif
 }
 
+/* These functions are not interrupt safe. */
 static inline void tx4927_ccfg_clear(__u64 bits)
 {
 	____raw_writeq(____raw_readq(&tx4927_ccfgptr->ccfg)
@@ -262,4 +270,4 @@ void tx4927_mtd_init(int ch);
 void tx4927_dmac_init(int memcpy_chan);
 void tx4927_aclc_init(unsigned int dma_chan_out, unsigned int dma_chan_in);
 
-#endif 
+#endif /* __ASM_TXX9_TX4927_H */

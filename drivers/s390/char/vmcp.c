@@ -115,11 +115,23 @@ vmcp_write(struct file *file, const char __user *buff, size_t count,
 				   &session->resp_code);
 	mutex_unlock(&session->mutex);
 	kfree(cmd);
-	*ppos = 0;		
+	*ppos = 0;		/* reset the file pointer after a command */
 	return count;
 }
 
 
+/*
+ * These ioctls are available, as the semantics of the diagnose 8 call
+ * does not fit very well into a Linux call. Diagnose X'08' is described in
+ * CP Programming Services SC24-6084-00
+ *
+ * VMCP_GETCODE: gives the CP return code back to user space
+ * VMCP_SETBUF: sets the response buffer for the next write call. diagnose 8
+ * expects adjacent pages in real storage and to make matters worse, we
+ * dont know the size of the response. Therefore we default to PAGESIZE and
+ * let userspace to change the response size, if userspace expects a bigger
+ * response
+ */
 static long vmcp_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct vmcp_session *session;

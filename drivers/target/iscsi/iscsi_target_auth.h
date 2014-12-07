@@ -6,10 +6,10 @@
 
 #define CHAP_CHALLENGE_LENGTH	16
 #define CHAP_CHALLENGE_STR_LEN	4096
-#define MAX_RESPONSE_LENGTH	64	
+#define MAX_RESPONSE_LENGTH	64	/* sufficient for MD5 */
 #define	MAX_CHAP_N_SIZE		512
 
-#define MD5_SIGNATURE_SIZE	16	
+#define MD5_SIGNATURE_SIZE	16	/* 16 bytes in a MD5 message digest */
 
 #define CHAP_STAGE_CLIENT_A	1
 #define CHAP_STAGE_SERVER_AIC	2
@@ -28,4 +28,4 @@ struct iscsi_chap {
 	unsigned int	chap_state;
 } ____cacheline_aligned;
 
-#endif   
+#endif   /*** _ISCSI_CHAP_H_ ***/

@@ -83,22 +83,28 @@ nf_nat_fn(unsigned int hooknum,
 	struct nf_conn *ct;
 	enum ip_conntrack_info ctinfo;
 	struct nf_conn_nat *nat;
-	
+	/* maniptype == SRC for postrouting. */
 	enum nf_nat_manip_type maniptype = HOOK2MANIP(hooknum);
 
+	/* We never see fragments: conntrack defrags on pre-routing
+	   and local-out, and nf_nat_out protects post-routing. */
 	NF_CT_ASSERT(!ip_is_fragment(ip_hdr(skb)));
 
 	ct = nf_ct_get(skb, &ctinfo);
+	/* Can't track?  It's not due to stress, or conntrack would
+	   have dropped it.  Hence it's the user's responsibilty to
+	   packet filter it out, or implement conntrack/NAT for that
+	   protocol. 8) --RR */
 	if (!ct)
 		return NF_ACCEPT;
 
-	
+	/* Don't try to NAT if this packet is not conntracked */
 	if (nf_ct_is_untracked(ct))
 		return NF_ACCEPT;
 
 	nat = nfct_nat(ct);
 	if (!nat) {
-		
+		/* NAT module was loaded late. */
 		if (nf_ct_is_confirmed(ct))
 			return NF_ACCEPT;
 		nat = nf_ct_ext_add(ct, NF_CT_EXT_NAT, GFP_ATOMIC);
@@ -118,9 +124,11 @@ nf_nat_fn(unsigned int hooknum,
 			else
 				return NF_ACCEPT;
 		}
-		
+		/* Fall thru... (Only ICMPs can be IP_CT_IS_REPLY) */
 	case IP_CT_NEW:
 
+		/* Seen it before?  This can happen for loopback, retrans,
+		   or local packets.. */
 		if (!nf_nat_initialized(ct, maniptype)) {
 			unsigned int ret;
 
@@ -134,7 +142,7 @@ nf_nat_fn(unsigned int hooknum,
 		break;
 
 	default:
-		
+		/* ESTABLISHED */
 		NF_CT_ASSERT(ctinfo == IP_CT_ESTABLISHED ||
 			     ctinfo == IP_CT_ESTABLISHED_REPLY);
 	}
@@ -173,7 +181,7 @@ nf_nat_out(unsigned int hooknum,
 #endif
 	unsigned int ret;
 
-	
+	/* root is playing with raw sockets. */
 	if (skb->len < sizeof(struct iphdr) ||
 	    ip_hdrlen(skb) < sizeof(struct iphdr))
 		return NF_ACCEPT;
@@ -206,7 +214,7 @@ nf_nat_local_fn(unsigned int hooknum,
 	enum ip_conntrack_info ctinfo;
 	unsigned int ret;
 
-	
+	/* root is playing with raw sockets. */
 	if (skb->len < sizeof(struct iphdr) ||
 	    ip_hdrlen(skb) < sizeof(struct iphdr))
 		return NF_ACCEPT;
@@ -231,9 +239,10 @@ nf_nat_local_fn(unsigned int hooknum,
 	return ret;
 }
 
+/* We must be after connection tracking and before packet filtering. */
 
 static struct nf_hook_ops nf_nat_ops[] __read_mostly = {
-	
+	/* Before packet filtering, change destination */
 	{
 		.hook		= nf_nat_in,
 		.owner		= THIS_MODULE,
@@ -241,7 +250,7 @@ static struct nf_hook_ops nf_nat_ops[] __read_mostly = {
 		.hooknum	= NF_INET_PRE_ROUTING,
 		.priority	= NF_IP_PRI_NAT_DST,
 	},
-	
+	/* After packet filtering, change source */
 	{
 		.hook		= nf_nat_out,
 		.owner		= THIS_MODULE,
@@ -249,7 +258,7 @@ static struct nf_hook_ops nf_nat_ops[] __read_mostly = {
 		.hooknum	= NF_INET_POST_ROUTING,
 		.priority	= NF_IP_PRI_NAT_SRC,
 	},
-	
+	/* Before packet filtering, change destination */
 	{
 		.hook		= nf_nat_local_fn,
 		.owner		= THIS_MODULE,
@@ -257,7 +266,7 @@ static struct nf_hook_ops nf_nat_ops[] __read_mostly = {
 		.hooknum	= NF_INET_LOCAL_OUT,
 		.priority	= NF_IP_PRI_NAT_DST,
 	},
-	
+	/* After packet filtering, change source */
 	{
 		.hook		= nf_nat_fn,
 		.owner		= THIS_MODULE,
@@ -307,7 +316,7 @@ static void __exit nf_nat_standalone_fini(void)
 	RCU_INIT_POINTER(ip_nat_decode_session, NULL);
 	synchronize_net();
 #endif
-	
+	/* Conntrack caches are unregistered in nf_conntrack_cleanup */
 }
 
 module_init(nf_nat_standalone_init);

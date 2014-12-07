@@ -25,12 +25,18 @@
 #include <linux/types.h>
 #include <plat/keyboard.h>
 
-#define MODE_REG	0x00	
-#define STATUS_REG	0x0C	
-#define DATA_REG	0x10	
+/* Keyboard Registers */
+#define MODE_REG	0x00	/* 16 bit reg */
+#define STATUS_REG	0x0C	/* 2 bit reg */
+#define DATA_REG	0x10	/* 8 bit reg */
 #define INTR_MASK	0x54
 
-#define PCLK_FREQ_MSK	0xA400	
+/* Register Values */
+/*
+ * pclk freq mask = (APB FEQ -1)= 82 MHZ.Programme bit 15-9 in mode
+ * control register as 1010010(82MHZ)
+ */
+#define PCLK_FREQ_MSK	0xA400	/* 82 MHz */
 #define START_SCAN	0x0100
 #define SCAN_RATE_10	0x0000
 #define SCAN_RATE_20	0x0004
@@ -73,7 +79,7 @@ static irqreturn_t spear_kbd_interrupt(int irq, void *dev_id)
 		kbd->last_key = KEY_RESERVED;
 	}
 
-	
+	/* following reads active (row, col) pair */
 	val = readb(kbd->io_base + DATA_REG);
 	key = kbd->keycodes[val];
 
@@ -83,7 +89,7 @@ static irqreturn_t spear_kbd_interrupt(int irq, void *dev_id)
 
 	kbd->last_key = key;
 
-	
+	/* clear interrupt */
 	writeb(0, kbd->io_base + STATUS_REG);
 
 	return IRQ_HANDLED;
@@ -101,13 +107,13 @@ static int spear_kbd_open(struct input_dev *dev)
 	if (error)
 		return error;
 
-	
+	/* program keyboard */
 	val = SCAN_RATE_80 | MODE_KEYBOARD | PCLK_FREQ_MSK |
 		(kbd->mode << KEY_MATRIX_SHIFT);
 	writew(val, kbd->io_base + MODE_REG);
 	writeb(1, kbd->io_base + STATUS_REG);
 
-	
+	/* start key scan */
 	val = readw(kbd->io_base + MODE_REG);
 	val |= START_SCAN;
 	writew(val, kbd->io_base + MODE_REG);
@@ -120,7 +126,7 @@ static void spear_kbd_close(struct input_dev *dev)
 	struct spear_kbd *kbd = input_get_drvdata(dev);
 	u16 val;
 
-	
+	/* stop key scan */
 	val = readw(kbd->io_base + MODE_REG);
 	val &= ~START_SCAN;
 	writew(val, kbd->io_base + MODE_REG);

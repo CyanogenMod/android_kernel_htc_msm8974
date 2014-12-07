@@ -14,4 +14,4 @@ struct i2c_slave_client {
 	void (*write)(void *ptr, unsigned int val);
 };
 
-#endif 
+#endif /* _LINUX_I2C_ALGO_PXA_H */

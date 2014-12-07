@@ -41,6 +41,9 @@ static void snd_ak4531_proc_init(struct snd_card *card, struct snd_ak4531 *ak453
 #define snd_ak4531_proc_init(card,ak)
 #endif
 
+/*
+ *
+ */
  
 #if 0
 
@@ -55,6 +58,9 @@ static void snd_ak4531_dump(struct snd_ak4531 *ak4531)
 
 #endif
 
+/*
+ *
+ */
 
 #define AK4531_SINGLE(xname, xindex, reg, shift, mask, invert) \
 { .iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, .index = xindex, \
@@ -349,32 +355,32 @@ static int snd_ak4531_dev_free(struct snd_device *device)
 }
 
 static u8 snd_ak4531_initial_map[0x19 + 1] = {
-	0x9f,		
-	0x9f,		
-	0x9f,		
-	0x9f,		
-	0x9f,		
-	0x9f,		
-	0x9f,		
-	0x9f,		
-	0x9f,		
-	0x9f,		
-	0x9f,		
-	0x9f,		
-	0x9f,		
-	0x9f,		
-	0x9f,		
-	0x87,		
-	0x00,		
-	0x00,		
-	0x00,		
-	0x00,		
-	0x00,		
-	0x00,		
-	0x00,		
-	0x00,		
-	0x00,		
-	0x01		
+	0x9f,		/* 00: Master Volume Lch */
+	0x9f,		/* 01: Master Volume Rch */
+	0x9f,		/* 02: Voice Volume Lch */
+	0x9f,		/* 03: Voice Volume Rch */
+	0x9f,		/* 04: FM Volume Lch */
+	0x9f,		/* 05: FM Volume Rch */
+	0x9f,		/* 06: CD Audio Volume Lch */
+	0x9f,		/* 07: CD Audio Volume Rch */
+	0x9f,		/* 08: Line Volume Lch */
+	0x9f,		/* 09: Line Volume Rch */
+	0x9f,		/* 0a: Aux Volume Lch */
+	0x9f,		/* 0b: Aux Volume Rch */
+	0x9f,		/* 0c: Mono1 Volume */
+	0x9f,		/* 0d: Mono2 Volume */
+	0x9f,		/* 0e: Mic Volume */
+	0x87,		/* 0f: Mono-out Volume */
+	0x00,		/* 10: Output Mixer SW1 */
+	0x00,		/* 11: Output Mixer SW2 */
+	0x00,		/* 12: Lch Input Mixer SW1 */
+	0x00,		/* 13: Rch Input Mixer SW1 */
+	0x00,		/* 14: Lch Input Mixer SW2 */
+	0x00,		/* 15: Rch Input Mixer SW2 */
+	0x00,		/* 16: Reset & Power Down */
+	0x00,		/* 17: Clock Select */
+	0x00,		/* 18: AD Input Select */
+	0x01		/* 19: Mic Amp Setup */
 };
 
 int __devinit snd_ak4531_mixer(struct snd_card *card,
@@ -402,13 +408,13 @@ int __devinit snd_ak4531_mixer(struct snd_card *card,
 		return err;
 	}
 	strcpy(card->mixername, "Asahi Kasei AK4531");
-	ak4531->write(ak4531, AK4531_RESET, 0x03);	
+	ak4531->write(ak4531, AK4531_RESET, 0x03);	/* no RST, PD */
 	udelay(100);
-	ak4531->write(ak4531, AK4531_CLOCK, 0x00);	
+	ak4531->write(ak4531, AK4531_CLOCK, 0x00);	/* CODEC ADC and CODEC DAC use {LR,B}CLK2 and run off LRCLK2 PLL */
 	for (idx = 0; idx <= 0x19; idx++) {
 		if (idx == AK4531_RESET || idx == AK4531_CLOCK)
 			continue;
-		ak4531->write(ak4531, idx, ak4531->regs[idx] = snd_ak4531_initial_map[idx]);	
+		ak4531->write(ak4531, idx, ak4531->regs[idx] = snd_ak4531_initial_map[idx]);	/* recording source is mixer */
 	}
 	for (idx = 0; idx < ARRAY_SIZE(snd_ak4531_controls); idx++) {
 		if ((err = snd_ctl_add(card, snd_ctl_new1(&snd_ak4531_controls[idx], ak4531))) < 0) {
@@ -430,13 +436,16 @@ int __devinit snd_ak4531_mixer(struct snd_card *card,
 	return 0;
 }
 
+/*
+ * power management
+ */
 #ifdef CONFIG_PM
 void snd_ak4531_suspend(struct snd_ak4531 *ak4531)
 {
-	
+	/* mute */
 	ak4531->write(ak4531, AK4531_LMASTER, 0x9f);
 	ak4531->write(ak4531, AK4531_RMASTER, 0x9f);
-	
+	/* powerdown */
 	ak4531->write(ak4531, AK4531_RESET, 0x01);
 }
 
@@ -444,11 +453,11 @@ void snd_ak4531_resume(struct snd_ak4531 *ak4531)
 {
 	int idx;
 
-	
+	/* initialize */
 	ak4531->write(ak4531, AK4531_RESET, 0x03);
 	udelay(100);
 	ak4531->write(ak4531, AK4531_CLOCK, 0x00);
-	
+	/* restore mixer registers */
 	for (idx = 0; idx <= 0x19; idx++) {
 		if (idx == AK4531_RESET || idx == AK4531_CLOCK)
 			continue;
@@ -458,6 +467,9 @@ void snd_ak4531_resume(struct snd_ak4531 *ak4531)
 #endif
 
 #ifdef CONFIG_PROC_FS
+/*
+ * /proc interface
+ */
 
 static void snd_ak4531_proc_read(struct snd_info_entry *entry, 
 				 struct snd_info_buffer *buffer)

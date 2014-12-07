@@ -10,6 +10,11 @@
 #include "skas.h"
 #include "sysdep/tls.h"
 
+/*
+ * If needed we can detect when it's uninitialized.
+ *
+ * These are initialized in an initcall and unchanged thereafter.
+ */
 static int host_supports_tls = -1;
 int host_gdt_entry_tls_min;
 
@@ -45,6 +50,14 @@ int do_get_thread_area(struct user_desc *info)
 	return ret;
 }
 
+/*
+ * sys_get_thread_area: get a yet unused TLS descriptor index.
+ * XXX: Consider leaving one free slot for glibc usage at first place. This must
+ * be done here (and by changing GDT_ENTRY_TLS_* macros) and nowhere else.
+ *
+ * Also, this must be tested when compiling in SKAS mode with dynamic linking
+ * and running against NPTL.
+ */
 static int get_free_idx(struct task_struct* task)
 {
 	struct thread_struct *t = &task->thread;
@@ -61,9 +74,13 @@ static int get_free_idx(struct task_struct* task)
 
 static inline void clear_user_desc(struct user_desc* info)
 {
-	
+	/* Postcondition: LDT_empty(info) returns true. */
 	memset(info, 0, sizeof(*info));
 
+	/*
+	 * Check the LDT_empty or the i386 sys_get_thread_area code - we obtain
+	 * indeed an empty user_desc.
+	 */
 	info->read_exec_only = 1;
 	info->seg_not_present = 1;
 }
@@ -79,6 +96,10 @@ static int load_TLS(int flags, struct task_struct *to)
 		struct uml_tls_struct* curr =
 			&to->thread.arch.tls_array[idx - GDT_ENTRY_TLS_MIN];
 
+		/*
+		 * Actually, now if it wasn't flushed it gets cleared and
+		 * flushed to the host, which will clear it.
+		 */
 		if (!curr->present) {
 			if (!curr->flushed) {
 				clear_user_desc(&curr->tls);
@@ -102,6 +123,10 @@ out:
 	return ret;
 }
 
+/*
+ * Verify if we need to do a flush for the new process, i.e. if there are any
+ * present desc's, only if they haven't been flushed.
+ */
 static inline int needs_TLS_update(struct task_struct *task)
 {
 	int i;
@@ -111,6 +136,10 @@ static inline int needs_TLS_update(struct task_struct *task)
 		struct uml_tls_struct* curr =
 			&task->thread.arch.tls_array[i - GDT_ENTRY_TLS_MIN];
 
+		/*
+		 * Can't test curr->present, we may need to clear a descriptor
+		 * which had a value.
+		 */
 		if (curr->flushed)
 			continue;
 		ret = 1;
@@ -119,6 +148,10 @@ static inline int needs_TLS_update(struct task_struct *task)
 	return ret;
 }
 
+/*
+ * On a newly forked process, the TLS descriptors haven't yet been flushed. So
+ * we mark them as such and the first switch_to will do the job.
+ */
 void clear_flushed_tls(struct task_struct *task)
 {
 	int i;
@@ -127,6 +160,10 @@ void clear_flushed_tls(struct task_struct *task)
 		struct uml_tls_struct* curr =
 			&task->thread.arch.tls_array[i - GDT_ENTRY_TLS_MIN];
 
+		/*
+		 * Still correct to do this, if it wasn't present on the host it
+		 * will remain as flushed as it was.
+		 */
 		if (!curr->present)
 			continue;
 
@@ -134,12 +171,27 @@ void clear_flushed_tls(struct task_struct *task)
 	}
 }
 
+/*
+ * In SKAS0 mode, currently, multiple guest threads sharing the same ->mm have a
+ * common host process. So this is needed in SKAS0 too.
+ *
+ * However, if each thread had a different host process (and this was discussed
+ * for SMP support) this won't be needed.
+ *
+ * And this will not need be used when (and if) we'll add support to the host
+ * SKAS patch.
+ */
 
 int arch_switch_tls(struct task_struct *to)
 {
 	if (!host_supports_tls)
 		return 0;
 
+	/*
+	 * We have no need whatsoever to switch TLS for kernel threads; beyond
+	 * that, that would also result in us calling os_set_thread_area with
+	 * userspace_pid[cpu] == 0, which gives an error.
+	 */
 	if (likely(to->mm))
 		return load_TLS(O_FORCE, to);
 
@@ -182,6 +234,7 @@ out:
 	return ret;
 }
 
+/* XXX: use do_get_thread_area to read the host value? I'm not at all sure! */
 static int get_tls_entry(struct task_struct *task, struct user_desc *info,
 			 int idx)
 {
@@ -199,6 +252,10 @@ static int get_tls_entry(struct task_struct *task, struct user_desc *info,
 	*info = t->arch.tls_array[idx - GDT_ENTRY_TLS_MIN].tls;
 
 out:
+	/*
+	 * Temporary debugging check, to make sure that things have been
+	 * flushed. This could be triggered if load_TLS() failed.
+	 */
 	if (unlikely(task == current &&
 		     !t->arch.tls_array[idx - GDT_ENTRY_TLS_MIN].flushed)) {
 		printk(KERN_ERR "get_tls_entry: task with pid %d got here "
@@ -207,6 +264,11 @@ out:
 
 	return 0;
 clear:
+	/*
+	 * When the TLS entry has not been set, the values read to user in the
+	 * tls_array are 0 (because it's cleared at boot, see
+	 * arch/i386/kernel/head.S:cpu_gdt_table). Emulate that.
+	 */
 	clear_user_desc(info);
 	info->entry_number = idx;
 	goto out;
@@ -230,7 +292,7 @@ int sys_set_thread_area(struct user_desc __user *user_desc)
 		if (idx < 0)
 			return idx;
 		info.entry_number = idx;
-		
+		/* Tell the user which slot we chose for him.*/
 		if (put_user(idx, &user_desc->entry_number))
 			return -EFAULT;
 	}
@@ -241,6 +303,11 @@ int sys_set_thread_area(struct user_desc __user *user_desc)
 	return set_tls_entry(current, &info, idx, 1);
 }
 
+/*
+ * Perform set_thread_area on behalf of the traced child.
+ * Note: error handling is not done on the deferred load, and this differ from
+ * i386. However the only possible error are caused by bugs.
+ */
 int ptrace_set_thread_area(struct task_struct *child, int idx,
 			   struct user_desc __user *user_desc)
 {
@@ -277,6 +344,9 @@ out:
 	return ret;
 }
 
+/*
+ * Perform get_thread_area on behalf of the traced child.
+ */
 int ptrace_get_thread_area(struct task_struct *child, int idx,
 		struct user_desc __user *user_desc)
 {
@@ -296,6 +366,10 @@ out:
 	return ret;
 }
 
+/*
+ * This code is really i386-only, but it detects and logs x86_64 GDT indexes
+ * if a 32-bit UML is running on a 64-bit host.
+ */
 static int __init __setup_host_supports_tls(void)
 {
 	check_host_supports_tls(&host_supports_tls, &host_gdt_entry_tls_min);

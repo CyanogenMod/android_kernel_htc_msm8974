@@ -33,17 +33,21 @@
 #include <msp_regs.h>
 #include <msp_regops.h>
 
+/* For hwbutton_interrupt->initial_state */
 #define HWBUTTON_HI	0x1
 #define HWBUTTON_LO	0x2
 
+/*
+ * This struct describes a hardware button
+ */
 struct hwbutton_interrupt {
-	char *name;			
-	int irq;			
-	int eirq;			
-	int initial_state;		
-	void (*handle_hi)(void *);	
-	void (*handle_lo)(void *);	
-	void *data;			
+	char *name;			/* Name of button */
+	int irq;			/* Actual LINUX IRQ */
+	int eirq;			/* Extended IRQ number (0-7) */
+	int initial_state;		/* The "normal" state of the switch */
+	void (*handle_hi)(void *);	/* Handler: switch input has gone HI */
+	void (*handle_lo)(void *);	/* Handler: switch input has gone LO */
+	void *data;			/* Optional data to pass to handler */
 };
 
 #ifdef CONFIG_PMC_MSP7120_GW
@@ -53,6 +57,12 @@ static void softreset_push(void *data)
 {
 	printk(KERN_WARNING "SOFTRESET switch was pushed\n");
 
+	/*
+	 * In the future you could move this to the release handler,
+	 * timing the difference between the 'push' and 'release', and only
+	 * doing this ungraceful restart if the button has been down for
+	 * a certain amount of time; otherwise doing a graceful restart.
+	 */
 
 	msp_restart(NULL);
 }
@@ -61,14 +71,14 @@ static void softreset_release(void *data)
 {
 	printk(KERN_WARNING "SOFTRESET switch was released\n");
 
-	
+	/* Do nothing */
 }
 
 static void standby_on(void *data)
 {
 	printk(KERN_WARNING "STANDBY switch was set to ON (not implemented)\n");
 
-	
+	/* TODO: Put board in standby mode */
 }
 
 static void standby_off(void *data)
@@ -76,7 +86,7 @@ static void standby_off(void *data)
 	printk(KERN_WARNING
 		"STANDBY switch was set to OFF (not implemented)\n");
 
-	
+	/* TODO: Take out of standby mode */
 }
 
 static struct hwbutton_interrupt softreset_sw = {
@@ -98,7 +108,7 @@ static struct hwbutton_interrupt standby_sw = {
 	.handle_lo = standby_on,
 	.data = NULL,
 };
-#endif 
+#endif /* CONFIG_PMC_MSP7120_GW */
 
 static irqreturn_t hwbutton_handler(int irq, void *data)
 {
@@ -106,15 +116,19 @@ static irqreturn_t hwbutton_handler(int irq, void *data)
 	unsigned long cic_ext = *CIC_EXT_CFG_REG;
 
 	if (CIC_EXT_IS_ACTIVE_HI(cic_ext, hirq->eirq)) {
-		
+		/* Interrupt: pin is now HI */
 		CIC_EXT_SET_ACTIVE_LO(cic_ext, hirq->eirq);
 		hirq->handle_hi(hirq->data);
 	} else {
-		
+		/* Interrupt: pin is now LO */
 		CIC_EXT_SET_ACTIVE_HI(cic_ext, hirq->eirq);
 		hirq->handle_lo(hirq->data);
 	}
 
+	/*
+	 * Invert the POLARITY of this level interrupt to ack the interrupt
+	 * Thus next state change will invoke the opposite message
+	 */
 	*CIC_EXT_CFG_REG = cic_ext;
 
 	return IRQ_HANDLED;

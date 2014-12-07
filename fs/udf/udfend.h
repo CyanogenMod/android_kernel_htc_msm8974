@@ -74,4 +74,4 @@ static inline struct kernel_extent_ad leea_to_cpu(struct extent_ad in)
 	return out;
 }
 
-#endif 
+#endif /* __UDF_ENDIAN_H */

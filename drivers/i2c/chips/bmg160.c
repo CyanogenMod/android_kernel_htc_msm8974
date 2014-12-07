@@ -1,3 +1,13 @@
+/*
+ *****************************************************************************
+ *
+ * (C) All rights reserved by ROBERT BOSCH GMBH
+ *
+ *****************************************************************************/
+/*  Date: 2010/05/31
+ *  Revision: 1.0
+ *
+ */
 
 /******************************************************************************
 * Copyright (C) 2007 Bosch Sensortec GmbH
@@ -8,6 +18,7 @@
 *
 * Author:       gokul.rajendran@in.bosch.com
 ******************************************************************************/
+/*****************************************************************************/
 /*  Disclaimer
 *
 * Common:
@@ -73,10 +84,50 @@
 * It is not allowed to deliver the source code of the Software to any third
 * party without permission of Bosch Sensortec.
 */
+/*****************************************************************************/
+/*! \file BMG160.c
+    \brief Driver for BMG160 */
+/*#include "bmg160.h"*/
 #include <linux/bmg160.h>
 struct bmg160_t *p_bmg160;
 
 
+/*****************************************************************************
+ * Description: *//**\brief API Initialization routine
+ *
+ *
+ *
+ *
+ *  \param bmg160_t *bmg160
+ *      Pointer to a structure.
+ *
+ *       structure members are
+ *
+ *       unsigned char chip_id;
+ *       unsigned char dev_addr;
+ *       BMG160_BRD_FUNC_PTR;
+ *       BMG160_WR_FUNC_PTR;
+ *       BMG160_RD_FUNC_PTR;
+ *       void(*delay_msec)( BMG160_MDELAY_DATA_TYPE );
+ *
+ *
+ *
+ *
+ *
+ *  \return result of communication routines
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_init(struct bmg160_t *bmg160)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres = 0;
@@ -85,12 +136,42 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_init(struct bmg160_t *bmg160)
 
 	p_bmg160->dev_addr = BMG160_I2C_ADDR;
 
-	
+	/*Read CHIP_ID */
 	comres = p_bmg160->BMG160_BUS_READ_FUNC(p_bmg160->dev_addr,\
 	 BMG160_CHIP_ID_ADDR, &a_data_u8r, 1);
 	p_bmg160->chip_id = a_data_u8r;
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief Reads Rate dataX from location 02h and 03h
+ * registers
+ *
+ *
+ *
+ *
+ *  \param
+ *      BMG160_S16  *data_x   :  Address of data_x
+ *
+ *
+ *  \return
+ *      result of communication routines
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_dataX(BMG160_S16 *data_x)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -108,6 +189,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_dataX(BMG160_S16 *data_x)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief Reads rate dataY from location 04h and 05h
+ * registers
+ *
+ *
+ *
+ *
+ *  \param
+ *      BMG160_S16  *data_y   :  Address of data_y
+ *
+ *
+ *  \return
+ *      result of communication routines
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_dataY(BMG160_S16 *data_y)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -125,6 +236,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_dataY(BMG160_S16 *data_y)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief Reads rate dataZ from location 06h and 07h
+ * registers
+ *
+ *
+ *
+ *
+ *  \param
+ *      BMG160_S16  *data_z   :  Address of data_z
+ *
+ *
+ *  \return
+ *      result of communication routines
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_dataZ(BMG160_S16 *data_z)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -142,6 +283,35 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_dataZ(BMG160_S16 *data_z)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief Reads data X,Y and Z from location 02h to 07h
+ *
+ *
+ *
+ *
+ *  \param
+ *      bmg160_data_t *data   :  Address of bmg160_data_t
+ *
+ *
+ *  \return
+ *      result of communication routines
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_dataXYZ(struct bmg160_data_t *data)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -151,19 +321,19 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_dataXYZ(struct bmg160_data_t *data)
 	} else {
 		comres = p_bmg160->BMG160_BUS_READ_FUNC(p_bmg160->dev_addr,\
 		 BMG160_RATE_X_LSB_VALUEX__REG, a_data_u8r, 6);
-		
+		/* Data X */
 		a_data_u8r[0] = \
 		BMG160_GET_BITSLICE(a_data_u8r[0], BMG160_RATE_X_LSB_VALUEX);
 		data->datax = (BMG160_S16)\
 		((((BMG160_S16)((signed char)a_data_u8r[1]))\
 		<< BMG160_SHIFT_8_POSITION) | (a_data_u8r[0]));
-		
+		/* Data Y */
 		a_data_u8r[2] = BMG160_GET_BITSLICE(a_data_u8r[2],\
 		BMG160_RATE_Y_LSB_VALUEY);
 		data->datay = (BMG160_S16)\
 		((((BMG160_S16)((signed char)a_data_u8r[3]))\
 		<< BMG160_SHIFT_8_POSITION) | (a_data_u8r[2]));
-		
+		/* Data Z */
 		a_data_u8r[4] = BMG160_GET_BITSLICE(a_data_u8r[4],\
 		BMG160_RATE_Z_LSB_VALUEZ);
 		data->dataz = (BMG160_S16)\
@@ -172,6 +342,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_dataXYZ(struct bmg160_data_t *data)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief Reads data X,Y,Z and Interrupts
+ *							from location 02h to 07h
+ *
+ *
+ *
+ *
+ *  \param
+ *      bmg160_data_t *data   :  Address of bmg160_data_t
+ *
+ *
+ *  \return
+ *      result of communication routines
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_dataXYZI(struct bmg160_data_t *data)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -181,19 +381,19 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_dataXYZI(struct bmg160_data_t *data)
 	} else {
 		comres = p_bmg160->BMG160_BUS_READ_FUNC(p_bmg160->dev_addr,\
 		 BMG160_RATE_X_LSB_VALUEX__REG, a_data_u8r, 12);
-		
+		/* Data X */
 		a_data_u8r[0] = BMG160_GET_BITSLICE(a_data_u8r[0],\
 		BMG160_RATE_X_LSB_VALUEX);
 		data->datax = (BMG160_S16)\
 		((((BMG160_S16)((signed char)a_data_u8r[1]))\
 		<< BMG160_SHIFT_8_POSITION) | (a_data_u8r[0]));
-		
+		/* Data Y */
 		a_data_u8r[2] = BMG160_GET_BITSLICE(a_data_u8r[2],\
 		BMG160_RATE_Y_LSB_VALUEY);
 		data->datay = (BMG160_S16)\
 		((((BMG160_S16)((signed char)a_data_u8r[3]))\
 		<< BMG160_SHIFT_8_POSITION) | (a_data_u8r[2]));
-		
+		/* Data Z */
 		a_data_u8r[4] = BMG160_GET_BITSLICE(a_data_u8r[4],\
 		BMG160_RATE_Z_LSB_VALUEZ);
 		data->dataz = (BMG160_S16)\
@@ -207,6 +407,35 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_dataXYZI(struct bmg160_data_t *data)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief Reads Temperature from location 08h
+ *
+ *
+ *
+ *
+ *  \param
+ *      unsigned char *temp   :  Address of temperature
+ *
+ *
+ *  \return
+ *      result of communication routines
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_Temperature(unsigned char *temperature)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -220,6 +449,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_Temperature(unsigned char *temperature)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API reads the data from the given register
+ *
+ *
+ *
+ *
+ *  \param unsigned char addr, unsigned char *data unsigned char len
+ *                       addr -> Address of the register
+ *                       data -> address of the variable, read value will be
+ *								kept
+ *						len -> No of byte to be read.
+ *  \return  results of bus communication function
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_read_register(unsigned char addr,\
 unsigned char *data, unsigned char len)
 {
@@ -232,6 +491,36 @@ unsigned char *data, unsigned char len)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API reads the data from the given register
+ *
+ *
+ *
+ *
+ *  \param unsigned char addr, unsigned char *data BMG160_S32 len
+ *                       addr -> Address of the register
+ *                       data -> address of the variable, read value will be
+ *								kept
+ *						len -> No of byte to be read.
+ *  \return  results of bus communication function
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_burst_read(unsigned char addr,\
 unsigned char reg, unsigned char *data, BMG160_S32 len)
 {
@@ -244,7 +533,13 @@ unsigned char reg, unsigned char *data, BMG160_S32 len)
 	}
 	return comres;
 }
-/**\brief This API given data to the given register
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API given data to the given register
  *
  *
  *
@@ -256,6 +551,16 @@ unsigned char reg, unsigned char *data, BMG160_S32 len)
  *
  *  \return Results of bus communication function
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_write_register(unsigned char addr,\
@@ -270,6 +575,35 @@ unsigned char *data, unsigned char len)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief Reads interrupt status 0 register byte from 09h
+ *
+ *
+ *
+ *
+ *  \param
+ *      unsigned char *status0_data : Address of status 0 register
+ *
+ *
+ *  \return
+ *      Result of bus communication function
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_interrupt_status_reg_0(\
 unsigned char *status0_data)
@@ -287,6 +621,35 @@ unsigned char *status0_data)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief Reads interrupt status 1 register byte from 0Ah
+ *
+ *
+ *
+ *
+ *  \param
+ *      unsigned char *status1_data : Address of status register
+ *
+ *
+ *  \return
+ *      Result of bus communication function
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_interrupt_status_reg_1(\
 unsigned char *status1_data)
@@ -304,6 +667,35 @@ unsigned char *status1_data)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief Reads interrupt status register byte from 0Bh
+ *
+ *
+ *
+ *
+ *  \param
+ *      unsigned char *status2_data : Address of status 2 register
+ *
+ *
+ *  \return
+ *      Result of bus communication function
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_interrupt_status_reg_2(\
 unsigned char *status2_data)
@@ -321,6 +713,35 @@ unsigned char *status2_data)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief Reads interrupt status 3 register byte from 0Ch
+ *
+ *
+ *
+ *
+ *  \param
+ *      unsigned char *status3_data : Address of status 3 register
+ *
+ *
+ *  \return
+ *      Result of bus communication function
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_interrupt_status_reg_3(\
 unsigned char *status3_data)
@@ -338,6 +759,44 @@ unsigned char *status3_data)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API reads the range from register 0x0Fh of
+ * (0 to 2) bits
+ *
+ *
+ *
+ *
+ *  \param unsigned char *range
+ *      Range[0....7]
+ *      0 2000/s
+ *      1 1000/s
+ *      2 500/s
+ *      3 250/s
+ *      4 125/s
+ *
+ *
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_range_reg(unsigned char *range)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -353,6 +812,44 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_range_reg(unsigned char *range)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API sets the range register 0x0Fh
+ * (0 to 2 bits)
+ *
+ *
+ *
+ *
+ *  \param unsigned char range
+ *
+ *      Range[0....7]
+ *      0 2000/s
+ *      1 1000/s
+ *      2 500/s
+ *      3 250/s
+ *      4 125/s
+ *
+ *
+ *
+ *
+ *  \return Communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_range_reg(unsigned char range)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -376,6 +873,37 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_range_reg(unsigned char range)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API reads the high resolution bit of 0x10h
+ * Register 7th bit
+ *
+ *
+ *
+ *
+ *  \param unsigned char *high_res
+ *                      Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_high_res(unsigned char *high_res)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -391,6 +919,46 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_high_res(unsigned char *high_res)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API reads the bandwidth register of 0x10h 0 to
+ *  3 bits
+ *
+ *
+ *
+ *
+ *  \param  unsigned char *bandwidth
+ *              pointer to a variable passed as a parameter
+ *
+ *              0 no filter(523 Hz)
+ *              1 230Hz
+ *              2 116Hz
+ *              3 47Hz
+ *              4 23Hz
+ *              5 12Hz
+ *              6 64Hz
+ *              7 32Hz
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_bw(unsigned char *bandwidth)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -405,6 +973,47 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_bw(unsigned char *bandwidth)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API writes the Bandwidth register (0x10h of 0
+ * to 3 bits)
+ *
+ *
+ *
+ *
+ *  \param unsigned char bandwidth,
+ *              The bandwidth to be set passed as a parameter
+ *
+ *              0 no filter(523 Hz)
+ *              1 230Hz
+ *              2 116Hz
+ *              3 47Hz
+ *              4 23Hz
+ *              5 12Hz
+ *              6 64Hz
+ *              7 32Hz
+ *
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_bw(unsigned char bandwidth)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -435,6 +1044,42 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_bw(unsigned char bandwidth)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API reads the status of External Trigger
+ * selection bits (4 and 5) of 0x12h registers
+ *
+ *
+ *
+ *
+ *  \param unsigned char *pwu_ext_tri_sel
+ *                      Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return Communication Results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_pmu_ext_tri_sel(\
 unsigned char *pwu_ext_tri_sel)
 {
@@ -450,7 +1095,13 @@ unsigned char *pwu_ext_tri_sel)
 	}
 	return comres;
 }
-/**\brief This API writes the External Trigger selection
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API writes the External Trigger selection
  * bits (4 and 5) of 0x12h registers
  *
  *
@@ -463,6 +1114,16 @@ unsigned char *pwu_ext_tri_sel)
  *
  *  \return Communication Results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_pmu_ext_tri_sel(\
@@ -482,6 +1143,36 @@ unsigned char pwu_ext_tri_sel)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief  This API is used to get data high bandwidth
+ *
+ *
+ *
+ *
+ *  \param unsigned char *high_bw : Address of high_bw
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_high_bw(unsigned char *high_bw)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -496,7 +1187,13 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_high_bw(unsigned char *high_bw)
 	}
 	return comres;
 }
-/**\brief This API is used to set data high bandwidth
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set data high bandwidth
  *
  *
  *
@@ -508,6 +1205,16 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_high_bw(unsigned char *high_bw)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_high_bw(unsigned char high_bw)
@@ -534,6 +1241,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_high_bw(unsigned char high_bw)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get shadow dis
+ *
+ *
+ *
+ *
+ *  \param unsigned char *shadow_dis : Address of shadow_dis
+ *                       Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_shadow_dis(unsigned char *shadow_dis)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -548,7 +1285,13 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_shadow_dis(unsigned char *shadow_dis)
 	}
 	return comres;
 }
-/**\brief This API is used to set shadow dis
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set shadow dis
  *
  *
  *
@@ -561,6 +1304,16 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_shadow_dis(unsigned char *shadow_dis)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_shadow_dis(unsigned char shadow_dis)
@@ -585,7 +1338,13 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_shadow_dis(unsigned char shadow_dis)
 	}
 	return comres;
 }
-/**\brief
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief
  *               This function is used for the soft reset
  *     The soft reset register will be written with 0xB6.
  *
@@ -597,6 +1356,16 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_shadow_dis(unsigned char shadow_dis)
  *
  *  \return Communication results.
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_soft_reset()
@@ -612,6 +1381,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_soft_reset()
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get data enable data
+ *
+ *
+ *
+ *
+ *  \param unsigned char *data_en : Address of data_en
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_data_enable(unsigned char *data_en)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -626,7 +1425,13 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_data_enable(unsigned char *data_en)
 	}
 	return comres;
 }
-/**\brief This API is used to set data enable data
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set data enable data
  *
  *
  *
@@ -640,6 +1445,16 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_data_enable(unsigned char *data_en)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_data_en(unsigned char data_en)
@@ -660,6 +1475,37 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_data_en(unsigned char data_en)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get fifo enable bit
+ *
+ *
+ *
+ *
+ *  \param unsigned char *fifo_en : Address of fifo_en
+ *                         Pointer to a variable passed as a parameter
+
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_fifo_enable(unsigned char *fifo_en)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -674,7 +1520,13 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_fifo_enable(unsigned char *fifo_en)
 	}
 	return comres;
 }
-/**\brief This API is used to set fifo enable bit
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set fifo enable bit
  *
  *
  *
@@ -688,6 +1540,16 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_fifo_enable(unsigned char *fifo_en)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_fifo_enable(unsigned char fifo_en)
@@ -712,6 +1574,38 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_fifo_enable(unsigned char fifo_en)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API reads the status of the Auto offset
+ * Enable bit
+ *                      (0x15 Reg 3rd Bit)
+ *
+ *
+ *
+ *
+ *  \param unsigned char *offset_en
+ *              address of a variable,
+ *
+ *
+ *
+ *  \return   Communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_auto_offset_en(\
 unsigned char *offset_en)
 {
@@ -727,6 +1621,36 @@ unsigned char *offset_en)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API sets the Auto offset enable bit
+ *                      (Reg 0x15 3rd Bit)
+ *
+ *
+ *
+ *
+ *  \param unsigned char offset_en
+ *                      0 --> Disable
+ *                      1 --> Enable
+ *
+ *  \return  Communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_auto_offset_en(unsigned char offset_en)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -743,6 +1667,40 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_auto_offset_en(unsigned char offset_en)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the output type status
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *int_od
+ *                  BMG160_INT1    ->   0
+ *                  BMG160_INT2    ->   1
+ *                  int_od : open drain   ->   1
+ *                           push pull    ->   0
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_int_od(unsigned char param,\
 unsigned char *int_od)
 {
@@ -773,6 +1731,39 @@ unsigned char *int_od)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the output type status
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *int_od
+ *                  BMG160_INT1    ->   0
+ *                  BMG160_INT2    ->   1
+ *                  int_od : open drain   ->   1
+ *                           push pull    ->   0
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_int_od(unsigned char param,\
 unsigned char int_od)
 {
@@ -809,6 +1800,39 @@ unsigned char int_od)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get Active Level status
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *int_lvl
+ *                  BMG160_INT1    ->    0
+ *                  BMG160_INT2    ->    1
+ *                  int_lvl : Active HI   ->   1
+ *                            Active LO   ->   0
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_int_lvl(unsigned char param,\
 unsigned char *int_lvl)
 {
@@ -839,6 +1863,39 @@ unsigned char *int_lvl)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set Active Level status
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *int_lvl
+ *                  BMG160_INT1    ->    0
+ *                  BMG160_INT2    ->    1
+ *                  int_lvl : Active HI   ->   1
+ *                            Active LO   ->   0
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_int_lvl(unsigned char param,\
 unsigned char int_lvl)
 {
@@ -875,6 +1932,37 @@ unsigned char int_lvl)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get High Interrupt1
+ *
+ *
+ *
+ *
+ *  \param unsigned char *int1_high : Address of high_bw
+ *                         Pointer to a variable passed as a parameter
+
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_int1_high(unsigned char *int1_high)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -889,6 +1977,35 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_int1_high(unsigned char *int1_high)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set High Interrupt1
+ *
+ *
+ *
+ *
+ *  \param unsigned char int1_high
+ *                  0 -> Disable
+ *                  1 -> Enable
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_int1_high(unsigned char int1_high)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -905,6 +2022,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_int1_high(unsigned char int1_high)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get Any Interrupt1
+ *
+ *
+ *
+ *
+ *  \param unsigned char *int1_any : Address of high_bw
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_int1_any(unsigned char *int1_any)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -919,6 +2066,35 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_int1_any(unsigned char *int1_any)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set Any Interrupt1
+ *
+ *
+ *
+ *
+ *  \param unsigned char int1_any
+ *                   0 -> Disable
+ *                   1 -> Enable
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_int1_any(unsigned char int1_any)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -935,6 +2111,41 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_int1_any(unsigned char int1_any)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get data Interrupt1 and data
+ * Interrupt2
+ *
+ *
+ *
+ *
+ *  \param unsigned char axis,unsigned char *int_data
+ *                       axis :
+ *                       BMG160_INT1_DATA -> 0
+ *                       BMG160_INT2_DATA -> 1
+ *                       int_data :
+ *                       Disable     -> 0
+ *                       Enable      -> 1
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_int_data(unsigned char axis,\
 unsigned char *int_data)
 {
@@ -965,6 +2176,42 @@ unsigned char *int_data)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set data Interrupt1 and data
+ * Interrupt2
+ *
+ *
+ *
+ *
+ *  \param unsigned char axis,unsigned char *int_data
+ *                       axis :
+ *                       BMG160_INT1_DATA -> 0
+ *                       BMG160_INT2_DATA -> 1
+ *                       int_data :
+ *                       Disable     -> 0
+ *                       Enable      -> 1
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_int_data(unsigned char axis,\
 unsigned char int_data)
 {
@@ -1005,6 +2252,42 @@ unsigned char int_data)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get fast offset and auto
+ * offset Interrupt2
+ *
+ *
+ *
+ *
+ *  \param unsigned char axis,unsigned char *int2_offset
+ *                       axis :
+ *                       BMG160_AUTO_OFFSET -> 1
+ *                       BMG160_FAST_OFFSET -> 2
+ *                       int2_offset :
+ *                       Disable     -> 0
+ *                       Enable      -> 1
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_int2_offset(unsigned char axis,\
 unsigned char *int2_offset)
 {
@@ -1035,6 +2318,42 @@ unsigned char *int2_offset)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set fast offset and auto
+ * offset Interrupt2
+ *
+ *
+ *
+ *
+ *  \param unsigned char axis,unsigned char *int2_offset
+ *                       axis :
+ *                       BMG160_AUTO_OFFSET -> 1
+ *                       BMG160_FAST_OFFSET -> 2
+ *                       int2_offset :
+ *                       Disable     -> 0
+ *                       Enable      -> 1
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_int2_offset(unsigned char axis,\
 unsigned char int2_offset)
 {
@@ -1071,6 +2390,42 @@ unsigned char int2_offset)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get fast offset and auto
+ * offset Interrupt1
+ *
+ *
+ *
+ *
+ *  \param unsigned char axis,unsigned char *int1_offset
+ *                       axis :
+ *                       BMG160_AUTO_OFFSET -> 1
+ *                       BMG160_FAST_OFFSET -> 2
+ *                       int2_offset :
+ *                       Disable     -> 0
+ *                       Enable      -> 1
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_int1_offset(unsigned char axis,\
 unsigned char *int1_offset)
 {
@@ -1101,6 +2456,42 @@ unsigned char *int1_offset)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set fast offset and auto
+ * offset Interrupt1
+ *
+ *
+ *
+ *
+ *  \param unsigned char axis,unsigned char *int1_offset
+ *                       axis :
+ *                       BMG160_AUTO_OFFSET -> 1
+ *                       BMG160_FAST_OFFSET -> 2
+ *                       int2_offset :
+ *                       Disable     -> 0
+ *                       Enable      -> 1
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_int1_offset(unsigned char axis,\
 unsigned char int1_offset)
 {
@@ -1137,6 +2528,36 @@ unsigned char int1_offset)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get status of FIFO Interrupt
+ *
+ *
+ *
+ *
+ *  \param unsigned char *int_fifo : Address of int_fifo
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_int_fifo(unsigned char *int_fifo)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -1151,6 +2572,37 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_int_fifo(unsigned char *int_fifo)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get FIFO Interrupt2
+ *
+ *
+ *
+ *
+ *  \param unsigned char *int_fifo
+ *                  int_fifo :
+ *                       Disable     -> 0
+ *                       Enable      -> 1
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_int2_fifo(unsigned char *int_fifo)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -1165,6 +2617,38 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_int2_fifo(unsigned char *int_fifo)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get FIFO Interrupt1
+ *
+ *
+ *
+ *
+ *  \param unsigned char *int_fifo
+ *                  int_fifo :
+ *                       Disable     -> 0
+ *                       Enable      -> 1
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_int1_fifo(unsigned char *int_fifo)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -1179,6 +2663,35 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_int1_fifo(unsigned char *int_fifo)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief
+ *
+ *
+ *
+ *
+ *  \param
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_int_fifo(unsigned char axis,\
 unsigned char int_fifo)
 {
@@ -1215,6 +2728,38 @@ unsigned char int_fifo)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set FIFO Interrupt1
+ *
+ *
+ *
+ *
+ *  \param unsigned char *fifo_int1
+ *                  fifo_int1 :
+ *                       Disable     -> 0
+ *                       Enable      -> 1
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_int1_fifo(unsigned char fifo_int1)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -1237,6 +2782,38 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_int1_fifo(unsigned char fifo_int1)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set FIFO Interrupt2
+ *
+ *
+ *
+ *
+ *  \param unsigned char *fifo_int2
+ *                  fifo_int2 :
+ *                       Disable     -> 0
+ *                       Enable      -> 1
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_int2_fifo(unsigned char fifo_int2)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -1259,6 +2836,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_int2_fifo(unsigned char fifo_int2)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get High Interrupt2
+ *
+ *
+ *
+ *
+ *  \param unsigned char *int2_high : Address of int2_high
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_int2_high(unsigned char *int2_high)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -1273,6 +2880,37 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_int2_high(unsigned char *int2_high)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get High Interrupt2
+ *
+ *
+ *
+ *
+ *  \param unsigned char int2_high
+ *                  0 -> Disable
+ *                  1 -> Enable
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_int2_high(unsigned char int2_high)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -1289,6 +2927,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_int2_high(unsigned char int2_high)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get Any Interrupt2
+ *
+ *
+ *
+ *
+ *  \param unsigned char *int2_any : Address of int2_any
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_int2_any(unsigned char *int2_any)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -1303,6 +2971,38 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_int2_any(unsigned char *int2_any)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set Any Interrupt2
+ *
+ *
+ *
+ *
+ *  \param unsigned char int2_any
+ *                  0 -> Disable
+ *                  1 -> Enable
+ *
+ *
+ *
+ *
+ *  \return  communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_int2_any(unsigned char int2_any)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -1319,6 +3019,40 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_int2_any(unsigned char int2_any)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get slow offset and fast
+ * offset unfilt data
+ *
+ *
+ *
+ *  \param unsigned char param,unsigned char *offset_unfilt
+ *                  param :
+ *                  BMG160_SLOW_OFFSET -> 0
+ *                  BMG160_FAST_OFFSET -> 2
+ *                  offset_unfilt: Enable  -> 1
+ *                                Disable -> 0
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_offset_unfilt(unsigned char param,\
 unsigned char *offset_unfilt)
 {
@@ -1351,6 +3085,41 @@ unsigned char *offset_unfilt)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set slow offset and fast
+ * offset unfilt data
+ *
+ *
+ *
+ *
+ *  \param unsigned char param,unsigned char *offset_unfilt
+ *                  param :
+ *                  BMG160_SLOW_OFFSET -> 0
+ *                  BMG160_FAST_OFFSET -> 2
+ *                  offset_unfilt: Enable  -> 1
+ *                                Disable -> 0
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_offset_unfilt(unsigned char param,\
 unsigned char offset_unfilt)
 {
@@ -1391,6 +3160,43 @@ unsigned char offset_unfilt)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get Tap, High, Constant, Any,
+ * Shake unfilt data
+ *
+ *
+ *
+ *
+ *  \param unsigned char param,unsigned char *unfilt_data
+ *                  param :
+ *
+ *                  BMG160_HIGH_UNFILT_DATA      -> 1
+ *                  BMG160_ANY_UNFILT_DATA       -> 3
+ *
+ *                  unfilt_data:   Enable  -> 1
+ *                                Disable -> 0
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_unfilt_data(unsigned char param,\
 unsigned char *unfilt_data)
 {
@@ -1422,6 +3228,43 @@ unsigned char *unfilt_data)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set Tap, High, Constant, Any,
+ * Shake unfilt data
+ *
+ *
+ *
+ *
+ *  \param unsigned char param,unsigned char *unfilt_data
+ *                  param :
+ *
+ *                  BMG160_HIGH_UNFILT_DATA      -> 1
+ *                  BMG160_ANY_UNFILT_DATA       -> 3
+ *
+ *                  unfilt_data:   Enable  -> 1
+ *                                Disable -> 0
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_unfilt_data(unsigned char param,\
 unsigned char unfilt_data)
 {
@@ -1460,6 +3303,36 @@ unsigned char unfilt_data)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get Any Threshold
+ *
+ *
+ *
+ *
+ *  \param unsigned char *any_th : Address of any_th
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_any_th(unsigned char *any_th)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -1474,7 +3347,13 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_any_th(unsigned char *any_th)
 	}
 	return comres;
 }
-/**\brief This API is used to set Any Threshold
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set Any Threshold
  *
  *
  *
@@ -1486,6 +3365,16 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_any_th(unsigned char *any_th)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_any_th(unsigned char any_th)
@@ -1504,6 +3393,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_any_th(unsigned char any_th)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get Awake Duration
+ *
+ *
+ *
+ *
+ *  \param unsigned char *awake_dur : Address of awake_dur
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_awake_dur(unsigned char *awake_dur)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -1518,7 +3437,13 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_awake_dur(unsigned char *awake_dur)
 	}
 	return comres;
 }
-/**\brief This API is used to set Awake Duration
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set Awake Duration
  *
  *
  *
@@ -1558,6 +3483,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_awake_dur(unsigned char awake_dur)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get Any Duration Sample
+ *
+ *
+ *
+ *
+ *  \param unsigned char *dursample : Address of dursample
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_any_dursample(unsigned char *dursample)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -1572,7 +3527,13 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_any_dursample(unsigned char *dursample)
 	}
 	return comres;
 }
-/**\brief This API is used to set Any Duration Sample
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set Any Duration Sample
  *
  *
  *
@@ -1584,6 +3545,16 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_any_dursample(unsigned char *dursample)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_any_dursample(unsigned char dursample)
@@ -1602,6 +3573,41 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_any_dursample(unsigned char dursample)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the status of Any Enable
+ * Channel X,Y,Z
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *data
+ *                       channel :
+ *                       BMG160_X_AXIS -> 0
+ *                       BMG160_Y_AXIS -> 1
+ *                       BMG160_Z_AXIS -> 2
+ *                       data :
+ *                       Enable  -> 1
+ *                       disable -> 0
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_any_en_ch(unsigned char channel,\
 unsigned char *data)
 {
@@ -1639,6 +3645,43 @@ unsigned char *data)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the status of Any Enable
+ * Channel X,Y,Z
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *data
+ *                       channel :
+ *                       BMG160_X_AXIS -> 0
+ *                       BMG160_Y_AXIS -> 1
+ *                       BMG160_Z_AXIS -> 2
+ *                       data :
+ *                       Enable  -> 1
+ *                       disable -> 0
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_any_en_ch(unsigned char channel,\
 unsigned char data)
 {
@@ -1685,6 +3728,37 @@ unsigned char data)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the status of FIFO WM
+ * Enable
+ *
+ *
+ *
+ *
+ *  \param unsigned char *fifo_wn_en
+ *                       Enable  -> 1
+ *                       Disable -> 0
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_fifo_watermark_enable(\
 unsigned char *fifo_wn_en)
 {
@@ -1700,6 +3774,37 @@ unsigned char *fifo_wn_en)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set FIFO WM Enable
+ *
+ *
+ *
+ *
+ *  \param unsigned char *fifo_wn_en
+ *                       Enable  -> 1
+ *                       Disable -> 0
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_fifo_watermark_enable(\
 unsigned char fifo_wn_en)
 {
@@ -1723,6 +3828,36 @@ unsigned char fifo_wn_en)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the Interrupt Reset
+ *
+ *
+ *
+ *
+ *  \param unsigned char reset_int
+ *                    1 -> Reset All Interrupts
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_reset_int(unsigned char reset_int)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -1739,6 +3874,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_reset_int(unsigned char reset_int)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the Offset Reset
+ *
+ *
+ *
+ *
+ *  \param unsigned char offset_reset
+ *                  1 -> Resets All the Offsets
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_offset_reset(\
 unsigned char offset_reset)
 {
@@ -1756,6 +3921,36 @@ unsigned char offset_reset)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the Latch Status
+ *
+ *
+ *
+ *
+ *  \param unsigned char *latch_status : Address of latch_status
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_latch_status(\
 unsigned char *latch_status)
 {
@@ -1771,7 +3966,13 @@ unsigned char *latch_status)
 	}
 	return comres;
 }
-/**\brief This API is used to set the Latch Status
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the Latch Status
  *
  *
  *
@@ -1783,6 +3984,16 @@ unsigned char *latch_status)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_latch_status(\
@@ -1802,6 +4013,36 @@ unsigned char latch_status)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the Latch Interrupt
+ *
+ *
+ *
+ *
+ *  \param unsigned char *latch_int : Address of latch_int
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_latch_int(unsigned char *latch_int)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -1816,7 +4057,13 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_latch_int(unsigned char *latch_int)
 	}
 	return comres;
 }
-/**\brief This API is used to set the Latch Interrupt
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the Latch Interrupt
  *
  *
  *
@@ -1828,6 +4075,16 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_latch_int(unsigned char *latch_int)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_latch_int(unsigned char latch_int)
@@ -1846,6 +4103,44 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_latch_int(unsigned char latch_int)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the status of High
+ * Hysteresis X,Y,Z
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *high_hy
+ *                       channel :
+ *                       BMG160_X_AXIS -> 0
+ *                       BMG160_Y_AXIS -> 1
+ *                       BMG160_Z_AXIS -> 2
+ *                       high_hy :
+ *                       Enable  -> 1
+ *                       disable -> 0
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_high_hy(unsigned char channel,\
 unsigned char *high_hy)
 {
@@ -1883,6 +4178,45 @@ unsigned char *high_hy)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the status of High
+ * Hysteresis X,Y,Z
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *high_hy
+ *                       channel :
+ *                       BMG160_X_AXIS -> 0
+ *                       BMG160_Y_AXIS -> 1
+ *                       BMG160_Z_AXIS -> 2
+ *                       high_hy :
+ *                       Enable  -> 1
+ *                       disable -> 0
+ *
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_high_hy(unsigned char channel,\
 unsigned char high_hy)
 {
@@ -1929,6 +4263,45 @@ unsigned char high_hy)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the status of High
+ * Threshold X,Y,Z
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *high_th
+ *                       channel :
+ *                       BMG160_X_AXIS -> 0
+ *                       BMG160_Y_AXIS -> 1
+ *                       BMG160_Z_AXIS -> 2
+ *                       high_th :
+ *                       Enable  -> 1
+ *                       disable -> 0
+ *
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_high_th(unsigned char channel,\
 unsigned char *high_th)
 {
@@ -1966,6 +4339,45 @@ unsigned char *high_th)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the status of High
+ * Threshold X,Y,Z
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *high_th
+ *                       channel :
+ *                       BMG160_X_AXIS -> 0
+ *                       BMG160_Y_AXIS -> 1
+ *                       BMG160_Z_AXIS -> 2
+ *                       high_th :
+ *                       Enable  -> 1
+ *                       disable -> 0
+ *
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_high_th(unsigned char channel,\
 unsigned char high_th)
 {
@@ -2012,6 +4424,45 @@ unsigned char high_th)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the status of High Enable
+ * Channel X,Y,Z
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *high_en
+ *                       channel :
+ *                       BMG160_X_AXIS -> 0
+ *                       BMG160_Y_AXIS -> 1
+ *                       BMG160_Z_AXIS -> 2
+ *                       high_en :
+ *                       Enable  -> 1
+ *                       disable -> 0
+ *
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_high_en_ch(unsigned char channel,\
 unsigned char *high_en)
 {
@@ -2049,6 +4500,45 @@ unsigned char *high_en)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the status of High Enable
+ * Channel X,Y,Z
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *high_en
+ *                       channel :
+ *                       BMG160_X_AXIS -> 0
+ *                       BMG160_Y_AXIS -> 1
+ *                       BMG160_Z_AXIS -> 2
+ *                       high_en :
+ *                       Enable  -> 1
+ *                       disable -> 0
+ *
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_high_en_ch(unsigned char channel,\
 unsigned char high_en)
 {
@@ -2095,6 +4585,41 @@ unsigned char high_en)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get High Duration
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *high_dur
+ *                       channel :
+ *                       BMG160_X_AXIS -> 0
+ *                       BMG160_Y_AXIS -> 1
+ *                       BMG160_Z_AXIS -> 2
+ *                       *high_dur : Address of high_bw
+ *                                   Pointer to a variable passed as a
+ *                                   parameter
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_high_dur_ch(unsigned char channel,\
 unsigned char *high_dur)
 {
@@ -2129,7 +4654,13 @@ unsigned char *high_dur)
 	}
 	return comres;
 }
-/**\brief This API is used to set High Duration
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set High Duration
  *
  *
  *
@@ -2147,6 +4678,16 @@ unsigned char *high_dur)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_high_dur_ch(unsigned char channel,\
@@ -2183,6 +4724,37 @@ unsigned char high_dur)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get Slow Offset Threshold
+ *
+ *
+ *
+ *
+ *  \param unsigned char *offset_th : Address of offset_th
+ *                         Pointer to a variable passed as a parameter
+
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_slow_offset_th(\
 unsigned char *offset_th)
 {
@@ -2198,7 +4770,13 @@ unsigned char *offset_th)
 	}
 	return comres;
 }
-/**\brief This API is used to set Slow Offset Threshold
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set Slow Offset Threshold
  *
  *
  *
@@ -2210,6 +4788,16 @@ unsigned char *offset_th)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_slow_offset_th(unsigned char offset_th)
@@ -2228,6 +4816,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_slow_offset_th(unsigned char offset_th)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get Slow Offset Duration
+ *
+ *
+ *
+ *
+ *  \param unsigned char *offset_dur : Address of offset_dur
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_slow_offset_dur(\
 unsigned char *offset_dur)
 {
@@ -2243,7 +4861,13 @@ unsigned char *offset_dur)
 	}
 	return comres;
 }
-/**\brief This API is used to set Slow Offset Duration
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set Slow Offset Duration
  *
  *
  *
@@ -2255,6 +4879,16 @@ unsigned char *offset_dur)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_slow_offset_dur(\
@@ -2274,6 +4908,45 @@ unsigned char offset_dur)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get Slow Offset Enable channel
+ * X,Y,Z
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *slow_offset
+ *                       channel :
+ *                       BMG160_X_AXIS -> 0
+ *                       BMG160_Y_AXIS -> 1
+ *                       BMG160_Z_AXIS -> 2
+ *                       slow_offset :
+ *                       Enable  -> 1
+ *                       disable -> 0
+ *
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_slow_offset_en_ch(\
 unsigned char channel, unsigned char *slow_offset)
 {
@@ -2311,6 +4984,45 @@ unsigned char channel, unsigned char *slow_offset)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set Slow Offset Enable channel
+ * X,Y,Z
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *slow_offset
+ *                       channel :
+ *                       BMG160_X_AXIS -> 0
+ *                       BMG160_Y_AXIS -> 1
+ *                       BMG160_Z_AXIS -> 2
+ *                       slow_offset :
+ *                       Enable  -> 1
+ *                       disable -> 0
+ *
+ *
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_slow_offset_en_ch(\
 unsigned char channel, unsigned char slow_offset)
 {
@@ -2358,6 +5070,40 @@ unsigned char channel, unsigned char slow_offset)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get Fast Offset WordLength and
+ * Auto Offset WordLength
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *offset_wl
+ *                       channel :
+ *                       BMG160_AUTO_OFFSET_WL -> 0
+ *                       BMG160_FAST_OFFSET_WL -> 1
+ *                       *offset_wl : Address of high_bw
+ *                                    Pointer to a variable passed as a
+ *                                    parameter
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_offset_wl(unsigned char channel,\
 unsigned char *offset_wl)
 {
@@ -2388,7 +5134,13 @@ unsigned char *offset_wl)
 	}
 	return comres;
 }
-/**\brief This API is used to set Fast Offset WordLength and
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set Fast Offset WordLength and
  *  Auto Offset WordLength
  *
  *
@@ -2404,6 +5156,16 @@ unsigned char *offset_wl)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_offset_wl(\
@@ -2442,6 +5204,36 @@ unsigned char channel, unsigned char offset_wl)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to enable fast offset
+ *
+ *
+ *
+ *
+ *  \param bmg160_enable_fast_offset
+ *                 Enable  -> 1
+ *                 Disable -> 0
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_enable_fast_offset()
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -2458,6 +5250,37 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_enable_fast_offset()
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API read the Fast offset en status from the
+ * 0x32h of 0 to 2 bits.
+ *
+ *
+ *
+ *
+ *  \param unsigned char *fast_offset
+ *             Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return Communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_fast_offset_en_ch(\
 unsigned char *fast_offset)
 {
@@ -2474,6 +5297,40 @@ unsigned char *fast_offset)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API writes the Fast offset enable bit based
+ * on the Channel selection 0x32h of (0 to 2 bits)
+ *
+ *
+ *
+ *
+ *  \param   unsigned char channel,unsigned char fast_offset
+ *
+ *                      channel --> BMG160_X_AXIS,BMG160_Y_AXIS,BMG160_Z_AXIS
+ *                      fast_offset --> 0 - Disable
+ *                                      1 - Enable
+ *
+ *
+ *
+ *  \return Communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_fast_offset_en_ch(\
 unsigned char channel, unsigned char fast_offset)
 {
@@ -2520,6 +5377,38 @@ unsigned char channel, unsigned char fast_offset)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the status of nvm program
+ * remain
+ *
+ *
+ *
+ *
+ *  \param unsigned char *nvm_remain
+ *
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_nvm_remain(unsigned char *nvm_remain)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -2534,6 +5423,40 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_nvm_remain(unsigned char *nvm_remain)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the status of nvm load
+ *
+ *
+ *
+ *
+ *  \param unsigned char nvm_load
+ *              1 -> load offset value from NVM
+ *              0 -> no action
+ *
+ *
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_nvm_load(unsigned char nvm_load)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -2550,6 +5473,40 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_nvm_load(unsigned char nvm_load)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the status of nvmprogram
+ * ready
+ *
+ *
+ *
+ *
+ *  \param unsigned char *nvm_rdy
+ *             1 -> program seq finished
+ *             0 -> program seq in progress
+ *
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_nvm_rdy(unsigned char *nvm_rdy)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -2564,6 +5521,39 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_nvm_rdy(unsigned char *nvm_rdy)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the status of nvm program
+ * trigger
+ *
+ *
+ *
+ *
+ *  \param unsigned char trig
+ *            1 -> trig program seq (wo)
+ *            0 -> No Action
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_nvm_prog_trig(unsigned char prog_trig)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -2580,6 +5570,39 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_nvm_prog_trig(unsigned char prog_trig)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the status of nvm program
+ * mode
+ *
+ *
+ *
+ *
+ *  \param  unsigned char *prog_mode : Address of *prog_mode
+ *                  1 -> Enable program mode
+ *                  0 -> Disable program mode
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_nvm_prog_mode(unsigned char *prog_mode)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -2594,6 +5617,39 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_nvm_prog_mode(unsigned char *prog_mode)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/******************************************************************************
+ * Description: *//**\brief This API is used to set the status of nvmprogram
+ * mode
+ *
+ *
+ *
+ *
+ *  \param (unsigned char prog_mode)
+ *                   1 -> Enable program mode
+ *                   0 -> Disable program mode
+ *
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_nvm_prog_mode(unsigned char prog_mode)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -2610,6 +5666,39 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_nvm_prog_mode(unsigned char prog_mode)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the status of i2c wdt
+ *
+ *
+ *
+ *
+ *  \param unsigned char channel,unsigned char *prog_mode
+ *            BMG160_I2C_WDT_SEL               1
+ *            BMG160_I2C_WDT_EN                0
+ *            *prog_mode : Address of prog_mode
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_i2c_wdt(unsigned char i2c_wdt,\
 unsigned char *prog_mode)
 {
@@ -2642,7 +5731,13 @@ unsigned char *prog_mode)
 	}
 	return comres;
 }
-/**\brief This API is used to set the status of i2c wdt
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the status of i2c wdt
  *
  *
  *
@@ -2656,6 +5751,16 @@ unsigned char *prog_mode)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_i2c_wdt(unsigned char i2c_wdt,\
@@ -2698,6 +5803,37 @@ unsigned char prog_mode)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief  This API is used to get the status of spi3
+ *
+ *
+ *
+ *
+ *  \param  unsigned char *spi3 : Address of spi3
+ *                                Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_spi3(unsigned char *spi3)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -2712,6 +5848,38 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_spi3(unsigned char *spi3)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the status of spi3
+ *
+ *
+ *
+ *
+ *  \param unsigned char spi3
+ *
+ *
+ *
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_spi3(unsigned char spi3)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -2728,6 +5896,16 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_spi3(unsigned char spi3)
 	}
 	return comres;
 }
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_fifo_tag(unsigned char *tag)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -2742,6 +5920,39 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_fifo_tag(unsigned char *tag)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the status of Tag
+ *
+ *
+ *
+ *
+ *  \param unsigned char tag
+ *                  Enable  -> 1
+ *                  Disable -> 0
+ *
+ *
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_fifo_tag(unsigned char tag)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -2764,6 +5975,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_fifo_tag(unsigned char tag)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get Water Mark Level
+ *
+ *
+ *
+ *
+ *  \param unsigned char *water_mark_level : Address of water_mark_level
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_fifo_watermarklevel(\
 unsigned char *water_mark_level)
 {
@@ -2779,7 +6020,13 @@ unsigned char *water_mark_level)
 	}
 	return comres;
 }
-/**\brief This API is used to set Water Mark Level
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set Water Mark Level
  *
  *
  *
@@ -2792,6 +6039,16 @@ unsigned char *water_mark_level)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_fifo_watermarklevel(\
@@ -2817,6 +6074,43 @@ unsigned char water_mark_level)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the status of offset
+ *
+ *
+ *
+ *
+ *  \param unsigned char axis,unsigned char *offset
+ *                         axis ->
+ *                   BMG160_X_AXIS     ->      0
+ *                   BMG160_Y_AXIS     ->      1
+ *                   BMG160_Z_AXIS     ->      2
+ *                   offset -> Any valid value
+ *
+ *
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_offset(unsigned char axis,\
 BMG160_S16 *offset)
 {
@@ -2892,6 +6186,43 @@ BMG160_S16 *offset)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the status of offset
+ *
+ *
+ *
+ *
+ *  \param unsigned char axis,unsigned char offset
+ *                         axis ->
+ *                   BMG160_X_AXIS     ->      0
+ *                   BMG160_Y_AXIS     ->      1
+ *                   BMG160_Z_AXIS     ->      2
+ *                   offset -> Any valid value
+ *
+ *
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_offset(\
 unsigned char axis, BMG160_S16 offset)
 {
@@ -2971,6 +6302,43 @@ unsigned char axis, BMG160_S16 offset)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the status of general
+ * purpose register
+ *
+ *
+ *
+ *
+ *  \param unsigned char param,unsigned char *value
+ *             param ->
+ *              BMG160_GP0                      0
+ *              BMG160_GP0                      1
+ *               *value -> Address of high_bw
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_gp(unsigned char param,\
 unsigned char *value)
 {
@@ -3000,7 +6368,13 @@ unsigned char *value)
 	}
 	return comres;
 }
-/**\brief This API is used to set the status of general
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the status of general
  * purpose register
  *
  *
@@ -3016,6 +6390,16 @@ unsigned char *value)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_gp(unsigned char param,\
@@ -3050,6 +6434,37 @@ unsigned char value)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief Reads FIFI data from location 3Fh
+ *
+ *
+ *
+ *
+ *  \param
+ *      unsigned char *FIFO_data : Address of FIFO data bits
+ *
+ *
+ *
+ *
+ *  \return result of communication routines
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_FIFO_data_reg(unsigned char *FIFO_data)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -3063,6 +6478,35 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_FIFO_data_reg(unsigned char *FIFO_data)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief Reads interrupt fifo status register byte from 0Eh
+ *
+ *
+ *
+ *
+ *  \param
+ *      unsigned char *fifo_status : Address of Fifo status register
+ *
+ *
+ *  \return
+ *      Result of bus communication function
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_fifostatus_reg( \
 unsigned char *fifo_status)
@@ -3076,6 +6520,35 @@ unsigned char *fifo_status)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief Reads interrupt fifo status register byte from 0Eh
+ *
+ *
+ *
+ *
+ *  \param
+ *      unsigned char *fifo_framecount: Address of FIFO status register
+ *
+ *
+ *  \return
+ *      Result of bus communication function
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_fifo_framecount( \
 unsigned char *fifo_framecount)
@@ -3092,6 +6565,35 @@ unsigned char *fifo_framecount)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief Reads interrupt fifo status register byte from 0Eh
+ *
+ *
+ *
+ *
+ *  \param
+ *      unsigned char *fifo_overrun: Address of FIFO status register
+ *
+ *
+ *  \return
+ *      Result of bus communication function
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_fifo_overrun( \
 unsigned char *fifo_overrun)
@@ -3108,6 +6610,40 @@ unsigned char *fifo_overrun)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the status of fifo mode
+ *
+ *
+ *
+ *
+ *  \param unsigned char *mode : Address of mode
+ *                         fifo_mode  0 --> Bypass
+ *                         1 --> FIFO
+ *                         2 --> Stream
+ *                         3 --> Reserved
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_fifo_mode(unsigned char *mode)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -3122,6 +6658,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_fifo_mode(unsigned char *mode)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used set to FIFO mode
+ *
+ *
+ *
+ *
+ *  \param              0 --> BYPASS
+ *                      1 --> FIFO
+ *                      2 --> STREAM
+ *
+ *
+ *  \return Communication Results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_fifo_mode(unsigned char mode)
 {
 	int comres = C_BMG160_Zero_U8X;
@@ -3144,6 +6710,43 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_fifo_mode(unsigned char mode)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the status of fifo data
+ * sel
+ *
+ *
+ *
+ *
+ *  \param unsigned char *data_sel : Address of data_sel
+ *         data_sel --> [0:3]
+ *         0 --> X,Y and Z (DEFAULT)
+ *         1 --> X only
+ *         2 --> Y only
+ *         3 --> Z only
+ *
+ *
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_fifo_data_sel(unsigned char *data_sel)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -3158,6 +6761,43 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_fifo_data_sel(unsigned char *data_sel)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the status of fifo data
+ * sel
+ *
+ *
+ *
+ *
+ *  \param unsigned char data_sel
+ *         data_sel --> [0:3]
+ *         0 --> X,Y and Z (DEFAULT)
+ *         1 --> X only
+ *         2 --> Y only
+ *         3 --> Z only
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_fifo_data_sel(unsigned char data_sel)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -3180,6 +6820,40 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_fifo_data_sel(unsigned char data_sel)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to get the operating modes of the
+ * sensor
+ *
+ *
+ *
+ *
+ *  \param unsigned char * Mode : Address of Mode
+ *                       0 -> NORMAL
+ *                       1 -> SUSPEND
+ *                       2 -> DEEP SUSPEND
+ *						 3 -> FAST POWERUP
+ *						 4 -> ADVANCED POWERSAVING
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_mode(unsigned char *Mode)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres = C_BMG160_Zero_U8X ;
@@ -3220,6 +6894,38 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_mode(unsigned char *Mode)
 		}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set the operating Modes of the
+ * sensor
+ *
+ *
+ *
+ *
+ *  \param unsigned char Mode
+ *                       0 -> NORMAL
+ *                       1 -> DEEPSUSPEND
+ *                       2 -> SUSPEND
+ *						 3 -> Fast Powerup
+ *						 4 -> Advance Powerup
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_mode(unsigned char Mode)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres = C_BMG160_Zero_U8X ;
@@ -3251,7 +6957,8 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_mode(unsigned char Mode)
 				comres += p_bmg160->BMG160_BUS_WRITE_FUNC\
 				(p_bmg160->dev_addr,\
 			BMG160_MODE_LPM1_ADDR, &data1, C_BMG160_One_U8X);
-			p_bmg160->delay_msec(1);
+			p_bmg160->delay_msec(1);/*A minimum delay of atleast
+			450us is required for Multiple write.*/
 			comres += p_bmg160->BMG160_BUS_WRITE_FUNC\
 				(p_bmg160->dev_addr,\
 			BMG160_MODE_LPM2_ADDR, &data3, C_BMG160_One_U8X);
@@ -3268,7 +6975,8 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_mode(unsigned char Mode)
 				comres += p_bmg160->BMG160_BUS_WRITE_FUNC\
 				(p_bmg160->dev_addr,\
 			BMG160_MODE_LPM1_ADDR, &data1, C_BMG160_One_U8X);
-			p_bmg160->delay_msec(1);
+			p_bmg160->delay_msec(1);/*A minimum delay of atleast
+			450us is required for Multiple write.*/
 			comres += p_bmg160->BMG160_BUS_WRITE_FUNC\
 				(p_bmg160->dev_addr,\
 			BMG160_MODE_LPM2_ADDR, &data3, C_BMG160_One_U8X);
@@ -3285,7 +6993,8 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_mode(unsigned char Mode)
 				comres += p_bmg160->BMG160_BUS_WRITE_FUNC\
 				(p_bmg160->dev_addr,\
 			BMG160_MODE_LPM1_ADDR, &data1, C_BMG160_One_U8X);
-			p_bmg160->delay_msec(1);
+			p_bmg160->delay_msec(1);/*A minimum delay of atleast
+			450us is required for Multiple write.*/
 			comres += p_bmg160->BMG160_BUS_WRITE_FUNC\
 				(p_bmg160->dev_addr,\
 			BMG160_MODE_LPM2_ADDR, &data3, C_BMG160_One_U8X);
@@ -3302,12 +7011,15 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_mode(unsigned char Mode)
 				comres += p_bmg160->BMG160_BUS_WRITE_FUNC\
 				(p_bmg160->dev_addr,\
 			BMG160_MODE_LPM1_ADDR, &data1, C_BMG160_One_U8X);
-			p_bmg160->delay_msec(1);
+			p_bmg160->delay_msec(1);/*A minimum delay of atleast
+			450us is required for Multiple write.*/
 			comres += p_bmg160->BMG160_BUS_WRITE_FUNC\
 				(p_bmg160->dev_addr,\
 			BMG160_MODE_LPM2_ADDR, &data3, C_BMG160_One_U8X);
 				break;
 			case BMG160_MODE_ADVANCEDPOWERSAVING:
+				/* Configuring the proper settings for auto
+				sleep duration */
 				bmg160_get_bw(&v_bw_u8r);
 				bmg160_get_autosleepdur(&v_autosleepduration);
 				bmg160_set_autosleepdur(v_autosleepduration, \
@@ -3316,7 +7028,7 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_mode(unsigned char Mode)
 					(p_bmg160->dev_addr,\
 				BMG160_MODE_LPM2_ADDR, &data2,\
 				C_BMG160_One_U8X);
-				
+				/* Configuring the advanced power saving mode*/
 				data1  = BMG160_SET_BITSLICE(data1,\
 				BMG160_MODE_LPM1, C_BMG160_Zero_U8X);
 				data2  = BMG160_SET_BITSLICE(data2,\
@@ -3328,7 +7040,8 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_mode(unsigned char Mode)
 				comres += p_bmg160->BMG160_BUS_WRITE_FUNC\
 				(p_bmg160->dev_addr,\
 			BMG160_MODE_LPM1_ADDR, &data1, C_BMG160_One_U8X);
-			p_bmg160->delay_msec(1);
+			p_bmg160->delay_msec(1);/*A minimum delay of atleast
+			450us is required for Multiple write.*/
 			comres += p_bmg160->BMG160_BUS_WRITE_FUNC\
 				(p_bmg160->dev_addr,\
 			BMG160_MODE_LPM2_ADDR, &data3, C_BMG160_One_U8X);
@@ -3340,6 +7053,37 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_set_mode(unsigned char Mode)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to to do selftest to sensor
+ * sensor
+ *
+ *
+ *
+ *
+ *  \param unsigned char *result
+ *
+ *
+ *
+ *
+ *  \return communication results
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_selftest(unsigned char *result)
 	{
 	BMG160_RETURN_FUNCTION_TYPE comres = C_BMG160_Zero_U8X ;
@@ -3354,10 +7098,10 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_selftest(unsigned char *result)
 	comres += p_bmg160->BMG160_BUS_WRITE_FUNC(p_bmg160->dev_addr,\
 	BMG160_SELF_TEST_ADDR_TRIGBIST__REG, &data1, C_BMG160_One_U8X);
 
-	
+	/* Waiting time to complete the selftest process */
 	p_bmg160->delay_msec(10);
 
-	
+	/* Reading Selftest result bir bist_failure */
 	comres = p_bmg160->BMG160_BUS_READ_FUNC(p_bmg160->dev_addr,\
 	BMG160_SELF_TEST_ADDR_BISTFAIL__REG, &data1, C_BMG160_One_U8X);
 	data1  = BMG160_GET_BITSLICE(data1, BMG160_SELF_TEST_ADDR_BISTFAIL);
@@ -3367,6 +7111,36 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_selftest(unsigned char *result)
 		*result = C_BMG160_FAILURE;
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief  This API is used to get data auto sleep duration
+ *
+ *
+ *
+ *
+ *  \param unsigned char *duration : Address of auto sleep duration
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_autosleepdur(unsigned char *duration)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -3381,7 +7155,13 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_autosleepdur(unsigned char *duration)
 	}
 	return comres;
 }
-/**\brief This API is used to set duration
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set duration
  *
  *
  *
@@ -3393,6 +7173,16 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_autosleepdur(unsigned char *duration)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_autosleepdur(unsigned char duration, \
@@ -3496,6 +7286,36 @@ unsigned char bandwith)
 	}
 	return comres;
 }
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief  This API is used to get data sleep duration
+ *
+ *
+ *
+ *
+ *  \param unsigned char *duration : Address of sleep duration
+ *                         Pointer to a variable passed as a parameter
+ *
+ *
+ *
+ *  \return
+ *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
+ *
+ *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_get_sleepdur(unsigned char *duration)
 {
 	BMG160_RETURN_FUNCTION_TYPE comres;
@@ -3510,7 +7330,13 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_sleepdur(unsigned char *duration)
 	}
 	return comres;
 }
-/**\brief This API is used to set duration
+/* Compiler Switch if applicable
+#ifdef
+
+#endif
+*/
+/*****************************************************************************
+ * Description: *//**\brief This API is used to set duration
  *
  *
  *
@@ -3522,6 +7348,16 @@ BMG160_RETURN_FUNCTION_TYPE bmg160_get_sleepdur(unsigned char *duration)
  *
  *  \return communication results
  *
+ *
+ *****************************************************************************/
+/* Scheduling:
+ *
+ *
+ *
+ * Usage guide:
+ *
+ *
+ * Remarks:
  *
  *****************************************************************************/
 BMG160_RETURN_FUNCTION_TYPE bmg160_set_sleepdur(unsigned char duration)

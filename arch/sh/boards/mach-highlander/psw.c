@@ -26,24 +26,24 @@ static irqreturn_t psw_irq_handler(int irq, void *arg)
 
 	l = __raw_readw(PA_DBSW);
 
-	
+	/* Nothing to do if there's no state change */
 	if (psw->state) {
 		ret = 1;
 		goto out;
 	}
 
 	mask = l & 0x70;
-	
+	/* Figure out who raised it */
 	if (mask & (1 << psw_info->bit)) {
 		psw->state = !!(mask & (1 << psw_info->bit));
-		if (psw->state)	
+		if (psw->state)	/* debounce */
 			mod_timer(&psw->debounce, jiffies + 50);
 
 		ret = 1;
 	}
 
 out:
-	
+	/* Clear the switch IRQs */
 	l |= (0x7 << 12);
 	__raw_writew(l, PA_DBSW);
 

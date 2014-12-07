@@ -15,6 +15,7 @@
 #include <asm/mmu_context.h>
 #include <asm/r4kcache.h>
 
+/* Secondary cache size in bytes, if present.  */
 static unsigned long scache_size;
 
 #define SC_LINE 32
@@ -35,7 +36,7 @@ static void r5k_dma_cache_inv_sc(unsigned long addr, unsigned long size)
 {
 	unsigned long end, a;
 
-	
+	/* Catch bad driver code */
 	BUG_ON(size == 0);
 
 	if (size >= scache_size) {
@@ -43,6 +44,10 @@ static void r5k_dma_cache_inv_sc(unsigned long addr, unsigned long size)
 		return;
 	}
 
+	/* On the R5000 secondary cache we cannot
+	 * invalidate less than a page at a time.
+	 * The secondary cache is physically indexed, write-through.
+	 */
 	a = addr & ~(SC_PAGE - 1);
 	end = (addr + size - 1) & ~(SC_PAGE - 1);
 	while (a <= end) {

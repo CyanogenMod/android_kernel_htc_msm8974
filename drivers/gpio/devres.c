@@ -33,6 +33,20 @@ static int devm_gpio_match(struct device *dev, void *res, void *data)
 	return *this == *gpio;
 }
 
+/**
+ *      devm_gpio_request - request a gpio for a managed device
+ *      @dev: device to request the gpio for
+ *      @gpio: gpio to allocate
+ *      @label: the name of the requested gpio
+ *
+ *      Except for the extra @dev argument, this function takes the
+ *      same arguments and performs the same function as
+ *      gpio_request().  GPIOs requested with this function will be
+ *      automatically freed on driver detach.
+ *
+ *      If an GPIO allocated with this function needs to be freed
+ *      separately, devm_gpio_free() must be used.
+ */
 
 int devm_gpio_request(struct device *dev, unsigned gpio, const char *label)
 {
@@ -56,6 +70,16 @@ int devm_gpio_request(struct device *dev, unsigned gpio, const char *label)
 }
 EXPORT_SYMBOL(devm_gpio_request);
 
+/**
+ *      devm_gpio_free - free an interrupt
+ *      @dev: device to free gpio for
+ *      @gpio: gpio to free
+ *
+ *      Except for the extra @dev argument, this function takes the
+ *      same arguments and performs the same function as gpio_free().
+ *      This function instead of gpio_free() should be used to manually
+ *      free GPIOs allocated with devm_gpio_request().
+ */
 void devm_gpio_free(struct device *dev, unsigned int gpio)
 {
 

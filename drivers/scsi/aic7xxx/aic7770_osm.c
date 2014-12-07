@@ -47,6 +47,9 @@
 int
 aic7770_map_registers(struct ahc_softc *ahc, u_int port)
 {
+	/*
+	 * Lock out other contenders for our i/o space.
+	 */
 	if (!request_region(port, AHC_EISA_IOSIZE, "aic7xxx"))
 		return (ENOMEM);
 	ahc->tag = BUS_SPACE_PIO;
@@ -121,12 +124,12 @@ aic7770_remove(struct device *dev)
 }
  
 static struct eisa_device_id aic7770_ids[] = {
-	{ "ADP7771", 0 }, 
-	{ "ADP7756", 1 }, 
-	{ "ADP7757", 2 }, 
-	{ "ADP7782", 3 }, 
-	{ "ADP7783", 4 }, 
-	{ "ADP7770", 5 }, 
+	{ "ADP7771", 0 }, /* AHA 274x */
+	{ "ADP7756", 1 }, /* AHA 284x BIOS enabled */
+	{ "ADP7757", 2 }, /* AHA 284x BIOS disabled */
+	{ "ADP7782", 3 }, /* AHA 274x Olivetti OEM */
+	{ "ADP7783", 4 }, /* AHA 274x Olivetti OEM (Differential) */
+	{ "ADP7770", 5 }, /* AIC7770 generic */
 	{ "" }
 };
 MODULE_DEVICE_TABLE(eisa, aic7770_ids);

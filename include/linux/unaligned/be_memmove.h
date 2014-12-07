@@ -33,4 +33,4 @@ static inline void put_unaligned_be64(u64 val, void *p)
 	__put_unaligned_memmove64(val, p);
 }
 
-#endif 
+#endif /* _LINUX_UNALIGNED_LE_MEMMOVE_H */

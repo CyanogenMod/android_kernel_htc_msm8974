@@ -31,12 +31,12 @@ static void sig_handler_common(int sig, mcontext_t *mc)
 
 	r.is_user = 0;
 	if (sig == SIGSEGV) {
-		
+		/* For segfaults, we want the data from the sigcontext. */
 		get_regs_from_mc(&r, mc);
 		GET_FAULTINFO_FROM_MC(r.faultinfo, mc);
 	}
 
-	
+	/* enable signals if sig isn't IRQ signal */
 	if ((sig != SIGIO) && (sig != SIGWINCH) && (sig != SIGVTALRM))
 		unblock_signals();
 
@@ -45,6 +45,12 @@ static void sig_handler_common(int sig, mcontext_t *mc)
 	errno = save_errno;
 }
 
+/*
+ * These are the asynchronous signals.  SIGPROF is excluded because we want to
+ * be able to profile all of UML, not just the non-critical sections.  If
+ * profiling is not thread-safe, then that is not my problem.  We can disable
+ * profiling when SMP is enabled in that case.
+ */
 #define SIGIO_BIT 0
 #define SIGIO_MASK (1 << SIGIO_BIT)
 
@@ -135,6 +141,16 @@ static void hard_handler(int sig, siginfo_t *info, void *p)
 	do {
 		int nested, bail;
 
+		/*
+		 * pending comes back with one bit set for each
+		 * interrupt that arrived while setting up the stack,
+		 * plus a bit for this interrupt, plus the zero bit is
+		 * set if this is a nested interrupt.
+		 * If bail is true, then we interrupted another
+		 * handler setting up the stack.  In this case, we
+		 * have to return, and the upper handler will deal
+		 * with this interrupt.
+		 */
 		bail = to_irq_stack(&pending);
 		if (bail)
 			return;
@@ -148,6 +164,12 @@ static void hard_handler(int sig, siginfo_t *info, void *p)
 			(*handlers[sig])(sig, mc);
 		}
 
+		/*
+		 * Again, pending comes back with a mask of signals
+		 * that arrived while tearing down the stack.  If this
+		 * is non-zero, we just go back, set up the stack
+		 * again, and handle the new interrupts.
+		 */
 		if (!nested)
 			pending = from_irq_stack(nested);
 	} while (pending);
@@ -161,7 +183,7 @@ void set_handler(int sig)
 
 	action.sa_sigaction = hard_handler;
 
-	
+	/* block irq ones */
 	sigemptyset(&action.sa_mask);
 	sigaddset(&action.sa_mask, SIGVTALRM);
 	sigaddset(&action.sa_mask, SIGIO);
@@ -171,7 +193,7 @@ void set_handler(int sig)
 		flags |= SA_NODEFER;
 
 	if (sigismember(&action.sa_mask, sig))
-		flags |= SA_RESTART; 
+		flags |= SA_RESTART; /* if it's an irq signal */
 
 	action.sa_flags = flags;
 	action.sa_restorer = NULL;
@@ -199,6 +221,12 @@ int change_sig(int signal, int on)
 void block_signals(void)
 {
 	signals_enabled = 0;
+	/*
+	 * This must return with signals disabled, so this barrier
+	 * ensures that writes are flushed out before the return.
+	 * This might matter if gcc figures out how to inline this and
+	 * decides to shuffle this code into the caller.
+	 */
 	barrier();
 }
 
@@ -209,9 +237,22 @@ void unblock_signals(void)
 	if (signals_enabled == 1)
 		return;
 
+	/*
+	 * We loop because the IRQ handler returns with interrupts off.  So,
+	 * interrupts may have arrived and we need to re-enable them and
+	 * recheck signals_pending.
+	 */
 	while (1) {
+		/*
+		 * Save and reset save_pending after enabling signals.  This
+		 * way, signals_pending won't be changed while we're reading it.
+		 */
 		signals_enabled = 1;
 
+		/*
+		 * Setting signals_enabled and reading signals_pending must
+		 * happen in this order.
+		 */
 		barrier();
 
 		save_pending = signals_pending;
@@ -220,9 +261,19 @@ void unblock_signals(void)
 
 		signals_pending = 0;
 
+		/*
+		 * We have pending interrupts, so disable signals, as the
+		 * handlers expect them off when they are called.  They will
+		 * be enabled again above.
+		 */
 
 		signals_enabled = 0;
 
+		/*
+		 * Deal with SIGIO first because the alarm handler might
+		 * schedule, leaving the pending SIGIO stranded until we come
+		 * back here.
+		 */
 		if (save_pending & SIGIO_MASK)
 			sig_handler_common(SIGIO, NULL);
 

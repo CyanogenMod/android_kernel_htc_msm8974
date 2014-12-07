@@ -23,4 +23,4 @@
 
 struct device_node *spu_devnode(struct spu *spu);
 
-#endif 
+#endif /* SPU_PRIV1_MMIO_H */

@@ -1,12 +1,29 @@
+/*
+ * arch/arm/mach-omap1/include/mach/memory.h
+ */
 
 #ifndef __ASM_ARCH_MEMORY_H
 #define __ASM_ARCH_MEMORY_H
 
+/*
+ * Physical DRAM offset.
+ */
 #define PLAT_PHYS_OFFSET		UL(0x10000000)
 
+/*
+ * Bus address is physical address, except for OMAP-1510 Local Bus.
+ * OMAP-1510 bus address is translated into a Local Bus address if the
+ * OMAP bus type is lbus. We do the address translation based on the
+ * device overriding the defaults used in the dma-mapping API.
+ * Note that the is_lbus_device() test is not very efficient on 1510
+ * because of the strncmp().
+ */
 #if defined(CONFIG_ARCH_OMAP15XX) && !defined(__ASSEMBLER__)
 #include <plat/cpu.h>
 
+/*
+ * OMAP-1510 Local Bus address offset
+ */
 #define OMAP1510_LB_OFFSET	UL(0x30000000)
 
 #define virt_to_lbus(x)		((x) - PAGE_OFFSET + OMAP1510_LB_OFFSET)
@@ -35,6 +52,6 @@
 						virt_to_lbus(__addr) : \
 						__virt_to_phys(__addr)); })
 
-#endif	
+#endif	/* CONFIG_ARCH_OMAP15XX */
 
 #endif

@@ -1,3 +1,8 @@
+/*
+ * Compact binary representation of ihex records. Some devices need their
+ * firmware loaded in strange orders rather than a single big blob, but
+ * actually parsing ihex-as-text within the kernel seems silly. Thus,...
+ */
 
 #ifndef __LINUX_IHEX_H__
 #define __LINUX_IHEX_H__
@@ -6,12 +11,16 @@
 #include <linux/firmware.h>
 #include <linux/device.h>
 
+/* Intel HEX files actually limit the length to 256 bytes, but we have
+   drivers which would benefit from using separate records which are
+   longer than that, so we extend to 16 bits of length */
 struct ihex_binrec {
 	__be32 addr;
 	__be16 len;
 	uint8_t data[0];
 } __attribute__((packed));
 
+/* Find the next record, taking into account the 4-byte alignment */
 static inline const struct ihex_binrec *
 ihex_next_binrec(const struct ihex_binrec *rec)
 {
@@ -21,6 +30,7 @@ ihex_next_binrec(const struct ihex_binrec *rec)
 	return be16_to_cpu(rec->len) ? rec : NULL;
 }
 
+/* Check that ihex_next_binrec() won't take us off the end of the image... */
 static inline int ihex_validate_fw(const struct firmware *fw)
 {
 	const struct ihex_binrec *rec;
@@ -29,16 +39,18 @@ static inline int ihex_validate_fw(const struct firmware *fw)
 	while (ofs <= fw->size - sizeof(*rec)) {
 		rec = (void *)&fw->data[ofs];
 
-		
+		/* Zero length marks end of records */
 		if (!be16_to_cpu(rec->len))
 			return 0;
 
-		
+		/* Point to next record... */
 		ofs += (sizeof(*rec) + be16_to_cpu(rec->len) + 3) & ~3;
 	}
 	return -EINVAL;
 }
 
+/* Request firmware and validate it so that we can trust we won't
+ * run off the end while reading records... */
 static inline int request_ihex_firmware(const struct firmware **fw,
 					const char *fw_name,
 					struct device *dev)
@@ -59,4 +71,4 @@ static inline int request_ihex_firmware(const struct firmware **fw,
 	*fw = lfw;
 	return 0;
 }
-#endif 
+#endif /* __LINUX_IHEX_H__ */

@@ -44,6 +44,10 @@ static int current_mode = 0;
 
 static int pasemi_system_reset_exception(struct pt_regs *regs)
 {
+	/* If we were woken up from power savings, we need to return
+	 * to the calling function, since nip is not saved across
+	 * all modes.
+	 */
 
 	if (regs->msr & SRR1_WAKEMASK)
 		regs->nip = regs->link;
@@ -56,14 +60,14 @@ static int pasemi_system_reset_exception(struct pt_regs *regs)
 		timer_interrupt(regs);
 		break;
 	default:
-		
+		/* do system reset */
 		return 0;
 	}
 
-	
+	/* Set higher astate since we come out of power savings at 0 */
 	restore_astate(hard_smp_processor_id());
 
-	
+	/* everything handled */
 	regs->msr |= MSR_RI;
 	return 1;
 }

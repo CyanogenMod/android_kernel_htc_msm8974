@@ -21,7 +21,7 @@ __inode_direct_access(struct inode *inode, sector_t block,
 	const struct block_device_operations *ops = bdev->bd_disk->fops;
 	sector_t sector;
 
-	sector = block * (PAGE_SIZE / 512); 
+	sector = block * (PAGE_SIZE / 512); /* ext2 block to bdev sector */
 
 	BUG_ON(!ops->direct_access);
 	return ops->direct_access(bdev, sector, kaddr, pfn);
@@ -38,7 +38,7 @@ __ext2_get_block(struct inode *inode, pgoff_t pgoff, int create,
 	rc = ext2_get_block(inode, pgoff, &tmp, create);
 	*result = tmp.b_blocknr;
 
-	
+	/* did we get a sparse block (hole in the file)? */
 	if (!tmp.b_blocknr && !rc) {
 		BUG_ON(create);
 		rc = -ENODATA;
@@ -79,12 +79,12 @@ int ext2_get_xip_mem(struct address_space *mapping, pgoff_t pgoff, int create,
 	int rc;
 	sector_t block;
 
-	
+	/* first, retrieve the sector number */
 	rc = __ext2_get_block(mapping->host, pgoff, create, &block);
 	if (rc)
 		return rc;
 
-	
+	/* retrieve address of the target data */
 	rc = __inode_direct_access(mapping->host, block, kmem, pfn);
 	return rc;
 }

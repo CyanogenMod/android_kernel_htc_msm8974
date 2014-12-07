@@ -21,10 +21,74 @@ You should also find the complete GPL in the COPYING file accompanying this sour
 
 @endverbatim
 */
+/*
 
+  +-----------------------------------------------------------------------+
+  | (C) ADDI-DATA GmbH          Dieselstraße 3       D-77833 Ottersweier  |
+  +-----------------------------------------------------------------------+
+  | Tel : +49 (0) 7223/9493-0     | email    : info@addi-data.com         |
+  | Fax : +49 (0) 7223/9493-92    | Internet : http://www.addi-data.com   |
+  +-----------------------------------------------------------------------+
+  | Project     : API APCI1648    | Compiler : gcc                        |
+  | Module name : TTL.C           | Version  : 2.96                       |
+  +-------------------------------+---------------------------------------+
+  | Project manager: S. Weber     | Date     :  25/05/2005                |
+  +-----------------------------------------------------------------------+
+  | Description :   APCI-16XX TTL I/O module                              |
+  |                                                                       |
+  |                                                                       |
+  +-----------------------------------------------------------------------+
+  |                             UPDATES                                   |
+  +-----------------------------------------------------------------------+
+  |   Date   |   Author  |          Description of updates                |
+  +----------+-----------+------------------------------------------------+
+  |25.05.2005| S.Weber   | Creation                                       |
+  |          |           |                                                |
+  +-----------------------------------------------------------------------+
+*/
+
+/*
++----------------------------------------------------------------------------+
+|                               Included files                               |
++----------------------------------------------------------------------------+
+*/
 
 #include "hwdrv_apci16xx.h"
 
+/*
++----------------------------------------------------------------------------+
+| Function Name     : int   i_APCI16XX_InsnConfigInitTTLIO                   |
+|                          (struct comedi_device    *dev,                           |
+|                           struct comedi_subdevice *s,                             |
+|                           struct comedi_insn      *insn,                          |
+|                           unsigned int         *data)                          |
++----------------------------------------------------------------------------+
+| Task           APCI16XX_TTL_INIT (using defaults)   :                      |
+|                Configure the TTL I/O operating mode from all ports         |
+|                You must calling this function be                           |
+|                for you call any other function witch access of TTL.        |
+|                APCI16XX_TTL_INITDIRECTION(user inputs for direction)       |
++----------------------------------------------------------------------------+
+| Input Parameters  : b_InitType    = (unsigned char) data[0];                        |
+|                     b_Port0Mode   = (unsigned char) data[1];                        |
+|                     b_Port1Mode   = (unsigned char) data[2];                        |
+|                     b_Port2Mode   = (unsigned char) data[3];                        |
+|                     b_Port3Mode   = (unsigned char) data[4];                        |
+|                     ........                                               |
++----------------------------------------------------------------------------+
+| Output Parameters : -                                                      |
++----------------------------------------------------------------------------+
+| Return Value      :>0: No error                                            |
+|                    -1: Port 0 mode selection is wrong                      |
+|                    -2: Port 1 mode selection is wrong                      |
+|                    -3: Port 2 mode selection is wrong                      |
+|                    -4: Port 3 mode selection is wrong                      |
+|                    -X: Port X-1 mode selection is wrong                    |
+|                    ....                                                    |
+|                    -100 : Config command error                             |
+|                    -101 : Data size error                                  |
++----------------------------------------------------------------------------+
+*/
 
 int i_APCI16XX_InsnConfigInitTTLIO(struct comedi_device *dev,
 	struct comedi_subdevice *s, struct comedi_insn *insn, unsigned int *data)
@@ -35,33 +99,33 @@ int i_APCI16XX_InsnConfigInitTTLIO(struct comedi_device *dev,
 	unsigned char b_NumberOfPort =
 		(unsigned char) (this_board->i_NbrTTLChannel / 8);
 
-	
-	
-	
+	/************************/
+	/* Test the buffer size */
+	/************************/
 
 	if (insn->n >= 1) {
-	   
-		
-		
+	   /*******************/
+		/* Get the command */
+		/* **************** */
 
 		b_Command = (unsigned char) data[0];
 
-	   
-		
-	   
+	   /********************/
+		/* Test the command */
+	   /********************/
 
 		if ((b_Command == APCI16XX_TTL_INIT) ||
 			(b_Command == APCI16XX_TTL_INITDIRECTION) ||
 			(b_Command == APCI16XX_TTL_OUTPUTMEMORY)) {
-	      
-			
-	      
+	      /***************************************/
+			/* Test the initialisation buffer size */
+	      /***************************************/
 
 			if ((b_Command == APCI16XX_TTL_INITDIRECTION)
 				&& ((unsigned char) (insn->n - 1) != b_NumberOfPort)) {
-		 
-				
-		 
+		 /*******************/
+				/* Data size error */
+		 /*******************/
 
 				printk("\nBuffer size error");
 				i_ReturnValue = -101;
@@ -69,62 +133,62 @@ int i_APCI16XX_InsnConfigInitTTLIO(struct comedi_device *dev,
 
 			if ((b_Command == APCI16XX_TTL_OUTPUTMEMORY)
 				&& ((unsigned char) (insn->n) != 2)) {
-		 
-				
-		 
+		 /*******************/
+				/* Data size error */
+		 /*******************/
 
 				printk("\nBuffer size error");
 				i_ReturnValue = -101;
 			}
 		} else {
-	      
-			
-	      
+	      /************************/
+			/* Config command error */
+	      /************************/
 
 			printk("\nCommand selection error");
 			i_ReturnValue = -100;
 		}
 	} else {
-	   
-		
-	   
+	   /*******************/
+		/* Data size error */
+	   /*******************/
 
 		printk("\nBuffer size error");
 		i_ReturnValue = -101;
 	}
 
-	
-	
-	
+	/**************************************************************************/
+	/* Test if no error occur and APCI16XX_TTL_INITDIRECTION command selected */
+	/**************************************************************************/
 
 	if ((i_ReturnValue >= 0) && (b_Command == APCI16XX_TTL_INITDIRECTION)) {
 		memset(devpriv->ul_TTLPortConfiguration, 0,
 			sizeof(devpriv->ul_TTLPortConfiguration));
 
-	   
-		
-	   
+	   /*************************************/
+		/* Test the port direction selection */
+	   /*************************************/
 
 		for (b_Cpt = 1;
 			(b_Cpt <= b_NumberOfPort) && (i_ReturnValue >= 0);
 			b_Cpt++) {
-	      
-			
-	      
+	      /**********************/
+			/* Test the direction */
+	      /**********************/
 
 			if ((data[b_Cpt] != 0) && (data[b_Cpt] != 0xFF)) {
-		 
-				
-		 
+		 /************************/
+				/* Port direction error */
+		 /************************/
 
 				printk("\nPort %d direction selection error",
 					(int) b_Cpt);
 				i_ReturnValue = -(int) b_Cpt;
 			}
 
-	      
-			
-	      
+	      /**************************/
+			/* Save the configuration */
+	      /**************************/
 
 			devpriv->ul_TTLPortConfiguration[(b_Cpt - 1) / 4] =
 				devpriv->ul_TTLPortConfiguration[(b_Cpt -
@@ -133,26 +197,26 @@ int i_APCI16XX_InsnConfigInitTTLIO(struct comedi_device *dev,
 		}
 	}
 
-	
-	
-	
+	/**************************/
+	/* Test if no error occur */
+	/**************************/
 
 	if (i_ReturnValue >= 0) {
-	   
-		
-	   
+	   /***********************************/
+		/* Test if TTL port initilaisation */
+	   /***********************************/
 
 		if ((b_Command == APCI16XX_TTL_INIT)
 			|| (b_Command == APCI16XX_TTL_INITDIRECTION)) {
-	      
-			
-	      
+	      /******************************/
+			/* Set all port configuration */
+	      /******************************/
 
 			for (b_Cpt = 0; b_Cpt <= b_NumberOfPort; b_Cpt++) {
 				if ((b_Cpt % 4) == 0) {
-		    
-					
-		    
+		    /*************************/
+					/* Set the configuration */
+		    /*************************/
 
 					outl(devpriv->
 						ul_TTLPortConfiguration[b_Cpt /
@@ -163,9 +227,9 @@ int i_APCI16XX_InsnConfigInitTTLIO(struct comedi_device *dev,
 		}
 	}
 
-	
-	
-	
+	/************************************************/
+	/* Test if output memory initialisation command */
+	/************************************************/
 
 	if (b_Command == APCI16XX_TTL_OUTPUTMEMORY) {
 		if (data[1]) {
@@ -178,7 +242,46 @@ int i_APCI16XX_InsnConfigInitTTLIO(struct comedi_device *dev,
 	return i_ReturnValue;
 }
 
+/*
++----------------------------------------------------------------------------+
+|                            INPUT FUNCTIONS                                 |
++----------------------------------------------------------------------------+
+*/
 
+/*
++----------------------------------------------------------------------------+
+| Function Name     : int     i_APCI16XX_InsnBitsReadTTLIO                   |
+|                          (struct comedi_device    *dev,                           |
+|                           struct comedi_subdevice *s,                             |
+|                           struct comedi_insn      *insn,                          |
+|                           unsigned int         *data)                          |
++----------------------------------------------------------------------------+
+| Task              : Read the status from selected TTL digital input        |
+|                     (b_InputChannel)                                       |
++----------------------------------------------------------------------------+
+| Task              : Read the status from digital input port                |
+|                     (b_SelectedPort)                                       |
++----------------------------------------------------------------------------+
+| Input Parameters  :                                                        |
+|              APCI16XX_TTL_READCHANNEL                                      |
+|                    b_SelectedPort= CR_RANGE(insn->chanspec);               |
+|                    b_InputChannel= CR_CHAN(insn->chanspec);                |
+|                    b_ReadType	  = (unsigned char) data[0];                          |
+|                                                                            |
+|              APCI16XX_TTL_READPORT                                         |
+|                    b_SelectedPort= CR_RANGE(insn->chanspec);               |
+|                    b_ReadType	  = (unsigned char) data[0];                          |
++----------------------------------------------------------------------------+
+| Output Parameters : data[0]    0 : Channle is not active                   |
+|                                1 : Channle is active                       |
++----------------------------------------------------------------------------+
+| Return Value      : >0  : No error                                         |
+|                    -100 : Config command error                             |
+|                    -101 : Data size error                                  |
+|                    -102 : The selected TTL input port is wrong             |
+|                    -103 : The selected TTL digital input is wrong          |
++----------------------------------------------------------------------------+
+*/
 
 int i_APCI16XX_InsnBitsReadTTLIO(struct comedi_device *dev,
 	struct comedi_subdevice *s, struct comedi_insn *insn, unsigned int *data)
@@ -192,31 +295,31 @@ int i_APCI16XX_InsnBitsReadTTLIO(struct comedi_device *dev,
 	unsigned char *pb_Status;
 	unsigned int dw_Status;
 
-	
-	
-	
+	/************************/
+	/* Test the buffer size */
+	/************************/
 
 	if (insn->n >= 1) {
-	   
-		
-		
+	   /*******************/
+		/* Get the command */
+		/* **************** */
 
 		b_Command = (unsigned char) data[0];
 
-	   
-		
-	   
+	   /********************/
+		/* Test the command */
+	   /********************/
 
 		if ((b_Command == APCI16XX_TTL_READCHANNEL)
 			|| (b_Command == APCI16XX_TTL_READPORT)) {
-	      
-			
-	      
+	      /**************************/
+			/* Test the selected port */
+	      /**************************/
 
 			if (b_SelectedPort < b_NumberOfPort) {
-		 
-				
-		 
+		 /**********************/
+				/* Test if input port */
+		 /**********************/
 
 				if (((devpriv->ul_TTLPortConfiguration
 							[b_SelectedPort /
@@ -225,77 +328,77 @@ int i_APCI16XX_InsnBitsReadTTLIO(struct comedi_device *dev,
 									%
 									4))) &
 						0xFF) == 0) {
-		    
-					
-		    
+		    /***************************/
+					/* Test the channel number */
+		    /***************************/
 
 					if ((b_Command ==
 							APCI16XX_TTL_READCHANNEL)
 						&& (b_InputChannel > 7)) {
-		       
-						
-		       
+		       /*******************************************/
+						/* The selected TTL digital input is wrong */
+		       /*******************************************/
 
 						printk("\nChannel selection error");
 						i_ReturnValue = -103;
 					}
 				} else {
-		    
-					
-		    
+		    /****************************************/
+					/* The selected TTL input port is wrong */
+		    /****************************************/
 
 					printk("\nPort selection error");
 					i_ReturnValue = -102;
 				}
 			} else {
-		 
-				
-		 
+		 /****************************************/
+				/* The selected TTL input port is wrong */
+		 /****************************************/
 
 				printk("\nPort selection error");
 				i_ReturnValue = -102;
 			}
 		} else {
-	      
-			
-	      
+	      /************************/
+			/* Config command error */
+	      /************************/
 
 			printk("\nCommand selection error");
 			i_ReturnValue = -100;
 		}
 	} else {
-	   
-		
-	   
+	   /*******************/
+		/* Data size error */
+	   /*******************/
 
 		printk("\nBuffer size error");
 		i_ReturnValue = -101;
 	}
 
-	
-	
-	
+	/**************************/
+	/* Test if no error occur */
+	/**************************/
 
 	if (i_ReturnValue >= 0) {
 		pb_Status = (unsigned char *) &data[0];
 
-	   
-		
-	   
+	   /*******************************/
+		/* Get the digital inpu status */
+	   /*******************************/
 
 		dw_Status =
 			inl(devpriv->iobase + 8 + ((b_SelectedPort / 4) * 4));
 		dw_Status = (dw_Status >> (8 * (b_SelectedPort % 4))) & 0xFF;
 
-	   
-		
-	   
+	   /***********************/
+		/* Save the port value */
+	   /***********************/
 
 		*pb_Status = (unsigned char) dw_Status;
 
-	   
-		
-	   
+	   /***************************************/
+		/* Test if read channel status command */
+	   /***************************************/
 
 		if (b_Command == APCI16XX_TTL_READCHANNEL) {
 			*pb_Status = (*pb_Status >> b_InputChannel) & 1;
@@ -305,6 +408,27 @@ int i_APCI16XX_InsnBitsReadTTLIO(struct comedi_device *dev,
 	return i_ReturnValue;
 }
 
+/*
++----------------------------------------------------------------------------+
+| Function Name     : int i_APCI16XX_InsnReadTTLIOAllPortValue               |
+|                          (struct comedi_device    *dev,                           |
+|                           struct comedi_subdevice *s,                             |
+|                           struct comedi_insn      *insn,                          |
+|                           unsigned int         *data)                          |
++----------------------------------------------------------------------------+
+| Task              : Read the status from all digital input ports           |
++----------------------------------------------------------------------------+
+| Input Parameters  : -                                                      |
++----------------------------------------------------------------------------+
+| Output Parameters : data[0] : Port 0 to 3 data                             |
+|                     data[1] : Port 4 to 7 data                             |
+|                     ....                                                   |
++----------------------------------------------------------------------------+
+| Return Value      : 0: No error                                            |
+|                    -100 : Read command error                               |
+|                    -101 : Data size error                                  |
++----------------------------------------------------------------------------+
+*/
 
 int i_APCI16XX_InsnReadTTLIOAllPortValue(struct comedi_device *dev,
 	struct comedi_subdevice *s, struct comedi_insn *insn, unsigned int *data)
@@ -315,15 +439,15 @@ int i_APCI16XX_InsnReadTTLIOAllPortValue(struct comedi_device *dev,
 	unsigned char b_NumberOfPort = 0;
 	unsigned int *pls_ReadData = data;
 
-	
-	
-	
+	/********************/
+	/* Test the command */
+	/********************/
 
 	if ((b_Command == APCI16XX_TTL_READ_ALL_INPUTS)
 		|| (b_Command == APCI16XX_TTL_READ_ALL_OUTPUTS)) {
-	   
-		
-	   
+	   /**********************************/
+		/* Get the number of 32-Bit ports */
+	   /**********************************/
 
 		b_NumberOfPort =
 			(unsigned char) (this_board->i_NbrTTLChannel / 32);
@@ -332,28 +456,28 @@ int i_APCI16XX_InsnReadTTLIOAllPortValue(struct comedi_device *dev,
 			b_NumberOfPort = b_NumberOfPort + 1;
 		}
 
-	   
-		
-	   
+	   /************************/
+		/* Test the buffer size */
+	   /************************/
 
 		if (insn->n >= b_NumberOfPort) {
 			if (b_Command == APCI16XX_TTL_READ_ALL_INPUTS) {
-		 
-				
-		 
+		 /**************************/
+				/* Read all digital input */
+		 /**************************/
 
 				for (b_Cpt = 0; b_Cpt < b_NumberOfPort; b_Cpt++) {
-		    
-					
-		    
+		    /************************/
+					/* Read the 32-Bit port */
+		    /************************/
 
 					pls_ReadData[b_Cpt] =
 						inl(devpriv->iobase + 8 +
 						(b_Cpt * 4));
 
-		    
-					
-		    
+		    /**************************************/
+					/* Mask all channels used als outputs */
+		    /**************************************/
 
 					pls_ReadData[b_Cpt] =
 						pls_ReadData[b_Cpt] &
@@ -361,22 +485,22 @@ int i_APCI16XX_InsnReadTTLIOAllPortValue(struct comedi_device *dev,
 						ul_TTLPortConfiguration[b_Cpt]);
 				}
 			} else {
-		 
-				
-		 
+		 /****************************/
+				/* Read all digital outputs */
+		 /****************************/
 
 				for (b_Cpt = 0; b_Cpt < b_NumberOfPort; b_Cpt++) {
-		    
-					
-		    
+		    /************************/
+					/* Read the 32-Bit port */
+		    /************************/
 
 					pls_ReadData[b_Cpt] =
 						inl(devpriv->iobase + 20 +
 						(b_Cpt * 4));
 
-		    
-					
-		    
+		    /**************************************/
+					/* Mask all channels used als outputs */
+		    /**************************************/
 
 					pls_ReadData[b_Cpt] =
 						pls_ReadData[b_Cpt] & devpriv->
@@ -384,17 +508,17 @@ int i_APCI16XX_InsnReadTTLIOAllPortValue(struct comedi_device *dev,
 				}
 			}
 		} else {
-	      
-			
-	      
+	      /*******************/
+			/* Data size error */
+	      /*******************/
 
 			printk("\nBuffer size error");
 			i_ReturnValue = -101;
 		}
 	} else {
-	   
-		
-	   
+	   /*****************/
+		/* Command error */
+	   /*****************/
 
 		printk("\nCommand selection error");
 		i_ReturnValue = -100;
@@ -403,7 +527,48 @@ int i_APCI16XX_InsnReadTTLIOAllPortValue(struct comedi_device *dev,
 	return i_ReturnValue;
 }
 
+/*
++----------------------------------------------------------------------------+
+|                            OUTPUT FUNCTIONS                                |
++----------------------------------------------------------------------------+
+*/
 
+/*
++----------------------------------------------------------------------------+
+| Function Name     : int     i_APCI16XX_InsnBitsWriteTTLIO                  |
+|                          (struct comedi_device    *dev,                           |
+|                           struct comedi_subdevice *s,                             |
+|                           struct comedi_insn      *insn,                          |
+|                           unsigned int         *data)                          |
++----------------------------------------------------------------------------+
+| Task              : Set the state from selected TTL digital output         |
+|                     (b_OutputChannel)                                      |
++----------------------------------------------------------------------------+
+| Task              : Set the state from digital output port                 |
+|                     (b_SelectedPort)                                       |
++----------------------------------------------------------------------------+
+| Input Parameters  :                                                        |
+|              APCI16XX_TTL_WRITECHANNEL_ON | APCI16XX_TTL_WRITECHANNEL_OFF  |
+|                    b_SelectedPort = CR_RANGE(insn->chanspec);              |
+|                    b_OutputChannel= CR_CHAN(insn->chanspec);               |
+|                    b_Command      = (unsigned char) data[0];                        |
+|                                                                            |
+|              APCI16XX_TTL_WRITEPORT_ON | APCI16XX_TTL_WRITEPORT_OFF        |
+|                    b_SelectedPort = CR_RANGE(insn->chanspec);              |
+|                    b_Command      = (unsigned char) data[0];                        |
++----------------------------------------------------------------------------+
+| Output Parameters : data[0] : TTL output port 0 to 3 data                  |
+|                     data[1] : TTL output port 4 to 7 data                  |
+|                     ....                                                   |
++----------------------------------------------------------------------------+
+| Return Value      : >0  : No error                                         |
+|                    -100 : Command error                                    |
+|                    -101 : Data size error                                  |
+|                    -102 : The selected TTL output port is wrong            |
+|                    -103 : The selected TTL digital output is wrong         |
+|                    -104 : Output memory disabled                           |
++----------------------------------------------------------------------------+
+*/
 
 int i_APCI16XX_InsnBitsWriteTTLIO(struct comedi_device *dev,
 	struct comedi_subdevice *s, struct comedi_insn *insn, unsigned int *data)
@@ -416,33 +581,33 @@ int i_APCI16XX_InsnBitsWriteTTLIO(struct comedi_device *dev,
 	unsigned char b_OutputChannel = CR_CHAN(insn->chanspec);
 	unsigned int dw_Status = 0;
 
-	
-	
-	
+	/************************/
+	/* Test the buffer size */
+	/************************/
 
 	if (insn->n >= 1) {
-	   
-		
-		
+	   /*******************/
+		/* Get the command */
+		/* **************** */
 
 		b_Command = (unsigned char) data[0];
 
-	   
-		
-	   
+	   /********************/
+		/* Test the command */
+	   /********************/
 
 		if ((b_Command == APCI16XX_TTL_WRITECHANNEL_ON) ||
 			(b_Command == APCI16XX_TTL_WRITEPORT_ON) ||
 			(b_Command == APCI16XX_TTL_WRITECHANNEL_OFF) ||
 			(b_Command == APCI16XX_TTL_WRITEPORT_OFF)) {
-	      
-			
-	      
+	      /**************************/
+			/* Test the selected port */
+	      /**************************/
 
 			if (b_SelectedPort < b_NumberOfPort) {
-		 
-				
-		 
+		 /***********************/
+				/* Test if output port */
+		 /***********************/
 
 				if (((devpriv->ul_TTLPortConfiguration
 							[b_SelectedPort /
@@ -451,44 +616,44 @@ int i_APCI16XX_InsnBitsWriteTTLIO(struct comedi_device *dev,
 									%
 									4))) &
 						0xFF) == 0xFF) {
-		    
-					
-		    
+		    /***************************/
+					/* Test the channel number */
+		    /***************************/
 
 					if (((b_Command == APCI16XX_TTL_WRITECHANNEL_ON) || (b_Command == APCI16XX_TTL_WRITECHANNEL_OFF)) && (b_OutputChannel > 7)) {
-		       
-						
-		       
+		       /********************************************/
+						/* The selected TTL digital output is wrong */
+		       /********************************************/
 
 						printk("\nChannel selection error");
 						i_ReturnValue = -103;
 					}
 
 					if (((b_Command == APCI16XX_TTL_WRITECHANNEL_OFF) || (b_Command == APCI16XX_TTL_WRITEPORT_OFF)) && (devpriv->b_OutputMemoryStatus == ADDIDATA_DISABLE)) {
-		       
-						
-		       
+		       /********************************************/
+						/* The selected TTL digital output is wrong */
+		       /********************************************/
 
 						printk("\nOutput memory disabled");
 						i_ReturnValue = -104;
 					}
 
-		    
-					
-		    
+		    /************************/
+					/* Test the buffer size */
+		    /************************/
 
 					if (((b_Command == APCI16XX_TTL_WRITEPORT_ON) || (b_Command == APCI16XX_TTL_WRITEPORT_OFF)) && (insn->n < 2)) {
-		       
-						
-		       
+		       /*******************/
+						/* Data size error */
+		       /*******************/
 
 						printk("\nBuffer size error");
 						i_ReturnValue = -101;
 					}
 				} else {
-		    
-					
-		    
+		    /*****************************************/
+					/* The selected TTL output port is wrong */
+		    /*****************************************/
 
 					printk("\nPort selection error %lX",
 						(unsigned long)devpriv->
@@ -496,60 +661,60 @@ int i_APCI16XX_InsnBitsWriteTTLIO(struct comedi_device *dev,
 					i_ReturnValue = -102;
 				}
 			} else {
-		 
-				
-		 
+		 /****************************************/
+				/* The selected TTL output port is wrong */
+		 /****************************************/
 
 				printk("\nPort selection error %d %d",
 					b_SelectedPort, b_NumberOfPort);
 				i_ReturnValue = -102;
 			}
 		} else {
-	      
-			
-	      
+	      /************************/
+			/* Config command error */
+	      /************************/
 
 			printk("\nCommand selection error");
 			i_ReturnValue = -100;
 		}
 	} else {
-	   
-		
-	   
+	   /*******************/
+		/* Data size error */
+	   /*******************/
 
 		printk("\nBuffer size error");
 		i_ReturnValue = -101;
 	}
 
-	
-	
-	
+	/**************************/
+	/* Test if no error occur */
+	/**************************/
 
 	if (i_ReturnValue >= 0) {
-	   
-		
-	   
+	   /********************************/
+		/* Get the digital output state */
+	   /********************************/
 
 		dw_Status =
 			inl(devpriv->iobase + 20 + ((b_SelectedPort / 4) * 4));
 
-	   
-		
-	   
+	   /**********************************/
+		/* Test if output memory not used */
+	   /**********************************/
 
 		if (devpriv->b_OutputMemoryStatus == ADDIDATA_DISABLE) {
-	      
-			
-	      
+	      /*********************************/
+			/* Clear the selected port value */
+	      /*********************************/
 
 			dw_Status =
 				dw_Status & (0xFFFFFFFFUL -
 				(0xFFUL << (8 * (b_SelectedPort % 4))));
 		}
 
-	   
-		
-	   
+	   /******************************/
+		/* Test if setting channel ON */
+	   /******************************/
 
 		if (b_Command == APCI16XX_TTL_WRITECHANNEL_ON) {
 			dw_Status =
@@ -557,9 +722,9 @@ int i_APCI16XX_InsnBitsWriteTTLIO(struct comedi_device *dev,
 							4)) + b_OutputChannel));
 		}
 
-	   
-		
-	   
+	   /***************************/
+		/* Test if setting port ON */
+	   /***************************/
 
 		if (b_Command == APCI16XX_TTL_WRITEPORT_ON) {
 			dw_Status =
@@ -567,9 +732,9 @@ int i_APCI16XX_InsnBitsWriteTTLIO(struct comedi_device *dev,
 					(b_SelectedPort % 4)));
 		}
 
-	   
-		
-	   
+	   /*******************************/
+		/* Test if setting channel OFF */
+	   /*******************************/
 
 		if (b_Command == APCI16XX_TTL_WRITECHANNEL_OFF) {
 			dw_Status =
@@ -578,9 +743,9 @@ int i_APCI16XX_InsnBitsWriteTTLIO(struct comedi_device *dev,
 						b_OutputChannel)));
 		}
 
-	   
-		
-	   
+	   /****************************/
+		/* Test if setting port OFF */
+	   /****************************/
 
 		if (b_Command == APCI16XX_TTL_WRITEPORT_OFF) {
 			dw_Status =
@@ -596,6 +761,18 @@ int i_APCI16XX_InsnBitsWriteTTLIO(struct comedi_device *dev,
 	return i_ReturnValue;
 }
 
+/*
++----------------------------------------------------------------------------+
+| Function   Name   : int i_APCI2200_Reset(struct comedi_device *dev)               |                                                         +----------------------------------------------------------------------------+
+| Task              :resets all the registers                                |
++----------------------------------------------------------------------------+
+| Input Parameters  : struct comedi_device *dev                                     |
++----------------------------------------------------------------------------+
+| Output Parameters : -                                                      |
++----------------------------------------------------------------------------+
+| Return Value      : -                                                      |
++----------------------------------------------------------------------------+
+*/
 
 int i_APCI16XX_Reset(struct comedi_device *dev)
 {

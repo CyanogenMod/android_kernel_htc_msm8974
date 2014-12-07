@@ -79,6 +79,7 @@
 #    define NV40_RAMHT_CONTEXT_ENGINE_SHIFT                20
 #    define NV40_RAMHT_CONTEXT_INSTANCE_SHIFT              0
 
+/* Some object classes we care about in the drm */
 #define NV_CLASS_DMA_FROM_MEMORY                           0x00000002
 #define NV_CLASS_DMA_TO_MEMORY                             0x00000003
 #define NV_CLASS_NULL                                      0x00000030
@@ -133,6 +134,9 @@
 #define NV03_PMC_ENABLE                                    0x00000200
 #    define NV_PMC_ENABLE_PFIFO                                (1<<8)
 #    define NV_PMC_ENABLE_PGRAPH                              (1<<12)
+/* Disabling the below bit breaks newer (G7X only?) mobile chipsets,
+ * the card will hang early on in the X init process.
+ */
 #    define NV_PMC_ENABLE_UNK13                               (1<<13)
 #define NV40_PMC_GRAPH_UNITS				   0x00001540
 #define NV40_PMC_BACKLIGHT				   0x000015f0
@@ -142,6 +146,7 @@
 #define NV40_PMC_1708                                      0x00001708
 #define NV40_PMC_170C                                      0x0000170C
 
+/* probably PMC ? */
 #define NV50_PUNK_BAR0_PRAMIN                              0x00001700
 #define NV50_PUNK_BAR_CFG_BASE                             0x00001704
 #define NV50_PUNK_BAR_CFG_BASE_VALID                          (1<<30)
@@ -431,6 +436,7 @@
 #define NV40_PGRAPH_TSTATUS1(i)                            (0x0040690C + (i*16))
 
 
+/* It's a guess that this works on NV03. Confirmed on NV04, though */
 #define NV04_PFIFO_DELAY_0                                 0x00002040
 #define NV04_PFIFO_DMA_TIMESLICE                           0x00002044
 #define NV04_PFIFO_NEXT_CHANNEL                            0x00002050
@@ -568,10 +574,15 @@
 
 #define NV04_PRAMIN						0x00700000
 
+/* Fifo commands. These are not regs, neither masks */
 #define NV03_FIFO_CMD_JUMP                                 0x20000000
 #define NV03_FIFO_CMD_JUMP_OFFSET_MASK                     0x1ffffffc
 #define NV03_FIFO_CMD_REWIND                               (NV03_FIFO_CMD_JUMP | (0 & NV03_FIFO_CMD_JUMP_OFFSET_MASK))
 
+/* This is a partial import from rules-ng, a few things may be duplicated.
+ * Eventually we should completely import everything from rules-ng.
+ * For the moment check rules-ng for docs.
+  */
 
 #define NV50_PMC                                            0x00000000
 #define NV50_PMC__LEN                                              0x1
@@ -740,12 +751,12 @@
 
 #define NV50_PDISPLAY_CRTC_P(i, r)        ((i) * 0x540 + NV50_PDISPLAY_CRTC_##r)
 #define NV50_PDISPLAY_CRTC_C(i, r)    (4 + (i) * 0x540 + NV50_PDISPLAY_CRTC_##r)
-#define NV50_PDISPLAY_CRTC_UNK_0A18                 0x00610a18
+#define NV50_PDISPLAY_CRTC_UNK_0A18 /* mthd 0x0900 */                0x00610a18
 #define NV50_PDISPLAY_CRTC_CLUT_MODE                                 0x00610a24
 #define NV50_PDISPLAY_CRTC_INTERLACE                                 0x00610a48
 #define NV50_PDISPLAY_CRTC_SCALE_CTRL                                0x00610a50
 #define NV50_PDISPLAY_CRTC_CURSOR_CTRL                               0x00610a58
-#define NV50_PDISPLAY_CRTC_UNK0A78                  0x00610a78
+#define NV50_PDISPLAY_CRTC_UNK0A78 /* mthd 0x0904 */                 0x00610a78
 #define NV50_PDISPLAY_CRTC_UNK0AB8                                   0x00610ab8
 #define NV50_PDISPLAY_CRTC_DEPTH                                     0x00610ac8
 #define NV50_PDISPLAY_CRTC_CLOCK                                     0x00610ad0
@@ -755,7 +766,7 @@
 #define NV50_PDISPLAY_CRTC_DISPLAY_TOTAL                             0x00610af8
 #define NV50_PDISPLAY_CRTC_SYNC_DURATION                             0x00610b00
 #define NV50_PDISPLAY_CRTC_MODE_UNK2                                 0x00610b08
-#define NV50_PDISPLAY_CRTC_UNK_0B10                 0x00610b10
+#define NV50_PDISPLAY_CRTC_UNK_0B10 /* mthd 0x0828 */                0x00610b10
 #define NV50_PDISPLAY_CRTC_FB_SIZE                                   0x00610b18
 #define NV50_PDISPLAY_CRTC_FB_PITCH                                  0x00610b20
 #define NV50_PDISPLAY_CRTC_FB_PITCH_LINEAR                           0x00100000

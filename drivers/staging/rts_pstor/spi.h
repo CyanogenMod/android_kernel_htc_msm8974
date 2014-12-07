@@ -24,6 +24,7 @@
 #ifndef __REALTEK_RTSX_SPI_H
 #define __REALTEK_RTSX_SPI_H
 
+/* SPI operation error */
 #define SPI_NO_ERR		0x00
 #define SPI_HW_ERR		0x01
 #define SPI_INVALID_COMMAND	0x02
@@ -32,6 +33,7 @@
 #define SPI_ERASE_ERR		0x05
 #define SPI_BUSY_ERR		0x06
 
+/* Serial flash instruction */
 #define SPI_READ 		0x03
 #define SPI_FAST_READ		0x0B
 #define SPI_WREN		0x06
@@ -60,4 +62,4 @@ int spi_erase_flash(struct scsi_cmnd *srb, struct rtsx_chip *chip);
 int spi_write_flash_status(struct scsi_cmnd *srb, struct rtsx_chip *chip);
 
 
-#endif  
+#endif  /* __REALTEK_RTSX_SPI_H */

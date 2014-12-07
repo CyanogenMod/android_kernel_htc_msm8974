@@ -25,4 +25,4 @@ extern void svg_close(void);
 
 extern int svg_page_width;
 
-#endif 
+#endif /* __PERF_SVGHELPER_H */

@@ -55,6 +55,7 @@
 
 #include "common.h"
 
+/* Following are default values for UCON, ULCON and UFCON UART registers */
 #define SMDKC100_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
 				 S3C2410_UCON_RXILEVEL |	\
 				 S3C2410_UCON_TXIRQMODE |	\
@@ -99,18 +100,21 @@ static struct s3c2410_uartcfg smdkc100_uartcfgs[] __initdata = {
 	},
 };
 
+/* I2C0 */
 static struct i2c_board_info i2c_devs0[] __initdata = {
 	{I2C_BOARD_INFO("wm8580", 0x1b),},
 };
 
+/* I2C1 */
 static struct i2c_board_info i2c_devs1[] __initdata = {
 };
 
+/* LCD power controller */
 static void smdkc100_lcd_power_set(struct plat_lcd_data *pd,
 				   unsigned int power)
 {
 	if (power) {
-		
+		/* module reset */
 		gpio_direction_output(S5PC100_GPH0(6), 1);
 		mdelay(100);
 		gpio_direction_output(S5PC100_GPH0(6), 0);
@@ -130,8 +134,9 @@ static struct platform_device smdkc100_lcd_powerdev = {
 	.dev.platform_data	= &smdkc100_lcd_power_data,
 };
 
+/* Frame Buffer */
 static struct s3c_fb_pd_win smdkc100_fb_win0 = {
-	
+	/* this is to ensure we use win0 */
 	.win_mode	= {
 		.left_margin	= 8,
 		.right_margin	= 13,
@@ -159,7 +164,7 @@ static struct s3c_ide_platdata smdkc100_ide_pdata __initdata = {
 };
 
 static uint32_t smdkc100_keymap[] __initdata = {
-	
+	/* KEY(row, col, keycode) */
 	KEY(0, 3, KEY_1), KEY(0, 4, KEY_2), KEY(0, 5, KEY_3),
 	KEY(0, 6, KEY_4), KEY(0, 7, KEY_5),
 	KEY(1, 3, KEY_A), KEY(1, 4, KEY_B), KEY(1, 5, KEY_C),
@@ -200,6 +205,7 @@ static struct platform_device *smdkc100_devices[] __initdata = {
 	&s5pc100_device_spdif,
 };
 
+/* LCD Backlight data */
 static struct samsung_bl_gpio_info smdkc100_bl_gpio_info = {
 	.no = S5PC100_GPD(0),
 	.func = S3C_GPIO_SFN(2),
@@ -220,7 +226,7 @@ static void __init smdkc100_machine_init(void)
 {
 	s3c24xx_ts_set_platdata(NULL);
 
-	
+	/* I2C */
 	s3c_i2c0_set_platdata(NULL);
 	s3c_i2c1_set_platdata(NULL);
 	i2c_register_board_info(0, i2c_devs0, ARRAY_SIZE(i2c_devs0));
@@ -233,7 +239,7 @@ static void __init smdkc100_machine_init(void)
 
 	s5pc100_spdif_setup_gpio(S5PC100_SPDIF_GPD);
 
-	
+	/* LCD init */
 	gpio_request(S5PC100_GPH0(6), "GPH0");
 	smdkc100_lcd_power_set(&smdkc100_lcd_power_data, 0);
 
@@ -243,7 +249,7 @@ static void __init smdkc100_machine_init(void)
 }
 
 MACHINE_START(SMDKC100, "SMDKC100")
-	
+	/* Maintainer: Byungho Min <bhmin@samsung.com> */
 	.atag_offset	= 0x100,
 	.init_irq	= s5pc100_init_irq,
 	.handle_irq	= vic_handle_irq,

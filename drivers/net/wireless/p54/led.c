@@ -23,7 +23,7 @@
 #include <net/mac80211.h>
 #ifdef CONFIG_P54_LEDS
 #include <linux/leds.h>
-#endif 
+#endif /* CONFIG_P54_LEDS */
 
 #include "p54.h"
 #include "lmac.h"
@@ -35,7 +35,7 @@ static void p54_update_leds(struct work_struct *work)
 	int err, i, tmp, blink_delay = 400;
 	bool rerun = false;
 
-	
+	/* Don't toggle the LED, when the device is down. */
 	if (priv->mode == NL80211_IFTYPE_UNSPECIFIED)
 		return ;
 
@@ -114,6 +114,11 @@ int p54_init_leds(struct p54_common *priv)
 {
 	int err;
 
+	/*
+	 * TODO:
+	 * Figure out if the EEPROM contains some hints about the number
+	 * of available/programmable LEDs of the device.
+	 */
 
 	INIT_DELAYED_WORK(&priv->led_work, p54_update_leds);
 

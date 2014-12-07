@@ -75,6 +75,10 @@ static size_t sigma_action_size(struct sigma_action *sa)
 	return payload + sizeof(struct sigma_action);
 }
 
+/*
+ * Returns a negative error value in case of an error, 0 if processing of
+ * the firmware should be stopped after this action, 1 otherwise.
+ */
 static int
 process_sigma_action(struct sigma_firmware *ssfw, struct sigma_action *sa)
 {
@@ -144,7 +148,7 @@ static int _process_sigma_firmware(struct device *dev,
 
 	pr_debug("%s: loading firmware %s\n", __func__, name);
 
-	
+	/* first load the blob */
 	ret = request_firmware(&fw, name, dev);
 	if (ret) {
 		pr_debug("%s: request_firmware() failed with %i\n", __func__, ret);
@@ -152,9 +156,15 @@ static int _process_sigma_firmware(struct device *dev,
 	}
 	ssfw->fw = fw;
 
-	
+	/* then verify the header */
 	ret = -EINVAL;
 
+	/*
+	 * Reject too small or unreasonable large files. The upper limit has been
+	 * chosen a bit arbitrarily, but it should be enough for all practical
+	 * purposes and having the limit makes it easier to avoid integer
+	 * overflows later in the loading process.
+	 */
 	if (fw->size < sizeof(*ssfw_head) || fw->size >= 0x4000000) {
 		dev_err(dev, "Failed to load firmware: Invalid size\n");
 		goto done;
@@ -177,7 +187,7 @@ static int _process_sigma_firmware(struct device *dev,
 
 	ssfw->pos = sizeof(*ssfw_head);
 
-	
+	/* finally process all of the actions */
 	ret = process_sigma_actions(ssfw);
 
  done:

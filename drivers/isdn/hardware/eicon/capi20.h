@@ -25,15 +25,20 @@
  */
 #ifndef _INC_CAPI20
 #define _INC_CAPI20
+/* operations on message queues                             */
+/* the common device type for CAPI20 drivers */
 #define FILE_DEVICE_CAPI20 0x8001
+/* DEVICE_CONTROL codes for user and kernel mode applications */
 #define CAPI20_CTL_REGISTER             0x0801
 #define CAPI20_CTL_RELEASE              0x0802
 #define CAPI20_CTL_GET_MANUFACTURER     0x0805
 #define CAPI20_CTL_GET_VERSION          0x0806
 #define CAPI20_CTL_GET_SERIAL           0x0807
 #define CAPI20_CTL_GET_PROFILE          0x0808
+/* INTERNAL_DEVICE_CONTROL codes for kernel mode applicatios only */
 #define CAPI20_CTL_PUT_MESSAGE          0x0803
 #define CAPI20_CTL_GET_MESSAGE          0x0804
+/* the wrapped codes as required by the system */
 #define CAPI_CTL_CODE(f, m)             CTL_CODE(FILE_DEVICE_CAPI20, f, m, FILE_ANY_ACCESS)
 #define IOCTL_CAPI_REGISTER             CAPI_CTL_CODE(CAPI20_CTL_REGISTER, METHOD_BUFFERED)
 #define IOCTL_CAPI_RELEASE              CAPI_CTL_CODE(CAPI20_CTL_RELEASE, METHOD_BUFFERED)
@@ -63,6 +68,7 @@ typedef struct api_profile_s {
 	dword         B2_Protocols;
 	dword         B3_Protocols;
 } API_PROFILE;
+/* ISDN Common API message types                            */
 #define _ALERT_R                        0x8001
 #define _CONNECT_R                      0x8002
 #define _CONNECT_I                      0x8202
@@ -87,8 +93,13 @@ typedef struct api_profile_s {
 #define _CONNECT_B3_T90_ACTIVE_I        0x8288
 #define _MANUFACTURER_R                 0x80ff
 #define _MANUFACTURER_I                 0x82ff
+/* OR this to convert a REQUEST to a CONFIRM                */
 #define CONFIRM                 0x0100
+/* OR this to convert a INDICATION to a RESPONSE            */
 #define RESPONSE                0x0100
+/*------------------------------------------------------------------*/
+/* diehl isdn private MANUFACTURER codes                            */
+/*------------------------------------------------------------------*/
 #define _DI_MANU_ID             0x44444944
 #define _DI_ASSIGN_PLCI         0x0001
 #define _DI_ADV_CODEC           0x0002
@@ -101,76 +112,123 @@ typedef struct api_profile_s {
 #define _DI_OPTIONS_REQUEST     0x0009
 #define _DI_SSEXT_CTRL          0x000a
 #define _DI_NEGOTIATE_B3        0x000b
+/*------------------------------------------------------------------*/
+/* parameter structures                                             */
+/*------------------------------------------------------------------*/
+/* ALERT-REQUEST                                            */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* Additional Info */
 } _ALT_REQP;
+/* ALERT-CONFIRM                                            */
 typedef struct {
 	word Info;
 } _ALT_CONP;
+/* CONNECT-REQUEST                                          */
 typedef struct {
 	word CIP_Value;
-	byte structs[0];      
+	byte structs[0];      /* Called party number,
+				 Called party subaddress,
+				 Calling party number,
+				 Calling party subaddress,
+				 B_protocol,
+				 BC,
+				 LLC,
+				 HLC,
+				 Additional Info */
 } _CON_REQP;
+/* CONNECT-CONFIRM                                          */
 typedef struct {
 	word Info;
 } _CON_CONP;
+/* CONNECT-INDICATION                                       */
 typedef struct {
 	word CIP_Value;
-	byte structs[0];      
+	byte structs[0];      /* Called party number,
+				 Called party subaddress,
+				 Calling party number,
+				 Calling party subaddress,
+				 BC,
+				 LLC,
+				 HLC,
+				 Additional Info */
 } _CON_INDP;
+/* CONNECT-RESPONSE                                         */
 typedef struct {
 	word Accept;
-	byte structs[0];      
+	byte structs[0];      /* B_protocol,
+				 Connected party number,
+				 Connected party subaddress,
+				 LLC */
 } _CON_RESP;
+/* CONNECT-ACTIVE-INDICATION                                */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* Connected party number,
+				 Connected party subaddress,
+				 LLC */
 } _CON_A_INDP;
+/* CONNECT-ACTIVE-RESPONSE                                  */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* empty */
 } _CON_A_RESP;
+/* DISCONNECT-REQUEST                                       */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* Additional Info */
 } _DIS_REQP;
+/* DISCONNECT-CONFIRM                                       */
 typedef struct {
 	word Info;
 } _DIS_CONP;
+/* DISCONNECT-INDICATION                                    */
 typedef struct {
 	word Info;
 } _DIS_INDP;
+/* DISCONNECT-RESPONSE                                      */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* empty */
 } _DIS_RESP;
+/* LISTEN-REQUEST                                           */
 typedef struct {
 	dword Info_Mask;
 	dword CIP_Mask;
-	byte structs[0];      
+	byte structs[0];      /* Calling party number,
+				 Calling party subaddress */
 } _LIS_REQP;
+/* LISTEN-CONFIRM                                           */
 typedef struct {
 	word Info;
 } _LIS_CONP;
+/* INFO-REQUEST                                             */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* Called party number,
+				 Additional Info */
 } _INF_REQP;
+/* INFO-CONFIRM                                             */
 typedef struct {
 	word Info;
 } _INF_CONP;
+/* INFO-INDICATION                                          */
 typedef struct {
 	word Number;
-	byte structs[0];      
+	byte structs[0];      /* Info element */
 } _INF_INDP;
+/* INFO-RESPONSE                                            */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* empty */
 } _INF_RESP;
+/* SELECT-B-REQUEST                                         */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* B-protocol */
 } _SEL_B_REQP;
+/* SELECT-B-CONFIRM                                         */
 typedef struct {
 	word Info;
 } _SEL_B_CONP;
+/* FACILITY-REQUEST */
 typedef struct {
 	word Selector;
-	byte structs[0];      
+	byte structs[0];      /* Facility parameters */
 } _FAC_REQP;
+/* FACILITY-CONFIRM STRUCT FOR SUPPLEMENT. SERVICES */
 typedef struct {
 	byte  struct_length;
 	word  function;
@@ -178,57 +236,72 @@ typedef struct {
 	word  SupplementaryServiceInfo;
 	dword SupportedServices;
 } _FAC_CON_STRUCTS;
+/* FACILITY-CONFIRM */
 typedef struct {
 	word Info;
 	word Selector;
-	byte structs[0];      
+	byte structs[0];      /* Facility parameters */
 } _FAC_CONP;
+/* FACILITY-INDICATION */
 typedef struct {
 	word Selector;
-	byte structs[0];      
+	byte structs[0];      /* Facility parameters */
 } _FAC_INDP;
+/* FACILITY-RESPONSE */
 typedef struct {
 	word Selector;
-	byte structs[0];      
+	byte structs[0];      /* Facility parameters */
 } _FAC_RESP;
+/* CONNECT-B3-REQUEST                                       */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* NCPI */
 } _CON_B3_REQP;
+/* CONNECT-B3-CONFIRM                                       */
 typedef struct {
 	word Info;
 } _CON_B3_CONP;
+/* CONNECT-B3-INDICATION                                    */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* NCPI */
 } _CON_B3_INDP;
+/* CONNECT-B3-RESPONSE                                      */
 typedef struct {
 	word Accept;
-	byte structs[0];      
+	byte structs[0];      /* NCPI */
 } _CON_B3_RESP;
+/* CONNECT-B3-ACTIVE-INDICATION                             */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* NCPI */
 } _CON_B3_A_INDP;
+/* CONNECT-B3-ACTIVE-RESPONSE                               */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* empty */
 } _CON_B3_A_RESP;
+/* DISCONNECT-B3-REQUEST                                    */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* NCPI */
 } _DIS_B3_REQP;
+/* DISCONNECT-B3-CONFIRM                                    */
 typedef struct {
 	word Info;
 } _DIS_B3_CONP;
+/* DISCONNECT-B3-INDICATION                                 */
 typedef struct {
 	word Info;
-	byte structs[0];      
+	byte structs[0];      /* NCPI */
 } _DIS_B3_INDP;
+/* DISCONNECT-B3-RESPONSE                                   */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* empty */
 } _DIS_B3_RESP;
+/* DATA-B3-REQUEST                                          */
 typedef struct {
 	dword         Data;
 	word          Data_Length;
 	word          Number;
 	word          Flags;
 } _DAT_B3_REQP;
+/* DATA-B3-REQUEST 64 BIT Systems                           */
 typedef struct {
 	dword         Data;
 	word          Data_Length;
@@ -236,16 +309,19 @@ typedef struct {
 	word          Flags;
 	void          *pData;
 } _DAT_B3_REQ64P;
+/* DATA-B3-CONFIRM                                          */
 typedef struct {
 	word          Number;
 	word          Info;
 } _DAT_B3_CONP;
+/* DATA-B3-INDICATION                                       */
 typedef struct {
 	dword         Data;
 	word          Data_Length;
 	word          Number;
 	word          Flags;
 } _DAT_B3_INDP;
+/* DATA-B3-INDICATION  64 BIT Systems                       */
 typedef struct {
 	dword         Data;
 	word          Data_Length;
@@ -253,28 +329,38 @@ typedef struct {
 	word          Flags;
 	void          *pData;
 } _DAT_B3_IND64P;
+/* DATA-B3-RESPONSE                                         */
 typedef struct {
 	word          Number;
 } _DAT_B3_RESP;
+/* RESET-B3-REQUEST                                         */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* NCPI */
 } _RES_B3_REQP;
+/* RESET-B3-CONFIRM                                         */
 typedef struct {
 	word Info;
 } _RES_B3_CONP;
+/* RESET-B3-INDICATION                                      */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* NCPI */
 } _RES_B3_INDP;
+/* RESET-B3-RESPONSE                                        */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* empty */
 } _RES_B3_RESP;
+/* CONNECT-B3-T90-ACTIVE-INDICATION                         */
 typedef struct {
-	byte structs[0];      
+	byte structs[0];      /* NCPI */
 } _CON_B3_T90_A_INDP;
+/* CONNECT-B3-T90-ACTIVE-RESPONSE                           */
 typedef struct {
 	word Reject;
-	byte structs[0];      
+	byte structs[0];      /* NCPI */
 } _CON_B3_T90_A_RESP;
+/*------------------------------------------------------------------*/
+/* message structure                                                */
+/*------------------------------------------------------------------*/
 typedef struct _API_MSG CAPI_MSG;
 typedef struct _MSG_HEADER CAPI_MSG_HEADER;
 struct _API_MSG {
@@ -337,9 +423,15 @@ struct _API_MSG {
 		byte                b[200];
 	} info;
 };
+/*------------------------------------------------------------------*/
+/* non-fatal errors                                                 */
+/*------------------------------------------------------------------*/
 #define _NCPI_IGNORED           0x0001
 #define _FLAGS_IGNORED          0x0002
 #define _ALERT_IGNORED          0x0003
+/*------------------------------------------------------------------*/
+/* API function error codes                                         */
+/*------------------------------------------------------------------*/
 #define GOOD                            0x0000
 #define _TOO_MANY_APPLICATIONS          0x1001
 #define _BLOCK_TOO_SMALL                0x1002
@@ -360,6 +452,9 @@ struct _API_MSG {
 #define _CAPI_NOT_INSTALLED             0x1109
 #define _NO_EXTERNAL_EQUIPMENT          0x110a
 #define _ONLY_EXTERNAL_EQUIPMENT        0x110b
+/*------------------------------------------------------------------*/
+/* addressing/coding error codes                                    */
+/*------------------------------------------------------------------*/
 #define _WRONG_STATE                    0x2001
 #define _WRONG_IDENTIFIER               0x2002
 #define _OUT_OF_PLCI                    0x2003
@@ -368,6 +463,9 @@ struct _API_MSG {
 #define _OUT_OF_FAX                     0x2006
 #define _WRONG_MESSAGE_FORMAT           0x2007
 #define _OUT_OF_INTERCONNECT_RESOURCES  0x2008
+/*------------------------------------------------------------------*/
+/* configuration error codes                                        */
+/*------------------------------------------------------------------*/
 #define _B1_NOT_SUPPORTED                    0x3001
 #define _B2_NOT_SUPPORTED                    0x3002
 #define _B3_NOT_SUPPORTED                    0x3003
@@ -384,15 +482,24 @@ struct _API_MSG {
 #define _SUPPLEMENTARY_SERVICE_NOT_SUPPORTED 0x300e
 #define _REQUEST_NOT_ALLOWED_IN_THIS_STATE   0x3010
 #define _FACILITY_SPECIFIC_FUNCTION_NOT_SUPP 0x3011
+/*------------------------------------------------------------------*/
+/* reason codes                                                     */
+/*------------------------------------------------------------------*/
 #define _L1_ERROR                       0x3301
 #define _L2_ERROR                       0x3302
 #define _L3_ERROR                       0x3303
 #define _OTHER_APPL_CONNECTED           0x3304
 #define _CAPI_GUARD_ERROR               0x3305
 #define _L3_CAUSE                       0x3400
+/*------------------------------------------------------------------*/
+/* b3 reason codes                                                  */
+/*------------------------------------------------------------------*/
 #define _B_CHANNEL_LOST                 0x3301
 #define _B2_ERROR                       0x3302
 #define _B3_ERROR                       0x3303
+/*------------------------------------------------------------------*/
+/* fax error codes                                                  */
+/*------------------------------------------------------------------*/
 #define _FAX_NO_CONNECTION              0x3311
 #define _FAX_TRAINING_ERROR             0x3312
 #define _FAX_REMOTE_REJECT              0x3313
@@ -402,6 +509,9 @@ struct _API_MSG {
 #define _FAX_RX_OVERFLOW                0x3317
 #define _FAX_LOCAL_ABORT                0x3318
 #define _FAX_PARAMETER_ERROR            0x3319
+/*------------------------------------------------------------------*/
+/* line interconnect error codes                                    */
+/*------------------------------------------------------------------*/
 #define _LI_USER_INITIATED               0x0000
 #define _LI_LINE_NO_LONGER_AVAILABLE     0x3805
 #define _LI_INTERCONNECT_NOT_ESTABLISHED 0x3806
@@ -410,6 +520,9 @@ struct _API_MSG {
 #define _LI2_PLCI_HAS_NO_BCHANNEL        0x3800
 #define _LI2_LINES_NOT_COMPATIBLE        0x3801
 #define _LI2_NOT_IN_SAME_INTERCONNECTION 0x3802
+/*------------------------------------------------------------------*/
+/* global options                                                   */
+/*------------------------------------------------------------------*/
 #define GL_INTERNAL_CONTROLLER_SUPPORTED     0x00000001L
 #define GL_EXTERNAL_EQUIPMENT_SUPPORTED      0x00000002L
 #define GL_HANDSET_SUPPORTED                 0x00000004L
@@ -419,6 +532,9 @@ struct _API_MSG {
 #define GL_BCHANNEL_OPERATION_SUPPORTED      0x00000040L
 #define GL_LINE_INTERCONNECT_SUPPORTED       0x00000080L
 #define GL_ECHO_CANCELLER_SUPPORTED          0x00000100L
+/*------------------------------------------------------------------*/
+/* protocol selection                                               */
+/*------------------------------------------------------------------*/
 #define B1_HDLC                 0
 #define B1_TRANSPARENT          1
 #define B1_V110_ASYNC           2
@@ -450,6 +566,9 @@ struct _API_MSG {
 #define B3_T30_WITH_EXTENSIONS  5
 #define B3_RESERVED             6
 #define B3_MODEM                7
+/*------------------------------------------------------------------*/
+/*  facility definitions                                            */
+/*------------------------------------------------------------------*/
 #define SELECTOR_HANDSET            0
 #define SELECTOR_DTMF               1
 #define SELECTOR_V42BIS             2
@@ -457,6 +576,9 @@ struct _API_MSG {
 #define SELECTOR_POWER_MANAGEMENT   4
 #define SELECTOR_LINE_INTERCONNECT  5
 #define SELECTOR_ECHO_CANCELLER     6
+/*------------------------------------------------------------------*/
+/*  supplementary services definitions                              */
+/*------------------------------------------------------------------*/
 #define S_GET_SUPPORTED_SERVICES  0x0000
 #define S_LISTEN                  0x0001
 #define S_HOLD                    0x0002
@@ -469,7 +591,7 @@ struct _API_MSG {
 #define S_CALL_DEFLECTION         0x000d
 #define S_CALL_FORWARDING_START   0x0009
 #define S_CALL_FORWARDING_STOP    0x000a
-#define S_INTERROGATE_DIVERSION   0x000b 
+#define S_INTERROGATE_DIVERSION   0x000b /* or interrogate parameters */
 #define S_INTERROGATE_NUMBERS     0x000c
 #define S_CCBS_REQUEST            0x000f
 #define S_CCBS_DEACTIVATE         0x0010
@@ -489,6 +611,7 @@ struct _API_MSG {
 #define S_MWI_INDICATE            0x8014
 #define S_CONF_PARTYDISC          0x8016
 #define S_CONF_NOTIFICATION       0x8017
+/* Service Masks */
 #define MASK_HOLD_RETRIEVE        0x00000001
 #define MASK_TERMINAL_PORTABILITY 0x00000002
 #define MASK_ECT                  0x00000004
@@ -498,12 +621,18 @@ struct _API_MSG {
 #define MASK_MWI                  0x00000100
 #define MASK_CCNR                 0x00000200
 #define MASK_CONF                 0x00000400
+/*------------------------------------------------------------------*/
+/*  dtmf definitions                                                */
+/*------------------------------------------------------------------*/
 #define DTMF_LISTEN_START     1
 #define DTMF_LISTEN_STOP      2
 #define DTMF_DIGITS_SEND      3
 #define DTMF_SUCCESS          0
 #define DTMF_INCORRECT_DIGIT  1
 #define DTMF_UNKNOWN_REQUEST  2
+/*------------------------------------------------------------------*/
+/*  line interconnect definitions                                   */
+/*------------------------------------------------------------------*/
 #define LI_GET_SUPPORTED_SERVICES       0
 #define LI_REQ_CONNECT                  1
 #define LI_REQ_DISCONNECT               2
@@ -545,6 +674,9 @@ struct _API_MSG {
 #define LI2_B_LOOPING_SUPPORTED         ((dword) 0x00000040L)
 #define LI2_PC_LOOPING_SUPPORTED        ((dword) 0x00000080L)
 #define LI2_X_LOOPING_SUPPORTED         ((dword) 0x00000100L)
+/*------------------------------------------------------------------*/
+/* echo canceller definitions                                       */
+/*------------------------------------------------------------------*/
 #define EC_GET_SUPPORTED_SERVICES            0
 #define EC_ENABLE_OPERATION                  1
 #define EC_DISABLE_OPERATION                 2
@@ -560,4 +692,8 @@ struct _API_MSG {
 #define EC_BYPASS_DUE_TO_CONTINUOUS_2100HZ   1
 #define EC_BYPASS_DUE_TO_REVERSED_2100HZ     2
 #define EC_BYPASS_RELEASED                   3
-#endif 
+/*------------------------------------------------------------------*/
+/* function prototypes                                              */
+/*------------------------------------------------------------------*/
+/*------------------------------------------------------------------*/
+#endif /* _INC_CAPI20 */

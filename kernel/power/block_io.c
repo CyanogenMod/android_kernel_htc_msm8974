@@ -14,6 +14,17 @@
 
 #include "power.h"
 
+/**
+ *	submit - submit BIO request.
+ *	@rw:	READ or WRITE.
+ *	@off	physical offset of page.
+ *	@page:	page we're reading or writing.
+ *	@bio_chain: list of pending biod (for async reading)
+ *
+ *	Straight from the textbook - allocate and initialize the bio.
+ *	If we're reading, make sure the page is marked as dirty.
+ *	Then submit it and, if @bio_chain == NULL, wait.
+ */
 static int submit(int rw, struct block_device *bdev, sector_t sector,
 		struct page *page, struct bio **bio_chain)
 {
@@ -43,7 +54,7 @@ static int submit(int rw, struct block_device *bdev, sector_t sector,
 		bio_put(bio);
 	} else {
 		if (rw == READ)
-			get_page(page);	
+			get_page(page);	/* These pages are freed later */
 		bio->bi_private = *bio_chain;
 		*bio_chain = bio;
 		submit_bio(bio_rw, bio);

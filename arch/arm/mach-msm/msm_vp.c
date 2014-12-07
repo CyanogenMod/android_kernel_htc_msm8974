@@ -27,9 +27,11 @@
 
 #include <mach/msm_iomap.h>
 
+/* Address for Perf Level Registor */
 #define VDD_APC_PLEVEL_BASE (MSM_CLK_CTL_BASE + 0x0298)
 #define VDD_APC_PLEVEL(n) (VDD_APC_PLEVEL_BASE + 4 * n)
 
+/* Address for SYS_P_Level register */
 #define VDD_SVS_PLEVEL_ADDR (MSM_CSR_BASE + 0x124)
 
 #define MV_TO_UV(mv) ((mv)*1000)
@@ -37,6 +39,19 @@
 
 #define MSM_VP_REGULATOR_DEV_NAME  "vp-regulator"
 
+/**
+ * Convert Voltage to PLEVEL register value
+ * Here x is required voltage in minivolt
+ * e.g. if Required voltage is 1200mV then
+ * required value to be programmed into the
+ * Plevel register is 0x32. This equation is
+ * based on H/W logic being used in SVS controller.
+ *
+ * Here we are taking the minimum voltage step
+ * to be 12.5mV as per H/W logic and adding 0x20
+ * is for selecting the reference voltage.
+ * 750mV is minimum voltage of MSMC2 smps.
+ */
 #define VOLT_TO_BIT(x) (((x-750)/(12500/1000)) + 0x20)
 #define VREG_VREF_SEL		(1 << 5)
 #define VREG_VREF_SEL_SHIFT	(0x5)
@@ -44,12 +59,18 @@
 #define VREG_PD_EN_SHIFT	(0x6)
 #define VREG_LVL_M		(0x1F)
 
+/**
+ * struct msm_vp -  Structure for VP
+ * @regulator_dev: structure for regulator device
+ * @current_voltage: current voltage value
+ */
 struct msm_vp {
 	struct device		*dev;
 	struct regulator_dev	*rdev;
 	int current_voltage;
 };
 
+/* Function to change the Vdd Level */
 static int vp_reg_set_voltage(struct regulator_dev *rdev, int min_uV,
 						int max_uV, unsigned *sel)
 {
@@ -62,19 +83,23 @@ static int vp_reg_set_voltage(struct regulator_dev *rdev, int min_uV,
 	plevel = (min_uV - 750000) / 25000;
 	fine_step_volt = (min_uV - 750000) % 25000;
 
+	/**
+	 * Program the new voltage level for the current perf_level
+	 * in corresponding PLEVEL register.
+	 */
 	cur_plevel = readl_relaxed(VDD_APC_PLEVEL(perf_level));
-	
+	/* clear lower 7 bits */
 	cur_plevel &= ~(0x7F);
 	cur_plevel |= (plevel | VREG_VREF_SEL);
 	if (fine_step_volt >= 12500)
 		cur_plevel |= VREG_PD_EN;
 	writel_relaxed(cur_plevel, VDD_APC_PLEVEL(perf_level));
 
-	
+	/* Clear the current perf level */
 	reg_val &= 0xF8;
 	writel_relaxed(reg_val, VDD_SVS_PLEVEL_ADDR);
 
-	
+	/* Initiate the PMIC SSBI request to change the voltage */
 	reg_val |= (BIT(7) | perf_level << 3);
 	writel_relaxed(reg_val, VDD_SVS_PLEVEL_ADDR);
 	mb();
@@ -118,6 +143,8 @@ static int vp_reg_disable(struct regulator_dev *rdev)
 	return 0;
 }
 
+/* Regulator registration specific data */
+/* FIXME: should move to board-xx-regulator.c file */
 static struct regulator_consumer_supply vp_consumer =
 	REGULATOR_SUPPLY("vddx_cx", "msm-cpr");
 
@@ -137,6 +164,7 @@ static struct regulator_init_data vp_reg_data = {
 	.consumer_supplies = &vp_consumer,
 };
 
+/* Regulator specific ops */
 static struct regulator_ops vp_reg_ops = {
 	.enable			= vp_reg_enable,
 	.disable		= vp_reg_disable,
@@ -144,6 +172,7 @@ static struct regulator_ops vp_reg_ops = {
 	.set_voltage		= vp_reg_set_voltage,
 };
 
+/* Regulator Description */
 static struct regulator_desc vp_reg = {
 	.name = "vddcx",
 	.id = -1,

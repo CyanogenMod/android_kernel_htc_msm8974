@@ -38,6 +38,7 @@
 #define AF9015_I2C_DEMOD   0x38
 #define AF9015_USB_TIMEOUT 2000
 
+/* EEPROM locations */
 #define AF9015_EEPROM_IR_MODE        0x18
 #define AF9015_EEPROM_IR_REMOTE_TYPE 0x34
 #define AF9015_EEPROM_TS_MODE        0x31
@@ -64,13 +65,13 @@
 #define AF9015_EEPROM_OFFSET (AF9015_EEPROM_SAW_BW2 - AF9015_EEPROM_SAW_BW1)
 
 struct req_t {
-	u8  cmd;       
-	     
-	u8  i2c_addr;  
-	u16 addr;      
-	u8  mbox;      
-	u8  addr_len;  
-	u8  data_len;  
+	u8  cmd;       /* [0] */
+	/*  seq */     /* [1] */
+	u8  i2c_addr;  /* [2] */
+	u16 addr;      /* [3|4] */
+	u8  mbox;      /* [5] */
+	u8  addr_len;  /* [6] */
+	u8  data_len;  /* [7] */
 	u8  *data;
 };
 
@@ -94,7 +95,7 @@ enum af9015_ir_mode {
 	AF9015_IR_MODE_HID,
 	AF9015_IR_MODE_RLC,
 	AF9015_IR_MODE_RC6,
-	AF9015_IR_MODE_POLLING, 
+	AF9015_IR_MODE_POLLING, /* just guess */
 };
 
 struct af9015_state {
@@ -102,7 +103,7 @@ struct af9015_state {
 	u32 rc_keycode;
 	u8 rc_last[4];
 
-	
+	/* for demod callback override */
 	int (*set_frontend[2]) (struct dvb_frontend *fe);
 	int (*read_status[2]) (struct dvb_frontend *fe, fe_status_t *status);
 	int (*init[2]) (struct dvb_frontend *fe);
@@ -121,11 +122,11 @@ struct af9015_config {
 
 enum af9015_remote {
 	AF9015_REMOTE_NONE                    = 0,
-	AF9015_REMOTE_A_LINK_DTU_M,
+/* 1 */	AF9015_REMOTE_A_LINK_DTU_M,
 	AF9015_REMOTE_MSI_DIGIVOX_MINI_II_V3,
 	AF9015_REMOTE_MYGICTV_U718,
 	AF9015_REMOTE_DIGITTRADE_DVB_T,
-	AF9015_REMOTE_AVERMEDIA_KS,
+/* 5 */	AF9015_REMOTE_AVERMEDIA_KS,
 };
 
 #endif

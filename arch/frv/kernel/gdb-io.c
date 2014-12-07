@@ -27,7 +27,7 @@
 #ifdef CONFIG_GDBSTUB_UART0
 #define __UART(X) (*(volatile uint8_t *)(UART0_BASE + (UART_##X)))
 #define __UART_IRR_NMI 0xff0f0000
-#else 
+#else /* CONFIG_GDBSTUB_UART1 */
 #define __UART(X) (*(volatile uint8_t *)(UART1_BASE + (UART_##X)))
 #define __UART_IRR_NMI 0xfff00000
 #endif
@@ -46,10 +46,15 @@ do {						\
 	gdbstub_do_rx();			\
 } while(!FLOWCTL_QUERY(LINE))
 
+/*****************************************************************************/
+/*
+ * initialise the GDB stub
+ * - called with PSR.ET==0, so can't incur external interrupts
+ */
 void gdbstub_io_init(void)
 {
-	
-	__UART(LCR) = UART_LCR_WLEN8; 
+	/* set up the serial port */
+	__UART(LCR) = UART_LCR_WLEN8; /* 1N8 */
 	__UART(FCR) =
 		UART_FCR_ENABLE_FIFO |
 		UART_FCR_CLEAR_RCVR |
@@ -59,28 +64,33 @@ void gdbstub_io_init(void)
 	FLOWCTL_CLEAR(DTR);
 	FLOWCTL_SET(RTS);
 
+//	gdbstub_set_baud(115200);
 
-	
+	/* we want to get serial receive interrupts */
 	__UART(IER) = UART_IER_RDI | UART_IER_RLSI;
 	mb();
 
-	__set_IRR(6, __UART_IRR_NMI);	
+	__set_IRR(6, __UART_IRR_NMI);	/* map ERRs and UARTx to NMI */
 
-} 
+} /* end gdbstub_io_init() */
 
+/*****************************************************************************/
+/*
+ * set up the GDB stub serial port baud rate timers
+ */
 void gdbstub_set_baud(unsigned baud)
 {
 	unsigned value, high, low;
 	u8 lcr;
 
-	
+	/* work out the divisor to give us the nearest higher baud rate */
 	value = __serial_clock_speed_HZ / 16 / baud;
 
-	
+	/* determine the baud rate range */
 	high = __serial_clock_speed_HZ / 16 / value;
 	low = __serial_clock_speed_HZ / 16 / (value + 1);
 
-	
+	/* pick the nearest bound */
 	if (low + (high - low) / 2 > baud)
 		value++;
 
@@ -93,8 +103,12 @@ void gdbstub_set_baud(unsigned baud)
 	__UART(LCR) = lcr;
 	mb();
 
-} 
+} /* end gdbstub_set_baud() */
 
+/*****************************************************************************/
+/*
+ * receive characters into the receive FIFO
+ */
 void gdbstub_do_rx(void)
 {
 	unsigned ix, nix;
@@ -116,8 +130,12 @@ void gdbstub_do_rx(void)
 	__clr_RC(15);
 	__clr_IRL();
 
-} 
+} /* end gdbstub_do_rx() */
 
+/*****************************************************************************/
+/*
+ * wait for a character to come from the debugger
+ */
 int gdbstub_rx_char(unsigned char *_ch, int nonblock)
 {
 	unsigned ix;
@@ -134,12 +152,12 @@ int gdbstub_rx_char(unsigned char *_ch, int nonblock)
  try_again:
 	gdbstub_do_rx();
 
-	
+	/* pull chars out of the buffer */
 	ix = gdbstub_rx_outp;
 	if (ix == gdbstub_rx_inp) {
 		if (nonblock)
 			return -EAGAIN;
-		
+		//watchdog_alert_counter = 0;
 		goto try_again;
 	}
 
@@ -161,27 +179,37 @@ int gdbstub_rx_char(unsigned char *_ch, int nonblock)
 		return 0;
 	}
 
-} 
+} /* end gdbstub_rx_char() */
 
+/*****************************************************************************/
+/*
+ * send a character to the debugger
+ */
 void gdbstub_tx_char(unsigned char ch)
 {
 	FLOWCTL_SET(DTR);
 	LSR_WAIT_FOR(THRE);
+//	FLOWCTL_WAIT_FOR(CTS);
 
 	if (ch == 0x0a) {
 		__UART(TX) = 0x0d;
 		mb();
 		LSR_WAIT_FOR(THRE);
+//		FLOWCTL_WAIT_FOR(CTS);
 	}
 	__UART(TX) = ch;
 	mb();
 
 	FLOWCTL_CLEAR(DTR);
-} 
+} /* end gdbstub_tx_char() */
 
+/*****************************************************************************/
+/*
+ * send a character to the debugger
+ */
 void gdbstub_tx_flush(void)
 {
 	LSR_WAIT_FOR(TEMT);
 	LSR_WAIT_FOR(THRE);
 	FLOWCTL_CLEAR(DTR);
-} 
+} /* end gdbstub_tx_flush() */

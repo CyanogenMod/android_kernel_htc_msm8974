@@ -39,6 +39,7 @@
 #define L1GPU_DISPLAY_SYNC_VSYNC		2
 
 
+/* mutex synchronizing GPU accesses and video mode changes */
 extern struct mutex ps3_gpu_mutex;
 
 
@@ -82,4 +83,4 @@ static inline int lv1_gpu_fb_close(u64 context_handle)
 					 0, 0, 0);
 }
 
-#endif 
+#endif /* _ASM_POWERPC_PS3GPU_H */

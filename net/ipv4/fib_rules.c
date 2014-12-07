@@ -239,9 +239,9 @@ nla_put_failure:
 
 static size_t fib4_rule_nlmsg_payload(struct fib_rule *rule)
 {
-	return nla_total_size(4) 
-	       + nla_total_size(4) 
-	       + nla_total_size(4); 
+	return nla_total_size(4) /* dst */
+	       + nla_total_size(4) /* src */
+	       + nla_total_size(4); /* flow */
 }
 
 static void fib4_rule_flush_cache(struct fib_rules_ops *ops)
@@ -298,7 +298,7 @@ int __net_init fib4_rules_init(struct net *net)
 	return 0;
 
 fail:
-	
+	/* also cleans all rules already added */
 	fib_rules_unregister(ops);
 	return err;
 }

@@ -18,11 +18,19 @@
 #include <asm/sn/sn_sal.h>
 #include "xtalk/hubdev.h"
 
+/*
+ * The code in this file will only be executed when running with
+ * a PROM that does _not_ have base ACPI IO support.
+ * (i.e., SN_ACPI_BASE_SUPPORT() == 0)
+ */
 
-static int max_segment_number;		 
-static int max_pcibus_number = 255;	
+static int max_segment_number;		 /* Default highest segment number */
+static int max_pcibus_number = 255;	/* Default highest pci bus number */
 
 
+/*
+ * Retrieve the hub device info structure for the given nasid.
+ */
 static inline u64 sal_get_hubdev_info(u64 handle, u64 address)
 {
 	struct ia64_sal_retval ret_stuff;
@@ -35,6 +43,9 @@ static inline u64 sal_get_hubdev_info(u64 handle, u64 address)
 	return ret_stuff.v0;
 }
 
+/*
+ * Retrieve the pci bus information given the bus number.
+ */
 static inline u64 sal_get_pcibus_info(u64 segment, u64 busnum, u64 address)
 {
 	struct ia64_sal_retval ret_stuff;
@@ -47,6 +58,9 @@ static inline u64 sal_get_pcibus_info(u64 segment, u64 busnum, u64 address)
 	return ret_stuff.v0;
 }
 
+/*
+ * Retrieve the pci device information given the bus and device|function number.
+ */
 static inline u64
 sal_get_pcidev_info(u64 segment, u64 bus_number, u64 devfn, u64 pci_dev,
 		    u64 sn_irq_info)
@@ -64,6 +78,11 @@ sal_get_pcidev_info(u64 segment, u64 bus_number, u64 devfn, u64 pci_dev,
 }
 
 
+/*
+ * sn_fixup_ionodes() - This routine initializes the HUB data structure for
+ *			each node in the system. This function is only
+ *			executed when running with a non-ACPI capable PROM.
+ */
 static void __init sn_fixup_ionodes(void)
 {
 
@@ -73,6 +92,10 @@ static void __init sn_fixup_ionodes(void)
 	int i;
 	extern void sn_common_hubdev_init(struct hubdev_info *);
 
+	/*
+	 * Get SGI Specific HUB chipset information.
+	 * Inform Prom that this kernel can support domain bus numbering.
+	 */
 	for (i = 0; i < num_cnodes; i++) {
 		hubdev = (struct hubdev_info *)(NODEPDA(i)->pdinfo);
 		nasid = cnodeid_to_nasid(i);
@@ -82,8 +105,11 @@ static void __init sn_fixup_ionodes(void)
 		if (status)
 			continue;
 
-		
+		/* Save the largest Domain and pcibus numbers found. */
 		if (hubdev->max_segment_number) {
+			/*
+			 * Dealing with a Prom that supports segments.
+			 */
 			max_segment_number = hubdev->max_segment_number;
 			max_pcibus_number = hubdev->max_pcibus_number;
 		}
@@ -91,6 +117,13 @@ static void __init sn_fixup_ionodes(void)
 	}
 }
 
+/*
+ * sn_pci_legacy_window_fixup - Create PCI controller windows for
+ *				legacy IO and MEM space. This needs to
+ *				be done here, as the PROM does not have
+ *				ACPI support defining the root buses
+ *				and their resources (_CRS),
+ */
 static void
 sn_legacy_pci_window_fixup(struct pci_controller *controller,
 			   u64 legacy_io, u64 legacy_mem)
@@ -115,6 +148,12 @@ sn_legacy_pci_window_fixup(struct pci_controller *controller,
 		controller->windows = 2;
 }
 
+/*
+ * sn_pci_window_fixup() - Create a pci_window for each device resource.
+ *			   It will setup pci_windows for use by
+ *			   pcibios_bus_to_resource(), pcibios_resource_to_bus(),
+ *			   etc.
+ */
 static void
 sn_pci_window_fixup(struct pci_dev *dev, unsigned int count,
 		    s64 * pci_addrs)
@@ -137,7 +176,7 @@ sn_pci_window_fixup(struct pci_dev *dev, unsigned int count,
 		kfree(controller->window);
 	}
 
-	
+	/* Setup a pci_window for each device resource. */
 	for (i = 0; i <= PCI_ROM_RESOURCE; i++) {
 		if (pci_addrs[i] == -1)
 			continue;
@@ -151,6 +190,12 @@ sn_pci_window_fixup(struct pci_dev *dev, unsigned int count,
 	controller->window = new_window;
 }
 
+/*
+ * sn_io_slot_fixup() -   We are not running with an ACPI capable PROM,
+ *			  and need to convert the pci_dev->resource
+ *			  'start' and 'end' addresses to mapped addresses,
+ *			  and setup the pci_controller->window array entries.
+ */
 void
 sn_io_slot_fixup(struct pci_dev *dev)
 {
@@ -170,17 +215,17 @@ sn_io_slot_fixup(struct pci_dev *dev)
 	if (!sn_irq_info)
 		panic("%s: Unable to alloc memory for sn_irq_info", __func__);
 
-	
+	/* Call to retrieve pci device information needed by kernel. */
 	status = sal_get_pcidev_info((u64) pci_domain_nr(dev),
 		(u64) dev->bus->number,
 		dev->devfn,
 		(u64) __pa(pcidev_info),
 		(u64) __pa(sn_irq_info));
 
-	BUG_ON(status); 
+	BUG_ON(status); /* Cannot get platform pci device information */
 
 
-	
+	/* Copy over PIO Mapped Addresses */
 	for (idx = 0; idx <= PCI_ROM_RESOURCE; idx++) {
 
 		if (!pcidev_info->pdi_pio_mapped_addr[idx]) {
@@ -202,6 +247,10 @@ sn_io_slot_fixup(struct pci_dev *dev)
 		dev->resource[idx].start = addr;
 		dev->resource[idx].end = addr + size;
 
+		/*
+		 * if it's already in the device structure, remove it before
+		 * inserting
+		 */
 		if (dev->resource[idx].parent && dev->resource[idx].parent->child)
 			release_resource(&dev->resource[idx]);
 
@@ -209,6 +258,10 @@ sn_io_slot_fixup(struct pci_dev *dev)
 			insert_resource(&ioport_resource, &dev->resource[idx]);
 		else
 			insert_resource(&iomem_resource, &dev->resource[idx]);
+		/*
+		 * If ROM, set the actual ROM image size, and mark as
+		 * shadowed in PROM.
+		 */
 		if (idx == PCI_ROM_RESOURCE) {
 			size_t image_size;
 			void __iomem *rom;
@@ -223,6 +276,9 @@ sn_io_slot_fixup(struct pci_dev *dev)
 						 IORESOURCE_ROM_BIOS_COPY;
 		}
 	}
+	/* Create a pci_window in the pci_controller struct for
+	 * each device resource.
+	 */
 	if (count > 0)
 		sn_pci_window_fixup(dev, count, pci_addrs);
 
@@ -231,6 +287,10 @@ sn_io_slot_fixup(struct pci_dev *dev)
 
 EXPORT_SYMBOL(sn_io_slot_fixup);
 
+/*
+ * sn_pci_controller_fixup() - This routine sets up a bus's resources
+ *			       consistent with the Linux PCI abstraction layer.
+ */
 static void __init
 sn_pci_controller_fixup(int segment, int busnum, struct pci_bus *bus)
 {
@@ -243,7 +303,7 @@ sn_pci_controller_fixup(int segment, int busnum, struct pci_bus *bus)
  	status = sal_get_pcibus_info((u64) segment, (u64) busnum,
  				     (u64) ia64_tpa(&prom_bussoft_ptr));
  	if (status > 0)
-		return;		
+		return;		/*bus # does not exist */
 	prom_bussoft_ptr = __va(prom_bussoft_ptr);
 
 	controller = kzalloc(sizeof(*controller), GFP_KERNEL);
@@ -266,7 +326,7 @@ sn_pci_controller_fixup(int segment, int busnum, struct pci_bus *bus)
 	bus = pci_scan_root_bus(NULL, busnum, &pci_root_ops, controller,
 				&resources);
  	if (bus == NULL)
- 		goto error_return; 
+ 		goto error_return; /* error, or bus already scanned */
 
 	bus->sysdata = controller;
 
@@ -278,13 +338,16 @@ error_return:
 	return;
 }
 
+/*
+ * sn_bus_fixup
+ */
 void
 sn_bus_fixup(struct pci_bus *bus)
 {
 	struct pci_dev *pci_dev = NULL;
 	struct pcibus_bussoft *prom_bussoft_ptr;
 
-	if (!bus->parent) {  
+	if (!bus->parent) {  /* If root bus */
 		prom_bussoft_ptr = PCI_CONTROLLER(bus)->platform_data;
 		if (prom_bussoft_ptr == NULL) {
 			printk(KERN_ERR
@@ -301,6 +364,11 @@ sn_bus_fixup(struct pci_bus *bus)
 
 }
 
+/*
+ * sn_io_init - PROM does not have ACPI support to define nodes or root buses,
+ *		so we need to do things the hard way, including initiating the
+ *		bus scanning ourselves.
+ */
 
 void __init sn_io_init(void)
 {
@@ -308,7 +376,7 @@ void __init sn_io_init(void)
 
 	sn_fixup_ionodes();
 
-	
+	/* busses are not known yet ... */
 	for (i = 0; i <= max_segment_number; i++)
 		for (j = 0; j <= max_pcibus_number; j++)
 			sn_pci_controller_fixup(i, j, NULL);

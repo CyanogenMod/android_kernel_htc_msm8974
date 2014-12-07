@@ -47,10 +47,11 @@ asmlinkage ssize_t sys_pwrite_wrapper(unsigned int fd, const char __user *buf,
 asmlinkage int sys_fadvise64_64_wrapper(int fd, u32 offset0, u32 offset1,
 					u32 len0, u32 len1, int advice);
 
+/* Misc syscall related bits */
 asmlinkage long do_syscall_trace_enter(struct pt_regs *regs);
 asmlinkage void do_syscall_trace_leave(struct pt_regs *regs);
 asmlinkage void do_notify_resume(struct pt_regs *regs, unsigned int save_r0,
 				 unsigned long thread_info_flags);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASM_SH_SYSCALLS_32_H */

@@ -458,7 +458,7 @@ static int pcm_in_release(struct inode *inode, struct file *file)
 		pcm->rec_mode = VOC_REC_NONE;
 	}
 
-	
+	/* remove this session from topology list */
 	auddev_cfg_tx_copp_topology(pcm->ac->session,
 				DEFAULT_COPP_TOPOLOGY);
 	mutex_unlock(&pcm->lock);

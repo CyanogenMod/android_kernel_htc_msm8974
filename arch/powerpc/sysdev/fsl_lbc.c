@@ -34,6 +34,15 @@ static spinlock_t fsl_lbc_lock = __SPIN_LOCK_UNLOCKED(fsl_lbc_lock);
 struct fsl_lbc_ctrl *fsl_lbc_ctrl_dev;
 EXPORT_SYMBOL(fsl_lbc_ctrl_dev);
 
+/**
+ * fsl_lbc_addr - convert the base address
+ * @addr_base:	base address of the memory bank
+ *
+ * This function converts a base address of lbc into the right format for the
+ * BR register. If the SOC has eLBC then it returns 32bit physical address
+ * else it convers a 34bit local bus physical address to correct format of
+ * 32bit address for BR register (Example: MPC8641).
+ */
 u32 fsl_lbc_addr(phys_addr_t addr_base)
 {
 	struct device_node *np = fsl_lbc_ctrl_dev->dev->of_node;
@@ -46,6 +55,15 @@ u32 fsl_lbc_addr(phys_addr_t addr_base)
 }
 EXPORT_SYMBOL(fsl_lbc_addr);
 
+/**
+ * fsl_lbc_find - find Localbus bank
+ * @addr_base:	base address of the memory bank
+ *
+ * This function walks LBC banks comparing "Base address" field of the BR
+ * registers with the supplied addr_base argument. When bases match this
+ * function returns bank number (starting with 0), otherwise it returns
+ * appropriate errno value.
+ */
 int fsl_lbc_find(phys_addr_t addr_base)
 {
 	int i;
@@ -67,6 +85,15 @@ int fsl_lbc_find(phys_addr_t addr_base)
 }
 EXPORT_SYMBOL(fsl_lbc_find);
 
+/**
+ * fsl_upm_find - find pre-programmed UPM via base address
+ * @addr_base:	base address of the memory bank controlled by the UPM
+ * @upm:	pointer to the allocated fsl_upm structure
+ *
+ * This function fills fsl_upm structure so you can use it with the rest of
+ * UPM API. On success this function returns 0, otherwise it returns
+ * appropriate errno value.
+ */
 int fsl_upm_find(phys_addr_t addr_base, struct fsl_upm *upm)
 {
 	int bank;
@@ -115,6 +142,16 @@ int fsl_upm_find(phys_addr_t addr_base, struct fsl_upm *upm)
 }
 EXPORT_SYMBOL(fsl_upm_find);
 
+/**
+ * fsl_upm_run_pattern - actually run an UPM pattern
+ * @upm:	pointer to the fsl_upm structure obtained via fsl_upm_find
+ * @io_base:	remapped pointer to where memory access should happen
+ * @mar:	MAR register content during pattern execution
+ *
+ * This function triggers dummy write to the memory specified by the io_base,
+ * thus UPM pattern actually executed. Note that mar usage depends on the
+ * pre-programmed AMX bits in the UPM RAM.
+ */
 int fsl_upm_run_pattern(struct fsl_upm *upm, void __iomem *io_base, u32 mar)
 {
 	int ret = 0;
@@ -153,20 +190,24 @@ static int __devinit fsl_lbc_ctrl_init(struct fsl_lbc_ctrl *ctrl,
 {
 	struct fsl_lbc_regs __iomem *lbc = ctrl->regs;
 
-	
+	/* clear event registers */
 	setbits32(&lbc->ltesr, LTESR_CLEAR);
 	out_be32(&lbc->lteatr, 0);
 	out_be32(&lbc->ltear, 0);
 	out_be32(&lbc->lteccr, LTECCR_CLEAR);
 	out_be32(&lbc->ltedr, LTEDR_ENABLE);
 
-	
+	/* Set the monitor timeout value to the maximum for erratum A001 */
 	if (of_device_is_compatible(node, "fsl,elbc"))
 		clrsetbits_be32(&lbc->lbcr, LBCR_BMT, LBCR_BMTPS);
 
 	return 0;
 }
 
+/*
+ * NOTE: This interrupt is used to report localbus events of various kinds,
+ * such as transaction errors on the chipselects.
+ */
 
 static irqreturn_t fsl_lbc_ctrl_irq(int irqno, void *data)
 {
@@ -222,6 +263,15 @@ static irqreturn_t fsl_lbc_ctrl_irq(int irqno, void *data)
 	return IRQ_HANDLED;
 }
 
+/*
+ * fsl_lbc_ctrl_probe
+ *
+ * called by device layer when it finds a device matching
+ * one our driver can handled. This code allocates all of
+ * the resources needed for the controller only.  The
+ * resources for the NAND banks themselves are allocated
+ * in the chip probe function.
+*/
 
 static int __devinit fsl_lbc_ctrl_probe(struct platform_device *dev)
 {
@@ -270,7 +320,7 @@ static int __devinit fsl_lbc_ctrl_probe(struct platform_device *dev)
 		goto err;
 	}
 
-	
+	/* Enable interrupts for any detected events */
 	out_be32(&fsl_lbc_ctrl_dev->regs->lteir, LTEIR_ENABLE);
 
 	return 0;
@@ -284,6 +334,7 @@ err:
 
 #ifdef CONFIG_SUSPEND
 
+/* save lbc registers */
 static int fsl_lbc_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct fsl_lbc_ctrl *ctrl = dev_get_drvdata(&pdev->dev);
@@ -297,6 +348,7 @@ static int fsl_lbc_suspend(struct platform_device *pdev, pm_message_t state)
 	return 0;
 }
 
+/* restore lbc registers */
 static int fsl_lbc_resume(struct platform_device *pdev)
 {
 	struct fsl_lbc_ctrl *ctrl = dev_get_drvdata(&pdev->dev);
@@ -310,7 +362,7 @@ static int fsl_lbc_resume(struct platform_device *pdev)
 	}
 	return 0;
 }
-#endif 
+#endif /* CONFIG_SUSPEND */
 
 static const struct of_device_id fsl_lbc_match[] = {
 	{ .compatible = "fsl,elbc", },

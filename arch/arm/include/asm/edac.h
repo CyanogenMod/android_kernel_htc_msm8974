@@ -16,6 +16,12 @@
  */
 #ifndef ASM_EDAC_H
 #define ASM_EDAC_H
+/*
+ * ECC atomic, DMA, SMP and interrupt safe scrub function.
+ * Implements the per arch atomic_scrub() that EDAC use for software
+ * ECC scrubbing.  It reads memory and then writes back the original
+ * value, allowing the hardware to detect and correct memory errors.
+ */
 static inline void atomic_scrub(void *va, u32 size)
 {
 #if __LINUX_ARM_ARCH__ >= 6
@@ -24,6 +30,9 @@ static inline void atomic_scrub(void *va, u32 size)
 	unsigned int i;
 
 	for (i = 0; i < size / sizeof(*virt_addr); i++, virt_addr++) {
+		/* Very carefully read and write to memory atomically
+		 * so we are interrupt, DMA and SMP safe.
+		 */
 		__asm__ __volatile__("\n"
 			"1:	ldrex	%0, [%2]\n"
 			"	strex	%1, %0, [%2]\n"

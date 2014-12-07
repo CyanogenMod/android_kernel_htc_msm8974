@@ -17,11 +17,11 @@
 enum {
 	UNUSED = 0,
 
-	
+	/* board specific interrupt sources */
 
-	AX88796,          
-	PSW,              
-	CF,               
+	AX88796,          /* Ethernet controller */
+	PSW,              /* Push Switch */
+	CF,               /* Compact Flash */
 
 	PCI_A,
 	PCI_B,
@@ -30,7 +30,7 @@ enum {
 };
 
 static struct intc_vect vectors[] __initdata = {
-	INTC_IRQ(PCI_A, 65), 
+	INTC_IRQ(PCI_A, 65), /* dirty: overwrite cpu vectors for pci */
 	INTC_IRQ(PCI_B, 66),
 	INTC_IRQ(PCI_C, 67),
 	INTC_IRQ(PCI_D, 68),
@@ -40,7 +40,7 @@ static struct intc_vect vectors[] __initdata = {
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xa5000000, 0, 16, 
+	{ 0xa5000000, 0, 16, /* IRLMSK */
 	  { PCI_A, PCI_B, PCI_C, PCI_D, CF, 0, 0, 0,
 	    0, 0, 0, 0, 0, 0, PSW, AX88796 } },
 };

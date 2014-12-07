@@ -19,6 +19,7 @@ static int ima_audit;
 
 #ifdef CONFIG_IMA_AUDIT
 
+/* ima_audit_setup - enable informational auditing messages */
 static int __init ima_audit_setup(char *str)
 {
 	unsigned long audit;
@@ -36,7 +37,7 @@ void integrity_audit_msg(int audit_msgno, struct inode *inode,
 {
 	struct audit_buffer *ab;
 
-	if (!ima_audit && audit_info == 1) 
+	if (!ima_audit && audit_info == 1) /* Skip informational messages */
 		return;
 
 	ab = audit_log_start(current->audit_context, GFP_KERNEL, audit_msgno);

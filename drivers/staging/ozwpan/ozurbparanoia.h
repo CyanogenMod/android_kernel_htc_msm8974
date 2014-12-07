@@ -12,8 +12,8 @@ int oz_forget_urb(struct urb *urb);
 #else
 #define oz_remember_urb(__x)
 #define oz_forget_urb(__x)	0
-#endif 
+#endif /* WANT_URB_PARANOIA */
 
 
-#endif 
+#endif /* _OZURBPARANOIA_H */
 

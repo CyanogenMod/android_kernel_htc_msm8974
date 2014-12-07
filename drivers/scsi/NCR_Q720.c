@@ -1,3 +1,4 @@
+/* -*- mode: c; c-basic-offset: 8 -*- */
 
 /* NCR Quad 720 MCA SCSI Driver
  *
@@ -36,6 +37,7 @@ MODULE_LICENSE("GPL");
 
 #define NCR_Q720_VERSION		"0.9"
 
+/* We needs this helper because we have up to four hosts per struct device */
 struct NCR_Q720_private {
 	struct device		*dev;
 	void __iomem *		mem_base;
@@ -85,16 +87,16 @@ NCR_Q720_probe_one(struct NCR_Q720_private *p, int siop,
 	int error;
 
 	scsi_id = scsr1 >> 4;
-	
+	/* enable burst length 16 (FIXME: should allow this) */
 	scsr1 |= 0x02;
-	
+	/* force a siop reset */
 	scsr1 |= 0x04;
 	writeb(scsr1, vaddr + NCR_Q720_SCSR_OFFSET + 1);
 	udelay(10);
 	version = readb(vaddr + 0x18) >> 4;
 
 	memset(&device, 0, sizeof(struct ncr_device));
-		
+		/* Initialise ncr_device structure with items required by ncr_attach. */
 	device.chip		= q720_chip;
 	device.chip.revision_id	= version;
 	device.host_id		= scsi_id;
@@ -114,7 +116,7 @@ NCR_Q720_probe_one(struct NCR_Q720_private *p, int siop,
 
 	p->irq_enable |= (1<<siop);
 	scsr1 = readb(vaddr + NCR_Q720_SCSR_OFFSET + 1);
-	
+	/* clear the disable interrupt bit */
 	scsr1 &= ~0x01;
 	writeb(scsr1, vaddr + NCR_Q720_SCSR_OFFSET + 1);
 
@@ -129,6 +131,10 @@ NCR_Q720_probe_one(struct NCR_Q720_private *p, int siop,
 	return -ENODEV;
 }
 
+/* Detect a Q720 card.  Note, because of the setup --- the chips are
+ * essentially connectecd to the MCA bus independently, it is easier
+ * to set them up as two separate host adapters, rather than one
+ * adapter with two channels */
 static int __init
 NCR_Q720_probe(struct device *dev)
 {
@@ -148,7 +154,7 @@ NCR_Q720_probe(struct device *dev)
 		return -ENOMEM;
 
 	pos2 = mca_device_read_pos(mca_dev, 2);
-	
+	/* enable device */
 	pos2 |=  NCR_Q720_POS2_BOARD_ENABLE | NCR_Q720_POS2_INTERRUPT_ENABLE;
 	mca_device_write_pos(mca_dev, 2, pos2);
 
@@ -163,8 +169,11 @@ NCR_Q720_probe(struct device *dev)
 	}
 	io_base = mca_device_transform_ioport(mca_dev, io_base);
 
+	/* OK, this is phase one of the bootstrap, we now know the
+	 * I/O space base address.  All the configuration registers
+	 * are mapped here (including pos) */
 
-	
+	/* sanity check I/O mapping */
 	i = inb(io_base) | (inb(io_base+1)<<8);
 	if(i != NCR_Q720_MCA_ID) {
 		printk(KERN_ERR "NCR_Q720, adapter failed to I/O map registers correctly at 0x%x(0x%x)\n", io_base, i);
@@ -172,9 +181,9 @@ NCR_Q720_probe(struct device *dev)
 		return -ENODEV;
 	}
 
-	
+	/* Phase II, find the ram base and memory map the board register */
 	pos4 = inb(io_base + 4);
-	
+	/* enable streaming data */
 	pos4 |= 0x01;
 	outb(pos4, io_base + 4);
 	base_addr = (pos4 & 0x7e) << 20;
@@ -183,6 +192,8 @@ NCR_Q720_probe(struct device *dev)
 	base_addr += (asr10 & 0x80) << 24;
 	base_addr += (asr10 & 0x70) << 23;
 
+	/* OK, got the base addr, now we need to find the ram size,
+	 * enable and map it */
 	asr9 = inb(io_base + 0x11);
 	i = (asr9 & 0xc0) >> 6;
 	if(i == 0)
@@ -190,10 +201,10 @@ NCR_Q720_probe(struct device *dev)
 	else
 		mem_size = 1 << (19 + i);
 
-	
+	/* enable the sram mapping */
 	asr9 |= 0x20;
 
-	
+	/* disable the rom mapping */
 	asr9 &= ~0x10;
 
 	outb(asr9, io_base + 0x11);
@@ -212,6 +223,8 @@ NCR_Q720_probe(struct device *dev)
 		goto out_release_region;
 	}
 
+	/* The first 1k of the memory buffer is a memory map of the registers
+	 */
 	mem_base = dma_mark_declared_memory_occupied(dev, base_addr,
 							    1024);
 	if (IS_ERR(mem_base)) {
@@ -219,17 +232,17 @@ NCR_Q720_probe(struct device *dev)
 		goto out_release;
 	}
 
-	
+	/* now also enable accesses in asr 2 */
 	asr2 = inb(io_base + 0x0a);
 
 	asr2 |= 0x01;
 
 	outb(asr2, io_base + 0x0a);
 
-	
+	/* get the number of SIOPs (this should be 2 or 4) */
 	siops = ((asr2 & 0xe0) >> 5) + 1;
 
-	
+	/* sanity check mapping (again) */
 	i = readw(mem_base);
 	if(i != NCR_Q720_MCA_ID) {
 		printk(KERN_ERR "NCR_Q720, adapter failed to memory map registers correctly at 0x%lx(0x%x)\n", (unsigned long)base_addr, i);
@@ -239,7 +252,7 @@ NCR_Q720_probe(struct device *dev)
 	irq = readb(mem_base + 5) & 0x0f;
 	
 	
-	
+	/* now do the bus related transforms */
 	irq = mca_device_transform_irq(mca_dev, irq);
 
 	printk(KERN_NOTICE "NCR Q720: found in slot %d  irq = %d  mem base = 0x%lx siops = %d\n", slot, irq, (unsigned long)base_addr, siops);
@@ -256,7 +269,7 @@ NCR_Q720_probe(struct device *dev)
 		printk(KERN_ERR "NCR_Q720: request irq %d failed\n", irq);
 		goto out_release;
 	}
-	
+	/* disable all the siop interrupts */
 	for(i = 0; i < siops; i++) {
 		void __iomem *reg_scsr1 = mem_base + NCR_Q720_CHIP_REGISTER_OFFSET
 			+ i*NCR_Q720_SIOP_SHIFT + NCR_Q720_SCSR_OFFSET + 1;
@@ -265,7 +278,7 @@ NCR_Q720_probe(struct device *dev)
 		writeb(scsr1, reg_scsr1);
 	}
 
-	
+	/* plumb in all 720 chips */
 	for (i = 0; i < siops; i++) {
 		void __iomem *siop_v_base = mem_base + NCR_Q720_CHIP_REGISTER_OFFSET
 			+ i*NCR_Q720_SIOP_SHIFT;

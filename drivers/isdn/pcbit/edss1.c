@@ -10,6 +10,10 @@
  * the GNU General Public License, incorporated herein by reference.
  */
 
+/*
+ *        TODO: complete the FSM
+ *              move state/event descriptions to a user space logger
+ */
 
 #include <linux/string.h>
 #include <linux/kernel.h>
@@ -171,6 +175,9 @@ char *strisdnevent(ushort ev)
 	return entry->desc;
 }
 
+/*
+ * Euro ISDN finite state machine
+ */
 
 static struct fsm_timer_entry fsm_timers[] = {
 	{ST_CALL_PROC, 10},
@@ -183,7 +190,8 @@ static struct fsm_timer_entry fsm_timers[] = {
 };
 
 static struct fsm_entry fsm_table[] = {
-	
+/* Connect Phase */
+	/* Outgoing */
 	{ST_NULL, ST_CALL_INIT, EV_USR_SETUP_REQ, cb_out_1},
 
 	{ST_CALL_INIT, ST_OVER_SEND, EV_NET_SETUP_ACK, cb_notdone},
@@ -194,7 +202,7 @@ static struct fsm_entry fsm_table[] = {
 	{ST_CALL_PROC, ST_NULL, EV_NET_DISC, cb_disc_1},
 	{ST_CALL_PROC, ST_DISC_REQ, EV_USR_RELEASE_REQ, cb_disc_2},
 
-	
+	/* Incoming */
 	{ST_NULL, ST_CALL_PRES, EV_NET_SETUP, NULL},
 
 	{ST_CALL_PRES, ST_INCM_PROC, EV_USR_PROCED_REQ, cb_in_1},
@@ -205,24 +213,24 @@ static struct fsm_entry fsm_table[] = {
 
 	{ST_CONN_REQ, ST_ACTIVE_SELP, EV_NET_CONN_ACK, cb_in_3},
 
-	
+	/* Active */
 	{ST_ACTIVE, ST_NULL, EV_NET_DISC, cb_disc_1},
 	{ST_ACTIVE, ST_DISC_REQ, EV_USR_RELEASE_REQ, cb_disc_2},
 	{ST_ACTIVE, ST_NULL, EV_NET_RELEASE, cb_disc_3},
 
-	
+	/* Disconnect */
 
 	{ST_DISC_REQ, ST_NULL, EV_NET_DISC, cb_disc_1},
 	{ST_DISC_REQ, ST_NULL, EV_NET_RELEASE, cb_disc_3},
 
-	
+	/* protocol selection */
 	{ST_ACTIVE_SELP, ST_ACTIVE_ACTV, EV_NET_SELP_RESP, cb_selp_1},
 	{ST_ACTIVE_SELP, ST_DISC_REQ, EV_USR_RELEASE_REQ, cb_disc_2},
 
 	{ST_ACTIVE_ACTV, ST_ACTIVE, EV_NET_ACTV_RESP, cb_open},
 	{ST_ACTIVE_ACTV, ST_DISC_REQ, EV_USR_RELEASE_REQ, cb_disc_2},
 
-	
+	/* Timers */
 	{ST_CALL_PROC, ST_DISC_REQ, EV_TIMER, cb_disc_2},
 	{ST_DISC_REQ, ST_NULL, EV_TIMER, cb_disc_3},
 	{ST_ACTIVE_SELP, ST_DISC_REQ, EV_TIMER, cb_disc_2},

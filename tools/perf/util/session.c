@@ -125,6 +125,10 @@ struct perf_session *perf_session__new(const char *filename, int mode,
 		goto out;
 
 	memcpy(self->filename, filename, len);
+	/*
+	 * On 64bit we can mmap the data file in one go. No need for tiny mmap
+	 * slices. On 32bit we use 32MB.
+	 */
 #if BITS_PER_LONG == 64
 	self->mmap_window = ULLONG_MAX;
 #else
@@ -143,6 +147,10 @@ struct perf_session *perf_session__new(const char *filename, int mode,
 			goto out_delete;
 		perf_session__update_sample_type(self);
 	} else if (mode == O_WRONLY) {
+		/*
+		 * In O_RDONLY mode this will be performed when reading the
+		 * kernel MMAP event, in perf_event__process_mmap().
+		 */
 		if (perf_session__create_kernel_maps(self) < 0)
 			goto out_delete;
 	}
@@ -207,6 +215,10 @@ void machine__remove_thread(struct machine *self, struct thread *th)
 {
 	self->last_match = NULL;
 	rb_erase(&th->rb_node, &self->threads);
+	/*
+	 * We may have references to this thread, for instance in some hist_entry
+	 * instances, so just move them to a separate list.
+	 */
 	list_add_tail(&th->node, &self->dead_threads);
 }
 
@@ -238,6 +250,13 @@ static void ip__resolve_ams(struct machine *self, struct thread *thread,
 
 	for (i = 0; i < NCPUMODES; i++) {
 		m = cpumodes[i];
+		/*
+		 * We cannot use the header.misc hint to determine whether a
+		 * branch stack address is user, kernel, guest, hypervisor.
+		 * Branches may straddle the kernel/user/hypervisor boundaries.
+		 * Thus, we have to try consecutively until we find a match
+		 * or else, the symbol is unknown
+		 */
 		thread__find_addr_location(thread, self, m, MAP__FUNCTION,
 				ip, &al, NULL);
 		if (al.sym)
@@ -462,6 +481,7 @@ static void perf_event__read_swap(union perf_event *event)
 	event->read.id		 = bswap_64(event->read.id);
 }
 
+/* exported for swapping attributes in file header */
 void perf_event__attr_swap(struct perf_event_attr *attr)
 {
 	attr->type		= bswap_32(attr->type);
@@ -587,6 +607,45 @@ static void flush_sample_queue(struct perf_session *s,
 	os->nr_samples = 0;
 }
 
+/*
+ * When perf record finishes a pass on every buffers, it records this pseudo
+ * event.
+ * We record the max timestamp t found in the pass n.
+ * Assuming these timestamps are monotonic across cpus, we know that if
+ * a buffer still has events with timestamps below t, they will be all
+ * available and then read in the pass n + 1.
+ * Hence when we start to read the pass n + 2, we can safely flush every
+ * events with timestamps below t.
+ *
+ *    ============ PASS n =================
+ *       CPU 0         |   CPU 1
+ *                     |
+ *    cnt1 timestamps  |   cnt2 timestamps
+ *          1          |         2
+ *          2          |         3
+ *          -          |         4  <--- max recorded
+ *
+ *    ============ PASS n + 1 ==============
+ *       CPU 0         |   CPU 1
+ *                     |
+ *    cnt1 timestamps  |   cnt2 timestamps
+ *          3          |         5
+ *          4          |         6
+ *          5          |         7 <---- max recorded
+ *
+ *      Flush every events below timestamp 4
+ *
+ *    ============ PASS n + 2 ==============
+ *       CPU 0         |   CPU 1
+ *                     |
+ *    cnt1 timestamps  |   cnt2 timestamps
+ *          6          |         8
+ *          7          |         9
+ *          -          |         10
+ *
+ *      Flush every events below timestamp 7
+ *      etc...
+ */
 static int process_finished_round(struct perf_tool *tool,
 				  union perf_event *event __used,
 				  struct perf_session *session)
@@ -597,6 +656,7 @@ static int process_finished_round(struct perf_tool *tool,
 	return 0;
 }
 
+/* The queue is ordered by time */
 static void __queue_event(struct sample_queue *new, struct perf_session *s)
 {
 	struct ordered_samples *os = &s->ordered_samples;
@@ -613,6 +673,11 @@ static void __queue_event(struct sample_queue *new, struct perf_session *s)
 		return;
 	}
 
+	/*
+	 * last_sample might point to some random place in the list as it's
+	 * the last queued event. We expect that the new event is close to
+	 * this.
+	 */
 	if (sample->timestamp <= timestamp) {
 		while (sample->timestamp <= timestamp) {
 			p = sample->list.next;
@@ -788,6 +853,19 @@ static int perf_session_deliver_event(struct perf_session *session,
 
 	evsel = perf_evlist__id2evsel(session->evlist, sample->id);
 	if (evsel != NULL && event->header.type != PERF_RECORD_SAMPLE) {
+		/*
+		 * XXX We're leaving PERF_RECORD_SAMPLE unnacounted here
+		 * because the tools right now may apply filters, discarding
+		 * some of the samples. For consistency, in the future we
+		 * should have something like nr_filtered_samples and remove
+		 * the sample->period from total_sample_period, etc, KISS for
+		 * now tho.
+		 *
+		 * Also testing against NULL allows us to handle files without
+		 * attr.sample_id_all and/or without PERF_SAMPLE_ID. In the
+		 * future probably it'll be a good idea to restrict event
+		 * processing via perf_session to files with both set.
+		 */
 		hists__inc_nr_events(&evsel->hists, event->header.type);
 	}
 
@@ -852,7 +930,7 @@ static int perf_session__process_user_event(struct perf_session *session, union 
 
 	dump_event(session, event, file_offset, NULL);
 
-	
+	/* These events are processed right away */
 	switch (event->header.type) {
 	case PERF_RECORD_HEADER_ATTR:
 		err = tool->attr(event, &session->evlist);
@@ -862,7 +940,7 @@ static int perf_session__process_user_event(struct perf_session *session, union 
 	case PERF_RECORD_HEADER_EVENT_TYPE:
 		return tool->event_type(tool, event);
 	case PERF_RECORD_HEADER_TRACING_DATA:
-		
+		/* setup for reading amidst mmap */
 		lseek(session->fd, file_offset, SEEK_SET);
 		return tool->tracing_data(event, session);
 	case PERF_RECORD_HEADER_BUILD_ID:
@@ -894,11 +972,14 @@ static int perf_session__process_event(struct perf_session *session,
 	if (event->header.type >= PERF_RECORD_USER_TYPE_START)
 		return perf_session__process_user_event(session, event, tool, file_offset);
 
+	/*
+	 * For all kernel events we get the sample data
+	 */
 	ret = perf_session__parse_sample(session, event, &sample);
 	if (ret)
 		return ret;
 
-	
+	/* Preprocess sample records - precheck callchains */
 	if (perf_session__preprocess_sample(session, event, &sample))
 		return 0;
 
@@ -1029,6 +1110,10 @@ more:
 	if ((skip = perf_session__process_event(self, &event, tool, head)) < 0) {
 		dump_printf("%#" PRIx64 " [%#x]: skipping unknown header type: %d\n",
 			    head, event.header.size, event.header.type);
+		/*
+		 * assume we lost track of the stream, check alignment, and
+		 * increment a single u64 in the hope to catch on again 'soon'.
+		 */
 		if (unlikely(head & 7))
 			head &= ~7ULL;
 
@@ -1056,6 +1141,10 @@ fetch_mmaped_event(struct perf_session *session,
 {
 	union perf_event *event;
 
+	/*
+	 * Ensure we have enough space remaining to read
+	 * the size of the event in the headers.
+	 */
 	if (head + sizeof(event->header) > mmap_size)
 		return NULL;
 
@@ -1140,6 +1229,10 @@ more:
 		dump_printf("%#" PRIx64 " [%#x]: skipping unknown header type: %d\n",
 			    file_offset + head, event->header.size,
 			    event->header.type);
+		/*
+		 * assume we lost track of the stream, check alignment, and
+		 * increment a single u64 in the hope to catch on again 'soon'.
+		 */
 		if (unlikely(head & 7))
 			head &= ~7ULL;
 
@@ -1159,7 +1252,7 @@ more:
 		goto more;
 
 	err = 0;
-	
+	/* do the final flush for ordered samples */
 	session->ordered_samples.next_flush = ULLONG_MAX;
 	flush_sample_queue(session, tool);
 out_err:
@@ -1259,12 +1352,22 @@ size_t perf_session__fprintf_nr_events(struct perf_session *session, FILE *fp)
 
 size_t perf_session__fprintf(struct perf_session *session, FILE *fp)
 {
+	/*
+	 * FIXME: Here we have to actually print all the machines in this
+	 * session, not just the host...
+	 */
 	return machine__fprintf(&session->host_machine, fp);
 }
 
 void perf_session__remove_thread(struct perf_session *session,
 				 struct thread *th)
 {
+	/*
+	 * FIXME: This one makes no sense, we need to remove the thread from
+	 * the machine it belongs to, perf_session can have many machines, so
+	 * doing it always on ->host_machine is wrong.  Fix when auditing all
+	 * the 'perf kvm' code.
+	 */
 	machine__remove_thread(&session->host_machine, th);
 }
 

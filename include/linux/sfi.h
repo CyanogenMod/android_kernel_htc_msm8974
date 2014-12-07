@@ -1,3 +1,4 @@
+/* sfi.h Simple Firmware Interface */
 
 /*
 
@@ -58,6 +59,7 @@
 #ifndef _LINUX_SFI_H
 #define _LINUX_SFI_H
 
+/* Table signatures reserved by the SFI specification */
 #define SFI_SIG_SYST		"SYST"
 #define SFI_SIG_FREQ		"FREQ"
 #define SFI_SIG_IDLE		"IDLE"
@@ -83,6 +85,10 @@
 #define SFI_GET_NUM_ENTRIES(ptable, entry_type) \
 	((ptable->header.len - sizeof(struct sfi_table_header)) / \
 	(sizeof(entry_type)))
+/*
+ * Table structures must be byte-packed to match the SFI specification,
+ * as they are provided by the BIOS.
+ */
 struct sfi_table_header {
 	char	sig[SFI_SIGNATURE_SIZE];
 	u32	len;
@@ -97,6 +103,7 @@ struct sfi_table_simple {
 	u64				pentry[1];
 } __packed;
 
+/* Comply with UEFI spec 2.1 */
 struct sfi_mem_entry {
 	u32	type;
 	u64	phys_start;
@@ -110,44 +117,44 @@ struct sfi_cpu_table_entry {
 } __packed;
 
 struct sfi_cstate_table_entry {
-	u32	hint;		
-	u32	latency;	
+	u32	hint;		/* MWAIT hint */
+	u32	latency;	/* latency in ms */
 } __packed;
 
 struct sfi_apic_table_entry {
-	u64	phys_addr;	
+	u64	phys_addr;	/* phy base addr for APIC reg */
 } __packed;
 
 struct sfi_freq_table_entry {
-	u32	freq_mhz;	
-	u32	latency;	
-	u32	ctrl_val;	
+	u32	freq_mhz;	/* in MHZ */
+	u32	latency;	/* transition latency in ms */
+	u32	ctrl_val;	/* value to write to PERF_CTL */
 } __packed;
 
 struct sfi_wake_table_entry {
-	u64	phys_addr;	
+	u64	phys_addr;	/* pointer to where the wake vector locates */
 } __packed;
 
 struct sfi_timer_table_entry {
-	u64	phys_addr;	
-	u32	freq_hz;	
+	u64	phys_addr;	/* phy base addr for the timer */
+	u32	freq_hz;	/* in HZ */
 	u32	irq;
 } __packed;
 
 struct sfi_rtc_table_entry {
-	u64	phys_addr;	
+	u64	phys_addr;	/* phy base addr for the RTC */
 	u32	irq;
 } __packed;
 
 struct sfi_device_table_entry {
-	u8	type;		
+	u8	type;		/* bus type, I2C, SPI or ...*/
 #define SFI_DEV_TYPE_SPI	0
 #define SFI_DEV_TYPE_I2C	1
 #define SFI_DEV_TYPE_UART	2
 #define SFI_DEV_TYPE_HSI	3
 #define SFI_DEV_TYPE_IPC	4
 
-	u8	host_num;	
+	u8	host_num;	/* attached to host 0, 1...*/
 	u16	addr;
 	u8	irq;
 	u32	max_freq;
@@ -175,7 +182,7 @@ static inline void disable_sfi(void)
 	sfi_disabled = 1;
 }
 
-#else 
+#else /* !CONFIG_SFI */
 
 static inline void sfi_init(void)
 {
@@ -194,6 +201,6 @@ static inline int sfi_table_parse(char *signature, char *oem_id,
 	return -1;
 }
 
-#endif 
+#endif /* !CONFIG_SFI */
 
-#endif 
+#endif /*_LINUX_SFI_H*/

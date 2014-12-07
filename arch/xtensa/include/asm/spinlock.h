@@ -13,4 +13,4 @@
 
 #include <linux/spinlock.h>
 
-#endif	
+#endif	/* _XTENSA_SPINLOCK_H */

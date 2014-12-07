@@ -19,9 +19,9 @@
 #include <linux/module.h>
 
 struct fsl_usb2_dev_data {
-	char *dr_mode;		
-	char *drivers[3];	
-	enum fsl_usb2_operating_modes op_mode;	
+	char *dr_mode;		/* controller mode */
+	char *drivers[3];	/* drivers to instantiate for this mode */
+	enum fsl_usb2_operating_modes op_mode;	/* operating mode */
 };
 
 struct fsl_usb2_dev_data dr_mode_data[] __devinitdata = {
@@ -56,7 +56,7 @@ struct fsl_usb2_dev_data * __devinit get_dr_mode_data(struct device_node *np)
 	}
 	pr_warn("%s: Invalid 'dr_mode' property, fallback to host mode\n",
 		np->full_name);
-	return &dr_mode_data[0]; 
+	return &dr_mode_data[0]; /* mode not specified, use host */
 }
 
 static enum fsl_usb2_phy_modes __devinit determine_usb_phy(const char *phy_type)
@@ -160,7 +160,7 @@ static int __devinit fsl_usb2_mph_dr_of_probe(struct platform_device *ofdev)
 		if (of_get_property(np, "fsl,invert-pwr-fault", NULL))
 			pdata->invert_pwr_fault = 1;
 
-		
+		/* setup mode selected in the device tree */
 		pdata->operating_mode = dev_data->op_mode;
 	}
 
@@ -195,20 +195,20 @@ static int __devexit fsl_usb2_mph_dr_of_remove(struct platform_device *ofdev)
 
 #ifdef CONFIG_PPC_MPC512x
 
-#define USBGENCTRL		0x200		
-#define GC_WU_INT_CLR		(1 << 5)	
-#define GC_ULPI_SEL		(1 << 4)	
-#define GC_PPP			(1 << 3)	
-#define GC_PFP			(1 << 2)	
-#define GC_WU_ULPI_EN		(1 << 1)	
-#define GC_WU_IE		(1 << 1)	
+#define USBGENCTRL		0x200		/* NOTE: big endian */
+#define GC_WU_INT_CLR		(1 << 5)	/* Wakeup int clear */
+#define GC_ULPI_SEL		(1 << 4)	/* ULPI i/f select (usb0 only)*/
+#define GC_PPP			(1 << 3)	/* Inv. Port Power Polarity */
+#define GC_PFP			(1 << 2)	/* Inv. Power Fault Polarity */
+#define GC_WU_ULPI_EN		(1 << 1)	/* Wakeup on ULPI event */
+#define GC_WU_IE		(1 << 1)	/* Wakeup interrupt enable */
 
-#define ISIPHYCTRL		0x204		
-#define PHYCTRL_PHYE		(1 << 4)	
-#define PHYCTRL_BSENH		(1 << 3)	
-#define PHYCTRL_BSEN		(1 << 2)	
-#define PHYCTRL_LSFE		(1 << 1)	
-#define PHYCTRL_PXE		(1 << 0)	
+#define ISIPHYCTRL		0x204		/* NOTE: big endian */
+#define PHYCTRL_PHYE		(1 << 4)	/* On-chip UTMI PHY enable */
+#define PHYCTRL_BSENH		(1 << 3)	/* Bit Stuff Enable High */
+#define PHYCTRL_BSEN		(1 << 2)	/* Bit Stuff Enable */
+#define PHYCTRL_LSFE		(1 << 1)	/* Line State Filter Enable */
+#define PHYCTRL_PXE		(1 << 0)	/* PHY oscillator enable */
 
 int fsl_usb2_mpc5121_init(struct platform_device *pdev)
 {
@@ -271,7 +271,7 @@ static struct fsl_usb2_platform_data fsl_usb2_mpc5121_pd = {
 	.init = fsl_usb2_mpc5121_init,
 	.exit = fsl_usb2_mpc5121_exit,
 };
-#endif 
+#endif /* CONFIG_PPC_MPC512x */
 
 static struct fsl_usb2_platform_data fsl_usb2_mpc8xxx_pd = {
 	.have_sysif_regs = 1,

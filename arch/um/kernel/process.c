@@ -27,11 +27,16 @@
 #include "os.h"
 #include "skas.h"
 
+/*
+ * This is a per-cpu array.  A processor only modifies its entry and it only
+ * cares about its entry, so it's OK if another processor is modifying its
+ * entry.
+ */
 struct cpu_task cpu_tasks[NR_CPUS] = { [0 ... NR_CPUS - 1] = { -1, NULL } };
 
 static inline int external_pid(void)
 {
-	
+	/* FIXME: Need to look up userspace_pid by cpu */
 	return userspace_pid[0];
 }
 
@@ -122,6 +127,10 @@ int get_current_pid(void)
 	return task_pid_nr(current);
 }
 
+/*
+ * This is called magically, by its address being stuffed in a jmp_buf
+ * and being longjmp-d to.
+ */
 void new_thread_handler(void)
 {
 	int (*fn)(void *), n;
@@ -134,26 +143,36 @@ void new_thread_handler(void)
 	fn = current->thread.request.u.thread.proc;
 	arg = current->thread.request.u.thread.arg;
 
+	/*
+	 * The return value is 1 if the kernel thread execs a process,
+	 * 0 if it just exits
+	 */
 	n = run_kernel_thread(fn, arg, &current->thread.exec_buf);
 	if (n == 1) {
-		
+		/* Handle any immediate reschedules or signals */
 		interrupt_end();
 		userspace(&current->thread.regs.regs);
 	}
 	else do_exit(0);
 }
 
+/* Called magically, see new_thread_handler above */
 void fork_handler(void)
 {
 	force_flush_all();
 
 	schedule_tail(current->thread.prev_sched);
 
+	/*
+	 * XXX: if interrupt_end() calls schedule, this call to
+	 * arch_switch_to isn't needed. We could want to apply this to
+	 * improve performance. -bb
+	 */
 	arch_switch_to(current);
 
 	current->thread.prev_sched = NULL;
 
-	
+	/* Handle any immediate reschedules or signals */
 	interrupt_end();
 
 	userspace(&current->thread.regs.regs);
@@ -190,6 +209,9 @@ int copy_thread(unsigned long clone_flags, unsigned long sp,
 	if (current->thread.forking) {
 		clear_flushed_tls(p);
 
+		/*
+		 * Set a new TLS for the child thread?
+		 */
 		if (clone_flags & CLONE_SETTLS)
 			ret = arch_copy_tls(p);
 	}
@@ -211,8 +233,12 @@ void default_idle(void)
 	unsigned long long nsecs;
 
 	while (1) {
-		
+		/* endless idle loop with no priority at all */
 
+		/*
+		 * although we are an idle CPU, we do not want to
+		 * get into the scheduler unnecessarily.
+		 */
 		if (need_resched())
 			schedule();
 
@@ -233,7 +259,7 @@ void cpu_idle(void)
 
 int __cant_sleep(void) {
 	return in_atomic() || irqs_disabled() || in_interrupt();
-	
+	/* Is in_interrupt() really needed? */
 }
 
 int user_context(unsigned long sp)
@@ -333,7 +359,7 @@ static ssize_t sysemu_proc_write(struct file *file, const char __user *buf,
 
 	if (tmp[0] >= '0' && tmp[0] <= '2')
 		set_using_sysemu(tmp[0] - '0');
-	
+	/* We use the first char, but pretend to write everything */
 	return count;
 }
 
@@ -378,6 +404,13 @@ int singlestepping(void * t)
 	return 2;
 }
 
+/*
+ * Only x86 and x86_64 have an arch_align_stack().
+ * All other arches have "#define arch_align_stack(x) (x)"
+ * in their asm/system.h
+ * As this is included in UML from asm-um/system-generic.h,
+ * we can use it to behave as the subarch does.
+ */
 #ifndef arch_align_stack
 unsigned long arch_align_stack(unsigned long sp)
 {
@@ -396,18 +429,22 @@ unsigned long get_wchan(struct task_struct *p)
 		return 0;
 
 	stack_page = (unsigned long) task_stack_page(p);
-	
+	/* Bail if the process has no kernel stack for some reason */
 	if (stack_page == 0)
 		return 0;
 
 	sp = p->thread.switch_buf->JB_SP;
+	/*
+	 * Bail if the stack pointer is below the bottom of the kernel
+	 * stack for some reason
+	 */
 	if (sp < stack_page)
 		return 0;
 
 	while (sp < stack_page + THREAD_SIZE) {
 		ip = *((unsigned long *) sp);
 		if (in_sched_functions(ip))
-			
+			/* Ignore everything until we're above the scheduler */
 			seen_sched = 1;
 		else if (kernel_text_address(ip) && seen_sched)
 			return ip;

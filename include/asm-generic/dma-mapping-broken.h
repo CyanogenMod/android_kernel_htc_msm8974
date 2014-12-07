@@ -1,6 +1,10 @@
 #ifndef _ASM_GENERIC_DMA_MAPPING_H
 #define _ASM_GENERIC_DMA_MAPPING_H
 
+/* define the dma api to allow compilation but not linking of
+ * dma dependent code.  Code that depends on the dma-mapping
+ * API needs to set 'depends on HAS_DMA' in its Kconfig
+ */
 
 struct scatterlist;
 
@@ -72,4 +76,4 @@ extern void
 dma_cache_sync(struct device *dev, void *vaddr, size_t size,
 	       enum dma_data_direction direction);
 
-#endif 
+#endif /* _ASM_GENERIC_DMA_MAPPING_H */

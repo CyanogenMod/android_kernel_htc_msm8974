@@ -54,7 +54,26 @@
 #include "flow.h"
 #include "vport-internal_dev.h"
 
+/**
+ * DOC: Locking:
+ *
+ * Writes to device state (add/remove datapath, port, set operations on vports,
+ * etc.) are protected by RTNL.
+ *
+ * Writes to other state (flow table modifications, set miscellaneous datapath
+ * parameters, etc.) are protected by genl_mutex.  The RTNL lock nests inside
+ * genl_mutex.
+ *
+ * Reads are protected by RCU.
+ *
+ * There are a few special cases (mostly stats) that have their own
+ * synchronization but they nest under all of above and don't interact with
+ * each other.
+ */
 
+/* Global list of datapaths to enable dumping them all out.
+ * Protected by genl_mutex.
+ */
 static LIST_HEAD(dps);
 
 #define REHASH_FLOW_INTERVAL (10 * 60 * HZ)
@@ -67,6 +86,7 @@ static int queue_gso_packets(int dp_ifindex, struct sk_buff *,
 static int queue_userspace_packet(int dp_ifindex, struct sk_buff *,
 				  const struct dp_upcall_info *);
 
+/* Must be called with rcu_read_lock, genl_mutex, or RTNL lock. */
 static struct datapath *get_dp(int dp_ifindex)
 {
 	struct datapath *dp = NULL;
@@ -84,6 +104,7 @@ static struct datapath *get_dp(int dp_ifindex)
 	return dp;
 }
 
+/* Must be called with rcu_read_lock or RTNL lock. */
 const char *ovs_dp_name(const struct datapath *dp)
 {
 	struct vport *vport = rcu_dereference_rtnl(dp->ports[OVSP_LOCAL]);
@@ -117,6 +138,7 @@ static void destroy_dp_rcu(struct rcu_head *rcu)
 	kfree(dp);
 }
 
+/* Called with RTNL lock and genl_lock. */
 static struct vport *new_vport(const struct vport_parms *parms)
 {
 	struct vport *vport;
@@ -132,18 +154,20 @@ static struct vport *new_vport(const struct vport_parms *parms)
 	return vport;
 }
 
+/* Called with RTNL lock. */
 void ovs_dp_detach_port(struct vport *p)
 {
 	ASSERT_RTNL();
 
-	
+	/* First drop references to device. */
 	list_del(&p->node);
 	rcu_assign_pointer(p->dp->ports[p->port_no], NULL);
 
-	
+	/* Then destroy it. */
 	ovs_vport_del(p);
 }
 
+/* Must be called with rcu_read_lock. */
 void ovs_dp_process_received_packet(struct vport *p, struct sk_buff *skb)
 {
 	struct datapath *dp = p->dp;
@@ -156,14 +180,14 @@ void ovs_dp_process_received_packet(struct vport *p, struct sk_buff *skb)
 
 	stats = per_cpu_ptr(dp->stats_percpu, smp_processor_id());
 
-	
+	/* Extract flow from 'skb' into 'key'. */
 	error = ovs_flow_extract(skb, p->port_no, &key, &key_len);
 	if (unlikely(error)) {
 		kfree_skb(skb);
 		return;
 	}
 
-	
+	/* Look up flow. */
 	flow = ovs_flow_tbl_lookup(rcu_dereference(dp->table), &key, key_len);
 	if (unlikely(!flow)) {
 		struct dp_upcall_info upcall;
@@ -185,7 +209,7 @@ void ovs_dp_process_received_packet(struct vport *p, struct sk_buff *skb)
 	ovs_execute_actions(dp, skb);
 
 out:
-	
+	/* Update datapath statistics. */
 	u64_stats_update_begin(&stats->sync);
 	(*stats_counter)++;
 	u64_stats_update_end(&stats->sync);
@@ -248,7 +272,7 @@ static int queue_gso_packets(int dp_ifindex, struct sk_buff *skb,
 	if (IS_ERR(skb))
 		return PTR_ERR(skb);
 
-	
+	/* Queue all of the segments. */
 	skb = segs;
 	do {
 		err = queue_userspace_packet(dp_ifindex, skb, upcall_info);
@@ -256,6 +280,10 @@ static int queue_gso_packets(int dp_ifindex, struct sk_buff *skb,
 			break;
 
 		if (skb == segs && skb_shinfo(skb)->gso_type & SKB_GSO_UDP) {
+			/* The initial flow key extracted by ovs_flow_extract()
+			 * in this case is for a first fragment, so we need to
+			 * properly mark later fragments.
+			 */
 			later_key = *upcall_info->key;
 			later_key.ip.frag = OVS_FRAG_TYPE_LATER;
 
@@ -265,7 +293,7 @@ static int queue_gso_packets(int dp_ifindex, struct sk_buff *skb,
 		}
 	} while ((skb = skb->next));
 
-	
+	/* Free all of the segments. */
 	skb = segs;
 	do {
 		nskb = skb->next;
@@ -282,7 +310,7 @@ static int queue_userspace_packet(int dp_ifindex, struct sk_buff *skb,
 {
 	struct ovs_header *upcall;
 	struct sk_buff *nskb = NULL;
-	struct sk_buff *user_skb; 
+	struct sk_buff *user_skb; /* to be queued to userspace */
 	struct nlattr *nla;
 	unsigned int len;
 	int err;
@@ -340,6 +368,7 @@ out:
 	return err;
 }
 
+/* Called with genl_mutex. */
 static int flush_flows(int dp_ifindex)
 {
 	struct flow_table *old_table;
@@ -411,7 +440,7 @@ static int validate_set(const struct nlattr *a,
 	const struct nlattr *ovs_key = nla_data(a);
 	int key_type = nla_type(ovs_key);
 
-	
+	/* There can be only one key in a action */
 	if (nla_total_size(nla_len(ovs_key)) != nla_len(a))
 		return -EINVAL;
 
@@ -492,7 +521,7 @@ static int validate_actions(const struct nlattr *attr,
 		return -EOVERFLOW;
 
 	nla_for_each_nested(a, attr, rem) {
-		
+		/* Expected argument lengths, (u32)-1 for variable length. */
 		static const u32 action_lens[OVS_ACTION_ATTR_MAX + 1] = {
 			[OVS_ACTION_ATTR_OUTPUT] = sizeof(u32),
 			[OVS_ACTION_ATTR_USERSPACE] = (u32)-1,
@@ -598,12 +627,15 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 	skb_reset_mac_header(packet);
 	eth = eth_hdr(packet);
 
+	/* Normally, setting the skb 'protocol' field would be handled by a
+	 * call to eth_type_trans(), but it assumes there's a sending
+	 * device, which we may not have. */
 	if (ntohs(eth->h_proto) >= 1536)
 		packet->protocol = eth->h_proto;
 	else
 		packet->protocol = htons(ETH_P_802_2);
 
-	
+	/* Build an sw_flow for sending this packet. */
 	flow = ovs_flow_alloc();
 	err = PTR_ERR(flow);
 	if (IS_ERR(flow))
@@ -666,7 +698,7 @@ static const struct nla_policy packet_policy[OVS_PACKET_ATTR_MAX + 1] = {
 
 static struct genl_ops dp_packet_genl_ops[] = {
 	{ .cmd = OVS_PACKET_CMD_EXECUTE,
-	  .flags = GENL_ADMIN_PERM, 
+	  .flags = GENL_ADMIN_PERM, /* Requires CAP_NET_ADMIN privilege. */
 	  .policy = packet_policy,
 	  .doit = ovs_packet_cmd_execute
 	}
@@ -716,6 +748,7 @@ static struct genl_multicast_group ovs_dp_flow_multicast_group = {
 	.name = OVS_FLOW_MCGROUP
 };
 
+/* Called with genl_lock. */
 static int ovs_flow_cmd_fill_info(struct sw_flow *flow, struct datapath *dp,
 				  struct sk_buff *skb, u32 pid,
 				  u32 seq, u32 flags, u8 cmd)
@@ -763,6 +796,16 @@ static int ovs_flow_cmd_fill_info(struct sw_flow *flow, struct datapath *dp,
 	if (tcp_flags)
 		NLA_PUT_U8(skb, OVS_FLOW_ATTR_TCP_FLAGS, tcp_flags);
 
+	/* If OVS_FLOW_ATTR_ACTIONS doesn't fit, skip dumping the actions if
+	 * this is the first flow to be dumped into 'skb'.  This is unusual for
+	 * Netlink but individual action lists can be longer than
+	 * NLMSG_GOODSIZE and thus entirely undumpable if we didn't do this.
+	 * The userspace caller can always fetch the actions separately if it
+	 * really wants them.  (Most userspace callers in fact don't care.)
+	 *
+	 * This can only fail for dump operations because the skb is always
+	 * properly sized for single flows.
+	 */
 	err = nla_put(skb, OVS_FLOW_ATTR_ACTIONS, sf_acts->actions_len,
 		      sf_acts->actions);
 	if (err < 0 && skb_orig_len)
@@ -785,15 +828,15 @@ static struct sk_buff *ovs_flow_cmd_alloc_info(struct sw_flow *flow)
 	sf_acts = rcu_dereference_protected(flow->sf_acts,
 					    lockdep_genl_is_held());
 
-	
+	/* OVS_FLOW_ATTR_KEY */
 	len = nla_total_size(FLOW_BUFSIZE);
-	
+	/* OVS_FLOW_ATTR_ACTIONS */
 	len += nla_total_size(sf_acts->actions_len);
-	
+	/* OVS_FLOW_ATTR_STATS */
 	len += nla_total_size(sizeof(struct ovs_flow_stats));
-	
+	/* OVS_FLOW_ATTR_TCP_FLAGS */
 	len += nla_total_size(1);
-	
+	/* OVS_FLOW_ATTR_USED */
 	len += nla_total_size(8);
 
 	len += NLMSG_ALIGN(sizeof(struct ovs_header));
@@ -829,7 +872,7 @@ static int ovs_flow_cmd_new_or_set(struct sk_buff *skb, struct genl_info *info)
 	int error;
 	int key_len;
 
-	
+	/* Extract key. */
 	error = -EINVAL;
 	if (!a[OVS_FLOW_ATTR_KEY])
 		goto error;
@@ -837,7 +880,7 @@ static int ovs_flow_cmd_new_or_set(struct sk_buff *skb, struct genl_info *info)
 	if (error)
 		goto error;
 
-	
+	/* Validate actions. */
 	if (a[OVS_FLOW_ATTR_ACTIONS]) {
 		error = validate_actions(a[OVS_FLOW_ATTR_ACTIONS], &key,  0);
 		if (error)
@@ -857,12 +900,12 @@ static int ovs_flow_cmd_new_or_set(struct sk_buff *skb, struct genl_info *info)
 	if (!flow) {
 		struct sw_flow_actions *acts;
 
-		
+		/* Bail out if we're not allowed to create a new flow. */
 		error = -ENOENT;
 		if (info->genlhdr->cmd == OVS_FLOW_CMD_SET)
 			goto error;
 
-		
+		/* Expand table, if necessary, to make room. */
 		if (ovs_flow_tbl_need_to_expand(table)) {
 			struct flow_table *new_table;
 
@@ -874,7 +917,7 @@ static int ovs_flow_cmd_new_or_set(struct sk_buff *skb, struct genl_info *info)
 			}
 		}
 
-		
+		/* Allocate flow. */
 		flow = ovs_flow_alloc();
 		if (IS_ERR(flow)) {
 			error = PTR_ERR(flow);
@@ -883,14 +926,14 @@ static int ovs_flow_cmd_new_or_set(struct sk_buff *skb, struct genl_info *info)
 		flow->key = key;
 		clear_stats(flow);
 
-		
+		/* Obtain actions. */
 		acts = ovs_flow_actions_alloc(a[OVS_FLOW_ATTR_ACTIONS]);
 		error = PTR_ERR(acts);
 		if (IS_ERR(acts))
 			goto error_free_flow;
 		rcu_assign_pointer(flow->sf_acts, acts);
 
-		
+		/* Put flow in bucket. */
 		flow->hash = ovs_flow_hash(&key, key_len);
 		ovs_flow_tbl_insert(table, flow);
 
@@ -898,16 +941,22 @@ static int ovs_flow_cmd_new_or_set(struct sk_buff *skb, struct genl_info *info)
 						info->snd_seq,
 						OVS_FLOW_CMD_NEW);
 	} else {
-		
+		/* We found a matching flow. */
 		struct sw_flow_actions *old_acts;
 		struct nlattr *acts_attrs;
 
+		/* Bail out if we're not allowed to modify an existing flow.
+		 * We accept NLM_F_CREATE in place of the intended NLM_F_EXCL
+		 * because Generic Netlink treats the latter as a dump
+		 * request.  We also accept NLM_F_EXCL in case that bug ever
+		 * gets fixed.
+		 */
 		error = -EEXIST;
 		if (info->genlhdr->cmd == OVS_FLOW_CMD_NEW &&
 		    info->nlhdr->nlmsg_flags & (NLM_F_CREATE | NLM_F_EXCL))
 			goto error;
 
-		
+		/* Update actions. */
 		old_acts = rcu_dereference_protected(flow->sf_acts,
 						     lockdep_genl_is_held());
 		acts_attrs = a[OVS_FLOW_ATTR_ACTIONS];
@@ -929,7 +978,7 @@ static int ovs_flow_cmd_new_or_set(struct sk_buff *skb, struct genl_info *info)
 		reply = ovs_flow_cmd_build_info(flow, dp, info->snd_pid,
 					       info->snd_seq, OVS_FLOW_CMD_NEW);
 
-		
+		/* Clear stats. */
 		if (a[OVS_FLOW_ATTR_CLEAR]) {
 			spin_lock_bh(&flow->lock);
 			clear_stats(flow);
@@ -1067,23 +1116,23 @@ static int ovs_flow_cmd_dump(struct sk_buff *skb, struct netlink_callback *cb)
 
 static struct genl_ops dp_flow_genl_ops[] = {
 	{ .cmd = OVS_FLOW_CMD_NEW,
-	  .flags = GENL_ADMIN_PERM, 
+	  .flags = GENL_ADMIN_PERM, /* Requires CAP_NET_ADMIN privilege. */
 	  .policy = flow_policy,
 	  .doit = ovs_flow_cmd_new_or_set
 	},
 	{ .cmd = OVS_FLOW_CMD_DEL,
-	  .flags = GENL_ADMIN_PERM, 
+	  .flags = GENL_ADMIN_PERM, /* Requires CAP_NET_ADMIN privilege. */
 	  .policy = flow_policy,
 	  .doit = ovs_flow_cmd_del
 	},
 	{ .cmd = OVS_FLOW_CMD_GET,
-	  .flags = 0,		    
+	  .flags = 0,		    /* OK for unprivileged users. */
 	  .policy = flow_policy,
 	  .doit = ovs_flow_cmd_get,
 	  .dumpit = ovs_flow_cmd_dump
 	},
 	{ .cmd = OVS_FLOW_CMD_SET,
-	  .flags = GENL_ADMIN_PERM, 
+	  .flags = GENL_ADMIN_PERM, /* Requires CAP_NET_ADMIN privilege. */
 	  .policy = flow_policy,
 	  .doit = ovs_flow_cmd_new_or_set,
 	},
@@ -1155,6 +1204,7 @@ static struct sk_buff *ovs_dp_cmd_build_info(struct datapath *dp, u32 pid,
 	return skb;
 }
 
+/* Called with genl_mutex and optionally with RTNL lock also. */
 static struct datapath *lookup_datapath(struct ovs_header *ovs_header,
 					struct nlattr *a[OVS_DP_ATTR_MAX + 1])
 {
@@ -1197,7 +1247,7 @@ static int ovs_dp_cmd_new(struct sk_buff *skb, struct genl_info *info)
 		goto err_put_module;
 	INIT_LIST_HEAD(&dp->port_list);
 
-	
+	/* Allocate table. */
 	err = -ENOMEM;
 	rcu_assign_pointer(dp->table, ovs_flow_tbl_alloc(TBL_MIN_BUCKETS));
 	if (!dp->table)
@@ -1209,7 +1259,7 @@ static int ovs_dp_cmd_new(struct sk_buff *skb, struct genl_info *info)
 		goto err_destroy_table;
 	}
 
-	
+	/* Set up our datapath device. */
 	parms.name = nla_data(a[OVS_DP_ATTR_NAME]);
 	parms.type = OVS_VPORT_TYPE_INTERNAL;
 	parms.options = NULL;
@@ -1282,6 +1332,11 @@ static int ovs_dp_cmd_del(struct sk_buff *skb, struct genl_info *info)
 	list_del(&dp->list_node);
 	ovs_dp_detach_port(rtnl_dereference(dp->ports[OVSP_LOCAL]));
 
+	/* rtnl_unlock() will wait until all the references to devices that
+	 * are pending unregistration have been dropped.  We do it here to
+	 * ensure that any internal devices (which contain DP pointers) are
+	 * fully destroyed before freeing the datapath.
+	 */
 	rtnl_unlock();
 
 	call_rcu(&dp->rcu, destroy_dp_rcu);
@@ -1363,23 +1418,23 @@ static int ovs_dp_cmd_dump(struct sk_buff *skb, struct netlink_callback *cb)
 
 static struct genl_ops dp_datapath_genl_ops[] = {
 	{ .cmd = OVS_DP_CMD_NEW,
-	  .flags = GENL_ADMIN_PERM, 
+	  .flags = GENL_ADMIN_PERM, /* Requires CAP_NET_ADMIN privilege. */
 	  .policy = datapath_policy,
 	  .doit = ovs_dp_cmd_new
 	},
 	{ .cmd = OVS_DP_CMD_DEL,
-	  .flags = GENL_ADMIN_PERM, 
+	  .flags = GENL_ADMIN_PERM, /* Requires CAP_NET_ADMIN privilege. */
 	  .policy = datapath_policy,
 	  .doit = ovs_dp_cmd_del
 	},
 	{ .cmd = OVS_DP_CMD_GET,
-	  .flags = 0,		    
+	  .flags = 0,		    /* OK for unprivileged users. */
 	  .policy = datapath_policy,
 	  .doit = ovs_dp_cmd_get,
 	  .dumpit = ovs_dp_cmd_dump
 	},
 	{ .cmd = OVS_DP_CMD_SET,
-	  .flags = GENL_ADMIN_PERM, 
+	  .flags = GENL_ADMIN_PERM, /* Requires CAP_NET_ADMIN privilege. */
 	  .policy = datapath_policy,
 	  .doit = ovs_dp_cmd_set,
 	},
@@ -1406,6 +1461,7 @@ struct genl_multicast_group ovs_dp_vport_multicast_group = {
 	.name = OVS_VPORT_MCGROUP
 };
 
+/* Called with RTNL lock or RCU read lock. */
 static int ovs_vport_cmd_fill_info(struct vport *vport, struct sk_buff *skb,
 				   u32 pid, u32 seq, u32 flags, u8 cmd)
 {
@@ -1442,6 +1498,7 @@ error:
 	return err;
 }
 
+/* Called with RTNL lock or RCU read lock. */
 struct sk_buff *ovs_vport_cmd_build_info(struct vport *vport, u32 pid,
 					 u32 seq, u8 cmd)
 {
@@ -1460,6 +1517,7 @@ struct sk_buff *ovs_vport_cmd_build_info(struct vport *vport, u32 pid,
 	return skb;
 }
 
+/* Called with RTNL lock or RCU read lock. */
 static struct vport *lookup_vport(struct ovs_header *ovs_header,
 				  struct nlattr *a[OVS_VPORT_ATTR_MAX + 1])
 {
@@ -1723,23 +1781,23 @@ static void rehash_flow_table(struct work_struct *work)
 
 static struct genl_ops dp_vport_genl_ops[] = {
 	{ .cmd = OVS_VPORT_CMD_NEW,
-	  .flags = GENL_ADMIN_PERM, 
+	  .flags = GENL_ADMIN_PERM, /* Requires CAP_NET_ADMIN privilege. */
 	  .policy = vport_policy,
 	  .doit = ovs_vport_cmd_new
 	},
 	{ .cmd = OVS_VPORT_CMD_DEL,
-	  .flags = GENL_ADMIN_PERM, 
+	  .flags = GENL_ADMIN_PERM, /* Requires CAP_NET_ADMIN privilege. */
 	  .policy = vport_policy,
 	  .doit = ovs_vport_cmd_del
 	},
 	{ .cmd = OVS_VPORT_CMD_GET,
-	  .flags = 0,		    
+	  .flags = 0,		    /* OK for unprivileged users. */
 	  .policy = vport_policy,
 	  .doit = ovs_vport_cmd_get,
 	  .dumpit = ovs_vport_cmd_dump
 	},
 	{ .cmd = OVS_VPORT_CMD_SET,
-	  .flags = GENL_ADMIN_PERM, 
+	  .flags = GENL_ADMIN_PERM, /* Requires CAP_NET_ADMIN privilege. */
 	  .policy = vport_policy,
 	  .doit = ovs_vport_cmd_set,
 	},

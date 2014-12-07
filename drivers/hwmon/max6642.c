@@ -46,6 +46,9 @@
 static const unsigned short normal_i2c[] = {
 	0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f, I2C_CLIENT_END };
 
+/*
+ * The MAX6642 registers
+ */
 
 #define MAX6642_REG_R_MAN_ID		0xFE
 #define MAX6642_REG_R_CONFIG		0x03
@@ -60,6 +63,9 @@ static const unsigned short normal_i2c[] = {
 #define MAX6642_REG_R_REMOTE_HIGH	0x07
 #define MAX6642_REG_W_REMOTE_HIGH	0x0D
 
+/*
+ * Conversions
+ */
 
 static int temp_from_reg10(int val)
 {
@@ -76,29 +82,38 @@ static int temp_to_reg(int val)
 	return val / 1000;
 }
 
+/*
+ * Client data (each client gets its own)
+ */
 
 struct max6642_data {
 	struct device *hwmon_dev;
 	struct mutex update_lock;
-	bool valid; 
-	unsigned long last_updated; 
+	bool valid; /* zero until following fields are valid */
+	unsigned long last_updated; /* in jiffies */
 
-	
-	u16 temp_input[2]; 
-	u16 temp_high[2]; 
+	/* registers values */
+	u16 temp_input[2]; /* local/remote */
+	u16 temp_high[2]; /* local/remote */
 	u8 alarms;
 };
 
+/*
+ * Real code
+ */
 
 static void max6642_init_client(struct i2c_client *client)
 {
 	u8 config;
 	struct max6642_data *data = i2c_get_clientdata(client);
 
+	/*
+	 * Start the conversions.
+	 */
 	config = i2c_smbus_read_byte_data(client, MAX6642_REG_R_CONFIG);
 	if (config & 0x40)
 		i2c_smbus_write_byte_data(client, MAX6642_REG_W_CONFIG,
-					  config & 0xBF); 
+					  config & 0xBF); /* run */
 
 	data->temp_high[0] = i2c_smbus_read_byte_data(client,
 				MAX6642_REG_R_LOCAL_HIGH);
@@ -106,6 +121,7 @@ static void max6642_init_client(struct i2c_client *client)
 				MAX6642_REG_R_REMOTE_HIGH);
 }
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int max6642_detect(struct i2c_client *client,
 			  struct i2c_board_info *info)
 {
@@ -115,22 +131,27 @@ static int max6642_detect(struct i2c_client *client,
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -ENODEV;
 
-	
+	/* identification */
 	man_id = i2c_smbus_read_byte_data(client, MAX6642_REG_R_MAN_ID);
 	if (man_id != 0x4D)
 		return -ENODEV;
 
-	
+	/* sanity check */
 	if (i2c_smbus_read_byte_data(client, 0x04) != 0x4D
 	    || i2c_smbus_read_byte_data(client, 0x06) != 0x4D
 	    || i2c_smbus_read_byte_data(client, 0xff) != 0x4D)
 		return -ENODEV;
 
+	/*
+	 * We read the config and status register, the 4 lower bits in the
+	 * config register should be zero and bit 5, 3, 1 and 0 should be
+	 * zero in the status register.
+	 */
 	reg_config = i2c_smbus_read_byte_data(client, MAX6642_REG_R_CONFIG);
 	if ((reg_config & 0x0f) != 0x00)
 		return -ENODEV;
 
-	
+	/* in between, another round of sanity checks */
 	if (i2c_smbus_read_byte_data(client, 0x04) != reg_config
 	    || i2c_smbus_read_byte_data(client, 0x06) != reg_config
 	    || i2c_smbus_read_byte_data(client, 0xff) != reg_config)
@@ -181,6 +202,9 @@ static struct max6642_data *max6642_update_device(struct device *dev)
 	return data;
 }
 
+/*
+ * Sysfs stuff
+ */
 
 static ssize_t show_temp_max10(struct device *dev,
 			       struct device_attribute *dev_attr, char *buf)
@@ -271,10 +295,10 @@ static int max6642_probe(struct i2c_client *new_client,
 	i2c_set_clientdata(new_client, data);
 	mutex_init(&data->update_lock);
 
-	
+	/* Initialize the MAX6642 chip */
 	max6642_init_client(new_client);
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&new_client->dev.kobj, &max6642_group);
 	if (err)
 		goto exit_free;
@@ -306,6 +330,9 @@ static int max6642_remove(struct i2c_client *client)
 	return 0;
 }
 
+/*
+ * Driver data (common to all clients)
+ */
 
 static const struct i2c_device_id max6642_id[] = {
 	{ "max6642", 0 },

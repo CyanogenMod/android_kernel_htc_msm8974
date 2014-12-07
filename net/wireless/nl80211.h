@@ -123,4 +123,4 @@ bool nl80211_unexpected_frame(struct net_device *dev,
 bool nl80211_unexpected_4addr_frame(struct net_device *dev,
 				    const u8 *addr, gfp_t gfp);
 
-#endif 
+#endif /* __NET_WIRELESS_NL80211_H */

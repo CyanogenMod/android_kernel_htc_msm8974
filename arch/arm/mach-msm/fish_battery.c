@@ -114,7 +114,7 @@ static int fish_battery_probe(struct platform_device *pdev)
 	int i;
 	int rc;
 
-	
+	/* init power supplier framework */
 	for (i = 0; i < ARRAY_SIZE(fish_power_supplies); i++) {
 		rc = power_supply_register(&pdev->dev, &fish_power_supplies[i]);
 		if (rc)

@@ -45,8 +45,9 @@
 
 #define MAX_PCI_DEVICES    32
 #define MAX_PCI_FUNCTIONS   8
-#define MAX_PCI_BASE_ADDRS  3 
+#define MAX_PCI_BASE_ADDRS  3 /* use 64 bit address */
 
+/* definition for fake pci configuration area for GbE, .... ,and etc. */
 
 struct celleb_pci_resource {
 	struct resource r[MAX_PCI_BASE_ADDRS];
@@ -165,7 +166,7 @@ static int celleb_fake_pci_read_config(struct pci_bus *bus,
 	unsigned int devno = devfn >> 3;
 	unsigned int fn = devfn & 0x7;
 
-	
+	/* allignment check */
 	BUG_ON(where % size);
 
 	pr_debug("    fake read: bus=0x%x, ", bus->number);
@@ -193,7 +194,7 @@ static int celleb_fake_pci_write_config(struct pci_bus *bus,
 	unsigned int devno = devfn >> 3;
 	unsigned int fn = devfn & 0x7;
 
-	
+	/* allignment check */
 	BUG_ON(where % size);
 
 	config = get_fake_config_start(hose, devno, fn);
@@ -258,14 +259,14 @@ static inline void celleb_setup_pci_base_addrs(struct pci_controller *hose,
 		celleb_config_write_fake(config, PCI_BASE_ADDRESS_4, 4, val);
 		val = res->r[2].start >> 32;
 		celleb_config_write_fake(config, PCI_BASE_ADDRESS_5, 4, val);
-		
+		/* FALLTHROUGH */
 	case 2:
 		val = (res->r[1].start & 0xfffffff0)
 		    | PCI_BASE_ADDRESS_MEM_TYPE_64;
 		celleb_config_write_fake(config, PCI_BASE_ADDRESS_2, 4, val);
 		val = res->r[1].start >> 32;
 		celleb_config_write_fake(config, PCI_BASE_ADDRESS_3, 4, val);
-		
+		/* FALLTHROUGH */
 	case 1:
 		val = (res->r[0].start & 0xfffffff0)
 		    | PCI_BASE_ADDRESS_MEM_TYPE_64;

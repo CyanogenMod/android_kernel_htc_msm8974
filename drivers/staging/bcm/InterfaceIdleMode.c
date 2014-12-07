@@ -15,7 +15,31 @@ Return:				BCM_STATUS_SUCCESS - If Wakeup of the HW Interface was successful.
 */
 
 
+/*
+Function:				InterfaceIdleModeRespond
 
+Description:			This is the hardware specific Function for responding to Idle mode request from target.
+						Necessary power state transitions from host for idle mode or other device specific
+						initializations are performed here.
+
+Input parameters:		IN PMINI_ADAPTER Adapter   - Miniport Adapter Context
+
+
+Return:				BCM_STATUS_SUCCESS - If Idle mode response related HW configuration was successful.
+						Other           - If an error occurred.
+*/
+
+/*
+"dmem bfc02f00  100" tells how many time device went in Idle mode.
+this value will be at address bfc02fa4.just before value d0ea1dle.
+
+Set time value by writing at bfc02f98 7d0
+
+checking the Ack timer expire on kannon by running command
+d qcslog .. if it shows e means host has not send response to f/w with in 200 ms. Response should be
+send to f/w with in 200 ms after the Idle/Shutdown req issued
+
+*/
 
 
 int InterfaceIdleModeRespond(PMINI_ADAPTER Adapter, unsigned int* puiBuffer)
@@ -50,17 +74,17 @@ int InterfaceIdleModeRespond(PMINI_ADAPTER Adapter, unsigned int* puiBuffer)
 					return status;
 				}
 			}
-			
+			//Below Register should not br read in case of Manual and Protocol Idle mode.
 			else if(Adapter->ulPowerSaveMode != DEVICE_POWERSAVE_MODE_AS_PROTOCOL_IDLE_MODE)
 			{
-				
+				//clear on read Register
 				bytes = rdmalt(Adapter, DEVICE_INT_OUT_EP_REG0, &uiRegRead, sizeof(uiRegRead));
 				if (bytes < 0) {
 					status = bytes;
 					BCM_DEBUG_PRINT(Adapter,DBG_TYPE_PRINTK, 0, 0, "rdm failed while clearing H/W Abort Reg0");
 					return status;
 				}
-				
+				//clear on read Register
 				bytes = rdmalt(Adapter, DEVICE_INT_OUT_EP_REG1, &uiRegRead, sizeof(uiRegRead));
 				if (bytes < 0) {
 					status = bytes;
@@ -70,7 +94,7 @@ int InterfaceIdleModeRespond(PMINI_ADAPTER Adapter, unsigned int* puiBuffer)
 			}
 			BCM_DEBUG_PRINT(Adapter,DBG_TYPE_OTHERS, IDLE_MODE, DBG_LVL_ALL, "Device Up from Idle Mode");
 
-			
+			// Set Idle Mode Flag to False and Clear IdleMode reg.
 			Adapter->IdleMode = FALSE;
 			Adapter->bTriedToWakeUpFromlowPowerMode = FALSE;
 
@@ -134,7 +158,7 @@ static int InterfaceAbortIdlemode(PMINI_ADAPTER Adapter, unsigned int Pattern)
 	unsigned char aucAbortPattern[8]={0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
 	PS_INTERFACE_ADAPTER psInterfaceAdapter = Adapter->pvInterfaceAdapter;
 
-	
+	//Abort Bus suspend if its already suspended
 	if((TRUE == psInterfaceAdapter->bSuspended) && (TRUE == Adapter->bDoSuspend))
 	{
 		status = usb_autopm_get_interface(psInterfaceAdapter->interface);
@@ -146,7 +170,7 @@ static int InterfaceAbortIdlemode(PMINI_ADAPTER Adapter, unsigned int Pattern)
 									||
 	   (Adapter->ulPowerSaveMode == DEVICE_POWERSAVE_MODE_AS_PROTOCOL_IDLE_MODE))
 	{
-		
+		//write the SW abort pattern.
 		BCM_DEBUG_PRINT(Adapter,DBG_TYPE_OTHERS, IDLE_MODE, DBG_LVL_ALL, "Writing pattern<%d> to SW_ABORT_IDLEMODE_LOC\n", Pattern);
 		status = wrmalt(Adapter,SW_ABORT_IDLEMODE_LOC, &Pattern, sizeof(Pattern));
 		if(status)
@@ -168,6 +192,11 @@ static int InterfaceAbortIdlemode(PMINI_ADAPTER Adapter, unsigned int Pattern)
 	}
 	else if(Adapter->ulPowerSaveMode != DEVICE_POWERSAVE_MODE_AS_PROTOCOL_IDLE_MODE)
 	{
+		/*
+		 * Get a Interrupt Out URB and send 8 Bytes Down
+		 * To be Done in Thread Context.
+		 * Not using Asynchronous Mechanism.
+		 */
 		status = usb_interrupt_msg (psInterfaceAdapter->udev,
 			usb_sndintpipe(psInterfaceAdapter->udev,
 			psInterfaceAdapter->sIntrOut.int_out_endpointAddr),
@@ -185,7 +214,7 @@ static int InterfaceAbortIdlemode(PMINI_ADAPTER Adapter, unsigned int Pattern)
 			BCM_DEBUG_PRINT(Adapter,DBG_TYPE_OTHERS, IDLE_MODE, DBG_LVL_ALL, "NOB Sent down :%d", lenwritten);
 		}
 
-		
+		//mdelay(25);
 
 		timeout= jiffies +  msecs_to_jiffies(50) ;
 		while( timeout > jiffies )
@@ -242,7 +271,7 @@ void InterfaceHandleShutdownModeWakeup(PMINI_ADAPTER Adapter)
 
 	if(Adapter->ulPowerSaveMode == DEVICE_POWERSAVE_MODE_AS_MANUAL_CLOCK_GATING)
 	{
-		
+		// clear idlemode interrupt.
 		uiRegVal = 0;
 		Status =wrmalt(Adapter,DEBUG_INTERRUPT_GENERATOR_REGISTOR, &uiRegVal, sizeof(uiRegVal));
 		if(Status)
@@ -255,7 +284,7 @@ void InterfaceHandleShutdownModeWakeup(PMINI_ADAPTER Adapter)
     else
 	{
 
-        
+        //clear Interrupt EP registers.
 		bytes = rdmalt(Adapter,DEVICE_INT_OUT_EP_REG0, &uiRegVal, sizeof(uiRegVal));
 		if (bytes < 0) {
 			Status = bytes;

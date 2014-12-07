@@ -35,6 +35,9 @@ struct seq_oss_writeq {
 };
 
 
+/*
+ * seq_oss_writeq.c
+ */
 struct seq_oss_writeq *snd_seq_oss_writeq_new(struct seq_oss_devinfo *dp, int maxlen);
 void snd_seq_oss_writeq_delete(struct seq_oss_writeq *q);
 void snd_seq_oss_writeq_clear(struct seq_oss_writeq *q);

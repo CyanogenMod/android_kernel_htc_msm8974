@@ -76,6 +76,7 @@
 #  define PCI_DEVICE_ID_NEC_NEON250	0x0067
 #endif
 
+/* 2D video registers */
 #define DISP_BASE	par->mmio_base
 #define DISP_BRDRCOLR (DISP_BASE + 0x40)
 #define DISP_DIWMODE (DISP_BASE + 0x44)
@@ -91,18 +92,23 @@
 #define DISP_DIWVSTRT (DISP_BASE + 0xf0)
 #define DISP_PIXDEPTH (DISP_BASE + 0x108)
 
+/* Pixel clocks, one for TV output, doubled for VGA output */
 #define TV_CLK 74239
 #define VGA_CLK 37119
 
+/* This is for 60Hz - the VTOTAL is doubled for interlaced modes */
 #define PAL_HTOTAL 863
 #define PAL_VTOTAL 312
 #define NTSC_HTOTAL 857
 #define NTSC_VTOTAL 262
 
+/* Supported cable types */
 enum { CT_VGA, CT_NONE, CT_RGB, CT_COMPOSITE };
 
+/* Supported video output types */
 enum { VO_PAL, VO_NTSC, VO_VGA };
 
+/* Supported palette types */
 enum { PAL_ARGB1555, PAL_RGB565, PAL_ARGB4444, PAL_ARGB8888 };
 
 struct pvr2_params { unsigned int val; char *name; };
@@ -114,22 +120,26 @@ static struct pvr2_params outputs[] __devinitdata = {
 	{ VO_PAL, "PAL" }, { VO_NTSC, "NTSC" }, { VO_VGA, "VGA" },
 };
 
+/*
+ * This describes the current video mode
+ */
 
 static struct pvr2fb_par {
-	unsigned int hsync_total;	
-	unsigned int vsync_total;	
+	unsigned int hsync_total;	/* Clocks/line */
+	unsigned int vsync_total;	/* Lines/field */
 	unsigned int borderstart_h;
 	unsigned int borderstop_h;
 	unsigned int borderstart_v;
 	unsigned int borderstop_v;
-	unsigned int diwstart_h;	
-	unsigned int diwstart_v;	
-	unsigned long disp_start;	
-	unsigned char is_interlaced;	
-	unsigned char is_doublescan;	
-	unsigned char is_lowres;	
+	unsigned int diwstart_h;	/* Horizontal offset of the display field */
+	unsigned int diwstart_v;	/* Vertical offset of the display field, for
+				   interlaced modes, this is the long field */
+	unsigned long disp_start;	/* Address of image within VRAM */
+	unsigned char is_interlaced;	/* Is the display interlaced? */
+	unsigned char is_doublescan;	/* Are scanlines output twice? (doublescan) */
+	unsigned char is_lowres;	/* Is horizontal pixel-doubling enabled? */
 
-	unsigned long mmio_base;	
+	unsigned long mmio_base;	/* MMIO base */
 	u32 palette[16];
 } *currentpar;
 
@@ -165,11 +175,14 @@ static int video_output = VO_VGA;
 static int nopan = 0;
 static int nowrap = 1;
 
-static unsigned int do_vmode_full = 0;	
-static unsigned int do_vmode_pan = 0;	
-static short do_blank = 0;		
+/*
+ * We do all updating, blanking, etc. during the vertical retrace period
+ */
+static unsigned int do_vmode_full = 0;	/* Change the video mode */
+static unsigned int do_vmode_pan = 0;	/* Update the video mode */
+static short do_blank = 0;		/* (Un)Blank the screen */
 
-static unsigned int is_blanked = 0;		
+static unsigned int is_blanked = 0;		/* Is the screen blanked? */
 
 #ifdef CONFIG_SH_STORE_QUEUES
 static unsigned long pvr2fb_map;
@@ -214,18 +227,23 @@ static struct fb_ops pvr2fb_ops = {
 };
 
 static struct fb_videomode pvr2_modedb[] __devinitdata = {
+    /*
+     * Broadcast video modes (PAL and NTSC).  I'm unfamiliar with
+     * PAL-M and PAL-N, but from what I've read both modes parallel PAL and
+     * NTSC, so it shouldn't be a problem (I hope).
+     */
 
     {
-	
+	/* 640x480 @ 60Hz interlaced (NTSC) */
 	"ntsc_640x480i", 60, 640, 480, TV_CLK, 38, 33, 0, 18, 146, 26,
 	FB_SYNC_BROADCAST, FB_VMODE_INTERLACED | FB_VMODE_YWRAP
     }, {
-	
-	
+	/* 640x240 @ 60Hz (NTSC) */
+	/* XXX: Broken! Don't use... */
 	"ntsc_640x240", 60, 640, 240, TV_CLK, 38, 33, 0, 0, 146, 22,
 	FB_SYNC_BROADCAST, FB_VMODE_YWRAP
     }, {
-	
+	/* 640x480 @ 60hz (VGA) */
 	"vga_640x480", 60, 640, 480, VGA_CLK, 38, 33, 0, 18, 146, 26,
 	0, FB_VMODE_YWRAP
     },
@@ -268,20 +286,20 @@ static inline unsigned long get_line_length(int xres_virtual, int bpp)
 static void set_color_bitfields(struct fb_var_screeninfo *var)
 {
 	switch (var->bits_per_pixel) {
-	    case 16:        
+	    case 16:        /* RGB 565 */
 		pvr2fb_set_pal_type(PAL_RGB565);
 		var->red.offset = 11;    var->red.length = 5;
 		var->green.offset = 5;   var->green.length = 6;
 		var->blue.offset = 0;    var->blue.length = 5;
 		var->transp.offset = 0;  var->transp.length = 0;
 		break;
-	    case 24:        
+	    case 24:        /* RGB 888 */
 		var->red.offset = 16;    var->red.length = 8;
 		var->green.offset = 8;   var->green.length = 8;
 		var->blue.offset = 0;    var->blue.length = 8;
 		var->transp.offset = 0;  var->transp.length = 0;
 		break;
-	    case 32:        
+	    case 32:        /* ARGB 8888 */
 		pvr2fb_set_pal_type(PAL_ARGB8888);
 		var->red.offset = 16;    var->red.length = 8;
 		var->green.offset = 8;   var->green.length = 8;
@@ -301,19 +319,24 @@ static int pvr2fb_setcolreg(unsigned int regno, unsigned int red,
 	if (regno > info->cmap.len)
 		return 1;
 
+	/*
+	 * We only support the hardware palette for 16 and 32bpp. It's also
+	 * expected that the palette format has been set by the time we get
+	 * here, so we don't waste time setting it again.
+	 */
 	switch (info->var.bits_per_pixel) {
-	    case 16: 
+	    case 16: /* RGB 565 */
 		tmp =  (red   & 0xf800)       |
 		      ((green & 0xfc00) >> 5) |
 		      ((blue  & 0xf800) >> 11);
 
 		pvr2fb_set_pal_entry(par, regno, tmp);
 		break;
-	    case 24: 
+	    case 24: /* RGB 888 */
 		red >>= 8; green >>= 8; blue >>= 8;
 		tmp = (red << 16) | (green << 8) | blue;
 		break;
-	    case 32: 
+	    case 32: /* ARGB 8888 */
 		red >>= 8; green >>= 8; blue >>= 8;
 		tmp = (transp << 24) | (red << 16) | (green << 8) | blue;
 
@@ -337,6 +360,13 @@ static int pvr2fb_set_par(struct fb_info *info)
 	unsigned long line_length;
 	unsigned int vtotal;
 
+	/*
+	 * XXX: It's possible that a user could use a VGA box, change the cable
+	 * type in hardware (i.e. switch from VGA<->composite), then change
+	 * modes (i.e. switching to another VT).  If that happens we should
+	 * automagically change the output format to cope, but currently I
+	 * don't have a VGA box to make sure this works properly.
+	 */
 	cable_type = pvr2_init_cable();
 	if (cable_type == CT_VGA && video_output != VO_VGA)
 		video_output = VO_VGA;
@@ -344,6 +374,10 @@ static int pvr2fb_set_par(struct fb_info *info)
 	var->vmode &= FB_VMODE_MASK;
 	if (var->vmode & FB_VMODE_INTERLACED && video_output != VO_VGA)
 		par->is_interlaced = 1;
+	/*
+	 * XXX: Need to be more creative with this (i.e. allow doublecan for
+	 * PAL/NTSC output).
+	 */
 	if (var->vmode & FB_VMODE_DOUBLE && video_output == VO_VGA)
 		par->is_doublescan = 1;
 
@@ -357,23 +391,27 @@ static int pvr2fb_set_par(struct fb_info *info)
 		if (par->is_interlaced)
 			vtotal /= 2;
 		if (vtotal > (PAL_VTOTAL + NTSC_VTOTAL)/2) {
-			
-			
+			/* XXX: Check for start values here... */
+			/* XXX: Check hardware for PAL-compatibility */
 			par->borderstart_h = 116;
 			par->borderstart_v = 44;
 		} else {
-			
+			/* NTSC video output */
 			par->borderstart_h = 126;
 			par->borderstart_v = 18;
 		}
 	} else {
-		
-		
+		/* VGA mode */
+		/* XXX: What else needs to be checked? */
+		/*
+		 * XXX: We have a little freedom in VGA modes, what ranges
+		 * should be here (i.e. hsync/vsync totals, etc.)?
+		 */
 		par->borderstart_h = 126;
 		par->borderstart_v = 40;
 	}
 
-	
+	/* Calculate the remainding offsets */
 	par->diwstart_h = par->borderstart_h + var->left_margin;
 	par->diwstart_v = par->borderstart_v + var->upper_margin;
 	par->borderstop_h = par->diwstart_h + var->xres +
@@ -435,6 +473,10 @@ static int pvr2fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		var->xoffset = var->yoffset = 0;
 	}
 
+	/*
+	 * XXX: Need to be more creative with this (i.e. allow doublecan for
+	 * PAL/NTSC output).
+	 */
 	if (var->yres < 480 && video_output == VO_VGA)
 		var->vmode |= FB_VMODE_DOUBLE;
 
@@ -470,14 +512,14 @@ static int pvr2fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		if (var->vmode & FB_VMODE_INTERLACED)
 			vtotal /= 2;
 		if (vtotal > (PAL_VTOTAL + NTSC_VTOTAL)/2) {
-			
-			
+			/* PAL video output */
+			/* XXX: Should be using a range here ... ? */
 			if (hsync_total != PAL_HTOTAL) {
 				pr_debug("invalid hsync total for PAL\n");
 				return -EINVAL;
 			}
 		} else {
-			
+			/* NTSC video output */
 			if (hsync_total != NTSC_HTOTAL) {
 				pr_debug("invalid hsync total for NTSC\n");
 				return -EINVAL;
@@ -485,7 +527,7 @@ static int pvr2fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		}
 	}
 
-	
+	/* Check memory sizes */
 	line_length = get_line_length(var->xres_virtual, var->bits_per_pixel);
 	if (line_length * var->yres_virtual > info->fix.smem_len)
 		return -ENOMEM;
@@ -498,13 +540,18 @@ static void pvr2_update_display(struct fb_info *info)
 	struct pvr2fb_par *par = (struct pvr2fb_par *) info->par;
 	struct fb_var_screeninfo *var = &info->var;
 
-	
+	/* Update the start address of the display image */
 	fb_writel(par->disp_start, DISP_DIWADDRL);
 	fb_writel(par->disp_start +
 		  get_line_length(var->xoffset+var->xres, var->bits_per_pixel),
 	          DISP_DIWADDRS);
 }
 
+/*
+ * Initialize the video mode.  Currently, the 16bpp and 24bpp modes aren't
+ * very stable.  It's probably due to the fact that a lot of the 2D video
+ * registers are still undocumented.
+ */
 
 static void pvr2_init_display(struct fb_info *info)
 {
@@ -513,10 +560,12 @@ static void pvr2_init_display(struct fb_info *info)
 	unsigned int diw_height, diw_width, diw_modulo = 1;
 	unsigned int bytesperpixel = var->bits_per_pixel >> 3;
 
-	
+	/* hsync and vsync totals */
 	fb_writel((par->vsync_total << 16) | par->hsync_total, DISP_SYNCSIZE);
 
-	
+	/* column height, modulo, row width */
+	/* since we're "panning" within vram, we need to offset things based
+	 * on the offset from the virtual x start to our real gfx. */
 	if (video_output != VO_VGA && par->is_interlaced)
 		diw_modulo += info->fix.line_length / 4;
 	diw_height = (par->is_interlaced ? var->yres / 2 : var->yres);
@@ -524,35 +573,38 @@ static void pvr2_init_display(struct fb_info *info)
 	fb_writel((diw_modulo << 20) | (--diw_height << 10) | --diw_width,
 	          DISP_DIWSIZE);
 
-	
+	/* display address, long and short fields */
 	fb_writel(par->disp_start, DISP_DIWADDRL);
 	fb_writel(par->disp_start +
 	          get_line_length(var->xoffset+var->xres, var->bits_per_pixel),
 	          DISP_DIWADDRS);
 
-	
+	/* border horizontal, border vertical, border color */
 	fb_writel((par->borderstart_h << 16) | par->borderstop_h, DISP_BRDRHORZ);
 	fb_writel((par->borderstart_v << 16) | par->borderstop_v, DISP_BRDRVERT);
 	fb_writel(0, DISP_BRDRCOLR);
 
-	
+	/* display window start position */
 	fb_writel(par->diwstart_h, DISP_DIWHSTRT);
 	fb_writel((par->diwstart_v << 16) | par->diwstart_v, DISP_DIWVSTRT);
 
-	
+	/* misc. settings */
 	fb_writel((0x16 << 16) | par->is_lowres, DISP_DIWCONF);
 
-	
+	/* clock doubler (for VGA), scan doubler, display enable */
 	fb_writel(((video_output == VO_VGA) << 23) |
 	          (par->is_doublescan << 1) | 1, DISP_DIWMODE);
 
-	
+	/* bits per pixel */
 	fb_writel(fb_readl(DISP_DIWMODE) | (--bytesperpixel << 2), DISP_DIWMODE);
 	fb_writel(bytesperpixel << 2, DISP_PIXDEPTH);
 
-	fb_writel(0x100 | ((par->is_interlaced ) << 4), DISP_SYNCCONF);
+	/* video enable, color sync, interlace,
+	 * hsync and vsync polarity (currently unused) */
+	fb_writel(0x100 | ((par->is_interlaced /*|4*/) << 4), DISP_SYNCCONF);
 }
 
+/* Simulate blanking by making the border cover the entire screen */
 
 #define BLANK_BIT (1<<3)
 
@@ -589,6 +641,10 @@ static irqreturn_t pvr2fb_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Determine the cable type and initialize the cable output format.  Don't do
+ * anything if the cable type has been overidden (via "cable:XX").
+ */
 
 #define PCTRA 0xff80002c
 #define PDTRA 0xff800030
@@ -602,7 +658,9 @@ static int pvr2_init_cable(void)
 		cable_type = (fb_readw(PDTRA) >> 8) & 3;
 	}
 
-	
+	/* Now select the output format (either composite or other) */
+	/* XXX: Save the previous val first, as this reg is also AICA
+	  related */
 	if (cable_type == CT_COMPOSITE)
 		fb_writel(3 << 8, VOUTC);
 	else if (cable_type == CT_RGB)
@@ -646,9 +704,9 @@ static ssize_t pvr2fb_write(struct fb_info *info, const char *buf,
 	end   = (unsigned long)page_address(pages[nr_pages]);
 	len   = nr_pages << PAGE_SHIFT;
 
-	
+	/* Half-assed contig check */
 	if (start + len == end) {
-		
+		/* As we do this in one shot, it's either all or nothing.. */
 		if ((*ppos + len) > fb_info->fix.smem_len) {
 			ret = -ENOSPC;
 			goto out_unmap;
@@ -661,7 +719,7 @@ static ssize_t pvr2fb_write(struct fb_info *info, const char *buf,
 		goto out;
 	}
 
-	
+	/* Not contiguous, writeout per-page instead.. */
 	for (i = 0; i < nr_pages; i++, dst += PAGE_SIZE) {
 		if ((*ppos + (i << PAGE_SHIFT)) > fb_info->fix.smem_len) {
 			ret = -ENOSPC;
@@ -685,8 +743,26 @@ out_unmap:
 
 	return ret;
 }
-#endif 
+#endif /* CONFIG_PVR2_DMA */
 
+/**
+ * pvr2fb_common_init
+ *
+ * Common init code for the PVR2 chips.
+ *
+ * This mostly takes care of the common aspects of the fb setup and
+ * registration. It's expected that the board-specific init code has
+ * already setup pvr2_fix with something meaningful at this point.
+ *
+ * Device info reporting is also done here, as well as picking a sane
+ * default from the modedb. For board-specific modelines, simply define
+ * a per-board modedb.
+ *
+ * Also worth noting is that the cable and video output types are likely
+ * always going to be VGA for the PCI-based PVR2 boards, but we leave this
+ * in for flexibility anyways. Who knows, maybe someone has tv-out on a
+ * PCI-based version of these things ;-)
+ */
 static int __devinit pvr2fb_common_init(void)
 {
 	struct pvr2fb_par *par = currentpar;
@@ -732,7 +808,7 @@ static int __devinit pvr2fb_common_init(void)
 
 	if (register_framebuffer(fb_info) < 0)
 		goto out_err;
-	
+	/*Must write PIXDEPTH to register before anything is displayed - so force init */
 	pvr2_init_display(fb_info);
 
 	modememused = get_line_length(fb_info->var.xres_virtual,
@@ -778,20 +854,23 @@ static int __init pvr2fb_dc_init(void)
 	if (!mach_is_dreamcast())
 		return -ENXIO;
 
-	
+	/* Make a guess at the monitor based on the attached cable */
 	if (pvr2_init_cable() == CT_VGA) {
 		fb_info->monspecs.hfmin = 30000;
 		fb_info->monspecs.hfmax = 70000;
 		fb_info->monspecs.vfmin = 60;
 		fb_info->monspecs.vfmax = 60;
 	} else {
-		
+		/* Not VGA, using a TV (taken from acornfb) */
 		fb_info->monspecs.hfmin = 15469;
 		fb_info->monspecs.hfmax = 15781;
 		fb_info->monspecs.vfmin = 49;
 		fb_info->monspecs.vfmax = 51;
 	}
 
+	/*
+	 * XXX: This needs to pull default video output via BIOS or other means
+	 */
 	if (video_output < 0) {
 		if (cable_type == CT_VGA) {
 			video_output = VO_VGA;
@@ -800,10 +879,13 @@ static int __init pvr2fb_dc_init(void)
 		}
 	}
 
-	pvr2_fix.smem_start	= 0xa5000000;	
+	/*
+	 * Nothing exciting about the DC PVR2 .. only a measly 8MiB.
+	 */
+	pvr2_fix.smem_start	= 0xa5000000;	/* RAM starts here */
 	pvr2_fix.smem_len	= 8 << 20;
 
-	pvr2_fix.mmio_start	= 0xa05f8000;	
+	pvr2_fix.mmio_start	= 0xa05f8000;	/* registers start here */
 	pvr2_fix.mmio_len	= 0x2000;
 
 	if (request_irq(HW_EVENT_VSYNC, pvr2fb_interrupt, IRQF_SHARED,
@@ -837,7 +919,7 @@ static void __exit pvr2fb_dc_exit(void)
 	free_dma(pvr2dma);
 #endif
 }
-#endif 
+#endif /* CONFIG_SH_DREAMCAST */
 
 #ifdef CONFIG_PCI
 static int __devinit pvr2fb_pci_probe(struct pci_dev *pdev,
@@ -857,6 +939,9 @@ static int __devinit pvr2fb_pci_probe(struct pci_dev *pdev,
 		return ret;
 	}
 
+	/*
+	 * Slightly more exciting than the DC PVR2 .. 16MiB!
+	 */
 	pvr2_fix.smem_start	= pci_resource_start(pdev, 0);
 	pvr2_fix.smem_len	= pci_resource_len(pdev, 0);
 
@@ -906,7 +991,7 @@ static void __exit pvr2fb_pci_exit(void)
 {
 	pci_unregister_driver(&pvr2fb_pci_driver);
 }
-#endif 
+#endif /* CONFIG_PCI */
 
 static int __devinit pvr2_get_param(const struct pvr2_params *p, const char *s,
                                    int val, int size)
@@ -925,6 +1010,15 @@ static int __devinit pvr2_get_param(const struct pvr2_params *p, const char *s,
 	return -1;
 }
 
+/*
+ * Parse command arguments.  Supported arguments are:
+ *    inverse                             Use inverse color maps
+ *    cable:composite|rgb|vga             Override the video cable type
+ *    output:NTSC|PAL|VGA                 Override the video output format
+ *
+ *    <xres>x<yres>[-<bpp>][@<refresh>]   or,
+ *    <name>[-<bpp>][@<refresh>]          Startup using this video mode
+ */
 
 #ifndef MODULE
 static int __init pvr2fb_setup(char *options)

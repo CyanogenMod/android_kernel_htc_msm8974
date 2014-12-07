@@ -83,14 +83,14 @@ struct ib_ucm_context {
 	struct ib_cm_id    *cm_id;
 	__u64		   uid;
 
-	struct list_head    events;    
-	struct list_head    file_list; 
+	struct list_head    events;    /* list of pending events. */
+	struct list_head    file_list; /* member in file ctx list */
 };
 
 struct ib_ucm_event {
 	struct ib_ucm_context *ctx;
-	struct list_head file_list; 
-	struct list_head ctx_list;  
+	struct list_head file_list; /* member in file event list */
+	struct list_head ctx_list;  /* member in ctx event list */
 
 	struct ib_cm_id *cm_id;
 	struct ib_ucm_event_resp resp;
@@ -163,7 +163,7 @@ static void ib_ucm_cleanup_events(struct ib_ucm_context *ctx)
 		list_del(&uevent->ctx_list);
 		mutex_unlock(&ctx->file->file_mutex);
 
-		
+		/* clear incoming connections. */
 		if (ib_ucm_new_cm_id(uevent->resp.event))
 			ib_destroy_cm_id(uevent->cm_id);
 
@@ -385,7 +385,7 @@ static int ib_ucm_event_handler(struct ib_cm_id *cm_id,
 err2:
 	kfree(uevent);
 err1:
-	
+	/* Destroy new cm_id's */
 	return ib_ucm_new_cm_id(event->event);
 }
 
@@ -553,9 +553,9 @@ static ssize_t ib_ucm_destroy_id(struct ib_ucm_file *file,
 	ib_ucm_ctx_put(ctx);
 	wait_for_completion(&ctx->comp);
 
-	
+	/* No new events will be generated after destroying the cm_id. */
 	ib_destroy_cm_id(ctx->cm_id);
-	
+	/* Cleanup events not yet reported to the user. */
 	ib_ucm_cleanup_events(ctx);
 
 	resp.events_reported = ctx->events_reported;
@@ -1147,6 +1147,14 @@ static unsigned int ib_ucm_poll(struct file *filp,
 	return mask;
 }
 
+/*
+ * ib_ucm_open() does not need the BKL:
+ *
+ *  - no global state is referred to;
+ *  - there is no ioctl method to race against;
+ *  - no further module initialization is required for open to work
+ *    after the device is registered.
+ */
 static int ib_ucm_open(struct inode *inode, struct file *filp)
 {
 	struct ib_ucm_file *file;

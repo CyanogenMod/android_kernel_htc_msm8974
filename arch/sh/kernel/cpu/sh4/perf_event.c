@@ -14,8 +14,8 @@
 #include <linux/perf_event.h>
 #include <asm/processor.h>
 
-#define PM_CR_BASE	0xff000084	
-#define PM_CTR_BASE	0xff100004	
+#define PM_CR_BASE	0xff000084	/* 16-bit */
+#define PM_CTR_BASE	0xff100004	/* 32-bit */
 
 #define PMCR(n)		(PM_CR_BASE + ((n) * 0x04))
 #define PMCTRH(n)	(PM_CTR_BASE + 0x00 + ((n) * 0x08))
@@ -30,12 +30,55 @@
 
 static struct sh_pmu sh7750_pmu;
 
+/*
+ * There are a number of events supported by each counter (33 in total).
+ * Since we have 2 counters, each counter will take the event code as it
+ * corresponds to the PMCR PMM setting. Each counter can be configured
+ * independently.
+ *
+ *	Event Code	Description
+ *	----------	-----------
+ *
+ *	0x01		Operand read access
+ *	0x02		Operand write access
+ *	0x03		UTLB miss
+ *	0x04		Operand cache read miss
+ *	0x05		Operand cache write miss
+ *	0x06		Instruction fetch (w/ cache)
+ *	0x07		Instruction TLB miss
+ *	0x08		Instruction cache miss
+ *	0x09		All operand accesses
+ *	0x0a		All instruction accesses
+ *	0x0b		OC RAM operand access
+ *	0x0d		On-chip I/O space access
+ *	0x0e		Operand access (r/w)
+ *	0x0f		Operand cache miss (r/w)
+ *	0x10		Branch instruction
+ *	0x11		Branch taken
+ *	0x12		BSR/BSRF/JSR
+ *	0x13		Instruction execution
+ *	0x14		Instruction execution in parallel
+ *	0x15		FPU Instruction execution
+ *	0x16		Interrupt
+ *	0x17		NMI
+ *	0x18		trapa instruction execution
+ *	0x19		UBCA match
+ *	0x1a		UBCB match
+ *	0x21		Instruction cache fill
+ *	0x22		Operand cache fill
+ *	0x23		Elapsed time
+ *	0x24		Pipeline freeze by I-cache miss
+ *	0x25		Pipeline freeze by D-cache miss
+ *	0x27		Pipeline freeze by branch instruction
+ *	0x28		Pipeline freeze by CPU register
+ *	0x29		Pipeline freeze by FPU
+ */
 
 static const int sh7750_general_events[] = {
 	[PERF_COUNT_HW_CPU_CYCLES]		= 0x0023,
 	[PERF_COUNT_HW_INSTRUCTIONS]		= 0x000a,
-	[PERF_COUNT_HW_CACHE_REFERENCES]	= 0x0006,	
-	[PERF_COUNT_HW_CACHE_MISSES]		= 0x0008,	
+	[PERF_COUNT_HW_CACHE_REFERENCES]	= 0x0006,	/* I-cache */
+	[PERF_COUNT_HW_CACHE_MISSES]		= 0x0008,	/* I-cache */
 	[PERF_COUNT_HW_BRANCH_INSTRUCTIONS]	= 0x0010,
 	[PERF_COUNT_HW_BRANCH_MISSES]		= -1,
 	[PERF_COUNT_HW_BUS_CYCLES]		= -1,
@@ -212,6 +255,9 @@ static struct sh_pmu sh7750_pmu = {
 
 static int __init sh7750_pmu_init(void)
 {
+	/*
+	 * Make sure this CPU actually has perf counters.
+	 */
 	if (!(boot_cpu_data.flags & CPU_HAS_PERF_COUNTER)) {
 		pr_notice("HW perf events unsupported, software events only.\n");
 		return -ENODEV;

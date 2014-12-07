@@ -15,6 +15,7 @@
 #include <linux/math64.h>
 #include "governor.h"
 
+/* Default constants for DevFreq-Simple-Ondemand (DFSO) */
 #define DFSO_UPTHRESHOLD	(90)
 #define DFSO_DOWNDIFFERENCTIAL	(5)
 static int devfreq_simple_ondemand_func(struct devfreq *df,
@@ -28,6 +29,7 @@ static int devfreq_simple_ondemand_func(struct devfreq *df,
 	unsigned int dfso_downdifferential = DFSO_DOWNDIFFERENCTIAL;
 	struct devfreq_simple_ondemand_data *data = df->data;
 	unsigned long max = (df->max_freq) ? df->max_freq : UINT_MAX;
+	unsigned long min = (df->min_freq) ? df->min_freq : 0;
 
 	if (err)
 		return err;
@@ -42,39 +44,51 @@ static int devfreq_simple_ondemand_func(struct devfreq *df,
 	    dfso_upthreshold < dfso_downdifferential)
 		return -EINVAL;
 
-	
-	if (stat.total_time == 0) {
-		*freq = max;
-		return 0;
-	}
-
-	
+	/* Prevent overflow */
 	if (stat.busy_time >= (1 << 24) || stat.total_time >= (1 << 24)) {
 		stat.busy_time >>= 7;
 		stat.total_time >>= 7;
 	}
 
-	
+	if (data && data->simple_scaling) {
+		if (stat.busy_time * 100 >
+		    stat.total_time * dfso_upthreshold)
+			*freq = max;
+		else if (stat.busy_time * 100 <
+		    stat.total_time * dfso_downdifferential)
+			*freq = min;
+		else
+			*freq = df->previous_freq;
+		return 0;
+	}
+
+	/* Assume MAX if it is going to be divided by zero */
+	if (stat.total_time == 0) {
+		*freq = max;
+		return 0;
+	}
+
+	/* Set MAX if it's busy enough */
 	if (stat.busy_time * 100 >
 	    stat.total_time * dfso_upthreshold) {
 		*freq = max;
 		return 0;
 	}
 
-	
+	/* Set MAX if we do not know the initial frequency */
 	if (stat.current_frequency == 0) {
 		*freq = max;
 		return 0;
 	}
 
-	
+	/* Keep the current frequency */
 	if (stat.busy_time * 100 >
 	    stat.total_time * (dfso_upthreshold - dfso_downdifferential)) {
 		*freq = stat.current_frequency;
 		return 0;
 	}
 
-	
+	/* Set the desired frequency based on the load */
 	a = stat.busy_time;
 	a *= stat.current_frequency;
 	b = div_u64(a, stat.total_time);

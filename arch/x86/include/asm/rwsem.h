@@ -39,6 +39,11 @@
 #ifdef __KERNEL__
 #include <asm/asm.h>
 
+/*
+ * The bias values and the counter type limits the number of
+ * potential readers/writers to 32767 for 32 bits and 2147483647
+ * for 64 bits.
+ */
 
 #ifdef CONFIG_X86_64
 # define RWSEM_ACTIVE_MASK		0xffffffffL
@@ -52,11 +57,14 @@
 #define RWSEM_ACTIVE_READ_BIAS		RWSEM_ACTIVE_BIAS
 #define RWSEM_ACTIVE_WRITE_BIAS		(RWSEM_WAITING_BIAS + RWSEM_ACTIVE_BIAS)
 
+/*
+ * lock for reading
+ */
 static inline void __down_read(struct rw_semaphore *sem)
 {
 	asm volatile("# beginning down_read\n\t"
 		     LOCK_PREFIX _ASM_INC "(%1)\n\t"
-		     
+		     /* adds 0x00000001 */
 		     "  jns        1f\n"
 		     "  call call_rwsem_down_read_failed\n"
 		     "1:\n\t"
@@ -66,6 +74,9 @@ static inline void __down_read(struct rw_semaphore *sem)
 		     : "memory", "cc");
 }
 
+/*
+ * trylock for reading -- returns 1 if successful, 0 if contention
+ */
 static inline int __down_read_trylock(struct rw_semaphore *sem)
 {
 	long result, tmp;
@@ -85,14 +96,17 @@ static inline int __down_read_trylock(struct rw_semaphore *sem)
 	return result >= 0 ? 1 : 0;
 }
 
+/*
+ * lock for writing
+ */
 static inline void __down_write_nested(struct rw_semaphore *sem, int subclass)
 {
 	long tmp;
 	asm volatile("# beginning down_write\n\t"
 		     LOCK_PREFIX "  xadd      %1,(%2)\n\t"
-		     
+		     /* adds 0xffff0001, returns the old value */
 		     "  test      %1,%1\n\t"
-		     
+		     /* was the count 0 before? */
 		     "  jz        1f\n"
 		     "  call call_rwsem_down_write_failed\n"
 		     "1:\n"
@@ -107,6 +121,9 @@ static inline void __down_write(struct rw_semaphore *sem)
 	__down_write_nested(sem, 0);
 }
 
+/*
+ * trylock for writing -- returns 1 if successful, 0 if contention
+ */
 static inline int __down_write_trylock(struct rw_semaphore *sem)
 {
 	long ret = cmpxchg(&sem->count, RWSEM_UNLOCKED_VALUE,
@@ -116,14 +133,17 @@ static inline int __down_write_trylock(struct rw_semaphore *sem)
 	return 0;
 }
 
+/*
+ * unlock after reading
+ */
 static inline void __up_read(struct rw_semaphore *sem)
 {
 	long tmp;
 	asm volatile("# beginning __up_read\n\t"
 		     LOCK_PREFIX "  xadd      %1,(%2)\n\t"
-		     
+		     /* subtracts 1, returns the old value */
 		     "  jns        1f\n\t"
-		     "  call call_rwsem_wake\n" 
+		     "  call call_rwsem_wake\n" /* expects old value in %edx */
 		     "1:\n"
 		     "# ending __up_read\n"
 		     : "+m" (sem->count), "=d" (tmp)
@@ -131,14 +151,17 @@ static inline void __up_read(struct rw_semaphore *sem)
 		     : "memory", "cc");
 }
 
+/*
+ * unlock after writing
+ */
 static inline void __up_write(struct rw_semaphore *sem)
 {
 	long tmp;
 	asm volatile("# beginning __up_write\n\t"
 		     LOCK_PREFIX "  xadd      %1,(%2)\n\t"
-		     
+		     /* subtracts 0xffff0001, returns the old value */
 		     "  jns        1f\n\t"
-		     "  call call_rwsem_wake\n" 
+		     "  call call_rwsem_wake\n" /* expects old value in %edx */
 		     "1:\n\t"
 		     "# ending __up_write\n"
 		     : "+m" (sem->count), "=d" (tmp)
@@ -146,10 +169,17 @@ static inline void __up_write(struct rw_semaphore *sem)
 		     : "memory", "cc");
 }
 
+/*
+ * downgrade write lock to read lock
+ */
 static inline void __downgrade_write(struct rw_semaphore *sem)
 {
 	asm volatile("# beginning __downgrade_write\n\t"
 		     LOCK_PREFIX _ASM_ADD "%2,(%1)\n\t"
+		     /*
+		      * transitions 0xZZZZ0001 -> 0xYYYY0001 (i386)
+		      *     0xZZZZZZZZ00000001 -> 0xYYYYYYYY00000001 (x86_64)
+		      */
 		     "  jns       1f\n\t"
 		     "  call call_rwsem_downgrade_wake\n"
 		     "1:\n\t"
@@ -159,6 +189,9 @@ static inline void __downgrade_write(struct rw_semaphore *sem)
 		     : "memory", "cc");
 }
 
+/*
+ * implement atomic add functionality
+ */
 static inline void rwsem_atomic_add(long delta, struct rw_semaphore *sem)
 {
 	asm volatile(LOCK_PREFIX _ASM_ADD "%1,%0"
@@ -166,10 +199,13 @@ static inline void rwsem_atomic_add(long delta, struct rw_semaphore *sem)
 		     : "er" (delta));
 }
 
+/*
+ * implement exchange and add functionality
+ */
 static inline long rwsem_atomic_update(long delta, struct rw_semaphore *sem)
 {
 	return delta + xadd(&sem->count, delta);
 }
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_X86_RWSEM_H */

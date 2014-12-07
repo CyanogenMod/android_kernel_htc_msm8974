@@ -20,8 +20,12 @@
 
 #include <plat/iommu.h>
 
+/*
+ * omap2 architecture specific register bit definitions
+ */
 #define IOMMU_ARCH_VERSION	0x00000011
 
+/* SYSCONF */
 #define MMU_SYS_IDLE_SHIFT	3
 #define MMU_SYS_IDLE_FORCE	(0 << MMU_SYS_IDLE_SHIFT)
 #define MMU_SYS_IDLE_NONE	(1 << MMU_SYS_IDLE_SHIFT)
@@ -31,8 +35,10 @@
 #define MMU_SYS_SOFTRESET	(1 << 1)
 #define MMU_SYS_AUTOIDLE	1
 
+/* SYSSTATUS */
 #define MMU_SYS_RESETDONE	1
 
+/* IRQSTATUS & IRQENABLE */
 #define MMU_IRQ_MULTIHITFAULT	(1 << 4)
 #define MMU_IRQ_TABLEWALKFAULT	(1 << 3)
 #define MMU_IRQ_EMUMISS		(1 << 2)
@@ -46,6 +52,7 @@
 #define MMU_IRQ_TWL_MASK	(__MMU_IRQ_FAULT | MMU_IRQ_TABLEWALKFAULT)
 #define MMU_IRQ_TLB_MISS_MASK	(__MMU_IRQ_FAULT | MMU_IRQ_TLBMISS)
 
+/* MMU_CNTL */
 #define MMU_CNTL_SHIFT		1
 #define MMU_CNTL_MASK		(7 << MMU_CNTL_SHIFT)
 #define MMU_CNTL_EML_TLB	(1 << 3)
@@ -229,7 +236,7 @@ omap2_dump_cr(struct omap_iommu *obj, struct cr_regs *cr, char *buf)
 {
 	char *p = buf;
 
-	
+	/* FIXME: Need more detail analysis of cam/ram */
 	p += sprintf(p, "%08x %08x %01x\n", cr->cam, cr->ram,
 					(cr->cam & MMU_CAM_P) ? 1 : 0);
 

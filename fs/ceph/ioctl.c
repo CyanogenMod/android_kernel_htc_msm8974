@@ -7,7 +7,13 @@
 #include "ioctl.h"
 
 
+/*
+ * ioctls
+ */
 
+/*
+ * get and set the file layout
+ */
 static long ceph_ioctl_get_layout(struct file *file, void __user *arg)
 {
 	struct ceph_inode_info *ci = ceph_inode(file->f_dentry->d_inode);
@@ -43,7 +49,7 @@ static long ceph_ioctl_set_layout(struct file *file, void __user *arg)
 	if (copy_from_user(&l, arg, sizeof(l)))
 		return -EFAULT;
 
-	
+	/* validate changed params against current layout */
 	err = ceph_do_getattr(file->f_dentry->d_inode, CEPH_STAT_CAP_LAYOUT);
 	if (!err) {
 		nl.stripe_unit = ceph_file_layout_su(ci->i_layout);
@@ -71,7 +77,7 @@ static long ceph_ioctl_set_layout(struct file *file, void __user *arg)
 	    ((unsigned)nl.object_size % (unsigned)nl.stripe_unit))
 		return -EINVAL;
 
-	
+	/* make sure it's a valid data pool */
 	if (l.data_pool > 0) {
 		mutex_lock(&mdsc->mutex);
 		err = -EINVAL;
@@ -110,6 +116,12 @@ static long ceph_ioctl_set_layout(struct file *file, void __user *arg)
 	return err;
 }
 
+/*
+ * Set a layout policy on a directory inode. All items in the tree
+ * rooted at this inode will inherit this layout on creation,
+ * (It doesn't apply retroactively )
+ * unless a subdirectory has its own layout policy.
+ */
 static long ceph_ioctl_set_layout_policy (struct file *file, void __user *arg)
 {
 	struct inode *inode = file->f_dentry->d_inode;
@@ -118,7 +130,7 @@ static long ceph_ioctl_set_layout_policy (struct file *file, void __user *arg)
 	int err, i;
 	struct ceph_mds_client *mdsc = ceph_sb_to_client(inode->i_sb)->mdsc;
 
-	
+	/* copy and validate */
 	if (copy_from_user(&l, arg, sizeof(l)))
 		return -EFAULT;
 
@@ -129,7 +141,7 @@ static long ceph_ioctl_set_layout_policy (struct file *file, void __user *arg)
 	        (unsigned)l.object_size % (unsigned)l.stripe_unit))
 		return -EINVAL;
 
-	
+	/* make sure it's a valid data pool */
 	if (l.data_pool > 0) {
 		mutex_lock(&mdsc->mutex);
 		err = -EINVAL;
@@ -167,6 +179,10 @@ static long ceph_ioctl_set_layout_policy (struct file *file, void __user *arg)
 	return err;
 }
 
+/*
+ * Return object name, size/offset information, and location (OSD
+ * number, network address) for a given file offset.
+ */
 static long ceph_ioctl_get_dataloc(struct file *file, void __user *arg)
 {
 	struct ceph_ioctl_dataloc dl;
@@ -179,7 +195,7 @@ static long ceph_ioctl_get_dataloc(struct file *file, void __user *arg)
 	struct ceph_object_layout ol;
 	struct ceph_pg pgid;
 
-	
+	/* copy and validate */
 	if (copy_from_user(&dl, arg, sizeof(dl)))
 		return -EFAULT;
 
@@ -190,7 +206,7 @@ static long ceph_ioctl_get_dataloc(struct file *file, void __user *arg)
 	dl.object_size = ceph_file_layout_object_size(ci->i_layout);
 	dl.block_size = ceph_file_layout_su(ci->i_layout);
 
-	
+	/* block_offset = object_offset % block_size */
 	tmp = dl.object_offset;
 	dl.block_offset = do_div(tmp, dl.block_size);
 
@@ -211,7 +227,7 @@ static long ceph_ioctl_get_dataloc(struct file *file, void __user *arg)
 	}
 	up_read(&osdc->map_sem);
 
-	
+	/* send result back to user */
 	if (copy_to_user(arg, &dl, sizeof(dl)))
 		return -EFAULT;
 

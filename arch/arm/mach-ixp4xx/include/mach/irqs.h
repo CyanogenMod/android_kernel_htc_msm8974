@@ -61,6 +61,9 @@
 #define _IXP4XX_GPIO_IRQ(n)	(IRQ_IXP4XX_GPIO ## n)
 #define IXP4XX_GPIO_IRQ(n)	_IXP4XX_GPIO_IRQ(n)
 
+/*
+ * Only first 32 sources are valid if running on IXP42x systems
+ */
 #if defined(CONFIG_CPU_IXP46X) || defined(CONFIG_CPU_IXP43X)
 #define NR_IRQS			64
 #else

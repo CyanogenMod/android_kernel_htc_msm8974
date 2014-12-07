@@ -19,7 +19,7 @@
 #include <linux/module.h>
 
 static struct rc_map_table dib0700_nec_table[] = {
-	
+	/* Key codes for the Pixelview SBTVD remote */
 	{ 0x866b13, KEY_MUTE },
 	{ 0x866b12, KEY_POWER },
 	{ 0x866b01, KEY_1 },
@@ -50,7 +50,7 @@ static struct rc_map_table dib0700_nec_table[] = {
 	{ 0x866b18, KEY_RECORD },
 	{ 0x866b1a, KEY_STOP },
 
-	
+	/* Key codes for the EvolutePC TVWay+ remote */
 	{ 0x7a00, KEY_MENU },
 	{ 0x7a01, KEY_RECORD },
 	{ 0x7a02, KEY_PLAY },
@@ -62,7 +62,7 @@ static struct rc_map_table dib0700_nec_table[] = {
 	{ 0x7a40, KEY_POWER },
 	{ 0x7a41, KEY_MUTE },
 
-	
+	/* Key codes for the Elgato EyeTV Diversity silver remote */
 	{ 0x4501, KEY_POWER },
 	{ 0x4502, KEY_MUTE },
 	{ 0x4503, KEY_1 },
@@ -86,17 +86,17 @@ static struct rc_map_table dib0700_nec_table[] = {
 	{ 0x4515, KEY_YELLOW },
 	{ 0x4516, KEY_CHANNELDOWN },
 	{ 0x4517, KEY_BLUE },
-	{ 0x4518, KEY_LEFT }, 
+	{ 0x4518, KEY_LEFT }, /* Skip backwards */
 	{ 0x4519, KEY_PLAYPAUSE },
-	{ 0x451a, KEY_RIGHT }, 
+	{ 0x451a, KEY_RIGHT }, /* Skip forward */
 	{ 0x451b, KEY_REWIND },
-	{ 0x451c, KEY_L }, 
+	{ 0x451c, KEY_L }, /* Live */
 	{ 0x451d, KEY_FASTFORWARD },
-	{ 0x451e, KEY_STOP }, 
-	{ 0x451f, KEY_MENU }, 
-	{ 0x4540, KEY_RECORD }, 
-	{ 0x4541, KEY_SCREEN }, 
-	{ 0x4542, KEY_SELECT }, 
+	{ 0x451e, KEY_STOP }, /* 'Reveal' for Teletext */
+	{ 0x451f, KEY_MENU }, /* KEY_TEXT for Teletext */
+	{ 0x4540, KEY_RECORD }, /* Font 'Size' for Teletext */
+	{ 0x4541, KEY_SCREEN }, /*  Full screen toggle, 'Hold' for Teletext */
+	{ 0x4542, KEY_SELECT }, /* Select video input, 'Select' for Teletext */
 };
 
 static struct rc_map_list dib0700_nec_map = {

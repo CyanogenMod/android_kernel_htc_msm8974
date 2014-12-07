@@ -21,21 +21,26 @@
 #include <media/v4l2-subdev.h>
 #include <media/v4l2-chip-ident.h>
 
+/* IMX074 registers */
 
 #define MODE_SELECT			0x0100
 #define IMAGE_ORIENTATION		0x0101
 #define GROUPED_PARAMETER_HOLD		0x0104
 
+/* Integration Time */
 #define COARSE_INTEGRATION_TIME_HI	0x0202
 #define COARSE_INTEGRATION_TIME_LO	0x0203
+/* Gain */
 #define ANALOGUE_GAIN_CODE_GLOBAL_HI	0x0204
 #define ANALOGUE_GAIN_CODE_GLOBAL_LO	0x0205
 
+/* PLL registers */
 #define PRE_PLL_CLK_DIV			0x0305
 #define PLL_MULTIPLIER			0x0307
 #define PLSTATIM			0x302b
 #define VNDMY_ABLMGSHLMT		0x300a
 #define Y_OPBADDR_START_DI		0x3014
+/* mode setting */
 #define FRAME_LENGTH_LINES_HI		0x0340
 #define FRAME_LENGTH_LINES_LO		0x0341
 #define LINE_LENGTH_PCK_HI		0x0342
@@ -59,9 +64,11 @@
 #define HADDAVE				0x30e8
 #define LANESEL				0x3301
 
+/* IMX074 supported geometry */
 #define IMX074_WIDTH			1052
 #define IMX074_HEIGHT			780
 
+/* IMX074 has only one fixed colorspace per pixelcode */
 struct imx074_datafmt {
 	enum v4l2_mbus_pixelcode	code;
 	enum v4l2_colorspace		colorspace;
@@ -81,6 +88,7 @@ static struct imx074 *to_imx074(const struct i2c_client *client)
 	return container_of(i2c_get_clientdata(client), struct imx074, subdev);
 }
 
+/* Find a data format by a pixel code in an array */
 static const struct imx074_datafmt *imx074_find_datafmt(enum v4l2_mbus_pixelcode code)
 {
 	int i;
@@ -140,7 +148,7 @@ static int reg_read(struct i2c_client *client, const u16 addr)
 		return ret;
 	}
 
-	return buf[0] & 0xff; 
+	return buf[0] & 0xff; /* no sign-extension */
 }
 
 static int imx074_try_fmt(struct v4l2_subdev *sd,
@@ -170,7 +178,7 @@ static int imx074_s_fmt(struct v4l2_subdev *sd,
 
 	dev_dbg(sd->v4l2_dev->dev, "%s(%u)\n", __func__, mf->code);
 
-	
+	/* MIPI CSI could have changed the format, double-check */
 	if (!imx074_find_datafmt(mf->code))
 		return -EINVAL;
 
@@ -239,7 +247,7 @@ static int imx074_s_stream(struct v4l2_subdev *sd, int enable)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 
-	
+	/* MODE_SELECT: stream or standby */
 	return reg_write(client, MODE_SELECT, !!enable);
 }
 
@@ -296,7 +304,7 @@ static int imx074_video_probe(struct i2c_client *client)
 	int ret;
 	u16 id;
 
-	
+	/* Read sensor Model ID */
 	ret = reg_read(client, 0);
 	if (ret < 0)
 		return ret;
@@ -314,20 +322,25 @@ static int imx074_video_probe(struct i2c_client *client)
 	if (id != 0x74)
 		return -ENODEV;
 
-	
+	/* PLL Setting EXTCLK=24MHz, 22.5times */
 	reg_write(client, PLL_MULTIPLIER, 0x2D);
 	reg_write(client, PRE_PLL_CLK_DIV, 0x02);
 	reg_write(client, PLSTATIM, 0x4B);
 
-	
+	/* 2-lane mode */
 	reg_write(client, 0x3024, 0x00);
 
 	reg_write(client, IMAGE_ORIENTATION, 0x00);
 
+	/* select RAW mode:
+	 * 0x08+0x08 = top 8 bits
+	 * 0x0a+0x08 = compressed 8-bits
+	 * 0x0a+0x0a = 10 bits
+	 */
 	reg_write(client, 0x0112, 0x08);
 	reg_write(client, 0x0113, 0x08);
 
-	
+	/* Base setting for High frame mode */
 	reg_write(client, VNDMY_ABLMGSHLMT, 0x80);
 	reg_write(client, Y_OPBADDR_START_DI, 0x08);
 	reg_write(client, 0x3015, 0x37);
@@ -362,16 +375,16 @@ static int imx074_video_probe(struct i2c_client *client)
 	reg_write(client, 0x330E, 0x01);
 	reg_write(client, 0x3381, 0x00);
 
-	
-	
+	/* V : 1/2V-addition (1,3), H : 1/2H-averaging (1,3) -> Full HD */
+	/* 1608 = 1560 + 48 (black lines) */
 	reg_write(client, FRAME_LENGTH_LINES_HI, 0x06);
 	reg_write(client, FRAME_LENGTH_LINES_LO, 0x48);
 	reg_write(client, YADDR_START, 0x00);
 	reg_write(client, YADDR_END, 0x2F);
-	
+	/* 0x838 == 2104 */
 	reg_write(client, X_OUTPUT_SIZE_MSB, 0x08);
 	reg_write(client, X_OUTPUT_SIZE_LSB, 0x38);
-	
+	/* 0x618 == 1560 */
 	reg_write(client, Y_OUTPUT_SIZE_MSB, 0x06);
 	reg_write(client, Y_OUTPUT_SIZE_LSB, 0x18);
 	reg_write(client, X_EVEN_INC, 0x01);
@@ -387,7 +400,7 @@ static int imx074_video_probe(struct i2c_client *client)
 
 	reg_write(client, LANESEL, 0x00);
 
-	reg_write(client, GROUPED_PARAMETER_HOLD, 0x00);	
+	reg_write(client, GROUPED_PARAMETER_HOLD, 0x00);	/* off */
 
 	return 0;
 }

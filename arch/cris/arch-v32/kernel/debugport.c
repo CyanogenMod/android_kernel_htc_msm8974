@@ -118,7 +118,7 @@ start_port(struct dbg_port* p)
 		crisv32_pinmux_alloc_fixed(pinmux_ser4);
 #endif
 
-	
+	/* Set up serial port registers */
 	reg_ser_rw_tr_ctrl tr_ctrl = {0};
 	reg_ser_rw_tr_dma_en tr_dma_en = {0};
 
@@ -160,6 +160,7 @@ start_port(struct dbg_port* p)
 }
 
 #ifdef CONFIG_ETRAX_KGDB
+/* Use polling to get a single character from the kernel debug port */
 int
 getDebugChar(void)
 {
@@ -170,13 +171,14 @@ getDebugChar(void)
 		stat = REG_RD(ser, kgdb_port->instance, rs_stat_din);
 	} while (!stat.dav);
 
-	
+	/* Ack the data_avail interrupt. */
 	ack_intr.dav = 1;
 	REG_WR(ser, kgdb_port->instance, rw_ack_intr, ack_intr);
 
 	return stat.data;
 }
 
+/* Use polling to put a single character to the kernel debug port */
 void
 putDebugChar(int val)
 {
@@ -186,8 +188,9 @@ putDebugChar(int val)
 	} while (!stat.tr_rdy);
 	REG_WR_INT(ser, kgdb_port->instance, rw_dout, val);
 }
-#endif 
+#endif /* CONFIG_ETRAX_KGDB */
 
+/* Register console for printk's, etc. */
 int __init
 init_etrax_debug(void)
 {
@@ -195,6 +198,6 @@ init_etrax_debug(void)
 
 #ifdef CONFIG_ETRAX_KGDB
 	start_port(kgdb_port);
-#endif 
+#endif /* CONFIG_ETRAX_KGDB */
 	return 0;
 }

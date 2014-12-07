@@ -14,6 +14,7 @@
 #include "io.h"
 #include "ops.h"
 
+/* Programmable Serial Controller (PSC) status register bits */
 #define MPC52xx_PSC_SR		0x04
 #define MPC52xx_PSC_SR_RXRDY		0x0100
 #define MPC52xx_PSC_SR_RXFULL		0x0200
@@ -26,6 +27,8 @@ static void *psc;
 
 static int psc_open(void)
 {
+	/* Assume the firmware has already configured the PSC into
+	 * uart mode */
 	return 0;
 }
 
@@ -48,7 +51,7 @@ static unsigned char psc_getc(void)
 
 int mpc5200_psc_console_init(void *devp, struct serial_console_data *scdp)
 {
-	
+	/* Get the base address of the psc registers */
 	if (dt_get_virtual_reg(devp, &psc, 1) < 1)
 		return -1;
 

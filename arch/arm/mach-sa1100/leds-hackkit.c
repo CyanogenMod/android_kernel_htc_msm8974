@@ -1,3 +1,14 @@
+/*
+ * linux/arch/arm/mach-sa1100/leds-hackkit.c
+ *
+ * based on leds-lart.c
+ *
+ * (C) Erik Mouw (J.A.K.Mouw@its.tudelft.nl), April 21, 2000
+ * (C) Stefan Eletzhofer <stefan.eletzhofer@eletztrick.de>, 2002
+ *
+ * The HackKit has two leds (GPIO 22/23). The red led (gpio 22) is used
+ * as cpu led, the green one is used as timer led.
+ */
 #include <linux/init.h>
 
 #include <mach/hardware.h>
@@ -24,7 +35,7 @@ void hackkit_leds_event(led_event_t evt)
 
 	switch(evt) {
 		case led_start:
-			
+			/* pin 22/23 are outputs */
 			GPDR |= LED_MASK;
 			hw_led_state = LED_MASK;
 			led_state = LED_STATE_ENABLED;
@@ -53,12 +64,14 @@ void hackkit_leds_event(led_event_t evt)
 
 #ifdef CONFIG_LEDS_CPU
 		case led_idle_start:
+			/* The LART people like the LED to be off when the
+			   system is idle... */
 			if (!(led_state & LED_STATE_CLAIMED))
 				hw_led_state &= ~LED_RED;
 			break;
 
 		case led_idle_end:
-			
+			/* ... and on if the system is not idle */
 			if (!(led_state & LED_STATE_CLAIMED))
 				hw_led_state |= LED_RED;
 			break;
@@ -88,7 +101,7 @@ void hackkit_leds_event(led_event_t evt)
 			break;
 	}
 
-	
+	/* Now set the GPIO state, or nothing will happen at all */
 	if (led_state & LED_STATE_ENABLED) {
 		GPSR = hw_led_state;
 		GPCR = hw_led_state ^ LED_MASK;

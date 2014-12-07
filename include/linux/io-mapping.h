@@ -24,6 +24,12 @@
 #include <asm/io.h>
 #include <asm/page.h>
 
+/*
+ * The io_mapping mechanism provides an abstraction for mapping
+ * individual pages from an io device to the CPU in an efficient fashion.
+ *
+ * See Documentation/io-mapping.txt
+ */
 
 #ifdef CONFIG_HAVE_ATOMIC_IOMAP
 
@@ -35,6 +41,12 @@ struct io_mapping {
 	pgprot_t prot;
 };
 
+/*
+ * For small address space machines, mapping large objects
+ * into the kernel virtual space isn't practical. Where
+ * available, use fixmap support to dynamically map pages
+ * of the object at run time.
+ */
 
 static inline struct io_mapping *
 io_mapping_create_wc(resource_size_t base, unsigned long size)
@@ -67,6 +79,7 @@ io_mapping_free(struct io_mapping *mapping)
 	kfree(mapping);
 }
 
+/* Atomic map/unmap */
 static inline void __iomem *
 io_mapping_map_atomic_wc(struct io_mapping *mapping,
 			 unsigned long offset)
@@ -107,8 +120,10 @@ io_mapping_unmap(void __iomem *vaddr)
 
 #include <linux/uaccess.h>
 
+/* this struct isn't actually defined anywhere */
 struct io_mapping;
 
+/* Create the io_mapping object*/
 static inline struct io_mapping *
 io_mapping_create_wc(resource_size_t base, unsigned long size)
 {
@@ -121,6 +136,7 @@ io_mapping_free(struct io_mapping *mapping)
 	iounmap((void __force __iomem *) mapping);
 }
 
+/* Atomic map/unmap */
 static inline void __iomem *
 io_mapping_map_atomic_wc(struct io_mapping *mapping,
 			 unsigned long offset)
@@ -135,6 +151,7 @@ io_mapping_unmap_atomic(void __iomem *vaddr)
 	pagefault_enable();
 }
 
+/* Non-atomic map/unmap */
 static inline void __iomem *
 io_mapping_map_wc(struct io_mapping *mapping, unsigned long offset)
 {
@@ -146,6 +163,6 @@ io_mapping_unmap(void __iomem *vaddr)
 {
 }
 
-#endif 
+#endif /* HAVE_ATOMIC_IOMAP */
 
-#endif 
+#endif /* _LINUX_IO_MAPPING_H */

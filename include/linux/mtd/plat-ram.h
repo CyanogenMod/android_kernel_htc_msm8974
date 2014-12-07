@@ -26,9 +26,9 @@ struct platdata_mtd_ram {
 	int			 nr_partitions;
 	int			 bankwidth;
 
-	
+	/* control callbacks */
 
 	void	(*set_rw)(struct device *dev, int to);
 };
 
-#endif 
+#endif /* __LINUX_MTD_PLATRAM_H */

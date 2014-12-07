@@ -179,6 +179,9 @@ arch_initcall(realview_i2c_init);
 
 #define REALVIEW_SYSMCI	(__io_address(REALVIEW_SYS_BASE) + REALVIEW_SYS_MCI_OFFSET)
 
+/*
+ * This is only used if GPIOLIB support is disabled
+ */
 static unsigned int realview_mmc_status(struct device *dev)
 {
 	struct amba_device *adev = container_of(dev, struct amba_device, dev);
@@ -187,6 +190,14 @@ static unsigned int realview_mmc_status(struct device *dev)
 	if (machine_is_realview_pb1176()) {
 		static bool inserted = false;
 
+		/*
+		 * The PB1176 does not have the status register,
+		 * assume it is inserted at startup, then invert
+		 * for each call so card insertion/removal will
+		 * be detected anyway. This will not be called if
+		 * GPIO on PL061 is active, which is the proper
+		 * way to do this on the PB1176.
+		 */
 		inserted = !inserted;
 		return inserted ? 0 : 1;
 	}
@@ -215,6 +226,9 @@ struct mmci_platform_data realview_mmc1_plat_data = {
 	.cd_invert	= true,
 };
 
+/*
+ * Clock handling
+ */
 static const struct icst_params realview_oscvco_params = {
 	.ref		= 24000000,
 	.vco_max	= ICST307_VCO_MAX,
@@ -251,6 +265,9 @@ static struct clk oscvco_clk = {
 	.params	= &realview_oscvco_params,
 };
 
+/*
+ * These are fixed clocks.
+ */
 static struct clk ref24_clk = {
 	.rate	= 24000000,
 };
@@ -262,46 +279,46 @@ static struct clk sp804_clk = {
 static struct clk dummy_apb_pclk;
 
 static struct clk_lookup lookups[] = {
-	{	
+	{	/* Bus clock */
 		.con_id		= "apb_pclk",
 		.clk		= &dummy_apb_pclk,
-	}, {	
+	}, {	/* UART0 */
 		.dev_id		= "dev:uart0",
 		.clk		= &ref24_clk,
-	}, {	
+	}, {	/* UART1 */
 		.dev_id		= "dev:uart1",
 		.clk		= &ref24_clk,
-	}, {	
+	}, {	/* UART2 */
 		.dev_id		= "dev:uart2",
 		.clk		= &ref24_clk,
-	}, {	
+	}, {	/* UART3 */
 		.dev_id		= "fpga:uart3",
 		.clk		= &ref24_clk,
-	}, {	
+	}, {	/* UART3 is on the dev chip in PB1176 */
 		.dev_id		= "dev:uart3",
 		.clk		= &ref24_clk,
-	}, {	
+	}, {	/* UART4 only exists in PB1176 */
 		.dev_id		= "fpga:uart4",
 		.clk		= &ref24_clk,
-	}, {	
+	}, {	/* KMI0 */
 		.dev_id		= "fpga:kmi0",
 		.clk		= &ref24_clk,
-	}, {	
+	}, {	/* KMI1 */
 		.dev_id		= "fpga:kmi1",
 		.clk		= &ref24_clk,
-	}, {	
+	}, {	/* MMC0 */
 		.dev_id		= "fpga:mmc0",
 		.clk		= &ref24_clk,
-	}, {	
+	}, {	/* CLCD is in the PB1176 and EB DevChip */
 		.dev_id		= "dev:clcd",
 		.clk		= &oscvco_clk,
-	}, {	
+	}, {	/* PB:CLCD */
 		.dev_id		= "issp:clcd",
 		.clk		= &oscvco_clk,
-	}, {	
+	}, {	/* SSP */
 		.dev_id		= "dev:ssp0",
 		.clk		= &ref24_clk,
-	}, {	
+	}, {	/* SP804 timers */
 		.dev_id		= "sp804",
 		.clk		= &sp804_clk,
 	},
@@ -321,6 +338,9 @@ void __init realview_init_early(void)
 	versatile_sched_clock_init(sys + REALVIEW_SYS_24MHz_OFFSET, 24000000);
 }
 
+/*
+ * CLCD support.
+ */
 #define SYS_CLCD_NLCDIOON	(1 << 2)
 #define SYS_CLCD_VDDPOSSWITCH	(1 << 3)
 #define SYS_CLCD_PWR3V5SWITCH	(1 << 4)
@@ -331,6 +351,9 @@ void __init realview_init_early(void)
 #define SYS_CLCD_ID_SANYO_2_5	(0x07 << 8)
 #define SYS_CLCD_ID_VGA		(0x1f << 8)
 
+/*
+ * Disable all display connectors on the interface module.
+ */
 static void realview_clcd_disable(struct clcd_fb *fb)
 {
 	void __iomem *sys_clcd = __io_address(REALVIEW_SYS_BASE) + REALVIEW_SYS_CLCD_OFFSET;
@@ -341,16 +364,28 @@ static void realview_clcd_disable(struct clcd_fb *fb)
 	writel(val, sys_clcd);
 }
 
+/*
+ * Enable the relevant connector on the interface module.
+ */
 static void realview_clcd_enable(struct clcd_fb *fb)
 {
 	void __iomem *sys_clcd = __io_address(REALVIEW_SYS_BASE) + REALVIEW_SYS_CLCD_OFFSET;
 	u32 val;
 
+	/*
+	 * Enable the PSUs
+	 */
 	val = readl(sys_clcd);
 	val |= SYS_CLCD_NLCDIOON | SYS_CLCD_PWR3V5SWITCH;
 	writel(val, sys_clcd);
 }
 
+/*
+ * Detect which LCD panel is connected, and return the appropriate
+ * clcd_panel structure.  Note: we do not have any information on
+ * the required timings for the 8.4in panel, so we presently assume
+ * VGA timings.
+ */
 static int realview_clcd_setup(struct clcd_fb *fb)
 {
 	void __iomem *sys_clcd = __io_address(REALVIEW_SYS_BASE) + REALVIEW_SYS_CLCD_OFFSET;
@@ -359,11 +394,11 @@ static int realview_clcd_setup(struct clcd_fb *fb)
 	u32 val;
 
 	if (machine_is_realview_eb()) {
-		
+		/* VGA, 16bpp */
 		framesize = 640 * 480 * 2;
 		vga_panel_name = "VGA";
 	} else {
-		
+		/* XVGA, 16bpp */
 		framesize = 1024 * 768 * 2;
 		vga_panel_name = "XVGA";
 	}
@@ -437,17 +472,28 @@ void realview_leds_event(led_event_t ledevt)
 	writel(val, VA_LEDS_BASE);
 	local_irq_restore(flags);
 }
-#endif	
+#endif	/* CONFIG_LEDS */
 
+/*
+ * Where is the timer (VA)?
+ */
 void __iomem *timer0_va_base;
 void __iomem *timer1_va_base;
 void __iomem *timer2_va_base;
 void __iomem *timer3_va_base;
 
+/*
+ * Set up the clock source and clock events devices
+ */
 void __init realview_timer_init(unsigned int timer_irq)
 {
 	u32 val;
 
+	/* 
+	 * set clock frequency: 
+	 *	REALVIEW_REFCLK is 32KHz
+	 *	REALVIEW_TIMCLK is 1MHz
+	 */
 	val = readl(__io_address(REALVIEW_SCTL_BASE));
 	writel((REALVIEW_TIMCLK << REALVIEW_TIMER1_EnSel) |
 	       (REALVIEW_TIMCLK << REALVIEW_TIMER2_EnSel) | 
@@ -455,6 +501,9 @@ void __init realview_timer_init(unsigned int timer_irq)
 	       (REALVIEW_TIMCLK << REALVIEW_TIMER4_EnSel) | val,
 	       __io_address(REALVIEW_SCTL_BASE));
 
+	/*
+	 * Initialise to a known state (all timers off)
+	 */
 	writel(0, timer0_va_base + TIMER_CTRL);
 	writel(0, timer1_va_base + TIMER_CTRL);
 	writel(0, timer2_va_base + TIMER_CTRL);
@@ -464,8 +513,15 @@ void __init realview_timer_init(unsigned int timer_irq)
 	sp804_clockevents_init(timer0_va_base, timer_irq, "timer0");
 }
 
+/*
+ * Setup the memory banks.
+ */
 void realview_fixup(struct tag *tags, char **from, struct meminfo *meminfo)
 {
+	/*
+	 * Most RealView platforms have 512MB contiguous RAM at 0x70000000.
+	 * Half of this is mirrored at 0.
+	 */
 #ifdef CONFIG_REALVIEW_HIGH_PHYS_OFFSET
 	meminfo->bank[0].start = 0x70000000;
 	meminfo->bank[0].size = SZ_512M;

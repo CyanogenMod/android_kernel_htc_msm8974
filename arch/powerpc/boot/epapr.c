@@ -55,7 +55,7 @@ void platform_init(unsigned long r3, unsigned long r4, unsigned long r5,
 	ima_size = r7;
 	fdt_addr = r3;
 
-	
+	/* FIXME: we should process reserve entries */
 
 	simple_alloc_init(_end, ima_size - (unsigned long)_end, 32, 64);
 

@@ -36,17 +36,17 @@
 #define STMP378X_DEVB_PAD_AUART (MXS_PAD_4MA | MXS_PAD_1V8 | MXS_PAD_NOPULL)
 
 static const iomux_cfg_t stmp378x_dvb_pads[] __initconst = {
-	
+	/* duart (extended setup missing in old boardcode, too */
 	MX23_PAD_PWM0__DUART_RX,
 	MX23_PAD_PWM1__DUART_TX,
 
-	
+	/* auart */
 	MX23_PAD_AUART1_RX__AUART1_RX | STMP378X_DEVB_PAD_AUART,
 	MX23_PAD_AUART1_TX__AUART1_TX | STMP378X_DEVB_PAD_AUART,
 	MX23_PAD_AUART1_CTS__AUART1_CTS | STMP378X_DEVB_PAD_AUART,
 	MX23_PAD_AUART1_RTS__AUART1_RTS | STMP378X_DEVB_PAD_AUART,
 
-	
+	/* mmc */
 	MX23_PAD_SSP1_DATA0__SSP1_DATA0 |
 		(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_PULLUP),
 	MX23_PAD_SSP1_DATA1__SSP1_DATA1 |
@@ -61,8 +61,8 @@ static const iomux_cfg_t stmp378x_dvb_pads[] __initconst = {
 		(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
 	MX23_PAD_SSP1_SCK__SSP1_SCK |
 		(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
-	MX23_PAD_PWM4__GPIO_1_30 | MXS_PAD_CTRL, 
-	MX23_PAD_PWM3__GPIO_1_29 | MXS_PAD_CTRL, 
+	MX23_PAD_PWM4__GPIO_1_30 | MXS_PAD_CTRL, /* write protect */
+	MX23_PAD_PWM3__GPIO_1_29 | MXS_PAD_CTRL, /* power enable */
 };
 
 static struct mxs_mmc_platform_data stmp378x_dvb_mmc_pdata __initdata = {
@@ -92,7 +92,7 @@ static void __init stmp378x_dvb_init(void)
 	mx23_add_auart0();
 	mx23_add_rtc_stmp3xxx();
 
-	
+	/* power on mmc slot */
 	ret = gpio_request_one(STMP378X_DEVB_MMC0_SLOT_POWER,
 		GPIOF_OUT_INIT_LOW, "mmc0-slot-power");
 	if (ret)

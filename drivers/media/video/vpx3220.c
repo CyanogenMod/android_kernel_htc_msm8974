@@ -41,6 +41,7 @@ MODULE_PARM_DESC(debug, "Debug level (0-1)");
 
 #define VPX_TIMEOUT_COUNT  10
 
+/* ----------------------------------------------------------------------- */
 
 struct vpx3220 {
 	struct v4l2_subdev sd;
@@ -65,6 +66,7 @@ static inline struct v4l2_subdev *to_sd(struct v4l2_ctrl *ctrl)
 
 static char *inputs[] = { "internal", "composite", "svideo" };
 
+/* ----------------------------------------------------------------------- */
 
 static inline int vpx3220_write(struct v4l2_subdev *sd, u8 reg, u8 value)
 {
@@ -106,7 +108,7 @@ static int vpx3220_fp_write(struct v4l2_subdev *sd, u8 fpaddr, u16 data)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 
-	
+	/* Write the 16-bit address to the FPWR register */
 	if (i2c_smbus_write_word_data(client, 0x27, swab16(fpaddr)) == -1) {
 		v4l2_dbg(1, debug, sd, "%s: failed\n", __func__);
 		return -1;
@@ -115,7 +117,7 @@ static int vpx3220_fp_write(struct v4l2_subdev *sd, u8 fpaddr, u16 data)
 	if (vpx3220_fp_status(sd) < 0)
 		return -1;
 
-	
+	/* Write the 16-bit data to the FPDAT register */
 	if (i2c_smbus_write_word_data(client, 0x28, swab16(data)) == -1) {
 		v4l2_dbg(1, debug, sd, "%s: failed\n", __func__);
 		return -1;
@@ -129,7 +131,7 @@ static u16 vpx3220_fp_read(struct v4l2_subdev *sd, u16 fpaddr)
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	s16 data;
 
-	
+	/* Write the 16-bit address to the FPRD register */
 	if (i2c_smbus_write_word_data(client, 0x26, swab16(fpaddr)) == -1) {
 		v4l2_dbg(1, debug, sd, "%s: failed\n", __func__);
 		return -1;
@@ -138,7 +140,7 @@ static u16 vpx3220_fp_read(struct v4l2_subdev *sd, u16 fpaddr)
 	if (vpx3220_fp_status(sd) < 0)
 		return -1;
 
-	
+	/* Read the 16-bit data from the FPDAT register */
 	data = i2c_smbus_read_word_data(client, 0x28);
 	if (data == -1) {
 		v4l2_dbg(1, debug, sd, "%s: failed\n", __func__);
@@ -179,71 +181,91 @@ static int vpx3220_write_fp_block(struct v4l2_subdev *sd,
 	return ret;
 }
 
+/* ---------------------------------------------------------------------- */
 
 static const unsigned short init_ntsc[] = {
-	0x1c, 0x00,		
-	0x88, 17,		
-	0x89, 240,		
-	0x8a, 240,		
-	0x8b, 000,		
-	0x8c, 640,		
-	0x8d, 640,		
-	0x8f, 0xc00,		
-	0xf0, 0x73,		
-	0xf2, 0x13,		
-	0xe7, 0x1e1,		
+	0x1c, 0x00,		/* NTSC tint angle */
+	0x88, 17,		/* Window 1 vertical */
+	0x89, 240,		/* Vertical lines in */
+	0x8a, 240,		/* Vertical lines out */
+	0x8b, 000,		/* Horizontal begin */
+	0x8c, 640,		/* Horizontal length */
+	0x8d, 640,		/* Number of pixels */
+	0x8f, 0xc00,		/* Disable window 2 */
+	0xf0, 0x73,		/* 13.5 MHz transport, Forced
+				 * mode, latch windows */
+	0xf2, 0x13,		/* NTSC M, composite input */
+	0xe7, 0x1e1,		/* Enable vertical standard
+				 * locking @ 240 lines */
 };
 
 static const unsigned short init_pal[] = {
-	0x88, 23,		
-	0x89, 288,		
-	0x8a, 288,		
-	0x8b, 16,		
-	0x8c, 768,		
-	0x8d, 784, 		
-	0x8f, 0xc00,		
-	0xf0, 0x77,		
-	0xf2, 0x3d1,		
-	0xe7, 0x241,		
+	0x88, 23,		/* Window 1 vertical begin */
+	0x89, 288,		/* Vertical lines in (16 lines
+				 * skipped by the VFE) */
+	0x8a, 288,		/* Vertical lines out (16 lines
+				 * skipped by the VFE) */
+	0x8b, 16,		/* Horizontal begin */
+	0x8c, 768,		/* Horizontal length */
+	0x8d, 784, 		/* Number of pixels
+				 * Must be >= Horizontal begin + Horizontal length */
+	0x8f, 0xc00,		/* Disable window 2 */
+	0xf0, 0x77,		/* 13.5 MHz transport, Forced
+				 * mode, latch windows */
+	0xf2, 0x3d1,		/* PAL B,G,H,I, composite input */
+	0xe7, 0x241,		/* PAL/SECAM set to 288 lines */
 };
 
 static const unsigned short init_secam[] = {
-	0x88, 23,		
-	0x89, 288,		
-	0x8a, 288,		
-	0x8b, 16,		
-	0x8c, 768,		
-	0x8d, 784,		
-	0x8f, 0xc00,		
-	0xf0, 0x77,		
-	0xf2, 0x3d5,		
-	0xe7, 0x241,		
+	0x88, 23,		/* Window 1 vertical begin */
+	0x89, 288,		/* Vertical lines in (16 lines
+				 * skipped by the VFE) */
+	0x8a, 288,		/* Vertical lines out (16 lines
+				 * skipped by the VFE) */
+	0x8b, 16,		/* Horizontal begin */
+	0x8c, 768,		/* Horizontal length */
+	0x8d, 784,		/* Number of pixels
+				 * Must be >= Horizontal begin + Horizontal length */
+	0x8f, 0xc00,		/* Disable window 2 */
+	0xf0, 0x77,		/* 13.5 MHz transport, Forced
+				 * mode, latch windows */
+	0xf2, 0x3d5,		/* SECAM, composite input */
+	0xe7, 0x241,		/* PAL/SECAM set to 288 lines */
 };
 
 static const unsigned char init_common[] = {
-	0xf2, 0x00,		
-	0x33, 0x0d,		
-	0xd8, 0xa8,		
-	0x20, 0x03,		
-	0xe0, 0xff,		
+	0xf2, 0x00,		/* Disable all outputs */
+	0x33, 0x0d,		/* Luma : VIN2, Chroma : CIN
+				 * (clamp off) */
+	0xd8, 0xa8,		/* HREF/VREF active high, VREF
+				 * pulse = 2, Odd/Even flag */
+	0x20, 0x03,		/* IF compensation 0dB/oct */
+	0xe0, 0xff,		/* Open up all comparators */
 	0xe1, 0x00,
 	0xe2, 0x7f,
 	0xe3, 0x80,
 	0xe4, 0x7f,
 	0xe5, 0x80,
-	0xe6, 0x00,		
-	0xe7, 0xe0,		
-	0xe8, 0xf8,		
-	0xea, 0x18,		
-	0xf0, 0x8a,		
-	0xf1, 0x18,		
-	0xf8, 0x12,		
-	0xf9, 0x24,		
+	0xe6, 0x00,		/* Brightness set to 0 */
+	0xe7, 0xe0,		/* Contrast to 1.0, noise shaping
+				 * 10 to 8 2-bit error diffusion */
+	0xe8, 0xf8,		/* YUV422, CbCr binary offset,
+				 * ... (p.32) */
+	0xea, 0x18,		/* LLC2 connected, output FIFO
+				 * reset with VACTintern */
+	0xf0, 0x8a,		/* Half full level to 10, bus
+				 * shuffler [7:0, 23:16, 15:8] */
+	0xf1, 0x18,		/* Single clock, sync mode, no
+				 * FE delay, no HLEN counter */
+	0xf8, 0x12,		/* Port A, PIXCLK, HF# & FE#
+				 * strength to 2 */
+	0xf9, 0x24,		/* Port B, HREF, VREF, PREF &
+				 * ALPHA strength to 4 */
 };
 
 static const unsigned short init_fp[] = {
 	0x59, 0,
-	0xa0, 2070,		
+	0xa0, 2070,		/* ACC reference */
 	0xa3, 0,
 	0xa4, 0,
 	0xa8, 30,
@@ -251,7 +273,7 @@ static const unsigned short init_fp[] = {
 	0xbe, 27,
 	0x58, 0,
 	0x26, 0,
-	0x4b, 0x298,		
+	0x4b, 0x298,		/* PLL gain */
 };
 
 
@@ -351,7 +373,7 @@ static int vpx3220_s_std(struct v4l2_subdev *sd, v4l2_std_id std)
 
 	decoder->norm = std;
 
-	
+	/* And here we set the backed up video input again */
 	vpx3220_fp_write(sd, 0xf2, temp_input | 0x0010);
 	udelay(10);
 	return 0;
@@ -362,6 +384,9 @@ static int vpx3220_s_routing(struct v4l2_subdev *sd,
 {
 	int data;
 
+	/* RJ:   input = 0: ST8 (PCTV) input
+		 input = 1: COMPOSITE  input
+		 input = 2: SVHS       input  */
 
 	const int input_vals[3][2] = {
 		{0x0c, 0},
@@ -379,7 +404,7 @@ static int vpx3220_s_routing(struct v4l2_subdev *sd,
 	data = vpx3220_fp_read(sd, 0xf2) & ~(0x0020);
 	if (data < 0)
 		return data;
-	
+	/* 0x0010 is required to latch the setting */
 	vpx3220_fp_write(sd, 0xf2,
 			data | (input_vals[input][1] << 5) | 0x0010);
 
@@ -404,7 +429,7 @@ static int vpx3220_s_ctrl(struct v4l2_ctrl *ctrl)
 		vpx3220_write(sd, 0xe6, ctrl->val);
 		return 0;
 	case V4L2_CID_CONTRAST:
-		
+		/* Bit 7 and 8 is for noise shaping */
 		vpx3220_write(sd, 0xe7, ctrl->val + 192);
 		return 0;
 	case V4L2_CID_SATURATION:
@@ -425,6 +450,7 @@ static int vpx3220_g_chip_ident(struct v4l2_subdev *sd, struct v4l2_dbg_chip_ide
 	return v4l2_chip_ident_i2c_client(client, chip, decoder->ident, 0);
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct v4l2_ctrl_ops vpx3220_ctrl_ops = {
 	.s_ctrl = vpx3220_s_ctrl,
@@ -455,6 +481,9 @@ static const struct v4l2_subdev_ops vpx3220_ops = {
 	.video = &vpx3220_video_ops,
 };
 
+/* -----------------------------------------------------------------------
+ * Client management code
+ */
 
 static int vpx3220_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
@@ -465,7 +494,7 @@ static int vpx3220_probe(struct i2c_client *client,
 	u8 ver;
 	u16 pn;
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter,
 		I2C_FUNC_SMBUS_BYTE_DATA | I2C_FUNC_SMBUS_WORD_DATA))
 		return -ENODEV;
@@ -525,7 +554,7 @@ static int vpx3220_probe(struct i2c_client *client,
 
 	vpx3220_write_block(sd, init_common, sizeof(init_common));
 	vpx3220_write_fp_block(sd, init_fp, sizeof(init_fp) >> 1);
-	
+	/* Default to PAL */
 	vpx3220_write_fp_block(sd, init_pal, sizeof(init_pal) >> 1);
 	return 0;
 }

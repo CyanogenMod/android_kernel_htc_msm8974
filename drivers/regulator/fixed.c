@@ -43,6 +43,14 @@ struct fixed_voltage_data {
 };
 
 
+/**
+ * of_get_fixed_voltage_config - extract fixed_voltage_config structure info
+ * @dev: device requesting for fixed_voltage_config
+ *
+ * Populates fixed_voltage_config structure by extracting data from device
+ * tree node, returns a pointer to the populated structure of NULL if memory
+ * alloc fails.
+ */
 static struct fixed_voltage_config *
 of_get_fixed_voltage_config(struct device *dev)
 {
@@ -76,6 +84,16 @@ of_get_fixed_voltage_config(struct device *dev)
 		config->enabled_at_boot = true;
 
 	config->gpio = of_get_named_gpio(np, "gpio", 0);
+	/*
+	 * of_get_named_gpio() currently returns ENODEV rather than
+	 * EPROBE_DEFER. This code attempts to be compatible with both
+	 * for now; the ENODEV check can be removed once the API is fixed.
+	 * of_get_named_gpio() doesn't differentiate between a missing
+	 * property (which would be fine here, since the GPIO is optional)
+	 * and some other error. Patches have been posted for both issues.
+	 * Once they are check in, we should replace this with:
+	 * if (config->gpio < 0 && config->gpio != -ENOENT)
+	 */
 	if ((config->gpio == -ENODEV) || (config->gpio == -EPROBE_DEFER))
 		return ERR_PTR(-EPROBE_DEFER);
 
@@ -204,6 +222,17 @@ static int __devinit reg_fixed_voltage_probe(struct platform_device *pdev)
 	if (gpio_is_valid(config->gpio)) {
 		drvdata->enable_high = config->enable_high;
 
+		/* FIXME: Remove below print warning
+		 *
+		 * config->gpio must be set to -EINVAL by platform code if
+		 * GPIO control is not required. However, early adopters
+		 * not requiring GPIO control may forget to initialize
+		 * config->gpio to -EINVAL. This will cause GPIO 0 to be used
+		 * for GPIO control.
+		 *
+		 * This warning will be removed once there are a couple of users
+		 * for this driver.
+		 */
 		if (!config->gpio)
 			dev_warn(&pdev->dev,
 				"using GPIO 0 for regulator enable control\n");
@@ -216,6 +245,9 @@ static int __devinit reg_fixed_voltage_probe(struct platform_device *pdev)
 			goto err_name;
 		}
 
+		/* set output direction without changing state
+		 * to prevent glitch
+		 */
 		drvdata->is_enabled = config->enabled_at_boot;
 		ret = drvdata->is_enabled ?
 				config->enable_high : !config->enable_high;
@@ -229,6 +261,9 @@ static int __devinit reg_fixed_voltage_probe(struct platform_device *pdev)
 		}
 
 	} else {
+		/* Regulator without GPIO control is considered
+		 * always enabled
+		 */
 		drvdata->is_enabled = true;
 	}
 

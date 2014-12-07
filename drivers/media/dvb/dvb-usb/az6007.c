@@ -28,6 +28,7 @@
 #define DVB_USB_LOG_PREFIX "az6007"
 #include "dvb-usb.h"
 
+/* debug */
 int dvb_usb_az6007_debug;
 module_param_named(debug, dvb_usb_az6007_debug, int, 0644);
 MODULE_PARM_DESC(debug, "set debugging level (1=info,xfer=2,rc=4 (or-able))."
@@ -40,6 +41,7 @@ MODULE_PARM_DESC(debug, "set debugging level (1=info,xfer=2,rc=4 (or-able))."
 
 DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 
+/* Known requests (Cypress FX2 firmware + az6007 "private" ones*/
 
 #define FX2_OED			0xb5
 #define AZ6007_READ_DATA	0xb7
@@ -191,6 +193,7 @@ static int az6007_streaming_ctrl(struct dvb_usb_adapter *adap, int onoff)
 	return az6007_write(d, 0xbc, onoff, 0, NULL, 0);
 }
 
+/* remote control stuff (does not work with my box) */
 static int az6007_rc_query(struct dvb_usb_device *d)
 {
 	struct az6007_device_state *st = d->priv;
@@ -568,8 +571,8 @@ static int az6007_ci_init(struct dvb_usb_adapter *a)
 
 	ret = dvb_ca_en50221_init(&a->dvb_adap,
 				  &state->ca,
-				  0, 
-				  1);
+				  0, /* flags */
+				  1);/* n_slots */
 	if (ret != 0) {
 		err("Cannot initialize CI: Error %d.", ret);
 		memset(&state->ca, 0, sizeof(state->ca));
@@ -621,7 +624,7 @@ static int az6007_tuner_attach(struct dvb_usb_adapter *adap)
 {
 	deb_info("attaching tuner mt2063");
 
-	
+	/* Attach mt2063 to DVB-C frontend */
 	if (adap->fe_adap[0].fe->ops.i2c_gate_ctrl)
 		adap->fe_adap[0].fe->ops.i2c_gate_ctrl(adap->fe_adap[0].fe, 1);
 	if (!dvb_attach(mt2063_attach, adap->fe_adap[0].fe,
@@ -688,6 +691,7 @@ int az6007_power_ctrl(struct dvb_usb_device *d, int onoff)
 	return 0;
 }
 
+/* I2C */
 static int az6007_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 			   int num)
 {
@@ -710,6 +714,11 @@ static int az6007_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 		    && (!msgs[i].flags & I2C_M_RD)
 		    && (msgs[i + 1].flags & I2C_M_RD)
 		    && (msgs[i].addr == msgs[i + 1].addr)) {
+			/*
+			 * A write + read xfer for the same address, where
+			 * the first xfer has just 1 byte length.
+			 * Need to join both into one operation
+			 */
 			if (dvb_usb_az6007_debug & 2)
 				printk(KERN_DEBUG
 				       "az6007 I2C xfer write+read addr=0x%x len=%d/%d: ",
@@ -733,7 +742,7 @@ static int az6007_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 				ret = -EIO;
 			i++;
 		} else if (!(msgs[i].flags & I2C_M_RD)) {
-			
+			/* write bytes */
 			if (dvb_usb_az6007_debug & 2)
 				printk(KERN_DEBUG
 				       "az6007 I2C xfer write addr=0x%x len=%d: ",
@@ -754,7 +763,7 @@ static int az6007_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 			ret =  __az6007_write(d->udev, req, value, index,
 					      st->data, length);
 		} else {
-			
+			/* read bytes */
 			if (dvb_usb_az6007_debug & 2)
 				printk(KERN_DEBUG
 				       "az6007 I2C xfer read addr=0x%x len=%d: ",
@@ -809,7 +818,7 @@ int az6007_identify_state(struct usb_device *udev,
 	if (!mac)
 		return -ENOMEM;
 
-	
+	/* Try to read the mac address */
 	ret = __az6007_read(udev, AZ6007_READ_DATA, 6, 0, mac, 6);
 	if (ret == 6)
 		*cold = 0;
@@ -869,7 +878,7 @@ static struct dvb_usb_device_properties az6007_properties = {
 			.tuner_attach     = az6007_tuner_attach,
 			.frontend_attach  = az6007_frontend_attach,
 
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 10,
@@ -908,6 +917,7 @@ static struct dvb_usb_device_properties az6007_properties = {
 	}
 };
 
+/* usb specific object needed to register this driver with the usb subsystem */
 static struct usb_driver az6007_usb_driver = {
 	.name		= "dvb_usb_az6007",
 	.probe		= az6007_usb_probe,
@@ -915,6 +925,7 @@ static struct usb_driver az6007_usb_driver = {
 	.id_table	= az6007_usb_table,
 };
 
+/* module stuff */
 static int __init az6007_usb_module_init(void)
 {
 	int result;
@@ -931,7 +942,7 @@ static int __init az6007_usb_module_init(void)
 
 static void __exit az6007_usb_module_exit(void)
 {
-	
+	/* deregister this driver from the USB subsystem */
 	deb_info("az6007 usb module exit\n");
 	usb_deregister(&az6007_usb_driver);
 }

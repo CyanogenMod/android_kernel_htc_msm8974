@@ -30,6 +30,7 @@
 #include <asm/cell-pmu.h>
 
 
+/* BOOKMARK tag macros */
 #define PS3_PM_BOOKMARK_START                    0x8000000000000000ULL
 #define PS3_PM_BOOKMARK_STOP                     0x4000000000000000ULL
 #define PS3_PM_BOOKMARK_TAG_KERNEL               0x1000000000000000ULL
@@ -37,12 +38,14 @@
 #define PS3_PM_BOOKMARK_TAG_MASK_HI              0xF000000000000000ULL
 #define PS3_PM_BOOKMARK_TAG_MASK_LO              0x0F00000000000000ULL
 
+/* CBE PM CONTROL register macros */
 #define PS3_PM_CONTROL_PPU_TH0_BOOKMARK          0x00001000
 #define PS3_PM_CONTROL_PPU_TH1_BOOKMARK          0x00000800
 #define PS3_PM_CONTROL_PPU_COUNT_MODE_MASK       0x000C0000
 #define PS3_PM_CONTROL_PPU_COUNT_MODE_PROBLEM    0x00080000
 #define PS3_WRITE_PM_MASK                        0xFFFFFFFFFFFFFFFFULL
 
+/* CBE PM START STOP register macros */
 #define PS3_PM_START_STOP_PPU_TH0_BOOKMARK_START 0x02000000
 #define PS3_PM_START_STOP_PPU_TH1_BOOKMARK_START 0x01000000
 #define PS3_PM_START_STOP_PPU_TH0_BOOKMARK_STOP  0x00020000
@@ -50,9 +53,11 @@
 #define PS3_PM_START_STOP_START_MASK             0xFF000000
 #define PS3_PM_START_STOP_STOP_MASK              0x00FF0000
 
+/* CBE PM COUNTER register macres */
 #define PS3_PM_COUNTER_MASK_HI                   0xFFFFFFFF00000000ULL
 #define PS3_PM_COUNTER_MASK_LO                   0x00000000FFFFFFFFULL
 
+/* BASE SIGNAL GROUP NUMBER macros */
 #define PM_ISLAND2_BASE_SIGNAL_GROUP_NUMBER  0
 #define PM_ISLAND2_SIGNAL_GROUP_NUMBER1      6
 #define PM_ISLAND2_SIGNAL_GROUP_NUMBER2      7
@@ -69,6 +74,21 @@
 #define PM_SIG_GROUP_SPU_EVENT               43
 #define PM_SIG_GROUP_MFC_MAX                 60
 
+/**
+ * struct ps3_lpm_shadow_regs - Performance monitor shadow registers.
+ *
+ * @pm_control: Shadow of the processor's pm_control register.
+ * @pm_start_stop: Shadow of the processor's pm_start_stop register.
+ * @group_control: Shadow of the processor's group_control register.
+ * @debug_bus_control: Shadow of the processor's debug_bus_control register.
+ *
+ * The logical performance monitor provides a write-only interface to
+ * these processor registers.  These shadow variables cache the processor
+ * register values for reading.
+ *
+ * The initial value of the shadow registers at lpm creation is
+ * PS3_LPM_SHADOW_REG_INIT.
+ */
 
 struct ps3_lpm_shadow_regs {
 	u64 pm_control;
@@ -79,6 +99,32 @@ struct ps3_lpm_shadow_regs {
 
 #define PS3_LPM_SHADOW_REG_INIT 0xFFFFFFFF00000000ULL
 
+/**
+ * struct ps3_lpm_priv - Private lpm device data.
+ *
+ * @open: An atomic variable indicating the lpm driver has been opened.
+ * @rights: The lpm rigths granted by the system policy module.  A logical
+ *  OR of enum ps3_lpm_rights.
+ * @node_id: The node id of a BE prosessor whose performance monitor this
+ *  lpar has the right to use.
+ * @pu_id: The lv1 id of the logical PU.
+ * @lpm_id: The lv1 id of this lpm instance.
+ * @outlet_id: The outlet created by lv1 for this lpm instance.
+ * @tb_count: The number of bytes of data held in the lv1 trace buffer.
+ * @tb_cache: Kernel buffer to receive the data from the lv1 trace buffer.
+ *  Must be 128 byte aligned.
+ * @tb_cache_size: Size of the kernel @tb_cache buffer.  Must be 128 byte
+ *  aligned.
+ * @tb_cache_internal: An unaligned buffer allocated by this driver to be
+ *  used for the trace buffer cache when ps3_lpm_open() is called with a
+ *  NULL tb_cache argument.  Otherwise unused.
+ * @shadow: Processor register shadow of type struct ps3_lpm_shadow_regs.
+ * @sbd: The struct ps3_system_bus_device attached to this driver.
+ *
+ * The trace buffer is a buffer allocated and used internally to the lv1
+ * hypervisor to collect trace data.  The trace buffer cache is a guest
+ * buffer that accepts the trace data from the trace buffer.
+ */
 
 struct ps3_lpm_priv {
 	atomic_t open;
@@ -99,6 +145,13 @@ enum {
 	PS3_LPM_DEFAULT_TB_CACHE_SIZE = 0x4000,
 };
 
+/**
+ * lpm_priv - Static instance of the lpm data.
+ *
+ * Since the exported routines don't support the notion of a device
+ * instance we need to hold the instance in this static variable
+ * and then only allow at most one instance at a time to be created.
+ */
 
 static struct ps3_lpm_priv *lpm_priv;
 
@@ -108,11 +161,26 @@ static struct device *sbd_core(void)
 	return &lpm_priv->sbd->core;
 }
 
+/**
+ * use_start_stop_bookmark - Enable the PPU bookmark trace.
+ *
+ * And it enables PPU bookmark triggers ONLY if the other triggers are not set.
+ * The start/stop bookmarks are inserted at ps3_enable_pm() and ps3_disable_pm()
+ * to start/stop LPM.
+ *
+ * Used to get good quality of the performance counter.
+ */
 
 enum {use_start_stop_bookmark = 1,};
 
 void ps3_set_bookmark(u64 bookmark)
 {
+	/*
+	 * As per the PPE book IV, to avoid bookmark loss there must
+	 * not be a traced branch within 10 cycles of setting the
+	 * SPRN_BKMK register.  The actual text is unclear if 'within'
+	 * includes cycles before the call.
+	 */
 
 	asm volatile("nop;nop;nop;nop;nop;nop;nop;nop;nop;");
 	mtspr(SPRN_BKMK, bookmark);
@@ -132,6 +200,12 @@ void ps3_set_pm_bookmark(u64 tag, u64 incident, u64 th_id)
 }
 EXPORT_SYMBOL_GPL(ps3_set_pm_bookmark);
 
+/**
+ * ps3_read_phys_ctr - Read physical counter registers.
+ *
+ * Each physical counter can act as one 32 bit counter or as two 16 bit
+ * counters.
+ */
 
 u32 ps3_read_phys_ctr(u32 cpu, u32 phys_ctr)
 {
@@ -170,6 +244,12 @@ u32 ps3_read_phys_ctr(u32 cpu, u32 phys_ctr)
 }
 EXPORT_SYMBOL_GPL(ps3_read_phys_ctr);
 
+/**
+ * ps3_write_phys_ctr - Write physical counter registers.
+ *
+ * Each physical counter can act as one 32 bit counter or as two 16 bit
+ * counters.
+ */
 
 void ps3_write_phys_ctr(u32 cpu, u32 phys_ctr, u32 val)
 {
@@ -225,6 +305,12 @@ void ps3_write_phys_ctr(u32 cpu, u32 phys_ctr, u32 val)
 }
 EXPORT_SYMBOL_GPL(ps3_write_phys_ctr);
 
+/**
+ * ps3_read_ctr - Read counter.
+ *
+ * Read 16 or 32 bits depending on the current size of the counter.
+ * Counters 4, 5, 6 & 7 are always 16 bit.
+ */
 
 u32 ps3_read_ctr(u32 cpu, u32 ctr)
 {
@@ -240,6 +326,12 @@ u32 ps3_read_ctr(u32 cpu, u32 ctr)
 }
 EXPORT_SYMBOL_GPL(ps3_read_ctr);
 
+/**
+ * ps3_write_ctr - Write counter.
+ *
+ * Write 16 or 32 bits depending on the current size of the counter.
+ * Counters 4, 5, 6 & 7 are always 16 bit.
+ */
 
 void ps3_write_ctr(u32 cpu, u32 ctr, u32 val)
 {
@@ -261,6 +353,11 @@ void ps3_write_ctr(u32 cpu, u32 ctr, u32 val)
 }
 EXPORT_SYMBOL_GPL(ps3_write_ctr);
 
+/**
+ * ps3_read_pm07_control - Read counter control registers.
+ *
+ * Each logical counter has a corresponding control register.
+ */
 
 u32 ps3_read_pm07_control(u32 cpu, u32 ctr)
 {
@@ -268,6 +365,11 @@ u32 ps3_read_pm07_control(u32 cpu, u32 ctr)
 }
 EXPORT_SYMBOL_GPL(ps3_read_pm07_control);
 
+/**
+ * ps3_write_pm07_control - Write counter control registers.
+ *
+ * Each logical counter has a corresponding control register.
+ */
 
 void ps3_write_pm07_control(u32 cpu, u32 ctr, u32 val)
 {
@@ -290,6 +392,9 @@ void ps3_write_pm07_control(u32 cpu, u32 ctr, u32 val)
 }
 EXPORT_SYMBOL_GPL(ps3_write_pm07_control);
 
+/**
+ * ps3_read_pm - Read Other LPM control registers.
+ */
 
 u32 ps3_read_pm(u32 cpu, enum pm_reg_name reg)
 {
@@ -339,6 +444,9 @@ u32 ps3_read_pm(u32 cpu, enum pm_reg_name reg)
 }
 EXPORT_SYMBOL_GPL(ps3_read_pm);
 
+/**
+ * ps3_write_pm - Write Other LPM control registers.
+ */
 
 void ps3_write_pm(u32 cpu, enum pm_reg_name reg, u32 val)
 {
@@ -404,6 +512,11 @@ void ps3_write_pm(u32 cpu, enum pm_reg_name reg, u32 val)
 }
 EXPORT_SYMBOL_GPL(ps3_write_pm);
 
+/**
+ * ps3_get_ctr_size - Get the size of a physical counter.
+ *
+ * Returns either 16 or 32.
+ */
 
 u32 ps3_get_ctr_size(u32 cpu, u32 phys_ctr)
 {
@@ -420,6 +533,9 @@ u32 ps3_get_ctr_size(u32 cpu, u32 phys_ctr)
 }
 EXPORT_SYMBOL_GPL(ps3_get_ctr_size);
 
+/**
+ * ps3_set_ctr_size - Set the size of a physical counter to 16 or 32 bits.
+ */
 
 void ps3_set_ctr_size(u32 cpu, u32 phys_ctr, u32 ctr_size)
 {
@@ -687,14 +803,26 @@ int ps3_set_signal(u64 signal_group, u8 signal_bit, u16 sub_unit,
 		break;
 	}
 
+	/*
+	 * 0: physical object.
+	 * 1: logical object.
+	 * This parameter is only used for the PPE and SPE signals.
+	 */
 	attr1 = 1;
 
+	/*
+	 * This parameter is used to specify the target physical/logical
+	 * PPE/SPE object.
+	 */
 	if (PM_SIG_GROUP_SPU <= signal_group &&
 		signal_group < PM_SIG_GROUP_MFC_MAX)
 		attr2 = sub_unit;
 	else
 		attr2 = lpm_priv->pu_id;
 
+	/*
+	 * This parameter is only used for setting the SPE signal.
+	 */
 	attr3 = 0;
 
 	ret = __ps3_set_signal(lv1_signal_group, bus_select, signal_select,
@@ -713,6 +841,11 @@ u32 ps3_get_hw_thread_id(int cpu)
 }
 EXPORT_SYMBOL_GPL(ps3_get_hw_thread_id);
 
+/**
+ * ps3_enable_pm - Enable the entire performance monitoring unit.
+ *
+ * When we enable the LPM, all pending writes to counters get committed.
+ */
 
 void ps3_enable_pm(u32 cpu)
 {
@@ -754,6 +887,9 @@ void ps3_enable_pm(u32 cpu)
 }
 EXPORT_SYMBOL_GPL(ps3_enable_pm);
 
+/**
+ * ps3_disable_pm - Disable the entire performance monitoring unit.
+ */
 
 void ps3_disable_pm(u32 cpu)
 {
@@ -778,6 +914,17 @@ void ps3_disable_pm(u32 cpu)
 }
 EXPORT_SYMBOL_GPL(ps3_disable_pm);
 
+/**
+ * ps3_lpm_copy_tb - Copy data from the trace buffer to a kernel buffer.
+ * @offset: Offset in bytes from the start of the trace buffer.
+ * @buf: Copy destination.
+ * @count: Maximum count of bytes to copy.
+ * @bytes_copied: Pointer to a variable that will receive the number of
+ *  bytes copied to @buf.
+ *
+ * On error @buf will contain any successfully copied trace buffer data
+ * and bytes_copied will be set to the number of bytes successfully copied.
+ */
 
 int ps3_lpm_copy_tb(unsigned long offset, void *buf, unsigned long count,
 		    unsigned long *bytes_copied)
@@ -822,6 +969,17 @@ int ps3_lpm_copy_tb(unsigned long offset, void *buf, unsigned long count,
 }
 EXPORT_SYMBOL_GPL(ps3_lpm_copy_tb);
 
+/**
+ * ps3_lpm_copy_tb_to_user - Copy data from the trace buffer to a user buffer.
+ * @offset: Offset in bytes from the start of the trace buffer.
+ * @buf: A __user copy destination.
+ * @count: Maximum count of bytes to copy.
+ * @bytes_copied: Pointer to a variable that will receive the number of
+ *  bytes copied to @buf.
+ *
+ * On error @buf will contain any successfully copied trace buffer data
+ * and bytes_copied will be set to the number of bytes successfully copied.
+ */
 
 int ps3_lpm_copy_tb_to_user(unsigned long offset, void __user *buf,
 			    unsigned long count, unsigned long *bytes_copied)
@@ -874,6 +1032,12 @@ int ps3_lpm_copy_tb_to_user(unsigned long offset, void __user *buf,
 }
 EXPORT_SYMBOL_GPL(ps3_lpm_copy_tb_to_user);
 
+/**
+ * ps3_get_and_clear_pm_interrupts -
+ *
+ * Clearing interrupts for the entire performance monitoring unit.
+ * Reading pm_status clears the interrupt bits.
+ */
 
 u32 ps3_get_and_clear_pm_interrupts(u32 cpu)
 {
@@ -881,6 +1045,12 @@ u32 ps3_get_and_clear_pm_interrupts(u32 cpu)
 }
 EXPORT_SYMBOL_GPL(ps3_get_and_clear_pm_interrupts);
 
+/**
+ * ps3_enable_pm_interrupts -
+ *
+ * Enabling interrupts for the entire performance monitoring unit.
+ * Enables the interrupt bits in the pm_status register.
+ */
 
 void ps3_enable_pm_interrupts(u32 cpu, u32 thread, u32 mask)
 {
@@ -889,6 +1059,11 @@ void ps3_enable_pm_interrupts(u32 cpu, u32 thread, u32 mask)
 }
 EXPORT_SYMBOL_GPL(ps3_enable_pm_interrupts);
 
+/**
+ * ps3_enable_pm_interrupts -
+ *
+ * Disabling interrupts for the entire performance monitoring unit.
+ */
 
 void ps3_disable_pm_interrupts(u32 cpu)
 {
@@ -897,6 +1072,16 @@ void ps3_disable_pm_interrupts(u32 cpu)
 }
 EXPORT_SYMBOL_GPL(ps3_disable_pm_interrupts);
 
+/**
+ * ps3_lpm_open - Open the logical performance monitor device.
+ * @tb_type: Specifies the type of trace buffer lv1 should use for this lpm
+ *  instance, specified by one of enum ps3_lpm_tb_type.
+ * @tb_cache: Optional user supplied buffer to use as the trace buffer cache.
+ *  If NULL, the driver will allocate and manage an internal buffer.
+ *  Unused when when @tb_type is PS3_LPM_TB_TYPE_NONE.
+ * @tb_cache_size: The size in bytes of the user supplied @tb_cache buffer.
+ *  Unused when @tb_cache is NULL or @tb_type is PS3_LPM_TB_TYPE_NONE.
+ */
 
 int ps3_lpm_open(enum ps3_lpm_tb_type tb_type, void *tb_cache,
 	u64 tb_cache_size)
@@ -916,7 +1101,7 @@ int ps3_lpm_open(enum ps3_lpm_tb_type tb_type, void *tb_cache,
 		return -EBUSY;
 	}
 
-	
+	/* Note tb_cache needs 128 byte alignment. */
 
 	if (tb_type == PS3_LPM_TB_TYPE_NONE) {
 		lpm_priv->tb_cache_size = 0;
@@ -980,6 +1165,10 @@ fail_align:
 }
 EXPORT_SYMBOL_GPL(ps3_lpm_open);
 
+/**
+ * ps3_lpm_close - Close the lpm device.
+ *
+ */
 
 int ps3_lpm_close(void)
 {

@@ -25,22 +25,27 @@
 #include "peripheral-loader.h"
 #include "pil-q6v5.h"
 
+/* QDSP6SS Register Offsets */
 #define QDSP6SS_RESET			0x014
 #define QDSP6SS_GFMUX_CTL		0x020
 #define QDSP6SS_PWR_CTL			0x030
 
+/* AXI Halt Register Offsets */
 #define AXI_HALTREQ			0x0
 #define AXI_HALTACK			0x4
 #define AXI_IDLE			0x8
 
 #define HALT_ACK_TIMEOUT_US		100000
 
+/* QDSP6SS_RESET */
 #define Q6SS_STOP_CORE			BIT(0)
 #define Q6SS_CORE_ARES			BIT(1)
 #define Q6SS_BUS_ARES_ENA		BIT(2)
 
+/* QDSP6SS_GFMUX_CTL */
 #define Q6SS_CLK_ENA			BIT(1)
 
+/* QDSP6SS_PWR_CTL */
 #define Q6SS_L2DATA_SLP_NRET_N_0	BIT(0)
 #define Q6SS_L2DATA_SLP_NRET_N_1	BIT(1)
 #define Q6SS_L2DATA_SLP_NRET_N_2	BIT(2)
@@ -125,10 +130,10 @@ void pil_q6v5_halt_axi_port(struct pil_desc *pil, void __iomem *halt_base)
 	int ret;
 	u32 status;
 
-	
+	/* Assert halt request */
 	writel_relaxed(1, halt_base + AXI_HALTREQ);
 
-	
+	/* Wait for halt */
 	ret = readl_poll_timeout(halt_base + AXI_HALTACK,
 		status, status != 0, 50, HALT_ACK_TIMEOUT_US);
 	if (ret)
@@ -136,7 +141,7 @@ void pil_q6v5_halt_axi_port(struct pil_desc *pil, void __iomem *halt_base)
 	else if (!readl_relaxed(halt_base + AXI_IDLE))
 		dev_warn(pil->dev, "Port %p halt failed\n", halt_base);
 
-	
+	/* Clear halt request (port will remain halted until reset) */
 	writel_relaxed(0, halt_base + AXI_HALTREQ);
 }
 EXPORT_SYMBOL(pil_q6v5_halt_axi_port);
@@ -146,29 +151,29 @@ void pil_q6v5_shutdown(struct pil_desc *pil)
 	u32 val;
 	struct q6v5_data *drv = container_of(pil, struct q6v5_data, desc);
 
-	
+	/* Turn off core clock */
 	val = readl_relaxed(drv->reg_base + QDSP6SS_GFMUX_CTL);
 	val &= ~Q6SS_CLK_ENA;
 	writel_relaxed(val, drv->reg_base + QDSP6SS_GFMUX_CTL);
 
-	
+	/* Clamp IO */
 	val = readl_relaxed(drv->reg_base + QDSP6SS_PWR_CTL);
 	val |= Q6SS_CLAMP_IO;
 	writel_relaxed(val, drv->reg_base + QDSP6SS_PWR_CTL);
 
-	
+	/* Turn off Q6 memories */
 	val &= ~(Q6SS_L2DATA_SLP_NRET_N_0 | Q6SS_L2DATA_SLP_NRET_N_1 |
 		 Q6SS_L2DATA_SLP_NRET_N_2 | Q6SS_SLP_RET_N |
 		 Q6SS_L2TAG_SLP_NRET_N | Q6SS_ETB_SLP_NRET_N |
 		 Q6SS_L2DATA_STBY_N);
 	writel_relaxed(val, drv->reg_base + QDSP6SS_PWR_CTL);
 
-	
+	/* Assert Q6 resets */
 	val = readl_relaxed(drv->reg_base + QDSP6SS_RESET);
 	val |= (Q6SS_CORE_ARES | Q6SS_BUS_ARES_ENA);
 	writel_relaxed(val, drv->reg_base + QDSP6SS_RESET);
 
-	
+	/* Kill power at block headswitch */
 	val = readl_relaxed(drv->reg_base + QDSP6SS_PWR_CTL);
 	val &= ~QDSS_BHS_ON;
 	writel_relaxed(val, drv->reg_base + QDSP6SS_PWR_CTL);
@@ -180,18 +185,22 @@ int pil_q6v5_reset(struct pil_desc *pil)
 	struct q6v5_data *drv = container_of(pil, struct q6v5_data, desc);
 	u32 val;
 
-	
+	/* Assert resets, stop core */
 	val = readl_relaxed(drv->reg_base + QDSP6SS_RESET);
 	val |= (Q6SS_CORE_ARES | Q6SS_BUS_ARES_ENA | Q6SS_STOP_CORE);
 	writel_relaxed(val, drv->reg_base + QDSP6SS_RESET);
 
-	
+	/* Enable power block headswitch, and wait for it to stabilize */
 	val = readl_relaxed(drv->reg_base + QDSP6SS_PWR_CTL);
 	val |= QDSS_BHS_ON | QDSS_LDO_BYP;
 	writel_relaxed(val, drv->reg_base + QDSP6SS_PWR_CTL);
 	mb();
 	udelay(1);
 
+	/*
+	 * Turn on memories. L2 banks should be done individually
+	 * to minimize inrush current.
+	 */
 	val = readl_relaxed(drv->reg_base + QDSP6SS_PWR_CTL);
 	val |= Q6SS_SLP_RET_N | Q6SS_L2TAG_SLP_NRET_N |
 	       Q6SS_ETB_SLP_NRET_N | Q6SS_L2DATA_STBY_N;
@@ -203,21 +212,21 @@ int pil_q6v5_reset(struct pil_desc *pil)
 	val |= Q6SS_L2DATA_SLP_NRET_N_0;
 	writel_relaxed(val, drv->reg_base + QDSP6SS_PWR_CTL);
 
-	
+	/* Remove IO clamp */
 	val &= ~Q6SS_CLAMP_IO;
 	writel_relaxed(val, drv->reg_base + QDSP6SS_PWR_CTL);
 
-	
+	/* Bring core out of reset */
 	val = readl_relaxed(drv->reg_base + QDSP6SS_RESET);
 	val &= ~Q6SS_CORE_ARES;
 	writel_relaxed(val, drv->reg_base + QDSP6SS_RESET);
 
-	
+	/* Turn on core clock */
 	val = readl_relaxed(drv->reg_base + QDSP6SS_GFMUX_CTL);
 	val |= Q6SS_CLK_ENA;
 	writel_relaxed(val, drv->reg_base + QDSP6SS_GFMUX_CTL);
 
-	
+	/* Start core execution */
 	val = readl_relaxed(drv->reg_base + QDSP6SS_RESET);
 	val &= ~Q6SS_STOP_CORE;
 	writel_relaxed(val, drv->reg_base + QDSP6SS_RESET);

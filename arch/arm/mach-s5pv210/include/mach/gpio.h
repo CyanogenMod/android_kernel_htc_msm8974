@@ -13,7 +13,9 @@
 #ifndef __ASM_ARCH_GPIO_H
 #define __ASM_ARCH_GPIO_H __FILE__
 
+/* Practically, GPIO banks up to MP03 are the configurable gpio banks */
 
+/* GPIO bank sizes */
 #define S5PV210_GPIO_A0_NR	(8)
 #define S5PV210_GPIO_A1_NR	(4)
 #define S5PV210_GPIO_B_NR	(8)
@@ -48,7 +50,12 @@
 #define S5PV210_GPIO_MP04_NR	(8)
 #define S5PV210_GPIO_MP05_NR	(8)
 
+/* GPIO bank numbers */
 
+/* CONFIG_S3C_GPIO_SPACE allows the user to select extra
+ * space for debugging purposes so that any accidental
+ * change from one gpio bank to another can be caught.
+*/
 
 #define S5PV210_GPIO_NEXT(__gpio) \
 	((__gpio##_START) + (__gpio##_NR) + CONFIG_S3C_GPIO_SPACE + 1)
@@ -88,6 +95,7 @@ enum s5p_gpio_number {
 	S5PV210_GPIO_MP05_START	= S5PV210_GPIO_NEXT(S5PV210_GPIO_MP04),
 };
 
+/* S5PV210 GPIO number definitions */
 #define S5PV210_GPA0(_nr)	(S5PV210_GPIO_A0_START + (_nr))
 #define S5PV210_GPA1(_nr)	(S5PV210_GPIO_A1_START + (_nr))
 #define S5PV210_GPB(_nr)	(S5PV210_GPIO_B_START + (_nr))
@@ -121,10 +129,12 @@ enum s5p_gpio_number {
 #define S5PV210_MP04(_nr)	(S5PV210_GPIO_MP04_START + (_nr))
 #define S5PV210_MP05(_nr)	(S5PV210_GPIO_MP05_START + (_nr))
 
+/* the end of the S5PV210 specific gpios */
 #define S5PV210_GPIO_END	(S5PV210_MP05(S5PV210_GPIO_MP05_NR) + 1)
 #define S3C_GPIO_END		S5PV210_GPIO_END
 
+/* define the number of gpios we need to the one after the MP05() range */
 #define ARCH_NR_GPIOS		(S5PV210_MP05(S5PV210_GPIO_MP05_NR) +	\
 				 CONFIG_SAMSUNG_GPIO_EXTRA + 1)
 
-#endif 
+#endif /* __ASM_ARCH_GPIO_H */

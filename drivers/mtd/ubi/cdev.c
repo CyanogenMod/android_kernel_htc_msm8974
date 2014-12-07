@@ -18,6 +18,22 @@
  * Author: Artem Bityutskiy (Битюцкий Артём)
  */
 
+/*
+ * This file includes implementation of UBI character device operations.
+ *
+ * There are two kinds of character devices in UBI: UBI character devices and
+ * UBI volume character devices. UBI character devices allow users to
+ * manipulate whole volumes: create, remove, and re-size them. Volume character
+ * devices provide volume I/O capabilities.
+ *
+ * Major and minor numbers are assigned dynamically to both UBI and volume
+ * character devices.
+ *
+ * Well, there is the third kind of character devices - the UBI control
+ * character device, which allows to manipulate by UBI devices - create and
+ * delete them. In other words, it is used for attaching and detaching MTD
+ * devices.
+ */
 
 #include <linux/module.h>
 #include <linux/stat.h>
@@ -30,6 +46,14 @@
 #include <mtd/ubi-user.h>
 #include "ubi.h"
 
+/**
+ * get_exclusive - get exclusive access to an UBI volume.
+ * @desc: volume descriptor
+ *
+ * This function changes UBI volume open mode to "exclusive". Returns previous
+ * mode value (positive integer) in case of success and a negative error code
+ * in case of failure.
+ */
 static int get_exclusive(struct ubi_volume_desc *desc)
 {
 	int users, err;
@@ -52,6 +76,11 @@ static int get_exclusive(struct ubi_volume_desc *desc)
 	return err;
 }
 
+/**
+ * revoke_exclusive - revoke exclusive mode.
+ * @desc: volume descriptor
+ * @mode: new mode to switch to
+ */
 static void revoke_exclusive(struct ubi_volume_desc *desc, int mode)
 {
 	struct ubi_volume *vol = desc->vol;
@@ -129,19 +158,19 @@ static loff_t vol_cdev_llseek(struct file *file, loff_t offset, int origin)
 	loff_t new_offset;
 
 	if (vol->updating) {
-		
+		/* Update is in progress, seeking is prohibited */
 		dbg_err("updating");
 		return -EBUSY;
 	}
 
 	switch (origin) {
-	case 0: 
+	case 0: /* SEEK_SET */
 		new_offset = offset;
 		break;
-	case 1: 
+	case 1: /* SEEK_CUR */
 		new_offset = file->f_pos + offset;
 		break;
-	case 2: 
+	case 2: /* SEEK_END */
 		new_offset = vol->used_bytes + offset;
 		break;
 	default:
@@ -246,6 +275,10 @@ static ssize_t vol_cdev_read(struct file *file, __user char *buf, size_t count,
 	return err ? err : count_save - count;
 }
 
+/*
+ * This function allows to directly write to dynamic UBI volumes, without
+ * issuing the volume update operation.
+ */
 static ssize_t vol_cdev_direct_write(struct file *file, const char __user *buf,
 				     size_t count, loff_t *offp)
 {
@@ -274,7 +307,7 @@ static ssize_t vol_cdev_direct_write(struct file *file, const char __user *buf,
 	if (*offp + count > vol->used_bytes)
 		count_save = count = vol->used_bytes - *offp;
 
-	
+	/* We can write only in fractions of the minimum I/O unit */
 	if (count & (ubi->min_io_size - 1)) {
 		dbg_err("unaligned write length");
 		return -EINVAL;
@@ -383,7 +416,7 @@ static long vol_cdev_ioctl(struct file *file, unsigned int cmd,
 	void __user *argp = (void __user *)arg;
 
 	switch (cmd) {
-	
+	/* Volume update command */
 	case UBI_IOCVOLUP:
 	{
 		int64_t bytes, rsvd_bytes;
@@ -421,7 +454,7 @@ static long vol_cdev_ioctl(struct file *file, unsigned int cmd,
 		break;
 	}
 
-	
+	/* Atomic logical eraseblock change command */
 	case UBI_IOCEBCH:
 	{
 		struct ubi_leb_change_req req;
@@ -439,7 +472,7 @@ static long vol_cdev_ioctl(struct file *file, unsigned int cmd,
 			break;
 		}
 
-		
+		/* Validate the request */
 		err = -EINVAL;
 		if (req.lnum < 0 || req.lnum >= vol->reserved_pebs ||
 		    req.bytes < 0 || req.lnum >= vol->usable_leb_size)
@@ -458,7 +491,7 @@ static long vol_cdev_ioctl(struct file *file, unsigned int cmd,
 		break;
 	}
 
-	
+	/* Logical eraseblock erasure command */
 	case UBI_IOCEBER:
 	{
 		int32_t lnum;
@@ -489,7 +522,7 @@ static long vol_cdev_ioctl(struct file *file, unsigned int cmd,
 		break;
 	}
 
-	
+	/* Logical eraseblock map command */
 	case UBI_IOCEBMAP:
 	{
 		struct ubi_map_req req;
@@ -503,7 +536,7 @@ static long vol_cdev_ioctl(struct file *file, unsigned int cmd,
 		break;
 	}
 
-	
+	/* Logical eraseblock un-map command */
 	case UBI_IOCEBUNMAP:
 	{
 		int32_t lnum;
@@ -517,7 +550,7 @@ static long vol_cdev_ioctl(struct file *file, unsigned int cmd,
 		break;
 	}
 
-	
+	/* Check if logical eraseblock is mapped command */
 	case UBI_IOCEBISMAP:
 	{
 		int32_t lnum;
@@ -531,7 +564,7 @@ static long vol_cdev_ioctl(struct file *file, unsigned int cmd,
 		break;
 	}
 
-	
+	/* Set volume property command */
 	case UBI_IOCSETVOLPROP:
 	{
 		struct ubi_set_vol_prop_req req;
@@ -562,6 +595,13 @@ static long vol_cdev_ioctl(struct file *file, unsigned int cmd,
 	return err;
 }
 
+/**
+ * verify_mkvol_req - verify volume creation request.
+ * @ubi: UBI device description object
+ * @req: the request to check
+ *
+ * This function zero if the request is correct, and %-EINVAL if not.
+ */
 static int verify_mkvol_req(const struct ubi_device *ubi,
 			    const struct ubi_mkvol_req *req)
 {
@@ -612,6 +652,13 @@ bad:
 	return err;
 }
 
+/**
+ * verify_rsvol_req - verify volume re-size request.
+ * @ubi: UBI device description object
+ * @req: the request to check
+ *
+ * This function returns zero if the request is correct, and %-EINVAL if not.
+ */
 static int verify_rsvol_req(const struct ubi_device *ubi,
 			    const struct ubi_rsvol_req *req)
 {
@@ -624,6 +671,16 @@ static int verify_rsvol_req(const struct ubi_device *ubi,
 	return 0;
 }
 
+/**
+ * rename_volumes - rename UBI volumes.
+ * @ubi: UBI device description object
+ * @req: volumes re-name request
+ *
+ * This is a helper function for the volume re-name IOCTL which validates the
+ * the request, opens the volume and calls corresponding volumes management
+ * function. Returns zero in case of success and a negative error code in case
+ * of failure.
+ */
 static int rename_volumes(struct ubi_device *ubi,
 			  struct ubi_rnvol_req *req)
 {
@@ -637,7 +694,7 @@ static int rename_volumes(struct ubi_device *ubi,
 	if (req->count == 0)
 		return 0;
 
-	
+	/* Validate volume IDs and names in the request */
 	for (i = 0; i < req->count; i++) {
 		if (req->ents[i].vol_id < 0 ||
 		    req->ents[i].vol_id >= ubi->vtbl_slots)
@@ -652,7 +709,7 @@ static int rename_volumes(struct ubi_device *ubi,
 			err = -EINVAL;
 	}
 
-	
+	/* Make sure volume IDs and names are unique */
 	for (i = 0; i < req->count - 1; i++) {
 		for (n = i + 1; n < req->count; n++) {
 			if (req->ents[i].vol_id == req->ents[n].vol_id) {
@@ -668,7 +725,7 @@ static int rename_volumes(struct ubi_device *ubi,
 		}
 	}
 
-	
+	/* Create the re-name list */
 	INIT_LIST_HEAD(&rename_list);
 	for (i = 0; i < req->count; i++) {
 		int vol_id = req->ents[i].vol_id;
@@ -689,7 +746,7 @@ static int rename_volumes(struct ubi_device *ubi,
 			goto out_free;
 		}
 
-		
+		/* Skip this re-naming if the name does not really change */
 		if (re->desc->vol->name_len == name_len &&
 		    !memcmp(re->desc->vol->name, name, name_len)) {
 			ubi_close_volume(re->desc);
@@ -707,11 +764,17 @@ static int rename_volumes(struct ubi_device *ubi,
 	if (list_empty(&rename_list))
 		return 0;
 
-	
+	/* Find out the volumes which have to be removed */
 	list_for_each_entry(re, &rename_list, list) {
 		struct ubi_volume_desc *desc;
 		int no_remove_needed = 0;
 
+		/*
+		 * Volume @re->vol_id is going to be re-named to
+		 * @re->new_name, while its current name is @name. If a volume
+		 * with name @re->new_name currently exists, it has to be
+		 * removed, unless it is also re-named in the request (@req).
+		 */
 		list_for_each_entry(re1, &rename_list, list) {
 			if (re->new_name_len == re1->desc->vol->name_len &&
 			    !memcmp(re->new_name, re1->desc->vol->name,
@@ -724,15 +787,19 @@ static int rename_volumes(struct ubi_device *ubi,
 		if (no_remove_needed)
 			continue;
 
+		/*
+		 * It seems we need to remove volume with name @re->new_name,
+		 * if it exists.
+		 */
 		desc = ubi_open_volume_nm(ubi->ubi_num, re->new_name,
 					  UBI_EXCLUSIVE);
 		if (IS_ERR(desc)) {
 			err = PTR_ERR(desc);
 			if (err == -ENODEV)
-				
+				/* Re-naming into a non-existing volume name */
 				continue;
 
-			
+			/* The volume exists but busy, or an error occurred */
 			dbg_err("cannot open volume \"%s\", error %d",
 				re->new_name, err);
 			goto out_free;
@@ -781,7 +848,7 @@ static long ubi_cdev_ioctl(struct file *file, unsigned int cmd,
 		return -ENODEV;
 
 	switch (cmd) {
-	
+	/* Create volume command */
 	case UBI_IOCMKVOL:
 	{
 		struct ubi_mkvol_req req;
@@ -810,7 +877,7 @@ static long ubi_cdev_ioctl(struct file *file, unsigned int cmd,
 		break;
 	}
 
-	
+	/* Remove volume command */
 	case UBI_IOCRMVOL:
 	{
 		int vol_id;
@@ -832,11 +899,16 @@ static long ubi_cdev_ioctl(struct file *file, unsigned int cmd,
 		err = ubi_remove_volume(desc, 0);
 		mutex_unlock(&ubi->device_mutex);
 
+		/*
+		 * The volume is deleted (unless an error occurred), and the
+		 * 'struct ubi_volume' object will be freed when
+		 * 'ubi_close_volume()' will call 'put_device()'.
+		 */
 		ubi_close_volume(desc);
 		break;
 	}
 
-	
+	/* Re-size volume command */
 	case UBI_IOCRSVOL:
 	{
 		int pebs;
@@ -869,7 +941,7 @@ static long ubi_cdev_ioctl(struct file *file, unsigned int cmd,
 		break;
 	}
 
-	
+	/* Re-name volumes command */
 	case UBI_IOCRNVOL:
 	{
 		struct ubi_rnvol_req *req;
@@ -912,7 +984,7 @@ static long ctrl_cdev_ioctl(struct file *file, unsigned int cmd,
 		return -EPERM;
 
 	switch (cmd) {
-	
+	/* Attach an MTD device command */
 	case UBI_IOCATT:
 	{
 		struct ubi_attach_req req;
@@ -937,19 +1009,23 @@ static long ctrl_cdev_ioctl(struct file *file, unsigned int cmd,
 			break;
 		}
 
+		/*
+		 * Note, further request verification is done by
+		 * 'ubi_attach_mtd_dev()'.
+		 */
 		mutex_lock(&ubi_devices_mutex);
 		err = ubi_attach_mtd_dev(mtd, req.ubi_num, req.vid_hdr_offset);
 		mutex_unlock(&ubi_devices_mutex);
 		if (err < 0)
 			put_mtd_device(mtd);
 		else
-			
+			/* @err contains UBI device number */
 			err = put_user(err, (__user int32_t *)argp);
 
 		break;
 	}
 
-	
+	/* Detach an MTD device command */
 	case UBI_IOCDET:
 	{
 		int ubi_num;
@@ -1005,6 +1081,7 @@ static long ctrl_cdev_compat_ioctl(struct file *file, unsigned int cmd,
 #define ctrl_cdev_compat_ioctl NULL
 #endif
 
+/* UBI volume character device operations */
 const struct file_operations ubi_vol_cdev_operations = {
 	.owner          = THIS_MODULE,
 	.open           = vol_cdev_open,
@@ -1017,6 +1094,7 @@ const struct file_operations ubi_vol_cdev_operations = {
 	.compat_ioctl   = vol_cdev_compat_ioctl,
 };
 
+/* UBI character device operations */
 const struct file_operations ubi_cdev_operations = {
 	.owner          = THIS_MODULE,
 	.llseek         = no_llseek,
@@ -1024,6 +1102,7 @@ const struct file_operations ubi_cdev_operations = {
 	.compat_ioctl   = ubi_cdev_compat_ioctl,
 };
 
+/* UBI control character device operations */
 const struct file_operations ubi_ctrl_cdev_operations = {
 	.owner          = THIS_MODULE,
 	.unlocked_ioctl = ctrl_cdev_ioctl,

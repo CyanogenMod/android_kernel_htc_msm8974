@@ -141,11 +141,11 @@ static u32 ddl_handle_seqhdr_fail_error(
 
 void ddl_hw_fatal_cb(struct ddl_context *ddl_context)
 {
-	
+	/* Invalidate the command state */
 	ddl_move_command_state(ddl_context, DDL_CMD_INVALID);
 	ddl_context->device_state = DDL_DEVICE_HWFATAL;
 
-	
+	/* callback to the client to indicate hw fatal error */
 	ddl_context->ddl_callback(VCD_EVT_IND_HWERRFATAL,
 					VCD_ERR_HW_FATAL, NULL, 0,
 					(void *)ddl_context->current_ddl,
@@ -304,7 +304,7 @@ static u32 ddl_handle_core_recoverable_errors(struct ddl_context \
 		}
 	case NO_BUFFER_RELEASED_FROM_HOST:
 		{
-			
+			/* lets check sanity of this error */
 			release_mask =
 				ddl->codec_data.decoder.dpb_mask.hw_mask;
 			while (release_mask > 0) {
@@ -316,7 +316,7 @@ static u32 ddl_handle_core_recoverable_errors(struct ddl_context \
 			if (pending_display >=
 				ddl->codec_data.decoder.min_dpb_num) {
 				DBG("FWISSUE-REQBUF!!");
-				
+				/* callback to client for client fatal error */
 				ddl_client_fatal_cb(ddl_context);
 				return true ;
 			}
@@ -331,11 +331,11 @@ static u32 ddl_handle_core_recoverable_errors(struct ddl_context \
 	case VC1_BITPLANE_DECODE_ERR:
 		{
 			u32 reset_core;
-			
+			/* need to reset the internal core hw engine */
 			reset_core = ddl_hal_engine_reset(ddl_context);
 			if (!reset_core)
 				return true;
-			
+			/* fall through to process bitstream error handling */
 		}
 	case RESOLUTION_MISMATCH:
 	case NV_QUANT_ERR:
@@ -395,24 +395,24 @@ static u32 ddl_handle_core_recoverable_errors(struct ddl_context \
 		!eos) {
 		DBG("Treat header in start error %u as success",
 			vcd_status);
-		
+		/* this is first frame seq. header only case */
 		vcd_status = VCD_S_SUCCESS;
 		ddl->input_frame.vcd_frm.flags |=
 			VCD_FRAME_FLAG_CODECCONFIG;
 		ddl->input_frame.frm_trans_end = !eos;
-		
+		/* put just some non - zero value */
 		ddl->codec_data.decoder.dec_disp_info.img_size_x = 0xff;
 	}
-	
+	/* inform client about input failed */
 	ddl_input_failed_cb(ddl_context, vcd_event, vcd_status);
 
-	
+	/* for Encoder case, we need to send output done also */
 	if (!ddl->decoding) {
-		
+		/* transaction is complete after this callback */
 		ddl->output_frame.frm_trans_end = !eos;
-		
+		/* error case: NO data present */
 		ddl->output_frame.vcd_frm.data_len = 0;
-		
+		/* call back to client for output frame done */
 		ddl_context->ddl_callback(VCD_EVT_RESP_OUTPUT_DONE,
 		VCD_ERR_FAIL, &(ddl->output_frame),
 			sizeof(struct ddl_frame_data_tag),
@@ -420,14 +420,14 @@ static u32 ddl_handle_core_recoverable_errors(struct ddl_context \
 
 		if (eos) {
 			DBG("ENC-EOS_DONE");
-			
+			/* send client EOS DONE callback */
 			ddl_context->ddl_callback(VCD_EVT_RESP_EOS_DONE,
 				VCD_S_SUCCESS, NULL, 0, (void *)ddl,
 				ddl_context->client_data);
 		}
 	}
 
-	
+	/* if it is decoder EOS case */
 	if (ddl->decoding && eos) {
 		DBG("DEC-EOS_RUN");
 		ddl_decode_eos_run(ddl);
@@ -465,7 +465,7 @@ static u32 ddl_handle_core_warnings(u32 err_status)
 	case METADATA_NO_SPACE_SLICE_SIZE:
 	case RESOLUTION_WARNING:
 
-	
+	/* decoder warnings */
 	case METADATA_NO_SPACE_QP:
 	case METADATA_NO_SAPCE_CONCEAL_MB:
 	case METADATA_NO_SPACE_VC1_PARAM:

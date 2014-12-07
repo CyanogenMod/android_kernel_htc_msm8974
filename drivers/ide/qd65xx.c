@@ -2,6 +2,17 @@
  *  Copyright (C) 1996-2001  Linus Torvalds & author (see below)
  */
 
+/*
+ *  Version 0.03	Cleaned auto-tune, added probe
+ *  Version 0.04	Added second channel tuning
+ *  Version 0.05	Enhanced tuning ; added qd6500 support
+ *  Version 0.06	Added dos driver's list
+ *  Version 0.07	Second channel bug fix 
+ *
+ * QDI QD6500/QD6580 EIDE controller fast support
+ *
+ * To activate controller support, use "ide0=qd65xx"
+ */
 
 /*
  * Rewritten from the work of Colten Edwards <pje120@cs.usask.ca> by
@@ -24,10 +35,59 @@
 
 #include "qd65xx.h"
 
+/*
+ * I/O ports are 0x30-0x31 (and 0x32-0x33 for qd6580)
+ *            or 0xb0-0xb1 (and 0xb2-0xb3 for qd6580)
+ *	-- qd6500 is a single IDE interface
+ *	-- qd6580 is a dual IDE interface
+ *
+ * More research on qd6580 being done by willmore@cig.mot.com (David)
+ * More Information given by Petr Soucek (petr@ryston.cz)
+ * http://www.ryston.cz/petr/vlb
+ */
 
+/*
+ * base: Timer1
+ *
+ *
+ * base+0x01: Config (R/O)
+ *
+ * bit 0: ide baseport: 1 = 0x1f0 ; 0 = 0x170 (only useful for qd6500)
+ * bit 1: qd65xx baseport: 1 = 0xb0 ; 0 = 0x30
+ * bit 2: ID3: bus speed: 1 = <=33MHz ; 0 = >33MHz
+ * bit 3: qd6500: 1 = disabled, 0 = enabled
+ *        qd6580: 1
+ * upper nibble:
+ *        qd6500: 1100
+ *        qd6580: either 1010 or 0101
+ *
+ *
+ * base+0x02: Timer2 (qd6580 only)
+ *
+ *
+ * base+0x03: Control (qd6580 only)
+ *
+ * bits 0-3 must always be set 1
+ * bit 4 must be set 1, but is set 0 by dos driver while measuring vlb clock
+ * bit 0 : 1 = Only primary port enabled : channel 0 for hda, channel 1 for hdb
+ *         0 = Primary and Secondary ports enabled : channel 0 for hda & hdb
+ *                                                   channel 1 for hdc & hdd
+ * bit 1 : 1 = only disks on primary port
+ *         0 = disks & ATAPI devices on primary port
+ * bit 2-4 : always 0
+ * bit 5 : status, but of what ?
+ * bit 6 : always set 1 by dos driver
+ * bit 7 : set 1 for non-ATAPI devices on primary port
+ *	(maybe read-ahead and post-write buffer ?)
+ */
 
-static int timings[4]={-1,-1,-1,-1}; 
+static int timings[4]={-1,-1,-1,-1}; /* stores current timing for each timer */
 
+/*
+ * qd65xx_select:
+ *
+ * This routine is invoked to prepare for access to a given drive.
+ */
 
 static void qd65xx_dev_select(ide_drive_t *drive)
 {
@@ -40,6 +100,13 @@ static void qd65xx_dev_select(ide_drive_t *drive)
 	outb(drive->select | ATA_DEVICE_OBS, drive->hwif->io_ports.device_addr);
 }
 
+/*
+ * qd6500_compute_timing
+ *
+ * computes the timing value where
+ *	lower nibble represents active time,   in count of VLB clocks
+ *	upper nibble represents recovery time, in count of VLB clocks
+ */
 
 static u8 qd6500_compute_timing (ide_hwif_t *hwif, int active_time, int recovery_time)
 {
@@ -57,6 +124,11 @@ static u8 qd6500_compute_timing (ide_hwif_t *hwif, int active_time, int recovery
 	return (rec_cyc << 4) | 0x08 | act_cyc;
 }
 
+/*
+ * qd6580_compute_timing
+ *
+ * idem for qd6580
+ */
 
 static u8 qd6580_compute_timing (int active_time, int recovery_time)
 {
@@ -69,6 +141,11 @@ static u8 qd6580_compute_timing (int active_time, int recovery_time)
 	return (rec_cyc << 4) | act_cyc;
 }
 
+/*
+ * qd_find_disk_type
+ *
+ * tries to find timing from dos driver's table
+ */
 
 static int qd_find_disk_type (ide_drive_t *drive,
 		int *active_time, int *recovery_time)
@@ -81,7 +158,7 @@ static int qd_find_disk_type (ide_drive_t *drive,
 		return 0;
 
 	strncpy(model, m, ATA_ID_PROD_LEN);
-	ide_fixstring(model, ATA_ID_PROD_LEN, 1); 
+	ide_fixstring(model, ATA_ID_PROD_LEN, 1); /* byte-swap */
 
 	for (p = qd65xx_timing ; p->offset != -1 ; p++) {
 		if (!strncmp(p->model, model+p->offset, 4)) {
@@ -94,6 +171,11 @@ static int qd_find_disk_type (ide_drive_t *drive,
 	return 0;
 }
 
+/*
+ * qd_set_timing:
+ *
+ * records the timing
+ */
 
 static void qd_set_timing (ide_drive_t *drive, u8 timing)
 {
@@ -110,9 +192,9 @@ static void qd6500_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
 	u16 *id = drive->id;
 	int active_time   = 175;
-	int recovery_time = 415; 
+	int recovery_time = 415; /* worst case values from the dos driver */
 
-	
+	/* FIXME: use drive->pio_mode value */
 	if (!qd_find_disk_type(drive, &active_time, &recovery_time) &&
 	    (id[ATA_ID_OLD_PIO_MODES] & 0xff) && (id[ATA_ID_FIELD_VALID] & 2) &&
 	    id[ATA_ID_EIDE_PIO] >= 240) {
@@ -132,7 +214,7 @@ static void qd6580_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	struct ide_timing *t = ide_timing_find_mode(XFER_PIO_0 + pio);
 	unsigned int cycle_time;
 	int active_time   = 175;
-	int recovery_time = 415; 
+	int recovery_time = 415; /* worst case values from the dos driver */
 	u8 base = (hwif->config_data & 0xff00) >> 8;
 
 	if (drive->id && !qd_find_disk_type(drive, &active_time, &recovery_time)) {
@@ -176,6 +258,11 @@ static void qd6580_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	qd_set_timing(drive, qd6580_compute_timing(active_time, recovery_time));
 }
 
+/*
+ * qd_testreg
+ *
+ * tests if the given port is a register
+ */
 
 static int __init qd_testreg(int port)
 {
@@ -184,7 +271,7 @@ static int __init qd_testreg(int port)
 
 	local_irq_save(flags);
 	savereg = inb_p(port);
-	outb_p(QD_TESTVAL, port);	
+	outb_p(QD_TESTVAL, port);	/* safe value */
 	readreg = inb_p(port);
 	outb(savereg, port);
 	local_irq_restore(flags);
@@ -257,6 +344,12 @@ static const struct ide_port_info qd65xx_port_info __initdata = {
 	.pio_mask		= ATA_PIO4,
 };
 
+/*
+ * qd_probe:
+ *
+ * looks at the specified baseport, and if qd found, registers & initialises it
+ * return 1 if another qd may be probed
+ */
 
 static int __init qd_probe(int base)
 {
@@ -277,7 +370,7 @@ static int __init qd_probe(int base)
 	switch (config & 0xf0) {
 	case QD_CONFIG_QD6500:
 		if (qd_testreg(base))
-			 return -ENODEV;	
+			 return -ENODEV;	/* bad register */
 
 		if (config & QD_CONFIG_DISABLED) {
 			printk(KERN_WARNING "qd6500 is disabled !\n");
@@ -294,7 +387,7 @@ static int __init qd_probe(int base)
 	case QD_CONFIG_QD6580_A:
 	case QD_CONFIG_QD6580_B:
 		if (qd_testreg(base) || qd_testreg(base + 0x02))
-			return -ENODEV;	
+			return -ENODEV;	/* bad registers */
 
 		control = inb(QD_CONTROL_PORT);
 

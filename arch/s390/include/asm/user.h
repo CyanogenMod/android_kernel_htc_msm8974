@@ -1,3 +1,10 @@
+/*
+ *  include/asm-s390/user.h
+ *
+ *  S390 version
+ *
+ *  Derived from "include/asm-i386/usr.h"
+ */
 
 #ifndef _S390_USER_H
 #define _S390_USER_H
@@ -32,23 +39,38 @@
 */
 
 
+/*
+ * This is the old layout of "struct pt_regs", and
+ * is still the layout used by user mode (the new
+ * pt_regs doesn't have all registers as the kernel
+ * doesn't use the extra segment registers)
+ */
 
+/* When the kernel dumps core, it starts by dumping the user struct -
+   this will be used by gdb to figure out where the data and stack segments
+   are within the file, and what virtual addresses to use. */
 struct user {
-  struct user_regs_struct regs;		
-  unsigned long int u_tsize;	
-  unsigned long int u_dsize;	
-  unsigned long int u_ssize;	
-  unsigned long start_code;     
-  unsigned long start_stack;	
-  long int signal;     		
-  unsigned long u_ar0;		
-				
-  unsigned long magic;		
-  char u_comm[32];		
+/* We start with the registers, to mimic the way that "memory" is returned
+   from the ptrace(3,...) function.  */
+  struct user_regs_struct regs;		/* Where the registers are actually stored */
+/* The rest of this junk is to help gdb figure out what goes where */
+  unsigned long int u_tsize;	/* Text segment size (pages). */
+  unsigned long int u_dsize;	/* Data segment size (pages). */
+  unsigned long int u_ssize;	/* Stack segment size (pages). */
+  unsigned long start_code;     /* Starting virtual address of text. */
+  unsigned long start_stack;	/* Starting virtual address of stack area.
+				   This is actually the bottom of the stack,
+				   the top of the stack is always found in the
+				   esp register.  */
+  long int signal;     		/* Signal that caused the core dump. */
+  unsigned long u_ar0;		/* Used by gdb to help find the values for */
+				/* the registers. */
+  unsigned long magic;		/* To uniquely identify a core file */
+  char u_comm[32];		/* User command that was responsible */
 };
 #define NBPG PAGE_SIZE
 #define UPAGES 1
 #define HOST_TEXT_START_ADDR (u.start_code)
 #define HOST_STACK_END_ADDR (u.start_stack + u.u_ssize * NBPG)
 
-#endif 
+#endif /* _S390_USER_H */

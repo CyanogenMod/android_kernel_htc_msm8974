@@ -36,17 +36,25 @@ struct bgpio_chip {
 	void __iomem *reg_clr;
 	void __iomem *reg_dir;
 
-	
+	/* Number of bits (GPIOs): <register width> * 8. */
 	int bits;
 
+	/*
+	 * Some GPIO controllers work with the big-endian bits notation,
+	 * e.g. in a 8-bits register, GPIO7 is the least significant bit.
+	 */
 	unsigned long (*pin2mask)(struct bgpio_chip *bgc, unsigned int pin);
 
+	/*
+	 * Used to lock bgpio_chip->data. Also, this is needed to keep
+	 * shadowed and real data registers writes together.
+	 */
 	spinlock_t lock;
 
-	
+	/* Shadowed data register to clear/set bits safely. */
 	unsigned long data;
 
-	
+	/* Shadowed direction registers to clear/set direction safely. */
 	unsigned long dir;
 };
 
@@ -61,4 +69,4 @@ int bgpio_init(struct bgpio_chip *bgc, struct device *dev,
 	       void __iomem *clr, void __iomem *dirout, void __iomem *dirin,
 	       bool big_endian);
 
-#endif 
+#endif /* __BASIC_MMIO_GPIO_H */

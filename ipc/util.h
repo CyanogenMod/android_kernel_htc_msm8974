@@ -47,15 +47,29 @@ static inline void msg_exit_ns(struct ipc_namespace *ns) { }
 static inline void shm_exit_ns(struct ipc_namespace *ns) { }
 #endif
 
+/*
+ * Structure that holds the parameters needed by the ipc operations
+ * (see after)
+ */
 struct ipc_params {
 	key_t key;
 	int flg;
 	union {
-		size_t size;	
-		int nsems;	
-	} u;			
+		size_t size;	/* for shared memories */
+		int nsems;	/* for semaphores */
+	} u;			/* holds the getnew() specific param */
 };
 
+/*
+ * Structure that holds some ipc operations. This structure is used to unify
+ * the calls to sys_msgget(), sys_semget(), sys_shmget()
+ *      . routine to call to create a new ipc object. Can be one of newque,
+ *        newary, newseg
+ *      . routine to call to check permissions for a new ipc object.
+ *        Can be one of security_msg_associate, security_sem_associate,
+ *        security_shm_associate
+ *      . routine to call for an extra check if needed
+ */
 struct ipc_ops {
 	int (*getnew) (struct ipc_namespace *, struct ipc_params *);
 	int (*associate) (struct kern_ipc_perm *, int);
@@ -79,17 +93,30 @@ void __init ipc_init_proc_interface(const char *path, const char *header,
 
 #define ipcid_to_idx(id) ((id) % SEQ_MULTIPLIER)
 
+/* must be called with ids->rw_mutex acquired for writing */
 int ipc_addid(struct ipc_ids *, struct kern_ipc_perm *, int);
 
+/* must be called with ids->rw_mutex acquired for reading */
 int ipc_get_maxid(struct ipc_ids *);
 
+/* must be called with both locks acquired. */
 void ipc_rmid(struct ipc_ids *, struct kern_ipc_perm *);
 
+/* must be called with ipcp locked */
 int ipcperms(struct ipc_namespace *ns, struct kern_ipc_perm *ipcp, short flg);
 
+/* for rare, potentially huge allocations.
+ * both function can sleep
+ */
 void* ipc_alloc(int size);
 void ipc_free(void* ptr, int size);
 
+/*
+ * For allocation that need to be freed by RCU.
+ * Objects are reference counted, they start with reference count 1.
+ * getref increases the refcount, the putref call that reduces the recount
+ * to 0 schedules the rcu destruction. Caller must guarantee locking.
+ */
 void* ipc_rcu_alloc(int size);
 void ipc_rcu_getref(void *ptr);
 void ipc_rcu_putref(void *ptr);
@@ -104,7 +131,7 @@ struct kern_ipc_perm *ipcctl_pre_down(struct ipc_namespace *ns,
 				      struct ipc64_perm *perm, int extra_perm);
 
 #ifndef __ARCH_WANT_IPC_PARSE_VERSION
-   
+  /* On IA-64, we always use the "64-bit version" of the IPC structures.  */ 
 # define ipc_parse_version(cmd)	IPC_64
 #else
 int ipc_parse_version (int *cmd);
@@ -121,6 +148,9 @@ static inline int ipc_buildid(int id, int seq)
 	return SEQ_MULTIPLIER * seq + id;
 }
 
+/*
+ * Must be called with ipcp locked
+ */
 static inline int ipc_checkid(struct kern_ipc_perm *ipcp, int uid)
 {
 	if (uid / SEQ_MULTIPLIER != ipcp->seq)

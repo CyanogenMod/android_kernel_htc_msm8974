@@ -39,6 +39,7 @@ static int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Turn on/off debugging (default:off).");
 
+/* write multiple registers */
 static int tda18212_wr_regs(struct tda18212_priv *priv, u8 reg, u8 *val,
 	int len)
 {
@@ -67,6 +68,7 @@ static int tda18212_wr_regs(struct tda18212_priv *priv, u8 reg, u8 *val,
 	return ret;
 }
 
+/* read multiple registers */
 static int tda18212_rd_regs(struct tda18212_priv *priv, u8 reg, u8 *val,
 	int len)
 {
@@ -99,17 +101,19 @@ static int tda18212_rd_regs(struct tda18212_priv *priv, u8 reg, u8 *val,
 	return ret;
 }
 
+/* write single register */
 static int tda18212_wr_reg(struct tda18212_priv *priv, u8 reg, u8 val)
 {
 	return tda18212_wr_regs(priv, reg, &val, 1);
 }
 
+/* read single register */
 static int tda18212_rd_reg(struct tda18212_priv *priv, u8 reg, u8 *val)
 {
 	return tda18212_rd_regs(priv, reg, val, 1);
 }
 
-#if 0 
+#if 0 /* keep, useful when developing driver */
 static void tda18212_dump_regs(struct tda18212_priv *priv)
 {
 	int i;
@@ -142,7 +146,7 @@ static int tda18212_set_params(struct dvb_frontend *fe)
 	#define DVBC_6   6
 	#define DVBC_8   7
 	static const u8 bw_params[][3] = {
-		     
+		     /* reg:   0f    13    23 */
 		[DVBT_6]  = { 0xb3, 0x20, 0x03 },
 		[DVBT_7]  = { 0xb3, 0x31, 0x01 },
 		[DVBT_8]  = { 0xb3, 0x22, 0x01 },
@@ -157,7 +161,7 @@ static int tda18212_set_params(struct dvb_frontend *fe)
 	    c->delivery_system, c->frequency, c->bandwidth_hz);
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1); 
+		fe->ops.i2c_gate_ctrl(fe, 1); /* open I2C-gate */
 
 	switch (c->delivery_system) {
 	case SYS_DVBT:
@@ -222,7 +226,7 @@ static int tda18212_set_params(struct dvb_frontend *fe)
 
 	buf[0] = 0x02;
 	buf[1] = bw_params[i][1];
-	buf[2] = 0x03; 
+	buf[2] = 0x03; /* default value */
 	buf[3] = DIV_ROUND_CLOSEST(if_khz, 50);
 	buf[4] = ((c->frequency / 1000) >> 16) & 0xff;
 	buf[5] = ((c->frequency / 1000) >>  8) & 0xff;
@@ -233,12 +237,12 @@ static int tda18212_set_params(struct dvb_frontend *fe)
 	if (ret)
 		goto error;
 
-	
+	/* actual IF rounded as it is on register */
 	priv->if_frequency = buf[3] * 50 * 1000;
 
 exit:
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0); 
+		fe->ops.i2c_gate_ctrl(fe, 0); /* close I2C-gate */
 
 	return ret;
 
@@ -294,13 +298,13 @@ struct dvb_frontend *tda18212_attach(struct dvb_frontend *fe,
 	fe->tuner_priv = priv;
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1); 
+		fe->ops.i2c_gate_ctrl(fe, 1); /* open I2C-gate */
 
-	
+	/* check if the tuner is there */
 	ret = tda18212_rd_reg(priv, 0x00, &val);
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0); 
+		fe->ops.i2c_gate_ctrl(fe, 0); /* close I2C-gate */
 
 	dbg("ret:%d chip ID:%02x\n", ret, val);
 	if (ret || val != 0xc7) {

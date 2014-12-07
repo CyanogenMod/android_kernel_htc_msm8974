@@ -38,6 +38,10 @@
 #include "qib.h"
 #include "qib_qsfp.h"
 
+/*
+ * QSFP support for ib_qib driver, using "Two Wire Serial Interface" driver
+ * in qib_twsi.c
+ */
 #define QSFP_MAX_RETRY 4
 
 static int qsfp_read(struct qib_pportdata *ppd, int addr, void *bp, int len)
@@ -57,6 +61,13 @@ static int qsfp_read(struct qib_pportdata *ppd, int addr, void *bp, int len)
 		goto bail;
 	}
 
+	/*
+	 * We presume, if we are called at all, that this board has
+	 * QSFP. This is on the same i2c chain as the legacy parts,
+	 * but only responds if the module is selected via GPIO pins.
+	 * Further, there are very long setup and hold requirements
+	 * on MODSEL.
+	 */
 	mask = QSFP_GPIO_MOD_SEL_N | QSFP_GPIO_MOD_RST_N | QSFP_GPIO_LP_MODE;
 	out = QSFP_GPIO_MOD_RST_N | QSFP_GPIO_LP_MODE;
 	if (ppd->hw_pidx) {
@@ -66,9 +77,13 @@ static int qsfp_read(struct qib_pportdata *ppd, int addr, void *bp, int len)
 
 	dd->f_gpio_mod(dd, out, mask, mask);
 
+	/*
+	 * Module could take up to 2 Msec to respond to MOD_SEL, and there
+	 * is no way to tell if it is ready, so we must wait.
+	 */
 	msleep(2);
 
-	
+	/* Make sure TWSI bus is in sane state. */
 	ret = qib_twsi_reset(dd);
 	if (ret) {
 		qib_dev_porterr(dd, ppd->port,
@@ -78,7 +93,7 @@ static int qsfp_read(struct qib_pportdata *ppd, int addr, void *bp, int len)
 		goto deselect;
 	}
 
-	
+	/* All QSFP modules are at A0 */
 
 	cnt = 0;
 	while (cnt < len) {
@@ -88,11 +103,11 @@ static int qsfp_read(struct qib_pportdata *ppd, int addr, void *bp, int len)
 		if ((in_page + wlen) > QSFP_PAGESIZE)
 			wlen = QSFP_PAGESIZE - in_page;
 		ret = qib_twsi_blk_rd(dd, QSFP_DEV, addr, buff + cnt, wlen);
-		
+		/* Some QSFP's fail first try. Retry as experiment */
 		if (ret && cnt == 0 && ++pass < QSFP_MAX_RETRY)
 			continue;
 		if (ret) {
-			
+			/* qib_twsi_blk_rd() 1 for error, else 0 */
 			ret = -EIO;
 			goto deselect;
 		}
@@ -102,10 +117,20 @@ static int qsfp_read(struct qib_pportdata *ppd, int addr, void *bp, int len)
 	ret = cnt;
 
 deselect:
+	/*
+	 * Module could take up to 10 uSec after transfer before
+	 * ready to respond to MOD_SEL negation, and there is no way
+	 * to tell if it is ready, so we must wait.
+	 */
 	udelay(10);
-	
+	/* set QSFP MODSEL, RST. LP all high */
 	dd->f_gpio_mod(dd, mask, mask, mask);
 
+	/*
+	 * Module could take up to 2 Msec to respond to MOD_SEL
+	 * going away, and there is no way to tell if it is ready.
+	 * so we must wait.
+	 */
 	if (stuck)
 		qib_dev_err(dd, "QSFP interface bus stuck non-idle\n");
 
@@ -123,6 +148,11 @@ no_unlock:
 	return ret;
 }
 
+/*
+ * qsfp_write
+ * We do not ordinarily write the QSFP, but this is needed to select
+ * the page on non-flat QSFPs, and possibly later unusual cases
+ */
 static int qib_qsfp_write(struct qib_pportdata *ppd, int addr, void *bp,
 			  int len)
 {
@@ -140,6 +170,13 @@ static int qib_qsfp_write(struct qib_pportdata *ppd, int addr, void *bp,
 		goto bail;
 	}
 
+	/*
+	 * We presume, if we are called at all, that this board has
+	 * QSFP. This is on the same i2c chain as the legacy parts,
+	 * but only responds if the module is selected via GPIO pins.
+	 * Further, there are very long setup and hold requirements
+	 * on MODSEL.
+	 */
 	mask = QSFP_GPIO_MOD_SEL_N | QSFP_GPIO_MOD_RST_N | QSFP_GPIO_LP_MODE;
 	out = QSFP_GPIO_MOD_RST_N | QSFP_GPIO_LP_MODE;
 	if (ppd->hw_pidx) {
@@ -148,9 +185,13 @@ static int qib_qsfp_write(struct qib_pportdata *ppd, int addr, void *bp,
 	}
 	dd->f_gpio_mod(dd, out, mask, mask);
 
+	/*
+	 * Module could take up to 2 Msec to respond to MOD_SEL,
+	 * and there is no way to tell if it is ready, so we must wait.
+	 */
 	msleep(2);
 
-	
+	/* Make sure TWSI bus is in sane state. */
 	ret = qib_twsi_reset(dd);
 	if (ret) {
 		qib_dev_porterr(dd, ppd->port,
@@ -159,7 +200,7 @@ static int qib_qsfp_write(struct qib_pportdata *ppd, int addr, void *bp,
 		goto deselect;
 	}
 
-	
+	/* All QSFP modules are at A0 */
 
 	cnt = 0;
 	while (cnt < len) {
@@ -170,7 +211,7 @@ static int qib_qsfp_write(struct qib_pportdata *ppd, int addr, void *bp,
 			wlen = QSFP_PAGESIZE - in_page;
 		ret = qib_twsi_blk_wr(dd, QSFP_DEV, addr, buff + cnt, wlen);
 		if (ret) {
-			
+			/* qib_twsi_blk_wr() 1 for error, else 0 */
 			ret = -EIO;
 			goto deselect;
 		}
@@ -180,9 +221,19 @@ static int qib_qsfp_write(struct qib_pportdata *ppd, int addr, void *bp,
 	ret = cnt;
 
 deselect:
+	/*
+	 * Module could take up to 10 uSec after transfer before
+	 * ready to respond to MOD_SEL negation, and there is no way
+	 * to tell if it is ready, so we must wait.
+	 */
 	udelay(10);
-	
+	/* set QSFP MODSEL, RST, LP high */
 	dd->f_gpio_mod(dd, mask, mask, mask);
+	/*
+	 * Module could take up to 2 Msec to respond to MOD_SEL
+	 * going away, and there is no way to tell if it is ready.
+	 * so we must wait.
+	 */
 	msleep(2);
 
 bail:
@@ -192,6 +243,11 @@ no_unlock:
 	return ret;
 }
 
+/*
+ * For validation, we want to check the checksums, even of the
+ * fields we do not otherwise use. This function reads the bytes from
+ * <first> to <next-1> and returns the 8lsbs of the sum, or <0 for errors
+ */
 static int qsfp_cks(struct qib_pportdata *ppd, int first, int next)
 {
 	int ret;
@@ -219,7 +275,7 @@ int qib_refresh_qsfp_cache(struct qib_pportdata *ppd, struct qib_qsfp_cache *cp)
 	u16 cks;
 	u8 peek[4];
 
-	
+	/* ensure sane contents on invalid reads, for cable swaps */
 	memset(cp, 0, sizeof(*cp));
 
 	if (!qib_qsfp_mod_present(ppd)) {
@@ -235,6 +291,10 @@ int qib_refresh_qsfp_cache(struct qib_pportdata *ppd, struct qib_qsfp_cache *cp)
 				"QSFP byte0 is 0x%02X, S/B 0x0C/D\n", peek[0]);
 
 	if ((peek[2] & 2) == 0) {
+		/*
+		 * If cable is paged, rather than "flat memory", we need to
+		 * set the page to zero, Even if it already appears to be zero.
+		 */
 		u8 poke = 0;
 		ret = qib_qsfp_write(ppd, 127, &poke, 1);
 		udelay(50);
@@ -322,7 +382,7 @@ int qib_refresh_qsfp_cache(struct qib_pportdata *ppd, struct qib_qsfp_cache *cp)
 				"QSFP cks1 is %02X, computed %02X\n", cp->cks1,
 				cks);
 
-	
+	/* Second checksum covers 192 to (serial, date, lot) */
 	ret = qsfp_cks(ppd, QSFP_CC_OFFS + 1, QSFP_SN_OFFS);
 	if (ret < 0)
 		goto bail;
@@ -373,7 +433,7 @@ const char * const qib_qsfp_devtech[16] = {
 	"Undef", "Cu Active BothEq", "Cu FarEq", "Cu NearEq"
 };
 
-#define QSFP_DUMP_CHUNK 16 
+#define QSFP_DUMP_CHUNK 16 /* Holds longest string */
 #define QSFP_DEFAULT_HDR_CNT 224
 
 static const char *pwr_codes = "1.5W2.0W2.5W3.5W";
@@ -391,6 +451,10 @@ int qib_qsfp_mod_present(struct qib_pportdata *ppd)
 		 ((ppd->hw_pidx * QSFP_GPIO_PORT2_SHIFT) + 3));
 }
 
+/*
+ * Initialize structures that control access to QSFP. Called once per port
+ * on cards that support QSFP.
+ */
 void qib_qsfp_init(struct qib_qsfp_data *qd,
 		   void (*fevent)(struct work_struct *))
 {
@@ -398,9 +462,14 @@ void qib_qsfp_init(struct qib_qsfp_data *qd,
 
 	struct qib_devdata *dd = qd->ppd->dd;
 
-	
+	/* Initialize work struct for later QSFP events */
 	INIT_WORK(&qd->work, fevent);
 
+	/*
+	 * Later, we may want more validation. For now, just set up pins and
+	 * blip reset. If module is present, call qib_refresh_qsfp_cache(),
+	 * to do further init.
+	 */
 	mask = QSFP_GPIO_MOD_SEL_N | QSFP_GPIO_MOD_RST_N | QSFP_GPIO_LP_MODE;
 	highs = mask - QSFP_GPIO_MOD_RST_N;
 	if (qd->ppd->hw_pidx) {
@@ -408,7 +477,7 @@ void qib_qsfp_init(struct qib_qsfp_data *qd,
 		highs <<= QSFP_GPIO_PORT2_SHIFT;
 	}
 	dd->f_gpio_mod(dd, highs, mask, mask);
-	udelay(20); 
+	udelay(20); /* Generous RST dwell */
 
 	dd->f_gpio_mod(dd, mask, mask, mask);
 	return;
@@ -416,6 +485,12 @@ void qib_qsfp_init(struct qib_qsfp_data *qd,
 
 void qib_qsfp_deinit(struct qib_qsfp_data *qd)
 {
+	/*
+	 * There is nothing to do here for now.  our work is scheduled
+	 * with queue_work(), and flush_workqueue() from remove_one
+	 * will block until all work setup with queue_work()
+	 * completes.
+	 */
 }
 
 int qib_qsfp_dump(struct qib_pportdata *ppd, char *buf, int len)

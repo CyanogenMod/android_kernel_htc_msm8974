@@ -38,25 +38,46 @@ ioremap (unsigned long phys_addr, unsigned long size)
 	unsigned long gran_base, gran_size;
 	unsigned long page_base;
 
+	/*
+	 * For things in kern_memmap, we must use the same attribute
+	 * as the rest of the kernel.  For more details, see
+	 * Documentation/ia64/aliasing.txt.
+	 */
 	attr = kern_mem_attribute(phys_addr, size);
 	if (attr & EFI_MEMORY_WB)
 		return (void __iomem *) phys_to_virt(phys_addr);
 	else if (attr & EFI_MEMORY_UC)
 		return __ioremap(phys_addr);
 
+	/*
+	 * Some chipsets don't support UC access to memory.  If
+	 * WB is supported for the whole granule, we prefer that.
+	 */
 	gran_base = GRANULEROUNDDOWN(phys_addr);
 	gran_size = GRANULEROUNDUP(phys_addr + size) - gran_base;
 	if (efi_mem_attribute(gran_base, gran_size) & EFI_MEMORY_WB)
 		return (void __iomem *) phys_to_virt(phys_addr);
 
+	/*
+	 * WB is not supported for the whole granule, so we can't use
+	 * the region 7 identity mapping.  If we can safely cover the
+	 * area with kernel page table mappings, we can use those
+	 * instead.
+	 */
 	page_base = phys_addr & PAGE_MASK;
 	size = PAGE_ALIGN(phys_addr + size) - page_base;
 	if (efi_mem_attribute(page_base, size) & EFI_MEMORY_WB) {
 		prot = PAGE_KERNEL;
 
+		/*
+		 * Mappings have to be page-aligned
+		 */
 		offset = phys_addr & ~PAGE_MASK;
 		phys_addr &= PAGE_MASK;
 
+		/*
+		 * Ok, go for it..
+		 */
 		area = get_vm_area(size, VM_IOREMAP);
 		if (!area)
 			return NULL;

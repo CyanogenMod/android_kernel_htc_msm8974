@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -48,17 +48,21 @@ struct apr_hdr {
 
 #define APR_HDR_SIZE sizeof(struct apr_hdr)
 
+/* Version */
 #define APR_PKT_VER		0x0
 
+/* Command and Response Types */
 #define APR_MSG_TYPE_EVENT	0x0
 #define APR_MSG_TYPE_CMD_RSP	0x1
 #define APR_MSG_TYPE_SEQ_CMD	0x2
 #define APR_MSG_TYPE_NSEQ_CMD	0x3
 #define APR_MSG_TYPE_MAX	0x04
 
+/* APR Basic Response Message */
 #define APR_BASIC_RSP_RESULT 0x000110E8
 #define APR_RSP_ACCEPTED     0x000100BE
 
+/* Domain IDs */
 #define APR_DOMAIN_SIM	0x1
 #define APR_DOMAIN_PC		0x2
 #define APR_DOMAIN_MODEM	0x3
@@ -66,6 +70,7 @@ struct apr_hdr {
 #define APR_DOMAIN_APPS	0x5
 #define APR_DOMAIN_MAX	0x6
 
+/* ADSP service IDs */
 #define APR_SVC_TEST_CLIENT     0x2
 #define APR_SVC_ADSP_CORE	0x3
 #define APR_SVC_AFE		0x4
@@ -81,13 +86,15 @@ struct apr_hdr {
 #define APR_SVC_VIDC		0x16
 #define APR_SVC_MAX		0x17
 
+/* Modem Service IDs */
 #define APR_SVC_MVS		0x3
 #define APR_SVC_MVM		0x4
 #define APR_SVC_CVS		0x5
 #define APR_SVC_CVP		0x6
 #define APR_SVC_SRD		0x7
 
-#define APR_MAX_PORTS		0x40
+/* APR Port IDs */
+#define APR_MAX_PORTS		0x80
 
 #define APR_NAME_MAX		0x40
 

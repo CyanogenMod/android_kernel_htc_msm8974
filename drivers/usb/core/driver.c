@@ -34,6 +34,10 @@
 
 #ifdef CONFIG_HOTPLUG
 
+/*
+ * Adds a new dynamic USBdevice ID to this driver,
+ * and cause the driver to probe for all devices again.
+ */
 ssize_t usb_store_new_id(struct usb_dynids *dynids,
 			 struct device_driver *driver,
 			 const char *buf, size_t count)
@@ -84,6 +88,14 @@ static ssize_t store_new_id(struct device_driver *driver,
 }
 static DRIVER_ATTR(new_id, S_IWUSR, NULL, store_new_id);
 
+/**
+ * store_remove_id - remove a USB device ID from this driver
+ * @driver: target device driver
+ * @buf: buffer for scanning device ID data
+ * @count: input size
+ *
+ * Removes a dynamic usb device ID from this driver.
+ */
 static ssize_t
 store_remove_id(struct device_driver *driver, const char *buf, size_t count)
 {
@@ -195,6 +207,7 @@ static const struct usb_device_id *usb_match_dynamic_id(struct usb_interface *in
 }
 
 
+/* called from driver core with dev locked */
 static int usb_probe_device(struct device *dev)
 {
 	struct usb_device_driver *udriver = to_usb_device_driver(dev->driver);
@@ -203,8 +216,11 @@ static int usb_probe_device(struct device *dev)
 
 	dev_dbg(dev, "%s\n", __func__);
 
-	
+	/* TODO: Add real matching code */
 
+	/* The device should always appear to be in use
+	 * unless the driver suports autosuspend.
+	 */
 	if (!udriver->supports_autosuspend)
 		error = usb_autoresume_device(udev);
 
@@ -213,6 +229,7 @@ static int usb_probe_device(struct device *dev)
 	return error;
 }
 
+/* called from driver core with dev locked */
 static int usb_unbind_device(struct device *dev)
 {
 	struct usb_device *udev = to_usb_device(dev);
@@ -224,12 +241,22 @@ static int usb_unbind_device(struct device *dev)
 	return 0;
 }
 
+/*
+ * Cancel any pending scheduled resets
+ *
+ * [see usb_queue_reset_device()]
+ *
+ * Called after unconfiguring / when releasing interfaces. See
+ * comments in __usb_queue_reset_device() regarding
+ * udev->reset_running.
+ */
 static void usb_cancel_queued_reset(struct usb_interface *iface)
 {
 	if (iface->reset_running == 0)
 		cancel_work_sync(&iface->reset_ws);
 }
 
+/* called from driver core with dev locked */
 static int usb_probe_interface(struct device *dev)
 {
 	struct usb_driver *driver = to_usb_driver(dev->driver);
@@ -264,12 +291,16 @@ static int usb_probe_interface(struct device *dev)
 
 	intf->condition = USB_INTERFACE_BINDING;
 
+	/* Probed interfaces are initially active.  They are
+	 * runtime-PM-enabled only if the driver has autosuspend support.
+	 * They are sensitive to their children's power states.
+	 */
 	pm_runtime_set_active(dev);
 	pm_suspend_ignore_children(dev, false);
 	if (driver->supports_autosuspend)
 		pm_runtime_enable(dev);
 
-	
+	/* Carry out a deferred switch to altsetting 0 */
 	if (intf->needs_altsetting0) {
 		error = usb_set_interface(udev, intf->altsetting[0].
 				desc.bInterfaceNumber, 0);
@@ -291,7 +322,7 @@ static int usb_probe_interface(struct device *dev)
 	intf->condition = USB_INTERFACE_UNBOUND;
 	usb_cancel_queued_reset(intf);
 
-	
+	/* Unbound interfaces are always runtime-PM-disabled and -suspended */
 	if (driver->supports_autosuspend)
 		pm_runtime_disable(dev);
 	pm_runtime_set_suspended(dev);
@@ -300,6 +331,7 @@ static int usb_probe_interface(struct device *dev)
 	return error;
 }
 
+/* called from driver core with dev locked */
 static int usb_unbind_interface(struct device *dev)
 {
 	struct usb_driver *driver = to_usb_driver(dev->driver);
@@ -309,17 +341,29 @@ static int usb_unbind_interface(struct device *dev)
 
 	intf->condition = USB_INTERFACE_UNBINDING;
 
-	
+	/* Autoresume for set_interface call below */
 	udev = interface_to_usbdev(intf);
 	error = usb_autoresume_device(udev);
 
+	/* Terminate all URBs for this interface unless the driver
+	 * supports "soft" unbinding.
+	 */
 	if (!driver->soft_unbind)
 		usb_disable_interface(udev, intf, false);
 
 	driver->disconnect(intf);
 	usb_cancel_queued_reset(intf);
 
+	/* Reset other interface state.
+	 * We cannot do a Set-Interface if the device is suspended or
+	 * if it is prepared for a system sleep (since installing a new
+	 * altsetting means creating new endpoint device entries).
+	 * When either of these happens, defer the Set-Interface.
+	 */
 	if (intf->cur_altsetting->desc.bAlternateSetting == 0) {
+		/* Already in altsetting 0 so skip Set-Interface.
+		 * Just re-enable it without affecting the endpoint toggles.
+		 */
 		usb_enable_interface(udev, intf, false);
 	} else if (!error && !intf->dev.power.is_prepared) {
 		r = usb_set_interface(udev, intf->altsetting[0].
@@ -334,12 +378,12 @@ static int usb_unbind_interface(struct device *dev)
 	intf->condition = USB_INTERFACE_UNBOUND;
 	intf->needs_remote_wakeup = 0;
 
-	
+	/* Unbound interfaces are always runtime-PM-disabled and -suspended */
 	if (driver->supports_autosuspend)
 		pm_runtime_disable(dev);
 	pm_runtime_set_suspended(dev);
 
-	
+	/* Undo any residual pm_autopm_get_interface_* calls */
 	for (r = atomic_read(&intf->pm_usage_cnt); r > 0; --r)
 		usb_autopm_put_interface_no_suspend(intf);
 	atomic_set(&intf->pm_usage_cnt, 0);
@@ -350,6 +394,26 @@ static int usb_unbind_interface(struct device *dev)
 	return 0;
 }
 
+/**
+ * usb_driver_claim_interface - bind a driver to an interface
+ * @driver: the driver to be bound
+ * @iface: the interface to which it will be bound; must be in the
+ *	usb device's active configuration
+ * @priv: driver data associated with that interface
+ *
+ * This is used by usb device drivers that need to claim more than one
+ * interface on a device when probing (audio and acm are current examples).
+ * No device driver should directly modify internal usb_interface or
+ * usb_device structure members.
+ *
+ * Few drivers should need to use this routine, since the most natural
+ * way to bind to an interface is to return the private data from
+ * the driver's probe() method.
+ *
+ * Callers must own the device lock, so driver probe() entries don't need
+ * extra locking, but other call contexts may need to explicitly claim that
+ * lock.
+ */
 int usb_driver_claim_interface(struct usb_driver *driver,
 				struct usb_interface *iface, void *priv)
 {
@@ -365,12 +429,21 @@ int usb_driver_claim_interface(struct usb_driver *driver,
 
 	iface->condition = USB_INTERFACE_BOUND;
 
+	/* Claimed interfaces are initially inactive (suspended) and
+	 * runtime-PM-enabled, but only if the driver has autosuspend
+	 * support.  Otherwise they are marked active, to prevent the
+	 * device from being autosuspended, but left disabled.  In either
+	 * case they are sensitive to their children's power states.
+	 */
 	pm_suspend_ignore_children(dev, false);
 	if (driver->supports_autosuspend)
 		pm_runtime_enable(dev);
 	else
 		pm_runtime_set_active(dev);
 
+	/* if interface was already added, bind now; else let
+	 * the future device_add() bind it, bypassing probe()
+	 */
 	if (device_is_registered(dev))
 		retval = device_bind_driver(dev);
 
@@ -378,20 +451,37 @@ int usb_driver_claim_interface(struct usb_driver *driver,
 }
 EXPORT_SYMBOL_GPL(usb_driver_claim_interface);
 
+/**
+ * usb_driver_release_interface - unbind a driver from an interface
+ * @driver: the driver to be unbound
+ * @iface: the interface from which it will be unbound
+ *
+ * This can be used by drivers to release an interface without waiting
+ * for their disconnect() methods to be called.  In typical cases this
+ * also causes the driver disconnect() method to be called.
+ *
+ * This call is synchronous, and may not be used in an interrupt context.
+ * Callers must own the device lock, so driver disconnect() entries don't
+ * need extra locking, but other call contexts may need to explicitly claim
+ * that lock.
+ */
 void usb_driver_release_interface(struct usb_driver *driver,
 					struct usb_interface *iface)
 {
 	struct device *dev = &iface->dev;
 
-	
+	/* this should never happen, don't release something that's not ours */
 	if (!dev->driver || dev->driver != &driver->drvwrap.driver)
 		return;
 
-	
+	/* don't release from within disconnect() */
 	if (iface->condition != USB_INTERFACE_BOUND)
 		return;
 	iface->condition = USB_INTERFACE_UNBINDING;
 
+	/* Release via the driver core only if the interface
+	 * has already been registered
+	 */
 	if (device_is_registered(dev)) {
 		device_release_driver(dev);
 	} else {
@@ -403,6 +493,7 @@ void usb_driver_release_interface(struct usb_driver *driver,
 }
 EXPORT_SYMBOL_GPL(usb_driver_release_interface);
 
+/* returns 0 if no match, 1 if match */
 int usb_match_device(struct usb_device *dev, const struct usb_device_id *id)
 {
 	if ((id->match_flags & USB_DEVICE_ID_MATCH_VENDOR) &&
@@ -413,6 +504,8 @@ int usb_match_device(struct usb_device *dev, const struct usb_device_id *id)
 	    id->idProduct != le16_to_cpu(dev->descriptor.idProduct))
 		return 0;
 
+	/* No need to test id->bcdDevice_lo != 0, since 0 is never
+	   greater than any unsigned number. */
 	if ((id->match_flags & USB_DEVICE_ID_MATCH_DEV_LO) &&
 	    (id->bcdDevice_lo > le16_to_cpu(dev->descriptor.bcdDevice)))
 		return 0;
@@ -436,13 +529,14 @@ int usb_match_device(struct usb_device *dev, const struct usb_device_id *id)
 	return 1;
 }
 
+/* returns 0 if no match, 1 if match */
 int usb_match_one_id(struct usb_interface *interface,
 		     const struct usb_device_id *id)
 {
 	struct usb_host_interface *intf;
 	struct usb_device *dev;
 
-	
+	/* proc_connectinfo in devio.c may call us with id == NULL. */
 	if (id == NULL)
 		return 0;
 
@@ -452,6 +546,9 @@ int usb_match_one_id(struct usb_interface *interface,
 	if (!usb_match_device(dev, id))
 		return 0;
 
+	/* The interface class, subclass, protocol and number should never be
+	 * checked for a match if the device class is Vendor Specific,
+	 * unless the match record specifies the Vendor ID. */
 	if (dev->descriptor.bDeviceClass == USB_CLASS_VENDOR_SPEC &&
 			!(id->match_flags & USB_DEVICE_ID_MATCH_VENDOR) &&
 			(id->match_flags & (USB_DEVICE_ID_MATCH_INT_CLASS |
@@ -480,13 +577,89 @@ int usb_match_one_id(struct usb_interface *interface,
 }
 EXPORT_SYMBOL_GPL(usb_match_one_id);
 
+/**
+ * usb_match_id - find first usb_device_id matching device or interface
+ * @interface: the interface of interest
+ * @id: array of usb_device_id structures, terminated by zero entry
+ *
+ * usb_match_id searches an array of usb_device_id's and returns
+ * the first one matching the device or interface, or null.
+ * This is used when binding (or rebinding) a driver to an interface.
+ * Most USB device drivers will use this indirectly, through the usb core,
+ * but some layered driver frameworks use it directly.
+ * These device tables are exported with MODULE_DEVICE_TABLE, through
+ * modutils, to support the driver loading functionality of USB hotplugging.
+ *
+ * What Matches:
+ *
+ * The "match_flags" element in a usb_device_id controls which
+ * members are used.  If the corresponding bit is set, the
+ * value in the device_id must match its corresponding member
+ * in the device or interface descriptor, or else the device_id
+ * does not match.
+ *
+ * "driver_info" is normally used only by device drivers,
+ * but you can create a wildcard "matches anything" usb_device_id
+ * as a driver's "modules.usbmap" entry if you provide an id with
+ * only a nonzero "driver_info" field.  If you do this, the USB device
+ * driver's probe() routine should use additional intelligence to
+ * decide whether to bind to the specified interface.
+ *
+ * What Makes Good usb_device_id Tables:
+ *
+ * The match algorithm is very simple, so that intelligence in
+ * driver selection must come from smart driver id records.
+ * Unless you have good reasons to use another selection policy,
+ * provide match elements only in related groups, and order match
+ * specifiers from specific to general.  Use the macros provided
+ * for that purpose if you can.
+ *
+ * The most specific match specifiers use device descriptor
+ * data.  These are commonly used with product-specific matches;
+ * the USB_DEVICE macro lets you provide vendor and product IDs,
+ * and you can also match against ranges of product revisions.
+ * These are widely used for devices with application or vendor
+ * specific bDeviceClass values.
+ *
+ * Matches based on device class/subclass/protocol specifications
+ * are slightly more general; use the USB_DEVICE_INFO macro, or
+ * its siblings.  These are used with single-function devices
+ * where bDeviceClass doesn't specify that each interface has
+ * its own class.
+ *
+ * Matches based on interface class/subclass/protocol are the
+ * most general; they let drivers bind to any interface on a
+ * multiple-function device.  Use the USB_INTERFACE_INFO
+ * macro, or its siblings, to match class-per-interface style
+ * devices (as recorded in bInterfaceClass).
+ *
+ * Note that an entry created by USB_INTERFACE_INFO won't match
+ * any interface if the device class is set to Vendor-Specific.
+ * This is deliberate; according to the USB spec the meanings of
+ * the interface class/subclass/protocol for these devices are also
+ * vendor-specific, and hence matching against a standard product
+ * class wouldn't work anyway.  If you really want to use an
+ * interface-based match for such a device, create a match record
+ * that also specifies the vendor ID.  (Unforunately there isn't a
+ * standard macro for creating records like this.)
+ *
+ * Within those groups, remember that not all combinations are
+ * meaningful.  For example, don't give a product version range
+ * without vendor and product IDs; or specify a protocol without
+ * its associated class and subclass.
+ */
 const struct usb_device_id *usb_match_id(struct usb_interface *interface,
 					 const struct usb_device_id *id)
 {
-	
+	/* proc_connectinfo in devio.c may call us with id == NULL. */
 	if (id == NULL)
 		return NULL;
 
+	/* It is important to check that id->driver_info is nonzero,
+	   since an entry that is all zeroes except for a nonzero
+	   id->driver_info is the way to create an entry that
+	   indicates that the driver want to examine every
+	   device and interface. */
 	for (; id->idVendor || id->idProduct || id->bDeviceClass ||
 	       id->bInterfaceClass || id->driver_info; id++) {
 		if (usb_match_one_id(interface, id))
@@ -499,14 +672,14 @@ EXPORT_SYMBOL_GPL(usb_match_id);
 
 static int usb_device_match(struct device *dev, struct device_driver *drv)
 {
-	
+	/* devices and interfaces are handled separately */
 	if (is_usb_device(dev)) {
 
-		
+		/* interface drivers never match devices */
 		if (!is_usb_device_driver(drv))
 			return 0;
 
-		
+		/* TODO: Add real matching code */
 		return 1;
 
 	} else if (is_usb_interface(dev)) {
@@ -514,7 +687,7 @@ static int usb_device_match(struct device *dev, struct device_driver *drv)
 		struct usb_driver *usb_drv;
 		const struct usb_device_id *id;
 
-		
+		/* device drivers never match interfaces */
 		if (is_usb_device_driver(drv))
 			return 0;
 
@@ -549,7 +722,7 @@ static int usb_uevent(struct device *dev, struct kobj_uevent_env *env)
 	}
 
 	if (usb_dev->devnum < 0) {
-		
+		/* driver is often null here; dev_dbg() would oops */
 		pr_debug("usb %s: already deleted?\n", dev_name(dev));
 		return -ENODEV;
 	}
@@ -559,19 +732,23 @@ static int usb_uevent(struct device *dev, struct kobj_uevent_env *env)
 	}
 
 #ifdef	CONFIG_USB_DEVICEFS
+	/* If this is available, userspace programs can directly read
+	 * all the device descriptors we don't tell them about.  Or
+	 * act as usermode drivers.
+	 */
 	if (add_uevent_var(env, "DEVICE=/proc/bus/usb/%03d/%03d",
 			   usb_dev->bus->busnum, usb_dev->devnum))
 		return -ENOMEM;
 #endif
 
-	
+	/* per-device configurations are common */
 	if (add_uevent_var(env, "PRODUCT=%x/%x/%x",
 			   le16_to_cpu(usb_dev->descriptor.idVendor),
 			   le16_to_cpu(usb_dev->descriptor.idProduct),
 			   le16_to_cpu(usb_dev->descriptor.bcdDevice)))
 		return -ENOMEM;
 
-	
+	/* class-based driver binding models */
 	if (add_uevent_var(env, "TYPE=%d/%d/%d",
 			   usb_dev->descriptor.bDeviceClass,
 			   usb_dev->descriptor.bDeviceSubClass,
@@ -587,8 +764,18 @@ static int usb_uevent(struct device *dev, struct kobj_uevent_env *env)
 {
 	return -ENODEV;
 }
-#endif	
+#endif	/* CONFIG_HOTPLUG */
 
+/**
+ * usb_register_device_driver - register a USB device (not interface) driver
+ * @new_udriver: USB operations for the device driver
+ * @owner: module owner of this driver.
+ *
+ * Registers a USB device driver with the USB core.  The list of
+ * unattached devices will be rescanned whenever a new driver is
+ * added, allowing the new driver to attach to any recognized devices.
+ * Returns a negative error code on failure and 0 on success.
+ */
 int usb_register_device_driver(struct usb_device_driver *new_udriver,
 		struct module *owner)
 {
@@ -620,6 +807,13 @@ int usb_register_device_driver(struct usb_device_driver *new_udriver,
 }
 EXPORT_SYMBOL_GPL(usb_register_device_driver);
 
+/**
+ * usb_deregister_device_driver - unregister a USB device (not interface) driver
+ * @udriver: USB operations of the device driver to unregister
+ * Context: must be able to sleep
+ *
+ * Unlinks the specified driver from the internal USB driver list.
+ */
 void usb_deregister_device_driver(struct usb_device_driver *udriver)
 {
 	pr_info("%s: deregistering device driver %s\n",
@@ -630,6 +824,21 @@ void usb_deregister_device_driver(struct usb_device_driver *udriver)
 }
 EXPORT_SYMBOL_GPL(usb_deregister_device_driver);
 
+/**
+ * usb_register_driver - register a USB interface driver
+ * @new_driver: USB operations for the interface driver
+ * @owner: module owner of this driver.
+ * @mod_name: module name string
+ *
+ * Registers a USB interface driver with the USB core.  The list of
+ * unattached interfaces will be rescanned whenever a new driver is
+ * added, allowing the new driver to attach to any recognized interfaces.
+ * Returns a negative error code on failure and 0 on success.
+ *
+ * NOTE: if you want your driver to use the USB major number, you must call
+ * usb_register_dev() to enable that functionality.  This function no longer
+ * takes care of that.
+ */
 int usb_register_driver(struct usb_driver *new_driver, struct module *owner,
 			const char *mod_name)
 {
@@ -674,6 +883,17 @@ out_newid:
 }
 EXPORT_SYMBOL_GPL(usb_register_driver);
 
+/**
+ * usb_deregister - unregister a USB interface driver
+ * @driver: USB operations of the interface driver to unregister
+ * Context: must be able to sleep
+ *
+ * Unlinks the specified driver from the internal USB driver list.
+ *
+ * NOTE: If you called usb_register_dev(), you still need to call
+ * usb_deregister_dev() to clean up your driver's allocated minor numbers,
+ * this * call will no longer do it for you.
+ */
 void usb_deregister(struct usb_driver *driver)
 {
 	pr_info("%s: deregistering interface driver %s\n",
@@ -687,6 +907,13 @@ void usb_deregister(struct usb_driver *driver)
 }
 EXPORT_SYMBOL_GPL(usb_deregister);
 
+/* Forced unbinding of a USB interface driver, either because
+ * it doesn't support pre_reset/post_reset/reset_resume or
+ * because it doesn't support suspend/resume.
+ *
+ * The caller must hold @intf's device's lock, but not its pm_mutex
+ * and not @intf->dev.sem.
+ */
 void usb_forced_unbind_intf(struct usb_interface *intf)
 {
 	struct usb_driver *driver = to_usb_driver(intf->dev.driver);
@@ -694,19 +921,28 @@ void usb_forced_unbind_intf(struct usb_interface *intf)
 	dev_dbg(&intf->dev, "forced unbind\n");
 	usb_driver_release_interface(driver, intf);
 
-	
+	/* Mark the interface for later rebinding */
 	intf->needs_binding = 1;
 }
 
+/* Delayed forced unbinding of a USB interface driver and scan
+ * for rebinding.
+ *
+ * The caller must hold @intf's device's lock, but not its pm_mutex
+ * and not @intf->dev.sem.
+ *
+ * Note: Rebinds will be skipped if a system sleep transition is in
+ * progress and the PM "complete" callback hasn't occurred yet.
+ */
 void usb_rebind_intf(struct usb_interface *intf)
 {
 	int rc;
 
-	
+	/* Delayed unbind of an existing driver */
 	if (intf->dev.driver)
 		usb_forced_unbind_intf(intf);
 
-	
+	/* Try to rebind the interface */
 	if (!intf->dev.power.is_prepared) {
 		intf->needs_binding = 0;
 		rc = device_attach(&intf->dev);
@@ -717,6 +953,12 @@ void usb_rebind_intf(struct usb_interface *intf)
 
 #ifdef CONFIG_PM
 
+/* Unbind drivers for @udev's interfaces that don't support suspend/resume
+ * There is no check for reset_resume here because it can be determined
+ * only during resume whether reset_resume is needed.
+ *
+ * The caller must hold @udev's device lock.
+ */
 static void unbind_no_pm_drivers_interfaces(struct usb_device *udev)
 {
 	struct usb_host_config	*config;
@@ -738,6 +980,11 @@ static void unbind_no_pm_drivers_interfaces(struct usb_device *udev)
 	}
 }
 
+/* Unbind drivers for @udev's interfaces that failed to support reset-resume.
+ * These interfaces have the needs_binding flag set by usb_resume_interface().
+ *
+ * The caller must hold @udev's device lock.
+ */
 static void unbind_no_reset_resume_drivers_interfaces(struct usb_device *udev)
 {
 	struct usb_host_config	*config;
@@ -779,7 +1026,7 @@ static int usb_suspend_device(struct usb_device *udev, pm_message_t msg)
 			udev->state == USB_STATE_SUSPENDED)
 		goto done;
 
-	
+	/* For devices that don't have a driver, we do a generic suspend. */
 	if (udev->dev.driver)
 		udriver = to_usb_device_driver(udev->dev.driver);
 	else {
@@ -801,12 +1048,15 @@ static int usb_resume_device(struct usb_device *udev, pm_message_t msg)
 	if (udev->state == USB_STATE_NOTATTACHED)
 		goto done;
 
-	
+	/* Can't resume it if it doesn't have a driver. */
 	if (udev->dev.driver == NULL) {
 		status = -ENOTCONN;
 		goto done;
 	}
 
+	/* Non-root devices on a full/low-speed bus must wait for their
+	 * companion high-speed root hub, in case a handoff is needed.
+	 */
 	if (!PMSG_IS_AUTO(msg) && udev->parent && udev->bus->hs_companion)
 		device_pm_wait_for_dev(&udev->dev,
 				&udev->bus->hs_companion->root_hub->dev);
@@ -833,7 +1083,7 @@ static int usb_suspend_interface(struct usb_device *udev,
 		goto done;
 	driver = to_usb_driver(intf->dev.driver);
 
-	
+	/* at this time we know the driver supports suspend */
 	status = driver->suspend(intf, msg);
 	if (status && !PMSG_IS_AUTO(msg))
 		dev_err(&intf->dev, "suspend error %d\n", status);
@@ -852,14 +1102,14 @@ static int usb_resume_interface(struct usb_device *udev,
 	if (udev->state == USB_STATE_NOTATTACHED)
 		goto done;
 
-	
+	/* Don't let autoresume interfere with unbinding */
 	if (intf->condition == USB_INTERFACE_UNBINDING)
 		goto done;
 
-	
+	/* Can't resume it if it doesn't have a driver. */
 	if (intf->condition == USB_INTERFACE_UNBOUND) {
 
-		
+		/* Carry out a deferred switch to altsetting 0 */
 		if (intf->needs_altsetting0 && !intf->dev.power.is_prepared) {
 			usb_set_interface(udev, intf->altsetting[0].
 					desc.bInterfaceNumber, 0);
@@ -868,7 +1118,7 @@ static int usb_resume_interface(struct usb_device *udev,
 		goto done;
 	}
 
-	
+	/* Don't resume if the interface is marked for rebinding */
 	if (intf->needs_binding)
 		goto done;
 	driver = to_usb_driver(intf->dev.driver);
@@ -893,10 +1143,30 @@ static int usb_resume_interface(struct usb_device *udev,
 done:
 	dev_vdbg(&intf->dev, "%s: status %d\n", __func__, status);
 
-	
+	/* Later we will unbind the driver and/or reprobe, if necessary */
 	return status;
 }
 
+/**
+ * usb_suspend_both - suspend a USB device and its interfaces
+ * @udev: the usb_device to suspend
+ * @msg: Power Management message describing this state transition
+ *
+ * This is the central routine for suspending USB devices.  It calls the
+ * suspend methods for all the interface drivers in @udev and then calls
+ * the suspend method for @udev itself.  If an error occurs at any stage,
+ * all the interfaces which were suspended are resumed so that they remain
+ * in the same state as the device.
+ *
+ * Autosuspend requests originating from a child device or an interface
+ * driver may be made without the protection of @udev's device lock, but
+ * all other suspend calls will hold the lock.  Usbcore will insure that
+ * method calls do not arrive during bind, unbind, or reset operations.
+ * However drivers must be prepared to handle suspend calls arriving at
+ * unpredictable times.
+ *
+ * This routine can run only in process context.
+ */
 static int usb_suspend_both(struct usb_device *udev, pm_message_t msg)
 {
 	int			status = 0;
@@ -907,14 +1177,14 @@ static int usb_suspend_both(struct usb_device *udev, pm_message_t msg)
 			udev->state == USB_STATE_SUSPENDED)
 		goto done;
 
-	
+	/* Suspend all the interfaces and then udev itself */
 	if (udev->actconfig) {
 		n = udev->actconfig->desc.bNumInterfaces;
 		for (i = n - 1; i >= 0; --i) {
 			intf = udev->actconfig->interface[i];
 			status = usb_suspend_interface(udev, intf, msg);
 
-			
+			/* Ignore errors during system sleep transitions */
 			if (!PMSG_IS_AUTO(msg))
 				status = 0;
 			if (status != 0)
@@ -924,11 +1194,17 @@ static int usb_suspend_both(struct usb_device *udev, pm_message_t msg)
 	if (status == 0) {
 		status = usb_suspend_device(udev, msg);
 
+		/*
+		 * Ignore errors from non-root-hub devices during
+		 * system sleep transitions.  For the most part,
+		 * these devices should go to low power anyway when
+		 * the entire bus is suspended.
+		 */
 		if (udev->parent && !PMSG_IS_AUTO(msg))
 			status = 0;
 	}
 
-	
+	/* If the suspend failed, resume interfaces that did get suspended */
 	if (status != 0) {
 		msg.event ^= (PM_EVENT_SUSPEND | PM_EVENT_RESUME);
 		while (++i < n) {
@@ -936,6 +1212,9 @@ static int usb_suspend_both(struct usb_device *udev, pm_message_t msg)
 			usb_resume_interface(udev, intf, msg, 0);
 		}
 
+	/* If the suspend succeeded then prevent any more URB submissions
+	 * and flush any outstanding URBs.
+	 */
 	} else {
 		udev->can_submit = 0;
 		for (i = 0; i < 16; ++i) {
@@ -949,6 +1228,24 @@ static int usb_suspend_both(struct usb_device *udev, pm_message_t msg)
 	return status;
 }
 
+/**
+ * usb_resume_both - resume a USB device and its interfaces
+ * @udev: the usb_device to resume
+ * @msg: Power Management message describing this state transition
+ *
+ * This is the central routine for resuming USB devices.  It calls the
+ * the resume method for @udev and then calls the resume methods for all
+ * the interface drivers in @udev.
+ *
+ * Autoresume requests originating from a child device or an interface
+ * driver may be made without the protection of @udev's device lock, but
+ * all other resume calls will hold the lock.  Usbcore will insure that
+ * method calls do not arrive during bind, unbind, or reset operations.
+ * However drivers must be prepared to handle resume calls arriving at
+ * unpredictable times.
+ *
+ * This routine can run only in process context.
+ */
 static int usb_resume_both(struct usb_device *udev, pm_message_t msg)
 {
 	int			status = 0;
@@ -961,11 +1258,11 @@ static int usb_resume_both(struct usb_device *udev, pm_message_t msg)
 	}
 	udev->can_submit = 1;
 
-	
+	/* Resume the device */
 	if (udev->state == USB_STATE_SUSPENDED || udev->reset_resume)
 		status = usb_resume_device(udev, msg);
 
-	
+	/* Resume the interfaces */
 	if (status == 0 && udev->actconfig) {
 		for (i = 0; i < udev->actconfig->desc.bNumInterfaces; i++) {
 			intf = udev->actconfig->interface[i];
@@ -987,6 +1284,11 @@ static int usb_resume_both(struct usb_device *udev, pm_message_t msg)
 #define DO_UNBIND      0
 #define DO_REBIND      1
 
+/* Unbind drivers for @udev's interfaces that don't support suspend/resume,
+ * or rebind interfaces that have been unbound, according to @action.
+ *
+ * The caller must hold @udev's device lock.
+ */
 static void do_unbind_rebind(struct usb_device *udev, int action)
 {
        struct usb_host_config  *config;
@@ -1023,6 +1325,10 @@ void usb_hnp_polling_work(struct work_struct *work)
 	struct usb_device *udev = bus->root_hub->children[bus->otg_port - 1];
 	u8 *status = NULL;
 
+	/*
+	 * The OTG-B device must hand back the host role to OTG PET
+	 * within 100 msec irrespective of host_request flag.
+	 */
 	if (bus->quick_hnp) {
 		bus->quick_hnp = 0;
 		goto start_hnp;
@@ -1037,7 +1343,7 @@ void usb_hnp_polling_work(struct work_struct *work)
 		0, OTG_STATUS_SELECTOR, status, sizeof(*status),
 		USB_CTRL_GET_TIMEOUT);
 	if (ret < 0) {
-		
+		/* Peripheral may not be supporting HNP polling */
 		dev_info(&udev->dev, "HNP polling failed. status %d\n", ret);
 		goto out;
 	}
@@ -1065,19 +1371,30 @@ static void choose_wakeup(struct usb_device *udev, pm_message_t msg)
 {
 	int	w;
 
+	/* Remote wakeup is needed only when we actually go to sleep.
+	 * For things like FREEZE and QUIESCE, if the device is already
+	 * autosuspended then its current wakeup setting is okay.
+	 */
 	if (msg.event == PM_EVENT_FREEZE || msg.event == PM_EVENT_QUIESCE) {
 		if (udev->state != USB_STATE_SUSPENDED)
 			udev->do_remote_wakeup = 0;
 		return;
 	}
 
+	/* Enable remote wakeup if it is allowed, even if no interface drivers
+	 * actually want it.
+	 */
 	w = device_may_wakeup(&udev->dev);
 
+	/* If the device is autosuspended with the wrong wakeup setting,
+	 * autoresume now so the setting can be changed.
+	 */
 	if (udev->state == USB_STATE_SUSPENDED && w != udev->do_remote_wakeup)
 		pm_runtime_resume(&udev->dev);
 	udev->do_remote_wakeup = w;
 }
 
+/* The device lock is held by the PM core */
 int usb_suspend(struct device *dev, pm_message_t msg)
 {
 	struct usb_device	*udev = to_usb_device(dev);
@@ -1093,27 +1410,49 @@ int usb_suspend(struct device *dev, pm_message_t msg)
 
 	unbind_no_pm_drivers_interfaces(udev);
 
+	/* From now on we are sure all drivers support suspend/resume
+	 * but not necessarily reset_resume()
+	 * so we may still need to unbind and rebind upon resume
+	 */
 	choose_wakeup(udev, msg);
 	return usb_suspend_both(udev, msg);
 }
 
+/* The device lock is held by the PM core */
 int usb_resume_complete(struct device *dev)
 {
 	struct usb_device *udev = to_usb_device(dev);
 
+	/* For PM complete calls, all we do is rebind interfaces
+	 * whose needs_binding flag is set
+	 */
 	if (udev->state != USB_STATE_NOTATTACHED)
 		do_rebind_interfaces(udev);
 	return 0;
 }
 
+/* The device lock is held by the PM core */
 int usb_resume(struct device *dev, pm_message_t msg)
 {
 	struct usb_device	*udev = to_usb_device(dev);
 	int			status;
 
+	/*
+	 * Some buses would like to keep their devices in suspend
+	 * state after system resume.  Their resume happen when
+	 * a remote wakeup is detected or interface driver start
+	 * I/O.
+	 */
 	if (udev->bus->skip_resume)
 		return 0;
 
+	/* For all calls, take the device back to full power and
+	 * tell the PM core in case it was autosuspended previously.
+	 * Unbind the interfaces that will need rebinding later,
+	 * because they fail to support reset_resume.
+	 * (This can't be done in usb_resume_interface()
+	 * above because it doesn't own the right set of locks.)
+	 */
 	status = usb_resume_both(udev, msg);
 	if (status == 0) {
 		pm_runtime_disable(dev);
@@ -1122,27 +1461,65 @@ int usb_resume(struct device *dev, pm_message_t msg)
 		unbind_no_reset_resume_drivers_interfaces(udev);
 	}
 
+	/* Avoid PM error messages for devices disconnected while suspended
+	 * as we'll display regular disconnect messages just a bit later.
+	 */
 	if (status == -ENODEV || status == -ESHUTDOWN)
 		status = 0;
 	return status;
 }
 
-#endif 
+#endif /* CONFIG_PM */
 
 #ifdef CONFIG_USB_SUSPEND
 
+/**
+ * usb_enable_autosuspend - allow a USB device to be autosuspended
+ * @udev: the USB device which may be autosuspended
+ *
+ * This routine allows @udev to be autosuspended.  An autosuspend won't
+ * take place until the autosuspend_delay has elapsed and all the other
+ * necessary conditions are satisfied.
+ *
+ * The caller must hold @udev's device lock.
+ */
 void usb_enable_autosuspend(struct usb_device *udev)
 {
 	pm_runtime_allow(&udev->dev);
 }
 EXPORT_SYMBOL_GPL(usb_enable_autosuspend);
 
+/**
+ * usb_disable_autosuspend - prevent a USB device from being autosuspended
+ * @udev: the USB device which may not be autosuspended
+ *
+ * This routine prevents @udev from being autosuspended and wakes it up
+ * if it is already autosuspended.
+ *
+ * The caller must hold @udev's device lock.
+ */
 void usb_disable_autosuspend(struct usb_device *udev)
 {
 	pm_runtime_forbid(&udev->dev);
 }
 EXPORT_SYMBOL_GPL(usb_disable_autosuspend);
 
+/**
+ * usb_autosuspend_device - delayed autosuspend of a USB device and its interfaces
+ * @udev: the usb_device to autosuspend
+ *
+ * This routine should be called when a core subsystem is finished using
+ * @udev and wants to allow it to autosuspend.  Examples would be when
+ * @udev's device file in usbfs is closed or after a configuration change.
+ *
+ * @udev's usage counter is decremented; if it drops to 0 and all the
+ * interfaces are inactive then a delayed autosuspend will be attempted.
+ * The attempt may fail (see autosuspend_check()).
+ *
+ * The caller must hold @udev's device lock.
+ *
+ * This routine can run only in process context.
+ */
 void usb_autosuspend_device(struct usb_device *udev)
 {
 	int	status;
@@ -1154,6 +1531,24 @@ void usb_autosuspend_device(struct usb_device *udev)
 			status);
 }
 
+/**
+ * usb_autoresume_device - immediately autoresume a USB device and its interfaces
+ * @udev: the usb_device to autoresume
+ *
+ * This routine should be called when a core subsystem wants to use @udev
+ * and needs to guarantee that it is not suspended.  No autosuspend will
+ * occur until usb_autosuspend_device() is called.  (Note that this will
+ * not prevent suspend events originating in the PM core.)  Examples would
+ * be when @udev's device file in usbfs is opened or when a remote-wakeup
+ * request is received.
+ *
+ * @udev's usage counter is incremented to prevent subsequent autosuspends.
+ * However if the autoresume fails then the usage counter is re-decremented.
+ *
+ * The caller must hold @udev's device lock.
+ *
+ * This routine can run only in process context.
+ */
 int usb_autoresume_device(struct usb_device *udev)
 {
 	int	status;
@@ -1169,6 +1564,21 @@ int usb_autoresume_device(struct usb_device *udev)
 	return status;
 }
 
+/**
+ * usb_autopm_put_interface - decrement a USB interface's PM-usage counter
+ * @intf: the usb_interface whose counter should be decremented
+ *
+ * This routine should be called by an interface driver when it is
+ * finished using @intf and wants to allow it to autosuspend.  A typical
+ * example would be a character-device driver when its device file is
+ * closed.
+ *
+ * The routine decrements @intf's usage counter.  When the counter reaches
+ * 0, a delayed autosuspend request for @intf's device is attempted.  The
+ * attempt may fail (see autosuspend_check()).
+ *
+ * This routine can run only in process context.
+ */
 void usb_autopm_put_interface(struct usb_interface *intf)
 {
 	struct usb_device	*udev = interface_to_usbdev(intf);
@@ -1183,6 +1593,21 @@ void usb_autopm_put_interface(struct usb_interface *intf)
 }
 EXPORT_SYMBOL_GPL(usb_autopm_put_interface);
 
+/**
+ * usb_autopm_put_interface_async - decrement a USB interface's PM-usage counter
+ * @intf: the usb_interface whose counter should be decremented
+ *
+ * This routine does much the same thing as usb_autopm_put_interface():
+ * It decrements @intf's usage counter and schedules a delayed
+ * autosuspend request if the counter is <= 0.  The difference is that it
+ * does not perform any synchronization; callers should hold a private
+ * lock and handle all synchronization issues themselves.
+ *
+ * Typically a driver would call this routine during an URB's completion
+ * handler, if no more URBs were pending.
+ *
+ * This routine can run in atomic context.
+ */
 void usb_autopm_put_interface_async(struct usb_interface *intf)
 {
 	struct usb_device	*udev = interface_to_usbdev(intf);
@@ -1197,6 +1622,15 @@ void usb_autopm_put_interface_async(struct usb_interface *intf)
 }
 EXPORT_SYMBOL_GPL(usb_autopm_put_interface_async);
 
+/**
+ * usb_autopm_put_interface_no_suspend - decrement a USB interface's PM-usage counter
+ * @intf: the usb_interface whose counter should be decremented
+ *
+ * This routine decrements @intf's usage counter but does not carry out an
+ * autosuspend.
+ *
+ * This routine can run in atomic context.
+ */
 void usb_autopm_put_interface_no_suspend(struct usb_interface *intf)
 {
 	struct usb_device	*udev = interface_to_usbdev(intf);
@@ -1207,6 +1641,23 @@ void usb_autopm_put_interface_no_suspend(struct usb_interface *intf)
 }
 EXPORT_SYMBOL_GPL(usb_autopm_put_interface_no_suspend);
 
+/**
+ * usb_autopm_get_interface - increment a USB interface's PM-usage counter
+ * @intf: the usb_interface whose counter should be incremented
+ *
+ * This routine should be called by an interface driver when it wants to
+ * use @intf and needs to guarantee that it is not suspended.  In addition,
+ * the routine prevents @intf from being autosuspended subsequently.  (Note
+ * that this will not prevent suspend events originating in the PM core.)
+ * This prevention will persist until usb_autopm_put_interface() is called
+ * or @intf is unbound.  A typical example would be a character-device
+ * driver when its device file is opened.
+ *
+ * @intf's usage counter is incremented to prevent subsequent autosuspends.
+ * However if the autoresume fails then the counter is re-decremented.
+ *
+ * This routine can run only in process context.
+ */
 int usb_autopm_get_interface(struct usb_interface *intf)
 {
 	int	status;
@@ -1225,6 +1676,21 @@ int usb_autopm_get_interface(struct usb_interface *intf)
 }
 EXPORT_SYMBOL_GPL(usb_autopm_get_interface);
 
+/**
+ * usb_autopm_get_interface_async - increment a USB interface's PM-usage counter
+ * @intf: the usb_interface whose counter should be incremented
+ *
+ * This routine does much the same thing as
+ * usb_autopm_get_interface(): It increments @intf's usage counter and
+ * queues an autoresume request if the device is suspended.  The
+ * differences are that it does not perform any synchronization (callers
+ * should hold a private lock and handle all synchronization issues
+ * themselves), and it does not autoresume the device directly (it only
+ * queues a request).  After a successful call, the device may not yet be
+ * resumed.
+ *
+ * This routine can run in atomic context.
+ */
 int usb_autopm_get_interface_async(struct usb_interface *intf)
 {
 	int	status;
@@ -1243,6 +1709,15 @@ int usb_autopm_get_interface_async(struct usb_interface *intf)
 }
 EXPORT_SYMBOL_GPL(usb_autopm_get_interface_async);
 
+/**
+ * usb_autopm_get_interface_no_resume - increment a USB interface's PM-usage counter
+ * @intf: the usb_interface whose counter should be incremented
+ *
+ * This routine increments @intf's usage counter but does not carry out an
+ * autoresume.
+ *
+ * This routine can run in atomic context.
+ */
 void usb_autopm_get_interface_no_resume(struct usb_interface *intf)
 {
 	struct usb_device	*udev = interface_to_usbdev(intf);
@@ -1253,22 +1728,35 @@ void usb_autopm_get_interface_no_resume(struct usb_interface *intf)
 }
 EXPORT_SYMBOL_GPL(usb_autopm_get_interface_no_resume);
 
+/* Internal routine to check whether we may autosuspend a device. */
 static int autosuspend_check(struct usb_device *udev)
 {
 	int			w, i;
 	struct usb_interface	*intf;
 
+	/* Fail if autosuspend is disabled, or any interfaces are in use, or
+	 * any interface drivers require remote wakeup but it isn't available.
+	 */
 	w = 0;
 	if (udev->actconfig) {
 		for (i = 0; i < udev->actconfig->desc.bNumInterfaces; i++) {
 			intf = udev->actconfig->interface[i];
 
+			/* We don't need to check interfaces that are
+			 * disabled for runtime PM.  Either they are unbound
+			 * or else their drivers don't support autosuspend
+			 * and so they are permanently active.
+			 */
 			if (intf->dev.power.disable_depth)
 				continue;
 			if (atomic_read(&intf->dev.power.usage_count) > 0)
 				return -EBUSY;
 			w |= intf->needs_remote_wakeup;
 
+			/* Don't allow autosuspend if the device will need
+			 * a reset-resume and any of its interface drivers
+			 * doesn't include support or needs remote wakeup.
+			 */
 			if (udev->quirks & USB_QUIRK_RESET_RESUME) {
 				struct usb_driver *driver;
 
@@ -1292,15 +1780,22 @@ int usb_runtime_suspend(struct device *dev)
 	struct usb_device	*udev = to_usb_device(dev);
 	int			status;
 
+	/* A USB device can be suspended if it passes the various autosuspend
+	 * checks.  Runtime suspend for a USB device means suspending all the
+	 * interfaces and then the device itself.
+	 */
 	if (autosuspend_check(udev) != 0)
 		return -EAGAIN;
 
 	status = usb_suspend_both(udev, PMSG_AUTO_SUSPEND);
 
-	
+	/* Allow a retry if autosuspend failed temporarily */
 	if (status == -EAGAIN || status == -EBUSY)
 		usb_mark_last_busy(udev);
 
+	/* The PM core reacts badly unless the return code is 0,
+	 * -EAGAIN, or -EBUSY, so always return -EBUSY on an error.
+	 */
 	if (status != 0)
 		return -EBUSY;
 	return status;
@@ -1311,6 +1806,9 @@ int usb_runtime_resume(struct device *dev)
 	struct usb_device	*udev = to_usb_device(dev);
 	int			status;
 
+	/* Runtime resume for a USB device means resuming both the device
+	 * and all its interfaces.
+	 */
 	status = usb_resume_both(udev, PMSG_AUTO_RESUME);
 	return status;
 }
@@ -1319,6 +1817,9 @@ int usb_runtime_idle(struct device *dev)
 {
 	struct usb_device	*udev = to_usb_device(dev);
 
+	/* An idle USB device can be suspended if it passes the various
+	 * autosuspend checks.
+	 */
 	if (autosuspend_check(udev) == 0)
 		pm_runtime_autosuspend(dev);
 	return 0;
@@ -1338,7 +1839,7 @@ int usb_set_usb2_hardware_lpm(struct usb_device *udev, int enable)
 	return ret;
 }
 
-#endif 
+#endif /* CONFIG_USB_SUSPEND */
 
 struct bus_type usb_bus_type = {
 	.name =		"usb",

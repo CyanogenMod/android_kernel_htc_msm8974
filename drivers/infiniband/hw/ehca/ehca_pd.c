@@ -64,7 +64,15 @@ struct ib_pd *ehca_alloc_pd(struct ib_device *device,
 	}
 	mutex_init(&pd->lock);
 
+	/*
+	 * Kernel PD: when device = -1, 0
+	 * User   PD: when context != -1
+	 */
 	if (!context) {
+		/*
+		 * Kernel PDs after init reuses always
+		 * the one created in ehca_shca_reopen()
+		 */
 		struct ehca_shca *shca = container_of(device, struct ehca_shca,
 						      ib_device);
 		pd->fw_pd.value = shca->pd->fw_pd.value;

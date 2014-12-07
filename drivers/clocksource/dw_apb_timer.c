@@ -33,6 +33,7 @@
 #define APBTMRS_COMP_VERSION		0xac
 
 #define APBTMR_CONTROL_ENABLE		(1 << 0)
+/* 1: periodic, 0:free running. */
 #define APBTMR_CONTROL_MODE_PERIODIC	(1 << 1)
 #define APBTMR_CONTROL_INT		(1 << 2)
 
@@ -67,6 +68,11 @@ static void apbt_disable_int(struct dw_apb_timer *timer)
 	apbt_writel(timer, ctrl, APBTMR_N_CONTROL);
 }
 
+/**
+ * dw_apb_clockevent_pause() - stop the clock_event_device from running
+ *
+ * @dw_ced:	The APB clock to stop generating events.
+ */
 void dw_apb_clockevent_pause(struct dw_apb_clock_event_device *dw_ced)
 {
 	disable_irq(dw_ced->timer.irq);
@@ -98,7 +104,7 @@ static irqreturn_t dw_apb_clockevent_irq(int irq, void *data)
 static void apbt_enable_int(struct dw_apb_timer *timer)
 {
 	unsigned long ctrl = apbt_readl(timer, APBTMR_N_CONTROL);
-	
+	/* clear pending intr */
 	apbt_readl(timer, APBTMR_N_EOI);
 	ctrl &= ~APBTMR_CONTROL_INT;
 	apbt_writel(timer, ctrl, APBTMR_N_CONTROL);
@@ -120,6 +126,10 @@ static void apbt_set_mode(enum clock_event_mode mode,
 		ctrl = apbt_readl(&dw_ced->timer, APBTMR_N_CONTROL);
 		ctrl |= APBTMR_CONTROL_MODE_PERIODIC;
 		apbt_writel(&dw_ced->timer, ctrl, APBTMR_N_CONTROL);
+		/*
+		 * DW APB p. 46, have to disable timer before load counter,
+		 * may cause sync problem.
+		 */
 		ctrl &= ~APBTMR_CONTROL_ENABLE;
 		apbt_writel(&dw_ced->timer, ctrl, APBTMR_N_CONTROL);
 		udelay(1);
@@ -131,13 +141,22 @@ static void apbt_set_mode(enum clock_event_mode mode,
 
 	case CLOCK_EVT_MODE_ONESHOT:
 		ctrl = apbt_readl(&dw_ced->timer, APBTMR_N_CONTROL);
+		/*
+		 * set free running mode, this mode will let timer reload max
+		 * timeout which will give time (3min on 25MHz clock) to rearm
+		 * the next event, therefore emulate the one-shot mode.
+		 */
 		ctrl &= ~APBTMR_CONTROL_ENABLE;
 		ctrl &= ~APBTMR_CONTROL_MODE_PERIODIC;
 
 		apbt_writel(&dw_ced->timer, ctrl, APBTMR_N_CONTROL);
-		
+		/* write again to set free running mode */
 		apbt_writel(&dw_ced->timer, ctrl, APBTMR_N_CONTROL);
 
+		/*
+		 * DW APB p. 46, load counter with all 1s before starting free
+		 * running mode.
+		 */
 		apbt_writel(&dw_ced->timer, ~0, APBTMR_N_LOAD_COUNT);
 		ctrl &= ~APBTMR_CONTROL_INT;
 		ctrl |= APBTMR_CONTROL_ENABLE;
@@ -163,11 +182,11 @@ static int apbt_next_event(unsigned long delta,
 	unsigned long ctrl;
 	struct dw_apb_clock_event_device *dw_ced = ced_to_dw_apb_ced(evt);
 
-	
+	/* Disable timer */
 	ctrl = apbt_readl(&dw_ced->timer, APBTMR_N_CONTROL);
 	ctrl &= ~APBTMR_CONTROL_ENABLE;
 	apbt_writel(&dw_ced->timer, ctrl, APBTMR_N_CONTROL);
-	
+	/* write new count */
 	apbt_writel(&dw_ced->timer, delta, APBTMR_N_LOAD_COUNT);
 	ctrl |= APBTMR_CONTROL_ENABLE;
 	apbt_writel(&dw_ced->timer, ctrl, APBTMR_N_CONTROL);
@@ -175,6 +194,23 @@ static int apbt_next_event(unsigned long delta,
 	return 0;
 }
 
+/**
+ * dw_apb_clockevent_init() - use an APB timer as a clock_event_device
+ *
+ * @cpu:	The CPU the events will be targeted at.
+ * @name:	The name used for the timer and the IRQ for it.
+ * @rating:	The rating to give the timer.
+ * @base:	I/O base for the timer registers.
+ * @irq:	The interrupt number to use for the timer.
+ * @freq:	The frequency that the timer counts at.
+ *
+ * This creates a clock_event_device for using with the generic clock layer
+ * but does not start and register it.  This should be done with
+ * dw_apb_clockevent_register() as the next step.  If this is the first time
+ * it has been called for a timer then the IRQ will be requested, if not it
+ * just be enabled to allow CPU hotplug to avoid repeatedly requesting and
+ * releasing the IRQ.
+ */
 struct dw_apb_clock_event_device *
 dw_apb_clockevent_init(int cpu, const char *name, unsigned rating,
 		       void __iomem *base, int irq, unsigned long freq)
@@ -221,16 +257,31 @@ dw_apb_clockevent_init(int cpu, const char *name, unsigned rating,
 	return dw_ced;
 }
 
+/**
+ * dw_apb_clockevent_resume() - resume a clock that has been paused.
+ *
+ * @dw_ced:	The APB clock to resume.
+ */
 void dw_apb_clockevent_resume(struct dw_apb_clock_event_device *dw_ced)
 {
 	enable_irq(dw_ced->timer.irq);
 }
 
+/**
+ * dw_apb_clockevent_stop() - stop the clock_event_device and release the IRQ.
+ *
+ * @dw_ced:	The APB clock to stop generating the events.
+ */
 void dw_apb_clockevent_stop(struct dw_apb_clock_event_device *dw_ced)
 {
 	free_irq(dw_ced->timer.irq, &dw_ced->ced);
 }
 
+/**
+ * dw_apb_clockevent_register() - register the clock with the generic layer
+ *
+ * @dw_ced:	The APB clock to register as a clock_event_device.
+ */
 void dw_apb_clockevent_register(struct dw_apb_clock_event_device *dw_ced)
 {
 	apbt_writel(&dw_ced->timer, 0, APBTMR_N_CONTROL);
@@ -238,18 +289,30 @@ void dw_apb_clockevent_register(struct dw_apb_clock_event_device *dw_ced)
 	apbt_enable_int(&dw_ced->timer);
 }
 
+/**
+ * dw_apb_clocksource_start() - start the clocksource counting.
+ *
+ * @dw_cs:	The clocksource to start.
+ *
+ * This is used to start the clocksource before registration and can be used
+ * to enable calibration of timers.
+ */
 void dw_apb_clocksource_start(struct dw_apb_clocksource *dw_cs)
 {
+	/*
+	 * start count down from 0xffff_ffff. this is done by toggling the
+	 * enable bit then load initial load count to ~0.
+	 */
 	unsigned long ctrl = apbt_readl(&dw_cs->timer, APBTMR_N_CONTROL);
 
 	ctrl &= ~APBTMR_CONTROL_ENABLE;
 	apbt_writel(&dw_cs->timer, ctrl, APBTMR_N_CONTROL);
 	apbt_writel(&dw_cs->timer, ~0, APBTMR_N_LOAD_COUNT);
-	
+	/* enable, mask interrupt */
 	ctrl &= ~APBTMR_CONTROL_MODE_PERIODIC;
 	ctrl |= (APBTMR_CONTROL_ENABLE | APBTMR_CONTROL_INT);
 	apbt_writel(&dw_cs->timer, ctrl, APBTMR_N_CONTROL);
-	
+	/* read it once to get cached counter value initialized */
 	dw_apb_clocksource_read(dw_cs);
 }
 
@@ -272,6 +335,18 @@ static void apbt_restart_clocksource(struct clocksource *cs)
 	dw_apb_clocksource_start(dw_cs);
 }
 
+/**
+ * dw_apb_clocksource_init() - use an APB timer as a clocksource.
+ *
+ * @rating:	The rating to give the clocksource.
+ * @name:	The name for the clocksource.
+ * @base:	The I/O base for the timer registers.
+ * @freq:	The frequency that the timer counts at.
+ *
+ * This creates a clocksource using an APB timer but does not yet register it
+ * with the clocksource system.  This should be done with
+ * dw_apb_clocksource_register() as the next step.
+ */
 struct dw_apb_clocksource *
 dw_apb_clocksource_init(unsigned rating, const char *name, void __iomem *base,
 			unsigned long freq)
@@ -293,16 +368,31 @@ dw_apb_clocksource_init(unsigned rating, const char *name, void __iomem *base,
 	return dw_cs;
 }
 
+/**
+ * dw_apb_clocksource_register() - register the APB clocksource.
+ *
+ * @dw_cs:	The clocksource to register.
+ */
 void dw_apb_clocksource_register(struct dw_apb_clocksource *dw_cs)
 {
 	clocksource_register_hz(&dw_cs->cs, dw_cs->timer.freq);
 }
 
+/**
+ * dw_apb_clocksource_read() - read the current value of a clocksource.
+ *
+ * @dw_cs:	The clocksource to read.
+ */
 cycle_t dw_apb_clocksource_read(struct dw_apb_clocksource *dw_cs)
 {
 	return (cycle_t)~apbt_readl(&dw_cs->timer, APBTMR_N_CURRENT_VALUE);
 }
 
+/**
+ * dw_apb_clocksource_unregister() - unregister and free a clocksource.
+ *
+ * @dw_cs:	The clocksource to unregister/free.
+ */
 void dw_apb_clocksource_unregister(struct dw_apb_clocksource *dw_cs)
 {
 	clocksource_unregister(&dw_cs->cs);

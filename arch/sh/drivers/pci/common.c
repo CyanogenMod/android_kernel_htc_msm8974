@@ -3,6 +3,10 @@
 #include <linux/timer.h>
 #include <linux/kernel.h>
 
+/*
+ * These functions are used early on before PCI scanning is done
+ * and all of the pci_dev and pci_bus structures have been created.
+ */
 static struct pci_dev *fake_pci_dev(struct pci_channel *hose,
 	int top_bus, int busnr, int devfn)
 {
@@ -17,7 +21,7 @@ static struct pci_dev *fake_pci_dev(struct pci_channel *hose,
 	bus.ops = hose->pci_ops;
 
 	if(busnr != top_bus)
-		
+		/* Fake a parent bus structure. */
 		bus.parent = &bus;
 	else
 		bus.parent = NULL;
@@ -61,7 +65,7 @@ int __init pci_is_66mhz_capable(struct pci_channel *hose,
 		if (vid == 0xffff)
 			continue;
 
-		
+		/* check 66MHz capability */
 		if (cap66 < 0)
 			cap66 = 1;
 		if (cap66) {
@@ -113,6 +117,10 @@ void pcibios_enable_timers(struct pci_channel *hose)
 	}
 }
 
+/*
+ * A simple handler for the regular PCI status errors, called from IRQ
+ * context.
+ */
 unsigned int pcibios_handle_status_errors(unsigned long addr,
 					  unsigned int status,
 					  struct pci_channel *hose)
@@ -142,7 +150,7 @@ unsigned int pcibios_handle_status_errors(unsigned long addr,
 
 		cmd |= PCI_STATUS_PARITY | PCI_STATUS_DETECTED_PARITY;
 
-		
+		/* Now back off of the IRQ for awhile */
 		if (hose->err_irq) {
 			disable_irq_nosync(hose->err_irq);
 			hose->err_timer.expires = jiffies + HZ;

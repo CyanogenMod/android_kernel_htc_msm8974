@@ -31,6 +31,17 @@
 #define PADATA_CPU_SERIAL   0x01
 #define PADATA_CPU_PARALLEL 0x02
 
+/**
+ * struct padata_priv -  Embedded to the users data structure.
+ *
+ * @list: List entry, to attach to the padata lists.
+ * @pd: Pointer to the internal control structure.
+ * @cb_cpu: Callback cpu for serializatioon.
+ * @seq_nr: Sequence number of the parallelized data object.
+ * @info: Used to pass information from the parallel to the serial function.
+ * @parallel: Parallel execution function.
+ * @serial: Serial complete function.
+ */
 struct padata_priv {
 	struct list_head	list;
 	struct parallel_data	*pd;
@@ -40,17 +51,43 @@ struct padata_priv {
 	void                    (*serial)(struct padata_priv *padata);
 };
 
+/**
+ * struct padata_list
+ *
+ * @list: List head.
+ * @lock: List lock.
+ */
 struct padata_list {
 	struct list_head        list;
 	spinlock_t              lock;
 };
 
+/**
+* struct padata_serial_queue - The percpu padata serial queue
+*
+* @serial: List to wait for serialization after reordering.
+* @work: work struct for serialization.
+* @pd: Backpointer to the internal control structure.
+*/
 struct padata_serial_queue {
        struct padata_list    serial;
        struct work_struct    work;
        struct parallel_data *pd;
 };
 
+/**
+ * struct padata_parallel_queue - The percpu padata parallel queue
+ *
+ * @parallel: List to wait for parallelization.
+ * @reorder: List to wait for reordering after parallel processing.
+ * @serial: List to wait for serialization after reordering.
+ * @pwork: work struct for parallelization.
+ * @swork: work struct for serialization.
+ * @pd: Backpointer to the internal control structure.
+ * @work: work struct for parallelization.
+ * @num_obj: Number of objects that are processed by this cpu.
+ * @cpu_index: Index of the cpu.
+ */
 struct padata_parallel_queue {
        struct padata_list    parallel;
        struct padata_list    reorder;
@@ -60,11 +97,32 @@ struct padata_parallel_queue {
        int                   cpu_index;
 };
 
+/**
+ * struct padata_cpumask - The cpumasks for the parallel/serial workers
+ *
+ * @pcpu: cpumask for the parallel workers.
+ * @cbcpu: cpumask for the serial (callback) workers.
+ */
 struct padata_cpumask {
 	cpumask_var_t	pcpu;
 	cpumask_var_t	cbcpu;
 };
 
+/**
+ * struct parallel_data - Internal control structure, covers everything
+ * that depends on the cpumask in use.
+ *
+ * @pinst: padata instance.
+ * @pqueue: percpu padata queues used for parallelization.
+ * @squeue: percpu padata queues used for serialuzation.
+ * @reorder_objects: Number of objects waiting in the reorder queues.
+ * @refcnt: Number of objects holding a reference on this parallel_data.
+ * @max_seq_nr:  Maximal used sequence number.
+ * @cpumask: The cpumasks in use for parallel and serial workers.
+ * @lock: Reorder lock.
+ * @processed: Number of already processed objects.
+ * @timer: Reorder timer.
+ */
 struct parallel_data {
 	struct padata_instance		*pinst;
 	struct padata_parallel_queue	__percpu *pqueue;
@@ -79,6 +137,20 @@ struct parallel_data {
 	struct timer_list		timer;
 };
 
+/**
+ * struct padata_instance - The overall control structure.
+ *
+ * @cpu_notifier: cpu hotplug notifier.
+ * @wq: The workqueue in use.
+ * @pd: The internal control structure.
+ * @cpumask: User supplied cpumasks for parallel and serial works.
+ * @cpumask_change_notifier: Notifiers chain for user-defined notify
+ *            callbacks that will be called when either @pcpu or @cbcpu
+ *            or both cpumasks change.
+ * @kobj: padata instance kernel object.
+ * @lock: padata instance lock.
+ * @flags: padata flags.
+ */
 struct padata_instance {
 	struct notifier_block		 cpu_notifier;
 	struct workqueue_struct		*wq;

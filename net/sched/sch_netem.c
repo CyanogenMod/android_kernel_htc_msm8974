@@ -29,11 +29,47 @@
 
 #define VERSION "1.3"
 
+/*	Network Emulation Queuing algorithm.
+	====================================
+
+	Sources: [1] Mark Carson, Darrin Santay, "NIST Net - A Linux-based
+		 Network Emulation Tool
+		 [2] Luigi Rizzo, DummyNet for FreeBSD
+
+	 ----------------------------------------------------------------
+
+	 This started out as a simple way to delay outgoing packets to
+	 test TCP but has grown to include most of the functionality
+	 of a full blown network emulator like NISTnet. It can delay
+	 packets and add random jitter (and correlation). The random
+	 distribution can be loaded from a table as well to provide
+	 normal, Pareto, or experimental curves. Packet loss,
+	 duplication, and reordering can also be emulated.
+
+	 This qdisc does not do classification that can be handled in
+	 layering other disciplines.  It does not need to do bandwidth
+	 control either since that can be handled by using token
+	 bucket or other rate control.
+
+     Correlated Loss Generator models
+
+	Added generation of correlated loss according to the
+	"Gilbert-Elliot" model, a 4-state markov model.
+
+	References:
+	[1] NetemCLG Home http://netgroup.uniroma2.it/NetemCLG
+	[2] S. Salsano, F. Ludovici, A. Ordine, "Definition of a general
+	and intuitive loss model for packet networks and its implementation
+	in the Netem module in the Linux kernel", available in [1]
+
+	Authors: Stefano Salsano <stefano.salsano at uniroma2.it
+		 Fabio Ludovici <fabio.ludovici at yahoo.it>
+*/
 
 struct netem_sched_data {
-	
+	/* internal t(ime)fifo qdisc uses sch->q and sch->limit */
 
-	
+	/* optional qdisc for classful handling (NULL at netem init) */
 	struct Qdisc	*qdisc;
 
 	struct qdisc_watchdog watchdog;
@@ -70,21 +106,24 @@ struct netem_sched_data {
 		CLG_GILB_ELL,
 	} loss_model;
 
-	
+	/* Correlated Loss Generation models */
 	struct clgstate {
-		
+		/* state of the Markov chain */
 		u8 state;
 
-		
-		u32 a1;	
-		u32 a2;	
-		u32 a3;	
-		u32 a4;	
-		u32 a5; 
+		/* 4-states and Gilbert-Elliot models */
+		u32 a1;	/* p13 for 4-states or p for GE */
+		u32 a2;	/* p31 for 4-states or r for GE */
+		u32 a3;	/* p32 for 4-states or h for GE */
+		u32 a4;	/* p14 for 4-states or 1-k for GE */
+		u32 a5; /* p23 used only in 4-states */
 	} clg;
 
 };
 
+/* Time stamp put into socket buffer control block
+ * Only valid when skbs are in our internal t(ime)fifo queue.
+ */
 struct netem_skb_cb {
 	psched_time_t	time_to_send;
 };
@@ -95,18 +134,25 @@ static inline struct netem_skb_cb *netem_skb_cb(struct sk_buff *skb)
 	return (struct netem_skb_cb *)qdisc_skb_cb(skb)->data;
 }
 
+/* init_crandom - initialize correlated random number generator
+ * Use entropy source for initial seed.
+ */
 static void init_crandom(struct crndstate *state, unsigned long rho)
 {
 	state->rho = rho;
 	state->last = net_random();
 }
 
+/* get_crandom - correlated random number generator
+ * Next number depends on last value.
+ * rho is scaled to avoid floating point.
+ */
 static u32 get_crandom(struct crndstate *state)
 {
 	u64 value, rho;
 	unsigned long answer;
 
-	if (state->rho == 0)	
+	if (state->rho == 0)	/* no correlation */
 		return net_random();
 
 	value = net_random();
@@ -116,11 +162,25 @@ static u32 get_crandom(struct crndstate *state)
 	return answer;
 }
 
+/* loss_4state - 4-state model loss generator
+ * Generates losses according to the 4-state Markov chain adopted in
+ * the GI (General and Intuitive) loss model.
+ */
 static bool loss_4state(struct netem_sched_data *q)
 {
 	struct clgstate *clg = &q->clg;
 	u32 rnd = net_random();
 
+	/*
+	 * Makes a comparison between rnd and the transition
+	 * probabilities outgoing from the current state, then decides the
+	 * next state and if the next packet has to be transmitted or lost.
+	 * The four states correspond to:
+	 *   1 => successfully transmitted packets within a gap period
+	 *   4 => isolated losses within a gap period
+	 *   3 => lost packets within a burst period
+	 *   2 => successfully transmitted packets within a burst period
+	 */
 	switch (clg->state) {
 	case 1:
 		if (rnd < clg->a4) {
@@ -160,6 +220,16 @@ static bool loss_4state(struct netem_sched_data *q)
 	return false;
 }
 
+/* loss_gilb_ell - Gilbert-Elliot model loss generator
+ * Generates losses according to the Gilbert-Elliot loss model or
+ * its special cases  (Gilbert or Simple Gilbert)
+ *
+ * Makes a comparison between random number and the transition
+ * probabilities outgoing from the current state, then decides the
+ * next state. A second random number is extracted and the comparison
+ * with the loss probability of the current state decides if the next
+ * packet will be transmitted or lost.
+ */
 static bool loss_gilb_ell(struct netem_sched_data *q)
 {
 	struct clgstate *clg = &q->clg;
@@ -184,20 +254,34 @@ static bool loss_event(struct netem_sched_data *q)
 {
 	switch (q->loss_model) {
 	case CLG_RANDOM:
-		
+		/* Random packet drop 0 => none, ~0 => all */
 		return q->loss && q->loss >= get_crandom(&q->loss_cor);
 
 	case CLG_4_STATES:
+		/* 4state loss model algorithm (used also for GI model)
+		* Extracts a value from the markov 4 state loss generator,
+		* if it is 1 drops a packet and if needed writes the event in
+		* the kernel logs
+		*/
 		return loss_4state(q);
 
 	case CLG_GILB_ELL:
+		/* Gilbert-Elliot loss model algorithm
+		* Extracts a value from the Gilbert-Elliot loss generator,
+		* if it is 1 drops a packet and if needed writes the event in
+		* the kernel logs
+		*/
 		return loss_gilb_ell(q);
 	}
 
-	return false;	
+	return false;	/* not reached */
 }
 
 
+/* tabledist - return a pseudo-randomly distributed value with mean mu and
+ * std deviation sigma.  Uses table lookup to approximate the desired
+ * distribution, and a uniformly-distributed pseudo-random source.
+ */
 static psched_tdiff_t tabledist(psched_tdiff_t mu, psched_tdiff_t sigma,
 				struct crndstate *state,
 				const struct disttable *dist)
@@ -211,7 +295,7 @@ static psched_tdiff_t tabledist(psched_tdiff_t mu, psched_tdiff_t sigma,
 
 	rnd = get_crandom(state);
 
-	
+	/* default uniform distribution */
 	if (dist == NULL)
 		return (rnd % (2*sigma)) - sigma + mu;
 
@@ -234,7 +318,7 @@ static psched_time_t packet_len_2_sched_time(unsigned int len, struct netem_sche
 	if (q->cell_size) {
 		u32 cells = reciprocal_divide(len, q->cell_size_reciprocal);
 
-		if (len > cells * q->cell_size)	
+		if (len > cells * q->cell_size)	/* extra cell needed for remainder */
 			cells++;
 		len = cells * (q->cell_size + q->cell_overhead);
 	}
@@ -253,7 +337,7 @@ static int tfifo_enqueue(struct sk_buff *nskb, struct Qdisc *sch)
 
 	if (likely(skb_queue_len(list) < sch->limit)) {
 		skb = skb_peek_tail(list);
-		
+		/* Optimize for add at tail */
 		if (likely(!skb || tnext >= netem_skb_cb(skb)->time_to_send))
 			return qdisc_enqueue_tail(nskb, sch);
 
@@ -270,20 +354,26 @@ static int tfifo_enqueue(struct sk_buff *nskb, struct Qdisc *sch)
 	return qdisc_reshape_fail(nskb, sch);
 }
 
+/*
+ * Insert one skb into qdisc.
+ * Note: parent depends on return value to account for queue length.
+ * 	NET_XMIT_DROP: queue length didn't change.
+ *      NET_XMIT_SUCCESS: one skb was queued.
+ */
 static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 {
 	struct netem_sched_data *q = qdisc_priv(sch);
-	
+	/* We don't fill cb now as skb_unshare() may invalidate it */
 	struct netem_skb_cb *cb;
 	struct sk_buff *skb2;
 	int ret;
 	int count = 1;
 
-	
+	/* Random duplication */
 	if (q->duplicate && q->duplicate >= get_crandom(&q->dup_cor))
 		++count;
 
-	
+	/* Drop packet? */
 	if (loss_event(q))
 		--count;
 
@@ -295,15 +385,26 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 
 	skb_orphan(skb);
 
+	/*
+	 * If we need to duplicate packet, then re-insert at top of the
+	 * qdisc tree, since parent queuer expects that only one
+	 * skb will be queued.
+	 */
 	if (count > 1 && (skb2 = skb_clone(skb, GFP_ATOMIC)) != NULL) {
 		struct Qdisc *rootq = qdisc_root(sch);
-		u32 dupsave = q->duplicate; 
+		u32 dupsave = q->duplicate; /* prevent duplicating a dup... */
 		q->duplicate = 0;
 
 		qdisc_enqueue_root(skb2, rootq);
 		q->duplicate = dupsave;
 	}
 
+	/*
+	 * Randomized packet corruption.
+	 * Make copy if needed since we are modifying
+	 * If packet is going to be hardware checksummed, then
+	 * do it now in software before we mangle it.
+	 */
 	if (q->corrupt && q->corrupt >= get_crandom(&q->corrupt_cor)) {
 		if (!(skb = skb_unshare(skb, GFP_ATOMIC)) ||
 		    (skb->ip_summed == CHECKSUM_PARTIAL &&
@@ -314,8 +415,8 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 	}
 
 	cb = netem_skb_cb(skb);
-	if (q->gap == 0 ||		
-	    q->counter < q->gap - 1 ||	
+	if (q->gap == 0 ||		/* not doing reordering */
+	    q->counter < q->gap - 1 ||	/* inside last reordering gap */
 	    q->reorder < get_crandom(&q->reorder_cor)) {
 		psched_time_t now;
 		psched_tdiff_t delay;
@@ -331,6 +432,12 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 			delay += packet_len_2_sched_time(skb->len, q);
 
 			if (!skb_queue_empty(list)) {
+				/*
+				 * Last packet in queue is reference point (now).
+				 * First packet in queue is already in flight,
+				 * calculate this time bonus and substract
+				 * from delay.
+				 */
 				delay -= now - netem_skb_cb(skb_peek(list))->time_to_send;
 				now = netem_skb_cb(skb_peek_tail(list))->time_to_send;
 			}
@@ -340,6 +447,10 @@ static int netem_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 		++q->counter;
 		ret = tfifo_enqueue(skb, sch);
 	} else {
+		/*
+		 * Do re-ordering by putting one out of N packets at the front
+		 * of the queue.
+		 */
 		cb->time_to_send = psched_get_time();
 		q->counter = 0;
 
@@ -386,12 +497,16 @@ tfifo_dequeue:
 	if (skb) {
 		const struct netem_skb_cb *cb = netem_skb_cb(skb);
 
-		
+		/* if more time remaining? */
 		if (cb->time_to_send <= psched_get_time()) {
 			__skb_unlink(skb, &sch->q);
 			sch->qstats.backlog -= qdisc_pkt_len(skb);
 
 #ifdef CONFIG_NET_CLS_ACT
+			/*
+			 * If it's at ingress let's pretend the delay is
+			 * from the network (tstamp will be updated).
+			 */
 			if (G_TC_FROM(skb->tc_verd) & AT_INGRESS)
 				skb->tstamp.tv64 = 0;
 #endif
@@ -449,6 +564,10 @@ static void dist_free(struct disttable *d)
 	}
 }
 
+/*
+ * Distribution data is a variable size payload containing
+ * signed 16 bit values.
+ */
 static int get_dist_table(struct Qdisc *sch, const struct nlattr *attr)
 {
 	struct netem_sched_data *q = qdisc_priv(sch);
@@ -605,6 +724,7 @@ static int parse_attr(struct nlattr *tb[], int maxtype, struct nlattr *nla,
 	return 0;
 }
 
+/* Parse netlink message to set options */
 static int netem_change(struct Qdisc *sch, struct nlattr *opt)
 {
 	struct netem_sched_data *q = qdisc_priv(sch);
@@ -630,6 +750,9 @@ static int netem_change(struct Qdisc *sch, struct nlattr *opt)
 	q->loss = qopt->loss;
 	q->duplicate = qopt->duplicate;
 
+	/* for compatibility with earlier versions.
+	 * if gap is set, need to assume 100% probability
+	 */
 	if (q->gap)
 		q->reorder = ~0;
 
@@ -696,9 +819,9 @@ static int dump_loss_model(const struct netem_sched_data *q,
 
 	switch (q->loss_model) {
 	case CLG_RANDOM:
-		
+		/* legacy loss model */
 		nla_nest_cancel(skb, nest);
-		return 0;	
+		return 0;	/* no data */
 
 	case CLG_4_STATES: {
 		struct tc_netem_gimodel gi = {
@@ -785,7 +908,7 @@ static int netem_dump_class(struct Qdisc *sch, unsigned long cl,
 {
 	struct netem_sched_data *q = qdisc_priv(sch);
 
-	if (cl != 1 || !q->qdisc) 	
+	if (cl != 1 || !q->qdisc) 	/* only one class */
 		return -ENOENT;
 
 	tcm->tcm_handle |= TC_H_MIN(1);

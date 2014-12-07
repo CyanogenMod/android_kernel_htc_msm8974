@@ -34,22 +34,23 @@
 #define SRC_SF_S32	0x3
 #define SRC_SF_F32	0x4
 
+/* Define the descriptor of a src resource */
 enum SRCMODE {
-	MEMRD,		
-	MEMWR,		
-	ARCRW,		
+	MEMRD,		/* Read data from host memory */
+	MEMWR,		/* Write data to host memory */
+	ARCRW,		/* Read from and write to audio ring channel */
 	NUM_SRCMODES
 };
 
 struct src_rsc_ops;
 
 struct src {
-	struct rsc rsc; 
-	struct src *intlv; 
-	struct src_rsc_ops *ops; 
-	
+	struct rsc rsc; /* Basic resource info */
+	struct src *intlv; /* Pointer to next interleaved SRC in a series */
+	struct src_rsc_ops *ops; /* SRC specific operations */
+	/* Number of contiguous srcs for interleaved usage */
 	unsigned char multi;
-	unsigned char mode; 
+	unsigned char mode; /* Working mode of this SRC resource */
 };
 
 struct src_rsc_ops {
@@ -73,21 +74,23 @@ struct src_rsc_ops {
 	struct src* (*next_interleave)(struct src *src);
 };
 
+/* Define src resource request description info */
 struct src_desc {
-	
+	/* Number of contiguous master srcs for interleaved usage */
 	unsigned char multi;
 	unsigned char msr;
-	unsigned char mode; 
+	unsigned char mode; /* Working mode of the requested srcs */
 };
 
+/* Define src manager object */
 struct src_mgr {
-	struct rsc_mgr mgr;	
+	struct rsc_mgr mgr;	/* Basic resource manager info */
 	spinlock_t mgr_lock;
 
-	 
+	 /* request src resource */
 	int (*get_src)(struct src_mgr *mgr,
 		       const struct src_desc *desc, struct src **rsrc);
-	
+	/* return src resource */
 	int (*put_src)(struct src_mgr *mgr, struct src *src);
 	int (*src_enable_s)(struct src_mgr *mgr, struct src *src);
 	int (*src_enable)(struct src_mgr *mgr, struct src *src);
@@ -95,6 +98,7 @@ struct src_mgr {
 	int (*commit_write)(struct src_mgr *mgr);
 };
 
+/* Define the descriptor of a SRC Input Mapper resource */
 struct srcimp_mgr;
 struct srcimp_rsc_ops;
 
@@ -102,7 +106,7 @@ struct srcimp {
 	struct rsc rsc;
 	unsigned char idx[8];
 	struct imapper *imappers;
-	unsigned int mapped; 
+	unsigned int mapped; /* A bit-map indicating which conj rsc is mapped */
 	struct srcimp_mgr *mgr;
 	struct srcimp_rsc_ops *ops;
 };
@@ -112,31 +116,34 @@ struct srcimp_rsc_ops {
 	int (*unmap)(struct srcimp *srcimp);
 };
 
+/* Define SRCIMP resource request description info */
 struct srcimp_desc {
 	unsigned int msr;
 };
 
 struct srcimp_mgr {
-	struct rsc_mgr mgr;	
+	struct rsc_mgr mgr;	/* Basic resource manager info */
 	spinlock_t mgr_lock;
 	spinlock_t imap_lock;
 	struct list_head imappers;
 	struct imapper *init_imap;
 	unsigned int init_imap_added;
 
-	 
+	 /* request srcimp resource */
 	int (*get_srcimp)(struct srcimp_mgr *mgr,
 			  const struct srcimp_desc *desc,
 			  struct srcimp **rsrcimp);
-	
+	/* return srcimp resource */
 	int (*put_srcimp)(struct srcimp_mgr *mgr, struct srcimp *srcimp);
 	int (*imap_add)(struct srcimp_mgr *mgr, struct imapper *entry);
 	int (*imap_delete)(struct srcimp_mgr *mgr, struct imapper *entry);
 };
 
+/* Constructor and destructor of SRC resource manager */
 int src_mgr_create(void *hw, struct src_mgr **rsrc_mgr);
 int src_mgr_destroy(struct src_mgr *src_mgr);
+/* Constructor and destructor of SRCIMP resource manager */
 int srcimp_mgr_create(void *hw, struct srcimp_mgr **rsrc_mgr);
 int srcimp_mgr_destroy(struct srcimp_mgr *srcimp_mgr);
 
-#endif 
+#endif /* CTSRC_H */

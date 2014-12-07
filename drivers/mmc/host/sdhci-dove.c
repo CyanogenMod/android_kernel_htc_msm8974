@@ -32,7 +32,7 @@ static u16 sdhci_dove_readw(struct sdhci_host *host, int reg)
 	switch (reg) {
 	case SDHCI_HOST_VERSION:
 	case SDHCI_SLOT_INT_STATUS:
-		
+		/* those registers don't exist */
 		return 0;
 	default:
 		ret = readw(host->ioaddr + reg);
@@ -47,7 +47,7 @@ static u32 sdhci_dove_readl(struct sdhci_host *host, int reg)
 	switch (reg) {
 	case SDHCI_CAPABILITIES:
 		ret = readl(host->ioaddr + reg);
-		
+		/* Mask the support for 3.0V */
 		ret &= ~SDHCI_CAN_VDD_300;
 		break;
 	default:

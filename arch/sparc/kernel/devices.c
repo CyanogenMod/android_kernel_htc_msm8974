@@ -20,7 +20,7 @@
 #include <asm/cpudata.h>
 #include <asm/cpu_type.h>
 
-extern void clock_stop_probe(void); 
+extern void clock_stop_probe(void); /* tadpole.c */
 extern void sun4c_probe_memerr_reg(void);
 
 static char *cpu_mid_prop(void)
@@ -103,6 +103,10 @@ int cpu_find_by_mid(int mid, phandle *prom_node)
 			     prom_node, NULL);
 }
 
+/* sun4m uses truncated mids since we base the cpuid on the ttable/irqset
+ * address (0-3).  This gives us the true hardware mid, which might have
+ * some other bits set.  On 4d hardware and software mids are the same.
+ */
 int cpu_get_hwmid(phandle prom_node)
 {
 	return prom_getintdefault(prom_node, cpu_mid_prop(), -ENODEV);
@@ -118,7 +122,7 @@ void __init device_scan(void)
 		int err;
 		err = cpu_find_by_instance(0, &cpu_node, NULL);
 		if (err) {
-			
+			/* Probably a sun4e, Sun is trying to trick us ;-) */
 			prom_printf("No cpu nodes, cannot continue\n");
 			prom_halt();
 		}
@@ -126,7 +130,7 @@ void __init device_scan(void)
 							    "clock-frequency",
 							    0);
 	}
-#endif 
+#endif /* !CONFIG_SMP */
 
 	{
 		extern void auxio_probe(void);

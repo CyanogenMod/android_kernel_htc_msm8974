@@ -15,6 +15,18 @@
 
 #include <asm/uaccess.h>
 
+/*
+ * computes the checksum of a memory block at buff, length len,
+ * and adds in "sum" (32-bit)
+ *
+ * returns a 32-bit number suitable for feeding into itself
+ * or csum_tcpudp_magic
+ *
+ * this function must be called with even lengths, except
+ * for the last fragment, which may be odd
+ *
+ * it's best to have buff aligned on a 32-bit boundary
+ */
 static inline __wsum
 csum_partial(const void *buff, int len, __wsum sum)
 {
@@ -22,12 +34,21 @@ csum_partial(const void *buff, int len, __wsum sum)
 	register unsigned long reg3 asm("3") = (unsigned long) len;
 
 	asm volatile(
-		"0:	cksm	%0,%1\n"	
+		"0:	cksm	%0,%1\n"	/* do checksum on longs */
 		"	jo	0b\n"
 		: "+d" (sum), "+d" (reg2), "+d" (reg3) : : "cc", "memory");
 	return sum;
 }
 
+/*
+ * the same as csum_partial_copy, but copies from user space.
+ *
+ * here even more important to align src and dst on a 32-bit (or even
+ * better 64-bit) boundary
+ *
+ * Copy from userspace and compute checksum.  If we catch an exception
+ * then zero the rest of the buffer.
+ */
 static inline __wsum
 csum_partial_copy_from_user(const void __user *src, void *dst,
                                           int len, __wsum sum,
@@ -52,6 +73,9 @@ csum_partial_copy_nocheck (const void *src, void *dst, int len, __wsum sum)
 	return csum_partial(dst, len, sum);
 }
 
+/*
+ *      Fold a partial checksum without adding pseudo headers
+ */
 static inline __sum16 csum_fold(__wsum sum)
 {
 	u32 csum = (__force u32) sum;
@@ -61,11 +85,20 @@ static inline __sum16 csum_fold(__wsum sum)
 	return (__force __sum16) ~csum;
 }
 
+/*
+ *	This is a version of ip_compute_csum() optimized for IP headers,
+ *	which always checksum on 4 octet boundaries.
+ *
+ */
 static inline __sum16 ip_fast_csum(const void *iph, unsigned int ihl)
 {
 	return csum_fold(csum_partial(iph, ihl*4, 0));
 }
 
+/*
+ * computes the checksum of the TCP/UDP pseudo-header
+ * returns a 32-bit checksum
+ */
 static inline __wsum
 csum_tcpudp_nofold(__be32 saddr, __be32 daddr,
                    unsigned short len, unsigned short proto,
@@ -88,6 +121,10 @@ csum_tcpudp_nofold(__be32 saddr, __be32 daddr,
 	return (__force __wsum)csum;
 }
 
+/*
+ * computes the checksum of the TCP/UDP pseudo-header
+ * returns a 16-bit checksum, already complemented
+ */
 
 static inline __sum16
 csum_tcpudp_magic(__be32 saddr, __be32 daddr,
@@ -97,12 +134,16 @@ csum_tcpudp_magic(__be32 saddr, __be32 daddr,
 	return csum_fold(csum_tcpudp_nofold(saddr,daddr,len,proto,sum));
 }
 
+/*
+ * this routine is used for miscellaneous IP-like checksums, mainly
+ * in icmp.c
+ */
 
 static inline __sum16 ip_compute_csum(const void *buff, int len)
 {
 	return csum_fold(csum_partial(buff, len, 0));
 }
 
-#endif 
+#endif /* _S390_CHECKSUM_H */
 
 

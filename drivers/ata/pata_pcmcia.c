@@ -43,6 +43,16 @@
 #define DRV_NAME "pata_pcmcia"
 #define DRV_VERSION "0.3.5"
 
+/**
+ *	pcmcia_set_mode	-	PCMCIA specific mode setup
+ *	@link: link
+ *	@r_failed_dev: Return pointer for failed device
+ *
+ *	Perform the tuning and setup of the devices and timings, which
+ *	for PCMCIA is the same as any other controller. We wrap it however
+ *	as we need to spot hardware with incorrect or missing master/slave
+ *	decode, which alas is embarrassingly common in the PC world
+ */
 
 static int pcmcia_set_mode(struct ata_link *link, struct ata_device **r_failed_dev)
 {
@@ -54,6 +64,8 @@ static int pcmcia_set_mode(struct ata_link *link, struct ata_device **r_failed_d
 
 	if (memcmp(master->id + ATA_ID_FW_REV,  slave->id + ATA_ID_FW_REV,
 			   ATA_ID_FW_REV_LEN + ATA_ID_PROD_LEN) == 0) {
+		/* Suspicious match, but could be two cards from
+		   the same vendor - check serial */
 		if (memcmp(master->id + ATA_ID_SERNO, slave->id + ATA_ID_SERNO,
 			   ATA_ID_SERNO_LEN) == 0 && master->id[ATA_ID_SERNO] >> 8) {
 			ata_dev_warn(slave, "is a ghost device, ignoring\n");
@@ -63,6 +75,13 @@ static int pcmcia_set_mode(struct ata_link *link, struct ata_device **r_failed_d
 	return ata_do_set_mode(link, r_failed_dev);
 }
 
+/**
+ *	pcmcia_set_mode_8bit	-	PCMCIA specific mode setup
+ *	@link: link
+ *	@r_failed_dev: Return pointer for failed device
+ *
+ *	For the simple emulated 8bit stuff the less we do the better.
+ */
 
 static int pcmcia_set_mode_8bit(struct ata_link *link,
 				struct ata_device **r_failed_dev)
@@ -70,6 +89,18 @@ static int pcmcia_set_mode_8bit(struct ata_link *link,
 	return 0;
 }
 
+/**
+ *	ata_data_xfer_8bit	 -	Transfer data by 8bit PIO
+ *	@dev: device to target
+ *	@buf: data buffer
+ *	@buflen: buffer length
+ *	@rw: read/write
+ *
+ *	Transfer data from/to the device data register by 8 bit PIO.
+ *
+ *	LOCKING:
+ *	Inherited from caller.
+ */
 
 static unsigned int ata_data_xfer_8bit(struct ata_device *dev,
 				unsigned char *buf, unsigned int buflen, int rw)
@@ -84,19 +115,28 @@ static unsigned int ata_data_xfer_8bit(struct ata_device *dev,
 	return buflen;
 }
 
+/**
+ *	pcmcia_8bit_drain_fifo - Stock FIFO drain logic for SFF controllers
+ *	@qc: command
+ *
+ *	Drain the FIFO and device of any stuck data following a command
+ *	failing to complete. In some cases this is necessary before a
+ *	reset will recover the device.
+ *
+ */
 
 static void pcmcia_8bit_drain_fifo(struct ata_queued_cmd *qc)
 {
 	int count;
 	struct ata_port *ap;
 
-	
+	/* We only need to flush incoming data when a command was running */
 	if (qc == NULL || qc->dma_dir == DMA_TO_DEVICE)
 		return;
 
 	ap = qc->ap;
 
-	
+	/* Drain up to 64K of data before we give up this recovery method */
 	for (count = 0; (ap->ops->sff_check_status(ap) & ATA_DRQ)
 							&& count++ < 65536;)
 		ioread8(ap->ioaddr.data_addr);
@@ -148,6 +188,13 @@ static int pcmcia_check_one_config(struct pcmcia_device *pdev, void *priv_data)
 	return pcmcia_request_io(pdev);
 }
 
+/**
+ *	pcmcia_init_one		-	attach a PCMCIA interface
+ *	@pdev: pcmcia device
+ *
+ *	Register a PCMCIA IDE interface. Such interfaces are PIO 0 and
+ *	shared IRQ.
+ */
 
 static int pcmcia_init_one(struct pcmcia_device *pdev)
 {
@@ -159,10 +206,12 @@ static int pcmcia_init_one(struct pcmcia_device *pdev)
 	int n_ports = 1;
 	struct ata_port_operations *ops = &pcmcia_port_ops;
 
-	
+	/* Set up attributes in order to probe card and get resources */
 	pdev->config_flags |= CONF_ENABLE_IRQ | CONF_AUTO_SET_IO |
 		CONF_AUTO_SET_VPP | CONF_AUTO_CHECK_VCC;
 
+	/* See if we have a manufacturer identifier. Use it to set is_kme for
+	   vendor quirks */
 	is_kme = ((pdev->manf_id == MANFID_KME) &&
 		  ((pdev->card_id == PRODID_KME_KXLC005_A) ||
 		   (pdev->card_id == PRODID_KME_KXLC005_B)));
@@ -170,7 +219,7 @@ static int pcmcia_init_one(struct pcmcia_device *pdev)
 	if (pcmcia_loop_config(pdev, pcmcia_check_one_config, &is_kme)) {
 		pdev->config_flags &= ~CONF_AUTO_CHECK_VCC;
 		if (pcmcia_loop_config(pdev, pcmcia_check_one_config, &is_kme))
-			goto failed; 
+			goto failed; /* No suitable config found */
 	}
 	io_base = pdev->resource[0]->start;
 	if (pdev->resource[1]->end)
@@ -185,23 +234,29 @@ static int pcmcia_init_one(struct pcmcia_device *pdev)
 	if (ret)
 		goto failed;
 
-	
+	/* iomap */
 	ret = -ENOMEM;
 	io_addr = devm_ioport_map(&pdev->dev, io_base, 8);
 	ctl_addr = devm_ioport_map(&pdev->dev, ctl_base, 1);
 	if (!io_addr || !ctl_addr)
 		goto failed;
 
-	
+	/* Success. Disable the IRQ nIEN line, do quirks */
 	iowrite8(0x02, ctl_addr);
 	if (is_kme)
 		iowrite8(0x81, ctl_addr + 0x01);
 
+	/* FIXME: Could be more ports at base + 0x10 but we only deal with
+	   one right now */
 	if (resource_size(pdev->resource[0]) >= 0x20)
 		n_ports = 2;
 
 	if (pdev->manf_id == 0x0097 && pdev->card_id == 0x1620)
 		ops = &pcmcia_8bit_port_ops;
+	/*
+	 *	Having done the PCMCIA plumbing the ATA side is relatively
+	 *	sane.
+	 */
 	ret = -ENOMEM;
 	host = ata_host_alloc(&pdev->dev, n_ports);
 	if (!host)
@@ -211,7 +266,7 @@ static int pcmcia_init_one(struct pcmcia_device *pdev)
 		ap = host->ports[p];
 
 		ap->ops = ops;
-		ap->pio_mask = ATA_PIO0;	
+		ap->pio_mask = ATA_PIO0;	/* ISA so PIO 0 cycles */
 		ap->flags |= ATA_FLAG_SLAVE_POSS;
 		ap->ioaddr.cmd_addr = io_addr + 0x10 * p;
 		ap->ioaddr.altstatus_addr = ctl_addr + 0x10 * p;
@@ -221,7 +276,7 @@ static int pcmcia_init_one(struct pcmcia_device *pdev)
 		ata_port_desc(ap, "cmd 0x%lx ctl 0x%lx", io_base, ctl_base);
 	}
 
-	
+	/* activate */
 	ret = ata_host_activate(host, pdev->irq, ata_sff_interrupt,
 				IRQF_SHARED, &pcmcia_sht);
 	if (ret)
@@ -235,6 +290,13 @@ failed:
 	return ret;
 }
 
+/**
+ *	pcmcia_remove_one	-	unplug an pcmcia interface
+ *	@pdev: pcmcia device
+ *
+ *	A PCMCIA ATA device has been unplugged. Perform the needed
+ *	cleanup. Also called on module unload for any active devices.
+ */
 
 static void pcmcia_remove_one(struct pcmcia_device *pdev)
 {
@@ -248,22 +310,22 @@ static void pcmcia_remove_one(struct pcmcia_device *pdev)
 
 static const struct pcmcia_device_id pcmcia_devices[] = {
 	PCMCIA_DEVICE_FUNC_ID(4),
-	PCMCIA_DEVICE_MANF_CARD(0x0000, 0x0000),	
-	PCMCIA_DEVICE_MANF_CARD(0x0007, 0x0000),	
-	PCMCIA_DEVICE_MANF_CARD(0x000a, 0x0000),	
-	PCMCIA_DEVICE_MANF_CARD(0x001c, 0x0001),	
+	PCMCIA_DEVICE_MANF_CARD(0x0000, 0x0000),	/* Corsair */
+	PCMCIA_DEVICE_MANF_CARD(0x0007, 0x0000),	/* Hitachi */
+	PCMCIA_DEVICE_MANF_CARD(0x000a, 0x0000),	/* I-O Data CFA */
+	PCMCIA_DEVICE_MANF_CARD(0x001c, 0x0001),	/* Mitsubishi CFA */
 	PCMCIA_DEVICE_MANF_CARD(0x0032, 0x0704),
 	PCMCIA_DEVICE_MANF_CARD(0x0032, 0x2904),
-	PCMCIA_DEVICE_MANF_CARD(0x0045, 0x0401),	
-	PCMCIA_DEVICE_MANF_CARD(0x004f, 0x0000),	
-	PCMCIA_DEVICE_MANF_CARD(0x0097, 0x1620), 	
-	PCMCIA_DEVICE_MANF_CARD(0x0098, 0x0000),	
+	PCMCIA_DEVICE_MANF_CARD(0x0045, 0x0401),	/* SanDisk CFA */
+	PCMCIA_DEVICE_MANF_CARD(0x004f, 0x0000),	/* Kingston */
+	PCMCIA_DEVICE_MANF_CARD(0x0097, 0x1620), 	/* TI emulated */
+	PCMCIA_DEVICE_MANF_CARD(0x0098, 0x0000),	/* Toshiba */
 	PCMCIA_DEVICE_MANF_CARD(0x00a4, 0x002d),
-	PCMCIA_DEVICE_MANF_CARD(0x00ce, 0x0000),	
-	PCMCIA_DEVICE_MANF_CARD(0x0319, 0x0000),	
+	PCMCIA_DEVICE_MANF_CARD(0x00ce, 0x0000),	/* Samsung */
+	PCMCIA_DEVICE_MANF_CARD(0x0319, 0x0000),	/* Hitachi */
 	PCMCIA_DEVICE_MANF_CARD(0x2080, 0x0001),
-	PCMCIA_DEVICE_MANF_CARD(0x4e01, 0x0100),	
-	PCMCIA_DEVICE_MANF_CARD(0x4e01, 0x0200),	
+	PCMCIA_DEVICE_MANF_CARD(0x4e01, 0x0100),	/* Viking CFA */
+	PCMCIA_DEVICE_MANF_CARD(0x4e01, 0x0200),	/* Lexar, Viking CFA */
 	PCMCIA_DEVICE_PROD_ID123("Caravelle", "PSC-IDE ", "PSC000", 0x8c36137c, 0xd0693ab8, 0x2768a9f0),
 	PCMCIA_DEVICE_PROD_ID123("CDROM", "IDE", "MCD-601p", 0x1b9179ca, 0xede88951, 0x0d902f74),
 	PCMCIA_DEVICE_PROD_ID123("PCMCIA", "IDE CARD", "F1", 0x281f1c5d, 0x1907960c, 0xf7fde8b9),

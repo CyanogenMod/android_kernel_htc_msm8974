@@ -58,7 +58,7 @@
 #define MX51_PAD_SD1_CD	IOMUX_PAD(0x47c, 0x0e8, 1, __NA_, 0, MX51_ESDHC_PAD_CTRL)
 
 static iomux_v3_cfg_t mx51efikasb_pads[] = {
-	
+	/* USB HOST2 */
 	MX51_PAD_EIM_D16__USBH2_DATA0,
 	MX51_PAD_EIM_D17__USBH2_DATA1,
 	MX51_PAD_EIM_D18__USBH2_DATA2,
@@ -72,30 +72,30 @@ static iomux_v3_cfg_t mx51efikasb_pads[] = {
 	MX51_PAD_EIM_A26__USBH2_STP,
 	MX51_PAD_EIM_A27__USBH2_NXT,
 
-	
+	/* leds */
 	MX51_PAD_EIM_CS0__GPIO2_25,
 	MX51_PAD_GPIO1_3__GPIO1_3,
 
-	
+	/* pcb id */
 	MX51_PAD_EIM_CS3__GPIO2_28,
 	MX51_PAD_EIM_CS4__GPIO2_29,
 
-	
+	/* lid */
 	MX51_PAD_CSI1_VSYNC__GPIO3_14,
 
-	
+	/* power key*/
 	MX51_PAD_PWRKEY,
 
-	
+	/* wifi/bt button */
 	MX51_PAD_DI1_PIN12__GPIO3_1,
 
-	
+	/* power off */
 	MX51_PAD_CSI2_VSYNC__GPIO4_13,
 
-	
+	/* wdog reset */
 	MX51_PAD_GPIO1_4__WDOG1_WDOG_B,
 
-	
+	/* BT */
 	MX51_PAD_EIM_A17__GPIO2_11,
 
 	MX51_PAD_SD1_CD,
@@ -228,6 +228,8 @@ static int __init mx51_efikasb_power_init(void)
 }
 late_initcall(mx51_efikasb_power_init);
 
+/* 01     R1.3 board
+   10     R2.0 board */
 static void __init mx51_efikasb_board_id(void)
 {
 	int id;

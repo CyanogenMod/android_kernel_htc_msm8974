@@ -1,3 +1,4 @@
+/* $Id: diva.c,v 1.21.4.1 2004/05/08 14:33:43 armin Exp $ */
 
 #define CARDTYPE_H_WANT_DATA            1
 #define CARDTYPE_H_WANT_IDI_DATA        0
@@ -34,6 +35,9 @@ extern void remove_adapter_proc(diva_os_xdi_adapter_t *a);
 	static void DivaIdiRequest##N(ENTITY *e)			\
 	{ if (IoAdapters[N]) (*IoAdapters[N]->DIRequest)(IoAdapters[N], e); }
 
+/*
+**  Create own 32 Adapters
+*/
 DivaIdiReqFunc(0)
 DivaIdiReqFunc(1)
 DivaIdiReqFunc(2)
@@ -67,6 +71,9 @@ DivaIdiReqFunc(29)
 DivaIdiReqFunc(30)
 DivaIdiReqFunc(31)
 
+/*
+**  LOCALS
+*/
 static LIST_HEAD(adapter_queue);
 
 typedef struct _diva_get_xlog {
@@ -83,21 +90,45 @@ typedef struct _diva_supported_cards_info {
 
 static diva_supported_cards_info_t divas_supported_cards[] = {
 #ifdef CONFIG_ISDN_DIVAS_PRIPCI
+	/*
+	  PRI Cards
+	*/
 	{CARDTYPE_DIVASRV_P_30M_PCI, diva_pri_init_card},
+	/*
+	  PRI Rev.2 Cards
+	*/
 	{CARDTYPE_DIVASRV_P_30M_V2_PCI, diva_pri_init_card},
+	/*
+	  PRI Rev.2 VoIP Cards
+	*/
 	{CARDTYPE_DIVASRV_VOICE_P_30M_V2_PCI, diva_pri_init_card},
 #endif
 #ifdef CONFIG_ISDN_DIVAS_BRIPCI
+	/*
+	  4BRI Rev 1 Cards
+	*/
 	{CARDTYPE_DIVASRV_Q_8M_PCI, diva_4bri_init_card},
 	{CARDTYPE_DIVASRV_VOICE_Q_8M_PCI, diva_4bri_init_card},
+	/*
+	  4BRI Rev 2 Cards
+	*/
 	{CARDTYPE_DIVASRV_Q_8M_V2_PCI, diva_4bri_init_card},
 	{CARDTYPE_DIVASRV_VOICE_Q_8M_V2_PCI, diva_4bri_init_card},
+	/*
+	  4BRI Based BRI Rev 2 Cards
+	*/
 	{CARDTYPE_DIVASRV_B_2M_V2_PCI, diva_4bri_init_card},
 	{CARDTYPE_DIVASRV_B_2F_PCI, diva_4bri_init_card},
 	{CARDTYPE_DIVASRV_VOICE_B_2M_V2_PCI, diva_4bri_init_card},
+	/*
+	  BRI
+	*/
 	{CARDTYPE_MAESTRA_PCI, diva_bri_init_card},
 #endif
 
+	/*
+	  EOL
+	*/
 	{-1}
 };
 
@@ -129,6 +160,9 @@ static diva_os_xdi_adapter_t *diva_q_get_next(struct list_head *what)
 	return (a);
 }
 
+/* --------------------------------------------------------------------------
+   Add card to the card list
+   -------------------------------------------------------------------------- */
 void *diva_driver_add_card(void *pdev, unsigned long CardOrdinal)
 {
 	diva_os_spin_lock_magic_t old_irql;
@@ -162,7 +196,7 @@ void *diva_driver_add_card(void *pdev, unsigned long CardOrdinal)
 					pdiva->xdi_adapter.ANum = pdiva->controller;
 					IoAdapters[i] = &pdiva->xdi_adapter;
 					diva_os_leave_spin_lock(&adapter_lock, &old_irql, "add card");
-					create_adapter_proc(pdiva);	
+					create_adapter_proc(pdiva);	/* add adapter to proc file system */
 
 					DBG_LOG(("add %s:%d",
 						 CardProperties
@@ -171,7 +205,7 @@ void *diva_driver_add_card(void *pdev, unsigned long CardOrdinal)
 
 						diva_os_enter_spin_lock(&adapter_lock, &old_irql, "add card");
 					pa = pdiva;
-					for (j = 1; j < nr; j++) {	
+					for (j = 1; j < nr; j++) {	/* slave adapters, if any */
 						pa = diva_q_get_next(&pa->link);
 						if (pa && !pa->interface.cleanup_adapter_proc) {
 							pa->controller = i + 1 + j;
@@ -180,7 +214,7 @@ void *diva_driver_add_card(void *pdev, unsigned long CardOrdinal)
 							diva_os_leave_spin_lock(&adapter_lock, &old_irql, "add card");
 							DBG_LOG(("add slave adapter (%d)",
 								 pa->controller))
-								create_adapter_proc(pa);	
+								create_adapter_proc(pa);	/* add adapter to proc file system */
 							diva_os_enter_spin_lock(&adapter_lock, &old_irql, "add card");
 						} else {
 							DBG_ERR(("slave adapter problem"))
@@ -195,6 +229,9 @@ void *diva_driver_add_card(void *pdev, unsigned long CardOrdinal)
 
 			diva_os_leave_spin_lock(&adapter_lock, &old_irql, "add card");
 
+			/*
+			  Not able to add adapter - remove it and return error
+			*/
 			DBG_ERR(("can not alloc request array"))
 				diva_driver_remove_card(pdiva);
 
@@ -205,6 +242,9 @@ void *diva_driver_add_card(void *pdev, unsigned long CardOrdinal)
 	return NULL;
 }
 
+/* --------------------------------------------------------------------------
+   Called on driver load, MAIN, main, DriverEntry
+   -------------------------------------------------------------------------- */
 int divasa_xdi_driver_entry(void)
 {
 	diva_os_initialize_spin_lock(&adapter_lock, "adapter");
@@ -214,6 +254,9 @@ int divasa_xdi_driver_entry(void)
 	return (0);
 }
 
+/* --------------------------------------------------------------------------
+   Remove adapter from list
+   -------------------------------------------------------------------------- */
 static diva_os_xdi_adapter_t *get_and_remove_from_queue(void)
 {
 	diva_os_spin_lock_magic_t old_irql;
@@ -230,6 +273,9 @@ static diva_os_xdi_adapter_t *get_and_remove_from_queue(void)
 	return (a);
 }
 
+/* --------------------------------------------------------------------------
+   Remove card from the card list
+   -------------------------------------------------------------------------- */
 void diva_driver_remove_card(void *pdiva)
 {
 	diva_os_spin_lock_magic_t old_irql;
@@ -271,6 +317,9 @@ void diva_driver_remove_card(void *pdiva)
 	}
 }
 
+/* --------------------------------------------------------------------------
+   Create diva PCI adapter and init internal adapter structures
+   -------------------------------------------------------------------------- */
 static void *divas_create_pci_card(int handle, void *pci_dev_handle)
 {
 	diva_supported_cards_info_t *pI = &divas_supported_cards[handle];
@@ -294,6 +343,10 @@ static void *divas_create_pci_card(int handle, void *pci_dev_handle)
 	a->resources.pci.func = diva_os_get_pci_func(pci_dev_handle);
 	a->resources.pci.hdev = pci_dev_handle;
 
+	/*
+	  Add master adapter first, so slave adapters will receive higher
+	  numbers as master adapter
+	*/
 	diva_os_enter_spin_lock(&adapter_lock, &old_irql, "found_pci_card");
 	list_add_tail(&a->link, &adapter_queue);
 	diva_os_leave_spin_lock(&adapter_lock, &old_irql, "found_pci_card");
@@ -310,6 +363,9 @@ static void *divas_create_pci_card(int handle, void *pci_dev_handle)
 	return (a);
 }
 
+/* --------------------------------------------------------------------------
+   Called on driver unload FINIT, finit, Unload
+   -------------------------------------------------------------------------- */
 void divasa_xdi_driver_unload(void)
 {
 	diva_os_xdi_adapter_t *a;
@@ -327,6 +383,9 @@ void divasa_xdi_driver_unload(void)
 	diva_os_destroy_spin_lock(&adapter_lock, "adapter");
 }
 
+/*
+**  Receive and process command from user mode utility
+*/
 void *diva_xdi_open_adapter(void *os_handle, const void __user *src,
 			    int length,
 			    divas_xdi_copy_from_user_fn_t cp_fn)
@@ -361,6 +420,9 @@ void *diva_xdi_open_adapter(void *os_handle, const void __user *src,
 	return (a);
 }
 
+/*
+**  Easy cleanup mailbox status
+*/
 void diva_xdi_close_adapter(void *adapter, void *os_handle)
 {
 	diva_os_xdi_adapter_t *a = (diva_os_xdi_adapter_t *) adapter;
@@ -412,6 +474,9 @@ diva_xdi_write(void *adapter, void *os_handle, const void __user *src,
 	return (length);
 }
 
+/*
+**  Write answers to user mode utility, if any
+*/
 int
 diva_xdi_read(void *adapter, void *os_handle, void __user *dst,
 	      int max_length, divas_xdi_copy_to_user_fn_t cp_fn)

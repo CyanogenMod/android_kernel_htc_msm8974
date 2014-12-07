@@ -132,7 +132,7 @@ i915_verify_lists(struct drm_device *dev)
 
 	return warned = err;
 }
-#endif 
+#endif /* WATCH_INACTIVE */
 
 #if WATCH_COHERENCY
 void
@@ -190,9 +190,13 @@ i915_gem_object_check_coherency(struct drm_i915_gem_object *obj, int handle)
 		kunmap_atomic(backing_map);
 	iounmap(gtt_mapping);
 
-	
+	/* give syslog time to catch up */
 	msleep(1);
 
+	/* Directly flush the object, since we just loaded values with the CPU
+	 * from the backing pages and we don't want to disturb the cache
+	 * management that we're trying to observe.
+	 */
 
 	i915_gem_clflush_object(obj);
 }

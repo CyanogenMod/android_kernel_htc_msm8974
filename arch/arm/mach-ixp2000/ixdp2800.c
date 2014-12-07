@@ -39,6 +39,9 @@
 #include <asm/mach/flash.h>
 #include <asm/mach/arch.h>
 
+/*************************************************************************
+ * IXDP2800 timer tick
+ *************************************************************************/
 
 static void __init ixdp2800_timer_init(void)
 {
@@ -50,6 +53,9 @@ static struct sys_timer ixdp2800_timer = {
 	.offset		= ixp2000_gettimeoffset,
 };
 
+/*************************************************************************
+ * IXDP2800 PCI
+ *************************************************************************/
 static void __init ixdp2800_slave_disable_pci_master(void)
 {
 	*IXP2000_PCI_CMDSTAT &= ~(PCI_COMMAND_MASTER | PCI_COMMAND_MEMORY);
@@ -76,6 +82,9 @@ static void __init ixdp2800_master_wait_for_slave(void)
 		cpu_relax();
 	} while (*addr != 0xc0000008);
 
+	/*
+	 * Configure the slave's SDRAM BAR by hand.
+	 */
 	*addr = 0x40000008;
 }
 
@@ -102,15 +111,36 @@ void __init ixdp2800_pci_preinit(void)
 	ixp2000_pci_preinit();
 
 	if (ixdp2x00_master_npu()) {
+		/*
+		 * Wait until the slave set its SRAM/SDRAM BAR sizes
+		 * correctly before we proceed to scan and enumerate
+		 * the bus.
+		 */
 		ixdp2800_master_wait_for_slave();
 
+		/*
+		 * We configure the SDRAM BARs by hand because they
+		 * are 1G and fall outside of the regular allocated
+		 * PCI address space.
+		 */
 		*IXP2000_PCI_SDRAM_BAR = 0x00000008;
 	} else {
+		/*
+		 * Wait for the master to complete scanning the bus
+		 * and assigning resources before we proceed to scan
+		 * the bus ourselves.  Set pci=firmware to honor the
+		 * master's resource assignment.
+		 */
 		ixdp2800_slave_wait_for_master_enable();
 		pcibios_setup("firmware");
 	}
 }
 
+/*
+ * We assign the SDRAM BARs for the two IXP2800 CPUs by hand, outside
+ * of the regular PCI window, because there's only 512M of outbound PCI
+ * memory window on each IXP, while we need 1G for each of the BARs.
+ */
 static void __devinit ixp2800_pci_fixup(struct pci_dev *dev)
 {
 	if (machine_is_ixdp2800()) {
@@ -135,6 +165,10 @@ static int __init ixdp2800_pci_map_irq(const struct pci_dev *dev, u8 slot,
 {
 	if (ixdp2x00_master_npu()) {
 
+		/*
+		 * Root bus devices.  Slave NPU is only one with interrupt.
+		 * Everything else, we just return -1 which is invalid.
+		 */
 		if(!dev->bus->self) {
 			if(dev->devfn == IXDP2X00_SLAVE_NPU_DEVFN )
 				return IRQ_IXDP2800_INGRESS_NPU;
@@ -142,11 +176,17 @@ static int __init ixdp2800_pci_map_irq(const struct pci_dev *dev, u8 slot,
 			return -1;
 		}
 
+		/*
+		 * Bridge behind the PMC slot.
+		 */
 		if(dev->bus->self->devfn == IXDP2X00_PMC_DEVFN &&
 			dev->bus->parent->self->devfn == IXDP2X00_P2P_DEVFN &&
 			!dev->bus->parent->self->bus->parent)
 				  return IRQ_IXDP2800_PMC;
 
+		/*
+		 * Device behind the first bridge
+		 */
 		if(dev->bus->self->devfn == IXDP2X00_P2P_DEVFN) {
 			switch(dev->devfn) {
 				case IXDP2X00_PMC_DEVFN:
@@ -161,7 +201,7 @@ static int __init ixdp2800_pci_map_irq(const struct pci_dev *dev, u8 slot,
 		}
 
 		return -1;
-	} else return IRQ_IXP2000_PCIB; 
+	} else return IRQ_IXP2000_PCIB; /* Slave NIC interrupt */
 }
 
 static void __init ixdp2800_master_enable_slave(void)
@@ -244,7 +284,7 @@ void __init ixdp2800_init_irq(void)
 }
 
 MACHINE_START(IXDP2800, "Intel IXDP2800 Development Platform")
-	
+	/* Maintainer: MontaVista Software, Inc. */
 	.atag_offset	= 0x100,
 	.map_io		= ixdp2x00_map_io,
 	.init_irq	= ixdp2800_init_irq,

@@ -19,7 +19,7 @@
 enum {
 	UNUSED = 0,
 
-	
+	/* interrupt sources */
 	IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5,
 	DMAC1, SCIF0, SCIF1, DMAC2, IPSEC,
 	EDMAC0, EDMAC1, EDMAC2,
@@ -30,7 +30,7 @@ enum {
 };
 
 static struct intc_vect vectors[] __initdata = {
-	
+	/* IRQ0->5 are handled in setup-sh3.c */
 	INTC_VECT(DMAC1, 0x800), INTC_VECT(DMAC1, 0x820),
 	INTC_VECT(DMAC1, 0x840), INTC_VECT(DMAC1, 0x860),
 	INTC_VECT(SCIF0, 0x880), INTC_VECT(SCIF0, 0x8a0),
@@ -56,15 +56,15 @@ static struct intc_vect vectors[] __initdata = {
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xfffffee2, 0, 16, 4,  { TMU0, TMU1, TMU2, RTC } },
-	{ 0xfffffee4, 0, 16, 4,  { WDT, REF, 0, 0 } },
-	{ 0xa4000016, 0, 16, 4,  { IRQ3, IRQ2, IRQ1, IRQ0 } },
-	{ 0xa4000018, 0, 16, 4,  { 0, 0, IRQ5, IRQ4 } },
-	{ 0xa400001a, 0, 16, 4,  { DMAC1, SCIF0, SCIF1 } },
-	{ 0xa4080000, 0, 16, 4,  { IPSEC, DMAC2 } },
-	{ 0xa4080002, 0, 16, 4,  { EDMAC0, EDMAC1, EDMAC2 } },
-	{ 0xa4080004, 0, 16, 4,  { 0, 0, 0, SIOF0 } },
-	{ 0xa4080006, 0, 16, 4,  { 0, 0, SIOF1 } },
+	{ 0xfffffee2, 0, 16, 4, /* IPRA */ { TMU0, TMU1, TMU2, RTC } },
+	{ 0xfffffee4, 0, 16, 4, /* IPRB */ { WDT, REF, 0, 0 } },
+	{ 0xa4000016, 0, 16, 4, /* IPRC */ { IRQ3, IRQ2, IRQ1, IRQ0 } },
+	{ 0xa4000018, 0, 16, 4, /* IPRD */ { 0, 0, IRQ5, IRQ4 } },
+	{ 0xa400001a, 0, 16, 4, /* IPRE */ { DMAC1, SCIF0, SCIF1 } },
+	{ 0xa4080000, 0, 16, 4, /* IPRF */ { IPSEC, DMAC2 } },
+	{ 0xa4080002, 0, 16, 4, /* IPRG */ { EDMAC0, EDMAC1, EDMAC2 } },
+	{ 0xa4080004, 0, 16, 4, /* IPRH */ { 0, 0, 0, SIOF0 } },
+	{ 0xa4080006, 0, 16, 4, /* IPRI */ { 0, 0, SIOF1 } },
 };
 
 static DECLARE_INTC_DESC(intc_desc, "sh7710", vectors, NULL,

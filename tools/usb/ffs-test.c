@@ -19,9 +19,10 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+/* $(CROSS_COMPILE)cc -Wall -Wextra -g -o ffs-test ffs-test.c -lpthread */
 
 
-#define _BSD_SOURCE 
+#define _BSD_SOURCE /* for endian.h */
 
 #include <endian.h>
 #include <errno.h>
@@ -40,6 +41,7 @@
 #include "../../include/linux/usb/functionfs.h"
 
 
+/******************** Little Endian Handling ********************************/
 
 #define cpu_to_le16(x)  htole16(x)
 #define cpu_to_le32(x)  htole32(x)
@@ -47,6 +49,7 @@
 #define le16_to_cpu(x)  le16toh(x)
 
 
+/******************** Messages and Errors ***********************************/
 
 static const char argv0[] = "ffs-test";
 
@@ -100,6 +103,7 @@ static void _msg(unsigned level, const char *fmt, ...)
 	} while (0)
 
 
+/******************** Descriptors and Strings *******************************/
 
 static const struct {
 	struct usb_functionfs_descs_head header;
@@ -128,14 +132,14 @@ static const struct {
 			.bDescriptorType = USB_DT_ENDPOINT,
 			.bEndpointAddress = 1 | USB_DIR_IN,
 			.bmAttributes = USB_ENDPOINT_XFER_BULK,
-			
+			/* .wMaxPacketSize = autoconfiguration (kernel) */
 		},
 		.source = {
 			.bLength = sizeof descriptors.fs_descs.source,
 			.bDescriptorType = USB_DT_ENDPOINT,
 			.bEndpointAddress = 2 | USB_DIR_OUT,
 			.bmAttributes = USB_ENDPOINT_XFER_BULK,
-			
+			/* .wMaxPacketSize = autoconfiguration (kernel) */
 		},
 	},
 	.hs_descs = {
@@ -159,7 +163,7 @@ static const struct {
 			.bEndpointAddress = 2 | USB_DIR_OUT,
 			.bmAttributes = USB_ENDPOINT_XFER_BULK,
 			.wMaxPacketSize = cpu_to_le16(512),
-			.bInterval = 1, 
+			.bInterval = 1, /* NAK every 1 uframe */
 		},
 	},
 };
@@ -181,7 +185,7 @@ static const struct {
 		.lang_count = cpu_to_le32(1),
 	},
 	.lang0 = {
-		cpu_to_le16(0x0409), 
+		cpu_to_le16(0x0409), /* en-us */
 		STR_INTERFACE_,
 	},
 };
@@ -189,6 +193,7 @@ static const struct {
 #define STR_INTERFACE strings.lang0.str1
 
 
+/******************** Files and Threads Handling ****************************/
 
 struct thread;
 
@@ -254,11 +259,11 @@ static void cleanup_thread(void *arg)
 		return;
 	t->fd = -1;
 
-	
+	/* test the FIFO ioctls (non-ep0 code paths) */
 	if (t != threads) {
 		ret = ioctl(fd, FUNCTIONFS_FIFO_STATUS);
 		if (ret < 0) {
-			
+			/* ENODEV reported after disconnect */
 			if (errno != ENODEV)
 				err("%s: get fifo status", t->filename);
 		} else if (ret) {
@@ -301,7 +306,7 @@ static void *start_thread_helper(void *arg)
 		}
 
 		if (ret > 0) {
-			
+			/* nop */
 		} else if (!ret) {
 			debug("%s: %s: EOF", name, op);
 			break;
@@ -350,7 +355,9 @@ static ssize_t write_wrap(struct thread *t, const void *buf, size_t nbytes)
 }
 
 
+/******************** Empty/Fill buffer routines ****************************/
 
+/* 0 -- stream of zeros, 1 -- i % 63, 2 -- pipe */
 enum pattern { PAT_ZERO, PAT_SEQ, PAT_PIPE };
 static enum pattern pattern;
 
@@ -430,6 +437,7 @@ invalid:
 }
 
 
+/******************** Endpoints routines ************************************/
 
 static void handle_setup(const struct usb_ctrlrequest *setup)
 {
@@ -493,12 +501,13 @@ static void ep0_init(struct thread *t)
 }
 
 
+/******************** Main **************************************************/
 
 int main(void)
 {
 	unsigned i;
 
-	
+	/* XXX TODO: Argument parsing missing */
 
 	init_thread(threads);
 	ep0_init(threads);

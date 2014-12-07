@@ -13,6 +13,7 @@
 #ifndef MIPI_DISPLAY_H
 #define MIPI_DISPLAY_H
 
+/* MIPI DSI Processor-to-Peripheral transaction types */
 enum {
 	MIPI_DSI_V_SYNC_START				= 0x01,
 	MIPI_DSI_V_SYNC_END				= 0x11,
@@ -60,6 +61,7 @@ enum {
 	MIPI_DSI_PACKED_PIXEL_STREAM_24			= 0x3e,
 };
 
+/* MIPI DSI Peripheral-to-Processor transaction types */
 enum {
 	MIPI_DSI_RX_ACKNOWLEDGE_AND_ERROR_REPORT	= 0x02,
 	MIPI_DSI_RX_END_OF_TRANSMISSION			= 0x08,
@@ -71,6 +73,7 @@ enum {
 	MIPI_DSI_RX_DCS_SHORT_READ_RESPONSE_2BYTE	= 0x22,
 };
 
+/* MIPI DCS commands */
 enum {
 	MIPI_DCS_NOP			= 0x00,
 	MIPI_DCS_SOFT_RESET		= 0x01,
@@ -116,6 +119,7 @@ enum {
 	MIPI_DCS_READ_DDB_CONTINUE	= 0xA8,
 };
 
+/* MIPI DCS pixel formats */
 #define MIPI_DCS_PIXEL_FMT_24BIT	7
 #define MIPI_DCS_PIXEL_FMT_18BIT	6
 #define MIPI_DCS_PIXEL_FMT_16BIT	5

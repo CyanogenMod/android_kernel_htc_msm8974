@@ -10,6 +10,9 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * Device access library (DAL) implementation.
+ */
 
 #include <linux/kernel.h>
 #include <linux/completion.h>
@@ -134,7 +137,7 @@ static int client_exists_locked(void *handle)
 {
 	struct daldevice_handle *h;
 
-	
+	/* this function must be called with pc_lists_lock acquired */
 
 	if (!handle)
 		return 0;
@@ -150,7 +153,7 @@ static int port_exists(struct dalrpc_port *p)
 {
 	struct dalrpc_port *p_iter;
 
-	
+	/* this function must be called with pc_lists_lock acquired */
 
 	if (!p)
 		return 0;
@@ -166,7 +169,7 @@ static struct dalrpc_port *port_name_exists(char *port)
 {
 	struct dalrpc_port *p;
 
-	
+	/* this function must be called with pc_lists_lock acquired */
 
 	list_for_each_entry(p, &port_list, list)
 		if (!strcmp(p->port, port))
@@ -197,7 +200,7 @@ static int event_exists(struct dalrpc_port *p,
 {
 	struct dalrpc_event_handle *ev_iter;
 
-	
+	/* this function must be called with event_list_lock acquired */
 
 	list_for_each_entry(ev_iter, &p->event_list, list)
 		if (ev_iter == ev)
@@ -211,7 +214,7 @@ static int cb_exists(struct dalrpc_port *p,
 {
 	struct dalrpc_cb_handle *cb_iter;
 
-	
+	/* this function must be called with the cb_list_lock acquired */
 
 	list_for_each_entry(cb_iter, &p->cb_list, list)
 		if (cb_iter == cb)
@@ -224,7 +227,7 @@ static int check_version(struct dalrpc_msg_hdr *msg_hdr)
 {
 	static int version_msg = 1;
 
-	
+	/* disabled because asynch events currently have no version */
 	return 0;
 
 	if (msg_hdr->proto_ver != DALRPC_PROTOCOL_VERSION) {
@@ -325,7 +328,7 @@ static int dalrpc_read_msg(struct dalrpc_port *p)
 	uint8_t *read_ptr;
 	int bytes_read;
 
-	
+	/* read msg header */
 	while (p->msg_bytes_read < sizeof(p->msg_in.hdr)) {
 		read_ptr = (uint8_t *)&p->msg_in.hdr + p->msg_bytes_read;
 
@@ -341,7 +344,7 @@ static int dalrpc_read_msg(struct dalrpc_port *p)
 			return 1;
 	}
 
-	
+	/* read remainder of msg */
 	if (p->msg_in.hdr.msgid != DALRPC_MSGID_ASYNCH)
 		read_ptr = (uint8_t *)&p->msg_owner->msg;
 	else
@@ -370,6 +373,8 @@ static void dalrpc_work(struct work_struct *work)
 					     struct dalrpc_port,
 					     port_work);
 
+	/* must lock port/client lists to ensure port doesn't disappear
+	   under an asynch event */
 	mutex_lock(&pc_lists_lock);
 	if (port_exists(p))
 		while (dalrpc_read_msg(p))
@@ -487,6 +492,9 @@ int daldevice_attach(uint32_t device_id, char *port, int cpu,
 	list_add(&h->list, &client_list);
 	mutex_unlock(&pc_lists_lock);
 
+	/* 3 attempts, enough for one each on the user specified port, the
+	 * dynamic discovery port, and the port recommended by the dynamic
+	 * discovery port */
 	while (tries < 3) {
 		tries++;
 
@@ -528,15 +536,20 @@ int daldevice_attach(uint32_t device_id, char *port, int cpu,
 			break;
 		} else if (strnlen((char *)&h->msg.param[1],
 				   DALRPC_MAX_PORTNAME_LEN)) {
-			
+			/* another port was recommended in the response. */
 			strlcpy(dyn_port, (char *)&h->msg.param[1],
 				sizeof(dyn_port));
 			dyn_port[DALRPC_MAX_PORTNAME_LEN] = 0;
 			port = dyn_port;
 		} else if (port == dyn_port) {
+			/* the dynamic discovery port (or port that
+			 * was recommended by it) did not recognize
+			 * the device id, give up */
 			daldevice_detach(h);
 			break;
 		} else
+			/* the user specified port did not work, try
+			 * the dynamic discovery port */
 			port = dyn_port;
 
 		port_close(h->port);

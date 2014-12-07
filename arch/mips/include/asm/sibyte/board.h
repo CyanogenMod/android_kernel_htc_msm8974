@@ -51,7 +51,7 @@
 	sb	t1, 0x00(t0)
 #else
 #define setleds(t0, t1, c0, c1, c2, c3)
-#endif 
+#endif /* LEDS_PHYS */
 
 #else
 
@@ -61,8 +61,8 @@ void swarm_setup(void);
 extern void setleds(char *str);
 #else
 #define setleds(s) do { } while (0)
-#endif 
+#endif /* LEDS_PHYS */
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _SIBYTE_BOARD_H */

@@ -333,6 +333,10 @@ static int __devinit jz_nand_probe(struct platform_device *pdev)
 	chip->ecc.size		= 512;
 	chip->ecc.bytes		= 9;
 	chip->ecc.strength	= 2;
+	/*
+	 * FIXME: ecc_strength value of 2 bits per 512 bytes of data is a
+	 * conservative guess, given 9 ecc bytes and reed-solomon alg.
+	 */
 
 	if (pdata)
 		chip->ecc.layout = pdata->ecc_layout;
@@ -401,7 +405,7 @@ static int __devexit jz_nand_remove(struct platform_device *pdev)
 
 	nand_release(&nand->mtd);
 
-	
+	/* Deassert and disable all chips */
 	writel(0, nand->base + JZ_REG_NAND_CTRL);
 
 	iounmap(nand->bank_base);

@@ -21,15 +21,35 @@
 
 extern spinlock_t rtc_lock;
 
+/*
+ * RTC ops.  By default, they point to weak no-op RTC functions.
+ *	rtc_mips_set_time - reverse the above translation and set time to RTC.
+ *	rtc_mips_set_mmss - similar to rtc_set_time, but only min and sec need
+ *			to be set.  Used by RTC sync-up.
+ */
 extern int rtc_mips_set_time(unsigned long);
 extern int rtc_mips_set_mmss(unsigned long);
 
+/*
+ * board specific routines required by time_init().
+ */
 extern void plat_time_init(void);
 
+/*
+ * mips_hpt_frequency - must be set if you intend to use an R4k-compatible
+ * counter as a timer interrupt source.
+ */
 extern unsigned int mips_hpt_frequency;
 
+/*
+ * The performance counter IRQ on MIPS is a close relative to the timer IRQ
+ * so it lives here.
+ */
 extern int (*perf_irq)(void);
 
+/*
+ * Initialize the calling CPU's compare interrupt as clockevent device
+ */
 #ifdef CONFIG_CEVT_R4K_LIB
 extern unsigned int __weak get_c0_compare_int(void);
 extern int r4k_clockevent_init(void);
@@ -48,6 +68,9 @@ static inline int mips_clockevent_init(void)
 #endif
 }
 
+/*
+ * Initialize the count register as a clocksource
+ */
 #ifdef CONFIG_CSRC_R4K_LIB
 extern int init_r4k_clocksource(void);
 #endif
@@ -67,4 +90,4 @@ static inline void clockevent_set_clock(struct clock_event_device *cd,
 	clockevents_calc_mult_shift(cd, clock, 4);
 }
 
-#endif 
+#endif /* _ASM_TIME_H */

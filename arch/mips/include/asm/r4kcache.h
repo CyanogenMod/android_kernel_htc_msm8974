@@ -17,6 +17,17 @@
 #include <asm/cpu-features.h>
 #include <asm/mipsmtregs.h>
 
+/*
+ * This macro return a properly sign-extended address suitable as base address
+ * for indexed cache operations.  Two issues here:
+ *
+ *  - The MIPS32 and MIPS64 specs permit an implementation to directly derive
+ *    the index bits from the virtual address.  This breaks with tradition
+ *    set by the R4000.  To keep unpleasant surprises from happening we pick
+ *    an address in KSEG0 / CKSEG0.
+ *  - We need a properly sign extended address for 64-bit code.  To get away
+ *    without ifdefs we let the compiler do it by a type cast.
+ */
 #define INDEX_BASE	CKSEG0
 
 #define cache_op(op,addr)						\
@@ -30,6 +41,10 @@
 	: "i" (op), "R" (*(unsigned char *)(addr)))
 
 #ifdef CONFIG_MIPS_MT
+/*
+ * Temporary hacks for SMTC debug. Optionally force single-threaded
+ * execution during I-cache flushes.
+ */
 
 #define PROTECT_CACHE_FLUSHES 1
 
@@ -81,7 +96,7 @@ extern void mt_cflush_release(void);
 #define END_MT_IPROT
 #define END_MT_DPROT
 
-#endif 
+#endif /* PROTECT_CACHE_FLUSHES */
 
 #define __iflush_prologue						\
 	unsigned long redundance;					\
@@ -110,7 +125,7 @@ extern void mt_cflush_release(void);
 #define __inv_sflush_prologue __sflush_prologue
 #define __inv_sflush_epilogue __sflush_epilogue
 
-#else 
+#else /* CONFIG_MIPS_MT */
 
 #define __iflush_prologue {
 #define __iflush_epilogue }
@@ -123,7 +138,7 @@ extern void mt_cflush_release(void);
 #define __inv_sflush_prologue {
 #define __inv_sflush_epilogue }
 
-#endif 
+#endif /* CONFIG_MIPS_MT */
 
 static inline void flush_icache_line_indexed(unsigned long addr)
 {
@@ -188,11 +203,20 @@ static inline void flush_scache_line(unsigned long addr)
 	:							\
 	: "i" (op), "r" (addr))
 
+/*
+ * The next two are for badland addresses like signal trampolines.
+ */
 static inline void protected_flush_icache_line(unsigned long addr)
 {
 	protected_cache_op(Hit_Invalidate_I, addr);
 }
 
+/*
+ * R10000 / R12000 hazard - these processors don't support the Hit_Writeback_D
+ * cacheop so we use Hit_Writeback_Inv_D which is supported by all R4000-style
+ * caches.  We're talking about one cacheline unnecessarily getting invalidated
+ * here so the penalty isn't overly hard.
+ */
 static inline void protected_writeback_dcache_line(unsigned long addr)
 {
 	protected_cache_op(Hit_Writeback_Inv_D, addr);
@@ -203,6 +227,9 @@ static inline void protected_writeback_scache_line(unsigned long addr)
 	protected_cache_op(Hit_Writeback_Inv_SD, addr);
 }
 
+/*
+ * This one is RM7000-specific
+ */
 static inline void invalidate_tcache_page(unsigned long addr)
 {
 	cache_op(Page_Invalidate_T, addr);
@@ -312,6 +339,7 @@ static inline void invalidate_tcache_page(unsigned long addr)
 		: "r" (base),						\
 		  "i" (op));
 
+/* build blast_xxx, blast_xxx_page, blast_xxx_page_indexed */
 #define __BUILD_BLAST_CACHE(pfx, desc, indexop, hitop, lsize) \
 static inline void blast_##pfx##cache##lsize(void)			\
 {									\
@@ -383,6 +411,7 @@ __BUILD_BLAST_CACHE(inv_s, scache, Index_Writeback_Inv_SD, Hit_Invalidate_SD, 32
 __BUILD_BLAST_CACHE(inv_s, scache, Index_Writeback_Inv_SD, Hit_Invalidate_SD, 64)
 __BUILD_BLAST_CACHE(inv_s, scache, Index_Writeback_Inv_SD, Hit_Invalidate_SD, 128)
 
+/* build blast_xxx_range, protected_blast_xxx_range */
 #define __BUILD_BLAST_CACHE_RANGE(pfx, desc, hitop, prot) \
 static inline void prot##blast_##pfx##cache##_range(unsigned long start, \
 						    unsigned long end)	\
@@ -408,7 +437,8 @@ __BUILD_BLAST_CACHE_RANGE(s, scache, Hit_Writeback_Inv_SD, protected_)
 __BUILD_BLAST_CACHE_RANGE(i, icache, Hit_Invalidate_I, protected_)
 __BUILD_BLAST_CACHE_RANGE(d, dcache, Hit_Writeback_Inv_D, )
 __BUILD_BLAST_CACHE_RANGE(s, scache, Hit_Writeback_Inv_SD, )
+/* blast_inv_dcache_range */
 __BUILD_BLAST_CACHE_RANGE(inv_d, dcache, Hit_Invalidate_D, )
 __BUILD_BLAST_CACHE_RANGE(inv_s, scache, Hit_Invalidate_SD, )
 
-#endif 
+#endif /* _ASM_R4KCACHE_H */

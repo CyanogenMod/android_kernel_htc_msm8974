@@ -46,6 +46,11 @@ static unsigned int stack_maxrandom_size(void)
 	return max;
 }
 
+/*
+ * Top of mmap area (just below the process stack).
+ *
+ * Leave an at least ~128 MB hole with possible stack randomization.
+ */
 #define MIN_GAP (128*1024*1024UL + stack_maxrandom_size())
 #define MAX_GAP (TASK_SIZE/6*5)
 
@@ -64,6 +69,10 @@ static unsigned long mmap_rnd(void)
 {
 	unsigned long rnd = 0;
 
+	/*
+	*  8 bits of randomness in 32bit mmaps, 20 address space bits
+	* 28 bits of randomness in 64bit mmaps, 40 address space bits
+	*/
 	if (current->flags & PF_RANDOMIZE) {
 		if (mmap_is_ia32())
 			rnd = get_random_int() % (1<<8);
@@ -85,6 +94,10 @@ static unsigned long mmap_base(void)
 	return PAGE_ALIGN(TASK_SIZE - gap - mmap_rnd());
 }
 
+/*
+ * Bottom-up (legacy) layout on X86_32 did not support randomization, X86_64
+ * does, but not when emulating X86_32
+ */
 static unsigned long mmap_legacy_base(void)
 {
 	if (mmap_is_ia32())
@@ -93,6 +106,10 @@ static unsigned long mmap_legacy_base(void)
 		return TASK_UNMAPPED_BASE + mmap_rnd();
 }
 
+/*
+ * This function, called very early during the creation of a new
+ * process VM image, sets up which VM layout function to use:
+ */
 void arch_pick_mmap_layout(struct mm_struct *mm)
 {
 	if (mmap_is_legacy()) {

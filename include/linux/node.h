@@ -1,3 +1,16 @@
+/*
+ * include/linux/node.h - generic node definition
+ *
+ * This is mainly for topological representation. We define the 
+ * basic 'struct node' here, which can be embedded in per-arch 
+ * definitions of processors.
+ *
+ * Basic handling of the devices is done in drivers/base/node.c
+ * and system devices are handled in drivers/base/sys.c. 
+ *
+ * Nodes are exported via driverfs in the class/node/devices/
+ * directory. 
+ */
 #ifndef _LINUX_NODE_H_
 #define _LINUX_NODE_H_
 
@@ -69,4 +82,4 @@ static inline void register_hugetlbfs_with_node(node_registration_func_t reg,
 
 #define to_node(device) container_of(device, struct node, dev)
 
-#endif 
+#endif /* _LINUX_NODE_H_ */

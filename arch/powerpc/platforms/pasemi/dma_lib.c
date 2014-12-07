@@ -44,42 +44,66 @@ static int num_txch, num_rxch;
 
 static struct pci_dev *dma_pdev;
 
+/* Bitmaps to handle allocation of channels */
 
 static DECLARE_BITMAP(txch_free, MAX_TXCH);
 static DECLARE_BITMAP(rxch_free, MAX_RXCH);
 static DECLARE_BITMAP(flags_free, MAX_FLAGS);
 static DECLARE_BITMAP(fun_free, MAX_FUN);
 
+/* pasemi_read_iob_reg - read IOB register
+ * @reg: Register to read (offset into PCI CFG space)
+ */
 unsigned int pasemi_read_iob_reg(unsigned int reg)
 {
 	return in_le32(iob_regs+reg);
 }
 EXPORT_SYMBOL(pasemi_read_iob_reg);
 
+/* pasemi_write_iob_reg - write IOB register
+ * @reg: Register to write to (offset into PCI CFG space)
+ * @val: Value to write
+ */
 void pasemi_write_iob_reg(unsigned int reg, unsigned int val)
 {
 	out_le32(iob_regs+reg, val);
 }
 EXPORT_SYMBOL(pasemi_write_iob_reg);
 
+/* pasemi_read_mac_reg - read MAC register
+ * @intf: MAC interface
+ * @reg: Register to read (offset into PCI CFG space)
+ */
 unsigned int pasemi_read_mac_reg(int intf, unsigned int reg)
 {
 	return in_le32(mac_regs[intf]+reg);
 }
 EXPORT_SYMBOL(pasemi_read_mac_reg);
 
+/* pasemi_write_mac_reg - write MAC register
+ * @intf: MAC interface
+ * @reg: Register to write to (offset into PCI CFG space)
+ * @val: Value to write
+ */
 void pasemi_write_mac_reg(int intf, unsigned int reg, unsigned int val)
 {
 	out_le32(mac_regs[intf]+reg, val);
 }
 EXPORT_SYMBOL(pasemi_write_mac_reg);
 
+/* pasemi_read_dma_reg - read DMA register
+ * @reg: Register to read (offset into PCI CFG space)
+ */
 unsigned int pasemi_read_dma_reg(unsigned int reg)
 {
 	return in_le32(dma_regs+reg);
 }
 EXPORT_SYMBOL(pasemi_read_dma_reg);
 
+/* pasemi_write_dma_reg - write DMA register
+ * @reg: Register to write to (offset into PCI CFG space)
+ * @val: Value to write
+ */
 void pasemi_write_dma_reg(unsigned int reg, unsigned int val)
 {
 	out_le32(dma_regs+reg, val);
@@ -140,6 +164,21 @@ static void pasemi_free_rx_chan(int chan)
 	set_bit(chan, rxch_free);
 }
 
+/* pasemi_dma_alloc_chan - Allocate a DMA channel
+ * @type: Type of channel to allocate
+ * @total_size: Total size of structure to allocate (to allow for more
+ *		room behind the structure to be used by the client)
+ * @offset: Offset in bytes from start of the total structure to the beginning
+ *	    of struct pasemi_dmachan. Needed when struct pasemi_dmachan is
+ *	    not the first member of the client structure.
+ *
+ * pasemi_dma_alloc_chan allocates a DMA channel for use by a client. The
+ * type argument specifies whether it's a RX or TX channel, and in the case
+ * of TX channels which group it needs to belong to (if any).
+ *
+ * Returns a pointer to the total structure allocated on success, NULL
+ * on failure.
+ */
 void *pasemi_dma_alloc_chan(enum pasemi_dmachan_type type,
 			    int total_size, int offset)
 {
@@ -179,6 +218,12 @@ void *pasemi_dma_alloc_chan(enum pasemi_dmachan_type type,
 }
 EXPORT_SYMBOL(pasemi_dma_alloc_chan);
 
+/* pasemi_dma_free_chan - Free a previously allocated channel
+ * @chan: Channel to free
+ *
+ * Frees a previously allocated channel. It will also deallocate any
+ * descriptor ring associated with the channel, if allocated.
+ */
 void pasemi_dma_free_chan(struct pasemi_dmachan *chan)
 {
 	if (chan->ring_virt)
@@ -197,6 +242,14 @@ void pasemi_dma_free_chan(struct pasemi_dmachan *chan)
 }
 EXPORT_SYMBOL(pasemi_dma_free_chan);
 
+/* pasemi_dma_alloc_ring - Allocate descriptor ring for a channel
+ * @chan: Channel for which to allocate
+ * @ring_size: Ring size in 64-bit (8-byte) words
+ *
+ * Allocate a descriptor ring for a channel. Returns 0 on success, errno
+ * on failure. The passed in struct pasemi_dmachan is updated with the
+ * virtual and DMA addresses of the ring.
+ */
 int pasemi_dma_alloc_ring(struct pasemi_dmachan *chan, int ring_size)
 {
 	BUG_ON(chan->ring_virt);
@@ -216,6 +269,11 @@ int pasemi_dma_alloc_ring(struct pasemi_dmachan *chan, int ring_size)
 }
 EXPORT_SYMBOL(pasemi_dma_alloc_ring);
 
+/* pasemi_dma_free_ring - Free an allocated descriptor ring for a channel
+ * @chan: Channel for which to free the descriptor ring
+ *
+ * Frees a previously allocated descriptor ring for a channel.
+ */
 void pasemi_dma_free_ring(struct pasemi_dmachan *chan)
 {
 	BUG_ON(!chan->ring_virt);
@@ -228,6 +286,12 @@ void pasemi_dma_free_ring(struct pasemi_dmachan *chan)
 }
 EXPORT_SYMBOL(pasemi_dma_free_ring);
 
+/* pasemi_dma_start_chan - Start a DMA channel
+ * @chan: Channel to start
+ * @cmdsta: Additional CCMDSTA/TCMDSTA bits to write
+ *
+ * Enables (starts) a DMA channel with optional additional arguments.
+ */
 void pasemi_dma_start_chan(const struct pasemi_dmachan *chan, const u32 cmdsta)
 {
 	if (chan->chan_type == RXCHAN)
@@ -239,6 +303,18 @@ void pasemi_dma_start_chan(const struct pasemi_dmachan *chan, const u32 cmdsta)
 }
 EXPORT_SYMBOL(pasemi_dma_start_chan);
 
+/* pasemi_dma_stop_chan - Stop a DMA channel
+ * @chan: Channel to stop
+ *
+ * Stops (disables) a DMA channel. This is done by setting the ST bit in the
+ * CMDSTA register and waiting on the ACT (active) bit to clear, then
+ * finally disabling the whole channel.
+ *
+ * This function will only try for a short while for the channel to stop, if
+ * it doesn't it will return failure.
+ *
+ * Returns 1 on success, 0 on failure.
+ */
 #define MAX_RETRIES 5000
 int pasemi_dma_stop_chan(const struct pasemi_dmachan *chan)
 {
@@ -273,6 +349,16 @@ int pasemi_dma_stop_chan(const struct pasemi_dmachan *chan)
 }
 EXPORT_SYMBOL(pasemi_dma_stop_chan);
 
+/* pasemi_dma_alloc_buf - Allocate a buffer to use for DMA
+ * @chan: Channel to allocate for
+ * @size: Size of buffer in bytes
+ * @handle: DMA handle
+ *
+ * Allocate a buffer to be used by the DMA engine for read/write,
+ * similar to dma_alloc_coherent().
+ *
+ * Returns the virtual address of the buffer, or NULL in case of failure.
+ */
 void *pasemi_dma_alloc_buf(struct pasemi_dmachan *chan, int size,
 			   dma_addr_t *handle)
 {
@@ -280,6 +366,13 @@ void *pasemi_dma_alloc_buf(struct pasemi_dmachan *chan, int size,
 }
 EXPORT_SYMBOL(pasemi_dma_alloc_buf);
 
+/* pasemi_dma_free_buf - Free a buffer used for DMA
+ * @chan: Channel the buffer was allocated for
+ * @size: Size of buffer in bytes
+ * @handle: DMA handle
+ *
+ * Frees a previously allocated buffer.
+ */
 void pasemi_dma_free_buf(struct pasemi_dmachan *chan, int size,
 			 dma_addr_t *handle)
 {
@@ -287,6 +380,11 @@ void pasemi_dma_free_buf(struct pasemi_dmachan *chan, int size,
 }
 EXPORT_SYMBOL(pasemi_dma_free_buf);
 
+/* pasemi_dma_alloc_flag - Allocate a flag (event) for channel synchronization
+ *
+ * Allocates a flag for use with channel synchronization (event descriptors).
+ * Returns allocated flag (0-63), < 0 on error.
+ */
 int pasemi_dma_alloc_flag(void)
 {
 	int bit;
@@ -303,6 +401,11 @@ retry:
 EXPORT_SYMBOL(pasemi_dma_alloc_flag);
 
 
+/* pasemi_dma_free_flag - Deallocates a flag (event)
+ * @flag: Flag number to deallocate
+ *
+ * Frees up a flag so it can be reused for other purposes.
+ */
 void pasemi_dma_free_flag(int flag)
 {
 	BUG_ON(test_bit(flag, flags_free));
@@ -312,6 +415,11 @@ void pasemi_dma_free_flag(int flag)
 EXPORT_SYMBOL(pasemi_dma_free_flag);
 
 
+/* pasemi_dma_set_flag - Sets a flag (event) to 1
+ * @flag: Flag number to set active
+ *
+ * Sets the flag provided to 1.
+ */
 void pasemi_dma_set_flag(int flag)
 {
 	BUG_ON(flag >= MAX_FLAGS);
@@ -322,6 +430,11 @@ void pasemi_dma_set_flag(int flag)
 }
 EXPORT_SYMBOL(pasemi_dma_set_flag);
 
+/* pasemi_dma_clear_flag - Sets a flag (event) to 0
+ * @flag: Flag number to set inactive
+ *
+ * Sets the flag provided to 0.
+ */
 void pasemi_dma_clear_flag(int flag)
 {
 	BUG_ON(flag >= MAX_FLAGS);
@@ -332,6 +445,11 @@ void pasemi_dma_clear_flag(int flag)
 }
 EXPORT_SYMBOL(pasemi_dma_clear_flag);
 
+/* pasemi_dma_alloc_fun - Allocate a function engine
+ *
+ * Allocates a function engine to use for crypto/checksum offload
+ * Returns allocated engine (0-8), < 0 on error.
+ */
 int pasemi_dma_alloc_fun(void)
 {
 	int bit;
@@ -348,6 +466,11 @@ retry:
 EXPORT_SYMBOL(pasemi_dma_alloc_fun);
 
 
+/* pasemi_dma_free_fun - Deallocates a function engine
+ * @flag: Engine number to deallocate
+ *
+ * Frees up a function engine so it can be used for other purposes.
+ */
 void pasemi_dma_free_fun(int fun)
 {
 	BUG_ON(test_bit(fun, fun_free));
@@ -372,9 +495,20 @@ static void *map_onedev(struct pci_dev *p, int index)
 
 	return ret;
 fallback:
+	/* This is hardcoded and ugly, but we have some firmware versions
+	 * that don't provide the register space in the device tree. Luckily
+	 * they are at well-known locations so we can just do the math here.
+	 */
 	return ioremap(0xe0000000 + (p->devfn << 12), 0x2000);
 }
 
+/* pasemi_dma_init - Initialize the PA Semi DMA library
+ *
+ * This function initializes the DMA library. It must be called before
+ * any other function in the library.
+ *
+ * Returns 0 on success, errno on failure.
+ */
 int pasemi_dma_init(void)
 {
 	static DEFINE_SPINLOCK(init_lock);
@@ -391,7 +525,7 @@ int pasemi_dma_init(void)
 
 	spin_lock(&init_lock);
 
-	
+	/* Make sure we haven't already initialized */
 	if (dma_pdev)
 		goto out;
 
@@ -439,7 +573,7 @@ int pasemi_dma_init(void)
 	if (dn)
 		err = of_address_to_resource(dn, 1, &res);
 	if (!dn || err) {
-		
+		/* Fallback for old firmware */
 		res.start = 0xfd800000;
 		res.end = res.start + 0x1000;
 	}
@@ -470,14 +604,14 @@ int pasemi_dma_init(void)
 		}
 	}
 
-	
+	/* setup resource allocations for the different DMA sections */
 	tmp = pasemi_read_dma_reg(PAS_DMA_COM_CFG);
 	pasemi_write_dma_reg(PAS_DMA_COM_CFG, tmp | 0x18000000);
 
-	
+	/* enable tx section */
 	pasemi_write_dma_reg(PAS_DMA_COM_TXCMD, PAS_DMA_COM_TXCMD_EN);
 
-	
+	/* enable rx section */
 	pasemi_write_dma_reg(PAS_DMA_COM_RXCMD, PAS_DMA_COM_RXCMD_EN);
 
 	for (i = 0; i < MAX_FLAGS; i++)
@@ -486,7 +620,7 @@ int pasemi_dma_init(void)
 	for (i = 0; i < MAX_FUN; i++)
 		__set_bit(i, fun_free);
 
-	
+	/* clear all status flags */
 	pasemi_write_dma_reg(PAS_DMA_TXF_CFLG0, 0xffffffff);
 	pasemi_write_dma_reg(PAS_DMA_TXF_CFLG1, 0xffffffff);
 

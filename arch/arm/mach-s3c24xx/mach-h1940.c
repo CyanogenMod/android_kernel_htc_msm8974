@@ -106,7 +106,7 @@ static struct s3c2410_uartcfg h1940_uartcfgs[] __initdata = {
 		.ulcon	     = 0x03,
 		.ufcon	     = 0x00,
 	},
-	
+	/* IR port */
 	[2] = {
 		.hwport	     = 2,
 		.flags	     = 0,
@@ -117,6 +117,7 @@ static struct s3c2410_uartcfg h1940_uartcfgs[] __initdata = {
 	}
 };
 
+/* Board control latch control */
 
 static unsigned int latch_state;
 
@@ -184,6 +185,9 @@ static struct s3c2410_ts_mach_info h1940_ts_cfg __initdata = {
 		.cfg_gpio = s3c24xx_ts_cfg_gpio,
 };
 
+/**
+ * Set lcd on or off
+ **/
 static struct s3c2410fb_display h1940_lcd __initdata = {
 	.lcdcon5=	S3C2410_LCDCON5_FRM565 | \
 			S3C2410_LCDCON5_INVVLINE | \
@@ -345,7 +349,7 @@ static struct s3c_adc_bat_pdata h1940_bat_cfg = {
 	.current_mult = 1893,
 	.internal_impedance = 200,
 	.backup_volt_channel = 3,
-	
+	/* TODO Check backup volt multiplier */
 	.backup_volt_mult = 4056,
 	.backup_volt_min = 0,
 	.backup_volt_max = 4149288
@@ -508,7 +512,7 @@ static struct platform_pwm_backlight_data backlight_data = {
 	.pwm_id         = 0,
 	.max_brightness = 100,
 	.dft_brightness = 50,
-	
+	/* tcnt = 0x31 */
 	.pwm_period_ns  = 36296,
 	.init           = h1940_backlight_init,
 	.notify		= h1940_backlight_notify,
@@ -531,7 +535,7 @@ static void h1940_lcd_power_set(struct plat_lcd_data *pd,
 
 	if (!power) {
 		gpio_set_value(S3C2410_GPC(0), 0);
-		
+		/* wait for 3ac */
 		do {
 			value = gpio_get_value(S3C2410_GPC(6));
 		} while (value && retries--);
@@ -654,18 +658,19 @@ static void __init h1940_map_io(void)
 	s3c24xx_init_clocks(0);
 	s3c24xx_init_uarts(h1940_uartcfgs, ARRAY_SIZE(h1940_uartcfgs));
 
-	
+	/* setup PM */
 
 #ifdef CONFIG_PM_H1940
 	memcpy(phys_to_virt(H1940_SUSPEND_RESUMEAT), h1940_pm_return, 1024);
 #endif
 	s3c_pm_init();
 
-	
+	/* Add latch gpio chip, set latch initial value */
 	h1940_latch_control(0, 0);
 	WARN_ON(gpiochip_add(&h1940_latch_gpiochip));
 }
 
+/* H1940 and RX3715 need to reserve this for suspend */
 static void __init h1940_reserve(void)
 {
 	memblock_reserve(0x30003000, 0x1000);
@@ -687,6 +692,8 @@ static void __init h1940_init(void)
 	s3c24xx_ts_set_platdata(&h1940_ts_cfg);
 	s3c_i2c0_set_platdata(NULL);
 
+	/* Turn off suspend on both USB ports, and switch the
+	 * selectable USB port to USB device mode. */
 
 	s3c2410_modify_misccr(S3C2410_MISCCR_USBHOST |
 			      S3C2410_MISCCR_USBSUSPND0 |
@@ -739,7 +746,7 @@ static void __init h1940_init(void)
 }
 
 MACHINE_START(H1940, "IPAQ-H1940")
-	
+	/* Maintainer: Ben Dooks <ben-linux@fluff.org> */
 	.atag_offset	= 0x100,
 	.map_io		= h1940_map_io,
 	.reserve	= h1940_reserve,

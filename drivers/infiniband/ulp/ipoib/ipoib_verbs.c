@@ -55,7 +55,7 @@ int ipoib_mcast_attach(struct net_device *dev, u16 mlid, union ib_gid *mgid, int
 		if (!qp_attr)
 			goto out;
 
-		
+		/* set correct QKey for QP */
 		qp_attr->qkey = priv->qkey;
 		ret = ib_modify_qp(priv->qp, qp_attr, IB_QP_QKEY);
 		if (ret) {
@@ -64,7 +64,7 @@ int ipoib_mcast_attach(struct net_device *dev, u16 mlid, union ib_gid *mgid, int
 		}
 	}
 
-	
+	/* attach QP to multicast group */
 	ret = ib_attach_mcast(priv->qp, mgid, mlid);
 	if (ret)
 		ipoib_warn(priv, "failed to attach to multicast group, ret = %d\n", ret);
@@ -100,7 +100,7 @@ int ipoib_init_qp(struct net_device *dev)
 	}
 
 	qp_attr.qp_state = IB_QPS_RTR;
-	
+	/* Can't set this in a INIT->RTR transition */
 	attr_mask &= ~IB_QP_PORT;
 	ret = ib_modify_qp(priv->qp, &qp_attr, attr_mask);
 	if (ret) {
@@ -162,7 +162,7 @@ int ipoib_transport_dev_init(struct net_device *dev, struct ib_device *ca)
 	if (!ret) {
 		size += ipoib_sendq_size;
 		if (ipoib_cm_has_srq(dev))
-			size += ipoib_recvq_size + 1; 
+			size += ipoib_recvq_size + 1; /* 1 extra for rx_drain_qp */
 		else
 			size += ipoib_recvq_size * ipoib_max_conn_qp;
 	}

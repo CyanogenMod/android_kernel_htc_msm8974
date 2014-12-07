@@ -12,6 +12,7 @@
 
 #include <linux/i2c.h>
 
+/* Bus flags */
 #define SH_VOU_PCLK_FALLING	(1 << 0)
 #define SH_VOU_HSYNC_LOW	(1 << 1)
 #define SH_VOU_VSYNC_LOW	(1 << 2)

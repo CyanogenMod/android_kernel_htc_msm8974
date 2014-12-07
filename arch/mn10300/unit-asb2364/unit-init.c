@@ -29,9 +29,12 @@
 #define LAN_IRQ_CFG		__SYSREG(SMSC911X_BASE + 0x54, u32)
 #define LAN_INT_EN		__SYSREG(SMSC911X_BASE + 0x5c, u32)
 
+/*
+ * initialise some of the unit hardware before gdbstub is set up
+ */
 asmlinkage void __init unit_init(void)
 {
-	
+	/* Make sure we aren't going to get unexpected interrupts */
 	TTYS0_SERIAL_IER = 0;
 	SC0RXICR = 0;
 	SC0TXICR = 0;
@@ -40,7 +43,7 @@ asmlinkage void __init unit_init(void)
 	SC2RXICR = 0;
 	SC2TXICR = 0;
 
-	
+	/* Attempt to reset the FPGA attached peripherals */
 	ASB2364_FPGA_REG_RESET_LAN = 0x0000;
 	SyncExBus();
 	ASB2364_FPGA_REG_RESET_UART = 0x0000;
@@ -52,16 +55,16 @@ asmlinkage void __init unit_init(void)
 	ASB2364_FPGA_REG_RESET_AV = 0x0000;
 	SyncExBus();
 
-	
+	/* set up the external interrupts */
 
-	
-	
+	/* XIRQ[0]: NAND RXBY */
+	/* SET_XIRQ_TRIGGER(0, XIRQ_TRIGGER_LOWLEVEL); */
 
-	
+	/* XIRQ[1]: LAN, UART, I2C, USB, PCI, FPGA */
 	SET_XIRQ_TRIGGER(1, XIRQ_TRIGGER_LOWLEVEL);
 
-	
-	
+	/* XIRQ[2]: Extend Slot 1-9 */
+	/* SET_XIRQ_TRIGGER(2, XIRQ_TRIGGER_LOWLEVEL); */
 
 #if defined(CONFIG_EXT_SERIAL_IRQ_LEVEL) &&	\
     defined(CONFIG_ETHERNET_IRQ_LEVEL) &&	\
@@ -76,8 +79,13 @@ asmlinkage void __init unit_init(void)
 #endif
 }
 
+/*
+ * initialise the rest of the unit hardware after gdbstub is ready
+ */
 asmlinkage void __init unit_setup(void)
 {
+	/* Release the reset on the SMSC911X so that it is ready by the time we
+	 * need it */
 	ASB2364_FPGA_REG_RESET_LAN = 0x0001;
 	SyncExBus();
 	ASB2364_FPGA_REG_RESET_UART = 0x0001;
@@ -89,16 +97,25 @@ asmlinkage void __init unit_setup(void)
 	ASB2364_FPGA_REG_RESET_AV = 0x0001;
 	SyncExBus();
 
+	/* Make sure the ethernet chipset isn't going to give us an interrupt
+	 * storm from stuff it was doing pre-reset */
 	LAN_IRQ_CFG = 0;
 	LAN_INT_EN = 0;
 }
 
+/*
+ * initialise the external interrupts used by a unit of this type
+ */
 void __init unit_init_IRQ(void)
 {
 	unsigned int extnum;
 
 	for (extnum = 0 ; extnum < NR_XIRQS ; extnum++) {
 		switch (GET_XIRQ_TRIGGER(extnum)) {
+			/* LEVEL triggered interrupts should be made
+			 * post-ACK'able as they hold their lines until
+			 * serviced
+			 */
 		case XIRQ_TRIGGER_HILEVEL:
 		case XIRQ_TRIGGER_LOWLEVEL:
 			mn10300_set_lateack_irq_type(XIRQ2IRQ(extnum));

@@ -11,6 +11,10 @@
 
 #include <asm/page.h>
 
+/*
+ * Cache flushing routines.  This is the kind of stuff that can be very expensive, so try
+ * to avoid them whenever possible.
+ */
 
 #define flush_cache_all()			do { } while (0)
 #define flush_cache_mm(mm)			do { } while (0)
@@ -47,4 +51,4 @@ do { memcpy(dst, src, len); \
 #define copy_from_user_page(vma, page, vaddr, dst, src, len) \
 	memcpy(dst, src, len)
 
-#endif 
+#endif /* _ASM_IA64_CACHEFLUSH_H */

@@ -9,4 +9,4 @@
 
 #include <asm-generic/param.h>
 
-#endif 
+#endif /* _M68K_PARAM_H */

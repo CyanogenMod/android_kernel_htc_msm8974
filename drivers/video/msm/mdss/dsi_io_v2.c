@@ -283,7 +283,7 @@ static int msm_dsi_phy_calibration(unsigned char *ctrl_base)
 	MIPI_OUTP(ctrl_base + DSI_DSIPHY_CAL_HW_CFG4, 0x01);
 	MIPI_OUTP(ctrl_base + DSI_DSIPHY_CAL_HW_CFG0, 0x01);
 	MIPI_OUTP(ctrl_base + DSI_DSIPHY_CAL_HW_TRIGGER, 0x01);
-	usleep_range(5000, 5000); 
+	usleep_range(5000, 5000); /*per DSI controller spec*/
 	MIPI_OUTP(ctrl_base + DSI_DSIPHY_CAL_HW_TRIGGER, 0x00);
 
 	cal_busy = MIPI_INP(ctrl_base + DSI_DSIPHY_REGULATOR_CAL_STATUS0);
@@ -306,7 +306,7 @@ static void msm_dsi_phy_lane_init(unsigned char *ctrl_base,
 {
 	int ln, index;
 
-	
+	/*CFG0, CFG1, CFG2, TEST_DATAPATH, TEST_STR0, TEST_STR1*/
 	for (ln = 0; ln < 5; ln++) {
 		unsigned char *off = ctrl_base + 0x0300 + (ln * 0x40);
 		index = ln * 6;
@@ -367,13 +367,13 @@ int msm_dsi_phy_init(unsigned char *ctrl_base,
 
 void msm_dsi_phy_sw_reset(unsigned char *ctrl_base)
 {
-	
+	/* start phy sw reset */
 	MIPI_OUTP(ctrl_base + DSI_PHY_SW_RESET, 0x0001);
-	udelay(1000); 
+	udelay(1000); /*per DSI controller spec*/
 	wmb();
-	
+	/* end phy sw reset */
 	MIPI_OUTP(ctrl_base + DSI_PHY_SW_RESET, 0x0000);
-	udelay(100); 
+	udelay(100); /*per DSI controller spec*/
 	wmb();
 }
 

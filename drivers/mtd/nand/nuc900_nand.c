@@ -232,6 +232,8 @@ static void nuc900_nand_command_lp(struct mtd_info *mtd, unsigned int command,
 		}
 	}
 
+	/* Apply this short delay always to ensure that we do wait tWB in
+	 * any case on any machine. */
 	ndelay(100);
 
 	while (!chip->dev_ready(mtd))

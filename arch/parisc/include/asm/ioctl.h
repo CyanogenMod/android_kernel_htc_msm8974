@@ -22,11 +22,23 @@
 #ifndef _ASM_PARISC_IOCTL_H
 #define _ASM_PARISC_IOCTL_H
 
+/* ioctl command encoding: 32 bits total, command in lower 16 bits,
+ * size of the parameter structure in the lower 14 bits of the
+ * upper 16 bits.
+ * Encoding the size of the parameter structure in the ioctl request
+ * is useful for catching programs compiled with old versions
+ * and to avoid overwriting user space outside the user buffer area.
+ * The highest 2 bits are reserved for indicating the ``access mode''.
+ * NOTE: This limits the max parameter size to 16kB -1 !
+ */
 
+/*
+ * Direction bits.
+ */
 #define _IOC_NONE	0U
 #define _IOC_WRITE	2U
 #define _IOC_READ	1U
 
 #include <asm-generic/ioctl.h>
 
-#endif 
+#endif /* _ASM_PARISC_IOCTL_H */

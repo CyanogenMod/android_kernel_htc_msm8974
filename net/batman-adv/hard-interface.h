@@ -68,4 +68,4 @@ out:
 	return hard_iface;
 }
 
-#endif 
+#endif /* _NET_BATMAN_ADV_HARD_INTERFACE_H_ */

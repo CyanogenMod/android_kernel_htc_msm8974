@@ -61,11 +61,11 @@ void ceph_calc_raw_layout(struct ceph_osd_client *osdc,
 {
 	struct ceph_osd_request_head *reqhead = req->r_request->front.iov_base;
 	u64 orig_len = *plen;
-	u64 objoff, objlen;    
+	u64 objoff, objlen;    /* extent in object */
 
 	reqhead->snapid = cpu_to_le64(snapid);
 
-	
+	/* object extent? */
 	ceph_calc_file_object_mapping(layout, off, plen, bno,
 				      &objoff, &objlen);
 	if (*plen < orig_len)
@@ -87,7 +87,31 @@ void ceph_calc_raw_layout(struct ceph_osd_client *osdc,
 }
 EXPORT_SYMBOL(ceph_calc_raw_layout);
 
+/*
+ * Implement client access to distributed object storage cluster.
+ *
+ * All data objects are stored within a cluster/cloud of OSDs, or
+ * "object storage devices."  (Note that Ceph OSDs have _nothing_ to
+ * do with the T10 OSD extensions to SCSI.)  Ceph OSDs are simply
+ * remote daemons serving up and coordinating consistent and safe
+ * access to storage.
+ *
+ * Cluster membership and the mapping of data objects onto storage devices
+ * are described by the osd map.
+ *
+ * We keep track of pending OSD requests (read, write), resubmit
+ * requests to different OSDs when the cluster topology/data layout
+ * change, or retry the affected requests when the communications
+ * channel with an OSD is reset.
+ */
 
+/*
+ * calculate the mapping of a file extent onto an object, and fill out the
+ * request accordingly.  shorten extent as necessary if it crosses an
+ * object boundary.
+ *
+ * fill osd op in request message.
+ */
 static void calc_layout(struct ceph_osd_client *osdc,
 			struct ceph_vino vino,
 			struct ceph_file_layout *layout,
@@ -104,6 +128,9 @@ static void calc_layout(struct ceph_osd_client *osdc,
 	req->r_oid_len = strlen(req->r_oid);
 }
 
+/*
+ * requests
+ */
 void ceph_osdc_release_request(struct kref *kref)
 {
 	struct ceph_osd_request *req = container_of(kref,
@@ -195,7 +222,7 @@ struct ceph_osd_request *ceph_osdc_alloc_request(struct ceph_osd_client *osdc,
 
 	WARN_ON((flags & (CEPH_OSD_FLAG_READ|CEPH_OSD_FLAG_WRITE)) == 0);
 
-	
+	/* create reply message */
 	if (use_mempool)
 		msg = ceph_msgpool_get(&osdc->msgpool_op_reply, 0);
 	else
@@ -207,7 +234,7 @@ struct ceph_osd_request *ceph_osdc_alloc_request(struct ceph_osd_client *osdc,
 	}
 	req->r_reply = msg;
 
-	
+	/* allocate space for the trailing data */
 	if (needs_trail) {
 		req->r_trail = kmalloc(sizeof(struct ceph_pagelist), gfp_flags);
 		if (!req->r_trail) {
@@ -216,7 +243,7 @@ struct ceph_osd_request *ceph_osdc_alloc_request(struct ceph_osd_client *osdc,
 		}
 		ceph_pagelist_init(req->r_trail);
 	}
-	
+	/* create request message; allow space for oid */
 	msg_size += MAX_OBJ_NAME_SIZE;
 	if (snapc)
 		msg_size += sizeof(u64) * snapc->num_snaps;
@@ -323,6 +350,10 @@ static void osd_req_encode_op(struct ceph_osd_request *req,
 	dst->payload_len = cpu_to_le32(src->payload_len);
 }
 
+/*
+ * build new request AND message
+ *
+ */
 void ceph_osdc_build_request(struct ceph_osd_request *req,
 			     u64 off, u64 *plen,
 			     struct ceph_osd_req_op *src_ops,
@@ -348,14 +379,14 @@ void ceph_osdc_build_request(struct ceph_osd_request *req,
 
 	req->r_snapc = ceph_get_snap_context(snapc);
 
-	head->client_inc = cpu_to_le32(1); 
+	head->client_inc = cpu_to_le32(1); /* always, for now. */
 	head->flags = cpu_to_le32(flags);
 	if (flags & CEPH_OSD_FLAG_WRITE)
 		ceph_encode_timespec(&head->mtime, mtime);
 	head->num_ops = cpu_to_le16(num_op);
 
 
-	
+	/* fill in oid */
 	head->object_len = cpu_to_le32(oid_len);
 	memcpy(p, oid, oid_len);
 	p += oid_len;
@@ -397,6 +428,17 @@ void ceph_osdc_build_request(struct ceph_osd_request *req,
 }
 EXPORT_SYMBOL(ceph_osdc_build_request);
 
+/*
+ * build new request AND message, calculate layout, and adjust file
+ * extent as needed.
+ *
+ * if the file was recently truncated, we include information about its
+ * old and new size so that the object can be updated appropriately.  (we
+ * avoid synchronously deleting truncated objects because it's slow.)
+ *
+ * if @do_sync, include a 'startsync' command so that the osd will flush
+ * data quickly.
+ */
 struct ceph_osd_request *ceph_osdc_new_request(struct ceph_osd_client *osdc,
 					       struct ceph_file_layout *layout,
 					       struct ceph_vino vino,
@@ -432,10 +474,12 @@ struct ceph_osd_request *ceph_osdc_new_request(struct ceph_osd_client *osdc,
 	if (!req)
 		return NULL;
 
-	
+	/* calculate max write size */
 	calc_layout(osdc, vino, layout, off, plen, req, ops);
-	req->r_file_layout = *layout;  
+	req->r_file_layout = *layout;  /* keep a copy */
 
+	/* in case it differs from natural (file) alignment that
+	   calc_layout filled in for us */
 	req->r_num_pages = calc_pages_for(page_align, *plen);
 	req->r_page_alignment = page_align;
 
@@ -448,6 +492,9 @@ struct ceph_osd_request *ceph_osdc_new_request(struct ceph_osd_client *osdc,
 }
 EXPORT_SYMBOL(ceph_osdc_new_request);
 
+/*
+ * We keep osd requests in an rbtree, sorted by ->r_tid.
+ */
 static void __insert_request(struct ceph_osd_client *osdc,
 			     struct ceph_osd_request *new)
 {
@@ -510,6 +557,9 @@ __lookup_request_ge(struct ceph_osd_client *osdc,
 	return NULL;
 }
 
+/*
+ * Resubmit requests pending on the given osd.
+ */
 static void __kick_osd_requests(struct ceph_osd_client *osdc,
 				struct ceph_osd *osd)
 {
@@ -531,6 +581,10 @@ static void __kick_osd_requests(struct ceph_osd_client *osdc,
 
 	list_for_each_entry_safe(req, nreq, &osd->o_linger_requests,
 				 r_linger_osd) {
+		/*
+		 * reregister request prior to unregistering linger so
+		 * that r_osd is preserved.
+		 */
 		BUG_ON(!list_empty(&req->r_req_lru_item));
 		__register_request(osdc, req);
 		list_add(&req->r_req_lru_item, &osdc->req_unsent);
@@ -549,6 +603,9 @@ static void kick_osd_requests(struct ceph_osd_client *osdc,
 	mutex_unlock(&osdc->request_mutex);
 }
 
+/*
+ * If the osd connection drops, we need to resubmit all requests.
+ */
 static void osd_reset(struct ceph_connection *con)
 {
 	struct ceph_osd *osd = con->private;
@@ -564,6 +621,9 @@ static void osd_reset(struct ceph_connection *con)
 	up_read(&osdc->map_sem);
 }
 
+/*
+ * Track open sessions with osds.
+ */
 static struct ceph_osd *create_osd(struct ceph_osd_client *osdc)
 {
 	struct ceph_osd *osd;
@@ -613,6 +673,9 @@ static void put_osd(struct ceph_osd *osd)
 	}
 }
 
+/*
+ * remove an osd from our map
+ */
 static void __remove_osd(struct ceph_osd_client *osdc, struct ceph_osd *osd)
 {
 	dout("__remove_osd %p\n", osd);
@@ -665,6 +728,9 @@ static void remove_old_osds(struct ceph_osd_client *osdc)
 	mutex_unlock(&osdc->request_mutex);
 }
 
+/*
+ * reset osd connect
+ */
 static int __reset_osd(struct ceph_osd_client *osdc, struct ceph_osd *osd)
 {
 	struct ceph_osd_request *req;
@@ -680,7 +746,7 @@ static int __reset_osd(struct ceph_osd_client *osdc, struct ceph_osd *osd)
 		   !ceph_con_opened(&osd->o_con)) {
 		dout(" osd addr hasn't changed and connection never opened,"
 		     " letting msgr retry");
-		
+		/* touch each r_stamp for handle_timeout()'s benfit */
 		list_for_each_entry(req, &osd->o_requests, r_osd_item)
 			req->r_stamp = jiffies;
 		ret = -EAGAIN;
@@ -742,6 +808,10 @@ static void __cancel_osd_timeout(struct ceph_osd_client *osdc)
 	cancel_delayed_work(&osdc->timeout_work);
 }
 
+/*
+ * Register request, assign tid.  If this is the first request, set up
+ * the timeout event.
+ */
 static void __register_request(struct ceph_osd_client *osdc,
 			       struct ceph_osd_request *req)
 {
@@ -765,6 +835,9 @@ static void register_request(struct ceph_osd_client *osdc,
 	mutex_unlock(&osdc->request_mutex);
 }
 
+/*
+ * called under osdc->request_mutex
+ */
 static void __unregister_request(struct ceph_osd_client *osdc,
 				 struct ceph_osd_request *req)
 {
@@ -773,7 +846,7 @@ static void __unregister_request(struct ceph_osd_client *osdc,
 	osdc->num_requests--;
 
 	if (req->r_osd) {
-		
+		/* make sure the original request isn't in flight. */
 		ceph_con_revoke(&req->r_osd->o_con, req->r_request);
 
 		list_del_init(&req->r_osd_item);
@@ -795,6 +868,9 @@ static void __unregister_request(struct ceph_osd_client *osdc,
 	}
 }
 
+/*
+ * Cancel a previously queued request message
+ */
 static void __cancel_request(struct ceph_osd_request *req)
 {
 	if (req->r_sent && req->r_osd) {
@@ -847,11 +923,25 @@ void ceph_osdc_set_request_linger(struct ceph_osd_client *osdc,
 	if (!req->r_linger) {
 		dout("set_request_linger %p\n", req);
 		req->r_linger = 1;
+		/*
+		 * caller is now responsible for calling
+		 * unregister_linger_request
+		 */
 		ceph_osdc_get_request(req);
 	}
 }
 EXPORT_SYMBOL(ceph_osdc_set_request_linger);
 
+/*
+ * Pick an osd (the first 'up' osd in the pg), allocate the osd struct
+ * (as needed), and set the request r_osd appropriately.  If there is
+ * no up osd, set r_osd to NULL.  Move the request to the appropriate list
+ * (unsent, homeless) or leave on in-flight lru.
+ *
+ * Return 0 if unchanged, 1 if changed, or negative on error.
+ *
+ * Caller should hold map_sem for read and request_mutex.
+ */
 static int __map_request(struct ceph_osd_client *osdc,
 			 struct ceph_osd_request *req, int force_resend)
 {
@@ -883,13 +973,13 @@ static int __map_request(struct ceph_osd_client *osdc,
 	     req->r_num_pg_osds == num &&
 	     memcmp(req->r_pg_osds, acting, sizeof(acting[0])*num) == 0) ||
 	    (req->r_osd == NULL && o == -1))
-		return 0;  
+		return 0;  /* no change */
 
 	dout("map_request tid %llu pgid %d.%x osd%d (was osd%d)\n",
 	     req->r_tid, le32_to_cpu(pgid.pool), le16_to_cpu(pgid.ps), o,
 	     req->r_osd ? req->r_osd->o_osd : -1);
 
-	
+	/* record full pg acting set */
 	memcpy(req->r_pg_osds, acting, sizeof(acting[0]) * num);
 	req->r_num_pg_osds = num;
 
@@ -923,12 +1013,15 @@ static int __map_request(struct ceph_osd_client *osdc,
 	} else {
 		list_move(&req->r_req_lru_item, &osdc->req_notarget);
 	}
-	err = 1;   
+	err = 1;   /* osd or pg changed */
 
 out:
 	return err;
 }
 
+/*
+ * caller should hold map_sem (for read) and request_mutex
+ */
 static void __send_request(struct ceph_osd_client *osdc,
 			   struct ceph_osd_request *req)
 {
@@ -939,17 +1032,20 @@ static void __send_request(struct ceph_osd_client *osdc,
 
 	reqhead = req->r_request->front.iov_base;
 	reqhead->osdmap_epoch = cpu_to_le32(osdc->osdmap->epoch);
-	reqhead->flags |= cpu_to_le32(req->r_flags);  
+	reqhead->flags |= cpu_to_le32(req->r_flags);  /* e.g., RETRY */
 	reqhead->reassert_version = req->r_reassert_version;
 
 	req->r_stamp = jiffies;
 	list_move_tail(&req->r_req_lru_item, &osdc->req_lru);
 
-	ceph_msg_get(req->r_request); 
+	ceph_msg_get(req->r_request); /* send consumes a ref */
 	ceph_con_send(&req->r_osd->o_con, req->r_request);
 	req->r_sent = req->r_osd->o_incarnation;
 }
 
+/*
+ * Send any requests in the queue (req_unsent).
+ */
 static void send_queued(struct ceph_osd_client *osdc)
 {
 	struct ceph_osd_request *req, *tmp;
@@ -962,6 +1058,15 @@ static void send_queued(struct ceph_osd_client *osdc)
 	mutex_unlock(&osdc->request_mutex);
 }
 
+/*
+ * Timeout callback, called every N seconds when 1 or more osd
+ * requests has been active for more than N seconds.  When this
+ * happens, we ping all OSDs with requests who have timed out to
+ * ensure any communications channel reset is detected.  Reset the
+ * request timeouts another N seconds in the future as we go.
+ * Reschedule the timeout event another N seconds in future (unless
+ * there are no open requests).
+ */
 static void handle_timeout(struct work_struct *work)
 {
 	struct ceph_osd_client *osdc =
@@ -980,15 +1085,22 @@ static void handle_timeout(struct work_struct *work)
 
 	mutex_lock(&osdc->request_mutex);
 
+	/*
+	 * reset osds that appear to be _really_ unresponsive.  this
+	 * is a failsafe measure.. we really shouldn't be getting to
+	 * this point if the system is working properly.  the monitors
+	 * should mark the osd as failed and we should find out about
+	 * it from an updated osd map.
+	 */
 	while (timeout && !list_empty(&osdc->req_lru)) {
 		req = list_entry(osdc->req_lru.next, struct ceph_osd_request,
 				 r_req_lru_item);
 
-		
+		/* hasn't been long enough since we sent it? */
 		if (time_before(jiffies, req->r_stamp + timeout))
 			break;
 
-		
+		/* hasn't been long enough since it was acked? */
 		if (req->r_request->ack_stamp == 0 ||
 		    time_before(jiffies, req->r_request->ack_stamp + timeout))
 			break;
@@ -1004,6 +1116,11 @@ static void handle_timeout(struct work_struct *work)
 		__kick_osd_requests(osdc, osd);
 	}
 
+	/*
+	 * ping osds that are a bit slow.  this ensures that if there
+	 * is a break in the TCP connection we will notice, and reopen
+	 * a connection with that osd (from the fault callback).
+	 */
 	INIT_LIST_HEAD(&slow_osds);
 	list_for_each_entry(req, &osdc->req_lru, r_req_lru_item) {
 		if (time_before(jiffies, req->r_stamp + keepalive))
@@ -1049,9 +1166,13 @@ static void complete_request(struct ceph_osd_request *req)
 {
 	if (req->r_safe_callback)
 		req->r_safe_callback(req, NULL);
-	complete_all(&req->r_safe_completion);  
+	complete_all(&req->r_safe_completion);  /* fsync waiter */
 }
 
+/*
+ * handle osd op reply.  either call the callback if it is specified,
+ * or do the completion to wake up the waiting thread.
+ */
 static void handle_reply(struct ceph_osd_client *osdc, struct ceph_msg *msg,
 			 struct ceph_connection *con)
 {
@@ -1071,7 +1192,7 @@ static void handle_reply(struct ceph_osd_client *osdc, struct ceph_msg *msg,
 	    numops * sizeof(struct ceph_osd_op))
 		goto bad;
 	dout("handle_reply %p tid %llu result %d\n", msg, tid, (int)result);
-	
+	/* lookup */
 	mutex_lock(&osdc->request_mutex);
 	req = __lookup_request(osdc, tid);
 	if (req == NULL) {
@@ -1082,6 +1203,10 @@ static void handle_reply(struct ceph_osd_client *osdc, struct ceph_msg *msg,
 	ceph_osdc_get_request(req);
 	flags = le32_to_cpu(rhead->flags);
 
+	/*
+	 * if this connection filled our message, drop our reference now, to
+	 * avoid a (safe but slower) revoke later.
+	 */
 	if (req->r_con_filling_msg == con && req->r_reply == msg) {
 		dout(" dropping con_filling_msg ref %p\n", con);
 		req->r_con_filling_msg = NULL;
@@ -1098,7 +1223,7 @@ static void handle_reply(struct ceph_osd_client *osdc, struct ceph_msg *msg,
 		if (req->r_result == 0)
 			req->r_result = bytes;
 
-		
+		/* in case this is a write and we need to replay, */
 		req->r_reassert_version = rhead->reassert_version;
 
 		req->r_got_reply = 1;
@@ -1113,7 +1238,7 @@ static void handle_reply(struct ceph_osd_client *osdc, struct ceph_msg *msg,
 	if (req->r_linger && (flags & CEPH_OSD_FLAG_ONDISK))
 		__register_linger_request(osdc, req);
 
-	
+	/* either this is a read, or we got the safe response */
 	if (result < 0 ||
 	    (flags & CEPH_OSD_FLAG_ONDISK) ||
 	    ((flags & CEPH_OSD_FLAG_WRITE) == 0))
@@ -1158,6 +1283,12 @@ static void reset_changed_osds(struct ceph_osd_client *osdc)
 	}
 }
 
+/*
+ * Requeue requests whose mapping to an OSD has changed.  If requests map to
+ * no osd, request a new map.
+ *
+ * Caller should hold map_sem for read and request_mutex.
+ */
 static void kick_requests(struct ceph_osd_client *osdc, int force_resend)
 {
 	struct ceph_osd_request *req, *nreq;
@@ -1171,10 +1302,10 @@ static void kick_requests(struct ceph_osd_client *osdc, int force_resend)
 		req = rb_entry(p, struct ceph_osd_request, r_node);
 		err = __map_request(osdc, req, force_resend);
 		if (err < 0)
-			continue;  
+			continue;  /* error */
 		if (req->r_osd == NULL) {
 			dout("%p tid %llu maps to no osd\n", req, req->r_tid);
-			needmap++;  
+			needmap++;  /* request a newer map */
 		} else if (err > 0) {
 			dout("%p tid %llu requeued on osd%d\n", req, req->r_tid,
 			     req->r_osd ? req->r_osd->o_osd : -1);
@@ -1189,12 +1320,12 @@ static void kick_requests(struct ceph_osd_client *osdc, int force_resend)
 
 		err = __map_request(osdc, req, force_resend);
 		if (err == 0)
-			continue;  
+			continue;  /* no change and no osd was specified */
 		if (err < 0)
-			continue;  
+			continue;  /* hrm! */
 		if (req->r_osd == NULL) {
 			dout("tid %llu maps to no valid osd\n", req->r_tid);
-			needmap++;  
+			needmap++;  /* request a newer map */
 			continue;
 		}
 
@@ -1212,6 +1343,13 @@ static void kick_requests(struct ceph_osd_client *osdc, int force_resend)
 }
 
 
+/*
+ * Process updated osd map.
+ *
+ * The message contains any number of incremental and full maps, normally
+ * indicating some sort of topology change in the cluster.  Kick requests
+ * off to different OSDs as needed.
+ */
 void ceph_osdc_handle_map(struct ceph_osd_client *osdc, struct ceph_msg *msg)
 {
 	void *p, *end, *next;
@@ -1225,7 +1363,7 @@ void ceph_osdc_handle_map(struct ceph_osd_client *osdc, struct ceph_msg *msg)
 	p = msg->front.iov_base;
 	end = p + msg->front.iov_len;
 
-	
+	/* verify fsid */
 	ceph_decode_need(&p, end, sizeof(fsid), bad);
 	ceph_decode_copy(&p, &fsid, sizeof(fsid));
 	if (ceph_check_fsid(osdc->client, &fsid) < 0)
@@ -1233,7 +1371,7 @@ void ceph_osdc_handle_map(struct ceph_osd_client *osdc, struct ceph_msg *msg)
 
 	down_write(&osdc->map_sem);
 
-	
+	/* incremental maps */
 	ceph_decode_32_safe(&p, end, nr_maps, bad);
 	dout(" %d inc maps\n", nr_maps);
 	while (nr_maps > 0) {
@@ -1269,7 +1407,7 @@ void ceph_osdc_handle_map(struct ceph_osd_client *osdc, struct ceph_msg *msg)
 	if (newmap)
 		goto done;
 
-	
+	/* full maps */
 	ceph_decode_32_safe(&p, end, nr_maps, bad);
 	dout(" %d full maps\n", nr_maps);
 	while (nr_maps) {
@@ -1311,6 +1449,11 @@ done:
 	downgrade_write(&osdc->map_sem);
 	ceph_monc_got_osdmap(&osdc->client->monc, osdc->osdmap->epoch);
 
+	/*
+	 * subscribe to subsequent osdmap updates if full to ensure
+	 * we find out when we are no longer full and stop returning
+	 * ENOSPC.
+	 */
 	if (ceph_osdmap_flag(osdc->osdmap, CEPH_OSDMAP_FULL))
 		ceph_monc_request_next_osdmap(&osdc->client->monc);
 
@@ -1326,6 +1469,11 @@ bad:
 	return;
 }
 
+/*
+ * watch/notify callback event infrastructure
+ *
+ * These callbacks are used both for watch and notify operations.
+ */
 static void __release_event(struct kref *kref)
 {
 	struct ceph_osd_event *event =
@@ -1418,8 +1566,8 @@ int ceph_osdc_create_event(struct ceph_osd_client *osdc,
 	event->data = data;
 	event->osdc = osdc;
 	INIT_LIST_HEAD(&event->osd_node);
-	kref_init(&event->kref);   
-	kref_get(&event->kref);    
+	kref_init(&event->kref);   /* one ref for us */
+	kref_get(&event->kref);    /* one ref for the caller */
 	init_completion(&event->completion);
 
 	spin_lock(&osdc->event_lock);
@@ -1440,7 +1588,7 @@ void ceph_osdc_cancel_event(struct ceph_osd_event *event)
 	spin_lock(&osdc->event_lock);
 	__remove_event(event);
 	spin_unlock(&osdc->event_lock);
-	ceph_osdc_put_event(event); 
+	ceph_osdc_put_event(event); /* caller's */
 }
 EXPORT_SYMBOL(ceph_osdc_cancel_event);
 
@@ -1463,6 +1611,9 @@ static void do_event_work(struct work_struct *work)
 }
 
 
+/*
+ * Process osd watch notifications
+ */
 void handle_watch_notify(struct ceph_osd_client *osdc, struct ceph_msg *msg)
 {
 	void *p, *end;
@@ -1535,6 +1686,9 @@ int ceph_osdc_wait_event(struct ceph_osd_event *event, unsigned long timeout)
 }
 EXPORT_SYMBOL(ceph_osdc_wait_event);
 
+/*
+ * Register request, send initial attempt.
+ */
 int ceph_osdc_start_request(struct ceph_osd_client *osdc,
 			    struct ceph_osd_request *req,
 			    bool nofail)
@@ -1552,6 +1706,11 @@ int ceph_osdc_start_request(struct ceph_osd_client *osdc,
 
 	down_read(&osdc->map_sem);
 	mutex_lock(&osdc->request_mutex);
+	/*
+	 * a racing kick_requests() may have sent the message for us
+	 * while we dropped request_mutex above, so only send now if
+	 * the request still han't been touched yet.
+	 */
 	if (req->r_sent == 0) {
 		rc = __map_request(osdc, req, 0);
 		if (rc < 0) {
@@ -1578,6 +1737,9 @@ out_unlock:
 }
 EXPORT_SYMBOL(ceph_osdc_start_request);
 
+/*
+ * wait for a request to complete
+ */
 int ceph_osdc_wait_request(struct ceph_osd_client *osdc,
 			   struct ceph_osd_request *req)
 {
@@ -1599,6 +1761,9 @@ int ceph_osdc_wait_request(struct ceph_osd_client *osdc,
 }
 EXPORT_SYMBOL(ceph_osdc_wait_request);
 
+/*
+ * sync - wait for all in-flight requests to flush.  avoid starvation.
+ */
 void ceph_osdc_sync(struct ceph_osd_client *osdc)
 {
 	struct ceph_osd_request *req;
@@ -1630,6 +1795,9 @@ void ceph_osdc_sync(struct ceph_osd_client *osdc)
 }
 EXPORT_SYMBOL(ceph_osdc_sync);
 
+/*
+ * init, shutdown
+ */
 int ceph_osdc_init(struct ceph_osd_client *osdc, struct ceph_client *client)
 {
 	int err;
@@ -1709,6 +1877,10 @@ void ceph_osdc_stop(struct ceph_osd_client *osdc)
 }
 EXPORT_SYMBOL(ceph_osdc_stop);
 
+/*
+ * Read some contiguous pages.  If we cross a stripe boundary, shorten
+ * *plen.  Return number of bytes read, or error.
+ */
 int ceph_osdc_readpages(struct ceph_osd_client *osdc,
 			struct ceph_vino vino, struct ceph_file_layout *layout,
 			u64 off, u64 *plen,
@@ -1727,7 +1899,7 @@ int ceph_osdc_readpages(struct ceph_osd_client *osdc,
 	if (!req)
 		return -ENOMEM;
 
-	
+	/* it may be a short read due to an object boundary */
 	req->r_pages = pages;
 
 	dout("readpages  final extent is %llu~%llu (%d pages align %d)\n",
@@ -1743,6 +1915,9 @@ int ceph_osdc_readpages(struct ceph_osd_client *osdc,
 }
 EXPORT_SYMBOL(ceph_osdc_readpages);
 
+/*
+ * do a synchronous write on N pages
+ */
 int ceph_osdc_writepages(struct ceph_osd_client *osdc, struct ceph_vino vino,
 			 struct ceph_file_layout *layout,
 			 struct ceph_snap_context *snapc,
@@ -1767,7 +1942,7 @@ int ceph_osdc_writepages(struct ceph_osd_client *osdc, struct ceph_vino vino,
 	if (!req)
 		return -ENOMEM;
 
-	
+	/* it may be a short write due to an object boundary */
 	req->r_pages = pages;
 	dout("writepages %llu~%llu (%d pages)\n", off, len,
 	     req->r_num_pages);
@@ -1784,6 +1959,9 @@ int ceph_osdc_writepages(struct ceph_osd_client *osdc, struct ceph_vino vino,
 }
 EXPORT_SYMBOL(ceph_osdc_writepages);
 
+/*
+ * handle incoming message
+ */
 static void dispatch(struct ceph_connection *con, struct ceph_msg *msg)
 {
 	struct ceph_osd *osd = con->private;
@@ -1813,6 +1991,10 @@ out:
 	ceph_msg_put(msg);
 }
 
+/*
+ * lookup and return message for incoming reply.  set up reply message
+ * pages.
+ */
 static struct ceph_msg *get_reply(struct ceph_connection *con,
 				  struct ceph_msg_header *hdr,
 				  int *skip)
@@ -1906,6 +2088,9 @@ static struct ceph_msg *alloc_msg(struct ceph_connection *con,
 	}
 }
 
+/*
+ * Wrappers to refcount containing ceph_osd struct
+ */
 static struct ceph_connection *get_osd_con(struct ceph_connection *con)
 {
 	struct ceph_osd *osd = con->private;
@@ -1920,6 +2105,9 @@ static void put_osd_con(struct ceph_connection *con)
 	put_osd(osd);
 }
 
+/*
+ * authentication
+ */
 static int get_authorizer(struct ceph_connection *con,
 			  void **buf, int *len, int *proto,
 			  void **reply_buf, int *reply_len, int force_new)

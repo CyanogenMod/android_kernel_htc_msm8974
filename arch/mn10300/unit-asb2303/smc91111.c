@@ -40,6 +40,9 @@ static struct platform_device smc91c111_device = {
 	.resource	= smc91c111_resources,
 };
 
+/*
+ * add platform devices
+ */
 static int __init unit_device_init(void)
 {
 	platform_device_register(&smc91c111_device);

@@ -53,6 +53,10 @@ typedef struct physid_mask physid_mask_t;
 
 extern physid_mask_t phys_cpu_present_map;
 
+/*
+ * Some lowlevel functions might want to know about
+ * the real CPU ID <-> CPU # mapping.
+ */
 extern volatile int cpu_2_physid[NR_CPUS];
 #define cpu_to_physid(cpu_id)	cpu_2_physid[cpu_id]
 
@@ -86,10 +90,13 @@ extern unsigned long send_IPI_mask_phys(const cpumask_t*, int, int);
 extern void arch_send_call_function_single_ipi(int cpu);
 extern void arch_send_call_function_ipi_mask(const struct cpumask *mask);
 
-#endif	
+#endif	/* not __ASSEMBLY__ */
 
-#define NO_PROC_ID (0xff)	
+#define NO_PROC_ID (0xff)	/* No processor magic marker */
 
+/*
+ * M32R-mp IPI
+ */
 #define RESCHEDULE_IPI		(M32R_IRQ_IPI0-M32R_IRQ_IPI0)
 #define INVALIDATE_TLB_IPI	(M32R_IRQ_IPI1-M32R_IRQ_IPI0)
 #define CALL_FUNCTION_IPI	(M32R_IRQ_IPI2-M32R_IRQ_IPI0)
@@ -101,10 +108,10 @@ extern void arch_send_call_function_ipi_mask(const struct cpumask *mask);
 #define IPI_SHIFT	(0)
 #define NR_IPIS		(8)
 
-#else	
+#else	/* CONFIG_SMP */
 
 #define hard_smp_processor_id()		0
 
-#endif 
+#endif /* CONFIG_SMP */
 
-#endif	
+#endif	/* _ASM_M32R_SMP_H */

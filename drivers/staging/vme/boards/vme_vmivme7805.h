@@ -33,5 +33,5 @@
 #define BM_VME_CONTROL_BPENA		0x0400
 #define BM_VME_CONTROL_VBENA		0x0800
 
-#endif 
+#endif /* _VMIVME_7805_H */
 

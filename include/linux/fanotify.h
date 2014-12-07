@@ -3,26 +3,30 @@
 
 #include <linux/types.h>
 
-#define FAN_ACCESS		0x00000001	
-#define FAN_MODIFY		0x00000002	
-#define FAN_CLOSE_WRITE		0x00000008	
-#define FAN_CLOSE_NOWRITE	0x00000010	
-#define FAN_OPEN		0x00000020	
+/* the following events that user-space can register for */
+#define FAN_ACCESS		0x00000001	/* File was accessed */
+#define FAN_MODIFY		0x00000002	/* File was modified */
+#define FAN_CLOSE_WRITE		0x00000008	/* Writtable file closed */
+#define FAN_CLOSE_NOWRITE	0x00000010	/* Unwrittable file closed */
+#define FAN_OPEN		0x00000020	/* File was opened */
 
-#define FAN_Q_OVERFLOW		0x00004000	
+#define FAN_Q_OVERFLOW		0x00004000	/* Event queued overflowed */
 
-#define FAN_OPEN_PERM		0x00010000	
-#define FAN_ACCESS_PERM		0x00020000	
+#define FAN_OPEN_PERM		0x00010000	/* File open in perm check */
+#define FAN_ACCESS_PERM		0x00020000	/* File accessed in perm check */
 
-#define FAN_ONDIR		0x40000000	
+#define FAN_ONDIR		0x40000000	/* event occurred against dir */
 
-#define FAN_EVENT_ON_CHILD	0x08000000	
+#define FAN_EVENT_ON_CHILD	0x08000000	/* interested in child events */
 
-#define FAN_CLOSE		(FAN_CLOSE_WRITE | FAN_CLOSE_NOWRITE) 
+/* helper events */
+#define FAN_CLOSE		(FAN_CLOSE_WRITE | FAN_CLOSE_NOWRITE) /* close */
 
+/* flags used for fanotify_init() */
 #define FAN_CLOEXEC		0x00000001
 #define FAN_NONBLOCK		0x00000002
 
+/* These are NOT bitwise flags.  Both bits are used togther.  */
 #define FAN_CLASS_NOTIF		0x00000000
 #define FAN_CLASS_CONTENT	0x00000004
 #define FAN_CLASS_PRE_CONTENT	0x00000008
@@ -36,6 +40,7 @@
 				 FAN_ALL_CLASS_BITS | FAN_UNLIMITED_QUEUE |\
 				 FAN_UNLIMITED_MARKS)
 
+/* flags used for fanotify_modify_mark() */
 #define FAN_MARK_ADD		0x00000001
 #define FAN_MARK_REMOVE		0x00000002
 #define FAN_MARK_DONT_FOLLOW	0x00000004
@@ -45,6 +50,7 @@
 #define FAN_MARK_IGNORED_SURV_MODIFY	0x00000040
 #define FAN_MARK_FLUSH		0x00000080
 #ifdef __KERNEL__
+/* not valid from userspace, only kernel internal */
 #define FAN_MARK_ONDIR		0x00000100
 #endif
 
@@ -57,11 +63,19 @@
 				 FAN_MARK_IGNORED_SURV_MODIFY |\
 				 FAN_MARK_FLUSH)
 
+/*
+ * All of the events - we build the list by hand so that we can add flags in
+ * the future and not break backward compatibility.  Apps will get only the
+ * events that they originally wanted.  Be sure to add new events here!
+ */
 #define FAN_ALL_EVENTS (FAN_ACCESS |\
 			FAN_MODIFY |\
 			FAN_CLOSE |\
 			FAN_OPEN)
 
+/*
+ * All events which require a permission response from userspace
+ */
 #define FAN_ALL_PERM_EVENTS (FAN_OPEN_PERM |\
 			     FAN_ACCESS_PERM)
 
@@ -86,10 +100,13 @@ struct fanotify_response {
 	__u32 response;
 };
 
+/* Legit userspace responses to a _PERM event */
 #define FAN_ALLOW	0x01
 #define FAN_DENY	0x02
+/* No fd set in event */
 #define FAN_NOFD	-1
 
+/* Helper functions to deal with fanotify_event_metadata buffers */
 #define FAN_EVENT_METADATA_LEN (sizeof(struct fanotify_event_metadata))
 
 #define FAN_EVENT_NEXT(meta, len) ((len) -= (meta)->event_len, \
@@ -100,4 +117,4 @@ struct fanotify_response {
 				(long)(meta)->event_len >= (long)FAN_EVENT_METADATA_LEN && \
 				(long)(meta)->event_len <= (long)(len))
 
-#endif 
+#endif /* _LINUX_FANOTIFY_H */

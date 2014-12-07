@@ -1,3 +1,10 @@
+/*
+ *  linux/fs/hpfs/namei.c
+ *
+ *  Mikulas Patocka (mikulas@artax.karlin.mff.cuni.cz), 1998-1999
+ *
+ *  adding & removing files & directories
+ */
 #include <linux/sched.h>
 #include "hpfs_fn.h"
 
@@ -28,7 +35,7 @@ static int hpfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	memset(&dee, 0, sizeof dee);
 	dee.directory = 1;
 	if (!(mode & 0222)) dee.read_only = 1;
-	
+	/*dee.archive = 0;*/
 	dee.hidden = name[0] == '.';
 	dee.fnode = cpu_to_le32(fno);
 	dee.creation_date = dee.write_date = dee.read_date = cpu_to_le32(gmt_to_local(dir->i_sb, get_seconds()));
@@ -75,7 +82,7 @@ static int hpfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode)
 	de->creation_date = de->write_date = de->read_date = cpu_to_le32(gmt_to_local(dir->i_sb, get_seconds()));
 	if (!(mode & 0222)) de->read_only = 1;
 	de->first = de->directory = 1;
-	
+	/*de->hidden = de->system = 0;*/
 	de->fnode = cpu_to_le32(fno);
 	mark_buffer_dirty(bh);
 	brelse(bh);
@@ -380,7 +387,7 @@ again:
 		hpfs_error(dir->i_sb, "there was error when removing dirent");
 		err = -EFSERROR;
 		break;
-	case 2:		
+	case 2:		/* no space for deleting, try to truncate file */
 
 		err = -ENOSPC;
 		if (rep++)
@@ -397,7 +404,7 @@ again:
 			d_rehash(dentry);
 		} else {
 			struct iattr newattrs;
-			
+			/*printk("HPFS: truncating file before delete.\n");*/
 			newattrs.ia_size = 0;
 			newattrs.ia_valid = ATTR_SIZE | ATTR_CTIME;
 			err = notify_change(dentry, &newattrs);
@@ -531,9 +538,9 @@ static int hpfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 	hpfs_adjust_length(old_name, &old_len);
 
 	hpfs_lock(i->i_sb);
+	/* order doesn't matter, due to VFS exclusion */
 	
-	
-	
+	/* Erm? Moving over the empty non-busy directory is perfectly legal */
 	if (new_inode && S_ISDIR(new_inode->i_mode)) {
 		err = -EINVAL;
 		goto end1;

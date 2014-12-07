@@ -39,20 +39,30 @@
 #include "zcrypt_pcicc.h"
 #include "zcrypt_cca_key.h"
 
-#define PCICC_MIN_MOD_SIZE	 64	
-#define PCICC_MAX_MOD_SIZE_OLD	128	
-#define PCICC_MAX_MOD_SIZE	256	
+#define PCICC_MIN_MOD_SIZE	 64	/*  512 bits */
+#define PCICC_MAX_MOD_SIZE_OLD	128	/* 1024 bits */
+#define PCICC_MAX_MOD_SIZE	256	/* 2048 bits */
 
+/*
+ * PCICC cards need a speed rating of 0. This keeps them at the end of
+ * the zcrypt device list (see zcrypt_api.c). PCICC cards are only
+ * used if no other cards are present because they are slow and can only
+ * cope with PKCS12 padded requests. The logic is queer. PKCS11 padded
+ * requests are rejected. The modexpo function encrypts PKCS12 padded data
+ * and decrypts any non-PKCS12 padded data (except PKCS11) in the assumption
+ * that it's encrypted PKCS12 data. The modexpo_crt function always decrypts
+ * the data in the assumption that its PKCS12 encrypted data.
+ */
 #define PCICC_SPEED_RATING	0
 
-#define PCICC_MAX_MESSAGE_SIZE 0x710	
-#define PCICC_MAX_RESPONSE_SIZE 0x710	
+#define PCICC_MAX_MESSAGE_SIZE 0x710	/* max size type6 v1 crt message */
+#define PCICC_MAX_RESPONSE_SIZE 0x710	/* max size type86 v1 reply	 */
 
 #define PCICC_CLEANUP_TIME	(15*HZ)
 
 static struct ap_device_id zcrypt_pcicc_ids[] = {
 	{ AP_DEVICE(AP_DEVICE_TYPE_PCICC) },
-	{  },
+	{ /* end of list */ },
 };
 
 MODULE_DEVICE_TABLE(ap, zcrypt_pcicc_ids);
@@ -74,6 +84,19 @@ static struct ap_driver zcrypt_pcicc_driver = {
 	.request_timeout = PCICC_CLEANUP_TIME,
 };
 
+/**
+ * The following is used to initialize the CPRB passed to the PCICC card
+ * in a type6 message. The 3 fields that must be filled in at execution
+ * time are  req_parml, rpl_parml and usage_domain. Note that all three
+ * fields are *little*-endian. Actually, everything about this interface
+ * is ascii/little-endian, since the device has 'Intel inside'.
+ *
+ * The CPRB is followed immediately by the parm block.
+ * The parm block contains:
+ * - function code ('PD' 0x5044 or 'PK' 0x504B)
+ * - rule block (0x0A00 'PKCS-1.2' or 0x0A00 'ZERO-PAD')
+ * - VUD block
+ */
 static struct CPRB static_cprb = {
 	.cprb_len	= __constant_cpu_to_le16(0x0070),
 	.cprb_ver_id	=  0x41,
@@ -83,6 +106,9 @@ static struct CPRB static_cprb = {
 	.svr_name	= {'I','C','S','F',' ',' ',' ',' '}
 };
 
+/**
+ * Check the message for PKCS11 padding.
+ */
 static inline int is_PKCS11_padded(unsigned char *buffer, int length)
 {
 	int i;
@@ -98,6 +124,9 @@ static inline int is_PKCS11_padded(unsigned char *buffer, int length)
 	return 1;
 }
 
+/**
+ * Check the message for PKCS12 padding.
+ */
 static inline int is_PKCS12_padded(unsigned char *buffer, int length)
 {
 	int i;
@@ -113,6 +142,15 @@ static inline int is_PKCS12_padded(unsigned char *buffer, int length)
 	return 1;
 }
 
+/**
+ * Convert a ICAMEX message to a type6 MEX message.
+ *
+ * @zdev: crypto device pointer
+ * @zreq: crypto request pointer
+ * @mex: pointer to user input data
+ *
+ * Returns 0 on success or -EFAULT.
+ */
 static int ICAMEX_msg_to_type6MEX_msg(struct zcrypt_device *zdev,
 				      struct ap_message *ap_msg,
 				      struct ica_rsa_modexpo *mex)
@@ -138,19 +176,19 @@ static int ICAMEX_msg_to_type6MEX_msg(struct zcrypt_device *zdev,
 	} __attribute__((packed)) *msg = ap_msg->message;
 	int vud_len, pad_len, size;
 
-	
+	/* VUD.ciphertext */
 	if (copy_from_user(msg->text, mex->inputdata, mex->inputdatalength))
 		return -EFAULT;
 
 	if (is_PKCS11_padded(msg->text, mex->inputdatalength))
 		return -EINVAL;
 
-	
+	/* static message header and f&r */
 	msg->hdr = static_type6_hdr;
 	msg->fr = static_pke_function_and_rules;
 
 	if (is_PKCS12_padded(msg->text, mex->inputdatalength)) {
-		
+		/* strip the padding and adjust the data length */
 		pad_len = strnlen(msg->text + 2, mex->inputdatalength - 2) + 3;
 		if (pad_len <= 9 || pad_len >= mex->inputdatalength)
 			return -ENODEV;
@@ -158,11 +196,11 @@ static int ICAMEX_msg_to_type6MEX_msg(struct zcrypt_device *zdev,
 		memmove(msg->text, msg->text + pad_len, vud_len);
 		msg->length = cpu_to_le16(vud_len + 2);
 
-		
+		/* Set up key after the variable length text. */
 		size = zcrypt_type6_mex_key_en(mex, msg->text + vud_len, 0);
 		if (size < 0)
 			return size;
-		size += sizeof(*msg) + vud_len;	
+		size += sizeof(*msg) + vud_len;	/* total size of msg */
 	} else {
 		vud_len = mex->inputdatalength;
 		msg->length = cpu_to_le16(2 + vud_len);
@@ -170,14 +208,14 @@ static int ICAMEX_msg_to_type6MEX_msg(struct zcrypt_device *zdev,
 		msg->hdr.function_code[1] = 'D';
 		msg->fr.function_code[1] = 'D';
 
-		
+		/* Set up key after the variable length text. */
 		size = zcrypt_type6_mex_key_de(mex, msg->text + vud_len, 0);
 		if (size < 0)
 			return size;
-		size += sizeof(*msg) + vud_len;	
+		size += sizeof(*msg) + vud_len;	/* total size of msg */
 	}
 
-	
+	/* message header, cprb and f&r */
 	msg->hdr.ToCardLen1 = (size - sizeof(msg->hdr) + 3) & -4;
 	msg->hdr.FromCardLen1 = PCICC_MAX_RESPONSE_SIZE - sizeof(msg->hdr);
 
@@ -191,6 +229,15 @@ static int ICAMEX_msg_to_type6MEX_msg(struct zcrypt_device *zdev,
 	return 0;
 }
 
+/**
+ * Convert a ICACRT message to a type6 CRT message.
+ *
+ * @zdev: crypto device pointer
+ * @zreq: crypto request pointer
+ * @crt: pointer to user input data
+ *
+ * Returns 0 on success or -EFAULT.
+ */
 static int ICACRT_msg_to_type6CRT_msg(struct zcrypt_device *zdev,
 				      struct ap_message *ap_msg,
 				      struct ica_rsa_modexpo_crt *crt)
@@ -216,7 +263,7 @@ static int ICACRT_msg_to_type6CRT_msg(struct zcrypt_device *zdev,
 	} __attribute__((packed)) *msg = ap_msg->message;
 	int size;
 
-	
+	/* VUD.ciphertext */
 	msg->length = cpu_to_le16(2 + crt->inputdatalength);
 	if (copy_from_user(msg->text, crt->inputdata, crt->inputdatalength))
 		return -EFAULT;
@@ -224,13 +271,13 @@ static int ICACRT_msg_to_type6CRT_msg(struct zcrypt_device *zdev,
 	if (is_PKCS11_padded(msg->text, crt->inputdatalength))
 		return -EINVAL;
 
-	
+	/* Set up key after the variable length text. */
 	size = zcrypt_type6_crt_key(crt, msg->text + crt->inputdatalength, 0);
 	if (size < 0)
 		return size;
-	size += sizeof(*msg) + crt->inputdatalength;	
+	size += sizeof(*msg) + crt->inputdatalength;	/* total size of msg */
 
-	
+	/* message header, cprb and f&r */
 	msg->hdr = static_type6_hdr;
 	msg->hdr.ToCardLen1 = (size -  sizeof(msg->hdr) + 3) & -4;
 	msg->hdr.FromCardLen1 = PCICC_MAX_RESPONSE_SIZE - sizeof(msg->hdr);
@@ -246,11 +293,21 @@ static int ICACRT_msg_to_type6CRT_msg(struct zcrypt_device *zdev,
 	return 0;
 }
 
+/**
+ * Copy results from a type 86 reply message back to user space.
+ *
+ * @zdev: crypto device pointer
+ * @reply: reply AP message.
+ * @data: pointer to user output data
+ * @length: size of user output data
+ *
+ * Returns 0 on success or -EINVAL, -EFAULT, -EAGAIN in case of an error.
+ */
 struct type86_reply {
 	struct type86_hdr hdr;
 	struct type86_fmt2_ext fmt2;
 	struct CPRB cprb;
-	unsigned char pad[4];	
+	unsigned char pad[4];	/* 4 byte function code/rules block ? */
 	unsigned short length;
 	char text[0];
 } __attribute__((packed));
@@ -318,23 +375,33 @@ static int convert_type86(struct zcrypt_device *zdev,
 		if (service_rc == 8 && service_rs == 72)
 			return -EINVAL;
 		zdev->online = 0;
-		return -EAGAIN;	
+		return -EAGAIN;	/* repeat the request on a different device. */
 	}
 	data = msg->text;
 	reply_len = le16_to_cpu(msg->length) - 2;
 	if (reply_len > outputdatalength)
 		return -EINVAL;
+	/*
+	 * For all encipher requests, the length of the ciphertext (reply_len)
+	 * will always equal the modulus length. For MEX decipher requests
+	 * the output needs to get padded. Minimum pad size is 10.
+	 *
+	 * Currently, the cases where padding will be added is for:
+	 * - PCIXCC_MCL2 using a CRT form token (since PKD didn't support
+	 *   ZERO-PAD and CRT is only supported for PKD requests)
+	 * - PCICC, always
+	 */
 	pad_len = outputdatalength - reply_len;
 	if (pad_len > 0) {
 		if (pad_len < 10)
 			return -EINVAL;
-		
+		/* 'restore' padding left in the PCICC/PCIXCC card. */
 		if (copy_to_user(outputdata, static_pad, pad_len - 1))
 			return -EFAULT;
 		if (put_user(0, outputdata + pad_len - 1))
 			return -EFAULT;
 	}
-	
+	/* Copy the crypto response to user space. */
 	if (copy_to_user(outputdata + pad_len, data, reply_len))
 		return -EFAULT;
 	return 0;
@@ -347,7 +414,7 @@ static int convert_response(struct zcrypt_device *zdev,
 {
 	struct type86_reply *msg = reply->message;
 
-	
+	/* Response type byte is the second byte in the response. */
 	switch (msg->hdr.type) {
 	case TYPE82_RSP_CODE:
 	case TYPE88_RSP_CODE:
@@ -358,13 +425,21 @@ static int convert_response(struct zcrypt_device *zdev,
 		if (msg->cprb.cprb_ver_id == 0x01)
 			return convert_type86(zdev, reply,
 					      outputdata, outputdatalength);
-		
-	default: 
+		/* no break, incorrect cprb version is an unknown response */
+	default: /* Unknown response type, this should NEVER EVER happen */
 		zdev->online = 0;
-		return -EAGAIN;	
+		return -EAGAIN;	/* repeat the request on a different device. */
 	}
 }
 
+/**
+ * This function is called from the AP bus code after a crypto request
+ * "msg" has finished with the reply message "reply".
+ * It is called from tasklet context.
+ * @ap_dev: pointer to the AP device
+ * @msg: pointer to the AP message
+ * @reply: pointer to the AP reply message
+ */
 static void zcrypt_pcicc_receive(struct ap_device *ap_dev,
 				 struct ap_message *msg,
 				 struct ap_message *reply)
@@ -376,7 +451,7 @@ static void zcrypt_pcicc_receive(struct ap_device *ap_dev,
 	struct type86_reply *t86r;
 	int length;
 
-	
+	/* Copy the reply message to the request message buffer. */
 	if (IS_ERR(reply)) {
 		memcpy(msg->message, &error_reply, sizeof(error_reply));
 		goto out;
@@ -395,6 +470,13 @@ out:
 
 static atomic_t zcrypt_step = ATOMIC_INIT(0);
 
+/**
+ * The request distributor calls this function if it picked the PCICC
+ * device to handle a modexpo request.
+ * @zdev: pointer to zcrypt_device structure that identifies the
+ *	  PCICC device to the request distributor
+ * @mex: pointer to the modexpo request buffer
+ */
 static long zcrypt_pcicc_modexpo(struct zcrypt_device *zdev,
 				 struct ica_rsa_modexpo *mex)
 {
@@ -420,13 +502,20 @@ static long zcrypt_pcicc_modexpo(struct zcrypt_device *zdev,
 		rc = convert_response(zdev, &ap_msg, mex->outputdata,
 				      mex->outputdatalength);
 	else
-		
+		/* Signal pending. */
 		ap_cancel_message(zdev->ap_dev, &ap_msg);
 out_free:
 	free_page((unsigned long) ap_msg.message);
 	return rc;
 }
 
+/**
+ * The request distributor calls this function if it picked the PCICC
+ * device to handle a modexpo_crt request.
+ * @zdev: pointer to zcrypt_device structure that identifies the
+ *	  PCICC device to the request distributor
+ * @crt: pointer to the modexpoc_crt request buffer
+ */
 static long zcrypt_pcicc_modexpo_crt(struct zcrypt_device *zdev,
 				     struct ica_rsa_modexpo_crt *crt)
 {
@@ -452,18 +541,26 @@ static long zcrypt_pcicc_modexpo_crt(struct zcrypt_device *zdev,
 		rc = convert_response(zdev, &ap_msg, crt->outputdata,
 				      crt->outputdatalength);
 	else
-		
+		/* Signal pending. */
 		ap_cancel_message(zdev->ap_dev, &ap_msg);
 out_free:
 	free_page((unsigned long) ap_msg.message);
 	return rc;
 }
 
+/**
+ * The crypto operations for a PCICC card.
+ */
 static struct zcrypt_ops zcrypt_pcicc_ops = {
 	.rsa_modexpo = zcrypt_pcicc_modexpo,
 	.rsa_modexpo_crt = zcrypt_pcicc_modexpo_crt,
 };
 
+/**
+ * Probe function for PCICC cards. It always accepts the AP device
+ * since the bus_match already checked the hardware type.
+ * @ap_dev: pointer to the AP device.
+ */
 static int zcrypt_pcicc_probe(struct ap_device *ap_dev)
 {
 	struct zcrypt_device *zdev;
@@ -494,6 +591,10 @@ static int zcrypt_pcicc_probe(struct ap_device *ap_dev)
 	return rc;
 }
 
+/**
+ * This is called to remove the extended PCICC driver information
+ * if an AP device is removed.
+ */
 static void zcrypt_pcicc_remove(struct ap_device *ap_dev)
 {
 	struct zcrypt_device *zdev = ap_dev->private;

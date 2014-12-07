@@ -53,7 +53,7 @@ struct w90x900_uartcfg {
 	unsigned int	clocks_size;
 };
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* __ASM_ARM_REGS_SERIAL_H */
 

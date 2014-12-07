@@ -15,6 +15,7 @@
 #include "hfsplus_fs.h"
 #include "hfsplus_raw.h"
 
+/* Compare two extents keys, returns 0 on same, pos/neg for difference */
 int hfsplus_ext_cmp_key(const hfsplus_btree_key *k1,
 			const hfsplus_btree_key *k2)
 {
@@ -57,7 +58,7 @@ static u32 hfsplus_ext_find_block(struct hfsplus_extent *ext, u32 off)
 			return be32_to_cpu(ext->start_block) + off;
 		off -= count;
 	}
-	
+	/* panic? */
 	return 0;
 }
 
@@ -109,6 +110,12 @@ static void __hfsplus_ext_write_extent(struct inode *inode,
 		hip->extent_state &= ~HFSPLUS_EXT_DIRTY;
 	}
 
+	/*
+	 * We can't just use hfsplus_mark_inode_dirty here, because we
+	 * also get called from hfsplus_write_inode, which should not
+	 * redirty the inode.  Instead the callers have to be careful
+	 * to explicily mark the inode dirty, too.
+	 */
 	set_bit(HFSPLUS_I_EXT_DIRTY, &hip->flags);
 }
 
@@ -204,6 +211,7 @@ static int hfsplus_ext_read_extent(struct inode *inode, u32 block)
 	return res;
 }
 
+/* Get a block at iblock for inode, possibly allocating if create */
 int hfsplus_get_block(struct inode *inode, sector_t iblock,
 		      struct buffer_head *bh_result, int create)
 {
@@ -216,7 +224,7 @@ int hfsplus_get_block(struct inode *inode, sector_t iblock,
 	int was_dirty = 0;
 	int shift;
 
-	
+	/* Convert inode block to disk allocation block */
 	shift = sbi->alloc_blksz_shift - sb->s_blocksize_bits;
 	ablock = iblock >> sbi->fs_shift;
 
@@ -241,6 +249,11 @@ int hfsplus_get_block(struct inode *inode, sector_t iblock,
 
 	mutex_lock(&hip->extents_lock);
 
+	/*
+	 * hfsplus_ext_read_extent will write out a cached extent into
+	 * the extents btree.  In that case we may have to mark the inode
+	 * dirty even for a pure read of an extent here.
+	 */
 	was_dirty = (hip->extent_state & HFSPLUS_EXT_DIRTY);
 	res = hfsplus_ext_read_extent(inode, ablock);
 	if (res) {
@@ -306,7 +319,7 @@ static int hfsplus_add_extent(struct hfsplus_extent *extent, u32 offset,
 			break;
 		offset -= count;
 	}
-	
+	/* panic? */
 	return -EIO;
 }
 
@@ -326,7 +339,7 @@ static int hfsplus_free_extents(struct super_block *sb,
 			break;
 		offset -= count;
 	}
-	
+	/* panic? */
 	return -EIO;
 found:
 	for (;;) {
@@ -402,7 +415,7 @@ int hfsplus_file_extend(struct inode *inode)
 
 	if (sbi->alloc_file->i_size * 8 <
 	    sbi->total_blocks - sbi->free_blocks + 8) {
-		
+		/* extend alloc file */
 		printk(KERN_ERR "hfs: extend alloc file! "
 				"(%llu,%u,%u)\n",
 			sbi->alloc_file->i_size * 8,
@@ -435,12 +448,12 @@ int hfsplus_file_extend(struct inode *inode)
 	if (hip->alloc_blocks <= hip->first_blocks) {
 		if (!hip->first_blocks) {
 			dprint(DBG_EXTENT, "first extents\n");
-			
+			/* no extents yet */
 			hip->first_extents[0].start_block = cpu_to_be32(start);
 			hip->first_extents[0].block_count = cpu_to_be32(len);
 			res = 0;
 		} else {
-			
+			/* try to append to extents in inode */
 			res = hfsplus_add_extent(hip->first_extents,
 						 hip->alloc_blocks,
 						 start, len);
@@ -530,7 +543,7 @@ void hfsplus_file_truncate(struct inode *inode)
 	res = hfs_find_init(HFSPLUS_SB(sb)->ext_tree, &fd);
 	if (res) {
 		mutex_unlock(&hip->extents_lock);
-		
+		/* XXX: We lack error handling of hfsplus_file_truncate() */
 		return;
 	}
 	while (1) {

@@ -3,4 +3,4 @@
 
 #include <asm-generic/dma-mapping-broken.h>
 
-#endif 
+#endif /* _ASM_SCORE_DMA_MAPPING_H */

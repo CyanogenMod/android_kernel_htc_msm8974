@@ -32,14 +32,23 @@ MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("VPSS Driver");
 MODULE_AUTHOR("Texas Instruments");
 
+/* DM644x defines */
 #define DM644X_SBL_PCR_VPSS		(4)
 
 #define DM355_VPSSBL_INTSEL		0x10
 #define DM355_VPSSBL_EVTSEL		0x14
+/* vpss BL register offsets */
 #define DM355_VPSSBL_CCDCMUX		0x1c
+/* vpss CLK register offsets */
 #define DM355_VPSSCLK_CLKCTRL		0x04
+/* masks and shifts */
 #define VPSS_HSSISEL_SHIFT		4
+/*
+ * VDINT0 - vpss_int0, VDINT1 - vpss_int1, H3A - vpss_int4,
+ * IPIPE_INT1_SDR - vpss_int5
+ */
 #define DM355_VPSSBL_INTSEL_DEFAULT	0xff83ff10
+/* VENCINT - vpss_int8 */
 #define DM355_VPSSBL_EVTSEL_DEFAULT	0x4
 
 #define DM365_ISP5_PCCR 		0x04
@@ -49,31 +58,46 @@ MODULE_AUTHOR("Texas Instruments");
 #define DM365_ISP5_CCDCMUX 		0x20
 #define DM365_ISP5_PG_FRAME_SIZE 	0x28
 #define DM365_VPBE_CLK_CTRL 		0x00
+/*
+ * vpss interrupts. VDINT0 - vpss_int0, VDINT1 - vpss_int1,
+ * AF - vpss_int3
+ */
 #define DM365_ISP5_INTSEL1_DEFAULT	0x0b1f0100
+/* AEW - vpss_int6, RSZ_INT_DMA - vpss_int5 */
 #define DM365_ISP5_INTSEL2_DEFAULT	0x1f0a0f1f
+/* VENC - vpss_int8 */
 #define DM365_ISP5_INTSEL3_DEFAULT	0x00000015
 
+/* masks and shifts for DM365*/
 #define DM365_CCDC_PG_VD_POL_SHIFT 	0
 #define DM365_CCDC_PG_HD_POL_SHIFT 	1
 
 #define CCD_SRC_SEL_MASK		(BIT_MASK(5) | BIT_MASK(4))
 #define CCD_SRC_SEL_SHIFT		4
 
+/* Different SoC platforms supported by this driver */
 enum vpss_platform_type {
 	DM644X,
 	DM355,
 	DM365,
 };
 
+/*
+ * vpss operations. Depends on platform. Not all functions are available
+ * on all platforms. The api, first check if a functio is available before
+ * invoking it. In the probe, the function ptrs are initialized based on
+ * vpss name. vpss name can be "dm355_vpss", "dm644x_vpss" etc.
+ */
 struct vpss_hw_ops {
-	
+	/* enable clock */
 	int (*enable_clock)(enum vpss_clock_sel clock_sel, int en);
-	
+	/* select input to ccdc */
 	void (*select_ccdc_source)(enum vpss_ccdc_source_sel src_sel);
-	
+	/* clear wbl overflow bit */
 	int (*clear_wbl_overflow)(enum vpss_wbl_sel wbl_sel);
 };
 
+/* vpss configuration */
 struct vpss_oper_config {
 	__iomem void *vpss_regs_base0;
 	__iomem void *vpss_regs_base1;
@@ -84,6 +108,7 @@ struct vpss_oper_config {
 
 static struct vpss_oper_config oper_cfg;
 
+/* register access routines */
 static inline u32 bl_regr(u32 offset)
 {
 	return __raw_readl(oper_cfg.vpss_regs_base0 + offset);
@@ -104,11 +129,13 @@ static inline void vpss_regw(u32 val, u32 offset)
 	__raw_writel(val, oper_cfg.vpss_regs_base1 + offset);
 }
 
+/* For DM365 only */
 static inline u32 isp5_read(u32 offset)
 {
 	return __raw_readl(oper_cfg.vpss_regs_base0 + offset);
 }
 
+/* For DM365 only */
 static inline void isp5_write(u32 val, u32 offset)
 {
 	__raw_writel(val, oper_cfg.vpss_regs_base0 + offset);
@@ -118,7 +145,7 @@ static void dm365_select_ccdc_source(enum vpss_ccdc_source_sel src_sel)
 {
 	u32 temp = isp5_read(DM365_ISP5_CCDCMUX) & ~CCD_SRC_SEL_MASK;
 
-	
+	/* if we are using pattern generator, enable it */
 	if (src_sel == VPSS_PGLPBK || src_sel == VPSS_CCDCPG)
 		temp |= 0x08;
 
@@ -149,7 +176,7 @@ static int dm644x_clear_wbl_overflow(enum vpss_wbl_sel wbl_sel)
 	    wbl_sel > VPSS_PCR_CCDC_WBL_O)
 		return -EINVAL;
 
-	
+	/* writing a 0 clear the overflow */
 	mask = ~(mask << wbl_sel);
 	val = bl_regr(DM644X_SBL_PCR_VPSS) & mask;
 	bl_regw(val, DM644X_SBL_PCR_VPSS);
@@ -165,6 +192,13 @@ int vpss_clear_wbl_overflow(enum vpss_wbl_sel wbl_sel)
 }
 EXPORT_SYMBOL(vpss_clear_wbl_overflow);
 
+/*
+ *  dm355_enable_clock - Enable VPSS Clock
+ *  @clock_sel: CLock to be enabled/disabled
+ *  @en: enable/disable flag
+ *
+ *  This is called to enable or disable a vpss clock
+ */
 static int dm355_enable_clock(enum vpss_clock_sel clock_sel, int en)
 {
 	unsigned long flags;
@@ -172,7 +206,7 @@ static int dm355_enable_clock(enum vpss_clock_sel clock_sel, int en)
 
 	switch (clock_sel) {
 	case VPSS_VPBE_CLOCK:
-		
+		/* nothing since lsb */
 		break;
 	case VPSS_VENC_CLOCK_SEL:
 		shift = 2;
@@ -385,13 +419,13 @@ static int __init vpss_probe(struct platform_device *pdev)
 	if (oper_cfg.platform == DM355) {
 		oper_cfg.hw_ops.enable_clock = dm355_enable_clock;
 		oper_cfg.hw_ops.select_ccdc_source = dm355_select_ccdc_source;
-		
+		/* Setup vpss interrupts */
 		bl_regw(DM355_VPSSBL_INTSEL_DEFAULT, DM355_VPSSBL_INTSEL);
 		bl_regw(DM355_VPSSBL_EVTSEL_DEFAULT, DM355_VPSSBL_EVTSEL);
 	} else if (oper_cfg.platform == DM365) {
 		oper_cfg.hw_ops.enable_clock = dm365_enable_clock;
 		oper_cfg.hw_ops.select_ccdc_source = dm365_select_ccdc_source;
-		
+		/* Setup vpss interrupts */
 		isp5_write(DM365_ISP5_INTSEL1_DEFAULT, DM365_ISP5_INTSEL1);
 		isp5_write(DM365_ISP5_INTSEL2_DEFAULT, DM365_ISP5_INTSEL2);
 		isp5_write(DM365_ISP5_INTSEL3_DEFAULT, DM365_ISP5_INTSEL3);

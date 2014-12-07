@@ -117,14 +117,14 @@ static inline void dma_cache_sync(struct device *dev, void *vaddr,
 	case DMA_NONE:
 		BUG();
 	case DMA_FROM_DEVICE:
-	case DMA_BIDIRECTIONAL:	
+	case DMA_BIDIRECTIONAL:	/* writeback and invalidate */
 		__cpuc_dma_flush_range(start, end);
 		break;
-	case DMA_TO_DEVICE:		
+	case DMA_TO_DEVICE:		/* writeback only */
 		__cpuc_dma_clean_range(start, end);
 		break;
 	}
 }
 
-#endif 
+#endif /* __KERNEL__ */
 #endif

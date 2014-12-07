@@ -24,13 +24,25 @@ extern sci_handler yeeloong_report_lid_status;
 
 #define SCI_IRQ_NUM 0x0A
 
+/*
+ * The following registers are determined by the EC index configuration.
+ * 1, fill the PORT_HIGH as EC register high part.
+ * 2, fill the PORT_LOW as EC register low part.
+ * 3, fill the PORT_DATA as EC register write data or get the data from it.
+ */
 #define	EC_IO_PORT_HIGH	0x0381
 #define	EC_IO_PORT_LOW	0x0382
 #define	EC_IO_PORT_DATA	0x0383
 
-#define	EC_REG_DELAY	500	
+/*
+ * EC delay time is 500us for register and status access
+ */
+#define	EC_REG_DELAY	500	/* unit : us */
 #define	EC_CMD_TIMEOUT	0x1000
 
+/*
+ * EC access port for SCI communication
+ */
 #define	EC_CMD_PORT		0x66
 #define	EC_STS_PORT		0x66
 #define	EC_DAT_PORT		0x62
@@ -41,6 +53,7 @@ extern sci_handler yeeloong_report_lid_status;
 #define	CMD_GET_EVENT_NUM	0x84
 #define	CMD_PROGRAM_PIECE	0xda
 
+/* temperature & fan registers */
 #define	REG_TEMPERATURE_VALUE	0xF458
 #define	REG_FAN_AUTO_MAN_SWITCH 0xF459
 #define	BIT_FAN_AUTO		0
@@ -54,8 +67,10 @@ extern sci_handler yeeloong_report_lid_status;
 #define	REG_FAN_SPEED_HIGH	0xFE22
 #define	REG_FAN_SPEED_LOW	0xFE23
 #define	REG_FAN_SPEED_LEVEL	0xF4CC
-#define	FAN_SPEED_DIVIDER	480000	
+/* fan speed divider */
+#define	FAN_SPEED_DIVIDER	480000	/* (60*1000*1000/62.5/2)*/
 
+/* battery registers */
 #define	REG_BAT_DESIGN_CAP_HIGH		0xF77D
 #define	REG_BAT_DESIGN_CAP_LOW		0xF77E
 #define	REG_BAT_FULLCHG_CAP_HIGH	0xF780
@@ -96,64 +111,78 @@ extern sci_handler yeeloong_report_lid_status;
 #define	BIT_BAT_POWER_ON		(1 << 1)
 #define	BIT_BAT_POWER_ACIN		(1 << 0)
 
+/* other registers */
+/* Audio: rd/wr */
 #define	REG_AUDIO_VOLUME	0xF46C
 #define	REG_AUDIO_MUTE		0xF4E7
 #define	REG_AUDIO_BEEP		0xF4D0
+/* USB port power or not: rd/wr */
 #define	REG_USB0_FLAG		0xF461
 #define	REG_USB1_FLAG		0xF462
 #define	REG_USB2_FLAG		0xF463
 #define	BIT_USB_FLAG_ON		1
 #define	BIT_USB_FLAG_OFF	0
+/* LID */
 #define	REG_LID_DETECT		0xF4BD
 #define	BIT_LID_DETECT_ON	1
 #define	BIT_LID_DETECT_OFF	0
+/* CRT */
 #define	REG_CRT_DETECT		0xF4AD
 #define	BIT_CRT_DETECT_PLUG	1
 #define	BIT_CRT_DETECT_UNPLUG	0
+/* LCD backlight brightness adjust: 9 levels */
 #define	REG_DISPLAY_BRIGHTNESS	0xF4F5
+/* Black screen Status */
 #define	BIT_DISPLAY_LCD_ON	1
 #define	BIT_DISPLAY_LCD_OFF	0
+/* LCD backlight control: off/restore */
 #define	REG_BACKLIGHT_CTRL	0xF7BD
 #define	BIT_BACKLIGHT_ON	1
 #define	BIT_BACKLIGHT_OFF	0
+/* Reset the machine auto-clear: rd/wr */
 #define	REG_RESET		0xF4EC
 #define	BIT_RESET_ON		1
+/* Light the led: rd/wr */
 #define	REG_LED			0xF4C8
 #define	BIT_LED_RED_POWER	(1 << 0)
 #define	BIT_LED_ORANGE_POWER	(1 << 1)
 #define	BIT_LED_GREEN_CHARGE	(1 << 2)
 #define	BIT_LED_RED_CHARGE	(1 << 3)
 #define	BIT_LED_NUMLOCK		(1 << 4)
+/* Test led mode, all led on/off */
 #define	REG_LED_TEST		0xF4C2
 #define	BIT_LED_TEST_IN		1
 #define	BIT_LED_TEST_OUT	0
+/* Camera on/off */
 #define	REG_CAMERA_STATUS	0xF46A
 #define	BIT_CAMERA_STATUS_ON	1
 #define	BIT_CAMERA_STATUS_OFF	0
 #define	REG_CAMERA_CONTROL	0xF7B7
 #define	BIT_CAMERA_CONTROL_OFF	0
 #define	BIT_CAMERA_CONTROL_ON	1
+/* Wlan Status */
 #define	REG_WLAN		0xF4FA
 #define	BIT_WLAN_ON		1
 #define	BIT_WLAN_OFF		0
 #define	REG_DISPLAY_LCD		0xF79F
 
+/* SCI Event Number from EC */
 enum {
-	EVENT_LID = 0x23,	
-	EVENT_DISPLAY_TOGGLE,	
-	EVENT_SLEEP,		
-	EVENT_OVERTEMP,		
-	EVENT_CRT_DETECT,	
-	EVENT_CAMERA,		
-	EVENT_USB_OC2,		
-	EVENT_USB_OC0,		
-	EVENT_BLACK_SCREEN,	
-	EVENT_AUDIO_MUTE,	
-	EVENT_DISPLAY_BRIGHTNESS,
-	EVENT_AC_BAT,		
-	EVENT_AUDIO_VOLUME,	
-	EVENT_WLAN,		
+	EVENT_LID = 0x23,	/*  LID open/close */
+	EVENT_DISPLAY_TOGGLE,	/*  Fn+F3 for display switch */
+	EVENT_SLEEP,		/*  Fn+F1 for entering sleep mode */
+	EVENT_OVERTEMP,		/*  Over-temperature happened */
+	EVENT_CRT_DETECT,	/*  CRT is connected */
+	EVENT_CAMERA,		/*  Camera on/off */
+	EVENT_USB_OC2,		/*  USB2 Over Current occurred */
+	EVENT_USB_OC0,		/*  USB0 Over Current occurred */
+	EVENT_BLACK_SCREEN,	/*  Turn on/off backlight */
+	EVENT_AUDIO_MUTE,	/*  Mute on/off */
+	EVENT_DISPLAY_BRIGHTNESS,/* LCD backlight brightness adjust */
+	EVENT_AC_BAT,		/*  AC & Battery relative issue */
+	EVENT_AUDIO_VOLUME,	/*  Volume adjust */
+	EVENT_WLAN,		/*  Wlan on/off */
 	EVENT_END
 };
 
-#endif 
+#endif /* !_EC_KB3310B_H */

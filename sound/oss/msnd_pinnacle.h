@@ -149,6 +149,7 @@
 #define MIP_HWINIT				0xfe
 #define MIP_MAX					1
 
+/* Pinnacle/Fiji SMA Common Data */
 #define SMA_wCurrPlayBytes			0x0000
 #define SMA_wCurrRecordBytes			0x0002
 #define SMA_wCurrPlayVolLeft			0x0004
@@ -242,4 +243,4 @@
 #endif
 #define LONGNAME		"MultiSound (Pinnacle/Fiji)"
 
-#endif 
+#endif /* __MSND_PINNACLE_H */

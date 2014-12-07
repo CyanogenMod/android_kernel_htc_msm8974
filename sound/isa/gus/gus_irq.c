@@ -41,7 +41,7 @@ __again:
 	if (status == 0)
 		return IRQ_RETVAL(handled);
 	handled = 1;
-	
+	/* snd_printk(KERN_DEBUG "IRQ: status = 0x%x\n", status); */
 	if (status & 0x02) {
 		STAT_ADD(gus->gf1.interrupt_stat_midi_in);
 		if (gus->gf1.interrupt_handler_midi_in)
@@ -62,8 +62,8 @@ __again:
 			voice = voice_status & 0x1f;
 			_current_ = 1 << voice;
 			if (already & _current_)
-				continue;	
-			already |= _current_;	
+				continue;	/* multi request */
+			already |= _current_;	/* mark request */
 #if 0
 			printk(KERN_DEBUG "voice = %i, voice_status = 0x%x, "
 			       "voice_verify = %i\n",
@@ -71,11 +71,11 @@ __again:
 #endif
 			pvoice = &gus->gf1.voices[voice]; 
 			if (pvoice->use) {
-				if (!(voice_status & 0x80)) {	
+				if (!(voice_status & 0x80)) {	/* voice position IRQ */
 					STAT_ADD(pvoice->interrupt_stat_wave);
 					pvoice->handler_wave(gus, pvoice);
 				}
-				if (!(voice_status & 0x40)) {	
+				if (!(voice_status & 0x40)) {	/* volume ramp IRQ */
 					STAT_ADD(pvoice->interrupt_stat_volume);
 					pvoice->handler_volume(gus, pvoice);
 				}

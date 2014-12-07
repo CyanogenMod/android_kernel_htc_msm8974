@@ -7,6 +7,7 @@
  * published by the Free Software Foundation.
  */
 
+/* Kernel module implementing an IP set type: the bitmap:ip type */
 
 #include <linux/module.h>
 #include <linux/ip.h>
@@ -31,18 +32,20 @@ MODULE_AUTHOR("Jozsef Kadlecsik <kadlec@blackhole.kfki.hu>");
 MODULE_DESCRIPTION("bitmap:ip type of IP sets");
 MODULE_ALIAS("ip_set_bitmap:ip");
 
+/* Type structure */
 struct bitmap_ip {
-	void *members;		
-	u32 first_ip;		
-	u32 last_ip;		
-	u32 elements;		
-	u32 hosts;		
-	size_t memsize;		
-	u8 netmask;		
-	u32 timeout;		
-	struct timer_list gc;	
+	void *members;		/* the set members */
+	u32 first_ip;		/* host byte order, included in range */
+	u32 last_ip;		/* host byte order, included in range */
+	u32 elements;		/* number of max elements in the set */
+	u32 hosts;		/* number of hosts in a subnet */
+	size_t memsize;		/* members size */
+	u8 netmask;		/* subnet netmask */
+	u32 timeout;		/* timeout parameter */
+	struct timer_list gc;	/* garbage collection */
 };
 
+/* Base variant */
 
 static inline u32
 ip_to_id(const struct bitmap_ip *m, u32 ip)
@@ -111,7 +114,7 @@ bitmap_ip_list(const struct ip_set *set,
 		ipset_nest_end(skb, nested);
 	}
 	ipset_nest_end(skb, atd);
-	
+	/* Set listing finished */
 	cb->args[2] = 0;
 	return 0;
 
@@ -125,6 +128,7 @@ nla_put_failure:
 	return 0;
 }
 
+/* Timeout variant */
 
 static int
 bitmap_ip_ttest(struct ip_set *set, void *value, u32 timeout, u32 flags)
@@ -198,7 +202,7 @@ bitmap_ip_tlist(const struct ip_set *set,
 	}
 	ipset_nest_end(skb, adt);
 
-	
+	/* Set listing finished */
 	cb->args[2] = 0;
 
 	return 0;
@@ -396,6 +400,8 @@ bitmap_ip_gc(unsigned long ul_set)
 	unsigned long *table = map->members;
 	u32 id;
 
+	/* We run parallel with other readers (test element)
+	 * but adding/deleting new entries is locked out */
 	read_lock_bh(&set->lock);
 	for (id = 0; id < map->elements; id++)
 		if (ip_set_timeout_expired(table[id]))
@@ -418,6 +424,7 @@ bitmap_ip_gc_init(struct ip_set *set)
 	add_timer(&map->gc);
 }
 
+/* Create bitmap:ip type of sets */
 
 static bool
 init_map_ip(struct ip_set *set, struct bitmap_ip *map,

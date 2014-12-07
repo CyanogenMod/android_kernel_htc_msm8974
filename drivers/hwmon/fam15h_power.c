@@ -31,10 +31,13 @@ MODULE_DESCRIPTION("AMD Family 15h CPU processor power monitor");
 MODULE_AUTHOR("Andreas Herrmann <andreas.herrmann3@amd.com>");
 MODULE_LICENSE("GPL");
 
+/* D18F3 */
 #define REG_NORTHBRIDGE_CAP		0xe8
 
+/* D18F4 */
 #define REG_PROCESSOR_TDP		0x1b8
 
+/* D18F5 */
 #define REG_TDP_RUNNING_AVERAGE		0xe0
 #define REG_TDP_LIMIT3			0xe8
 
@@ -68,6 +71,13 @@ static ssize_t show_power(struct device *dev,
 	curr_pwr_watts -= running_avg_capture;
 	curr_pwr_watts *= data->tdp_to_watts;
 
+	/*
+	 * Convert to microWatt
+	 *
+	 * power is in Watt provided as fixed point integer with
+	 * scaling factor 1/(2^16).  For conversion we use
+	 * (10^6)/(2^16) = 15625/(2^10)
+	 */
 	curr_pwr_watts = (curr_pwr_watts * 15625) >> (10 + running_avg_range);
 	return sprintf(buf, "%u\n", (unsigned int) curr_pwr_watts);
 }
@@ -112,6 +122,12 @@ static bool __devinit fam15h_power_is_internal_node0(struct pci_dev *f4)
 	return true;
 }
 
+/*
+ * Newer BKDG versions have an updated recommendation on how to properly
+ * initialize the running average range (was: 0xE, now: 0x9). This avoids
+ * counter saturations resulting in bogus power readings.
+ * We correct this value ourselves to cope with older BIOSes.
+ */
 static DEFINE_PCI_DEVICE_TABLE(affected_device) = {
 	{ PCI_VDEVICE(AMD, PCI_DEVICE_ID_AMD_15H_NB_F4) },
 	{ 0 }
@@ -121,6 +137,10 @@ static void __devinit tweak_runavg_range(struct pci_dev *pdev)
 {
 	u32 val;
 
+	/*
+	 * let this quirk apply only to the current version of the
+	 * northbridge, since future versions may change the behavior
+	 */
 	if (!pci_match_id(affected_device, pdev))
 		return;
 
@@ -153,13 +173,13 @@ static void __devinit fam15h_power_init_data(struct pci_dev *f4,
 	data->tdp_to_watts = ((val & 0x3ff) << 6) | ((val >> 10) & 0x3f);
 	tmp *= data->tdp_to_watts;
 
-	
+	/* result not allowed to be >= 256W */
 	if ((tmp >> 16) >= 256)
 		dev_warn(&f4->dev, "Bogus value for ProcessorPwrWatts "
 			 "(processor_pwr_watts>=%u)\n",
 			 (unsigned int) (tmp >> 16));
 
-	
+	/* convert to microWatt */
 	data->processor_pwr_watts = (tmp * 15625) >> 10;
 }
 
@@ -170,6 +190,11 @@ static int __devinit fam15h_power_probe(struct pci_dev *pdev,
 	struct device *dev;
 	int err;
 
+	/*
+	 * though we ignore every other northbridge, we still have to
+	 * do the tweaking on _each_ node in MCM processors as the counters
+	 * are working hand-in-hand
+	 */
 	tweak_runavg_range(pdev);
 
 	if (!fam15h_power_is_internal_node0(pdev)) {

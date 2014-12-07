@@ -84,6 +84,14 @@ static u8 twl4030_uv_to_vsel(unsigned long uv)
 
 static unsigned long twl6030_vsel_to_uv(const u8 vsel)
 {
+	/*
+	 * In TWL6030 depending on the value of SMPS_OFFSET
+	 * efuse register the voltage range supported in
+	 * standard mode can be either between 0.6V - 1.3V or
+	 * 0.7V - 1.4V. In TWL6030 ES1.0 SMPS_OFFSET efuse
+	 * is programmed to all 0's where as starting from
+	 * TWL6030 ES1.1 the efuse is programmed to 1
+	 */
 	if (!is_offset_valid) {
 		twl_i2c_read_u8(TWL6030_MODULE_ID0, &smps_offset,
 				REG_SMPS_OFFSET);
@@ -92,6 +100,13 @@ static unsigned long twl6030_vsel_to_uv(const u8 vsel)
 
 	if (!vsel)
 		return 0;
+	/*
+	 * There is no specific formula for voltage to vsel
+	 * conversion above 1.3V. There are special hardcoded
+	 * values for voltages above 1.3V. Currently we are
+	 * hardcoding only for 1.35 V which is used for 1GH OPP for
+	 * OMAP4430.
+	 */
 	if (vsel == 0x3A)
 		return 1350000;
 
@@ -103,6 +118,14 @@ static unsigned long twl6030_vsel_to_uv(const u8 vsel)
 
 static u8 twl6030_uv_to_vsel(unsigned long uv)
 {
+	/*
+	 * In TWL6030 depending on the value of SMPS_OFFSET
+	 * efuse register the voltage range supported in
+	 * standard mode can be either between 0.6V - 1.3V or
+	 * 0.7V - 1.4V. In TWL6030 ES1.0 SMPS_OFFSET efuse
+	 * is programmed to all 0's where as starting from
+	 * TWL6030 ES1.1 the efuse is programmed to 1
+	 */
 	if (!is_offset_valid) {
 		twl_i2c_read_u8(TWL6030_MODULE_ID0, &smps_offset,
 				REG_SMPS_OFFSET);
@@ -111,6 +134,13 @@ static u8 twl6030_uv_to_vsel(unsigned long uv)
 
 	if (!uv)
 		return 0x00;
+	/*
+	 * There is no specific formula for voltage to vsel
+	 * conversion above 1.3V. There are special hardcoded
+	 * values for voltages above 1.3V. Currently we are
+	 * hardcoding only for 1.35 V which is used for 1GH OPP for
+	 * OMAP4430.
+	 */
 	if (uv > twl6030_vsel_to_uv(0x39)) {
 		if (uv == 1350000)
 			return 0x3A;
@@ -265,6 +295,15 @@ int __init omap3_twl_init(void)
 		omap3_core_pmic.vp_vddmax = OMAP3630_VP2_VLIMITTO_VDDMAX;
 	}
 
+	/*
+	 * The smartreflex bit on twl4030 specifies if the setting of voltage
+	 * is done over the I2C_SR path. Since this setting is independent of
+	 * the actual usage of smartreflex AVS module, we enable TWL SR bit
+	 * by default irrespective of whether smartreflex AVS module is enabled
+	 * on the OMAP side or not. This is because without this bit enabled,
+	 * the voltage scaling through vp forceupdate/bypass mechanism of
+	 * voltage scaling will not function on TWL over I2C_SR.
+	 */
 	if (!twl_sr_enable_autoinit)
 		omap3_twl_set_sr_bit(true);
 
@@ -277,6 +316,19 @@ int __init omap3_twl_init(void)
 	return 0;
 }
 
+/**
+ * omap3_twl_set_sr_bit() - Set/Clear SR bit on TWL
+ * @enable: enable SR mode in twl or not
+ *
+ * If 'enable' is true, enables Smartreflex bit on TWL 4030 to make sure
+ * voltage scaling through OMAP SR works. Else, the smartreflex bit
+ * on twl4030 is cleared as there are platforms which use OMAP3 and T2 but
+ * use Synchronized Scaling Hardware Strategy (ENABLE_VMODE=1) and Direct
+ * Strategy Software Scaling Mode (ENABLE_VMODE=0), for setting the voltages,
+ * in those scenarios this bit is to be cleared (enable = false).
+ *
+ * Returns 0 on success, error is returned if I2C read/write fails.
+ */
 int __init omap3_twl_set_sr_bit(bool enable)
 {
 	u8 temp;

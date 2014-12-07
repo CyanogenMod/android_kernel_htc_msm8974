@@ -94,25 +94,27 @@ struct pm8xxx_mpp_init {
 			_out_strength, \
 			PM_GPIO_FUNC_NORMAL, 0, 0)
 
+/* Initial PM8921 GPIO configurations */
 static struct pm8xxx_gpio_init pm8921_gpios[] __initdata = {
-	PM8XXX_GPIO_OUTPUT_VIN(6, 1, PM_GPIO_VIN_VPH),	 
-	PM8XXX_GPIO_DISABLE(7),				 
-	PM8XXX_GPIO_INPUT(16,	    PM_GPIO_PULL_UP_30), 
-    
-	PM8XXX_GPIO_OUTPUT(17,	    0),			 
-	PM8XXX_GPIO_OUTPUT(18,	0),	
-	PM8XXX_GPIO_OUTPUT(19,	0),	
-	PM8XXX_GPIO_DISABLE(22),			 
-	PM8XXX_GPIO_OUTPUT_FUNC(25, 0, PM_GPIO_FUNC_2),	 
-	PM8XXX_GPIO_INPUT(26,	    PM_GPIO_PULL_UP_30), 
-	PM8XXX_GPIO_OUTPUT(43, 1),                       
-	PM8XXX_GPIO_OUTPUT(42, 0),                      
-	
+	PM8XXX_GPIO_OUTPUT_VIN(6, 1, PM_GPIO_VIN_VPH),	 /* MHL power EN_N */
+	PM8XXX_GPIO_DISABLE(7),				 /* Disable NFC */
+	PM8XXX_GPIO_INPUT(16,	    PM_GPIO_PULL_UP_30), /* SD_CARD_WP */
+    /* External regulator shared by display and touchscreen on LiQUID */
+	PM8XXX_GPIO_OUTPUT(17,	    0),			 /* DISP 3.3 V Boost */
+	PM8XXX_GPIO_OUTPUT(18,	0),	/* TABLA SPKR_LEFT_EN=off */
+	PM8XXX_GPIO_OUTPUT(19,	0),	/* TABLA SPKR_RIGHT_EN=off */
+	PM8XXX_GPIO_DISABLE(22),			 /* Disable NFC */
+	PM8XXX_GPIO_OUTPUT_FUNC(25, 0, PM_GPIO_FUNC_2),	 /* TN_CLK */
+	PM8XXX_GPIO_INPUT(26,	    PM_GPIO_PULL_UP_30), /* SD_CARD_DET_N */
+	PM8XXX_GPIO_OUTPUT(43, 1),                       /* DISP_RESET_N */
+	PM8XXX_GPIO_OUTPUT(42, 0),                      /* USB 5V reg enable */
+	/* TABLA CODEC RESET */
 	PM8XXX_GPIO_OUTPUT_STRENGTH(34, 0, PM_GPIO_STRENGTH_MED)
 };
 
+/* Initial PM8921 MPP configurations */
 static struct pm8xxx_mpp_init pm8921_mpps[] __initdata = {
-	
+	/* External 5V regulator enable; shared by HDMI and USB_OTG switches. */
 	PM8XXX_MPP_INIT(7, D_INPUT, PM8921_MPP_DIG_LEVEL_VPH, DIN_TO_INT),
 	PM8XXX_MPP_INIT(PM8XXX_AMUX_MPP_8, A_INPUT, PM8XXX_MPP_AIN_AMUX_CH8,
 								DOUT_CTRL_LOW),
@@ -177,7 +179,7 @@ static struct pm8xxx_adc_amux pm8xxx_adc_channels_data[] = {
 };
 
 static struct pm8xxx_adc_properties pm8xxx_adc_data = {
-	.adc_vdd_reference	= 1800, 
+	.adc_vdd_reference	= 1800, /* milli-voltage for this adc */
 	.bitresolution		= 15,
 	.bipolar                = 0,
 };
@@ -214,6 +216,7 @@ static struct pm8xxx_pwrkey_platform_data pm8xxx_pwrkey_pdata = {
 	.wakeup			= 1,
 };
 
+/* Rotate lock key is not available so use F1 */
 #define KEY_ROTATE_LOCK KEY_F1
 
 static const unsigned int keymap_liquid[] = {
@@ -441,10 +444,14 @@ static struct pm8921_bms_platform_data pm8921_bms_pdata __devinitdata = {
 	.min_fcc_learning_samples	= 5,
 };
 
-#define	PM8921_LC_LED_MAX_CURRENT	4	
-#define	PM8921_LC_LED_LOW_CURRENT	1	
+#define	PM8921_LC_LED_MAX_CURRENT	4	/* I = 4mA */
+#define	PM8921_LC_LED_LOW_CURRENT	1	/* I = 1mA */
 #define PM8XXX_LED_PWM_PERIOD		1000
 #define PM8XXX_LED_PWM_DUTY_MS		20
+/**
+ * PM8XXX_PWM_CHANNEL_NONE shall be used when LED shall not be
+ * driven using PWM feature.
+ */
 #define PM8XXX_PWM_CHANNEL_NONE		-1
 
 static struct led_info pm8921_led_info_liquid[] = {
@@ -519,6 +526,11 @@ static int pm8921_led0_pwm_duty_pcts[56] = {
 		14, 10, 6, 4, 1
 };
 
+/*
+ * Note: There is a bug in LPG module that results in incorrect
+ * behavior of pattern when LUT index 0 is used. So effectively
+ * there are 63 usable LUT entries.
+ */
 static struct pm8xxx_pwm_duty_cycles pm8921_led0_pwm_duty_cycles = {
 	.duty_pcts = (int *)&pm8921_led0_pwm_duty_pcts,
 	.num_duty_pcts = ARRAY_SIZE(pm8921_led0_pwm_duty_pcts),
@@ -555,6 +567,10 @@ static struct pm8xxx_ccadc_platform_data pm8xxx_ccadc_pdata = {
 	.calib_delay_ms		= 600000,
 };
 
+/**
+ * PM8XXX_PWM_DTEST_CHANNEL_NONE shall be used when no LPG
+ * channel should be in DTEST mode.
+ */
 
 #define PM8XXX_PWM_DTEST_CHANNEL_NONE   (-1)
 

@@ -21,6 +21,28 @@
  * cache.c
  */
 
+/*
+ * Blocks in Squashfs are compressed.  To avoid repeatedly decompressing
+ * recently accessed data Squashfs uses two small metadata and fragment caches.
+ *
+ * This file implements a generic cache implementation used for both caches,
+ * plus functions layered ontop of the generic cache implementation to
+ * access the metadata and fragment caches.
+ *
+ * To avoid out of memory and fragmentation issues with vmalloc the cache
+ * uses sequences of kmalloced PAGE_CACHE_SIZE buffers.
+ *
+ * It should be noted that the cache is not used for file datablocks, these
+ * are decompressed and cached in the page-cache in the normal way.  The
+ * cache is only used to temporarily cache fragment and metadata blocks
+ * which have been read as as a result of a metadata (i.e. inode or
+ * directory) or fragment access.  Because metadata and fragments are packed
+ * together into blocks (to gain greater compression) the read of a particular
+ * piece of metadata or fragment will retrieve other metadata/fragments which
+ * have been packed with it, these because of locality-of-reference may be read
+ * in the near future. Temporarily caching them ensures they are available for
+ * near future access without requiring an additional read and decompress.
+ */
 
 #include <linux/fs.h>
 #include <linux/vfs.h>
@@ -35,6 +57,10 @@
 #include "squashfs_fs_sb.h"
 #include "squashfs.h"
 
+/*
+ * Look-up block in cache, and increment usage count.  If not in cache, read
+ * and decompress it from disk.
+ */
 struct squashfs_cache_entry *squashfs_cache_get(struct super_block *sb,
 	struct squashfs_cache *cache, u64 block, int length)
 {
@@ -53,6 +79,10 @@ struct squashfs_cache_entry *squashfs_cache_get(struct super_block *sb,
 		}
 
 		if (n == cache->entries) {
+			/*
+			 * Block not in cache, if all cache entries are used
+			 * go to sleep waiting for one to become available.
+			 */
 			if (cache->unused == 0) {
 				cache->num_waiters++;
 				spin_unlock(&cache->lock);
@@ -62,6 +92,11 @@ struct squashfs_cache_entry *squashfs_cache_get(struct super_block *sb,
 				continue;
 			}
 
+			/*
+			 * At least one unused cache entry.  A simple
+			 * round-robin strategy is used to choose the entry to
+			 * be evicted from the cache.
+			 */
 			i = cache->next_blk;
 			for (n = 0; n < cache->entries; n++) {
 				if (cache->entry[i].refcount == 0)
@@ -72,6 +107,10 @@ struct squashfs_cache_entry *squashfs_cache_get(struct super_block *sb,
 			cache->next_blk = (i + 1) % cache->entries;
 			entry = &cache->entry[i];
 
+			/*
+			 * Initialise chosen cache entry, and fill it in from
+			 * disk.
+			 */
 			cache->unused--;
 			entry->block = block;
 			entry->refcount = 1;
@@ -91,6 +130,11 @@ struct squashfs_cache_entry *squashfs_cache_get(struct super_block *sb,
 
 			entry->pending = 0;
 
+			/*
+			 * While filling this entry one or more other processes
+			 * have looked it up in the cache, and have slept
+			 * waiting for it to become available.
+			 */
 			if (entry->num_waiters) {
 				spin_unlock(&cache->lock);
 				wake_up_all(&entry->wait_queue);
@@ -100,11 +144,21 @@ struct squashfs_cache_entry *squashfs_cache_get(struct super_block *sb,
 			goto out;
 		}
 
+		/*
+		 * Block already in cache.  Increment refcount so it doesn't
+		 * get reused until we're finished with it, if it was
+		 * previously unused there's one less cache entry available
+		 * for reuse.
+		 */
 		entry = &cache->entry[i];
 		if (entry->refcount == 0)
 			cache->unused--;
 		entry->refcount++;
 
+		/*
+		 * If the entry is currently being filled in by another process
+		 * go to sleep waiting for it to become available.
+		 */
 		if (entry->pending) {
 			entry->num_waiters++;
 			spin_unlock(&cache->lock);
@@ -126,6 +180,9 @@ out:
 }
 
 
+/*
+ * Release cache entry, once usage count is zero it can be reused.
+ */
 void squashfs_cache_put(struct squashfs_cache_entry *entry)
 {
 	struct squashfs_cache *cache = entry->cache;
@@ -134,6 +191,10 @@ void squashfs_cache_put(struct squashfs_cache_entry *entry)
 	entry->refcount--;
 	if (entry->refcount == 0) {
 		cache->unused++;
+		/*
+		 * If there's any processes waiting for a block to become
+		 * available, wake one up.
+		 */
 		if (cache->num_waiters) {
 			spin_unlock(&cache->lock);
 			wake_up(&cache->wait_queue);
@@ -143,6 +204,9 @@ void squashfs_cache_put(struct squashfs_cache_entry *entry)
 	spin_unlock(&cache->lock);
 }
 
+/*
+ * Delete cache reclaiming all kmalloced buffers.
+ */
 void squashfs_cache_delete(struct squashfs_cache *cache)
 {
 	int i, j;
@@ -163,6 +227,11 @@ void squashfs_cache_delete(struct squashfs_cache *cache)
 }
 
 
+/*
+ * Initialise cache allocating the specified number of entries, each of
+ * size block_size.  To avoid vmalloc fragmentation issues each entry
+ * is allocated as a sequence of kmalloced PAGE_CACHE_SIZE buffers.
+ */
 struct squashfs_cache *squashfs_cache_init(char *name, int entries,
 	int block_size)
 {
@@ -221,6 +290,11 @@ cleanup:
 }
 
 
+/*
+ * Copy up to length bytes from cache entry to buffer starting at offset bytes
+ * into the cache entry.  If there's not length bytes then copy the number of
+ * bytes available.  In all cases return the number of bytes copied.
+ */
 int squashfs_copy_data(void *buffer, struct squashfs_cache_entry *entry,
 		int offset, int length)
 {
@@ -253,6 +327,12 @@ int squashfs_copy_data(void *buffer, struct squashfs_cache_entry *entry,
 }
 
 
+/*
+ * Read length bytes from metadata position <block, offset> (block is the
+ * start of the compressed block on disk, and offset is the offset into
+ * the block once decompressed).  Data is packed into consecutive blocks,
+ * and length bytes may require reading more than one block.
+ */
 int squashfs_read_metadata(struct super_block *sb, void *buffer,
 		u64 *block, int *offset, int length)
 {
@@ -294,6 +374,10 @@ error:
 }
 
 
+/*
+ * Look-up in the fragmment cache the fragment located at <start_block> in the
+ * filesystem.  If necessary read and decompress it from disk.
+ */
 struct squashfs_cache_entry *squashfs_get_fragment(struct super_block *sb,
 				u64 start_block, int length)
 {
@@ -304,6 +388,11 @@ struct squashfs_cache_entry *squashfs_get_fragment(struct super_block *sb,
 }
 
 
+/*
+ * Read and decompress the datablock located at <start_block> in the
+ * filesystem.  The cache is used here to avoid duplicating locking and
+ * read/decompress code.
+ */
 struct squashfs_cache_entry *squashfs_get_datablock(struct super_block *sb,
 				u64 start_block, int length)
 {
@@ -313,6 +402,9 @@ struct squashfs_cache_entry *squashfs_get_datablock(struct super_block *sb,
 }
 
 
+/*
+ * Read a filesystem table (uncompressed sequence of bytes) from disk
+ */
 void *squashfs_read_table(struct super_block *sb, u64 block, int length)
 {
 	int pages = (length + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;

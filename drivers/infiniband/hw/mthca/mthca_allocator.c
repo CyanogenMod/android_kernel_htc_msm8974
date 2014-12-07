@@ -36,6 +36,7 @@
 
 #include "mthca_dev.h"
 
+/* Trivial bitmap-based allocator */
 u32 mthca_alloc(struct mthca_alloc *alloc)
 {
 	unsigned long flags;
@@ -80,7 +81,7 @@ int mthca_alloc_init(struct mthca_alloc *alloc, u32 num, u32 mask,
 {
 	int i;
 
-	
+	/* num must be a power of 2 */
 	if (num != 1 << (ffs(num) - 1))
 		return -EINVAL;
 
@@ -106,6 +107,11 @@ void mthca_alloc_cleanup(struct mthca_alloc *alloc)
 	kfree(alloc->table);
 }
 
+/*
+ * Array of pointers with lazy allocation of leaf pages.  Callers of
+ * _get, _set and _clear methods must use a lock or otherwise
+ * serialize access to the array.
+ */
 
 #define MTHCA_ARRAY_MASK (PAGE_SIZE / sizeof (void *) - 1)
 
@@ -123,7 +129,7 @@ int mthca_array_set(struct mthca_array *array, int index, void *value)
 {
 	int p = (index * sizeof (void *)) >> PAGE_SHIFT;
 
-	
+	/* Allocate with GFP_ATOMIC because we'll be called with locks held. */
 	if (!array->page_list[p].page)
 		array->page_list[p].page = (void **) get_zeroed_page(GFP_ATOMIC);
 
@@ -178,6 +184,12 @@ void mthca_array_cleanup(struct mthca_array *array, int nent)
 	kfree(array->page_list);
 }
 
+/*
+ * Handling for queue buffers -- we allocate a bunch of memory and
+ * register it in a memory region at HCA virtual address 0.  If the
+ * requested size is > max_direct, we split the allocation into
+ * multiple pages, so we don't require too much contiguous memory.
+ */
 
 int mthca_buf_alloc(struct mthca_dev *dev, int size, int max_direct,
 		    union mthca_buf *buf, int *is_direct, struct mthca_pd *pd,

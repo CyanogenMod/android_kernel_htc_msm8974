@@ -60,6 +60,9 @@ static char __initdata cmd_line[COMMAND_LINE_SIZE];
 
 static char default_command_line[COMMAND_LINE_SIZE] __initdata = CONFIG_CMDLINE;
 
+/*
+ * Standard memory resources
+ */
 static struct resource mem_res[] = {
 	{
 		.name = "Kernel code",
@@ -78,6 +81,10 @@ static struct resource mem_res[] = {
 #define kernel_code mem_res[0]
 #define kernel_data mem_res[1]
 
+/*
+ * These functions re-use the assembly code in head.S, which
+ * already provide the required functionality.
+ */
 static void __init setup_processor(void)
 {
 	printk(KERN_DEFAULT "CPU: UniCore-II [%08x] revision %d, cr=%08lx\n",
@@ -87,11 +94,19 @@ static void __init setup_processor(void)
 	sprintf(elf_platform, "ucv2");
 }
 
+/*
+ * cpu_init - initialise one CPU.
+ *
+ * cpu_init sets up the per-CPU stacks.
+ */
 void cpu_init(void)
 {
 	unsigned int cpu = smp_processor_id();
 	struct stack *stk = &stacks[cpu];
 
+	/*
+	 * setup stacks for re-entrant exception handlers
+	 */
 	__asm__ (
 	"mov.a	asr, %1\n\t"
 	"add	sp, %0, %2\n\t"
@@ -122,11 +137,19 @@ static int __init uc32_add_memory(unsigned long start, unsigned long size)
 		return -EINVAL;
 	}
 
+	/*
+	 * Ensure that start/size are aligned to a page boundary.
+	 * Size is appropriately rounded down, start is rounded up.
+	 */
 	size -= start & ~PAGE_MASK;
 
 	bank->start = PAGE_ALIGN(start);
 	bank->size  = size & PAGE_MASK;
 
+	/*
+	 * Check whether this memory region has non-zero size or
+	 * invalid node number.
+	 */
 	if (bank->size == 0)
 		return -EINVAL;
 
@@ -134,12 +157,21 @@ static int __init uc32_add_memory(unsigned long start, unsigned long size)
 	return 0;
 }
 
+/*
+ * Pick out the memory size.  We look for mem=size@start,
+ * where start and size are "size[KkMm]"
+ */
 static int __init early_mem(char *p)
 {
 	static int usermem __initdata = 1;
 	unsigned long size, start;
 	char *endp;
 
+	/*
+	 * If the user specifies memory size, we
+	 * blow away any automatically generated
+	 * size.
+	 */
 	if (usermem) {
 		usermem = 0;
 		meminfo.nr_banks = 0;
@@ -192,7 +224,7 @@ static void (*init_machine)(void) __initdata;
 
 static int __init customize_machine(void)
 {
-	
+	/* customizes platform devices, or adds new ones */
 	if (init_machine)
 		init_machine();
 	return 0;
@@ -210,10 +242,10 @@ void __init setup_arch(char **cmdline_p)
 	init_mm.end_data   = (unsigned long) _edata;
 	init_mm.brk	   = (unsigned long) _end;
 
-	
+	/* parse_early_param needs a boot_command_line */
 	strlcpy(boot_command_line, from, COMMAND_LINE_SIZE);
 
-	
+	/* populate cmd_line too for later use, preserving boot_command_line */
 	strlcpy(cmd_line, boot_command_line, COMMAND_LINE_SIZE);
 	*cmdline_p = cmd_line;
 
@@ -226,6 +258,9 @@ void __init setup_arch(char **cmdline_p)
 
 	cpu_init();
 
+	/*
+	 * Set up various architecture-specific pointers
+	 */
 	init_machine = puv3_core_init;
 
 #ifdef CONFIG_VT
@@ -273,7 +308,7 @@ static int c_show(struct seq_file *m, void *v)
 		   loops_per_jiffy / (500000/HZ),
 		   (loops_per_jiffy / (5000/HZ)) % 100);
 
-	
+	/* dump out the processor features */
 	seq_puts(m, "Features\t: CMOV UC-F64");
 
 	seq_printf(m, "\nCPU implementer\t: 0x%02x\n", uc32_cpuid >> 24);

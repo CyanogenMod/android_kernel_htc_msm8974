@@ -34,7 +34,7 @@ static DEFINE_RWLOCK(bp_lock);
 
 static void mISDN_dev_release(struct device *dev)
 {
-	
+	/* nothing to do: the device is part of its parent's data structure */
 }
 
 static ssize_t _show_id(struct device *dev,
@@ -94,7 +94,7 @@ static ssize_t _show_name(struct device *dev,
 	return strlen(buf);
 }
 
-#if 0 
+#if 0 /* hangs */
 static ssize_t _set_name(struct device *dev, struct device_attribute *attr,
 			 const char *buf, size_t count)
 {
@@ -136,6 +136,7 @@ static struct device_attribute mISDN_dev_attrs[] = {
 	__ATTR(channelmap,  S_IRUGO,         _show_channelmap,  NULL),
 	__ATTR(nrbchan,     S_IRUGO,         _show_nrbchan,     NULL),
 	__ATTR(name,        S_IRUGO,         _show_name,        NULL),
+/*	__ATTR(name,        S_IRUGO | S_IWUSR, _show_name,      _set_name), */
 	{}
 };
 
@@ -156,7 +157,7 @@ static int mISDN_uevent(struct device *dev, struct kobj_uevent_env *env)
 
 static void mISDN_class_release(struct class *cls)
 {
-	
+	/* do nothing, it's static */
 }
 
 static struct class mISDN_class = {
@@ -265,7 +266,7 @@ mISDN_unregister_device(struct mISDNdevice *dev) {
 	if (debug & DEBUG_CORE)
 		printk(KERN_DEBUG "mISDN_unregister %s %d\n",
 		       dev_name(&dev->dev), dev->id);
-	
+	/* sysfs_remove_link(&dev->dev.kobj, "device"); */
 	device_del(&dev->dev);
 	dev_set_drvdata(&dev->dev, NULL);
 

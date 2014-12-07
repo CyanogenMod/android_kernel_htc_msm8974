@@ -121,6 +121,7 @@ static const struct isp_res_mapping isp_res_maps[] = {
 	},
 };
 
+/* Structure for saving/restoring ISP module registers */
 static struct isp_reg isp_reg_list[] = {
 	{OMAP3_ISP_IOMEM_MAIN, ISP_SYSCONFIG, 0},
 	{OMAP3_ISP_IOMEM_MAIN, ISP_CTRL, 0},
@@ -128,12 +129,26 @@ static struct isp_reg isp_reg_list[] = {
 	{0, ISP_TOK_TERM, 0}
 };
 
+/*
+ * omap3isp_flush - Post pending L3 bus writes by doing a register readback
+ * @isp: OMAP3 ISP device
+ *
+ * In order to force posting of pending writes, we need to write and
+ * readback the same register, in this case the revision register.
+ *
+ * See this link for reference:
+ *   http://www.mail-archive.com/linux-omap@vger.kernel.org/msg08149.html
+ */
 void omap3isp_flush(struct isp_device *isp)
 {
 	isp_reg_writel(isp, 0, OMAP3_ISP_IOMEM_MAIN, ISP_REVISION);
 	isp_reg_readl(isp, OMAP3_ISP_IOMEM_MAIN, ISP_REVISION);
 }
 
+/*
+ * isp_enable_interrupts - Enable ISP interrupts.
+ * @isp: OMAP3 ISP device
+ */
 static void isp_enable_interrupts(struct isp_device *isp)
 {
 	static const u32 irq = IRQ0ENABLE_CSIA_IRQ
@@ -153,11 +168,28 @@ static void isp_enable_interrupts(struct isp_device *isp)
 	isp_reg_writel(isp, irq, OMAP3_ISP_IOMEM_MAIN, ISP_IRQ0ENABLE);
 }
 
+/*
+ * isp_disable_interrupts - Disable ISP interrupts.
+ * @isp: OMAP3 ISP device
+ */
 static void isp_disable_interrupts(struct isp_device *isp)
 {
 	isp_reg_writel(isp, 0, OMAP3_ISP_IOMEM_MAIN, ISP_IRQ0ENABLE);
 }
 
+/**
+ * isp_set_xclk - Configures the specified cam_xclk to the desired frequency.
+ * @isp: OMAP3 ISP device
+ * @xclk: Desired frequency of the clock in Hz. 0 = stable low, 1 is stable high
+ * @xclksel: XCLK to configure (0 = A, 1 = B).
+ *
+ * Configures the specified MCLK divisor in the ISP timing control register
+ * (TCTRL_CTRL) to generate the desired xclk clock value.
+ *
+ * Divisor = cam_mclk_hz / xclk
+ *
+ * Returns the final frequency that is actually being generated
+ **/
 static u32 isp_set_xclk(struct isp_device *isp, u32 xclk, u8 xclksel)
 {
 	u32 divisor;
@@ -205,10 +237,10 @@ static u32 isp_set_xclk(struct isp_device *isp, u32 xclk, u8 xclksel)
 		return -EINVAL;
 	}
 
-	
+	/* Do we go from stable whatever to clock? */
 	if (divisor >= 2 && isp->xclk_divisor[xclksel - 1] < 2)
 		omap3isp_get(isp);
-	
+	/* Stopping the clock. */
 	else if (divisor < 2 && isp->xclk_divisor[xclksel - 1] >= 2)
 		omap3isp_put(isp);
 
@@ -219,6 +251,13 @@ static u32 isp_set_xclk(struct isp_device *isp, u32 xclk, u8 xclksel)
 	return currentxclk;
 }
 
+/*
+ * isp_power_settings - Sysconfig settings, for Power Management.
+ * @isp: OMAP3 ISP device
+ * @idle: Consider idle state.
+ *
+ * Sets the power settings for the ISP, and SBL bus.
+ */
 static void isp_power_settings(struct isp_device *isp, int idle)
 {
 	isp_reg_writel(isp,
@@ -234,6 +273,17 @@ static void isp_power_settings(struct isp_device *isp, int idle)
 			       ISP_CTRL);
 }
 
+/*
+ * Configure the bridge and lane shifter. Valid inputs are
+ *
+ * CCDC_INPUT_PARALLEL: Parallel interface
+ * CCDC_INPUT_CSI2A: CSI2a receiver
+ * CCDC_INPUT_CCP2B: CCP2b receiver
+ * CCDC_INPUT_CSI2C: CSI2c receiver
+ *
+ * The bridge and lane shifter are configured according to the selected input
+ * and the ISP platform data.
+ */
 void omap3isp_configure_bridge(struct isp_device *isp,
 			       enum ccdc_input_entity input,
 			       const struct isp_parallel_platform_data *pdata,
@@ -279,6 +329,14 @@ void omap3isp_configure_bridge(struct isp_device *isp,
 	isp_reg_writel(isp, ispctrl_val, OMAP3_ISP_IOMEM_MAIN, ISP_CTRL);
 }
 
+/**
+ * isp_set_pixel_clock - Configures the ISP pixel clock
+ * @isp: OMAP3 ISP device
+ * @pixelclk: Average pixel clock in Hz
+ *
+ * Set the average pixel clock required by the sensor. The ISP will use the
+ * lowest possible memory bandwidth settings compatible with the clock.
+ **/
 static void isp_set_pixel_clock(struct isp_device *isp, unsigned int pixelclk)
 {
 	isp->isp_ccdc.vpcfg.pixelclk = pixelclk;
@@ -288,7 +346,7 @@ void omap3isp_hist_dma_done(struct isp_device *isp)
 {
 	if (omap3isp_ccdc_busy(&isp->isp_ccdc) ||
 	    omap3isp_stat_pcr_busy(&isp->isp_hist)) {
-		
+		/* Histogram cannot be enabled in this frame anymore */
 		atomic_set(&isp->isp_hist.buf_err, 1);
 		dev_dbg(isp->dev, "hist: Out of synchronization with "
 				  "CCDC. Ignoring next buffer.\n");
@@ -348,6 +406,10 @@ static void isp_isr_sbl(struct isp_device *isp)
 	struct isp_pipeline *pipe;
 	u32 sbl_pcr;
 
+	/*
+	 * Handle shared buffer logic overflows for video buffers.
+	 * ISPSBL_PCR_CCDCPRV_2_RSZ_OVF can be safely ignored.
+	 */
 	sbl_pcr = isp_reg_readl(isp, OMAP3_ISP_IOMEM_SBL, ISPSBL_PCR);
 	isp_reg_writel(isp, sbl_pcr, OMAP3_ISP_IOMEM_SBL, ISPSBL_PCR);
 	sbl_pcr &= ~ISPSBL_PCR_CCDCPRV_2_RSZ_OVF;
@@ -395,6 +457,16 @@ static void isp_isr_sbl(struct isp_device *isp)
 		omap3isp_stat_sbl_overflow(&isp->isp_aewb);
 }
 
+/*
+ * isp_isr - Interrupt Service Routine for Camera ISP module.
+ * @irq: Not used currently.
+ * @_isp: Pointer to the OMAP3 ISP device
+ *
+ * Handles the corresponding callback if plugged in.
+ *
+ * Returns IRQ_HANDLED when IRQ was correctly handled, or IRQ_NONE when the
+ * IRQ wasn't handled.
+ */
 static irqreturn_t isp_isr(int irq, void *_isp)
 {
 	static const u32 ccdc_events = IRQ0STATUS_CCDC_LSC_PREF_ERR_IRQ |
@@ -456,7 +528,33 @@ static irqreturn_t isp_isr(int irq, void *_isp)
 	return IRQ_HANDLED;
 }
 
+/* -----------------------------------------------------------------------------
+ * Pipeline power management
+ *
+ * Entities must be powered up when part of a pipeline that contains at least
+ * one open video device node.
+ *
+ * To achieve this use the entity use_count field to track the number of users.
+ * For entities corresponding to video device nodes the use_count field stores
+ * the users count of the node. For entities corresponding to subdevs the
+ * use_count field stores the total number of users of all video device nodes
+ * in the pipeline.
+ *
+ * The omap3isp_pipeline_pm_use() function must be called in the open() and
+ * close() handlers of video device nodes. It increments or decrements the use
+ * count of all subdev entities in the pipeline.
+ *
+ * To react to link management on powered pipelines, the link setup notification
+ * callback updates the use count of all entities in the source and sink sides
+ * of the link.
+ */
 
+/*
+ * isp_pipeline_pm_use_count - Count the number of users of a pipeline
+ * @entity: The entity
+ *
+ * Return the total number of users of all video device nodes in the pipeline.
+ */
 static int isp_pipeline_pm_use_count(struct media_entity *entity)
 {
 	struct media_entity_graph graph;
@@ -472,6 +570,17 @@ static int isp_pipeline_pm_use_count(struct media_entity *entity)
 	return use;
 }
 
+/*
+ * isp_pipeline_pm_power_one - Apply power change to an entity
+ * @entity: The entity
+ * @change: Use count change
+ *
+ * Change the entity use count by @change. If the entity is a subdev update its
+ * power state by calling the core::s_power operation when the use count goes
+ * from 0 to != 0 or from != 0 to 0.
+ *
+ * Return 0 on success or a negative error code on failure.
+ */
 static int isp_pipeline_pm_power_one(struct media_entity *entity, int change)
 {
 	struct v4l2_subdev *subdev;
@@ -495,6 +604,16 @@ static int isp_pipeline_pm_power_one(struct media_entity *entity, int change)
 	return 0;
 }
 
+/*
+ * isp_pipeline_pm_power - Apply power change to all entities in a pipeline
+ * @entity: The entity
+ * @change: Use count change
+ *
+ * Walk the pipeline to update the use count and the power state of all non-node
+ * entities.
+ *
+ * Return 0 on success or a negative error code on failure.
+ */
 static int isp_pipeline_pm_power(struct media_entity *entity, int change)
 {
 	struct media_entity_graph graph;
@@ -523,6 +642,18 @@ static int isp_pipeline_pm_power(struct media_entity *entity, int change)
 	return ret;
 }
 
+/*
+ * omap3isp_pipeline_pm_use - Update the use count of an entity
+ * @entity: The entity
+ * @use: Use (1) or stop using (0) the entity
+ *
+ * Update the use count of all entities in the pipeline and power entities on or
+ * off accordingly.
+ *
+ * Return 0 on success or a negative error code on failure. Powering entities
+ * off is assumed to never fail. No failure can occur when the use parameter is
+ * set to 0.
+ */
 int omap3isp_pipeline_pm_use(struct media_entity *entity, int use)
 {
 	int change = use ? 1 : -1;
@@ -530,11 +661,11 @@ int omap3isp_pipeline_pm_use(struct media_entity *entity, int use)
 
 	mutex_lock(&entity->parent->graph_mutex);
 
-	
+	/* Apply use count to node. */
 	entity->use_count += change;
 	WARN_ON(entity->use_count < 0);
 
-	
+	/* Apply power change to connected non-nodes. */
 	ret = isp_pipeline_pm_power(entity, change);
 	if (ret < 0)
 		entity->use_count -= change;
@@ -544,6 +675,20 @@ int omap3isp_pipeline_pm_use(struct media_entity *entity, int use)
 	return ret;
 }
 
+/*
+ * isp_pipeline_link_notify - Link management notification callback
+ * @source: Pad at the start of the link
+ * @sink: Pad at the end of the link
+ * @flags: New link flags that will be applied
+ *
+ * React to link management on powered pipelines by updating the use count of
+ * all entities in the source and sink sides of the link. Entities are powered
+ * on or off accordingly.
+ *
+ * Return 0 on success or a negative error code on failure. Powering entities
+ * off is assumed to never fail. This function will not fail for disconnection
+ * events.
+ */
 static int isp_pipeline_link_notify(struct media_pad *source,
 				    struct media_pad *sink, u32 flags)
 {
@@ -552,7 +697,7 @@ static int isp_pipeline_link_notify(struct media_pad *source,
 	int ret;
 
 	if (!(flags & MEDIA_LNK_FL_ENABLED)) {
-		
+		/* Powering off entities is assumed to never fail. */
 		isp_pipeline_pm_power(source->entity, -sink_use);
 		isp_pipeline_pm_power(sink->entity, -source_use);
 		return 0;
@@ -569,7 +714,21 @@ static int isp_pipeline_link_notify(struct media_pad *source,
 	return ret;
 }
 
+/* -----------------------------------------------------------------------------
+ * Pipeline stream management
+ */
 
+/*
+ * isp_pipeline_enable - Enable streaming on a pipeline
+ * @pipe: ISP pipeline
+ * @mode: Stream mode (single shot or continuous)
+ *
+ * Walk the entities chain starting at the pipeline output video node and start
+ * all modules in the chain in the given mode.
+ *
+ * Return 0 if successful, or the return value of the failed video::s_stream
+ * operation otherwise.
+ */
 static int isp_pipeline_enable(struct isp_pipeline *pipe,
 			       enum isp_pipeline_stream_state mode)
 {
@@ -615,6 +774,11 @@ static int isp_pipeline_enable(struct isp_pipeline *pipe,
 		}
 	}
 
+	/* Frame number propagation. In continuous streaming mode the number
+	 * is incremented in the frame start ISR. In mem-to-mem mode
+	 * singleshot is used and frame start IRQs are not available.
+	 * Thus we have to increment the number here.
+	 */
 	if (pipe->do_propagation && mode == ISP_PIPELINE_STREAM_SINGLESHOT)
 		atomic_inc(&pipe->frame_number);
 
@@ -654,6 +818,18 @@ static int isp_pipeline_wait(struct isp_device *isp,
 	return 1;
 }
 
+/*
+ * isp_pipeline_disable - Disable streaming on a pipeline
+ * @pipe: ISP pipeline
+ *
+ * Walk the entities chain starting at the pipeline output video node and stop
+ * all modules in the chain. Wait synchronously for the modules to be stopped if
+ * necessary.
+ *
+ * Return 0 if all modules have been properly stopped, or -ETIMEDOUT if a module
+ * can't be stopped (in which case a software reset of the ISP is probably
+ * necessary).
+ */
 static int isp_pipeline_disable(struct isp_pipeline *pipe)
 {
 	struct isp_device *isp = pipe->output->isp;
@@ -663,6 +839,10 @@ static int isp_pipeline_disable(struct isp_pipeline *pipe)
 	int failure = 0;
 	int ret;
 
+	/*
+	 * We need to stop all the modules after CCDC first or they'll
+	 * never stop since they may not get a full frame from CCDC.
+	 */
 	entity = &pipe->output->video.entity;
 	while (1) {
 		pad = &entity->pads[0];
@@ -709,6 +889,18 @@ static int isp_pipeline_disable(struct isp_pipeline *pipe)
 	return failure;
 }
 
+/*
+ * omap3isp_pipeline_set_stream - Enable/disable streaming on a pipeline
+ * @pipe: ISP pipeline
+ * @state: Stream state (stopped, single shot or continuous)
+ *
+ * Set the pipeline to the given stream state. Pipelines can be started in
+ * single-shot or continuous mode.
+ *
+ * Return 0 if successful, or the return value of the failed video::s_stream
+ * operation otherwise. The pipeline state is not updated when the operation
+ * fails, except when stopping the pipeline.
+ */
 int omap3isp_pipeline_set_stream(struct isp_pipeline *pipe,
 				 enum isp_pipeline_stream_state state)
 {
@@ -725,6 +917,12 @@ int omap3isp_pipeline_set_stream(struct isp_pipeline *pipe,
 	return ret;
 }
 
+/*
+ * isp_pipeline_resume - Resume streaming on a pipeline
+ * @pipe: ISP pipeline
+ *
+ * Resume video output and input and re-enable pipeline.
+ */
 static void isp_pipeline_resume(struct isp_pipeline *pipe)
 {
 	int singleshot = pipe->stream_state == ISP_PIPELINE_STREAM_SINGLESHOT;
@@ -735,11 +933,26 @@ static void isp_pipeline_resume(struct isp_pipeline *pipe)
 	isp_pipeline_enable(pipe, pipe->stream_state);
 }
 
+/*
+ * isp_pipeline_suspend - Suspend streaming on a pipeline
+ * @pipe: ISP pipeline
+ *
+ * Suspend pipeline.
+ */
 static void isp_pipeline_suspend(struct isp_pipeline *pipe)
 {
 	isp_pipeline_disable(pipe);
 }
 
+/*
+ * isp_pipeline_is_last - Verify if entity has an enabled link to the output
+ * 			  video node
+ * @me: ISP module's media entity
+ *
+ * Returns 1 if the entity has an enabled link to the output video node or 0
+ * otherwise. It's true only while pipeline can have no more than one output
+ * node.
+ */
 static int isp_pipeline_is_last(struct media_entity *me)
 {
 	struct isp_pipeline *pipe;
@@ -754,18 +967,41 @@ static int isp_pipeline_is_last(struct media_entity *me)
 	return pad->entity == me;
 }
 
+/*
+ * isp_suspend_module_pipeline - Suspend pipeline to which belongs the module
+ * @me: ISP module's media entity
+ *
+ * Suspend the whole pipeline if module's entity has an enabled link to the
+ * output video node. It works only while pipeline can have no more than one
+ * output node.
+ */
 static void isp_suspend_module_pipeline(struct media_entity *me)
 {
 	if (isp_pipeline_is_last(me))
 		isp_pipeline_suspend(to_isp_pipeline(me));
 }
 
+/*
+ * isp_resume_module_pipeline - Resume pipeline to which belongs the module
+ * @me: ISP module's media entity
+ *
+ * Resume the whole pipeline if module's entity has an enabled link to the
+ * output video node. It works only while pipeline can have no more than one
+ * output node.
+ */
 static void isp_resume_module_pipeline(struct media_entity *me)
 {
 	if (isp_pipeline_is_last(me))
 		isp_pipeline_resume(to_isp_pipeline(me));
 }
 
+/*
+ * isp_suspend_modules - Suspend ISP submodules.
+ * @isp: OMAP3 ISP device
+ *
+ * Returns 0 if suspend left in idle state all the submodules properly,
+ * or returns 1 if a general Reset is required to suspend the submodules.
+ */
 static int isp_suspend_modules(struct isp_device *isp)
 {
 	unsigned long timeout;
@@ -796,6 +1032,10 @@ static int isp_suspend_modules(struct isp_device *isp)
 	return 0;
 }
 
+/*
+ * isp_resume_modules - Resume ISP submodules.
+ * @isp: OMAP3 ISP device
+ */
 static void isp_resume_modules(struct isp_device *isp)
 {
 	omap3isp_stat_resume(&isp->isp_aewb);
@@ -808,6 +1048,10 @@ static void isp_resume_modules(struct isp_device *isp)
 	isp_resume_module_pipeline(&isp->isp_ccp2.subdev.entity);
 }
 
+/*
+ * isp_reset - Reset ISP with a timeout wait for idle.
+ * @isp: OMAP3 ISP device
+ */
 static int isp_reset(struct isp_device *isp)
 {
 	unsigned long timeout = 0;
@@ -828,6 +1072,12 @@ static int isp_reset(struct isp_device *isp)
 	return 0;
 }
 
+/*
+ * isp_save_context - Saves the values of the ISP module registers.
+ * @isp: OMAP3 ISP device
+ * @reg_list: Structure containing pairs of register address and value to
+ *            modify on OMAP.
+ */
 static void
 isp_save_context(struct isp_device *isp, struct isp_reg *reg_list)
 {
@@ -837,6 +1087,12 @@ isp_save_context(struct isp_device *isp, struct isp_reg *reg_list)
 		next->val = isp_reg_readl(isp, next->mmio_range, next->reg);
 }
 
+/*
+ * isp_restore_context - Restores the values of the ISP module registers.
+ * @isp: OMAP3 ISP device
+ * @reg_list: Structure containing pairs of register address and value to
+ *            modify on OMAP.
+ */
 static void
 isp_restore_context(struct isp_device *isp, struct isp_reg *reg_list)
 {
@@ -846,12 +1102,26 @@ isp_restore_context(struct isp_device *isp, struct isp_reg *reg_list)
 		isp_reg_writel(isp, next->val, next->mmio_range, next->reg);
 }
 
+/*
+ * isp_save_ctx - Saves ISP, CCDC, HIST, H3A, PREV, RESZ & MMU context.
+ * @isp: OMAP3 ISP device
+ *
+ * Routine for saving the context of each module in the ISP.
+ * CCDC, HIST, H3A, PREV, RESZ and MMU.
+ */
 static void isp_save_ctx(struct isp_device *isp)
 {
 	isp_save_context(isp, isp_reg_list);
 	omap_iommu_save_ctx(isp->dev);
 }
 
+/*
+ * isp_restore_ctx - Restores ISP, CCDC, HIST, H3A, PREV, RESZ & MMU context.
+ * @isp: OMAP3 ISP device
+ *
+ * Routine for restoring the context of each module in the ISP.
+ * CCDC, HIST, H3A, PREV, RESZ and MMU.
+ */
 static void isp_restore_ctx(struct isp_device *isp)
 {
 	isp_restore_context(isp, isp_reg_list);
@@ -860,6 +1130,9 @@ static void isp_restore_ctx(struct isp_device *isp)
 	omap3isp_preview_restore_context(isp);
 }
 
+/* -----------------------------------------------------------------------------
+ * SBL resources management
+ */
 #define OMAP3_ISP_SBL_READ	(OMAP3_ISP_SBL_CSI1_READ | \
 				 OMAP3_ISP_SBL_CCDC_LSC_READ | \
 				 OMAP3_ISP_SBL_PREVIEW_READ | \
@@ -924,6 +1197,15 @@ void omap3isp_sbl_disable(struct isp_device *isp, enum isp_sbl_resource res)
 	isp_reg_clr(isp, OMAP3_ISP_IOMEM_MAIN, ISP_CTRL, sbl);
 }
 
+/*
+ * isp_module_sync_idle - Helper to sync module with its idle state
+ * @me: ISP submodule's media entity
+ * @wait: ISP submodule's wait queue for streamoff/interrupt synchronization
+ * @stopping: flag which tells module wants to stop
+ *
+ * This function checks if ISP submodule needs to wait for next interrupt. If
+ * yes, makes the caller to sleep while waiting for such event.
+ */
 int omap3isp_module_sync_idle(struct media_entity *me, wait_queue_head_t *wait,
 			      atomic_t *stopping)
 {
@@ -934,9 +1216,22 @@ int omap3isp_module_sync_idle(struct media_entity *me, wait_queue_head_t *wait,
 	     !isp_pipeline_ready(pipe)))
 		return 0;
 
+	/*
+	 * atomic_set() doesn't include memory barrier on ARM platform for SMP
+	 * scenario. We'll call it here to avoid race conditions.
+	 */
 	atomic_set(stopping, 1);
 	smp_mb();
 
+	/*
+	 * If module is the last one, it's writing to memory. In this case,
+	 * it's necessary to check if the module is already paused due to
+	 * DMA queue underrun or if it has to wait for next interrupt to be
+	 * idle.
+	 * If it isn't the last one, the function won't sleep but *stopping
+	 * will still be set to warn next submodule caller's interrupt the
+	 * module wants to be idle.
+	 */
 	if (isp_pipeline_is_last(me)) {
 		struct isp_video *video = pipe->output;
 		unsigned long flags;
@@ -959,6 +1254,15 @@ int omap3isp_module_sync_idle(struct media_entity *me, wait_queue_head_t *wait,
 	return 0;
 }
 
+/*
+ * omap3isp_module_sync_is_stopped - Helper to verify if module was stopping
+ * @wait: ISP submodule's wait queue for streamoff/interrupt synchronization
+ * @stopping: flag which tells module wants to stop
+ *
+ * This function checks if ISP submodule was stopping. In case of yes, it
+ * notices the caller by setting stopping to 0 and waking up the wait queue.
+ * Returns 1 if it was stopping or 0 otherwise.
+ */
 int omap3isp_module_sync_is_stopping(wait_queue_head_t *wait,
 				     atomic_t *stopping)
 {
@@ -970,6 +1274,9 @@ int omap3isp_module_sync_is_stopping(wait_queue_head_t *wait,
 	return 0;
 }
 
+/* --------------------------------------------------------------------------
+ * Clock management
+ */
 
 #define ISPCTRL_CLKS_MASK	(ISPCTRL_H3A_CLK_EN | \
 				 ISPCTRL_HIST_CLK_EN | \
@@ -990,6 +1297,9 @@ static void __isp_subclk_update(struct isp_device *isp)
 	if (isp->subclk_resources & OMAP3_ISP_SUBCLK_RESIZER)
 		clk |= ISPCTRL_RSZ_CLK_EN;
 
+	/* NOTE: For CCDC & Preview submodules, we need to affect internal
+	 *       RAM as well.
+	 */
 	if (isp->subclk_resources & OMAP3_ISP_SUBCLK_CCDC)
 		clk |= ISPCTRL_CCDC_CLK_EN | ISPCTRL_CCDC_RAM_EN;
 
@@ -1016,12 +1326,27 @@ void omap3isp_subclk_disable(struct isp_device *isp,
 	__isp_subclk_update(isp);
 }
 
+/*
+ * isp_enable_clocks - Enable ISP clocks
+ * @isp: OMAP3 ISP device
+ *
+ * Return 0 if successful, or clk_enable return value if any of tthem fails.
+ */
 static int isp_enable_clocks(struct isp_device *isp)
 {
 	int r;
 	unsigned long rate;
 	int divisor;
 
+	/*
+	 * cam_mclk clock chain:
+	 *   dpll4 -> dpll4_m5 -> dpll4_m5x2 -> cam_mclk
+	 *
+	 * In OMAP3630 dpll4_m5x2 != 2 x dpll4_m5 but both are
+	 * set to the same value. Hence the rate set for dpll4_m5
+	 * has to be twice of what is set on OMAP3430 to get
+	 * the required value for cam_mclk
+	 */
 	if (cpu_is_omap3630())
 		divisor = 1;
 	else
@@ -1063,6 +1388,10 @@ out_clk_enable_ick:
 	return r;
 }
 
+/*
+ * isp_disable_clocks - Disable ISP clocks
+ * @isp: OMAP3 ISP device
+ */
 static void isp_disable_clocks(struct isp_device *isp)
 {
 	clk_disable(isp->clock[ISP_CLK_CAM_ICK]);
@@ -1109,6 +1438,16 @@ static int isp_get_clocks(struct isp_device *isp)
 	return 0;
 }
 
+/*
+ * omap3isp_get - Acquire the ISP resource.
+ *
+ * Initializes the clocks for the first acquire.
+ *
+ * Increment the reference count on the ISP. If the first reference is taken,
+ * enable clocks and power-up all submodules.
+ *
+ * Return a pointer to the ISP device structure, or NULL if an error occurred.
+ */
 struct isp_device *omap3isp_get(struct isp_device *isp)
 {
 	struct isp_device *__isp = isp;
@@ -1125,7 +1464,7 @@ struct isp_device *omap3isp_get(struct isp_device *isp)
 		goto out;
 	}
 
-	
+	/* We don't want to restore context before saving it! */
 	if (isp->has_context)
 		isp_restore_ctx(isp);
 	else
@@ -1141,6 +1480,12 @@ out:
 	return __isp;
 }
 
+/*
+ * omap3isp_put - Release the ISP
+ *
+ * Decrement the reference count on the ISP. If the last reference is released,
+ * power-down all submodules, disable clocks and free temporary buffers.
+ */
 void omap3isp_put(struct isp_device *isp)
 {
 	if (isp == NULL)
@@ -1160,7 +1505,14 @@ void omap3isp_put(struct isp_device *isp)
 	mutex_unlock(&isp->isp_mutex);
 }
 
+/* --------------------------------------------------------------------------
+ * Platform device driver
+ */
 
+/*
+ * omap3isp_print_status - Prints the values of the ISP Control Module registers
+ * @isp: OMAP3 ISP device
+ */
 #define ISP_PRINT_REGISTER(isp, name)\
 	dev_dbg(isp->dev, "###ISP " #name "=0x%08x\n", \
 		isp_reg_readl(isp, OMAP3_ISP_IOMEM_MAIN, ISP_##name))
@@ -1196,6 +1548,23 @@ void omap3isp_print_status(struct isp_device *isp)
 
 #ifdef CONFIG_PM
 
+/*
+ * Power management support.
+ *
+ * As the ISP can't properly handle an input video stream interruption on a non
+ * frame boundary, the ISP pipelines need to be stopped before sensors get
+ * suspended. However, as suspending the sensors can require a running clock,
+ * which can be provided by the ISP, the ISP can't be completely suspended
+ * before the sensor.
+ *
+ * To solve this problem power management support is split into prepare/complete
+ * and suspend/resume operations. The pipelines are stopped in prepare() and the
+ * ISP clocks get disabled in suspend(). Similarly, the clocks are reenabled in
+ * resume(), and the the pipelines are restarted in complete().
+ *
+ * TODO: PM dependencies between the ISP and sensors are not modeled explicitly
+ * yet.
+ */
 static int isp_pm_prepare(struct device *dev)
 {
 	struct isp_device *isp = dev_get_drvdata(dev);
@@ -1256,7 +1625,7 @@ static void isp_pm_complete(struct device *dev)
 #define isp_pm_resume	NULL
 #define isp_pm_complete	NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
 static void isp_unregister_entities(struct isp_device *isp)
 {
@@ -1273,6 +1642,17 @@ static void isp_unregister_entities(struct isp_device *isp)
 	media_device_unregister(&isp->media_dev);
 }
 
+/*
+ * isp_register_subdev_group - Register a group of subdevices
+ * @isp: OMAP3 ISP device
+ * @board_info: I2C subdevs board information array
+ *
+ * Register all I2C subdevices in the board_info array. The array must be
+ * terminated by a NULL entry, and the first entry must be the sensor.
+ *
+ * Return a pointer to the sensor media entity if it has been successfully
+ * registered, or NULL otherwise.
+ */
 static struct v4l2_subdev *
 isp_register_subdev_group(struct isp_device *isp,
 		     struct isp_subdev_i2c_board_info *board_info)
@@ -1337,7 +1717,7 @@ static int isp_register_entities(struct isp_device *isp)
 		goto done;
 	}
 
-	
+	/* Register internal entities */
 	ret = omap3isp_ccp2_register_entities(&isp->isp_ccp2, &isp->v4l2_dev);
 	if (ret < 0)
 		goto done;
@@ -1371,7 +1751,7 @@ static int isp_register_entities(struct isp_device *isp)
 	if (ret < 0)
 		goto done;
 
-	
+	/* Register external entities */
 	for (subdevs = pdata->subdevs; subdevs && subdevs->subdevs; ++subdevs) {
 		struct v4l2_subdev *sensor;
 		struct media_entity *input;
@@ -1384,6 +1764,11 @@ static int isp_register_entities(struct isp_device *isp)
 
 		sensor->host_priv = subdevs;
 
+		/* Connect the sensor to the correct interface module. Parallel
+		 * sensors are connected directly to the CCDC, while serial
+		 * sensors are connected to the CSI2a, CCP2b or CSI2c receiver
+		 * through CSIPHY1 or CSIPHY2.
+		 */
 		switch (subdevs->interface) {
 		case ISP_INTERFACE_PARALLEL:
 			input = &isp->isp_ccdc.subdev.entity;
@@ -1504,7 +1889,7 @@ static int isp_initialize_modules(struct isp_device *isp)
 		goto error_h3a_af;
 	}
 
-	
+	/* Connect the submodules. */
 	ret = media_entity_create_link(
 			&isp->isp_csi2a.subdev.entity, CSI2_PAD_SOURCE,
 			&isp->isp_ccdc.subdev.entity, CCDC_PAD_SINK, 0);
@@ -1579,6 +1964,12 @@ error_csiphy:
 	return ret;
 }
 
+/*
+ * isp_remove - Remove ISP platform device
+ * @pdev: Pointer to ISP platform device
+ *
+ * Always returns 0.
+ */
 static int isp_remove(struct platform_device *pdev)
 {
 	struct isp_device *isp = platform_get_drvdata(pdev);
@@ -1621,7 +2012,7 @@ static int isp_map_mem_resource(struct platform_device *pdev,
 {
 	struct resource *mem;
 
-	
+	/* request the mem region for the camera registers */
 
 	mem = platform_get_resource(pdev, IORESOURCE_MEM, res);
 	if (!mem) {
@@ -1637,7 +2028,7 @@ static int isp_map_mem_resource(struct platform_device *pdev,
 	isp->mmio_base_phys[res] = mem->start;
 	isp->mmio_size[res] = resource_size(mem);
 
-	
+	/* map the region */
 	isp->mmio_base[res] = ioremap_nocache(isp->mmio_base_phys[res],
 					      isp->mmio_size[res]);
 	if (!isp->mmio_base[res]) {
@@ -1648,6 +2039,17 @@ static int isp_map_mem_resource(struct platform_device *pdev,
 	return 0;
 }
 
+/*
+ * isp_probe - Probe ISP platform device
+ * @pdev: Pointer to ISP platform device
+ *
+ * Returns 0 if successful,
+ *   -ENOMEM if no memory available,
+ *   -ENODEV if no platform device resources found
+ *     or no space for remapping registers,
+ *   -EINVAL if couldn't install ISR,
+ *   or clk_get return error value.
+ */
 static int isp_probe(struct platform_device *pdev)
 {
 	struct isp_platform_data *pdata = pdev->dev.platform_data;
@@ -1681,11 +2083,11 @@ static int isp_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, isp);
 
-	
+	/* Regulators */
 	isp->isp_csiphy1.vdd = regulator_get(&pdev->dev, "VDD_CSIPHY1");
 	isp->isp_csiphy2.vdd = regulator_get(&pdev->dev, "VDD_CSIPHY2");
 
-	
+	/* Clocks */
 	ret = isp_map_mem_resource(pdev, isp, OMAP3_ISP_IOMEM_MAIN);
 	if (ret < 0)
 		goto error;
@@ -1701,7 +2103,7 @@ static int isp_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto error_isp;
 
-	
+	/* Memory resources */
 	isp->revision = isp_reg_readl(isp, OMAP3_ISP_IOMEM_MAIN, ISP_REVISION);
 	dev_info(isp->dev, "Revision %d.%d found\n",
 		 (isp->revision & 0xf0) >> 4, isp->revision & 0x0f);
@@ -1738,7 +2140,7 @@ static int isp_probe(struct platform_device *pdev)
 		goto free_domain;
 	}
 
-	
+	/* Interrupt */
 	isp->irq_num = platform_get_irq(pdev, 0);
 	if (isp->irq_num <= 0) {
 		dev_err(isp->dev, "No IRQ resource\n");
@@ -1752,7 +2154,7 @@ static int isp_probe(struct platform_device *pdev)
 		goto detach_dev;
 	}
 
-	
+	/* Entities */
 	ret = isp_initialize_modules(isp);
 	if (ret < 0)
 		goto error_irq;

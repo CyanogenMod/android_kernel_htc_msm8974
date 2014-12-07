@@ -1,3 +1,11 @@
+/*
+ *	pci_syscall.c
+ *
+ * For architectures where we want to allow direct access
+ * to the PCI config stuff - it would probably be preferable
+ * on PCs too, but there people just do it by hand with the
+ * magic northbridge registers..
+ */
 
 #include <linux/errno.h>
 #include <linux/pci.h>
@@ -57,6 +65,9 @@ SYSCALL_DEFINE5(pciconfig_read, unsigned long, bus, unsigned long, dfn,
 	return err;
 
 error:
+	/* ??? XFree86 doesn't even check the return value.  They
+	   just look for 0xffffffff in the output, since that's what
+	   they get instead of a machine check on x86.  */
 	switch (len) {
 	case 1:
 		put_user(-1, (unsigned char __user *)buf);

@@ -3,9 +3,16 @@
 
 #ifdef __KERNEL__
 
+/* Can be used to override the logic in pci_scan_bus for skipping
+   already-configured bus numbers - to be used for buggy BIOSes
+   or architectures with incomplete PCI setup by the loader */
 
 #define pcibios_assign_all_busses()	1
 
+/*
+ * A board can define one or more PCI channels that represent built-in (or
+ * external) PCI controllers.
+ */
 struct pci_channel {
 	struct pci_channel	*next;
 	struct pci_bus		*bus;
@@ -24,16 +31,18 @@ struct pci_channel {
 	unsigned int		index;
 	unsigned int		need_domain_info;
 
-	
+	/* Optional error handling */
 	struct timer_list	err_timer, serr_timer;
 	unsigned int		err_irq, serr_irq;
 };
 
+/* arch/sh/drivers/pci/pci.c */
 extern raw_spinlock_t pci_config_lock;
 
 extern int register_pci_controller(struct pci_channel *hose);
 extern void pcibios_report_status(unsigned int status_mask, int warn);
 
+/* arch/sh/drivers/pci/common.c */
 extern int early_read_config_byte(struct pci_channel *hose, int top_bus,
 				  int bus, int devfn, int offset, u8 *value);
 extern int early_read_config_word(struct pci_channel *hose, int top_bus,
@@ -63,13 +72,24 @@ extern void pcibios_set_master(struct pci_dev *dev);
 
 static inline void pcibios_penalize_isa_irq(int irq, int active)
 {
-	
+	/* We don't do dynamic PCI IRQ allocation */
 }
 
+/* Dynamic DMA mapping stuff.
+ * SuperH has everything mapped statically like x86.
+ */
 
+/* The PCI address space does equal the physical memory
+ * address space.  The networking and block device layers use
+ * this boolean for bounce buffer decisions.
+ */
 #define PCI_DMA_BUS_IS_PHYS	(dma_ops->is_phys)
 
 #ifdef CONFIG_PCI
+/*
+ * None of the SH PCI controllers support MWI, it is always treated as a
+ * direct memory write.
+ */
 #define PCI_DISABLE_MWI
 
 static inline void pci_dma_burst_advice(struct pci_dev *pdev,
@@ -91,6 +111,7 @@ static inline void pci_dma_burst_advice(struct pci_dev *pdev,
 }
 #endif
 
+/* Board-specific fixup routines. */
 int pcibios_map_platform_irq(const struct pci_dev *dev, u8 slot, u8 pin);
 
 #define pci_domain_nr(bus) ((struct pci_channel *)(bus)->sysdata)->index
@@ -101,13 +122,15 @@ static inline int pci_proc_domain(struct pci_bus *bus)
 	return hose->need_domain_info;
 }
 
+/* Chances are this interrupt is wired PC-style ...  */
 static inline int pci_get_legacy_ide_irq(struct pci_dev *dev, int channel)
 {
 	return channel ? 15 : 14;
 }
 
+/* generic DMA-mapping stuff */
 #include <asm-generic/pci-dma-compat.h>
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASM_SH_PCI_H */
 

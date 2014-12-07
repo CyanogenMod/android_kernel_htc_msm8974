@@ -17,4 +17,4 @@
 
 #include <asm/hardware/vic.h>
 
-#endif 
+#endif /* __ASM_ARCH_6400_REGS_IRQ_H */

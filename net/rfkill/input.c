@@ -30,6 +30,7 @@ enum rfkill_input_master_mode {
 	NUM_RFKILL_INPUT_MASTER_MODES
 };
 
+/* Delay (in ms) between consecutive switch ops */
 #define RFKILL_OPS_DELAY 200
 
 static enum rfkill_input_master_mode rfkill_master_switch_mode =
@@ -73,7 +74,7 @@ static void __rfkill_handle_global_op(enum rfkill_sched_op op)
 			rfkill_switch_all(i, false);
 		break;
 	default:
-		
+		/* memory corruption or bug, fail safely */
 		rfkill_epo();
 		WARN(1, "Unknown requested operation %d! "
 			"rfkill Emergency Power Off activated\n",
@@ -111,6 +112,10 @@ static void rfkill_op_handler(struct work_struct *work)
 
 			spin_lock_irq(&rfkill_op_lock);
 
+			/*
+			 * handle global ops first -- during unlocked period
+			 * we might have gotten a new global op.
+			 */
 			if (rfkill_op_pending)
 				continue;
 		}
@@ -158,7 +163,7 @@ static void rfkill_schedule_global_op(enum rfkill_sched_op op)
 	rfkill_op = op;
 	rfkill_op_pending = true;
 	if (op == RFKILL_GLOBAL_OP_EPO && !rfkill_is_epo_lock_active()) {
-		
+		/* bypass the limiter for EPO */
 		cancel_delayed_work(&rfkill_op_work);
 		schedule_delayed_work(&rfkill_op_work, 0);
 		rfkill_last_scheduled = jiffies;
@@ -230,7 +235,7 @@ static int rfkill_connect(struct input_handler *handler, struct input_dev *dev,
 	handle->handler = handler;
 	handle->name = "rfkill";
 
-	
+	/* causes rfkill_start() to be called */
 	error = input_register_handle(handle);
 	if (error)
 		goto err_free_handle;
@@ -250,6 +255,11 @@ static int rfkill_connect(struct input_handler *handler, struct input_dev *dev,
 
 static void rfkill_start(struct input_handle *handle)
 {
+	/*
+	 * Take event_lock to guard against configuration changes, we
+	 * should be able to deal with concurrency with rfkill_event()
+	 * just fine (which event_lock will also avoid).
+	 */
 	spin_lock_irq(&handle->dev->event_lock);
 
 	if (test_bit(EV_SW, handle->dev->evbit) &&
@@ -328,7 +338,7 @@ int __init rfkill_handler_init(void)
 
 	spin_lock_init(&rfkill_op_lock);
 
-	
+	/* Avoid delay at first schedule */
 	rfkill_last_scheduled =
 			jiffies - msecs_to_jiffies(RFKILL_OPS_DELAY) - 1;
 	return input_register_handler(&rfkill_handler);

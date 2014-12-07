@@ -75,6 +75,43 @@ static int ocfs2_local_alloc_new_window(struct ocfs2_super *osb,
 static int ocfs2_local_alloc_slide_window(struct ocfs2_super *osb,
 					  struct inode *local_alloc_inode);
 
+/*
+ * ocfs2_la_default_mb() - determine a default size, in megabytes of
+ * the local alloc.
+ *
+ * Generally, we'd like to pick as large a local alloc as
+ * possible. Performance on large workloads tends to scale
+ * proportionally to la size. In addition to that, the reservations
+ * code functions more efficiently as it can reserve more windows for
+ * write.
+ *
+ * Some things work against us when trying to choose a large local alloc:
+ *
+ * - We need to ensure our sizing is picked to leave enough space in
+ *   group descriptors for other allocations (such as block groups,
+ *   etc). Picking default sizes which are a multiple of 4 could help
+ *   - block groups are allocated in 2mb and 4mb chunks.
+ *
+ * - Likewise, we don't want to starve other nodes of bits on small
+ *   file systems. This can easily be taken care of by limiting our
+ *   default to a reasonable size (256M) on larger cluster sizes.
+ *
+ * - Some file systems can't support very large sizes - 4k and 8k in
+ *   particular are limited to less than 128 and 256 megabytes respectively.
+ *
+ * The following reference table shows group descriptor and local
+ * alloc maximums at various cluster sizes (4k blocksize)
+ *
+ * csize: 4K	group: 126M	la: 121M
+ * csize: 8K	group: 252M	la: 243M
+ * csize: 16K	group: 504M	la: 486M
+ * csize: 32K	group: 1008M	la: 972M
+ * csize: 64K	group: 2016M	la: 1944M
+ * csize: 128K	group: 4032M	la: 3888M
+ * csize: 256K	group: 8064M	la: 7776M
+ * csize: 512K	group: 16128M	la: 15552M
+ * csize: 1024K	group: 32256M	la: 31104M
+ */
 #define	OCFS2_LA_MAX_DEFAULT_MB	256
 #define	OCFS2_LA_OLD_DEFAULT	8
 unsigned int ocfs2_la_default_mb(struct ocfs2_super *osb)
@@ -88,16 +125,46 @@ unsigned int ocfs2_la_default_mb(struct ocfs2_super *osb)
 	gd_mb = ocfs2_clusters_to_megabytes(osb->sb,
 		8 * ocfs2_group_bitmap_size(sb, 0, osb->s_feature_incompat));
 
+	/*
+	 * This takes care of files systems with very small group
+	 * descriptors - 512 byte blocksize at cluster sizes lower
+	 * than 16K and also 1k blocksize with 4k cluster size.
+	 */
 	if ((sb->s_blocksize == 512 && osb->s_clustersize <= 8192)
 	    || (sb->s_blocksize == 1024 && osb->s_clustersize == 4096))
 		return OCFS2_LA_OLD_DEFAULT;
 
+	/*
+	 * Leave enough room for some block groups and make the final
+	 * value we work from a multiple of 4.
+	 */
 	gd_mb -= 16;
 	gd_mb &= 0xFFFFFFFB;
 
 	la_mb = gd_mb;
 
+	/*
+	 * Keep window sizes down to a reasonable default
+	 */
 	if (la_mb > OCFS2_LA_MAX_DEFAULT_MB) {
+		/*
+		 * Some clustersize / blocksize combinations will have
+		 * given us a larger than OCFS2_LA_MAX_DEFAULT_MB
+		 * default size, but get poor distribution when
+		 * limited to exactly 256 megabytes.
+		 *
+		 * As an example, 16K clustersize at 4K blocksize
+		 * gives us a cluster group size of 504M. Paring the
+		 * local alloc size down to 256 however, would give us
+		 * only one window and around 200MB left in the
+		 * cluster group. Instead, find the first size below
+		 * 256 which would give us an even distribution.
+		 *
+		 * Larger cluster group sizes actually work out pretty
+		 * well when pared to 256, so we don't have to do this
+		 * for any group that fits more than two
+		 * OCFS2_LA_MAX_DEFAULT_MB windows.
+		 */
 		if (gd_mb > (2 * OCFS2_LA_MAX_DEFAULT_MB))
 			la_mb = 256;
 		else {
@@ -112,11 +179,11 @@ unsigned int ocfs2_la_default_mb(struct ocfs2_super *osb)
 
 	megs_per_slot = osb->osb_clusters_at_boot / osb->max_slots;
 	megs_per_slot = ocfs2_clusters_to_megabytes(osb->sb, megs_per_slot);
-	
+	/* Too many nodes, too few disk clusters. */
 	if (megs_per_slot < la_mb)
 		la_mb = megs_per_slot;
 
-	
+	/* We can't store more bits than we can in a block. */
 	la_max_mb = ocfs2_clusters_to_megabytes(osb->sb,
 						ocfs2_local_alloc_size(sb) * 8);
 	if (la_mb > la_max_mb)
@@ -137,11 +204,11 @@ void ocfs2_la_set_sizes(struct ocfs2_super *osb, int requested_mb)
 	trace_ocfs2_la_set_sizes(requested_mb, la_max_mb, la_default_mb);
 
 	if (requested_mb == -1) {
-		
+		/* No user request - use defaults */
 		osb->local_alloc_default_bits =
 			ocfs2_megabytes_to_clusters(sb, la_default_mb);
 	} else if (requested_mb > la_max_mb) {
-		
+		/* Request is too big, we give the maximum available */
 		osb->local_alloc_default_bits =
 			ocfs2_megabytes_to_clusters(sb, la_max_mb);
 	} else {
@@ -181,6 +248,13 @@ void ocfs2_la_enable_worker(struct work_struct *work)
 	spin_unlock(&osb->osb_lock);
 }
 
+/*
+ * Tell us whether a given allocation should use the local alloc
+ * file. Otherwise, it has to go to the main bitmap.
+ *
+ * This function does semi-dirty reads of local alloc size and state!
+ * This is ok however, as the values are re-checked once under mutex.
+ */
 int ocfs2_alloc_should_use_local(struct ocfs2_super *osb, u64 bits)
 {
 	int ret = 0;
@@ -192,6 +266,10 @@ int ocfs2_alloc_should_use_local(struct ocfs2_super *osb, u64 bits)
 	if (!ocfs2_la_state_enabled(osb))
 		goto bail;
 
+	/* la_bits should be at least twice the size (in clusters) of
+	 * a new block group. We want to be sure block group
+	 * allocations go through the local alloc, so allow an
+	 * allocation to take up to half the bitmap. */
 	if (bits > (la_bits / 2))
 		goto bail;
 
@@ -224,7 +302,7 @@ int ocfs2_load_local_alloc(struct ocfs2_super *osb)
 						    ocfs2_la_default_mb(osb));
 	}
 
-	
+	/* read the alloc off disk */
 	inode = ocfs2_get_system_file_inode(osb, LOCAL_ALLOC_SYSTEM_INODE,
 					    osb->slot_num);
 	if (!inode) {
@@ -259,9 +337,11 @@ int ocfs2_load_local_alloc(struct ocfs2_super *osb)
 		goto bail;
 	}
 
-	
+	/* do a little verification. */
 	num_used = ocfs2_local_alloc_count_bits(alloc);
 
+	/* hopefully the local alloc has always been recovered before
+	 * we load it. */
 	if (num_used
 	    || alloc->id1.bitmap1.i_used
 	    || alloc->id1.bitmap1.i_total
@@ -288,6 +368,13 @@ bail:
 	return status;
 }
 
+/*
+ * return any unused bits to the bitmap and write out a clean
+ * local_alloc.
+ *
+ * local_alloc_bh is optional. If not passed, we will simply use the
+ * one off osb. If you do pass it however, be warned that it *will* be
+ * returned brelse'd and NULL'd out.*/
 void ocfs2_shutdown_local_alloc(struct ocfs2_super *osb)
 {
 	int status;
@@ -336,7 +423,7 @@ void ocfs2_shutdown_local_alloc(struct ocfs2_super *osb)
 		goto out_mutex;
 	}
 
-	
+	/* WINDOW_MOVE_CREDITS is a bit heavy... */
 	handle = ocfs2_start_trans(osb, OCFS2_WINDOW_MOVE_CREDITS);
 	if (IS_ERR(handle)) {
 		mlog_errno(PTR_ERR(handle));
@@ -393,6 +480,13 @@ out:
 		kfree(alloc_copy);
 }
 
+/*
+ * We want to free the bitmap bits outside of any recovery context as
+ * we'll need a cluster lock to do so, but we must clear the local
+ * alloc before giving up the recovered nodes journal. To solve this,
+ * we kmalloc a copy of the local alloc before it's change for the
+ * caller to process with ocfs2_complete_local_alloc_recovery
+ */
 int ocfs2_begin_local_alloc_recovery(struct ocfs2_super *osb,
 				     int slot_num,
 				     struct ocfs2_dinode **alloc_copy)
@@ -457,6 +551,12 @@ bail:
 	return status;
 }
 
+/*
+ * Step 2: By now, we've completed the journal recovery, we've stamped
+ * a clean local alloc on disk and dropped the node out of the
+ * recovery map. Dlm locks will no longer stall, so lets clear out the
+ * main bitmap.
+ */
 int ocfs2_complete_local_alloc_recovery(struct ocfs2_super *osb,
 					struct ocfs2_dinode *alloc)
 {
@@ -490,7 +590,7 @@ int ocfs2_complete_local_alloc_recovery(struct ocfs2_super *osb,
 		goto out_unlock;
 	}
 
-	
+	/* we want the bitmap change to be recorded on disk asap */
 	handle->h_sync = 1;
 
 	status = ocfs2_sync_local_to_main(osb, handle, alloc,
@@ -518,6 +618,13 @@ out:
 	return status;
 }
 
+/*
+ * make sure we've got at least bits_wanted contiguous bits in the
+ * local alloc. You lose them when you drop i_mutex.
+ *
+ * We will add ourselves to the transaction passed in, but may start
+ * our own in order to shift windows.
+ */
 int ocfs2_reserve_local_alloc_bits(struct ocfs2_super *osb,
 				   u32 bits_wanted,
 				   struct ocfs2_alloc_context *ac)
@@ -541,6 +648,10 @@ int ocfs2_reserve_local_alloc_bits(struct ocfs2_super *osb,
 
 	mutex_lock(&local_alloc_inode->i_mutex);
 
+	/*
+	 * We must double check state and allocator bits because
+	 * another process may have changed them while holding i_mutex.
+	 */
 	spin_lock(&osb->osb_lock);
 	if (!ocfs2_la_state_enabled(osb) ||
 	    (bits_wanted > osb->local_alloc_bits)) {
@@ -568,7 +679,7 @@ int ocfs2_reserve_local_alloc_bits(struct ocfs2_super *osb,
 	free_bits = le32_to_cpu(alloc->id1.bitmap1.i_total) -
 		le32_to_cpu(alloc->id1.bitmap1.i_used);
 	if (bits_wanted > free_bits) {
-		
+		/* uhoh, window change time. */
 		status =
 			ocfs2_local_alloc_slide_window(osb, local_alloc_inode);
 		if (status < 0) {
@@ -577,6 +688,12 @@ int ocfs2_reserve_local_alloc_bits(struct ocfs2_super *osb,
 			goto bail;
 		}
 
+		/*
+		 * Under certain conditions, the window slide code
+		 * might have reduced the number of bits available or
+		 * disabled the the local alloc entirely. Re-check
+		 * here and return -ENOSPC if necessary.
+		 */
 		status = -ENOSPC;
 		if (!ocfs2_la_state_enabled(osb))
 			goto bail;
@@ -588,7 +705,7 @@ int ocfs2_reserve_local_alloc_bits(struct ocfs2_super *osb,
 	}
 
 	ac->ac_inode = local_alloc_inode;
-	
+	/* We should never use localalloc from another slot */
 	ac->ac_alloc_slot = osb->slot_num;
 	ac->ac_which = OCFS2_AC_USE_LOCAL;
 	get_bh(osb->local_alloc_bh);
@@ -631,7 +748,7 @@ int ocfs2_claim_local_alloc_bits(struct ocfs2_super *osb,
 	start = ocfs2_local_alloc_find_clear_bits(osb, alloc, &bits_wanted,
 						  ac->ac_resv);
 	if (start == -1) {
-		
+		/* TODO: Shouldn't we just BUG here? */
 		status = -ENOSPC;
 		mlog_errno(status);
 		goto bail;
@@ -710,8 +827,15 @@ static int ocfs2_local_alloc_find_clear_bits(struct ocfs2_super *osb,
 		goto bail;
 	}
 
+	/*
+	 * Code error. While reservations are enabled, local
+	 * allocation should _always_ go through them.
+	 */
 	BUG_ON(osb->osb_resv_level != 0);
 
+	/*
+	 * Reservations are disabled. Handle this the old way.
+	 */
 
 	bitmap = OCFS2_LOCAL_ALLOC(alloc)->la_bitmap;
 
@@ -720,22 +844,26 @@ static int ocfs2_local_alloc_find_clear_bits(struct ocfs2_super *osb,
 	left = le32_to_cpu(alloc->id1.bitmap1.i_total);
 	while ((bitoff = ocfs2_find_next_zero_bit(bitmap, left, startoff)) != -1) {
 		if (bitoff == left) {
-			
+			/* mlog(0, "bitoff (%d) == left", bitoff); */
 			break;
 		}
+		/* mlog(0, "Found a zero: bitoff = %d, startoff = %d, "
+		   "numfound = %d\n", bitoff, startoff, numfound);*/
 
+		/* Ok, we found a zero bit... is it contig. or do we
+		 * start over?*/
 		if (bitoff == startoff) {
-			
+			/* we found a zero */
 			numfound++;
 			startoff++;
 		} else {
-			
+			/* got a zero after some ones */
 			numfound = 1;
 			startoff = bitoff+1;
 		}
-		
+		/* we got everything we needed */
 		if (numfound == *numbits) {
-			
+			/* mlog(0, "Found it all!\n"); */
 			break;
 		}
 	}
@@ -771,6 +899,7 @@ static void ocfs2_clear_local_alloc(struct ocfs2_dinode *alloc)
 }
 
 #if 0
+/* turn this on and uncomment below to aid debugging window shifts. */
 static void ocfs2_verify_zero_bits(unsigned long *bitmap,
 				   unsigned int start,
 				   unsigned int count)
@@ -788,6 +917,12 @@ static void ocfs2_verify_zero_bits(unsigned long *bitmap,
 }
 #endif
 
+/*
+ * sync the local alloc to main bitmap.
+ *
+ * assumes you've already locked the main bitmap -- the bitmap inode
+ * passed is used for caching.
+ */
 static int ocfs2_sync_local_to_main(struct ocfs2_super *osb,
 				    handle_t *handle,
 				    struct ocfs2_dinode *alloc,
@@ -859,11 +994,27 @@ bail:
 }
 
 enum ocfs2_la_event {
-	OCFS2_LA_EVENT_SLIDE,		
-	OCFS2_LA_EVENT_FRAGMENTED,	
-	OCFS2_LA_EVENT_ENOSPC,		
+	OCFS2_LA_EVENT_SLIDE,		/* Normal window slide. */
+	OCFS2_LA_EVENT_FRAGMENTED,	/* The global bitmap has
+					 * enough bits theoretically
+					 * free, but a contiguous
+					 * allocation could not be
+					 * found. */
+	OCFS2_LA_EVENT_ENOSPC,		/* Global bitmap doesn't have
+					 * enough bits free to satisfy
+					 * our request. */
 };
 #define OCFS2_LA_ENABLE_INTERVAL (30 * HZ)
+/*
+ * Given an event, calculate the size of our next local alloc window.
+ *
+ * This should always be called under i_mutex of the local alloc inode
+ * so that local alloc disabling doesn't race with processes trying to
+ * use the allocator.
+ *
+ * Returns the state which the local alloc was left in. This value can
+ * be ignored by some paths.
+ */
 static int ocfs2_recalc_la_window(struct ocfs2_super *osb,
 				  enum ocfs2_la_event event)
 {
@@ -876,10 +1027,25 @@ static int ocfs2_recalc_la_window(struct ocfs2_super *osb,
 		goto out_unlock;
 	}
 
+	/*
+	 * ENOSPC and fragmentation are treated similarly for now.
+	 */
 	if (event == OCFS2_LA_EVENT_ENOSPC ||
 	    event == OCFS2_LA_EVENT_FRAGMENTED) {
+		/*
+		 * We ran out of contiguous space in the primary
+		 * bitmap. Drastically reduce the number of bits used
+		 * by local alloc until we have to disable it.
+		 */
 		bits = osb->local_alloc_bits >> 1;
 		if (bits > ocfs2_megabytes_to_clusters(osb->sb, 1)) {
+			/*
+			 * By setting state to THROTTLED, we'll keep
+			 * the number of local alloc bits used down
+			 * until an event occurs which would give us
+			 * reason to assume the bitmap situation might
+			 * have changed.
+			 */
 			osb->local_alloc_state = OCFS2_LA_THROTTLED;
 			osb->local_alloc_bits = bits;
 		} else {
@@ -890,6 +1056,12 @@ static int ocfs2_recalc_la_window(struct ocfs2_super *osb,
 		goto out_unlock;
 	}
 
+	/*
+	 * Don't increase the size of the local alloc window until we
+	 * know we might be able to fulfill the request. Otherwise, we
+	 * risk bouncing around the global bitmap during periods of
+	 * low space.
+	 */
 	if (osb->local_alloc_state != OCFS2_LA_THROTTLED)
 		osb->local_alloc_bits = osb->local_alloc_default_bits;
 
@@ -947,6 +1119,9 @@ bail:
 	return status;
 }
 
+/*
+ * pass it the bitmap lock in lock_bh if you have it.
+ */
 static int ocfs2_local_alloc_new_window(struct ocfs2_super *osb,
 					handle_t *handle,
 					struct ocfs2_alloc_context *ac)
@@ -963,12 +1138,23 @@ static int ocfs2_local_alloc_new_window(struct ocfs2_super *osb,
 		le32_to_cpu(alloc->id1.bitmap1.i_total),
 		osb->local_alloc_bits);
 
+	/* Instruct the allocation code to try the most recently used
+	 * cluster group. We'll re-record the group used this pass
+	 * below. */
 	ac->ac_last_group = osb->la_last_gd;
 
+	/* we used the generic suballoc reserve function, but we set
+	 * everything up nicely, so there's no reason why we can't use
+	 * the more specific cluster api to claim bits. */
 	status = ocfs2_claim_clusters(handle, ac, osb->local_alloc_bits,
 				      &cluster_off, &cluster_count);
 	if (status == -ENOSPC) {
 retry_enospc:
+		/*
+		 * Note: We could also try syncing the journal here to
+		 * allow use of any free bits which the current
+		 * transaction can't give us access to. --Mark
+		 */
 		if (ocfs2_recalc_la_window(osb, OCFS2_LA_EVENT_FRAGMENTED) ==
 		    OCFS2_LA_DISABLED)
 			goto bail;
@@ -980,6 +1166,11 @@ retry_enospc:
 					      &cluster_count);
 		if (status == -ENOSPC)
 			goto retry_enospc;
+		/*
+		 * We only shrunk the *minimum* number of in our
+		 * request - it's entirely possible that the allocator
+		 * might give us more than we asked for.
+		 */
 		if (status == 0) {
 			spin_lock(&osb->osb_lock);
 			osb->local_alloc_bits = cluster_count;
@@ -996,6 +1187,10 @@ retry_enospc:
 
 	la->la_bm_off = cpu_to_le32(cluster_off);
 	alloc->id1.bitmap1.i_total = cpu_to_le32(cluster_count);
+	/* just in case... In the future when we find space ourselves,
+	 * we don't have to get all contiguous -- but we'll have to
+	 * set all previously used bits in bitmap and update
+	 * la_bits_set before setting the bits in the main bitmap. */
 	alloc->id1.bitmap1.i_used = 0;
 	memset(OCFS2_LOCAL_ALLOC(alloc)->la_bitmap, 0,
 	       le16_to_cpu(la->la_size));
@@ -1013,6 +1208,8 @@ bail:
 	return status;
 }
 
+/* Note that we do *NOT* lock the local alloc inode here as
+ * it's been locked already for us. */
 static int ocfs2_local_alloc_slide_window(struct ocfs2_super *osb,
 					  struct inode *local_alloc_inode)
 {
@@ -1026,7 +1223,7 @@ static int ocfs2_local_alloc_slide_window(struct ocfs2_super *osb,
 
 	ocfs2_recalc_la_window(osb, OCFS2_LA_EVENT_SLIDE);
 
-	
+	/* This will lock the main bitmap for us. */
 	status = ocfs2_local_alloc_reserve_for_window(osb,
 						      &ac,
 						      &main_bm_inode,
@@ -1047,6 +1244,11 @@ static int ocfs2_local_alloc_slide_window(struct ocfs2_super *osb,
 
 	alloc = (struct ocfs2_dinode *) osb->local_alloc_bh->b_data;
 
+	/* We want to clear the local alloc before doing anything
+	 * else, so that if we error later during this operation,
+	 * local alloc shutdown won't try to double free main bitmap
+	 * bits. Make a copy so the sync function knows which bits to
+	 * free. */
 	alloc_copy = kmalloc(osb->local_alloc_bh->b_size, GFP_NOFS);
 	if (!alloc_copy) {
 		status = -ENOMEM;

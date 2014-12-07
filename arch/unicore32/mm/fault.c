@@ -23,14 +23,21 @@
 #include <asm/pgtable.h>
 #include <asm/tlbflush.h>
 
+/*
+ * Fault status register encodings.  We steal bit 31 for our own purposes.
+ */
 #define FSR_LNX_PF		(1 << 31)
 
 static inline int fsr_fs(unsigned int fsr)
 {
-	
+	/* xyabcde will be abcde+xy */
 	return (fsr & 31) + ((fsr & (3 << 5)) >> 5);
 }
 
+/*
+ * This is useful to dump out the page tables associated with
+ * 'addr' in mm 'mm'.
+ */
 void show_pte(struct mm_struct *mm, unsigned long addr)
 {
 	pgd_t *pgd;
@@ -66,7 +73,7 @@ void show_pte(struct mm_struct *mm, unsigned long addr)
 			break;
 		}
 
-		
+		/* We must not map this if we have highmem enabled */
 		if (PageHighMem(pfn_to_page(pmd_val(*pmd) >> PAGE_SHIFT)))
 			break;
 
@@ -78,12 +85,21 @@ void show_pte(struct mm_struct *mm, unsigned long addr)
 	printk("\n");
 }
 
+/*
+ * Oops.  The kernel tried to access some page that wasn't present.
+ */
 static void __do_kernel_fault(struct mm_struct *mm, unsigned long addr,
 		unsigned int fsr, struct pt_regs *regs)
 {
+	/*
+	 * Are we prepared to handle this kernel fault?
+	 */
 	if (fixup_exception(regs))
 		return;
 
+	/*
+	 * No handler, we'll have to terminate things with extreme prejudice.
+	 */
 	bust_spinlocks(1);
 	printk(KERN_ALERT
 	       "Unable to handle kernel %s at virtual address %08lx\n",
@@ -96,6 +112,10 @@ static void __do_kernel_fault(struct mm_struct *mm, unsigned long addr,
 	do_exit(SIGKILL);
 }
 
+/*
+ * Something tried to access memory that isn't in our memory map..
+ * User mode accesses just cause a SIGSEGV
+ */
 static void __do_user_fault(struct task_struct *tsk, unsigned long addr,
 		unsigned int fsr, unsigned int sig, int code,
 		struct pt_regs *regs)
@@ -117,6 +137,10 @@ void do_bad_area(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	struct task_struct *tsk = current;
 	struct mm_struct *mm = tsk->active_mm;
 
+	/*
+	 * If we are in kernel mode at this point, we
+	 * have no context to handle this fault with.
+	 */
 	if (user_mode(regs))
 		__do_user_fault(tsk, addr, fsr, SIGSEGV, SEGV_MAPERR, regs);
 	else
@@ -126,11 +150,16 @@ void do_bad_area(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 #define VM_FAULT_BADMAP		0x010000
 #define VM_FAULT_BADACCESS	0x020000
 
+/*
+ * Check that the permissions on the VMA allow for the fault which occurred.
+ * If we encountered a write fault, we must have write permission, otherwise
+ * we allow any permission.
+ */
 static inline bool access_error(unsigned int fsr, struct vm_area_struct *vma)
 {
 	unsigned int mask = VM_READ | VM_WRITE | VM_EXEC;
 
-	if (!(fsr ^ 0x12))	
+	if (!(fsr ^ 0x12))	/* write? */
 		mask = VM_WRITE;
 	if (fsr & FSR_LNX_PF)
 		mask = VM_EXEC;
@@ -151,12 +180,20 @@ static int __do_pf(struct mm_struct *mm, unsigned long addr, unsigned int fsr,
 	if (unlikely(vma->vm_start > addr))
 		goto check_stack;
 
+	/*
+	 * Ok, we have a good vm_area for this
+	 * memory access, so we can handle it.
+	 */
 good_area:
 	if (access_error(fsr, vma)) {
 		fault = VM_FAULT_BADACCESS;
 		goto out;
 	}
 
+	/*
+	 * If for any reason at all we couldn't handle the fault, make
+	 * sure we exit gracefully rather than endlessly redo the fault.
+	 */
 	fault = handle_mm_fault(mm, vma, addr & PAGE_MASK,
 			    (!(fsr ^ 0x12)) ? FAULT_FLAG_WRITE : 0);
 	if (unlikely(fault & VM_FAULT_ERROR))
@@ -183,15 +220,29 @@ static int do_pf(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	tsk = current;
 	mm = tsk->mm;
 
+	/*
+	 * If we're in an interrupt or have no user
+	 * context, we must not take the fault..
+	 */
 	if (in_atomic() || !mm)
 		goto no_context;
 
+	/*
+	 * As per x86, we may deadlock here.  However, since the kernel only
+	 * validly references user space from well defined areas of the code,
+	 * we can bug out early if this is from code which shouldn't.
+	 */
 	if (!down_read_trylock(&mm->mmap_sem)) {
 		if (!user_mode(regs)
 		    && !search_exception_tables(regs->UCreg_pc))
 			goto no_context;
 		down_read(&mm->mmap_sem);
 	} else {
+		/*
+		 * The above down_read_trylock() might have succeeded in
+		 * which case, we'll have missed the might_sleep() from
+		 * down_read()
+		 */
 		might_sleep();
 #ifdef CONFIG_DEBUG_VM
 		if (!user_mode(regs) &&
@@ -203,22 +254,42 @@ static int do_pf(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	fault = __do_pf(mm, addr, fsr, tsk);
 	up_read(&mm->mmap_sem);
 
+	/*
+	 * Handle the "normal" case first - VM_FAULT_MAJOR / VM_FAULT_MINOR
+	 */
 	if (likely(!(fault &
 	       (VM_FAULT_ERROR | VM_FAULT_BADMAP | VM_FAULT_BADACCESS))))
 		return 0;
 
 	if (fault & VM_FAULT_OOM) {
+		/*
+		 * We ran out of memory, call the OOM killer, and return to
+		 * userspace (which will retry the fault, or kill us if we
+		 * got oom-killed)
+		 */
 		pagefault_out_of_memory();
 		return 0;
 	}
 
+	/*
+	 * If we are in kernel mode at this point, we
+	 * have no context to handle this fault with.
+	 */
 	if (!user_mode(regs))
 		goto no_context;
 
 	if (fault & VM_FAULT_SIGBUS) {
+		/*
+		 * We had some memory, but were unable to
+		 * successfully fix up this page fault.
+		 */
 		sig = SIGBUS;
 		code = BUS_ADRERR;
 	} else {
+		/*
+		 * Something tried to access memory that
+		 * isn't in our memory map..
+		 */
 		sig = SIGSEGV;
 		code = fault == VM_FAULT_BADACCESS ? SEGV_ACCERR : SEGV_MAPERR;
 	}
@@ -231,6 +302,23 @@ no_context:
 	return 0;
 }
 
+/*
+ * First Level Translation Fault Handler
+ *
+ * We enter here because the first level page table doesn't contain
+ * a valid entry for the address.
+ *
+ * If the address is in kernel space (>= TASK_SIZE), then we are
+ * probably faulting in the vmalloc() area.
+ *
+ * If the init_task's first level page tables contains the relevant
+ * entry, we copy the it to this task.  If not, we send the process
+ * a signal, fixup the exception, or oops the kernel.
+ *
+ * NOTE! We MUST NOT take any locks for this case. We may be in an
+ * interrupt or a critical region, and should only copy the information
+ * from the master page table, nothing more.
+ */
 static int do_ifault(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 {
 	unsigned int index;
@@ -266,6 +354,9 @@ bad_area:
 	return 0;
 }
 
+/*
+ * This abort handler always returns "fault".
+ */
 static int do_bad(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 {
 	return 1;
@@ -295,6 +386,9 @@ static struct fsr_info {
 	int code;
 	const char *name;
 } fsr_info[] = {
+	/*
+	 * The following are the standard Unicore-I and UniCore-II aborts.
+	 */
 	{ do_good,	SIGBUS,  0,		"no error"		},
 	{ do_bad,	SIGBUS,  BUS_ADRALN,	"alignment exception"	},
 	{ do_bad,	SIGBUS,  BUS_OBJERR,	"external exception"	},
@@ -342,6 +436,9 @@ void __init hook_fault_code(int nr,
 	fsr_info[nr].name = name;
 }
 
+/*
+ * Dispatch a data abort to the relevant handler.
+ */
 asmlinkage void do_DataAbort(unsigned long addr, unsigned int fsr,
 			struct pt_regs *regs)
 {

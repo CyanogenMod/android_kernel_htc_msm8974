@@ -47,7 +47,7 @@
 #define MPA_KEY_REP "MPA ID Rep Frame"
 
 #define MPA_MAX_PRIVATE_DATA	256
-#define MPA_REV		0	
+#define MPA_REV		0	/* XXX - amso1100 uses rev 0 ! */
 #define MPA_REJECT		0x20
 #define MPA_CRC			0x40
 #define MPA_MARKERS		0x80
@@ -212,6 +212,7 @@ static inline int compute_wscale(int win)
 	return wscale;
 }
 
+/* CM prototypes */
 
 int iwch_connect(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param);
 int iwch_create_listen(struct iw_cm_id *cm_id, int backlog);
@@ -229,4 +230,4 @@ int __init iwch_cm_init(void);
 void __exit iwch_cm_term(void);
 extern int peer2peer;
 
-#endif				
+#endif				/* _IWCH_CM_H_ */

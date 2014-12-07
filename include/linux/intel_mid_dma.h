@@ -29,17 +29,20 @@
 
 #define DMA_PREP_CIRCULAR_LIST		(1 << 10)
 
+/*DMA mode configurations*/
 enum intel_mid_dma_mode {
-	LNW_DMA_PER_TO_MEM = 0, 
-	LNW_DMA_MEM_TO_PER,	
-	LNW_DMA_MEM_TO_MEM,	
+	LNW_DMA_PER_TO_MEM = 0, /*periphral to memory configuration*/
+	LNW_DMA_MEM_TO_PER,	/*memory to periphral configuration*/
+	LNW_DMA_MEM_TO_MEM,	/*mem to mem confg (testing only)*/
 };
 
+/*DMA handshaking*/
 enum intel_mid_dma_hs_mode {
-	LNW_DMA_HW_HS = 0,	
-	LNW_DMA_SW_HS = 1,	
+	LNW_DMA_HW_HS = 0,	/*HW Handshaking only*/
+	LNW_DMA_SW_HS = 1,	/*SW Handshaking not recommended*/
 };
 
+/*Burst size configuration*/
 enum intel_mid_dma_msize {
 	LNW_DMA_MSIZE_1 = 0x0,
 	LNW_DMA_MSIZE_4 = 0x1,
@@ -49,11 +52,25 @@ enum intel_mid_dma_msize {
 	LNW_DMA_MSIZE_64 = 0x5,
 };
 
+/**
+ * struct intel_mid_dma_slave - DMA slave structure
+ *
+ * @dirn: DMA trf direction
+ * @src_width: tx register width
+ * @dst_width: rx register width
+ * @hs_mode: HW/SW handshaking mode
+ * @cfg_mode: DMA data transfer mode (per-per/mem-per/mem-mem)
+ * @src_msize: Source DMA burst size
+ * @dst_msize: Dst DMA burst size
+ * @per_addr: Periphral address
+ * @device_instance: DMA peripheral device instance, we can have multiple
+ *		peripheral device connected to single DMAC
+ */
 struct intel_mid_dma_slave {
-	enum intel_mid_dma_hs_mode	hs_mode;  
-	enum intel_mid_dma_mode		cfg_mode; 
-	unsigned int		device_instance; 
+	enum intel_mid_dma_hs_mode	hs_mode;  /*handshaking*/
+	enum intel_mid_dma_mode		cfg_mode; /*mode configuration*/
+	unsigned int		device_instance; /*0, 1 for periphral instance*/
 	struct dma_slave_config		dma_slave;
 };
 
-#endif 
+#endif /*__INTEL_MID_DMA_H__*/

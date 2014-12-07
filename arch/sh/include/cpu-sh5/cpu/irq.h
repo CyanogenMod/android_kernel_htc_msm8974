@@ -12,7 +12,24 @@
  */
 
 
+/*
+ * Encoded IRQs are not considered worth to be supported.
+ * Main reason is that there's no per-encoded-interrupt
+ * enable/disable mechanism (as there was in SH3/4).
+ * An all enabled/all disabled is worth only if there's
+ * a cascaded IC to disable/enable/ack on. Until such
+ * IC is available there's no such support.
+ *
+ * Presumably Encoded IRQs may use extra IRQs beyond 64,
+ * below. Some logic must be added to cope with IRQ_IRL?
+ * in an exclusive way.
+ *
+ * Priorities are set at Platform level, when IRQ_IRL0-3
+ * are set to 0 Encoding is allowed. Otherwise it's not
+ * allowed.
+ */
 
+/* Independent IRQs */
 #define IRQ_IRL0	0
 #define IRQ_IRL1	1
 #define IRQ_IRL2	2
@@ -58,6 +75,7 @@
 #define NR_EXT_IRQS     32
 #define START_EXT_IRQS  64
 
+/* PCI bus 2 uses encoded external interrupts on the Cayman board */
 #define IRQ_P2INTA      (START_EXT_IRQS + (3*8) + 0)
 #define IRQ_P2INTB      (START_EXT_IRQS + (3*8) + 1)
 #define IRQ_P2INTC      (START_EXT_IRQS + (3*8) + 2)
@@ -73,10 +91,12 @@
 #define NR_EXT_IRQS	0
 #endif
 
+/* Default IRQs, fixed */
 #define TIMER_IRQ	IRQ_TUNI0
 #define RTC_IRQ		IRQ_CUI
 
-#define	NO_PRIORITY	0	
+/* Default Priorities, Platform may choose differently */
+#define	NO_PRIORITY	0	/* Disabled */
 #define TIMER_PRIORITY	2
 #define RTC_PRIORITY	TIMER_PRIORITY
 #define SCIF_PRIORITY	3
@@ -93,4 +113,4 @@
 extern int intc_evt_to_irq[(0xE20/0x20)+1];
 extern int platform_int_priority[NR_INTC_IRQS];
 
-#endif 
+#endif /* __ASM_SH_CPU_SH5_IRQ_H */

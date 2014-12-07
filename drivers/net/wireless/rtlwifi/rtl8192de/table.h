@@ -31,6 +31,7 @@
 #ifndef __RTL92DE_TABLE__H_
 #define __RTL92DE_TABLE__H_
 
+/*Created on  2011/ 1/14,  1:35*/
 
 #define PHY_REG_2T_ARRAYLENGTH 380
 extern u32 rtl8192de_phy_reg_2tarray[PHY_REG_2T_ARRAYLENGTH];

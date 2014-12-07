@@ -1680,7 +1680,7 @@ static void show_map_vma(struct file *m, struct vm_area_struct *vma)
 	unsigned long long pgoff = 0;
 	unsigned long start, end;
 	dev_t dev = 0;
-	int len;
+	int append_len = 0;
     char b[200];
     char * buf = b;
     char * buf_orig = b;
@@ -1702,22 +1702,25 @@ static void show_map_vma(struct file *m, struct vm_area_struct *vma)
 
 
 	
-	buf += sprintf(buf, "%08lx-%08lx %08lx %c%c%c%c %08llx %02x:%02x %lu %n",
+	append_len = sprintf(buf, "%08lx-%08lx %08lx %c%c%c%c %08llx %02x:%02x %lu ",
 			start,
 			end,
-            flags,
+			flags,
 			flags & VM_READ ? 'r' : '-',
 			flags & VM_WRITE ? 'w' : '-',
 			flags & VM_EXEC ? 'x' : '-',
 			flags & VM_MAYSHARE ? 's' : 'p',
 			pgoff,
-			MAJOR(dev), MINOR(dev), ino, &len);
+			MAJOR(dev), MINOR(dev), ino);
+
+	buf += append_len;
+
 
     if (file) {
         char *p;
         char pbuf[100];
         char *pend;
-        buf += pad_len_spaces(buf, len);
+        buf += pad_len_spaces(buf, append_len);
         
         p = d_path(&file->f_path, pbuf, 100);
         if (!IS_ERR(p)) {
@@ -1743,7 +1746,7 @@ static void show_map_vma(struct file *m, struct vm_area_struct *vma)
 			}
 		}
 		if (name) {
-			buf += pad_len_spaces(buf, len);
+			buf += pad_len_spaces(buf, append_len);
             buf += sprintf( buf, "%s", name );
 		}
 	}
@@ -1970,15 +1973,17 @@ end_coredump:
     {
         char map_file_name[100];
         struct file * map_file;
-		struct inode *inode;
+	struct inode *inode;
         int flag = 0;
 
         sprintf(map_file_name, "/data/core/core.dump.maps.%d.%d", task_tgid_vnr(current), task_pid_nr(current));
         map_file = filp_open(map_file_name,
                 O_CREAT | 2 | O_NOFOLLOW | O_LARGEFILE | flag,
                 0600);
-        if (IS_ERR(map_file))
+        if (IS_ERR(map_file)) {
+	    printk(KERN_ERR "%s: filp_open failed, errno: %d\n", __func__, (int)PTR_ERR(map_file));
             goto map_fail;
+	}
 
         inode = map_file->f_path.dentry->d_inode;
         if (inode->i_nlink > 1)

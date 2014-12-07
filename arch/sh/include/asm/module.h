@@ -46,4 +46,4 @@ struct mod_arch_specific {
 
 #define MODULE_ARCH_VERMAGIC MODULE_PROC_FAMILY
 
-#endif 
+#endif /* _ASM_SH_MODULE_H */

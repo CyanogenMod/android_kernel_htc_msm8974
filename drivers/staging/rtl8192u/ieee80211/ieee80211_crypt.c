@@ -11,6 +11,7 @@
  *
  */
 
+//#include <linux/config.h>
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/slab.h>
@@ -86,6 +87,9 @@ void ieee80211_crypt_delayed_deinit(struct ieee80211_device *ieee,
 	tmp = *crypt;
 	*crypt = NULL;
 
+	/* must not run ops->deinit() while there may be pending encrypt or
+	 * decrypt operations. Use a list of delayed deinits to avoid needing
+	 * locking. */
 
 	spin_lock_irqsave(&ieee->lock, flags);
 	list_add(&tmp->list, &ieee->crypt_deinit_list);

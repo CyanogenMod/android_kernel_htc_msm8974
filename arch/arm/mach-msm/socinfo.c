@@ -17,10 +17,12 @@
 #include <linux/sys_soc.h>
 #include <linux/slab.h>
 #include <linux/stat.h>
+#include <linux/string.h>
 #include <linux/sysdev.h>
 #include <linux/types.h>
 
 #include <asm/mach-types.h>
+#include <asm/system_misc.h>
 
 #include <mach/socinfo.h>
 #include <mach/msm_smem.h>
@@ -169,6 +171,14 @@ struct socinfo_v8 {
 	uint32_t pmic_die_revision_2;
 };
 
+
+struct socinfo_v9 {
+	struct socinfo_v8 v8;
+
+	
+	uint32_t foundry_id;
+};
+
 static union {
 	struct socinfo_v1 v1;
 	struct socinfo_v2 v2;
@@ -178,246 +188,250 @@ static union {
 	struct socinfo_v6 v6;
 	struct socinfo_v7 v7;
 	struct socinfo_v8 v8;
+	struct socinfo_v9 v9;
 } *socinfo;
 
-static enum msm_cpu cpu_of_id[] = {
+static struct msm_soc_info cpu_of_id[] = {
 
 	
-	[1]  = MSM_CPU_7X01,
-	[16] = MSM_CPU_7X01,
-	[17] = MSM_CPU_7X01,
-	[18] = MSM_CPU_7X01,
-	[19] = MSM_CPU_7X01,
-	[23] = MSM_CPU_7X01,
-	[25] = MSM_CPU_7X01,
-	[26] = MSM_CPU_7X01,
-	[32] = MSM_CPU_7X01,
-	[33] = MSM_CPU_7X01,
-	[34] = MSM_CPU_7X01,
-	[35] = MSM_CPU_7X01,
+	[0]  = {MSM_CPU_UNKNOWN, "Unknown CPU"},
+	[1]  = {MSM_CPU_7X01, "MSM7X01"},
+	[16] = {MSM_CPU_7X01, "MSM7X01"},
+	[17] = {MSM_CPU_7X01, "MSM7X01"},
+	[18] = {MSM_CPU_7X01, "MSM7X01"},
+	[19] = {MSM_CPU_7X01, "MSM7X01"},
+	[23] = {MSM_CPU_7X01, "MSM7X01"},
+	[25] = {MSM_CPU_7X01, "MSM7X01"},
+	[26] = {MSM_CPU_7X01, "MSM7X01"},
+	[32] = {MSM_CPU_7X01, "MSM7X01"},
+	[33] = {MSM_CPU_7X01, "MSM7X01"},
+	[34] = {MSM_CPU_7X01, "MSM7X01"},
+	[35] = {MSM_CPU_7X01, "MSM7X01"},
 
 	
-	[20] = MSM_CPU_7X25,
-	[21] = MSM_CPU_7X25, 
-	[24] = MSM_CPU_7X25, 
-	[27] = MSM_CPU_7X25, 
-	[39] = MSM_CPU_7X25,
-	[40] = MSM_CPU_7X25,
-	[41] = MSM_CPU_7X25,
-	[42] = MSM_CPU_7X25,
-	[62] = MSM_CPU_7X25, 
-	[63] = MSM_CPU_7X25, 
-	[66] = MSM_CPU_7X25, 
-
-
-	
-	[43] = MSM_CPU_7X27,
-	[44] = MSM_CPU_7X27,
-	[61] = MSM_CPU_7X27,
-	[67] = MSM_CPU_7X27, 
-	[68] = MSM_CPU_7X27, 
-	[69] = MSM_CPU_7X27, 
+	[20] = {MSM_CPU_7X25, "MSM7X25"},
+	[21] = {MSM_CPU_7X25, "MSM7X25"},
+	[24] = {MSM_CPU_7X25, "MSM7X25"},
+	[27] = {MSM_CPU_7X25, "MSM7X25"},
+	[39] = {MSM_CPU_7X25, "MSM7X25"},
+	[40] = {MSM_CPU_7X25, "MSM7X25"},
+	[41] = {MSM_CPU_7X25, "MSM7X25"},
+	[42] = {MSM_CPU_7X25, "MSM7X25"},
+	[62] = {MSM_CPU_7X25, "MSM7X25"},
+	[63] = {MSM_CPU_7X25, "MSM7X25"},
+	[66] = {MSM_CPU_7X25, "MSM7X25"},
 
 
 	
-	[30] = MSM_CPU_8X50,
-	[36] = MSM_CPU_8X50,
-	[37] = MSM_CPU_8X50,
-	[38] = MSM_CPU_8X50,
+	[43] = {MSM_CPU_7X27, "MSM7X27"},
+	[44] = {MSM_CPU_7X27, "MSM7X27"},
+	[61] = {MSM_CPU_7X27, "MSM7X27"},
+	[67] = {MSM_CPU_7X27, "MSM7X27"},
+	[68] = {MSM_CPU_7X27, "MSM7X27"},
+	[69] = {MSM_CPU_7X27, "MSM7X27"},
+
 
 	
-	[59] = MSM_CPU_7X30,
-	[60] = MSM_CPU_7X30,
+	[30] = {MSM_CPU_8X50, "MSM8X50"},
+	[36] = {MSM_CPU_8X50, "MSM8X50"},
+	[37] = {MSM_CPU_8X50, "MSM8X50"},
+	[38] = {MSM_CPU_8X50, "MSM8X50"},
 
 	
-	[74] = MSM_CPU_8X55,
-	[75] = MSM_CPU_8X55,
-	[85] = MSM_CPU_8X55,
+	[59] = {MSM_CPU_7X30, "MSM7X30"},
+	[60] = {MSM_CPU_7X30, "MSM7X30"},
 
 	
-	[70] = MSM_CPU_8X60,
-	[71] = MSM_CPU_8X60,
-	[86] = MSM_CPU_8X60,
+	[74] = {MSM_CPU_8X55, "MSM8X55"},
+	[75] = {MSM_CPU_8X55, "MSM8X55"},
+	[85] = {MSM_CPU_8X55, "MSM8X55"},
 
 	
-	[87] = MSM_CPU_8960,
+	[70] = {MSM_CPU_8X60, "MSM8X60"},
+	[71] = {MSM_CPU_8X60, "MSM8X60"},
+	[86] = {MSM_CPU_8X60, "MSM8X60"},
 
 	
-	[88] = MSM_CPU_7X25A,
-	[89] = MSM_CPU_7X25A,
-	[96] = MSM_CPU_7X25A,
+	[87] = {MSM_CPU_8960, "MSM8960"},
 
 	
-	[90] = MSM_CPU_7X27A,
-	[91] = MSM_CPU_7X27A,
-	[92] = MSM_CPU_7X27A,
-	[97] = MSM_CPU_7X27A,
+	[88] = {MSM_CPU_7X25A, "MSM7X25A"},
+	[89] = {MSM_CPU_7X25A, "MSM7X25A"},
+	[96] = {MSM_CPU_7X25A, "MSM7X25A"},
 
 	
-	[94] = FSM_CPU_9XXX,
-	[95] = FSM_CPU_9XXX,
+	[90] = {MSM_CPU_7X27A, "MSM7X27A"},
+	[91] = {MSM_CPU_7X27A, "MSM7X27A"},
+	[92] = {MSM_CPU_7X27A, "MSM7X27A"},
+	[97] = {MSM_CPU_7X27A, "MSM7X27A"},
 
 	
-	[98] = MSM_CPU_7X25AA,
-	[99] = MSM_CPU_7X25AA,
-	[100] = MSM_CPU_7X25AA,
+	[94] = {FSM_CPU_9XXX, "FSM9XXX"},
+	[95] = {FSM_CPU_9XXX, "FSM9XXX"},
 
 	
-	[101] = MSM_CPU_7X27AA,
-	[102] = MSM_CPU_7X27AA,
-	[103] = MSM_CPU_7X27AA,
-	[136] = MSM_CPU_7X27AA,
+	[98] = {MSM_CPU_7X25AA, "MSM7X25AA"},
+	[99] = {MSM_CPU_7X25AA, "MSM7X25AA"},
+	[100] = {MSM_CPU_7X25AA, "MSM7X25AA"},
 
 	
-	[104] = MSM_CPU_9615,
-	[105] = MSM_CPU_9615,
-	[106] = MSM_CPU_9615,
-	[107] = MSM_CPU_9615,
-	[171] = MSM_CPU_9615,
+	[101] = {MSM_CPU_7X27AA, "MSM7X27AA"},
+	[102] = {MSM_CPU_7X27AA, "MSM7X27AA"},
+	[103] = {MSM_CPU_7X27AA, "MSM7X27AA"},
+	[136] = {MSM_CPU_7X27AA, "MSM7X27AA"},
 
 	
-	[109] = MSM_CPU_8064,
+	[104] = {MSM_CPU_9615, "MSM9615"},
+	[105] = {MSM_CPU_9615, "MSM9615"},
+	[106] = {MSM_CPU_9615, "MSM9615"},
+	[107] = {MSM_CPU_9615, "MSM9615"},
+	[171] = {MSM_CPU_9615, "MSM9615"},
 
 	
-	[116] = MSM_CPU_8930,
-	[117] = MSM_CPU_8930,
-	[118] = MSM_CPU_8930,
-	[119] = MSM_CPU_8930,
-	[179] = MSM_CPU_8930,
+	[109] = {MSM_CPU_8064, "APQ8064"},
 
 	
-	[120] = MSM_CPU_8627,
-	[121] = MSM_CPU_8627,
+	[116] = {MSM_CPU_8930, "MSM8930"},
+	[117] = {MSM_CPU_8930, "MSM8930"},
+	[118] = {MSM_CPU_8930, "MSM8930"},
+	[119] = {MSM_CPU_8930, "MSM8930"},
+	[179] = {MSM_CPU_8930, "MSM8930"},
 
 	
-	[122] = MSM_CPU_8960,
+	[120] = {MSM_CPU_8627, "MSM8627"},
+	[121] = {MSM_CPU_8627, "MSM8627"},
 
 	
-	[123] = MSM_CPU_8960,
+	[122] = {MSM_CPU_8960, "MSM8960"},
 
 	
-	[124] = MSM_CPU_8960,
+	[123] = {MSM_CPU_8960, "MSM8960"},
 
 	
-	[126] = MSM_CPU_8974,
-	[184] = MSM_CPU_8974,
-	[185] = MSM_CPU_8974,
-	[186] = MSM_CPU_8974,
+	[124] = {MSM_CPU_8960, "MSM8960"},
 
 	
-	[208] = MSM_CPU_8974PRO_AA,
-	[211] = MSM_CPU_8974PRO_AA,
-	[214] = MSM_CPU_8974PRO_AA,
-	[217] = MSM_CPU_8974PRO_AA,
+	[126] = {MSM_CPU_8974, "MSM8974"},
+	[184] = {MSM_CPU_8974, "MSM8974"},
+	[185] = {MSM_CPU_8974, "MSM8974"},
+	[186] = {MSM_CPU_8974, "MSM8974"},
 
 	
-	[209] = MSM_CPU_8974PRO_AB,
-	[212] = MSM_CPU_8974PRO_AB,
-	[215] = MSM_CPU_8974PRO_AB,
-	[218] = MSM_CPU_8974PRO_AB,
+	[208] = {MSM_CPU_8974PRO_AA, "MSM8974PRO-AA"},
+	[211] = {MSM_CPU_8974PRO_AA, "MSM8974PRO-AA"},
+	[214] = {MSM_CPU_8974PRO_AA, "MSM8974PRO-AA"},
+	[217] = {MSM_CPU_8974PRO_AA, "MSM8974PRO-AA"},
 
 	
-	[194] = MSM_CPU_8974PRO_AC,
-	[210] = MSM_CPU_8974PRO_AC,
-	[213] = MSM_CPU_8974PRO_AC,
-	[216] = MSM_CPU_8974PRO_AC,
+	[209] = {MSM_CPU_8974PRO_AB, "MSM8974PRO-AB"},
+	[212] = {MSM_CPU_8974PRO_AB, "MSM8974PRO-AB"},
+	[215] = {MSM_CPU_8974PRO_AB, "MSM8974PRO-AB"},
+	[218] = {MSM_CPU_8974PRO_AB, "MSM8974PRO-AB"},
 
 	
-	[127] = MSM_CPU_8625,
-	[128] = MSM_CPU_8625,
-	[129] = MSM_CPU_8625,
-	[137] = MSM_CPU_8625,
-	[167] = MSM_CPU_8625,
+	[194] = {MSM_CPU_8974PRO_AC, "MSM8974PRO-AC"},
+	[210] = {MSM_CPU_8974PRO_AC, "MSM8974PRO-AC"},
+	[213] = {MSM_CPU_8974PRO_AC, "MSM8974PRO-AC"},
+	[216] = {MSM_CPU_8974PRO_AC, "MSM8974PRO-AC"},
 
 	
-	[130] = MSM_CPU_8064,
+	[127] = {MSM_CPU_8625, "MSM8625"},
+	[128] = {MSM_CPU_8625, "MSM8625"},
+	[129] = {MSM_CPU_8625, "MSM8625"},
+	[137] = {MSM_CPU_8625, "MSM8625"},
+	[167] = {MSM_CPU_8625, "MSM8625"},
 
 	
-	[131] = MSM_CPU_7X25AB,
-	[132] = MSM_CPU_7X25AB,
-	[133] = MSM_CPU_7X25AB,
-	[135] = MSM_CPU_7X25AB,
+	[130] = {MSM_CPU_8064, "APQ8064"},
 
 	
-	[134] = MSM_CPU_9625,
-	[148] = MSM_CPU_9625,
-	[149] = MSM_CPU_9625,
-	[150] = MSM_CPU_9625,
-	[151] = MSM_CPU_9625,
-	[152] = MSM_CPU_9625,
-	[173] = MSM_CPU_9625,
-	[174] = MSM_CPU_9625,
-	[175] = MSM_CPU_9625,
+	[131] = {MSM_CPU_7X25AB, "MSM7X25AB"},
+	[132] = {MSM_CPU_7X25AB, "MSM7X25AB"},
+	[133] = {MSM_CPU_7X25AB, "MSM7X25AB"},
+	[135] = {MSM_CPU_7X25AB, "MSM7X25AB"},
 
 	
-	[138] = MSM_CPU_8960AB,
-	[139] = MSM_CPU_8960AB,
-	[140] = MSM_CPU_8960AB,
-	[141] = MSM_CPU_8960AB,
+	[134] = {MSM_CPU_9625, "MSM9625"},
+	[148] = {MSM_CPU_9625, "MSM9625"},
+	[149] = {MSM_CPU_9625, "MSM9625"},
+	[150] = {MSM_CPU_9625, "MSM9625"},
+	[151] = {MSM_CPU_9625, "MSM9625"},
+	[152] = {MSM_CPU_9625, "MSM9625"},
+	[173] = {MSM_CPU_9625, "MSM9625"},
+	[174] = {MSM_CPU_9625, "MSM9625"},
+	[175] = {MSM_CPU_9625, "MSM9625"},
 
 	
-	[142] = MSM_CPU_8930AA,
-	[143] = MSM_CPU_8930AA,
-	[144] = MSM_CPU_8930AA,
-	[160] = MSM_CPU_8930AA,
-	[180] = MSM_CPU_8930AA,
+	[138] = {MSM_CPU_8960AB, "MSM8960AB"},
+	[139] = {MSM_CPU_8960AB, "MSM8960AB"},
+	[140] = {MSM_CPU_8960AB, "MSM8960AB"},
+	[141] = {MSM_CPU_8960AB, "MSM8960AB"},
 
 	
-	[145] = MSM_CPU_8226,
-	[158] = MSM_CPU_8226,
-	[159] = MSM_CPU_8226,
-	[198] = MSM_CPU_8226,
-	[199] = MSM_CPU_8226,
-	[200] = MSM_CPU_8226,
-	[205] = MSM_CPU_8226,
-	[219] = MSM_CPU_8226,
-	[220] = MSM_CPU_8226,
-	[221] = MSM_CPU_8226,
-	[222] = MSM_CPU_8226,
-	[223] = MSM_CPU_8226,
-	[224] = MSM_CPU_8226,
+	[142] = {MSM_CPU_8930AA, "MSM8930AA"},
+	[143] = {MSM_CPU_8930AA, "MSM8930AA"},
+	[144] = {MSM_CPU_8930AA, "MSM8930AA"},
+	[160] = {MSM_CPU_8930AA, "MSM8930AA"},
+	[180] = {MSM_CPU_8930AA, "MSM8930AA"},
 
 	
-	[146] = MSM_CPU_8092,
+	[145] = {MSM_CPU_8226, "MSM8626"},
+	[158] = {MSM_CPU_8226, "MSM8226"},
+	[159] = {MSM_CPU_8226, "MSM8526"},
+	[198] = {MSM_CPU_8226, "MSM8126"},
+	[199] = {MSM_CPU_8226, "APQ8026"},
+	[200] = {MSM_CPU_8226, "MSM8926"},
+	[205] = {MSM_CPU_8226, "MSM8326"},
+	[219] = {MSM_CPU_8226, "APQ8028"},
+	[220] = {MSM_CPU_8226, "MSM8128"},
+	[221] = {MSM_CPU_8226, "MSM8228"},
+	[222] = {MSM_CPU_8226, "MSM8528"},
+	[223] = {MSM_CPU_8226, "MSM8628"},
+	[224] = {MSM_CPU_8226, "MSM8928"},
 
 	
-	[147] = MSM_CPU_8610,
-	[161] = MSM_CPU_8610,
-	[162] = MSM_CPU_8610,
-	[163] = MSM_CPU_8610,
-	[164] = MSM_CPU_8610,
-	[165] = MSM_CPU_8610,
-	[166] = MSM_CPU_8610,
+	[146] = {MSM_CPU_8092, "MSM8092"},
 
 	
-	[153] = MSM_CPU_8064AB,
+	[147] = {MSM_CPU_8610, "MSM8610"},
+	[161] = {MSM_CPU_8610, "MSM8110"},
+	[162] = {MSM_CPU_8610, "MSM8210"},
+	[163] = {MSM_CPU_8610, "MSM8810"},
+	[164] = {MSM_CPU_8610, "MSM8212"},
+	[165] = {MSM_CPU_8610, "MSM8612"},
+	[166] = {MSM_CPU_8610, "MSM8112"},
+	[225] = {MSM_CPU_8610, "MSM8510"},
+	[226] = {MSM_CPU_8610, "MSM8512"},
 
 	
-	[154] = MSM_CPU_8930AB,
-	[155] = MSM_CPU_8930AB,
-	[156] = MSM_CPU_8930AB,
-	[157] = MSM_CPU_8930AB,
-	[181] = MSM_CPU_8930AB,
+	[153] = {MSM_CPU_8064AB, "APQ8064AB"},
 
 	
-	[168] = MSM_CPU_8625Q,
-	[169] = MSM_CPU_8625Q,
-	[170] = MSM_CPU_8625Q,
+	[154] = {MSM_CPU_8930AB, "MSM8930AB"},
+	[155] = {MSM_CPU_8930AB, "MSM8930AB"},
+	[156] = {MSM_CPU_8930AB, "MSM8930AB"},
+	[157] = {MSM_CPU_8930AB, "MSM8930AB"},
+	[181] = {MSM_CPU_8930AB, "MSM8930AB"},
 
 	
-	[172] = MSM_CPU_8064AA,
+	[168] = {MSM_CPU_8625Q, "MSM8225Q"},
+	[169] = {MSM_CPU_8625Q, "MSM8625Q"},
+	[170] = {MSM_CPU_8625Q, "MSM8125Q"},
 
 	
-	[178] = MSM_CPU_8084,
+	[172] = {MSM_CPU_8064AA, "APQ8064AA"},
 
 	
-	[187] = MSM_CPU_KRYPTON,
+	[178] = {MSM_CPU_8084, "APQ8084"},
 
 	
-	[188] = FSM_CPU_9900,
+	[187] = {MSM_CPU_KRYPTON, "MSMKRYPTON"},
 
 	
-	[195] = MSM_CPU_SAMARIUM,
+	[188] = {FSM_CPU_9900, "FSM9900"},
+
+	
+	[195] = {MSM_CPU_SAMARIUM, "MSMSAMARIUM"},
 
 };
 
@@ -443,6 +457,25 @@ uint32_t socinfo_get_version(void)
 char *socinfo_get_build_id(void)
 {
 	return (socinfo) ? socinfo->v1.build_id : NULL;
+}
+
+static char *msm_read_hardware_id(void)
+{
+	static char msm_soc_str[128] = "Qualcomm ";
+	static bool string_generated = false;
+
+	if (string_generated)
+		return msm_soc_str;
+	if (!socinfo)
+		goto err_path;
+	if (!cpu_of_id[socinfo->v1.id].soc_id_string)
+		goto err_path;
+
+	string_generated = true;
+	return strncat(msm_soc_str, cpu_of_id[socinfo->v1.id].soc_id_string,
+			sizeof(msm_soc_str) - strlen(msm_soc_str) - 1);
+err_path:
+	return "UNKNOWN SOC TYPE";
 }
 
 uint32_t socinfo_get_raw_id(void)
@@ -487,6 +520,14 @@ uint32_t socinfo_get_platform_subtype(void)
 		(socinfo->v1.format >= 6 ? socinfo->v6.hw_platform_subtype : 0)
 		: 0;
 }
+
+static uint32_t socinfo_get_foundry_id(void)
+{
+	return socinfo ?
+		(socinfo->v1.format >= 9 ? socinfo->v9.foundry_id : 0)
+		: 0;
+}
+
 
 enum pmic_model socinfo_get_pmic_model(void)
 {
@@ -817,6 +858,15 @@ msm_get_platform_subtype(struct device *dev,
 }
 
 static ssize_t
+msm_get_foundry_id(struct device *dev,
+			struct device_attribute *attr,
+			char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%u\n",
+		socinfo_get_foundry_id());
+}
+
+static ssize_t
 msm_get_pmic_model(struct device *dev,
 			struct device_attribute *attr,
 			char *buf)
@@ -1047,6 +1097,10 @@ static struct device_attribute msm_soc_attr_platform_subtype =
 	__ATTR(platform_subtype, S_IRUGO,
 			msm_get_platform_subtype, NULL);
 
+static struct device_attribute msm_soc_attr_foundry_id =
+	__ATTR(foundry_id, S_IRUGO,
+			msm_get_foundry_id, NULL);
+
 static struct device_attribute msm_soc_attr_pmic_model =
 	__ATTR(pmic_model, S_IRUGO,
 			msm_get_pmic_model, NULL);
@@ -1131,6 +1185,9 @@ static void __init populate_soc_sysfs_files(struct device *msm_soc_device)
 	device_create_file(msm_soc_device, &select_image);
 
 	switch (legacy_format) {
+	case 9:
+		device_create_file(msm_soc_device,
+					&msm_soc_attr_foundry_id);
 	case 8:
 	case 7:
 		device_create_file(msm_soc_device,
@@ -1344,6 +1401,23 @@ static void socinfo_print(void)
 			socinfo->v7.pmic_model,
 			socinfo->v7.pmic_die_revision);
 		break;
+	case 9:
+		pr_info("%s: v%u, id=%u, ver=%u.%u, raw_id=%u, raw_ver=%u ,"
+			"hw_plat=%u, hw_plat_ver=%u\n accessory_chip=%u,"
+			"hw_plat_subtype=%u, pmic_model=%u, pmic_die_revision=%u,"
+			"foundry_id=%u\n", __func__,
+			socinfo->v1.format,
+			socinfo->v1.id,
+			SOCINFO_VERSION_MAJOR(socinfo->v1.version),
+			SOCINFO_VERSION_MINOR(socinfo->v1.version),
+			socinfo->v2.raw_id, socinfo->v2.raw_version,
+			socinfo->v3.hw_platform, socinfo->v4.platform_version,
+			socinfo->v5.accessory_chip,
+			socinfo->v6.hw_platform_subtype,
+			socinfo->v7.pmic_model,
+			socinfo->v7.pmic_die_revision,
+			socinfo->v9.foundry_id);
+		break;
 	default:
 		pr_err("%s: Unknown format found\n", __func__);
 		break;
@@ -1352,7 +1426,10 @@ static void socinfo_print(void)
 
 int __init socinfo_init(void)
 {
-	socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID, sizeof(struct socinfo_v8));
+	socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID, sizeof(struct socinfo_v9));
+	if (!socinfo)
+		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
+				sizeof(struct socinfo_v8));
 
 	if (!socinfo)
 		socinfo = smem_alloc(SMEM_HW_SW_BUILD_ID,
@@ -1389,14 +1466,16 @@ int __init socinfo_init(void)
 	}
 
 	WARN(!socinfo_get_id(), "Unknown SOC ID!\n");
-	WARN(socinfo_get_id() >= ARRAY_SIZE(cpu_of_id),
-		"New IDs added! ID => CPU mapping might need an update.\n");
 
-	if (socinfo->v1.id < ARRAY_SIZE(cpu_of_id))
-		cur_cpu = cpu_of_id[socinfo->v1.id];
+	if (socinfo_get_id() >= ARRAY_SIZE(cpu_of_id))
+		BUG_ON("New IDs added! ID => CPU mapping might need an update.\n");
+
+	else
+		cur_cpu = cpu_of_id[socinfo->v1.id].generic_soc_type;
 
 	boot_stats_init();
 	socinfo_print();
+	arch_read_hardware_id = msm_read_hardware_id;
 
 	return 0;
 }

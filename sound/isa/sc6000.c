@@ -46,16 +46,16 @@ MODULE_SUPPORTED_DEVICE("{{Gallant, SC-6000},"
 			"{AudioExcel, Audio Excel DSP 16},"
 			"{Zoltrix, AV302}}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE;	
-static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static long mss_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE;	/* Enable this card */
+static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* 0x220, 0x240 */
+static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* 5, 7, 9, 10, 11 */
+static long mss_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* 0x530, 0xe80 */
 static long mpu_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
-						
-static int mpu_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int dma[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
+						/* 0x300, 0x310, 0x320, 0x330 */
+static int mpu_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* 5, 7, 9, 10, 0 */
+static int dma[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* 0, 1, 3 */
 static bool joystick[SNDRV_CARDS] = { [0 ... (SNDRV_CARDS-1)] = false };
 
 module_param_array(index, int, NULL, 0444);
@@ -79,31 +79,48 @@ MODULE_PARM_DESC(dma, "DMA # for sc-6000 driver.");
 module_param_array(joystick, bool, NULL, 0444);
 MODULE_PARM_DESC(joystick, "Enable gameport.");
 
-#define WRITE_MDIRQ_CFG	0x50	
-#define COMMAND_52	0x52	
-#define READ_HARD_CFG	0x58	
-#define COMMAND_5C	0x5c	
-#define COMMAND_60	0x60	
-#define COMMAND_66	0x66	
-#define COMMAND_6C	0x6c	
-#define COMMAND_6E	0x6e	
-#define COMMAND_88	0x88	
-#define DSP_INIT_MSS	0x8c	
-#define COMMAND_C5	0xc5	
-#define GET_DSP_VERSION	0xe1	
+/*
+ * Commands of SC6000's DSP (SBPRO+special).
+ * Some of them are COMMAND_xx, in the future they may change.
+ */
+#define WRITE_MDIRQ_CFG	0x50	/* Set M&I&DRQ mask (the real config)	*/
+#define COMMAND_52	0x52	/*					*/
+#define READ_HARD_CFG	0x58	/* Read Hardware Config (I/O base etc)	*/
+#define COMMAND_5C	0x5c	/*					*/
+#define COMMAND_60	0x60	/*					*/
+#define COMMAND_66	0x66	/*					*/
+#define COMMAND_6C	0x6c	/*					*/
+#define COMMAND_6E	0x6e	/*					*/
+#define COMMAND_88	0x88	/* Unknown command 			*/
+#define DSP_INIT_MSS	0x8c	/* Enable Microsoft Sound System mode	*/
+#define COMMAND_C5	0xc5	/*					*/
+#define GET_DSP_VERSION	0xe1	/* Get DSP Version			*/
 #define GET_DSP_COPYRIGHT 0xe3	/* Get DSP Copyright			*/
 
-#define DSP_RESET	0x06	
-#define DSP_READ	0x0a	
-#define DSP_WRITE	0x0c	
-#define DSP_COMMAND	0x0c	
-#define DSP_STATUS	0x0c	
-#define DSP_DATAVAIL	0x0e	
+/*
+ * Offsets of SC6000 DSP I/O ports. The offset is added to base I/O port
+ * to have the actual I/O port.
+ * Register permissions are:
+ * (wo) == Write Only
+ * (ro) == Read  Only
+ * (w-) == Write
+ * (r-) == Read
+ */
+#define DSP_RESET	0x06	/* offset of DSP RESET		(wo) */
+#define DSP_READ	0x0a	/* offset of DSP READ		(ro) */
+#define DSP_WRITE	0x0c	/* offset of DSP WRITE		(w-) */
+#define DSP_COMMAND	0x0c	/* offset of DSP COMMAND	(w-) */
+#define DSP_STATUS	0x0c	/* offset of DSP STATUS		(r-) */
+#define DSP_DATAVAIL	0x0e	/* offset of DSP DATA AVAILABLE	(ro) */
 
 #define PFX "sc6000: "
 #define DRV_NAME "SC-6000"
 
+/* hardware dependent functions */
 
+/*
+ * sc6000_irq_to_softcfg - Decode irq number into cfg code.
+ */
 static __devinit unsigned char sc6000_irq_to_softcfg(int irq)
 {
 	unsigned char val = 0;
@@ -130,6 +147,9 @@ static __devinit unsigned char sc6000_irq_to_softcfg(int irq)
 	return val;
 }
 
+/*
+ * sc6000_dma_to_softcfg - Decode dma number into cfg code.
+ */
 static __devinit unsigned char sc6000_dma_to_softcfg(int dma)
 {
 	unsigned char val = 0;
@@ -150,6 +170,9 @@ static __devinit unsigned char sc6000_dma_to_softcfg(int dma)
 	return val;
 }
 
+/*
+ * sc6000_mpu_irq_to_softcfg - Decode MPU-401 irq number into cfg code.
+ */
 static __devinit unsigned char sc6000_mpu_irq_to_softcfg(int mpu_irq)
 {
 	unsigned char val = 0;
@@ -204,6 +227,9 @@ static int sc6000_write(char __iomem *vport, int cmd)
 
 	do {
 		val = ioread8(vport + DSP_STATUS);
+		/*
+		 * DSP ready to receive data if bit 7 of val == 0
+		 */
 		if (!(val & 0x80)) {
 			iowrite8(cmd, vport + DSP_COMMAND);
 			return 0;
@@ -236,6 +262,10 @@ static int __devinit sc6000_dsp_get_answer(char __iomem *vport, int command,
 
 	} while (len < data_len);
 
+	/*
+	 * If no more data available, return to the caller, no error if len>0.
+	 * We have no other way to know when the string is finished.
+	 */
 	return len ? len : -EIO;
 }
 
@@ -250,6 +280,7 @@ static int __devinit sc6000_dsp_reset(char __iomem *vport)
 	return -ENODEV;
 }
 
+/* detection and initialization */
 static int __devinit sc6000_hw_cfg_write(char __iomem *vport, const int *cfg)
 {
 	if (sc6000_write(vport, COMMAND_6C) < 0) {
@@ -347,11 +378,11 @@ static void __devinit sc6000_hw_cfg_encode(char __iomem *vport, int *cfg,
 	}
 	if (xmss_port == 0xe80)
 		cfg[0] |= 0x10;
-	cfg[0] |= 0x40;		
+	cfg[0] |= 0x40;		/* always set */
 	if (!joystick)
 		cfg[0] |= 0x02;
-	cfg[1] |= 0x80;		
-	cfg[1] &= ~0x40;	
+	cfg[1] |= 0x80;		/* enable WSS system */
+	cfg[1] &= ~0x40;	/* disable IDE */
 	snd_printd("hw cfg %x, %x\n", cfg[0], cfg[1]);
 }
 
@@ -393,7 +424,7 @@ static int __devinit sc6000_init_board(char __iomem *vport,
 	printk(KERN_INFO PFX "Detected model: %s, DSP version %d.%d\n",
 		answer, version[0], version[1]);
 
-	
+	/* set configuration */
 	sc6000_write(vport, COMMAND_5C);
 	if (sc6000_read(vport) < 0)
 		old = 1;
@@ -446,7 +477,7 @@ static int __devinit snd_sc6000_mixer(struct snd_wss *chip)
 	memset(&id2, 0, sizeof(id2));
 	id1.iface = SNDRV_CTL_ELEM_IFACE_MIXER;
 	id2.iface = SNDRV_CTL_ELEM_IFACE_MIXER;
-	
+	/* reassign AUX0 to FM */
 	strcpy(id1.name, "Aux Playback Switch");
 	strcpy(id2.name, "FM Playback Switch");
 	err = snd_ctl_rename_id(card, &id1, &id2);
@@ -457,7 +488,7 @@ static int __devinit snd_sc6000_mixer(struct snd_wss *chip)
 	err = snd_ctl_rename_id(card, &id1, &id2);
 	if (err < 0)
 		return err;
-	
+	/* reassign AUX1 to CD */
 	strcpy(id1.name, "Aux Playback Switch"); id1.index = 1;
 	strcpy(id2.name, "CD Playback Switch");
 	err = snd_ctl_rename_id(card, &id1, &id2);
@@ -566,7 +597,7 @@ static int __devinit snd_sc6000_probe(struct device *devptr, unsigned int dev)
 		goto err_unmap1;
 	}
 
-	
+	/* to make it marked as used */
 	if (!request_region(mss_port[dev], 4, DRV_NAME)) {
 		snd_printk(KERN_ERR PFX
 			   "SC-6000 port I/O port region is already in use.\n");
@@ -676,7 +707,7 @@ static struct isa_driver snd_sc6000_driver = {
 	.match		= snd_sc6000_match,
 	.probe		= snd_sc6000_probe,
 	.remove		= __devexit_p(snd_sc6000_remove),
-	
+	/* FIXME: suspend/resume */
 	.driver		= {
 		.name	= DRV_NAME,
 	},

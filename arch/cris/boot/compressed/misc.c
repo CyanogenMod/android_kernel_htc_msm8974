@@ -1,4 +1,20 @@
+/*
+ * misc.c
+ *
+ * This is a collection of several routines from gzip-1.0.3
+ * adapted for Linux.
+ *
+ * malloc by Hannu Savolainen 1993 and Matthias Urlichs 1994
+ * puts by Nick Holloway 1993, better puts by Martin Mares 1995
+ * adaptation for Linux/CRIS Axis Communications AB, 1999
+ *
+ */
 
+/* where the piggybacked kernel image expects itself to live.
+ * it is the same address we use when we network load an uncompressed
+ * image into DRAM, and it is the address the kernel is linked to live
+ * at by vmlinux.lds.S
+ */
 
 #define KERNEL_LOAD_ADR 0x40004000
 
@@ -16,6 +32,9 @@
 #include <arch/svinto.h>
 #endif
 
+/*
+ * gzip declarations
+ */
 
 #define OF(args)  args
 #define STATIC static
@@ -29,26 +48,31 @@ typedef unsigned char  uch;
 typedef unsigned short ush;
 typedef unsigned long  ulg;
 
-#define WSIZE 0x8000		
-				
+#define WSIZE 0x8000		/* Window size must be at least 32k, */
+				/* and a power of two */
 
-static uch *inbuf;	     
-static uch window[WSIZE];    
+static uch *inbuf;	     /* input buffer */
+static uch window[WSIZE];    /* Sliding window buffer */
 
-unsigned inptr = 0;	
+unsigned inptr = 0;	/* index of next byte to be processed in inbuf
+			 * After decompression it will contain the
+			 * compressed size, and head.S will read it.
+			 */
 
-static unsigned outcnt = 0;  
+static unsigned outcnt = 0;  /* bytes in output buffer */
 
-#define ASCII_FLAG   0x01 
-#define CONTINUATION 0x02 
-#define EXTRA_FIELD  0x04 
-#define ORIG_NAME    0x08 
-#define COMMENT      0x10 
-#define ENCRYPTED    0x20 
-#define RESERVED     0xC0 
+/* gzip flag byte */
+#define ASCII_FLAG   0x01 /* bit 0 set: file probably ascii text */
+#define CONTINUATION 0x02 /* bit 1 set: continuation of multi-part gzip file */
+#define EXTRA_FIELD  0x04 /* bit 2 set: extra field present */
+#define ORIG_NAME    0x08 /* bit 3 set: original file name present */
+#define COMMENT      0x10 /* bit 4 set: file comment present */
+#define ENCRYPTED    0x20 /* bit 5 set: file is encrypted */
+#define RESERVED     0xC0 /* bit 6,7:   reserved */
 
 #define get_byte() (inbuf[inptr++])
 
+/* Diagnostic functions */
 #ifdef DEBUG
 #  define Assert(cond, msg) do { \
 		if (!(cond)) \
@@ -84,12 +108,13 @@ static void flush_window(void);
 static void error(char *m);
 static void aputs(const char *s);
 
-extern char *input_data;  
+extern char *input_data;  /* lives in head.S */
 
 static long bytes_out;
 static uch *output_data;
 static unsigned long output_ptr;
 
+/* the "heap" is put directly after the BSS ends, at end */
 
 extern int _end;
 static long free_mem_ptr = (long)&_end;
@@ -97,6 +122,7 @@ static long free_mem_end_ptr;
 
 #include "../../../../../lib/inflate.c"
 
+/* decompressor info and error messages to serial console */
 
 #ifdef CONFIG_ETRAX_ARCH_V32
 static inline void serout(const char *s, reg_scope_instances regi_ser)
@@ -107,7 +133,7 @@ static inline void serout(const char *s, reg_scope_instances regi_ser)
 	do {
 		rs = REG_RD(ser, regi_ser, rs_stat_din);
 	}
-	while (!rs.tr_rdy);
+	while (!rs.tr_rdy);/* Wait for transceiver. */
 
 	REG_WR(ser, regi_ser, rw_dout, dout);
 }
@@ -141,7 +167,7 @@ static void aputs(const char *s)
 		SEROUT(s, 3);
 #endif
 	}
-#endif 
+#endif /* CONFIG_ETRAX_DEBUG_PORT_NULL */
 }
 
 void *memset(void *s, int c, size_t n)
@@ -165,10 +191,14 @@ void *memcpy(void *__dest, __const void *__src, size_t __n)
 	return __dest;
 }
 
+/* ===========================================================================
+ * Write the output window window[0..outcnt-1] and update crc and bytes_out.
+ * (Used for the decompressed data only.)
+ */
 
 static void flush_window(void)
 {
-	ulg c = crc;         
+	ulg c = crc;         /* temporary variable */
 	unsigned n;
 	uch *in, *out, ch;
 
@@ -192,7 +222,7 @@ static void error(char *x)
 	aputs(x);
 	aputs("\n\n -- System halted\n");
 
-	while(1);	
+	while(1);	/* Halt */
 }
 
 void setup_normal_output_buffer(void)
@@ -209,7 +239,7 @@ static inline void serial_setup(reg_scope_instances regi_ser)
 	reg_ser_rw_tr_baud_div tr_baud;
 	reg_ser_rw_rec_baud_div rec_baud;
 
-	
+	/* Turn off XOFF. */
 	xoff = REG_RD(ser, regi_ser, rw_xoff);
 
 	xoff.chr = 0;
@@ -217,16 +247,21 @@ static inline void serial_setup(reg_scope_instances regi_ser)
 
 	REG_WR(ser, regi_ser, rw_xoff, xoff);
 
-	
+	/* Set baudrate and stopbits. */
 	tr_ctrl = REG_RD(ser, regi_ser, rw_tr_ctrl);
 	rec_ctrl = REG_RD(ser, regi_ser, rw_rec_ctrl);
 	tr_baud = REG_RD(ser, regi_ser, rw_tr_baud_div);
 	rec_baud = REG_RD(ser, regi_ser, rw_rec_baud_div);
 
-	tr_ctrl.stop_bits = 1;	
-	tr_ctrl.en = 1; 
-	rec_ctrl.en = 1; 
+	tr_ctrl.stop_bits = 1;	/* 2 stop bits. */
+	tr_ctrl.en = 1; /* enable transmitter */
+	rec_ctrl.en = 1; /* enabler receiver */
 
+	/*
+	 * The baudrate setup used to be a bit fishy, but now transmitter and
+	 * receiver are both set to the intended baud rate, 115200.
+	 * The magic value is 29.493 MHz.
+	 */
 	tr_ctrl.base_freq = regk_ser_f29_493;
 	rec_ctrl.base_freq = regk_ser_f29_493;
 	tr_baud.div = (29493000 / 8) / 115200;
@@ -245,7 +280,7 @@ void decompress_kernel(void)
 	char compile_rev;
 
 #ifdef CONFIG_ETRAX_ARCH_V32
-	
+	/* Need at least a CRISv32 to run. */
 	compile_rev = 32;
 #if defined(CONFIG_ETRAX_DEBUG_PORT1) || \
     defined(CONFIG_ETRAX_DEBUG_PORT2) || \
@@ -255,14 +290,14 @@ void decompress_kernel(void)
 #ifdef CONFIG_CRIS_MACH_ARTPEC3
 	reg_clkgen_rw_clk_ctrl clk_ctrl;
 
-	
+	/* Enable corresponding clock region when serial 1..3 selected */
 
 	clk_ctrl = REG_RD(clkgen, regi_clkgen, rw_clk_ctrl);
 	clk_ctrl.sser_ser_dma6_7 = regk_clkgen_yes;
 	REG_WR(clkgen, regi_clkgen, rw_clk_ctrl, clk_ctrl);
 #endif
 
-	
+	/* pinmux setup for ports 1..3 */
 	hwprot = REG_RD(pinmux, regi_pinmux, rw_hwprot);
 #endif
 
@@ -288,13 +323,13 @@ void decompress_kernel(void)
 	REG_WR(pinmux, regi_pinmux, rw_hwprot, hwprot);
 #endif
 
-	
+	/* input_data is set in head.S */
 	inbuf = input_data;
-#else 
-	
+#else /* CRISv10 */
+	/* Need at least a crisv10 to run. */
 	compile_rev = 10;
 
-	
+	/* input_data is set in head.S */
 	inbuf = input_data;
 
 #ifdef CONFIG_ETRAX_DEBUG_PORT0

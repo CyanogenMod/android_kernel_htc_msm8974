@@ -1,3 +1,5 @@
+/* Kernel module to match one of a list of TCP/UDP(-Lite)/SCTP/DCCP ports:
+   ports are in the same place so we can treat them as equal. */
 
 /* (C) 1999-2001 Paul `Rusty' Russell
  * (C) 2002-2004 Netfilter Core Team <coreteam@netfilter.org>
@@ -24,6 +26,7 @@ MODULE_DESCRIPTION("Xtables: multiple port matching for TCP, UDP, UDP-Lite, SCTP
 MODULE_ALIAS("ipt_multiport");
 MODULE_ALIAS("ip6t_multiport");
 
+/* Returns 1 if the port is matched by the test, 0 otherwise. */
 static inline bool
 ports_match_v1(const struct xt_multiport_v1 *minfo,
 	       u_int16_t src, u_int16_t dst)
@@ -35,7 +38,7 @@ ports_match_v1(const struct xt_multiport_v1 *minfo,
 		s = minfo->ports[i];
 
 		if (minfo->pflags[i]) {
-			
+			/* range port matching */
 			e = minfo->ports[++i];
 			pr_debug("src or dst matches with %d-%d?\n", s, e);
 
@@ -50,7 +53,7 @@ ports_match_v1(const struct xt_multiport_v1 *minfo,
 				|| (src >= s && src <= e)))
 				return true ^ minfo->invert;
 		} else {
-			
+			/* exact port matching */
 			pr_debug("src or dst matches with %d?\n", s);
 
 			if (minfo->flags == XT_MULTIPORT_SOURCE
@@ -80,6 +83,9 @@ multiport_mt(const struct sk_buff *skb, struct xt_action_param *par)
 
 	pptr = skb_header_pointer(skb, par->thoff, sizeof(_ports), _ports);
 	if (pptr == NULL) {
+		/* We've been asked to examine this packet, and we
+		 * can't.  Hence, no choice but to drop.
+		 */
 		pr_debug("Dropping evil offset=0 tinygram.\n");
 		par->hotdrop = true;
 		return false;
@@ -94,7 +100,7 @@ check(u_int16_t proto,
       u_int8_t match_flags,
       u_int8_t count)
 {
-	
+	/* Must specify supported protocol, no unknown flags or bad count */
 	return (proto == IPPROTO_TCP || proto == IPPROTO_UDP
 		|| proto == IPPROTO_UDPLITE
 		|| proto == IPPROTO_SCTP || proto == IPPROTO_DCCP)

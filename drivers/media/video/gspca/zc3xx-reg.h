@@ -9,19 +9,24 @@
  * This code is placed under the terms of the GNU General Public License v2
  */
 
+/* Define the register map */
 #define ZC3XX_R000_SYSTEMCONTROL       0x0000
 #define ZC3XX_R001_SYSTEMOPERATING     0x0001
 
+/* Picture size */
 #define ZC3XX_R002_CLOCKSELECT         0x0002
 #define ZC3XX_R003_FRAMEWIDTHHIGH      0x0003
 #define ZC3XX_R004_FRAMEWIDTHLOW       0x0004
 #define ZC3XX_R005_FRAMEHEIGHTHIGH     0x0005
 #define ZC3XX_R006_FRAMEHEIGHTLOW      0x0006
 
+/* JPEG control */
 #define ZC3XX_R008_CLOCKSETTING        0x0008
 
+/* Test mode */
 #define ZC3XX_R00B_TESTMODECONTROL     0x000b
 
+/* Frame retreiving */
 #define ZC3XX_R00C_LASTACQTIME         0x000c
 #define ZC3XX_R00D_MONITORRES          0x000d
 #define ZC3XX_R00E_TIMESTAMPHIGH       0x000e
@@ -31,23 +36,28 @@
 #define ZC3XX_R01A_LASTFRAMESTATE      0x001a
 #define ZC3XX_R025_DATACOUNTER         0x0025
 
+/* Stream and sensor specific */
 #define ZC3XX_R010_CMOSSENSORSELECT    0x0010
 #define ZC3XX_R011_VIDEOSTATUS         0x0011
 #define ZC3XX_R012_VIDEOCONTROLFUNC    0x0012
 
+/* Horizontal and vertical synchros */
 #define ZC3XX_R01D_HSYNC_0             0x001d
 #define ZC3XX_R01E_HSYNC_1             0x001e
 #define ZC3XX_R01F_HSYNC_2             0x001f
 #define ZC3XX_R020_HSYNC_3             0x0020
 
+/* Target picture size in byte */
 #define ZC3XX_R022_TARGETPICTSIZE_0    0x0022
 #define ZC3XX_R023_TARGETPICTSIZE_1    0x0023
 #define ZC3XX_R024_TARGETPICTSIZE_2    0x0024
 
+/* Audio registers */
 #define ZC3XX_R030_AUDIOADC            0x0030
 #define ZC3XX_R031_AUDIOSTREAMSTATUS   0x0031
 #define ZC3XX_R032_AUDIOSTATUS         0x0032
 
+/* Sensor interface */
 #define ZC3XX_R080_HBLANKHIGH          0x0080
 #define ZC3XX_R081_HBLANKLOW           0x0081
 #define ZC3XX_R082_RESETLEVELADDR      0x0082
@@ -64,6 +74,7 @@
 #define ZC3XX_R08D_COMPABILITYMODE     0x008d
 #define ZC3XX_R08E_COMPABILITYMODE2    0x008e
 
+/* I2C control */
 #define ZC3XX_R090_I2CCOMMAND          0x0090
 #define ZC3XX_R091_I2CSTATUS           0x0091
 #define ZC3XX_R092_I2CADDRESSSELECT    0x0092
@@ -72,6 +83,7 @@
 #define ZC3XX_R095_I2CREAD             0x0095
 #define ZC3XX_R096_I2CREADACK          0x0096
 
+/* Window inside the sensor array */
 #define ZC3XX_R097_WINYSTARTHIGH       0x0097
 #define ZC3XX_R098_WINYSTARTLOW        0x0098
 #define ZC3XX_R099_WINXSTARTHIGH       0x0099
@@ -85,6 +97,7 @@
 #define ZC3XX_R11B_FIRSTXHIGH          0x011b
 #define ZC3XX_R11C_FIRSTXLOW           0x011c
 
+/* Max sensor array size */
 #define ZC3XX_R09F_MAXXHIGH            0x009f
 #define ZC3XX_R0A0_MAXXLOW             0x00a0
 #define ZC3XX_R0A1_MAXYHIGH            0x00a1
@@ -94,9 +107,11 @@
 #define ZC3XX_R0A5_EXPOSUREGAIN        0x00a5
 #define ZC3XX_R0A6_EXPOSUREBLACKLVL    0x00a6
 
+/* Other registers */
 #define ZC3XX_R100_OPERATIONMODE       0x0100
 #define ZC3XX_R101_SENSORCORRECTION    0x0101
 
+/* Gains */
 #define ZC3XX_R116_RGAIN               0x0116
 #define ZC3XX_R117_GGAIN               0x0117
 #define ZC3XX_R118_BGAIN               0x0118
@@ -105,6 +120,7 @@
 #define ZC3XX_R1A9_DIGITALLIMITDIFF    0x01a9
 #define ZC3XX_R1AA_DIGITALGAINSTEP     0x01aa
 
+/* Auto correction */
 #define ZC3XX_R180_AUTOCORRECTENABLE   0x0180
 #define ZC3XX_R181_WINXSTART           0x0181
 #define ZC3XX_R182_WINXWIDTH           0x0182
@@ -113,9 +129,11 @@
 #define ZC3XX_R185_WINYWIDTH           0x0185
 #define ZC3XX_R186_WINYCENTER          0x0186
 
+/* Gain range */
 #define ZC3XX_R187_MAXGAIN             0x0187
 #define ZC3XX_R188_MINGAIN             0x0188
 
+/* Auto exposure and white balance */
 #define ZC3XX_R189_AWBSTATUS           0x0189
 #define ZC3XX_R18A_AWBFREEZE           0x018a
 #define ZC3XX_R18B_AESTATUS            0x018b
@@ -128,9 +146,11 @@
 #define ZC3XX_R196_ANTIFLICKERMID      0x0196
 #define ZC3XX_R197_ANTIFLICKERLOW      0x0197
 
+/* What is this ? */
 #define ZC3XX_R18D_YTARGET             0x018d
 #define ZC3XX_R18E_RESETLVL            0x018e
 
+/* Color */
 #define ZC3XX_R1A0_REDMEANAFTERAGC     0x01a0
 #define ZC3XX_R1A1_GREENMEANAFTERAGC   0x01a1
 #define ZC3XX_R1A2_BLUEMEANAFTERAGC    0x01a2
@@ -140,7 +160,13 @@
 #define ZC3XX_R1A6_YMEANAFTERAE        0x01a6
 #define ZC3XX_R1A7_CALCGLOBALMEAN      0x01a7
 
+/* Matrixes */
 
+/* Color matrix is like :
+   R' = R * RGB00 + G * RGB01 + B * RGB02 + RGB03
+   G' = R * RGB10 + G * RGB11 + B * RGB22 + RGB13
+   B' = R * RGB20 + G * RGB21 + B * RGB12 + RGB23
+ */
 #define ZC3XX_R10A_RGB00               0x010a
 #define ZC3XX_R10B_RGB01               0x010b
 #define ZC3XX_R10C_RGB02               0x010c
@@ -154,6 +180,7 @@
 #define ZC3XX_R112_RGB22               0x0112
 #define ZC3XX_R115_RGB23               0x0115
 
+/* Gamma matrix */
 #define ZC3XX_R120_GAMMA00             0x0120
 #define ZC3XX_R121_GAMMA01             0x0121
 #define ZC3XX_R122_GAMMA02             0x0122
@@ -187,6 +214,7 @@
 #define ZC3XX_R13E_GAMMA1E             0x013e
 #define ZC3XX_R13F_GAMMA1F             0x013f
 
+/* Luminance gamma */
 #define ZC3XX_R140_YGAMMA00            0x0140
 #define ZC3XX_R141_YGAMMA01            0x0141
 #define ZC3XX_R142_YGAMMA02            0x0142
@@ -214,8 +242,10 @@
 #define ZC3XX_R1CA_SHARPNESS04         0x01ca
 #define ZC3XX_R1CB_SHARPNESS05         0x01cb
 
+/* Dead pixels */
 #define ZC3XX_R250_DEADPIXELSMODE      0x0250
 
+/* EEPROM */
 #define ZC3XX_R300_EEPROMCONFIG        0x0300
 #define ZC3XX_R301_EEPROMACCESS        0x0301
 #define ZC3XX_R302_EEPROMSTATUS        0x0302

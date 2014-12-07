@@ -94,6 +94,10 @@ static int alloc_host_sq(struct c4iw_rdev *rdev, struct t4_sq *sq)
 static int destroy_qp(struct c4iw_rdev *rdev, struct t4_wq *wq,
 		      struct c4iw_dev_ucontext *uctx)
 {
+	/*
+	 * uP clears EQ contexts when the connection exits rdma mode,
+	 * so no need to post a RESET WR for these EQs.
+	 */
 	dma_free_coherent(&(rdev->lldi.pdev->dev),
 			  wq->rq.memsize, wq->rq.queue,
 			  dma_unmap_addr(&wq->rq, mapping));
@@ -139,6 +143,9 @@ static int create_qp(struct c4iw_rdev *rdev, struct t4_wq *wq,
 			goto err3;
 	}
 
+	/*
+	 * RQT must be a power of 2.
+	 */
 	wq->rq.rqt_size = roundup_pow_of_two(wq->rq.size);
 	wq->rq.rqt_hwaddr = c4iw_rqtpool_alloc(rdev, wq->rq.rqt_size);
 	if (!wq->rq.rqt_hwaddr)
@@ -179,7 +186,7 @@ static int create_qp(struct c4iw_rdev *rdev, struct t4_wq *wq,
 	wq->rdev = rdev;
 	wq->rq.msn = 1;
 
-	
+	/* build fw_ri_res_wr */
 	wr_len = sizeof *res_wr + 2 * sizeof *res;
 
 	skb = alloc_skb(wr_len, GFP_KERNEL);
@@ -201,12 +208,15 @@ static int create_qp(struct c4iw_rdev *rdev, struct t4_wq *wq,
 	res->u.sqrq.restype = FW_RI_RES_TYPE_SQ;
 	res->u.sqrq.op = FW_RI_RES_OP_WRITE;
 
+	/*
+	 * eqsize is the number of 64B entries plus the status page size.
+	 */
 	eqsize = wq->sq.size * T4_SQ_NUM_SLOTS + T4_EQ_STATUS_ENTRIES;
 
 	res->u.sqrq.fetchszm_to_iqid = cpu_to_be32(
-		V_FW_RI_RES_WR_HOSTFCMODE(0) |	
-		V_FW_RI_RES_WR_CPRIO(0) |	
-		V_FW_RI_RES_WR_PCIECHN(0) |	
+		V_FW_RI_RES_WR_HOSTFCMODE(0) |	/* no host cidx updates */
+		V_FW_RI_RES_WR_CPRIO(0) |	/* don't keep in chip cache */
+		V_FW_RI_RES_WR_PCIECHN(0) |	/* set by uP at ri_init time */
 		(t4_sq_onchip(&wq->sq) ? F_FW_RI_RES_WR_ONCHIP : 0) |
 		V_FW_RI_RES_WR_IQID(scq->cqid));
 	res->u.sqrq.dcaen_to_eqsize = cpu_to_be32(
@@ -223,11 +233,14 @@ static int create_qp(struct c4iw_rdev *rdev, struct t4_wq *wq,
 	res->u.sqrq.restype = FW_RI_RES_TYPE_RQ;
 	res->u.sqrq.op = FW_RI_RES_OP_WRITE;
 
+	/*
+	 * eqsize is the number of 64B entries plus the status page size.
+	 */
 	eqsize = wq->rq.size * T4_RQ_NUM_SLOTS + T4_EQ_STATUS_ENTRIES;
 	res->u.sqrq.fetchszm_to_iqid = cpu_to_be32(
-		V_FW_RI_RES_WR_HOSTFCMODE(0) |	
-		V_FW_RI_RES_WR_CPRIO(0) |	
-		V_FW_RI_RES_WR_PCIECHN(0) |	
+		V_FW_RI_RES_WR_HOSTFCMODE(0) |	/* no host cidx updates */
+		V_FW_RI_RES_WR_CPRIO(0) |	/* don't keep in chip cache */
+		V_FW_RI_RES_WR_PCIECHN(0) |	/* set by uP at ri_init time */
 		V_FW_RI_RES_WR_IQID(rcq->cqid));
 	res->u.sqrq.dcaen_to_eqsize = cpu_to_be32(
 		V_FW_RI_RES_WR_DCAEN(0) |
@@ -915,6 +928,9 @@ static void post_terminate(struct c4iw_qp *qhp, struct t4_cqe *err_cqe,
 	c4iw_ofld_send(&qhp->rhp->rdev, skb);
 }
 
+/*
+ * Assumes qhp lock is held.
+ */
 static void __flush_qp(struct c4iw_qp *qhp, struct c4iw_cq *rchp,
 		       struct c4iw_cq *schp)
 {
@@ -924,7 +940,7 @@ static void __flush_qp(struct c4iw_qp *qhp, struct c4iw_cq *rchp,
 
 	PDBG("%s qhp %p rchp %p schp %p\n", __func__, qhp, rchp, schp);
 
-	
+	/* locking hierarchy: cq lock first, then qp lock. */
 	spin_lock_irqsave(&rchp->lock, flag);
 	spin_lock(&qhp->lock);
 	c4iw_flush_hw_cq(&rchp->cq);
@@ -938,7 +954,7 @@ static void __flush_qp(struct c4iw_qp *qhp, struct c4iw_cq *rchp,
 		spin_unlock_irqrestore(&rchp->comp_handler_lock, flag);
 	}
 
-	
+	/* locking hierarchy: cq lock first, then qp lock. */
 	spin_lock_irqsave(&schp->lock, flag);
 	spin_lock(&qhp->lock);
 	c4iw_flush_hw_cq(&schp->cq);
@@ -1131,7 +1147,7 @@ int c4iw_modify_qp(struct c4iw_dev *rhp, struct c4iw_qp *qhp,
 
 	mutex_lock(&qhp->mutex);
 
-	
+	/* Process attr changes if in IDLE */
 	if (mask & C4IW_QP_ATTR_VALID_MODIFY) {
 		if (qhp->attr.state != C4IW_QP_STATE_IDLE) {
 			ret = -EIO;
@@ -1182,6 +1198,12 @@ int c4iw_modify_qp(struct c4iw_dev *rhp, struct c4iw_qp *qhp,
 			qhp->ep = qhp->attr.llp_stream_handle;
 			set_state(qhp, C4IW_QP_STATE_RTS);
 
+			/*
+			 * Ref the endpoint here and deref when we
+			 * disassociate the endpoint from the QP.  This
+			 * happens in CLOSING->IDLE transition or *->ERROR
+			 * transition.
+			 */
 			c4iw_get_ep(&qhp->ep->com);
 			ret = rdma_init(rhp, qhp);
 			if (ret)
@@ -1293,7 +1315,7 @@ err:
 	PDBG("%s disassociating ep %p qpid 0x%x\n", __func__, qhp->ep,
 	     qhp->wq.sq.qid);
 
-	
+	/* disassociate the LLP connection */
 	qhp->attr.llp_stream_handle = NULL;
 	if (!ep)
 		ep = qhp->ep;
@@ -1309,12 +1331,21 @@ out:
 	if (terminate)
 		post_terminate(qhp, NULL, internal ? GFP_ATOMIC : GFP_KERNEL);
 
+	/*
+	 * If disconnect is 1, then we need to initiate a disconnect
+	 * on the EP.  This can be a normal close (RTS->CLOSING) or
+	 * an abnormal close (RTS/CLOSING->ERROR).
+	 */
 	if (disconnect) {
 		c4iw_ep_disconnect(ep, abort, internal ? GFP_ATOMIC :
 							 GFP_KERNEL);
 		c4iw_put_ep(&ep->com);
 	}
 
+	/*
+	 * If free is 1, then we've disassociated the EP from the QP
+	 * and we need to dereference the EP.
+	 */
 	if (free)
 		c4iw_put_ep(&ep->com);
 	PDBG("%s exit state %d\n", __func__, qhp->attr.state);
@@ -1556,11 +1587,11 @@ int c4iw_ib_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 
 	PDBG("%s ib_qp %p\n", __func__, ibqp);
 
-	
+	/* iwarp does not support the RTR state */
 	if ((attr_mask & IB_QP_STATE) && (attr->qp_state == IB_QPS_RTR))
 		attr_mask &= ~IB_QP_STATE;
 
-	
+	/* Make sure we still have something left to do */
 	if (!attr_mask)
 		return 0;
 

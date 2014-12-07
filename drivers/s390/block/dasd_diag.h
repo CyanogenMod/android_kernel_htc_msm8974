@@ -1,3 +1,12 @@
+/*
+ * File...........: linux/drivers/s390/block/dasd_diag.h
+ * Author(s)......: Holger Smolinski <Holger.Smolinski@de.ibm.com>
+ * Based on.......: linux/drivers/s390/block/mdisk.h
+ * ...............: by Hartmunt Penner <hpenner@de.ibm.com>
+ * Bugreports.to..: <Linux390@de.ibm.com>
+ * (C) IBM Corporation, IBM Deutschland Entwicklung GmbH, 1999,2000
+ *
+ */
 
 #define MDSK_WRITE_REQ 0x01
 #define MDSK_READ_REQ  0x02
@@ -72,7 +81,7 @@ struct dasd_diag_rw_io {
 	struct dasd_diag_bio *bio_list;
 	u8  spare4[8];
 } __attribute__ ((packed, aligned(8)));
-#else 
+#else /* CONFIG_64BIT */
 #define DASD_DIAG_FLAGA_DEFAULT		0x0
 
 typedef u32 blocknum_t;
@@ -111,4 +120,4 @@ struct dasd_diag_rw_io {
 	u32 interrupt_params;
 	u8 spare3[20];
 } __attribute__ ((packed, aligned(8)));
-#endif 
+#endif /* CONFIG_64BIT */

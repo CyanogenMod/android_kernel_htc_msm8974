@@ -21,6 +21,9 @@
 static unsigned long kernel_virtual_offset;
 static int is_xencomm_initialized;
 
+/* for xen early printk. It uses console io hypercall which uses xencomm.
+ * However early printk may use it before xencomm initialization.
+ */
 int
 xencomm_is_initialized(void)
 {
@@ -34,6 +37,7 @@ xencomm_initialize(void)
 	is_xencomm_initialized = 1;
 }
 
+/* Translate virtual address to physical address.  */
 unsigned long
 xencomm_vtop(unsigned long vaddr)
 {
@@ -49,11 +53,15 @@ xencomm_vtop(unsigned long vaddr)
 		pmd_t *pmd;
 		pte_t *ptep;
 
+		/* On ia64, TASK_SIZE refers to current.  It is not initialized
+		   during boot.
+		   Furthermore the kernel is relocatable and __pa() doesn't
+		   work on  addresses.  */
 		if (vaddr >= KERNEL_START
 		    && vaddr < (KERNEL_START + KERNEL_TR_PAGE_SIZE))
 			return vaddr - kernel_virtual_offset;
 
-		
+		/* In kernel area -- virtually mapped.  */
 		pgd = pgd_offset_k(vaddr);
 		if (pgd_none(*pgd) || pgd_bad(*pgd))
 			return ~0UL;
@@ -74,21 +82,21 @@ xencomm_vtop(unsigned long vaddr)
 	}
 
 	if (vaddr > TASK_SIZE) {
-		
+		/* percpu variables */
 		if (REGION_NUMBER(vaddr) == 7 &&
 		    REGION_OFFSET(vaddr) >= (1ULL << IA64_MAX_PHYS_BITS))
 			ia64_tpa(vaddr);
 
-		
+		/* kernel address */
 		return __pa(vaddr);
 	}
 
-	
+	/* XXX double-check (lack of) locking */
 	vma = find_extend_vma(current->mm, vaddr);
 	if (!vma)
 		return ~0UL;
 
-	
+	/* We assume the page is modified.  */
 	page = follow_page(vma, vaddr, FOLL_WRITE | FOLL_TOUCH);
 	if (!page)
 		return ~0UL;

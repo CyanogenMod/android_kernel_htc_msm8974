@@ -10,6 +10,10 @@
 
 static inline void mmc_init_progress(void)
 {
+       /* Initialise LEDS1-4
+        * registers: PORT185CR-PORT188CR (LED1-LED4 Control)
+        * value:     0x10 - enable output
+        */
        __raw_writeb(0x10, PORT185CR);
        __raw_writeb(0x10, PORT186CR);
        __raw_writeb(0x10, PORT187CR);
@@ -22,4 +26,4 @@ static inline void mmc_update_progress(int n)
 		     (1 << (25 + n)), PORTR191_160DR);
 }
 
-#endif 
+#endif /* MMC_AP4EB_H */

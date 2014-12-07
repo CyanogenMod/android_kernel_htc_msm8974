@@ -31,24 +31,31 @@ struct device_node;
 
 #ifdef CONFIG_EEH
 
-#define EEH_MODE_SUPPORTED	(1<<0)	
-#define EEH_MODE_NOCHECK	(1<<1)	
-#define EEH_MODE_ISOLATED	(1<<2)	
-#define EEH_MODE_RECOVERING	(1<<3)	
-#define EEH_MODE_IRQ_DISABLED	(1<<4)	
+/*
+ * The struct is used to trace EEH state for the associated
+ * PCI device node or PCI device. In future, it might
+ * represent PE as well so that the EEH device to form
+ * another tree except the currently existing tree of PCI
+ * buses and PCI devices
+ */
+#define EEH_MODE_SUPPORTED	(1<<0)	/* EEH supported on the device	*/
+#define EEH_MODE_NOCHECK	(1<<1)	/* EEH check should be skipped	*/
+#define EEH_MODE_ISOLATED	(1<<2)	/* The device has been isolated	*/
+#define EEH_MODE_RECOVERING	(1<<3)	/* Recovering the device	*/
+#define EEH_MODE_IRQ_DISABLED	(1<<4)	/* Interrupt disabled		*/
 
 struct eeh_dev {
-	int mode;			
-	int class_code;			
-	int config_addr;		
-	int pe_config_addr;		
-	int check_count;		
-	int freeze_count;		
-	int false_positives;		
-	u32 config_space[16];		
-	struct pci_controller *phb;	
-	struct device_node *dn;		
-	struct pci_dev *pdev;		
+	int mode;			/* EEH mode			*/
+	int class_code;			/* Class code of the device	*/
+	int config_addr;		/* Config address		*/
+	int pe_config_addr;		/* PE config address		*/
+	int check_count;		/* Times of ignored error	*/
+	int freeze_count;		/* Times of froze up		*/
+	int false_positives;		/* Times of reported #ff's	*/
+	u32 config_space[16];		/* Saved PCI config space	*/
+	struct pci_controller *phb;	/* Associated PHB		*/
+	struct device_node *dn;		/* Associated device node	*/
+	struct pci_dev *pdev;		/* Associated PCI device	*/
 };
 
 static inline struct device_node *eeh_dev_to_of_node(struct eeh_dev *edev)
@@ -61,22 +68,29 @@ static inline struct pci_dev *eeh_dev_to_pci_dev(struct eeh_dev *edev)
 	return edev->pdev;
 }
 
-#define EEH_OPT_DISABLE		0	
-#define EEH_OPT_ENABLE		1	
-#define EEH_OPT_THAW_MMIO	2	
-#define EEH_OPT_THAW_DMA	3	
-#define EEH_STATE_UNAVAILABLE	(1 << 0)	
-#define EEH_STATE_NOT_SUPPORT	(1 << 1)	
-#define EEH_STATE_RESET_ACTIVE	(1 << 2)	
-#define EEH_STATE_MMIO_ACTIVE	(1 << 3)	
-#define EEH_STATE_DMA_ACTIVE	(1 << 4)	
-#define EEH_STATE_MMIO_ENABLED	(1 << 5)	
-#define EEH_STATE_DMA_ENABLED	(1 << 6)	
-#define EEH_RESET_DEACTIVATE	0	
-#define EEH_RESET_HOT		1	
-#define EEH_RESET_FUNDAMENTAL	3	
-#define EEH_LOG_TEMP		1	
-#define EEH_LOG_PERM		2	
+/*
+ * The struct is used to trace the registered EEH operation
+ * callback functions. Actually, those operation callback
+ * functions are heavily platform dependent. That means the
+ * platform should register its own EEH operation callback
+ * functions before any EEH further operations.
+ */
+#define EEH_OPT_DISABLE		0	/* EEH disable	*/
+#define EEH_OPT_ENABLE		1	/* EEH enable	*/
+#define EEH_OPT_THAW_MMIO	2	/* MMIO enable	*/
+#define EEH_OPT_THAW_DMA	3	/* DMA enable	*/
+#define EEH_STATE_UNAVAILABLE	(1 << 0)	/* State unavailable	*/
+#define EEH_STATE_NOT_SUPPORT	(1 << 1)	/* EEH not supported	*/
+#define EEH_STATE_RESET_ACTIVE	(1 << 2)	/* Active reset		*/
+#define EEH_STATE_MMIO_ACTIVE	(1 << 3)	/* Active MMIO		*/
+#define EEH_STATE_DMA_ACTIVE	(1 << 4)	/* Active DMA		*/
+#define EEH_STATE_MMIO_ENABLED	(1 << 5)	/* MMIO enabled		*/
+#define EEH_STATE_DMA_ENABLED	(1 << 6)	/* DMA enabled		*/
+#define EEH_RESET_DEACTIVATE	0	/* Deactivate the PE reset	*/
+#define EEH_RESET_HOT		1	/* Hot reset			*/
+#define EEH_RESET_FUNDAMENTAL	3	/* Fundamental reset		*/
+#define EEH_LOG_TEMP		1	/* EEH temporary error log	*/
+#define EEH_LOG_PERM		2	/* EEH permanent error log	*/
 
 struct eeh_ops {
 	char *name;
@@ -95,6 +109,10 @@ struct eeh_ops {
 extern struct eeh_ops *eeh_ops;
 extern int eeh_subsystem_enabled;
 
+/*
+ * Max number of EEH freezes allowed before we consider the device
+ * to be permanently disabled.
+ */
 #define EEH_MAX_ALLOWED_FREEZES 5
 
 void * __devinit eeh_dev_init(struct device_node *dn, void *data);
@@ -114,11 +132,22 @@ void eeh_add_device_tree_early(struct device_node *);
 void eeh_add_device_tree_late(struct pci_bus *);
 void eeh_remove_bus_device(struct pci_dev *);
 
+/**
+ * EEH_POSSIBLE_ERROR() -- test for possible MMIO failure.
+ *
+ * If this macro yields TRUE, the caller relays to eeh_check_failure()
+ * which does further tests out of line.
+ */
 #define EEH_POSSIBLE_ERROR(val, type)	((val) == (type)~0 && eeh_subsystem_enabled)
 
+/*
+ * Reads from a device which has been isolated by EEH will return
+ * all 1s.  This macro gives an all-1s value of the given size (in
+ * bytes: 1, 2, or 4) for comparing with the result of a read.
+ */
 #define EEH_IO_ERROR_VALUE(size)	(~0U >> ((4 - (size)) * 8))
 
-#else 
+#else /* !CONFIG_EEH */
 
 static inline void *eeh_dev_init(struct device_node *dn, void *data)
 {
@@ -136,7 +165,7 @@ static inline int eeh_pseries_init(void)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PPC_PSERIES */
 
 static inline unsigned long eeh_check_failure(const volatile void __iomem *token, unsigned long val)
 {
@@ -157,9 +186,12 @@ static inline void eeh_add_device_tree_late(struct pci_bus *bus) { }
 static inline void eeh_remove_bus_device(struct pci_dev *dev) { }
 #define EEH_POSSIBLE_ERROR(val, type) (0)
 #define EEH_IO_ERROR_VALUE(size) (-1UL)
-#endif 
+#endif /* CONFIG_EEH */
 
 #ifdef CONFIG_PPC64
+/*
+ * MMIO read/write operations with EEH support.
+ */
 static inline u8 eeh_readb(const volatile void __iomem *addr)
 {
 	u8 val = in_8(addr);
@@ -222,10 +254,14 @@ static inline void eeh_memcpy_fromio(void *dest, const
 {
 	_memcpy_fromio(dest, src, n);
 
+	/* Look for ffff's here at dest[n].  Assume that at least 4 bytes
+	 * were copied. Check all four bytes.
+	 */
 	if (n >= 4 && EEH_POSSIBLE_ERROR(*((u32 *)(dest + n - 4)), u32))
 		eeh_check_failure(src, *((u32 *)(dest + n - 4)));
 }
 
+/* in-string eeh macros */
 static inline void eeh_readsb(const volatile void __iomem *addr, void * buf,
 			      int ns)
 {
@@ -250,6 +286,6 @@ static inline void eeh_readsl(const volatile void __iomem *addr, void * buf,
 		eeh_check_failure(addr, *(u32*)buf);
 }
 
-#endif 
-#endif 
-#endif 
+#endif /* CONFIG_PPC64 */
+#endif /* __KERNEL__ */
+#endif /* _POWERPC_EEH_H */

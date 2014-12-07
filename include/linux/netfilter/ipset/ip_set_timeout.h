@@ -10,11 +10,14 @@
 
 #ifdef __KERNEL__
 
+/* How often should the gc be run by default */
 #define IPSET_GC_TIME			(3 * 60)
 
+/* Timeout period depending on the timeout value of the given set */
 #define IPSET_GC_PERIOD(timeout) \
 	((timeout/3) ? min_t(u32, (timeout)/3, IPSET_GC_TIME) : 1)
 
+/* Set is defined without timeout support: timeout value may be 0 */
 #define IPSET_NO_TIMEOUT	UINT_MAX
 
 #define with_timeout(timeout)	((timeout) != IPSET_NO_TIMEOUT)
@@ -27,14 +30,17 @@ ip_set_timeout_uget(struct nlattr *tb)
 {
 	unsigned int timeout = ip_set_get_h32(tb);
 
-	
+	/* Userspace supplied TIMEOUT parameter: adjust crazy size */
 	return timeout == IPSET_NO_TIMEOUT ? IPSET_NO_TIMEOUT - 1 : timeout;
 }
 
 #ifdef IP_SET_BITMAP_TIMEOUT
 
+/* Bitmap specific timeout constants and macros for the entries */
 
+/* Bitmap entry is unset */
 #define IPSET_ELEM_UNSET	0
+/* Bitmap entry is set with no timeout value */
 #define IPSET_ELEM_PERMANENT	(UINT_MAX/2)
 
 static inline bool
@@ -63,7 +69,7 @@ ip_set_timeout_set(u32 timeout)
 
 	t = msecs_to_jiffies(timeout * 1000) + jiffies;
 	if (t == IPSET_ELEM_UNSET || t == IPSET_ELEM_PERMANENT)
-		
+		/* Bingo! */
 		t++;
 
 	return t;
@@ -78,7 +84,9 @@ ip_set_timeout_get(unsigned long timeout)
 
 #else
 
+/* Hash specific timeout constants and macros for the entries */
 
+/* Hash entry is set with no timeout value */
 #define IPSET_ELEM_PERMANENT	0
 
 static inline bool
@@ -105,7 +113,7 @@ ip_set_timeout_set(u32 timeout)
 
 	t = msecs_to_jiffies(timeout * 1000) + jiffies;
 	if (t == IPSET_ELEM_PERMANENT)
-		
+		/* Bingo! :-) */
 		t++;
 
 	return t;
@@ -117,8 +125,8 @@ ip_set_timeout_get(unsigned long timeout)
 	return timeout == IPSET_ELEM_PERMANENT ? 0 :
 		jiffies_to_msecs(timeout - jiffies)/1000;
 }
-#endif 
+#endif /* ! IP_SET_BITMAP_TIMEOUT */
 
-#endif	
+#endif	/* __KERNEL__ */
 
-#endif 
+#endif /* _IP_SET_TIMEOUT_H */

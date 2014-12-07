@@ -14,4 +14,4 @@ extern void __init pxa26x_init_irq(void);
 
 #define pxa25x_handle_irq	icip_handle_irq
 
-#endif 
+#endif /* __MACH_PXA25x_H */

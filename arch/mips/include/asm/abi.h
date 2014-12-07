@@ -24,4 +24,4 @@ struct mips_abi {
 	const unsigned long	restart;
 };
 
-#endif 
+#endif /* _ASM_ABI_H */

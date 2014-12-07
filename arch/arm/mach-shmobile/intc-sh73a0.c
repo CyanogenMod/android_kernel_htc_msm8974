@@ -33,7 +33,7 @@
 enum {
 	UNUSED = 0,
 
-	
+	/* interrupt sources INTCS */
 	PINTCS_PINT1, PINTCS_PINT2,
 	RTDMAC_0_DEI0, RTDMAC_0_DEI1, RTDMAC_0_DEI2, RTDMAC_0_DEI3,
 	CEU, MFI, BBIF2, VPU, TSIF1, _3DG_SGX543, _2DDMAC_2DDM0,
@@ -54,7 +54,7 @@ enum {
 	MSTIF0_MST00I, MSTIF0_MST01I, MSTIF1_MST10I, MSTIF1_MST11I,
 	SPUV,
 
-	
+	/* interrupt groups INTCS */
 	RTDMAC_0, RTDMAC_1, RTDMAC_2, RTDMAC_3,
 	DSITX0, SPU2, TMU1, MSU,
 };
@@ -119,101 +119,102 @@ static struct intc_group intcs_groups[] __initdata = {
 };
 
 static struct intc_mask_reg intcs_mask_registers[] = {
-	{ 0xffd20184, 0xffd201c4, 8, 
+	{ 0xffd20184, 0xffd201c4, 8, /* IMR1SA / IMCR1SA */
 	  { 0, 0, 0, CEU,
 	    0, 0, 0, 0 } },
-	{ 0xffd20188, 0xffd201c8, 8, 
+	{ 0xffd20188, 0xffd201c8, 8, /* IMR2SA / IMCR2SA */
 	  { 0, 0, 0, VPU,
 	    BBIF2, 0, 0, MFI } },
-	{ 0xffd2018c, 0xffd201cc, 8, 
+	{ 0xffd2018c, 0xffd201cc, 8, /* IMR3SA / IMCR3SA */
 	  { 0, 0, 0, _2DDMAC_2DDM0,
 	    0, ASA, PEP, ICB } },
-	{ 0xffd20190, 0xffd201d0, 8, 
+	{ 0xffd20190, 0xffd201d0, 8, /* IMR4SA / IMCR4SA */
 	  { 0, 0, 0, CTI,
 	    JPU_JPEG, 0, LCRC, LCDC } },
-	{ 0xffd20194, 0xffd201d4, 8, 
+	{ 0xffd20194, 0xffd201d4, 8, /* IMR5SA / IMCR5SA */
 	  { KEYSC_KEY, RTDMAC_1_DADERR, RTDMAC_1_DEI5, RTDMAC_1_DEI4,
 	    RTDMAC_0_DEI3, RTDMAC_0_DEI2, RTDMAC_0_DEI1, RTDMAC_0_DEI0 } },
-	{ 0xffd20198, 0xffd201d8, 8, 
+	{ 0xffd20198, 0xffd201d8, 8, /* IMR6SA / IMCR6SA */
 	  { 0, 0, MSIOF, 0,
 	    _3DG_SGX543, 0, 0, 0 } },
-	{ 0xffd2019c, 0xffd201dc, 8, 
+	{ 0xffd2019c, 0xffd201dc, 8, /* IMR7SA / IMCR7SA */
 	  { 0, TMU0_TUNI02, TMU0_TUNI01, TMU0_TUNI00,
 	    0, 0, 0, 0 } },
-	{ 0xffd201a0, 0xffd201e0, 8, 
+	{ 0xffd201a0, 0xffd201e0, 8, /* IMR8SA / IMCR8SA */
 	  { 0, 0, 0, 0,
 	    0, MSU_MSU, MSU_MSU2, MSUG } },
-	{ 0xffd201a4, 0xffd201e4, 8, 
+	{ 0xffd201a4, 0xffd201e4, 8, /* IMR9SA / IMCR9SA */
 	  { 0, RWDT0, CMT2, CMT0,
 	    0, 0, 0, 0 } },
-	{ 0xffd201ac, 0xffd201ec, 8, 
+	{ 0xffd201ac, 0xffd201ec, 8, /* IMR11SA / IMCR11SA */
 	  { 0, 0, 0, 0,
 	    0, TSIF1, LMB, TSIF0 } },
-	{ 0xffd201b0, 0xffd201f0, 8, 
+	{ 0xffd201b0, 0xffd201f0, 8, /* IMR12SA / IMCR12SA */
 	  { 0, 0, 0, 0,
 	    0, 0, PINTCS_PINT2, PINTCS_PINT1 } },
-	{ 0xffd50180, 0xffd501c0, 8, 
+	{ 0xffd50180, 0xffd501c0, 8, /* IMR0SA3 / IMCR0SA3 */
 	  { RTDMAC_2_DEI6, RTDMAC_2_DEI7, RTDMAC_2_DEI8, RTDMAC_2_DEI9,
 	    RTDMAC_3_DEI10, RTDMAC_3_DEI11, 0, 0 } },
-	{ 0xffd50190, 0xffd501d0, 8, 
+	{ 0xffd50190, 0xffd501d0, 8, /* IMR4SA3 / IMCR4SA3 */
 	  { FRC, 0, 0, GCU,
 	    LCDC1, CSIRX, DSITX0_DSITX00, DSITX0_DSITX01 } },
-	{ 0xffd50194, 0xffd501d4, 8, 
+	{ 0xffd50194, 0xffd501d4, 8, /* IMR5SA3 / IMCR5SA3 */
 	  { SPU2_SPU0, SPU2_SPU1, FSI, 0,
 	    0, 0, 0, 0 } },
-	{ 0xffd50198, 0xffd501d8, 8, 
+	{ 0xffd50198, 0xffd501d8, 8, /* IMR6SA3 / IMCR6SA3 */
 	  { TMU1_TUNI10, TMU1_TUNI11, TMU1_TUNI12, 0,
 	    TSIF2, CMT4, 0, 0 } },
-	{ 0xffd5019c, 0xffd501dc, 8, 
+	{ 0xffd5019c, 0xffd501dc, 8, /* IMR7SA3 / IMCR7SA3 */
 	  { MFIS2, CPORTS2R, 0, 0,
 	    0, 0, 0, TSG } },
-	{ 0xffd501a0, 0xffd501e0, 8, 
+	{ 0xffd501a0, 0xffd501e0, 8, /* IMR8SA3 / IMCR8SA3 */
 	  { DMASCH1, 0, SCUW, VIO60,
 	    VIO61, CEU21, 0, CSI21 } },
-	{ 0xffd501a4, 0xffd501e4, 8, 
+	{ 0xffd501a4, 0xffd501e4, 8, /* IMR9SA3 / IMCR9SA3 */
 	  { DSITX1_DSITX10, DSITX1_DSITX11, DISP, DSRV,
 	    EMUX2_EMUX20I, EMUX2_EMUX21I, MSTIF0_MST00I, MSTIF0_MST01I } },
-	{ 0xffd501a8, 0xffd501e8, 8, 
+	{ 0xffd501a8, 0xffd501e8, 8, /* IMR10SA3 / IMCR10SA3 */
 	  { MSTIF0_MST00I, MSTIF0_MST01I, 0, 0,
 	    0, 0, 0, 0  } },
-	{ 0xffd60180, 0xffd601c0, 8, 
+	{ 0xffd60180, 0xffd601c0, 8, /* IMR0SA4 / IMCR0SA4 */
 	  { SPUV, 0, 0, 0,
 	    0, 0, 0, 0  } },
 };
 
+/* Priority is needed for INTCA to receive the INTCS interrupt */
 static struct intc_prio_reg intcs_prio_registers[] = {
-	{ 0xffd20000, 0, 16, 4,  { CTI, 0, _2DDMAC_2DDM0, ICB } },
-	{ 0xffd20004, 0, 16, 4,  { JPU_JPEG, LCDC, 0, LCRC } },
-	{ 0xffd20008, 0, 16, 4,  { BBIF2, 0, 0, 0 } },
-	{ 0xffd2000c, 0, 16, 4,  { PINTCS_PINT1, PINTCS_PINT2,
+	{ 0xffd20000, 0, 16, 4, /* IPRAS */ { CTI, 0, _2DDMAC_2DDM0, ICB } },
+	{ 0xffd20004, 0, 16, 4, /* IPRBS */ { JPU_JPEG, LCDC, 0, LCRC } },
+	{ 0xffd20008, 0, 16, 4, /* IPRCS */ { BBIF2, 0, 0, 0 } },
+	{ 0xffd2000c, 0, 16, 4, /* IPRDS */ { PINTCS_PINT1, PINTCS_PINT2,
 					      0, 0 } },
-	{ 0xffd20010, 0, 16, 4,  { RTDMAC_0, CEU, MFI, VPU } },
-	{ 0xffd20014, 0, 16, 4,  { KEYSC_KEY, RTDMAC_1,
+	{ 0xffd20010, 0, 16, 4, /* IPRES */ { RTDMAC_0, CEU, MFI, VPU } },
+	{ 0xffd20014, 0, 16, 4, /* IPRFS */ { KEYSC_KEY, RTDMAC_1,
 					      CMT2, CMT0 } },
-	{ 0xffd20018, 0, 16, 4,  { TMU0_TUNI00, TMU0_TUNI01,
+	{ 0xffd20018, 0, 16, 4, /* IPRGS */ { TMU0_TUNI00, TMU0_TUNI01,
 					      TMU0_TUNI02, TSIF1 } },
-	{ 0xffd2001c, 0, 16, 4,  { VINT, 0, 0, 0 } },
-	{ 0xffd20020, 0, 16, 4,  { 0, MSIOF, TSIF0, 0 } },
-	{ 0xffd20024, 0, 16, 4,  { 0, _3DG_SGX543, MSUG, MSU } },
-	{ 0xffd20028, 0, 16, 4,  { 0, ASA, LMB, PEP } },
-	{ 0xffd20030, 0, 16, 4,  { 0, 0, 0, RWDT0 } },
-	{ 0xffd50000, 0, 16, 4,  { RTDMAC_2, 0, 0, 0 } },
-	{ 0xffd50004, 0, 16, 4,  { RTDMAC_3, 0, 0, 0 } },
-	{ 0xffd50020, 0, 16, 4,  { FRC, 0, 0, 0 } },
-	{ 0xffd50024, 0, 16, 4,  { LCDC1, CSIRX, DSITX0, 0 } },
-	{ 0xffd50028, 0, 16, 4,  { SPU2, 0, FSI, 0 } },
-	{ 0xffd50030, 0, 16, 4,  { TMU1, 0, 0, TSIF2 } },
-	{ 0xffd50034, 0, 16, 4,  { CMT4, 0, 0, 0 } },
-	{ 0xffd50038, 0, 16, 4,  { MFIS2, CPORTS2R, 0, 0 } },
-	{ 0xffd50040, 0, 16, 4,  { DMASCH1, 0, SCUW, VIO60 } },
-	{ 0xffd50044, 0, 16, 4,  { VIO61, CEU21, 0, CSI21 } },
-	{ 0xffd50048, 0, 16, 4,  { DSITX1_DSITX10, DSITX1_DSITX11,
+	{ 0xffd2001c, 0, 16, 4, /* IPRHS */ { VINT, 0, 0, 0 } },
+	{ 0xffd20020, 0, 16, 4, /* IPRIS */ { 0, MSIOF, TSIF0, 0 } },
+	{ 0xffd20024, 0, 16, 4, /* IPRJS */ { 0, _3DG_SGX543, MSUG, MSU } },
+	{ 0xffd20028, 0, 16, 4, /* IPRKS */ { 0, ASA, LMB, PEP } },
+	{ 0xffd20030, 0, 16, 4, /* IPRMS */ { 0, 0, 0, RWDT0 } },
+	{ 0xffd50000, 0, 16, 4, /* IPRAS3 */ { RTDMAC_2, 0, 0, 0 } },
+	{ 0xffd50004, 0, 16, 4, /* IPRBS3 */ { RTDMAC_3, 0, 0, 0 } },
+	{ 0xffd50020, 0, 16, 4, /* IPRIS3 */ { FRC, 0, 0, 0 } },
+	{ 0xffd50024, 0, 16, 4, /* IPRJS3 */ { LCDC1, CSIRX, DSITX0, 0 } },
+	{ 0xffd50028, 0, 16, 4, /* IPRKS3 */ { SPU2, 0, FSI, 0 } },
+	{ 0xffd50030, 0, 16, 4, /* IPRMS3 */ { TMU1, 0, 0, TSIF2 } },
+	{ 0xffd50034, 0, 16, 4, /* IPRNS3 */ { CMT4, 0, 0, 0 } },
+	{ 0xffd50038, 0, 16, 4, /* IPROS3 */ { MFIS2, CPORTS2R, 0, 0 } },
+	{ 0xffd50040, 0, 16, 4, /* IPRQS3 */ { DMASCH1, 0, SCUW, VIO60 } },
+	{ 0xffd50044, 0, 16, 4, /* IPRRS3 */ { VIO61, CEU21, 0, CSI21 } },
+	{ 0xffd50048, 0, 16, 4, /* IPRSS3 */ { DSITX1_DSITX10, DSITX1_DSITX11,
 					       DISP, DSRV } },
-	{ 0xffd5004c, 0, 16, 4,  { EMUX2_EMUX20I, EMUX2_EMUX21I,
+	{ 0xffd5004c, 0, 16, 4, /* IPRTS3 */ { EMUX2_EMUX20I, EMUX2_EMUX21I,
 					       MSTIF0_MST00I, MSTIF0_MST01I } },
-	{ 0xffd50050, 0, 16, 4,  { MSTIF1_MST10I, MSTIF1_MST11I,
+	{ 0xffd50050, 0, 16, 4, /* IPRUS3 */ { MSTIF1_MST10I, MSTIF1_MST11I,
 					       0, 0 } },
-	{ 0xffd60000, 0, 16, 4,  { SPUV, 0, 0, 0 } },
+	{ 0xffd60000, 0, 16, 4, /* IPRAS4 */ { SPUV, 0, 0, 0 } },
 };
 
 static struct resource intcs_resources[] __initdata = {
@@ -255,11 +256,12 @@ static irqreturn_t sh73a0_intcs_demux(int irq, void *dev_id)
 
 static int sh73a0_set_wake(struct irq_data *data, unsigned int on)
 {
-	return 0; 
+	return 0; /* always allow wakeup */
 }
 
 #define RELOC_BASE 0x1000
 
+/* INTCA IRQ pins at INTCS + 0x1000 to make space for GIC+INTC handling */
 #define INTCS_VECT_RELOC(n, vect) INTCS_VECT((n), (vect) + RELOC_BASE)
 
 INTC_IRQ_PINS_32(intca_irq_pins, 0xe6900000,
@@ -432,13 +434,13 @@ void __init sh73a0_init_irq(void)
 	register_intc_controller(&intc_pint0_desc);
 	register_intc_controller(&intc_pint1_desc);
 
-	
+	/* demux using INTEVTSA */
 	sh73a0_intcs_cascade.name = "INTCS cascade";
 	sh73a0_intcs_cascade.handler = sh73a0_intcs_demux;
 	sh73a0_intcs_cascade.dev_id = intevtsa;
 	setup_irq(gic_spi(50), &sh73a0_intcs_cascade);
 
-	
+	/* IRQ pins require special handling through INTCA and GIC */
 	for (k = 0; k < 32; k++) {
 		sh73a0_irq_pin_cascade[k].name = "INTCA-GIC cascade";
 		sh73a0_irq_pin_cascade[k].handler = sh73a0_irq_pin_demux;
@@ -448,10 +450,10 @@ void __init sh73a0_init_irq(void)
 		WARN_ON(irq_alloc_desc_at(n, numa_node_id()) != n);
 		irq_set_chip_and_handler_name(n, &intca_gic_irq_chip,
 					      handle_level_irq, "level");
-		set_irq_flags(n, IRQF_VALID); 
+		set_irq_flags(n, IRQF_VALID); /* yuck */
 	}
 
-	
+	/* PINT pins are sanely tied to the GIC as SPI */
 	sh73a0_pint0_cascade.name = "PINT0 cascade";
 	sh73a0_pint0_cascade.handler = sh73a0_pint0_demux;
 	setup_irq(gic_spi(33), &sh73a0_pint0_cascade);

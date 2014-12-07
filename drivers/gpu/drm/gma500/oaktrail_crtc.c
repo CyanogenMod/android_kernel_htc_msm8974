@@ -35,7 +35,7 @@ struct oaktrail_limit_t {
 };
 
 struct oaktrail_clock_t {
-	
+	/* derived values */
 	int dot;
 	int m;
 	int p1;
@@ -58,17 +58,17 @@ struct oaktrail_clock_t {
 #define MRST_P1_MAX_1		    8
 
 static const struct oaktrail_limit_t oaktrail_limits[] = {
-	{			
+	{			/* MRST_LIMIT_LVDS_100L */
 	 .dot = {.min = MRST_DOT_MIN, .max = MRST_DOT_MAX},
 	 .m = {.min = MRST_M_MIN_100L, .max = MRST_M_MAX_100L},
 	 .p1 = {.min = MRST_P1_MIN, .max = MRST_P1_MAX_1},
 	 },
-	{			
+	{			/* MRST_LIMIT_LVDS_83L */
 	 .dot = {.min = MRST_DOT_MIN, .max = MRST_DOT_MAX},
 	 .m = {.min = MRST_M_MIN_83, .max = MRST_M_MAX_83},
 	 .p1 = {.min = MRST_P1_MIN, .max = MRST_P1_MAX_0},
 	 },
-	{			
+	{			/* MRST_LIMIT_LVDS_100 */
 	 .dot = {.min = MRST_DOT_MIN, .max = MRST_DOT_MAX},
 	 .m = {.min = MRST_M_MIN_100, .max = MRST_M_MAX_100},
 	 .p1 = {.min = MRST_P1_MIN, .max = MRST_P1_MAX_1},
@@ -109,6 +109,7 @@ static const struct oaktrail_limit_t *oaktrail_limit(struct drm_crtc *crtc)
 	return limit;
 }
 
+/** Derive the pixel clock for the given refclk and divisors for 8xx chips. */
 static void oaktrail_clock(int refclk, struct oaktrail_clock_t *clock)
 {
 	clock->dot = (refclk * clock->m) / (14 * clock->p1);
@@ -120,6 +121,10 @@ static void mrstPrintPll(char *prefix, struct oaktrail_clock_t *clock)
 	     prefix, clock->dot, clock->m, clock->p1);
 }
 
+/**
+ * Returns a set of divisors for the desired target clock with the given refclk,
+ * or FALSE.  Divisor values are the actual divisors for
+ */
 static bool
 mrstFindBestPLL(struct drm_crtc *crtc, int target, int refclk,
 		struct oaktrail_clock_t *best_clock)
@@ -148,6 +153,12 @@ mrstFindBestPLL(struct drm_crtc *crtc, int target, int refclk,
 	return err != target;
 }
 
+/**
+ * Sets the power management mode of the pipe and plane.
+ *
+ * This code should probably grow support for turning the cursor off and back
+ * on appropriately at the same time as we're turning the pipe off/on.
+ */
 static void oaktrail_crtc_dpms(struct drm_crtc *crtc, int mode)
 {
 	struct drm_device *dev = crtc->dev;
@@ -162,65 +173,72 @@ static void oaktrail_crtc_dpms(struct drm_crtc *crtc, int mode)
 	if (!gma_power_begin(dev, true))
 		return;
 
+	/* XXX: When our outputs are all unaware of DPMS modes other than off
+	 * and on, we should map those modes to DRM_MODE_DPMS_OFF in the CRTC.
+	 */
 	switch (mode) {
 	case DRM_MODE_DPMS_ON:
 	case DRM_MODE_DPMS_STANDBY:
 	case DRM_MODE_DPMS_SUSPEND:
-		
+		/* Enable the DPLL */
 		temp = REG_READ(dpll_reg);
 		if ((temp & DPLL_VCO_ENABLE) == 0) {
 			REG_WRITE(dpll_reg, temp);
 			REG_READ(dpll_reg);
-			
+			/* Wait for the clocks to stabilize. */
 			udelay(150);
 			REG_WRITE(dpll_reg, temp | DPLL_VCO_ENABLE);
 			REG_READ(dpll_reg);
-			
+			/* Wait for the clocks to stabilize. */
 			udelay(150);
 			REG_WRITE(dpll_reg, temp | DPLL_VCO_ENABLE);
 			REG_READ(dpll_reg);
-			
+			/* Wait for the clocks to stabilize. */
 			udelay(150);
 		}
-		
+		/* Enable the pipe */
 		temp = REG_READ(pipeconf_reg);
 		if ((temp & PIPEACONF_ENABLE) == 0)
 			REG_WRITE(pipeconf_reg, temp | PIPEACONF_ENABLE);
-		
+		/* Enable the plane */
 		temp = REG_READ(dspcntr_reg);
 		if ((temp & DISPLAY_PLANE_ENABLE) == 0) {
 			REG_WRITE(dspcntr_reg,
 				  temp | DISPLAY_PLANE_ENABLE);
-			
+			/* Flush the plane changes */
 			REG_WRITE(dspbase_reg, REG_READ(dspbase_reg));
 		}
 
 		psb_intel_crtc_load_lut(crtc);
 
-		
+		/* Give the overlay scaler a chance to enable
+		   if it's on this pipe */
+		/* psb_intel_crtc_dpms_video(crtc, true); TODO */
 		break;
 	case DRM_MODE_DPMS_OFF:
-		
+		/* Give the overlay scaler a chance to disable
+		 * if it's on this pipe */
+		/* psb_intel_crtc_dpms_video(crtc, FALSE); TODO */
 
-		
+		/* Disable the VGA plane that we never use */
 		REG_WRITE(VGACNTRL, VGA_DISP_DISABLE);
-		
+		/* Disable display plane */
 		temp = REG_READ(dspcntr_reg);
 		if ((temp & DISPLAY_PLANE_ENABLE) != 0) {
 			REG_WRITE(dspcntr_reg,
 				  temp & ~DISPLAY_PLANE_ENABLE);
-			
+			/* Flush the plane changes */
 			REG_WRITE(dspbase_reg, REG_READ(dspbase_reg));
 			REG_READ(dspbase_reg);
 		}
 
-		
+		/* Next, disable display pipes */
 		temp = REG_READ(pipeconf_reg);
 		if ((temp & PIPEACONF_ENABLE) != 0) {
 			REG_WRITE(pipeconf_reg, temp & ~PIPEACONF_ENABLE);
 			REG_READ(pipeconf_reg);
 		}
-		
+		/* Wait for for the pipe disable to take effect. */
 		psb_intel_wait_for_vblank(dev);
 
 		temp = REG_READ(dpll_reg);
@@ -229,12 +247,12 @@ static void oaktrail_crtc_dpms(struct drm_crtc *crtc, int mode)
 			REG_READ(dpll_reg);
 		}
 
-		
+		/* Wait for the clocks to turn off. */
 		udelay(150);
 		break;
 	}
 
-	
+	/*Set FIFO Watermarks*/
 	REG_WRITE(DSPARB, 0x3FFF);
 	REG_WRITE(DSPFW1, 0x3F88080A);
 	REG_WRITE(DSPFW2, 0x0b060808);
@@ -243,18 +261,22 @@ static void oaktrail_crtc_dpms(struct drm_crtc *crtc, int mode)
 	REG_WRITE(DSPFW5, 0x04040404);
 	REG_WRITE(DSPFW6, 0x78);
 	REG_WRITE(0x70400, REG_READ(0x70400) | 0x4000);
-	
+	/* Must write Bit 14 of the Chicken Bit Register */
 
 	gma_power_end(dev);
 }
 
+/**
+ * Return the pipe currently connected to the panel fitter,
+ * or -1 if the panel fitter is not present or not in use
+ */
 static int oaktrail_panel_fitter_pipe(struct drm_device *dev)
 {
 	u32 pfit_control;
 
 	pfit_control = REG_READ(PFIT_CONTROL);
 
-	
+	/* See if the panel fitter is in use */
 	if ((pfit_control & PFIT_ENABLE) == 0)
 		return -1;
 	return (pfit_control >> 29) & 3;
@@ -321,10 +343,10 @@ static int oaktrail_crtc_mode_set(struct drm_crtc *crtc,
 		}
 	}
 
-	
+	/* Disable the VGA plane that we never use */
 	REG_WRITE(VGACNTRL, VGA_DISP_DISABLE);
 
-	
+	/* Disable the panel fitter if it was on our pipe */
 	if (oaktrail_panel_fitter_pipe(dev) == pipe)
 		REG_WRITE(PFIT_CONTROL, 0);
 
@@ -337,6 +359,9 @@ static int oaktrail_crtc_mode_set(struct drm_crtc *crtc,
 			dev->mode_config.scaling_mode_property, &scalingType);
 
 	if (scalingType == DRM_MODE_SCALE_NO_SCALE) {
+		/* Moorestown doesn't have register support for centering so
+		 * we need to mess with the h/vblank and h/vsync start and
+		 * ends to get centering */
 		int offsetX = 0, offsetY = 0;
 
 		offsetX = (adjusted_mode->crtc_hdisplay -
@@ -375,17 +400,17 @@ static int oaktrail_crtc_mode_set(struct drm_crtc *crtc,
 			((adjusted_mode->crtc_vsync_end - 1) << 16));
 	}
 
-	
+	/* Flush the plane changes */
 	{
 		struct drm_crtc_helper_funcs *crtc_funcs =
 		    crtc->helper_private;
 		crtc_funcs->mode_set_base(crtc, x, y, old_fb);
 	}
 
-	
+	/* setup pipeconf */
 	pipeconf = REG_READ(pipeconf_reg);
 
-	
+	/* Set up the display plane register */
 	dspcntr = REG_READ(dspcntr_reg);
 	dspcntr |= DISPPLANE_GAMMA_ENABLE;
 
@@ -399,7 +424,7 @@ static int oaktrail_crtc_mode_set(struct drm_crtc *crtc,
 
 	refclk = dev_priv->core_freq * 1000;
 
-	dpll = 0;		
+	dpll = 0;		/*BIT16 = 0 for 100MHz reference */
 
 	ok = mrstFindBestPLL(crtc, adjusted_mode->clock, refclk, &clock);
 
@@ -434,7 +459,7 @@ static int oaktrail_crtc_mode_set(struct drm_crtc *crtc,
 	}
 
 
-	
+	/* compute bitmask from p1 value */
 	dpll |= (1 << (clock.p1 - 2)) << 17;
 
 	dpll |= DPLL_VCO_ENABLE;
@@ -445,20 +470,20 @@ static int oaktrail_crtc_mode_set(struct drm_crtc *crtc,
 		REG_WRITE(fp_reg, fp);
 		REG_WRITE(dpll_reg, dpll & ~DPLL_VCO_ENABLE);
 		REG_READ(dpll_reg);
-		
+		/* Check the DPLLA lock bit PIPEACONF[29] */
 		udelay(150);
 	}
 
 	REG_WRITE(fp_reg, fp);
 	REG_WRITE(dpll_reg, dpll);
 	REG_READ(dpll_reg);
-	
+	/* Wait for the clocks to stabilize. */
 	udelay(150);
 
-	
+	/* write it again -- the BIOS does, after all */
 	REG_WRITE(dpll_reg, dpll);
 	REG_READ(dpll_reg);
-	
+	/* Wait for the clocks to stabilize. */
 	udelay(150);
 
 	REG_WRITE(pipeconf_reg, pipeconf);
@@ -496,7 +521,7 @@ static int oaktrail_pipe_set_base(struct drm_crtc *crtc,
 	u32 dspcntr;
 	int ret = 0;
 
-	
+	/* no fb bound */
 	if (!crtc->fb) {
 		dev_dbg(dev->dev, "No FB bound\n");
 		return 0;

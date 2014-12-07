@@ -135,7 +135,7 @@ static int da9052_gpio_direction_input(struct gpio_chip *gc, unsigned offset)
 	unsigned char register_value;
 	int ret;
 
-	
+	/* Format: function - 2 bits type - 1 bit mode - 1 bit */
 	register_value = DA9052_INPUT | DA9052_ACTIVE_LOW << 2 |
 			 DA9052_DEBOUNCING_ON << 3;
 
@@ -161,7 +161,7 @@ static int da9052_gpio_direction_output(struct gpio_chip *gc,
 	unsigned char register_value;
 	int ret;
 
-	
+	/* Format: Function - 2 bits Type - 1 bit Mode - 1 bit */
 	register_value = DA9052_OUTPUT_PUSHPULL | DA9052_SUPPLY_VDD_IO1 << 2 |
 			 value << 3;
 

@@ -39,6 +39,7 @@ MODULE_PARM_DESC(vbi_debug, "enable debug messages [vbi]");
 #define dprintk(level, fmt, arg...)	if (vbi_debug >= level) \
 	printk(KERN_DEBUG "%s: " fmt, dev->core->name , ## arg)
 
+/* ------------------------------------------------------------------ */
 
 static void
 free_buffer(struct videobuf_queue *vq, struct em28xx_buffer *buf)
@@ -49,6 +50,15 @@ free_buffer(struct videobuf_queue *vq, struct em28xx_buffer *buf)
 	if (in_interrupt())
 		BUG();
 
+	/* We used to wait for the buffer to finish here, but this didn't work
+	   because, as we were keeping the state as VIDEOBUF_QUEUED,
+	   videobuf_queue_cancel marked it as finished for us.
+	   (Also, it could wedge forever if the hardware was misconfigured.)
+
+	   This should be safe; by the time we get here, the buffer isn't
+	   queued anymore. If we ever start marking the buffers as
+	   VIDEOBUF_ACTIVE, it won't be, though.
+	*/
 	spin_lock_irqsave(&dev->slock, flags);
 	if (dev->isoc_ctl.vbi_buf == buf)
 		dev->isoc_ctl.vbi_buf = NULL;

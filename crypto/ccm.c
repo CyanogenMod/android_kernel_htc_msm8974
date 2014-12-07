@@ -132,6 +132,9 @@ static int format_input(u8 *info, struct aead_request *req,
 
 	memcpy(info, req->iv, 16);
 
+	/* format control info per RFC 3610 and
+	 * NIST Special Publication 800-38C
+	 */
 	*info |= (8 * ((m - 2) / 2));
 	if (req->assoclen)
 		*info |= 64;
@@ -143,6 +146,9 @@ static int format_adata(u8 *adata, unsigned int a)
 {
 	int len = 0;
 
+	/* add control info for associated data
+	 * RFC 3610 and NIST Special Publication 800-38C
+	 */
 	if (a < 65280) {
 		*(__be16 *)adata = cpu_to_be16(a);
 		len = 2;
@@ -165,7 +171,7 @@ static void compute_mac(struct crypto_cipher *tfm, u8 *data, int n,
 
 	datalen = n;
 
-	
+	/* first time in here, block may be partially filled. */
 	getlen = bs - pctx->ilen;
 	if (datalen >= getlen) {
 		memcpy(idata + pctx->ilen, data, getlen);
@@ -176,7 +182,7 @@ static void compute_mac(struct crypto_cipher *tfm, u8 *data, int n,
 		pctx->ilen = 0;
 	}
 
-	
+	/* now encrypt rest of data */
 	while (datalen >= bs) {
 		crypto_xor(odata, data, bs);
 		crypto_cipher_encrypt_one(tfm, odata, odata);
@@ -185,6 +191,9 @@ static void compute_mac(struct crypto_cipher *tfm, u8 *data, int n,
 		data += bs;
 	}
 
+	/* check and see if there's leftover data that wasn't
+	 * enough to fill a block.
+	 */
 	if (datalen) {
 		memcpy(idata + pctx->ilen, data, datalen);
 		pctx->ilen += datalen;
@@ -219,7 +228,7 @@ static void get_data_to_compute(struct crypto_cipher *tfm,
 			crypto_yield(pctx->flags);
 	}
 
-	
+	/* any leftover needs padding and then encrypted */
 	if (pctx->ilen) {
 		int padlen;
 		u8 *odata = pctx->odata;
@@ -245,15 +254,15 @@ static int crypto_ccm_auth(struct aead_request *req, struct scatterlist *plain,
 	u8 *idata = pctx->idata;
 	int err;
 
-	
+	/* format control data for input */
 	err = format_input(odata, req, cryptlen);
 	if (err)
 		goto out;
 
-	
+	/* encrypt first block to use as start in computing mac  */
 	crypto_cipher_encrypt_one(cipher, odata, odata);
 
-	
+	/* format associated data and compute into mac */
 	if (assoclen) {
 		pctx->ilen = format_adata(idata, assoclen);
 		get_data_to_compute(cipher, pctx, req->assoc, req->assoclen);
@@ -261,7 +270,7 @@ static int crypto_ccm_auth(struct aead_request *req, struct scatterlist *plain,
 		pctx->ilen = 0;
 	}
 
-	
+	/* compute plaintext into mac */
 	get_data_to_compute(cipher, pctx, plain, cryptlen);
 
 out:
@@ -283,7 +292,7 @@ static void crypto_ccm_encrypt_done(struct crypto_async_request *areq, int err)
 
 static inline int crypto_ccm_check_iv(const u8 *iv)
 {
-	
+	/* 2 <= L <= 8, so 1 <= L' <= 7. */
 	if (1 > iv[0] || iv[0] > 7)
 		return -EINVAL;
 
@@ -312,6 +321,9 @@ static int crypto_ccm_encrypt(struct aead_request *req)
 	if (err)
 		return err;
 
+	 /* Note: rfc 3610 and NIST 800-38C require counter of
+	 * zero to encrypt auth tag.
+	 */
 	memset(iv + 15 - iv[0], 0, iv[0] + 1);
 
 	sg_init_table(pctx->src, 2);
@@ -334,7 +346,7 @@ static int crypto_ccm_encrypt(struct aead_request *req)
 	if (err)
 		return err;
 
-	
+	/* copy authtag to end of dst */
 	scatterwalk_map_and_copy(odata, req->dst, cryptlen,
 				 crypto_aead_authsize(aead), 1);
 	return err;
@@ -409,7 +421,7 @@ static int crypto_ccm_decrypt(struct aead_request *req)
 	if (err)
 		return err;
 
-	
+	/* verify */
 	if (memcmp(authtag, odata, authsize))
 		return -EBADMSG;
 
@@ -510,12 +522,12 @@ static struct crypto_instance *crypto_ccm_alloc_common(struct rtattr **tb,
 
 	ctr = crypto_skcipher_spawn_alg(&ictx->ctr);
 
-	
+	/* Not a stream cipher? */
 	err = -EINVAL;
 	if (ctr->cra_blocksize != 1)
 		goto err_drop_ctr;
 
-	
+	/* We want the real thing! */
 	if (ctr->cra_ablkcipher.ivsize != 16)
 		goto err_drop_ctr;
 
@@ -678,7 +690,7 @@ static struct aead_request *crypto_rfc4309_crypt(struct aead_request *req)
 	u8 *iv = PTR_ALIGN((u8 *)(subreq + 1) + crypto_aead_reqsize(child),
 			   crypto_aead_alignmask(child) + 1);
 
-	
+	/* L' */
 	iv[0] = 3;
 
 	memcpy(iv + 1, ctx->nonce, 3);
@@ -775,11 +787,11 @@ static struct crypto_instance *crypto_rfc4309_alloc(struct rtattr **tb)
 
 	err = -EINVAL;
 
-	
+	/* We only support 16-byte blocks. */
 	if (alg->cra_aead.ivsize != 16)
 		goto out_drop_alg;
 
-	
+	/* Not a stream cipher? */
 	if (alg->cra_blocksize != 1)
 		goto out_drop_alg;
 

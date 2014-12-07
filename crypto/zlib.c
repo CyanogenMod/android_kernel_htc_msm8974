@@ -308,6 +308,11 @@ static int zlib_decompress_final(struct crypto_pcomp *tfm,
 
 	if (dctx->decomp_windowBits < 0) {
 		ret = zlib_inflate(stream, Z_SYNC_FLUSH);
+		/*
+		 * Work around a bug in zlib, which sometimes wants to taste an
+		 * extra byte when being used in the (undocumented) raw deflate
+		 * mode. (From USAGI).
+		 */
 		if (ret == Z_OK && !stream->avail_in && stream->avail_out) {
 			const void *saved_next_in = stream->next_in;
 			u8 zerostuff = 0;

@@ -21,6 +21,10 @@
 
 #define EEM_HLEN 2
 
+/*
+ * This function is a "CDC Ethernet Emulation Model" (CDC EEM)
+ * Ethernet link.
+ */
 
 struct f_eem {
 	struct gether			port;
@@ -32,20 +36,23 @@ static inline struct f_eem *func_to_eem(struct usb_function *f)
 	return container_of(f, struct f_eem, port.func);
 }
 
+/*-------------------------------------------------------------------------*/
 
+/* interface descriptor: */
 
 static struct usb_interface_descriptor eem_intf __initdata = {
 	.bLength =		sizeof eem_intf,
 	.bDescriptorType =	USB_DT_INTERFACE,
 
-	
+	/* .bInterfaceNumber = DYNAMIC */
 	.bNumEndpoints =	2,
 	.bInterfaceClass =	USB_CLASS_COMM,
 	.bInterfaceSubClass =	USB_CDC_SUBCLASS_EEM,
 	.bInterfaceProtocol =	USB_CDC_PROTO_EEM,
-	
+	/* .iInterface = DYNAMIC */
 };
 
+/* full speed support: */
 
 static struct usb_endpoint_descriptor eem_fs_in_desc __initdata = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
@@ -64,13 +71,14 @@ static struct usb_endpoint_descriptor eem_fs_out_desc __initdata = {
 };
 
 static struct usb_descriptor_header *eem_fs_function[] __initdata = {
-	
+	/* CDC EEM control descriptors */
 	(struct usb_descriptor_header *) &eem_intf,
 	(struct usb_descriptor_header *) &eem_fs_in_desc,
 	(struct usb_descriptor_header *) &eem_fs_out_desc,
 	NULL,
 };
 
+/* high speed support: */
 
 static struct usb_endpoint_descriptor eem_hs_in_desc __initdata = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
@@ -91,13 +99,14 @@ static struct usb_endpoint_descriptor eem_hs_out_desc __initdata = {
 };
 
 static struct usb_descriptor_header *eem_hs_function[] __initdata = {
-	
+	/* CDC EEM control descriptors */
 	(struct usb_descriptor_header *) &eem_intf,
 	(struct usb_descriptor_header *) &eem_hs_in_desc,
 	(struct usb_descriptor_header *) &eem_hs_out_desc,
 	NULL,
 };
 
+/* super speed support: */
 
 static struct usb_endpoint_descriptor eem_ss_in_desc __initdata = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
@@ -121,13 +130,13 @@ static struct usb_ss_ep_comp_descriptor eem_ss_bulk_comp_desc __initdata = {
 	.bLength =		sizeof eem_ss_bulk_comp_desc,
 	.bDescriptorType =	USB_DT_SS_ENDPOINT_COMP,
 
-	
-	
-	
+	/* the following 2 values can be tweaked if necessary */
+	/* .bMaxBurst =		0, */
+	/* .bmAttributes =	0, */
 };
 
 static struct usb_descriptor_header *eem_ss_function[] __initdata = {
-	
+	/* CDC EEM control descriptors */
 	(struct usb_descriptor_header *) &eem_intf,
 	(struct usb_descriptor_header *) &eem_ss_in_desc,
 	(struct usb_descriptor_header *) &eem_ss_bulk_comp_desc,
@@ -136,14 +145,15 @@ static struct usb_descriptor_header *eem_ss_function[] __initdata = {
 	NULL,
 };
 
+/* string descriptors: */
 
 static struct usb_string eem_string_defs[] = {
 	[0].s = "CDC Ethernet Emulation Model (EEM)",
-	{  } 
+	{  } /* end of list */
 };
 
 static struct usb_gadget_strings eem_string_table = {
-	.language =		0x0409,	
+	.language =		0x0409,	/* en-us */
 	.strings =		eem_string_defs,
 };
 
@@ -152,6 +162,7 @@ static struct usb_gadget_strings *eem_strings[] = {
 	NULL,
 };
 
+/*-------------------------------------------------------------------------*/
 
 static int eem_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 {
@@ -165,7 +176,7 @@ static int eem_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 		ctrl->bRequestType, ctrl->bRequest,
 		w_value, w_index, w_length);
 
-	
+	/* device either stalls (value < 0) or reports success */
 	return value;
 }
 
@@ -176,7 +187,7 @@ static int eem_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 	struct usb_composite_dev *cdev = f->config->cdev;
 	struct net_device	*net;
 
-	
+	/* we know alt == 0, so this is an activation or a reset */
 	if (alt != 0)
 		goto fail;
 
@@ -199,6 +210,9 @@ static int eem_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 			}
 		}
 
+		/* zlps should not occur because zero-length EEM packets
+		 * will be inserted in those cases where they would occur
+		 */
 		eem->port.is_zlp_ok = 1;
 		eem->port.cdc_filter = DEFAULT_FILTER;
 		DBG(cdev, "activate eem\n");
@@ -224,7 +238,9 @@ static void eem_disable(struct usb_function *f)
 		gether_disconnect(&eem->port);
 }
 
+/*-------------------------------------------------------------------------*/
 
+/* EEM function driver setup/binding */
 
 static int __init
 eem_bind(struct usb_configuration *c, struct usb_function *f)
@@ -234,7 +250,7 @@ eem_bind(struct usb_configuration *c, struct usb_function *f)
 	int			status;
 	struct usb_ep		*ep;
 
-	
+	/* allocate instance-specific interface IDs */
 	status = usb_interface_id(c, f);
 	if (status < 0)
 		goto fail;
@@ -243,33 +259,37 @@ eem_bind(struct usb_configuration *c, struct usb_function *f)
 
 	status = -ENODEV;
 
-	
+	/* allocate instance-specific endpoints */
 	ep = usb_ep_autoconfig(cdev->gadget, &eem_fs_in_desc);
 	if (!ep)
 		goto fail;
 	eem->port.in_ep = ep;
-	ep->driver_data = cdev;	
+	ep->driver_data = cdev;	/* claim */
 
 	ep = usb_ep_autoconfig(cdev->gadget, &eem_fs_out_desc);
 	if (!ep)
 		goto fail;
 	eem->port.out_ep = ep;
-	ep->driver_data = cdev;	
+	ep->driver_data = cdev;	/* claim */
 
 	status = -ENOMEM;
 
-	
+	/* copy descriptors, and track endpoint copies */
 	f->descriptors = usb_copy_descriptors(eem_fs_function);
 	if (!f->descriptors)
 		goto fail;
 
+	/* support all relevant hardware speeds... we expect that when
+	 * hardware is dual speed, all bulk-capable endpoints work at
+	 * both speeds
+	 */
 	if (gadget_is_dualspeed(c->cdev->gadget)) {
 		eem_hs_in_desc.bEndpointAddress =
 				eem_fs_in_desc.bEndpointAddress;
 		eem_hs_out_desc.bEndpointAddress =
 				eem_fs_out_desc.bEndpointAddress;
 
-		
+		/* copy descriptors, and track endpoint copies */
 		f->hs_descriptors = usb_copy_descriptors(eem_hs_function);
 		if (!f->hs_descriptors)
 			goto fail;
@@ -281,7 +301,7 @@ eem_bind(struct usb_configuration *c, struct usb_function *f)
 		eem_ss_out_desc.bEndpointAddress =
 				eem_fs_out_desc.bEndpointAddress;
 
-		
+		/* copy descriptors, and track endpoint copies */
 		f->ss_descriptors = usb_copy_descriptors(eem_ss_function);
 		if (!f->ss_descriptors)
 			goto fail;
@@ -299,7 +319,7 @@ fail:
 	if (f->hs_descriptors)
 		usb_free_descriptors(f->hs_descriptors);
 
-	
+	/* we might as well release our claims on endpoints */
 	if (eem->port.out_ep->desc)
 		eem->port.out_ep->driver_data = NULL;
 	if (eem->port.in_ep->desc)
@@ -332,6 +352,11 @@ static void eem_cmd_complete(struct usb_ep *ep, struct usb_request *req)
 	dev_kfree_skb_any(skb);
 }
 
+/*
+ * Add the EEM header and ethernet checksum.
+ * We currently do not attempt to put multiple ethernet frames
+ * into a single USB transfer
+ */
 static struct sk_buff *eem_wrap(struct gether *port, struct sk_buff *skb)
 {
 	struct sk_buff	*skb2 = NULL;
@@ -343,6 +368,9 @@ static struct sk_buff *eem_wrap(struct gether *port, struct sk_buff *skb)
 		int headroom = skb_headroom(skb);
 		int tailroom = skb_tailroom(skb);
 
+		/* When (len + EEM_HLEN + ETH_FCS_LEN) % in->maxpacket) is 0,
+		 * stick two bytes of zero-length EEM packet on the end.
+		 */
 		if (((len + EEM_HLEN + ETH_FCS_LEN) % in->maxpacket) == 0)
 			padlen += 2;
 
@@ -358,19 +386,28 @@ static struct sk_buff *eem_wrap(struct gether *port, struct sk_buff *skb)
 		return skb;
 
 done:
-	
+	/* use the "no CRC" option */
 	put_unaligned_be32(0xdeadbeef, skb_put(skb, 4));
 
+	/* EEM packet header format:
+	 * b0..13:	length of ethernet frame
+	 * b14:		bmCRC (0 == sentinel CRC)
+	 * b15:		bmType (0 == data)
+	 */
 	len = skb->len;
 	put_unaligned_le16(len & 0x3FFF, skb_push(skb, 2));
 
-	
+	/* add a zero-length EEM packet, if needed */
 	if (padlen)
 		put_unaligned_le16(0, skb_put(skb, 2));
 
 	return skb;
 }
 
+/*
+ * Remove the EEM header.  Note that there can be many EEM packets in a single
+ * USB transfer, so we need to break them out and handle them independently.
+ */
 static int eem_unwrap(struct gether *port,
 			struct sk_buff *skb,
 			struct sk_buff_head *list)
@@ -389,20 +426,30 @@ static int eem_unwrap(struct gether *port,
 			goto error;
 		}
 
-		
+		/* remove the EEM header */
 		header = get_unaligned_le16(skb->data);
 		skb_pull(skb, EEM_HLEN);
 
+		/* EEM packet header format:
+		 * b0..14:	EEM type dependent (data or command)
+		 * b15:		bmType (0 == data, 1 == command)
+		 */
 		if (header & BIT(15)) {
 			struct usb_request	*req = cdev->req;
 			u16			bmEEMCmd;
 
+			/* EEM command packet format:
+			 * b0..10:	bmEEMCmdParam
+			 * b11..13:	bmEEMCmd
+			 * b14:		reserved (must be zero)
+			 * b15:		bmType (1 == command)
+			 */
 			if (header & BIT(14))
 				continue;
 
 			bmEEMCmd = (header >> 11) & 0x7;
 			switch (bmEEMCmd) {
-			case 0: 
+			case 0: /* echo */
 				len = header & 0x7FF;
 				if (skb->len < len) {
 					status = -EOVERFLOW;
@@ -426,22 +473,27 @@ static int eem_unwrap(struct gether *port,
 					DBG(cdev, "echo response queue fail\n");
 				break;
 
-			case 1:  
-			case 2:  
-			case 3:  
-			case 4:  
-			case 5:  
-			default: 
+			case 1:  /* echo response */
+			case 2:  /* suspend hint */
+			case 3:  /* response hint */
+			case 4:  /* response complete hint */
+			case 5:  /* tickle */
+			default: /* reserved */
 				continue;
 			}
 		} else {
 			u32		crc, crc2;
 			struct sk_buff	*skb3;
 
-			
+			/* check for zero-length EEM packet */
 			if (header == 0)
 				continue;
 
+			/* EEM data packet format:
+			 * b0..13:	length of ethernet frame
+			 * b14:		bmCRC (0 == sentinel, 1 == calculated)
+			 * b15:		bmType (0 == data)
+			 */
 			len = header & 0x3FFF;
 			if ((skb->len < len)
 					|| (len < (ETH_HLEN + ETH_FCS_LEN))) {
@@ -449,7 +501,7 @@ static int eem_unwrap(struct gether *port,
 				goto error;
 			}
 
-			
+			/* validate CRC */
 			if (header & BIT(14)) {
 				crc = get_unaligned_le32(skb->data + len
 							- ETH_FCS_LEN);
@@ -493,15 +545,25 @@ error:
 	return status;
 }
 
+/**
+ * eem_bind_config - add CDC Ethernet (EEM) network link to a configuration
+ * @c: the configuration to support the network link
+ * Context: single threaded during gadget setup
+ *
+ * Returns zero on success, else negative errno.
+ *
+ * Caller must have called @gether_setup().  Caller is also responsible
+ * for calling @gether_cleanup() before module unload.
+ */
 int __init eem_bind_config(struct usb_configuration *c)
 {
 	struct f_eem	*eem;
 	int		status;
 
-	
+	/* maybe allocate device-global string IDs */
 	if (eem_string_defs[0].id == 0) {
 
-		
+		/* control interface label */
 		status = usb_string_id(c->cdev);
 		if (status < 0)
 			return status;
@@ -509,7 +571,7 @@ int __init eem_bind_config(struct usb_configuration *c)
 		eem_intf.iInterface = status;
 	}
 
-	
+	/* allocate and initialize one new instance */
 	eem = kzalloc(sizeof *eem, GFP_KERNEL);
 	if (!eem)
 		return -ENOMEM;
@@ -518,7 +580,7 @@ int __init eem_bind_config(struct usb_configuration *c)
 
 	eem->port.func.name = "cdc_eem";
 	eem->port.func.strings = eem_strings;
-	
+	/* descriptors are per-instance copies */
 	eem->port.func.bind = eem_bind;
 	eem->port.func.unbind = eem_unbind;
 	eem->port.func.set_alt = eem_set_alt;

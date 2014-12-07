@@ -11,7 +11,7 @@
 #include <linux/init.h>
 #include <linux/mm.h>
 #include <linux/slab.h>
-#include <linux/highmem.h>	
+#include <linux/highmem.h>	/* pte_offset_map => kmap_atomic */
 #include <linux/scatterlist.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
@@ -27,22 +27,31 @@
 #include <asm/iommu.h>
 #include <asm/dma.h>
 
+/*
+ * This can be sized dynamically, but we will do this
+ * only when we have a guidance about actual I/O pressures.
+ */
 #define IOMMU_RNGE	IOMMU_RNGE_256MB
 #define IOMMU_START	0xF0000000
 #define IOMMU_WINSIZE	(256*1024*1024U)
-#define IOMMU_NPTES	(IOMMU_WINSIZE/PAGE_SIZE)	
-#define IOMMU_ORDER	6				
+#define IOMMU_NPTES	(IOMMU_WINSIZE/PAGE_SIZE)	/* 64K PTEs, 265KB */
+#define IOMMU_ORDER	6				/* 4096 * (1<<6) */
 
+/* srmmu.c */
 extern int viking_mxcc_present;
 BTFIXUPDEF_CALL(void, flush_page_for_dma, unsigned long)
 #define flush_page_for_dma(page) BTFIXUP_CALL(flush_page_for_dma)(page)
 extern int flush_page_for_dma_global;
 static int viking_flush;
+/* viking.S */
 extern void viking_flush_page(unsigned long page);
 extern void viking_mxcc_flush_page(unsigned long page);
 
-static unsigned int ioperm_noc;		
-static pgprot_t dvma_prot;		
+/*
+ * Values precomputed according to CPU type.
+ */
+static unsigned int ioperm_noc;		/* Consistent mapping iopte flags */
+static pgprot_t dvma_prot;		/* Consistent mapping pte flags */
 
 #define IOPERM        (IOPTE_CACHE | IOPTE_WRITE | IOPTE_VALID)
 #define MKIOPTE(pfn, perm) (((((pfn)<<8) & IOPTE_PAGE) | (perm)) & ~IOPTE_WAZ)
@@ -76,7 +85,11 @@ static void __init sbus_iommu_init(struct platform_device *op)
 	iommu->start = IOMMU_START;
 	iommu->end = 0xffffffff;
 
-	
+	/* Allocate IOMMU page table */
+	/* Stupid alignment constraints give me a headache. 
+	   We need 256K or 512K or 1M or 2M area aligned to
+           its size and current gfp will fortunately give
+           it to us. */
         tmp = __get_free_pages(GFP_KERNEL, IOMMU_ORDER);
 	if (!tmp) {
 		prom_printf("Unable to allocate iommu table [0x%08x]\n",
@@ -85,7 +98,7 @@ static void __init sbus_iommu_init(struct platform_device *op)
 	}
 	iommu->page_table = (iopte_t *)tmp;
 
-	
+	/* Initialize new table. */
 	memset(iommu->page_table, 0, IOMMU_NPTES*sizeof(iopte_t));
 	flush_cache_all();
 	flush_tlb_all();
@@ -99,6 +112,9 @@ static void __init sbus_iommu_init(struct platform_device *op)
 		prom_halt();
 	}
 	bit_map_init(&iommu->usemap, bitmap, IOMMU_NPTES);
+	/* To be coherent on HyperSparc, the page color of DVMA
+	 * and physical addresses must match.
+	 */
 	if (srmmu_modtype == HyperSparc)
 		iommu->usemap.num_colors = vac_cache_size >> PAGE_SHIFT;
 	else
@@ -127,6 +143,9 @@ static int __init iommu_init(void)
 
 subsys_initcall(iommu_init);
 
+/* This begs to be btfixup-ed by srmmu. */
+/* Flush the iotlb entries to ram. */
+/* This could be better if we didn't have to flush whole pages. */
 static void iommu_flush_iotlb(iopte_t *iopte, unsigned int niopte)
 {
 	unsigned long start;
@@ -161,7 +180,7 @@ static u32 iommu_get_one(struct device *dev, struct page *page, int npages)
 	unsigned int busa, busa0;
 	int i;
 
-	
+	/* page color = pfn of page */
 	ioptex = bit_map_string_get(&iommu->usemap, npages, page_to_pfn(page));
 	if (ioptex < 0)
 		panic("iommu out");
@@ -256,9 +275,14 @@ static void iommu_get_scsi_sgl_pflush(struct device *dev, struct scatterlist *sg
 
 		n = (sg->length + sg->offset + PAGE_SIZE-1) >> PAGE_SHIFT;
 
+		/*
+		 * We expect unmapped highmem pages to be not in the cache.
+		 * XXX Is this a good assumption?
+		 * XXX What if someone else unmaps it here and races us?
+		 */
 		if ((page = (unsigned long) page_address(sg_page(sg))) != 0) {
 			for (i = 0; i < n; i++) {
-				if (page != oldpage) {	
+				if (page != oldpage) {	/* Already flushed? */
 					flush_page_for_dma(page);
 					oldpage = page;
 				}
@@ -326,7 +350,7 @@ static int iommu_map_dma_area(struct device *dev, dma_addr_t *pba, unsigned long
 	BUG_ON((addr & ~PAGE_MASK) != 0);
 	BUG_ON((len & ~PAGE_MASK) != 0);
 
-	
+	/* page color = physical address */
 	ioptex = bit_map_string_get(&iommu->usemap, len >> PAGE_SHIFT,
 		addr >> PAGE_SHIFT);
 	if (ioptex < 0)
@@ -360,6 +384,17 @@ static int iommu_map_dma_area(struct device *dev, dma_addr_t *pba, unsigned long
 		addr += PAGE_SIZE;
 		va += PAGE_SIZE;
 	}
+	/* P3: why do we need this?
+	 *
+	 * DAVEM: Because there are several aspects, none of which
+	 *        are handled by a single interface.  Some cpus are
+	 *        completely not I/O DMA coherent, and some have
+	 *        virtually indexed caches.  The driver DMA flushing
+	 *        methods handle the former case, but here during
+	 *        IOMMU page table modifications, and usage of non-cacheable
+	 *        cpu mappings of pages potentially in the cpu caches, we have
+	 *        to handle the latter case as well.
+	 */
 	flush_cache_all();
 	iommu_flush_iotlb(first, len >> PAGE_SHIFT);
 	flush_tlb_all();
@@ -407,11 +442,11 @@ void __init ld_mmu_iommu(void)
 	BTFIXUPSET_CALL(mmu_unlockarea, iommu_unlockarea, BTFIXUPCALL_NOP);
 
 	if (!BTFIXUPVAL_CALL(flush_page_for_dma)) {
-		
+		/* IO coherent chip */
 		BTFIXUPSET_CALL(mmu_get_scsi_one, iommu_get_scsi_one_noflush, BTFIXUPCALL_RETO0);
 		BTFIXUPSET_CALL(mmu_get_scsi_sgl, iommu_get_scsi_sgl_noflush, BTFIXUPCALL_NORM);
 	} else if (flush_page_for_dma_global) {
-		
+		/* flush_page_for_dma flushes everything, no matter of what page is it */
 		BTFIXUPSET_CALL(mmu_get_scsi_one, iommu_get_scsi_one_gflush, BTFIXUPCALL_NORM);
 		BTFIXUPSET_CALL(mmu_get_scsi_sgl, iommu_get_scsi_sgl_gflush, BTFIXUPCALL_NORM);
 	} else {

@@ -24,6 +24,7 @@
 #define PLL1_FRQ		(MISC_BASE + 0x00C)
 #define PLL1_MOD		(MISC_BASE + 0x010)
 #define PLL2_CTR		(MISC_BASE + 0x014)
+/* PLL_CTR register masks */
 #define PLL_ENABLE		2
 #define PLL_MODE_SHIFT		4
 #define PLL_MODE_MASK		0x3
@@ -33,6 +34,7 @@
 #define PLL_MODE_DITH_SSB	3
 
 #define PLL2_FRQ		(MISC_BASE + 0x018)
+/* PLL FRQ register masks */
 #define PLL_DIV_N_SHIFT		0
 #define PLL_DIV_N_MASK		0xFF
 #define PLL_DIV_P_SHIFT		8
@@ -45,12 +47,14 @@
 #define PLL2_MOD		(MISC_BASE + 0x01C)
 #define PLL_CLK_CFG		(MISC_BASE + 0x020)
 #define CORE_CLK_CFG		(MISC_BASE + 0x024)
+/* CORE CLK CFG register masks */
 #define PLL_HCLK_RATIO_SHIFT	10
 #define PLL_HCLK_RATIO_MASK	0x3
 #define HCLK_PCLK_RATIO_SHIFT	8
 #define HCLK_PCLK_RATIO_MASK	0x3
 
 #define PERIP_CLK_CFG		(MISC_BASE + 0x028)
+/* PERIP_CLK_CFG register masks */
 #define CLCD_CLK_SHIFT		2
 #define CLCD_CLK_MASK		0x3
 #define UART_CLK_SHIFT		4
@@ -66,6 +70,7 @@
 #define AUX_CLK_PLL1_VAL	1
 
 #define PERIP1_CLK_ENB		(MISC_BASE + 0x02C)
+/* PERIP1_CLK_ENB register masks */
 #define UART0_CLK_ENB		3
 #define UART1_CLK_ENB		4
 #define SSP0_CLK_ENB		5
@@ -93,6 +98,7 @@
 #define SOC_CORE_ID		(MISC_BASE + 0x030)
 #define RAS_CLK_ENB		(MISC_BASE + 0x034)
 #define PERIP1_SOF_RST		(MISC_BASE + 0x038)
+/* PERIP1_SOF_RST register masks */
 #define JPEG_SOF_RST		8
 
 #define SOC_USER_ID		(MISC_BASE + 0x03C)
@@ -100,6 +106,7 @@
 #define PRSC1_CLK_CFG		(MISC_BASE + 0x044)
 #define PRSC2_CLK_CFG		(MISC_BASE + 0x048)
 #define PRSC3_CLK_CFG		(MISC_BASE + 0x04C)
+/* gpt synthesizer register masks */
 #define GPT_MSCALE_SHIFT	0
 #define GPT_MSCALE_MASK		0xFFF
 #define GPT_NSCALE_SHIFT	12
@@ -115,6 +122,7 @@
 #define RAS2_CLK_SYNT		(MISC_BASE + 0x070)
 #define RAS3_CLK_SYNT		(MISC_BASE + 0x074)
 #define RAS4_CLK_SYNT		(MISC_BASE + 0x078)
+/* aux clk synthesiser register masks for irda to ras4 */
 #define AUX_SYNT_ENB		31
 #define AUX_EQ_SEL_SHIFT	30
 #define AUX_EQ_SEL_MASK		1
@@ -163,4 +171,4 @@
 #define BIST5_STS_RES		(MISC_BASE + 0x118)
 #define SYSERR_CFG_CTR		(MISC_BASE + 0x11C)
 
-#endif 
+#endif /* __MACH_MISC_REGS_H */

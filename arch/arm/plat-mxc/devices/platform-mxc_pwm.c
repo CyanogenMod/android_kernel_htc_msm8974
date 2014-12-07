@@ -22,7 +22,7 @@
 #ifdef CONFIG_SOC_IMX21
 const struct imx_mxc_pwm_data imx21_mxc_pwm_data __initconst =
 	imx_mxc_pwm_data_entry_single(MX21, 0, , SZ_4K);
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX21 */
 
 #ifdef CONFIG_SOC_IMX25
 const struct imx_mxc_pwm_data imx25_mxc_pwm_data[] __initconst = {
@@ -33,12 +33,12 @@ const struct imx_mxc_pwm_data imx25_mxc_pwm_data[] __initconst = {
 	imx25_mxc_pwm_data_entry(2, 3),
 	imx25_mxc_pwm_data_entry(3, 4),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX25 */
 
 #ifdef CONFIG_SOC_IMX27
 const struct imx_mxc_pwm_data imx27_mxc_pwm_data __initconst =
 	imx_mxc_pwm_data_entry_single(MX27, 0, , SZ_4K);
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX27 */
 
 #ifdef CONFIG_SOC_IMX51
 const struct imx_mxc_pwm_data imx51_mxc_pwm_data[] __initconst = {
@@ -47,7 +47,7 @@ const struct imx_mxc_pwm_data imx51_mxc_pwm_data[] __initconst = {
 	imx51_mxc_pwm_data_entry(0, 1),
 	imx51_mxc_pwm_data_entry(1, 2),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX51 */
 
 struct platform_device *__init imx_add_mxc_pwm(
 		const struct imx_mxc_pwm_data *data)

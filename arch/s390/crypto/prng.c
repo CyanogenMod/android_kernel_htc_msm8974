@@ -29,14 +29,19 @@ module_param(prng_entropy_limit, int, S_IRUSR | S_IRGRP | S_IROTH | S_IWUSR);
 MODULE_PARM_DESC(prng_entropy_limit,
 	"PRNG add entropy after that much bytes were produced");
 
+/*
+ * Any one who considers arithmetical methods of producing random digits is,
+ * of course, in a state of sin. -- John von Neumann
+ */
 
 struct s390_prng_data {
-	unsigned long count; 
+	unsigned long count; /* how many bytes were produced */
 	char *buf;
 };
 
 static struct s390_prng_data *p;
 
+/* copied from libica, use a non-zero initial parameter block */
 static unsigned char parm_block[32] = {
 0x0F,0x2B,0x8E,0x63,0x8C,0x8E,0xD2,0x52,0x64,0xB7,0xA0,0x7B,0x75,0x28,0xB8,0xF4,
 0x75,0x5F,0xD2,0xA6,0x8D,0x97,0x11,0xFF,0x49,0xD8,0x23,0xF3,0x7E,0x21,0xEC,0xA0,
@@ -69,7 +74,7 @@ static void prng_seed(int nbytes)
 	BUG_ON(nbytes > 16);
 	get_random_bytes(buf, nbytes);
 
-	
+	/* Add the entropy */
 	while (nbytes >= 8) {
 		*((__u64 *)parm_block) ^= *((__u64 *)(buf+i));
 		prng_add_entropy();
@@ -86,9 +91,9 @@ static ssize_t prng_read(struct file *file, char __user *ubuf, size_t nbytes,
 	int ret = 0;
 	int tmp;
 
-	
+	/* nbytes can be arbitrary length, we split it into chunks */
 	while (nbytes) {
-		
+		/* same as in extract_entropy_user in random.c */
 		if (need_resched()) {
 			if (signal_pending(current)) {
 				if (ret == 0)
@@ -98,18 +103,35 @@ static ssize_t prng_read(struct file *file, char __user *ubuf, size_t nbytes,
 			schedule();
 		}
 
+		/*
+		 * we lose some random bytes if an attacker issues
+		 * reads < 8 bytes, but we don't care
+		 */
 		chunk = min_t(int, nbytes, prng_chunk_size);
 
-		
+		/* PRNG only likes multiples of 8 bytes */
 		n = (chunk + 7) & -8;
 
 		if (p->count > prng_entropy_limit)
 			prng_seed(8);
 
-		
+		/* if the CPU supports PRNG stckf is present too */
 		asm volatile(".insn     s,0xb27c0000,%0"
 			     : "=m" (*((unsigned long long *)p->buf)) : : "cc");
 
+		/*
+		 * Beside the STCKF the input for the TDES-EDE is the output
+		 * of the last operation. We differ here from X9.17 since we
+		 * only store one timestamp into the buffer. Padding the whole
+		 * buffer with timestamps does not improve security, since
+		 * successive stckf have nearly constant offsets.
+		 * If an attacker knows the first timestamp it would be
+		 * trivial to guess the additional values. One timestamp
+		 * is therefore enough and still guarantees unique input values.
+		 *
+		 * Note: you can still get strict X9.17 conformity by setting
+		 * prng_chunk_size to 8 bytes.
+		*/
 		tmp = crypt_s390_kmc(KMC_PRNG, parm_block, p->buf, p->buf, n);
 		BUG_ON((tmp < 0) || (tmp != n));
 
@@ -143,7 +165,7 @@ static int __init prng_init(void)
 {
 	int ret;
 
-	
+	/* check if the CPU has a PRNG */
 	if (!crypt_s390_func_available(KMC_PRNG, CRYPT_S390_MSA))
 		return -EOPNOTSUPP;
 
@@ -161,7 +183,7 @@ static int __init prng_init(void)
 		goto out_free;
 	}
 
-	
+	/* initialize the PRNG, add 128 bits of entropy */
 	prng_seed(16);
 
 	ret = misc_register(&prng_dev);
@@ -178,7 +200,7 @@ out_free:
 
 static void __exit prng_exit(void)
 {
-	
+	/* wipe me */
 	kzfree(p->buf);
 	kfree(p);
 

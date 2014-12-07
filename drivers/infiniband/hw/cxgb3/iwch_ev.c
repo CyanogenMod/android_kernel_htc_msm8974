@@ -130,6 +130,10 @@ void iwch_ev_dispatch(struct cxio_rdev *rdev_p, struct sk_buff *skb)
 	atomic_inc(&chp->refcnt);
 	spin_unlock(&rnicp->lock);
 
+	/*
+	 * 1) completion of our sending a TERMINATE.
+	 * 2) incoming TERMINATE message.
+	 */
 	if ((CQE_OPCODE(rsp_msg->cqe) == T3_TERMINATE) &&
 	    (CQE_STATUS(rsp_msg->cqe) == 0)) {
 		if (SQ_TYPE(rsp_msg->cqe)) {
@@ -146,14 +150,14 @@ void iwch_ev_dispatch(struct cxio_rdev *rdev_p, struct sk_buff *skb)
 		goto done;
 	}
 
-	
+	/* Bad incoming Read request */
 	if (SQ_TYPE(rsp_msg->cqe) &&
 	    (CQE_OPCODE(rsp_msg->cqe) == T3_READ_RESP)) {
 		post_qp_event(rnicp, chp, rsp_msg, IB_EVENT_QP_REQ_ERR, 1);
 		goto done;
 	}
 
-	
+	/* Bad incoming write */
 	if (RQ_TYPE(rsp_msg->cqe) &&
 	    (CQE_OPCODE(rsp_msg->cqe) == T3_RDMA_WRITE)) {
 		post_qp_event(rnicp, chp, rsp_msg, IB_EVENT_QP_REQ_ERR, 1);
@@ -162,9 +166,12 @@ void iwch_ev_dispatch(struct cxio_rdev *rdev_p, struct sk_buff *skb)
 
 	switch (CQE_STATUS(rsp_msg->cqe)) {
 
-	
+	/* Completion Events */
 	case TPT_ERR_SUCCESS:
 
+		/*
+		 * Confirm the destination entry if this is a RECV completion.
+		 */
 		if (qhp->ep && SQ_TYPE(rsp_msg->cqe))
 			dst_confirm(qhp->ep->dst);
 		spin_lock_irqsave(&chp->comp_handler_lock, flag);
@@ -183,14 +190,14 @@ void iwch_ev_dispatch(struct cxio_rdev *rdev_p, struct sk_buff *skb)
 		post_qp_event(rnicp, chp, rsp_msg, IB_EVENT_QP_ACCESS_ERR, 1);
 		break;
 
-	
+	/* Device Fatal Errors */
 	case TPT_ERR_ECC:
 	case TPT_ERR_ECC_PSTAG:
 	case TPT_ERR_INTERNAL_ERR:
 		post_qp_event(rnicp, chp, rsp_msg, IB_EVENT_DEVICE_FATAL, 1);
 		break;
 
-	
+	/* QP Fatal Errors */
 	case TPT_ERR_OUT_OF_RQE:
 	case TPT_ERR_PBL_ADDR_BOUND:
 	case TPT_ERR_CRC:

@@ -34,6 +34,9 @@
 #define MV2120_GPIO_POWER_OFF	19
 
 
+/*****************************************************************************
+ * Ethernet
+ ****************************************************************************/
 static struct mv643xx_eth_platform_data mv2120_eth_data = {
 	.phy_addr	= MV643XX_ETH_PHY_ADDR(8),
 };
@@ -101,27 +104,30 @@ static struct platform_device mv2120_button_device = {
 };
 
 
+/****************************************************************************
+ * General Setup
+ ****************************************************************************/
 static unsigned int mv2120_mpp_modes[] __initdata = {
-	MPP0_GPIO,		
-	MPP1_GPIO,		
-	MPP2_GPIO,		
-	MPP3_GPIO,		
-	MPP4_GPIO,		
-	MPP5_GPIO,		
+	MPP0_GPIO,		/* Sys status LED */
+	MPP1_GPIO,		/* Sys error LED */
+	MPP2_GPIO,		/* OverTemp interrupt */
+	MPP3_GPIO,		/* RTC interrupt */
+	MPP4_GPIO,		/* V_LED 5V */
+	MPP5_GPIO,		/* V_LED 3.3V */
 	MPP6_UNUSED,
 	MPP7_UNUSED,
-	MPP8_GPIO,		
-	MPP9_GPIO,		
+	MPP8_GPIO,		/* SATA 0 fail LED */
+	MPP9_GPIO,		/* SATA 1 fail LED */
 	MPP10_UNUSED,
 	MPP11_UNUSED,
-	MPP12_SATA_LED,		
-	MPP13_SATA_LED,		
-	MPP14_SATA_LED,		
-	MPP15_SATA_LED,		
+	MPP12_SATA_LED,		/* SATA 0 presence */
+	MPP13_SATA_LED,		/* SATA 1 presence */
+	MPP14_SATA_LED,		/* SATA 0 active */
+	MPP15_SATA_LED,		/* SATA 1 active */
 	MPP16_UNUSED,
-	MPP17_GPIO,		
-	MPP18_GPIO,		
-	MPP19_GPIO,		
+	MPP17_GPIO,		/* Reset button */
+	MPP18_GPIO,		/* Power button */
+	MPP19_GPIO,		/* Power off */
 	0,
 };
 
@@ -182,11 +188,14 @@ static void mv2120_power_off(void)
 
 static void __init mv2120_init(void)
 {
-	
+	/* Setup basic Orion functions. Need to be called early. */
 	orion5x_init();
 
 	orion5x_mpp_conf(mv2120_mpp_modes);
 
+	/*
+	 * Configure peripherals.
+	 */
 	orion5x_ehci0_init();
 	orion5x_ehci1_init();
 	orion5x_eth_init(&mv2120_eth_data);
@@ -209,15 +218,16 @@ static void __init mv2120_init(void)
 	i2c_register_board_info(0, &mv2120_i2c_rtc, 1);
 	platform_device_register(&mv2120_leds);
 
-	
+	/* register mv2120 specific power-off method */
 	if (gpio_request(MV2120_GPIO_POWER_OFF, "POWEROFF") != 0 ||
 	    gpio_direction_output(MV2120_GPIO_POWER_OFF, 1) != 0)
 		pr_err("mv2120: failed to setup power-off GPIO\n");
 	pm_power_off = mv2120_power_off;
 }
 
+/* Warning: HP uses a wrong mach-type (=526) in their bootloader */
 MACHINE_START(MV2120, "HP Media Vault mv2120")
-	
+	/* Maintainer: Martin Michlmayr <tbm@cyrius.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= mv2120_init,
 	.map_io		= orion5x_map_io,

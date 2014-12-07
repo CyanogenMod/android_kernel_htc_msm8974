@@ -32,7 +32,7 @@ void kvm_update_cpuid(struct kvm_vcpu *vcpu)
 	if (!best)
 		return;
 
-	
+	/* Update OSXSAVE bit */
 	if (cpu_has_xsave && best->function == 0x1) {
 		best->ecx &= ~(bit(X86_FEATURE_OSXSAVE));
 		if (kvm_read_cr4_bits(vcpu, X86_CR4_OSXSAVE))
@@ -76,6 +76,7 @@ static void cpuid_fix_nx_cap(struct kvm_vcpu *vcpu)
 	}
 }
 
+/* when an old userspace process fills a new kernel module */
 int kvm_vcpu_ioctl_set_cpuid(struct kvm_vcpu *vcpu,
 			     struct kvm_cpuid *cpuid,
 			     struct kvm_cpuid_entry __user *entries)
@@ -201,54 +202,54 @@ static int do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
 #endif
 	unsigned f_rdtscp = kvm_x86_ops->rdtscp_supported() ? F(RDTSCP) : 0;
 
-	
+	/* cpuid 1.edx */
 	const u32 kvm_supported_word0_x86_features =
 		F(FPU) | F(VME) | F(DE) | F(PSE) |
 		F(TSC) | F(MSR) | F(PAE) | F(MCE) |
-		F(CX8) | F(APIC) | 0  | F(SEP) |
+		F(CX8) | F(APIC) | 0 /* Reserved */ | F(SEP) |
 		F(MTRR) | F(PGE) | F(MCA) | F(CMOV) |
-		F(PAT) | F(PSE36) | 0  | F(CLFLSH) |
-		0  | F(MMX) |
+		F(PAT) | F(PSE36) | 0 /* PSN */ | F(CLFLSH) |
+		0 /* Reserved, DS, ACPI */ | F(MMX) |
 		F(FXSR) | F(XMM) | F(XMM2) | F(SELFSNOOP) |
-		0 ;
-	
+		0 /* HTT, TM, Reserved, PBE */;
+	/* cpuid 0x80000001.edx */
 	const u32 kvm_supported_word1_x86_features =
 		F(FPU) | F(VME) | F(DE) | F(PSE) |
 		F(TSC) | F(MSR) | F(PAE) | F(MCE) |
-		F(CX8) | F(APIC) | 0  | F(SYSCALL) |
+		F(CX8) | F(APIC) | 0 /* Reserved */ | F(SYSCALL) |
 		F(MTRR) | F(PGE) | F(MCA) | F(CMOV) |
-		F(PAT) | F(PSE36) | 0  |
-		f_nx | 0  | F(MMXEXT) | F(MMX) |
+		F(PAT) | F(PSE36) | 0 /* Reserved */ |
+		f_nx | 0 /* Reserved */ | F(MMXEXT) | F(MMX) |
 		F(FXSR) | F(FXSR_OPT) | f_gbpages | f_rdtscp |
-		0  | f_lm | F(3DNOWEXT) | F(3DNOW);
-	
+		0 /* Reserved */ | f_lm | F(3DNOWEXT) | F(3DNOW);
+	/* cpuid 1.ecx */
 	const u32 kvm_supported_word4_x86_features =
-		F(XMM3) | F(PCLMULQDQ) | 0  |
-		0  |
-		0  | F(SSSE3) | 0  | 0  |
-		F(FMA) | F(CX16) | 0  |
-		0  | F(XMM4_1) |
+		F(XMM3) | F(PCLMULQDQ) | 0 /* DTES64, MONITOR */ |
+		0 /* DS-CPL, VMX, SMX, EST */ |
+		0 /* TM2 */ | F(SSSE3) | 0 /* CNXT-ID */ | 0 /* Reserved */ |
+		F(FMA) | F(CX16) | 0 /* xTPR Update, PDCM */ |
+		0 /* Reserved, DCA */ | F(XMM4_1) |
 		F(XMM4_2) | F(X2APIC) | F(MOVBE) | F(POPCNT) |
-		0  | F(AES) | F(XSAVE) | 0  | F(AVX) |
+		0 /* Reserved*/ | F(AES) | F(XSAVE) | 0 /* OSXSAVE */ | F(AVX) |
 		F(F16C) | F(RDRAND);
-	
+	/* cpuid 0x80000001.ecx */
 	const u32 kvm_supported_word6_x86_features =
-		F(LAHF_LM) | F(CMP_LEGACY) | 0  | 0  |
+		F(LAHF_LM) | F(CMP_LEGACY) | 0 /*SVM*/ | 0 /* ExtApicSpace */ |
 		F(CR8_LEGACY) | F(ABM) | F(SSE4A) | F(MISALIGNSSE) |
-		F(3DNOWPREFETCH) | F(OSVW) | 0  | F(XOP) |
-		0  | F(FMA4) | F(TBM);
+		F(3DNOWPREFETCH) | F(OSVW) | 0 /* IBS */ | F(XOP) |
+		0 /* SKINIT, WDT, LWP */ | F(FMA4) | F(TBM);
 
-	
+	/* cpuid 0xC0000001.edx */
 	const u32 kvm_supported_word5_x86_features =
 		F(XSTORE) | F(XSTORE_EN) | F(XCRYPT) | F(XCRYPT_EN) |
 		F(ACE2) | F(ACE2_EN) | F(PHE) | F(PHE_EN) |
 		F(PMM) | F(PMM_EN);
 
-	
+	/* cpuid 7.0.ebx */
 	const u32 kvm_supported_word9_x86_features =
 		F(FSGSBASE) | F(BMI1) | F(AVX2) | F(SMEP) | F(BMI2) | F(ERMS);
 
-	
+	/* all calls to cpuid_count() should be made on the same cpu */
 	get_cpu();
 
 	r = -E2BIG;
@@ -268,8 +269,14 @@ static int do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
 		cpuid_mask(&entry->edx, 0);
 		entry->ecx &= kvm_supported_word4_x86_features;
 		cpuid_mask(&entry->ecx, 4);
+		/* we support x2apic emulation even if host does not support
+		 * it since we emulate x2apic in software */
 		entry->ecx |= F(X2APIC);
 		break;
+	/* function 2 entries are STATEFUL. That is, repeated cpuid commands
+	 * may return different values. This forces us to get_cpu() before
+	 * issuing the first command, and also to emulate this annoying behavior
+	 * in kvm_emulate_cpuid() using KVM_CPUID_FLAG_STATE_READ_NEXT */
 	case 2: {
 		int t, times = entry->eax & 0xff;
 
@@ -285,12 +292,12 @@ static int do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
 		}
 		break;
 	}
-	
+	/* function 4 has additional index. */
 	case 4: {
 		int i, cache_type;
 
 		entry->flags |= KVM_CPUID_FLAG_SIGNIFCANT_INDEX;
-		
+		/* read more entries until cache_type is zero */
 		for (i = 1; ; ++i) {
 			if (*nent >= maxnent)
 				goto out;
@@ -307,7 +314,7 @@ static int do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
 	}
 	case 7: {
 		entry->flags |= KVM_CPUID_FLAG_SIGNIFCANT_INDEX;
-		
+		/* Mask ebx against host capbability word 9 */
 		if (index == 0) {
 			entry->ebx &= kvm_supported_word9_x86_features;
 			cpuid_mask(&entry->ebx, 9);
@@ -320,13 +327,17 @@ static int do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
 	}
 	case 9:
 		break;
-	case 0xa: { 
+	case 0xa: { /* Architectural Performance Monitoring */
 		struct x86_pmu_capability cap;
 		union cpuid10_eax eax;
 		union cpuid10_edx edx;
 
 		perf_get_x86_pmu_capability(&cap);
 
+		/*
+		 * Only support guest architectural pmu on a host
+		 * with architectural pmu.
+		 */
 		if (!cap.version)
 			memset(&cap, 0, sizeof(cap));
 
@@ -345,12 +356,12 @@ static int do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
 		entry->edx = edx.full;
 		break;
 	}
-	
+	/* function 0xb has additional index. */
 	case 0xb: {
 		int i, level_type;
 
 		entry->flags |= KVM_CPUID_FLAG_SIGNIFCANT_INDEX;
-		
+		/* read more entries until level_type is zero */
 		for (i = 1; ; ++i) {
 			if (*nent >= maxnent)
 				goto out;
@@ -433,19 +444,19 @@ static int do_cpuid_ent(struct kvm_cpuid_entry2 *entry, u32 function,
 		break;
 	case 0x8000001d:
 		break;
-	
+	/*Add support for Centaur's CPUID instruction*/
 	case 0xC0000000:
-		
+		/*Just support up to 0xC0000004 now*/
 		entry->eax = min(entry->eax, 0xC0000004);
 		break;
 	case 0xC0000001:
 		entry->edx &= kvm_supported_word5_x86_features;
 		cpuid_mask(&entry->edx, 5);
 		break;
-	case 3: 
-	case 5: 
-	case 6: 
-	case 0x80000007: 
+	case 3: /* Processor serial number */
+	case 5: /* MONITOR/MWAIT */
+	case 6: /* Thermal management */
+	case 0x80000007: /* Advanced power management */
 	case 0xC0000002:
 	case 0xC0000003:
 	case 0xC0000004:
@@ -545,7 +556,7 @@ static int move_to_next_stateful_cpuid_entry(struct kvm_vcpu *vcpu, int i)
 	int j, nent = vcpu->arch.cpuid_nent;
 
 	e->flags &= ~KVM_CPUID_FLAG_STATE_READ_NEXT;
-	
+	/* when no next entry is found, the current entry[i] is reselected */
 	for (j = i + 1; ; j = (j + 1) % nent) {
 		struct kvm_cpuid_entry2 *ej = &vcpu->arch.cpuid_entries[j];
 		if (ej->function == e->function) {
@@ -553,9 +564,11 @@ static int move_to_next_stateful_cpuid_entry(struct kvm_vcpu *vcpu, int i)
 			return j;
 		}
 	}
-	return 0; 
+	return 0; /* silence gcc, even though control never reaches here */
 }
 
+/* find an entry with matching function, matching index (if needed), and that
+ * should be read next (if it's stateful) */
 static int is_matching_cpuid_entry(struct kvm_cpuid_entry2 *e,
 	u32 function, u32 index)
 {
@@ -604,6 +617,11 @@ not_found:
 	return 36;
 }
 
+/*
+ * If no match is found, check whether we exceed the vCPU's limit
+ * and return the content of the highest valid _standard_ leaf instead.
+ * This is to satisfy the CPUID specification.
+ */
 static struct kvm_cpuid_entry2* check_cpuid_limit(struct kvm_vcpu *vcpu,
                                                   u32 function, u32 index)
 {

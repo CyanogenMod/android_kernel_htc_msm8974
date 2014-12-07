@@ -20,6 +20,7 @@
 #include "fimc-core.h"
 #include "mipi-csis.h"
 
+/* Group IDs of sensor, MIPI CSIS and the writeback subdevs. */
 #define SENSOR_GROUP_ID		(1 << 8)
 #define CSIS_GROUP_ID		(1 << 9)
 #define WRITEBACK_GROUP_ID	(1 << 10)
@@ -38,6 +39,15 @@ struct fimc_camclk_info {
 	unsigned long frequency;
 };
 
+/**
+ * struct fimc_sensor_info - image data source subdev information
+ * @pdata: sensor's atrributes passed as media device's platform data
+ * @subdev: image sensor v4l2 subdev
+ * @host: fimc device the sensor is currently linked to
+ * @clk_on: sclk_cam clock's state associated with this subdev
+ *
+ * This data structure applies to image sensor and the writeback subdevs.
+ */
 struct fimc_sensor_info {
 	struct s5p_fimc_isp_info *pdata;
 	struct v4l2_subdev *subdev;
@@ -45,6 +55,19 @@ struct fimc_sensor_info {
 	bool clk_on;
 };
 
+/**
+ * struct fimc_md - fimc media device information
+ * @csis: MIPI CSIS subdevs data
+ * @sensor: array of registered sensor subdevs
+ * @num_sensors: actual number of registered sensors
+ * @camclk: external sensor clock information
+ * @fimc: array of registered fimc devices
+ * @media_dev: top level media device
+ * @v4l2_dev: top level v4l2_device holding up the subdevs
+ * @pdev: platform device this media device is hooked up into
+ * @user_subdev_api: true if subdevs are not configured by the host driver
+ * @slock: spinlock protecting @sensor array
+ */
 struct fimc_md {
 	struct fimc_csis_info csis[CSIS_MAX_ENTITIES];
 	struct fimc_sensor_info sensor[FIMC_MAX_SENSORS];

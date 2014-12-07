@@ -32,6 +32,12 @@
 #include "ispreg.h"
 #include "ispcsiphy.h"
 
+/*
+ * csiphy_lanes_config - Configuration of CSIPHY lanes.
+ *
+ * Updates HW configuration.
+ * Called with phy->mutex taken.
+ */
 static void csiphy_lanes_config(struct isp_csiphy *phy)
 {
 	unsigned int i;
@@ -56,6 +62,10 @@ static void csiphy_lanes_config(struct isp_csiphy *phy)
 	isp_reg_writel(phy->isp, reg, phy->cfg_regs, ISPCSI2_PHY_CFG);
 }
 
+/*
+ * csiphy_power_autoswitch_enable
+ * @enable: Sets or clears the autoswitch function enable flag.
+ */
 static void csiphy_power_autoswitch_enable(struct isp_csiphy *phy, bool enable)
 {
 	isp_reg_clr_set(phy->isp, phy->cfg_regs, ISPCSI2_PHY_CFG,
@@ -63,6 +73,12 @@ static void csiphy_power_autoswitch_enable(struct isp_csiphy *phy, bool enable)
 			enable ? ISPCSI2_PHY_CFG_PWR_AUTO : 0);
 }
 
+/*
+ * csiphy_set_power
+ * @power: Power state to be set.
+ *
+ * Returns 0 if successful, or -EBUSY if the retry count is exceeded.
+ */
 static int csiphy_set_power(struct isp_csiphy *phy, u32 power)
 {
 	u32 reg;
@@ -90,11 +106,16 @@ static int csiphy_set_power(struct isp_csiphy *phy, u32 power)
 	return 0;
 }
 
+/*
+ * csiphy_dphy_config - Configure CSI2 D-PHY parameters.
+ *
+ * Called with phy->mutex taken.
+ */
 static void csiphy_dphy_config(struct isp_csiphy *phy)
 {
 	u32 reg;
 
-	
+	/* Set up ISPCSIPHY_REG0 */
 	reg = isp_reg_readl(phy->isp, phy->phy_regs, ISPCSIPHY_REG0);
 
 	reg &= ~(ISPCSIPHY_REG0_THS_TERM_MASK |
@@ -104,7 +125,7 @@ static void csiphy_dphy_config(struct isp_csiphy *phy)
 
 	isp_reg_writel(phy->isp, reg, phy->phy_regs, ISPCSIPHY_REG0);
 
-	
+	/* Set up ISPCSIPHY_REG1 */
 	reg = isp_reg_readl(phy->isp, phy->phy_regs, ISPCSIPHY_REG1);
 
 	reg &= ~(ISPCSIPHY_REG1_TCLK_TERM_MASK |
@@ -124,7 +145,7 @@ static int csiphy_config(struct isp_csiphy *phy,
 	unsigned int used_lanes = 0;
 	unsigned int i;
 
-	
+	/* Clock and data lanes verification */
 	for (i = 0; i < phy->num_data_lanes; i++) {
 		if (lanes->data[i].pol > 1 || lanes->data[i].pos > 3)
 			return -EINVAL;
@@ -196,6 +217,9 @@ void omap3isp_csiphy_release(struct isp_csiphy *phy)
 	mutex_unlock(&phy->mutex);
 }
 
+/*
+ * omap3isp_csiphy_init - Initialize the CSI PHY frontends
+ */
 int omap3isp_csiphy_init(struct isp_device *isp)
 {
 	struct isp_csiphy *phy1 = &isp->isp_csiphy1;

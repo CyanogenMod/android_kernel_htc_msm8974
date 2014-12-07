@@ -36,4 +36,4 @@ extern int dhd_bta_tx_hcidata(struct dhd_pub *pub, void *data_buf, uint data_len
 extern void dhd_bta_tx_hcidata_complete(struct dhd_pub *dhdp, void *txp, bool success);
 
 
-#endif 
+#endif /* __dhd_bta_h__ */

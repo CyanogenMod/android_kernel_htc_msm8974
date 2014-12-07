@@ -36,6 +36,10 @@
 #include "xfs_rw.h"
 #include "xfs_trace.h"
 
+/*
+ * Check to see if a buffer matching the given parameters is already
+ * a part of the given transaction.
+ */
 STATIC struct xfs_buf *
 xfs_trans_buf_item_match(
 	struct xfs_trans	*tp,
@@ -59,6 +63,15 @@ xfs_trans_buf_item_match(
 	return NULL;
 }
 
+/*
+ * Add the locked buffer to the transaction.
+ *
+ * The buffer must be locked, and it cannot be associated with any
+ * transaction.
+ *
+ * If the buffer does not yet have a buf log item associated with it,
+ * then allocate one for it.  Then add the buf item to the transaction.
+ */
 STATIC void
 _xfs_trans_bjoin(
 	struct xfs_trans	*tp,
@@ -69,6 +82,11 @@ _xfs_trans_bjoin(
 
 	ASSERT(bp->b_transp == NULL);
 
+	/*
+	 * The xfs_buf_log_item pointer is stored in b_fsprivate.  If
+	 * it doesn't have one yet, then allocate one and initialize it.
+	 * The checks to see if one is there are in xfs_buf_item_init().
+	 */
 	xfs_buf_item_init(bp, tp->t_mountp);
 	bip = bp->b_fspriv;
 	ASSERT(!(bip->bli_flags & XFS_BLI_STALE));
@@ -77,10 +95,20 @@ _xfs_trans_bjoin(
 	if (reset_recur)
 		bip->bli_recur = 0;
 
+	/*
+	 * Take a reference for this transaction on the buf item.
+	 */
 	atomic_inc(&bip->bli_refcount);
 
+	/*
+	 * Get a log_item_desc to point at the new item.
+	 */
 	xfs_trans_add_item(tp, &bip->bli_item);
 
+	/*
+	 * Initialize b_fsprivate2 so we can find it with incore_match()
+	 * in xfs_trans_get_buf() and friends above.
+	 */
 	bp->b_transp = tp;
 
 }
@@ -94,6 +122,15 @@ xfs_trans_bjoin(
 	trace_xfs_trans_bjoin(bp->b_fspriv);
 }
 
+/*
+ * Get and lock the buffer for the caller if it is not already
+ * locked within the given transaction.  If it is already locked
+ * within the transaction, just increment its lock recursion count
+ * and return a pointer to it.
+ *
+ * If the transaction pointer is NULL, make this just a normal
+ * get_buf() call.
+ */
 xfs_buf_t *
 xfs_trans_get_buf(xfs_trans_t	*tp,
 		  xfs_buftarg_t	*target_dev,
@@ -107,10 +144,19 @@ xfs_trans_get_buf(xfs_trans_t	*tp,
 	if (flags == 0)
 		flags = XBF_LOCK | XBF_MAPPED;
 
+	/*
+	 * Default to a normal get_buf() call if the tp is NULL.
+	 */
 	if (tp == NULL)
 		return xfs_buf_get(target_dev, blkno, len,
 				   flags | XBF_DONT_BLOCK);
 
+	/*
+	 * If we find the buffer in the cache with this transaction
+	 * pointer in its b_fsprivate2 field, then we know we already
+	 * have it locked.  In this case we just increment the lock
+	 * recursion count and return the buffer to the caller.
+	 */
 	bp = xfs_trans_buf_item_match(tp, target_dev, blkno, len);
 	if (bp != NULL) {
 		ASSERT(xfs_buf_islocked(bp));
@@ -119,6 +165,11 @@ xfs_trans_get_buf(xfs_trans_t	*tp,
 			XFS_BUF_DONE(bp);
 		}
 
+		/*
+		 * If the buffer is stale then it was binval'ed
+		 * since last read.  This doesn't matter since the
+		 * caller isn't allowed to use the data anyway.
+		 */
 		else if (XFS_BUF_ISSTALE(bp))
 			ASSERT(!XFS_BUF_ISDELAYWRITE(bp));
 
@@ -131,6 +182,14 @@ xfs_trans_get_buf(xfs_trans_t	*tp,
 		return (bp);
 	}
 
+	/*
+	 * We always specify the XBF_DONT_BLOCK flag within a transaction
+	 * so that get_buf does not try to push out a delayed write buffer
+	 * which might cause another transaction to take place (if the
+	 * buffer was delayed alloc).  Such recursive transactions can
+	 * easily deadlock with our current transaction as well as cause
+	 * us to run out of stack space.
+	 */
 	bp = xfs_buf_get(target_dev, blkno, len, flags | XBF_DONT_BLOCK);
 	if (bp == NULL) {
 		return NULL;
@@ -143,6 +202,14 @@ xfs_trans_get_buf(xfs_trans_t	*tp,
 	return (bp);
 }
 
+/*
+ * Get and lock the superblock buffer of this file system for the
+ * given transaction.
+ *
+ * We don't need to use incore_match() here, because the superblock
+ * buffer is a private buffer which we keep a pointer to in the
+ * mount structure.
+ */
 xfs_buf_t *
 xfs_trans_getsb(xfs_trans_t	*tp,
 		struct xfs_mount *mp,
@@ -151,10 +218,20 @@ xfs_trans_getsb(xfs_trans_t	*tp,
 	xfs_buf_t		*bp;
 	xfs_buf_log_item_t	*bip;
 
+	/*
+	 * Default to just trying to lock the superblock buffer
+	 * if tp is NULL.
+	 */
 	if (tp == NULL) {
 		return (xfs_getsb(mp, flags));
 	}
 
+	/*
+	 * If the superblock buffer already has this transaction
+	 * pointer in its b_fsprivate2 field, then we know we already
+	 * have it locked.  In this case we just increment the lock
+	 * recursion count and return the buffer to the caller.
+	 */
 	bp = mp->m_sb_bp;
 	if (bp->b_transp == tp) {
 		bip = bp->b_fspriv;
@@ -181,6 +258,16 @@ int	xfs_req_num;
 int	xfs_error_mod = 33;
 #endif
 
+/*
+ * Get and lock the buffer for the caller if it is not already
+ * locked within the given transaction.  If it has not yet been
+ * read in, read it from disk. If it is already locked
+ * within the transaction and already read in, just increment its
+ * lock recursion count and return a pointer to it.
+ *
+ * If the transaction pointer is NULL, make this just a normal
+ * read_buf() call.
+ */
 int
 xfs_trans_read_buf(
 	xfs_mount_t	*mp,
@@ -198,6 +285,9 @@ xfs_trans_read_buf(
 	if (flags == 0)
 		flags = XBF_LOCK | XBF_MAPPED;
 
+	/*
+	 * Default to a normal get_buf() call if the tp is NULL.
+	 */
 	if (tp == NULL) {
 		bp = xfs_buf_read(target, blkno, len, flags | XBF_DONT_BLOCK);
 		if (!bp)
@@ -227,6 +317,14 @@ xfs_trans_read_buf(
 		return 0;
 	}
 
+	/*
+	 * If we find the buffer in the cache with this transaction
+	 * pointer in its b_fsprivate2 field, then we know we already
+	 * have it locked.  If it is already read in we just increment
+	 * the lock recursion count and return the buffer to the caller.
+	 * If the buffer is not yet read in, then we read it in, increment
+	 * the lock recursion count, and return it to the caller.
+	 */
 	bp = xfs_trans_buf_item_match(tp, target, blkno, len);
 	if (bp != NULL) {
 		ASSERT(xfs_buf_islocked(bp));
@@ -242,12 +340,21 @@ xfs_trans_read_buf(
 			if (error) {
 				xfs_buf_ioerror_alert(bp, __func__);
 				xfs_buf_relse(bp);
+				/*
+				 * We can gracefully recover from most read
+				 * errors. Ones we can't are those that happen
+				 * after the transaction's already dirty.
+				 */
 				if (tp->t_flags & XFS_TRANS_DIRTY)
 					xfs_force_shutdown(tp->t_mountp,
 							SHUTDOWN_META_IO_ERROR);
 				return error;
 			}
 		}
+		/*
+		 * We never locked this buf ourselves, so we shouldn't
+		 * brelse it either. Just get out.
+		 */
 		if (XFS_FORCED_SHUTDOWN(mp)) {
 			trace_xfs_trans_read_buf_shut(bp, _RET_IP_);
 			*bpp = NULL;
@@ -264,6 +371,14 @@ xfs_trans_read_buf(
 		return 0;
 	}
 
+	/*
+	 * We always specify the XBF_DONT_BLOCK flag within a transaction
+	 * so that get_buf does not try to push out a delayed write buffer
+	 * which might cause another transaction to take place (if the
+	 * buffer was delayed alloc).  Such recursive transactions can
+	 * easily deadlock with our current transaction as well as cause
+	 * us to run out of stack space.
+	 */
 	bp = xfs_buf_read(target, blkno, len, flags | XBF_DONT_BLOCK);
 	if (bp == NULL) {
 		*bpp = NULL;
@@ -303,6 +418,12 @@ xfs_trans_read_buf(
 	return 0;
 
 shutdown_abort:
+	/*
+	 * the theory here is that buffer is good but we're
+	 * bailing out because the filesystem is being forcibly
+	 * shut down.  So we should leave the b_flags alone since
+	 * the buffer's not staled and just get out.
+	 */
 #if defined(DEBUG)
 	if (XFS_BUF_ISSTALE(bp) && XFS_BUF_ISDELAYWRITE(bp))
 		xfs_notice(mp, "about to pop assert, bp == 0x%p", bp);
@@ -317,12 +438,30 @@ shutdown_abort:
 }
 
 
+/*
+ * Release the buffer bp which was previously acquired with one of the
+ * xfs_trans_... buffer allocation routines if the buffer has not
+ * been modified within this transaction.  If the buffer is modified
+ * within this transaction, do decrement the recursion count but do
+ * not release the buffer even if the count goes to 0.  If the buffer is not
+ * modified within the transaction, decrement the recursion count and
+ * release the buffer if the recursion count goes to 0.
+ *
+ * If the buffer is to be released and it was not modified before
+ * this transaction began, then free the buf_log_item associated with it.
+ *
+ * If the transaction pointer is NULL, make this just a normal
+ * brelse() call.
+ */
 void
 xfs_trans_brelse(xfs_trans_t	*tp,
 		 xfs_buf_t	*bp)
 {
 	xfs_buf_log_item_t	*bip;
 
+	/*
+	 * Default to a normal brelse() call if the tp is NULL.
+	 */
 	if (tp == NULL) {
 		ASSERT(bp->b_transp == NULL);
 		xfs_buf_relse(bp);
@@ -338,28 +477,63 @@ xfs_trans_brelse(xfs_trans_t	*tp,
 
 	trace_xfs_trans_brelse(bip);
 
+	/*
+	 * If the release is just for a recursive lock,
+	 * then decrement the count and return.
+	 */
 	if (bip->bli_recur > 0) {
 		bip->bli_recur--;
 		return;
 	}
 
+	/*
+	 * If the buffer is dirty within this transaction, we can't
+	 * release it until we commit.
+	 */
 	if (bip->bli_item.li_desc->lid_flags & XFS_LID_DIRTY)
 		return;
 
+	/*
+	 * If the buffer has been invalidated, then we can't release
+	 * it until the transaction commits to disk unless it is re-dirtied
+	 * as part of this transaction.  This prevents us from pulling
+	 * the item from the AIL before we should.
+	 */
 	if (bip->bli_flags & XFS_BLI_STALE)
 		return;
 
 	ASSERT(!(bip->bli_flags & XFS_BLI_LOGGED));
 
+	/*
+	 * Free up the log item descriptor tracking the released item.
+	 */
 	xfs_trans_del_item(&bip->bli_item);
 
+	/*
+	 * Clear the hold flag in the buf log item if it is set.
+	 * We wouldn't want the next user of the buffer to
+	 * get confused.
+	 */
 	if (bip->bli_flags & XFS_BLI_HOLD) {
 		bip->bli_flags &= ~XFS_BLI_HOLD;
 	}
 
+	/*
+	 * Drop our reference to the buf log item.
+	 */
 	atomic_dec(&bip->bli_refcount);
 
+	/*
+	 * If the buf item is not tracking data in the log, then
+	 * we must free it before releasing the buffer back to the
+	 * free pool.  Before releasing the buffer to the free pool,
+	 * clear the transaction pointer in b_fsprivate2 to dissolve
+	 * its relation to this transaction.
+	 */
 	if (!xfs_buf_item_dirty(bip)) {
+/***
+		ASSERT(bp->b_pincount == 0);
+***/
 		ASSERT(atomic_read(&bip->bli_refcount) == 0);
 		ASSERT(!(bip->bli_item.li_flags & XFS_LI_IN_AIL));
 		ASSERT(!(bip->bli_flags & XFS_BLI_INODE_ALLOC_BUF));
@@ -370,6 +544,12 @@ xfs_trans_brelse(xfs_trans_t	*tp,
 	xfs_buf_relse(bp);
 }
 
+/*
+ * Mark the buffer as not needing to be unlocked when the buf item's
+ * IOP_UNLOCK() routine is called.  The buffer must already be locked
+ * and associated with the given transaction.
+ */
+/* ARGSUSED */
 void
 xfs_trans_bhold(xfs_trans_t	*tp,
 		xfs_buf_t	*bp)
@@ -386,6 +566,10 @@ xfs_trans_bhold(xfs_trans_t	*tp,
 	trace_xfs_trans_bhold(bip);
 }
 
+/*
+ * Cancel the previous buffer hold request made on this buffer
+ * for this transaction.
+ */
 void
 xfs_trans_bhold_release(xfs_trans_t	*tp,
 			xfs_buf_t	*bp)
@@ -403,6 +587,15 @@ xfs_trans_bhold_release(xfs_trans_t	*tp,
 	trace_xfs_trans_bhold_release(bip);
 }
 
+/*
+ * This is called to mark bytes first through last inclusive of the given
+ * buffer as needing to be logged when the transaction is committed.
+ * The buffer must already be associated with the given transaction.
+ *
+ * First and last are numbers relative to the beginning of this buffer,
+ * so the first byte in the buffer is numbered 0 regardless of the
+ * value of b_blkno.
+ */
 void
 xfs_trans_log_buf(xfs_trans_t	*tp,
 		  xfs_buf_t	*bp,
@@ -437,6 +630,12 @@ xfs_trans_log_buf(xfs_trans_t	*tp,
 
 	trace_xfs_trans_log_buf(bip);
 
+	/*
+	 * If we invalidated the buffer within this transaction, then
+	 * cancel the invalidation now that we're dirtying the buffer
+	 * again.  There are no races with the code in xfs_buf_item_unpin(),
+	 * because we have a reference to the buffer this entire time.
+	 */
 	if (bip->bli_flags & XFS_BLI_STALE) {
 		bip->bli_flags &= ~XFS_BLI_STALE;
 		ASSERT(XFS_BUF_ISSTALE(bp));
@@ -483,6 +682,10 @@ xfs_trans_binval(
 	trace_xfs_trans_binval(bip);
 
 	if (bip->bli_flags & XFS_BLI_STALE) {
+		/*
+		 * If the buffer is already invalidated, then
+		 * just return.
+		 */
 		ASSERT(!(XFS_BUF_ISDELAYWRITE(bp)));
 		ASSERT(XFS_BUF_ISSTALE(bp));
 		ASSERT(!(bip->bli_flags & (XFS_BLI_LOGGED | XFS_BLI_DIRTY)));
@@ -493,6 +696,26 @@ xfs_trans_binval(
 		return;
 	}
 
+	/*
+	 * Clear the dirty bit in the buffer and set the STALE flag
+	 * in the buf log item.  The STALE flag will be used in
+	 * xfs_buf_item_unpin() to determine if it should clean up
+	 * when the last reference to the buf item is given up.
+	 * We set the XFS_BLF_CANCEL flag in the buf log format structure
+	 * and log the buf item.  This will be used at recovery time
+	 * to determine that copies of the buffer in the log before
+	 * this should not be replayed.
+	 * We mark the item descriptor and the transaction dirty so
+	 * that we'll hold the buffer until after the commit.
+	 *
+	 * Since we're invalidating the buffer, we also clear the state
+	 * about which parts of the buffer have been logged.  We also
+	 * clear the flag indicating that this is an inode buffer since
+	 * the data in the buffer will no longer be valid.
+	 *
+	 * We set the stale bit in the buffer as well since we're getting
+	 * rid of it.
+	 */
 	xfs_buf_stale(bp);
 	bip->bli_flags |= XFS_BLI_STALE;
 	bip->bli_flags &= ~(XFS_BLI_INODE_BUF | XFS_BLI_LOGGED | XFS_BLI_DIRTY);
@@ -504,6 +727,17 @@ xfs_trans_binval(
 	tp->t_flags |= XFS_TRANS_DIRTY;
 }
 
+/*
+ * This call is used to indicate that the buffer contains on-disk inodes which
+ * must be handled specially during recovery.  They require special handling
+ * because only the di_next_unlinked from the inodes in the buffer should be
+ * recovered.  The rest of the data in the buffer is logged via the inodes
+ * themselves.
+ *
+ * All we do is set the XFS_BLI_INODE_BUF flag in the items flags so it can be
+ * transferred to the buffer's log format structure so that we'll know what to
+ * do at recovery time.
+ */
 void
 xfs_trans_inode_buf(
 	xfs_trans_t	*tp,
@@ -518,6 +752,15 @@ xfs_trans_inode_buf(
 	bip->bli_flags |= XFS_BLI_INODE_BUF;
 }
 
+/*
+ * This call is used to indicate that the buffer is going to
+ * be staled and was an inode buffer. This means it gets
+ * special processing during unpin - where any inodes 
+ * associated with the buffer should be removed from ail.
+ * There is also special processing during recovery,
+ * any replay of the inodes in the buffer needs to be
+ * prevented as the buffer may have been reused.
+ */
 void
 xfs_trans_stale_inode_buf(
 	xfs_trans_t	*tp,
@@ -533,6 +776,15 @@ xfs_trans_stale_inode_buf(
 	bip->bli_item.li_cb = xfs_buf_iodone;
 }
 
+/*
+ * Mark the buffer as being one which contains newly allocated
+ * inodes.  We need to make sure that even if this buffer is
+ * relogged as an 'inode buf' we still recover all of the inode
+ * images in the face of a crash.  This works in coordination with
+ * xfs_buf_item_committed() to ensure that the buffer remains in the
+ * AIL at its original location even after it has been relogged.
+ */
+/* ARGSUSED */
 void
 xfs_trans_inode_alloc_buf(
 	xfs_trans_t	*tp,
@@ -548,6 +800,17 @@ xfs_trans_inode_alloc_buf(
 }
 
 
+/*
+ * Similar to xfs_trans_inode_buf(), this marks the buffer as a cluster of
+ * dquots. However, unlike in inode buffer recovery, dquot buffers get
+ * recovered in their entirety. (Hence, no XFS_BLI_DQUOT_ALLOC_BUF flag).
+ * The only thing that makes dquot buffers different from regular
+ * buffers is that we must not replay dquot bufs when recovering
+ * if a _corresponding_ quotaoff has happened. We also have to distinguish
+ * between usr dquot bufs and grp dquot bufs, because usr and grp quotas
+ * can be turned off independently.
+ */
+/* ARGSUSED */
 void
 xfs_trans_dquot_buf(
 	xfs_trans_t	*tp,

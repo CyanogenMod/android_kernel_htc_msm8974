@@ -198,6 +198,7 @@ int jp_generic_ide_ioctl(ide_drive_t *drive, struct file *file,
 }
 #endif
 
+/* Return the crashpoint number or NONE if the name is invalid */
 static enum ctype parse_cp_type(const char *what, size_t count)
 {
 	int i;
@@ -239,11 +240,11 @@ static int lkdtm_parse_commandline(void)
 	count = cpoint_count;
 	spin_unlock_irqrestore(&count_lock, flags);
 
-	
+	/* No special parameters */
 	if (!cpoint_type && !cpoint_name)
 		return 0;
 
-	
+	/* Neither or both of these need to be set */
 	if (!cpoint_type || !cpoint_name)
 		return -EINVAL;
 
@@ -258,7 +259,7 @@ static int lkdtm_parse_commandline(void)
 		}
 	}
 
-	
+	/* Could not find a valid crash point */
 	return -EINVAL;
 }
 
@@ -449,7 +450,7 @@ static ssize_t do_register_entry(enum cname which, struct file *f,
 		free_page((unsigned long) buf);
 		return -EFAULT;
 	}
-	
+	/* NULL-terminate and remove enter */
 	buf[count] = '\0';
 	strim(buf);
 
@@ -468,6 +469,7 @@ static ssize_t do_register_entry(enum cname which, struct file *f,
 	return count;
 }
 
+/* Generic read callback that just prints out the available crash types */
 static ssize_t lkdtm_debugfs_read(struct file *f, char __user *user_buf,
 		size_t count, loff_t *off)
 {
@@ -542,6 +544,7 @@ static ssize_t ide_core_cp_entry(struct file *f, const char __user *buf,
 	return do_register_entry(CN_IDE_CORE_CP, f, buf, count, off);
 }
 
+/* Special entry to just crash directly. Available without KPROBEs */
 static ssize_t direct_entry(struct file *f, const char __user *user_buf,
 		size_t count, loff_t *off)
 {
@@ -560,7 +563,7 @@ static ssize_t direct_entry(struct file *f, const char __user *user_buf,
 		free_page((unsigned long) buf);
 		return -EFAULT;
 	}
-	
+	/* NULL-terminate and remove enter */
 	buf[count] = '\0';
 	strim(buf);
 
@@ -626,10 +629,10 @@ static struct dentry *lkdtm_debugfs_root;
 static int __init lkdtm_module_init(void)
 {
 	int ret = -EINVAL;
-	int n_debugfs_entries = 1; 
+	int n_debugfs_entries = 1; /* Assume only the direct entry */
 	int i;
 
-	
+	/* Register debugfs interface */
 	lkdtm_debugfs_root = debugfs_create_dir("provoke-crash", NULL);
 	if (!lkdtm_debugfs_root) {
 		printk(KERN_ERR "lkdtm: creating root dir failed\n");

@@ -60,7 +60,7 @@ static void chsc_subchannel_irq(struct subchannel *sch)
 	CHSC_LOG_HEX(4, irb, sizeof(*irb));
 	kstat_cpu(smp_processor_id()).irqs[IOINT_CSC]++;
 
-	
+	/* Copy irb to provided request and set done. */
 	if (!request) {
 		CHSC_MSG(0, "Interrupt on sch 0.%x.%04x with no request\n",
 			 sch->schid.ssid, sch->schid.sch_no);
@@ -124,6 +124,11 @@ static int chsc_subchannel_prepare(struct subchannel *sch)
 {
 	int cc;
 	struct schib schib;
+	/*
+	 * Don't allow suspend while the subchannel is not idle
+	 * since we don't have a way to clear the subchannel and
+	 * cannot disable it with a request running.
+	 */
 	cc = stsch_err(sch->schid, &schib);
 	if (!cc && scsw_stctl(&schib.scsw))
 		return -EAGAIN;
@@ -142,7 +147,7 @@ static int chsc_subchannel_restore(struct subchannel *sch)
 
 static struct css_device_id chsc_subchannel_ids[] = {
 	{ .match_flags = 0x1, .type =SUBCHANNEL_TYPE_CHSC, },
-	{  },
+	{ /* end of list */ },
 };
 MODULE_DEVICE_TABLE(css, chsc_subchannel_ids);
 
@@ -217,6 +222,20 @@ static struct subchannel *chsc_get_next_subchannel(struct subchannel *sch)
 	return dev ? to_subchannel(dev) : NULL;
 }
 
+/**
+ * chsc_async() - try to start a chsc request asynchronously
+ * @chsc_area: request to be started
+ * @request: request structure to associate
+ *
+ * Tries to start a chsc request on one of the existing chsc subchannels.
+ * Returns:
+ *  %0 if the request was performed synchronously
+ *  %-EINPROGRESS if the request was successfully started
+ *  %-EBUSY if all chsc subchannels are busy
+ *  %-ENODEV if no chsc subchannels are available
+ * Context:
+ *  interrupts disabled, chsc_lock held
+ */
 static int chsc_async(struct chsc_async_area *chsc_area,
 		      struct chsc_request *request)
 {
@@ -308,7 +327,7 @@ static int chsc_ioctl_start(void __user *user_area)
 	char dbf[10];
 
 	if (!css_general_characteristics.dynio)
-		
+		/* It makes no sense to try. */
 		return -EOPNOTSUPP;
 	chsc_area = (void *)get_zeroed_page(GFP_DMA | GFP_KERNEL);
 	if (!chsc_area)
@@ -331,7 +350,7 @@ static int chsc_ioctl_start(void __user *user_area)
 		wait_for_completion(&request->completion);
 		ret = chsc_examine_irb(request);
 	}
-	
+	/* copy area back to user */
 	if (!ret)
 		if (copy_to_user(user_area, chsc_area, PAGE_SIZE))
 			ret = -EFAULT;
@@ -790,7 +809,7 @@ static long chsc_ioctl(struct file *filp, unsigned int cmd,
 		return chsc_ioctl_chpd(argp);
 	case CHSC_INFO_DCAL:
 		return chsc_ioctl_dcal(argp);
-	default: 
+	default: /* unknown ioctl number */
 		return -ENOIOCTLCMD;
 	}
 }

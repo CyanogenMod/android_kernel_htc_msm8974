@@ -18,6 +18,10 @@
 #include <asm/fpu.h>
 #include <asm/traps.h>
 
+/* The PR (precision) bit in the FP Status Register must be clear when
+ * an frchg instruction is executed, otherwise the instruction is undefined.
+ * Executing frchg with PR set causes a trap on some SH4 implementations.
+ */
 
 #define FPSCR_RCHG 0x00000000
 extern unsigned long long float64_div(unsigned long long a,
@@ -35,6 +39,9 @@ extern unsigned long int float32_sub(unsigned long int a, unsigned long int b);
 extern unsigned long int float64_to_float32(unsigned long long a);
 static unsigned int fpu_exception_flags;
 
+/*
+ * Save FPU registers onto task structure.
+ */
 void save_fpu(struct task_struct *tsk)
 {
 	unsigned long dummy;
@@ -133,6 +140,13 @@ void restore_fpu(struct task_struct *tsk)
 	disable_fpu();
 }
 
+/**
+ *      denormal_to_double - Given denormalized float number,
+ *                           store double float
+ *
+ *      @fpu: Pointer to sh_fpu_hard structure
+ *      @n: Index to FP register
+ */
 static void denormal_to_double(struct sh_fpu_hard_struct *fpu, int n)
 {
 	unsigned long du, dl;
@@ -154,6 +168,13 @@ static void denormal_to_double(struct sh_fpu_hard_struct *fpu, int n)
 	}
 }
 
+/**
+ *	ieee_fpe_handler - Handle denormalized number exception
+ *
+ *	@regs: Pointer to register structure
+ *
+ *	Returns 1 when it's handled (should not cause exception).
+ */
 static int ieee_fpe_handler(struct pt_regs *regs)
 {
 	unsigned short insn = *(unsigned short *)regs->pc;
@@ -167,21 +188,21 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 	};
 
 	if (nib[0] == 0xb || (nib[0] == 0x4 && nib[2] == 0x0 && nib[3] == 0xb))
-		regs->pr = regs->pc + 4;  
+		regs->pr = regs->pc + 4;  /* bsr & jsr */
 
 	if (nib[0] == 0xa || nib[0] == 0xb) {
-		
+		/* bra & bsr */
 		nextpc = regs->pc + 4 + ((short)((insn & 0xfff) << 4) >> 3);
 		finsn = *(unsigned short *)(regs->pc + 2);
 	} else if (nib[0] == 0x8 && nib[1] == 0xd) {
-		
+		/* bt/s */
 		if (regs->sr & 1)
 			nextpc = regs->pc + 4 + ((char)(insn & 0xff) << 1);
 		else
 			nextpc = regs->pc + 4;
 		finsn = *(unsigned short *)(regs->pc + 2);
 	} else if (nib[0] == 0x8 && nib[1] == 0xf) {
-		
+		/* bf/s */
 		if (regs->sr & 1)
 			nextpc = regs->pc + 4;
 		else
@@ -189,16 +210,16 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 		finsn = *(unsigned short *)(regs->pc + 2);
 	} else if (nib[0] == 0x4 && nib[3] == 0xb &&
 		   (nib[2] == 0x0 || nib[2] == 0x2)) {
-		
+		/* jmp & jsr */
 		nextpc = regs->regs[nib[1]];
 		finsn = *(unsigned short *)(regs->pc + 2);
 	} else if (nib[0] == 0x0 && nib[3] == 0x3 &&
 		   (nib[2] == 0x0 || nib[2] == 0x2)) {
-		
+		/* braf & bsrf */
 		nextpc = regs->pc + 4 + regs->regs[nib[1]];
 		finsn = *(unsigned short *)(regs->pc + 2);
 	} else if (insn == 0x000b) {
-		
+		/* rts */
 		nextpc = regs->pr;
 		finsn = *(unsigned short *)(regs->pc + 2);
 	} else {
@@ -207,11 +228,11 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 	}
 
 	if ((finsn & 0xf1ff) == 0xf0ad) {
-		
+		/* fcnvsd */
 		struct task_struct *tsk = current;
 
 		if ((tsk->thread.xstate->hardfpu.fpscr & FPSCR_CAUSE_ERROR))
-			
+			/* FPU error */
 			denormal_to_double(&tsk->thread.xstate->hardfpu,
 					   (finsn >> 8) & 0xf);
 		else
@@ -220,7 +241,7 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 		regs->pc = nextpc;
 		return 1;
 	} else if ((finsn & 0xf00f) == 0xf002) {
-		
+		/* fmul */
 		struct task_struct *tsk = current;
 		int fpscr;
 		int n, m, prec;
@@ -238,7 +259,7 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 				 || (hy & 0x7fffffff) < 0x00100000))) {
 			long long llx, lly;
 
-			
+			/* FPU error because of denormal (doubles) */
 			llx = ((long long)hx << 32)
 			    | tsk->thread.xstate->hardfpu.fp_regs[n + 1];
 			lly = ((long long)hy << 32)
@@ -249,7 +270,7 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 		} else if ((fpscr & FPSCR_CAUSE_ERROR)
 			   && (!prec && ((hx & 0x7fffffff) < 0x00800000
 					 || (hy & 0x7fffffff) < 0x00800000))) {
-			
+			/* FPU error because of denormal (floats) */
 			hx = float32_mul(hx, hy);
 			tsk->thread.xstate->hardfpu.fp_regs[n] = hx;
 		} else
@@ -258,7 +279,7 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 		regs->pc = nextpc;
 		return 1;
 	} else if ((finsn & 0xf00e) == 0xf000) {
-		
+		/* fadd, fsub */
 		struct task_struct *tsk = current;
 		int fpscr;
 		int n, m, prec;
@@ -276,7 +297,7 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 				 || (hy & 0x7fffffff) < 0x00100000))) {
 			long long llx, lly;
 
-			
+			/* FPU error because of denormal (doubles) */
 			llx = ((long long)hx << 32)
 			    | tsk->thread.xstate->hardfpu.fp_regs[n + 1];
 			lly = ((long long)hy << 32)
@@ -290,7 +311,7 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 		} else if ((fpscr & FPSCR_CAUSE_ERROR)
 			   && (!prec && ((hx & 0x7fffffff) < 0x00800000
 					 || (hy & 0x7fffffff) < 0x00800000))) {
-			
+			/* FPU error because of denormal (floats) */
 			if ((finsn & 0xf00f) == 0xf000)
 				hx = float32_add(hx, hy);
 			else
@@ -302,7 +323,7 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 		regs->pc = nextpc;
 		return 1;
 	} else if ((finsn & 0xf003) == 0xf003) {
-		
+		/* fdiv */
 		struct task_struct *tsk = current;
 		int fpscr;
 		int n, m, prec;
@@ -320,7 +341,7 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 				 || (hy & 0x7fffffff) < 0x00100000))) {
 			long long llx, lly;
 
-			
+			/* FPU error because of denormal (doubles) */
 			llx = ((long long)hx << 32)
 			    | tsk->thread.xstate->hardfpu.fp_regs[n + 1];
 			lly = ((long long)hy << 32)
@@ -333,7 +354,7 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 		} else if ((fpscr & FPSCR_CAUSE_ERROR)
 			   && (!prec && ((hx & 0x7fffffff) < 0x00800000
 					 || (hy & 0x7fffffff) < 0x00800000))) {
-			
+			/* FPU error because of denormal (floats) */
 			hx = float32_div(hx, hy);
 			tsk->thread.xstate->hardfpu.fp_regs[n] = hx;
 		} else
@@ -342,7 +363,7 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 		regs->pc = nextpc;
 		return 1;
 	} else if ((finsn & 0xf0bd) == 0xf0bd) {
-		
+		/* fcnvds - double to single precision convert */
 		struct task_struct *tsk = current;
 		int m;
 		unsigned int hx;
@@ -352,7 +373,7 @@ static int ieee_fpe_handler(struct pt_regs *regs)
 
 		if ((tsk->thread.xstate->hardfpu.fpscr & FPSCR_CAUSE_ERROR)
 			&& ((hx & 0x7fffffff) < 0x00100000)) {
-			
+			/* subnormal double to float conversion */
 			long long llx;
 
 			llx = ((long long)tsk->thread.xstate->hardfpu.fp_regs[m] << 32)
@@ -392,6 +413,8 @@ BUILD_TRAP_HANDLER(fpu_error)
 		tsk->thread.xstate->hardfpu.fpscr &=
 		    ~(FPSCR_CAUSE_MASK | FPSCR_FLAG_MASK);
 		tsk->thread.xstate->hardfpu.fpscr |= fpu_exception_flags;
+		/* Set the FPSCR flag as well as cause bits - simply
+		 * replicate the cause */
 		tsk->thread.xstate->hardfpu.fpscr |= (fpu_exception_flags >> 10);
 		grab_fpu(regs);
 		restore_fpu(tsk);

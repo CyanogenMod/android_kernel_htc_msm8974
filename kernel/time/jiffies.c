@@ -27,8 +27,30 @@
 
 #include "tick-internal.h"
 
+/* The Jiffies based clocksource is the lowest common
+ * denominator clock source which should function on
+ * all systems. It has the same coarse resolution as
+ * the timer interrupt frequency HZ and it suffers
+ * inaccuracies caused by missed or lost timer
+ * interrupts and the inability for the timer
+ * interrupt hardware to accuratly tick at the
+ * requested HZ value. It is also not recommended
+ * for "tick-less" systems.
+ */
 #define NSEC_PER_JIFFY	((u32)((((u64)NSEC_PER_SEC)<<8)/ACTHZ))
 
+/* Since jiffies uses a simple NSEC_PER_JIFFY multiplier
+ * conversion, the .shift value could be zero. However
+ * this would make NTP adjustments impossible as they are
+ * in units of 1/2^.shift. Thus we use JIFFIES_SHIFT to
+ * shift both the nominator and denominator the same
+ * amount, and give ntp adjustments in units of 1/2^8
+ *
+ * The value 8 is somewhat carefully chosen, as anything
+ * larger can result in overflows. NSEC_PER_JIFFY grows as
+ * HZ shrinks, so values greater than 8 overflow 32bits when
+ * HZ=100.
+ */
 #define JIFFIES_SHIFT	8
 
 static cycle_t jiffies_read(struct clocksource *cs)
@@ -38,10 +60,10 @@ static cycle_t jiffies_read(struct clocksource *cs)
 
 struct clocksource clocksource_jiffies = {
 	.name		= "jiffies",
-	.rating		= 1, 
+	.rating		= 1, /* lowest valid rating*/
 	.read		= jiffies_read,
-	.mask		= 0xffffffff, 
-	.mult		= NSEC_PER_JIFFY << JIFFIES_SHIFT, 
+	.mask		= 0xffffffff, /*32bits*/
+	.mult		= NSEC_PER_JIFFY << JIFFIES_SHIFT, /* details above */
 	.shift		= JIFFIES_SHIFT,
 };
 

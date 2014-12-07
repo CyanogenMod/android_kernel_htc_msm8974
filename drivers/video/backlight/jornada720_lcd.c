@@ -27,11 +27,11 @@
 
 static int jornada_lcd_get_power(struct lcd_device *dev)
 {
-	
+	/* LDD2 in PPC = LCD POWER */
 	if (PPSR & PPC_LDD2)
-		return FB_BLANK_UNBLANK;	
+		return FB_BLANK_UNBLANK;	/* PW ON */
 	else
-		return FB_BLANK_POWERDOWN;	
+		return FB_BLANK_POWERDOWN;	/* PW OFF */
 }
 
 static int jornada_lcd_get_contrast(struct lcd_device *dev)
@@ -60,17 +60,17 @@ static int jornada_lcd_set_contrast(struct lcd_device *dev, int value)
 
 	jornada_ssp_start();
 
-	
+	/* start by sending our set contrast cmd to mcu */
 	ret = jornada_ssp_byte(SETCONTRAST);
 
-	
+	/* push the new value */
 	if (jornada_ssp_byte(value) != TXDUMMY) {
 		printk(KERN_ERR "lcd : set contrast failed\n");
 		jornada_ssp_end();
 		return -ETIMEDOUT;
 	}
 
-	
+	/* if we get here we can assume everything went well */
 	jornada_ssp_end();
 
 	return 0;
@@ -109,10 +109,10 @@ static int jornada_lcd_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, lcd_device);
 
-	
+	/* lets set our default values */
 	jornada_lcd_set_contrast(lcd_device, LCD_DEF_CONTRAST);
 	jornada_lcd_set_power(lcd_device, FB_BLANK_UNBLANK);
-	
+	/* give it some time to startup */
 	msleep(100);
 
 	return 0;

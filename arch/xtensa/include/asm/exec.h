@@ -11,4 +11,4 @@
 
 #define arch_align_stack(x) (x)
 
-#endif 
+#endif /* _XTENSA_EXEC_H */

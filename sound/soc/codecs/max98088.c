@@ -55,277 +55,277 @@ struct max98088_priv {
 };
 
 static const u8 max98088_reg[M98088_REG_CNT] = {
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
+       0x00, /* 00 IRQ status */
+       0x00, /* 01 MIC status */
+       0x00, /* 02 jack status */
+       0x00, /* 03 battery voltage */
+       0x00, /* 04 */
+       0x00, /* 05 */
+       0x00, /* 06 */
+       0x00, /* 07 */
+       0x00, /* 08 */
+       0x00, /* 09 */
+       0x00, /* 0A */
+       0x00, /* 0B */
+       0x00, /* 0C */
+       0x00, /* 0D */
+       0x00, /* 0E */
+       0x00, /* 0F interrupt enable */
 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
+       0x00, /* 10 master clock */
+       0x00, /* 11 DAI1 clock mode */
+       0x00, /* 12 DAI1 clock control */
+       0x00, /* 13 DAI1 clock control */
+       0x00, /* 14 DAI1 format */
+       0x00, /* 15 DAI1 clock */
+       0x00, /* 16 DAI1 config */
+       0x00, /* 17 DAI1 TDM */
+       0x00, /* 18 DAI1 filters */
+       0x00, /* 19 DAI2 clock mode */
+       0x00, /* 1A DAI2 clock control */
+       0x00, /* 1B DAI2 clock control */
+       0x00, /* 1C DAI2 format */
+       0x00, /* 1D DAI2 clock */
+       0x00, /* 1E DAI2 config */
+       0x00, /* 1F DAI2 TDM */
 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
+       0x00, /* 20 DAI2 filters */
+       0x00, /* 21 data config */
+       0x00, /* 22 DAC mixer */
+       0x00, /* 23 left ADC mixer */
+       0x00, /* 24 right ADC mixer */
+       0x00, /* 25 left HP mixer */
+       0x00, /* 26 right HP mixer */
+       0x00, /* 27 HP control */
+       0x00, /* 28 left REC mixer */
+       0x00, /* 29 right REC mixer */
+       0x00, /* 2A REC control */
+       0x00, /* 2B left SPK mixer */
+       0x00, /* 2C right SPK mixer */
+       0x00, /* 2D SPK control */
+       0x00, /* 2E sidetone */
+       0x00, /* 2F DAI1 playback level */
 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
+       0x00, /* 30 DAI1 playback level */
+       0x00, /* 31 DAI2 playback level */
+       0x00, /* 32 DAI2 playbakc level */
+       0x00, /* 33 left ADC level */
+       0x00, /* 34 right ADC level */
+       0x00, /* 35 MIC1 level */
+       0x00, /* 36 MIC2 level */
+       0x00, /* 37 INA level */
+       0x00, /* 38 INB level */
+       0x00, /* 39 left HP volume */
+       0x00, /* 3A right HP volume */
+       0x00, /* 3B left REC volume */
+       0x00, /* 3C right REC volume */
+       0x00, /* 3D left SPK volume */
+       0x00, /* 3E right SPK volume */
+       0x00, /* 3F MIC config */
 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0xF0, 
-       0x00, 
+       0x00, /* 40 MIC threshold */
+       0x00, /* 41 excursion limiter filter */
+       0x00, /* 42 excursion limiter threshold */
+       0x00, /* 43 ALC */
+       0x00, /* 44 power limiter threshold */
+       0x00, /* 45 power limiter config */
+       0x00, /* 46 distortion limiter config */
+       0x00, /* 47 audio input */
+       0x00, /* 48 microphone */
+       0x00, /* 49 level control */
+       0x00, /* 4A bypass switches */
+       0x00, /* 4B jack detect */
+       0x00, /* 4C input enable */
+       0x00, /* 4D output enable */
+       0xF0, /* 4E bias control */
+       0x00, /* 4F DAC power */
 
-       0x0F, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
+       0x0F, /* 50 DAC power */
+       0x00, /* 51 system */
+       0x00, /* 52 DAI1 EQ1 */
+       0x00, /* 53 DAI1 EQ1 */
+       0x00, /* 54 DAI1 EQ1 */
+       0x00, /* 55 DAI1 EQ1 */
+       0x00, /* 56 DAI1 EQ1 */
+       0x00, /* 57 DAI1 EQ1 */
+       0x00, /* 58 DAI1 EQ1 */
+       0x00, /* 59 DAI1 EQ1 */
+       0x00, /* 5A DAI1 EQ1 */
+       0x00, /* 5B DAI1 EQ1 */
+       0x00, /* 5C DAI1 EQ2 */
+       0x00, /* 5D DAI1 EQ2 */
+       0x00, /* 5E DAI1 EQ2 */
+       0x00, /* 5F DAI1 EQ2 */
 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
+       0x00, /* 60 DAI1 EQ2 */
+       0x00, /* 61 DAI1 EQ2 */
+       0x00, /* 62 DAI1 EQ2 */
+       0x00, /* 63 DAI1 EQ2 */
+       0x00, /* 64 DAI1 EQ2 */
+       0x00, /* 65 DAI1 EQ2 */
+       0x00, /* 66 DAI1 EQ3 */
+       0x00, /* 67 DAI1 EQ3 */
+       0x00, /* 68 DAI1 EQ3 */
+       0x00, /* 69 DAI1 EQ3 */
+       0x00, /* 6A DAI1 EQ3 */
+       0x00, /* 6B DAI1 EQ3 */
+       0x00, /* 6C DAI1 EQ3 */
+       0x00, /* 6D DAI1 EQ3 */
+       0x00, /* 6E DAI1 EQ3 */
+       0x00, /* 6F DAI1 EQ3 */
 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
+       0x00, /* 70 DAI1 EQ4 */
+       0x00, /* 71 DAI1 EQ4 */
+       0x00, /* 72 DAI1 EQ4 */
+       0x00, /* 73 DAI1 EQ4 */
+       0x00, /* 74 DAI1 EQ4 */
+       0x00, /* 75 DAI1 EQ4 */
+       0x00, /* 76 DAI1 EQ4 */
+       0x00, /* 77 DAI1 EQ4 */
+       0x00, /* 78 DAI1 EQ4 */
+       0x00, /* 79 DAI1 EQ4 */
+       0x00, /* 7A DAI1 EQ5 */
+       0x00, /* 7B DAI1 EQ5 */
+       0x00, /* 7C DAI1 EQ5 */
+       0x00, /* 7D DAI1 EQ5 */
+       0x00, /* 7E DAI1 EQ5 */
+       0x00, /* 7F DAI1 EQ5 */
 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
+       0x00, /* 80 DAI1 EQ5 */
+       0x00, /* 81 DAI1 EQ5 */
+       0x00, /* 82 DAI1 EQ5 */
+       0x00, /* 83 DAI1 EQ5 */
+       0x00, /* 84 DAI2 EQ1 */
+       0x00, /* 85 DAI2 EQ1 */
+       0x00, /* 86 DAI2 EQ1 */
+       0x00, /* 87 DAI2 EQ1 */
+       0x00, /* 88 DAI2 EQ1 */
+       0x00, /* 89 DAI2 EQ1 */
+       0x00, /* 8A DAI2 EQ1 */
+       0x00, /* 8B DAI2 EQ1 */
+       0x00, /* 8C DAI2 EQ1 */
+       0x00, /* 8D DAI2 EQ1 */
+       0x00, /* 8E DAI2 EQ2 */
+       0x00, /* 8F DAI2 EQ2 */
 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
+       0x00, /* 90 DAI2 EQ2 */
+       0x00, /* 91 DAI2 EQ2 */
+       0x00, /* 92 DAI2 EQ2 */
+       0x00, /* 93 DAI2 EQ2 */
+       0x00, /* 94 DAI2 EQ2 */
+       0x00, /* 95 DAI2 EQ2 */
+       0x00, /* 96 DAI2 EQ2 */
+       0x00, /* 97 DAI2 EQ2 */
+       0x00, /* 98 DAI2 EQ3 */
+       0x00, /* 99 DAI2 EQ3 */
+       0x00, /* 9A DAI2 EQ3 */
+       0x00, /* 9B DAI2 EQ3 */
+       0x00, /* 9C DAI2 EQ3 */
+       0x00, /* 9D DAI2 EQ3 */
+       0x00, /* 9E DAI2 EQ3 */
+       0x00, /* 9F DAI2 EQ3 */
 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
+       0x00, /* A0 DAI2 EQ3 */
+       0x00, /* A1 DAI2 EQ3 */
+       0x00, /* A2 DAI2 EQ4 */
+       0x00, /* A3 DAI2 EQ4 */
+       0x00, /* A4 DAI2 EQ4 */
+       0x00, /* A5 DAI2 EQ4 */
+       0x00, /* A6 DAI2 EQ4 */
+       0x00, /* A7 DAI2 EQ4 */
+       0x00, /* A8 DAI2 EQ4 */
+       0x00, /* A9 DAI2 EQ4 */
+       0x00, /* AA DAI2 EQ4 */
+       0x00, /* AB DAI2 EQ4 */
+       0x00, /* AC DAI2 EQ5 */
+       0x00, /* AD DAI2 EQ5 */
+       0x00, /* AE DAI2 EQ5 */
+       0x00, /* AF DAI2 EQ5 */
 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
+       0x00, /* B0 DAI2 EQ5 */
+       0x00, /* B1 DAI2 EQ5 */
+       0x00, /* B2 DAI2 EQ5 */
+       0x00, /* B3 DAI2 EQ5 */
+       0x00, /* B4 DAI2 EQ5 */
+       0x00, /* B5 DAI2 EQ5 */
+       0x00, /* B6 DAI1 biquad */
+       0x00, /* B7 DAI1 biquad */
+       0x00, /* B8 DAI1 biquad */
+       0x00, /* B9 DAI1 biquad */
+       0x00, /* BA DAI1 biquad */
+       0x00, /* BB DAI1 biquad */
+       0x00, /* BC DAI1 biquad */
+       0x00, /* BD DAI1 biquad */
+       0x00, /* BE DAI1 biquad */
+       0x00, /* BF DAI1 biquad */
 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
+       0x00, /* C0 DAI2 biquad */
+       0x00, /* C1 DAI2 biquad */
+       0x00, /* C2 DAI2 biquad */
+       0x00, /* C3 DAI2 biquad */
+       0x00, /* C4 DAI2 biquad */
+       0x00, /* C5 DAI2 biquad */
+       0x00, /* C6 DAI2 biquad */
+       0x00, /* C7 DAI2 biquad */
+       0x00, /* C8 DAI2 biquad */
+       0x00, /* C9 DAI2 biquad */
+       0x00, /* CA */
+       0x00, /* CB */
+       0x00, /* CC */
+       0x00, /* CD */
+       0x00, /* CE */
+       0x00, /* CF */
 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x70, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
+       0x00, /* D0 */
+       0x00, /* D1 */
+       0x00, /* D2 */
+       0x00, /* D3 */
+       0x00, /* D4 */
+       0x00, /* D5 */
+       0x00, /* D6 */
+       0x00, /* D7 */
+       0x00, /* D8 */
+       0x00, /* D9 */
+       0x00, /* DA */
+       0x70, /* DB */
+       0x00, /* DC */
+       0x00, /* DD */
+       0x00, /* DE */
+       0x00, /* DF */
 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
+       0x00, /* E0 */
+       0x00, /* E1 */
+       0x00, /* E2 */
+       0x00, /* E3 */
+       0x00, /* E4 */
+       0x00, /* E5 */
+       0x00, /* E6 */
+       0x00, /* E7 */
+       0x00, /* E8 */
+       0x00, /* E9 */
+       0x00, /* EA */
+       0x00, /* EB */
+       0x00, /* EC */
+       0x00, /* ED */
+       0x00, /* EE */
+       0x00, /* EF */
 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
-       0x00, 
+       0x00, /* F0 */
+       0x00, /* F1 */
+       0x00, /* F2 */
+       0x00, /* F3 */
+       0x00, /* F4 */
+       0x00, /* F5 */
+       0x00, /* F6 */
+       0x00, /* F7 */
+       0x00, /* F8 */
+       0x00, /* F9 */
+       0x00, /* FA */
+       0x00, /* FB */
+       0x00, /* FC */
+       0x00, /* FD */
+       0x00, /* FE */
+       0x00, /* FF */
 };
 
 static struct {
@@ -333,277 +333,277 @@ static struct {
        int writable;
        int vol;
 } max98088_access[M98088_REG_CNT] = {
-       { 0xFF, 0xFF, 1 }, 
-       { 0xFF, 0x00, 1 }, 
-       { 0xFF, 0x00, 1 }, 
-       { 0x1F, 0x1F, 1 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
+       { 0xFF, 0xFF, 1 }, /* 00 IRQ status */
+       { 0xFF, 0x00, 1 }, /* 01 MIC status */
+       { 0xFF, 0x00, 1 }, /* 02 jack status */
+       { 0x1F, 0x1F, 1 }, /* 03 battery voltage */
+       { 0xFF, 0xFF, 0 }, /* 04 */
+       { 0xFF, 0xFF, 0 }, /* 05 */
+       { 0xFF, 0xFF, 0 }, /* 06 */
+       { 0xFF, 0xFF, 0 }, /* 07 */
+       { 0xFF, 0xFF, 0 }, /* 08 */
+       { 0xFF, 0xFF, 0 }, /* 09 */
+       { 0xFF, 0xFF, 0 }, /* 0A */
+       { 0xFF, 0xFF, 0 }, /* 0B */
+       { 0xFF, 0xFF, 0 }, /* 0C */
+       { 0xFF, 0xFF, 0 }, /* 0D */
+       { 0xFF, 0xFF, 0 }, /* 0E */
+       { 0xFF, 0xFF, 0 }, /* 0F interrupt enable */
 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
+       { 0xFF, 0xFF, 0 }, /* 10 master clock */
+       { 0xFF, 0xFF, 0 }, /* 11 DAI1 clock mode */
+       { 0xFF, 0xFF, 0 }, /* 12 DAI1 clock control */
+       { 0xFF, 0xFF, 0 }, /* 13 DAI1 clock control */
+       { 0xFF, 0xFF, 0 }, /* 14 DAI1 format */
+       { 0xFF, 0xFF, 0 }, /* 15 DAI1 clock */
+       { 0xFF, 0xFF, 0 }, /* 16 DAI1 config */
+       { 0xFF, 0xFF, 0 }, /* 17 DAI1 TDM */
+       { 0xFF, 0xFF, 0 }, /* 18 DAI1 filters */
+       { 0xFF, 0xFF, 0 }, /* 19 DAI2 clock mode */
+       { 0xFF, 0xFF, 0 }, /* 1A DAI2 clock control */
+       { 0xFF, 0xFF, 0 }, /* 1B DAI2 clock control */
+       { 0xFF, 0xFF, 0 }, /* 1C DAI2 format */
+       { 0xFF, 0xFF, 0 }, /* 1D DAI2 clock */
+       { 0xFF, 0xFF, 0 }, /* 1E DAI2 config */
+       { 0xFF, 0xFF, 0 }, /* 1F DAI2 TDM */
 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
+       { 0xFF, 0xFF, 0 }, /* 20 DAI2 filters */
+       { 0xFF, 0xFF, 0 }, /* 21 data config */
+       { 0xFF, 0xFF, 0 }, /* 22 DAC mixer */
+       { 0xFF, 0xFF, 0 }, /* 23 left ADC mixer */
+       { 0xFF, 0xFF, 0 }, /* 24 right ADC mixer */
+       { 0xFF, 0xFF, 0 }, /* 25 left HP mixer */
+       { 0xFF, 0xFF, 0 }, /* 26 right HP mixer */
+       { 0xFF, 0xFF, 0 }, /* 27 HP control */
+       { 0xFF, 0xFF, 0 }, /* 28 left REC mixer */
+       { 0xFF, 0xFF, 0 }, /* 29 right REC mixer */
+       { 0xFF, 0xFF, 0 }, /* 2A REC control */
+       { 0xFF, 0xFF, 0 }, /* 2B left SPK mixer */
+       { 0xFF, 0xFF, 0 }, /* 2C right SPK mixer */
+       { 0xFF, 0xFF, 0 }, /* 2D SPK control */
+       { 0xFF, 0xFF, 0 }, /* 2E sidetone */
+       { 0xFF, 0xFF, 0 }, /* 2F DAI1 playback level */
 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
+       { 0xFF, 0xFF, 0 }, /* 30 DAI1 playback level */
+       { 0xFF, 0xFF, 0 }, /* 31 DAI2 playback level */
+       { 0xFF, 0xFF, 0 }, /* 32 DAI2 playbakc level */
+       { 0xFF, 0xFF, 0 }, /* 33 left ADC level */
+       { 0xFF, 0xFF, 0 }, /* 34 right ADC level */
+       { 0xFF, 0xFF, 0 }, /* 35 MIC1 level */
+       { 0xFF, 0xFF, 0 }, /* 36 MIC2 level */
+       { 0xFF, 0xFF, 0 }, /* 37 INA level */
+       { 0xFF, 0xFF, 0 }, /* 38 INB level */
+       { 0xFF, 0xFF, 0 }, /* 39 left HP volume */
+       { 0xFF, 0xFF, 0 }, /* 3A right HP volume */
+       { 0xFF, 0xFF, 0 }, /* 3B left REC volume */
+       { 0xFF, 0xFF, 0 }, /* 3C right REC volume */
+       { 0xFF, 0xFF, 0 }, /* 3D left SPK volume */
+       { 0xFF, 0xFF, 0 }, /* 3E right SPK volume */
+       { 0xFF, 0xFF, 0 }, /* 3F MIC config */
 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
+       { 0xFF, 0xFF, 0 }, /* 40 MIC threshold */
+       { 0xFF, 0xFF, 0 }, /* 41 excursion limiter filter */
+       { 0xFF, 0xFF, 0 }, /* 42 excursion limiter threshold */
+       { 0xFF, 0xFF, 0 }, /* 43 ALC */
+       { 0xFF, 0xFF, 0 }, /* 44 power limiter threshold */
+       { 0xFF, 0xFF, 0 }, /* 45 power limiter config */
+       { 0xFF, 0xFF, 0 }, /* 46 distortion limiter config */
+       { 0xFF, 0xFF, 0 }, /* 47 audio input */
+       { 0xFF, 0xFF, 0 }, /* 48 microphone */
+       { 0xFF, 0xFF, 0 }, /* 49 level control */
+       { 0xFF, 0xFF, 0 }, /* 4A bypass switches */
+       { 0xFF, 0xFF, 0 }, /* 4B jack detect */
+       { 0xFF, 0xFF, 0 }, /* 4C input enable */
+       { 0xFF, 0xFF, 0 }, /* 4D output enable */
+       { 0xFF, 0xFF, 0 }, /* 4E bias control */
+       { 0xFF, 0xFF, 0 }, /* 4F DAC power */
 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
+       { 0xFF, 0xFF, 0 }, /* 50 DAC power */
+       { 0xFF, 0xFF, 0 }, /* 51 system */
+       { 0xFF, 0xFF, 0 }, /* 52 DAI1 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 53 DAI1 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 54 DAI1 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 55 DAI1 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 56 DAI1 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 57 DAI1 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 58 DAI1 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 59 DAI1 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 5A DAI1 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 5B DAI1 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 5C DAI1 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 5D DAI1 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 5E DAI1 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 5F DAI1 EQ2 */
 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
+       { 0xFF, 0xFF, 0 }, /* 60 DAI1 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 61 DAI1 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 62 DAI1 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 63 DAI1 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 64 DAI1 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 65 DAI1 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 66 DAI1 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 67 DAI1 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 68 DAI1 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 69 DAI1 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 6A DAI1 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 6B DAI1 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 6C DAI1 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 6D DAI1 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 6E DAI1 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 6F DAI1 EQ3 */
 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
+       { 0xFF, 0xFF, 0 }, /* 70 DAI1 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* 71 DAI1 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* 72 DAI1 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* 73 DAI1 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* 74 DAI1 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* 75 DAI1 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* 76 DAI1 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* 77 DAI1 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* 78 DAI1 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* 79 DAI1 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* 7A DAI1 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* 7B DAI1 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* 7C DAI1 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* 7D DAI1 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* 7E DAI1 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* 7F DAI1 EQ5 */
 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
+       { 0xFF, 0xFF, 0 }, /* 80 DAI1 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* 81 DAI1 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* 82 DAI1 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* 83 DAI1 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* 84 DAI2 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 85 DAI2 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 86 DAI2 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 87 DAI2 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 88 DAI2 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 89 DAI2 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 8A DAI2 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 8B DAI2 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 8C DAI2 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 8D DAI2 EQ1 */
+       { 0xFF, 0xFF, 0 }, /* 8E DAI2 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 8F DAI2 EQ2 */
 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
+       { 0xFF, 0xFF, 0 }, /* 90 DAI2 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 91 DAI2 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 92 DAI2 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 93 DAI2 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 94 DAI2 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 95 DAI2 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 96 DAI2 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 97 DAI2 EQ2 */
+       { 0xFF, 0xFF, 0 }, /* 98 DAI2 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 99 DAI2 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 9A DAI2 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 9B DAI2 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 9C DAI2 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 9D DAI2 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 9E DAI2 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* 9F DAI2 EQ3 */
 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
+       { 0xFF, 0xFF, 0 }, /* A0 DAI2 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* A1 DAI2 EQ3 */
+       { 0xFF, 0xFF, 0 }, /* A2 DAI2 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* A3 DAI2 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* A4 DAI2 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* A5 DAI2 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* A6 DAI2 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* A7 DAI2 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* A8 DAI2 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* A9 DAI2 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* AA DAI2 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* AB DAI2 EQ4 */
+       { 0xFF, 0xFF, 0 }, /* AC DAI2 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* AD DAI2 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* AE DAI2 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* AF DAI2 EQ5 */
 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
+       { 0xFF, 0xFF, 0 }, /* B0 DAI2 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* B1 DAI2 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* B2 DAI2 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* B3 DAI2 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* B4 DAI2 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* B5 DAI2 EQ5 */
+       { 0xFF, 0xFF, 0 }, /* B6 DAI1 biquad */
+       { 0xFF, 0xFF, 0 }, /* B7 DAI1 biquad */
+       { 0xFF, 0xFF, 0 }, /* B8 DAI1 biquad */
+       { 0xFF, 0xFF, 0 }, /* B9 DAI1 biquad */
+       { 0xFF, 0xFF, 0 }, /* BA DAI1 biquad */
+       { 0xFF, 0xFF, 0 }, /* BB DAI1 biquad */
+       { 0xFF, 0xFF, 0 }, /* BC DAI1 biquad */
+       { 0xFF, 0xFF, 0 }, /* BD DAI1 biquad */
+       { 0xFF, 0xFF, 0 }, /* BE DAI1 biquad */
+       { 0xFF, 0xFF, 0 }, /* BF DAI1 biquad */
 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0xFF, 0xFF, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
+       { 0xFF, 0xFF, 0 }, /* C0 DAI2 biquad */
+       { 0xFF, 0xFF, 0 }, /* C1 DAI2 biquad */
+       { 0xFF, 0xFF, 0 }, /* C2 DAI2 biquad */
+       { 0xFF, 0xFF, 0 }, /* C3 DAI2 biquad */
+       { 0xFF, 0xFF, 0 }, /* C4 DAI2 biquad */
+       { 0xFF, 0xFF, 0 }, /* C5 DAI2 biquad */
+       { 0xFF, 0xFF, 0 }, /* C6 DAI2 biquad */
+       { 0xFF, 0xFF, 0 }, /* C7 DAI2 biquad */
+       { 0xFF, 0xFF, 0 }, /* C8 DAI2 biquad */
+       { 0xFF, 0xFF, 0 }, /* C9 DAI2 biquad */
+       { 0x00, 0x00, 0 }, /* CA */
+       { 0x00, 0x00, 0 }, /* CB */
+       { 0x00, 0x00, 0 }, /* CC */
+       { 0x00, 0x00, 0 }, /* CD */
+       { 0x00, 0x00, 0 }, /* CE */
+       { 0x00, 0x00, 0 }, /* CF */
 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
+       { 0x00, 0x00, 0 }, /* D0 */
+       { 0x00, 0x00, 0 }, /* D1 */
+       { 0x00, 0x00, 0 }, /* D2 */
+       { 0x00, 0x00, 0 }, /* D3 */
+       { 0x00, 0x00, 0 }, /* D4 */
+       { 0x00, 0x00, 0 }, /* D5 */
+       { 0x00, 0x00, 0 }, /* D6 */
+       { 0x00, 0x00, 0 }, /* D7 */
+       { 0x00, 0x00, 0 }, /* D8 */
+       { 0x00, 0x00, 0 }, /* D9 */
+       { 0x00, 0x00, 0 }, /* DA */
+       { 0x00, 0x00, 0 }, /* DB */
+       { 0x00, 0x00, 0 }, /* DC */
+       { 0x00, 0x00, 0 }, /* DD */
+       { 0x00, 0x00, 0 }, /* DE */
+       { 0x00, 0x00, 0 }, /* DF */
 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
+       { 0x00, 0x00, 0 }, /* E0 */
+       { 0x00, 0x00, 0 }, /* E1 */
+       { 0x00, 0x00, 0 }, /* E2 */
+       { 0x00, 0x00, 0 }, /* E3 */
+       { 0x00, 0x00, 0 }, /* E4 */
+       { 0x00, 0x00, 0 }, /* E5 */
+       { 0x00, 0x00, 0 }, /* E6 */
+       { 0x00, 0x00, 0 }, /* E7 */
+       { 0x00, 0x00, 0 }, /* E8 */
+       { 0x00, 0x00, 0 }, /* E9 */
+       { 0x00, 0x00, 0 }, /* EA */
+       { 0x00, 0x00, 0 }, /* EB */
+       { 0x00, 0x00, 0 }, /* EC */
+       { 0x00, 0x00, 0 }, /* ED */
+       { 0x00, 0x00, 0 }, /* EE */
+       { 0x00, 0x00, 0 }, /* EF */
 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0x00, 0x00, 0 }, 
-       { 0xFF, 0x00, 1 }, 
+       { 0x00, 0x00, 0 }, /* F0 */
+       { 0x00, 0x00, 0 }, /* F1 */
+       { 0x00, 0x00, 0 }, /* F2 */
+       { 0x00, 0x00, 0 }, /* F3 */
+       { 0x00, 0x00, 0 }, /* F4 */
+       { 0x00, 0x00, 0 }, /* F5 */
+       { 0x00, 0x00, 0 }, /* F6 */
+       { 0x00, 0x00, 0 }, /* F7 */
+       { 0x00, 0x00, 0 }, /* F8 */
+       { 0x00, 0x00, 0 }, /* F9 */
+       { 0x00, 0x00, 0 }, /* FA */
+       { 0x00, 0x00, 0 }, /* FB */
+       { 0x00, 0x00, 0 }, /* FC */
+       { 0x00, 0x00, 0 }, /* FD */
+       { 0x00, 0x00, 0 }, /* FE */
+       { 0xFF, 0x00, 1 }, /* FF */
 };
 
 static int max98088_volatile_register(struct snd_soc_codec *codec, unsigned int reg)
@@ -612,6 +612,9 @@ static int max98088_volatile_register(struct snd_soc_codec *codec, unsigned int 
 }
 
 
+/*
+ * Load equalizer DSP coefficient configurations registers
+ */
 static void m98088_eq_band(struct snd_soc_codec *codec, unsigned int dai,
                    unsigned int band, u16 *coefs)
 {
@@ -621,19 +624,22 @@ static void m98088_eq_band(struct snd_soc_codec *codec, unsigned int dai,
        BUG_ON(band > 4);
        BUG_ON(dai > 1);
 
-       
+       /* Load the base register address */
        eq_reg = dai ? M98088_REG_84_DAI2_EQ_BASE : M98088_REG_52_DAI1_EQ_BASE;
 
-       
+       /* Add the band address offset, note adjustment for word address */
        eq_reg += band * (M98088_COEFS_PER_BAND << 1);
 
-       
+       /* Step through the registers and coefs */
        for (i = 0; i < M98088_COEFS_PER_BAND; i++) {
                snd_soc_write(codec, eq_reg++, M98088_BYTE1(coefs[i]));
                snd_soc_write(codec, eq_reg++, M98088_BYTE0(coefs[i]));
        }
 }
 
+/*
+ * Excursion limiter modes
+ */
 static const char *max98088_exmode_texts[] = {
        "Off", "100Hz", "400Hz", "600Hz", "800Hz", "1000Hz", "200-400Hz",
        "400-600Hz", "400-800Hz",
@@ -649,7 +655,7 @@ static const struct soc_enum max98088_exmode_enum =
                              max98088_exmode_texts,
                              max98088_exmode_values);
 
-static const char *max98088_ex_thresh[] = { 
+static const char *max98088_ex_thresh[] = { /* volts PP */
        "0.6", "1.2", "1.8", "2.4", "3.0", "3.6", "4.2", "4.8"};
 static const struct soc_enum max98088_ex_thresh_enum[] = {
        SOC_ENUM_SINGLE(M98088_REG_42_SPKDHP_THRESH, 0, 8,
@@ -797,6 +803,7 @@ static const struct snd_kcontrol_new max98088_snd_controls[] = {
        SOC_SINGLE("THD Limiter Time", M98088_REG_46_THDLMT_CFG, 0, 7, 0),
 };
 
+/* Left speaker mixer switch */
 static const struct snd_kcontrol_new max98088_left_speaker_mixer_controls[] = {
        SOC_DAPM_SINGLE("Left DAC1 Switch", M98088_REG_2B_MIX_SPK_LEFT, 0, 1, 0),
        SOC_DAPM_SINGLE("Right DAC1 Switch", M98088_REG_2B_MIX_SPK_LEFT, 7, 1, 0),
@@ -810,6 +817,7 @@ static const struct snd_kcontrol_new max98088_left_speaker_mixer_controls[] = {
        SOC_DAPM_SINGLE("INB2 Switch", M98088_REG_2B_MIX_SPK_LEFT, 4, 1, 0),
 };
 
+/* Right speaker mixer switch */
 static const struct snd_kcontrol_new max98088_right_speaker_mixer_controls[] = {
        SOC_DAPM_SINGLE("Left DAC1 Switch", M98088_REG_2C_MIX_SPK_RIGHT, 7, 1, 0),
        SOC_DAPM_SINGLE("Right DAC1 Switch", M98088_REG_2C_MIX_SPK_RIGHT, 0, 1, 0),
@@ -823,6 +831,7 @@ static const struct snd_kcontrol_new max98088_right_speaker_mixer_controls[] = {
        SOC_DAPM_SINGLE("INB2 Switch", M98088_REG_2C_MIX_SPK_RIGHT, 4, 1, 0),
 };
 
+/* Left headphone mixer switch */
 static const struct snd_kcontrol_new max98088_left_hp_mixer_controls[] = {
        SOC_DAPM_SINGLE("Left DAC1 Switch", M98088_REG_25_MIX_HP_LEFT, 0, 1, 0),
        SOC_DAPM_SINGLE("Right DAC1 Switch", M98088_REG_25_MIX_HP_LEFT, 7, 1, 0),
@@ -836,6 +845,7 @@ static const struct snd_kcontrol_new max98088_left_hp_mixer_controls[] = {
        SOC_DAPM_SINGLE("INB2 Switch", M98088_REG_25_MIX_HP_LEFT, 4, 1, 0),
 };
 
+/* Right headphone mixer switch */
 static const struct snd_kcontrol_new max98088_right_hp_mixer_controls[] = {
        SOC_DAPM_SINGLE("Left DAC1 Switch", M98088_REG_26_MIX_HP_RIGHT, 7, 1, 0),
        SOC_DAPM_SINGLE("Right DAC1 Switch", M98088_REG_26_MIX_HP_RIGHT, 0, 1, 0),
@@ -849,6 +859,7 @@ static const struct snd_kcontrol_new max98088_right_hp_mixer_controls[] = {
        SOC_DAPM_SINGLE("INB2 Switch", M98088_REG_26_MIX_HP_RIGHT, 4, 1, 0),
 };
 
+/* Left earpiece/receiver mixer switch */
 static const struct snd_kcontrol_new max98088_left_rec_mixer_controls[] = {
        SOC_DAPM_SINGLE("Left DAC1 Switch", M98088_REG_28_MIX_REC_LEFT, 0, 1, 0),
        SOC_DAPM_SINGLE("Right DAC1 Switch", M98088_REG_28_MIX_REC_LEFT, 7, 1, 0),
@@ -862,6 +873,7 @@ static const struct snd_kcontrol_new max98088_left_rec_mixer_controls[] = {
        SOC_DAPM_SINGLE("INB2 Switch", M98088_REG_28_MIX_REC_LEFT, 4, 1, 0),
 };
 
+/* Right earpiece/receiver mixer switch */
 static const struct snd_kcontrol_new max98088_right_rec_mixer_controls[] = {
        SOC_DAPM_SINGLE("Left DAC1 Switch", M98088_REG_29_MIX_REC_RIGHT, 7, 1, 0),
        SOC_DAPM_SINGLE("Right DAC1 Switch", M98088_REG_29_MIX_REC_RIGHT, 0, 1, 0),
@@ -875,6 +887,7 @@ static const struct snd_kcontrol_new max98088_right_rec_mixer_controls[] = {
        SOC_DAPM_SINGLE("INB2 Switch", M98088_REG_29_MIX_REC_RIGHT, 4, 1, 0),
 };
 
+/* Left ADC mixer switch */
 static const struct snd_kcontrol_new max98088_left_ADC_mixer_controls[] = {
        SOC_DAPM_SINGLE("MIC1 Switch", M98088_REG_23_MIX_ADC_LEFT, 7, 1, 0),
        SOC_DAPM_SINGLE("MIC2 Switch", M98088_REG_23_MIX_ADC_LEFT, 6, 1, 0),
@@ -884,6 +897,7 @@ static const struct snd_kcontrol_new max98088_left_ADC_mixer_controls[] = {
        SOC_DAPM_SINGLE("INB2 Switch", M98088_REG_23_MIX_ADC_LEFT, 0, 1, 0),
 };
 
+/* Right ADC mixer switch */
 static const struct snd_kcontrol_new max98088_right_ADC_mixer_controls[] = {
        SOC_DAPM_SINGLE("MIC1 Switch", M98088_REG_24_MIX_ADC_RIGHT, 7, 1, 0),
        SOC_DAPM_SINGLE("MIC2 Switch", M98088_REG_24_MIX_ADC_RIGHT, 6, 1, 0),
@@ -919,6 +933,10 @@ static int max98088_mic_event(struct snd_soc_dapm_widget *w,
        return 0;
 }
 
+/*
+ * The line inputs are 2-channel stereo inputs with the left
+ * and right channels sharing a common PGA power control signal.
+ */
 static int max98088_line_pga(struct snd_soc_dapm_widget *w,
                             int event, int line, u8 channel)
 {
@@ -1089,7 +1107,7 @@ static const struct snd_soc_dapm_widget max98088_dapm_widgets[] = {
 };
 
 static const struct snd_soc_dapm_route max98088_audio_map[] = {
-       
+       /* Left headphone output mixer */
        {"Left HP Mixer", "Left DAC1 Switch", "DACL1"},
        {"Left HP Mixer", "Left DAC2 Switch", "DACL2"},
        {"Left HP Mixer", "Right DAC1 Switch", "DACR1"},
@@ -1101,7 +1119,7 @@ static const struct snd_soc_dapm_route max98088_audio_map[] = {
        {"Left HP Mixer", "INB1 Switch", "INB1 Input"},
        {"Left HP Mixer", "INB2 Switch", "INB2 Input"},
 
-       
+       /* Right headphone output mixer */
        {"Right HP Mixer", "Left DAC1 Switch", "DACL1"},
        {"Right HP Mixer", "Left DAC2 Switch", "DACL2"  },
        {"Right HP Mixer", "Right DAC1 Switch", "DACR1"},
@@ -1113,7 +1131,7 @@ static const struct snd_soc_dapm_route max98088_audio_map[] = {
        {"Right HP Mixer", "INB1 Switch", "INB1 Input"},
        {"Right HP Mixer", "INB2 Switch", "INB2 Input"},
 
-       
+       /* Left speaker output mixer */
        {"Left SPK Mixer", "Left DAC1 Switch", "DACL1"},
        {"Left SPK Mixer", "Left DAC2 Switch", "DACL2"},
        {"Left SPK Mixer", "Right DAC1 Switch", "DACR1"},
@@ -1125,7 +1143,7 @@ static const struct snd_soc_dapm_route max98088_audio_map[] = {
        {"Left SPK Mixer", "INB1 Switch", "INB1 Input"},
        {"Left SPK Mixer", "INB2 Switch", "INB2 Input"},
 
-       
+       /* Right speaker output mixer */
        {"Right SPK Mixer", "Left DAC1 Switch", "DACL1"},
        {"Right SPK Mixer", "Left DAC2 Switch", "DACL2"},
        {"Right SPK Mixer", "Right DAC1 Switch", "DACR1"},
@@ -1137,7 +1155,7 @@ static const struct snd_soc_dapm_route max98088_audio_map[] = {
        {"Right SPK Mixer", "INB1 Switch", "INB1 Input"},
        {"Right SPK Mixer", "INB2 Switch", "INB2 Input"},
 
-       
+       /* Earpiece/Receiver output mixer */
        {"Left REC Mixer", "Left DAC1 Switch", "DACL1"},
        {"Left REC Mixer", "Left DAC2 Switch", "DACL2"},
        {"Left REC Mixer", "Right DAC1 Switch", "DACR1"},
@@ -1149,7 +1167,7 @@ static const struct snd_soc_dapm_route max98088_audio_map[] = {
        {"Left REC Mixer", "INB1 Switch", "INB1 Input"},
        {"Left REC Mixer", "INB2 Switch", "INB2 Input"},
 
-       
+       /* Earpiece/Receiver output mixer */
        {"Right REC Mixer", "Left DAC1 Switch", "DACL1"},
        {"Right REC Mixer", "Left DAC2 Switch", "DACL2"},
        {"Right REC Mixer", "Right DAC1 Switch", "DACR1"},
@@ -1175,7 +1193,7 @@ static const struct snd_soc_dapm_route max98088_audio_map[] = {
        {"RECL", NULL, "REC Left Out"},
        {"RECR", NULL, "REC Right Out"},
 
-       
+       /* Left ADC input mixer */
        {"Left ADC Mixer", "MIC1 Switch", "MIC1 Input"},
        {"Left ADC Mixer", "MIC2 Switch", "MIC2 Input"},
        {"Left ADC Mixer", "INA1 Switch", "INA1 Input"},
@@ -1183,7 +1201,7 @@ static const struct snd_soc_dapm_route max98088_audio_map[] = {
        {"Left ADC Mixer", "INB1 Switch", "INB1 Input"},
        {"Left ADC Mixer", "INB2 Switch", "INB2 Input"},
 
-       
+       /* Right ADC input mixer */
        {"Right ADC Mixer", "MIC1 Switch", "MIC1 Input"},
        {"Right ADC Mixer", "MIC2 Switch", "MIC2 Input"},
        {"Right ADC Mixer", "INA1 Switch", "INA1 Input"},
@@ -1191,7 +1209,7 @@ static const struct snd_soc_dapm_route max98088_audio_map[] = {
        {"Right ADC Mixer", "INB1 Switch", "INB1 Input"},
        {"Right ADC Mixer", "INB2 Switch", "INB2 Input"},
 
-       
+       /* Inputs */
        {"ADCL", NULL, "Left ADC Mixer"},
        {"ADCR", NULL, "Right ADC Mixer"},
        {"INA1 Input", NULL, "INA1"},
@@ -1202,6 +1220,7 @@ static const struct snd_soc_dapm_route max98088_audio_map[] = {
        {"MIC2 Input", NULL, "MIC2"},
 };
 
+/* codec mclk clock divider coefficients */
 static const struct {
        u32 rate;
        u8  sr;
@@ -1269,7 +1288,7 @@ static int max98088_dai1_hw_params(struct snd_pcm_substream *substream,
                M98088_CLKMODE_MASK, regval);
        cdata->rate = rate;
 
-       
+       /* Configure NI when operating as master */
        if (snd_soc_read(codec, M98088_REG_14_DAI1_FORMAT)
                & M98088_DAI_MAS) {
                if (max98088->sysclk == 0) {
@@ -1285,7 +1304,7 @@ static int max98088_dai1_hw_params(struct snd_pcm_substream *substream,
                        ni & 0xFF);
        }
 
-       
+       /* Update sample rate mode */
        if (rate < 50000)
                snd_soc_update_bits(codec, M98088_REG_18_DAI1_FILTERS,
                        M98088_DAI_DHF, 0);
@@ -1336,7 +1355,7 @@ static int max98088_dai2_hw_params(struct snd_pcm_substream *substream,
                M98088_CLKMODE_MASK, regval);
        cdata->rate = rate;
 
-       
+       /* Configure NI when operating as master */
        if (snd_soc_read(codec, M98088_REG_1C_DAI2_FORMAT)
                & M98088_DAI_MAS) {
                if (max98088->sysclk == 0) {
@@ -1352,7 +1371,7 @@ static int max98088_dai2_hw_params(struct snd_pcm_substream *substream,
                        ni & 0xFF);
        }
 
-       
+       /* Update sample rate mode */
        if (rate < 50000)
                snd_soc_update_bits(codec, M98088_REG_20_DAI2_FILTERS,
                        M98088_DAI_DHF, 0);
@@ -1372,10 +1391,14 @@ static int max98088_dai_set_sysclk(struct snd_soc_dai *dai,
        struct snd_soc_codec *codec = dai->codec;
        struct max98088_priv *max98088 = snd_soc_codec_get_drvdata(codec);
 
-       
+       /* Requested clock frequency is already setup */
        if (freq == max98088->sysclk)
                return 0;
 
+       /* Setup clocks for slave mode, and using the PLL
+        * PSCLK = 0x01 (when master clk is 10MHz to 20MHz)
+        *         0x02 (when master clk is 20MHz to 30MHz)..
+        */
        if ((freq >= 10000000) && (freq < 20000000)) {
                snd_soc_write(codec, M98088_REG_10_SYS_CLK, 0x10);
        } else if ((freq >= 20000000) && (freq < 30000000)) {
@@ -1414,14 +1437,14 @@ static int max98088_dai1_set_fmt(struct snd_soc_dai *codec_dai,
 
                switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
                case SND_SOC_DAIFMT_CBS_CFS:
-                       
+                       /* Slave mode PLL */
                        snd_soc_write(codec, M98088_REG_12_DAI1_CLKCFG_HI,
                                0x80);
                        snd_soc_write(codec, M98088_REG_13_DAI1_CLKCFG_LO,
                                0x00);
                        break;
                case SND_SOC_DAIFMT_CBM_CFM:
-                       
+                       /* Set to master mode */
                        reg14val |= M98088_DAI_MAS;
                        break;
                case SND_SOC_DAIFMT_CBS_CFM:
@@ -1485,14 +1508,14 @@ static int max98088_dai2_set_fmt(struct snd_soc_dai *codec_dai,
 
                switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
                case SND_SOC_DAIFMT_CBS_CFS:
-                       
+                       /* Slave mode PLL */
                        snd_soc_write(codec, M98088_REG_1A_DAI2_CLKCFG_HI,
                                0x80);
                        snd_soc_write(codec, M98088_REG_1B_DAI2_CLKCFG_LO,
                                0x00);
                        break;
                case SND_SOC_DAIFMT_CBM_CFM:
-                       
+                       /* Set to master mode */
                        reg1Cval |= M98088_DAI_MAS;
                        break;
                case SND_SOC_DAIFMT_CBS_CFM:
@@ -1579,6 +1602,9 @@ static void max98088_sync_cache(struct snd_soc_codec *codec)
 
        codec->cache_only = 0;
 
+       /* write back cached values if they're writeable and
+        * different from the hardware default.
+        */
        for (i = 1; i < codec->driver->reg_cache_size; i++) {
                if (!max98088_access[i].writable)
                        continue;
@@ -1679,7 +1705,7 @@ static int max98088_get_channel(struct snd_soc_codec *codec, const char *name)
 		if (strcmp(name, eq_mode_name[i]) == 0)
 			return i;
 
-	
+	/* Shouldn't happen */
 	dev_err(codec->dev, "Bad EQ channel name '%s'\n", name);
 	return -EINVAL;
 }
@@ -1697,7 +1723,7 @@ static void max98088_setup_eq1(struct snd_soc_codec *codec)
        if (!pdata || !max98088->eq_textcnt)
                return;
 
-       
+       /* Find the selected configuration with nearest sample rate */
        fs = cdata->rate;
        sel = cdata->eq_sel;
 
@@ -1715,7 +1741,7 @@ static void max98088_setup_eq1(struct snd_soc_codec *codec)
                pdata->eq_cfg[best].name,
                pdata->eq_cfg[best].rate, fs);
 
-       
+       /* Disable EQ while configuring, and save current on/off state */
        save = snd_soc_read(codec, M98088_REG_49_CFG_LEVEL);
        snd_soc_update_bits(codec, M98088_REG_49_CFG_LEVEL, M98088_EQ1EN, 0);
 
@@ -1727,7 +1753,7 @@ static void max98088_setup_eq1(struct snd_soc_codec *codec)
        m98088_eq_band(codec, 0, 3, coef_set->band4);
        m98088_eq_band(codec, 0, 4, coef_set->band5);
 
-       
+       /* Restore the original on/off state */
        snd_soc_update_bits(codec, M98088_REG_49_CFG_LEVEL, M98088_EQ1EN, save);
 }
 
@@ -1744,7 +1770,7 @@ static void max98088_setup_eq2(struct snd_soc_codec *codec)
        if (!pdata || !max98088->eq_textcnt)
                return;
 
-       
+       /* Find the selected configuration with nearest sample rate */
        fs = cdata->rate;
 
        sel = cdata->eq_sel;
@@ -1762,7 +1788,7 @@ static void max98088_setup_eq2(struct snd_soc_codec *codec)
                pdata->eq_cfg[best].name,
                pdata->eq_cfg[best].rate, fs);
 
-       
+       /* Disable EQ while configuring, and save current on/off state */
        save = snd_soc_read(codec, M98088_REG_49_CFG_LEVEL);
        snd_soc_update_bits(codec, M98088_REG_49_CFG_LEVEL, M98088_EQ2EN, 0);
 
@@ -1774,7 +1800,7 @@ static void max98088_setup_eq2(struct snd_soc_codec *codec)
        m98088_eq_band(codec, 1, 3, coef_set->band4);
        m98088_eq_band(codec, 1, 4, coef_set->band5);
 
-       
+       /* Restore the original on/off state */
        snd_soc_update_bits(codec, M98088_REG_49_CFG_LEVEL, M98088_EQ2EN,
                save);
 }
@@ -1851,6 +1877,9 @@ static void max98088_handle_eq_pdata(struct snd_soc_codec *codec)
        cfg = pdata->eq_cfg;
        cfgcnt = pdata->eq_cfgcnt;
 
+       /* Setup an array of texts for the equalizer enum.
+        * This is based on Mark Brown's equalizer driver code.
+        */
        max98088->eq_textcnt = 0;
        max98088->eq_texts = NULL;
        for (i = 0; i < cfgcnt; i++) {
@@ -1862,20 +1891,20 @@ static void max98088_handle_eq_pdata(struct snd_soc_codec *codec)
                if (j != max98088->eq_textcnt)
                        continue;
 
-               
+               /* Expand the array */
                t = krealloc(max98088->eq_texts,
                             sizeof(char *) * (max98088->eq_textcnt + 1),
                             GFP_KERNEL);
                if (t == NULL)
                        continue;
 
-               
+               /* Store the new entry */
                t[max98088->eq_textcnt] = cfg[i].name;
                max98088->eq_textcnt++;
                max98088->eq_texts = t;
        }
 
-       
+       /* Now point the soc_enum to .texts array items */
        max98088->eq_enum.texts = max98088->eq_texts;
        max98088->eq_enum.max = max98088->eq_textcnt;
 
@@ -1895,7 +1924,7 @@ static void max98088_handle_pdata(struct snd_soc_codec *codec)
                return;
        }
 
-       
+       /* Configure mic for analog/digital mic mode */
        if (pdata->digmic_left_mode)
                regval |= M98088_DIGMIC_L;
 
@@ -1906,12 +1935,12 @@ static void max98088_handle_pdata(struct snd_soc_codec *codec)
 
        snd_soc_write(codec, M98088_REG_48_CFG_MIC, regval);
 
-       
+       /* Configure receiver output */
        regval = ((pdata->receiver_mode) ? M98088_REC_LINEMODE : 0);
        snd_soc_update_bits(codec, M98088_REG_2A_MIC_REC_CNTL,
                M98088_REC_LINEMODE_MASK, regval);
 
-       
+       /* Configure equalizers */
        if (pdata->eq_cfgcnt)
                max98088_handle_eq_pdata(codec);
 }
@@ -1949,7 +1978,7 @@ static int max98088_probe(struct snd_soc_codec *codec)
                return ret;
        }
 
-       
+       /* initialize private data */
 
        max98088->sysclk = (unsigned)-1;
        max98088->eq_textcnt = 0;
@@ -1981,7 +2010,7 @@ static int max98088_probe(struct snd_soc_codec *codec)
 
        snd_soc_write(codec, M98088_REG_51_PWR_SYS, M98088_PWRSV);
 
-       
+       /* initialize registers cache to hardware default */
        max98088_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
        snd_soc_write(codec, M98088_REG_0F_IRQ_ENABLE, 0x00);

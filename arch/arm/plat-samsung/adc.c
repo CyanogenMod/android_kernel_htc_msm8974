@@ -26,13 +26,25 @@
 #include <plat/regs-adc.h>
 #include <plat/adc.h>
 
+/* This driver is designed to control the usage of the ADC block between
+ * the touchscreen and any other drivers that may need to use it, such as
+ * the hwmon driver.
+ *
+ * Priority will be given to the touchscreen driver, but as this itself is
+ * rate limited it should not starve other requests which are processed in
+ * order that they are received.
+ *
+ * Each user registers to get a client block which uniquely identifies it
+ * and stores information such as the necessary functions to callback when
+ * action is required.
+ */
 
 enum s3c_cpu_type {
-	TYPE_ADCV1, 
-	TYPE_ADCV11, 
-	TYPE_ADCV12, 
-	TYPE_ADCV2, 
-	TYPE_ADCV3, 
+	TYPE_ADCV1, /* S3C24XX */
+	TYPE_ADCV11, /* S3C2443 */
+	TYPE_ADCV12, /* S3C2416, S3C2450 */
+	TYPE_ADCV2, /* S3C64XX, S5P64X0, S5PC100 */
+	TYPE_ADCV3, /* S5PV210, S5PC110, EXYNOS4210 */
 };
 
 struct s3c_adc_client {
@@ -68,7 +80,7 @@ struct adc_device {
 
 static struct adc_device *adc_dev;
 
-static LIST_HEAD(adc_pending);	
+static LIST_HEAD(adc_pending);	/* protected by adc_device.lock */
 
 #define adc_dbg(_adc, msg...) dev_dbg(&(_adc)->pdev->dev, msg)
 
@@ -245,7 +257,7 @@ void s3c_adc_release(struct s3c_adc_client *client)
 
 	spin_lock_irqsave(&adc_dev->lock, flags);
 
-	
+	/* We should really check that nothing is in progress. */
 	if (adc_dev->cur == client)
 		adc_dev->cur = NULL;
 	if (adc_dev->ts_pend == client)
@@ -291,7 +303,7 @@ static irqreturn_t s3c_adc_irq(int irq, void *pw)
 		data0 &= 0x3ff;
 		data1 &= 0x3ff;
 	} else {
-		
+		/* S3C2416/S3C64XX/S5P ADC resolution is 12-bit */
 		data0 &= 0xfff;
 		data1 &= 0xfff;
 	}
@@ -300,7 +312,7 @@ static irqreturn_t s3c_adc_irq(int irq, void *pw)
 		(client->convert_cb)(client, data0, data1, &client->nr_samples);
 
 	if (client->nr_samples > 0) {
-		
+		/* fire another conversion for this */
 
 		client->select_cb(client, 1);
 		s3c_adc_convert(adc);
@@ -315,7 +327,7 @@ static irqreturn_t s3c_adc_irq(int irq, void *pw)
 
 exit:
 	if (cpu == TYPE_ADCV2 || cpu == TYPE_ADCV3) {
-		
+		/* Clear ADC interrupt */
 		writel(0, adc->regs + S3C64XX_ADCCLRINT);
 	}
 	return IRQ_HANDLED;
@@ -390,7 +402,7 @@ static int s3c_adc_probe(struct platform_device *pdev)
 
 	tmp = adc->prescale | S3C2410_ADCCON_PRSCEN;
 
-	
+	/* Enable 12-bit ADC resolution */
 	if (cpu == TYPE_ADCV12)
 		tmp |= S3C2416_ADCCON_RESSEL;
 	if (cpu == TYPE_ADCV2 || cpu == TYPE_ADCV3)
@@ -474,7 +486,7 @@ static int s3c_adc_resume(struct device *dev)
 
 	tmp = adc->prescale | S3C2410_ADCCON_PRSCEN;
 
-	
+	/* Enable 12-bit ADC resolution */
 	if (cpu == TYPE_ADCV12)
 		tmp |= S3C2416_ADCCON_RESSEL;
 	if (cpu == TYPE_ADCV2 || cpu == TYPE_ADCV3)

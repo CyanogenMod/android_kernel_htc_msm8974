@@ -26,13 +26,33 @@ enum {
 	NUM_SMEM_SUBSYSTEMS,
 };
 
+/*
+ * Flag options for the XXX_to_proc() API
+ *
+ * SMEM_ITEM_CACHED_FLAG - Indicates this operation should use cachable smem
+ *
+ * SMEM_ANY_HOST_FLAG - Indicates this operation should not apply to smem items
+ *                      which are limited to a specific host pairing.  Will
+ *                      cause this operation to ignore the to_proc parameter.
+ */
 #define SMEM_ITEM_CACHED_FLAG 1
 #define SMEM_ANY_HOST_FLAG 2
 
 #define SMEM_NUM_SMD_STREAM_CHANNELS        64
 
+/**
+ * OVERFLOW_ADD_UNSIGNED() - check for unsigned overflow
+ *
+ * @type: type to check for overflow
+ * @a: left value to use
+ * @b: right value to use
+ * @returns: true if a + b will result in overflow; false otherwise
+ */
+#define OVERFLOW_ADD_UNSIGNED(type, a, b) \
+	(((type)~0 - (a)) < (b) ? true : false)
+
 enum {
-	
+	/* fixed items */
 	SMEM_PROC_COMM = 0,
 	SMEM_HEAP_INFO,
 	SMEM_ALLOCATION_TABLE,
@@ -44,7 +64,7 @@ enum {
 	SMEM_MEMORY_BARRIER_LOCATION,
 	SMEM_FIXED_ITEM_LAST = SMEM_MEMORY_BARRIER_LOCATION,
 
-	
+	/* dynamic items */
 	SMEM_AARM_PARTITION_TABLE,
 	SMEM_AARM_BAD_BLOCK_TABLE,
 	SMEM_RESERVE_BAD_BLOCKS,
@@ -130,15 +150,15 @@ enum {
 	SMEM_SSR_REASON_DSPS0,
 	SMEM_SSR_REASON_VCODEC0,
 	SMEM_SMP2P_APPS_BASE = 427,
-	SMEM_SMP2P_MODEM_BASE = SMEM_SMP2P_APPS_BASE + 8,    
-	SMEM_SMP2P_AUDIO_BASE = SMEM_SMP2P_MODEM_BASE + 8,   
-	SMEM_SMP2P_WIRLESS_BASE = SMEM_SMP2P_AUDIO_BASE + 8, 
-	SMEM_SMP2P_POWER_BASE = SMEM_SMP2P_WIRLESS_BASE + 8, 
-	SMEM_FLASH_DEVICE_INFO = SMEM_SMP2P_POWER_BASE + 8,  
-	SMEM_BAM_PIPE_MEMORY,     
-	SMEM_IMAGE_VERSION_TABLE, 
-	SMEM_LC_DEBUGGER, 
-	SMEM_FLASH_NAND_DEV_INFO, 
+	SMEM_SMP2P_MODEM_BASE = SMEM_SMP2P_APPS_BASE + 8,    /* 435 */
+	SMEM_SMP2P_AUDIO_BASE = SMEM_SMP2P_MODEM_BASE + 8,   /* 443 */
+	SMEM_SMP2P_WIRLESS_BASE = SMEM_SMP2P_AUDIO_BASE + 8, /* 451 */
+	SMEM_SMP2P_POWER_BASE = SMEM_SMP2P_WIRLESS_BASE + 8, /* 459 */
+	SMEM_FLASH_DEVICE_INFO = SMEM_SMP2P_POWER_BASE + 8,  /* 467 */
+	SMEM_BAM_PIPE_MEMORY,     /* 468 */
+	SMEM_IMAGE_VERSION_TABLE, /* 469 */
+	SMEM_LC_DEBUGGER, /* 470 */
+	SMEM_FLASH_NAND_DEV_INFO, /* 471 */
 	SMEM_NUM_ITEMS,
 };
 
@@ -157,10 +177,35 @@ void *smem_find_to_proc(unsigned id, unsigned size_in, unsigned to_proc,
 void *smem_get_entry_to_proc(unsigned id, unsigned *size, unsigned to_proc,
 								unsigned flags);
 
+/**
+ * smem_get_entry_no_rlock - Get existing item without using remote spinlock
+ *
+ * @id:       ID of SMEM item
+ * @size_out: Pointer to size variable for storing the result
+ * @returns:  Pointer to SMEM item or NULL if it doesn't exist
+ *
+ * This function does not lock the remote spinlock and should only be used in
+ * failure-recover cases such as retrieving the subsystem failure reason during
+ * subsystem restart.
+ */
 void *smem_get_entry_no_rlock(unsigned id, unsigned *size_out);
 
+/**
+ * smem_virt_to_phys() - Convert SMEM address to physical address.
+ *
+ * @smem_address: Virtual address returned by smem_alloc()/smem_alloc2()
+ * @returns: Physical address (or NULL if there is a failure)
+ *
+ * This function should only be used if an SMEM item needs to be handed
+ * off to a DMA engine.
+ */
 phys_addr_t smem_virt_to_phys(void *smem_address);
 
+/**
+ * SMEM initialization function that registers for a SMEM platform driver.
+ *
+ * @returns: success on successful driver registration.
+ */
 int __init msm_smem_init(void);
 
 #else
@@ -212,5 +257,5 @@ static int __init msm_smem_init(void)
 {
 	return 0;
 }
-#endif 
-#endif 
+#endif /* CONFIG_MSM_SMD  */
+#endif /* _ARCH_ARM_MACH_MSM_SMEM_H_ */

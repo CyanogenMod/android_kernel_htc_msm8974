@@ -21,6 +21,13 @@ typedef void (*relocate_new_kernel_t)(
 				unsigned long reboot_code_buffer,
 				unsigned long start_address) __noreturn;
 
+/*
+ * This is a generic machine_kexec function suitable at least for
+ * non-OpenFirmware embedded platforms.
+ * It merely copies the image relocation code to the control page and
+ * jumps to it.
+ * A platform specific function may just call this one.
+ */
 void default_machine_kexec(struct kimage *image)
 {
 	extern const unsigned char relocate_new_kernel[];
@@ -29,19 +36,21 @@ void default_machine_kexec(struct kimage *image)
 	unsigned long reboot_code_buffer, reboot_code_buffer_phys;
 	relocate_new_kernel_t rnk;
 
-	
+	/* Interrupts aren't acceptable while we reboot */
 	local_irq_disable();
 
+	/* mask each interrupt so we are in a more sane state for the
+	 * kexec kernel */
 	machine_kexec_mask_interrupts();
 
 	page_list = image->head;
 
-	
+	/* we need both effective and real address here */
 	reboot_code_buffer =
 			(unsigned long)page_address(image->control_code_page);
 	reboot_code_buffer_phys = virt_to_phys((void *)reboot_code_buffer);
 
-	
+	/* copy our kernel relocation code to the control code page */
 	memcpy((void *)reboot_code_buffer, relocate_new_kernel,
 						relocate_new_kernel_size);
 
@@ -49,7 +58,7 @@ void default_machine_kexec(struct kimage *image)
 				reboot_code_buffer + KEXEC_CONTROL_PAGE_SIZE);
 	printk(KERN_INFO "Bye!\n");
 
-	
+	/* now call it */
 	rnk = (relocate_new_kernel_t) reboot_code_buffer;
 	(*rnk)(page_list, reboot_code_buffer_phys, image->start);
 }

@@ -70,18 +70,19 @@ struct q6audio_in {
 	struct msm_audio_config		pcm_cfg;
 	void				*codec_cfg;
 
-	
+	/* number of buffers available to read/write */
 	atomic_t			in_count;
 	atomic_t			out_count;
 
-	
+	/* first idx: num of frames per buf, second idx: offset to frame */
 	uint32_t			out_frame_info[FRAME_NUM][2];
 	int				eos_rsp;
 	int				opened;
 	int				enabled;
 	int				stopped;
 	int				event_abort;
-	int				feedback; 
+	int				feedback; /* Flag indicates whether used
+							in Non Tunnel mode */
 	int				rflush;
 	int				wflush;
 	int				buf_alloc;

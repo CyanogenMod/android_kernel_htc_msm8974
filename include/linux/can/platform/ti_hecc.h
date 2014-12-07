@@ -17,6 +17,21 @@
  *
  */
 
+/**
+ * struct hecc_platform_data - HECC Platform Data
+ *
+ * @scc_hecc_offset:	mostly 0 - should really never change
+ * @scc_ram_offset:	SCC RAM offset
+ * @hecc_ram_offset:	HECC RAM offset
+ * @mbx_offset:		Mailbox RAM offset
+ * @int_line:		Interrupt line to use - 0 or 1
+ * @version:		version for future use
+ * @transceiver_switch:	platform specific callback fn for transceiver control
+ *
+ * Platform data structure to get all platform specific settings.
+ * this structure also accounts the fact that the IP may have different
+ * RAM and mailbox offsets for different SOC's
+ */
 struct ti_hecc_platform_data {
 	u32 scc_hecc_offset;
 	u32 scc_ram_offset;

@@ -27,6 +27,9 @@ static inline void set_node_proc_entry(struct device_node *np,
 
 static struct proc_dir_entry *proc_device_tree;
 
+/*
+ * Supply data on a read from /proc/device-tree/node/property.
+ */
 static int property_proc_show(struct seq_file *m, void *v)
 {
 	struct property *pp = m->private;
@@ -48,13 +51,24 @@ static const struct file_operations property_proc_fops = {
 	.release	= single_release,
 };
 
+/*
+ * For a node with a name like "gc@10", we make symlinks called "gc"
+ * and "@10" to it.
+ */
 
+/*
+ * Add a property to a node
+ */
 static struct proc_dir_entry *
 __proc_device_tree_add_prop(struct proc_dir_entry *de, struct property *pp,
 		const char *name)
 {
 	struct proc_dir_entry *ent;
 
+	/*
+	 * Unfortunately proc_register puts each new entry
+	 * at the beginning of the list.  So we rearrange them.
+	 */
 	ent = proc_create_data(name,
 			       strncmp(name, "security-", 9) ? S_IRUGO : S_IRUSR,
 			       de, &property_proc_fops, pp);
@@ -62,7 +76,7 @@ __proc_device_tree_add_prop(struct proc_dir_entry *de, struct property *pp,
 		return NULL;
 
 	if (!strncmp(name, "security-", 9))
-		ent->size = 0; 
+		ent->size = 0; /* don't leak number of password chars */
 	else
 		ent->size = pp->length;
 
@@ -99,6 +113,11 @@ void proc_device_tree_update_prop(struct proc_dir_entry *pde,
 	}
 }
 
+/*
+ * Various dodgy firmware might give us nodes and/or properties with
+ * conflicting names. That's generally ok, except for exporting via /proc,
+ * so munge names here to ensure they're unique.
+ */
 
 static int duplicate_name(struct proc_dir_entry *de, const char *name)
 {
@@ -123,7 +142,7 @@ static const char *fixup_name(struct device_node *np, struct proc_dir_entry *de,
 		const char *name)
 {
 	char *fixed_name;
-	int fixup_len = strlen(name) + 2 + 1; 
+	int fixup_len = strlen(name) + 2 + 1; /* name + #x + \0 */
 	int i = 1, size;
 
 realloc:
@@ -136,17 +155,17 @@ realloc:
 
 retry:
 	size = snprintf(fixed_name, fixup_len, "%s#%d", name, i);
-	size++; 
+	size++; /* account for NULL */
 
 	if (size > fixup_len) {
-		
+		/* We ran out of space, free and reallocate. */
 		kfree(fixed_name);
 		fixup_len = size;
 		goto realloc;
 	}
 
 	if (duplicate_name(de, fixed_name)) {
-		
+		/* Multiple duplicates. Retry with a different offset. */
 		i++;
 		goto retry;
 	}
@@ -157,6 +176,9 @@ retry:
 	return fixed_name;
 }
 
+/*
+ * Process a node, adding entries for its children and its properties.
+ */
 void proc_device_tree_add_node(struct device_node *np,
 			       struct proc_dir_entry *de)
 {
@@ -167,7 +189,7 @@ void proc_device_tree_add_node(struct device_node *np,
 
 	set_node_proc_entry(np, de);
 	for (child = NULL; (child = of_get_next_child(np, child));) {
-		
+		/* Use everything after the last slash, or the full name */
 		p = strrchr(child->full_name, '/');
 		if (!p)
 			p = child->full_name;
@@ -199,6 +221,9 @@ void proc_device_tree_add_node(struct device_node *np,
 	}
 }
 
+/*
+ * Called on initialization to set up the /proc/device-tree subtree
+ */
 void __init proc_device_tree_init(void)
 {
 	struct device_node *root;

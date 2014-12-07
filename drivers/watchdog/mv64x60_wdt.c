@@ -30,6 +30,17 @@
 
 #define MV64x60_WDT_WDC_OFFSET	0
 
+/*
+ * The watchdog configuration register contains a pair of 2-bit fields,
+ *   1.  a reload field, bits 27-26, which triggers a reload of
+ *       the countdown register, and
+ *   2.  an enable field, bits 25-24, which toggles between
+ *       enabling and disabling the watchdog timer.
+ * Bit 31 is a read-only field which indicates whether the
+ * watchdog timer is currently enabled.
+ *
+ * The low 24 bits contain the timer reload value.
+ */
 #define MV64x60_WDC_ENABLE_SHIFT	24
 #define MV64x60_WDC_SERVICE_SHIFT	26
 #define MV64x60_WDC_ENABLED_SHIFT	31
@@ -37,6 +48,7 @@
 #define MV64x60_WDC_ENABLED_TRUE	1
 #define MV64x60_WDC_ENABLED_FALSE	0
 
+/* Flags bits */
 #define MV64x60_WDOG_FLAG_OPENED	0
 
 static unsigned long wdt_flags;
@@ -64,9 +76,9 @@ static int mv64x60_wdt_toggle_wdc(int enabled_predicate, int field_shift)
 	data = readl(mv64x60_wdt_regs + MV64x60_WDT_WDC_OFFSET);
 	enabled = (data >> MV64x60_WDC_ENABLED_SHIFT) & 1;
 
-	
+	/* only toggle the requested field if enabled state matches predicate */
 	if ((enabled ^ enabled_predicate) == 0) {
-		
+		/* We write a 1, then a 2 -- to the appropriate field */
 		data = (1 << field_shift) | mv64x60_wdt_count;
 		writel(data, mv64x60_wdt_regs + MV64x60_WDT_WDC_OFFSET);
 
@@ -103,7 +115,7 @@ static void mv64x60_wdt_handler_disable(void)
 
 static void mv64x60_wdt_set_timeout(unsigned int timeout)
 {
-	
+	/* maximum bus cycle count is 0xFFFFFFFF */
 	if (timeout > 0xFFFFFFFF / bus_clk)
 		timeout = 0xFFFFFFFF / bus_clk;
 
@@ -212,7 +224,7 @@ static long mv64x60_wdt_ioctl(struct file *file,
 		if (get_user(timeout, (int __user *)argp))
 			return -EFAULT;
 		mv64x60_wdt_set_timeout(timeout);
-		
+		/* Fall through */
 
 	case WDIOC_GETTIMEOUT:
 		if (put_user(mv64x60_wdt_timeout, (int __user *)argp))
@@ -247,14 +259,18 @@ static int __devinit mv64x60_wdt_probe(struct platform_device *dev)
 	struct resource *r;
 	int timeout = 10;
 
-	bus_clk = 133;			
+	bus_clk = 133;			/* in MHz */
 	if (pdata) {
 		timeout = pdata->timeout;
 		bus_clk = pdata->bus_clk;
 	}
 
+	/* Since bus_clk is truncated MHz, actual frequency could be
+	 * up to 1MHz higher.  Round up, since it's better to time out
+	 * too late than too soon.
+	 */
 	bus_clk++;
-	bus_clk *= 1000000;		
+	bus_clk *= 1000000;		/* convert to Hz */
 
 	r = platform_get_resource(dev, IORESOURCE_MEM, 0);
 	if (!r)
@@ -266,7 +282,7 @@ static int __devinit mv64x60_wdt_probe(struct platform_device *dev)
 
 	mv64x60_wdt_set_timeout(timeout);
 
-	mv64x60_wdt_handler_disable();	
+	mv64x60_wdt_handler_disable();	/* in case timer was already running */
 
 	return misc_register(&mv64x60_wdt_miscdev);
 }

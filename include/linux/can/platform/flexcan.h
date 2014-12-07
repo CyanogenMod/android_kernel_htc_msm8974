@@ -8,8 +8,13 @@
 #ifndef __CAN_PLATFORM_FLEXCAN_H
 #define __CAN_PLATFORM_FLEXCAN_H
 
+/**
+ * struct flexcan_platform_data - flex CAN controller platform data
+ * @transceiver_enable:         - called to power on/off the transceiver
+ *
+ */
 struct flexcan_platform_data {
 	void (*transceiver_switch)(int enable);
 };
 
-#endif 
+#endif /* __CAN_PLATFORM_FLEXCAN_H */

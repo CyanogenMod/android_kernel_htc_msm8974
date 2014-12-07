@@ -18,6 +18,9 @@
 #define AVM_MAXVERSION		8
 #define AVM_NCCI_PER_CHANNEL	4
 
+/*
+ * Versions
+ */
 
 #define	VER_DRIVER	0
 #define	VER_CARDTYPE	1
@@ -63,7 +66,7 @@ typedef	struct avmctrl_info {
 	char versionbuf[1024];
 	char *version[AVM_MAXVERSION];
 
-	char infobuf[128];	
+	char infobuf[128];	/* for function procinfo */
 
 	struct avmcard  *card;
 	struct capi_ctr  capi_ctrl;
@@ -81,10 +84,10 @@ typedef struct avmcard {
 	enum avmcardtype cardtype;
 	unsigned char revision;
 	unsigned char class;
-	int cardnr; 
+	int cardnr; /* for t1isa */
 
-	char msgbuf[128];	
-	char databuf[2048];	
+	char msgbuf[128];	/* capimsg msg part */
+	char databuf[2048];	/* capimsg data part */
 
 	void __iomem *mbase;
 	volatile u32 csr;
@@ -99,35 +102,105 @@ typedef struct avmcard {
 
 extern int b1_irq_table[16];
 
+/*
+ * LLI Messages to the ISDN-ControllerISDN Controller
+ */
 
-#define	SEND_POLL		0x72	
-#define SEND_INIT		0x11	
-#define SEND_REGISTER		0x12	
-#define SEND_RELEASE		0x14	
-#define SEND_MESSAGE		0x15	
-#define SEND_DATA_B3_REQ	0x13	
+#define	SEND_POLL		0x72	/*
+					 * after load <- RECEIVE_POLL
+					 */
+#define SEND_INIT		0x11	/*
+					 * first message <- RECEIVE_INIT
+					 * int32 NumApplications  int32
+					 * NumNCCIs int32 BoardNumber
+					 */
+#define SEND_REGISTER		0x12	/*
+					 * register an application int32
+					 * ApplIDId int32 NumMessages
+					 * int32 NumB3Connections int32
+					 * NumB3Blocks int32 B3Size
+					 *
+					 * AnzB3Connection != 0 &&
+					 * AnzB3Blocks >= 1 && B3Size >= 1
+					 */
+#define SEND_RELEASE		0x14	/*
+					 * deregister an application int32
+					 * ApplID
+					 */
+#define SEND_MESSAGE		0x15	/*
+					 * send capi-message int32 length
+					 * capi-data ...
+					 */
+#define SEND_DATA_B3_REQ	0x13	/*
+					 * send capi-data-message int32
+					 * MsgLength capi-data ... int32
+					 * B3Length data ....
+					 */
 
-#define SEND_CONFIG		0x21    
+#define SEND_CONFIG		0x21    /*
+					 */
 
-#define SEND_POLLACK		0x73    
+#define SEND_POLLACK		0x73    /* T1 Watchdog */
 
+/*
+ * LLI Messages from the ISDN-ControllerISDN Controller
+ */
 
-#define RECEIVE_POLL		0x32	
-#define RECEIVE_INIT		0x27	
-#define RECEIVE_MESSAGE		0x21	
-#define RECEIVE_DATA_B3_IND	0x22	
-#define RECEIVE_START		0x23	
-#define RECEIVE_STOP		0x24	
-#define RECEIVE_NEW_NCCI	0x25	
-#define RECEIVE_FREE_NCCI	0x26	
-#define RECEIVE_RELEASE		0x26	
-#define RECEIVE_TASK_READY	0x31	
-#define RECEIVE_DEBUGMSG	0x71	
-#define RECEIVE_POLLDWORD	0x75	
+#define RECEIVE_POLL		0x32	/*
+					 * <- after SEND_POLL
+					 */
+#define RECEIVE_INIT		0x27	/*
+					 * <- after SEND_INIT int32 length
+					 * byte total length b1struct board
+					 * driver revision b1struct card
+					 * type b1struct reserved b1struct
+					 * serial number b1struct driver
+					 * capability b1struct d-channel
+					 * protocol b1struct CAPI-2.0
+					 * profile b1struct capi version
+					 */
+#define RECEIVE_MESSAGE		0x21	/*
+					 * <- after SEND_MESSAGE int32
+					 * AppllID int32 Length capi-data
+					 * ....
+					 */
+#define RECEIVE_DATA_B3_IND	0x22	/*
+					 * received data int32 AppllID
+					 * int32 Length capi-data ...
+					 * int32 B3Length data ...
+					 */
+#define RECEIVE_START		0x23	/*
+					 * Handshake
+					 */
+#define RECEIVE_STOP		0x24	/*
+					 * Handshake
+					 */
+#define RECEIVE_NEW_NCCI	0x25	/*
+					 * int32 AppllID int32 NCCI int32
+					 * WindowSize
+					 */
+#define RECEIVE_FREE_NCCI	0x26	/*
+					 * int32 AppllID int32 NCCI
+					 */
+#define RECEIVE_RELEASE		0x26	/*
+					 * int32 AppllID int32 0xffffffff
+					 */
+#define RECEIVE_TASK_READY	0x31	/*
+					 * int32 tasknr
+					 * int32 Length Taskname ...
+					 */
+#define RECEIVE_DEBUGMSG	0x71	/*
+					 * int32 Length message
+					 *
+					 */
+#define RECEIVE_POLLDWORD	0x75	/* t1pci in dword mode */
 
 #define WRITE_REGISTER		0x00
 #define READ_REGISTER		0x01
 
+/*
+ * port offsets
+ */
 
 #define B1_READ			0x00
 #define B1_WRITE		0x01
@@ -141,6 +214,7 @@ extern int b1_irq_table[16];
 #define B1_STAT0(cardtype)  ((cardtype) == avm_m1 ? 0x81200000l : 0x80A00000l)
 #define B1_STAT1(cardtype)  (0x80E00000l)
 
+/* ---------------------------------------------------------------- */
 
 static inline unsigned char b1outp(unsigned int base,
 				   unsigned short offset,
@@ -158,7 +232,7 @@ static inline int b1_rx_full(unsigned int base)
 
 static inline unsigned char b1_get_byte(unsigned int base)
 {
-	unsigned long stop = jiffies + 1 * HZ;	
+	unsigned long stop = jiffies + 1 * HZ;	/* maximum wait time 1 sec */
 	while (!b1_rx_full(base) && time_before(jiffies, stop));
 	if (b1_rx_full(base))
 		return inb(base + B1_READ);
@@ -244,13 +318,13 @@ static inline unsigned int b1_rd_reg(unsigned int base,
 static inline void b1_reset(unsigned int base)
 {
 	b1outp(base, B1_RESET, 0);
-	mdelay(55 * 2);	
+	mdelay(55 * 2);	/* 2 TIC's */
 
 	b1outp(base, B1_RESET, 1);
-	mdelay(55 * 2);	
+	mdelay(55 * 2);	/* 2 TIC's */
 
 	b1outp(base, B1_RESET, 0);
-	mdelay(55 * 2);	
+	mdelay(55 * 2);	/* 2 TIC's */
 }
 
 static inline unsigned char b1_disable_irq(unsigned int base)
@@ -258,6 +332,7 @@ static inline unsigned char b1_disable_irq(unsigned int base)
 	return b1outp(base, B1_INSTAT, 0x00);
 }
 
+/* ---------------------------------------------------------------- */
 
 static inline void b1_set_test_bit(unsigned int base,
 				   enum avmcardtype cardtype,
@@ -272,6 +347,7 @@ static inline int b1_get_test_bit(unsigned int base,
 	return (b1_rd_reg(base, B1_STAT0(cardtype)) & 0x01) != 0;
 }
 
+/* ---------------------------------------------------------------- */
 
 #define T1_FASTLINK		0x00
 #define T1_SLOWLINK		0x08
@@ -300,6 +376,7 @@ static inline int b1_get_test_bit(unsigned int base,
 #define	T1F_OFULL		0x80
 #define	T1F_OFLAGS		0xF0
 
+/* there are HEMA cards with 1k and 4k FIFO out */
 #define FIFO_OUTBSIZE		256
 #define FIFO_INPBSIZE		512
 
@@ -422,13 +499,13 @@ static inline void t1_disable_irq(unsigned int base)
 
 static inline void t1_reset(unsigned int base)
 {
-	
+	/* reset T1 Controller */
 	b1_reset(base);
-	
+	/* disable irq on HEMA */
 	t1outp(base, B1_INSTAT, 0x00);
 	t1outp(base, B1_OUTSTAT, 0x00);
 	t1outp(base, T1_IRQMASTER, 0x00);
-	
+	/* reset HEMA board configuration */
 	t1outp(base, T1_RESETBOARD, 0xf);
 }
 
@@ -461,6 +538,7 @@ static inline void b1_setinterrupt(unsigned int base, unsigned irq,
 	}
 }
 
+/* b1.c */
 avmcard *b1_alloc_card(int nr_controllers);
 void b1_free_card(avmcard *card);
 int b1_detect(unsigned int base, enum avmcardtype cardtype);
@@ -484,6 +562,7 @@ avmcard_dmainfo *avmcard_dma_alloc(char *name, struct pci_dev *,
 				   long rsize, long ssize);
 void avmcard_dma_free(avmcard_dmainfo *);
 
+/* b1dma.c */
 int b1pciv4_detect(avmcard *card);
 int t1pci_detect(avmcard *card);
 void b1dma_reset(avmcard *card);
@@ -499,4 +578,4 @@ void b1dma_release_appl(struct capi_ctr *ctrl, u16 appl);
 u16  b1dma_send_message(struct capi_ctr *ctrl, struct sk_buff *skb);
 extern const struct file_operations b1dmactl_proc_fops;
 
-#endif 
+#endif /* _AVMCARD_H_ */

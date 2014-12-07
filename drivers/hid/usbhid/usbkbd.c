@@ -33,6 +33,9 @@
 #include <linux/usb/input.h>
 #include <linux/hid.h>
 
+/*
+ * Version Information
+ */
 #define DRIVER_VERSION ""
 #define DRIVER_AUTHOR "Vojtech Pavlik <vojtech@ucw.cz>"
 #define DRIVER_DESC "USB HID Boot Protocol keyboard driver"
@@ -62,6 +65,31 @@ static const unsigned char usb_kbd_keycode[256] = {
 };
 
 
+/**
+ * struct usb_kbd - state of each attached keyboard
+ * @dev:	input device associated with this keyboard
+ * @usbdev:	usb device associated with this keyboard
+ * @old:	data received in the past from the @irq URB representing which
+ *		keys were pressed. By comparing with the current list of keys
+ *		that are pressed, we are able to see key releases.
+ * @irq:	URB for receiving a list of keys that are pressed when a
+ *		new key is pressed or a key that was pressed is released.
+ * @led:	URB for sending LEDs (e.g. numlock, ...)
+ * @newleds:	data that will be sent with the @led URB representing which LEDs
+ 		should be on
+ * @name:	Name of the keyboard. @dev's name field points to this buffer
+ * @phys:	Physical path of the keyboard. @dev's phys field points to this
+ *		buffer
+ * @new:	Buffer for the @irq URB
+ * @cr:		Control request for @led URB
+ * @leds:	Buffer for the @led URB
+ * @new_dma:	DMA address for @irq URB
+ * @leds_dma:	DMA address for @led URB
+ * @leds_lock:	spinlock that protects @leds, @newleds, and @led_urb_submitted
+ * @led_urb_submitted: indicates whether @led is in progress, i.e. it has been
+ *		submitted and its completion handler has not returned yet
+ *		without	resubmitting @led
+ */
 struct usb_kbd {
 	struct input_dev *dev;
 	struct usb_device *usbdev;
@@ -88,14 +116,14 @@ static void usb_kbd_irq(struct urb *urb)
 	int i;
 
 	switch (urb->status) {
-	case 0:			
+	case 0:			/* success */
 		break;
-	case -ECONNRESET:	
+	case -ECONNRESET:	/* unlink */
 	case -ENOENT:
 	case -ESHUTDOWN:
 		return;
-	
-	default:		
+	/* -EPIPE:  should clear the halt */
+	default:		/* error */
 		goto resubmit;
 	}
 
@@ -368,7 +396,7 @@ static void usb_kbd_disconnect(struct usb_interface *intf)
 static struct usb_device_id usb_kbd_id_table [] = {
 	{ USB_INTERFACE_INFO(USB_INTERFACE_CLASS_HID, USB_INTERFACE_SUBCLASS_BOOT,
 		USB_INTERFACE_PROTOCOL_KEYBOARD) },
-	{ }						
+	{ }						/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE (usb, usb_kbd_id_table);

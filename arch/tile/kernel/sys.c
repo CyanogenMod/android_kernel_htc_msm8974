@@ -40,6 +40,14 @@ SYSCALL_DEFINE0(flush_cache)
 	return 0;
 }
 
+/*
+ * Syscalls that pass 64-bit values on 32-bit systems normally
+ * pass them as (low,high) word packed into the immediately adjacent
+ * registers.  If the low word naturally falls on an even register,
+ * our ABI makes it work correctly; if not, we adjust it here.
+ * Handling it here means we don't have to fix uclibc AND glibc AND
+ * any other standard libcs we want to support.
+ */
 
 #if !defined(__tilegx__) || defined(CONFIG_COMPAT)
 
@@ -55,8 +63,9 @@ int sys32_fadvise64_64(int fd, u32 offset_lo, u32 offset_hi,
 				((loff_t)len_hi << 32) | len_lo, advice);
 }
 
-#endif 
+#endif /* 32-bit syscall wrappers */
 
+/* Note: used by the compat code even in 64-bit Linux. */
 SYSCALL_DEFINE6(mmap2, unsigned long, addr, unsigned long, len,
 		unsigned long, prot, unsigned long, flags,
 		unsigned long, fd, unsigned long, off_4k)
@@ -81,14 +90,17 @@ SYSCALL_DEFINE6(mmap, unsigned long, addr, unsigned long, len,
 #endif
 
 
+/* Provide the actual syscall number to call mapping. */
 #undef __SYSCALL
 #define __SYSCALL(nr, call) [nr] = (call),
 
 #ifndef __tilegx__
+/* See comments at the top of the file. */
 #define sys_fadvise64_64 sys32_fadvise64_64
 #define sys_readahead sys32_readahead
 #endif
 
+/* Call the trampolines to manage pt_regs where necessary. */
 #define sys_execve _sys_execve
 #define sys_sigaltstack _sys_sigaltstack
 #define sys_rt_sigreturn _sys_rt_sigreturn
@@ -97,6 +109,10 @@ SYSCALL_DEFINE6(mmap, unsigned long, addr, unsigned long, len,
 #define sys_cmpxchg_badaddr _sys_cmpxchg_badaddr
 #endif
 
+/*
+ * Note that we can't include <linux/unistd.h> here since the header
+ * guard will defeat us; <asm/unistd.h> checks for __SYSCALL as well.
+ */
 void *sys_call_table[__NR_syscalls] = {
 	[0 ... __NR_syscalls-1] = sys_ni_syscall,
 #include <asm/unistd.h>

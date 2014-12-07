@@ -59,8 +59,9 @@ static inline int migrate_huge_page_move_mapping(struct address_space *mapping,
 	return -ENOSYS;
 }
 
+/* Possible settings for the migrate_page() method in address_operations */
 #define migrate_page NULL
 #define fail_migrate_page NULL
 
-#endif 
-#endif 
+#endif /* CONFIG_MIGRATION */
+#endif /* _LINUX_MIGRATE_H */

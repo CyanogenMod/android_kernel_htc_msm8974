@@ -2,18 +2,35 @@
 #include "drm_crtc_helper.h"
 #include "radeon.h"
 
+/*
+ * Integrated TV out support based on the GATOS code by
+ * Federico Ulivi <fulivi@lycos.com>
+ */
 
 
-#define MAX_H_POSITION 5 
-#define MAX_V_POSITION 5 
+/*
+ * Limits of h/v positions (hPos & vPos)
+ */
+#define MAX_H_POSITION 5 /* Range: [-5..5], negative is on the left, 0 is default, positive is on the right */
+#define MAX_V_POSITION 5 /* Range: [-5..5], negative is up, 0 is default, positive is down */
 
+/*
+ * Unit for hPos (in TV clock periods)
+ */
 #define H_POS_UNIT 10
 
+/*
+ * Indexes in h. code timing table for horizontal line position adjustment
+ */
 #define H_TABLE_POS1 6
 #define H_TABLE_POS2 8
 
-#define MAX_H_SIZE 5 
+/*
+ * Limits of hor. size (hSize)
+ */
+#define MAX_H_SIZE 5 /* Range: [-5..5], negative is smaller, positive is larger */
 
+/* tv standard constants */
 #define NTSC_TV_CLOCK_T 233
 #define NTSC_TV_VFTOTAL 1
 #define NTSC_TV_LINES_PER_FRAME 525
@@ -26,6 +43,7 @@
 #define PAL_TV_ZERO_H_SIZE 473200
 #define PAL_TV_H_SIZE_UNIT 9360
 
+/* tv pll setting for 27 mhz ref clk */
 #define NTSC_TV_PLL_M_27 22
 #define NTSC_TV_PLL_N_27 175
 #define NTSC_TV_PLL_P_27 5
@@ -34,6 +52,7 @@
 #define PAL_TV_PLL_N_27 668
 #define PAL_TV_PLL_P_27 3
 
+/* tv pll setting for 14 mhz ref clk */
 #define NTSC_TV_PLL_M_14 33
 #define NTSC_TV_PLL_N_14 693
 #define NTSC_TV_PLL_P_14 7
@@ -69,9 +88,9 @@ static const uint16_t hor_timing_NTSC[MAX_H_CODE_TIMING_LEN] = {
 	0x0a24,
 	0x2a6b,
 	0x0a36,
-	0x126d, 
+	0x126d, /* H_TABLE_POS1 */
 	0x1bfe,
-	0x1a8f, 
+	0x1a8f, /* H_TABLE_POS2 */
 	0x1ec7,
 	0x3863,
 	0x1bfe,
@@ -107,9 +126,9 @@ static const uint16_t hor_timing_PAL[MAX_H_CODE_TIMING_LEN] = {
 	0x0a31,
 	0x2a77,
 	0x0a95,
-	0x124f, 
+	0x124f, /* H_TABLE_POS1 */
 	0x1bfe,
-	0x1b22, 
+	0x1b22, /* H_TABLE_POS2 */
 	0x1ef9,
 	0x387c,
 	0x1bfe,
@@ -140,66 +159,73 @@ static const uint16_t vert_timing_PAL[MAX_V_CODE_TIMING_LEN] = {
 	0
 };
 
+/**********************************************************************
+ *
+ * availableModes
+ *
+ * Table of all allowed modes for tv output
+ *
+ **********************************************************************/
 static const struct radeon_tv_mode_constants available_tv_modes[] = {
-	{   
-		800,                
-		600,                
-		TV_STD_NTSC,        
-		990,                
-		740,                
-		813,                
-		824,                
-		632,                
-		625592,             
-		592,                
-		91,                 
-		4,                  
-		1022,               
+	{   /* NTSC timing for 27 Mhz ref clk */
+		800,                /* horResolution */
+		600,                /* verResolution */
+		TV_STD_NTSC,        /* standard */
+		990,                /* horTotal */
+		740,                /* verTotal */
+		813,                /* horStart */
+		824,                /* horSyncStart */
+		632,                /* verSyncStart */
+		625592,             /* defRestart */
+		592,                /* crtcPLL_N */
+		91,                 /* crtcPLL_M */
+		4,                  /* crtcPLL_postDiv */
+		1022,               /* pixToTV */
 	},
-	{   
-		800,               
-		600,               
-		TV_STD_PAL,        
-		1144,              
-		706,               
-		812,               
-		824,               
-		669,               
-		696700,            
-		1382,              
-		231,               
-		4,                 
-		759,               
+	{   /* PAL timing for 27 Mhz ref clk */
+		800,               /* horResolution */
+		600,               /* verResolution */
+		TV_STD_PAL,        /* standard */
+		1144,              /* horTotal */
+		706,               /* verTotal */
+		812,               /* horStart */
+		824,               /* horSyncStart */
+		669,               /* verSyncStart */
+		696700,            /* defRestart */
+		1382,              /* crtcPLL_N */
+		231,               /* crtcPLL_M */
+		4,                 /* crtcPLL_postDiv */
+		759,               /* pixToTV */
 	},
-	{   
-		800,                
-		600,                
-		TV_STD_NTSC,        
-		1018,               
-		727,                
-		813,                
-		840,                
-		633,                
-		630627,             
-		347,                
-		14,                 
-		8,                  
-		1022,               
+	{   /* NTSC timing for 14 Mhz ref clk */
+		800,                /* horResolution */
+		600,                /* verResolution */
+		TV_STD_NTSC,        /* standard */
+		1018,               /* horTotal */
+		727,                /* verTotal */
+		813,                /* horStart */
+		840,                /* horSyncStart */
+		633,                /* verSyncStart */
+		630627,             /* defRestart */
+		347,                /* crtcPLL_N */
+		14,                 /* crtcPLL_M */
+		8,                  /* crtcPLL_postDiv */
+		1022,               /* pixToTV */
 	},
-	{ 
-		800,                
-		600,                
-		TV_STD_PAL,         
-		1131,               
-		742,                
-		813,                
-		840,                
-		633,                
-		708369,             
-		211,                
-		9,                  
-		8,                  
-		759,                
+	{ /* PAL timing for 14 Mhz ref clk */
+		800,                /* horResolution */
+		600,                /* verResolution */
+		TV_STD_PAL,         /* standard */
+		1131,               /* horTotal */
+		742,                /* verTotal */
+		813,                /* horStart */
+		840,                /* horSyncStart */
+		633,                /* verSyncStart */
+		708369,             /* defRestart */
+		211,                /* crtcPLL_N */
+		9,                  /* crtcPLL_M */
+		8,                  /* crtcPLL_postDiv */
+		759,                /* pixToTV */
 	},
 };
 
@@ -291,7 +317,7 @@ static void radeon_legacy_tv_write_fifo(struct radeon_encoder *radeon_encoder,
 	WREG32(RADEON_TV_HOST_RD_WT_CNTL, 0);
 }
 
-#if 0 
+#if 0 /* included for completeness */
 static uint32_t radeon_legacy_tv_read_fifo(struct radeon_encoder *radeon_encoder, uint16_t addr)
 {
 	struct drm_device *dev = radeon_encoder->base.dev;
@@ -428,7 +454,7 @@ static bool radeon_legacy_tv_init_restarts(struct drm_encoder *encoder)
 	else
 		f_total = PAL_TV_VFTOTAL + 1;
 
-	
+	/* adjust positions 1&2 in hor. cod timing table */
 	h_offset = tv_dac->h_pos * H_POS_UNIT;
 
 	if (tv_dac->tv_std == TV_STD_NTSC ||
@@ -451,12 +477,15 @@ static bool radeon_legacy_tv_init_restarts(struct drm_encoder *encoder)
 	tv_dac->tv.h_code_timing[H_TABLE_POS1] = p1;
 	tv_dac->tv.h_code_timing[H_TABLE_POS2] = p2;
 
-	
+	/* Convert hOffset from n. of TV clock periods to n. of CRTC clock periods (CRTC pixels) */
 	h_offset = (h_offset * (int)(const_ptr->pix_to_tv)) / 1000;
 
-	
+	/* adjust restart */
 	restart = const_ptr->def_restart;
 
+	/*
+	 * convert v_pos TV lines to n. of CRTC pixels
+	 */
 	if (tv_dac->tv_std == TV_STD_NTSC ||
 	    tv_dac->tv_std == TV_STD_NTSC_J ||
 	    tv_dac->tv_std == TV_STD_PAL_M ||
@@ -481,7 +510,7 @@ static bool radeon_legacy_tv_init_restarts(struct drm_encoder *encoder)
 		  (unsigned)tv_dac->tv.vrestart,
 		  (unsigned)tv_dac->tv.hrestart);
 
-	
+	/* compute h_inc from hsize */
 	if (tv_dac->tv_std == TV_STD_NTSC ||
 	    tv_dac->tv_std == TV_STD_NTSC_J ||
 	    tv_dac->tv_std == TV_STD_PAL_M)
@@ -601,7 +630,7 @@ void radeon_legacy_tv_mode_set(struct drm_encoder *encoder,
 	else
 		tv_vscaler_cntl1 |= (2 << RADEON_Y_DEL_W_SIG_SHIFT);
 
-	
+	/* scale up for int divide */
 	tmp = const_ptr->ver_total * 2 * 1000;
 	if (tv_dac->tv_std == TV_STD_NTSC ||
 	    tv_dac->tv_std == TV_STD_NTSC_J ||
@@ -720,12 +749,12 @@ void radeon_legacy_tv_mode_set(struct drm_encoder *encoder,
 
 	radeon_legacy_tv_init_restarts(encoder);
 
-	
-	
-	
-	
+	/* play with DAC_CNTL */
+	/* play with GPIOPAD_A */
+	/* DISP_OUTPUT_CNTL */
+	/* use reference freq */
 
-	
+	/* program the TV registers */
 	WREG32(RADEON_TV_MASTER_CNTL, (tv_master_cntl | RADEON_TV_ASYNC_RST |
 				       RADEON_CRT_ASYNC_RST | RADEON_TV_FIFO_ASYNC_RST));
 
@@ -737,7 +766,7 @@ void radeon_legacy_tv_mode_set(struct drm_encoder *encoder,
 		RADEON_TV_DAC_BDACPD;
 	WREG32(RADEON_TV_DAC_CNTL, tmp);
 
-	
+	/* TV PLL */
 	WREG32_PLL_P(RADEON_TV_PLL_CNTL1, 0, ~RADEON_TVCLK_SRC_SEL_TVPLL);
 	WREG32_PLL(RADEON_TV_PLL_CNTL, tv_pll_cntl);
 	WREG32_PLL_P(RADEON_TV_PLL_CNTL1, RADEON_TVPLL_RESET, ~RADEON_TVPLL_RESET);
@@ -755,7 +784,7 @@ void radeon_legacy_tv_mode_set(struct drm_encoder *encoder,
 	WREG32_PLL_P(RADEON_TV_PLL_CNTL1, (1 << RADEON_TVPDC_SHIFT), ~RADEON_TVPDC_MASK);
 	WREG32_PLL_P(RADEON_TV_PLL_CNTL1, 0, ~RADEON_TVPLL_SLEEP);
 
-	
+	/* TV HV */
 	WREG32(RADEON_TV_RGB_CNTL, tv_rgb_cntl);
 	WREG32(RADEON_TV_HTOTAL, const_ptr->hor_total - 1);
 	WREG32(RADEON_TV_HDISP, const_ptr->hor_resolution - 1);
@@ -774,15 +803,15 @@ void radeon_legacy_tv_mode_set(struct drm_encoder *encoder,
 	WREG32(RADEON_TV_MASTER_CNTL, (tv_master_cntl | RADEON_TV_ASYNC_RST |
 				       RADEON_CRT_ASYNC_RST));
 
-	
+	/* TV restarts */
 	radeon_legacy_write_tv_restarts(radeon_encoder);
 
-	
+	/* tv timings */
 	radeon_restore_tv_timing_tables(radeon_encoder);
 
 	WREG32(RADEON_TV_MASTER_CNTL, (tv_master_cntl | RADEON_TV_ASYNC_RST));
 
-	
+	/* tv std */
 	WREG32(RADEON_TV_SYNC_CNTL, (RADEON_SYNC_PUB | RADEON_TV_SYNC_IO_DRIVE));
 	WREG32(RADEON_TV_TIMING_CNTL, tv_dac->tv.timing_cntl);
 	WREG32(RADEON_TV_MODULATOR_CNTL1, tv_modulator_cntl1);

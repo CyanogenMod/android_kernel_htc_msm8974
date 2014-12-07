@@ -33,7 +33,7 @@ const struct register_map gaia_register_map __initdata = {
 	.chipver1 = {.phys = GAIA_IO_BASE + 0x2A0808},
 	.chipver0 = {.phys = GAIA_IO_BASE + 0x2A080C},
 
-	
+	/* The registers of IRBlaster */
 	.uart1_intstat = {.phys = GAIA_IO_BASE + 0x2A1800},
 	.uart1_inten = {.phys = GAIA_IO_BASE + 0x2A1804},
 	.uart1_config1 = {.phys = GAIA_IO_BASE + 0x2A1808},

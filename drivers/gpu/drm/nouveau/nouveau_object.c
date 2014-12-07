@@ -25,6 +25,10 @@
  *
  */
 
+/*
+ * Authors:
+ *   Ben Skeggs <darktama@iinet.net.au>
+ */
 
 #include "drmP.h"
 #include "drm.h"
@@ -129,6 +133,36 @@ nouveau_gpuobj_mthd_call2(struct drm_device *dev, int chid,
 	return ret;
 }
 
+/* NVidia uses context objects to drive drawing operations.
+
+   Context objects can be selected into 8 subchannels in the FIFO,
+   and then used via DMA command buffers.
+
+   A context object is referenced by a user defined handle (CARD32). The HW
+   looks up graphics objects in a hash table in the instance RAM.
+
+   An entry in the hash table consists of 2 CARD32. The first CARD32 contains
+   the handle, the second one a bitfield, that contains the address of the
+   object in instance RAM.
+
+   The format of the second CARD32 seems to be:
+
+   NV4 to NV30:
+
+   15: 0  instance_addr >> 4
+   17:16  engine (here uses 1 = graphics)
+   28:24  channel id (here uses 0)
+   31	  valid (use 1)
+
+   NV40:
+
+   15: 0  instance_addr >> 4   (maybe 19-0)
+   21:20  engine (here uses 1 = graphics)
+   I'm unsure about the other bits, but using 0 seems to work.
+
+   The key into the hash table depends on the object handle and channel id and
+   is given as:
+*/
 
 int
 nouveau_gpuobj_new(struct drm_device *dev, struct nouveau_channel *chan,
@@ -327,6 +361,33 @@ nouveau_gpuobj_new_fake(struct drm_device *dev, u32 pinst, u64 vinst,
 	return 0;
 }
 
+/*
+   DMA objects are used to reference a piece of memory in the
+   framebuffer, PCI or AGP address space. Each object is 16 bytes big
+   and looks as follows:
+
+   entry[0]
+   11:0  class (seems like I can always use 0 here)
+   12    page table present?
+   13    page entry linear?
+   15:14 access: 0 rw, 1 ro, 2 wo
+   17:16 target: 0 NV memory, 1 NV memory tiled, 2 PCI, 3 AGP
+   31:20 dma adjust (bits 0-11 of the address)
+   entry[1]
+   dma limit (size of transfer)
+   entry[X]
+   1     0 readonly, 1 readwrite
+   31:12 dma frame address of the page (bits 12-31 of the address)
+   entry[N]
+   page table terminator, same value as the first pte, as does nvidia
+   rivatv uses 0xffffffff
+
+   Non linear page tables need a list of frame addresses afterwards,
+   the rivatv project has some info on this.
+
+   The method below creates a DMA object in instance RAM and returns a handle
+   to it that can be used to set up context objects.
+*/
 
 void
 nv50_gpuobj_dma_init(struct nouveau_gpuobj *obj, u32 offset, int class,
@@ -365,7 +426,7 @@ nv50_gpuobj_dma_init(struct nouveau_gpuobj *obj, u32 offset, int class,
 		break;
 	}
 
-	
+	/* convert to base + limit */
 	size = (base + size) - 1;
 
 	nv_wo32(obj, offset + 0x00, flags0);
@@ -436,7 +497,7 @@ nouveau_gpuobj_dma_new(struct nouveau_channel *chan, int class, u64 base,
 	}
 
 	flags0  = class;
-	flags0 |= 0x00003000; 
+	flags0 |= 0x00003000; /* PT present, PT linear */
 	flags2  = 0;
 
 	switch (target) {
@@ -479,6 +540,57 @@ nouveau_gpuobj_dma_new(struct nouveau_channel *chan, int class, u64 base,
 	return 0;
 }
 
+/* Context objects in the instance RAM have the following structure.
+ * On NV40 they are 32 byte long, on NV30 and smaller 16 bytes.
+
+   NV4 - NV30:
+
+   entry[0]
+   11:0 class
+   12   chroma key enable
+   13   user clip enable
+   14   swizzle enable
+   17:15 patch config:
+       scrcopy_and, rop_and, blend_and, scrcopy, srccopy_pre, blend_pre
+   18   synchronize enable
+   19   endian: 1 big, 0 little
+   21:20 dither mode
+   23    single step enable
+   24    patch status: 0 invalid, 1 valid
+   25    context_surface 0: 1 valid
+   26    context surface 1: 1 valid
+   27    context pattern: 1 valid
+   28    context rop: 1 valid
+   29,30 context beta, beta4
+   entry[1]
+   7:0   mono format
+   15:8  color format
+   31:16 notify instance address
+   entry[2]
+   15:0  dma 0 instance address
+   31:16 dma 1 instance address
+   entry[3]
+   dma method traps
+
+   NV40:
+   No idea what the exact format is. Here's what can be deducted:
+
+   entry[0]:
+   11:0  class  (maybe uses more bits here?)
+   17    user clip enable
+   21:19 patch config
+   25    patch status valid ?
+   entry[1]:
+   15:0  DMA notifier  (maybe 20:0)
+   entry[2]:
+   15:0  DMA 0 instance (maybe 20:0)
+   24    big endian
+   entry[3]:
+   15:0  DMA 1 instance (maybe 20:0)
+   entry[4]:
+   entry[5]:
+   set to 0?
+*/
 static int
 nouveau_gpuobj_sw_new(struct nouveau_channel *chan, u32 handle, u16 class)
 {
@@ -547,18 +659,18 @@ nouveau_gpuobj_channel_init_pramin(struct nouveau_channel *chan)
 
 	NV_DEBUG(dev, "ch%d\n", chan->id);
 
-	
+	/* Base amount for object storage (4KiB enough?) */
 	size = 0x2000;
 	base = 0;
 
 	if (dev_priv->card_type == NV_50) {
-		
-		size += 0x1400; 
-		size += 0x4000; 
+		/* Various fixed table thingos */
+		size += 0x1400; /* mostly unknown stuff */
+		size += 0x4000; /* vm pd */
 		base  = 0x6000;
-		
+		/* RAMHT, not sure about setting size yet, 32KiB to be safe */
 		size += 0x8000;
-		
+		/* RAMFC */
 		size += 0x1000;
 	}
 
@@ -591,6 +703,10 @@ nvc0_gpuobj_channel_init(struct nouveau_channel *chan, struct nouveau_vm *vm)
 	if (ret)
 		return ret;
 
+	/* create page directory for this vm if none currently exists,
+	 * will be destroyed automagically when last reference to the
+	 * vm is removed
+	 */
 	if (list_empty(&vm->pgd_list)) {
 		ret = nouveau_gpuobj_new(dev, NULL, 65536, 0x1000, 0, &pgd);
 		if (ret)
@@ -599,14 +715,14 @@ nvc0_gpuobj_channel_init(struct nouveau_channel *chan, struct nouveau_vm *vm)
 	nouveau_vm_ref(vm, &chan->vm, pgd);
 	nouveau_gpuobj_ref(NULL, &pgd);
 
-	
+	/* point channel at vm's page directory */
 	vpgd = list_first_entry(&vm->pgd_list, struct nouveau_vm_pgd, head);
 	nv_wo32(chan->ramin, 0x0200, lower_32_bits(vpgd->obj->vinst));
 	nv_wo32(chan->ramin, 0x0204, upper_32_bits(vpgd->obj->vinst));
 	nv_wo32(chan->ramin, 0x0208, 0xffffffff);
 	nv_wo32(chan->ramin, 0x020c, 0x000000ff);
 
-	
+	/* map display semaphore buffers into channel's vm */
 	for (i = 0; i < dev->mode_config.num_crtc; i++) {
 		struct nouveau_bo *bo;
 		if (dev_priv->card_type >= NV_D0)
@@ -637,13 +753,17 @@ nouveau_gpuobj_channel_init(struct nouveau_channel *chan,
 	if (dev_priv->card_type >= NV_C0)
 		return nvc0_gpuobj_channel_init(chan, vm);
 
-	
+	/* Allocate a chunk of memory for per-channel object storage */
 	ret = nouveau_gpuobj_channel_init_pramin(chan);
 	if (ret) {
 		NV_ERROR(dev, "init pramin\n");
 		return ret;
 	}
 
+	/* NV50 VM
+	 *  - Allocate per-channel page-directory
+	 *  - Link with shared channel VM
+	 */
 	if (vm) {
 		u32 pgd_offs = (dev_priv->chipset == 0x50) ? 0x1400 : 0x0200;
 		u64 vm_vinst = chan->ramin->vinst + pgd_offs;
@@ -660,7 +780,7 @@ nouveau_gpuobj_channel_init(struct nouveau_channel *chan,
 		nouveau_vm_ref(vm, &chan->vm, chan->vm_pd);
 	}
 
-	
+	/* RAMHT */
 	if (dev_priv->card_type < NV_50) {
 		nouveau_ramht_ref(dev_priv->ramht, &chan->ramht, NULL);
 	} else {
@@ -676,7 +796,7 @@ nouveau_gpuobj_channel_init(struct nouveau_channel *chan,
 		if (ret)
 			return ret;
 
-		
+		/* dma objects for display sync channel semaphore blocks */
 		for (i = 0; i < dev->mode_config.num_crtc; i++) {
 			struct nouveau_gpuobj *sem = NULL;
 			struct nv50_display_crtc *dispc =
@@ -696,7 +816,7 @@ nouveau_gpuobj_channel_init(struct nouveau_channel *chan,
 		}
 	}
 
-	
+	/* VRAM ctxdma */
 	if (dev_priv->card_type >= NV_50) {
 		ret = nouveau_gpuobj_dma_new(chan, NV_CLASS_DMA_IN_MEMORY,
 					     0, (1ULL << 40), NV_MEM_ACCESS_RW,
@@ -723,7 +843,7 @@ nouveau_gpuobj_channel_init(struct nouveau_channel *chan,
 		return ret;
 	}
 
-	
+	/* TT memory ctxdma */
 	if (dev_priv->card_type >= NV_50) {
 		ret = nouveau_gpuobj_dma_new(chan, NV_CLASS_DMA_IN_MEMORY,
 					     0, (1ULL << 40), NV_MEM_ACCESS_RW,
@@ -867,7 +987,7 @@ int nouveau_ioctl_gpuobj_free(struct drm_device *dev, void *data,
 	if (IS_ERR(chan))
 		return PTR_ERR(chan);
 
-	
+	/* Synchronize with the user channel */
 	nouveau_channel_idle(chan);
 
 	ret = nouveau_ramht_remove(chan, objfree->handle);

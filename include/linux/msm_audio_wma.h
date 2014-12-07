@@ -30,4 +30,4 @@ struct msm_audio_wma_config_v2 {
 	unsigned short	encodeopt;
 };
 
-#endif 
+#endif /* __MSM_AUDIO_WMA_H */

@@ -10,4 +10,4 @@ extern atomic_t nmi_active;
 extern void start_nmi_watchdog(void *unused);
 extern void stop_nmi_watchdog(void *unused);
 
-#endif 
+#endif /* __NMI_H */

@@ -47,11 +47,11 @@ readisac(void __iomem *adr, u_char off)
 
 	ZORAN_WAIT_NOBUSY;
 
-	
+	/* set address for ISAC */
 	writel(WRITE_ADDR_ISAC | off, adr + 0x200);
 	ZORAN_WAIT_NOBUSY;
 
-	
+	/* read data from ISAC */
 	writel(READ_DATA_ISAC, adr + 0x200);
 	ZORAN_WAIT_NOBUSY;
 	return ((u_char)(portdata & ZORAN_PO_DMASK));
@@ -64,11 +64,11 @@ writeisac(void __iomem *adr, u_char off, u_char data)
 
 	ZORAN_WAIT_NOBUSY;
 
-	
+	/* set address for ISAC */
 	writel(WRITE_ADDR_ISAC | off, adr + 0x200);
 	ZORAN_WAIT_NOBUSY;
 
-	
+	/* write data to ISAC */
 	writel(WRITE_DATA_ISAC | data, adr + 0x200);
 	ZORAN_WAIT_NOBUSY;
 }
@@ -79,11 +79,11 @@ readhscx(void __iomem *adr, int hscx, u_char off)
 	register unsigned int portdata;
 
 	ZORAN_WAIT_NOBUSY;
-	
+	/* set address for HSCX */
 	writel(WRITE_ADDR_HSCX | ((hscx ? 0x40 : 0) + off), adr + 0x200);
 	ZORAN_WAIT_NOBUSY;
 
-	
+	/* read data from HSCX */
 	writel(READ_DATA_HSCX, adr + 0x200);
 	ZORAN_WAIT_NOBUSY;
 	return ((u_char)(portdata & ZORAN_PO_DMASK));
@@ -95,11 +95,11 @@ writehscx(void __iomem *adr, int hscx, u_char off, u_char data)
 	register unsigned int portdata;
 
 	ZORAN_WAIT_NOBUSY;
-	
+	/* set address for HSCX */
 	writel(WRITE_ADDR_HSCX | ((hscx ? 0x40 : 0) + off), adr + 0x200);
 	ZORAN_WAIT_NOBUSY;
 
-	
+	/* write data to HSCX */
 	writel(WRITE_DATA_HSCX | data, adr + 0x200);
 	ZORAN_WAIT_NOBUSY;
 }
@@ -111,9 +111,9 @@ read_fifo_isac(void __iomem *adr, u_char *data, int size)
 	register int i;
 
 	ZORAN_WAIT_NOBUSY;
-	
+	/* read data from ISAC */
 	for (i = 0; i < size; i++) {
-		
+		/* set address for ISAC fifo */
 		writel(WRITE_ADDR_ISAC | 0x1E, adr + 0x200);
 		ZORAN_WAIT_NOBUSY;
 		writel(READ_DATA_ISAC, adr + 0x200);
@@ -129,9 +129,9 @@ write_fifo_isac(void __iomem *adr, u_char *data, int size)
 	register int i;
 
 	ZORAN_WAIT_NOBUSY;
-	
+	/* write data to ISAC */
 	for (i = 0; i < size; i++) {
-		
+		/* set address for ISAC fifo */
 		writel(WRITE_ADDR_ISAC | 0x1E, adr + 0x200);
 		ZORAN_WAIT_NOBUSY;
 		writel(WRITE_DATA_ISAC | data[i], adr + 0x200);
@@ -146,9 +146,9 @@ read_fifo_hscx(void __iomem *adr, int hscx, u_char *data, int size)
 	register int i;
 
 	ZORAN_WAIT_NOBUSY;
-	
+	/* read data from HSCX */
 	for (i = 0; i < size; i++) {
-		
+		/* set address for HSCX fifo */
 		writel(WRITE_ADDR_HSCX | (hscx ? 0x5F : 0x1F), adr + 0x200);
 		ZORAN_WAIT_NOBUSY;
 		writel(READ_DATA_HSCX, adr + 0x200);
@@ -164,9 +164,9 @@ write_fifo_hscx(void __iomem *adr, int hscx, u_char *data, int size)
 	register int i;
 
 	ZORAN_WAIT_NOBUSY;
-	
+	/* write data to HSCX */
 	for (i = 0; i < size; i++) {
-		
+		/* set address for HSCX fifo */
 		writel(WRITE_ADDR_HSCX | (hscx ? 0x5F : 0x1F), adr + 0x200);
 		ZORAN_WAIT_NOBUSY;
 		writel(WRITE_DATA_HSCX | data[i], adr + 0x200);
@@ -175,6 +175,7 @@ write_fifo_hscx(void __iomem *adr, int hscx, u_char *data, int size)
 	}
 }
 
+/* Interface functions */
 
 static u_char
 ReadISAC(struct IsdnCardState *cs, u_char offset)
@@ -212,6 +213,9 @@ WriteHSCX(struct IsdnCardState *cs, int hscx, u_char offset, u_char value)
 	writehscx(cs->hw.teles0.membase, hscx, offset, value);
 }
 
+/*
+ * fast interrupt HSCX stuff goes here
+ */
 
 #define READHSCX(cs, nr, reg) readhscx(cs->hw.teles0.membase, nr, reg)
 #define WRITEHSCX(cs, nr, reg, data) writehscx(cs->hw.teles0.membase, nr, reg, data)
@@ -238,7 +242,7 @@ telespci_interrupt(int intno, void *dev_id)
 	}
 	if (ival)
 		isac_interrupt(cs, ival);
-	
+	/* Clear interrupt register for Zoran PCI controller */
 	writel(0x70000000, cs->hw.teles0.membase + 0x3C);
 
 	writehscx(cs->hw.teles0.membase, 0, HSCX_MASK, 0xFF);
@@ -314,14 +318,14 @@ setup_telespci(struct IsdnCard *card)
 		return (0);
 	}
 
-	
+	/* Initialize Zoran PCI controller */
 	writel(0x00000000, cs->hw.teles0.membase + 0x28);
 	writel(0x01000000, cs->hw.teles0.membase + 0x28);
 	writel(0x01000000, cs->hw.teles0.membase + 0x28);
 	writel(0x7BFFFFFF, cs->hw.teles0.membase + 0x2C);
 	writel(0x70000000, cs->hw.teles0.membase + 0x3C);
 	writel(0x61000000, cs->hw.teles0.membase + 0x40);
-	
+	/* writel(0x00800000, cs->hw.teles0.membase + 0x200); */
 
 	printk(KERN_INFO
 	       "HiSax: Teles PCI config irq:%d mem:%p\n",

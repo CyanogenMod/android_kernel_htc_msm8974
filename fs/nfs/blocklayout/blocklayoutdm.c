@@ -30,7 +30,7 @@
  * possibility of such damages.
  */
 
-#include <linux/genhd.h> 
+#include <linux/genhd.h> /* gendisk - used in a dprintk*/
 #include <linux/sched.h>
 #include <linux/hash.h>
 
@@ -83,6 +83,9 @@ out:
 	kfree(msg->data);
 }
 
+/*
+ * Release meta device
+ */
 static void nfs4_blk_metadev_release(struct pnfs_block_dev *bdev)
 {
 	int rv;

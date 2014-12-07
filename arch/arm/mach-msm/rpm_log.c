@@ -29,15 +29,19 @@
 
 #include "rpm_log.h"
 
+/* registers in MSM_RPM_LOG_PAGE_INDICES */
 enum {
 	MSM_RPM_LOG_TAIL,
 	MSM_RPM_LOG_HEAD
 };
 
+/* used to 4 byte align message lengths */
 #define PADDED_LENGTH(x) (0xFFFFFFFC & ((x) + 3))
 
+/* calculates the character string length of a message of byte length x */
 #define PRINTED_LENGTH(x) ((x) * 6 + 3)
 
+/* number of ms to wait between checking for new messages in the RPM log */
 #define RECHECK_TIME (50)
 
 #define VERSION_8974 0x1000
@@ -48,11 +52,15 @@ struct msm_rpm_log_buffer {
 	char *data;
 	u32 len;
 	u32 pos;
+	struct mutex mutex;
 	u32 max_len;
 	u32 read_idx;
 	struct msm_rpm_log_platform_data *pdata;
 };
 
+/******************************************************************************
+ * Internal functions
+ *****************************************************************************/
 
 static inline u32
 msm_rpm_log_read(const struct msm_rpm_log_platform_data *pdata, u32 page,
@@ -103,44 +111,52 @@ static u32 msm_rpm_log_copy(const struct msm_rpm_log_platform_data *pdata,
 	head_idx = msm_rpm_log_read(pdata, MSM_RPM_LOG_PAGE_INDICES,
 				    MSM_RPM_LOG_HEAD);
 
-	
+	/* loop while the remote buffer has valid messages left to read */
 	while (tail_idx - head_idx > 0 && tail_idx - *read_idx > 0) {
 		head_idx = msm_rpm_log_read(pdata, MSM_RPM_LOG_PAGE_INDICES,
 					    MSM_RPM_LOG_HEAD);
 		tail_idx = msm_rpm_log_read(pdata, MSM_RPM_LOG_PAGE_INDICES,
 				    MSM_RPM_LOG_TAIL);
-		
+		/* check if the message to be read is valid */
 		if (tail_idx - *read_idx > tail_idx - head_idx) {
 			*read_idx = head_idx;
 			continue;
 		}
 
+		/*
+		 * Ensure that all indices are 4 byte aligned.
+		 * This conditions is required to interact with a ULog buffer
+		 * properly.
+		 */
 		if (!IS_ALIGNED((tail_idx | head_idx | *read_idx), 4))
 			break;
 
 		msg_len = msm_rpm_log_read(pdata, MSM_RPM_LOG_PAGE_BUFFER,
 				((*read_idx) & pdata->log_len_mask) >> 2);
 
+		/* Message length for 8974 is first 2 bytes.
+		 * Exclude message length and format from message length.
+		 */
 		if (pdata->version == VERSION_8974) {
 			msg_len = (msg_len & RPM_ULOG_LENGTH_MASK) >>
 					RPM_ULOG_LENGTH_SHIFT;
 			msg_len -= 4;
 		}
 
-		
+		/* handle messages that claim to be longer than the log */
 		if (PADDED_LENGTH(msg_len) > tail_idx - *read_idx - 4)
 			msg_len = tail_idx - *read_idx - 4;
 
-		
+		/* check that the local buffer has enough space for this msg */
 		if (pos + PRINTED_LENGTH(msg_len) > buf_len)
 			break;
 
 		pos_start = pos;
 		pos += scnprintf(msg_buffer + pos, buf_len - pos, "- ");
 
-		
+		/* copy message payload to local buffer */
 		for (i = 0; i < msg_len; i++) {
-			
+			/* read from shared memory 4 bytes at a time */
 			if (IS_ALIGNED(i, 4))
 				*((u32 *)temp) = msm_rpm_log_read(pdata,
 						MSM_RPM_LOG_PAGE_BUFFER,
@@ -158,7 +174,7 @@ static u32 msm_rpm_log_copy(const struct msm_rpm_log_platform_data *pdata,
 		tail_idx = msm_rpm_log_read(pdata, MSM_RPM_LOG_PAGE_INDICES,
 				    MSM_RPM_LOG_TAIL);
 
-		
+		/* roll back if message that was read is not still valid */
 		if (tail_idx - *read_idx > tail_idx - head_idx)
 			pos = pos_start;
 
@@ -169,6 +185,17 @@ static u32 msm_rpm_log_copy(const struct msm_rpm_log_platform_data *pdata,
 }
 
 
+/*
+ * msm_rpm_log_file_read() - Reads in log buffer messages then outputs them to a
+ *			     user buffer
+ *
+ * Return value:
+ *	0:	 success
+ *	-ENOMEM: no memory available
+ *	-EINVAL: user buffer null or requested bytes 0
+ *	-EFAULT: user buffer not writeable
+ *	-EAGAIN: no bytes available at the moment
+ */
 static ssize_t msm_rpm_log_file_read(struct file *file, char __user *bufu,
 				     size_t count, loff_t *ppos)
 {
@@ -192,7 +219,8 @@ static ssize_t msm_rpm_log_file_read(struct file *file, char __user *bufu,
 	if (!access_ok(VERIFY_WRITE, bufu, count))
 		return -EFAULT;
 
-	
+	mutex_lock(&buf->mutex);
+	/* check for more messages if local buffer empty */
 	if (buf->pos == buf->len) {
 		buf->pos = 0;
 		buf->len = msm_rpm_log_copy(pdata, buf->data, buf->max_len,
@@ -200,9 +228,10 @@ static ssize_t msm_rpm_log_file_read(struct file *file, char __user *bufu,
 	}
 
 	if ((file->f_flags & O_NONBLOCK) && buf->len == 0)
+		mutex_unlock(&buf->mutex);
 		return -EAGAIN;
 
-	
+	/* loop until new messages arrive */
 	while (buf->len == 0) {
 		cond_resched();
 		if (msleep_interruptible(RECHECK_TIME))
@@ -215,11 +244,23 @@ static ssize_t msm_rpm_log_file_read(struct file *file, char __user *bufu,
 
 	remaining = __copy_to_user(bufu, &(buf->data[buf->pos]), out_len);
 	buf->pos += out_len - remaining;
+	mutex_unlock(&buf->mutex);
 
 	return out_len - remaining;
 }
 
 
+/*
+ * msm_rpm_log_file_open() - Allows a new reader to open the RPM log virtual
+ *			      file
+ *
+ * One local buffer is kmalloc'ed for each reader, so no resource sharing has
+ * to take place (besides the read only access to the RPM log buffer).
+ *
+ * Return value:
+ *	0:	 success
+ *	-ENOMEM: no memory available
+ */
 static int msm_rpm_log_file_open(struct inode *inode, struct file *file)
 {
 	struct msm_rpm_log_buffer *buf;
@@ -250,6 +291,7 @@ static int msm_rpm_log_file_open(struct inode *inode, struct file *file)
 	buf->pdata = pdata;
 	buf->len = 0;
 	buf->pos = 0;
+	mutex_init(&buf->mutex);
 	buf->max_len = PRINTED_LENGTH(pdata->log_len);
 	buf->read_idx = msm_rpm_log_read(pdata, MSM_RPM_LOG_PAGE_INDICES,
 					 MSM_RPM_LOG_HEAD);
@@ -308,6 +350,20 @@ static int __devinit msm_rpm_log_probe(struct platform_device *pdev)
 			kfree(pdata);
 			return -EBUSY;
 		}
+		/* Read various parameters from the header if the
+		 * version of the RPM Ulog is 0x1000. This version
+		 * corresponds to the node in the rpm header which
+		 * holds RPM log on 8974.
+		 *
+		 * offset-page-buffer-addr: At this offset header
+		 * contains address of the location where raw log
+		 * starts
+		 * offset-log-len: At this offset header contains
+		 * the length of the log buffer.
+		 * offset-log-len-mask: At this offset header contains
+		 * the log length mask for the buffer.
+		 * offset-page-indices: At this offset header contains
+		 * the index for writer. */
 
 		key = "qcom,offset-version";
 		ret = of_property_read_u32(node, key, &val);

@@ -55,11 +55,11 @@ struct v3020_gpio {
 };
 
 struct v3020 {
-	
+	/* MMIO access */
 	void __iomem *ioaddress;
 	int leftshift;
 
-	
+	/* GPIO access */
 	struct v3020_gpio *gpio;
 
 	struct v3020_chip_ops *ops;
@@ -197,7 +197,7 @@ static void v3020_set_reg(struct v3020 *chip, unsigned char address,
 		udelay(1);
 	}
 
-	
+	/* Commands dont have data */
 	if (!V3020_IS_COMMAND(address)) {
 		for (i = 0; i < 8; i++) {
 			chip->ops->write_bit(chip, (data & 1));
@@ -233,10 +233,10 @@ static int v3020_read_time(struct device *dev, struct rtc_time *dt)
 	struct v3020 *chip = dev_get_drvdata(dev);
 	int tmp;
 
-	
+	/* Copy the current time to ram... */
 	v3020_set_reg(chip, V3020_CMD_CLOCK2RAM, 0);
 
-	
+	/* ...and then read constant values. */
 	tmp = v3020_get_reg(chip, V3020_SECONDS);
 	dt->tm_sec	= bcd2bin(tmp);
 	tmp = v3020_get_reg(chip, V3020_MINUTES);
@@ -277,7 +277,7 @@ static int v3020_set_time(struct device *dev, struct rtc_time *dt)
 	dev_dbg(dev, "tm_wday: %i\n", dt->tm_wday);
 	dev_dbg(dev, "tm_year: %i\n", dt->tm_year);
 
-	
+	/* Write all the values to ram... */
 	v3020_set_reg(chip, V3020_SECONDS, 	bin2bcd(dt->tm_sec));
 	v3020_set_reg(chip, V3020_MINUTES, 	bin2bcd(dt->tm_min));
 	v3020_set_reg(chip, V3020_HOURS, 	bin2bcd(dt->tm_hour));
@@ -286,10 +286,12 @@ static int v3020_set_time(struct device *dev, struct rtc_time *dt)
 	v3020_set_reg(chip, V3020_WEEK_DAY, 	bin2bcd(dt->tm_wday));
 	v3020_set_reg(chip, V3020_YEAR, 	bin2bcd(dt->tm_year % 100));
 
-	
+	/* ...and set the clock. */
 	v3020_set_reg(chip, V3020_CMD_RAM2CLOCK, 0);
 
-	
+	/* Compulab used this delay here. I dont know why,
+	 * the datasheet does not specify a delay. */
+	/*mdelay(5);*/
 
 	return 0;
 }
@@ -320,15 +322,21 @@ static int rtc_probe(struct platform_device *pdev)
 	if (retval)
 		goto err_chip;
 
+	/* Make sure the v3020 expects a communication cycle
+	 * by reading 8 times */
 	for (i = 0; i < 8; i++)
 		temp = chip->ops->read_bit(chip);
 
+	/* Test chip by doing a write/read sequence
+	 * to the chip ram */
 	v3020_set_reg(chip, V3020_SECONDS, 0x33);
 	if (v3020_get_reg(chip, V3020_SECONDS) != 0x33) {
 		retval = -ENODEV;
 		goto err_io;
 	}
 
+	/* Make sure frequency measurement mode, test modes, and lock
+	 * are all disabled */
 	v3020_set_reg(chip, V3020_STATUS_0, 0x0);
 
 	if (pdata->use_gpio)

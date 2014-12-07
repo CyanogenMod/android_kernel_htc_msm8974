@@ -22,8 +22,12 @@
 
 #ifdef CONFIG_HARDIRQS_SW_RESEND
 
+/* Bitmap to handle software resend of interrupts: */
 static DECLARE_BITMAP(irqs_resend, IRQ_BITMAP_BITS);
 
+/*
+ * Run software resends of IRQ's
+ */
 static void resend_irqs(unsigned long arg)
 {
 	struct irq_desc *desc;
@@ -39,12 +43,23 @@ static void resend_irqs(unsigned long arg)
 	}
 }
 
+/* Tasklet to handle resend: */
 static DECLARE_TASKLET(resend_tasklet, resend_irqs, 0);
 
 #endif
 
+/*
+ * IRQ resend
+ *
+ * Is called with interrupts disabled and desc->lock held.
+ */
 void check_irq_resend(struct irq_desc *desc, unsigned int irq)
 {
+	/*
+	 * We do not resend level type interrupts. Level type
+	 * interrupts are resent by hardware when they are still
+	 * active.
+	 */
 	if (irq_settings_is_level(desc))
 		return;
 	if (desc->istate & IRQS_REPLAY)
@@ -56,7 +71,7 @@ void check_irq_resend(struct irq_desc *desc, unsigned int irq)
 		if (!desc->irq_data.chip->irq_retrigger ||
 		    !desc->irq_data.chip->irq_retrigger(&desc->irq_data)) {
 #ifdef CONFIG_HARDIRQS_SW_RESEND
-			
+			/* Set it pending and activate the softirq: */
 			set_bit(irq, irqs_resend);
 			tasklet_schedule(&resend_tasklet);
 #endif

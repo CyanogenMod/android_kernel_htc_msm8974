@@ -1,20 +1,21 @@
+/* net/atm/pvc.c - ATM PVC sockets */
 
 /* Written 1995-2000 by Werner Almesberger, EPFL LRC/ICA */
 
 
-#include <linux/net.h>		
-#include <linux/atm.h>		
-#include <linux/atmdev.h>	
-#include <linux/errno.h>	
-#include <linux/kernel.h>	
+#include <linux/net.h>		/* struct socket, struct proto_ops */
+#include <linux/atm.h>		/* ATM stuff */
+#include <linux/atmdev.h>	/* ATM devices */
+#include <linux/errno.h>	/* error codes */
+#include <linux/kernel.h>	/* printk */
 #include <linux/init.h>
 #include <linux/skbuff.h>
 #include <linux/bitops.h>
 #include <linux/export.h>
-#include <net/sock.h>		
+#include <net/sock.h>		/* for sock_no_* */
 
-#include "resources.h"		
-#include "common.h"		
+#include "resources.h"		/* devs and vccs */
+#include "common.h"		/* common for PVCs and SVCs */
 
 
 static int pvc_shutdown(struct socket *sock, int how)
@@ -144,6 +145,9 @@ static const struct net_proto_family pvc_family_ops = {
 };
 
 
+/*
+ *	Initialize the ATM PVC protocol family
+ */
 
 
 int __init atmpvc_init(void)

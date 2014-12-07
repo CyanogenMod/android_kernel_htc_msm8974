@@ -24,6 +24,44 @@
 #include <plat/gpio-cfg.h>
 #include <plat/gpio-cfg-helpers.h>
 
+/*
+ * S5P6440 GPIO bank summary:
+ *
+ * Bank	GPIOs	Style	SlpCon	ExtInt Group
+ * A	6	4Bit	Yes	1
+ * B	7	4Bit	Yes	1
+ * C	8	4Bit	Yes	2
+ * F	2	2Bit	Yes	4 [1]
+ * G	7	4Bit	Yes	5
+ * H	10	4Bit[2]	Yes	6
+ * I	16	2Bit	Yes	None
+ * J	12	2Bit	Yes	None
+ * N	16	2Bit	No	IRQ_EINT
+ * P	8	2Bit	Yes	8
+ * R	15	4Bit[2]	Yes	8
+ *
+ * S5P6450 GPIO bank summary:
+ *
+ * Bank	GPIOs	Style	SlpCon	ExtInt Group
+ * A	6	4Bit	Yes	1
+ * B	7	4Bit	Yes	1
+ * C	8	4Bit	Yes	2
+ * D	8	4Bit	Yes	None
+ * F	2	2Bit	Yes	None
+ * G	14	4Bit[2]	Yes	5
+ * H	10	4Bit[2]	Yes	6
+ * I	16	2Bit	Yes	None
+ * J	12	2Bit	Yes	None
+ * K	5	4Bit	Yes	None
+ * N	16	2Bit	No	IRQ_EINT
+ * P	11	2Bit	Yes	8
+ * Q	14	2Bit	Yes	None
+ * R	15	4Bit[2]	Yes	None
+ * S	8	2Bit	Yes	None
+ *
+ * [1] BANKF pins 14,15 do not form part of the external interrupt sources
+ * [2] BANK has two control registers, GPxCON0 and GPxCON1
+ */
 
 static int s5p64x0_gpiolib_rbank_4bit2_input(struct gpio_chip *chip,
 					     unsigned int offset)

@@ -25,6 +25,7 @@
 
 #if defined(CONFIG_SMP) || defined(CONFIG_SND_DEBUG)
 
+/* wait until all locks are released */
 void snd_use_lock_sync_helper(snd_use_lock_t *lockp, const char *file, int line)
 {
 	int max_count = 5 * HZ;

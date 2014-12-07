@@ -18,17 +18,29 @@ struct nand_bch_control;
 
 static inline int mtd_nand_has_bch(void) { return 1; }
 
+/*
+ * Calculate BCH ecc code
+ */
 int nand_bch_calculate_ecc(struct mtd_info *mtd, const u_char *dat,
 			   u_char *ecc_code);
 
+/*
+ * Detect and correct bit errors
+ */
 int nand_bch_correct_data(struct mtd_info *mtd, u_char *dat, u_char *read_ecc,
 			  u_char *calc_ecc);
+/*
+ * Initialize BCH encoder/decoder
+ */
 struct nand_bch_control *
 nand_bch_init(struct mtd_info *mtd, unsigned int eccsize,
 	      unsigned int eccbytes, struct nand_ecclayout **ecclayout);
+/*
+ * Release BCH encoder/decoder resources
+ */
 void nand_bch_free(struct nand_bch_control *nbc);
 
-#else 
+#else /* !CONFIG_MTD_NAND_ECC_BCH */
 
 static inline int mtd_nand_has_bch(void) { return 0; }
 
@@ -55,6 +67,6 @@ nand_bch_init(struct mtd_info *mtd, unsigned int eccsize,
 
 static inline void nand_bch_free(struct nand_bch_control *nbc) {}
 
-#endif 
+#endif /* CONFIG_MTD_NAND_ECC_BCH */
 
-#endif 
+#endif /* __MTD_NAND_BCH_H__ */

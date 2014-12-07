@@ -58,6 +58,22 @@ static void __init ux500_timer_init(void)
 		ux500_unknown_soc();
 	}
 
+	/*
+	 * Here we register the timerblocks active in the system.
+	 * Localtimers (twd) is started when both cpu is up and running.
+	 * MTU register a clocksource, clockevent and sched_clock.
+	 * Since the MTU is located in the VAPE power domain
+	 * it will be cleared in sleep which makes it unsuitable.
+	 * We however need it as a timer tick (clockevent)
+	 * during boot to calibrate delay until twd is started.
+	 * RTC-RTT have problems as timer tick during boot since it is
+	 * depending on delay which is not yet calibrated. RTC-RTT is in the
+	 * always-on powerdomain and is used as clockevent instead of twd when
+	 * sleeping.
+	 * The PRCMU timer 4(3 for DB5500) register a clocksource and
+	 * sched_clock with higher rating then MTU since is always-on.
+	 *
+	 */
 
 	nmdk_timer_init(mtu_timer_base);
 	clksrc_dbx500_prcmu_init(prcmu_timer_base);

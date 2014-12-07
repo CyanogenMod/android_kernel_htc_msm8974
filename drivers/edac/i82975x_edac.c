@@ -27,32 +27,100 @@
 
 #ifndef PCI_DEVICE_ID_INTEL_82975_0
 #define PCI_DEVICE_ID_INTEL_82975_0	0x277c
-#endif				
+#endif				/* PCI_DEVICE_ID_INTEL_82975_0 */
 
 #define I82975X_NR_CSROWS(nr_chans)		(8/(nr_chans))
 
-#define I82975X_EAP		0x58	
+/* Intel 82975X register addresses - device 0 function 0 - DRAM Controller */
+#define I82975X_EAP		0x58	/* Dram Error Address Pointer (32b)
+					 *
+					 * 31:7  128 byte cache-line address
+					 * 6:1   reserved
+					 * 0     0: CH0; 1: CH1
+					 */
 
-#define I82975X_DERRSYN		0x5c	
+#define I82975X_DERRSYN		0x5c	/* Dram Error SYNdrome (8b)
+					 *
+					 *  7:0  DRAM ECC Syndrome
+					 */
 
-#define I82975X_DES		0x5d	
+#define I82975X_DES		0x5d	/* Dram ERRor DeSTination (8b)
+					 * 0h:    Processor Memory Reads
+					 * 1h:7h  reserved
+					 * More - See Page 65 of Intel DocSheet.
+					 */
 
-#define I82975X_ERRSTS		0xc8	
+#define I82975X_ERRSTS		0xc8	/* Error Status Register (16b)
+					 *
+					 * 15:12 reserved
+					 * 11    Thermal Sensor Event
+					 * 10    reserved
+					 *  9    non-DRAM lock error (ndlock)
+					 *  8    Refresh Timeout
+					 *  7:2  reserved
+					 *  1    ECC UE (multibit DRAM error)
+					 *  0    ECC CE (singlebit DRAM error)
+					 */
 
-#define I82975X_ERRCMD		0xca	
+/* Error Reporting is supported by 3 mechanisms:
+  1. DMI SERR generation  ( ERRCMD )
+  2. SMI DMI  generation  ( SMICMD )
+  3. SCI DMI  generation  ( SCICMD )
+NOTE: Only ONE of the three must be enabled
+*/
+#define I82975X_ERRCMD		0xca	/* Error Command (16b)
+					 *
+					 * 15:12 reserved
+					 * 11    Thermal Sensor Event
+					 * 10    reserved
+					 *  9    non-DRAM lock error (ndlock)
+					 *  8    Refresh Timeout
+					 *  7:2  reserved
+					 *  1    ECC UE (multibit DRAM error)
+					 *  0    ECC CE (singlebit DRAM error)
+					 */
 
-#define I82975X_SMICMD		0xcc	
+#define I82975X_SMICMD		0xcc	/* Error Command (16b)
+					 *
+					 * 15:2  reserved
+					 *  1    ECC UE (multibit DRAM error)
+					 *  0    ECC CE (singlebit DRAM error)
+					 */
 
-#define I82975X_SCICMD		0xce	
+#define I82975X_SCICMD		0xce	/* Error Command (16b)
+					 *
+					 * 15:2  reserved
+					 *  1    ECC UE (multibit DRAM error)
+					 *  0    ECC CE (singlebit DRAM error)
+					 */
 
-#define I82975X_XEAP	0xfc	
+#define I82975X_XEAP	0xfc	/* Extended Dram Error Address Pointer (8b)
+					 *
+					 * 7:1   reserved
+					 * 0     Bit32 of the Dram Error Address
+					 */
 
-#define I82975X_MCHBAR		0x44	
+#define I82975X_MCHBAR		0x44	/*
+					 *
+					 * 31:14 Base Addr of 16K memory-mapped
+					 *	configuration space
+					 * 13:1  reserverd
+					 *  0    mem-mapped config space enable
+					 */
 
+/* NOTE: Following addresses have to indexed using MCHBAR offset (44h, 32b) */
+/* Intel 82975x memory mapped register space */
 
-#define I82975X_DRB_SHIFT 25	
+#define I82975X_DRB_SHIFT 25	/* fixed 32MiB grain */
 
-#define I82975X_DRB		0x100	
+#define I82975X_DRB		0x100	/* DRAM Row Boundary (8b x 8)
+					 *
+					 * 7   set to 1 in highest DRB of
+					 *	channel if 4GB in ch.
+					 * 6:2 upper boundary of rank in
+					 *	32MB grains
+					 * 1:0 set to 0
+					 */
 #define I82975X_DRB_CH0R0		0x100
 #define I82975X_DRB_CH0R1		0x101
 #define I82975X_DRB_CH0R2		0x102
@@ -63,25 +131,72 @@
 #define I82975X_DRB_CH1R3		0x183
 
 
-#define I82975X_DRA		0x108	
+#define I82975X_DRA		0x108	/* DRAM Row Attribute (4b x 8)
+					 *  defines the PAGE SIZE to be used
+					 *	for the rank
+					 *  7    reserved
+					 *  6:4  row attr of odd rank, i.e. 1
+					 *  3    reserved
+					 *  2:0  row attr of even rank, i.e. 0
+					 *
+					 * 000 = unpopulated
+					 * 001 = reserved
+					 * 010 = 4KiB
+					 * 011 = 8KiB
+					 * 100 = 16KiB
+					 * others = reserved
+					 */
 #define I82975X_DRA_CH0R01		0x108
 #define I82975X_DRA_CH0R23		0x109
 #define I82975X_DRA_CH1R01		0x188
 #define I82975X_DRA_CH1R23		0x189
 
 
-#define I82975X_BNKARC	0x10e 
+#define I82975X_BNKARC	0x10e /* Type of device in each rank - Bank Arch (16b)
+					 *
+					 * 15:8  reserved
+					 * 7:6  Rank 3 architecture
+					 * 5:4  Rank 2 architecture
+					 * 3:2  Rank 1 architecture
+					 * 1:0  Rank 0 architecture
+					 *
+					 * 00 => 4 banks
+					 * 01 => 8 banks
+					 */
 #define I82975X_C0BNKARC	0x10e
 #define I82975X_C1BNKARC	0x18e
 
 
 
-#define I82975X_DRC		0x120 
+#define I82975X_DRC		0x120 /* DRAM Controller Mode0 (32b)
+					 *
+					 * 31:30 reserved
+					 * 29    init complete
+					 * 28:11 reserved, according to Intel
+					 *    22:21 number of channels
+					 *		00=1 01=2 in 82875
+					 *		seems to be ECC mode
+					 *		bits in 82975 in Asus
+					 *		P5W
+					 *	 19:18 Data Integ Mode
+					 *		00=none 01=ECC in 82875
+					 * 10:8  refresh mode
+					 *  7    reserved
+					 *  6:4  mode select
+					 *  3:2  reserved
+					 *  1:0  DRAM type 10=Second Revision
+					 *		DDR2 SDRAM
+					 *         00, 01, 11 reserved
+					 */
 #define I82975X_DRC_CH0M0		0x120
 #define I82975X_DRC_CH1M0		0x1A0
 
 
-#define I82975X_DRC_M1	0x124 
+#define I82975X_DRC_M1	0x124 /* DRAM Controller Mode1 (32b)
+					 * 31	0=Standard Address Map
+					 *	1=Enhanced Address Map
+					 * 30:0	reserved
+					 */
 
 #define I82975X_DRC_CH0M1		0x124
 #define I82975X_DRC_CH1M1		0x1A4
@@ -104,8 +219,8 @@ struct i82975x_error_info {
 	u8 des;
 	u8 derrsyn;
 	u16 errsts2;
-	u8 chan;		
-	u8 xeap;		
+	u8 chan;		/* the channel is bit 0 of EAP */
+	u8 xeap;		/* extended eap bit */
 };
 
 static const struct i82975x_dev_info i82975x_devs[] = {
@@ -114,7 +229,9 @@ static const struct i82975x_dev_info i82975x_devs[] = {
 	},
 };
 
-static struct pci_dev *mci_pdev;	
+static struct pci_dev *mci_pdev;	/* init dev: in case that AGP code has
+					 * already registered driver
+					 */
 
 static int i82975x_registered = 1;
 
@@ -139,6 +256,12 @@ static void i82975x_get_error_info(struct mem_ctl_info *mci,
 
 	pci_write_bits16(pdev, I82975X_ERRSTS, 0x0003, 0x0003);
 
+	/*
+	 * If the error is the same then we can for both reads then
+	 * the first set of reads is valid.  If there is a change then
+	 * there is a CE no info and the second set of reads is valid
+	 * and should be UE info.
+	 */
 	if (!(info->errsts2 & 0x0003))
 		return;
 
@@ -206,8 +329,17 @@ static void i82975x_check(struct mem_ctl_info *mci)
 	i82975x_process_error_info(mci, &info, 1);
 }
 
+/* Return 1 if dual channel mode is active.  Else return 0. */
 static int dual_channel_active(void __iomem *mch_window)
 {
+	/*
+	 * We treat interleaved-symmetric configuration as dual-channel - EAP's
+	 * bit-0 giving the channel of the error location.
+	 *
+	 * All other configurations are treated as single channel - the EAP's
+	 * bit-0 will resolve ok in symmetric area of mixed
+	 * (symmetric/asymmetric) configurations
+	 */
 	u8	drb[4][2];
 	int	row;
 	int    dualch;
@@ -222,6 +354,9 @@ static int dual_channel_active(void __iomem *mch_window)
 
 static enum dev_type i82975x_dram_type(void __iomem *mch_window, int rank)
 {
+	/*
+	 * ECC is possible on i92975x ONLY with DEV_X8
+	 */
 	return DEV_X8;
 }
 
@@ -240,6 +375,14 @@ static void i82975x_init_csrows(struct mem_ctl_info *mci,
 
 	last_cumul_size = 0;
 
+	/*
+	 * 82875 comment:
+	 * The dram row boundary (DRB) reg values are boundary address
+	 * for each DRAM row with a granularity of 32 or 64MB (single/dual
+	 * channel operation).  DRB regs are cumulative; therefore DRB7 will
+	 * contain the total memory contained in all rows.
+	 *
+	 */
 
 	for (index = 0; index < mci->nr_csrows; index++) {
 		csrow = &mci->csrows[index];
@@ -248,34 +391,51 @@ static void i82975x_init_csrows(struct mem_ctl_info *mci,
 					((index >= 4) ? 0x80 : 0));
 		cumul_size = value;
 		cumul_size <<= (I82975X_DRB_SHIFT - PAGE_SHIFT);
+		/*
+		 * Adjust cumul_size w.r.t number of channels
+		 *
+		 */
 		if (csrow->nr_channels > 1)
 			cumul_size <<= 1;
 		debugf3("%s(): (%d) cumul_size 0x%x\n", __func__, index,
 			cumul_size);
 
+		/*
+		 * Initialise dram labels
+		 * index values:
+		 *   [0-7] for single-channel; i.e. csrow->nr_channels = 1
+		 *   [0-3] for dual-channel; i.e. csrow->nr_channels = 2
+		 */
 		for (chan = 0; chan < csrow->nr_channels; chan++)
 			strncpy(csrow->channels[chan].label,
 					labels[(index >> 1) + (chan * 2)],
 					EDAC_MC_LABEL_LEN);
 
 		if (cumul_size == last_cumul_size)
-			continue;	
+			continue;	/* not populated */
 
 		csrow->first_page = last_cumul_size;
 		csrow->last_page = cumul_size - 1;
 		csrow->nr_pages = cumul_size - last_cumul_size;
 		last_cumul_size = cumul_size;
-		csrow->grain = 1 << 7;	
-		csrow->mtype = MEM_DDR2; 
+		csrow->grain = 1 << 7;	/* 128Byte cache-line resolution */
+		csrow->mtype = MEM_DDR2; /* I82975x supports only DDR2 */
 		csrow->dtype = i82975x_dram_type(mch_window, index);
-		csrow->edac_mode = EDAC_SECDED; 
+		csrow->edac_mode = EDAC_SECDED; /* only supported */
 	}
 }
 
+/* #define  i82975x_DEBUG_IOMEM */
 
 #ifdef i82975x_DEBUG_IOMEM
 static void i82975x_print_dram_timings(void __iomem *mch_window)
 {
+	/*
+	 * The register meanings are from Intel specs;
+	 * (shows 13-5-5-5 for 800-DDR2)
+	 * Asus P5W Bios reports 15-5-4-4
+	 * What's your religion?
+	 */
 	static const int caslats[4] = { 5, 4, 3, 6 };
 	u32	dtreg[2];
 
@@ -321,7 +481,7 @@ static int i82975x_probe1(struct pci_dev *pdev, int dev_idx)
 		debugf3("%s(): failed, MCHBAR disabled!\n", __func__);
 		goto fail0;
 	}
-	mchbar &= 0xffffc000;	
+	mchbar &= 0xffffc000;	/* bits 31:14 used for 16K window */
 	mch_window = ioremap_nocache(mchbar, 0x1000);
 
 #ifdef i82975x_DEBUG_IOMEM
@@ -370,7 +530,7 @@ static int i82975x_probe1(struct pci_dev *pdev, int dev_idx)
 
 	chans = dual_channel_active(mch_window) + 1;
 
-	
+	/* assuming only one controller, index thus is 0 */
 	mci = edac_mc_alloc(sizeof(*pvt), I82975X_NR_CSROWS(chans),
 					chans, 0);
 	if (!mci) {
@@ -394,15 +554,15 @@ static int i82975x_probe1(struct pci_dev *pdev, int dev_idx)
 	pvt->mch_window = mch_window;
 	i82975x_init_csrows(mci, pdev, mch_window);
 	mci->scrub_mode = SCRUB_HW_SRC;
-	i82975x_get_error_info(mci, &discard);  
+	i82975x_get_error_info(mci, &discard);  /* clear counters */
 
-	
+	/* finalize this instance of memory controller with edac core */
 	if (edac_mc_add_mc(mci)) {
 		debugf3("%s(): failed edac_mc_add_mc()\n", __func__);
 		goto fail2;
 	}
 
-	
+	/* get this far and it's successful */
 	debugf3("%s(): success\n", __func__);
 	return 0;
 
@@ -415,6 +575,7 @@ fail0:
 	return rc;
 }
 
+/* returns count (>= 0), or negative on error */
 static int __devinit i82975x_init_one(struct pci_dev *pdev,
 		const struct pci_device_id *ent)
 {
@@ -458,7 +619,7 @@ static DEFINE_PCI_DEVICE_TABLE(i82975x_pci_tbl) = {
 	},
 	{
 		0,
-	}	
+	}	/* 0 terminated list. */
 };
 
 MODULE_DEVICE_TABLE(pci, i82975x_pci_tbl);
@@ -476,7 +637,7 @@ static int __init i82975x_init(void)
 
 	debugf3("%s()\n", __func__);
 
-       
+       /* Ensure that the OPSTATE is set correctly for POLL or NMI */
        opstate_init();
 
 	pci_rc = pci_register_driver(&i82975x_driver);

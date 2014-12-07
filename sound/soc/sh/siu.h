@@ -22,33 +22,35 @@
 #ifndef SIU_H
 #define SIU_H
 
+/* Common kernel and user-space firmware-building defines and types */
 
-#define YRAM0_SIZE		(0x0040 / 4)		
-#define YRAM1_SIZE		(0x0080 / 4)		
-#define YRAM2_SIZE		(0x0040 / 4)		
-#define YRAM3_SIZE		(0x0080 / 4)		
-#define YRAM4_SIZE		(0x0080 / 4)		
+#define YRAM0_SIZE		(0x0040 / 4)		/* 16 */
+#define YRAM1_SIZE		(0x0080 / 4)		/* 32 */
+#define YRAM2_SIZE		(0x0040 / 4)		/* 16 */
+#define YRAM3_SIZE		(0x0080 / 4)		/* 32 */
+#define YRAM4_SIZE		(0x0080 / 4)		/* 32 */
 #define YRAM_DEF_SIZE		(YRAM0_SIZE + YRAM1_SIZE + YRAM2_SIZE + \
 				 YRAM3_SIZE + YRAM4_SIZE)
-#define YRAM_FIR_SIZE		(0x0400 / 4)		
-#define YRAM_IIR_SIZE		(0x0200 / 4)		
+#define YRAM_FIR_SIZE		(0x0400 / 4)		/* 256 */
+#define YRAM_IIR_SIZE		(0x0200 / 4)		/* 128 */
 
-#define XRAM0_SIZE		(0x0400 / 4)		
-#define XRAM1_SIZE		(0x0200 / 4)		
-#define XRAM2_SIZE		(0x0200 / 4)		
+#define XRAM0_SIZE		(0x0400 / 4)		/* 256 */
+#define XRAM1_SIZE		(0x0200 / 4)		/* 128 */
+#define XRAM2_SIZE		(0x0200 / 4)		/* 128 */
 
-#define PRAM0_SIZE		(0x0100 / 4)		
-#define PRAM1_SIZE		((0x2000 - 0x0100) / 4)	
+/* PRAM program array size */
+#define PRAM0_SIZE		(0x0100 / 4)		/* 64 */
+#define PRAM1_SIZE		((0x2000 - 0x0100) / 4)	/* 1984 */
 
 #include <linux/types.h>
 
 struct siu_spb_param {
-	__u32	ab1a;	
-	__u32	ab0a;	
-	__u32	dir;	
-	__u32	event;	
-	__u32	stfifo;	
-	__u32	trdat;	
+	__u32	ab1a;	/* input FIFO address */
+	__u32	ab0a;	/* output FIFO address */
+	__u32	dir;	/* 0=the ather except CPUOUTPUT, 1=CPUINPUT */
+	__u32	event;	/* SPB program starting conditions */
+	__u32	stfifo;	/* STFIFO register setting value */
+	__u32	trdat;	/* TRDAT register setting value */
 };
 
 struct siu_firmware {
@@ -75,18 +77,20 @@ struct siu_firmware {
 #include <sound/pcm.h>
 #include <sound/soc.h>
 
-#define SIU_PERIOD_BYTES_MAX	8192		
-#define SIU_PERIOD_BYTES_MIN	256		
-#define SIU_PERIODS_MAX		64		
-#define SIU_PERIODS_MIN		4		
+#define SIU_PERIOD_BYTES_MAX	8192		/* DMA transfer/period size */
+#define SIU_PERIOD_BYTES_MIN	256		/* DMA transfer/period size */
+#define SIU_PERIODS_MAX		64		/* Max periods in buffer */
+#define SIU_PERIODS_MIN		4		/* Min periods in buffer */
 #define SIU_BUFFER_BYTES_MAX	(SIU_PERIOD_BYTES_MAX * SIU_PERIODS_MAX)
 
+/* SIU ports: only one can be used at a time */
 enum {
 	SIU_PORT_A,
 	SIU_PORT_B,
 	SIU_PORT_NUM,
 };
 
+/* SIU clock configuration */
 enum {
 	SIU_CLKA_PLL,
 	SIU_CLKA_EXT,
@@ -111,24 +115,24 @@ struct siu_stream {
 	snd_pcm_format_t		format;
 	size_t				buf_bytes;
 	size_t				period_bytes;
-	int				cur_period;	
+	int				cur_period;	/* Period currently in dma */
 	u32				volume;
-	snd_pcm_sframes_t		xfer_cnt;	
-	u8				rw_flg;		
-	
-	struct dma_chan			*chan;		
+	snd_pcm_sframes_t		xfer_cnt;	/* Number of frames */
+	u8				rw_flg;		/* transfer status */
+	/* DMA status */
+	struct dma_chan			*chan;		/* DMA channel */
 	struct dma_async_tx_descriptor	*tx_desc;
 	dma_cookie_t			cookie;
 	struct sh_dmae_slave		param;
 };
 
 struct siu_port {
-	unsigned long		play_cap;	
+	unsigned long		play_cap;	/* Used to track full duplex */
 	struct snd_pcm		*pcm;
 	struct siu_stream	playback;
 	struct siu_stream	capture;
-	u32			stfifo;		
-	u32			trdat;		
+	u32			stfifo;		/* STFIFO value from firmware */
+	u32			trdat;		/* TRDAT value from firmware */
 };
 
 extern struct siu_port *siu_ports[SIU_PORT_NUM];
@@ -140,6 +144,7 @@ static inline struct siu_port *siu_port_info(struct snd_pcm_substream *substream
 	return siu_ports[pdev->id];
 }
 
+/* Register access */
 static inline void siu_write32(u32 __iomem *addr, u32 val)
 {
 	__raw_writel(val, addr);
@@ -150,6 +155,7 @@ static inline u32 siu_read32(u32 __iomem *addr)
 	return __raw_readl(addr);
 }
 
+/* SIU registers */
 #define SIU_IFCTL	(0x000 / sizeof(u32))
 #define SIU_SRCTL	(0x004 / sizeof(u32))
 #define SIU_SFORM	(0x008 / sizeof(u32))
@@ -185,4 +191,4 @@ void siu_free_port(struct siu_port *port_info);
 
 #endif
 
-#endif 
+#endif /* SIU_H */

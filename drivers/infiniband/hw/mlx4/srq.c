@@ -83,7 +83,7 @@ struct ib_srq *mlx4_ib_create_srq(struct ib_pd *pd,
 	int err;
 	int i;
 
-	
+	/* Sanity check SRQ size before proceeding */
 	if (init_attr->attr.max_wr  >= dev->dev->caps.max_srq_wqes ||
 	    init_attr->attr.max_sge >  dev->dev->caps.max_srq_sge)
 		return ERR_PTR(-EINVAL);
@@ -231,7 +231,7 @@ int mlx4_ib_modify_srq(struct ib_srq *ibsrq, struct ib_srq_attr *attr,
 	struct mlx4_ib_srq *srq = to_msrq(ibsrq);
 	int ret;
 
-	
+	/* We don't support resizing SRQs (yet?) */
 	if (attr_mask & IB_SRQ_MAX_WR)
 		return -EINVAL;
 
@@ -295,7 +295,7 @@ void mlx4_ib_free_srq_wqe(struct mlx4_ib_srq *srq, int wqe_index)
 {
 	struct mlx4_wqe_srq_next_seg *next;
 
-	
+	/* always called with interrupts disabled. */
 	spin_lock(&srq->lock);
 
 	next = get_wqe(srq, srq->tail);

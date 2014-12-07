@@ -18,20 +18,28 @@
 
 #define S3C24XX_MISCCR		S3C24XX_GPIOREG2(0x80)
 
+/* general configuration options */
 
 #define S3C2410_GPIO_LEAVE   (0xFFFFFFFF)
-#define S3C2410_GPIO_INPUT   (0xFFFFFFF0)	
+#define S3C2410_GPIO_INPUT   (0xFFFFFFF0)	/* not available on A */
 #define S3C2410_GPIO_OUTPUT  (0xFFFFFFF1)
-#define S3C2410_GPIO_IRQ     (0xFFFFFFF2)	
-#define S3C2410_GPIO_SFN2    (0xFFFFFFF2)	
-#define S3C2410_GPIO_SFN3    (0xFFFFFFF3)	
+#define S3C2410_GPIO_IRQ     (0xFFFFFFF2)	/* not available for all */
+#define S3C2410_GPIO_SFN2    (0xFFFFFFF2)	/* bank A => addr/cs/nand */
+#define S3C2410_GPIO_SFN3    (0xFFFFFFF3)	/* not available on A */
 
+/* register address for the GPIO registers.
+ * S3C24XX_GPIOREG2 is for the second set of registers in the
+ * GPIO which move between s3c2410 and s3c2412 type systems */
 
 #define S3C2410_GPIOREG(x) ((x) + S3C24XX_VA_GPIO)
 #define S3C24XX_GPIOREG2(x) ((x) + S3C24XX_VA_GPIO2)
 
 
+/* configure GPIO ports A..G */
 
+/* port A - S3C2410: 22bits, zero in bit X makes pin X output
+ * 1 makes port special function, this is default
+*/
 #define S3C2410_GPACON	   S3C2410_GPIOREG(0x00)
 #define S3C2410_GPADAT	   S3C2410_GPIOREG(0x04)
 
@@ -59,12 +67,22 @@
 #define S3C2410_GPA21_nRSTOUT (1<<21)
 #define S3C2410_GPA22_nFCE   (1<<22)
 
+/* 0x08 and 0x0c are reserved on S3C2410 */
 
+/* S3C2410:
+ * GPB is 10 IO pins, each configured by 2 bits each in GPBCON.
+ *   00 = input, 01 = output, 10=special function, 11=reserved
+
+ * bit 0,1 = pin 0, 2,3= pin 1...
+ *
+ * CPBUP = pull up resistor control, 1=disabled, 0=enabled
+*/
 
 #define S3C2410_GPBCON	   S3C2410_GPIOREG(0x10)
 #define S3C2410_GPBDAT	   S3C2410_GPIOREG(0x14)
 #define S3C2410_GPBUP	   S3C2410_GPIOREG(0x18)
 
+/* no i/o pin in port b can have value 3 (unless it is a s3c2443) ! */
 
 #define S3C2410_GPB0_TOUT0   (0x02 << 0)
 
@@ -96,6 +114,11 @@
 
 #define S3C2410_GPB_PUPDIS(x)  (1<<(x))
 
+/* Port C consits of 16 GPIO/Special function
+ *
+ * almost identical setup to port b, but the special functions are mostly
+ * to do with the video system's sync/etc.
+*/
 
 #define S3C2410_GPCCON	   S3C2410_GPIOREG(0x20)
 #define S3C2410_GPCDAT	   S3C2410_GPIOREG(0x24)
@@ -118,6 +141,14 @@
 #define S3C2410_GPC15_VD7	(0x02 << 30)
 #define S3C2410_GPC_PUPDIS(x)  (1<<(x))
 
+/*
+ * S3C2410: Port D consists of 16 GPIO/Special function
+ *
+ * almost identical setup to port b, but the special functions are mostly
+ * to do with the video system's data.
+ *
+ * almost identical setup to port c
+*/
 
 #define S3C2410_GPDCON	   S3C2410_GPIOREG(0x30)
 #define S3C2410_GPDDAT	   S3C2410_GPIOREG(0x34)
@@ -164,6 +195,14 @@
 
 #define S3C2410_GPD_PUPDIS(x)  (1<<(x))
 
+/* S3C2410:
+ * Port E consists of 16 GPIO/Special function
+ *
+ * again, the same as port B, but dealing with I2S, SDI, and
+ * more miscellaneous functions
+ *
+ * GPIO / interrupt inputs
+*/
 
 #define S3C2410_GPECON	   S3C2410_GPIOREG(0x40)
 #define S3C2410_GPEDAT	   S3C2410_GPIOREG(0x44)
@@ -233,6 +272,18 @@
 
 #define S3C2410_GPE_PUPDIS(x)  (1<<(x))
 
+/* S3C2410:
+ * Port F consists of 8 GPIO/Special function
+ *
+ * GPIO / interrupt inputs
+ *
+ * GPFCON has 2 bits for each of the input pins on port F
+ *   00 = 0 input, 1 output, 2 interrupt (EINT0..7), 3 undefined
+ *
+ * pull up works like all other ports.
+ *
+ * GPIO/serial/misc pins
+*/
 
 #define S3C2410_GPFCON	   S3C2410_GPIOREG(0x50)
 #define S3C2410_GPFDAT	   S3C2410_GPIOREG(0x54)
@@ -248,6 +299,14 @@
 #define S3C2410_GPF7_EINT7  (0x02 << 14)
 #define S3C2410_GPF_PUPDIS(x)  (1<<(x))
 
+/* S3C2410:
+ * Port G consists of 8 GPIO/IRQ/Special function
+ *
+ * GPGCON has 2 bits for each of the input pins on port F
+ *   00 = 0 input, 1 output, 2 interrupt (EINT0..7), 3 special func
+ *
+ * pull up works like all other ports.
+*/
 
 #define S3C2410_GPGCON	   S3C2410_GPIOREG(0x60)
 #define S3C2410_GPGDAT	   S3C2410_GPIOREG(0x64)
@@ -268,7 +327,7 @@
 #define S3C2443_GPG4_LCDPWRDN (0x03 << 8)
 
 #define S3C2410_GPG5_EINT13   (0x02 << 10)
-#define S3C2410_GPG5_SPIMISO1 (0x03 << 10)	
+#define S3C2410_GPG5_SPIMISO1 (0x03 << 10)	/* not s3c2443 */
 
 #define S3C2410_GPG6_EINT14   (0x02 << 12)
 #define S3C2410_GPG6_SPIMOSI1 (0x03 << 12)
@@ -305,6 +364,13 @@
 
 #define S3C2410_GPG_PUPDIS(x)  (1<<(x))
 
+/* Port H consists of11 GPIO/serial/Misc pins
+ *
+ * GPGCON has 2 bits for each of the input pins on port F
+ *   00 = 0 input, 1 output, 2 interrupt (EINT0..7), 3 special func
+ *
+ * pull up works like all other ports.
+*/
 
 #define S3C2410_GPHCON	   S3C2410_GPIOREG(0x70)
 #define S3C2410_GPHDAT	   S3C2410_GPIOREG(0x74)
@@ -356,7 +422,12 @@
 
 #define S3C2416_GPH14_CLKOUT1 (0x02 << 28)
 
+/* The S3C2412 and S3C2413 move the GPJ register set to after
+ * GPH, which means all registers after 0x80 are now offset by 0x10
+ * for the 2412/2413 from the 2410/2440/2442
+*/
 
+/* S3C2443 and above */
 #define S3C2440_GPJCON	   S3C2410_GPIOREG(0xD0)
 #define S3C2440_GPJDAT	   S3C2410_GPIOREG(0xD4)
 #define S3C2440_GPJUP	   S3C2410_GPIOREG(0xD8)
@@ -373,12 +444,15 @@
 #define S3C2443_GPMDAT	   S3C2410_GPIOREG(0x104)
 #define S3C2443_GPMUP	   S3C2410_GPIOREG(0x108)
 
+/* miscellaneous control */
 #define S3C2410_MISCCR	   S3C2410_GPIOREG(0x80)
 #define S3C2410_DCLKCON	   S3C2410_GPIOREG(0x84)
 
 #define S3C24XX_DCLKCON	   S3C24XX_GPIOREG2(0x84)
 
+/* see clock.h for dclk definitions */
 
+/* pullup control on databus */
 #define S3C2410_MISCCR_SPUCR_HEN    (0<<0)
 #define S3C2410_MISCCR_SPUCR_HDIS   (1<<0)
 #define S3C2410_MISCCR_SPUCR_LEN    (0<<1)
@@ -415,12 +489,21 @@
 
 #define S3C2410_MISCCR_nEN_SCLK0    (1<<17)
 #define S3C2410_MISCCR_nEN_SCLK1    (1<<18)
-#define S3C2410_MISCCR_nEN_SCLKE    (1<<19)	
+#define S3C2410_MISCCR_nEN_SCLKE    (1<<19)	/* not 2412 */
 #define S3C2410_MISCCR_SDSLEEP	    (7<<17)
 
 #define S3C2416_MISCCR_FLT_I2C      (1<<24)
 #define S3C2416_MISCCR_HSSPI_EN2    (1<<31)
 
+/* external interrupt control... */
+/* S3C2410_EXTINT0 -> irq sense control for EINT0..EINT7
+ * S3C2410_EXTINT1 -> irq sense control for EINT8..EINT15
+ * S3C2410_EXTINT2 -> irq sense control for EINT16..EINT23
+ *
+ * note S3C2410_EXTINT2 has filtering options for EINT16..EINT23
+ *
+ * Samsung datasheet p9-25
+*/
 #define S3C2410_EXTINT0	   S3C2410_GPIOREG(0x88)
 #define S3C2410_EXTINT1	   S3C2410_GPIOREG(0x8C)
 #define S3C2410_EXTINT2	   S3C2410_GPIOREG(0x90)
@@ -429,6 +512,7 @@
 #define S3C24XX_EXTINT1	   S3C24XX_GPIOREG2(0x8C)
 #define S3C24XX_EXTINT2	   S3C24XX_GPIOREG2(0x90)
 
+/* interrupt filtering conrrol for EINT16..EINT23 */
 #define S3C2410_EINFLT0	   S3C2410_GPIOREG(0x94)
 #define S3C2410_EINFLT1	   S3C2410_GPIOREG(0x98)
 #define S3C2410_EINFLT2	   S3C2410_GPIOREG(0x9C)
@@ -439,11 +523,17 @@
 #define S3C24XX_EINFLT2	   S3C24XX_GPIOREG2(0x9C)
 #define S3C24XX_EINFLT3	   S3C24XX_GPIOREG2(0xA0)
 
+/* values for interrupt filtering */
 #define S3C2410_EINTFLT_PCLK		(0x00)
 #define S3C2410_EINTFLT_EXTCLK		(1<<7)
 #define S3C2410_EINTFLT_WIDTHMSK(x)	((x) & 0x3f)
 
+/* removed EINTxxxx defs from here, not meant for this */
 
+/* GSTATUS have miscellaneous information in them
+ *
+ * These move between s3c2410 and s3c2412 style systems.
+ */
 
 #define S3C2410_GSTATUS0   S3C2410_GPIOREG(0x0AC)
 #define S3C2410_GSTATUS1   S3C2410_GPIOREG(0x0B0)
@@ -474,12 +564,14 @@
 #define S3C2410_GSTATUS1_2416	   (0x32416003)
 #define S3C2410_GSTATUS1_2440	   (0x32440000)
 #define S3C2410_GSTATUS1_2442	   (0x32440aaa)
+/* some 2416 CPUs report this value also */
 #define S3C2410_GSTATUS1_2450	   (0x32450003)
 
 #define S3C2410_GSTATUS2_WTRESET   (1<<2)
 #define S3C2410_GSTATUS2_OFFRESET  (1<<1)
 #define S3C2410_GSTATUS2_PONRESET  (1<<0)
 
+/* 2412/2413 sleep configuration registers */
 
 #define S3C2412_GPBSLPCON	S3C2410_GPIOREG(0x1C)
 #define S3C2412_GPCSLPCON	S3C2410_GPIOREG(0x2C)
@@ -488,6 +580,7 @@
 #define S3C2412_GPGSLPCON	S3C2410_GPIOREG(0x6C)
 #define S3C2412_GPHSLPCON	S3C2410_GPIOREG(0x7C)
 
+/* definitions for each pin bit */
 #define S3C2412_GPIO_SLPCON_LOW	 ( 0x00 )
 #define S3C2412_GPIO_SLPCON_HIGH ( 0x01 )
 #define S3C2412_GPIO_SLPCON_IN   ( 0x02 )
@@ -497,7 +590,7 @@
 #define S3C2412_SLPCON_HIGH(x)	( 0x01 << ((x) * 2))
 #define S3C2412_SLPCON_IN(x)	( 0x02 << ((x) * 2))
 #define S3C2412_SLPCON_PULL(x)	( 0x03 << ((x) * 2))
-#define S3C2412_SLPCON_EINT(x)	( 0x02 << ((x) * 2))  
+#define S3C2412_SLPCON_EINT(x)	( 0x02 << ((x) * 2))  /* only IRQ pins */
 #define S3C2412_SLPCON_MASK(x)	( 0x03 << ((x) * 2))
 
 #define S3C2412_SLPCON_ALL_LOW	(0x0)
@@ -505,5 +598,5 @@
 #define S3C2412_SLPCON_ALL_IN  	(0x22222222 | 0x88888888)
 #define S3C2412_SLPCON_ALL_PULL	(0x33333333)
 
-#endif	
+#endif	/* __ASM_ARCH_REGS_GPIO_H */
 

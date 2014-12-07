@@ -47,6 +47,7 @@ static int debug;
 module_param(debug, int, 0);
 MODULE_PARM_DESC(debug, "Debug level (0-1)");
 
+/* ----------------------------------------------------------------------- */
 
 struct adv7170 {
 	struct v4l2_subdev sd;
@@ -68,6 +69,7 @@ static enum v4l2_mbus_pixelcode adv7170_codes[] = {
 	V4L2_MBUS_FMT_UYVY8_1X16,
 };
 
+/* ----------------------------------------------------------------------- */
 
 static inline int adv7170_write(struct v4l2_subdev *sd, u8 reg, u8 value)
 {
@@ -93,8 +95,10 @@ static int adv7170_write_block(struct v4l2_subdev *sd,
 	int ret = -1;
 	u8 reg;
 
+	/* the adv7170 has an autoincrement function, use it if
+	 * the adapter understands raw I2C */
 	if (i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
-		
+		/* do raw I2C, not smbus compatible */
 		u8 block_data[32];
 		int block_len;
 
@@ -112,7 +116,7 @@ static int adv7170_write_block(struct v4l2_subdev *sd,
 				break;
 		}
 	} else {
-		
+		/* do some slow I2C emulation kind of thing */
 		while (len >= 2) {
 			reg = *data++;
 			ret = adv7170_write(sd, reg, *data++);
@@ -124,6 +128,7 @@ static int adv7170_write_block(struct v4l2_subdev *sd,
 	return ret;
 }
 
+/* ----------------------------------------------------------------------- */
 
 #define TR0MODE     0x4c
 #define TR0RST	    0x80
@@ -132,61 +137,61 @@ static int adv7170_write_block(struct v4l2_subdev *sd,
 #define TR1PLAY	    0x00
 
 static const unsigned char init_NTSC[] = {
-	0x00, 0x10,		
-	0x01, 0x20,		
-	0x02, 0x0e,		
-	0x03, 0x80,		
-	0x04, 0x30,		
-	0x05, 0x00,		
-	0x06, 0x00,		
-	0x07, TR0MODE,		
-	0x08, TR1CAPT,		
-	0x09, 0x16,		
-	0x0a, 0x7c,		
-	0x0b, 0xf0,		
-	0x0c, 0x21,		
-	0x0d, 0x00,		
-	0x0e, 0x00,		
-	0x0f, 0x00,		
-	0x10, 0x00,		
-	0x11, 0x00,		
-	0x12, 0x00,		
-	0x13, 0x00,		
-	0x14, 0x00,		
-	0x15, 0x00,		
-	0x16, 0x00,		
-	0x17, 0x00,		
-	0x18, 0x00,		
-	0x19, 0x00,		
+	0x00, 0x10,		/* MR0 */
+	0x01, 0x20,		/* MR1 */
+	0x02, 0x0e,		/* MR2 RTC control: bits 2 and 1 */
+	0x03, 0x80,		/* MR3 */
+	0x04, 0x30,		/* MR4 */
+	0x05, 0x00,		/* Reserved */
+	0x06, 0x00,		/* Reserved */
+	0x07, TR0MODE,		/* TM0 */
+	0x08, TR1CAPT,		/* TM1 */
+	0x09, 0x16,		/* Fsc0 */
+	0x0a, 0x7c,		/* Fsc1 */
+	0x0b, 0xf0,		/* Fsc2 */
+	0x0c, 0x21,		/* Fsc3 */
+	0x0d, 0x00,		/* Subcarrier Phase */
+	0x0e, 0x00,		/* Closed Capt. Ext 0 */
+	0x0f, 0x00,		/* Closed Capt. Ext 1 */
+	0x10, 0x00,		/* Closed Capt. 0 */
+	0x11, 0x00,		/* Closed Capt. 1 */
+	0x12, 0x00,		/* Pedestal Ctl 0 */
+	0x13, 0x00,		/* Pedestal Ctl 1 */
+	0x14, 0x00,		/* Pedestal Ctl 2 */
+	0x15, 0x00,		/* Pedestal Ctl 3 */
+	0x16, 0x00,		/* CGMS_WSS_0 */
+	0x17, 0x00,		/* CGMS_WSS_1 */
+	0x18, 0x00,		/* CGMS_WSS_2 */
+	0x19, 0x00,		/* Teletext Ctl */
 };
 
 static const unsigned char init_PAL[] = {
-	0x00, 0x71,		
-	0x01, 0x20,		
-	0x02, 0x0e,		
-	0x03, 0x80,		
-	0x04, 0x30,		
-	0x05, 0x00,		
-	0x06, 0x00,		
-	0x07, TR0MODE,		
-	0x08, TR1CAPT,		
-	0x09, 0xcb,		
-	0x0a, 0x8a,		
-	0x0b, 0x09,		
-	0x0c, 0x2a,		
-	0x0d, 0x00,		
-	0x0e, 0x00,		
-	0x0f, 0x00,		
-	0x10, 0x00,		
-	0x11, 0x00,		
-	0x12, 0x00,		
-	0x13, 0x00,		
-	0x14, 0x00,		
-	0x15, 0x00,		
-	0x16, 0x00,		
-	0x17, 0x00,		
-	0x18, 0x00,		
-	0x19, 0x00,		
+	0x00, 0x71,		/* MR0 */
+	0x01, 0x20,		/* MR1 */
+	0x02, 0x0e,		/* MR2 RTC control: bits 2 and 1 */
+	0x03, 0x80,		/* MR3 */
+	0x04, 0x30,		/* MR4 */
+	0x05, 0x00,		/* Reserved */
+	0x06, 0x00,		/* Reserved */
+	0x07, TR0MODE,		/* TM0 */
+	0x08, TR1CAPT,		/* TM1 */
+	0x09, 0xcb,		/* Fsc0 */
+	0x0a, 0x8a,		/* Fsc1 */
+	0x0b, 0x09,		/* Fsc2 */
+	0x0c, 0x2a,		/* Fsc3 */
+	0x0d, 0x00,		/* Subcarrier Phase */
+	0x0e, 0x00,		/* Closed Capt. Ext 0 */
+	0x0f, 0x00,		/* Closed Capt. Ext 1 */
+	0x10, 0x00,		/* Closed Capt. 0 */
+	0x11, 0x00,		/* Closed Capt. 1 */
+	0x12, 0x00,		/* Pedestal Ctl 0 */
+	0x13, 0x00,		/* Pedestal Ctl 1 */
+	0x14, 0x00,		/* Pedestal Ctl 2 */
+	0x15, 0x00,		/* Pedestal Ctl 3 */
+	0x16, 0x00,		/* CGMS_WSS_0 */
+	0x17, 0x00,		/* CGMS_WSS_1 */
+	0x18, 0x00,		/* CGMS_WSS_2 */
+	0x19, 0x00,		/* Teletext Ctl */
 };
 
 
@@ -199,13 +204,13 @@ static int adv7170_s_std_output(struct v4l2_subdev *sd, v4l2_std_id std)
 	if (std & V4L2_STD_NTSC) {
 		adv7170_write_block(sd, init_NTSC, sizeof(init_NTSC));
 		if (encoder->input == 0)
-			adv7170_write(sd, 0x02, 0x0e);	
+			adv7170_write(sd, 0x02, 0x0e);	/* Enable genlock */
 		adv7170_write(sd, 0x07, TR0MODE | TR0RST);
 		adv7170_write(sd, 0x07, TR0MODE);
 	} else if (std & V4L2_STD_PAL) {
 		adv7170_write_block(sd, init_PAL, sizeof(init_PAL));
 		if (encoder->input == 0)
-			adv7170_write(sd, 0x02, 0x0e);	
+			adv7170_write(sd, 0x02, 0x0e);	/* Enable genlock */
 		adv7170_write(sd, 0x07, TR0MODE | TR0RST);
 		adv7170_write(sd, 0x07, TR0MODE);
 	} else {
@@ -223,6 +228,9 @@ static int adv7170_s_routing(struct v4l2_subdev *sd,
 {
 	struct adv7170 *encoder = to_adv7170(sd);
 
+	/* RJ: input = 0: input is from decoder
+	   input = 1: input is from ZR36060
+	   input = 2: color bar */
 
 	v4l2_dbg(1, debug, sd, "set input from %s\n",
 			input == 0 ? "decoder" : "ZR36060");
@@ -230,20 +238,20 @@ static int adv7170_s_routing(struct v4l2_subdev *sd,
 	switch (input) {
 	case 0:
 		adv7170_write(sd, 0x01, 0x20);
-		adv7170_write(sd, 0x08, TR1CAPT);	
-		adv7170_write(sd, 0x02, 0x0e);	
+		adv7170_write(sd, 0x08, TR1CAPT);	/* TR1 */
+		adv7170_write(sd, 0x02, 0x0e);	/* Enable genlock */
 		adv7170_write(sd, 0x07, TR0MODE | TR0RST);
 		adv7170_write(sd, 0x07, TR0MODE);
-		
+		/* udelay(10); */
 		break;
 
 	case 1:
 		adv7170_write(sd, 0x01, 0x00);
-		adv7170_write(sd, 0x08, TR1PLAY);	
+		adv7170_write(sd, 0x08, TR1PLAY);	/* TR1 */
 		adv7170_write(sd, 0x02, 0x08);
 		adv7170_write(sd, 0x07, TR0MODE | TR0RST);
 		adv7170_write(sd, 0x07, TR0MODE);
-		
+		/* udelay(10); */
 		break;
 
 	default:
@@ -316,6 +324,7 @@ static int adv7170_g_chip_ident(struct v4l2_subdev *sd, struct v4l2_dbg_chip_ide
 	return v4l2_chip_ident_i2c_client(client, chip, V4L2_IDENT_ADV7170, 0);
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct v4l2_subdev_core_ops adv7170_core_ops = {
 	.g_chip_ident = adv7170_g_chip_ident,
@@ -334,6 +343,7 @@ static const struct v4l2_subdev_ops adv7170_ops = {
 	.video = &adv7170_video_ops,
 };
 
+/* ----------------------------------------------------------------------- */
 
 static int adv7170_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
@@ -342,7 +352,7 @@ static int adv7170_probe(struct i2c_client *client,
 	struct v4l2_subdev *sd;
 	int i;
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -ENODEV;
 
@@ -378,6 +388,7 @@ static int adv7170_remove(struct i2c_client *client)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct i2c_device_id adv7170_id[] = {
 	{ "adv7170", 0 },

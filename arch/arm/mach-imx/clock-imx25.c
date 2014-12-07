@@ -193,6 +193,27 @@ static void clk_cgcr_disable(struct clk *clk)
 		.secondary	= s,			\
 	}
 
+/*
+ * Note: the following IPG clock gating bits are wrongly marked "Reserved" in
+ * the i.MX25 Reference Manual Rev 1, table 15-13. The information below is
+ * taken from the Freescale released BSP.
+ *
+ * bit	reg	offset	clock
+ *
+ * 0	CGCR1	0	AUDMUX
+ * 12	CGCR1	12	ESAI
+ * 16	CGCR1	16	GPIO1
+ * 17	CGCR1	17	GPIO2
+ * 18	CGCR1	18	GPIO3
+ * 23	CGCR1	23	I2C1
+ * 24	CGCR1	24	I2C2
+ * 25	CGCR1	25	I2C3
+ * 27	CGCR1	27	IOMUXC
+ * 28	CGCR1	28	KPP
+ * 30	CGCR1	30	OWIRE
+ * 36	CGCR2	4	RTIC
+ * 51	CGCR2	19	WDOG
+ */
 
 DEFINE_CLOCK(gpt_clk,    0, CCM_CGCR0,  5, get_rate_gpt, NULL, NULL);
 DEFINE_CLOCK(uart_per_clk, 0, CCM_CGCR0, 15, get_rate_uart, NULL, NULL);
@@ -252,7 +273,7 @@ DEFINE_CLOCK(iim_clk,    0, CCM_CGCR1, 26, NULL, NULL, NULL);
 	},
 
 static struct clk_lookup lookups[] = {
-	
+	/* i.mx25 has the i.mx21 type uart */
 	_REGISTER_CLOCK("imx21-uart.0", NULL, uart1_clk)
 	_REGISTER_CLOCK("imx21-uart.1", NULL, uart2_clk)
 	_REGISTER_CLOCK("imx21-uart.2", NULL, uart3_clk)
@@ -263,7 +284,7 @@ static struct clk_lookup lookups[] = {
 	_REGISTER_CLOCK("mxc-ehci.2", "usb", usbotg_clk)
 	_REGISTER_CLOCK("fsl-usb2-udc", "usb", usbotg_clk)
 	_REGISTER_CLOCK("mxc_nand.0", NULL, nfc_clk)
-	
+	/* i.mx25 has the i.mx35 type cspi */
 	_REGISTER_CLOCK("imx35-cspi.0", NULL, cspi1_clk)
 	_REGISTER_CLOCK("imx35-cspi.1", NULL, cspi2_clk)
 	_REGISTER_CLOCK("imx35-cspi.2", NULL, cspi3_clk)
@@ -288,7 +309,7 @@ static struct clk_lookup lookups[] = {
 	_REGISTER_CLOCK(NULL, "audmux", audmux_clk)
 	_REGISTER_CLOCK("flexcan.0", NULL, can1_clk)
 	_REGISTER_CLOCK("flexcan.1", NULL, can2_clk)
-	
+	/* i.mx25 has the i.mx35 type sdma */
 	_REGISTER_CLOCK("imx35-sdma", NULL, sdma_clk)
 	_REGISTER_CLOCK(NULL, "iim", iim_clk)
 };
@@ -297,6 +318,10 @@ int __init mx25_clocks_init(void)
 {
 	clkdev_add_table(lookups, ARRAY_SIZE(lookups));
 
+	/* Turn off all clocks except the ones we need to survive, namely:
+	 * EMI, GPIO1-3 (CCM_CGCR1[18:16]), GPT1, IOMUXC (CCM_CGCR1[27]), IIM,
+	 * SCC
+	 */
 	__raw_writel((1 << 19), CRM_BASE + CCM_CGCR0);
 	__raw_writel((0xf << 16) | (3 << 26), CRM_BASE + CCM_CGCR1);
 	__raw_writel((1 << 5), CRM_BASE + CCM_CGCR2);
@@ -304,11 +329,11 @@ int __init mx25_clocks_init(void)
 	clk_enable(&uart1_clk);
 #endif
 
-	
+	/* Clock source for lcdc and csi is upll */
 	__raw_writel(__raw_readl(CRM_BASE+0x64) | (1 << 7) | (1 << 0),
 			CRM_BASE + 0x64);
 
-	
+	/* Clock source for gpt is ahb_div */
 	__raw_writel(__raw_readl(CRM_BASE+0x64) & ~(1 << 5), CRM_BASE + 0x64);
 
 	clk_enable(&iim_clk);

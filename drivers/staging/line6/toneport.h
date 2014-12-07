@@ -18,14 +18,29 @@
 #include "driver.h"
 
 struct usb_line6_toneport {
+	/**
+		Generic Line6 USB data.
+	*/
 	struct usb_line6 line6;
 
+	/**
+		Source selector.
+	*/
 	int source;
 
+	/**
+		Serial number of device.
+	*/
 	int serial_number;
 
+	/**
+		Firmware version (x 100).
+	*/
 	int firmware_version;
 
+	/**
+		 Timer for delayed PCM startup.
+	*/
 	struct timer_list timer;
 };
 

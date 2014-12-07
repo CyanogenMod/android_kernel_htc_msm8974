@@ -37,6 +37,7 @@
 #define CTL_CLK_AND_WAIT_CTL 0x138
 #define CTL_RESET_SDIO 0x1e0
 
+/* Definitions for values the CTRL_STATUS register can take. */
 #define TMIO_STAT_CMDRESPEND    0x00000001
 #define TMIO_STAT_DATAEND       0x00000004
 #define TMIO_STAT_CARD_REMOVE   0x00000008
@@ -59,6 +60,6 @@
 #define TMIO_STAT_CMD_BUSY      0x40000000
 #define TMIO_STAT_ILL_ACCESS    0x80000000
 
-#define TMIO_BBS		512		
+#define TMIO_BBS		512		/* Boot block size */
 
-#endif 
+#endif /* LINUX_MMC_TMIO_H */

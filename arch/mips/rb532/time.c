@@ -33,6 +33,12 @@
 
 extern unsigned int idt_cpu_freq;
 
+/*
+ * Figure out the r4k offset, the amount to increment the compare
+ * register for each time tick. There is no RTC available.
+ *
+ * The RC32434 counts at half the CPU *core* speed.
+ */
 static unsigned long __init cal_r4koff(void)
 {
 	mips_hpt_frequency = idt_cpu_freq * IDT_CLOCK_MULT / 2;
@@ -52,7 +58,7 @@ void __init plat_time_init(void)
 	printk("%08lx(%d)\n", r4k_offset, (int) r4k_offset);
 
 	est_freq = 2 * r4k_offset * HZ;
-	est_freq += 5000;	
+	est_freq += 5000;	/* round */
 	est_freq -= est_freq % 10000;
 	printk(KERN_INFO "CPU frequency %d.%02d MHz\n", est_freq / 1000000,
 	       (est_freq % 1000000) * 100 / 1000000);

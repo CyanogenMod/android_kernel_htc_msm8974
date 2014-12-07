@@ -25,69 +25,84 @@
 
 #define RX_PHASE	(1 << 0)
 #define TX_PHASE	(1 << 1)
-#define TX_COMP_PHASE	(1 << 2) 
+#define TX_COMP_PHASE	(1 << 2) /* tx complete */
 #define NONE_PHASE	(1 << 31)
 
-#define IRIF_RINTCLR	0x0016 
-#define IRIF_TINTCLR	0x0018 
-#define IRIF_SIR0	0x0020 
-#define IRIF_SIR1	0x0022 
-#define IRIF_SIR2	0x0024 
-#define IRIF_SIR3	0x0026 
-#define IRIF_SIR_FRM	0x0028 
-#define IRIF_SIR_EOF	0x002A 
-#define IRIF_SIR_FLG	0x002C 
-#define IRIF_UART_STS2	0x002E 
-#define IRIF_UART0	0x0030 
-#define IRIF_UART1	0x0032 
-#define IRIF_UART2	0x0034 
-#define IRIF_UART3	0x0036 
-#define IRIF_UART4	0x0038 
-#define IRIF_UART5	0x003A 
-#define IRIF_UART6	0x003C 
-#define IRIF_UART7	0x003E 
-#define IRIF_CRC0	0x0040 
-#define IRIF_CRC1	0x0042 
-#define IRIF_CRC2	0x0044 
-#define IRIF_CRC3	0x0046 
-#define IRIF_CRC4	0x0048 
+#define IRIF_RINTCLR	0x0016 /* DMA rx interrupt source clear */
+#define IRIF_TINTCLR	0x0018 /* DMA tx interrupt source clear */
+#define IRIF_SIR0	0x0020 /* IrDA-SIR10 control */
+#define IRIF_SIR1	0x0022 /* IrDA-SIR10 baudrate error correction */
+#define IRIF_SIR2	0x0024 /* IrDA-SIR10 baudrate count */
+#define IRIF_SIR3	0x0026 /* IrDA-SIR10 status */
+#define IRIF_SIR_FRM	0x0028 /* Hardware frame processing set */
+#define IRIF_SIR_EOF	0x002A /* EOF value */
+#define IRIF_SIR_FLG	0x002C /* Flag clear */
+#define IRIF_UART_STS2	0x002E /* UART status 2 */
+#define IRIF_UART0	0x0030 /* UART control */
+#define IRIF_UART1	0x0032 /* UART status */
+#define IRIF_UART2	0x0034 /* UART mode */
+#define IRIF_UART3	0x0036 /* UART transmit data */
+#define IRIF_UART4	0x0038 /* UART receive data */
+#define IRIF_UART5	0x003A /* UART interrupt mask */
+#define IRIF_UART6	0x003C /* UART baud rate error correction */
+#define IRIF_UART7	0x003E /* UART baud rate count set */
+#define IRIF_CRC0	0x0040 /* CRC engine control */
+#define IRIF_CRC1	0x0042 /* CRC engine input data */
+#define IRIF_CRC2	0x0044 /* CRC engine calculation */
+#define IRIF_CRC3	0x0046 /* CRC engine output data 1 */
+#define IRIF_CRC4	0x0048 /* CRC engine output data 2 */
 
-#define IRTPW		(1 << 1) 
-#define IRERRC		(1 << 0) 
+/* IRIF_SIR0 */
+#define IRTPW		(1 << 1) /* transmit pulse width select */
+#define IRERRC		(1 << 0) /* Clear receive pulse width error */
 
-#define IRERR		(1 << 0) 
+/* IRIF_SIR3 */
+#define IRERR		(1 << 0) /* received pulse width Error */
 
-#define EOFD		(1 << 9) 
-#define FRER		(1 << 8) 
-#define FRP		(1 << 0) 
+/* IRIF_SIR_FRM */
+#define EOFD		(1 << 9) /* EOF detection flag */
+#define FRER		(1 << 8) /* Frame Error bit */
+#define FRP		(1 << 0) /* Frame processing set */
 
-#define IRSME		(1 << 6) 
-#define IROVE		(1 << 5) 
-#define IRFRE		(1 << 4) 
-#define IRPRE		(1 << 3) 
+/* IRIF_UART_STS2 */
+#define IRSME		(1 << 6) /* Receive Sum     Error flag */
+#define IROVE		(1 << 5) /* Receive Overrun Error flag */
+#define IRFRE		(1 << 4) /* Receive Framing Error flag */
+#define IRPRE		(1 << 3) /* Receive Parity  Error flag */
 
-#define TBEC		(1 << 2) 
-#define RIE		(1 << 1) 
-#define TIE		(1 << 0) 
+/* IRIF_UART0_*/
+#define TBEC		(1 << 2) /* Transmit Data Clear */
+#define RIE		(1 << 1) /* Receive Enable */
+#define TIE		(1 << 0) /* Transmit Enable */
 
-#define URSME		(1 << 6) 
-#define UROVE		(1 << 5) 
-#define URFRE		(1 << 4) 
-#define URPRE		(1 << 3) 
-#define RBF		(1 << 2) 
-#define TSBE		(1 << 1) 
-#define TBE		(1 << 0) 
+/* IRIF_UART1 */
+#define URSME		(1 << 6) /* Receive Sum Error Flag */
+#define UROVE		(1 << 5) /* Receive Overrun Error Flag */
+#define URFRE		(1 << 4) /* Receive Framing Error Flag */
+#define URPRE		(1 << 3) /* Receive Parity Error Flag */
+#define RBF		(1 << 2) /* Receive Buffer Full Flag */
+#define TSBE		(1 << 1) /* Transmit Shift Buffer Empty Flag */
+#define TBE		(1 << 0) /* Transmit Buffer Empty flag */
 #define TBCOMP		(TSBE | TBE)
 
-#define RSEIM		(1 << 6) 
-#define RBFIM		(1 << 2) 
-#define TSBEIM		(1 << 1) 
-#define TBEIM		(1 << 0) 
+/* IRIF_UART5 */
+#define RSEIM		(1 << 6) /* Receive Sum Error Flag IRQ Mask */
+#define RBFIM		(1 << 2) /* Receive Buffer Full Flag IRQ Mask */
+#define TSBEIM		(1 << 1) /* Transmit Shift Buffer Empty Flag IRQ Mask */
+#define TBEIM		(1 << 0) /* Transmit Buffer Empty Flag IRQ Mask */
 #define RX_MASK		(RSEIM  | RBFIM)
 
-#define CRC_RST		(1 << 15) 
+/* IRIF_CRC0 */
+#define CRC_RST		(1 << 15) /* CRC Engine Reset */
 #define CRC_CT_MASK	0x0FFF
 
+/************************************************************************
+
+
+			structure
+
+
+************************************************************************/
 struct sh_sir_self {
 	void __iomem		*membase;
 	unsigned int		 irq;
@@ -102,6 +117,13 @@ struct sh_sir_self {
 	iobuff_t		rx_buff;
 };
 
+/************************************************************************
+
+
+			common function
+
+
+************************************************************************/
 static void sh_sir_write(struct sh_sir_self *self, u32 offset, u16 data)
 {
 	iowrite16(data, self->membase + offset);
@@ -123,6 +145,13 @@ static void sh_sir_update_bits(struct sh_sir_self *self, u32 offset,
 		sh_sir_write(self, offset, new);
 }
 
+/************************************************************************
+
+
+			CRC function
+
+
+************************************************************************/
 static void sh_sir_crc_reset(struct sh_sir_self *self)
 {
 	sh_sir_write(self, IRIF_CRC0, CRC_RST);
@@ -176,7 +205,14 @@ crc_init_out:
 	return ret;
 }
 
-#define SCLK_BASE 1843200 
+/************************************************************************
+
+
+			baud rate functions
+
+
+************************************************************************/
+#define SCLK_BASE 1843200 /* 1.8432MHz */
 
 static u32 sh_sir_find_sclk(struct clk *irda_clk)
 {
@@ -188,7 +224,7 @@ static u32 sh_sir_find_sclk(struct clk *irda_clk)
 	limit = clk_get_rate(pclk);
 	clk_put(pclk);
 
-	
+	/* IrDA can not set over peripheral_clk */
 	for (i = 0;
 	     freq_table[i].frequency != CPUFREQ_TABLE_END;
 	     i++) {
@@ -197,7 +233,7 @@ static u32 sh_sir_find_sclk(struct clk *irda_clk)
 		if (freq == CPUFREQ_ENTRY_INVALID)
 			continue;
 
-		
+		/* IrDA should not over peripheral_clk */
 		if (freq > limit)
 			continue;
 
@@ -222,7 +258,7 @@ static int sh_sir_set_baudrate(struct sh_sir_self *self, u32 baudrate)
 	u32 min, rerr, tmp;
 	int i;
 
-	
+	/* Baud Rate Error Correction x 10000 */
 	u32 rate_err_array[] = {
 		   0,  625, 1250, 1875,
 		2500, 3125, 3750, 4375,
@@ -230,6 +266,11 @@ static int sh_sir_set_baudrate(struct sh_sir_self *self, u32 baudrate)
 		7500, 8125, 8750, 9375,
 	};
 
+	/*
+	 * FIXME
+	 *
+	 * it support 9600 only now
+	 */
 	switch (baudrate) {
 	case 9600:
 		break;
@@ -250,6 +291,11 @@ static int sh_sir_set_baudrate(struct sh_sir_self *self, u32 baudrate)
 
 	dev_dbg(dev, "selected sclk = %d\n", rate);
 
+	/*
+	 * CALCULATION
+	 *
+	 * 1843200 = system rate / (irbca + (irbc + 1))
+	 */
 
 	irbc = rate / SCLK_BASE;
 
@@ -287,6 +333,11 @@ static int sh_sir_set_baudrate(struct sh_sir_self *self, u32 baudrate)
 	sh_sir_write(self, IRIF_SIR1, irbca);
 	sh_sir_write(self, IRIF_SIR2, irbc);
 
+	/*
+	 * CALCULATION
+	 *
+	 * BaudRate[bps] = system rate / (uabca + (uabc + 1) x 16)
+	 */
 
 	uabc = rate / baudrate;
 	uabc = (uabc / 16) - 1;
@@ -324,6 +375,13 @@ static int sh_sir_set_baudrate(struct sh_sir_self *self, u32 baudrate)
 	return 0;
 }
 
+/************************************************************************
+
+
+			iobuf function
+
+
+************************************************************************/
 static int __sh_sir_init_iobuf(iobuff_t *io, int size)
 {
 	io->head = kmalloc(size, GFP_KERNEL);
@@ -370,15 +428,22 @@ iobuf_err:
 	return err;
 }
 
+/************************************************************************
+
+
+			status function
+
+
+************************************************************************/
 static void sh_sir_clear_all_err(struct sh_sir_self *self)
 {
-	
+	/* Clear error flag for receive pulse width */
 	sh_sir_update_bits(self, IRIF_SIR0, IRERRC, IRERRC);
 
-	
+	/* Clear frame / EOF error flag */
 	sh_sir_write(self, IRIF_SIR_FLG, 0xffff);
 
-	
+	/* Clear all status error */
 	sh_sir_write(self, IRIF_UART_STS2, 0);
 }
 
@@ -454,7 +519,7 @@ static int sh_sir_read_data(struct sh_sir_self *self)
 	while (timeout--) {
 		val = sh_sir_read(self, IRIF_UART1);
 
-		
+		/* data get */
 		if (val & RBF) {
 			if (val & (URSME | UROVE | URFRE | URPRE))
 				break;
@@ -468,7 +533,7 @@ static int sh_sir_read_data(struct sh_sir_self *self)
 	dev_err(&self->ndev->dev, "UART1 %04x : STATUS %04x\n",
 		val, sh_sir_read(self, IRIF_UART_STS2));
 
-	
+	/* read data register for clear error */
 	sh_sir_read(self, IRIF_UART4);
 
 	return -1;
@@ -520,6 +585,13 @@ static irqreturn_t sh_sir_irq(int irq, void *dev_id)
 	 return IRQ_HANDLED;
 }
 
+/************************************************************************
+
+
+			net_device_ops function
+
+
+************************************************************************/
 static int sh_sir_hard_xmit(struct sk_buff *skb, struct net_device *ndev)
 {
 	struct sh_sir_self *self = netdev_priv(ndev);
@@ -547,6 +619,12 @@ static int sh_sir_hard_xmit(struct sk_buff *skb, struct net_device *ndev)
 
 static int sh_sir_ioctl(struct net_device *ndev, struct ifreq *ifreq, int cmd)
 {
+	/*
+	 * FIXME
+	 *
+	 * This function is needed for irda framework.
+	 * But nothing to do now
+	 */
 	return 0;
 }
 
@@ -575,9 +653,12 @@ static int sh_sir_open(struct net_device *ndev)
 		goto open_err;
 	}
 
+	/*
+	 * Now enable the interrupt then start the queue
+	 */
 	sh_sir_update_bits(self, IRIF_SIR_FRM, FRP, FRP);
-	sh_sir_read(self, IRIF_UART1); 
-	sh_sir_read(self, IRIF_UART4); 
+	sh_sir_read(self, IRIF_UART1); /* flag clear */
+	sh_sir_read(self, IRIF_UART4); /* flag clear */
 	sh_sir_set_phase(self, RX_PHASE);
 
 	netif_start_queue(ndev);
@@ -596,7 +677,7 @@ static int sh_sir_stop(struct net_device *ndev)
 {
 	struct sh_sir_self *self = netdev_priv(ndev);
 
-	
+	/* Stop IrLAP */
 	if (self->irlap) {
 		irlap_close(self->irlap);
 		self->irlap = NULL;
@@ -617,6 +698,13 @@ static const struct net_device_ops sh_sir_ndo = {
 	.ndo_get_stats		= sh_sir_stats,
 };
 
+/************************************************************************
+
+
+			platform_driver function
+
+
+************************************************************************/
 static int __devinit sh_sir_probe(struct platform_device *pdev)
 {
 	struct net_device *ndev;
@@ -662,8 +750,8 @@ static int __devinit sh_sir_probe(struct platform_device *pdev)
 	ndev->irq		= irq;
 
 	self->ndev			= ndev;
-	self->qos.baud_rate.bits	&= IR_9600; 
-	self->qos.min_turn_time.bits	= 1; 
+	self->qos.baud_rate.bits	&= IR_9600; /* FIXME */
+	self->qos.min_turn_time.bits	= 1; /* 10 ms or more */
 
 	irda_qos_bits_to_value(&self->qos);
 

@@ -10,10 +10,16 @@
 #ifndef _ASM_SYSMIPS_H
 #define _ASM_SYSMIPS_H
 
-#define SETNAME                    1	
-#define FLUSH_CACHE		   3	
-#define MIPS_FIXADE                7	
-#define MIPS_RDNVRAM              10	
-#define MIPS_ATOMIC_SET		2001	
+/*
+ * Commands for the sysmips(2) call
+ *
+ * sysmips(2) is deprecated - though some existing software uses it.
+ * We only support the following commands.
+ */
+#define SETNAME                    1	/* set hostname                  */
+#define FLUSH_CACHE		   3	/* writeback and invalidate caches */
+#define MIPS_FIXADE                7	/* control address error fixing  */
+#define MIPS_RDNVRAM              10	/* read NVRAM */
+#define MIPS_ATOMIC_SET		2001	/* atomically set variable       */
 
-#endif 
+#endif /* _ASM_SYSMIPS_H */

@@ -94,6 +94,11 @@ int ipz_queue_abs_to_offset(struct ipz_queue *queue, u64 addr, u64 *q_offset)
 #error Kernel pages must be at least as large than eHCA pages (4K) !
 #endif
 
+/*
+ * allocate pages for queue:
+ * outer loop allocates whole kernel pages (page aligned) and
+ * inner loop divides a kernel page into smaller hca queue pages
+ */
 static int alloc_queue_pages(struct ipz_queue *queue, const u32 nr_of_pages)
 {
 	int k, f = 0;
@@ -185,7 +190,7 @@ static void free_small_queue_page(struct ipz_queue *queue, struct ehca_pd *pd)
 	}
 
 	if (page->fill == (IPZ_SPAGE_PER_KPAGE >> order) - 1)
-		
+		/* the page was full until we freed the chunk */
 		list_move_tail(&page->list, &pd->free[order]);
 
 	mutex_unlock(&pd->lock);
@@ -207,7 +212,7 @@ int ipz_queue_ctor(struct ehca_pd *pd, struct ipz_queue *queue,
 		return 0;
 	}
 
-	
+	/* init queue fields */
 	queue->queue_length = nr_of_pages * pagesize;
 	queue->pagesize = pagesize;
 	queue->qe_size = qe_size;
@@ -216,7 +221,7 @@ int ipz_queue_ctor(struct ehca_pd *pd, struct ipz_queue *queue,
 	queue->toggle_state = 1;
 	queue->small_page = NULL;
 
-	
+	/* allocate queue page pointers */
 	queue->queue_pages = kzalloc(nr_of_pages * sizeof(void *), GFP_KERNEL);
 	if (!queue->queue_pages) {
 		queue->queue_pages = vzalloc(nr_of_pages * sizeof(void *));
@@ -226,7 +231,7 @@ int ipz_queue_ctor(struct ehca_pd *pd, struct ipz_queue *queue,
 		}
 	}
 
-	
+	/* allocate actual queue pages */
 	if (is_small) {
 		if (!alloc_small_queue_page(queue, pd))
 			goto ipz_queue_ctor_exit0;

@@ -31,14 +31,19 @@
 #include <linux/pci.h>
 #include <linux/mfd/core.h>
 
+/* offset into pci config space indicating the 16bit register containing
+ * the power management IO space base */
 #define VX855_CFG_PMIO_OFFSET	0x88
 
+/* ACPI I/O Space registers */
 #define VX855_PMIO_ACPI		0x00
 #define VX855_PMIO_ACPI_LEN	0x0b
 
+/* Processor Power Management */
 #define VX855_PMIO_PPM		0x10
 #define VX855_PMIO_PPM_LEN	0x08
 
+/* General Purpose Power Management */
 #define VX855_PMIO_GPPM		0x20
 #define VX855_PMIO_R_GPI	0x48
 #define VX855_PMIO_R_GPO	0x4c
@@ -61,6 +66,8 @@ static struct mfd_cell vx855_cells[] = {
 		.num_resources = ARRAY_SIZE(vx855_gpio_resources),
 		.resources = vx855_gpio_resources,
 
+		/* we must ignore resource conflicts, for reasons outlined in
+		 * the vx855_gpio driver */
 		.ignore_resource_conflicts = true,
 	},
 };
@@ -83,8 +90,12 @@ static __devinit int vx855_probe(struct pci_dev *pdev,
 		goto out;
 	}
 
+	/* mask out the lowest seven bits, as they are always zero, but
+	 * hardware returns them as 0x01 */
 	gpio_io_offset &= 0xff80;
 
+	/* As the region identified here includes many non-GPIO things, we
+	 * only work with the specific registers that concern us. */
 	vx855_gpio_resources[0].start = gpio_io_offset + VX855_PMIO_R_GPI;
 	vx855_gpio_resources[0].end = vx855_gpio_resources[0].start + 3;
 	vx855_gpio_resources[1].start = gpio_io_offset + VX855_PMIO_R_GPO;
@@ -93,6 +104,8 @@ static __devinit int vx855_probe(struct pci_dev *pdev,
 	ret = mfd_add_devices(&pdev->dev, -1, vx855_cells, ARRAY_SIZE(vx855_cells),
 			NULL, 0);
 
+	/* we always return -ENODEV here in order to enable other
+	 * drivers like old, not-yet-platform_device ported i2c-viapro */
 	return -ENODEV;
 out:
 	pci_disable_device(pdev);

@@ -63,7 +63,7 @@ nfnl_acct_new(struct sock *nfnl, struct sk_buff *skb,
 
 	if (matching) {
 		if (nlh->nlmsg_flags & NLM_F_REPLACE) {
-			
+			/* reset counters if you request a replacement. */
 			atomic64_set(&matching->pkts, 0);
 			atomic64_set(&matching->bytes, 0);
 			return 0;
@@ -206,23 +206,24 @@ nfnl_acct_get(struct sock *nfnl, struct sk_buff *skb,
 		if (ret > 0)
 			ret = 0;
 
-		
+		/* this avoids a loop in nfnetlink. */
 		return ret == -EAGAIN ? -ENOBUFS : ret;
 	}
 	return ret;
 }
 
+/* try to delete object, fail if it is still in use. */
 static int nfnl_acct_try_del(struct nf_acct *cur)
 {
 	int ret = 0;
 
-	
+	/* we want to avoid races with nfnl_acct_find_get. */
 	if (atomic_dec_and_test(&cur->refcnt)) {
-		
+		/* We are protected by nfnl mutex. */
 		list_del_rcu(&cur->head);
 		kfree_rcu(cur, rcu_head);
 	} else {
-		
+		/* still in use, restore reference counter. */
 		atomic_inc(&cur->refcnt);
 		ret = -EBUSY;
 	}
@@ -352,6 +353,8 @@ static void __exit nfnl_acct_exit(void)
 
 	list_for_each_entry_safe(cur, tmp, &nfnl_acct_list, head) {
 		list_del_rcu(&cur->head);
+		/* We are sure that our objects have no clients at this point,
+		 * it's safe to release them all without checking refcnt. */
 		kfree_rcu(cur, rcu_head);
 	}
 }

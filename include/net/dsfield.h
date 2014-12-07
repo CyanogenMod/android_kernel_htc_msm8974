@@ -1,3 +1,4 @@
+/* include/net/dsfield.h - Manipulation of the Differentiated Services field */
 
 /* Written 1998-2000 by Werner Almesberger, EPFL ICA */
 
@@ -33,7 +34,7 @@ static inline void ipv4_change_dsfield(struct iphdr *iph,__u8 mask,
 	check += iph->tos;
 	if ((check+1) >> 16) check = (check+1) & 0xffff;
 	check -= dsfield;
-	check += check >> 16; 
+	check += check >> 16; /* adjust carry */
 	iph->check = (__force __sum16)htons(check);
 	iph->tos = dsfield;
 }

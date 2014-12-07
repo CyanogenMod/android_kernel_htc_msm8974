@@ -7,8 +7,15 @@ extern u16 iop13xx_dev_id(void);
 extern void iop13xx_set_atu_mmr_bases(void);
 #endif
 
+/*
+ * Generic chipset bits
+ *
+ */
 #include "iop13xx.h"
 
+/*
+ * Board specific bits
+ */
 #include "iq81340.h"
 
-#endif  
+#endif  /* _ASM_ARCH_HARDWARE_H */

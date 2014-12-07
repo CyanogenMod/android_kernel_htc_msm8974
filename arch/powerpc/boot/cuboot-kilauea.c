@@ -23,7 +23,7 @@
 #define TARGET_44x
 #include "ppcboot.h"
 
-#define KILAUEA_SYS_EXT_SERIAL_CLOCK     11059200        
+#define KILAUEA_SYS_EXT_SERIAL_CLOCK     11059200        /* ext. 11.059MHz clk */
 
 static bd_t bd;
 

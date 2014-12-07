@@ -46,6 +46,23 @@ enum ccdc_input_entity {
 
 #define	OMAP3ISP_CCDC_NEVENTS	16
 
+/*
+ * struct ispccdc_syncif - Structure for Sync Interface between sensor and CCDC
+ * @ccdc_mastermode: Master mode. 1 - Master, 0 - Slave.
+ * @fldstat: Field state. 0 - Odd Field, 1 - Even Field.
+ * @datsz: Data size.
+ * @fldmode: 0 - Progressive, 1 - Interlaced.
+ * @datapol: 0 - Positive, 1 - Negative.
+ * @fldpol: 0 - Positive, 1 - Negative.
+ * @hdpol: 0 - Positive, 1 - Negative.
+ * @vdpol: 0 - Positive, 1 - Negative.
+ * @fldout: 0 - Input, 1 - Output.
+ * @hs_width: Width of the Horizontal Sync pulse, used for HS/VS Output.
+ * @vs_width: Width of the Vertical Sync pulse, used for HS/VS Output.
+ * @ppln: Number of pixels per line, used for HS/VS Output.
+ * @hlprf: Number of half lines per frame, used for HS/VS Output.
+ * @bt_r656_en: 1 - Enable ITU-R BT656 mode, 0 - Sync mode.
+ */
 struct ispccdc_syncif {
 	u8 ccdc_mastermode;
 	u8 fldstat;
@@ -63,6 +80,10 @@ struct ispccdc_syncif {
 	u8 bt_r656_en;
 };
 
+/*
+ * struct ispccdc_vp - Structure for Video Port parameters
+ * @pixelclk: Input pixel clock in Hz
+ */
 struct ispccdc_vp {
 	unsigned int pixelclk;
 };
@@ -82,15 +103,24 @@ struct ispccdc_lsc_config_req {
 	struct iovm_struct *iovm;
 };
 
+/*
+ * ispccdc_lsc - CCDC LSC parameters
+ * @update_config: Set when user changes config
+ * @request_enable: Whether LSC is requested to be enabled
+ * @config: LSC config set by user
+ * @update_table: Set when user provides a new LSC table to table_new
+ * @table_new: LSC table set by user, ISP address
+ * @table_inuse: LSC table currently in use, ISP address
+ */
 struct ispccdc_lsc {
 	enum ispccdc_lsc_state state;
 	struct work_struct table_work;
 
-	
+	/* LSC queue of configurations */
 	spinlock_t req_lock;
-	struct ispccdc_lsc_config_req *request;	
-	struct ispccdc_lsc_config_req *active;	
-	struct list_head free_queue;	
+	struct ispccdc_lsc_config_req *request;	/* requested configuration */
+	struct ispccdc_lsc_config_req *active;	/* active configuration */
+	struct list_head free_queue;	/* configurations for freeing */
 };
 
 #define CCDC_STOP_NOT_REQUESTED		0x00
@@ -105,11 +135,40 @@ struct ispccdc_lsc {
 #define CCDC_EVENT_VD0			0x20
 #define CCDC_EVENT_LSC_DONE		0x40
 
+/* Sink and source CCDC pads */
 #define CCDC_PAD_SINK			0
 #define CCDC_PAD_SOURCE_OF		1
 #define CCDC_PAD_SOURCE_VP		2
 #define CCDC_PADS_NUM			3
 
+/*
+ * struct isp_ccdc_device - Structure for the CCDC module to store its own
+ *			    information
+ * @subdev: V4L2 subdevice
+ * @pads: Sink and source media entity pads
+ * @formats: Active video formats
+ * @input: Active input
+ * @output: Active outputs
+ * @video_out: Output video node
+ * @alaw: A-law compression enabled (1) or disabled (0)
+ * @lpf: Low pass filter enabled (1) or disabled (0)
+ * @obclamp: Optical-black clamp enabled (1) or disabled (0)
+ * @fpc_en: Faulty pixels correction enabled (1) or disabled (0)
+ * @blcomp: Black level compensation configuration
+ * @clamp: Optical-black or digital clamp configuration
+ * @fpc: Faulty pixels correction configuration
+ * @lsc: Lens shading compensation configuration
+ * @update: Bitmask of controls to update during the next interrupt
+ * @shadow_update: Controls update in progress by userspace
+ * @syncif: Interface synchronization configuration
+ * @vpcfg: Video port configuration
+ * @underrun: A buffer underrun occurred and a new buffer has been queued
+ * @state: Streaming state
+ * @lock: Serializes shadow_update with interrupt handler
+ * @wait: Wait queue used to stop the module
+ * @stopping: Stopping state
+ * @ioctl_lock: Serializes ioctl calls and LSC requests freeing
+ */
 struct isp_ccdc_device {
 	struct v4l2_subdev subdev;
 	struct media_pad pads[CCDC_PADS_NUM];
@@ -155,4 +214,4 @@ void omap3isp_ccdc_restore_context(struct isp_device *isp);
 void omap3isp_ccdc_max_rate(struct isp_ccdc_device *ccdc,
 	unsigned int *max_rate);
 
-#endif	
+#endif	/* OMAP3_ISP_CCDC_H */

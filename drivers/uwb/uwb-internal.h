@@ -35,6 +35,7 @@
 
 struct uwb_beca_e;
 
+/* General device API */
 extern void uwb_dev_init(struct uwb_dev *uwb_dev);
 extern int __uwb_dev_offair(struct uwb_dev *, struct uwb_rc *);
 extern int uwb_dev_add(struct uwb_dev *uwb_dev, struct device *parent_dev,
@@ -44,6 +45,7 @@ extern void uwbd_dev_onair(struct uwb_rc *, struct uwb_beca_e *);
 extern void uwbd_dev_offair(struct uwb_beca_e *);
 void uwb_notify(struct uwb_rc *rc, struct uwb_dev *uwb_dev, enum uwb_notifs event);
 
+/* General UWB Radio Controller Internal API */
 extern struct uwb_rc *__uwb_rc_try_get(struct uwb_rc *);
 static inline struct uwb_rc *__uwb_rc_get(struct uwb_rc *rc)
 {
@@ -74,8 +76,18 @@ int uwb_rc_set_ie(struct uwb_rc *, struct uwb_rc_cmd_set_ie *);
 
 extern const char *uwb_rc_strerror(unsigned code);
 
-#define UWB_RC_CMD_TIMEOUT_MS 1000 
+/*
+ * Time to wait for a response to an RC command.
+ *
+ * Some commands can take a long time to response. e.g., START_BEACON
+ * may scan for several superframes before joining an existing beacon
+ * group and this can take around 600 ms.
+ */
+#define UWB_RC_CMD_TIMEOUT_MS 1000 /* ms */
 
+/*
+ * Notification/Event Handlers
+ */
 
 struct uwb_rc_neh;
 
@@ -95,9 +107,13 @@ void uwb_rc_neh_rm(struct uwb_rc *rc, struct uwb_rc_neh *neh);
 void uwb_rc_neh_arm(struct uwb_rc *rc, struct uwb_rc_neh *neh);
 void uwb_rc_neh_put(struct uwb_rc_neh *neh);
 
+/* Event size tables */
 extern int uwb_est_create(void);
 extern void uwb_est_destroy(void);
 
+/*
+ * UWB conflicting alien reservations
+ */
 struct uwb_cnflt_alien {
 	struct uwb_rc *rc;
 	struct list_head rc_node;
@@ -137,6 +153,9 @@ struct uwb_rsv_row_info {
 	unsigned char used_rows;
 };
 
+/*
+ * UWB find allocation
+ */
 struct uwb_rsv_alloc_info {
 	unsigned char bm[UWB_MAS_PER_ZONE * UWB_NUM_ZONES];
 	struct uwb_rsv_col_info ci[UWB_NUM_ZONES];
@@ -155,21 +174,48 @@ struct uwb_rsv_alloc_info {
 int uwb_rsv_find_best_allocation(struct uwb_rsv *rsv, struct uwb_mas_bm *available, 
 				 struct uwb_mas_bm *result);
 void uwb_rsv_handle_drp_avail_change(struct uwb_rc *rc);
+/*
+ * UWB Events & management daemon
+ */
 
+/**
+ * enum uwb_event_type - types of UWB management daemon events
+ *
+ * The UWB management daemon (uwbd) can receive two types of events:
+ *   UWB_EVT_TYPE_NOTIF - notification from the radio controller.
+ *   UWB_EVT_TYPE_MSG   - a simple message.
+ */
 enum uwb_event_type {
 	UWB_EVT_TYPE_NOTIF,
 	UWB_EVT_TYPE_MSG,
 };
 
+/**
+ * struct uwb_event_notif - an event for a radio controller notification
+ * @size: Size of the buffer (ie: Guaranteed to contain at least
+ *        a full 'struct uwb_rceb')
+ * @rceb: Pointer to a kmalloced() event payload
+ */
 struct uwb_event_notif {
 	size_t size;
 	struct uwb_rceb *rceb;
 };
 
+/**
+ * enum uwb_event_message - an event for a message for asynchronous processing
+ *
+ * UWB_EVT_MSG_RESET - reset the radio controller and all PAL hardware.
+ */
 enum uwb_event_message {
 	UWB_EVT_MSG_RESET,
 };
 
+/**
+ * UWB Event
+ * @rc:         Radio controller that emitted the event (referenced)
+ * @ts_jiffies: Timestamp, when was it received
+ * @type:       This event's type.
+ */
 struct uwb_event {
 	struct list_head list_node;
 	struct uwb_rc *rc;
@@ -187,6 +233,7 @@ extern struct uwb_event *uwb_event_alloc(size_t, gfp_t gfp_mask);
 extern void uwbd_event_queue(struct uwb_event *);
 void uwbd_flush(struct uwb_rc *rc);
 
+/* UWB event handlers */
 extern int uwbd_evt_handle_rc_ie_rcv(struct uwb_event *);
 extern int uwbd_evt_handle_rc_beacon(struct uwb_event *);
 extern int uwbd_evt_handle_rc_beacon_size(struct uwb_event *);
@@ -198,12 +245,33 @@ extern int uwbd_evt_handle_rc_drp_avail(struct uwb_event *);
 int uwbd_msg_handle_reset(struct uwb_event *evt);
 
 
+/*
+ * Address management
+ */
 int uwb_rc_dev_addr_assign(struct uwb_rc *rc);
 int uwbd_evt_handle_rc_dev_addr_conflict(struct uwb_event *evt);
 
+/*
+ * UWB Beacon Cache
+ *
+ * Each beacon we received is kept in a cache--when we receive that
+ * beacon consistently, that means there is a new device that we have
+ * to add to the system.
+ */
 
 extern unsigned long beacon_timeout_ms;
 
+/**
+ * Beacon cache entry
+ *
+ * @jiffies_refresh: last time a beacon was  received that refreshed
+ *                   this cache entry.
+ * @uwb_dev: device connected to this beacon. This pointer is not
+ *           safe, you need to get it with uwb_dev_try_get()
+ *
+ * @hits: how many time we have seen this beacon since last time we
+ *        cleared it
+ */
 struct uwb_beca_e {
 	struct mutex mutex;
 	struct kref refcnt;
@@ -214,7 +282,7 @@ struct uwb_beca_e {
 	unsigned long ts_jiffies;
 	struct uwb_dev *uwb_dev;
 	struct uwb_rc_evt_beacon *be;
-	struct stats lqe_stats, rssi_stats;	
+	struct stats lqe_stats, rssi_stats;	/* radio statistics */
 };
 struct uwb_beacon_frame;
 extern ssize_t uwb_bce_print_IEs(struct uwb_dev *, struct uwb_beca_e *,
@@ -242,11 +310,13 @@ void uwb_radio_reset_state(struct uwb_rc *rc);
 void uwb_radio_shutdown(struct uwb_rc *rc);
 int uwb_radio_force_channel(struct uwb_rc *rc, int channel);
 
+/* -- UWB Sysfs representation */
 extern struct class uwb_rc_class;
 extern struct device_attribute dev_attr_mac_address;
 extern struct device_attribute dev_attr_beacon;
 extern struct device_attribute dev_attr_scan;
 
+/* -- DRP Bandwidth allocator: bandwidth allocations, reservations, DRP */
 void uwb_rsv_init(struct uwb_rc *rc);
 int uwb_rsv_setup(struct uwb_rc *rc);
 void uwb_rsv_cleanup(struct uwb_rc *rc);
@@ -278,12 +348,15 @@ void uwb_drp_avail_reserve(struct uwb_rc *rc, struct uwb_mas_bm *mas);
 void uwb_drp_avail_release(struct uwb_rc *rc, struct uwb_mas_bm *mas);
 void uwb_drp_avail_ie_update(struct uwb_rc *rc);
 
+/* -- PAL support */
 void uwb_rc_pal_init(struct uwb_rc *rc);
 
+/* -- Misc */
 
 extern ssize_t uwb_mac_frame_hdr_print(char *, size_t,
 				       const struct uwb_mac_frame_hdr *);
 
+/* -- Debug interface */
 void uwb_dbg_init(void);
 void uwb_dbg_exit(void);
 void uwb_dbg_add_rc(struct uwb_rc *rc);
@@ -300,4 +373,4 @@ static inline void uwb_dev_unlock(struct uwb_dev *uwb_dev)
 	device_unlock(&uwb_dev->dev);
 }
 
-#endif 
+#endif /* #ifndef __UWB_INTERNAL_H__ */

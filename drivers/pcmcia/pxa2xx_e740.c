@@ -63,14 +63,14 @@ static int e740_pcmcia_configure_socket(struct soc_pcmcia_socket *skt,
 	}
 
 	switch (state->Vcc) {
-	case 0:	
+	case 0:	/* Socket off */
 		if (skt->nr == 0)
 			gpio_set_value(GPIO_E740_PCMCIA_PWR0, 0);
 		else
 			gpio_set_value(GPIO_E740_PCMCIA_PWR1, 1);
 		break;
 	case 50:
-	case 33: 
+	case 33: /* socket on */
 		if (skt->nr == 0)
 			gpio_set_value(GPIO_E740_PCMCIA_PWR0, 1);
 		else

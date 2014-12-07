@@ -31,6 +31,9 @@
 #include "nouveau_crtc.h"
 #include "nouveau_gpio.h"
 
+/******************************************************************************
+ * aux channel util functions
+ *****************************************************************************/
 #define AUX_DBG(fmt, args...) do {                                             \
 	if (nouveau_reg_debug & NOUVEAU_REG_DEBUG_AUXCH) {                     \
 		NV_PRINTK(KERN_DEBUG, dev, "AUXCH(%d): " fmt, ch, ##args);     \
@@ -47,12 +50,12 @@ auxch_fini(struct drm_device *dev, int ch)
 static int
 auxch_init(struct drm_device *dev, int ch)
 {
-	const u32 unksel = 1; 
+	const u32 unksel = 1; /* nfi which to use, or if it matters.. */
 	const u32 ureq = unksel ? 0x00100000 : 0x00200000;
 	const u32 urep = unksel ? 0x01000000 : 0x02000000;
 	u32 ctrl, timeout;
 
-	
+	/* wait up to 1ms for any previous transaction to be done... */
 	timeout = 1000;
 	do {
 		ctrl = nv_rd32(dev, 0x00e4e4 + (ch * 0x50));
@@ -63,7 +66,7 @@ auxch_init(struct drm_device *dev, int ch)
 		}
 	} while (ctrl & 0x03010000);
 
-	
+	/* set some magic, and wait up to 1ms for it to appear */
 	nv_mask(dev, 0x00e4e4 + (ch * 0x50), 0x00300000, ureq);
 	timeout = 1000;
 	do {
@@ -113,16 +116,16 @@ auxch_tx(struct drm_device *dev, int ch, u8 type, u32 addr, u8 *data, u8 size)
 	ctrl |= size - 1;
 	nv_wr32(dev, 0x00e4e0 + (ch * 0x50), addr);
 
-	
+	/* retry transaction a number of times on failure... */
 	ret = -EREMOTEIO;
 	for (retries = 0; retries < 32; retries++) {
-		
+		/* reset, and delay a while if this is a retry */
 		nv_wr32(dev, 0x00e4e4 + (ch * 0x50), 0x80000000 | ctrl);
 		nv_wr32(dev, 0x00e4e4 + (ch * 0x50), 0x00000000 | ctrl);
 		if (retries)
 			udelay(400);
 
-		
+		/* transaction request, wait up to 1ms for it to complete */
 		nv_wr32(dev, 0x00e4e4 + (ch * 0x50), 0x00010000 | ctrl);
 
 		timeout = 1000;
@@ -135,7 +138,7 @@ auxch_tx(struct drm_device *dev, int ch, u8 type, u32 addr, u8 *data, u8 size)
 			}
 		} while (ctrl & 0x00010000);
 
-		
+		/* read status, and check if transaction completed ok */
 		stat = nv_mask(dev, 0x00e4e8 + (ch * 0x50), 0, 0);
 		if (!(stat & 0x000f0f00)) {
 			ret = 0;
@@ -202,6 +205,9 @@ nouveau_dp_bios_data(struct drm_device *dev, struct dcb_entry *dcb, u8 **entry)
 	return NULL;
 }
 
+/******************************************************************************
+ * link training
+ *****************************************************************************/
 struct dp_state {
 	struct dp_train_func *func;
 	struct dcb_entry *dcb;
@@ -221,11 +227,11 @@ dp_set_link_config(struct drm_device *dev, struct dp_state *dp)
 
 	NV_DEBUG_KMS(dev, "%d lanes at %d KB/s\n", dp->link_nr, dp->link_bw);
 
-	
+	/* set desired link configuration on the source */
 	dp->func->link_set(dev, dp->dcb, dp->crtc, dp->link_nr, dp->link_bw,
 			   dp->dpcd[2] & DP_ENHANCED_FRAME_CAP);
 
-	
+	/* inform the sink of the new configuration */
 	sink[0] = dp->link_bw / 27000;
 	sink[1] = dp->link_nr;
 	if (dp->dpcd[2] & DP_ENHANCED_FRAME_CAP)
@@ -427,52 +433,56 @@ nouveau_dp_link_train(struct drm_encoder *encoder, u32 datarate,
 	dp.auxch = auxch->drive;
 	dp.dpcd = nv_encoder->dp.dpcd;
 
-	
+	/* adjust required bandwidth for 8B/10B coding overhead */
 	datarate = (datarate / 8) * 10;
 
+	/* some sinks toggle hotplug in response to some of the actions
+	 * we take during link training (DP_SET_POWER is one), we need
+	 * to ignore them for the moment to avoid races.
+	 */
 	nouveau_gpio_irq(dev, 0, nv_connector->hpd, 0xff, false);
 
-	
+	/* enable down-spreading, if possible */
 	dp_set_downspread(dev, &dp, nv_encoder->dp.dpcd[3] & 1);
 
-	
+	/* execute pre-train script from vbios */
 	dp_link_train_init(dev, &dp);
 
-	
+	/* start off at highest link rate supported by encoder and display */
 	while (*link_bw > nv_encoder->dp.link_bw)
 		link_bw++;
 
 	while (link_bw[0]) {
-		
+		/* find minimum required lane count at this link rate */
 		dp.link_nr = nv_encoder->dp.link_nr;
 		while ((dp.link_nr >> 1) * link_bw[0] > datarate)
 			dp.link_nr >>= 1;
 
-		
+		/* drop link rate to minimum with this lane count */
 		while ((link_bw[1] * dp.link_nr) > datarate)
 			link_bw++;
 		dp.link_bw = link_bw[0];
 
-		
+		/* program selected link configuration */
 		dp_set_link_config(dev, &dp);
 
-		
+		/* attempt to train the link at this configuration */
 		memset(dp.stat, 0x00, sizeof(dp.stat));
 		if (!dp_link_train_cr(dev, &dp) &&
 		    !dp_link_train_eq(dev, &dp))
 			break;
 
-		
+		/* retry at lower rate */
 		link_bw++;
 	}
 
-	
+	/* finish link training */
 	dp_set_training_pattern(dev, &dp, DP_TRAINING_PATTERN_DISABLE);
 
-	
+	/* execute post-train script from vbios */
 	dp_link_train_fini(dev, &dp);
 
-	
+	/* re-enable hotplug detect */
 	nouveau_gpio_irq(dev, 0, nv_connector->hpd, 0xff, true);
 	return true;
 }

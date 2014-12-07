@@ -25,12 +25,30 @@
 #include "rmnet_map.h"
 #include "rmnet_data_private.h"
 
+/* ***************** Local Definitions ************************************** */
 struct agg_work {
 	struct delayed_work work;
 	struct rmnet_phys_ep_conf_s *config;
 };
 
+/******************************************************************************/
 
+/**
+ * rmnet_map_add_map_header() - Adds MAP header to front of skb->data
+ * @skb:        Socket buffer ("packet") to modify
+ * @hdrlen:     Number of bytes of header data which should not be included in
+ *              MAP length field
+ *
+ * Padding is calculated and set appropriately in MAP header. Mux ID is
+ * initialized to 0.
+ *
+ * Return:
+ *      - Pointer to MAP structure
+ *      - 0 (null) if insufficient headroom
+ *      - 0 (null) if insufficient tailroom for padding bytes
+ *
+ * todo: Parameterize skb alignment
+ */
 struct rmnet_map_header_s *rmnet_map_add_map_header(struct sk_buff *skb,
 						    int hdrlen)
 {
@@ -61,6 +79,20 @@ struct rmnet_map_header_s *rmnet_map_add_map_header(struct sk_buff *skb,
 	return map_header;
 }
 
+/**
+ * rmnet_map_deaggregate() - Deaggregates a single packet
+ * @skb:        Source socket buffer containing multiple MAP frames
+ * @config:     Physical endpoint configuration of the ingress device
+ *
+ * Source skb is cloned with skb_clone(). The new skb data and tail pointers are
+ * modified to contain a single MAP frame. Clone happens with GFP_KERNEL flags
+ * set. User should keep calling deaggregate() on the source skb until 0 is
+ * returned, indicating that there are no more packets to deaggregate.
+ *
+ * Return:
+ *     - Pointer to new skb
+ *     - 0 (null) if no more aggregated packets
+ */
 struct sk_buff *rmnet_map_deaggregate(struct sk_buff *skb,
 				      struct rmnet_phys_ep_conf_s *config)
 {
@@ -89,7 +121,7 @@ struct sk_buff *rmnet_map_deaggregate(struct sk_buff *skb,
 	skb_pull(skb, packet_len);
 	LOGD("after skbn->len = %d", skbn->len);
 
-	
+	/* Sanity check */
 	ip_byte = (skbn->data[4]) & 0xF0;
 	if (ip_byte != 0x40 && ip_byte != 0x60) {
 		LOGM("%s() Unknown IP type: 0x%02X\n", __func__, ip_byte);
@@ -100,6 +132,15 @@ struct sk_buff *rmnet_map_deaggregate(struct sk_buff *skb,
 	return skbn;
 }
 
+/**
+ * rmnet_map_flush_packet_queue() - Transmits aggregeted frame on timeout
+ * @work:        struct agg_work containing delayed work and skb to flush
+ *
+ * This function is scheduled to run in a specified number of jiffies after
+ * the last frame transmitted by the network stack. When run, the buffer
+ * containing aggregated packets is finally transmitted on the underlying link.
+ *
+ */
 static void rmnet_map_flush_packet_queue(struct work_struct *work)
 {
 	struct agg_work *real_work;
@@ -114,7 +155,7 @@ static void rmnet_map_flush_packet_queue(struct work_struct *work)
 	spin_lock_irqsave(&config->agg_lock, flags);
 	if (likely(config->agg_state == RMNET_MAP_TXFER_SCHEDULED)) {
 		if (likely(config->agg_skb)) {
-			
+			/* Buffer may have already been shipped out */
 			if (config->agg_count > 1)
 				LOGL("Agg count: %d\n", config->agg_count);
 			skb = config->agg_skb;
@@ -122,7 +163,7 @@ static void rmnet_map_flush_packet_queue(struct work_struct *work)
 		}
 		config->agg_state = RMNET_MAP_AGG_IDLE;
 	} else {
-		
+		/* How did we get here? */
 		LOGE("%s(): Ran queued command when state %s\n",
 			"is idle. State machine likely broken", __func__);
 	}
@@ -133,6 +174,15 @@ static void rmnet_map_flush_packet_queue(struct work_struct *work)
 	kfree(work);
 }
 
+/**
+ * rmnet_map_aggregate() - Software aggregates multiple packets.
+ * @skb:        current packet being transmitted
+ * @config:     Physical endpoint configuration of the ingress device
+ *
+ * Aggregates multiple SKBs into a single large SKB for transmission. MAP
+ * protocol is used to separate the packets in the buffer. This funcion consumes
+ * the argument SKB and should not be further processed by any other function.
+ */
 void rmnet_map_aggregate(struct sk_buff *skb,
 			 struct rmnet_phys_ep_conf_s *config) {
 	uint8_t *dest_buff;

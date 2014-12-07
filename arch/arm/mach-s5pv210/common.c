@@ -61,6 +61,7 @@ static struct cpu_table cpu_ids[] __initdata = {
 	},
 };
 
+/* Initial IO mappings */
 
 static struct map_desc s5pv210_iodesc[] __initdata = {
 	{
@@ -146,15 +147,20 @@ void s5pv210_restart(char mode, const char *cmd)
 	__raw_writel(0x1, S5P_SWRESET);
 }
 
+/*
+ * s5pv210_map_io
+ *
+ * register the standard cpu IO areas
+ */
 
 void __init s5pv210_init_io(struct map_desc *mach_desc, int size)
 {
-	
+	/* initialize the io descriptors we need for initialization */
 	iotable_init(s5pv210_iodesc, ARRAY_SIZE(s5pv210_iodesc));
 	if (mach_desc)
 		iotable_init(mach_desc, size);
 
-	
+	/* detect cpu id and rev. */
 	s5p_init_cpu(S5P_VA_CHIPID);
 
 	s3c_init_cpu(samsung_cpu_id, cpu_ids, ARRAY_SIZE(cpu_ids));
@@ -164,7 +170,7 @@ void __init s5pv210_map_io(void)
 {
 	init_consistent_dma_size(14 << 20);
 
-	
+	/* initialise device information early */
 	s5pv210_default_sdhci0();
 	s5pv210_default_sdhci1();
 	s5pv210_default_sdhci2();
@@ -178,17 +184,17 @@ void __init s5pv210_map_io(void)
 	s3c_fimc_setname(1, "s5pv210-fimc");
 	s3c_fimc_setname(2, "s5pv210-fimc");
 
-	
+	/* the i2c devices are directly compatible with s3c2440 */
 	s3c_i2c0_setname("s3c2440-i2c");
 	s3c_i2c1_setname("s3c2440-i2c");
 	s3c_i2c2_setname("s3c2440-i2c");
 
 	s3c_fb_setname("s5pv210-fb");
 
-	
+	/* Use s5pv210-keypad instead of samsung-keypad */
 	samsung_keypad_setname("s5pv210-keypad");
 
-	
+	/* setup TV devices */
 	s5p_hdmi_setname("s5pv210-hdmi");
 }
 
@@ -204,9 +210,9 @@ void __init s5pv210_init_clocks(int xtal)
 
 void __init s5pv210_init_irq(void)
 {
-	u32 vic[4];	
+	u32 vic[4];	/* S5PV210 supports 4 VIC */
 
-	
+	/* All the VICs are fully populated. */
 	vic[0] = ~0;
 	vic[1] = ~0;
 	vic[2] = ~0;
@@ -236,6 +242,7 @@ int __init s5pv210_init(void)
 	return device_register(&s5pv210_dev);
 }
 
+/* uart registration process */
 
 void __init s5pv210_init_uarts(struct s3c2410_uartcfg *cfg, int no)
 {

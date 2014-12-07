@@ -37,6 +37,7 @@
 #include <net/nfc/nci_core.h>
 #include <linux/nfc.h>
 
+/* Handle NCI Notification packets */
 
 static void nci_core_conn_credits_ntf_packet(struct nci_dev *ndev,
 					     struct sk_buff *skb)
@@ -49,7 +50,7 @@ static void nci_core_conn_credits_ntf_packet(struct nci_dev *ndev,
 	if (ntf->num_entries > NCI_MAX_NUM_CONN)
 		ntf->num_entries = NCI_MAX_NUM_CONN;
 
-	
+	/* update the credits */
 	for (i = 0; i < ntf->num_entries; i++) {
 		ntf->conn_entries[i].conn_id =
 			nci_conn_id(&ntf->conn_entries[i].conn_id);
@@ -59,13 +60,13 @@ static void nci_core_conn_credits_ntf_packet(struct nci_dev *ndev,
 			 ntf->conn_entries[i].credits);
 
 		if (ntf->conn_entries[i].conn_id == NCI_STATIC_RF_CONN_ID) {
-			
+			/* found static rf connection */
 			atomic_add(ntf->conn_entries[i].credits,
 				   &ndev->credits_cnt);
 		}
 	}
 
-	
+	/* trigger the next tx */
 	if (!skb_queue_empty(&ndev->tx_q))
 		queue_work(ndev->tx_wq, &ndev->tx_work);
 }
@@ -78,6 +79,8 @@ static void nci_core_generic_error_ntf_packet(struct nci_dev *ndev,
 	pr_debug("status 0x%x\n", status);
 
 	if (atomic_read(&ndev->state) == NCI_W4_HOST_SELECT) {
+		/* Activation failed, so complete the request
+		   (the state remains the same) */
 		nci_req_complete(ndev, status);
 	}
 }
@@ -91,7 +94,7 @@ static void nci_core_conn_intf_error_ntf_packet(struct nci_dev *ndev,
 
 	pr_debug("status 0x%x, conn_id %d\n", ntf->status, ntf->conn_id);
 
-	
+	/* complete the data exchange transaction, if exists */
 	if (test_bit(NCI_DATA_EXCHANGE, &ndev->flags))
 		nci_data_exchange_complete(ndev, NULL, -EIO);
 }
@@ -225,7 +228,7 @@ static void nci_add_new_target(struct nci_dev *ndev,
 	for (i = 0; i < ndev->n_targets; i++) {
 		target = &ndev->targets[i];
 		if (target->idx == ntf->rf_discovery_id) {
-			
+			/* This target already exists, add the new protocol */
 			nci_add_new_protocol(ndev, target, ntf->rf_protocol,
 					     ntf->rf_tech_and_mode,
 					     &ntf->rf_tech_specific_params);
@@ -233,7 +236,7 @@ static void nci_add_new_target(struct nci_dev *ndev,
 		}
 	}
 
-	
+	/* This is a new target, check if we've enough room */
 	if (ndev->n_targets == NCI_MAX_DISCOVERED_TARGETS) {
 		pr_debug("not enough room, ignoring new target...\n");
 		return;
@@ -448,7 +451,7 @@ static void nci_rf_intf_activated_ntf_packet(struct nci_dev *ndev,
 			break;
 
 		case NCI_RF_INTERFACE_FRAME:
-			
+			/* no activation params */
 			break;
 
 		default:
@@ -464,17 +467,17 @@ exit:
 		ndev->max_data_pkt_payload_size = ntf.max_data_pkt_payload_size;
 		ndev->initial_num_credits = ntf.initial_num_credits;
 
-		
+		/* set the available credits to initial value */
 		atomic_set(&ndev->credits_cnt, ndev->initial_num_credits);
 	}
 
 	if (atomic_read(&ndev->state) == NCI_DISCOVERY) {
-		
+		/* A single target was found and activated automatically */
 		atomic_set(&ndev->state, NCI_POLL_ACTIVE);
 		if (err == NCI_STATUS_OK)
 			nci_target_auto_activated(ndev, &ntf);
-	} else {	
-		
+	} else {	/* ndev->state == NCI_W4_HOST_SELECT */
+		/* A selected target was activated, so complete the request */
 		atomic_set(&ndev->state, NCI_POLL_ACTIVE);
 		nci_req_complete(ndev, err);
 	}
@@ -487,16 +490,16 @@ static void nci_rf_deactivate_ntf_packet(struct nci_dev *ndev,
 
 	pr_debug("entry, type 0x%x, reason 0x%x\n", ntf->type, ntf->reason);
 
-	
+	/* drop tx data queue */
 	skb_queue_purge(&ndev->tx_q);
 
-	
+	/* drop partial rx data packet */
 	if (ndev->rx_data_reassembly) {
 		kfree_skb(ndev->rx_data_reassembly);
 		ndev->rx_data_reassembly = 0;
 	}
 
-	
+	/* complete the data exchange transaction, if exists */
 	if (test_bit(NCI_DATA_EXCHANGE, &ndev->flags))
 		nci_data_exchange_complete(ndev, NULL, -EIO);
 
@@ -515,7 +518,7 @@ void nci_ntf_packet(struct nci_dev *ndev, struct sk_buff *skb)
 		 nci_opcode_oid(ntf_opcode),
 		 nci_plen(skb->data));
 
-	
+	/* strip the nci control header */
 	skb_pull(skb, NCI_CTRL_HDR_SIZE);
 
 	switch (ntf_opcode) {

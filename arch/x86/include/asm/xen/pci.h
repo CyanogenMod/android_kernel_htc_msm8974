@@ -40,6 +40,9 @@ static inline int xen_unregister_device_domain_owner(struct pci_dev *dev)
 
 #if defined(CONFIG_PCI_MSI)
 #if defined(CONFIG_PCI_XEN)
+/* The drivers/pci/xen-pcifront.c sets this structure to
+ * its own functions.
+ */
 struct xen_pci_frontend_ops {
 	int (*enable_msi)(struct pci_dev *dev, int vectors[]);
 	void (*disable_msi)(struct pci_dev *dev);
@@ -73,7 +76,7 @@ static inline void xen_pci_frontend_disable_msix(struct pci_dev *dev)
 	if (xen_pci_frontend && xen_pci_frontend->disable_msix)
 			xen_pci_frontend->disable_msix(dev);
 }
-#endif 
-#endif 
+#endif /* CONFIG_PCI_XEN */
+#endif /* CONFIG_PCI_MSI */
 
-#endif	
+#endif	/* _ASM_X86_XEN_PCI_H */

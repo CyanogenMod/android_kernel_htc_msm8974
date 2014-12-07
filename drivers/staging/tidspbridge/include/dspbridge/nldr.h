@@ -52,4 +52,4 @@ int nldr_find_addr(struct nldr_nodeobject *nldr_node, u32 sym_addr,
 	u32 offset_range, void *offset_output, char *sym_name);
 #endif
 
-#endif 
+#endif /* NLDR_ */

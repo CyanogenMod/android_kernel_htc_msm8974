@@ -20,4 +20,4 @@ struct s5p_mfc_fmt *get_dec_def_fmt(bool src);
 int s5p_mfc_dec_ctrls_setup(struct s5p_mfc_ctx *ctx);
 void s5p_mfc_dec_ctrls_delete(struct s5p_mfc_ctx *ctx);
 
-#endif 
+#endif /* S5P_MFC_DEC_H_ */

@@ -1,6 +1,9 @@
 #ifndef _NDISC_H
 #define _NDISC_H
 
+/*
+ *	ICMP codes for neighbour discovery messages
+ */
 
 #define NDISC_ROUTER_SOLICITATION	133
 #define NDISC_ROUTER_ADVERTISEMENT	134
@@ -8,22 +11,29 @@
 #define NDISC_NEIGHBOUR_ADVERTISEMENT	136
 #define NDISC_REDIRECT			137
 
-#define NDISC_NODETYPE_UNSPEC		0	
-#define NDISC_NODETYPE_HOST		1	
-#define NDISC_NODETYPE_NODEFAULT	2	
-#define NDISC_NODETYPE_DEFAULT		3	
+/*
+ * Router type: cross-layer information from link-layer to
+ * IPv6 layer reported by certain link types (e.g., RFC4214).
+ */
+#define NDISC_NODETYPE_UNSPEC		0	/* unspecified (default) */
+#define NDISC_NODETYPE_HOST		1	/* host or unauthorized router */
+#define NDISC_NODETYPE_NODEFAULT	2	/* non-default router */
+#define NDISC_NODETYPE_DEFAULT		3	/* default router */
 
+/*
+ *	ndisc options
+ */
 
 enum {
 	__ND_OPT_PREFIX_INFO_END = 0,
-	ND_OPT_SOURCE_LL_ADDR = 1,	
-	ND_OPT_TARGET_LL_ADDR = 2,	
-	ND_OPT_PREFIX_INFO = 3,		
-	ND_OPT_REDIRECT_HDR = 4,	
-	ND_OPT_MTU = 5,			
+	ND_OPT_SOURCE_LL_ADDR = 1,	/* RFC2461 */
+	ND_OPT_TARGET_LL_ADDR = 2,	/* RFC2461 */
+	ND_OPT_PREFIX_INFO = 3,		/* RFC2461 */
+	ND_OPT_REDIRECT_HDR = 4,	/* RFC2461 */
+	ND_OPT_MTU = 5,			/* RFC2461 */
 	__ND_OPT_ARRAY_MAX,
-	ND_OPT_ROUTE_INFO = 24,		
-	ND_OPT_RDNSS = 25,		
+	ND_OPT_ROUTE_INFO = 24,		/* RFC4191 */
+	ND_OPT_RDNSS = 25,		/* RFC5006 */
 	__ND_OPT_MAX
 };
 
@@ -144,6 +154,9 @@ extern void			ndisc_send_skb(struct sk_buff *skb,
 
 
 
+/*
+ *	IGMP
+ */
 extern int			igmp6_init(void);
 
 extern void			igmp6_cleanup(void);

@@ -66,6 +66,15 @@ __setup("noreplace-paravirt", setup_noreplace_paravirt);
 #define DPRINTK(fmt, args...) if (debug_alternative) \
 	printk(KERN_DEBUG fmt, args)
 
+/*
+ * Each GENERIC_NOPX is of X bytes, and defined as an array of bytes
+ * that correspond to that nop. Getting from one nop to the next, we
+ * add to the array the offset that is equal to the sum of all sizes of
+ * nops preceding the one we are after.
+ *
+ * Note: The GENERIC_NOP5_ATOMIC is at the end, as it breaks the
+ * nice symmetry of sizes of the previous nops.
+ */
 #if defined(GENERIC_NOP1) && !defined(CONFIG_X86_64)
 static const unsigned char intelnops[] =
 {
@@ -178,6 +187,7 @@ static const unsigned char * const p6_nops[ASM_NOP_MAX+2] =
 };
 #endif
 
+/* Initialize these to a safe default */
 #ifdef CONFIG_X86_64
 const unsigned char * const *ideal_nops = p6_nops;
 #else
@@ -188,6 +198,11 @@ void __init arch_init_ideal_nops(void)
 {
 	switch (boot_cpu_data.x86_vendor) {
 	case X86_VENDOR_INTEL:
+		/*
+		 * Due to a decoder implementation quirk, some
+		 * specific Intel CPUs actually perform better with
+		 * the "k8_nops" than with the SDM-recommended NOPs.
+		 */
 		if (boot_cpu_data.x86 == 6 &&
 		    boot_cpu_data.x86_model >= 0x0f &&
 		    boot_cpu_data.x86_model != 0x1c &&
@@ -219,6 +234,7 @@ void __init arch_init_ideal_nops(void)
 	}
 }
 
+/* Use this to add nops to a buffer, then text_poke the whole buffer. */
 static void __init_or_module add_nops(void *insns, unsigned int len)
 {
 	while (len > 0) {
@@ -235,6 +251,11 @@ extern struct alt_instr __alt_instructions[], __alt_instructions_end[];
 extern s32 __smp_locks[], __smp_locks_end[];
 void *text_poke_early(void *addr, const void *opcode, size_t len);
 
+/* Replace instructions with better alternatives for this CPU type.
+   This runs before SMP is initialized to avoid SMP problems with
+   self modifying code. This implies that asymmetric systems where
+   APs have less capabilities than the boot processor are not handled.
+   Tough. Make sure you disable such features by hand. */
 
 void __init_or_module apply_alternatives(struct alt_instr *start,
 					 struct alt_instr *end)
@@ -244,6 +265,15 @@ void __init_or_module apply_alternatives(struct alt_instr *start,
 	u8 insnbuf[MAX_PATCH_LEN];
 
 	DPRINTK("%s: alt table %p -> %p\n", __func__, start, end);
+	/*
+	 * The scan order should be from start to end. A later scanned
+	 * alternative code can overwrite a previous scanned alternative code.
+	 * Some kernel functions (e.g. memcpy, memset, etc) use this order to
+	 * patch code.
+	 *
+	 * So be careful if you want to change the scan order to any other
+	 * order.
+	 */
 	for (a = start; a < end; a++) {
 		instr = (u8 *)&a->instr_offset + a->instr_offset;
 		replacement = (u8 *)&a->repl_offset + a->repl_offset;
@@ -255,7 +285,7 @@ void __init_or_module apply_alternatives(struct alt_instr *start,
 
 		memcpy(insnbuf, replacement, a->replacementlen);
 
-		
+		/* 0xe8 is a relative jump; fix the offset. */
 		if (*insnbuf == 0xe8 && a->replacementlen == 5)
 		    *(s32 *)(insnbuf + 1) += replacement - instr;
 
@@ -279,7 +309,7 @@ static void alternatives_smp_lock(const s32 *start, const s32 *end,
 
 		if (!*poff || ptr < text || ptr >= text_end)
 			continue;
-		
+		/* turn DS segment override prefix into lock prefix */
 		if (*ptr == 0x3e)
 			text_poke(ptr, ((unsigned char []){0xf0}), 1);
 	};
@@ -300,7 +330,7 @@ static void alternatives_smp_unlock(const s32 *start, const s32 *end,
 
 		if (!*poff || ptr < text || ptr >= text_end)
 			continue;
-		
+		/* turn lock prefix into DS segment override prefix */
 		if (*ptr == 0xf0)
 			text_poke(ptr, ((unsigned char []){0x3E}), 1);
 	};
@@ -308,15 +338,15 @@ static void alternatives_smp_unlock(const s32 *start, const s32 *end,
 }
 
 struct smp_alt_module {
-	
+	/* what is this ??? */
 	struct module	*mod;
 	char		*name;
 
-	
+	/* ptrs to lock prefixes */
 	const s32	*locks;
 	const s32	*locks_end;
 
-	
+	/* .text segment, needed to avoid patching init code ;) */
 	u8		*text;
 	u8		*text_end;
 
@@ -324,7 +354,7 @@ struct smp_alt_module {
 };
 static LIST_HEAD(smp_alt_modules);
 static DEFINE_MUTEX(smp_alt);
-static int smp_mode = 1;	
+static int smp_mode = 1;	/* protected by smp_alt */
 
 void __init_or_module alternatives_smp_module_add(struct module *mod,
 						  char *name,
@@ -345,7 +375,7 @@ void __init_or_module alternatives_smp_module_add(struct module *mod,
 
 	smp = kzalloc(sizeof(*smp), GFP_KERNEL);
 	if (NULL == smp)
-		return; 
+		return; /* we'll run the (safe but slow) SMP code then ... */
 
 	smp->mod	= mod;
 	smp->name	= name;
@@ -391,6 +421,13 @@ void alternatives_smp_switch(int smp)
 	struct smp_alt_module *mod;
 
 #ifdef CONFIG_LOCKDEP
+	/*
+	 * Older binutils section handling bug prevented
+	 * alternatives-replacement from working reliably.
+	 *
+	 * If this still occurs then you should see a hang
+	 * or crash shortly after this line:
+	 */
 	printk("lockdep: fixing up alternatives.\n");
 #endif
 
@@ -400,8 +437,12 @@ void alternatives_smp_switch(int smp)
 
 	mutex_lock(&smp_alt);
 
+	/*
+	 * Avoid unnecessary switches because it forces JIT based VMs to
+	 * throw away all cached translations, which can be quite costly.
+	 */
 	if (smp == smp_mode) {
-		
+		/* nothing */
 	} else if (smp) {
 		printk(KERN_INFO "SMP alternatives: switching to SMP code\n");
 		clear_cpu_cap(&boot_cpu_data, X86_FEATURE_UP);
@@ -421,6 +462,7 @@ void alternatives_smp_switch(int smp)
 	mutex_unlock(&smp_alt);
 }
 
+/* Return 1 if the address range is reserved for smp-alternatives */
 int alternatives_text_reserved(void *start, void *end)
 {
 	struct smp_alt_module *mod;
@@ -457,29 +499,45 @@ void __init_or_module apply_paravirt(struct paravirt_patch_site *start,
 		unsigned int used;
 
 		BUG_ON(p->len > MAX_PATCH_LEN);
-		
+		/* prep the buffer with the original instructions */
 		memcpy(insnbuf, p->instr, p->len);
 		used = pv_init_ops.patch(p->instrtype, p->clobbers, insnbuf,
 					 (unsigned long)p->instr, p->len);
 
 		BUG_ON(used > p->len);
 
-		
+		/* Pad the rest with nops */
 		add_nops(insnbuf + used, p->len - used);
 		text_poke_early(p->instr, insnbuf, p->len);
 	}
 }
 extern struct paravirt_patch_site __start_parainstructions[],
 	__stop_parainstructions[];
-#endif	
+#endif	/* CONFIG_PARAVIRT */
 
 void __init alternative_instructions(void)
 {
+	/* The patching is not fully atomic, so try to avoid local interruptions
+	   that might execute the to be patched code.
+	   Other CPUs are not running. */
 	stop_nmi();
 
+	/*
+	 * Don't stop machine check exceptions while patching.
+	 * MCEs only happen when something got corrupted and in this
+	 * case we must do something about the corruption.
+	 * Ignoring it is worse than a unlikely patching race.
+	 * Also machine checks tend to be broadcast and if one CPU
+	 * goes into machine check the others follow quickly, so we don't
+	 * expect a machine check to cause undue problems during to code
+	 * patching.
+	 */
 
 	apply_alternatives(__alt_instructions, __alt_instructions_end);
 
+	/* switch to patch-once-at-boottime-only mode and free the
+	 * tables in case we know the number of CPUs will never ever
+	 * change */
 #ifdef CONFIG_HOTPLUG_CPU
 	if (num_possible_cpus() < 2)
 		smp_alt_once = 1;
@@ -500,7 +558,7 @@ void __init alternative_instructions(void)
 					    __smp_locks, __smp_locks_end,
 					    _text, _etext);
 
-		
+		/* Only switch to UP mode if we don't immediately boot others */
 		if (num_present_cpus() == 1 || setup_max_cpus <= 1)
 			alternatives_smp_switch(0);
 	}
@@ -515,6 +573,18 @@ void __init alternative_instructions(void)
 	restart_nmi();
 }
 
+/**
+ * text_poke_early - Update instructions on a live kernel at boot time
+ * @addr: address to modify
+ * @opcode: source of the copy
+ * @len: length to copy
+ *
+ * When you use this code to patch more than one byte of an instruction
+ * you need to make sure that other CPUs cannot execute this code in parallel.
+ * Also no thread must be currently preempted in the middle of these
+ * instructions. And on the local CPU you need to be protected again NMI or MCE
+ * handlers seeing an inconsistent instruction while you patch.
+ */
 void *__init_or_module text_poke_early(void *addr, const void *opcode,
 					      size_t len)
 {
@@ -523,9 +593,24 @@ void *__init_or_module text_poke_early(void *addr, const void *opcode,
 	memcpy(addr, opcode, len);
 	sync_core();
 	local_irq_restore(flags);
+	/* Could also do a CLFLUSH here to speed up CPU recovery; but
+	   that causes hangs on some VIA CPUs. */
 	return addr;
 }
 
+/**
+ * text_poke - Update instructions on a live kernel
+ * @addr: address to modify
+ * @opcode: source of the copy
+ * @len: length to copy
+ *
+ * Only atomic text poke/set should be allowed when not doing early patching.
+ * It means the size must be writable atomically and the address must be aligned
+ * in a way that permits an atomic write. It also makes sure we fit on a single
+ * page.
+ *
+ * Note: Must be called under text_mutex.
+ */
 void *__kprobes text_poke(void *addr, const void *opcode, size_t len)
 {
 	unsigned long flags;
@@ -553,12 +638,18 @@ void *__kprobes text_poke(void *addr, const void *opcode, size_t len)
 		clear_fixmap(FIX_TEXT_POKE1);
 	local_flush_tlb();
 	sync_core();
+	/* Could also do a CLFLUSH here to speed up CPU recovery; but
+	   that causes hangs on some VIA CPUs. */
 	for (i = 0; i < len; i++)
 		BUG_ON(((char *)addr)[i] != ((char *)opcode)[i]);
 	local_irq_restore(flags);
 	return addr;
 }
 
+/*
+ * Cross-modifying kernel text with stop_machine().
+ * This code originally comes from immediate value.
+ */
 static atomic_t stop_machine_first;
 static int wrote_text;
 
@@ -578,12 +669,12 @@ static int __kprobes stop_machine_text_poke(void *data)
 			p = &tpp->params[i];
 			text_poke(p->addr, p->opcode, p->len);
 		}
-		smp_wmb();	
+		smp_wmb();	/* Make sure other cpus see that this has run */
 		wrote_text = 1;
 	} else {
 		while (!wrote_text)
 			cpu_relax();
-		smp_mb();	
+		smp_mb();	/* Load wrote_text before following execution */
 	}
 
 	for (i = 0; i < tpp->nparams; i++) {
@@ -591,10 +682,28 @@ static int __kprobes stop_machine_text_poke(void *data)
 		flush_icache_range((unsigned long)p->addr,
 				   (unsigned long)p->addr + p->len);
 	}
+	/*
+	 * Intel Archiecture Software Developer's Manual section 7.1.3 specifies
+	 * that a core serializing instruction such as "cpuid" should be
+	 * executed on _each_ core before the new instruction is made visible.
+	 */
 	sync_core();
 	return 0;
 }
 
+/**
+ * text_poke_smp - Update instructions on a live kernel on SMP
+ * @addr: address to modify
+ * @opcode: source of the copy
+ * @len: length to copy
+ *
+ * Modify multi-byte instruction by using stop_machine() on SMP. This allows
+ * user to poke/set multi-byte text on SMP. Only non-NMI/MCE code modifying
+ * should be allowed, since stop_machine() does _not_ protect code against
+ * NMI and MCE.
+ *
+ * Note: Must be called under get_online_cpus() and text_mutex.
+ */
 void *__kprobes text_poke_smp(void *addr, const void *opcode, size_t len)
 {
 	struct text_poke_params tpp;
@@ -607,11 +716,22 @@ void *__kprobes text_poke_smp(void *addr, const void *opcode, size_t len)
 	tpp.nparams = 1;
 	atomic_set(&stop_machine_first, 1);
 	wrote_text = 0;
-	
+	/* Use __stop_machine() because the caller already got online_cpus. */
 	__stop_machine(stop_machine_text_poke, (void *)&tpp, cpu_online_mask);
 	return addr;
 }
 
+/**
+ * text_poke_smp_batch - Update instructions on a live kernel on SMP
+ * @params: an array of text_poke parameters
+ * @n: the number of elements in params.
+ *
+ * Modify multi-byte instruction by using stop_machine() on SMP. Since the
+ * stop_machine() is heavy task, it is better to aggregate text_poke requests
+ * and do it once if possible.
+ *
+ * Note: Must be called under get_online_cpus() and text_mutex.
+ */
 void __kprobes text_poke_smp_batch(struct text_poke_param *params, int n)
 {
 	struct text_poke_params tpp = {.params = params, .nparams = n};

@@ -34,18 +34,20 @@
 #define MIN_FRAME_RATE			15
 #define FRAME_INTERVAL_MILLI_SEC	(1000 / MIN_FRAME_RATE)
 
+/* ISI states */
 enum {
 	ISI_STATE_IDLE = 0,
 	ISI_STATE_READY,
 	ISI_STATE_WAIT_SOF,
 };
 
+/* Frame buffer descriptor */
 struct fbd {
-	
+	/* Physical address of the frame buffer */
 	u32 fb_address;
-	
+	/* DMA Control Register(only in HISI2) */
 	u32 dma_ctrl;
-	
+	/* Physical address of the next fbd */
 	u32 next_fbd_address;
 };
 
@@ -60,6 +62,7 @@ struct isi_dma_desc {
 	u32 fbd_phys;
 };
 
+/* Frame buffer data */
 struct frame_buffer {
 	struct vb2_buffer vb;
 	struct isi_dma_desc *p_dma_desc;
@@ -67,34 +70,34 @@ struct frame_buffer {
 };
 
 struct atmel_isi {
-	
+	/* Protects the access of variables shared with the ISR */
 	spinlock_t			lock;
 	void __iomem			*regs;
 
 	int				sequence;
-	
+	/* State of the ISI module in capturing mode */
 	int				state;
 
-	
+	/* Wait queue for waiting for SOF */
 	wait_queue_head_t		vsync_wq;
 
 	struct vb2_alloc_ctx		*alloc_ctx;
 
-	
+	/* Allocate descriptors for dma buffer use */
 	struct fbd			*p_fb_descriptors;
 	u32				fb_descriptors_phys;
 	struct				list_head dma_desc_head;
 	struct isi_dma_desc		dma_desc[MAX_BUFFER_NUM];
 
 	struct completion		complete;
-	
+	/* ISI peripherial clock */
 	struct clk			*pclk;
-	
+	/* ISI_MCK, feed to camera sensor to generate pixel clock */
 	struct clk			*mck;
 	unsigned int			irq;
 
 	struct isi_platform_data	*pdata;
-	u16				width_flags;	
+	u16				width_flags;	/* max 12 bits */
 
 	struct list_head		video_buffer_list;
 	struct frame_buffer		*active;
@@ -118,7 +121,7 @@ static int configure_geometry(struct atmel_isi *isi, u32 width,
 	u32 cfg2, cr;
 
 	switch (code) {
-	
+	/* YUV, including grey */
 	case V4L2_MBUS_FMT_Y8_1X8:
 		cr = ISI_CFG2_GRAYSCALE;
 		break;
@@ -134,7 +137,7 @@ static int configure_geometry(struct atmel_isi *isi, u32 width,
 	case V4L2_MBUS_FMT_YVYU8_2X8:
 		cr = ISI_CFG2_YCC_SWAP_DEFAULT;
 		break;
-	
+	/* RGB, TODO */
 	default:
 		return -EINVAL;
 	}
@@ -143,11 +146,11 @@ static int configure_geometry(struct atmel_isi *isi, u32 width,
 
 	cfg2 = isi_readl(isi, ISI_CFG2);
 	cfg2 |= cr;
-	
+	/* Set width */
 	cfg2 &= ~(ISI_CFG2_IM_HSIZE_MASK);
 	cfg2 |= ((width - 1) << ISI_CFG2_IM_HSIZE_OFFSET) &
 			ISI_CFG2_IM_HSIZE_MASK;
-	
+	/* Set height */
 	cfg2 &= ~(ISI_CFG2_IM_VSIZE_MASK);
 	cfg2 |= ((height - 1) << ISI_CFG2_IM_VSIZE_OFFSET)
 			& ISI_CFG2_IM_VSIZE_MASK;
@@ -171,7 +174,7 @@ static irqreturn_t atmel_isi_handle_streaming(struct atmel_isi *isi)
 	if (list_empty(&isi->video_buffer_list)) {
 		isi->active = NULL;
 	} else {
-		
+		/* start next dma frame. */
 		isi->active = list_entry(isi->video_buffer_list.next,
 					struct frame_buffer, list);
 		isi_writel(isi, ISI_DMA_C_DSCR,
@@ -183,6 +186,7 @@ static irqreturn_t atmel_isi_handle_streaming(struct atmel_isi *isi)
 	return IRQ_HANDLED;
 }
 
+/* ISI interrupt service routine */
 static irqreturn_t isi_interrupt(int irq, void *dev_id)
 {
 	struct atmel_isi *isi = dev_id;
@@ -223,6 +227,10 @@ static irqreturn_t isi_interrupt(int irq, void *dev_id)
 static int atmel_isi_wait_status(struct atmel_isi *isi, int wait_reset)
 {
 	unsigned long timeout;
+	/*
+	 * The reset or disable will only succeed if we have a
+	 * pixel clock from the camera.
+	 */
 	init_completion(&isi->complete);
 
 	if (wait_reset) {
@@ -241,6 +249,9 @@ static int atmel_isi_wait_status(struct atmel_isi *isi, int wait_reset)
 	return 0;
 }
 
+/* ------------------------------------------------------------------
+	Videobuf operations
+   ------------------------------------------------------------------*/
 static int queue_setup(struct vb2_queue *vq, const struct v4l2_format *fmt,
 				unsigned int *nbuffers, unsigned int *nplanes,
 				unsigned int sizes[], void *alloc_ctxs[])
@@ -251,13 +262,13 @@ static int queue_setup(struct vb2_queue *vq, const struct v4l2_format *fmt,
 	unsigned long size;
 	int ret, bytes_per_line;
 
-	
+	/* Reset ISI */
 	ret = atmel_isi_wait_status(isi, WAIT_ISI_RESET);
 	if (ret < 0) {
 		dev_err(icd->parent, "Reset ISI timed out\n");
 		return ret;
 	}
-	
+	/* Disable all interrupts */
 	isi_writel(isi, ISI_INTDIS, ~0UL);
 
 	bytes_per_line = soc_mbus_bytes_per_line(icd->user_width,
@@ -326,13 +337,13 @@ static int buffer_prepare(struct vb2_buffer *vb)
 			dev_err(icd->parent, "Not enough dma descriptors.\n");
 			return -EINVAL;
 		} else {
-			
+			/* Get an available descriptor */
 			desc = list_entry(isi->dma_desc_head.next,
 						struct isi_dma_desc, list);
-			
+			/* Delete the descriptor since now it is used */
 			list_del_init(&desc->list);
 
-			
+			/* Initialize the dma descriptor */
 			desc->p_fbd->fb_address =
 					vb2_dma_contig_plane_dma_addr(vb, 0);
 			desc->p_fbd->next_fbd_address = 0;
@@ -351,7 +362,7 @@ static void buffer_cleanup(struct vb2_buffer *vb)
 	struct atmel_isi *isi = ici->priv;
 	struct frame_buffer *buf = container_of(vb, struct frame_buffer, vb);
 
-	
+	/* This descriptor is available now and we add to head list */
 	if (buf->p_dma_desc)
 		list_add(&buf->p_dma_desc->list, &isi->dma_desc_head);
 }
@@ -361,11 +372,11 @@ static void start_dma(struct atmel_isi *isi, struct frame_buffer *buffer)
 	u32 ctrl, cfg1;
 
 	cfg1 = isi_readl(isi, ISI_CFG1);
-	
+	/* Enable irq: cxfr for the codec path, pxfr for the preview path */
 	isi_writel(isi, ISI_INTEN,
 			ISI_SR_CXFR_DONE | ISI_SR_PXFR_DONE);
 
-	
+	/* Check if already in a frame */
 	if (isi_readl(isi, ISI_STATUS) & ISI_CTRL_CDC) {
 		dev_err(isi->icd->parent, "Already in frame handling.\n");
 		return;
@@ -375,10 +386,10 @@ static void start_dma(struct atmel_isi *isi, struct frame_buffer *buffer)
 	isi_writel(isi, ISI_DMA_C_CTRL, ISI_DMA_CTRL_FETCH | ISI_DMA_CTRL_DONE);
 	isi_writel(isi, ISI_DMA_CHER, ISI_DMA_CHSR_C_CH);
 
-	
+	/* Enable linked list */
 	cfg1 |= isi->pdata->frate | ISI_CFG1_DISCR;
 
-	
+	/* Enable codec path and ISI */
 	ctrl = ISI_CTRL_CDC | ISI_CTRL_EN;
 	isi_writel(isi, ISI_CTRL, ctrl);
 	isi_writel(isi, ISI_CFG1, cfg1);
@@ -414,9 +425,9 @@ static int start_streaming(struct vb2_queue *vq, unsigned int count)
 
 	spin_lock_irq(&isi->lock);
 	isi->state = ISI_STATE_IDLE;
-	
+	/* Clear any pending SOF interrupt */
 	sr = isi_readl(isi, ISI_STATUS);
-	
+	/* Enable VSYNC interrupt for SOF */
 	isi_writel(isi, ISI_INTEN, ISI_SR_VSYNC);
 	isi_writel(isi, ISI_CTRL, ISI_CTRL_EN);
 	spin_unlock_irq(&isi->lock);
@@ -447,6 +458,7 @@ err:
 	return ret;
 }
 
+/* abort streaming and wait for last buffer */
 static int stop_streaming(struct vb2_queue *vq)
 {
 	struct soc_camera_device *icd = soc_camera_from_vb2q(vq);
@@ -458,7 +470,7 @@ static int stop_streaming(struct vb2_queue *vq)
 
 	spin_lock_irq(&isi->lock);
 	isi->active = NULL;
-	
+	/* Release all active buffers */
 	list_for_each_entry_safe(buf, node, &isi->video_buffer_list, list) {
 		list_del_init(&buf->list);
 		vb2_buffer_done(&buf->vb, VB2_BUF_STATE_ERROR);
@@ -466,7 +478,7 @@ static int stop_streaming(struct vb2_queue *vq)
 	spin_unlock_irq(&isi->lock);
 
 	timeout = jiffies + FRAME_INTERVAL_MILLI_SEC * HZ;
-	
+	/* Wait until the end of the current frame. */
 	while ((isi_readl(isi, ISI_STATUS) & ISI_CTRL_CDC) &&
 			time_before(jiffies, timeout))
 		msleep(1);
@@ -477,11 +489,11 @@ static int stop_streaming(struct vb2_queue *vq)
 		return -ETIMEDOUT;
 	}
 
-	
+	/* Disable interrupts */
 	isi_writel(isi, ISI_INTDIS,
 			ISI_SR_CXFR_DONE | ISI_SR_PXFR_DONE);
 
-	
+	/* Disable ISI and wait for it is done */
 	ret = atmel_isi_wait_status(isi, WAIT_ISI_DISABLE);
 	if (ret < 0)
 		dev_err(icd->parent, "Disable ISI timed out\n");
@@ -501,6 +513,9 @@ static struct vb2_ops isi_video_qops = {
 	.wait_finish		= soc_camera_lock,
 };
 
+/* ------------------------------------------------------------------
+	SOC camera operations for the device
+   ------------------------------------------------------------------*/
 static int isi_camera_init_videobuf(struct vb2_queue *q,
 				     struct soc_camera_device *icd)
 {
@@ -580,13 +595,13 @@ static int isi_camera_try_fmt(struct soc_camera_device *icd,
 		return -EINVAL;
 	}
 
-	
+	/* limit to Atmel ISI hardware capabilities */
 	if (pix->height > MAX_SUPPORT_HEIGHT)
 		pix->height = MAX_SUPPORT_HEIGHT;
 	if (pix->width > MAX_SUPPORT_WIDTH)
 		pix->width = MAX_SUPPORT_WIDTH;
 
-	
+	/* limit to sensor capabilities */
 	mf.width	= pix->width;
 	mf.height	= pix->height;
 	mf.field	= pix->field;
@@ -626,6 +641,7 @@ static const struct soc_mbus_pixelfmt isi_camera_formats[] = {
 	},
 };
 
+/* This will be corrected as we get more formats */
 static bool isi_camera_packing_supported(const struct soc_mbus_pixelfmt *fmt)
 {
 	return	fmt->packing == SOC_MBUS_PACKING_NONE ||
@@ -680,14 +696,14 @@ static int isi_camera_get_formats(struct soc_camera_device *icd,
 {
 	struct v4l2_subdev *sd = soc_camera_to_subdev(icd);
 	int formats = 0, ret;
-	
+	/* sensor format */
 	enum v4l2_mbus_pixelcode code;
-	
+	/* soc camera host format */
 	const struct soc_mbus_pixelfmt *fmt;
 
 	ret = v4l2_subdev_call(sd, video, enum_mbus_fmt, idx, &code);
 	if (ret < 0)
-		
+		/* No more formats */
 		return 0;
 
 	fmt = soc_mbus_get_fmtdesc(code);
@@ -697,7 +713,7 @@ static int isi_camera_get_formats(struct soc_camera_device *icd,
 		return 0;
 	}
 
-	
+	/* This also checks support for the requested bits-per-sample */
 	ret = isi_camera_try_bus_param(icd, fmt->bits_per_sample);
 	if (ret < 0) {
 		dev_err(icd->parent,
@@ -728,7 +744,7 @@ static int isi_camera_get_formats(struct soc_camera_device *icd,
 				fmt->name);
 	}
 
-	
+	/* Generic pass-through */
 	formats++;
 	if (xlate) {
 		xlate->host_fmt	= fmt;
@@ -739,6 +755,7 @@ static int isi_camera_get_formats(struct soc_camera_device *icd,
 	return formats;
 }
 
+/* Called with .video_lock held */
 static int isi_camera_add_device(struct soc_camera_device *icd)
 {
 	struct soc_camera_host *ici = to_soc_camera_host(icd->parent);
@@ -763,6 +780,7 @@ static int isi_camera_add_device(struct soc_camera_device *icd)
 		 icd->devnum);
 	return 0;
 }
+/* Called with .video_lock held */
 static void isi_camera_remove_device(struct soc_camera_device *icd)
 {
 	struct soc_camera_host *ici = to_soc_camera_host(icd->parent);
@@ -823,7 +841,7 @@ static int isi_camera_set_bus_param(struct soc_camera_device *icd)
 	dev_dbg(icd->parent, "Flags cam: 0x%x host: 0x%x common: 0x%lx\n",
 		cfg.flags, ISI_BUS_PARAM, common_flags);
 
-	
+	/* Make choises, based on platform preferences */
 	if ((common_flags & V4L2_MBUS_HSYNC_ACTIVE_HIGH) &&
 	    (common_flags & V4L2_MBUS_HSYNC_ACTIVE_LOW)) {
 		if (isi->pdata->hsync_act_low)
@@ -856,7 +874,7 @@ static int isi_camera_set_bus_param(struct soc_camera_device *icd)
 		return ret;
 	}
 
-	
+	/* set bus param for ISI */
 	if (common_flags & V4L2_MBUS_HSYNC_ACTIVE_LOW)
 		cfg1 |= ISI_CFG1_HSYNC_POL_ACTIVE_LOW;
 	if (common_flags & V4L2_MBUS_VSYNC_ACTIVE_LOW)
@@ -888,6 +906,7 @@ static struct soc_camera_host_ops isi_soc_camera_host_ops = {
 	.set_bus_param	= isi_camera_set_bus_param,
 };
 
+/* -----------------------------------------------------------------------*/
 static int __devexit atmel_isi_remove(struct platform_device *pdev)
 {
 	struct soc_camera_host *soc_host = to_soc_camera_host(&pdev->dev);
@@ -957,7 +976,7 @@ static int __devinit atmel_isi_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&isi->video_buffer_list);
 	INIT_LIST_HEAD(&isi->dma_desc_head);
 
-	
+	/* Get ISI_MCK, provided by programmable clock or external clock */
 	isi->mck = clk_get(dev, "isi_mck");
 	if (IS_ERR(isi->mck)) {
 		dev_err(dev, "Failed to get isi_mck\n");
@@ -969,7 +988,7 @@ static int __devinit atmel_isi_probe(struct platform_device *pdev)
 	if (ret)
 		goto err_clk_prepare_mck;
 
-	
+	/* Set ISI_MCK's frequency, it should be faster than pixel clock */
 	ret = clk_set_rate(isi->mck, pdata->mck_hz);
 	if (ret < 0)
 		goto err_set_mck_rate;

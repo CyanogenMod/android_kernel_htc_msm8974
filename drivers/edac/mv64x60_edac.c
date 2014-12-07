@@ -26,6 +26,7 @@ static int edac_dev_idx;
 static int edac_pci_idx;
 static int edac_mc_idx;
 
+/*********************** PCI err device **********************************/
 #ifdef CONFIG_PCI
 static void mv64x60_pci_check(struct edac_pci_ctl_info *pci)
 {
@@ -70,7 +71,13 @@ static irqreturn_t mv64x60_pci_isr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Bit 0 of MV64x60_PCIx_ERR_MASK does not exist on the 64360 and because of
+ * errata FEr-#11 and FEr-##16 for the 64460, it should be 0 on that chip as
+ * well.  IOW, don't set bit 0.
+ */
 
+/* Erratum FEr PCI-#16: clear bit 0 of PCI SERRn Mask reg. */
 static int __init mv64x60_pci_fixup(struct platform_device *pdev)
 {
 	struct resource *r;
@@ -186,7 +193,7 @@ static int __devinit mv64x60_pci_err_probe(struct platform_device *pdev)
 
 	devres_remove_group(&pdev->dev, mv64x60_pci_err_probe);
 
-	
+	/* get this far and it's successful */
 	debugf3("%s(): success\n", __func__);
 
 	return 0;
@@ -220,8 +227,9 @@ static struct platform_driver mv64x60_pci_err_driver = {
 	}
 };
 
-#endif 
+#endif /* CONFIG_PCI */
 
+/*********************** SRAM err device **********************************/
 static void mv64x60_sram_check(struct edac_device_ctl_info *edac_dev)
 {
 	struct mv64x60_sram_pdata *pdata = edac_dev->pvt_info;
@@ -316,7 +324,7 @@ static int __devinit mv64x60_sram_err_probe(struct platform_device *pdev)
 		goto err;
 	}
 
-	
+	/* setup SRAM err registers */
 	out_le32(pdata->sram_vbase + MV64X60_SRAM_ERR_CAUSE, 0);
 
 	edac_dev->mod_name = EDAC_MOD_STR;
@@ -354,7 +362,7 @@ static int __devinit mv64x60_sram_err_probe(struct platform_device *pdev)
 
 	devres_remove_group(&pdev->dev, mv64x60_sram_err_probe);
 
-	
+	/* get this far and it's successful */
 	debugf3("%s(): success\n", __func__);
 
 	return 0;
@@ -387,6 +395,7 @@ static struct platform_driver mv64x60_sram_err_driver = {
 	}
 };
 
+/*********************** CPU err device **********************************/
 static void mv64x60_cpu_check(struct edac_device_ctl_info *edac_dev)
 {
 	struct mv64x60_cpu_pdata *pdata = edac_dev->pvt_info;
@@ -509,7 +518,7 @@ static int __devinit mv64x60_cpu_err_probe(struct platform_device *pdev)
 		goto err;
 	}
 
-	
+	/* setup CPU err registers */
 	out_le32(pdata->cpu_vbase[1] + MV64x60_CPU_ERR_CAUSE, 0);
 	out_le32(pdata->cpu_vbase[1] + MV64x60_CPU_ERR_MASK, 0);
 	out_le32(pdata->cpu_vbase[1] + MV64x60_CPU_ERR_MASK, 0x000000ff);
@@ -548,7 +557,7 @@ static int __devinit mv64x60_cpu_err_probe(struct platform_device *pdev)
 
 	devres_remove_group(&pdev->dev, mv64x60_cpu_err_probe);
 
-	
+	/* get this far and it's successful */
 	debugf3("%s(): success\n", __func__);
 
 	return 0;
@@ -580,6 +589,7 @@ static struct platform_driver mv64x60_cpu_err_driver = {
 	}
 };
 
+/*********************** DRAM err device **********************************/
 
 static void mv64x60_mc_check(struct mem_ctl_info *mci)
 {
@@ -599,16 +609,16 @@ static void mv64x60_mc_check(struct mem_ctl_info *mci)
 	comp_ecc = in_le32(pdata->mc_vbase + MV64X60_SDRAM_ERR_ECC_CALC);
 	syndrome = sdram_ecc ^ comp_ecc;
 
-	
+	/* first bit clear in ECC Err Reg, 1 bit error, correctable by HW */
 	if (!(reg & 0x1))
 		edac_mc_handle_ce(mci, err_addr >> PAGE_SHIFT,
 				  err_addr & PAGE_MASK, syndrome, 0, 0,
 				  mci->ctl_name);
-	else	
+	else	/* 2 bit error, UE */
 		edac_mc_handle_ue(mci, err_addr >> PAGE_SHIFT,
 				  err_addr & PAGE_MASK, 0, mci->ctl_name);
 
-	
+	/* clear the error */
 	out_le32(pdata->mc_vbase + MV64X60_SDRAM_ERR_ADDR, 0);
 }
 
@@ -622,7 +632,7 @@ static irqreturn_t mv64x60_mc_isr(int irq, void *dev_id)
 	if (!reg)
 		return IRQ_NONE;
 
-	
+	/* writing 0's to the ECC err addr in check function clears irq */
 	mv64x60_mc_check(mci);
 
 	return IRQ_HANDLED;
@@ -666,7 +676,7 @@ static void mv64x60_init_csrows(struct mem_ctl_info *mci,
 	case 0x0:
 		csrow->dtype = DEV_X32;
 		break;
-	case 0x2:		
+	case 0x2:		/* could be X8 too, but no way to tell */
 		csrow->dtype = DEV_X16;
 		break;
 	case 0x3:
@@ -735,7 +745,7 @@ static int __devinit mv64x60_mc_err_probe(struct platform_device *pdev)
 
 	ctl = in_le32(pdata->mc_vbase + MV64X60_SDRAM_CONFIG);
 	if (!(ctl & MV64X60_SDRAM_ECC)) {
-		
+		/* Non-ECC RAM? */
 		printk(KERN_WARNING "%s: No ECC DIMMs discovered\n", __func__);
 		res = -ENODEV;
 		goto err2;
@@ -758,7 +768,7 @@ static int __devinit mv64x60_mc_err_probe(struct platform_device *pdev)
 
 	mv64x60_init_csrows(mci, pdata);
 
-	
+	/* setup MC registers */
 	out_le32(pdata->mc_vbase + MV64X60_SDRAM_ERR_ADDR, 0);
 	ctl = in_le32(pdata->mc_vbase + MV64X60_SDRAM_ERR_ECC_CNTL);
 	ctl = (ctl & 0xff00ffff) | 0x10000;
@@ -770,7 +780,7 @@ static int __devinit mv64x60_mc_err_probe(struct platform_device *pdev)
 	}
 
 	if (edac_op_state == EDAC_OPSTATE_INT) {
-		
+		/* acquire interrupt that reports errors */
 		pdata->irq = platform_get_irq(pdev, 0);
 		res = devm_request_irq(&pdev->dev,
 				       pdata->irq,
@@ -789,7 +799,7 @@ static int __devinit mv64x60_mc_err_probe(struct platform_device *pdev)
 		       pdata->irq);
 	}
 
-	
+	/* get this far and it's successful */
 	debugf3("%s(): success\n", __func__);
 
 	return 0;
@@ -827,7 +837,7 @@ static int __init mv64x60_edac_init(void)
 
 	printk(KERN_INFO "Marvell MV64x60 EDAC driver " MV64x60_REVISION "\n");
 	printk(KERN_INFO "\t(C) 2006-2007 MontaVista Software\n");
-	
+	/* make sure error reporting method is sane */
 	switch (edac_op_state) {
 	case EDAC_OPSTATE_POLL:
 	case EDAC_OPSTATE_INT:

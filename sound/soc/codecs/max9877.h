@@ -20,10 +20,12 @@
 #define MAX9877_HPR_VOLUME		0x03
 #define MAX9877_OUTPUT_MODE		0x04
 
+/* MAX9877_INPUT_MODE */
 #define MAX9877_INB			(1 << 4)
 #define MAX9877_INA			(1 << 5)
 #define MAX9877_ZCD			(1 << 6)
 
+/* MAX9877_OUTPUT_MODE */
 #define MAX9877_OUTMODE_MASK		(15 << 0)
 #define MAX9877_OSC_MASK		(3 << 4)
 #define MAX9877_OSC_OFFSET		4

@@ -40,9 +40,13 @@ static inline bool dcr_map_ok_native(dcr_host_native_t host)
 #define dcr_read_native(host, dcr_n)		mfdcr(dcr_n + host.base)
 #define dcr_write_native(host, dcr_n, value)	mtdcr(dcr_n + host.base, value)
 
+/* Table based DCR accessors */
 extern void __mtdcr(unsigned int reg, unsigned int val);
 extern unsigned int __mfdcr(unsigned int reg);
 
+/* mfdcrx/mtdcrx instruction based accessors. We hand code
+ * the opcodes in order not to depend on newer binutils
+ */
 static inline unsigned int mfdcrx(unsigned int reg)
 {
 	unsigned int ret;
@@ -79,6 +83,7 @@ do {								\
 		__mtdcr(rn, v);					\
 } while (0)
 
+/* R/W of indirect DCRs make use of standard naming conventions for DCRs */
 extern spinlock_t dcr_ind_lock;
 
 static inline unsigned __mfdcri(int base_addr, int base_data, int reg)
@@ -145,6 +150,6 @@ static inline void __dcri_clrset(int base_addr, int base_data, int reg,
 							      DCRN_ ## base ## _CONFIG_DATA,	\
 							      reg, clr, set)
 
-#endif 
-#endif 
-#endif 
+#endif /* __ASSEMBLY__ */
+#endif /* __KERNEL__ */
+#endif /* _ASM_POWERPC_DCR_NATIVE_H */

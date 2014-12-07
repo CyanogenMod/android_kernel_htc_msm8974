@@ -33,6 +33,14 @@ static struct kmem_cache *integrity_cachep;
 
 static const char *bi_unsupported_name = "unsupported";
 
+/**
+ * blk_rq_count_integrity_sg - Count number of integrity scatterlist elements
+ * @q:		request queue
+ * @bio:	bio with integrity metadata attached
+ *
+ * Description: Returns the number of elements required in a
+ * scatterlist corresponding to the integrity metadata in a bio.
+ */
 int blk_rq_count_integrity_sg(struct request_queue *q, struct bio *bio)
 {
 	struct bio_vec *iv, *ivprv = NULL;
@@ -66,6 +74,16 @@ new_segment:
 }
 EXPORT_SYMBOL(blk_rq_count_integrity_sg);
 
+/**
+ * blk_rq_map_integrity_sg - Map integrity metadata into a scatterlist
+ * @q:		request queue
+ * @bio:	bio with integrity metadata attached
+ * @sglist:	target scatterlist
+ *
+ * Description: Map the integrity vectors in request into a
+ * scatterlist.  The scatterlist must be big enough to hold all
+ * elements.  I.e. sized using blk_rq_count_integrity_sg().
+ */
 int blk_rq_map_integrity_sg(struct request_queue *q, struct bio *bio,
 			    struct scatterlist *sglist)
 {
@@ -110,6 +128,17 @@ new_segment:
 }
 EXPORT_SYMBOL(blk_rq_map_integrity_sg);
 
+/**
+ * blk_integrity_compare - Compare integrity profile of two disks
+ * @gd1:	Disk to compare
+ * @gd2:	Disk to compare
+ *
+ * Description: Meta-devices like DM and MD need to verify that all
+ * sub-devices use the same integrity format before advertising to
+ * upper layers that they can send/receive integrity metadata.  This
+ * function can be used to check whether two gendisk devices have
+ * compatible integrity formats.
+ */
 int blk_integrity_compare(struct gendisk *gd1, struct gendisk *gd2)
 {
 	struct blk_integrity *b1 = gd1->integrity;
@@ -340,6 +369,18 @@ bool blk_integrity_is_initialized(struct gendisk *disk)
 }
 EXPORT_SYMBOL(blk_integrity_is_initialized);
 
+/**
+ * blk_integrity_register - Register a gendisk as being integrity-capable
+ * @disk:	struct gendisk pointer to make integrity-aware
+ * @template:	optional integrity profile to register
+ *
+ * Description: When a device needs to advertise itself as being able
+ * to send/receive integrity metadata it must use this function to
+ * register the capability with the block layer.  The template is a
+ * blk_integrity struct with values appropriate for the underlying
+ * hardware.  If template is NULL the new profile is allocated but
+ * not filled out. See Documentation/block/data-integrity.txt.
+ */
 int blk_integrity_register(struct gendisk *disk, struct blk_integrity *template)
 {
 	struct blk_integrity *bi;
@@ -367,7 +408,7 @@ int blk_integrity_register(struct gendisk *disk, struct blk_integrity *template)
 	} else
 		bi = disk->integrity;
 
-	
+	/* Use the provided profile as template */
 	if (template != NULL) {
 		bi->name = template->name;
 		bi->generate_fn = template->generate_fn;
@@ -383,6 +424,13 @@ int blk_integrity_register(struct gendisk *disk, struct blk_integrity *template)
 }
 EXPORT_SYMBOL(blk_integrity_register);
 
+/**
+ * blk_integrity_unregister - Remove block integrity profile
+ * @disk:	disk whose integrity profile to deallocate
+ *
+ * Description: This function frees all memory used by the block
+ * integrity profile.  To be called at device teardown.
+ */
 void blk_integrity_unregister(struct gendisk *disk)
 {
 	struct blk_integrity *bi;

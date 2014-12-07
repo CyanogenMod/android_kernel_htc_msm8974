@@ -43,7 +43,7 @@ struct mipc_infohdr {
 
 static int mipc_check_address(u32 pa)
 {
-	
+	/* only MEM2 addresses */
 	if (pa < 0x10000000 || pa > 0x14000000)
 		return -EINVAL;
 	return 0;
@@ -53,7 +53,7 @@ static struct mipc_infohdr *mipc_get_infohdr(void)
 {
 	struct mipc_infohdr **hdrp, *hdr;
 
-	
+	/* 'mini' header pointer is the last word of MEM2 memory */
 	hdrp = (struct mipc_infohdr **)0x13fffffc;
 	if (mipc_check_address((u32)hdrp)) {
 		printf("mini: invalid hdrp %08X\n", (u32)hdrp);
@@ -113,17 +113,17 @@ static void platform_fixups(void)
 	if (!mem)
 		fatal("Can't find memory node\n");
 
-	
+	/* two ranges of (address, size) words */
 	len = getprop(mem, "reg", reg, sizeof(reg));
 	if (len != sizeof(reg)) {
-		
+		/* nothing to do */
 		goto out;
 	}
 
-	
+	/* retrieve MEM2 boundary from 'mini' */
 	error = mipc_get_mem2_boundary(&mem2_boundary);
 	if (error) {
-		
+		/* if that fails use a sane value */
 		mem2_boundary = MEM2_TOP - FIRMWARE_DEFAULT_SIZE;
 	}
 
@@ -144,6 +144,10 @@ void platform_init(unsigned long r3, unsigned long r4, unsigned long r5)
 	simple_alloc_init(_end, heapsize, 32, 64);
 	fdt_init(_dtb_start);
 
+	/*
+	 * 'mini' boots the Broadway processor with EXI disabled.
+	 * We need it enabled before probing for the USB Gecko.
+	 */
 	out_be32(EXI_CTRL, in_be32(EXI_CTRL) | EXI_CTRL_ENABLE);
 
 	if (ug_probe())

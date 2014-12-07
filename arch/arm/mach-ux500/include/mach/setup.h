@@ -49,4 +49,4 @@ extern struct sys_timer ux500_timer;
 	.type		= MT_MEMORY,		\
 }
 
-#endif 
+#endif /*  __ASM_ARCH_SETUP_H */

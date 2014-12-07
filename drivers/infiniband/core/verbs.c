@@ -137,6 +137,7 @@ enum rdma_link_layer rdma_port_get_link_layer(struct ib_device *device, u8 port_
 }
 EXPORT_SYMBOL(rdma_port_get_link_layer);
 
+/* Protection domains */
 
 struct ib_pd *ib_alloc_pd(struct ib_device *device)
 {
@@ -163,6 +164,7 @@ int ib_dealloc_pd(struct ib_pd *pd)
 }
 EXPORT_SYMBOL(ib_dealloc_pd);
 
+/* Address handles */
 
 struct ib_ah *ib_create_ah(struct ib_pd *pd, struct ib_ah_attr *ah_attr)
 {
@@ -257,6 +259,7 @@ int ib_destroy_ah(struct ib_ah *ah)
 }
 EXPORT_SYMBOL(ib_destroy_ah);
 
+/* Shared receive queues */
 
 struct ib_srq *ib_create_srq(struct ib_pd *pd,
 			     struct ib_srq_init_attr *srq_init_attr)
@@ -338,6 +341,7 @@ int ib_destroy_srq(struct ib_srq *srq)
 }
 EXPORT_SYMBOL(ib_destroy_srq);
 
+/* Queue pairs */
 
 static void __ib_shared_qp_event_handler(struct ib_event *event, void *context)
 {
@@ -657,7 +661,7 @@ static const struct {
 				[IB_QPT_UC]  = IB_QP_EN_SQD_ASYNC_NOTIFY,
 				[IB_QPT_RC]  = IB_QP_EN_SQD_ASYNC_NOTIFY,
 				[IB_QPT_XRC_INI] = IB_QP_EN_SQD_ASYNC_NOTIFY,
-				[IB_QPT_XRC_TGT] = IB_QP_EN_SQD_ASYNC_NOTIFY, 
+				[IB_QPT_XRC_TGT] = IB_QP_EN_SQD_ASYNC_NOTIFY, /* ??? */
 				[IB_QPT_SMI] = IB_QP_EN_SQD_ASYNC_NOTIFY,
 				[IB_QPT_GSI] = IB_QP_EN_SQD_ASYNC_NOTIFY
 			}
@@ -897,6 +901,7 @@ int ib_destroy_qp(struct ib_qp *qp)
 }
 EXPORT_SYMBOL(ib_destroy_qp);
 
+/* Completion queues */
 
 struct ib_cq *ib_create_cq(struct ib_device *device,
 			   ib_comp_handler comp_handler,
@@ -943,6 +948,7 @@ int ib_resize_cq(struct ib_cq *cq, int cqe)
 }
 EXPORT_SYMBOL(ib_resize_cq);
 
+/* Memory regions */
 
 struct ib_mr *ib_get_dma_mr(struct ib_pd *pd, int mr_access_flags)
 {
@@ -1090,6 +1096,7 @@ void ib_free_fast_reg_page_list(struct ib_fast_reg_page_list *page_list)
 }
 EXPORT_SYMBOL(ib_free_fast_reg_page_list);
 
+/* Memory windows */
 
 struct ib_mw *ib_alloc_mw(struct ib_pd *pd)
 {
@@ -1124,6 +1131,7 @@ int ib_dealloc_mw(struct ib_mw *mw)
 }
 EXPORT_SYMBOL(ib_dealloc_mw);
 
+/* "Fast" memory regions */
 
 struct ib_fmr *ib_alloc_fmr(struct ib_pd *pd,
 			    int mr_access_flags,
@@ -1171,6 +1179,7 @@ int ib_dealloc_fmr(struct ib_fmr *fmr)
 }
 EXPORT_SYMBOL(ib_dealloc_fmr);
 
+/* Multicast groups */
 
 int ib_attach_mcast(struct ib_qp *qp, union ib_gid *gid, u16 lid)
 {

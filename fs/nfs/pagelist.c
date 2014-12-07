@@ -41,6 +41,18 @@ nfs_page_free(struct nfs_page *p)
 	kmem_cache_free(nfs_page_cachep, p);
 }
 
+/**
+ * nfs_create_request - Create an NFS read/write request.
+ * @ctx: open context to use
+ * @inode: inode to which the request is attached
+ * @page: page to write
+ * @offset: starting offset within the page for the write
+ * @count: number of bytes to read/write
+ *
+ * The page must be locked by the caller. This makes sure we never
+ * create two different requests for the same page.
+ * User should ensure it is safe to sleep in this function.
+ */
 struct nfs_page *
 nfs_create_request(struct nfs_open_context *ctx, struct inode *inode,
 		   struct page *page,
@@ -48,18 +60,21 @@ nfs_create_request(struct nfs_open_context *ctx, struct inode *inode,
 {
 	struct nfs_page		*req;
 
-	
+	/* try to allocate the request struct */
 	req = nfs_page_alloc();
 	if (req == NULL)
 		return ERR_PTR(-ENOMEM);
 
-	
+	/* get lock context early so we can deal with alloc failures */
 	req->wb_lock_context = nfs_get_lock_context(ctx);
 	if (req->wb_lock_context == NULL) {
 		nfs_page_free(req);
 		return ERR_PTR(-ENOMEM);
 	}
 
+	/* Initialize the request struct. Initially, we assume a
+	 * long write-back delay. This will be adjusted in
+	 * update_nfs_request below if the region is not locked. */
 	req->wb_page    = page;
 	atomic_set(&req->wb_complete, 0);
 	req->wb_index	= page->index;
@@ -75,6 +90,10 @@ nfs_create_request(struct nfs_open_context *ctx, struct inode *inode,
 	return req;
 }
 
+/**
+ * nfs_unlock_request - Unlock request and wake up sleepers.
+ * @req:
+ */
 void nfs_unlock_request(struct nfs_page *req)
 {
 	if (!NFS_WBACK_BUSY(req)) {
@@ -88,6 +107,13 @@ void nfs_unlock_request(struct nfs_page *req)
 	nfs_release_request(req);
 }
 
+/*
+ * nfs_clear_request - Free up all resources allocated to the request
+ * @req:
+ *
+ * Release page and open context resources associated with a read/write
+ * request after it has completed.
+ */
 static void nfs_clear_request(struct nfs_page *req)
 {
 	struct page *page = req->wb_page;
@@ -109,11 +135,17 @@ static void nfs_clear_request(struct nfs_page *req)
 }
 
 
+/**
+ * nfs_release_request - Release the count on an NFS read/write request
+ * @req: request to release
+ *
+ * Note: Should never be called with the spinlock held!
+ */
 static void nfs_free_request(struct kref *kref)
 {
 	struct nfs_page *req = container_of(kref, struct nfs_page, wb_kref);
 
-	
+	/* Release struct file and open context */
 	nfs_clear_request(req);
 	nfs_page_free(req);
 }
@@ -129,6 +161,13 @@ static int nfs_wait_bit_uninterruptible(void *word)
 	return 0;
 }
 
+/**
+ * nfs_wait_on_request - Wait for a request to complete.
+ * @req: request to wait upon.
+ *
+ * Interruptible by fatal signals only.
+ * The user is responsible for holding a count on the request.
+ */
 int
 nfs_wait_on_request(struct nfs_page *req)
 {
@@ -139,6 +178,13 @@ nfs_wait_on_request(struct nfs_page *req)
 
 bool nfs_generic_pg_test(struct nfs_pageio_descriptor *desc, struct nfs_page *prev, struct nfs_page *req)
 {
+	/*
+	 * FIXME: ideally we should be able to coalesce all requests
+	 * that are not block boundary aligned, but currently this
+	 * is problematic for the case of bsize < PAGE_CACHE_SIZE,
+	 * since nfs_flush_multi and nfs_pagein_multi assume you
+	 * can have only one struct nfs_page.
+	 */
 	if (desc->pg_bsize < PAGE_SIZE)
 		return 0;
 
@@ -146,6 +192,14 @@ bool nfs_generic_pg_test(struct nfs_pageio_descriptor *desc, struct nfs_page *pr
 }
 EXPORT_SYMBOL_GPL(nfs_generic_pg_test);
 
+/**
+ * nfs_pageio_init - initialise a page io descriptor
+ * @desc: pointer to descriptor
+ * @inode: pointer to inode
+ * @doio: pointer to io function
+ * @bsize: io block size
+ * @io_flags: extra parameters for the io function
+ */
 void nfs_pageio_init(struct nfs_pageio_descriptor *desc,
 		     struct inode *inode,
 		     const struct nfs_pageio_ops *pg_ops,
@@ -166,6 +220,17 @@ void nfs_pageio_init(struct nfs_pageio_descriptor *desc,
 	desc->pg_lseg = NULL;
 }
 
+/**
+ * nfs_can_coalesce_requests - test two requests for compatibility
+ * @prev: pointer to nfs_page
+ * @req: pointer to nfs_page
+ *
+ * The nfs_page structures 'prev' and 'req' are compared to ensure that the
+ * page data area they describe is contiguous, and that their RPC
+ * credentials, NFSv4 open state, and lockowners are the same.
+ *
+ * Return 'true' if this is the case, else return 'false'.
+ */
 static bool nfs_can_coalesce_requests(struct nfs_page *prev,
 				      struct nfs_page *req,
 				      struct nfs_pageio_descriptor *pgio)
@@ -185,6 +250,14 @@ static bool nfs_can_coalesce_requests(struct nfs_page *prev,
 	return pgio->pg_ops->pg_test(pgio, prev, req);
 }
 
+/**
+ * nfs_pageio_do_add_request - Attempt to coalesce a request into a page list.
+ * @desc: destination io descriptor
+ * @req: request
+ *
+ * Returns true if the request 'req' was successfully coalesced into the
+ * existing list of pages 'desc'.
+ */
 static int nfs_pageio_do_add_request(struct nfs_pageio_descriptor *desc,
 				     struct nfs_page *req)
 {
@@ -205,6 +278,9 @@ static int nfs_pageio_do_add_request(struct nfs_pageio_descriptor *desc,
 	return 1;
 }
 
+/*
+ * Helper for nfs_pageio_add_request and nfs_pageio_complete
+ */
 static void nfs_pageio_doio(struct nfs_pageio_descriptor *desc)
 {
 	if (!list_empty(&desc->pg_list)) {
@@ -220,6 +296,14 @@ static void nfs_pageio_doio(struct nfs_pageio_descriptor *desc)
 	}
 }
 
+/**
+ * nfs_pageio_add_request - Attempt to coalesce a request into a page list.
+ * @desc: destination io descriptor
+ * @req: request
+ *
+ * Returns true if the request 'req' was successfully coalesced into the
+ * existing list of pages 'desc'.
+ */
 static int __nfs_pageio_add_request(struct nfs_pageio_descriptor *desc,
 			   struct nfs_page *req)
 {
@@ -277,6 +361,10 @@ int nfs_pageio_add_request(struct nfs_pageio_descriptor *desc,
 	return ret;
 }
 
+/**
+ * nfs_pageio_complete - Complete I/O on an nfs_pageio_descriptor
+ * @desc: pointer to io descriptor
+ */
 void nfs_pageio_complete(struct nfs_pageio_descriptor *desc)
 {
 	for (;;) {
@@ -288,6 +376,17 @@ void nfs_pageio_complete(struct nfs_pageio_descriptor *desc)
 	}
 }
 
+/**
+ * nfs_pageio_cond_complete - Conditional I/O completion
+ * @desc: pointer to io descriptor
+ * @index: page index
+ *
+ * It is important to ensure that processes don't try to take locks
+ * on non-contiguous ranges of pages as that might deadlock. This
+ * function should be called before attempting to wait on a locked
+ * nfs_page. It will complete the I/O if the page index 'index'
+ * is not contiguous with the existing list of pages in 'desc'.
+ */
 void nfs_pageio_cond_complete(struct nfs_pageio_descriptor *desc, pgoff_t index)
 {
 	if (!list_empty(&desc->pg_list)) {

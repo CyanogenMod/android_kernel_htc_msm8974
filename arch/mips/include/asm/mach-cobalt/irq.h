@@ -13,10 +13,30 @@
 #ifndef _ASM_COBALT_IRQ_H
 #define _ASM_COBALT_IRQ_H
 
+/*
+ * i8259 interrupts used on Cobalt:
+ *
+ *	8  - RTC
+ *	9  - PCI slot
+ *	14 - IDE0
+ *	15 - IDE1(no connector on board)
+ */
 #define I8259A_IRQ_BASE			0
 
 #define PCISLOT_IRQ			(I8259A_IRQ_BASE + 9)
 
+/*
+ * CPU interrupts used on Cobalt:
+ *
+ *	0 - Software interrupt 0 (unused)
+ *	1 - Software interrupt 0 (unused)
+ *	2 - cascade GT64111
+ *	3 - ethernet or SCSI host controller
+ *	4 - ethernet
+ *	5 - 16550 UART
+ *	6 - cascade i8259
+ *	7 - CP0 counter
+ */
 #define MIPS_CPU_IRQ_BASE		16
 
 #define GT641XX_CASCADE_IRQ		(MIPS_CPU_IRQ_BASE + 2)
@@ -34,4 +54,4 @@
 
 #define NR_IRQS					(GT641XX_PCI_INT3_IRQ + 1)
 
-#endif 
+#endif /* _ASM_COBALT_IRQ_H */

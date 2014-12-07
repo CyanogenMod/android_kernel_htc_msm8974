@@ -22,8 +22,11 @@ void dc_init(struct channel *sc)
 	u32 val;
 
 	dc_stop(sc);
-	 
+	/*dc_reset(sc);*/ /* do not want to reset here */
 
+	/*
+	 * BUS_MODE (CSR0)
+	 */
 	val = SBE_2T3E3_21143_VAL_READ_LINE_ENABLE |
 		SBE_2T3E3_21143_VAL_READ_MULTIPLE_ENABLE |
 		SBE_2T3E3_21143_VAL_TRANSMIT_AUTOMATIC_POLLING_200us |
@@ -48,7 +51,7 @@ void dc_init(struct channel *sc)
 
 	dc_write(sc->addr, SBE_2T3E3_21143_REG_BUS_MODE, val);
 
-	
+	/* OPERATION_MODE (CSR6) */
 	val = SBE_2T3E3_21143_VAL_RECEIVE_ALL |
 		SBE_2T3E3_21143_VAL_MUST_BE_ONE |
 		SBE_2T3E3_21143_VAL_THRESHOLD_CONTROL_BITS_1 |
@@ -60,11 +63,17 @@ void dc_init(struct channel *sc)
 	if (sc->p.loopback == SBE_2T3E3_LOOPBACK_ETHERNET)
 		sc->p.loopback = SBE_2T3E3_LOOPBACK_NONE;
 
-#if 0 
+#if 0 /* No need to clear this register - and it may be in use */
+	/*
+	 * BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT (CSR9)
+	 */
 	val = 0;
 	dc_write(sc->addr, SBE_2T3E3_21143_REG_BOOT_ROM_SERIAL_ROM_AND_MII_MANAGEMENT, val);
 #endif
 
+	/*
+	 * GENERAL_PURPOSE_TIMER_AND_INTERRUPT_MITIGATION_CONTROL (CSR11)
+	 */
 	val = SBE_2T3E3_21143_VAL_CYCLE_SIZE |
 		SBE_2T3E3_21143_VAL_TRANSMIT_TIMER |
 		SBE_2T3E3_21143_VAL_NUMBER_OF_TRANSMIT_PACKETS |
@@ -72,14 +81,14 @@ void dc_init(struct channel *sc)
 		SBE_2T3E3_21143_VAL_NUMBER_OF_RECEIVE_PACKETS;
 	dc_write(sc->addr, SBE_2T3E3_21143_REG_GENERAL_PURPOSE_TIMER_AND_INTERRUPT_MITIGATION_CONTROL, val);
 
-	
+	/* prepare descriptors and data for receive and transmit procecsses */
 	if (dc_init_descriptor_list(sc) != 0)
 		return;
 
-	
+	/* clear ethernet interrupts status */
 	dc_write(sc->addr, SBE_2T3E3_21143_REG_STATUS, 0xFFFFFFFF);
 
-	
+	/* SIA mode registers */
 	dc_set_output_port(sc);
 }
 
@@ -92,7 +101,7 @@ void dc_start(struct channel *sc)
 
 	dc_init(sc);
 
-	
+	/* get actual LOS and OOF status */
 	switch (sc->p.frame_type) {
 	case SBE_2T3E3_FRAME_TYPE_E3_G751:
 	case SBE_2T3E3_FRAME_TYPE_E3_G832:
@@ -111,11 +120,11 @@ void dc_start(struct channel *sc)
 	}
 	cpld_LOS_update(sc);
 
-	
+	/* start receive and transmit processes */
 	dc_transmitter_onoff(sc, SBE_2T3E3_ON);
 	dc_receiver_onoff(sc, SBE_2T3E3_ON);
 
-	
+	/* start interrupts */
 	dc_start_intr(sc);
 }
 
@@ -124,14 +133,14 @@ void dc_stop(struct channel *sc)
 {
 	int wcnt;
 
-	
+	/* stop receive and transmit processes */
 	dc_receiver_onoff(sc, SBE_2T3E3_OFF);
 	dc_transmitter_onoff(sc, SBE_2T3E3_OFF);
 
-	
+	/* turn off ethernet interrupts */
 	dc_stop_intr(sc);
 
-	
+	/* wait to ensure the interrupts have been completed */
 	for (wcnt = 0; wcnt < MAX_INT_WAIT_CNT; wcnt++) {
 		udelay(5);
 		if (!sc->interrupt_active)
@@ -140,7 +149,7 @@ void dc_stop(struct channel *sc)
 	if (wcnt >= MAX_INT_WAIT_CNT)
 		dev_warn(&sc->pdev->dev, "SBE 2T3E3: Interrupt active too long\n");
 
-	
+	/* clear all receive/transmit data */
 	dc_drop_descriptor_list(sc);
 }
 
@@ -177,22 +186,22 @@ void dc_stop_intr(struct channel *sc)
 
 void dc_reset(struct channel *sc)
 {
-	
+	/* turn off ethernet interrupts */
 	dc_write(sc->addr, SBE_2T3E3_21143_REG_INTERRUPT_ENABLE, 0);
 	dc_write(sc->addr, SBE_2T3E3_21143_REG_STATUS, 0xFFFFFFFF);
 
-	
+	/* software reset */
 	dc_set_bits(sc->addr, SBE_2T3E3_21143_REG_BUS_MODE,
 		   SBE_2T3E3_21143_VAL_SOFTWARE_RESET);
-	udelay(4); 
+	udelay(4); /* 50 PCI cycles < 2us */
 
-	
+	/* clear hardware configuration */
 	dc_write(sc->addr, SBE_2T3E3_21143_REG_BUS_MODE, 0);
 
-	
+	/* clear software configuration */
 	dc_write(sc->addr, SBE_2T3E3_21143_REG_OPERATION_MODE, 0);
 
-	
+	/* turn off SIA reset */
 	dc_set_bits(sc->addr, SBE_2T3E3_21143_REG_SIA_CONNECTIVITY,
 		   SBE_2T3E3_21143_VAL_SIA_RESET);
 	dc_write(sc->addr, SBE_2T3E3_21143_REG_SIA_TRANSMIT_AND_RECEIVE, 0);
@@ -293,7 +302,7 @@ void dc_set_loopback(struct channel *sc, u32 mode)
 	}
 
 #if 0
-	
+	/* restart SIA */
 	dc_clear_bits(sc->addr, SBE_2T3E3_21143_REG_SIA_CONNECTIVITY,
 		      SBE_2T3E3_21143_VAL_SIA_RESET);
 	udelay(1000);
@@ -301,7 +310,7 @@ void dc_set_loopback(struct channel *sc, u32 mode)
 		    SBE_2T3E3_21143_VAL_SIA_RESET);
 #endif
 
-	
+	/* select loopback mode */
 	val = dc_read(sc->addr, SBE_2T3E3_21143_REG_OPERATION_MODE) &
 		~SBE_2T3E3_21143_VAL_OPERATING_MODE;
 	val |= mode;
@@ -339,6 +348,9 @@ u32 dc_init_descriptor_list(struct channel *sc)
 	}
 
 
+	/*
+	 * Receive ring
+	 */
 	for (i = 0; i < SBE_2T3E3_RX_DESC_RING_SIZE; i++) {
 		sc->ether.rx_ring[i].rdes0 = SBE_2T3E3_RX_DESC_21143_OWN;
 		sc->ether.rx_ring[i].rdes1 =
@@ -372,6 +384,9 @@ u32 dc_init_descriptor_list(struct channel *sc)
 	dc_write(sc->addr, SBE_2T3E3_21143_REG_RECEIVE_LIST_BASE_ADDRESS,
 		 virt_to_phys(&sc->ether.rx_ring[0]));
 
+	/*
+	 * Transmit ring
+	 */
 	for (i = 0; i < SBE_2T3E3_TX_DESC_RING_SIZE; i++) {
 		sc->ether.tx_ring[i].tdes0 = 0;
 		sc->ether.tx_ring[i].tdes1 = SBE_2T3E3_TX_DESC_SECOND_ADDRESS_CHAINED |
@@ -400,11 +415,11 @@ void dc_clear_descriptor_list(struct channel *sc)
 {
 	u32 i;
 
-	
+	/* clear CSR3 and CSR4 */
 	dc_write(sc->addr, SBE_2T3E3_21143_REG_RECEIVE_LIST_BASE_ADDRESS, 0);
 	dc_write(sc->addr, SBE_2T3E3_21143_REG_TRANSMIT_LIST_BASE_ADDRESS, 0);
 
-	
+	/* free all data buffers on TX ring */
 	for (i = 0; i < SBE_2T3E3_TX_DESC_RING_SIZE; i++) {
 		if (sc->ether.tx_data[i] != NULL) {
 			dev_kfree_skb_any(sc->ether.tx_data[i]);
@@ -419,7 +434,7 @@ void dc_drop_descriptor_list(struct channel *sc)
 
 	dc_clear_descriptor_list(sc);
 
-	
+	/* free all data buffers on RX ring */
 	for (i = 0; i < SBE_2T3E3_RX_DESC_RING_SIZE; i++) {
 		if (sc->ether.rx_data[i] != NULL) {
 			dev_kfree_skb_any(sc->ether.rx_data[i]);
@@ -457,6 +472,6 @@ void dc_restart(struct channel *sc)
 
 	dc_stop(sc);
 	dc_reset(sc);
-	dc_init(sc);	
+	dc_init(sc);	/* stop + reset + init */
 	dc_start(sc);
 }

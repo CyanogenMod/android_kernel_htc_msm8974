@@ -19,12 +19,20 @@
 
 #define CAN_VERSION "20090105"
 
+/* increment this number each time you change some user-space interface */
 #define CAN_ABI_VERSION "8"
 
 #define CAN_VERSION_STRING "rev " CAN_VERSION " abi " CAN_ABI_VERSION
 
 #define DNAME(dev) ((dev) ? (dev)->name : "any")
 
+/**
+ * struct can_proto - CAN protocol structure
+ * @type:       type argument in socket() syscall, e.g. SOCK_DGRAM.
+ * @protocol:   protocol number in socket() syscall.
+ * @ops:        pointer to struct proto_ops for sock->ops.
+ * @prot:       pointer to struct proto structure.
+ */
 struct can_proto {
 	int type;
 	int protocol;
@@ -32,6 +40,7 @@ struct can_proto {
 	struct proto *prot;
 };
 
+/* function prototypes for the CAN networklayer core (af_can.c) */
 
 extern int  can_proto_register(const struct can_proto *cp);
 extern void can_proto_unregister(const struct can_proto *cp);
@@ -49,4 +58,4 @@ extern void can_rx_unregister(struct net_device *dev, canid_t can_id,
 extern int can_send(struct sk_buff *skb, int loop);
 extern int can_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg);
 
-#endif 
+#endif /* CAN_CORE_H */

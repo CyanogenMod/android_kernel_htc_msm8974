@@ -368,6 +368,7 @@ static const u8 Tr[4][8] = {
 	{ 0x0b, 0x1c, 0x0d, 0x1e, 0x0f, 0x00, 0x11, 0x02 }
 };
 
+/* forward octave */
 static void W(u32 *key, unsigned int i)
 {
 	u32 I;
@@ -386,7 +387,7 @@ static int cast6_setkey(struct crypto_tfm *tfm, const u8 *in_key,
 {
 	int i;
 	u32 key[8];
-	__be32 p_key[8]; 
+	__be32 p_key[8]; /* padded key */
 	struct cast6_ctx *c = crypto_tfm_ctx(tfm);
 	u32 *flags = &tfm->crt_flags;
 
@@ -398,14 +399,14 @@ static int cast6_setkey(struct crypto_tfm *tfm, const u8 *in_key,
 	memset(p_key, 0, 32);
 	memcpy(p_key, in_key, key_len);
 
-	key[0] = be32_to_cpu(p_key[0]);		
-	key[1] = be32_to_cpu(p_key[1]);		
-	key[2] = be32_to_cpu(p_key[2]);		
-	key[3] = be32_to_cpu(p_key[3]);		
-	key[4] = be32_to_cpu(p_key[4]);		
-	key[5] = be32_to_cpu(p_key[5]);		
-	key[6] = be32_to_cpu(p_key[6]);		
-	key[7] = be32_to_cpu(p_key[7]);		
+	key[0] = be32_to_cpu(p_key[0]);		/* A */
+	key[1] = be32_to_cpu(p_key[1]);		/* B */
+	key[2] = be32_to_cpu(p_key[2]);		/* C */
+	key[3] = be32_to_cpu(p_key[3]);		/* D */
+	key[4] = be32_to_cpu(p_key[4]);		/* E */
+	key[5] = be32_to_cpu(p_key[5]);		/* F */
+	key[6] = be32_to_cpu(p_key[6]);		/* G */
+	key[7] = be32_to_cpu(p_key[7]);		/* H */
 
 	for (i = 0; i < 12; i++) {
 		W(key, 2 * i);
@@ -425,6 +426,7 @@ static int cast6_setkey(struct crypto_tfm *tfm, const u8 *in_key,
 	return 0;
 }
 
+/*forward quad round*/
 static void Q(u32 *block, u8 *Kr, u32 *Km)
 {
 	u32 I;
@@ -434,6 +436,7 @@ static void Q(u32 *block, u8 *Kr, u32 *Km)
 	block[3] ^= F1(block[0], Kr[3], Km[3]);
 }
 
+/*reverse quad round*/
 static void QBAR(u32 *block, u8 *Kr, u32 *Km)
 {
 	u32 I;

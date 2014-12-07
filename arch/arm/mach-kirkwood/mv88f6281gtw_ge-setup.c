@@ -125,16 +125,19 @@ static struct platform_device mv88f6281gtw_ge_leds = {
 };
 
 static unsigned int mv88f6281gtw_ge_mpp_config[] __initdata = {
-	MPP12_GPO,	
-	MPP20_GPIO,	
-	MPP21_GPIO,	
-	MPP46_GPIO,	
-	MPP47_GPIO,	
+	MPP12_GPO,	/* Status#_USB pin  */
+	MPP20_GPIO,	/* Status#_GLED pin */
+	MPP21_GPIO,	/* Status#_RLED pin */
+	MPP46_GPIO,	/* WPS_Switch pin   */
+	MPP47_GPIO,	/* SW_Init pin      */
 	0
 };
 
 static void __init mv88f6281gtw_ge_init(void)
 {
+	/*
+	 * Basic setup. Needs to be called early.
+	 */
 	kirkwood_init();
 	kirkwood_mpp_conf(mv88f6281gtw_ge_mpp_config);
 
@@ -159,7 +162,7 @@ static int __init mv88f6281gtw_ge_pci_init(void)
 subsys_initcall(mv88f6281gtw_ge_pci_init);
 
 MACHINE_START(MV88F6281GTW_GE, "Marvell 88F6281 GTW GE Board")
-	
+	/* Maintainer: Lennert Buytenhek <buytenh@marvell.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= mv88f6281gtw_ge_init,
 	.map_io		= kirkwood_map_io,

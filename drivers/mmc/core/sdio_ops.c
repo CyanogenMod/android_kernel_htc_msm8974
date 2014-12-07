@@ -35,12 +35,18 @@ int mmc_send_io_op_cond(struct mmc_host *host, u32 ocr, u32 *rocr)
 		if (err)
 			break;
 
-		
+		/* if we're just probing, do a single pass */
 		if (ocr == 0)
 			break;
 
-		
+		/* otherwise wait until reset completes */
 		if (mmc_host_is_spi(host)) {
+			/*
+			 * Both R1_SPI_IDLE and MMC_CARD_BUSY indicate
+			 * an initialized card under SPI, but some cards
+			 * (Marvell's) only behave when looking at this
+			 * one.
+			 */
 			if (cmd.resp[1] & MMC_CARD_BUSY)
 				break;
 		} else {
@@ -68,7 +74,7 @@ static int mmc_io_rw_direct_host(struct mmc_host *host, int write, unsigned fn,
 	BUG_ON(!host);
 	BUG_ON(fn > 7);
 
-	
+	/* sanity check */
 	if (addr & ~0x1FFFF)
 		return -EINVAL;
 
@@ -85,7 +91,7 @@ static int mmc_io_rw_direct_host(struct mmc_host *host, int write, unsigned fn,
 		return err;
 
 	if (mmc_host_is_spi(host)) {
-		
+		/* host driver already reported errors */
 	} else {
 		if (cmd.resp[0] & R5_ERROR)
 			return -EIO;
@@ -124,7 +130,7 @@ int mmc_io_rw_extended(struct mmc_card *card, int write, unsigned fn,
 	BUG_ON(fn > 7);
 	WARN_ON(blksz == 0);
 
-	
+	/* sanity check */
 	if (addr & ~0x1FFFF)
 		return -EINVAL;
 
@@ -137,13 +143,13 @@ int mmc_io_rw_extended(struct mmc_card *card, int write, unsigned fn,
 	cmd.arg |= incr_addr ? 0x04000000 : 0x00000000;
 	cmd.arg |= addr << 9;
 	if (blocks == 0)
-		cmd.arg |= (blksz == 512) ? 0 : blksz;	
+		cmd.arg |= (blksz == 512) ? 0 : blksz;	/* byte mode */
 	else
-		cmd.arg |= 0x08000000 | blocks;		
+		cmd.arg |= 0x08000000 | blocks;		/* block mode */
 	cmd.flags = MMC_RSP_SPI_R5 | MMC_RSP_R5 | MMC_CMD_ADTC;
 
 	data.blksz = blksz;
-	
+	/* Code in host drivers/fwk assumes that "blocks" always is >=1 */
 	data.blocks = blocks ? blocks : 1;
 	data.flags = write ? MMC_DATA_WRITE : MMC_DATA_READ;
 	data.sg = &sg;
@@ -161,7 +167,7 @@ int mmc_io_rw_extended(struct mmc_card *card, int write, unsigned fn,
 		return data.error;
 
 	if (mmc_host_is_spi(card->host)) {
-		
+		/* host driver already reported errors */
 	} else {
 		if (cmd.resp[0] & R5_ERROR)
 			return -EIO;
@@ -179,7 +185,7 @@ int sdio_reset(struct mmc_host *host)
 	int ret;
 	u8 abort;
 
-	
+	/* SDIO Simplified Specification V2.0, 4.4 Reset for SDIO */
 
 	ret = mmc_io_rw_direct_host(host, 0, 0, SDIO_CCCR_ABORT, 0, &abort);
 	if (ret)

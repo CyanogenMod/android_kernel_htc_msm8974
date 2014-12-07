@@ -16,6 +16,9 @@ struct kbd_data;
 
 typedef void (fn_handler_fn)(struct kbd_data *);
 
+/*
+ * FIXME: explain key_maps tricks.
+ */
 
 struct kbd_data {
 	struct tty_struct *tty;
@@ -35,6 +38,9 @@ void kbd_ascebc(struct kbd_data *, unsigned char *);
 void kbd_keycode(struct kbd_data *, unsigned int);
 int kbd_ioctl(struct kbd_data *, unsigned int, unsigned long);
 
+/*
+ * Helper Functions.
+ */
 static inline void
 kbd_put_queue(struct tty_struct *tty, int ch)
 {

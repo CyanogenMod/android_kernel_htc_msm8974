@@ -1,3 +1,5 @@
+/* $XFree86$ */
+/* $XdotOrg$ */
 /*
  * General structure definitions for universal mode switching modules
  *
@@ -202,6 +204,8 @@ struct SiS_ModeResInfo_S {
 	unsigned char  YChar;
 };
 
+/* Defines for SiS_CustomT */
+/* Never change these for sisfb compatibility */
 #define CUT_NONE		 0
 #define CUT_FORCENONE		 1
 #define CUT_BARCO1366		 2
@@ -235,7 +239,7 @@ struct SiS_Private
 	unsigned char SISIOMEMTYPE	*VideoMemoryAddress;
 	unsigned int			VideoMemorySize;
 	SISIOADDRESS			IOAddress;
-	SISIOADDRESS			IOAddress2;  
+	SISIOADDRESS			IOAddress2;  /* For dual chip XGI volari */
 
 	SISIOADDRESS			RelIO;
 	SISIOADDRESS			SiS_P3c4;
@@ -363,7 +367,7 @@ struct SiS_Private
 	const struct SiS_PanelDelayTbl	*SiS_PanelDelayTbl;
 	const struct SiS_PanelDelayTbl	*SiS_PanelDelayTblLVDS;
 
-	
+	/* SiS bridge */
 
 	const struct SiS_LCDData	*SiS_ExtLCD1024x768Data;
 	const struct SiS_LCDData	*SiS_St2LCD1024x768Data;
@@ -411,7 +415,7 @@ struct SiS_Private
 	const struct SiS_Part2PortTbl	*SiS_CRT2Part2_1024x768_2;
 	const struct SiS_Part2PortTbl	*SiS_CRT2Part2_1024x768_3;
 
-	
+	/* LVDS, Chrontel */
 
 	const struct SiS_LVDSData	*SiS_LVDS320x240Data_1;
 	const struct SiS_LVDSData	*SiS_LVDS320x240Data_2;
@@ -532,7 +536,7 @@ struct SiS_Private
 	unsigned char			CP_PrefSR2B, CP_PrefSR2C;
 	unsigned short			CP_PrefClock;
 	bool				CP_Supports64048075;
-	int				CP_HDisplay[7], CP_VDisplay[7];	
+	int				CP_HDisplay[7], CP_VDisplay[7];	/* For Custom LCD panel dimensions */
 	int				CP_HTotal[7], CP_VTotal[7];
 	int				CP_HSyncStart[7], CP_VSyncStart[7];
 	int				CP_HSyncEnd[7], CP_VSyncEnd[7];

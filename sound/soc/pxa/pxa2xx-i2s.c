@@ -30,42 +30,45 @@
 
 #include "pxa2xx-i2s.h"
 
-#define SACR0		__REG(0x40400000)  
-#define SACR1		__REG(0x40400004)  
-#define SASR0		__REG(0x4040000C)  
-#define SAIMR		__REG(0x40400014)  
-#define SAICR		__REG(0x40400018)  
-#define SADIV		__REG(0x40400060)  
-#define SADR		__REG(0x40400080)  
+/*
+ * I2S Controller Register and Bit Definitions
+ */
+#define SACR0		__REG(0x40400000)  /* Global Control Register */
+#define SACR1		__REG(0x40400004)  /* Serial Audio I 2 S/MSB-Justified Control Register */
+#define SASR0		__REG(0x4040000C)  /* Serial Audio I 2 S/MSB-Justified Interface and FIFO Status Register */
+#define SAIMR		__REG(0x40400014)  /* Serial Audio Interrupt Mask Register */
+#define SAICR		__REG(0x40400018)  /* Serial Audio Interrupt Clear Register */
+#define SADIV		__REG(0x40400060)  /* Audio Clock Divider Register. */
+#define SADR		__REG(0x40400080)  /* Serial Audio Data Register (TX and RX FIFO access Register). */
 
-#define SACR0_RFTH(x)	((x) << 12)	
-#define SACR0_TFTH(x)	((x) << 8)	
-#define SACR0_STRF	(1 << 5)	
-#define SACR0_EFWR	(1 << 4)	
-#define SACR0_RST	(1 << 3)	
-#define SACR0_BCKD	(1 << 2) 	
-#define SACR0_ENB	(1 << 0)	
-#define SACR1_ENLBF	(1 << 5)	
-#define SACR1_DRPL	(1 << 4) 	
-#define SACR1_DREC	(1 << 3)	
-#define SACR1_AMSL	(1 << 0)	
+#define SACR0_RFTH(x)	((x) << 12)	/* Rx FIFO Interrupt or DMA Trigger Threshold */
+#define SACR0_TFTH(x)	((x) << 8)	/* Tx FIFO Interrupt or DMA Trigger Threshold */
+#define SACR0_STRF	(1 << 5)	/* FIFO Select for EFWR Special Function */
+#define SACR0_EFWR	(1 << 4)	/* Enable EFWR Function  */
+#define SACR0_RST	(1 << 3)	/* FIFO, i2s Register Reset */
+#define SACR0_BCKD	(1 << 2) 	/* Bit Clock Direction */
+#define SACR0_ENB	(1 << 0)	/* Enable I2S Link */
+#define SACR1_ENLBF	(1 << 5)	/* Enable Loopback */
+#define SACR1_DRPL	(1 << 4) 	/* Disable Replaying Function */
+#define SACR1_DREC	(1 << 3)	/* Disable Recording Function */
+#define SACR1_AMSL	(1 << 0)	/* Specify Alternate Mode */
 
-#define SASR0_I2SOFF	(1 << 7)	
-#define SASR0_ROR	(1 << 6)	
-#define SASR0_TUR	(1 << 5)	
-#define SASR0_RFS	(1 << 4)	
-#define SASR0_TFS	(1 << 3)	
-#define SASR0_BSY	(1 << 2)	
-#define SASR0_RNE	(1 << 1)	
-#define SASR0_TNF	(1 << 0) 	
+#define SASR0_I2SOFF	(1 << 7)	/* Controller Status */
+#define SASR0_ROR	(1 << 6)	/* Rx FIFO Overrun */
+#define SASR0_TUR	(1 << 5)	/* Tx FIFO Underrun */
+#define SASR0_RFS	(1 << 4)	/* Rx FIFO Service Request */
+#define SASR0_TFS	(1 << 3)	/* Tx FIFO Service Request */
+#define SASR0_BSY	(1 << 2)	/* I2S Busy */
+#define SASR0_RNE	(1 << 1)	/* Rx FIFO Not Empty */
+#define SASR0_TNF	(1 << 0) 	/* Tx FIFO Not Empty */
 
-#define SAICR_ROR	(1 << 6)	
-#define SAICR_TUR	(1 << 5)	
+#define SAICR_ROR	(1 << 6)	/* Clear Rx FIFO Overrun Interrupt */
+#define SAICR_TUR	(1 << 5)	/* Clear Tx FIFO Underrun Interrupt */
 
-#define SAIMR_ROR	(1 << 6)	
-#define SAIMR_TUR	(1 << 5)	
-#define SAIMR_RFS	(1 << 4)	
-#define SAIMR_TFS	(1 << 3)	
+#define SAIMR_ROR	(1 << 6)	/* Enable Rx FIFO Overrun Condition Interrupt */
+#define SAIMR_TUR	(1 << 5)	/* Enable Tx FIFO Underrun Condition Interrupt */
+#define SAIMR_RFS	(1 << 4)	/* Enable Rx FIFO Service Interrupt */
+#define SAIMR_TFS	(1 << 3)	/* Enable Tx FIFO Service Interrupt */
 
 struct pxa_i2s_port {
 	u32 sadiv;
@@ -110,11 +113,12 @@ static int pxa2xx_i2s_startup(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/* wait for I2S controller to be ready */
 static int pxa_i2s_wait(void)
 {
 	int i;
 
-	
+	/* flush the Rx FIFO */
 	for(i = 0; i < 16; i++)
 		SADR;
 	return 0;
@@ -123,7 +127,7 @@ static int pxa_i2s_wait(void)
 static int pxa2xx_i2s_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 		unsigned int fmt)
 {
-	
+	/* interface format */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 		pxa_i2s.fmt = 0;
@@ -173,7 +177,7 @@ static int pxa2xx_i2s_hw_params(struct snd_pcm_substream *substream,
 
 	snd_soc_dai_set_dma_data(dai, substream, dma_data);
 
-	
+	/* is port used by another stream */
 	if (!(SACR0 & SACR0_ENB)) {
 		SACR0 = 0;
 		if (pxa_i2s.master)
@@ -206,7 +210,7 @@ static int pxa2xx_i2s_hw_params(struct snd_pcm_substream *substream,
 	case 48000:
 		SADIV = 0xc;
 		break;
-	case 96000: 
+	case 96000: /* not in manual and possibly slightly inaccurate */
 		SADIV = 0x6;
 		break;
 	}
@@ -264,13 +268,13 @@ static void pxa2xx_i2s_shutdown(struct snd_pcm_substream *substream,
 #ifdef CONFIG_PM
 static int pxa2xx_i2s_suspend(struct snd_soc_dai *dai)
 {
-	
+	/* store registers */
 	pxa_i2s.sacr0 = SACR0;
 	pxa_i2s.sacr1 = SACR1;
 	pxa_i2s.saimr = SAIMR;
 	pxa_i2s.sadiv = SADIV;
 
-	
+	/* deactivate link */
 	SACR0 &= ~SACR0_ENB;
 	pxa_i2s_wait();
 	return 0;
@@ -301,11 +305,17 @@ static int pxa2xx_i2s_probe(struct snd_soc_dai *dai)
 	if (IS_ERR(clk_i2s))
 		return PTR_ERR(clk_i2s);
 
+	/*
+	 * PXA Developer's Manual:
+	 * If SACR0[ENB] is toggled in the middle of a normal operation,
+	 * the SACR0[RST] bit must also be set and cleared to reset all
+	 * I2S controller registers.
+	 */
 	SACR0 = SACR0_RST;
 	SACR0 = 0;
-	
+	/* Make sure RPL and REC are disabled */
 	SACR1 = SACR1_DRPL | SACR1_DREC;
-	
+	/* Along with FIFO servicing */
 	SAIMR &= ~(SAIMR_RFS | SAIMR_TFS);
 
 	return 0;
@@ -385,6 +395,7 @@ static void __exit pxa2xx_i2s_exit(void)
 module_init(pxa2xx_i2s_init);
 module_exit(pxa2xx_i2s_exit);
 
+/* Module information */
 MODULE_AUTHOR("Liam Girdwood, lrg@slimlogic.co.uk");
 MODULE_DESCRIPTION("pxa2xx I2S SoC Interface");
 MODULE_LICENSE("GPL");

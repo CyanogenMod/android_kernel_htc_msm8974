@@ -42,6 +42,7 @@
 #define BABBAGE_SD2_CD		IMX_GPIO_NR(1, 6)
 #define BABBAGE_SD2_WP		IMX_GPIO_NR(1, 5)
 
+/* USB_CTRL_1 */
 #define MX51_USB_CTRL_1_OFFSET			0x10
 #define MX51_USB_CTRL_UH1_EXT_CLK_EN		(1 << 25)
 
@@ -65,35 +66,35 @@ static const struct gpio_keys_platform_data imx_button_data __initconst = {
 };
 
 static iomux_v3_cfg_t mx51babbage_pads[] = {
-	
+	/* UART1 */
 	MX51_PAD_UART1_RXD__UART1_RXD,
 	MX51_PAD_UART1_TXD__UART1_TXD,
 	MX51_PAD_UART1_RTS__UART1_RTS,
 	MX51_PAD_UART1_CTS__UART1_CTS,
 
-	
+	/* UART2 */
 	MX51_PAD_UART2_RXD__UART2_RXD,
 	MX51_PAD_UART2_TXD__UART2_TXD,
 
-	
+	/* UART3 */
 	MX51_PAD_EIM_D25__UART3_RXD,
 	MX51_PAD_EIM_D26__UART3_TXD,
 	MX51_PAD_EIM_D27__UART3_RTS,
 	MX51_PAD_EIM_D24__UART3_CTS,
 
-	
+	/* I2C1 */
 	MX51_PAD_EIM_D16__I2C1_SDA,
 	MX51_PAD_EIM_D19__I2C1_SCL,
 
-	
+	/* I2C2 */
 	MX51_PAD_KEY_COL4__I2C2_SCL,
 	MX51_PAD_KEY_COL5__I2C2_SDA,
 
-	
+	/* HSI2C */
 	MX51_PAD_I2C1_CLK__I2C1_CLK,
 	MX51_PAD_I2C1_DAT__I2C1_DAT,
 
-	
+	/* USB HOST1 */
 	MX51_PAD_USBH1_CLK__USBH1_CLK,
 	MX51_PAD_USBH1_DIR__USBH1_DIR,
 	MX51_PAD_USBH1_NXT__USBH1_NXT,
@@ -106,13 +107,13 @@ static iomux_v3_cfg_t mx51babbage_pads[] = {
 	MX51_PAD_USBH1_DATA6__USBH1_DATA6,
 	MX51_PAD_USBH1_DATA7__USBH1_DATA7,
 
-	
+	/* USB HUB reset line*/
 	MX51_PAD_GPIO1_7__GPIO1_7,
 
-	
+	/* USB PHY reset line */
 	MX51_PAD_EIM_D21__GPIO2_5,
 
-	
+	/* FEC */
 	MX51_PAD_EIM_EB2__FEC_MDIO,
 	MX51_PAD_EIM_EB3__FEC_RDATA1,
 	MX51_PAD_EIM_CS2__FEC_RDATA2,
@@ -131,32 +132,32 @@ static iomux_v3_cfg_t mx51babbage_pads[] = {
 	MX51_PAD_NANDF_CS7__FEC_TX_EN,
 	MX51_PAD_NANDF_RDY_INT__FEC_TX_CLK,
 
-	
+	/* FEC PHY reset line */
 	MX51_PAD_EIM_A20__GPIO2_14,
 
-	
+	/* SD 1 */
 	MX51_PAD_SD1_CMD__SD1_CMD,
 	MX51_PAD_SD1_CLK__SD1_CLK,
 	MX51_PAD_SD1_DATA0__SD1_DATA0,
 	MX51_PAD_SD1_DATA1__SD1_DATA1,
 	MX51_PAD_SD1_DATA2__SD1_DATA2,
 	MX51_PAD_SD1_DATA3__SD1_DATA3,
-	
+	/* CD/WP from controller */
 	MX51_PAD_GPIO1_0__SD1_CD,
 	MX51_PAD_GPIO1_1__SD1_WP,
 
-	
+	/* SD 2 */
 	MX51_PAD_SD2_CMD__SD2_CMD,
 	MX51_PAD_SD2_CLK__SD2_CLK,
 	MX51_PAD_SD2_DATA0__SD2_DATA0,
 	MX51_PAD_SD2_DATA1__SD2_DATA1,
 	MX51_PAD_SD2_DATA2__SD2_DATA2,
 	MX51_PAD_SD2_DATA3__SD2_DATA3,
-	
+	/* CD/WP gpio */
 	MX51_PAD_GPIO1_6__GPIO1_6,
 	MX51_PAD_GPIO1_5__GPIO1_5,
 
-	
+	/* eCSPI1 */
 	MX51_PAD_CSPI1_MISO__ECSPI1_MISO,
 	MX51_PAD_CSPI1_MOSI__ECSPI1_MOSI,
 	MX51_PAD_CSPI1_SCLK__ECSPI1_SCLK,
@@ -164,6 +165,7 @@ static iomux_v3_cfg_t mx51babbage_pads[] = {
 	MX51_PAD_CSPI1_SS1__GPIO4_25,
 };
 
+/* Serial ports */
 static const struct imxuart_platform_data uart_pdata __initconst = {
 	.flags = IMXUART_HAVE_RTSCTS,
 };
@@ -186,7 +188,7 @@ static int gpio_usbh1_active(void)
 	iomux_v3_cfg_t usbh1stp_gpio = MX51_PAD_USBH1_STP__GPIO1_27;
 	int ret;
 
-	
+	/* Set USBH1_STP to GPIO and toggle it */
 	mxc_iomux_v3_setup_pad(usbh1stp_gpio);
 	ret = gpio_request_array(mx51_babbage_usbh1_gpios,
 					ARRAY_SIZE(mx51_babbage_usbh1_gpios));
@@ -208,7 +210,7 @@ static inline void babbage_usbhub_reset(void)
 {
 	int ret;
 
-	
+	/* Reset USB hub */
 	ret = gpio_request_one(BABBAGE_USB_HUB_RESET,
 					GPIOF_OUT_INIT_LOW, "GPIO1_7");
 	if (ret) {
@@ -217,7 +219,7 @@ static inline void babbage_usbhub_reset(void)
 	}
 
 	msleep(2);
-	
+	/* Deassert reset */
 	gpio_set_value(BABBAGE_USB_HUB_RESET, 1);
 }
 
@@ -225,7 +227,7 @@ static inline void babbage_fec_reset(void)
 {
 	int ret;
 
-	
+	/* reset FEC PHY */
 	ret = gpio_request_one(BABBAGE_FEC_PHY_RESET,
 					GPIOF_OUT_INIT_LOW, "fec-phy-reset");
 	if (ret) {
@@ -236,6 +238,9 @@ static inline void babbage_fec_reset(void)
 	gpio_set_value(BABBAGE_FEC_PHY_RESET, 1);
 }
 
+/* This function is board specific as the bit mask for the plldiv will also
+be different for other Freescale SoCs, thus a common bitmask is not
+possible and cannot get place in /plat-mxc/ehci.c.*/
 static int initialize_otg_port(struct platform_device *pdev)
 {
 	u32 v;
@@ -247,7 +252,7 @@ static int initialize_otg_port(struct platform_device *pdev)
 		return -ENOMEM;
 	usbother_base = usb_base + MX5_USBOTHER_REGS_OFFSET;
 
-	
+	/* Set the PHY clock to 19.2MHz */
 	v = __raw_readl(usbother_base + MXC_USB_PHY_CTR_FUNC2_OFFSET);
 	v &= ~MX5_USB_UTMI_PHYCTRL1_PLLDIV_MASK;
 	v |= MX51_USB_PLL_DIV_19_2_MHZ;
@@ -270,7 +275,7 @@ static int initialize_usbh1_port(struct platform_device *pdev)
 		return -ENOMEM;
 	usbother_base = usb_base + MX5_USBOTHER_REGS_OFFSET;
 
-	
+	/* The clock for the USBH1 ULPI port will come externally from the PHY. */
 	v = __raw_readl(usbother_base + MX51_USB_CTRL_1_OFFSET);
 	__raw_writel(v | MX51_USB_CTRL_UH1_EXT_CLK_EN, usbother_base + MX51_USB_CTRL_1_OFFSET);
 	iounmap(usb_base);
@@ -350,6 +355,9 @@ void __init imx51_babbage_common_init(void)
 					 ARRAY_SIZE(mx51babbage_pads));
 }
 
+/*
+ * Board specific initialization.
+ */
 static void __init mx51_babbage_init(void)
 {
 	iomux_v3_cfg_t usbh1stp = MX51_PAD_USBH1_STP__USBH1_STP;
@@ -370,7 +378,7 @@ static void __init mx51_babbage_init(void)
 	babbage_fec_reset();
 	imx51_add_fec(NULL);
 
-	
+	/* Set the PAD settings for the pwr key. */
 	mxc_iomux_v3_setup_pad(power_key);
 	imx_add_gpio_keys(&imx_button_data);
 
@@ -387,7 +395,7 @@ static void __init mx51_babbage_init(void)
 
 	gpio_usbh1_active();
 	imx51_add_mxc_ehci_hs(1, &usbh1_config);
-	
+	/* setback USBH1_STP to be function */
 	mxc_iomux_v3_setup_pad(usbh1stp);
 	babbage_usbhub_reset();
 
@@ -410,7 +418,7 @@ static struct sys_timer mx51_babbage_timer = {
 };
 
 MACHINE_START(MX51_BABBAGE, "Freescale MX51 Babbage Board")
-	
+	/* Maintainer: Amit Kucheria <amit.kucheria@canonical.com> */
 	.atag_offset = 0x100,
 	.map_io = mx51_map_io,
 	.init_early = imx51_init_early,

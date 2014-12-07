@@ -34,6 +34,7 @@
 #include "dm_common.h"
 #include "phy_common.h"
 
+/* Define macro to shorten lines */
 #define MCS_TXPWR	mcs_txpwrlevel_origoffset
 
 u32 rtl92c_phy_query_bb_reg(struct ieee80211_hw *hw, u32 regaddr, u32 bitmask)
@@ -1179,7 +1180,7 @@ static void _rtl92c_phy_iq_calibrate(struct ieee80211_hw *hw,
 	const u32 retrycount = 2;
 
 	if (t == 0) {
-		
+		/* dummy read */
 		rtl_get_bbreg(hw, 0x800, MASKDWORD);
 
 		_rtl92c_phy_save_adda_registers(hw, adda_reg,
@@ -1288,7 +1289,7 @@ static void _rtl92c_phy_iq_calibrate(struct ieee80211_hw *hw,
 static void _rtl92c_phy_ap_calibrate(struct ieee80211_hw *hw,
 				     char delta, bool is2t)
 {
-#if 0 
+#if 0 /* This routine is deliberately dummied out for later fixes */
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_phy *rtlphy = &(rtlpriv->phy);
 	struct rtl_efuse *rtlefuse = rtl_efuse(rtl_priv(hw));
@@ -1780,12 +1781,12 @@ void rtl92c_phy_iq_calibrate(struct ieee80211_hw *hw, bool recovery)
 		rtlphy->reg_e94 = rtlphy->reg_eb4 = 0x100;
 		rtlphy->reg_e9c = rtlphy->reg_ebc = 0x0;
 	}
-	if (reg_e94 != 0) 
+	if (reg_e94 != 0) /*&&(reg_ea4 != 0) */
 		_rtl92c_phy_path_a_fill_iqk_matrix(hw, patha_ok, result,
 						   final_candidate,
 						   (reg_ea4 == 0));
 	if (IS_92C_SERIAL(rtlhal->version)) {
-		if (reg_eb4 != 0) 
+		if (reg_eb4 != 0) /*&&(reg_ec4 != 0) */
 			_rtl92c_phy_path_b_fill_iqk_matrix(hw, pathb_ok,
 							   result,
 							   final_candidate,

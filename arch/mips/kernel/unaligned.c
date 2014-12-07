@@ -111,14 +111,28 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 
 	perf_sw_event(PERF_COUNT_SW_EMULATION_FAULTS, 1, regs, 0);
 
+	/*
+	 * This load never faults.
+	 */
 	__get_user(insn.word, pc);
 
 	switch (insn.i_format.opcode) {
+	/*
+	 * These are instructions that a compiler doesn't generate.  We
+	 * can assume therefore that the code is MIPS-aware and
+	 * really buggy.  Emulating these instructions would break the
+	 * semantics anyway.
+	 */
 	case ll_op:
 	case lld_op:
 	case sc_op:
 	case scd_op:
 
+	/*
+	 * For these instructions the only way to create an address
+	 * error is an attempted access to kernel/supervisor address
+	 * space.
+	 */
 	case ldl_op:
 	case ldr_op:
 	case lwl_op:
@@ -132,6 +146,9 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 	case sb_op:
 		goto sigbus;
 
+	/*
+	 * The remaining opcodes are the ones that are really of interest.
+	 */
 	case lh_op:
 		if (!access_ok(VERIFY_READ, addr, 2))
 			goto sigbus;
@@ -231,6 +248,13 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 
 	case lwu_op:
 #ifdef CONFIG_64BIT
+		/*
+		 * A 32-bit kernel might be running on a 64-bit processor.  But
+		 * if we're on a 32-bit processor and an i-cache incoherency
+		 * or race makes us see a 64-bit instruction here the sdl/sdr
+		 * would blow up, so for now we don't handle unaligned 64-bit
+		 * instructions on 32-bit kernels.
+		 */
 		if (!access_ok(VERIFY_READ, addr, 4))
 			goto sigbus;
 
@@ -261,13 +285,20 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 		compute_return_epc(regs);
 		regs->regs[insn.i_format.rt] = value;
 		break;
-#endif 
+#endif /* CONFIG_64BIT */
 
-		
+		/* Cannot handle 64-bit instructions in 32-bit kernel */
 		goto sigill;
 
 	case ld_op:
 #ifdef CONFIG_64BIT
+		/*
+		 * A 32-bit kernel might be running on a 64-bit processor.  But
+		 * if we're on a 32-bit processor and an i-cache incoherency
+		 * or race makes us see a 64-bit instruction here the sdl/sdr
+		 * would blow up, so for now we don't handle unaligned 64-bit
+		 * instructions on 32-bit kernels.
+		 */
 		if (!access_ok(VERIFY_READ, addr, 8))
 			goto sigbus;
 
@@ -296,9 +327,9 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 		compute_return_epc(regs);
 		regs->regs[insn.i_format.rt] = value;
 		break;
-#endif 
+#endif /* CONFIG_64BIT */
 
-		
+		/* Cannot handle 64-bit instructions in 32-bit kernel */
 		goto sigill;
 
 	case sh_op:
@@ -371,6 +402,13 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 
 	case sd_op:
 #ifdef CONFIG_64BIT
+		/*
+		 * A 32-bit kernel might be running on a 64-bit processor.  But
+		 * if we're on a 32-bit processor and an i-cache incoherency
+		 * or race makes us see a 64-bit instruction here the sdl/sdr
+		 * would blow up, so for now we don't handle unaligned 64-bit
+		 * instructions on 32-bit kernels.
+		 */
 		if (!access_ok(VERIFY_WRITE, addr, 8))
 			goto sigbus;
 
@@ -400,17 +438,25 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 			goto fault;
 		compute_return_epc(regs);
 		break;
-#endif 
+#endif /* CONFIG_64BIT */
 
-		
+		/* Cannot handle 64-bit instructions in 32-bit kernel */
 		goto sigill;
 
 	case lwc1_op:
 	case ldc1_op:
 	case swc1_op:
 	case sdc1_op:
+		/*
+		 * I herewith declare: this does not happen.  So send SIGBUS.
+		 */
 		goto sigbus;
 
+	/*
+	 * COP2 is available to implementor for application specific use.
+	 * It's up to applications to register a notifier chain and do
+	 * whatever they have to do, including possible sending of signals.
+	 */
 	case lwc2_op:
 		cu2_notifier_call_chain(CU2_LWC2_OP, regs);
 		break;
@@ -428,6 +474,10 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 		break;
 
 	default:
+		/*
+		 * Pheeee...  We encountered an yet unknown instruction or
+		 * cache coherence problem.  Die sucker, die ...
+		 */
 		goto sigill;
 	}
 
@@ -438,7 +488,7 @@ static void emulate_load_store_insn(struct pt_regs *regs,
 	return;
 
 fault:
-	
+	/* Did we have an exception handler installed? */
 	if (fixup_exception(regs))
 		return;
 
@@ -465,6 +515,10 @@ asmlinkage void do_ade(struct pt_regs *regs)
 
 	perf_sw_event(PERF_COUNT_SW_ALIGNMENT_FAULTS,
 			1, regs, regs->cp0_badvaddr);
+	/*
+	 * Did we catch a fault trying to load an instruction?
+	 * Or are we running in MIPS16 mode?
+	 */
 	if ((regs->cp0_badvaddr == regs->cp0_epc) || (regs->cp0_epc & 0x1))
 		goto sigbus;
 
@@ -476,6 +530,10 @@ asmlinkage void do_ade(struct pt_regs *regs)
 	else if (unaligned_action == UNALIGNED_ACTION_SHOW)
 		show_registers(regs);
 
+	/*
+	 * Do branch emulation only if we didn't forward the exception.
+	 * This is all so but ugly ...
+	 */
 	seg = get_fs();
 	if (!user_mode(regs))
 		set_fs(KERNEL_DS);
@@ -488,6 +546,9 @@ sigbus:
 	die_if_kernel("Kernel unaligned instruction access", regs);
 	force_sig(SIGBUS, current);
 
+	/*
+	 * XXX On return from the signal handler we should advance the epc
+	 */
 }
 
 #ifdef CONFIG_DEBUG_FS

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -149,6 +149,17 @@ err:
 	return NULL;
 }
 
+/**
+ * msm_bus_cl_get_pdata() - Generate bus client data from device tree
+ * provided by clients.
+ *
+ * of_node: Device tree node to extract information from
+ *
+ * The function returns a valid pointer to the allocated bus-scale-pdata
+ * if the vectors were correctly read from the client's device node.
+ * Any error in reading or parsing the device node will return NULL
+ * to the caller.
+ */
 struct msm_bus_scale_pdata *msm_bus_cl_get_pdata(struct platform_device *pdev)
 {
 	struct device_node *of_node;
@@ -162,7 +173,7 @@ struct msm_bus_scale_pdata *msm_bus_cl_get_pdata(struct platform_device *pdev)
 	of_node = pdev->dev.of_node;
 	pdata = get_pdata(pdev, of_node);
 	if (!pdata) {
-		pr_err("Error getting bus pdata!\n");
+		pr_err("client has to provide missing entry for successful registration\n");
 		return NULL;
 	}
 
@@ -170,6 +181,22 @@ struct msm_bus_scale_pdata *msm_bus_cl_get_pdata(struct platform_device *pdev)
 }
 EXPORT_SYMBOL(msm_bus_cl_get_pdata);
 
+/**
+ * msm_bus_cl_pdata_from_node() - Generate bus client data from device tree
+ * node provided by clients. This function should be used when a client
+ * driver needs to register multiple bus-clients from a single device-tree
+ * node associated with the platform-device.
+ *
+ * of_node: The subnode containing information about the bus scaling
+ * data
+ *
+ * pdev: Platform device associated with the device-tree node
+ *
+ * The function returns a valid pointer to the allocated bus-scale-pdata
+ * if the vectors were correctly read from the client's device node.
+ * Any error in reading or parsing the device node will return NULL
+ * to the caller.
+ */
 struct msm_bus_scale_pdata *msm_bus_pdata_from_node(
 		struct platform_device *pdev, struct device_node *of_node)
 {
@@ -187,7 +214,7 @@ struct msm_bus_scale_pdata *msm_bus_pdata_from_node(
 
 	pdata = get_pdata(pdev, of_node);
 	if (!pdata) {
-		pr_err("Error getting bus pdata!\n");
+		pr_err("client has to provide missing entry for successful registration\n");
 		return NULL;
 	}
 
@@ -195,6 +222,10 @@ struct msm_bus_scale_pdata *msm_bus_pdata_from_node(
 }
 EXPORT_SYMBOL(msm_bus_pdata_from_node);
 
+/**
+ * msm_bus_cl_clear_pdata() - Clear pdata allocated from device-tree
+ * of_node: Device tree node to extract information from
+ */
 void msm_bus_cl_clear_pdata(struct msm_bus_scale_pdata *pdata)
 {
 	int i;
@@ -240,6 +271,54 @@ err:
 	return NULL;
 }
 
+static u64 *get_th_params(struct platform_device *pdev,
+		const struct device_node *node, const char *prop,
+		int *nports)
+{
+	int size = 0, ret;
+	u64 *ret_arr = NULL;
+	int *arr = NULL;
+	int i;
+
+	if (of_get_property(node, prop, &size)) {
+		*nports = size / sizeof(int);
+	} else {
+		pr_debug("Property %s not available\n", prop);
+		*nports = 0;
+		return NULL;
+	}
+
+	ret_arr = devm_kzalloc(&pdev->dev, (*nports * sizeof(u64)),
+							GFP_KERNEL);
+	arr = kzalloc(size, GFP_KERNEL);
+	if ((size > 0) && (ZERO_OR_NULL_PTR(arr)
+				|| ZERO_OR_NULL_PTR(ret_arr))) {
+		pr_err("Error: Failed to alloc mem for %s\n", prop);
+		return NULL;
+	}
+
+	ret = of_property_read_u32_array(node, prop, (u32 *)arr, *nports);
+	if (ret) {
+		pr_err("Error in reading property: %s\n", prop);
+		goto err;
+	}
+
+	for (i = 0; i < *nports; i++)
+		ret_arr[i] = (uint64_t)KBTOB(arr[i]);
+
+	MSM_BUS_DBG("%s: num entries %d prop %s", __func__, *nports, prop);
+
+	for (i = 0; i < *nports; i++)
+		MSM_BUS_DBG("Th %d val %llu", i, ret_arr[i]);
+
+	kfree(arr);
+	return ret_arr;
+err:
+	devm_kfree(&pdev->dev, arr);
+	devm_kfree(&pdev->dev, ret_arr);
+	return NULL;
+}
+
 static struct msm_bus_node_info *get_nodes(struct device_node *of_node,
 	struct platform_device *pdev,
 	struct msm_bus_fabric_registration *pdata)
@@ -247,7 +326,7 @@ static struct msm_bus_node_info *get_nodes(struct device_node *of_node,
 	struct msm_bus_node_info *info;
 	struct device_node *child_node = NULL;
 	int i = 0, ret;
-	u32 temp;
+	int num_bw = 0;
 
 	for_each_child_of_node(of_node, child_node) {
 		i++;
@@ -288,7 +367,7 @@ static struct msm_bus_node_info *get_nodes(struct device_node *of_node,
 			&info[i].slv_hw_id);
 		info[i].masterp = get_arr(pdev, child_node,
 					"qcom,masterp", &info[i].num_mports);
-		
+		/* No need to store number of qports */
 		info[i].qport = get_arr(pdev, child_node,
 					"qcom,qport", &ret);
 		pdata->nmasters += info[i].num_mports;
@@ -322,36 +401,29 @@ static struct msm_bus_node_info *get_nodes(struct device_node *of_node,
 		of_property_read_u32(child_node, "qcom,buswidth",
 			&info[i].buswidth);
 		of_property_read_u32(child_node, "qcom,ws", &info[i].ws);
-		ret = of_property_read_u32(child_node, "qcom,thresh",
-			&temp);
-		if (!ret)
-			info[i].th = (uint64_t)KBTOB(temp);
 
-		ret = of_property_read_u32(child_node, "qcom,bimc,bw",
-			&temp);
-		if (!ret)
-			info[i].bimc_bw = (uint64_t)KBTOB(temp);
+		info[i].dual_conf =
+			of_property_read_bool(child_node, "qcom,dual-conf");
+
+
+		info[i].th = get_th_params(pdev, child_node, "qcom,thresh",
+						&info[i].num_thresh);
+
+		info[i].bimc_bw = get_th_params(pdev, child_node,
+						"qcom,bimc,bw", &num_bw);
+
+		if (num_bw != info[i].num_thresh) {
+			pr_err("%s:num_bw %d must equal num_thresh %d",
+				__func__, num_bw, info[i].num_thresh);
+			pr_err("%s:Err setting up dual conf for %s",
+				__func__, info[i].name);
+			goto err;
+		}
 
 		of_property_read_u32(child_node, "qcom,bimc,gp",
 			&info[i].bimc_gp);
 		of_property_read_u32(child_node, "qcom,bimc,thmp",
 			&info[i].bimc_thmp);
-		ret = of_property_read_string(child_node, "qcom,mode",
-			&sel_str);
-		if (ret)
-			info[i].mode = 0;
-		else {
-			ret = get_num(mode_sel_name, sel_str);
-			if (ret < 0) {
-				pr_err("Unknown mode :%s\n", sel_str);
-				goto err;
-			}
-
-			info[i].mode = ret;
-		}
-
-		info[i].dual_conf =
-			of_property_read_bool(child_node, "qcom,dual-conf");
 
 		ret = of_property_read_string(child_node, "qcom,mode-thresh",
 			&sel_str);
@@ -366,7 +438,21 @@ static struct msm_bus_node_info *get_nodes(struct device_node *of_node,
 
 			info[i].mode_thresh = ret;
 			MSM_BUS_DBG("AXI: THreshold mode set: %d\n",
-				info[i].mode_thresh);
+					info[i].mode_thresh);
+		}
+
+		ret = of_property_read_string(child_node, "qcom,mode",
+				&sel_str);
+		if (ret)
+			info[i].mode = 0;
+		else {
+			ret = get_num(mode_sel_name, sel_str);
+			if (ret < 0) {
+				pr_err("Unknown mode :%s\n", sel_str);
+				goto err;
+			}
+
+			info[i].mode = ret;
 		}
 
 		ret = of_property_read_string(child_node, "qcom,perm-mode",
@@ -520,6 +606,11 @@ struct msm_bus_fabric_registration
 
 	if (of_property_read_bool(of_node, "qcom,virt"))
 		pdata->virt = true;
+
+	ret = of_property_read_u32(of_node, "qcom,qos-baseoffset",
+						&pdata->qos_baseoffset);
+	if (ret)
+		pr_debug("%s:qos_baseoffset not available\n", __func__);
 
 	if (of_property_read_bool(of_node, "qcom,rpm-en"))
 		pdata->rpm_enabled = 1;

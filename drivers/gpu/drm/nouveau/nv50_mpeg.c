@@ -162,7 +162,7 @@ nv50_mpeg_init(struct drm_device *dev, int engine)
 static int
 nv50_mpeg_fini(struct drm_device *dev, int engine, bool suspend)
 {
-	
+	/*XXX: context save for s/r */
 	nv_mask(dev, 0x00b32c, 0x00000001, 0x00000000);
 	nv_wr32(dev, 0x00b140, 0x00000000);
 	return 0;
@@ -178,7 +178,7 @@ nv50_mpeg_isr(struct drm_device *dev)
 	u32 show = stat;
 
 	if (stat & 0x01000000) {
-		
+		/* happens on initial binding of the object */
 		if (type == 0x00000020 && mthd == 0x0000) {
 			nv_wr32(dev, 0x00b308, 0x00000100);
 			show &= ~0x01000000;

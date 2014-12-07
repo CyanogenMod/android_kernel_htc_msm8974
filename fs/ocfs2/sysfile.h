@@ -30,4 +30,4 @@ struct inode * ocfs2_get_system_file_inode(struct ocfs2_super *osb,
 					   int type,
 					   u32 slot);
 
-#endif 
+#endif /* OCFS2_SYSFILE_H */

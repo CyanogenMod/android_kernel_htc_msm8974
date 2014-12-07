@@ -51,24 +51,24 @@
 #include "devices-imx31.h"
 
 static unsigned int moboard_pins[] = {
-	
+	/* UART0 */
 	MX31_PIN_TXD1__TXD1, MX31_PIN_RXD1__RXD1,
 	MX31_PIN_CTS1__GPIO2_7,
-	
+	/* UART4 */
 	MX31_PIN_PC_RST__CTS5, MX31_PIN_PC_VS2__RTS5,
 	MX31_PIN_PC_BVD2__TXD5, MX31_PIN_PC_BVD1__RXD5,
-	
+	/* I2C0 */
 	MX31_PIN_I2C_DAT__I2C1_SDA, MX31_PIN_I2C_CLK__I2C1_SCL,
-	
+	/* I2C1 */
 	MX31_PIN_DCD_DTE1__I2C2_SDA, MX31_PIN_RI_DTE1__I2C2_SCL,
-	
+	/* SDHC1 */
 	MX31_PIN_SD1_DATA3__SD1_DATA3, MX31_PIN_SD1_DATA2__SD1_DATA2,
 	MX31_PIN_SD1_DATA1__SD1_DATA1, MX31_PIN_SD1_DATA0__SD1_DATA0,
 	MX31_PIN_SD1_CLK__SD1_CLK, MX31_PIN_SD1_CMD__SD1_CMD,
 	MX31_PIN_ATA_CS0__GPIO3_26, MX31_PIN_ATA_CS1__GPIO3_27,
-	
+	/* USB reset */
 	MX31_PIN_GPIO1_0__GPIO1_0,
-	
+	/* USB OTG */
 	MX31_PIN_USBOTG_DATA0__USBOTG_DATA0,
 	MX31_PIN_USBOTG_DATA1__USBOTG_DATA1,
 	MX31_PIN_USBOTG_DATA2__USBOTG_DATA2,
@@ -80,7 +80,7 @@ static unsigned int moboard_pins[] = {
 	MX31_PIN_USBOTG_CLK__USBOTG_CLK, MX31_PIN_USBOTG_DIR__USBOTG_DIR,
 	MX31_PIN_USBOTG_NXT__USBOTG_NXT, MX31_PIN_USBOTG_STP__USBOTG_STP,
 	MX31_PIN_USB_OC__GPIO1_30,
-	
+	/* USB H2 */
 	MX31_PIN_USBH2_DATA0__USBH2_DATA0,
 	MX31_PIN_USBH2_DATA1__USBH2_DATA1,
 	MX31_PIN_STXD3__USBH2_DATA2, MX31_PIN_SRXD3__USBH2_DATA3,
@@ -89,16 +89,16 @@ static unsigned int moboard_pins[] = {
 	MX31_PIN_USBH2_CLK__USBH2_CLK, MX31_PIN_USBH2_DIR__USBH2_DIR,
 	MX31_PIN_USBH2_NXT__USBH2_NXT, MX31_PIN_USBH2_STP__USBH2_STP,
 	MX31_PIN_SCK6__GPIO1_25,
-	
+	/* LEDs */
 	MX31_PIN_SVEN0__GPIO2_0, MX31_PIN_STX0__GPIO2_1,
 	MX31_PIN_SRX0__GPIO2_2, MX31_PIN_SIMPD0__GPIO2_3,
-	
+	/* SPI1 */
 	MX31_PIN_CSPI2_MOSI__MOSI, MX31_PIN_CSPI2_MISO__MISO,
 	MX31_PIN_CSPI2_SCLK__SCLK, MX31_PIN_CSPI2_SPI_RDY__SPI_RDY,
 	MX31_PIN_CSPI2_SS0__SS0, MX31_PIN_CSPI2_SS2__SS2,
-	
+	/* Atlas IRQ */
 	MX31_PIN_GPIO1_3__GPIO1_3,
-	
+	/* SPI2 */
 	MX31_PIN_CSPI3_MOSI__MOSI, MX31_PIN_CSPI3_MISO__MISO,
 	MX31_PIN_CSPI3_SCLK__SCLK, MX31_PIN_CSPI3_SPI_RDY__SPI_RDY,
 	MX31_PIN_CSPI2_SS1__CSPI3_SS1,
@@ -360,6 +360,9 @@ static const struct imxmmc_platform_data sdhc1_pdata __initconst = {
 	.exit	= moboard_sdhc1_exit,
 };
 
+/*
+ * this pin is dedicated for all mx31moboard systems, so we do it here
+ */
 #define USB_RESET_B	IOMUX_TO_GPIO(MX31_PIN_GPIO1_0)
 #define USB_PAD_CFG (PAD_CTL_DRV_MAX | PAD_CTL_SRE_FAST | PAD_CTL_HYS_CMOS | \
 		      PAD_CTL_ODE_CMOS)
@@ -514,6 +517,9 @@ static void mx31moboard_poweroff(void)
 static int mx31moboard_baseboard;
 core_param(mx31moboard_baseboard, mx31moboard_baseboard, int, 0444);
 
+/*
+ * Board specific initialization.
+ */
 static void __init mx31moboard_init(void)
 {
 	imx31_soc_init();
@@ -580,13 +586,13 @@ struct sys_timer mx31moboard_timer = {
 
 static void __init mx31moboard_reserve(void)
 {
-	
+	/* reserve 4 MiB for mx3-camera */
 	mx3_camera_base = arm_memblock_steal(MX3_CAMERA_BUF_SIZE,
 			MX3_CAMERA_BUF_SIZE);
 }
 
 MACHINE_START(MX31MOBOARD, "EPFL Mobots mx31moboard")
-	
+	/* Maintainer: Philippe Retornaz, EPFL Mobots group */
 	.atag_offset = 0x100,
 	.reserve = mx31moboard_reserve,
 	.map_io = mx31_map_io,

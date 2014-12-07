@@ -19,6 +19,20 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 */
+/*
+Driver: adl_pci8164
+Description: Driver for the Adlink PCI-8164 4 Axes Motion Control board
+Devices: [ADLink] PCI-8164 (adl_pci8164)
+Author: Michel Lachaine <mike@mikelachaine.ca>
+Status: experimental
+Updated: Mon, 14 Apr 2008 15:10:32 +0100
+
+Configuration Options:
+  [0] - PCI bus of device (optional)
+  [1] - PCI slot of device (optional)
+  If bus/slot is not specified, the first supported
+  PCI device found will be used.
+*/
 
 #include "../comedidev.h"
 #include <linux/kernel.h>
@@ -130,7 +144,7 @@ static int adl_pci8164_attach(struct comedi_device *dev,
 		if (pcidev->vendor == PCI_VENDOR_ID_ADLINK &&
 		    pcidev->device == PCI_DEVICE_ID_PCI8164) {
 			if (bus || slot) {
-				
+				/* requested particular bus/slot */
 				if (pcidev->bus->number != bus
 					|| PCI_SLOT(pcidev->devfn) != slot)
 					continue;
@@ -151,7 +165,7 @@ static int adl_pci8164_attach(struct comedi_device *dev,
 			s->n_chan = 4;
 			s->maxdata = 0xffff;
 			s->len_chanlist = 4;
-			
+			/* s->range_table = &range_axis; */
 			s->insn_read = adl_pci8164_insn_read_msts;
 			s->insn_write = adl_pci8164_insn_write_cmd;
 
@@ -161,7 +175,7 @@ static int adl_pci8164_attach(struct comedi_device *dev,
 			s->n_chan = 4;
 			s->maxdata = 0xffff;
 			s->len_chanlist = 4;
-			
+			/* s->range_table = &range_axis; */
 			s->insn_read = adl_pci8164_insn_read_ssts;
 			s->insn_write = adl_pci8164_insn_write_otp;
 
@@ -171,7 +185,7 @@ static int adl_pci8164_attach(struct comedi_device *dev,
 			s->n_chan = 4;
 			s->maxdata = 0xffff;
 			s->len_chanlist = 4;
-			
+			/* s->range_table = &range_axis; */
 			s->insn_read = adl_pci8164_insn_read_buf0;
 			s->insn_write = adl_pci8164_insn_write_buf0;
 
@@ -181,7 +195,7 @@ static int adl_pci8164_attach(struct comedi_device *dev,
 			s->n_chan = 4;
 			s->maxdata = 0xffff;
 			s->len_chanlist = 4;
-			
+			/* s->range_table = &range_axis; */
 			s->insn_read = adl_pci8164_insn_read_buf1;
 			s->insn_write = adl_pci8164_insn_write_buf1;
 
@@ -209,6 +223,10 @@ static int adl_pci8164_detach(struct comedi_device *dev)
 	return 0;
 }
 
+/*
+ all the read commands are the same except for the addition a constant
+ * const to the data for inw()
+ */
 static void adl_pci8164_insn_read(struct comedi_device *dev,
 				  struct comedi_subdevice *s,
 				  struct comedi_insn *insn,
@@ -284,6 +302,10 @@ static int adl_pci8164_insn_read_buf1(struct comedi_device *dev,
 	return 2;
 }
 
+/*
+ all the write commands are the same except for the addition a constant
+ * const to the data for outw()
+ */
 static void adl_pci8164_insn_out(struct comedi_device *dev,
 				 struct comedi_subdevice *s,
 				 struct comedi_insn *insn,

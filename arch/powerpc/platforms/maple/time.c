@@ -87,11 +87,11 @@ int maple_set_rtc_time(struct rtc_time *tm)
 
 	spin_lock(&rtc_lock);
 
-	save_control = maple_clock_read(RTC_CONTROL); 
+	save_control = maple_clock_read(RTC_CONTROL); /* tell the clock it's being set */
 
 	maple_clock_write((save_control|RTC_SET), RTC_CONTROL);
 
-	save_freq_select = maple_clock_read(RTC_FREQ_SELECT); 
+	save_freq_select = maple_clock_read(RTC_FREQ_SELECT); /* stop and reset prescaler */
 
 	maple_clock_write((save_freq_select|RTC_DIV_RESET2), RTC_FREQ_SELECT);
 
@@ -117,6 +117,13 @@ int maple_set_rtc_time(struct rtc_time *tm)
 	maple_clock_write(mday, RTC_DAY_OF_MONTH);
 	maple_clock_write(year, RTC_YEAR);
 
+	/* The following flags have to be released exactly in this order,
+	 * otherwise the DS12887 (popular MC146818A clone with integrated
+	 * battery and quartz) will not reset the oscillator and will not
+	 * update precisely 500 ms later. You won't find this mentioned in
+	 * the Dallas Semiconductor data sheets, but who believes data
+	 * sheets anyway ...                           -- Markus Kuhn
+	 */
 	maple_clock_write(save_control, RTC_CONTROL);
 	maple_clock_write(save_freq_select, RTC_FREQ_SELECT);
 
@@ -153,7 +160,7 @@ unsigned long __init maple_get_boot_time(void)
 	}
  bail:
 	if (maple_rtc_addr == 0) {
-		maple_rtc_addr = RTC_PORT(0); 
+		maple_rtc_addr = RTC_PORT(0); /* legacy address */
 		printk(KERN_INFO "Maple: No device node for RTC, assuming "
 		       "legacy address (0x%x)\n", maple_rtc_addr);
 	}

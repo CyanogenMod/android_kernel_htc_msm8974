@@ -54,6 +54,10 @@ static int kirkwood_i2s_set_fmt(struct snd_soc_dai *cpu_dai,
 		return -EINVAL;
 	}
 
+	/*
+	 * Set same format for playback and record
+	 * This avoids some troubles.
+	 */
 	value = readl(priv->io+KIRKWOOD_I2S_PLAYCTL);
 	value &= ~KIRKWOOD_I2S_CTL_JUST_MASK;
 	value |= mask;
@@ -86,7 +90,7 @@ static inline void kirkwood_set_dco(void __iomem *io, unsigned long rate)
 	}
 	writel(value, io + KIRKWOOD_DCO_CTL);
 
-	
+	/* wait for dco locked */
 	do {
 		cpu_relax();
 		value = readl(io + KIRKWOOD_DCO_SPCR_STATUS);
@@ -119,7 +123,7 @@ static int kirkwood_i2s_hw_params(struct snd_pcm_substream *substream,
 		reg = KIRKWOOD_RECCTL;
 	}
 
-	
+	/* set dco conf */
 	kirkwood_set_dco(priv->io, params_rate(params));
 
 	i2s_value = readl(priv->io+i2s_reg);
@@ -128,11 +132,23 @@ static int kirkwood_i2s_hw_params(struct snd_pcm_substream *substream,
 	value = readl(priv->io+reg);
 	value &= ~KIRKWOOD_PLAYCTL_SIZE_MASK;
 
+	/*
+	 * Size settings in play/rec i2s control regs and play/rec control
+	 * regs must be the same.
+	 */
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 		i2s_value |= KIRKWOOD_I2S_CTL_SIZE_16;
 		value |= KIRKWOOD_PLAYCTL_SIZE_16_C;
 		break;
+	/*
+	 * doesn't work... S20_3LE != kirkwood 20bit format ?
+	 *
+	case SNDRV_PCM_FORMAT_S20_3LE:
+		i2s_value |= KIRKWOOD_I2S_CTL_SIZE_20;
+		value |= KIRKWOOD_PLAYCTL_SIZE_20;
+		break;
+	*/
 	case SNDRV_PCM_FORMAT_S24_LE:
 		i2s_value |= KIRKWOOD_I2S_CTL_SIZE_24;
 		value |= KIRKWOOD_PLAYCTL_SIZE_24;
@@ -165,11 +181,15 @@ static int kirkwood_i2s_play_trigger(struct snd_pcm_substream *substream,
 	struct kirkwood_dma_data *priv = snd_soc_dai_get_drvdata(dai);
 	unsigned long value;
 
+	/*
+	 * specs says KIRKWOOD_PLAYCTL must be read 2 times before
+	 * changing it. So read 1 time here and 1 later.
+	 */
 	value = readl(priv->io + KIRKWOOD_PLAYCTL);
 
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
-		
+		/* stop audio, enable interrupts */
 		value = readl(priv->io + KIRKWOOD_PLAYCTL);
 		value |= KIRKWOOD_PLAYCTL_PAUSE;
 		writel(value, priv->io + KIRKWOOD_PLAYCTL);
@@ -178,7 +198,7 @@ static int kirkwood_i2s_play_trigger(struct snd_pcm_substream *substream,
 		value |= KIRKWOOD_INT_CAUSE_PLAY_BYTES;
 		writel(value, priv->io + KIRKWOOD_INT_MASK);
 
-		
+		/* configure audio & enable i2s playback */
 		value = readl(priv->io + KIRKWOOD_PLAYCTL);
 		value &= ~KIRKWOOD_PLAYCTL_BURST_MASK;
 		value &= ~(KIRKWOOD_PLAYCTL_PAUSE | KIRKWOOD_PLAYCTL_I2S_MUTE
@@ -193,7 +213,7 @@ static int kirkwood_i2s_play_trigger(struct snd_pcm_substream *substream,
 		break;
 
 	case SNDRV_PCM_TRIGGER_STOP:
-		
+		/* stop audio, disable interrupts */
 		value = readl(priv->io + KIRKWOOD_PLAYCTL);
 		value |= KIRKWOOD_PLAYCTL_PAUSE | KIRKWOOD_PLAYCTL_I2S_MUTE;
 		writel(value, priv->io + KIRKWOOD_PLAYCTL);
@@ -202,7 +222,7 @@ static int kirkwood_i2s_play_trigger(struct snd_pcm_substream *substream,
 		value &= ~KIRKWOOD_INT_CAUSE_PLAY_BYTES;
 		writel(value, priv->io + KIRKWOOD_INT_MASK);
 
-		
+		/* disable all playbacks */
 		value = readl(priv->io + KIRKWOOD_PLAYCTL);
 		value &= ~(KIRKWOOD_PLAYCTL_I2S_EN | KIRKWOOD_PLAYCTL_SPDIF_EN);
 		writel(value, priv->io + KIRKWOOD_PLAYCTL);
@@ -239,7 +259,7 @@ static int kirkwood_i2s_rec_trigger(struct snd_pcm_substream *substream,
 
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
-		
+		/* stop audio, enable interrupts */
 		value = readl(priv->io + KIRKWOOD_RECCTL);
 		value |= KIRKWOOD_RECCTL_PAUSE;
 		writel(value, priv->io + KIRKWOOD_RECCTL);
@@ -248,7 +268,7 @@ static int kirkwood_i2s_rec_trigger(struct snd_pcm_substream *substream,
 		value |= KIRKWOOD_INT_CAUSE_REC_BYTES;
 		writel(value, priv->io + KIRKWOOD_INT_MASK);
 
-		
+		/* configure audio & enable i2s record */
 		value = readl(priv->io + KIRKWOOD_RECCTL);
 		value &= ~KIRKWOOD_RECCTL_BURST_MASK;
 		value &= ~KIRKWOOD_RECCTL_MONO;
@@ -265,7 +285,7 @@ static int kirkwood_i2s_rec_trigger(struct snd_pcm_substream *substream,
 		break;
 
 	case SNDRV_PCM_TRIGGER_STOP:
-		
+		/* stop audio, disable interrupts */
 		value = readl(priv->io + KIRKWOOD_RECCTL);
 		value |= KIRKWOOD_RECCTL_PAUSE | KIRKWOOD_RECCTL_MUTE;
 		writel(value, priv->io + KIRKWOOD_RECCTL);
@@ -274,7 +294,7 @@ static int kirkwood_i2s_rec_trigger(struct snd_pcm_substream *substream,
 		value &= ~KIRKWOOD_INT_CAUSE_REC_BYTES;
 		writel(value, priv->io + KIRKWOOD_INT_MASK);
 
-		
+		/* disable all records */
 		value = readl(priv->io + KIRKWOOD_RECCTL);
 		value &= ~(KIRKWOOD_RECCTL_I2S_EN | KIRKWOOD_RECCTL_SPDIF_EN);
 		writel(value, priv->io + KIRKWOOD_RECCTL);
@@ -318,8 +338,8 @@ static int kirkwood_i2s_probe(struct snd_soc_dai *dai)
 	unsigned long value;
 	unsigned int reg_data;
 
-	
-	
+	/* put system in a "safe" state : */
+	/* disable audio interrupts */
 	writel(0xffffffff, priv->io + KIRKWOOD_INT_CAUSE);
 	writel(0, priv->io + KIRKWOOD_INT_MASK);
 
@@ -335,7 +355,7 @@ static int kirkwood_i2s_probe(struct snd_soc_dai *dai)
 	reg_data |= 0x111D18;
 	writel(reg_data, priv->io + 0x1200);
 
-	
+	/* disable playback/record */
 	value = readl(priv->io + KIRKWOOD_PLAYCTL);
 	value &= ~(KIRKWOOD_PLAYCTL_I2S_EN|KIRKWOOD_PLAYCTL_SPDIF_EN);
 	writel(value, priv->io + KIRKWOOD_PLAYCTL);
@@ -464,6 +484,7 @@ static struct platform_driver kirkwood_i2s_driver = {
 
 module_platform_driver(kirkwood_i2s_driver);
 
+/* Module information */
 MODULE_AUTHOR("Arnaud Patard, <arnaud.patard@rtp-net.org>");
 MODULE_DESCRIPTION("Kirkwood I2S SoC Interface");
 MODULE_LICENSE("GPL");

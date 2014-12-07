@@ -45,8 +45,10 @@
 #define DBG(fmt...)
 #endif
 
+/* Max supported size for symbol names */
 #define MAX_SYMNAME	64
 
+/* The alignment of the vDSO */
 #define VDSO_ALIGNMENT	(1 << 16)
 
 extern char vdso32_start, vdso32_end;
@@ -62,16 +64,22 @@ static void *vdso64_kbase = &vdso64_start;
 static unsigned int vdso64_pages;
 static struct page **vdso64_pagelist;
 unsigned long vdso64_rt_sigtramp;
-#endif 
+#endif /* CONFIG_PPC64 */
 
 static int vdso_ready;
 
+/*
+ * The vdso data page (aka. systemcfg for old ppc64 fans) is here.
+ * Once the early boot kernel code no longer needs to muck around
+ * with it, it will become dynamically allocated
+ */
 static union {
 	struct vdso_data	data;
 	u8			page[PAGE_SIZE];
 } vdso_data_store __page_aligned_data;
 struct vdso_data *vdso_data = &vdso_data_store.data;
 
+/* Format of the patch table */
 struct vdso_patch_def
 {
 	unsigned long	ftr_mask, ftr_value;
@@ -79,6 +87,11 @@ struct vdso_patch_def
 	const char	*fix_name;
 };
 
+/* Table of functions to patch based on the CPU type/revision
+ *
+ * Currently, we only change sync_dicache to do nothing on processors
+ * with a coherent icache
+ */
 static struct vdso_patch_def vdso_patches[] = {
 	{
 		CPU_FTR_COHERENT_ICACHE, CPU_FTR_COHERENT_ICACHE,
@@ -102,13 +115,17 @@ static struct vdso_patch_def vdso_patches[] = {
 	},
 };
 
+/*
+ * Some infos carried around for each of them during parsing at
+ * boot time.
+ */
 struct lib32_elfinfo
 {
-	Elf32_Ehdr	*hdr;		
-	Elf32_Sym	*dynsym;	
-	unsigned long	dynsymsize;	
-	char		*dynstr;	
-	unsigned long	text;		
+	Elf32_Ehdr	*hdr;		/* ptr to ELF */
+	Elf32_Sym	*dynsym;	/* ptr to .dynsym section */
+	unsigned long	dynsymsize;	/* size of .dynsym section */
+	char		*dynstr;	/* ptr to .dynstr section */
+	unsigned long	text;		/* offset of .text section in .so */
 };
 
 struct lib64_elfinfo
@@ -127,7 +144,7 @@ static void dump_one_vdso_page(struct page *pg, struct page *upg)
 	printk("kpg: %p (c:%d,f:%08lx)", __va(page_to_pfn(pg) << PAGE_SHIFT),
 	       page_count(pg),
 	       pg->flags);
-	if (upg && !IS_ERR(upg) ) {
+	if (upg && !IS_ERR(upg) /* && pg != upg*/) {
 		printk(" upg: %p (c:%d,f:%08lx)", __va(page_to_pfn(upg)
 						       << PAGE_SHIFT),
 		       page_count(upg),
@@ -163,8 +180,12 @@ static void dump_vdso_pages(struct vm_area_struct * vma)
 		}
 	}
 }
-#endif 
+#endif /* DEBUG */
 
+/*
+ * This is called from binfmt_elf, we create the special vma for the
+ * vDSO and insert it into the mm struct tree
+ */
 int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 {
 	struct mm_struct *mm = current->mm;
@@ -184,6 +205,11 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 	} else {
 		vdso_pagelist = vdso64_pagelist;
 		vdso_pages = vdso64_pages;
+		/*
+		 * On 64bit we don't have a preferred map address. This
+		 * allows get_unmapped_area to find an area near other mmaps
+		 * and most likely share a SLB entry.
+		 */
 		vdso_base = 0;
 	}
 #else
@@ -194,11 +220,20 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 
 	current->mm->context.vdso_base = 0;
 
+	/* vDSO has a problem and was disabled, just don't "enable" it for the
+	 * process
+	 */
 	if (vdso_pages == 0)
 		return 0;
-	
+	/* Add a page to the vdso size for the data page */
 	vdso_pages ++;
 
+	/*
+	 * pick a base address for the vDSO in process space. We try to put it
+	 * at vdso_base which is the "natural" base for it, but we might fail
+	 * and end up putting it elsewhere.
+	 * Add enough to the size so that the result can be aligned.
+	 */
 	down_write(&mm->mmap_sem);
 	vdso_base = get_unmapped_area(NULL, vdso_base,
 				      (vdso_pages << PAGE_SHIFT) +
@@ -209,11 +244,26 @@ int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
 		goto fail_mmapsem;
 	}
 
-	
+	/* Add required alignment. */
 	vdso_base = ALIGN(vdso_base, VDSO_ALIGNMENT);
 
+	/*
+	 * Put vDSO base into mm struct. We need to do this before calling
+	 * install_special_mapping or the perf counter mmap tracking code
+	 * will fail to recognise it as a vDSO (since arch_vma_name fails).
+	 */
 	current->mm->context.vdso_base = vdso_base;
 
+	/*
+	 * our vma flags don't have VM_WRITE so by default, the process isn't
+	 * allowed to write those pages.
+	 * gdb can break that with ptrace interface, and thus trigger COW on
+	 * those pages but it's then your responsibility to never do that on
+	 * the "data" page of the vDSO or you'll stop getting kernel updates
+	 * and your nice userland gettimeofday will be totally dead.
+	 * It's fine to use that for setting breakpoints in the vDSO code
+	 * pages though.
+	 */
 	rc = install_special_mapping(mm, vdso_base, vdso_pages << PAGE_SHIFT,
 				     VM_READ|VM_EXEC|
 				     VM_MAYREAD|VM_MAYWRITE|VM_MAYEXEC,
@@ -247,11 +297,11 @@ static void * __init find_section32(Elf32_Ehdr *ehdr, const char *secname,
 	unsigned int i;
 	char *secnames;
 
-	
+	/* Grab section headers and strings so we can tell who is who */
 	sechdrs = (void *)ehdr + ehdr->e_shoff;
 	secnames = (void *)ehdr + sechdrs[ehdr->e_shstrndx].sh_offset;
 
-	
+	/* Find the section they want */
 	for (i = 1; i < ehdr->e_shnum; i++) {
 		if (strcmp(secnames+sechdrs[i].sh_name, secname) == 0) {
 			if (size)
@@ -283,6 +333,9 @@ static Elf32_Sym * __init find_symbol32(struct lib32_elfinfo *lib,
 	return NULL;
 }
 
+/* Note that we assume the section is .text and the symbol is relative to
+ * the library base
+ */
 static unsigned long __init find_function32(struct lib32_elfinfo *lib,
 					    const char *symname)
 {
@@ -335,11 +388,11 @@ static void * __init find_section64(Elf64_Ehdr *ehdr, const char *secname,
 	unsigned int i;
 	char *secnames;
 
-	
+	/* Grab section headers and strings so we can tell who is who */
 	sechdrs = (void *)ehdr + ehdr->e_shoff;
 	secnames = (void *)ehdr + sechdrs[ehdr->e_shstrndx].sh_offset;
 
-	
+	/* Find the section they want */
 	for (i = 1; i < ehdr->e_shnum; i++) {
 		if (strcmp(secnames+sechdrs[i].sh_name, secname) == 0) {
 			if (size)
@@ -372,6 +425,9 @@ static Elf64_Sym * __init find_symbol64(struct lib64_elfinfo *lib,
 	return NULL;
 }
 
+/* Note that we assume the section is .text and the symbol is relative to
+ * the library base
+ */
 static unsigned long __init find_function64(struct lib64_elfinfo *lib,
 					    const char *symname)
 {
@@ -419,7 +475,7 @@ static int __init vdso_do_func_patch64(struct lib32_elfinfo *v32,
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_PPC64 */
 
 
 static __init int vdso_do_find_sections(struct lib32_elfinfo *v32,
@@ -427,6 +483,9 @@ static __init int vdso_do_find_sections(struct lib32_elfinfo *v32,
 {
 	void *sect;
 
+	/*
+	 * Locate symbol tables & text section
+	 */
 
 	v32->dynsym = find_section32(v32->hdr, ".dynsym", &v32->dynsymsize);
 	v32->dynstr = find_section32(v32->hdr, ".dynstr", NULL);
@@ -454,7 +513,7 @@ static __init int vdso_do_find_sections(struct lib32_elfinfo *v32,
 		return -1;
 	}
 	v64->text = sect - vdso64_kbase;
-#endif 
+#endif /* CONFIG_PPC64 */
 
 	return 0;
 }
@@ -462,6 +521,9 @@ static __init int vdso_do_find_sections(struct lib32_elfinfo *v32,
 static __init void vdso_setup_trampolines(struct lib32_elfinfo *v32,
 					  struct lib64_elfinfo *v64)
 {
+	/*
+	 * Find signal trampolines
+	 */
 
 #ifdef CONFIG_PPC64
 	vdso64_rt_sigtramp = find_function64(v64, "__kernel_sigtramp_rt64");
@@ -486,7 +548,7 @@ static __init int vdso_fixup_datapage(struct lib32_elfinfo *v32,
 	*((int *)(vdso64_kbase + sym64->st_value - VDSO64_LBASE)) =
 		(vdso64_pages << PAGE_SHIFT) -
 		(sym64->st_value - VDSO64_LBASE);
-#endif 
+#endif /* CONFIG_PPC64 */
 
 	sym32 = find_symbol32(v32, "__kernel_datapage_offset");
 	if (sym32 == NULL) {
@@ -531,7 +593,7 @@ static __init int vdso_fixup_features(struct lib32_elfinfo *v32,
 	if (start64)
 		do_lwsync_fixups(cur_cpu_spec->cpu_features,
 				 start64, start64 + size64);
-#endif 
+#endif /* CONFIG_PPC64 */
 
 	start32 = find_section32(v32->hdr, "__ftr_fixup", &size32);
 	if (start32)
@@ -548,7 +610,7 @@ static __init int vdso_fixup_features(struct lib32_elfinfo *v32,
 	if (start32)
 		do_feature_fixups(powerpc_firmware_features,
 				  start32, start32 + size32);
-#endif 
+#endif /* CONFIG_PPC64 */
 
 	start32 = find_section32(v32->hdr, "__lwsync_fixup", &size32);
 	if (start32)
@@ -573,12 +635,18 @@ static __init int vdso_fixup_alt_funcs(struct lib32_elfinfo *v32,
 		DBG("replacing %s with %s...\n", patch->gen_name,
 		    patch->fix_name ? "NONE" : patch->fix_name);
 
+		/*
+		 * Patch the 32 bits and 64 bits symbols. Note that we do not
+		 * patch the "." symbol on 64 bits.
+		 * It would be easy to do, but doesn't seem to be necessary,
+		 * patching the OPD symbol is enough.
+		 */
 		vdso_do_func_patch32(v32, v64, patch->gen_name,
 				     patch->fix_name);
 #ifdef CONFIG_PPC64
 		vdso_do_func_patch64(v32, v64, patch->gen_name,
 				     patch->fix_name);
-#endif 
+#endif /* CONFIG_PPC64 */
 	}
 
 	return 0;
@@ -611,6 +679,10 @@ static __init int vdso_setup(void)
 	return 0;
 }
 
+/*
+ * Called from setup_arch to initialize the bitmap of available
+ * syscalls in the systemcfg page
+ */
 static void __init vdso_setup_syscall_map(void)
 {
 	unsigned int i;
@@ -626,11 +698,11 @@ static void __init vdso_setup_syscall_map(void)
 		if (sys_call_table[i*2+1] != sys_ni_syscall)
 			vdso_data->syscall_map_32[i >> 5] |=
 				0x80000000UL >> (i & 0x1f);
-#else 
+#else /* CONFIG_PPC64 */
 		if (sys_call_table[i] != sys_ni_syscall)
 			vdso_data->syscall_map_32[i >> 5] |=
 				0x80000000UL >> (i & 0x1f);
-#endif 
+#endif /* CONFIG_PPC64 */
 	}
 }
 
@@ -640,10 +712,17 @@ static int __init vdso_init(void)
 	int i;
 
 #ifdef CONFIG_PPC64
+	/*
+	 * Fill up the "systemcfg" stuff for backward compatibility
+	 */
 	strcpy((char *)vdso_data->eye_catcher, "SYSTEMCFG:PPC64");
 	vdso_data->version.major = SYSTEMCFG_MAJOR;
 	vdso_data->version.minor = SYSTEMCFG_MINOR;
 	vdso_data->processor = mfspr(SPRN_PVR);
+	/*
+	 * Fake the old platform number for pSeries and add
+	 * in LPAR bit if necessary
+	 */
 	vdso_data->platform = 0x100;
 	if (firmware_has_feature(FW_FEATURE_LPAR))
 		vdso_data->platform |= 1;
@@ -653,12 +732,15 @@ static int __init vdso_init(void)
 	vdso_data->icache_size = ppc64_caches.isize;
 	vdso_data->icache_line_size = ppc64_caches.iline_size;
 
-	
+	/* XXXOJN: Blocks should be added to ppc64_caches and used instead */
 	vdso_data->dcache_block_size = ppc64_caches.dline_size;
 	vdso_data->icache_block_size = ppc64_caches.iline_size;
 	vdso_data->dcache_log_block_size = ppc64_caches.log_dline_size;
 	vdso_data->icache_log_block_size = ppc64_caches.log_iline_size;
 
+	/*
+	 * Calculate the size of the 64 bits vDSO
+	 */
 	vdso64_pages = (&vdso64_end - &vdso64_start) >> PAGE_SHIFT;
 	DBG("vdso64_kbase: %p, 0x%x pages\n", vdso64_kbase, vdso64_pages);
 #else
@@ -666,15 +748,25 @@ static int __init vdso_init(void)
 	vdso_data->dcache_log_block_size = L1_CACHE_SHIFT;
 	vdso_data->icache_block_size = L1_CACHE_BYTES;
 	vdso_data->icache_log_block_size = L1_CACHE_SHIFT;
-#endif 
+#endif /* CONFIG_PPC64 */
 
 
+	/*
+	 * Calculate the size of the 32 bits vDSO
+	 */
 	vdso32_pages = (&vdso32_end - &vdso32_start) >> PAGE_SHIFT;
 	DBG("vdso32_kbase: %p, 0x%x pages\n", vdso32_kbase, vdso32_pages);
 
 
+	/*
+	 * Setup the syscall map in the vDOS
+	 */
 	vdso_setup_syscall_map();
 
+	/*
+	 * Initialize the vDSO images in memory, that is do necessary
+	 * fixups of vDSO symbols, locate trampolines, etc...
+	 */
 	if (vdso_setup()) {
 		printk(KERN_ERR "vDSO setup failure, not enabled !\n");
 		vdso32_pages = 0;
@@ -684,7 +776,7 @@ static int __init vdso_init(void)
 		return 0;
 	}
 
-	
+	/* Make sure pages are in the correct state */
 	vdso32_pagelist = kzalloc(sizeof(struct page *) * (vdso32_pages + 2),
 				  GFP_KERNEL);
 	BUG_ON(vdso32_pagelist == NULL);
@@ -709,7 +801,7 @@ static int __init vdso_init(void)
 	}
 	vdso64_pagelist[i++] = virt_to_page(vdso_data);
 	vdso64_pagelist[i] = NULL;
-#endif 
+#endif /* CONFIG_PPC64 */
 
 	get_page(virt_to_page(vdso_data));
 

@@ -131,6 +131,15 @@ static inline void kgsl_sg_free(void *ptr, unsigned int sglen)
 		vfree(ptr);
 }
 
+static inline void *kgsl_sg_copy(struct scatterlist* src, unsigned int sglen)
+{
+	struct scatterlist *ptr = kgsl_sg_alloc(sglen);
+
+	if (ptr)
+		memcpy(ptr, src, sglen * sizeof(struct scatterlist));
+	return ptr;
+}
+
 static inline int
 memdesc_sg_phys(struct kgsl_memdesc *memdesc,
 		phys_addr_t physaddr, unsigned int size)
@@ -138,6 +147,8 @@ memdesc_sg_phys(struct kgsl_memdesc *memdesc,
 	memdesc->sg = kgsl_sg_alloc(1);
 	if (memdesc->sg == NULL)
 		return -ENOMEM;
+	if (physaddr || size != PAGE_SIZE)
+		pr_info("%s: %p, sz=%u dma=0x%x\n", __func__, memdesc->sg, size, (int)physaddr);
 
 	kmemleak_not_leak(memdesc->sg);
 

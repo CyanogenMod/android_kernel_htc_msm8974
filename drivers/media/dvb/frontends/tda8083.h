@@ -31,7 +31,7 @@
 
 struct tda8083_config
 {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 };
 
@@ -45,6 +45,6 @@ static inline struct dvb_frontend* tda8083_attach(const struct tda8083_config* c
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_DVB_TDA8083
 
-#endif 
+#endif // TDA8083_H

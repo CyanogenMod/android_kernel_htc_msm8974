@@ -57,18 +57,32 @@
 #include <linux/mount.h>
 #include <asm/uaccess.h>
 #include <asm/div64.h>
-#include <linux/blkdev.h> 
+#include <linux/blkdev.h> /* sector_div */
 #include <linux/pid_namespace.h>
 
+/*
+ * These constants control the amount of freespace that suspend and
+ * resume the process accounting system, and the time delay between
+ * each check.
+ * Turned into sysctl-controllable parameters. AV, 12/11/98
+ */
 
 int acct_parm[3] = {4, 2, 30};
-#define RESUME		(acct_parm[0])	
-#define SUSPEND		(acct_parm[1])	
-#define ACCT_TIMEOUT	(acct_parm[2])	
+#define RESUME		(acct_parm[0])	/* >foo% free space - resume */
+#define SUSPEND		(acct_parm[1])	/* <foo% free space - suspend */
+#define ACCT_TIMEOUT	(acct_parm[2])	/* foo second timeout between checks */
 
+/*
+ * External references and all of the globals.
+ */
 static void do_acct_process(struct bsd_acct_struct *acct,
 		struct pid_namespace *ns, struct file *);
 
+/*
+ * This structure is used so that all the data protected by lock
+ * can be placed in the same cache line as the lock.  This primes
+ * the cache line to have the data after getting the lock.
+ */
 struct bsd_acct_struct {
 	int			active;
 	unsigned long		needcheck;
@@ -80,6 +94,9 @@ struct bsd_acct_struct {
 static DEFINE_SPINLOCK(acct_lock);
 static LIST_HEAD(acct_list);
 
+/*
+ * Check the amount of free space and suspend/resume accordingly.
+ */
 static int check_free_space(struct bsd_acct_struct *acct, struct file *file)
 {
 	struct kstatfs sbuf;
@@ -94,7 +111,7 @@ static int check_free_space(struct bsd_acct_struct *acct, struct file *file)
 		goto out;
 	spin_unlock(&acct_lock);
 
-	
+	/* May block */
 	if (vfs_statfs(&file->f_path, &sbuf))
 		return res;
 	suspend = sbuf.f_blocks * SUSPEND;
@@ -110,6 +127,10 @@ static int check_free_space(struct bsd_acct_struct *acct, struct file *file)
 	else
 		act = 0;
 
+	/*
+	 * If some joker switched acct->file under us we'ld better be
+	 * silent and _not_ touch anything.
+	 */
 	spin_lock(&acct_lock);
 	if (file != acct->file) {
 		if (act)
@@ -136,6 +157,12 @@ out:
 	return res;
 }
 
+/*
+ * Close the old accounting file (if currently open) and then replace
+ * it with file (if non-NULL).
+ *
+ * NOTE: acct_lock MUST be held on entry and exit.
+ */
 static void acct_file_reopen(struct bsd_acct_struct *acct, struct file *file,
 		struct pid_namespace *ns)
 {
@@ -173,7 +200,7 @@ static int acct_on(char *name)
 	struct pid_namespace *ns;
 	struct bsd_acct_struct *acct = NULL;
 
-	
+	/* Difference from BSD - they don't do O_APPEND */
 	file = filp_open(name, O_WRONLY|O_APPEND|O_LARGEFILE, 0);
 	if (IS_ERR(file))
 		return PTR_ERR(file);
@@ -208,7 +235,7 @@ static int acct_on(char *name)
 	acct_file_reopen(ns->bacct, file, ns);
 	spin_unlock(&acct_lock);
 
-	mntput(mnt); 
+	mntput(mnt); /* it's pinned, now give up active reference */
 	kfree(acct);
 
 	return 0;
@@ -253,6 +280,13 @@ SYSCALL_DEFINE1(acct, const char __user *, name)
 	return error;
 }
 
+/**
+ * acct_auto_close - turn off a filesystem's accounting if it is on
+ * @m: vfsmount being shut down
+ *
+ * If the accounting is turned on for a file in the subtree pointed to
+ * to by m, turn accounting off.  Done when m is about to die.
+ */
 void acct_auto_close_mnt(struct vfsmount *m)
 {
 	struct bsd_acct_struct *acct;
@@ -267,6 +301,13 @@ restart:
 	spin_unlock(&acct_lock);
 }
 
+/**
+ * acct_auto_close - turn off a filesystem's accounting if it is on
+ * @sb: super block for the filesystem
+ *
+ * If the accounting is turned on for a file in the filesystem pointed
+ * to by sb, turn accounting off.
+ */
 void acct_auto_close(struct super_block *sb)
 {
 	struct bsd_acct_struct *acct;
@@ -296,10 +337,17 @@ void acct_exit_ns(struct pid_namespace *ns)
 	kfree(acct);
 }
 
+/*
+ *  encode an unsigned long into a comp_t
+ *
+ *  This routine has been adopted from the encode_comp_t() function in
+ *  the kern_acct.c file of the FreeBSD operating system. The encoding
+ *  is a 13-bit fraction with a 3-bit (base 8) exponent.
+ */
 
-#define	MANTSIZE	13			
-#define	EXPSIZE		3			
-#define	MAXFRACT	((1 << MANTSIZE) - 1)	
+#define	MANTSIZE	13			/* 13 bit mantissa. */
+#define	EXPSIZE		3			/* Base 8 (3 bit) exponent. */
+#define	MAXFRACT	((1 << MANTSIZE) - 1)	/* Maximum fractional value. */
 
 static comp_t encode_comp_t(unsigned long value)
 {
@@ -307,27 +355,41 @@ static comp_t encode_comp_t(unsigned long value)
 
 	exp = rnd = 0;
 	while (value > MAXFRACT) {
-		rnd = value & (1 << (EXPSIZE - 1));	
-		value >>= EXPSIZE;	
+		rnd = value & (1 << (EXPSIZE - 1));	/* Round up? */
+		value >>= EXPSIZE;	/* Base 8 exponent == 3 bit shift. */
 		exp++;
 	}
 
+	/*
+	 * If we need to round up, do it (and handle overflow correctly).
+	 */
 	if (rnd && (++value > MAXFRACT)) {
 		value >>= EXPSIZE;
 		exp++;
 	}
 
-	exp <<= MANTSIZE;		
-	exp += value;			
+	/*
+	 * Clean it up and polish it off.
+	 */
+	exp <<= MANTSIZE;		/* Shift the exponent into place */
+	exp += value;			/* and add on the mantissa. */
 	return exp;
 }
 
 #if ACCT_VERSION==1 || ACCT_VERSION==2
+/*
+ * encode an u64 into a comp2_t (24 bits)
+ *
+ * Format: 5 bit base 2 exponent, 20 bits mantissa.
+ * The leading bit of the mantissa is not stored, but implied for
+ * non-zero exponents.
+ * Largest encodable value is 50 bits.
+ */
 
-#define MANTSIZE2       20                      
-#define EXPSIZE2        5                       
-#define MAXFRACT2       ((1ul << MANTSIZE2) - 1) 
-#define MAXEXP2         ((1 <<EXPSIZE2) - 1)    
+#define MANTSIZE2       20                      /* 20 bit mantissa. */
+#define EXPSIZE2        5                       /* 5 bit base 2 exponent. */
+#define MAXFRACT2       ((1ul << MANTSIZE2) - 1) /* Maximum fractional value. */
+#define MAXEXP2         ((1 <<EXPSIZE2) - 1)    /* Maximum exponent. */
 
 static comp2_t encode_comp2_t(u64 value)
 {
@@ -341,13 +403,16 @@ static comp2_t encode_comp2_t(u64 value)
 		exp++;
 	}
 
+	/*
+	 * If we need to round up, do it (and handle overflow correctly).
+	 */
 	if (rnd && (++value > MAXFRACT2)) {
 		value >>= 1;
 		exp++;
 	}
 
 	if (exp > MAXEXP2) {
-		
+		/* Overflow. Return largest representable number instead. */
 		return (1ul << (MANTSIZE2+EXPSIZE2-1)) - 1;
 	} else {
 		return (value & (MAXFRACT2>>1)) | (exp << (MANTSIZE2-1));
@@ -356,6 +421,9 @@ static comp2_t encode_comp2_t(u64 value)
 #endif
 
 #if ACCT_VERSION==3
+/*
+ * encode an u64 into a 32 bit IEEE float
+ */
 static u32 encode_float(u64 value)
 {
 	unsigned exp = 190;
@@ -380,6 +448,9 @@ static u32 encode_float(u64 value)
  *  do_exit() or when switching to a different output file.
  */
 
+/*
+ *  do_acct_process does all actual work. Caller holds the reference to file.
+ */
 static void do_acct_process(struct bsd_acct_struct *acct,
 		struct pid_namespace *ns, struct file *file)
 {
@@ -393,23 +464,31 @@ static void do_acct_process(struct bsd_acct_struct *acct,
 	struct tty_struct *tty;
 	const struct cred *orig_cred;
 
-	
+	/* Perform file operations on behalf of whoever enabled accounting */
 	orig_cred = override_creds(file->f_cred);
 
+	/*
+	 * First check to see if there is enough free_space to continue
+	 * the process accounting system.
+	 */
 	if (!check_free_space(acct, file))
 		goto out;
 
+	/*
+	 * Fill the accounting struct with the needed info as recorded
+	 * by the different kernel functions.
+	 */
 	memset(&ac, 0, sizeof(acct_t));
 
 	ac.ac_version = ACCT_VERSION | ACCT_BYTEORDER;
 	strlcpy(ac.ac_comm, current->comm, sizeof(ac.ac_comm));
 
-	
+	/* calculate run_time in nsec*/
 	do_posix_clock_monotonic_gettime(&uptime);
 	run_time = (u64)uptime.tv_sec*NSEC_PER_SEC + uptime.tv_nsec;
 	run_time -= (u64)current->group_leader->start_time.tv_sec * NSEC_PER_SEC
 		       + current->group_leader->start_time.tv_nsec;
-	
+	/* convert nsec -> AHZ */
 	elapsed = nsec_to_AHZ(run_time);
 #if ACCT_VERSION==3
 	ac.ac_etime = encode_float(elapsed);
@@ -419,7 +498,7 @@ static void do_acct_process(struct bsd_acct_struct *acct,
 #endif
 #if ACCT_VERSION==1 || ACCT_VERSION==2
 	{
-		
+		/* new enlarged etime field */
 		comp2_t etime = encode_comp2_t(elapsed);
 		ac.ac_etime_hi = etime >> 16;
 		ac.ac_etime_lo = (u16) etime;
@@ -427,14 +506,14 @@ static void do_acct_process(struct bsd_acct_struct *acct,
 #endif
 	do_div(elapsed, AHZ);
 	ac.ac_btime = get_seconds() - elapsed;
-	
+	/* we really need to bite the bullet and change layout */
 	ac.ac_uid = orig_cred->uid;
 	ac.ac_gid = orig_cred->gid;
 #if ACCT_VERSION==2
 	ac.ac_ahz = AHZ;
 #endif
 #if ACCT_VERSION==1 || ACCT_VERSION==2
-	
+	/* backward-compatible 16 bit fields */
 	ac.ac_uid16 = ac.ac_uid;
 	ac.ac_gid16 = ac.ac_gid;
 #endif
@@ -446,7 +525,7 @@ static void do_acct_process(struct bsd_acct_struct *acct,
 #endif
 
 	spin_lock_irq(&current->sighand->siglock);
-	tty = current->signal->tty;	
+	tty = current->signal->tty;	/* Safe as we hold the siglock */
 	ac.ac_tty = tty ? old_encode_dev(tty_devnum(tty)) : 0;
 	ac.ac_utime = encode_comp_t(jiffies_to_AHZ(cputime_to_jiffies(pacct->ac_utime)));
 	ac.ac_stime = encode_comp_t(jiffies_to_AHZ(cputime_to_jiffies(pacct->ac_stime)));
@@ -456,12 +535,19 @@ static void do_acct_process(struct bsd_acct_struct *acct,
 	ac.ac_majflt = encode_comp_t(pacct->ac_majflt);
 	ac.ac_exitcode = pacct->ac_exitcode;
 	spin_unlock_irq(&current->sighand->siglock);
-	ac.ac_io = encode_comp_t(0 );	
+	ac.ac_io = encode_comp_t(0 /* current->io_usage */);	/* %% */
 	ac.ac_rw = encode_comp_t(ac.ac_io / 1024);
 	ac.ac_swaps = encode_comp_t(0);
 
+	/*
+	 * Kernel segment override to datasegment and write it
+	 * to the accounting file.
+	 */
 	fs = get_fs();
 	set_fs(KERNEL_DS);
+	/*
+	 * Accounting records are not subject to resource limits.
+	 */
 	flim = current->signal->rlim[RLIMIT_FSIZE].rlim_cur;
 	current->signal->rlim[RLIMIT_FSIZE].rlim_cur = RLIM_INFINITY;
 	file->f_op->write(file, (char *)&ac,
@@ -472,6 +558,11 @@ out:
 	revert_creds(orig_cred);
 }
 
+/**
+ * acct_collect - collect accounting information into pacct_struct
+ * @exitcode: task exit code
+ * @group_dead: not 0, if this thread is the last one in the process.
+ */
 void acct_collect(long exitcode, int group_dead)
 {
 	struct pacct_struct *pacct = &current->signal->pacct;
@@ -515,6 +606,9 @@ static void acct_process_in_ns(struct pid_namespace *ns)
 	struct bsd_acct_struct *acct;
 
 	acct = ns->bacct;
+	/*
+	 * accelerate the common fastpath:
+	 */
 	if (!acct || !acct->file)
 		return;
 
@@ -531,10 +625,21 @@ static void acct_process_in_ns(struct pid_namespace *ns)
 	fput(file);
 }
 
+/**
+ * acct_process - now just a wrapper around acct_process_in_ns,
+ * which in turn is a wrapper around do_acct_process.
+ *
+ * handles process accounting for an exiting task
+ */
 void acct_process(void)
 {
 	struct pid_namespace *ns;
 
+	/*
+	 * This loop is safe lockless, since current is still
+	 * alive and holds its namespace, which in turn holds
+	 * its parent.
+	 */
 	for (ns = task_active_pid_ns(current); ns != NULL; ns = ns->parent)
 		acct_process_in_ns(ns);
 }

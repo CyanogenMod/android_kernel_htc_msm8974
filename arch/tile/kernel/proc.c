@@ -32,6 +32,9 @@
 #include <arch/chip.h>
 
 
+/*
+ * Support /proc/cpuinfo
+ */
 
 #define cpu_to_ptr(n) ((void *)((long)(n)+1))
 #define ptr_to_cpu(p) ((long)(p) - 1)
@@ -46,7 +49,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 		seq_printf(m, "cpu count\t: %d\n", num_online_cpus());
 		seq_printf(m, "cpu list\t: %s\n", buf);
 		seq_printf(m, "model name\t: %s\n", chip_model);
-		seq_printf(m, "flags\t\t:\n");  
+		seq_printf(m, "flags\t\t:\n");  /* nothing for now */
 		seq_printf(m, "cpu MHz\t\t: %llu.%06llu\n",
 			   get_clock_rate() / 1000000,
 			   (get_clock_rate() % 1000000));
@@ -62,7 +65,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 
 	seq_printf(m, "processor\t: %d\n", n);
 
-	
+	/* Print only num_online_cpus() blank lines total. */
 	if (cpumask_next(n, cpu_online_mask) < nr_cpu_ids)
 		seq_printf(m, "\n");
 
@@ -88,6 +91,9 @@ const struct seq_operations cpuinfo_op = {
 	.show	= show_cpuinfo,
 };
 
+/*
+ * Support /proc/tile directory
+ */
 
 static int __init proc_tile_init(void)
 {
@@ -102,8 +108,11 @@ static int __init proc_tile_init(void)
 
 arch_initcall(proc_tile_init);
 
+/*
+ * Support /proc/sys/tile directory
+ */
 
-#ifndef __tilegx__  
+#ifndef __tilegx__  /* FIXME: GX: no support for unaligned access yet */
 static ctl_table unaligned_subtable[] = {
 	{
 		.procname	= "enabled",

@@ -9,6 +9,9 @@
 
 #include <asm/ptrace.h>
 
+/* Store the register window onto the 8-byte aligned area starting
+ * at %reg.  It might be %sp, it might not, we don't care.
+ */
 #define STORE_WINDOW(reg) \
 	std	%l0, [%reg + RW_L0]; \
 	std	%l2, [%reg + RW_L2]; \
@@ -19,6 +22,7 @@
 	std	%i4, [%reg + RW_I4]; \
 	std	%i6, [%reg + RW_I6];
 
+/* Load a register window from the area beginning at %reg. */
 #define LOAD_WINDOW(reg) \
 	ldd	[%reg + RW_L0], %l0; \
 	ldd	[%reg + RW_L2], %l2; \
@@ -29,6 +33,7 @@
 	ldd	[%reg + RW_I4], %i4; \
 	ldd	[%reg + RW_I6], %i6;
 
+/* Loading and storing struct pt_reg trap frames. */
 #define LOAD_PT_INS(base_reg) \
         ldd     [%base_reg + STACKFRAME_SZ + PT_I0], %i0; \
         ldd     [%base_reg + STACKFRAME_SZ + PT_I2], %i2; \
@@ -98,6 +103,7 @@
         st       %scratch, [%cur_reg + TI_W_SAVED];
 
 #ifdef CONFIG_SMP
+/* Results of LOAD_CURRENT() after BTFIXUP for SUN4M, SUN4D & LEON (comments) */
 #define LOAD_CURRENT4M(dest_reg, idreg) \
         rd       %tbr, %idreg; \
 	sethi    %hi(current_set), %dest_reg; \
@@ -121,6 +127,7 @@
 	sll	%idreg, 0x2, %idreg;				\
 	ld	[%idreg + %dest_reg], %dest_reg;
 
+/* Blackbox - take care with this... - check smp4m and smp4d before changing this. */
 #define LOAD_CURRENT(dest_reg, idreg) 					\
 	sethi	 %hi(___b_load_current), %idreg;			\
 	sethi    %hi(current_set), %dest_reg; 			\
@@ -134,4 +141,4 @@
         ld       [%idreg + %lo(current_set)], %dest_reg;
 #endif
 
-#endif 
+#endif /* !(_SPARC_WINMACRO_H) */

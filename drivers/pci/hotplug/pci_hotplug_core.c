@@ -50,6 +50,7 @@
 #define warn(format, arg...) printk(KERN_WARNING "%s: " format , MY_NAME , ## arg)
 
 
+/* local variables */
 static bool debug;
 
 #define DRIVER_VERSION	"0.5"
@@ -57,6 +58,7 @@ static bool debug;
 #define DRIVER_DESC	"PCI Hot Plug PCI Core"
 
 
+//////////////////////////////////////////////////////////////////
 
 static LIST_HEAD(pci_hotplug_slot_list);
 static DEFINE_MUTEX(pci_hp_mutex);
@@ -69,6 +71,7 @@ static inline int cpci_hotplug_init(int debug) { return 0; }
 static inline void cpci_hotplug_exit(void) { }
 #endif
 
+/* Weee, fun with macros... */
 #define GET_STATUS(name,type)	\
 static int get_##name (struct hotplug_slot *slot, type *value)		\
 {									\
@@ -319,7 +322,7 @@ static int fs_add_slot(struct pci_slot *slot)
 {
 	int retval = 0;
 
-	
+	/* Create symbolic link to the hotplug driver module */
 	pci_hp_create_module_link(slot);
 
 	if (has_power_file(slot)) {
@@ -414,6 +417,20 @@ static struct hotplug_slot *get_slot_from_name (const char *name)
 	return NULL;
 }
 
+/**
+ * __pci_hp_register - register a hotplug_slot with the PCI hotplug subsystem
+ * @bus: bus this slot is on
+ * @slot: pointer to the &struct hotplug_slot to register
+ * @devnr: device number
+ * @name: name registered with kobject core
+ * @owner: caller module owner
+ * @mod_name: caller module name
+ *
+ * Registers a hotplug slot with the pci hotplug subsystem, which will allow
+ * userspace interaction to the slot.
+ *
+ * Returns 0 if successful, anything else for an error.
+ */
 int __pci_hp_register(struct hotplug_slot *slot, struct pci_bus *bus,
 		      int devnr, const char *name,
 		      struct module *owner, const char *mod_name)
@@ -435,6 +452,11 @@ int __pci_hp_register(struct hotplug_slot *slot, struct pci_bus *bus,
 	slot->ops->mod_name = mod_name;
 
 	mutex_lock(&pci_hp_mutex);
+	/*
+	 * No problems if we call this interface from both ACPI_PCI_SLOT
+	 * driver and call it here again. If we've already created the
+	 * pci_slot, the interface will simply bump the refcount.
+	 */
 	pci_slot = pci_create_slot(bus, devnr, name, slot);
 	if (IS_ERR(pci_slot)) {
 		result = PTR_ERR(pci_slot);
@@ -454,6 +476,15 @@ out:
 	return result;
 }
 
+/**
+ * pci_hp_deregister - deregister a hotplug_slot with the PCI hotplug subsystem
+ * @hotplug: pointer to the &struct hotplug_slot to deregister
+ *
+ * The @slot must have been registered with the pci hotplug subsystem
+ * previously with a call to pci_hp_register().
+ *
+ * Returns 0 if successful, anything else for an error.
+ */
 int pci_hp_deregister(struct hotplug_slot *hotplug)
 {
 	struct hotplug_slot *temp;
@@ -483,6 +514,16 @@ int pci_hp_deregister(struct hotplug_slot *hotplug)
 	return 0;
 }
 
+/**
+ * pci_hp_change_slot_info - changes the slot's information structure in the core
+ * @hotplug: pointer to the slot whose info has changed
+ * @info: pointer to the info copy into the slot's info structure
+ *
+ * @slot must have been registered with the pci 
+ * hotplug subsystem previously with a call to pci_hp_register().
+ *
+ * Returns 0 if successful, anything else for an error.
+ */
 int __must_check pci_hp_change_slot_info(struct hotplug_slot *hotplug,
 					 struct hotplug_slot_info *info)
 {

@@ -27,6 +27,15 @@
 #include <asm/ppc-pci.h>
 #include <asm/pci-bridge.h>
 
+/**
+ * EEH_SHOW_ATTR -- Create sysfs entry for eeh statistic
+ * @_name: name of file in sysfs directory
+ * @_memb: name of member in struct pci_dn to access
+ * @_format: printf format for display
+ *
+ * All of the attributes look very similar, so just
+ * auto-gen a cut-n-paste routine to display them.
+ */
 #define EEH_SHOW_ATTR(_name,_memb,_format)               \
 static ssize_t eeh_show_##_name(struct device *dev,      \
 		struct device_attribute *attr, char *buf)          \

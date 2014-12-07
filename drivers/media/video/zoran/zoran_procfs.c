@@ -82,7 +82,7 @@ static const struct procfs_params_zr36067 zr67[] = {
 	{"NAY", 0x114, 0xffff, 16},
 	{"PAY", 0x114, 0xffff, 0},
 
-	
+	/* {"",,,}, */
 
 	{NULL, 0, 0, 0},
 };
@@ -141,7 +141,7 @@ static ssize_t zoran_write(struct file *file, const char __user *buffer,
 	char *string, *sp;
 	char *line, *ldelim, *varname, *svar, *tdelim;
 
-	if (count > 32768)	
+	if (count > 32768)	/* Stupidity filter */
 		return -EINVAL;
 
 	string = sp = vmalloc(count + 1);

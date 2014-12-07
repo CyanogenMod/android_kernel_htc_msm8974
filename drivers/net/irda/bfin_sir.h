@@ -88,7 +88,7 @@ struct bfin_sir_self {
 #include <asm/bfin_serial.h>
 
 static const unsigned short per[][4] = {
-	
+	/* rx pin      tx pin     NULL  uart_number */
 	{P_UART0_RX, P_UART0_TX,    0,    0},
 	{P_UART1_RX, P_UART1_TX,    0,    1},
 	{P_UART2_RX, P_UART2_TX,    0,    2},

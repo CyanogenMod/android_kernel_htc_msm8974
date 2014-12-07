@@ -1,3 +1,17 @@
+/*
+ * xfrm_policy.c
+ *
+ * Changes:
+ *	Mitsuru KANDA @USAGI
+ * 	Kazunori MIYAZAWA @USAGI
+ * 	Kunihiro Ishiguro <kunihiro@ipinfusion.com>
+ * 		IPv6 support
+ * 	Kazunori MIYAZAWA @USAGI
+ * 	YOSHIFUJI Hideaki
+ * 		Split up af-specific portion
+ *	Derek Atkins <derek@ihtfp.com>		Add the post_input processor
+ *
+ */
 
 #include <linux/err.h>
 #include <linux/slab.h>
@@ -238,6 +252,9 @@ static const struct flow_cache_ops xfrm_policy_fc_ops = {
 	.delete = xfrm_policy_flo_delete,
 };
 
+/* Allocate xfrm_policy. Not used here, it is supposed to be used by pfkeyv2
+ * SPD calls.
+ */
 
 struct xfrm_policy *xfrm_policy_alloc(struct net *net, gfp_t gfp)
 {
@@ -260,6 +277,7 @@ struct xfrm_policy *xfrm_policy_alloc(struct net *net, gfp_t gfp)
 }
 EXPORT_SYMBOL(xfrm_policy_alloc);
 
+/* Destroy xfrm_policy: descendant resources must be released to this moment. */
 
 void xfrm_policy_destroy(struct xfrm_policy *policy)
 {
@@ -273,6 +291,9 @@ void xfrm_policy_destroy(struct xfrm_policy *policy)
 }
 EXPORT_SYMBOL(xfrm_policy_destroy);
 
+/* Rule must be locked. Release descentant resources, announce
+ * entry dead. The rule must be unlinked from lists to the moment.
+ */
 
 static void xfrm_policy_kill(struct xfrm_policy *policy)
 {
@@ -478,6 +499,8 @@ static void xfrm_hash_resize(struct work_struct *work)
 	mutex_unlock(&hash_resize_mutex);
 }
 
+/* Generate new index... KAME seems to generate them ordered by cost
+ * of an absolute inpredictability of ordering of rules. This will not pass. */
 static u32 xfrm_gen_index(struct net *net, int dir)
 {
 	static u32 idx_generator;
@@ -844,6 +867,11 @@ void xfrm_policy_walk_done(struct xfrm_policy_walk *walk)
 }
 EXPORT_SYMBOL(xfrm_policy_walk_done);
 
+/*
+ * Find policy to apply to this flow.
+ *
+ * Returns 0 if policy found, else an -errno.
+ */
 static int xfrm_policy_match(const struct xfrm_policy *pol,
 			     const struct flowi *fl,
 			     u8 type, u16 family, int dir)
@@ -947,6 +975,8 @@ xfrm_policy_lookup(struct net *net, const struct flowi *fl, u16 family,
 	if (IS_ERR_OR_NULL(pol))
 		return ERR_CAST(pol);
 
+	/* Resolver returns two references:
+	 * one for cache and one for caller of flow_cache_lookup() */
 	xfrm_pol_hold(pol);
 
 	return &pol->flo;
@@ -1066,6 +1096,9 @@ int xfrm_sk_policy_insert(struct sock *sk, int dir, struct xfrm_policy *pol)
 		__xfrm_policy_link(pol, XFRM_POLICY_MAX+dir);
 	}
 	if (old_pol)
+		/* Unlinking succeeds always. This is the only function
+		 * allowed to delete or replace socket policy.
+		 */
 		__xfrm_policy_unlink(old_pol, XFRM_POLICY_MAX+dir);
 	write_unlock_bh(&xfrm_policy_lock);
 
@@ -1084,7 +1117,7 @@ static struct xfrm_policy *clone_policy(const struct xfrm_policy *old, int dir)
 		if (security_xfrm_policy_clone(old->security,
 					       &newp->security)) {
 			kfree(newp);
-			return NULL;  
+			return NULL;  /* ENOMEM */
 		}
 		newp->lft = old->lft;
 		newp->curlft = old->curlft;
@@ -1131,6 +1164,7 @@ xfrm_get_saddr(struct net *net, xfrm_address_t *local, xfrm_address_t *remote,
 	return err;
 }
 
+/* Resolve list of templates for the flow, given policy. */
 
 static int
 xfrm_tmpl_resolve_one(struct xfrm_policy *policy, const struct flowi *fl,
@@ -1213,7 +1247,7 @@ xfrm_tmpl_resolve(struct xfrm_policy **pols, int npols, const struct flowi *fl,
 			cnx += ret;
 	}
 
-	
+	/* found states are sorted for outbound processing */
 	if (npols > 1)
 		xfrm_state_sort(xfrm, tpp, cnx, family);
 
@@ -1226,6 +1260,9 @@ xfrm_tmpl_resolve(struct xfrm_policy **pols, int npols, const struct flowi *fl,
 
 }
 
+/* Check that the bundle accepts the flow and its components are
+ * still valid.
+ */
 
 static inline int xfrm_get_tos(const struct flowi *fl, int family)
 {
@@ -1248,10 +1285,13 @@ static struct flow_cache_object *xfrm_bundle_flo_get(struct flow_cache_object *f
 	struct dst_entry *dst = &xdst->u.dst;
 
 	if (xdst->route == NULL) {
+		/* Dummy bundle - if it has xfrms we were not
+		 * able to build bundle as template resolution failed.
+		 * It means we need to try again resolving. */
 		if (xdst->num_xfrms > 0)
 			return NULL;
 	} else {
-		
+		/* Real bundle */
 		if (stale_bundle(dst))
 			return NULL;
 	}
@@ -1357,6 +1397,9 @@ static inline int xfrm_fill_dst(struct xfrm_dst *xdst, struct net_device *dev,
 }
 
 
+/* Allocate chain of dst_entry's, attach known xfrm's, calculate
+ * all the metrics... Shortly, bundle a bundle.
+ */
 
 static struct dst_entry *xfrm_bundle_create(struct xfrm_policy *policy,
 					    struct xfrm_state **xfrm, int nx,
@@ -1455,7 +1498,7 @@ static struct dst_entry *xfrm_bundle_create(struct xfrm_policy *policy,
 	if (!dev)
 		goto free_dst;
 
-	
+	/* Copy neighbour for reachability confirmation */
 	dst_set_neighbour(dst0, neigh_clone(dst_get_neighbour_noref(dst)));
 
 	xfrm_init_path((struct xfrm_dst *)dst0, dst, nfheader_len);
@@ -1577,7 +1620,7 @@ xfrm_resolve_and_create_bundle(struct xfrm_policy **pols, int num_pols,
 	struct xfrm_dst *xdst;
 	int err;
 
-	
+	/* Try to instantiate a bundle */
 	err = xfrm_tmpl_resolve(pols, num_pols, fl, xfrm, family);
 	if (err <= 0) {
 		if (err != 0 && err != -EAGAIN)
@@ -1619,7 +1662,7 @@ xfrm_bundle_lookup(struct net *net, const struct flowi *fl, u16 family, u8 dir,
 	struct xfrm_dst *xdst, *new_xdst;
 	int num_pols = 0, num_xfrms = 0, i, err, pol_dead;
 
-	
+	/* Check if the policies from old bundle are usable */
 	xdst = NULL;
 	if (oldflo) {
 		xdst = container_of(oldflo, struct xfrm_dst, flo);
@@ -1639,6 +1682,8 @@ xfrm_bundle_lookup(struct net *net, const struct flowi *fl, u16 family, u8 dir,
 		}
 	}
 
+	/* Resolve policies to use if we couldn't get them from
+	 * previous cache entry */
 	if (xdst == NULL) {
 		num_pols = 1;
 		pols[0] = __xfrm_policy_lookup(net, fl, family, dir);
@@ -1670,17 +1715,22 @@ xfrm_bundle_lookup(struct net *net, const struct flowi *fl, u16 family, u8 dir,
 		return oldflo;
 	}
 
-	
+	/* Kill the previous bundle */
 	if (xdst) {
-		
+		/* The policies were stolen for newly generated bundle */
 		xdst->num_pols = 0;
 		dst_free(&xdst->u.dst);
 	}
 
+	/* Flow cache does not have reference, it dst_free()'s,
+	 * but we do need to return one reference for original caller */
 	dst_hold(&new_xdst->u.dst);
 	return &new_xdst->flo;
 
 make_dummy_bundle:
+	/* We found policies, but there's no bundles to instantiate:
+	 * either because the policy blocks, has no transformations or
+	 * we could not build template (no xfrm_states).*/
 	xdst = xfrm_alloc_dst(net, family);
 	if (IS_ERR(xdst)) {
 		xfrm_pols_put(pols, num_pols);
@@ -1720,6 +1770,11 @@ static struct dst_entry *make_blackhole(struct net *net, u16 family,
 	return ret;
 }
 
+/* Main function: finds/creates a bundle for given flow.
+ *
+ * At the moment we eat a raw IP route. Mostly to speed up lookups
+ * on interfaces with disabled IPsec.
+ */
 struct dst_entry *xfrm_lookup(struct net *net, struct dst_entry *dst_orig,
 			      const struct flowi *fl,
 			      struct sock *sk, int flags)
@@ -1776,7 +1831,7 @@ restart:
 	}
 
 	if (xdst == NULL) {
-		
+		/* To accelerate a bit...  */
 		if ((dst_orig->flags & DST_NOXFRM) ||
 		    !net->xfrm.policy_count[XFRM_POLICY_OUT])
 			goto nopol;
@@ -1799,7 +1854,15 @@ restart:
 
 	dst = &xdst->u.dst;
 	if (route == NULL && num_xfrms > 0) {
+		/* The only case when xfrm_bundle_lookup() returns a
+		 * bundle with null route, is when the template could
+		 * not be resolved. It means policies are there, but
+		 * bundle could not be created, since we don't yet
+		 * have the xfrm_state's. We need to wait for KM to
+		 * negotiate new SA's or bail out with error.*/
 		if (net->xfrm.sysctl_larval_drop) {
+			/* EREMOTE tells the caller to generate
+			 * a one-shot blackhole route. */
 			dst_release(dst);
 			xfrm_pols_put(pols, drop_pols);
 			XFRM_INC_STATS(net, LINUX_MIB_XFRMOUTNOSTATES);
@@ -1842,15 +1905,15 @@ no_transform:
 		pols[i]->curlft.use_time = get_seconds();
 
 	if (num_xfrms < 0) {
-		
+		/* Prohibit the flow */
 		XFRM_INC_STATS(net, LINUX_MIB_XFRMOUTPOLBLOCK);
 		err = -EPERM;
 		goto error;
 	} else if (num_xfrms > 0) {
-		
+		/* Flow transformed */
 		dst_release(dst_orig);
 	} else {
-		
+		/* Flow passes untransformed */
 		dst_release(dst);
 		dst = dst_orig;
 	}
@@ -1886,6 +1949,11 @@ xfrm_secpath_reject(int idx, struct sk_buff *skb, const struct flowi *fl)
 	return x->type->reject(x, skb, fl);
 }
 
+/* When skb is transformed back to its "native" form, we have to
+ * check policy restrictions. At the moment we make this in maximally
+ * stupid way. Shame on me. :-) Of course, connected sockets must
+ * have policy cached at them.
+ */
 
 static inline int
 xfrm_state_ok(const struct xfrm_tmpl *tmpl, const struct xfrm_state *x,
@@ -1903,6 +1971,13 @@ xfrm_state_ok(const struct xfrm_tmpl *tmpl, const struct xfrm_state *x,
 		  xfrm_state_addr_cmp(tmpl, x, family));
 }
 
+/*
+ * 0 or more than 0 is returned when validation is succeeded (either bypass
+ * because of optional transport mode, or next index of the mathced secpath
+ * state with the template.
+ * -1 is returned when no matching template is found.
+ * Otherwise "-2 - errored_index" is returned.
+ */
 static inline int
 xfrm_policy_ok(const struct xfrm_tmpl *tmpl, const struct sec_path *sp, int start,
 	       unsigned short family)
@@ -1979,7 +2054,7 @@ int __xfrm_policy_check(struct sock *sk, int dir, struct sk_buff *skb,
 
 	nf_nat_decode_session(skb, &fl, family);
 
-	
+	/* First, check used SA against their selectors. */
 	if (skb->sp) {
 		int i;
 
@@ -2077,11 +2152,17 @@ int __xfrm_policy_check(struct sock *sk, int dir, struct sk_buff *skb,
 			tpp = stp;
 		}
 
+		/* For each tunnel xfrm, find the first matching tmpl.
+		 * For each tmpl before that, find corresponding xfrm.
+		 * Order is _important_. Later we will implement
+		 * some barriers, but at the moment barriers
+		 * are implied between each two transformations.
+		 */
 		for (i = xfrm_nr-1, k = 0; i >= 0; i--) {
 			k = xfrm_policy_ok(tpp[i], sp, k, family);
 			if (k < 0) {
 				if (k < -1)
-					
+					/* "-2 - errored_index" returned */
 					xerr_idx = -(2+k);
 				XFRM_INC_STATS(net, LINUX_MIB_XFRMINTMPLMISMATCH);
 				goto reject;
@@ -2130,9 +2211,30 @@ int __xfrm_route_forward(struct sk_buff *skb, unsigned short family)
 }
 EXPORT_SYMBOL(__xfrm_route_forward);
 
+/* Optimize later using cookies and generation ids. */
 
 static struct dst_entry *xfrm_dst_check(struct dst_entry *dst, u32 cookie)
 {
+	/* Code (such as __xfrm4_bundle_create()) sets dst->obsolete
+	 * to "-1" to force all XFRM destinations to get validated by
+	 * dst_ops->check on every use.  We do this because when a
+	 * normal route referenced by an XFRM dst is obsoleted we do
+	 * not go looking around for all parent referencing XFRM dsts
+	 * so that we can invalidate them.  It is just too much work.
+	 * Instead we make the checks here on every use.  For example:
+	 *
+	 *	XFRM dst A --> IPv4 dst X
+	 *
+	 * X is the "xdst->route" of A (X is also the "dst->path" of A
+	 * in this example).  If X is marked obsolete, "A" will not
+	 * notice.  That's what we are validating here via the
+	 * stale_bundle() check.
+	 *
+	 * When a policy's bundle is pruned, we dst_free() the XFRM
+	 * dst which causes it's ->obsolete field to be set to a
+	 * positive non-zero integer.  If an XFRM dst has been pruned
+	 * like this, we want to force a new route lookup.
+	 */
 	if (dst->obsolete < 0 && !stale_bundle(dst))
 		return dst;
 
@@ -2156,7 +2258,7 @@ EXPORT_SYMBOL(xfrm_dst_ifdown);
 
 static void xfrm_link_failure(struct sk_buff *skb)
 {
-	
+	/* Impossible. Such dst must be popped before reaches point of failure. */
 }
 
 static struct dst_entry *xfrm_negative_advice(struct dst_entry *dst)
@@ -2219,6 +2321,9 @@ static void xfrm_init_pmtu(struct dst_entry *dst)
 	} while ((dst = dst->next));
 }
 
+/* Check that the bundle accepts the flow and its components are
+ * still valid.
+ */
 
 static int xfrm_bundle_ok(struct xfrm_dst *first)
 {
@@ -2736,6 +2841,9 @@ static int migrate_tmpl_match(const struct xfrm_migrate *m, const struct xfrm_tm
 			}
 			break;
 		case XFRM_MODE_TRANSPORT:
+			/* in case of transport mode, template does not store
+			   any IP addresses, hence we just compare mode and
+			   protocol */
 			match = 1;
 			break;
 		default:
@@ -2745,6 +2853,7 @@ static int migrate_tmpl_match(const struct xfrm_migrate *m, const struct xfrm_tm
 	return match;
 }
 
+/* update endpoint address(es) of template(s) */
 static int xfrm_policy_migrate(struct xfrm_policy *pol,
 			       struct xfrm_migrate *m, int num_migrate)
 {
@@ -2753,7 +2862,7 @@ static int xfrm_policy_migrate(struct xfrm_policy *pol,
 
 	write_lock_bh(&pol->lock);
 	if (unlikely(pol->walk.dead)) {
-		
+		/* target policy has been deleted */
 		write_unlock_bh(&pol->lock);
 		return -ENOENT;
 	}
@@ -2766,13 +2875,13 @@ static int xfrm_policy_migrate(struct xfrm_policy *pol,
 			if (pol->xfrm_vec[i].mode != XFRM_MODE_TUNNEL &&
 			    pol->xfrm_vec[i].mode != XFRM_MODE_BEET)
 				continue;
-			
+			/* update endpoints */
 			memcpy(&pol->xfrm_vec[i].id.daddr, &mp->new_daddr,
 			       sizeof(pol->xfrm_vec[i].id.daddr));
 			memcpy(&pol->xfrm_vec[i].saddr, &mp->new_saddr,
 			       sizeof(pol->xfrm_vec[i].saddr));
 			pol->xfrm_vec[i].encap_family = mp->new_family;
-			
+			/* flush bundles */
 			atomic_inc(&pol->genid);
 		}
 	}
@@ -2802,7 +2911,7 @@ static int xfrm_migrate_check(const struct xfrm_migrate *m, int num_migrate)
 		    xfrm_addr_any(&m[i].new_saddr, m[i].new_family))
 			return -EINVAL;
 
-		
+		/* check if there is any duplicated entry */
 		for (j = i + 1; j < num_migrate; j++) {
 			if (!memcmp(&m[i].old_daddr, &m[j].old_daddr,
 				    sizeof(m[i].old_daddr)) &&
@@ -2833,13 +2942,13 @@ int xfrm_migrate(const struct xfrm_selector *sel, u8 dir, u8 type,
 	if ((err = xfrm_migrate_check(m, num_migrate)) < 0)
 		goto out;
 
-	
+	/* Stage 1 - find policy */
 	if ((pol = xfrm_migrate_policy_find(sel, dir, type)) == NULL) {
 		err = -ENOENT;
 		goto out;
 	}
 
-	
+	/* Stage 2 - find and update state(s) */
 	for (i = 0, mp = m; i < num_migrate; i++, mp++) {
 		if ((x = xfrm_migrate_state_find(mp))) {
 			x_cur[nx_cur] = x;
@@ -2854,17 +2963,17 @@ int xfrm_migrate(const struct xfrm_selector *sel, u8 dir, u8 type,
 		}
 	}
 
-	
+	/* Stage 3 - update policy */
 	if ((err = xfrm_policy_migrate(pol, m, num_migrate)) < 0)
 		goto restore_state;
 
-	
+	/* Stage 4 - delete old state(s) */
 	if (nx_cur) {
 		xfrm_states_put(x_cur, nx_cur);
 		xfrm_states_delete(x_cur, nx_cur);
 	}
 
-	
+	/* Stage 5 - announce */
 	km_migrate(sel, dir, type, m, num_migrate, k);
 
 	xfrm_pol_put(pol);

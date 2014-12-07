@@ -28,7 +28,7 @@ const struct mxs_flexcan_data mx28_flexcan_data[] __initconst = {
 	mx28_flexcan_data_entry(0, 0),
 	mx28_flexcan_data_entry(1, 1),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX28 */
 
 struct platform_device *__init mxs_add_flexcan(
 		const struct mxs_flexcan_data *data,

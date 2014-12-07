@@ -33,6 +33,7 @@ static int debug = 5;
 static int debug = 1;
 #endif
 
+/* Use our own dbg macro */
 #undef dbg
 #define dbg(lvl, format, arg...) 					\
 do { 									\
@@ -41,24 +42,28 @@ do { 									\
 } while (0)
 
 
+/* Version Information */
 #define DRIVER_VERSION "v0.0.13"
 #define DRIVER_AUTHOR "John Homppi"
 #define DRIVER_DESC "adutux (see www.ontrak.net)"
 
+/* Module parameters */
 module_param(debug, int, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(debug, "Debug enabled or not");
 
+/* Define these values to match your device */
 #define ADU_VENDOR_ID 0x0a07
 #define ADU_PRODUCT_ID 0x0064
 
+/* table of devices that work with this driver */
 static const struct usb_device_id device_table[] = {
-	{ USB_DEVICE(ADU_VENDOR_ID, ADU_PRODUCT_ID) },		
-	{ USB_DEVICE(ADU_VENDOR_ID, ADU_PRODUCT_ID+20) }, 	
-	{ USB_DEVICE(ADU_VENDOR_ID, ADU_PRODUCT_ID+30) }, 	
-	{ USB_DEVICE(ADU_VENDOR_ID, ADU_PRODUCT_ID+100) },	
-	{ USB_DEVICE(ADU_VENDOR_ID, ADU_PRODUCT_ID+108) },	
-	{ USB_DEVICE(ADU_VENDOR_ID, ADU_PRODUCT_ID+118) },	
-	{ }
+	{ USB_DEVICE(ADU_VENDOR_ID, ADU_PRODUCT_ID) },		/* ADU100 */
+	{ USB_DEVICE(ADU_VENDOR_ID, ADU_PRODUCT_ID+20) }, 	/* ADU120 */
+	{ USB_DEVICE(ADU_VENDOR_ID, ADU_PRODUCT_ID+30) }, 	/* ADU130 */
+	{ USB_DEVICE(ADU_VENDOR_ID, ADU_PRODUCT_ID+100) },	/* ADU200 */
+	{ USB_DEVICE(ADU_VENDOR_ID, ADU_PRODUCT_ID+108) },	/* ADU208 */
+	{ USB_DEVICE(ADU_VENDOR_ID, ADU_PRODUCT_ID+118) },	/* ADU218 */
+	{ }/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, device_table);
@@ -69,19 +74,30 @@ MODULE_DEVICE_TABLE(usb, device_table);
 #define ADU_MINOR_BASE	67
 #endif
 
+/* we can have up to this number of device plugged in at once */
 #define MAX_DEVICES	16
 
-#define COMMAND_TIMEOUT	(2*HZ)	
+#define COMMAND_TIMEOUT	(2*HZ)	/* 60 second timeout for a command */
 
+/*
+ * The locking scheme is a vanilla 3-lock:
+ *   adu_device.buflock: A spinlock, covers what IRQs touch.
+ *   adutux_mutex:       A Static lock to cover open_count. It would also cover
+ *                       any globals, but we don't have them in 2.6.
+ *   adu_device.mtx:     A mutex to hold across sleepers like copy_from_user.
+ *                       It covers all of adu_device, except the open_count
+ *                       and what .buflock covers.
+ */
 
+/* Structure to hold all of our device specific stuff */
 struct adu_device {
 	struct mutex		mtx;
-	struct usb_device*	udev; 
+	struct usb_device*	udev; /* save off the usb device pointer */
 	struct usb_interface*	interface;
-	unsigned int		minor; 
+	unsigned int		minor; /* the starting minor number for this device */
 	char			serial_number[8];
 
-	int			open_count; 
+	int			open_count; /* number of times this port has been opened */
 
 	char*			read_buffer_primary;
 	int			read_buffer_length;
@@ -123,6 +139,10 @@ static void adu_debug_data(int level, const char *function, int size,
 	printk("\n");
 }
 
+/**
+ * adu_abort_transfers
+ *      aborts transfers and frees associated data structures
+ */
 static void adu_abort_transfers(struct adu_device *dev)
 {
 	unsigned long flags;
@@ -134,9 +154,9 @@ static void adu_abort_transfers(struct adu_device *dev)
 		goto exit;
 	}
 
-	
+	/* shutdown transfer */
 
-	
+	/* XXX Anchor these instead */
 	spin_lock_irqsave(&dev->buflock, flags);
 	if (!dev->read_urb_finished) {
 		spin_unlock_irqrestore(&dev->buflock, flags);
@@ -159,7 +179,7 @@ static void adu_delete(struct adu_device *dev)
 {
 	dbg(2, "%s enter", __func__);
 
-	
+	/* free data structures */
 	usb_free_urb(dev->interrupt_in_urb);
 	usb_free_urb(dev->interrupt_out_urb);
 	kfree(dev->read_buffer_primary);
@@ -210,7 +230,7 @@ static void adu_interrupt_in_callback(struct urb *urb)
 exit:
 	dev->read_urb_finished = 1;
 	spin_unlock(&dev->buflock);
-	
+	/* always wake up so we recover from errors */
 	wake_up_interruptible(&dev->read_wait);
 	adu_debug_data(5, __func__, urb->actual_length,
 		       urb->transfer_buffer);
@@ -275,7 +295,7 @@ static int adu_open(struct inode *inode, struct file *file)
 		goto exit_no_device;
 	}
 
-	
+	/* check that nobody else is using the device */
 	if (dev->open_count) {
 		retval = -EBUSY;
 		goto exit_no_device;
@@ -284,13 +304,13 @@ static int adu_open(struct inode *inode, struct file *file)
 	++dev->open_count;
 	dbg(2,"%s : open count %d", __func__, dev->open_count);
 
-	
+	/* save device in the file's private structure */
 	file->private_data = dev;
 
-	
+	/* initialize in direction */
 	dev->read_buffer_length = 0;
 
-	
+	/* fixup first read by having urb waiting for it */
 	usb_fill_int_urb(dev->interrupt_in_urb,dev->udev,
 			 usb_rcvintpipe(dev->udev,
 					dev->interrupt_in_endpoint->bEndpointAddress),
@@ -301,10 +321,10 @@ static int adu_open(struct inode *inode, struct file *file)
 	dev->read_urb_finished = 0;
 	if (usb_submit_urb(dev->interrupt_in_urb, GFP_KERNEL))
 		dev->read_urb_finished = 1;
-	
-	
+	/* we ignore failure */
+	/* end of fixup for first read */
 
-	
+	/* initialize out direction */
 	dev->out_urb_finished = 1;
 
 	retval = 0;
@@ -320,7 +340,7 @@ static void adu_release_internal(struct adu_device *dev)
 {
 	dbg(2," %s : enter", __func__);
 
-	
+	/* decrement our usage count for the device */
 	--dev->open_count;
 	dbg(2," %s : open count %d", __func__, dev->open_count);
 	if (dev->open_count <= 0) {
@@ -351,7 +371,7 @@ static int adu_release(struct inode *inode, struct file *file)
 		goto exit;
 	}
 
-	mutex_lock(&adutux_mutex); 
+	mutex_lock(&adutux_mutex); /* not interruptible */
 
 	if (dev->open_count <= 0) {
 		dbg(1," %s : device not opened", __func__);
@@ -361,8 +381,8 @@ static int adu_release(struct inode *inode, struct file *file)
 
 	adu_release_internal(dev);
 	if (dev->udev == NULL) {
-		
-		if (!dev->open_count)	
+		/* the device was unplugged before the file was released */
+		if (!dev->open_count)	/* ... and we're the last user */
 			adu_delete(dev);
 	}
 unlock:
@@ -393,7 +413,7 @@ static ssize_t adu_read(struct file *file, __user char *buffer, size_t count,
 	if (mutex_lock_interruptible(&dev->mtx))
 		return -ERESTARTSYS;
 
-	
+	/* verify that the device wasn't unplugged */
 	if (dev->udev == NULL) {
 		retval = -ENODEV;
 		printk(KERN_ERR "adutux: No device or device unplugged %d\n",
@@ -401,7 +421,7 @@ static ssize_t adu_read(struct file *file, __user char *buffer, size_t count,
 		goto exit;
 	}
 
-	
+	/* verify that some data was requested */
 	if (count == 0) {
 		dbg(1," %s : read request of 0 bytes", __func__);
 		goto exit;
@@ -416,7 +436,7 @@ static ssize_t adu_read(struct file *file, __user char *buffer, size_t count,
 		    dev->interrupt_in_urb->status);
 
 		if (data_in_secondary) {
-			
+			/* drain secondary buffer */
 			int amount = bytes_to_read < data_in_secondary ? bytes_to_read : data_in_secondary;
 			i = copy_to_user(buffer, dev->read_buffer_secondary+dev->secondary_head, amount);
 			if (i) {
@@ -431,10 +451,10 @@ static ssize_t adu_read(struct file *file, __user char *buffer, size_t count,
 				goto exit;
 			}
 		} else {
-			
+			/* we check the primary buffer */
 			spin_lock_irqsave (&dev->buflock, flags);
 			if (dev->read_buffer_length) {
-				
+				/* we secure access to the primary */
 				char *tmp;
 				dbg(2," %s : swap, read_buffer_length = %d",
 				    __func__, dev->read_buffer_length);
@@ -445,16 +465,16 @@ static ssize_t adu_read(struct file *file, __user char *buffer, size_t count,
 				dev->secondary_tail = dev->read_buffer_length;
 				dev->read_buffer_length = 0;
 				spin_unlock_irqrestore(&dev->buflock, flags);
-				
+				/* we have a free buffer so use it */
 				should_submit = 1;
 			} else {
-				
+				/* even the primary was empty - we may need to do IO */
 				if (!dev->read_urb_finished) {
-					
+					/* somebody is doing IO */
 					spin_unlock_irqrestore(&dev->buflock, flags);
 					dbg(2," %s : submitted already", __func__);
 				} else {
-					
+					/* we must initiate input */
 					dbg(2," %s : initiate input", __func__);
 					dev->read_urb_finished = 0;
 					spin_unlock_irqrestore(&dev->buflock, flags);
@@ -478,7 +498,7 @@ static ssize_t adu_read(struct file *file, __user char *buffer, size_t count,
 					}
 				}
 
-				
+				/* we wait for I/O to complete */
 				set_current_state(TASK_INTERRUPTIBLE);
 				add_wait_queue(&dev->read_wait, &wait);
 				spin_lock_irqsave(&dev->buflock, flags);
@@ -507,7 +527,7 @@ static ssize_t adu_read(struct file *file, __user char *buffer, size_t count,
 	}
 
 	retval = bytes_read;
-	
+	/* if the primary buffer is empty then use it */
 	spin_lock_irqsave(&dev->buflock, flags);
 	if (should_submit && dev->read_urb_finished) {
 		dev->read_urb_finished = 0;
@@ -522,13 +542,13 @@ static ssize_t adu_read(struct file *file, __user char *buffer, size_t count,
 				dev->interrupt_in_endpoint->bInterval);
 		if (usb_submit_urb(dev->interrupt_in_urb, GFP_KERNEL) != 0)
 			dev->read_urb_finished = 1;
-		
+		/* we ignore failure */
 	} else {
 		spin_unlock_irqrestore(&dev->buflock, flags);
 	}
 
 exit:
-	
+	/* unlock the device */
 	mutex_unlock(&dev->mtx);
 
 	dbg(2," %s : leave, return value %d", __func__, retval);
@@ -554,7 +574,7 @@ static ssize_t adu_write(struct file *file, const __user char *buffer,
 	if (retval)
 		goto exit_nolock;
 
-	
+	/* verify that the device wasn't unplugged */
 	if (dev->udev == NULL) {
 		retval = -ENODEV;
 		printk(KERN_ERR "adutux: No device or device unplugged %d\n",
@@ -562,7 +582,7 @@ static ssize_t adu_write(struct file *file, const __user char *buffer,
 		goto exit;
 	}
 
-	
+	/* verify that we actually have some data to write */
 	if (count == 0) {
 		dbg(1," %s : write request of 0 bytes", __func__);
 		goto exit;
@@ -601,7 +621,7 @@ static ssize_t adu_write(struct file *file, const __user char *buffer,
 			remove_wait_queue(&dev->write_wait, &waita);
 			dbg(4," %s : sending, count = %Zd", __func__, count);
 
-			
+			/* write the data into interrupt_out_buffer from userspace */
 			buffer_size = usb_endpoint_maxp(dev->interrupt_out_endpoint);
 			bytes_to_write = count > buffer_size ? buffer_size : count;
 			dbg(4," %s : buffer_size = %Zd, count = %Zd, bytes_to_write = %Zd",
@@ -612,7 +632,7 @@ static ssize_t adu_write(struct file *file, const __user char *buffer,
 				goto exit;
 			}
 
-			
+			/* send off the urb */
 			usb_fill_int_urb(
 				dev->interrupt_out_urb,
 				dev->udev,
@@ -652,6 +672,7 @@ exit_onqueue:
 	return retval;
 }
 
+/* file operations needed when we register this driver */
 static const struct file_operations adu_fops = {
 	.owner = THIS_MODULE,
 	.read  = adu_read,
@@ -661,12 +682,22 @@ static const struct file_operations adu_fops = {
 	.llseek = noop_llseek,
 };
 
+/*
+ * usb class driver info in order to get a minor number from the usb core,
+ * and to have the device registered with devfs and the driver core
+ */
 static struct usb_class_driver adu_class = {
 	.name = "usb/adutux%d",
 	.fops = &adu_fops,
 	.minor_base = ADU_MINOR_BASE,
 };
 
+/**
+ * adu_probe
+ *
+ * Called by the usb core when a new device is connected that it thinks
+ * this driver might be interested in.
+ */
 static int adu_probe(struct usb_interface *interface,
 		     const struct usb_device_id *id)
 {
@@ -686,7 +717,7 @@ static int adu_probe(struct usb_interface *interface,
 		goto exit;
 	}
 
-	
+	/* allocate memory for our device state and initialize it */
 	dev = kzalloc(sizeof(struct adu_device), GFP_KERNEL);
 	if (dev == NULL) {
 		dev_err(&interface->dev, "Out of memory\n");
@@ -702,7 +733,7 @@ static int adu_probe(struct usb_interface *interface,
 
 	iface_desc = &interface->altsetting[0];
 
-	
+	/* set up the endpoint information */
 	for (i = 0; i < iface_desc->desc.bNumEndpoints; ++i) {
 		endpoint = &iface_desc->endpoint[i].desc;
 
@@ -731,7 +762,7 @@ static int adu_probe(struct usb_interface *interface,
 		goto error;
 	}
 
-	
+	/* debug code prime the buffer */
 	memset(dev->read_buffer_primary, 'a', in_end_size);
 	memset(dev->read_buffer_primary + in_end_size, 'b', in_end_size);
 	memset(dev->read_buffer_primary + (2 * in_end_size), 'c', in_end_size);
@@ -744,7 +775,7 @@ static int adu_probe(struct usb_interface *interface,
 		goto error;
 	}
 
-	
+	/* debug code prime the buffer */
 	memset(dev->read_buffer_secondary, 'e', in_end_size);
 	memset(dev->read_buffer_secondary + in_end_size, 'f', in_end_size);
 	memset(dev->read_buffer_secondary + (2 * in_end_size), 'g', in_end_size);
@@ -756,7 +787,7 @@ static int adu_probe(struct usb_interface *interface,
 		goto error;
 	}
 
-	
+	/* debug code prime the buffer */
 	memset(dev->interrupt_in_buffer, 'i', in_end_size);
 
 	dev->interrupt_in_urb = usb_alloc_urb(0, GFP_KERNEL);
@@ -782,13 +813,13 @@ static int adu_probe(struct usb_interface *interface,
 	}
 	dbg(2," %s : serial_number=%s", __func__, dev->serial_number);
 
-	
+	/* we can register the device now, as it is ready */
 	usb_set_intfdata(interface, dev);
 
 	retval = usb_register_dev(interface, &adu_class);
 
 	if (retval) {
-		
+		/* something prevented us from registering this driver */
 		dev_err(&interface->dev, "Not able to get a minor for this device.\n");
 		usb_set_intfdata(interface, NULL);
 		goto error;
@@ -796,7 +827,7 @@ static int adu_probe(struct usb_interface *interface,
 
 	dev->minor = interface->minor;
 
-	
+	/* let the user know what node this device is now attached to */
 	dev_info(&interface->dev, "ADU%d %s now attached to /dev/usb/adutux%d\n",
 		 udev->descriptor.idProduct, dev->serial_number,
 		 (dev->minor - ADU_MINOR_BASE));
@@ -810,6 +841,11 @@ error:
 	return retval;
 }
 
+/**
+ * adu_disconnect
+ *
+ * Called by the usb core when the device is removed from the system.
+ */
 static void adu_disconnect(struct usb_interface *interface)
 {
 	struct adu_device *dev;
@@ -819,8 +855,8 @@ static void adu_disconnect(struct usb_interface *interface)
 
 	dev = usb_get_intfdata(interface);
 
-	mutex_lock(&dev->mtx);	
-	dev->udev = NULL;	
+	mutex_lock(&dev->mtx);	/* not interruptible */
+	dev->udev = NULL;	/* poison */
 	minor = dev->minor;
 	usb_deregister_dev(interface, &adu_class);
 	mutex_unlock(&dev->mtx);
@@ -828,7 +864,7 @@ static void adu_disconnect(struct usb_interface *interface)
 	mutex_lock(&adutux_mutex);
 	usb_set_intfdata(interface, NULL);
 
-	
+	/* if the device is not opened, then we clean up right now */
 	dbg(2," %s : open count %d", __func__, dev->open_count);
 	if (!dev->open_count)
 		adu_delete(dev);
@@ -841,6 +877,7 @@ static void adu_disconnect(struct usb_interface *interface)
 	dbg(2," %s : leave", __func__);
 }
 
+/* usb specific object needed to register this driver with the usb subsystem */
 static struct usb_driver adu_driver = {
 	.name = "adutux",
 	.probe = adu_probe,

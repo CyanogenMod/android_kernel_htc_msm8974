@@ -11,6 +11,7 @@
 
 #include <mach/io.h>
 
+/* virt_to_phys will only work when address is in P1 or P2 */
 static __inline__ unsigned long virt_to_phys(volatile void *address)
 {
 	return PHYSADDR(address);
@@ -26,6 +27,10 @@ static __inline__ void * phys_to_virt(unsigned long address)
 #define phys_to_cached(addr)	((void *)P1SEGADDR(addr))
 #define phys_to_uncached(addr)	((void *)P2SEGADDR(addr))
 
+/*
+ * Generic IO read/write.  These perform native-endian accesses.  Note
+ * that some architectures will want to re-define __raw_{read,write}w.
+ */
 extern void __raw_writesb(void __iomem *addr, const void *data, int bytelen);
 extern void __raw_writesw(void __iomem *addr, const void *data, int wordlen);
 extern void __raw_writesl(void __iomem *addr, const void *data, int longlen);
@@ -60,10 +65,15 @@ static inline u32 __raw_readl(const volatile void __iomem *addr)
 	return *(const volatile u32 __force *)addr;
 }
 
+/* Convert I/O port address to virtual address */
 #ifndef __io
 # define __io(p)	((void *)phys_to_uncached(p))
 #endif
 
+/*
+ * Not really sure about the best way to slow down I/O on
+ * AVR32. Defining it as a no-op until we have an actual test case.
+ */
 #define SLOW_DOWN_IO	do { } while (0)
 
 #define __BUILD_MEMORY_SINGLE(pfx, bwl, type)				\
@@ -205,6 +215,9 @@ BUILDSTRING(b, u8)
 BUILDSTRING(w, u16)
 BUILDSTRING(l, u32)
 
+/*
+ * io{read,write}{8,16,32} macros in both le (for PCI style consumers) and native be
+ */
 #ifndef ioread8
 
 #define ioread8(p)		((unsigned int)readb(p))
@@ -259,6 +272,16 @@ extern void __iomem *__ioremap(unsigned long offset, size_t size,
 			       unsigned long flags);
 extern void __iounmap(void __iomem *addr);
 
+/*
+ * ioremap	-   map bus memory into CPU space
+ * @offset	bus address of the memory
+ * @size	size of the resource to map
+ *
+ * ioremap performs a platform specific sequence of operations to make
+ * bus memory CPU accessible via the readb/.../writel functions and
+ * the other mmio helpers. The returned address is not guaranteed to
+ * be usable directly as a virtual address.
+ */
 #define ioremap(offset, size)			\
 	__ioremap((offset), (size), 0)
 
@@ -276,11 +299,23 @@ extern void __iounmap(void __iomem *addr);
 #define page_to_bus page_to_phys
 #define bus_to_page phys_to_page
 
+/*
+ * Create a virtual mapping cookie for an IO port range.  There exists
+ * no such thing as port-based I/O on AVR32, so a regular ioremap()
+ * should do what we need.
+ */
 #define ioport_map(port, nr)	ioremap(port, nr)
 #define ioport_unmap(port)	iounmap(port)
 
+/*
+ * Convert a physical pointer to a virtual kernel pointer for /dev/mem
+ * access
+ */
 #define xlate_dev_mem_ptr(p)    __va(p)
 
+/*
+ * Convert a virtual cached pointer to an uncached pointer
+ */
 #define xlate_dev_kmem_ptr(p)   p
 
-#endif 
+#endif /* __ASM_AVR32_IO_H */

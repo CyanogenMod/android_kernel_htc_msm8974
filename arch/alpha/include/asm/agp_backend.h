@@ -39,4 +39,4 @@ struct alpha_agp_ops {
 };
 
 
-#endif 
+#endif /* _ALPHA_AGP_BACKEND_H */

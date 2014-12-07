@@ -33,6 +33,13 @@
 #include "ixgbe_dcb_82598.h"
 #include "ixgbe_dcb_82599.h"
 
+/**
+ * ixgbe_ieee_credits - This calculates the ieee traffic class
+ * credits from the configured bandwidth percentages. Credits
+ * are the smallest unit programmable into the underlying
+ * hardware. The IEEE 802.1Qaz specification do not use bandwidth
+ * groups so this is much simplified from the CEE case.
+ */
 static s32 ixgbe_ieee_credits(__u8 *bw, __u16 *refill,
 			      __u16 *max, int max_frame)
 {
@@ -50,7 +57,7 @@ static s32 ixgbe_ieee_credits(__u8 *bw, __u16 *refill,
 
 	multiplier = (min_credit / min_percent) + 1;
 
-	
+	/* Find out the hw credits for each TC */
 	for (i = 0; i < MAX_TRAFFIC_CLASS; i++) {
 		int val = min(bw[i] * multiplier, MAX_CREDIT_REFILL);
 
@@ -63,6 +70,15 @@ static s32 ixgbe_ieee_credits(__u8 *bw, __u16 *refill,
 	return 0;
 }
 
+/**
+ * ixgbe_dcb_calculate_tc_credits - Calculates traffic class credits
+ * @ixgbe_dcb_config: Struct containing DCB settings.
+ * @direction: Configuring either Tx or Rx.
+ *
+ * This function calculates the credits allocated to each traffic class.
+ * It should be called only after the rules are checked by
+ * ixgbe_dcb_check_config().
+ */
 s32 ixgbe_dcb_calculate_tc_credits(struct ixgbe_hw *hw,
 				   struct ixgbe_dcb_config *dcb_config,
 				   int max_frame, u8 direction)
@@ -72,7 +88,7 @@ s32 ixgbe_dcb_calculate_tc_credits(struct ixgbe_hw *hw,
 	int min_multiplier;
 	int min_percent = 100;
 	s32 ret_val = 0;
-	
+	/* Initialization values default for Tx settings */
 	u32 credit_refill       = 0;
 	u32 credit_max          = 0;
 	u16 link_percentage     = 0;
@@ -87,7 +103,7 @@ s32 ixgbe_dcb_calculate_tc_credits(struct ixgbe_hw *hw,
 	min_credit = ((max_frame / 2) + DCB_CREDIT_QUANTUM - 1) /
 			DCB_CREDIT_QUANTUM;
 
-	
+	/* Find smallest link percentage */
 	for (i = 0; i < MAX_TRAFFIC_CLASS; i++) {
 		p = &dcb_config->tc_config[i].path[direction];
 		bw_percent = dcb_config->bw_percentage[direction][p->bwg_id];
@@ -99,34 +115,53 @@ s32 ixgbe_dcb_calculate_tc_credits(struct ixgbe_hw *hw,
 			min_percent = link_percentage;
 	}
 
+	/*
+	 * The ratio between traffic classes will control the bandwidth
+	 * percentages seen on the wire. To calculate this ratio we use
+	 * a multiplier. It is required that the refill credits must be
+	 * larger than the max frame size so here we find the smallest
+	 * multiplier that will allow all bandwidth percentages to be
+	 * greater than the max frame size.
+	 */
 	min_multiplier = (min_credit / min_percent) + 1;
 
-	
+	/* Find out the link percentage for each TC first */
 	for (i = 0; i < MAX_TRAFFIC_CLASS; i++) {
 		p = &dcb_config->tc_config[i].path[direction];
 		bw_percent = dcb_config->bw_percentage[direction][p->bwg_id];
 
 		link_percentage = p->bwg_percent;
-		
+		/* Must be careful of integer division for very small nums */
 		link_percentage = (link_percentage * bw_percent) / 100;
 		if (p->bwg_percent > 0 && link_percentage == 0)
 			link_percentage = 1;
 
-		
+		/* Save link_percentage for reference */
 		p->link_percent = (u8)link_percentage;
 
-		
+		/* Calculate credit refill ratio using multiplier */
 		credit_refill = min(link_percentage * min_multiplier,
 				    MAX_CREDIT_REFILL);
 		p->data_credits_refill = (u16)credit_refill;
 
-		
+		/* Calculate maximum credit for the TC */
 		credit_max = (link_percentage * MAX_CREDIT) / 100;
 
+		/*
+		 * Adjustment based on rule checking, if the percentage
+		 * of a TC is too small, the maximum credit may not be
+		 * enough to send out a jumbo frame in data plane arbitration.
+		 */
 		if (credit_max && (credit_max < min_credit))
 			credit_max = min_credit;
 
 		if (direction == DCB_TX_CONFIG) {
+			/*
+			 * Adjustment based on rule checking, if the
+			 * percentage of a TC is too small, the maximum
+			 * credit may not be enough to send out a TSO
+			 * packet in descriptor plane arbitration.
+			 */
 			if ((hw->mac.type == ixgbe_mac_82598EB) &&
 			    credit_max &&
 			    (credit_max < MINIMUM_CREDIT_FOR_TSO))
@@ -208,6 +243,13 @@ void ixgbe_dcb_unpack_map(struct ixgbe_dcb_config *cfg, int direction, u8 *map)
 	}
 }
 
+/**
+ * ixgbe_dcb_hw_config - Config and enable DCB
+ * @hw: pointer to hardware structure
+ * @dcb_config: pointer to ixgbe_dcb_config structure
+ *
+ * Configure dcb settings and enable dcb mode.
+ */
 s32 ixgbe_dcb_hw_config(struct ixgbe_hw *hw,
                         struct ixgbe_dcb_config *dcb_config)
 {
@@ -219,7 +261,7 @@ s32 ixgbe_dcb_hw_config(struct ixgbe_hw *hw,
 	u16 refill[MAX_TRAFFIC_CLASS];
 	u16 max[MAX_TRAFFIC_CLASS];
 
-	
+	/* Unpack CEE standard containers */
 	ixgbe_dcb_unpack_pfc(dcb_config, &pfc_en);
 	ixgbe_dcb_unpack_refill(dcb_config, DCB_TX_CONFIG, refill);
 	ixgbe_dcb_unpack_max(dcb_config, max);
@@ -243,6 +285,7 @@ s32 ixgbe_dcb_hw_config(struct ixgbe_hw *hw,
 	return ret;
 }
 
+/* Helper routines to abstract HW specifics from DCB netlink ops */
 s32 ixgbe_dcb_hw_pfc_config(struct ixgbe_hw *hw, u8 pfc_en, u8 *prio_tc)
 {
 	int ret = -EINVAL;
@@ -267,10 +310,10 @@ s32 ixgbe_dcb_hw_ets(struct ixgbe_hw *hw, struct ieee_ets *ets, int max_frame)
 	__u8 prio_type[IEEE_8021QAZ_MAX_TCS];
 	int i;
 
-	
+	/* naively give each TC a bwg to map onto CEE hardware */
 	__u8 bwg_id[IEEE_8021QAZ_MAX_TCS] = {0, 1, 2, 3, 4, 5, 6, 7};
 
-	
+	/* Map TSA onto CEE prio type */
 	for (i = 0; i < IEEE_8021QAZ_MAX_TCS; i++) {
 		switch (ets->tc_tsa[i]) {
 		case IEEE_8021QAZ_TSA_STRICT:
@@ -280,6 +323,11 @@ s32 ixgbe_dcb_hw_ets(struct ixgbe_hw *hw, struct ieee_ets *ets, int max_frame)
 			prio_type[i] = 0;
 			break;
 		default:
+			/* Hardware only supports priority strict or
+			 * ETS transmission selection algorithms if
+			 * we receive some other value from dcbnl
+			 * throw an error
+			 */
 			return -EINVAL;
 		}
 	}

@@ -88,7 +88,7 @@ eeprom_93xx46_bin_read(struct file *filp, struct kobject *kobj,
 		edev->pdata->prepare(edev);
 
 	ret = spi_sync(edev->spi, &m);
-	
+	/* have to wait at least Tcsl ns */
 	ndelay(250);
 	if (ret) {
 		dev_err(&edev->spi->dev, "read %zu bytes at %d: err. %d\n",
@@ -134,7 +134,7 @@ static int eeprom_93xx46_ew(struct eeprom_93xx46_dev *edev, int is_on)
 		edev->pdata->prepare(edev);
 
 	ret = spi_sync(edev->spi, &m);
-	
+	/* have to wait at least Tcsl ns */
 	ndelay(250);
 	if (ret)
 		dev_err(&edev->spi->dev, "erase/write %sable error %d\n",
@@ -184,7 +184,7 @@ eeprom_93xx46_write_word(struct eeprom_93xx46_dev *edev,
 	spi_message_add_tail(&t[1], &m);
 
 	ret = spi_sync(edev->spi, &m);
-	
+	/* have to wait program cycle time Twc ms */
 	mdelay(6);
 	return ret;
 }
@@ -208,13 +208,13 @@ eeprom_93xx46_bin_write(struct file *filp, struct kobject *kobj,
 	if (unlikely(!count))
 		return count;
 
-	
+	/* only write even number of bytes on 16-bit devices */
 	if (edev->addrlen == 6) {
 		step = 2;
 		count &= ~1;
 	}
 
-	
+	/* erase/write enable */
 	ret = eeprom_93xx46_ew(edev, 1);
 	if (ret)
 		return ret;
@@ -238,7 +238,7 @@ eeprom_93xx46_bin_write(struct file *filp, struct kobject *kobj,
 
 	mutex_unlock(&edev->lock);
 
-	
+	/* erase/write disable */
 	eeprom_93xx46_ew(edev, 0);
 	return ret ? : count;
 }
@@ -276,7 +276,7 @@ static int eeprom_93xx46_eral(struct eeprom_93xx46_dev *edev)
 	ret = spi_sync(edev->spi, &m);
 	if (ret)
 		dev_err(&edev->spi->dev, "erase error %d\n", ret);
-	
+	/* have to wait erase cycle time Tec ms */
 	mdelay(6);
 
 	if (pd->finish)

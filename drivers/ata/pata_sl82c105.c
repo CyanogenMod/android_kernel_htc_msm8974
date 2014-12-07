@@ -1,3 +1,20 @@
+/*
+ * pata_sl82c105.c 	- SL82C105 PATA for new ATA layer
+ *			  (C) 2005 Red Hat Inc
+ *			  (C) 2011 Bartlomiej Zolnierkiewicz
+ *
+ * Based in part on linux/drivers/ide/pci/sl82c105.c
+ * 		SL82C105/Winbond 553 IDE driver
+ *
+ * and in part on the documentation and errata sheet
+ *
+ *
+ * Note: The controller like many controllers has shared timings for
+ * PIO and DMA. We thus flip to the DMA timings in dma_start and flip back
+ * in the dma_stop function. Thus we actually don't need a set_dmamode
+ * method as the PIO method is always called and will set the right PIO
+ * timing parameters.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -12,6 +29,9 @@
 #define DRV_VERSION "0.3.3"
 
 enum {
+	/*
+	 * SL82C105 PCI config register 0x40 bits.
+	 */
 	CTRL_IDE_IRQB	=	(1 << 30),
 	CTRL_IDE_IRQA   =	(1 << 28),
 	CTRL_LEGIRQ     =	(1 << 11),
@@ -21,6 +41,13 @@ enum {
 	CTRL_P0EN       =	(1 << 0)
 };
 
+/**
+ *	sl82c105_pre_reset		-	probe begin
+ *	@link: ATA link
+ *	@deadline: deadline jiffies for the operation
+ *
+ *	Set up cable type and use generic probe init
+ */
 
 static int sl82c105_pre_reset(struct ata_link *link, unsigned long deadline)
 {
@@ -37,6 +64,16 @@ static int sl82c105_pre_reset(struct ata_link *link, unsigned long deadline)
 }
 
 
+/**
+ *	sl82c105_configure_piomode	-	set chip PIO timing
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *	@pio: PIO mode
+ *
+ *	Called to do the PIO mode setup. Our timing registers are shared
+ *	so a configure_dmamode call will undo any work we do here and vice
+ *	versa
+ */
 
 static void sl82c105_configure_piomode(struct ata_port *ap, struct ata_device *adev, int pio)
 {
@@ -48,16 +85,32 @@ static void sl82c105_configure_piomode(struct ata_port *ap, struct ata_device *a
 	int timing = 0x44 + (8 * ap->port_no) + (4 * adev->devno);
 
 	pci_write_config_word(pdev, timing, pio_timing[pio]);
-	
+	/* Can we lose this oddity of the old driver */
 	pci_read_config_word(pdev, timing, &dummy);
 }
 
+/**
+ *	sl82c105_set_piomode	-	set initial PIO mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Called to do the PIO mode setup. Our timing registers are shared
+ *	but we want to set the PIO timing by default.
+ */
 
 static void sl82c105_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
 	sl82c105_configure_piomode(ap, adev, adev->pio_mode - XFER_PIO_0);
 }
 
+/**
+ *	sl82c105_configure_dmamode	-	set DMA mode in chip
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Load DMA cycle times into the chip ready for a DMA transfer
+ *	to occur.
+ */
 
 static void sl82c105_configure_dmamode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -70,10 +123,19 @@ static void sl82c105_configure_dmamode(struct ata_port *ap, struct ata_device *a
 	int dma = adev->dma_mode - XFER_MW_DMA_0;
 
 	pci_write_config_word(pdev, timing, dma_timing[dma]);
-	
+	/* Can we lose this oddity of the old driver */
 	pci_read_config_word(pdev, timing, &dummy);
 }
 
+/**
+ *	sl82c105_reset_engine	-	Reset the DMA engine
+ *	@ap: ATA interface
+ *
+ *	The sl82c105 has some serious problems with the DMA engine
+ *	when transfers don't run as expected or ATAPI is used. The
+ *	recommended fix is to reset the engine each use using a chip
+ *	test register.
+ */
 
 static void sl82c105_reset_engine(struct ata_port *ap)
 {
@@ -85,6 +147,16 @@ static void sl82c105_reset_engine(struct ata_port *ap)
 	pci_write_config_word(pdev, 0x7E, val & ~4);
 }
 
+/**
+ *	sl82c105_bmdma_start		-	DMA engine begin
+ *	@qc: ATA command
+ *
+ *	Reset the DMA engine each use as recommended by the errata
+ *	document.
+ *
+ *	FIXME: if we switch clock at BMDMA start/end we might get better
+ *	PIO performance on DMA capable devices.
+ */
 
 static void sl82c105_bmdma_start(struct ata_queued_cmd *qc)
 {
@@ -94,12 +166,26 @@ static void sl82c105_bmdma_start(struct ata_queued_cmd *qc)
 	sl82c105_reset_engine(ap);
 	udelay(100);
 
-	
+	/* Set the clocks for DMA */
 	sl82c105_configure_dmamode(ap, qc->dev);
-	
+	/* Activate DMA */
 	ata_bmdma_start(qc);
 }
 
+/**
+ *	sl82c105_bmdma_end		-	DMA engine stop
+ *	@qc: ATA command
+ *
+ *	Reset the DMA engine each use as recommended by the errata
+ *	document.
+ *
+ *	This function is also called to turn off DMA when a timeout occurs
+ *	during DMA operation. In both cases we need to reset the engine,
+ *	so no actual eng_timeout handler is required.
+ *
+ *	We assume bmdma_stop is always called if bmdma_start as called. If
+ *	not then we may need to wrap qc_issue.
+ */
 
 static void sl82c105_bmdma_stop(struct ata_queued_cmd *qc)
 {
@@ -109,9 +195,20 @@ static void sl82c105_bmdma_stop(struct ata_queued_cmd *qc)
 	sl82c105_reset_engine(ap);
 	udelay(100);
 
+	/* This will redo the initial setup of the DMA device to matching
+	   PIO timings */
 	sl82c105_set_piomode(ap, qc->dev);
 }
 
+/**
+ *	sl82c105_qc_defer	-	implement serialization
+ *	@qc: command
+ *
+ *	We must issue one command per host not per channel because
+ *	of the reset bug.
+ *
+ *	Q: is the scsi host lock sufficient ?
+ */
 
 static int sl82c105_qc_defer(struct ata_queued_cmd *qc)
 {
@@ -119,11 +216,13 @@ static int sl82c105_qc_defer(struct ata_queued_cmd *qc)
 	struct ata_port *alt = host->ports[1 ^ qc->ap->port_no];
 	int rc;
 
-	
+	/* First apply the usual rules */
 	rc = ata_std_qc_defer(qc);
 	if (rc != 0)
 		return rc;
 
+	/* Now apply serialization rules. Only allow a command if the
+	   other channel state machine is idle */
 	if (alt && alt->qc_active)
 		return	ATA_DEFER_PORT;
 	return 0;
@@ -154,22 +253,39 @@ static struct ata_port_operations sl82c105_port_ops = {
 	.sff_irq_check	= sl82c105_sff_irq_check,
 };
 
+/**
+ *	sl82c105_bridge_revision	-	find bridge version
+ *	@pdev: PCI device for the ATA function
+ *
+ *	Locates the PCI bridge associated with the ATA function and
+ *	providing it is a Winbond 553 reports the revision. If it cannot
+ *	find a revision or the right device it returns -1
+ */
 
 static int sl82c105_bridge_revision(struct pci_dev *pdev)
 {
 	struct pci_dev *bridge;
 
+	/*
+	 * The bridge should be part of the same device, but function 0.
+	 */
 	bridge = pci_get_slot(pdev->bus,
 			       PCI_DEVFN(PCI_SLOT(pdev->devfn), 0));
 	if (!bridge)
 		return -1;
 
+	/*
+	 * Make sure it is a Winbond 553 and is an ISA bridge.
+	 */
 	if (bridge->vendor != PCI_VENDOR_ID_WINBOND ||
 	    bridge->device != PCI_DEVICE_ID_WINBOND_83C553 ||
 	    bridge->class >> 8 != PCI_CLASS_BRIDGE_ISA) {
 	    	pci_dev_put(bridge);
 		return -1;
 	}
+	/*
+	 * We need to find function 0's revision, not function 1
+	 */
 	pci_dev_put(bridge);
 	return bridge->revision;
 }
@@ -196,7 +312,7 @@ static int sl82c105_init_one(struct pci_dev *dev, const struct pci_device_id *id
 		.pio_mask = ATA_PIO4,
 		.port_ops = &sl82c105_port_ops
 	};
-	
+	/* for now use only the first port */
 	const struct ata_port_info *ppi[] = { &info_early,
 					       NULL };
 	int rev;

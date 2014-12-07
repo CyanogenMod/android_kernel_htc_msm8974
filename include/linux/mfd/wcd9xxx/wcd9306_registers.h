@@ -992,6 +992,7 @@
 #define TAPAN_A_CDC_MBHC_SPARE			(0x3DF)
 #define TAPAN_A_CDC_MBHC_SPARE__POR				(0x00)
 
+/* SLIMBUS Slave Registers */
 #define TAPAN_SLIM_PGD_PORT_INT_EN0                     (0x30)
 #define TAPAN_SLIM_PGD_PORT_INT_STATUS_RX_0             (0x34)
 #define TAPAN_SLIM_PGD_PORT_INT_STATUS_RX_1             (0x35)
@@ -1004,6 +1005,7 @@
 #define TAPAN_SLIM_PGD_PORT_INT_RX_SOURCE0		(0x60)
 #define TAPAN_SLIM_PGD_PORT_INT_TX_SOURCE0		(0x70)
 
+/* Macros for Packing Register Writes into a U32 */
 #define TAPAN_PACKED_REG_SIZE sizeof(u32)
 
 #define TAPAN_CODEC_PACK_ENTRY(reg, mask, val) ((val & 0xff)|\

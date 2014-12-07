@@ -28,17 +28,25 @@
 #define DBG_EXTENT	0x00000020
 #define DBG_BITMAP	0x00000040
 
+//#define DBG_MASK	(DBG_EXTENT|DBG_INODE|DBG_BNODE_MOD|DBG_CAT_MOD|DBG_BITMAP)
+//#define DBG_MASK	(DBG_BNODE_MOD|DBG_CAT_MOD|DBG_INODE)
+//#define DBG_MASK	(DBG_CAT_MOD|DBG_BNODE_REFS|DBG_INODE|DBG_EXTENT)
 #define DBG_MASK	(0)
 
 #define dprint(flg, fmt, args...) \
 	if (flg & DBG_MASK) printk(fmt , ## args)
 
+/*
+ * struct hfs_inode_info
+ *
+ * The HFS-specific part of a Linux (struct inode)
+ */
 struct hfs_inode_info {
 	atomic_t opencnt;
 
 	unsigned int flags;
 
-	
+	/* to deal with localtime ugliness */
 	int tz_secondswest;
 
 	struct hfs_cat_key cat_key;
@@ -50,7 +58,7 @@ struct hfs_inode_info {
 
 	u16 alloc_blocks, clump_blocks;
 	sector_t fs_blocks;
-	
+	/* Allocation extents from catlog record or volume header */
 	hfs_extent_rec first_extents;
 	u16 first_blocks;
 	hfs_extent_rec cached_extents;
@@ -66,32 +74,67 @@ struct hfs_inode_info {
 
 #define HFS_IS_RSRC(inode)	(HFS_I(inode)->flags & HFS_FLG_RSRC)
 
+/*
+ * struct hfs_sb_info
+ *
+ * The HFS-specific part of a Linux (struct super_block)
+ */
 struct hfs_sb_info {
-	struct buffer_head *mdb_bh;		
+	struct buffer_head *mdb_bh;		/* The hfs_buffer
+						   holding the real
+						   superblock (aka VIB
+						   or MDB) */
 	struct hfs_mdb *mdb;
-	struct buffer_head *alt_mdb_bh;		
+	struct buffer_head *alt_mdb_bh;		/* The hfs_buffer holding
+						   the alternate superblock */
 	struct hfs_mdb *alt_mdb;
-	__be32 *bitmap;				
-	struct hfs_btree *ext_tree;			
-	struct hfs_btree *cat_tree;			
-	u32 file_count;				
-	u32 folder_count;			
-	u32 next_id;				
-	u32 clumpablks;				
-	u32 fs_start;				
+	__be32 *bitmap;				/* The page holding the
+						   allocation bitmap */
+	struct hfs_btree *ext_tree;			/* Information about
+						   the extents b-tree */
+	struct hfs_btree *cat_tree;			/* Information about
+						   the catalog b-tree */
+	u32 file_count;				/* The number of
+						   regular files in
+						   the filesystem */
+	u32 folder_count;			/* The number of
+						   directories in the
+						   filesystem */
+	u32 next_id;				/* The next available
+						   file id number */
+	u32 clumpablks;				/* The number of allocation
+						   blocks to try to add when
+						   extending a file */
+	u32 fs_start;				/* The first 512-byte
+						   block represented
+						   in the bitmap */
 	u32 part_start;
-	u16 root_files;				
-	u16 root_dirs;				
-	u16 fs_ablocks;				
-	u16 free_ablocks;			
-	u32 alloc_blksz;			
-	int s_quiet;				
-	__be32 s_type;				
-	__be32 s_creator;			
-	umode_t s_file_umask;			
-	umode_t s_dir_umask;			
-	uid_t s_uid;				
-	gid_t s_gid;				
+	u16 root_files;				/* The number of
+						   regular
+						   (non-directory)
+						   files in the root
+						   directory */
+	u16 root_dirs;				/* The number of
+						   directories in the
+						   root directory */
+	u16 fs_ablocks;				/* The number of
+						   allocation blocks
+						   in the filesystem */
+	u16 free_ablocks;			/* the number of unused
+						   allocation blocks
+						   in the filesystem */
+	u32 alloc_blksz;			/* The size of an
+						   "allocation block" */
+	int s_quiet;				/* Silent failure when
+						   changing owner or mode? */
+	__be32 s_type;				/* Type for new files */
+	__be32 s_creator;			/* Creator for new files */
+	umode_t s_file_umask;			/* The umask applied to the
+						   permissions on all files */
+	umode_t s_dir_umask;			/* The umask applied to the
+						   permissions on all dirs */
+	uid_t s_uid;				/* The uid of all files */
+	gid_t s_gid;				/* The gid of all files */
 
 	int session, part;
 
@@ -110,9 +153,11 @@ struct hfs_sb_info {
 #define HFS_FLG_MDB_DIRTY	1
 #define HFS_FLG_ALT_MDB_DIRTY	2
 
+/* bitmap.c */
 extern u32 hfs_vbm_search_free(struct super_block *, u32, u32 *);
 extern int hfs_clear_vbm_bits(struct super_block *, u16, u16);
 
+/* catalog.c */
 extern int hfs_cat_keycmp(const btree_key *, const btree_key *);
 struct hfs_find_data;
 extern int hfs_cat_find_brec(struct super_block *, u32, struct hfs_find_data *);
@@ -122,9 +167,11 @@ extern int hfs_cat_move(u32, struct inode *, struct qstr *,
 			struct inode *, struct qstr *);
 extern void hfs_cat_build_key(struct super_block *, btree_key *, u32, struct qstr *);
 
+/* dir.c */
 extern const struct file_operations hfs_dir_operations;
 extern const struct inode_operations hfs_dir_inode_operations;
 
+/* extent.c */
 extern int hfs_ext_keycmp(const btree_key *, const btree_key *);
 extern int hfs_free_fork(struct super_block *, struct hfs_cat_file *, int);
 extern void hfs_ext_write_extent(struct inode *);
@@ -133,6 +180,7 @@ extern void hfs_file_truncate(struct inode *);
 
 extern int hfs_get_block(struct inode *, sector_t, struct buffer_head *, int);
 
+/* inode.c */
 extern const struct address_space_operations hfs_aops;
 extern const struct address_space_operations hfs_btree_aops;
 
@@ -146,19 +194,23 @@ extern struct inode *hfs_iget(struct super_block *, struct hfs_cat_key *, hfs_ca
 extern void hfs_evict_inode(struct inode *);
 extern void hfs_delete_inode(struct inode *);
 
+/* attr.c */
 extern int hfs_setxattr(struct dentry *dentry, const char *name,
 			const void *value, size_t size, int flags);
 extern ssize_t hfs_getxattr(struct dentry *dentry, const char *name,
 			    void *value, size_t size);
 extern ssize_t hfs_listxattr(struct dentry *dentry, char *buffer, size_t size);
 
+/* mdb.c */
 extern int hfs_mdb_get(struct super_block *);
 extern void hfs_mdb_commit(struct super_block *);
 extern void hfs_mdb_close(struct super_block *);
 extern void hfs_mdb_put(struct super_block *);
 
+/* part_tbl.c */
 extern int hfs_part_find(struct super_block *, sector_t *, sector_t *);
 
+/* string.c */
 extern const struct dentry_operations hfs_dentry_operations;
 
 extern int hfs_hash_dentry(const struct dentry *, const struct inode *,
@@ -170,11 +222,19 @@ extern int hfs_compare_dentry(const struct dentry *parent,
 		const struct dentry *dentry, const struct inode *inode,
 		unsigned int len, const char *str, const struct qstr *name);
 
+/* trans.c */
 extern void hfs_asc2mac(struct super_block *, struct hfs_name *, struct qstr *);
 extern int hfs_mac2asc(struct super_block *, char *, const struct hfs_name *);
 
 extern struct timezone sys_tz;
 
+/*
+ * There are two time systems.  Both are based on seconds since
+ * a particular time/date.
+ *	Unix:	unsigned lil-endian since 00:00 GMT, Jan. 1, 1970
+ *	mac:	unsigned big-endian since 00:00 GMT, Jan. 1, 1904
+ *
+ */
 #define __hfs_u_to_mtime(sec)	cpu_to_be32(sec + 2082844800U - sys_tz.tz_minuteswest * 60)
 #define __hfs_m_to_utime(sec)	(be32_to_cpu(sec) - 2082844800U  + sys_tz.tz_minuteswest * 60)
 

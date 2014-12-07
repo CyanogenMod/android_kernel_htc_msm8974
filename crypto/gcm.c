@@ -736,11 +736,11 @@ static struct crypto_instance *crypto_gcm_alloc_common(struct rtattr **tb,
 
 	ctr = crypto_skcipher_spawn_alg(&ctx->ctr);
 
-	
+	/* We only support 16-byte blocks. */
 	if (ctr->cra_ablkcipher.ivsize != 16)
 		goto out_put_ctr;
 
-	
+	/* Not a stream cipher? */
 	err = -EINVAL;
 	if (ctr->cra_blocksize != 1)
 		goto out_put_ctr;
@@ -998,11 +998,11 @@ static struct crypto_instance *crypto_rfc4106_alloc(struct rtattr **tb)
 
 	err = -EINVAL;
 
-	
+	/* We only support 16-byte blocks. */
 	if (alg->cra_aead.ivsize != 16)
 		goto out_drop_alg;
 
-	
+	/* Not a stream cipher? */
 	if (alg->cra_blocksize != 1)
 		goto out_drop_alg;
 
@@ -1123,7 +1123,7 @@ static struct aead_request *crypto_rfc4543_crypt(struct aead_request *req,
 	memcpy(iv, ctx->nonce, 4);
 	memcpy(iv + 4, req->iv, 8);
 
-	
+	/* construct cipher/plaintext */
 	if (enc)
 		memset(rctx->auth_tag, 0, authsize);
 	else
@@ -1133,7 +1133,7 @@ static struct aead_request *crypto_rfc4543_crypt(struct aead_request *req,
 
 	sg_init_one(cipher, rctx->auth_tag, authsize);
 
-	
+	/* construct the aad */
 	dstp = sg_page(dst);
 	vdst = PageHighMem(dstp) ? NULL : page_address(dstp) + dst->offset;
 
@@ -1249,11 +1249,11 @@ static struct crypto_instance *crypto_rfc4543_alloc(struct rtattr **tb)
 
 	err = -EINVAL;
 
-	
+	/* We only support 16-byte blocks. */
 	if (alg->cra_aead.ivsize != 16)
 		goto out_drop_alg;
 
-	
+	/* Not a stream cipher? */
 	if (alg->cra_blocksize != 1)
 		goto out_drop_alg;
 

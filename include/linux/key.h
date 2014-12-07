@@ -25,8 +25,10 @@
 
 #ifdef __KERNEL__
 
+/* key handle serial number */
 typedef int32_t key_serial_t;
 
+/* key handle permissions mask */
 typedef uint32_t key_perm_t;
 
 struct key;
@@ -35,15 +37,15 @@ struct key;
 
 #undef KEY_DEBUGGING
 
-#define KEY_POS_VIEW	0x01000000	
-#define KEY_POS_READ	0x02000000	
-#define KEY_POS_WRITE	0x04000000	
-#define KEY_POS_SEARCH	0x08000000	
-#define KEY_POS_LINK	0x10000000	
-#define KEY_POS_SETATTR	0x20000000	
+#define KEY_POS_VIEW	0x01000000	/* possessor can view a key's attributes */
+#define KEY_POS_READ	0x02000000	/* possessor can read key payload / view keyring */
+#define KEY_POS_WRITE	0x04000000	/* possessor can update key payload / add link to keyring */
+#define KEY_POS_SEARCH	0x08000000	/* possessor can find a key in search / search a keyring */
+#define KEY_POS_LINK	0x10000000	/* possessor can create a link to a key/keyring */
+#define KEY_POS_SETATTR	0x20000000	/* possessor can set key attributes */
 #define KEY_POS_ALL	0x3f000000
 
-#define KEY_USR_VIEW	0x00010000	
+#define KEY_USR_VIEW	0x00010000	/* user permissions... */
 #define KEY_USR_READ	0x00020000
 #define KEY_USR_WRITE	0x00040000
 #define KEY_USR_SEARCH	0x00080000
@@ -51,7 +53,7 @@ struct key;
 #define KEY_USR_SETATTR	0x00200000
 #define KEY_USR_ALL	0x003f0000
 
-#define KEY_GRP_VIEW	0x00000100	
+#define KEY_GRP_VIEW	0x00000100	/* group permissions... */
 #define KEY_GRP_READ	0x00000200
 #define KEY_GRP_WRITE	0x00000400
 #define KEY_GRP_SEARCH	0x00000800
@@ -59,7 +61,7 @@ struct key;
 #define KEY_GRP_SETATTR	0x00002000
 #define KEY_GRP_ALL	0x00003f00
 
-#define KEY_OTH_VIEW	0x00000001	
+#define KEY_OTH_VIEW	0x00000001	/* third party permissions... */
 #define KEY_OTH_READ	0x00000002
 #define KEY_OTH_WRITE	0x00000004
 #define KEY_OTH_SEARCH	0x00000008
@@ -79,6 +81,20 @@ struct key_owner;
 struct keyring_list;
 struct keyring_name;
 
+/*****************************************************************************/
+/*
+ * key reference with possession attribute handling
+ *
+ * NOTE! key_ref_t is a typedef'd pointer to a type that is not actually
+ * defined. This is because we abuse the bottom bit of the reference to carry a
+ * flag to indicate whether the calling process possesses that key in one of
+ * its keyrings.
+ *
+ * the key_ref_t has been made a separate type so that the compiler can reject
+ * attempts to dereference it without proper conversion.
+ *
+ * the three functions are used to assemble and disassemble references
+ */
 typedef struct __key_reference_with_attributes *key_ref_t;
 
 static inline key_ref_t make_key_ref(const struct key *key,
@@ -97,23 +113,34 @@ static inline unsigned long is_key_possessed(const key_ref_t key_ref)
 	return (unsigned long) key_ref & 1UL;
 }
 
+/*****************************************************************************/
+/*
+ * authentication token / access credential / keyring
+ * - types of key include:
+ *   - keyrings
+ *   - disk encryption IDs
+ *   - Kerberos TGTs and tickets
+ */
 struct key {
-	atomic_t		usage;		
-	key_serial_t		serial;		
+	atomic_t		usage;		/* number of references */
+	key_serial_t		serial;		/* key serial number */
 	struct rb_node		serial_node;
-	struct key_type		*type;		
-	struct rw_semaphore	sem;		
-	struct key_user		*user;		
-	void			*security;	
+	struct key_type		*type;		/* type of key */
+	struct rw_semaphore	sem;		/* change vs change sem */
+	struct key_user		*user;		/* owner of this key */
+	void			*security;	/* security data for this key */
 	union {
-		time_t		expiry;		
-		time_t		revoked_at;	
+		time_t		expiry;		/* time at which key expires (or 0) */
+		time_t		revoked_at;	/* time at which key was revoked */
 	};
 	uid_t			uid;
 	gid_t			gid;
-	key_perm_t		perm;		
-	unsigned short		quotalen;	
-	unsigned short		datalen;	
+	key_perm_t		perm;		/* access permissions */
+	unsigned short		quotalen;	/* length added to quota */
+	unsigned short		datalen;	/* payload data length
+						 * - may not match RCU dereferenced payload
+						 * - payload should contain own length
+						 */
 
 #ifdef KEY_DEBUGGING
 	unsigned		magic;
@@ -121,17 +148,25 @@ struct key {
 #define KEY_DEBUG_MAGIC_X	0xf8e9dacbu
 #endif
 
-	unsigned long		flags;		
-#define KEY_FLAG_INSTANTIATED	0	
-#define KEY_FLAG_DEAD		1	
-#define KEY_FLAG_REVOKED	2	
-#define KEY_FLAG_IN_QUOTA	3	
-#define KEY_FLAG_USER_CONSTRUCT	4	
-#define KEY_FLAG_NEGATIVE	5	
-#define KEY_FLAG_ROOT_CAN_CLEAR	6	
+	unsigned long		flags;		/* status flags (change with bitops) */
+#define KEY_FLAG_INSTANTIATED	0	/* set if key has been instantiated */
+#define KEY_FLAG_DEAD		1	/* set if key type has been deleted */
+#define KEY_FLAG_REVOKED	2	/* set if key had been revoked */
+#define KEY_FLAG_IN_QUOTA	3	/* set if key consumes quota */
+#define KEY_FLAG_USER_CONSTRUCT	4	/* set if key is being constructed in userspace */
+#define KEY_FLAG_NEGATIVE	5	/* set if key is negative */
+#define KEY_FLAG_ROOT_CAN_CLEAR	6	/* set if key can be cleared by root without permission */
 
+	/* the description string
+	 * - this is used to match a key against search criteria
+	 * - this should be a printable string
+	 * - eg: for krb5 AFS, this might be "afs@REDHAT.COM"
+	 */
 	char			*description;
 
+	/* type specific data
+	 * - this is used by the keyring type to index the name
+	 */
 	union {
 		struct list_head	link;
 		unsigned long		x[2];
@@ -139,6 +174,10 @@ struct key {
 		int			reject_error;
 	} type_data;
 
+	/* key data
+	 * - this is used to hold the data actually used in cryptography or
+	 *   whatever
+	 */
 	union {
 		unsigned long		value;
 		void __rcu		*rcudata;
@@ -155,9 +194,9 @@ extern struct key *key_alloc(struct key_type *type,
 			     unsigned long flags);
 
 
-#define KEY_ALLOC_IN_QUOTA	0x0000	
-#define KEY_ALLOC_QUOTA_OVERRUN	0x0001	
-#define KEY_ALLOC_NOT_IN_QUOTA	0x0002	
+#define KEY_ALLOC_IN_QUOTA	0x0000	/* add to quota, reject if would overrun */
+#define KEY_ALLOC_QUOTA_OVERRUN	0x0001	/* add to quota, permit even if overrun */
+#define KEY_ALLOC_NOT_IN_QUOTA	0x0002	/* not in quota */
 
 extern void key_revoke(struct key *key);
 extern void key_put(struct key *key);
@@ -240,6 +279,13 @@ static inline key_serial_t key_serial(const struct key *key)
 
 extern void key_set_timeout(struct key *, unsigned);
 
+/**
+ * key_is_instantiated - Determine if a key has been positively instantiated
+ * @key: The key to check.
+ *
+ * Return true if the specified key has been positively instantiated, false
+ * otherwise.
+ */
 static inline bool key_is_instantiated(const struct key *key)
 {
 	return test_bit(KEY_FLAG_INSTANTIATED, &key->flags) &&
@@ -259,12 +305,15 @@ extern ctl_table key_sysctls[];
 
 extern void key_replace_session_keyring(void);
 
+/*
+ * the userspace interface
+ */
 extern int install_thread_keyring_to_cred(struct cred *cred);
 extern void key_fsuid_changed(struct task_struct *tsk);
 extern void key_fsgid_changed(struct task_struct *tsk);
 extern void key_init(void);
 
-#else 
+#else /* CONFIG_KEYS */
 
 #define key_validate(k)			0
 #define key_serial(k)			0
@@ -280,6 +329,6 @@ extern void key_init(void);
 #define key_init()			do { } while(0)
 #define key_replace_session_keyring()	do { } while(0)
 
-#endif 
-#endif 
-#endif 
+#endif /* CONFIG_KEYS */
+#endif /* __KERNEL__ */
+#endif /* _LINUX_KEY_H */

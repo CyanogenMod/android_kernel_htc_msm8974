@@ -16,12 +16,15 @@
 #include "perf_event.h"
 
 #define P4_CNTR_LIMIT 3
+/*
+ * array indices: 0,1 - HT threads, used with HT enabled cpu
+ */
 struct p4_event_bind {
-	unsigned int opcode;			
-	unsigned int escr_msr[2];		
-	unsigned int escr_emask;		
-	unsigned int shared;			
-	char cntr[2][P4_CNTR_LIMIT];		
+	unsigned int opcode;			/* Event code and ESCR selector */
+	unsigned int escr_msr[2];		/* ESCR MSR for this event */
+	unsigned int escr_emask;		/* valid ESCR EventMask bits */
+	unsigned int shared;			/* event is shared across threads */
+	char cntr[2][P4_CNTR_LIMIT];		/* counter index (offset), -1 on abscence */
 };
 
 struct p4_pebs_bind {
@@ -29,6 +32,7 @@ struct p4_pebs_bind {
 	unsigned int metric_vert;
 };
 
+/* it sets P4_PEBS_ENABLE_UOP_TAG as well */
 #define P4_GEN_PEBS_BIND(name, pebs, vert)			\
 	[P4_PEBS_METRIC__##name] = {				\
 		.metric_pebs = pebs | P4_PEBS_ENABLE_UOP_TAG,	\
@@ -55,6 +59,15 @@ static struct p4_pebs_bind p4_pebs_bind_map[] = {
 	P4_GEN_PEBS_BIND(split_store_retired,		0x0000400, 0x0000002),
 };
 
+/*
+ * Note that we don't use CCCR1 here, there is an
+ * exception for P4_BSQ_ALLOCATION but we just have
+ * no workaround
+ *
+ * consider this binding as resources which particular
+ * event may borrow, it doesn't contain EventMask,
+ * Tags and friends -- they are left to a caller
+ */
 static struct p4_event_bind p4_event_bind_map[] = {
 	[P4_EVENT_TC_DELIVER_MODE] = {
 		.opcode		= P4_OPCODE(P4_EVENT_TC_DELIVER_MODE),
@@ -167,7 +180,7 @@ static struct p4_event_bind p4_event_bind_map[] = {
 			P4_ESCR_EMASK_BIT(P4_EVENT_IOQ_ALLOCATION, PREFETCH),
 		.cntr		= { {0, -1, -1}, {2, -1, -1} },
 	},
-	[P4_EVENT_IOQ_ACTIVE_ENTRIES] = {	
+	[P4_EVENT_IOQ_ACTIVE_ENTRIES] = {	/* shared ESCR */
 		.opcode		= P4_OPCODE(P4_EVENT_IOQ_ACTIVE_ENTRIES),
 		.escr_msr	= { MSR_P4_FSB_ESCR1,  MSR_P4_FSB_ESCR1 },
 		.escr_emask	=
@@ -197,7 +210,7 @@ static struct p4_event_bind p4_event_bind_map[] = {
 		.shared		= 1,
 		.cntr		= { {0, -1, -1}, {2, -1, -1} },
 	},
-	[P4_EVENT_BSQ_ALLOCATION] = {		
+	[P4_EVENT_BSQ_ALLOCATION] = {		/* shared ESCR, broken CCCR1 */
 		.opcode		= P4_OPCODE(P4_EVENT_BSQ_ALLOCATION),
 		.escr_msr	= { MSR_P4_BSU_ESCR0, MSR_P4_BSU_ESCR0 },
 		.escr_emask	=
@@ -216,7 +229,7 @@ static struct p4_event_bind p4_event_bind_map[] = {
 			P4_ESCR_EMASK_BIT(P4_EVENT_BSQ_ALLOCATION, MEM_TYPE2),
 		.cntr		= { {0, -1, -1}, {1, -1, -1} },
 	},
-	[P4_EVENT_BSQ_ACTIVE_ENTRIES] = {	
+	[P4_EVENT_BSQ_ACTIVE_ENTRIES] = {	/* shared ESCR */
 		.opcode		= P4_OPCODE(P4_EVENT_BSQ_ACTIVE_ENTRIES),
 		.escr_msr	= { MSR_P4_BSU_ESCR1 , MSR_P4_BSU_ESCR1 },
 		.escr_emask	=
@@ -561,11 +574,31 @@ static __initconst const u64 p4_hw_cache_event_ids
  },
 };
 
+/*
+ * Because of Netburst being quite restricted in how many
+ * identical events may run simultaneously, we introduce event aliases,
+ * ie the different events which have the same functionality but
+ * utilize non-intersected resources (ESCR/CCCR/counter registers).
+ *
+ * This allow us to relax restrictions a bit and run two or more
+ * identical events together.
+ *
+ * Never set any custom internal bits such as P4_CONFIG_HT,
+ * P4_CONFIG_ALIASABLE or bits for P4_PEBS_METRIC, they are
+ * either up to date automatically or not applicable at all.
+ */
 struct p4_event_alias {
 	u64 original;
 	u64 alternative;
 } p4_event_aliases[] = {
 	{
+		/*
+		 * Non-halted cycles can be substituted with non-sleeping cycles (see
+		 * Intel SDM Vol3b for details). We need this alias to be able
+		 * to run nmi-watchdog and 'perf top' (or any other user space tool
+		 * which is interested in running PERF_COUNT_HW_CPU_CYCLES)
+		 * simultaneously.
+		 */
 	.original	=
 		p4_config_pack_escr(P4_ESCR_EVENT(P4_EVENT_GLOBAL_POWER_EVENTS)		|
 				    P4_ESCR_EMASK_BIT(P4_EVENT_GLOBAL_POWER_EVENTS, RUNNING)),
@@ -589,6 +622,11 @@ static u64 p4_get_alias_event(u64 config)
 	u64 config_match;
 	int i;
 
+	/*
+	 * Only event with special mark is allowed,
+	 * we're to be sure it didn't come as malformed
+	 * RAW event.
+	 */
 	if (!(config & P4_CONFIG_ALIASABLE))
 		return 0;
 
@@ -611,18 +649,22 @@ static u64 p4_get_alias_event(u64 config)
 }
 
 static u64 p4_general_events[PERF_COUNT_HW_MAX] = {
-  
+  /* non-halted CPU clocks */
   [PERF_COUNT_HW_CPU_CYCLES] =
 	p4_config_pack_escr(P4_ESCR_EVENT(P4_EVENT_GLOBAL_POWER_EVENTS)		|
 		P4_ESCR_EMASK_BIT(P4_EVENT_GLOBAL_POWER_EVENTS, RUNNING))	|
 		P4_CONFIG_ALIASABLE,
 
+  /*
+   * retired instructions
+   * in a sake of simplicity we don't use the FSB tagging
+   */
   [PERF_COUNT_HW_INSTRUCTIONS] =
 	p4_config_pack_escr(P4_ESCR_EVENT(P4_EVENT_INSTR_RETIRED)		|
 		P4_ESCR_EMASK_BIT(P4_EVENT_INSTR_RETIRED, NBOGUSNTAG)		|
 		P4_ESCR_EMASK_BIT(P4_EVENT_INSTR_RETIRED, BOGUSNTAG)),
 
-  
+  /* cache hits */
   [PERF_COUNT_HW_CACHE_REFERENCES] =
 	p4_config_pack_escr(P4_ESCR_EVENT(P4_EVENT_BSQ_CACHE_REFERENCE)		|
 		P4_ESCR_EMASK_BIT(P4_EVENT_BSQ_CACHE_REFERENCE, RD_2ndL_HITS)	|
@@ -632,14 +674,14 @@ static u64 p4_general_events[PERF_COUNT_HW_MAX] = {
 		P4_ESCR_EMASK_BIT(P4_EVENT_BSQ_CACHE_REFERENCE, RD_3rdL_HITE)	|
 		P4_ESCR_EMASK_BIT(P4_EVENT_BSQ_CACHE_REFERENCE, RD_3rdL_HITM)),
 
-  
+  /* cache misses */
   [PERF_COUNT_HW_CACHE_MISSES] =
 	p4_config_pack_escr(P4_ESCR_EVENT(P4_EVENT_BSQ_CACHE_REFERENCE)		|
 		P4_ESCR_EMASK_BIT(P4_EVENT_BSQ_CACHE_REFERENCE, RD_2ndL_MISS)	|
 		P4_ESCR_EMASK_BIT(P4_EVENT_BSQ_CACHE_REFERENCE, RD_3rdL_MISS)	|
 		P4_ESCR_EMASK_BIT(P4_EVENT_BSQ_CACHE_REFERENCE, WR_2ndL_MISS)),
 
-  
+  /* branch instructions retired */
   [PERF_COUNT_HW_BRANCH_INSTRUCTIONS] =
 	p4_config_pack_escr(P4_ESCR_EVENT(P4_EVENT_RETIRED_BRANCH_TYPE)		|
 		P4_ESCR_EMASK_BIT(P4_EVENT_RETIRED_BRANCH_TYPE, CONDITIONAL)	|
@@ -647,12 +689,12 @@ static u64 p4_general_events[PERF_COUNT_HW_MAX] = {
 		P4_ESCR_EMASK_BIT(P4_EVENT_RETIRED_BRANCH_TYPE, RETURN)		|
 		P4_ESCR_EMASK_BIT(P4_EVENT_RETIRED_BRANCH_TYPE, INDIRECT)),
 
-  
+  /* mispredicted branches retired */
   [PERF_COUNT_HW_BRANCH_MISSES]	=
 	p4_config_pack_escr(P4_ESCR_EVENT(P4_EVENT_MISPRED_BRANCH_RETIRED)	|
 		P4_ESCR_EMASK_BIT(P4_EVENT_MISPRED_BRANCH_RETIRED, NBOGUS)),
 
-  
+  /* bus ready clocks (cpu is driving #DRDY_DRV\#DRDY_OWN):  */
   [PERF_COUNT_HW_BUS_CYCLES] =
 	p4_config_pack_escr(P4_ESCR_EVENT(P4_EVENT_FSB_DATA_ACTIVITY)		|
 		P4_ESCR_EMASK_BIT(P4_EVENT_FSB_DATA_ACTIVITY, DRDY_DRV)		|
@@ -685,9 +727,10 @@ static u64 p4_pmu_event_map(int hw_event)
 	return config;
 }
 
+/* check cpu model specifics */
 static bool p4_event_match_cpu_model(unsigned int event_idx)
 {
-	
+	/* INSTR_COMPLETED event only exist for model 3, 4, 6 (Prescott) */
 	if (event_idx == P4_EVENT_INSTR_COMPLETED) {
 		if (boot_cpu_data.x86_model != 3 &&
 			boot_cpu_data.x86_model != 4 &&
@@ -695,6 +738,10 @@ static bool p4_event_match_cpu_model(unsigned int event_idx)
 			return false;
 	}
 
+	/*
+	 * For info
+	 * - IQ_ESCR0, IQ_ESCR1 only for models 1 and 2
+	 */
 
 	return true;
 }
@@ -703,26 +750,44 @@ static int p4_validate_raw_event(struct perf_event *event)
 {
 	unsigned int v, emask;
 
-	
+	/* User data may have out-of-bound event index */
 	v = p4_config_unpack_event(event->attr.config);
 	if (v >= ARRAY_SIZE(p4_event_bind_map))
 		return -EINVAL;
 
-	
+	/* It may be unsupported: */
 	if (!p4_event_match_cpu_model(v))
 		return -EINVAL;
 
+	/*
+	 * NOTE: P4_CCCR_THREAD_ANY has not the same meaning as
+	 * in Architectural Performance Monitoring, it means not
+	 * on _which_ logical cpu to count but rather _when_, ie it
+	 * depends on logical cpu state -- count event if one cpu active,
+	 * none, both or any, so we just allow user to pass any value
+	 * desired.
+	 *
+	 * In turn we always set Tx_OS/Tx_USR bits bound to logical
+	 * cpu without their propagation to another cpu
+	 */
 
+	/*
+	 * if an event is shared across the logical threads
+	 * the user needs special permissions to be able to use it
+	 */
 	if (p4_ht_active() && p4_event_bind_map[v].shared) {
 		if (perf_paranoid_cpu() && !capable(CAP_SYS_ADMIN))
 			return -EACCES;
 	}
 
-	
+	/* ESCR EventMask bits may be invalid */
 	emask = p4_config_unpack_escr(event->attr.config) & P4_ESCR_EVENTMASK_MASK;
 	if (emask & ~p4_event_bind_map[v].escr_emask)
 		return -EINVAL;
 
+	/*
+	 * it may have some invalid PEBS bits
+	 */
 	if (p4_config_pebs_has(event->attr.config, P4_PEBS_CONFIG_ENABLE))
 		return -EINVAL;
 
@@ -739,6 +804,11 @@ static int p4_hw_config(struct perf_event *event)
 	int rc = 0;
 	u32 escr, cccr;
 
+	/*
+	 * the reason we use cpu that early is that: if we get scheduled
+	 * first time on the same cpu -- we will not need swap thread
+	 * specific flags in config (and will save some cpu cycles)
+	 */
 
 	cccr = p4_default_cccr_conf(cpu);
 	escr = p4_default_escr_conf(cpu, event->attr.exclude_kernel,
@@ -752,12 +822,20 @@ static int p4_hw_config(struct perf_event *event)
 	if (event->attr.type == PERF_TYPE_RAW) {
 		struct p4_event_bind *bind;
 		unsigned int esel;
+		/*
+		 * Clear bits we reserve to be managed by kernel itself
+		 * and never allowed from a user space
+		 */
 		 event->attr.config &= P4_CONFIG_MASK;
 
 		rc = p4_validate_raw_event(event);
 		if (rc)
 			goto out;
 
+		/*
+		 * Note that for RAW events we allow user to use P4_CCCR_RESERVED
+		 * bits since we keep additional info here (for cache events and etc)
+		 */
 		event->hw.config |= event->attr.config;
 		bind = p4_config_get_bind(event->attr.config);
 		if (!bind) {
@@ -778,13 +856,20 @@ static inline int p4_pmu_clear_cccr_ovf(struct hw_perf_event *hwc)
 {
 	u64 v;
 
-	
+	/* an official way for overflow indication */
 	rdmsrl(hwc->config_base, v);
 	if (v & P4_CCCR_OVF) {
 		wrmsrl(hwc->config_base, v & ~P4_CCCR_OVF);
 		return 1;
 	}
 
+	/*
+	 * In some circumstances the overflow might issue an NMI but did
+	 * not set P4_CCCR_OVF bit. Because a counter holds a negative value
+	 * we simply check for high bit being set, if it's cleared it means
+	 * the counter has reached zero value and continued counting before
+	 * real NMI signal was received:
+	 */
 	rdmsrl(hwc->event_base, v);
 	if (!(v & ARCH_P4_UNFLAGGED_BIT))
 		return 1;
@@ -794,12 +879,36 @@ static inline int p4_pmu_clear_cccr_ovf(struct hw_perf_event *hwc)
 
 static void p4_pmu_disable_pebs(void)
 {
+	/*
+	 * FIXME
+	 *
+	 * It's still allowed that two threads setup same cache
+	 * events so we can't simply clear metrics until we knew
+	 * no one is depending on us, so we need kind of counter
+	 * for "ReplayEvent" users.
+	 *
+	 * What is more complex -- RAW events, if user (for some
+	 * reason) will pass some cache event metric with improper
+	 * event opcode -- it's fine from hardware point of view
+	 * but completely nonsense from "meaning" of such action.
+	 *
+	 * So at moment let leave metrics turned on forever -- it's
+	 * ok for now but need to be revisited!
+	 *
+	 * (void)checking_wrmsrl(MSR_IA32_PEBS_ENABLE, (u64)0);
+	 * (void)checking_wrmsrl(MSR_P4_PEBS_MATRIX_VERT, (u64)0);
+	 */
 }
 
 static inline void p4_pmu_disable_event(struct perf_event *event)
 {
 	struct hw_perf_event *hwc = &event->hw;
 
+	/*
+	 * If event gets disabled while counter is in overflowed
+	 * state we need to clear P4_CCCR_OVF, otherwise interrupt get
+	 * asserted again and again
+	 */
 	(void)checking_wrmsrl(hwc->config_base,
 		(u64)(p4_config_unpack_cccr(hwc->config)) &
 			~P4_CCCR_ENABLE & ~P4_CCCR_OVF & ~P4_CCCR_RESERVED);
@@ -820,6 +929,7 @@ static void p4_pmu_disable_all(void)
 	p4_pmu_disable_pebs();
 }
 
+/* configuration must be valid */
 static void p4_pmu_enable_pebs(u64 config)
 {
 	struct p4_pebs_bind *bind;
@@ -849,15 +959,23 @@ static void p4_pmu_enable_event(struct perf_event *event)
 	bind = &p4_event_bind_map[idx];
 	escr_addr = (u64)bind->escr_msr[thread];
 
+	/*
+	 * - we dont support cascaded counters yet
+	 * - and counter 1 is broken (erratum)
+	 */
 	WARN_ON_ONCE(p4_is_event_cascaded(hwc->config));
 	WARN_ON_ONCE(hwc->idx == 1);
 
-	
+	/* we need a real Event value */
 	escr_conf &= ~P4_ESCR_EVENT_MASK;
 	escr_conf |= P4_ESCR_EVENT(P4_OPCODE_EVNT(bind->opcode));
 
 	cccr = p4_config_unpack_cccr(hwc->config);
 
+	/*
+	 * it could be Cache event so we need to write metrics
+	 * into additional MSRs
+	 */
 	p4_pmu_enable_pebs(hwc->config);
 
 	(void)checking_wrmsrl(escr_addr, escr_conf);
@@ -895,7 +1013,7 @@ static int p4_pmu_handle_irq(struct pt_regs *regs)
 		int overflow;
 
 		if (!test_bit(idx, cpuc->active_mask)) {
-			
+			/* catch in-flight IRQs */
 			if (__test_and_clear_bit(idx, cpuc->running))
 				handled++;
 			continue;
@@ -906,7 +1024,7 @@ static int p4_pmu_handle_irq(struct pt_regs *regs)
 
 		WARN_ON_ONCE(hwc->idx != idx);
 
-		
+		/* it might be unflagged overflow */
 		overflow = p4_pmu_clear_cccr_ovf(hwc);
 
 		val = x86_perf_event_update(event);
@@ -915,7 +1033,7 @@ static int p4_pmu_handle_irq(struct pt_regs *regs)
 
 		handled += overflow;
 
-		
+		/* event overflow for sure */
 		data.period = event->hw.last_period;
 
 		if (!x86_perf_event_set_period(event))
@@ -927,18 +1045,39 @@ static int p4_pmu_handle_irq(struct pt_regs *regs)
 	if (handled)
 		inc_irq_stat(apic_perf_irqs);
 
+	/*
+	 * When dealing with the unmasking of the LVTPC on P4 perf hw, it has
+	 * been observed that the OVF bit flag has to be cleared first _before_
+	 * the LVTPC can be unmasked.
+	 *
+	 * The reason is the NMI line will continue to be asserted while the OVF
+	 * bit is set.  This causes a second NMI to generate if the LVTPC is
+	 * unmasked before the OVF bit is cleared, leading to unknown NMI
+	 * messages.
+	 */
 	apic_write(APIC_LVTPC, APIC_DM_NMI);
 
 	return handled;
 }
 
+/*
+ * swap thread specific fields according to a thread
+ * we are going to run on
+ */
 static void p4_pmu_swap_config_ts(struct hw_perf_event *hwc, int cpu)
 {
 	u32 escr, cccr;
 
+	/*
+	 * we either lucky and continue on same cpu or no HT support
+	 */
 	if (!p4_should_swap_ts(hwc->config, cpu))
 		return;
 
+	/*
+	 * the event is migrated from an another logical
+	 * cpu, so we need to swap thread specific flags
+	 */
 
 	escr = p4_config_unpack_escr(hwc->config);
 	cccr = p4_config_unpack_cccr(hwc->config);
@@ -974,6 +1113,13 @@ static void p4_pmu_swap_config_ts(struct hw_perf_event *hwc, int cpu)
 	}
 }
 
+/*
+ * ESCR address hashing is tricky, ESCRs are not sequential
+ * in memory but all starts from MSR_P4_BSU_ESCR0 (0x03a0) and
+ * the metric between any ESCRs is laid in range [0xa0,0xe1]
+ *
+ * so we make ~70% filled hashtable
+ */
 
 #define P4_ESCR_MSR_BASE		0x000003a0
 #define P4_ESCR_MSR_MAX			0x000003e1
@@ -1080,6 +1226,11 @@ static int p4_pmu_schedule_events(struct cpu_hw_events *cpuc, int n, int *assign
 		pass = 0;
 
 again:
+		/*
+		 * It's possible to hit a circular lock
+		 * between original and alternative events
+		 * if both are scheduled already.
+		 */
 		if (pass > 2)
 			goto done;
 
@@ -1097,6 +1248,9 @@ again:
 
 		cntr_idx = p4_next_cntr(thread, used_mask, bind);
 		if (cntr_idx == -1 || test_bit(escr_idx, escr_mask)) {
+			/*
+			 * Check whether an event alias is still available.
+			 */
 			config_alias = p4_get_alias_event(hwc->config);
 			if (!config_alias)
 				goto done;
@@ -1140,6 +1294,12 @@ static __initconst const struct x86_pmu p4_pmu = {
 	.event_map		= p4_pmu_event_map,
 	.max_events		= ARRAY_SIZE(p4_general_events),
 	.get_event_constraints	= x86_get_event_constraints,
+	/*
+	 * IF HT disabled we may need to use all
+	 * ARCH_P4_MAX_CCCR counters simulaneously
+	 * though leave it restricted at moment assuming
+	 * HT is on
+	 */
 	.num_counters		= ARCH_P4_MAX_CCCR,
 	.apic			= 1,
 	.cntval_bits		= ARCH_P4_CNTRVAL_BITS,
@@ -1147,6 +1307,14 @@ static __initconst const struct x86_pmu p4_pmu = {
 	.max_period		= (1ULL << (ARCH_P4_CNTRVAL_BITS - 1)) - 1,
 	.hw_config		= p4_hw_config,
 	.schedule_events	= p4_pmu_schedule_events,
+	/*
+	 * This handles erratum N15 in intel doc 249199-029,
+	 * the counter may not be updated correctly on write
+	 * so we need a second write operation to do the trick
+	 * (the official workaround didn't work)
+	 *
+	 * the former idea is taken from OProfile code
+	 */
 	.perfctr_second_write	= 1,
 
 	.format_attrs		= intel_p4_formats_attr,
@@ -1156,7 +1324,7 @@ __init int p4_pmu_init(void)
 {
 	unsigned int low, high;
 
-	
+	/* If we get stripped -- indexing fails */
 	BUILD_BUG_ON(ARCH_P4_MAX_CCCR > X86_PMC_MAX_GENERIC);
 
 	rdmsr(MSR_IA32_MISC_ENABLE, low, high);

@@ -107,7 +107,7 @@ static int cq93vc_set_bias_level(struct snd_soc_codec *codec,
 			     DAVINCI_VC_REG12_POWER_ALL_OFF);
 		break;
 	case SND_SOC_BIAS_OFF:
-		
+		/* force all power off */
 		cq93vc_write(codec, DAVINCI_VC_REG12,
 			     DAVINCI_VC_REG12_POWER_ALL_OFF);
 		break;
@@ -156,11 +156,11 @@ static int cq93vc_probe(struct snd_soc_codec *codec)
 	davinci_vc->cq93vc.codec = codec;
 	codec->control_data = davinci_vc;
 
-	
+	/* Set controls */
 	snd_soc_add_codec_controls(codec, cq93vc_snd_controls,
 			     ARRAY_SIZE(cq93vc_snd_controls));
 
-	
+	/* Off, with power on */
 	cq93vc_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
 	return 0;

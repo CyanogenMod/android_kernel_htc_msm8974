@@ -3,6 +3,7 @@
 
 #include <linux/types.h>
 
+/* defined in drivers/xen/tmem.c */
 extern bool tmem_enabled;
 
-#endif 
+#endif /* _XEN_TMEM_H */

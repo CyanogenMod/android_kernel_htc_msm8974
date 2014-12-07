@@ -35,12 +35,17 @@ struct rndis_request {
 	struct list_head list_ent;
 	struct completion  wait_event;
 
+	/*
+	 * FIXME: We assumed a fixed size response here. If we do ever need to
+	 * handle a bigger response, we can either define a max response
+	 * message or add a response buffer variable above this field
+	 */
 	struct rndis_message response_msg;
 
-	
+	/* Simplify allocation by having a netvsc packet inline */
 	struct hv_netvsc_packet	pkt;
 	struct hv_page_buffer buf;
-	
+	/* FIXME: We assumed a fixed size request here. */
 	struct rndis_message request_msg;
 };
 
@@ -86,10 +91,15 @@ static struct rndis_request *get_rndis_request(struct rndis_device *dev,
 	rndis_msg->ndis_msg_type = msg_type;
 	rndis_msg->msg_len = msg_len;
 
+	/*
+	 * Set the request id. This field is always after the rndis header for
+	 * request/response packet types so we just used the SetRequest as a
+	 * template
+	 */
 	set = &rndis_msg->msg.set_req;
 	set->req_id = atomic_inc_return(&dev->new_req_id);
 
-	
+	/* Add to the request list */
 	spin_lock_irqsave(&dev->request_lock, flags);
 	list_add_tail(&request->list_ent, &dev->req_list);
 	spin_unlock_irqrestore(&dev->request_lock, flags);
@@ -196,7 +206,7 @@ static int rndis_filter_send_request(struct rndis_device *dev,
 	int ret;
 	struct hv_netvsc_packet *packet;
 
-	
+	/* Setup the packet to send it */
 	packet = &req->pkt;
 
 	packet->is_data_pkt = false;
@@ -209,7 +219,7 @@ static int rndis_filter_send_request(struct rndis_device *dev,
 	packet->page_buf[0].offset =
 		(unsigned long)&req->request_msg & (PAGE_SIZE - 1);
 
-	packet->completion.send.send_completion_ctx = req;
+	packet->completion.send.send_completion_ctx = req;/* packet; */
 	packet->completion.send.send_completion =
 		rndis_filter_send_request_completion;
 	packet->completion.send.send_completion_tid = (unsigned long)dev;
@@ -230,6 +240,10 @@ static void rndis_filter_receive_response(struct rndis_device *dev,
 
 	spin_lock_irqsave(&dev->request_lock, flags);
 	list_for_each_entry(request, &dev->req_list, list_ent) {
+		/*
+		 * All request/response message contains RequestId as the 1st
+		 * field
+		 */
 		if (request->request_msg.msg.init_req.req_id
 		    == resp->msg.init_complete.req_id) {
 			found = true;
@@ -251,7 +265,7 @@ static void rndis_filter_receive_response(struct rndis_device *dev,
 
 			if (resp->ndis_msg_type ==
 			    REMOTE_NDIS_RESET_CMPLT) {
-				
+				/* does not have a request id field */
 				request->response_msg.msg.reset_complete.
 					status = STATUS_BUFFER_OVERFLOW;
 			} else {
@@ -284,9 +298,16 @@ static void rndis_filter_receive_indicate_status(struct rndis_device *dev,
 		netvsc_linkstatus_callback(
 			dev->net_dev->dev, 0);
 	} else {
+		/*
+		 * TODO:
+		 */
 	}
 }
 
+/*
+ * Get the Per-Packet-Info with the specified type
+ * return NULL if not found.
+ */
 static inline void *rndis_get_ppi(struct rndis_packet *rpkt, u32 type)
 {
 	struct rndis_per_packet_info *ppi;
@@ -319,12 +340,20 @@ static void rndis_filter_receive_data(struct rndis_device *dev,
 
 	rndis_pkt = &msg->msg.pkt;
 
+	/*
+	 * FIXME: Handle multiple rndis pkt msgs that maybe enclosed in this
+	 * netvsc packet (ie TotalDataBufferLength != MessageLength)
+	 */
 
-	
+	/* Remove the rndis header and pass it back up the stack */
 	data_offset = RNDIS_HEADER_SIZE + rndis_pkt->data_offset;
 
 	pkt->total_data_buflen -= data_offset;
 
+	/*
+	 * Make sure we got a valid RNDIS message, now total_data_buflen
+	 * should be the data packet size plus the trailer padding size
+	 */
 	if (pkt->total_data_buflen < rndis_pkt->data_len) {
 		netdev_err(dev->net_dev->ndev, "rndis message buffer "
 			   "overflow detected (got %u, min %u)"
@@ -333,6 +362,11 @@ static void rndis_filter_receive_data(struct rndis_device *dev,
 		return;
 	}
 
+	/*
+	 * Remove the rndis trailer padding from rndis packet message
+	 * rndis_pkt->data_len tell us the real data length, we only copy
+	 * the data packet to the stack, without the rndis trailer padding
+	 */
 	pkt->total_data_buflen = rndis_pkt->data_len;
 	pkt->data = (void *)((unsigned long)pkt->data + data_offset);
 
@@ -362,7 +396,7 @@ int rndis_filter_receive(struct hv_device *dev,
 
 	ndev = net_dev->ndev;
 
-	
+	/* Make sure the rndis device state is initialized */
 	if (!net_dev->extension) {
 		netdev_err(ndev, "got rndis message but no rndis device - "
 			  "dropping this message!\n");
@@ -382,19 +416,19 @@ int rndis_filter_receive(struct hv_device *dev,
 
 	switch (rndis_msg->ndis_msg_type) {
 	case REMOTE_NDIS_PACKET_MSG:
-		
+		/* data msg */
 		rndis_filter_receive_data(rndis_dev, rndis_msg, pkt);
 		break;
 
 	case REMOTE_NDIS_INITIALIZE_CMPLT:
 	case REMOTE_NDIS_QUERY_CMPLT:
 	case REMOTE_NDIS_SET_CMPLT:
-		
+		/* completion msgs */
 		rndis_filter_receive_response(rndis_dev, rndis_msg);
 		break;
 
 	case REMOTE_NDIS_INDICATE_STATUS_MSG:
-		
+		/* notification msgs */
 		rndis_filter_receive_indicate_status(rndis_dev, rndis_msg);
 		break;
 	default:
@@ -429,7 +463,7 @@ static int rndis_filter_query_device(struct rndis_device *dev, u32 oid,
 		goto cleanup;
 	}
 
-	
+	/* Setup the rndis query */
 	query = &request->request_msg.msg.query_req;
 	query->oid = oid;
 	query->info_buf_offset = sizeof(struct rndis_query_request);
@@ -446,7 +480,7 @@ static int rndis_filter_query_device(struct rndis_device *dev, u32 oid,
 		goto cleanup;
 	}
 
-	
+	/* Copy the response back */
 	query_complete = &request->response_msg.msg.query_complete;
 
 	if (query_complete->info_buflen > inresult_size) {
@@ -510,7 +544,7 @@ int rndis_filter_set_packet_filter(struct rndis_device *dev, u32 new_filter)
 		goto cleanup;
 	}
 
-	
+	/* Setup the rndis set */
 	set = &request->request_msg.msg.set_req;
 	set->oid = RNDIS_OID_GEN_CURRENT_PACKET_FILTER;
 	set->info_buflen = sizeof(u32);
@@ -528,6 +562,10 @@ int rndis_filter_set_packet_filter(struct rndis_device *dev, u32 new_filter)
 	if (t == 0) {
 		netdev_err(ndev,
 			"timeout before we got a set response...\n");
+		/*
+		 * We can't deallocate the request since we may still receive a
+		 * send completion for it.
+		 */
 		goto exit;
 	} else {
 		set_complete = &request->response_msg.msg.set_complete;
@@ -557,11 +595,11 @@ static int rndis_filter_init_device(struct rndis_device *dev)
 		goto cleanup;
 	}
 
-	
+	/* Setup the rndis set */
 	init = &request->request_msg.msg.init_req;
 	init->major_ver = RNDIS_MAJOR_VERSION;
 	init->minor_ver = RNDIS_MINOR_VERSION;
-	
+	/* FIXME: Use 1536 - rounded ethernet frame size */
 	init->max_xfer_size = 2048;
 
 	dev->state = RNDIS_DEV_INITIALIZING;
@@ -602,17 +640,17 @@ static void rndis_filter_halt_device(struct rndis_device *dev)
 	struct rndis_request *request;
 	struct rndis_halt_request *halt;
 
-	
+	/* Attempt to do a rndis device halt */
 	request = get_rndis_request(dev, REMOTE_NDIS_HALT_MSG,
 				RNDIS_MESSAGE_SIZE(struct rndis_halt_request));
 	if (!request)
 		goto cleanup;
 
-	
+	/* Setup the rndis set */
 	halt = &request->request_msg.msg.halt_req;
 	halt->req_id = atomic_inc_return(&dev->new_req_id);
 
-	
+	/* Ignore return since this msg is optional. */
 	rndis_filter_send_request(dev, request);
 
 	dev->state = RNDIS_DEV_UNINITIALIZED;
@@ -666,6 +704,11 @@ int rndis_filter_device_add(struct hv_device *dev,
 	if (!rndis_device)
 		return -ENODEV;
 
+	/*
+	 * Let the inner driver handle this first to create the netvsc channel
+	 * NOTE! Once the channel is created, we may get a receive callback
+	 * (RndisFilterOnReceive()) before this call is completed
+	 */
 	ret = netvsc_device_add(dev, additional_info);
 	if (ret != 0) {
 		kfree(rndis_device);
@@ -673,20 +716,27 @@ int rndis_filter_device_add(struct hv_device *dev,
 	}
 
 
-	
+	/* Initialize the rndis device */
 	net_device = hv_get_drvdata(dev);
 
 	net_device->extension = rndis_device;
 	rndis_device->net_dev = net_device;
 
-	
+	/* Send the rndis initialization message */
 	ret = rndis_filter_init_device(rndis_device);
 	if (ret != 0) {
+		/*
+		 * TODO: If rndis init failed, we will need to shut down the
+		 * channel
+		 */
 	}
 
-	
+	/* Get the mac address */
 	ret = rndis_filter_query_device_mac(rndis_device);
 	if (ret != 0) {
+		/*
+		 * TODO: shutdown rndis device and the channel
+		 */
 	}
 
 	memcpy(device_info->mac_adr, rndis_device->hw_mac_adr, ETH_ALEN);
@@ -707,7 +757,7 @@ void rndis_filter_device_remove(struct hv_device *dev)
 	struct netvsc_device *net_dev = hv_get_drvdata(dev);
 	struct rndis_device *rndis_dev = net_dev->extension;
 
-	
+	/* Halt and release the rndis device */
 	rndis_filter_halt_device(rndis_dev);
 
 	kfree(rndis_dev);
@@ -747,7 +797,7 @@ int rndis_filter_send(struct hv_device *dev,
 	u32 rndis_msg_size;
 	bool isvlan = pkt->vlan_tci & VLAN_TAG_PRESENT;
 
-	
+	/* Add the rndis header */
 	filter_pkt = (struct rndis_filter_packet *)pkt->extension;
 
 	rndis_msg = &filter_pkt->msg;
@@ -790,7 +840,7 @@ int rndis_filter_send(struct hv_device *dev,
 			(unsigned long)rndis_msg & (PAGE_SIZE-1);
 	pkt->page_buf[0].len = rndis_msg_size;
 
-	
+	/* Add one page_buf if the rndis msg goes beyond page boundary */
 	if (pkt->page_buf[0].offset + rndis_msg_size > PAGE_SIZE) {
 		int i;
 		for (i = pkt->page_buf_cnt; i > 1; i--)
@@ -803,17 +853,21 @@ int rndis_filter_send(struct hv_device *dev,
 		pkt->page_buf[1].len = rndis_msg_size - pkt->page_buf[0].len;
 	}
 
-	
+	/* Save the packet send completion and context */
 	filter_pkt->completion = pkt->completion.send.send_completion;
 	filter_pkt->completion_ctx =
 				pkt->completion.send.send_completion_ctx;
 
-	
+	/* Use ours */
 	pkt->completion.send.send_completion = rndis_filter_send_completion;
 	pkt->completion.send.send_completion_ctx = filter_pkt;
 
 	ret = netvsc_send(dev, pkt);
 	if (ret != 0) {
+		/*
+		 * Reset the completion to originals to allow retries from
+		 * above
+		 */
 		pkt->completion.send.send_completion =
 				filter_pkt->completion;
 		pkt->completion.send.send_completion_ctx =
@@ -827,12 +881,12 @@ static void rndis_filter_send_completion(void *ctx)
 {
 	struct rndis_filter_packet *filter_pkt = ctx;
 
-	
+	/* Pass it back to the original handler */
 	filter_pkt->completion(filter_pkt->completion_ctx);
 }
 
 
 static void rndis_filter_send_request_completion(void *ctx)
 {
-	
+	/* Noop */
 }

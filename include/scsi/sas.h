@@ -66,6 +66,7 @@
 #define SMP_RESP_PHY_TEST_INPROG 0x15
 #define SMP_RESP_PHY_VACANT      0x16
 
+/* SAM TMFs */
 #define TMF_ABORT_TASK      0x01
 #define TMF_ABORT_TASK_SET  0x02
 #define TMF_CLEAR_TASK_SET  0x04
@@ -73,6 +74,7 @@
 #define TMF_CLEAR_ACA       0x40
 #define TMF_QUERY_TASK      0x80
 
+/* SAS TMF responses */
 #define TMF_RESP_FUNC_COMPLETE   0x00
 #define TMF_RESP_INVALID_FRAME   0x02
 #define TMF_RESP_FUNC_ESUPP      0x04
@@ -87,11 +89,12 @@ enum sas_oob_mode {
 	SAS_OOB_MODE
 };
 
+/* See sas_discover.c if you plan on changing these */
 enum sas_dev_type {
-	NO_DEVICE   = 0,	  
-	SAS_END_DEV = 1,	  
-	EDGE_DEV    = 2,	  
-	FANOUT_DEV  = 3,	  
+	NO_DEVICE   = 0,	  /* protocol */
+	SAS_END_DEV = 1,	  /* protocol */
+	EDGE_DEV    = 2,	  /* protocol */
+	FANOUT_DEV  = 3,	  /* protocol */
 	SAS_HA      = 4,
 	SATA_DEV    = 5,
 	SATA_PM     = 7,
@@ -108,19 +111,23 @@ enum sas_protocol {
 	SAS_PROTOCOL_STP_ALL		= SAS_PROTOCOL_STP|SAS_PROTOCOL_SATA,
 };
 
+/* From the spec; local phys only */
 enum phy_func {
 	PHY_FUNC_NOP,
-	PHY_FUNC_LINK_RESET,		  
+	PHY_FUNC_LINK_RESET,		  /* Enables the phy */
 	PHY_FUNC_HARD_RESET,
 	PHY_FUNC_DISABLE,
 	PHY_FUNC_CLEAR_ERROR_LOG = 5,
 	PHY_FUNC_CLEAR_AFFIL,
 	PHY_FUNC_TX_SATA_PS_SIGNAL,
-	PHY_FUNC_RELEASE_SPINUP_HOLD = 0x10, 
+	PHY_FUNC_RELEASE_SPINUP_HOLD = 0x10, /* LOCAL PORT ONLY! */
 	PHY_FUNC_SET_LINK_RATE,
 	PHY_FUNC_GET_EVENTS,
 };
 
+/* SAS LLDD would need to report only _very_few_ of those, like BROADCAST.
+ * Most of those are here for completeness.
+ */
 enum sas_prim {
 	SAS_PRIM_AIP_NORMAL = 1,
 	SAS_PRIM_AIP_R0     = 2,
@@ -166,7 +173,7 @@ enum sas_prim {
 };
 
 enum sas_open_rej_reason {
-	
+	/* Abandon open */
 	SAS_OREJ_UNKNOWN   = 0,
 	SAS_OREJ_BAD_DEST  = 1,
 	SAS_OREJ_CONN_RATE = 2,
@@ -178,7 +185,7 @@ enum sas_open_rej_reason {
 	SAS_OREJ_WRONG_DEST= 8,
 	SAS_OREJ_STP_NORES = 9,
 
-	
+	/* Retry open */
 	SAS_OREJ_NO_DEST   = 10,
 	SAS_OREJ_PATH_BLOCKED = 11,
 	SAS_OREJ_RSVD_CONT0 = 12,
@@ -199,7 +206,7 @@ enum sas_gpio_reg_type {
 };
 
 struct  dev_to_host_fis {
-	u8     fis_type;	  
+	u8     fis_type;	  /* 0x34 */
 	u8     flags;
 	u8     status;
 	u8     error;
@@ -223,7 +230,7 @@ struct  dev_to_host_fis {
 } __attribute__ ((packed));
 
 struct host_to_dev_fis {
-	u8     fis_type;	  
+	u8     fis_type;	  /* 0x27 */
 	u8     flags;
 	u8     command;
 	u8     features;
@@ -246,17 +253,19 @@ struct host_to_dev_fis {
 	u32    _r_b;
 } __attribute__ ((packed));
 
+/* Prefer to have code clarity over header file clarity.
+ */
 #ifdef __LITTLE_ENDIAN_BITFIELD
 struct sas_identify_frame {
-	
+	/* Byte 0 */
 	u8  frame_type:4;
 	u8  dev_type:3;
 	u8  _un0:1;
 
-	
+	/* Byte 1 */
 	u8  _un1;
 
-	
+	/* Byte 2 */
 	union {
 		struct {
 			u8  _un20:1;
@@ -268,7 +277,7 @@ struct sas_identify_frame {
 		u8 initiator_bits;
 	};
 
-	
+	/* Byte 3 */
 	union {
 		struct {
 			u8  _un30:1;
@@ -280,13 +289,13 @@ struct sas_identify_frame {
 		u8 target_bits;
 	};
 
-	
+	/* Byte 4 - 11 */
 	u8 _un4_11[8];
 
-	
+	/* Byte 12 - 19 */
 	u8 sas_addr[SAS_ADDR_SIZE];
 
-	
+	/* Byte 20 */
 	u8 phy_id;
 
 	u8 _un21_27[7];
@@ -332,6 +341,7 @@ struct ssp_response_iu {
 	u8     sense_data[0];
 } __attribute__ ((packed));
 
+/* ---------- SMP ---------- */
 
 struct report_general_resp {
 	__be16  change_count;
@@ -441,15 +451,15 @@ struct smp_resp {
 
 #elif defined(__BIG_ENDIAN_BITFIELD)
 struct sas_identify_frame {
-	
+	/* Byte 0 */
 	u8  _un0:1;
 	u8  dev_type:3;
 	u8  frame_type:4;
 
-	
+	/* Byte 1 */
 	u8  _un1;
 
-	
+	/* Byte 2 */
 	union {
 		struct {
 			u8  _un247:4;
@@ -461,7 +471,7 @@ struct sas_identify_frame {
 		u8 initiator_bits;
 	};
 
-	
+	/* Byte 3 */
 	union {
 		struct {
 			u8 _un347:4;
@@ -473,13 +483,13 @@ struct sas_identify_frame {
 		u8 target_bits;
 	};
 
-	
+	/* Byte 4 - 11 */
 	u8 _un4_11[8];
 
-	
+	/* Byte 12 - 19 */
 	u8 sas_addr[SAS_ADDR_SIZE];
 
-	
+	/* Byte 20 */
 	u8 phy_id;
 
 	u8 _un21_27[7];
@@ -525,6 +535,7 @@ struct ssp_response_iu {
 	u8     sense_data[0];
 } __attribute__ ((packed));
 
+/* ---------- SMP ---------- */
 
 struct report_general_resp {
 	__be16  change_count;
@@ -636,4 +647,4 @@ struct smp_resp {
 #error "Bitfield order not defined!"
 #endif
 
-#endif 
+#endif /* _SAS_H_ */

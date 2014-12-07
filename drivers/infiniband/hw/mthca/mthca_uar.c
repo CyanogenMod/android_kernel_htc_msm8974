@@ -30,7 +30,7 @@
  * SOFTWARE.
  */
 
-#include <asm/page.h>		
+#include <asm/page.h>		/* PAGE_SHIFT */
 
 #include "mthca_dev.h"
 #include "mthca_memfree.h"
@@ -73,6 +73,6 @@ void mthca_cleanup_uar_table(struct mthca_dev *dev)
 {
 	mthca_cleanup_db_tab(dev);
 
-	
+	/* XXX check if any UARs are still allocated? */
 	mthca_alloc_cleanup(&dev->uar_table.alloc);
 }

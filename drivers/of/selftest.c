@@ -1,3 +1,6 @@
+/*
+ * Self tests for device tree subsystem
+ */
 
 #define pr_fmt(fmt) "### %s(): " fmt, __func__
 
@@ -37,7 +40,7 @@ static void __init of_selftest_parse_phandle_with_args(void)
 		rc = of_parse_phandle_with_args(np, "phandle-list",
 						"#phandle-cells", i, &args);
 
-		
+		/* Test the values from tests-phandle.dtsi */
 		switch (i) {
 		case 0:
 			passed &= !rc;
@@ -94,22 +97,22 @@ static void __init of_selftest_parse_phandle_with_args(void)
 		}
 	}
 
-	
+	/* Check for missing list property */
 	rc = of_parse_phandle_with_args(np, "phandle-list-missing",
 					"#phandle-cells", 0, &args);
 	passed_all &= (rc == -EINVAL);
 
-	
+	/* Check for missing cells property */
 	rc = of_parse_phandle_with_args(np, "phandle-list",
 					"#phandle-cells-missing", 0, &args);
 	passed_all &= (rc == -EINVAL);
 
-	
+	/* Check for bad phandle in list */
 	rc = of_parse_phandle_with_args(np, "phandle-list-bad-phandle",
 					"#phandle-cells", 0, &args);
 	passed_all &= (rc == -EINVAL);
 
-	
+	/* Check for incorrectly formed argument list */
 	rc = of_parse_phandle_with_args(np, "phandle-list-bad-args",
 					"#phandle-cells", 1, &args);
 	passed_all &= (rc == -EINVAL);

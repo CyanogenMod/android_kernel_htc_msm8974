@@ -56,38 +56,68 @@
 #define WL1271_EXTRA_SPACE_AES  8
 #define WL1271_EXTRA_SPACE_MAX  8
 
+/* Used for management frames and dummy packets */
 #define WL1271_TID_MGMT 7
 
 struct wl127x_tx_mem {
+	/*
+	 * Number of extra memory blocks to allocate for this packet
+	 * in addition to the number of blocks derived from the packet
+	 * length.
+	 */
 	u8 extra_blocks;
+	/*
+	 * Total number of memory blocks allocated by the host for
+	 * this packet. Must be equal or greater than the actual
+	 * blocks number allocated by HW.
+	 */
 	u8 total_mem_blocks;
 } __packed;
 
 struct wl128x_tx_mem {
+	/*
+	 * Total number of memory blocks allocated by the host for
+	 * this packet.
+	 */
 	u8 total_mem_blocks;
+	/*
+	 * Number of extra bytes, at the end of the frame. the host
+	 * uses this padding to complete each frame to integer number
+	 * of SDIO blocks.
+	 */
 	u8 extra_bytes;
 } __packed;
 
+/*
+ * On wl128x based devices, when TX packets are aggregated, each packet
+ * size must be aligned to the SDIO block size. The maximum block size
+ * is bounded by the type of the padded bytes field that is sent to the
+ * FW. Currently the type is u8, so the maximum block size is 256 bytes.
+ */
 #define WL12XX_BUS_BLOCK_SIZE min(512u,	\
 	    (1u << (8 * sizeof(((struct wl128x_tx_mem *) 0)->extra_bytes))))
 
 struct wl1271_tx_hw_descr {
-	
+	/* Length of packet in words, including descriptor+header+data */
 	__le16 length;
 	union {
 		struct wl127x_tx_mem wl127x_mem;
 		struct wl128x_tx_mem wl128x_mem;
 	} __packed;
-	
+	/* Device time (in us) when the packet arrived to the driver */
 	__le32 start_time;
+	/*
+	 * Max delay in TUs until transmission. The last device time the
+	 * packet can be transmitted is: start_time + (1024 * life_time)
+	 */
 	__le16 life_time;
-	
+	/* Bitwise fields - see TX_ATTR... definitions above. */
 	__le16 tx_attr;
-	
+	/* Packet identifier used also in the Tx-Result. */
 	u8 id;
-	
+	/* The packet TID value (as User-Priority) */
 	u8 tid;
-	
+	/* host link ID (HLID) */
 	u8 hlid;
 	u8 reserved;
 } __packed;
@@ -105,20 +135,26 @@ enum wl1271_tx_hw_res_status {
 };
 
 struct wl1271_tx_hw_res_descr {
-	
+	/* Packet Identifier - same value used in the Tx descriptor.*/
 	u8 id;
+	/* The status of the transmission, indicating success or one of
+	   several possible reasons for failure. */
 	u8 status;
-	
+	/* Total air access duration including all retrys and overheads.*/
 	__le16 medium_usage;
-	
+	/* The time passed from host xfer to Tx-complete.*/
 	__le32 fw_handling_time;
+	/* Total media delay
+	   (from 1st EDCA AIFS counter until TX Complete). */
 	__le32 medium_delay;
-	
+	/* LS-byte of last TKIP seq-num (saved per AC for recovery). */
 	u8 tx_security_sequence_number_lsb;
-	
+	/* Retry count - number of transmissions without successful ACK.*/
 	u8 ack_failures;
+	/* The rate that succeeded getting ACK
+	   (Valid only if status=SUCCESS). */
 	u8 rate_class_index;
-	
+	/* for 4-byte alignment. */
 	u8 spare;
 } __packed;
 
@@ -189,6 +225,7 @@ void wl1271_handle_tx_low_watermark(struct wl1271 *wl);
 bool wl12xx_is_dummy_packet(struct wl1271 *wl, struct sk_buff *skb);
 void wl12xx_rearm_rx_streaming(struct wl1271 *wl, unsigned long *active_hlids);
 
+/* from main.c */
 void wl1271_free_sta(struct wl1271 *wl, struct wl12xx_vif *wlvif, u8 hlid);
 void wl12xx_rearm_tx_watchdog_locked(struct wl1271 *wl);
 

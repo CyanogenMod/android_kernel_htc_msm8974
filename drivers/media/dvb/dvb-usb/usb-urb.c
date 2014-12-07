@@ -10,6 +10,7 @@
  */
 #include "dvb-usb-common.h"
 
+/* URB stuff for streaming */
 static void usb_urb_complete(struct urb *urb)
 {
 	struct usb_data_stream *stream = urb->context;
@@ -23,14 +24,14 @@ static void usb_urb_complete(struct urb *urb)
 		urb->number_of_packets,urb->error_count);
 
 	switch (urb->status) {
-		case 0:         
-		case -ETIMEDOUT:    
+		case 0:         /* success */
+		case -ETIMEDOUT:    /* NAK */
 			break;
-		case -ECONNRESET:   
+		case -ECONNRESET:   /* kill */
 		case -ENOENT:
 		case -ESHUTDOWN:
 			return;
-		default:        
+		default:        /* error */
 			deb_ts("urb completition error %d.\n", urb->status);
 			break;
 	}
@@ -67,7 +68,7 @@ int usb_urb_kill(struct usb_data_stream *stream)
 	for (i = 0; i < stream->urbs_submitted; i++) {
 		deb_ts("killing URB no. %d.\n",i);
 
-		
+		/* stop the URB */
 		usb_kill_urb(stream->urb_list[i]);
 	}
 	stream->urbs_submitted = 0;
@@ -141,7 +142,7 @@ static int usb_bulk_urb_init(struct usb_data_stream *stream)
 					stream->props.u.bulk.buffersize)) < 0)
 		return i;
 
-	
+	/* allocate the URBs */
 	for (i = 0; i < stream->props.count; i++) {
 		stream->urb_list[i] = usb_alloc_urb(0, GFP_ATOMIC);
 		if (!stream->urb_list[i]) {
@@ -171,7 +172,7 @@ static int usb_isoc_urb_init(struct usb_data_stream *stream)
 					stream->props.u.isoc.framesize*stream->props.u.isoc.framesperurb)) < 0)
 		return i;
 
-	
+	/* allocate the URBs */
 	for (i = 0; i < stream->props.count; i++) {
 		struct urb *urb;
 		int frame_offset = 0;
@@ -242,7 +243,7 @@ int usb_urb_exit(struct usb_data_stream *stream)
 	for (i = 0; i < stream->urbs_initialized; i++) {
 		if (stream->urb_list[i] != NULL) {
 			deb_mem("freeing URB no. %d.\n",i);
-			
+			/* free the URBs */
 			usb_free_urb(stream->urb_list[i]);
 		}
 	}

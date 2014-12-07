@@ -21,6 +21,16 @@ static const struct exception_table_entry __copy_user_fixup_ex = {
 	.fixup = (unsigned long)&__copy_user_fixup,
 };
 
+/*
+ * Some functions that may trap due to a bad user-mode address have too
+ * many loads and stores in them to make it at all practical to label
+ * each one and put them all in the main exception table.
+ *
+ * In particular, the fast memcpy routine is like this.  It's fix-up is
+ * just to fall back to a slow byte-at-a-time copy, which is handled the
+ * conventional way.  So it's functionally OK to just handle any trap
+ * occurring in the fast memcpy with that fixup.
+ */
 static const struct exception_table_entry *check_exception_ranges(unsigned long addr)
 {
 	if ((addr >= (unsigned long)&copy_user_memcpy) &&
@@ -30,6 +40,7 @@ static const struct exception_table_entry *check_exception_ranges(unsigned long 
 	return NULL;
 }
 
+/* Simple binary search */
 const struct exception_table_entry *
 search_extable(const struct exception_table_entry *first,
 		 const struct exception_table_entry *last,

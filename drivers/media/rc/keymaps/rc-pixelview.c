@@ -15,20 +15,20 @@
 
 static struct rc_map_table pixelview[] = {
 
-	{ 0x1e, KEY_POWER },	
-	{ 0x07, KEY_VIDEO },	
-	{ 0x1c, KEY_SEARCH },	
+	{ 0x1e, KEY_POWER },	/* power */
+	{ 0x07, KEY_VIDEO },	/* source */
+	{ 0x1c, KEY_SEARCH },	/* scan */
 
 
-	{ 0x03, KEY_TUNER },		
+	{ 0x03, KEY_TUNER },		/* TV/FM */
 
 	{ 0x00, KEY_RECORD },
 	{ 0x08, KEY_STOP },
 	{ 0x11, KEY_PLAY },
 
-	{ 0x1a, KEY_PLAYPAUSE },	
-	{ 0x19, KEY_ZOOM },		
-	{ 0x0f, KEY_TEXT },		
+	{ 0x1a, KEY_PLAYPAUSE },	/* freeze */
+	{ 0x19, KEY_ZOOM },		/* zoom */
+	{ 0x0f, KEY_TEXT },		/* min */
 
 	{ 0x01, KEY_1 },
 	{ 0x0b, KEY_2 },
@@ -40,28 +40,28 @@ static struct rc_map_table pixelview[] = {
 	{ 0x0a, KEY_8 },
 	{ 0x12, KEY_9 },
 	{ 0x02, KEY_0 },
-	{ 0x10, KEY_LAST },		
-	{ 0x13, KEY_LIST },		
+	{ 0x10, KEY_LAST },		/* +100 */
+	{ 0x13, KEY_LIST },		/* recall */
 
-	{ 0x1f, KEY_CHANNELUP },	
-	{ 0x17, KEY_CHANNELDOWN },	
-	{ 0x16, KEY_VOLUMEUP },		
-	{ 0x14, KEY_VOLUMEDOWN },	
+	{ 0x1f, KEY_CHANNELUP },	/* chn down */
+	{ 0x17, KEY_CHANNELDOWN },	/* chn up */
+	{ 0x16, KEY_VOLUMEUP },		/* vol down */
+	{ 0x14, KEY_VOLUMEDOWN },	/* vol up */
 
-	{ 0x04, KEY_KPMINUS },		
-	{ 0x0e, KEY_SETUP },		
-	{ 0x0c, KEY_KPPLUS },		
+	{ 0x04, KEY_KPMINUS },		/* <<< */
+	{ 0x0e, KEY_SETUP },		/* function */
+	{ 0x0c, KEY_KPPLUS },		/* >>> */
 
-	{ 0x0d, KEY_GOTO },		
-	{ 0x1d, KEY_REFRESH },		
-	{ 0x18, KEY_MUTE },		
+	{ 0x0d, KEY_GOTO },		/* mts */
+	{ 0x1d, KEY_REFRESH },		/* reset */
+	{ 0x18, KEY_MUTE },		/* mute/unmute */
 };
 
 static struct rc_map_list pixelview_map = {
 	.map = {
 		.scan    = pixelview,
 		.size    = ARRAY_SIZE(pixelview),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_PIXELVIEW,
 	}
 };

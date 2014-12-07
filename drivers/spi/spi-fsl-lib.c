@@ -127,7 +127,7 @@ int mpc8xxx_spi_probe(struct device *dev, struct resource *mem,
 
 	master = dev_get_drvdata(dev);
 
-	
+	/* the spi->mode bits understood by this driver: */
 	master->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH
 			| SPI_LSB_FIRST | SPI_LOOP;
 
@@ -205,10 +205,10 @@ int __devinit of_mpc8xxx_spi_probe(struct platform_device *ofdev)
 	pdata = &pinfo->pdata;
 	dev->platform_data = pdata;
 
-	
+	/* Allocate bus num dynamically. */
 	pdata->bus_num = -1;
 
-	
+	/* SPI controller is either clocked from QE or SoC clock. */
 	pdata->sysclk = get_brgfreq();
 	if (pdata->sysclk == -1) {
 		pdata->sysclk = fsl_get_sys_freq();

@@ -86,7 +86,7 @@ static struct mv_sata_platform_data dreamplug_sata_data = {
 };
 
 static struct mvsdio_platform_data dreamplug_mvsdio_data = {
-	
+	/* unfortunately the CD signal has not been connected */
 };
 
 static struct gpio_led dreamplug_led_pins[] = {
@@ -125,14 +125,17 @@ static unsigned int dreamplug_mpp_config[] __initdata = {
 	MPP1_SPI_MOSI,
 	MPP2_SPI_SCK,
 	MPP3_SPI_MISO,
-	MPP47_GPIO,	
-	MPP48_GPIO,	
-	MPP49_GPIO,	
+	MPP47_GPIO,	/* Bluetooth LED */
+	MPP48_GPIO,	/* Wifi LED */
+	MPP49_GPIO,	/* Wifi AP LED */
 	0
 };
 
 void __init dreamplug_init(void)
 {
+	/*
+	 * Basic setup. Needs to be called early.
+	 */
 	kirkwood_mpp_conf(dreamplug_mpp_config);
 
 	spi_register_board_info(dreamplug_spi_slave_info,

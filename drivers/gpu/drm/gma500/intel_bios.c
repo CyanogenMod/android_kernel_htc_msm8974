@@ -34,11 +34,11 @@ static void *find_section(struct bdb_header *bdb, int section_id)
 	u16 total, current_size;
 	u8 current_id;
 
-	
+	/* skip to first section */
 	index += bdb->header_size;
 	total = bdb->bdb_size;
 
-	
+	/* walk the sections looking for section_id */
 	while (index < total) {
 		current_id = *(base + index);
 		index++;
@@ -75,7 +75,7 @@ static void fill_detail_timing_data(struct drm_display_mode *panel_fixed_mode,
 	panel_fixed_mode->clock = dvo_timing->clock * 10;
 	panel_fixed_mode->type = DRM_MODE_TYPE_PREFERRED;
 
-	
+	/* Some VBTs have bogus h/vtotal values */
 	if (panel_fixed_mode->hsync_end > panel_fixed_mode->htotal)
 		panel_fixed_mode->htotal = panel_fixed_mode->hsync_end + 1;
 	if (panel_fixed_mode->vsync_end > panel_fixed_mode->vtotal)
@@ -113,6 +113,7 @@ static void parse_backlight_data(struct drm_psb_private *dev_priv,
 	dev_priv->lvds_bl = lvds_bl;
 }
 
+/* Try to find integrated panel data */
 static void parse_lfp_panel_data(struct drm_psb_private *dev_priv,
 			    struct bdb_header *bdb)
 {
@@ -122,7 +123,7 @@ static void parse_lfp_panel_data(struct drm_psb_private *dev_priv,
 	struct lvds_dvo_timing *dvo_timing;
 	struct drm_display_mode *panel_fixed_mode;
 
-	
+	/* Defaults if we can't find VBT info */
 	dev_priv->lvds_dither = 0;
 	dev_priv->lvds_vbt = 0;
 
@@ -163,6 +164,7 @@ static void parse_lfp_panel_data(struct drm_psb_private *dev_priv,
 	return;
 }
 
+/* Try to find sdvo panel data */
 static void parse_sdvo_panel_data(struct drm_psb_private *dev_priv,
 		      struct bdb_header *bdb)
 {
@@ -198,7 +200,7 @@ static void parse_general_features(struct drm_psb_private *dev_priv,
 {
 	struct bdb_general_features *general;
 
-	
+	/* Set sensible defaults in case we can't find the general block */
 	dev_priv->int_tv_support = 1;
 	dev_priv->int_crt_support = 1;
 
@@ -215,6 +217,20 @@ static void parse_general_features(struct drm_psb_private *dev_priv,
 	}
 }
 
+/**
+ * psb_intel_init_bios - initialize VBIOS settings & find VBT
+ * @dev: DRM device
+ *
+ * Loads the Video BIOS and checks that the VBT exists.  Sets scratch registers
+ * to appropriate values.
+ *
+ * VBT existence is a sanity check that is relied on by other i830_bios.c code.
+ * Note that it would be better to use a BIOS call to get the VBT, as BIOSes may
+ * feed an updated VBT back through that, compared to what we'll fetch using
+ * this method of groping around in the BIOS data.
+ *
+ * Returns 0 on success, nonzero on failure.
+ */
 bool psb_intel_init_bios(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -229,7 +245,7 @@ bool psb_intel_init_bios(struct drm_device *dev)
 	if (!bios)
 		return -1;
 
-	
+	/* Scour memory looking for the VBT signature */
 	for (i = 0; i + 4 < size; i++) {
 		if (!memcmp(bios + i, "$VBT", 4)) {
 			vbt = (struct vbt_header *)(bios + i);
@@ -245,7 +261,7 @@ bool psb_intel_init_bios(struct drm_device *dev)
 
 	bdb = (struct bdb_header *)(bios + i + vbt->bdb_offset);
 
-	
+	/* Grab useful general definitions */
 	parse_general_features(dev_priv, bdb);
 	parse_lfp_panel_data(dev_priv, bdb);
 	parse_sdvo_panel_data(dev_priv, bdb);
@@ -256,6 +272,9 @@ bool psb_intel_init_bios(struct drm_device *dev)
 	return 0;
 }
 
+/**
+ * Destroy and free VBT data
+ */
 void psb_intel_destroy_bios(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -266,7 +285,7 @@ void psb_intel_destroy_bios(struct drm_device *dev)
 	struct bdb_lvds_backlight *lvds_bl =
 				dev_priv->lvds_bl;
 
-	
+	/*free sdvo panel mode*/
 	if (sdvo_lvds_vbt_mode) {
 		dev_priv->sdvo_lvds_vbt_mode = NULL;
 		kfree(sdvo_lvds_vbt_mode);

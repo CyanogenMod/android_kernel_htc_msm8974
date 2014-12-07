@@ -22,6 +22,13 @@
 #include <cpu/sh7722.h>
 #include <mach/migor.h>
 
+/* LCD Module is a PH240320T according to board schematics. This module
+ * is made up of a 240x320 LCD hooked up to a R61505U (or HX8347-A01?)
+ * Driver IC. This IC is connected to the SH7722 built-in LCDC using a
+ * SYS-80 interface configured in 16 bit mode.
+ *
+ * Index 0: "Device Code Read" returns 0x1505.
+ */
 
 static void reset_lcd_module(void)
 {
@@ -31,6 +38,7 @@ static void reset_lcd_module(void)
 	mdelay(1);
 }
 
+/* DB0-DB7 are connected to D1-D8, and DB8-DB15 to D10-D17 */
 
 static unsigned long adjust_reg18(unsigned short data)
 {
@@ -138,20 +146,20 @@ int migor_lcd_qvga_setup(void *sohandle, struct sh_mobile_lcdc_sys_bus_ops *so)
 	migor_lcd_qvga_seq(sohandle, so, magic3_data, ARRAY_SIZE(magic3_data));
 	mdelay(40);
 
-	
+	/* clear GRAM to avoid displaying garbage */
 
-	write_reg16(sohandle, so, 0x0020, 0x0000); 
-	write_reg16(sohandle, so, 0x0021, 0x0000); 
+	write_reg16(sohandle, so, 0x0020, 0x0000); /* horiz addr */
+	write_reg16(sohandle, so, 0x0021, 0x0000); /* vert addr */
 
-	for (k = 0; k < (xres * 256); k++) 
+	for (k = 0; k < (xres * 256); k++) /* yes, 256 words per line */
 		write_reg16(sohandle, so, 0x0022, 0x0000);
 
-	write_reg16(sohandle, so, 0x0020, 0x0000); 
-	write_reg16(sohandle, so, 0x0021, 0x0000); 
+	write_reg16(sohandle, so, 0x0020, 0x0000); /* reset horiz addr */
+	write_reg16(sohandle, so, 0x0021, 0x0000); /* reset vert addr */
 	write_reg16(sohandle, so, 0x0007, 0x0173);
 	mdelay(40);
 
-	
+	/* enable display */
 	write_reg(sohandle, so, 0x00, 0x22);
 	mdelay(100);
 	return 0;

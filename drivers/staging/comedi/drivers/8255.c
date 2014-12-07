@@ -20,7 +20,63 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 */
+/*
+Driver: 8255
+Description: generic 8255 support
+Devices: [standard] 8255 (8255)
+Author: ds
+Status: works
+Updated: Fri,  7 Jun 2002 12:56:45 -0700
 
+The classic in digital I/O.  The 8255 appears in Comedi as a single
+digital I/O subdevice with 24 channels.  The channel 0 corresponds
+to the 8255's port A, bit 0; channel 23 corresponds to port C, bit
+7.  Direction configuration is done in blocks, with channels 0-7,
+8-15, 16-19, and 20-23 making up the 4 blocks.  The only 8255 mode
+supported is mode 0.
+
+You should enable compilation this driver if you plan to use a board
+that has an 8255 chip.  For multifunction boards, the main driver will
+configure the 8255 subdevice automatically.
+
+This driver also works independently with ISA and PCI cards that
+directly map the 8255 registers to I/O ports, including cards with
+multiple 8255 chips.  To configure the driver for such a card, the
+option list should be a list of the I/O port bases for each of the
+8255 chips.  For example,
+
+  comedi_config /dev/comedi0 8255 0x200,0x204,0x208,0x20c
+
+Note that most PCI 8255 boards do NOT work with this driver, and
+need a separate driver as a wrapper.  For those that do work, the
+I/O port base address can be found in the output of 'lspci -v'.
+
+*/
+
+/*
+   This file contains an exported subdevice for driving an 8255.
+
+   To use this subdevice as part of another driver, you need to
+   set up the subdevice in the attach function of the driver by
+   calling:
+
+     subdev_8255_init(device, subdevice, callback_function, arg)
+
+   device and subdevice are pointers to the device and subdevice
+   structures.  callback_function will be called to provide the
+   low-level input/output to the device, i.e., actual register
+   access.  callback_function will be called with the value of arg
+   as the last parameter.  If the 8255 device is mapped as 4
+   consecutive I/O ports, you can use NULL for callback_function
+   and the I/O port base for arg, and an internal function will
+   handle the register access.
+
+   In addition, if the main driver handles interrupts, you can
+   enable commands on the subdevice by calling subdev_8255_init_irq()
+   instead.  Then, when you get an interrupt that is likely to be
+   from the 8255, you should call subdev_8255_interrupt(), which
+   will copy the latched value to a Comedi buffer.
+ */
 
 #include "../comedidev.h"
 
@@ -171,7 +227,7 @@ static void do_config(struct comedi_device *dev, struct comedi_subdevice *s)
 	int config;
 
 	config = CR_CW;
-	
+	/* 1 in io_bits indicates output, 1 in config indicates input */
 	if (!(s->io_bits & 0x0000ff))
 		config |= CR_A_IO;
 	if (!(s->io_bits & 0x00ff00))
@@ -190,7 +246,7 @@ static int subdev_8255_cmdtest(struct comedi_device *dev,
 	int err = 0;
 	unsigned int tmp;
 
-	
+	/* step 1 */
 
 	tmp = cmd->start_src;
 	cmd->start_src &= TRIG_NOW;
@@ -220,12 +276,12 @@ static int subdev_8255_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 1;
 
-	
+	/* step 2 */
 
 	if (err)
 		return 2;
 
-	
+	/* step 3 */
 
 	if (cmd->start_arg != 0) {
 		cmd->start_arg = 0;
@@ -251,7 +307,7 @@ static int subdev_8255_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 3;
 
-	
+	/* step 4 */
 
 	if (err)
 		return 4;
@@ -262,7 +318,7 @@ static int subdev_8255_cmdtest(struct comedi_device *dev,
 static int subdev_8255_cmd(struct comedi_device *dev,
 			   struct comedi_subdevice *s)
 {
-	
+	/* FIXME */
 
 	return 0;
 }
@@ -270,7 +326,7 @@ static int subdev_8255_cmd(struct comedi_device *dev,
 static int subdev_8255_cancel(struct comedi_device *dev,
 			      struct comedi_subdevice *s)
 {
-	
+	/* FIXME */
 
 	return 0;
 }
@@ -331,6 +387,11 @@ void subdev_8255_cleanup(struct comedi_device *dev, struct comedi_subdevice *s)
 }
 EXPORT_SYMBOL(subdev_8255_cleanup);
 
+/*
+
+   Start of the 8255 standalone device
+
+ */
 
 static int dev_8255_attach(struct comedi_device *dev,
 			   struct comedi_devconfig *it)
@@ -354,6 +415,8 @@ static int dev_8255_attach(struct comedi_device *dev,
 
 	ret = alloc_subdevices(dev, i);
 	if (ret < 0) {
+		/* FIXME this printk call should give a proper message, the
+		 * below line just maintains previous functionality */
 		printk("comedi%d: 8255:", dev->minor);
 		return ret;
 	}

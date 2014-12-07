@@ -38,6 +38,9 @@
 #include <linux/pci.h>
 #include <linux/slab.h>
 
+/* The LVDS- and panel power controls sits on the
+ * GPIO port of the ISA bridge.
+ */
 
 #define CRVML_DEVICE_LPC    0x27B8
 #define CRVML_REG_GPIOBAR   0x48
@@ -48,6 +51,7 @@
 #define CRVML_PANEL_ON      0x00000002
 #define CRVML_BACKLIGHT_OFF 0x00000004
 
+/* The PLL Clock register sits on Host bridge */
 #define CRVML_DEVICE_MCH   0x5001
 #define CRVML_REG_MCHBAR   0x44
 #define CRVML_REG_MCHEN    0x54
@@ -80,13 +84,13 @@ static int cr_backlight_set_intensity(struct backlight_device *bd)
 	if (bd->props.fb_blank == FB_BLANK_POWERDOWN)
 		intensity = FB_BLANK_POWERDOWN;
 
-	if (intensity == FB_BLANK_UNBLANK) { 
+	if (intensity == FB_BLANK_UNBLANK) { /* FULL ON */
 		cur &= ~CRVML_BACKLIGHT_OFF;
 		outl(cur, addr);
-	} else if (intensity == FB_BLANK_POWERDOWN) { 
+	} else if (intensity == FB_BLANK_POWERDOWN) { /* OFF */
 		cur |= CRVML_BACKLIGHT_OFF;
 		outl(cur, addr);
-	} 
+	} /* anything else, don't bother */
 
 	return 0;
 }
@@ -116,18 +120,18 @@ static void cr_panel_on(void)
 	u32 cur = inl(addr);
 
 	if (!(cur & CRVML_PANEL_ON)) {
-		
+		/* Make sure LVDS controller is down. */
 		if (cur & 0x00000001) {
 			cur &= ~CRVML_LVDS_ON;
 			outl(cur, addr);
 		}
-		
+		/* Power up Panel */
 		schedule_timeout(HZ / 10);
 		cur |= CRVML_PANEL_ON;
 		outl(cur, addr);
 	}
 
-	
+	/* Power up LVDS controller */
 
 	if (!(cur & CRVML_LVDS_ON)) {
 		schedule_timeout(HZ / 10);
@@ -140,7 +144,7 @@ static void cr_panel_off(void)
 	u32 addr = gpio_bar + CRVML_PANEL_PORT;
 	u32 cur = inl(addr);
 
-	
+	/* Power down LVDS controller first to avoid high currents */
 	if (cur & CRVML_LVDS_ON) {
 		cur &= ~CRVML_LVDS_ON;
 		outl(cur, addr);

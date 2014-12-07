@@ -22,12 +22,20 @@
 #ifndef __ASM_MIPS_MACH_PNX833X_GPIO_H
 #define __ASM_MIPS_MACH_PNX833X_GPIO_H
 
+/* BIG FAT WARNING: races danger!
+   No protections exist here. Current users are only early init code,
+   when locking is not needed because no concurrency yet exists there,
+   and GPIO IRQ dispatcher, which does locking.
+   However, if many uses will ever happen, proper locking will be needed
+   - including locking between different uses
+*/
 
 #include "pnx833x.h"
 
 #define SET_REG_BIT(reg, bit)		do { (reg |= (1 << (bit))); } while (0)
 #define CLEAR_REG_BIT(reg, bit)		do { (reg &= ~(1 << (bit))); } while (0)
 
+/* Initialize GPIO to a known state */
 static inline void pnx833x_gpio_init(void)
 {
 	PNX833X_PIO_DIR = 0;
@@ -38,12 +46,13 @@ static inline void pnx833x_gpio_init(void)
 	PNX833X_PIO_INT_HI = 0;
 	PNX833X_PIO_INT_LO = 0;
 
-	
+	/* clear any GPIO interrupt requests */
 	PNX833X_PIO_INT_CLEAR = 0xffff;
 	PNX833X_PIO_INT_CLEAR = 0;
 	PNX833X_PIO_INT_ENABLE = 0;
 }
 
+/* Select GPIO direction for a pin */
 static inline void pnx833x_gpio_select_input(unsigned int pin)
 {
 	if (pin < 32)
@@ -59,6 +68,7 @@ static inline void pnx833x_gpio_select_output(unsigned int pin)
 		SET_REG_BIT(PNX833X_PIO_DIR2, pin & 31);
 }
 
+/* Select GPIO or alternate function for a pin */
 static inline void pnx833x_gpio_select_function_io(unsigned int pin)
 {
 	if (pin < 32)
@@ -74,6 +84,7 @@ static inline void pnx833x_gpio_select_function_alt(unsigned int pin)
 		SET_REG_BIT(PNX833X_PIO_SEL2, pin & 31);
 }
 
+/* Read GPIO pin */
 static inline int pnx833x_gpio_read(unsigned int pin)
 {
 	if (pin < 32)
@@ -82,6 +93,7 @@ static inline int pnx833x_gpio_read(unsigned int pin)
 		return (PNX833X_PIO_IN2 >> (pin & 31)) & 1;
 }
 
+/* Write GPIO pin */
 static inline void pnx833x_gpio_write(unsigned int val, unsigned int pin)
 {
 	if (pin < 32) {
@@ -97,6 +109,7 @@ static inline void pnx833x_gpio_write(unsigned int val, unsigned int pin)
 	}
 }
 
+/* Configure GPIO interrupt */
 #define GPIO_INT_NONE		0
 #define GPIO_INT_LEVEL_LOW	1
 #define GPIO_INT_LEVEL_HIGH	2
@@ -139,6 +152,7 @@ static inline void pnx833x_gpio_setup_irq(int when, unsigned int pin)
 	}
 }
 
+/* Enable/disable GPIO interrupt */
 static inline void pnx833x_gpio_enable_irq(unsigned int pin)
 {
 	SET_REG_BIT(PNX833X_PIO_INT_ENABLE, pin);
@@ -148,6 +162,7 @@ static inline void pnx833x_gpio_disable_irq(unsigned int pin)
 	CLEAR_REG_BIT(PNX833X_PIO_INT_ENABLE, pin);
 }
 
+/* Clear GPIO interrupt request */
 static inline void pnx833x_gpio_clear_irq(unsigned int pin)
 {
 	SET_REG_BIT(PNX833X_PIO_INT_CLEAR, pin);

@@ -49,7 +49,7 @@ static inline void pud_free(struct mm_struct *mm, pud_t *pud)
 	quicklist_free(0, NULL, pud);
 }
 #define __pud_free_tlb(tlb, pud, address)	pud_free((tlb)->mm, pud)
-#endif 
+#endif /* CONFIG_PGTABLE_4 */
 
 static inline void
 pud_populate(struct mm_struct *mm, pud_t * pud_entry, pmd_t * pmd)
@@ -119,4 +119,4 @@ static inline void check_pgt_cache(void)
 
 #define __pte_free_tlb(tlb, pte, address)	pte_free((tlb)->mm, pte)
 
-#endif				
+#endif				/* _ASM_IA64_PGALLOC_H */

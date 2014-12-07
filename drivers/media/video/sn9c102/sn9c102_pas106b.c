@@ -201,7 +201,7 @@ static const struct sn9c102_sensor pas106b = {
 			.minimum = 0x00,
 			.maximum = 0x07,
 			.step = 0x01,
-			.default_value = 0x00, 
+			.default_value = 0x00, /* 0x00~0x03 have same effect */
 			.flags = 0,
 		},
 		{
@@ -266,7 +266,7 @@ static const struct sn9c102_sensor pas106b = {
 		.width = 352,
 		.height = 288,
 		.pixelformat = V4L2_PIX_FMT_SBGGR8,
-		.priv = 8, 
+		.priv = 8, /* we use this field as 'bits per pixel' */
 	},
 	.set_pix_format = &pas106b_set_pix_format
 };
@@ -277,10 +277,14 @@ int sn9c102_probe_pas106b(struct sn9c102_device* cam)
 	int r0 = 0, r1 = 0;
 	unsigned int pid = 0;
 
+	/*
+	   Minimal initialization to enable the I2C communication
+	   NOTE: do NOT change the values!
+	*/
 	if (sn9c102_write_const_regs(cam,
-				     {0x01, 0x01}, 
-				     {0x00, 0x01}, 
-				    {0x28, 0x17})) 
+				     {0x01, 0x01}, /* sensor power down */
+				     {0x00, 0x01}, /* sensor power on */
+				    {0x28, 0x17})) /* sensor clock at 24 MHz */
 		return -EIO;
 
 	r0 = sn9c102_i2c_try_read(cam, &pas106b, 0x00);

@@ -24,12 +24,15 @@
 #include "clock.h"
 #include "clock-pcom.h"
 
+/*
+ * glue for the proc_comm interface
+ */
 static int pc_clk_enable(struct clk *clk)
 {
 	int rc;
 	int id = to_pcom_clk(clk)->id;
 
-	
+	/* Ignore clocks that are always on */
 	if (id == P_EBI1_CLK || id == P_EBI1_FIXED_CLK)
 		return 0;
 
@@ -44,7 +47,7 @@ static void pc_clk_disable(struct clk *clk)
 {
 	int id = to_pcom_clk(clk)->id;
 
-	
+	/* Ignore clocks that are always on */
 	if (id == P_EBI1_CLK || id == P_EBI1_FIXED_CLK)
 		return;
 
@@ -74,6 +77,10 @@ static int pc_reset(struct clk *clk, enum clk_reset_action action)
 
 static int _pc_clk_set_rate(struct clk *clk, unsigned long rate)
 {
+	/* The rate _might_ be rounded off to the nearest KHz value by the
+	 * remote function. So a return value of 0 doesn't necessarily mean
+	 * that the exact rate was set successfully.
+	 */
 	unsigned r = rate;
 	int id = to_pcom_clk(clk)->id;
 	int rc = msm_proc_comm(PCOM_CLKCTL_RPC_SET_RATE, &id, &r);
@@ -160,7 +167,7 @@ static int pc_clk_is_enabled(struct clk *clk)
 static long pc_clk_round_rate(struct clk *clk, unsigned long rate)
 {
 
-	
+	/* Not really supported; pc_clk_set_rate() does rounding on it's own. */
 	return rate;
 }
 
@@ -171,6 +178,10 @@ static bool pc_clk_is_local(struct clk *clk)
 
 static enum handoff pc_clk_handoff(struct clk *clk)
 {
+	/*
+	 * Handoff clock state only since querying and caching the rate here
+	 * would incur more overhead than it would ever save.
+	 */
 	if (pc_clk_is_enabled(clk))
 		return HANDOFF_ENABLED_CLK;
 

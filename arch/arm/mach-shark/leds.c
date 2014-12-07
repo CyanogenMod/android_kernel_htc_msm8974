@@ -153,7 +153,7 @@ static int __init leds_init(void)
 	
 	leds_event = sequoia_leds_event;
 
-	
+	/* Make LEDs independent of power-state */
 	request_region(0x24,4,"sequoia");
 	temp = sequoia_read(0x09);
 	temp |= 1<<10;

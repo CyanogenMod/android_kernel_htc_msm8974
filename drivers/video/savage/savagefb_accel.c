@@ -16,8 +16,8 @@
 #include "savagefb.h"
 
 static u32 savagefb_rop[] = {
-	0xCC, 
-	0x5A  
+	0xCC, /* ROP_COPY */
+	0x5A  /* ROP_XOR  */
 };
 
 int savagefb_sync(struct fb_info *info)

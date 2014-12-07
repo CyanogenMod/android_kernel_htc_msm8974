@@ -25,7 +25,7 @@ static bd_t bd;
 
 struct cs_range {
 	u32 csnum;
-	u32 base; 
+	u32 base; /* must be zero */
 	u32 addr;
 	u32 size;
 };
@@ -40,6 +40,14 @@ struct pci_range {
 struct cs_range cs_ranges_buf[MAX_PROP_LEN / sizeof(struct cs_range)];
 struct pci_range pci_ranges_buf[MAX_PROP_LEN / sizeof(struct pci_range)];
 
+/* Different versions of u-boot put the BCSR in different places, and
+ * some don't set up the PCI PIC at all, so we assume the device tree is
+ * sane and update the BRx registers appropriately.
+ *
+ * For any node defined as compatible with fsl,pq2-localbus,
+ * #address/#size must be 2/1 for the localbus, and 1/1 for the parent bus.
+ * Ranges must be for whole chip selects.
+ */
 static void update_cs_ranges(void)
 {
 	void *bus_node, *parent_node;
@@ -82,6 +90,9 @@ static void update_cs_ranges(void)
 
 		base = in_be32(&ctrl_addr[cs * 2]);
 
+		/* If CS is already valid, use the existing flags.
+		 * Otherwise, guess a sane default.
+		 */
 		if (base & 1) {
 			base &= 0x7fff;
 			option = in_be32(&ctrl_addr[cs * 2 + 1]) & 0x7fff;
@@ -102,6 +113,13 @@ err:
 	printf("Bad /localbus node\r\n");
 }
 
+/* Older u-boots don't set PCI up properly.  Update the hardware to match
+ * the device tree.  The prefetch mem region and non-prefetch mem region
+ * must be contiguous in the host bus.  As required by the PCI binding,
+ * PCI #addr/#size must be 3/2.  The parent bus must be 1/1.  Only
+ * 32-bit PCI is supported.  All three region types (prefetchable mem,
+ * non-prefetchable mem, and I/O) must be present.
+ */
 static void fixup_pci(void)
 {
 	struct pci_range *mem = NULL, *mmio = NULL,
@@ -185,7 +203,7 @@ static void fixup_pci(void)
 	out_le32(&pci_regs[0][14], io->phys_addr >> 12);
 	out_le32(&pci_regs[0][16], (~(io->size[1] - 1) >> 12) | 0xc0000000);
 
-	
+	/* Inbound translation */
 	out_le32(&pci_regs[0][58], 0);
 	out_le32(&pci_regs[0][60], 0);
 
@@ -193,21 +211,24 @@ static void fixup_pci(void)
 	mem_mask = ~(mem_pow2 - 1) >> 12;
 	out_le32(&pci_regs[0][62], 0xa0000000 | mem_mask);
 
-	
+	/* If PCI is disabled, drive RST high to enable. */
 	if (!(in_le32(&pci_regs[0][32]) & 1)) {
-		 
+		 /* Tpvrh (Power valid to RST# high) 100 ms */
 		udelay(100000);
 
 		out_le32(&pci_regs[0][32], 1);
 
-		
+		/* Trhfa (RST# high to first cfg access) 2^25 clocks */
 		udelay(1020000);
 	}
 
-	
+	/* Enable bus master and memory access */
 	out_le32(&pci_regs[0][64], 0x80000004);
 	out_le32(&pci_regs[0][65], in_le32(&pci_regs[0][65]) | 6);
 
+	/* Park the bus on PCI, and elevate PCI's arbitration priority,
+	 * as required by section 9.6 of the user's manual.
+	 */
 	out_8(&soc_regs[0x10028], 3);
 	out_be32((u32 *)&soc_regs[0x1002c], 0x01236745);
 

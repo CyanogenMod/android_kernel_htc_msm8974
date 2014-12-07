@@ -77,11 +77,11 @@ static int crypto_ctr_crypt_segment(struct blkcipher_walk *walk,
 	unsigned int nbytes = walk->nbytes;
 
 	do {
-		
+		/* create keystream */
 		fn(crypto_cipher_tfm(tfm), dst, ctrblk);
 		crypto_xor(dst, src, bsize);
 
-		
+		/* increment counter in counterblock */
 		crypto_inc(ctrblk, bsize);
 
 		src += bsize;
@@ -105,11 +105,11 @@ static int crypto_ctr_crypt_inplace(struct blkcipher_walk *walk,
 	u8 *keystream = PTR_ALIGN(tmp + 0, alignmask + 1);
 
 	do {
-		
+		/* create keystream */
 		fn(crypto_cipher_tfm(tfm), keystream, ctrblk);
 		crypto_xor(src, keystream, bsize);
 
-		
+		/* increment counter in counterblock */
 		crypto_inc(ctrblk, bsize);
 
 		src += bsize;
@@ -187,12 +187,12 @@ static struct crypto_instance *crypto_ctr_alloc(struct rtattr **tb)
 	if (IS_ERR(alg))
 		return ERR_CAST(alg);
 
-	
+	/* Block size must be >= 4 bytes. */
 	err = -EINVAL;
 	if (alg->cra_blocksize < 4)
 		goto out_put_alg;
 
-	
+	/* If this is false we'd fail the alignment of crypto_inc. */
 	if (alg->cra_blocksize % 4)
 		goto out_put_alg;
 
@@ -250,7 +250,7 @@ static int crypto_rfc3686_setkey(struct crypto_tfm *parent, const u8 *key,
 	struct crypto_blkcipher *child = ctx->child;
 	int err;
 
-	
+	/* the nonce is stored in bytes at end of key */
 	if (keylen < CTR_RFC3686_NONCE_SIZE)
 		return -EINVAL;
 
@@ -282,11 +282,11 @@ static int crypto_rfc3686_crypt(struct blkcipher_desc *desc,
 	u8 *info = desc->info;
 	int err;
 
-	
+	/* set up counter block */
 	memcpy(iv, ctx->nonce, CTR_RFC3686_NONCE_SIZE);
 	memcpy(iv + CTR_RFC3686_NONCE_SIZE, info, CTR_RFC3686_IV_SIZE);
 
-	
+	/* initialize counter portion of counter block */
 	*(__be32 *)(iv + CTR_RFC3686_NONCE_SIZE + CTR_RFC3686_IV_SIZE) =
 		cpu_to_be32(1);
 
@@ -338,12 +338,12 @@ static struct crypto_instance *crypto_rfc3686_alloc(struct rtattr **tb)
 	if (IS_ERR(alg))
 		return ERR_PTR(err);
 
-	
+	/* We only support 16-byte blocks. */
 	err = -EINVAL;
 	if (alg->cra_blkcipher.ivsize != CTR_RFC3686_BLOCK_SIZE)
 		goto out_put_alg;
 
-	
+	/* Not a stream cipher? */
 	if (alg->cra_blocksize != 1)
 		goto out_put_alg;
 

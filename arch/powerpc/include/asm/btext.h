@@ -1,3 +1,8 @@
+/*
+ * Definitions for using the procedures in btext.c.
+ *
+ * Benjamin Herrenschmidt <benh@kernel.crashing.org>
+ */
 #ifndef __PPC_BTEXT_H
 #define __PPC_BTEXT_H
 #ifdef __KERNEL__
@@ -19,5 +24,5 @@ extern void btext_clearscreen(void);
 extern void btext_flushscreen(void);
 extern void btext_flushline(void);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __PPC_BTEXT_H */

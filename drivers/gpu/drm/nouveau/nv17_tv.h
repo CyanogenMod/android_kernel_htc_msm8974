@@ -97,7 +97,7 @@ extern struct nv17_tv_norm_params {
 		struct {
 			int hdisplay;
 			int vdisplay;
-			int vrefresh; 
+			int vrefresh; /* mHz */
 
 			uint8_t tv_enc[0x40];
 		} tv_enc_mode;
@@ -125,6 +125,7 @@ void nv17_tv_update_properties(struct drm_encoder *encoder);
 void nv17_tv_update_rescaler(struct drm_encoder *encoder);
 void nv17_ctv_update_rescaler(struct drm_encoder *encoder);
 
+/* TV hardware access functions */
 
 static inline void nv_write_ptv(struct drm_device *dev, uint32_t reg,
 				uint32_t val)

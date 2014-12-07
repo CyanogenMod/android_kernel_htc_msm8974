@@ -40,18 +40,23 @@
 #define DTSI_LPG_CHAN4       4
 #define DTSI_LPG_CHAN5       5
 #define DTSI_LPG_CHAN6       6
+#define DTSI_LPG_CHAN8       8
+
 
 #define LPG_CHAN2_BASE          0x1b200
 #define LPG_CHAN3_BASE          0x1b300
 #define LPG_CHAN4_BASE          0x1b400
 #define LPG_CHAN5_BASE          0x1b500
 #define LPG_CHAN6_BASE          0x1b600
+#define LPG_CHAN8_BASE          0x1b800
+
 
 #define GPIO3_BASE               0xc200
 #define GPIO5_BASE               0xc400
 #define GPIO6_BASE               0xc500
 #define GPIO7_BASE               0xc600
 #define GPIO8_BASE               0xc700
+#define GPIO36_BASE              0xe300
 
 #define LPG_PATTERN_CONFIG(base)      (base+0x40)
 #define LPG_PWM_SIZE_CLK(base)        (base+0x41)
@@ -321,6 +326,8 @@ static int __devinit qpnp_vibrator_pwm_probe(struct spmi_device *spmi)
 	int rc;
 	int pid_is_2nd_gpiotable;
 
+	printk("[VIB] spmi full name: %s\n", spmi->dev.of_node->full_name);
+
 	printk(KERN_INFO "[VIB]"
 			"qpnp_vibrator_pwm_probe().\n");
 
@@ -482,6 +489,9 @@ static int __devinit qpnp_vibrator_pwm_probe(struct spmi_device *spmi)
 	} else if ( vib->lpg_select == DTSI_LPG_CHAN6 ) {
 		vib->lpg_base = LPG_CHAN6_BASE;
 		vib->gpio_base = GPIO8_BASE;
+	} else if ( vib->lpg_select == DTSI_LPG_CHAN8 ) {
+                 vib->lpg_base = LPG_CHAN8_BASE;
+                 vib->gpio_base = GPIO36_BASE;
 	} else {
 		printk(KERN_ERR "[VIB]"
 				"%s: unknown lpg select: %d.\n", __func__, vib->lpg_select);

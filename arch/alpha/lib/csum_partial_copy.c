@@ -72,6 +72,8 @@ __asm__ __volatile__("insqh %1,%2,%0":"=r" (z):"r" (x),"r" (y))
 
 static inline unsigned short from64to16(unsigned long x)
 {
+	/* Using extract instructions is a bit more efficient
+	   than the original shift/bitmask version.  */
 
 	union {
 		unsigned long	ul;
@@ -82,15 +84,20 @@ static inline unsigned short from64to16(unsigned long x)
 	in_v.ul = x;
 	tmp_v.ul = (unsigned long) in_v.ui[0] + (unsigned long) in_v.ui[1];
 
+	/* Since the bits of tmp_v.sh[3] are going to always be zero,
+	   we don't have to bother to add that in.  */
 	out_v.ul = (unsigned long) tmp_v.us[0] + (unsigned long) tmp_v.us[1]
 			+ (unsigned long) tmp_v.us[2];
 
-	
+	/* Similarly, out_v.us[2] is always zero for the final add.  */
 	return out_v.us[0] + out_v.us[1];
 }
 
 
 
+/*
+ * Ok. This isn't fun, but this is the EASY case.
+ */
 static inline unsigned long
 csum_partial_cfu_aligned(const unsigned long __user *src, unsigned long *dst,
 			 long len, unsigned long checksum,
@@ -127,6 +134,10 @@ csum_partial_cfu_aligned(const unsigned long __user *src, unsigned long *dst,
 	return checksum;
 }
 
+/*
+ * This is even less fun, but this is still reasonably
+ * easy.
+ */
 static inline unsigned long
 csum_partial_cfu_dest_aligned(const unsigned long __user *src,
 			      unsigned long *dst,
@@ -178,6 +189,9 @@ csum_partial_cfu_dest_aligned(const unsigned long __user *src,
 	return checksum;
 }
 
+/*
+ * This is slightly less fun than the above..
+ */
 static inline unsigned long
 csum_partial_cfu_src_aligned(const unsigned long __user *src,
 			     unsigned long *dst,
@@ -232,6 +246,10 @@ out:
 	return checksum;
 }
 
+/*
+ * This is so totally un-fun that it's frightening. Don't
+ * look at this too closely, you'll go blind.
+ */
 static inline unsigned long
 csum_partial_cfu_unaligned(const unsigned long __user * src,
 			   unsigned long * dst,

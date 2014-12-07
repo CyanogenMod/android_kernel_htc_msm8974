@@ -388,6 +388,11 @@ struct wm8995_priv {
 	struct snd_soc_codec *codec;
 };
 
+/*
+ * We can't use the same notifier block for more than one supply and
+ * there's no way I can see to get from a callback to the caller
+ * except container_of().
+ */
 #define WM8995_REGULATOR_EVENT(n) \
 static int wm8995_regulator_event_##n(struct notifier_block *nb, \
 				      unsigned long event, void *data)    \
@@ -483,10 +488,10 @@ static const struct snd_kcontrol_new wm8995_snd_controls[] = {
 static void wm8995_update_class_w(struct snd_soc_codec *codec)
 {
 	int enable = 1;
-	int source = 0;  
+	int source = 0;  /* GCC flow analysis can't track enable */
 	int reg, reg_r;
 
-	
+	/* We also need the same setting for L/R and only one path */
 	reg = snd_soc_read(codec, WM8995_DAC1_LEFT_MIXER_ROUTING);
 	switch (reg) {
 	case WM8995_AIF2DACL_TO_DAC1L:
@@ -533,7 +538,7 @@ static int check_clk_sys(struct snd_soc_dapm_widget *source,
 	const char *clk;
 
 	reg = snd_soc_read(source->codec, WM8995_CLOCKING_1);
-	
+	/* Check what we're currently using for CLK_SYS */
 	if (reg & WM8995_SYSCLK_SRC)
 		clk = "AIF2CLK";
 	else
@@ -566,14 +571,14 @@ static int hp_supply_event(struct snd_soc_dapm_widget *w,
 
 	switch (event) {
 	case SND_SOC_DAPM_PRE_PMU:
-		
+		/* Enable the headphone amp */
 		snd_soc_update_bits(codec, WM8995_POWER_MANAGEMENT_1,
 				    WM8995_HPOUT1L_ENA_MASK |
 				    WM8995_HPOUT1R_ENA_MASK,
 				    WM8995_HPOUT1L_ENA |
 				    WM8995_HPOUT1R_ENA);
 
-		
+		/* Enable the second stage */
 		snd_soc_update_bits(codec, WM8995_ANALOGUE_HP_1,
 				    WM8995_HPOUT1L_DLY_MASK |
 				    WM8995_HPOUT1R_DLY_MASK,
@@ -728,12 +733,18 @@ static int configure_clock(struct snd_soc_codec *codec)
 
 	wm8995 = snd_soc_codec_get_drvdata(codec);
 
-	
+	/* Bring up the AIF clocks first */
 	configure_aif_clock(codec, 0);
 	configure_aif_clock(codec, 1);
 
+	/*
+	 * Then switch CLK_SYS over to the higher of them; a change
+	 * can only happen as a result of a clocking change which can
+	 * only be made outside of DAPM so we can safely redo the
+	 * clocking.
+	 */
 
-	
+	/* If they're equal it doesn't matter which is used */
 	if (wm8995->aifclk[0] == wm8995->aifclk[1])
 		return 0;
 
@@ -1072,7 +1083,7 @@ static const struct snd_soc_dapm_route wm8995_intercon[] = {
 	{ "ADCR Mux", "ADC", "ADCR" },
 	{ "ADCR Mux", "DMIC", "DMIC1R" },
 
-	
+	/* AIF1 outputs */
 	{ "AIF1ADC1L", NULL, "AIF1ADC1L Mixer" },
 	{ "AIF1ADC1L Mixer", "ADC/DMIC Switch", "ADCL Mux" },
 
@@ -1085,7 +1096,7 @@ static const struct snd_soc_dapm_route wm8995_intercon[] = {
 	{ "AIF1ADC2R", NULL, "AIF1ADC2R Mixer" },
 	{ "AIF1ADC2R Mixer", "DMIC Switch", "DMIC2R" },
 
-	
+	/* Sidetone */
 	{ "Left Sidetone", "ADC/DMIC1", "AIF1ADC1L" },
 	{ "Left Sidetone", "DMIC2", "AIF1ADC2L" },
 	{ "Right Sidetone", "ADC/DMIC1", "AIF1ADC1R" },
@@ -1116,7 +1127,7 @@ static const struct snd_soc_dapm_route wm8995_intercon[] = {
 	{ "AIF1DAC2L", NULL, "AIF1DACDAT" },
 	{ "AIF1DAC2R", NULL, "AIF1DACDAT" },
 
-	
+	/* DAC1 inputs */
 	{ "DAC1L", NULL, "DAC1L Mixer" },
 	{ "DAC1L Mixer", "AIF1.1 Switch", "AIF1DAC1L" },
 	{ "DAC1L Mixer", "AIF1.2 Switch", "AIF1DAC2L" },
@@ -1129,7 +1140,7 @@ static const struct snd_soc_dapm_route wm8995_intercon[] = {
 	{ "DAC1R Mixer", "Left Sidetone Switch", "Left Sidetone" },
 	{ "DAC1R Mixer", "Right Sidetone Switch", "Right Sidetone" },
 
-	
+	/* DAC2/AIF2 outputs */
 	{ "DAC2L", NULL, "AIF2DAC2L Mixer" },
 	{ "AIF2DAC2L Mixer", "AIF1.2 Switch", "AIF1DAC2L" },
 	{ "AIF2DAC2L Mixer", "AIF1.1 Switch", "AIF1DAC1L" },
@@ -1138,7 +1149,7 @@ static const struct snd_soc_dapm_route wm8995_intercon[] = {
 	{ "AIF2DAC2R Mixer", "AIF1.2 Switch", "AIF1DAC2R" },
 	{ "AIF2DAC2R Mixer", "AIF1.1 Switch", "AIF1DAC1R" },
 
-	
+	/* Output stages */
 	{ "Headphone PGA", NULL, "DAC1L" },
 	{ "Headphone PGA", NULL, "DAC1R" },
 
@@ -1486,7 +1497,7 @@ static int wm8995_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_DSP_A:
 	case SND_SOC_DAIFMT_DSP_B:
-		
+		/* frame inversion not valid for DSP modes */
 		switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 		case SND_SOC_DAIFMT_NB_NF:
 			break;
@@ -1536,7 +1547,7 @@ static const int srs[] = {
 };
 
 static const int fs_ratios[] = {
-	-1 ,
+	-1 /* reserved */,
 	128, 192, 256, 384, 512, 768, 1024, 1408, 1536
 };
 
@@ -1567,8 +1578,8 @@ static int wm8995_hw_params(struct snd_pcm_substream *substream,
 		aif1_reg = WM8995_AIF1_CONTROL_1;
 		bclk_reg = WM8995_AIF1_BCLK;
 		rate_reg = WM8995_AIF1_RATE;
-		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK 
-) {
+		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK /* ||
+			wm8995->lrclk_shared[0] */) {
 			lrclk_reg = WM8995_AIF1DAC_LRCLK;
 		} else {
 			lrclk_reg = WM8995_AIF1ADC_LRCLK;
@@ -1579,8 +1590,8 @@ static int wm8995_hw_params(struct snd_pcm_substream *substream,
 		aif1_reg = WM8995_AIF2_CONTROL_1;
 		bclk_reg = WM8995_AIF2_BCLK;
 		rate_reg = WM8995_AIF2_RATE;
-		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK 
-) {
+		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK /* ||
+		    wm8995->lrclk_shared[1] */) {
 			lrclk_reg = WM8995_AIF2DAC_LRCLK;
 		} else {
 			lrclk_reg = WM8995_AIF2ADC_LRCLK;
@@ -1614,7 +1625,7 @@ static int wm8995_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	
+	/* try to find a suitable sample rate */
 	for (i = 0; i < ARRAY_SIZE(srs); ++i)
 		if (srs[i] == params_rate(params))
 			break;
@@ -1629,7 +1640,7 @@ static int wm8995_hw_params(struct snd_pcm_substream *substream,
 	dev_dbg(dai->dev, "AIF%dCLK is %dHz, target BCLK %dHz\n",
 		dai->id + 1, wm8995->aifclk[dai->id], bclk_rate);
 
-	
+	/* AIFCLK/fs ratio; look for a close match in either direction */
 	best = 1;
 	best_val = abs((fs_ratios[1] * params_rate(params))
 		       - wm8995->aifclk[dai->id]);
@@ -1646,11 +1657,17 @@ static int wm8995_hw_params(struct snd_pcm_substream *substream,
 	dev_dbg(dai->dev, "Selected AIF%dCLK/fs = %d\n",
 		dai->id + 1, fs_ratios[best]);
 
+	/*
+	 * We may not get quite the right frequency if using
+	 * approximate clocks so look for the closest match that is
+	 * higher than the target (we need to ensure that there enough
+	 * BCLKs to clock out the samples).
+	 */
 	best = 0;
 	bclk = 0;
 	for (i = 0; i < ARRAY_SIZE(bclk_divs); i++) {
 		cur_val = (wm8995->aifclk[dai->id] * 10 / bclk_divs[i]) - bclk_rate;
-		if (cur_val < 0) 
+		if (cur_val < 0) /* BCLK table is sorted */
 			break;
 		best = i;
 	}
@@ -1706,6 +1723,8 @@ static int wm8995_set_tristate(struct snd_soc_dai *codec_dai, int tristate)
 	return snd_soc_update_bits(codec, reg, mask, val);
 }
 
+/* The size in bits of the FLL divide multiplied by 10
+ * to allow rounding later */
 #define FIXED_FLL_SIZE ((1 << 16) * 10)
 
 struct fll_div {
@@ -1724,7 +1743,7 @@ static int wm8995_get_fll_config(struct fll_div *fll,
 
 	pr_debug("FLL input=%dHz, output=%dHz\n", freq_in, freq_out);
 
-	
+	/* Scale the input frequency down to <= 13.5MHz */
 	fll->clk_ref_div = 0;
 	while (freq_in > 13500000) {
 		fll->clk_ref_div++;
@@ -1735,7 +1754,7 @@ static int wm8995_get_fll_config(struct fll_div *fll,
 	}
 	pr_debug("CLK_REF_DIV=%d, Fref=%dHz\n", fll->clk_ref_div, freq_in);
 
-	
+	/* Scale the output to give 90MHz<=Fvco<=100MHz */
 	fll->outdiv = 3;
 	while (freq_out * (fll->outdiv + 1) < 90000000) {
 		fll->outdiv++;
@@ -1762,14 +1781,14 @@ static int wm8995_get_fll_config(struct fll_div *fll,
 	}
 	pr_debug("FLL_FRATIO=%d, Fref=%dHz\n", fll->fll_fratio, freq_in);
 
-	
+	/* Now, calculate N.K */
 	Ndiv = freq_out / freq_in;
 
 	fll->n = Ndiv;
 	Nmod = freq_out % freq_in;
 	pr_debug("Nmod=%d\n", Nmod);
 
-	
+	/* Calculate fractional part - scale up so we can round. */
 	Kpart = FIXED_FLL_SIZE * (long long)Nmod;
 
 	do_div(Kpart, freq_in);
@@ -1779,7 +1798,7 @@ static int wm8995_get_fll_config(struct fll_div *fll,
 	if ((K % 10) >= 5)
 		K += 5;
 
-	
+	/* Move down to proper range now rounding is done */
 	fll->k = K / 10;
 
 	pr_debug("N=%x K=%x\n", fll->n, fll->k);
@@ -1821,7 +1840,7 @@ static int wm8995_set_fll(struct snd_soc_dai *dai, int id,
 
 	switch (src) {
 	case 0:
-		
+		/* Allow no source specification when stopping */
 		if (freq_out)
 			return -EINVAL;
 		break;
@@ -1834,7 +1853,7 @@ static int wm8995_set_fll(struct snd_soc_dai *dai, int id,
 		return -EINVAL;
 	}
 
-	
+	/* Are we changing anything? */
 	if (wm8995->fll[id].src == src &&
 	    wm8995->fll[id].in == freq_in && wm8995->fll[id].out == freq_out)
 		return 0;
@@ -1851,13 +1870,13 @@ static int wm8995_set_fll(struct snd_soc_dai *dai, int id,
 	if (ret < 0)
 		return ret;
 
-	
+	/* Gate the AIF clocks while we reclock */
 	snd_soc_update_bits(codec, WM8995_AIF1_CLOCKING_1,
 			    WM8995_AIF1CLK_ENA_MASK, 0);
 	snd_soc_update_bits(codec, WM8995_AIF2_CLOCKING_1,
 			    WM8995_AIF2CLK_ENA_MASK, 0);
 
-	
+	/* We always need to disable the FLL while reconfiguring */
 	snd_soc_update_bits(codec, WM8995_FLL1_CONTROL_1 + reg_offset,
 			    WM8995_FLL1_ENA_MASK, 0);
 
@@ -1887,7 +1906,7 @@ static int wm8995_set_fll(struct snd_soc_dai *dai, int id,
 	wm8995->fll[id].out = freq_out;
 	wm8995->fll[id].src = src;
 
-	
+	/* Enable any gated AIF clocks */
 	snd_soc_update_bits(codec, WM8995_AIF1_CLOCKING_1,
 			    WM8995_AIF1CLK_ENA_MASK, aif1);
 	snd_soc_update_bits(codec, WM8995_AIF2_CLOCKING_1,
@@ -1912,7 +1931,7 @@ static int wm8995_set_dai_sysclk(struct snd_soc_dai *dai,
 	case 1:
 		break;
 	default:
-		
+		/* AIF3 shares clocking with AIF1/2 */
 		return -EINVAL;
 	}
 
@@ -2057,7 +2076,7 @@ static int wm8995_probe(struct snd_soc_codec *codec)
 	wm8995->disable_nb[6].notifier_call = wm8995_regulator_event_6;
 	wm8995->disable_nb[7].notifier_call = wm8995_regulator_event_7;
 
-	
+	/* This should really be moved into the regulator core */
 	for (i = 0; i < ARRAY_SIZE(wm8995->supplies); i++) {
 		ret = regulator_register_notifier(wm8995->supplies[i].consumer,
 						  &wm8995->disable_nb[i]);
@@ -2095,7 +2114,7 @@ static int wm8995_probe(struct snd_soc_codec *codec)
 
 	wm8995_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
-	
+	/* Latch volume updates (right only; we always do left then right). */
 	snd_soc_update_bits(codec, WM8995_AIF1_DAC1_RIGHT_VOLUME,
 			    WM8995_AIF1DAC1_VU_MASK, WM8995_AIF1DAC1_VU);
 	snd_soc_update_bits(codec, WM8995_AIF1_DAC2_RIGHT_VOLUME,

@@ -32,4 +32,4 @@ struct dentry *spmi_dfs_create_file(struct spmi_controller *ctrl,
 					const char *name, void *data,
 					const struct file_operations *fops);
 
-#endif 
+#endif /* _SPMI_DBGFS_H */

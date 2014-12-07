@@ -48,9 +48,17 @@
 #define USB_VENDOR_REQUEST_WRITE_REGISTER	0xA0
 #define USB_VENDOR_REQUEST_READ_REGISTER	0xA1
 
+/*
+ * TODO: Propose standard fb.h ioctl for reporting damage,
+ * using _IOWR() and one of the existing area structs from fb.h
+ * Consider these ioctls deprecated, but they're still used by the
+ * DisplayLink X server as yet - need both to be modified in tandem
+ * when new ioctl(s) are ready.
+ */
 #define UFX_IOCTL_RETURN_EDID	(0xAD)
 #define UFX_IOCTL_REPORT_DAMAGE	(0xAA)
 
+/* -BULK_SIZE as per usb-skeleton. Can we get full page and avoid overhead? */
 #define BULK_SIZE		(512)
 #define MAX_TRANSFER		(PAGE_SIZE*16 - BULK_SIZE)
 #define WRITES_IN_FLIGHT	(4)
@@ -60,8 +68,8 @@
 
 #define BPP			2
 
-#define UFX_DEFIO_WRITE_DELAY	5 
-#define UFX_DEFIO_WRITE_DISABLE	(HZ*60) 
+#define UFX_DEFIO_WRITE_DELAY	5 /* fb_deferred_io.delay in jiffies */
+#define UFX_DEFIO_WRITE_DISABLE	(HZ*60) /* "disable" with long delay */
 
 struct dloarea {
 	int x, y;
@@ -86,16 +94,16 @@ struct urb_list {
 
 struct ufx_data {
 	struct usb_device *udev;
-	struct device *gdev; 
+	struct device *gdev; /* &udev->dev */
 	struct fb_info *info;
 	struct urb_list urbs;
 	struct kref kref;
 	int fb_count;
-	bool virtualized; 
+	bool virtualized; /* true when physical usb device not present */
 	struct delayed_work free_framebuffer_work;
-	atomic_t usb_active; 
-	atomic_t lost_pixels; 
-	u8 *edid; 
+	atomic_t usb_active; /* 0 = update virtual buffer, but no usb traffic */
+	atomic_t lost_pixels; /* 1 = a render op failed. Need screen refresh */
+	u8 *edid; /* null until we read edid from hw or get from sysfs */
 	size_t edid_size;
 	u32 pseudo_palette[256];
 };
@@ -121,15 +129,18 @@ static struct usb_device_id id_table[] = {
 };
 MODULE_DEVICE_TABLE(usb, id_table);
 
-static bool console;   
-static bool fb_defio = true;  
+/* module options */
+static bool console;   /* Optionally allow fbcon to consume first framebuffer */
+static bool fb_defio = true;  /* Optionally enable fb_defio mmap support */
 
+/* ufx keeps a list of urbs for efficient bulk transfers */
 static void ufx_urb_completion(struct urb *urb);
 static struct urb *ufx_get_urb(struct ufx_data *dev);
 static int ufx_submit_urb(struct ufx_data *dev, struct urb * urb, size_t len);
 static int ufx_alloc_urb_list(struct ufx_data *dev, int count, size_t size);
 static void ufx_free_urb_list(struct ufx_data *dev);
 
+/* reads a control register */
 static int ufx_reg_read(struct ufx_data *dev, u32 index, u32 *data)
 {
 	u32 *buf = kmalloc(4, GFP_KERNEL);
@@ -155,6 +166,7 @@ static int ufx_reg_read(struct ufx_data *dev, u32 index, u32 *data)
 	return ret;
 }
 
+/* writes a control register */
 static int ufx_reg_write(struct ufx_data *dev, u32 index, u32 data)
 {
 	u32 *buf = kmalloc(4, GFP_KERNEL);
@@ -224,6 +236,7 @@ static int ufx_lite_reset(struct ufx_data *dev)
 	return (value == 0) ? 0 : -EIO;
 }
 
+/* If display is unblanked, then blank it */
 static int ufx_blank(struct ufx_data *dev, bool wait)
 {
 	u32 dc_ctrl, dc_sts;
@@ -235,16 +248,16 @@ static int ufx_blank(struct ufx_data *dev, bool wait)
 	status = ufx_reg_read(dev, 0x2000, &dc_ctrl);
 	check_warn_return(status, "ufx_blank error reading 0x2000");
 
-	
+	/* return success if display is already blanked */
 	if ((dc_sts & 0x00000100) || (dc_ctrl & 0x00000100))
 		return 0;
 
-	
+	/* request the DC to blank the display */
 	dc_ctrl |= 0x00000100;
 	status = ufx_reg_write(dev, 0x2000, dc_ctrl);
 	check_warn_return(status, "ufx_blank error writing 0x2000");
 
-	
+	/* return success immediately if we don't have to wait */
 	if (!wait)
 		return 0;
 
@@ -256,10 +269,11 @@ static int ufx_blank(struct ufx_data *dev, bool wait)
 			return 0;
 	}
 
-	
+	/* timed out waiting for display to blank */
 	return -EIO;
 }
 
+/* If display is blanked, then unblank it */
 static int ufx_unblank(struct ufx_data *dev, bool wait)
 {
 	u32 dc_ctrl, dc_sts;
@@ -271,16 +285,16 @@ static int ufx_unblank(struct ufx_data *dev, bool wait)
 	status = ufx_reg_read(dev, 0x2000, &dc_ctrl);
 	check_warn_return(status, "ufx_unblank error reading 0x2000");
 
-	
+	/* return success if display is already unblanked */
 	if (((dc_sts & 0x00000100) == 0) || ((dc_ctrl & 0x00000100) == 0))
 		return 0;
 
-	
+	/* request the DC to unblank the display */
 	dc_ctrl &= ~0x00000100;
 	status = ufx_reg_write(dev, 0x2000, dc_ctrl);
 	check_warn_return(status, "ufx_unblank error writing 0x2000");
 
-	
+	/* return success immediately if we don't have to wait */
 	if (!wait)
 		return 0;
 
@@ -292,10 +306,11 @@ static int ufx_unblank(struct ufx_data *dev, bool wait)
 			return 0;
 	}
 
-	
+	/* timed out waiting for display to unblank */
 	return -EIO;
 }
 
+/* If display is enabled, then disable it */
 static int ufx_disable(struct ufx_data *dev, bool wait)
 {
 	u32 dc_ctrl, dc_sts;
@@ -307,16 +322,16 @@ static int ufx_disable(struct ufx_data *dev, bool wait)
 	status = ufx_reg_read(dev, 0x2000, &dc_ctrl);
 	check_warn_return(status, "ufx_disable error reading 0x2000");
 
-	
+	/* return success if display is already disabled */
 	if (((dc_sts & 0x00000001) == 0) || ((dc_ctrl & 0x00000001) == 0))
 		return 0;
 
-	
+	/* request the DC to disable the display */
 	dc_ctrl &= ~(0x00000001);
 	status = ufx_reg_write(dev, 0x2000, dc_ctrl);
 	check_warn_return(status, "ufx_disable error writing 0x2000");
 
-	
+	/* return success immediately if we don't have to wait */
 	if (!wait)
 		return 0;
 
@@ -328,10 +343,11 @@ static int ufx_disable(struct ufx_data *dev, bool wait)
 			return 0;
 	}
 
-	
+	/* timed out waiting for display to disable */
 	return -EIO;
 }
 
+/* If display is disabled, then enable it */
 static int ufx_enable(struct ufx_data *dev, bool wait)
 {
 	u32 dc_ctrl, dc_sts;
@@ -343,16 +359,16 @@ static int ufx_enable(struct ufx_data *dev, bool wait)
 	status = ufx_reg_read(dev, 0x2000, &dc_ctrl);
 	check_warn_return(status, "ufx_enable error reading 0x2000");
 
-	
+	/* return success if display is already enabled */
 	if ((dc_sts & 0x00000001) || (dc_ctrl & 0x00000001))
 		return 0;
 
-	
+	/* request the DC to enable the display */
 	dc_ctrl |= 0x00000001;
 	status = ufx_reg_write(dev, 0x2000, dc_ctrl);
 	check_warn_return(status, "ufx_enable error writing 0x2000");
 
-	
+	/* return success immediately if we don't have to wait */
 	if (!wait)
 		return 0;
 
@@ -364,7 +380,7 @@ static int ufx_enable(struct ufx_data *dev, bool wait)
 			return 0;
 	}
 
-	
+	/* timed out waiting for display to enable */
 	return -EIO;
 }
 
@@ -512,6 +528,7 @@ static u32 ufx_calc_range(u32 ref_freq)
 	return 1;
 }
 
+/* calculates PLL divider settings for a desired target frequency */
 static void ufx_calc_pll_values(const u32 clk_pixel_pll, struct pll_values *asic_pll)
 {
 	const u32 ref_clk = 25000000;
@@ -572,6 +589,8 @@ static void ufx_calc_pll_values(const u32 clk_pixel_pll, struct pll_values *asic
 							if (error < min_error) {
 								min_error = error;
 
+								/* final returned value is equal to calculated value - 1
+								 * because a value of 0 = divide by 1 */
 								asic_pll->div_r0 = div_r0 - 1;
 								asic_pll->div_f0 = div_f0 - 1;
 								asic_pll->div_q0 = div_q0;
@@ -593,22 +612,23 @@ static void ufx_calc_pll_values(const u32 clk_pixel_pll, struct pll_values *asic
 	}
 }
 
+/* sets analog bit PLL configuration values */
 static int ufx_config_pix_clk(struct ufx_data *dev, u32 pixclock)
 {
 	struct pll_values asic_pll = {0};
 	u32 value, clk_pixel, clk_pixel_pll;
 	int status;
 
-	
+	/* convert pixclock (in ps) to frequency (in Hz) */
 	clk_pixel = PICOS2KHZ(pixclock) * 1000;
 	pr_debug("pixclock %d ps = clk_pixel %d Hz", pixclock, clk_pixel);
 
-	
+	/* clk_pixel = 1/2 clk_pixel_pll */
 	clk_pixel_pll = clk_pixel * 2;
 
 	ufx_calc_pll_values(clk_pixel_pll, &asic_pll);
 
-	
+	/* Keep BYPASS and RESET signals asserted until configured */
 	status = ufx_reg_write(dev, 0x7000, 0x8000000F);
 	check_warn_return(status, "error writing 0x7000");
 
@@ -650,7 +670,7 @@ static int ufx_set_vid_mode(struct ufx_data *dev, struct fb_var_screeninfo *var)
 	status = ufx_reg_write(dev, 0x8024, 0);
 	check_warn_return(status, "ufx_set_vid_mode error disabling VDAC");
 
-	
+	/* shut everything down before changing timing */
 	status = ufx_blank(dev, true);
 	check_warn_return(status, "ufx_set_vid_mode error blanking display");
 
@@ -663,7 +683,7 @@ static int ufx_set_vid_mode(struct ufx_data *dev, struct fb_var_screeninfo *var)
 	status = ufx_reg_write(dev, 0x2000, 0x00000104);
 	check_warn_return(status, "ufx_set_vid_mode error writing 0x2000");
 
-	
+	/* set horizontal timings */
 	h_total = var->xres + var->right_margin + var->hsync_len + var->left_margin;
 	h_active = var->xres;
 	h_blank_start = var->xres + var->right_margin;
@@ -683,7 +703,7 @@ static int ufx_set_vid_mode(struct ufx_data *dev, struct fb_var_screeninfo *var)
 	status = ufx_reg_write(dev, 0x2010, temp);
 	check_warn_return(status, "ufx_set_vid_mode error writing 0x2010");
 
-	
+	/* set vertical timings */
 	v_total = var->upper_margin + var->yres + var->lower_margin + var->vsync_len;
 	v_active = var->yres;
 	v_blank_start = var->yres + var->lower_margin;
@@ -709,13 +729,13 @@ static int ufx_set_vid_mode(struct ufx_data *dev, struct fb_var_screeninfo *var)
 	status = ufx_reg_write(dev, 0x2024, 0x00000000);
 	check_warn_return(status, "ufx_set_vid_mode error writing 0x2024");
 
-	
+	/* Set the frame length register (#pix * 2 bytes/pixel) */
 	temp = var->xres * var->yres * 2;
 	temp = (temp + 7) & (~0x7);
 	status = ufx_reg_write(dev, 0x2028, temp);
 	check_warn_return(status, "ufx_set_vid_mode error writing 0x2028");
 
-	
+	/* enable desired output interface & disable others */
 	status = ufx_reg_write(dev, 0x2040, 0);
 	check_warn_return(status, "ufx_set_vid_mode error writing 0x2040");
 
@@ -725,7 +745,7 @@ static int ufx_set_vid_mode(struct ufx_data *dev, struct fb_var_screeninfo *var)
 	status = ufx_reg_write(dev, 0x2048, 0);
 	check_warn_return(status, "ufx_set_vid_mode error writing 0x2048");
 
-	
+	/* set the sync polarities & enable bit */
 	temp = 0x00000001;
 	if (var->sync & FB_SYNC_HOR_HIGH_ACT)
 		temp |= 0x00000010;
@@ -736,19 +756,19 @@ static int ufx_set_vid_mode(struct ufx_data *dev, struct fb_var_screeninfo *var)
 	status = ufx_reg_write(dev, 0x2040, temp);
 	check_warn_return(status, "ufx_set_vid_mode error writing 0x2040");
 
-	
+	/* start everything back up */
 	status = ufx_enable(dev, true);
 	check_warn_return(status, "ufx_set_vid_mode error enabling display");
 
-	
+	/* Unblank the display */
 	status = ufx_unblank(dev, true);
 	check_warn_return(status, "ufx_set_vid_mode error unblanking display");
 
-	
+	/* enable RGB pad */
 	status = ufx_reg_write(dev, 0x8028, 0x00000003);
 	check_warn_return(status, "ufx_set_vid_mode error enabling RGB pad");
 
-	
+	/* enable VDAC */
 	status = ufx_reg_write(dev, 0x8024, 0x00000007);
 	check_warn_return(status, "ufx_set_vid_mode error enabling VDAC");
 
@@ -783,7 +803,7 @@ static int ufx_ops_mmap(struct fb_info *info, struct vm_area_struct *vma)
 			size = 0;
 	}
 
-	vma->vm_flags |= VM_RESERVED;	
+	vma->vm_flags |= VM_RESERVED;	/* avoid to swap out this VMA */
 	return 0;
 }
 
@@ -797,10 +817,10 @@ static void ufx_raw_rect(struct ufx_data *dev, u16 *cmd, int x, int y,
 	BUG_ON(!dev);
 	BUG_ON(!dev->info);
 
-	
+	/* command word */
 	*((u32 *)&cmd[0]) = cpu_to_le32(0x01);
 
-	
+	/* length word */
 	*((u32 *)&cmd[2]) = cpu_to_le32(packed_rect_len + 16);
 
 	cmd[4] = cpu_to_le16(x);
@@ -808,16 +828,16 @@ static void ufx_raw_rect(struct ufx_data *dev, u16 *cmd, int x, int y,
 	cmd[6] = cpu_to_le16(width);
 	cmd[7] = cpu_to_le16(height);
 
-	
+	/* frame base address */
 	*((u32 *)&cmd[8]) = cpu_to_le32(0);
 
-	
+	/* color mode and horizontal resolution */
 	cmd[10] = cpu_to_le16(0x4000 | dev->info->var.xres);
 
-	
+	/* vertical resolution */
 	cmd[11] = cpu_to_le16(dev->info->var.yres);
 
-	
+	/* packed data */
 	for (line = 0; line < height; line++) {
 		const int line_offset = dev->info->fix.line_length * (y + line);
 		const int byte_offset = line_offset + (x * BPP);
@@ -847,13 +867,13 @@ int ufx_handle_damage(struct ufx_data *dev, int x, int y,
 			return 0;
 		}
 
-		
+		/* assume we have enough space to transfer at least one line */
 		BUG_ON(urb->transfer_buffer_length < (24 + (width * 2)));
 
-		
+		/* calculate the maximum number of lines we could fit in */
 		urb_lines = (urb->transfer_buffer_length - 24) / packed_line_len;
 
-		
+		/* but we might not need this many */
 		urb_lines = min(urb_lines, (height - start_line));
 
 		memset(urb->transfer_buffer, 0, urb->transfer_buffer_length);
@@ -870,6 +890,10 @@ int ufx_handle_damage(struct ufx_data *dev, int x, int y,
 	return 0;
 }
 
+/* Path triggered by usermode clients who write to filesystem
+ * e.g. cat filename > /dev/fb1
+ * Not used by X Windows or text-mode console. But useful for testing.
+ * Slow because of extra copy and we must assume all pixels dirty. */
 static ssize_t ufx_ops_write(struct fb_info *info, const char __user *buf,
 			  size_t count, loff_t *ppos)
 {
@@ -924,6 +948,10 @@ static void ufx_ops_fillrect(struct fb_info *info,
 			      rect->height);
 }
 
+/* NOTE: fb_defio.c is holding info->fbdefio.mutex
+ *   Touching ANY framebuffer memory that triggers a page fault
+ *   in fb_defio will cause a deadlock, when it also tries to
+ *   grab the same mutex. */
 static void ufx_dpy_deferred_io(struct fb_info *info,
 				struct list_head *pagelist)
 {
@@ -939,6 +967,8 @@ static void ufx_dpy_deferred_io(struct fb_info *info,
 
 	/* walk the written page list and render each to device */
 	list_for_each_entry(cur, &fbdefio->pagelist, lru) {
+		/* create a rectangle of full screen width that encloses the
+		 * entire dirty framebuffer page */
 		const int x = 0;
 		const int width = dev->info->var.xres;
 		const int y = (cur->index << PAGE_SHIFT) / (width * 2);
@@ -961,7 +991,7 @@ static int ufx_ops_ioctl(struct fb_info *info, unsigned int cmd,
 	if (!atomic_read(&dev->usb_active))
 		return 0;
 
-	
+	/* TODO: Update X server to get this from sysfs instead */
 	if (cmd == UFX_IOCTL_RETURN_EDID) {
 		u8 __user *edid = (u8 __user *)arg;
 		if (copy_to_user(edid, dev->edid, dev->edid_size))
@@ -969,8 +999,14 @@ static int ufx_ops_ioctl(struct fb_info *info, unsigned int cmd,
 		return 0;
 	}
 
-	
+	/* TODO: Help propose a standard fb.h ioctl to report mmap damage */
 	if (cmd == UFX_IOCTL_REPORT_DAMAGE) {
+		/* If we have a damage-aware client, turn fb_defio "off"
+		 * To avoid perf imact of unecessary page fault handling.
+		 * Done by resetting the delay for this fb_info to a very
+		 * long period. Pages will become writable and stay that way.
+		 * Reset to normal value when all clients have closed this fb.
+		 */
 		if (info->fbdefio)
 			info->fbdefio->delay = UFX_DEFIO_WRITE_DISABLE;
 
@@ -994,6 +1030,7 @@ static int ufx_ops_ioctl(struct fb_info *info, unsigned int cmd,
 	return 0;
 }
 
+/* taken from vesafb */
 static int
 ufx_ops_setcolreg(unsigned regno, unsigned red, unsigned green,
 	       unsigned blue, unsigned transp, struct fb_info *info)
@@ -1005,12 +1042,12 @@ ufx_ops_setcolreg(unsigned regno, unsigned red, unsigned green,
 
 	if (regno < 16) {
 		if (info->var.red.offset == 10) {
-			
+			/* 1:5:5:5 */
 			((u32 *) (info->pseudo_palette))[regno] =
 			    ((red & 0xf800) >> 1) |
 			    ((green & 0xf800) >> 6) | ((blue & 0xf800) >> 11);
 		} else {
-			
+			/* 0:5:6:5 */
 			((u32 *) (info->pseudo_palette))[regno] =
 			    ((red & 0xf800)) |
 			    ((green & 0xfc00) >> 5) | ((blue & 0xf800) >> 11);
@@ -1020,14 +1057,20 @@ ufx_ops_setcolreg(unsigned regno, unsigned red, unsigned green,
 	return err;
 }
 
+/* It's common for several clients to have framebuffer open simultaneously.
+ * e.g. both fbcon and X. Makes things interesting.
+ * Assumes caller is holding info->lock (for open and release at least) */
 static int ufx_ops_open(struct fb_info *info, int user)
 {
 	struct ufx_data *dev = info->par;
 
+	/* fbcon aggressively connects to first framebuffer it finds,
+	 * preventing other clients (X) from working properly. Usually
+	 * not what the user wants. Fail by default with option to enable. */
 	if (user == 0 && !console)
 		return -EBUSY;
 
-	
+	/* If the USB device is gone, we don't accept new opens */
 	if (dev->virtualized)
 		return -ENODEV;
 
@@ -1036,7 +1079,7 @@ static int ufx_ops_open(struct fb_info *info, int user)
 	kref_get(&dev->kref);
 
 	if (fb_defio && (info->fbdefio == NULL)) {
-		
+		/* enable defio at last moment if not disabled by client */
 
 		struct fb_deferred_io *fbdefio;
 
@@ -1057,11 +1100,16 @@ static int ufx_ops_open(struct fb_info *info, int user)
 	return 0;
 }
 
+/*
+ * Called when all client interfaces to start transactions have been disabled,
+ * and all references to our device instance (ufx_data) are released.
+ * Every transaction must have a reference, so we know are fully spun down
+ */
 static void ufx_free(struct kref *kref)
 {
 	struct ufx_data *dev = container_of(kref, struct ufx_data, kref);
 
-	
+	/* this function will wait for all in-flight urbs to complete */
 	if (dev->urbs.count > 0)
 		ufx_free_urb_list(dev);
 
@@ -1098,22 +1146,25 @@ static void ufx_free_framebuffer_work(struct work_struct *work)
 
 	dev->info = 0;
 
-	
+	/* Assume info structure is freed after this point */
 	framebuffer_release(info);
 
 	pr_debug("fb_info for /dev/fb%d has been freed", node);
 
-	
+	/* ref taken in probe() as part of registering framebfufer */
 	kref_put(&dev->kref, ufx_free);
 }
 
+/*
+ * Assumes caller is holding info->lock mutex (for open and release at least)
+ */
 static int ufx_ops_release(struct fb_info *info, int user)
 {
 	struct ufx_data *dev = info->par;
 
 	dev->fb_count--;
 
-	
+	/* We can't free fb_info here - fbmem will touch it when we return */
 	if (dev->virtualized && (dev->fb_count == 0))
 		schedule_delayed_work(&dev->free_framebuffer_work, HZ);
 
@@ -1132,6 +1183,8 @@ static int ufx_ops_release(struct fb_info *info, int user)
 	return 0;
 }
 
+/* Check whether a video mode is supported by the chip
+ * We start from monitor's modes, so don't need to filter that here */
 static int ufx_is_valid_mode(struct fb_videomode *mode,
 		struct fb_info *info)
 {
@@ -1169,11 +1222,11 @@ static int ufx_ops_check_var(struct fb_var_screeninfo *var,
 {
 	struct fb_videomode mode;
 
-	
+	/* TODO: support dynamically changing framebuffer size */
 	if ((var->xres * var->yres * 2) > info->fix.smem_len)
 		return -EINVAL;
 
-	
+	/* set device-specific elements of var unrelated to mode */
 	ufx_var_color_format(var);
 
 	fb_var_to_videomode(&mode, var);
@@ -1195,7 +1248,7 @@ static int ufx_ops_set_par(struct fb_info *info)
 	result = ufx_set_vid_mode(dev, &info->var);
 
 	if ((result == 0) && (dev->fb_count == 0)) {
-		
+		/* paint greenscreen */
 		pix_framebuffer = (u16 *) info->screen_base;
 		for (i = 0; i < info->fix.smem_len / 2; i++)
 			pix_framebuffer[i] = 0x37e6;
@@ -1203,13 +1256,14 @@ static int ufx_ops_set_par(struct fb_info *info)
 		ufx_handle_damage(dev, 0, 0, info->var.xres, info->var.yres);
 	}
 
-	
+	/* re-enable defio if previously disabled by damage tracking */
 	if (info->fbdefio)
 		info->fbdefio->delay = UFX_DEFIO_WRITE_DELAY;
 
 	return result;
 }
 
+/* In order to come back from full DPMS off, we need to set the mode again */
 static int ufx_ops_blank(int blank_mode, struct fb_info *info)
 {
 	struct ufx_data *dev = info->par;
@@ -1234,6 +1288,8 @@ static struct fb_ops ufx_ops = {
 	.fb_set_par = ufx_ops_set_par,
 };
 
+/* Assumes &info->lock held by caller
+ * Assumes no active clients have framebuffer open */
 static int ufx_realloc_framebuffer(struct ufx_data *dev, struct fb_info *info)
 {
 	int retval = -ENOMEM;
@@ -1247,6 +1303,9 @@ static int ufx_realloc_framebuffer(struct ufx_data *dev, struct fb_info *info)
 	new_len = info->fix.line_length * info->var.yres;
 
 	if (PAGE_ALIGN(new_len) > old_len) {
+		/*
+		 * Alloc system memory for virtual framebuffer
+		 */
 		new_fb = vmalloc(new_len);
 		if (!new_fb) {
 			pr_err("Virtual framebuffer alloc failed");
@@ -1270,48 +1329,53 @@ error:
 	return retval;
 }
 
+/* sets up I2C Controller for 100 Kbps, std. speed, 7-bit addr, master,
+ * restart enabled, but no start byte, enable controller */
 static int ufx_i2c_init(struct ufx_data *dev)
 {
 	u32 tmp;
 
-	
+	/* disable the controller before it can be reprogrammed */
 	int status = ufx_reg_write(dev, 0x106C, 0x00);
 	check_warn_return(status, "failed to disable I2C");
 
+	/* Setup the clock count registers
+	 * (12+1) = 13 clks @ 2.5 MHz = 5.2 uS */
 	status = ufx_reg_write(dev, 0x1018, 12);
 	check_warn_return(status, "error writing 0x1018");
 
-	
+	/* (6+8) = 14 clks @ 2.5 MHz = 5.6 uS */
 	status = ufx_reg_write(dev, 0x1014, 6);
 	check_warn_return(status, "error writing 0x1014");
 
 	status = ufx_reg_read(dev, 0x1000, &tmp);
 	check_warn_return(status, "error reading 0x1000");
 
-	
+	/* set speed to std mode */
 	tmp &= ~(0x06);
 	tmp |= 0x02;
 
-	
+	/* 7-bit (not 10-bit) addressing */
 	tmp &= ~(0x10);
 
-	
+	/* enable restart conditions and master mode */
 	tmp |= 0x21;
 
 	status = ufx_reg_write(dev, 0x1000, tmp);
 	check_warn_return(status, "error writing 0x1000");
 
-	
+	/* Set normal tx using target address 0 */
 	status = ufx_reg_clear_and_set_bits(dev, 0x1004, 0xC00, 0x000);
 	check_warn_return(status, "error setting TX mode bits in 0x1004");
 
-	
+	/* Enable the controller */
 	status = ufx_reg_write(dev, 0x106C, 0x01);
 	check_warn_return(status, "failed to enable I2C");
 
 	return 0;
 }
 
+/* sets the I2C port mux and target address */
 static int ufx_i2c_configure(struct ufx_data *dev)
 {
 	int status = ufx_reg_write(dev, 0x106C, 0x00);
@@ -1320,7 +1384,7 @@ static int ufx_i2c_configure(struct ufx_data *dev)
 	status = ufx_reg_write(dev, 0x3010, 0x00000000);
 	check_warn_return(status, "failed to write 0x3010");
 
-	
+	/* A0h is std for any EDID, right shifted by one */
 	status = ufx_reg_clear_and_set_bits(dev, 0x1004, 0x3FF,	(0xA0 >> 1));
 	check_warn_return(status, "failed to set TAR bits in 0x1004");
 
@@ -1330,6 +1394,8 @@ static int ufx_i2c_configure(struct ufx_data *dev)
 	return 0;
 }
 
+/* wait for BUSY to clear, with a timeout of 50ms with 10ms sleeps. if no
+ * monitor is connected, there is no error except for timeout */
 static int ufx_i2c_wait_busy(struct ufx_data *dev)
 {
 	u32 tmp;
@@ -1339,7 +1405,7 @@ static int ufx_i2c_wait_busy(struct ufx_data *dev)
 		status = ufx_reg_read(dev, 0x1100, &tmp);
 		check_warn_return(status, "0x1100 read failed");
 
-		
+		/* if BUSY is clear, check for error */
 		if ((tmp & 0x80000000) == 0) {
 			if (tmp & 0x20000000) {
 				pr_warn("I2C read failed, 0x1100=0x%08x", tmp);
@@ -1349,7 +1415,7 @@ static int ufx_i2c_wait_busy(struct ufx_data *dev)
 			return 0;
 		}
 
-		
+		/* perform the first 10 retries without delay */
 		if (i >= 10)
 			msleep(10);
 	}
@@ -1361,6 +1427,7 @@ static int ufx_i2c_wait_busy(struct ufx_data *dev)
 	return -ETIMEDOUT;
 }
 
+/* reads a 128-byte EDID block from the currently selected port and TAR */
 static int ufx_read_edid(struct ufx_data *dev, u8 *edid, int edid_len)
 {
 	int i, j, status;
@@ -1376,7 +1443,7 @@ static int ufx_read_edid(struct ufx_data *dev, u8 *edid, int edid_len)
 
 	memset(edid, 0xff, EDID_LENGTH);
 
-	
+	/* Read the 128-byte EDID as 2 bursts of 64 bytes */
 	for (i = 0; i < 2; i++) {
 		u32 temp = 0x28070000 | (63 << 20) | (((u32)(i * 64)) << 8);
 		status = ufx_reg_write(dev, 0x1100, temp);
@@ -1396,7 +1463,7 @@ static int ufx_read_edid(struct ufx_data *dev, u8 *edid, int edid_len)
 		}
 	}
 
-	
+	/* all FF's in the first 16 bytes indicates nothing is connected */
 	for (i = 0; i < 16; i++) {
 		if (edid[i] != 0xFF) {
 			pr_debug("edid data read succesfully");
@@ -1408,6 +1475,18 @@ static int ufx_read_edid(struct ufx_data *dev, u8 *edid, int edid_len)
 	return -ETIMEDOUT;
 }
 
+/* 1) use sw default
+ * 2) Parse into various fb_info structs
+ * 3) Allocate virtual framebuffer memory to back highest res mode
+ *
+ * Parses EDID into three places used by various parts of fbdev:
+ * fb_var_screeninfo contains the timing of the monitor's preferred mode
+ * fb_info.monspecs is full parsed EDID info, including monspecs.modedb
+ * fb_info.modelist is a linked list of all monitor & VESA modes which work
+ *
+ * If EDID is not readable/valid, then modelist is all VESA modes,
+ * monspecs is NULL, and fb_var_screeninfo is set to safe VESA mode
+ * Returns 0 if successful */
 static int ufx_setup_modes(struct ufx_data *dev, struct fb_info *info,
 	char *default_edid, size_t default_edid_size)
 {
@@ -1415,7 +1494,7 @@ static int ufx_setup_modes(struct ufx_data *dev, struct fb_info *info,
 	u8 *edid;
 	int i, result = 0, tries = 3;
 
-	if (info->dev) 
+	if (info->dev) /* only use mutex if info has been registered */
 		mutex_lock(&info->lock);
 
 	edid = kmalloc(EDID_LENGTH, GFP_KERNEL);
@@ -1427,6 +1506,9 @@ static int ufx_setup_modes(struct ufx_data *dev, struct fb_info *info,
 	fb_destroy_modelist(&info->modelist);
 	memset(&info->monspecs, 0, sizeof(info->monspecs));
 
+	/* Try to (re)read EDID from hardware first
+	 * EDID data may return, but not parse as valid
+	 * Try again a few times, in case of e.g. analog cable noise */
 	while (tries--) {
 		i = ufx_read_edid(dev, edid, EDID_LENGTH);
 
@@ -1440,7 +1522,7 @@ static int ufx_setup_modes(struct ufx_data *dev, struct fb_info *info,
 		}
 	}
 
-	
+	/* If that fails, use a previously returned EDID if available */
 	if (info->monspecs.modedb_len == 0) {
 		pr_err("Unable to get valid EDID from device/display\n");
 
@@ -1451,7 +1533,7 @@ static int ufx_setup_modes(struct ufx_data *dev, struct fb_info *info,
 		}
 	}
 
-	
+	/* If that fails, use the default EDID we were handed */
 	if (info->monspecs.modedb_len == 0) {
 		if (default_edid_size >= EDID_LENGTH) {
 			fb_edid_to_monspecs(default_edid, &info->monspecs);
@@ -1464,14 +1546,14 @@ static int ufx_setup_modes(struct ufx_data *dev, struct fb_info *info,
 		}
 	}
 
-	
+	/* If we've got modes, let's pick a best default mode */
 	if (info->monspecs.modedb_len > 0) {
 
 		for (i = 0; i < info->monspecs.modedb_len; i++) {
 			if (ufx_is_valid_mode(&info->monspecs.modedb[i], info))
 				fb_add_videomode(&info->monspecs.modedb[i],
 					&info->modelist);
-			else 
+			else /* if we've removed top/best mode */
 				info->monspecs.misc &= ~FB_MISC_1ST_DETAIL;
 		}
 
@@ -1479,11 +1561,16 @@ static int ufx_setup_modes(struct ufx_data *dev, struct fb_info *info,
 						     &info->modelist);
 	}
 
-	
+	/* If everything else has failed, fall back to safe default mode */
 	if (default_vmode == NULL) {
 
 		struct fb_videomode fb_vmode = {0};
 
+		/* Add the standard VESA modes to our modelist
+		 * Since we don't have EDID, there may be modes that
+		 * overspec monitor and/or are incorrect aspect ratio, etc.
+		 * But at least the user has a chance to choose
+		 */
 		for (i = 0; i < VESA_MODEDB_SIZE; i++) {
 			if (ufx_is_valid_mode((struct fb_videomode *)
 						&vesa_modes[i], info))
@@ -1491,6 +1578,9 @@ static int ufx_setup_modes(struct ufx_data *dev, struct fb_info *info,
 						 &info->modelist);
 		}
 
+		/* default to resolution safe for projectors
+		 * (since they are most common case without EDID)
+		 */
 		fb_vmode.xres = 800;
 		fb_vmode.yres = 600;
 		fb_vmode.refresh = 60;
@@ -1498,13 +1588,13 @@ static int ufx_setup_modes(struct ufx_data *dev, struct fb_info *info,
 						     &info->modelist);
 	}
 
-	
+	/* If we have good mode and no active clients */
 	if ((default_vmode != NULL) && (dev->fb_count == 0)) {
 
 		fb_videomode_to_var(&info->var, default_vmode);
 		ufx_var_color_format(&info->var);
 
-		
+		/* with mode size info, we can now alloc our framebuffer */
 		memcpy(&info->fix, &ufx_fix, sizeof(ufx_fix));
 		info->fix.line_length = info->var.xres *
 			(info->var.bits_per_pixel / 8);
@@ -1533,7 +1623,7 @@ static int ufx_usb_probe(struct usb_interface *interface,
 	int retval = -ENOMEM;
 	u32 id_rev, fpga_rev;
 
-	
+	/* usb initialization */
 	usbdev = interface_to_usbdev(interface);
 	BUG_ON(!usbdev);
 
@@ -1543,12 +1633,12 @@ static int ufx_usb_probe(struct usb_interface *interface,
 		goto error;
 	}
 
-	
-	kref_init(&dev->kref); 
-	kref_get(&dev->kref); 
+	/* we need to wait for both usb and fbdev to spin down on disconnect */
+	kref_init(&dev->kref); /* matching kref_put in usb .disconnect fn */
+	kref_get(&dev->kref); /* matching kref_put in free_framebuffer_work */
 
 	dev->udev = usbdev;
-	dev->gdev = &usbdev->dev; 
+	dev->gdev = &usbdev->dev; /* our generic struct device * */
 	usb_set_intfdata(interface, dev);
 
 	dev_dbg(dev->gdev, "%s %s - serial #%s\n",
@@ -1565,9 +1655,9 @@ static int ufx_usb_probe(struct usb_interface *interface,
 		goto error;
 	}
 
-	
+	/* We don't register a new USB class. Our client interface is fbdev */
 
-	
+	/* allocates framebuffer driver structure, not framebuffer memory */
 	info = framebuffer_alloc(0, &usbdev->dev);
 	if (!info) {
 		retval = -ENOMEM;
@@ -1622,7 +1712,7 @@ static int ufx_usb_probe(struct usb_interface *interface,
 	retval = ufx_reg_set_bits(dev, 0x4000, 0x00000001);
 	check_warn_goto_error(retval, "error %d enabling graphics engine", retval);
 
-	
+	/* ready to begin using device */
 	atomic_set(&dev->usb_active, 1);
 
 	dev_dbg(dev->gdev, "checking var");
@@ -1658,10 +1748,10 @@ error:
 			framebuffer_release(info);
 		}
 
-		kref_put(&dev->kref, ufx_free); 
-		kref_put(&dev->kref, ufx_free); 
+		kref_put(&dev->kref, ufx_free); /* ref for framebuffer */
+		kref_put(&dev->kref, ufx_free); /* last ref from kref_init */
 
-		
+		/* dev has been deallocated. Do not dereference */
 	}
 
 	return retval;
@@ -1677,22 +1767,22 @@ static void ufx_usb_disconnect(struct usb_interface *interface)
 
 	pr_debug("USB disconnect starting\n");
 
-	
+	/* we virtualize until all fb clients release. Then we free */
 	dev->virtualized = true;
 
-	
+	/* When non-active we'll update virtual framebuffer, but no new urbs */
 	atomic_set(&dev->usb_active, 0);
 
 	usb_set_intfdata(interface, NULL);
 
-	
+	/* if clients still have us open, will be freed on last close */
 	if (dev->fb_count == 0)
 		schedule_delayed_work(&dev->free_framebuffer_work, 0);
 
-	
+	/* release reference taken by kref_init in probe() */
 	kref_put(&dev->kref, ufx_free);
 
-	
+	/* consider ufx_data freed */
 }
 
 static struct usb_driver ufx_driver = {
@@ -1710,7 +1800,7 @@ static void ufx_urb_completion(struct urb *urb)
 	struct ufx_data *dev = unode->dev;
 	unsigned long flags;
 
-	
+	/* sync/async unlink faults aren't errors */
 	if (urb->status) {
 		if (!(urb->status == -ENOENT ||
 		    urb->status == -ECONNRESET ||
@@ -1721,13 +1811,15 @@ static void ufx_urb_completion(struct urb *urb)
 		}
 	}
 
-	urb->transfer_buffer_length = dev->urbs.size; 
+	urb->transfer_buffer_length = dev->urbs.size; /* reset to actual */
 
 	spin_lock_irqsave(&dev->urbs.lock, flags);
 	list_add_tail(&unode->entry, &dev->urbs.list);
 	dev->urbs.available++;
 	spin_unlock_irqrestore(&dev->urbs.lock, flags);
 
+	/* When using fb_defio, we deadlock if up() is called
+	 * while another is waiting. So queue to another process */
 	if (fb_defio)
 		schedule_delayed_work(&unode->release_urb_work, 0);
 	else
@@ -1745,16 +1837,16 @@ static void ufx_free_urb_list(struct ufx_data *dev)
 
 	pr_debug("Waiting for completes and freeing all render urbs\n");
 
-	
+	/* keep waiting and freeing, until we've got 'em all */
 	while (count--) {
-		
+		/* Getting interrupted means a leak, but ok at shutdown*/
 		ret = down_interruptible(&dev->urbs.limit_sem);
 		if (ret)
 			break;
 
 		spin_lock_irqsave(&dev->urbs.lock, flags);
 
-		node = dev->urbs.list.next; 
+		node = dev->urbs.list.next; /* have reserved one with sem */
 		list_del_init(node);
 
 		spin_unlock_irqrestore(&dev->urbs.lock, flags);
@@ -1762,7 +1854,7 @@ static void ufx_free_urb_list(struct ufx_data *dev)
 		unode = list_entry(node, struct urb_node, entry);
 		urb = unode->urb;
 
-		
+		/* Free each separately allocated piece */
 		usb_free_coherent(urb->dev, dev->urbs.size,
 				  urb->transfer_buffer, urb->transfer_dma);
 		usb_free_urb(urb);
@@ -1806,7 +1898,7 @@ static int ufx_alloc_urb_list(struct ufx_data *dev, int count, size_t size)
 			break;
 		}
 
-		
+		/* urb->transfer_buffer_length set to actual before submit */
 		usb_fill_bulk_urb(urb, dev->udev, usb_sndbulkpipe(dev->udev, 1),
 			buf, size, ufx_urb_completion, unode);
 		urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
@@ -1833,7 +1925,7 @@ static struct urb *ufx_get_urb(struct ufx_data *dev)
 	struct urb *urb = NULL;
 	unsigned long flags;
 
-	
+	/* Wait for an in-flight buffer to complete and get re-queued */
 	ret = down_timeout(&dev->urbs.limit_sem, GET_URB_TIMEOUT);
 	if (ret) {
 		atomic_set(&dev->lost_pixels, 1);
@@ -1844,7 +1936,7 @@ static struct urb *ufx_get_urb(struct ufx_data *dev)
 
 	spin_lock_irqsave(&dev->urbs.lock, flags);
 
-	BUG_ON(list_empty(&dev->urbs.list)); 
+	BUG_ON(list_empty(&dev->urbs.list)); /* reserved one with limit_sem */
 	entry = dev->urbs.list.next;
 	list_del_init(entry);
 	dev->urbs.available--;
@@ -1864,10 +1956,10 @@ static int ufx_submit_urb(struct ufx_data *dev, struct urb *urb, size_t len)
 
 	BUG_ON(len > dev->urbs.size);
 
-	urb->transfer_buffer_length = len; 
+	urb->transfer_buffer_length = len; /* set to actual payload len */
 	ret = usb_submit_urb(urb, GFP_KERNEL);
 	if (ret) {
-		ufx_urb_completion(urb); 
+		ufx_urb_completion(urb); /* because no one else will */
 		atomic_set(&dev->lost_pixels, 1);
 		pr_err("usb_submit_urb error %x\n", ret);
 	}

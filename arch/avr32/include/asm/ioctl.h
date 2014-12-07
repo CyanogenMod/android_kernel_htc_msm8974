@@ -3,4 +3,4 @@
 
 #include <asm-generic/ioctl.h>
 
-#endif 
+#endif /* __ASM_AVR32_IOCTL_H */

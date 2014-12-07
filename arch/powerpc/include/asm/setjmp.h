@@ -15,4 +15,4 @@
 extern long setjmp(long *);
 extern void longjmp(long *, long);
 
-#endif 
+#endif /* _ASM_POWERPC_SETJMP_H */

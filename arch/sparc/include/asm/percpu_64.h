@@ -15,10 +15,10 @@ register unsigned long __local_per_cpu_offset asm("g5");
 
 #define __my_cpu_offset __local_per_cpu_offset
 
-#else 
+#else /* ! SMP */
 
-#endif	
+#endif	/* SMP */
 
 #include <asm-generic/percpu.h>
 
-#endif 
+#endif /* __ARCH_SPARC64_PERCPU__ */

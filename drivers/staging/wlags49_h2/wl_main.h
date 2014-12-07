@@ -64,6 +64,9 @@
 
 
 
+/*******************************************************************************
+ *  function prototypes
+ ******************************************************************************/
 int wl_insert( struct net_device *dev );
 
 void wl_set_wep_keys( struct wl_private *lp );
@@ -110,7 +113,7 @@ int wl_mbx( struct wl_private *lp );
 void wl_endian_translate_mailbox( ltv_t *ltv );
 void wl_process_mailbox( struct wl_private *lp );
 
-#endif  
+#endif  /* USE_MBOX_SYNC */
 
 
 #ifdef USE_WDS
@@ -118,7 +121,7 @@ void wl_process_mailbox( struct wl_private *lp );
 void wl_wds_netdev_register( struct wl_private *lp );
 void wl_wds_netdev_deregister( struct wl_private *lp );
 
-#endif  
+#endif  /* USE_WDS */
 
 
 #ifdef USE_WDS
@@ -131,5 +134,5 @@ void wl_wds_netdev_deregister( struct wl_private *lp );
 #define WL_WDS_NETDEV_REGISTER( ARG )
 #define WL_WDS_NETDEV_DEREGISTER( ARG )
 
-#endif  
-#endif  
+#endif  /* USE_WDS */
+#endif  // __WL_MAIN_H__

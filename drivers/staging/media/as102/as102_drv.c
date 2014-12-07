@@ -27,6 +27,7 @@
 #include <linux/uaccess.h>
 #include <linux/usb.h>
 
+/* header file for usb device driver*/
 #include "as102_drv.h"
 #include "as102_fw.h"
 #include "dvbdev.h"
@@ -237,12 +238,16 @@ int as102_dvb_register(struct as102_dev_t *as102_dev)
 		goto efereg;
 	}
 
-	
+	/* init bus mutex for token locking */
 	mutex_init(&as102_dev->bus_adap.lock);
 
-	
+	/* init start / stop stream mutex */
 	mutex_init(&as102_dev->sem);
 
+	/*
+	 * try to load as102 firmware. If firmware upload failed, we'll be
+	 * able to upload it later.
+	 */
 	if (fw_upload)
 		try_then_request_module(as102_fw_upload(&as102_dev->bus_adap),
 				"firmware_class");
@@ -261,14 +266,14 @@ edmxinit:
 
 void as102_dvb_unregister(struct as102_dev_t *as102_dev)
 {
-	
+	/* unregister as102 frontend */
 	as102_dvb_unregister_fe(&as102_dev->dvb_fe);
 
-	
+	/* unregister demux device */
 	dvb_dmxdev_release(&as102_dev->dvb_dmxdev);
 	dvb_dmx_release(&as102_dev->dvb_dmx);
 
-	
+	/* unregister dvb adapter */
 	dvb_unregister_adapter(&as102_dev->dvb_adap);
 
 	pr_info("Unregistered device %s", as102_dev->name);
@@ -278,7 +283,7 @@ static int __init as102_driver_init(void)
 {
 	int ret;
 
-	
+	/* register this driver with the low level subsystem */
 	ret = usb_register(&as102_usb_driver);
 	if (ret)
 		err("usb_register failed (ret = %d)", ret);
@@ -286,15 +291,29 @@ static int __init as102_driver_init(void)
 	return ret;
 }
 
+/*
+ * Mandatory function : Adds a special section to the module indicating
+ * where initialisation function is defined
+ */
 module_init(as102_driver_init);
 
+/**
+ * as102_driver_exit - as102 driver exit point
+ *
+ * This function is called when device has to be removed.
+ */
 static void __exit as102_driver_exit(void)
 {
-	
+	/* deregister this driver with the low level bus subsystem */
 	usb_deregister(&as102_usb_driver);
 }
 
+/*
+ * required function for unload: Adds a special section to the module
+ * indicating where unload function is defined
+ */
 module_exit(as102_driver_exit);
+/* modinfo details */
 MODULE_DESCRIPTION(DRIVER_FULL_NAME);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Pierrick Hascoet <pierrick.hascoet@abilis.com>");

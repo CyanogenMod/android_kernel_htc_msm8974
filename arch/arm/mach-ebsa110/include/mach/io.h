@@ -33,6 +33,10 @@ void __writeb(u8  val, void __iomem *addr);
 void __writew(u16 val, void __iomem *addr);
 void __writel(u32 val, void __iomem *addr);
 
+/*
+ * Argh, someone forgot the IOCS16 line.  We therefore have to handle
+ * the byte stearing by selecting the correct byte IO functions here.
+ */
 #ifdef ISA_SIXTEEN_BIT_PERIPHERAL
 #define inb(p) 			__inb16(p)
 #define outb(v,p)		__outb16(v,p)
@@ -66,9 +70,11 @@ extern void outsb(unsigned int port, const void *buf, int sz);
 extern void outsw(unsigned int port, const void *buf, int sz);
 extern void outsl(unsigned int port, const void *buf, int sz);
 
+/* can't support writesb atm */
 extern void writesw(void __iomem *addr, const void *data, int wordlen);
 extern void writesl(void __iomem *addr, const void *data, int longlen);
 
+/* can't support readsb atm */
 extern void readsw(const void __iomem *addr, void *data, int wordlen);
 extern void readsl(const void __iomem *addr, void *data, int longlen);
 

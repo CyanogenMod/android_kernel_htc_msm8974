@@ -56,9 +56,12 @@ enum {
 	HWS_STARTED,
 	HWS_STOPPING };
 
+/* set to 1 if called by kernel during memory allocation */
 static unsigned char oom_killer_was_active;
+/* size of SDBT and SDB as of allocate API */
 static unsigned long num_sdbt = 100;
 static unsigned long num_sdb = 511;
+/* sampling interval (machine cycles) */
 static unsigned long interval;
 
 static unsigned long min_sampler_rate;
@@ -68,7 +71,7 @@ static int ssctl(void *buffer)
 {
 	int cc;
 
-	
+	/* set in order to detect a program check */
 	cc = 1;
 
 	asm volatile(
@@ -290,6 +293,15 @@ static int prepare_cpu_buffers(void)
 	return rc;
 }
 
+/*
+ * allocate_sdbt() - allocate sampler memory
+ * @cpu: the cpu for which sampler memory is allocated
+ *
+ * A 4K page is allocated for each requested SDBT.
+ * A maximum of 511 4K pages are allocated for the SDBs in each of the SDBTs.
+ * Set ALERT_REQ mask in each SDBs trailer.
+ * Returns zero if successful, <0 otherwise.
+ */
 static int allocate_sdbt(int cpu)
 {
 	int j, k, rc;
@@ -311,7 +323,7 @@ static int allocate_sdbt(int cpu)
 		sdbt = (unsigned long *)get_zeroed_page(GFP_KERNEL);
 
 		mutex_lock(&hws_sem_oom);
-		
+		/* OOM killer might have been activated */
 		barrier();
 		if (oom_killer_was_active || !sdbt) {
 			if (sdbt)
@@ -322,18 +334,18 @@ static int allocate_sdbt(int cpu)
 		if (cb->first_sdbt == 0)
 			cb->first_sdbt = (unsigned long)sdbt;
 
-		
+		/* link current page to tail of chain */
 		if (tail)
 			*tail = (unsigned long)(void *)sdbt + 1;
 
 		mutex_unlock(&hws_sem_oom);
 
 		for (k = 0; k < num_sdb; k++) {
-			
+			/* get and set SDB page */
 			sdb = get_zeroed_page(GFP_KERNEL);
 
 			mutex_lock(&hws_sem_oom);
-			
+			/* OOM killer might have been activated */
 			barrier();
 			if (oom_killer_was_active || !sdb) {
 				if (sdb)
@@ -367,6 +379,12 @@ allocate_sdbt_error:
 	goto allocate_sdbt_exit;
 }
 
+/*
+ * deallocate_sdbt() - deallocate all sampler memory
+ *
+ * For each online CPU all SDBT trees are deallocated.
+ * Returns the number of freed pages.
+ */
 static int deallocate_sdbt(void)
 {
 	int cpu;
@@ -389,24 +407,24 @@ static int deallocate_sdbt(void)
 		curr = (unsigned long *) sdbt;
 		start = sdbt;
 
-		
+		/* we'll free the SDBT after all SDBs are processed... */
 		while (1) {
 			if (!*curr || !sdbt)
 				break;
 
-			
+			/* watch for link entry reset if found */
 			if (is_link_entry(curr)) {
 				curr = get_next_sdbt(curr);
 				if (sdbt)
 					free_page(sdbt);
 
-				
+				/* we are done if we reach the start */
 				if ((unsigned long) curr == start)
 					break;
 				else
 					sdbt = (unsigned long) curr;
 			} else {
-				
+				/* process SDB pointer */
 				if (*curr) {
 					free_page(*curr);
 					curr++;
@@ -511,6 +529,15 @@ static int check_hardware_prerequisites(void)
 		return -EOPNOTSUPP;
 	return 0;
 }
+/*
+ * hws_oom_callback() - the OOM callback function
+ *
+ * In case the callback is invoked during memory allocation for the
+ *  hw sampler, all obtained memory is deallocated and a flag is set
+ *  so main sampler memory allocation can exit with a failure code.
+ * In case the callback is invoked during sampling the hw sampler
+ *  is deactivated for all CPUs.
+ */
 static int hws_oom_callback(struct notifier_block *nfb,
 	unsigned long dummy, void *parm)
 {
@@ -523,7 +550,7 @@ static int hws_oom_callback(struct notifier_block *nfb,
 	mutex_lock(&hws_sem_oom);
 
 	if (hws_state == HWS_DEALLOCATED) {
-		
+		/* during memory allocation */
 		if (oom_killer_was_active == 0) {
 			oom_killer_was_active = 1;
 			*freed += deallocate_sdbt();
@@ -558,6 +585,8 @@ static struct notifier_block hws_oom_notifier = {
 static int hws_cpu_callback(struct notifier_block *nfb,
 	unsigned long action, void *hcpu)
 {
+	/* We do not have sampler space available for all possible CPUs.
+	   All CPUs should be online when hw sampling is activated. */
 	return (hws_state <= HWS_DEALLOCATED) ? NOTIFY_OK : NOTIFY_BAD;
 }
 
@@ -565,8 +594,21 @@ static struct notifier_block hws_cpu_notifier = {
 	.notifier_call = hws_cpu_callback
 };
 
+/**
+ * hwsampler_deactivate() - set hardware sampling temporarily inactive
+ * @cpu:  specifies the CPU to be set inactive.
+ *
+ * Returns 0 on success, !0 on failure.
+ */
 int hwsampler_deactivate(unsigned int cpu)
 {
+	/*
+	 * Deactivate hw sampling temporarily and flush the buffer
+	 * by pushing all the pending samples to oprofile buffer.
+	 *
+	 * This function can be called under one of the following conditions:
+	 *     Memory unmap, task is exiting.
+	 */
 	int rc;
 	struct hws_cpu_buffer *cb;
 
@@ -586,7 +628,7 @@ int hwsampler_deactivate(unsigned int cpu)
 				hws_state = HWS_STOPPING;
 			} else  {
 				hws_flush_all = 1;
-				
+				/* Add work to queue to read pending samples.*/
 				queue_work_on(cpu, hws_wq, &cb->worker);
 			}
 		}
@@ -599,8 +641,18 @@ int hwsampler_deactivate(unsigned int cpu)
 	return rc;
 }
 
+/**
+ * hwsampler_activate() - activate/resume hardware sampling which was deactivated
+ * @cpu:  specifies the CPU to be set active.
+ *
+ * Returns 0 on success, !0 on failure.
+ */
 int hwsampler_activate(unsigned int cpu)
 {
+	/*
+	 * Re-activate hw sampling. This should be called in pair with
+	 * hwsampler_deactivate().
+	 */
 	int rc;
 	struct hws_cpu_buffer *cb;
 
@@ -770,13 +822,15 @@ static void worker_on_interrupt(unsigned int cpu)
 	sdbt = (unsigned long *) cb->worker_entry;
 
 	done = 0;
+	/* do not proceed if stop was entered,
+	 * forget the buffers not yet processed */
 	while (!done && !cb->stop_mode) {
 		unsigned long *trailer;
 		struct hws_trailer_entry *te;
 		unsigned long *dear = 0;
 
 		trailer = trailer_entry_ptr(*sdbt);
-		
+		/* leave loop if no more work to do */
 		if (!(*trailer & BUFFER_FULL_MASK)) {
 			done = 1;
 			if (!hws_flush_all)
@@ -788,12 +842,12 @@ static void worker_on_interrupt(unsigned int cpu)
 
 		add_samples_to_oprofile(cpu, sdbt, dear);
 
-		
+		/* reset trailer */
 		xchg((unsigned char *) te, 0x40);
 
-		
+		/* advance to next sdb slot in current sdbt */
 		sdbt++;
-		
+		/* in case link bit is set use address w/o link bit */
 		if (is_link_entry(sdbt))
 			sdbt = get_next_sdbt(sdbt);
 
@@ -820,16 +874,22 @@ static void add_samples_to_oprofile(unsigned int cpu, unsigned long *sdbt,
 		struct pt_regs *regs = NULL;
 		struct task_struct *tsk = NULL;
 
+		/*
+		 * Check sampling mode, 1 indicates basic (=customer) sampling
+		 * mode.
+		 */
 		if (sample_data_ptr->def != 1) {
 			/* sample slot is not yet written */
 			break;
 		} else {
+			/* make sure we don't use it twice,
+			 * the next time the sampler will set it again */
 			sample_data_ptr->def = 0;
 		}
 
-		
+		/* Get pt_regs. */
 		if (sample_data_ptr->P == 1) {
-			
+			/* userspace sample */
 			unsigned int pid = sample_data_ptr->prim_asn;
 			if (!counter_config.user)
 				goto skip_sample;
@@ -839,7 +899,7 @@ static void add_samples_to_oprofile(unsigned int cpu, unsigned long *sdbt,
 				regs = task_pt_regs(tsk);
 			rcu_read_unlock();
 		} else {
-			
+			/* kernelspace sample */
 			if (!counter_config.kernel)
 				goto skip_sample;
 			regs = task_pt_regs(current);
@@ -877,6 +937,13 @@ static void worker(struct work_struct *work)
 		worker_on_finish(cpu);
 }
 
+/**
+ * hwsampler_allocate() - allocate memory for the hardware sampler
+ * @sdbt:  number of SDBTs per online CPU (must be > 0)
+ * @sdb:   number of SDBs per SDBT (minimum 1, maximum 511)
+ *
+ * Returns 0 on success, !0 on failure.
+ */
 int hwsampler_allocate(unsigned long sdbt, unsigned long sdb)
 {
 	int cpu, rc;
@@ -921,6 +988,11 @@ allocate_error:
 	goto allocate_exit;
 }
 
+/**
+ * hwsampler_deallocate() - deallocate hardware sampler memory
+ *
+ * Returns 0 on success, !0 on failure.
+ */
 int hwsampler_deallocate(void)
 {
 	int rc;
@@ -1064,6 +1136,12 @@ int hwsampler_shutdown(void)
 	return rc;
 }
 
+/**
+ * hwsampler_start_all() - start hardware sampling on all online CPUs
+ * @rate:  specifies the used interval when samples are taken
+ *
+ * Returns 0 on success, !0 on failure.
+ */
 int hwsampler_start_all(unsigned long rate)
 {
 	int rc, cpu;
@@ -1078,7 +1156,7 @@ int hwsampler_start_all(unsigned long rate)
 
 	interval = rate;
 
-	
+	/* fail if rate is not valid */
 	if (interval < min_sampler_rate || interval > max_sampler_rate)
 		goto start_all_exit;
 
@@ -1113,12 +1191,17 @@ start_all_exit:
 	register_oom_notifier(&hws_oom_notifier);
 	hws_oom = 1;
 	hws_flush_all = 0;
-	
+	/* now let them in, 1407 CPUMF external interrupts */
 	measurement_alert_subclass_register();
 
 	return 0;
 }
 
+/**
+ * hwsampler_stop_all() - stop hardware sampling on all online CPUs
+ *
+ * Returns 0 on success, !0 on failure.
+ */
 int hwsampler_stop_all(void)
 {
 	int tmp_rc, rc, cpu;

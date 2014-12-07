@@ -100,6 +100,18 @@
 
 */
 
+/* Changes:
+
+	1.01	GRG 1998.05.03  Changes for SMP.  Eliminate sti().
+				Fix for drives that don't clear STAT_ERR
+			        until after next CDB delivered.
+				Small change in pf_completion to round
+				up transfer size.
+	1.02    GRG 1998.06.16  Eliminated an Ugh
+	1.03    GRG 1998.08.16  Use HZ in loop timings, extra debugging
+	1.04    GRG 1998.09.24  Added jumbo support
+
+*/
 
 #define PF_VERSION      "1.04"
 #define PF_MAJOR	47
@@ -108,6 +120,11 @@
 
 #include <linux/types.h>
 
+/* Here are things one can override from the insmod command.
+   Most are autoprobed by paride unless set here.  Verbose is off
+   by default.
+
+*/
 
 static bool verbose = 0;
 static int major = PF_MAJOR;
@@ -126,6 +143,7 @@ static int pf_drive_count;
 
 enum {D_PRT, D_PRO, D_UNI, D_MOD, D_SLV, D_LUN, D_DLY};
 
+/* end of parameters */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -155,16 +173,17 @@ module_param_array(drive3, int, NULL, 0);
 #include "paride.h"
 #include "pseudo.h"
 
+/* constants for faking geometry numbers */
 
-#define PF_FD_MAX	8192	
+#define PF_FD_MAX	8192	/* use FD geometry under this size */
 #define PF_FD_HDS	2
 #define PF_FD_SPT	18
 #define PF_HD_HDS	64
 #define PF_HD_SPT	32
 
 #define PF_MAX_RETRIES  5
-#define PF_TMO          800	
-#define PF_SPIN_DEL     50	
+#define PF_TMO          800	/* interrupt timeout in jiffies */
+#define PF_SPIN_DEL     50	/* spin delay in micro-seconds  */
 
 #define PF_SPIN         (1000000*PF_TMO)/(HZ*PF_SPIN_DEL)
 
@@ -209,15 +228,15 @@ static void do_pf_write_done(void);
 #define PF_NAMELEN      8
 
 struct pf_unit {
-	struct pi_adapter pia;	
+	struct pi_adapter pia;	/* interface to paride layer */
 	struct pi_adapter *pi;
-	int removable;		
-	int media_status;	
-	int drive;		
+	int removable;		/* removable media device  ?  */
+	int media_status;	/* media present ?  WP ? */
+	int drive;		/* drive */
 	int lun;
-	int access;		
-	int present;		
-	char name[PF_NAMELEN];	
+	int access;		/* count of active opens ... */
+	int present;		/* device present ? */
+	char name[PF_NAMELEN];	/* pf0, pf1, ... */
 	struct gendisk *disk;
 };
 
@@ -229,20 +248,24 @@ static void pf_eject(struct pf_unit *pf);
 static unsigned int pf_check_events(struct gendisk *disk,
 				    unsigned int clearing);
 
-static char pf_scratch[512];	
+static char pf_scratch[512];	/* scratch block buffer */
 
+/* the variables below are used mainly in the I/O request engine, which
+   processes only one request at a time.
+*/
 
-static int pf_retries = 0;	
-static int pf_busy = 0;		
-static struct request *pf_req;	
-static int pf_block;		
-static int pf_count;		
-static int pf_run;		
-static int pf_cmd;		
-static struct pf_unit *pf_current;
-static int pf_mask;		
-static char *pf_buf;		
+static int pf_retries = 0;	/* i/o error retry count */
+static int pf_busy = 0;		/* request being processed ? */
+static struct request *pf_req;	/* current request */
+static int pf_block;		/* address of next requested block */
+static int pf_count;		/* number of blocks still to do */
+static int pf_run;		/* sectors in current cluster */
+static int pf_cmd;		/* current command READ/WRITE */
+static struct pf_unit *pf_current;/* unit of current request */
+static int pf_mask;		/* stopper for pseudo-int */
+static char *pf_buf;		/* buffer for request in progress */
 
+/* kernel glue structures */
 
 static const struct block_device_operations pf_fops = {
 	.owner		= THIS_MODULE,
@@ -414,7 +437,7 @@ static int pf_command(struct pf_unit *pf, char *cmd, int dlen, char *fun)
 
 	write_reg(pf, 4, dlen % 256);
 	write_reg(pf, 5, dlen / 256);
-	write_reg(pf, 7, 0xa0);	
+	write_reg(pf, 7, 0xa0);	/* ATAPI packet command */
 
 	if (pf_wait(pf, STAT_BUSY, STAT_DRQ, fun, "command DRQ")) {
 		pi_disconnect(pf->pi);
@@ -498,13 +521,17 @@ static void pf_eject(struct pf_unit *pf)
 	pf_atapi(pf, ej_cmd, 0, pf_scratch, "eject");
 }
 
-#define PF_RESET_TMO   30	
+#define PF_RESET_TMO   30	/* in tenths of a second */
 
 static void pf_sleep(int cs)
 {
 	schedule_timeout_interruptible(cs);
 }
 
+/* the ATAPI standard actually specifies the contents of all 7 registers
+   after a reset, but the specification is ambiguous concerning the last
+   two bytes, and different drives interpret the standard differently.
+ */
 
 static int pf_reset(struct pf_unit *pf)
 {
@@ -642,6 +669,9 @@ static int pf_identify(struct pf_unit *pf)
 	return 0;
 }
 
+/*	returns  0, with id set if drive is detected
+	        -1, if drive detection failed
+*/
 static int pf_probe(struct pf_unit *pf)
 {
 	if (pf->drive == -1) {
@@ -709,6 +739,7 @@ static int pf_detect(void)
 	return -1;
 }
 
+/* The i/o request engine */
 
 static int pf_start(struct pf_unit *pf, int cmd, int b, int c)
 {
@@ -813,6 +844,7 @@ static inline void next_request(int err)
 	spin_unlock_irqrestore(&pf_spin_lock, saved_flags);
 }
 
+/* detach from the calling context - in case the spinlock is held */
 static void do_pf_read(void)
 {
 	ps_set_intr(do_pf_read_start, NULL, 0, nice);
@@ -916,7 +948,7 @@ static void do_pf_write_done(void)
 }
 
 static int __init pf_init(void)
-{				
+{				/* preliminary initialisation */
 	struct pf_unit *pf;
 	int unit;
 

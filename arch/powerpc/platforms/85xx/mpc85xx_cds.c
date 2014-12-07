@@ -47,16 +47,21 @@
 
 #include "mpc85xx.h"
 
+/*
+ * The CDS board contains an FPGA/CPLD called "Cadmus", which collects
+ * various logic and performs system control functions.
+ * Here is the FPGA/CPLD register map.
+ */
 struct cadmus_reg {
-	u8 cm_ver;		
-	u8 cm_csr;		
-	u8 cm_rst;		
-	u8 cm_hsclk;	
-	u8 cm_hsxclk;	
-	u8 cm_led;		
-	u8 cm_pci;		
-	u8 cm_dma;		
-	u8 res[248];	
+	u8 cm_ver;		/* Board version */
+	u8 cm_csr;		/* General control/status */
+	u8 cm_rst;		/* Reset control */
+	u8 cm_hsclk;	/* High speed clock */
+	u8 cm_hsxclk;	/* High speed clock extended */
+	u8 cm_led;		/* LED data */
+	u8 cm_pci;		/* PCI control/status */
+	u8 cm_dma;		/* DMA control */
+	u8 res[248];	/* Total 256 bytes */
 };
 
 static struct cadmus_reg *cadmus;
@@ -69,7 +74,7 @@ static struct cadmus_reg *cadmus;
 static int mpc85xx_exclude_device(struct pci_controller *hose,
 				  u_char bus, u_char devfn)
 {
-	
+	/* We explicitly do not go past the Tundra 320 Bridge */
 	if ((bus == 1) && (PCI_SLOT(devfn) == ARCADIA_2ND_BRIDGE_IDSEL))
 		return PCIBIOS_DEVICE_NOT_FOUND;
 	if ((bus == 0) && (PCI_SLOT(devfn) == ARCADIA_2ND_BRIDGE_IDSEL))
@@ -86,17 +91,26 @@ static void mpc85xx_cds_restart(char *cmd)
 	if ((dev = pci_get_device(PCI_VENDOR_ID_VIA, PCI_DEVICE_ID_VIA_82C686,
 					NULL))) {
 
-		
+		/* Use the VIA Super Southbridge to force a PCI reset */
 		pci_read_config_byte(dev, 0x47, &tmp);
 		pci_write_config_byte(dev, 0x47, tmp | 1);
 
-		
+		/* Flush the outbound PCI write queues */
 		pci_read_config_byte(dev, 0x47, &tmp);
 
+		/*
+		 *  At this point, the harware reset should have triggered.
+		 *  However, if it doesn't work for some mysterious reason,
+		 *  just fall through to the default reset below.
+		 */
 
 		pci_dev_put(dev);
 	}
 
+	/*
+	 *  If we can't find the VIA chip (maybe the P2P bridge is disabled)
+	 *  or the VIA chip reset didn't work, just use the default reset.
+	 */
 	fsl_rstcr_restart(NULL);
 }
 
@@ -106,14 +120,29 @@ static void __init mpc85xx_cds_pci_irq_fixup(struct pci_dev *dev)
 	if (dev->vendor == PCI_VENDOR_ID_VIA) {
 		switch (dev->device) {
 		case PCI_DEVICE_ID_VIA_82C586_1:
+			/*
+			 * U-Boot does not set the enable bits
+			 * for the IDE device. Force them on here.
+			 */
 			pci_read_config_byte(dev, 0x40, &c);
-			c |= 0x03; 
+			c |= 0x03; /* IDE: Chip Enable Bits */
 			pci_write_config_byte(dev, 0x40, c);
 
+			/*
+			 * Since only primary interface works, force the
+			 * IDE function to standard primary IDE interrupt
+			 * w/ 8259 offset
+			 */
 			dev->irq = 14;
 			pci_write_config_byte(dev, PCI_INTERRUPT_LINE, dev->irq);
 			break;
+		/*
+		 * Force legacy USB interrupt routing
+		 */
 		case PCI_DEVICE_ID_VIA_82C586_2:
+		/* There are two USB controllers.
+		 * Identify them by functon number
+		 */
 			if (PCI_FUNC(dev->devfn) == 3)
 				dev->irq = 11;
 			else
@@ -127,6 +156,8 @@ static void __init mpc85xx_cds_pci_irq_fixup(struct pci_dev *dev)
 
 static void __devinit skip_fake_bridge(struct pci_dev *dev)
 {
+	/* Make it an error to skip the fake bridge
+	 * in pci_setup_device() in probe.c */
 	dev->hdr_type = 0x7f;
 }
 DECLARE_PCI_FIXUP_EARLY(0x1957, 0x3fff, skip_fake_bridge);
@@ -135,6 +166,11 @@ DECLARE_PCI_FIXUP_EARLY(0xff3f, 0x5719, skip_fake_bridge);
 
 #define PCI_DEVICE_ID_IDT_TSI310	0x01a7
 
+/*
+ * Fix Tsi310 PCI-X bridge resource.
+ * Force the bridge to open a window from 0x0000-0x1fff in PCI I/O space.
+ * This allows legacy I/O(i8259, etc) on the VIA southbridge to be accessed.
+ */
 void mpc85xx_cds_fixup_bus(struct pci_bus *bus)
 {
 	struct pci_dev *dev = bus->self;
@@ -162,10 +198,10 @@ static void mpc85xx_8259_cascade_handler(unsigned int irq,
 	unsigned int cascade_irq = i8259_irq();
 
 	if (cascade_irq != NO_IRQ)
-		
+		/* handle an interrupt from the 8259 */
 		generic_handle_irq(cascade_irq);
 
-	
+	/* check for any interrupts from the shared IRQ line */
 	handle_fasteoi_irq(irq, desc);
 }
 
@@ -179,8 +215,8 @@ static struct irqaction mpc85xxcds_8259_irqaction = {
 	.flags = IRQF_SHARED | IRQF_NO_THREAD,
 	.name = "8259 cascade",
 };
-#endif 
-#endif 
+#endif /* PPC_I8259 */
+#endif /* CONFIG_PCI */
 
 static void __init mpc85xx_cds_pic_init(void)
 {
@@ -199,7 +235,7 @@ static int mpc85xx_cds_8259_attach(void)
 	struct device_node *cascade_node = NULL;
 	int cascade_irq;
 
-	
+	/* Initialize the i8259 controller */
 	for_each_node_by_type(np, "interrupt-controller")
 		if (of_device_is_compatible(np, "chrp,iic")) {
 			cascade_node = np;
@@ -220,20 +256,29 @@ static int mpc85xx_cds_8259_attach(void)
 	i8259_init(cascade_node, 0);
 	of_node_put(cascade_node);
 
+	/*
+	 *  Hook the interrupt to make sure desc->action is never NULL.
+	 *  This is required to ensure that the interrupt does not get
+	 *  disabled when the last user of the shared IRQ line frees their
+	 *  interrupt.
+	 */
 	if ((ret = setup_irq(cascade_irq, &mpc85xxcds_8259_irqaction))) {
 		printk(KERN_ERR "Failed to setup cascade interrupt\n");
 		return ret;
 	}
 
-	
+	/* Success. Connect our low-level cascade handler. */
 	irq_set_handler(cascade_irq, mpc85xx_8259_cascade_handler);
 
 	return 0;
 }
 machine_device_initcall(mpc85xx_cds, mpc85xx_cds_8259_attach);
 
-#endif 
+#endif /* CONFIG_PPC_I8259 */
 
+/*
+ * Setup the architecture
+ */
 static void __init mpc85xx_cds_setup_arch(void)
 {
 	struct device_node *np;
@@ -294,12 +339,15 @@ static void mpc85xx_cds_show_cpuinfo(struct seq_file *m)
 	seq_printf(m, "PVR\t\t: 0x%x\n", pvid);
 	seq_printf(m, "SVR\t\t: 0x%x\n", svid);
 
-	
+	/* Display cpu Pll setting */
 	phid1 = mfspr(SPRN_HID1);
 	seq_printf(m, "PLL setting\t: 0x%x\n", ((phid1 >> 24) & 0x3f));
 }
 
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init mpc85xx_cds_probe(void)
 {
         unsigned long root = of_get_flat_dt_root();

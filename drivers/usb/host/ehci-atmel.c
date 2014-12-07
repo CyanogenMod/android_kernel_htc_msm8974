@@ -16,9 +16,11 @@
 #include <linux/of.h>
 #include <linux/of_platform.h>
 
+/* interface and function clocks */
 static struct clk *iclk, *fclk;
 static int clocked;
 
+/*-------------------------------------------------------------------------*/
 
 static void atmel_start_clock(void)
 {
@@ -46,27 +48,28 @@ static void atmel_stop_ehci(struct platform_device *pdev)
 	atmel_stop_clock();
 }
 
+/*-------------------------------------------------------------------------*/
 
 static int ehci_atmel_setup(struct usb_hcd *hcd)
 {
 	struct ehci_hcd *ehci = hcd_to_ehci(hcd);
 	int retval = 0;
 
-	
+	/* registers start at offset 0x0 */
 	ehci->caps = hcd->regs;
 	ehci->regs = hcd->regs +
 		HC_LENGTH(ehci, ehci_readl(ehci, &ehci->caps->hc_capbase));
 	dbg_hcs_params(ehci, "reset");
 	dbg_hcc_params(ehci, "reset");
 
-	
+	/* cache this readonly data; minimize chip reads */
 	ehci->hcs_params = ehci_readl(ehci, &ehci->caps->hcs_params);
 
 	retval = ehci_halt(ehci);
 	if (retval)
 		return retval;
 
-	
+	/* data structure init */
 	retval = ehci_init(hcd);
 	if (retval)
 		return retval;
@@ -84,26 +87,26 @@ static const struct hc_driver ehci_atmel_hc_driver = {
 	.product_desc		= "Atmel EHCI UHP HS",
 	.hcd_priv_size		= sizeof(struct ehci_hcd),
 
-	
+	/* generic hardware linkage */
 	.irq			= ehci_irq,
 	.flags			= HCD_MEMORY | HCD_USB2,
 
-	
+	/* basic lifecycle operations */
 	.reset			= ehci_atmel_setup,
 	.start			= ehci_run,
 	.stop			= ehci_stop,
 	.shutdown		= ehci_shutdown,
 
-	
+	/* managing i/o requests and associated device resources */
 	.urb_enqueue		= ehci_urb_enqueue,
 	.urb_dequeue		= ehci_urb_dequeue,
 	.endpoint_disable	= ehci_endpoint_disable,
 	.endpoint_reset		= ehci_endpoint_reset,
 
-	
+	/* scheduling support */
 	.get_frame_number	= ehci_get_frame,
 
-	
+	/* root hub support */
 	.hub_status_data	= ehci_hub_status_data,
 	.hub_control		= ehci_hub_control,
 	.bus_suspend		= ehci_bus_suspend,
@@ -138,6 +141,10 @@ static int __devinit ehci_atmel_drv_probe(struct platform_device *pdev)
 		goto fail_create_hcd;
 	}
 
+	/* Right now device-tree probed devices don't get dma_mask set.
+	 * Since shared usb code relies on it, set it here for now.
+	 * Once we have dma capability bindings this can go away.
+	 */
 	if (!pdev->dev.dma_mask)
 		pdev->dev.dma_mask = &at91_ehci_dma_mask;
 
@@ -232,7 +239,7 @@ static int __devexit ehci_atmel_drv_remove(struct platform_device *pdev)
 #ifdef CONFIG_OF
 static const struct of_device_id atmel_ehci_dt_ids[] = {
 	{ .compatible = "atmel,at91sam9g45-ehci" },
-	{  }
+	{ /* sentinel */ }
 };
 
 MODULE_DEVICE_TABLE(of, atmel_ehci_dt_ids);

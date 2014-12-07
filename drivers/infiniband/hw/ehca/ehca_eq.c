@@ -108,7 +108,7 @@ int ehca_create_eq(struct ehca_shca *shca,
 						 0, 0, rpage, 1);
 
 		if (i == (nr_pages - 1)) {
-			
+			/* last page */
 			vpage = ipz_qpageit_get_inc(&eq->ipz_queue);
 			if (h_ret != H_SUCCESS || vpage)
 				goto create_eq_exit2;
@@ -120,7 +120,7 @@ int ehca_create_eq(struct ehca_shca *shca,
 
 	ipz_qeit_reset(&eq->ipz_queue);
 
-	
+	/* register interrupt handlers and initialize work queues */
 	if (type == EHCA_EQ) {
 		tasklet_init(&eq->interrupt_task, ehca_tasklet_eq, (long)shca);
 

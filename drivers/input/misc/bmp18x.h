@@ -22,6 +22,19 @@
 
 #define BMP18X_NAME "bmp18x"
 
+/**
+ * struct bmp18x_platform_data - represents platform data for the bmp18x driver
+ * @chip_id: Configurable chip id for non-default chip revisions
+ * @default_oversampling: Default oversampling value to be used at startup,
+ * value range is 0-3 with rising sensitivity.
+ * @default_sw_oversampling: Default software oversampling value to be used
+ * at startup,value range is 0(Disabled) or 1(Enabled). Only take effect
+ * when default_oversampling is 3.
+ * @temp_measurement_period: Temperature measurement period (milliseconds), set
+ * to zero if unsure.
+ * @init_hw: Callback for hw specific startup
+ * @deinit_hw: Callback for hw specific shutdown
+ */
 
 struct bmp18x_bus_ops {
 	int	(*read_block)(void *client, u8 reg, int len, char *buf);
@@ -41,6 +54,7 @@ struct bmp18x_calibration_data {
 	s16 MB, MC, MD;
 };
 
+/* Each client has this additional data */
 struct bmp18x_data {
 	struct	bmp18x_data_bus data_bus;
 	struct	device *dev;
@@ -59,7 +73,7 @@ struct bmp18x_data {
 	u32	raw_pressure;
 	u32	temp_measurement_period;
 	u32	last_temp_measurement;
-	s32	b6; 
+	s32	b6; /* calculated temperature correction coefficient */
 	u32	delay;
 	u32	enable;
 	u32	power_enabled;

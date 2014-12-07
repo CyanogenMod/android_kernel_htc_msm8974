@@ -16,6 +16,12 @@
  *		2 of the License, or (at your option) any later version.
  */
 
+/*
+ *	Fixes:
+ *
+ *	Ralf Baechle			:	generic ipv6 checksum
+ *	<ralf@waldorf-gmbh.de>
+ */
 
 #ifndef _CHECKSUM_IPV6_H
 #define _CHECKSUM_IPV6_H

@@ -134,7 +134,7 @@ void mlx4_bitmap_free_range(struct mlx4_bitmap *bitmap, u32 obj, int cnt)
 int mlx4_bitmap_init(struct mlx4_bitmap *bitmap, u32 num, u32 mask,
 		     u32 reserved_bot, u32 reserved_top)
 {
-	
+	/* num must be a power of 2 */
 	if (num != roundup_pow_of_two(num))
 		return -EINVAL;
 
@@ -160,6 +160,12 @@ void mlx4_bitmap_cleanup(struct mlx4_bitmap *bitmap)
 	kfree(bitmap->table);
 }
 
+/*
+ * Handling for queue buffers -- we allocate a bunch of memory and
+ * register it in a memory region at HCA virtual address 0.  If the
+ * requested size is > max_direct, we split the allocation into
+ * multiple pages, so we don't require too much contiguous memory.
+ */
 
 int mlx4_buf_alloc(struct mlx4_dev *dev, int size, int max_direct,
 		   struct mlx4_buf *buf)
@@ -323,7 +329,7 @@ int mlx4_db_alloc(struct mlx4_dev *dev, struct mlx4_db *db, int order)
 
 	list_add(&pgdir->list, &priv->pgdir_list);
 
-	
+	/* This should never fail -- we just allocated an empty page: */
 	WARN_ON(mlx4_alloc_db_from_pgdir(pgdir, db, order));
 
 out:

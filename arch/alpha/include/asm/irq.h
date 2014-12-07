@@ -1,17 +1,33 @@
 #ifndef _ALPHA_IRQ_H
 #define _ALPHA_IRQ_H
 
+/*
+ *	linux/include/alpha/irq.h
+ *
+ *	(C) 1994 Linus Torvalds
+ */
 
 #include <linux/linkage.h>
 
 #if   defined(CONFIG_ALPHA_GENERIC)
 
+/* Here NR_IRQS is not exact, but rather an upper bound.  This is used
+   many places throughout the kernel to size static arrays.  That's ok,
+   we'll use alpha_mv.nr_irqs when we want the real thing.  */
 
+/* When LEGACY_START_ADDRESS is selected, we leave out:
+     TITAN
+     WILDFIRE
+     MARVEL
+
+   This helps keep the kernel object size reasonable for the majority
+   of machines.
+*/
 
 # if defined(CONFIG_ALPHA_LEGACY_START_ADDRESS)
-#  define NR_IRQS      (128)           
+#  define NR_IRQS      (128)           /* max is RAWHIDE/TAKARA */
 # else
-#  define NR_IRQS      (32768 + 16)    
+#  define NR_IRQS      (32768 + 16)    /* marvel - 32 pids */
 # endif
 
 #elif defined(CONFIG_ALPHA_CABRIOLET) || \
@@ -51,21 +67,25 @@
 # define NR_IRQS	128
 
 #elif defined(CONFIG_ALPHA_WILDFIRE)
-# define NR_IRQS	2048 
+# define NR_IRQS	2048 /* enuff for 8 QBBs */
 
 #elif defined(CONFIG_ALPHA_MARVEL)
-# define NR_IRQS	(32768 + 16) 	
+# define NR_IRQS	(32768 + 16) 	/* marvel - 32 pids*/
 
-#else 
+#else /* everyone else */
 # define NR_IRQS	16
 #endif
 
 static __inline__ int irq_canonicalize(int irq)
 {
+	/*
+	 * XXX is this true for all Alpha's?  The old serial driver
+	 * did it this way for years without any complaints, so....
+	 */
 	return ((irq == 2) ? 9 : irq);
 }
 
 struct pt_regs;
 extern void (*perf_irq)(unsigned long, struct pt_regs *);
 
-#endif 
+#endif /* _ALPHA_IRQ_H */

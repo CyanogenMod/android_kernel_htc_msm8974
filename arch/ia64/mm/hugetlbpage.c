@@ -72,6 +72,10 @@ int huge_pmd_unshare(struct mm_struct *mm, unsigned long *addr, pte_t *ptep)
 
 #define mk_pte_huge(entry) { pte_val(entry) |= _PAGE_P; }
 
+/*
+ * Don't actually need to do any preparation, but need to make sure
+ * the address is in the right region.
+ */
 int prepare_hugepage_range(struct file *file,
 			unsigned long addr, unsigned long len)
 {
@@ -120,6 +124,16 @@ void hugetlb_free_pgd_range(struct mmu_gather *tlb,
 			unsigned long addr, unsigned long end,
 			unsigned long floor, unsigned long ceiling)
 {
+	/*
+	 * This is called to free hugetlb page tables.
+	 *
+	 * The offset of these addresses from the base of the hugetlb
+	 * region must be scaled down by HPAGE_SIZE/PAGE_SIZE so that
+	 * the standard free_pgd_range will free the right page tables.
+	 *
+	 * If floor and ceiling are also in the hugetlb region, they
+	 * must likewise be scaled down; but if outside, left unchanged.
+	 */
 
 	addr = htlbpage_to_page(addr);
 	end  = htlbpage_to_page(end);
@@ -141,20 +155,20 @@ unsigned long hugetlb_get_unmapped_area(struct file *file, unsigned long addr, u
 	if (len & ~HPAGE_MASK)
 		return -EINVAL;
 
-	
+	/* Handle MAP_FIXED */
 	if (flags & MAP_FIXED) {
 		if (prepare_hugepage_range(file, addr, len))
 			return -EINVAL;
 		return addr;
 	}
 
-	
+	/* This code assumes that RGN_HPAGE != 0. */
 	if ((REGION_NUMBER(addr) != RGN_HPAGE) || (addr & (HPAGE_SIZE - 1)))
 		addr = HPAGE_REGION_BASE;
 	else
 		addr = ALIGN(addr, HPAGE_SIZE);
 	for (vmm = find_vma(current->mm, addr); ; vmm = vmm->vm_next) {
-		
+		/* At this point:  (!vmm || addr < vmm->vm_end). */
 		if (REGION_OFFSET(addr) + len > RGN_MAP_LIMIT)
 			return -ENOMEM;
 		if (!vmm || (addr + len) <= vmm->vm_start)
@@ -169,6 +183,9 @@ static int __init hugetlb_setup_sz(char *str)
 	unsigned long long size;
 
 	if (ia64_pal_vm_page_size(&tr_pages, NULL) != 0)
+		/*
+		 * shouldn't happen, but just in case.
+		 */
 		tr_pages = 0x15557000UL;
 
 	size = memparse(str, &str);
@@ -180,6 +197,10 @@ static int __init hugetlb_setup_sz(char *str)
 	}
 
 	hpage_shift = __ffs(size);
+	/*
+	 * boot cpu already executed ia64_mmu_init, and has HPAGE_SHIFT_DEFAULT
+	 * override here with new page shift.
+	 */
 	ia64_set_rr(HPAGE_REGION_BASE, hpage_shift << 2);
 	return 0;
 }

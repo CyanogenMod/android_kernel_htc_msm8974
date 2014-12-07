@@ -37,12 +37,12 @@ struct INFTLrecord {
 	__u16 firstEUN;
 	__u16 lastEUN;
 	__u16 numfreeEUNs;
-	__u16 LastFreeEUN;		
+	__u16 LastFreeEUN;		/* To speed up finding a free EUN */
 	int head,sect,cyl;
-	__u16 *PUtable;			
-	__u16 *VUtable;			
-	unsigned int nb_blocks;		
-	unsigned int nb_boot_blocks;	
+	__u16 *PUtable;			/* Physical Unit Table */
+	__u16 *VUtable;			/* Virtual Unit Table */
+	unsigned int nb_blocks;		/* number of physical blocks */
+	unsigned int nb_boot_blocks;	/* number of blocks used by the bios */
 	struct erase_info instr;
 	struct nand_ecclayout oobinfo;
 };
@@ -58,6 +58,6 @@ int inftl_read_oob(struct mtd_info *mtd, loff_t offs, size_t len,
 int inftl_write_oob(struct mtd_info *mtd, loff_t offs, size_t len,
 		    size_t *retlen, uint8_t *buf);
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __MTD_INFTL_H__ */

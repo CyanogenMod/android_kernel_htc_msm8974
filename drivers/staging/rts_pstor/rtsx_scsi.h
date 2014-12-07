@@ -85,6 +85,7 @@
 #define CHIP_NORMALMODE		0x00
 #define CHIP_DEBUGMODE		0x01
 
+/* SD Pass Through Command Extension */
 #define SD_PASS_THRU_MODE	0xD0
 #define SD_EXECUTE_NO_DATA	0xD1
 #define SD_EXECUTE_READ		0xD2
@@ -93,20 +94,23 @@
 #define SD_HW_RST		0xD6
 
 #ifdef SUPPORT_MAGIC_GATE
-#define CMD_MSPRO_MG_RKEY	0xA4   
-#define CMD_MSPRO_MG_SKEY	0xA3   
+#define CMD_MSPRO_MG_RKEY	0xA4   /* Report Key Command */
+#define CMD_MSPRO_MG_SKEY	0xA3   /* Send Key Command */
 
-#define KC_MG_R_PRO		0xBE   
+/* CBWCB field: key class */
+#define KC_MG_R_PRO		0xBE   /* MG-R PRO*/
 
-#define KF_SET_LEAF_ID		0x31   
-#define KF_GET_LOC_EKB		0x32   
-#define KF_CHG_HOST		0x33   
-#define KF_RSP_CHG		0x34   
-#define KF_RSP_HOST		0x35   
-#define KF_GET_ICV		0x36   
-#define KF_SET_ICV		0x37   
+/* CBWCB field: key format */
+#define KF_SET_LEAF_ID		0x31   /* Set Leaf ID */
+#define KF_GET_LOC_EKB		0x32   /* Get Local EKB */
+#define KF_CHG_HOST		0x33   /* Challenge (host) */
+#define KF_RSP_CHG		0x34   /* Response and Challenge (device)  */
+#define KF_RSP_HOST		0x35   /* Response (host) */
+#define KF_GET_ICV		0x36   /* Get ICV */
+#define KF_SET_ICV		0x37   /* SSet ICV */
 #endif
 
+/* Sense type */
 #define	SENSE_TYPE_NO_SENSE				0
 #define	SENSE_TYPE_MEDIA_CHANGE				1
 #define	SENSE_TYPE_MEDIA_NOT_PRESENT			2
@@ -125,7 +129,7 @@
 #define SENSE_TYPE_MG_WRITE_ERR				0x0e
 #endif
 #ifdef SUPPORT_SD_LOCK
-#define SENSE_TYPE_MEDIA_READ_FORBIDDEN			0x10  
+#define SENSE_TYPE_MEDIA_READ_FORBIDDEN			0x10  /* FOR Locked SD card*/
 #endif
 
 void scsi_show_command(struct scsi_cmnd *srb);
@@ -134,5 +138,5 @@ void set_sense_data(struct rtsx_chip *chip, unsigned int lun, u8 err_code, u8 se
 		u32 info, u8 asc, u8 ascq, u8 sns_key_info0, u16 sns_key_info1);
 int rtsx_scsi_handler(struct scsi_cmnd *srb, struct rtsx_chip *chip);
 
-#endif   
+#endif   /* __REALTEK_RTSX_SCSI_H */
 

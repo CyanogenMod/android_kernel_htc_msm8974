@@ -14,6 +14,7 @@
 #ifndef __PMIC8058_OTHC_H__
 #define __PMIC8058_OTHC_H__
 
+/* Accessory detecion flags */
 #define OTHC_MICBIAS_DETECT	BIT(0)
 #define OTHC_GPIO_DETECT	BIT(1)
 #define OTHC_SWITCH_DETECT	BIT(2)
@@ -56,17 +57,19 @@ struct othc_regulator_config {
 	unsigned int min_uV;
 };
 
+/* Signal control for OTHC module */
 enum othc_micbias_enable {
-	
+	/* Turn off MICBIAS signal */
 	OTHC_SIGNAL_OFF,
-	
+	/* Turn on MICBIAS signal when TCXO is enabled */
 	OTHC_SIGNAL_TCXO,
-	
+	/* Turn on MICBIAS signal when PWM is high or TCXO is enabled */
 	OTHC_SIGNAL_PWM_TCXO,
-	
+	/* MICBIAS always enabled */
 	OTHC_SIGNAL_ALWAYS_ON,
 };
 
+/* Number of MICBIAS lines supported by PMIC8058 */
 enum othc_micbias {
 	OTHC_MICBIAS_0,
 	OTHC_MICBIAS_1,
@@ -75,9 +78,9 @@ enum othc_micbias {
 };
 
 enum othc_micbias_capability {
-	
+	/* MICBIAS used only for BIAS with on/off capability */
 	OTHC_MICBIAS,
-	
+	/* MICBIAS used to support HSED functionality */
 	OTHC_MICBIAS_HSED,
 };
 
@@ -108,14 +111,15 @@ struct hsed_bias_config {
 	int othc_wakeup;
 };
 
+/* Configuration data for HSED */
 struct othc_hsed_config {
 	struct hsed_bias_config *hsed_bias_config;
 	unsigned long detection_delay_ms;
-	
+	/* Switch configuration */
 	unsigned long switch_debounce_ms;
-	bool othc_support_n_switch; 
+	bool othc_support_n_switch; /* Set if supporting > 1 switch */
 	struct othc_n_switch_config *switch_config;
-	
+	/* Accessory configuration */
 	bool accessories_support;
 	bool accessories_adc_support;
 	uint32_t accessories_adc_channel;
@@ -139,4 +143,4 @@ int pm8058_micbias_enable(enum othc_micbias micbias,
 int pm8058_othc_svideo_enable(enum othc_micbias micbias,
 			bool enable);
 
-#endif 
+#endif /* __PMIC8058_OTHC_H__ */

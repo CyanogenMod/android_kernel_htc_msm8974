@@ -12,6 +12,10 @@ extern int pic_mode;
 
 #ifdef CONFIG_X86_32
 
+/*
+ * Summit or generic (i.e. installer) kernels need lots of bus entries.
+ * Maximum 256 PCI busses, plus 1 ISA bus in each of 4 cabinets.
+ */
 #if CONFIG_BASE_SMALL == 0
 # define MAX_MP_BUSSES		260
 #else
@@ -28,12 +32,13 @@ extern int mp_bus_id_to_local[MAX_MP_BUSSES];
 extern int quad_local_to_mp_bus_id [NR_CPUS/4][4];
 #endif
 
-#else 
+#else /* CONFIG_X86_64: */
 
 #define MAX_MP_BUSSES		256
+/* Each PCI slot may be a combo card with its own bus.  4 IRQ pins per slot. */
 #define MAX_IRQ_SOURCES		(MAX_MP_BUSSES * 4)
 
-#endif 
+#endif /* CONFIG_X86_64 */
 
 #if defined(CONFIG_MCA) || defined(CONFIG_EISA)
 extern int mp_bus_id_to_type[MAX_MP_BUSSES];
@@ -98,7 +103,7 @@ extern void mp_config_acpi_legacy_irqs(void);
 struct device;
 extern int mp_register_gsi(struct device *dev, u32 gsi, int edge_level,
 				 int active_high_low);
-#endif 
+#endif /* CONFIG_ACPI */
 
 #define PHYSID_ARRAY_SIZE	BITS_TO_LONGS(MAX_LOCAL_APIC)
 
@@ -167,4 +172,4 @@ extern int generic_mps_oem_check(struct mpc_table *, char *, char *);
 
 extern int default_acpi_madt_oem_check(char *, char *);
 
-#endif 
+#endif /* _ASM_X86_MPSPEC_H */

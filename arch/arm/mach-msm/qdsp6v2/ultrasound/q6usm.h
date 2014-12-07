@@ -20,6 +20,7 @@
 #define Q6USM_EVENT_WRITE_DONE           2
 #define Q6USM_EVENT_SIGNAL_DETECT_RESULT 3
 
+/* cyclic buffer with 1 gap support */
 #define USM_MIN_BUF_CNT 3
 
 #define FORMAT_USPS_EPOS	0x00000000
@@ -37,36 +38,46 @@
 
 #define CMD_CLOSE		0x0004
 
+/* bit 0:1 represents priority of stream */
 #define STREAM_PRIORITY_NORMAL	0x0000
 #define STREAM_PRIORITY_LOW	0x0001
 #define STREAM_PRIORITY_HIGH	0x0002
 
+/* bit 4 represents META enable of encoded data buffer */
 #define BUFFER_META_ENABLE	0x0010
 
 struct us_port_data {
 	dma_addr_t	phys;
-	
+	/* cyclic region of buffers with 1 gap */
 	void		*data;
-	
+	/* number of buffers in the region */
 	uint32_t	buf_cnt;
-	
+	/* size of buffer */
 	uint32_t	buf_size;
-	
+	/* write index */
 	uint32_t	dsp_buf;
-	
+	/* read index */
 	uint32_t	cpu_buf;
-	
+	/* expected token from dsp */
 	uint32_t	expected_token;
-	
+	/* read or write locks */
 	struct mutex	lock;
 	spinlock_t	dsp_lock;
-	
+	/* extended parameters, related to q6 variants */
 	void		*ext;
+	/* physical address of parameter buffer */
+	dma_addr_t	param_phys;
+	/* buffer which stores the parameter data */
+	u8		*param_buf;
+	/* size of parameter buffer */
+	uint32_t	param_buf_size;
+	/* parameter buffer memory handle */
+	void		*param_buf_mem_handle;
 };
 
 struct us_client {
 	int			session;
-	
+	/* idx:1 out port, 0: in port*/
 	struct us_port_data	port[2];
 
 	struct apr_svc		*apr;
@@ -85,6 +96,8 @@ int q6usm_run(struct us_client *usc, uint32_t flags,
 int q6usm_cmd(struct us_client *usc, int cmd);
 int q6usm_us_client_buf_alloc(unsigned int dir, struct us_client *usc,
 			      unsigned int bufsz, unsigned int bufcnt);
+int q6usm_us_param_buf_alloc(unsigned int dir, struct us_client *usc,
+			      unsigned int bufsz);
 int q6usm_enc_cfg_blk(struct us_client *usc, struct us_encdec_cfg *us_cfg);
 int q6usm_dec_cfg_blk(struct us_client *usc, struct us_encdec_cfg *us_cfg);
 int q6usm_read(struct us_client *usc, uint32_t read_ind);
@@ -101,5 +114,9 @@ bool q6usm_is_write_buf_full(struct us_client *usc, uint32_t *free_region);
 int q6usm_set_us_detection(struct us_client *usc,
 			   struct usm_session_cmd_detect_info *detect_info,
 			   uint16_t detect_info_size);
+int q6usm_set_us_stream_param(int dir, struct us_client *usc,
+		uint32_t module_id, uint32_t param_id, uint32_t buf_size);
+int q6usm_get_us_stream_param(int dir, struct us_client *usc,
+		uint32_t module_id, uint32_t param_id, uint32_t buf_size);
 
-#endif 
+#endif /* __Q6_USM_H__ */

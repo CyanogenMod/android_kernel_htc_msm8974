@@ -11,6 +11,7 @@
 #include <asm/ptrace.h>
 #include <asm/machdep.h>
 
+/* CPU register indices */
 
 #define MIOC_STATUS	0xf040
 #define MIOC_CONTROL	0xf080
@@ -19,6 +20,7 @@
 #define DIOERR		0xf0ec
 #define HIDMAMEM	0xf0f4
 
+/* this returns the HPA of the CPU it was called on */
 static u32 cpu_hpa(void)
 {
 	return 0xfffb0000;

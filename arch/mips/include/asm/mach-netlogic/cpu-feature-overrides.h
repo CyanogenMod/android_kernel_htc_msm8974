@@ -53,4 +53,4 @@
 #error "Unknown Netlogic CPU"
 #endif
 
-#endif 
+#endif /* __ASM_MACH_NETLOGIC_CPU_FEATURE_OVERRIDES_H */

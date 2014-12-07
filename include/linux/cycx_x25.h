@@ -26,20 +26,25 @@
 #define PACKED __attribute__((packed))
 #endif 
 
-#define	X25_MBOX_OFFS	0x300	
-#define	X25_RXMBOX_OFFS	0x340	
+/* X.25 shared memory layout. */
+#define	X25_MBOX_OFFS	0x300	/* general mailbox block */
+#define	X25_RXMBOX_OFFS	0x340	/* receive mailbox */
 
+/* Debug */
 #define dprintk(level, format, a...) if (cycx_debug >= level) printk(format, ##a)
 
 extern unsigned int cycx_debug;
 
+/* Data Structures */
+/* X.25 Command Block. */
 struct cycx_x25_cmd {
 	u16 command;
-	u16 link;	
-	u16 len;	
+	u16 link;	/* values: 0 or 1 */
+	u16 len;	/* values: 0 thru 0x205 (517) */
 	u32 buf;
 } PACKED;
 
+/* Defines for the 'command' field. */
 #define X25_CONNECT_REQUEST             0x4401
 #define X25_CONNECT_RESPONSE            0x4402
 #define X25_DISCONNECT_REQUEST          0x4403
@@ -67,6 +72,25 @@ struct cycx_x25_cmd {
 #define X25_N2TRACEXC                   0x4702
 #define X25_N3TRACEXC                   0x4703
 
+/**
+ *	struct cycx_x25_config - cyclom2x x25 firmware configuration
+ *	@link - link number
+ *	@speed - line speed
+ *	@clock - internal/external
+ *	@n2 - # of level 2 retransm.(values: 1 thru FF)
+ *	@n2win - level 2 window (values: 1 thru 7)
+ *	@n3win - level 3 window (values: 1 thru 7)
+ *	@nvc - # of logical channels (values: 1 thru 64)
+ *	@pktlen - level 3 packet length - log base 2 of size
+ *	@locaddr - my address
+ *	@remaddr - remote address
+ *	@t1 - time, in seconds
+ *	@t2 - time, in seconds
+ *	@t21 - time, in seconds
+ *	@npvc - # of permanent virt. circuits (1 thru nvc)
+ *	@t23 - time, in seconds
+ *	@flags - see dosx25.doc, in portuguese, for details
+ */
 struct cycx_x25_config {
 	u8  link;
 	u8  speed;
@@ -98,4 +122,4 @@ struct cycx_x25_stats {
 	u16 tx_aborts;
 	u16 rx_aborts;
 } PACKED;
-#endif	
+#endif	/* _CYCX_X25_H */

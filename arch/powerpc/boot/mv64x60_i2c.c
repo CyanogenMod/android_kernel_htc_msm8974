@@ -21,6 +21,7 @@
 #include "ops.h"
 #include "mv64x60.h"
 
+/* Register defines */
 #define MV64x60_I2C_REG_SLAVE_ADDR			0x00
 #define MV64x60_I2C_REG_DATA				0x04
 #define MV64x60_I2C_REG_CONTROL				0x08
@@ -103,7 +104,7 @@ int mv64x60_i2c_read(u32 devaddr, u8 *buf, u32 offset, u32 offset_size,
 	if (ctlr_base == NULL)
 		return -1;
 
-	
+	/* send reset */
 	out_le32((u32 *)(ctlr_base + MV64x60_I2C_REG_SOFT_RESET), 0);
 	out_le32((u32 *)(ctlr_base + MV64x60_I2C_REG_SLAVE_ADDR), 0);
 	out_le32((u32 *)(ctlr_base + MV64x60_I2C_REG_EXT_SLAVE_ADDR), 0);
@@ -113,20 +114,20 @@ int mv64x60_i2c_read(u32 devaddr, u8 *buf, u32 offset, u32 offset_size,
 				MV64x60_I2C_STATUS_NO_STATUS) < 0)
 		return -1;
 
-	
+	/* send start */
 	control = MV64x60_I2C_CONTROL_START | MV64x60_I2C_CONTROL_TWSIEN;
 	status = MV64x60_I2C_STATUS_MAST_START;
 	if (mv64x60_i2c_control(control, status) < 0)
 		return -1;
 
-	
+	/* select device for writing */
 	data = devaddr & ~0x1;
 	control = MV64x60_I2C_CONTROL_TWSIEN;
 	status = MV64x60_I2C_STATUS_MAST_WR_ADDR_ACK;
 	if (mv64x60_i2c_write_byte(data, control, status) < 0)
 		return -1;
 
-	
+	/* send offset of data */
 	control = MV64x60_I2C_CONTROL_TWSIEN;
 	status = MV64x60_I2C_STATUS_MAST_WR_ACK;
 	if (offset_size > 1) {
@@ -136,20 +137,20 @@ int mv64x60_i2c_read(u32 devaddr, u8 *buf, u32 offset, u32 offset_size,
 	if (mv64x60_i2c_write_byte(offset, control, status) < 0)
 		return -1;
 
-	
+	/* resend start */
 	control = MV64x60_I2C_CONTROL_START | MV64x60_I2C_CONTROL_TWSIEN;
 	status = MV64x60_I2C_STATUS_MAST_REPEAT_START;
 	if (mv64x60_i2c_control(control, status) < 0)
 		return -1;
 
-	
+	/* select device for reading */
 	data = devaddr | 0x1;
 	control = MV64x60_I2C_CONTROL_TWSIEN;
 	status = MV64x60_I2C_STATUS_MAST_RD_ADDR_ACK;
 	if (mv64x60_i2c_write_byte(data, control, status) < 0)
 		return -1;
 
-	
+	/* read all but last byte of data */
 	control = MV64x60_I2C_CONTROL_ACK | MV64x60_I2C_CONTROL_TWSIEN;
 	status = MV64x60_I2C_STATUS_MAST_RD_DATA_ACK;
 
@@ -162,7 +163,7 @@ int mv64x60_i2c_read(u32 devaddr, u8 *buf, u32 offset, u32 offset_size,
 		*buf++ = data;
 	}
 
-	
+	/* read last byte of data */
 	control = MV64x60_I2C_CONTROL_TWSIEN;
 	status = MV64x60_I2C_STATUS_MAST_RD_DATA_NO_ACK;
 	data = mv64x60_i2c_read_byte(control, status);
@@ -170,7 +171,7 @@ int mv64x60_i2c_read(u32 devaddr, u8 *buf, u32 offset, u32 offset_size,
 		return -1;
 	*buf++ = data;
 
-	
+	/* send stop */
 	control = MV64x60_I2C_CONTROL_STOP | MV64x60_I2C_CONTROL_TWSIEN;
 	status = MV64x60_I2C_STATUS_NO_STATUS;
 	if (mv64x60_i2c_control(control, status) < 0)

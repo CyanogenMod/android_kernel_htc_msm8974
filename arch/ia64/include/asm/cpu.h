@@ -19,4 +19,4 @@ extern int arch_register_cpu(int num);
 extern void arch_unregister_cpu(int);
 #endif
 
-#endif 
+#endif /* _ASM_IA64_CPU_H_ */

@@ -29,16 +29,20 @@
 #include "cm2xxx_3xxx.h"
 #include "cm-regbits-24xx.h"
 
+/* CM_CLKEN_PLL.EN_{54,96}M_PLL options (24XX) */
 #define EN_APLL_STOPPED			0
 #define EN_APLL_LOCKED			3
 
+/* CM_CLKSEL1_PLL.APLLS_CLKIN options (24XX) */
 #define APLLS_CLKIN_19_2MHZ		0
 #define APLLS_CLKIN_13MHZ		2
 #define APLLS_CLKIN_12MHZ		3
 
 void __iomem *cm_idlest_pll;
 
+/* Private functions */
 
+/* Enable an APLL if off */
 static int omap2_clk_apll_enable(struct clk *clk, u32 status_mask)
 {
 	u32 cval, apll_mask;
@@ -48,7 +52,7 @@ static int omap2_clk_apll_enable(struct clk *clk, u32 status_mask)
 	cval = omap2_cm_read_mod_reg(PLL_MOD, CM_CLKEN);
 
 	if ((cval & apll_mask) == apll_mask)
-		return 0;   
+		return 0;   /* apll already enabled */
 
 	cval &= ~apll_mask;
 	cval |= apll_mask;
@@ -57,6 +61,10 @@ static int omap2_clk_apll_enable(struct clk *clk, u32 status_mask)
 	omap2_cm_wait_idlest(cm_idlest_pll, status_mask,
 			     OMAP24XX_CM_IDLEST_VAL, clk->name);
 
+	/*
+	 * REVISIT: Should we return an error code if omap2_wait_clock_ready()
+	 * fails?
+	 */
 	return 0;
 }
 
@@ -90,6 +98,7 @@ static void _apll54_deny_idle(struct clk *clk)
 	omap2xxx_cm_set_apll54_disable_autoidle();
 }
 
+/* Stop APLL */
 static void omap2_clk_apll_disable(struct clk *clk)
 {
 	u32 cval;
@@ -99,6 +108,7 @@ static void omap2_clk_apll_disable(struct clk *clk)
 	omap2_cm_write_mod_reg(cval, PLL_MOD, CM_CLKEN);
 }
 
+/* Public data */
 
 const struct clkops clkops_apll96 = {
 	.enable		= omap2_clk_apll96_enable,
@@ -114,6 +124,7 @@ const struct clkops clkops_apll54 = {
 	.deny_idle	= _apll54_deny_idle,
 };
 
+/* Public functions */
 
 u32 omap2xxx_get_apll_clkin(void)
 {

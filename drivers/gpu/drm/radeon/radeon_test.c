@@ -27,6 +27,7 @@
 #include "radeon.h"
 
 
+/* Test BO GTT->VRAM and VRAM->GTT GPU copies across the whole GTT aperture */
 void radeon_test_moves(struct radeon_device *rdev)
 {
 	struct radeon_bo *vram_obj = NULL;
@@ -38,6 +39,9 @@ void radeon_test_moves(struct radeon_device *rdev)
 
 	size = 1024 * 1024;
 
+	/* Number of tests =
+	 * (Total GTT - IB pool - writeback page - ring buffers) / test size
+	 */
 	n = rdev->mc.gtt_size - RADEON_IB_POOL_SIZE*64*1024;
 	for (i = 0; i < RADEON_NUM_RINGS; ++i)
 		n -= rdev->ring[i].ring_size;

@@ -44,6 +44,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/gpio.h>
 
+/* EHCI Register Set */
 #define EHCI_INSNREG04					(0xA0)
 #define EHCI_INSNREG04_DISABLE_UNSUSPEND		(1 << 5)
 #define	EHCI_INSNREG05_ULPI				(0xA4)
@@ -54,6 +55,7 @@
 #define	EHCI_INSNREG05_ULPI_EXTREGADD_SHIFT		8
 #define	EHCI_INSNREG05_ULPI_WRDATA_SHIFT		0
 
+/*-------------------------------------------------------------------------*/
 
 static const struct hc_driver ehci_omap_hc_driver;
 
@@ -75,18 +77,18 @@ static void omap_ehci_soft_phy_reset(struct platform_device *pdev, u8 port)
 	unsigned reg = 0;
 
 	reg = ULPI_FUNC_CTRL_RESET
-		
+		/* FUNCTION_CTRL_SET register */
 		| (ULPI_SET(ULPI_FUNC_CTRL) << EHCI_INSNREG05_ULPI_REGADD_SHIFT)
-		
+		/* Write */
 		| (2 << EHCI_INSNREG05_ULPI_OPSEL_SHIFT)
-		
+		/* PORTn */
 		| ((port + 1) << EHCI_INSNREG05_ULPI_PORTSEL_SHIFT)
-		
+		/* start ULPI access*/
 		| (1 << EHCI_INSNREG05_ULPI_CONTROL_SHIFT);
 
 	ehci_write(hcd->regs, EHCI_INSNREG05_ULPI, reg);
 
-	
+	/* Wait for ULPI access completion */
 	while ((ehci_read(hcd->regs, EHCI_INSNREG05_ULPI)
 			& (1 << EHCI_INSNREG05_ULPI_CONTROL_SHIFT))) {
 		cpu_relax();
@@ -111,7 +113,16 @@ static void disable_put_regulator(
 	}
 }
 
+/* configure so an HC device and id are always provided */
+/* always called with process context; sleeping is OK */
 
+/**
+ * ehci_hcd_omap_probe - initialize TI-based HCDs
+ *
+ * Allocates basic resources for this USB host controller, and
+ * then invokes the start() method for the HCD associated with it
+ * through the hotplug entry's driver_data.
+ */
 static int ehci_hcd_omap_probe(struct platform_device *pdev)
 {
 	struct device				*dev = &pdev->dev;
@@ -164,7 +175,7 @@ static int ehci_hcd_omap_probe(struct platform_device *pdev)
 	hcd->rsrc_len = resource_size(res);
 	hcd->regs = regs;
 
-	
+	/* get ehci regulator and enable */
 	for (i = 0 ; i < OMAP3_HS_USB_PORTS ; i++) {
 		if (pdata->port_mode[i] != OMAP_EHCI_PORT_MODE_PHY) {
 			pdata->regulator[i] = NULL;
@@ -190,17 +201,26 @@ static int ehci_hcd_omap_probe(struct platform_device *pdev)
 			gpio_request_one(pdata->reset_gpio_port[1],
 					 GPIOF_OUT_INIT_LOW, "USB2 PHY reset");
 
-		
+		/* Hold the PHY in RESET for enough time till DIR is high */
 		udelay(10);
 	}
 
 	pm_runtime_enable(dev);
 	pm_runtime_get_sync(dev);
 
+	/*
+	 * An undocumented "feature" in the OMAP3 EHCI controller,
+	 * causes suspended ports to be taken out of suspend when
+	 * the USBCMD.Run/Stop bit is cleared (for example when
+	 * we do ehci_bus_suspend).
+	 * This breaks suspend-resume if the root-hub is allowed
+	 * to suspend. Writing 1 to this undocumented register bit
+	 * disables this feature and restores normal behavior.
+	 */
 	ehci_write(regs, EHCI_INSNREG04,
 				EHCI_INSNREG04_DISABLE_UNSUSPEND);
 
-	
+	/* Soft reset the PHY using PHY reset command over ULPI */
 	if (pdata->port_mode[0] == OMAP_EHCI_PORT_MODE_PHY)
 		omap_ehci_soft_phy_reset(pdev, 0);
 	if (pdata->port_mode[1] == OMAP_EHCI_PORT_MODE_PHY)
@@ -209,7 +229,7 @@ static int ehci_hcd_omap_probe(struct platform_device *pdev)
 	omap_ehci = hcd_to_ehci(hcd);
 	omap_ehci->sbrn = 0x20;
 
-	
+	/* we know this is the memory we want, no need to ioremap again */
 	omap_ehci->caps = hcd->regs;
 	omap_ehci->regs = hcd->regs
 		+ HC_LENGTH(ehci, readl(&omap_ehci->caps->hc_capbase));
@@ -217,7 +237,7 @@ static int ehci_hcd_omap_probe(struct platform_device *pdev)
 	dbg_hcs_params(omap_ehci, "reset");
 	dbg_hcc_params(omap_ehci, "reset");
 
-	
+	/* cache this readonly data; minimize chip reads */
 	omap_ehci->hcs_params = readl(&omap_ehci->caps->hcs_params);
 
 	ehci_reset(omap_ehci);
@@ -228,10 +248,13 @@ static int ehci_hcd_omap_probe(struct platform_device *pdev)
 		goto err_add_hcd;
 	}
 
-	
+	/* root ports should always stay powered */
 	ehci_port_power(omap_ehci, 1);
 
 	if (pdata->phy_reset) {
+		/* Hold the PHY in RESET for enough time till
+		 * PHY is settled and ready
+		 */
 		udelay(10);
 
 		if (gpio_is_valid(pdata->reset_gpio_port[0]))
@@ -253,6 +276,14 @@ err_io:
 }
 
 
+/**
+ * ehci_hcd_omap_remove - shutdown processing for EHCI HCDs
+ * @pdev: USB Host Controller being removed
+ *
+ * Reverses the effect of usb_ehci_hcd_omap_probe(), first invoking
+ * the HCD's stop() method.  It is always called from a thread
+ * context, normally "rmmod", "apmd", or something similar.
+ */
 static int ehci_hcd_omap_remove(struct platform_device *pdev)
 {
 	struct device *dev				= &pdev->dev;
@@ -288,34 +319,50 @@ static struct platform_driver ehci_hcd_omap_driver = {
 	.probe			= ehci_hcd_omap_probe,
 	.remove			= ehci_hcd_omap_remove,
 	.shutdown		= ehci_hcd_omap_shutdown,
-	
-	
+	/*.suspend		= ehci_hcd_omap_suspend, */
+	/*.resume		= ehci_hcd_omap_resume, */
 	.driver = {
 		.name		= "ehci-omap",
 	}
 };
 
+/*-------------------------------------------------------------------------*/
 
 static const struct hc_driver ehci_omap_hc_driver = {
 	.description		= hcd_name,
 	.product_desc		= "OMAP-EHCI Host Controller",
 	.hcd_priv_size		= sizeof(struct ehci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq			= ehci_irq,
 	.flags			= HCD_MEMORY | HCD_USB2,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.reset			= ehci_init,
 	.start			= ehci_run,
 	.stop			= ehci_stop,
 	.shutdown		= ehci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue		= ehci_urb_enqueue,
 	.urb_dequeue		= ehci_urb_dequeue,
 	.endpoint_disable	= ehci_endpoint_disable,
 	.endpoint_reset		= ehci_endpoint_reset,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number	= ehci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data	= ehci_hub_status_data,
 	.hub_control		= ehci_hub_control,
 	.bus_suspend		= ehci_bus_suspend,

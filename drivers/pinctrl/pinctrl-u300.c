@@ -23,16 +23,24 @@
 #include <linux/pinctrl/pinconf-generic.h>
 #include "pinctrl-coh901.h"
 
+/*
+ * Register definitions for the U300 Padmux control registers in the
+ * system controller
+ */
 
+/* PAD MUX Control register 1 (LOW) 16bit (R/W) */
 #define U300_SYSCON_PMC1LR					0x007C
 #define U300_SYSCON_PMC1LR_MASK					0xFFFF
 #define U300_SYSCON_PMC1LR_CDI_MASK				0xC000
 #define U300_SYSCON_PMC1LR_CDI_CDI				0x0000
 #define U300_SYSCON_PMC1LR_CDI_EMIF				0x4000
+/* For BS335 */
 #define U300_SYSCON_PMC1LR_CDI_CDI2				0x8000
 #define U300_SYSCON_PMC1LR_CDI_WCDMA_APP_GPIO			0xC000
+/* For BS365 */
 #define U300_SYSCON_PMC1LR_CDI_GPIO				0x8000
 #define U300_SYSCON_PMC1LR_CDI_WCDMA				0xC000
+/* Common defs */
 #define U300_SYSCON_PMC1LR_PDI_MASK				0x3000
 #define U300_SYSCON_PMC1LR_PDI_PDI				0x0000
 #define U300_SYSCON_PMC1LR_PDI_EGG				0x1000
@@ -65,6 +73,7 @@
 #define U300_SYSCON_PMC1LR_EMIF_1_SDRAM0			0x0001
 #define U300_SYSCON_PMC1LR_EMIF_1_SDRAM1			0x0002
 #define U300_SYSCON_PMC1LR_EMIF_1				0x0003
+/* PAD MUX Control register 2 (HIGH) 16bit (R/W) */
 #define U300_SYSCON_PMC1HR					0x007E
 #define U300_SYSCON_PMC1HR_MASK					0xFFFF
 #define U300_SYSCON_PMC1HR_MISC_2_MASK				0xC000
@@ -104,6 +113,7 @@
 #define U300_SYSCON_PMC1HR_APP_UART0_1_APP_GPIO			0x0000
 #define U300_SYSCON_PMC1HR_APP_UART0_1_UART0			0x0001
 #define U300_SYSCON_PMC1HR_APP_UART0_1_AAIF			0x0003
+/* Padmux 2 control */
 #define U300_SYSCON_PMC2R					0x100
 #define U300_SYSCON_PMC2R_APP_MISC_0_MASK			0x00C0
 #define U300_SYSCON_PMC2R_APP_MISC_0_APP_GPIO			0x0000
@@ -130,11 +140,13 @@
 #define U300_SYSCON_PMC2R_APP_MISC_4_EMIF_SDRAM			0x4000
 #define U300_SYSCON_PMC2R_APP_MISC_4_MMC			0x8000
 #define U300_SYSCON_PMC2R_APP_MISC_4_ACC_GPIO			0xC000
+/* TODO: More SYSCON registers missing */
 #define U300_SYSCON_PMC3R					0x10C
 #define U300_SYSCON_PMC3R_APP_MISC_11_MASK			0xC000
 #define U300_SYSCON_PMC3R_APP_MISC_11_SPI			0x4000
 #define U300_SYSCON_PMC3R_APP_MISC_10_MASK			0x3000
 #define U300_SYSCON_PMC3R_APP_MISC_10_SPI			0x1000
+/* TODO: Missing other configs */
 #define U300_SYSCON_PMC4R					0x168
 #define U300_SYSCON_PMC4R_APP_MISC_12_MASK			0x0003
 #define U300_SYSCON_PMC4R_APP_MISC_12_APP_GPIO			0x0000
@@ -155,10 +167,23 @@
 
 #define DRIVER_NAME "pinctrl-u300"
 
+/*
+ * The DB3350 has 467 pads, I have enumerated the pads clockwise around the
+ * edges of the silicon, finger by finger. LTCORNER upper left is pad 0.
+ * Data taken from the PadRing chart, arranged like this:
+ *
+ *   0 ..... 104
+ * 466        105
+ *   .        .
+ *   .        .
+ * 358        224
+ *  357 .... 225
+ */
 #define U300_NUM_PADS 467
 
+/* Pad names for the pinmux subsystem */
 static const struct pinctrl_pin_desc u300_pads[] = {
-	
+	/* Pads along the top edge of the chip */
 	PINCTRL_PIN(0, "P PAD VDD 28"),
 	PINCTRL_PIN(1, "P PAD GND 28"),
 	PINCTRL_PIN(2, "PO SIM RST N"),
@@ -264,7 +289,7 @@ static const struct pinctrl_pin_desc u300_pads[] = {
 	PINCTRL_PIN(102, "P PAD GND 12"),
 	PINCTRL_PIN(103, "P PAD VSSIO 14"),
 	PINCTRL_PIN(104, "P PAD VDDIO 14"),
-	
+	/* Pads along the right edge of the chip */
 	PINCTRL_PIN(105, "PIO APP I2C1 DATA"),
 	PINCTRL_PIN(106, "PIO APP I2C1 CLK"),
 	PINCTRL_PIN(107, "PO KEY OUT0"),
@@ -381,7 +406,7 @@ static const struct pinctrl_pin_desc u300_pads[] = {
 	PINCTRL_PIN(218, "P PAD VSSIO 26"),
 	PINCTRL_PIN(219, "PO EMIF 1 A24"),
 	PINCTRL_PIN(220, "PO EMIF 1 A23"),
-	
+	/* Pads along the bottom edge of the chip */
 	PINCTRL_PIN(221, "PO EMIF 1 A22"),
 	PINCTRL_PIN(222, "PO EMIF 1 A21"),
 	PINCTRL_PIN(223, "P PAD VDD 21"),
@@ -513,7 +538,7 @@ static const struct pinctrl_pin_desc u300_pads[] = {
 	PINCTRL_PIN(349, "PI TAP TDI"),
 	PINCTRL_PIN(350, "PO TAP TDO"),
 	PINCTRL_PIN(351, "PI TAP RST N"),
-	
+	/* Pads along the left edge of the chip */
 	PINCTRL_PIN(352, "PI EMU MODE 0"),
 	PINCTRL_PIN(353, "PO TAP RET CLK"),
 	PINCTRL_PIN(354, "PI TAP CLK"),
@@ -631,6 +656,10 @@ static const struct pinctrl_pin_desc u300_pads[] = {
 	PINCTRL_PIN(466, "PIO SIM DATA"),
 };
 
+/**
+ * @dev: a pointer back to containing device
+ * @virtbase: the offset to the controller in virtual memory
+ */
 struct u300_pmx {
 	struct device *dev;
 	struct pinctrl_dev *pctl;
@@ -651,17 +680,40 @@ const u32 u300_pmx_registers[] = {
 	U300_SYSCON_PMC4R,
 };
 
+/**
+ * struct u300_pin_group - describes a U300 pin group
+ * @name: the name of this specific pin group
+ * @pins: an array of discrete physical pins used in this group, taken
+ *	from the driver-local pin enumeration space
+ * @num_pins: the number of pins in this group array, i.e. the number of
+ *	elements in .pins so we can iterate over that array
+ */
 struct u300_pin_group {
 	const char *name;
 	const unsigned int *pins;
 	const unsigned num_pins;
 };
 
+/**
+ * struct pmx_onmask - mask bits to enable/disable padmux
+ * @mask: mask bits to disable
+ * @val: mask bits to enable
+ *
+ * onmask lazy dog:
+ * onmask = {
+ *   {"PMC1LR" mask, "PMC1LR" value},
+ *   {"PMC1HR" mask, "PMC1HR" value},
+ *   {"PMC2R"  mask, "PMC2R"  value},
+ *   {"PMC3R"  mask, "PMC3R"  value},
+ *   {"PMC4R"  mask, "PMC4R"  value}
+ * }
+ */
 struct u300_pmx_mask {
 	u16 mask;
 	u16 bits;
 };
 
+/* The chip power pins are VDD, GND, VDDIO and VSSIO */
 static const unsigned power_pins[] = { 0, 1, 3, 31, 46, 47, 49, 50, 61, 62, 63,
 	64, 78, 79, 80, 81, 92, 93, 94, 95, 101, 102, 103, 104, 115, 116, 117,
 	118, 130, 131, 132, 133, 145, 146, 147, 148, 159, 160, 172, 173, 174,
@@ -694,6 +746,10 @@ static const struct u300_pmx_mask emif0_mask[] = {
 };
 
 static const struct u300_pmx_mask emif1_mask[] = {
+	/*
+	 * This connects the SDRAM to CS2 and a NAND flash to
+	 * CS0 on the EMIF.
+	 */
 	{
 		U300_SYSCON_PMC1LR_EMIF_1_CS2_MASK |
 		U300_SYSCON_PMC1LR_EMIF_1_CS1_MASK |
@@ -813,7 +869,16 @@ static struct pinctrl_ops u300_pctrl_ops = {
 	.pin_dbg_show = u300_pin_dbg_show,
 };
 
+/*
+ * Here we define the available functions and their corresponding pin groups
+ */
 
+/**
+ * struct u300_pmx_func - describes U300 pinmux functions
+ * @name: the name of this specific function
+ * @groups: corresponding pin groups
+ * @onmask: bits to set to enable this when doing pin muxing
+ */
 struct u300_pmx_func {
 	const char *name;
 	const char * const *groups;
@@ -833,7 +898,7 @@ static const struct u300_pmx_func u300_pmx_functions[] = {
 		.name = "power",
 		.groups = powergrps,
 		.num_groups = ARRAY_SIZE(powergrps),
-		
+		/* Mask is N/A */
 	},
 	{
 		.name = "emif0",
@@ -897,7 +962,7 @@ static int u300_pmx_enable(struct pinctrl_dev *pctldev, unsigned selector,
 {
 	struct u300_pmx *upmx;
 
-	
+	/* There is nothing to do with the power pins */
 	if (selector == 0)
 		return 0;
 
@@ -912,7 +977,7 @@ static void u300_pmx_disable(struct pinctrl_dev *pctldev, unsigned selector,
 {
 	struct u300_pmx *upmx;
 
-	
+	/* There is nothing to do with the power pins */
 	if (selector == 0)
 		return;
 
@@ -948,13 +1013,18 @@ static struct pinmux_ops u300_pmx_ops = {
 	.disable = u300_pmx_disable,
 };
 
+/*
+ * GPIO ranges handled by the application-side COH901XXX GPIO controller
+ * Very many pins can be converted into GPIO pins, but we only list those
+ * that are useful in practice to cut down on tables.
+ */
 #define U300_GPIO_RANGE(a, b, c) { .name = "COH901XXX", .id = a, .base= a, \
 			.pin_base = b, .npins = c }
 
 static struct pinctrl_gpio_range u300_gpio_ranges[] = {
 	U300_GPIO_RANGE(10, 426, 1),
 	U300_GPIO_RANGE(11, 180, 1),
-	U300_GPIO_RANGE(12, 165, 1), 
+	U300_GPIO_RANGE(12, 165, 1), /* MS/MMC card insertion */
 	U300_GPIO_RANGE(13, 179, 1),
 	U300_GPIO_RANGE(14, 178, 1),
 	U300_GPIO_RANGE(16, 194, 1),
@@ -990,7 +1060,7 @@ int u300_pin_config_get(struct pinctrl_dev *pctldev,
 {
 	struct pinctrl_gpio_range *range = u300_match_gpio_range(pin);
 
-	
+	/* We get config for those pins we CAN get it for and that's it */
 	if (!range)
 		return -ENOTSUPP;
 
@@ -1009,7 +1079,7 @@ int u300_pin_config_set(struct pinctrl_dev *pctldev,
 	if (!range)
 		return -EINVAL;
 
-	
+	/* Note: none of these configurations take any argument */
 	ret = u300_gpio_config_set(range->gc,
 				   (pin - range->pin_base + range->base),
 				   pinconf_to_config_param(config));
@@ -1045,7 +1115,7 @@ static int __devinit u300_pmx_probe(struct platform_device *pdev)
 
 	pr_err("U300 PMX PROBE\n");
 
-	
+	/* Create state holders etc for this driver */
 	upmx = devm_kzalloc(&pdev->dev, sizeof(*upmx), GFP_KERNEL);
 	if (!upmx)
 		return -ENOMEM;
@@ -1079,7 +1149,7 @@ static int __devinit u300_pmx_probe(struct platform_device *pdev)
 		goto out_no_pmx;
 	}
 
-	
+	/* We will handle a range of GPIO pins */
 	for (i = 0; i < ARRAY_SIZE(u300_gpio_ranges); i++) {
 		u300_gpio_ranges[i].gc = gpio_chip;
 		pinctrl_add_gpio_range(upmx->pctl, &u300_gpio_ranges[i]);

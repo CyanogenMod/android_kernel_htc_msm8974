@@ -78,4 +78,4 @@ extern void __init palm27x_pmic_init(void);
 static inline void palm27x_pmic_init(void) {}
 #endif
 
-#endif	
+#endif	/* __INCLUDE_MACH_PALM27X__ */

@@ -25,6 +25,6 @@ static inline int irq_to_gpio(unsigned int irq)
 
 #define __ARM_GPIOLIB_COMPLEX
 
-#endif 
+#endif /* CONFIG_GPIOLIB */
 
-#endif 
+#endif /* __ASM_ARCH_GPIO_H */

@@ -112,7 +112,7 @@ void crisv32_intmem_free(void* addr)
 				     struct intmem_allocation, entry);
 
 			allocation->status = STATUS_FREE;
-			
+			/* Join with prev and/or next if also free */
 			if ((prev != &intmem_allocations) &&
 					(prev->status == STATUS_FREE)) {
 				prev->size += allocation->size;

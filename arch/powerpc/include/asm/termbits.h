@@ -12,31 +12,38 @@ typedef unsigned char	cc_t;
 typedef unsigned int	speed_t;
 typedef unsigned int	tcflag_t;
 
+/*
+ * termios type and macro definitions.  Be careful about adding stuff
+ * to this file since it's used in GNU libc and there are strict rules
+ * concerning namespace pollution.
+ */
 
 #define NCCS 19
 struct termios {
-	tcflag_t c_iflag;		
-	tcflag_t c_oflag;		
-	tcflag_t c_cflag;		
-	tcflag_t c_lflag;		
-	cc_t c_cc[NCCS];		
-	cc_t c_line;			
-	speed_t c_ispeed;		
-	speed_t c_ospeed;		
+	tcflag_t c_iflag;		/* input mode flags */
+	tcflag_t c_oflag;		/* output mode flags */
+	tcflag_t c_cflag;		/* control mode flags */
+	tcflag_t c_lflag;		/* local mode flags */
+	cc_t c_cc[NCCS];		/* control characters */
+	cc_t c_line;			/* line discipline (== c_cc[19]) */
+	speed_t c_ispeed;		/* input speed */
+	speed_t c_ospeed;		/* output speed */
 };
 
+/* For PowerPC the termios and ktermios are the same */
 
 struct ktermios {
-	tcflag_t c_iflag;		
-	tcflag_t c_oflag;		
-	tcflag_t c_cflag;		
-	tcflag_t c_lflag;		
-	cc_t c_cc[NCCS];		
-	cc_t c_line;			
-	speed_t c_ispeed;		
-	speed_t c_ospeed;		
+	tcflag_t c_iflag;		/* input mode flags */
+	tcflag_t c_oflag;		/* output mode flags */
+	tcflag_t c_cflag;		/* control mode flags */
+	tcflag_t c_lflag;		/* local mode flags */
+	cc_t c_cc[NCCS];		/* control characters */
+	cc_t c_line;			/* line discipline (== c_cc[19]) */
+	speed_t c_ispeed;		/* input speed */
+	speed_t c_ospeed;		/* output speed */
 };
 
+/* c_cc characters */
 #define VINTR 	         0
 #define VQUIT 	         1
 #define VERASE 	         2
@@ -55,6 +62,7 @@ struct ktermios {
 #define VLNEXT		15
 #define VDISCARD	16
 
+/* c_iflag bits */
 #define IGNBRK	0000001
 #define BRKINT	0000002
 #define IGNPAR	0000004
@@ -71,6 +79,7 @@ struct ktermios {
 #define IMAXBEL	0020000
 #define	IUTF8	0040000
 
+/* c_oflag bits */
 #define OPOST	0000001
 #define ONLCR	0000002
 #define OLCUC	0000004
@@ -91,7 +100,7 @@ struct ktermios {
 #define   TAB1	00002000
 #define   TAB2	00004000
 #define   TAB3	00006000
-#define   XTABS	00006000	
+#define   XTABS	00006000	/* required by POSIX to == TAB3 */
 #define CRDLY	00030000
 #define   CR0	00000000
 #define   CR1	00010000
@@ -107,8 +116,9 @@ struct ktermios {
 #define   VT0	00000000
 #define   VT1	00200000
 
+/* c_cflag bit meaning */
 #define CBAUD	0000377
-#define  B0	0000000		
+#define  B0	0000000		/* hang up */
 #define  B50	0000001
 #define  B75	0000002
 #define  B110	0000003
@@ -145,7 +155,7 @@ struct ktermios {
 #define   BOTHER  00037
 
 #define CIBAUD	077600000
-#define IBSHIFT	16		
+#define IBSHIFT	16		/* Shift from CBAUD to CIBAUD */
 
 #define CSIZE	00001400
 #define   CS5	00000000
@@ -160,9 +170,10 @@ struct ktermios {
 #define HUPCL	00040000
 
 #define CLOCAL	00100000
-#define CMSPAR	  010000000000		
-#define CRTSCTS	  020000000000		
+#define CMSPAR	  010000000000		/* mark or space (stick) parity */
+#define CRTSCTS	  020000000000		/* flow control */
 
+/* c_lflag bits */
 #define ISIG	0x00000080
 #define ICANON	0x00000100
 #define XCASE	0x00004000
@@ -180,17 +191,20 @@ struct ktermios {
 #define IEXTEN	0x00000400
 #define EXTPROC	0x10000000
 
+/* Values for the ACTION argument to `tcflow'.  */
 #define	TCOOFF		0
 #define	TCOON		1
 #define	TCIOFF		2
 #define	TCION		3
 
+/* Values for the QUEUE_SELECTOR argument to `tcflush'.  */
 #define	TCIFLUSH	0
 #define	TCOFLUSH	1
 #define	TCIOFLUSH	2
 
+/* Values for the OPTIONAL_ACTIONS argument to `tcsetattr'.  */
 #define	TCSANOW		0
 #define	TCSADRAIN	1
 #define	TCSAFLUSH	2
 
-#endif	
+#endif	/* _ASM_POWERPC_TERMBITS_H */

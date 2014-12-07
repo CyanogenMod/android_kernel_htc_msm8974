@@ -14,6 +14,9 @@
 #include <linux/sunrpc/debug.h>
 #include <linux/list.h>
 
+/*
+ * Shorthands
+ */
 #define signalled()		(signal_pending(current))
 
-#endif 
+#endif /* _LINUX_SUNRPC_TYPES_H_ */

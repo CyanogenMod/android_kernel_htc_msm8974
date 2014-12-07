@@ -49,7 +49,7 @@ static void __init early_code_mapping_set_exec(int executable)
 	if (!(__supported_pte_mask & _PAGE_NX))
 		return;
 
-	
+	/* Make EFI service code area executable */
 	for (p = memmap.map; p < memmap.map_end; p += memmap.desc_size) {
 		md = p;
 		if (md->type == EFI_RUNTIME_SERVICES_CODE ||
@@ -72,6 +72,9 @@ void __init efi_call_phys_prelog(void)
 
 void __init efi_call_phys_epilog(void)
 {
+	/*
+	 * After the lock is released, the original page table is restored.
+	 */
 	set_pgd(pgd_offset_k(0x0UL), save_pgd);
 	__flush_tlb_all();
 	local_irq_restore(efi_flags);

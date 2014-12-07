@@ -1,3 +1,4 @@
+/****************************************************************************/
 
 /*
  *	mcfsim.h -- ColdFire System Integration Module support.
@@ -6,9 +7,15 @@
  * 	(C) Copyright 2000, Lineo Inc. (www.lineo.com)
  */
 
+/****************************************************************************/
 #ifndef	mcfsim_h
 #define	mcfsim_h
+/****************************************************************************/
 
+/*
+ * Include the appropriate ColdFire CPU specific System Integration Module
+ * (SIM) definitions.
+ */
 #if defined(CONFIG_M5206) || defined(CONFIG_M5206e)
 #include <asm/m5206sim.h>
 #include <asm/mcfintc.h>
@@ -38,4 +45,5 @@
 #include <asm/m54xxsim.h>
 #endif
 
-#endif	
+/****************************************************************************/
+#endif	/* mcfsim_h */

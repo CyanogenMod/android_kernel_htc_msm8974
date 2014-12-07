@@ -41,8 +41,10 @@ struct wl1271_static_data {
 	u8 tx_power_table[WL1271_NO_SUBBANDS][WL1271_NO_POWER_LEVELS];
 };
 
+/* number of times we try to read the INIT interrupt */
 #define INIT_LOOP 20000
 
+/* delay between retries */
 #define INIT_LOOP_DELAY 50
 
 #define WU_COUNTER_PAUSE_VAL 0x3FF
@@ -63,10 +65,14 @@ struct wl1271_static_data {
 #define FREF_CLK_POLARITY_BITS 0xfffff8ff
 #define CLK_REQ_OUTN_SEL       0x700
 
+/* PLL configuration algorithm for wl128x */
 #define SYS_CLK_CFG_REG              0x2200
+/* Bit[0]   -  0-TCXO,  1-FREF */
 #define MCS_PLL_CLK_SEL_FREF         BIT(0)
+/* Bit[3:2] - 01-TCXO, 10-FREF */
 #define WL_CLK_REQ_TYPE_FREF         BIT(3)
 #define WL_CLK_REQ_TYPE_PG2          (BIT(3) | BIT(2))
+/* Bit[4]   -  0-TCXO,  1-FREF */
 #define PRCM_CM_EN_MUX_WLAN_FREF     BIT(4)
 
 #define TCXO_ILOAD_INT_REG           0x2264
@@ -78,8 +84,10 @@ struct wl1271_static_data {
 #define FREF_CLK_DETECT_REG          0x2086
 #define FREF_CLK_DETECT_FAIL         BIT(4)
 
+/* Use this reg for masking during driver access */
 #define WL_SPARE_REG                 0x2320
 #define WL_SPARE_VAL                 BIT(2)
+/* Bit[6:5:3] -  mask wl write SYS_CLK_CFG[8:5:2:4] */
 #define WL_SPARE_MASK_8526           (BIT(6) | BIT(5) | BIT(3))
 
 #define PLL_LOCK_COUNTERS_REG        0xD8C
@@ -99,12 +107,14 @@ struct wl1271_static_data {
 
 #define SDIO_IO_DS                   0xd14
 
+/* SDIO/wSPI DS configuration values */
 enum {
 	HCI_IO_DS_8MA = 0,
-	HCI_IO_DS_4MA = 1, 
+	HCI_IO_DS_4MA = 1, /* default */
 	HCI_IO_DS_6MA = 2,
 	HCI_IO_DS_2MA = 3,
 };
 
+/* end PLL configuration algorithm for wl128x */
 
 #endif

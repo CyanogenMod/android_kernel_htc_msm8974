@@ -31,43 +31,43 @@
 static void free_ebi_pools(void);
 
 static struct physmem_region memory[] = {
-	{	
+	{	/* SMI 16M */
 		.addr = MSM_SMI_BASE,
 		.size = SZ_16M,
 		.chunk_size = SZ_16M
 	},
-	{	
+	{	/* SMI 1M */
 		.addr = MSM_SMI_BASE + SZ_16M,
 		.size = SZ_8M,
 		.chunk_size = SZ_1M
 	},
-	{	
+	{	/* SMI 64K */
 		.addr = MSM_SMI_BASE + SZ_16M + SZ_8M,
 		.size = SZ_4M,
 		.chunk_size = SZ_64K
 	},
-	{	
+	{	/* SMI 4K */
 		.addr = MSM_SMI_BASE + SZ_16M + SZ_8M + SZ_4M,
 		.size = SZ_4M,
 		.chunk_size = SZ_4K
 	},
 
-	{	
+	{	/* EBI 16M */
 		.addr = 0,
 		.size = SZ_16M,
 		.chunk_size = SZ_16M
 	},
-	{	
+	{	/* EBI 1M */
 		.addr = 0,
 		.size = SZ_8M,
 		.chunk_size = SZ_1M
 	},
-	{	
+	{	/* EBI 64K */
 		.addr = 0,
 		.size = SZ_4M,
 		.chunk_size = SZ_64K
 	},
-	{	
+	{	/* EBI 4K */
 		.addr = 0,
 		.size = SZ_4M,
 		.chunk_size = SZ_4K
@@ -75,23 +75,24 @@ static struct physmem_region memory[] = {
 };
 
 
+/* The pool priority MUST be in descending order of size */
 static struct vcm_memtype_map mt_map[] __initdata = {
 	{
-		
+		/* MEMTYPE_0 */
 		.pool_id = {SMI_16M, SMI_1M, SMI_64K, SMI_4K},
 		.num_pools = 4,
 	},
 	{
-		
+		/* MEMTYPE_1 */
 		.pool_id = {SMI_16M, SMI_1M, SMI_64K, EBI_4K},
 		.num_pools = 4,
 	},
-	{	
+	{	/* MEMTYPE_2 */
 		.pool_id = {EBI_16M, EBI_1M, EBI_64K, EBI_4K},
 		.num_pools = 4,
 	},
 	{
-		
+		/* MEMTYPE_3 */
 		.pool_id = {SMI_16M, SMI_1M, EBI_1M, SMI_64K, EBI_64K, EBI_4K},
 		.num_pools = 6,
 	}
@@ -144,6 +145,7 @@ static void free_ebi_pools(void)
 }
 
 
+/* Useful for testing, and if VCM is ever unloaded */
 static void __exit msm8x60_vcm_exit(void)
 {
 	int ret;

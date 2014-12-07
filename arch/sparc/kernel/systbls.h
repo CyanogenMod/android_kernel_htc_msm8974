@@ -40,4 +40,4 @@ extern asmlinkage long sys_sigpause(unsigned int set);
 extern asmlinkage long sys_sigsuspend(old_sigset_t set);
 extern void do_rt_sigreturn(struct pt_regs *regs);
 
-#endif 
+#endif /* _SYSTBLS_H */

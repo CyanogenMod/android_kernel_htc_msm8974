@@ -19,4 +19,4 @@ void nf_shutdown(void);
 void nfprint(const char *fmt, ...)
 	__attribute__ ((format (printf, 1, 2)));
 
-# endif 
+# endif /* _NATFEAT_H */

@@ -65,6 +65,9 @@
 
 
 
+/*******************************************************************************
+ *  function prototypes
+ ******************************************************************************/
 int wl_init( struct net_device *dev );
 
 int wl_config( struct net_device *dev, struct ifmap *map );
@@ -99,7 +102,7 @@ int wl_rx_dma( struct net_device *dev );
 void wl_multicast( struct net_device *dev );
 #else
 void wl_multicast( struct net_device *dev, int num_addrs, void *addrs );
-#endif 
+#endif // NEW_MULTICAST
 
 
 int wl_tx_port0( struct sk_buff *skb, struct net_device *dev );
@@ -122,7 +125,7 @@ void wl_wds_netif_wake_queue( struct wl_private *lp );
 void wl_wds_netif_carrier_on( struct wl_private *lp );
 void wl_wds_netif_carrier_off( struct wl_private *lp );
 
-#endif  
+#endif  /* USE_WDS */
 
 
 #ifdef USE_WDS
@@ -145,7 +148,7 @@ void wl_wds_netif_carrier_off( struct wl_private *lp );
 #define WL_WDS_NETIF_CARRIER_ON( ARG )
 #define WL_WDS_NETIF_CARRIER_OFF( ARG )
 
-#endif  
+#endif  /* USE_WDS */
 
 
-#endif  
+#endif  // __WL_NETDEV_H__

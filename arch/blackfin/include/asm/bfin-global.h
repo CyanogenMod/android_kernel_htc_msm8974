@@ -77,8 +77,8 @@ extern const char bfin_board_name[];
 
 extern unsigned long bfin_sic_iwr[];
 extern unsigned vr_wakeup;
-extern u16 _bfin_swrst; 
+extern u16 _bfin_swrst; /* shadow for Software Reset Register (SWRST) */
 
 #endif
 
-#endif				
+#endif				/* _BLACKFIN_H_ */

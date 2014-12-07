@@ -63,7 +63,7 @@ static void _rtl92cu_phy_param_tab_init(struct ieee80211_hw *hw)
 		rtlphy->hwparam_tables[PHY_REG_PG].pdata =
 			RTL8192CUPHY_REG_ARRAY_PG;
 	}
-	
+	/* 2T */
 	rtlphy->hwparam_tables[PHY_REG_2T].length =
 			RTL8192CUPHY_REG_2TARRAY_LENGTH;
 	rtlphy->hwparam_tables[PHY_REG_2T].pdata =
@@ -80,7 +80,7 @@ static void _rtl92cu_phy_param_tab_init(struct ieee80211_hw *hw)
 			RTL8192CUAGCTAB_2TARRAYLENGTH;
 	rtlphy->hwparam_tables[AGCTAB_2T].pdata =
 			RTL8192CUAGCTAB_2TARRAY;
-	
+	/* 1T */
 	if (IS_HIGHT_PA(rtlefuse->board_type)) {
 		rtlphy->hwparam_tables[PHY_REG_1T].length =
 			RTL8192CUPHY_REG_1T_HPArrayLength;
@@ -328,7 +328,7 @@ static void _rtl92cu_read_board_type(struct ieee80211_hw *hw, u8 *contents)
 
 	if (IS_NORMAL_CHIP(rtlhal->version)) {
 		boardType = ((contents[EEPROM_RF_OPT1]) &
-			    BOARD_TYPE_NORMAL_MASK) >> 5; 
+			    BOARD_TYPE_NORMAL_MASK) >> 5; /*bit[7:5]*/
 	} else {
 		boardType = contents[EEPROM_RF_OPT4];
 		boardType &= BOARD_TYPE_TEST_MASK;
@@ -468,7 +468,7 @@ static int _rtl92cu_init_power_on(struct ieee80211_hw *hw)
 	int		status = 0;
 	u16		value16;
 	u8		value8;
-	
+	/*  polling autoload done. */
 	u32	pollingCount = 0;
 
 	do {
@@ -483,10 +483,10 @@ static int _rtl92cu_init_power_on(struct ieee80211_hw *hw)
 			return -ENODEV;
 		}
 	} while (true);
-	
+	/* 0. RSV_CTRL 0x1C[7:0] = 0 unlock ISO/CLK/Power control register */
 	rtl_write_byte(rtlpriv, REG_RSV_CTRL, 0x0);
-	
-	
+	/* Power on when re-enter from IPS/Radio off/card disable */
+	/* enable SPS into PWM mode */
 	rtl_write_byte(rtlpriv, REG_SPS0_CTRL, 0x2b);
 	udelay(100);
 	value8 = rtl_read_byte(rtlpriv, REG_LDOV12D_CTRL);
@@ -501,7 +501,7 @@ static int _rtl92cu_init_power_on(struct ieee80211_hw *hw)
 		value8 &= ~ISO_MD2PP;
 		rtl_write_byte(rtlpriv, REG_SYS_ISO_CTRL, value8);
 	}
-	
+	/*  auto enable WLAN */
 	pollingCount = 0;
 	value16 = rtl_read_word(rtlpriv, REG_APS_FSMCO);
 	value16 |= APFM_ONMAC;
@@ -517,13 +517,13 @@ static int _rtl92cu_init_power_on(struct ieee80211_hw *hw)
 			return -ENODEV;
 		}
 	} while (true);
-	
+	/* Enable Radio ,GPIO ,and LED function */
 	rtl_write_word(rtlpriv, REG_APS_FSMCO, 0x0812);
-	
+	/* release RF digital isolation */
 	value16 = rtl_read_word(rtlpriv, REG_SYS_ISO_CTRL);
 	value16 &= ~ISO_DIOR;
 	rtl_write_word(rtlpriv, REG_SYS_ISO_CTRL, value16);
-	
+	/* Reconsider when to do this operation after asking HWSD. */
 	pollingCount = 0;
 	rtl_write_byte(rtlpriv, REG_APSD_CTRL, (rtl_read_byte(rtlpriv,
 						REG_APSD_CTRL) & ~BIT(6)));
@@ -531,7 +531,7 @@ static int _rtl92cu_init_power_on(struct ieee80211_hw *hw)
 		pollingCount++;
 	} while ((pollingCount < 200) &&
 		 (rtl_read_byte(rtlpriv, REG_APSD_CTRL) & BIT(7)));
-	
+	/* Enable MAC DMA/WMAC/SCHEDULE/SEC block */
 	value16 = rtl_read_word(rtlpriv,  REG_CR);
 	value16 |= (HCI_TXDMA_EN | HCI_RXDMA_EN | TXDMA_EN | RXDMA_EN |
 		    PROTOCOL_EN | SCHEDULE_EN | MACTXEN | MACRXEN | ENSEC);
@@ -567,9 +567,11 @@ static void _rtl92cu_init_queue_reserved_page(struct ieee80211_hw *hw,
 			numHQ = txQPageUnit;
 		if (queue_sel & TX_SELE_LQ)
 			numLQ = txQPageUnit;
+		/* HIGH priority queue always present in the configuration of
+		 * 2 out-ep. Remainder pages have assigned to High queue */
 		if ((outEPNum > 1) && (txQRemainPage))
 			numHQ += txQRemainPage;
-		
+		/* NOTE: This step done before writting REG_RQPN. */
 		if (isChipN) {
 			if (queue_sel & TX_SELE_NQ)
 				numNQ = txQPageUnit;
@@ -577,7 +579,7 @@ static void _rtl92cu_init_queue_reserved_page(struct ieee80211_hw *hw,
 			rtl_write_byte(rtlpriv,  REG_RQPN_NPQ, value8);
 		}
 	} else {
-		
+		/* for WMM ,number of out-ep must more than or equal to 2! */
 		numPubQ = isChipN ? WMM_CHIP_B_PAGE_NUM_PUBQ :
 			  WMM_CHIP_A_PAGE_NUM_PUBQ;
 		if (queue_sel & TX_SELE_HQ) {
@@ -588,7 +590,7 @@ static void _rtl92cu_init_queue_reserved_page(struct ieee80211_hw *hw,
 			numLQ = isChipN ? WMM_CHIP_B_PAGE_NUM_LPQ :
 				WMM_CHIP_A_PAGE_NUM_LPQ;
 		}
-		
+		/* NOTE: This step done before writting REG_RQPN. */
 		if (isChipN) {
 			if (queue_sel & TX_SELE_NQ)
 				numNQ = WMM_CHIP_B_PAGE_NUM_NPQ;
@@ -596,7 +598,7 @@ static void _rtl92cu_init_queue_reserved_page(struct ieee80211_hw *hw,
 			rtl_write_byte(rtlpriv, REG_RQPN_NPQ, value8);
 		}
 	}
-	
+	/* TX DMA */
 	value32 = _HPQ(numHQ) | _LPQ(numLQ) | _PUBQ(numPubQ) | LD_RQPN;
 	rtl_write_dword(rtlpriv, REG_RQPN, value32);
 }
@@ -610,7 +612,7 @@ static void _rtl92c_init_trx_buffer(struct ieee80211_hw *hw, bool wmm_enable)
 
 	if (!wmm_enable)
 		txpktbuf_bndy = TX_PAGE_BOUNDARY;
-	else 
+	else /* for WMM */
 		txpktbuf_bndy = (IS_NORMAL_CHIP(rtlhal->version))
 						? WMM_CHIP_B_TX_PAGE_BOUNDARY
 						: WMM_CHIP_A_TX_PAGE_BOUNDARY;
@@ -654,7 +656,7 @@ static void _rtl92cu_init_chipN_one_out_ep_priority(struct ieee80211_hw *hw,
 		value = QUEUE_NORMAL;
 		break;
 	default:
-		WARN_ON(1); 
+		WARN_ON(1); /* Shall not reach here! */
 		break;
 	}
 	_rtl92c_init_chipN_reg_priority(hw, value, value, value, value,
@@ -694,7 +696,7 @@ static void _rtl92cu_init_chipN_two_out_ep_priority(struct ieee80211_hw *hw,
 		voQ = valueHi;
 		mgtQ = valueHi;
 		hiQ = valueHi;
-	} else {
+	} else {/* for WMM ,CONFIG_OUT_EP_WIFI_MODE */
 		beQ = valueHi;
 		bkQ = valueLow;
 		viQ = valueLow;
@@ -713,14 +715,14 @@ static void _rtl92cu_init_chipN_three_out_ep_priority(struct ieee80211_hw *hw,
 	u16 beQ, bkQ, viQ, voQ, mgtQ, hiQ;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 
-	if (!wmm_enable) { 
+	if (!wmm_enable) { /* typical setting */
 		beQ	= QUEUE_LOW;
 		bkQ	= QUEUE_LOW;
 		viQ	= QUEUE_NORMAL;
 		voQ	= QUEUE_HIGH;
 		mgtQ	= QUEUE_HIGH;
 		hiQ	= QUEUE_HIGH;
-	} else { 
+	} else { /* for WMM */
 		beQ	= QUEUE_LOW;
 		bkQ	= QUEUE_NORMAL;
 		viQ	= QUEUE_NORMAL;
@@ -752,7 +754,7 @@ static void _rtl92cu_init_chipN_queue_priority(struct ieee80211_hw *hw,
 							  queue_sel);
 		break;
 	default:
-		WARN_ON(1); 
+		WARN_ON(1); /* Shall not reach here! */
 		break;
 	}
 }
@@ -766,26 +768,26 @@ static void _rtl92cu_init_chipT_queue_priority(struct ieee80211_hw *hw,
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 
 	switch (out_ep_num) {
-	case 2:	
-		if (!wmm_enable) 
+	case 2:	/* (TX_SELE_HQ|TX_SELE_LQ) */
+		if (!wmm_enable) /* typical setting */
 			hq_sele =  HQSEL_VOQ | HQSEL_VIQ | HQSEL_MGTQ |
 				   HQSEL_HIQ;
-		else	
+		else	/* for WMM */
 			hq_sele = HQSEL_VOQ | HQSEL_BEQ | HQSEL_MGTQ |
 				  HQSEL_HIQ;
 		break;
 	case 1:
 		if (TX_SELE_LQ == queue_sel) {
-			
+			/* map all endpoint to Low queue */
 			hq_sele = 0;
 		} else if (TX_SELE_HQ == queue_sel) {
-			
+			/* map all endpoint to High queue */
 			hq_sele =  HQSEL_VOQ | HQSEL_VIQ | HQSEL_BEQ |
 				   HQSEL_BKQ | HQSEL_MGTQ | HQSEL_HIQ;
 		}
 		break;
 	default:
-		WARN_ON(1); 
+		WARN_ON(1); /* Shall not reach here! */
 		break;
 	}
 	rtl_write_byte(rtlpriv, (REG_TRXDMA_CTRL+1), hq_sele);
@@ -822,15 +824,15 @@ static void _rtl92cu_init_wmac_setting(struct ieee80211_hw *hw)
 		      RCR_APP_ICV | RCR_AMF | RCR_HTC_LOC_CTRL |
 		      RCR_APP_MIC | RCR_APP_PHYSTS | RCR_ACRC32);
 	rtl_write_dword(rtlpriv, REG_RCR, mac->rx_conf);
-	
+	/* Accept all multicast address */
 	rtl_write_dword(rtlpriv,  REG_MAR, 0xFFFFFFFF);
 	rtl_write_dword(rtlpriv,  REG_MAR + 4, 0xFFFFFFFF);
-	
+	/* Accept all management frames */
 	value16 = 0xFFFF;
 	rtl92c_set_mgt_filter(hw, value16);
-	
+	/* Reject all control frame - default value is 0 */
 	rtl92c_set_ctrl_filter(hw, 0x0);
-	
+	/* Accept all data frames */
 	value16 = 0xFFFF;
 	rtl92c_set_data_filter(hw, value16);
 }
@@ -843,7 +845,7 @@ static int _rtl92cu_init_mac(struct ieee80211_hw *hw)
 	struct rtl_usb *rtlusb = rtl_usbdev(usb_priv);
 	int err = 0;
 	u32	boundary = 0;
-	u8 wmm_enable = false; 
+	u8 wmm_enable = false; /* TODO */
 	u8 out_ep_nums = rtlusb->out_ep_nums;
 	u8 queue_sel = rtlusb->out_queue_sel;
 	err = _rtl92cu_init_power_on(hw);
@@ -855,7 +857,7 @@ static int _rtl92cu_init_mac(struct ieee80211_hw *hw)
 	}
 	if (!wmm_enable) {
 		boundary = TX_PAGE_BOUNDARY;
-	} else { 
+	} else { /* for WMM */
 		boundary = (IS_NORMAL_CHIP(rtlhal->version))
 					? WMM_CHIP_B_TX_PAGE_BOUNDARY
 					: WMM_CHIP_A_TX_PAGE_BOUNDARY;
@@ -870,7 +872,7 @@ static int _rtl92cu_init_mac(struct ieee80211_hw *hw)
 	_rtl92c_init_trx_buffer(hw, wmm_enable);
 	_rtl92cu_init_queue_priority(hw, wmm_enable, out_ep_nums,
 				     queue_sel);
-	
+	/* Get Rx PHY status in order to report RSSI and others. */
 	rtl92c_init_driver_info_size(hw, RTL92C_DRIVER_INFO_SIZE);
 	rtl92c_init_interrupt(hw);
 	rtl92c_init_network_type(hw);
@@ -921,13 +923,13 @@ static void _rtl92cu_hw_configure(struct ieee80211_hw *hw)
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_usb *rtlusb = rtl_usbdev(rtl_usbpriv(hw));
 
-	
+	/* To Fix MAC loopback mode fail. */
 	rtl_write_byte(rtlpriv, REG_LDOHCI12_CTRL, 0x0f);
 	rtl_write_byte(rtlpriv, 0x15, 0xe9);
-	
-	
+	/* HW SEQ CTRL */
+	/* set 0x0 to 0xFF by tynli. Default enable HW SEQ NUM. */
 	rtl_write_byte(rtlpriv, REG_HWSEQ_CTRL, 0xFF);
-	
+	/* fixed USB interface interference issue */
 	rtl_write_byte(rtlpriv, 0xfe40, 0xe0);
 	rtl_write_byte(rtlpriv, 0xfe41, 0x8d);
 	rtl_write_byte(rtlpriv, 0xfe42, 0x80);
@@ -941,7 +943,7 @@ static void _InitPABias(struct ieee80211_hw *hw)
 	struct rtl_hal *rtlhal = rtl_hal(rtl_priv(hw));
 	u8 pa_setting;
 
-	
+	/* FIXED PA current issue */
 	pa_setting = efuse_read_1byte(hw, 0x1FA);
 	if (!(pa_setting & BIT(0))) {
 		rtl_set_rfreg(hw, RF90_PATH_A, 0x15, 0x0FFFFF, 0x0F406);
@@ -997,7 +999,7 @@ int rtl92cu_hw_init(struct ieee80211_hw *hw)
 		err = 1;
 		return err;
 	}
-	rtlhal->last_hmeboxnum = 0; 
+	rtlhal->last_hmeboxnum = 0; /* h2c */
 	_rtl92cu_phy_param_tab_init(hw);
 	rtl92cu_phy_mac_config(hw);
 	rtl92cu_phy_bb_config(hw);
@@ -1038,17 +1040,24 @@ int rtl92cu_hw_init(struct ieee80211_hw *hw)
 static void _DisableRFAFEAndResetBB(struct ieee80211_hw *hw)
 {
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
+/**************************************
+a.	TXPAUSE 0x522[7:0] = 0xFF	Pause MAC TX queue
+b.	RF path 0 offset 0x00 = 0x00	disable RF
+c.	APSD_CTRL 0x600[7:0] = 0x40
+d.	SYS_FUNC_EN 0x02[7:0] = 0x16	reset BB state machine
+e.	SYS_FUNC_EN 0x02[7:0] = 0x14	reset BB state machine
+***************************************/
 	u8 eRFPath = 0, value8 = 0;
 	rtl_write_byte(rtlpriv, REG_TXPAUSE, 0xFF);
 	rtl_set_rfreg(hw, (enum radio_path)eRFPath, 0x0, MASKBYTE0, 0x0);
 
 	value8 |= APSDOFF;
-	rtl_write_byte(rtlpriv, REG_APSD_CTRL, value8); 
+	rtl_write_byte(rtlpriv, REG_APSD_CTRL, value8); /*0x40*/
 	value8 = 0;
 	value8 |= (FEN_USBD | FEN_USBA | FEN_BB_GLB_RSTn);
-	rtl_write_byte(rtlpriv, REG_SYS_FUNC_EN, value8);
+	rtl_write_byte(rtlpriv, REG_SYS_FUNC_EN, value8);/*0x16*/
 	value8 &= (~FEN_BB_GLB_RSTn);
-	rtl_write_byte(rtlpriv, REG_SYS_FUNC_EN, value8); 
+	rtl_write_byte(rtlpriv, REG_SYS_FUNC_EN, value8); /*0x14*/
 }
 
 static void  _ResetDigitalProcedure1(struct ieee80211_hw *hw, bool bWithoutHWSM)
@@ -1057,26 +1066,32 @@ static void  _ResetDigitalProcedure1(struct ieee80211_hw *hw, bool bWithoutHWSM)
 	struct rtl_hal *rtlhal = rtl_hal(rtl_priv(hw));
 
 	if (rtlhal->fw_version <=  0x20) {
+		/*****************************
+		f. MCUFWDL 0x80[7:0]=0		reset MCU ready status
+		g. SYS_FUNC_EN 0x02[10]= 0	reset MCU reg, (8051 reset)
+		h. SYS_FUNC_EN 0x02[15-12]= 5	reset MAC reg, DCORE
+		i. SYS_FUNC_EN 0x02[10]= 1	enable MCU reg, (8051 enable)
+		******************************/
 		u16 valu16 = 0;
 
 		rtl_write_byte(rtlpriv, REG_MCUFWDL, 0);
 		valu16 = rtl_read_word(rtlpriv, REG_SYS_FUNC_EN);
 		rtl_write_word(rtlpriv, REG_SYS_FUNC_EN, (valu16 &
-			       (~FEN_CPUEN))); 
+			       (~FEN_CPUEN))); /* reset MCU ,8051 */
 		valu16 = rtl_read_word(rtlpriv, REG_SYS_FUNC_EN)&0x0FFF;
 		rtl_write_word(rtlpriv, REG_SYS_FUNC_EN, (valu16 |
-			      (FEN_HWPDN|FEN_ELDR))); 
+			      (FEN_HWPDN|FEN_ELDR))); /* reset MAC */
 		valu16 = rtl_read_word(rtlpriv, REG_SYS_FUNC_EN);
 		rtl_write_word(rtlpriv, REG_SYS_FUNC_EN, (valu16 |
-			       FEN_CPUEN)); 
+			       FEN_CPUEN)); /* enable MCU ,8051 */
 	} else {
 		u8 retry_cnts = 0;
 
-		
+		/* IF fw in RAM code, do reset */
 		if (rtl_read_byte(rtlpriv, REG_MCUFWDL) & BIT(1)) {
-			
+			/* reset MCU ready status */
 			rtl_write_byte(rtlpriv, REG_MCUFWDL, 0);
-			
+			/* 8051 reset by self */
 			rtl_write_byte(rtlpriv, REG_HMETFR+3, 0x20);
 			while ((retry_cnts++ < 100) &&
 			       (FEN_CPUEN & rtl_read_word(rtlpriv,
@@ -1086,18 +1101,25 @@ static void  _ResetDigitalProcedure1(struct ieee80211_hw *hw, bool bWithoutHWSM)
 			if (retry_cnts >= 100) {
 				RT_TRACE(rtlpriv, COMP_ERR, DBG_EMERG,
 					 "#####=> 8051 reset failed!.........................\n");
-				
+				/* if 8051 reset fail, reset MAC. */
 				rtl_write_byte(rtlpriv,
 					       REG_SYS_FUNC_EN + 1,
 					       0x50);
 				udelay(100);
 			}
 		}
-		
+		/* Reset MAC and Enable 8051 */
 		rtl_write_byte(rtlpriv, REG_SYS_FUNC_EN + 1, 0x54);
 		rtl_write_byte(rtlpriv, REG_MCUFWDL, 0);
 	}
 	if (bWithoutHWSM) {
+		/*****************************
+		  Without HW auto state machine
+		g.SYS_CLKR 0x08[15:0] = 0x30A3		disable MAC clock
+		h.AFE_PLL_CTRL 0x28[7:0] = 0x80		disable AFE PLL
+		i.AFE_XTAL_CTRL 0x24[15:0] = 0x880F	gated AFE DIG_CLOCK
+		j.SYS_ISu_CTRL 0x00[7:0] = 0xF9		isolated digital to PON
+		******************************/
 		rtl_write_word(rtlpriv, REG_SYS_CLKR, 0x70A3);
 		rtl_write_byte(rtlpriv, REG_AFE_PLL_CTRL, 0x80);
 		rtl_write_word(rtlpriv, REG_AFE_XTAL_CTRL, 0x880F);
@@ -1108,6 +1130,11 @@ static void  _ResetDigitalProcedure1(struct ieee80211_hw *hw, bool bWithoutHWSM)
 static void _ResetDigitalProcedure2(struct ieee80211_hw *hw)
 {
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
+/*****************************
+k. SYS_FUNC_EN 0x03[7:0] = 0x44		disable ELDR runction
+l. SYS_CLKR 0x08[15:0] = 0x3083		disable ELDR clock
+m. SYS_ISO_CTRL 0x01[7:0] = 0x83	isolated ELDR to PON
+******************************/
 	rtl_write_word(rtlpriv, REG_SYS_CLKR, 0x70A3);
 	rtl_write_byte(rtlpriv, REG_SYS_ISO_CTRL+1, 0x82);
 }
@@ -1115,23 +1142,30 @@ static void _ResetDigitalProcedure2(struct ieee80211_hw *hw)
 static void _DisableGPIO(struct ieee80211_hw *hw)
 {
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
+/***************************************
+j. GPIO_PIN_CTRL 0x44[31:0]=0x000
+k. Value = GPIO_PIN_CTRL[7:0]
+l.  GPIO_PIN_CTRL 0x44[31:0] = 0x00FF0000 | (value <<8); write ext PIN level
+m. GPIO_MUXCFG 0x42 [15:0] = 0x0780
+n. LEDCFG 0x4C[15:0] = 0x8080
+***************************************/
 	u8	value8;
 	u16	value16;
 	u32	value32;
 
-	
+	/* 1. Disable GPIO[7:0] */
 	rtl_write_word(rtlpriv, REG_GPIO_PIN_CTRL+2, 0x0000);
 	value32 = rtl_read_dword(rtlpriv, REG_GPIO_PIN_CTRL) & 0xFFFF00FF;
 	value8 = (u8) (value32&0x000000FF);
 	value32 |= ((value8<<8) | 0x00FF0000);
 	rtl_write_dword(rtlpriv, REG_GPIO_PIN_CTRL, value32);
-	
+	/* 2. Disable GPIO[10:8] */
 	rtl_write_byte(rtlpriv, REG_GPIO_MUXCFG+3, 0x00);
 	value16 = rtl_read_word(rtlpriv, REG_GPIO_MUXCFG+2) & 0xFF0F;
 	value8 = (u8) (value16&0x000F);
 	value16 |= ((value8<<4) | 0x0780);
 	rtl_write_word(rtlpriv, REG_GPIO_PIN_CTRL+2, value16);
-	
+	/* 3. Disable LED0 & 1 */
 	rtl_write_word(rtlpriv, REG_LEDCFG0, 0x8080);
 }
 
@@ -1142,12 +1176,22 @@ static void _DisableAnalog(struct ieee80211_hw *hw, bool bWithoutHWSM)
 	u8 value8 = 0;
 
 	if (bWithoutHWSM) {
+		/*****************************
+		n. LDOA15_CTRL 0x20[7:0] = 0x04	 disable A15 power
+		o. LDOV12D_CTRL 0x21[7:0] = 0x54 disable digital core power
+		r. When driver call disable, the ASIC will turn off remaining
+		   clock automatically
+		******************************/
 		rtl_write_byte(rtlpriv, REG_LDOA15_CTRL, 0x04);
 		value8 = rtl_read_byte(rtlpriv, REG_LDOV12D_CTRL);
 		value8 &= (~LDV12_EN);
 		rtl_write_byte(rtlpriv, REG_LDOV12D_CTRL, value8);
 	}
 
+/*****************************
+h. SPS0_CTRL 0x11[7:0] = 0x23		enter PFM mode
+i. APS_FSMCO 0x04[15:0] = 0x4802	set USB suspend
+******************************/
 	rtl_write_byte(rtlpriv, REG_SPS0_CTRL, 0x23);
 	value16 |= (APDM_HOST | AFSM_HSUS | PFM_ALDN);
 	rtl_write_word(rtlpriv, REG_APS_FSMCO, (u16)value16);
@@ -1156,27 +1200,27 @@ static void _DisableAnalog(struct ieee80211_hw *hw, bool bWithoutHWSM)
 
 static void _CardDisableHWSM(struct ieee80211_hw *hw)
 {
-	
+	/* ==== RF Off Sequence ==== */
 	_DisableRFAFEAndResetBB(hw);
-	
+	/* ==== Reset digital sequence   ====== */
 	_ResetDigitalProcedure1(hw, false);
-	
+	/*  ==== Pull GPIO PIN to balance level and LED control ====== */
 	_DisableGPIO(hw);
-	
+	/* ==== Disable analog sequence === */
 	_DisableAnalog(hw, false);
 }
 
 static void _CardDisableWithoutHWSM(struct ieee80211_hw *hw)
 {
-	
+	/*==== RF Off Sequence ==== */
 	_DisableRFAFEAndResetBB(hw);
-	
+	/*  ==== Reset digital sequence   ====== */
 	_ResetDigitalProcedure1(hw, true);
-	
+	/*  ==== Pull GPIO PIN to balance level and LED control ====== */
 	_DisableGPIO(hw);
-	
+	/*  ==== Reset digital sequence   ====== */
 	_ResetDigitalProcedure2(hw);
-	
+	/*  ==== Disable analog sequence === */
 	_DisableAnalog(hw, true);
 }
 
@@ -1333,9 +1377,10 @@ void rtl92cu_card_disable(struct ieee80211_hw *hw)
 
 void rtl92cu_set_check_bssid(struct ieee80211_hw *hw, bool check_bssid)
 {
-	
+	/* dummy routine needed for callback from rtl_op_configure_filter() */
 }
 
+/*========================================================================== */
 
 static void _rtl92cu_set_check_bssid(struct ieee80211_hw *hw,
 			      enum nl80211_iftype type)
@@ -1363,14 +1408,14 @@ static void _rtl92cu_set_check_bssid(struct ieee80211_hw *hw,
 				reg_rcr |= (RCR_CBSSID_DATA | RCR_CBSSID_BCN);
 				rtlpriv->cfg->ops->set_hw_reg(hw,
 						 HW_VAR_RCR, (u8 *)(&reg_rcr));
-				
+				/* enable update TSF */
 				_rtl92cu_set_bcn_ctrl_reg(hw, 0, BIT(4));
 				break;
 			case IO_CMD_PAUSE_DM_BY_SCAN:
 				reg_rcr &= ~(RCR_CBSSID_DATA | RCR_CBSSID_BCN);
 				rtlpriv->cfg->ops->set_hw_reg(hw,
 						 HW_VAR_RCR, (u8 *)(&reg_rcr));
-				
+				/* disable update TSF */
 				_rtl92cu_set_bcn_ctrl_reg(hw, BIT(4), 0);
 				break;
 			}
@@ -1410,10 +1455,12 @@ static void _InitBeaconParameters(struct ieee80211_hw *hw)
 
 	rtl_write_word(rtlpriv, REG_BCN_CTRL, 0x1010);
 
-	
+	/* TODO: Remove these magic number */
 	rtl_write_word(rtlpriv, REG_TBTT_PROHIBIT, 0x6404);
 	rtl_write_byte(rtlpriv, REG_DRVERLYINT, DRIVER_EARLY_INT_TIME);
 	rtl_write_byte(rtlpriv, REG_BCNDMATIM, BCN_DMA_ATIME_INT_TIME);
+	/* Change beacon AIFS to the largest number
+	 * beacause test chip does not contension before sending beacon. */
 	if (IS_NORMAL_CHIP(rtlhal->version))
 		rtl_write_word(rtlpriv, REG_BCNTCFG, 0x660F);
 	else
@@ -1438,11 +1485,18 @@ void rtl92cu_set_beacon_related_registers(struct ieee80211_hw *hw)
 	u32 value32;
 
 	bcn_interval = mac->beacon_interval;
-	atim_window = 2;	
+	atim_window = 2;	/*FIX MERGE */
 	rtl_write_word(rtlpriv, REG_ATIMWND, atim_window);
 	rtl_write_word(rtlpriv, REG_BCN_INTERVAL, bcn_interval);
 	_InitBeaconParameters(hw);
 	rtl_write_byte(rtlpriv, REG_SLOT, 0x09);
+	/*
+	 * Force beacon frame transmission even after receiving beacon frame
+	 * from other ad hoc STA
+	 *
+	 *
+	 * Reset TSF Timer to zero, added by Roger. 2008.06.24
+	 */
 	value32 = rtl_read_dword(rtlpriv, REG_TCR);
 	value32 &= ~TSFRST;
 	rtl_write_dword(rtlpriv, REG_TCR, value32);
@@ -1451,6 +1505,8 @@ void rtl92cu_set_beacon_related_registers(struct ieee80211_hw *hw)
 	RT_TRACE(rtlpriv, COMP_INIT|COMP_BEACON, DBG_LOUD,
 		 "SetBeaconRelatedRegisters8192CUsb(): Set TCR(%x)\n",
 		 value32);
+	/* TODO: Modify later (Find the right parameters)
+	 * NOTE: Fix test chip's bug (about contention windows's randomness) */
 	if ((mac->opmode == NL80211_IFTYPE_ADHOC) ||
 	    (mac->opmode == NL80211_IFTYPE_AP)) {
 		rtl_write_byte(rtlpriv, REG_RXTSF_OFFSET_CCK, 0x50);
@@ -1559,7 +1615,11 @@ void rtl92cu_set_hw_reg(struct ieee80211_hw *hw, u8 variable, u8 *val)
 			u8 rate_index = 0;
 
 			rate_cfg &= 0x15f;
-			
+			/* TODO */
+			/* if (mac->current_network.vender == HT_IOT_PEER_CISCO
+			 *     && ((rate_cfg & 0x150) == 0)) {
+			 *	  rate_cfg |= 0x010;
+			 * } */
 			rate_cfg |= 0x01;
 			rtl_write_byte(rtlpriv, REG_RRSR, rate_cfg & 0xff);
 			rtl_write_byte(rtlpriv, REG_RRSR + 1,
@@ -2141,7 +2201,7 @@ bool rtl92cu_gpio_radio_on_off_checking(struct ieee80211_hw *hw, u8 * valid)
 	u8 u1tmp = 0;
 	bool actuallyset = false;
 	unsigned long flag = 0;
-	
+	/* to do - usb autosuspend */
 	u8 usb_autosuspend = 0;
 
 	if (ppsc->swrf_processing)
@@ -2156,7 +2216,7 @@ bool rtl92cu_gpio_radio_on_off_checking(struct ieee80211_hw *hw, u8 * valid)
 	}
 	cur_rfstate = ppsc->rfpwr_state;
 	if (usb_autosuspend) {
-		
+		/* to do................... */
 	} else {
 		if (ppsc->pwrdown_mode) {
 			u1tmp = rtl_read_byte(rtlpriv, REG_HSISR);
@@ -2206,10 +2266,20 @@ bool rtl92cu_gpio_radio_on_off_checking(struct ieee80211_hw *hw, u8 * valid)
 		spin_lock_irqsave(&rtlpriv->locks.rf_ps_lock, flag);
 		ppsc->rfchange_inprogress = false;
 		spin_unlock_irqrestore(&rtlpriv->locks.rf_ps_lock, flag);
+		/* For power down module, we need to enable register block
+		 * contrl reg at 0x1c. Then enable power down control bit
+		 * of register 0x04 BIT4 and BIT15 as 1.
+		 */
 		if (ppsc->pwrdown_mode && e_rfpowerstate_toset == ERFOFF) {
-			
+			/* Enable register area 0x0-0xc. */
 			rtl_write_byte(rtlpriv, REG_RSV_CTRL, 0x0);
 			if (IS_HARDWARE_TYPE_8723U(rtlhal)) {
+				/*
+				 * We should configure HW PDn source for WiFi
+				 * ONLY, and then our HW will be set in
+				 * power-down mode if PDn source from all
+				 * functions are configured.
+				 */
 				u1tmp = rtl_read_byte(rtlpriv,
 						      REG_MULTI_FUNC_CTRL);
 				rtl_write_byte(rtlpriv, REG_MULTI_FUNC_CTRL,
@@ -2225,7 +2295,7 @@ bool rtl92cu_gpio_radio_on_off_checking(struct ieee80211_hw *hw, u8 * valid)
 				RT_SET_PS_LEVEL(ppsc, RT_RF_OFF_LEVL_PCI_D3);
 		}
 	} else if (e_rfpowerstate_toset == ERFOFF || cur_rfstate == ERFOFF) {
-		
+		/* Enter D3 or ASPM after GPIO had been done. */
 		if (ppsc->reg_rfps_level  & RT_RF_OFF_LEVL_ASPM)
 			RT_SET_PS_LEVEL(ppsc, RT_RF_OFF_LEVL_ASPM);
 		else if (ppsc->reg_rfps_level  & RT_RF_OFF_LEVL_PCI_D3)

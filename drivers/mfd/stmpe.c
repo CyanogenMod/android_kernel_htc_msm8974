@@ -97,6 +97,11 @@ static int __stmpe_block_write(struct stmpe *stmpe, u8 reg, u8 length,
 	return ret;
 }
 
+/**
+ * stmpe_enable - enable blocks on an STMPE device
+ * @stmpe:	Device to work on
+ * @blocks:	Mask of blocks (enum stmpe_block values) to enable
+ */
 int stmpe_enable(struct stmpe *stmpe, unsigned int blocks)
 {
 	int ret;
@@ -109,6 +114,11 @@ int stmpe_enable(struct stmpe *stmpe, unsigned int blocks)
 }
 EXPORT_SYMBOL_GPL(stmpe_enable);
 
+/**
+ * stmpe_disable - disable blocks on an STMPE device
+ * @stmpe:	Device to work on
+ * @blocks:	Mask of blocks (enum stmpe_block values) to enable
+ */
 int stmpe_disable(struct stmpe *stmpe, unsigned int blocks)
 {
 	int ret;
@@ -121,6 +131,11 @@ int stmpe_disable(struct stmpe *stmpe, unsigned int blocks)
 }
 EXPORT_SYMBOL_GPL(stmpe_disable);
 
+/**
+ * stmpe_reg_read() - read a single STMPE register
+ * @stmpe:	Device to read from
+ * @reg:	Register to read
+ */
 int stmpe_reg_read(struct stmpe *stmpe, u8 reg)
 {
 	int ret;
@@ -133,6 +148,12 @@ int stmpe_reg_read(struct stmpe *stmpe, u8 reg)
 }
 EXPORT_SYMBOL_GPL(stmpe_reg_read);
 
+/**
+ * stmpe_reg_write() - write a single STMPE register
+ * @stmpe:	Device to write to
+ * @reg:	Register to write
+ * @val:	Value to write
+ */
 int stmpe_reg_write(struct stmpe *stmpe, u8 reg, u8 val)
 {
 	int ret;
@@ -145,6 +166,13 @@ int stmpe_reg_write(struct stmpe *stmpe, u8 reg, u8 val)
 }
 EXPORT_SYMBOL_GPL(stmpe_reg_write);
 
+/**
+ * stmpe_set_bits() - set the value of a bitfield in a STMPE register
+ * @stmpe:	Device to write to
+ * @reg:	Register to write
+ * @mask:	Mask of bits to set
+ * @val:	Value to set
+ */
 int stmpe_set_bits(struct stmpe *stmpe, u8 reg, u8 mask, u8 val)
 {
 	int ret;
@@ -157,6 +185,13 @@ int stmpe_set_bits(struct stmpe *stmpe, u8 reg, u8 mask, u8 val)
 }
 EXPORT_SYMBOL_GPL(stmpe_set_bits);
 
+/**
+ * stmpe_block_read() - read multiple STMPE registers
+ * @stmpe:	Device to read from
+ * @reg:	First register
+ * @length:	Number of registers
+ * @values:	Buffer to write to
+ */
 int stmpe_block_read(struct stmpe *stmpe, u8 reg, u8 length, u8 *values)
 {
 	int ret;
@@ -169,6 +204,13 @@ int stmpe_block_read(struct stmpe *stmpe, u8 reg, u8 length, u8 *values)
 }
 EXPORT_SYMBOL_GPL(stmpe_block_read);
 
+/**
+ * stmpe_block_write() - write multiple STMPE registers
+ * @stmpe:	Device to write to
+ * @reg:	First register
+ * @length:	Number of registers
+ * @values:	Values to write
+ */
 int stmpe_block_write(struct stmpe *stmpe, u8 reg, u8 length,
 		      const u8 *values)
 {
@@ -182,6 +224,18 @@ int stmpe_block_write(struct stmpe *stmpe, u8 reg, u8 length,
 }
 EXPORT_SYMBOL_GPL(stmpe_block_write);
 
+/**
+ * stmpe_set_altfunc()- set the alternate function for STMPE pins
+ * @stmpe:	Device to configure
+ * @pins:	Bitmask of pins to affect
+ * @block:	block to enable alternate functions for
+ *
+ * @pins is assumed to have a bit set for each of the bits whose alternate
+ * function is to be changed, numbered according to the GPIOXY numbers.
+ *
+ * If the GPIO module is not enabled, this function automatically enables it in
+ * order to perform the change.
+ */
 int stmpe_set_altfunc(struct stmpe *stmpe, u32 pins, enum stmpe_block block)
 {
 	struct stmpe_variant_info *variant = stmpe->variant;
@@ -227,9 +281,12 @@ out:
 }
 EXPORT_SYMBOL_GPL(stmpe_set_altfunc);
 
+/*
+ * GPIO (all variants)
+ */
 
 static struct resource stmpe_gpio_resources[] = {
-	
+	/* Start and end filled dynamically */
 	{
 		.flags	= IORESOURCE_IRQ,
 	},
@@ -243,9 +300,12 @@ static struct mfd_cell stmpe_gpio_cell = {
 
 static struct mfd_cell stmpe_gpio_cell_noirq = {
 	.name		= "stmpe-gpio",
-	
+	/* gpio cell resources consist of an irq only so no resources here */
 };
 
+/*
+ * Keypad (1601, 2401, 2403)
+ */
 
 static struct resource stmpe_keypad_resources[] = {
 	{
@@ -268,6 +328,9 @@ static struct mfd_cell stmpe_keypad_cell = {
 	.num_resources	= ARRAY_SIZE(stmpe_keypad_resources),
 };
 
+/*
+ * STMPE801
+ */
 static const u8 stmpe801_regs[] = {
 	[STMPE_IDX_CHIP_ID]	= STMPE801_REG_CHIP_ID,
 	[STMPE_IDX_ICR_LSB]	= STMPE801_REG_SYS_CTRL,
@@ -327,6 +390,9 @@ static struct stmpe_variant_info stmpe801_noirq = {
 	.enable		= stmpe801_enable,
 };
 
+/*
+ * Touchscreen (STMPE811 or STMPE610)
+ */
 
 static struct resource stmpe_ts_resources[] = {
 	{
@@ -349,6 +415,9 @@ static struct mfd_cell stmpe_ts_cell = {
 	.num_resources	= ARRAY_SIZE(stmpe_ts_resources),
 };
 
+/*
+ * STMPE811 or STMPE610
+ */
 
 static const u8 stmpe811_regs[] = {
 	[STMPE_IDX_CHIP_ID]	= STMPE811_REG_CHIP_ID,
@@ -400,7 +469,7 @@ static int stmpe811_enable(struct stmpe *stmpe, unsigned int blocks,
 
 static int stmpe811_get_altfunc(struct stmpe *stmpe, enum stmpe_block block)
 {
-	
+	/* 0 for touchscreen, 1 for GPIO */
 	return block != STMPE_BLOCK_TOUCHSCREEN;
 }
 
@@ -418,6 +487,7 @@ static struct stmpe_variant_info stmpe811 = {
 	.get_altfunc	= stmpe811_get_altfunc,
 };
 
+/* Similar to 811, except number of gpios */
 static struct stmpe_variant_info stmpe610 = {
 	.name		= "stmpe610",
 	.id_val		= 0x0811,
@@ -432,6 +502,9 @@ static struct stmpe_variant_info stmpe610 = {
 	.get_altfunc	= stmpe811_get_altfunc,
 };
 
+/*
+ * STMPE1601
+ */
 
 static const u8 stmpe1601_regs[] = {
 	[STMPE_IDX_CHIP_ID]	= STMPE1601_REG_CHIP_ID,
@@ -463,6 +536,7 @@ static struct stmpe_variant_block stmpe1601_blocks[] = {
 	},
 };
 
+/* supported autosleep timeout delay (in msecs) */
 static const int stmpe_autosleep_delay[] = {
 	4, 16, 32, 64, 128, 256, 512, 1024,
 };
@@ -476,6 +550,10 @@ static int stmpe_round_timeout(int timeout)
 			return i;
 	}
 
+	/*
+	 * requests for delays longer than supported should not return the
+	 * longest supported delay
+	 */
 	return -EINVAL;
 }
 
@@ -493,12 +571,15 @@ static int stmpe_autosleep(struct stmpe *stmpe, int autosleep_timeout)
 	return ret;
 }
 
+/*
+ * Both stmpe 1601/2403 support same layout for autosleep
+ */
 static int stmpe1601_autosleep(struct stmpe *stmpe,
 		int autosleep_timeout)
 {
 	int ret, timeout;
 
-	
+	/* choose the best available timeout */
 	timeout = stmpe_round_timeout(autosleep_timeout);
 	if (timeout < 0) {
 		dev_err(stmpe->dev, "invalid timeout\n");
@@ -549,7 +630,7 @@ static int stmpe1601_get_altfunc(struct stmpe *stmpe, enum stmpe_block block)
 static struct stmpe_variant_info stmpe1601 = {
 	.name		= "stmpe1601",
 	.id_val		= 0x0210,
-	.id_mask	= 0xfff0,	
+	.id_mask	= 0xfff0,	/* at least 0x0210 and 0x0212 */
 	.num_gpios	= 16,
 	.af_bits	= 2,
 	.regs		= stmpe1601_regs,
@@ -561,6 +642,9 @@ static struct stmpe_variant_info stmpe1601 = {
 	.enable_autosleep	= stmpe1601_autosleep,
 };
 
+/*
+ * STMPE24XX
+ */
 
 static const u8 stmpe24xx_regs[] = {
 	[STMPE_IDX_CHIP_ID]	= STMPE24XX_REG_CHIP_ID,
@@ -648,7 +732,7 @@ static struct stmpe_variant_info stmpe2403 = {
 	.num_irqs	= STMPE24XX_NR_INTERNAL_IRQS,
 	.enable		= stmpe24xx_enable,
 	.get_altfunc	= stmpe24xx_get_altfunc,
-	.enable_autosleep	= stmpe1601_autosleep, 
+	.enable_autosleep	= stmpe1601_autosleep, /* same as stmpe1601 */
 };
 
 static struct stmpe_variant_info *stmpe_variant_info[STMPE_NBR_PARTS] = {
@@ -660,6 +744,12 @@ static struct stmpe_variant_info *stmpe_variant_info[STMPE_NBR_PARTS] = {
 	[STMPE2403]	= &stmpe2403,
 };
 
+/*
+ * These devices can be connected in a 'no-irq' configuration - the irq pin
+ * is not used and the device cannot interrupt the CPU. Here we only list
+ * devices which support this configuration - the driver will fail probing
+ * for any devices not listed here which are configured in this way.
+ */
 static struct stmpe_variant_info *stmpe_noirq_variant_info[STMPE_NBR_PARTS] = {
 	[STMPE801]	= &stmpe801_noirq,
 };
@@ -825,7 +915,7 @@ static int __devinit stmpe_chip_init(struct stmpe *stmpe)
 
 	dev_info(stmpe->dev, "%s detected, chip id: %#x\n", variant->name, id);
 
-	
+	/* Disable all modules -- subdrivers should enable what they need. */
 	ret = stmpe_disable(stmpe, ~0);
 	if (ret)
 		return ret;
@@ -836,7 +926,7 @@ static int __devinit stmpe_chip_init(struct stmpe *stmpe)
 		else
 			icr = STMPE_ICR_LSB_GIM;
 
-		
+		/* STMPE801 doesn't support Edge interrupts */
 		if (id != STMPE801_ID) {
 			if (irq_trigger == IRQF_TRIGGER_FALLING ||
 					irq_trigger == IRQF_TRIGGER_RISING)
@@ -902,6 +992,7 @@ static int __devinit stmpe_devices_init(struct stmpe *stmpe)
 	return ret;
 }
 
+/* Called from client specific probe routines */
 int __devinit stmpe_probe(struct stmpe_client_info *ci, int partnum)
 {
 	struct stmpe_platform_data *pdata = dev_get_platdata(ci->dev);
@@ -946,7 +1037,7 @@ int __devinit stmpe_probe(struct stmpe_client_info *ci, int partnum)
 	}
 
 	if (stmpe->irq < 0) {
-		
+		/* use alternate variant info for no-irq mode, if supported */
 		dev_info(stmpe->dev,
 			"%s configured in no-irq mode by platform data\n",
 			stmpe->variant->name);

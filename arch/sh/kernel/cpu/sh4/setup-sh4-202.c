@@ -145,8 +145,8 @@ void __init plat_early_device_setup(void)
 enum {
 	UNUSED = 0,
 
-	
-	IRL0, IRL1, IRL2, IRL3, 
+	/* interrupt sources */
+	IRL0, IRL1, IRL2, IRL3, /* only IRLM mode supported */
 	HUDI, TMU0, TMU1, TMU2, RTC, SCIF, WDT,
 };
 
@@ -162,10 +162,10 @@ static struct intc_vect vectors[] __initdata = {
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xffd00004, 0, 16, 4,  { TMU0, TMU1, TMU2, RTC } },
-	{ 0xffd00008, 0, 16, 4,  { WDT, 0, 0, 0 } },
-	{ 0xffd0000c, 0, 16, 4,  { 0, 0, SCIF, HUDI } },
-	{ 0xffd00010, 0, 16, 4,  { IRL0, IRL1, IRL2, IRL3 } },
+	{ 0xffd00004, 0, 16, 4, /* IPRA */ { TMU0, TMU1, TMU2, RTC } },
+	{ 0xffd00008, 0, 16, 4, /* IPRB */ { WDT, 0, 0, 0 } },
+	{ 0xffd0000c, 0, 16, 4, /* IPRC */ { 0, 0, SCIF, HUDI } },
+	{ 0xffd00010, 0, 16, 4, /* IPRD */ { IRL0, IRL1, IRL2, IRL3 } },
 };
 
 static DECLARE_INTC_DESC(intc_desc, "sh4-202", vectors, NULL,
@@ -190,7 +190,7 @@ void __init plat_irq_setup(void)
 void __init plat_irq_setup_pins(int mode)
 {
 	switch (mode) {
-	case IRQ_MODE_IRQ: 
+	case IRQ_MODE_IRQ: /* individual interrupt mode for IRL3-0 */
 		__raw_writew(__raw_readw(INTC_ICR) | INTC_ICR_IRLM, INTC_ICR);
 		register_intc_controller(&intc_desc_irlm);
 		break;

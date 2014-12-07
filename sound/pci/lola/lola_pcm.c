@@ -60,6 +60,7 @@ static unsigned int lola_get_tstamp(struct lola *chip, bool quick_no_sync)
 	return tstamp << 8;
 }
 
+/* clear any pending interrupt status */
 static void lola_stream_clear_pending_irq(struct lola *chip,
 					  struct lola_stream *str)
 {
@@ -121,6 +122,9 @@ static int lola_stream_wait_for_fifo(struct lola *chip,
 	return -EIO;
 }
 
+/* sync for FIFO ready/empty for all linked streams;
+ * clear paused flag when FIFO gets ready again
+ */
 static int lola_sync_wait_for_fifo(struct lola *chip,
 				   struct snd_pcm_substream *substream,
 				   bool ready)
@@ -156,6 +160,7 @@ static int lola_sync_wait_for_fifo(struct lola *chip,
 	return -EIO;
 }
 
+/* finish pause - prepare for a new resume */
 static void lola_sync_pause(struct lola *chip,
 			    struct snd_pcm_substream *substream)
 {
@@ -233,7 +238,7 @@ static int lola_pcm_open(struct snd_pcm_substream *substream)
 	runtime->hw = lola_pcm_hw;
 	runtime->hw.channels_max = pcm->num_streams - str->index;
 	if (chip->sample_rate) {
-		
+		/* sample rate is locked */
 		runtime->hw.rate_min = chip->sample_rate;
 		runtime->hw.rate_max = chip->sample_rate;
 	} else {
@@ -242,7 +247,7 @@ static int lola_pcm_open(struct snd_pcm_substream *substream)
 	}
 	chip->ref_count_rate++;
 	snd_pcm_hw_constraint_integer(runtime, SNDRV_PCM_HW_PARAM_PERIODS);
-	
+	/* period size = multiple of chip->granularity (8, 16 or 32 frames)*/
 	snd_pcm_hw_constraint_step(runtime, 0, SNDRV_PCM_HW_PARAM_BUFFER_SIZE,
 				   chip->granularity);
 	snd_pcm_hw_constraint_step(runtime, 0, SNDRV_PCM_HW_PARAM_PERIOD_SIZE,
@@ -275,7 +280,7 @@ static int lola_pcm_close(struct snd_pcm_substream *substream)
 		str->opened = 0;
 	}
 	if (--chip->ref_count_rate == 0) {
-		
+		/* release sample rate */
 		chip->sample_rate = 0;
 	}
 	mutex_unlock(&chip->open_mutex);
@@ -307,6 +312,9 @@ static int lola_pcm_hw_free(struct snd_pcm_substream *substream)
 	return snd_pcm_lib_free_pages(substream);
 }
 
+/*
+ * set up a BDL entry
+ */
 static int setup_bdle(struct snd_pcm_substream *substream,
 		      struct lola_stream *str, u32 **bdlp,
 		      int ofs, int size)
@@ -321,12 +329,15 @@ static int setup_bdle(struct snd_pcm_substream *substream,
 			return -EINVAL;
 
 		addr = snd_pcm_sgbuf_get_addr(substream, ofs);
-		
+		/* program the address field of the BDL entry */
 		bdl[0] = cpu_to_le32((u32)addr);
 		bdl[1] = cpu_to_le32(upper_32_bits(addr));
-		
+		/* program the size field of the BDL entry */
 		chunk = snd_pcm_sgbuf_get_chunk_size(substream, ofs, size);
 		bdl[2] = cpu_to_le32(chunk);
+		/* program the IOC to enable interrupt
+		 * only when the whole fragment is processed
+		 */
 		size -= chunk;
 		bdl[3] = size ? 0 : cpu_to_le32(0x01);
 		bdl += 4;
@@ -337,6 +348,9 @@ static int setup_bdle(struct snd_pcm_substream *substream,
 	return ofs;
 }
 
+/*
+ * set up BDL entries
+ */
 static int lola_setup_periods(struct lola *chip, struct lola_pcm *pcm,
 			      struct snd_pcm_substream *substream,
 			      struct lola_stream *str)
@@ -347,7 +361,7 @@ static int lola_setup_periods(struct lola *chip, struct lola_pcm *pcm,
 	period_bytes = str->period_bytes;
 	periods = str->bufsize / period_bytes;
 
-	
+	/* program the initial BDL entries */
 	bdl = (u32 *)(pcm->bdl.area + LOLA_BDL_ENTRY_SIZE * str->index);
 	ofs = 0;
 	str->frags = 0;
@@ -395,6 +409,9 @@ static int lola_set_stream_config(struct lola *chip,
 	int i, err;
 	unsigned int verb, val;
 
+	/* set format info for all channels
+	 * (with only one command for the first channel)
+	 */
 	err = lola_codec_read(chip, str->nid, LOLA_VERB_SET_STREAM_FORMAT,
 			      str->format_verb, 0, &val, NULL);
 	if (err < 0) {
@@ -403,7 +420,7 @@ static int lola_set_stream_config(struct lola *chip,
 		return err;
 	}
 
-	
+	/* update stream - channel config */
 	for (i = 0; i < channels; i++) {
 		verb = (str->index << 6) | i;
 		err = lola_codec_read(chip, str[i].nid,
@@ -417,6 +434,9 @@ static int lola_set_stream_config(struct lola *chip,
 	return 0;
 }
 
+/*
+ * set up the SD for streaming
+ */
 static int lola_setup_controller(struct lola *chip, struct lola_pcm *pcm,
 				 struct lola_stream *str)
 {
@@ -425,11 +445,11 @@ static int lola_setup_controller(struct lola *chip, struct lola_pcm *pcm,
 	if (str->prepared)
 		return -EINVAL;
 
-	
+	/* set up BDL */
 	bdl = pcm->bdl.addr + LOLA_BDL_ENTRY_SIZE * str->index;
 	lola_dsd_write(chip, str->dsd, BDPL, (u32)bdl);
 	lola_dsd_write(chip, str->dsd, BDPU, upper_32_bits(bdl));
-	
+	/* program the stream LVI (last valid index) of the BDL */
 	lola_dsd_write(chip, str->dsd, LVI, str->frags - 1);
 	lola_stream_clear_pending_irq(chip, str);
 
@@ -478,7 +498,7 @@ static int lola_pcm_prepare(struct snd_pcm_substream *substream)
 	err = lola_set_sample_rate(chip, runtime->rate);
 	if (err < 0)
 		return err;
-	chip->sample_rate = runtime->rate;	
+	chip->sample_rate = runtime->rate;	/* sample rate gets locked */
 
 	err = lola_set_stream_config(chip, str, runtime->channels);
 	if (err < 0)
@@ -517,6 +537,10 @@ static int lola_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 		return -EINVAL;
 	}
 
+	/*
+	 * sample correct synchronization is only needed starting several
+	 * streams. On stop or if only one stream do as quick as possible
+	 */
 	sync_streams = (start && snd_pcm_stream_linked(substream));
 	tstamp = lola_get_tstamp(chip, !sync_streams);
 	spin_lock(&chip->reg_lock);
@@ -598,7 +622,7 @@ int __devinit lola_create_pcm(struct lola *chip)
 		if (chip->pcm[i].num_streams)
 			snd_pcm_set_ops(pcm, i, &lola_pcm_ops);
 	}
-	
+	/* buffer pre-allocation */
 	snd_pcm_lib_preallocate_pages_for_all(pcm, SNDRV_DMA_TYPE_DEV_SG,
 					      snd_dma_pci_data(chip->pci),
 					      1024 * 64, 32 * 1024 * 1024);
@@ -611,6 +635,8 @@ void lola_free_pcm(struct lola *chip)
 	snd_dma_free_pages(&chip->pcm[1].bdl);
 }
 
+/*
+ */
 
 static int lola_init_stream(struct lola *chip, struct lola_stream *str,
 			    int idx, int nid, int dir)
@@ -629,19 +655,22 @@ static int lola_init_stream(struct lola *chip, struct lola_stream *str,
 		return err;
 	}
 	if (dir == PLAY) {
-		
+		/* test TYPE and bits 0..11 (no test bit9 : Digital = 0/1) */
 		if ((val & 0x00f00dff) != 0x00000010) {
 			printk(KERN_ERR SFX "Invalid wcaps 0x%x for 0x%x\n",
 			       val, nid);
 			return -EINVAL;
 		}
 	} else {
+		/* test TYPE and bits 0..11 (no test bit9 : Digital = 0/1)
+		 * (bug : ignore bit8: Conn list = 0/1)
+		 */
 		if ((val & 0x00f00cff) != 0x00100010) {
 			printk(KERN_ERR SFX "Invalid wcaps 0x%x for 0x%x\n",
 			       val, nid);
 			return -EINVAL;
 		}
-		
+		/* test bit9:DIGITAL and bit12:SRC_PRESENT*/
 		if ((val & 0x00001200) == 0x00001200)
 			chip->input_src_caps_mask |= (1 << idx);
 	}

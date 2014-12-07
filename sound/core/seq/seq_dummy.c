@@ -26,6 +26,37 @@
 #include <sound/initval.h>
 #include <sound/asoundef.h>
 
+/*
+
+  Sequencer MIDI-through client
+
+  This gives a simple midi-through client.  All the normal input events
+  are redirected to output port immediately.
+  The routing can be done via aconnect program in alsa-utils.
+
+  Each client has a static client number 62 (= SNDRV_SEQ_CLIENT_DUMMY).
+  If you want to auto-load this module, you may add the following alias
+  in your /etc/conf.modules file.
+
+	alias snd-seq-client-62  snd-seq-dummy
+
+  The module is loaded on demand for client 62, or /proc/asound/seq/
+  is accessed.  If you don't need this module to be loaded, alias
+  snd-seq-client-62 as "off".  This will help modprobe.
+
+  The number of ports to be created can be specified via the module
+  parameter "ports".  For example, to create four ports, add the
+  following option in a configuration file under /etc/modprobe.d/:
+
+	option snd-seq-dummy ports=4
+
+  The model option "duplex=1" enables duplex operation to the port.
+  In duplex mode, a pair of ports are created instead of single port,
+  and events are tunneled between pair-ports.  For example, input to
+  port A is sent to output port of another port B and vice versa.
+  In duplex mode, each port has DUPLEX capability.
+
+ */
 
 
 MODULE_AUTHOR("Takashi Iwai <tiwai@suse.de>");
@@ -50,6 +81,11 @@ struct snd_seq_dummy_port {
 
 static int my_client = -1;
 
+/*
+ * unuse callback - send ALL_SOUNDS_OFF and RESET_CONTROLLERS events
+ * to subscribers.
+ * Note: this callback is called only after all subscribers are removed.
+ */
 static int
 dummy_unuse(void *private_data, struct snd_seq_port_subscribe *info)
 {
@@ -75,6 +111,9 @@ dummy_unuse(void *private_data, struct snd_seq_port_subscribe *info)
 	return 0;
 }
 
+/*
+ * event input callback - just redirect events to subscribers
+ */
 static int
 dummy_input(struct snd_seq_event *ev, int direct, void *private_data,
 	    int atomic, int hop)
@@ -85,7 +124,7 @@ dummy_input(struct snd_seq_event *ev, int direct, void *private_data,
 	p = private_data;
 	if (ev->source.client == SNDRV_SEQ_CLIENT_SYSTEM ||
 	    ev->type == SNDRV_SEQ_EVENT_KERNEL_ERROR)
-		return 0; 
+		return 0; /* ignore system messages */
 	tmpev = *ev;
 	if (p->duplex)
 		tmpev.source.port = p->connect;
@@ -95,12 +134,18 @@ dummy_input(struct snd_seq_event *ev, int direct, void *private_data,
 	return snd_seq_kernel_client_dispatch(p->client, &tmpev, atomic, hop);
 }
 
+/*
+ * free_private callback
+ */
 static void
 dummy_free(void *private_data)
 {
 	kfree(private_data);
 }
 
+/*
+ * create a port
+ */
 static struct snd_seq_dummy_port __init *
 create_port(int idx, int type)
 {
@@ -143,6 +188,9 @@ create_port(int idx, int type)
 	return rec;
 }
 
+/*
+ * register client and create ports
+ */
 static int __init
 register_client(void)
 {
@@ -154,13 +202,13 @@ register_client(void)
 		return -EINVAL;
 	}
 
-	
+	/* create client */
 	my_client = snd_seq_create_kernel_client(NULL, SNDRV_SEQ_CLIENT_DUMMY,
 						 "Midi Through");
 	if (my_client < 0)
 		return my_client;
 
-	
+	/* create ports */
 	for (i = 0; i < ports; i++) {
 		rec1 = create_port(i, 0);
 		if (rec1 == NULL) {
@@ -181,6 +229,9 @@ register_client(void)
 	return 0;
 }
 
+/*
+ * delete client if exists
+ */
 static void __exit
 delete_client(void)
 {
@@ -188,6 +239,9 @@ delete_client(void)
 		snd_seq_delete_kernel_client(my_client);
 }
 
+/*
+ *  Init part
+ */
 
 static int __init alsa_seq_dummy_init(void)
 {

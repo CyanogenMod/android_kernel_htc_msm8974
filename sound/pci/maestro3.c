@@ -62,9 +62,9 @@ MODULE_SUPPORTED_DEVICE("{{ESS,Maestro3 PCI},"
 MODULE_FIRMWARE("ess/maestro3_assp_kernel.fw");
 MODULE_FIRMWARE("ess/maestro3_assp_minisrc.fw");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP; 
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP; /* all enabled */
 static bool external_amp[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 1};
 static int amp_gpio[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = -1};
 
@@ -84,7 +84,11 @@ MODULE_PARM_DESC(amp_gpio, "GPIO pin number for external amp. (default = -1)");
 #define NR_DSPS		(MAX_PLAYBACKS + MAX_CAPTURES)
 
 
+/*
+ * maestro3 registers
+ */
 
+/* Allegro PCI configuration registers */
 #define PCI_LEGACY_AUDIO_CTRL   0x40
 #define SOUND_BLASTER_ENABLE    0x00000001
 #define FM_SYNTHESIS_ENABLE     0x00000002
@@ -152,6 +156,7 @@ MODULE_PARM_DESC(amp_gpio, "GPIO pin number for external amp. (default = -1)");
 #define INT_CLK_SELECT          0x40000000
 #define INT_CLK_MULT_RESET      0x80000000
 
+/* M3 */
 #define INT_CLK_SRC_NOT_PCI     0x00100000
 #define INT_CLK_MULT_ENABLE     0x80000000
 
@@ -186,6 +191,7 @@ MODULE_PARM_DESC(amp_gpio, "GPIO pin number for external amp. (default = -1)");
 #define DDMA_ENABLE             0x00000001
 
 
+/* Allegro registers */
 #define HOST_INT_CTRL           0x18
 #define SB_INT_ENABLE           0x0001
 #define MPU401_INT_ENABLE       0x0002
@@ -196,6 +202,9 @@ MODULE_PARM_DESC(amp_gpio, "GPIO pin number for external amp. (default = -1)");
 #define HV_CTRL_TO_PME          0x0400
 #define SOFTWARE_RESET_ENABLE   0x8000
 
+/*
+ * should be using the above defines, probably.
+ */
 #define REGB_ENABLE_RESET               0x01
 #define REGB_STOP_CLOCK                 0x10
 
@@ -311,9 +320,10 @@ MODULE_PARM_DESC(amp_gpio, "GPIO pin number for external amp. (default = -1)");
 #define GPI_HEADPHONE_SENSE     0x0200
 #define GPO_EXT_AMP_SHUTDOWN    0x1000
 
-#define GPO_EXT_AMP_M3		1	
-#define GPO_EXT_AMP_ALLEGRO	8	
+#define GPO_EXT_AMP_M3		1	/* default m3 amp */
+#define GPO_EXT_AMP_ALLEGRO	8	/* default allegro amp */
 
+/* M3 */
 #define GPO_M3_EXT_AMP_SHUTDN   0x0002
 
 #define ASSP_INDEX_PORT         0x80
@@ -351,6 +361,9 @@ MODULE_PARM_DESC(amp_gpio, "GPIO pin number for external amp. (default = -1)");
 #define DSP2HOST_REQ_I2SRATE    0x02
 #define DSP2HOST_REQ_TIMER      0x04
 
+/* AC97 registers */
+/* XXX fix this crap up */
+/*#define AC97_RESET              0x00*/
 
 #define AC97_VOL_MUTE_B         0x8000
 #define AC97_VOL_M              0x1F
@@ -364,9 +377,16 @@ MODULE_PARM_DESC(amp_gpio, "GPIO pin number for external amp. (default = -1)");
 #define AC97_SROUND_MASTER_VOL  0x38
 #define AC97_PC_BEEP_VOL_S      1
 
+/*#define AC97_PHONE_VOL          0x0C
+#define AC97_MIC_VOL            0x0E*/
 #define AC97_MIC_20DB_ENABLE    0x40
 
+/*#define AC97_LINEIN_VOL         0x10
+#define AC97_CD_VOL             0x12
+#define AC97_VIDEO_VOL          0x14
+#define AC97_AUX_VOL            0x16*/
 #define AC97_PCM_OUT_VOL        0x18
+/*#define AC97_RECORD_SELECT      0x1A*/
 #define AC97_RECORD_MIC         0x00
 #define AC97_RECORD_CD          0x01
 #define AC97_RECORD_VIDEO       0x02
@@ -378,8 +398,10 @@ MODULE_PARM_DESC(amp_gpio, "GPIO pin number for external amp. (default = -1)");
 #define AC97_RECORD_MONO        0x06
 #define AC97_RECORD_PHONE       0x07
 
+/*#define AC97_RECORD_GAIN        0x1C*/
 #define AC97_RECORD_VOL_M       0x0F
 
+/*#define AC97_GENERAL_PURPOSE    0x20*/
 #define AC97_POWER_DOWN_CTRL    0x26
 #define AC97_ADC_READY          0x0001
 #define AC97_DAC_READY          0x0002
@@ -404,7 +426,12 @@ MODULE_PARM_DESC(amp_gpio, "GPIO pin number for external amp. (default = -1)");
 
 #define AC97_MULTI_CHANNEL_SEL  0x74
 
+/*#define AC97_VENDOR_ID1         0x7C
+#define AC97_VENDOR_ID2         0x7E*/
 
+/*
+ * ASSP control regs
+ */
 #define DSP_PORT_TIMER_COUNT    0x06
 
 #define DSP_PORT_MEMORY_INDEX   0x80
@@ -447,6 +474,9 @@ MODULE_PARM_DESC(amp_gpio, "GPIO pin number for external amp. (default = -1)");
 #define NUM_UNITS_KERNEL_CODE_WITH_HSP 16
 #define NUM_UNITS_KERNEL_DATA_WITH_HSP  5
 
+/*
+ * Kernel data layout
+ */
 
 #define DP_SHIFT_COUNT                  7
 
@@ -608,6 +638,10 @@ MODULE_PARM_DESC(amp_gpio, "GPIO pin number for external amp. (default = -1)");
 #define KDATA_MIC_MIXER_REQUEST			(KDATA_BASE_ADDR + 0x007B)
 #define KDATA_MIC_SYNC_COUNTER			(KDATA_BASE_ADDR + 0x007C)
 
+/*
+ * second 'segment' (?) reserved for mixer
+ * buffers..
+ */
 
 #define KDATA_MIXER_WORD0               (KDATA_BASE_ADDR2 + 0x0000)
 #define KDATA_MIXER_WORD1               (KDATA_BASE_ADDR2 + 0x0001)
@@ -650,6 +684,9 @@ MODULE_PARM_DESC(amp_gpio, "GPIO pin number for external amp. (default = -1)");
 #define MAX_VIRTUAL_MIXER_CHANNELS      (KDATA_MIXER_XFER_ENDMARK - KDATA_MIXER_XFER0)
 #define MAX_VIRTUAL_ADC1_CHANNELS       (KDATA_ADC1_XFER_ENDMARK - KDATA_ADC1_XFER0)
 
+/*
+ * client data area offsets
+ */
 #define CDATA_INSTANCE_READY            0x00
 
 #define CDATA_HOST_SRC_ADDRL            0x01
@@ -723,8 +760,16 @@ MODULE_PARM_DESC(amp_gpio, "GPIO pin number for external amp. (default = -1)");
 #define DMACONTROL_STOPPED              0x2000
 #define DMACONTROL_DIRECTION            0x0100
 
+/*
+ * an arbitrary volume we set the internal
+ * volume settings to so that the ac97 volume
+ * range is a little less insane.  0x7fff is 
+ * max.
+ */
 #define ARB_VOLUME ( 0x6800 )
 
+/*
+ */
 
 struct m3_list {
 	int curlen;
@@ -782,19 +827,20 @@ struct snd_m3 {
 	struct m3_list  adc1_list;
 	struct m3_list  dma_list;
 
-	
+	/* for storing reset state..*/
 	u8 reset_state;
 
 	int external_amp;
-	int amp_gpio;	
-	unsigned int hv_config;		
-	unsigned irda_workaround :1;	
-	unsigned is_omnibook :1;	
+	int amp_gpio;	/* gpio pin #  for external amp, -1 = default */
+	unsigned int hv_config;		/* hardware-volume config bits */
+	unsigned irda_workaround :1;	/* avoid to touch 0x10 on GPIO_DIRECTION
+					   (e.g. for IrDA on Dell Inspirons) */
+	unsigned is_omnibook :1;	/* Do HP OmniBook GPIO magic? */
 
-	
+	/* midi */
 	struct snd_rawmidi *rmidi;
 
-	
+	/* pcm streams */
 	int num_substreams;
 	struct m3_dma *substreams;
 
@@ -802,7 +848,7 @@ struct snd_m3 {
 
 #ifdef CONFIG_SND_MAESTRO3_INPUT
 	struct input_dev *input_dev;
-	char phys[64];			
+	char phys[64];			/* physical device path */
 #else
 	struct snd_kcontrol *master_switch;
 	struct snd_kcontrol *master_volume;
@@ -819,6 +865,9 @@ struct snd_m3 {
 	const struct firmware *assp_minisrc_image;
 };
 
+/*
+ * pci ids
+ */
 static DEFINE_PCI_DEVICE_TABLE(snd_m3_ids) = {
 	{PCI_VENDOR_ID_ESS, PCI_DEVICE_ID_ESS_ALLEGRO_1, PCI_ANY_ID, PCI_ANY_ID,
 	 PCI_CLASS_MULTIMEDIA_AUDIO << 8, 0xffff00, 0},
@@ -847,18 +896,19 @@ static struct snd_pci_quirk m3_amp_quirk_list[] __devinitdata = {
 	SND_PCI_QUIRK(0x10f7, 0x833d, "Panasonic CF-72", 0x0d),
 	SND_PCI_QUIRK(0x1033, 0x80f1, "NEC LM800J/7", 0x03),
 	SND_PCI_QUIRK(0x1509, 0x1740, "LEGEND ZhaoYang 3100CF", 0x03),
-	{ } 
+	{ } /* END */
 };
 
 static struct snd_pci_quirk m3_irda_quirk_list[] __devinitdata = {
 	SND_PCI_QUIRK(0x1028, 0x00b0, "Dell Inspiron 4000", 1),
 	SND_PCI_QUIRK(0x1028, 0x00a4, "Dell Inspiron 8000", 1),
 	SND_PCI_QUIRK(0x1028, 0x00e6, "Dell Inspiron 8100", 1),
-	{ } 
+	{ } /* END */
 };
 
+/* hardware volume quirks */
 static struct snd_pci_quirk m3_hv_quirk_list[] __devinitdata = {
-	
+	/* Allegro chips */
 	SND_PCI_QUIRK(0x0E11, 0x002E, NULL, HV_CTRL_ENABLE | HV_BUTTON_FROM_GD),
 	SND_PCI_QUIRK(0x0E11, 0x0094, NULL, HV_CTRL_ENABLE | HV_BUTTON_FROM_GD),
 	SND_PCI_QUIRK(0x0E11, 0xB112, NULL, HV_CTRL_ENABLE | HV_BUTTON_FROM_GD),
@@ -886,7 +936,7 @@ static struct snd_pci_quirk m3_hv_quirk_list[] __devinitdata = {
 	SND_PCI_QUIRK(0x156D, 0xC700, NULL, HV_CTRL_ENABLE | HV_BUTTON_FROM_GD),
 	SND_PCI_QUIRK(0x1033, 0x80F1, NULL,
 		      HV_CTRL_ENABLE | HV_BUTTON_FROM_GD | REDUCED_DEBOUNCE),
-	SND_PCI_QUIRK(0x103C, 0x001A, NULL, 
+	SND_PCI_QUIRK(0x103C, 0x001A, NULL, /* HP OmniBook 6100 */
 		      HV_CTRL_ENABLE | HV_BUTTON_FROM_GD | REDUCED_DEBOUNCE),
 	SND_PCI_QUIRK(0x107B, 0x340A, NULL,
 		      HV_CTRL_ENABLE | HV_BUTTON_FROM_GD | REDUCED_DEBOUNCE),
@@ -913,7 +963,7 @@ static struct snd_pci_quirk m3_hv_quirk_list[] __devinitdata = {
 	SND_PCI_QUIRK(0x14FF, 0x0F06, NULL, HV_CTRL_ENABLE),
 	SND_PCI_QUIRK(0x1558, 0x8586, NULL, HV_CTRL_ENABLE),
 	SND_PCI_QUIRK(0x161F, 0x2011, NULL, HV_CTRL_ENABLE),
-	
+	/* Maestro3 chips */
 	SND_PCI_QUIRK(0x103C, 0x000E, NULL, HV_CTRL_ENABLE),
 	SND_PCI_QUIRK(0x103C, 0x0010, NULL, HV_CTRL_ENABLE),
 	SND_PCI_QUIRK(0x103C, 0x0011, NULL, HV_CTRL_ENABLE),
@@ -931,15 +981,19 @@ static struct snd_pci_quirk m3_hv_quirk_list[] __devinitdata = {
 	SND_PCI_QUIRK(0x144D, 0x3261, NULL, HV_CTRL_ENABLE | REDUCED_DEBOUNCE),
 	SND_PCI_QUIRK(0x144D, 0xC000, NULL, HV_CTRL_ENABLE | REDUCED_DEBOUNCE),
 	SND_PCI_QUIRK(0x144D, 0xC001, NULL, HV_CTRL_ENABLE | REDUCED_DEBOUNCE),
-	{ } 
+	{ } /* END */
 };
 
+/* HP Omnibook quirks */
 static struct snd_pci_quirk m3_omnibook_quirk_list[] __devinitdata = {
-	SND_PCI_QUIRK_ID(0x103c, 0x0010), 
-	SND_PCI_QUIRK_ID(0x103c, 0x0011), 
-	{ } 
+	SND_PCI_QUIRK_ID(0x103c, 0x0010), /* HP OmniBook 6000 */
+	SND_PCI_QUIRK_ID(0x103c, 0x0011), /* HP OmniBook 500 */
+	{ } /* END */
 };
 
+/*
+ * lowlevel functions
+ */
 
 static inline void snd_m3_outw(struct snd_m3 *chip, u16 value, unsigned long reg)
 {
@@ -961,6 +1015,10 @@ static inline u8 snd_m3_inb(struct snd_m3 *chip, unsigned long reg)
 	return inb(chip->iobase + reg);
 }
 
+/*
+ * access 16bit words to the code or data regions of the dsp's memory.
+ * index addresses 16bit words.
+ */
 static u16 snd_m3_assp_read(struct snd_m3 *chip, u16 region, u16 index)
 {
 	snd_m3_outw(chip, region & MEMTYPE_MASK, DSP_PORT_MEMORY_TYPE);
@@ -988,6 +1046,13 @@ static void snd_m3_assp_continue(struct snd_m3 *chip)
 }
 
 
+/*
+ * This makes me sad. the maestro3 has lists
+ * internally that must be packed.. 0 terminates,
+ * apparently, or maybe all unused entries have
+ * to be 0, the lists have static lengths set
+ * by the binary code images.
+ */
 
 static int snd_m3_add_list(struct snd_m3 *chip, struct m3_list *list, u16 val)
 {
@@ -1055,7 +1120,11 @@ static void snd_m3_dec_timer_users(struct snd_m3 *chip)
 		    HOST_INT_CTRL);
 }
 
+/*
+ * start/stop
+ */
 
+/* spinlock held! */
 static int snd_m3_pcm_start(struct snd_m3 *chip, struct m3_dma *s,
 			    struct snd_pcm_substream *subs)
 {
@@ -1082,6 +1151,7 @@ static int snd_m3_pcm_start(struct snd_m3 *chip, struct m3_dma *s,
 	return 0;
 }
 
+/* spinlock held! */
 static int snd_m3_pcm_stop(struct snd_m3 *chip, struct m3_dma *s,
 			   struct snd_pcm_substream *subs)
 {
@@ -1130,7 +1200,7 @@ snd_m3_pcm_trigger(struct snd_pcm_substream *subs, int cmd)
 	case SNDRV_PCM_TRIGGER_STOP:
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 		if (! s->running)
-			err = 0; 
+			err = 0; /* should return error? */
 		else {
 			s->running = 0;
 			err = snd_m3_pcm_stop(chip, s, subs);
@@ -1141,6 +1211,9 @@ snd_m3_pcm_trigger(struct snd_pcm_substream *subs, int cmd)
 	return err;
 }
 
+/*
+ * setup
+ */
 static void 
 snd_m3_pcm_setup1(struct snd_m3 *chip, struct m3_dma *s, struct snd_pcm_substream *subs)
 {
@@ -1165,7 +1238,7 @@ snd_m3_pcm_setup1(struct snd_m3 *chip, struct m3_dma *s, struct snd_pcm_substrea
 #define LO(x) ((x) & 0xffff)
 #define HI(x) LO((x) >> 16)
 
-	
+	/* host dma buffer pointers */
 	snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
 			  s->inst.data + CDATA_HOST_SRC_ADDRL,
 			  LO(s->buffer_addr));
@@ -1192,7 +1265,7 @@ snd_m3_pcm_setup1(struct snd_m3 *chip, struct m3_dma *s, struct snd_pcm_substrea
 #undef LO
 #undef HI
 
-	
+	/* dsp buffers */
 
 	snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
 			  s->inst.data + CDATA_IN_BUF_BEGIN,
@@ -1232,6 +1305,9 @@ static void snd_m3_pcm_setup2(struct snd_m3 *chip, struct m3_dma *s,
 {
 	u32 freq;
 
+	/* 
+	 * put us in the lists if we're not already there
+	 */
 	if (! s->in_lists) {
 		s->index[0] = snd_m3_add_list(chip, s->index_list[0],
 					      s->inst.data >> DP_SHIFT_COUNT);
@@ -1242,16 +1318,16 @@ static void snd_m3_pcm_setup2(struct snd_m3 *chip, struct m3_dma *s,
 		s->in_lists = 1;
 	}
 
-	
+	/* write to 'mono' word */
 	snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
 			  s->inst.data + SRC3_DIRECTION_OFFSET + 1, 
 			  runtime->channels == 2 ? 0 : 1);
-	
+	/* write to '8bit' word */
 	snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
 			  s->inst.data + SRC3_DIRECTION_OFFSET + 2, 
 			  snd_pcm_format_width(runtime->format) == 16 ? 0 : 1);
 
-	
+	/* set up dac/adc rate */
 	freq = ((runtime->rate << 15) + 24000 ) / 48000;
 	if (freq) 
 		freq--;
@@ -1268,33 +1344,37 @@ static const struct play_vals {
 	{CDATA_LEFT_VOLUME, ARB_VOLUME},
 	{CDATA_RIGHT_VOLUME, ARB_VOLUME},
 	{SRC3_DIRECTION_OFFSET, 0} ,
-	
-	{SRC3_DIRECTION_OFFSET + 3, 0x0000}, 
-	{SRC3_DIRECTION_OFFSET + 4, 0}, 
-	{SRC3_DIRECTION_OFFSET + 5, 0}, 
-	{SRC3_DIRECTION_OFFSET + 6, 0}, 
-	{SRC3_DIRECTION_OFFSET + 7, 0}, 
-	{SRC3_DIRECTION_OFFSET + 8, 0}, 
-	{SRC3_DIRECTION_OFFSET + 9, 0}, 
-	{SRC3_DIRECTION_OFFSET + 10, 0x8000}, 
-	{SRC3_DIRECTION_OFFSET + 11, 0xFF00}, 
-	{SRC3_DIRECTION_OFFSET + 13, 0}, 
-	{SRC3_DIRECTION_OFFSET + 14, 0}, 
-	{SRC3_DIRECTION_OFFSET + 15, 0}, 
-	{SRC3_DIRECTION_OFFSET + 16, 8}, 
-	{SRC3_DIRECTION_OFFSET + 17, 50*2}, 
-	{SRC3_DIRECTION_OFFSET + 18, MINISRC_BIQUAD_STAGE - 1}, 
-	{SRC3_DIRECTION_OFFSET + 20, 0}, 
-	{SRC3_DIRECTION_OFFSET + 21, 0} 
+	/* +1, +2 are stereo/16 bit */
+	{SRC3_DIRECTION_OFFSET + 3, 0x0000}, /* fraction? */
+	{SRC3_DIRECTION_OFFSET + 4, 0}, /* first l */
+	{SRC3_DIRECTION_OFFSET + 5, 0}, /* first r */
+	{SRC3_DIRECTION_OFFSET + 6, 0}, /* second l */
+	{SRC3_DIRECTION_OFFSET + 7, 0}, /* second r */
+	{SRC3_DIRECTION_OFFSET + 8, 0}, /* delta l */
+	{SRC3_DIRECTION_OFFSET + 9, 0}, /* delta r */
+	{SRC3_DIRECTION_OFFSET + 10, 0x8000}, /* round */
+	{SRC3_DIRECTION_OFFSET + 11, 0xFF00}, /* higher bute mark */
+	{SRC3_DIRECTION_OFFSET + 13, 0}, /* temp0 */
+	{SRC3_DIRECTION_OFFSET + 14, 0}, /* c fraction */
+	{SRC3_DIRECTION_OFFSET + 15, 0}, /* counter */
+	{SRC3_DIRECTION_OFFSET + 16, 8}, /* numin */
+	{SRC3_DIRECTION_OFFSET + 17, 50*2}, /* numout */
+	{SRC3_DIRECTION_OFFSET + 18, MINISRC_BIQUAD_STAGE - 1}, /* numstage */
+	{SRC3_DIRECTION_OFFSET + 20, 0}, /* filtertap */
+	{SRC3_DIRECTION_OFFSET + 21, 0} /* booster */
 };
 
 
+/* the mode passed should be already shifted and masked */
 static void
 snd_m3_playback_setup(struct snd_m3 *chip, struct m3_dma *s,
 		      struct snd_pcm_substream *subs)
 {
 	unsigned int i;
 
+	/*
+	 * some per client initializers
+	 */
 
 	snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
 			  s->inst.data + SRC3_DIRECTION_OFFSET + 12,
@@ -1304,47 +1384,53 @@ snd_m3_playback_setup(struct snd_m3 *chip, struct m3_dma *s,
 			  s->inst.data + SRC3_DIRECTION_OFFSET + 19,
 			  s->inst.code + MINISRC_COEF_LOC);
 
-	
+	/* enable or disable low pass filter? */
 	snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
 			  s->inst.data + SRC3_DIRECTION_OFFSET + 22,
 			  subs->runtime->rate > 45000 ? 0xff : 0);
     
-	
+	/* tell it which way dma is going? */
 	snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
 			  s->inst.data + CDATA_DMA_CONTROL,
 			  DMACONTROL_AUTOREPEAT + DMAC_PAGE3_SELECTOR + DMAC_BLOCKF_SELECTOR);
 
+	/*
+	 * set an armload of static initializers
+	 */
 	for (i = 0; i < ARRAY_SIZE(pv); i++) 
 		snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
 				  s->inst.data + pv[i].addr, pv[i].val);
 }
 
+/*
+ *    Native record driver 
+ */
 static const struct rec_vals {
 	u16 addr, val;
 } rv[] = {
 	{CDATA_LEFT_VOLUME, ARB_VOLUME},
 	{CDATA_RIGHT_VOLUME, ARB_VOLUME},
 	{SRC3_DIRECTION_OFFSET, 1} ,
-	
-	{SRC3_DIRECTION_OFFSET + 3, 0x0000}, 
-	{SRC3_DIRECTION_OFFSET + 4, 0}, 
-	{SRC3_DIRECTION_OFFSET + 5, 0}, 
-	{SRC3_DIRECTION_OFFSET + 6, 0}, 
-	{SRC3_DIRECTION_OFFSET + 7, 0}, 
-	{SRC3_DIRECTION_OFFSET + 8, 0}, 
-	{SRC3_DIRECTION_OFFSET + 9, 0}, 
-	{SRC3_DIRECTION_OFFSET + 10, 0x8000}, 
-	{SRC3_DIRECTION_OFFSET + 11, 0xFF00}, 
-	{SRC3_DIRECTION_OFFSET + 13, 0}, 
-	{SRC3_DIRECTION_OFFSET + 14, 0}, 
-	{SRC3_DIRECTION_OFFSET + 15, 0}, 
-	{SRC3_DIRECTION_OFFSET + 16, 50},
-	{SRC3_DIRECTION_OFFSET + 17, 8}, 
-	{SRC3_DIRECTION_OFFSET + 18, 0}, 
-	{SRC3_DIRECTION_OFFSET + 19, 0}, 
-	{SRC3_DIRECTION_OFFSET + 20, 0}, 
-	{SRC3_DIRECTION_OFFSET + 21, 0}, 
-	{SRC3_DIRECTION_OFFSET + 22, 0xff} 
+	/* +1, +2 are stereo/16 bit */
+	{SRC3_DIRECTION_OFFSET + 3, 0x0000}, /* fraction? */
+	{SRC3_DIRECTION_OFFSET + 4, 0}, /* first l */
+	{SRC3_DIRECTION_OFFSET + 5, 0}, /* first r */
+	{SRC3_DIRECTION_OFFSET + 6, 0}, /* second l */
+	{SRC3_DIRECTION_OFFSET + 7, 0}, /* second r */
+	{SRC3_DIRECTION_OFFSET + 8, 0}, /* delta l */
+	{SRC3_DIRECTION_OFFSET + 9, 0}, /* delta r */
+	{SRC3_DIRECTION_OFFSET + 10, 0x8000}, /* round */
+	{SRC3_DIRECTION_OFFSET + 11, 0xFF00}, /* higher bute mark */
+	{SRC3_DIRECTION_OFFSET + 13, 0}, /* temp0 */
+	{SRC3_DIRECTION_OFFSET + 14, 0}, /* c fraction */
+	{SRC3_DIRECTION_OFFSET + 15, 0}, /* counter */
+	{SRC3_DIRECTION_OFFSET + 16, 50},/* numin */
+	{SRC3_DIRECTION_OFFSET + 17, 8}, /* numout */
+	{SRC3_DIRECTION_OFFSET + 18, 0}, /* numstage */
+	{SRC3_DIRECTION_OFFSET + 19, 0}, /* coef */
+	{SRC3_DIRECTION_OFFSET + 20, 0}, /* filtertap */
+	{SRC3_DIRECTION_OFFSET + 21, 0}, /* booster */
+	{SRC3_DIRECTION_OFFSET + 22, 0xff} /* skip lpf */
 };
 
 static void
@@ -1352,17 +1438,23 @@ snd_m3_capture_setup(struct snd_m3 *chip, struct m3_dma *s, struct snd_pcm_subst
 {
 	unsigned int i;
 
+	/*
+	 * some per client initializers
+	 */
 
 	snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
 			  s->inst.data + SRC3_DIRECTION_OFFSET + 12,
 			  s->inst.data + 40 + 8);
 
-	
+	/* tell it which way dma is going? */
 	snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
 			  s->inst.data + CDATA_DMA_CONTROL,
 			  DMACONTROL_DIRECTION + DMACONTROL_AUTOREPEAT + 
 			  DMAC_PAGE3_SELECTOR + DMAC_BLOCKF_SELECTOR);
 
+	/*
+	 * set an armload of static initializers
+	 */
 	for (i = 0; i < ARRAY_SIZE(rv); i++) 
 		snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
 				  s->inst.data + rv[i].addr, rv[i].val);
@@ -1376,7 +1468,7 @@ static int snd_m3_pcm_hw_params(struct snd_pcm_substream *substream,
 
 	if ((err = snd_pcm_lib_malloc_pages(substream, params_buffer_bytes(hw_params))) < 0)
 		return err;
-	
+	/* set buffer address */
 	s->buffer_addr = substream->runtime->dma_addr;
 	if (s->buffer_addr & 0x3) {
 		snd_printk(KERN_ERR "oh my, not aligned\n");
@@ -1430,6 +1522,9 @@ snd_m3_pcm_prepare(struct snd_pcm_substream *subs)
 	return 0;
 }
 
+/*
+ * get current pointer
+ */
 static unsigned int
 snd_m3_get_pointer(struct snd_m3 *chip, struct m3_dma *s, struct snd_pcm_substream *subs)
 {
@@ -1437,6 +1532,9 @@ snd_m3_get_pointer(struct snd_m3 *chip, struct m3_dma *s, struct snd_pcm_substre
 	int retry = 10;
 	u32 addr;
 
+	/*
+	 * try and get a valid answer
+	 */
 	while (retry--) {
 		hi =  snd_m3_assp_read(chip, MEMTYPE_INTERNAL_DATA,
 				       s->inst.data + CDATA_HOST_SRC_CURRENTH);
@@ -1469,6 +1567,8 @@ snd_m3_pcm_pointer(struct snd_pcm_substream *subs)
 }
 
 
+/* update pointer */
+/* spinlock held! */
 static void snd_m3_update_ptr(struct snd_m3 *chip, struct m3_dma *s)
 {
 	struct snd_pcm_substream *subs = s->substream;
@@ -1480,7 +1580,7 @@ static void snd_m3_update_ptr(struct snd_m3 *chip, struct m3_dma *s)
 
 	hwptr = snd_m3_get_pointer(chip, s, subs);
 
-	
+	/* try to avoid expensive modulo divisions */
 	if (hwptr >= s->dma_size)
 		hwptr %= s->dma_size;
 
@@ -1504,18 +1604,36 @@ static void snd_m3_update_ptr(struct snd_m3 *chip, struct m3_dma *s)
 	}
 }
 
+/* The m3's hardware volume works by incrementing / decrementing 2 counters
+   (without wrap around) in response to volume button presses and then
+   generating an interrupt. The pair of counters is stored in bits 1-3 and 5-7
+   of a byte wide register. The meaning of bits 0 and 4 is unknown. */
 static void snd_m3_update_hw_volume(struct work_struct *work)
 {
 	struct snd_m3 *chip = container_of(work, struct snd_m3, hwvol_work);
 	int x, val;
 
+	/* Figure out which volume control button was pushed,
+	   based on differences from the default register
+	   values. */
 	x = inb(chip->iobase + SHADOW_MIX_REG_VOICE) & 0xee;
 
+	/* Reset the volume counters to 4. Tests on the allegro integrated
+	   into a Compaq N600C laptop, have revealed that:
+	   1) Writing any value will result in the 2 counters being reset to
+	      4 so writing 0x88 is not strictly necessary
+	   2) Writing to any of the 4 involved registers will reset all 4
+	      of them (and reading them always returns the same value for all
+	      of them)
+	   It could be that a maestro deviates from this, so leave the code
+	   as is. */
 	outb(0x88, chip->iobase + SHADOW_MIX_REG_VOICE);
 	outb(0x88, chip->iobase + HW_VOL_COUNTER_VOICE);
 	outb(0x88, chip->iobase + SHADOW_MIX_REG_MASTER);
 	outb(0x88, chip->iobase + HW_VOL_COUNTER_MASTER);
 
+	/* Ignore spurious HV interrupts during suspend / resume, this avoids
+	   mistaking them for a mute button press. */
 	if (chip->in_suspend)
 		return;
 
@@ -1526,17 +1644,20 @@ static void snd_m3_update_hw_volume(struct work_struct *work)
 	val = snd_ac97_read(chip->ac97, AC97_MASTER);
 	switch (x) {
 	case 0x88:
+		/* The counters have not changed, yet we've received a HV
+		   interrupt. According to tests run by various people this
+		   happens when pressing the mute button. */
 		val ^= 0x8000;
 		break;
 	case 0xaa:
-		
+		/* counters increased by 1 -> volume up */
 		if ((val & 0x7f) > 0)
 			val--;
 		if ((val & 0x7f00) > 0)
 			val -= 0x0100;
 		break;
 	case 0x66:
-		
+		/* counters decreased by 1 -> volume down */
 		if ((val & 0x7f) < 0x1f)
 			val++;
 		if ((val & 0x7f00) < 0x1f00)
@@ -1553,14 +1674,17 @@ static void snd_m3_update_hw_volume(struct work_struct *work)
 	val = 0;
 	switch (x) {
 	case 0x88:
+		/* The counters have not changed, yet we've received a HV
+		   interrupt. According to tests run by various people this
+		   happens when pressing the mute button. */
 		val = KEY_MUTE;
 		break;
 	case 0xaa:
-		
+		/* counters increased by 1 -> volume up */
 		val = KEY_VOLUMEUP;
 		break;
 	case 0x66:
-		
+		/* counters decreased by 1 -> volume down */
 		val = KEY_VOLUMEDOWN;
 		break;
 	}
@@ -1588,13 +1712,17 @@ static irqreturn_t snd_m3_interrupt(int irq, void *dev_id)
 	if (status & HV_INT_PENDING)
 		schedule_work(&chip->hwvol_work);
 
+	/*
+	 * ack an assp int if its running
+	 * and has an int pending
+	 */
 	if (status & ASSP_INT_PENDING) {
 		u8 ctl = inb(chip->iobase + ASSP_CONTROL_B);
 		if (!(ctl & STOP_ASSP_CLOCK)) {
 			ctl = inb(chip->iobase + ASSP_HOST_INT_STATUS);
 			if (ctl & DSP2HOST_REQ_TIMER) {
 				outb(DSP2HOST_REQ_TIMER, chip->iobase + ASSP_HOST_INT_STATUS);
-				
+				/* update adc/dac info if it was a timer int */
 				spin_lock(&chip->reg_lock);
 				for (i = 0; i < chip->num_substreams; i++) {
 					struct m3_dma *s = &chip->substreams[i];
@@ -1606,18 +1734,20 @@ static irqreturn_t snd_m3_interrupt(int irq, void *dev_id)
 		}
 	}
 
-#if 0 
+#if 0 /* TODO: not supported yet */
 	if ((status & MPU401_INT_PENDING) && chip->rmidi)
 		snd_mpu401_uart_interrupt(irq, chip->rmidi->private_data, regs);
 #endif
 
-	
+	/* ack ints */
 	outb(status, chip->iobase + HOST_INT_STATUS);
 
 	return IRQ_HANDLED;
 }
 
 
+/*
+ */
 
 static struct snd_pcm_hardware snd_m3_playback =
 {
@@ -1625,7 +1755,7 @@ static struct snd_pcm_hardware snd_m3_playback =
 				 SNDRV_PCM_INFO_INTERLEAVED |
 				 SNDRV_PCM_INFO_MMAP_VALID |
 				 SNDRV_PCM_INFO_BLOCK_TRANSFER |
-				 
+				 /*SNDRV_PCM_INFO_PAUSE |*/
 				 SNDRV_PCM_INFO_RESUME),
 	.formats =		SNDRV_PCM_FMTBIT_U8 | SNDRV_PCM_FMTBIT_S16_LE,
 	.rates =		SNDRV_PCM_RATE_CONTINUOUS | SNDRV_PCM_RATE_8000_48000,
@@ -1646,7 +1776,7 @@ static struct snd_pcm_hardware snd_m3_capture =
 				 SNDRV_PCM_INFO_INTERLEAVED |
 				 SNDRV_PCM_INFO_MMAP_VALID |
 				 SNDRV_PCM_INFO_BLOCK_TRANSFER |
-				 
+				 /*SNDRV_PCM_INFO_PAUSE |*/
 				 SNDRV_PCM_INFO_RESUME),
 	.formats =		SNDRV_PCM_FMTBIT_U8 | SNDRV_PCM_FMTBIT_S16_LE,
 	.rates =		SNDRV_PCM_RATE_CONTINUOUS | SNDRV_PCM_RATE_8000_48000,
@@ -1662,6 +1792,8 @@ static struct snd_pcm_hardware snd_m3_capture =
 };
 
 
+/*
+ */
 
 static int
 snd_m3_substream_open(struct snd_m3 *chip, struct snd_pcm_substream *subs)
@@ -1685,7 +1817,7 @@ __found:
 	subs->runtime->private_data = s;
 	s->substream = subs;
 
-	
+	/* set list owners */
 	if (subs->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		s->index_list[0] = &chip->mixer_list;
 	} else
@@ -1702,11 +1834,11 @@ snd_m3_substream_close(struct snd_m3 *chip, struct snd_pcm_substream *subs)
 	struct m3_dma *s = subs->runtime->private_data;
 
 	if (s == NULL)
-		return; 
+		return; /* not opened properly */
 
 	spin_lock_irq(&chip->reg_lock);
 	if (s->substream && s->running)
-		snd_m3_pcm_stop(chip, s, s->substream); 
+		snd_m3_pcm_stop(chip, s, s->substream); /* does this happen? */
 	if (s->in_lists) {
 		snd_m3_remove_list(chip, s->index_list[0], s->index[0]);
 		snd_m3_remove_list(chip, s->index_list[1], s->index[1]);
@@ -1766,6 +1898,9 @@ snd_m3_capture_close(struct snd_pcm_substream *subs)
 	return 0;
 }
 
+/*
+ * create pcm instance
+ */
 
 static struct snd_pcm_ops snd_m3_playback_ops = {
 	.open =		snd_m3_playback_open,
@@ -1815,7 +1950,14 @@ snd_m3_pcm(struct snd_m3 * chip, int device)
 }
 
 
+/*
+ * ac97 interface
+ */
 
+/*
+ * Wait for the ac97 serial bus to be free.
+ * return nonzero if the bus is still busy.
+ */
 static int snd_m3_ac97_wait(struct snd_m3 *chip)
 {
 	int i = 10000;
@@ -1870,6 +2012,9 @@ static void snd_m3_remote_codec_config(int io, int isremote)
 	     io + SDO_IN_DEST_CTRL);
 }
 
+/* 
+ * hack, returns non zero on err 
+ */
 static int snd_m3_try_read_vendor(struct snd_m3 *chip)
 {
 	u16 ret;
@@ -1894,10 +2039,15 @@ static void snd_m3_ac97_reset(struct snd_m3 *chip)
 	int io = chip->iobase;
 
 	if (chip->allegro_flag) {
+		/*
+		 * the onboard codec on the allegro seems 
+		 * to want to wait a very long time before
+		 * coming back to life 
+		 */
 		delay1 = 50;
 		delay2 = 800;
 	} else {
-		
+		/* maestro3 */
 		delay1 = 20;
 		delay2 = 500;
 	}
@@ -1905,7 +2055,7 @@ static void snd_m3_ac97_reset(struct snd_m3 *chip)
 	for (i = 0; i < 5; i++) {
 		dir = inw(io + GPIO_DIRECTION);
 		if (!chip->irda_workaround)
-			dir |= 0x10; 
+			dir |= 0x10; /* assuming pci bus master? */
 
 		snd_m3_remote_codec_config(io, 0);
 
@@ -1921,7 +2071,7 @@ static void snd_m3_ac97_reset(struct snd_m3 *chip)
 
 		outw(GPO_PRIMARY_AC97, io + GPIO_DATA);
 		udelay(5);
-		
+		/* ok, bring back the ac-link */
 		outw(IO_SRAM_ENABLE | SERIAL_AC_LINK_ENABLE, io + RING_BUS_CTRL_A);
 		outw(~0, io + GPIO_MASK);
 
@@ -1938,6 +2088,9 @@ static void snd_m3_ac97_reset(struct snd_m3 *chip)
 	}
 
 #if 0
+	/* more gung-ho reset that doesn't
+	 * seem to work anywhere :)
+	 */
 	tmp = inw(io + RING_BUS_CTRL_A);
 	outw(RAC_SDFS_ENABLE|LAC_SDFS_ENABLE, io + RING_BUS_CTRL_A);
 	msleep(20);
@@ -1967,7 +2120,7 @@ static int __devinit snd_m3_mixer(struct snd_m3 *chip)
 	if ((err = snd_ac97_mixer(pbus, &ac97, &chip->ac97)) < 0)
 		return err;
 
-	
+	/* seems ac97 PCM needs initialization.. hack hack.. */
 	snd_ac97_write(chip->ac97, AC97_PCM, 0x8000 | (15 << 8) | 15);
 	schedule_timeout_uninterruptible(msecs_to_jiffies(100));
 	snd_ac97_write(chip->ac97, AC97_PCM, 0);
@@ -1987,6 +2140,9 @@ static int __devinit snd_m3_mixer(struct snd_m3 *chip)
 }
 
 
+/*
+ * initialize ASSP
+ */
 
 #define MINISRC_LPF_LEN 10
 static const u16 minisrc_lpf[MINISRC_LPF_LEN] = {
@@ -1999,22 +2155,22 @@ static void snd_m3_assp_init(struct snd_m3 *chip)
 	unsigned int i;
 	const u16 *data;
 
-	
+	/* zero kernel data */
 	for (i = 0; i < (REV_B_DATA_MEMORY_UNIT_LENGTH * NUM_UNITS_KERNEL_DATA) / 2; i++)
 		snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA, 
 				  KDATA_BASE_ADDR + i, 0);
 
-	
+	/* zero mixer data? */
 	for (i = 0; i < (REV_B_DATA_MEMORY_UNIT_LENGTH * NUM_UNITS_KERNEL_DATA) / 2; i++)
 		snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
 				  KDATA_BASE_ADDR2 + i, 0);
 
-	
+	/* init dma pointer */
 	snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
 			  KDATA_CURRENT_DMA,
 			  KDATA_DMA_XFER0);
 
-	
+	/* write kernel into code memory.. */
 	data = (const u16 *)chip->assp_kernel_image->data;
 	for (i = 0 ; i * 2 < chip->assp_kernel_image->size; i++) {
 		snd_m3_assp_write(chip, MEMTYPE_INTERNAL_CODE, 
@@ -2022,12 +2178,21 @@ static void snd_m3_assp_init(struct snd_m3 *chip)
 				  le16_to_cpu(data[i]));
 	}
 
+	/*
+	 * We only have this one client and we know that 0x400
+	 * is free in our kernel's mem map, so lets just
+	 * drop it there.  It seems that the minisrc doesn't
+	 * need vectors, so we won't bother with them..
+	 */
 	data = (const u16 *)chip->assp_minisrc_image->data;
 	for (i = 0; i * 2 < chip->assp_minisrc_image->size; i++) {
 		snd_m3_assp_write(chip, MEMTYPE_INTERNAL_CODE, 
 				  0x400 + i, le16_to_cpu(data[i]));
 	}
 
+	/*
+	 * write the coefficients for the low pass filter?
+	 */
 	for (i = 0; i < MINISRC_LPF_LEN ; i++) {
 		snd_m3_assp_write(chip, MEMTYPE_INTERNAL_CODE,
 				  0x400 + MINISRC_COEF_LOC + i,
@@ -2038,14 +2203,24 @@ static void snd_m3_assp_init(struct snd_m3 *chip)
 			  0x400 + MINISRC_COEF_LOC + MINISRC_LPF_LEN,
 			  0x8000);
 
+	/*
+	 * the minisrc is the only thing on
+	 * our task list..
+	 */
 	snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA, 
 			  KDATA_TASK0,
 			  0x400);
 
+	/*
+	 * init the mixer number..
+	 */
 
 	snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
 			  KDATA_MIXER_TASK_NUMBER,0);
 
+	/*
+	 * EXTREME KERNEL MASTER VOLUME
+	 */
 	snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
 			  KDATA_DAC_LEFT_VOLUME, ARB_VOLUME);
 	snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA,
@@ -2073,7 +2248,16 @@ static int __devinit snd_m3_assp_client_init(struct snd_m3 *chip, struct m3_dma 
 			       1 + MINISRC_OUT_BUFFER_SIZE / 2 + 1 );
 	int address, i;
 
+	/*
+	 * the revb memory map has 0x1100 through 0x1c00
+	 * free.  
+	 */
 
+	/*
+	 * align instance address to 256 bytes so that its
+	 * shifted list address is aligned.
+	 * list address = (mem address >> 1) >> 7;
+	 */
 	data_bytes = ALIGN(data_bytes, 256);
 	address = 0x1100 + ((data_bytes/2) * index);
 
@@ -2096,6 +2280,12 @@ static int __devinit snd_m3_assp_client_init(struct snd_m3 *chip, struct m3_dma 
 }
 
 
+/* 
+ * this works for the reference board, have to find
+ * out about others
+ *
+ * this needs more magic for 4 speaker, but..
+ */
 static void
 snd_m3_amp_enable(struct snd_m3 *chip, int enable)
 {
@@ -2129,6 +2319,10 @@ snd_m3_hv_init(struct snd_m3 *chip)
 	if (!chip->is_omnibook)
 		return;
 
+	/*
+	 * Volume buttons on some HP OmniBook laptops
+	 * require some GPIO magic to work correctly.
+	 */
 	outw(0xffff, io + GPIO_MASK);
 	outw(0x0000, io + GPIO_DATA);
 
@@ -2146,7 +2340,7 @@ snd_m3_chip_init(struct snd_m3 *chip)
 	unsigned long io = chip->iobase;
 	u32 n;
 	u16 w;
-	u8 t; 
+	u8 t; /* makes as much sense as 'n', no? */
 
 	pci_read_config_word(pcidev, PCI_LEGACY_AUDIO_CTRL, &w);
 	w &= ~(SOUND_BLASTER_ENABLE|FM_SYNTHESIS_ENABLE|
@@ -2157,7 +2351,7 @@ snd_m3_chip_init(struct snd_m3 *chip)
 	pci_read_config_dword(pcidev, PCI_ALLEGRO_CONFIG, &n);
 	n &= ~(HV_CTRL_ENABLE | REDUCED_DEBOUNCE | HV_BUTTON_FROM_GD);
 	n |= chip->hv_config;
-	
+	/* For some reason we must always use reduced debounce. */
 	n |= REDUCED_DEBOUNCE;
 	n |= PM_CTRL_ENABLE | CLK_DIV_BY_49 | USE_PCI_TIMING;
 	pci_write_config_dword(pcidev, PCI_ALLEGRO_CONFIG, n);
@@ -2184,7 +2378,7 @@ snd_m3_chip_init(struct snd_m3 *chip)
 	t |= ASSP_0_WS_ENABLE; 
 	outb(t, chip->iobase + ASSP_CONTROL_A);
 
-	snd_m3_assp_init(chip); 
+	snd_m3_assp_init(chip); /* download DSP code before starting ASSP below */
 	outb(RUN_ASSP, chip->iobase + ASSP_CONTROL_B); 
 
 	outb(0x00, io + HARDWARE_VOL_CTRL);
@@ -2202,8 +2396,8 @@ snd_m3_enable_ints(struct snd_m3 *chip)
 	unsigned long io = chip->iobase;
 	unsigned short val;
 
-	
-	val = ASSP_INT_ENABLE ;
+	/* TODO: MPU401 not supported yet */
+	val = ASSP_INT_ENABLE /*| MPU401_INT_ENABLE*/;
 	if (chip->hv_config & HV_CTRL_ENABLE)
 		val |= HV_INT_ENABLE;
 	outb(val, chip->iobase + HOST_INT_STATUS);
@@ -2213,6 +2407,8 @@ snd_m3_enable_ints(struct snd_m3 *chip)
 }
 
 
+/*
+ */
 
 static int snd_m3_free(struct snd_m3 *chip)
 {
@@ -2229,7 +2425,7 @@ static int snd_m3_free(struct snd_m3 *chip)
 		spin_lock_irq(&chip->reg_lock);
 		for (i = 0; i < chip->num_substreams; i++) {
 			s = &chip->substreams[i];
-			
+			/* check surviving pcms; this should not happen though.. */
 			if (s->substream && s->running)
 				snd_m3_pcm_stop(chip, s, s->substream);
 		}
@@ -2237,7 +2433,7 @@ static int snd_m3_free(struct snd_m3 *chip)
 		kfree(chip->substreams);
 	}
 	if (chip->iobase) {
-		outw(0, chip->iobase + HOST_INT_CTRL); 
+		outw(0, chip->iobase + HOST_INT_CTRL); /* disable ints */
 	}
 
 #ifdef CONFIG_PM
@@ -2259,6 +2455,9 @@ static int snd_m3_free(struct snd_m3 *chip)
 }
 
 
+/*
+ * APM support
+ */
 #ifdef CONFIG_PM
 static int m3_suspend(struct pci_dev *pci, pm_message_t state)
 {
@@ -2275,11 +2474,11 @@ static int m3_suspend(struct pci_dev *pci, pm_message_t state)
 	snd_pcm_suspend_all(chip->pcm);
 	snd_ac97_suspend(chip->ac97);
 
-	msleep(10); 
+	msleep(10); /* give the assp a chance to idle.. */
 
 	snd_m3_assp_halt(chip);
 
-	
+	/* save dsp image */
 	dsp_index = 0;
 	for (i = REV_B_CODE_MEMORY_BEGIN; i <= REV_B_CODE_MEMORY_END; i++)
 		chip->suspend_mem[dsp_index++] =
@@ -2313,7 +2512,7 @@ static int m3_resume(struct pci_dev *pci)
 	}
 	pci_set_master(pci);
 
-	
+	/* first lets just bring everything back. .*/
 	snd_m3_outw(chip, 0, 0x54);
 	snd_m3_outw(chip, 0, 0x56);
 
@@ -2321,7 +2520,7 @@ static int m3_resume(struct pci_dev *pci)
 	snd_m3_assp_halt(chip);
 	snd_m3_ac97_reset(chip);
 
-	
+	/* restore dsp image */
 	dsp_index = 0;
 	for (i = REV_B_CODE_MEMORY_BEGIN; i <= REV_B_CODE_MEMORY_END; i++)
 		snd_m3_assp_write(chip, MEMTYPE_INTERNAL_CODE, i, 
@@ -2330,11 +2529,11 @@ static int m3_resume(struct pci_dev *pci)
 		snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA, i, 
 				  chip->suspend_mem[dsp_index++]);
 
-	
+	/* tell the dma engine to restart itself */
 	snd_m3_assp_write(chip, MEMTYPE_INTERNAL_DATA, 
 			  KDATA_DMA_ACTIVE, 0);
 
-        
+        /* restore ac97 registers */
 	snd_ac97_resume(chip->ac97);
 
 	snd_m3_assp_continue(chip);
@@ -2347,7 +2546,7 @@ static int m3_resume(struct pci_dev *pci)
 	chip->in_suspend = 0;
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 #ifdef CONFIG_SND_MAESTRO3_INPUT
 static int __devinit snd_m3_input_register(struct snd_m3 *chip)
@@ -2383,8 +2582,10 @@ static int __devinit snd_m3_input_register(struct snd_m3 *chip)
 	chip->input_dev = input_dev;
 	return 0;
 }
-#endif 
+#endif /* CONFIG_INPUT */
 
+/*
+ */
 
 static int snd_m3_dev_free(struct snd_device *device)
 {
@@ -2410,7 +2611,7 @@ snd_m3_create(struct snd_card *card, struct pci_dev *pci,
 	if (pci_enable_device(pci))
 		return -EIO;
 
-	
+	/* check, if we can restrict PCI DMA transfers to 28 bits */
 	if (pci_set_dma_mask(pci, DMA_BIT_MASK(28)) < 0 ||
 	    pci_set_consistent_dma_mask(pci, DMA_BIT_MASK(28)) < 0) {
 		snd_printk(KERN_ERR "architecture does not support 28bit PCI busmaster DMA\n");
@@ -2451,7 +2652,7 @@ snd_m3_create(struct snd_card *card, struct pci_dev *pci,
 			chip->amp_gpio = quirk->value;
 		} else if (chip->allegro_flag)
 			chip->amp_gpio = GPO_EXT_AMP_ALLEGRO;
-		else 
+		else /* presumably this is for all 'maestro3's.. */
 			chip->amp_gpio = GPO_EXT_AMP_M3;
 	}
 
@@ -2496,7 +2697,7 @@ snd_m3_create(struct snd_card *card, struct pci_dev *pci,
 	}
 	chip->iobase = pci_resource_start(pci, 0);
 	
-	
+	/* just to be sure */
 	pci_set_master(pci);
 
 	snd_m3_chip_init(chip);
@@ -2558,6 +2759,8 @@ snd_m3_create(struct snd_card *card, struct pci_dev *pci,
 	return 0; 
 }
 
+/*
+ */
 static int __devinit
 snd_m3_probe(struct pci_dev *pci, const struct pci_device_id *pci_id)
 {
@@ -2566,7 +2769,7 @@ snd_m3_probe(struct pci_dev *pci, const struct pci_device_id *pci_id)
 	struct snd_m3 *chip;
 	int err;
 
-	
+	/* don't pick up modems */
 	if (((pci->class >> 8) & 0xffff) != PCI_CLASS_MULTIMEDIA_AUDIO)
 		return -ENODEV;
 
@@ -2613,8 +2816,8 @@ snd_m3_probe(struct pci_dev *pci, const struct pci_device_id *pci_id)
 		return err;
 	}
 
-#if 0 
-	
+#if 0 /* TODO: not supported yet */
+	/* TODO enable MIDI IRQ and I/O */
 	err = snd_mpu401_uart_new(chip->card, 0, MPU401_HW_MPU401,
 				  chip->iobase + MPU401_DATA_PORT,
 				  MPU401_INFO_INTEGRATED | MPU401_INFO_IRQ_HOOK,

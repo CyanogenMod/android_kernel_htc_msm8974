@@ -103,5 +103,5 @@ struct apm_cmd {
 
 int dcdbas_smi_request(struct smi_cmd *smi_cmd);
 
-#endif 
+#endif /* _DCDBAS_H_ */
 

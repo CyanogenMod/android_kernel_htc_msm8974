@@ -38,7 +38,7 @@
 
 #include "fsl_rio.h"
 
-#undef DEBUG_PW	
+#undef DEBUG_PW	/* Port-Write debugging */
 
 #define RIO_PORT1_EDCSR		0x0640
 #define RIO_PORT2_EDCSR		0x0680
@@ -54,7 +54,7 @@
 #define RIO_LTLEDCSR_PRT	0x01000000
 #define IECSR_CLEAR		0x80000000
 #define RIO_ISR_AACR		0x10120
-#define RIO_ISR_AACR_AA		0x1	
+#define RIO_ISR_AACR_AA		0x1	/* Accept All ID */
 
 #define __fsl_read_rio_config(x, addr, err, op)		\
 	__asm__ __volatile__(				\
@@ -90,7 +90,7 @@ int fsl_rio_mcheck_exception(struct pt_regs *regs)
 
 	reason = in_be32((u32 *)(rio_regs_win + RIO_LTLEDCSR));
 	if (reason & (RIO_LTLEDCSR_IER | RIO_LTLEDCSR_PRT)) {
-		
+		/* Check if we are prepared to handle this fault */
 		entry = search_exception_tables(regs->nip);
 		if (entry) {
 			pr_debug("RIO: %s - MC Exception handled\n",
@@ -108,6 +108,17 @@ int fsl_rio_mcheck_exception(struct pt_regs *regs)
 EXPORT_SYMBOL_GPL(fsl_rio_mcheck_exception);
 #endif
 
+/**
+ * fsl_local_config_read - Generate a MPC85xx local config space read
+ * @mport: RapidIO master port info
+ * @index: ID of RapdiIO interface
+ * @offset: Offset into configuration space
+ * @len: Length (in bytes) of the maintenance transaction
+ * @data: Value to be read into
+ *
+ * Generates a MPC85xx local configuration space read. Returns %0 on
+ * success or %-EINVAL on failure.
+ */
 static int fsl_local_config_read(struct rio_mport *mport,
 				int index, u32 offset, int len, u32 *data)
 {
@@ -142,6 +153,19 @@ static int fsl_local_config_write(struct rio_mport *mport,
 	return 0;
 }
 
+/**
+ * fsl_rio_config_read - Generate a MPC85xx read maintenance transaction
+ * @mport: RapidIO master port info
+ * @index: ID of RapdiIO interface
+ * @destid: Destination ID of transaction
+ * @hopcount: Number of hops to target device
+ * @offset: Offset into configuration space
+ * @len: Length (in bytes) of the maintenance transaction
+ * @val: Location to be read into
+ *
+ * Generates a MPC85xx read maintenance transaction. Returns %0 on
+ * success or %-EINVAL on failure.
+ */
 static int
 fsl_rio_config_read(struct rio_mport *mport, int index, u16 destid,
 			u8 hopcount, u32 offset, int len, u32 *val)
@@ -155,8 +179,8 @@ fsl_rio_config_read(struct rio_mport *mport, int index, u16 destid,
 		" index %d destid %d hopcount %d offset %8.8x len %d\n",
 		index, destid, hopcount, offset, len);
 
-	
-	
+	/* 16MB maintenance window possible */
+	/* allow only aligned access to maintenance registers */
 	if (offset > (0x1000000 - len) || !IS_ALIGNED(offset, len))
 		return -EINVAL;
 
@@ -213,8 +237,8 @@ fsl_rio_config_write(struct rio_mport *mport, int index, u16 destid,
 		" index %d destid %d hopcount %d offset %8.8x len %d val %8.8x\n",
 		index, destid, hopcount, offset, len, val);
 
-	
-	
+	/* 16MB maintenance windows possible */
+	/* allow only aligned access to maintenance registers */
 	if (offset > (0x1000000 - len) || !IS_ALIGNED(offset, len))
 		return -EINVAL;
 
@@ -242,7 +266,7 @@ fsl_rio_config_write(struct rio_mport *mport, int index, u16 destid,
 
 void fsl_rio_port_error_handler(int offset)
 {
-	
+	/*XXX: Error recovery is not implemented, we just clear errors */
 	out_be32((u32 *)(rio_regs_win + RIO_LTLEDCSR), 0);
 
 	if (offset == 0) {
@@ -259,7 +283,7 @@ static inline void fsl_rio_info(struct device *dev, u32 ccsr)
 {
 	const char *str;
 	if (ccsr & 1) {
-		
+		/* Serial phy */
 		switch (ccsr >> 30) {
 		case 0:
 			str = "1";
@@ -289,7 +313,7 @@ static inline void fsl_rio_info(struct device *dev, u32 ccsr)
 		}
 		dev_info(dev, "Training connection status: %s\n", str);
 	} else {
-		
+		/* Parallel phy */
 		if (!(ccsr & 0x80000000))
 			dev_info(dev, "Output port operating in 8-bit mode\n");
 		if (!(ccsr & 0x08000000))
@@ -297,6 +321,14 @@ static inline void fsl_rio_info(struct device *dev, u32 ccsr)
 	}
 }
 
+/**
+ * fsl_rio_setup - Setup Freescale PowerPC RapidIO interface
+ * @dev: platform_device pointer
+ *
+ * Initializes MPC85xx RapidIO hardware interface, configures
+ * master port with system-specific info, and registers the
+ * master port with the RapidIO subsystem.
+ */
 int fsl_rio_setup(struct platform_device *dev)
 {
 	struct rio_ops *ops;
@@ -376,7 +408,7 @@ int fsl_rio_setup(struct platform_device *dev)
 		tmp++;
 	}
 
-	
+	/*set up doobell node*/
 	np = of_find_compatible_node(NULL, NULL, "fsl,srio-dbell-unit");
 	if (!np) {
 		rc = -ENODEV;
@@ -404,7 +436,7 @@ int fsl_rio_setup(struct platform_device *dev)
 	dbell->dbell_regs = (struct rio_dbell_regs *)(rmu_regs_win +
 				(u32)range_start);
 
-	
+	/*set up port write node*/
 	np = of_find_compatible_node(NULL, NULL, "fsl,srio-port-write-unit");
 	if (!np) {
 		rc = -ENODEV;
@@ -430,7 +462,7 @@ int fsl_rio_setup(struct platform_device *dev)
 	range_start = of_read_number(dt_range, aw);
 	pw->pw_regs = (struct rio_pw_regs *)(rmu_regs_win + (u32)range_start);
 
-	
+	/*set up ports node*/
 	for_each_child_of_node(dev->dev.of_node, np) {
 		port_index = of_get_property(np, "cell-index", NULL);
 		if (!port_index) {
@@ -446,19 +478,19 @@ int fsl_rio_setup(struct platform_device *dev)
 			continue;
 		}
 
-		
+		/* Get node address wide */
 		cell = of_get_property(np, "#address-cells", NULL);
 		if (cell)
 			aw = *cell;
 		else
 			aw = of_n_addr_cells(np);
-		
+		/* Get node size wide */
 		cell = of_get_property(np, "#size-cells", NULL);
 		if (cell)
 			sw = *cell;
 		else
 			sw = of_n_size_cells(np);
-		
+		/* Get parent address wide wide */
 		paw = of_n_addr_cells(np);
 		range_start = of_read_number(dt_range + aw, paw);
 		range_size = of_read_number(dt_range + aw + paw, sw);
@@ -502,7 +534,7 @@ int fsl_rio_setup(struct platform_device *dev)
 		port->phys_efptr = 0x100;
 		priv->regs_win = rio_regs_win;
 
-		
+		/* Probe the master port phy type */
 		ccsr = in_be32(priv->regs_win + RIO_CCSR + i*0x20);
 		port->phy_type = (ccsr & 1) ? RIO_PHY_SERIAL : RIO_PHY_PARALLEL;
 		if (port->phy_type == RIO_PHY_PARALLEL) {
@@ -513,17 +545,17 @@ int fsl_rio_setup(struct platform_device *dev)
 			continue;
 		}
 		dev_info(&dev->dev, "RapidIO PHY type: Serial\n");
-		
+		/* Checking the port training status */
 		if (in_be32((priv->regs_win + RIO_ESCSR + i*0x20)) & 1) {
 			dev_err(&dev->dev, "Port %d is not ready. "
 			"Try to restart connection...\n", i);
-			
+			/* Disable ports */
 			out_be32(priv->regs_win
 				+ RIO_CCSR + i*0x20, 0);
-			
+			/* Set 1x lane */
 			setbits32(priv->regs_win
 				+ RIO_CCSR + i*0x20, 0x02000000);
-			
+			/* Enable ports */
 			setbits32(priv->regs_win
 				+ RIO_CCSR + i*0x20, 0x00600000);
 			msleep(100);
@@ -564,12 +596,12 @@ int fsl_rio_setup(struct platform_device *dev)
 
 		priv->maint_atmu_regs = priv->atmu_regs + 1;
 
-		
+		/* Set to receive any dist ID for serial RapidIO controller. */
 		if (port->phy_type == RIO_PHY_SERIAL)
 			out_be32((priv->regs_win
 				+ RIO_ISR_AACR + i*0x80), RIO_ISR_AACR_AA);
 
-		
+		/* Configure maintenance transaction window */
 		out_be32(&priv->maint_atmu_regs->rowbar,
 			port->iores.start >> 12);
 		out_be32(&priv->maint_atmu_regs->rowar,
@@ -610,6 +642,8 @@ err_rio_regs:
 	return rc;
 }
 
+/* The probe function for RapidIO peer-to-peer network.
+ */
 static int __devinit fsl_of_rio_rpn_probe(struct platform_device *dev)
 {
 	printk(KERN_INFO "Setting up RapidIO peer-to-peer network %s\n",

@@ -45,6 +45,7 @@ module_param_named(btcoex_enable, ath9k_btcoex_enable, int, 0444);
 MODULE_PARM_DESC(btcoex_enable, "Enable wifi-BT coexistence");
 
 bool is_ath9k_unloaded;
+/* We use the hw_value as an index into our private channel structure */
 
 #define CHAN2G(_freq, _idx)  { \
 	.band = IEEE80211_BAND_2GHZ, \
@@ -60,54 +61,63 @@ bool is_ath9k_unloaded;
 	.max_power = 20, \
 }
 
+/* Some 2 GHz radios are actually tunable on 2312-2732
+ * on 5 MHz steps, we support the channels which we know
+ * we have calibration data for all cards though to make
+ * this static */
 static const struct ieee80211_channel ath9k_2ghz_chantable[] = {
-	CHAN2G(2412, 0), 
-	CHAN2G(2417, 1), 
-	CHAN2G(2422, 2), 
-	CHAN2G(2427, 3), 
-	CHAN2G(2432, 4), 
-	CHAN2G(2437, 5), 
-	CHAN2G(2442, 6), 
-	CHAN2G(2447, 7), 
-	CHAN2G(2452, 8), 
-	CHAN2G(2457, 9), 
-	CHAN2G(2462, 10), 
-	CHAN2G(2467, 11), 
-	CHAN2G(2472, 12), 
-	CHAN2G(2484, 13), 
+	CHAN2G(2412, 0), /* Channel 1 */
+	CHAN2G(2417, 1), /* Channel 2 */
+	CHAN2G(2422, 2), /* Channel 3 */
+	CHAN2G(2427, 3), /* Channel 4 */
+	CHAN2G(2432, 4), /* Channel 5 */
+	CHAN2G(2437, 5), /* Channel 6 */
+	CHAN2G(2442, 6), /* Channel 7 */
+	CHAN2G(2447, 7), /* Channel 8 */
+	CHAN2G(2452, 8), /* Channel 9 */
+	CHAN2G(2457, 9), /* Channel 10 */
+	CHAN2G(2462, 10), /* Channel 11 */
+	CHAN2G(2467, 11), /* Channel 12 */
+	CHAN2G(2472, 12), /* Channel 13 */
+	CHAN2G(2484, 13), /* Channel 14 */
 };
 
+/* Some 5 GHz radios are actually tunable on XXXX-YYYY
+ * on 5 MHz steps, we support the channels which we know
+ * we have calibration data for all cards though to make
+ * this static */
 static const struct ieee80211_channel ath9k_5ghz_chantable[] = {
-	
-	CHAN5G(5180, 14), 
-	CHAN5G(5200, 15), 
-	CHAN5G(5220, 16), 
-	CHAN5G(5240, 17), 
-	
-	CHAN5G(5260, 18), 
-	CHAN5G(5280, 19), 
-	CHAN5G(5300, 20), 
-	CHAN5G(5320, 21), 
-	
-	CHAN5G(5500, 22), 
-	CHAN5G(5520, 23), 
-	CHAN5G(5540, 24), 
-	CHAN5G(5560, 25), 
-	CHAN5G(5580, 26), 
-	CHAN5G(5600, 27), 
-	CHAN5G(5620, 28), 
-	CHAN5G(5640, 29), 
-	CHAN5G(5660, 30), 
-	CHAN5G(5680, 31), 
-	CHAN5G(5700, 32), 
-	
-	CHAN5G(5745, 33), 
-	CHAN5G(5765, 34), 
-	CHAN5G(5785, 35), 
-	CHAN5G(5805, 36), 
-	CHAN5G(5825, 37), 
+	/* _We_ call this UNII 1 */
+	CHAN5G(5180, 14), /* Channel 36 */
+	CHAN5G(5200, 15), /* Channel 40 */
+	CHAN5G(5220, 16), /* Channel 44 */
+	CHAN5G(5240, 17), /* Channel 48 */
+	/* _We_ call this UNII 2 */
+	CHAN5G(5260, 18), /* Channel 52 */
+	CHAN5G(5280, 19), /* Channel 56 */
+	CHAN5G(5300, 20), /* Channel 60 */
+	CHAN5G(5320, 21), /* Channel 64 */
+	/* _We_ call this "Middle band" */
+	CHAN5G(5500, 22), /* Channel 100 */
+	CHAN5G(5520, 23), /* Channel 104 */
+	CHAN5G(5540, 24), /* Channel 108 */
+	CHAN5G(5560, 25), /* Channel 112 */
+	CHAN5G(5580, 26), /* Channel 116 */
+	CHAN5G(5600, 27), /* Channel 120 */
+	CHAN5G(5620, 28), /* Channel 124 */
+	CHAN5G(5640, 29), /* Channel 128 */
+	CHAN5G(5660, 30), /* Channel 132 */
+	CHAN5G(5680, 31), /* Channel 136 */
+	CHAN5G(5700, 32), /* Channel 140 */
+	/* _We_ call this UNII 3 */
+	CHAN5G(5745, 33), /* Channel 149 */
+	CHAN5G(5765, 34), /* Channel 153 */
+	CHAN5G(5785, 35), /* Channel 157 */
+	CHAN5G(5805, 36), /* Channel 161 */
+	CHAN5G(5825, 37), /* Channel 165 */
 };
 
+/* Atheros hardware rate code addition for short premble */
 #define SHPCHECK(__hw_rate, __flags) \
 	((__flags & IEEE80211_RATE_SHORT_PREAMBLE) ? (__hw_rate | 0x04 ) : 0)
 
@@ -150,6 +160,11 @@ static const struct ieee80211_tpt_blink ath9k_tpt_blink[] = {
 
 static void ath9k_deinit_softc(struct ath_softc *sc);
 
+/*
+ * Read and write, they both share the same lock. We do this to serialize
+ * reads and writes on Atheros 802.11n PCI devices only. This is required
+ * as the FIFO on these devices can only accept sanely 2 requests.
+ */
 
 static void ath9k_iowrite32(void *hw_priv, u32 val, u32 reg_offset)
 {
@@ -214,6 +229,9 @@ static unsigned int ath9k_reg_rmw(void *hw_priv, u32 reg_offset, u32 set, u32 cl
 	return val;
 }
 
+/**************************/
+/*     Initialization     */
+/**************************/
 
 static void setup_ht_cap(struct ath_softc *sc,
 			 struct ieee80211_sta_ht_cap *ht_info)
@@ -253,7 +271,7 @@ static void setup_ht_cap(struct ath_softc *sc,
 		ht_info->cap |= (1 << IEEE80211_HT_CAP_RX_STBC_SHIFT);
 	}
 
-	
+	/* set up supported mcs set */
 	memset(&ht_info->mcs, 0, sizeof(ht_info->mcs));
 	tx_streams = ath9k_cmn_count_streams(ah->txchainmask, max_streams);
 	rx_streams = ath9k_cmn_count_streams(ah->rxchainmask, max_streams);
@@ -284,7 +302,7 @@ static int ath9k_reg_notifier(struct wiphy *wiphy,
 
 	ret = ath_reg_notifier_apply(wiphy, request, reg);
 
-	
+	/* Set tx power */
 	if (ah->curchan) {
 		sc->config.txpowlimit = 2 * ah->curchan->chan->max_power;
 		ath9k_ps_wakeup(sc);
@@ -296,6 +314,11 @@ static int ath9k_reg_notifier(struct wiphy *wiphy,
 	return ret;
 }
 
+/*
+ *  This function will allocate both the DMA descriptor structure, and the
+ *  buffers it contains.  These are used to contain the descriptors used
+ *  by the system.
+*/
 int ath_descdma_setup(struct ath_softc *sc, struct ath_descdma *dd,
 		      struct list_head *head, const char *name,
 		      int nbuf, int ndesc, bool is_tx)
@@ -315,7 +338,7 @@ int ath_descdma_setup(struct ath_softc *sc, struct ath_descdma *dd,
 	else
 		desc_len = sizeof(struct ath_desc);
 
-	
+	/* ath_desc must be a multiple of DWORDs */
 	if ((desc_len % 4) != 0) {
 		ath_err(common, "ath_desc not DWORD aligned\n");
 		BUG_ON((desc_len % 4) != 0);
@@ -325,6 +348,11 @@ int ath_descdma_setup(struct ath_softc *sc, struct ath_descdma *dd,
 
 	dd->dd_desc_len = desc_len * nbuf * ndesc;
 
+	/*
+	 * Need additional DMA memory because we can't use
+	 * descriptors that cross the 4K page boundary. Assume
+	 * one skipped descriptor per 4K page.
+	 */
 	if (!(sc->sc_ah->caps.hw_caps & ATH9K_HW_CAP_4KB_SPLITTRANS)) {
 		u32 ndesc_skipped =
 			ATH_DESC_4KB_BOUND_NUM_SKIPPED(dd->dd_desc_len);
@@ -338,7 +366,7 @@ int ath_descdma_setup(struct ath_softc *sc, struct ath_descdma *dd,
 		}
 	}
 
-	
+	/* allocate descriptors */
 	dd->dd_desc = dma_alloc_coherent(sc->dev, dd->dd_desc_len,
 					 &dd->dd_desc_paddr, GFP_KERNEL);
 	if (dd->dd_desc == NULL) {
@@ -348,9 +376,9 @@ int ath_descdma_setup(struct ath_softc *sc, struct ath_descdma *dd,
 	ds = (u8 *) dd->dd_desc;
 	ath_dbg(common, CONFIG, "%s DMA map: %p (%u) -> %llx (%u)\n",
 		name, ds, (u32) dd->dd_desc_len,
-		ito64(dd->dd_desc_paddr), (u32) dd->dd_desc_len);
+		ito64(dd->dd_desc_paddr), /*XXX*/(u32) dd->dd_desc_len);
 
-	
+	/* allocate buffers */
 	bsize = sizeof(struct ath_buf) * nbuf;
 	bf = kzalloc(bsize, GFP_KERNEL);
 	if (bf == NULL) {
@@ -365,6 +393,11 @@ int ath_descdma_setup(struct ath_softc *sc, struct ath_descdma *dd,
 
 		if (!(sc->sc_ah->caps.hw_caps &
 		      ATH9K_HW_CAP_4KB_SPLITTRANS)) {
+			/*
+			 * Skip descriptor addresses which can cause 4KB
+			 * boundary crossing (addr + length) with a 32 dword
+			 * descriptor fetch.
+			 */
 			while (ATH_DESC_4KB_BOUND_CHECK(bf->bf_daddr)) {
 				BUG_ON((caddr_t) bf->bf_desc >=
 				       ((caddr_t) dd->dd_desc +
@@ -523,10 +556,14 @@ static int ath9k_init_softc(u16 devid, struct ath_softc *sc,
 	tasklet_init(&sc->bcon_tasklet, ath_beacon_tasklet,
 		     (unsigned long)sc);
 
+	/*
+	 * Cache line size is used to size and align various
+	 * structures used to communicate with the hardware.
+	 */
 	ath_read_cachesize(common, &csz);
-	common->cachelsz = csz << 2; 
+	common->cachelsz = csz << 2; /* convert to bytes */
 
-	
+	/* Initializes the hardware for all supported chipsets */
 	ret = ath9k_hw_init(ah);
 	if (ret)
 		goto err_hw;
@@ -651,7 +688,7 @@ void ath9k_set_hw_capab(struct ath_softc *sc, struct ieee80211_hw *hw)
 	hw->wiphy->available_antennas_rx = BIT(ah->caps.max_rxchains) - 1;
 	hw->wiphy->available_antennas_tx = BIT(ah->caps.max_txchains) - 1;
 
-	
+	/* single chain devices with rx diversity */
 	if (ah->caps.hw_caps & ATH9K_HW_CAP_ANT_DIV_COMB)
 		hw->wiphy->available_antennas_rx = BIT(0) | BIT(1);
 
@@ -683,7 +720,7 @@ int ath9k_init_device(u16 devid, struct ath_softc *sc,
 	int error = 0;
 	struct ath_regulatory *reg;
 
-	
+	/* Bring up device */
 	error = ath9k_init_softc(devid, sc, bus_ops);
 	if (error != 0)
 		goto error_init;
@@ -692,7 +729,7 @@ int ath9k_init_device(u16 devid, struct ath_softc *sc,
 	common = ath9k_hw_common(ah);
 	ath9k_set_hw_capab(sc, hw);
 
-	
+	/* Initialize regulatory */
 	error = ath_regd_init(&common->regulatory, sc->hw->wiphy,
 			      ath9k_reg_notifier);
 	if (error)
@@ -700,12 +737,12 @@ int ath9k_init_device(u16 devid, struct ath_softc *sc,
 
 	reg = &common->regulatory;
 
-	
+	/* Setup TX DMA */
 	error = ath_tx_init(sc, ATH_TXBUF);
 	if (error != 0)
 		goto error_tx;
 
-	
+	/* Setup RX DMA */
 	error = ath_rx_init(sc, ATH_RXBUF);
 	if (error != 0)
 		goto error_rx;
@@ -713,7 +750,7 @@ int ath9k_init_device(u16 devid, struct ath_softc *sc,
 	ath9k_init_txpower_limits(sc);
 
 #ifdef CONFIG_MAC80211_LEDS
-	
+	/* must be initialized before ieee80211_register_hw */
 	sc->led_cdev.default_trigger = ieee80211_create_tpt_led_trigger(sc->hw,
 		IEEE80211_TPT_LEDTRIG_FL_RADIO, ath9k_tpt_blink,
 		ARRAY_SIZE(ath9k_tpt_blink));
@@ -724,7 +761,7 @@ int ath9k_init_device(u16 devid, struct ath_softc *sc,
 	INIT_WORK(&sc->paprd_work, ath_paprd_calibrate);
 	INIT_DELAYED_WORK(&sc->hw_pll_work, ath_hw_pll_work);
 
-	
+	/* Register with mac80211 */
 	error = ieee80211_register_hw(hw);
 	if (error)
 		goto error_register;
@@ -735,7 +772,7 @@ int ath9k_init_device(u16 devid, struct ath_softc *sc,
 		goto error_world;
 	}
 
-	
+	/* Handle world regulatory */
 	if (!ath_is_world_regd(reg)) {
 		error = regulatory_hint(hw->wiphy, reg->alpha2);
 		if (error)
@@ -756,13 +793,16 @@ error_register:
 error_rx:
 	ath_tx_cleanup(sc);
 error_tx:
-	
+	/* Nothing */
 error_regd:
 	ath9k_deinit_softc(sc);
 error_init:
 	return error;
 }
 
+/*****************************/
+/*     De-Initialization     */
+/*****************************/
 
 static void ath9k_deinit_softc(struct ath_softc *sc)
 {
@@ -815,12 +855,15 @@ void ath_descdma_cleanup(struct ath_softc *sc,
 	memset(dd, 0, sizeof(*dd));
 }
 
+/************************/
+/*     Module Hooks     */
+/************************/
 
 static int __init ath9k_init(void)
 {
 	int error;
 
-	
+	/* Register rate control algorithm */
 	error = ath_rate_control_register();
 	if (error != 0) {
 		printk(KERN_ERR

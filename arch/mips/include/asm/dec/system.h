@@ -16,4 +16,4 @@
 extern unsigned long dec_kn_slot_base, dec_kn_slot_size;
 extern int dec_tc_bus;
 
-#endif 
+#endif /* __ASM_DEC_SYSTEM_H */

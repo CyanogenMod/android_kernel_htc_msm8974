@@ -107,19 +107,34 @@ static const struct hc_driver ohci_jz4740_hc_driver = {
 	.product_desc =		"JZ4740 OHCI",
 	.hcd_priv_size =	sizeof(struct jz4740_ohci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq =			ohci_irq,
 	.flags =		HCD_USB11 | HCD_MEMORY,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.start =		ohci_jz4740_start,
 	.stop =			ohci_stop,
 	.shutdown =		ohci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue =		ohci_urb_enqueue,
 	.urb_dequeue =		ohci_urb_dequeue,
 	.endpoint_disable =	ohci_endpoint_disable,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number =	ohci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data =	ohci_hub_status_data,
 	.hub_control =		ohci_jz4740_hub_control,
 #ifdef	CONFIG_PM

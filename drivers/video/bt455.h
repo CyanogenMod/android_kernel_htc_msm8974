@@ -9,6 +9,9 @@
  */
 #include <linux/types.h>
 
+/*
+ * Bt455 byte-wide registers, 32-bit aligned.
+ */
 struct bt455_regs {
 	volatile u8 addr_cmap;
 	u8 pad0[3];
@@ -26,6 +29,9 @@ static inline void bt455_select_reg(struct bt455_regs *regs, int ir)
 	regs->addr_cmap = ir & 0x0f;
 }
 
+/*
+ * Read/write to a Bt455 color map register.
+ */
 static inline void bt455_read_cmap_entry(struct bt455_regs *regs, int cr,
 					 u8* red, u8* green, u8* blue)
 {
@@ -74,8 +80,8 @@ static inline void bt455_set_cursor(struct bt455_regs *regs)
 
 static inline void bt455_erase_cursor(struct bt455_regs *regs)
 {
-	
-	
+	/* bt455_write_cmap_entry(regs, 8, 0x00, 0x00, 0x00); */
+	/* bt455_write_cmap_entry(regs, 9, 0x00, 0x00, 0x00); */
 	bt455_write_ovly_entry(regs, 8, 0x03, 0x03, 0x03);
 	bt455_write_ovly_entry(regs, 9, 0x07, 0x07, 0x07);
 

@@ -45,17 +45,23 @@
 
 #define SFFSDR_PHY_ID		"davinci_mdio-0:01"
 static struct mtd_partition davinci_sffsdr_nandflash_partition[] = {
+	/* U-Boot Environment: Block 0
+	 * UBL:                Block 1
+	 * U-Boot:             Blocks 6-7 (256 kb)
+	 * Integrity Kernel:   Blocks 8-31 (3 Mb)
+	 * Integrity Data:     Blocks 100-END
+	 */
 	{
 		.name		= "Linux Kernel",
 		.offset		= 32 * SZ_128K,
-		.size		= 16 * SZ_128K, 
-		.mask_flags	= MTD_WRITEABLE, 
+		.size		= 16 * SZ_128K, /* 2 Mb */
+		.mask_flags	= MTD_WRITEABLE, /* Force read-only */
 	},
 	{
 		.name		= "Linux ROOT",
 		.offset		= MTDPART_OFS_APPEND,
-		.size		= 256 * SZ_128K, 
-		.mask_flags	= 0, 
+		.size		= 256 * SZ_128K, /* 32 Mb */
+		.mask_flags	= 0, /* R/W */
 	},
 };
 
@@ -77,7 +83,7 @@ static struct resource davinci_sffsdr_nandflash_resource[] = {
 };
 
 static struct platform_device davinci_sffsdr_nandflash_device = {
-	.name		= "davinci_nand", 
+	.name		= "davinci_nand", /* Name of driver */
 	.id		= 0,
 	.dev		= {
 		.platform_data	= &davinci_sffsdr_nandflash_data,
@@ -97,11 +103,16 @@ static struct i2c_board_info __initdata i2c_info[] =  {
 		I2C_BOARD_INFO("24lc64", 0x50),
 		.platform_data	= &eeprom_info,
 	},
+	/* Other I2C devices:
+	 * MSP430,  addr 0x23 (not used)
+	 * PCA9543, addr 0x70 (setup done by U-Boot)
+	 * ADS7828, addr 0x48 (ADC for voltage monitoring.)
+	 */
 };
 
 static struct davinci_i2c_platform_data i2c_pdata = {
-	.bus_freq	= 20 ,
-	.bus_delay	= 100 ,
+	.bus_freq	= 20 /* kHz */,
+	.bus_delay	= 100 /* usec */,
 };
 
 static void __init sffsdr_init_i2c(void)
@@ -132,15 +143,15 @@ static __init void davinci_sffsdr_init(void)
 	sffsdr_init_i2c();
 	davinci_serial_init(&uart_config);
 	soc_info->emac_pdata->phy_id = SFFSDR_PHY_ID;
-	davinci_setup_usb(0, 0); 
+	davinci_setup_usb(0, 0); /* We support only peripheral mode. */
 
-	
+	/* mux VLYNQ pins */
 	davinci_cfg_reg(DM644X_VLYNQEN);
 	davinci_cfg_reg(DM644X_VLYNQWD);
 }
 
 MACHINE_START(SFFSDR, "Lyrtech SFFSDR")
-	
+	/* Maintainer: Hugo Villeneuve hugo.villeneuve@lyrtech.com */
 	.atag_offset  = 0x100,
 	.map_io	      = davinci_sffsdr_map_io,
 	.init_irq     = davinci_irq_init,

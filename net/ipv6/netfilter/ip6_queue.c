@@ -252,7 +252,7 @@ ipq_enqueue_packet(struct nf_queue_entry *entry, unsigned int queuenum)
 		goto err_out_free_nskb;
 	}
 
-	
+	/* netlink_unicast will either free the nskb or attach it to a socket */
 	status = netlink_unicast(ipqnl, nskb, peer_pid, MSG_DONTWAIT);
 	if (status < 0) {
 		queue_user_dropped++;
@@ -477,7 +477,7 @@ ipq_rcv_dev_event(struct notifier_block *this,
 	if (!net_eq(dev_net(dev), &init_net))
 		return NOTIFY_DONE;
 
-	
+	/* Drop any packets associated with the downed device */
 	if (event == NETDEV_DOWN)
 		ipq_dev_drop(dev->ifindex);
 	return NOTIFY_DONE;

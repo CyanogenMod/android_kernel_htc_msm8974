@@ -38,7 +38,7 @@ const struct register_map zeus_register_map __initdata = {
 	.chipver1 = {.phys = ZEUS_ADDR(0x280808)},
 	.chipver0 = {.phys = ZEUS_ADDR(0x28080c)},
 
-	
+	/* The registers of IRBlaster */
 	.uart1_intstat = {.phys = ZEUS_ADDR(0x281800)},
 	.uart1_inten = {.phys = ZEUS_ADDR(0x281804)},
 	.uart1_config1 = {.phys = ZEUS_ADDR(0x281808)},

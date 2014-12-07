@@ -15,6 +15,9 @@
 
 #include <linux/platform_device.h>
 
+/*
+ * GPIO Registers.
+ */
 #define WM8350_GPIO_DEBOUNCE                    0x80
 #define WM8350_GPIO_PIN_PULL_UP_CONTROL         0x81
 #define WM8350_GPIO_PULL_DOWN_CONTROL           0x82
@@ -28,6 +31,9 @@
 #define WM8350_GPIO_FUNCTION_SELECT_4           0x8F
 #define WM8350_GPIO_LEVEL			0xE6
 
+/*
+ * GPIO Functions
+ */
 #define WM8350_GPIO0_GPIO_IN			0x0
 #define WM8350_GPIO0_GPIO_OUT			0x0
 #define WM8350_GPIO0_PWR_ON_IN			0x1
@@ -167,6 +173,9 @@
 #define WM8350_GPIO_DEBOUNCE_OFF		0
 #define WM8350_GPIO_DEBOUNCE_ON			1
 
+/*
+ * R30 (0x1E) - GPIO Interrupt Status
+ */
 #define WM8350_GP12_EINT                        0x1000
 #define WM8350_GP11_EINT                        0x0800
 #define WM8350_GP10_EINT                        0x0400
@@ -182,6 +191,9 @@
 #define WM8350_GP0_EINT                         0x0001
 
 
+/*
+ * R128 (0x80) - GPIO Debounce
+ */
 #define WM8350_GP12_DB                          0x1000
 #define WM8350_GP11_DB                          0x0800
 #define WM8350_GP10_DB                          0x0400
@@ -196,6 +208,9 @@
 #define WM8350_GP1_DB                           0x0002
 #define WM8350_GP0_DB                           0x0001
 
+/*
+ * R129 (0x81) - GPIO Pin pull up Control
+ */
 #define WM8350_GP12_PU                          0x1000
 #define WM8350_GP11_PU                          0x0800
 #define WM8350_GP10_PU                          0x0400
@@ -210,6 +225,9 @@
 #define WM8350_GP1_PU                           0x0002
 #define WM8350_GP0_PU                           0x0001
 
+/*
+ * R130 (0x82) - GPIO Pull down Control
+ */
 #define WM8350_GP12_PD                          0x1000
 #define WM8350_GP11_PD                          0x0800
 #define WM8350_GP10_PD                          0x0400
@@ -224,6 +242,9 @@
 #define WM8350_GP1_PD                           0x0002
 #define WM8350_GP0_PD                           0x0001
 
+/*
+ * R131 (0x83) - GPIO Interrupt Mode
+ */
 #define WM8350_GP12_INTMODE                     0x1000
 #define WM8350_GP11_INTMODE                     0x0800
 #define WM8350_GP10_INTMODE                     0x0400
@@ -238,8 +259,14 @@
 #define WM8350_GP1_INTMODE                      0x0002
 #define WM8350_GP0_INTMODE                      0x0001
 
+/*
+ * R133 (0x85) - GPIO Control
+ */
 #define WM8350_GP_DBTIME_MASK                   0x00C0
 
+/*
+ * R134 (0x86) - GPIO Configuration (i/o)
+ */
 #define WM8350_GP12_DIR                         0x1000
 #define WM8350_GP11_DIR                         0x0800
 #define WM8350_GP10_DIR                         0x0400
@@ -254,6 +281,9 @@
 #define WM8350_GP1_DIR                          0x0002
 #define WM8350_GP0_DIR                          0x0001
 
+/*
+ * R135 (0x87) - GPIO Pin Polarity / Type
+ */
 #define WM8350_GP12_CFG                         0x1000
 #define WM8350_GP11_CFG                         0x0800
 #define WM8350_GP10_CFG                         0x0400
@@ -268,23 +298,38 @@
 #define WM8350_GP1_CFG                          0x0002
 #define WM8350_GP0_CFG                          0x0001
 
+/*
+ * R140 (0x8C) - GPIO Function Select 1
+ */
 #define WM8350_GP3_FN_MASK                      0xF000
 #define WM8350_GP2_FN_MASK                      0x0F00
 #define WM8350_GP1_FN_MASK                      0x00F0
 #define WM8350_GP0_FN_MASK                      0x000F
 
+/*
+ * R141 (0x8D) - GPIO Function Select 2
+ */
 #define WM8350_GP7_FN_MASK                      0xF000
 #define WM8350_GP6_FN_MASK                      0x0F00
 #define WM8350_GP5_FN_MASK                      0x00F0
 #define WM8350_GP4_FN_MASK                      0x000F
 
+/*
+ * R142 (0x8E) - GPIO Function Select 3
+ */
 #define WM8350_GP11_FN_MASK                     0xF000
 #define WM8350_GP10_FN_MASK                     0x0F00
 #define WM8350_GP9_FN_MASK                      0x00F0
 #define WM8350_GP8_FN_MASK                      0x000F
 
+/*
+ * R143 (0x8F) - GPIO Function Select 4
+ */
 #define WM8350_GP12_FN_MASK                     0x000F
 
+/*
+ * R230 (0xE6) - GPIO Pin Status
+ */
 #define WM8350_GP12_LVL                         0x1000
 #define WM8350_GP11_LVL                         0x0800
 #define WM8350_GP10_LVL                         0x0400
@@ -308,6 +353,9 @@ struct wm8350_gpio {
 	struct platform_device *pdev;
 };
 
+/*
+ * GPIO Interrupts
+ */
 #define WM8350_IRQ_GPIO(x)                      (50 + x)
 
 #endif

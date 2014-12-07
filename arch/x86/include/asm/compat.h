@@ -1,6 +1,9 @@
 #ifndef _ASM_X86_COMPAT_H
 #define _ASM_X86_COMPAT_H
 
+/*
+ * Architecture specific compatibility types
+ */
 #include <linux/types.h>
 #include <linux/sched.h>
 #include <asm/processor.h>
@@ -80,10 +83,14 @@ struct compat_flock {
 	compat_pid_t	l_pid;
 };
 
-#define F_GETLK64	12	
+#define F_GETLK64	12	/*  using 'struct flock64' */
 #define F_SETLK64	13
 #define F_SETLKW64	14
 
+/*
+ * IA32 uses 4 byte alignment for 64 bit quantities,
+ * so we need to pack this structure.
+ */
 struct compat_flock64 {
 	short		l_type;
 	short		l_whence;
@@ -101,7 +108,7 @@ struct compat_statfs {
 	int		f_files;
 	int		f_ffree;
 	compat_fsid_t	f_fsid;
-	int		f_namelen;	
+	int		f_namelen;	/* SunOS ignores this field. */
 	int		f_frsize;
 	int		f_flags;
 	int		f_spare[4];
@@ -110,7 +117,7 @@ struct compat_statfs {
 #define COMPAT_RLIM_OLD_INFINITY	0x7fffffff
 #define COMPAT_RLIM_INFINITY		0xffffffff
 
-typedef u32		compat_old_sigset_t;	
+typedef u32		compat_old_sigset_t;	/* at least 32 bits */
 
 #define _COMPAT_NSIG		64
 #define _COMPAT_NSIG_BPW	32
@@ -178,6 +185,9 @@ struct compat_shmid64_ds {
 	compat_ulong_t __unused5;
 };
 
+/*
+ * The type of struct elf_prstatus.pr_reg in compatible core dumps.
+ */
 #ifdef CONFIG_X86_X32_ABI
 typedef struct user_regs_struct compat_elf_gregset_t;
 
@@ -193,6 +203,12 @@ typedef struct user_regs_struct compat_elf_gregset_t;
 typedef struct user_regs_struct32 compat_elf_gregset_t;
 #endif
 
+/*
+ * A pointer passed in from user mode. This should not
+ * be used for syscall parameters, just declare them
+ * as pointers because the syscall entry code will have
+ * appropriately converted them already.
+ */
 typedef	u32		compat_uptr_t;
 
 static inline void __user *compat_ptr(compat_uptr_t uptr)
@@ -212,7 +228,7 @@ static inline void __user *arch_compat_alloc_user_space(long len)
 	if (test_thread_flag(TIF_IA32)) {
 		sp = task_pt_regs(current)->sp;
 	} else {
-		
+		/* -128 for the x32 ABI redzone */
 		sp = percpu_read(old_rsp) - 128;
 	}
 
@@ -233,4 +249,4 @@ static inline bool is_compat_task(void)
 	return is_ia32_task() || is_x32_task();
 }
 
-#endif 
+#endif /* _ASM_X86_COMPAT_H */

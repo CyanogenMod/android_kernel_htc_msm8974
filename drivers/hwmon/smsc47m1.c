@@ -51,9 +51,10 @@ static struct platform_device *pdev;
 #define DRVNAME "smsc47m1"
 enum chips { smsc47m1, smsc47m2 };
 
+/* Super-I/0 registers and commands */
 
-#define REG	0x2e	
-#define VAL	0x2f	
+#define REG	0x2e	/* The register to read/write */
+#define VAL	0x2f	/* The value to read/write */
 
 static inline void
 superio_outb(int reg, int val)
@@ -69,6 +70,7 @@ superio_inb(int reg)
 	return inb(VAL);
 }
 
+/* logical device for fans is 0x0A */
 #define superio_select() superio_outb(0x07, 0x0A)
 
 static inline void
@@ -88,9 +90,11 @@ superio_exit(void)
 #define SUPERIO_REG_DEVID	0x20
 #define SUPERIO_REG_DEVREV	0x21
 
+/* Logical device registers */
 
 #define SMSC_EXTENT		0x80
 
+/* nr is 0 or 1 in the macros below */
 #define SMSC47M1_REG_ALARM		0x04
 #define SMSC47M1_REG_TPIN(nr)		(0x34 - (nr))
 #define SMSC47M1_REG_PPIN(nr)		(0x36 - (nr))
@@ -124,18 +128,18 @@ struct smsc47m1_data {
 	struct device *hwmon_dev;
 
 	struct mutex update_lock;
-	unsigned long last_updated;	
+	unsigned long last_updated;	/* In jiffies */
 
-	u8 fan[3];		
-	u8 fan_preload[3];	
-	u8 fan_div[3];		
-	u8 alarms;		
-	u8 pwm[3];		
+	u8 fan[3];		/* Register value */
+	u8 fan_preload[3];	/* Register value */
+	u8 fan_div[3];		/* Register encoding, shifted right */
+	u8 alarms;		/* Register encoding */
+	u8 pwm[3];		/* Register value (bit 0 is disable) */
 };
 
 struct smsc47m1_sio_data {
 	enum chips type;
-	u8 activate;		
+	u8 activate;		/* Remember initial device state */
 };
 
 
@@ -168,6 +172,12 @@ static ssize_t get_fan(struct device *dev, struct device_attribute
 	struct sensor_device_attribute *attr = to_sensor_dev_attr(devattr);
 	struct smsc47m1_data *data = smsc47m1_update_device(dev, 0);
 	int nr = attr->index;
+	/*
+	 * This chip (stupidly) stops monitoring fan speed if PWM is
+	 * enabled and duty cycle is 0%. This is fine if the monitoring
+	 * and control concern the same fan, but troublesome if they are
+	 * not (which could as well happen).
+	 */
 	int rpm = (data->pwm[nr] & 0x7F) == 0x00 ? 0 :
 		  FAN_FROM_REG(data->fan[nr],
 			       DIV_FROM_REG(data->fan_div[nr]),
@@ -255,6 +265,12 @@ static ssize_t set_fan_min(struct device *dev, struct device_attribute
 	return count;
 }
 
+/*
+ * Note: we save and restore the fan minimum here, because its value is
+ * determined in part by the fan clock divider.  This follows the principle
+ * of least surprise; the user doesn't expect the fan minimum to change just
+ * because the divider changed.
+ */
 static ssize_t set_fan_div(struct device *dev, struct device_attribute
 			   *devattr, const char *buf, size_t count)
 {
@@ -270,7 +286,7 @@ static ssize_t set_fan_div(struct device *dev, struct device_attribute
 	if (err)
 		return err;
 
-	if (new_div == old_div) 
+	if (new_div == old_div) /* No change */
 		return count;
 
 	mutex_lock(&data->update_lock);
@@ -307,7 +323,7 @@ static ssize_t set_fan_div(struct device *dev, struct device_attribute
 		break;
 	}
 
-	
+	/* Preserve fan min */
 	tmp = 192 - (old_div * (192 - data->fan_preload[nr])
 		     + new_div / 2) / new_div;
 	data->fan_preload[nr] = SENSORS_LIMIT(tmp, 0, 191);
@@ -335,7 +351,7 @@ static ssize_t set_pwm(struct device *dev, struct device_attribute
 		return -EINVAL;
 
 	mutex_lock(&data->update_lock);
-	data->pwm[nr] &= 0x81; 
+	data->pwm[nr] &= 0x81; /* Preserve additional bits */
 	data->pwm[nr] |= PWM_TO_REG(val);
 	smsc47m1_write_value(data, SMSC47M1_REG_PWM[nr],
 			     data->pwm[nr]);
@@ -361,7 +377,7 @@ static ssize_t set_pwm_en(struct device *dev, struct device_attribute
 		return -EINVAL;
 
 	mutex_lock(&data->update_lock);
-	data->pwm[nr] &= 0xFE; 
+	data->pwm[nr] &= 0xFE; /* preserve the other bits */
 	data->pwm[nr] |= !val;
 	smsc47m1_write_value(data, SMSC47M1_REG_PWM[nr],
 			     data->pwm[nr]);
@@ -483,6 +499,20 @@ static int __init smsc47m1_find(struct smsc47m1_sio_data *sio_data)
 	superio_enter();
 	val = force_id ? force_id : superio_inb(SUPERIO_REG_DEVID);
 
+	/*
+	 * SMSC LPC47M10x/LPC47M112/LPC47M13x (device id 0x59), LPC47M14x
+	 * (device id 0x5F) and LPC47B27x (device id 0x51) have fan control.
+	 * The LPC47M15x and LPC47M192 chips "with hardware monitoring block"
+	 * can do much more besides (device id 0x60).
+	 * The LPC47M997 is undocumented, but seems to be compatible with
+	 * the LPC47M192, and has the same device id.
+	 * The LPC47M292 (device id 0x6B) is somewhat compatible, but it
+	 * supports a 3rd fan, and the pin configuration registers are
+	 * unfortunately different.
+	 * The LPC47M233 has the same device id (0x6B) but is not compatible.
+	 * We check the high bit of the device revision register to
+	 * differentiate them.
+	 */
 	switch (val) {
 	case 0x51:
 		pr_info("Found SMSC LPC47B27x\n");
@@ -524,6 +554,10 @@ static int __init smsc47m1_find(struct smsc47m1_sio_data *sio_data)
 		return -ENODEV;
 	}
 
+	/*
+	 * Enable only if address is set (needed at least on the
+	 * Compaq Presario S4000NX)
+	 */
 	sio_data->activate = superio_inb(SUPERIO_REG_ACT);
 	if ((sio_data->activate & 0x01) == 0) {
 		pr_info("Enabling device\n");
@@ -534,6 +568,7 @@ static int __init smsc47m1_find(struct smsc47m1_sio_data *sio_data)
 	return addr;
 }
 
+/* Restore device to its initial state */
 static void smsc47m1_restore(const struct smsc47m1_sio_data *sio_data)
 {
 	if ((sio_data->activate & 0x01) == 0) {
@@ -551,18 +586,26 @@ static void smsc47m1_restore(const struct smsc47m1_sio_data *sio_data)
 #define REQUEST		2
 #define RELEASE		3
 
+/*
+ * This function can be used to:
+ *  - test for resource conflicts with ACPI
+ *  - request the resources
+ *  - release the resources
+ * We only allocate the I/O ports we really need, to minimize the risk of
+ * conflicts with ACPI or with other drivers.
+ */
 static int smsc47m1_handle_resources(unsigned short address, enum chips type,
 				     int action, struct device *dev)
 {
 	static const u8 ports_m1[] = {
-		
+		/* register, region length */
 		0x04, 1,
 		0x33, 4,
 		0x56, 7,
 	};
 
 	static const u8 ports_m2[] = {
-		
+		/* register, region length */
 		0x04, 1,
 		0x09, 1,
 		0x2c, 2,
@@ -592,18 +635,18 @@ static int smsc47m1_handle_resources(unsigned short address, enum chips type,
 
 		switch (action) {
 		case CHECK:
-			
+			/* Only check for conflicts */
 			err = acpi_check_region(start, len, DRVNAME);
 			if (err)
 				return err;
 			break;
 		case REQUEST:
-			
+			/* Request the resources */
 			if (!request_region(start, len, DRVNAME)) {
 				dev_err(dev, "Region 0x%hx-0x%hx already in "
 					"use!\n", start, start + len);
 
-				
+				/* Undo all requests */
 				for (i -= 2; i >= 0; i -= 2)
 					release_region(address + ports[i],
 						       ports[i + 1]);
@@ -611,7 +654,7 @@ static int smsc47m1_handle_resources(unsigned short address, enum chips type,
 			}
 			break;
 		case RELEASE:
-			
+			/* Release the resources */
 			release_region(start, len);
 			break;
 		}
@@ -663,6 +706,10 @@ static int __init smsc47m1_probe(struct platform_device *pdev)
 	mutex_init(&data->update_lock);
 	platform_set_drvdata(pdev, data);
 
+	/*
+	 * If no function is properly configured, there's no point in
+	 * actually registering the chip.
+	 */
 	pwm1 = (smsc47m1_read_value(data, SMSC47M1_REG_PPIN(0)) & 0x05)
 	       == 0x04;
 	pwm2 = (smsc47m1_read_value(data, SMSC47M1_REG_PPIN(1)) & 0x05)
@@ -690,9 +737,17 @@ static int __init smsc47m1_probe(struct platform_device *pdev)
 		goto error_free;
 	}
 
+	/*
+	 * Some values (fan min, clock dividers, pwm registers) may be
+	 * needed before any update is triggered, so we better read them
+	 * at least once here. We don't usually do it that way, but in
+	 * this particular case, manually reading 5 registers out of 8
+	 * doesn't make much sense and we're better using the existing
+	 * function.
+	 */
 	smsc47m1_update_device(dev, 1);
 
-	
+	/* Register sysfs hooks */
 	if (fan1) {
 		err = sysfs_create_group(&dev->kobj,
 					 &smsc47m1_group_fan1);
@@ -805,7 +860,7 @@ static struct smsc47m1_data *smsc47m1_update_device(struct device *dev,
 
 		data->alarms = smsc47m1_read_value(data,
 			       SMSC47M1_REG_ALARM) >> 6;
-		
+		/* Clear alarms if needed */
 		if (data->alarms)
 			smsc47m1_write_value(data, SMSC47M1_REG_ALARM, 0xC0);
 
@@ -814,7 +869,7 @@ static struct smsc47m1_data *smsc47m1_update_device(struct device *dev,
 					    SMSC47M2_REG_FANDIV3) >> 4) & 0x03;
 			data->alarms |= (smsc47m1_read_value(data,
 					 SMSC47M2_REG_ALARM6) & 0x40) >> 4;
-			
+			/* Clear alarm if needed */
 			if (data->alarms & 0x04)
 				smsc47m1_write_value(data,
 						     SMSC47M2_REG_ALARM6,
@@ -888,7 +943,7 @@ static int __init sm_smsc47m1_init(void)
 		return err;
 	address = err;
 
-	
+	/* Sets global pdev as a side effect */
 	err = smsc47m1_device_add(address, &sio_data);
 	if (err)
 		return err;

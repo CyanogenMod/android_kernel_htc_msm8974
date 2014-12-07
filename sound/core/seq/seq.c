@@ -54,7 +54,7 @@ int seq_default_timer_device =
 #endif
 	;
 int seq_default_timer_subdevice = 0;
-int seq_default_timer_resolution = 0;	
+int seq_default_timer_resolution = 0;	/* Hz */
 
 MODULE_AUTHOR("Frank van de Pol <fvdpol@coil.demon.nl>, Jaroslav Kysela <perex@perex.cz>");
 MODULE_DESCRIPTION("Advanced Linux Sound Architecture sequencer.");
@@ -78,6 +78,9 @@ MODULE_PARM_DESC(seq_default_timer_resolution, "The default timer resolution in 
 MODULE_ALIAS_CHARDEV(CONFIG_SND_MAJOR, SNDRV_MINOR_SEQUENCER);
 MODULE_ALIAS("devname:snd/seq");
 
+/*
+ *  INIT PART
+ */
 
 static int __init alsa_seq_init(void)
 {
@@ -87,23 +90,23 @@ static int __init alsa_seq_init(void)
 	if ((err = client_init_data()) < 0)
 		goto error;
 
-	
+	/* init memory, room for selected events */
 	if ((err = snd_sequencer_memory_init()) < 0)
 		goto error;
 
-	
+	/* init event queues */
 	if ((err = snd_seq_queues_init()) < 0)
 		goto error;
 
-	
+	/* register sequencer device */
 	if ((err = snd_sequencer_device_init()) < 0)
 		goto error;
 
-	
+	/* register proc interface */
 	if ((err = snd_seq_info_init()) < 0)
 		goto error;
 
-	
+	/* register our internal client */
 	if ((err = snd_seq_system_client_init()) < 0)
 		goto error;
 
@@ -114,19 +117,19 @@ static int __init alsa_seq_init(void)
 
 static void __exit alsa_seq_exit(void)
 {
-	
+	/* unregister our internal client */
 	snd_seq_system_client_done();
 
-	
+	/* unregister proc interface */
 	snd_seq_info_done();
 	
-	
+	/* delete timing queues */
 	snd_seq_queues_delete();
 
-	
+	/* unregister sequencer device */
 	snd_sequencer_device_done();
 
-	
+	/* release event memory */
 	snd_sequencer_memory_done();
 }
 

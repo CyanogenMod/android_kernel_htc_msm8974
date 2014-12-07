@@ -17,6 +17,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/* Sensor : MI2020 */
 
 #include "gl860.h"
 
@@ -84,9 +85,9 @@ static struct idxdata tbl_common_3B[] = {
 	{0x33, "\x86\x25\x01"}, {0x33, "\x86\x25\x00"},
 	{2, "\xff\xff\xff"},
 	{0x30, "\x1a\x0a\xcc"}, {0x32, "\x02\x00\x08"}, {0x33, "\xf4\x03\x1d"},
-	{6, "\xff\xff\xff"}, 
+	{6, "\xff\xff\xff"}, /* 12 */
 	{0x34, "\x1e\x8f\x09"}, {0x34, "\x1c\x01\x28"}, {0x34, "\x1e\x8f\x09"},
-	{2, "\xff\xff\xff"}, 
+	{2, "\xff\xff\xff"}, /* - */
 	{0x34, "\x1e\x8f\x09"}, {0x32, "\x14\x06\xe6"}, {0x33, "\x8c\x22\x23"},
 	{0x33, "\x90\x00\x00"}, {0x33, "\x8c\xa2\x0f"}, {0x33, "\x90\x00\x0d"},
 	{0x33, "\x8c\xa2\x10"}, {0x33, "\x90\x00\x0b"}, {0x33, "\x8c\xa2\x11"},
@@ -285,6 +286,7 @@ static int  mi2020_init_pre_alt(struct gspca_dev *gspca_dev);
 static int  mi2020_init_post_alt(struct gspca_dev *gspca_dev);
 static void mi2020_post_unset_alt(struct gspca_dev *gspca_dev);
 static int  mi2020_camera_settings(struct gspca_dev *gspca_dev);
+/*==========================================================================*/
 
 void mi2020_init_settings(struct gspca_dev *gspca_dev)
 {
@@ -297,7 +299,7 @@ void mi2020_init_settings(struct gspca_dev *gspca_dev)
 	sd->vcur.gamma      =  0;
 	sd->vcur.hue        =  0;
 	sd->vcur.saturation = 60;
-	sd->vcur.whitebal   =  0; 
+	sd->vcur.whitebal   =  0; /* 50, not done by hardware */
 	sd->vcur.mirror = 0;
 	sd->vcur.flip   = 0;
 	sd->vcur.AC50Hz = 1;
@@ -307,9 +309,9 @@ void mi2020_init_settings(struct gspca_dev *gspca_dev)
 	sd->vmax.sharpness  =  40;
 	sd->vmax.contrast   =   3;
 	sd->vmax.gamma      =   2;
-	sd->vmax.hue        =   0 + 1; 
-	sd->vmax.saturation =   0;     
-	sd->vmax.whitebal   =   2;     
+	sd->vmax.hue        =   0 + 1; /* 200, not done by hardware */
+	sd->vmax.saturation =   0;     /* 100, not done by hardware */
+	sd->vmax.whitebal   =   2;     /* 100, not done by hardware */
 	sd->vmax.mirror = 1;
 	sd->vmax.flip   = 1;
 	sd->vmax.AC50Hz = 1;
@@ -321,6 +323,7 @@ void mi2020_init_settings(struct gspca_dev *gspca_dev)
 	sd->dev_post_unset_alt  = mi2020_post_unset_alt;
 }
 
+/*==========================================================================*/
 
 static void common(struct gspca_dev *gspca_dev)
 {
@@ -345,6 +348,8 @@ static int mi2020_init_at_startup(struct gspca_dev *gspca_dev)
 	common(gspca_dev);
 
 	msleep(61);
+/*	ctrl_out(gspca_dev, 0x40, 11, 0x0000, 0x0000,  0, NULL); */
+/*	msleep(36); */
 	ctrl_out(gspca_dev, 0x40,  1, 0x0001, 0x0000,  0, NULL);
 
 	return 0;
@@ -357,11 +362,11 @@ static int mi2020_init_pre_alt(struct gspca_dev *gspca_dev)
 	sd->mirrorMask =  0;
 	sd->vold.hue   = -1;
 
-	
+	/* These controls need to be reset */
 	sd->vold.brightness = -1;
 	sd->vold.sharpness  = -1;
 
-	
+	/* If not different from default, they do not need to be set */
 	sd->vold.contrast  = 0;
 	sd->vold.gamma     = 0;
 	sd->vold.backlight = 0;
@@ -485,11 +490,11 @@ static int mi2020_init_post_alt(struct gspca_dev *gspca_dev)
 	ctrl_out(gspca_dev, 0x40, 1, 0x0040, 0x0000, 0, NULL);
 	msleep(40);
 
-	
+	/* AC power frequency */
 	ctrl_out(gspca_dev, 0x40, 3, 0x7a00, 0x0033, 3, dat_freq1);
 	ctrl_out(gspca_dev, 0x40, 3, 0x7a00, 0x0033, 3, dat_freq2);
 	msleep(33);
-	
+	/* light source */
 	ctrl_out(gspca_dev, 0x40, 3, 0x7a00, 0x0033, 3, dat_multi1);
 	ctrl_out(gspca_dev, 0x40, 3, 0x7a00, 0x0033, 3, dat_multi2);
 	ctrl_out(gspca_dev, 0x40, 3, 0x7a00, 0x0033, 3, dat_multi3);
@@ -504,7 +509,7 @@ static int mi2020_init_post_alt(struct gspca_dev *gspca_dev)
 	fetch_idxdata(gspca_dev, tbl_init_post_alt_3B,
 			ARRAY_SIZE(tbl_init_post_alt_3B));
 
-	
+	/* hvflip */
 	ctrl_out(gspca_dev, 0x40, 3, 0x7a00, 0x0033, 3, dat_hvflip1);
 	ctrl_out(gspca_dev, 0x40, 3, 0x7a00, 0x0033, 3, dat_hvflip2);
 	ctrl_out(gspca_dev, 0x40, 3, 0x7a00, 0x0033, 3, dat_hvflip3);
@@ -580,7 +585,7 @@ static int mi2020_camera_settings(struct gspca_dev *gspca_dev)
 	u8 dat_hvflip4[] = {0x90, 0x00, 0x24};
 	u8 dat_wbal2[] = {0x90, 0x00, 0x00};
 
-	
+	/* Less than 4 images received -> too early to set the settings */
 	if (sd->nbIm < 4) {
 		sd->waitSet = 1;
 		return 0;

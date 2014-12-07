@@ -1,3 +1,12 @@
+/*
+ * arch/arm/mach-sa1100/include/mach/simpad.h
+ *
+ * based of assabet.h same as HUW_Webpanel
+ *
+ * This file contains the hardware specific definitions for SIMpad
+ *
+ * 2001/05/14 Juergen Messerer <juergen.messerer@freesurf.ch>
+ */
 
 #ifndef __ASM_ARCH_SIMPAD_H
 #define __ASM_ARCH_SIMPAD_H
@@ -16,7 +25,7 @@
 #define GPIO_UART3_DSR	GPIO_GPIO17
 
 #define GPIO_POWER_BUTTON	GPIO_GPIO0
-#define GPIO_UCB1300_IRQ	GPIO_GPIO22	
+#define GPIO_UCB1300_IRQ	GPIO_GPIO22	/* UCB GPIO and touchscreen */
 
 #define IRQ_UART1_CTS	IRQ_GPIO15
 #define IRQ_UART1_DCD	GPIO_GPIO23
@@ -29,12 +38,15 @@
 #define IRQ_GPIO_POWER_BUTTON IRQ_GPIO0
 
 
+/*---  PCMCIA  ---*/
 #define GPIO_CF_CD              24
 #define GPIO_CF_IRQ             1
 
+/*--- SmartCard ---*/
 #define GPIO_SMART_CARD		GPIO_GPIO10
 #define IRQ_GPIO_SMARD_CARD	IRQ_GPIO10
 
+/*--- ucb1x00 GPIO ---*/
 #define SIMPAD_UCB1X00_GPIO_BASE	(GPIO_MAX + 1)
 #define SIMPAD_UCB1X00_GPIO_PROG1	(SIMPAD_UCB1X00_GPIO_BASE)
 #define SIMPAD_UCB1X00_GPIO_PROG2	(SIMPAD_UCB1X00_GPIO_BASE + 1)
@@ -47,6 +59,7 @@
 #define SIMPAD_UCB1X00_GPIO_HEADSET	(SIMPAD_UCB1X00_GPIO_BASE + 8)
 #define SIMPAD_UCB1X00_GPIO_SPEAKER	(SIMPAD_UCB1X00_GPIO_BASE + 9)
 
+/*--- CS3 Latch ---*/
 #define SIMPAD_CS3_GPIO_BASE		(GPIO_MAX + 11)
 #define SIMPAD_CS3_VCC_5V_EN		(SIMPAD_CS3_GPIO_BASE)
 #define SIMPAD_CS3_VCC_3V_EN		(SIMPAD_CS3_GPIO_BASE + 1)
@@ -81,21 +94,21 @@ long simpad_get_cs3_shadow(void);
 void simpad_set_cs3_bit(int value);
 void simpad_clear_cs3_bit(int value);
 
-#define VCC_5V_EN	0x0001 
-#define VCC_3V_EN	0x0002 
-#define EN1		0x0004 
-#define EN0		0x0008 
+#define VCC_5V_EN	0x0001 /* For 5V PCMCIA */
+#define VCC_3V_EN	0x0002 /* FOR 3.3V PCMCIA */
+#define EN1		0x0004 /* This is only for EPROM's */
+#define EN0		0x0008 /* Both should be enable for 3.3V or 5V */
 #define DISPLAY_ON	0x0010
 #define PCMCIA_BUFF_DIS	0x0020
 #define MQ_RESET	0x0040
 #define PCMCIA_RESET	0x0080
 #define DECT_POWER_ON	0x0100
-#define IRDA_SD		0x0200 
+#define IRDA_SD		0x0200 /* Shutdown for powersave */
 #define RS232_ON	0x0400
-#define SD_MEDIAQ	0x0800 
+#define SD_MEDIAQ	0x0800 /* Shutdown for powersave */
 #define LED2_ON		0x1000
-#define IRDA_MODE	0x2000 
-#define ENABLE_5V	0x4000 
+#define IRDA_MODE	0x2000 /* Fast/Slow IrDA mode */
+#define ENABLE_5V	0x4000 /* Enable 5V circuit */
 #define RESET_SIMCARD	0x8000
 
 #define PCMCIA_BVD1	0x01
@@ -106,32 +119,35 @@ void simpad_clear_cs3_bit(int value);
 #define CHARGING_STATE	0x20
 #define PCMCIA_SHORT	0x40
 
+/*--- Battery ---*/
 struct simpad_battery {
-	unsigned char ac_status;	
-	unsigned char status;		
-	unsigned char percentage;	
-	unsigned short life;		
+	unsigned char ac_status;	/* line connected yes/no */
+	unsigned char status;		/* battery loading yes/no */
+	unsigned char percentage;	/* percentage loaded */
+	unsigned short life;		/* life till empty */
 };
 
+/* These should match the apm_bios.h definitions */
 #define SIMPAD_AC_STATUS_AC_OFFLINE      0x00
 #define SIMPAD_AC_STATUS_AC_ONLINE       0x01
-#define SIMPAD_AC_STATUS_AC_BACKUP       0x02   
+#define SIMPAD_AC_STATUS_AC_BACKUP       0x02   /* What does this mean? */
 #define SIMPAD_AC_STATUS_AC_UNKNOWN      0xff
 
+/* These bitfields are rarely "or'd" together */
 #define SIMPAD_BATT_STATUS_HIGH          0x01
 #define SIMPAD_BATT_STATUS_LOW           0x02
 #define SIMPAD_BATT_STATUS_CRITICAL      0x04
 #define SIMPAD_BATT_STATUS_CHARGING      0x08
 #define SIMPAD_BATT_STATUS_CHARGE_MAIN   0x10
-#define SIMPAD_BATT_STATUS_DEAD          0x20   
-#define SIMPAD_BATT_NOT_INSTALLED        0x20   
-#define SIMPAD_BATT_STATUS_FULL          0x40   
+#define SIMPAD_BATT_STATUS_DEAD          0x20   /* Battery will not charge */
+#define SIMPAD_BATT_NOT_INSTALLED        0x20   /* For expansion pack batteries */
+#define SIMPAD_BATT_STATUS_FULL          0x40   /* Battery fully charged (and connected to AC) */
 #define SIMPAD_BATT_STATUS_NOBATT        0x80
 #define SIMPAD_BATT_STATUS_UNKNOWN       0xff
 
 extern int simpad_get_battery(struct simpad_battery* );
 
-#endif 
+#endif // __ASM_ARCH_SIMPAD_H
 
 
 

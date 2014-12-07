@@ -26,5 +26,5 @@ unsigned long ext3_count_free (struct buffer_head * map, unsigned int numchars)
 	return (sum);
 }
 
-#endif  
+#endif  /*  EXT3FS_DEBUG  */
 

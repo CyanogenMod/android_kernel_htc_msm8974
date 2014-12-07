@@ -5,6 +5,9 @@
  *	Richard Zidlicky <Richard.Zidlicky@stud.informatik.uni-erlangen.de>
  */
 
+/*
+ * Q40 PS/2 keyboard controller driver for Linux/m68k
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -70,6 +73,9 @@ static irqreturn_t q40kbd_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * q40kbd_flush() flushes all data that may be in the keyboard buffers
+ */
 
 static void q40kbd_flush(struct q40kbd *q40kbd)
 {
@@ -90,6 +96,10 @@ static void q40kbd_stop(void)
 	master_outb(-1, KEYBOARD_UNLOCK_REG);
 }
 
+/*
+ * q40kbd_open() is called when a port is open by the higher layer.
+ * It allocates the interrupt and enables in in the chip.
+ */
 
 static int q40kbd_open(struct serio *port)
 {
@@ -97,7 +107,7 @@ static int q40kbd_open(struct serio *port)
 
 	q40kbd_flush(q40kbd);
 
-	
+	/* off we go */
 	master_outb(-1, KEYBOARD_UNLOCK_REG);
 	master_outb(1, KEY_IRQ_ENABLE_REG);
 
@@ -162,6 +172,11 @@ static int __devexit q40kbd_remove(struct platform_device *pdev)
 {
 	struct q40kbd *q40kbd = platform_get_drvdata(pdev);
 
+	/*
+	 * q40kbd_close() will be called as part of unregistering
+	 * and will ensure that IRQ is turned off, so it is safe
+	 * to unregister port first and free IRQ later.
+	 */
 	serio_unregister_port(q40kbd->port);
 	free_irq(Q40_IRQ_KEYBOARD, q40kbd);
 	kfree(q40kbd);

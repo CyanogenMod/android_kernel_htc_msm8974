@@ -46,6 +46,9 @@
 #include <asm/hardware.h>
 #include <asm/page.h>
 
+/* Only chose "ccio" since that's what HP-UX calls it....
+** Make it easier for folks to migrate from one to the other :^)
+*/
 #define MODULE_NAME "ccio"
 
 #define U2_IOA_RUNWAY 0x580
@@ -71,7 +74,7 @@ static int ccio_dma_supported( struct pci_dev *dev, u64 mask)
 		return(0);
 	}
 
-	
+	/* only support 32-bit devices (ie PCI/GSC) */
 	return((int) (mask >= 0xffffffffUL));
 }
 
@@ -105,7 +108,7 @@ static dma_addr_t ccio_map_single(struct pci_dev *dev, void *ptr, size_t size,
 static void ccio_unmap_single(struct pci_dev *dev, dma_addr_t dma_addr,
 			    size_t size, int direction)
 {
-	
+	/* Nothing to do */
 }
 
 
@@ -113,7 +116,7 @@ static int ccio_map_sg(struct pci_dev *dev, struct scatterlist *sglist, int nent
 {
 	int tmp = nents;
 
-        
+        /* KISS: map each buffer separately. */
 	while (nents) {
 		sg_dma_address(sglist) = ccio_map_single(dev, sglist->address, sglist->length, direction);
 		sg_dma_len(sglist) = sglist->length;
@@ -135,7 +138,7 @@ static void ccio_unmap_sg(struct pci_dev *dev, struct scatterlist *sglist, int n
 	}
 	return;
 #else
-	
+	/* Do nothing (copied from current ccio_unmap_single()  :^) */
 #endif
 }
 
@@ -148,13 +151,18 @@ static struct pci_dma_ops ccio_ops = {
 	ccio_unmap_single,
 	ccio_map_sg,
 	ccio_unmap_sg,
-	NULL,                   
-	NULL,                   
-	NULL,                   
-	NULL,                   
+	NULL,                   /* dma_sync_single_for_cpu : NOP for U2 */
+	NULL,                   /* dma_sync_single_for_device : NOP for U2 */
+	NULL,                   /* dma_sync_sg_for_cpu     : ditto */
+	NULL,                   /* dma_sync_sg_for_device     : ditto */
 };
 
 
+/*
+** Determine if u2 should claim this chip (return 0) or not (return 1).
+** If so, initialize the chip and tell other partners in crime they
+** have work to do.
+*/
 static int
 ccio_probe(struct parisc_device *dev)
 {
@@ -162,8 +170,13 @@ ccio_probe(struct parisc_device *dev)
 			dev->id.hversion == U2_BC_GSC ? "U2" : "UTurn",
 			dev->hpa.start);
 
+/*
+** FIXME - should check U2 registers to verify it's really running
+** in "Real Mode".
+*/
 
 #if 0
+/* will need this for "Virtual Mode" operation */
 	ccio_hw_init(ccio_dev);
 	ccio_common_init(ccio_dev);
 #endif

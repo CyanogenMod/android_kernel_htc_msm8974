@@ -12,6 +12,6 @@ extern void __delay(unsigned long loops);
 extern void udelay(unsigned long usecs);
 #define mdelay(n)	udelay((n) * 1000)
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _SPARC64_DELAY_H */

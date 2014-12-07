@@ -33,6 +33,7 @@
 #include <linux/mfd/pm8xxx/pm8xxx-adc.h>
 #include <mach/msm_xo.h>
 
+/* User Bank register set */
 #define PM8XXX_ADC_ARB_USRP_CNTRL1			0x197
 #define PM8XXX_ADC_ARB_USRP_CNTRL1_EN_ARB		BIT(0)
 #define PM8XXX_ADC_ARB_USRP_CNTRL1_RSV1			BIT(1)
@@ -174,13 +175,23 @@ static struct pm8xxx_adc_scale_fn adc_scale_fn[] = {
 	[ADC_SCALE_XOTHERM] = {pm8xxx_adc_tdkntcg_therm},
 };
 
+/* On PM8921 ADC the MPP needs to first be configured
+as an analog input to the AMUX pre-mux channel before
+issuing a read request. PM8921 MPP 8 is mapped to AMUX8
+and is common between remote processor's.
+On PM8018 ADC the MPP is directly connected to the AMUX
+pre-mux. Therefore clients of the PM8018 MPP do not need
+to configure the MPP as an analog input to the pre-mux.
+Clients can directly issue request on the pre-mux AMUX
+channel to read the ADC on the MPP */
 static struct pm8xxx_mpp_config_data pm8xxx_adc_mpp_config = {
 	.type		= PM8XXX_MPP_TYPE_A_INPUT,
-	
+	/* AMUX6 is dedicated to be used for apps processor */
 	.level		= PM8XXX_MPP_AIN_AMUX_CH6,
 	.control	= PM8XXX_MPP_AOUT_CTRL_DISABLE,
 };
 
+/* MPP Configuration for default settings */
 static struct pm8xxx_mpp_config_data pm8xxx_adc_mpp_unconfig = {
 	.type		= PM8XXX_MPP_TYPE_SINK,
 	.level		= PM8XXX_MPP_AIN_AMUX_CH5,
@@ -215,6 +226,8 @@ static int32_t pm8xxx_adc_arb_cntrl(uint32_t arb_cntrl,
 		data_arb_cntrl |= PM8XXX_ADC_ARB_USRP_CNTRL1_EN_ARB;
 	}
 
+	/* Write twice to the CNTRL register for the arbiter settings
+	   to take into effect */
 	for (i = 0; i < 2; i++) {
 		rc = pm8xxx_writeb(adc_pmic->dev->parent,
 				PM8XXX_ADC_ARB_USRP_CNTRL1, data_arb_cntrl);
@@ -377,8 +390,8 @@ static int32_t pm8xxx_adc_configure(
 	if (rc < 0)
 		return rc;
 
-	
-	
+	/* Default 2.4Mhz clock rate */
+	/* Client chooses the decimation */
 	switch (chan_prop->decimation) {
 	case ADC_DECIMATION_TYPE1:
 		data_dig_param |= PM8XXX_ADC_ARB_USRP_DIG_PARAM_DEC_RATE0;
@@ -433,12 +446,14 @@ static uint32_t pm8xxx_adc_read_adc_code(int32_t *data)
 
 	*data = (rslt_msb << 8) | rslt_lsb;
 
-	
+	/* Use the midpoint to determine underflow or overflow */
 	if (*data > max_ideal_adc_code + (max_ideal_adc_code >> 1))
 		*data |= ((1 << (8 * sizeof(*data) -
 			adc_pmic->adc_prop->bitresolution)) - 1) <<
 			adc_pmic->adc_prop->bitresolution;
 
+	/* Default value for switching off the arbiter after reading
+	   the ADC value. Bit 0 set to 0. */
 	rc = pm8xxx_adc_arb_cntrl(0, CHANNEL_NONE);
 	if (rc < 0) {
 		pr_err("%s: Configuring ADC Arbiter disable"
@@ -595,7 +610,7 @@ static uint32_t pm8xxx_adc_calib_device(void)
 					"failed\n", __func__);
 		return rc;
 	}
-	
+	/* Ratiometric Calibration */
 	conv.amux_channel = CHANNEL_MUXOFF;
 	conv.decimation = ADC_DECIMATION_TYPE2;
 	conv.amux_ip_rsv = AMUX_RSV5;
@@ -1013,6 +1028,8 @@ uint32_t pm8xxx_adc_btm_end(void)
 
 	spin_lock_irqsave(&adc_pmic->btm_lock, flags);
 
+	/* Write twice to the CNTRL register for the arbiter settings
+	   to take into effect */
 	for (i = 0; i < 2; i++) {
 		rc = pm8xxx_adc_write_reg(PM8XXX_ADC_ARB_BTM_CNTRL1,
 							data_arb_btm_cntrl);

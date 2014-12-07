@@ -54,6 +54,11 @@ static void musb_port_suspend(struct musb *musb, bool do_suspend)
 	if (!is_host_active(musb))
 		return;
 
+	/* NOTE:  this doesn't necessarily put PHY into low power mode,
+	 * turning off its clock; that's a function of PHY integration and
+	 * MUSB_POWER_ENSUSPEND.  PHY may need a clock (sigh) to detect
+	 * SE0 changing to connect (J) or wakeup (K) states.
+	 */
 	power = musb_readb(mbase, MUSB_POWER);
 	if (do_suspend) {
 		int retries = 10000;
@@ -62,7 +67,7 @@ static void musb_port_suspend(struct musb *musb, bool do_suspend)
 		power |= MUSB_POWER_SUSPENDM;
 		musb_writeb(mbase, MUSB_POWER, power);
 
-		
+		/* Needed for OPT A tests */
 		power = musb_readb(mbase, MUSB_POWER);
 		while (power & MUSB_POWER_SUSPENDM) {
 			power = musb_readb(mbase, MUSB_POWER);
@@ -101,7 +106,7 @@ static void musb_port_suspend(struct musb *musb, bool do_suspend)
 
 		dev_dbg(musb->controller, "Root port resuming, power %02x\n", power);
 
-		
+		/* later, GetPortStatus will stop RESUME signaling */
 		musb->port1_status |= MUSB_PORT_STAT_RESUME;
 		musb->rh_timer = jiffies + msecs_to_jiffies(20);
 	}
@@ -121,9 +126,19 @@ static void musb_port_reset(struct musb *musb, bool do_reset)
 	if (!is_host_active(musb))
 		return;
 
+	/* NOTE:  caller guarantees it will turn off the reset when
+	 * the appropriate amount of time has passed
+	 */
 	power = musb_readb(mbase, MUSB_POWER);
 	if (do_reset) {
 
+		/*
+		 * If RESUME is set, we must make sure it stays minimum 20 ms.
+		 * Then we must clear RESUME and wait a bit to let musb start
+		 * generating SOFs. If we don't do this, OPT HS A 6.8 tests
+		 * fail with "Error! Did not receive an SOF before suspend
+		 * detected".
+		 */
 		if (power &  MUSB_POWER_RESUME) {
 			while (time_before(jiffies, musb->rh_timer))
 				msleep(1);
@@ -181,7 +196,7 @@ void musb_root_disconnect(struct musb *musb)
 			musb->g.is_a_peripheral = 1;
 			break;
 		}
-		
+		/* FALLTHROUGH */
 	case OTG_STATE_A_HOST:
 		musb->xceiv->state = OTG_STATE_A_WAIT_BCON;
 		musb->is_active = 0;
@@ -196,13 +211,15 @@ void musb_root_disconnect(struct musb *musb)
 }
 
 
+/*---------------------------------------------------------------------*/
 
+/* Caller may or may not hold musb->lock */
 int musb_hub_status_data(struct usb_hcd *hcd, char *buf)
 {
 	struct musb	*musb = hcd_to_musb(hcd);
 	int		retval = 0;
 
-	
+	/* called in_irq() via usb_hcd_poll_rh_status() */
 	if (musb->port1_status & 0xffff0000) {
 		*buf = 0x02;
 		retval = 1;
@@ -230,6 +247,10 @@ int musb_hub_control(
 		return -ESHUTDOWN;
 	}
 
+	/* hub features:  always zero, setting is a NOP
+	 * port features: reported, sometimes updated when host is active
+	 * no indicators
+	 */
 	switch (typeReq) {
 	case ClearHubFeature:
 	case SetHubFeature:
@@ -275,14 +296,14 @@ int musb_hub_control(
 		desc->bDescriptorType = 0x29;
 		desc->bNbrPorts = 1;
 		desc->wHubCharacteristics = cpu_to_le16(
-				  0x0001	
-				| 0x0010	
+				  0x0001	/* per-port power switching */
+				| 0x0010	/* no overcurrent reporting */
 				);
-		desc->bPwrOn2PwrGood = 5;	
+		desc->bPwrOn2PwrGood = 5;	/* msec/2 */
 		desc->bHubContrCurrent = 0;
 
-		
-		desc->u.hs.DeviceRemovable[0] = 0x02;	
+		/* workaround bogus struct definition */
+		desc->u.hs.DeviceRemovable[0] = 0x02;	/* port 1 */
 		desc->u.hs.DeviceRemovable[1] = 0xff;
 		}
 		break;
@@ -294,12 +315,12 @@ int musb_hub_control(
 		if (wIndex != 1)
 			goto error;
 
-		
+		/* finish RESET signaling? */
 		if ((musb->port1_status & USB_PORT_STAT_RESET)
 				&& time_after_eq(jiffies, musb->rh_timer))
 			musb_port_reset(musb, false);
 
-		
+		/* finish RESUME signaling? */
 		if ((musb->port1_status & MUSB_PORT_STAT_RESUME)
 				&& time_after_eq(jiffies, musb->rh_timer)) {
 			u8		power;
@@ -310,13 +331,17 @@ int musb_hub_control(
 					power);
 			musb_writeb(musb->mregs, MUSB_POWER, power);
 
+			/* ISSUE:  DaVinci (RTL 1.300) disconnects after
+			 * resume of high speed peripherals (but not full
+			 * speed ones).
+			 */
 
 			musb->is_active = 1;
 			musb->port1_status &= ~(USB_PORT_STAT_SUSPEND
 					| MUSB_PORT_STAT_RESUME);
 			musb->port1_status |= USB_PORT_STAT_C_SUSPEND << 16;
 			usb_hcd_poll_rh_status(musb_to_hcd(musb));
-			
+			/* NOTE: it might really be A_WAIT_BCON ... */
 			musb->xceiv->state = OTG_STATE_A_HOST;
 		}
 
@@ -324,7 +349,7 @@ int musb_hub_control(
 					& ~MUSB_PORT_STAT_RESUME),
 				(__le32 *) buf);
 
-		
+		/* port change status is more interesting */
 		dev_dbg(musb->controller, "port status %08x\n",
 				musb->port1_status);
 		break;
@@ -334,6 +359,16 @@ int musb_hub_control(
 
 		switch (wValue) {
 		case USB_PORT_FEAT_POWER:
+			/* NOTE: this controller has a strange state machine
+			 * that involves "requesting sessions" according to
+			 * magic side effects from incompletely-described
+			 * rules about startup...
+			 *
+			 * This call is what really starts the host mode; be
+			 * very careful about side effects if you reorder any
+			 * initialization logic, e.g. for OTG, or change any
+			 * logic relating to VBUS power-up.
+			 */
 			if (!(is_otg_enabled(musb) && hcd->self.is_b_host))
 				musb_start(musb);
 			break;
@@ -392,7 +427,7 @@ int musb_hub_control(
 
 	default:
 error:
-		
+		/* "protocol stall" on error */
 		retval = -EPIPE;
 	}
 	spin_unlock_irqrestore(&musb->lock, flags);

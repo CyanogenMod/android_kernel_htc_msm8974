@@ -21,9 +21,11 @@
 #include <sound/soc.h>
 #include <sound/initval.h>
 #include <sound/soc-dapm.h>
+/* Debug purpose */
 #include <linux/gpio.h>
 #include <linux/clk.h>
 #include <mach/mpp.h>
+/* End of debug purpose */
 
 #define ADIE_CODEC_MAX 2
 
@@ -114,11 +116,11 @@ static struct adie_codec_register spk_unmute[] = {
 };
 
 struct adie_codec_path {
-	int rate; 
+	int rate; /* sample rate of path */
 	u32 reg_owner;
 };
 
-struct timpani_drv_data { 
+struct timpani_drv_data { /* member undecided */
 	struct snd_soc_codec codec;
 	struct adie_codec_path path[ADIE_CODEC_MAX];
 	u32 ref_cnt;
@@ -127,7 +129,7 @@ struct timpani_drv_data {
 
 static struct snd_soc_codec *timpani_codec;
 
-enum 
+enum /* regaccess blk id */
 {
 	RA_BLOCK_RX1 = 0,
 	RA_BLOCK_RX2,
@@ -152,7 +154,7 @@ enum
 	RA_BLOCK_NUM,
 };
 
-enum 
+enum /* regaccess onwer ID */
 {
 	RA_OWNER_NONE = 0,
 	RA_OWNER_PATH_RX1,
@@ -214,7 +216,7 @@ static void timpani_codec_bring_up(struct snd_soc_codec *codec)
 	    timpani->codec_pdata->marimba_codec_power) {
 		if (timpani->ref_cnt)
 			return;
-		
+		/* Codec power up sequence */
 		rc = timpani->codec_pdata->marimba_codec_power(1);
 		if (rc)
 			pr_err("%s: could not power up timpani "
@@ -406,6 +408,7 @@ static int timpani_soc_probe(struct platform_device *pdev)
 	return ret;
 }
 
+/* power down chip */
 static int timpani_soc_remove(struct platform_device *pdev)
 {
 	struct snd_soc_device *socdev = platform_get_drvdata(pdev);

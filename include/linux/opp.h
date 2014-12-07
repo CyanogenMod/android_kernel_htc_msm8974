@@ -55,7 +55,7 @@ static inline int of_init_opp_table(struct device *dev)
 {
 	return -EINVAL;
 }
-#endif 
+#endif /* CONFIG_OF */
 #else
 static inline unsigned long opp_get_voltage(struct opp *opp)
 {
@@ -110,7 +110,7 @@ static inline struct srcu_notifier_head *opp_get_notifier(struct device *dev)
 {
 	return ERR_PTR(-EINVAL);
 }
-#endif		
+#endif		/* CONFIG_PM_OPP */
 
 #if defined(CONFIG_CPU_FREQ) && defined(CONFIG_PM_OPP)
 int opp_init_cpufreq_table(struct device *dev,
@@ -129,6 +129,6 @@ void opp_free_cpufreq_table(struct device *dev,
 				struct cpufreq_frequency_table **table)
 {
 }
-#endif		
+#endif		/* CONFIG_CPU_FREQ */
 
-#endif		
+#endif		/* __LINUX_OPP_H__ */

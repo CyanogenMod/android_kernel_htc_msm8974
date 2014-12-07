@@ -21,6 +21,12 @@
 
 static DEFINE_MUTEX(pci_acpi_pm_notify_mtx);
 
+/**
+ * pci_acpi_wake_bus - Wake-up notification handler for root buses.
+ * @handle: ACPI handle of a device the notification is for.
+ * @event: Type of the signaled event.
+ * @context: PCI root bus to wake up devices on.
+ */
 static void pci_acpi_wake_bus(acpi_handle handle, u32 event, void *context)
 {
 	struct pci_bus *pci_bus = context;
@@ -29,6 +35,12 @@ static void pci_acpi_wake_bus(acpi_handle handle, u32 event, void *context)
 		pci_pme_wakeup_bus(pci_bus);
 }
 
+/**
+ * pci_acpi_wake_dev - Wake-up notification handler for PCI devices.
+ * @handle: ACPI handle of a device the notification is for.
+ * @event: Type of the signaled event.
+ * @context: PCI device object to wake up.
+ */
 static void pci_acpi_wake_dev(acpi_handle handle, u32 event, void *context)
 {
 	struct pci_dev *pci_dev = context;
@@ -49,6 +61,16 @@ static void pci_acpi_wake_dev(acpi_handle handle, u32 event, void *context)
 		pci_pme_wakeup_bus(pci_dev->subordinate);
 }
 
+/**
+ * add_pm_notifier - Register PM notifier for given ACPI device.
+ * @dev: ACPI device to add the notifier for.
+ * @context: PCI device or bus to check for PME status if an event is signaled.
+ *
+ * NOTE: @dev need not be a run-wake or wake-up device to be a valid source of
+ * PM wake-up events.  For example, wake-up events may be generated for bridges
+ * if one of the devices below the bridge is signaling PME, even if the bridge
+ * itself doesn't have a wake-up GPE associated with it.
+ */
 static acpi_status add_pm_notifier(struct acpi_device *dev,
 				   acpi_notify_handler handler,
 				   void *context)
@@ -73,6 +95,10 @@ static acpi_status add_pm_notifier(struct acpi_device *dev,
 	return status;
 }
 
+/**
+ * remove_pm_notifier - Unregister PM notifier from given ACPI device.
+ * @dev: ACPI device to remove the notifier from.
+ */
 static acpi_status remove_pm_notifier(struct acpi_device *dev,
 				      acpi_notify_handler handler)
 {
@@ -96,28 +122,68 @@ static acpi_status remove_pm_notifier(struct acpi_device *dev,
 	return status;
 }
 
+/**
+ * pci_acpi_add_bus_pm_notifier - Register PM notifier for given PCI bus.
+ * @dev: ACPI device to add the notifier for.
+ * @pci_bus: PCI bus to walk checking for PME status if an event is signaled.
+ */
 acpi_status pci_acpi_add_bus_pm_notifier(struct acpi_device *dev,
 					 struct pci_bus *pci_bus)
 {
 	return add_pm_notifier(dev, pci_acpi_wake_bus, pci_bus);
 }
 
+/**
+ * pci_acpi_remove_bus_pm_notifier - Unregister PCI bus PM notifier.
+ * @dev: ACPI device to remove the notifier from.
+ */
 acpi_status pci_acpi_remove_bus_pm_notifier(struct acpi_device *dev)
 {
 	return remove_pm_notifier(dev, pci_acpi_wake_bus);
 }
 
+/**
+ * pci_acpi_add_pm_notifier - Register PM notifier for given PCI device.
+ * @dev: ACPI device to add the notifier for.
+ * @pci_dev: PCI device to check for the PME status if an event is signaled.
+ */
 acpi_status pci_acpi_add_pm_notifier(struct acpi_device *dev,
 				     struct pci_dev *pci_dev)
 {
 	return add_pm_notifier(dev, pci_acpi_wake_dev, pci_dev);
 }
 
+/**
+ * pci_acpi_remove_pm_notifier - Unregister PCI device PM notifier.
+ * @dev: ACPI device to remove the notifier from.
+ */
 acpi_status pci_acpi_remove_pm_notifier(struct acpi_device *dev)
 {
 	return remove_pm_notifier(dev, pci_acpi_wake_dev);
 }
 
+/*
+ * _SxD returns the D-state with the highest power
+ * (lowest D-state number) supported in the S-state "x".
+ *
+ * If the devices does not have a _PRW
+ * (Power Resources for Wake) supporting system wakeup from "x"
+ * then the OS is free to choose a lower power (higher number
+ * D-state) than the return value from _SxD.
+ *
+ * But if _PRW is enabled at S-state "x", the OS
+ * must not choose a power lower than _SxD --
+ * unless the device has an _SxW method specifying
+ * the lowest power (highest D-state number) the device
+ * may enter while still able to wake the system.
+ *
+ * ie. depending on global OS policy:
+ *
+ * if (_PRW at S-state x)
+ *	choose from highest power _SxD to lowest power _SxW
+ * else // no _PRW at S-state x
+ * 	choose highest power _SxD or any lower power
+ */
 
 static pci_power_t acpi_pci_choose_state(struct pci_dev *pdev)
 {
@@ -162,7 +228,7 @@ static int acpi_pci_set_power_state(struct pci_dev *dev, pci_power_t state)
 	};
 	int error = -EINVAL;
 
-	
+	/* If the ACPI device has _EJ0, ignore the device */
 	if (!handle || ACPI_SUCCESS(acpi_get_handle(handle, "_EJ0", &tmp)))
 		return -ENODEV;
 
@@ -197,7 +263,7 @@ static void acpi_pci_propagate_wakeup_enable(struct pci_bus *bus, bool enable)
 		bus = bus->parent;
 	}
 
-	
+	/* We have reached the root bus. */
 	if (bus->bridge)
 		acpi_pm_device_sleep_wake(bus->bridge, enable);
 }
@@ -223,7 +289,7 @@ static void acpi_pci_propagate_run_wake(struct pci_bus *bus, bool enable)
 		bus = bus->parent;
 	}
 
-	
+	/* We have reached the root bus. */
 	if (bus->bridge)
 		acpi_pm_device_run_wake(bus->bridge, enable);
 }
@@ -249,13 +315,14 @@ static struct pci_platform_pm_ops acpi_pci_platform_pm = {
 	.run_wake = acpi_pci_run_wake,
 };
 
+/* ACPI bus type */
 static int acpi_pci_find_device(struct device *dev, acpi_handle *handle)
 {
 	struct pci_dev * pci_dev;
 	u64	addr;
 
 	pci_dev = to_pci_dev(dev);
-	
+	/* Please ref to ACPI spec for the syntax of _ADR */
 	addr = (PCI_SLOT(pci_dev->devfn) << 16) | PCI_FUNC(pci_dev->devfn);
 	*handle = acpi_get_child(DEVICE_ACPI_HANDLE(dev->parent), addr);
 	if (!*handle)
@@ -268,6 +335,10 @@ static int acpi_pci_find_root_bridge(struct device *dev, acpi_handle *handle)
 	int num;
 	unsigned int seg, bus;
 
+	/*
+	 * The string should be the same as root bridge's name
+	 * Please look at 'pci_scan_bus_parented'
+	 */
 	num = sscanf(dev_name(dev), "pci%04x:%02x", &seg, &bus);
 	if (num != 2)
 		return -ENODEV;

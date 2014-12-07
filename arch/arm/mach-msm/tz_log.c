@@ -28,69 +28,161 @@
 
 #define DEBUG_MAX_RW_BUF 4096
 
+/* QSEE_LOG_BUF_SIZE = 32K */
 #define QSEE_LOG_BUF_SIZE 0x8000
 
 
+/* TZ Diagnostic Area legacy version number */
 #define TZBSP_DIAG_MAJOR_VERSION_LEGACY	2
+/*
+ * Preprocessor Definitions and Constants
+ */
 #define TZBSP_CPU_COUNT 0x02
+/*
+ * Number of VMID Tables
+ */
 #define TZBSP_DIAG_NUM_OF_VMID 16
+/*
+ * VMID Description length
+ */
 #define TZBSP_DIAG_VMID_DESC_LEN 7
+/*
+ * Number of Interrupts
+ */
 #define TZBSP_DIAG_INT_NUM  32
+/*
+ * Length of descriptive name associated with Interrupt
+ */
 #define TZBSP_MAX_INT_DESC 16
+/*
+ * VMID Table
+ */
 struct tzdbg_vmid_t {
-	uint8_t vmid; 
-	uint8_t desc[TZBSP_DIAG_VMID_DESC_LEN];	
+	uint8_t vmid; /* Virtual Machine Identifier */
+	uint8_t desc[TZBSP_DIAG_VMID_DESC_LEN];	/* ASCII Text */
 };
+/*
+ * Boot Info Table
+ */
 struct tzdbg_boot_info_t {
-	uint32_t wb_entry_cnt;	
-	uint32_t wb_exit_cnt;	
-	uint32_t pc_entry_cnt;	
-	uint32_t pc_exit_cnt;	
-	uint32_t warm_jmp_addr;	
-	uint32_t spare;	
+	uint32_t wb_entry_cnt;	/* Warmboot entry CPU Counter */
+	uint32_t wb_exit_cnt;	/* Warmboot exit CPU Counter */
+	uint32_t pc_entry_cnt;	/* Power Collapse entry CPU Counter */
+	uint32_t pc_exit_cnt;	/* Power Collapse exit CPU counter */
+	uint32_t warm_jmp_addr;	/* Last Warmboot Jump Address */
+	uint32_t spare;	/* Reserved for future use. */
 };
+/*
+ * Reset Info Table
+ */
 struct tzdbg_reset_info_t {
-	uint32_t reset_type;	
-	uint32_t reset_cnt;	
+	uint32_t reset_type;	/* Reset Reason */
+	uint32_t reset_cnt;	/* Number of resets occured/CPU */
 };
+/*
+ * Interrupt Info Table
+ */
 struct tzdbg_int_t {
+	/*
+	 * Type of Interrupt/exception
+	 */
 	uint16_t int_info;
+	/*
+	 * Availability of the slot
+	 */
 	uint8_t avail;
+	/*
+	 * Reserved for future use
+	 */
 	uint8_t spare;
+	/*
+	 * Interrupt # for IRQ and FIQ
+	 */
 	uint32_t int_num;
+	/*
+	 * ASCII text describing type of interrupt e.g:
+	 * Secure Timer, EBI XPU. This string is always null terminated,
+	 * supporting at most TZBSP_MAX_INT_DESC characters.
+	 * Any additional characters are truncated.
+	 */
 	uint8_t int_desc[TZBSP_MAX_INT_DESC];
-	uint64_t int_count[TZBSP_CPU_COUNT]; 
+	uint64_t int_count[TZBSP_CPU_COUNT]; /* # of times seen per CPU */
 };
 
+/*
+ * Log ring buffer position
+ */
 struct tzdbg_log_pos_t {
 	uint16_t wrap;
 	uint16_t offset;
 };
 
+ /*
+ * Log ring buffer
+ */
 struct tzdbg_log_t {
 	struct tzdbg_log_pos_t	log_pos;
-	
+	/* open ended array to the end of the 4K IMEM buffer */
 	uint8_t					log_buf[];
 };
 
+/*
+ * Diagnostic Table
+ */
 struct tzdbg_t {
 	uint32_t magic_num;
 	uint32_t version;
+	/*
+	 * Number of CPU's
+	 */
 	uint32_t cpu_count;
+	/*
+	 * Offset of VMID Table
+	 */
 	uint32_t vmid_info_off;
+	/*
+	 * Offset of Boot Table
+	 */
 	uint32_t boot_info_off;
+	/*
+	 * Offset of Reset info Table
+	 */
 	uint32_t reset_info_off;
+	/*
+	 * Offset of Interrupt info Table
+	 */
 	uint32_t int_info_off;
+	/*
+	 * Ring Buffer Offset
+	 */
 	uint32_t ring_off;
+	/*
+	 * Ring Buffer Length
+	 */
 	uint32_t ring_len;
+	/*
+	 * VMID to EE Mapping
+	 */
 	struct tzdbg_vmid_t vmid_info[TZBSP_DIAG_NUM_OF_VMID];
+	/*
+	 * Boot Info
+	 */
 	struct tzdbg_boot_info_t  boot_info[TZBSP_CPU_COUNT];
+	/*
+	 * Reset Info
+	 */
 	struct tzdbg_reset_info_t reset_info[TZBSP_CPU_COUNT];
 	uint32_t num_interrupts;
 	struct tzdbg_int_t  int_info[TZBSP_DIAG_INT_NUM];
-	struct tzdbg_log_t ring_buffer;	
+	/*
+	 * We need at least 2K for the ring buffer
+	 */
+	struct tzdbg_log_t ring_buffer;	/* TZ Ring Buffer */
 };
 
+/*
+ * Enumeration order for VMID's
+ */
 enum tzdbg_stats_type {
 	TZDBG_BOOT = 0,
 	TZDBG_RESET,
@@ -152,6 +244,9 @@ struct htc_tzlog_dev {
 static struct htc_tzlog_dev *htc_tzlog;
 static struct tzdbg_log_t *g_qsee_log;
 
+/*
+ * Debugfs data structure and functions
+ */
 
 static int _disp_tz_general_stats(void)
 {
@@ -336,17 +431,17 @@ static int _disp_log_stats(struct tzdbg_log_t *log,
 	wrap_start = log_start->wrap;
 	wrap_end = log->log_pos.wrap;
 
-	
+	/* Calculate difference in # of buffer wrap-arounds */
 	if (wrap_end >= wrap_start) {
 		wrap_cnt = wrap_end - wrap_start;
 	} else {
-		
+		/* wrap counter has wrapped around, invalidate start position */
 		wrap_cnt = 2;
 	}
 
 	if (wrap_cnt > 1) {
-		
-		
+		/* end position has wrapped around more than once, */
+		/* current start no longer valid                   */
 		log_start->wrap = log->log_pos.wrap - 1;
 		log_start->offset = (log->log_pos.offset + 1) % log_len;
 	} else if ((wrap_cnt == 1) &&
@@ -356,9 +451,13 @@ static int _disp_log_stats(struct tzdbg_log_t *log,
 	}
 
 	while (log_start->offset == log->log_pos.offset) {
+		/*
+		 * No data in ring buffer,
+		 * so we'll hang around until something happens
+		 */
 		unsigned long t = msleep_interruptible(50);
 		if (t != 0) {
-			
+			/* Some event woke us up, so let's quit */
 			return 0;
 		}
 
@@ -370,6 +469,9 @@ static int _disp_log_stats(struct tzdbg_log_t *log,
 
 	max_len = (count > DEBUG_MAX_RW_BUF) ? DEBUG_MAX_RW_BUF : count;
 
+	/*
+	 *  Read from ring buff while there is data and space in return buff
+	 */
 	while ((log_start->offset != log->log_pos.offset) && (len < max_len)) {
 		tzdbg.disp_buf[i++] = log->log_buf[log_start->offset];
 		log_start->offset = (log_start->offset + 1) % log_len;
@@ -378,6 +480,9 @@ static int _disp_log_stats(struct tzdbg_log_t *log,
 		++len;
 	}
 
+	/*
+	 * return buffer to caller
+	 */
 	tzdbg.stat[buf_idx].data = tzdbg.disp_buf;
 	return len;
 }
@@ -404,7 +509,7 @@ static int _disp_tz_htc_log_stats(char __user *ubuf, size_t count, loff_t *offp)
 	int ret;
 
 	if (buf != 0) {
-		
+		/* update r_cursor */
 		r_cursor = *pr_cursor;
 		w_cursor = *pw_cursor;
 
@@ -530,18 +635,21 @@ const struct file_operations tzdbg_fops = {
 static struct ion_client  *g_ion_clnt;
 static struct ion_handle *g_ihandle;
 
+/*
+ * Allocates log buffer from ION, registers the buffer at TZ
+ */
 static void tzdbg_register_qsee_log_buf(void)
 {
-	
+	/* register log buffer scm request */
 	struct qseecom_reg_log_buf_ireq req;
 
-	
+	/* scm response */
 	struct qseecom_command_scm_resp resp;
 	ion_phys_addr_t pa = 0;
 	uint32_t len;
 	int ret = 0;
 
-	
+	/* Create ION msm client */
 	g_ion_clnt = msm_ion_client_create(ION_HEAP_CARVEOUT_MASK, "qsee_log");
 	if (g_ion_clnt == NULL) {
 		pr_err("%s: Ion client cannot be created\n", __func__);
@@ -567,7 +675,7 @@ static void tzdbg_register_qsee_log_buf(void)
 	req.phy_addr = pa;
 	req.len = len;
 
-	
+	/*  SCM_CALL  to register the log buffer */
 	ret = scm_call(SCM_SVC_TZSCHEDULER, 1,  &req, sizeof(req),
 		&resp, sizeof(resp));
 	if (ret) {
@@ -651,6 +759,9 @@ static void tzdbgfs_exit(struct platform_device *pdev)
 }
 }
 
+/*
+ * Driver functions
+ */
 static int __devinit tz_log_probe(struct platform_device *pdev)
 {
 	struct resource *resource;
@@ -660,12 +771,20 @@ static int __devinit tz_log_probe(struct platform_device *pdev)
 	struct device_node *node = pdev->dev.of_node;
 	uint32_t tz_scm_log_phys, tz_scm_log_size;
 
+	/*
+	 * Get address that stores the physical location of 4KB
+	 * diagnostic data
+	 */
 	resource = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!resource) {
 		dev_err(&pdev->dev,
 				"%s: ERROR Missing MEM resource\n", __func__);
 		return -ENXIO;
 	};
+	/*
+	 * Map address that stores the physical location of 4KB
+	 * diagnostic data
+	 */
 	virt_iobase = devm_ioremap_nocache(&pdev->dev, resource->start,
 				resource->end - resource->start + 1);
 
@@ -679,8 +798,14 @@ static int __devinit tz_log_probe(struct platform_device *pdev)
 			(resource->end - resource->start + 1));
 		return -ENXIO;
 	}
+	/*
+	 * Retrieve the address of 4KB diagnostic data
+	 */
 	tzdiag_phy_iobase = readl_relaxed(virt_iobase);
 
+	/*
+	 * Map the 4KB diagnostic information area
+	 */
 	tzdbg.virt_iobase = devm_ioremap_nocache(&pdev->dev,
 				tzdiag_phy_iobase, DEBUG_MAX_RW_BUF);
 

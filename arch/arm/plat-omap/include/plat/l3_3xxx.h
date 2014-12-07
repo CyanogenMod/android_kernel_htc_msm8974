@@ -13,6 +13,8 @@
 #ifndef __ARCH_ARM_PLAT_OMAP_INCLUDE_PLAT_L3_3XXX_H
 #define __ARCH_ARM_PLAT_OMAP_INCLUDE_PLAT_L3_3XXX_H
 
+/* L3 Initiator IDs */
+/* Display Sub system (DSS) */
 #define OMAP3_L3_CORE_FW_INIT_ID_DSS			29
 
 #endif

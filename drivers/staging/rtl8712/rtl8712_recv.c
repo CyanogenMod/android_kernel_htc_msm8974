@@ -38,8 +38,10 @@
 #include "usb_ops.h"
 #include "wifi.h"
 
+/* Bridge-Tunnel header (for EtherTypes ETH_P_AARP and ETH_P_IPX) */
 static u8 bridge_tunnel_header[] = {0xaa, 0xaa, 0x03, 0x00, 0x00, 0xf8};
 
+/* Ethernet-II snap header (RFC1042 for most EtherTypes) */
 static u8 rfc1042_header[] = {0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00};
 
 static void recv_tasklet(void *priv);
@@ -53,7 +55,7 @@ int r8712_init_recv_priv(struct recv_priv *precvpriv, struct _adapter *padapter)
 	int alignment = 0;
 	struct sk_buff *pskb = NULL;
 
-	
+	/*init recv_buf*/
 	_init_queue(&precvpriv->free_recv_buf_queue);
 	precvpriv->pallocated_recv_buf = _malloc(NR_RECVBUFF *
 					 sizeof(struct recv_buf) + 4);
@@ -143,7 +145,7 @@ int r8712_free_recvframe(union recv_frame *precvframe,
 	struct recv_priv *precvpriv = &padapter->recvpriv;
 
 	if (precvframe->u.hdr.pkt) {
-		dev_kfree_skb_any(precvframe->u.hdr.pkt);
+		dev_kfree_skb_any(precvframe->u.hdr.pkt);/*free skb by driver*/
 		precvframe->u.hdr.pkt = NULL;
 	}
 	spin_lock_irqsave(&pfree_recv_queue->lock, irqL);
@@ -167,35 +169,38 @@ static void update_recvframe_attrib_from_recvstat(struct rx_pkt_attrib *pattrib,
 
 	drvinfo_sz = (le32_to_cpu(prxstat->rxdw0)&0x000f0000)>>16;
 	drvinfo_sz = drvinfo_sz<<3;
+	/*TODO:
+	 * Offset 0 */
 	pattrib->bdecrypted = ((le32_to_cpu(prxstat->rxdw0) & BIT(27)) >> 27)
 				 ? 0 : 1;
 	pattrib->crc_err = ((le32_to_cpu(prxstat->rxdw0) & BIT(14)) >> 14);
-	
-	
-	
+	/*Offset 4*/
+	/*Offset 8*/
+	/*Offset 12*/
 	if (le32_to_cpu(prxstat->rxdw3) & BIT(13)) {
-		pattrib->tcpchk_valid = 1; 
+		pattrib->tcpchk_valid = 1; /* valid */
 		if (le32_to_cpu(prxstat->rxdw3) & BIT(11))
-			pattrib->tcp_chkrpt = 1; 
+			pattrib->tcp_chkrpt = 1; /* correct */
 		else
-			pattrib->tcp_chkrpt = 0; 
+			pattrib->tcp_chkrpt = 0; /* incorrect */
 		if (le32_to_cpu(prxstat->rxdw3) & BIT(12))
-			pattrib->ip_chkrpt = 1; 
+			pattrib->ip_chkrpt = 1; /* correct */
 		else
-			pattrib->ip_chkrpt = 0; 
+			pattrib->ip_chkrpt = 0; /* incorrect */
 	} else
-		pattrib->tcpchk_valid = 0; 
+		pattrib->tcpchk_valid = 0; /* invalid */
 	pattrib->mcs_rate = (u8)((le32_to_cpu(prxstat->rxdw3)) & 0x3f);
 	pattrib->htc = (u8)((le32_to_cpu(prxstat->rxdw3) >> 14) & 0x1);
-	
-	
-	
+	/*Offset 16*/
+	/*Offset 20*/
+	/*phy_info*/
 	if (drvinfo_sz) {
 		pphy_stat = (struct phy_stat *)(prxstat+1);
 		pphy_info = (u32 *)prxstat+1;
 	}
 }
 
+/*perform defrag*/
 static union recv_frame *recvframe_defrag(struct _adapter *adapter,
 				   struct  __queue *defrag_q)
 {
@@ -214,6 +219,8 @@ static union recv_frame *recvframe_defrag(struct _adapter *adapter,
 	pfhdr = &prframe->u.hdr;
 	curfragnum = 0;
 	if (curfragnum != pfhdr->attrib.frag_num) {
+		/*the first fragment number must be 0
+		 *free the whole queue*/
 		r8712_free_recvframe(prframe, pfree_recv_queue);
 		r8712_free_recvframe_queue(defrag_q, pfree_recv_queue);
 		return NULL;
@@ -225,26 +232,33 @@ static union recv_frame *recvframe_defrag(struct _adapter *adapter,
 	while (end_of_queue_search(phead, plist) == false) {
 		pnextrframe = LIST_CONTAINOR(plist, union recv_frame, u);
 		pnfhdr = &pnextrframe->u.hdr;
-		
+		/*check the fragment sequence  (2nd ~n fragment frame) */
 		if (curfragnum != pnfhdr->attrib.frag_num) {
+			/* the fragment number must increase  (after decache)
+			 * release the defrag_q & prframe */
 			r8712_free_recvframe(prframe, pfree_recv_queue);
 			r8712_free_recvframe_queue(defrag_q, pfree_recv_queue);
 			return NULL;
 		}
 		curfragnum++;
+		/* copy the 2nd~n fragment frame's payload to the first fragment
+		 * get the 2nd~last fragment frame's payload */
 		wlanhdr_offset = pnfhdr->attrib.hdrlen + pnfhdr->attrib.iv_len;
 		recvframe_pull(pnextrframe, wlanhdr_offset);
+		/* append  to first fragment frame's tail (if privacy frame,
+		 * pull the ICV) */
 		recvframe_pull_tail(prframe, pfhdr->attrib.icv_len);
 		memcpy(pfhdr->rx_tail, pnfhdr->rx_data, pnfhdr->len);
 		recvframe_put(prframe, pnfhdr->len);
 		pfhdr->attrib.icv_len = pnfhdr->attrib.icv_len;
 		plist = get_next(plist);
 	}
-	
+	/* free the defrag_q queue and return the prframe */
 	r8712_free_recvframe_queue(defrag_q, pfree_recv_queue);
 	return prframe;
 }
 
+/* check if need to defrag, if needed queue the frame to defrag_q */
 union recv_frame *r8712_recvframe_chk_defrag(struct _adapter *padapter,
 					     union recv_frame *precv_frame)
 {
@@ -261,7 +275,7 @@ union recv_frame *r8712_recvframe_chk_defrag(struct _adapter *padapter,
 	pstapriv = &padapter->stapriv;
 	pfhdr = &precv_frame->u.hdr;
 	pfree_recv_queue = &padapter->recvpriv.free_recv_queue;
-	
+	/* need to define struct of wlan header frame ctrl */
 	ismfrag = pfhdr->attrib.mfrag;
 	fragnum = pfhdr->attrib.frag_num;
 	psta_addr = pfhdr->attrib.ta;
@@ -272,41 +286,49 @@ union recv_frame *r8712_recvframe_chk_defrag(struct _adapter *padapter,
 		pdefrag_q = &psta->sta_recvpriv.defrag_q;
 
 	if ((ismfrag == 0) && (fragnum == 0))
-		prtnframe = precv_frame;
+		prtnframe = precv_frame;/*isn't a fragment frame*/
 	if (ismfrag == 1) {
+		/* 0~(n-1) fragment frame
+		 * enqueue to defraf_g */
 		if (pdefrag_q != NULL) {
 			if (fragnum == 0) {
-				
+				/*the first fragment*/
 				if (_queue_empty(pdefrag_q) == false) {
-					
+					/*free current defrag_q */
 					r8712_free_recvframe_queue(pdefrag_q,
 							     pfree_recv_queue);
 				}
 			}
-			
+			/* Then enqueue the 0~(n-1) fragment to the defrag_q */
 			phead = get_list_head(pdefrag_q);
 			list_insert_tail(&pfhdr->list, phead);
 			prtnframe = NULL;
 		} else {
+			/* can't find this ta's defrag_queue, so free this
+			 * recv_frame */
 			r8712_free_recvframe(precv_frame, pfree_recv_queue);
 			prtnframe = NULL;
 		}
 
 	}
 	if ((ismfrag == 0) && (fragnum != 0)) {
+		/* the last fragment frame
+		 * enqueue the last fragment */
 		if (pdefrag_q != NULL) {
 			phead = get_list_head(pdefrag_q);
 			list_insert_tail(&pfhdr->list, phead);
-			
+			/*call recvframe_defrag to defrag*/
 			precv_frame = recvframe_defrag(padapter, pdefrag_q);
 			prtnframe = precv_frame;
 		} else {
+			/* can't find this ta's defrag_queue, so free this
+			 *  recv_frame */
 			r8712_free_recvframe(precv_frame, pfree_recv_queue);
 			prtnframe = NULL;
 		}
 	}
 	if ((prtnframe != NULL) && (prtnframe->u.hdr.attrib.privacy)) {
-		
+		/* after defrag we must check tkip mic code */
 		if (r8712_recvframe_chkmic(padapter, prtnframe) == _FAIL) {
 			r8712_free_recvframe(prtnframe, pfree_recv_queue);
 			prtnframe = NULL;
@@ -335,9 +357,9 @@ static int amsdu_to_msdu(struct _adapter *padapter, union recv_frame *prframe)
 	a_len = prframe->u.hdr.len;
 	pdata = prframe->u.hdr.rx_data;
 	while (a_len > ETH_HLEN) {
-		
+		/* Offset 12 denote 2 mac address */
 		nSubframe_Length = *((u16 *)(pdata + 12));
-		
+		/*==m==>change the length order*/
 		nSubframe_Length = (nSubframe_Length >> 8) +
 				   (nSubframe_Length << 8);
 		if (a_len < (ETHERNET_HEADER_SIZE + nSubframe_Length)) {
@@ -346,10 +368,10 @@ static int amsdu_to_msdu(struct _adapter *padapter, union recv_frame *prframe)
 			    a_len, nSubframe_Length);
 			goto exit;
 		}
-		
+		/* move the data point to data content */
 		pdata += ETH_HLEN;
 		a_len -= ETH_HLEN;
-		
+		/* Allocate new skb for releasing to upper layer */
 		sub_skb = dev_alloc_skb(nSubframe_Length + 12);
 		skb_reserve(sub_skb, 12);
 		data_ptr = (u8 *)skb_put(sub_skb, nSubframe_Length);
@@ -374,12 +396,14 @@ static int amsdu_to_msdu(struct _adapter *padapter, union recv_frame *prframe)
 	}
 	for (i = 0; i < nr_subframes; i++) {
 		sub_skb = subframes[i];
-		
+		/* convert hdr + possible LLC headers into Ethernet header */
 		eth_type = (sub_skb->data[6] << 8) | sub_skb->data[7];
 		if (sub_skb->len >= 8 &&
 		   ((!memcmp(sub_skb->data, rfc1042_header, SNAP_SIZE) &&
 		   eth_type != ETH_P_AARP && eth_type != ETH_P_IPX) ||
 		   !memcmp(sub_skb->data, bridge_tunnel_header, SNAP_SIZE))) {
+			/* remove RFC1042 or Bridge-Tunnel encapsulation and
+			 * replace EtherType */
 			skb_pull(sub_skb, SNAP_SIZE);
 			memcpy(skb_push(sub_skb, ETH_ALEN), pattrib->src,
 				ETH_ALEN);
@@ -387,7 +411,7 @@ static int amsdu_to_msdu(struct _adapter *padapter, union recv_frame *prframe)
 				ETH_ALEN);
 		} else {
 			u16 len;
-			
+			/* Leave Ethernet header part of hdr and full payload */
 			len = htons(sub_skb->len);
 			memcpy(skb_push(sub_skb, 2), &len, 2);
 			memcpy(skb_push(sub_skb, ETH_ALEN), pattrib->src,
@@ -395,7 +419,7 @@ static int amsdu_to_msdu(struct _adapter *padapter, union recv_frame *prframe)
 			memcpy(skb_push(sub_skb, ETH_ALEN), pattrib->dst,
 				ETH_ALEN);
 		}
-		
+		/* Indicate the packets to upper layer */
 		if (sub_skb) {
 			sub_skb->protocol =
 				 eth_type_trans(sub_skb, padapter->pnetdev);
@@ -435,7 +459,7 @@ void r8712_rxcmd_event_hdl(struct _adapter *padapter, void *prxcmdbuf)
 		cmd_seq = (u8)((le32_to_cpu(voffset) >> 24) & 0x7f);
 		eid = (u8)((le32_to_cpu(voffset) >> 16) & 0xff);
 		r8712_event_handle(padapter, (uint *)poffset);
-		poffset += (cmd_len + 8);
+		poffset += (cmd_len + 8);/*8 bytes aligment*/
 	} while (le32_to_cpu(voffset) & BIT(31));
 
 }
@@ -446,12 +470,17 @@ static int check_indicate_seq(struct recv_reorder_ctrl *preorder_ctrl,
 	u8 wsize = preorder_ctrl->wsize_b;
 	u16 wend = (preorder_ctrl->indicate_seq + wsize - 1) % 4096;
 
-	
+	/* Rx Reorder initialize condition.*/
 	if (preorder_ctrl->indicate_seq == 0xffff)
 		preorder_ctrl->indicate_seq = seq_num;
-	
+	/* Drop out the packet which SeqNum is smaller than WinStart */
 	if (SN_LESS(seq_num, preorder_ctrl->indicate_seq))
 		return false;
+	/*
+	 * Sliding window manipulation. Conditions includes:
+	 * 1. Incoming SeqNum is equal to WinStart =>Window shift 1
+	 * 2. Incoming SeqNum is larger than the WinEnd => Window shift N
+	 */
 	if (SN_EQUAL(seq_num, preorder_ctrl->indicate_seq))
 		preorder_ctrl->indicate_seq = (preorder_ctrl->indicate_seq +
 					      1) % 4096;
@@ -506,7 +535,7 @@ int r8712_recv_indicatepkts_in_order(struct _adapter *padapter,
 
 	phead = get_list_head(ppending_recvframe_queue);
 	plist = get_next(phead);
-	
+	/* Handling some condition for forced indicate case.*/
 	if (bforced == true) {
 		if (is_list_empty(phead))
 			return true;
@@ -516,6 +545,8 @@ int r8712_recv_indicatepkts_in_order(struct _adapter *padapter,
 			preorder_ctrl->indicate_seq = pattrib->seq_num;
 		}
 	}
+	/* Prepare indication list and indication.
+	 * Check if there is any packet need indicate. */
 	while (!is_list_empty(phead)) {
 		prframe = LIST_CONTAINOR(plist, union recv_frame, u);
 		pattrib = &prframe->u.hdr.attrib;
@@ -526,11 +557,11 @@ int r8712_recv_indicatepkts_in_order(struct _adapter *padapter,
 			    pattrib->seq_num))
 				preorder_ctrl->indicate_seq =
 				  (preorder_ctrl->indicate_seq + 1) % 4096;
-			
+			/*indicate this recv_frame*/
 			if (!pattrib->amsdu) {
 				if ((padapter->bDriverStopped == false) &&
 				    (padapter->bSurpriseRemoved == false)) {
-					
+					/* indicate this recv_frame */
 					r8712_recv_indicatepkt(padapter,
 							       prframe);
 				}
@@ -540,7 +571,7 @@ int r8712_recv_indicatepkts_in_order(struct _adapter *padapter,
 					r8712_free_recvframe(prframe,
 						   &precvpriv->free_recv_queue);
 			}
-			
+			/* Update local variables. */
 			bPktInBuf = false;
 		} else {
 			bPktInBuf = true;
@@ -560,7 +591,7 @@ static int recv_indicatepkt_reorder(struct _adapter *padapter,
 			 &preorder_ctrl->pending_recvframe_queue;
 
 	if (!pattrib->amsdu) {
-		
+		/* s1. */
 		r8712_wlanhdr_to_ethhdr(prframe);
 		if (pattrib->qos != 1) {
 			if ((padapter->bDriverStopped == false) &&
@@ -572,12 +603,23 @@ static int recv_indicatepkt_reorder(struct _adapter *padapter,
 		}
 	}
 	spin_lock_irqsave(&ppending_recvframe_queue->lock, irql);
-	
+	/*s2. check if winstart_b(indicate_seq) needs to been updated*/
 	if (!check_indicate_seq(preorder_ctrl, pattrib->seq_num))
 		goto _err_exit;
-	
+	/*s3. Insert all packet into Reorder Queue to maintain its ordering.*/
 	if (!enqueue_reorder_recvframe(preorder_ctrl, prframe))
 		goto _err_exit;
+	/*s4.
+	 * Indication process.
+	 * After Packet dropping and Sliding Window shifting as above, we can
+	 * now just indicate the packets with the SeqNum smaller than latest
+	 * WinStart and buffer other packets.
+	 *
+	 * For Rx Reorder condition:
+	 * 1. All packets with SeqNum smaller than WinStart => Indicate
+	 * 2. All packets with SeqNum larger than or equal to
+	 * WinStart => Buffer it.
+	 */
 	if (r8712_recv_indicatepkts_in_order(padapter, preorder_ctrl, false) ==
 	    true) {
 		_set_timer(&preorder_ctrl->reordering_ctrl_timer,
@@ -616,20 +658,20 @@ static int r8712_process_recv_indicatepkts(struct _adapter *padapter,
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 	struct ht_priv	*phtpriv = &pmlmepriv->htpriv;
 
-	if (phtpriv->ht_option == 1) { 
+	if (phtpriv->ht_option == 1) { /*B/G/N Mode*/
 		if (recv_indicatepkt_reorder(padapter, prframe) != _SUCCESS) {
-			
+			/* including perform A-MPDU Rx Ordering Buffer Control*/
 			if ((padapter->bDriverStopped == false) &&
 			    (padapter->bSurpriseRemoved == false))
 				return _FAIL;
 		}
-	} else { 
+	} else { /*B/G mode*/
 		retval = r8712_wlanhdr_to_ethhdr(prframe);
 		if (retval != _SUCCESS)
 			return retval;
 		if ((padapter->bDriverStopped == false) &&
 		    (padapter->bSurpriseRemoved == false)) {
-			
+			/* indicate this recv_frame */
 			r8712_recv_indicatepkt(padapter, prframe);
 		} else
 			return _FAIL;
@@ -649,6 +691,9 @@ static u8 query_rx_pwr_percentage(s8 antpower)
 
 static u8 evm_db2percentage(s8 value)
 {
+	/*
+	 * -33dB~0dB to 0%~99%
+	 */
 	s8 ret_val;
 
 	ret_val = value;
@@ -688,8 +733,8 @@ s32 r8712_signal_scale_mapping(s32 cur_sig)
 
 static s32  translate2dbm(struct _adapter *padapter, u8 signal_strength_idx)
 {
-	s32 signal_power; 
-	
+	s32 signal_power; /* in dBm.*/
+	/* Translate to dBm (x=0.5y-95).*/
 	signal_power = (s32)((signal_strength_idx + 1) >> 1);
 	signal_power -= 95;
 	return signal_power;
@@ -709,17 +754,25 @@ static void query_rx_phy_status(struct _adapter *padapter,
 	struct phy_cck_rx_status *pcck_buf;
 	u8 sq;
 
-	
+	/* Record it for next packet processing*/
 	bcck_rate = (prframe->u.hdr.attrib.mcs_rate <= 3 ? 1 : 0);
 	if (bcck_rate) {
 		u8 report;
 
-		
+		/* CCK Driver info Structure is not the same as OFDM packet.*/
 		pcck_buf = (struct phy_cck_rx_status *)pphy_stat;
+		/* (1)Hardware does not provide RSSI for CCK
+		 * (2)PWDB, Average PWDB cacluated by hardware
+		 * (for rate adaptive)
+		 */
 		if (!cck_highpwr) {
 			report = pcck_buf->cck_agc_rpt & 0xc0;
 			report = report >> 6;
 			switch (report) {
+			/* Modify the RF RNA gain value to -40, -20,
+			 * -2, 14 by Jenyu's suggestion
+			 * Note: different RF with the different
+			 * RNA gain. */
 			case 0x3:
 				rx_pwr_all = -40 - (pcck_buf->cck_agc_rpt &
 					     0x3e);
@@ -761,12 +814,12 @@ static void query_rx_phy_status(struct _adapter *padapter,
 			}
 		}
 		pwdb_all = query_rx_pwr_percentage(rx_pwr_all);
-		
-		
+		/* CCK gain is smaller than OFDM/MCS gain,*/
+		/* so we add gain diff by experiences, the val is 6 */
 		pwdb_all += 6;
 		if (pwdb_all > 100)
 			pwdb_all = 100;
-		
+		/* modify the offset to make the same gain index with OFDM.*/
 		if (pwdb_all > 34 && pwdb_all <= 42)
 			pwdb_all -= 2;
 		else if (pwdb_all > 26 && pwdb_all <= 34)
@@ -775,6 +828,9 @@ static void query_rx_phy_status(struct _adapter *padapter,
 			pwdb_all -= 8;
 		else if (pwdb_all > 4 && pwdb_all <= 14)
 			pwdb_all -= 4;
+		/*
+		 * (3) Get Signal Quality (EVM)
+		 */
 		if (pwdb_all > 40)
 			sq = 100;
 		else {
@@ -790,34 +846,36 @@ static void query_rx_phy_status(struct _adapter *padapter,
 		prframe->u.hdr.attrib.rx_mimo_signal_qual[0] = sq;
 		prframe->u.hdr.attrib.rx_mimo_signal_qual[1] = -1;
 	} else {
-		
+		/* (1)Get RSSI for HT rate */
 		for (i = 0; i < ((padapter->registrypriv.rf_config) &
 			    0x0f) ; i++) {
 			rf_rx_num++;
 			rx_pwr[i] = ((pphy_head[PHY_STAT_GAIN_TRSW_SHT + i]
 				    & 0x3F) * 2) - 110;
-			
+			/* Translate DBM to percentage. */
 			rssi = query_rx_pwr_percentage(rx_pwr[i]);
 			total_rssi += rssi;
 		}
+		/* (2)PWDB, Average PWDB cacluated by hardware (for
+		 * rate adaptive) */
 		rx_pwr_all = (((pphy_head[PHY_STAT_PWDB_ALL_SHT]) >> 1) & 0x7f)
 			     - 106;
 		pwdb_all = query_rx_pwr_percentage(rx_pwr_all);
 
 		{
-			
+			/* (3)EVM of HT rate */
 			if (prframe->u.hdr.attrib.htc &&
 			    prframe->u.hdr.attrib.mcs_rate >= 20 &&
 			    prframe->u.hdr.attrib.mcs_rate <= 27) {
-				
+				/* both spatial stream make sense */
 				max_spatial_stream = 2;
 			} else {
-				
+				/* only spatial stream 1 makes sense */
 				max_spatial_stream = 1;
 			}
 			for (i = 0; i < max_spatial_stream; i++) {
 				evm = evm_db2percentage((pphy_head
-				      [PHY_STAT_RXEVM_SHT + i]));
+				      [PHY_STAT_RXEVM_SHT + i]));/*dbm*/
 				prframe->u.hdr.attrib.signal_qual =
 					 (u8)(evm & 0xff);
 				prframe->u.hdr.attrib.rx_mimo_signal_qual[i] =
@@ -825,6 +883,9 @@ static void query_rx_phy_status(struct _adapter *padapter,
 			}
 		}
 	}
+	/* UI BSS List signal strength(in percentage), make it good looking,
+	 * from 0~100. It is assigned to the BSS List in
+	 * GetValueFromBeaconOrProbeRsp(). */
 	if (bcck_rate)
 		prframe->u.hdr.attrib.signal_strength =
 			 (u8)r8712_signal_scale_mapping(pwdb_all);
@@ -846,6 +907,9 @@ static void process_link_qual(struct _adapter *padapter,
 		return;
 	pattrib = &prframe->u.hdr.attrib;
 	if (pattrib->signal_qual != 0) {
+		/*
+		 * 1. Record the general EVM to the sliding window.
+		 */
 		if (padapter->recvpriv.signal_qual_data.total_num++ >=
 				  PHY_LINKQUALITY_SLID_WIN_MAX) {
 			padapter->recvpriv.signal_qual_data.total_num =
@@ -864,7 +928,7 @@ static void process_link_qual(struct _adapter *padapter,
 		    PHY_LINKQUALITY_SLID_WIN_MAX)
 			padapter->recvpriv.signal_qual_data.index = 0;
 
-		
+		/* <1> Showed on UI for user, in percentage. */
 		tmpVal = padapter->recvpriv.signal_qual_data.total_val /
 			 padapter->recvpriv.signal_qual_data.total_num;
 		padapter->recvpriv.signal = (u8)tmpVal;
@@ -922,15 +986,15 @@ int recv_func(struct _adapter *padapter, void *pcontext)
 		else
 			padapter->mppriv.rx_pktcount++;
 		if (check_fwstate(pmlmepriv, WIFI_MP_LPBK_STATE) == false) {
-			
+			/* free this recv_frame */
 			r8712_free_recvframe(orig_prframe, pfree_recv_queue);
 			goto _exit_recv_func;
 		}
 	}
-	
+	/* check the frame crtl field and decache */
 	retval = r8712_validate_recv_frame(padapter, prframe);
 	if (retval != _SUCCESS) {
-		
+		/* free this recv_frame */
 		r8712_free_recvframe(orig_prframe, pfree_recv_queue);
 		goto _exit_recv_func;
 	}
@@ -976,36 +1040,45 @@ static int recvbuf2recvframe(struct _adapter *padapter, struct sk_buff *pskb)
 	pkt_cnt = (le32_to_cpu(prxstat->rxdw2)>>16)&0xff;
 	pkt_len =  le32_to_cpu(prxstat->rxdw0)&0x00003fff;
 	transfer_len = pskb->len;
+	/* Test throughput with Netgear 3700 (No security) with Chariot 3T3R
+	 * pairs. The packet count will be a big number so that the containing
+	 * packet will effect the Rx reordering. */
 	if (transfer_len < pkt_len) {
+		/* In this case, it means the MAX_RECVBUF_SZ is too small to
+		 * get the data from 8712u. */
 		return _FAIL;
 	}
 	do {
 		prxstat = (struct recv_stat *)pbuf;
 		pkt_len =  le32_to_cpu(prxstat->rxdw0)&0x00003fff;
-		
+		/* more fragment bit */
 		mf = (le32_to_cpu(prxstat->rxdw1) >> 27) & 0x1;
-		
+		/* ragmentation number */
 		frag = (le32_to_cpu(prxstat->rxdw2) >> 12) & 0xf;
-		
+		/* uint 2^3 = 8 bytes */
 		drvinfo_sz = (le32_to_cpu(prxstat->rxdw0) & 0x000f0000) >> 16;
 		drvinfo_sz = drvinfo_sz<<3;
 		if (pkt_len <= 0)
 			goto  _exit_recvbuf2recvframe;
-		
+		/* Qos data, wireless lan header length is 26 */
 		if ((le32_to_cpu(prxstat->rxdw0) >> 23) & 0x01)
 			shift_sz = 2;
 		precvframe = r8712_alloc_recvframe(pfree_recv_queue);
 		if (precvframe == NULL)
 			goto  _exit_recvbuf2recvframe;
 		_init_listhead(&precvframe->u.hdr.list);
-		precvframe->u.hdr.precvbuf = NULL; 
+		precvframe->u.hdr.precvbuf = NULL; /*can't access the precvbuf*/
 		precvframe->u.hdr.len = 0;
 		tmp_len = pkt_len + drvinfo_sz + RXDESC_SIZE;
 		pkt_offset = (u16)_RND128(tmp_len);
+		/* for first fragment packet, driver need allocate 1536 +
+		 * drvinfo_sz + RXDESC_SIZE to defrag packet. */
 		if ((mf == 1) && (frag == 0))
-			alloc_sz = 1658;
+			alloc_sz = 1658;/*1658+6=1664, 1664 is 128 alignment.*/
 		else
 			alloc_sz = tmp_len;
+		/* 2 is for IP header 4 bytes alignment in QoS packet case.
+		 * 4 is for skb->data 4 bytes alignment. */
 		alloc_sz += 6;
 		pkt_copy = netdev_alloc_skb(padapter->pnetdev, alloc_sz);
 		if (pkt_copy) {
@@ -1027,6 +1100,9 @@ static int recvbuf2recvframe(struct _adapter *padapter, struct sk_buff *pskb)
 		}
 		recvframe_put(precvframe, tmp_len);
 		recvframe_pull(precvframe, drvinfo_sz + RXDESC_SIZE);
+		/* because the endian issue, driver avoid reference to the
+		 * rxstat after calling update_recvframe_attrib_from_recvstat();
+		 */
 		update_recvframe_attrib_from_recvstat(&precvframe->u.hdr.attrib,
 						      prxstat);
 		r8712_recv_entry(precvframe);

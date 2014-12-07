@@ -15,6 +15,13 @@
 
 #include "wd_timer.h"
 
+/*
+ * In order to avoid any assumptions from bootloader regarding WDT
+ * settings, WDT module is reset during init. This enables the watchdog
+ * timer. Hence it is required to disable the watchdog after the WDT reset
+ * during init. Otherwise the system would reboot as per the default
+ * watchdog timer registers settings.
+ */
 #define OMAP_WDT_WPS		0x34
 #define OMAP_WDT_SPR		0x48
 
@@ -35,7 +42,7 @@ int omap2_wd_timer_disable(struct omap_hwmod *oh)
 		return -EINVAL;
 	}
 
-	
+	/* sequence required to disable watchdog */
 	__raw_writel(0xAAAA, base + OMAP_WDT_SPR);
 	while (__raw_readl(base + OMAP_WDT_WPS) & 0x10)
 		cpu_relax();

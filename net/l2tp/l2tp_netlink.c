@@ -37,6 +37,7 @@ static struct genl_family l2tp_nl_family = {
 	.maxattr	= L2TP_ATTR_MAX,
 };
 
+/* Accessed under genl lock */
 static const struct l2tp_nl_cmd_ops *l2tp_nl_cmd_ops[__L2TP_PWTYPE_MAX];
 
 static struct l2tp_session *l2tp_nl_session_find(struct genl_info *info)
@@ -261,7 +262,7 @@ static int l2tp_nl_tunnel_send(struct sk_buff *skb, u32 pid, u32 seq, int flags,
 		NLA_PUT_U16(skb, L2TP_ATTR_UDP_SPORT, ntohs(inet->inet_sport));
 		NLA_PUT_U16(skb, L2TP_ATTR_UDP_DPORT, ntohs(inet->inet_dport));
 		NLA_PUT_U8(skb, L2TP_ATTR_UDP_CSUM, (sk->sk_no_check != UDP_CSUM_NOXMIT));
-		
+		/* NOBREAK */
 	case L2TP_ENCAPTYPE_IP:
 		NLA_PUT_BE32(skb, L2TP_ATTR_IP_SADDR, inet->inet_saddr);
 		NLA_PUT_BE32(skb, L2TP_ATTR_IP_DADDR, inet->inet_daddr);
@@ -458,7 +459,7 @@ static int l2tp_nl_cmd_session_create(struct sk_buff *skb, struct genl_info *inf
 		goto out;
 	}
 
-	
+	/* Check that pseudowire-specific params are present */
 	switch (cfg.pw_type) {
 	case L2TP_PWTYPE_NONE:
 		break;
@@ -726,7 +727,7 @@ static struct genl_ops l2tp_nl_ops[] = {
 		.cmd = L2TP_CMD_NOOP,
 		.doit = l2tp_nl_cmd_noop,
 		.policy = l2tp_nl_policy,
-		
+		/* can be retrieved by unprivileged users */
 	},
 	{
 		.cmd = L2TP_CMD_TUNNEL_CREATE,

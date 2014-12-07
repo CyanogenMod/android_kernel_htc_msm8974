@@ -25,6 +25,9 @@
 
 static DEFINE_MUTEX(update_lock);
 
+/*
+ * C2 port operations
+ */
 
 static void duramar2150_c2port_access(struct c2port_device *dev, int status)
 {
@@ -34,10 +37,12 @@ static void duramar2150_c2port_access(struct c2port_device *dev, int status)
 
 	v = inb(DIR_PORT);
 
-	
+	/* 0 = input, 1 = output */
 	if (status)
 		outb(v | (C2D | C2CK), DIR_PORT);
 	else
+		/* When access is "off" is important that both lines are set
+		 * as inputs or hi-impedance */
 		outb(v & ~(C2D | C2CK), DIR_PORT);
 
 	mutex_unlock(&update_lock);
@@ -97,8 +102,8 @@ static void duramar2150_c2port_c2ck_set(struct c2port_device *dev, int status)
 }
 
 static struct c2port_ops duramar2150_c2port_ops = {
-	.block_size	= 512,	
-	.blocks_num	= 30,	
+	.block_size	= 512,	/* bytes */
+	.blocks_num	= 30,	/* total flash size: 15360 bytes */
 
 	.access		= duramar2150_c2port_access,
 	.c2d_dir	= duramar2150_c2port_c2d_dir,
@@ -109,6 +114,9 @@ static struct c2port_ops duramar2150_c2port_ops = {
 
 static struct c2port_device *duramar2150_c2port_dev;
 
+/*
+ * Module stuff
+ */
 
 static int __init duramar2150_c2port_init(void)
 {
@@ -135,7 +143,7 @@ free_region:
 
 static void __exit duramar2150_c2port_exit(void)
 {
-	
+	/* Setup the GPIOs as input by default (access = 0) */
 	duramar2150_c2port_access(duramar2150_c2port_dev, 0);
 
 	c2port_device_unregister(duramar2150_c2port_dev);

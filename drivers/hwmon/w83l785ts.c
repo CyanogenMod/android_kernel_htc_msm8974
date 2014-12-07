@@ -41,11 +41,20 @@
 #include <linux/err.h>
 #include <linux/mutex.h>
 
+/* How many retries on register read error */
 #define MAX_RETRIES	5
 
+/*
+ * Address to scan
+ * Address is fully defined internally and cannot be changed.
+ */
 
 static const unsigned short normal_i2c[] = { 0x2e, I2C_CLIENT_END };
 
+/*
+ * The W83L785TS-S registers
+ * Manufacturer ID is 0x5CA3 for Winbond.
+ */
 
 #define W83L785TS_REG_MAN_ID1		0x4D
 #define W83L785TS_REG_MAN_ID2		0x4C
@@ -53,11 +62,18 @@ static const unsigned short normal_i2c[] = { 0x2e, I2C_CLIENT_END };
 #define W83L785TS_REG_CONFIG		0x40
 #define W83L785TS_REG_TYPE		0x52
 #define W83L785TS_REG_TEMP		0x27
-#define W83L785TS_REG_TEMP_OVER		0x53 
+#define W83L785TS_REG_TEMP_OVER		0x53 /* not sure about this one */
 
+/*
+ * Conversions
+ * The W83L785TS-S uses signed 8-bit values.
+ */
 
 #define TEMP_FROM_REG(val)	((val) * 1000)
 
+/*
+ * Functions declaration
+ */
 
 static int w83l785ts_probe(struct i2c_client *client,
 			   const struct i2c_device_id *id);
@@ -67,6 +83,9 @@ static int w83l785ts_remove(struct i2c_client *client);
 static u8 w83l785ts_read_value(struct i2c_client *client, u8 reg, u8 defval);
 static struct w83l785ts_data *w83l785ts_update_device(struct device *dev);
 
+/*
+ * Driver data (common to all clients)
+ */
 
 static const struct i2c_device_id w83l785ts_id[] = {
 	{ "w83l785ts", 0 },
@@ -86,17 +105,23 @@ static struct i2c_driver w83l785ts_driver = {
 	.address_list	= normal_i2c,
 };
 
+/*
+ * Client data (each client gets its own)
+ */
 
 struct w83l785ts_data {
 	struct device *hwmon_dev;
 	struct mutex update_lock;
-	char valid; 
-	unsigned long last_updated; 
+	char valid; /* zero until following fields are valid */
+	unsigned long last_updated; /* in jiffies */
 
-	
-	s8 temp[2]; 
+	/* registers values */
+	s8 temp[2]; /* 0: input, 1: critical limit */
 };
 
+/*
+ * Sysfs stuff
+ */
 
 static ssize_t show_temp(struct device *dev, struct device_attribute *devattr,
 	char *buf)
@@ -109,7 +134,11 @@ static ssize_t show_temp(struct device *dev, struct device_attribute *devattr,
 static SENSOR_DEVICE_ATTR(temp1_input, S_IRUGO, show_temp, NULL, 0);
 static SENSOR_DEVICE_ATTR(temp1_max, S_IRUGO, show_temp, NULL, 1);
 
+/*
+ * Real code
+ */
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int w83l785ts_detect(struct i2c_client *client,
 			    struct i2c_board_info *info)
 {
@@ -120,7 +149,7 @@ static int w83l785ts_detect(struct i2c_client *client,
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -ENODEV;
 
-	
+	/* detection */
 	if ((w83l785ts_read_value(client, W83L785TS_REG_CONFIG, 0) & 0x80)
 	 || (w83l785ts_read_value(client, W83L785TS_REG_TYPE, 0) & 0xFC)) {
 		dev_dbg(&adapter->dev,
@@ -129,13 +158,13 @@ static int w83l785ts_detect(struct i2c_client *client,
 		return -ENODEV;
 	}
 
-	
+	/* Identification */
 	man_id = (w83l785ts_read_value(client, W83L785TS_REG_MAN_ID1, 0) << 8)
 	       + w83l785ts_read_value(client, W83L785TS_REG_MAN_ID2, 0);
 	chip_id = w83l785ts_read_value(client, W83L785TS_REG_CHIP_ID, 0);
 
-	if (man_id != 0x5CA3		
-	 || chip_id != 0x70) {		
+	if (man_id != 0x5CA3		/* Winbond */
+	 || chip_id != 0x70) {		/* W83L785TS-S */
 		dev_dbg(&adapter->dev,
 			"Unsupported chip (man_id=0x%04X, chip_id=0x%02X)\n",
 			man_id, chip_id);
@@ -163,9 +192,13 @@ static int w83l785ts_probe(struct i2c_client *new_client,
 	data->valid = 0;
 	mutex_init(&data->update_lock);
 
-	
+	/* Default values in case the first read fails (unlikely). */
 	data->temp[1] = data->temp[0] = 0;
 
+	/*
+	 * Initialize the W83L785TS chip
+	 * Nothing yet, assume it is already started.
+	 */
 
 	err = device_create_file(&new_client->dev,
 				 &sensor_dev_attr_temp1_input.dev_attr);
@@ -177,7 +210,7 @@ static int w83l785ts_probe(struct i2c_client *new_client,
 	if (err)
 		goto exit_remove;
 
-	
+	/* Register sysfs hooks */
 	data->hwmon_dev = hwmon_device_register(&new_client->dev);
 	if (IS_ERR(data->hwmon_dev)) {
 		err = PTR_ERR(data->hwmon_dev);
@@ -216,6 +249,10 @@ static u8 w83l785ts_read_value(struct i2c_client *client, u8 reg, u8 defval)
 	struct device *dev;
 	const char *prefix;
 
+	/*
+	 * We might be called during detection, at which point the client
+	 * isn't yet fully initialized, so we can't use dev_dbg on it
+	 */
 	if (i2c_get_clientdata(client)) {
 		dev = &client->dev;
 		prefix = "";
@@ -224,6 +261,11 @@ static u8 w83l785ts_read_value(struct i2c_client *client, u8 reg, u8 defval)
 		prefix = "w83l785ts: ";
 	}
 
+	/*
+	 * Frequent read errors have been reported on Asus boards, so we
+	 * retry on read errors. If it still fails (unlikely), return the
+	 * default value requested by the caller.
+	 */
 	for (i = 1; i <= MAX_RETRIES; i++) {
 		value = i2c_smbus_read_byte_data(client, reg);
 		if (value >= 0) {

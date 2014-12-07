@@ -36,6 +36,7 @@
 
 static DECLARE_WAIT_QUEUE_HEAD(ac97_waitq);
 
+/* REVISIT: How to find txx9aclc_drvdata from snd_ac97? */
 static struct txx9aclc_plat_drvdata *txx9aclc_drvdata;
 
 static int txx9aclc_regready(struct txx9aclc_plat_drvdata *drvdata)
@@ -43,6 +44,7 @@ static int txx9aclc_regready(struct txx9aclc_plat_drvdata *drvdata)
 	return __raw_readl(drvdata->base + ACINTSTS) & ACINT_REGACCRDY;
 }
 
+/* AC97 controller reads codec register */
 static unsigned short txx9aclc_ac97_read(struct snd_ac97 *ac97,
 					 unsigned short reg)
 {
@@ -75,6 +77,7 @@ done:
 	return dat;
 }
 
+/* AC97 controller writes to codec register */
 static void txx9aclc_ac97_write(struct snd_ac97 *ac97, unsigned short reg,
 				unsigned short val)
 {
@@ -102,7 +105,7 @@ static void txx9aclc_ac97_cold_reset(struct snd_ac97 *ac97)
 	mmiowb();
 	udelay(1);
 	__raw_writel(ACCTL_ENLINK, base + ACCTLEN);
-	
+	/* wait for primary codec ready status */
 	__raw_writel(ready, base + ACINTEN);
 	if (!wait_event_timeout(ac97_waitq,
 				(__raw_readl(base + ACINTSTS) & ready) == ready,
@@ -115,6 +118,7 @@ static void txx9aclc_ac97_cold_reset(struct snd_ac97 *ac97)
 	__raw_writel(ready, base + ACINTDIS);
 }
 
+/* AC97 controller operations */
 struct snd_ac97_bus_ops soc_ac97_ops = {
 	.read		= txx9aclc_ac97_read,
 	.write		= txx9aclc_ac97_write,
@@ -142,7 +146,7 @@ static int txx9aclc_ac97_remove(struct snd_soc_dai *dai)
 {
 	struct txx9aclc_plat_drvdata *drvdata = snd_soc_dai_get_drvdata(dai);
 
-	
+	/* disable AC-link */
 	__raw_writel(ACCTL_ENLINK, drvdata->base + ACCTLDIS);
 	txx9aclc_drvdata = NULL;
 	return 0;

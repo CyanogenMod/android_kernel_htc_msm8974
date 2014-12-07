@@ -21,6 +21,10 @@
 #include "dfs.h"
 #include "dfs_debug.h"
 
+/*
+ * TODO: move into or synchronize this with generic header
+ *	 as soon as IF is defined
+ */
 struct dfs_radar_pulse {
 	u16 freq;
 	u64 ts;
@@ -28,6 +32,7 @@ struct dfs_radar_pulse {
 	u8 rssi;
 };
 
+/* internal struct to pass radar data */
 struct ath_radar_data {
 	u8 pulse_bw_info;
 	u8 rssi;
@@ -36,6 +41,7 @@ struct ath_radar_data {
 	u8 pulse_length_pri;
 };
 
+/* convert pulse duration to usecs, considering clock mode */
 static u32 dur_to_usecs(struct ath_hw *ah, u32 dur)
 {
 	const u32 AR93X_NSECS_PER_DUR = 800;
@@ -66,32 +72,55 @@ ath9k_postprocess_radar_event(struct ath_softc *sc,
 		are->pulse_length_pri, are->rssi,
 		are->pulse_length_ext, are->ext_rssi);
 
+	/*
+	 * Only the last 2 bits of the BW info are relevant, they indicate
+	 * which channel the radar was detected in.
+	 */
 	are->pulse_bw_info &= 0x03;
 
 	switch (are->pulse_bw_info) {
 	case PRI_CH_RADAR_FOUND:
-		
+		/* radar in ctrl channel */
 		dur = are->pulse_length_pri;
 		DFS_STAT_INC(sc, pri_phy_errors);
+		/*
+		 * cannot use ctrl channel RSSI
+		 * if extension channel is stronger
+		 */
 		rssi = (are->ext_rssi >= (are->rssi + 3)) ? 0 : are->rssi;
 		break;
 	case EXT_CH_RADAR_FOUND:
-		
+		/* radar in extension channel */
 		dur = are->pulse_length_ext;
 		DFS_STAT_INC(sc, ext_phy_errors);
+		/*
+		 * cannot use extension channel RSSI
+		 * if control channel is stronger
+		 */
 		rssi = (are->rssi >= (are->ext_rssi + 12)) ? 0 : are->ext_rssi;
 		break;
 	case (PRI_CH_RADAR_FOUND | EXT_CH_RADAR_FOUND):
+		/*
+		 * Conducted testing, when pulse is on DC, both pri and ext
+		 * durations are reported to be same
+		 *
+		 * Radiated testing, when pulse is on DC, different pri and
+		 * ext durations are reported, so take the larger of the two
+		 */
 		if (are->pulse_length_ext >= are->pulse_length_pri)
 			dur = are->pulse_length_ext;
 		else
 			dur = are->pulse_length_pri;
 		DFS_STAT_INC(sc, dc_phy_errors);
 
-		
+		/* when both are present use stronger one */
 		rssi = (are->rssi < are->ext_rssi) ? are->ext_rssi : are->rssi;
 		break;
 	default:
+		/*
+		 * Bogus bandwidth info was received in descriptor,
+		 * so ignore this PHY error
+		 */
 		DFS_STAT_INC(sc, bwinfo_discards);
 		return false;
 	}
@@ -101,8 +130,13 @@ ath9k_postprocess_radar_event(struct ath_softc *sc,
 		return false;
 	}
 
+	/*
+	 * TODO: check chirping pulses
+	 *	 checks for chirping are dependent on the DFS regulatory domain
+	 *	 used, which is yet TBD
+	 */
 
-	
+	/* convert duration to usecs */
 	drp->width = dur_to_usecs(sc->sc_ah, dur);
 	drp->rssi = rssi;
 
@@ -112,6 +146,9 @@ ath9k_postprocess_radar_event(struct ath_softc *sc,
 #undef PRI_CH_RADAR_FOUND
 #undef EXT_CH_RADAR_FOUND
 
+/*
+ * DFS: check PHY-error for radar pulse and feed the detector
+ */
 void ath9k_dfs_process_phyerr(struct ath_softc *sc, void *data,
 			      struct ath_rx_status *rs, u64 mactime)
 {
@@ -139,6 +176,10 @@ void ath9k_dfs_process_phyerr(struct ath_softc *sc, void *data,
 	ard.rssi = rs->rs_rssi_ctl0;
 	ard.ext_rssi = rs->rs_rssi_ext0;
 
+	/*
+	 * hardware stores this as 8 bit signed value.
+	 * we will cap it at 0 if it is a negative number
+	 */
 	if (ard.rssi & 0x80)
 		ard.rssi = 0;
 	if (ard.ext_rssi & 0x80)
@@ -164,5 +205,11 @@ void ath9k_dfs_process_phyerr(struct ath_softc *sc, void *data,
 			"width=%d, rssi=%d, delta_ts=%llu\n",
 			drp.freq, drp.ts, drp.width, drp.rssi, drp.ts-last_ts);
 		last_ts = drp.ts;
+		/*
+		 * TODO: forward pulse to pattern detector
+		 *
+		 * ieee80211_add_radar_pulse(drp.freq, drp.ts,
+		 *                           drp.width, drp.rssi);
+		 */
 	}
 }

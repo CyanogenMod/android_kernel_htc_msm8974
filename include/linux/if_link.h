@@ -4,70 +4,73 @@
 #include <linux/types.h>
 #include <linux/netlink.h>
 
+/* This struct should be in sync with struct rtnl_link_stats64 */
 struct rtnl_link_stats {
-	__u32	rx_packets;		
-	__u32	tx_packets;		
-	__u32	rx_bytes;		
-	__u32	tx_bytes;		
-	__u32	rx_errors;		
-	__u32	tx_errors;		
-	__u32	rx_dropped;		
-	__u32	tx_dropped;		
-	__u32	multicast;		
+	__u32	rx_packets;		/* total packets received	*/
+	__u32	tx_packets;		/* total packets transmitted	*/
+	__u32	rx_bytes;		/* total bytes received 	*/
+	__u32	tx_bytes;		/* total bytes transmitted	*/
+	__u32	rx_errors;		/* bad packets received		*/
+	__u32	tx_errors;		/* packet transmit problems	*/
+	__u32	rx_dropped;		/* no space in linux buffers	*/
+	__u32	tx_dropped;		/* no space available in linux	*/
+	__u32	multicast;		/* multicast packets received	*/
 	__u32	collisions;
 
-	
+	/* detailed rx_errors: */
 	__u32	rx_length_errors;
-	__u32	rx_over_errors;		
-	__u32	rx_crc_errors;		
-	__u32	rx_frame_errors;	
-	__u32	rx_fifo_errors;		
-	__u32	rx_missed_errors;	
+	__u32	rx_over_errors;		/* receiver ring buff overflow	*/
+	__u32	rx_crc_errors;		/* recved pkt with crc error	*/
+	__u32	rx_frame_errors;	/* recv'd frame alignment error */
+	__u32	rx_fifo_errors;		/* recv'r fifo overrun		*/
+	__u32	rx_missed_errors;	/* receiver missed packet	*/
 
-	
+	/* detailed tx_errors */
 	__u32	tx_aborted_errors;
 	__u32	tx_carrier_errors;
 	__u32	tx_fifo_errors;
 	__u32	tx_heartbeat_errors;
 	__u32	tx_window_errors;
 
-	
+	/* for cslip etc */
 	__u32	rx_compressed;
 	__u32	tx_compressed;
 };
 
+/* The main device statistics structure */
 struct rtnl_link_stats64 {
-	__u64	rx_packets;		
-	__u64	tx_packets;		
-	__u64	rx_bytes;		
-	__u64	tx_bytes;		
-	__u64	rx_errors;		
-	__u64	tx_errors;		
-	__u64	rx_dropped;		
-	__u64	tx_dropped;		
-	__u64	multicast;		
+	__u64	rx_packets;		/* total packets received	*/
+	__u64	tx_packets;		/* total packets transmitted	*/
+	__u64	rx_bytes;		/* total bytes received 	*/
+	__u64	tx_bytes;		/* total bytes transmitted	*/
+	__u64	rx_errors;		/* bad packets received		*/
+	__u64	tx_errors;		/* packet transmit problems	*/
+	__u64	rx_dropped;		/* no space in linux buffers	*/
+	__u64	tx_dropped;		/* no space available in linux	*/
+	__u64	multicast;		/* multicast packets received	*/
 	__u64	collisions;
 
-	
+	/* detailed rx_errors: */
 	__u64	rx_length_errors;
-	__u64	rx_over_errors;		
-	__u64	rx_crc_errors;		
-	__u64	rx_frame_errors;	
-	__u64	rx_fifo_errors;		
-	__u64	rx_missed_errors;	
+	__u64	rx_over_errors;		/* receiver ring buff overflow	*/
+	__u64	rx_crc_errors;		/* recved pkt with crc error	*/
+	__u64	rx_frame_errors;	/* recv'd frame alignment error */
+	__u64	rx_fifo_errors;		/* recv'r fifo overrun		*/
+	__u64	rx_missed_errors;	/* receiver missed packet	*/
 
-	
+	/* detailed tx_errors */
 	__u64	tx_aborted_errors;
 	__u64	tx_carrier_errors;
 	__u64	tx_fifo_errors;
 	__u64	tx_heartbeat_errors;
 	__u64	tx_window_errors;
 
-	
+	/* for cslip etc */
 	__u64	rx_compressed;
 	__u64	tx_compressed;
 };
 
+/* The struct should be in sync with struct ifmap */
 struct rtnl_link_ifmap {
 	__u64	mem_start;
 	__u64	mem_end;
@@ -77,6 +80,23 @@ struct rtnl_link_ifmap {
 	__u8	port;
 };
 
+/*
+ * IFLA_AF_SPEC
+ *   Contains nested attributes for address family specific attributes.
+ *   Each address family may create a attribute with the address family
+ *   number as type and create its own attribute structure in it.
+ *
+ *   Example:
+ *   [IFLA_AF_SPEC] = {
+ *       [AF_INET] = {
+ *           [IFLA_INET_CONF] = ...,
+ *       },
+ *       [AF_INET6] = {
+ *           [IFLA_INET6_FLAGS] = ...,
+ *           [IFLA_INET6_CONF] = ...,
+ *       }
+ *   }
+ */
 
 enum {
 	IFLA_UNSPEC,
@@ -93,9 +113,9 @@ enum {
 #define IFLA_PRIORITY IFLA_PRIORITY
 	IFLA_MASTER,
 #define IFLA_MASTER IFLA_MASTER
-	IFLA_WIRELESS,		
+	IFLA_WIRELESS,		/* Wireless Extension event - see wireless.h */
 #define IFLA_WIRELESS IFLA_WIRELESS
-	IFLA_PROTINFO,		
+	IFLA_PROTINFO,		/* Protocol specific information for a link */
 #define IFLA_PROTINFO IFLA_PROTINFO
 	IFLA_TXQLEN,
 #define IFLA_TXQLEN IFLA_TXQLEN
@@ -109,21 +129,22 @@ enum {
 #define IFLA_LINKINFO IFLA_LINKINFO
 	IFLA_NET_NS_PID,
 	IFLA_IFALIAS,
-	IFLA_NUM_VF,		
+	IFLA_NUM_VF,		/* Number of VFs if device is SR-IOV PF */
 	IFLA_VFINFO_LIST,
 	IFLA_STATS64,
 	IFLA_VF_PORTS,
 	IFLA_PORT_SELF,
 	IFLA_AF_SPEC,
-	IFLA_GROUP,		
+	IFLA_GROUP,		/* Group the device belongs to */
 	IFLA_NET_NS_FD,
-	IFLA_EXT_MASK,		
+	IFLA_EXT_MASK,		/* Extended info mask, VFs, etc */
 	__IFLA_MAX
 };
 
 
 #define IFLA_MAX (__IFLA_MAX - 1)
 
+/* backwards compatibility for userspace */
 #ifndef __KERNEL__
 #define IFLA_RTA(r)  ((struct rtattr*)(((char*)(r)) + NLMSG_ALIGN(sizeof(struct ifinfomsg))))
 #define IFLA_PAYLOAD(n) NLMSG_PAYLOAD(n,sizeof(struct ifinfomsg))
@@ -137,16 +158,44 @@ enum {
 
 #define IFLA_INET_MAX (__IFLA_INET_MAX - 1)
 
+/* ifi_flags.
 
+   IFF_* flags.
 
+   The only change is:
+   IFF_LOOPBACK, IFF_BROADCAST and IFF_POINTOPOINT are
+   more not changeable by user. They describe link media
+   characteristics and set by device driver.
+
+   Comments:
+   - Combination IFF_BROADCAST|IFF_POINTOPOINT is invalid
+   - If neither of these three flags are set;
+     the interface is NBMA.
+
+   - IFF_MULTICAST does not mean anything special:
+   multicasts can be used on all not-NBMA links.
+   IFF_MULTICAST means that this media uses special encapsulation
+   for multicast frames. Apparently, all IFF_POINTOPOINT and
+   IFF_BROADCAST devices are able to use multicasts too.
+ */
+
+/* IFLA_LINK.
+   For usual devices it is equal ifi_index.
+   If it is a "virtual interface" (f.e. tunnel), ifi_link
+   can point to real physical interface (f.e. for bandwidth calculations),
+   or maybe 0, what means, that real media is unknown (usual
+   for IPIP tunnels, when route to endpoint is allowed to change)
+ */
+
+/* Subtype attributes for IFLA_PROTINFO */
 enum {
 	IFLA_INET6_UNSPEC,
-	IFLA_INET6_FLAGS,	
-	IFLA_INET6_CONF,	
-	IFLA_INET6_STATS,	
-	IFLA_INET6_MCAST,	
-	IFLA_INET6_CACHEINFO,	
-	IFLA_INET6_ICMP6STATS,	
+	IFLA_INET6_FLAGS,	/* link flags			*/
+	IFLA_INET6_CONF,	/* sysctl parameters		*/
+	IFLA_INET6_STATS,	/* statistics			*/
+	IFLA_INET6_MCAST,	/* MC things. What of them?	*/
+	IFLA_INET6_CACHEINFO,	/* time values and max reasm size */
+	IFLA_INET6_ICMP6STATS,	/* statistics (icmpv6)		*/
 	__IFLA_INET6_MAX
 };
 
@@ -154,7 +203,7 @@ enum {
 
 struct ifla_cacheinfo {
 	__u32	max_reasm_len;
-	__u32	tstamp;		
+	__u32	tstamp;		/* ipv6InterfaceTable updated timestamp */
 	__u32	reachable_time;
 	__u32	retrans_time;
 };
@@ -169,6 +218,7 @@ enum {
 
 #define IFLA_INFO_MAX	(__IFLA_INFO_MAX - 1)
 
+/* VLAN section */
 
 enum {
 	IFLA_VLAN_UNSPEC,
@@ -199,6 +249,7 @@ struct ifla_vlan_qos_mapping {
 	__u32 to;
 };
 
+/* MACVLAN section */
 enum {
 	IFLA_MACVLAN_UNSPEC,
 	IFLA_MACVLAN_MODE,
@@ -208,12 +259,13 @@ enum {
 #define IFLA_MACVLAN_MAX (__IFLA_MACVLAN_MAX - 1)
 
 enum macvlan_mode {
-	MACVLAN_MODE_PRIVATE = 1, 
-	MACVLAN_MODE_VEPA    = 2, 
-	MACVLAN_MODE_BRIDGE  = 4, 
-	MACVLAN_MODE_PASSTHRU = 8,
+	MACVLAN_MODE_PRIVATE = 1, /* don't talk to other macvlans */
+	MACVLAN_MODE_VEPA    = 2, /* talk to other ports through ext bridge */
+	MACVLAN_MODE_BRIDGE  = 4, /* talk to bridge ports directly */
+	MACVLAN_MODE_PASSTHRU = 8,/* take over the underlying device */
 };
 
+/* SR-IOV virtual function management section */
 
 enum {
 	IFLA_VF_INFO_UNSPEC,
@@ -225,10 +277,10 @@ enum {
 
 enum {
 	IFLA_VF_UNSPEC,
-	IFLA_VF_MAC,		
+	IFLA_VF_MAC,		/* Hardware queue specific attributes */
 	IFLA_VF_VLAN,
-	IFLA_VF_TX_RATE,	
-	IFLA_VF_SPOOFCHK,	
+	IFLA_VF_TX_RATE,	/* TX Bandwidth Allocation */
+	IFLA_VF_SPOOFCHK,	/* Spoof Checking on/off switch */
 	__IFLA_VF_MAX,
 };
 
@@ -236,18 +288,18 @@ enum {
 
 struct ifla_vf_mac {
 	__u32 vf;
-	__u8 mac[32]; 
+	__u8 mac[32]; /* MAX_ADDR_LEN */
 };
 
 struct ifla_vf_vlan {
 	__u32 vf;
-	__u32 vlan; 
+	__u32 vlan; /* 0 - 4095, 0 disables VLAN filter */
 	__u32 qos;
 };
 
 struct ifla_vf_tx_rate {
 	__u32 vf;
-	__u32 rate; 
+	__u32 rate; /* Max TX bandwidth in Mbps, 0 disables throttling */
 };
 
 struct ifla_vf_spoofchk {
@@ -256,6 +308,7 @@ struct ifla_vf_spoofchk {
 };
 #ifdef __KERNEL__
 
+/* We don't want this structure exposed to user space */
 struct ifla_vf_info {
 	__u32 vf;
 	__u8 mac[32];
@@ -266,10 +319,24 @@ struct ifla_vf_info {
 };
 #endif
 
+/* VF ports management section
+ *
+ *	Nested layout of set/get msg is:
+ *
+ *		[IFLA_NUM_VF]
+ *		[IFLA_VF_PORTS]
+ *			[IFLA_VF_PORT]
+ *				[IFLA_PORT_*], ...
+ *			[IFLA_VF_PORT]
+ *				[IFLA_PORT_*], ...
+ *			...
+ *		[IFLA_PORT_SELF]
+ *			[IFLA_PORT_*], ...
+ */
 
 enum {
 	IFLA_VF_PORT_UNSPEC,
-	IFLA_VF_PORT,			
+	IFLA_VF_PORT,			/* nest */
 	__IFLA_VF_PORT_MAX,
 };
 
@@ -277,13 +344,13 @@ enum {
 
 enum {
 	IFLA_PORT_UNSPEC,
-	IFLA_PORT_VF,			
-	IFLA_PORT_PROFILE,		
-	IFLA_PORT_VSI_TYPE,		
-	IFLA_PORT_INSTANCE_UUID,	
-	IFLA_PORT_HOST_UUID,		
-	IFLA_PORT_REQUEST,		
-	IFLA_PORT_RESPONSE,		
+	IFLA_PORT_VF,			/* __u32 */
+	IFLA_PORT_PROFILE,		/* string */
+	IFLA_PORT_VSI_TYPE,		/* 802.1Qbg (pre-)standard VDP */
+	IFLA_PORT_INSTANCE_UUID,	/* binary UUID */
+	IFLA_PORT_HOST_UUID,		/* binary UUID */
+	IFLA_PORT_REQUEST,		/* __u8 */
+	IFLA_PORT_RESPONSE,		/* __u16, output only */
 	__IFLA_PORT_MAX,
 };
 
@@ -308,7 +375,7 @@ enum {
 	PORT_VDP_RESPONSE_VTID_VIOLATION,
 	PORT_VDP_RESPONSE_VTID_VERSION_VIOALTION,
 	PORT_VDP_RESPONSE_OUT_OF_SYNC,
-	
+	/* 0x08-0xFF reserved for future VDP use */
 	PORT_PROFILE_RESPONSE_SUCCESS = 0x100,
 	PORT_PROFILE_RESPONSE_INPROGRESS,
 	PORT_PROFILE_RESPONSE_INVALID,
@@ -324,4 +391,4 @@ struct ifla_port_vsi {
 	__u8 pad[3];
 };
 
-#endif 
+#endif /* _LINUX_IF_LINK_H */

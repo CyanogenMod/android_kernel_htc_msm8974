@@ -29,10 +29,14 @@
 #include "omap_priv.h"
 
 #define DBG(fmt, ...) DRM_DEBUG(fmt"\n", ##__VA_ARGS__)
-#define VERB(fmt, ...) if (0) DRM_DEBUG(fmt, ##__VA_ARGS__) 
+#define VERB(fmt, ...) if (0) DRM_DEBUG(fmt, ##__VA_ARGS__) /* verbose debug */
 
 #define MODULE_NAME     "omapdrm"
 
+/* max # of mapper-id's that can be assigned.. todo, come up with a better
+ * (but still inexpensive) way to store/access per-buffer mapper private
+ * data..
+ */
 #define MAX_MAPPERS 2
 
 struct omap_drm_private {
@@ -150,11 +154,16 @@ size_t omap_gem_mmap_size(struct drm_gem_object *obj);
 static inline int align_pitch(int pitch, int width, int bpp)
 {
 	int bytespp = (bpp + 7) / 8;
-	
+	/* in case someone tries to feed us a completely bogus stride: */
 	pitch = max(pitch, width * bytespp);
+	/* PVR needs alignment to 8 pixels.. right now that is the most
+	 * restrictive stride requirement..
+	 */
 	return ALIGN(pitch, 8 * bytespp);
 }
 
+/* should these be made into common util helpers?
+ */
 
 static inline int objects_lookup(struct drm_device *dev,
 		struct drm_file *filp, uint32_t pixel_format,
@@ -178,4 +187,4 @@ fail:
 	return -ENOENT;
 }
 
-#endif 
+#endif /* __OMAP_DRV_H__ */

@@ -17,6 +17,9 @@
 
 #include "supern_2.h"
 
+/*
+ * special defines for use into .asm files
+ */
 #define ERR_FLAGS (FS_MSRABT | FS_SEAC2 | FS_SFRMERR | FS_SFRMTY1)
 
 #ifdef PCI
@@ -80,13 +83,15 @@
 #define	TMODE_WAQ0	RQ_WA0
 #define TMODE_WSQ	RQ_WSQ
 
+/* Define default for DRV_PCM_STATE_CHANGE */
 #ifndef	DRV_PCM_STATE_CHANGE
-#define	DRV_PCM_STATE_CHANGE(smc,plc,p_state)	
+#define	DRV_PCM_STATE_CHANGE(smc,plc,p_state)	/* nothing */
 #endif
 
+/* Define default for DRV_RMT_INDICATION */
 #ifndef	DRV_RMT_INDICATION
-#define	DRV_RMT_INDICATION(smc,i)	
+#define	DRV_RMT_INDICATION(smc,i)	/* nothing */
 #endif
 
-#endif	
+#endif	/* n_SKFBIINC_ */
 

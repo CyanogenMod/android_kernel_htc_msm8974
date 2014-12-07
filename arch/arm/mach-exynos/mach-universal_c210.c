@@ -53,6 +53,7 @@
 
 #include "common.h"
 
+/* Following are default values for UCON, ULCON and UFCON UART registers */
 #define UNIVERSAL_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
 				 S3C2410_UCON_RXILEVEL |	\
 				 S3C2410_UCON_TXIRQMODE |	\
@@ -99,11 +100,11 @@ static struct regulator_consumer_supply max8952_consumer =
 static struct max8952_platform_data universal_max8952_pdata __initdata = {
 	.gpio_vid0	= EXYNOS4_GPX0(3),
 	.gpio_vid1	= EXYNOS4_GPX0(4),
-	.gpio_en	= -1, 
-	.default_mode	= 0, 
-	.dvs_mode	= { 48, 32, 28, 18 }, 
-	.sync_freq	= 0, 
-	.ramp_speed	= 0, 
+	.gpio_en	= -1, /* Not controllable, set "Always High" */
+	.default_mode	= 0, /* vid0 = 0, vid1 = 0 */
+	.dvs_mode	= { 48, 32, 28, 18 }, /* 1.25, 1.20, 1.05, 0.95V */
+	.sync_freq	= 0, /* default: fastest */
+	.ramp_speed	= 0, /* default: fastest */
 
 	.reg_data	= {
 		.constraints	= {
@@ -534,13 +535,13 @@ static struct max8998_regulator_data lp3974_regulators[] = {
 static struct max8998_platform_data universal_lp3974_pdata = {
 	.num_regulators		= ARRAY_SIZE(lp3974_regulators),
 	.regulators		= lp3974_regulators,
-	.buck1_voltage1		= 1100000,	
+	.buck1_voltage1		= 1100000,	/* INT */
 	.buck1_voltage2		= 1000000,
 	.buck1_voltage3		= 1100000,
 	.buck1_voltage4		= 1000000,
 	.buck1_set1		= EXYNOS4_GPX0(5),
 	.buck1_set2		= EXYNOS4_GPX0(6),
-	.buck2_voltage1		= 1200000,	
+	.buck2_voltage1		= 1200000,	/* G3D */
 	.buck2_voltage2		= 1100000,
 	.buck1_default_idx	= 0,
 	.buck2_set3		= EXYNOS4_GPE2(0),
@@ -585,6 +586,7 @@ static struct platform_device hdmi_fixed_voltage = {
 	},
 };
 
+/* GPIO I2C 5 (PMIC) */
 static struct i2c_board_info i2c5_devs[] __initdata = {
 	{
 		I2C_BOARD_INFO("max8952", 0xC0 >> 1),
@@ -595,6 +597,7 @@ static struct i2c_board_info i2c5_devs[] __initdata = {
 	},
 };
 
+/* I2C3 (TSP) */
 static struct mxt_platform_data qt602240_platform_data = {
 	.x_line		= 19,
 	.y_line		= 11,
@@ -602,7 +605,7 @@ static struct mxt_platform_data qt602240_platform_data = {
 	.y_size		= 480,
 	.blen		= 0x11,
 	.threshold	= 0x28,
-	.voltage	= 2800000,		
+	.voltage	= 2800000,		/* 2.8V */
 	.orient		= MXT_DIAGONAL,
 	.irqflags	= IRQF_TRIGGER_FALLING,
 };
@@ -618,12 +621,12 @@ static void __init universal_tsp_init(void)
 {
 	int gpio;
 
-	
+	/* TSP_LDO_ON: XMDMADDR_11 */
 	gpio = EXYNOS4_GPE2(3);
 	gpio_request_one(gpio, GPIOF_OUT_INIT_HIGH, "TSP_LDO_ON");
 	gpio_export(gpio, 0);
 
-	
+	/* TSP_INT: XMDMADDR_7 */
 	gpio = EXYNOS4_GPE1(7);
 	gpio_request(gpio, "TSP_INT");
 
@@ -634,10 +637,11 @@ static void __init universal_tsp_init(void)
 }
 
 
+/* GPIO I2C 12 (3 Touchkey) */
 static uint32_t touchkey_keymap[] = {
-	
-	MCS_KEY_MAP(0, KEY_MENU),		
-	MCS_KEY_MAP(1, KEY_BACK),		
+	/* MCS_KEY_MAP(value, keycode) */
+	MCS_KEY_MAP(0, KEY_MENU),		/* KEY_SEND */
+	MCS_KEY_MAP(1, KEY_BACK),		/* KEY_END */
 };
 
 static struct mcs_platform_data touchkey_data = {
@@ -646,10 +650,11 @@ static struct mcs_platform_data touchkey_data = {
 	.key_maxval	= 2,
 };
 
+/* GPIO I2C 3_TOUCH 2.8V */
 #define I2C_GPIO_BUS_12		12
 static struct i2c_gpio_platform_data i2c_gpio12_data = {
-	.sda_pin	= EXYNOS4_GPE4(0),	
-	.scl_pin	= EXYNOS4_GPE4(1),	
+	.sda_pin	= EXYNOS4_GPE4(0),	/* XMDMDATA_8 */
+	.scl_pin	= EXYNOS4_GPE4(1),	/* XMDMDATA_9 */
 };
 
 static struct platform_device i2c_gpio12 = {
@@ -671,13 +676,13 @@ static void __init universal_touchkey_init(void)
 {
 	int gpio;
 
-	gpio = EXYNOS4_GPE3(7);			
+	gpio = EXYNOS4_GPE3(7);			/* XMDMDATA_7 */
 	gpio_request(gpio, "3_TOUCH_INT");
 	s5p_register_gpio_interrupt(gpio);
 	s3c_gpio_cfgpin(gpio, S3C_GPIO_SFN(0xf));
 	i2c_gpio12_devs[0].irq = gpio_to_irq(gpio);
 
-	gpio = EXYNOS4_GPE3(3);			
+	gpio = EXYNOS4_GPE3(3);			/* XMDMDATA_3 */
 	gpio_request_one(gpio, GPIOF_OUT_INIT_HIGH, "3_TOUCH_EN");
 }
 
@@ -686,38 +691,39 @@ static struct s3c2410_platform_i2c universal_i2c0_platdata __initdata = {
 	.sda_delay	= 200,
 };
 
+/* GPIO KEYS */
 static struct gpio_keys_button universal_gpio_keys_tables[] = {
 	{
 		.code			= KEY_VOLUMEUP,
-		.gpio			= EXYNOS4_GPX2(0),	
+		.gpio			= EXYNOS4_GPX2(0),	/* XEINT16 */
 		.desc			= "gpio-keys: KEY_VOLUMEUP",
 		.type			= EV_KEY,
 		.active_low		= 1,
 		.debounce_interval	= 1,
 	}, {
 		.code			= KEY_VOLUMEDOWN,
-		.gpio			= EXYNOS4_GPX2(1),	
+		.gpio			= EXYNOS4_GPX2(1),	/* XEINT17 */
 		.desc			= "gpio-keys: KEY_VOLUMEDOWN",
 		.type			= EV_KEY,
 		.active_low		= 1,
 		.debounce_interval	= 1,
 	}, {
 		.code			= KEY_CONFIG,
-		.gpio			= EXYNOS4_GPX2(2),	
+		.gpio			= EXYNOS4_GPX2(2),	/* XEINT18 */
 		.desc			= "gpio-keys: KEY_CONFIG",
 		.type			= EV_KEY,
 		.active_low		= 1,
 		.debounce_interval	= 1,
 	}, {
 		.code			= KEY_CAMERA,
-		.gpio			= EXYNOS4_GPX2(3),	
+		.gpio			= EXYNOS4_GPX2(3),	/* XEINT19 */
 		.desc			= "gpio-keys: KEY_CAMERA",
 		.type			= EV_KEY,
 		.active_low		= 1,
 		.debounce_interval	= 1,
 	}, {
 		.code			= KEY_OK,
-		.gpio			= EXYNOS4_GPX3(5),	
+		.gpio			= EXYNOS4_GPX3(5),	/* XEINT29 */
 		.desc			= "gpio-keys: KEY_OK",
 		.type			= EV_KEY,
 		.active_low		= 1,
@@ -737,6 +743,7 @@ static struct platform_device universal_gpio_keys = {
 	},
 };
 
+/* eMMC */
 static struct s3c_sdhci_platdata universal_hsmmc0_data __initdata = {
 	.max_width		= 8,
 	.host_caps		= (MMC_CAP_8_BIT_DATA | MMC_CAP_4_BIT_DATA |
@@ -775,16 +782,18 @@ static struct platform_device mmc0_fixed_voltage = {
 	},
 };
 
+/* SD */
 static struct s3c_sdhci_platdata universal_hsmmc2_data __initdata = {
 	.max_width		= 4,
 	.host_caps		= MMC_CAP_4_BIT_DATA |
 				MMC_CAP_MMC_HIGHSPEED | MMC_CAP_SD_HIGHSPEED,
-	.ext_cd_gpio		= EXYNOS4_GPX3(4),      
+	.ext_cd_gpio		= EXYNOS4_GPX3(4),      /* XEINT_28 */
 	.ext_cd_gpio_invert	= 1,
 	.cd_type		= S3C_SDHCI_CD_GPIO,
 	.clk_type		= S3C_SDHCI_CLK_DIV_EXTERNAL,
 };
 
+/* WiFi */
 static struct s3c_sdhci_platdata universal_hsmmc3_data __initdata = {
 	.max_width		= 4,
 	.host_caps		= MMC_CAP_4_BIT_DATA |
@@ -799,10 +808,12 @@ static void __init universal_sdhci_init(void)
 	s3c_sdhci3_set_platdata(&universal_hsmmc3_data);
 }
 
+/* I2C1 */
 static struct i2c_board_info i2c1_devs[] __initdata = {
-	
+	/* Gyro, To be updated */
 };
 
+/* Frame Buffer */
 static struct s3c_fb_pd_win universal_fb_win0 = {
 	.win_mode = {
 		.left_margin	= 16,
@@ -842,7 +853,7 @@ static struct regulator_init_data cam_vt_dio_reg_init_data = {
 static struct fixed_voltage_config cam_vt_dio_fixed_voltage_cfg = {
 	.supply_name	= "CAM_VT_D_IO",
 	.microvolts	= 2800000,
-	.gpio		= EXYNOS4_GPE2(1), 
+	.gpio		= EXYNOS4_GPE2(1), /* CAM_PWR_EN2 */
 	.enable_high	= 1,
 	.init_data	= &cam_vt_dio_reg_init_data,
 };
@@ -864,7 +875,7 @@ static struct regulator_init_data cam_i_core_reg_init_data = {
 static struct fixed_voltage_config cam_i_core_fixed_voltage_cfg = {
 	.supply_name	= "CAM_I_CORE_1.2V",
 	.microvolts	= 1200000,
-	.gpio		= EXYNOS4_GPE2(2),	
+	.gpio		= EXYNOS4_GPE2(2),	/* CAM_8M_CORE_EN */
 	.enable_high	= 1,
 	.init_data	= &cam_i_core_reg_init_data,
 };
@@ -886,7 +897,7 @@ static struct regulator_init_data cam_s_if_reg_init_data = {
 static struct fixed_voltage_config cam_s_if_fixed_voltage_cfg = {
 	.supply_name	= "CAM_S_IF_1.8V",
 	.microvolts	= 1800000,
-	.gpio		= EXYNOS4_GPE3(0),	
+	.gpio		= EXYNOS4_GPE3(0),	/* CAM_PWR_EN1 */
 	.enable_high	= 1,
 	.init_data	= &cam_s_if_reg_init_data,
 };
@@ -905,7 +916,7 @@ static struct s5p_platform_mipi_csis mipi_csis_platdata = {
 };
 
 #define GPIO_CAM_LEVEL_EN(n)	EXYNOS4_GPE4(n + 3)
-#define GPIO_CAM_8M_ISP_INT	EXYNOS4_GPX1(5)	
+#define GPIO_CAM_8M_ISP_INT	EXYNOS4_GPX1(5)	/* XEINT_13 */
 #define GPIO_CAM_MEGA_nRST	EXYNOS4_GPE2(5)
 #define GPIO_CAM_VGA_NRST	EXYNOS4_GPE4(7)
 #define GPIO_CAM_VGA_NSTBY	EXYNOS4_GPE4(6)
@@ -1001,7 +1012,7 @@ static void __init universal_camera_init(void)
 	else
 		pr_err("Failed to configure 8M_ISP_INT GPIO\n");
 
-	
+	/* Free GPIOs controlled directly by the sensor drivers. */
 	gpio_free(GPIO_CAM_MEGA_nRST);
 	gpio_free(GPIO_CAM_8M_ISP_INT);
 	gpio_free(GPIO_CAM_VGA_NRST);
@@ -1012,7 +1023,7 @@ static void __init universal_camera_init(void)
 }
 
 static struct platform_device *universal_devices[] __initdata = {
-	
+	/* Samsung Platform Devices */
 	&s5p_device_mipi_csis0,
 	&s5p_device_fimc0,
 	&s5p_device_fimc1,
@@ -1032,7 +1043,7 @@ static struct platform_device *universal_devices[] __initdata = {
 	&s5p_device_sdo,
 	&s5p_device_mixer,
 
-	
+	/* Universal Devices */
 	&i2c_gpio12,
 	&universal_gpio_keys,
 	&s5p_device_onenand,
@@ -1058,7 +1069,7 @@ static void __init universal_map_io(void)
 
 static void s5p_tv_setup(void)
 {
-	
+	/* direct HPD to HDMI chip */
 	gpio_request_one(EXYNOS4_GPX3(7), GPIOF_IN, "hpd-plug");
 	s3c_gpio_cfgpin(EXYNOS4_GPX3(7), S3C_GPIO_SFN(0x3));
 	s3c_gpio_setpull(EXYNOS4_GPX3(7), S3C_GPIO_PULL_NONE);
@@ -1093,12 +1104,12 @@ static void __init universal_machine_init(void)
 
 	universal_camera_init();
 
-	
+	/* Last */
 	platform_add_devices(universal_devices, ARRAY_SIZE(universal_devices));
 }
 
 MACHINE_START(UNIVERSAL_C210, "UNIVERSAL_C210")
-	
+	/* Maintainer: Kyungmin Park <kyungmin.park@samsung.com> */
 	.atag_offset	= 0x100,
 	.init_irq	= exynos4_init_irq,
 	.map_io		= universal_map_io,

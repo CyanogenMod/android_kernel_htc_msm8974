@@ -28,6 +28,7 @@
 #include <linux/ioctl.h>
 #include <linux/types.h>
 
+/* IOCTL commands. */
 
 #define OMAP_IOW(num, dtype)	_IOW('O', num, dtype)
 #define OMAP_IOR(num, dtype)	_IOR('O', num, dtype)
@@ -72,6 +73,7 @@
 #define OMAPFB_CAPS_WINDOW_ROTATE	0x00080000
 #define OMAPFB_CAPS_SET_BACKLIGHT	0x01000000
 
+/* Values from DSP must map to lower 16-bits */
 #define OMAPFB_FORMAT_MASK		0x00ff
 #define OMAPFB_FORMAT_FLAG_DOUBLE	0x0100
 #define OMAPFB_FORMAT_FLAG_TEARSYNC	0x0200
@@ -98,8 +100,8 @@ enum omapfb_color_format {
 	OMAPFB_COLOR_YUY422,
 
 	OMAPFB_COLOR_ARGB16,
-	OMAPFB_COLOR_RGB24U,	
-	OMAPFB_COLOR_RGB24P,	
+	OMAPFB_COLOR_RGB24U,	/* RGB24, 32-bit container */
+	OMAPFB_COLOR_RGB24P,	/* RGB24, 24-bit container */
 	OMAPFB_COLOR_ARGB32,
 	OMAPFB_COLOR_RGBA32,
 	OMAPFB_COLOR_RGBX32,
@@ -211,8 +213,8 @@ struct omapfb_tearsync_info {
 struct omapfb_display_info {
 	__u16 xres;
 	__u16 yres;
-	__u32 width;	
-	__u32 height;	
+	__u32 width;	/* phys width of the display in micrometers */
+	__u32 height;	/* phys height of the display in micrometers */
 	__u32 reserved[5];
 };
 
@@ -228,4 +230,4 @@ void __init omapfb_set_lcd_config(const struct omap_lcd_config *config);
 
 #endif
 
-#endif 
+#endif /* __OMAPFB_H */

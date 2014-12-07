@@ -52,6 +52,10 @@
 struct ino_bucket *ivector_table;
 unsigned long ivector_table_pa;
 
+/* On several sun4u processors, it is illegal to mix bypass and
+ * non-bypass accesses.  Therefore we access all INO buckets
+ * using bypass accesses only.
+ */
 static unsigned long bucket_get_chain_pa(unsigned long bucket_pa)
 {
 	unsigned long ret;
@@ -69,7 +73,7 @@ static unsigned long bucket_get_chain_pa(unsigned long bucket_pa)
 static void bucket_clear_chain_pa(unsigned long bucket_pa)
 {
 	__asm__ __volatile__("stxa	%%g0, [%0] %1"
-			     : 
+			     : /* no outputs */
 			     : "r" (bucket_pa +
 				    offsetof(struct ino_bucket,
 					     __irq_chain_pa)),
@@ -93,7 +97,7 @@ static unsigned int bucket_get_irq(unsigned long bucket_pa)
 static void bucket_set_irq(unsigned long bucket_pa, unsigned int irq)
 {
 	__asm__ __volatile__("stwa	%0, [%1] %2"
-			     : 
+			     : /* no outputs */
 			     : "r" (irq),
 			       "r" (bucket_pa +
 				    offsetof(struct ino_bucket,
@@ -153,6 +157,9 @@ void irq_free(unsigned int irq)
 }
 #endif
 
+/*
+ * /proc/interrupts printing:
+ */
 int arch_show_interrupts(struct seq_file *p, int prec)
 {
 	int j;
@@ -278,6 +285,23 @@ static int sun4u_set_affinity(struct irq_data *data,
 	return 0;
 }
 
+/* Don't do anything.  The desc->status check for IRQ_DISABLED in
+ * handler_irq() will skip the handler call and that will leave the
+ * interrupt in the sent state.  The next ->enable() call will hit the
+ * ICLR register to reset the state machine.
+ *
+ * This scheme is necessary, instead of clearing the Valid bit in the
+ * IMAP register, to handle the case of IMAP registers being shared by
+ * multiple INOs (and thus ICLR registers).  Since we use a different
+ * virtual IRQ for each shared IMAP instance, the generic code thinks
+ * there is only one user so it prematurely calls ->disable() on
+ * free_irq().
+ *
+ * We have to provide an explicit ->disable() method instead of using
+ * NULL to get the default.  The reason is that if the generic code
+ * sees that, it also hooks up a default ->shutdown method which
+ * invokes ->mask() which we do not want.  See irq_chip_set_defaults().
+ */
 static void sun4u_irq_disable(struct irq_data *data)
 {
 }
@@ -542,6 +566,10 @@ static unsigned int sun4v_build_common(unsigned long sysino,
 	}
 	irq_set_handler_data(irq, handler_data);
 
+	/* Catch accidental accesses to these things.  IMAP/ICLR handling
+	 * is done by hypervisor calls on sun4v platforms, not by direct
+	 * register accesses.
+	 */
 	handler_data->imap = ~0UL;
 	handler_data->iclr = ~0UL;
 
@@ -567,6 +595,11 @@ unsigned int sun4v_build_virq(u32 devhandle, unsigned int devino)
 	if (unlikely(!bucket))
 		return 0;
 
+	/* The only reference we store to the IRQ bucket is
+	 * by physical address which kmemleak can't see, tell
+	 * it that this object explicitly is not a leak and
+	 * should be scanned.
+	 */
 	kmemleak_not_leak(bucket);
 
 	__flush_dcache_range((unsigned long) bucket,
@@ -583,9 +616,17 @@ unsigned int sun4v_build_virq(u32 devhandle, unsigned int devino)
 	if (unlikely(!handler_data))
 		return 0;
 
+	/* In order to make the LDC channel startup sequence easier,
+	 * especially wrt. locking, we do not let request_irq() enable
+	 * the interrupt.
+	 */
 	irq_set_status_flags(irq, IRQ_NOAUTOEN);
 	irq_set_handler_data(irq, handler_data);
 
+	/* Catch accidental accesses to these things.  IMAP/ICLR handling
+	 * is done by hypervisor calls on sun4v platforms, not by direct
+	 * register accesses.
+	 */
 	handler_data->imap = ~0UL;
 	handler_data->iclr = ~0UL;
 
@@ -625,7 +666,7 @@ void __irq_entry handler_irq(int pil, struct pt_regs *regs)
 	old_regs = set_irq_regs(regs);
 	irq_enter();
 
-	
+	/* Grab an atomic snapshot of the pending IVECs.  */
 	__asm__ __volatile__("rdpr	%%pstate, %0\n\t"
 			     "wrpr	%0, %3, %%pstate\n\t"
 			     "ldx	[%2], %1\n\t"
@@ -722,7 +763,7 @@ static void map_prom_timers(void)
 	struct device_node *dp;
 	const unsigned int *addr;
 
-	
+	/* PROM timer node hangs out in the top level of device siblings... */
 	dp = of_find_node_by_path("/");
 	dp = dp->child;
 	while (dp) {
@@ -731,12 +772,15 @@ static void map_prom_timers(void)
 		dp = dp->sibling;
 	}
 
+	/* Assume if node is not present, PROM uses different tick mechanism
+	 * which we should not care about.
+	 */
 	if (!dp) {
 		prom_timers = (struct sun5_timer *) 0;
 		return;
 	}
 
-	
+	/* If PROM is really using this, it must be mapped by him. */
 	addr = of_get_property(dp, "address", NULL);
 	if (!addr) {
 		prom_printf("PROM does not have timer mapped, trying to continue.\n");
@@ -751,21 +795,24 @@ static void kill_prom_timer(void)
 	if (!prom_timers)
 		return;
 
-	
+	/* Save them away for later. */
 	prom_limit0 = prom_timers->limit0;
 	prom_limit1 = prom_timers->limit1;
 
+	/* Just as in sun4c/sun4m PROM uses timer which ticks at IRQ 14.
+	 * We turn both off here just to be paranoid.
+	 */
 	prom_timers->limit0 = 0;
 	prom_timers->limit1 = 0;
 
-	
+	/* Wheee, eat the interrupt packet too... */
 	__asm__ __volatile__(
 "	mov	0x40, %%g2\n"
 "	ldxa	[%%g0] %0, %%g1\n"
 "	ldxa	[%%g2] %1, %%g1\n"
 "	stxa	%%g0, [%%g0] %0\n"
 "	membar	#Sync\n"
-	: 
+	: /* no outputs */
 	: "i" (ASI_INTR_RECEIVE), "i" (ASI_INTR_R)
 	: "g1", "g2");
 }
@@ -777,6 +824,17 @@ void notrace init_irqwork_curcpu(void)
 	trap_block[cpu].irq_worklist_pa = 0UL;
 }
 
+/* Please be very careful with register_one_mondo() and
+ * sun4v_register_mondo_queues().
+ *
+ * On SMP this gets invoked from the CPU trampoline before
+ * the cpu has fully taken over the trap table from OBP,
+ * and it's kernel stack + %g6 thread register state is
+ * not fully cooked yet.
+ *
+ * Therefore you cannot make any OBP calls, not even prom_printf,
+ * from these two routines.
+ */
 static void __cpuinit notrace register_one_mondo(unsigned long paddr, unsigned long type, unsigned long qmask)
 {
 	unsigned long num_entries = (qmask + 1) / 64;
@@ -804,6 +862,10 @@ void __cpuinit notrace sun4v_register_mondo_queues(int this_cpu)
 			   tb->nonresum_qmask);
 }
 
+/* Each queue region must be a power of 2 multiple of 64 bytes in
+ * size.  The base real address must be aligned to the size of the
+ * region.  Thus, an 8KB queue must be 8KB aligned, for example.
+ */
 static void __init alloc_one_queue(unsigned long *pa_ptr, unsigned long qmask)
 {
 	unsigned long size = PAGE_ALIGN(qmask + 1);
@@ -837,6 +899,7 @@ static void __init init_cpu_send_mondo_info(struct trap_per_cpu *tb)
 #endif
 }
 
+/* Allocate mondo and error queues for all possible cpus.  */
 static void __init sun4v_init_mondo_queues(void)
 {
 	int cpu;
@@ -869,6 +932,7 @@ static struct irqaction timer_irq_action = {
 	.name = "timer",
 };
 
+/* Only invoked on boot processor. */
 void __init init_IRQ(void)
 {
 	unsigned long size;
@@ -893,16 +957,25 @@ void __init init_IRQ(void)
 	init_send_mondo_info();
 
 	if (tlb_type == hypervisor) {
-		
+		/* Load up the boot cpu's entries.  */
 		sun4v_register_mondo_queues(hard_smp_processor_id());
 	}
 
+	/* We need to clear any IRQ's pending in the soft interrupt
+	 * registers, a spurious one could be left around from the
+	 * PROM timer which we just disabled.
+	 */
 	clear_softint(get_softint());
 
+	/* Now that ivector table is initialized, it is safe
+	 * to receive IRQ vector traps.  We will normally take
+	 * one or two right now, in case some device PROM used
+	 * to boot us wants to speak to us.  We just ignore them.
+	 */
 	__asm__ __volatile__("rdpr	%%pstate, %%g1\n\t"
 			     "or	%%g1, %0, %%g1\n\t"
 			     "wrpr	%%g1, 0x0, %%pstate"
-			     : 
+			     : /* No outputs */
 			     : "i" (PSTATE_IE)
 			     : "g1");
 

@@ -40,6 +40,7 @@
 #include "siutils_priv.h"
 
 
+/* local prototypes */
 static uint _sb_coreidx(si_info_t *sii, uint32 sba);
 static uint _sb_scan(si_info_t *sii, uint32 sba, void *regs, uint bus, uint32 sbba,
                      uint ncores);
@@ -50,6 +51,7 @@ static void *_sb_setcoreidx(si_info_t *sii, uint coreidx);
 		W_SBREG((sii), (r), ((R_SBREG((sii), (r)) & ~(mask)) | (val)))
 #define	REGS2SB(va)	(sbconfig_t*) ((int8*)(va) + SBCONFIGOFF)
 
+/* sonicsrev */
 #define	SONICS_2_2	(SBIDL_RV_2_2 >> SBIDL_RV_SHIFT)
 #define	SONICS_2_3	(SBIDL_RV_2_3 >> SBIDL_RV_SHIFT)
 
@@ -65,11 +67,17 @@ sb_read_sbreg(si_info_t *sii, volatile uint32 *sbr)
 	uint32 val, intr_val = 0;
 
 
+	/*
+	 * compact flash only has 11 bits address, while we needs 12 bits address.
+	 * MEM_SEG will be OR'd with other 11 bits address in hardware,
+	 * so we program MEM_SEG with 12th bit when necessary(access sb regsiters).
+	 * For normal PCMCIA bus(CFTable_regwinsz > 2k), do nothing special
+	 */
 	if (PCMCIA(sii)) {
 		INTR_OFF(sii, intr_val);
 		tmp = 1;
 		OSL_PCMCIA_WRITE_ATTR(sii->osh, MEM_SEG, &tmp, 1);
-		sbr = (volatile uint32 *)((uintptr)sbr & ~(1 << 11)); 
+		sbr = (volatile uint32 *)((uintptr)sbr & ~(1 << 11)); /* mask out bit 11 */
 	}
 
 	val = R_REG(sii->osh, sbr);
@@ -91,11 +99,17 @@ sb_write_sbreg(si_info_t *sii, volatile uint32 *sbr, uint32 v)
 	uint32 intr_val = 0;
 
 
+	/*
+	 * compact flash only has 11 bits address, while we needs 12 bits address.
+	 * MEM_SEG will be OR'd with other 11 bits address in hardware,
+	 * so we program MEM_SEG with 12th bit when necessary(access sb regsiters).
+	 * For normal PCMCIA bus(CFTable_regwinsz > 2k), do nothing special
+	 */
 	if (PCMCIA(sii)) {
 		INTR_OFF(sii, intr_val);
 		tmp = 1;
 		OSL_PCMCIA_WRITE_ATTR(sii->osh, MEM_SEG, &tmp, 1);
-		sbr = (volatile uint32 *)((uintptr)sbr & ~(1 << 11)); 
+		sbr = (volatile uint32 *)((uintptr)sbr & ~(1 << 11)); /* mask out bit 11 */
 	}
 
 	if (BUSTYPE(sii->pub.bustype) == PCMCIA_BUS) {
@@ -178,6 +192,7 @@ sb_setint(si_t *sih, int siflag)
 	W_SBREG(sii, &sb->sbintvec, vec);
 }
 
+/* return core index of the core with address 'sba' */
 static uint
 _sb_coreidx(si_info_t *sii, uint32 sba)
 {
@@ -189,6 +204,7 @@ _sb_coreidx(si_info_t *sii, uint32 sba)
 	return BADIDX;
 }
 
+/* return core address of the current core */
 static uint32
 _sb_coresba(si_info_t *sii)
 {
@@ -257,6 +273,7 @@ sb_corerev(si_t *sih)
 	return (SBCOREREV(sbidh));
 }
 
+/* set core-specific control flags */
 void
 sb_core_cflags_wo(si_t *sih, uint32 mask, uint32 val)
 {
@@ -269,12 +286,13 @@ sb_core_cflags_wo(si_t *sih, uint32 mask, uint32 val)
 
 	ASSERT((val & ~mask) == 0);
 
-	
+	/* mask and set */
 	w = (R_SBREG(sii, &sb->sbtmstatelow) & ~(mask << SBTML_SICF_SHIFT)) |
 	        (val << SBTML_SICF_SHIFT);
 	W_SBREG(sii, &sb->sbtmstatelow, w);
 }
 
+/* set/clear core-specific control flags */
 uint32
 sb_core_cflags(si_t *sih, uint32 mask, uint32 val)
 {
@@ -287,16 +305,20 @@ sb_core_cflags(si_t *sih, uint32 mask, uint32 val)
 
 	ASSERT((val & ~mask) == 0);
 
-	
+	/* mask and set */
 	if (mask || val) {
 		w = (R_SBREG(sii, &sb->sbtmstatelow) & ~(mask << SBTML_SICF_SHIFT)) |
 		        (val << SBTML_SICF_SHIFT);
 		W_SBREG(sii, &sb->sbtmstatelow, w);
 	}
 
+	/* return the new value
+	 * for write operation, the following readback ensures the completion of write opration.
+	 */
 	return (R_SBREG(sii, &sb->sbtmstatelow) >> SBTML_SICF_SHIFT);
 }
 
+/* set/clear core-specific status flags */
 uint32
 sb_core_sflags(si_t *sih, uint32 mask, uint32 val)
 {
@@ -310,14 +332,14 @@ sb_core_sflags(si_t *sih, uint32 mask, uint32 val)
 	ASSERT((val & ~mask) == 0);
 	ASSERT((mask & ~SISF_CORE_BITS) == 0);
 
-	
+	/* mask and set */
 	if (mask || val) {
 		w = (R_SBREG(sii, &sb->sbtmstatehigh) & ~(mask << SBTMH_SISF_SHIFT)) |
 		        (val << SBTMH_SISF_SHIFT);
 		W_SBREG(sii, &sb->sbtmstatehigh, w);
 	}
 
-	
+	/* return the new value */
 	return (R_SBREG(sii, &sb->sbtmstatehigh) >> SBTMH_SISF_SHIFT);
 }
 
@@ -335,6 +357,15 @@ sb_iscoreup(si_t *sih)
 	        (SICF_CLOCK_EN << SBTML_SICF_SHIFT));
 }
 
+/*
+ * Switch to 'coreidx', issue a single arbitrary 32bit register mask&set operation,
+ * switch back to the original core, and return the new value.
+ *
+ * When using the silicon backplane, no fidleing with interrupts or core switches are needed.
+ *
+ * Also, when using pci/pcie, we can optimize away the core switching for pci registers
+ * and (on newer pci cores) chipcommon registers.
+ */
 uint
 sb_corereg(si_t *sih, uint coreidx, uint regoff, uint mask, uint val)
 {
@@ -355,9 +386,9 @@ sb_corereg(si_t *sih, uint coreidx, uint regoff, uint mask, uint val)
 		return 0;
 
 	if (BUSTYPE(sii->pub.bustype) == SI_BUS) {
-		
+		/* If internal bus, we can always get at everything */
 		fast = TRUE;
-		
+		/* map if does not exist */
 		if (!sii->regs[coreidx]) {
 			sii->regs[coreidx] = REG_MAP(sii->coresba[coreidx],
 			                            SI_CORE_SIZE);
@@ -365,14 +396,17 @@ sb_corereg(si_t *sih, uint coreidx, uint regoff, uint mask, uint val)
 		}
 		r = (uint32 *)((uchar *)sii->regs[coreidx] + regoff);
 	} else if (BUSTYPE(sii->pub.bustype) == PCI_BUS) {
-		
+		/* If pci/pcie, we can get at pci/pcie regs and on newer cores to chipc */
 
 		if ((sii->coreid[coreidx] == CC_CORE_ID) && SI_FAST(sii)) {
-			
+			/* Chipc registers are mapped at 12KB */
 
 			fast = TRUE;
 			r = (uint32 *)((char *)sii->curmap + PCI_16KB0_CCREGS_OFFSET + regoff);
 		} else if (sii->pub.buscoreidx == coreidx) {
+			/* pci registers are at either in the last 2KB of an 8KB window
+			 * or, in pcie and pci rev 13 at 8KB
+			 */
 			fast = TRUE;
 			if (SI_FAST(sii))
 				r = (uint32 *)((char *)sii->curmap +
@@ -388,15 +422,15 @@ sb_corereg(si_t *sih, uint coreidx, uint regoff, uint mask, uint val)
 	if (!fast) {
 		INTR_OFF(sii, intr_val);
 
-		
+		/* save current core index */
 		origidx = si_coreidx(&sii->pub);
 
-		
+		/* switch core */
 		r = (uint32*) ((uchar*)sb_setcoreidx(&sii->pub, coreidx) + regoff);
 	}
 	ASSERT(r != NULL);
 
-	
+	/* mask and set */
 	if (mask || val) {
 		if (regoff >= SBCONFIGOFF) {
 			w = (R_SBREG(sii, r) & ~mask) | val;
@@ -407,7 +441,7 @@ sb_corereg(si_t *sih, uint coreidx, uint regoff, uint mask, uint val)
 		}
 	}
 
-	
+	/* readback */
 	if (regoff >= SBCONFIGOFF)
 		w = R_SBREG(sii, r);
 	else {
@@ -420,7 +454,7 @@ sb_corereg(si_t *sih, uint coreidx, uint regoff, uint mask, uint val)
 	}
 
 	if (!fast) {
-		
+		/* restore core index */
 		if (origidx != coreidx)
 			sb_setcoreidx(&sii->pub, origidx);
 
@@ -430,6 +464,13 @@ sb_corereg(si_t *sih, uint coreidx, uint regoff, uint mask, uint val)
 	return (w);
 }
 
+/* Scan the enumeration space to find all cores starting from the given
+ * bus 'sbba'. Append coreid and other info to the lists in 'si'. 'sba'
+ * is the default core address at chip POR time and 'regs' is the virtual
+ * address that the default core is mapped at. 'ncores' is the number of
+ * cores expected on bus 'sbba'. It returns the total number of cores
+ * starting from bus 'sbba', inclusive.
+ */
 #define SB_MAXBUSES	2
 static uint
 _sb_scan(si_info_t *sii, uint32 sba, void *regs, uint bus, uint32 sbba, uint numcores)
@@ -444,36 +485,39 @@ _sb_scan(si_info_t *sii, uint32 sba, void *regs, uint bus, uint32 sbba, uint num
 	}
 	SI_MSG(("_sb_scan: scan bus 0x%08x assume %u cores\n", sbba, numcores));
 
+	/* Scan all cores on the bus starting from core 0.
+	 * Core addresses must be contiguous on each bus.
+	 */
 	for (i = 0, next = sii->numcores; i < numcores && next < SB_BUS_MAXCORES; i++, next++) {
 		sii->coresba[next] = sbba + (i * SI_CORE_SIZE);
 
-		
+		/* keep and reuse the initial register mapping */
 		if ((BUSTYPE(sii->pub.bustype) == SI_BUS) && (sii->coresba[next] == sba)) {
 			SI_VMSG(("_sb_scan: reuse mapped regs %p for core %u\n", regs, next));
 			sii->regs[next] = regs;
 		}
 
-		
+		/* change core to 'next' and read its coreid */
 		sii->curmap = _sb_setcoreidx(sii, next);
 		sii->curidx = next;
 
 		sii->coreid[next] = sb_coreid(&sii->pub);
 
-		
-		
+		/* core specific processing... */
+		/* chipc provides # cores */
 		if (sii->coreid[next] == CC_CORE_ID) {
 			chipcregs_t *cc = (chipcregs_t *)sii->curmap;
 			uint32 ccrev = sb_corerev(&sii->pub);
 
-			
+			/* determine numcores - this is the total # cores in the chip */
 			if (((ccrev == 4) || (ccrev >= 6)))
 				numcores = (R_REG(sii->osh, &cc->chipid) & CID_CC_MASK) >>
 				        CID_CC_SHIFT;
 			else {
-				
+				/* Older chips */
 				uint chip = CHIPID(sii->pub.chip);
 
-				if (chip == BCM4306_CHIP_ID)	
+				if (chip == BCM4306_CHIP_ID)	/* < 4306c0 */
 					numcores = 6;
 				else if (chip == BCM4704_CHIP_ID)
 					numcores = 9;
@@ -489,7 +533,7 @@ _sb_scan(si_info_t *sii, uint32 sba, void *regs, uint bus, uint32 sbba, uint num
 			SI_VMSG(("_sb_scan: there are %u cores in the chip %s\n", numcores,
 				sii->pub.issim ? "QT" : ""));
 		}
-		
+		/* scan bridged SB(s) and add results to the end of the list */
 		else if (sii->coreid[next] == OCP_CORE_ID) {
 			sbconfig_t *sb = REGS2SB(sii->curmap);
 			uint32 nsbba = R_SBREG(sii, &sb->sbadmatch1);
@@ -517,6 +561,7 @@ _sb_scan(si_info_t *sii, uint32 sba, void *regs, uint bus, uint32 sbba, uint num
 	return sii->numcores;
 }
 
+/* scan the sb enumerated space to identify all cores */
 void
 sb_scan(si_t *sih, void *regs, uint devid)
 {
@@ -529,12 +574,20 @@ sb_scan(si_t *sih, void *regs, uint devid)
 
 	sii->pub.socirev = (R_SBREG(sii, &sb->sbidlow) & SBIDL_RV_MASK) >> SBIDL_RV_SHIFT;
 
+	/* Save the current core info and validate it later till we know
+	 * for sure what is good and what is bad.
+	 */
 	origsba = _sb_coresba(sii);
 
-	
+	/* scan all SB(s) starting from SI_ENUM_BASE */
 	sii->numcores = _sb_scan(sii, origsba, regs, 0, SI_ENUM_BASE, 1);
 }
 
+/*
+ * This function changes logical "focus" to the indicated core;
+ * must be called with interrupts off.
+ * Moreover, callers should keep interrupts off during switching out of and back to d11 core
+ */
 void *
 sb_setcoreidx(si_t *sih, uint coreidx)
 {
@@ -545,6 +598,10 @@ sb_setcoreidx(si_t *sih, uint coreidx)
 	if (coreidx >= sii->numcores)
 		return (NULL);
 
+	/*
+	 * If the user has provided an interrupt mask enabled function,
+	 * then assert interrupts are disabled before switching the core.
+	 */
 	ASSERT((sii->intrsenabled_fn == NULL) || !(*(sii)->intrsenabled_fn)((sii)->intr_arg));
 
 	sii->curmap = _sb_setcoreidx(sii, coreidx);
@@ -553,6 +610,9 @@ sb_setcoreidx(si_t *sih, uint coreidx)
 	return (sii->curmap);
 }
 
+/* This function changes the logical "focus" to the indicated core.
+ * Return the current core's virtual address.
+ */
 static void *
 _sb_setcoreidx(si_info_t *sii, uint coreidx)
 {
@@ -561,7 +621,7 @@ _sb_setcoreidx(si_info_t *sii, uint coreidx)
 
 	switch (BUSTYPE(sii->pub.bustype)) {
 	case SI_BUS:
-		
+		/* map new one */
 		if (!sii->regs[coreidx]) {
 			sii->regs[coreidx] = REG_MAP(sbaddr, SI_CORE_SIZE);
 			ASSERT(GOODREGS(sii->regs[coreidx]));
@@ -570,7 +630,7 @@ _sb_setcoreidx(si_info_t *sii, uint coreidx)
 		break;
 
 	case PCI_BUS:
-		
+		/* point bar0 window */
 		OSL_PCI_WRITE_CONFIG(sii->osh, PCI_BAR0_WIN, 4, sbaddr);
 		regs = sii->curmap;
 		break;
@@ -587,7 +647,7 @@ _sb_setcoreidx(si_info_t *sii, uint coreidx)
 	}
 	case SPI_BUS:
 	case SDIO_BUS:
-		
+		/* map new one */
 		if (!sii->regs[coreidx]) {
 			sii->regs[coreidx] = (void *)(uintptr)sbaddr;
 			ASSERT(GOODREGS(sii->regs[coreidx]));
@@ -605,6 +665,7 @@ _sb_setcoreidx(si_info_t *sii, uint coreidx)
 	return regs;
 }
 
+/* Return the address of sbadmatch0/1/2/3 register */
 static volatile uint32 *
 sb_admatch(si_info_t *sii, uint asidx)
 {
@@ -638,6 +699,7 @@ sb_admatch(si_info_t *sii, uint asidx)
 	return (addrm);
 }
 
+/* Return the number of address spaces in current core */
 int
 sb_numaddrspaces(si_t *sih)
 {
@@ -647,10 +709,11 @@ sb_numaddrspaces(si_t *sih)
 	sii = SI_INFO(sih);
 	sb = REGS2SB(sii->curmap);
 
-	
+	/* + 1 because of enumeration space */
 	return ((R_SBREG(sii, &sb->sbidlow) & SBIDL_AR_MASK) >> SBIDL_AR_SHIFT) + 1;
 }
 
+/* Return the address of the nth address space in the current core */
 uint32
 sb_addrspace(si_t *sih, uint asidx)
 {
@@ -661,6 +724,7 @@ sb_addrspace(si_t *sih, uint asidx)
 	return (sb_base(R_SBREG(sii, sb_admatch(sii, asidx))));
 }
 
+/* Return the size of the nth address space in the current core */
 uint32
 sb_addrspacesize(si_t *sih, uint asidx)
 {
@@ -672,6 +736,7 @@ sb_addrspacesize(si_t *sih, uint asidx)
 }
 
 
+/* do buffered registers update */
 void
 sb_commit(si_t *sih)
 {
@@ -686,18 +751,18 @@ sb_commit(si_t *sih)
 
 	INTR_OFF(sii, intr_val);
 
-	
+	/* switch over to chipcommon core if there is one, else use pci */
 	if (sii->pub.ccrev != NOREV) {
 		chipcregs_t *ccregs = (chipcregs_t *)si_setcore(sih, CC_CORE_ID, 0);
 		ASSERT(ccregs != NULL);
 
-		
+		/* do the buffer registers update */
 		W_REG(sii->osh, &ccregs->broadcastaddress, SB_COMMIT);
 		W_REG(sii->osh, &ccregs->broadcastdata, 0x0);
 	} else
 		ASSERT(0);
 
-	
+	/* restore core index */
 	sb_setcoreidx(sih, origidx);
 	INTR_RESTORE(sii, intr_val);
 }
@@ -714,15 +779,15 @@ sb_core_disable(si_t *sih, uint32 bits)
 	ASSERT(GOODREGS(sii->curmap));
 	sb = REGS2SB(sii->curmap);
 
-	
+	/* if core is already in reset, just return */
 	if (R_SBREG(sii, &sb->sbtmstatelow) & SBTML_RESET)
 		return;
 
-	
+	/* if clocks are not enabled, put into reset and return */
 	if ((R_SBREG(sii, &sb->sbtmstatelow) & (SICF_CLOCK_EN << SBTML_SICF_SHIFT)) == 0)
 		goto disable;
 
-	
+	/* set target reject and spin until busy is clear (preserve core-specific bits) */
 	OR_SBREG(sii, &sb->sbtmstatelow, SBTML_REJ);
 	dummy = R_SBREG(sii, &sb->sbtmstatelow);
 	BCM_REFERENCE(dummy);
@@ -739,7 +804,7 @@ sb_core_disable(si_t *sih, uint32 bits)
 		SPINWAIT((R_SBREG(sii, &sb->sbimstate) & SBIM_BY), 100000);
 	}
 
-	
+	/* set reset and reject while enabling the clocks */
 	W_SBREG(sii, &sb->sbtmstatelow,
 	        (((bits | SICF_FGC | SICF_CLOCK_EN) << SBTML_SICF_SHIFT) |
 	         SBTML_REJ | SBTML_RESET));
@@ -747,16 +812,21 @@ sb_core_disable(si_t *sih, uint32 bits)
 	BCM_REFERENCE(dummy);
 	OSL_DELAY(10);
 
-	
+	/* don't forget to clear the initiator reject bit */
 	if (R_SBREG(sii, &sb->sbidlow) & SBIDL_INIT)
 		AND_SBREG(sii, &sb->sbimstate, ~SBIM_RJ);
 
 disable:
-	
+	/* leave reset and reject asserted */
 	W_SBREG(sii, &sb->sbtmstatelow, ((bits << SBTML_SICF_SHIFT) | SBTML_REJ | SBTML_RESET));
 	OSL_DELAY(1);
 }
 
+/* reset and re-enable a core
+ * inputs:
+ * bits - core specific bits that are set during and after reset sequence
+ * resetbits - core specific bits that are set only during reset sequence
+ */
 void
 sb_core_reset(si_t *sih, uint32 bits, uint32 resetbits)
 {
@@ -768,10 +838,16 @@ sb_core_reset(si_t *sih, uint32 bits, uint32 resetbits)
 	ASSERT(GOODREGS(sii->curmap));
 	sb = REGS2SB(sii->curmap);
 
+	/*
+	 * Must do the disable sequence first to work for arbitrary current core state.
+	 */
 	sb_core_disable(sih, (bits | resetbits));
 
+	/*
+	 * Now do the initialization sequence.
+	 */
 
-	
+	/* set reset while enabling the clock and forcing them on throughout the core */
 	W_SBREG(sii, &sb->sbtmstatelow,
 	        (((bits | resetbits | SICF_FGC | SICF_CLOCK_EN) << SBTML_SICF_SHIFT) |
 	         SBTML_RESET));
@@ -786,20 +862,41 @@ sb_core_reset(si_t *sih, uint32 bits, uint32 resetbits)
 		AND_SBREG(sii, &sb->sbimstate, ~(SBIM_IBE | SBIM_TO));
 	}
 
-	
+	/* clear reset and allow it to propagate throughout the core */
 	W_SBREG(sii, &sb->sbtmstatelow,
 	        ((bits | resetbits | SICF_FGC | SICF_CLOCK_EN) << SBTML_SICF_SHIFT));
 	dummy = R_SBREG(sii, &sb->sbtmstatelow);
 	BCM_REFERENCE(dummy);
 	OSL_DELAY(1);
 
-	
+	/* leave clock enabled */
 	W_SBREG(sii, &sb->sbtmstatelow, ((bits | SICF_CLOCK_EN) << SBTML_SICF_SHIFT));
 	dummy = R_SBREG(sii, &sb->sbtmstatelow);
 	BCM_REFERENCE(dummy);
 	OSL_DELAY(1);
 }
 
+/*
+ * Set the initiator timeout for the "master core".
+ * The master core is defined to be the core in control
+ * of the chip and so it issues accesses to non-memory
+ * locations (Because of dma *any* core can access memeory).
+ *
+ * The routine uses the bus to decide who is the master:
+ *	SI_BUS => mips
+ *	JTAG_BUS => chipc
+ *	PCI_BUS => pci or pcie
+ *	PCMCIA_BUS => pcmcia
+ *	SDIO_BUS => pcmcia
+ *
+ * This routine exists so callers can disable initiator
+ * timeouts so accesses to very slow devices like otp
+ * won't cause an abort. The routine allows arbitrary
+ * settings of the service and request timeouts, though.
+ *
+ * Returns the timeout state before changing it or -1
+ * on error.
+ */
 
 #define	TO_MASK	(SBIMCL_RTO_MASK | SBIMCL_STO_MASK)
 
@@ -817,7 +914,7 @@ sb_set_initiator_to(si_t *sih, uint32 to, uint idx)
 	if ((to & ~TO_MASK) != 0)
 		return ret;
 
-	
+	/* Figure out the master core */
 	if (idx == BADIDX) {
 		switch (BUSTYPE(sii->pub.bustype)) {
 		case PCI_BUS:
@@ -869,10 +966,10 @@ sb_base(uint32 admatch)
 	if (type == 0) {
 		base = admatch & SBAM_BASE0_MASK;
 	} else if (type == 1) {
-		ASSERT(!(admatch & SBAM_ADNEG));	
+		ASSERT(!(admatch & SBAM_ADNEG));	/* neg not supported */
 		base = admatch & SBAM_BASE1_MASK;
 	} else if (type == 2) {
-		ASSERT(!(admatch & SBAM_ADNEG));	
+		ASSERT(!(admatch & SBAM_ADNEG));	/* neg not supported */
 		base = admatch & SBAM_BASE2_MASK;
 	}
 
@@ -893,10 +990,10 @@ sb_size(uint32 admatch)
 	if (type == 0) {
 		size = 1 << (((admatch & SBAM_ADINT0_MASK) >> SBAM_ADINT0_SHIFT) + 1);
 	} else if (type == 1) {
-		ASSERT(!(admatch & SBAM_ADNEG));	
+		ASSERT(!(admatch & SBAM_ADNEG));	/* neg not supported */
 		size = 1 << (((admatch & SBAM_ADINT1_MASK) >> SBAM_ADINT1_SHIFT) + 1);
 	} else if (type == 2) {
-		ASSERT(!(admatch & SBAM_ADNEG));	
+		ASSERT(!(admatch & SBAM_ADNEG));	/* neg not supported */
 		size = 1 << (((admatch & SBAM_ADINT2_MASK) >> SBAM_ADINT2_SHIFT) + 1);
 	}
 

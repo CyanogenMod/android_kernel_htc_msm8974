@@ -65,6 +65,14 @@
 #include "squashfs.h"
 #include "xattr.h"
 
+/*
+ * Lookup name in the directory index, returning the location of the metadata
+ * block containing it, and the directory index this represents.
+ *
+ * If we get an error reading the index then return the part of the index
+ * (if any) we have managed to read - the index isn't essential, just
+ * quicker.
+ */
 static int get_dir_index_using_name(struct super_block *sb,
 			u64 *next_block, int *next_offset, u64 index_start,
 			int index_offset, int i_count, const char *name,
@@ -115,6 +123,12 @@ static int get_dir_index_using_name(struct super_block *sb,
 	kfree(index);
 
 out:
+	/*
+	 * Return index (f_pos) of the looked up metadata block.  Translate
+	 * from internal f_pos to external f_pos which is offset by 3 because
+	 * we invent "." and ".." entries which are not actually stored in the
+	 * directory.
+	 */
 	return length + 3;
 }
 
@@ -151,6 +165,9 @@ static struct dentry *squashfs_lookup(struct inode *dir, struct dentry *dentry,
 				squashfs_i(dir)->dir_idx_cnt, name, len);
 
 	while (length < i_size_read(dir)) {
+		/*
+		 * Read directory header.
+		 */
 		err = squashfs_read_metadata(dir->i_sb, &dirh, &block,
 				&offset, sizeof(dirh));
 		if (err < 0)
@@ -164,6 +181,9 @@ static struct dentry *squashfs_lookup(struct inode *dir, struct dentry *dentry,
 			goto data_error;
 
 		while (dir_count--) {
+			/*
+			 * Read directory entry.
+			 */
 			err = squashfs_read_metadata(dir->i_sb, dire, &block,
 					&offset, sizeof(*dire));
 			if (err < 0)
@@ -171,7 +191,7 @@ static struct dentry *squashfs_lookup(struct inode *dir, struct dentry *dentry,
 
 			size = le16_to_cpu(dire->size) + 1;
 
-			
+			/* size should never be larger than SQUASHFS_NAME_LEN */
 			if (size > SQUASHFS_NAME_LEN)
 				goto data_error;
 

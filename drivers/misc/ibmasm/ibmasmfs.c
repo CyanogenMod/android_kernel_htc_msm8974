@@ -21,8 +21,57 @@
  *
  */
 
+/*
+ * Parts of this code are based on an article by Jonathan Corbet
+ * that appeared in Linux Weekly News.
+ */
 
 
+/*
+ * The IBMASM file virtual filesystem. It creates the following hierarchy
+ * dynamically when mounted from user space:
+ *
+ *    /ibmasm
+ *    |-- 0
+ *    |   |-- command
+ *    |   |-- event
+ *    |   |-- reverse_heartbeat
+ *    |   `-- remote_video
+ *    |       |-- depth
+ *    |       |-- height
+ *    |       `-- width
+ *    .
+ *    .
+ *    .
+ *    `-- n
+ *        |-- command
+ *        |-- event
+ *        |-- reverse_heartbeat
+ *        `-- remote_video
+ *            |-- depth
+ *            |-- height
+ *            `-- width
+ *
+ * For each service processor the following files are created:
+ *
+ * command: execute dot commands
+ *	write: execute a dot command on the service processor
+ *	read: return the result of a previously executed dot command
+ *
+ * events: listen for service processor events
+ *	read: sleep (interruptible) until an event occurs
+ *      write: wakeup sleeping event listener
+ *
+ * reverse_heartbeat: send a heartbeat to the service processor
+ *	read: sleep (interruptible) until the reverse heartbeat fails
+ *      write: wakeup sleeping heartbeat listener
+ *
+ * remote_video/width
+ * remote_video/height
+ * remote_video/width: control remote display settings
+ *	write: set value
+ *	read: read value
+ */
 
 #include <linux/fs.h>
 #include <linux/pagemap.h>
@@ -165,17 +214,20 @@ void ibmasmfs_add_sp(struct service_processor *sp)
 	list_add(&sp->node, &service_processors);
 }
 
+/* struct to save state between command file operations */
 struct ibmasmfs_command_data {
 	struct service_processor	*sp;
 	struct command			*command;
 };
 
+/* struct to save state between event file operations */
 struct ibmasmfs_event_data {
 	struct service_processor	*sp;
 	struct event_reader		reader;
 	int				active;
 };
 
+/* struct to save state between reverse heartbeat file operations */
 struct ibmasmfs_heartbeat_data {
 	struct service_processor	*sp;
 	struct reverse_heartbeat	heartbeat;
@@ -260,7 +312,7 @@ static ssize_t command_file_write(struct file *file, const char __user *ubuff, s
 	if (*offset != 0)
 		return 0;
 
-	
+	/* commands are executed sequentially, only one command at a time */
 	if (command_data->command)
 		return -EAGAIN;
 
@@ -416,7 +468,7 @@ static ssize_t r_heartbeat_file_read(struct file *file, char __user *buf, size_t
 	if (*offset != 0)
 		return 0;
 
-	
+	/* allow only one reverse heartbeat per process */
 	spin_lock_irqsave(&rhbeat->sp->lock, flags);
 	if (rhbeat->active) {
 		spin_unlock_irqrestore(&rhbeat->sp->lock, flags);

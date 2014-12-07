@@ -18,8 +18,17 @@
 
 #define GDA_MAGIC	0x58464552
 
+/*
+ * GDA Version History
+ *
+ * Version #	| Change
+ * -------------+-------------------------------------------------------
+ * 	1	| Initial SN0 version
+ * 	2	| Prom sets g_partid field to the partition number. 0 IS
+ *		| a valid partition #.
+ */
 
-#define GDA_VERSION	2	
+#define GDA_VERSION	2	/* Current GDA version # */
 
 #define G_MAGICOFF	0
 #define G_VERSIONOFF	4
@@ -35,28 +44,41 @@
 #ifndef __ASSEMBLY__
 
 typedef struct gda {
-	u32	g_magic;	
-	u16	g_version;	
-	u16	g_masterid;	
-	u32	g_promop;	
-	u32	g_vds;		
-	void	**g_hooked_norm;
-	void	**g_hooked_utlb;
-	void	**g_hooked_xtlb;
-	int	g_partid;	
-	int	g_symmax;	
-	void	*g_dbstab;	
-	char	*g_nametab;	
+	u32	g_magic;	/* GDA magic number */
+	u16	g_version;	/* Version of this structure */
+	u16	g_masterid;	/* The NASID:CPUNUM of the master cpu */
+	u32	g_promop;	/* Passes requests from the kernel to prom */
+	u32	g_vds;		/* Store the virtual dipswitches here */
+	void	**g_hooked_norm;/* ptr to pda loc for norm hndlr */
+	void	**g_hooked_utlb;/* ptr to pda loc for utlb hndlr */
+	void	**g_hooked_xtlb;/* ptr to pda loc for xtlb hndlr */
+	int	g_partid;	/* partition id */
+	int	g_symmax;	/* Max symbols in name table. */
+	void	*g_dbstab;	/* Address of idbg symbol table */
+	char	*g_nametab;	/* Address of idbg name table */
 	void	*g_ktext_repmask;
-	char	g_padding[56];	
-	nasid_t	g_nasidtable[MAX_COMPACT_NODES]; 
+				/* Pointer to a mask of nodes with copies
+				 * of the kernel. */
+	char	g_padding[56];	/* pad out to 128 bytes */
+	nasid_t	g_nasidtable[MAX_COMPACT_NODES]; /* NASID of each node,
+						  * indexed by cnodeid.
+						  */
 } gda_t;
 
 #define GDA ((gda_t*) GDA_ADDR(get_nasid()))
 
-#endif 
+#endif /* !__ASSEMBLY__ */
+/*
+ * Define:	PART_GDA_VERSION
+ * Purpose:	Define the minimum version of the GDA required, lower
+ *		revisions assume GDA is NOT set up, and read partition
+ *		information from the board info.
+ */
 #define	PART_GDA_VERSION	2
 
+/*
+ * The following requests can be sent to the PROM during startup.
+ */
 
 #define PROMOP_MAGIC		0x0ead0000
 #define PROMOP_MAGIC_MASK	0x0fff0000
@@ -76,10 +98,10 @@ typedef struct gda {
 #define PROMOP_CMD_MASK		0x00f0
 #define PROMOP_OPTIONS_MASK	0xfff0
 
-#define PROMOP_SKIP_DIAGS	0x0100		
-#define PROMOP_SKIP_MEMINIT	0x0200		
-#define PROMOP_SKIP_DEVINIT	0x0400		
-#define PROMOP_BIST1		0x0800		
-#define PROMOP_BIST2		0x1000		
+#define PROMOP_SKIP_DIAGS	0x0100		/* don't bother running diags */
+#define PROMOP_SKIP_MEMINIT	0x0200		/* don't bother initing memory */
+#define PROMOP_SKIP_DEVINIT	0x0400		/* don't bother initing devices */
+#define PROMOP_BIST1		0x0800		/* keep track of which BIST ran */
+#define PROMOP_BIST2		0x1000		/* keep track of which BIST ran */
 
-#endif 
+#endif /* _ASM_SN_GDA_H */

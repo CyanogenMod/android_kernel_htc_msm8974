@@ -48,7 +48,7 @@ struct i1480_usb {
 	struct i1480 i1480;
 	struct usb_device *usb_dev;
 	struct usb_interface *usb_iface;
-	struct urb *neep_urb;	
+	struct urb *neep_urb;	/* URB for reading from EP1 */
 };
 
 
@@ -65,9 +65,9 @@ int i1480_usb_create(struct i1480_usb *i1480_usb, struct usb_interface *iface)
 	struct usb_device *usb_dev = interface_to_usbdev(iface);
 	int result = -ENOMEM;
 
-	i1480_usb->usb_dev = usb_get_dev(usb_dev);	
+	i1480_usb->usb_dev = usb_get_dev(usb_dev);	/* bind the USB device */
 	i1480_usb->usb_iface = usb_get_intf(iface);
-	usb_set_intfdata(iface, i1480_usb);		
+	usb_set_intfdata(iface, i1480_usb);		/* Bind the driver to iface0 */
 	i1480_usb->neep_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (i1480_usb->neep_urb == NULL)
 		goto error;
@@ -92,6 +92,20 @@ void i1480_usb_destroy(struct i1480_usb *i1480_usb)
 }
 
 
+/**
+ * Write a buffer to a memory address in the i1480 device
+ *
+ * @i1480:  i1480 instance
+ * @memory_address:
+ *          Address where to write the data buffer to.
+ * @buffer: Buffer to the data
+ * @size:   Size of the buffer [has to be < 512].
+ * @returns: 0 if ok, < 0 errno code on error.
+ *
+ * Data buffers to USB cannot be on the stack or in vmalloc'ed areas,
+ * so we copy it to the local i1480 buffer before proceeding. In any
+ * case, we have a max size we can send.
+ */
 static
 int i1480_usb_write(struct i1480 *i1480, u32 memory_address,
 		    const void *buffer, size_t size)
@@ -100,7 +114,7 @@ int i1480_usb_write(struct i1480 *i1480, u32 memory_address,
 	struct i1480_usb *i1480_usb = container_of(i1480, struct i1480_usb, i1480);
 	size_t buffer_size, itr = 0;
 
-	BUG_ON(size & 0x3); 
+	BUG_ON(size & 0x3); /* Needs to be a multiple of 4 */
 	while (size > 0) {
 		buffer_size = size < i1480->buf_size ? size : i1480->buf_size;
 		memcpy(i1480->cmd_buf, buffer + itr, buffer_size);
@@ -108,7 +122,7 @@ int i1480_usb_write(struct i1480 *i1480, u32 memory_address,
 			i1480_usb->usb_dev, usb_sndctrlpipe(i1480_usb->usb_dev, 0),
 			0xf0, USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 			memory_address,	(memory_address >> 16),
-			i1480->cmd_buf, buffer_size, 100 );
+			i1480->cmd_buf, buffer_size, 100 /* FIXME: arbitrary */);
 		if (result < 0)
 			break;
 		itr += result;
@@ -140,10 +154,10 @@ int i1480_usb_read(struct i1480 *i1480, u32 addr, size_t size)
 	struct i1480_usb *i1480_usb = container_of(i1480, struct i1480_usb, i1480);
 
 	BUG_ON(size > i1480->buf_size);
-	BUG_ON(size & 0x3); 
+	BUG_ON(size & 0x3); /* Needs to be a multiple of 4 */
 	BUG_ON(read_size > 512);
 
-	if (addr >= 0x8000d200 && addr < 0x8000d400)	
+	if (addr >= 0x8000d200 && addr < 0x8000d400)	/* Yeah, HW quirk */
 		read_size = 4;
 
 	for (itr = 0; itr < size; itr += read_size) {
@@ -154,7 +168,7 @@ int i1480_usb_read(struct i1480 *i1480, u32 addr, size_t size)
 			0xf0, USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 			itr_addr, (itr_addr >> 16),
 			i1480->cmd_buf + itr, itr_size,
-			100 );
+			100 /* FIXME: arbitrary */);
 		if (result < 0) {
 			dev_err(i1480->dev, "%s: USB read error: %zd\n",
 				__func__, result);
@@ -175,6 +189,11 @@ out:
 }
 
 
+/**
+ * Callback for reads on the notification/event endpoint
+ *
+ * Just enables the completion read handler.
+ */
 static
 void i1480_usb_neep_cb(struct urb *urb)
 {
@@ -184,11 +203,11 @@ void i1480_usb_neep_cb(struct urb *urb)
 	switch (urb->status) {
 	case 0:
 		break;
-	case -ECONNRESET:	
-	case -ENOENT:		
+	case -ECONNRESET:	/* Not an error, but a controlled situation; */
+	case -ENOENT:		/* (we killed the URB)...so, no broadcast */
 		dev_dbg(dev, "NEEP: reset/noent %d\n", urb->status);
 		break;
-	case -ESHUTDOWN:	
+	case -ESHUTDOWN:	/* going away! */
 		dev_dbg(dev, "NEEP: down %d\n", urb->status);
 		break;
 	default:
@@ -201,6 +220,18 @@ void i1480_usb_neep_cb(struct urb *urb)
 }
 
 
+/**
+ * Wait for the MAC FW to initialize
+ *
+ * MAC FW sends a 0xfd/0101/00 notification to EP1 when done
+ * initializing. Get that notification into i1480->evt_buf; upper layer
+ * will verify it.
+ *
+ * Set i1480->evt_result with the result of getting the event or its
+ * size (if successful).
+ *
+ * Delivers the data directly to i1480->evt_buf
+ */
 static
 int i1480_usb_wait_init_done(struct i1480 *i1480)
 {
@@ -222,7 +253,7 @@ int i1480_usb_wait_init_done(struct i1480 *i1480)
 			result);
 		goto error_submit;
 	}
-	
+	/* Wait for the USB callback to get the data */
 	result = wait_for_completion_interruptible_timeout(
 		&i1480->evt_complete, HZ);
 	if (result <= 0) {
@@ -240,6 +271,22 @@ error_submit:
 }
 
 
+/**
+ * Generic function for issuing commands to the i1480
+ *
+ * @i1480:      i1480 instance
+ * @cmd_name:   Name of the command (for error messages)
+ * @cmd:        Pointer to command buffer
+ * @cmd_size:   Size of the command buffer
+ * @reply:      Buffer for the reply event
+ * @reply_size: Expected size back (including RCEB); the reply buffer
+ *              is assumed to be as big as this.
+ * @returns:    >= 0 size of the returned event data if ok,
+ *              < 0 errno code on error.
+ *
+ * Arms the NE handle, issues the command to the device and checks the
+ * basics of the reply event.
+ */
 static
 int i1480_usb_cmd(struct i1480 *i1480, const char *cmd_name, size_t cmd_size)
 {
@@ -250,7 +297,7 @@ int i1480_usb_cmd(struct i1480 *i1480, const char *cmd_name, size_t cmd_size)
 	struct uwb_rccb *cmd = i1480->cmd_buf;
 	u8 iface_no;
 
-	
+	/* Post a read on the notification & event endpoint */
 	iface_no = i1480_usb->usb_iface->cur_altsetting->desc.bInterfaceNumber;
 	epd = &i1480_usb->usb_iface->cur_altsetting->endpoint[0].desc;
 	usb_fill_int_urb(
@@ -264,14 +311,14 @@ int i1480_usb_cmd(struct i1480 *i1480, const char *cmd_name, size_t cmd_size)
 			cmd_name, result);
 			goto error_submit_ep1;
 	}
-	
+	/* Now post the command on EP0 */
 	result = usb_control_msg(
 		i1480_usb->usb_dev, usb_sndctrlpipe(i1480_usb->usb_dev, 0),
 		WA_EXEC_RC_CMD,
 		USB_DIR_OUT | USB_RECIP_INTERFACE | USB_TYPE_CLASS,
 		0, iface_no,
 		cmd, cmd_size,
-		100 );
+		100 /* FIXME: this is totally arbitrary */);
 	if (result < 0) {
 		dev_err(dev, "%s: control request failed: %d\n",
 			cmd_name, result);
@@ -286,6 +333,11 @@ error_submit_ep1:
 }
 
 
+/*
+ * Probe a i1480 device for uploading firmware.
+ *
+ * We attach only to interface #0, which is the radio control interface.
+ */
 static
 int i1480_usb_probe(struct usb_interface *iface, const struct usb_device_id *id)
 {
@@ -302,7 +354,7 @@ int i1480_usb_probe(struct usb_interface *iface, const struct usb_device_id *id)
 	}
 	if (iface->num_altsetting > 1
 	    && interface_to_usbdev(iface)->descriptor.idProduct == 0xbabe) {
-		
+		/* Need altsetting #1 [HW QUIRK] or EP1 won't work */
 		result = usb_set_interface(interface_to_usbdev(iface), 0, 1);
 		if (result < 0)
 			dev_warn(dev,
@@ -334,7 +386,7 @@ int i1480_usb_probe(struct usb_interface *iface, const struct usb_device_id *id)
 		goto error_create;
 	}
 
-	
+	/* setup the fops and upload the firmware */
 	i1480->pre_fw_name = "i1480-pre-phy-0.0.bin";
 	i1480->mac_fw_name = "i1480-usb-0.0.bin";
 	i1480->mac_fw_name_deprecate = "ptc-0.0.bin";
@@ -346,10 +398,10 @@ int i1480_usb_probe(struct usb_interface *iface, const struct usb_device_id *id)
 	i1480->wait_init_done = i1480_usb_wait_init_done;
 	i1480->cmd = i1480_usb_cmd;
 
-	result = i1480_fw_upload(&i1480_usb->i1480);	
+	result = i1480_fw_upload(&i1480_usb->i1480);	/* the real thing */
 	if (result >= 0) {
 		usb_reset_device(i1480_usb->usb_dev);
-		result = -ENODEV;	
+		result = -ENODEV;	/* we don't want to bind to the iface */
 	}
 	i1480_usb_destroy(i1480_usb);
 error_create:
@@ -380,6 +432,7 @@ MODULE_FIRMWARE("i1480-phy-0.0.bin");
 }
 
 
+/** USB device ID's that we handle */
 static const struct usb_device_id i1480_usb_id_table[] = {
 	i1480_USB_DEV(0x8086, 0xdf3b),
 	i1480_USB_DEV(0x15a9, 0x0005),

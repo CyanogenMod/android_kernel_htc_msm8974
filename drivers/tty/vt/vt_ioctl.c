@@ -41,6 +41,18 @@ extern struct tty_driver *console_driver;
 #define VT_IS_IN_USE(i)	(console_driver->ttys[i] && console_driver->ttys[i]->count)
 #define VT_BUSY(i)	(VT_IS_IN_USE(i) || i == fg_console || vc_cons[i].d == sel_cons)
 
+/*
+ * Console (vt and kd) routines, as defined by USL SVR4 manual, and by
+ * experimentation and study of X386 SYSV handling.
+ *
+ * One point of difference: SYSV vt's are /dev/vtX, which X >= 0, and
+ * /dev/console is a separate ttyp. Under Linux, /dev/tty0 is /dev/console,
+ * and the vc start at /dev/ttyX, X >= 1. We maintain that here, so we will
+ * always treat our set of vt as numbered 1..MAX_NR_CONSOLES (corresponding to
+ * ttys 0..MAX_NR_CONSOLES-1). Explicitly naming VT 0 is illegal, but using
+ * /dev/tty0 (fg_console) as a target is legal, since an implicit aliasing
+ * to the current console is done by the main ioctl code.
+ */
 
 #ifdef CONFIG_X86
 #include <linux/syscalls.h>
@@ -48,6 +60,9 @@ extern struct tty_driver *console_driver;
 
 static void complete_change_console(struct vc_data *vc);
 
+/*
+ *	User space VT_EVENT handlers
+ */
 
 struct vt_event_wait {
 	struct list_head list;
@@ -59,6 +74,14 @@ static LIST_HEAD(vt_events);
 static DEFINE_SPINLOCK(vt_event_lock);
 static DECLARE_WAIT_QUEUE_HEAD(vt_event_waitqueue);
 
+/**
+ *	vt_event_post
+ *	@event: the event that occurred
+ *	@old: old console
+ *	@new: new console
+ *
+ *	Post an VT event to interested VT handlers
+ */
 
 void vt_event_post(unsigned int event, unsigned int old, unsigned int new)
 {
@@ -75,6 +98,8 @@ void vt_event_post(unsigned int event, unsigned int old, unsigned int new)
 		if (!(ve->event.event & event))
 			continue;
 		ve->event.event = event;
+		/* kernel view is consoles 0..n-1, user space view is
+		   console 1..n with 0 meaning current, so we must bias */
 		ve->event.oldev = old + 1;
 		ve->event.newev = new + 1;
 		wake = 1;
@@ -88,10 +113,10 @@ void vt_event_post(unsigned int event, unsigned int old, unsigned int new)
 static void __vt_event_queue(struct vt_event_wait *vw)
 {
 	unsigned long flags;
-	
+	/* Prepare the event */
 	INIT_LIST_HEAD(&vw->list);
 	vw->done = 0;
-	
+	/* Queue our event */
 	spin_lock_irqsave(&vt_event_lock, flags);
 	list_add(&vw->list, &vt_events);
 	spin_unlock_irqrestore(&vt_event_lock, flags);
@@ -99,7 +124,7 @@ static void __vt_event_queue(struct vt_event_wait *vw)
 
 static void __vt_event_wait(struct vt_event_wait *vw)
 {
-	
+	/* Wait for it to pass */
 	wait_event_interruptible(vt_event_waitqueue, vw->done);
 }
 
@@ -107,12 +132,20 @@ static void __vt_event_dequeue(struct vt_event_wait *vw)
 {
 	unsigned long flags;
 
-	
+	/* Dequeue it */
 	spin_lock_irqsave(&vt_event_lock, flags);
 	list_del(&vw->list);
 	spin_unlock_irqrestore(&vt_event_lock, flags);
 }
 
+/**
+ *	vt_event_wait		-	wait for an event
+ *	@vw: our event
+ *
+ *	Waits for an event to occur which completes our vt_event_wait
+ *	structure. On return the structure has wv->done set to 1 for success
+ *	or 0 if some event such as a signal ended the wait.
+ */
 
 static void vt_event_wait(struct vt_event_wait *vw)
 {
@@ -121,6 +154,12 @@ static void vt_event_wait(struct vt_event_wait *vw)
 	__vt_event_dequeue(vw);
 }
 
+/**
+ *	vt_event_wait_ioctl	-	event ioctl handler
+ *	@arg: argument to ioctl
+ *
+ *	Implement the VT_WAITEVENT ioctl using the VT event interface
+ */
 
 static int vt_event_wait_ioctl(struct vt_event __user *event)
 {
@@ -128,12 +167,12 @@ static int vt_event_wait_ioctl(struct vt_event __user *event)
 
 	if (copy_from_user(&vw.event, event, sizeof(struct vt_event)))
 		return -EFAULT;
-	
+	/* Highest supported event for now */
 	if (vw.event.event & ~VT_MAX_EVENT)
 		return -EINVAL;
 
 	vt_event_wait(&vw);
-	
+	/* If it occurred report it */
 	if (vw.done) {
 		if (copy_to_user(event, &vw.event, sizeof(struct vt_event)))
 			return -EFAULT;
@@ -142,6 +181,14 @@ static int vt_event_wait_ioctl(struct vt_event __user *event)
 	return -EINTR;
 }
 
+/**
+ *	vt_waitactive	-	active console wait
+ *	@event: event code
+ *	@n: new console
+ *
+ *	Helper for event waits. Used to implement the legacy
+ *	event waiting ioctls in terms of events
+ */
 
 int vt_waitactive(int n)
 {
@@ -161,6 +208,10 @@ int vt_waitactive(int n)
 	return 0;
 }
 
+/*
+ * these are the valid i/o ports we're allowed to change. they map all the
+ * video ports
+ */
 #define GPFIRST 0x3b4
 #define GPLAST 0x3df
 #define GPNUM (GPLAST - GPFIRST + 1)
@@ -233,11 +284,15 @@ do_unimap_ioctl(int cmd, struct unimapdesc __user *user_ud, int perm, struct vc_
 
 
 
+/*
+ * We handle the console-specific ioctl's here.  We allow the
+ * capability to modify any console, not just the fg_console. 
+ */
 int vt_ioctl(struct tty_struct *tty,
 	     unsigned int cmd, unsigned long arg)
 {
 	struct vc_data *vc = tty->driver_data;
-	struct console_font_op op;	
+	struct console_font_op op;	/* used in multiple places here */
 	unsigned int console;
 	unsigned char ucval;
 	unsigned int uival;
@@ -248,12 +303,16 @@ int vt_ioctl(struct tty_struct *tty,
 	console = vc->vc_num;
 
 
-	if (!vc_cons_allocated(console)) { 	
+	if (!vc_cons_allocated(console)) { 	/* impossible? */
 		ret = -ENOIOCTLCMD;
 		goto out;
 	}
 
 
+	/*
+	 * To have permissions to do most of the vt ioctls, we either have
+	 * to be the owner of the tty, or have CAP_SYS_TTY_CONFIG.
+	 */
 	perm = 0;
 	if (current->signal->tty == tty || capable(CAP_SYS_TTY_CONFIG))
 		perm = 1;
@@ -265,6 +324,12 @@ int vt_ioctl(struct tty_struct *tty,
 	case KIOCSOUND:
 		if (!perm)
 			return -EPERM;
+		/*
+		 * The use of PIT_TICK_RATE is historic, it used to be
+		 * the platform-dependent CLOCK_TICK_RATE between 2.6.12
+		 * and 2.6.36, which was a minor but unfortunate ABI
+		 * change. kd_mksound is locked by the input layer.
+		 */
 		if (arg)
 			arg = PIT_TICK_RATE / arg;
 		kd_mksound(arg, 0);
@@ -276,6 +341,10 @@ int vt_ioctl(struct tty_struct *tty,
 	{
 		unsigned int ticks, count;
 		
+		/*
+		 * Generate the tone for the appropriate number of ticks.
+		 * If the time is zero, turn off sound ourselves.
+		 */
 		ticks = HZ * ((arg >> 16) & 0xffff) / 1000;
 		count = ticks ? (arg & 0xffff) : 0;
 		if (count)
@@ -285,13 +354,28 @@ int vt_ioctl(struct tty_struct *tty,
 	}
 
 	case KDGKBTYPE:
+		/*
+		 * this is naïve.
+		 */
 		ucval = KB_101;
 		ret = put_user(ucval, (char __user *)arg);
 		break;
 
+		/*
+		 * These cannot be implemented on any machine that implements
+		 * ioperm() in user level (such as Alpha PCs) or not at all.
+		 *
+		 * XXX: you should never use these, just call ioperm directly..
+		 */
 #ifdef CONFIG_X86
 	case KDADDIO:
 	case KDDELIO:
+		/*
+		 * KDADDIO and KDDELIO may be able to add ports beyond what
+		 * we reject here, but to be safe...
+		 *
+		 * These are locked internally via sys_ioperm
+		 */
 		if (arg < GPFIRST || arg > GPLAST) {
 			ret = -EINVAL;
 			break;
@@ -306,7 +390,7 @@ int vt_ioctl(struct tty_struct *tty,
 		break;
 #endif
 
-	
+	/* Linux m68k/i386 interface for setting the keyboard delay/repeat rate */
 		
 	case KDKBDREP:
 	{
@@ -328,6 +412,14 @@ int vt_ioctl(struct tty_struct *tty,
 	}
 
 	case KDSETMODE:
+		/*
+		 * currently, setting the mode from KD_TEXT to KD_GRAPHICS
+		 * doesn't do a whole lot. i'm not sure if it should do any
+		 * restoration of modes or what...
+		 *
+		 * XXX It should at least call into the driver, fbdev's definitely
+		 * need to restore their engine state. --BenH
+		 */
 		if (!perm)
 			return -EPERM;
 		switch (arg) {
@@ -342,12 +434,15 @@ int vt_ioctl(struct tty_struct *tty,
 			ret = -EINVAL;
 			goto out;
 		}
-		
+		/* FIXME: this needs the console lock extending */
 		if (vc->vc_mode == (unsigned char) arg)
 			break;
 		vc->vc_mode = (unsigned char) arg;
 		if (console != fg_console)
 			break;
+		/*
+		 * explicitly blank/unblank the screen if switching modes
+		 */
 		console_lock();
 		if (arg == KD_TEXT)
 			do_unblank_screen(1);
@@ -362,6 +457,10 @@ int vt_ioctl(struct tty_struct *tty,
 
 	case KDMAPDISP:
 	case KDUNMAPDISP:
+		/*
+		 * these work like a combination of mmap and KDENABIO.
+		 * this could be easily finished.
+		 */
 		ret = -EINVAL;
 		break;
 
@@ -378,12 +477,14 @@ int vt_ioctl(struct tty_struct *tty,
 		ret = put_user(uival, (int __user *)arg);
 		break;
 
+	/* this could be folded into KDSKBMODE, but for compatibility
+	   reasons it is not so easy to fold KDGKBMETA into KDGKBMODE */
 	case KDSKBMETA:
 		ret = vt_do_kdskbmeta(console, arg);
 		break;
 
 	case KDGKBMETA:
-		
+		/* FIXME: should review whether this is worth locking */
 		uival = vt_do_kdgkbmeta(console);
 	setint:
 		ret = put_user(uival, (int __user *)arg);
@@ -406,6 +507,8 @@ int vt_ioctl(struct tty_struct *tty,
 		ret = vt_do_kdgkb_ioctl(cmd, up, perm);
 		break;
 
+	/* Diacritical processing. Handled in keyboard.c as it has
+	   to operate on the keyboard locks and structures */
 	case KDGKBDIACR:
 	case KDGKBDIACRUC:
 	case KDSKBDIACR:
@@ -413,8 +516,8 @@ int vt_ioctl(struct tty_struct *tty,
 		ret = vt_do_diacrit(cmd, up, perm);
 		break;
 
-	
-	
+	/* the ioctls below read/set the flags usually shown in the leds */
+	/* don't use them - they will go away without warning */
 	case KDGKBLED:
 	case KDSKBLED:
 	case KDGETLED:
@@ -422,6 +525,13 @@ int vt_ioctl(struct tty_struct *tty,
 		ret = vt_do_kdskled(console, cmd, arg, perm);
 		break;
 
+	/*
+	 * A process can indicate its willingness to accept signals
+	 * generated by pressing an appropriate key combination.
+	 * Thus, one can have a daemon that e.g. spawns a new console
+	 * upon a keypress and then changes to it.
+	 * See also the kbrequest field of inittab(5).
+	 */
 	case KDSIGACCEPT:
 	{
 		if (!perm || !capable(CAP_KILL))
@@ -454,11 +564,11 @@ int vt_ioctl(struct tty_struct *tty,
 		}
 		console_lock();
 		vc->vt_mode = tmp;
-		
+		/* the frsig is ignored, so we set it to 0 */
 		vc->vt_mode.frsig = 0;
 		put_pid(vc->vt_pid);
 		vc->vt_pid = get_pid(task_pid(current));
-		
+		/* no switch is required -- saw@shade.msu.ru */
 		vc->vt_newvt = -1;
 		console_unlock();
 		break;
@@ -479,16 +589,21 @@ int vt_ioctl(struct tty_struct *tty,
 		break;
 	}
 
+	/*
+	 * Returns global vt state. Note that VT 0 is always open, since
+	 * it's an alias for the current VT, and people can't use it here.
+	 * We cannot return state for more than 16 VTs, since v_state is short.
+	 */
 	case VT_GETSTATE:
 	{
 		struct vt_stat __user *vtstat = up;
 		unsigned short state, mask;
 
-		
+		/* Review: FIXME: Console lock ? */
 		if (put_user(fg_console + 1, &vtstat->v_active))
 			ret = -EFAULT;
 		else {
-			state = 1;	
+			state = 1;	/* /dev/tty0 is always open */
 			for (i = 0, mask = 2; i < MAX_NR_CONSOLES && mask;
 							++i, mask <<= 1)
 				if (VT_IS_IN_USE(i))
@@ -498,14 +613,22 @@ int vt_ioctl(struct tty_struct *tty,
 		break;
 	}
 
+	/*
+	 * Returns the first available (non-opened) console.
+	 */
 	case VT_OPENQRY:
-		
+		/* FIXME: locking ? - but then this is a stupid API */
 		for (i = 0; i < MAX_NR_CONSOLES; ++i)
 			if (! VT_IS_IN_USE(i))
 				break;
 		uival = i < MAX_NR_CONSOLES ? (i+1) : -1;
 		goto setint;		 
 
+	/*
+	 * ioctl(fd, VT_ACTIVATE, num) will cause us to switch to vt # num,
+	 * with num >= 1 (switches to vt 0, our console, are not allowed, just
+	 * to preserve sanity).
+	 */
 	case VT_ACTIVATE:
 		if (!perm)
 			return -EPERM;
@@ -542,6 +665,9 @@ int vt_ioctl(struct tty_struct *tty,
 			ret = vc_allocate(vsa.console);
 			if (ret == 0) {
 				struct vc_data *nvc;
+				/* This is safe providing we don't drop the
+				   console sem between vc_allocate and
+				   finishing referencing nvc */
 				nvc = vc_cons[vsa.console].d;
 				nvc->vt_mode = vsa.mode;
 				nvc->vt_mode.frsig = 0;
@@ -551,13 +677,16 @@ int vt_ioctl(struct tty_struct *tty,
 			console_unlock();
 			if (ret)
 				break;
-			
-			
+			/* Commence switch and lock */
+			/* Review set_console locks */
 			set_console(vsa.console);
 		}
 		break;
 	}
 
+	/*
+	 * wait until the specified VT has been activated
+	 */
 	case VT_WAITACTIVE:
 		if (!perm)
 			return -EPERM;
@@ -567,6 +696,16 @@ int vt_ioctl(struct tty_struct *tty,
 			ret = vt_waitactive(arg);
 		break;
 
+	/*
+	 * If a vt is under process control, the kernel will not switch to it
+	 * immediately, but postpone the operation until the process calls this
+	 * ioctl, allowing the switch to complete.
+	 *
+	 * According to the X sources this is the behavior:
+	 *	0:	pending switch-from not OK
+	 *	1:	pending switch-from OK
+	 *	2:	completed switch-to OK
+	 */
 	case VT_RELDISP:
 		if (!perm)
 			return -EPERM;
@@ -577,11 +716,22 @@ int vt_ioctl(struct tty_struct *tty,
 			ret = -EINVAL;
 			break;
 		}
+		/*
+		 * Switching-from response
+		 */
 		if (vc->vt_newvt >= 0) {
 			if (arg == 0)
+				/*
+				 * Switch disallowed, so forget we were trying
+				 * to do it.
+				 */
 				vc->vt_newvt = -1;
 
 			else {
+				/*
+				 * The current vt has been released, so
+				 * complete the switch.
+				 */
 				int newvt;
 				newvt = vc->vt_newvt;
 				vc->vt_newvt = -1;
@@ -590,33 +740,47 @@ int vt_ioctl(struct tty_struct *tty,
 					console_unlock();
 					break;
 				}
+				/*
+				 * When we actually do the console switch,
+				 * make sure we are atomic with respect to
+				 * other console switches..
+				 */
 				complete_change_console(vc_cons[newvt].d);
 			}
 		} else {
+			/*
+			 * Switched-to response
+			 */
+			/*
+			 * If it's just an ACK, ignore it
+			 */
 			if (arg != VT_ACKACQ)
 				ret = -EINVAL;
 		}
 		console_unlock();
 		break;
 
+	 /*
+	  * Disallocate memory associated to VT (but leave VT1)
+	  */
 	 case VT_DISALLOCATE:
 		if (arg > MAX_NR_CONSOLES) {
 			ret = -ENXIO;
 			break;
 		}
 		if (arg == 0) {
-		    
+		    /* deallocate all unused consoles, but leave 0 */
 			console_lock();
 			for (i=1; i<MAX_NR_CONSOLES; i++)
 				if (! VT_BUSY(i))
 					vc_deallocate(i);
 			console_unlock();
 		} else {
-			
+			/* deallocate a single console, if possible */
 			arg--;
 			if (VT_BUSY(arg))
 				ret = -EBUSY;
-			else if (arg) {			      
+			else if (arg) {			      /* leave 0 */
 				console_lock();
 				vc_deallocate(arg);
 				console_unlock();
@@ -642,7 +806,7 @@ int vt_ioctl(struct tty_struct *tty,
 
 				if (vc) {
 					vc->vc_resize_user = 1;
-					
+					/* FIXME: review v tty lock */
 					vc_resize(vc_cons[i].d, cc, ll);
 				}
 			}
@@ -662,7 +826,7 @@ int vt_ioctl(struct tty_struct *tty,
 			ret = -EFAULT;
 			break;
 		}
-		
+		/* FIXME: Should check the copies properly */
 		__get_user(ll, &vtconsize->v_rows);
 		__get_user(cc, &vtconsize->v_cols);
 		__get_user(vlin, &vtconsize->v_vlin);
@@ -673,7 +837,7 @@ int vt_ioctl(struct tty_struct *tty,
 		if (clin) {
 			if (ll) {
 				if (ll != vlin/clin) {
-					
+					/* Parameters don't add up */
 					ret = -EINVAL;
 					break;
 				}
@@ -714,7 +878,7 @@ int vt_ioctl(struct tty_struct *tty,
 		if (!perm)
 			return -EPERM;
 		op.op = KD_FONT_OP_SET;
-		op.flags = KD_FONT_FLAG_OLD | KD_FONT_FLAG_DONT_RECALC;	
+		op.flags = KD_FONT_FLAG_OLD | KD_FONT_FLAG_DONT_RECALC;	/* Compatibility */
 		op.width = 8;
 		op.height = 0;
 		op.charcount = 256;
@@ -756,6 +920,8 @@ int vt_ioctl(struct tty_struct *tty,
 			return -EPERM;
 
 #ifdef BROKEN_GRAPHICS_PROGRAMS
+		/* With BROKEN_GRAPHICS_PROGRAMS defined, the default
+		   font is not saved. */
 		ret = -ENOSYS;
 		break;
 #else
@@ -876,7 +1042,7 @@ void reset_vc(struct vc_data *vc)
 	put_pid(vc->vt_pid);
 	vc->vt_pid = NULL;
 	vc->vt_newvt = -1;
-	if (!in_interrupt())    
+	if (!in_interrupt())    /* Via keyboard.c:SAK() - akpm */
 		reset_palette(vc);
 }
 
@@ -890,8 +1056,12 @@ void vc_SAK(struct work_struct *work)
 	console_lock();
 	vc = vc_con->d;
 	if (vc) {
-		
+		/* FIXME: review tty ref counting */
 		tty = vc->port.tty;
+		/*
+		 * SAK should also work in all raw modes and reset
+		 * them properly.
+		 */
 		if (tty)
 			__do_SAK(tty);
 		reset_vc(vc);
@@ -902,9 +1072,9 @@ void vc_SAK(struct work_struct *work)
 #ifdef CONFIG_COMPAT
 
 struct compat_consolefontdesc {
-	unsigned short charcount;       
-	unsigned short charheight;      
-	compat_caddr_t chardata;	
+	unsigned short charcount;       /* characters in font (256 or 512) */
+	unsigned short charheight;      /* scan lines per character (1-32) */
+	compat_caddr_t chardata;	/* font data in expanded form */
 };
 
 static inline int
@@ -948,11 +1118,11 @@ compat_fontx_ioctl(int cmd, struct compat_consolefontdesc __user *user_cfd,
 }
 
 struct compat_console_font_op {
-	compat_uint_t op;        
-	compat_uint_t flags;     
-	compat_uint_t width, height;     
+	compat_uint_t op;        /* operation code KD_FONT_OP_* */
+	compat_uint_t flags;     /* KD_FONT_FLAG_* */
+	compat_uint_t width, height;     /* font size */
 	compat_uint_t charcount;
-	compat_caddr_t data;    
+	compat_caddr_t data;    /* font data with height fixed to 32 */
 };
 
 static inline int
@@ -1011,7 +1181,7 @@ long vt_compat_ioctl(struct tty_struct *tty,
 	     unsigned int cmd, unsigned long arg)
 {
 	struct vc_data *vc = tty->driver_data;
-	struct console_font_op op;	
+	struct console_font_op op;	/* used in multiple places here */
 	unsigned int console;
 	void __user *up = (void __user *)arg;
 	int perm;
@@ -1019,16 +1189,23 @@ long vt_compat_ioctl(struct tty_struct *tty,
 
 	console = vc->vc_num;
 
-	if (!vc_cons_allocated(console)) { 	
+	if (!vc_cons_allocated(console)) { 	/* impossible? */
 		ret = -ENOIOCTLCMD;
 		goto out;
 	}
 
+	/*
+	 * To have permissions to do most of the vt ioctls, we either have
+	 * to be the owner of the tty, or have CAP_SYS_TTY_CONFIG.
+	 */
 	perm = 0;
 	if (current->signal->tty == tty || capable(CAP_SYS_TTY_CONFIG))
 		perm = 1;
 
 	switch (cmd) {
+	/*
+	 * these need special handlers for incompatible data structures
+	 */
 	case PIO_FONTX:
 	case GIO_FONTX:
 		ret = compat_fontx_ioctl(cmd, up, perm, &op);
@@ -1045,6 +1222,9 @@ long vt_compat_ioctl(struct tty_struct *tty,
 		tty_unlock();
 		break;
 
+	/*
+	 * all these treat 'arg' as an integer
+	 */
 	case KIOCSOUND:
 	case KDMKTONE:
 #ifdef CONFIG_X86
@@ -1067,6 +1247,10 @@ long vt_compat_ioctl(struct tty_struct *tty,
 	case VT_RESIZEX:
 		goto fallback;
 
+	/*
+	 * the rest has a compatible data structure behind arg,
+	 * but we have to convert it to a proper 64 bit pointer.
+	 */
 	default:
 		arg = (unsigned long)compat_ptr(arg);
 		goto fallback;
@@ -1079,9 +1263,13 @@ fallback:
 }
 
 
-#endif 
+#endif /* CONFIG_COMPAT */
 
 
+/*
+ * Performs the back end of a vt switch. Called under the console
+ * semaphore.
+ */
 static void complete_change_console(struct vc_data *vc)
 {
 	unsigned char old_vc_mode;
@@ -1089,9 +1277,24 @@ static void complete_change_console(struct vc_data *vc)
 
 	last_console = fg_console;
 
+	/*
+	 * If we're switching, we could be going from KD_GRAPHICS to
+	 * KD_TEXT mode or vice versa, which means we need to blank or
+	 * unblank the screen later.
+	 */
 	old_vc_mode = vc_cons[fg_console].d->vc_mode;
 	switch_screen(vc);
 
+	/*
+	 * This can't appear below a successful kill_pid().  If it did,
+	 * then the *blank_screen operation could occur while X, having
+	 * received acqsig, is waking up on another processor.  This
+	 * condition can lead to overlapping accesses to the VGA range
+	 * and the framebuffer (causing system lockups).
+	 *
+	 * To account for this we duplicate this code below only if the
+	 * controlling process is gone and we've called reset_vc.
+	 */
 	if (old_vc_mode != vc->vc_mode) {
 		if (vc->vc_mode == KD_TEXT)
 			do_unblank_screen(1);
@@ -1099,8 +1302,27 @@ static void complete_change_console(struct vc_data *vc)
 			do_blank_screen(1);
 	}
 
+	/*
+	 * If this new console is under process control, send it a signal
+	 * telling it that it has acquired. Also check if it has died and
+	 * clean up (similar to logic employed in change_console())
+	 */
 	if (vc->vt_mode.mode == VT_PROCESS) {
+		/*
+		 * Send the signal as privileged - kill_pid() will
+		 * tell us if the process has gone or something else
+		 * is awry
+		 */
 		if (kill_pid(vc->vt_pid, vc->vt_mode.acqsig, 1) != 0) {
+		/*
+		 * The controlling process has died, so we revert back to
+		 * normal operation. In this case, we'll also change back
+		 * to KD_TEXT mode. I'm not sure if this is strictly correct
+		 * but it saves the agony when the X server dies and the screen
+		 * remains blanked due to KD_GRAPHICS! It would be nice to do
+		 * this outside of VT_PROCESS but there is no single process
+		 * to account for and tracking tty count may be undesirable.
+		 */
 			reset_vc(vc);
 
 			if (old_vc_mode != vc->vc_mode) {
@@ -1112,10 +1334,16 @@ static void complete_change_console(struct vc_data *vc)
 		}
 	}
 
+	/*
+	 * Wake anyone waiting for their VT to activate
+	 */
 	vt_event_post(VT_EVENT_SWITCH, old, vc->vc_num);
 	return;
 }
 
+/*
+ * Performs the front-end of a vt switch
+ */
 void change_console(struct vc_data *new_vc)
 {
 	struct vc_data *vc;
@@ -1123,23 +1351,67 @@ void change_console(struct vc_data *new_vc)
 	if (!new_vc || new_vc->vc_num == fg_console || vt_dont_switch)
 		return;
 
+	/*
+	 * If this vt is in process mode, then we need to handshake with
+	 * that process before switching. Essentially, we store where that
+	 * vt wants to switch to and wait for it to tell us when it's done
+	 * (via VT_RELDISP ioctl).
+	 *
+	 * We also check to see if the controlling process still exists.
+	 * If it doesn't, we reset this vt to auto mode and continue.
+	 * This is a cheap way to track process control. The worst thing
+	 * that can happen is: we send a signal to a process, it dies, and
+	 * the switch gets "lost" waiting for a response; hopefully, the
+	 * user will try again, we'll detect the process is gone (unless
+	 * the user waits just the right amount of time :-) and revert the
+	 * vt to auto control.
+	 */
 	vc = vc_cons[fg_console].d;
 	if (vc->vt_mode.mode == VT_PROCESS) {
+		/*
+		 * Send the signal as privileged - kill_pid() will
+		 * tell us if the process has gone or something else
+		 * is awry.
+		 *
+		 * We need to set vt_newvt *before* sending the signal or we
+		 * have a race.
+		 */
 		vc->vt_newvt = new_vc->vc_num;
 		if (kill_pid(vc->vt_pid, vc->vt_mode.relsig, 1) == 0) {
+			/*
+			 * It worked. Mark the vt to switch to and
+			 * return. The process needs to send us a
+			 * VT_RELDISP ioctl to complete the switch.
+			 */
 			return;
 		}
 
+		/*
+		 * The controlling process has died, so we revert back to
+		 * normal operation. In this case, we'll also change back
+		 * to KD_TEXT mode. I'm not sure if this is strictly correct
+		 * but it saves the agony when the X server dies and the screen
+		 * remains blanked due to KD_GRAPHICS! It would be nice to do
+		 * this outside of VT_PROCESS but there is no single process
+		 * to account for and tracking tty count may be undesirable.
+		 */
 		reset_vc(vc);
 
+		/*
+		 * Fall through to normal (VT_AUTO) handling of the switch...
+		 */
 	}
 
+	/*
+	 * Ignore all switches in KD_GRAPHICS+VT_AUTO mode
+	 */
 	if (vc->vc_mode == KD_GRAPHICS)
 		return;
 
 	complete_change_console(new_vc);
 }
 
+/* Perform a kernel triggered VT switch for suspend/resume */
 
 static int disable_vt_switch;
 
@@ -1148,7 +1420,7 @@ int vt_move_to_console(unsigned int vt, int alloc)
 	int prev;
 
 	console_lock();
-	
+	/* Graphics mode - up to X */
 	if (disable_vt_switch) {
 		console_unlock();
 		return 0;
@@ -1156,11 +1428,18 @@ int vt_move_to_console(unsigned int vt, int alloc)
 	prev = fg_console;
 
 	if (alloc && vc_allocate(vt)) {
+		/* we can't have a free VC for now. Too bad,
+		 * we don't want to mess the screen for now. */
 		console_unlock();
 		return -ENOSPC;
 	}
 
 	if (set_console(vt)) {
+		/*
+		 * We're unable to switch to the SUSPEND_CONSOLE.
+		 * Let the calling function know so it can decide
+		 * what to do.
+		 */
 		console_unlock();
 		return -EIO;
 	}
@@ -1172,6 +1451,13 @@ int vt_move_to_console(unsigned int vt, int alloc)
 	return prev;
 }
 
+/*
+ * Normally during a suspend, we allocate a new console and switch to it.
+ * When we resume, we switch back to the original console.  This switch
+ * can be slow, so on systems where the framebuffer can handle restoration
+ * of video registers anyways, there's little point in doing the console
+ * switch.  This function allows you to disable it by passing it '0'.
+ */
 void pm_set_vt_switch(int do_switch)
 {
 	console_lock();

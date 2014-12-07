@@ -54,6 +54,9 @@ static struct i2c_board_info __initdata am3517evm_i2c1_boardinfo[] = {
 	},
 };
 
+/*
+ * RTC - S35390A
+ */
 #define GPIO_RTCS35390A_IRQ	55
 
 static void __init am3517_evm_rtc_init(void)
@@ -72,7 +75,11 @@ static void __init am3517_evm_rtc_init(void)
 	am3517evm_i2c1_boardinfo[0].irq = gpio_to_irq(GPIO_RTCS35390A_IRQ);
 }
 
+/*
+ * I2C GPIO Expander - TCA6416
+ */
 
+/* Mounted on Base-Board */
 static struct pca953x_platform_data am3517evm_gpio_expander_info_0 = {
 	.gpio_base	= OMAP_MAX_GPIO_LINES,
 };
@@ -86,6 +93,7 @@ static struct i2c_board_info __initdata am3517evm_i2c2_boardinfo[] = {
 	},
 };
 
+/* Mounted on UI Card */
 static struct pca953x_platform_data am3517evm_ui_gpio_expander_info_1 = {
 	.gpio_base	= OMAP_MAX_GPIO_LINES + 16,
 };
@@ -120,11 +128,11 @@ static int dvi_enabled;
 #if defined(CONFIG_PANEL_SHARP_LQ043T1DG01) || \
 		defined(CONFIG_PANEL_SHARP_LQ043T1DG01_MODULE)
 static struct gpio am3517_evm_dss_gpios[] __initdata = {
-	
+	/* GPIO 182 = LCD Backlight Power */
 	{ LCD_PANEL_BKLIGHT_PWR, GPIOF_OUT_INIT_HIGH, "lcd_backlight_pwr" },
-	
+	/* GPIO 181 = LCD Panel PWM */
 	{ LCD_PANEL_PWM,	 GPIOF_OUT_INIT_HIGH, "lcd bl enable"	  },
-	
+	/* GPIO 176 = LCD Panel Power enable pin */
 	{ LCD_PANEL_PWR,	 GPIOF_OUT_INIT_HIGH, "dvi enable"	  },
 };
 
@@ -240,6 +248,9 @@ static struct omap_dss_board_info am3517_evm_dss_data = {
 	.default_device	= &am3517_evm_lcd_device,
 };
 
+/*
+ * Board initialization
+ */
 
 static struct omap_musb_board_data musb_board_data = {
 	.interface_type         = MUSB_INTERFACE_ULPI,
@@ -255,9 +266,12 @@ static __init void am3517_evm_musb_init(void)
 {
 	u32 devconf2;
 
+	/*
+	 * Set up USB clock/mode in the DEVCONF2 register.
+	 */
 	devconf2 = omap_ctrl_readl(AM35XX_CONTROL_DEVCONF2);
 
-	
+	/* USB2.0 PHY reference clock is 13 MHz */
 	devconf2 &= ~(CONF2_REFFREQ | CONF2_OTGMODE | CONF2_PHY_GPIOMODE);
 	devconf2 |=  CONF2_REFFREQ_13MHZ | CONF2_SESENDEN | CONF2_VBDTCTEN
 			| CONF2_DATPOL;
@@ -285,7 +299,7 @@ static const struct usbhs_omap_board_data usbhs_bdata __initconst = {
 
 #ifdef CONFIG_OMAP_MUX
 static struct omap_board_mux board_mux[] __initdata = {
-	
+	/* USB OTG DRVVBUS offset = 0x212 */
 	OMAP3_MUX(SAD2D_MCAD23, OMAP_MUX_MODE0 | OMAP_PIN_INPUT_PULLDOWN),
 	{ .reg_offset = OMAP_MUX_TERMINATOR },
 };
@@ -343,7 +357,7 @@ static struct omap2_hsmmc_info mmc[] = {
 		.gpio_cd	= 128,
 		.gpio_wp	= 129,
 	},
-	{}      
+	{}      /* Terminator */
 };
 
 
@@ -358,25 +372,25 @@ static void __init am3517_evm_init(void)
 	omap_serial_init();
 	omap_sdrc_init(NULL, NULL);
 
-	
+	/* Configure GPIO for EHCI port */
 	omap_mux_init_gpio(57, OMAP_PIN_OUTPUT);
 	usbhs_init(&usbhs_bdata);
 	am3517_evm_hecc_init(&am3517_evm_hecc_pdata);
-	
+	/* DSS */
 	am3517_evm_display_init();
 
-	
+	/* RTC - S35390A */
 	am3517_evm_rtc_init();
 
 	i2c_register_board_info(1, am3517evm_i2c1_boardinfo,
 				ARRAY_SIZE(am3517evm_i2c1_boardinfo));
-	
+	/*Ethernet*/
 	am35xx_emac_init(AM35XX_DEFAULT_MDIO_FREQUENCY, 1);
 
-	
+	/* MUSB */
 	am3517_evm_musb_init();
 
-	
+	/* MMC init function */
 	omap_hsmmc_init(mmc);
 }
 

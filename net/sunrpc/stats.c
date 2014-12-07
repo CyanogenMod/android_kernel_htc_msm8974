@@ -28,6 +28,9 @@
 
 #define RPCDBG_FACILITY	RPCDBG_MISC
 
+/*
+ * Get RPC client stats
+ */
 static int rpc_proc_show(struct seq_file *seq, void *v) {
 	const struct rpc_stat	*statp = seq->private;
 	const struct rpc_program *prog = statp->program;
@@ -72,6 +75,9 @@ static const struct file_operations rpc_proc_fops = {
 	.release = single_release,
 };
 
+/*
+ * Get RPC server stats
+ */
 void svc_seq_show(struct seq_file *seq, const struct svc_stat *statp) {
 	const struct svc_program *prog = statp->program;
 	const struct svc_procedure *proc;
@@ -103,18 +109,35 @@ void svc_seq_show(struct seq_file *seq, const struct svc_stat *statp) {
 }
 EXPORT_SYMBOL_GPL(svc_seq_show);
 
+/**
+ * rpc_alloc_iostats - allocate an rpc_iostats structure
+ * @clnt: RPC program, version, and xprt
+ *
+ */
 struct rpc_iostats *rpc_alloc_iostats(struct rpc_clnt *clnt)
 {
 	return kcalloc(clnt->cl_maxproc, sizeof(struct rpc_iostats), GFP_KERNEL);
 }
 EXPORT_SYMBOL_GPL(rpc_alloc_iostats);
 
+/**
+ * rpc_free_iostats - release an rpc_iostats structure
+ * @stats: doomed rpc_iostats structure
+ *
+ */
 void rpc_free_iostats(struct rpc_iostats *stats)
 {
 	kfree(stats);
 }
 EXPORT_SYMBOL_GPL(rpc_free_iostats);
 
+/**
+ * rpc_count_iostats - tally up per-task stats
+ * @task: completed rpc_task
+ * @stats: array of stat structures
+ *
+ * Relies on the caller for serialization.
+ */
 void rpc_count_iostats(const struct rpc_task *task, struct rpc_iostats *stats)
 {
 	struct rpc_rqst *req = task->tk_rqstp;
@@ -190,6 +213,9 @@ void rpc_print_iostats(struct seq_file *seq, struct rpc_clnt *clnt)
 }
 EXPORT_SYMBOL_GPL(rpc_print_iostats);
 
+/*
+ * Register/unregister RPC proc files
+ */
 static inline struct proc_dir_entry *
 do_register(struct net *net, const char *name, void *data,
 	    const struct file_operations *fops)

@@ -34,19 +34,19 @@ static int s6105_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	int ret = 0;
 
-	
+	/* set codec DAI configuration */
 	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S |
 					     SND_SOC_DAIFMT_CBM_CFM);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set cpu DAI configuration */
 	ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_CBM_CFM |
 					   SND_SOC_DAIFMT_NB_NF);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set the codec system clock */
 	ret = snd_soc_dai_set_sysclk(codec_dai, 0, S6105_CAM_CODEC_CLOCK,
 					    SND_SOC_CLOCK_OUT);
 	if (ret < 0)
@@ -59,20 +59,22 @@ static struct snd_soc_ops s6105_ops = {
 	.hw_params = s6105_hw_params,
 };
 
+/* s6105 machine dapm widgets */
 static const struct snd_soc_dapm_widget aic3x_dapm_widgets[] = {
 	SND_SOC_DAPM_LINE("Audio Out Differential", NULL),
 	SND_SOC_DAPM_LINE("Audio Out Stereo", NULL),
 	SND_SOC_DAPM_LINE("Audio In", NULL),
 };
 
+/* s6105 machine audio_mapnections to the codec pins */
 static const struct snd_soc_dapm_route audio_map[] = {
-	
+	/* Audio Out connected to HPLOUT, HPLCOM, HPROUT */
 	{"Audio Out Differential", NULL, "HPLOUT"},
 	{"Audio Out Differential", NULL, "HPLCOM"},
 	{"Audio Out Stereo", NULL, "HPLOUT"},
 	{"Audio Out Stereo", NULL, "HPROUT"},
 
-	
+	/* Audio In connected to LINE1L, LINE1R */
 	{"LINE1L", NULL, "Audio In"},
 	{"LINE1R", NULL, "Audio In"},
 };
@@ -127,37 +129,38 @@ static const struct snd_kcontrol_new audio_out_mux = {
 	.info = output_type_info,
 	.get = output_type_get,
 	.put = output_type_put,
-	.private_value = 1 
+	.private_value = 1 /* default to stereo */
 };
 
+/* Logic for a aic3x as connected on the s6105 ip camera ref design */
 static int s6105_aic3x_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_codec *codec = rtd->codec;
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 
-	
+	/* Add s6105 specific widgets */
 	snd_soc_dapm_new_controls(dapm, aic3x_dapm_widgets,
 				  ARRAY_SIZE(aic3x_dapm_widgets));
 
-	
+	/* Set up s6105 specific audio path audio_map */
 	snd_soc_dapm_add_routes(dapm, audio_map, ARRAY_SIZE(audio_map));
 
-	
+	/* not present */
 	snd_soc_dapm_nc_pin(dapm, "MONO_LOUT");
 	snd_soc_dapm_nc_pin(dapm, "LINE2L");
 	snd_soc_dapm_nc_pin(dapm, "LINE2R");
 
-	
-	snd_soc_dapm_nc_pin(dapm, "MIC3L"); 
-	snd_soc_dapm_nc_pin(dapm, "MIC3R"); 
+	/* not connected */
+	snd_soc_dapm_nc_pin(dapm, "MIC3L"); /* LINE2L on this chip */
+	snd_soc_dapm_nc_pin(dapm, "MIC3R"); /* LINE2R on this chip */
 	snd_soc_dapm_nc_pin(dapm, "LLOUT");
 	snd_soc_dapm_nc_pin(dapm, "RLOUT");
 	snd_soc_dapm_nc_pin(dapm, "HPRCOM");
 
-	
+	/* always connected */
 	snd_soc_dapm_enable_pin(dapm, "Audio In");
 
-	
+	/* must correspond to audio_out_mux.private_value initializer */
 	snd_soc_dapm_disable_pin(dapm, "Audio Out Differential");
 	snd_soc_dapm_sync(dapm);
 	snd_soc_dapm_enable_pin(dapm, "Audio Out Stereo");
@@ -169,6 +172,7 @@ static int s6105_aic3x_init(struct snd_soc_pcm_runtime *rtd)
 	return 0;
 }
 
+/* s6105 digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link s6105_dai = {
 	.name = "TLV320AIC31",
 	.stream_name = "AIC31",
@@ -180,6 +184,7 @@ static struct snd_soc_dai_link s6105_dai = {
 	.ops = &s6105_ops,
 };
 
+/* s6105 audio machine driver */
 static struct snd_soc_card snd_soc_card_s6105 = {
 	.name = "Stretch IP Camera",
 	.owner = THIS_MODULE,
@@ -198,6 +203,9 @@ static struct s6000_snd_platform_data __initdata s6105_snd_data = {
 
 static struct platform_device *s6105_snd_device;
 
+/* temporary i2c device creation until this can be moved into the machine
+ * support file.
+*/
 static struct i2c_board_info i2c_device[] = {
 	{ I2C_BOARD_INFO("tlv320aic33", 0x18), }
 };

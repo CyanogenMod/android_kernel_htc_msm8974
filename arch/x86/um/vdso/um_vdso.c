@@ -9,6 +9,7 @@
  */
 
 
+/* Disable profiling for userspace code */
 #define DISABLE_BRANCH_PROFILING
 
 #include <linux/time.h>
@@ -54,6 +55,9 @@ int time(time_t *t) __attribute__((weak, alias("__vdso_time")));
 long
 __vdso_getcpu(unsigned *cpu, unsigned *node, struct getcpu_cache *unused)
 {
+	/*
+	 * UML does not support SMP, we can cheat here. :)
+	 */
 
 	if (cpu)
 		*cpu = 0;

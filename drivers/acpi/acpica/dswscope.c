@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Module Name: dswscope - Scope stack manipulation
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -43,6 +48,18 @@
 #define _COMPONENT          ACPI_DISPATCHER
 ACPI_MODULE_NAME("dswscope")
 
+/****************************************************************************
+ *
+ * FUNCTION:    acpi_ds_scope_stack_clear
+ *
+ * PARAMETERS:  walk_state      - Current state
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Pop (and free) everything on the scope stack except the
+ *              root scope object (which remains at the stack top.)
+ *
+ ***************************************************************************/
 void acpi_ds_scope_stack_clear(struct acpi_walk_state *walk_state)
 {
 	union acpi_generic_state *scope_info;
@@ -51,7 +68,7 @@ void acpi_ds_scope_stack_clear(struct acpi_walk_state *walk_state)
 
 	while (walk_state->scope_info) {
 
-		
+		/* Pop a scope off the stack */
 
 		scope_info = walk_state->scope_info;
 		walk_state->scope_info = scope_info->scope.next;
@@ -64,6 +81,20 @@ void acpi_ds_scope_stack_clear(struct acpi_walk_state *walk_state)
 	}
 }
 
+/****************************************************************************
+ *
+ * FUNCTION:    acpi_ds_scope_stack_push
+ *
+ * PARAMETERS:  Node            - Name to be made current
+ *              Type            - Type of frame being pushed
+ *              walk_state      - Current state
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Push the current scope on the scope stack, and make the
+ *              passed Node current.
+ *
+ ***************************************************************************/
 
 acpi_status
 acpi_ds_scope_stack_push(struct acpi_namespace_node *node,
@@ -77,26 +108,26 @@ acpi_ds_scope_stack_push(struct acpi_namespace_node *node,
 
 	if (!node) {
 
-		
+		/* Invalid scope   */
 
 		ACPI_ERROR((AE_INFO, "Null scope parameter"));
 		return_ACPI_STATUS(AE_BAD_PARAMETER);
 	}
 
-	
+	/* Make sure object type is valid */
 
 	if (!acpi_ut_valid_object_type(type)) {
 		ACPI_WARNING((AE_INFO, "Invalid object type: 0x%X", type));
 	}
 
-	
+	/* Allocate a new scope object */
 
 	scope_info = acpi_ut_create_generic_state();
 	if (!scope_info) {
 		return_ACPI_STATUS(AE_NO_MEMORY);
 	}
 
-	
+	/* Init new scope object */
 
 	scope_info->common.descriptor_type = ACPI_DESC_TYPE_STATE_WSCOPE;
 	scope_info->scope.node = node;
@@ -125,12 +156,23 @@ acpi_ds_scope_stack_push(struct acpi_namespace_node *node,
 			      acpi_ut_get_node_name(scope_info->scope.node),
 			      acpi_ut_get_type_name(scope_info->common.value)));
 
-	
+	/* Push new scope object onto stack */
 
 	acpi_ut_push_generic_state(&walk_state->scope_info, scope_info);
 	return_ACPI_STATUS(AE_OK);
 }
 
+/****************************************************************************
+ *
+ * FUNCTION:    acpi_ds_scope_stack_pop
+ *
+ * PARAMETERS:  walk_state      - Current state
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Pop the scope stack once.
+ *
+ ***************************************************************************/
 
 acpi_status acpi_ds_scope_stack_pop(struct acpi_walk_state *walk_state)
 {
@@ -139,6 +181,9 @@ acpi_status acpi_ds_scope_stack_pop(struct acpi_walk_state *walk_state)
 
 	ACPI_FUNCTION_TRACE(ds_scope_stack_pop);
 
+	/*
+	 * Pop scope info object off the stack.
+	 */
 	scope_info = acpi_ut_pop_generic_state(&walk_state->scope_info);
 	if (!scope_info) {
 		return_ACPI_STATUS(AE_STACK_UNDERFLOW);

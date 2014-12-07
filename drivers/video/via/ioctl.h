@@ -26,17 +26,18 @@
 #define __user
 #endif
 
-#define VIAFB_GET_INFO_SIZE		0x56494101	
-#define VIAFB_GET_INFO			0x56494102	
-#define VIAFB_HOTPLUG			0x56494103	
-#define VIAFB_SET_HOTPLUG_FLAG		0x56494104	
-#define VIAFB_GET_RESOLUTION		0x56494105	
-#define VIAFB_GET_SAMM_INFO		0x56494107	
-#define VIAFB_TURN_ON_OUTPUT_DEVICE     0x56494108	
-#define VIAFB_TURN_OFF_OUTPUT_DEVICE    0x56494109	
+/* VIAFB IOCTL definition */
+#define VIAFB_GET_INFO_SIZE		0x56494101	/* 'VIA\01' */
+#define VIAFB_GET_INFO			0x56494102	/* 'VIA\02' */
+#define VIAFB_HOTPLUG			0x56494103	/* 'VIA\03' */
+#define VIAFB_SET_HOTPLUG_FLAG		0x56494104	/* 'VIA\04' */
+#define VIAFB_GET_RESOLUTION		0x56494105	/* 'VIA\05' */
+#define VIAFB_GET_SAMM_INFO		0x56494107	/* 'VIA\07' */
+#define VIAFB_TURN_ON_OUTPUT_DEVICE     0x56494108	/* 'VIA\08' */
+#define VIAFB_TURN_OFF_OUTPUT_DEVICE    0x56494109	/* 'VIA\09' */
 #define VIAFB_GET_DEVICE		0x5649410B
-#define VIAFB_GET_DRIVER_VERSION	0x56494112	
-#define VIAFB_GET_CHIP_INFO		0x56494113	
+#define VIAFB_GET_DRIVER_VERSION	0x56494112	/* 'VIA\12' */
+#define VIAFB_GET_CHIP_INFO		0x56494113	/* 'VIA\13' */
 #define VIAFB_GET_DEVICE_INFO           0x56494115
 
 #define VIAFB_GET_DEVICE_SUPPORT	0x56494118
@@ -68,6 +69,7 @@
 #define OP_LCD_PANEL_ID    0x02
 #define OP_LCD_MODE        0x03
 
+/*SAMM operation flag*/
 #define OP_SAMM            0x80
 
 #define LCD_PANEL_ID_MAXIMUM	23
@@ -102,13 +104,13 @@ struct device_t {
 };
 
 struct viafb_ioctl_info {
-	u32 viafb_id;		
-#define VIAID       0x56494146	
+	u32 viafb_id;		/* for identifying viafb */
+#define VIAID       0x56494146	/* Identify myself with 'VIAF' */
 	u16 vendor_id;
 	u16 device_id;
 	u8 version;
 	u8 revision;
-	u8 reserved[246];	
+	u8 reserved[246];	/* for future use */
 };
 
 struct viafb_ioctl_mode {
@@ -145,32 +147,32 @@ struct viafb_ioctl_lcd_attribute {
 };
 
 struct viafb_ioctl_setting {
-	
+	/* Enable or disable active devices */
 	unsigned short device_flag;
-	
+	/* Indicate which device should be turn on or turn off. */
 	unsigned short device_status;
 	unsigned int reserved;
-	
+	/* Indicate which LCD's attribute can be changed. */
 	unsigned short lcd_operation_flag;
-	
+	/* 1: SAMM ON  0: SAMM OFF */
 	unsigned short samm_status;
-	
+	/* horizontal resolution of first device */
 	unsigned short first_dev_hor_res;
-	
+	/* vertical resolution of first device */
 	unsigned short first_dev_ver_res;
-	
+	/* horizontal resolution of second device */
 	unsigned short second_dev_hor_res;
-	
+	/* vertical resolution of second device */
 	unsigned short second_dev_ver_res;
-	
+	/* refresh rate of first device */
 	unsigned short first_dev_refresh;
-	
+	/* bpp of first device */
 	unsigned short first_dev_bpp;
-	
+	/* refresh rate of second device */
 	unsigned short second_dev_refresh;
-	
+	/* bpp of second device */
 	unsigned short second_dev_bpp;
-	
+	/* Indicate which device are primary display device. */
 	unsigned int primary_device;
 	unsigned int struct_reserved[35];
 	struct viafb_ioctl_lcd_attribute lcd_attributes;
@@ -198,4 +200,4 @@ extern int viafb_DVI_ON;
 int viafb_ioctl_get_viafb_info(u_long arg);
 int viafb_ioctl_hotplug(int hres, int vres, int bpp);
 
-#endif 
+#endif /* __IOCTL_H__ */

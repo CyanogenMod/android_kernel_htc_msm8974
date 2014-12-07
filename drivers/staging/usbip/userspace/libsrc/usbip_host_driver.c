@@ -32,6 +32,7 @@ struct usbip_host_driver *host_driver;
 
 #define SYSFS_OPEN_RETRIES 100
 
+/* only the first interface value is true! */
 static int32_t read_attr_usbip_status(struct usbip_usb_device *udev)
 {
 	char attrpath[SYSFS_PATH_MAX];
@@ -41,6 +42,19 @@ static int32_t read_attr_usbip_status(struct usbip_usb_device *udev)
 	struct stat s;
 	int retries = SYSFS_OPEN_RETRIES;
 
+	/* This access is racy!
+	 *
+	 * Just after detach, our driver removes the sysfs
+	 * files and recreates them.
+	 *
+	 * We may try and fail to open the usbip_status of
+	 * an exported device in the (short) window where
+	 * it has been removed and not yet recreated.
+	 *
+	 * This is a bug in the interface. Nothing we can do
+	 * except work around it here by polling for the sysfs
+	 * usbip_status to reappear.
+	 */
 
 	snprintf(attrpath, SYSFS_PATH_MAX, "%s/%s:%d.%d/usbip_status",
 		 udev->path, udev->busid, udev->bConfigurationValue, 0);
@@ -54,7 +68,7 @@ static int32_t read_attr_usbip_status(struct usbip_usb_device *udev)
 			return -1;
 		}
 
-		usleep(10000); 
+		usleep(10000); /* 10ms */
 		retries--;
 	}
 
@@ -109,7 +123,7 @@ static struct usbip_exported_device *usbip_exported_device_new(char *sdevpath)
 	if (edev->status < 0)
 		goto err;
 
-	
+	/* reallocate buffer to include usb interface data */
 	size = sizeof(*edev) + edev->udev.bNumInterfaces *
 		sizeof(struct usbip_usb_interface);
 
@@ -138,7 +152,7 @@ static int check_new(struct dlist *dlist, struct sysfs_device *target)
 
 	dlist_for_each_data(dlist, dev, struct sysfs_device) {
 		if (!strncmp(dev->bus_id, target->bus_id, SYSFS_BUS_ID_SIZE))
-			
+			/* device found and is not new */
 			return 0;
 	}
 	return 1;
@@ -146,15 +160,18 @@ static int check_new(struct dlist *dlist, struct sysfs_device *target)
 
 static void delete_nothing(void *unused_data)
 {
+	/*
+	 * NOTE: Do not delete anything, but the container will be deleted.
+	 */
 	(void) unused_data;
 }
 
 static int refresh_exported_devices(void)
 {
-	
+	/* sysfs_device of usb_interface */
 	struct sysfs_device	*suintf;
 	struct dlist		*suintf_list;
-	
+	/* sysfs_device of usb_device */
 	struct sysfs_device	*sudev;
 	struct dlist		*sudev_list;
 	struct usbip_exported_device *edev;
@@ -164,14 +181,18 @@ static int refresh_exported_devices(void)
 
 	suintf_list = sysfs_get_driver_devices(host_driver->sysfs_driver);
 	if (!suintf_list) {
+		/*
+		 * Not an error condition. There are simply no devices bound to
+		 * the driver yet.
+		 */
 		dbg("bind " USBIP_HOST_DRV_NAME ".ko to a usb device to be "
 		    "exportable!");
 		return 0;
 	}
 
-	
+	/* collect unique USB devices (not interfaces) */
 	dlist_for_each_data(suintf_list, suintf, struct sysfs_device) {
-		
+		/* get usb device of this usb interface */
 		sudev = sysfs_get_device_parent(suintf);
 		if (!sudev) {
 			dbg("sysfs_get_device_parent failed: %s", suintf->name);
@@ -179,7 +200,7 @@ static int refresh_exported_devices(void)
 		}
 
 		if (check_new(sudev_list, sudev)) {
-			
+			/* insert item at head of list */
 			dlist_unshift(sudev_list, sudev);
 		}
 	}
@@ -334,7 +355,7 @@ int usbip_host_export_device(struct usbip_exported_device *edev, int sockfd)
 		return -1;
 	}
 
-	
+	/* only the first interface is true */
 	snprintf(attr_path, sizeof(attr_path), "%s/%s:%d.%d/%s",
 		 edev->udev.path, edev->udev.busid,
 		 edev->udev.bConfigurationValue, 0, attr_name);

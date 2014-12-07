@@ -33,9 +33,9 @@
 #define IRIS_GIO_BASE		0x340
 #define IRIS_GIO_INPUT		IRIS_GIO_BASE
 #define IRIS_GIO_OUTPUT		(IRIS_GIO_BASE + 1)
-#define IRIS_GIO_PULSE		0x80 
-#define IRIS_GIO_REST		0x00 
-#define IRIS_GIO_NODEV		0xff 
+#define IRIS_GIO_PULSE		0x80 /* First byte to send */
+#define IRIS_GIO_REST		0x00 /* Second byte to send */
+#define IRIS_GIO_NODEV		0xff /* Likely not an Iris */
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Sébastien Hinderer <Sebastien.Hinderer@ens-lyon.org>");
@@ -56,6 +56,12 @@ static void iris_power_off(void)
 	outb(IRIS_GIO_REST, IRIS_GIO_OUTPUT);
 }
 
+/*
+ * Before installing the power_off handler, try to make sure the OS is
+ * running on an Iris.  Since Iris does not support DMI, this is done
+ * by reading its input port and seeing whether the read value is
+ * meaningful.
+ */
 static int iris_init(void)
 {
 	unsigned char status;

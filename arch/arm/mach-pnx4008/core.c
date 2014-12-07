@@ -141,6 +141,7 @@ static struct platform_device nand_flash_device = {
 	},
 };
 
+/* The dmamask must be set for OHCI to work */
 static u64 ohci_dmamask = ~(u32) 0;
 
 static struct resource ohci_resources[] = {
@@ -212,6 +213,8 @@ extern void pnx4008_uart_init(void);
 
 static void __init pnx4008_init(void)
 {
+	/*disable all START interrupt sources,
+	   and clear all START interrupt flags */
 	__raw_writel(0, START_INT_ER_REG(SE_PIN_BASE_INT));
 	__raw_writel(0, START_INT_ER_REG(SE_INT_BASE_INT));
 	__raw_writel(0xffffffff, START_INT_RSR_REG(SE_PIN_BASE_INT));
@@ -219,7 +222,7 @@ static void __init pnx4008_init(void)
 
 	platform_add_devices(devices, ARRAY_SIZE(devices));
 	spi_register_board_info(spi_board_info, ARRAY_SIZE(spi_board_info));
-	
+	/* Switch on the UART clocks */
 	pnx4008_uart_init();
 }
 
@@ -265,7 +268,7 @@ static void pnx4008_restart(char mode, const char *cmd)
 extern struct sys_timer pnx4008_timer;
 
 MACHINE_START(PNX4008, "Philips PNX4008")
-	
+	/* Maintainer: MontaVista Software Inc. */
 	.atag_offset		= 0x100,
 	.map_io 		= pnx4008_map_io,
 	.init_irq 		= pnx4008_init_irq,

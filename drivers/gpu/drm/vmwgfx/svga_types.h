@@ -25,6 +25,13 @@
  *
  **************************************************************************/
 
+/**
+ * Silly typedefs for the svga headers. Currently the headers are shared
+ * between all components that talk to svga. And as such the headers are
+ * are in a completely different style and use weird defines.
+ *
+ * This file lets all the ugly be prefixed with svga*.
+ */
 
 #ifndef _SVGA_TYPES_H_
 #define _SVGA_TYPES_H_

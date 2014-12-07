@@ -4,7 +4,7 @@
 #include <linux/types.h>
 #include <linux/ioctl.h>
 
-#define MSM_MERCURY_HW_VERSION_REG  0x0004
+#define MSM_MERCURY_HW_VERSION_REG  0x0004/* this offset does not exist in HW*/
 
 #define OUTPUT_H2V1  0
 #define OUTPUT_H2V2  1
@@ -97,23 +97,23 @@ struct msm_mercury_buf {
 struct msm_mercury_hw_cmd {
 
 	uint32_t type:4;
-	
-	
-	
-	
+	/* n microseconds of timeout for WAIT */
+	/* n microseconds of time for DELAY */
+	/* repeat n times for READ/WRITE */
+	/* max is 0xFFF, 4095 */
 	uint32_t n:12;
 	uint32_t offset:16;
 	uint32_t mask;
 	union {
-		
+		/* for single READ/WRITE/WAIT, n = 1 */
 		uint32_t data;
-		uint32_t *pdata;
+		uint32_t *pdata;/* for multiple READ/WRITE/WAIT, n > 1 */
 	};
 };
 
 struct msm_mercury_hw_cmds {
-	uint32_t m;	
+	uint32_t m;	/* number of elements in the hw_cmd array */
 	struct msm_mercury_hw_cmd hw_cmd[1];
 };
 
-#endif 
+#endif /* __LINUX_MSM_MERCURY_H */

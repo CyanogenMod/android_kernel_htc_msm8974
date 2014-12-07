@@ -86,6 +86,10 @@ struct config_item_type {
 	struct configfs_attribute		**ct_attrs;
 };
 
+/**
+ *	group - a group of config_items of a specific type, belonging
+ *	to a specific subsystem.
+ */
 struct config_group {
 	struct config_item		cg_item;
 	struct list_head		cg_children;
@@ -123,6 +127,14 @@ struct configfs_attribute {
 	umode_t			ca_mode;
 };
 
+/*
+ * Users often need to create attribute structures for their configurable
+ * attributes, containing a configfs_attribute member and function pointers
+ * for the show() and store() operations on that attribute. If they don't
+ * need anything else on the extended attribute structure, they can use
+ * this macro to define it  The argument _item is the name of the
+ * config_item structure.
+ */
 #define CONFIGFS_ATTR_STRUCT(_item)					\
 struct _item##_attribute {						\
 	struct configfs_attribute attr;					\
@@ -130,6 +142,14 @@ struct _item##_attribute {						\
 	ssize_t (*store)(struct _item *, const char *, size_t);		\
 }
 
+/*
+ * With the extended attribute structure, users can use this macro
+ * (similar to sysfs' __ATTR) to make defining attributes easier.
+ * An example:
+ * #define MYITEM_ATTR(_name, _mode, _show, _store)	\
+ * struct myitem_attribute childless_attr_##_name =	\
+ *         __CONFIGFS_ATTR(_name, _mode, _show, _store)
+ */
 #define __CONFIGFS_ATTR(_name, _mode, _show, _store)			\
 {									\
 	.attr	= {							\
@@ -140,6 +160,7 @@ struct _item##_attribute {						\
 	.show	= _show,						\
 	.store	= _store,						\
 }
+/* Here is a readonly version, only requiring a show() operation */
 #define __CONFIGFS_ATTR_RO(_name, _show)				\
 {									\
 	.attr	= {							\
@@ -150,6 +171,14 @@ struct _item##_attribute {						\
 	.show	= _show,						\
 }
 
+/*
+ * With these extended attributes, the simple show_attribute() and
+ * store_attribute() operations need to call the show() and store() of the
+ * attributes.  This is a common pattern, so we provide a macro to define
+ * them.  The argument _item is the name of the config_item structure.
+ * This macro expects the attributes to be named "struct <name>_attribute"
+ * and the function to_<name>() to exist;
+ */
 #define CONFIGFS_ATTR_OPS(_item)					\
 static ssize_t _item##_attr_show(struct config_item *item,		\
 				 struct configfs_attribute *attr,	\
@@ -178,6 +207,20 @@ static ssize_t _item##_attr_store(struct config_item *item,		\
 	return ret;							\
 }
 
+/*
+ * If allow_link() exists, the item can symlink(2) out to other
+ * items.  If the item is a group, it may support mkdir(2).
+ * Groups supply one of make_group() and make_item().  If the
+ * group supports make_group(), one can create group children.  If it
+ * supports make_item(), one can create config_item children.  make_group()
+ * and make_item() return ERR_PTR() on errors.  If it has
+ * default_groups on group->default_groups, it has automatically created
+ * group children.  default_groups may coexist alongsize make_group() or
+ * make_item(), but if the group wishes to have only default_groups
+ * children (disallowing mkdir(2)), it need not provide either function.
+ * If the group has commit(), it supports pending and committed (active)
+ * items.
+ */
 struct configfs_item_operations {
 	void (*release)(struct config_item *);
 	ssize_t	(*show_attribute)(struct config_item *, struct configfs_attribute *,char *);
@@ -209,7 +252,9 @@ static inline struct configfs_subsystem *to_configfs_subsystem(struct config_gro
 int configfs_register_subsystem(struct configfs_subsystem *subsys);
 void configfs_unregister_subsystem(struct configfs_subsystem *subsys);
 
+/* These functions can sleep and can alloc with GFP_KERNEL */
+/* WARNING: These cannot be called underneath configfs callbacks!! */
 int configfs_depend_item(struct configfs_subsystem *subsys, struct config_item *target);
 void configfs_undepend_item(struct configfs_subsystem *subsys, struct config_item *target);
 
-#endif 
+#endif /* _CONFIGFS_H_ */

@@ -241,7 +241,7 @@ static void async_chainiv_do_postponed(struct work_struct *work)
 	struct ablkcipher_request *subreq;
 	int err;
 
-	
+	/* Only handle one request at a time to avoid hogging keventd. */
 	spin_lock_bh(&ctx->lock);
 	req = skcipher_dequeue_givcrypt(&ctx->queue);
 	spin_unlock_bh(&ctx->lock);

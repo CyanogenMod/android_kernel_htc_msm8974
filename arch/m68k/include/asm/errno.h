@@ -3,4 +3,4 @@
 
 #include <asm-generic/errno.h>
 
-#endif 
+#endif /* _M68K_ERRNO_H */

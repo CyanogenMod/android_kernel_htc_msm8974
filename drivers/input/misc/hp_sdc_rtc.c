@@ -94,12 +94,12 @@ static int hp_sdc_rtc_do_read_bbrtc (struct rtc_time *rtctm)
 	while (i < 91) {
 		tseq[i++] = HP_SDC_ACT_DATAREG |
 			HP_SDC_ACT_POSTCMD | HP_SDC_ACT_DATAIN;
-		tseq[i++] = 0x01;			
-	  	tseq[i]   = i / 7;			
+		tseq[i++] = 0x01;			/* write i8042[0x70] */
+	  	tseq[i]   = i / 7;			/* BBRTC reg address */
 		i++;
-		tseq[i++] = HP_SDC_CMD_DO_RTCR;		
-		tseq[i++] = 2;		
-		i++; i++;               
+		tseq[i++] = HP_SDC_CMD_DO_RTCR;		/* Trigger command   */
+		tseq[i++] = 2;		/* expect 1 stat/dat pair back.   */
+		i++; i++;               /* buffer for stat/dat pair       */
 	}
 	tseq[84] |= HP_SDC_ACT_SEMAPHORE;
 	t.endidx =		91;
@@ -109,9 +109,9 @@ static int hp_sdc_rtc_do_read_bbrtc (struct rtc_time *rtctm)
 	
 	if (hp_sdc_enqueue_transaction(&t)) return -1;
 	
-	down_interruptible(&tsem);  
+	down_interruptible(&tsem);  /* Put ourselves to sleep for results. */
 	
-	
+	/* Check for nonpresence of BBRTC */
 	if (!((tseq[83] | tseq[90] | tseq[69] | tseq[76] |
 	       tseq[55] | tseq[62] | tseq[34] | tseq[41] |
 	       tseq[20] | tseq[27] | tseq[6]  | tseq[13]) & 0x0f))
@@ -134,7 +134,7 @@ static int hp_sdc_rtc_read_bbrtc (struct rtc_time *rtctm)
 	struct rtc_time tm, tm_last;
 	int i = 0;
 
-	
+	/* MSM-58321 has no read latch, so must read twice and compare. */
 
 	if (hp_sdc_rtc_do_read_bbrtc(&tm_last)) return -1;
 	if (hp_sdc_rtc_do_read_bbrtc(&tm)) return -1;
@@ -171,16 +171,16 @@ static int64_t hp_sdc_rtc_read_i8042timer (uint8_t loadcmd, int numreg)
 	t.endidx = numreg * 5;
 
 	tseq[1] = loadcmd;
-	tseq[t.endidx - 4] |= HP_SDC_ACT_SEMAPHORE; 
+	tseq[t.endidx - 4] |= HP_SDC_ACT_SEMAPHORE; /* numreg assumed > 1 */
 
 	t.seq =			tseq;
 	t.act.semaphore =	&i8042tregs;
 
-	down_interruptible(&i8042tregs);  
+	down_interruptible(&i8042tregs);  /* Sleep if output regs in use. */
 
 	if (hp_sdc_enqueue_transaction(&t)) return -1;
 	
-	down_interruptible(&i8042tregs);  
+	down_interruptible(&i8042tregs);  /* Sleep until results come back. */
 	up(&i8042tregs);
 
 	return (tseq[5] | 
@@ -189,6 +189,7 @@ static int64_t hp_sdc_rtc_read_i8042timer (uint8_t loadcmd, int numreg)
 }
 
 
+/* Read the i8042 real-time clock */
 static inline int hp_sdc_rtc_read_rt(struct timeval *res) {
 	int64_t raw;
 	uint32_t tenms; 
@@ -207,6 +208,7 @@ static inline int hp_sdc_rtc_read_rt(struct timeval *res) {
 }
 
 
+/* Read the i8042 fast handshake timer */
 static inline int hp_sdc_rtc_read_fhs(struct timeval *res) {
 	int64_t raw;
 	unsigned int tenms;
@@ -223,6 +225,7 @@ static inline int hp_sdc_rtc_read_fhs(struct timeval *res) {
 }
 
 
+/* Read the i8042 match timer (a.k.a. alarm) */
 static inline int hp_sdc_rtc_read_mt(struct timeval *res) {
 	int64_t raw;	
 	uint32_t tenms; 
@@ -239,6 +242,7 @@ static inline int hp_sdc_rtc_read_mt(struct timeval *res) {
 }
 
 
+/* Read the i8042 delay timer */
 static inline int hp_sdc_rtc_read_dt(struct timeval *res) {
 	int64_t raw;
 	uint32_t tenms;
@@ -255,6 +259,7 @@ static inline int hp_sdc_rtc_read_dt(struct timeval *res) {
 }
 
 
+/* Read the i8042 cycle timer (a.k.a. periodic) */
 static inline int hp_sdc_rtc_read_ct(struct timeval *res) {
 	int64_t raw;
 	uint32_t tenms;
@@ -271,6 +276,7 @@ static inline int hp_sdc_rtc_read_ct(struct timeval *res) {
 }
 
 
+/* Set the i8042 real-time clock */
 static int hp_sdc_rtc_set_rt (struct timeval *setto)
 {
 	uint32_t tenms;
@@ -310,6 +316,7 @@ static int hp_sdc_rtc_set_rt (struct timeval *setto)
 	return 0;
 }
 
+/* Set the i8042 fast handshake timer */
 static int hp_sdc_rtc_set_fhs (struct timeval *setto)
 {
 	uint32_t tenms;
@@ -337,15 +344,19 @@ static int hp_sdc_rtc_set_fhs (struct timeval *setto)
 }
 
 
+/* Set the i8042 match timer (a.k.a. alarm) */
 #define hp_sdc_rtc_set_mt (setto) \
 	hp_sdc_rtc_set_i8042timer(setto, HP_SDC_CMD_SET_MT)
 
+/* Set the i8042 delay timer */
 #define hp_sdc_rtc_set_dt (setto) \
 	hp_sdc_rtc_set_i8042timer(setto, HP_SDC_CMD_SET_DT)
 
+/* Set the i8042 cycle timer (a.k.a. periodic) */
 #define hp_sdc_rtc_set_ct (setto) \
 	hp_sdc_rtc_set_i8042timer(setto, HP_SDC_CMD_SET_CT)
 
+/* Set one of the i8042 3-byte wide timers */
 static int hp_sdc_rtc_set_i8042timer (struct timeval *setto, uint8_t setcmd)
 {
 	uint32_t tenms;
@@ -514,20 +525,23 @@ static int hp_sdc_rtc_ioctl(struct file *file,
 	struct timeval ttime;
 	int use_wtime = 0;
 
-	
+	/* This needs major work. */
 
         switch (cmd) {
 
-        case RTC_AIE_OFF:       
-        case RTC_AIE_ON:        
-	case RTC_PIE_OFF:       
-        case RTC_PIE_ON:        
-        case RTC_UIE_ON:        
-        case RTC_UIE_OFF:       
+        case RTC_AIE_OFF:       /* Mask alarm int. enab. bit    */
+        case RTC_AIE_ON:        /* Allow alarm interrupts.      */
+	case RTC_PIE_OFF:       /* Mask periodic int. enab. bit */
+        case RTC_PIE_ON:        /* Allow periodic ints          */
+        case RTC_UIE_ON:        /* Allow ints for RTC updates.  */
+        case RTC_UIE_OFF:       /* Allow ints for RTC updates.  */
         {
+		/* We cannot mask individual user timers and we
+		   cannot tell them apart when they occur, so it 
+		   would be disingenuous to succeed these IOCTLs */
 		return -EINVAL;
         }
-        case RTC_ALM_READ:      
+        case RTC_ALM_READ:      /* Read the present alarm time */
         {
 		if (hp_sdc_rtc_read_mt(&ttime)) return -EFAULT;
 		if (hp_sdc_rtc_read_bbrtc(&wtime)) return -EFAULT;
@@ -538,12 +552,15 @@ static int hp_sdc_rtc_ioctl(struct file *file,
                 
 		break;
         }
-        case RTC_IRQP_READ:     
+        case RTC_IRQP_READ:     /* Read the periodic IRQ rate.  */
         {
                 return put_user(hp_sdc_rtc_freq, (unsigned long *)arg);
         }
-        case RTC_IRQP_SET:      
+        case RTC_IRQP_SET:      /* Set periodic IRQ rate.       */
         {
+                /* 
+                 * The max we can do is 100Hz.
+		 */
 
                 if ((arg < 1) || (arg > 100)) return -EINVAL;
 		ttime.tv_sec = 0;
@@ -552,8 +569,16 @@ static int hp_sdc_rtc_ioctl(struct file *file,
 		hp_sdc_rtc_freq = arg;
                 return 0;
         }
-        case RTC_ALM_SET:       
+        case RTC_ALM_SET:       /* Store a time into the alarm */
         {
+                /*
+                 * This expects a struct hp_sdc_rtc_time. Writing 0xff means
+                 * "don't care" or "match all" for PC timers.  The HP SDC
+		 * does not support that perk, but it could be emulated fairly
+		 * easily.  Only the tm_hour, tm_min and tm_sec are used.
+		 * We could do it with 10ms accuracy with the HP SDC, if the 
+		 * rtc interface left us a way to do that.
+                 */
                 struct hp_sdc_rtc_time alm_tm;
 
                 if (copy_from_user(&alm_tm, (struct hp_sdc_rtc_time*)arg,
@@ -570,12 +595,12 @@ static int hp_sdc_rtc_ioctl(struct file *file,
 		if (hp_sdc_rtc_set_mt(&ttime)) return -EFAULT;
                 return 0;
         }
-        case RTC_RD_TIME:       
+        case RTC_RD_TIME:       /* Read the time/date from RTC  */
         {
 		if (hp_sdc_rtc_read_bbrtc(&wtime)) return -EFAULT;
                 break;
         }
-        case RTC_SET_TIME:      
+        case RTC_SET_TIME:      /* Set the RTC */
         {
                 struct rtc_time hp_sdc_rtc_tm;
                 unsigned char mon, day, hrs, min, sec, leap_yr;
@@ -588,7 +613,7 @@ static int hp_sdc_rtc_ioctl(struct file *file,
                         return -EFAULT;
 
                 yrs = hp_sdc_rtc_tm.tm_year + 1900;
-                mon = hp_sdc_rtc_tm.tm_mon + 1;   
+                mon = hp_sdc_rtc_tm.tm_mon + 1;   /* tm_mon starts at zero */
                 day = hp_sdc_rtc_tm.tm_mday;
                 hrs = hp_sdc_rtc_tm.tm_hour;
                 min = hp_sdc_rtc_tm.tm_min;
@@ -606,18 +631,21 @@ static int hp_sdc_rtc_ioctl(struct file *file,
 		if ((hrs >= 24) || (min >= 60) || (sec >= 60))
                         return -EINVAL;
 
-                if ((yrs -= eH) > 255)    
+                if ((yrs -= eH) > 255)    /* They are unsigned */
                         return -EINVAL;
 
 
                 return 0;
         }
-        case RTC_EPOCH_READ:    
+        case RTC_EPOCH_READ:    /* Read the epoch.      */
         {
                 return put_user (epoch, (unsigned long *)arg);
         }
-        case RTC_EPOCH_SET:     
+        case RTC_EPOCH_SET:     /* Set the epoch.       */
         {
+                /* 
+                 * There were no RTC clocks before 1900.
+                 */
                 if (arg < 1900)
 		  return -EINVAL;
 		if (!capable(CAP_SYS_TIME))

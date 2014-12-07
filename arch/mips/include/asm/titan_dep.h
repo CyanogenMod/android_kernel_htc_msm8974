@@ -13,8 +13,8 @@
 #ifndef __TITAN_DEP_H__
 #define __TITAN_DEP_H__
 
-#include <asm/addrspace.h>              
-#include <asm/byteorder.h>              
+#include <asm/addrspace.h>              /* for KSEG1ADDR() */
+#include <asm/byteorder.h>              /* for cpu_to_le32() */
 
 #define TITAN_READ(ofs)							\
 	(*(volatile u32 *)(ocd_base+(ofs)))
@@ -30,9 +30,15 @@
 #define TITAN_WRITE_8(ofs, data)					\
 	do { *(volatile u8 *)(ocd_base+(ofs)) = (data); } while (0)
 
+/*
+ * PCI specific defines
+ */
 #define	TITAN_PCI_0_CONFIG_ADDRESS	0x780
 #define	TITAN_PCI_0_CONFIG_DATA		0x784
 
+/*
+ * HT specific defines
+ */
 #define RM9000x2_HTLINK_REG		0xbb000644
 #define RM9000x2_BASE_ADDR		0xbb000000
 
@@ -41,15 +47,18 @@
 
 extern unsigned long ocd_base;
 
-#define RM9000x2_OCD_LKB5		0x0128		
+/*
+ * OCD Registers
+ */
+#define RM9000x2_OCD_LKB5		0x0128		/* Ethernet */
 #define RM9000x2_OCD_LKM5		0x012c
 
-#define RM9000x2_OCD_LKB7		0x0138		
+#define RM9000x2_OCD_LKB7		0x0138		/* HT Region 0 */
 #define RM9000x2_OCD_LKM7		0x013c
-#define RM9000x2_OCD_LKB8		0x0140		
+#define RM9000x2_OCD_LKB8		0x0140		/* HT Region 1 */
 #define RM9000x2_OCD_LKM8		0x0144
 
-#define RM9000x2_OCD_LKB9		0x0148		
+#define RM9000x2_OCD_LKB9		0x0148		/* Local Bus */
 #define RM9000x2_OCD_LKM9		0x014c
 #define RM9000x2_OCD_LKB10		0x0150
 #define RM9000x2_OCD_LKM10		0x0154
@@ -58,15 +67,15 @@ extern unsigned long ocd_base;
 #define RM9000x2_OCD_LKB12		0x0160
 #define RM9000x2_OCD_LKM12		0x0164
 
-#define RM9000x2_OCD_LKB13		0x0168		
+#define RM9000x2_OCD_LKB13		0x0168		/* Scratch RAM */
 #define RM9000x2_OCD_LKM13		0x016c
 
-#define RM9000x2_OCD_LPD0		0x0200		
+#define RM9000x2_OCD_LPD0		0x0200		/* Local Bus */
 #define RM9000x2_OCD_LPD1		0x0210
 #define RM9000x2_OCD_LPD2		0x0220
 #define RM9000x2_OCD_LPD3		0x0230
 
-#define RM9000x2_OCD_HTDVID		0x0600	
+#define RM9000x2_OCD_HTDVID		0x0600	/* HT Device Header */
 #define RM9000x2_OCD_HTSC		0x0604
 #define RM9000x2_OCD_HTCCR		0x0608
 #define RM9000x2_OCD_HTBHL		0x060c
@@ -82,11 +91,11 @@ extern unsigned long ocd_base;
 #define RM9000x2_OCD_HTCAP1		0x0634
 #define RM9000x2_OCD_HTIL		0x063c
 
-#define RM9000x2_OCD_HTLCC		0x0640	
+#define RM9000x2_OCD_HTLCC		0x0640	/* HT Capability Block */
 #define RM9000x2_OCD_HTLINK		0x0644
 #define RM9000x2_OCD_HTFQREV		0x0648
 
-#define RM9000x2_OCD_HTERCTL		0x0668	
+#define RM9000x2_OCD_HTERCTL		0x0668	/* HT Controller */
 #define RM9000x2_OCD_HTRXDB		0x066c
 #define RM9000x2_OCD_HTIMPED		0x0670
 #define RM9000x2_OCD_HTSWIMP		0x0674
@@ -136,7 +145,7 @@ extern unsigned long ocd_base;
 #define RM9000x2_OCD_TKT		0x0a70
 #define RM9000x2_OCD_TKTINC		0x0a74
 
-#define RM9000x2_OCD_NMICONFIG		0x0ac0		
+#define RM9000x2_OCD_NMICONFIG		0x0ac0		/* Interrupts */
 #define RM9000x2_OCD_INTP0PRI		0x1a80
 #define RM9000x2_OCD_INTP1PRI		0x1a80
 #define RM9000x2_OCD_INTP0STATUS0	0x1b00
@@ -208,6 +217,9 @@ extern unsigned long ocd_base;
 #define OCD_WRITE(reg, val)					\
 	do { *(volatile unsigned int *)(ocd_base + (reg)) = (val); } while (0)
 
+/*
+ * Hypertransport specific macros
+ */
 #define RM9K_WRITE(ofs, data)   *(volatile u_int32_t *)(RM9000x2_BASE_ADDR+ofs) = data
 #define RM9K_WRITE_8(ofs, data) *(volatile u8 *)(RM9000x2_BASE_ADDR+ofs) = data
 #define RM9K_WRITE_16(ofs, data) *(volatile u16 *)(RM9000x2_BASE_ADDR+ofs) = data

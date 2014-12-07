@@ -11,8 +11,10 @@
 
 #include <linux/types.h>
 
+/* maximum packet length for USB devices */
 #define WACOM_PKGLEN_MAX	64
 
+/* packet length for individual models */
 #define WACOM_PKGLEN_PENPRTN	 7
 #define WACOM_PKGLEN_GRAPHIRE	 8
 #define WACOM_PKGLEN_BBFUN	 9
@@ -24,12 +26,14 @@
 #define WACOM_PKGLEN_BBPEN	10
 #define WACOM_PKGLEN_WIRELESS	32
 
+/* device IDs */
 #define STYLUS_DEVICE_ID	0x02
 #define TOUCH_DEVICE_ID		0x03
 #define CURSOR_DEVICE_ID	0x06
 #define ERASER_DEVICE_ID	0x0A
 #define PAD_DEVICE_ID		0x0F
 
+/* wacom data packet report IDs */
 #define WACOM_REPORT_PENABLED		2
 #define WACOM_REPORT_INTUOSREAD		5
 #define WACOM_REPORT_INTUOSWRITE	6
@@ -39,6 +43,7 @@
 #define WACOM_REPORT_TPCHID		15
 #define WACOM_REPORT_TPCST		16
 
+/* device quirks */
 #define WACOM_QUIRK_MULTI_INPUT		0x0001
 #define WACOM_QUIRK_BBTOUCH_LOWRES	0x0002
 #define WACOM_QUIRK_NO_INPUT		0x0004

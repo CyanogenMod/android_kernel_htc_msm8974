@@ -36,9 +36,19 @@
 
 #define NFSDBG_FACILITY		NFSDBG_PNFS_LD
 
+/*
+ * Data server cache
+ *
+ * Data servers can be mapped to different device ids.
+ * nfs4_pnfs_ds reference counting
+ *   - set to 1 on allocation
+ *   - incremented when a device id maps a data server already in the cache.
+ *   - decremented when deviceid is removed from the cache.
+ */
 static DEFINE_SPINLOCK(nfs4_ds_cache_lock);
 static LIST_HEAD(nfs4_data_server_cache);
 
+/* Debug routines */
 void
 print_ds(struct nfs4_pnfs_ds *ds)
 {
@@ -78,7 +88,7 @@ same_sockaddr(struct sockaddr *addr1, struct sockaddr *addr2)
 		a6 = (struct sockaddr_in6 *)addr1;
 		b6 = (struct sockaddr_in6 *)addr2;
 
-		
+		/* LINKLOCAL addresses must have matching scope_id */
 		if (ipv6_addr_scope(&a6->sin6_addr) ==
 		    IPV6_ADDR_SCOPE_LINKLOCAL &&
 		    a6->sin6_scope_id != b6->sin6_scope_id)
@@ -104,7 +114,7 @@ _same_data_server_addrs_locked(const struct list_head *dsaddrs1,
 {
 	struct nfs4_pnfs_ds_addr *da1, *da2;
 
-	
+	/* step through both lists, comparing as we go */
 	for (da1 = list_first_entry(dsaddrs1, typeof(*da1), da_node),
 	     da2 = list_first_entry(dsaddrs2, typeof(*da2), da_node);
 	     da1 != NULL && da2 != NULL;
@@ -120,6 +130,9 @@ _same_data_server_addrs_locked(const struct list_head *dsaddrs1,
 	return false;
 }
 
+/*
+ * Lookup DS by addresses.  nfs4_ds_cache_lock is held
+ */
 static struct nfs4_pnfs_ds *
 _data_server_lookup_locked(const struct list_head *dsaddrs)
 {
@@ -131,6 +144,10 @@ _data_server_lookup_locked(const struct list_head *dsaddrs)
 	return NULL;
 }
 
+/*
+ * Create an rpc connection to the nfs4_pnfs_ds data server
+ * Currently only supports IPv4 and IPv6 addresses
+ */
 static int
 nfs4_ds_connect(struct nfs_server *mds_srv, struct nfs4_pnfs_ds *ds)
 {
@@ -170,12 +187,16 @@ nfs4_ds_connect(struct nfs_server *mds_srv, struct nfs4_pnfs_ds *ds)
 		goto out;
 	}
 
+	/*
+	 * Do not set NFS_CS_CHECK_LEASE_TIME instead set the DS lease to
+	 * be equal to the MDS lease. Renewal is scheduled in create_session.
+	 */
 	spin_lock(&mds_srv->nfs_client->cl_lock);
 	clp->cl_lease_time = mds_srv->nfs_client->cl_lease_time;
 	spin_unlock(&mds_srv->nfs_client->cl_lock);
 	clp->cl_last_renewal = jiffies;
 
-	
+	/* New nfs_client */
 	status = nfs4_init_ds_session(clp);
 	if (status)
 		goto out_put;
@@ -237,6 +258,10 @@ nfs4_fl_free_deviceid(struct nfs4_file_layout_dsaddr *dsaddr)
 	kfree(dsaddr);
 }
 
+/*
+ * Create a string with a human readable address and port to avoid
+ * complicated setup around many dprinks.
+ */
 static char *
 nfs4_pnfs_remotestr(struct list_head *dsaddrs, gfp_t gfp_flags)
 {
@@ -245,9 +270,9 @@ nfs4_pnfs_remotestr(struct list_head *dsaddrs, gfp_t gfp_flags)
 	size_t len;
 	char *p;
 
-	len = 3;        
+	len = 3;        /* '{', '}' and eol */
 	list_for_each_entry(da, dsaddrs, da_node) {
-		len += strlen(da->da_remotestr) + 1;    
+		len += strlen(da->da_remotestr) + 1;    /* string plus comma */
 	}
 
 	remotestr = kzalloc(len, gfp_flags);
@@ -297,7 +322,7 @@ nfs4_pnfs_ds_add(struct list_head *dsaddrs, gfp_t gfp_flags)
 	if (!ds)
 		goto out;
 
-	
+	/* this is only used for debugging, so it's ok if its NULL */
 	remotestr = nfs4_pnfs_remotestr(dsaddrs, gfp_flags);
 
 	spin_lock(&nfs4_ds_cache_lock);
@@ -326,6 +351,9 @@ out:
 	return ds;
 }
 
+/*
+ * Currently only supports ipv4, ipv6 and one multi-path address.
+ */
 static struct nfs4_pnfs_ds_addr *
 decode_ds_addr(struct net *net, struct xdr_stream *streamp, gfp_t gfp_flags)
 {
@@ -341,7 +369,7 @@ decode_ds_addr(struct net *net, struct xdr_stream *streamp, gfp_t gfp_flags)
 	char *endsep = "";
 
 
-	
+	/* r_netid */
 	p = xdr_inline_decode(streamp, 4);
 	if (unlikely(!p))
 		goto out_err;
@@ -358,7 +386,7 @@ decode_ds_addr(struct net *net, struct xdr_stream *streamp, gfp_t gfp_flags)
 	netid[nlen] = '\0';
 	memcpy(netid, p, nlen);
 
-	
+	/* r_addr: ip/ip6addr with port in dec octets - see RFC 5665 */
 	p = xdr_inline_decode(streamp, 4);
 	if (unlikely(!p))
 		goto out_free_netid;
@@ -368,7 +396,7 @@ decode_ds_addr(struct net *net, struct xdr_stream *streamp, gfp_t gfp_flags)
 	if (unlikely(!p))
 		goto out_free_netid;
 
-	
+	/* port is ".ABC.DEF", 8 chars max */
 	if (rlen > INET6_ADDRSTRLEN + IPV6_SCOPE_ID_LEN + 8) {
 		dprintk("%s: Invalid address, length %d\n", __func__,
 			rlen);
@@ -382,7 +410,7 @@ decode_ds_addr(struct net *net, struct xdr_stream *streamp, gfp_t gfp_flags)
 	buf[rlen] = '\0';
 	memcpy(buf, p, rlen);
 
-	
+	/* replace port '.' with '-' */
 	portstr = strrchr(buf, '.');
 	if (!portstr) {
 		dprintk("%s: Failed finding expected dot in port\n",
@@ -391,7 +419,7 @@ decode_ds_addr(struct net *net, struct xdr_stream *streamp, gfp_t gfp_flags)
 	}
 	*portstr = '-';
 
-	
+	/* find '.' between address and port */
 	portstr = strrchr(buf, '.');
 	if (!portstr) {
 		dprintk("%s: Failed finding expected dot between address and "
@@ -445,11 +473,11 @@ decode_ds_addr(struct net *net, struct xdr_stream *streamp, gfp_t gfp_flags)
 		goto out_free_da;
 	}
 
-	
+	/* save human readable address */
 	len = strlen(startsep) + strlen(buf) + strlen(endsep) + 7;
 	da->da_remotestr = kzalloc(len, gfp_flags);
 
-	
+	/* NULL is ok, only used for dprintk */
 	if (da->da_remotestr)
 		snprintf(da->da_remotestr, len, "%s%s%s:%u", startsep,
 			 buf, endsep, ntohs(port));
@@ -470,6 +498,7 @@ out_err:
 	return NULL;
 }
 
+/* Decode opaque device data and return the result */
 static struct nfs4_file_layout_dsaddr*
 decode_device(struct inode *ino, struct pnfs_device *pdev, gfp_t gfp_flags)
 {
@@ -486,7 +515,7 @@ decode_device(struct inode *ino, struct pnfs_device *pdev, gfp_t gfp_flags)
 	struct list_head dsaddrs;
 	struct nfs4_pnfs_ds_addr *da;
 
-	
+	/* set up xdr stream */
 	scratch = alloc_page(gfp_flags);
 	if (!scratch)
 		goto out_err;
@@ -494,7 +523,7 @@ decode_device(struct inode *ino, struct pnfs_device *pdev, gfp_t gfp_flags)
 	xdr_init_decode_pages(&stream, &buf, pdev->pages, pdev->pglen);
 	xdr_set_scratch_buffer(&stream, page_address(scratch), PAGE_SIZE);
 
-	
+	/* Get the stripe count (number of stripe index) */
 	p = xdr_inline_decode(&stream, 4);
 	if (unlikely(!p))
 		goto out_err_free_scratch;
@@ -508,7 +537,7 @@ decode_device(struct inode *ino, struct pnfs_device *pdev, gfp_t gfp_flags)
 		goto out_err_free_scratch;
 	}
 
-	
+	/* read stripe indices */
 	stripe_indices = kcalloc(cnt, sizeof(u8), gfp_flags);
 	if (!stripe_indices)
 		goto out_err_free_scratch;
@@ -525,7 +554,7 @@ decode_device(struct inode *ino, struct pnfs_device *pdev, gfp_t gfp_flags)
 		indexp++;
 	}
 
-	
+	/* Check the multipath list count */
 	p = xdr_inline_decode(&stream, 4);
 	if (unlikely(!p))
 		goto out_err_free_stripe_indices;
@@ -539,7 +568,7 @@ decode_device(struct inode *ino, struct pnfs_device *pdev, gfp_t gfp_flags)
 		goto out_err_free_stripe_indices;
 	}
 
-	
+	/* validate stripe indices are all < num */
 	if (max_stripe_index >= num) {
 		printk(KERN_WARNING "NFS: %s: stripe index %u >= num ds %u\n",
 			__func__, max_stripe_index, num);
@@ -571,7 +600,7 @@ decode_device(struct inode *ino, struct pnfs_device *pdev, gfp_t gfp_flags)
 		if (unlikely(!p))
 			goto out_err_free_deviceid;
 
-		mp_count = be32_to_cpup(p); 
+		mp_count = be32_to_cpup(p); /* multipath count */
 		for (j = 0; j < mp_count; j++) {
 			da = decode_ds_addr(NFS_SERVER(ino)->nfs_client->net,
 					    &stream, gfp_flags);
@@ -588,7 +617,7 @@ decode_device(struct inode *ino, struct pnfs_device *pdev, gfp_t gfp_flags)
 		if (!dsaddr->ds_list[i])
 			goto out_err_drain_dsaddrs;
 
-		
+		/* If DS was already in cache, free ds addrs */
 		while (!list_empty(&dsaddrs)) {
 			da = list_first_entry(&dsaddrs,
 					      struct nfs4_pnfs_ds_addr,
@@ -612,7 +641,7 @@ out_err_drain_dsaddrs:
 	}
 out_err_free_deviceid:
 	nfs4_fl_free_deviceid(dsaddr);
-	
+	/* stripe_indicies was part of dsaddr */
 	goto out_err_free_scratch;
 out_err_free_stripe_indices:
 	kfree(stripe_indices);
@@ -623,6 +652,10 @@ out_err:
 	return NULL;
 }
 
+/*
+ * Decode the opaque device specified in 'dev' and add it to the cache of
+ * available devices.
+ */
 static struct nfs4_file_layout_dsaddr *
 decode_and_add_device(struct inode *inode, struct pnfs_device *dev, gfp_t gfp_flags)
 {
@@ -646,6 +679,10 @@ decode_and_add_device(struct inode *inode, struct pnfs_device *dev, gfp_t gfp_fl
 	return new;
 }
 
+/*
+ * Retrieve the information for dev_id, add it to the list
+ * of available devices, and return it.
+ */
 struct nfs4_file_layout_dsaddr *
 get_device_info(struct inode *inode, struct nfs4_deviceid *dev_id, gfp_t gfp_flags)
 {
@@ -657,6 +694,10 @@ get_device_info(struct inode *inode, struct nfs4_deviceid *dev_id, gfp_t gfp_fla
 	int rc, i;
 	struct nfs_server *server = NFS_SERVER(inode);
 
+	/*
+	 * Use the session max response size as the basis for setting
+	 * GETDEVICEINFO's maxcount
+	 */
 	max_resp_sz = server->nfs_client->cl_session->fc_attrs.max_resp_sz;
 	max_pages = nfs_page_array_len(0, max_resp_sz);
 	dprintk("%s inode %p max_resp_sz %u max_pages %d\n",
@@ -689,6 +730,10 @@ get_device_info(struct inode *inode, struct nfs4_deviceid *dev_id, gfp_t gfp_fla
 	if (rc)
 		goto out_free;
 
+	/*
+	 * Found new device, need to decode it and then add it to the
+	 * list of known devices for this mountpoint.
+	 */
 	dsaddr = decode_and_add_device(inode, pdev, gfp_flags);
 out_free:
 	for (i = 0; i < max_pages; i++)
@@ -705,6 +750,10 @@ nfs4_fl_put_deviceid(struct nfs4_file_layout_dsaddr *dsaddr)
 	nfs4_put_deviceid_node(&dsaddr->id_node);
 }
 
+/*
+ * Want res = (offset - layout->pattern_offset)/ layout->stripe_unit
+ * Then: ((res + fsi) % dsaddr->stripe_count)
+ */
 u32
 nfs4_fl_calc_j_index(struct pnfs_layout_segment *lseg, loff_t offset)
 {
@@ -733,7 +782,7 @@ nfs4_fl_select_ds_fh(struct pnfs_layout_segment *lseg, u32 j)
 		if (flseg->num_fh == 1)
 			i = 0;
 		else if (flseg->num_fh == 0)
-			
+			/* Use the MDS OPEN fh set in nfs_read_rpcsetup */
 			return NULL;
 		else
 			i = nfs4_fl_calc_ds_index(lseg, j);
@@ -774,7 +823,7 @@ nfs4_fl_prepare_ds(struct pnfs_layout_segment *lseg, u32 ds_idx)
 		int err;
 
 		if (dsaddr->flags & NFS4_DEVICE_ID_NEG_ENTRY) {
-			
+			/* Already tried to connect, don't try again */
 			dprintk("%s Deviceid marked out of use\n", __func__);
 			return NULL;
 		}

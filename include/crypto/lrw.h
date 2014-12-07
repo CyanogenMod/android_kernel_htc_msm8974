@@ -10,7 +10,17 @@ struct blkcipher_desc;
 #define LRW_BLOCK_SIZE 16
 
 struct lrw_table_ctx {
+	/* optimizes multiplying a random (non incrementing, as at the
+	 * start of a new sector) value with key2, we could also have
+	 * used 4k optimization tables or no optimization at all. In the
+	 * latter case we would have to store key2 here */
 	struct gf128mul_64k *table;
+	/* stores:
+	 *  key2*{ 0,0,...0,0,0,0,1 }, key2*{ 0,0,...0,0,0,1,1 },
+	 *  key2*{ 0,0,...0,0,1,1,1 }, key2*{ 0,0,...0,1,1,1,1 }
+	 *  key2*{ 0,0,...1,1,1,1,1 }, etc
+	 * needed for optimized multiplication of incrementing values
+	 * with key2 */
 	be128 mulinc[128];
 };
 
@@ -30,4 +40,4 @@ int lrw_crypt(struct blkcipher_desc *desc, struct scatterlist *dst,
 	      struct scatterlist *src, unsigned int nbytes,
 	      struct lrw_crypt_req *req);
 
-#endif  
+#endif  /* _CRYPTO_LRW_H */

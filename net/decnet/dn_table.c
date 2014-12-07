@@ -1,3 +1,17 @@
+/*
+ * DECnet       An implementation of the DECnet protocol suite for the LINUX
+ *              operating system.  DECnet is implemented using the  BSD Socket
+ *              interface as the means of communication with the user level.
+ *
+ *              DECnet Routing Forwarding Information Base (Routing Tables)
+ *
+ * Author:      Steve Whitehouse <SteveW@ACM.org>
+ *              Mostly copied from the IPv4 routing code
+ *
+ *
+ * Changes:
+ *
+ */
 #include <linux/string.h>
 #include <linux/net.h>
 #include <linux/socket.h>
@@ -13,7 +27,7 @@
 #include <linux/spinlock.h>
 #include <linux/atomic.h>
 #include <asm/uaccess.h>
-#include <linux/route.h> 
+#include <linux/route.h> /* RTF_xxx */
 #include <net/neighbour.h>
 #include <net/netlink.h>
 #include <net/dst.h>
@@ -118,7 +132,7 @@ static inline void dn_rebuild_zone(struct dn_zone *dz,
 			for(fp = dn_chain_p(f->fn_key, dz);
 				*fp && dn_key_leq((*fp)->fn_key, f->fn_key);
 				fp = &(*fp)->fn_next)
-				;
+				/* NOTHING */;
 			f->fn_next = *fp;
 			*fp = f;
 		}
@@ -254,23 +268,23 @@ static int dn_fib_nh_match(struct rtmsg *r, struct nlmsghdr *nlh, struct dn_kern
 static inline size_t dn_fib_nlmsg_size(struct dn_fib_info *fi)
 {
 	size_t payload = NLMSG_ALIGN(sizeof(struct rtmsg))
-			 + nla_total_size(4) 
-			 + nla_total_size(2) 
-			 + nla_total_size(4); 
+			 + nla_total_size(4) /* RTA_TABLE */
+			 + nla_total_size(2) /* RTA_DST */
+			 + nla_total_size(4); /* RTA_PRIORITY */
 
-	
+	/* space for nested metrics */
 	payload += nla_total_size((RTAX_MAX * nla_total_size(4)));
 
 	if (fi->fib_nhs) {
-		
+		/* Also handles the special case fib_nhs == 1 */
 
-		
+		/* each nexthop is packed in an attribute */
 		size_t nhsize = nla_total_size(sizeof(struct rtnexthop));
 
-		
+		/* may contain a gateway attribute */
 		nhsize += nla_total_size(4);
 
-		
+		/* all nexthops are packed in a nested attribute */
 		payload += nla_total_size(fi->fib_nhs * nhsize);
 	}
 
@@ -357,7 +371,7 @@ static void dn_rtmsg_fib(int event, struct dn_fib_node *f, int z, u32 tb_id,
 			       f->fn_type, f->fn_scope, &f->fn_key, z,
 			       DN_FIB_INFO(f), 0);
 	if (err < 0) {
-		
+		/* -EMSGSIZE implies BUG in dn_fib_nlmsg_size() */
 		WARN_ON(err == -EMSGSIZE);
 		kfree_skb(skb);
 		goto errout;

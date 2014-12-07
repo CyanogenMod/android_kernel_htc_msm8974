@@ -17,19 +17,45 @@
  */
 
 
+/*
+ * The "faulty" personality causes some requests to fail.
+ *
+ * Possible failure modes are:
+ *   reads fail "randomly" but succeed on retry
+ *   writes fail "randomly" but succeed on retry
+ *   reads for some address fail and then persist until a write
+ *   reads for some address fail and then persist irrespective of write
+ *   writes for some address fail and persist
+ *   all writes fail
+ *
+ * Different modes can be active at a time, but only
+ * one can be set at array creation.  Others can be added later.
+ * A mode can be one-shot or recurrent with the recurrence being
+ * once in every N requests.
+ * The bottom 5 bits of the "layout" indicate the mode.  The
+ * remainder indicate a period, or 0 for one-shot.
+ *
+ * There is an implementation limit on the number of concurrently
+ * persisting-faulty blocks. When a new fault is requested that would
+ * exceed the limit, it is ignored.
+ * All current faults can be clear using a layout of "0".
+ *
+ * Requests are always sent to the device.  If they are to fail,
+ * we clone the bio and insert a new b_end_io into the chain.
+ */
 
 #define	WriteTransient	0
 #define	ReadTransient	1
 #define	WritePersistent	2
 #define	ReadPersistent	3
-#define	WriteAll	4 
+#define	WriteAll	4 /* doesn't go to device */
 #define	ReadFixable	5
 #define	Modes	6
 
 #define	ClearErrors	31
 #define	ClearFaults	30
 
-#define AllPersist	100 
+#define AllPersist	100 /* internal use only */
 #define	NoPersist	101
 
 #define	ModeMask	0x1f
@@ -69,7 +95,7 @@ static int check_mode(struct faulty_conf *conf, int mode)
 {
 	if (conf->period[mode] == 0 &&
 	    atomic_read(&conf->counters[mode]) <= 0)
-		return 0; 
+		return 0; /* no failure, no decrement */
 
 
 	if (atomic_dec_and_test(&conf->counters[mode])) {
@@ -82,12 +108,12 @@ static int check_mode(struct faulty_conf *conf, int mode)
 
 static int check_sector(struct faulty_conf *conf, sector_t start, sector_t end, int dir)
 {
-	
+	/* If we find a ReadFixable sector, we fix it ... */
 	int i;
 	for (i=0; i<conf->nfaults; i++)
 		if (conf->faults[i] >= start &&
 		    conf->faults[i] < end) {
-			
+			/* found it ... */
 			switch (conf->modes[i] * 2 + dir) {
 			case WritePersistent*2+WRITE: return 1;
 			case ReadPersistent*2+READ: return 1;
@@ -150,8 +176,11 @@ static void make_request(struct mddev *mddev, struct bio *bio)
 	int failit = 0;
 
 	if (bio_data_dir(bio) == WRITE) {
-		
+		/* write request */
 		if (atomic_read(&conf->counters[WriteAll])) {
+			/* special case - don't decrement, don't generic_make_request,
+			 * just fail immediately
+			 */
 			bio_endio(bio, -EIO);
 			return;
 		}
@@ -166,7 +195,7 @@ static void make_request(struct mddev *mddev, struct bio *bio)
 		if (check_mode(conf, WriteTransient))
 			failit = 1;
 	} else {
-		
+		/* read request */
 		if (check_sector(conf, bio->bi_sector, bio->bi_sector + (bio->bi_size>>9),
 				 READ))
 			failit = 1;
@@ -236,7 +265,7 @@ static int reshape(struct mddev *mddev)
 	if (mddev->new_layout < 0)
 		return 0;
 
-	
+	/* new layout */
 	if (mode == ClearFaults)
 		conf->nfaults = 0;
 	else if (mode == ClearErrors) {
@@ -252,7 +281,7 @@ static int reshape(struct mddev *mddev)
 	} else
 		return -EINVAL;
 	mddev->new_layout = -1;
-	mddev->layout = -1; 
+	mddev->layout = -1; /* makes sure further changes come through */
 	return 0;
 }
 
@@ -333,6 +362,6 @@ module_init(raid_init);
 module_exit(raid_exit);
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Fault injection personality for MD");
-MODULE_ALIAS("md-personality-10"); 
+MODULE_ALIAS("md-personality-10"); /* faulty */
 MODULE_ALIAS("md-faulty");
 MODULE_ALIAS("md-level--5");

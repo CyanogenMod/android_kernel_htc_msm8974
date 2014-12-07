@@ -7,7 +7,7 @@
 #define __ARCH_SI_PREAMBLE_SIZE	(4 * sizeof(int))
 #define __ARCH_SI_BAND_T int
 
-#endif 
+#endif /* defined(__sparc__) && defined(__arch64__) */
 
 
 #define __ARCH_SI_TRAPNO
@@ -20,13 +20,16 @@
 
 struct compat_siginfo;
 
-#endif 
+#endif /* CONFIG_COMPAT */
 
-#endif 
+#endif /* __KERNEL__ */
 
-#define SI_NOINFO	32767		
+#define SI_NOINFO	32767		/* no information in siginfo_t */
 
-#define EMT_TAGOVF	(__SI_FAULT|1)	
+/*
+ * SIGEMT si_codes
+ */
+#define EMT_TAGOVF	(__SI_FAULT|1)	/* tag overflow */
 #define NSIGEMT		1
 
-#endif 
+#endif /* !(__SPARC_SIGINFO_H) */

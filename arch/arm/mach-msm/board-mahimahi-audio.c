@@ -63,7 +63,7 @@ static struct q6_hw_info q6_audio_hw[Q6_HW_COUNT] = {
 void mahimahi_headset_enable(int en)
 {
 	D("%s %d\n", __func__, en);
-	
+	/* enable audio amp */
 	if (en) mdelay(15);
 	gpio_set_value(MAHIMAHI_AUD_JACKHP_EN, !!en);
 }
@@ -85,7 +85,7 @@ void mahimahi_speaker_enable(int en)
 		pmic_spkr_en(LEFT_SPKR, 1);
 		pmic_spkr_en(RIGHT_SPKR, 0);
 
-		
+		/* unmute */
 		pmic_spkr_en_mute(LEFT_SPKR, 1);
 	} else {
 		pmic_spkr_en_mute(LEFT_SPKR, 0);
@@ -117,7 +117,7 @@ void mahimahi_receiver_enable(int en)
 			pmic_set_spkr_configuration(&scm);
 			pmic_spkr_en(RIGHT_SPKR, 1);
 
-			
+			/* unmute */
 			pmic_spkr_en_mute(RIGHT_SPKR, 1);
 		} else {
 			pmic_spkr_en_mute(RIGHT_SPKR, 0);
@@ -208,7 +208,7 @@ void mahimahi_mic_enable(int en)
 void mahimahi_analog_init(void)
 {
 	D("%s\n", __func__);
-	
+	/* stereo pmic init */
 	pmic_spkr_set_gain(LEFT_SPKR, SPKR_GAIN_PLUS12DB);
 	pmic_spkr_set_gain(RIGHT_SPKR, SPKR_GAIN_PLUS12DB);
 	pmic_spkr_en_right_chan(OFF_CMD);

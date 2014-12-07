@@ -70,7 +70,7 @@ static bool is_uapsd_supported(struct ieee802_11_elems *elems)
 		 && elems->wmm_param[5] == 1)
 		qos_info = elems->wmm_param[6];
 	else
-		
+		/* no valid wmm information or parameter element found */
 		return false;
 
 	return qos_info & IEEE80211_WMM_IE_AP_QOSINFO_UAPSD;
@@ -116,7 +116,7 @@ ieee80211_bss_info_update(struct ieee80211_local *local,
 			bss->corrupt_data &= ~IEEE80211_BSS_CORRUPT_PROBE_RESP;
 	}
 
-	
+	/* save the ERP value so that it is available at association time */
 	if (elems->erp_info && elems->erp_info_len >= 1 &&
 			(!elems->parse_error ||
 			 !(bss->valid_data & IEEE80211_BSS_VALID_ERP))) {
@@ -135,11 +135,11 @@ ieee80211_bss_info_update(struct ieee80211_local *local,
 				bss->valid_data |= IEEE80211_BSS_VALID_DTIM;
 	}
 
-	
+	/* If the beacon had no TIM IE, or it was invalid, use 1 */
 	if (beacon && !bss->dtim_period)
 		bss->dtim_period = 1;
 
-	
+	/* replace old supported rates if we get new values */
 	if (!elems->parse_error ||
 	    !(bss->valid_data & IEEE80211_BSS_VALID_RATES)) {
 		srlen = 0;
@@ -207,7 +207,7 @@ ieee80211_scan_rx(struct ieee80211_sub_if_data *sdata, struct sk_buff *skb)
 
 	presp = ieee80211_is_probe_resp(fc);
 	if (presp) {
-		
+		/* ignore ProbeResp to foreign address */
 		if (compare_ether_addr(mgmt->da, sdata->vif.addr))
 			return RX_DROP_MONITOR;
 
@@ -252,6 +252,7 @@ ieee80211_scan_rx(struct ieee80211_sub_if_data *sdata, struct sk_buff *skb)
 	return RX_QUEUED;
 }
 
+/* return false if no more work */
 static bool ieee80211_prep_hw_scan(struct ieee80211_local *local)
 {
 	struct cfg80211_scan_request *req = local->scan_req;
@@ -293,6 +294,12 @@ static void __ieee80211_scan_completed(struct ieee80211_hw *hw, bool aborted,
 
 	lockdep_assert_held(&local->mtx);
 
+	/*
+	 * It's ok to abort a not-yet-running scan (that
+	 * we have one at all will be verified by checking
+	 * local->scan_req next), but not to complete it
+	 * successfully.
+	 */
 	if (WARN_ON(!local->scanning && !aborted))
 		aborted = true;
 
@@ -316,7 +323,7 @@ static void __ieee80211_scan_completed(struct ieee80211_hw *hw, bool aborted,
 	local->scanning = 0;
 	local->scan_channel = NULL;
 
-	
+	/* Set power back to normal operating levels. */
 	ieee80211_hw_config(local, 0);
 
 	if (!was_hw_scan) {
@@ -348,6 +355,19 @@ EXPORT_SYMBOL(ieee80211_scan_completed);
 
 static int ieee80211_start_sw_scan(struct ieee80211_local *local)
 {
+	/*
+	 * Hardware/driver doesn't support hw_scan, so use software
+	 * scanning instead. First send a nullfunc frame with power save
+	 * bit on so that AP will buffer the frames for us while we are not
+	 * listening, then send probe requests to each channel and wait for
+	 * the responses. After all channels are scanned, tune back to the
+	 * original channel and send a nullfunc frame with power save bit
+	 * off to trigger the AP to send us all the buffered frames.
+	 *
+	 * Note that while local->sw_scanning is true everything else but
+	 * nullfunc frames and probe requests will be dropped in
+	 * ieee80211_tx_h_check_assoc().
+	 */
 	drv_sw_scan_start(local);
 
 	local->leave_oper_channel_time = jiffies;
@@ -358,7 +378,7 @@ static int ieee80211_start_sw_scan(struct ieee80211_local *local)
 
 	ieee80211_configure_filter(local);
 
-	
+	/* We need to set power level at maximum rate for scanning. */
 	ieee80211_hw_config(local, 0);
 
 	ieee80211_queue_delayed_work(&local->hw,
@@ -380,7 +400,7 @@ static int __ieee80211_start_scan(struct ieee80211_sub_if_data *sdata,
 		return -EBUSY;
 
 	if (!list_empty(&local->work_list)) {
-		
+		/* wait for the work to finish/time out */
 		local->scan_req = req;
 		local->scan_sdata = sdata;
 		return 0;
@@ -406,6 +426,13 @@ static int __ieee80211_start_scan(struct ieee80211_sub_if_data *sdata,
 
 		local->hw_scan_band = 0;
 
+		/*
+		 * After allocating local->hw_scan_req, we must
+		 * go through until ieee80211_prep_hw_scan(), so
+		 * anything that might be changed here and leave
+		 * this function early must not go after this
+		 * allocation.
+		 */
 	}
 
 	local->scan_req = req;
@@ -441,6 +468,10 @@ static int __ieee80211_start_scan(struct ieee80211_sub_if_data *sdata,
 static unsigned long
 ieee80211_scan_get_channel_time(struct ieee80211_channel *chan)
 {
+	/*
+	 * TODO: channel switching also consumes quite some time,
+	 * add that delay as well to get a better estimation
+	 */
 	if (chan->flags & IEEE80211_CHAN_PASSIVE_SCAN)
 		return IEEE80211_PASSIVE_CHANNEL_TIME;
 	return IEEE80211_PROBE_DELAY + IEEE80211_CHANNEL_TIME;
@@ -457,6 +488,11 @@ static void ieee80211_scan_state_decision(struct ieee80211_local *local,
 	struct ieee80211_sub_if_data *sdata;
 	struct ieee80211_channel *next_chan;
 
+	/*
+	 * check if at least one STA interface is associated,
+	 * check if at least one STA interface has pending tx frames
+	 * and grab the lowest used beacon interval
+	 */
 	mutex_lock(&local->iflist_mtx);
 	list_for_each_entry(sdata, &local->interfaces, list) {
 		if (!ieee80211_sdata_running(sdata))
@@ -482,6 +518,21 @@ static void ieee80211_scan_state_decision(struct ieee80211_local *local,
 
 	next_chan = local->scan_req->channels[local->scan_channel_idx];
 
+	/*
+	 * we're currently scanning a different channel, let's
+	 * see if we can scan another channel without interfering
+	 * with the current traffic situation.
+	 *
+	 * Since we don't know if the AP has pending frames for us
+	 * we can only check for our tx queues and use the current
+	 * pm_qos requirements for rx. Hence, if no tx traffic occurs
+	 * at all we will scan as many channels in a row as the pm_qos
+	 * latency allows us to. Additionally we also check for the
+	 * currently negotiated listen interval to prevent losing
+	 * frames unnecessarily.
+	 *
+	 * Otherwise switch back to the operating channel.
+	 */
 
 	bad_latency = time_after(jiffies +
 			ieee80211_scan_get_channel_time(next_chan),
@@ -516,15 +567,25 @@ static void ieee80211_scan_state_set_channel(struct ieee80211_local *local,
 	if (ieee80211_hw_config(local, IEEE80211_CONF_CHANGE_CHANNEL))
 		skip = 1;
 
-	
+	/* advance state machine to next channel/band */
 	local->scan_channel_idx++;
 
 	if (skip) {
-		
+		/* if we skip this channel return to the decision state */
 		local->next_scan_state = SCAN_DECISION;
 		return;
 	}
 
+	/*
+	 * Probe delay is used to update the NAV, cf. 11.1.3.2.2
+	 * (which unfortunately doesn't say _why_ step a) is done,
+	 * but it waits for the probe delay or until a frame is
+	 * received - and the received frame would update the NAV).
+	 * For now, we do not support waiting until a frame is
+	 * received.
+	 *
+	 * In any case, it is not necessary for a passive scan.
+	 */
 	if (chan->flags & IEEE80211_CHAN_PASSIVE_SCAN ||
 	    !local->scan_req->n_ssids) {
 		*next_delay = IEEE80211_PASSIVE_CHANNEL_TIME;
@@ -532,7 +593,7 @@ static void ieee80211_scan_state_set_channel(struct ieee80211_local *local,
 		return;
 	}
 
-	
+	/* active scan, send probes */
 	*next_delay = IEEE80211_PROBE_DELAY;
 	local->next_scan_state = SCAN_SEND_PROBE;
 }
@@ -553,6 +614,10 @@ static void ieee80211_scan_state_send_probe(struct ieee80211_local *local,
 			local->scan_req->rates[band], false,
 			local->scan_req->no_cck);
 
+	/*
+	 * After sending probe requests, wait for probe responses
+	 * on the channel.
+	 */
 	*next_delay = IEEE80211_CHANNEL_TIME;
 	local->next_scan_state = SCAN_DECISION;
 }
@@ -560,21 +625,26 @@ static void ieee80211_scan_state_send_probe(struct ieee80211_local *local,
 static void ieee80211_scan_state_suspend(struct ieee80211_local *local,
 					 unsigned long *next_delay)
 {
-	
+	/* switch back to the operating channel */
 	local->scan_channel = NULL;
 	ieee80211_hw_config(local, IEEE80211_CONF_CHANGE_CHANNEL);
 
+	/*
+	 * Re-enable vifs and beaconing.  Leave PS
+	 * in off-channel state..will put that back
+	 * on-channel at the end of scanning.
+	 */
 	ieee80211_offchannel_return(local, false);
 
 	*next_delay = HZ / 5;
-	
+	/* afterwards, resume scan & go to next channel */
 	local->next_scan_state = SCAN_RESUME;
 }
 
 static void ieee80211_scan_state_resume(struct ieee80211_local *local,
 					unsigned long *next_delay)
 {
-	
+	/* PS already is in off-channel mode */
 	ieee80211_offchannel_stop_vifs(local, false);
 
 	if (local->ops->flush) {
@@ -583,10 +653,10 @@ static void ieee80211_scan_state_resume(struct ieee80211_local *local,
 	} else
 		*next_delay = HZ / 10;
 
-	
+	/* remember when we left the operating channel */
 	local->leave_oper_channel_time = jiffies;
 
-	
+	/* advance to the next channel to be scanned */
 	local->next_scan_state = SCAN_SET_CHANNEL;
 }
 
@@ -619,7 +689,7 @@ void ieee80211_scan_work(struct work_struct *work)
 
 		rc = __ieee80211_start_scan(sdata, req);
 		if (rc) {
-			
+			/* need to complete scan in cfg80211 */
 			local->scan_req = req;
 			aborted = true;
 			goto out_complete;
@@ -627,11 +697,18 @@ void ieee80211_scan_work(struct work_struct *work)
 			goto out;
 	}
 
+	/*
+	 * Avoid re-scheduling when the sdata is going away.
+	 */
 	if (!ieee80211_sdata_running(sdata)) {
 		aborted = true;
 		goto out_complete;
 	}
 
+	/*
+	 * as long as no delay is required advance immediately
+	 * without scheduling a new work
+	 */
 	do {
 		if (!ieee80211_sdata_running(sdata)) {
 			aborted = true;
@@ -640,7 +717,7 @@ void ieee80211_scan_work(struct work_struct *work)
 
 		switch (local->next_scan_state) {
 		case SCAN_DECISION:
-			
+			/* if no more bands/channels left, complete scan */
 			if (local->scan_channel_idx >= local->scan_req->n_channels) {
 				aborted = false;
 				goto out_complete;
@@ -694,11 +771,11 @@ int ieee80211_request_internal_scan(struct ieee80211_sub_if_data *sdata,
 
 	mutex_lock(&local->mtx);
 
-	
+	/* busy scanning */
 	if (local->scan_req)
 		goto unlock;
 
-	
+	/* fill internal scan request */
 	if (!chan) {
 		int i, nchan = 0;
 
@@ -731,8 +808,28 @@ int ieee80211_request_internal_scan(struct ieee80211_sub_if_data *sdata,
 	return ret;
 }
 
+/*
+ * Only call this function when a scan can't be queued -- under RTNL.
+ */
 void ieee80211_scan_cancel(struct ieee80211_local *local)
 {
+	/*
+	 * We are canceling software scan, or deferred scan that was not
+	 * yet really started (see __ieee80211_start_scan ).
+	 *
+	 * Regarding hardware scan:
+	 * - we can not call  __ieee80211_scan_completed() as when
+	 *   SCAN_HW_SCANNING bit is set this function change
+	 *   local->hw_scan_req to operate on 5G band, what race with
+	 *   driver which can use local->hw_scan_req
+	 *
+	 * - we can not cancel scan_work since driver can schedule it
+	 *   by ieee80211_scan_completed(..., true) to finish scan
+	 *
+	 * Hence we only call the cancel_hw_scan() callback, but the low-level
+	 * driver is still responsible for calling ieee80211_scan_completed()
+	 * after the scan was completed/aborted.
+	 */
 
 	mutex_lock(&local->mtx);
 	if (!local->scan_req)
@@ -744,8 +841,13 @@ void ieee80211_scan_cancel(struct ieee80211_local *local)
 		goto out;
 	}
 
+	/*
+	 * If the work is currently running, it must be blocked on
+	 * the mutex, but we'll set scan_sdata = NULL and it'll
+	 * simply exit once it acquires the mutex.
+	 */
 	cancel_delayed_work(&local->scan_work);
-	
+	/* and clean up */
 	__ieee80211_scan_completed(&local->hw, true, false);
 out:
 	mutex_unlock(&local->mtx);

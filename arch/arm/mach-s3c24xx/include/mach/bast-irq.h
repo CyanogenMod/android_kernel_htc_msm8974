@@ -13,6 +13,7 @@
 #ifndef __ASM_ARCH_BASTIRQ_H
 #define __ASM_ARCH_BASTIRQ_H
 
+/* irq numbers to onboard peripherals */
 
 #define IRQ_USBOC      IRQ_EINT18
 #define IRQ_IDE0       IRQ_EINT16
@@ -25,4 +26,4 @@
 #define IRQ_ISA	       IRQ_EINT9
 #define IRQ_SMALERT    IRQ_EINT8
 
-#endif 
+#endif /* __ASM_ARCH_BASTIRQ_H */

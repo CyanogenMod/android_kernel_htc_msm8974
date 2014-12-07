@@ -1,3 +1,4 @@
+/* 8390 core for ISA devices needing bus delays */
 
 static const char version[] =
     "8390p.c:v1.10cvs 9/23/94 Donald Becker (becker@cesdis.gsfc.nasa.gov)\n";

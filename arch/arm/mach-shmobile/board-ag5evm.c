@@ -59,7 +59,7 @@ static struct resource smsc9220_resources[] = {
 		.flags		= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start		= SH73A0_PINT0_IRQ(2), 
+		.start		= SH73A0_PINT0_IRQ(2), /* PINTA2 */
 		.flags		= IORESOURCE_IRQ,
 	},
 };
@@ -121,6 +121,7 @@ static struct platform_device keysc_device = {
 	},
 };
 
+/* FSI A */
 static struct resource fsi_resources[] = {
 	[0] = {
 		.name	= "FSI",
@@ -178,6 +179,7 @@ static struct platform_device mmc_device = {
 	.resource	= sh_mmcif_resources,
 };
 
+/* IrDA */
 static struct resource irda_resources[] = {
 	[0] = {
 		.start	= 0xE6D00000,
@@ -227,6 +229,7 @@ static void lcd_backlight_reset(void)
 	gpio_set_value(GPIO_PORT235, 1);
 }
 
+/* LCDC0 */
 static const struct fb_videomode lcdc0_modes[] = {
 	{
 		.name		= "R63302(QHD)",
@@ -264,7 +267,7 @@ static struct sh_mobile_lcdc_info lcdc0_info = {
 static struct resource lcdc0_resources[] = {
 	[0] = {
 		.name	= "LCDC0",
-		.start	= 0xfe940000, 
+		.start	= 0xfe940000, /* P4-only space */
 		.end	= 0xfe943fff,
 		.flags	= IORESOURCE_MEM,
 	},
@@ -285,6 +288,7 @@ static struct platform_device lcdc0_device = {
 	},
 };
 
+/* MIPI-DSI */
 static struct resource mipidsi0_resources[] = {
 	[0] = {
 		.name	= "DSI0",
@@ -360,6 +364,7 @@ static struct platform_device mipidsi0_device = {
 	},
 };
 
+/* SDHI0 */
 static struct sh_mobile_sdhi_info sdhi0_info = {
 	.dma_slave_tx	= SHDMA_SLAVE_SDHI0_TX,
 	.dma_slave_rx	= SHDMA_SLAVE_SDHI0_RX,
@@ -465,13 +470,13 @@ static void __init ag5evm_init(void)
 {
 	sh73a0_pinmux_init();
 
-	
+	/* enable SCIFA2 */
 	gpio_request(GPIO_FN_SCIFA2_TXD1, NULL);
 	gpio_request(GPIO_FN_SCIFA2_RXD1, NULL);
 	gpio_request(GPIO_FN_SCIFA2_RTS1_, NULL);
 	gpio_request(GPIO_FN_SCIFA2_CTS1_, NULL);
 
-	
+	/* enable KEYSC */
 	gpio_request(GPIO_FN_KEYIN0_PU, NULL);
 	gpio_request(GPIO_FN_KEYIN1_PU, NULL);
 	gpio_request(GPIO_FN_KEYIN2_PU, NULL);
@@ -491,13 +496,13 @@ static void __init ag5evm_init(void)
 	gpio_request(GPIO_FN_KEYOUT8, NULL);
 	gpio_request(GPIO_FN_PORT149_KEYOUT9, NULL);
 
-	
+	/* enable I2C channel 2 and 3 */
 	gpio_request(GPIO_FN_PORT236_I2C_SDA2, NULL);
 	gpio_request(GPIO_FN_PORT237_I2C_SCL2, NULL);
 	gpio_request(GPIO_FN_PORT248_I2C_SCL3, NULL);
 	gpio_request(GPIO_FN_PORT249_I2C_SDA3, NULL);
 
-	
+	/* enable MMCIF */
 	gpio_request(GPIO_FN_MMCCLK0, NULL);
 	gpio_request(GPIO_FN_MMCCMD0_PU, NULL);
 	gpio_request(GPIO_FN_MMCD0_0_PU, NULL);
@@ -508,40 +513,40 @@ static void __init ag5evm_init(void)
 	gpio_request(GPIO_FN_MMCD0_5_PU, NULL);
 	gpio_request(GPIO_FN_MMCD0_6_PU, NULL);
 	gpio_request(GPIO_FN_MMCD0_7_PU, NULL);
-	gpio_request(GPIO_PORT208, NULL); 
+	gpio_request(GPIO_PORT208, NULL); /* Reset */
 	gpio_direction_output(GPIO_PORT208, 1);
 
-	
-	gpio_request(GPIO_PORT144, NULL); 
+	/* enable SMSC911X */
+	gpio_request(GPIO_PORT144, NULL); /* PINTA2 */
 	gpio_direction_input(GPIO_PORT144);
-	gpio_request(GPIO_PORT145, NULL); 
+	gpio_request(GPIO_PORT145, NULL); /* RESET */
 	gpio_direction_output(GPIO_PORT145, 1);
 
-	
+	/* FSI A */
 	gpio_request(GPIO_FN_FSIACK, NULL);
 	gpio_request(GPIO_FN_FSIAILR, NULL);
 	gpio_request(GPIO_FN_FSIAIBT, NULL);
 	gpio_request(GPIO_FN_FSIAISLD, NULL);
 	gpio_request(GPIO_FN_FSIAOSLD, NULL);
 
-	
+	/* IrDA */
 	gpio_request(GPIO_FN_PORT241_IRDA_OUT, NULL);
 	gpio_request(GPIO_FN_PORT242_IRDA_IN,  NULL);
 	gpio_request(GPIO_FN_PORT243_IRDA_FIRSEL, NULL);
 
-	
-	gpio_request(GPIO_PORT217, NULL); 
+	/* LCD panel */
+	gpio_request(GPIO_PORT217, NULL); /* RESET */
 	gpio_direction_output(GPIO_PORT217, 0);
 	mdelay(1);
 	gpio_set_value(GPIO_PORT217, 1);
 	mdelay(100);
 
-	
-	gpio_request(GPIO_PORT235, NULL); 
+	/* LCD backlight controller */
+	gpio_request(GPIO_PORT235, NULL); /* RESET */
 	gpio_direction_output(GPIO_PORT235, 0);
 	lcd_backlight_reset();
 
-	
+	/* enable SDHI0 on CN15 [SD I/F] */
 	gpio_request(GPIO_FN_SDHIWP0, NULL);
 	gpio_request(GPIO_FN_SDHICMD0, NULL);
 	gpio_request(GPIO_FN_SDHICLK0, NULL);
@@ -550,7 +555,7 @@ static void __init ag5evm_init(void)
 	gpio_request(GPIO_FN_SDHID0_1, NULL);
 	gpio_request(GPIO_FN_SDHID0_0, NULL);
 
-	
+	/* enable SDHI1 on CN4 [WLAN I/F] */
 	gpio_request(GPIO_FN_SDHICLK1, NULL);
 	gpio_request(GPIO_FN_SDHICMD1_PU, NULL);
 	gpio_request(GPIO_FN_SDHID1_3_PU, NULL);
@@ -561,7 +566,7 @@ static void __init ag5evm_init(void)
 	gpio_direction_output(GPIO_PORT114, 0);
 
 #ifdef CONFIG_CACHE_L2X0
-	
+	/* Shared attribute override enable, 64K*8way */
 	l2x0_init(IOMEM(0xf0100000), 0x00460000, 0xc2000fff);
 #endif
 	sh73a0_add_standard_devices();

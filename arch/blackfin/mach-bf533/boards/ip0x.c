@@ -23,8 +23,14 @@
 #include <asm/bfin5xx_spi.h>
 #include <asm/portmux.h>
 
+/*
+ * Name the Board for the /proc/cpuinfo
+ */
 const char bfin_board_name[] = "IP04/IP08";
 
+/*
+ *  Driver needs to know address, irq and flag pin.
+ */
 #if defined(CONFIG_BFIN532_IP0X)
 #if defined(CONFIG_DM9000) || defined(CONFIG_DM9000_MODULE)
 
@@ -99,13 +105,16 @@ static struct platform_device dm9000_device2 = {
 
 
 #if defined(CONFIG_SPI_BFIN5XX) || defined(CONFIG_SPI_BFIN5XX_MODULE)
+/* all SPI peripherals info goes here */
 
 #if defined(CONFIG_MMC_SPI) || defined(CONFIG_MMC_SPI_MODULE)
 static struct bfin5xx_spi_chip mmc_spi_chip_info = {
-	.enable_dma = 0,		
+	.enable_dma = 0,		/* if 1 - block!!! */
 };
 #endif
 
+/* Notice: for blackfin, the speed_hz is the value of register
+ * SPI_BAUD, not the real baudrate */
 static struct spi_board_info bfin_spi_board_info[] __initdata = {
 #if defined(CONFIG_MMC_SPI) || defined(CONFIG_MMC_SPI_MODULE)
 	{
@@ -118,19 +127,20 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 #endif
 };
 
+/* SPI controller data */
 static struct bfin5xx_spi_master spi_bfin_master_info = {
 	.num_chipselect = 8,
-	.enable_dma = 1,  
+	.enable_dma = 1,  /* master has the ability to do dma transfer */
 };
 
 static struct platform_device spi_bfin_master_device = {
 	.name = "bfin-spi-master",
-	.id = 1, 
+	.id = 1, /* Bus number */
 	.dev = {
-		.platform_data = &spi_bfin_master_info, 
+		.platform_data = &spi_bfin_master_info, /* Passed to driver */
 	},
 };
-#endif  
+#endif  /* spi master and devices */
 
 #if defined(CONFIG_SERIAL_BFIN) || defined(CONFIG_SERIAL_BFIN_MODULE)
 #ifdef CONFIG_SERIAL_BFIN_UART0
@@ -177,7 +187,7 @@ static struct platform_device bfin_uart0_device = {
 	.num_resources = ARRAY_SIZE(bfin_uart0_resources),
 	.resource = bfin_uart0_resources,
 	.dev = {
-		.platform_data = &bfin_uart0_peripherals, 
+		.platform_data = &bfin_uart0_peripherals, /* Passed to driver */
 	},
 };
 #endif
@@ -232,7 +242,7 @@ static struct resource isp1362_hcd_resources[] = {
 static struct isp1362_platform_data isp1362_priv = {
 	.sel15Kres = 1,
 	.clknotstop = 0,
-	.oc_enable = 0,		
+	.oc_enable = 0,		/* external OC */
 	.int_act_high = 0,
 	.int_edge_triggered = 0,
 	.remote_wakeup_connected = 0,

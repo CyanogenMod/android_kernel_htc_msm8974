@@ -11,6 +11,7 @@
 #include <linux/namei.h>
 #include "hfs_fs.h"
 
+/* dentry case-handling: just lowercase everything */
 
 static int hfs_revalidate_dentry(struct dentry *dentry, struct nameidata *nd)
 {
@@ -24,7 +25,7 @@ static int hfs_revalidate_dentry(struct dentry *dentry, struct nameidata *nd)
 	if(!inode)
 		return 1;
 
-	
+	/* fix up inode on a timezone change */
 	diff = sys_tz.tz_minuteswest * 60 - HFS_I(inode)->tz_secondswest;
 	if (diff) {
 		inode->i_ctime.tv_sec += diff;

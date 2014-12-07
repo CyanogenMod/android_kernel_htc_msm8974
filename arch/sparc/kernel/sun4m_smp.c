@@ -42,7 +42,7 @@ void __cpuinit smp4m_callin(void)
 
 	notify_cpu_starting(cpuid);
 
-	
+	/* Get our local ticker going. */
 	smp_setup_percpu_timer();
 
 	calibrate_delay();
@@ -51,19 +51,25 @@ void __cpuinit smp4m_callin(void)
 	local_flush_cache_all();
 	local_flush_tlb_all();
 
-	
+	/*
+	 * Unblock the master CPU _only_ when the scheduler state
+	 * of all secondary CPUs will be up-to-date, so after
+	 * the SMP initialization the master will be just allowed
+	 * to call the scheduler code.
+	 */
+	/* Allow master to continue. */
 	swap_ulong(&cpu_callin_map[cpuid], 1);
 
-	
+	/* XXX: What's up with all the flushes? */
 	local_flush_cache_all();
 	local_flush_tlb_all();
 
-	
+	/* Fix idle thread fields. */
 	__asm__ __volatile__("ld [%0], %%g6\n\t"
 			     : : "r" (&current_set[cpuid])
-			     : "memory" );
+			     : "memory" /* paranoid */);
 
-	
+	/* Attach to the address space of init_task. */
 	atomic_inc(&init_mm.mm_count);
 	current->active_mm = &init_mm;
 
@@ -75,6 +81,9 @@ void __cpuinit smp4m_callin(void)
 	set_cpu_online(cpuid, true);
 }
 
+/*
+ *	Cycle through the processors asking the PROM to start each one.
+ */
 void __init smp4m_boot_cpus(void)
 {
 	smp4m_ipi_init();
@@ -91,22 +100,27 @@ int __cpuinit smp4m_boot_one_cpu(int i)
 
 	cpu_find_by_mid(i, &cpu_node);
 
-	
+	/* Cook up an idler for this guy. */
 	p = fork_idle(i);
 	current_set[i] = task_thread_info(p);
-	
+	/* See trampoline.S for details... */
 	entry += ((i - 1) * 3);
 
+	/*
+	 * Initialize the contexts table
+	 * Since the call to prom_startcpu() trashes the structure,
+	 * we need to re-initialize it for each cpu
+	 */
 	smp_penguin_ctable.which_io = 0;
 	smp_penguin_ctable.phys_addr = (unsigned int) srmmu_ctx_table_phys;
 	smp_penguin_ctable.reg_size = 0;
 
-	
+	/* whirrr, whirrr, whirrrrrrrrr... */
 	printk(KERN_INFO "Starting CPU %d at %p\n", i, entry);
 	local_flush_cache_all();
 	prom_startcpu(cpu_node, &smp_penguin_ctable, 0, (char *)entry);
 
-	
+	/* wheee... it's going... */
 	for (timeout = 0; timeout < 10000; timeout++) {
 		if (cpu_callin_map[i])
 			break;
@@ -127,7 +141,7 @@ void __init smp4m_smp_done(void)
 	int i, first;
 	int *prev;
 
-	
+	/* setup cpu list for irq rotation */
 	first = 0;
 	prev = &first;
 	for_each_online_cpu(i) {
@@ -137,10 +151,11 @@ void __init smp4m_smp_done(void)
 	*prev = first;
 	local_flush_cache_all();
 
-	
+	/* Ok, they are spinning and ready to go. */
 }
 
 
+/* Initialize IPIs on the SUN4M SMP machine */
 static void __init smp4m_ipi_init(void)
 {
 }
@@ -167,12 +182,13 @@ static struct smp_funcall {
 	unsigned long arg3;
 	unsigned long arg4;
 	unsigned long arg5;
-	unsigned long processors_in[SUN4M_NCPUS];  
-	unsigned long processors_out[SUN4M_NCPUS]; 
+	unsigned long processors_in[SUN4M_NCPUS];  /* Set when ipi entered. */
+	unsigned long processors_out[SUN4M_NCPUS]; /* Set when ipi exited. */
 } ccall_info;
 
 static DEFINE_SPINLOCK(cross_call_lock);
 
+/* Cross calls must be serialized, at least currently. */
 static void smp4m_cross_call(smpfunc_t func, cpumask_t mask, unsigned long arg1,
 			     unsigned long arg2, unsigned long arg3,
 			     unsigned long arg4)
@@ -182,7 +198,7 @@ static void smp4m_cross_call(smpfunc_t func, cpumask_t mask, unsigned long arg1,
 
 		spin_lock_irqsave(&cross_call_lock, flags);
 
-		
+		/* Init function glue. */
 		ccall_info.func = func;
 		ccall_info.arg1 = arg1;
 		ccall_info.arg2 = arg2;
@@ -190,7 +206,7 @@ static void smp4m_cross_call(smpfunc_t func, cpumask_t mask, unsigned long arg1,
 		ccall_info.arg4 = arg4;
 		ccall_info.arg5 = 0;
 
-		
+		/* Init receive/complete mapping, plus fire the IPI's off. */
 		{
 			register int i;
 
@@ -230,6 +246,7 @@ static void smp4m_cross_call(smpfunc_t func, cpumask_t mask, unsigned long arg1,
 		spin_unlock_irqrestore(&cross_call_lock, flags);
 }
 
+/* Running cross calls. */
 void smp4m_cross_call_irq(void)
 {
 	int i = smp_processor_id();
@@ -279,9 +296,9 @@ static void __init smp4m_blackbox_id(unsigned *addr)
 	int rd = *addr & 0x3e000000;
 	int rs1 = rd >> 11;
 
-	addr[0] = 0x81580000 | rd;		
-	addr[1] = 0x8130200c | rd | rs1;	
-	addr[2] = 0x80082003 | rd | rs1;	
+	addr[0] = 0x81580000 | rd;		/* rd %tbr, reg */
+	addr[1] = 0x8130200c | rd | rs1;	/* srl reg, 0xc, reg */
+	addr[2] = 0x80082003 | rd | rs1;	/* and reg, 3, reg */
 }
 
 static void __init smp4m_blackbox_current(unsigned *addr)
@@ -289,9 +306,9 @@ static void __init smp4m_blackbox_current(unsigned *addr)
 	int rd = *addr & 0x3e000000;
 	int rs1 = rd >> 11;
 
-	addr[0] = 0x81580000 | rd;		
-	addr[2] = 0x8130200a | rd | rs1;	
-	addr[4] = 0x8008200c | rd | rs1;	
+	addr[0] = 0x81580000 | rd;		/* rd %tbr, reg */
+	addr[2] = 0x8130200a | rd | rs1;	/* srl reg, 0xa, reg */
+	addr[4] = 0x8008200c | rd | rs1;	/* and reg, 0xc, reg */
 }
 
 void __init sun4m_init_smp(void)

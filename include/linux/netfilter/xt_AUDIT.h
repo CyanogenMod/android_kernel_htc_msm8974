@@ -24,7 +24,7 @@ enum {
 #define XT_AUDIT_TYPE_MAX (__XT_AUDIT_TYPE_MAX - 1)
 
 struct xt_audit_info {
-	__u8 type; 
+	__u8 type; /* XT_AUDIT_TYPE_* */
 };
 
-#endif 
+#endif /* _XT_AUDIT_TARGET_H */

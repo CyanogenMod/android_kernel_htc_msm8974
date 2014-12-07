@@ -9,6 +9,11 @@
  * Free Software Foundation;  either version 2 of the  License, or (at your
  * option) any later version.
  */
+/*
+ * It would be more efficient to use i2c msgs/i2c_transfer directly but, as
+ * recommened in .../Documentation/i2c/writing-clients section
+ * "Sending and receiving", using SMBus level communication is preferred.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -28,15 +33,15 @@
 #define DS3232_REG_MONTH	0x05
 #define DS3232_REG_CENTURY	0x05
 #define DS3232_REG_YEAR		0x06
-#define DS3232_REG_ALARM1         0x07	
-#define DS3232_REG_ALARM2         0x0B	
-#define DS3232_REG_CR		0x0E	
+#define DS3232_REG_ALARM1         0x07	/* Alarm 1 BASE */
+#define DS3232_REG_ALARM2         0x0B	/* Alarm 2 BASE */
+#define DS3232_REG_CR		0x0E	/* Control register */
 #	define DS3232_REG_CR_nEOSC        0x80
 #       define DS3232_REG_CR_INTCN        0x04
 #       define DS3232_REG_CR_A2IE        0x02
 #       define DS3232_REG_CR_A1IE        0x01
 
-#define DS3232_REG_SR	0x0F	
+#define DS3232_REG_SR	0x0F	/* control/status register */
 #	define DS3232_REG_SR_OSF   0x80
 #       define DS3232_REG_SR_BSY   0x04
 #       define DS3232_REG_SR_A2F   0x02
@@ -47,6 +52,10 @@ struct ds3232 {
 	struct rtc_device *rtc;
 	struct work_struct work;
 
+	/* The mutex protects alarm operations, and prevents a race
+	 * between the enable_irq() in the workqueue and the free_irq()
+	 * in the remove function.
+	 */
 	struct mutex mutex;
 	int exiting;
 };
@@ -73,6 +82,10 @@ static int ds3232_check_rtc_status(struct i2c_client *client)
 	if (ret < 0)
 		return ret;
 
+	/* If the alarm is pending, clear it before requesting
+	 * the interrupt, so an interrupt event isn't reported
+	 * before everything is initialized.
+	 */
 
 	control = i2c_smbus_read_byte_data(client, DS3232_REG_CR);
 	if (control < 0)
@@ -108,18 +121,18 @@ static int ds3232_read_time(struct device *dev, struct rtc_time *time)
 	month = buf[5];
 	year = buf[6];
 
-	
+	/* Extract additional information for AM/PM and century */
 
 	twelve_hr = hour & 0x40;
 	am_pm = hour & 0x20;
 	century = month & 0x80;
 
-	
+	/* Write to rtc_time structure */
 
 	time->tm_sec = bcd2bin(second);
 	time->tm_min = bcd2bin(minute);
 	if (twelve_hr) {
-		
+		/* Convert to 24 hr */
 		if (am_pm)
 			time->tm_hour = bcd2bin(hour & 0x1F) + 12;
 		else
@@ -128,10 +141,10 @@ static int ds3232_read_time(struct device *dev, struct rtc_time *time)
 		time->tm_hour = bcd2bin(hour);
 	}
 
-	
+	/* Day of the week in linux range is 0~6 while 1~7 in RTC chip */
 	time->tm_wday = bcd2bin(week) - 1;
 	time->tm_mday = bcd2bin(day);
-	
+	/* linux tm_mon range:0~11, while month range is 1~12 in RTC chip */
 	time->tm_mon = bcd2bin(month & 0x7F) - 1;
 	if (century)
 		add_century = 100;
@@ -146,15 +159,15 @@ static int ds3232_set_time(struct device *dev, struct rtc_time *time)
 	struct i2c_client *client = to_i2c_client(dev);
 	u8 buf[7];
 
-	
+	/* Extract time from rtc_time and load into ds3232*/
 
 	buf[0] = bin2bcd(time->tm_sec);
 	buf[1] = bin2bcd(time->tm_min);
 	buf[2] = bin2bcd(time->tm_hour);
-	
+	/* Day of the week in linux range is 0~6 while 1~7 in RTC chip */
 	buf[3] = bin2bcd(time->tm_wday + 1);
-	buf[4] = bin2bcd(time->tm_mday); 
-	
+	buf[4] = bin2bcd(time->tm_mday); /* Date */
+	/* linux tm_mon range:0~11, while month range is 1~12 in RTC chip */
 	buf[5] = bin2bcd(time->tm_mon + 1);
 	if (time->tm_year >= 100) {
 		buf[5] |= 0x80;
@@ -167,6 +180,11 @@ static int ds3232_set_time(struct device *dev, struct rtc_time *time)
 					      DS3232_REG_SECONDS, 7, buf);
 }
 
+/*
+ * DS3232 has two alarm, we only use alarm1
+ * According to linux specification, only support one-shot alarm
+ * no periodic alarm mode
+ */
 static int ds3232_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 {
 	struct i2c_client *client = to_i2c_client(dev);
@@ -209,6 +227,10 @@ out:
 	return ret;
 }
 
+/*
+ * linux rtc-module does not support wday alarm
+ * and only 24h time mode supported indeed
+ */
 static int ds3232_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 {
 	struct i2c_client *client = to_i2c_client(dev);
@@ -227,7 +249,7 @@ static int ds3232_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	buf[2] = bin2bcd(alarm->time.tm_hour);
 	buf[3] = bin2bcd(alarm->time.tm_mday);
 
-	
+	/* clear alarm interrupt enable bit */
 	ret = i2c_smbus_read_byte_data(client, DS3232_REG_CR);
 	if (ret < 0)
 		goto out;
@@ -237,7 +259,7 @@ static int ds3232_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	if (ret < 0)
 		goto out;
 
-	
+	/* clear any pending alarm flag */
 	ret = i2c_smbus_read_byte_data(client, DS3232_REG_SR);
 	if (ret < 0)
 		goto out;
@@ -289,10 +311,10 @@ static void ds3232_update_alarm(struct i2c_client *client)
 		goto unlock;
 
 	if (ds3232->rtc->irq_data & (RTC_AF | RTC_UF))
-		
+		/* enable alarm1 interrupt */
 		control |= DS3232_REG_CR_A1IE;
 	else
-		
+		/* disable alarm1 interrupt */
 		control &= ~(DS3232_REG_CR_A1IE);
 	i2c_smbus_write_byte_data(client, DS3232_REG_CR, control);
 
@@ -343,11 +365,11 @@ static void ds3232_work(struct work_struct *work)
 		control = i2c_smbus_read_byte_data(client, DS3232_REG_CR);
 		if (control < 0)
 			goto out;
-		
+		/* disable alarm1 interrupt */
 		control &= ~(DS3232_REG_CR_A1IE);
 		i2c_smbus_write_byte_data(client, DS3232_REG_CR, control);
 
-		
+		/* clear the alarm pend flag */
 		stat &= ~DS3232_REG_SR_A1F;
 		i2c_smbus_write_byte_data(client, DS3232_REG_SR, stat);
 

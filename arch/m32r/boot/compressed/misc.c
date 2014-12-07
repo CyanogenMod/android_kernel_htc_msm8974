@@ -1,4 +1,19 @@
+/*
+ * arch/m32r/boot/compressed/misc.c
+ *
+ * This is a collection of several routines from gzip-1.0.3
+ * adapted for Linux.
+ *
+ * malloc by Hannu Savolainen 1993 and Matthias Urlichs 1994
+ *
+ * Adapted for SH by Stuart Menefy, Aug 1999
+ *
+ * 2003-02-12:	Support M32R by Takeo Takahashi
+ */
 
+/*
+ * gzip declarations
+ */
 #define STATIC static
 
 #undef memset
@@ -44,7 +59,7 @@ static void error(char *x)
 	puts(x);
 	puts("\n\n -- System halted");
 
-	while(1);	
+	while(1);	/* Halt */
 }
 
 void

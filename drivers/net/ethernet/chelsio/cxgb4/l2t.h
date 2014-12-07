@@ -46,27 +46,38 @@ struct net_device;
 struct file_operations;
 struct cpl_l2t_write_rpl;
 
+/*
+ * Each L2T entry plays multiple roles.  First of all, it keeps state for the
+ * corresponding entry of the HW L2 table and maintains a queue of offload
+ * packets awaiting address resolution.  Second, it is a node of a hash table
+ * chain, where the nodes of the chain are linked together through their next
+ * pointer.  Finally, each node is a bucket of a hash table, pointing to the
+ * first element in its chain through its first pointer.
+ */
 struct l2t_entry {
-	u16 state;                  
-	u16 idx;                    
-	u32 addr[4];                
-	int ifindex;                
-	struct neighbour *neigh;    
-	struct l2t_entry *first;    
-	struct l2t_entry *next;     
-	struct sk_buff *arpq_head;  
+	u16 state;                  /* entry state */
+	u16 idx;                    /* entry index */
+	u32 addr[4];                /* next hop IP or IPv6 address */
+	int ifindex;                /* neighbor's net_device's ifindex */
+	struct neighbour *neigh;    /* associated neighbour */
+	struct l2t_entry *first;    /* start of hash chain */
+	struct l2t_entry *next;     /* next l2t_entry on chain */
+	struct sk_buff *arpq_head;  /* queue of packets awaiting resolution */
 	struct sk_buff *arpq_tail;
 	spinlock_t lock;
-	atomic_t refcnt;            
-	u16 hash;                   
-	u16 vlan;                   
-	u8 v6;                      
-	u8 lport;                   
-	u8 dmac[ETH_ALEN];          
+	atomic_t refcnt;            /* entry reference count */
+	u16 hash;                   /* hash bucket the entry is on */
+	u16 vlan;                   /* VLAN TCI (id: bits 0-11, prio: 13-15 */
+	u8 v6;                      /* whether entry is for IPv6 */
+	u8 lport;                   /* associated offload logical interface */
+	u8 dmac[ETH_ALEN];          /* neighbour's MAC address */
 };
 
 typedef void (*arp_err_handler_t)(void *handle, struct sk_buff *skb);
 
+/*
+ * Callback stored in an skb to handle address resolution failure.
+ */
 struct l2t_skb_cb {
 	void *handle;
 	arp_err_handler_t arp_err_handler;
@@ -93,4 +104,4 @@ struct l2t_data *t4_init_l2t(void);
 void do_l2t_write_rpl(struct adapter *p, const struct cpl_l2t_write_rpl *rpl);
 
 extern const struct file_operations t4_l2t_fops;
-#endif  
+#endif  /* __CXGB4_L2T_H */

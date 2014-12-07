@@ -38,6 +38,7 @@
 
 #include <asm/io.h>
 
+/* private structure for each mtd platform ram device created */
 
 struct platram_info {
 	struct device		*dev;
@@ -47,12 +48,23 @@ struct platram_info {
 	struct platdata_mtd_ram	*pdata;
 };
 
+/* to_platram_info()
+ *
+ * device private data to struct platram_info conversion
+*/
 
 static inline struct platram_info *to_platram_info(struct platform_device *dev)
 {
 	return (struct platram_info *)platform_get_drvdata(dev);
 }
 
+/* platram_setrw
+ *
+ * call the platform device's set rw/ro control
+ *
+ * to = 0 => read-only
+ *    = 1 => read-write
+*/
 
 static inline void platram_setrw(struct platram_info *info, int to)
 {
@@ -63,6 +75,10 @@ static inline void platram_setrw(struct platram_info *info, int to)
 		(info->pdata->set_rw)(info->dev, to);
 }
 
+/* platram_remove
+ *
+ * called to remove the device from the driver's control
+*/
 
 static int platram_remove(struct platform_device *pdev)
 {
@@ -80,11 +96,11 @@ static int platram_remove(struct platform_device *pdev)
 		map_destroy(info->mtd);
 	}
 
-	
+	/* ensure ram is left read-only */
 
 	platram_setrw(info, PLATRAM_RO);
 
-	
+	/* release resources */
 
 	if (info->area) {
 		release_resource(info->area);
@@ -99,6 +115,11 @@ static int platram_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/* platram_probe
+ *
+ * called from device drive system when a device matching our
+ * driver is found.
+*/
 
 static int platram_probe(struct platform_device *pdev)
 {
@@ -129,7 +150,7 @@ static int platram_probe(struct platform_device *pdev)
 	info->dev = &pdev->dev;
 	info->pdata = pdata;
 
-	
+	/* get the resource for the memory mapping */
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 
@@ -142,7 +163,7 @@ static int platram_probe(struct platform_device *pdev)
 	dev_dbg(&pdev->dev, "got platform resource %p (0x%llx)\n", res,
 		(unsigned long long)res->start);
 
-	
+	/* setup map parameters */
 
 	info->map.phys = res->start;
 	info->map.size = resource_size(res);
@@ -150,7 +171,7 @@ static int platram_probe(struct platform_device *pdev)
 			(char *)pdata->mapname : (char *)pdev->name;
 	info->map.bankwidth = pdata->bankwidth;
 
-	
+	/* register our usage of the memory area */
 
 	info->area = request_mem_region(res->start, info->map.size, pdev->name);
 	if (info->area == NULL) {
@@ -159,7 +180,7 @@ static int platram_probe(struct platform_device *pdev)
 		goto exit_free;
 	}
 
-	
+	/* remap the memory area */
 
 	info->map.virt = ioremap(res->start, info->map.size);
 	dev_dbg(&pdev->dev, "virt %p, %lu bytes\n", info->map.virt, info->map.size);
@@ -174,6 +195,8 @@ static int platram_probe(struct platform_device *pdev)
 
 	dev_dbg(&pdev->dev, "initialised map, probing for mtd\n");
 
+	/* probe for the right mtd map driver
+	 * supplied by the platform_data struct */
 
 	if (pdata->map_probes) {
 		const char **map_probes = pdata->map_probes;
@@ -181,7 +204,7 @@ static int platram_probe(struct platform_device *pdev)
 		for ( ; !info->mtd && *map_probes; map_probes++)
 			info->mtd = do_map_probe(*map_probes , &info->map);
 	}
-	
+	/* fallback to map_ram */
 	else
 		info->mtd = do_map_probe("map_ram", &info->map);
 
@@ -196,6 +219,8 @@ static int platram_probe(struct platform_device *pdev)
 
 	platram_setrw(info, PLATRAM_RW);
 
+	/* check to see if there are any available partitions, or wether
+	 * to add this device whole */
 
 	err = mtd_device_parse_register(info->mtd, pdata->probes, NULL,
 					pdata->partitions,
@@ -204,7 +229,7 @@ static int platram_probe(struct platform_device *pdev)
 		dev_info(&pdev->dev, "registered mtd device\n");
 
 	if (pdata->nr_partitions) {
-		
+		/* add the whole device. */
 		err = mtd_device_register(info->mtd, NULL, 0);
 		if (err) {
 			dev_err(&pdev->dev,
@@ -220,7 +245,9 @@ static int platram_probe(struct platform_device *pdev)
 	return err;
 }
 
+/* device driver info */
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:mtd-ram");
 
 static struct platform_driver platram_driver = {
@@ -232,6 +259,7 @@ static struct platform_driver platram_driver = {
 	},
 };
 
+/* module init/exit */
 
 static int __init platram_init(void)
 {

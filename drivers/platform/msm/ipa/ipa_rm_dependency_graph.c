@@ -25,6 +25,12 @@ static int ipa_rm_dep_get_index(enum ipa_rm_resource_name resource_name)
 	return resource_index;
 }
 
+/**
+ * ipa_rm_dep_graph_create() - creates graph
+ * @dep_graph: [out] created dependency graph
+ *
+ * Returns: dependency graph on success, NULL on failure
+ */
 int  ipa_rm_dep_graph_create(struct ipa_rm_dep_graph **dep_graph)
 {
 	int result = 0;
@@ -37,6 +43,12 @@ bail:
 	return result;
 }
 
+/**
+ * ipa_rm_dep_graph_delete() - destroyes the graph
+ * @graph: [in] dependency graph
+ *
+ * Frees all resources.
+ */
 void ipa_rm_dep_graph_delete(struct ipa_rm_dep_graph *graph)
 {
 	int resource_index;
@@ -49,6 +61,14 @@ void ipa_rm_dep_graph_delete(struct ipa_rm_dep_graph *graph)
 	memset(graph->resource_table, 0, sizeof(graph->resource_table));
 }
 
+/**
+ * ipa_rm_dep_graph_get_resource() - provides a resource by name
+ * @graph: [in] dependency graph
+ * @name: [in] name of the resource
+ * @resource: [out] resource in case of success
+ *
+ * Returns: 0 on success, negative on failure
+ */
 int ipa_rm_dep_graph_get_resource(
 				struct ipa_rm_dep_graph *graph,
 				enum ipa_rm_resource_name resource_name,
@@ -75,6 +95,13 @@ bail:
 	return result;
 }
 
+/**
+ * ipa_rm_dep_graph_add() - adds resource to graph
+ * @graph: [in] dependency graph
+ * @resource: [in] resource to add
+ *
+ * Returns: 0 on success, negative on failure
+ */
 int ipa_rm_dep_graph_add(struct ipa_rm_dep_graph *graph,
 			 struct ipa_rm_resource *resource)
 {
@@ -95,6 +122,13 @@ bail:
 	return result;
 }
 
+/**
+ * ipa_rm_dep_graph_remove() - removes resource from graph
+ * @graph: [in] dependency graph
+ * @resource: [in] resource to add
+ *
+ * Returns: 0 on success, negative on failure
+ */
 int ipa_rm_dep_graph_remove(struct ipa_rm_dep_graph *graph,
 		enum ipa_rm_resource_name resource_name)
 {
@@ -105,6 +139,15 @@ int ipa_rm_dep_graph_remove(struct ipa_rm_dep_graph *graph,
 	return 0;
 }
 
+/**
+ * ipa_rm_dep_graph_add_dependency() - adds dependency between
+ *				two nodes in graph
+ * @graph: [in] dependency graph
+ * @resource_name: [in] resource to add
+ * @depends_on_name: [in] resource to add
+ *
+ * Returns: 0 on success, negative on failure
+ */
 int ipa_rm_dep_graph_add_dependency(struct ipa_rm_dep_graph *graph,
 				    enum ipa_rm_resource_name resource_name,
 				    enum ipa_rm_resource_name depends_on_name)
@@ -135,6 +178,16 @@ bail:
 	return result;
 }
 
+/**
+ * ipa_rm_dep_graph_delete_dependency() - deleted dependency between
+ *				two nodes in graph
+ * @graph: [in] dependency graph
+ * @resource_name: [in] resource to delete
+ * @depends_on_name: [in] resource to delete
+ *
+ * Returns: 0 on success, negative on failure
+ *
+ */
 int ipa_rm_dep_graph_delete_dependency(struct ipa_rm_dep_graph *graph,
 				enum ipa_rm_resource_name resource_name,
 				enum ipa_rm_resource_name depends_on_name)

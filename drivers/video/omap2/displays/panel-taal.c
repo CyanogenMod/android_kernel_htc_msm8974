@@ -17,6 +17,7 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/*#define DEBUG*/
 
 #include <linux/module.h>
 #include <linux/delay.h>
@@ -36,6 +37,7 @@
 #include <video/omap-panel-nokia-dsi.h>
 #include <video/mipi_display.h>
 
+/* DSI Virtual channel. Hardcoded for now. */
 #define TCH 0
 
 #define DCS_READ_NUM_ERRORS	0x05
@@ -65,7 +67,7 @@ static void free_regulators(struct panel_regulator *regulators, int n)
 	int i;
 
 	for (i = 0; i < n; i++) {
-		
+		/* disable/put in reverse order */
 		regulator_disable(regulators[n - i - 1].regulator);
 		regulator_put(regulators[n - i - 1].regulator);
 	}
@@ -87,7 +89,7 @@ static int init_regulators(struct omap_dss_device *dssdev,
 			goto err;
 		}
 
-		
+		/* FIXME: better handling of fixed vs. variable regulators */
 		v = regulator_get_voltage(reg);
 		if (v < regulators[i].min_uV || v > regulators[i].max_uV) {
 			r = regulator_set_voltage(reg, regulators[i].min_uV,
@@ -120,6 +122,16 @@ err:
 	return r;
 }
 
+/**
+ * struct panel_config - panel configuration
+ * @name: panel name
+ * @type: panel type
+ * @timings: panel resolution
+ * @sleep: various panel specific delays, passed to msleep() if non-zero
+ * @reset_sequence: reset sequence timings, passed to udelay() if non-zero
+ * @regulators: array of panel regulators
+ * @num_regulators: number of regulators in the array
+ */
 struct panel_config {
 	const char *name;
 	int type;
@@ -158,7 +170,7 @@ static struct panel_config panel_configs[] = {
 			.sleep_in	= 5,
 			.sleep_out	= 5,
 			.hw_reset	= 5,
-			.enable_te	= 100, 
+			.enable_te	= 100, /* possible panel bug */
 		},
 		.reset_sequence	= {
 			.high		= 10,
@@ -172,8 +184,10 @@ struct taal_data {
 
 	struct backlight_device *bldev;
 
-	unsigned long	hw_guard_end;	
-	unsigned long	hw_guard_wait;	
+	unsigned long	hw_guard_end;	/* next value of jiffies when we can
+					 * issue the next sleep in/out command
+					 */
+	unsigned long	hw_guard_wait;	/* max guard time in jiffies */
 
 	struct omap_dss_device *dssdev;
 
@@ -644,7 +658,7 @@ static ssize_t taal_hw_revision_show(struct device *dev,
 }
 
 static const char *cabc_modes[] = {
-	"off",		
+	"off",		/* used also always when CABC is not supported */
 	"ui",
 	"still-image",
 	"moving-image",
@@ -837,7 +851,7 @@ static ssize_t taal_store_ulps_timeout(struct device *dev,
 	td->ulps_timeout = t;
 
 	if (td->enabled) {
-		
+		/* taal_wake_up will restart the timer */
 		dsi_bus_lock(dssdev);
 		r = taal_wake_up(dssdev);
 		dsi_bus_unlock(dssdev);
@@ -905,13 +919,13 @@ static void taal_hw_reset(struct omap_dss_device *dssdev)
 	gpio_set_value(panel_data->reset_gpio, 1);
 	if (td->panel_config->reset_sequence.high)
 		udelay(td->panel_config->reset_sequence.high);
-	
+	/* reset the panel */
 	gpio_set_value(panel_data->reset_gpio, 0);
-	
+	/* assert reset */
 	if (td->panel_config->reset_sequence.low)
 		udelay(td->panel_config->reset_sequence.low);
 	gpio_set_value(panel_data->reset_gpio, 1);
-	
+	/* wait after releasing reset */
 	if (td->panel_config->sleep.hw_reset)
 		msleep(td->panel_config->sleep.hw_reset);
 }
@@ -1096,7 +1110,7 @@ static void __exit taal_remove(struct omap_dss_device *dssdev)
 	taal_cancel_esd_work(dssdev);
 	destroy_workqueue(td->workqueue);
 
-	
+	/* reset, to be sure that the panel is in a valid state */
 	taal_hw_reset(dssdev);
 
 	free_regulators(td->panel_config->regulators,
@@ -1129,7 +1143,7 @@ static int taal_power_on(struct omap_dss_device *dssdev)
 	if (r)
 		goto err;
 
-	
+	/* on early Taal revisions CABC is broken */
 	if (td->panel_config->type == PANEL_TAAL &&
 		(id2 == 0x00 || id2 == 0xff || id2 == 0x81))
 		td->cabc_broken = true;
@@ -1139,7 +1153,7 @@ static int taal_power_on(struct omap_dss_device *dssdev)
 		goto err;
 
 	r = taal_dcs_write_1(td, DCS_CTRL_DISPLAY,
-			(1<<2) | (1<<5));	
+			(1<<2) | (1<<5));	/* BL | BCTRL */
 	if (r)
 		goto err;
 
@@ -1424,7 +1438,7 @@ static int taal_update(struct omap_dss_device *dssdev,
 		goto err;
 	}
 
-	
+	/* XXX no need to send this every frame, but dsi break if not done */
 	r = taal_set_update_window(td, 0, 0,
 			td->panel_config->timings.x_res,
 			td->panel_config->timings.y_res);
@@ -1442,7 +1456,7 @@ static int taal_update(struct omap_dss_device *dssdev,
 			goto err;
 	}
 
-	
+	/* note: no bus_unlock here. unlock is in framedone_cb */
 	mutex_unlock(&td->lock);
 	return 0;
 err:
@@ -1699,6 +1713,9 @@ static int taal_memory_read(struct omap_dss_device *dssdev,
 	if (r)
 		goto err2;
 
+	/* plen 1 or 2 goes into short packet. until checksum error is fixed,
+	 * use short packets. plen 32 works, but bigger packets seem to cause
+	 * an error. */
 	if (size % 2)
 		plen = 1;
 	else
@@ -1799,7 +1816,7 @@ static void taal_esd_work(struct work_struct *work)
 		goto err;
 	}
 
-	
+	/* Run self diagnostics */
 	r = taal_sleep_out(td);
 	if (r) {
 		dev_err(&dssdev->dev, "failed to run Taal self-diagnostics\n");
@@ -1812,10 +1829,15 @@ static void taal_esd_work(struct work_struct *work)
 		goto err;
 	}
 
+	/* Each sleep out command will trigger a self diagnostic and flip
+	 * Bit6 if the test passes.
+	 */
 	if (!((state1 ^ state2) & (1 << 6))) {
 		dev_err(&dssdev->dev, "LCD self diagnostics failed\n");
 		goto err;
 	}
+	/* Self-diagnostics result is also shown on TE GPIO line. We need
+	 * to re-enable TE after self diagnostics */
 	if (td->te_enabled && panel_data->use_ext_te) {
 		r = taal_dcs_write_1(td, MIPI_DCS_SET_TEAR_ON, 0);
 		if (r)

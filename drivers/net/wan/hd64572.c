@@ -65,7 +65,7 @@ static inline port_t* dev_to_port(struct net_device *dev)
 
 static inline void enable_intr(port_t *port)
 {
-	
+	/* enable DMIB and MSCI RXINTA interrupts */
 	sca_outl(sca_inl(IER0, port->card) |
 		 (port->chan ? 0x08002200 : 0x00080022), IER0, port->card);
 }
@@ -81,14 +81,14 @@ static inline u16 desc_abs_number(port_t *port, u16 desc, int transmit)
 	u16 rx_buffs = port->card->rx_ring_buffers;
 	u16 tx_buffs = port->card->tx_ring_buffers;
 
-	desc %= (transmit ? tx_buffs : rx_buffs); 
+	desc %= (transmit ? tx_buffs : rx_buffs); // called with "X + 1" etc.
 	return port->chan * (rx_buffs + tx_buffs) + transmit * rx_buffs + desc;
 }
 
 
 static inline u16 desc_offset(port_t *port, u16 desc, int transmit)
 {
-	
+	/* Descriptor offset always fits in 16 bits */
 	return desc_abs_number(port, desc, transmit) * sizeof(pkt_desc);
 }
 
@@ -152,47 +152,48 @@ static void sca_init_port(port_t *port)
 		}
 	}
 
-	
+	/* DMA disable - to halt state */
 	sca_out(0, DSR_RX(port->chan), card);
 	sca_out(0, DSR_TX(port->chan), card);
 
-	
+	/* software ABORT - to initial state */
 	sca_out(DCR_ABORT, DCR_RX(port->chan), card);
 	sca_out(DCR_ABORT, DCR_TX(port->chan), card);
 
-	
+	/* current desc addr */
 	sca_outl(desc_offset(port, 0, 0), dmac_rx + CDAL, card);
 	sca_outl(desc_offset(port, card->tx_ring_buffers - 1, 0),
 		 dmac_rx + EDAL, card);
 	sca_outl(desc_offset(port, 0, 1), dmac_tx + CDAL, card);
 	sca_outl(desc_offset(port, 0, 1), dmac_tx + EDAL, card);
 
-	
+	/* clear frame end interrupt counter */
 	sca_out(DCR_CLEAR_EOF, DCR_RX(port->chan), card);
 	sca_out(DCR_CLEAR_EOF, DCR_TX(port->chan), card);
 
-	
-	sca_outw(HDLC_MAX_MRU, dmac_rx + BFLL, card); 
-	sca_out(0x14, DMR_RX(port->chan), card); 
-	sca_out(DIR_EOME, DIR_RX(port->chan), card); 
-	sca_out(DSR_DE, DSR_RX(port->chan), card); 
+	/* Receive */
+	sca_outw(HDLC_MAX_MRU, dmac_rx + BFLL, card); /* set buffer length */
+	sca_out(0x14, DMR_RX(port->chan), card); /* Chain mode, Multi-frame */
+	sca_out(DIR_EOME, DIR_RX(port->chan), card); /* enable interrupts */
+	sca_out(DSR_DE, DSR_RX(port->chan), card); /* DMA enable */
 
-	
-	sca_out(0x14, DMR_TX(port->chan), card); 
-	sca_out(DIR_EOME, DIR_TX(port->chan), card); 
+	/* Transmit */
+	sca_out(0x14, DMR_TX(port->chan), card); /* Chain mode, Multi-frame */
+	sca_out(DIR_EOME, DIR_TX(port->chan), card); /* enable interrupts */
 
 	sca_set_carrier(port);
 	netif_napi_add(port->netdev, &port->napi, sca_poll, NAPI_WEIGHT);
 }
 
 
+/* MSCI interrupt service */
 static inline void sca_msci_intr(port_t *port)
 {
 	u16 msci = get_msci(port);
 	card_t* card = port->card;
 
 	if (sca_in(msci + ST1, card) & ST1_CDCD) {
-		
+		/* Reset MSCI CDCD status bit */
 		sca_out(ST1_CDCD, msci + ST1, card);
 		sca_set_carrier(port);
 	}
@@ -229,20 +230,21 @@ static inline void sca_rx(card_t *card, port_t *port, pkt_desc __iomem *desc,
 }
 
 
+/* Receive DMA service */
 static inline int sca_rx_done(port_t *port, int budget)
 {
 	struct net_device *dev = port->netdev;
 	u16 dmac = get_dmac_rx(port);
 	card_t *card = port->card;
-	u8 stat = sca_in(DSR_RX(port->chan), card); 
+	u8 stat = sca_in(DSR_RX(port->chan), card); /* read DMA Status */
 	int received = 0;
 
-	
+	/* Reset DSR status bits */
 	sca_out((stat & (DSR_EOT | DSR_EOM | DSR_BOF | DSR_COF)) | DSR_DWE,
 		DSR_RX(port->chan), card);
 
 	if (stat & DSR_BOF)
-		
+		/* Dropped one or more frames */
 		dev->stats.rx_over_errors++;
 
 	while (received < budget) {
@@ -251,12 +253,12 @@ static inline int sca_rx_done(port_t *port, int budget)
 		u32 cda = sca_inl(dmac + CDAL, card);
 
 		if ((cda >= desc_off) && (cda < desc_off + sizeof(pkt_desc)))
-			break;	
+			break;	/* No frame received */
 
 		desc = desc_address(port, port->rxin, 0);
 		stat = readb(&desc->stat);
 		if (!(stat & ST_RX_EOM))
-			port->rxpart = 1; 
+			port->rxpart = 1; /* partial frame received */
 		else if ((stat & ST_ERROR_MASK) || port->rxpart) {
 			dev->stats.rx_errors++;
 			if (stat & ST_RX_OVERRUN)
@@ -267,23 +269,24 @@ static inline int sca_rx_done(port_t *port, int budget)
 			else if (stat & ST_RX_CRC)
 				dev->stats.rx_crc_errors++;
 			if (stat & ST_RX_EOM)
-				port->rxpart = 0; 
+				port->rxpart = 0; /* received last fragment */
 		} else {
 			sca_rx(card, port, desc, port->rxin);
 			received++;
 		}
 
-		
+		/* Set new error descriptor address */
 		sca_outl(desc_off, dmac + EDAL, card);
 		port->rxin = (port->rxin + 1) % card->rx_ring_buffers;
 	}
 
-	
+	/* make sure RX DMA is enabled */
 	sca_out(DSR_DE, DSR_RX(port->chan), card);
 	return received;
 }
 
 
+/* Transmit DMA service */
 static inline void sca_tx_done(port_t *port)
 {
 	struct net_device *dev = port->netdev;
@@ -293,9 +296,9 @@ static inline void sca_tx_done(port_t *port)
 
 	spin_lock(&port->lock);
 
-	stat = sca_in(DSR_TX(port->chan), card); 
+	stat = sca_in(DSR_TX(port->chan), card); /* read DMA Status */
 
-	
+	/* Reset DSR status bits */
 	sca_out((stat & (DSR_EOT | DSR_EOM | DSR_BOF | DSR_COF)) | DSR_DWE,
 		DSR_TX(port->chan), card);
 
@@ -304,7 +307,7 @@ static inline void sca_tx_done(port_t *port)
 		u8 stat = readb(&desc->stat);
 
 		if (!(stat & ST_TX_OWNRSHP))
-			break; 
+			break; /* not yet transmitted */
 		if (stat & ST_TX_UNDRRUN) {
 			dev->stats.tx_errors++;
 			dev->stats.tx_fifo_errors++;
@@ -312,7 +315,7 @@ static inline void sca_tx_done(port_t *port)
 			dev->stats.tx_packets++;
 			dev->stats.tx_bytes += readw(&desc->len);
 		}
-		writeb(0, &desc->stat);	
+		writeb(0, &desc->stat);	/* Free descriptor */
 		count++;
 		port->txlast = (port->txlast + 1) % card->tx_ring_buffers;
 	}
@@ -374,26 +377,26 @@ static void sca_set_port(port_t *port)
 
 
 	if (port->settings.clock_rate > 0) {
-		
+		/* Try lower br for better accuracy*/
 		do {
 			br--;
-			brv >>= 1; 
+			brv >>= 1; /* brv = 2^9 = 512 max in specs */
 
-			
+			/* Baud Rate = CLOCK_BASE / TMC / 2^BR */
 			tmc = CLOCK_BASE / brv / port->settings.clock_rate;
 		}while (br > 1 && tmc <= 128);
 
 		if (tmc < 1) {
 			tmc = 1;
-			br = 0;	
+			br = 0;	/* For baud=CLOCK_BASE we use tmc=1 br=0 */
 			brv = 1;
 		} else if (tmc > 255)
-			tmc = 256; 
+			tmc = 256; /* tmc=0 means 256 - low baud rates */
 
 		port->settings.clock_rate = CLOCK_BASE / brv / tmc;
 	} else {
-		br = 9; 
-		tmc = 256;	
+		br = 9; /* Minimum clock rate */
+		tmc = 256;	/* 8bit = 0 */
 		port->settings.clock_rate = CLOCK_BASE / (256 * 512);
 	}
 
@@ -401,11 +404,11 @@ static void sca_set_port(port_t *port)
 	port->txs = (port->txs & ~CLK_BRG_MASK) | br;
 	port->tmc = tmc;
 
-	
+	/* baud divisor - time constant*/
 	sca_out(port->tmc, msci + TMCR, card);
 	sca_out(port->tmc, msci + TMCT, card);
 
-	
+	/* Set BRG bits */
 	sca_out(port->rxs, msci + RXS, card);
 	sca_out(port->txs, msci + TXS, card);
 
@@ -447,17 +450,21 @@ static void sca_open(struct net_device *dev)
 
 	sca_out(CMD_RESET, msci + CMD, card);
 	sca_out(md0, msci + MD0, card);
-	sca_out(0x00, msci + MD1, card); 
+	sca_out(0x00, msci + MD1, card); /* no address field check */
 	sca_out(md2, msci + MD2, card);
-	sca_out(0x7E, msci + IDL, card); 
-	
+	sca_out(0x7E, msci + IDL, card); /* flag character 0x7E */
+	/* Skip the rest of underrun frame */
 	sca_out(CTL_IDLE | CTL_URCT | CTL_URSKP, msci + CTL, card);
-	sca_out(0x0F, msci + RNR, card); 
-	sca_out(0x3C, msci + TFS, card); 
-	sca_out(0x38, msci + TCR, card); 
-	sca_out(0x38, msci + TNR0, card); 
-	sca_out(0x3F, msci + TNR1, card); 
+	sca_out(0x0F, msci + RNR, card); /* +1=RX DMA activation condition */
+	sca_out(0x3C, msci + TFS, card); /* +1 = TX start */
+	sca_out(0x38, msci + TCR, card); /* =Critical TX DMA activ condition */
+	sca_out(0x38, msci + TNR0, card); /* =TX DMA activation condition */
+	sca_out(0x3F, msci + TNR1, card); /* +1=TX DMA deactivation condition*/
 
+/* We're using the following interrupts:
+   - RXINTA (DCD changes only)
+   - DMIB (EOM - single frame transfer complete)
+*/
 	sca_outl(IE0_RXINTA | IE0_CDCD, msci + IE0, card);
 
 	sca_out(port->tmc, msci + TMCR, card);
@@ -478,7 +485,7 @@ static void sca_close(struct net_device *dev)
 {
 	port_t *port = dev_to_port(dev);
 
-	
+	/* reset channel */
 	sca_out(CMD_RESET, get_msci(port) + CMD, port->card);
 	disable_intr(port);
 	napi_disable(&port->napi);
@@ -553,7 +560,7 @@ static void sca_dump_rings(struct net_device *dev)
 	printk(KERN_DEBUG "ILAR: %02x ISR: %08x %08x\n", sca_in(ILAR, card),
 	       sca_inl(ISR0, card), sca_inl(ISR1, card));
 }
-#endif 
+#endif /* DEBUG_RINGS */
 
 
 static netdev_tx_t sca_xmit(struct sk_buff *skb, struct net_device *dev)
@@ -566,7 +573,7 @@ static netdev_tx_t sca_xmit(struct sk_buff *skb, struct net_device *dev)
 	spin_lock_irq(&port->lock);
 
 	desc = desc_address(port, port->txin + 1, 1);
-	BUG_ON(readb(&desc->stat)); 
+	BUG_ON(readb(&desc->stat)); /* previous xmit should stop queue */
 
 #ifdef DEBUG_PKT
 	printk(KERN_DEBUG "%s TX(%i):", dev->name, skb->len);
@@ -585,10 +592,10 @@ static netdev_tx_t sca_xmit(struct sk_buff *skb, struct net_device *dev)
 	sca_outl(desc_offset(port, port->txin, 1),
 		 get_dmac_tx(port) + EDAL, card);
 
-	sca_out(DSR_DE, DSR_TX(port->chan), card); 
+	sca_out(DSR_DE, DSR_TX(port->chan), card); /* Enable TX DMA */
 
 	desc = desc_address(port, port->txin + 1, 1);
-	if (readb(&desc->stat)) 
+	if (readb(&desc->stat)) /* allow 1 packet gap */
 		netif_stop_queue(dev);
 
 	spin_unlock_irq(&port->lock);
@@ -601,7 +608,7 @@ static netdev_tx_t sca_xmit(struct sk_buff *skb, struct net_device *dev)
 static u32 __devinit sca_detect_ram(card_t *card, u8 __iomem *rambase,
 				    u32 ramsize)
 {
-	
+	/* Round RAM size to 32 bits, fill from end to start */
 	u32 i = ramsize &= ~3;
 
 	do {
@@ -620,15 +627,15 @@ static u32 __devinit sca_detect_ram(card_t *card, u8 __iomem *rambase,
 
 static void __devinit sca_init(card_t *card, int wait_states)
 {
-	sca_out(wait_states, WCRL, card); 
+	sca_out(wait_states, WCRL, card); /* Wait Control */
 	sca_out(wait_states, WCRM, card);
 	sca_out(wait_states, WCRH, card);
 
-	sca_out(0, DMER, card);	
-	sca_out(0x03, PCR, card); 
-	sca_out(0, DSR_RX(0), card); 
+	sca_out(0, DMER, card);	/* DMA Master disable */
+	sca_out(0x03, PCR, card); /* DMA priority */
+	sca_out(0, DSR_RX(0), card); /* DMA disable - to halt state */
 	sca_out(0, DSR_TX(0), card);
 	sca_out(0, DSR_RX(1), card);
 	sca_out(0, DSR_TX(1), card);
-	sca_out(DMER_DME, DMER, card); 
+	sca_out(DMER_DME, DMER, card); /* DMA Master enable */
 }

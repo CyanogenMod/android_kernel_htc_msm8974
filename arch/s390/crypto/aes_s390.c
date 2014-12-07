@@ -64,6 +64,11 @@ struct s390_xts_ctx {
 	struct crypto_blkcipher *fallback;
 };
 
+/*
+ * Check if the key_len is supported by the HW.
+ * Returns 0 if it is, a positive number if it is not and software fallback is
+ * required or a negative number in case the key size is not valid
+ */
 static int need_fallback(unsigned int key_len)
 {
 	switch (key_len) {
@@ -315,7 +320,7 @@ static int ecb_aes_crypt(struct blkcipher_desc *desc, long func, void *param,
 	unsigned int nbytes;
 
 	while ((nbytes = walk->nbytes)) {
-		
+		/* only use complete blocks */
 		unsigned int n = nbytes & ~(AES_BLOCK_SIZE - 1);
 		u8 *out = walk->dst.virt.addr;
 		u8 *in = walk->src.virt.addr;
@@ -448,7 +453,7 @@ static int cbc_aes_crypt(struct blkcipher_desc *desc, long func, void *param,
 
 	memcpy(param, walk->iv, AES_BLOCK_SIZE);
 	do {
-		
+		/* only use complete blocks */
 		unsigned int n = nbytes & ~(AES_BLOCK_SIZE - 1);
 		u8 *out = walk->dst.virt.addr;
 		u8 *in = walk->src.virt.addr;
@@ -628,7 +633,7 @@ static int xts_aes_crypt(struct blkcipher_desc *desc, long func,
 	memcpy(xts_ctx->xts_param, xts_ctx->pcc.xts, 16);
 	param = xts_ctx->key + offset;
 	do {
-		
+		/* only use complete blocks */
 		n = nbytes & ~(AES_BLOCK_SIZE - 1);
 		out = walk->dst.virt.addr;
 		in = walk->src.virt.addr;
@@ -759,7 +764,7 @@ static int ctr_aes_crypt(struct blkcipher_desc *desc, long func,
 		out = walk->dst.virt.addr;
 		in = walk->src.virt.addr;
 		while (nbytes >= AES_BLOCK_SIZE) {
-			
+			/* only use complete blocks, max. PAGE_SIZE */
 			n = (nbytes > PAGE_SIZE) ? PAGE_SIZE :
 						 nbytes & ~(AES_BLOCK_SIZE - 1);
 			for (i = AES_BLOCK_SIZE; i < n; i += AES_BLOCK_SIZE) {
@@ -779,6 +784,9 @@ static int ctr_aes_crypt(struct blkcipher_desc *desc, long func,
 		}
 		ret = blkcipher_walk_done(desc, walk, nbytes);
 	}
+	/*
+	 * final block may be < AES_BLOCK_SIZE, copy only nbytes
+	 */
 	if (nbytes) {
 		out = walk->dst.virt.addr;
 		in = walk->src.virt.addr;
@@ -851,7 +859,7 @@ static int __init aes_s390_init(void)
 	if (!keylen_flag)
 		return -EOPNOTSUPP;
 
-	
+	/* z9 109 and z9 BC/EC only support 128 bit key length */
 	if (keylen_flag == AES_KEYLEN_128)
 		pr_info("AES hardware acceleration is only available for"
 			" 128-bit keys\n");

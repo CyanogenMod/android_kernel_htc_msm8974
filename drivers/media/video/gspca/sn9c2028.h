@@ -30,7 +30,7 @@ static unsigned char *sn9c2028_find_sof(struct gspca_dev *gspca_dev,
 	struct sd *sd = (struct sd *) gspca_dev;
 	int i;
 
-	
+	/* Search for the SOF marker (fixed part) in the header */
 	for (i = 0; i < len; i++) {
 		if (m[i] == sn9c2028_sof_marker[sd->sof_read]) {
 			sd->sof_read++;

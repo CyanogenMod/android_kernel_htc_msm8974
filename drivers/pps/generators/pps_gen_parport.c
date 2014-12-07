@@ -20,6 +20,10 @@
  */
 
 
+/*
+ * TODO:
+ * fix issues when realtime clock is adjusted in a leap
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -35,6 +39,7 @@
 #define SIGNAL		0
 #define NO_SIGNAL	PARPORT_CONTROL_STROBE
 
+/* module parameters */
 
 #define SEND_DELAY_MAX		100000
 
@@ -44,12 +49,13 @@ MODULE_PARM_DESC(delay,
 module_param_named(delay, send_delay, uint, 0);
 
 
-#define SAFETY_INTERVAL	3000	
+#define SAFETY_INTERVAL	3000	/* set the hrtimer earlier for safety (ns) */
 
+/* internal per port structure */
 struct pps_generator_pp {
-	struct pardevice *pardev;	
+	struct pardevice *pardev;	/* parport device */
 	struct hrtimer timer;
-	long port_write_time;		
+	long port_write_time;		/* calibrated port write time (ns) */
 };
 
 static struct pps_generator_pp device = {
@@ -58,8 +64,10 @@ static struct pps_generator_pp device = {
 
 static int attached;
 
+/* calibrated time between a hrtimer event and the reaction */
 static long hrtimer_error = SAFETY_INTERVAL;
 
+/* the kernel hrtimer event */
 static enum hrtimer_restart hrtimer_event(struct hrtimer *timer)
 {
 	struct timespec expire_time, ts1, ts2, ts3, dts;
@@ -68,15 +76,24 @@ static enum hrtimer_restart hrtimer_event(struct hrtimer *timer)
 	long lim, delta;
 	unsigned long flags;
 
+	/* We have to disable interrupts here. The idea is to prevent
+	 * other interrupts on the same processor to introduce random
+	 * lags while polling the clock. getnstimeofday() takes <1us on
+	 * most machines while other interrupt handlers can take much
+	 * more potentially.
+	 *
+	 * NB: approx time with blocked interrupts =
+	 * send_delay + 3 * SAFETY_INTERVAL
+	 */
 	local_irq_save(flags);
 
-	
+	/* first of all we get the time stamp... */
 	getnstimeofday(&ts1);
 	expire_time = ktime_to_timespec(hrtimer_get_softexpires(timer));
 	dev = container_of(timer, struct pps_generator_pp, timer);
 	lim = NSEC_PER_SEC - send_delay - dev->port_write_time;
 
-	
+	/* check if we are late */
 	if (expire_time.tv_sec != ts1.tv_sec || ts1.tv_nsec > lim) {
 		local_irq_restore(flags);
 		pr_err("we are late this time %ld.%09ld\n",
@@ -84,43 +101,48 @@ static enum hrtimer_restart hrtimer_event(struct hrtimer *timer)
 		goto done;
 	}
 
-	
+	/* busy loop until the time is right for an assert edge */
 	do {
 		getnstimeofday(&ts2);
 	} while (expire_time.tv_sec == ts2.tv_sec && ts2.tv_nsec < lim);
 
-	
+	/* set the signal */
 	port = dev->pardev->port;
 	port->ops->write_control(port, SIGNAL);
 
-	
+	/* busy loop until the time is right for a clear edge */
 	lim = NSEC_PER_SEC - dev->port_write_time;
 	do {
 		getnstimeofday(&ts2);
 	} while (expire_time.tv_sec == ts2.tv_sec && ts2.tv_nsec < lim);
 
-	
+	/* unset the signal */
 	port->ops->write_control(port, NO_SIGNAL);
 
 	getnstimeofday(&ts3);
 
 	local_irq_restore(flags);
 
-	
+	/* update calibrated port write time */
 	dts = timespec_sub(ts3, ts2);
 	dev->port_write_time =
 		(dev->port_write_time + timespec_to_ns(&dts)) >> 1;
 
 done:
-	
+	/* update calibrated hrtimer error */
 	dts = timespec_sub(ts1, expire_time);
 	delta = timespec_to_ns(&dts);
+	/* If the new error value is bigger then the old, use the new
+	 * value, if not then slowly move towards the new value. This
+	 * way it should be safe in bad conditions and efficient in
+	 * good conditions.
+	 */
 	if (delta >= hrtimer_error)
 		hrtimer_error = delta;
 	else
 		hrtimer_error = (3 * hrtimer_error + delta) >> 2;
 
-	
+	/* update the hrtimer expire time */
 	hrtimer_set_expires(timer,
 			ktime_set(expire_time.tv_sec + 1,
 				NSEC_PER_SEC - (send_delay +
@@ -130,6 +152,7 @@ done:
 	return HRTIMER_RESTART;
 }
 
+/* calibrate port write time */
 #define PORT_NTESTS_SHIFT	5
 static void calibrate_port(struct pps_generator_pp *dev)
 {
@@ -170,7 +193,7 @@ static inline ktime_t next_intr_time(struct pps_generator_pp *dev)
 static void parport_attach(struct parport *port)
 {
 	if (attached) {
-		
+		/* we already have a port */
 		return;
 	}
 
@@ -204,7 +227,7 @@ err_unregister_dev:
 static void parport_detach(struct parport *port)
 {
 	if (port->cad != device.pardev)
-		return;	
+		return;	/* not our port */
 
 	hrtimer_cancel(&device.timer);
 	parport_release(device.pardev);
@@ -217,6 +240,7 @@ static struct parport_driver pps_gen_parport_driver = {
 	.detach = parport_detach,
 };
 
+/* module staff */
 
 static int __init pps_gen_parport_init(void)
 {

@@ -20,4 +20,4 @@ extern void __iomem *at91_matrix_base;
 .extern at91_matrix_base
 #endif
 
-#endif 
+#endif /* __MACH_AT91_MATRIX_H__ */

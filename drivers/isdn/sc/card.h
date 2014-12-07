@@ -20,6 +20,9 @@
 #ifndef CARD_H
 #define CARD_H
 
+/*
+ * We need these if they're not already included
+ */
 #include <linux/timer.h>
 #include <linux/time.h>
 #include <linux/isdnif.h>
@@ -27,55 +30,74 @@
 #include "message.h"
 #include "scioc.h"
 
+/*
+ * Amount of time to wait for a reset to complete
+ */
 #define CHECKRESET_TIME		msecs_to_jiffies(4000)
 
+/*
+ * Amount of time between line status checks
+ */
 #define CHECKSTAT_TIME		msecs_to_jiffies(8000)
 
+/*
+ * The maximum amount of time to wait for a message response
+ * to arrive. Use exclusively by send_and_receive
+ */
 #define SAR_TIMEOUT		msecs_to_jiffies(10000)
 
+/*
+ * Macro to determine is a card id is valid
+ */
 #define IS_VALID_CARD(x)	((x >= 0) && (x <= cinst))
 
+/*
+ * Per channel status and configuration
+ */
 typedef struct {
 	int l2_proto;
 	int l3_proto;
 	char dn[50];
-	unsigned long first_sendbuf;	
-	unsigned int num_sendbufs;	
-	unsigned int free_sendbufs;	
-	unsigned int next_sendbuf;	
-	char eazlist[50];		
-	char sillist[50];		
-	int eazclear;			
+	unsigned long first_sendbuf;	/* Offset of first send buffer */
+	unsigned int num_sendbufs;	/* Number of send buffers */
+	unsigned int free_sendbufs;	/* Number of free sendbufs */
+	unsigned int next_sendbuf;	/* Next sequential buffer */
+	char eazlist[50];		/* Set with SETEAZ */
+	char sillist[50];		/* Set with SETSIL */
+	int eazclear;			/* Don't accept calls if TRUE */
 } bchan;
 
+/*
+ * Everything you want to know about the adapter ...
+ */
 typedef struct {
 	int model;
-	int driverId;			
-	char devicename[20];		
-	isdn_if *card;			
-	bchan *channel;			
-	char nChannels;			
-	unsigned int interrupt;		
-	int iobase;			
-	int ioport[MAX_IO_REGS];	
-	int shmem_pgport;		
-	int shmem_magic;		
-	unsigned int rambase;		
-	unsigned int ramsize;		
-	RspMessage async_msg;		
-	int want_async_messages;	
-	unsigned char seq_no;		
-	struct timer_list reset_timer;	
-	struct timer_list stat_timer;	
-	unsigned char nphystat;		
-	unsigned char phystat;		
-	HWConfig_pl hwconfig;		
-	char load_ver[11];		
-	char proc_ver[11];		
-	int StartOnReset;		
-	int EngineUp;			
-	int trace_mode;			
-	spinlock_t lock;		
+	int driverId;			/* LL Id */
+	char devicename[20];		/* The device name */
+	isdn_if *card;			/* ISDN4Linux structure */
+	bchan *channel;			/* status of the B channels */
+	char nChannels;			/* Number of channels */
+	unsigned int interrupt;		/* Interrupt number */
+	int iobase;			/* I/O Base address */
+	int ioport[MAX_IO_REGS];	/* Index to I/O ports */
+	int shmem_pgport;		/* port for the exp mem page reg. */
+	int shmem_magic;		/* adapter magic number */
+	unsigned int rambase;		/* Shared RAM base address */
+	unsigned int ramsize;		/* Size of shared memory */
+	RspMessage async_msg;		/* Async response message */
+	int want_async_messages;	/* Snoop the Q ? */
+	unsigned char seq_no;		/* Next send seq. number */
+	struct timer_list reset_timer;	/* Check reset timer */
+	struct timer_list stat_timer;	/* Check startproc timer */
+	unsigned char nphystat;		/* Latest PhyStat info */
+	unsigned char phystat;		/* Last PhyStat info */
+	HWConfig_pl hwconfig;		/* Hardware config info */
+	char load_ver[11];		/* CommManage Version string */
+	char proc_ver[11];		/* CommEngine Version */
+	int StartOnReset;		/* Indicates startproc after reset */
+	int EngineUp;			/* Indicates CommEngine Up */
+	int trace_mode;			/* Indicate if tracing is on */
+	spinlock_t lock;		/* local lock */
 } board;
 
 
@@ -106,4 +128,4 @@ int setup_buffers(int card, int c);
 void sc_check_reset(unsigned long data);
 void check_phystat(unsigned long data);
 
-#endif 
+#endif /* CARD_H */

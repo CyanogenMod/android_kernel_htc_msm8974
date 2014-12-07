@@ -13,4 +13,4 @@
 
 #include <asm-generic/sections.h>
 
-#endif	
+#endif	/* _XTENSA_SECTIONS_H */

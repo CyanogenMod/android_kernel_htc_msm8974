@@ -69,4 +69,4 @@ struct w1_family * w1_family_registered(u8);
 void w1_unregister_family(struct w1_family *);
 int w1_register_family(struct w1_family *);
 
-#endif 
+#endif /* __W1_FAMILY_H */

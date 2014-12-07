@@ -1,3 +1,12 @@
+/*
+ * Kernel unwinding support
+ *
+ * (c) 2002-2004 Randolph Chung <tausq@debian.org>
+ *
+ * Derived partially from the IA64 implementation. The PA-RISC
+ * Runtime Architecture Document is also a useful reference to
+ * understand what is happening here
+ */
 
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -13,6 +22,7 @@
 
 #include <asm/unwind.h>
 
+/* #define DEBUG 1 */
 #ifdef DEBUG
 #define dbg(x...) printk(x)
 #else
@@ -25,6 +35,11 @@ extern struct unwind_table_entry __start___unwind[];
 extern struct unwind_table_entry __stop___unwind[];
 
 static spinlock_t unwind_lock;
+/*
+ * the kernel unwind block is not dynamically allocated so that
+ * we can call unwind_init as early in the bootup process as 
+ * possible (before the slab allocator is initialized)
+ */
 static struct unwind_table kernel_unwind_table __read_mostly;
 static LIST_HEAD(unwind_tables);
 
@@ -66,7 +81,7 @@ find_unwind_entry(unsigned long addr)
 			    addr <= table->end)
 				e = find_unwind_entry_in_table(table, addr);
 			if (e) {
-				
+				/* Move-to-front to exploit common traces */
 				list_move(&table->list, &unwind_tables);
 				break;
 			}
@@ -152,6 +167,7 @@ void unwind_table_remove(struct unwind_table *table)
 	kfree(table);
 }
 
+/* Called from setup_arch to import the kernel unwind info */
 int unwind_init(void)
 {
 	long start, stop;
@@ -222,7 +238,7 @@ static void unwind_frame_regs(struct unwind_frame_info *info)
 		dbg("Cannot find unwind entry for 0x%lx; forced unwinding\n", info->ip);
 
 #ifdef CONFIG_KALLSYMS
-		
+		/* Handle some frequent special cases.... */
 		{
 			char symname[KSYM_NAME_LEN];
 			char *modname;
@@ -248,6 +264,13 @@ static void unwind_frame_regs(struct unwind_frame_info *info)
 		}
 #endif
 
+		/* Since we are doing the unwinding blind, we don't know if
+		   we are adjusting the stack correctly or extracting the rp
+		   correctly. The rp is checked to see if it belongs to the
+		   kernel text section, if not we assume we don't have a 
+		   correct stack frame and we continue to unwind the stack.
+		   This is not quite correct, and will fail for loadable
+		   modules. */
 		sp = info->sp & ~63;
 		do {
 			unsigned long tmp;
@@ -284,27 +307,27 @@ static void unwind_frame_regs(struct unwind_frame_info *info)
 
 			if ((insn & 0xffffc000) == 0x37de0000 ||
 			    (insn & 0xffe00000) == 0x6fc00000) {
-				
+				/* ldo X(sp), sp, or stwm X,D(sp) */
 				frame_size += (insn & 0x1 ? -1 << 13 : 0) | 
 					((insn & 0x3fff) >> 1);
 				dbg("analyzing func @ %lx, insn=%08x @ "
 				    "%lx, frame_size = %ld\n", info->ip,
 				    insn, npc, frame_size);
 			} else if ((insn & 0xffe00008) == 0x73c00008) {
-				
+				/* std,ma X,D(sp) */
 				frame_size += (insn & 0x1 ? -1 << 13 : 0) | 
 					(((insn >> 4) & 0x3ff) << 3);
 				dbg("analyzing func @ %lx, insn=%08x @ "
 				    "%lx, frame_size = %ld\n", info->ip,
 				    insn, npc, frame_size);
 			} else if (insn == 0x6bc23fd9) { 
-				
+				/* stw rp,-20(sp) */
 				rpoffset = 20;
 				looking_for_rp = 0;
 				dbg("analyzing func @ %lx, insn=stw rp,"
 				    "-20(sp) @ %lx\n", info->ip, npc);
 			} else if (insn == 0x0fc212c1) {
-				
+				/* std rp,-16(sr0,sp) */
 				rpoffset = 16;
 				looking_for_rp = 0;
 				dbg("analyzing func @ %lx, insn=std rp,"
@@ -399,7 +422,7 @@ unsigned long return_address(unsigned int level)
 	struct pt_regs r;
 	unsigned long sp;
 
-	
+	/* initialize unwind info */
 	asm volatile ("copy %%r30, %0" : "=r"(sp));
 	memset(&r, 0, sizeof(struct pt_regs));
 	r.iaoq[0] = (unsigned long) current_text_addr();
@@ -407,7 +430,7 @@ unsigned long return_address(unsigned int level)
 	r.gr[30] = sp;
 	unwind_frame_init(&info, current, &r);
 
-	
+	/* unwind stack */
 	++level;
 	do {
 		if (unwind_once(&info) < 0 || info.ip == 0)

@@ -140,12 +140,14 @@ int s5k83a_probe(struct sd *sd)
 			pr_info("Forcing a %s sensor\n", s5k83a.name);
 			goto sensor_found;
 		}
+		/* If we want to force another sensor, don't try to probe this
+		 * one */
 		return -ENODEV;
 	}
 
 	PDEBUG(D_PROBE, "Probing for a s5k83a sensor");
 
-	
+	/* Preinit the sensor */
 	for (i = 0; i < ARRAY_SIZE(preinit_s5k83a) && !err; i++) {
 		u8 data[2] = {preinit_s5k83a[i][2], preinit_s5k83a[i][3]};
 		if (preinit_s5k83a[i][0] == SENSOR)
@@ -156,6 +158,9 @@ int s5k83a_probe(struct sd *sd)
 				data[0]);
 	}
 
+	/* We don't know what register (if any) that contain the product id
+	 * Just pick the first addresses that seem to produce the same results
+	 * on multiple machines */
 	if (m5602_read_sensor(sd, 0x00, &prod_id, 1))
 		return -ENODEV;
 
@@ -185,7 +190,7 @@ sensor_found:
 	sd->desc->ctrls = s5k83a_ctrls;
 	sd->desc->nctrls = ARRAY_SIZE(s5k83a_ctrls);
 
-	
+	/* null the pointer! thread is't running now */
 	sens_priv->rotation_thread = NULL;
 
 	for (i = 0; i < ARRAY_SIZE(s5k83a_ctrls); i++)
@@ -287,7 +292,7 @@ static int rotation_thread_function(void *data)
 		set_current_state(TASK_INTERRUPTIBLE);
 	}
 
-	
+	/* return to "front" flip */
 	if (previous_rotation) {
 		s5k83a_get_vflip((struct gspca_dev *) sd, &vflip);
 		s5k83a_get_hflip((struct gspca_dev *) sd, &hflip);
@@ -303,11 +308,14 @@ int s5k83a_start(struct sd *sd)
 	int i, err = 0;
 	struct s5k83a_priv *sens_priv = sd->sensor_priv;
 
+	/* Create another thread, polling the GPIO ports of the camera to check
+	   if it got rotated. This is how the windows driver does it so we have
+	   to assume that there is no better way of accomplishing this */
 	sens_priv->rotation_thread = kthread_create(rotation_thread_function,
 						    sd, "rotation thread");
 	wake_up_process(sens_priv->rotation_thread);
 
-	
+	/* Preinit the sensor */
 	for (i = 0; i < ARRAY_SIZE(start_s5k83a) && !err; i++) {
 		u8 data[2] = {start_s5k83a[i][2], start_s5k83a[i][3]};
 		if (start_s5k83a[i][0] == SENSOR)
@@ -374,8 +382,10 @@ static int s5k83a_set_gain(struct gspca_dev *gspca_dev, __s32 val)
 	if (err < 0)
 		return err;
 
-	data[0] = val >> 3; 
-	data[1] = val >> 1; 
+	/* FIXME: This is not sane, we need to figure out the composition
+		  of these registers */
+	data[0] = val >> 3; /* gain, high 5 bits */
+	data[1] = val >> 1; /* gain, high 7 bits */
 	err = m5602_write_sensor(sd, S5K83A_GAIN, data, 2);
 
 	return err;
@@ -447,7 +457,7 @@ static int s5k83a_set_flip_real(struct gspca_dev *gspca_dev,
 	if (err < 0)
 		return err;
 
-	
+	/* six bit is vflip, seven is hflip */
 	data[0] = S5K83A_FLIP_MASK;
 	data[0] = (vflip) ? data[0] | 0x40 : data[0];
 	data[0] = (hflip) ? data[0] | 0x80 : data[0];
@@ -542,6 +552,7 @@ static int s5k83a_set_led_indication(struct sd *sd, u8 val)
 	return err;
 }
 
+/* Get camera rotation on Acer notebooks */
 static int s5k83a_get_rotation(struct sd *sd, u8 *reg_data)
 {
 	int err = m5602_read_bridge(sd, M5602_XB_GPIO_DAT, reg_data);
@@ -585,7 +596,7 @@ static void s5k83a_dump_registers(struct sd *sd)
 				pr_info("register 0x%x is read only\n",
 					address);
 
-			
+			/* Restore original val */
 			m5602_write_sensor(sd, address, &old_val, 1);
 		}
 	}

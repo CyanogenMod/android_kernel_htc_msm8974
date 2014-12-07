@@ -1,3 +1,8 @@
+/*
+ * APIC driver for "bigsmp" xAPIC machines with more than 8 virtual CPUs.
+ *
+ * Drives the local APIC in "clustered mode".
+ */
 #include <linux/threads.h>
 #include <linux/cpumask.h>
 #include <linux/kernel.h>
@@ -42,7 +47,7 @@ static unsigned long bigsmp_check_apicid_present(int bit)
 
 static int bigsmp_early_logical_apicid(int cpu)
 {
-	
+	/* on bigsmp, logical apicid is the same as physical */
 	return early_per_cpu(x86_cpu_to_apicid, cpu);
 }
 
@@ -57,6 +62,13 @@ static inline unsigned long calculate_ldr(int cpu)
 	return val;
 }
 
+/*
+ * Set up the logical destination ID.
+ *
+ * Intel recommends to set DFR, LDR and TPR before enabling
+ * an APIC.  See e.g. "AP-388 82489DX User's Manual" (Intel
+ * document number 292116).  So here it goes...
+ */
 static void bigsmp_init_apic_ldr(void)
 {
 	unsigned long val;
@@ -84,7 +96,7 @@ static int bigsmp_cpu_present_to_apicid(int mps_cpu)
 
 static void bigsmp_ioapic_phys_id_map(physid_mask_t *phys_map, physid_mask_t *retmap)
 {
-	
+	/* For clustered we don't have a good way to do this yet - hack */
 	physids_promote(0xFFL, retmap);
 }
 
@@ -93,6 +105,7 @@ static int bigsmp_check_phys_apicid_present(int phys_apicid)
 	return 1;
 }
 
+/* As we are using single CPU as destination, pick only one CPU here */
 static unsigned int bigsmp_cpu_mask_to_apicid(const struct cpumask *cpumask)
 {
 	int cpu = cpumask_first(cpumask);
@@ -107,6 +120,10 @@ static unsigned int bigsmp_cpu_mask_to_apicid_and(const struct cpumask *cpumask,
 {
 	int cpu;
 
+	/*
+	 * We're using fixed IRQ delivery, can only return one phys APIC ID.
+	 * May as well be the first.
+	 */
 	for_each_cpu_and(cpu, cpumask, andmask) {
 		if (cpumask_test_cpu(cpu, cpu_online_mask))
 			return cpu_physical_id(cpu);
@@ -134,7 +151,7 @@ static void bigsmp_send_IPI_all(int vector)
 	bigsmp_send_IPI_mask(cpu_online_mask, vector);
 }
 
-static int dmi_bigsmp; 
+static int dmi_bigsmp; /* can be set by dmi scanners */
 
 static int hp_ht_bigsmp(const struct dmi_system_id *d)
 {
@@ -157,7 +174,7 @@ static const struct dmi_system_id bigsmp_dmi_table[] = {
 			DMI_MATCH(DMI_BIOS_VERSION, "P47-"),
 		}
 	},
-	{ } 
+	{ } /* NULL entry stops DMI scanning */
 };
 
 static void bigsmp_vector_allocation_domain(int cpu, struct cpumask *retmask)
@@ -185,7 +202,7 @@ static struct apic apic_bigsmp = {
 	.apic_id_registered		= bigsmp_apic_id_registered,
 
 	.irq_delivery_mode		= dest_Fixed,
-	
+	/* phys delivery to target CPU: */
 	.irq_dest_mode			= 0,
 
 	.target_cpus			= bigsmp_target_cpus,

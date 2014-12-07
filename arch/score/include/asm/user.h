@@ -7,9 +7,9 @@ struct user_regs_struct {
 	unsigned long cel;
 	unsigned long ceh;
 
-	unsigned long sr0;	
-	unsigned long sr1;	
-	unsigned long sr2;	
+	unsigned long sr0;	/* cnt */
+	unsigned long sr1;	/* lcr */
+	unsigned long sr2;	/* scr */
 
 	unsigned long cp0_epc;
 	unsigned long cp0_ema;
@@ -18,4 +18,4 @@ struct user_regs_struct {
 	unsigned long cp0_condition;
 };
 
-#endif 
+#endif /* _ASM_SCORE_USER_H */

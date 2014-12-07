@@ -24,6 +24,14 @@
 #include "../ring_hw.h"
 #include "sca3000.h"
 
+/* RFC / future work
+ *
+ * The internal ring buffer doesn't actually change what it holds depending
+ * on which signals are enabled etc, merely whether you can read them.
+ * As such the scan mode selection is somewhat different than for a software
+ * ring buffer and changing it actually covers any data already in the buffer.
+ * Currently scan elements aren't configured so it doesn't matter.
+ */
 
 static int sca3000_read_data(struct sca3000_state *st,
 			    uint8_t reg_address_high,
@@ -63,6 +71,16 @@ error_ret:
 	return ret;
 }
 
+/**
+ * sca3000_read_first_n_hw_rb() - main ring access, pulls data from ring
+ * @r:			the ring
+ * @count:		number of samples to try and pull
+ * @data:		output the actual samples pulled from the hw ring
+ *
+ * Currently does not provide timestamps.  As the hardware doesn't add them they
+ * can only be inferred approximately from ring buffer events such as 50% full
+ * and knowledge of when buffer was last emptied.  This is left to userspace.
+ **/
 static int sca3000_read_first_n_hw_rb(struct iio_buffer *r,
 				      size_t count, char __user *buf)
 {
@@ -87,6 +105,10 @@ static int sca3000_read_first_n_hw_rb(struct iio_buffer *r,
 		goto error_ret;
 	else
 		num_available = st->rx[0];
+	/*
+	 * num_available is the total number of samples available
+	 * i.e. number of time points * number of channels.
+	 */
 	if (count > num_available * bytes_per_sample)
 		num_read = num_available*bytes_per_sample;
 	else
@@ -111,11 +133,13 @@ error_ret:
 	return ret ? ret : num_read;
 }
 
+/* This is only valid with all 3 elements enabled */
 static int sca3000_ring_get_length(struct iio_buffer *r)
 {
 	return 64;
 }
 
+/* only valid if resolution is kept at 11bits */
 static int sca3000_ring_get_bytes_per_datum(struct iio_buffer *r)
 {
 	return 6;
@@ -124,6 +148,9 @@ static int sca3000_ring_get_bytes_per_datum(struct iio_buffer *r)
 static IIO_BUFFER_ENABLE_ATTR;
 static IIO_BUFFER_LENGTH_ATTR;
 
+/**
+ * sca3000_query_ring_int() is the hardware ring status interrupt enabled
+ **/
 static ssize_t sca3000_query_ring_int(struct device *dev,
 				      struct device_attribute *attr,
 				      char *buf)
@@ -143,6 +170,9 @@ static ssize_t sca3000_query_ring_int(struct device *dev,
 	return sprintf(buf, "%d\n", !!(val & this_attr->address));
 }
 
+/**
+ * sca3000_set_ring_int() set state of ring status interrupt
+ **/
 static ssize_t sca3000_set_ring_int(struct device *dev,
 				      struct device_attribute *attr,
 				      const char *buf,
@@ -201,6 +231,12 @@ static IIO_DEVICE_ATTR(in_accel_scale,
 		       NULL,
 		       0);
 
+/*
+ * Ring buffer attributes
+ * This device is a bit unusual in that the sampling frequency and bpse
+ * only apply to the ring buffer.  At all times full rate and accuracy
+ * is available via direct reading from registers.
+ */
 static struct attribute *sca3000_ring_attributes[] = {
 	&dev_attr_length.attr,
 	&dev_attr_enable.attr,
@@ -285,6 +321,13 @@ error_ret:
 
 	return ret;
 }
+/**
+ * sca3000_hw_ring_preenable() hw ring buffer preenable function
+ *
+ * Very simple enable function as the chip will allows normal reads
+ * during ring buffer operation so as long as it is indeed running
+ * before we notify the core, the precise ordering does not matter.
+ **/
 static int sca3000_hw_ring_preenable(struct iio_dev *indio_dev)
 {
 	return __sca3000_hw_ring_state_set(indio_dev, 1);
@@ -305,6 +348,12 @@ void sca3000_register_ring_funcs(struct iio_dev *indio_dev)
 	indio_dev->setup_ops = &sca3000_ring_setup_ops;
 }
 
+/**
+ * sca3000_ring_int_process() ring specific interrupt handling.
+ *
+ * This is only split from the main interrupt handler so as to
+ * reduce the amount of code if the ring buffer is not enabled.
+ **/
 void sca3000_ring_int_process(u8 val, struct iio_buffer *ring)
 {
 	if (val & (SCA3000_INT_STATUS_THREE_QUARTERS |

@@ -1,6 +1,9 @@
 #ifndef _S390_KDEBUG_H
 #define _S390_KDEBUG_H
 
+/*
+ * Feb 2006 Ported to s390 <grundym@us.ibm.com>
+ */
 
 struct pt_regs;
 

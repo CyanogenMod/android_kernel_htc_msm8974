@@ -28,7 +28,7 @@ static void unregister_intr_pda(struct sn_irq_info *sn_irq_info);
 
 extern int sn_ioif_inited;
 struct list_head **sn_irq_lh;
-static DEFINE_SPINLOCK(sn_irq_info_lock); 
+static DEFINE_SPINLOCK(sn_irq_info_lock); /* non-IRQ lock */
 
 u64 sn_intr_alloc(nasid_t local_nasid, int local_widget,
 				     struct sn_irq_info *sn_irq_info,
@@ -128,7 +128,7 @@ struct sn_irq_info *sn_retarget_vector(struct sn_irq_info *sn_irq_info,
 
 	bridge = (u64) sn_irq_info->irq_bridge;
 	if (!bridge) {
-		return NULL; 
+		return NULL; /* irq is not a device interrupt */
 	}
 
 	local_nasid = NASID_GET(bridge);
@@ -139,28 +139,32 @@ struct sn_irq_info *sn_retarget_vector(struct sn_irq_info *sn_irq_info,
 		local_widget = SWIN_WIDGETNUM(bridge);
 	vector = sn_irq_info->irq_irq;
 
-	
+	/* Make use of SAL_INTR_REDIRECT if PROM supports it */
 	status = sn_intr_redirect(local_nasid, local_widget, sn_irq_info, nasid, slice);
 	if (!status) {
 		new_irq_info = sn_irq_info;
 		goto finish_up;
 	}
 
+	/*
+	 * PROM does not support SAL_INTR_REDIRECT, or it failed.
+	 * Revert to old method.
+	 */
 	new_irq_info = kmemdup(sn_irq_info, sizeof(struct sn_irq_info),
 			       GFP_ATOMIC);
 	if (new_irq_info == NULL)
 		return NULL;
 
-	
+	/* Free the old PROM new_irq_info structure */
 	sn_intr_free(local_nasid, local_widget, new_irq_info);
 	unregister_intr_pda(new_irq_info);
 
-	
+	/* allocate a new PROM new_irq_info struct */
 	status = sn_intr_alloc(local_nasid, local_widget,
 			       new_irq_info, vector,
 			       nasid, slice);
 
-	
+	/* SAL call failed */
 	if (status) {
 		kfree(new_irq_info);
 		return NULL;
@@ -174,13 +178,17 @@ struct sn_irq_info *sn_retarget_vector(struct sn_irq_info *sn_irq_info,
 
 
 finish_up:
-	
+	/* Update kernels new_irq_info with new target info */
 	cpuid = nasid_slice_to_cpuid(new_irq_info->irq_nasid,
 				     new_irq_info->irq_slice);
 	new_irq_info->irq_cpuid = cpuid;
 
 	pci_provider = sn_pci_provider[new_irq_info->irq_bridge_type];
 
+	/*
+	 * If this represents a line interrupt, target it.  If it's
+	 * an msi (irq_int_bit < 0), it's already targeted.
+	 */
 	if (new_irq_info->irq_int_bit >= 0 &&
 	    pci_provider && pci_provider->target_interrupt)
 		(pci_provider->target_interrupt)(new_irq_info);
@@ -214,6 +222,10 @@ static int sn_set_affinity_irq(struct irq_data *data,
 #ifdef CONFIG_SMP
 void sn_set_err_irq_affinity(unsigned int irq)
 {
+        /*
+         * On systems which support CPU disabling (SHub2), all error interrupts
+         * are targeted at the boot CPU.
+         */
         if (is_shub2() && sn_prom_feature_available(PRF_CPU_DISABLE_SUPPORT))
                 set_irq_affinity_info(irq, cpu_physical_id(0), 0);
 }
@@ -336,7 +348,7 @@ void sn_irq_fixup(struct pci_dev *pci_dev, struct sn_irq_info *sn_irq_info)
 	sn_irq_info->irq_cpuid = cpu;
 	sn_irq_info->irq_pciioinfo = SN_PCIDEV_INFO(pci_dev);
 
-	
+	/* link it into the sn_irq[irq] list */
 	spin_lock(&sn_irq_info_lock);
 	list_add_rcu(&sn_irq_info->list, sn_irq_lh[sn_irq_info->irq_irq]);
 	reserve_irq_vector(sn_irq_info->irq_irq);
@@ -348,6 +360,10 @@ void sn_irq_fixup(struct pci_dev *pci_dev, struct sn_irq_info *sn_irq_info)
 #ifdef CONFIG_SMP
 	cpuphys = cpu_physical_id(cpu);
 	set_irq_affinity_info(sn_irq_info->irq_irq, cpuphys, 0);
+	/*
+	 * Affinity was set by the PROM, prevent it from
+	 * being reset by the request_irq() path.
+	 */
 	irqd_mark_affinity_was_set(irq_get_irq_data(sn_irq_info->irq_irq));
 #endif
 }
@@ -356,7 +372,7 @@ void sn_irq_unfixup(struct pci_dev *pci_dev)
 {
 	struct sn_irq_info *sn_irq_info;
 
-	
+	/* Only cleanup IRQ stuff if this device has a host bus context */
 	if (!SN_PCIDEV_BUSSOFT(pci_dev))
 		return;
 
@@ -386,18 +402,32 @@ sn_call_force_intr_provider(struct sn_irq_info *sn_irq_info)
 
 	pci_provider = sn_pci_provider[sn_irq_info->irq_bridge_type];
 
-	
+	/* Don't force an interrupt if the irq has been disabled */
 	if (!irqd_irq_disabled(irq_get_irq_data(sn_irq_info->irq_irq)) &&
 	    pci_provider && pci_provider->force_interrupt)
 		(*pci_provider->force_interrupt)(sn_irq_info);
 }
 
+/*
+ * Check for lost interrupts.  If the PIC int_status reg. says that
+ * an interrupt has been sent, but not handled, and the interrupt
+ * is not pending in either the cpu irr regs or in the soft irr regs,
+ * and the interrupt is not in service, then the interrupt may have
+ * been lost.  Force an interrupt on that pin.  It is possible that
+ * the interrupt is in flight, so we may generate a spurious interrupt,
+ * but we should never miss a real lost interrupt.
+ */
 static void sn_check_intr(int irq, struct sn_irq_info *sn_irq_info)
 {
 	u64 regval;
 	struct pcidev_info *pcidev_info;
 	struct pcibus_info *pcibus_info;
 
+	/*
+	 * Bridge types attached to TIO (anything but PIC) do not need this WAR
+	 * since they do not target Shub II interrupt registers.  If that
+	 * ever changes, this check needs to accommodate.
+	 */
 	if (sn_irq_info->irq_bridge_type != PCIIO_ASIC_TYPE_PIC)
 		return;
 

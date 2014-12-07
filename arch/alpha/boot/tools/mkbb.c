@@ -1,12 +1,24 @@
+/* This utility makes a bootblock suitable for the SRM console/miniloader */
 
+/* Usage:
+ *	mkbb <device> <lxboot>
+ *
+ * Where <device> is the name of the device to install the bootblock on,
+ * and <lxboot> is the name of a bootblock to merge in.  This bootblock
+ * contains the offset and size of the bootloader.  It must be exactly
+ * 512 bytes long.
+ */
 
 #include <fcntl.h>
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
 
+/* Minimal definition of disklabel, so we don't have to include
+ * asm/disklabel.h (confuses make)
+ */
 #ifndef MAXPARTITIONS
-#define MAXPARTITIONS   8                       
+#define MAXPARTITIONS   8                       /* max. # of partitions */
 #endif
 
 #ifndef u8
@@ -22,7 +34,7 @@
 #endif
 
 struct disklabel {
-    u32	d_magic;				
+    u32	d_magic;				/* must be DISKLABELMAGIC */
     u16	d_type, d_subtype;
     u8	d_typename[16];
     u8	d_packname[16];
@@ -39,7 +51,7 @@ struct disklabel {
     u32	d_headswitch, d_trkseek, d_flags;
     u32	d_drivedata[5];
     u32	d_spare[5];
-    u32	d_magic2;				
+    u32	d_magic2;				/* must be DISKLABELMAGIC */
     u16	d_checksum;
     u16	d_npartitions;
     u32	d_bbsize, d_sbsize;
@@ -78,20 +90,20 @@ int main(int argc, char ** argv)
     int			i;
     int			nread;
 
-    
+    /* Make sure of the arg count */
     if(argc != 3) {
 	fprintf(stderr, "Usage: %s device lxboot\n", argv[0]);
 	exit(0);
     }
 
-    
+    /* First, open the device and make sure it's accessible */
     dev = open(argv[1], O_RDWR);
     if(dev < 0) {
 	perror(argv[1]);
 	exit(0);
     }
 
-    
+    /* Now open the lxboot and make sure it's reasonable */
     fd = open(argv[2], O_RDONLY);
     if(fd < 0) {
 	perror(argv[2]);
@@ -99,7 +111,7 @@ int main(int argc, char ** argv)
 	exit(0);
     }
 
-    
+    /* Read in the lxboot */
     nread = read(fd, &bootloader_image, sizeof(bootblock));
     if(nread != sizeof(bootblock)) {
 	perror("lxboot read");
@@ -107,7 +119,7 @@ int main(int argc, char ** argv)
 	exit(0);
     }
 
-    
+    /* Read in the bootblock from disk. */
     nread = read(dev, &bootblock_from_disk, sizeof(bootblock));
     if(nread != sizeof(bootblock)) {
 	perror("bootblock read");
@@ -115,17 +127,17 @@ int main(int argc, char ** argv)
 	exit(0);
     }
 
-    
+    /* Swap the bootblock's disklabel into the bootloader */
     bootloader_image.bootblock_label = bootblock_from_disk.bootblock_label;
 
-    
+    /* Calculate the bootblock checksum */
     bootloader_image.bootblock_checksum = 0;
     for(i = 0; i < 63; i++) {
 	bootloader_image.bootblock_checksum += 
 			bootloader_image.bootblock_quadwords[i];
     }
 
-    
+    /* Write the whole thing out! */
     lseek(dev, 0L, SEEK_SET);
     if(write(dev, &bootloader_image, sizeof(bootblock)) != sizeof(bootblock)) {
 	perror("bootblock write");

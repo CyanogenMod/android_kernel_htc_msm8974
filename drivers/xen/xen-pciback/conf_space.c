@@ -1,3 +1,13 @@
+/*
+ * PCI Backend - Functions for creating a virtual configuration space for
+ *               exported PCI Devices.
+ *               It's dangerous to allow PCI Driver Domains to change their
+ *               device's resources (memory, i/o ports, interrupts). We need to
+ *               restrict changes to certain PCI Configuration registers:
+ *               BARs, INTERRUPT_PIN, most registers in the header...
+ *
+ * Author: Ryan Wilson <hap9@epoch.ncsc.mil>
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -9,6 +19,8 @@
 static bool permissive;
 module_param(permissive, bool, 0644);
 
+/* This is where xen_pcibk_read_config_byte, xen_pcibk_read_config_word,
+ * xen_pcibk_write_config_word, and xen_pcibk_write_config_byte are created. */
 #define DEFINE_PCI_CONFIG(op, size, type)			\
 int xen_pcibk_##op##_config_##size				\
 (struct pci_dev *dev, int offset, type value, void *data)	\
@@ -91,7 +103,7 @@ static inline u32 get_mask(int size)
 
 static inline int valid_request(int offset, int size)
 {
-	
+	/* Validate request (no un-aligned requests) */
 	if ((size == 1 || size == 2 || size == 4) && (offset % size) == 0)
 		return 1;
 	return 0;
@@ -137,6 +149,8 @@ int xen_pcibk_config_read(struct pci_dev *dev, int offset, int size,
 	const struct config_field_entry *cfg_entry;
 	const struct config_field *field;
 	int req_start, req_end, field_start, field_end;
+	/* if read fails for any reason, return 0
+	 * (as if device didn't respond) */
 	u32 value = 0, tmp_val;
 
 	if (unlikely(verbose_request))
@@ -148,7 +162,7 @@ int xen_pcibk_config_read(struct pci_dev *dev, int offset, int size,
 		goto out;
 	}
 
-	
+	/* Get the real value first, then modify as appropriate */
 	switch (size) {
 	case 1:
 		err = pci_read_config_byte(dev, offset, (u8 *) &value);
@@ -242,6 +256,12 @@ int xen_pcibk_config_write(struct pci_dev *dev, int offset, int size, u32 value)
 	}
 
 	if (!handled && !err) {
+		/* By default, anything not specificially handled above is
+		 * read-only. The permissive flag changes this behavior so
+		 * that anything not specifically handled above is writable.
+		 * This means that some fields may still be read-only because
+		 * they have entries in the config_field list that intercept
+		 * the write and do nothing. */
 		if (dev_data->permissive || permissive) {
 			switch (size) {
 			case 1:
@@ -358,7 +378,7 @@ int xen_pcibk_config_add_field_offset(struct pci_dev *dev,
 	cfg_entry->field = field;
 	cfg_entry->base_offset = base_offset;
 
-	
+	/* silently ignore duplicate fields */
 	err = xen_pcibk_field_is_dup(dev, OFFSET(cfg_entry));
 	if (err)
 		goto out;
@@ -385,6 +405,10 @@ out:
 	return err;
 }
 
+/* This sets up the device's virtual configuration space to keep track of
+ * certain registers (like the base address registers (BARs) so that we can
+ * keep the client from manipulating them directly.
+ */
 int xen_pcibk_config_init_dev(struct pci_dev *dev)
 {
 	int err = 0;

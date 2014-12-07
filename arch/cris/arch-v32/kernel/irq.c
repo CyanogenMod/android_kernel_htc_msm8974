@@ -22,6 +22,7 @@
 
 #define CPU_FIXED -1
 
+/* IRQ masks (refer to comment for crisv32_do_multiple) */
 #if TIMER0_INTR_VECT - FIRST_IRQ < 32
 #define TIMER_MASK (1 << (TIMER0_INTR_VECT - FIRST_IRQ))
 #undef TIMER_VECT1
@@ -45,8 +46,8 @@ DEFINE_SPINLOCK(irq_lock);
 
 struct cris_irq_allocation
 {
-  int cpu; 
-  cpumask_t mask; 
+  int cpu; /* The CPU to which the IRQ is currently allocated. */
+  cpumask_t mask; /* The CPUs to which the IRQ may be allocated. */
 };
 
 struct cris_irq_allocation irq_allocations[NR_REAL_IRQS] =
@@ -69,8 +70,10 @@ static unsigned long irq_regs[NR_CPUS] =
 unsigned long cpu_irq_counters[NR_CPUS];
 unsigned long irq_counters[NR_REAL_IRQS];
 
+/* From irq.c. */
 extern void weird_irq(void);
 
+/* From entry.S. */
 extern void system_call(void);
 extern void nmi_interrupt(void);
 extern void multiple_interrupt(void);
@@ -84,11 +87,16 @@ extern void d_mmu_invalid(void);
 extern void d_mmu_access(void);
 extern void d_mmu_write(void);
 
+/* From kgdb.c. */
 extern void kgdb_init(void);
 extern void breakpoint(void);
 
+/* From traps.c.  */
 extern void breakh_BUG(void);
 
+/*
+ * Build the IRQ handler stubs using macros from irq.h.
+ */
 #ifdef CONFIG_CRIS_MACH_ARTPEC3
 BUILD_TIMER_IRQ(0x31, 0)
 #else
@@ -164,6 +172,7 @@ BUILD_IRQ(0x6f)
 BUILD_IRQ(0x70)
 #endif
 
+/* Pointers to the low-level handlers. */
 static void (*interrupt[MACH_IRQS])(void) = {
 	IRQ0x31_interrupt, IRQ0x32_interrupt, IRQ0x33_interrupt,
 	IRQ0x34_interrupt, IRQ0x35_interrupt, IRQ0x36_interrupt,
@@ -198,7 +207,7 @@ block_irq(int irq, int cpu)
         unsigned long flags;
 
 	spin_lock_irqsave(&irq_lock, flags);
-	
+	/* Remember, 1 let thru, 0 block. */
 	if (irq - FIRST_IRQ < 32) {
 		intr_mask = REG_RD_INT_VECT(intr_vect, irq_regs[cpu],
 			rw_mask, 0);
@@ -222,7 +231,7 @@ unblock_irq(int irq, int cpu)
         unsigned long flags;
 
         spin_lock_irqsave(&irq_lock, flags);
-	
+	/* Remember, 1 let thru, 0 block. */
 	if (irq - FIRST_IRQ < 32) {
 		intr_mask = REG_RD_INT_VECT(intr_vect, irq_regs[cpu],
 			rw_mask, 0);
@@ -239,6 +248,7 @@ unblock_irq(int irq, int cpu)
         spin_unlock_irqrestore(&irq_lock, flags);
 }
 
+/* Find out which CPU the irq should be allocated to. */
 static int irq_cpu(int irq)
 {
 	int cpu;
@@ -247,7 +257,7 @@ static int irq_cpu(int irq)
         spin_lock_irqsave(&irq_lock, flags);
         cpu = irq_allocations[irq - FIRST_IRQ].cpu;
 
-	
+	/* Fixed interrupts stay on the local CPU. */
 	if (cpu == CPU_FIXED)
         {
 		spin_unlock_irqrestore(&irq_lock, flags);
@@ -255,11 +265,11 @@ static int irq_cpu(int irq)
         }
 
 
-	
+	/* Let the interrupt stay if possible */
 	if (cpumask_test_cpu(cpu, &irq_allocations[irq - FIRST_IRQ].mask))
 		goto out;
 
-	
+	/* IRQ must be moved to another CPU. */
 	cpu = cpumask_first(&irq_allocations[irq - FIRST_IRQ].mask);
 	irq_allocations[irq - FIRST_IRQ].cpu = cpu;
 out:
@@ -321,6 +331,11 @@ extern void do_IRQ(int irq, struct pt_regs * regs);
 void
 crisv32_do_IRQ(int irq, int block, struct pt_regs* regs)
 {
+	/* Interrupts that may not be moved to another CPU and
+         * are IRQF_DISABLED may skip blocking. This is currently
+         * only valid for the timer IRQ and the IPI and is used
+         * for the timer interrupt to avoid watchdog starvation.
+         */
 	if (!block) {
 		do_IRQ(irq, regs);
 		return;
@@ -332,6 +347,16 @@ crisv32_do_IRQ(int irq, int block, struct pt_regs* regs)
 	unblock_irq(irq, irq_cpu(irq));
 }
 
+/* If multiple interrupts occur simultaneously we get a multiple
+ * interrupt from the CPU and software has to sort out which
+ * interrupts that happened. There are two special cases here:
+ *
+ * 1. Timer interrupts may never be blocked because of the
+ *    watchdog (refer to comment in include/asr/arch/irq.h)
+ * 2. GDB serial port IRQs are unhandled here and will be handled
+ *    as a single IRQ when it strikes again because the GDB
+ *    stubb wants to save the registers in its own fashion.
+ */
 void
 crisv32_do_multiple(struct pt_regs* regs)
 {
@@ -343,18 +368,21 @@ crisv32_do_multiple(struct pt_regs* regs)
 
 	cpu = smp_processor_id();
 
+	/* An extra irq_enter here to prevent softIRQs to run after
+         * each do_IRQ. This will decrease the interrupt latency.
+	 */
 	irq_enter();
 
 	for (i = 0; i < NBR_REGS; i++) {
-		
+		/* Get which IRQs that happened. */
 		masked[i] = REG_RD_INT_VECT(intr_vect, irq_regs[cpu],
 			r_masked_vect, i);
 
-		
+		/* Calculate new IRQ mask with these IRQs disabled. */
 		mask = REG_RD_INT_VECT(intr_vect, irq_regs[cpu], rw_mask, i);
 		mask &= ~masked[i];
 
-	
+	/* Timer IRQ is never masked */
 #ifdef TIMER_VECT1
 		if ((i == 1) && (masked[0] & TIMER_MASK))
 			mask |= TIMER_MASK;
@@ -362,10 +390,10 @@ crisv32_do_multiple(struct pt_regs* regs)
 		if ((i == 0) && (masked[0] & TIMER_MASK))
 			mask |= TIMER_MASK;
 #endif
-		
+		/* Block all the IRQs */
 		REG_WR_INT_VECT(intr_vect, irq_regs[cpu], rw_mask, i, mask);
 
-	
+	/* Check for timer IRQ and handle it special. */
 #ifdef TIMER_VECT1
 		if ((i == 1) && (masked[i] & TIMER_MASK)) {
 			masked[i] &= ~TIMER_MASK;
@@ -380,11 +408,11 @@ crisv32_do_multiple(struct pt_regs* regs)
 	}
 
 #ifdef IGNORE_MASK
-	
+	/* Remove IRQs that can't be handled as multiple. */
 	masked[0] &= ~IGNORE_MASK;
 #endif
 
-	
+	/* Handle the rest of the IRQs. */
 	for (i = 0; i < NBR_REGS; i++) {
 		for (bit = 0; bit < 32; bit++) {
 			if (masked[i] & (1 << bit))
@@ -392,17 +420,21 @@ crisv32_do_multiple(struct pt_regs* regs)
 		}
 	}
 
-	
+	/* Unblock all the IRQs. */
 	for (i = 0; i < NBR_REGS; i++) {
 		mask = REG_RD_INT_VECT(intr_vect, irq_regs[cpu], rw_mask, i);
 		mask |= masked[i];
 		REG_WR_INT_VECT(intr_vect, irq_regs[cpu], rw_mask, i, mask);
 	}
 
-	
+	/* This irq_exit() will trigger the soft IRQs. */
 	irq_exit();
 }
 
+/*
+ * This is called by start_kernel. It fixes the IRQ masks and setup the
+ * interrupt vector table to point to bad_interrupt pointers.
+ */
 void __init
 init_IRQ(void)
 {
@@ -410,21 +442,21 @@ init_IRQ(void)
 	int j;
 	reg_intr_vect_rw_mask vect_mask = {0};
 
-	
+	/* Clear all interrupts masks. */
 	for (i = 0; i < NBR_REGS; i++)
 		REG_WR_VECT(intr_vect, regi_irq, rw_mask, i, vect_mask);
 
 	for (i = 0; i < 256; i++)
 		etrax_irv->v[i] = weird_irq;
 
-	
+	/* Point all IRQ's to bad handlers. */
 	for (i = FIRST_IRQ, j = 0; j < NR_IRQS; i++, j++) {
 		irq_set_chip_and_handler(j, &crisv32_irq_type,
 					 handle_simple_irq);
 		set_exception_vector(i, interrupt[j]);
 	}
 
-	
+	/* Mark Timer and IPI IRQs as CPU local */
 	irq_allocations[TIMER0_INTR_VECT - FIRST_IRQ].cpu = CPU_FIXED;
 	irq_set_status_flags(TIMER0_INTR_VECT, IRQ_PER_CPU);
 	irq_allocations[IPI_INTR_VECT - FIRST_IRQ].cpu = CPU_FIXED;
@@ -433,7 +465,7 @@ init_IRQ(void)
 	set_exception_vector(0x00, nmi_interrupt);
 	set_exception_vector(0x30, multiple_interrupt);
 
-	
+	/* Set up handler for various MMU bus faults. */
 	set_exception_vector(0x04, i_mmu_refill);
 	set_exception_vector(0x05, i_mmu_invalid);
 	set_exception_vector(0x06, i_mmu_access);
@@ -444,25 +476,25 @@ init_IRQ(void)
 	set_exception_vector(0x0b, d_mmu_write);
 
 #ifdef CONFIG_BUG
-	
+	/* Break 14 handler, used to implement cheap BUG().  */
 	set_exception_vector(0x1e, breakh_BUG);
 #endif
 
-	
+	/* The system-call trap is reached by "break 13". */
 	set_exception_vector(0x1d, system_call);
 
-	
+	/* Exception handlers for debugging, both user-mode and kernel-mode. */
 
-	
+	/* Break 8. */
 	set_exception_vector(0x18, gdb_handle_exception);
-	
+	/* Hardware single step. */
 	set_exception_vector(0x3, gdb_handle_exception);
-	
+	/* Hardware breakpoint. */
 	set_exception_vector(0xc, gdb_handle_exception);
 
 #ifdef CONFIG_ETRAX_KGDB
 	kgdb_init();
-	
+	/* Everything is set up; now trap the kernel. */
 	breakpoint();
 #endif
 }

@@ -87,39 +87,66 @@ static struct sbprof_tb sbp;
 #define TB_SAMPLE_SIZE (sizeof(tb_sample_t))
 #define MAX_TB_SAMPLES (MAX_TBSAMPLE_BYTES/TB_SAMPLE_SIZE)
 
+/* ioctls */
 #define SBPROF_ZBSTART		_IOW('s', 0, int)
 #define SBPROF_ZBSTOP		_IOW('s', 1, int)
 #define SBPROF_ZBWAITFULL	_IOW('s', 2, int)
 
+/*
+ * Routines for using 40-bit SCD cycle counter
+ *
+ * Client responsible for either handling interrupts or making sure
+ * the cycles counter never saturates, e.g., by doing
+ * zclk_timer_init(0) at least every 2^40 - 1 ZCLKs.
+ */
 
+/*
+ * Configures SCD counter 0 to count ZCLKs starting from val;
+ * Configures SCD counters1,2,3 to count nothing.
+ * Must not be called while gathering ZBbus profiles.
+ */
 
 #define zclk_timer_init(val) \
   __asm__ __volatile__ (".set push;" \
 			".set mips64;" \
-			"la   $8, 0xb00204c0;"  \
-			"sd   %0, 0x10($8);"    \
-			"sd   %1, 0($8);"       \
+			"la   $8, 0xb00204c0;" /* SCD perf_cnt_cfg */ \
+			"sd   %0, 0x10($8);"   /* write val to counter0 */ \
+			"sd   %1, 0($8);"      /* config counter0 for zclks*/ \
 			".set pop" \
-			:  \
-						      \
-			:  "r"(val), "r" ((1ULL << 33) | 1ULL) \
-			:  "$8" )
+			: /* no outputs */ \
+						     /* enable, counter0 */ \
+			: /* inputs */ "r"(val), "r" ((1ULL << 33) | 1ULL) \
+			: /* modifies */ "$8" )
 
 
+/* Reads SCD counter 0 and puts result in value
+   unsigned long long val; */
 #define zclk_get(val) \
   __asm__ __volatile__ (".set push;" \
 			".set mips64;" \
-			"la   $8, 0xb00204c0;"  \
-			"ld   %0, 0x10($8);"    \
+			"la   $8, 0xb00204c0;" /* SCD perf_cnt_cfg */ \
+			"ld   %0, 0x10($8);"   /* write val to counter0 */ \
 			".set pop" \
-			:  "=r"(val) \
-			:  \
-			:  "$8" )
+			: /* outputs */ "=r"(val) \
+			: /* inputs */ \
+			: /* modifies */ "$8" )
 
 #define DEVNAME "sb_tbprof"
 
 #define TB_FULL (sbp.next_tb_sample == MAX_TB_SAMPLES)
 
+/*
+ * Support for ZBbus sampling using the trace buffer
+ *
+ * We use the SCD performance counter interrupt, caused by a Zclk counter
+ * overflow, to trigger the start of tracing.
+ *
+ * We set the trace buffer to sample everything and freeze on
+ * overflow.
+ *
+ * We map the interrupt for trace_buffer_freeze to handle it on CPU 0.
+ *
+ */
 
 static u64 tb_period;
 
@@ -129,32 +156,41 @@ static void arm_tb(void)
 	u64 next = (1ULL << 40) - tb_period;
 	u64 tb_options = M_SCD_TRACE_CFG_FREEZE_FULL;
 
+	/*
+	 * Generate an SCD_PERFCNT interrupt in TB_PERIOD Zclks to
+	 * trigger start of trace.  XXX vary sampling period
+	 */
 	__raw_writeq(0, IOADDR(A_SCD_PERF_CNT_1));
 	scdperfcnt = __raw_readq(IOADDR(A_SCD_PERF_CNT_CFG));
 
+	/*
+	 * Unfortunately, in Pass 2 we must clear all counters to knock down
+	 * a previous interrupt request.  This means that bus profiling
+	 * requires ALL of the SCD perf counters.
+	 */
 #if defined(CONFIG_SIBYTE_BCM1x55) || defined(CONFIG_SIBYTE_BCM1x80)
 	__raw_writeq((scdperfcnt & ~M_SPC_CFG_SRC1) |
-						
-		     V_SPC_CFG_SRC1(1),		
+						/* keep counters 0,2,3,4,5,6,7 as is */
+		     V_SPC_CFG_SRC1(1),		/* counter 1 counts cycles */
 		     IOADDR(A_BCM1480_SCD_PERF_CNT_CFG0));
 	__raw_writeq(
-		     M_SPC_CFG_ENABLE |		
-		     M_SPC_CFG_CLEAR |		
-		     V_SPC_CFG_SRC1(1),		
+		     M_SPC_CFG_ENABLE |		/* enable counting */
+		     M_SPC_CFG_CLEAR |		/* clear all counters */
+		     V_SPC_CFG_SRC1(1),		/* counter 1 counts cycles */
 		     IOADDR(A_BCM1480_SCD_PERF_CNT_CFG1));
 #else
 	__raw_writeq((scdperfcnt & ~M_SPC_CFG_SRC1) |
-						
-		     M_SPC_CFG_ENABLE |		
-		     M_SPC_CFG_CLEAR |		
-		     V_SPC_CFG_SRC1(1),		
+						/* keep counters 0,2,3 as is */
+		     M_SPC_CFG_ENABLE |		/* enable counting */
+		     M_SPC_CFG_CLEAR |		/* clear all counters */
+		     V_SPC_CFG_SRC1(1),		/* counter 1 counts cycles */
 		     IOADDR(A_SCD_PERF_CNT_CFG));
 #endif
 	__raw_writeq(next, IOADDR(A_SCD_PERF_CNT_1));
-	
+	/* Reset the trace buffer */
 	__raw_writeq(M_SCD_TRACE_CFG_RESET, IOADDR(A_SCD_TRACE_CFG));
 #if 0 && defined(M_SCD_TRACE_CFG_FORCECNT)
-	
+	/* XXXKW may want to expose control to the data-collector */
 	tb_options |= M_SCD_TRACE_CFG_FORCECNT;
 #endif
 	__raw_writeq(tb_options, IOADDR(A_SCD_TRACE_CFG));
@@ -168,28 +204,28 @@ static irqreturn_t sbprof_tb_intr(int irq, void *dev_id)
 	pr_debug(DEVNAME ": tb_intr\n");
 
 	if (sbp.next_tb_sample < MAX_TB_SAMPLES) {
-		
+		/* XXX should use XKPHYS to make writes bypass L2 */
 		u64 *p = sbp.sbprof_tbbuf[sbp.next_tb_sample++];
-		
+		/* Read out trace */
 		__raw_writeq(M_SCD_TRACE_CFG_START_READ,
 			     IOADDR(A_SCD_TRACE_CFG));
 		__asm__ __volatile__ ("sync" : : : "memory");
-		
+		/* Loop runs backwards because bundles are read out in reverse order */
 		for (i = 256 * 6; i > 0; i -= 6) {
-			
-			
+			/* Subscripts decrease to put bundle in the order */
+			/*   t0 lo, t0 hi, t1 lo, t1 hi, t2 lo, t2 hi */
 			p[i - 1] = __raw_readq(IOADDR(A_SCD_TRACE_READ));
-			
+			/* read t2 hi */
 			p[i - 2] = __raw_readq(IOADDR(A_SCD_TRACE_READ));
-			
+			/* read t2 lo */
 			p[i - 3] = __raw_readq(IOADDR(A_SCD_TRACE_READ));
-			
+			/* read t1 hi */
 			p[i - 4] = __raw_readq(IOADDR(A_SCD_TRACE_READ));
-			
+			/* read t1 lo */
 			p[i - 5] = __raw_readq(IOADDR(A_SCD_TRACE_READ));
-			
+			/* read t0 hi */
 			p[i - 6] = __raw_readq(IOADDR(A_SCD_TRACE_READ));
-			
+			/* read t0 lo */
 		}
 		if (!sbp.tb_enable) {
 			pr_debug(DEVNAME ": tb_intr shutdown\n");
@@ -198,11 +234,11 @@ static irqreturn_t sbprof_tb_intr(int irq, void *dev_id)
 			sbp.tb_armed = 0;
 			wake_up_interruptible(&sbp.tb_sync);
 		} else {
-			
+			/* knock down current interrupt and get another one later */
 			arm_tb();
 		}
 	} else {
-		
+		/* No more trace buffer samples */
 		pr_debug(DEVNAME ": tb_intr full\n");
 		__raw_writeq(M_SCD_TRACE_CFG_RESET, IOADDR(A_SCD_TRACE_CFG));
 		sbp.tb_armed = 0;
@@ -219,6 +255,11 @@ static irqreturn_t sbprof_pc_intr(int irq, void *dev_id)
 	return IRQ_NONE;
 }
 
+/*
+ * Requires: Already called zclk_timer_init with a value that won't
+ *           saturate 40 bits.  No subsequent use of SCD performance counters
+ *           or trace buffer.
+ */
 
 static int sbprof_zbprof_start(struct file *filp)
 {
@@ -238,18 +279,28 @@ static int sbprof_zbprof_start(struct file *filp)
 	if (err)
 		return -EBUSY;
 
-	
+	/* Make sure there isn't a perf-cnt interrupt waiting */
 	scdperfcnt = __raw_readq(IOADDR(A_SCD_PERF_CNT_CFG));
-	
+	/* Disable and clear counters, override SRC_1 */
 	__raw_writeq((scdperfcnt & ~(M_SPC_CFG_SRC1 | M_SPC_CFG_ENABLE)) |
 		     M_SPC_CFG_ENABLE | M_SPC_CFG_CLEAR | V_SPC_CFG_SRC1(1),
 		     IOADDR(A_SCD_PERF_CNT_CFG));
 
+	/*
+	 * We grab this interrupt to prevent others from trying to use
+         * it, even though we don't want to service the interrupts
+         * (they only feed into the trace-on-interrupt mechanism)
+	 */
 	if (request_irq(K_INT_PERF_CNT, sbprof_pc_intr, 0, DEVNAME " scd perfcnt", &sbp)) {
 		free_irq(K_INT_TRACE_FREEZE, &sbp);
 		return -EBUSY;
 	}
 
+	/*
+	 * I need the core to mask these, but the interrupt mapper to
+	 *  pass them through.  I am exploiting my knowledge that
+	 *  cp0_status masks out IP[5]. krw
+	 */
 #if defined(CONFIG_SIBYTE_BCM1x55) || defined(CONFIG_SIBYTE_BCM1x80)
 	__raw_writeq(K_BCM1480_INT_MAP_I3,
 		     IOADDR(A_BCM1480_IMR_REGISTER(0, R_BCM1480_IMR_INTERRUPT_MAP_BASE_L) +
@@ -260,7 +311,7 @@ static int sbprof_zbprof_start(struct file *filp)
 			    (K_INT_PERF_CNT << 3)));
 #endif
 
-	
+	/* Initialize address traps */
 	__raw_writeq(0, IOADDR(A_ADDR_TRAP_UP_0));
 	__raw_writeq(0, IOADDR(A_ADDR_TRAP_UP_1));
 	__raw_writeq(0, IOADDR(A_ADDR_TRAP_UP_2));
@@ -276,8 +327,8 @@ static int sbprof_zbprof_start(struct file *filp)
 	__raw_writeq(0, IOADDR(A_ADDR_TRAP_CFG_2));
 	__raw_writeq(0, IOADDR(A_ADDR_TRAP_CFG_3));
 
-	
-	
+	/* Initialize Trace Event 0-7 */
+	/*				when interrupt  */
 	__raw_writeq(M_SCD_TREVT_INTERRUPT, IOADDR(A_SCD_TRACE_EVENT_0));
 	__raw_writeq(0, IOADDR(A_SCD_TRACE_EVENT_1));
 	__raw_writeq(0, IOADDR(A_SCD_TRACE_EVENT_2));
@@ -287,11 +338,11 @@ static int sbprof_zbprof_start(struct file *filp)
 	__raw_writeq(0, IOADDR(A_SCD_TRACE_EVENT_6));
 	__raw_writeq(0, IOADDR(A_SCD_TRACE_EVENT_7));
 
-	
-	
+	/* Initialize Trace Sequence 0-7 */
+	/*				     Start on event 0 (interrupt) */
 	__raw_writeq(V_SCD_TRSEQ_FUNC_START | 0x0fff,
 		     IOADDR(A_SCD_TRACE_SEQUENCE_0));
-	
+	/*			  dsamp when d used | asamp when a used */
 	__raw_writeq(M_SCD_TRSEQ_ASAMPLE | M_SCD_TRSEQ_DSAMPLE |
 		     K_SCD_TRSEQ_TRIGGER_ALL,
 		     IOADDR(A_SCD_TRACE_SEQUENCE_1));
@@ -302,7 +353,7 @@ static int sbprof_zbprof_start(struct file *filp)
 	__raw_writeq(0, IOADDR(A_SCD_TRACE_SEQUENCE_6));
 	__raw_writeq(0, IOADDR(A_SCD_TRACE_SEQUENCE_7));
 
-	
+	/* Now indicate the PERF_CNT interrupt as a trace-relevant interrupt */
 #if defined(CONFIG_SIBYTE_BCM1x55) || defined(CONFIG_SIBYTE_BCM1x80)
 	__raw_writeq(1ULL << (K_BCM1480_INT_PERF_CNT & 0x3f),
 		     IOADDR(A_BCM1480_IMR_REGISTER(0, R_BCM1480_IMR_INTERRUPT_TRACE_L)));
@@ -324,6 +375,11 @@ static int sbprof_zbprof_stop(void)
 	pr_debug(DEVNAME ": stopping\n");
 
 	if (sbp.tb_enable) {
+		/*
+		 * XXXKW there is a window here where the intr handler may run,
+		 * see the disable, and do the wake_up before this sleep
+		 * happens.
+		 */
 		pr_debug(DEVNAME ": wait for disarm\n");
 		err = wait_event_interruptible(sbp.tb_sync, !sbp.tb_armed);
 		pr_debug(DEVNAME ": disarm complete, stat %d\n", err);

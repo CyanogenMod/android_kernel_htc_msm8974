@@ -31,12 +31,16 @@ struct ep93xx_gpio {
 	struct bgpio_chip	bgc[8];
 };
 
+/*************************************************************************
+ * Interrupt handling for EP93xx on-chip GPIOs
+ *************************************************************************/
 static unsigned char gpio_int_unmasked[3];
 static unsigned char gpio_int_enabled[3];
 static unsigned char gpio_int_type1[3];
 static unsigned char gpio_int_type2[3];
 static unsigned char gpio_int_debounce[3];
 
+/* Port ordering is: A B F */
 static const u8 int_type1_register_offset[3]	= { 0x90, 0xac, 0x4c };
 static const u8 int_type2_register_offset[3]	= { 0x94, 0xb0, 0x50 };
 static const u8 eoi_register_offset[3]		= { 0x98, 0xb4, 0x54 };
@@ -98,7 +102,12 @@ static void ep93xx_gpio_ab_irq_handler(unsigned int irq, struct irq_desc *desc)
 
 static void ep93xx_gpio_f_irq_handler(unsigned int irq, struct irq_desc *desc)
 {
-	int port_f_idx = ((irq + 1) & 7) ^ 4; 
+	/*
+	 * map discontiguous hw irq range to continuous sw irq range:
+	 *
+	 *  IRQ_EP93XX_GPIO{0..7}MUX -> gpio_to_irq(EP93XX_GPIO_LINE_F({0..7})
+	 */
+	int port_f_idx = ((irq + 1) & 7) ^ 4; /* {19..22,47..50} -> {0..7} */
 	int gpio_irq = gpio_to_irq(EP93XX_GPIO_LINE_F(0)) + port_f_idx;
 
 	generic_handle_irq(gpio_irq);
@@ -111,7 +120,7 @@ static void ep93xx_gpio_irq_ack(struct irq_data *d)
 	int port_mask = 1 << (line & 7);
 
 	if (irqd_get_trigger_type(d) == IRQ_TYPE_EDGE_BOTH) {
-		gpio_int_type2[port] ^= port_mask; 
+		gpio_int_type2[port] ^= port_mask; /* switch edge direction */
 		ep93xx_gpio_update_int_params(port);
 	}
 
@@ -125,7 +134,7 @@ static void ep93xx_gpio_irq_mask_ack(struct irq_data *d)
 	int port_mask = 1 << (line & 7);
 
 	if (irqd_get_trigger_type(d) == IRQ_TYPE_EDGE_BOTH)
-		gpio_int_type2[port] ^= port_mask; 
+		gpio_int_type2[port] ^= port_mask; /* switch edge direction */
 
 	gpio_int_unmasked[port] &= ~port_mask;
 	ep93xx_gpio_update_int_params(port);
@@ -151,6 +160,11 @@ static void ep93xx_gpio_irq_unmask(struct irq_data *d)
 	ep93xx_gpio_update_int_params(port);
 }
 
+/*
+ * gpio_int_type1 controls whether the interrupt is level (0) or
+ * edge (1) triggered, while gpio_int_type2 controls whether it
+ * triggers on low/falling (0) or high/rising (1).
+ */
 static int ep93xx_gpio_irq_type(struct irq_data *d, unsigned int type)
 {
 	const int gpio = irq_to_gpio(d->irq);
@@ -183,11 +197,11 @@ static int ep93xx_gpio_irq_type(struct irq_data *d, unsigned int type)
 		break;
 	case IRQ_TYPE_EDGE_BOTH:
 		gpio_int_type1[port] |= port_mask;
-		
+		/* set initial polarity based on current input level */
 		if (gpio_get_value(gpio))
-			gpio_int_type2[port] &= ~port_mask; 
+			gpio_int_type2[port] &= ~port_mask; /* falling */
 		else
-			gpio_int_type2[port] |= port_mask; 
+			gpio_int_type2[port] |= port_mask; /* rising */
 		handler = handle_edge_irq;
 		break;
 	default:
@@ -244,6 +258,9 @@ static void ep93xx_gpio_init_irq(void)
 }
 
 
+/*************************************************************************
+ * gpiolib interface for EP93xx on-chip GPIOs
+ *************************************************************************/
 struct ep93xx_gpio_bank {
 	const char	*label;
 	int		data;
@@ -286,6 +303,11 @@ static int ep93xx_gpio_set_debounce(struct gpio_chip *chip,
 	return 0;
 }
 
+/*
+ * Map GPIO A0..A7  (0..7)  to irq 64..71,
+ *          B0..B7  (7..15) to irq 72..79, and
+ *          F0..F7 (16..24) to irq 80..87.
+ */
 static int ep93xx_gpio_to_irq(struct gpio_chip *chip, unsigned offset)
 {
 	int gpio = chip->base + offset;

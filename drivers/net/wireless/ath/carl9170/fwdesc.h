@@ -22,58 +22,63 @@
 #ifndef __CARL9170_SHARED_FWDESC_H
 #define __CARL9170_SHARED_FWDESC_H
 
+/* NOTE: Don't mess with the order of the flags! */
 enum carl9170fw_feature_list {
-	
+	/* Always set */
 	CARL9170FW_DUMMY_FEATURE,
 
+	/*
+	 * Indicates that this image has special boot block which prevents
+	 * legacy drivers to drive the firmware.
+	 */
 	CARL9170FW_MINIBOOT,
 
-	
+	/* usb registers are initialized by the firmware */
 	CARL9170FW_USB_INIT_FIRMWARE,
 
-	
+	/* command traps & notifications are send through EP2 */
 	CARL9170FW_USB_RESP_EP2,
 
-	
+	/* usb download (app -> fw) stream */
 	CARL9170FW_USB_DOWN_STREAM,
 
-	
+	/* usb upload (fw -> app) stream */
 	CARL9170FW_USB_UP_STREAM,
 
-	
+	/* unusable - reserved to flag non-functional debug firmwares */
 	CARL9170FW_UNUSABLE,
 
-	
+	/* AR9170_CMD_RF_INIT, AR9170_CMD_FREQ_START, AR9170_CMD_FREQUENCY */
 	CARL9170FW_COMMAND_PHY,
 
-	
+	/* AR9170_CMD_EKEY, AR9170_CMD_DKEY */
 	CARL9170FW_COMMAND_CAM,
 
-	
+	/* Firmware has a software Content After Beacon Queueing mechanism */
 	CARL9170FW_WLANTX_CAB,
 
-	
+	/* The firmware is capable of responding to incoming BAR frames */
 	CARL9170FW_HANDLE_BACK_REQ,
 
-	
+	/* GPIO Interrupt | CARL9170_RSP_GPIO */
 	CARL9170FW_GPIO_INTERRUPT,
 
-	
+	/* Firmware PSM support | CARL9170_CMD_PSM */
 	CARL9170FW_PSM,
 
-	
+	/* Firmware RX filter | CARL9170_CMD_RX_FILTER */
 	CARL9170FW_RX_FILTER,
 
-	
+	/* Wake up on WLAN */
 	CARL9170FW_WOL,
 
-	
+	/* Firmware supports PSM in the 5GHZ Band */
 	CARL9170FW_FIXED_5GHZ_PSM,
 
-	
+	/* HW (ANI, CCA, MIB) tally counters */
 	CARL9170FW_HW_COUNTERS,
 
-	
+	/* KEEP LAST */
 	__CARL9170FW_FEATURE_NUM
 };
 
@@ -163,7 +168,7 @@ struct carl9170fw_dbg_desc {
 	__le32 rx_overrun_addr;
 	__le32 rx_filter;
 
-	
+	/* Put your debugging definitions here */
 } __packed;
 #define CARL9170FW_DBG_DESC_SIZE			\
 	(sizeof(struct carl9170fw_dbg_desc))
@@ -193,7 +198,7 @@ struct carl9170fw_txsq_desc {
 struct carl9170fw_wol_desc {
 	struct carl9170fw_desc_head head;
 
-	__le32 supported_triggers;	
+	__le32 supported_triggers;	/* CARL9170_WOL_ */
 } __packed;
 #define CARL9170FW_WOL_DESC_SIZE			\
 	(sizeof(struct carl9170fw_wol_desc))
@@ -266,4 +271,4 @@ static inline bool carl9170fw_size_check(unsigned int len)
 	return (len <= CARL9170FW_MAX_SIZE && len >= CARL9170FW_MIN_SIZE);
 }
 
-#endif 
+#endif /* __CARL9170_SHARED_FWDESC_H */

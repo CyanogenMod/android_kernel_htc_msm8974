@@ -14,6 +14,11 @@
 #include <asm/upa.h>
 #include <asm/starfire.h>
 
+/*
+ * A few places around the kernel check this to see if
+ * they need to call us to do things in a Starfire specific
+ * way.
+ */
 int this_is_starfire = 0;
 
 void check_if_starfire(void)
@@ -28,6 +33,12 @@ int starfire_hard_smp_processor_id(void)
 	return upa_readl(0x1fff40000d0UL);
 }
 
+/*
+ * Each Starfire board has 32 registers which perform translation
+ * and delivery of traditional interrupt packets into the extended
+ * Starfire hardware format.  Essentially UPAID's now have 2 more
+ * bits than in all previous Sun5 systems.
+ */
 struct starfire_irqinfo {
 	unsigned long imap_slots[32];
 	unsigned long tregs[32];
@@ -37,6 +48,7 @@ struct starfire_irqinfo {
 
 static struct starfire_irqinfo *sflist = NULL;
 
+/* Beam me up Scott(McNeil)y... */
 void starfire_hookup(int upaid)
 {
 	struct starfire_irqinfo *p;
@@ -57,7 +69,7 @@ void starfire_hookup(int upaid)
 	for (i = 0; i < 32; i++) {
 		p->imap_slots[i] = 0UL;
 		p->tregs[i] = treg_base + (i * 0x10UL);
-		
+		/* Lets play it safe and not overwrite existing mappings */
 		if (upa_readl(p->tregs[i]) != 0)
 			p->imap_slots[i] = 0xdeadbeaf;
 	}
@@ -93,7 +105,7 @@ unsigned int starfire_translate(unsigned long imap,
 	}
 	p->imap_slots[i] = imap;
 
-	
+	/* map to real upaid */
 	upaid = (((upaid & 0x3c) << 1) |
 		 ((upaid & 0x40) >> 4) |
 		 (upaid & 0x3));

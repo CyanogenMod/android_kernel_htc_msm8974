@@ -53,6 +53,9 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 	return 0;
 }
 
+/*
+ * on-CPU PIC operations
+ */
 static void frv_cpupic_ack(struct irq_data *d)
 {
 	__clr_RC(d->irq);
@@ -84,6 +87,12 @@ static struct irq_chip frv_cpu_pic = {
 	.irq_unmask	= frv_cpupic_unmask,
 };
 
+/*
+ * handles all normal device IRQs
+ * - registers are referred to by the __frame variable (GR28)
+ * - IRQ distribution is complicated in this arch because of the many PICs, the
+ *   way they work and the way they cascade
+ */
 asmlinkage void do_IRQ(void)
 {
 	irq_enter();
@@ -91,10 +100,17 @@ asmlinkage void do_IRQ(void)
 	irq_exit();
 }
 
+/*
+ * handles all NMIs when not co-opted by the debugger
+ * - registers are referred to by the __frame variable (GR28)
+ */
 asmlinkage void do_NMI(void)
 {
 }
 
+/*
+ * initialise the interrupt system
+ */
 void __init init_IRQ(void)
 {
 	int level;
@@ -105,10 +121,15 @@ void __init init_IRQ(void)
 
 	irq_set_handler(IRQ_CPU_TIMER0, handle_edge_irq);
 
-	__set_IITMR(0, 0x003f0000);	
-	__set_IITMR(1, 0x20000000);	
+	/* set the trigger levels for internal interrupt sources
+	 * - timers all falling-edge
+	 * - ERR0 is rising-edge
+	 * - all others are high-level
+	 */
+	__set_IITMR(0, 0x003f0000);	/* DMA0-3, TIMER0-2 */
+	__set_IITMR(1, 0x20000000);	/* ERR0-1, UART0-1, DMA4-7 */
 
-	
+	/* route internal interrupts */
 	set_IRR(4, IRQ_DMA3_LEVEL, IRQ_DMA2_LEVEL, IRQ_DMA1_LEVEL,
 		IRQ_DMA0_LEVEL);
 	set_IRR(5, 0, IRQ_TIMER2_LEVEL, IRQ_TIMER1_LEVEL, IRQ_TIMER0_LEVEL);
@@ -117,16 +138,16 @@ void __init init_IRQ(void)
 	set_IRR(7, IRQ_DMA7_LEVEL, IRQ_DMA6_LEVEL, IRQ_DMA5_LEVEL,
 		IRQ_DMA4_LEVEL);
 
-	
+	/* route external interrupts */
 	set_IRR(2, IRQ_XIRQ7_LEVEL, IRQ_XIRQ6_LEVEL, IRQ_XIRQ5_LEVEL,
 		IRQ_XIRQ4_LEVEL);
 	set_IRR(3, IRQ_XIRQ3_LEVEL, IRQ_XIRQ2_LEVEL, IRQ_XIRQ1_LEVEL,
 		IRQ_XIRQ0_LEVEL);
 
 #if defined(CONFIG_MB93091_VDK)
-	__set_TM1(0x55550000);		
+	__set_TM1(0x55550000);		/* XIRQ7-0 all active low */
 #elif defined(CONFIG_MB93093_PDK)
-	__set_TM1(0x15550000);		
+	__set_TM1(0x15550000);		/* XIRQ7 active high, 6-0 all active low */
 #else
 #error dont know external IRQ trigger levels for this setup
 #endif

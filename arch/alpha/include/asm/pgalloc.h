@@ -4,6 +4,11 @@
 #include <linux/mm.h>
 #include <linux/mmzone.h>
 
+/*      
+ * Allocate and free page tables. The xxx_kernel() versions are
+ * used to allocate a kernel page table - this turns on ASN bits
+ * if any.
+ */
 
 static inline void
 pmd_populate(struct mm_struct *mm, pmd_t *pmd, pgtable_t pte)
@@ -80,4 +85,4 @@ pte_free(struct mm_struct *mm, pgtable_t page)
 
 #define check_pgt_cache()	do { } while (0)
 
-#endif 
+#endif /* _ALPHA_PGALLOC_H */

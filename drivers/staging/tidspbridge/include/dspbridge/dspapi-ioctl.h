@@ -26,7 +26,7 @@
 
 union trapped_args {
 
-	
+	/* MGR Module */
 	struct {
 		u32 node_id;
 		struct dsp_ndbprops __user *ndb_props;
@@ -59,7 +59,7 @@ union trapped_args {
 		u32 timeout;
 	} args_mgr_wait;
 
-	
+	/* PROC Module */
 	struct {
 		u32 processor_id;
 		struct dsp_processorattrin __user *attr_in;
@@ -165,7 +165,7 @@ union trapped_args {
 		u32 size;
 	} args_proc_invalidatememory;
 
-	
+	/* NODE Module */
 	struct {
 		void *processor;
 		struct dsp_uuid __user *node_id_ptr;
@@ -253,7 +253,7 @@ union trapped_args {
 		struct dsp_ndbprops __user *node_props;
 	} args_node_getuuidprops;
 
-	
+	/* STRM module */
 
 	struct {
 		void *stream;
@@ -326,7 +326,7 @@ union trapped_args {
 		u32 timeout;
 	} args_strm_select;
 
-	
+	/* CMM Module */
 	struct {
 		struct cmm_object *cmm_mgr;
 		u32 size;
@@ -350,19 +350,35 @@ union trapped_args {
 		struct cmm_info __user *cmm_info_obj;
 	} args_cmm_getinfo;
 
-	
+	/* UTIL module */
 	struct {
 		s32 util_argc;
 		char **argv;
 	} args_util_testdll;
 };
 
+/*
+ * Dspbridge Ioctl numbering scheme
+ *
+ *    7                           0
+ *  ---------------------------------
+ *  |  Module   |   Ioctl Number    |
+ *  ---------------------------------
+ *  | x | x | x | 0 | 0 | 0 | 0 | 0 |
+ *  ---------------------------------
+ */
 
+/* Ioctl driver identifier */
 #define DB		0xDB
 
+/*
+ * Following are used to distinguish between module ioctls, this is needed
+ * in case new ioctls are introduced.
+ */
 #define DB_MODULE_MASK		0xE0
 #define DB_IOC_MASK		0x1F
 
+/* Ioctl module masks */
 #define DB_MGR		0x0
 #define DB_PROC		0x20
 #define DB_NODE		0x40
@@ -371,21 +387,29 @@ union trapped_args {
 
 #define DB_MODULE_SHIFT		5
 
+/* Used to calculate the ioctl per dspbridge module */
 #define DB_IOC(module, num) \
 			(((module) & DB_MODULE_MASK) | ((num) & DB_IOC_MASK))
+/* Used to get dspbridge ioctl module */
 #define DB_GET_MODULE(cmd)	((cmd) & DB_MODULE_MASK)
+/* Used to get dspbridge ioctl number */
 #define DB_GET_IOC(cmd)		((cmd) & DB_IOC_MASK)
 
+/* TODO: Remove deprecated and not implemented */
 
+/* MGR Module */
 #define MGR_ENUMNODE_INFO	_IOWR(DB, DB_IOC(DB_MGR, 0), unsigned long)
 #define MGR_ENUMPROC_INFO	_IOWR(DB, DB_IOC(DB_MGR, 1), unsigned long)
 #define MGR_REGISTEROBJECT	_IOWR(DB, DB_IOC(DB_MGR, 2), unsigned long)
 #define MGR_UNREGISTEROBJECT	_IOWR(DB, DB_IOC(DB_MGR, 3), unsigned long)
 #define MGR_WAIT		_IOWR(DB, DB_IOC(DB_MGR, 4), unsigned long)
+/* MGR_GET_PROC_RES Deprecated */
 #define MGR_GET_PROC_RES	_IOR(DB, DB_IOC(DB_MGR, 5), unsigned long)
 
+/* PROC Module */
 #define PROC_ATTACH		_IOWR(DB, DB_IOC(DB_PROC, 0), unsigned long)
 #define PROC_CTRL		_IOR(DB, DB_IOC(DB_PROC, 1), unsigned long)
+/* PROC_DETACH Deprecated */
 #define PROC_DETACH		_IOR(DB, DB_IOC(DB_PROC, 2), unsigned long)
 #define PROC_ENUMNODE		_IOWR(DB, DB_IOC(DB_PROC, 3), unsigned long)
 #define PROC_ENUMRESOURCES	_IOWR(DB, DB_IOC(DB_PROC, 4), unsigned long)
@@ -404,6 +428,7 @@ union trapped_args {
 #define PROC_BEGINDMA		_IOW(DB, DB_IOC(DB_PROC, 17), unsigned long)
 #define PROC_ENDDMA		_IOW(DB, DB_IOC(DB_PROC, 18), unsigned long)
 
+/* NODE Module */
 #define NODE_ALLOCATE		_IOWR(DB, DB_IOC(DB_NODE, 0), unsigned long)
 #define NODE_ALLOCMSGBUF	_IOWR(DB, DB_IOC(DB_NODE, 1), unsigned long)
 #define NODE_CHANGEPRIORITY	_IOW(DB, DB_IOC(DB_NODE, 2), unsigned long)
@@ -420,10 +445,11 @@ union trapped_args {
 #define NODE_TERMINATE		_IOWR(DB, DB_IOC(DB_NODE, 13), unsigned long)
 #define NODE_GETUUIDPROPS	_IOWR(DB, DB_IOC(DB_NODE, 14), unsigned long)
 
+/* STRM Module */
 #define STRM_ALLOCATEBUFFER	_IOWR(DB, DB_IOC(DB_STRM, 0), unsigned long)
 #define STRM_CLOSE		_IOW(DB, DB_IOC(DB_STRM, 1), unsigned long)
 #define STRM_FREEBUFFER		_IOWR(DB, DB_IOC(DB_STRM, 2), unsigned long)
-#define STRM_GETEVENTHANDLE	_IO(DB, DB_IOC(DB_STRM, 3))	
+#define STRM_GETEVENTHANDLE	_IO(DB, DB_IOC(DB_STRM, 3))	/* Not Impl'd */
 #define STRM_GETINFO		_IOWR(DB, DB_IOC(DB_STRM, 4), unsigned long)
 #define STRM_IDLE		_IOW(DB, DB_IOC(DB_STRM, 5), unsigned long)
 #define STRM_ISSUE		_IOW(DB, DB_IOC(DB_STRM, 6), unsigned long)
@@ -432,9 +458,10 @@ union trapped_args {
 #define STRM_REGISTERNOTIFY	_IOWR(DB, DB_IOC(DB_STRM, 9), unsigned long)
 #define STRM_SELECT		_IOWR(DB, DB_IOC(DB_STRM, 10), unsigned long)
 
-#define CMM_ALLOCBUF		_IO(DB, DB_IOC(DB_CMM, 0))	
-#define CMM_FREEBUF		_IO(DB, DB_IOC(DB_CMM, 1))	
+/* CMM Module */
+#define CMM_ALLOCBUF		_IO(DB, DB_IOC(DB_CMM, 0))	/* Not Impl'd */
+#define CMM_FREEBUF		_IO(DB, DB_IOC(DB_CMM, 1))	/* Not Impl'd */
 #define CMM_GETHANDLE		_IOR(DB, DB_IOC(DB_CMM, 2), unsigned long)
 #define CMM_GETINFO		_IOR(DB, DB_IOC(DB_CMM, 3), unsigned long)
 
-#endif 
+#endif /* DSPAPIIOCTL_ */

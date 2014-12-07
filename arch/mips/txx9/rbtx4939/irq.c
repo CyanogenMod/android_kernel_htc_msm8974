@@ -15,6 +15,9 @@
 #include <asm/mipsregs.h>
 #include <asm/txx9/rbtx4939.h>
 
+/*
+ * RBTX4939 IOC controller definition
+ */
 
 static void rbtx4939_ioc_irq_unmask(struct irq_data *d)
 {
@@ -55,7 +58,7 @@ static int rbtx4939_irq_dispatch(int pending)
 		return MIPS_CPU_IRQ_BASE + 7;
 	irq = tx4939_irq();
 	if (likely(irq >= 0)) {
-		
+		/* redirect IOC interrupts */
 		switch (irq) {
 		case RBTX4939_IRQ_IOCINT:
 			irq = rbtx4939_ioc_irqroute();
@@ -74,10 +77,10 @@ void __init rbtx4939_irq_setup(void)
 {
 	int i;
 
-	
+	/* mask all IOC interrupts */
 	writeb(0, rbtx4939_ien_addr);
 
-	
+	/* clear SoftInt interrupts */
 	writeb(0, rbtx4939_softint_addr);
 
 	txx9_irq_dispatch = rbtx4939_irq_dispatch;

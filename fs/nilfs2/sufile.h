@@ -66,16 +66,33 @@ int nilfs_sufile_resize(struct inode *sufile, __u64 newnsegs);
 int nilfs_sufile_read(struct super_block *sb, size_t susize,
 		      struct nilfs_inode *raw_inode, struct inode **inodep);
 
+/**
+ * nilfs_sufile_scrap - make a segment garbage
+ * @sufile: inode of segment usage file
+ * @segnum: segment number to be freed
+ */
 static inline int nilfs_sufile_scrap(struct inode *sufile, __u64 segnum)
 {
 	return nilfs_sufile_update(sufile, segnum, 1, nilfs_sufile_do_scrap);
 }
 
+/**
+ * nilfs_sufile_free - free segment
+ * @sufile: inode of segment usage file
+ * @segnum: segment number to be freed
+ */
 static inline int nilfs_sufile_free(struct inode *sufile, __u64 segnum)
 {
 	return nilfs_sufile_update(sufile, segnum, 0, nilfs_sufile_do_free);
 }
 
+/**
+ * nilfs_sufile_freev - free segments
+ * @sufile: inode of segment usage file
+ * @segnumv: array of segment numbers
+ * @nsegs: size of @segnumv array
+ * @ndone: place to store the number of freed segments
+ */
 static inline int nilfs_sufile_freev(struct inode *sufile, __u64 *segnumv,
 				     size_t nsegs, size_t *ndone)
 {
@@ -83,6 +100,16 @@ static inline int nilfs_sufile_freev(struct inode *sufile, __u64 *segnumv,
 				    nilfs_sufile_do_free);
 }
 
+/**
+ * nilfs_sufile_cancel_freev - reallocate freeing segments
+ * @sufile: inode of segment usage file
+ * @segnumv: array of segment numbers
+ * @nsegs: size of @segnumv array
+ * @ndone: place to store the number of cancelled segments
+ *
+ * Return Value: On success, 0 is returned. On error, a negative error codes
+ * is returned.
+ */
 static inline int nilfs_sufile_cancel_freev(struct inode *sufile,
 					    __u64 *segnumv, size_t nsegs,
 					    size_t *ndone)
@@ -91,10 +118,27 @@ static inline int nilfs_sufile_cancel_freev(struct inode *sufile,
 				    nilfs_sufile_do_cancel_free);
 }
 
+/**
+ * nilfs_sufile_set_error - mark a segment as erroneous
+ * @sufile: inode of segment usage file
+ * @segnum: segment number
+ *
+ * Description: nilfs_sufile_set_error() marks the segment specified by
+ * @segnum as erroneous. The error segment will never be used again.
+ *
+ * Return Value: On success, 0 is returned. On error, one of the following
+ * negative error codes is returned.
+ *
+ * %-EIO - I/O error.
+ *
+ * %-ENOMEM - Insufficient amount of memory available.
+ *
+ * %-EINVAL - Invalid segment usage number.
+ */
 static inline int nilfs_sufile_set_error(struct inode *sufile, __u64 segnum)
 {
 	return nilfs_sufile_update(sufile, segnum, 0,
 				   nilfs_sufile_do_set_error);
 }
 
-#endif	
+#endif	/* _NILFS_SUFILE_H */

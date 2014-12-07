@@ -35,6 +35,9 @@
 
 #define KS0108_NAME "ks0108"
 
+/*
+ * Module Parameters
+ */
 
 static unsigned int ks0108_port = CONFIG_KS0108_PORT;
 module_param(ks0108_port, uint, S_IRUGO);
@@ -44,10 +47,28 @@ static unsigned int ks0108_delay = CONFIG_KS0108_DELAY;
 module_param(ks0108_delay, uint, S_IRUGO);
 MODULE_PARM_DESC(ks0108_delay, "Delay between each control writing (microseconds)");
 
+/*
+ * Device
+ */
 
 static struct parport *ks0108_parport;
 static struct pardevice *ks0108_pardevice;
 
+/*
+ * ks0108 Exported Commands (don't lock)
+ *
+ *   You _should_ lock in the top driver: This functions _should not_
+ *   get race conditions in any way. Locking for each byte here would be
+ *   so slow and useless.
+ *
+ *   There are not bit definitions because they are not flags,
+ *   just arbitrary combinations defined by the documentation for each
+ *   function in the ks0108 LCD controller. If you want to know what means
+ *   a specific combination, look at the function's name.
+ *
+ *   The ks0108_writecontrol bits need to be reverted ^(0,1,3) because
+ *   the parallel port also revert them using a "not" logic gate.
+ */
 
 #define bit(n) (((unsigned char)1)<<(n))
 
@@ -89,6 +110,9 @@ EXPORT_SYMBOL_GPL(ks0108_startline);
 EXPORT_SYMBOL_GPL(ks0108_address);
 EXPORT_SYMBOL_GPL(ks0108_page);
 
+/*
+ * Is the module inited?
+ */
 
 static unsigned char ks0108_inited;
 unsigned char ks0108_isinited(void)
@@ -97,6 +121,9 @@ unsigned char ks0108_isinited(void)
 }
 EXPORT_SYMBOL_GPL(ks0108_isinited);
 
+/*
+ * Module Init & Exit
+ */
 
 static int __init ks0108_init(void)
 {

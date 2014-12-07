@@ -31,23 +31,28 @@
 #include <scsi/fc/fc_fs.h>
 #include <scsi/fc/fc_fcoe.h>
 
+/* shift bits within STAT fo FCSTAT */
 #define IXGBE_RXDADV_FCSTAT_SHIFT	4
 
-#define IXGBE_BUFFCNT_MAX	256	
+/* ddp user buffer */
+#define IXGBE_BUFFCNT_MAX	256	/* 8 bits bufcnt */
 #define IXGBE_FCPTR_ALIGN	16
 #define IXGBE_FCPTR_MAX	(IXGBE_BUFFCNT_MAX * sizeof(dma_addr_t))
 #define IXGBE_FCBUFF_4KB	0x0
 #define IXGBE_FCBUFF_8KB	0x1
 #define IXGBE_FCBUFF_16KB	0x2
 #define IXGBE_FCBUFF_64KB	0x3
-#define IXGBE_FCBUFF_MAX	65536	
-#define IXGBE_FCBUFF_MIN	4096	
-#define IXGBE_FCOE_DDP_MAX	512	
+#define IXGBE_FCBUFF_MAX	65536	/* 64KB max */
+#define IXGBE_FCBUFF_MIN	4096	/* 4KB min */
+#define IXGBE_FCOE_DDP_MAX	512	/* 9 bits xid */
 
+/* Default traffic class to use for FCoE */
 #define IXGBE_FCOE_DEFTC	3
 
+/* fcerr */
 #define IXGBE_FCERR_BADCRC       0x00100000
 
+/* FCoE DDP for target mode */
 #define __IXGBE_FCOE_TARGET	1
 
 struct ixgbe_fcoe_ddp {
@@ -75,4 +80,4 @@ struct ixgbe_fcoe {
 #endif
 };
 
-#endif 
+#endif /* _IXGBE_FCOE_H */

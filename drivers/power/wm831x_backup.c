@@ -38,6 +38,9 @@ static int wm831x_backup_read_voltage(struct wm831x *wm831x,
 	return ret;
 }
 
+/*********************************************************************
+ *		Backup supply properties
+ *********************************************************************/
 
 static void wm831x_config_backup(struct wm831x *wm831x)
 {
@@ -154,6 +157,9 @@ static enum power_supply_property wm831x_backup_props[] = {
 	POWER_SUPPLY_PROP_PRESENT,
 };
 
+/*********************************************************************
+ *		Initialisation
+ *********************************************************************/
 
 static __devinit int wm831x_backup_probe(struct platform_device *pdev)
 {
@@ -172,6 +178,10 @@ static __devinit int wm831x_backup_probe(struct platform_device *pdev)
 
 	backup = &devdata->backup;
 
+	/* We ignore configuration failures since we can still read
+	 * back the status without enabling the charger (which may
+	 * already be enabled anyway).
+	 */
 	wm831x_config_backup(wm831x);
 
 	if (wm831x_pdata && wm831x_pdata->wm831x_num)

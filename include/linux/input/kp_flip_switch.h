@@ -12,6 +12,7 @@
  */
 #ifndef __KP_FLIP_SWITCH_H_
 #define __KP_FLIP_SWITCH_H_
+/* flip switch driver platform data */
 struct flip_switch_pdata {
 	int flip_gpio;
 	int left_key;

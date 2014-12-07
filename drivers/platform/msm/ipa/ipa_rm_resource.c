@@ -15,6 +15,15 @@
 #include "ipa_rm_resource.h"
 #include "ipa_rm_i.h"
 
+/**
+ * ipa_rm_dep_prod_index() - producer name to producer index mapping
+ * @resource_name: [in] resource name (should be of producer)
+ *
+ * Returns: resource index mapping, IPA_RM_INDEX_INVALID
+ *	in case provided resource name isn't contained
+ *	in enum ipa_rm_resource_name or is not of producers.
+ *
+ */
 int ipa_rm_prod_index(enum ipa_rm_resource_name resource_name)
 {
 	int result = resource_name;
@@ -41,6 +50,15 @@ int ipa_rm_prod_index(enum ipa_rm_resource_name resource_name)
 	return result;
 }
 
+/**
+ * ipa_rm_cons_index() - consumer name to consumer index mapping
+ * @resource_name: [in] resource name (should be of consumer)
+ *
+ * Returns: resource index mapping, IPA_RM_INDEX_INVALID
+ *	in case provided resource name isn't contained
+ *	in enum ipa_rm_resource_name or is not of consumers.
+ *
+ */
 int ipa_rm_cons_index(enum ipa_rm_resource_name resource_name)
 {
 	int result = resource_name;
@@ -148,6 +166,14 @@ bail:
 	return result;
 }
 
+/**
+ * ipa_rm_resource_producer_notify_clients() - notify
+ *	all registered clients of given producer
+ * @producer: producer
+ * @event: event to notify
+ * @notify_registered_only: notify only clients registered by
+ *	ipa_rm_register()
+ */
 void ipa_rm_resource_producer_notify_clients(
 				struct ipa_rm_resource_prod *producer,
 				enum ipa_rm_event event,
@@ -253,6 +279,14 @@ bail:
 	return result;
 }
 
+/**
+ * ipa_rm_resource_create() - creates resource
+ * @create_params: [in] parameters needed
+ *			for resource initialization with IPA RM
+ * @resource: [out] created resource
+ *
+ * Returns: 0 on success, negative on failure
+ */
 int ipa_rm_resource_create(
 		struct ipa_rm_create_params *create_params,
 		struct ipa_rm_resource **resource)
@@ -298,6 +332,13 @@ bail:
 	return result;
 }
 
+/**
+ * ipa_rm_resource_delete() - deletes resource
+ * @resource: [in] resource
+ *			for resource initialization with IPA RM
+ *
+ * Returns: 0 on success, negative on failure
+ */
 int ipa_rm_resource_delete(struct ipa_rm_resource *resource)
 {
 	struct ipa_rm_resource *consumer, *producer;
@@ -352,6 +393,17 @@ int ipa_rm_resource_delete(struct ipa_rm_resource *resource)
 	return result;
 }
 
+/**
+ * ipa_rm_resource_register() - register resource
+ * @resource: [in] resource
+ * @reg_params: [in] registration parameters
+ * @explicit: [in] registered explicitly by ipa_rm_register()
+ *
+ * Returns: 0 on success, negative on failure
+ *
+ * Producer resource is expected for this call.
+ *
+ */
 int ipa_rm_resource_producer_register(struct ipa_rm_resource_prod *producer,
 		struct ipa_rm_register_params *reg_params,
 		bool explicit)
@@ -395,6 +447,18 @@ bail:
 	return result;
 }
 
+/**
+ * ipa_rm_resource_deregister() - register resource
+ * @resource: [in] resource
+ * @reg_params: [in] registration parameters
+ *
+ * Returns: 0 on success, negative on failure
+ *
+ * Producer resource is expected for this call.
+ * This function deleted only single instance of
+ * registration info.
+ *
+ */
 int ipa_rm_resource_producer_deregister(struct ipa_rm_resource_prod *producer,
 		struct ipa_rm_register_params *reg_params)
 {
@@ -422,6 +486,14 @@ bail:
 	return result;
 }
 
+/**
+ * ipa_rm_resource_add_dependency() - add dependency between two
+ *				given resources
+ * @resource: [in] resource resource
+ * @depends_on: [in] depends_on resource
+ *
+ * Returns: 0 on success, negative on failure
+ */
 int ipa_rm_resource_add_dependency(struct ipa_rm_resource *resource,
 				   struct ipa_rm_resource *depends_on)
 {
@@ -474,6 +546,16 @@ bail:
 	return result;
 }
 
+/**
+ * ipa_rm_resource_delete_dependency() - add dependency between two
+ *				given resources
+ * @resource: [in] resource resource
+ * @depends_on: [in] depends_on resource
+ *
+ * Returns: 0 on success, negative on failure
+ * EINPROGRESS is returned in case this is the last dependency
+ * of given resource and IPA RM client should receive the RELEASED cb
+ */
 int ipa_rm_resource_delete_dependency(struct ipa_rm_resource *resource,
 				   struct ipa_rm_resource *depends_on)
 {
@@ -558,6 +640,12 @@ bail:
 	return result;
 }
 
+/**
+ * ipa_rm_resource_producer_request() - producer resource request
+ * @producer: [in] producer
+ *
+ * Returns: 0 on success, negative on failure
+ */
 int ipa_rm_resource_producer_request(struct ipa_rm_resource_prod *producer)
 {
 	int peers_index;
@@ -641,6 +729,13 @@ bail:
 	return result;
 }
 
+/**
+ * ipa_rm_resource_producer_release() - producer resource release
+ * producer: [in] producer resource
+ *
+ * Returns: 0 on success, negative on failure
+ *
+ */
 int ipa_rm_resource_producer_release(struct ipa_rm_resource_prod *producer)
 {
 	int peers_index;
@@ -767,6 +862,12 @@ bail:
 	return;
 }
 
+/**
+ * ipa_rm_resource_consumer_handle_cb() - propagates resource
+ *	notification to all dependent producers
+ * @consumer: [in] notifying resource
+ *
+ */
 void ipa_rm_resource_consumer_handle_cb(struct ipa_rm_resource_cons *consumer,
 				enum ipa_rm_event event)
 {
@@ -811,6 +912,16 @@ bail:
 	return;
 }
 
+/*
+ * ipa_rm_resource_producer_print_stat() - print the
+ * resource status and all his dependencies
+ *
+ * @resource: [in] Resource resource
+ * @buff: [in] The buf used to print
+ * @size: [in] Buf size
+ *
+ * Returns: number of bytes used on success, negative on failure
+ */
 
 int ipa_rm_resource_producer_print_stat(
 				struct ipa_rm_resource *resource,

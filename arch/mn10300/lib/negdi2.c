@@ -1,3 +1,5 @@
+/* More subroutines needed by GCC output code on some machines.  */
+/* Compile this one with gcc.  */
 /* Copyright (C) 1989, 1992, 1993, 1994, 1995, 1996, 1997, 1998, 1999,
    2000, 2001  Free Software Foundation, Inc.
 
@@ -27,6 +29,9 @@ along with GNU CC; see the file COPYING.  If not, write to
 the Free Software Foundation, 59 Temple Place - Suite 330,
 Boston, MA 02111-1307, USA.  */
 
+/* It is incorrect to include config.h here, because this file is being
+   compiled for the target, and hence definitions concerning only the host
+   do not apply.  */
 
 #include <linux/types.h>
 

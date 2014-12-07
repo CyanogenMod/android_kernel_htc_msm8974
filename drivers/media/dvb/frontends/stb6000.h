@@ -26,6 +26,14 @@
 #include <linux/i2c.h>
 #include "dvb_frontend.h"
 
+/**
+ * Attach a stb6000 tuner to the supplied frontend structure.
+ *
+ * @param fe Frontend to attach to.
+ * @param addr i2c address of the tuner.
+ * @param i2c i2c adapter to use.
+ * @return FE pointer on success, NULL on failure.
+ */
 #if defined(CONFIG_DVB_STB6000) || (defined(CONFIG_DVB_STB6000_MODULE) \
 							&& defined(MODULE))
 extern struct dvb_frontend *stb6000_attach(struct dvb_frontend *fe, int addr,
@@ -38,6 +46,6 @@ static inline struct dvb_frontend *stb6000_attach(struct dvb_frontend *fe,
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_DVB_STB6000 */
 
-#endif 
+#endif /* __DVB_STB6000_H__ */

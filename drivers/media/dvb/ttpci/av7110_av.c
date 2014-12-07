@@ -39,6 +39,7 @@
 #include "av7110_av.h"
 #include "av7110_ipack.h"
 
+/* MPEG-2 (ISO 13818 / H.222.0) stream types */
 #define PROG_STREAM_MAP  0xBC
 #define PRIVATE_STREAM1  0xBD
 #define PADDING_STREAM	 0xBE
@@ -55,6 +56,7 @@
 
 #define PTS_DTS_FLAGS	 0xC0
 
+//pts_dts flags
 #define PTS_ONLY	 0x80
 #define PTS_DTS		 0xC0
 #define TS_SIZE		 188
@@ -62,12 +64,14 @@
 #define PAY_START	 0x40
 #define TRANS_PRIO	 0x20
 #define PID_MASK_HI	 0x1F
+//flags
 #define TRANS_SCRMBL1	 0x80
 #define TRANS_SCRMBL2	 0x40
 #define ADAPT_FIELD	 0x20
 #define PAYLOAD		 0x10
 #define COUNT_MASK	 0x0F
 
+// adaptation flags
 #define DISCON_IND	 0x80
 #define RAND_ACC_IND	 0x40
 #define ES_PRI_IND	 0x20
@@ -77,6 +81,7 @@
 #define TRANS_PRIV	 0x02
 #define ADAP_EXT_FLAG	 0x01
 
+// adaptation extension flags
 #define LTW_FLAG	 0x80
 #define PIECE_RATE	 0x40
 #define SEAM_SPLICE	 0x20
@@ -93,7 +98,7 @@ int av7110_record_cb(struct dvb_filter_pes2ts *p2t, u8 *buf, size_t len)
 
 	if (!(dvbdmxfeed->ts_type & TS_PACKET))
 		return 0;
-	if (buf[3] == 0xe0)	 
+	if (buf[3] == 0xe0)	 // video PES do not have a length in TS
 		buf[4] = buf[5] = 0;
 	if (dvbdmxfeed->ts_type & TS_PAYLOAD_ONLY)
 		return dvbdmxfeed->cb.ts(buf, len, NULL, 0,
@@ -261,7 +266,7 @@ int av7110_pes_play(void *dest, struct dvb_ringbuffer *buf, int dlen)
 	blen |= DVB_RINGBUFFER_PEEK(buf, 5);
 	blen += 6;
 	if (len < blen || blen > dlen) {
-		
+		//printk("buffer empty - avail %d blen %u dlen %d\n", len, blen, dlen);
 		wake_up(&buf->queue);
 		return -1;
 	}
@@ -309,8 +314,8 @@ int av7110_set_volume(struct av7110 *av7110, int volleft, int volright)
 		if (vol > 0)
 		       balance = ((volright - volleft) * 127) / vol;
 		msp_writereg(av7110, MSP_WR_DSP, 0x0001, balance << 8);
-		msp_writereg(av7110, MSP_WR_DSP, 0x0000, val); 
-		msp_writereg(av7110, MSP_WR_DSP, 0x0006, val); 
+		msp_writereg(av7110, MSP_WR_DSP, 0x0000, val); /* loudspeaker */
+		msp_writereg(av7110, MSP_WR_DSP, 0x0006, val); /* headphonesr */
 		return 0;
 
 	case DVB_ADAC_MSP34x5:
@@ -319,7 +324,7 @@ int av7110_set_volume(struct av7110 *av7110, int volleft, int volright)
 		if (vol > 0)
 			balance = ((volright - volleft) * 127) / vol;
 		msp_writereg(av7110, MSP_WR_DSP, 0x0001, balance << 8);
-		msp_writereg(av7110, MSP_WR_DSP, 0x0000, val); 
+		msp_writereg(av7110, MSP_WR_DSP, 0x0000, val); /* loudspeaker */
 		return 0;
 	}
 
@@ -387,6 +392,9 @@ static int get_video_format(struct av7110 *av7110, u8 *buf, int count)
 }
 
 
+/****************************************************************************
+ * I/O buffer management and control
+ ****************************************************************************/
 
 static inline long aux_ring_buffer_write(struct dvb_ringbuffer *rbuf,
 					 const u8 *buf, unsigned long count)
@@ -581,6 +589,7 @@ void av7110_p2t_init(struct av7110_p2t *p, struct dvb_demux_feed *feed)
 static void clear_p2t(struct av7110_p2t *p)
 {
 	memset(p->pes, 0, TS_SIZE);
+//	p->counter = 0;
 	p->pos = 0;
 	p->frags = 0;
 }
@@ -867,6 +876,9 @@ int av7110_write_to_decoder(struct dvb_demux_feed *feed, const u8 *buf, size_t l
 
 
 
+/******************************************************************************
+ * Video MPEG decoder events
+ ******************************************************************************/
 void dvb_video_add_event(struct av7110 *av7110, struct video_event *event)
 {
 	struct dvb_video_events *events = &av7110->video_events;
@@ -880,7 +892,7 @@ void dvb_video_add_event(struct av7110 *av7110, struct video_event *event)
 		events->eventr = (events->eventr + 1) % MAX_VIDEO_EVENT;
 	}
 
-	
+	//FIXME: timestamp?
 	memcpy(&events->events[events->eventw], event, sizeof(struct video_event));
 	events->eventw = wp;
 
@@ -922,6 +934,9 @@ static int dvb_video_get_event (struct av7110 *av7110, struct video_event *event
 }
 
 
+/******************************************************************************
+ * DVB device file operations
+ ******************************************************************************/
 
 static unsigned int dvb_video_poll(struct file *file, poll_table *wait)
 {
@@ -943,7 +958,7 @@ static unsigned int dvb_video_poll(struct file *file, poll_table *wait)
 		if (av7110->playing) {
 			if (FREE_COND)
 				mask |= (POLLOUT | POLLWRNORM);
-			} else 
+			} else /* if not playing: may play if asked for */
 				mask |= (POLLOUT | POLLWRNORM);
 	}
 
@@ -986,7 +1001,7 @@ static unsigned int dvb_audio_poll(struct file *file, poll_table *wait)
 	if (av7110->playing) {
 		if (dvb_ringbuffer_free(&av7110->aout) >= 20 * 1024)
 			mask |= (POLLOUT | POLLWRNORM);
-	} else 
+	} else /* if not playing: may play if asked for */
 		mask = (POLLOUT | POLLWRNORM);
 
 	return mask;
@@ -1031,7 +1046,7 @@ static int play_iframe(struct av7110 *av7110, char __user *buf, unsigned int len
 			return -EBUSY;
 	}
 
-	
+	/* search in buf for instances of 00 00 01 b5 1? */
 	for (i = 0; i < len; i++) {
 		unsigned char c;
 		if (get_user(c, buf + i))
@@ -1058,9 +1073,11 @@ static int play_iframe(struct av7110 *av7110, char __user *buf, unsigned int len
 		match = 0;
 	}
 
+	/* setting n always > 1, fixes problems when playing stillframes
+	   consisting of I- and P-Frames */
 	n = MIN_IFRAME / len + 1;
 
-	
+	/* FIXME: nonblock? */
 	dvb_play_kernel(av7110, iframe_header, sizeof(iframe_header), 0, 1);
 
 	for (i = 0; i < n; i++)
@@ -1214,7 +1231,7 @@ static int dvb_video_ioctl(struct file *file,
 	}
 
 	case VIDEO_FAST_FORWARD:
-		
+		//note: arg is ignored by firmware
 		if (av7110->playing & RP_VIDEO)
 			ret = av7110_fw_cmd(av7110, COMTYPE_REC_PLAY,
 					    __Scan_I, 2, AV_PES, 0);
@@ -1447,7 +1464,7 @@ static int dvb_video_open(struct inode *inode, struct file *file)
 		av7110->audiostate.AV_sync_state = 1;
 		av7110->videostate.stream_source = VIDEO_SOURCE_DEMUX;
 
-		
+		/*  empty event queue */
 		av7110->video_events.eventr = av7110->video_events.eventw = 0;
 	}
 
@@ -1496,6 +1513,9 @@ static int dvb_audio_release(struct inode *inode, struct file *file)
 
 
 
+/******************************************************************************
+ * driver registration
+ ******************************************************************************/
 
 static const struct file_operations dvb_video_fops = {
 	.owner		= THIS_MODULE,
@@ -1510,7 +1530,7 @@ static const struct file_operations dvb_video_fops = {
 static struct dvb_device dvbdev_video = {
 	.priv		= NULL,
 	.users		= 6,
-	.readers	= 5,	
+	.readers	= 5,	/* arbitrary */
 	.writers	= 1,
 	.fops		= &dvb_video_fops,
 	.kernel_ioctl	= dvb_video_ioctl,

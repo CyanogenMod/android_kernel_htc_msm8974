@@ -23,6 +23,9 @@
 
 #include "sbuslib.h"
 
+/*
+ * Local functions.
+ */
 
 static int ffb_setcolreg(unsigned, unsigned, unsigned, unsigned,
 			 unsigned, struct fb_info *);
@@ -36,6 +39,9 @@ static int ffb_mmap(struct fb_info *, struct vm_area_struct *);
 static int ffb_ioctl(struct fb_info *, unsigned int, unsigned long);
 static int ffb_pan_display(struct fb_var_screeninfo *, struct fb_info *);
 
+/*
+ *  Frame buffer operations
+ */
 
 static struct fb_ops ffb_ops = {
 	.owner			= THIS_MODULE,
@@ -53,6 +59,7 @@ static struct fb_ops ffb_ops = {
 #endif
 };
 
+/* Register layout and definitions */
 #define	FFB_SFB8R_VOFF		0x00000000
 #define	FFB_SFB8G_VOFF		0x00400000
 #define	FFB_SFB8B_VOFF		0x00800000
@@ -67,15 +74,15 @@ static struct fb_ops ffb_ops = {
 #define	FFB_DFB8X_VOFF		0x04c04000
 #define	FFB_DFB24_VOFF		0x05004000
 #define	FFB_DFB32_VOFF		0x06004000
-#define	FFB_DFB422A_VOFF	0x07004000	
-#define	FFB_DFB422AD_VOFF	0x07804000	
-#define	FFB_DFB24B_VOFF		0x08004000	
-#define	FFB_DFB422B_VOFF	0x09004000	
-#define	FFB_DFB422BD_VOFF	0x09804000	
-#define	FFB_SFB16Z_VOFF		0x0a004000	
-#define	FFB_SFB8Z_VOFF		0x0a404000	
-#define	FFB_SFB422_VOFF		0x0ac04000	
-#define	FFB_SFB422D_VOFF	0x0b404000	
+#define	FFB_DFB422A_VOFF	0x07004000	/* DFB 422 mode write to A */
+#define	FFB_DFB422AD_VOFF	0x07804000	/* DFB 422 mode with line doubling */
+#define	FFB_DFB24B_VOFF		0x08004000	/* DFB 24bit mode write to B */
+#define	FFB_DFB422B_VOFF	0x09004000	/* DFB 422 mode write to B */
+#define	FFB_DFB422BD_VOFF	0x09804000	/* DFB 422 mode with line doubling */
+#define	FFB_SFB16Z_VOFF		0x0a004000	/* 16bit mode Z planes */
+#define	FFB_SFB8Z_VOFF		0x0a404000	/* 8bit mode Z planes */
+#define	FFB_SFB422_VOFF		0x0ac04000	/* SFB 422 mode write to A/B */
+#define	FFB_SFB422D_VOFF	0x0b404000	/* SFB 422 mode with line doubling */
 #define	FFB_FBC_KREGS_VOFF	0x0bc04000
 #define	FFB_DAC_VOFF		0x0bc06000
 #define	FFB_PROM_VOFF		0x0bc08000
@@ -109,6 +116,7 @@ static struct fb_ops ffb_ops = {
 #define FFB_SFB422_POFF		0x0d000000UL
 #define FFB_SFB422D_POFF	0x0d800000UL
 
+/* Draw operations */
 #define FFB_DRAWOP_DOT		0x00
 #define FFB_DRAWOP_AADOT	0x01
 #define FFB_DRAWOP_BRLINECAP	0x02
@@ -122,29 +130,41 @@ static struct fb_ops ffb_ops = {
 #define FFB_DRAWOP_BCOPY	0x0a
 #define FFB_DRAWOP_VSCROLL	0x0b
 
+/* Pixel processor control */
+/* Force WID */
 #define FFB_PPC_FW_DISABLE	0x800000
 #define FFB_PPC_FW_ENABLE	0xc00000
+/* Auxiliary clip */
 #define FFB_PPC_ACE_DISABLE	0x040000
 #define FFB_PPC_ACE_AUX_SUB	0x080000
 #define FFB_PPC_ACE_AUX_ADD	0x0c0000
+/* Depth cue */
 #define FFB_PPC_DCE_DISABLE	0x020000
 #define FFB_PPC_DCE_ENABLE	0x030000
+/* Alpha blend */
 #define FFB_PPC_ABE_DISABLE	0x008000
 #define FFB_PPC_ABE_ENABLE	0x00c000
+/* View clip */
 #define FFB_PPC_VCE_DISABLE	0x001000
 #define FFB_PPC_VCE_2D		0x002000
 #define FFB_PPC_VCE_3D		0x003000
+/* Area pattern */
 #define FFB_PPC_APE_DISABLE	0x000800
 #define FFB_PPC_APE_ENABLE	0x000c00
+/* Transparent background */
 #define FFB_PPC_TBE_OPAQUE	0x000200
 #define FFB_PPC_TBE_TRANSPARENT	0x000300
+/* Z source */
 #define FFB_PPC_ZS_VAR		0x000080
 #define FFB_PPC_ZS_CONST	0x0000c0
+/* Y source */
 #define FFB_PPC_YS_VAR		0x000020
 #define FFB_PPC_YS_CONST	0x000030
+/* X source */
 #define FFB_PPC_XS_WID		0x000004
 #define FFB_PPC_XS_VAR		0x000008
 #define FFB_PPC_XS_CONST	0x00000c
+/* Color (BGR) source */
 #define FFB_PPC_CS_VAR		0x000002
 #define FFB_PPC_CS_CONST	0x000003
 
@@ -161,7 +181,7 @@ static struct fb_ops ffb_ops = {
 #define FFB_UCSR_ALL_ERRORS	(FFB_UCSR_READ_ERR|FFB_UCSR_FIFO_OVFL)
 
 struct ffb_fbc {
-	
+	/* Next vertex registers */
 	u32	xxx1[3];
 	u32	alpha;
 	u32	red;
@@ -191,11 +211,11 @@ struct ffb_fbc {
 
 	u32	xxx7[32];
 
-	
+	/* Setup unit vertex state register */
 	u32	suvtx;
 	u32	xxx8[63];
 
-	
+	/* Control registers */
 	u32	ppc;
 	u32	wid;
 	u32	fg;
@@ -247,7 +267,7 @@ struct ffb_fbc {
 	u32	clip3min;
 	u32	clip3max;
 
-	
+	/* New 3dRAM III support regs */
 	u32	rawblend2;
 	u32	rawpreblend;
 	u32	rawstencil;
@@ -313,15 +333,15 @@ struct ffb_dac {
 	u32	value2;
 };
 
-#define FFB_DAC_UCTRL		0x1001 
-#define FFB_DAC_UCTRL_MANREV	0x00000f00 
+#define FFB_DAC_UCTRL		0x1001 /* User Control */
+#define FFB_DAC_UCTRL_MANREV	0x00000f00 /* 4-bit Manufacturing Revision */
 #define FFB_DAC_UCTRL_MANREV_SHIFT 8
-#define FFB_DAC_TGEN		0x6000 
-#define FFB_DAC_TGEN_VIDE	0x00000001 
-#define FFB_DAC_DID		0x8000 
-#define FFB_DAC_DID_PNUM	0x0ffff000 
+#define FFB_DAC_TGEN		0x6000 /* Timing Generator */
+#define FFB_DAC_TGEN_VIDE	0x00000001 /* Video Enable */
+#define FFB_DAC_DID		0x8000 /* Device Identification */
+#define FFB_DAC_DID_PNUM	0x0ffff000 /* Device Part Number */
 #define FFB_DAC_DID_PNUM_SHIFT	12
-#define FFB_DAC_DID_REV		0xf0000000 
+#define FFB_DAC_DID_REV		0xf0000000 /* Device Revision */
 #define FFB_DAC_DID_REV_SHIFT	28
 
 #define FFB_DAC_CUR_CTRL	0x100
@@ -334,9 +354,9 @@ struct ffb_par {
 	struct ffb_dac __iomem	*dac;
 
 	u32			flags;
-#define FFB_FLAG_AFB		0x00000001 
-#define FFB_FLAG_BLANKED	0x00000002 
-#define FFB_FLAG_INVCURSOR	0x00000004 
+#define FFB_FLAG_AFB		0x00000001 /* AFB m3 or m6 */
+#define FFB_FLAG_BLANKED	0x00000002 /* screen is blanked */
+#define FFB_FLAG_INVCURSOR	0x00000004 /* DAC has inverted cursor logic */
 
 	u32			fg_cache __attribute__((aligned (8)));
 	u32			bg_cache;
@@ -421,7 +441,7 @@ static void ffb_switch_from_graph(struct ffb_par *par)
 	upa_writel(par->bg_cache, &fbc->bg);
 	FFBWait(par);
 
-	
+	/* Disable cursor.  */
 	upa_writel(FFB_DAC_CUR_CTRL, &dac->type2);
 	if (par->flags & FFB_FLAG_INVCURSOR)
 		upa_writel(0, &dac->value2);
@@ -436,6 +456,9 @@ static int ffb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 {
 	struct ffb_par *par = (struct ffb_par *)info->par;
 
+	/* We just use this to catch switches out of
+	 * graphics mode.
+	 */
 	ffb_switch_from_graph(par);
 
 	if (var->xoffset || var->yoffset || var->vmode)
@@ -443,6 +466,12 @@ static int ffb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 	return 0;
 }
 
+/**
+ *	ffb_fillrect - Draws a rectangle on the screen.
+ *
+ *	@info: frame buffer structure that represents a single frame buffer
+ *	@rect: structure defining the rectagle and operation.
+ */
 static void ffb_fillrect(struct fb_info *info, const struct fb_fillrect *rect)
 {
 	struct ffb_par *par = (struct ffb_par *)info->par;
@@ -476,6 +505,12 @@ static void ffb_fillrect(struct fb_info *info, const struct fb_fillrect *rect)
 	spin_unlock_irqrestore(&par->lock, flags);
 }
 
+/**
+ *	ffb_copyarea - Copies on area of the screen to another area.
+ *
+ *	@info: frame buffer structure that represents a single frame buffer
+ *	@area: structure defining the source and destination.
+ */
 
 static void ffb_copyarea(struct fb_info *info, const struct fb_copyarea *area)
 {
@@ -505,6 +540,12 @@ static void ffb_copyarea(struct fb_info *info, const struct fb_copyarea *area)
 	spin_unlock_irqrestore(&par->lock, flags);
 }
 
+/**
+ *	ffb_imageblit - Copies a image from system memory to the screen.
+ *
+ *	@info: frame buffer structure that represents a single frame buffer
+ *	@image: structure defining the image.
+ */
 static void ffb_imageblit(struct fb_info *info, const struct fb_image *image)
 {
 	struct ffb_par *par = (struct ffb_par *)info->par;
@@ -594,6 +635,16 @@ static void ffb_fixup_var_rgb(struct fb_var_screeninfo *var)
 	var->transp.length = 0;
 }
 
+/**
+ *	ffb_setcolreg - Sets a color register.
+ *
+ *	@regno: boolean, 0 copy local, 1 get_user() function
+ *	@red: frame buffer colormap structure
+ *	@green: The green value which can be up to 16 bits wide
+ *	@blue:  The blue value which can be up to 16 bits wide.
+ *	@transp: If supported the alpha value which can be up to 16 bits wide.
+ *	@info: frame buffer info structure
+ */
 static int ffb_setcolreg(unsigned regno,
 			 unsigned red, unsigned green, unsigned blue,
 			 unsigned transp, struct fb_info *info)
@@ -613,6 +664,11 @@ static int ffb_setcolreg(unsigned regno,
 	return 0;
 }
 
+/**
+ *	ffb_blank - Optional function.  Blanks the display.
+ *	@blank_mode: the blank mode we want.
+ *	@info: frame buffer structure that represents a single frame buffer
+ */
 static int ffb_blank(int blank, struct fb_info *info)
 {
 	struct ffb_par *par = (struct ffb_par *)info->par;
@@ -628,15 +684,15 @@ static int ffb_blank(int blank, struct fb_info *info)
 	upa_writel(FFB_DAC_TGEN, &dac->type);
 	val = upa_readl(&dac->value);
 	switch (blank) {
-	case FB_BLANK_UNBLANK: 
+	case FB_BLANK_UNBLANK: /* Unblanking */
 		val |= FFB_DAC_TGEN_VIDE;
 		par->flags &= ~FFB_FLAG_BLANKED;
 		break;
 
-	case FB_BLANK_NORMAL: 
-	case FB_BLANK_VSYNC_SUSPEND: 
-	case FB_BLANK_HSYNC_SUSPEND: 
-	case FB_BLANK_POWERDOWN: 
+	case FB_BLANK_NORMAL: /* Normal blanking */
+	case FB_BLANK_VSYNC_SUSPEND: /* VESA blank (vsync off) */
+	case FB_BLANK_HSYNC_SUSPEND: /* VESA blank (hsync off) */
+	case FB_BLANK_POWERDOWN: /* Poweroff */
 		val &= ~FFB_DAC_TGEN_VIDE;
 		par->flags |= FFB_FLAG_BLANKED;
 		break;
@@ -809,6 +865,9 @@ static int ffb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg)
 				   FBTYPE_CREATOR, 24, par->fbsize);
 }
 
+/*
+ *  Initialisation
+ */
 
 static void ffb_init_fix(struct fb_info *info)
 {
@@ -828,7 +887,7 @@ static void ffb_init_fix(struct fb_info *info)
 	info->fix.type = FB_TYPE_PACKED_PIXELS;
 	info->fix.visual = FB_VISUAL_TRUECOLOR;
 
-	
+	/* Framebuffer length is the same regardless of resolution. */
 	info->fix.line_length = 8192;
 
 	info->fix.accel = FB_ACCEL_SUN_CREATOR;
@@ -866,8 +925,11 @@ static int __devinit ffb_probe(struct platform_device *op)
 	par->rop_cache = FFB_ROP_NEW;
 	par->physbase = op->resource[0].start;
 
+	/* Don't mention copyarea, so SCROLL_REDRAW is always
+	 * used.  It is the fastest on this chip.
+	 */
 	info->flags = (FBINFO_DEFAULT |
-		       
+		       /* FBINFO_HWACCEL_COPYAREA | */
 		       FBINFO_HWACCEL_FILLRECT |
 		       FBINFO_HWACCEL_IMAGEBLIT);
 
@@ -902,6 +964,12 @@ static int __devinit ffb_probe(struct platform_device *op)
 	dac_mrev = (dac_mrev & FFB_DAC_UCTRL_MANREV) >>
 		FFB_DAC_UCTRL_MANREV_SHIFT;
 
+	/* Elite3D has different DAC revision numbering, and no DAC revisions
+	 * have the reversed meaning of cursor enable.  Otherwise, Pacifica 1
+	 * ramdacs with manufacturing revision less than 3 have inverted
+	 * cursor logic.  We identify Pacifica 1 as not Pacifica 2, the
+	 * latter having a part number value of 0x236e.
+	 */
 	if ((par->flags & FFB_FLAG_AFB) || dac_pnum == 0x236e) {
 		par->flags &= ~FFB_FLAG_INVCURSOR;
 	} else {
@@ -911,6 +979,11 @@ static int __devinit ffb_probe(struct platform_device *op)
 
 	ffb_switch_from_graph(par);
 
+	/* Unblank it just to be sure.  When there are multiple
+	 * FFB/AFB cards in the system, or it is not the OBP
+	 * chosen console, it will have video outputs off in
+	 * the DAC.
+	 */
 	ffb_blank(FB_BLANK_UNBLANK, info);
 
 	if (fb_alloc_cmap(&info->cmap, 256, 0))

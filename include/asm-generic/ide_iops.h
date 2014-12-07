@@ -1,3 +1,4 @@
+/* Generic I/O and MEMIO string operations.  */
 
 #define __ide_insw	insw
 #define __ide_insl	insl

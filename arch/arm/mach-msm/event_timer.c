@@ -23,6 +23,14 @@
 
 #define DEFINE_TIME_HEAD(x) struct timerqueue_head x = __INIT_HEAD(x)
 
+/**
+ * struct event_timer_info - basic event timer structure
+ * @node: timerqueue node to track time ordered data structure
+ *        of event timers
+ * @timer: hrtimer created for this event.
+ * @function : callback function for event timer.
+ * @data : callback data for event timer.
+ */
 struct event_timer_info {
 	struct timerqueue_node node;
 	void (*function)(void *);
@@ -45,6 +53,14 @@ enum {
 };
 
 
+/**
+ * add_event_timer() : Add a wakeup event. Intended to be called
+ *                     by clients once. Returns a handle to be used
+ *                     for future transactions.
+ * @function : The callback function will be called when event
+ *             timer expires.
+ * @data: callback data provided by client.
+ */
 struct event_timer_info *add_event_timer(void (*function)(void *), void *data)
 {
 	struct event_timer_info *event_info =
@@ -55,7 +71,7 @@ struct event_timer_info *add_event_timer(void (*function)(void *), void *data)
 
 	event_info->function = function;
 	event_info->data = data;
-	
+	/* Init rb node and hr timer */
 	timerqueue_init(&event_info->node);
 	pr_debug("%s: New Event Added. Event 0x%x.",
 	__func__,
@@ -64,6 +80,11 @@ struct event_timer_info *add_event_timer(void (*function)(void *), void *data)
 	return event_info;
 }
 
+/**
+ * is_event_next(): Helper function to check if the event is the next
+ *                   next expiring event
+ * @event : handle to the event to be checked.
+ */
 static bool is_event_next(struct event_timer_info *event)
 {
 	struct event_timer_info *next_event;
@@ -85,6 +106,11 @@ exit_is_next_event:
 	return ret;
 }
 
+/**
+ * is_event_active(): Helper function to check if the timer for a given event
+ *                    has been started.
+ * @event : handle to the event to be checked.
+ */
 static bool is_event_active(struct event_timer_info *event)
 {
 	struct timerqueue_node *next;
@@ -103,6 +129,9 @@ static bool is_event_active(struct event_timer_info *event)
 	return ret;
 }
 
+/**
+ * create_httimer(): Helper function to setup hrtimer.
+ */
 static void create_hrtimer(ktime_t expires)
 {
 	static bool timer_initialized;
@@ -116,6 +145,11 @@ static void create_hrtimer(ktime_t expires)
 	hrtimer_start(&event_hrtimer, expires, HRTIMER_MODE_ABS);
 }
 
+/**
+ * event_hrtimer_cb() : Callback function for hr timer.
+ *                      Make the client CB from here and remove the event
+ *                      from the time ordered queue.
+ */
 static enum hrtimer_restart event_hrtimer_cb(struct hrtimer *hrtimer)
 {
 	struct event_timer_info *event;
@@ -154,6 +188,9 @@ hrtimer_cb_exit:
 	return HRTIMER_NORESTART;
 }
 
+/**
+ * create_timer_smp(): Helper function used setting up timer on core 0.
+ */
 static void create_timer_smp(void *data)
 {
 	unsigned long flags;
@@ -183,11 +220,23 @@ static void create_timer_smp(void *data)
 	spin_unlock_irqrestore(&event_timer_lock, flags);
 }
 
+/**
+ *  setup_timer() : Helper function to setup timer on primary
+ *                  core during hrtimer callback.
+ *  @event: event handle causing the wakeup.
+ */
 static void setup_event_hrtimer(struct event_timer_info *event)
 {
 	smp_call_function_single(0, create_timer_smp, event, 1);
 }
 
+/**
+ * activate_event_timer() : Set the expiration time for an event in absolute
+ *                           ktime. This is a oneshot event timer, clients
+ *                           should call this again to set another expiration.
+ *  @event : event handle.
+ *  @event_time : event time in absolute ktime.
+ */
 void activate_event_timer(struct event_timer_info *event, ktime_t event_time)
 {
 	if (!event)
@@ -199,12 +248,17 @@ void activate_event_timer(struct event_timer_info *event, ktime_t event_time)
 
 	spin_lock(&event_setup_lock);
 	event->node.expires = event_time;
-	
+	/* Start hr timer and add event to rb tree */
 	setup_event_hrtimer(event);
 	spin_unlock(&event_setup_lock);
 }
 
 
+/**
+ * deactivate_event_timer() : Deactivate an event timer, this removes the event from
+ *                            the time ordered queue of event timers.
+ * @event: event handle.
+ */
 void deactivate_event_timer(struct event_timer_info *event)
 {
 	unsigned long flags;
@@ -222,6 +276,11 @@ void deactivate_event_timer(struct event_timer_info *event)
 	spin_unlock_irqrestore(&event_timer_lock, flags);
 }
 
+/**
+ * destroy_event_timer() : Free the event info data structure allocated during
+ *                         add_event_timer().
+ * @event: event handle.
+ */
 void destroy_event_timer(struct event_timer_info *event)
 {
 	unsigned long flags;
@@ -237,6 +296,10 @@ void destroy_event_timer(struct event_timer_info *event)
 	kfree(event);
 }
 
+/**
+ * get_next_event_timer() - Get the next wakeup event. Returns
+ *                          a ktime value of the next expiring event.
+ */
 ktime_t get_next_event_time(void)
 {
 	unsigned long flags;

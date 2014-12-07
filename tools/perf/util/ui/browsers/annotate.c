@@ -65,7 +65,7 @@ static void annotate_browser__write(struct ui_browser *self, void *entry, int ro
 	SLsmg_write_char(':');
 	slsmg_write_nstring(" ", 8);
 
-	
+	/* The scroll bar isn't being used */
 	if (!self->navkeypressed)
 		width += 1;
 
@@ -107,6 +107,10 @@ static double objdump_line__calc_percent(struct objdump_line *self,
 
 			++offset;
 		}
+		/*
+ 		 * If the percentage wasn't already calculated in
+ 		 * symbol__get_source_line, do it now:
+ 		 */
 		if (src_line == NULL && h->sum)
 			percent = 100.0 * hits / h->sum;
 	}
@@ -249,6 +253,11 @@ static int annotate_browser__run(struct annotate_browser *self, int evidx,
 
 		if (delay_secs != 0) {
 			annotate_browser__calc_percent(self, evidx);
+			/*
+			 * Current line focus got out of the list of most active
+			 * lines, NULL it so that if TAB|UNTAB is pressed, we
+			 * move to curr_hot (current hottest line).
+			 */
 			if (nd != NULL && RB_EMPTY_NODE(nd))
 				nd = NULL;
 		}
@@ -414,7 +423,7 @@ int symbol__tui_annotate(struct symbol *sym, struct map *map, int evidx,
 
 	browser.b.nr_entries = browser.nr_entries;
 	browser.b.entries = &notes->src->source,
-	browser.b.width += 18; 
+	browser.b.width += 18; /* Percentage */
 	ret = annotate_browser__run(&browser, evidx, timer, arg, delay_secs);
 	list_for_each_entry_safe(pos, n, &notes->src->source, node) {
 		list_del(&pos->node);

@@ -23,6 +23,9 @@
 
 #include <linux/percpu.h>
 
+/*
+ * XFS global statistics
+ */
 struct xfsstats {
 # define XFSSTAT_END_EXTENT_ALLOC	4
 	__uint32_t		xs_allocx;
@@ -97,14 +100,14 @@ struct xfsstats {
 	__uint32_t		xs_icluster_flushcnt;
 	__uint32_t		xs_icluster_flushinode;
 # define XFSSTAT_END_VNODE_OPS		(XFSSTAT_END_INODE_CLUSTER+8)
-	__uint32_t		vn_active;	
-	__uint32_t		vn_alloc;	
-	__uint32_t		vn_get;		
-	__uint32_t		vn_hold;	
-	__uint32_t		vn_rele;	
-	__uint32_t		vn_reclaim;	
-	__uint32_t		vn_remove;	
-	__uint32_t		vn_free;	
+	__uint32_t		vn_active;	/* # vnodes not on free lists */
+	__uint32_t		vn_alloc;	/* # times vn_alloc called */
+	__uint32_t		vn_get;		/* # times vn_get called */
+	__uint32_t		vn_hold;	/* # times vn_hold called */
+	__uint32_t		vn_rele;	/* # times vn_rele called */
+	__uint32_t		vn_reclaim;	/* # times vn_reclaim called */
+	__uint32_t		vn_remove;	/* # times vn_remove called */
+	__uint32_t		vn_free;	/* # times vn_free called */
 #define XFSSTAT_END_BUF			(XFSSTAT_END_VNODE_OPS+9)
 	__uint32_t		xb_get;
 	__uint32_t		xb_create;
@@ -115,6 +118,7 @@ struct xfsstats {
 	__uint32_t		xb_page_retries;
 	__uint32_t		xb_page_found;
 	__uint32_t		xb_get_read;
+/* Version 2 btree counters */
 #define XFSSTAT_END_ABTB_V2		(XFSSTAT_END_BUF+15)
 	__uint32_t		xs_abtb_2_lookup;
 	__uint32_t		xs_abtb_2_compare;
@@ -189,6 +193,7 @@ struct xfsstats {
 #define XFSSTAT_END_QM			(XFSSTAT_END_XQMSTAT+2)
 	__uint32_t		xs_qm_dquot;
 	__uint32_t		xs_qm_dquot_unused;
+/* Extra precision counters */
 	__uint64_t		xs_xstrat_bytes;
 	__uint64_t		xs_write_bytes;
 	__uint64_t		xs_read_bytes;
@@ -196,6 +201,10 @@ struct xfsstats {
 
 DECLARE_PER_CPU(struct xfsstats, xfsstats);
 
+/*
+ * We don't disable preempt, not too worried about poking the
+ * wrong CPU's stat for now (also aggregated before reporting).
+ */
 #define XFS_STATS_INC(v)	(per_cpu(xfsstats, current_cpu()).v++)
 #define XFS_STATS_DEC(v)	(per_cpu(xfsstats, current_cpu()).v--)
 #define XFS_STATS_ADD(v, inc)	(per_cpu(xfsstats, current_cpu()).v += (inc))
@@ -204,7 +213,7 @@ extern int xfs_init_procfs(void);
 extern void xfs_cleanup_procfs(void);
 
 
-#else	
+#else	/* !CONFIG_PROC_FS */
 
 # define XFS_STATS_INC(count)
 # define XFS_STATS_DEC(count)
@@ -219,6 +228,6 @@ static inline void xfs_cleanup_procfs(void)
 {
 }
 
-#endif	
+#endif	/* !CONFIG_PROC_FS */
 
-#endif 
+#endif /* __XFS_STATS_H__ */

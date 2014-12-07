@@ -5,6 +5,7 @@
 #include <linux/netfilter.h>
 #include <net/tcp.h>
 
+/* Prefixlen maps, by Jan Engelhardt  */
 extern const union nf_inet_addr ip_set_netmask_map[];
 extern const union nf_inet_addr ip_set_hostmask_map[];
 
@@ -40,4 +41,4 @@ do {						\
 	to = from | ~ip_set_hostmask(cidr);	\
 } while (0)
 
-#endif 
+#endif /*_PFXLEN_H */

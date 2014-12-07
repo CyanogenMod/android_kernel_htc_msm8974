@@ -35,13 +35,13 @@ static int handle_set_prefix(struct kvm_vcpu *vcpu)
 	if (base2)
 		operand2 += vcpu->run->s.regs.gprs[base2];
 
-	
+	/* must be word boundary */
 	if (operand2 & 3) {
 		kvm_s390_inject_program_int(vcpu, PGM_SPECIFICATION);
 		goto out;
 	}
 
-	
+	/* get the value */
 	if (get_guest_u32(vcpu, operand2, &address)) {
 		kvm_s390_inject_program_int(vcpu, PGM_ADDRESSING);
 		goto out;
@@ -49,7 +49,7 @@ static int handle_set_prefix(struct kvm_vcpu *vcpu)
 
 	address = address & 0x7fffe000u;
 
-	
+	/* make sure that the new value is valid memory */
 	if (copy_from_guest_absolute(vcpu, &tmp, address, 1) ||
 	   (copy_from_guest_absolute(vcpu, &tmp, address + PAGE_SIZE, 1))) {
 		kvm_s390_inject_program_int(vcpu, PGM_ADDRESSING);
@@ -75,7 +75,7 @@ static int handle_store_prefix(struct kvm_vcpu *vcpu)
 	if (base2)
 		operand2 += vcpu->run->s.regs.gprs[base2];
 
-	
+	/* must be word boundary */
 	if (operand2 & 3) {
 		kvm_s390_inject_program_int(vcpu, PGM_SPECIFICATION);
 		goto out;
@@ -84,7 +84,7 @@ static int handle_store_prefix(struct kvm_vcpu *vcpu)
 	address = vcpu->arch.sie_block->prefix;
 	address = address & 0x7fffe000u;
 
-	
+	/* get the value */
 	if (put_guest_u32(vcpu, operand2, address)) {
 		kvm_s390_inject_program_int(vcpu, PGM_ADDRESSING);
 		goto out;
@@ -135,7 +135,7 @@ static int handle_stsch(struct kvm_vcpu *vcpu)
 {
 	vcpu->stat.instruction_stsch++;
 	VCPU_EVENT(vcpu, 4, "%s", "store subchannel - CC3");
-	
+	/* condition code 3 */
 	vcpu->arch.sie_block->gpsw.mask &= ~(3ul << 44);
 	vcpu->arch.sie_block->gpsw.mask |= (3 & 3ul) << 44;
 	return 0;
@@ -145,7 +145,7 @@ static int handle_chsc(struct kvm_vcpu *vcpu)
 {
 	vcpu->stat.instruction_chsc++;
 	VCPU_EVENT(vcpu, 4, "%s", "channel subsystem call - CC3");
-	
+	/* condition code 3 */
 	vcpu->arch.sie_block->gpsw.mask &= ~(3ul << 44);
 	vcpu->arch.sie_block->gpsw.mask |= (3 & 3ul) << 44;
 	return 0;
@@ -157,7 +157,7 @@ static int handle_stfl(struct kvm_vcpu *vcpu)
 	int rc;
 
 	vcpu->stat.instruction_stfl++;
-	
+	/* only pass the facility bits, which we can handle */
 	facility_list = S390_lowcore.stfl_fac_list & 0xff00fff3;
 
 	rc = copy_to_guest(vcpu, offsetof(struct _lowcore, stfl_fac_list),
@@ -210,7 +210,7 @@ static void handle_stsi_3_2_2(struct kvm_vcpu *vcpu, struct sysinfo_3_2_2 *mem)
 			cpus++;
 	spin_unlock(&fi->lock);
 
-	
+	/* deal with other level 3 hypervisors */
 	if (stsi(mem, 3, 2, 2) == -ENOSYS)
 		mem->count = 0;
 	if (mem->count < 8)
@@ -254,7 +254,7 @@ static int handle_stsi(struct kvm_vcpu *vcpu)
 		vcpu->run->s.regs.gprs[0] = 3 << 28;
 		vcpu->arch.sie_block->gpsw.mask &= ~(3ul << 44);
 		return 0;
-	case 1: 
+	case 1: /* same handling for 1 and 2 */
 	case 2:
 		mem = get_zeroed_page(GFP_KERNEL);
 		if (!mem)
@@ -285,7 +285,7 @@ static int handle_stsi(struct kvm_vcpu *vcpu)
 out_mem:
 	free_page(mem);
 out_fail:
-	
+	/* condition code 3 */
 	vcpu->arch.sie_block->gpsw.mask |= 3ul << 44;
 	return 0;
 }
@@ -308,6 +308,13 @@ int kvm_s390_handle_b2(struct kvm_vcpu *vcpu)
 {
 	intercept_handler_t handler;
 
+	/*
+	 * a lot of B2 instructions are priviledged. We first check for
+	 * the privileged ones, that we can handle in the kernel. If the
+	 * kernel can handle this instruction, we check for the problem
+	 * state bit and (a) handle the instruction or (b) send a code 2
+	 * program check.
+	 * Anything else goes to userspace.*/
 	handler = priv_handlers[vcpu->arch.sie_block->ipa & 0x00ff];
 	if (handler) {
 		if (vcpu->arch.sie_block->gpsw.mask & PSW_MASK_PSTATE)
@@ -332,12 +339,20 @@ static int handle_tprot(struct kvm_vcpu *vcpu)
 
 	vcpu->stat.instruction_tprot++;
 
+	/* we only handle the Linux memory detection case:
+	 * access key == 0
+	 * guest DAT == off
+	 * everything else goes to userspace. */
 	if (address2 & 0xf0)
 		return -EOPNOTSUPP;
 	if (vcpu->arch.sie_block->gpsw.mask & PSW_MASK_DAT)
 		return -EOPNOTSUPP;
 
 
+	/* we must resolve the address without holding the mmap semaphore.
+	 * This is ok since the userspace hypervisor is not supposed to change
+	 * the mapping while the guest queries the memory. Otherwise the guest
+	 * might crash or get wrong info anyway. */
 	user_address = (unsigned long) __guestaddr_to_user(vcpu, address1);
 
 	down_read(&current->mm->mmap_sem);
@@ -359,7 +374,7 @@ static int handle_tprot(struct kvm_vcpu *vcpu)
 
 int kvm_s390_handle_e5(struct kvm_vcpu *vcpu)
 {
-	
+	/* For e5xx... instructions we only handle TPROT */
 	if ((vcpu->arch.sie_block->ipa & 0x00ff) == 0x01)
 		return handle_tprot(vcpu);
 	return -EOPNOTSUPP;

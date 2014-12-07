@@ -26,7 +26,7 @@
 #include <linux/dvb/frontend.h>
 
 struct lgs8gl5_config {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 };
 
@@ -40,6 +40,6 @@ static inline struct dvb_frontend *lgs8gl5_attach(
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_DVB_LGS8GL5 */
 
-#endif 
+#endif /* LGS8GL5_H */

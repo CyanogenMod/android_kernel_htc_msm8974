@@ -20,6 +20,11 @@
 #include <asm/time.h>
 #include <asm/udbg.h>
 
+/*
+ * This implementation is "special", it can "patch" the current
+ * udbg implementation and work on top of it. It must thus be
+ * initialized last
+ */
 
 static void (*udbg_adb_old_putc)(char c);
 static int (*udbg_adb_old_getc)(void);
@@ -38,11 +43,11 @@ static inline void udbg_adb_poll(void)
 #ifdef CONFIG_ADB_PMU
 	if (input_type == input_adb_pmu)
 		pmu_poll_adb();
-#endif 
+#endif /* CONFIG_ADB_PMU */
 #ifdef CONFIG_ADB_CUDA
 	if (input_type == input_adb_cuda)
 		cuda_poll();
-#endif 
+#endif /* CONFIG_ADB_CUDA */
 }
 
 #ifdef CONFIG_BOOTX_TEXT
@@ -51,20 +56,20 @@ static int udbg_adb_use_btext;
 static int xmon_adb_shiftstate;
 
 static unsigned char xmon_keytab[128] =
-	"asdfhgzxcv\000bqwer"				
-	"yt123465=97-80]o"				
-	"u[ip\rlj'k;\\,/nm."				
-	"\t `\177\0\033\0\0\0\0\0\0\0\0\0\0"		
-	"\0.\0*\0+\0\0\0\0\0/\r\0-\0"			
-	"\0\0000123456789\0\0\0";			
+	"asdfhgzxcv\000bqwer"				/* 0x00 - 0x0f */
+	"yt123465=97-80]o"				/* 0x10 - 0x1f */
+	"u[ip\rlj'k;\\,/nm."				/* 0x20 - 0x2f */
+	"\t `\177\0\033\0\0\0\0\0\0\0\0\0\0"		/* 0x30 - 0x3f */
+	"\0.\0*\0+\0\0\0\0\0/\r\0-\0"			/* 0x40 - 0x4f */
+	"\0\0000123456789\0\0\0";			/* 0x50 - 0x5f */
 
 static unsigned char xmon_shift_keytab[128] =
-	"ASDFHGZXCV\000BQWER"				
-	"YT!@#$^%+(&_*)}O"				
-	"U{IP\rLJ\"K:|<?NM>"				
-	"\t ~\177\0\033\0\0\0\0\0\0\0\0\0\0"		
-	"\0.\0*\0+\0\0\0\0\0/\r\0-\0"			
-	"\0\0000123456789\0\0\0";			
+	"ASDFHGZXCV\000BQWER"				/* 0x00 - 0x0f */
+	"YT!@#$^%+(&_*)}O"				/* 0x10 - 0x1f */
+	"U{IP\rLJ\"K:|<?NM>"				/* 0x20 - 0x2f */
+	"\t ~\177\0\033\0\0\0\0\0\0\0\0\0\0"		/* 0x30 - 0x3f */
+	"\0.\0*\0+\0\0\0\0\0/\r\0-\0"			/* 0x40 - 0x4f */
+	"\0\0000123456789\0\0\0";			/* 0x50 - 0x5f */
 
 static int udbg_adb_local_getc(void)
 {
@@ -93,13 +98,13 @@ static int udbg_adb_local_getc(void)
 			return k;
 		k = xmon_adb_keycode;
 
-		
+		/* test for shift keys */
 		if ((k & 0x7f) == 0x38 || (k & 0x7f) == 0x7b) {
 			xmon_adb_shiftstate = (k & 0x80) == 0;
 			continue;
 		}
 		if (k >= 0x80)
-			continue;	
+			continue;	/* ignore up transitions */
 		k = (xmon_adb_shiftstate? xmon_shift_keytab: xmon_keytab)[k];
 		if (k != 0)
 			break;
@@ -107,7 +112,7 @@ static int udbg_adb_local_getc(void)
 	xmon_wants_key = 0;
 	return k;
 }
-#endif 
+#endif /* CONFIG_BOOTX_TEXT */
 
 static int udbg_adb_getc(void)
 {
@@ -120,6 +125,11 @@ static int udbg_adb_getc(void)
 	return -1;
 }
 
+/* getc_poll() is not really used, unless you have the xmon-over modem
+ * hack that doesn't quite concern us here, thus we just poll the low level
+ * ADB driver to prevent it from timing out and call back the original poll
+ * routine.
+ */
 static int udbg_adb_getc_poll(void)
 {
 	udbg_adb_poll();
@@ -153,12 +163,12 @@ int __init udbg_adb_init(int force_btext)
 {
 	struct device_node *np;
 
-	
+	/* Capture existing callbacks */
 	udbg_adb_old_putc = udbg_putc;
 	udbg_adb_old_getc = udbg_getc;
 	udbg_adb_old_getc_poll = udbg_getc_poll;
 
-	
+	/* Check if our early init was already called */
 	if (udbg_adb_old_putc == udbg_adb_putc)
 		udbg_adb_old_putc = NULL;
 #ifdef CONFIG_BOOTX_TEXT
@@ -166,17 +176,21 @@ int __init udbg_adb_init(int force_btext)
 		udbg_adb_old_putc = NULL;
 #endif
 
-	
+	/* Set ours as output */
 	udbg_putc = udbg_adb_putc;
 	udbg_getc = udbg_adb_getc;
 	udbg_getc_poll = udbg_adb_getc_poll;
 
 #ifdef CONFIG_BOOTX_TEXT
-	
+	/* Check if we should use btext output */
 	if (btext_find_display(force_btext) == 0)
 		udbg_adb_use_btext = 1;
 #endif
 
+	/* See if there is a keyboard in the device tree with a parent
+	 * of type "adb". If not, we return a failure, but we keep the
+	 * bext output set for now
+	 */
 	for (np = NULL; (np = of_find_node_by_name(np, "keyboard")) != NULL;) {
 		struct device_node *parent = of_get_parent(np);
 		int found = (parent && strcmp(parent->type, "adb") == 0);
@@ -197,7 +211,7 @@ int __init udbg_adb_init(int force_btext)
 		input_type = input_adb_cuda;
 #endif
 
-	
+	/* Same as above: nothing found, keep btext set for output */
 	if (input_type == input_adb_none)
 		return -ENODEV;
 

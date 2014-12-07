@@ -31,6 +31,12 @@
 #include "m5mols.h"
 #include "m5mols_reg.h"
 
+/**
+ * m5mols_read_rational - I2C read of a rational number
+ *
+ * Read numerator and denominator from registers @addr_num and @addr_den
+ * respectively and return the division result in @val.
+ */
 static int m5mols_read_rational(struct v4l2_subdev *sd, u32 addr_num,
 				u32 addr_den, u32 *val)
 {
@@ -45,6 +51,11 @@ static int m5mols_read_rational(struct v4l2_subdev *sd, u32 addr_num,
 	return ret;
 }
 
+/**
+ * m5mols_capture_info - Gather captured image information
+ *
+ * For now it gathers only EXIF information and file size.
+ */
 static int m5mols_capture_info(struct m5mols_info *info)
 {
 	struct m5mols_exif *exif = &info->cap.exif;
@@ -98,6 +109,11 @@ int m5mols_start_capture(struct m5mols_info *info)
 	u8 resolution = info->resolution;
 	int ret;
 
+	/*
+	 * Synchronize the controls, set the capture frame resolution and color
+	 * format. The frame capture is initiated during switching from Monitor
+	 * to Capture mode.
+	 */
 	ret = m5mols_mode(info, REG_MONITOR);
 	if (!ret)
 		ret = m5mols_restore_controls(info);
@@ -110,13 +126,16 @@ int m5mols_start_capture(struct m5mols_info *info)
 	if (!ret)
 		ret = m5mols_mode(info, REG_CAPTURE);
 	if (!ret)
-		
+		/* Wait until a frame is captured to ISP internal memory */
 		ret = m5mols_wait_interrupt(sd, REG_INT_CAPTURE, 2000);
 	if (!ret)
 		ret = m5mols_lock_3a(info, false);
 	if (ret)
 		return ret;
 
+	/*
+	 * Initiate the captured data transfer to a MIPI-CSI receiver.
+	 */
 	ret = m5mols_write(sd, CAPC_SEL_FRAME, 1);
 	if (!ret)
 		ret = m5mols_write(sd, CAPC_START, REG_CAP_START_MAIN);
@@ -124,7 +143,7 @@ int m5mols_start_capture(struct m5mols_info *info)
 		bool captured = false;
 		unsigned int size;
 
-		
+		/* Wait for the capture completion interrupt */
 		ret = m5mols_wait_interrupt(sd, REG_INT_CAPTURE, 2000);
 		if (!ret) {
 			captured = true;

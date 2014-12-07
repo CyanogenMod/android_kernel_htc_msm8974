@@ -11,4 +11,4 @@ extern struct exception_table_entry __stop___ex_table[];
 extern char __end_rodata_hpage_align[];
 #endif
 
-#endif	
+#endif	/* _ASM_X86_SECTIONS_H */

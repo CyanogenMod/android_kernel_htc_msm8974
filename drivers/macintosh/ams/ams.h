@@ -17,11 +17,11 @@ enum ams_irq {
 };
 
 struct ams {
-	
+	/* Locks */
 	spinlock_t irq_lock;
 	struct mutex lock;
 
-	
+	/* General properties */
 	struct device_node *of_node;
 	struct platform_device *of_dev;
 	char has_device;
@@ -29,10 +29,14 @@ struct ams {
 	u32 orient1;
 	u32 orient2;
 
-	
+	/* Interrupt worker */
 	struct work_struct worker;
 	u8 worker_irqs;
 
+	/* Implementation
+	 *
+	 * Only call these functions with the main lock held.
+	 */
 	void (*exit)(void);
 
 	void (*get_xyz)(s8 *x, s8 *y, s8 *z);
@@ -41,15 +45,15 @@ struct ams {
 	void (*clear_irq)(enum ams_irq reg);
 
 #ifdef CONFIG_SENSORS_AMS_I2C
-	
+	/* I2C properties */
 	struct i2c_client *i2c_client;
 #endif
 
-	
+	/* Joystick emulation */
 	struct input_polled_dev *idev;
 	__u16 bustype;
 
-	
+	/* calibrated null values */
 	int xcalib, ycalib, zcalib;
 };
 

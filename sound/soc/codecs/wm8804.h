@@ -13,6 +13,9 @@
 #ifndef _WM8804_H
 #define _WM8804_H
 
+/*
+ * Register values.
+ */
 #define WM8804_RST_DEVID1			0x00
 #define WM8804_DEVID2				0x01
 #define WM8804_DEVREV				0x02
@@ -55,4 +58,4 @@
 
 #define WM8804_CLKOUT_DIV			1
 
-#endif  
+#endif  /* _WM8804_H */

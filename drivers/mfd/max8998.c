@@ -224,6 +224,11 @@ static int max8998_resume(struct device *dev)
 
 	if (device_may_wakeup(dev))
 		irq_set_irq_wake(max8998->irq, 0);
+	/*
+	 * In LP3974, if IRQ registers are not "read & clear"
+	 * when it's set during sleep, the interrupt becomes
+	 * disabled.
+	 */
 	return max8998_irq_resume(i2c_get_clientdata(i2c));
 }
 
@@ -271,6 +276,7 @@ static struct max8998_reg_dump max8998_dump[] = {
 	SAVE_ITEM(MAX8998_REG_LBCNFG1),
 	SAVE_ITEM(MAX8998_REG_LBCNFG2),
 };
+/* Save registers before hibernation */
 static int max8998_freeze(struct device *dev)
 {
 	struct i2c_client *i2c = container_of(dev, struct i2c_client, dev);
@@ -283,6 +289,7 @@ static int max8998_freeze(struct device *dev)
 	return 0;
 }
 
+/* Restore registers after hibernation */
 static int max8998_restore(struct device *dev)
 {
 	struct i2c_client *i2c = container_of(dev, struct i2c_client, dev);
@@ -317,6 +324,7 @@ static int __init max8998_i2c_init(void)
 {
 	return i2c_add_driver(&max8998_i2c_driver);
 }
+/* init early so consumer devices can complete system boot */
 subsys_initcall(max8998_i2c_init);
 
 static void __exit max8998_i2c_exit(void)

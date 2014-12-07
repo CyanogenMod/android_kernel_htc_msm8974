@@ -13,6 +13,7 @@
 #define _MSM_DOLBY_DAP_CONFIG_H_
 
 #ifdef CONFIG_DOLBY_DAP
+/* DOLBY DOLBY GUIDS */
 #define DOLBY_ADM_COPP_TOPOLOGY_ID	0x0001033B
 #define DOLBY_BUNDLE_MODULE_ID		0x00010723
 #define DOLBY_VISUALIZER_MODULE_ID	0x0001072B
@@ -66,17 +67,20 @@
 #define DOLBY_PARAM_ID_PSTG		0x00010729
 #define DOLBY_PARAM_ID_INIT_ENDP		0x00010727
 
+/* Not Used with Set Param kcontrol, only to query using Get Param */
 #define DOLBY_PARAM_ID_VER                0x00010726
 
 #define DOLBY_PARAM_ID_VCBG		0x00010730
 #define DOLBY_PARAM_ID_VCBE		0x00010731
 
+/* DOLBY DAP control params */
 #define DOLBY_COMMIT_ALL_TO_DSP		0x70000001
 #define DOLBY_COMMIT_TO_DSP		0x70000002
 #define DOLBY_USE_CACHE			0x70000003
 #define DOLBY_AUTO_ENDP			0x70000004
 #define DOLBY_AUTO_ENDDEP_PARAMS		0x70000005
 
+/* DOLBY DAP offsets start */
 #define DOLBY_PARAM_VDHE_LENGTH   1
 #define DOLBY_PARAM_VDHE_OFFSET   0
 #define DOLBY_PARAM_VSPE_LENGTH   1
@@ -245,10 +249,11 @@
 #define DOLBY_AUTO_ENDDEP_IDX			(MAX_DOLBY_PARAMS+4)
 
 #define TOTAL_LENGTH_DOLBY_PARAM		745
-#define NUM_DOLBY_ENDP_DEVICE			23
+#define NUM_DOLBY_ENDP_DEVICE			24
 #define DOLBY_VIS_PARAM_HEADER_SIZE		 25
 
 #define DOLBY_INVALID_PORT_ID			-1
+/* DOLBY device definitions */
 enum {
 	DOLBY_ENDP_INT_SPEAKERS = 0,
 	DOLBY_ENDP_EXT_SPEAKERS,
@@ -261,7 +266,7 @@ enum {
 
 enum {
 	DEVICE_NONE			= 0x0,
-	
+	/* output devices */
 	EARPIECE			= 0x1,
 	SPEAKER				= 0x2,
 	WIRED_HEADSET			= 0x4,
@@ -285,6 +290,7 @@ enum {
 	FM_TX				= 0x100000,
 	DEVICE_OUT_ALL			= 0x7FFFFFFF,
 };
+/* DOLBY device definitions end */
 
 struct dolby_dap_params {
 	uint32_t value[TOTAL_LENGTH_DOLBY_PARAM + MAX_DOLBY_PARAMS];
@@ -315,6 +321,7 @@ int msm_routing_put_dolby_dap_endpoint_control(
 			struct snd_kcontrol *kcontrol,
 			struct snd_ctl_elem_value *ucontrol);
 void dolby_dap_deinit(int port_id);
+/* Dolby DOLBY end */
 #else
 int dolby_dap_init(int port_id, int channels) { return 0; }
 int msm_routing_get_dolby_dap_param_to_set_control(

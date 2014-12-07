@@ -1,3 +1,5 @@
+/* linux/arch/arm/mach-msm/board-mahimahi-wifi.c
+*/
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
@@ -109,9 +111,9 @@ static unsigned mahimahi_wifi_update_nvs(char *str, int add_flag)
 	if (!str)
 		return -EINVAL;
 	ptr = get_wifi_nvs_ram();
-	
+	/* Size in format LE assumed */
 	memcpy(&len, ptr + NVS_LEN_OFFSET, sizeof(len));
-	
+	/* if the last byte in NVRAM is 0, trim it */
 	if (ptr[NVS_DATA_OFFSET + len - 1] == 0)
 		len -= 1;
 	if (add_flag) {

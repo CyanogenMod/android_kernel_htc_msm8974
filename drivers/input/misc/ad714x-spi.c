@@ -6,14 +6,14 @@
  * Licensed under the GPL-2 or later.
  */
 
-#include <linux/input.h>	
+#include <linux/input.h>	/* BUS_SPI */
 #include <linux/module.h>
 #include <linux/spi/spi.h>
 #include <linux/pm.h>
 #include <linux/types.h>
 #include "ad714x.h"
 
-#define AD714x_SPI_CMD_PREFIX      0xE000   
+#define AD714x_SPI_CMD_PREFIX      0xE000   /* bits 15:11 */
 #define AD714x_SPI_READ            BIT(10)
 
 #ifdef CONFIG_PM

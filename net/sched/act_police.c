@@ -36,6 +36,7 @@ static struct tcf_hashinfo police_hash_info = {
 	.lock	=	&police_lock,
 };
 
+/* old policer structure from before tc actions */
 struct tc_police_compat {
 	u32			index;
 	int			action;
@@ -46,6 +47,7 @@ struct tc_police_compat {
 	struct tc_ratespec	peakrate;
 };
 
+/* Each policer is serialized by its individual spinlock */
 
 static int tcf_act_police_walker(struct sk_buff *skb, struct netlink_callback *cb,
 			      int type, struct tc_action *a)
@@ -110,6 +112,10 @@ static void tcf_police_destroy(struct tcf_police *p)
 				qdisc_put_rtab(p->tcfp_R_tab);
 			if (p->tcfp_P_tab)
 				qdisc_put_rtab(p->tcfp_P_tab);
+			/*
+			 * gen_estimator est_timer() might access p->tcf_lock
+			 * or bstats, wait a RCU grace period before freeing p
+			 */
 			kfree_rcu(p, tcf_rcu);
 			return;
 		}
@@ -204,7 +210,7 @@ override:
 		goto failure_unlock;
 	}
 
-	
+	/* No failure allowed after this point */
 	if (R_tab != NULL) {
 		qdisc_put_rtab(police->tcfp_R_tab);
 		police->tcfp_R_tab = R_tab;

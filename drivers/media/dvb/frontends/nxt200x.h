@@ -35,10 +35,10 @@ typedef enum nxt_chip_t {
 
 struct nxt200x_config
 {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 
-	
+	/* need to set device param for start_dma */
 	int (*set_ts_params)(struct dvb_frontend* fe, int is_punctured);
 };
 
@@ -52,7 +52,12 @@ static inline struct dvb_frontend* nxt200x_attach(const struct nxt200x_config* c
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_DVB_NXT200X
 
-#endif 
+#endif /* NXT200X_H */
 
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

@@ -182,6 +182,11 @@ static void wm8994_gpio_dbg_show(struct seq_file *s, struct gpio_chip *chip)
 		int reg;
 		const char *label;
 
+		/* We report the GPIO even if it's not requested since
+		 * we're also reporting things like alternate
+		 * functions which apply even when the GPIO is not in
+		 * use as a GPIO.
+		 */
 		label = gpiochip_is_requested(chip, i);
 		if (!label)
 			label = "Unrequested";

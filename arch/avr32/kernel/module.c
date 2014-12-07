@@ -38,8 +38,8 @@ static inline int check_rela(Elf32_Rela *rela, struct module *module,
 	case R_AVR32_GOT16:
 	case R_AVR32_GOT8:
 	case R_AVR32_GOT21S:
-	case R_AVR32_GOT18SW:	
-	case R_AVR32_GOT16S:	
+	case R_AVR32_GOT18SW:	/* mcall */
+	case R_AVR32_GOT16S:	/* ld.w */
 		if (rela->r_addend != 0) {
 			printk(KERN_ERR
 			       "GOT relocation against %s at offset %u with addend\n",
@@ -69,7 +69,7 @@ int module_frob_arch_sections(Elf_Ehdr *hdr, Elf_Shdr *sechdrs,
 	int nrela, i, j;
 	int ret;
 
-	
+	/* Find the symbol table */
 	symtab = NULL;
 	for (i = 0; i < hdr->e_shnum; i++)
 		switch (sechdrs[i].sh_type) {
@@ -82,7 +82,7 @@ int module_frob_arch_sections(Elf_Ehdr *hdr, Elf_Shdr *sechdrs,
 		return -ENOEXEC;
 	}
 
-	
+	/* Allocate room for one syminfo structure per symbol. */
 	module->arch.nsyms = symtab->sh_size / sizeof(Elf_Sym);
 	module->arch.syminfo = vmalloc(module->arch.nsyms
 				   * sizeof(struct mod_arch_syminfo));
@@ -95,13 +95,13 @@ int module_frob_arch_sections(Elf_Ehdr *hdr, Elf_Shdr *sechdrs,
 		if (symbols[i].st_shndx == SHN_UNDEF &&
 		    strcmp(strings + symbols[i].st_name,
 			   "_GLOBAL_OFFSET_TABLE_") == 0)
-			
+			/* "Define" it as absolute. */
 			symbols[i].st_shndx = SHN_ABS;
 		module->arch.syminfo[i].got_offset = -1UL;
 		module->arch.syminfo[i].got_initialized = 0;
 	}
 
-	
+	/* Allocate GOT entries for symbols that need it. */
 	module->arch.got_size = 0;
 	for (i = 0; i < hdr->e_shnum; i++) {
 		if (sechdrs[i].sh_type != SHT_RELA)
@@ -116,6 +116,10 @@ int module_frob_arch_sections(Elf_Ehdr *hdr, Elf_Shdr *sechdrs,
 		}
 	}
 
+	/*
+	 * Increase core size to make room for GOT and set start
+	 * offset for GOT.
+	 */
 	module->core_size = ALIGN(module->core_size, 4);
 	module->arch.got_offset = module->core_size;
 	module->core_size += module->arch.got_size;
@@ -164,7 +168,7 @@ int apply_relocate_add(Elf32_Shdr *sechdrs, const char *strtab,
 
 		info = module->arch.syminfo + ELF32_R_SYM(rel->r_info);
 
-		
+		/* Initialize GOT entry if necessary */
 		switch (ELF32_R_TYPE(rel->r_info)) {
 		case R_AVR32_GOT32:
 		case R_AVR32_GOT16:
@@ -244,6 +248,13 @@ int apply_relocate_add(Elf32_Shdr *sechdrs, const char *strtab,
 			put_u16(location, value);
 			break;
 		case R_AVR32_GOTPC:
+			/*
+			 * R6 = PC - (PC - GOT)
+			 *
+			 * At this point, relocation contains the
+			 * value of PC.  Just subtract the value of
+			 * GOT, and we're done.
+			 */
 			pr_debug("GOTPC: PC=0x%x, got_offset=0x%lx, core=0x%p\n",
 				 relocation, module->arch.got_offset,
 				 module->module_core);
@@ -257,7 +268,7 @@ int apply_relocate_add(Elf32_Shdr *sechdrs, const char *strtab,
 				return reloc_overflow(module, "R_AVR32_GOT18SW",
 						     relocation);
 			relocation >>= 2;
-			
+			/* fall through */
 		case R_AVR32_GOT16S:
 			if ((relocation & 0xffff8000) != 0
 			    && (relocation & 0xffff0000) != 0xffff0000)

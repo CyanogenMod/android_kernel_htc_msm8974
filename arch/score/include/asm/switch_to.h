@@ -10,4 +10,4 @@ do {								\
 
 #define finish_arch_switch(prev)	do {} while (0)
 
-#endif 
+#endif /* _ASM_SCORE_SWITCH_TO_H */

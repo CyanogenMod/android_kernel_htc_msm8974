@@ -15,11 +15,12 @@
 
 struct sysfs_open_dirent;
 
+/* type-specific structures for sysfs_dirent->s_* union members */
 struct sysfs_elem_dir {
 	struct kobject		*kobj;
 
 	unsigned long		subdirs;
-	
+	/* children rbtree starts here and goes through sd->s_rb */
 	struct rb_root		children;
 };
 
@@ -43,6 +44,14 @@ struct sysfs_inode_attrs {
 	u32		ia_secdata_len;
 };
 
+/*
+ * sysfs_dirent - the building block of sysfs hierarchy.  Each and
+ * every sysfs node is represented by single sysfs_dirent.
+ *
+ * As long as s_count reference is held, the sysfs_dirent itself is
+ * accessible.  Dereferencing s_elem or any other outer entity
+ * requires s_active reference.
+ */
 struct sysfs_dirent {
 	atomic_t		s_count;
 	atomic_t		s_active;
@@ -59,8 +68,8 @@ struct sysfs_dirent {
 		struct sysfs_dirent	*removed_list;
 	} u;
 
-	const void		*s_ns; 
-	unsigned int		s_hash; 
+	const void		*s_ns; /* namespace tag */
+	unsigned int		s_hash; /* ns + name hash */
 	union {
 		struct sysfs_elem_dir		s_dir;
 		struct sysfs_elem_symlink	s_symlink;
@@ -84,6 +93,7 @@ struct sysfs_dirent {
 #define SYSFS_COPY_NAME			(SYSFS_DIR | SYSFS_KOBJ_LINK)
 #define SYSFS_ACTIVE_REF		(SYSFS_KOBJ_ATTR | SYSFS_KOBJ_BIN_ATTR)
 
+/* identify any namespace tag on sysfs_dirents */
 #define SYSFS_NS_TYPE_MASK		0xf00
 #define SYSFS_NS_TYPE_SHIFT		8
 
@@ -95,6 +105,10 @@ static inline unsigned int sysfs_type(struct sysfs_dirent *sd)
 	return sd->s_flags & SYSFS_TYPE_MASK;
 }
 
+/*
+ * Return any namespace tags on this dirent.
+ * enum kobj_ns_type is defined in linux/kobject.h
+ */
 static inline enum kobj_ns_type sysfs_ns_type(struct sysfs_dirent *sd)
 {
 	return (sd->s_flags & SYSFS_NS_TYPE_MASK) >> SYSFS_NS_TYPE_SHIFT;
@@ -114,12 +128,23 @@ do {								\
 #define sysfs_dirent_init_lockdep(sd) do {} while(0)
 #endif
 
+/*
+ * Context structure to be used while adding/removing nodes.
+ */
 struct sysfs_addrm_cxt {
 	struct sysfs_dirent	*parent_sd;
 	struct sysfs_dirent	*removed;
 };
 
+/*
+ * mount.c
+ */
 
+/*
+ * Each sb is associated with a set of namespace tags (i.e.
+ * the network namespace of the task which mounted this sysfs
+ * instance).
+ */
 struct sysfs_super_info {
 	void *ns[KOBJ_NS_TYPES];
 };
@@ -127,6 +152,9 @@ struct sysfs_super_info {
 extern struct sysfs_dirent sysfs_root;
 extern struct kmem_cache *sysfs_dir_cachep;
 
+/*
+ * dir.c
+ */
 extern struct mutex sysfs_mutex;
 extern spinlock_t sysfs_assoc_lock;
 
@@ -177,6 +205,9 @@ static inline void __sysfs_put(struct sysfs_dirent *sd)
 }
 #define sysfs_put(sd) __sysfs_put(sd)
 
+/*
+ * inode.c
+ */
 struct inode *sysfs_get_inode(struct super_block *sb, struct sysfs_dirent *sd);
 void sysfs_evict_inode(struct inode *inode);
 int sysfs_sd_setattr(struct sysfs_dirent *sd, struct iattr *iattr);
@@ -188,6 +219,9 @@ int sysfs_setxattr(struct dentry *dentry, const char *name, const void *value,
 int sysfs_hash_and_remove(struct sysfs_dirent *dir_sd, const void *ns, const char *name);
 int sysfs_inode_init(void);
 
+/*
+ * file.c
+ */
 extern const struct file_operations sysfs_file_operations;
 
 int sysfs_add_file(struct sysfs_dirent *dir_sd,
@@ -195,7 +229,13 @@ int sysfs_add_file(struct sysfs_dirent *dir_sd,
 
 int sysfs_add_file_mode(struct sysfs_dirent *dir_sd,
 			const struct attribute *attr, int type, umode_t amode);
+/*
+ * bin.c
+ */
 extern const struct file_operations bin_fops;
 void unmap_bin_file(struct sysfs_dirent *attr_sd);
 
+/*
+ * symlink.c
+ */
 extern const struct inode_operations sysfs_symlink_inode_operations;

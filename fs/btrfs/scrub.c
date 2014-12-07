@@ -43,15 +43,15 @@
 struct scrub_block;
 struct scrub_dev;
 
-#define SCRUB_PAGES_PER_BIO	16	
-#define SCRUB_BIOS_PER_DEV	16	
-#define SCRUB_MAX_PAGES_PER_BLOCK	16	
+#define SCRUB_PAGES_PER_BIO	16	/* 64k per bio */
+#define SCRUB_BIOS_PER_DEV	16	/* 1 MB per device in flight */
+#define SCRUB_MAX_PAGES_PER_BLOCK	16	/* 64k per node/leaf/sector */
 
 struct scrub_page {
 	struct scrub_block	*sblock;
 	struct page		*page;
 	struct block_device	*bdev;
-	u64			flags;  
+	u64			flags;  /* extent flags */
 	u64			generation;
 	u64			logical;
 	u64			physical;
@@ -80,7 +80,7 @@ struct scrub_block {
 	struct scrub_page	pagev[SCRUB_MAX_PAGES_PER_BLOCK];
 	int			page_count;
 	atomic_t		outstanding_pages;
-	atomic_t		ref_count; 
+	atomic_t		ref_count; /* free mem on transition to zero */
 	struct scrub_dev	*sdev;
 	struct {
 		unsigned int	header_error:1;
@@ -102,10 +102,13 @@ struct scrub_dev {
 	struct list_head	csum_list;
 	atomic_t		cancel_req;
 	int			readonly;
-	int			pages_per_bio; 
+	int			pages_per_bio; /* <= SCRUB_PAGES_PER_BIO */
 	u32			sectorsize;
 	u32			nodesize;
 	u32			leafsize;
+	/*
+	 * statistics
+	 */
 	struct btrfs_scrub_progress stat;
 	spinlock_t		stat_lock;
 };
@@ -186,7 +189,7 @@ static noinline_for_stack void scrub_free_dev(struct scrub_dev *sdev)
 	if (!sdev)
 		return;
 
-	
+	/* this can happen when scrub is cancelled */
 	if (sdev->curr != -1) {
 		struct scrub_bio *sbio = sdev->bios[sdev->curr];
 
@@ -311,6 +314,10 @@ static int scrub_print_warning_inode(u64 inum, u64 offset, u64 root, void *ctx)
 	if (ret < 0)
 		goto err;
 
+	/*
+	 * we deliberately ignore the bit ipath might have been too small to
+	 * hold all of the paths here
+	 */
 	for (i = 0; i < ipath->fspath->elem_cnt; ++i)
 		printk(KERN_WARNING "btrfs: %s at logical %llu on dev "
 			"%s, sector %llu, root %llu, inode %llu, offset %llu, "
@@ -441,6 +448,22 @@ static int scrub_fixup_readpage(u64 inum, u64 offset, u64 root, void *ctx)
 	if (PageUptodate(page)) {
 		struct btrfs_mapping_tree *map_tree;
 		if (PageDirty(page)) {
+			/*
+			 * we need to write the data to the defect sector. the
+			 * data that was in that sector is not in memory,
+			 * because the page was modified. we must not write the
+			 * modified page to that sector.
+			 *
+			 * TODO: what could be done here: wait for the delalloc
+			 *       runner to write out that page (might involve
+			 *       COW) and see whether the sector is still
+			 *       referenced afterwards.
+			 *
+			 * For the meantime, we'll treat this error
+			 * incorrectable, although there is a chance that a
+			 * later scrub will find the bad sector again and that
+			 * there's no dirty page in memory, then.
+			 */
 			ret = -EIO;
 			goto out;
 		}
@@ -451,10 +474,15 @@ static int scrub_fixup_readpage(u64 inum, u64 offset, u64 root, void *ctx)
 		unlock_page(page);
 		corrected = !ret;
 	} else {
+		/*
+		 * we need to get good data first. the general readpage path
+		 * will call repair_io_failure for us, we just have to make
+		 * sure we read the bad mirror.
+		 */
 		ret = set_extent_bits(&BTRFS_I(inode)->io_tree, offset, end,
 					EXTENT_DAMAGED, GFP_NOFS);
 		if (ret) {
-			
+			/* set_extent_bits should give proper error */
 			WARN_ON(ret > 0);
 			if (ret > 0)
 				ret = -EFAULT;
@@ -483,6 +511,10 @@ out:
 		return ret;
 
 	if (ret == 0 && corrected) {
+		/*
+		 * we only need to call readpage for one of the inodes belonging
+		 * to this extent. so make iterate_extent_inodes stop
+		 */
 		return 1;
 	}
 
@@ -518,6 +550,15 @@ static void scrub_fixup_nodatasum(struct btrfs_work *work)
 		goto out;
 	}
 
+	/*
+	 * the idea is to trigger a regular read through the standard path. we
+	 * read a page from the (failed) logical address by specifying the
+	 * corresponding copynum of the failed sector. thus, that readpage is
+	 * expected to fail.
+	 * that is the point where on-the-fly error correction will kick in
+	 * (once it's finished) and rewrite the failed sector if a good copy
+	 * can be found.
+	 */
 	ret = iterate_inodes_from_logical(fixup->logical, fixup->root->fs_info,
 						path, scrub_fixup_readpage,
 						fixup);
@@ -546,7 +587,7 @@ out:
 	btrfs_free_path(path);
 	kfree(fixup);
 
-	
+	/* see caller why we're pretending to be paused in the scrub counters */
 	mutex_lock(&fs_info->scrub_lock);
 	atomic_dec(&fs_info->scrubs_running);
 	atomic_dec(&fs_info->scrubs_paused);
@@ -556,6 +597,14 @@ out:
 	wake_up(&sdev->list_wait);
 }
 
+/*
+ * scrub_handle_errored_block gets called when either verification of the
+ * pages failed or the bio failed to read, e.g. with EIO. In the latter
+ * case, this function handles all pages in the bio, even though only one
+ * may be bad.
+ * The goal of this function is to repair the errored block by using the
+ * contents of one of the mirrors.
+ */
 static int scrub_handle_errored_block(struct scrub_block *sblock_to_check)
 {
 	struct scrub_dev *sdev = sblock_to_check->sdev;
@@ -567,7 +616,7 @@ static int scrub_handle_errored_block(struct scrub_block *sblock_to_check)
 	unsigned int is_metadata;
 	unsigned int have_csum;
 	u8 *csum;
-	struct scrub_block *sblocks_for_recheck; 
+	struct scrub_block *sblocks_for_recheck; /* holds one for each mirror */
 	struct scrub_block *sblock_bad;
 	int ret;
 	int mirror_index;
@@ -588,6 +637,34 @@ static int scrub_handle_errored_block(struct scrub_block *sblock_to_check)
 	have_csum = sblock_to_check->pagev[0].have_csum;
 	csum = sblock_to_check->pagev[0].csum;
 
+	/*
+	 * read all mirrors one after the other. This includes to
+	 * re-read the extent or metadata block that failed (that was
+	 * the cause that this fixup code is called) another time,
+	 * page by page this time in order to know which pages
+	 * caused I/O errors and which ones are good (for all mirrors).
+	 * It is the goal to handle the situation when more than one
+	 * mirror contains I/O errors, but the errors do not
+	 * overlap, i.e. the data can be repaired by selecting the
+	 * pages from those mirrors without I/O error on the
+	 * particular pages. One example (with blocks >= 2 * PAGE_SIZE)
+	 * would be that mirror #1 has an I/O error on the first page,
+	 * the second page is good, and mirror #2 has an I/O error on
+	 * the second page, but the first page is good.
+	 * Then the first page of the first mirror can be repaired by
+	 * taking the first page of the second mirror, and the
+	 * second page of the second mirror can be repaired by
+	 * copying the contents of the 2nd page of the 1st mirror.
+	 * One more note: if the pages of one mirror contain I/O
+	 * errors, the checksum cannot be verified. In order to get
+	 * the best data for repairing, the first attempt is to find
+	 * a mirror without I/O errors and with a validated checksum.
+	 * Only if this is not possible, the pages are picked from
+	 * mirrors with I/O errors without considering the checksum.
+	 * If the latter is the case, at the end, the checksum of the
+	 * repaired area is verified in order to correctly maintain
+	 * the statistics.
+	 */
 
 	sblocks_for_recheck = kzalloc(BTRFS_MAX_MIRRORS *
 				     sizeof(*sblocks_for_recheck),
@@ -601,7 +678,7 @@ static int scrub_handle_errored_block(struct scrub_block *sblock_to_check)
 		goto out;
 	}
 
-	
+	/* setup the context, map the logical blocks and alloc the pages */
 	ret = scrub_setup_recheck_block(sdev, &fs_info->mapping_tree, length,
 					logical, sblocks_for_recheck);
 	if (ret) {
@@ -614,7 +691,7 @@ static int scrub_handle_errored_block(struct scrub_block *sblock_to_check)
 	BUG_ON(failed_mirror_index >= BTRFS_MAX_MIRRORS);
 	sblock_bad = sblocks_for_recheck + failed_mirror_index;
 
-	
+	/* build and submit the bios for the failed mirror, check checksums */
 	ret = scrub_recheck_block(fs_info, sblock_bad, is_metadata, have_csum,
 				  csum, generation, sdev->csum_size);
 	if (ret) {
@@ -627,6 +704,14 @@ static int scrub_handle_errored_block(struct scrub_block *sblock_to_check)
 
 	if (!sblock_bad->header_error && !sblock_bad->checksum_error &&
 	    sblock_bad->no_io_error_seen) {
+		/*
+		 * the error disappeared after reading page by page, or
+		 * the area was part of a huge bio and other parts of the
+		 * bio caused I/O errors, or the block layer merged several
+		 * read requests into one and the error is caused by a
+		 * different bio (usually one of the two latter cases is
+		 * the cause)
+		 */
 		spin_lock(&sdev->stat_lock);
 		sdev->stat.unverified_errors++;
 		spin_unlock(&sdev->stat_lock);
@@ -661,6 +746,13 @@ static int scrub_handle_errored_block(struct scrub_block *sblock_to_check)
 	if (!is_metadata && !have_csum) {
 		struct scrub_fixup_nodatasum *fixup_nodatasum;
 
+		/*
+		 * !is_metadata and !have_csum, this means that the data
+		 * might not be COW'ed, that it might be modified
+		 * concurrently. The general strategy to work on the
+		 * commit root does not help in the case when COW is not
+		 * used.
+		 */
 		fixup_nodatasum = kzalloc(sizeof(*fixup_nodatasum), GFP_NOFS);
 		if (!fixup_nodatasum)
 			goto did_not_correct_error;
@@ -668,6 +760,15 @@ static int scrub_handle_errored_block(struct scrub_block *sblock_to_check)
 		fixup_nodatasum->logical = logical;
 		fixup_nodatasum->root = fs_info->extent_root;
 		fixup_nodatasum->mirror_num = failed_mirror_index + 1;
+		/*
+		 * increment scrubs_running to prevent cancel requests from
+		 * completing as long as a fixup worker is running. we must also
+		 * increment scrubs_paused to prevent deadlocking on pause
+		 * requests used for transactions commits (as the worker uses a
+		 * transaction context). it is safe to regard the fixup worker
+		 * as paused for all matters practical. effectively, we only
+		 * avoid cancellation requests from completing.
+		 */
 		mutex_lock(&fs_info->scrub_lock);
 		atomic_inc(&fs_info->scrubs_running);
 		atomic_inc(&fs_info->scrubs_paused);
@@ -679,6 +780,10 @@ static int scrub_handle_errored_block(struct scrub_block *sblock_to_check)
 		goto out;
 	}
 
+	/*
+	 * now build and submit the bios for the other mirrors, check
+	 * checksums
+	 */
 	for (mirror_index = 0;
 	     mirror_index < BTRFS_MAX_MIRRORS &&
 	     sblocks_for_recheck[mirror_index].page_count > 0;
@@ -686,7 +791,7 @@ static int scrub_handle_errored_block(struct scrub_block *sblock_to_check)
 		if (mirror_index == failed_mirror_index)
 			continue;
 
-		
+		/* build and submit the bios, check checksums */
 		ret = scrub_recheck_block(fs_info,
 					  sblocks_for_recheck + mirror_index,
 					  is_metadata, have_csum, csum,
@@ -753,7 +858,7 @@ static int scrub_handle_errored_block(struct scrub_block *sblock_to_check)
 	 * area are unreadable.
 	 */
 
-	
+	/* can only fix I/O errors from here on */
 	if (sblock_bad->no_io_error_seen)
 		goto did_not_correct_error;
 
@@ -778,19 +883,28 @@ static int scrub_handle_errored_block(struct scrub_block *sblock_to_check)
 					sblock_bad, sblock_other, page_num, 0);
 				if (0 == ret) {
 					page_bad->io_error = 0;
-					break; 
+					break; /* succeeded for this page */
 				}
 			}
 		}
 
 		if (page_bad->io_error) {
-			
+			/* did not find a mirror to copy the page from */
 			success = 0;
 		}
 	}
 
 	if (success) {
 		if (is_metadata || have_csum) {
+			/*
+			 * need to verify the checksum now that all
+			 * sectors on disk are repaired (the write
+			 * request for data to be repaired is on its way).
+			 * Just be lazy and use scrub_recheck_block()
+			 * which re-reads the data before the checksum
+			 * is verified, but most likely the data comes out
+			 * of the page cache.
+			 */
 			ret = scrub_recheck_block(fs_info, sblock_bad,
 						  is_metadata, have_csum, csum,
 						  generation, sdev->csum_size);
@@ -848,6 +962,11 @@ static int scrub_setup_recheck_block(struct scrub_dev *sdev,
 	int mirror_index;
 	int ret;
 
+	/*
+	 * note: the three members sdev, ref_count and outstanding_pages
+	 * are not used (and not set) in the blocks that are used for
+	 * the recheck procedure
+	 */
 
 	page_index = 0;
 	while (length > 0) {
@@ -855,6 +974,10 @@ static int scrub_setup_recheck_block(struct scrub_dev *sdev,
 		u64 mapped_length = sublen;
 		struct btrfs_bio *bbio = NULL;
 
+		/*
+		 * with a length of PAGE_SIZE, each returned stripe
+		 * represents one mirror
+		 */
 		ret = btrfs_map_block(map_tree, WRITE, logical, &mapped_length,
 				      &bbio, 0);
 		if (ret || !bbio || mapped_length < sublen) {
@@ -875,7 +998,7 @@ static int scrub_setup_recheck_block(struct scrub_dev *sdev,
 			page = sblock->pagev + page_index;
 			page->logical = logical;
 			page->physical = bbio->stripes[mirror_index].physical;
-			
+			/* for missing devices, bdev is NULL */
 			page->bdev = bbio->stripes[mirror_index].dev->bdev;
 			page->mirror_num = mirror_index + 1;
 			page->page = alloc_page(GFP_NOFS);
@@ -896,6 +1019,13 @@ static int scrub_setup_recheck_block(struct scrub_dev *sdev,
 	return 0;
 }
 
+/*
+ * this function will check the on disk data for checksum errors, header
+ * errors and read I/O errors. If any I/O errors happen, the exact pages
+ * which are errored are marked as being bad. The goal is to enable scrub
+ * to take those pages that are not errored from all the mirrors so that
+ * the pages that are errored in the just handled mirror can be repaired.
+ */
 static int scrub_recheck_block(struct btrfs_fs_info *fs_info,
 			       struct scrub_block *sblock, int is_metadata,
 			       int have_csum, u8 *csum, u64 generation,
@@ -935,7 +1065,7 @@ static int scrub_recheck_block(struct btrfs_fs_info *fs_info,
 		}
 		btrfsic_submit_bio(READ, bio);
 
-		
+		/* this will also unplug the queue */
 		wait_for_completion(&complete);
 
 		page->io_error = !test_bit(BIO_UPTODATE, &bio->bi_flags);
@@ -1064,7 +1194,7 @@ static int scrub_repair_page_from_good_copy(struct scrub_block *sblock_bad,
 		}
 		btrfsic_submit_bio(WRITE, bio);
 
-		
+		/* this will also unplug the queue */
 		wait_for_completion(&complete);
 		bio_put(bio);
 	}
@@ -1161,6 +1291,11 @@ static int scrub_checksum_tree_block(struct scrub_block *sblock)
 	h = (struct btrfs_header *)mapped_buffer;
 	memcpy(on_disk_csum, h->csum, sdev->csum_size);
 
+	/*
+	 * we don't use the getter functions here, as we
+	 * a) don't have an extent buffer and
+	 * b) the page is already kmapped
+	 */
 
 	if (sblock->pagev[0].logical != le64_to_cpu(h->bytenr))
 		++fail;
@@ -1314,6 +1449,9 @@ static int scrub_add_page_to_bio(struct scrub_dev *sdev,
 	int ret;
 
 again:
+	/*
+	 * grab a fresh bio or wait for one to become available
+	 */
 	while (sdev->curr == -1) {
 		spin_lock(&sdev->list_lock);
 		sdev->curr = sdev->first_free;
@@ -1366,7 +1504,7 @@ again:
 		goto again;
 	}
 
-	scrub_block_get(sblock); 
+	scrub_block_get(sblock); /* one for the added page */
 	atomic_inc(&sblock->outstanding_pages);
 	sbio->page_count++;
 	if (sbio->page_count == sdev->pages_per_bio)
@@ -1390,7 +1528,7 @@ static int scrub_pages(struct scrub_dev *sdev, u64 logical, u64 len,
 		return -ENOMEM;
 	}
 
-	
+	/* one ref inside this function, plus one for each page later on */
 	atomic_set(&sblock->ref_count, 1);
 	sblock->sdev = sdev;
 	sblock->no_io_error_seen = 1;
@@ -1446,7 +1584,7 @@ static int scrub_pages(struct scrub_dev *sdev, u64 logical, u64 len,
 	if (force)
 		scrub_submit(sdev);
 
-	
+	/* last one frees, either here or in bio completion for last page */
 	scrub_block_put(sblock);
 	return 0;
 }
@@ -1479,7 +1617,7 @@ static void scrub_bio_end_io_worker(struct btrfs_work *work)
 		}
 	}
 
-	
+	/* now complete the scrub_block items that have all pages completed */
 	for (i = 0; i < sbio->page_count; i++) {
 		struct scrub_page *spage = sbio->pagev[i];
 		struct scrub_block *sblock = spage->sblock;
@@ -1490,7 +1628,7 @@ static void scrub_bio_end_io_worker(struct btrfs_work *work)
 	}
 
 	if (sbio->err) {
-		
+		/* what is this good for??? */
 		sbio->bio->bi_flags &= ~(BIO_POOL_MASK - 1);
 		sbio->bio->bi_flags |= 1 << BIO_UPTODATE;
 		sbio->bio->bi_phys_segments = 0;
@@ -1561,6 +1699,7 @@ static int scrub_find_csum(struct scrub_dev *sdev, u64 logical, u64 len,
 	return ret;
 }
 
+/* scrub extent tries to collect up to 64 kB for each bio */
 static int scrub_extent(struct scrub_dev *sdev, u64 logical, u64 len,
 			u64 physical, u64 flags, u64 gen, int mirror_num)
 {
@@ -1591,7 +1730,7 @@ static int scrub_extent(struct scrub_dev *sdev, u64 logical, u64 len,
 		int have_csum = 0;
 
 		if (flags & BTRFS_EXTENT_FLAG_DATA) {
-			
+			/* push csums to sbio */
 			have_csum = scrub_find_csum(sdev, logical, l, csum);
 			if (have_csum == 0)
 				++sdev->stat.no_csum;
@@ -1662,9 +1801,19 @@ static noinline_for_stack int scrub_stripe(struct scrub_dev *sdev,
 	if (!path)
 		return -ENOMEM;
 
+	/*
+	 * work on commit root. The related disk blocks are static as
+	 * long as COW is applied. This means, it is save to rewrite
+	 * them to repair disk errors without any race conditions
+	 */
 	path->search_commit_root = 1;
 	path->skip_locking = 1;
 
+	/*
+	 * trigger the readahead for extent tree csum tree and wait for
+	 * completion. During readahead, the scrub is officially paused
+	 * to not hold off transaction commits
+	 */
 	logical = base + offset;
 
 	wait_event(sdev->list_wait,
@@ -1672,7 +1821,7 @@ static noinline_for_stack int scrub_stripe(struct scrub_dev *sdev,
 	atomic_inc(&fs_info->scrubs_paused);
 	wake_up(&fs_info->scrub_pause_wait);
 
-	
+	/* FIXME it might be better to start readahead at commit root */
 	key_start.objectid = logical;
 	key_start.type = BTRFS_EXTENT_ITEM_KEY;
 	key_start.offset = (u64)0;
@@ -1705,19 +1854,32 @@ static noinline_for_stack int scrub_stripe(struct scrub_dev *sdev,
 	mutex_unlock(&fs_info->scrub_lock);
 	wake_up(&fs_info->scrub_pause_wait);
 
+	/*
+	 * collect all data csums for the stripe to avoid seeking during
+	 * the scrub. This might currently (crc32) end up to be about 1MB
+	 */
 	blk_start_plug(&plug);
 
+	/*
+	 * now find all extents for each stripe and scrub them
+	 */
 	logical = base + offset;
 	physical = map->stripes[num].physical;
 	ret = 0;
 	for (i = 0; i < nstripes; ++i) {
+		/*
+		 * canceled?
+		 */
 		if (atomic_read(&fs_info->scrub_cancel_req) ||
 		    atomic_read(&sdev->cancel_req)) {
 			ret = -ECANCELED;
 			goto out;
 		}
+		/*
+		 * check to see if we have to pause
+		 */
 		if (atomic_read(&fs_info->scrub_pause_req)) {
-			
+			/* push queued extents */
 			scrub_submit(sdev);
 			wait_event(sdev->list_wait,
 				   atomic_read(&sdev->in_flight) == 0);
@@ -1754,6 +1916,8 @@ static noinline_for_stack int scrub_stripe(struct scrub_dev *sdev,
 			if (ret < 0)
 				goto out;
 			if (ret > 0) {
+				/* there's no smaller item, so stick with the
+				 * larger one */
 				btrfs_release_path(path);
 				ret = btrfs_search_slot(NULL, root, &key,
 							path, 0, 0);
@@ -1800,6 +1964,9 @@ static noinline_for_stack int scrub_stripe(struct scrub_dev *sdev,
 				goto next;
 			}
 
+			/*
+			 * trim extent to this stripe
+			 */
 			if (key.objectid < logical) {
 				key.offset -= logical - key.objectid;
 				key.objectid = logical;
@@ -1826,7 +1993,7 @@ next:
 		sdev->stat.last_physical = physical;
 		spin_unlock(&sdev->stat_lock);
 	}
-	
+	/* push queued extents */
 	scrub_submit(sdev);
 
 out:
@@ -1948,6 +2115,10 @@ int scrub_enumerate_chunks(struct scrub_dev *sdev, u64 start, u64 end)
 		chunk_objectid = btrfs_dev_extent_chunk_objectid(l, dev_extent);
 		chunk_offset = btrfs_dev_extent_chunk_offset(l, dev_extent);
 
+		/*
+		 * get a reference on the corresponding block group to prevent
+		 * the chunk from going away while we scrub it
+		 */
 		cache = btrfs_lookup_block_group(fs_info, chunk_offset);
 		if (!cache) {
 			ret = -ENOENT;
@@ -1965,6 +2136,10 @@ int scrub_enumerate_chunks(struct scrub_dev *sdev, u64 start, u64 end)
 
 	btrfs_free_path(path);
 
+	/*
+	 * ret can still be 1 from search_slot or next_leaf,
+	 * that's not an error
+	 */
 	return ret < 0 ? ret : 0;
 }
 
@@ -1997,6 +2172,9 @@ static noinline_for_stack int scrub_supers(struct scrub_dev *sdev)
 	return 0;
 }
 
+/*
+ * get a reference count on fs_info->scrub_workers. start worker if necessary
+ */
 static noinline_for_stack int scrub_workers_get(struct btrfs_root *root)
 {
 	struct btrfs_fs_info *fs_info = root->fs_info;
@@ -2041,6 +2219,9 @@ int btrfs_scrub_dev(struct btrfs_root *root, u64 devid, u64 start, u64 end,
 	if (btrfs_fs_closing(root->fs_info))
 		return -EINVAL;
 
+	/*
+	 * check some assumptions
+	 */
 	if (root->nodesize != root->leafsize) {
 		printk(KERN_ERR
 		       "btrfs_scrub: size assumption nodesize == leafsize (%d == %d) fails\n",
@@ -2049,6 +2230,11 @@ int btrfs_scrub_dev(struct btrfs_root *root, u64 devid, u64 start, u64 end,
 	}
 
 	if (root->nodesize > BTRFS_STRIPE_LEN) {
+		/*
+		 * in this case scrub is unable to calculate the checksum
+		 * the way scrub is implemented. Do not handle this
+		 * situation at all because it won't ever happen.
+		 */
 		printk(KERN_ERR
 		       "btrfs_scrub: size assumption nodesize <= BTRFS_STRIPE_LEN (%d <= %d) fails\n",
 		       root->nodesize, BTRFS_STRIPE_LEN);
@@ -2056,7 +2242,7 @@ int btrfs_scrub_dev(struct btrfs_root *root, u64 devid, u64 start, u64 end,
 	}
 
 	if (root->sectorsize != PAGE_SIZE) {
-		
+		/* not supported for data w/o checksums */
 		printk(KERN_ERR
 		       "btrfs_scrub: size assumption sectorsize != PAGE_SIZE (%d != %lld) fails\n",
 		       root->sectorsize, (unsigned long long)PAGE_SIZE);
@@ -2220,6 +2406,10 @@ int btrfs_scrub_cancel_devid(struct btrfs_root *root, u64 devid)
 	struct btrfs_device *dev;
 	int ret;
 
+	/*
+	 * we have to hold the device_list_mutex here so the device
+	 * does not go away in cancel_dev. FIXME: find a better solution
+	 */
 	mutex_lock(&fs_info->fs_devices->device_list_mutex);
 	dev = btrfs_find_device(root, devid, NULL, NULL);
 	if (!dev) {

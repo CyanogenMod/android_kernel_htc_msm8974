@@ -20,8 +20,12 @@
 
 #define ASB2364_7SEGLEDS	__SYSREG(0xA9001630, u32)
 
+/*
+ * use the 7-segment LEDs to indicate states
+ */
 
 #if MN10300_USE_7SEGLEDS
+/* flip the 7-segment LEDs between "Gdb-" and "----" */
 #define mn10300_set_gdbleds(ONOFF)					\
 	do {								\
 		ASB2364_7SEGLEDS = (ONOFF) ? 0x8543077f : 0x7f7f7f7f;	\
@@ -31,6 +35,7 @@
 #endif
 
 #if MN10300_USE_7SEGLEDS
+/* indicate double-fault by displaying "db-f" on the LEDs */
 #define mn10300_set_dbfleds			\
 	mov	0x43077f1d,d0		;	\
 	mov	d0,(ASB2364_7SEGLEDS)
@@ -44,6 +49,6 @@ extern void peripheral_leds_led_chase(void);
 extern void peripheral_leds7x4_display_dec(unsigned int, unsigned int);
 extern void peripheral_leds7x4_display_hex(unsigned int, unsigned int);
 extern void debug_to_serial(const char *, int);
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_UNIT_LEDS_H */

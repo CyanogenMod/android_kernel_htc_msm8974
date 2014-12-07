@@ -31,6 +31,7 @@
 #define LOFT_MAX_DEV	6
 #define IRQ_LINES	4
 
+/* PCI controller GPIO to IRQ pin mappings */
 #define INTA		11
 #define INTB		10
 #define INTC		9

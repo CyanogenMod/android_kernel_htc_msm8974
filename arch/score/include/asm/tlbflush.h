@@ -3,6 +3,15 @@
 
 #include <linux/mm.h>
 
+/*
+ * TLB flushing:
+ *
+ * - flush_tlb_all() flushes all processes TLB entries
+ * - flush_tlb_mm(mm) flushes the specified mm context TLB entries
+ * - flush_tlb_page(vma, vmaddr) flushes one page
+ * - flush_tlb_range(vma, start, end) flushes a range of pages
+ * - flush_tlb_kernel_range(start, end) flushes a range of kernel pages
+ */
 extern void local_flush_tlb_all(void);
 extern void local_flush_tlb_mm(struct mm_struct *mm);
 extern void local_flush_tlb_range(struct vm_area_struct *vma,
@@ -107,6 +116,7 @@ static inline void peaddr_set(unsigned long val)
 		: : "r" (val));
 }
 
+/* TLB operations. */
 static inline void tlb_probe(void)
 {
 	__asm__ __volatile__("stlb;nop;nop;nop;nop;nop");
@@ -127,6 +137,6 @@ static inline void tlb_write_random(void)
 	__asm__ __volatile__("mtrtlb;nop;nop;nop;nop;nop");
 }
 
-#endif 
+#endif /* Not __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_SCORE_TLBFLUSH_H */

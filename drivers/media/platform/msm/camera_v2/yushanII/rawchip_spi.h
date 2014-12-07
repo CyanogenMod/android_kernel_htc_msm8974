@@ -29,7 +29,7 @@ int rawchip_spi_read_burst(uint16_t addr, unsigned char *data, int count);
 int rawchip_spi_read_2B4B(uint16_t addr, uint32_t *data);
 int rawchip_spi_read_2B1B(uint16_t addr, unsigned char *data);
 int rawchip_spi_read_2B2B(uint16_t addr, uint16_t *data);
-int yushan_spi_write(uint16_t reg, uint8_t val);
+int yushan_spi_write(uint16_t reg, uint8_t/*uint16_t*/ val);
 
 int SPI_Read32( uint16_t uwIndex , uint16_t uwCount , uint32_t * pData);
 int	SPI_Read(uint16_t uwIndex , uint16_t uwCount , uint8_t *pData);

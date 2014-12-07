@@ -33,6 +33,7 @@
 #include <asm/fw/cfe/cfe_api.h>
 #include <asm/fw/cfe/cfe_error.h>
 
+/* Max ram addressable in 32-bit segments */
 #ifdef CONFIG_64BIT
 #define MAX_RAM_SIZE (~0ULL)
 #else
@@ -65,9 +66,9 @@ static void __noreturn cfe_linux_exit(void *arg)
 	if (smp_processor_id()) {
 		static int reboot_smp;
 
-		
+		/* Don't repeat the process from another CPU */
 		if (!reboot_smp) {
-			
+			/* Get CPU 0 to do the cfe_exit */
 			reboot_smp = 1;
 			smp_call_function(cfe_linux_exit, arg, 0);
 		}
@@ -95,7 +96,7 @@ static void __noreturn cfe_linux_halt(void)
 
 static __init void prom_meminit(void)
 {
-	u64 addr, size, type; 
+	u64 addr, size, type; /* regardless of 64BIT_PHYS_ADDR */
 	int mem_flags = 0;
 	unsigned int idx;
 	int rd_flag;
@@ -111,12 +112,16 @@ static __init void prom_meminit(void)
 		panic("initrd out of addressable memory");
 	}
 
-#endif 
+#endif /* INITRD */
 
 	for (idx = 0; cfe_enummem(idx, mem_flags, &addr, &size, &type) != CFE_ERR_NOMORE;
 	     idx++) {
 		rd_flag = 0;
 		if (type == CFE_MI_AVAILABLE) {
+			/*
+			 * See if this block contains (any portion of) the
+			 * ramdisk
+			 */
 #ifdef CONFIG_BLK_DEV_INITRD
 			if (initrd_start) {
 				if ((initrd_pstart > addr) &&
@@ -140,6 +145,13 @@ static __init void prom_meminit(void)
 					continue;
 				if (addr+size > MAX_RAM_SIZE)
 					size = MAX_RAM_SIZE - (addr+size) + 1;
+				/*
+				 * memcpy/__copy_user prefetch, which
+				 * will cause a bus error for
+				 * KSEG/KUSEG addrs not backed by RAM.
+				 * Hence, reserve some padding for the
+				 * prefetch distance.
+				 */
 				if (size > 512)
 					size -= 512;
 				add_memory_region(addr, size, BOOT_MEM_RAM);
@@ -149,6 +161,9 @@ static __init void prom_meminit(void)
 			board_mem_region_count++;
 			if (board_mem_region_count ==
 			    SIBYTE_MAX_MEM_REGIONS) {
+				/*
+				 * Too many regions.  Need to configure more
+				 */
 				while(1);
 			}
 		}
@@ -169,7 +184,7 @@ static int __init initrd_setup(char *str)
 	char *tmp, *endptr;
 	unsigned long initrd_size;
 
-	
+	/* Make a copy of the initrd argument so we can smash it up here */
 	for (idx = 0; idx < sizeof(rdarg)-1; idx++) {
 		if (!str[idx] || (str[idx] == ' ')) break;
 		rdarg[idx] = str[idx];
@@ -178,6 +193,10 @@ static int __init initrd_setup(char *str)
 	rdarg[idx] = 0;
 	str = rdarg;
 
+	/*
+	 *Initrd location comes in the form "<hex size of ramdisk in bytes>@<location in memory>"
+	 *  e.g. initrd=3abfd@80010000.  This is set up by the loader.
+	 */
 	for (tmp = str; *tmp != '@'; tmp++) {
 		if (!*tmp) {
 			goto fail;
@@ -213,6 +232,9 @@ static int __init initrd_setup(char *str)
 extern struct plat_smp_ops sb_smp_ops;
 extern struct plat_smp_ops bcm1480_smp_ops;
 
+/*
+ * prom_init is called just after the cpu type is determined, from setup_arch()
+ */
 void __init prom_init(void)
 {
 	uint64_t cfe_ept, cfe_handle;
@@ -225,32 +247,50 @@ void __init prom_init(void)
 	_machine_halt      = cfe_linux_halt;
 	pm_power_off = cfe_linux_halt;
 
+	/*
+	 * Check if a loader was used; if NOT, the 4 arguments are
+	 * what CFE gives us (handle, 0, EPT and EPTSEAL)
+	 */
 	if (argc < 0) {
 		cfe_handle = (uint64_t)(long)argc;
 		cfe_ept = (long)envp;
 		cfe_eptseal = (uint32_t)(unsigned long)prom_vec;
 	} else {
 		if ((int32_t)(long)prom_vec < 0) {
+			/*
+			 * Old loader; all it gives us is the handle,
+			 * so use the "known" entrypoint and assume
+			 * the seal.
+			 */
 			cfe_handle = (uint64_t)(long)prom_vec;
 			cfe_ept = (uint64_t)((int32_t)0x9fc00500);
 			cfe_eptseal = CFE_EPTSEAL;
 		} else {
+			/*
+			 * Newer loaders bundle the handle/ept/eptseal
+			 * Note: prom_vec is in the loader's useg
+			 * which is still alive in the TLB.
+			 */
 			cfe_handle = (uint64_t)((int32_t *)prom_vec)[0];
 			cfe_ept = (uint64_t)((int32_t *)prom_vec)[2];
 			cfe_eptseal = (unsigned int)((uint32_t *)prom_vec)[3];
 		}
 	}
 	if (cfe_eptseal != CFE_EPTSEAL) {
-		
+		/* too early for panic to do any good */
 		printk("CFE's entrypoint seal doesn't match. Spinning.");
 		while (1) ;
 	}
 	cfe_init(cfe_handle, cfe_ept);
+	/*
+	 * Get the handle for (at least) prom_putchar, possibly for
+	 * boot console
+	 */
 	cfe_cons_handle = cfe_getstdhandle(CFE_STDHANDLE_CONSOLE);
 	if (cfe_getenv("LINUX_CMDLINE", arcs_cmdline, COMMAND_LINE_SIZE) < 0) {
 		if (argc >= 0) {
-			
-			
+			/* The loader should have set the command line */
+			/* too early for panic to do any good */
 			printk("LINUX_CMDLINE not defined in cfe.");
 			while (1) ;
 		}
@@ -259,6 +299,8 @@ void __init prom_init(void)
 #ifdef CONFIG_BLK_DEV_INITRD
 	{
 		char *ptr;
+		/* Need to find out early whether we've got an initrd.  So scan
+		   the list looking now */
 		for (ptr = arcs_cmdline; *ptr; ptr++) {
 			while (*ptr == ' ') {
 				ptr++;
@@ -273,9 +315,9 @@ void __init prom_init(void)
 			}
 		}
 	}
-#endif 
+#endif /* CONFIG_BLK_DEV_INITRD */
 
-	
+	/* Not sure this is needed, but it's the safe way. */
 	arcs_cmdline[COMMAND_LINE_SIZE-1] = 0;
 
 	prom_meminit();
@@ -290,7 +332,7 @@ void __init prom_init(void)
 
 void __init prom_free_prom_memory(void)
 {
-	
+	/* Not sure what I'm supposed to do here.  Nothing, I think */
 }
 
 void prom_putchar(char c)

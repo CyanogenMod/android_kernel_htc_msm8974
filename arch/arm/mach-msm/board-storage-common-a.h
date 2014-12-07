@@ -34,12 +34,39 @@ static struct msm_bus_vectors sps_to_ddr_perf_vectors_##num[] = { \
 		sps_to_ddr_perf_vectors_##num, \
 	}
 
+/* no bandwidth required */
 MSM_BUS_SPS_TO_DDR_VOTE_VECTOR(0, 0);
+/*
+ * 13 MB/s bandwidth
+ * 4-bit MMC_TIMING_LEGACY
+ * 4-bit MMC_TIMING_UHS_SDR12
+ */
 MSM_BUS_SPS_TO_DDR_VOTE_VECTOR(1, 13 * 1024 * 1024);
+/*
+ * 26 MB/s bandwidth
+ * 8-bit MMC_TIMING_LEGACY
+ * 4-bit MMC_TIMING_MMC_HS / MMC_TIMING_SD_HS /
+ *	 MMC_TIMING_UHS_SDR25
+ */
 MSM_BUS_SPS_TO_DDR_VOTE_VECTOR(2, 26 * 1024 * 1024);
+/*
+ * 52 MB/s bandwidth
+ * 8-bit MMC_TIMING_MMC_HS
+ * 4-bit MMC_TIMING_UHS_SDR50 / MMC_TIMING_UHS_DDR50
+ */
 MSM_BUS_SPS_TO_DDR_VOTE_VECTOR(3, 52 * 1024 * 1024);
+/*
+ * 104 MB/s bandwidth
+ * 8-bit MMC_TIMING_UHS_DDR50
+ * 4-bit MMC_TIMING_UHS_SDR104 / MMC_TIMING_MMC_HS200
+ */
 MSM_BUS_SPS_TO_DDR_VOTE_VECTOR(4, 104 * 1024 * 1024);
+/*
+ * 200 MB/s bandwidth
+ * 8-bit MMC_TIMING_MMC_HS200
+ */
 MSM_BUS_SPS_TO_DDR_VOTE_VECTOR(5, 200 * 1024 * 1024);
+/* max. possible bandwidth */
 MSM_BUS_SPS_TO_DDR_VOTE_VECTOR(6, UINT_MAX);
 
 static unsigned int sdcc_bw_vectors[] = {0, (13 * 1024 * 1024),
@@ -69,4 +96,4 @@ static struct msm_mmc_bus_voting_data sps_to_ddr_bus_voting_data = {
 	.bw_vecs_size = sizeof(sdcc_bw_vectors),
 };
 
-#endif 
+#endif /* _BOARD_STORAGE_A_H */

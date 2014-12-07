@@ -39,6 +39,18 @@
 #include "xfs_qm.h"
 #include "xfs_trace.h"
 
+/*
+ * Lock order:
+ *
+ * ip->i_lock
+ *   qi->qi_tree_lock
+ *     dquot->q_qlock (xfs_dqlock() and friends)
+ *       dquot->q_flush (xfs_dqflock() and friends)
+ *       qi->qi_lru_lock
+ *
+ * If two dquots need to be locked the order is user before group/project,
+ * otherwise by the lowest id first, see xfs_dqlock2.
+ */
 
 #ifdef DEBUG
 xfs_buftarg_t *xfs_dqerror_target;
@@ -52,6 +64,9 @@ static struct kmem_zone		*xfs_qm_dqzone;
 
 static struct lock_class_key xfs_dquot_other_class;
 
+/*
+ * This is called to free all the memory associated with a dquot
+ */
 void
 xfs_qm_dqdestroy(
 	xfs_dquot_t	*dqp)
@@ -64,6 +79,11 @@ xfs_qm_dqdestroy(
 	XFS_STATS_DEC(xs_qm_dquot);
 }
 
+/*
+ * If default limits are in force, push them into the dquot now.
+ * We overwrite the dquot limits only if they are zero and this
+ * is not the root dquot.
+ */
 void
 xfs_qm_adjust_dqlimits(
 	xfs_mount_t		*mp,
@@ -87,6 +107,19 @@ xfs_qm_adjust_dqlimits(
 		d->d_rtb_hardlimit = cpu_to_be64(q->qi_rtbhardlimit);
 }
 
+/*
+ * Check the limits and timers of a dquot and start or reset timers
+ * if necessary.
+ * This gets called even when quota enforcement is OFF, which makes our
+ * life a little less complicated. (We just don't reject any quota
+ * reservations in that case, when enforcement is off).
+ * We also return 0 as the values of the timers in Q_GETQUOTA calls, when
+ * enforcement's off.
+ * In contrast, warnings are a little different in that they don't
+ * 'automatically' get started when limits get exceeded.  They do
+ * get reset to zero, however, when we find the count to be under
+ * the soft limit (they are only ever set non-zero via userspace).
+ */
 void
 xfs_qm_adjust_dqtimers(
 	xfs_mount_t		*mp,
@@ -176,6 +209,9 @@ xfs_qm_adjust_dqtimers(
 	}
 }
 
+/*
+ * initialize a buffer full of dquots and log the whole thing
+ */
 STATIC void
 xfs_qm_init_dquot_blk(
 	xfs_trans_t	*tp,
@@ -193,6 +229,9 @@ xfs_qm_init_dquot_blk(
 
 	d = bp->b_addr;
 
+	/*
+	 * ID of the first dquot in the block - id's are zero based.
+	 */
 	curid = id - (id % q->qi_dqperchunk);
 	ASSERT(curid >= 0);
 	memset(d, 0, BBTOB(q->qi_dqchunklen));
@@ -212,6 +251,10 @@ xfs_qm_init_dquot_blk(
 
 
 
+/*
+ * Allocate a block and fill it with dquots.
+ * This is called when the bmapi finds a hole.
+ */
 STATIC int
 xfs_qm_dqalloc(
 	xfs_trans_t	**tpp,
@@ -232,8 +275,15 @@ xfs_qm_dqalloc(
 
 	trace_xfs_dqalloc(dqp);
 
+	/*
+	 * Initialize the bmap freelist prior to calling bmapi code.
+	 */
 	xfs_bmap_init(&flist, &firstblock);
 	xfs_ilock(quotip, XFS_ILOCK_EXCL);
+	/*
+	 * Return if this type of quotas is turned off while we didn't
+	 * have an inode lock
+	 */
 	if (!xfs_this_quota_on(dqp->q_mount, dqp->dq_flags)) {
 		xfs_iunlock(quotip, XFS_ILOCK_EXCL);
 		return (ESRCH);
@@ -252,9 +302,12 @@ xfs_qm_dqalloc(
 	ASSERT((map.br_startblock != DELAYSTARTBLOCK) &&
 	       (map.br_startblock != HOLESTARTBLOCK));
 
+	/*
+	 * Keep track of the blkno to save a lookup later
+	 */
 	dqp->q_blkno = XFS_FSB_TO_DADDR(mp, map.br_startblock);
 
-	
+	/* now we can just get the buffer (there's nothing to read yet) */
 	bp = xfs_trans_get_buf(tp, mp->m_ddev_targp,
 			       dqp->q_blkno,
 			       mp->m_quotainfo->qi_dqchunklen,
@@ -264,9 +317,25 @@ xfs_qm_dqalloc(
 	if (error)
 		goto error1;
 
+	/*
+	 * Make a chunk of dquots out of this buffer and log
+	 * the entire thing.
+	 */
 	xfs_qm_init_dquot_blk(tp, mp, be32_to_cpu(dqp->q_core.d_id),
 			      dqp->dq_flags & XFS_DQ_ALLTYPES, bp);
 
+	/*
+	 * xfs_bmap_finish() may commit the current transaction and
+	 * start a second transaction if the freelist is not empty.
+	 *
+	 * Since we still want to modify this buffer, we need to
+	 * ensure that the buffer is not released on commit of
+	 * the first transaction and ensure the buffer is added to the
+	 * second transaction.
+	 *
+	 * If there is only one transaction then don't stop the buffer
+	 * from being released when it commits later on.
+	 */
 
 	xfs_trans_bhold(tp, bp);
 
@@ -292,6 +361,11 @@ xfs_qm_dqalloc(
 	return (error);
 }
 
+/*
+ * Maps a dquot to the buffer containing its on-disk version.
+ * This returns a ptr to the buffer containing the on-disk dquot
+ * in the bpp param, and a ptr to the on-disk dquot within that buffer
+ */
 STATIC int
 xfs_qm_dqtobp(
 	xfs_trans_t		**tpp,
@@ -313,10 +387,17 @@ xfs_qm_dqtobp(
 
 	xfs_ilock(quotip, XFS_ILOCK_SHARED);
 	if (!xfs_this_quota_on(dqp->q_mount, dqp->dq_flags)) {
+		/*
+		 * Return if this type of quotas is turned off while we
+		 * didn't have the quota inode lock.
+		 */
 		xfs_iunlock(quotip, XFS_ILOCK_SHARED);
 		return ESRCH;
 	}
 
+	/*
+	 * Find the block map; no allocations yet
+	 */
 	error = xfs_bmapi_read(quotip, dqp->q_fileoffset,
 			       XFS_DQUOT_CLUSTER_SIZE_FSB, &map, &nmaps, 0);
 
@@ -327,11 +408,17 @@ xfs_qm_dqtobp(
 	ASSERT(nmaps == 1);
 	ASSERT(map.br_blockcount == 1);
 
+	/*
+	 * Offset of dquot in the (fixed sized) dquot chunk.
+	 */
 	dqp->q_bufoffset = (id % mp->m_quotainfo->qi_dqperchunk) *
 		sizeof(xfs_dqblk_t);
 
 	ASSERT(map.br_startblock != DELAYSTARTBLOCK);
 	if (map.br_startblock == HOLESTARTBLOCK) {
+		/*
+		 * We don't allocate unless we're asked to
+		 */
 		if (!(flags & XFS_QMOPT_DQALLOC))
 			return ENOENT;
 
@@ -344,6 +431,10 @@ xfs_qm_dqtobp(
 	} else {
 		trace_xfs_dqtobp_read(dqp);
 
+		/*
+		 * store the blkno etc so that we don't have to do the
+		 * mapping all the time
+		 */
 		dqp->q_blkno = XFS_FSB_TO_DADDR(mp, map.br_startblock);
 
 		error = xfs_trans_read_buf(mp, tp, mp->m_ddev_targp,
@@ -356,8 +447,14 @@ xfs_qm_dqtobp(
 
 	ASSERT(xfs_buf_islocked(bp));
 
+	/*
+	 * calculate the location of the dquot inside the buffer.
+	 */
 	ddq = bp->b_addr + dqp->q_bufoffset;
 
+	/*
+	 * A simple sanity check in case we got a corrupted dquot...
+	 */
 	error = xfs_qm_dqcheck(mp, ddq, id, dqp->dq_flags & XFS_DQ_ALLTYPES,
 			   flags & (XFS_QMOPT_DQREPAIR|XFS_QMOPT_DOWARN),
 			   "dqtobp");
@@ -375,6 +472,12 @@ xfs_qm_dqtobp(
 }
 
 
+/*
+ * Read in the ondisk dquot using dqtobp() then copy it to an incore version,
+ * and release the buffer immediately.
+ *
+ * If XFS_QMOPT_DQALLOC is set, allocate a dquot on disk if it needed.
+ */
 int
 xfs_qm_dqread(
 	struct xfs_mount	*mp,
@@ -400,9 +503,18 @@ xfs_qm_dqread(
 	mutex_init(&dqp->q_qlock);
 	init_waitqueue_head(&dqp->q_pinwait);
 
+	/*
+	 * Because we want to use a counting completion, complete
+	 * the flush completion once to allow a single access to
+	 * the flush completion without blocking.
+	 */
 	init_completion(&dqp->q_flush);
 	complete(&dqp->q_flush);
 
+	/*
+	 * Make sure group quotas have a different lock class than user
+	 * quotas.
+	 */
 	if (!(type & XFS_DQ_USER))
 		lockdep_set_class(&dqp->q_qlock, &xfs_dquot_other_class);
 
@@ -414,6 +526,10 @@ xfs_qm_dqread(
 		tp = xfs_trans_alloc(mp, XFS_TRANS_QM_DQALLOC);
 		error = xfs_trans_reserve(tp, XFS_QM_DQALLOC_SPACE_RES(mp),
 				XFS_WRITE_LOG_RES(mp) +
+				/*
+				 * Round the chunklen up to the next multiple
+				 * of 128 (buf log item chunk size)).
+				 */
 				BBTOB(mp->m_quotainfo->qi_dqchunklen) - 1 + 128,
 				0,
 				XFS_TRANS_PERM_LOG_RES,
@@ -423,24 +539,49 @@ xfs_qm_dqread(
 		cancelflags = XFS_TRANS_RELEASE_LOG_RES;
 	}
 
+	/*
+	 * get a pointer to the on-disk dquot and the buffer containing it
+	 * dqp already knows its own type (GROUP/USER).
+	 */
 	error = xfs_qm_dqtobp(&tp, dqp, &ddqp, &bp, flags);
 	if (error) {
+		/*
+		 * This can happen if quotas got turned off (ESRCH),
+		 * or if the dquot didn't exist on disk and we ask to
+		 * allocate (ENOENT).
+		 */
 		trace_xfs_dqread_fail(dqp);
 		cancelflags |= XFS_TRANS_ABORT;
 		goto error1;
 	}
 
-	
+	/* copy everything from disk dquot to the incore dquot */
 	memcpy(&dqp->q_core, ddqp, sizeof(xfs_disk_dquot_t));
 	xfs_qm_dquot_logitem_init(dqp);
 
+	/*
+	 * Reservation counters are defined as reservation plus current usage
+	 * to avoid having to add every time.
+	 */
 	dqp->q_res_bcount = be64_to_cpu(ddqp->d_bcount);
 	dqp->q_res_icount = be64_to_cpu(ddqp->d_icount);
 	dqp->q_res_rtbcount = be64_to_cpu(ddqp->d_rtbcount);
 
-	
+	/* Mark the buf so that this will stay incore a little longer */
 	xfs_buf_set_ref(bp, XFS_DQUOT_REF);
 
+	/*
+	 * We got the buffer with a xfs_trans_read_buf() (in dqtobp())
+	 * So we need to release with xfs_trans_brelse().
+	 * The strategy here is identical to that of inodes; we lock
+	 * the dquot in xfs_qm_dqget() before making it accessible to
+	 * others. This is because dquots, like inodes, need a good level of
+	 * concurrency, and we don't want to take locks on the entire buffers
+	 * for dquot accesses.
+	 * Note also that the dquot buffer may even be dirty at this point, if
+	 * this particular dquot was repaired. We still aren't afraid to
+	 * brelse it because we have the changes incore.
+	 */
 	ASSERT(xfs_buf_islocked(bp));
 	xfs_trans_brelse(tp, bp);
 
@@ -462,14 +603,22 @@ error0:
 	return error;
 }
 
+/*
+ * Given the file system, inode OR id, and type (UDQUOT/GDQUOT), return a
+ * a locked dquot, doing an allocation (if requested) as needed.
+ * When both an inode and an id are given, the inode's id takes precedence.
+ * That is, if the id changes while we don't hold the ilock inside this
+ * function, the new dquot is returned, not necessarily the one requested
+ * in the id argument.
+ */
 int
 xfs_qm_dqget(
 	xfs_mount_t	*mp,
-	xfs_inode_t	*ip,	  
-	xfs_dqid_t	id,	  
-	uint		type,	  
-	uint		flags,	  
-	xfs_dquot_t	**O_dqpp) 
+	xfs_inode_t	*ip,	  /* locked inode (optional) */
+	xfs_dqid_t	id,	  /* uid/projid/gid depending on type */
+	uint		type,	  /* XFS_DQ_USER/XFS_DQ_PROJ/XFS_DQ_GROUP */
+	uint		flags,	  /* DQALLOC, DQSUSER, DQREPAIR, DOWARN */
+	xfs_dquot_t	**O_dqpp) /* OUT : locked incore dquot */
 {
 	struct xfs_quotainfo	*qi = mp->m_quotainfo;
 	struct radix_tree_root *tree = XFS_DQUOT_TREE(qi, type);
@@ -525,6 +674,13 @@ restart:
 	mutex_unlock(&qi->qi_tree_lock);
 	XFS_STATS_INC(xs_qm_dqcachemisses);
 
+	/*
+	 * Dquot cache miss. We don't want to keep the inode lock across
+	 * a (potential) disk read. Also we don't want to deal with the lock
+	 * ordering between quotainode and this inode. OTOH, dropping the inode
+	 * lock here means dealing with a chown that can happen before
+	 * we re-acquire the lock.
+	 */
 	if (ip)
 		xfs_iunlock(ip, XFS_ILOCK_EXCL);
 
@@ -537,6 +693,10 @@ restart:
 		return error;
 
 	if (ip) {
+		/*
+		 * A dquot could be attached to this inode by now, since
+		 * we had dropped the ilock.
+		 */
 		if (xfs_this_quota_on(mp, type)) {
 			struct xfs_dquot	*dqp1;
 
@@ -548,7 +708,7 @@ restart:
 				goto dqret;
 			}
 		} else {
-			
+			/* inode stays locked on return */
 			xfs_qm_dqdestroy(dqp);
 			return XFS_ERROR(ESRCH);
 		}
@@ -559,6 +719,10 @@ restart:
 	if (unlikely(error)) {
 		WARN_ON(error != EEXIST);
 
+		/*
+		 * Duplicate found. Just throw away the new dquot and start
+		 * over.
+		 */
 		mutex_unlock(&qi->qi_tree_lock);
 		trace_xfs_dqget_dup(dqp);
 		xfs_qm_dqdestroy(dqp);
@@ -566,6 +730,9 @@ restart:
 		goto restart;
 	}
 
+	/*
+	 * We return a locked dquot to the caller, with a reference taken
+	 */
 	xfs_dqlock(dqp);
 	dqp->q_nrefs = 1;
 
@@ -597,6 +764,11 @@ xfs_qm_dqput_final(
 	}
 	mutex_unlock(&qi->qi_lru_lock);
 
+	/*
+	 * If we just added a udquot to the freelist, then we want to release
+	 * the gdquot reference that it (probably) has. Otherwise it'll keep
+	 * the gdquot from getting reclaimed.
+	 */
 	gdqp = dqp->q_gdquot;
 	if (gdqp) {
 		xfs_dqlock(gdqp);
@@ -604,10 +776,19 @@ xfs_qm_dqput_final(
 	}
 	xfs_dqunlock(dqp);
 
+	/*
+	 * If we had a group quota hint, release it now.
+	 */
 	if (gdqp)
 		xfs_qm_dqput(gdqp);
 }
 
+/*
+ * Release a reference to the dquot (decrement ref-count) and unlock it.
+ *
+ * If there is a group quota attached to this dquot, carefully release that
+ * too without tripping over deadlocks'n'stuff.
+ */
 void
 xfs_qm_dqput(
 	struct xfs_dquot	*dqp)
@@ -623,6 +804,10 @@ xfs_qm_dqput(
 		xfs_qm_dqput_final(dqp);
 }
 
+/*
+ * Release a dquot. Flush it if dirty, then dqput() it.
+ * dquot must not be locked.
+ */
 void
 xfs_qm_dqrele(
 	xfs_dquot_t	*dqp)
@@ -633,9 +818,22 @@ xfs_qm_dqrele(
 	trace_xfs_dqrele(dqp);
 
 	xfs_dqlock(dqp);
+	/*
+	 * We don't care to flush it if the dquot is dirty here.
+	 * That will create stutters that we want to avoid.
+	 * Instead we do a delayed write when we try to reclaim
+	 * a dirty dquot. Also xfs_sync will take part of the burden...
+	 */
 	xfs_qm_dqput(dqp);
 }
 
+/*
+ * This is the dquot flushing I/O completion routine.  It is called
+ * from interrupt level when the buffer containing the dquot is
+ * flushed to disk.  It is responsible for removing the dquot logitem
+ * from the AIL if it has not been re-logged, and unlocking the dquot's
+ * flush lock. This behavior is very similar to that of inodes..
+ */
 STATIC void
 xfs_qm_dqflush_done(
 	struct xfs_buf		*bp,
@@ -645,10 +843,18 @@ xfs_qm_dqflush_done(
 	xfs_dquot_t		*dqp = qip->qli_dquot;
 	struct xfs_ail		*ailp = lip->li_ailp;
 
+	/*
+	 * We only want to pull the item from the AIL if its
+	 * location in the log has not changed since we started the flush.
+	 * Thus, we only bother if the dquot's lsn has
+	 * not changed. First we check the lsn outside the lock
+	 * since it's cheaper, and then we recheck while
+	 * holding the lock before removing the dquot from the AIL.
+	 */
 	if ((lip->li_flags & XFS_LI_IN_AIL) &&
 	    lip->li_lsn == qip->qli_flush_lsn) {
 
-		
+		/* xfs_trans_ail_delete() drops the AIL lock. */
 		spin_lock(&ailp->xa_lock);
 		if (lip->li_lsn == qip->qli_flush_lsn)
 			xfs_trans_ail_delete(ailp, lip);
@@ -656,9 +862,20 @@ xfs_qm_dqflush_done(
 			spin_unlock(&ailp->xa_lock);
 	}
 
+	/*
+	 * Release the dq's flush lock since we're done with it.
+	 */
 	xfs_dqfunlock(dqp);
 }
 
+/*
+ * Write a modified dquot to disk.
+ * The dquot must be locked and the flush lock too taken by caller.
+ * The flush lock will not be unlocked until the dquot reaches the disk,
+ * but the dquot is free to be unlocked and modified by the caller
+ * in the interim. Dquot is still locked on return. This behavior is
+ * identical to that of inodes.
+ */
 int
 xfs_qm_dqflush(
 	xfs_dquot_t		*dqp,
@@ -674,6 +891,9 @@ xfs_qm_dqflush(
 
 	trace_xfs_dqflush(dqp);
 
+	/*
+	 * If not dirty, or it's pinned and we are not supposed to block, nada.
+	 */
 	if (!XFS_DQ_IS_DIRTY(dqp) ||
 	    ((flags & SYNC_TRYLOCK) && atomic_read(&dqp->q_pincount) > 0)) {
 		xfs_dqfunlock(dqp);
@@ -681,12 +901,20 @@ xfs_qm_dqflush(
 	}
 	xfs_qm_dqunpin_wait(dqp);
 
+	/*
+	 * This may have been unpinned because the filesystem is shutting
+	 * down forcibly. If that's the case we must not write this dquot
+	 * to disk, because the log record didn't make it to disk!
+	 */
 	if (XFS_FORCED_SHUTDOWN(mp)) {
 		dqp->dq_flags &= ~XFS_DQ_DIRTY;
 		xfs_dqfunlock(dqp);
 		return XFS_ERROR(EIO);
 	}
 
+	/*
+	 * Get the buffer containing the on-disk dquot
+	 */
 	error = xfs_trans_read_buf(mp, NULL, mp->m_ddev_targp, dqp->q_blkno,
 				   mp->m_quotainfo->qi_dqchunklen, 0, &bp);
 	if (error) {
@@ -695,8 +923,14 @@ xfs_qm_dqflush(
 		return error;
 	}
 
+	/*
+	 * Calculate the location of the dquot inside the buffer.
+	 */
 	ddqp = bp->b_addr + dqp->q_bufoffset;
 
+	/*
+	 * A simple sanity check in case we got a corrupted dquot..
+	 */
 	error = xfs_qm_dqcheck(mp, &dqp->q_core, be32_to_cpu(ddqp->d_id), 0,
 			   XFS_QMOPT_DOWARN, "dqflush (incore copy)");
 	if (error) {
@@ -706,17 +940,28 @@ xfs_qm_dqflush(
 		return XFS_ERROR(EIO);
 	}
 
-	
+	/* This is the only portion of data that needs to persist */
 	memcpy(ddqp, &dqp->q_core, sizeof(xfs_disk_dquot_t));
 
+	/*
+	 * Clear the dirty field and remember the flush lsn for later use.
+	 */
 	dqp->dq_flags &= ~XFS_DQ_DIRTY;
 
 	xfs_trans_ail_copy_lsn(mp->m_ail, &dqp->q_logitem.qli_flush_lsn,
 					&dqp->q_logitem.qli_item.li_lsn);
 
+	/*
+	 * Attach an iodone routine so that we can remove this dquot from the
+	 * AIL and release the flush lock once the dquot is synced to disk.
+	 */
 	xfs_buf_attach_iodone(bp, xfs_qm_dqflush_done,
 				  &dqp->q_logitem.qli_item);
 
+	/*
+	 * If the buffer is pinned then push on the log so we won't
+	 * get stuck waiting in the write for too long.
+	 */
 	if (xfs_buf_ispinned(bp)) {
 		trace_xfs_dqflush_force(dqp);
 		xfs_log_force(mp, 0);
@@ -731,10 +976,19 @@ xfs_qm_dqflush(
 
 	trace_xfs_dqflush_done(dqp);
 
+	/*
+	 * dqp is still locked, but caller is free to unlock it now.
+	 */
 	return error;
 
 }
 
+/*
+ * Lock two xfs_dquot structures.
+ *
+ * To avoid deadlocks we always lock the quota structure with
+ * the lowerd id first.
+ */
 void
 xfs_dqlock2(
 	xfs_dquot_t	*d1,
@@ -757,6 +1011,10 @@ xfs_dqlock2(
 	}
 }
 
+/*
+ * Give the buffer a little push if it is incore and
+ * wait on the flush lock.
+ */
 void
 xfs_dqflock_pushbuf_wait(
 	xfs_dquot_t	*dqp)
@@ -764,6 +1022,12 @@ xfs_dqflock_pushbuf_wait(
 	xfs_mount_t	*mp = dqp->q_mount;
 	xfs_buf_t	*bp;
 
+	/*
+	 * Check to see if the dquot has been flushed delayed
+	 * write.  If so, grab its buffer and send it
+	 * out immediately.  We'll be able to acquire
+	 * the flush lock when the I/O completes.
+	 */
 	bp = xfs_incore(mp->m_ddev_targp, dqp->q_blkno,
 			mp->m_quotainfo->qi_dqchunklen, XBF_TRYLOCK);
 	if (!bp)

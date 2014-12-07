@@ -35,7 +35,7 @@ void flexcop_determine_revision(struct flexcop_device *fc)
 	else
 		deb_info("this FlexCop has "
 				"the 6 basic main hardware pid filter.\n");
-	
+	/* bus parts have to decide if hw pid filtering is used or not. */
 }
 
 static const char *flexcop_revision_names[] = {

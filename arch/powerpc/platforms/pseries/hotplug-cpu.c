@@ -21,7 +21,7 @@
 #include <linux/kernel.h>
 #include <linux/interrupt.h>
 #include <linux/delay.h>
-#include <linux/sched.h>	
+#include <linux/sched.h>	/* for idle_task_exit */
 #include <linux/cpu.h>
 #include <asm/prom.h>
 #include <asm/rtas.h>
@@ -33,6 +33,7 @@
 #include "plpar_wrappers.h"
 #include "offline_states.h"
 
+/* This version can't take the spinlock, because it never returns */
 static struct rtas_args rtas_stop_self_args = {
 	.token = RTAS_UNKNOWN_SERVICE,
 	.nargs = 0,
@@ -48,6 +49,9 @@ static enum cpu_state_vals default_offline_state = CPU_STATE_OFFLINE;
 
 static int cede_offline_enabled __read_mostly = 1;
 
+/*
+ * Enable/disable cede_offline when available.
+ */
 static int __init setup_cede_offline(char *str)
 {
 	if (!strcmp(str, "off"))
@@ -133,18 +137,23 @@ static void pseries_mach_cpu_die(void)
 		if (get_preferred_offline_state(cpu) == CPU_STATE_ONLINE) {
 			unregister_slb_shadow(hwcpu);
 
+			/*
+			 * Call to start_secondary_resume() will not return.
+			 * Kernel stack will be reset and start_secondary()
+			 * will be called to continue the online operation.
+			 */
 			start_secondary_resume();
 		}
 	}
 
-	
+	/* Requested state is CPU_STATE_OFFLINE at this point */
 	WARN_ON(get_preferred_offline_state(cpu) != CPU_STATE_OFFLINE);
 
 	set_cpu_current_state(cpu, CPU_STATE_OFFLINE);
 	unregister_slb_shadow(hwcpu);
 	rtas_stop_self();
 
-	
+	/* Should never get here... */
 	BUG();
 	for(;;);
 }
@@ -156,15 +165,27 @@ static int pseries_cpu_disable(void)
 	set_cpu_online(cpu, false);
 	vdso_data->processorCount--;
 
-	
+	/*fix boot_cpuid here*/
 	if (cpu == boot_cpuid)
 		boot_cpuid = cpumask_any(cpu_online_mask);
 
-	
+	/* FIXME: abstract this to not be platform specific later on */
 	xics_migrate_irqs_away();
 	return 0;
 }
 
+/*
+ * pseries_cpu_die: Wait for the cpu to die.
+ * @cpu: logical processor id of the CPU whose death we're awaiting.
+ *
+ * This function is called from the context of the thread which is performing
+ * the cpu-offline. Here we wait for long enough to allow the cpu in question
+ * to self-destroy so that the cpu-offline thread can send the CPU_DEAD
+ * notifications.
+ *
+ * OTOH, pseries_mach_cpu_die() is called by the @cpu when it wants to
+ * self-destruct.
+ */
 static void pseries_cpu_die(unsigned int cpu)
 {
 	int tries;
@@ -196,9 +217,21 @@ static void pseries_cpu_die(unsigned int cpu)
 		       cpu, pcpu, cpu_status);
 	}
 
+	/* Isolation and deallocation are definitely done by
+	 * drslot_chrp_cpu.  If they were not they would be
+	 * done here.  Change isolate state to Isolate and
+	 * change allocation-state to Unusable.
+	 */
 	paca[cpu].cpu_start = 0;
 }
 
+/*
+ * Update cpu_present_mask and paca(s) for a new cpu node.  The wrinkle
+ * here is that a cpu device node may represent up to two logical cpus
+ * in the SMT case.  We must honor the assumption in other code that
+ * the logical ids for sibling SMT threads x and y are adjacent, such
+ * that x^1 == y and y^1 == x.
+ */
 static int pseries_add_processor(struct device_node *np)
 {
 	unsigned int cpu;
@@ -221,9 +254,12 @@ static int pseries_add_processor(struct device_node *np)
 
 	BUG_ON(!cpumask_subset(cpu_present_mask, cpu_possible_mask));
 
-	
+	/* Get a bitmap of unoccupied slots. */
 	cpumask_xor(candidate_mask, cpu_possible_mask, cpu_present_mask);
 	if (cpumask_empty(candidate_mask)) {
+		/* If we get here, it most likely means that NR_CPUS is
+		 * less than the partition's max processors setting.
+		 */
 		printk(KERN_ERR "Cannot add cpu %s; this system configuration"
 		       " supports %d logical cpus.\n", np->full_name,
 		       cpumask_weight(cpu_possible_mask));
@@ -232,7 +268,7 @@ static int pseries_add_processor(struct device_node *np)
 
 	while (!cpumask_empty(tmp))
 		if (cpumask_subset(tmp, candidate_mask))
-			
+			/* Found a range where we can insert the new cpu(s) */
 			break;
 		else
 			cpumask_shift_left(tmp, tmp, nthreads);
@@ -257,6 +293,11 @@ out_unlock:
 	return err;
 }
 
+/*
+ * Update the present map for a cpu node which is going away, and set
+ * the hard id in the paca(s) to -1 to be consistent with boot time
+ * convention for non-present cpus.
+ */
 static void pseries_remove_processor(struct device_node *np)
 {
 	unsigned int cpu;
@@ -356,7 +397,7 @@ static int __init pseries_cpu_hotplug_init(void)
 	smp_ops->cpu_disable = pseries_cpu_disable;
 	smp_ops->cpu_die = pseries_cpu_die;
 
-	
+	/* Processors can be added/removed only on LPAR */
 	if (firmware_has_feature(FW_FEATURE_LPAR)) {
 		pSeries_reconfig_notifier_register(&pseries_smp_nb);
 		cpu_maps_update_begin();

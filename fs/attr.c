@@ -15,44 +15,60 @@
 #include <linux/security.h>
 #include <linux/evm.h>
 
+/**
+ * inode_change_ok - check if attribute changes to an inode are allowed
+ * @inode:	inode to check
+ * @attr:	attributes to change
+ *
+ * Check if we are allowed to change the attributes contained in @attr
+ * in the given inode.  This includes the normal unix access permission
+ * checks, as well as checks for rlimits and others.
+ *
+ * Should be called as the first thing in ->setattr implementations,
+ * possibly after taking additional locks.
+ */
 int inode_change_ok(const struct inode *inode, struct iattr *attr)
 {
 	unsigned int ia_valid = attr->ia_valid;
 
+	/*
+	 * First check size constraints.  These can't be overriden using
+	 * ATTR_FORCE.
+	 */
 	if (ia_valid & ATTR_SIZE) {
 		int error = inode_newsize_ok(inode, attr->ia_size);
 		if (error)
 			return error;
 	}
 
-	
+	/* If force is set do it anyway. */
 	if (ia_valid & ATTR_FORCE)
 		return 0;
 
-	
+	/* Make sure a caller can chown. */
 	if ((ia_valid & ATTR_UID) &&
 	    (current_fsuid() != inode->i_uid ||
 	     attr->ia_uid != inode->i_uid) && !capable(CAP_CHOWN))
 		return -EPERM;
 
-	
+	/* Make sure caller can chgrp. */
 	if ((ia_valid & ATTR_GID) &&
 	    (current_fsuid() != inode->i_uid ||
 	    (!in_group_p(attr->ia_gid) && attr->ia_gid != inode->i_gid)) &&
 	    !capable(CAP_CHOWN))
 		return -EPERM;
 
-	
+	/* Make sure a caller can chmod. */
 	if (ia_valid & ATTR_MODE) {
 		if (!inode_owner_or_capable(inode))
 			return -EPERM;
-		
+		/* Also check the setgid bit! */
 		if (!in_group_p((ia_valid & ATTR_GID) ? attr->ia_gid :
 				inode->i_gid) && !capable(CAP_FSETID))
 			attr->ia_mode &= ~S_ISGID;
 	}
 
-	
+	/* Check for setting the inode time. */
 	if (ia_valid & (ATTR_MTIME_SET | ATTR_ATIME_SET | ATTR_TIMES_SET)) {
 		if (!inode_owner_or_capable(inode))
 			return -EPERM;
@@ -62,6 +78,21 @@ int inode_change_ok(const struct inode *inode, struct iattr *attr)
 }
 EXPORT_SYMBOL(inode_change_ok);
 
+/**
+ * inode_newsize_ok - may this inode be truncated to a given size
+ * @inode:	the inode to be truncated
+ * @offset:	the new size to assign to the inode
+ * @Returns:	0 on success, -ve errno on failure
+ *
+ * inode_newsize_ok must be called with i_mutex held.
+ *
+ * inode_newsize_ok will check filesystem limits and ulimits to check that the
+ * new inode size is within limits. inode_newsize_ok will also send SIGXFSZ
+ * when necessary. Caller must not proceed with inode size change if failure is
+ * returned. @inode must be a file (not directory), with appropriate
+ * permissions to allow truncate (inode_newsize_ok does NOT check these
+ * conditions).
+ */
 int inode_newsize_ok(const struct inode *inode, loff_t offset)
 {
 	if (inode->i_size < offset) {
@@ -73,6 +104,11 @@ int inode_newsize_ok(const struct inode *inode, loff_t offset)
 		if (offset > inode->i_sb->s_maxbytes)
 			goto out_big;
 	} else {
+		/*
+		 * truncation of in-use swapfiles is disallowed - it would
+		 * cause subsequent swapout to scribble on the now-freed
+		 * blocks.
+		 */
 		if (IS_SWAPFILE(inode))
 			return -ETXTBSY;
 	}
@@ -85,6 +121,21 @@ out_big:
 }
 EXPORT_SYMBOL(inode_newsize_ok);
 
+/**
+ * setattr_copy - copy simple metadata updates into the generic inode
+ * @inode:	the inode to be updated
+ * @attr:	the new attributes
+ *
+ * setattr_copy must be called with i_mutex held.
+ *
+ * setattr_copy updates the inode's metadata with that specified
+ * in attr. Noticeably missing is inode size update, which is more complex
+ * as it requires pagecache updates.
+ *
+ * The inode is not marked as dirty after this operation. The rationale is
+ * that for "simple" filesystems, the struct inode is the inode storage.
+ * The caller is free to mark the inode dirty afterwards if needed.
+ */
 void setattr_copy(struct inode *inode, const struct iattr *attr)
 {
 	unsigned int ia_valid = attr->ia_valid;
@@ -127,7 +178,7 @@ int notify_change(struct dentry * dentry, struct iattr * attr)
 
 	if ((ia_valid & ATTR_MODE)) {
 		umode_t amode = attr->ia_mode;
-		
+		/* Flag setting protected by i_mutex */
 		if (is_sxid(amode))
 			inode->i_flags &= ~S_NOSEC;
 	}
@@ -149,6 +200,13 @@ int notify_change(struct dentry * dentry, struct iattr * attr)
 			return error;
 	}
 
+	/*
+	 * We now pass ATTR_KILL_S*ID to the lower level setattr function so
+	 * that the function has the ability to reinterpret a mode change
+	 * that's due to these bits. This adds an implicit restriction that
+	 * no function will ever call notify_change with both ATTR_MODE and
+	 * ATTR_KILL_S*ID set.
+	 */
 	if ((ia_valid & (ATTR_KILL_SUID|ATTR_KILL_SGID)) &&
 	    (ia_valid & ATTR_MODE))
 		BUG();

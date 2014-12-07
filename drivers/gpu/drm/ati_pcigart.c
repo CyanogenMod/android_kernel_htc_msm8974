@@ -1,3 +1,9 @@
+/**
+ * \file ati_pcigart.c
+ * ATI PCI GART support
+ *
+ * \author Gareth Hughes <gareth@valinux.com>
+ */
 
 /*
  * Created: Wed Dec 13 21:52:19 2000 by gareth@valinux.com
@@ -28,7 +34,7 @@
 #include <linux/export.h>
 #include "drmP.h"
 
-# define ATI_PCIGART_PAGE_SIZE		4096	
+# define ATI_PCIGART_PAGE_SIZE		4096	/**< PCI GART page size */
 
 static int drm_ati_alloc_pcigart_table(struct drm_device *dev,
 				       struct drm_ati_pcigart_info *gart_info)
@@ -55,7 +61,7 @@ int drm_ati_pcigart_cleanup(struct drm_device *dev, struct drm_ati_pcigart_info 
 	int i;
 	int max_pages;
 
-	
+	/* we need to support large memory configurations */
 	if (!entry) {
 		DRM_ERROR("no scatter/gather memory!\n");
 		return 0;
@@ -144,7 +150,7 @@ int drm_ati_pcigart_init(struct drm_device *dev, struct drm_ati_pcigart_info *ga
 
 	gart_idx = 0;
 	for (i = 0; i < pages; i++) {
-		
+		/* we need to support large memory configurations */
 		entry->busaddr[i] = pci_map_page(dev->pdev, entry->pagelist[i],
 						 0, PAGE_SIZE, PCI_DMA_BIDIRECTIONAL);
 		if (pci_dma_mapping_error(dev->pdev, entry->busaddr[i])) {

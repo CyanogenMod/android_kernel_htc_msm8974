@@ -28,6 +28,7 @@
 #include <asm/dec/kn01.h>
 
 
+/* CP0 hazard avoidance. */
 #define BARRIER				\
 	__asm__ __volatile__(		\
 		".set	push\n\t"	\
@@ -35,6 +36,14 @@
 		"nop\n\t"		\
 		".set	pop\n\t")
 
+/*
+ * Bits 7:0 of the Control Register are write-only -- the
+ * corresponding bits of the Status Register have a different
+ * meaning.  Hence we use a cache.  It speeds up things a bit
+ * as well.
+ *
+ * There is no default value -- it has to be initialized.
+ */
 u16 cached_kn01_csr;
 static DEFINE_RAW_SPINLOCK(kn01_lock);
 
@@ -46,7 +55,7 @@ static inline void dec_kn01_be_ack(void)
 
 	raw_spin_lock_irqsave(&kn01_lock, flags);
 
-	*csr = cached_kn01_csr | KN01_CSR_MEMERR;	
+	*csr = cached_kn01_csr | KN01_CSR_MEMERR;	/* Clear bus IRQ. */
 	iob();
 
 	raw_spin_unlock_irqrestore(&kn01_lock, flags);
@@ -79,7 +88,7 @@ static int dec_kn01_be_backend(struct pt_regs *regs, int is_fixup, int invoker)
 	u32 erraddr = *kn01_erraddr;
 	int action = MIPS_BE_FATAL;
 
-	
+	/* Ack ASAP, so that any subsequent errors get caught. */
 	dec_kn01_be_ack();
 
 	kind = invoker ? intstr : excstr;
@@ -89,9 +98,9 @@ static int dec_kn01_be_backend(struct pt_regs *regs, int is_fixup, int invoker)
 	if (invoker)
 		address = erraddr;
 	else {
-		
+		/* Bloody hardware doesn't record the address for reads... */
 		if (data) {
-			
+			/* This never faults. */
 			__get_user(insn.word, pc);
 			vaddr = regs->regs[insn.i_format.rs] +
 				insn.i_format.simmediate;
@@ -100,14 +109,14 @@ static int dec_kn01_be_backend(struct pt_regs *regs, int is_fixup, int invoker)
 		if (KSEGX(vaddr) == CKSEG0 || KSEGX(vaddr) == CKSEG1)
 			address = CPHYSADDR(vaddr);
 		else {
-			
+			/* Peek at what physical address the CPU used. */
 			asid = read_c0_entryhi();
 			entryhi = asid & (PAGE_SIZE - 1);
 			entryhi |= vaddr & ~(PAGE_SIZE - 1);
 			write_c0_entryhi(entryhi);
 			BARRIER;
 			tlb_probe();
-			
+			/* No need to check for presence. */
 			tlb_read();
 			entrylo = read_c0_entrylo0();
 			write_c0_entryhi(asid);
@@ -116,7 +125,7 @@ static int dec_kn01_be_backend(struct pt_regs *regs, int is_fixup, int invoker)
 		}
 	}
 
-	
+	/* Treat low 256MB as memory, high -- as I/O. */
 	if (address < 0x10000000) {
 		cycle = mreadstr;
 		event = paritystr;
@@ -147,13 +156,20 @@ irqreturn_t dec_kn01_be_interrupt(int irq, void *dev_id)
 	int action;
 
 	if (!(*csr & KN01_CSR_MEMERR))
-		return IRQ_NONE;		
+		return IRQ_NONE;		/* Must have been video. */
 
 	action = dec_kn01_be_backend(regs, 0, 1);
 
 	if (action == MIPS_BE_DISCARD)
 		return IRQ_HANDLED;
 
+	/*
+	 * FIXME: Find the affected processes and kill them, otherwise
+	 * we must die.
+	 *
+	 * The interrupt is asynchronously delivered thus EPC and RA
+	 * may be irrelevant, but are printed for a reference.
+	 */
 	printk(KERN_ALERT "Fatal bus interrupt, epc == %08lx, ra == %08lx\n",
 	       regs->cp0_epc, regs->regs[31]);
 	die("Unrecoverable bus error", regs);
@@ -167,18 +183,18 @@ void __init dec_kn01_be_init(void)
 
 	raw_spin_lock_irqsave(&kn01_lock, flags);
 
-	
+	/* Preset write-only bits of the Control Register cache. */
 	cached_kn01_csr = *csr;
 	cached_kn01_csr &= KN01_CSR_STATUS | KN01_CSR_PARDIS | KN01_CSR_TXDIS;
 	cached_kn01_csr |= KN01_CSR_LEDS;
 
-	
+	/* Enable parity error detection. */
 	cached_kn01_csr &= ~KN01_CSR_PARDIS;
 	*csr = cached_kn01_csr;
 	iob();
 
 	raw_spin_unlock_irqrestore(&kn01_lock, flags);
 
-	
+	/* Clear any leftover errors from the firmware. */
 	dec_kn01_be_ack();
 }

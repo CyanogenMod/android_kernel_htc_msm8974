@@ -25,6 +25,9 @@
 
 #include "generic.h"
 
+/*
+ * helper for sa1100fb
+ */
 static void h3100_lcd_power(int enable)
 {
 	if (!gpio_request(H3XXX_EGPIO_LCD_ON, "LCD ON")) {
@@ -58,9 +61,14 @@ static void __init h3100_map_io(void)
 {
 	h3xxx_map_io();
 
+	/* Older bootldrs put GPIO2-9 in alternate mode on the
+	   assumption that they are used for video */
 	GAFR &= ~0x000001fb;
 }
 
+/*
+ * This turns the IRDA power on or off on the Compaq H3100
+ */
 static int h3100_irda_set_power(struct device *dev, unsigned int state)
 {
 	gpio_set_value(H3100_GPIO_IR_ON, state);

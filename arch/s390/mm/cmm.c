@@ -73,7 +73,7 @@ static long cmm_alloc_pages(long nr, long *counter,
 		spin_lock(&cmm_lock);
 		pa = *list;
 		if (!pa || pa->index >= CMM_NR_PAGES) {
-			
+			/* Need a new page for the page list. */
 			spin_unlock(&cmm_lock);
 			npa = (struct cmm_page_array *)
 				__get_free_page(GFP_NOIO);
@@ -438,7 +438,7 @@ static int __init cmm_init(void)
 	if (!cmm_sysctl_header)
 		goto out_sysctl;
 #ifdef CONFIG_CMM_IUCV
-	
+	/* convert sender to uppercase characters */
 	if (sender) {
 		int len = strlen(sender);
 		while (len--)

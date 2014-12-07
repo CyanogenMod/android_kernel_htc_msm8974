@@ -30,6 +30,9 @@ struct pt_regs;
 
 struct oprofile_operations;
 
+/* The model vtable abstracts the differences between
+ * various x86 CPU models' perfctr support.
+ */
 struct op_x86_model_spec {
 	unsigned int	num_counters;
 	unsigned int	num_controls;
@@ -55,6 +58,15 @@ struct op_counter_config;
 
 static inline void op_x86_warn_in_use(int counter)
 {
+	/*
+	 * The warning indicates an already running counter. If
+	 * oprofile doesn't collect data, then try using a different
+	 * performance counter on your platform to monitor the desired
+	 * event. Delete counter #%d from the desired event by editing
+	 * the /usr/share/oprofile/%s/<cpu>/events file. If the event
+	 * cannot be monitored by any other counter, contact your
+	 * hardware or BIOS vendor.
+	 */
 	pr_warning("oprofile: counter #%d on cpu #%d may already be used\n",
 		   counter, smp_processor_id());
 }
@@ -75,4 +87,4 @@ extern struct op_x86_model_spec op_p4_ht2_spec;
 extern struct op_x86_model_spec op_amd_spec;
 extern struct op_x86_model_spec op_arch_perfmon_spec;
 
-#endif 
+#endif /* OP_X86_MODEL_H */

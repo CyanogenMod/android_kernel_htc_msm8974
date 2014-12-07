@@ -1,3 +1,9 @@
+/*
+ *  ncpsign_kernel.c
+ *
+ *  Arne de Bruijn (arne@knoware.nl), 1997
+ *
+ */
 
 
 #ifdef CONFIG_NCPFS_PACKET_SIGNING
@@ -8,10 +14,12 @@
 #include "ncp_fs.h"
 #include "ncpsign_kernel.h"
 
+/* i386: 32-bit, little endian, handles mis-alignment */
 #ifdef __i386__
 #define GET_LE32(p) (*(const int *)(p))
 #define PUT_LE32(p,v) { *(int *)(p)=v; }
 #else
+/* from include/ncplib.h */
 #define BVAL(buf,pos) (((const __u8 *)(buf))[pos])
 #define PVAL(buf,pos) ((unsigned)BVAL(buf,pos))
 #define BSET(buf,pos,val) (((__u8 *)(buf))[pos] = (val))
@@ -82,6 +90,8 @@ static void nwsign(char *r_data1, char *r_data2, char *outdata) {
  PUT_LE32(outdata+12,(w3+GET_LE32(r_data1+12)) & 0xffffffff);
 }
 
+/* Make a signature for the current packet and add it at the end of the */
+/* packet. */
 void __sign_packet(struct ncp_server *server, const char *packet, size_t size, __u32 totalsize, void *sign_buff) {
 	unsigned char data[64];
 
@@ -113,5 +123,5 @@ int sign_verify_reply(struct ncp_server *server, const char *packet, size_t size
 	return memcmp(sign_buff, hash, 8);
 }
 
-#endif	
+#endif	/* CONFIG_NCPFS_PACKET_SIGNING */
 

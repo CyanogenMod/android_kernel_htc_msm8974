@@ -50,10 +50,15 @@ struct s921_state {
 
 	struct dvb_frontend frontend;
 
-	
+	/* The Demod can't easily provide these, we cache them */
 	u32 currentfreq;
 };
 
+/*
+ * Various tuner defaults need to be established for a given frequency kHz.
+ * fixme: The bounds on the bands do not match the doc in real life.
+ * fixme: Some of them have been moved, other might need adjustment.
+ */
 static struct s921_bandselect_val {
 	u32 freq_low;
 	u8  band_reg;
@@ -74,7 +79,7 @@ struct regdata {
 };
 
 static struct regdata s921_init[] = {
-	{ 0x01, 0x80 },		
+	{ 0x01, 0x80 },		/* Probably, a reset sequence */
 	{ 0x01, 0x40 },
 	{ 0x01, 0x80 },
 	{ 0x01, 0x40 },
@@ -364,7 +369,7 @@ static int s921_read_status(struct dvb_frontend *fe, fe_status_t *status)
 
 	dprintk("status = %04x\n", regstatus);
 
-	
+	/* Full Sync - We don't know what each bit means on regs 0x81/0x82 */
 	if ((regstatus & 0xff) == 0x40) {
 		*status = FE_HAS_SIGNAL  |
 			  FE_HAS_CARRIER |
@@ -372,7 +377,7 @@ static int s921_read_status(struct dvb_frontend *fe, fe_status_t *status)
 			  FE_HAS_SYNC    |
 			  FE_HAS_LOCK;
 	} else if (regstatus & 0x40) {
-		
+		/* This is close to Full Sync, but not enough to get useful info */
 		*status = FE_HAS_SIGNAL  |
 			  FE_HAS_CARRIER |
 			  FE_HAS_VITERBI |
@@ -388,7 +393,7 @@ static int s921_read_signal_strength(struct dvb_frontend *fe, u16 *strength)
 	struct s921_state *state = fe->demodulator_priv;
 	int rc;
 
-	
+	/* FIXME: Use the proper register for it... 0x80? */
 	rc = s921_read_status(fe, &status);
 	if (rc < 0)
 		return rc;
@@ -417,7 +422,7 @@ static int s921_set_frontend(struct dvb_frontend *fe)
 
 	dprintk("\n");
 
-	
+	/* FIXME: We don't know how to use non-auto mode */
 
 	rc = s921_pll_tune(fe);
 	if (rc < 0)
@@ -433,7 +438,7 @@ static int s921_get_frontend(struct dvb_frontend *fe)
 	struct dtv_frontend_properties *p = &fe->dtv_property_cache;
 	struct s921_state *state = fe->demodulator_priv;
 
-	
+	/* FIXME: Probably it is possible to get it from regs f1 and f2 */
 	p->frequency = state->currentfreq;
 	p->delivery_system = SYS_ISDBT;
 
@@ -461,7 +466,7 @@ static int s921_tune(struct dvb_frontend *fe,
 
 static int s921_get_algo(struct dvb_frontend *fe)
 {
-	return 1; 
+	return 1; /* FE_ALGO_HW */
 }
 
 static void s921_release(struct dvb_frontend *fe)
@@ -477,7 +482,7 @@ static struct dvb_frontend_ops s921_ops;
 struct dvb_frontend *s921_attach(const struct s921_config *config,
 				    struct i2c_adapter *i2c)
 {
-	
+	/* allocate memory for the internal state */
 	struct s921_state *state =
 		kzalloc(sizeof(struct s921_state), GFP_KERNEL);
 
@@ -487,11 +492,11 @@ struct dvb_frontend *s921_attach(const struct s921_config *config,
 		goto rcor;
 	}
 
-	
+	/* setup the state */
 	state->config = config;
 	state->i2c = i2c;
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &s921_ops,
 		sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;
@@ -507,10 +512,15 @@ EXPORT_SYMBOL(s921_attach);
 
 static struct dvb_frontend_ops s921_ops = {
 	.delsys = { SYS_ISDBT },
-	
+	/* Use dib8000 values per default */
 	.info = {
 		.name = "Sharp S921",
 		.frequency_min = 470000000,
+		/*
+		 * Max should be 770MHz instead, according with Sharp docs,
+		 * but Leadership doc says it works up to 806 MHz. This is
+		 * required to get channel 69, used in Brazil
+		 */
 		.frequency_max = 806000000,
 		.frequency_tolerance = 0,
 		 .caps = FE_CAN_INVERSION_AUTO |

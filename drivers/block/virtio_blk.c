@@ -1,3 +1,4 @@
+//#define DEBUG
 #include <linux/spinlock.h>
 #include <linux/slab.h>
 #include <linux/blkdev.h>
@@ -25,31 +26,31 @@ struct virtio_blk
 	struct virtio_device *vdev;
 	struct virtqueue *vq;
 
-	
+	/* The disk structure for the kernel. */
 	struct gendisk *disk;
 
-	
+	/* Request tracking. */
 	struct list_head reqs;
 
 	mempool_t *pool;
 
-	
+	/* Process context for config space updates */
 	struct work_struct config_work;
 
-	
+	/* Lock for config space updates */
 	struct mutex config_lock;
 
-	
+	/* enable config space updates */
 	bool config_enable;
 
-	
+	/* What host tells us, plus 2 for header & tailer. */
 	unsigned int sg_elems;
 
-	
+	/* Ida index - used to track minor number allocations. */
 	int index;
 
-	
-	struct scatterlist sg[];
+	/* Scatterlist: can be too big for stack. */
+	struct scatterlist sg[/*sg_elems*/];
 };
 
 struct virtblk_req
@@ -101,7 +102,7 @@ static void blk_done(struct virtqueue *vq)
 		list_del(&vbr->list);
 		mempool_free(vbr, vblk->pool);
 	}
-	
+	/* In case queue is stopped waiting for more buffers. */
 	blk_start_queue(vblk->disk->queue);
 	spin_unlock_irqrestore(&vblk->lock, flags);
 }
@@ -114,7 +115,7 @@ static bool do_req(struct request_queue *q, struct virtio_blk *vblk,
 
 	vbr = mempool_alloc(vblk->pool, GFP_ATOMIC);
 	if (!vbr)
-		
+		/* When another request finishes we'll try again. */
 		return false;
 
 	vbr->req = req;
@@ -141,13 +142,19 @@ static bool do_req(struct request_queue *q, struct virtio_blk *vblk,
 			vbr->out_hdr.ioprio = req_get_ioprio(vbr->req);
 			break;
 		default:
-			
+			/* We don't put anything else in the queue. */
 			BUG();
 		}
 	}
 
 	sg_set_buf(&vblk->sg[out++], &vbr->out_hdr, sizeof(vbr->out_hdr));
 
+	/*
+	 * If this is a packet command we need a couple of additional headers.
+	 * Behind the normal outhdr we put a segment with the scsi command
+	 * block, and before the normal inhdr we put the sense data and the
+	 * inhdr with additional status information before the normal inhdr.
+	 */
 	if (vbr->req->cmd_type == REQ_TYPE_BLOCK_PC)
 		sg_set_buf(&vblk->sg[out++], vbr->req->cmd, vbr->req->cmd_len);
 
@@ -190,6 +197,8 @@ static void do_virtblk_request(struct request_queue *q)
 	while ((req = blk_peek_request(q)) != NULL) {
 		BUG_ON(req->nr_phys_segments + 2 > vblk->sg_elems);
 
+		/* If this request fails, stop queue and wait for something to
+		   finish to restart it. */
 		if (!do_req(q, vblk, req)) {
 			blk_stop_queue(q);
 			break;
@@ -202,6 +211,8 @@ static void do_virtblk_request(struct request_queue *q)
 		virtqueue_kick(vblk->vq);
 }
 
+/* return id (s/n) string for *disk to *id_str
+ */
 static int virtblk_get_id(struct gendisk *disk, char *id_str)
 {
 	struct virtio_blk *vblk = disk->private_data;
@@ -233,6 +244,9 @@ static int virtblk_ioctl(struct block_device *bdev, fmode_t mode,
 	struct gendisk *disk = bdev->bd_disk;
 	struct virtio_blk *vblk = disk->private_data;
 
+	/*
+	 * Only allow the generic SCSI ioctls if the host can support it.
+	 */
 	if (!virtio_has_feature(vblk->vdev, VIRTIO_BLK_F_SCSI))
 		return -ENOTTY;
 
@@ -240,13 +254,14 @@ static int virtblk_ioctl(struct block_device *bdev, fmode_t mode,
 				  (void __user *)data);
 }
 
+/* We provide getgeo only to please some old bootloader/partitioning tools */
 static int virtblk_getgeo(struct block_device *bd, struct hd_geometry *geo)
 {
 	struct virtio_blk *vblk = bd->bd_disk->private_data;
 	struct virtio_blk_geometry vgeo;
 	int err;
 
-	
+	/* see if the host passed in geometry config */
 	err = virtio_config_val(vblk->vdev, VIRTIO_BLK_F_GEOMETRY,
 				offsetof(struct virtio_blk_config, geometry),
 				&vgeo);
@@ -256,7 +271,7 @@ static int virtblk_getgeo(struct block_device *bd, struct hd_geometry *geo)
 		geo->sectors = vgeo.sectors;
 		geo->cylinders = vgeo.cylinders;
 	} else {
-		
+		/* some standard values, similar to sd */
 		geo->heads = 1 << 6;
 		geo->sectors = 1 << 5;
 		geo->cylinders = get_capacity(bd->bd_disk) >> 11;
@@ -286,7 +301,7 @@ static ssize_t virtblk_serial_show(struct device *dev,
 	struct gendisk *disk = dev_to_disk(dev);
 	int err;
 
-	
+	/* sysfs gives us a PAGE_SIZE buffer */
 	BUILD_BUG_ON(PAGE_SIZE < VIRTIO_BLK_ID_BYTES);
 
 	buf[VIRTIO_BLK_ID_BYTES] = '\0';
@@ -294,7 +309,7 @@ static ssize_t virtblk_serial_show(struct device *dev,
 	if (!err)
 		return strlen(buf);
 
-	if (err == -EIO) 
+	if (err == -EIO) /* Unsupported? Make it empty. */
 		return 0;
 
 	return err;
@@ -314,11 +329,11 @@ static void virtblk_config_changed_work(struct work_struct *work)
 	if (!vblk->config_enable)
 		goto done;
 
-	
+	/* Host must always specify the capacity. */
 	vdev->config->get(vdev, offsetof(struct virtio_blk_config, capacity),
 			  &capacity, sizeof(capacity));
 
-	
+	/* If capacity is too big, truncate with warning. */
 	if ((sector_t)capacity != capacity) {
 		dev_warn(&vdev->dev, "Capacity %llu too large: truncating\n",
 			 (unsigned long long)capacity);
@@ -352,7 +367,7 @@ static int init_vq(struct virtio_blk *vblk)
 {
 	int err = 0;
 
-	
+	/* We expect one virtqueue, for output. */
 	vblk->vq = virtio_find_single_vq(vblk->vdev, blk_done, "requests");
 	if (IS_ERR(vblk->vq))
 		err = PTR_ERR(vblk->vq);
@@ -360,6 +375,10 @@ static int init_vq(struct virtio_blk *vblk)
 	return err;
 }
 
+/*
+ * Legacy naming scheme used for virtio devices.  We are stuck with it for
+ * virtio blk but don't ever use it for any new driver.
+ */
 static int virtblk_name_format(char *prefix, int index, char *buf, int buflen)
 {
 	const int base = 'z' - 'a' + 1;
@@ -400,16 +419,16 @@ static int __devinit virtblk_probe(struct virtio_device *vdev)
 		goto out;
 	index = err;
 
-	
+	/* We need to know how many segments before we allocate. */
 	err = virtio_config_val(vdev, VIRTIO_BLK_F_SEG_MAX,
 				offsetof(struct virtio_blk_config, seg_max),
 				&sg_elems);
 
-	
+	/* We need at least one SG element, whatever they say. */
 	if (err || !sg_elems)
 		sg_elems = 1;
 
-	
+	/* We need an extra sg elements at head and tail. */
 	sg_elems += 2;
 	vdev->priv = vblk = kmalloc(sizeof(*vblk) +
 				    sizeof(vblk->sg[0]) * sg_elems, GFP_KERNEL);
@@ -437,7 +456,7 @@ static int __devinit virtblk_probe(struct virtio_device *vdev)
 		goto out_free_vq;
 	}
 
-	
+	/* FIXME: How many partitions?  How long is a piece of string? */
 	vblk->disk = alloc_disk(1 << PART_BITS);
 	if (!vblk->disk) {
 		err = -ENOMEM;
@@ -461,19 +480,19 @@ static int __devinit virtblk_probe(struct virtio_device *vdev)
 	vblk->disk->driverfs_dev = &vdev->dev;
 	vblk->index = index;
 
-	
+	/* configure queue flush support */
 	if (virtio_has_feature(vdev, VIRTIO_BLK_F_FLUSH))
 		blk_queue_flush(q, REQ_FLUSH);
 
-	
+	/* If disk is read-only in the host, the guest should obey */
 	if (virtio_has_feature(vdev, VIRTIO_BLK_F_RO))
 		set_disk_ro(vblk->disk, 1);
 
-	
+	/* Host must always specify the capacity. */
 	vdev->config->get(vdev, offsetof(struct virtio_blk_config, capacity),
 			  &cap, sizeof(cap));
 
-	
+	/* If capacity is too big, truncate with warning. */
 	if ((sector_t)cap != cap) {
 		dev_warn(&vdev->dev, "Capacity %llu too large: truncating\n",
 			 (unsigned long long)cap);
@@ -481,15 +500,17 @@ static int __devinit virtblk_probe(struct virtio_device *vdev)
 	}
 	set_capacity(vblk->disk, cap);
 
-	
+	/* We can handle whatever the host told us to handle. */
 	blk_queue_max_segments(q, vblk->sg_elems-2);
 
-	
+	/* No need to bounce any requests */
 	blk_queue_bounce_limit(q, BLK_BOUNCE_ANY);
 
-	
+	/* No real sector limit. */
 	blk_queue_max_hw_sectors(q, -1U);
 
+	/* Host can optionally specify maximum segment size and number of
+	 * segments. */
 	err = virtio_config_val(vdev, VIRTIO_BLK_F_SIZE_MAX,
 				offsetof(struct virtio_blk_config, size_max),
 				&v);
@@ -498,7 +519,7 @@ static int __devinit virtblk_probe(struct virtio_device *vdev)
 	else
 		blk_queue_max_segment_size(q, -1U);
 
-	
+	/* Host can optionally specify the block size of the device */
 	err = virtio_config_val(vdev, VIRTIO_BLK_F_BLK_SIZE,
 				offsetof(struct virtio_blk_config, blk_size),
 				&blk_size);
@@ -507,7 +528,7 @@ static int __devinit virtblk_probe(struct virtio_device *vdev)
 	else
 		blk_size = queue_logical_block_size(q);
 
-	
+	/* Use topology information if available */
 	err = virtio_config_val(vdev, VIRTIO_BLK_F_TOPOLOGY,
 			offsetof(struct virtio_blk_config, physical_block_exp),
 			&physical_block_exp);
@@ -563,15 +584,15 @@ static void __devexit virtblk_remove(struct virtio_device *vdev)
 	struct virtio_blk *vblk = vdev->priv;
 	int index = vblk->index;
 
-	
+	/* Prevent config work handler from accessing the device. */
 	mutex_lock(&vblk->config_lock);
 	vblk->config_enable = false;
 	mutex_unlock(&vblk->config_lock);
 
-	
+	/* Nothing should be pending. */
 	BUG_ON(!list_empty(&vblk->reqs));
 
-	
+	/* Stop all the virtqueues. */
 	vdev->config->reset(vdev);
 
 	flush_work(&vblk->config_work);
@@ -590,10 +611,10 @@ static int virtblk_freeze(struct virtio_device *vdev)
 {
 	struct virtio_blk *vblk = vdev->priv;
 
-	
+	/* Ensure we don't receive any more interrupts */
 	vdev->config->reset(vdev);
 
-	
+	/* Prevent config work handler from accessing the device. */
 	mutex_lock(&vblk->config_lock);
 	vblk->config_enable = false;
 	mutex_unlock(&vblk->config_lock);
@@ -636,6 +657,11 @@ static unsigned int features[] = {
 	VIRTIO_BLK_F_FLUSH, VIRTIO_BLK_F_TOPOLOGY
 };
 
+/*
+ * virtio_blk causes spurious section mismatch warning by
+ * simultaneously referring to a __devinit and a __devexit function.
+ * Use __refdata to avoid this warning.
+ */
 static struct virtio_driver __refdata virtio_blk = {
 	.feature_table		= features,
 	.feature_table_size	= ARRAY_SIZE(features),

@@ -32,4 +32,4 @@ int wl1251_ps_elp_wakeup(struct wl1251 *wl);
 void wl1251_elp_work(struct work_struct *work);
 
 
-#endif 
+#endif /* __WL1251_PS_H__ */

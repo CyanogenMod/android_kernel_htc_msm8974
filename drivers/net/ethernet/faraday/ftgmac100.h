@@ -71,6 +71,9 @@
 #define FTGMAC100_OFFSET_RX_CRCER_FTL	0xc4
 #define FTGMAC100_OFFSET_RX_COL_LOST	0xc8
 
+/*
+ * Interrupt status register & interrupt enable register
+ */
 #define FTGMAC100_INT_RPKT_BUF		(1 << 0)
 #define FTGMAC100_INT_RPKT_FIFO		(1 << 1)
 #define FTGMAC100_INT_NO_RXBUF		(1 << 2)
@@ -83,6 +86,9 @@
 #define FTGMAC100_INT_PHYSTS_CHG	(1 << 9)
 #define FTGMAC100_INT_NO_HPTXBUF	(1 << 10)
 
+/*
+ * Interrupt timer control register
+ */
 #define FTGMAC100_ITC_RXINT_CNT(x)	(((x) & 0xf) << 0)
 #define FTGMAC100_ITC_RXINT_THR(x)	(((x) & 0x7) << 4)
 #define FTGMAC100_ITC_RXINT_TIME_SEL	(1 << 7)
@@ -90,11 +96,17 @@
 #define FTGMAC100_ITC_TXINT_THR(x)	(((x) & 0x7) << 12)
 #define FTGMAC100_ITC_TXINT_TIME_SEL	(1 << 15)
 
+/*
+ * Automatic polling timer control register
+ */
 #define FTGMAC100_APTC_RXPOLL_CNT(x)	(((x) & 0xf) << 0)
 #define FTGMAC100_APTC_RXPOLL_TIME_SEL	(1 << 4)
 #define FTGMAC100_APTC_TXPOLL_CNT(x)	(((x) & 0xf) << 8)
 #define FTGMAC100_APTC_TXPOLL_TIME_SEL	(1 << 12)
 
+/*
+ * DMA burst length and arbitration control register
+ */
 #define FTGMAC100_DBLAC_RXFIFO_LTHR(x)	(((x) & 0x7) << 0)
 #define FTGMAC100_DBLAC_RXFIFO_HTHR(x)	(((x) & 0x7) << 3)
 #define FTGMAC100_DBLAC_RX_THR_EN	(1 << 6)
@@ -105,6 +117,9 @@
 #define FTGMAC100_DBLAC_IFG_CNT(x)	(((x) & 0x7) << 20)
 #define FTGMAC100_DBLAC_IFG_INC		(1 << 23)
 
+/*
+ * DMA FIFO status register
+ */
 #define FTGMAC100_DMAFIFOS_RXDMA1_SM(dmafifos)	((dmafifos) & 0xf)
 #define FTGMAC100_DMAFIFOS_RXDMA2_SM(dmafifos)	(((dmafifos) >> 4) & 0xf)
 #define FTGMAC100_DMAFIFOS_RXDMA3_SM(dmafifos)	(((dmafifos) >> 8) & 0x7)
@@ -118,8 +133,14 @@
 #define FTGMAC100_DMAFIFOS_RXDMA_REQ		(1 << 30)
 #define FTGMAC100_DMAFIFOS_TXDMA_REQ		(1 << 31)
 
+/*
+ * Receive buffer size register
+ */
 #define FTGMAC100_RBSR_SIZE(x)		((x) & 0x3fff)
 
+/*
+ * MAC control register
+ */
 #define FTGMAC100_MACCR_TXDMA_EN	(1 << 0)
 #define FTGMAC100_MACCR_RXDMA_EN	(1 << 1)
 #define FTGMAC100_MACCR_TXMAC_EN	(1 << 2)
@@ -141,6 +162,9 @@
 #define FTGMAC100_MACCR_FAST_MODE	(1 << 19)
 #define FTGMAC100_MACCR_SW_RST		(1 << 31)
 
+/*
+ * PHY control register
+ */
 #define FTGMAC100_PHYCR_MDC_CYCTHR_MASK	0x3f
 #define FTGMAC100_PHYCR_MDC_CYCTHR(x)	((x) & 0x3f)
 #define FTGMAC100_PHYCR_PHYAD(x)	(((x) & 0x1f) << 16)
@@ -148,14 +172,20 @@
 #define FTGMAC100_PHYCR_MIIRD		(1 << 26)
 #define FTGMAC100_PHYCR_MIIWR		(1 << 27)
 
+/*
+ * PHY data register
+ */
 #define FTGMAC100_PHYDATA_MIIWDATA(x)		((x) & 0xffff)
 #define FTGMAC100_PHYDATA_MIIRDATA(phydata)	(((phydata) >> 16) & 0xffff)
 
+/*
+ * Transmit descriptor, aligned to 16 bytes
+ */
 struct ftgmac100_txdes {
 	unsigned int	txdes0;
 	unsigned int	txdes1;
-	unsigned int	txdes2;	
-	unsigned int	txdes3;	
+	unsigned int	txdes2;	/* not used by HW */
+	unsigned int	txdes3;	/* TXBUF_BADR */
 } __attribute__ ((aligned(16)));
 
 #define FTGMAC100_TXDES0_TXBUF_SIZE(x)	((x) & 0x3fff)
@@ -174,11 +204,14 @@ struct ftgmac100_txdes {
 #define FTGMAC100_TXDES1_TX2FIC		(1 << 30)
 #define FTGMAC100_TXDES1_TXIC		(1 << 31)
 
+/*
+ * Receive descriptor, aligned to 16 bytes
+ */
 struct ftgmac100_rxdes {
 	unsigned int	rxdes0;
 	unsigned int	rxdes1;
-	unsigned int	rxdes2;	
-	unsigned int	rxdes3;	
+	unsigned int	rxdes2;	/* not used by HW */
+	unsigned int	rxdes3;	/* RXBUF_BADR */
 } __attribute__ ((aligned(16)));
 
 #define FTGMAC100_RXDES0_VDBC		0x3fff
@@ -210,4 +243,4 @@ struct ftgmac100_rxdes {
 #define FTGMAC100_RXDES1_UDP_CHKSUM_ERR	(1 << 26)
 #define FTGMAC100_RXDES1_IP_CHKSUM_ERR	(1 << 27)
 
-#endif 
+#endif /* __FTGMAC100_H */

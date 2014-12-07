@@ -68,6 +68,7 @@ struct efx_mtd {
 static int falcon_mtd_probe(struct efx_nic *efx);
 static int siena_mtd_probe(struct efx_nic *efx);
 
+/* SPI utilities */
 
 static int
 efx_spi_slow_wait(struct efx_mtd_partition *part, bool uninterruptible)
@@ -78,7 +79,7 @@ efx_spi_slow_wait(struct efx_mtd_partition *part, bool uninterruptible)
 	u8 status;
 	int rc, i;
 
-	
+	/* Wait up to 4s for flash/EEPROM to finish a slow operation. */
 	for (i = 0; i < 40; i++) {
 		__set_current_state(uninterruptible ?
 				    TASK_UNINTERRUPTIBLE : TASK_INTERRUPTIBLE);
@@ -110,7 +111,7 @@ efx_spi_unlock(struct efx_nic *efx, const struct efx_spi_device *spi)
 		return rc;
 
 	if (!(status & unlock_mask))
-		return 0; 
+		return 0; /* already unlocked */
 
 	rc = falcon_spi_cmd(efx, spi, SPI_WREN, -1, NULL, NULL, 0);
 	if (rc)
@@ -160,7 +161,7 @@ efx_spi_erase(struct efx_mtd_partition *part, loff_t start, size_t len)
 		return rc;
 	rc = efx_spi_slow_wait(part, false);
 
-	
+	/* Verify the entire region has been wiped */
 	memset(empty, 0xff, sizeof(empty));
 	for (pos = 0; pos < len; pos += block_len) {
 		block_len = min(len - pos, sizeof(buffer));
@@ -171,7 +172,7 @@ efx_spi_erase(struct efx_mtd_partition *part, loff_t start, size_t len)
 		if (memcmp(empty, buffer, block_len))
 			return -EIO;
 
-		
+		/* Avoid locking up the system */
 		cond_resched();
 		if (signal_pending(current))
 			return -EINTR;
@@ -180,6 +181,7 @@ efx_spi_erase(struct efx_mtd_partition *part, loff_t start, size_t len)
 	return rc;
 }
 
+/* MTD interface */
 
 static int efx_mtd_erase(struct mtd_info *mtd, struct erase_info *erase)
 {
@@ -278,7 +280,7 @@ fail:
 		--part;
 		efx_mtd_remove_partition(part);
 	}
-	
+	/* Failure is unlikely here, but probably means we're out of memory */
 	return -ENOMEM;
 }
 
@@ -310,6 +312,7 @@ int efx_mtd_probe(struct efx_nic *efx)
 		return falcon_mtd_probe(efx);
 }
 
+/* Implementation of MTD operations for Falcon */
 
 static int falcon_mtd_read(struct mtd_info *mtd, loff_t start,
 			   size_t len, size_t *retlen, u8 *buffer)
@@ -452,6 +455,7 @@ static int falcon_mtd_probe(struct efx_nic *efx)
 	return rc;
 }
 
+/* Implementation of MTD operations for Siena */
 
 static int siena_mtd_read(struct mtd_info *mtd, loff_t start,
 			  size_t len, size_t *retlen, u8 *buffer)
@@ -495,6 +499,9 @@ static int siena_mtd_erase(struct mtd_info *mtd, loff_t start, size_t len)
 		part->mcdi.updating = true;
 	}
 
+	/* The MCDI interface can in fact do multiple erase blocks at once;
+	 * but erasing may be slow, so we make multiple calls here to avoid
+	 * tripping the MCDI RPC timeout. */
 	while (offset < end) {
 		rc = efx_mcdi_nvram_erase(efx, part->mcdi.nvram_type, offset,
 					  chunk);
@@ -603,7 +610,7 @@ static int siena_mtd_probe_partition(struct efx_nic *efx,
 	if (rc)
 		return rc;
 	if (protected)
-		return -ENODEV; 
+		return -ENODEV; /* hide it */
 
 	part->mcdi.nvram_type = type;
 	part->type_name = info->name;

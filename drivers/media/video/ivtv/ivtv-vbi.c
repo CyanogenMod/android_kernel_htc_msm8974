@@ -66,9 +66,14 @@ static void ivtv_set_wss(struct ivtv *itv, int enabled, int mode)
 
 	if (!(itv->v4l2_cap & V4L2_CAP_VIDEO_OUTPUT))
 		return;
+	/* When using a 50 Hz system, always turn on the
+	   wide screen signal with 4x3 ratio as the default.
+	   Turning this signal on and off can confuse certain
+	   TVs. As far as I can tell there is no reason not to
+	   transmit this signal. */
 	if ((itv->std_out & V4L2_STD_625_50) && !enabled) {
 		enabled = 1;
-		mode = 0x08;  
+		mode = 0x08;  /* 4x3 full format */
 	}
 	data.id = V4L2_SLICED_WSS_625;
 	data.field = 0;
@@ -190,7 +195,7 @@ static void copy_vbi_data(struct ivtv *itv, int lines, u32 pts_stamp)
 		0x00, 0x00, 0x01, 0xbd, 0x00, 0x1a, 0x84, 0x80,
 		0x07, 0x21, 0x00, 0x5d, 0x63, 0xa7, 0xff, 0xff
 	};
-	const int sd = sizeof(mpeg_hdr_data);	
+	const int sd = sizeof(mpeg_hdr_data);	/* start of vbi data */
 	int idx = itv->vbi.frame % IVTV_VBI_FRAMES;
 	u8 *dst = &itv->vbi.sliced_mpeg_data[idx][0];
 
@@ -215,6 +220,9 @@ static void copy_vbi_data(struct ivtv *itv, int lines, u32 pts_stamp)
 	}
 	memcpy(dst, mpeg_hdr_data, sizeof(mpeg_hdr_data));
 	if (line == 36) {
+		/* All lines are used, so there is no space for the linemask
+		   (the max size of the VBI data is 36 * 43 + 4 bytes).
+		   So in this case we use the magic number 'ITV0'. */
 		memcpy(dst + sd, "ITV0", 4);
 		memcpy(dst + sd + 4, dst + sd + 12, line * 43);
 		size = 4 + ((43 * line + 3) & ~3);
@@ -249,7 +257,7 @@ static int ivtv_convert_ivtv_vbi(struct ivtv *itv, u8 *p)
 		linemask[1] = 0xf;
 		p += 4;
 	} else {
-		
+		/* unknown VBI data, convert to empty VBI frame */
 		linemask[0] = linemask[1] = 0;
 	}
 	for (i = 0; i < 36; i++) {
@@ -297,6 +305,9 @@ static int ivtv_convert_ivtv_vbi(struct ivtv *itv, u8 *p)
 	return line * sizeof(itv->vbi.sliced_dec_data[0]);
 }
 
+/* Compress raw VBI format, removes leading SAV codes and surplus space after the
+   field.
+   Returns new compressed size. */
 static u32 compress_raw_buf(struct ivtv *itv, u8 *buf, u32 size)
 {
 	u32 line_size = itv->vbi.raw_decoder_line_size;
@@ -310,7 +321,7 @@ static u32 compress_raw_buf(struct ivtv *itv, u8 *buf, u32 size)
 	for (i = 0; i < lines; i++) {
 		p = buf + i * line_size;
 
-		
+		/* Look for SAV code */
 		if (p[0] != 0xff || p[1] || p[2] || (p[3] != sav1 && p[3] != sav2)) {
 			break;
 		}
@@ -321,6 +332,8 @@ static u32 compress_raw_buf(struct ivtv *itv, u8 *buf, u32 size)
 }
 
 
+/* Compressed VBI format, all found sliced blocks put next to one another
+   Returns new compressed size */
 static u32 compress_sliced_buf(struct ivtv *itv, u32 line, u8 *buf, u32 size, u8 sav)
 {
 	u32 line_size = itv->vbi.sliced_decoder_line_size;
@@ -328,7 +341,7 @@ static u32 compress_sliced_buf(struct ivtv *itv, u32 line, u8 *buf, u32 size, u8
 	int i;
 	unsigned lines = 0;
 
-	
+	/* find the first valid line */
 	for (i = 0; i < size; i++, buf++) {
 		if (buf[0] == 0xff && !buf[1] && !buf[2] && buf[3] == sav)
 			break;
@@ -341,7 +354,7 @@ static u32 compress_sliced_buf(struct ivtv *itv, u32 line, u8 *buf, u32 size, u8
 	for (i = 0; i < size / line_size; i++) {
 		u8 *p = buf + i * line_size;
 
-		
+		/* Look for SAV code  */
 		if (p[0] != 0xff || p[1] || p[2] || p[3] != sav) {
 			continue;
 		}
@@ -366,7 +379,7 @@ void ivtv_process_vbi_data(struct ivtv *itv, struct ivtv_buffer *buf,
 	u32 size = buf->bytesused;
 	int y;
 
-	
+	/* Raw VBI data */
 	if (streamtype == IVTV_ENC_STREAM_TYPE_VBI && ivtv_raw_vbi(itv)) {
 		u8 type;
 
@@ -376,8 +389,10 @@ void ivtv_process_vbi_data(struct ivtv *itv, struct ivtv_buffer *buf,
 
 		size = buf->bytesused = compress_raw_buf(itv, p, size);
 
-		
+		/* second field of the frame? */
 		if (type == itv->vbi.raw_decoder_sav_even_field) {
+			/* Dirty hack needed for backwards
+			   compatibility of old VBI software. */
 			p += size - 4;
 			memcpy(p, &itv->vbi.frame, 4);
 			itv->vbi.frame++;
@@ -385,19 +400,21 @@ void ivtv_process_vbi_data(struct ivtv *itv, struct ivtv_buffer *buf,
 		return;
 	}
 
-	
+	/* Sliced VBI data with data insertion */
 	if (streamtype == IVTV_ENC_STREAM_TYPE_VBI) {
 		int lines;
 
 		ivtv_buf_swap(buf);
 
-		
+		/* first field */
 		lines = compress_sliced_buf(itv, 0, p, size / 2,
 			itv->vbi.sliced_decoder_sav_odd_field);
-		
+		/* second field */
+		/* experimentation shows that the second half does not always begin
+		   at the exact address. So start a bit earlier (hence 32). */
 		lines = compress_sliced_buf(itv, lines, p + size / 2 - 32, size / 2 + 32,
 			itv->vbi.sliced_decoder_sav_even_field);
-		
+		/* always return at least one empty line */
 		if (lines == 0) {
 			itv->vbi.sliced_data[0].id = 0;
 			itv->vbi.sliced_data[0].line = 0;
@@ -414,15 +431,22 @@ void ivtv_process_vbi_data(struct ivtv *itv, struct ivtv_buffer *buf,
 		return;
 	}
 
-	
+	/* Sliced VBI re-inserted from an MPEG stream */
 	if (streamtype == IVTV_DEC_STREAM_TYPE_VBI) {
+		/* If the size is not 4-byte aligned, then the starting address
+		   for the swapping is also shifted. After swapping the data the
+		   real start address of the VBI data is exactly 4 bytes after the
+		   original start. It's a bit fiddly but it works like a charm.
+		   Non-4-byte alignment happens when an lseek is done on the input
+		   mpeg file to a non-4-byte aligned position. So on arrival here
+		   the VBI data is also non-4-byte aligned. */
 		int offset = size & 3;
 		int cnt;
 
 		if (offset) {
 			p += 4 - offset;
 		}
-		
+		/* Swap Buffer */
 		for (y = 0; y < size; y += 4) {
 		       swab32s((u32 *)(p + y));
 		}
@@ -453,7 +477,7 @@ void ivtv_vbi_work_handler(struct ivtv *itv)
 	struct v4l2_sliced_vbi_data data;
 	struct vbi_cc cc = { .odd = { 0x80, 0x80 }, .even = { 0x80, 0x80 } };
 
-	
+	/* Lock */
 	if (itv->output_mode == OUT_PASSTHROUGH) {
 		if (itv->is_50hz) {
 			data.id = V4L2_SLICED_WSS_625;
@@ -463,7 +487,7 @@ void ivtv_vbi_work_handler(struct ivtv *itv)
 				ivtv_set_wss(itv, 1, data.data[0] & 0xf);
 				vi->wss_missing_cnt = 0;
 			} else if (vi->wss_missing_cnt == 4) {
-				ivtv_set_wss(itv, 1, 0x8);  
+				ivtv_set_wss(itv, 1, 0x8);  /* 4x3 full format */
 			} else {
 				vi->wss_missing_cnt++;
 			}

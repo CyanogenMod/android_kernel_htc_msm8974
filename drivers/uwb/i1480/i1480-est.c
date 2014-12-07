@@ -30,7 +30,11 @@
 #include "dfu/i1480-dfu.h"
 
 
+/** Event size table for wEvents 0x00XX */
 static struct uwb_est_entry i1480_est_fd00[] = {
+	/* Anybody expecting this response has to use
+	 * neh->extra_size to specify the real size that will
+	 * come back. */
 	[i1480_EVT_CONFIRM] = { .size = sizeof(struct i1480_evt_confirm) },
 	[i1480_CMD_SET_IP_MAS] = { .size = sizeof(struct i1480_evt_confirm) },
 #ifdef i1480_RCEB_EXTENDED
@@ -41,6 +45,7 @@ static struct uwb_est_entry i1480_est_fd00[] = {
 #endif
 };
 
+/** Event size table for wEvents 0x01XX */
 static struct uwb_est_entry i1480_est_fd01[] = {
 	[0xff & i1480_EVT_RM_INIT_DONE] = { .size = sizeof(struct i1480_rceb) },
 	[0xff & i1480_EVT_DEV_ADD] = { .size = sizeof(struct i1480_rceb) + 9 },
@@ -81,6 +86,11 @@ MODULE_AUTHOR("Inaky Perez-Gonzalez <inaky.perez-gonzalez@intel.com>");
 MODULE_DESCRIPTION("i1480's Vendor Specific Event Size Tables");
 MODULE_LICENSE("GPL");
 
+/**
+ * USB device ID's that we handle
+ *
+ * [so we are loaded when this kind device is connected]
+ */
 static struct usb_device_id __used i1480_est_id_table[] = {
 	{ USB_DEVICE(0x8086, 0xdf3b), },
 	{ USB_DEVICE(0x8086, 0x0c3b), },

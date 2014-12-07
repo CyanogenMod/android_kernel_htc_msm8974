@@ -18,6 +18,10 @@
 #include <plat/map-base.h>
 #include <plat/map-s3c.h>
 
+/*
+ * Post-mux Chip Select Regions Xm0CSn_
+ * These may be used by SROM, NAND or CF depending on settings
+ */
 
 #define S3C64XX_PA_XM0CSN0 (0x10000000)
 #define S3C64XX_PA_XM0CSN1 (0x18000000)
@@ -26,6 +30,7 @@
 #define S3C64XX_PA_XM0CSN4 (0x30000000)
 #define S3C64XX_PA_XM0CSN5 (0x38000000)
 
+/* HSMMC units */
 #define S3C64XX_PA_HSMMC(x)	(0x7C200000 + ((x) * 0x100000))
 #define S3C64XX_PA_HSMMC0	S3C64XX_PA_HSMMC(0)
 #define S3C64XX_PA_HSMMC1	S3C64XX_PA_HSMMC(1)
@@ -38,6 +43,7 @@
 #define S3C_PA_UART3		(S3C_PA_UART + 0xC00)
 #define S3C_UART_OFFSET		(0x400)
 
+/* See notes on UART VA mapping in debug-macro.S */
 #define S3C_VA_UARTx(x)	(S3C_VA_UART + (S3C_PA_UART & 0xfffff) + ((x) * S3C_UART_OFFSET))
 
 #define S3C_VA_UART0		S3C_VA_UARTx(0)
@@ -51,6 +57,8 @@
 #define S3C64XX_PA_ONENAND0_BUF	(0x20000000)
 #define S3C64XX_SZ_ONENAND0_BUF (SZ_64M)
 
+/* NAND and OneNAND1 controllers occupy the same register region
+   (depending on SoC POP version) */
 #define S3C64XX_PA_ONENAND1	(0x70200000)
 #define S3C64XX_PA_ONENAND1_BUF	(0x28000000)
 #define S3C64XX_SZ_ONENAND1_BUF	(SZ_64M)
@@ -91,6 +99,7 @@
 
 #define S3C64XX_PA_USB_HSPHY	(0x7C100000)
 
+/* compatibiltiy defines. */
 #define S3C_PA_TIMER		S3C64XX_PA_TIMER
 #define S3C_PA_HSMMC0		S3C64XX_PA_HSMMC0
 #define S3C_PA_HSMMC1		S3C64XX_PA_HSMMC1
@@ -113,4 +122,4 @@
 #define SAMSUNG_PA_CFCON	S3C64XX_PA_CFCON
 #define SAMSUNG_PA_KEYPAD	S3C64XX_PA_KEYPAD
 
-#endif 
+#endif /* __ASM_ARCH_6400_MAP_H */

@@ -24,5 +24,5 @@ int svcauth_gss_register_pseudoflavor(u32 pseudoflavor, char * name);
 u32 svcauth_gss_flavor(struct auth_domain *dom);
 char *svc_gss_principal(struct svc_rqst *);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _LINUX_SUNRPC_SVCAUTH_GSS_H */

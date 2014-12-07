@@ -34,7 +34,7 @@ void kvmppc_init_timing_stats(struct kvm_vcpu *vcpu)
 {
 	int i;
 
-	
+	/* Take a lock to avoid concurrent updates */
 	mutex_lock(&vcpu->arch.exit_timing_lock);
 
 	vcpu->arch.last_exit_type = 0xDEAD;
@@ -60,7 +60,7 @@ static void add_exit_timing(struct kvm_vcpu *vcpu, u64 duration, int type)
 
 	vcpu->arch.timing_count_type[type]++;
 
-	
+	/* sum */
 	old = vcpu->arch.timing_sum_duration[type];
 	vcpu->arch.timing_sum_duration[type] += duration;
 	if (unlikely(old > vcpu->arch.timing_sum_duration[type])) {
@@ -70,7 +70,7 @@ static void add_exit_timing(struct kvm_vcpu *vcpu, u64 duration, int type)
 			type, vcpu->arch.timing_count_type[type]);
 	}
 
-	
+	/* square sum */
 	old = vcpu->arch.timing_sum_quad_duration[type];
 	vcpu->arch.timing_sum_quad_duration[type] += (duration*duration);
 	if (unlikely(old > vcpu->arch.timing_sum_quad_duration[type])) {
@@ -81,7 +81,7 @@ static void add_exit_timing(struct kvm_vcpu *vcpu, u64 duration, int type)
 			type, vcpu->arch.timing_count_type[type]);
 	}
 
-	
+	/* set min/max */
 	if (unlikely(duration < vcpu->arch.timing_min_duration[type]))
 		vcpu->arch.timing_min_duration[type] = duration;
 	if (unlikely(duration > vcpu->arch.timing_max_duration[type]))
@@ -95,15 +95,15 @@ void kvmppc_update_timing_stats(struct kvm_vcpu *vcpu)
 	u64 exit = vcpu->arch.timing_last_exit;
 	u64 enter = vcpu->arch.timing_last_enter.tv64;
 
-	
+	/* save exit time, used next exit when the reenter time is known */
 	vcpu->arch.timing_last_exit = vcpu->arch.timing_exit.tv64;
 
 	if (unlikely(vcpu->arch.last_exit_type == 0xDEAD || exit == 0))
-		return; 
+		return; /* skip incomplete cycle (e.g. after reset) */
 
-	
+	/* update statistics for average and standard deviation */
 	add_exit_timing(vcpu, (enter - exit), vcpu->arch.last_exit_type);
-	
+	/* enter -> timing_last_exit is time spent in guest - log this too */
 	add_exit_timing(vcpu, (vcpu->arch.timing_last_exit - enter),
 			TIMEINGUEST);
 }
@@ -170,6 +170,7 @@ static int kvmppc_exit_timing_show(struct seq_file *m, void *private)
 	return 0;
 }
 
+/* Write 'c' to clear the timing statistics. */
 static ssize_t kvmppc_exit_timing_write(struct file *file,
 				       const char __user *user_buf,
 				       size_t count, loff_t *ppos)
@@ -189,6 +190,9 @@ static ssize_t kvmppc_exit_timing_write(struct file *file,
 	if (c == 'c') {
 		struct seq_file *seqf = file->private_data;
 		struct kvm_vcpu *vcpu = seqf->private;
+		/* Write does not affect our buffers previously generated with
+		 * show. seq_file is locked here to prevent races of init with
+		 * a show call */
 		mutex_lock(&seqf->lock);
 		kvmppc_init_timing_stats(vcpu);
 		mutex_unlock(&seqf->lock);

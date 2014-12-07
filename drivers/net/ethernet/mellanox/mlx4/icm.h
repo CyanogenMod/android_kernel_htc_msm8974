@@ -131,4 +131,4 @@ static inline unsigned long mlx4_icm_size(struct mlx4_icm_iter *iter)
 int mlx4_MAP_ICM_AUX(struct mlx4_dev *dev, struct mlx4_icm *icm);
 int mlx4_UNMAP_ICM_AUX(struct mlx4_dev *dev);
 
-#endif 
+#endif /* MLX4_ICM_H */

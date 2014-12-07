@@ -43,7 +43,7 @@ static struct pmu perf_ibs = {
 static __init int perf_event_ibs_init(void)
 {
 	if (!ibs_caps)
-		return -ENODEV;	
+		return -ENODEV;	/* ibs not supported by the cpu */
 
 	perf_pmu_register(&perf_ibs, "ibs", -1);
 	printk(KERN_INFO "perf: AMD IBS detected (0x%08x)\n", ibs_caps);
@@ -51,12 +51,13 @@ static __init int perf_event_ibs_init(void)
 	return 0;
 }
 
-#else 
+#else /* defined(CONFIG_PERF_EVENTS) && defined(CONFIG_CPU_SUP_AMD) */
 
 static __init int perf_event_ibs_init(void) { return 0; }
 
 #endif
 
+/* IBS - apic initialization, for perf and oprofile */
 
 static __init u32 __get_ibs_caps(void)
 {
@@ -66,14 +67,14 @@ static __init u32 __get_ibs_caps(void)
 	if (!boot_cpu_has(X86_FEATURE_IBS))
 		return 0;
 
-	
+	/* check IBS cpuid feature flags */
 	max_level = cpuid_eax(0x80000000);
 	if (max_level < IBS_CPUID_FEATURES)
 		return IBS_CAPS_DEFAULT;
 
 	caps = cpuid_eax(IBS_CPUID_FEATURES);
 	if (!(caps & IBS_CAPS_AVAIL))
-		
+		/* cpuid flags not valid */
 		return IBS_CAPS_DEFAULT;
 
 	return caps;
@@ -96,6 +97,9 @@ static inline int put_eilvt(int offset)
 	return !setup_APIC_eilvt(offset, 0, 0, 1);
 }
 
+/*
+ * Check and reserve APIC extended interrupt LVT offset for IBS if available.
+ */
 static inline int ibs_eilvt_valid(void)
 {
 	int offset;
@@ -160,13 +164,21 @@ static int setup_ibs_ctl(int ibs_eilvt_off)
 	return 0;
 }
 
+/*
+ * This runs only on the current cpu. We try to find an LVT offset and
+ * setup the local APIC. For this we must disable preemption. On
+ * success we initialize all nodes with this offset. This updates then
+ * the offset in the IBS_CTL per-node msr. The per-core APIC setup of
+ * the IBS interrupt vector is handled by perf_ibs_cpu_notifier that
+ * is using the new offset.
+ */
 static int force_ibs_eilvt_setup(void)
 {
 	int offset;
 	int ret;
 
 	preempt_disable();
-	
+	/* find the next free available EILVT entry, skip offset 0 */
 	for (offset = 1; offset < APIC_EILVT_NR_MAX; offset++) {
 		if (get_eilvt(offset))
 			break;
@@ -256,8 +268,14 @@ static __init int amd_ibs_init(void)
 
 	caps = __get_ibs_caps();
 	if (!caps)
-		return -ENODEV;	
+		return -ENODEV;	/* ibs not supported by the cpu */
 
+	/*
+	 * Force LVT offset assignment for family 10h: The offsets are
+	 * not assigned by the BIOS for this family, so the OS is
+	 * responsible for doing it. If the OS assignment fails, fall
+	 * back to BIOS settings and try to setup this.
+	 */
 	if (boot_cpu_data.x86 == 0x10)
 		force_ibs_eilvt_setup();
 
@@ -266,7 +284,7 @@ static __init int amd_ibs_init(void)
 
 	get_online_cpus();
 	ibs_caps = caps;
-	
+	/* make ibs_caps visible to other cpus: */
 	smp_mb();
 	perf_cpu_notifier(perf_ibs_cpu_notifier);
 	smp_call_function(setup_APIC_ibs, NULL, 1);
@@ -279,4 +297,5 @@ out:
 	return ret;
 }
 
+/* Since we need the pci subsystem to init ibs we can't do this earlier: */
 device_initcall(amd_ibs_init);

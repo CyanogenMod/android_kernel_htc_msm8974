@@ -67,15 +67,24 @@
 #include <linux/err.h>
 #include <linux/mutex.h>
 
+/*
+ * Addresses to scan
+ * LM87 has three possible addresses: 0x2c, 0x2d and 0x2e.
+ */
 
 static const unsigned short normal_i2c[] = { 0x2c, 0x2d, 0x2e, I2C_CLIENT_END };
 
 enum chips { lm87, adm1024 };
 
+/*
+ * The LM87 registers
+ */
 
+/* nr in 0..5 */
 #define LM87_REG_IN(nr)			(0x20 + (nr))
 #define LM87_REG_IN_MAX(nr)		(0x2B + (nr) * 2)
 #define LM87_REG_IN_MIN(nr)		(0x2C + (nr) * 2)
+/* nr in 0..1 */
 #define LM87_REG_AIN(nr)		(0x28 + (nr))
 #define LM87_REG_AIN_MIN(nr)		(0x1A + (nr))
 #define LM87_REG_AIN_MAX(nr)		(0x3B + (nr))
@@ -89,6 +98,7 @@ static u8 LM87_REG_TEMP_LOW[3] = { 0x3A, 0x38, 0x2C };
 #define LM87_REG_TEMP_HW_INT		0x17
 #define LM87_REG_TEMP_HW_EXT		0x18
 
+/* nr in 0..1 */
 #define LM87_REG_FAN(nr)		(0x28 + (nr))
 #define LM87_REG_FAN_MIN(nr)		(0x3B + (nr))
 #define LM87_REG_AOUT			0x19
@@ -104,6 +114,10 @@ static u8 LM87_REG_TEMP_LOW[3] = { 0x3A, 0x38, 0x2C };
 #define LM87_REG_COMPANY_ID		0x3E
 #define LM87_REG_REVISION		0x3F
 
+/*
+ * Conversions and various macros
+ * The LM87 uses signed 8-bit values for temperatures.
+ */
 
 #define IN_FROM_REG(reg, scale)	(((reg) * (scale) + 96) / 192)
 #define IN_TO_REG(val, scale)	((val) <= 0 ? 0 : \
@@ -123,44 +137,49 @@ static u8 LM87_REG_TEMP_LOW[3] = { 0x3A, 0x38, 0x2C };
 
 #define FAN_DIV_FROM_REG(reg)	(1 << (reg))
 
+/* analog out is 9.80mV/LSB */
 #define AOUT_FROM_REG(reg)	(((reg) * 98 + 5) / 10)
 #define AOUT_TO_REG(val)	((val) <= 0 ? 0 : \
 				 (val) >= 2500 ? 255 : \
 				 ((val) * 10 + 49) / 98)
 
+/* nr in 0..1 */
 #define CHAN_NO_FAN(nr)		(1 << (nr))
 #define CHAN_TEMP3		(1 << 2)
 #define CHAN_VCC_5V		(1 << 3)
 #define CHAN_NO_VID		(1 << 7)
 
+/*
+ * Client data (each client gets its own)
+ */
 
 struct lm87_data {
 	struct device *hwmon_dev;
 	struct mutex update_lock;
-	char valid; 
-	unsigned long last_updated; 
+	char valid; /* zero until following fields are valid */
+	unsigned long last_updated; /* In jiffies */
 
-	u8 channel;		
-	u8 config;		
+	u8 channel;		/* register value */
+	u8 config;		/* original register value */
 
-	u8 in[8];		
-	u8 in_max[8];		
-	u8 in_min[8];		
+	u8 in[8];		/* register value */
+	u8 in_max[8];		/* register value */
+	u8 in_min[8];		/* register value */
 	u16 in_scale[8];
 
-	s8 temp[3];		
-	s8 temp_high[3];	
-	s8 temp_low[3];		
-	s8 temp_crit_int;	
-	s8 temp_crit_ext;	
+	s8 temp[3];		/* register value */
+	s8 temp_high[3];	/* register value */
+	s8 temp_low[3];		/* register value */
+	s8 temp_crit_int;	/* min of two register values */
+	s8 temp_crit_ext;	/* min of two register values */
 
-	u8 fan[2];		
-	u8 fan_min[2];		
-	u8 fan_div[2];		
-	u8 aout;		
+	u8 fan[2];		/* register value */
+	u8 fan_min[2];		/* register value */
+	u8 fan_div[2];		/* register value, shifted right */
+	u8 aout;		/* register value */
 
-	u16 alarms;		
-	u8 vid;			
+	u16 alarms;		/* register values, combined */
+	u8 vid;			/* register values, combined */
 	u8 vrm;
 };
 
@@ -253,6 +272,9 @@ static struct lm87_data *lm87_update_device(struct device *dev)
 	return data;
 }
 
+/*
+ * Sysfs stuff
+ */
 
 static ssize_t show_in_input(struct device *dev, struct device_attribute *attr,
 			     char *buf)
@@ -491,6 +513,12 @@ static ssize_t set_fan_min(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/*
+ * Note: we save and restore the fan minimum here, because its value is
+ * determined in part by the fan clock divider.  This follows the principle
+ * of least surprise; the user doesn't expect the fan minimum to change just
+ * because the divider changed.
+ */
 static ssize_t set_fan_div(struct device *dev, struct device_attribute *attr,
 			   const char *buf, size_t count)
 {
@@ -643,6 +671,9 @@ static SENSOR_DEVICE_ATTR(fan2_alarm, S_IRUGO, show_alarm, NULL, 7);
 static SENSOR_DEVICE_ATTR(temp2_fault, S_IRUGO, show_alarm, NULL, 14);
 static SENSOR_DEVICE_ATTR(temp3_fault, S_IRUGO, show_alarm, NULL, 15);
 
+/*
+ * Real code
+ */
 
 static struct attribute *lm87_attributes[] = {
 	&sensor_dev_attr_in1_input.dev_attr.attr,
@@ -772,6 +803,7 @@ static const struct attribute_group lm87_group_vid = {
 	.attrs = lm87_attributes_vid,
 };
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int lm87_detect(struct i2c_client *client, struct i2c_board_info *info)
 {
 	struct i2c_adapter *adapter = client->adapter;
@@ -784,14 +816,14 @@ static int lm87_detect(struct i2c_client *client, struct i2c_board_info *info)
 	if (lm87_read_value(client, LM87_REG_CONFIG) & 0x80)
 		return -ENODEV;
 
-	
+	/* Now, we do the remaining detection. */
 	cid = lm87_read_value(client, LM87_REG_COMPANY_ID);
 	rev = lm87_read_value(client, LM87_REG_REVISION);
 
-	if (cid == 0x02			
+	if (cid == 0x02			/* National Semiconductor */
 	 && (rev >= 0x01 && rev <= 0x08))
 		name = "lm87";
-	else if (cid == 0x41		
+	else if (cid == 0x41		/* Analog Devices */
 	      && (rev & 0xf0) == 0x10)
 		name = "adm1024";
 	else {
@@ -835,7 +867,7 @@ static void lm87_init_client(struct i2c_client *client)
 	if (!(data->config & 0x01)) {
 		int i;
 
-		
+		/* Limits are left uninitialized after power-up */
 		for (i = 1; i < 6; i++) {
 			lm87_write_value(client, LM87_REG_IN_MIN(i), 0x00);
 			lm87_write_value(client, LM87_REG_IN_MAX(i), 0xFF);
@@ -855,7 +887,7 @@ static void lm87_init_client(struct i2c_client *client)
 		}
 	}
 
-	
+	/* Make sure Start is set and INT#_Clear is clear */
 	if ((data->config & 0x09) != 0x01)
 		lm87_write_value(client, LM87_REG_CONFIG,
 				 (data->config & 0x77) | 0x01);
@@ -876,7 +908,7 @@ static int lm87_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	data->valid = 0;
 	mutex_init(&data->update_lock);
 
-	
+	/* Initialize the LM87 chip */
 	lm87_init_client(client);
 
 	data->in_scale[0] = 2500;
@@ -888,7 +920,7 @@ static int lm87_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	data->in_scale[6] = 1875;
 	data->in_scale[7] = 1875;
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&client->dev.kobj, &lm87_group);
 	if (err)
 		goto exit_free;
@@ -959,6 +991,9 @@ static int lm87_remove(struct i2c_client *client)
 	return 0;
 }
 
+/*
+ * Driver data (common to all clients)
+ */
 
 static const struct i2c_device_id lm87_id[] = {
 	{ "lm87", lm87 },

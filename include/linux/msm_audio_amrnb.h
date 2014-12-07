@@ -19,9 +19,10 @@ struct msm_audio_amrnb_enc_config {
 	unsigned short voicememoencweight2;
 	unsigned short voicememoencweight3;
 	unsigned short voicememoencweight4;
-	unsigned short dtx_mode_enable; 
-	unsigned short test_mode_enable; 
-	unsigned short enc_mode; 
+	unsigned short dtx_mode_enable; /* 0xFFFF - enable, 0- disable */
+	unsigned short test_mode_enable; /* 0xFFFF - enable, 0- disable */
+	unsigned short enc_mode; /* 0-MR475,1-MR515,2-MR59,3-MR67,4-MR74
+				5-MR795, 6- MR102, 7- MR122(default) */
 };
 
 struct msm_audio_amrnb_enc_config_v2 {
@@ -29,4 +30,4 @@ struct msm_audio_amrnb_enc_config_v2 {
 	uint32_t dtx_enable;
 	uint32_t frame_format;
 };
-#endif 
+#endif /* __MSM_AUDIO_AMRNB_H */

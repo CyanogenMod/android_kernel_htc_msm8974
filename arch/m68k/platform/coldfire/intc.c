@@ -18,11 +18,28 @@
 #include <asm/coldfire.h>
 #include <asm/mcfsim.h>
 
+/*
+ * The mapping of irq number to a mask register bit is not one-to-one.
+ * The irq numbers are either based on "level" of interrupt or fixed
+ * for an autovector-able interrupt. So we keep a local data structure
+ * that maps from irq to mask register. Not all interrupts will have
+ * an IMR bit.
+ */
 unsigned char mcf_irq2imr[NR_IRQS];
 
+/*
+ * Define the miniumun and maximum external interrupt numbers.
+ * This is also used as the "level" interrupt numbers.
+ */
 #define	EIRQ1	25
 #define	EIRQ7	31
 
+/*
+ * In the early version 2 core ColdFire parts the IMR register was 16 bits
+ * in size. Version 3 (and later version 2) core parts have a 32 bit
+ * sized IMR register. Provide some size independent methods to access the
+ * IMR register.
+ */
 #ifdef MCFSIM_IMR_IS_16BITS
 
 void mcf_setimr(int index)
@@ -73,6 +90,15 @@ void mcf_maskimr(unsigned int mask)
 
 #endif
 
+/*
+ * Interrupts can be "vectored" on the ColdFire cores that support this old
+ * interrupt controller. That is, the device raising the interrupt can also
+ * supply the vector number to interrupt through. The AVR register of the
+ * interrupt controller enables or disables this for each external interrupt,
+ * so provide generic support for this. Setting this up is out-of-band for
+ * the interrupt system API's, and needs to be done by the driver that
+ * supports this device. Very few devices actually use this.
+ */
 void mcf_autovector(int irq)
 {
 #ifdef MCFSIM_AVR

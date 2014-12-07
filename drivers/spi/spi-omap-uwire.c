@@ -53,11 +53,15 @@
 #include <asm/mach-types.h>
 
 #include <plat/mux.h>
-#include <plat/omap7xx.h>	
+#include <plat/omap7xx.h>	/* OMAP7XX_IO_CONF registers */
 
 
+/* FIXME address is now a platform device resource,
+ * and irqs should show there too...
+ */
 #define UWIRE_BASE_PHYS		0xFFFB3000
 
+/* uWire Registers: */
 #define UWIRE_IO_SIZE 0x20
 #define UWIRE_TDR     0x00
 #define UWIRE_RDR     0x00
@@ -68,11 +72,13 @@
 #define UWIRE_SR4     0x05
 #define UWIRE_SR5     0x06
 
+/* CSR bits */
 #define	RDRB	(1 << 15)
 #define	CSRB	(1 << 14)
 #define	START	(1 << 13)
 #define	CS_CMD	(1 << 12)
 
+/* SR1 or SR2 bits */
 #define UWIRE_READ_FALLING_EDGE		0x0001
 #define UWIRE_READ_RISING_EDGE		0x0000
 #define UWIRE_WRITE_FALLING_EDGE	0x0000
@@ -96,6 +102,11 @@ struct uwire_state {
 	unsigned	div1_idx;
 };
 
+/* REVISIT compile time constant for idx_shift? */
+/*
+ * Or, put it in a structure which is used throughout the driver;
+ * that avoids having to issue two loads for each bit of static data.
+ */
 static unsigned int uwire_idx_shift;
 static void __iomem *uwire_base;
 
@@ -177,14 +188,14 @@ static void uwire_chipselect(struct spi_device *spi, int value)
 	w = uwire_read_reg(UWIRE_CSR);
 	old_cs = (w >> 10) & 0x03;
 	if (value == BITBANG_CS_INACTIVE || old_cs != spi->chip_select) {
-		
+		/* Deselect this CS, or the previous CS */
 		w &= ~CS_CMD;
 		uwire_write_reg(UWIRE_CSR, w);
 	}
-	
+	/* activate specfied chipselect */
 	if (value == BITBANG_CS_ACTIVE) {
 		uwire_set_clk1_div(ust->div1_idx);
-		
+		/* invert clock? */
 		if (spi->mode & SPI_CPOL)
 			uwire_write_reg(UWIRE_SR4, 1);
 		else
@@ -208,7 +219,7 @@ static int uwire_txrx(struct spi_device *spi, struct spi_transfer *t)
 	if (!t->tx_buf && !t->rx_buf)
 		return 0;
 
-	
+	/* Microwire doesn't read and write concurrently */
 	if (t->tx_buf && t->rx_buf)
 		return -EPERM;
 
@@ -218,10 +229,13 @@ static int uwire_txrx(struct spi_device *spi, struct spi_transfer *t)
 	if (t->tx_buf) {
 		const u8	*buf = t->tx_buf;
 
-		
+		/* NOTE:  DMA could be used for TX transfers */
 
-		
+		/* write one or two bytes at a time */
 		while (len >= 1) {
+			/* tx bit 15 is first sent; we byteswap multibyte words
+			 * (msb-first) on the way out from memory.
+			 */
 			val = *buf++;
 			if (bits > 8) {
 				bytes = 2;
@@ -239,44 +253,51 @@ static int uwire_txrx(struct spi_device *spi, struct spi_transfer *t)
 
 			uwire_write_reg(UWIRE_TDR, val);
 
-			
+			/* start write */
 			val = START | w | (bits << 5);
 
 			uwire_write_reg(UWIRE_CSR, val);
 			len -= bytes;
 
+			/* Wait till write actually starts.
+			 * This is needed with MPU clock 60+ MHz.
+			 * REVISIT: we may not have time to catch it...
+			 */
 			if (wait_uwire_csr_flag(CSRB, CSRB, 1))
 				goto eio;
 
 			status += bytes;
 		}
 
-		
+		/* REVISIT:  save this for later to get more i/o overlap */
 		if (wait_uwire_csr_flag(CSRB, 0, 0))
 			goto eio;
 
 	} else if (t->rx_buf) {
 		u8		*buf = t->rx_buf;
 
-		
+		/* read one or two bytes at a time */
 		while (len) {
 			if (bits > 8) {
 				bytes = 2;
 			} else
 				bytes = 1;
 
-			
+			/* start read */
 			val = START | w | (bits << 0);
 			uwire_write_reg(UWIRE_CSR, val);
 			len -= bytes;
 
-			
+			/* Wait till read actually starts */
 			(void) wait_uwire_csr_flag(CSRB, CSRB, 1);
 
 			if (wait_uwire_csr_flag(RDRB | CSRB,
 						RDRB, 0))
 				goto eio;
 
+			/* rx bit 0 is last received; multibyte words will
+			 * be properly byteswapped on the way to memory.
+			 */
 			val = uwire_read_reg(UWIRE_RDR);
 			val &= (1 << bits) - 1;
 			*buf++ = (u8) val;
@@ -327,6 +348,10 @@ static int uwire_setup_transfer(struct spi_device *spi, struct spi_transfer *t)
 	}
 	ust->bits_per_word = bits;
 
+	/* mode 0..3, clock inverted separately;
+	 * standard nCS signaling;
+	 * don't treat DI=high as "not ready"
+	 */
 	if (spi->mode & SPI_CS_HIGH)
 		flags |= UWIRE_CS_ACTIVE_HIGH;
 
@@ -344,7 +369,7 @@ static int uwire_setup_transfer(struct spi_device *spi, struct spi_transfer *t)
 		break;
 	}
 
-	
+	/* assume it's already enabled */
 	rate = clk_get_rate(uwire->ck);
 
 	hz = spi->max_speed_hz;
@@ -357,7 +382,7 @@ static int uwire_setup_transfer(struct spi_device *spi, struct spi_transfer *t)
 		goto done;
 	}
 
-	
+	/* F_INT = mpu_xor_clk / DIV1 */
 	for (div1_idx = 0; div1_idx < 4; div1_idx++) {
 		switch (div1_idx) {
 		case 0:
@@ -385,6 +410,9 @@ static int uwire_setup_transfer(struct spi_device *spi, struct spi_transfer *t)
 		goto done;
 	}
 
+	/* we have to cache this and reset in uwire_chipselect as this is a
+	 * global parameter and another uwire device can change it under
+	 * us */
 	ust->div1_idx = div1_idx;
 	uwire_set_clk1_div(div1_idx);
 
@@ -484,12 +512,12 @@ static int __init uwire_probe(struct platform_device *pdev)
 
 	uwire_write_reg(UWIRE_SR3, 1);
 
-	
+	/* the spi->mode bits understood by this driver: */
 	master->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH;
 
 	master->flags = SPI_MASTER_HALF_DUPLEX;
 
-	master->bus_num = 2;	
+	master->bus_num = 2;	/* "official" */
 	master->num_chipselect = 4;
 	master->setup = uwire_setup;
 	master->cleanup = uwire_cleanup;
@@ -512,7 +540,7 @@ static int __exit uwire_remove(struct platform_device *pdev)
 	struct uwire_spi	*uwire = dev_get_drvdata(&pdev->dev);
 	int			status;
 
-	
+	// FIXME remove all child devices, somewhere ...
 
 	status = spi_bitbang_stop(&uwire->bitbang);
 	uwire_off(uwire);
@@ -520,6 +548,7 @@ static int __exit uwire_remove(struct platform_device *pdev)
 	return status;
 }
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:omap_uwire");
 
 static struct platform_driver uwire_driver = {
@@ -528,20 +557,23 @@ static struct platform_driver uwire_driver = {
 		.owner		= THIS_MODULE,
 	},
 	.remove		= __exit_p(uwire_remove),
-	
-	
+	// suspend ... unuse ck
+	// resume ... use ck
 };
 
 static int __init omap_uwire_init(void)
 {
+	/* FIXME move these into the relevant board init code. also, include
+	 * H3 support; it uses tsc2101 like H2 (on a different chipselect).
+	 */
 
 	if (machine_is_omap_h2()) {
-		
+		/* defaults: W21 SDO, U18 SDI, V19 SCL */
 		omap_cfg_reg(N14_1610_UWIRE_CS0);
 		omap_cfg_reg(N15_1610_UWIRE_CS1);
 	}
 	if (machine_is_omap_perseus2()) {
-		
+		/* configure pins: MPU_UW_nSCS1, MPU_UW_SDO, MPU_UW_SCLK */
 		int val = omap_readl(OMAP7XX_IO_CONF_9) & ~0x00EEE000;
 		omap_writel(val | 0x00AAA000, OMAP7XX_IO_CONF_9);
 	}

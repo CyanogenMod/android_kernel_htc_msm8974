@@ -80,15 +80,33 @@ struct alarm_queue {
 static struct rtc_device *alarm_rtc_dev;
 static DEFINE_SPINLOCK(alarm_slock);
 static DEFINE_MUTEX(alarm_setrtc_mutex);
+static DEFINE_MUTEX(power_on_alarm_mutex);
 static struct wake_lock alarm_rtc_wake_lock;
+static struct wake_lock alarm_rtc_time_wake_lock;
 static struct platform_device *alarm_platform_dev;
 struct alarm_queue alarms[ANDROID_ALARM_TYPE_COUNT];
 static bool suspended;
 static long power_on_alarm;
 
-void set_power_on_alarm(long secs)
+static int set_alarm_time_to_rtc(const long);
+
+void set_power_on_alarm(long secs, bool enable)
 {
-	power_on_alarm = secs;
+	mutex_lock(&power_on_alarm_mutex);
+	if (enable) {
+		power_on_alarm = secs;
+	} else {
+		if (power_on_alarm && power_on_alarm != secs) {
+			pr_alarm(FLOW, "power-off alarm mismatch: \
+				previous=%ld, now=%ld\n",
+				power_on_alarm, secs);
+		}
+		else
+			power_on_alarm = 0;
+	}
+
+	set_alarm_time_to_rtc(power_on_alarm);
+	mutex_unlock(&power_on_alarm_mutex);
 }
 
 
@@ -185,12 +203,32 @@ void alarm_init(struct alarm *alarm,
 void alarm_start_range(struct alarm *alarm, ktime_t start, ktime_t end)
 {
 	unsigned long flags;
+        unsigned long rtc_current_time = 0;
+        unsigned long rtc_alarm_time = 0;
 
 	spin_lock_irqsave(&alarm_slock, flags);
 	alarm->softexpires = start;
 	alarm->expires = end;
 	alarm_enqueue_locked(alarm);
 	spin_unlock_irqrestore(&alarm_slock, flags);
+	if(alarm->type == ANDROID_ALARM_RTC_WAKEUP){
+		rtc_alarm_time = ktime_to_ms(start);
+		rtc_current_time = ktime_to_ms(ktime_get_real());
+		if ( (rtc_alarm_time > rtc_current_time) && rtc_alarm_time < (rtc_current_time + 2000UL)){ 
+			printk("rtc_alarm_time = %lu , rtc_current_time = %lu . \n", rtc_alarm_time, rtc_current_time);
+			printk("RTC_WAKEUP alarm time interval too short, keep wakelock 2s.\n");
+			wake_lock_timeout(&alarm_rtc_time_wake_lock, 2 * HZ);
+		}
+	}
+	else if (alarm->type == ANDROID_ALARM_ELAPSED_REALTIME_WAKEUP){
+                rtc_alarm_time = ktime_to_ms(start);
+                rtc_current_time = ktime_to_ms(alarm_get_elapsed_realtime());
+                if ((rtc_alarm_time > rtc_current_time) && rtc_alarm_time < (rtc_current_time + 2000UL)){ 
+			printk("rtc_alarm_time = %lu , rtc_current_time = %lu . \n", rtc_alarm_time, rtc_current_time) ;
+			printk("ELAPSED_REALTIME_WAKEUP alarm time interval too short, keep wakelock 2s.\n");
+			wake_lock_timeout(&alarm_rtc_time_wake_lock, 2 * HZ);
+                }
+	}
 }
 
 int alarm_try_to_cancel(struct alarm *alarm)
@@ -485,73 +523,23 @@ static int alarm_resume(struct platform_device *pdev)
 	return 0;
 }
 
-#ifdef CONFIG_HTC_OFFMODE_ALARM
-static int find_offmode_alarm(void)
-{
-        struct timespec rtc_now;
-        int i;
-        int nearest_alarm = 0;
-        int nearest_alarm_snooze = 0;
-
-        getnstimeofday(&rtc_now);
-        for (i = 0; i < offalarm_size; i++) {
-                if (offalarm[i] > rtc_now.tv_sec) {
-                        if (nearest_alarm == 0)
-                                nearest_alarm = offalarm[i];
-                        else if (offalarm[i] < nearest_alarm)
-                                nearest_alarm = offalarm[i];
-                }
-        }
-        for (i = 0; i < offalarm_snooze_size; i++) {
-                if (offalarm_snooze[i] > rtc_now.tv_sec) {
-                        if (nearest_alarm_snooze == 0)
-                                nearest_alarm_snooze = offalarm_snooze[i];
-                        else if (offalarm_snooze[i] < nearest_alarm_snooze)
-                                nearest_alarm_snooze = offalarm_snooze[i];
-                }
-        }
-        pr_alarm(FLOW, "alarm(%u), snooze(%u)", nearest_alarm, nearest_alarm_snooze);
-        if((nearest_alarm == 0 || nearest_alarm_snooze <= nearest_alarm) && nearest_alarm_snooze != 0)
-                return nearest_alarm_snooze;
-        else
-                return nearest_alarm;
-}
-static void alarm_shutdown(struct platform_device *pdev)
-{
-        int offmode_alarm;
-        struct rtc_wkalrm rtc_alarm;
-
-        if (!htc_is_offalarm_enabled())
-                return;
-
-        offmode_alarm = find_offmode_alarm();
-        if (offmode_alarm > 0) {
-                pr_alarm(FLOW, "set offmode alarm(%u)", offmode_alarm);
-                rtc_time_to_tm(offmode_alarm, &rtc_alarm.time);
-                rtc_alarm.enabled = 1;
-                rtc_set_alarm(alarm_rtc_dev, &rtc_alarm);
-        }
-}
-#else
-static void alarm_shutdown(struct platform_device *dev)
+static int set_alarm_time_to_rtc(const long power_on_time)
 {
 	struct timespec wall_time;
 	struct rtc_time rtc_time;
 	struct rtc_wkalrm alarm;
-	unsigned long flags;
 	long rtc_secs, alarm_delta, alarm_time;
-	int rc;
+	int rc = -EINVAL;
 
-	spin_lock_irqsave(&alarm_slock, flags);
-
-	if (!power_on_alarm)
+	if (power_on_time <= 0) {
 		goto disable_alarm;
+	}
 
 	rtc_read_time(alarm_rtc_dev, &rtc_time);
 	getnstimeofday(&wall_time);
 	rtc_tm_to_time(&rtc_time, &rtc_secs);
 	alarm_delta = wall_time.tv_sec - rtc_secs;
-	alarm_time = power_on_alarm - alarm_delta;
+	alarm_time = power_on_time - alarm_delta;
 
 	if ((alarm_time - ALARM_DELTA) > rtc_secs)
 		alarm_time -= ALARM_DELTA;
@@ -562,20 +550,20 @@ static void alarm_shutdown(struct platform_device *dev)
 	rtc_time_to_tm(alarm_time, &alarm.time);
 	alarm.enabled = 1;
 	rc = rtc_set_alarm(alarm_rtc_dev, &alarm);
-	if (rc)
+	if (rc){
 		pr_alarm(ERROR, "Unable to set power-on alarm\n");
+		goto disable_alarm;
+	}
 	else
 		pr_alarm(FLOW, "Power-on alarm set to %lu\n",
 				alarm_time);
 
-	spin_unlock_irqrestore(&alarm_slock, flags);
-	return;
+	return 0;
 
 disable_alarm:
 	rtc_alarm_irq_enable(alarm_rtc_dev, 0);
-	spin_unlock_irqrestore(&alarm_slock, flags);
+	return rc;
 }
-#endif
 
 static struct rtc_task alarm_rtc_task = {
 	.func = alarm_triggered_func
@@ -636,7 +624,6 @@ static struct class_interface rtc_alarm_interface = {
 static struct platform_driver alarm_driver = {
 	.suspend = alarm_suspend,
 	.resume = alarm_resume,
-	.shutdown = alarm_shutdown,
 	.driver = {
 		.name = "alarm"
 	}
@@ -676,6 +663,7 @@ static int __init alarm_driver_init(void)
 	if (err < 0)
 		goto err1;
 	wake_lock_init(&alarm_rtc_wake_lock, WAKE_LOCK_SUSPEND, "alarm_rtc");
+	wake_lock_init(&alarm_rtc_time_wake_lock, WAKE_LOCK_SUSPEND, "alarm_rtc_time");
 	rtc_alarm_interface.class = rtc_class;
 	err = class_interface_register(&rtc_alarm_interface);
 	if (err < 0)
@@ -685,6 +673,7 @@ static int __init alarm_driver_init(void)
 
 err2:
 	wake_lock_destroy(&alarm_rtc_wake_lock);
+	wake_lock_destroy(&alarm_rtc_time_wake_lock);
 	platform_driver_unregister(&alarm_driver);
 err1:
 	return err;
@@ -694,6 +683,7 @@ static void  __exit alarm_exit(void)
 {
 	class_interface_unregister(&rtc_alarm_interface);
 	wake_lock_destroy(&alarm_rtc_wake_lock);
+	wake_lock_destroy(&alarm_rtc_time_wake_lock);
 	platform_driver_unregister(&alarm_driver);
 }
 

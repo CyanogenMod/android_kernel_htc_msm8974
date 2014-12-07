@@ -24,32 +24,53 @@
 
 #include "cacheinfo.h"
 
+/* per-cpu object for tracking:
+ * - a "cache" kobject for the top-level directory
+ * - a list of "index" objects representing the cpu's local cache hierarchy
+ */
 struct cache_dir {
-	struct kobject *kobj; 
-	struct cache_index_dir *index; 
+	struct kobject *kobj; /* bare (not embedded) kobject for cache
+			       * directory */
+	struct cache_index_dir *index; /* list of index objects */
 };
 
+/* "index" object: each cpu's cache directory has an index
+ * subdirectory corresponding to a cache object associated with the
+ * cpu.  This object's lifetime is managed via the embedded kobject.
+ */
 struct cache_index_dir {
 	struct kobject kobj;
-	struct cache_index_dir *next; 
+	struct cache_index_dir *next; /* next index in parent directory */
 	struct cache *cache;
 };
 
+/* Template for determining which OF properties to query for a given
+ * cache type */
 struct cache_type_info {
 	const char *name;
 	const char *size_prop;
 
+	/* Allow for both [di]-cache-line-size and
+	 * [di]-cache-block-size properties.  According to the PowerPC
+	 * Processor binding, -line-size should be provided if it
+	 * differs from the cache block size (that which is operated
+	 * on by cache instructions), so we look for -line-size first.
+	 * See cache_get_line_size(). */
 
 	const char *line_size_props[2];
 	const char *nr_sets_prop;
 };
 
+/* These are used to index the cache_type_info array. */
 #define CACHE_TYPE_UNIFIED     0
 #define CACHE_TYPE_INSTRUCTION 1
 #define CACHE_TYPE_DATA        2
 
 static const struct cache_type_info cache_type_info[] = {
 	{
+		/* PowerPC Processor binding says the [di]-cache-*
+		 * must be equal on unified caches, so just use
+		 * d-cache properties. */
 		.name            = "Unified",
 		.size_prop       = "d-cache-size",
 		.line_size_props = { "d-cache-line-size",
@@ -72,17 +93,32 @@ static const struct cache_type_info cache_type_info[] = {
 	},
 };
 
+/* Cache object: each instance of this corresponds to a distinct cache
+ * in the system.  There are separate objects for Harvard caches: one
+ * each for instruction and data, and each refers to the same OF node.
+ * The refcount of the OF node is elevated for the lifetime of the
+ * cache object.  A cache object is released when its shared_cpu_map
+ * is cleared (see cache_cpu_clear).
+ *
+ * A cache object is on two lists: an unsorted global list
+ * (cache_list) of cache objects; and a singly-linked list
+ * representing the local cache hierarchy, which is ordered by level
+ * (e.g. L1d -> L1i -> L2 -> L3).
+ */
 struct cache {
-	struct device_node *ofnode;    
-	struct cpumask shared_cpu_map; 
-	int type;                      
-	int level;                     
-	struct list_head list;         
-	struct cache *next_local;      
+	struct device_node *ofnode;    /* OF node for this cache, may be cpu */
+	struct cpumask shared_cpu_map; /* online CPUs using this cache */
+	int type;                      /* split cache disambiguation */
+	int level;                     /* level not explicit in device tree */
+	struct list_head list;         /* global list of cache objects */
+	struct cache *next_local;      /* next cache of >= level */
 };
 
 static DEFINE_PER_CPU(struct cache_dir *, cache_dir_pcpu);
 
+/* traversal/modification of this list occurs only at cpu hotplug time;
+ * access is serialized by cpu hotplug locking
+ */
 static LIST_HEAD(cache_list);
 
 static struct cache_index_dir *kobj_to_cache_index_dir(struct kobject *k)
@@ -182,6 +218,7 @@ static int cache_size_kb(const struct cache *cache, unsigned int *ret)
 	return 0;
 }
 
+/* not cache_line_size() because that's a macro in include/linux/cache.h */
 static int cache_get_line_size(const struct cache *cache, unsigned int *ret)
 {
 	const u32 *line_size;
@@ -229,6 +266,9 @@ static int cache_associativity(const struct cache *cache, unsigned int *ret)
 	if (cache_nr_sets(cache, &nr_sets))
 		goto err;
 
+	/* If the cache is fully associative, there is no need to
+	 * check the other properties.
+	 */
 	if (nr_sets == 1) {
 		*ret = 0;
 		return 0;
@@ -248,6 +288,7 @@ err:
 	return -ENODEV;
 }
 
+/* helper for dealing with split caches */
 static struct cache *cache_find_first_sibling(struct cache *cache)
 {
 	struct cache *iter;
@@ -262,6 +303,7 @@ static struct cache *cache_find_first_sibling(struct cache *cache)
 	return cache;
 }
 
+/* return the first cache on a local list matching node */
 static struct cache *cache_lookup_by_node(const struct device_node *node)
 {
 	struct cache *cache = NULL;
@@ -347,7 +389,7 @@ static void __cpuinit link_cache_lists(struct cache *smaller, struct cache *bigg
 {
 	while (smaller->next_local) {
 		if (smaller->next_local == bigger)
-			return; 
+			return; /* already linked */
 		smaller = smaller->next_local;
 	}
 
@@ -580,6 +622,10 @@ static ssize_t shared_cpu_map_show(struct kobject *k, struct kobj_attribute *att
 static struct kobj_attribute cache_shared_cpu_map_attr =
 	__ATTR(shared_cpu_map, 0444, shared_cpu_map_show, NULL);
 
+/* Attributes which should always be created -- the kobject/sysfs core
+ * does this automatically via kobj_type->default_attrs.  This is the
+ * minimum data required to uniquely identify a cache.
+ */
 static struct attribute *cache_index_default_attrs[] = {
 	&cache_type_attr.attr,
 	&cache_level_attr.attr,
@@ -587,6 +633,9 @@ static struct attribute *cache_index_default_attrs[] = {
 	NULL,
 };
 
+/* Attributes which should be created if the cache device node has the
+ * right properties -- see cacheinfo_create_index_opt_attrs
+ */
 static struct kobj_attribute *cache_index_opt_attrs[] = {
 	&cache_size_attr,
 	&cache_line_size_attr,
@@ -620,6 +669,11 @@ static void __cpuinit cacheinfo_create_index_opt_attrs(struct cache_index_dir *d
 	cache_name = cache->ofnode->full_name;
 	cache_type = cache_type_string(cache);
 
+	/* We don't want to create an attribute that can't provide a
+	 * meaningful value.  Check the return value of each optional
+	 * attribute's ->show method before registering the
+	 * attribute.
+	 */
 	for (i = 0; i < ARRAY_SIZE(cache_index_opt_attrs); i++) {
 		struct kobj_attribute *attr;
 		ssize_t rc;
@@ -697,7 +751,7 @@ void __cpuinit cacheinfo_cpu_online(unsigned int cpu_id)
 	cacheinfo_sysfs_populate(cpu_id, cache);
 }
 
-#ifdef CONFIG_HOTPLUG_CPU 
+#ifdef CONFIG_HOTPLUG_CPU /* functions needed for cpu offline */
 
 static struct cache *cache_lookup_by_cpu(unsigned int cpu_id)
 {
@@ -751,6 +805,8 @@ static void cache_cpu_clear(struct cache *cache, int cpu)
 
 		cpumask_clear_cpu(cpu, &cache->shared_cpu_map);
 
+		/* Release the cache object if all the cpus using it
+		 * are offline */
 		if (cpumask_empty(&cache->shared_cpu_map))
 			release_cache(cache);
 
@@ -763,16 +819,20 @@ void cacheinfo_cpu_offline(unsigned int cpu_id)
 	struct cache_dir *cache_dir;
 	struct cache *cache;
 
+	/* Prevent userspace from seeing inconsistent state - remove
+	 * the sysfs hierarchy first */
 	cache_dir = per_cpu(cache_dir_pcpu, cpu_id);
 
-	
+	/* careful, sysfs population may have failed */
 	if (cache_dir)
 		remove_cache_dir(cache_dir);
 
 	per_cpu(cache_dir_pcpu, cpu_id) = NULL;
 
+	/* clear the CPU's bit in its cache chain, possibly freeing
+	 * cache objects */
 	cache = cache_lookup_by_cpu(cpu_id);
 	if (cache)
 		cache_cpu_clear(cache, cpu_id);
 }
-#endif 
+#endif /* CONFIG_HOTPLUG_CPU */

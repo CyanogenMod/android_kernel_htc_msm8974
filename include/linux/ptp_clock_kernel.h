@@ -36,6 +36,40 @@ struct ptp_clock_request {
 	};
 };
 
+/**
+ * struct ptp_clock_info - decribes a PTP hardware clock
+ *
+ * @owner:     The clock driver should set to THIS_MODULE.
+ * @name:      A short name to identify the clock.
+ * @max_adj:   The maximum possible frequency adjustment, in parts per billon.
+ * @n_alarm:   The number of programmable alarms.
+ * @n_ext_ts:  The number of external time stamp channels.
+ * @n_per_out: The number of programmable periodic signals.
+ * @pps:       Indicates whether the clock supports a PPS callback.
+ *
+ * clock operations
+ *
+ * @adjfreq:  Adjusts the frequency of the hardware clock.
+ *            parameter delta: Desired period change in parts per billion.
+ *
+ * @adjtime:  Shifts the time of the hardware clock.
+ *            parameter delta: Desired change in nanoseconds.
+ *
+ * @gettime:  Reads the current time from the hardware clock.
+ *            parameter ts: Holds the result.
+ *
+ * @settime:  Set the current time on the hardware clock.
+ *            parameter ts: Time value to set.
+ *
+ * @enable:   Request driver to enable or disable an ancillary feature.
+ *            parameter request: Desired resource to enable or disable.
+ *            parameter on: Caller passes one to enable or zero to disable.
+ *
+ * Drivers should embed their ptp_clock_info within a private
+ * structure, obtaining a reference to it using container_of().
+ *
+ * The callbacks must all return zero on success, non-zero otherwise.
+ */
 
 struct ptp_clock_info {
 	struct module *owner;
@@ -55,9 +89,19 @@ struct ptp_clock_info {
 
 struct ptp_clock;
 
+/**
+ * ptp_clock_register() - register a PTP hardware clock driver
+ *
+ * @info:  Structure describing the new clock.
+ */
 
 extern struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info);
 
+/**
+ * ptp_clock_unregister() - unregister a PTP hardware clock driver
+ *
+ * @ptp:  The clock to remove from service.
+ */
 
 extern int ptp_clock_unregister(struct ptp_clock *ptp);
 
@@ -68,6 +112,13 @@ enum ptp_clock_events {
 	PTP_CLOCK_PPS,
 };
 
+/**
+ * struct ptp_clock_event - decribes a PTP hardware clock event
+ *
+ * @type:  One of the ptp_clock_events enumeration values.
+ * @index: Identifies the source of the event.
+ * @timestamp: When the event occured.
+ */
 
 struct ptp_clock_event {
 	int type;
@@ -75,6 +126,12 @@ struct ptp_clock_event {
 	u64 timestamp;
 };
 
+/**
+ * ptp_clock_event() - notify the PTP layer about an event
+ *
+ * @ptp:    The clock obtained from ptp_clock_register().
+ * @event:  Message structure describing the event.
+ */
 
 extern void ptp_clock_event(struct ptp_clock *ptp,
 			    struct ptp_clock_event *event);

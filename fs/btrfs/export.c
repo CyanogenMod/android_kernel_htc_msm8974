@@ -193,7 +193,7 @@ static struct dentry *btrfs_get_parent(struct dentry *child)
 	if (ret < 0)
 		goto fail;
 
-	BUG_ON(ret == 0); 
+	BUG_ON(ret == 0); /* Key with offset of -1 found */
 	if (path->slots[0] == 0) {
 		ret = -ENOENT;
 		goto fail;
@@ -299,6 +299,10 @@ static int btrfs_get_name(struct dentry *parent, char *name,
 	read_extent_buffer(leaf, name, name_ptr, name_len);
 	btrfs_free_path(path);
 
+	/*
+	 * have to add the null termination to make sure that reconnect_path
+	 * gets the right len for strlen
+	 */
 	name[name_len] = '\0';
 
 	return 0;

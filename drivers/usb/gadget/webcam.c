@@ -16,6 +16,13 @@
 
 #include "f_uvc.h"
 
+/*
+ * Kbuild is not very cooperative with respect to linking separately
+ * compiled library objects into one module.  So for now we won't use
+ * separate compilation ... ensuring init/exit sections work to shrink
+ * the runtime footprint, and giving us at least some parts of what
+ * a "gcc --combine ... part1.c part2.c part3.c ... " build would.
+ */
 #include "composite.c"
 #include "usbstring.c"
 #include "config.c"
@@ -26,15 +33,19 @@
 #include "uvc_v4l2.c"
 #include "f_uvc.c"
 
+/* --------------------------------------------------------------------------
+ * Device descriptor
+ */
 
-#define WEBCAM_VENDOR_ID		0x1d6b	
-#define WEBCAM_PRODUCT_ID		0x0102	
-#define WEBCAM_DEVICE_BCD		0x0010	
+#define WEBCAM_VENDOR_ID		0x1d6b	/* Linux Foundation */
+#define WEBCAM_PRODUCT_ID		0x0102	/* Webcam A/V gadget */
+#define WEBCAM_DEVICE_BCD		0x0010	/* 0.10 */
 
 static char webcam_vendor_label[] = "Linux Foundation";
 static char webcam_product_label[] = "Webcam gadget";
 static char webcam_config_label[] = "Video";
 
+/* string IDs are assigned dynamically */
 
 #define STRING_MANUFACTURER_IDX		0
 #define STRING_PRODUCT_IDX		1
@@ -48,7 +59,7 @@ static struct usb_string webcam_strings[] = {
 };
 
 static struct usb_gadget_strings webcam_stringtab = {
-	.language = 0x0409,	
+	.language = 0x0409,	/* en-us */
 	.strings = webcam_strings,
 };
 
@@ -64,14 +75,14 @@ static struct usb_device_descriptor webcam_device_descriptor = {
 	.bDeviceClass		= USB_CLASS_MISC,
 	.bDeviceSubClass	= 0x02,
 	.bDeviceProtocol	= 0x01,
-	.bMaxPacketSize0	= 0, 
+	.bMaxPacketSize0	= 0, /* dynamic */
 	.idVendor		= cpu_to_le16(WEBCAM_VENDOR_ID),
 	.idProduct		= cpu_to_le16(WEBCAM_PRODUCT_ID),
 	.bcdDevice		= cpu_to_le16(WEBCAM_DEVICE_BCD),
-	.iManufacturer		= 0, 
-	.iProduct		= 0, 
-	.iSerialNumber		= 0, 
-	.bNumConfigurations	= 0, 
+	.iManufacturer		= 0, /* dynamic */
+	.iProduct		= 0, /* dynamic */
+	.iSerialNumber		= 0, /* dynamic */
+	.bNumConfigurations	= 0, /* dynamic */
 };
 
 DECLARE_UVC_HEADER_DESCRIPTOR(1);
@@ -81,10 +92,10 @@ static const struct UVC_HEADER_DESCRIPTOR(1) uvc_control_header = {
 	.bDescriptorType	= USB_DT_CS_INTERFACE,
 	.bDescriptorSubType	= UVC_VC_HEADER,
 	.bcdUVC			= cpu_to_le16(0x0100),
-	.wTotalLength		= 0, 
+	.wTotalLength		= 0, /* dynamic */
 	.dwClockFrequency	= cpu_to_le32(48000000),
-	.bInCollection		= 0, 
-	.baInterfaceNr[0]	= 0, 
+	.bInCollection		= 0, /* dynamic */
+	.baInterfaceNr[0]	= 0, /* dynamic */
 };
 
 static const struct uvc_camera_terminal_descriptor uvc_camera_terminal = {
@@ -135,8 +146,8 @@ static const struct UVC_INPUT_HEADER_DESCRIPTOR(1, 2) uvc_input_header = {
 	.bDescriptorType	= USB_DT_CS_INTERFACE,
 	.bDescriptorSubType	= UVC_VS_INPUT_HEADER,
 	.bNumFormats		= 2,
-	.wTotalLength		= 0, 
-	.bEndpointAddress	= 0, 
+	.wTotalLength		= 0, /* dynamic */
+	.bEndpointAddress	= 0, /* dynamic */
 	.bmInfo			= 0,
 	.bTerminalLink		= 3,
 	.bStillCaptureMethod	= 0,
@@ -293,6 +304,9 @@ static const struct uvc_descriptor_header * const uvc_hs_streaming_cls[] = {
 	NULL,
 };
 
+/* --------------------------------------------------------------------------
+ * USB configuration
+ */
 
 static int __init
 webcam_config_bind(struct usb_configuration *c)
@@ -304,12 +318,12 @@ webcam_config_bind(struct usb_configuration *c)
 static struct usb_configuration webcam_config_driver = {
 	.label			= webcam_config_label,
 	.bConfigurationValue	= 1,
-	.iConfiguration		= 0, 
+	.iConfiguration		= 0, /* dynamic */
 	.bmAttributes		= USB_CONFIG_ATT_SELFPOWER,
 	.bMaxPower		= CONFIG_USB_GADGET_VBUS_DRAW / 2,
 };
 
-static int 
+static int /* __init_or_exit */
 webcam_unbind(struct usb_composite_dev *cdev)
 {
 	return 0;
@@ -320,6 +334,9 @@ webcam_bind(struct usb_composite_dev *cdev)
 {
 	int ret;
 
+	/* Allocate string descriptor numbers ... note that string contents
+	 * can be overridden by the composite_dev glue.
+	 */
 	if ((ret = usb_string_id(cdev)) < 0)
 		goto error;
 	webcam_strings[STRING_MANUFACTURER_IDX].id = ret;
@@ -335,7 +352,7 @@ webcam_bind(struct usb_composite_dev *cdev)
 	webcam_strings[STRING_DESCRIPTION_IDX].id = ret;
 	webcam_config_driver.iConfiguration = ret;
 
-	
+	/* Register our configuration. */
 	if ((ret = usb_add_config(cdev, &webcam_config_driver,
 					webcam_config_bind)) < 0)
 		goto error;
@@ -348,6 +365,9 @@ error:
 	return ret;
 }
 
+/* --------------------------------------------------------------------------
+ * Driver
+ */
 
 static struct usb_composite_driver webcam_driver = {
 	.name		= "g_webcam",

@@ -13,6 +13,10 @@
 #ifndef _IPA_RAM_MMAP_H_
 #define _IPA_RAM_MMAP_H_
 
+/*
+ * This header defines the memory map of the IPA RAM (not all 8K is available
+ * for SW use)
+ */
 
 #define IPA_RAM_NAT_OFST    0
 #define IPA_RAM_NAT_SIZE    0
@@ -31,5 +35,5 @@
 #define IPA_RAM_V6_RT_SIZE_DDR 16384
 #define IPA_RAM_V4_RT_SIZE_DDR 16384
 
-#endif 
+#endif /* _IPA_RAM_MMAP_H_ */
 

@@ -68,7 +68,7 @@ struct bfa_msgq_cmdq {
 
 	u16			producer_index;
 	u16			consumer_index;
-	u16			depth; 
+	u16			depth; /* FW Q depth is 16 bits */
 	struct bfa_dma addr;
 	struct bfa_mbox_cmd dbell_mb;
 
@@ -77,7 +77,7 @@ struct bfa_msgq_cmdq {
 	int				bytes_to_copy;
 	struct bfa_mbox_cmd copy_mb;
 
-	struct list_head		pending_q; 
+	struct list_head		pending_q; /* pending command queue */
 
 	struct bfa_msgq *msgq;
 };
@@ -94,7 +94,7 @@ struct bfa_msgq_rspq {
 
 	u16			producer_index;
 	u16			consumer_index;
-	u16			depth; 
+	u16			depth; /* FW Q depth is 16 bits */
 	struct bfa_dma addr;
 	struct bfa_mbox_cmd dbell_mb;
 

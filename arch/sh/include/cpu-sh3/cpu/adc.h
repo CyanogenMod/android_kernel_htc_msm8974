@@ -25,4 +25,4 @@
 
 #define ADCR	0xa4000092
 
-#endif 
+#endif /* __ASM_CPU_SH3_ADC_H */

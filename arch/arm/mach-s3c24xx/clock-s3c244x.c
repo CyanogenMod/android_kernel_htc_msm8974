@@ -96,6 +96,8 @@ static int s3c244x_clk_add(struct device *dev, struct subsys_interface *sif)
 		return -ENOENT;
 	}
 
+	/* check rate of UPLL, and if it is near 96MHz, then change
+	 * to using half the UPLL rate for the system */
 
 	if (clk_get_rate(clock_upll) > (94 * MHZ)) {
 		clk_usb_bus.rate = clk_get_rate(clock_upll) / 2;

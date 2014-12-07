@@ -39,18 +39,30 @@ struct stub_device {
 	struct usbip_device ud;
 	__u32 devid;
 
+	/*
+	 * stub_priv preserves private data of each urb.
+	 * It is allocated as stub_priv_cache and assigned to urb->context.
+	 *
+	 * stub_priv is always linked to any one of 3 lists;
+	 *	priv_init: linked to this until the comletion of a urb.
+	 *	priv_tx  : linked to this after the completion of a urb.
+	 *	priv_free: linked to this after the sending of the result.
+	 *
+	 * Any of these list operations should be locked by priv_lock.
+	 */
 	spinlock_t priv_lock;
 	struct list_head priv_init;
 	struct list_head priv_tx;
 	struct list_head priv_free;
 
-	
+	/* see comments for unlinking in stub_rx.c */
 	struct list_head unlink_tx;
 	struct list_head unlink_free;
 
 	wait_queue_head_t tx_waitq;
 };
 
+/* private data into urb->priv */
 struct stub_priv {
 	unsigned long seqnum;
 	struct list_head list;
@@ -66,6 +78,7 @@ struct stub_unlink {
 	__u32 status;
 };
 
+/* same as SYSFS_BUS_ID_SIZE */
 #define BUSID_SIZE 32
 
 struct bus_id_priv {
@@ -76,19 +89,24 @@ struct bus_id_priv {
 	char shutdown_busid;
 };
 
+/* stub_priv is allocated from stub_priv_cache */
 extern struct kmem_cache *stub_priv_cache;
 
+/* stub_dev.c */
 extern struct usb_driver stub_driver;
 
+/* stub_main.c */
 struct bus_id_priv *get_busid_priv(const char *busid);
 int del_match_busid(char *busid);
 void stub_device_cleanup_urbs(struct stub_device *sdev);
 
+/* stub_rx.c */
 int stub_rx_loop(void *data);
 
+/* stub_tx.c */
 void stub_enqueue_ret_unlink(struct stub_device *sdev, __u32 seqnum,
 			     __u32 status);
 void stub_complete(struct urb *urb);
 int stub_tx_loop(void *data);
 
-#endif 
+#endif /* __USBIP_STUB_H */

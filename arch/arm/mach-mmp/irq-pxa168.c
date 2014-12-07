@@ -23,7 +23,7 @@
 #define IRQ_ROUTE_TO_AP		(ICU_INT_CONF_AP_INT | ICU_INT_CONF_IRQ)
 
 #define PRIORITY_DEFAULT	0x1
-#define PRIORITY_NONE		0x0	
+#define PRIORITY_NONE		0x0	/* means IRQ disabled */
 
 static void icu_mask_irq(struct irq_data *d)
 {

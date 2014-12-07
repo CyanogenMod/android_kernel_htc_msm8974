@@ -8,14 +8,14 @@
 #ifndef IIO_ADC_AD7887_H_
 #define IIO_ADC_AD7887_H_
 
-#define AD7887_REF_DIS		(1 << 5) 
-#define AD7887_DUAL		(1 << 4) 
-#define AD7887_CH_AIN1		(1 << 3) 
-#define AD7887_CH_AIN0		(0 << 3) 
-#define AD7887_PM_MODE1		(0)	 
-#define AD7887_PM_MODE2		(1)	 
-#define AD7887_PM_MODE3		(2)	 
-#define AD7887_PM_MODE4		(3)	 
+#define AD7887_REF_DIS		(1 << 5) /* on-chip reference disable */
+#define AD7887_DUAL		(1 << 4) /* dual-channel mode */
+#define AD7887_CH_AIN1		(1 << 3) /* convert on channel 1, DUAL=1 */
+#define AD7887_CH_AIN0		(0 << 3) /* convert on channel 0, DUAL=0,1 */
+#define AD7887_PM_MODE1		(0)	 /* CS based shutdown */
+#define AD7887_PM_MODE2		(1)	 /* full on */
+#define AD7887_PM_MODE3		(2)	 /* auto shutdown after conversion */
+#define AD7887_PM_MODE4		(3)	 /* standby mode */
 
 enum ad7887_channels {
 	AD7887_CH0,
@@ -23,16 +23,36 @@ enum ad7887_channels {
 	AD7887_CH1,
 };
 
-#define RES_MASK(bits)	((1 << (bits)) - 1) 
+#define RES_MASK(bits)	((1 << (bits)) - 1) /* TODO: move this into a common header */
 
+/*
+ * TODO: struct ad7887_platform_data needs to go into include/linux/iio
+ */
 
 struct ad7887_platform_data {
-	
+	/* External Vref voltage applied */
 	u16				vref_mv;
+	/*
+	 * AD7887:
+	 * In single channel mode en_dual = flase, AIN1/Vref pins assumes its
+	 * Vref function. In dual channel mode en_dual = true, AIN1 becomes the
+	 * second input channel, and Vref is internally connected to Vdd.
+	 */
 	bool				en_dual;
+	/*
+	 * AD7887:
+	 * use_onchip_ref = true, the Vref is internally connected to the 2.500V
+	 * Voltage reference. If use_onchip_ref = false, the reference voltage
+	 * is supplied by AIN1/Vref
+	 */
 	bool				use_onchip_ref;
 };
 
+/**
+ * struct ad7887_chip_info - chip specifc information
+ * @int_vref_mv:	the internal reference voltage
+ * @channel:		channel specification
+ */
 
 struct ad7887_chip_info {
 	u16				int_vref_mv;
@@ -50,6 +70,10 @@ struct ad7887_state {
 	struct spi_message		*ring_msg;
 	unsigned char			tx_cmd_buf[8];
 
+	/*
+	 * DMA (thus cache coherency maintenance) requires the
+	 * transfer buffers to live in their own cache lines.
+	 */
 
 	unsigned char			data[4] ____cacheline_aligned;
 };
@@ -61,7 +85,7 @@ enum ad7887_supported_device_ids {
 #ifdef CONFIG_IIO_BUFFER
 int ad7887_register_ring_funcs_and_init(struct iio_dev *indio_dev);
 void ad7887_ring_cleanup(struct iio_dev *indio_dev);
-#else 
+#else /* CONFIG_IIO_BUFFER */
 
 static inline int
 ad7887_register_ring_funcs_and_init(struct iio_dev *indio_dev)
@@ -72,5 +96,5 @@ ad7887_register_ring_funcs_and_init(struct iio_dev *indio_dev)
 static inline void ad7887_ring_cleanup(struct iio_dev *indio_dev)
 {
 }
-#endif 
-#endif 
+#endif /* CONFIG_IIO_BUFFER */
+#endif /* IIO_ADC_AD7887_H_ */

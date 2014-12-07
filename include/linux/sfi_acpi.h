@@ -1,3 +1,4 @@
+/* sfi.h Simple Firmware Interface */
 
 /*
 
@@ -59,7 +60,7 @@
 #define _LINUX_SFI_ACPI_H
 
 #ifdef CONFIG_SFI
-#include <acpi/acpi.h>		
+#include <acpi/acpi.h>		/* struct acpi_table_header */
 
 extern int sfi_acpi_table_parse(char *signature, char *oem_id,
 				char *oem_table_id,
@@ -73,7 +74,7 @@ static inline int acpi_sfi_table_parse(char *signature,
 
 	return sfi_acpi_table_parse(signature, NULL, NULL, handler);
 }
-#else 
+#else /* !CONFIG_SFI */
 
 static inline int sfi_acpi_table_parse(char *signature, char *oem_id,
 				char *oem_table_id,
@@ -87,6 +88,6 @@ static inline int acpi_sfi_table_parse(char *signature,
 {
 	return acpi_table_parse(signature, handler);
 }
-#endif 
+#endif /* !CONFIG_SFI */
 
-#endif 
+#endif /*_LINUX_SFI_ACPI_H*/

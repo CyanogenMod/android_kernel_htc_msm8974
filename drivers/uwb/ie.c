@@ -28,6 +28,17 @@
 #include <linux/export.h>
 #include "uwb-internal.h"
 
+/**
+ * uwb_ie_next - get the next IE in a buffer
+ * @ptr: start of the buffer containing the IE data
+ * @len: length of the buffer
+ *
+ * Both @ptr and @len are updated so subsequent calls to uwb_ie_next()
+ * will get the next IE.
+ *
+ * NULL is returned (and @ptr and @len will not be updated) if there
+ * are no more IEs in the buffer or the buffer is too short.
+ */
 struct uwb_ie_hdr *uwb_ie_next(void **ptr, size_t *len)
 {
 	struct uwb_ie_hdr *hdr;
@@ -85,6 +96,16 @@ int uwb_ie_dump_hex(const struct uwb_ie_hdr *ies, size_t len,
 	return r;
 }
 
+/**
+ * Get the IEs that a radio controller is sending in its beacon
+ *
+ * @uwb_rc:  UWB Radio Controller
+ * @returns: Size read from the system
+ *
+ * We don't need to lock the uwb_rc's mutex because we don't modify
+ * anything. Once done with the iedata buffer, call
+ * uwb_rc_ie_release(iedata). Don't call kfree on it.
+ */
 static
 ssize_t uwb_rc_get_ie(struct uwb_rc *uwb_rc, struct uwb_rc_evt_get_ie **pget_ie)
 {
@@ -125,6 +146,12 @@ ssize_t uwb_rc_get_ie(struct uwb_rc *uwb_rc, struct uwb_rc_evt_get_ie **pget_ie)
 }
 
 
+/**
+ * Replace all IEs currently being transmitted by a device
+ *
+ * @cmd:    pointer to the SET-IE command with the IEs to set
+ * @size:   size of @buf
+ */
 int uwb_rc_set_ie(struct uwb_rc *rc, struct uwb_rc_cmd_set_ie *cmd)
 {
 	int result;
@@ -153,12 +180,23 @@ error_cmd:
 	return result;
 }
 
+/* Cleanup the whole IE management subsystem */
 void uwb_rc_ie_init(struct uwb_rc *uwb_rc)
 {
 	mutex_init(&uwb_rc->ies_mutex);
 }
 
 
+/**
+ * uwb_rc_ie_setup - setup a radio controller's IE manager
+ * @uwb_rc: the radio controller.
+ *
+ * The current set of IEs are obtained from the hardware with a GET-IE
+ * command (since the radio controller is not yet beaconing this will
+ * be just the hardware's MAC and PHY Capability IEs).
+ *
+ * Returns 0 on success; -ve on an error.
+ */
 int uwb_rc_ie_setup(struct uwb_rc *uwb_rc)
 {
 	struct uwb_rc_evt_get_ie *ie_info = NULL;
@@ -181,6 +219,7 @@ int uwb_rc_ie_setup(struct uwb_rc *uwb_rc)
 }
 
 
+/* Cleanup the whole IE management subsystem */
 void uwb_rc_ie_release(struct uwb_rc *uwb_rc)
 {
 	kfree(uwb_rc->ies);
@@ -224,6 +263,25 @@ static int uwb_rc_ie_add_one(struct uwb_rc *rc, const struct uwb_ie_hdr *new_ie)
 	return 0;
 }
 
+/**
+ * uwb_rc_ie_add - add new IEs to the radio controller's beacon
+ * @uwb_rc: the radio controller.
+ * @ies: the buffer containing the new IE or IEs to be added to
+ *       the device's beacon.
+ * @size: length of all the IEs.
+ *
+ * According to WHCI 0.95 [4.13.6] the driver will only receive the RCEB
+ * after the device sent the first beacon that includes the IEs specified
+ * in the SET IE command. We thus cannot send this command if the device is
+ * not beaconing. Instead, a SET IE command will be sent later right after
+ * we start beaconing.
+ *
+ * Setting an IE on the device will overwrite all current IEs in device. So
+ * we take the current IEs being transmitted by the device, insert the
+ * new one, and call SET IE with all the IEs needed.
+ *
+ * Returns 0 on success; or -ENOMEM.
+ */
 int uwb_rc_ie_add(struct uwb_rc *uwb_rc,
 		  const struct uwb_ie_hdr *ies, size_t size)
 {
@@ -258,6 +316,18 @@ int uwb_rc_ie_add(struct uwb_rc *uwb_rc,
 EXPORT_SYMBOL_GPL(uwb_rc_ie_add);
 
 
+/*
+ * Remove an IE from internal cache
+ *
+ * We are dealing with our internal IE cache so no need to verify that the
+ * IEs are valid (it has been done already).
+ *
+ * Should be called with ies_mutex held
+ *
+ * We do not break out once an IE is found in the cache. It is currently
+ * possible to have more than one IE with the same ID included in the
+ * beacon. We don't reallocate, we just mark the size smaller.
+ */
 static
 void uwb_rc_ie_cache_rm(struct uwb_rc *uwb_rc, enum uwb_ie to_remove)
 {
@@ -282,6 +352,16 @@ void uwb_rc_ie_cache_rm(struct uwb_rc *uwb_rc, enum uwb_ie to_remove)
 }
 
 
+/**
+ * uwb_rc_ie_rm - remove an IE from the radio controller's beacon
+ * @uwb_rc: the radio controller.
+ * @element_id: the element ID of the IE to remove.
+ *
+ * Only IEs previously added with uwb_rc_ie_add() may be removed.
+ *
+ * Returns 0 on success; or -ve the SET-IE command to the radio
+ * controller failed.
+ */
 int uwb_rc_ie_rm(struct uwb_rc *uwb_rc, enum uwb_ie element_id)
 {
 	int result = 0;

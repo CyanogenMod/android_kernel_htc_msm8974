@@ -8,6 +8,13 @@
 #include "pte.h"
 #include "shadow.h"
 
+/*
+ * Return the shadow address for the given address. Returns NULL if the
+ * address is not tracked.
+ *
+ * We need to be extremely careful not to follow any invalid pointers,
+ * because this function can be called for *any* possible address.
+ */
 void *kmemcheck_shadow_lookup(unsigned long address)
 {
 	pte_t *pte;
@@ -36,7 +43,7 @@ static void mark_shadow(void *address, unsigned int n,
 	unsigned int first_n;
 	void *shadow;
 
-	
+	/* If the memory range crosses a page boundary, stop there. */
 	if (page == last_page)
 		first_n = n;
 	else
@@ -49,7 +56,7 @@ static void mark_shadow(void *address, unsigned int n,
 	addr += first_n;
 	n -= first_n;
 
-	
+	/* Do full-page memset()s. */
 	while (n >= PAGE_SIZE) {
 		shadow = kmemcheck_shadow_lookup(addr);
 		if (shadow)
@@ -59,7 +66,7 @@ static void mark_shadow(void *address, unsigned int n,
 		n -= PAGE_SIZE;
 	}
 
-	
+	/* Do the remaining page, if any. */
 	if (n > 0) {
 		shadow = kmemcheck_shadow_lookup(addr);
 		if (shadow)
@@ -77,6 +84,10 @@ void kmemcheck_mark_uninitialized(void *address, unsigned int n)
 	mark_shadow(address, n, KMEMCHECK_SHADOW_UNINITIALIZED);
 }
 
+/*
+ * Fill the shadow memory of the given address such that the memory at that
+ * address is marked as being initialized.
+ */
 void kmemcheck_mark_initialized(void *address, unsigned int n)
 {
 	mark_shadow(address, n, KMEMCHECK_SHADOW_INITIALIZED);
@@ -120,6 +131,10 @@ enum kmemcheck_shadow kmemcheck_shadow_test(void *shadow, unsigned int size)
 
 	x = shadow;
 
+	/*
+	 * Make sure _some_ bytes are initialized. Gcc frequently generates
+	 * code to access neighboring bytes.
+	 */
 	for (i = 0; i < size; ++i) {
 		if (x[i] == KMEMCHECK_SHADOW_INITIALIZED)
 			return x[i];
@@ -138,7 +153,7 @@ enum kmemcheck_shadow kmemcheck_shadow_test_all(void *shadow, unsigned int size)
 
 	x = shadow;
 
-	
+	/* All bytes must be initialized. */
 	for (i = 0; i < size; ++i) {
 		if (x[i] != KMEMCHECK_SHADOW_INITIALIZED)
 			return x[i];

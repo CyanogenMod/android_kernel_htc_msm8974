@@ -83,44 +83,49 @@ static DEFINE_MUTEX(ataflop_mutex);
 static struct request *fd_request;
 static int fdc_queue;
 
+/* Disk types: DD, HD, ED */
 static struct atari_disk_type {
 	const char	*name;
-	unsigned	spt;		
-	unsigned	blocks;		
-	unsigned	fdc_speed;	
-	unsigned 	stretch;	
+	unsigned	spt;		/* sectors per track */
+	unsigned	blocks;		/* total number of blocks */
+	unsigned	fdc_speed;	/* fdc_speed setting */
+	unsigned 	stretch;	/* track doubling ? */
 } atari_disk_type[] = {
-	{ "d360",  9, 720, 0, 0},	
-	{ "D360",  9, 720, 0, 1},	
-	{ "D720",  9,1440, 0, 0},	
-	{ "D820", 10,1640, 0, 0},	
+	{ "d360",  9, 720, 0, 0},	/*  0: 360kB diskette */
+	{ "D360",  9, 720, 0, 1},	/*  1: 360kb in 720k or 1.2MB drive */
+	{ "D720",  9,1440, 0, 0},	/*  2: 720kb in 720k or 1.2MB drive */
+	{ "D820", 10,1640, 0, 0},	/*  3: DD disk with 82 tracks/10 sectors */
+/* formats above are probed for type DD */
 #define	MAX_TYPE_DD 3
-	{ "h1200",15,2400, 3, 0},	
-	{ "H1440",18,2880, 3, 0},	
-	{ "H1640",20,3280, 3, 0},	
+	{ "h1200",15,2400, 3, 0},	/*  4: 1.2MB diskette */
+	{ "H1440",18,2880, 3, 0},	/*  5: 1.4 MB diskette (HD) */
+	{ "H1640",20,3280, 3, 0},	/*  6: 1.64MB diskette (fat HD) 82 tr 20 sec */
+/* formats above are probed for types DD and HD */
 #define	MAX_TYPE_HD 6
-	{ "E2880",36,5760, 3, 0},	
-	{ "E3280",40,6560, 3, 0},	
+	{ "E2880",36,5760, 3, 0},	/*  7: 2.8 MB diskette (ED) */
+	{ "E3280",40,6560, 3, 0},	/*  8: 3.2 MB diskette (fat ED) 82 tr 40 sec */
+/* formats above are probed for types DD, HD and ED */
 #define	MAX_TYPE_ED 8
-	{ "H1680",21,3360, 3, 0},	
-	{ "h410",10,820, 0, 1},		
-	{ "h1476",18,2952, 3, 0},	
-	{ "H1722",21,3444, 3, 0},	
-	{ "h420",10,840, 0, 1},		
-	{ "H830",10,1660, 0, 0},	
-	{ "h1494",18,2952, 3, 0},	
-	{ "H1743",21,3486, 3, 0},	
-	{ "h880",11,1760, 0, 0},	
-	{ "D1040",13,2080, 0, 0},	
-	{ "D1120",14,2240, 0, 0},	
-	{ "h1600",20,3200, 3, 0},	
-	{ "H1760",22,3520, 3, 0},	
-	{ "H1920",24,3840, 3, 0},	
-	{ "E3200",40,6400, 3, 0},	
-	{ "E3520",44,7040, 3, 0},	
-	{ "E3840",48,7680, 3, 0},	
-	{ "H1840",23,3680, 3, 0},	
-	{ "D800",10,1600, 0, 0},	
+/* types below are never autoprobed */
+	{ "H1680",21,3360, 3, 0},	/*  9: 1.68MB diskette (fat HD) 80 tr 21 sec */
+	{ "h410",10,820, 0, 1},		/* 10: 410k diskette 41 tr 10 sec, stretch */
+	{ "h1476",18,2952, 3, 0},	/* 11: 1.48MB diskette 82 tr 18 sec */
+	{ "H1722",21,3444, 3, 0},	/* 12: 1.72MB diskette 82 tr 21 sec */
+	{ "h420",10,840, 0, 1},		/* 13: 420k diskette 42 tr 10 sec, stretch */
+	{ "H830",10,1660, 0, 0},	/* 14: 820k diskette 83 tr 10 sec */
+	{ "h1494",18,2952, 3, 0},	/* 15: 1.49MB diskette 83 tr 18 sec */
+	{ "H1743",21,3486, 3, 0},	/* 16: 1.74MB diskette 83 tr 21 sec */
+	{ "h880",11,1760, 0, 0},	/* 17: 880k diskette 80 tr 11 sec */
+	{ "D1040",13,2080, 0, 0},	/* 18: 1.04MB diskette 80 tr 13 sec */
+	{ "D1120",14,2240, 0, 0},	/* 19: 1.12MB diskette 80 tr 14 sec */
+	{ "h1600",20,3200, 3, 0},	/* 20: 1.60MB diskette 80 tr 20 sec */
+	{ "H1760",22,3520, 3, 0},	/* 21: 1.76MB diskette 80 tr 22 sec */
+	{ "H1920",24,3840, 3, 0},	/* 22: 1.92MB diskette 80 tr 24 sec */
+	{ "E3200",40,6400, 3, 0},	/* 23: 3.2MB diskette 80 tr 40 sec */
+	{ "E3520",44,7040, 3, 0},	/* 24: 3.52MB diskette 80 tr 44 sec */
+	{ "E3840",48,7680, 3, 0},	/* 25: 3.84MB diskette 80 tr 48 sec */
+	{ "H1840",23,3680, 3, 0},	/* 26: 1.84MB diskette 80 tr 23 sec */
+	{ "D800",10,1600, 0, 0},	/* 27: 800k diskette 80 tr 10 sec */
 };
 
 static int StartDiskType[] = {
@@ -137,61 +142,80 @@ static int DriveType = TYPE_HD;
 
 static DEFINE_SPINLOCK(ataflop_lock);
 
+/* Array for translating minors into disk formats */
 static struct {
 	int 	 index;
 	unsigned drive_types;
 } minor2disktype[] = {
-	{  0, TYPE_DD },	
-	{  4, TYPE_HD },	
-	{  1, TYPE_DD },	
-	{  2, TYPE_DD },	
-	{  1, TYPE_DD },	
-	{  2, TYPE_DD },	
-	{  5, TYPE_HD },	
-	{  7, TYPE_ED },	
-	{  8, TYPE_ED },	
-	{  5, TYPE_HD },	
-	{  9, TYPE_HD },	
-	{ 10, TYPE_DD },	
-	{  3, TYPE_DD },	
-	{ 11, TYPE_HD },	
-	{ 12, TYPE_HD },	
-	{ 13, TYPE_DD },	
-	{ 14, TYPE_DD },	
-	{ 15, TYPE_HD },	
-	{ 16, TYPE_HD },	
-	{ 17, TYPE_DD },	
-	{ 18, TYPE_DD },	
-	{ 19, TYPE_DD },	
-	{ 20, TYPE_HD },	
-	{ 21, TYPE_HD },	
-	{ 22, TYPE_HD },	
-	{ 23, TYPE_ED },	
-	{ 24, TYPE_ED },	
-	{ 25, TYPE_ED },	
-	{ 26, TYPE_HD },	
-	{ 27, TYPE_DD },	
-	{  6, TYPE_HD },	
+	{  0, TYPE_DD },	/*  1: d360 */
+	{  4, TYPE_HD },	/*  2: h1200 */
+	{  1, TYPE_DD },	/*  3: D360 */
+	{  2, TYPE_DD },	/*  4: D720 */
+	{  1, TYPE_DD },	/*  5: h360 = D360 */
+	{  2, TYPE_DD },	/*  6: h720 = D720 */
+	{  5, TYPE_HD },	/*  7: H1440 */
+	{  7, TYPE_ED },	/*  8: E2880 */
+/* some PC formats :-) */
+	{  8, TYPE_ED },	/*  9: E3280    <- was "CompaQ" == E2880 for PC */
+	{  5, TYPE_HD },	/* 10: h1440 = H1440 */
+	{  9, TYPE_HD },	/* 11: H1680 */
+	{ 10, TYPE_DD },	/* 12: h410  */
+	{  3, TYPE_DD },	/* 13: H820     <- == D820, 82x10 */
+	{ 11, TYPE_HD },	/* 14: h1476 */
+	{ 12, TYPE_HD },	/* 15: H1722 */
+	{ 13, TYPE_DD },	/* 16: h420  */
+	{ 14, TYPE_DD },	/* 17: H830  */
+	{ 15, TYPE_HD },	/* 18: h1494 */
+	{ 16, TYPE_HD },	/* 19: H1743 */
+	{ 17, TYPE_DD },	/* 20: h880  */
+	{ 18, TYPE_DD },	/* 21: D1040 */
+	{ 19, TYPE_DD },	/* 22: D1120 */
+	{ 20, TYPE_HD },	/* 23: h1600 */
+	{ 21, TYPE_HD },	/* 24: H1760 */
+	{ 22, TYPE_HD },	/* 25: H1920 */
+	{ 23, TYPE_ED },	/* 26: E3200 */
+	{ 24, TYPE_ED },	/* 27: E3520 */
+	{ 25, TYPE_ED },	/* 28: E3840 */
+	{ 26, TYPE_HD },	/* 29: H1840 */
+	{ 27, TYPE_DD },	/* 30: D800  */
+	{  6, TYPE_HD },	/* 31: H1640    <- was H1600 == h1600 for PC */
 };
 
 #define NUM_DISK_MINORS ARRAY_SIZE(minor2disktype)
 
+/*
+ * Maximum disk size (in kilobytes). This default is used whenever the
+ * current disk size is unknown.
+ */
 #define MAX_DISK_SIZE 3280
 
+/*
+ * MSch: User-provided type information. 'drive' points to
+ * the respective entry of this array. Set by FDSETPRM ioctls.
+ */
 static struct atari_disk_type user_params[FD_MAX_UNITS];
 
+/*
+ * User-provided permanent type information. 'drive' points to
+ * the respective entry of this array.  Set by FDDEFPRM ioctls, 
+ * restored upon disk change by floppy_revalidate() if valid (as seen by
+ * default_params[].blocks > 0 - a bit in unit[].flags might be used for this?)
+ */
 static struct atari_disk_type default_params[FD_MAX_UNITS];
 
+/* current info on each unit */
 static struct atari_floppy_struct {
-	int connected;				
-	int autoprobe;				
+	int connected;				/* !=0 : drive is connected */
+	int autoprobe;				/* !=0 : do autoprobe	    */
 
-	struct atari_disk_type	*disktype;	
+	struct atari_disk_type	*disktype;	/* current type of disk */
 
-	int track;		
-	unsigned int steprate;	
-	unsigned int wpstat;	
-	int flags;		
+	int track;		/* current head position or -1 if
+				   unknown */
+	unsigned int steprate;	/* steprate setting */
+	unsigned int wpstat;	/* current state of WP signal (for
+				   disk change detection) */
+	int flags;		/* flags */
 	struct gendisk *disk;
 	int ref;
 	int type;
@@ -204,29 +228,35 @@ static struct atari_floppy_struct {
 
 
 #define FDC_READ(reg) ({			\
-    		\
+    /* unsigned long __flags; */		\
     unsigned short __val;			\
-    		\
+    /* local_irq_save(__flags); */		\
     dma_wd.dma_mode_status = 0x80 | (reg);	\
     udelay(25);					\
     __val = dma_wd.fdc_acces_seccount;		\
     MFPDELAY();					\
-    		\
+    /* local_irq_restore(__flags); */		\
     __val & 0xff;				\
 })
 
 #define FDC_WRITE(reg,val)			\
     do {					\
-			\
-			\
+	/* unsigned long __flags; */		\
+	/* local_irq_save(__flags); */		\
 	dma_wd.dma_mode_status = 0x80 | (reg);	\
 	udelay(25);				\
 	dma_wd.fdc_acces_seccount = (val);	\
 	MFPDELAY();				\
-        	\
+        /* local_irq_restore(__flags); */	\
     } while(0)
 
 
+/* Buffering variables:
+ * First, there is a DMA buffer in ST-RAM that is used for floppy DMA
+ * operations. Second, a track buffer is used to cache a whole track
+ * of the disk to save read operations. These are two separate buffers
+ * because that allows write operations without clearing the track buffer.
+ */
 
 static int MaxSectors[] = {
 	11, 22, 44
@@ -237,21 +267,26 @@ static int BufferSize[] = {
 
 #define	BUFFER_SIZE	(BufferSize[DriveType])
 
-unsigned char *DMABuffer;			  
-static unsigned long PhysDMABuffer;   
+unsigned char *DMABuffer;			  /* buffer for writes */
+static unsigned long PhysDMABuffer;   /* physical address */
 
-static int UseTrackbuffer = -1;		  
+static int UseTrackbuffer = -1;		  /* Do track buffering? */
 module_param(UseTrackbuffer, int, 0);
 
-unsigned char *TrackBuffer;			  
-static unsigned long PhysTrackBuffer; 
+unsigned char *TrackBuffer;			  /* buffer for reads */
+static unsigned long PhysTrackBuffer; /* physical address */
 static int BufferDrive, BufferSide, BufferTrack;
-static int read_track;		
+static int read_track;		/* non-zero if we are reading whole tracks */
 
 #define	SECTOR_BUFFER(sec)	(TrackBuffer + ((sec)-1)*512)
 #define	IS_BUFFERED(drive,side,track) \
     (BufferDrive == (drive) && BufferSide == (side) && BufferTrack == (track))
 
+/*
+ * These are global variables, as that's the easiest way to give
+ * information to interrupts. They are the data used for the current
+ * request.
+ */
 static int SelectedDrive = 0;
 static int ReqCmd, ReqBlock;
 static int ReqSide, ReqTrack, ReqSector, ReqCnt;
@@ -263,6 +298,7 @@ static int IsFormatting = 0, FormatError;
 static int UserSteprate[FD_MAX_UNITS] = { -1, -1 };
 module_param_array(UserSteprate, int, NULL, 0);
 
+/* Synchronization of FDC access. */
 static volatile int fdc_busy = 0;
 static DECLARE_WAIT_QUEUE_HEAD(fdc_wait);
 static DECLARE_WAIT_QUEUE_HEAD(format_wait);
@@ -274,12 +310,22 @@ static unsigned long changed_floppies = 0xff, fake_change = 0;
 #define	FD_MOTOR_OFF_MAXTRY	(10*20)
 
 #define FLOPPY_TIMEOUT		(6*HZ)
-#define RECALIBRATE_ERRORS	4	
-#define MAX_ERRORS		8	
+#define RECALIBRATE_ERRORS	4	/* After this many errors the drive
+					 * will be recalibrated. */
+#define MAX_ERRORS		8	/* After this many errors the driver
+					 * will give up. */
 
 
+/*
+ * The driver is trying to determine the correct media format
+ * while Probing is set. fd_rwsec_done() clears it after a
+ * successful access.
+ */
 static int Probing = 0;
 
+/* This flag is set when a dummy seek is necessary to make the WP
+ * status bit accessible.
+ */
 static int NeedSeek = 0;
 
 
@@ -289,6 +335,7 @@ static int NeedSeek = 0;
 #define DPRINT(a)
 #endif
 
+/***************************** Prototypes *****************************/
 
 static void fd_select_side( int side );
 static void fd_select_drive( int drive );
@@ -322,6 +369,7 @@ static void config_types( void );
 static int floppy_open(struct block_device *bdev, fmode_t mode);
 static int floppy_release(struct gendisk *disk, fmode_t mode);
 
+/************************* End of Prototypes **************************/
 
 static DEFINE_TIMER(motor_off_timer, fd_motor_off_timer, 0, 0);
 static DEFINE_TIMER(readtrack_timer, fd_readtrack_check, 0, 0);
@@ -355,15 +403,16 @@ static inline void stop_timeout(void)
 	del_timer(&timeout_timer);
 }
 
+/* Select the side to use. */
 
 static void fd_select_side( int side )
 {
 	unsigned long flags;
 
-	
+	/* protect against various other ints mucking around with the PSG */
 	local_irq_save(flags);
   
-	sound_ym.rd_data_reg_sel = 14; 
+	sound_ym.rd_data_reg_sel = 14; /* Select PSG Port A */
 	sound_ym.wd_data = (side == 0) ? sound_ym.rd_data_reg_sel | 0x01 :
 	                                 sound_ym.rd_data_reg_sel & 0xfe;
 
@@ -371,6 +420,9 @@ static void fd_select_side( int side )
 }
 
 
+/* Select a drive, update the FDC's track register and set the correct
+ * clock speed for this disk's type.
+ */
 
 static void fd_select_drive( int drive )
 {
@@ -380,19 +432,19 @@ static void fd_select_drive( int drive )
 	if (drive == SelectedDrive)
 	  return;
 
-	
+	/* protect against various other ints mucking around with the PSG */
 	local_irq_save(flags);
-	sound_ym.rd_data_reg_sel = 14; 
+	sound_ym.rd_data_reg_sel = 14; /* Select PSG Port A */
 	tmp = sound_ym.rd_data_reg_sel;
 	sound_ym.wd_data = (tmp | DSKDRVNONE) & ~(drive == 0 ? DSKDRV0 : DSKDRV1);
 	atari_dont_touch_floppy_select = 1;
 	local_irq_restore(flags);
 
-	
+	/* restore track register to saved value */
 	FDC_WRITE( FDCREG_TRACK, UD.track );
 	udelay(25);
 
-	
+	/* select 8/16 MHz */
 	if (UDT)
 		if (ATARIHW_PRESENT(FDCSPEED))
 			dma_wd.fdc_speed = UDT->fdc_speed;
@@ -401,29 +453,36 @@ static void fd_select_drive( int drive )
 }
 
 
+/* Deselect both drives. */
 
 static void fd_deselect( void )
 {
 	unsigned long flags;
 
-	
+	/* protect against various other ints mucking around with the PSG */
 	local_irq_save(flags);
 	atari_dont_touch_floppy_select = 0;
-	sound_ym.rd_data_reg_sel=14;	
+	sound_ym.rd_data_reg_sel=14;	/* Select PSG Port A */
 	sound_ym.wd_data = (sound_ym.rd_data_reg_sel |
-			    (MACH_IS_FALCON ? 3 : 7)); 
+			    (MACH_IS_FALCON ? 3 : 7)); /* no drives selected */
+	/* On Falcon, the drive B select line is used on the printer port, so
+	 * leave it alone... */
 	SelectedDrive = -1;
 	local_irq_restore(flags);
 }
 
 
+/* This timer function deselects the drives when the FDC switched the
+ * motor off. The deselection cannot happen earlier because the FDC
+ * counts the index signals, which arrive only if one drive is selected.
+ */
 
 static void fd_motor_off_timer( unsigned long dummy )
 {
 	unsigned char status;
 
 	if (SelectedDrive < 0)
-		
+		/* no drive selected, needn't deselect anyone */
 		return;
 
 	if (stdma_islocked())
@@ -432,19 +491,27 @@ static void fd_motor_off_timer( unsigned long dummy )
 	status = FDC_READ( FDCREG_STATUS );
 
 	if (!(status & 0x80)) {
-		
+		/* motor already turned off by FDC -> deselect drives */
 		MotorOn = 0;
 		fd_deselect();
 		return;
 	}
-	
+	/* not yet off, try again */
 
   retry:
+	/* Test again later; if tested too often, it seems there is no disk
+	 * in the drive and the FDC will leave the motor on forever (or,
+	 * at least until a disk is inserted). So we'll test only twice
+	 * per second from then on...
+	 */
 	mod_timer(&motor_off_timer,
 		  jiffies + (MotorOffTrys++ < FD_MOTOR_OFF_MAXTRY ? HZ/20 : HZ/2));
 }
 
 
+/* This function is repeatedly called to detect disk changes (as good
+ * as possible) and keep track of the current state of the write protection.
+ */
 
 static void check_change( unsigned long dummy )
 {
@@ -457,7 +524,7 @@ static void check_change( unsigned long dummy )
 	if (++drive > 1 || !UD.connected)
 		drive = 0;
 
-	
+	/* protect against various other ints mucking around with the PSG */
 	local_irq_save(flags);
 
 	if (!stdma_islocked()) {
@@ -480,6 +547,9 @@ static void check_change( unsigned long dummy )
 }
 
  
+/* Handling of the Head Settling Flag: This flag should be set after each
+ * seek operation, because we don't use seeks with verify.
+ */
 
 static inline void set_head_settle_flag(void)
 {
@@ -505,6 +575,7 @@ static inline void copy_buffer(void *from, void *to)
   
   
 
+/* General Interrupt Handling */
 
 static void (*FloppyIRQHandler)( int status ) = NULL;
 
@@ -528,6 +599,9 @@ static irqreturn_t floppy_irq (int irq, void *dummy)
 }
 
 
+/* Error handling: If some error happened, retry some times, then
+ * recalibrate, then try again, and fail after MAX_ERRORS.
+ */
 
 static void fd_error( void )
 {
@@ -559,6 +633,7 @@ static void fd_error( void )
 #define	SET_IRQ_HANDLER(proc) do { FloppyIRQHandler = (proc); } while(0)
 
 
+/* ---------- Formatting ---------- */
 
 #define FILL(n,val)		\
     do {			\
@@ -579,7 +654,7 @@ static int do_format(int drive, int type, struct atari_format_descr *desc)
 	while( fdc_busy ) sleep_on( &fdc_wait );
 	fdc_busy = 1;
 	stdma_lock(floppy_irq, NULL);
-	atari_turnon_irq( IRQ_MFP_FDC ); 
+	atari_turnon_irq( IRQ_MFP_FDC ); /* should be already, just to be sure */
 	local_irq_restore(flags);
 
 	if (type) {
@@ -599,8 +674,10 @@ static int do_format(int drive, int type, struct atari_format_descr *desc)
 
 	nsect = UDT->spt;
 	p = TrackBuffer;
+	/* The track buffer is used for the raw track data, so its
+	   contents become invalid! */
 	BufferDrive = -1;
-	
+	/* stop deselect timer */
 	del_timer( &motor_off_timer );
 
 	FILL( 60 * (nsect / 9), 0x4e );
@@ -636,6 +713,14 @@ static int do_format(int drive, int type, struct atari_format_descr *desc)
 }
 
 
+/* do_fd_action() is the general procedure for a fd request: All
+ * required parameter settings (drive select, side select, track
+ * position) are checked and set if needed. For each of these
+ * parameters and the actual reading or writing exist two functions:
+ * one that starts the setting (or skips it if possible) and one
+ * callback for the "done" interrupt. Each done func calls the next
+ * set function to propagate the request down to fd_rwsec_done().
+ */
 
 static void do_fd_action( int drive )
 {
@@ -647,18 +732,20 @@ static void do_fd_action( int drive )
 		if (ReqCmd == READ) {
 		    copy_buffer( SECTOR_BUFFER(ReqSector), ReqData );
 		    if (++ReqCnt < blk_rq_cur_sectors(fd_request)) {
-			
+			/* read next sector */
 			setup_req_params( drive );
 			goto repeat;
 		    }
 		    else {
-			
+			/* all sectors finished */
 			fd_end_request_cur(0);
 			redo_fd_request();
 			return;
 		    }
 		}
 		else {
+		    /* cmd == WRITE, pay attention to track buffer
+		     * consistency! */
 		    copy_buffer( ReqData, SECTOR_BUFFER(ReqSector) );
 		}
 	    }
@@ -678,6 +765,7 @@ static void do_fd_action( int drive )
 }
 
 
+/* Seek to track 0 if the current track is unknown */
 
 static void fd_calibrate( void )
 {
@@ -687,16 +775,16 @@ static void fd_calibrate( void )
 	}
 
 	if (ATARIHW_PRESENT(FDCSPEED))
-		dma_wd.fdc_speed = 0; 	;
+		dma_wd.fdc_speed = 0; 	/* always seek with 8 Mhz */;
 	DPRINT(("fd_calibrate\n"));
 	SET_IRQ_HANDLER( fd_calibrate_done );
-	
+	/* we can't verify, since the speed may be incorrect */
 	FDC_WRITE( FDCREG_CMD, FDCCMD_RESTORE | SUD.steprate );
 
 	NeedSeek = 1;
 	MotorOn = 1;
 	start_timeout();
-	
+	/* wait for IRQ */
 }
 
 
@@ -705,7 +793,7 @@ static void fd_calibrate_done( int status )
 	DPRINT(("fd_calibrate_done()\n"));
 	stop_timeout();
     
-	
+	/* set the correct speed now */
 	if (ATARIHW_PRESENT(FDCSPEED))
 		dma_wd.fdc_speed = SUDT->fdc_speed;
 	if (status & FDCSTAT_RECNF) {
@@ -719,6 +807,9 @@ static void fd_calibrate_done( int status )
 }
   
   
+/* Seek the drive to the requested track. The drive must have been
+ * calibrated at some point before this.
+ */
   
 static void fd_seek( void )
 {
@@ -728,7 +819,7 @@ static void fd_seek( void )
 	}
 
 	if (ATARIHW_PRESENT(FDCSPEED)) {
-		dma_wd.fdc_speed = 0;	
+		dma_wd.fdc_speed = 0;	/* always seek witch 8 Mhz */
 		MFPDELAY();
 	}
 
@@ -741,7 +832,7 @@ static void fd_seek( void )
 	MotorOn = 1;
 	set_head_settle_flag();
 	start_timeout();
-	
+	/* wait for IRQ */
 }
 
 
@@ -750,13 +841,13 @@ static void fd_seek_done( int status )
 	DPRINT(("fd_seek_done()\n"));
 	stop_timeout();
 	
-	
+	/* set the correct speed */
 	if (ATARIHW_PRESENT(FDCSPEED))
 		dma_wd.fdc_speed = SUDT->fdc_speed;
 	if (status & FDCSTAT_RECNF) {
 		printk(KERN_ERR "fd%d: seek error (to track %d)\n",
 				SelectedDrive, ReqTrack );
-		
+		/* we don't know exactly which track we are on now! */
 		SUD.track = -1;
 		fd_error();
 	}
@@ -771,6 +862,9 @@ static void fd_seek_done( int status )
 }
 
 
+/* This does the actual reading/writing after positioning the head
+ * over the correct track.
+ */
 
 static int MultReadInProgress = 0;
 
@@ -804,10 +898,10 @@ static void fd_rwsec( void )
 
 	fd_select_side( ReqSide );
   
-	
+	/* Start sector of this operation */
 	FDC_WRITE( FDCREG_SECTOR, read_track ? 1 : ReqSector );
 	MFPDELAY();
-	
+	/* Cheat for track if stretch != 0 */
 	if (SUDT->stretch) {
 		track = FDC_READ( FDCREG_TRACK);
 		MFPDELAY();
@@ -815,7 +909,7 @@ static void fd_rwsec( void )
 	}
 	udelay(25);
   
-	
+	/* Setup DMA */
 	local_irq_save(flags);
 	dma_wd.dma_lo = (unsigned char)paddr;
 	MFPDELAY();
@@ -830,7 +924,7 @@ static void fd_rwsec( void )
 	MFPDELAY();
 	local_irq_restore(flags);
   
-	  
+	/* Clear FIFO and switch DMA to correct mode */  
 	dma_wd.dma_mode_status = 0x90 | rwflag;  
 	MFPDELAY();
 	dma_wd.dma_mode_status = 0x90 | (rwflag ^ 0x100);  
@@ -838,12 +932,12 @@ static void fd_rwsec( void )
 	dma_wd.dma_mode_status = 0x90 | rwflag;
 	MFPDELAY();
   
-	
+	/* How many sectors for DMA */
 	dma_wd.fdc_acces_seccount = read_track ? SUDT->spt : 1;
   
 	udelay(25);  
   
-	
+	/* Start operation */
 	dma_wd.dma_mode_status = FDCSELREG_STP | rwflag;
 	udelay(25);
 	SET_IRQ_HANDLER( fd_rwsec_done );
@@ -854,12 +948,17 @@ static void fd_rwsec( void )
 	old_motoron = MotorOn;
 	MotorOn = 1;
 	NeedSeek = 1;
-	
+	/* wait for interrupt */
 
 	if (read_track) {
+		/* If reading a whole track, wait about one disk rotation and
+		 * then check if all sectors are read. The FDC will even
+		 * search for the first non-existent sector and need 1 sec to
+		 * recognise that it isn't present :-(
+		 */
 		MultReadInProgress = 1;
 		mod_timer(&readtrack_timer,
-			  
+			  /* 1 rot. + 5 rot.s if motor was off  */
 			  jiffies + HZ/5 + (old_motoron ? 0 : HZ));
 	}
 	start_timeout();
@@ -873,12 +972,18 @@ static void fd_readtrack_check( unsigned long dummy )
 	local_irq_save(flags);
 
 	if (!MultReadInProgress) {
+		/* This prevents a race condition that could arise if the
+		 * interrupt is triggered while the calling of this timer
+		 * callback function takes place. The IRQ function then has
+		 * already cleared 'MultReadInProgress'  when flow of control
+		 * gets here.
+		 */
 		local_irq_restore(flags);
 		return;
 	}
 
-	
-	
+	/* get the current DMA address */
+	/* ++ f.a. read twice to avoid being fooled by switcher */
 	addr = 0;
 	do {
 		addr2 = addr;
@@ -894,6 +999,9 @@ static void fd_readtrack_check( unsigned long dummy )
 	} while(addr != addr2);
   
 	if (addr >= PhysTrackBuffer + SUDT->spt*512) {
+		/* already read enough data, force an FDC interrupt to stop
+		 * the read operation
+		 */
 		SET_IRQ_HANDLER( NULL );
 		MultReadInProgress = 0;
 		local_irq_restore(flags);
@@ -901,10 +1009,13 @@ static void fd_readtrack_check( unsigned long dummy )
 		FDC_WRITE( FDCREG_CMD, FDCCMD_FORCI );
 		udelay(25);
 
+		/* No error until now -- the FDC would have interrupted
+		 * otherwise!
+		 */
 		fd_rwsec_done1(0);
 	}
 	else {
-		
+		/* not yet finished, wait another tenth rotation */
 		local_irq_restore(flags);
 		DPRINT(("fd_readtrack_check(): not yet finished\n"));
 		mod_timer(&readtrack_timer, jiffies + HZ/5/10);
@@ -931,7 +1042,7 @@ static void fd_rwsec_done1(int status)
 
 	stop_timeout();
 	
-	
+	/* Correct the track if stretch != 0 */
 	if (SUDT->stretch) {
 		track = FDC_READ( FDCREG_TRACK);
 		MFPDELAY();
@@ -953,11 +1064,13 @@ static void fd_rwsec_done1(int status)
 		goto err_end;
 	}	
 	if ((status & FDCSTAT_RECNF) &&
+	    /* RECNF is no error after a multiple read when the FDC
+	       searched for a non-existent sector! */
 	    !(read_track && FDC_READ(FDCREG_SECTOR) > SUDT->spt)) {
 		if (Probing) {
 			if (SUDT > atari_disk_type) {
 			    if (SUDT[-1].blocks > ReqBlock) {
-				
+				/* try another disk type */
 				SUDT--;
 				set_capacity(unit[SelectedDrive].disk,
 							SUDT->blocks);
@@ -971,6 +1084,7 @@ static void fd_rwsec_done1(int status)
 				Probing=0;
 			}
 		} else {	
+/* record not found, but not probing. Maybe stretch wrong ? Restart probing */
 			if (SUD.autoprobe) {
 				SUDT = atari_disk_type + StartDiskType[DriveType];
 				set_capacity(unit[SelectedDrive].disk,
@@ -1023,12 +1137,12 @@ static void fd_rwsec_done1(int status)
 	}
   
 	if (++ReqCnt < blk_rq_cur_sectors(fd_request)) {
-		
+		/* read next sector */
 		setup_req_params( SelectedDrive );
 		do_fd_action( SelectedDrive );
 	}
 	else {
-		
+		/* all sectors finished */
 		fd_end_request_cur(0);
 		redo_fd_request();
 	}
@@ -1052,7 +1166,7 @@ static void fd_writetrack( void )
 
 	fd_select_side( ReqSide );
   
-	
+	/* Cheat for track if stretch != 0 */
 	if (SUDT->stretch) {
 		track = FDC_READ( FDCREG_TRACK);
 		MFPDELAY();
@@ -1060,7 +1174,7 @@ static void fd_writetrack( void )
 	}
 	udelay(40);
   
-	
+	/* Setup DMA */
 	local_irq_save(flags);
 	dma_wd.dma_lo = (unsigned char)paddr;
 	MFPDELAY();
@@ -1075,7 +1189,7 @@ static void fd_writetrack( void )
 	MFPDELAY();
 	local_irq_restore(flags);
   
-	  
+	/* Clear FIFO and switch DMA to correct mode */  
 	dma_wd.dma_mode_status = 0x190;  
 	MFPDELAY();
 	dma_wd.dma_mode_status = 0x90;  
@@ -1083,11 +1197,11 @@ static void fd_writetrack( void )
 	dma_wd.dma_mode_status = 0x190;
 	MFPDELAY();
   
-	
+	/* How many sectors for DMA */
 	dma_wd.fdc_acces_seccount = BUFFER_SIZE/512;
 	udelay(40);  
   
-	
+	/* Start operation */
 	dma_wd.dma_mode_status = FDCSELREG_STP | 0x100;
 	udelay(40);
 	SET_IRQ_HANDLER( fd_writetrack_done );
@@ -1095,7 +1209,7 @@ static void fd_writetrack( void )
 
 	MotorOn = 1;
 	start_timeout();
-	
+	/* wait for interrupt */
 }
 
 
@@ -1125,9 +1239,12 @@ static void fd_writetrack_done( int status )
 static void fd_times_out( unsigned long dummy )
 {
 	atari_disable_irq( IRQ_MFP_FDC );
-	if (!FloppyIRQHandler) goto end; 
+	if (!FloppyIRQHandler) goto end; /* int occurred after timer was fired, but
+					  * before we came here... */
 
 	SET_IRQ_HANDLER( NULL );
+	/* If the timeout occurred while the readtrack_check timer was
+	 * active, we need to cancel it, else bad things will happen */
 	if (UseTrackbuffer)
 		del_timer( &readtrack_timer );
 	FDC_WRITE( FDCREG_CMD, FDCCMD_FORCI );
@@ -1140,6 +1257,12 @@ static void fd_times_out( unsigned long dummy )
 }
 
 
+/* The (noop) seek operation here is needed to make the WP bit in the
+ * FDC status register accessible for check_change. If the last disk
+ * operation would have been a RDSEC, this bit would always read as 0
+ * no matter what :-( To save time, the seek goes to the track we're
+ * already on.
+ */
 
 static void finish_fdc( void )
 {
@@ -1153,6 +1276,9 @@ static void finish_fdc( void )
 		FDC_WRITE (FDCREG_CMD, FDCCMD_SEEK);
 		MotorOn = 1;
 		start_timeout();
+		/* we must wait for the IRQ here, because the ST-DMA
+		   is released immediately afterwards and the interrupt
+		   may be delivered to the wrong driver. */
 	  }
 }
 
@@ -1166,6 +1292,9 @@ static void finish_fdc_done( int dummy )
 	NeedSeek = 0;
 
 	if (timer_pending(&fd_timer) && time_before(fd_timer.expires, jiffies + 5))
+		/* If the check for a disk change is done too early after this
+		 * last seek command, the WP bit still reads wrong :-((
+		 */
 		mod_timer(&fd_timer, jiffies + 5);
 	else
 		start_check_change_timer();
@@ -1180,6 +1309,20 @@ static void finish_fdc_done( int dummy )
 	DPRINT(("finish_fdc() finished\n"));
 }
 
+/* The detection of disk changes is a dark chapter in Atari history :-(
+ * Because the "Drive ready" signal isn't present in the Atari
+ * hardware, one has to rely on the "Write Protect". This works fine,
+ * as long as no write protected disks are used. TOS solves this
+ * problem by introducing tri-state logic ("maybe changed") and
+ * looking at the serial number in block 0. This isn't possible for
+ * Linux, since the floppy driver can't make assumptions about the
+ * filesystem used on the disk and thus the contents of block 0. I've
+ * chosen the method to always say "The disk was changed" if it is
+ * unsure whether it was. This implies that every open or mount
+ * invalidates the disk buffers if you work with write protected
+ * disks. But at least this is better than working with incorrect data
+ * due to unrecognised disk changes.
+ */
 
 static unsigned int floppy_check_events(struct gendisk *disk,
 					unsigned int clearing)
@@ -1187,14 +1330,17 @@ static unsigned int floppy_check_events(struct gendisk *disk,
 	struct atari_floppy_struct *p = disk->private_data;
 	unsigned int drive = p - unit;
 	if (test_bit (drive, &fake_change)) {
-		
+		/* simulated change (e.g. after formatting) */
 		return DISK_EVENT_MEDIA_CHANGE;
 	}
 	if (test_bit (drive, &changed_floppies)) {
-		
+		/* surely changed (the WP signal changed at least once) */
 		return DISK_EVENT_MEDIA_CHANGE;
 	}
 	if (UD.wpstat) {
+		/* WP is on -> could be changed: to be sure, buffers should be
+		 * invalidated...
+		 */
 		return DISK_EVENT_MEDIA_CHANGE;
 	}
 
@@ -1214,6 +1360,9 @@ static int floppy_revalidate(struct gendisk *disk)
 		BufferDrive = -1;
 		clear_bit(drive, &fake_change);
 		clear_bit(drive, &changed_floppies);
+		/* MSch: clearing geometry makes sense only for autoprobe
+		   formats, for 'permanent user-defined' parameter:
+		   restore default_params[] here if flagged valid! */
 		if (default_params[drive].blocks == 0)
 			UDT = NULL;
 		else
@@ -1223,6 +1372,7 @@ static int floppy_revalidate(struct gendisk *disk)
 }
 
 
+/* This sets up the global variables describing the current request. */
 
 static void setup_req_params( int drive )
 {
@@ -1243,6 +1393,9 @@ static void setup_req_params( int drive )
 			ReqTrack, ReqSector, (unsigned long)ReqData ));
 }
 
+/*
+ * Round-robin between our available drives, doing one request from each
+ */
 static struct request *set_next_request(void)
 {
 	struct request_queue *q;
@@ -1287,7 +1440,7 @@ repeat:
 	type = floppy->type;
 	
 	if (!UD.connected) {
-		
+		/* drive not connected */
 		printk(KERN_ERR "Unknown Device: fd%d\n", drive );
 		fd_end_request_cur(-EIO);
 		goto repeat;
@@ -1302,7 +1455,7 @@ repeat:
 		}
 	} 
 	else {
-		
+		/* user supplied disk type */
 		if (--type >= NUM_DISK_MINORS) {
 			printk(KERN_WARNING "fd%d: invalid disk format", drive );
 			fd_end_request_cur(-EIO);
@@ -1324,7 +1477,7 @@ repeat:
 		goto repeat;
 	}
 
-	
+	/* stop deselect timer */
 	del_timer( &motor_off_timer );
 		
 	ReqCnt = 0;
@@ -1399,12 +1552,24 @@ static int fd_locked_ioctl(struct block_device *bdev, fmode_t mode,
 	switch (cmd) {
 	case FDSETPRM:
 	case FDDEFPRM:
+	        /* 
+		 * MSch 7/96: simple 'set geometry' case: just set the
+		 * 'default' device params (minor == 0).
+		 * Currently, the drive geometry is cleared after each
+		 * disk change and subsequent revalidate()! simple
+		 * implementation of FDDEFPRM: save geometry from a
+		 * FDDEFPRM call and restore it in floppy_revalidate() !
+		 */
 
-		
+		/* get the parameters from user space */
 		if (floppy->ref != 1 && floppy->ref != -1)
 			return -EBUSY;
 		if (copy_from_user(&setprm, argp, sizeof(setprm)))
 			return -EFAULT;
+		/* 
+		 * first of all: check for floppy change and revalidate, 
+		 * or the next access will revalidate - and clear UDT :-(
+		 */
 
 		if (floppy_check_events(disk, 0))
 		        floppy_revalidate(disk);
@@ -1413,24 +1578,30 @@ static int fd_locked_ioctl(struct block_device *bdev, fmode_t mode,
 		    printk (KERN_INFO "floppy%d: setting size %d spt %d str %d!\n",
 			drive, setprm.size, setprm.sect, setprm.stretch);
 
-		
+		/* what if type > 0 here? Overwrite specified entry ? */
 		if (type) {
-		        
+		        /* refuse to re-set a predefined type for now */
 			redo_fd_request();
 			return -EINVAL;
 		}
 
+		/* 
+		 * type == 0: first look for a matching entry in the type list,
+		 * and set the UD.disktype field to use the perdefined entry.
+		 * TODO: add user-defined format to head of autoprobe list ? 
+		 * Useful to include the user-type for future autodetection!
+		 */
 
 		for (settype = 0; settype < NUM_DISK_MINORS; settype++) {
 			int setidx = 0;
 			if (minor2disktype[settype].drive_types > DriveType) {
-				
+				/* skip this one, invalid for drive ... */
 				continue;
 			}
 			setidx = minor2disktype[settype].index;
 			dtp = &atari_disk_type[setidx];
 
-			
+			/* found matching entry ?? */
 			if (   dtp->blocks  == setprm.size 
 			    && dtp->spt     == setprm.sect
 			    && dtp->stretch == setprm.stretch ) {
@@ -1441,7 +1612,7 @@ static int fd_locked_ioctl(struct block_device *bdev, fmode_t mode,
 				set_capacity(floppy->disk, UDT->blocks);
 
 				if (cmd == FDDEFPRM) {
-				  
+				  /* save settings as permanent default type */
 				  default_params[drive].name    = dtp->name;
 				  default_params[drive].spt     = dtp->spt;
 				  default_params[drive].blocks  = dtp->blocks;
@@ -1454,13 +1625,13 @@ static int fd_locked_ioctl(struct block_device *bdev, fmode_t mode,
 
 		}
 
-		
+		/* no matching disk type found above - setting user_params */
 
 	       	if (cmd == FDDEFPRM) {
-			
+			/* set permanent type */
 			dtp = &default_params[drive];
 		} else
-			
+			/* set user type (reset by disk change!) */
 			dtp = &user_params[drive];
 
 		dtp->name   = "user format";
@@ -1476,7 +1647,7 @@ static int fd_locked_ioctl(struct block_device *bdev, fmode_t mode,
 			printk (KERN_INFO "floppy%d: blk %d spt %d str %d!\n",
 				drive, dtp->blocks, dtp->spt, dtp->stretch);
 
-		
+		/* sanity check */
 		if (setprm.track != dtp->blocks/dtp->spt/2 ||
 		    setprm.head != 2) {
 			redo_fd_request();
@@ -1505,12 +1676,12 @@ static int fd_locked_ioctl(struct block_device *bdev, fmode_t mode,
 		return do_format(drive, type, &fmt_desc);
 	case FDCLRPRM:
 		UDT = NULL;
-		
+		/* MSch: invalidate default_params */
 		default_params[drive].blocks  = 0;
 		set_capacity(floppy->disk, MAX_DISK_SIZE * 2);
 	case FDFMTEND:
 	case FDFLUSH:
-		
+		/* invalidate the buffer track to force a reread */
 		BufferDrive = -1;
 		set_bit(drive, &fake_change);
 		check_disk_change(bdev);
@@ -1532,6 +1703,7 @@ static int fd_ioctl(struct block_device *bdev, fmode_t mode,
 	return ret;
 }
 
+/* Initialize the 'unit' variable for drive 'drive' */
 
 static void __init fd_probe( int drive )
 {
@@ -1556,17 +1728,25 @@ static void __init fd_probe( int drive )
 	case 12:
 		UD.steprate = FDCSTEP_12;
 		break;
-	default: 
+	default: /* should be -1 for "not set by user" */
 		if (ATARIHW_PRESENT( FDCSPEED ) || MACH_IS_MEDUSA)
 			UD.steprate = FDCSTEP_3;
 		else
 			UD.steprate = FDCSTEP_6;
 		break;
 	}
-	MotorOn = 1;	
+	MotorOn = 1;	/* from probe restore operation! */
 }
 
 
+/* This function tests the physical presence of a floppy drive (not
+ * whether a disk is inserted). This is done by issuing a restore
+ * command, waiting max. 2 seconds (that should be enough to move the
+ * head across the whole disk) and looking at the state of the "TR00"
+ * signal. This should now be raised if there is a drive connected
+ * (and there is no hardware failure :-) Otherwise, the drive is
+ * declared absent.
+ */
 
 static int __init fd_test_drive_present( int drive )
 {
@@ -1577,7 +1757,7 @@ static int __init fd_test_drive_present( int drive )
 	if (drive >= (MACH_IS_FALCON ? 1 : 2)) return( 0 );
 	fd_select_drive( drive );
 
-	
+	/* disable interrupt temporarily */
 	atari_turnoff_irq( IRQ_MFP_FDC );
 	FDC_WRITE (FDCREG_TRACK, 0xff00);
 	FDC_WRITE( FDCREG_CMD, FDCCMD_RESTORE | FDCCMDADD_H | FDCSTEP_6 );
@@ -1590,13 +1770,15 @@ static int __init fd_test_drive_present( int drive )
 	status = FDC_READ( FDCREG_STATUS );
 	ok = (status & FDCSTAT_TR00) != 0;
 
+	/* force interrupt to abort restore operation (FDC would try
+	 * about 50 seconds!) */
 	FDC_WRITE( FDCREG_CMD, FDCCMD_FORCI );
 	udelay(500);
 	status = FDC_READ( FDCREG_STATUS );
 	udelay(20);
 
 	if (ok) {
-		
+		/* dummy seek command to make WP bit accessible */
 		FDC_WRITE( FDCREG_DATA, 0 );
 		FDC_WRITE( FDCREG_CMD, FDCCMD_SEEK );
 		while( st_mfp.par_dt_reg & 0x20 )
@@ -1609,12 +1791,15 @@ static int __init fd_test_drive_present( int drive )
 }
 
 
+/* Look how many and which kind of drives are connected. If there are
+ * floppies, additionally start the disk-change and motor-off timers.
+ */
 
 static void __init config_types( void )
 {
 	int drive, cnt = 0;
 
-	
+	/* for probing drives, set the FDC speed to 8 MHz */
 	if (ATARIHW_PRESENT(FDCSPEED))
 		dma_wd.fdc_speed = 0;
 
@@ -1628,6 +1813,12 @@ static void __init config_types( void )
 	}
 
 	if (FDC_READ( FDCREG_STATUS ) & FDCSTAT_BUSY) {
+		/* If FDC is still busy from probing, give it another FORCI
+		 * command to abort the operation. If this isn't done, the FDC
+		 * will interrupt later and its IRQ line stays low, because
+		 * the status register isn't read. And this will block any
+		 * interrupts on this IRQ line :-(
+		 */
 		FDC_WRITE( FDCREG_CMD, FDCCMD_FORCI );
 		udelay(500);
 		FDC_READ( FDCREG_STATUS );
@@ -1641,6 +1832,11 @@ static void __init config_types( void )
 	}
 }
 
+/*
+ * floppy_open check for aliasing (/dev/fd0 can be the same as
+ * /dev/PS0 etc), and disallows simultaneous access to the same
+ * drive with different device numbers.
+ */
 
 static int floppy_open(struct block_device *bdev, fmode_t mode)
 {
@@ -1728,7 +1924,7 @@ static int __init atari_floppy_init (void)
 	int i;
 
 	if (!MACH_IS_ATARI)
-		
+		/* Amiga, Mac, ... don't have Atari-compatible floppy :-) */
 		return -ENODEV;
 
 	if (register_blkdev(FLOPPY_MAJOR,"fd"))
@@ -1741,9 +1937,13 @@ static int __init atari_floppy_init (void)
 	}
 
 	if (UseTrackbuffer < 0)
+		/* not set by user -> use default: for now, we turn
+		   track buffering off for all Medusas, though it
+		   could be used with ones that have a counter
+		   card. But the test is too hard :-( */
 		UseTrackbuffer = !MACH_IS_MEDUSA;
 
-	
+	/* initialize variables */
 	SelectedDrive = -1;
 	BufferDrive = -1;
 

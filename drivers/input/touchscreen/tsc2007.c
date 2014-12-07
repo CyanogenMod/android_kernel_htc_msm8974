@@ -113,6 +113,10 @@ static inline int tsc2007_xfer(struct tsc2007 *tsc, u8 cmd)
 		return data;
 	}
 
+	/* The protocol and raw data format from i2c interface:
+	 * S Addr Wr [A] Comm [A] S Addr Rd [A] [DataLow] A [DataHigh] NA P
+	 * Where DataLow has [D11-D4], DataHigh has [D3-D0 << 4 | Dummy 4bit].
+	 */
 	val = swab16(data) >> 4;
 
 	dev_dbg(&tsc->client->dev, "data: 0x%x, val: 0x%x\n", data, val);
@@ -122,13 +126,13 @@ static inline int tsc2007_xfer(struct tsc2007 *tsc, u8 cmd)
 
 static void tsc2007_read_values(struct tsc2007 *tsc, struct ts_event *tc)
 {
-	
+	/* y- still on; turn on only y+ (and ADC) */
 	tc->y = tsc2007_xfer(tsc, READ_Y);
 
-	
+	/* turn y- off, x+ on, then leave in lowpower */
 	tc->x = tsc2007_xfer(tsc, READ_X);
 
-	
+	/* turn y+ off, x- on; we'll use formula #1 */
 	tc->z1 = tsc2007_xfer(tsc, READ_Z1);
 	tc->z2 = tsc2007_xfer(tsc, READ_Z2);
 
@@ -144,7 +148,7 @@ static void tsc2007_read_values(struct tsc2007 *tsc, struct ts_event *tc)
 	if (tsc->invert_z2 == true)
 		tc->z2 = MAX_12BIT - tc->z2;
 
-	
+	/* Prepare for next touch reading - power down ADC, enable PENIRQ */
 	tsc2007_xfer(tsc, PWRDOWN);
 }
 
@@ -152,12 +156,12 @@ static u32 tsc2007_calculate_pressure(struct tsc2007 *tsc, struct ts_event *tc)
 {
 	u32 rt = 0;
 
-	
+	/* range filtering */
 	if (tc->x == MAX_12BIT)
 		tc->x = 0;
 
 	if (likely(tc->x && tc->z1)) {
-		
+		/* compute touch pressure resistance using equation #1 */
 		rt = tc->z2 - tc->z1;
 		rt *= tc->x;
 		rt *= tsc->x_plate_ohms;
@@ -187,6 +191,18 @@ static void tsc2007_work(struct work_struct *work)
 	struct ts_event tc;
 	u32 rt;
 
+	/*
+	 * NOTE: We can't rely on the pressure to determine the pen down
+	 * state, even though this controller has a pressure sensor.
+	 * The pressure value can fluctuate for quite a while after
+	 * lifting the pen and in some cases may not even settle at the
+	 * expected value.
+	 *
+	 * The only safe way to check for the pen up condition is in the
+	 * work function by reading the pen signal state (it's a GPIO
+	 * and IRQ). Unfortunately such callback is not always available,
+	 * in that case we have rely on the pressure anyway.
+	 */
 	if (ts->get_pendown_state) {
 		if (unlikely(!ts->get_pendown_state())) {
 			tsc2007_send_up_event(ts);
@@ -201,6 +217,11 @@ static void tsc2007_work(struct work_struct *work)
 
 	rt = tsc2007_calculate_pressure(ts, &tc);
 	if (rt > ts->max_rt) {
+		/*
+		 * Sample found inconsistent by debouncing or pressure is
+		 * beyond the maximum. Don't report it to user space,
+		 * repeat at least once more the measurement.
+		 */
 		dev_dbg(&ts->client->dev, "ignored pressure %d\n", rt);
 		debounced = true;
 		goto out;
@@ -227,6 +248,11 @@ static void tsc2007_work(struct work_struct *work)
 			tc.x, tc.y, rt);
 
 	} else if (!ts->get_pendown_state && ts->pendown) {
+		/*
+		 * We don't have callback to check pendown state, so we
+		 * have to assume that since pressure reported is 0 the
+		 * pen was lifted up.
+		 */
 		tsc2007_send_up_event(ts);
 		ts->pendown = false;
 	}
@@ -259,6 +285,11 @@ static void tsc2007_free_irq(struct tsc2007 *ts)
 {
 	free_irq(ts->irq, ts);
 	if (cancel_delayed_work_sync(&ts->work)) {
+		/*
+		 * Work was pending, therefore we need to enable
+		 * IRQ here to balance the disable_irq() done in the
+		 * interrupt handler.
+		 */
 		enable_irq(ts->irq);
 	}
 }
@@ -403,7 +434,7 @@ static int __devinit tsc2007_probe(struct i2c_client *client,
 		goto err_free_mem;
 	}
 
-	
+	/* Prepare for touch readings - power down ADC and enable PENIRQ */
 	err = tsc2007_xfer(ts, PWRDOWN);
 	if (err < 0)
 		goto err_free_irq;

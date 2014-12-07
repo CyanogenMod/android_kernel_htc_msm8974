@@ -156,7 +156,7 @@ qlcnic_get_settings(struct net_device *dev, struct ethtool_cmd *ecmd)
 	struct qlcnic_adapter *adapter = netdev_priv(dev);
 	int check_sfp_module = 0;
 
-	
+	/* read which mode */
 	if (adapter->ahw->port_type == QLCNIC_GBE) {
 		ecmd->supported = (SUPPORTED_10baseT_Half |
 				   SUPPORTED_10baseT_Full |
@@ -293,7 +293,7 @@ qlcnic_set_settings(struct net_device *dev, struct ethtool_cmd *ecmd)
 	if (adapter->ahw->port_type != QLCNIC_GBE)
 		return -EOPNOTSUPP;
 
-	
+	/* read which mode */
 	if (ecmd->duplex)
 		config |= 0x1;
 
@@ -354,13 +354,13 @@ qlcnic_get_regs(struct net_device *dev, struct ethtool_regs *regs, void *p)
 	if (!test_bit(__QLCNIC_DEV_UP, &adapter->state))
 		return;
 
-	regs_buff[i++] = 0xFFEFCDAB; 
+	regs_buff[i++] = 0xFFEFCDAB; /* Marker btw regs and ring count*/
 
-	regs_buff[i++] = 1; 
+	regs_buff[i++] = 1; /* No. of tx ring */
 	regs_buff[i++] = le32_to_cpu(*(adapter->tx_ring->hw_consumer));
 	regs_buff[i++] = readl(adapter->tx_ring->crb_cmd_producer);
 
-	regs_buff[i++] = 2; 
+	regs_buff[i++] = 2; /* No. of rx ring */
 	regs_buff[i++] = readl(recv_ctx->rds_rings[0].crb_rcv_producer);
 	regs_buff[i++] = readl(recv_ctx->rds_rings[1].crb_rcv_producer);
 
@@ -511,7 +511,7 @@ qlcnic_get_pauseparam(struct net_device *netdev,
 	if (adapter->ahw->port_type == QLCNIC_GBE) {
 		if ((port < 0) || (port > QLCNIC_NIU_MAX_GBE_PORTS))
 			return;
-		
+		/* get flow control settings */
 		val = QLCRD32(adapter, QLCNIC_NIU_GB_MAC_CONFIG_0(port));
 		pause->rx_pause = qlcnic_gb_get_rx_flowctl(val);
 		val = QLCRD32(adapter, QLCNIC_NIU_GB_PAUSE_CTL);
@@ -553,11 +553,11 @@ qlcnic_set_pauseparam(struct net_device *netdev,
 	int port = adapter->physical_port;
 	__u32 val;
 
-	
+	/* read mode */
 	if (adapter->ahw->port_type == QLCNIC_GBE) {
 		if ((port < 0) || (port > QLCNIC_NIU_MAX_GBE_PORTS))
 			return -EIO;
-		
+		/* set flow control */
 		val = QLCRD32(adapter, QLCNIC_NIU_GB_MAC_CONFIG_0(port));
 
 		if (pause->rx_pause)
@@ -567,7 +567,7 @@ qlcnic_set_pauseparam(struct net_device *netdev,
 
 		QLCWR32(adapter, QLCNIC_NIU_GB_MAC_CONFIG_0(port),
 				val);
-		
+		/* set autoneg */
 		val = QLCRD32(adapter, QLCNIC_NIU_GB_PAUSE_CTL);
 		switch (port) {
 		case 0:
@@ -1039,6 +1039,11 @@ qlcnic_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 	return 0;
 }
 
+/*
+ * Set the coalescing parameters. Currently only normal is supported.
+ * If rx_coalesce_usecs == 0 or rx_max_coalesced_frames == 0 then set the
+ * firmware coalescing to default.
+ */
 static int qlcnic_set_intr_coalesce(struct net_device *netdev,
 			struct ethtool_coalesce *ethcoal)
 {
@@ -1047,6 +1052,10 @@ static int qlcnic_set_intr_coalesce(struct net_device *netdev,
 	if (!test_bit(__QLCNIC_DEV_UP, &adapter->state))
 		return -EINVAL;
 
+	/*
+	* Return Error if unsupported values or
+	* unsupported parameters are set.
+	*/
 	if (ethcoal->rx_coalesce_usecs > 0xffff ||
 		ethcoal->rx_max_coalesced_frames > 0xffff ||
 		ethcoal->tx_coalesce_usecs ||
@@ -1145,19 +1154,19 @@ qlcnic_get_dump_data(struct net_device *netdev, struct ethtool_dump *dump,
 		netdev_info(netdev, "Dump not available\n");
 		return -EINVAL;
 	}
-	
+	/* Copy template header first */
 	copy_sz = fw_dump->tmpl_hdr->size;
 	hdr_ptr = (u32 *) fw_dump->tmpl_hdr;
 	data = buffer;
 	for (i = 0; i < copy_sz/sizeof(u32); i++)
 		*data++ = cpu_to_le32(*hdr_ptr++);
 
-	
+	/* Copy captured dump data */
 	memcpy(buffer + copy_sz, fw_dump->data, fw_dump->size);
 	dump->len = copy_sz + fw_dump->size;
 	dump->flag = fw_dump->tmpl_hdr->drv_cap_mask;
 
-	
+	/* Free dump area once data has been captured */
 	vfree(fw_dump->data);
 	fw_dump->data = NULL;
 	fw_dump->clr = 0;

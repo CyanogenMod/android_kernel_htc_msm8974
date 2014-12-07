@@ -37,22 +37,24 @@ struct io_reg CN400_ModeXregs[] = { {VIASR, SR10, 0xFF, 0x01},
 {VIACR, CR69, 0xFF, 0x00},
 {VIACR, CR6A, 0xFF, 0x40},
 {VIACR, CR6B, 0xFF, 0x00},
-{VIACR, CR88, 0xFF, 0x40},	
-{VIACR, CR89, 0xFF, 0x00},	
-{VIACR, CR8A, 0xFF, 0x88},	
-{VIACR, CR8B, 0xFF, 0x69},	
-{VIACR, CR8C, 0xFF, 0x57},	
-{VIACR, CR8D, 0xFF, 0x00},	
-{VIACR, CR8E, 0xFF, 0x7B},	
-{VIACR, CR8F, 0xFF, 0x03},	
-{VIACR, CR90, 0xFF, 0x30},	
-{VIACR, CR91, 0xFF, 0xA0},	
+{VIACR, CR88, 0xFF, 0x40},	/* LCD Panel Type                      */
+{VIACR, CR89, 0xFF, 0x00},	/* LCD Timing Control 0                */
+{VIACR, CR8A, 0xFF, 0x88},	/* LCD Timing Control 1                */
+{VIACR, CR8B, 0xFF, 0x69},	/* LCD Power Sequence Control 0        */
+{VIACR, CR8C, 0xFF, 0x57},	/* LCD Power Sequence Control 1        */
+{VIACR, CR8D, 0xFF, 0x00},	/* LCD Power Sequence Control 2        */
+{VIACR, CR8E, 0xFF, 0x7B},	/* LCD Power Sequence Control 3        */
+{VIACR, CR8F, 0xFF, 0x03},	/* LCD Power Sequence Control 4        */
+{VIACR, CR90, 0xFF, 0x30},	/* LCD Power Sequence Control 5        */
+{VIACR, CR91, 0xFF, 0xA0},	/* 24/12 bit LVDS Data off             */
 {VIACR, CR96, 0xFF, 0x00},
 {VIACR, CR97, 0xFF, 0x00},
 {VIACR, CR99, 0xFF, 0x00},
 {VIACR, CR9B, 0xFF, 0x00}
 };
 
+/* Video Mode Table for VT3314 chipset*/
+/* Common Setting for Video Mode */
 struct io_reg CN700_ModeXregs[] = { {VIASR, SR10, 0xFF, 0x01},
 {VIASR, SR15, 0x02, 0x02},
 {VIASR, SR16, 0xBF, 0x08},
@@ -75,25 +77,25 @@ struct io_reg CN700_ModeXregs[] = { {VIASR, SR10, 0xFF, 0x01},
 {VIACR, CR41, 0xFF, 0x80},
 {VIACR, CR42, 0xFF, 0x00},
 {VIACR, CR55, 0x80, 0x00},
-{VIACR, CR5D, 0x80, 0x00},	
-{VIACR, CR68, 0xFF, 0x67},	
+{VIACR, CR5D, 0x80, 0x00},	/*Horizontal Retrace Start bit[11] should be 0*/
+{VIACR, CR68, 0xFF, 0x67},	/* Default FIFO For IGA2 */
 {VIACR, CR69, 0xFF, 0x00},
 {VIACR, CR6A, 0xFD, 0x40},
 {VIACR, CR6B, 0xFF, 0x00},
-{VIACR, CR77, 0xFF, 0x00},	
-{VIACR, CR78, 0xFF, 0x00},	
-{VIACR, CR79, 0xFF, 0x00},	
-{VIACR, CR9F, 0x03, 0x00},	
-{VIACR, CR88, 0xFF, 0x40},	
-{VIACR, CR89, 0xFF, 0x00},	
-{VIACR, CR8A, 0xFF, 0x88},	
-{VIACR, CR8B, 0xFF, 0x5D},	
-{VIACR, CR8C, 0xFF, 0x2B},	
-{VIACR, CR8D, 0xFF, 0x6F},	
-{VIACR, CR8E, 0xFF, 0x2B},	
-{VIACR, CR8F, 0xFF, 0x01},	
-{VIACR, CR90, 0xFF, 0x01},	
-{VIACR, CR91, 0xFF, 0xA0},	
+{VIACR, CR77, 0xFF, 0x00},	/* LCD scaling Factor */
+{VIACR, CR78, 0xFF, 0x00},	/* LCD scaling Factor */
+{VIACR, CR79, 0xFF, 0x00},	/* LCD scaling Factor */
+{VIACR, CR9F, 0x03, 0x00},	/* LCD scaling Factor */
+{VIACR, CR88, 0xFF, 0x40},	/* LCD Panel Type */
+{VIACR, CR89, 0xFF, 0x00},	/* LCD Timing Control 0 */
+{VIACR, CR8A, 0xFF, 0x88},	/* LCD Timing Control 1 */
+{VIACR, CR8B, 0xFF, 0x5D},	/* LCD Power Sequence Control 0 */
+{VIACR, CR8C, 0xFF, 0x2B},	/* LCD Power Sequence Control 1 */
+{VIACR, CR8D, 0xFF, 0x6F},	/* LCD Power Sequence Control 2 */
+{VIACR, CR8E, 0xFF, 0x2B},	/* LCD Power Sequence Control 3 */
+{VIACR, CR8F, 0xFF, 0x01},	/* LCD Power Sequence Control 4 */
+{VIACR, CR90, 0xFF, 0x01},	/* LCD Power Sequence Control 5 */
+{VIACR, CR91, 0xFF, 0xA0},	/* 24/12 bit LVDS Data off */
 {VIACR, CR96, 0xFF, 0x00},
 {VIACR, CR97, 0xFF, 0x00},
 {VIACR, CR99, 0xFF, 0x00},
@@ -103,42 +105,43 @@ struct io_reg CN700_ModeXregs[] = { {VIASR, SR10, 0xFF, 0x01},
 };
 
 struct io_reg KM400_ModeXregs[] = {
-	{VIASR, SR10, 0xFF, 0x01},	
-	{VIASR, SR16, 0xFF, 0x08},	
-	{VIASR, SR17, 0xFF, 0x1F},	
-	{VIASR, SR18, 0xFF, 0x4E},	
-	{VIASR, SR1A, 0xFF, 0x0a},	
-	{VIASR, SR1F, 0xFF, 0x00},	
-	{VIASR, SR1B, 0xFF, 0xF0},	
-	{VIASR, SR1E, 0xFF, 0x01},	
-	{VIASR, SR20, 0xFF, 0x00},	
-	{VIASR, SR21, 0xFF, 0x00},	
-	{VIASR, SR22, 0xFF, 0x1F},	
-	{VIASR, SR2A, 0xFF, 0x00},	
-	{VIASR, SR2D, 0xFF, 0xFF},	
-	{VIASR, SR2E, 0xFF, 0xFF},	
+	{VIASR, SR10, 0xFF, 0x01},	/* Unlock Register                 */
+	{VIASR, SR16, 0xFF, 0x08},	/* Display FIFO threshold Control  */
+	{VIASR, SR17, 0xFF, 0x1F},	/* Display FIFO Control            */
+	{VIASR, SR18, 0xFF, 0x4E},	/* GFX PREQ threshold              */
+	{VIASR, SR1A, 0xFF, 0x0a},	/* GFX PREQ threshold              */
+	{VIASR, SR1F, 0xFF, 0x00},	/* Memory Control 0                */
+	{VIASR, SR1B, 0xFF, 0xF0},	/* Power Management Control 0      */
+	{VIASR, SR1E, 0xFF, 0x01},	/* Power Management Control        */
+	{VIASR, SR20, 0xFF, 0x00},	/* Sequencer Arbiter Control 0     */
+	{VIASR, SR21, 0xFF, 0x00},	/* Sequencer Arbiter Control 1     */
+	{VIASR, SR22, 0xFF, 0x1F},	/* Display Arbiter Control 1       */
+	{VIASR, SR2A, 0xFF, 0x00},	/* Power Management Control 5      */
+	{VIASR, SR2D, 0xFF, 0xFF},	/* Power Management Control 1      */
+	{VIASR, SR2E, 0xFF, 0xFF},	/* Power Management Control 2      */
 	{VIACR, CR33, 0xFF, 0x00},
 	{VIACR, CR55, 0x80, 0x00},
 	{VIACR, CR5D, 0x80, 0x00},
-	{VIACR, CR36, 0xFF, 0x01},	
-	{VIACR, CR68, 0xFF, 0x67},	
-	{VIACR, CR6A, 0x20, 0x20},	
-	{VIACR, CR88, 0xFF, 0x40},	
-	{VIACR, CR89, 0xFF, 0x00},	
-	{VIACR, CR8A, 0xFF, 0x88},	
-	{VIACR, CR8B, 0xFF, 0x2D},	
-	{VIACR, CR8C, 0xFF, 0x2D},	
-	{VIACR, CR8D, 0xFF, 0xC8},	
-	{VIACR, CR8E, 0xFF, 0x36},	
-	{VIACR, CR8F, 0xFF, 0x00},	
-	{VIACR, CR90, 0xFF, 0x10},	
-	{VIACR, CR91, 0xFF, 0xA0},	
-	{VIACR, CR96, 0xFF, 0x03},	
-	{VIACR, CR97, 0xFF, 0x03},	
-	{VIACR, CR99, 0xFF, 0x03},	
-	{VIACR, CR9B, 0xFF, 0x07}	
+	{VIACR, CR36, 0xFF, 0x01},	/* Power Mangement 3                  */
+	{VIACR, CR68, 0xFF, 0x67},	/* Default FIFO For IGA2              */
+	{VIACR, CR6A, 0x20, 0x20},	/* Extended FIFO On                   */
+	{VIACR, CR88, 0xFF, 0x40},	/* LCD Panel Type                     */
+	{VIACR, CR89, 0xFF, 0x00},	/* LCD Timing Control 0               */
+	{VIACR, CR8A, 0xFF, 0x88},	/* LCD Timing Control 1               */
+	{VIACR, CR8B, 0xFF, 0x2D},	/* LCD Power Sequence Control 0       */
+	{VIACR, CR8C, 0xFF, 0x2D},	/* LCD Power Sequence Control 1       */
+	{VIACR, CR8D, 0xFF, 0xC8},	/* LCD Power Sequence Control 2       */
+	{VIACR, CR8E, 0xFF, 0x36},	/* LCD Power Sequence Control 3       */
+	{VIACR, CR8F, 0xFF, 0x00},	/* LCD Power Sequence Control 4       */
+	{VIACR, CR90, 0xFF, 0x10},	/* LCD Power Sequence Control 5       */
+	{VIACR, CR91, 0xFF, 0xA0},	/* 24/12 bit LVDS Data off            */
+	{VIACR, CR96, 0xFF, 0x03},	/* DVP0        ; DVP0 Clock Skew */
+	{VIACR, CR97, 0xFF, 0x03},	/* DFP high    ; DFPH Clock Skew */
+	{VIACR, CR99, 0xFF, 0x03},	/* DFP low           ; DFPL Clock Skew*/
+	{VIACR, CR9B, 0xFF, 0x07}	/* DVI on DVP1       ; DVP1 Clock Skew*/
 };
 
+/* For VT3324: Common Setting for Video Mode */
 struct io_reg CX700_ModeXregs[] = { {VIASR, SR10, 0xFF, 0x01},
 {VIASR, SR15, 0x02, 0x02},
 {VIASR, SR16, 0xBF, 0x08},
@@ -148,26 +151,26 @@ struct io_reg CX700_ModeXregs[] = { {VIASR, SR10, 0xFF, 0x01},
 {VIASR, SR1B, 0xFF, 0xF0},
 {VIASR, SR1E, 0xFF, 0x01},
 {VIASR, SR2A, 0xFF, 0x00},
-{VIASR, SR2D, 0xC0, 0xC0},	
+{VIASR, SR2D, 0xC0, 0xC0},	/* delayed E3_ECK */
 {VIACR, CR32, 0xFF, 0x00},
 {VIACR, CR33, 0xFF, 0x00},
 {VIACR, CR35, 0xFF, 0x00},
 {VIACR, CR36, 0x08, 0x00},
-{VIACR, CR47, 0xC8, 0x00},	
+{VIACR, CR47, 0xC8, 0x00},	/* Clear VCK Plus. */
 {VIACR, CR69, 0xFF, 0x00},
 {VIACR, CR6A, 0xFF, 0x40},
 {VIACR, CR6B, 0xFF, 0x00},
-{VIACR, CR88, 0xFF, 0x40},	
-{VIACR, CR89, 0xFF, 0x00},	
-{VIACR, CR8A, 0xFF, 0x88},	
-{VIACR, CRD4, 0xFF, 0x81},	
-{VIACR, CR8B, 0xFF, 0x5D},	
-{VIACR, CR8C, 0xFF, 0x2B},	
-{VIACR, CR8D, 0xFF, 0x6F},	
-{VIACR, CR8E, 0xFF, 0x2B},	
-{VIACR, CR8F, 0xFF, 0x01},	
-{VIACR, CR90, 0xFF, 0x01},	
-{VIACR, CR91, 0xFF, 0x80},	
+{VIACR, CR88, 0xFF, 0x40},	/* LCD Panel Type                      */
+{VIACR, CR89, 0xFF, 0x00},	/* LCD Timing Control 0                */
+{VIACR, CR8A, 0xFF, 0x88},	/* LCD Timing Control 1                */
+{VIACR, CRD4, 0xFF, 0x81},	/* Second power sequence control       */
+{VIACR, CR8B, 0xFF, 0x5D},	/* LCD Power Sequence Control 0        */
+{VIACR, CR8C, 0xFF, 0x2B},	/* LCD Power Sequence Control 1        */
+{VIACR, CR8D, 0xFF, 0x6F},	/* LCD Power Sequence Control 2        */
+{VIACR, CR8E, 0xFF, 0x2B},	/* LCD Power Sequence Control 3        */
+{VIACR, CR8F, 0xFF, 0x01},	/* LCD Power Sequence Control 4        */
+{VIACR, CR90, 0xFF, 0x01},	/* LCD Power Sequence Control 5        */
+{VIACR, CR91, 0xFF, 0x80},	/* 24/12 bit LVDS Data off             */
 {VIACR, CR96, 0xFF, 0x00},
 {VIACR, CR97, 0xFF, 0x00},
 {VIACR, CR99, 0xFF, 0x00},
@@ -186,7 +189,7 @@ struct io_reg VX855_ModeXregs[] = {
 {VIASR, SR2A, 0xF0, 0x00},
 {VIASR, SR58, 0xFF, 0x00},
 {VIASR, SR59, 0xFF, 0x00},
-{VIASR, SR2D, 0xC0, 0xC0},	
+{VIASR, SR2D, 0xC0, 0xC0},	/* delayed E3_ECK */
 {VIACR, CR32, 0xFF, 0x00},
 {VIACR, CR33, 0x7F, 0x00},
 {VIACR, CR35, 0xFF, 0x00},
@@ -194,18 +197,20 @@ struct io_reg VX855_ModeXregs[] = {
 {VIACR, CR69, 0xFF, 0x00},
 {VIACR, CR6A, 0xFD, 0x60},
 {VIACR, CR6B, 0xFF, 0x00},
-{VIACR, CR88, 0xFF, 0x40},          
-{VIACR, CR89, 0xFF, 0x00},          
-{VIACR, CR8A, 0xFF, 0x88},          
-{VIACR, CRD4, 0xFF, 0x81},          
-{VIACR, CR91, 0xFF, 0x80},          
+{VIACR, CR88, 0xFF, 0x40},          /* LCD Panel Type                      */
+{VIACR, CR89, 0xFF, 0x00},          /* LCD Timing Control 0                */
+{VIACR, CR8A, 0xFF, 0x88},          /* LCD Timing Control 1                */
+{VIACR, CRD4, 0xFF, 0x81},          /* Second power sequence control       */
+{VIACR, CR91, 0xFF, 0x80},          /* 24/12 bit LVDS Data off             */
 {VIACR, CR96, 0xFF, 0x00},
 {VIACR, CR97, 0xFF, 0x00},
 {VIACR, CR99, 0xFF, 0x00},
 {VIACR, CR9B, 0xFF, 0x00},
-{VIACR, CRD2, 0xFF, 0xFF}           
+{VIACR, CRD2, 0xFF, 0xFF}           /* TMDS/LVDS control register.         */
 };
 
+/* Video Mode Table */
+/* Common Setting for Video Mode */
 struct io_reg CLE266_ModeXregs[] = { {VIASR, SR1E, 0xF0, 0x00},
 {VIASR, SR2A, 0x0F, 0x00},
 {VIASR, SR15, 0x02, 0x02},
@@ -229,6 +234,7 @@ struct io_reg CLE266_ModeXregs[] = { {VIASR, SR1E, 0xF0, 0x00},
 
 };
 
+/* Mode:1024X768 */
 struct io_reg PM1024x768[] = { {VIASR, 0x16, 0xBF, 0x0C},
 {VIASR, 0x18, 0xFF, 0x4C}
 };
@@ -237,20 +243,30 @@ struct patch_table res_patch_table[] = {
 	{ARRAY_SIZE(PM1024x768), PM1024x768}
 };
 
+/* struct VPITTable {
+	unsigned char  Misc;
+	unsigned char  SR[StdSR];
+	unsigned char  CR[StdCR];
+	unsigned char  GR[StdGR];
+	unsigned char  AR[StdAR];
+ };*/
 
 struct VPITTable VPIT = {
-	
+	/* Msic */
 	0xC7,
-	
+	/* Sequencer */
 	{0x01, 0x0F, 0x00, 0x0E},
-	
+	/* Graphic Controller */
 	{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x0F, 0xFF},
-	
+	/* Attribute Controller */
 	{0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
 	 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
 	 0x01, 0x00, 0x0F, 0x00}
 };
 
+/********************/
+/* Mode Table       */
+/********************/
 
 static const struct fb_videomode viafb_modes[] = {
 	{NULL, 60, 480, 640, 40285, 72, 24, 19, 1, 48, 3, FB_SYNC_VERT_HIGH_ACT, 0, 0},

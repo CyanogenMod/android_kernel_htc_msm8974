@@ -52,6 +52,9 @@ ioremap_fixed(phys_addr_t phys_addr, unsigned long size, pgprot_t prot)
 	unsigned long offset;
 	int i, slot;
 
+	/*
+	 * Mappings have to be page-aligned
+	 */
 	offset = phys_addr & ~PAGE_MASK;
 	phys_addr &= PAGE_MASK;
 	size = PAGE_ALIGN(phys_addr + size) - phys_addr;
@@ -69,10 +72,16 @@ ioremap_fixed(phys_addr_t phys_addr, unsigned long size, pgprot_t prot)
 	if (slot < 0)
 		return NULL;
 
+	/*
+	 * Mappings have to fit in the FIX_IOREMAP area.
+	 */
 	nrpages = size >> PAGE_SHIFT;
 	if (nrpages > FIX_N_IOREMAPS)
 		return NULL;
 
+	/*
+	 * Ok, go for it..
+	 */
 	idx0 = FIX_IOREMAP_BEGIN + slot;
 	idx = idx0;
 	while (nrpages > 0) {
@@ -103,6 +112,9 @@ int iounmap_fixed(void __iomem *addr)
 		}
 	}
 
+	/*
+	 * If we don't match, it's not for us.
+	 */
 	if (slot < 0)
 		return -EINVAL;
 

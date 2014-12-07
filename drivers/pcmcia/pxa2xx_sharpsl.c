@@ -34,7 +34,7 @@ static void sharpsl_pcmcia_init_reset(struct soc_pcmcia_socket *skt)
 
 	reset_scoop(scoopdev->dev);
 
-	
+	/* Shared power controls need to be handled carefully */
 	if (platform_scoop_config->power_ctrl)
 		platform_scoop_config->power_ctrl(scoopdev->dev, 0x0000, skt->nr);
 	else
@@ -69,22 +69,22 @@ static void sharpsl_pcmcia_socket_state(struct soc_pcmcia_socket *skt,
 	write_scoop_reg(scoop, SCOOP_IRM, 0x0000);
 	csr = read_scoop_reg(scoop, SCOOP_CSR);
 	if (csr & 0x0004) {
-		
+		/* card eject */
 		write_scoop_reg(scoop, SCOOP_CDR, 0x0000);
 		SCOOP_DEV[skt->nr].keep_vs = NO_KEEP_VS;
 	}
 	else if (!(SCOOP_DEV[skt->nr].keep_vs & NO_KEEP_VS)) {
-		
+		/* keep vs1,vs2 */
 		write_scoop_reg(scoop, SCOOP_CDR, 0x0000);
 		csr |= SCOOP_DEV[skt->nr].keep_vs;
 	}
 	else if (cpr & 0x0003) {
-		
+		/* power on */
 		write_scoop_reg(scoop, SCOOP_CDR, 0x0000);
 		SCOOP_DEV[skt->nr].keep_vs = (csr & 0x00C0);
 	}
 	else {
-		
+		/* card detect */
 	        if ((machine_is_spitz() || machine_is_borzoi()) && skt->nr == 1) {
 	                write_scoop_reg(scoop, SCOOP_CDR, 0x0000);
 	        } else {
@@ -183,7 +183,7 @@ static void sharpsl_pcmcia_socket_init(struct soc_pcmcia_socket *skt)
 {
 	sharpsl_pcmcia_init_reset(skt);
 
-	
+	/* Enable interrupt */
 	write_scoop_reg(SCOOP_DEV[skt->nr].dev, SCOOP_IMR, 0x00C0);
 	write_scoop_reg(SCOOP_DEV[skt->nr].dev, SCOOP_MCR, 0x0101);
 	SCOOP_DEV[skt->nr].keep_vs = NO_KEEP_VS;

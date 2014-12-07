@@ -22,8 +22,11 @@
 #include <mach/map.h>
 #include <mach/regs-pmu.h>
 
+/* PHY Control Register */
 #define SATA_CTRL0		0x0
+/* PHY Link Control Register */
 #define SATA_CTRL1		0x4
+/* PHY Status Register */
 #define SATA_PHY_STATUS		0x8
 
 #define SATA_CTRL0_RX_DATA_VALID(x)	(x << 27)
@@ -54,6 +57,7 @@ struct phy_reg {
 	u8	val;
 };
 
+/* SATA PHY setup */
 static const struct phy_reg exynos4_sataphy_cmu[] = {
 	{ 0x00, 0x06 }, { 0x02, 0x80 }, { 0x22, 0xa0 }, { 0x23, 0x42 },
 	{ 0x2e, 0x04 }, { 0x2f, 0x50 }, { 0x30, 0x70 }, { 0x31, 0x02 },
@@ -92,7 +96,7 @@ static int wait_for_phy_ready(void __iomem *reg, unsigned long bit)
 {
 	unsigned long timeout;
 
-	
+	/* wait for maximum of 3 sec */
 	timeout = jiffies + msecs_to_jiffies(3000);
 	while (!(__raw_readl(reg) & bit)) {
 		if (time_after(jiffies, timeout))
@@ -198,17 +202,17 @@ static int exynos4_ahci_init(struct device *dev, void __iomem *mmio)
 
 	__raw_writel(S5P_PMU_SATA_PHY_CONTROL_EN, S5P_PMU_SATA_PHY_CONTROL);
 
-	
+	/* Enable PHY link control */
 	val = SATA_CTRL1_RST_PMALIVE_N | SATA_CTRL1_RST_RXOOB_N |
 			SATA_CTRL1_RST_RX_N | SATA_CTRL1_RST_TX_N;
 	__raw_writel(val, phy_ctrl + SATA_CTRL1);
 
-	
+	/* Set communication speed as 3Gbps and enable PHY power */
 	val = SATA_CTRL0_RX_DATA_VALID(3) | SATA_CTRL0_SPEED_MODE |
 			SATA_CTRL0_PHY_POR_N;
 	__raw_writel(val, phy_ctrl + SATA_CTRL0);
 
-	
+	/* Port0 is available */
 	__raw_writel(0x1, mmio + HOST_PORTS_IMPL);
 
 	return ahci_phy_init(mmio);

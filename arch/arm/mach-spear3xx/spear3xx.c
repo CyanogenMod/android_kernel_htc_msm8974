@@ -21,6 +21,8 @@
 #include <mach/generic.h>
 #include <mach/hardware.h>
 
+/* Add spear3xx machines common devices here */
+/* gpio device registration */
 static struct pl061_platform_data gpio_plat_data = {
 	.gpio_base	= 0,
 	.irq_base	= SPEAR3XX_GPIO_INT_BASE,
@@ -29,19 +31,23 @@ static struct pl061_platform_data gpio_plat_data = {
 AMBA_APB_DEVICE(spear3xx_gpio, "gpio", 0, SPEAR3XX_ICM3_GPIO_BASE,
 	{SPEAR3XX_IRQ_BASIC_GPIO}, &gpio_plat_data);
 
+/* uart device registration */
 AMBA_APB_DEVICE(spear3xx_uart, "uart", 0, SPEAR3XX_ICM1_UART_BASE,
 	{SPEAR3XX_IRQ_UART}, NULL);
 
+/* Do spear3xx familiy common initialization part here */
 void __init spear3xx_init(void)
 {
-	
+	/* nothing to do for now */
 }
 
+/* This will initialize vic */
 void __init spear3xx_init_irq(void)
 {
 	vic_init((void __iomem *)VA_SPEAR3XX_ML1_VIC_BASE, 0, ~0, 0);
 }
 
+/* Following will create static virtual/physical mappings */
 struct map_desc spear3xx_io_desc[] __initdata = {
 	{
 		.virtual	= VA_SPEAR3XX_ICM1_UART_BASE,
@@ -66,14 +72,17 @@ struct map_desc spear3xx_io_desc[] __initdata = {
 	},
 };
 
+/* This will create static memory mapping for selected devices */
 void __init spear3xx_map_io(void)
 {
 	iotable_init(spear3xx_io_desc, ARRAY_SIZE(spear3xx_io_desc));
 
-	
+	/* This will initialize clock framework */
 	spear3xx_clk_init();
 }
 
+/* pad multiplexing support */
+/* devices */
 static struct pmx_dev_mode pmx_firda_modes[] = {
 	{
 		.ids = 0xffffffff,
@@ -285,6 +294,7 @@ struct pmx_dev spear3xx_pmx_timer_1_2 = {
 };
 
 #if defined(CONFIG_MACH_SPEAR310) || defined(CONFIG_MACH_SPEAR320)
+/* plgpios devices */
 static struct pmx_dev_mode pmx_plgpio_0_1_modes[] = {
 	{
 		.ids = 0x00,
@@ -494,21 +504,21 @@ struct pmx_dev spear3xx_pmx_plgpio_45_46_49_50 = {
 	.mode_count = ARRAY_SIZE(pmx_plgpio_45_46_49_50_modes),
 	.enb_on_reset = 1,
 };
-#endif 
+#endif /* CONFIG_MACH_SPEAR310 || CONFIG_MACH_SPEAR320 */
 
 static void __init spear3xx_timer_init(void)
 {
 	char pclk_name[] = "pll3_48m_clk";
 	struct clk *gpt_clk, *pclk;
 
-	
+	/* get the system timer clock */
 	gpt_clk = clk_get_sys("gpt0", NULL);
 	if (IS_ERR(gpt_clk)) {
 		pr_err("%s:couldn't get clk for gpt\n", __func__);
 		BUG();
 	}
 
-	
+	/* get the suitable parent clock for timer*/
 	pclk = clk_get(NULL, pclk_name);
 	if (IS_ERR(pclk)) {
 		pr_err("%s:couldn't get %s as parent for gpt\n",

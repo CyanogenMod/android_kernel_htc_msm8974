@@ -8,8 +8,8 @@ void __init mpc85xx_smp_init(void);
 #else
 static inline void mpc85xx_smp_init(void)
 {
-	
+	/* Nothing to do */
 }
 #endif
 
-#endif 
+#endif /* not POWERPC_85XX_SMP_H_ */

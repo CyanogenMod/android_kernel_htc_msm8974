@@ -21,6 +21,9 @@
 (C) Copyright AudioScience Inc. 1998-2003
 *******************************************************************************/
 
+/*NOTE: when adding new lines to this header file
+  they MUST be grouped by HPI entry point.
+*/
 
 {
 HPI_PCI_VENDOR_ID_TI, HPI_PCI_DEV_ID_DSP6205,

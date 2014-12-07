@@ -41,19 +41,27 @@ static bool __init ms_hyperv_platform(void)
 static cycle_t read_hv_clock(struct clocksource *arg)
 {
 	cycle_t current_tick;
+	/*
+	 * Read the partition counter to get the current tick count. This count
+	 * is set to 0 when the partition is created and is incremented in
+	 * 100 nanosecond units.
+	 */
 	rdmsrl(HV_X64_MSR_TIME_REF_COUNT, current_tick);
 	return current_tick;
 }
 
 static struct clocksource hyperv_cs = {
 	.name		= "hyperv_clocksource",
-	.rating		= 400, 
+	.rating		= 400, /* use this when running on Hyperv*/
 	.read		= read_hv_clock,
 	.mask		= CLOCKSOURCE_MASK(64),
 };
 
 static void __init ms_hyperv_init_platform(void)
 {
+	/*
+	 * Extract the features and hints
+	 */
 	ms_hyperv.features = cpuid_eax(HYPERV_CPUID_FEATURES);
 	ms_hyperv.hints    = cpuid_eax(HYPERV_CPUID_ENLIGHTMENT_INFO);
 

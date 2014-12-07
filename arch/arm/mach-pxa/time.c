@@ -24,6 +24,14 @@
 #include <mach/regs-ost.h>
 #include <mach/irqs.h>
 
+/*
+ * This is PXA's sched_clock implementation. This has a resolution
+ * of at least 308 ns and a maximum value of 208 days.
+ *
+ * The return value is guaranteed to be monotonic in that range as
+ * long as there is always less than 582 seconds between successive
+ * calls to sched_clock() which should always be the case in practice.
+ */
 
 static u32 notrace pxa_read_sched_clock(void)
 {
@@ -38,7 +46,7 @@ pxa_ost0_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *c = dev_id;
 
-	
+	/* Disarm the compare/match, signal the event. */
 	OIER &= ~OIER_E0;
 	OSSR = OSSR_M0;
 	c->event_handler(c);
@@ -70,7 +78,7 @@ pxa_osmr0_set_mode(enum clock_event_mode mode, struct clock_event_device *dev)
 
 	case CLOCK_EVT_MODE_UNUSED:
 	case CLOCK_EVT_MODE_SHUTDOWN:
-		
+		/* initializing, released, or preparing for suspend */
 		OIER &= ~OIER_E0;
 		OSSR = OSSR_M0;
 		break;
@@ -134,6 +142,12 @@ static void pxa_timer_suspend(void)
 
 static void pxa_timer_resume(void)
 {
+	/*
+	 * Ensure that we have at least MIN_OSCR_DELTA between match
+	 * register 0 and the OSCR, to guarantee that we will receive
+	 * the one-shot timer interrupt.  We adjust OSMR0 in preference
+	 * to OSCR to guarantee that OSCR is monotonically incrementing.
+	 */
 	if (osmr[0] - oscr < MIN_OSCR_DELTA)
 		osmr[0] += MIN_OSCR_DELTA;
 

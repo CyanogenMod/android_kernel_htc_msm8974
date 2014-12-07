@@ -36,10 +36,11 @@ static struct device ps3_system_bus = {
 	.init_name = "ps3_system",
 };
 
+/* FIXME: need device usage counters! */
 struct {
 	struct mutex mutex;
-	int sb_11; 
-	int sb_12; 
+	int sb_11; /* usb 0 */
+	int sb_12; /* usb 0 */
 	int gpu;
 } static usage_hack;
 
@@ -269,7 +270,7 @@ static int ps3_sb_mmio_region_create(struct ps3_mmio_region *r)
 
 static int ps3_ioc0_mmio_region_create(struct ps3_mmio_region *r)
 {
-	
+	/* device specific; do nothing currently */
 	return 0;
 }
 
@@ -297,7 +298,7 @@ static int ps3_sb_free_mmio_region(struct ps3_mmio_region *r)
 
 static int ps3_ioc0_free_mmio_region(struct ps3_mmio_region *r)
 {
-	
+	/* device specific; do nothing currently */
 	return 0;
 }
 
@@ -509,6 +510,10 @@ static int __init ps3_system_bus_init(void)
 
 core_initcall(ps3_system_bus_init);
 
+/* Allocates a contiguous real buffer and creates mappings over it.
+ * Returns the virtual address of the buffer and sets dma_handle
+ * to the dma address (mapping) of the first page.
+ */
 static void * ps3_alloc_coherent(struct device *_dev, size_t size,
 				 dma_addr_t *dma_handle, gfp_t flag,
 				 struct dma_attrs *attrs)
@@ -556,6 +561,11 @@ static void ps3_free_coherent(struct device *_dev, size_t size, void *vaddr,
 	free_pages((unsigned long)vaddr, get_order(size));
 }
 
+/* Creates TCEs for a user provided buffer.  The user buffer must be
+ * contiguous real kernel storage (not vmalloc).  The address passed here
+ * comprises a page address and offset into that page. The dma_addr_t
+ * returned will point to the same byte within the page as was passed in.
+ */
 
 static dma_addr_t ps3_sb_map_page(struct device *_dev, struct page *page,
 	unsigned long offset, size_t size, enum dma_data_direction direction,
@@ -602,7 +612,7 @@ static dma_addr_t ps3_ioc0_map_page(struct device *_dev, struct page *page,
 		iopte_flag |= CBE_IOPTE_PP_W | CBE_IOPTE_SO_RW;
 		break;
 	default:
-		
+		/* not happned */
 		BUG();
 	};
 	result = ps3_dma_map(dev->d_region, (unsigned long)ptr, size,
@@ -713,6 +723,9 @@ static struct dma_map_ops ps3_ioc0_dma_ops = {
 	.unmap_page = ps3_unmap_page,
 };
 
+/**
+ * ps3_system_bus_release_device - remove a device from the system bus
+ */
 
 static void ps3_system_bus_release_device(struct device *_dev)
 {
@@ -720,6 +733,13 @@ static void ps3_system_bus_release_device(struct device *_dev)
 	kfree(dev);
 }
 
+/**
+ * ps3_system_bus_device_register - add a device to the system bus
+ *
+ * ps3_system_bus_device_register() expects the dev object to be allocated
+ * dynamically by the caller.  The system bus takes ownership of the dev
+ * object and frees the object in ps3_system_bus_release_device().
+ */
 
 int ps3_system_bus_device_register(struct ps3_system_bus_device *dev)
 {

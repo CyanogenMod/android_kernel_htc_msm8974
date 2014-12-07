@@ -62,6 +62,7 @@ MODULE_PARM_DESC(map2, "Describes second set of devices");
 module_param_array_named(map3, gc_cfg[2].args, int, &gc_cfg[2].nargs, 0);
 MODULE_PARM_DESC(map3, "Describes third set of devices");
 
+/* see also gs_psx_delay parameter in PSX support section */
 
 enum gc_type {
 	GC_NONE = 0,
@@ -108,6 +109,9 @@ static const char *gc_names[] = {
 	"PSX DDR controller", "SNES mouse"
 };
 
+/*
+ * N64 support.
+ */
 
 static const unsigned char gc_n64_bytes[] = { 0, 1, 13, 15, 14, 12, 10, 11, 2, 3 };
 static const short gc_n64_btn[] = {
@@ -115,28 +119,32 @@ static const short gc_n64_btn[] = {
 	BTN_TL, BTN_TR, BTN_TRIGGER, BTN_START
 };
 
-#define GC_N64_LENGTH		32		
-#define GC_N64_STOP_LENGTH	5		
+#define GC_N64_LENGTH		32		/* N64 bit length, not including stop bit */
+#define GC_N64_STOP_LENGTH	5		/* Length of encoded stop bit */
 #define GC_N64_CMD_00		0x11111111UL
 #define GC_N64_CMD_01		0xd1111111UL
 #define GC_N64_CMD_03		0xdd111111UL
 #define GC_N64_CMD_1b		0xdd1dd111UL
 #define GC_N64_CMD_c0		0x111111ddUL
 #define GC_N64_CMD_80		0x1111111dUL
-#define GC_N64_STOP_BIT		0x1d		
-#define GC_N64_REQUEST_DATA	GC_N64_CMD_01	
-#define GC_N64_DELAY		133		
-#define GC_N64_DWS		3		
-						
-#define GC_N64_POWER_W		0xe2		
-#define GC_N64_POWER_R		0xfd		
-#define GC_N64_OUT		0x1d		
-						
-						
-						
-#define GC_N64_CLOCK		0x02		
+#define GC_N64_STOP_BIT		0x1d		/* Encoded stop bit */
+#define GC_N64_REQUEST_DATA	GC_N64_CMD_01	/* the request data command */
+#define GC_N64_DELAY		133		/* delay between transmit request, and response ready (us) */
+#define GC_N64_DWS		3		/* delay between write segments (required for sound playback because of ISA DMA) */
+						/* GC_N64_DWS > 24 is known to fail */
+#define GC_N64_POWER_W		0xe2		/* power during write (transmit request) */
+#define GC_N64_POWER_R		0xfd		/* power during read */
+#define GC_N64_OUT		0x1d		/* output bits to the 4 pads */
+						/* Reading the main axes of any N64 pad is known to fail if the corresponding bit */
+						/* in GC_N64_OUT is pulled low on the output port (by any routine) for more */
+						/* than 123 us */
+#define GC_N64_CLOCK		0x02		/* clock bits for read */
 
+/*
+ * Used for rumble code.
+ */
 
+/* Send encoded command */
 static void gc_n64_send_command(struct gc *gc, unsigned long cmd,
 				unsigned char target)
 {
@@ -150,6 +158,7 @@ static void gc_n64_send_command(struct gc *gc, unsigned long cmd,
 	}
 }
 
+/* Send stop bit */
 static void gc_n64_send_stop_bit(struct gc *gc, unsigned char target)
 {
 	struct parport *port = gc->pd->port;
@@ -162,21 +171,36 @@ static void gc_n64_send_stop_bit(struct gc *gc, unsigned char target)
 	}
 }
 
+/*
+ * gc_n64_read_packet() reads an N64 packet.
+ * Each pad uses one bit per byte. So all pads connected to this port
+ * are read in parallel.
+ */
 
 static void gc_n64_read_packet(struct gc *gc, unsigned char *data)
 {
 	int i;
 	unsigned long flags;
 
+/*
+ * Request the pad to transmit data
+ */
 
 	local_irq_save(flags);
 	gc_n64_send_command(gc, GC_N64_REQUEST_DATA, GC_N64_OUT);
 	gc_n64_send_stop_bit(gc, GC_N64_OUT);
 	local_irq_restore(flags);
 
+/*
+ * Wait for the pad response to be loaded into the 33-bit register
+ * of the adapter.
+ */
 
 	udelay(GC_N64_DELAY);
 
+/*
+ * Grab data (ignoring the last bit, which is a stop bit)
+ */
 
 	for (i = 0; i < GC_N64_LENGTH; i++) {
 		parport_write_data(gc->pd->port, GC_N64_POWER_R);
@@ -185,6 +209,11 @@ static void gc_n64_read_packet(struct gc *gc, unsigned char *data)
 		parport_write_data(gc->pd->port, GC_N64_POWER_R | GC_N64_CLOCK);
 	 }
 
+/*
+ * We must wait 200 ms here for the controller to reinitialize before
+ * the next read request. No worries as long as gc_read is polled less
+ * frequently than this.
+ */
 
 }
 
@@ -240,7 +269,7 @@ static int gc_n64_play_effect(struct input_dev *dev, void *data,
 	unsigned long flags;
 	struct gc *gc = input_get_drvdata(dev);
 	struct gc_subdev *sdev = data;
-	unsigned char target = 1 << sdev->idx; 
+	unsigned char target = 1 << sdev->idx; /* select desired pin */
 
 	if (effect->type == FF_RUMBLE) {
 		struct ff_rumble_effect *rumble = &effect->u.rumble;
@@ -250,7 +279,7 @@ static int gc_n64_play_effect(struct input_dev *dev, void *data,
 
 		local_irq_save(flags);
 
-		
+		/* Init Rumble - 0x03, 0x80, 0x01, (34)0x80 */
 		gc_n64_send_command(gc, GC_N64_CMD_03, target);
 		gc_n64_send_command(gc, GC_N64_CMD_80, target);
 		gc_n64_send_command(gc, GC_N64_CMD_01, target);
@@ -260,7 +289,7 @@ static int gc_n64_play_effect(struct input_dev *dev, void *data,
 
 		udelay(GC_N64_DELAY);
 
-		
+		/* Now start or stop it - 0x03, 0xc0, 0zx1b, (32)0x01/0x00 */
 		gc_n64_send_command(gc, GC_N64_CMD_03, target);
 		gc_n64_send_command(gc, GC_N64_CMD_c0, target);
 		gc_n64_send_command(gc, GC_N64_CMD_1b, target);
@@ -297,11 +326,16 @@ static int __init gc_n64_init_ff(struct input_dev *dev, int i)
 	return 0;
 }
 
+/*
+ * NES/SNES support.
+ */
 
-#define GC_NES_DELAY		6	
-#define GC_NES_LENGTH		8	
-#define GC_SNES_LENGTH		12	
-#define GC_SNESMOUSE_LENGTH	32	
+#define GC_NES_DELAY		6	/* Delay between bits - 6us */
+#define GC_NES_LENGTH		8	/* The NES pads use 8 bits of data */
+#define GC_SNES_LENGTH		12	/* The SNES true length is 16, but the
+					   last 4 bits are unused */
+#define GC_SNESMOUSE_LENGTH	32	/* The SNES mouse uses 32 bits, the first
+					   16 bits are equivalent to a gamepad */
 
 #define GC_NES_POWER	0xfc
 #define GC_NES_CLOCK	0x01
@@ -313,6 +347,11 @@ static const short gc_snes_btn[] = {
 	BTN_A, BTN_B, BTN_SELECT, BTN_START, BTN_X, BTN_Y, BTN_TL, BTN_TR
 };
 
+/*
+ * gc_nes_read_packet() reads a NES/SNES packet.
+ * Each pad uses one bit per byte. So all pads connected to
+ * this port are read in parallel.
+ */
 
 static void gc_nes_read_packet(struct gc *gc, int length, unsigned char *data)
 {
@@ -375,6 +414,15 @@ static void gc_nes_process_packet(struct gc *gc)
 			break;
 
 		case GC_SNESMOUSE:
+			/*
+			 * The 4 unused bits from SNES controllers appear
+			 * to be ID bits so use them to make sure we are
+			 * dealing with a mouse.
+			 * gamepad is connected. This is important since
+			 * my SNES gamepad sends 1's for bits 16-31, which
+			 * cause the mouse pointer to quickly move to the
+			 * upper left corner of the screen.
+			 */
 			if (!(s & data[12]) && !(s & data[13]) &&
 			    !(s & data[14]) && (s & data[15])) {
 				input_report_key(dev, BTN_LEFT, s & data[9]);
@@ -413,10 +461,16 @@ static void gc_nes_process_packet(struct gc *gc)
 	}
 }
 
+/*
+ * Multisystem joystick support
+ */
 
-#define GC_MULTI_LENGTH		5	
-#define GC_MULTI2_LENGTH	6	
+#define GC_MULTI_LENGTH		5	/* Multi system joystick packet length is 5 */
+#define GC_MULTI2_LENGTH	6	/* One more bit for one more button */
 
+/*
+ * gc_multi_read_packet() reads a Multisystem joystick packet.
+ */
 
 static void gc_multi_read_packet(struct gc *gc, int length, unsigned char *data)
 {
@@ -446,7 +500,7 @@ static void gc_multi_process_packet(struct gc *gc)
 		switch (pad->type) {
 		case GC_MULTI2:
 			input_report_key(dev, BTN_THUMB, s & data[5]);
-			
+			/* fall through */
 
 		case GC_MULTI:
 			input_report_abs(dev, ABS_X,
@@ -463,24 +517,32 @@ static void gc_multi_process_packet(struct gc *gc)
 	}
 }
 
+/*
+ * PSX support
+ *
+ * See documentation at:
+ *	http://www.geocities.co.jp/Playtown/2004/psx/ps_eng.txt	
+ *	http://www.gamesx.com/controldata/psxcont/psxcont.htm
+ *
+ */
 
-#define GC_PSX_DELAY	25		
-#define GC_PSX_LENGTH	8		
-#define GC_PSX_BYTES	6		
+#define GC_PSX_DELAY	25		/* 25 usec */
+#define GC_PSX_LENGTH	8		/* talk to the controller in bits */
+#define GC_PSX_BYTES	6		/* the maximum number of bytes to read off the controller */
 
-#define GC_PSX_MOUSE	1		
-#define GC_PSX_NEGCON	2		
-#define GC_PSX_NORMAL	4		
-#define GC_PSX_ANALOG	5		
-#define GC_PSX_RUMBLE	7		
+#define GC_PSX_MOUSE	1		/* Mouse */
+#define GC_PSX_NEGCON	2		/* NegCon */
+#define GC_PSX_NORMAL	4		/* Digital / Analog or Rumble in Digital mode  */
+#define GC_PSX_ANALOG	5		/* Analog in Analog mode / Rumble in Green mode */
+#define GC_PSX_RUMBLE	7		/* Rumble in Red mode */
 
-#define GC_PSX_CLOCK	0x04		
-#define GC_PSX_COMMAND	0x01		
-#define GC_PSX_POWER	0xf8		
-#define GC_PSX_SELECT	0x02		
+#define GC_PSX_CLOCK	0x04		/* Pin 4 */
+#define GC_PSX_COMMAND	0x01		/* Pin 2 */
+#define GC_PSX_POWER	0xf8		/* Pins 5-9 */
+#define GC_PSX_SELECT	0x02		/* Pin 3 */
 
-#define GC_PSX_ID(x)	((x) >> 4)	
-#define GC_PSX_LEN(x)	(((x) & 0xf) << 1)	
+#define GC_PSX_ID(x)	((x) >> 4)	/* High nibble is device type */
+#define GC_PSX_LEN(x)	(((x) & 0xf) << 1)	/* Low nibble is length in bytes/2 */
 
 static int gc_psx_delay = GC_PSX_DELAY;
 module_param_named(psx_delay, gc_psx_delay, uint, 0);
@@ -495,6 +557,10 @@ static const short gc_psx_btn[] = {
 };
 static const short gc_psx_ddr_btn[] = { BTN_0, BTN_1, BTN_2, BTN_3 };
 
+/*
+ * gc_psx_command() writes 8bit command and reads 8bit data from
+ * the psx pad.
+ */
 
 static void gc_psx_command(struct gc *gc, int b, unsigned char *data)
 {
@@ -522,6 +588,10 @@ static void gc_psx_command(struct gc *gc, int b, unsigned char *data)
 	}
 }
 
+/*
+ * gc_psx_read_packet() reads a whole psx packet and returns
+ * device identifier code.
+ */
 
 static void gc_psx_read_packet(struct gc *gc,
 			       unsigned char data[GC_MAX_DEVICES][GC_PSX_BYTES],
@@ -531,20 +601,20 @@ static void gc_psx_read_packet(struct gc *gc,
 	unsigned long flags;
 	unsigned char data2[GC_MAX_DEVICES];
 
-	
+	/* Select pad */
 	parport_write_data(gc->pd->port, GC_PSX_CLOCK | GC_PSX_SELECT | GC_PSX_POWER);
 	udelay(gc_psx_delay);
-	
+	/* Deselect, begin command */
 	parport_write_data(gc->pd->port, GC_PSX_CLOCK | GC_PSX_POWER);
 	udelay(gc_psx_delay);
 
 	local_irq_save(flags);
 
-	gc_psx_command(gc, 0x01, data2);	
-	gc_psx_command(gc, 0x42, id);		
-	gc_psx_command(gc, 0, data2);		
+	gc_psx_command(gc, 0x01, data2);	/* Access pad */
+	gc_psx_command(gc, 0x42, id);		/* Get device ids */
+	gc_psx_command(gc, 0, data2);		/* Dump status */
 
-	
+	/* Find the longest pad */
 	for (i = 0; i < GC_MAX_DEVICES; i++) {
 		struct gc_pad *pad = &gc->pads[i];
 
@@ -555,7 +625,7 @@ static void gc_psx_read_packet(struct gc *gc,
 		}
 	}
 
-	
+	/* Read in all the data */
 	for (i = 0; i < max_len; i++) {
 		gc_psx_command(gc, 0, data2);
 		for (j = 0; j < GC_MAX_DEVICES; j++)
@@ -566,7 +636,7 @@ static void gc_psx_read_packet(struct gc *gc,
 
 	parport_write_data(gc->pd->port, GC_PSX_CLOCK | GC_PSX_SELECT | GC_PSX_POWER);
 
-	
+	/* Set id's to the real value */
 	for (i = 0; i < GC_MAX_DEVICES; i++)
 		id[i] = GC_PSX_ID(id[i]);
 }
@@ -624,6 +694,16 @@ static void gc_psx_report_one(struct gc_pad *pad, unsigned char psx_type,
 			input_report_abs(dev, ABS_Y,
 				!!(data[0] & 0x10) * 128 + !(data[0] & 0x40) * 127);
 
+			/*
+			 * For some reason if the extra axes are left unset
+			 * they drift.
+			 * for (i = 0; i < 4; i++)
+				input_report_abs(dev, gc_psx_abs[i + 2], 128);
+			 * This needs to be debugged properly,
+			 * maybe fuzz processing needs to be done
+			 * in input_sync()
+			 *				 --vojtech
+			 */
 		}
 
 		for (i = 0; i < 8; i++)
@@ -636,7 +716,7 @@ static void gc_psx_report_one(struct gc_pad *pad, unsigned char psx_type,
 
 		break;
 
-	default: 
+	default: /* not a pad, ignore */
 		break;
 	}
 }
@@ -657,15 +737,24 @@ static void gc_psx_process_packet(struct gc *gc)
 	}
 }
 
+/*
+ * gc_timer() initiates reads of console pads data.
+ */
 
 static void gc_timer(unsigned long private)
 {
 	struct gc *gc = (void *) private;
 
+/*
+ * N64 pads - must be read first, any read confuses them for 200 us
+ */
 
 	if (gc->pad_count[GC_N64])
 		gc_n64_process_packet(gc);
 
+/*
+ * NES and SNES pads or mouse
+ */
 
 	if (gc->pad_count[GC_NES] ||
 	    gc->pad_count[GC_SNES] ||
@@ -673,10 +762,16 @@ static void gc_timer(unsigned long private)
 		gc_nes_process_packet(gc);
 	}
 
+/*
+ * Multi and Multi2 joysticks
+ */
 
 	if (gc->pad_count[GC_MULTI] || gc->pad_count[GC_MULTI2])
 		gc_multi_process_packet(gc);
 
+/*
+ * PSX controllers
+ */
 
 	if (gc->pad_count[GC_PSX] || gc->pad_count[GC_DDR])
 		gc_psx_process_packet(gc);

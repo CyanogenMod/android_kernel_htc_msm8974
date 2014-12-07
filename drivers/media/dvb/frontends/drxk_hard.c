@@ -194,15 +194,16 @@ inline u32 Frac28a(u32 a, u32 c)
 	u32 Q1 = 0;
 	u32 R0 = 0;
 
-	R0 = (a % c) << 4;	
-	Q1 = a / c;		
+	R0 = (a % c) << 4;	/* 32-28 == 4 shifts possible at max */
+	Q1 = a / c;		/* integer part, only the 4 least significant bits
+				   will be visible in the result */
 
-	
+	/* division using radix 16, 7 nibbles in the result */
 	for (i = 0; i < 7; i++) {
 		Q1 = (Q1 << 4) | (R0 / c);
 		R0 = (R0 % c) << 4;
 	}
-	
+	/* rounding */
 	if ((R0 >> 3) >= c)
 		Q1++;
 
@@ -218,49 +219,53 @@ static u32 Log10Times100(u32 x)
 	u32 d = 0;
 	u32 k = 0;
 	u32 r = 0;
+	/*
+	   log2lut[n] = (1<<scale) * 200 * log2(1.0 + ((1.0/(1<<INDEXWIDTH)) * n))
+	   0 <= n < ((1<<INDEXWIDTH)+1)
+	 */
 
 	static const u32 log2lut[] = {
-		0,		
-		290941,		
-		573196,		
-		847269,		
-		1113620,	
-		1372674,	
-		1624818,	
-		1870412,	
-		2109788,	
-		2343253,	
-		2571091,	
-		2793569,	
-		3010931,	
-		3223408,	
-		3431216,	
-		3634553,	
-		3833610,	
-		4028562,	
-		4219576,	
-		4406807,	
-		4590402,	
-		4770499,	
-		4947231,	
-		5120719,	
-		5291081,	
-		5458428,	
-		5622864,	
-		5784489,	
-		5943398,	
-		6099680,	
-		6253421,	
-		6404702,	
-		6553600,	
+		0,		/* 0.000000 */
+		290941,		/* 290941.300628 */
+		573196,		/* 573196.476418 */
+		847269,		/* 847269.179851 */
+		1113620,	/* 1113620.489452 */
+		1372674,	/* 1372673.576986 */
+		1624818,	/* 1624817.752104 */
+		1870412,	/* 1870411.981536 */
+		2109788,	/* 2109787.962654 */
+		2343253,	/* 2343252.817465 */
+		2571091,	/* 2571091.461923 */
+		2793569,	/* 2793568.696416 */
+		3010931,	/* 3010931.055901 */
+		3223408,	/* 3223408.452106 */
+		3431216,	/* 3431215.635215 */
+		3634553,	/* 3634553.498355 */
+		3833610,	/* 3833610.244726 */
+		4028562,	/* 4028562.434393 */
+		4219576,	/* 4219575.925308 */
+		4406807,	/* 4406806.721144 */
+		4590402,	/* 4590401.736809 */
+		4770499,	/* 4770499.491025 */
+		4947231,	/* 4947230.734179 */
+		5120719,	/* 5120719.018555 */
+		5291081,	/* 5291081.217197 */
+		5458428,	/* 5458427.996830 */
+		5622864,	/* 5622864.249668 */
+		5784489,	/* 5784489.488298 */
+		5943398,	/* 5943398.207380 */
+		6099680,	/* 6099680.215452 */
+		6253421,	/* 6253420.939751 */
+		6404702,	/* 6404701.706649 */
+		6553600,	/* 6553600.000000 */
 	};
 
 
 	if (x == 0)
 		return 0;
 
-	
-	
+	/* Scale x (normalize) */
+	/* computing y in log(x/y) = log(x) - log(y) */
 	if ((x & ((0xffffffff) << (scale + 1))) == 0) {
 		for (k = scale; k > 0; k--) {
 			if (x & (((u32) 1) << scale))
@@ -274,28 +279,34 @@ static u32 Log10Times100(u32 x)
 			x >>= 1;
 		}
 	}
+	/*
+	   Now x has binary point between bit[scale] and bit[scale-1]
+	   and 1.0 <= x < 2.0 */
 
-	
+	/* correction for divison: log(x) = log(x/y)+log(y) */
 	y = k * ((((u32) 1) << scale) * 200);
 
-	
+	/* remove integer part */
 	x &= ((((u32) 1) << scale) - 1);
-	
+	/* get index */
 	i = (u8) (x >> (scale - indexWidth));
-	
+	/* compute delta (x - a) */
 	d = x & ((((u32) 1) << (scale - indexWidth)) - 1);
-	
+	/* compute log, multiplication (d* (..)) must be within range ! */
 	y += log2lut[i] +
 	    ((d * (log2lut[i + 1] - log2lut[i])) >> (scale - indexWidth));
-	
-	y /= 108853;		
+	/* Conver to log10() */
+	y /= 108853;		/* (log2(10) << scale) */
 	r = (y >> 1);
-	
+	/* rounding */
 	if (y & ((u32) 1))
 		r++;
 	return r;
 }
 
+/****************************************************************************/
+/* I2C **********************************************************************/
+/****************************************************************************/
 
 static int i2c_read1(struct i2c_adapter *adapter, u8 adr, u8 *val)
 {
@@ -575,14 +586,14 @@ int PowerUpDevice(struct drxk_state *state)
 			goto error;
 	}
 
-	
+	/* Make sure all clk domains are active */
 	status = write16(state, SIO_CC_PWD_MODE__A, SIO_CC_PWD_MODE_LEVEL_NONE);
 	if (status < 0)
 		goto error;
 	status = write16(state, SIO_CC_UPDATE__A, SIO_CC_UPDATE_KEY);
 	if (status < 0)
 		goto error;
-	
+	/* Enable pll lock tests */
 	status = write16(state, SIO_CC_PLL_LOCK__A, 1);
 	if (status < 0)
 		goto error;
@@ -599,6 +610,10 @@ error:
 
 static int init_state(struct drxk_state *state)
 {
+	/*
+	 * FIXME: most (all?) of the values bellow should be moved into
+	 * struct drxk_config, as they are probably board-specific
+	 */
 	u32 ulVSBIfAgcMode = DRXK_AGC_CTRL_AUTO;
 	u32 ulVSBIfAgcOutputLevel = 0;
 	u32 ulVSBIfAgcMinLevel = 0;
@@ -633,9 +648,9 @@ static int init_state(struct drxk_state *state)
 	u32 ulMpegLockTimeOut = DEFAULT_DRXK_MPEG_LOCK_TIMEOUT;
 	u32 ulDemodLockTimeOut = DEFAULT_DRXK_DEMOD_LOCK_TIMEOUT;
 
-	
-	
-	
+	/* io_pad_cfg register (8 bit reg.) MSB bit is 1 (default value) */
+	/* io_pad_cfg_mode output mode is drive always */
+	/* io_pad_cfg_drive is set to power 2 (23 mA) */
 	u32 ulGPIOCfg = 0x0113;
 	u32 ulInvertTSClock = 0;
 	u32 ulTSDataStrength = DRXK_MPEG_SERIAL_OUTPUT_PIN_DRIVE_STRENGTH;
@@ -663,17 +678,17 @@ static int init_state(struct drxk_state *state)
 	state->m_smartAntInverted = false;
 	state->m_bPDownOpenBridge = false;
 
-	
+	/* real system clock frequency in kHz */
 	state->m_sysClockFreq = 151875;
-	
-	
+	/* Timing div, 250ns/Psys */
+	/* Timing div, = (delay (nano seconds) * sysclk (kHz))/ 1000 */
 	state->m_HICfgTimingDiv = ((state->m_sysClockFreq / 1000) *
 				   HI_I2C_DELAY) / 1000;
-	
+	/* Clipping */
 	if (state->m_HICfgTimingDiv > SIO_HI_RA_RAM_PAR_2_CFG_DIV__M)
 		state->m_HICfgTimingDiv = SIO_HI_RA_RAM_PAR_2_CFG_DIV__M;
 	state->m_HICfgWakeUpKey = (state->demod_address << 1);
-	
+	/* port/bridge/power down ctrl */
 	state->m_HICfgCtrl = SIO_HI_RA_RAM_PAR_5_CFG_SLV0_SLAVE;
 
 	state->m_bPowerDown = (ulPowerDown != 0);
@@ -685,8 +700,8 @@ static int init_state(struct drxk_state *state)
 	state->m_DRXK_A2_PATCH_CODE = false;
 	state->m_DRXK_A3_PATCH_CODE = false;
 
-	
-	
+	/* Init AGC and PGA parameters */
+	/* VSB IF */
 	state->m_vsbIfAgcCfg.ctrlMode = (ulVSBIfAgcMode);
 	state->m_vsbIfAgcCfg.outputLevel = (ulVSBIfAgcOutputLevel);
 	state->m_vsbIfAgcCfg.minOutputLevel = (ulVSBIfAgcMinLevel);
@@ -694,7 +709,7 @@ static int init_state(struct drxk_state *state)
 	state->m_vsbIfAgcCfg.speed = (ulVSBIfAgcSpeed);
 	state->m_vsbPgaCfg = 140;
 
-	
+	/* VSB RF */
 	state->m_vsbRfAgcCfg.ctrlMode = (ulVSBRfAgcMode);
 	state->m_vsbRfAgcCfg.outputLevel = (ulVSBRfAgcOutputLevel);
 	state->m_vsbRfAgcCfg.minOutputLevel = (ulVSBRfAgcMinLevel);
@@ -712,14 +727,14 @@ static int init_state(struct drxk_state *state)
 		state->m_Quality93percent = ulQual93;
 	}
 
-	
+	/* ATV IF */
 	state->m_atvIfAgcCfg.ctrlMode = (ulATVIfAgcMode);
 	state->m_atvIfAgcCfg.outputLevel = (ulATVIfAgcOutputLevel);
 	state->m_atvIfAgcCfg.minOutputLevel = (ulATVIfAgcMinLevel);
 	state->m_atvIfAgcCfg.maxOutputLevel = (ulATVIfAgcMaxLevel);
 	state->m_atvIfAgcCfg.speed = (ulATVIfAgcSpeed);
 
-	
+	/* ATV RF */
 	state->m_atvRfAgcCfg.ctrlMode = (ulATVRfAgcMode);
 	state->m_atvRfAgcCfg.outputLevel = (ulATVRfAgcOutputLevel);
 	state->m_atvRfAgcCfg.minOutputLevel = (ulATVRfAgcMinLevel);
@@ -731,7 +746,7 @@ static int init_state(struct drxk_state *state)
 	state->m_atvPreSawCfg.usePreSaw = true;
 
 
-	
+	/* DVBT RF */
 	state->m_dvbtRfAgcCfg.ctrlMode = DRXK_AGC_CTRL_OFF;
 	state->m_dvbtRfAgcCfg.outputLevel = 0;
 	state->m_dvbtRfAgcCfg.minOutputLevel = 0;
@@ -741,7 +756,7 @@ static int init_state(struct drxk_state *state)
 	state->m_dvbtRfAgcCfg.speed = 1;
 
 
-	
+	/* DVBT IF */
 	state->m_dvbtIfAgcCfg.ctrlMode = DRXK_AGC_CTRL_AUTO;
 	state->m_dvbtIfAgcCfg.outputLevel = 0;
 	state->m_dvbtIfAgcCfg.minOutputLevel = 0;
@@ -751,12 +766,12 @@ static int init_state(struct drxk_state *state)
 	state->m_dvbtIfAgcCfg.speed = 3;
 	state->m_dvbtIfAgcCfg.FastClipCtrlDelay = 30;
 	state->m_dvbtIfAgcCfg.IngainTgtMax = 30000;
-	
+	/* state->m_dvbtPgaCfg = 140; */
 
 	state->m_dvbtPreSawCfg.reference = 4;
 	state->m_dvbtPreSawCfg.usePreSaw = false;
 
-	
+	/* QAM RF */
 	state->m_qamRfAgcCfg.ctrlMode = DRXK_AGC_CTRL_OFF;
 	state->m_qamRfAgcCfg.outputLevel = 0;
 	state->m_qamRfAgcCfg.minOutputLevel = 6023;
@@ -765,7 +780,7 @@ static int init_state(struct drxk_state *state)
 	state->m_qamRfAgcCfg.cutOffCurrent = 4000;
 	state->m_qamRfAgcCfg.speed = 3;
 
-	
+	/* QAM IF */
 	state->m_qamIfAgcCfg.ctrlMode = DRXK_AGC_CTRL_AUTO;
 	state->m_qamIfAgcCfg.outputLevel = 0;
 	state->m_qamIfAgcCfg.minOutputLevel = 0;
@@ -783,22 +798,24 @@ static int init_state(struct drxk_state *state)
 	state->m_OperationMode = OM_NONE;
 	state->m_DrxkState = DRXK_UNINITIALIZED;
 
-	
-	state->m_enableMPEGOutput = true;	
-	state->m_insertRSByte = false;	
-	state->m_invertDATA = false;	
-	state->m_invertERR = false;	
-	state->m_invertSTR = false;	
-	state->m_invertVAL = false;	
-	state->m_invertCLK = (ulInvertTSClock != 0);	
+	/* MPEG output configuration */
+	state->m_enableMPEGOutput = true;	/* If TRUE; enable MPEG ouput */
+	state->m_insertRSByte = false;	/* If TRUE; insert RS byte */
+	state->m_invertDATA = false;	/* If TRUE; invert DATA signals */
+	state->m_invertERR = false;	/* If TRUE; invert ERR signal */
+	state->m_invertSTR = false;	/* If TRUE; invert STR signals */
+	state->m_invertVAL = false;	/* If TRUE; invert VAL signals */
+	state->m_invertCLK = (ulInvertTSClock != 0);	/* If TRUE; invert CLK signals */
 
+	/* If TRUE; static MPEG clockrate will be used;
+	   otherwise clockrate will adapt to the bitrate of the TS */
 
 	state->m_DVBTBitrate = ulDVBTBitrate;
 	state->m_DVBCBitrate = ulDVBCBitrate;
 
 	state->m_TSDataStrength = (ulTSDataStrength & 0x07);
 
-	
+	/* Maximum bitrate in b/s in case static clockrate is selected */
 	state->m_mpegTsStaticBitrate = 19392658;
 	state->m_disableTEIhandling = false;
 
@@ -812,10 +829,10 @@ static int init_state(struct drxk_state *state)
 	if (ulDemodLockTimeOut < 10000)
 		state->m_DemodLockTimeOut = ulDemodLockTimeOut;
 
-	
+	/* QAM defaults */
 	state->m_Constellation = DRX_CONSTELLATION_AUTO;
 	state->m_qamInterleaveMode = DRXK_QAM_I12_J17;
-	state->m_fecRsPlen = 204 * 8;	
+	state->m_fecRsPlen = 204 * 8;	/* fecRsPlen  annex A */
 	state->m_fecRsPrescale = 1;
 
 	state->m_sqiSpeed = DRXK_DVBT_SQI_SPEED_MEDIUM;
@@ -839,11 +856,11 @@ static int DRXX_Open(struct drxk_state *state)
 	u16 key = 0;
 
 	dprintk(1, "\n");
-	
+	/* stop lock indicator process */
 	status = write16(state, SCU_RAM_GPIO__A, SCU_RAM_GPIO_HW_LOCK_IND_DISABLE);
 	if (status < 0)
 		goto error;
-	
+	/* Check device id */
 	status = read16(state, SIO_TOP_COMM_KEY__A, &key);
 	if (status < 0)
 		goto error;
@@ -872,8 +889,8 @@ static int GetDeviceCapabilities(struct drxk_state *state)
 
 	dprintk(1, "\n");
 
-	
-	
+	/* driver 0.9.0 */
+	/* stop lock indicator process */
 	status = write16(state, SCU_RAM_GPIO__A, SCU_RAM_GPIO_HW_LOCK_IND_DISABLE);
 	if (status < 0)
 		goto error;
@@ -889,31 +906,35 @@ static int GetDeviceCapabilities(struct drxk_state *state)
 
 	switch ((sioPdrOhwCfg & SIO_PDR_OHW_CFG_FREF_SEL__M)) {
 	case 0:
-		
+		/* ignore (bypass ?) */
 		break;
 	case 1:
-		
+		/* 27 MHz */
 		state->m_oscClockFreq = 27000;
 		break;
 	case 2:
-		
+		/* 20.25 MHz */
 		state->m_oscClockFreq = 20250;
 		break;
 	case 3:
-		
+		/* 4 MHz */
 		state->m_oscClockFreq = 20250;
 		break;
 	default:
 		printk(KERN_ERR "drxk: Clock Frequency is unkonwn\n");
 		return -EINVAL;
 	}
+	/*
+		Determine device capabilities
+		Based on pinning v14
+		*/
 	status = read32(state, SIO_TOP_JTAGID_LO__A, &sioTopJtagidLo);
 	if (status < 0)
 		goto error;
 
 printk(KERN_ERR "drxk: status = 0x%08x\n", sioTopJtagidLo);
 
-	
+	/* driver 0.9.0 */
 	switch ((sioTopJtagidLo >> 29) & 0xF) {
 	case 0:
 		state->m_deviceSpin = DRXK_SPIN_A1;
@@ -936,7 +957,7 @@ printk(KERN_ERR "drxk: status = 0x%08x\n", sioTopJtagidLo);
 	}
 	switch ((sioTopJtagidLo >> 12) & 0xFF) {
 	case 0x13:
-		
+		/* typeId = DRX3913K_TYPE_ID */
 		state->m_hasLNA = false;
 		state->m_hasOOB = false;
 		state->m_hasATV = false;
@@ -949,7 +970,7 @@ printk(KERN_ERR "drxk: status = 0x%08x\n", sioTopJtagidLo);
 		state->m_hasIRQN = false;
 		break;
 	case 0x15:
-		
+		/* typeId = DRX3915K_TYPE_ID */
 		state->m_hasLNA = false;
 		state->m_hasOOB = false;
 		state->m_hasATV = true;
@@ -962,7 +983,7 @@ printk(KERN_ERR "drxk: status = 0x%08x\n", sioTopJtagidLo);
 		state->m_hasIRQN = false;
 		break;
 	case 0x16:
-		
+		/* typeId = DRX3916K_TYPE_ID */
 		state->m_hasLNA = false;
 		state->m_hasOOB = false;
 		state->m_hasATV = true;
@@ -975,7 +996,7 @@ printk(KERN_ERR "drxk: status = 0x%08x\n", sioTopJtagidLo);
 		state->m_hasIRQN = false;
 		break;
 	case 0x18:
-		
+		/* typeId = DRX3918K_TYPE_ID */
 		state->m_hasLNA = false;
 		state->m_hasOOB = false;
 		state->m_hasATV = true;
@@ -988,7 +1009,7 @@ printk(KERN_ERR "drxk: status = 0x%08x\n", sioTopJtagidLo);
 		state->m_hasIRQN = false;
 		break;
 	case 0x21:
-		
+		/* typeId = DRX3921K_TYPE_ID */
 		state->m_hasLNA = false;
 		state->m_hasOOB = false;
 		state->m_hasATV = true;
@@ -1001,7 +1022,7 @@ printk(KERN_ERR "drxk: status = 0x%08x\n", sioTopJtagidLo);
 		state->m_hasIRQN = false;
 		break;
 	case 0x23:
-		
+		/* typeId = DRX3923K_TYPE_ID */
 		state->m_hasLNA = false;
 		state->m_hasOOB = false;
 		state->m_hasATV = true;
@@ -1014,7 +1035,7 @@ printk(KERN_ERR "drxk: status = 0x%08x\n", sioTopJtagidLo);
 		state->m_hasIRQN = false;
 		break;
 	case 0x25:
-		
+		/* typeId = DRX3925K_TYPE_ID */
 		state->m_hasLNA = false;
 		state->m_hasOOB = false;
 		state->m_hasATV = true;
@@ -1027,7 +1048,7 @@ printk(KERN_ERR "drxk: status = 0x%08x\n", sioTopJtagidLo);
 		state->m_hasIRQN = false;
 		break;
 	case 0x26:
-		
+		/* typeId = DRX3926K_TYPE_ID */
 		state->m_hasLNA = false;
 		state->m_hasOOB = false;
 		state->m_hasATV = true;
@@ -1067,7 +1088,7 @@ static int HI_Command(struct drxk_state *state, u16 cmd, u16 *pResult)
 
 	dprintk(1, "\n");
 
-	
+	/* Write command */
 	status = write16(state, SIO_HI_RA_RAM_CMD__A, cmd);
 	if (status < 0)
 		goto error;
@@ -1080,7 +1101,7 @@ static int HI_Command(struct drxk_state *state, u16 cmd, u16 *pResult)
 		     SIO_HI_RA_RAM_PAR_5_CFG_SLEEP__M) ==
 		    SIO_HI_RA_RAM_PAR_5_CFG_SLEEP_ZZZ);
 	if (powerdown_cmd == false) {
-		
+		/* Wait until command rdy */
 		u32 retryCount = 0;
 		u16 waitCmd;
 
@@ -1146,7 +1167,7 @@ static int InitHI(struct drxk_state *state)
 
 	state->m_HICfgWakeUpKey = (state->demod_address << 1);
 	state->m_HICfgTimeout = 0x96FF;
-	
+	/* port/bridge/power down ctrl */
 	state->m_HICfgCtrl = SIO_HI_RA_RAM_PAR_5_CFG_SLV0_SLAVE;
 
 	return HI_CfgCommand(state);
@@ -1163,18 +1184,18 @@ static int MPEGTSConfigurePins(struct drxk_state *state, bool mpegEnable)
 		mpegEnable ? "enable" : "disable",
 		state->m_enableParallel ? "parallel" : "serial");
 
-	
+	/* stop lock indicator process */
 	status = write16(state, SCU_RAM_GPIO__A, SCU_RAM_GPIO_HW_LOCK_IND_DISABLE);
 	if (status < 0)
 		goto error;
 
-	
+	/*  MPEG TS pad configuration */
 	status = write16(state, SIO_TOP_COMM_KEY__A, 0xFABA);
 	if (status < 0)
 		goto error;
 
 	if (mpegEnable == false) {
-		
+		/*  Set MPEG TS pads to inputmode */
 		status = write16(state, SIO_PDR_MSTRT_CFG__A, 0x0000);
 		if (status < 0)
 			goto error;
@@ -1212,7 +1233,7 @@ static int MPEGTSConfigurePins(struct drxk_state *state, bool mpegEnable)
 		if (status < 0)
 			goto error;
 	} else {
-		
+		/* Enable MPEG output */
 		sioPdrMdxCfg =
 			((state->m_TSDataStrength <<
 			SIO_PDR_MD0_CFG_DRIVE__B) | 0x0003);
@@ -1235,7 +1256,7 @@ static int MPEGTSConfigurePins(struct drxk_state *state, bool mpegEnable)
 			goto error;
 
 		if (state->m_enableParallel == true) {
-			
+			/* paralel -> enable MD1 to MD7 */
 			status = write16(state, SIO_PDR_MD1_CFG__A, sioPdrMdxCfg);
 			if (status < 0)
 				goto error;
@@ -1261,7 +1282,7 @@ static int MPEGTSConfigurePins(struct drxk_state *state, bool mpegEnable)
 			sioPdrMdxCfg = ((state->m_TSDataStrength <<
 						SIO_PDR_MD0_CFG_DRIVE__B)
 					| 0x0003);
-			
+			/* serial -> disable MD1 to MD7 */
 			status = write16(state, SIO_PDR_MD1_CFG__A, 0x0000);
 			if (status < 0)
 				goto error;
@@ -1291,11 +1312,11 @@ static int MPEGTSConfigurePins(struct drxk_state *state, bool mpegEnable)
 		if (status < 0)
 			goto error;
 	}
-	
+	/*  Enable MB output over MPEG pads and ctl input */
 	status = write16(state, SIO_PDR_MON_CFG__A, 0x0000);
 	if (status < 0)
 		goto error;
-	
+	/*  Write nomagic word to enable pdr reg write */
 	status = write16(state, SIO_TOP_COMM_KEY__A, 0x0000);
 error:
 	if (status < 0)
@@ -1371,7 +1392,7 @@ static int DownloadMicrocode(struct drxk_state *state,
 
 	dprintk(1, "\n");
 
-	
+	/* down the drain (we don care about MAGIC_WORD) */
 	Drain = (pSrc[0] << 8) | pSrc[1];
 	pSrc += sizeof(u16);
 	offset += sizeof(u16);
@@ -1430,10 +1451,10 @@ static int DVBTEnableOFDMTokenRing(struct drxk_state *state, bool enable)
 
 	status = read16(state, SIO_OFDM_SH_OFDM_RING_STATUS__A, &data);
 	if (status >= 0 && data == desiredStatus) {
-		
+		/* tokenring already has correct status */
 		return status;
 	}
-	
+	/* Disable/enable dvbt tokenring bridge   */
 	status = write16(state, SIO_OFDM_SH_OFDM_RING_ENABLE__A, desiredCtrl);
 
 	end = jiffies + msecs_to_jiffies(DRXK_OFDM_TR_SHUTDOWN_TIMEOUT);
@@ -1458,7 +1479,7 @@ static int MPEGTSStop(struct drxk_state *state)
 
 	dprintk(1, "\n");
 
-	
+	/* Gracefull shutdown (byte boundaries) */
 	status = read16(state, FEC_OC_SNC_MODE__A, &fecOcSncMode);
 	if (status < 0)
 		goto error;
@@ -1467,7 +1488,7 @@ static int MPEGTSStop(struct drxk_state *state)
 	if (status < 0)
 		goto error;
 
-	
+	/* Suppress MCLK during absence of data */
 	status = read16(state, FEC_OC_IPR_MODE__A, &fecOcIprMode);
 	if (status < 0)
 		goto error;
@@ -1506,6 +1527,8 @@ static int scu_command(struct drxk_state *state,
 
 	mutex_lock(&state->mutex);
 
+	/* assume that the command register is ready
+		since it is checked afterwards */
 	for (ii = parameterLen - 1; ii >= 0; ii -= 1) {
 		buffer[cnt++] = (parameter[ii] & 0xFF);
 		buffer[cnt++] = ((parameter[ii] >> 8) & 0xFF);
@@ -1515,7 +1538,7 @@ static int scu_command(struct drxk_state *state,
 
 	write_block(state, SCU_RAM_PARAM_0__A -
 			(parameterLen - 1), cnt, buffer);
-	
+	/* Wait until SCU has processed command */
 	end = jiffies + msecs_to_jiffies(DRXK_MAX_WAITTIME);
 	do {
 		msleep(1);
@@ -1528,7 +1551,7 @@ static int scu_command(struct drxk_state *state,
 		status = -EIO;
 		goto error2;
 	}
-	
+	/* read results */
 	if ((resultLen > 0) && (result != NULL)) {
 		s16 err;
 		int ii;
@@ -1539,12 +1562,12 @@ static int scu_command(struct drxk_state *state,
 				goto error;
 		}
 
-		
+		/* Check if an error was reported by SCU */
 		err = (s16)result[0];
 		if (err >= 0)
 			goto error;
 
-		
+		/* check for the known error codes */
 		switch (err) {
 		case SCU_RESULT_UNKCMD:
 			p = "SCU_RESULT_UNKCMD";
@@ -1558,7 +1581,7 @@ static int scu_command(struct drxk_state *state,
 		case SCU_RESULT_INVPAR:
 			p = "SCU_RESULT_INVPAR";
 			break;
-		default: 
+		default: /* Other negative values are errors */
 			sprintf(errname, "ERROR: %d\n", err);
 			p = errname;
 		}
@@ -1583,7 +1606,7 @@ static int SetIqmAf(struct drxk_state *state, bool active)
 
 	dprintk(1, "\n");
 
-	
+	/* Configure IQM */
 	status = read16(state, IQM_AF_STDBY__A, &data);
 	if (status < 0)
 		goto error;
@@ -1617,7 +1640,7 @@ static int CtrlPowerMode(struct drxk_state *state, enum DRXPowerMode *mode)
 
 	dprintk(1, "\n");
 
-	
+	/* Check arguments */
 	if (mode == NULL)
 		return -EINVAL;
 
@@ -1638,15 +1661,15 @@ static int CtrlPowerMode(struct drxk_state *state, enum DRXPowerMode *mode)
 		sioCcPwdMode = SIO_CC_PWD_MODE_LEVEL_OSC;
 		break;
 	default:
-		
+		/* Unknow sleep mode */
 		return -EINVAL;
 	}
 
-	
+	/* If already in requested power mode, do nothing */
 	if (state->m_currentPowerMode == *mode)
 		return 0;
 
-	
+	/* For next steps make sure to start from DRX_POWER_UP mode */
 	if (state->m_currentPowerMode != DRX_POWER_UP) {
 		status = PowerUpDevice(state);
 		if (status < 0)
@@ -1657,15 +1680,17 @@ static int CtrlPowerMode(struct drxk_state *state, enum DRXPowerMode *mode)
 	}
 
 	if (*mode == DRX_POWER_UP) {
-		
+		/* Restore analog & pin configuartion */
 	} else {
-		
-		
-		
-		
-		
-		
-		
+		/* Power down to requested mode */
+		/* Backup some register settings */
+		/* Set pins with possible pull-ups connected
+		   to them in input mode */
+		/* Analog power down */
+		/* ADC power down */
+		/* Power down device */
+		/* stop all comm_exec */
+		/* Stop and power down previous standard */
 		switch (state->m_OperationMode) {
 		case OM_DVBT:
 			status = MPEGTSStop(state);
@@ -1727,17 +1752,17 @@ static int PowerDownDVBT(struct drxk_state *state, bool setPowerMode)
 	if (status < 0)
 		goto error;
 	if (data == SCU_COMM_EXEC_ACTIVE) {
-		
+		/* Send OFDM stop command */
 		status = scu_command(state, SCU_RAM_COMMAND_STANDARD_OFDM | SCU_RAM_COMMAND_CMD_DEMOD_STOP, 0, NULL, 1, &cmdResult);
 		if (status < 0)
 			goto error;
-		
+		/* Send OFDM reset command */
 		status = scu_command(state, SCU_RAM_COMMAND_STANDARD_OFDM | SCU_RAM_COMMAND_CMD_DEMOD_RESET, 0, NULL, 1, &cmdResult);
 		if (status < 0)
 			goto error;
 	}
 
-	
+	/* Reset datapath for OFDM, processors first */
 	status = write16(state, OFDM_SC_COMM_EXEC__A, OFDM_SC_COMM_EXEC_STOP);
 	if (status < 0)
 		goto error;
@@ -1748,12 +1773,12 @@ static int PowerDownDVBT(struct drxk_state *state, bool setPowerMode)
 	if (status < 0)
 		goto error;
 
-	
+	/* powerdown AFE                   */
 	status = SetIqmAf(state, false);
 	if (status < 0)
 		goto error;
 
-	
+	/* powerdown to OFDM mode          */
 	if (setPowerMode) {
 		status = CtrlPowerMode(state, &powerMode);
 		if (status < 0)
@@ -1771,18 +1796,23 @@ static int SetOperationMode(struct drxk_state *state,
 	int status = 0;
 
 	dprintk(1, "\n");
+	/*
+	   Stop and power down previous standard
+	   TODO investigate total power down instead of partial
+	   power down depending on "previous" standard.
+	 */
 
-	
+	/* disable HW lock indicator */
 	status = write16(state, SCU_RAM_GPIO__A, SCU_RAM_GPIO_HW_LOCK_IND_DISABLE);
 	if (status < 0)
 		goto error;
 
-	
+	/* Device is already at the required mode */
 	if (state->m_OperationMode == oMode)
 		return 0;
 
 	switch (state->m_OperationMode) {
-		
+		/* OM_NONE was added for start up */
 	case OM_NONE:
 		break;
 	case OM_DVBT:
@@ -1794,7 +1824,7 @@ static int SetOperationMode(struct drxk_state *state,
 			goto error;
 		state->m_OperationMode = OM_NONE;
 		break;
-	case OM_QAM_ITU_A:	
+	case OM_QAM_ITU_A:	/* fallthrough */
 	case OM_QAM_ITU_C:
 		status = MPEGTSStop(state);
 		if (status < 0)
@@ -1810,6 +1840,9 @@ static int SetOperationMode(struct drxk_state *state,
 		goto error;
 	}
 
+	/*
+		Power up new standard
+		*/
 	switch (oMode) {
 	case OM_DVBT:
 		dprintk(1, ": DVB-T\n");
@@ -1818,7 +1851,7 @@ static int SetOperationMode(struct drxk_state *state,
 		if (status < 0)
 			goto error;
 		break;
-	case OM_QAM_ITU_A:	
+	case OM_QAM_ITU_A:	/* fallthrough */
 	case OM_QAM_ITU_C:
 		dprintk(1, ": DVB-C Annex %c\n",
 			(state->m_OperationMode == OM_QAM_ITU_A) ? 'A' : 'C');
@@ -1908,7 +1941,7 @@ static int GetLockStatus(struct drxk_state *state, u32 *pLockStatus,
 
 	*pLockStatus = NOT_LOCKED;
 
-	
+	/* define the SCU command code */
 	switch (state->m_OperationMode) {
 	case OM_QAM_ITU_A:
 	case OM_QAM_ITU_B:
@@ -1933,7 +1966,7 @@ static int MPEGTSStart(struct drxk_state *state)
 
 	u16 fecOcSncMode = 0;
 
-	
+	/* Allow OC to sync again */
 	status = read16(state, FEC_OC_SNC_MODE__A, &fecOcSncMode);
 	if (status < 0)
 		goto error;
@@ -1954,7 +1987,7 @@ static int MPEGTSDtoInit(struct drxk_state *state)
 
 	dprintk(1, "\n");
 
-	
+	/* Rate integration settings */
 	status = write16(state, FEC_OC_RCN_CTL_STEP_LO__A, 0x0000);
 	if (status < 0)
 		goto error;
@@ -1980,7 +2013,7 @@ static int MPEGTSDtoInit(struct drxk_state *state)
 	if (status < 0)
 		goto error;
 
-	
+	/* Additional configuration */
 	status = write16(state, FEC_OC_OCR_INVERT__A, 0);
 	if (status < 0)
 		goto error;
@@ -2000,13 +2033,13 @@ static int MPEGTSDtoSetup(struct drxk_state *state,
 {
 	int status;
 
-	u16 fecOcRegMode = 0;	
-	u16 fecOcRegIprMode = 0;	
-	u16 fecOcDtoMode = 0;	
-	u16 fecOcFctMode = 0;	
-	u16 fecOcDtoPeriod = 2;	
-	u16 fecOcDtoBurstLen = 188;	
-	u32 fecOcRcnCtlRate = 0;	
+	u16 fecOcRegMode = 0;	/* FEC_OC_MODE       register value */
+	u16 fecOcRegIprMode = 0;	/* FEC_OC_IPR_MODE   register value */
+	u16 fecOcDtoMode = 0;	/* FEC_OC_IPR_INVERT register value */
+	u16 fecOcFctMode = 0;	/* FEC_OC_IPR_INVERT register value */
+	u16 fecOcDtoPeriod = 2;	/* FEC_OC_IPR_INVERT register value */
+	u16 fecOcDtoBurstLen = 188;	/* FEC_OC_IPR_INVERT register value */
+	u32 fecOcRcnCtlRate = 0;	/* FEC_OC_IPR_INVERT register value */
 	u16 fecOcTmdMode = 0;
 	u16 fecOcTmdIntUpdRate = 0;
 	u32 maxBitRate = 0;
@@ -2014,7 +2047,7 @@ static int MPEGTSDtoSetup(struct drxk_state *state,
 
 	dprintk(1, "\n");
 
-	
+	/* Check insertion of the Reed-Solomon parity bytes */
 	status = read16(state, FEC_OC_MODE__A, &fecOcRegMode);
 	if (status < 0)
 		goto error;
@@ -2024,18 +2057,18 @@ static int MPEGTSDtoSetup(struct drxk_state *state,
 	fecOcRegMode &= (~FEC_OC_MODE_PARITY__M);
 	fecOcRegIprMode &= (~FEC_OC_IPR_MODE_MVAL_DIS_PAR__M);
 	if (state->m_insertRSByte == true) {
-		
+		/* enable parity symbol forward */
 		fecOcRegMode |= FEC_OC_MODE_PARITY__M;
-		
+		/* MVAL disable during parity bytes */
 		fecOcRegIprMode |= FEC_OC_IPR_MODE_MVAL_DIS_PAR__M;
-		
+		/* TS burst length to 204 */
 		fecOcDtoBurstLen = 204;
 	}
 
-	
+	/* Check serial or parrallel output */
 	fecOcRegIprMode &= (~(FEC_OC_IPR_MODE_SERIAL__M));
 	if (state->m_enableParallel == false) {
-		
+		/* MPEG data output is serial -> set ipr_mode[0] */
 		fecOcRegIprMode |= FEC_OC_IPR_MODE_SERIAL__M;
 	}
 
@@ -2046,33 +2079,43 @@ static int MPEGTSDtoSetup(struct drxk_state *state,
 		fecOcRcnCtlRate = 0xC00000;
 		staticCLK = state->m_DVBTStaticCLK;
 		break;
-	case OM_QAM_ITU_A:	
+	case OM_QAM_ITU_A:	/* fallthrough */
 	case OM_QAM_ITU_C:
 		fecOcTmdMode = 0x0004;
-		fecOcRcnCtlRate = 0xD2B4EE;	
+		fecOcRcnCtlRate = 0xD2B4EE;	/* good for >63 Mb/s */
 		maxBitRate = state->m_DVBCBitrate;
 		staticCLK = state->m_DVBCStaticCLK;
 		break;
 	default:
 		status = -EINVAL;
-	}		
+	}		/* switch (standard) */
 	if (status < 0)
 		goto error;
 
-	
+	/* Configure DTO's */
 	if (staticCLK) {
 		u32 bitRate = 0;
 
+		/* Rational DTO for MCLK source (static MCLK rate),
+			Dynamic DTO for optimal grouping
+			(avoid intra-packet gaps),
+			DTO offset enable to sync TS burst with MSTRT */
 		fecOcDtoMode = (FEC_OC_DTO_MODE_DYNAMIC__M |
 				FEC_OC_DTO_MODE_OFFSET_ENABLE__M);
 		fecOcFctMode = (FEC_OC_FCT_MODE_RAT_ENA__M |
 				FEC_OC_FCT_MODE_VIRT_ENA__M);
 
-		
+		/* Check user defined bitrate */
 		bitRate = maxBitRate;
-		if (bitRate > 75900000UL) {	
+		if (bitRate > 75900000UL) {	/* max is 75.9 Mb/s */
 			bitRate = 75900000UL;
 		}
+		/* Rational DTO period:
+			dto_period = (Fsys / bitrate) - 2
+
+			Result should be floored,
+			to make sure >= requested bitrate
+			*/
 		fecOcDtoPeriod = (u16) (((state->m_sysClockFreq)
 						* 1000) / bitRate);
 		if (fecOcDtoPeriod <= 2)
@@ -2081,13 +2124,13 @@ static int MPEGTSDtoSetup(struct drxk_state *state,
 			fecOcDtoPeriod -= 2;
 		fecOcTmdIntUpdRate = 8;
 	} else {
-		
+		/* (commonAttr->staticCLK == false) => dynamic mode */
 		fecOcDtoMode = FEC_OC_DTO_MODE_DYNAMIC__M;
 		fecOcFctMode = FEC_OC_FCT_MODE__PRE;
 		fecOcTmdIntUpdRate = 5;
 	}
 
-	
+	/* Write appropriate registers with requested configuration */
 	status = write16(state, FEC_OC_DTO_BURST_LEN__A, fecOcDtoBurstLen);
 	if (status < 0)
 		goto error;
@@ -2107,7 +2150,7 @@ static int MPEGTSDtoSetup(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	
+	/* Rate integration settings */
 	status = write32(state, FEC_OC_RCN_CTL_RATE_LO__A, fecOcRcnCtlRate);
 	if (status < 0)
 		goto error;
@@ -2125,7 +2168,7 @@ static int MPEGTSConfigurePolarity(struct drxk_state *state)
 {
 	u16 fecOcRegIprInvert = 0;
 
-	
+	/* Data mask for the output data byte */
 	u16 InvertDataMask =
 	    FEC_OC_IPR_INVERT_MD7__M | FEC_OC_IPR_INVERT_MD6__M |
 	    FEC_OC_IPR_INVERT_MD5__M | FEC_OC_IPR_INVERT_MD4__M |
@@ -2134,7 +2177,7 @@ static int MPEGTSConfigurePolarity(struct drxk_state *state)
 
 	dprintk(1, "\n");
 
-	
+	/* Control selective inversion of output bits */
 	fecOcRegIprInvert &= (~(InvertDataMask));
 	if (state->m_invertDATA == true)
 		fecOcRegIprInvert |= InvertDataMask;
@@ -2170,7 +2213,7 @@ static int SetAgcRf(struct drxk_state *state,
 
 	switch (pAgcCfg->ctrlMode) {
 	case DRXK_AGC_CTRL_AUTO:
-		
+		/* Enable RF AGC DAC */
 		status = read16(state, IQM_AF_STDBY__A, &data);
 		if (status < 0)
 			goto error;
@@ -2182,10 +2225,10 @@ static int SetAgcRf(struct drxk_state *state,
 		if (status < 0)
 			goto error;
 
-		
+		/* Enable SCU RF AGC loop */
 		data &= ~SCU_RAM_AGC_CONFIG_DISABLE_RF_AGC__M;
 
-		
+		/* Polarity */
 		if (state->m_RfAgcPol)
 			data |= SCU_RAM_AGC_CONFIG_INV_RF_POL__M;
 		else
@@ -2194,7 +2237,7 @@ static int SetAgcRf(struct drxk_state *state,
 		if (status < 0)
 			goto error;
 
-		
+		/* Set speed (using complementary reduction value) */
 		status = read16(state, SCU_RAM_AGC_KI_RED__A, &data);
 		if (status < 0)
 			goto error;
@@ -2219,18 +2262,18 @@ static int SetAgcRf(struct drxk_state *state,
 			goto error;
 		}
 
-		
+		/* Set TOP, only if IF-AGC is in AUTO mode */
 		if (pIfAgcSettings->ctrlMode == DRXK_AGC_CTRL_AUTO)
 			status = write16(state, SCU_RAM_AGC_IF_IACCU_HI_TGT_MAX__A, pAgcCfg->top);
 			if (status < 0)
 				goto error;
 
-		
+		/* Cut-Off current */
 		status = write16(state, SCU_RAM_AGC_RF_IACCU_HI_CO__A, pAgcCfg->cutOffCurrent);
 		if (status < 0)
 			goto error;
 
-		
+		/* Max. output level */
 		status = write16(state, SCU_RAM_AGC_RF_MAX__A, pAgcCfg->maxOutputLevel);
 		if (status < 0)
 			goto error;
@@ -2238,7 +2281,7 @@ static int SetAgcRf(struct drxk_state *state,
 		break;
 
 	case DRXK_AGC_CTRL_USER:
-		
+		/* Enable RF AGC DAC */
 		status = read16(state, IQM_AF_STDBY__A, &data);
 		if (status < 0)
 			goto error;
@@ -2247,7 +2290,7 @@ static int SetAgcRf(struct drxk_state *state,
 		if (status < 0)
 			goto error;
 
-		
+		/* Disable SCU RF AGC loop */
 		status = read16(state, SCU_RAM_AGC_CONFIG__A, &data);
 		if (status < 0)
 			goto error;
@@ -2260,19 +2303,19 @@ static int SetAgcRf(struct drxk_state *state,
 		if (status < 0)
 			goto error;
 
-		
+		/* SCU c.o.c. to 0, enabling full control range */
 		status = write16(state, SCU_RAM_AGC_RF_IACCU_HI_CO__A, 0);
 		if (status < 0)
 			goto error;
 
-		
+		/* Write value to output pin */
 		status = write16(state, SCU_RAM_AGC_RF_IACCU_HI__A, pAgcCfg->outputLevel);
 		if (status < 0)
 			goto error;
 		break;
 
 	case DRXK_AGC_CTRL_OFF:
-		
+		/* Disable RF AGC DAC */
 		status = read16(state, IQM_AF_STDBY__A, &data);
 		if (status < 0)
 			goto error;
@@ -2281,7 +2324,7 @@ static int SetAgcRf(struct drxk_state *state,
 		if (status < 0)
 			goto error;
 
-		
+		/* Disable SCU RF AGC loop */
 		status = read16(state, SCU_RAM_AGC_CONFIG__A, &data);
 		if (status < 0)
 			goto error;
@@ -2315,7 +2358,7 @@ static int SetAgcIf(struct drxk_state *state,
 	switch (pAgcCfg->ctrlMode) {
 	case DRXK_AGC_CTRL_AUTO:
 
-		
+		/* Enable IF AGC DAC */
 		status = read16(state, IQM_AF_STDBY__A, &data);
 		if (status < 0)
 			goto error;
@@ -2328,10 +2371,10 @@ static int SetAgcIf(struct drxk_state *state,
 		if (status < 0)
 			goto error;
 
-		
+		/* Enable SCU IF AGC loop */
 		data &= ~SCU_RAM_AGC_CONFIG_DISABLE_IF_AGC__M;
 
-		
+		/* Polarity */
 		if (state->m_IfAgcPol)
 			data |= SCU_RAM_AGC_CONFIG_INV_IF_POL__M;
 		else
@@ -2340,7 +2383,7 @@ static int SetAgcIf(struct drxk_state *state,
 		if (status < 0)
 			goto error;
 
-		
+		/* Set speed (using complementary reduction value) */
 		status = read16(state, SCU_RAM_AGC_KI_RED__A, &data);
 		if (status < 0)
 			goto error;
@@ -2359,7 +2402,7 @@ static int SetAgcIf(struct drxk_state *state,
 			pRfAgcSettings = &state->m_atvRfAgcCfg;
 		if (pRfAgcSettings == NULL)
 			return -1;
-		
+		/* Restore TOP */
 		status = write16(state, SCU_RAM_AGC_IF_IACCU_HI_TGT_MAX__A, pRfAgcSettings->top);
 		if (status < 0)
 			goto error;
@@ -2367,7 +2410,7 @@ static int SetAgcIf(struct drxk_state *state,
 
 	case DRXK_AGC_CTRL_USER:
 
-		
+		/* Enable IF AGC DAC */
 		status = read16(state, IQM_AF_STDBY__A, &data);
 		if (status < 0)
 			goto error;
@@ -2380,10 +2423,10 @@ static int SetAgcIf(struct drxk_state *state,
 		if (status < 0)
 			goto error;
 
-		
+		/* Disable SCU IF AGC loop */
 		data |= SCU_RAM_AGC_CONFIG_DISABLE_IF_AGC__M;
 
-		
+		/* Polarity */
 		if (state->m_IfAgcPol)
 			data |= SCU_RAM_AGC_CONFIG_INV_IF_POL__M;
 		else
@@ -2392,7 +2435,7 @@ static int SetAgcIf(struct drxk_state *state,
 		if (status < 0)
 			goto error;
 
-		
+		/* Write value to output pin */
 		status = write16(state, SCU_RAM_AGC_IF_IACCU_HI_TGT_MAX__A, pAgcCfg->outputLevel);
 		if (status < 0)
 			goto error;
@@ -2400,7 +2443,7 @@ static int SetAgcIf(struct drxk_state *state,
 
 	case DRXK_AGC_CTRL_OFF:
 
-		
+		/* Disable If AGC DAC */
 		status = read16(state, IQM_AF_STDBY__A, &data);
 		if (status < 0)
 			goto error;
@@ -2409,7 +2452,7 @@ static int SetAgcIf(struct drxk_state *state,
 		if (status < 0)
 			goto error;
 
-		
+		/* Disable SCU IF AGC loop */
 		status = read16(state, SCU_RAM_AGC_CONFIG__A, &data);
 		if (status < 0)
 			goto error;
@@ -2418,8 +2461,10 @@ static int SetAgcIf(struct drxk_state *state,
 		if (status < 0)
 			goto error;
 		break;
-	}		
+	}		/* switch (agcSettingsIf->ctrlMode) */
 
+	/* always set the top to support
+		configurations without if-loop */
 	status = write16(state, SCU_RAM_AGC_INGAIN_TGT_MIN__A, pAgcCfg->top);
 error:
 	if (status < 0)
@@ -2457,15 +2502,17 @@ static int GetQAMSignalToNoise(struct drxk_state *state,
 			       s32 *pSignalToNoise)
 {
 	int status = 0;
-	u16 qamSlErrPower = 0;	
-	u32 qamSlSigPower = 0;	
-	u32 qamSlMer = 0;	
+	u16 qamSlErrPower = 0;	/* accum. error between
+					raw and sliced symbols */
+	u32 qamSlSigPower = 0;	/* used for MER, depends of
+					QAM modulation */
+	u32 qamSlMer = 0;	/* QAM MER */
 
 	dprintk(1, "\n");
 
-	
+	/* MER calculation */
 
-	
+	/* get the register value needed for MER */
 	status = read16(state, QAM_SL_ERR_POWER__A, &qamSlErrPower);
 	if (status < 0) {
 		printk(KERN_ERR "drxk: Error %d on %s\n", status, __func__);
@@ -2532,7 +2579,7 @@ static int GetDVBTSignalToNoise(struct drxk_state *state,
 	status = read16(state, OFDM_EQ_TOP_TD_SQR_ERR_I__A, &regData);
 	if (status < 0)
 		goto error;
-	
+	/* Extend SQR_ERR_I operational range */
 	EqRegTdSqrErrI = (u32) regData;
 	if ((EqRegTdSqrErrExp > 11) &&
 		(EqRegTdSqrErrI < 0x00000FFFUL)) {
@@ -2541,7 +2588,7 @@ static int GetDVBTSignalToNoise(struct drxk_state *state,
 	status = read16(state, OFDM_EQ_TOP_TD_SQR_ERR_Q__A, &regData);
 	if (status < 0)
 		goto error;
-	
+	/* Extend SQR_ERR_Q operational range */
 	EqRegTdSqrErrQ = (u32) regData;
 	if ((EqRegTdSqrErrExp > 11) &&
 		(EqRegTdSqrErrQ < 0x00000FFFUL))
@@ -2551,12 +2598,15 @@ static int GetDVBTSignalToNoise(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	
+	/* Check input data for MER */
 
-	
+	/* MER calculation (in 0.1 dB) without math.h */
 	if ((EqRegTdTpsPwrOfs == 0) || (EqRegTdReqSmbCnt == 0))
 		iMER = 0;
 	else if ((EqRegTdSqrErrI + EqRegTdSqrErrQ) == 0) {
+		/* No error at all, this must be the HW reset value
+			* Apparently no first measurement yet
+			* Set MER to 0.0 */
 		iMER = 0;
 	} else {
 		SqrErrIQ = (EqRegTdSqrErrI + EqRegTdSqrErrQ) <<
@@ -2568,17 +2618,26 @@ static int GetDVBTSignalToNoise(struct drxk_state *state,
 		else
 			tpsCnt = 68;
 
+		/* IMER = 100 * log10 (x)
+			where x = (EqRegTdTpsPwrOfs^2 *
+			EqRegTdReqSmbCnt * tpsCnt)/SqrErrIQ
 
-		
+			=> IMER = a + b -c
+			where a = 100 * log10 (EqRegTdTpsPwrOfs^2)
+			b = 100 * log10 (EqRegTdReqSmbCnt * tpsCnt)
+			c = 100 * log10 (SqrErrIQ)
+			*/
+
+		/* log(x) x = 9bits * 9bits->18 bits  */
 		a = Log10Times100(EqRegTdTpsPwrOfs *
 					EqRegTdTpsPwrOfs);
-		
+		/* log(x) x = 16bits * 7bits->23 bits  */
 		b = Log10Times100(EqRegTdReqSmbCnt * tpsCnt);
-		
+		/* log(x) x = (16bits + 16bits) << 15 ->32 bits  */
 		c = Log10Times100(SqrErrIQ);
 
 		iMER = a + b;
-		
+		/* No negative MER, clip to zero */
 		if (iMER > c)
 			iMER -= c;
 		else
@@ -2612,27 +2671,27 @@ static int GetSignalToNoise(struct drxk_state *state, s32 *pSignalToNoise)
 #if 0
 static int GetDVBTQuality(struct drxk_state *state, s32 *pQuality)
 {
-	
+	/* SNR Values for quasi errorfree reception rom Nordig 2.2 */
 	int status = 0;
 
 	dprintk(1, "\n");
 
 	static s32 QE_SN[] = {
-		51,		
-		69,		
-		79,		
-		89,		
-		97,		
-		108,		
-		131,		
-		146,		
-		156,		
-		160,		
-		165,		
-		187,		
-		202,		
-		216,		
-		225,		
+		51,		/* QPSK 1/2 */
+		69,		/* QPSK 2/3 */
+		79,		/* QPSK 3/4 */
+		89,		/* QPSK 5/6 */
+		97,		/* QPSK 7/8 */
+		108,		/* 16-QAM 1/2 */
+		131,		/* 16-QAM 2/3 */
+		146,		/* 16-QAM 3/4 */
+		156,		/* 16-QAM 5/6 */
+		160,		/* 16-QAM 7/8 */
+		165,		/* 64-QAM 1/2 */
+		187,		/* 64-QAM 2/3 */
+		202,		/* 64-QAM 3/4 */
+		216,		/* 64-QAM 5/6 */
+		225,		/* 64-QAM 7/8 */
 	};
 
 	*pQuality = 0;
@@ -2697,7 +2756,7 @@ static int GetDVBCQuality(struct drxk_state *state, s32 *pQuality)
 			break;
 		case QAM_32:
 			SignalToNoiseRel = SignalToNoise - 230;
-			break;	
+			break;	/* Not in NorDig */
 		case QAM_64:
 			SignalToNoiseRel = SignalToNoise - 260;
 			break;
@@ -2739,6 +2798,7 @@ static int GetQuality(struct drxk_state *state, s32 *pQuality)
 }
 #endif
 
+/* Free data ram in SIO HI */
 #define SIO_HI_RA_RAM_USR_BEGIN__A 0x420040
 #define SIO_HI_RA_RAM_USR_END__A   0x420060
 
@@ -2862,7 +2922,7 @@ static int ADCSyncMeasurement(struct drxk_state *state, u16 *count)
 
 	dprintk(1, "\n");
 
-	
+	/* Start measurement */
 	status = write16(state, IQM_AF_COMM_EXEC__A, IQM_AF_COMM_EXEC_ACTIVE);
 	if (status < 0)
 		goto error;
@@ -2905,7 +2965,7 @@ static int ADCSynchronization(struct drxk_state *state)
 		goto error;
 
 	if (count == 1) {
-		
+		/* Try sampling on a diffrent edge */
 		u16 clkNeg = 0;
 
 		status = read16(state, IQM_AF_CLKNEG__A, &clkNeg);
@@ -2955,6 +3015,10 @@ static int SetFrequencyShifter(struct drxk_state *state,
 
 	dprintk(1, "\n");
 
+	/*
+	   Program frequency shifter
+	   No need to account for mirroring on RF
+	 */
 	if (isDTV) {
 		if ((state->m_OperationMode == OM_QAM_ITU_A) ||
 		    (state->m_OperationMode == OM_QAM_ITU_C) ||
@@ -2964,19 +3028,19 @@ static int SetFrequencyShifter(struct drxk_state *state,
 			selectPosImage = false;
 	}
 	if (tunerMirror)
-		
+		/* tuner doesn't mirror */
 		ifFreqActual = intermediateFreqkHz +
 		    rfFreqResidual + fmFrequencyShift;
 	else
-		
+		/* tuner mirrors */
 		ifFreqActual = intermediateFreqkHz -
 		    rfFreqResidual - fmFrequencyShift;
 	if (ifFreqActual > samplingFrequency / 2) {
-		
+		/* adc mirrors */
 		adcFreq = samplingFrequency - ifFreqActual;
 		adcFlip = true;
 	} else {
-		
+		/* adc doesn't mirror */
 		adcFreq = ifFreqActual;
 		adcFlip = false;
 	}
@@ -2990,8 +3054,8 @@ static int SetFrequencyShifter(struct drxk_state *state,
 	if (imageToSelect)
 		state->m_IqmFsRateOfs = ~state->m_IqmFsRateOfs + 1;
 
-	
-	
+	/* Program frequency shifter with tuner offset compensation */
+	/* frequencyShift += tunerFreqOffset; TODO */
 	status = write32(state, IQM_FS_RATE_OFS_LO__A,
 			 state->m_IqmFsRateOfs);
 	if (status < 0)
@@ -3022,21 +3086,21 @@ static int InitAGC(struct drxk_state *state, bool isDTV)
 
 	dprintk(1, "\n");
 
-	
+	/* Common settings */
 	snsSumMax = 1023;
 	ifIaccuHiTgtMin = 2047;
 	clpCyclen = 500;
 	clpSumMax = 1023;
 
-	
+	/* AGCInit() not available for DVBT; init done in microcode */
 	if (!IsQAM(state)) {
 		printk(KERN_ERR "drxk: %s: mode %d is not DVB-C\n", __func__, state->m_OperationMode);
 		return -EINVAL;
 	}
 
-	
+	/* FIXME: Analog TV AGC require different settings */
 
-	
+	/* Standard specific settings */
 	clpSumMin = 8;
 	clpDirTo = (u16) -9;
 	clpCtrlMode = 0;
@@ -3169,7 +3233,7 @@ static int InitAGC(struct drxk_state *state, bool isDTV)
 	if (status < 0)
 		goto error;
 
-	
+	/* Initialize inner-loop KI gain factors */
 	status = read16(state, SCU_RAM_AGC_KI__A, &data);
 	if (status < 0)
 		goto error;
@@ -3215,13 +3279,13 @@ static int DVBTScCommand(struct drxk_state *state,
 	dprintk(1, "\n");
 	status = read16(state, OFDM_SC_COMM_EXEC__A, &scExec);
 	if (scExec != 1) {
-		
+		/* SC is not running */
 		status = -EINVAL;
 	}
 	if (status < 0)
 		goto error;
 
-	
+	/* Wait until sc is ready to receive command */
 	retryCnt = 0;
 	do {
 		msleep(1);
@@ -3231,9 +3295,9 @@ static int DVBTScCommand(struct drxk_state *state,
 	if (retryCnt >= DRXK_MAX_RETRIES && (status < 0))
 		goto error;
 
-	
+	/* Write sub-command */
 	switch (cmd) {
-		
+		/* All commands using sub-cmd */
 	case OFDM_SC_RA_RAM_CMD_PROC_START:
 	case OFDM_SC_RA_RAM_CMD_SET_PREF_PARAM:
 	case OFDM_SC_RA_RAM_CMD_PROGRAM_PARAM:
@@ -3242,38 +3306,38 @@ static int DVBTScCommand(struct drxk_state *state,
 			goto error;
 		break;
 	default:
-		
+		/* Do nothing */
 		break;
 	}
 
-	
+	/* Write needed parameters and the command */
 	switch (cmd) {
-		
-		
-		
-		
+		/* All commands using 5 parameters */
+		/* All commands using 4 parameters */
+		/* All commands using 3 parameters */
+		/* All commands using 2 parameters */
 	case OFDM_SC_RA_RAM_CMD_PROC_START:
 	case OFDM_SC_RA_RAM_CMD_SET_PREF_PARAM:
 	case OFDM_SC_RA_RAM_CMD_PROGRAM_PARAM:
 		status = write16(state, OFDM_SC_RA_RAM_PARAM1__A, param1);
-		
+		/* All commands using 1 parameters */
 	case OFDM_SC_RA_RAM_CMD_SET_ECHO_TIMING:
 	case OFDM_SC_RA_RAM_CMD_USER_IO:
 		status = write16(state, OFDM_SC_RA_RAM_PARAM0__A, param0);
-		
+		/* All commands using 0 parameters */
 	case OFDM_SC_RA_RAM_CMD_GET_OP_PARAM:
 	case OFDM_SC_RA_RAM_CMD_NULL:
-		
+		/* Write command */
 		status = write16(state, OFDM_SC_RA_RAM_CMD__A, cmd);
 		break;
 	default:
-		
+		/* Unknown command */
 		status = -EINVAL;
 	}
 	if (status < 0)
 		goto error;
 
-	
+	/* Wait until sc is ready processing command */
 	retryCnt = 0;
 	do {
 		msleep(1);
@@ -3283,26 +3347,26 @@ static int DVBTScCommand(struct drxk_state *state,
 	if (retryCnt >= DRXK_MAX_RETRIES && (status < 0))
 		goto error;
 
-	
+	/* Check for illegal cmd */
 	status = read16(state, OFDM_SC_RA_RAM_CMD_ADDR__A, &errCode);
 	if (errCode == 0xFFFF) {
-		
+		/* illegal command */
 		status = -EINVAL;
 	}
 	if (status < 0)
 		goto error;
 
-	
+	/* Retreive results parameters from SC */
 	switch (cmd) {
-		
-		
-		
-		
-		
+		/* All commands yielding 5 results */
+		/* All commands yielding 4 results */
+		/* All commands yielding 3 results */
+		/* All commands yielding 2 results */
+		/* All commands yielding 1 result */
 	case OFDM_SC_RA_RAM_CMD_USER_IO:
 	case OFDM_SC_RA_RAM_CMD_GET_OP_PARAM:
 		status = read16(state, OFDM_SC_RA_RAM_PARAM0__A, &(param0));
-		
+		/* All commands yielding 0 results */
 	case OFDM_SC_RA_RAM_CMD_SET_ECHO_TIMING:
 	case OFDM_SC_RA_RAM_CMD_SET_TIMER:
 	case OFDM_SC_RA_RAM_CMD_PROC_START:
@@ -3311,10 +3375,10 @@ static int DVBTScCommand(struct drxk_state *state,
 	case OFDM_SC_RA_RAM_CMD_NULL:
 		break;
 	default:
-		
+		/* Unknown command */
 		status = -EINVAL;
 		break;
-	}			
+	}			/* switch (cmd->cmd) */
 error:
 	if (status < 0)
 		printk(KERN_ERR "drxk: Error %d on %s\n", status, __func__);
@@ -3355,11 +3419,11 @@ static int DVBTCtrlSetFrEnable(struct drxk_state *state, bool *enabled)
 
 	dprintk(1, "\n");
 	if (*enabled == true) {
-		
+		/* write mask to 1 */
 		status = write16(state, OFDM_SC_RA_RAM_FR_THRES_8K__A,
 				   DEFAULT_FR_THRES_8K);
 	} else {
-		
+		/* write mask to 0 */
 		status = write16(state, OFDM_SC_RA_RAM_FR_THRES_8K__A, 0);
 	}
 	if (status < 0)
@@ -3426,7 +3490,16 @@ error:
 	return status;
 }
 
+/*============================================================================*/
 
+/**
+* \brief Activate DVBT specific presets
+* \param demod instance of demodulator.
+* \return DRXStatus_t.
+*
+* Called in DVBTSetStandard
+*
+*/
 static int DVBTActivatePresets(struct drxk_state *state)
 {
 	int status;
@@ -3456,7 +3529,16 @@ error:
 	return status;
 }
 
+/*============================================================================*/
 
+/**
+* \brief Initialize channelswitch-independent settings for DVBT.
+* \param demod instance of demodulator.
+* \return DRXStatus_t.
+*
+* For ROM code channel filter taps are loaded from the bootloader. For microcode
+* the DVB-T taps from the drxk_filters.h are used.
+*/
 static int SetDVBTStandard(struct drxk_state *state,
 			   enum OperationMode oMode)
 {
@@ -3467,19 +3549,19 @@ static int SetDVBTStandard(struct drxk_state *state,
 	dprintk(1, "\n");
 
 	PowerUpDVBT(state);
-	
+	/* added antenna switch */
 	SwitchAntennaToDVBT(state);
-	
+	/* send OFDM reset command */
 	status = scu_command(state, SCU_RAM_COMMAND_STANDARD_OFDM | SCU_RAM_COMMAND_CMD_DEMOD_RESET, 0, NULL, 1, &cmdResult);
 	if (status < 0)
 		goto error;
 
-	
+	/* send OFDM setenv command */
 	status = scu_command(state, SCU_RAM_COMMAND_STANDARD_OFDM | SCU_RAM_COMMAND_CMD_DEMOD_SET_ENV, 0, NULL, 1, &cmdResult);
 	if (status < 0)
 		goto error;
 
-	
+	/* reset datapath for OFDM, processors first */
 	status = write16(state, OFDM_SC_COMM_EXEC__A, OFDM_SC_COMM_EXEC_STOP);
 	if (status < 0)
 		goto error;
@@ -3490,20 +3572,20 @@ static int SetDVBTStandard(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	
-	
+	/* IQM setup */
+	/* synchronize on ofdstate->m_festart */
 	status = write16(state, IQM_AF_UPD_SEL__A, 1);
 	if (status < 0)
 		goto error;
-	
+	/* window size for clipping ADC detection */
 	status = write16(state, IQM_AF_CLP_LEN__A, 0);
 	if (status < 0)
 		goto error;
-	
+	/* window size for for sense pre-SAW detection */
 	status = write16(state, IQM_AF_SNS_LEN__A, 0);
 	if (status < 0)
 		goto error;
-	
+	/* sense threshold for sense pre-SAW detection */
 	status = write16(state, IQM_AF_AMUX__A, IQM_AF_AMUX_SIGNAL2ADC);
 	if (status < 0)
 		goto error;
@@ -3515,24 +3597,24 @@ static int SetDVBTStandard(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	
-	status = write16(state, IQM_AF_INC_LCT__A, 0);	
+	/* Impulse noise cruncher setup */
+	status = write16(state, IQM_AF_INC_LCT__A, 0);	/* crunch in IQM_CF */
 	if (status < 0)
 		goto error;
-	status = write16(state, IQM_CF_DET_LCT__A, 0);	
+	status = write16(state, IQM_CF_DET_LCT__A, 0);	/* detect in IQM_CF */
 	if (status < 0)
 		goto error;
-	status = write16(state, IQM_CF_WND_LEN__A, 3);	
+	status = write16(state, IQM_CF_WND_LEN__A, 3);	/* peak detector window length */
 	if (status < 0)
 		goto error;
 
 	status = write16(state, IQM_RC_STRETCH__A, 16);
 	if (status < 0)
 		goto error;
-	status = write16(state, IQM_CF_OUT_ENA__A, 0x4);	
+	status = write16(state, IQM_CF_OUT_ENA__A, 0x4);	/* enable output 2 */
 	if (status < 0)
 		goto error;
-	status = write16(state, IQM_CF_DS_ENA__A, 0x4);	
+	status = write16(state, IQM_CF_DS_ENA__A, 0x4);	/* decimate output 2 */
 	if (status < 0)
 		goto error;
 	status = write16(state, IQM_CF_SCALE__A, 1600);
@@ -3542,11 +3624,11 @@ static int SetDVBTStandard(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	
+	/* virtual clipping threshold for clipping ADC detection */
 	status = write16(state, IQM_AF_CLP_TH__A, 448);
 	if (status < 0)
 		goto error;
-	status = write16(state, IQM_CF_DATATH__A, 495);	
+	status = write16(state, IQM_CF_DATATH__A, 495);	/* crunching threshold */
 	if (status < 0)
 		goto error;
 
@@ -3554,13 +3636,13 @@ static int SetDVBTStandard(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	status = write16(state, IQM_CF_PKDTH__A, 2);	
+	status = write16(state, IQM_CF_PKDTH__A, 2);	/* peak detector threshold */
 	if (status < 0)
 		goto error;
 	status = write16(state, IQM_CF_POW_MEAS_LEN__A, 2);
 	if (status < 0)
 		goto error;
-	
+	/* enable power measurement interrupt */
 	status = write16(state, IQM_CF_COMM_INT_MSK__A, 1);
 	if (status < 0)
 		goto error;
@@ -3568,7 +3650,7 @@ static int SetDVBTStandard(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	
+	/* IQM will not be reset from here, sync ADC and update/init AGC */
 	status = ADCSynchronization(state);
 	if (status < 0)
 		goto error;
@@ -3576,7 +3658,7 @@ static int SetDVBTStandard(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	
+	/* Halt SCU to enable safe non-atomic accesses */
 	status = write16(state, SCU_COMM_EXEC__A, SCU_COMM_EXEC_HOLD);
 	if (status < 0)
 		goto error;
@@ -3588,7 +3670,7 @@ static int SetDVBTStandard(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	
+	/* Set Noise Estimation notch width and enable DC fix */
 	status = read16(state, OFDM_SC_RA_RAM_CONFIG__A, &data);
 	if (status < 0)
 		goto error;
@@ -3597,19 +3679,19 @@ static int SetDVBTStandard(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	
+	/* Activate SCU to enable SCU commands */
 	status = write16(state, SCU_COMM_EXEC__A, SCU_COMM_EXEC_ACTIVE);
 	if (status < 0)
 		goto error;
 
 	if (!state->m_DRXK_A3_ROM_CODE) {
-		
+		/* AGCInit() is not done for DVBT, so set agcFastClipCtrlDelay  */
 		status = write16(state, SCU_RAM_AGC_FAST_CLP_CTRL_DELAY__A, state->m_dvbtIfAgcCfg.FastClipCtrlDelay);
 		if (status < 0)
 			goto error;
 	}
 
-	
+	/* OFDM_SC setup */
 #ifdef COMPILE_FOR_NONRT
 	status = write16(state, OFDM_SC_RA_RAM_BE_OPT_DELAY__A, 1);
 	if (status < 0)
@@ -3619,8 +3701,8 @@ static int SetDVBTStandard(struct drxk_state *state,
 		goto error;
 #endif
 
-	
-	status = write16(state, FEC_DI_INPUT_CTL__A, 1);	
+	/* FEC setup */
+	status = write16(state, FEC_DI_INPUT_CTL__A, 1);	/* OFDM input */
 	if (status < 0)
 		goto error;
 
@@ -3638,11 +3720,11 @@ static int SetDVBTStandard(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	
+	/* Setup MPEG bus */
 	status = MPEGTSDtoSetup(state, OM_DVBT);
 	if (status < 0)
 		goto error;
-	
+	/* Set DVBT Presets */
 	status = DVBTActivatePresets(state);
 	if (status < 0)
 		goto error;
@@ -3653,20 +3735,26 @@ error:
 	return status;
 }
 
+/*============================================================================*/
+/**
+* \brief Start dvbt demodulating for channel.
+* \param demod instance of demodulator.
+* \return DRXStatus_t.
+*/
 static int DVBTStart(struct drxk_state *state)
 {
 	u16 param1;
 	int status;
-	
+	/* DRXKOfdmScCmd_t scCmd; */
 
 	dprintk(1, "\n");
-	
-	
+	/* Start correct processes to get in lock */
+	/* DRXK: OFDM_SC_RA_RAM_PROC_LOCKTRACK is no longer in mapfile! */
 	param1 = OFDM_SC_RA_RAM_LOCKTRACK_MIN;
 	status = DVBTScCommand(state, OFDM_SC_RA_RAM_CMD_PROC_START, 0, OFDM_SC_RA_RAM_SW_EVENT_RUN_NMASK__M, param1, 0, 0, 0);
 	if (status < 0)
 		goto error;
-	
+	/* Start FEC OC */
 	status = MPEGTSStart(state);
 	if (status < 0)
 		goto error;
@@ -3680,7 +3768,14 @@ error:
 }
 
 
+/*============================================================================*/
 
+/**
+* \brief Set up dvbt demodulator for channel.
+* \param demod instance of demodulator.
+* \return DRXStatus_t.
+* // original DVBTSetChannel()
+*/
 static int SetDVBT(struct drxk_state *state, u16 IntermediateFreqkHz,
 		   s32 tunerFreqOffset)
 {
@@ -3698,12 +3793,12 @@ static int SetDVBT(struct drxk_state *state, u16 IntermediateFreqkHz,
 	if (status < 0)
 		goto error;
 
-	
+	/* Halt SCU to enable safe non-atomic accesses */
 	status = write16(state, SCU_COMM_EXEC__A, SCU_COMM_EXEC_HOLD);
 	if (status < 0)
 		goto error;
 
-	
+	/* Stop processors */
 	status = write16(state, OFDM_SC_COMM_EXEC__A, OFDM_SC_COMM_EXEC_STOP);
 	if (status < 0)
 		goto error;
@@ -3711,18 +3806,20 @@ static int SetDVBT(struct drxk_state *state, u16 IntermediateFreqkHz,
 	if (status < 0)
 		goto error;
 
+	/* Mandatory fix, always stop CP, required to set spl offset back to
+		hardware default (is set to 0 by ucode during pilot detection */
 	status = write16(state, OFDM_CP_COMM_EXEC__A, OFDM_CP_COMM_EXEC_STOP);
 	if (status < 0)
 		goto error;
 
-	
+	/*== Write channel settings to device =====================================*/
 
-	
+	/* mode */
 	switch (state->props.transmission_mode) {
 	case TRANSMISSION_MODE_AUTO:
 	default:
 		operationMode |= OFDM_SC_RA_RAM_OP_AUTO_MODE__M;
-		
+		/* fall through , try first guess DRX_FFTMODE_8K */
 	case TRANSMISSION_MODE_8K:
 		transmissionParams |= OFDM_SC_RA_RAM_OP_PARAM_MODE_8K;
 		break;
@@ -3731,12 +3828,12 @@ static int SetDVBT(struct drxk_state *state, u16 IntermediateFreqkHz,
 		break;
 	}
 
-	
+	/* guard */
 	switch (state->props.guard_interval) {
 	default:
 	case GUARD_INTERVAL_AUTO:
 		operationMode |= OFDM_SC_RA_RAM_OP_AUTO_GUARD__M;
-		
+		/* fall through , try first guess DRX_GUARD_1DIV4 */
 	case GUARD_INTERVAL_1_4:
 		transmissionParams |= OFDM_SC_RA_RAM_OP_PARAM_GUARD_4;
 		break;
@@ -3751,15 +3848,15 @@ static int SetDVBT(struct drxk_state *state, u16 IntermediateFreqkHz,
 		break;
 	}
 
-	
+	/* hierarchy */
 	switch (state->props.hierarchy) {
 	case HIERARCHY_AUTO:
 	case HIERARCHY_NONE:
 	default:
 		operationMode |= OFDM_SC_RA_RAM_OP_AUTO_HIER__M;
-		
-		
-		
+		/* fall through , try first guess SC_RA_RAM_OP_PARAM_HIER_NO */
+		/* transmissionParams |= OFDM_SC_RA_RAM_OP_PARAM_HIER_NO; */
+		/* break; */
 	case HIERARCHY_1:
 		transmissionParams |= OFDM_SC_RA_RAM_OP_PARAM_HIER_A1;
 		break;
@@ -3772,12 +3869,12 @@ static int SetDVBT(struct drxk_state *state, u16 IntermediateFreqkHz,
 	}
 
 
-	
+	/* modulation */
 	switch (state->props.modulation) {
 	case QAM_AUTO:
 	default:
 		operationMode |= OFDM_SC_RA_RAM_OP_AUTO_CONST__M;
-		
+		/* fall through , try first guess DRX_CONSTELLATION_QAM64 */
 	case QAM_64:
 		transmissionParams |= OFDM_SC_RA_RAM_OP_PARAM_CONST_QAM64;
 		break;
@@ -3789,8 +3886,8 @@ static int SetDVBT(struct drxk_state *state, u16 IntermediateFreqkHz,
 		break;
 	}
 #if 0
-	
-	
+	/* No hierachical channels support in BDA */
+	/* Priority (only for hierarchical channels) */
 	switch (channel->priority) {
 	case DRX_PRIORITY_LOW:
 		transmissionParams |= OFDM_SC_RA_RAM_OP_PARAM_PRIO_LO;
@@ -3802,25 +3899,25 @@ static int SetDVBT(struct drxk_state *state, u16 IntermediateFreqkHz,
 		WR16(devAddr, OFDM_EC_SB_PRIOR__A,
 			OFDM_EC_SB_PRIOR_HI));
 		break;
-	case DRX_PRIORITY_UNKNOWN:	
+	case DRX_PRIORITY_UNKNOWN:	/* fall through */
 	default:
 		status = -EINVAL;
 		goto error;
 	}
 #else
-	
+	/* Set Priorty high */
 	transmissionParams |= OFDM_SC_RA_RAM_OP_PARAM_PRIO_HI;
 	status = write16(state, OFDM_EC_SB_PRIOR__A, OFDM_EC_SB_PRIOR_HI);
 	if (status < 0)
 		goto error;
 #endif
 
-	
+	/* coderate */
 	switch (state->props.code_rate_HP) {
 	case FEC_AUTO:
 	default:
 		operationMode |= OFDM_SC_RA_RAM_OP_AUTO_RATE__M;
-		
+		/* fall through , try first guess DRX_CODERATE_2DIV3 */
 	case FEC_2_3:
 		transmissionParams |= OFDM_SC_RA_RAM_OP_PARAM_RATE_2_3;
 		break;
@@ -3838,18 +3935,23 @@ static int SetDVBT(struct drxk_state *state, u16 IntermediateFreqkHz,
 		break;
 	}
 
-	
-	
+	/* SAW filter selection: normaly not necesarry, but if wanted
+		the application can select a SAW filter via the driver by using UIOs */
+	/* First determine real bandwidth (Hz) */
+	/* Also set delay for impulse noise cruncher */
+	/* Also set parameters for EC_OC fix, note EC_OC_REG_TMD_HIL_MAR is changed
+		by SC for fix for some 8K,1/8 guard but is restored by InitEC and ResetEC
+		functions */
 	switch (state->props.bandwidth_hz) {
 	case 0:
 		state->props.bandwidth_hz = 8000000;
-		
+		/* fall though */
 	case 8000000:
 		bandwidth = DRXK_BANDWIDTH_8MHZ_IN_HZ;
 		status = write16(state, OFDM_SC_RA_RAM_SRMM_FIX_FACT_8K__A, 3052);
 		if (status < 0)
 			goto error;
-		
+		/* cochannel protection for PAL 8 MHz */
 		status = write16(state, OFDM_SC_RA_RAM_NI_INIT_8K_PER_LEFT__A, 7);
 		if (status < 0)
 			goto error;
@@ -3868,7 +3970,7 @@ static int SetDVBT(struct drxk_state *state, u16 IntermediateFreqkHz,
 		status = write16(state, OFDM_SC_RA_RAM_SRMM_FIX_FACT_8K__A, 3491);
 		if (status < 0)
 			goto error;
-		
+		/* cochannel protection for PAL 7 MHz */
 		status = write16(state, OFDM_SC_RA_RAM_NI_INIT_8K_PER_LEFT__A, 8);
 		if (status < 0)
 			goto error;
@@ -3887,7 +3989,7 @@ static int SetDVBT(struct drxk_state *state, u16 IntermediateFreqkHz,
 		status = write16(state, OFDM_SC_RA_RAM_SRMM_FIX_FACT_8K__A, 4073);
 		if (status < 0)
 			goto error;
-		
+		/* cochannel protection for NTSC 6 MHz */
 		status = write16(state, OFDM_SC_RA_RAM_NI_INIT_8K_PER_LEFT__A, 19);
 		if (status < 0)
 			goto error;
@@ -3907,15 +4009,23 @@ static int SetDVBT(struct drxk_state *state, u16 IntermediateFreqkHz,
 	}
 
 	if (iqmRcRateOfs == 0) {
-		
+		/* Now compute IQM_RC_RATE_OFS
+			(((SysFreq/BandWidth)/2)/2) -1) * 2^23)
+			=>
+			((SysFreq / BandWidth) * (2^21)) - (2^23)
+			*/
+		/* (SysFreq / BandWidth) * (2^28)  */
+		/* assert (MAX(sysClk)/MIN(bandwidth) < 16)
+			=> assert(MAX(sysClk) < 16*MIN(bandwidth))
+			=> assert(109714272 > 48000000) = true so Frac 28 can be used  */
 		iqmRcRateOfs = Frac28a((u32)
 					((state->m_sysClockFreq *
 						1000) / 3), bandwidth);
-		
+		/* (SysFreq / BandWidth) * (2^21), rounding before truncating  */
 		if ((iqmRcRateOfs & 0x7fL) >= 0x40)
 			iqmRcRateOfs += 0x80L;
 		iqmRcRateOfs = iqmRcRateOfs >> 7;
-		
+		/* ((SysFreq / BandWidth) * (2^21)) - (2^23)  */
 		iqmRcRateOfs = iqmRcRateOfs - (1 << 23);
 	}
 
@@ -3926,7 +4036,7 @@ static int SetDVBT(struct drxk_state *state, u16 IntermediateFreqkHz,
 	if (status < 0)
 		goto error;
 
-	
+	/* Bandwidth setting done */
 
 #if 0
 	status = DVBTSetFrequencyShift(demod, channel, tunerOffset);
@@ -3937,14 +4047,14 @@ static int SetDVBT(struct drxk_state *state, u16 IntermediateFreqkHz,
 	if (status < 0)
 		goto error;
 
-	
+	/*== Start SC, write channel settings to SC ===============================*/
 
-	
+	/* Activate SCU to enable SCU commands */
 	status = write16(state, SCU_COMM_EXEC__A, SCU_COMM_EXEC_ACTIVE);
 	if (status < 0)
 		goto error;
 
-	
+	/* Enable SC after setting all other parameters */
 	status = write16(state, OFDM_SC_COMM_STATE__A, 0);
 	if (status < 0)
 		goto error;
@@ -3957,7 +4067,7 @@ static int SetDVBT(struct drxk_state *state, u16 IntermediateFreqkHz,
 	if (status < 0)
 		goto error;
 
-	
+	/* Write SC parameter registers, set all AUTO flags in operation mode */
 	param1 = (OFDM_SC_RA_RAM_OP_AUTO_MODE__M |
 			OFDM_SC_RA_RAM_OP_AUTO_GUARD__M |
 			OFDM_SC_RA_RAM_OP_AUTO_CONST__M |
@@ -3978,7 +4088,15 @@ error:
 }
 
 
+/*============================================================================*/
 
+/**
+* \brief Retreive lock status .
+* \param demod    Pointer to demodulator instance.
+* \param lockStat Pointer to lock status structure.
+* \return DRXStatus_t.
+*
+*/
 static int GetDVBTLockStatus(struct drxk_state *state, u32 *pLockStatus)
 {
 	int status;
@@ -3993,8 +4111,8 @@ static int GetDVBTLockStatus(struct drxk_state *state, u32 *pLockStatus)
 	dprintk(1, "\n");
 
 	*pLockStatus = NOT_LOCKED;
-	
-	
+	/* driver 0.9.0 */
+	/* Check if SC is running */
 	status = read16(state, OFDM_SC_COMM_EXEC__A, &ScCommExec);
 	if (status < 0)
 		goto end;
@@ -4034,6 +4152,7 @@ static int PowerUpQAM(struct drxk_state *state)
 }
 
 
+/** Power Down QAM */
 static int PowerDownQAM(struct drxk_state *state)
 {
 	u16 data = 0;
@@ -4045,7 +4164,11 @@ static int PowerDownQAM(struct drxk_state *state)
 	if (status < 0)
 		goto error;
 	if (data == SCU_COMM_EXEC_ACTIVE) {
-		
+		/*
+			STOP demodulator
+			QAM and HW blocks
+			*/
+		/* stop all comstate->m_exec */
 		status = write16(state, QAM_COMM_EXEC__A, QAM_COMM_EXEC_STOP);
 		if (status < 0)
 			goto error;
@@ -4053,7 +4176,7 @@ static int PowerDownQAM(struct drxk_state *state)
 		if (status < 0)
 			goto error;
 	}
-	
+	/* powerdown AFE                   */
 	status = SetIqmAf(state, false);
 
 error:
@@ -4063,20 +4186,38 @@ error:
 	return status;
 }
 
+/*============================================================================*/
 
+/**
+* \brief Setup of the QAM Measurement intervals for signal quality
+* \param demod instance of demod.
+* \param modulation current modulation.
+* \return DRXStatus_t.
+*
+*  NOTE:
+*  Take into account that for certain settings the errorcounters can overflow.
+*  The implementation does not check this.
+*
+*/
 static int SetQAMMeasurement(struct drxk_state *state,
 			     enum EDrxkConstellation modulation,
 			     u32 symbolRate)
 {
-	u32 fecBitsDesired = 0;	
-	u32 fecRsPeriodTotal = 0;	
-	u16 fecRsPrescale = 0;	
-	u16 fecRsPeriod = 0;	
+	u32 fecBitsDesired = 0;	/* BER accounting period */
+	u32 fecRsPeriodTotal = 0;	/* Total period */
+	u16 fecRsPrescale = 0;	/* ReedSolomon Measurement Prescale */
+	u16 fecRsPeriod = 0;	/* Value for corresponding I2C register */
 	int status = 0;
 
 	dprintk(1, "\n");
 
 	fecRsPrescale = 1;
+	/* fecBitsDesired = symbolRate [kHz] *
+		FrameLenght [ms] *
+		(modulation + 1) *
+		SyncLoss (== 1) *
+		ViterbiLoss (==1)
+		*/
 	switch (modulation) {
 	case DRX_CONSTELLATION_QAM16:
 		fecBitsDesired = 4 * symbolRate;
@@ -4099,17 +4240,17 @@ static int SetQAMMeasurement(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	fecBitsDesired /= 1000;	
-	fecBitsDesired *= 500;	
+	fecBitsDesired /= 1000;	/* symbolRate [Hz] -> symbolRate [kHz]  */
+	fecBitsDesired *= 500;	/* meas. period [ms] */
 
-	
-	
-	fecRsPeriodTotal = (fecBitsDesired / 1632UL) + 1;	
+	/* Annex A/C: bits/RsPeriod = 204 * 8 = 1632 */
+	/* fecRsPeriodTotal = fecBitsDesired / 1632 */
+	fecRsPeriodTotal = (fecBitsDesired / 1632UL) + 1;	/* roughly ceil */
 
-	
+	/* fecRsPeriodTotal =  fecRsPrescale * fecRsPeriod  */
 	fecRsPrescale = 1 + (u16) (fecRsPeriodTotal >> 16);
 	if (fecRsPrescale == 0) {
-		
+		/* Divide by zero (though impossible) */
 		status = -EINVAL;
 		if (status < 0)
 			goto error;
@@ -4118,7 +4259,7 @@ static int SetQAMMeasurement(struct drxk_state *state,
 		((u16) fecRsPeriodTotal +
 		(fecRsPrescale >> 1)) / fecRsPrescale;
 
-	
+	/* write corresponding registers */
 	status = write16(state, FEC_RS_MEASUREMENT_PERIOD__A, fecRsPeriod);
 	if (status < 0)
 		goto error;
@@ -4137,8 +4278,8 @@ static int SetQAM16(struct drxk_state *state)
 	int status = 0;
 
 	dprintk(1, "\n");
-	
-	
+	/* QAM Equalizer Setup */
+	/* Equalizer */
 	status = write16(state, SCU_RAM_QAM_EQ_CMA_RAD0__A, 13517);
 	if (status < 0)
 		goto error;
@@ -4157,7 +4298,7 @@ static int SetQAM16(struct drxk_state *state)
 	status = write16(state, SCU_RAM_QAM_EQ_CMA_RAD5__A, 13517);
 	if (status < 0)
 		goto error;
-	
+	/* Decision Feedback Equalizer */
 	status = write16(state, QAM_DQ_QUAL_FUN0__A, 2);
 	if (status < 0)
 		goto error;
@@ -4187,12 +4328,12 @@ static int SetQAM16(struct drxk_state *state)
 	if (status < 0)
 		goto error;
 
-	
+	/* QAM Slicer Settings */
 	status = write16(state, SCU_RAM_QAM_SL_SIG_POWER__A, DRXK_QAM_SL_SIG_POWER_QAM16);
 	if (status < 0)
 		goto error;
 
-	
+	/* QAM Loop Controller Coeficients */
 	status = write16(state, SCU_RAM_QAM_LC_CA_FINE__A, 15);
 	if (status < 0)
 		goto error;
@@ -4256,7 +4397,7 @@ static int SetQAM16(struct drxk_state *state)
 		goto error;
 
 
-	
+	/* QAM State Machine (FSM) Thresholds */
 
 	status = write16(state, SCU_RAM_QAM_FSM_RTH__A, 140);
 	if (status < 0)
@@ -4288,7 +4429,7 @@ static int SetQAM16(struct drxk_state *state)
 		goto error;
 
 
-	
+	/* QAM FSM Tracking Parameters */
 
 	status = write16(state, SCU_RAM_QAM_FSM_MEDIAN_AV_MULT__A, (u16) 16);
 	if (status < 0)
@@ -4318,15 +4459,21 @@ error:
 	return status;
 }
 
+/*============================================================================*/
 
+/**
+* \brief QAM32 specific setup
+* \param demod instance of demod.
+* \return DRXStatus_t.
+*/
 static int SetQAM32(struct drxk_state *state)
 {
 	int status = 0;
 
 	dprintk(1, "\n");
 
-	
-	
+	/* QAM Equalizer Setup */
+	/* Equalizer */
 	status = write16(state, SCU_RAM_QAM_EQ_CMA_RAD0__A, 6707);
 	if (status < 0)
 		goto error;
@@ -4346,7 +4493,7 @@ static int SetQAM32(struct drxk_state *state)
 	if (status < 0)
 		goto error;
 
-	
+	/* Decision Feedback Equalizer */
 	status = write16(state, QAM_DQ_QUAL_FUN0__A, 3);
 	if (status < 0)
 		goto error;
@@ -4376,14 +4523,14 @@ static int SetQAM32(struct drxk_state *state)
 	if (status < 0)
 		goto error;
 
-	
+	/* QAM Slicer Settings */
 
 	status = write16(state, SCU_RAM_QAM_SL_SIG_POWER__A, DRXK_QAM_SL_SIG_POWER_QAM32);
 	if (status < 0)
 		goto error;
 
 
-	
+	/* QAM Loop Controller Coeficients */
 
 	status = write16(state, SCU_RAM_QAM_LC_CA_FINE__A, 15);
 	if (status < 0)
@@ -4448,7 +4595,7 @@ static int SetQAM32(struct drxk_state *state)
 		goto error;
 
 
-	
+	/* QAM State Machine (FSM) Thresholds */
 
 	status = write16(state, SCU_RAM_QAM_FSM_RTH__A, 90);
 	if (status < 0)
@@ -4480,7 +4627,7 @@ static int SetQAM32(struct drxk_state *state)
 		goto error;
 
 
-	
+	/* QAM FSM Tracking Parameters */
 
 	status = write16(state, SCU_RAM_QAM_FSM_MEDIAN_AV_MULT__A, (u16) 12);
 	if (status < 0)
@@ -4507,14 +4654,20 @@ error:
 	return status;
 }
 
+/*============================================================================*/
 
+/**
+* \brief QAM64 specific setup
+* \param demod instance of demod.
+* \return DRXStatus_t.
+*/
 static int SetQAM64(struct drxk_state *state)
 {
 	int status = 0;
 
 	dprintk(1, "\n");
-	
-	
+	/* QAM Equalizer Setup */
+	/* Equalizer */
 	status = write16(state, SCU_RAM_QAM_EQ_CMA_RAD0__A, 13336);
 	if (status < 0)
 		goto error;
@@ -4534,7 +4687,7 @@ static int SetQAM64(struct drxk_state *state)
 	if (status < 0)
 		goto error;
 
-	
+	/* Decision Feedback Equalizer */
 	status = write16(state, QAM_DQ_QUAL_FUN0__A, 4);
 	if (status < 0)
 		goto error;
@@ -4564,13 +4717,13 @@ static int SetQAM64(struct drxk_state *state)
 	if (status < 0)
 		goto error;
 
-	
+	/* QAM Slicer Settings */
 	status = write16(state, SCU_RAM_QAM_SL_SIG_POWER__A, DRXK_QAM_SL_SIG_POWER_QAM64);
 	if (status < 0)
 		goto error;
 
 
-	
+	/* QAM Loop Controller Coeficients */
 
 	status = write16(state, SCU_RAM_QAM_LC_CA_FINE__A, 15);
 	if (status < 0)
@@ -4635,7 +4788,7 @@ static int SetQAM64(struct drxk_state *state)
 		goto error;
 
 
-	
+	/* QAM State Machine (FSM) Thresholds */
 
 	status = write16(state, SCU_RAM_QAM_FSM_RTH__A, 100);
 	if (status < 0)
@@ -4667,7 +4820,7 @@ static int SetQAM64(struct drxk_state *state)
 		goto error;
 
 
-	
+	/* QAM FSM Tracking Parameters */
 
 	status = write16(state, SCU_RAM_QAM_FSM_MEDIAN_AV_MULT__A, (u16) 12);
 	if (status < 0)
@@ -4695,14 +4848,20 @@ error:
 	return status;
 }
 
+/*============================================================================*/
 
+/**
+* \brief QAM128 specific setup
+* \param demod: instance of demod.
+* \return DRXStatus_t.
+*/
 static int SetQAM128(struct drxk_state *state)
 {
 	int status = 0;
 
 	dprintk(1, "\n");
-	
-	
+	/* QAM Equalizer Setup */
+	/* Equalizer */
 	status = write16(state, SCU_RAM_QAM_EQ_CMA_RAD0__A, 6564);
 	if (status < 0)
 		goto error;
@@ -4722,7 +4881,7 @@ static int SetQAM128(struct drxk_state *state)
 	if (status < 0)
 		goto error;
 
-	
+	/* Decision Feedback Equalizer */
 	status = write16(state, QAM_DQ_QUAL_FUN0__A, 6);
 	if (status < 0)
 		goto error;
@@ -4753,14 +4912,14 @@ static int SetQAM128(struct drxk_state *state)
 		goto error;
 
 
-	
+	/* QAM Slicer Settings */
 
 	status = write16(state, SCU_RAM_QAM_SL_SIG_POWER__A, DRXK_QAM_SL_SIG_POWER_QAM128);
 	if (status < 0)
 		goto error;
 
 
-	
+	/* QAM Loop Controller Coeficients */
 
 	status = write16(state, SCU_RAM_QAM_LC_CA_FINE__A, 15);
 	if (status < 0)
@@ -4825,7 +4984,7 @@ static int SetQAM128(struct drxk_state *state)
 		goto error;
 
 
-	
+	/* QAM State Machine (FSM) Thresholds */
 
 	status = write16(state, SCU_RAM_QAM_FSM_RTH__A, 50);
 	if (status < 0)
@@ -4857,7 +5016,7 @@ static int SetQAM128(struct drxk_state *state)
 	if (status < 0)
 		goto error;
 
-	
+	/* QAM FSM Tracking Parameters */
 
 	status = write16(state, SCU_RAM_QAM_FSM_MEDIAN_AV_MULT__A, (u16) 8);
 	if (status < 0)
@@ -4885,14 +5044,20 @@ error:
 	return status;
 }
 
+/*============================================================================*/
 
+/**
+* \brief QAM256 specific setup
+* \param demod: instance of demod.
+* \return DRXStatus_t.
+*/
 static int SetQAM256(struct drxk_state *state)
 {
 	int status = 0;
 
 	dprintk(1, "\n");
-	
-	
+	/* QAM Equalizer Setup */
+	/* Equalizer */
 	status = write16(state, SCU_RAM_QAM_EQ_CMA_RAD0__A, 11502);
 	if (status < 0)
 		goto error;
@@ -4912,7 +5077,7 @@ static int SetQAM256(struct drxk_state *state)
 	if (status < 0)
 		goto error;
 
-	
+	/* Decision Feedback Equalizer */
 	status = write16(state, QAM_DQ_QUAL_FUN0__A, 8);
 	if (status < 0)
 		goto error;
@@ -4942,14 +5107,14 @@ static int SetQAM256(struct drxk_state *state)
 	if (status < 0)
 		goto error;
 
-	
+	/* QAM Slicer Settings */
 
 	status = write16(state, SCU_RAM_QAM_SL_SIG_POWER__A, DRXK_QAM_SL_SIG_POWER_QAM256);
 	if (status < 0)
 		goto error;
 
 
-	
+	/* QAM Loop Controller Coeficients */
 
 	status = write16(state, SCU_RAM_QAM_LC_CA_FINE__A, 15);
 	if (status < 0)
@@ -5014,7 +5179,7 @@ static int SetQAM256(struct drxk_state *state)
 		goto error;
 
 
-	
+	/* QAM State Machine (FSM) Thresholds */
 
 	status = write16(state, SCU_RAM_QAM_FSM_RTH__A, 50);
 	if (status < 0)
@@ -5046,7 +5211,7 @@ static int SetQAM256(struct drxk_state *state)
 		goto error;
 
 
-	
+	/* QAM FSM Tracking Parameters */
 
 	status = write16(state, SCU_RAM_QAM_FSM_MEDIAN_AV_MULT__A, (u16) 8);
 	if (status < 0)
@@ -5074,13 +5239,20 @@ error:
 }
 
 
+/*============================================================================*/
+/**
+* \brief Reset QAM block.
+* \param demod:   instance of demod.
+* \param channel: pointer to channel data.
+* \return DRXStatus_t.
+*/
 static int QAMResetQAM(struct drxk_state *state)
 {
 	int status;
 	u16 cmdResult;
 
 	dprintk(1, "\n");
-	
+	/* Stop QAM comstate->m_exec */
 	status = write16(state, QAM_COMM_EXEC__A, QAM_COMM_EXEC_STOP);
 	if (status < 0)
 		goto error;
@@ -5092,7 +5264,14 @@ error:
 	return status;
 }
 
+/*============================================================================*/
 
+/**
+* \brief Set QAM symbolrate.
+* \param demod:   instance of demod.
+* \param channel: pointer to channel data.
+* \return DRXStatus_t.
+*/
 static int QAMSetSymbolrate(struct drxk_state *state)
 {
 	u32 adcFrequency = 0;
@@ -5103,10 +5282,10 @@ static int QAMSetSymbolrate(struct drxk_state *state)
 	int status;
 
 	dprintk(1, "\n");
-	
+	/* Select & calculate correct IQM rate */
 	adcFrequency = (state->m_sysClockFreq * 1000) / 3;
 	ratesel = 0;
-	
+	/* printk(KERN_DEBUG "drxk: SR %d\n", state->props.symbol_rate); */
 	if (state->props.symbol_rate <= 1188750)
 		ratesel = 3;
 	else if (state->props.symbol_rate <= 2377500)
@@ -5117,9 +5296,12 @@ static int QAMSetSymbolrate(struct drxk_state *state)
 	if (status < 0)
 		goto error;
 
+	/*
+		IqmRcRate = ((Fadc / (symbolrate * (4<<ratesel))) - 1) * (1<<23)
+		*/
 	symbFreq = state->props.symbol_rate * (1 << ratesel);
 	if (symbFreq == 0) {
-		
+		/* Divide by zero */
 		status = -EINVAL;
 		goto error;
 	}
@@ -5130,9 +5312,12 @@ static int QAMSetSymbolrate(struct drxk_state *state)
 	if (status < 0)
 		goto error;
 	state->m_iqmRcRate = iqmRcRate;
+	/*
+		LcSymbFreq = round (.125 *  symbolrate / adcFreq * (1<<15))
+		*/
 	symbFreq = state->props.symbol_rate;
 	if (adcFrequency == 0) {
-		
+		/* Divide by zero */
 		status = -EINVAL;
 		goto error;
 	}
@@ -5149,7 +5334,14 @@ error:
 	return status;
 }
 
+/*============================================================================*/
 
+/**
+* \brief Get QAM lock status.
+* \param demod:   instance of demod.
+* \param channel: pointer to channel data.
+* \return DRXStatus_t.
+*/
 
 static int GetQAMLockStatus(struct drxk_state *state, u32 *pLockStatus)
 {
@@ -5166,16 +5358,18 @@ static int GetQAMLockStatus(struct drxk_state *state, u32 *pLockStatus)
 		printk(KERN_ERR "drxk: %s status = %08x\n", __func__, status);
 
 	if (Result[1] < SCU_RAM_QAM_LOCKED_LOCKED_DEMOD_LOCKED) {
-		
+		/* 0x0000 NOT LOCKED */
 	} else if (Result[1] < SCU_RAM_QAM_LOCKED_LOCKED_LOCKED) {
-		
+		/* 0x4000 DEMOD LOCKED */
 		*pLockStatus = DEMOD_LOCK;
 	} else if (Result[1] < SCU_RAM_QAM_LOCKED_LOCKED_NEVER_LOCK) {
-		
+		/* 0x8000 DEMOD + FEC LOCKED (system lock) */
 		*pLockStatus = MPEG_LOCK;
 	} else {
-		
-		
+		/* 0xC000 NEVER LOCKED */
+		/* (system will never be able to lock to the signal) */
+		/* TODO: check this, intermediate & standard specific lock states are not
+		   taken into account here */
 		*pLockStatus = NEVER_LOCK;
 	}
 	return status;
@@ -5196,6 +5390,12 @@ static int SetQAM(struct drxk_state *state, u16 IntermediateFreqkHz,
 	u16 cmdResult;
 
 	dprintk(1, "\n");
+	/*
+	 * STEP 1: reset demodulator
+	 *	resets FEC DI and FEC RS
+	 *	resets QAM block
+	 *	resets SCU variables
+	 */
 	status = write16(state, FEC_DI_COMM_EXEC__A, FEC_DI_COMM_EXEC_STOP);
 	if (status < 0)
 		goto error;
@@ -5206,11 +5406,16 @@ static int SetQAM(struct drxk_state *state, u16 IntermediateFreqkHz,
 	if (status < 0)
 		goto error;
 
+	/*
+	 * STEP 2: configure demodulator
+	 *	-set params; resets IQM,QAM,FEC HW; initializes some
+	 *       SCU variables
+	 */
 	status = QAMSetSymbolrate(state);
 	if (status < 0)
 		goto error;
 
-	
+	/* Set params */
 	switch (state->props.modulation) {
 	case QAM_256:
 		state->m_Constellation = DRX_CONSTELLATION_QAM256;
@@ -5234,20 +5439,20 @@ static int SetQAM(struct drxk_state *state, u16 IntermediateFreqkHz,
 	}
 	if (status < 0)
 		goto error;
-	setParamParameters[0] = state->m_Constellation;	
-	setParamParameters[1] = DRXK_QAM_I12_J17;	
+	setParamParameters[0] = state->m_Constellation;	/* modulation     */
+	setParamParameters[1] = DRXK_QAM_I12_J17;	/* interleave mode   */
 	if (state->m_OperationMode == OM_QAM_ITU_C)
 		setParamParameters[2] = QAM_TOP_ANNEX_C;
 	else
 		setParamParameters[2] = QAM_TOP_ANNEX_A;
 	setParamParameters[3] |= (QAM_MIRROR_AUTO_ON);
-	
-	
-	
+	/* Env parameters */
+	/* check for LOCKRANGE Extented */
+	/* setParamParameters[3] |= QAM_LOCKRANGE_NORMAL; */
 
 	status = scu_command(state, SCU_RAM_COMMAND_STANDARD_QAM | SCU_RAM_COMMAND_CMD_DEMOD_SET_PARAM, 4, setParamParameters, 1, &cmdResult);
 	if (status < 0) {
-		
+		/* Fall-back to the simpler call */
 		if (state->m_OperationMode == OM_QAM_ITU_C)
 			setParamParameters[0] = QAM_TOP_ANNEX_C;
 		else
@@ -5256,13 +5461,17 @@ static int SetQAM(struct drxk_state *state, u16 IntermediateFreqkHz,
 		if (status < 0)
 			goto error;
 
-		setParamParameters[0] = state->m_Constellation; 
-		setParamParameters[1] = DRXK_QAM_I12_J17;       
+		setParamParameters[0] = state->m_Constellation; /* modulation     */
+		setParamParameters[1] = DRXK_QAM_I12_J17;       /* interleave mode   */
 		status = scu_command(state, SCU_RAM_COMMAND_STANDARD_QAM | SCU_RAM_COMMAND_CMD_DEMOD_SET_PARAM, 2, setParamParameters, 1, &cmdResult);
 	}
 	if (status < 0)
 		goto error;
 
+	/*
+	 * STEP 3: enable the system in a mode where the ADC provides valid
+	 * signal setup modulation independent registers
+	 */
 #if 0
 	status = SetFrequency(channel, tunerFreqOffset));
 	if (status < 0)
@@ -5272,12 +5481,12 @@ static int SetQAM(struct drxk_state *state, u16 IntermediateFreqkHz,
 	if (status < 0)
 		goto error;
 
-	
+	/* Setup BER measurement */
 	status = SetQAMMeasurement(state, state->m_Constellation, state->props.symbol_rate);
 	if (status < 0)
 		goto error;
 
-	
+	/* Reset default values */
 	status = write16(state, IQM_CF_SCALE_SH__A, IQM_CF_SCALE_SH__PRE);
 	if (status < 0)
 		goto error;
@@ -5285,7 +5494,7 @@ static int SetQAM(struct drxk_state *state, u16 IntermediateFreqkHz,
 	if (status < 0)
 		goto error;
 
-	
+	/* Reset default LC values */
 	status = write16(state, QAM_LC_RATE_LIMIT__A, 3);
 	if (status < 0)
 		goto error;
@@ -5345,17 +5554,17 @@ static int SetQAM(struct drxk_state *state, u16 IntermediateFreqkHz,
 	if (status < 0)
 		goto error;
 
-	
+	/* Mirroring, QAM-block starting point not inverted */
 	status = write16(state, QAM_SY_SP_INV__A, QAM_SY_SP_INV_SPECTRUM_INV_DIS);
 	if (status < 0)
 		goto error;
 
-	
+	/* Halt SCU to enable safe non-atomic accesses */
 	status = write16(state, SCU_COMM_EXEC__A, SCU_COMM_EXEC_HOLD);
 	if (status < 0)
 		goto error;
 
-	
+	/* STEP 4: modulation specific setup */
 	switch (state->props.modulation) {
 	case QAM_16:
 		status = SetQAM16(state);
@@ -5380,19 +5589,19 @@ static int SetQAM(struct drxk_state *state, u16 IntermediateFreqkHz,
 	if (status < 0)
 		goto error;
 
-	
+	/* Activate SCU to enable SCU commands */
 	status = write16(state, SCU_COMM_EXEC__A, SCU_COMM_EXEC_ACTIVE);
 	if (status < 0)
 		goto error;
 
-	
-	
-	
+	/* Re-configure MPEG output, requires knowledge of channel bitrate */
+	/* extAttr->currentChannel.modulation = channel->modulation; */
+	/* extAttr->currentChannel.symbolrate    = channel->symbolrate; */
 	status = MPEGTSDtoSetup(state, state->m_OperationMode);
 	if (status < 0)
 		goto error;
 
-	
+	/* Start processes */
 	status = MPEGTSStart(state);
 	if (status < 0)
 		goto error;
@@ -5406,12 +5615,13 @@ static int SetQAM(struct drxk_state *state, u16 IntermediateFreqkHz,
 	if (status < 0)
 		goto error;
 
-	
+	/* STEP 5: start QAM demodulator (starts FEC, QAM and IQM HW) */
 	status = scu_command(state, SCU_RAM_COMMAND_STANDARD_QAM | SCU_RAM_COMMAND_CMD_DEMOD_START, 0, NULL, 1, &cmdResult);
 	if (status < 0)
 		goto error;
 
-	
+	/* update global DRXK data container */
+/*?     extAttr->qamInterleaveMode = DRXK_QAM_I12_J17; */
 
 error:
 	if (status < 0)
@@ -5431,19 +5641,19 @@ static int SetQAMStandard(struct drxk_state *state,
 
 	dprintk(1, "\n");
 
-	
+	/* added antenna switch */
 	SwitchAntennaToQAM(state);
 
-	
+	/* Ensure correct power-up mode */
 	status = PowerUpQAM(state);
 	if (status < 0)
 		goto error;
-	
+	/* Reset QAM block */
 	status = QAMResetQAM(state);
 	if (status < 0)
 		goto error;
 
-	
+	/* Setup IQM */
 
 	status = write16(state, IQM_COMM_EXEC__A, IQM_COMM_EXEC_B_STOP);
 	if (status < 0)
@@ -5452,6 +5662,8 @@ static int SetQAMStandard(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
+	/* Upload IQM Channel Filter settings by
+		boot loader from ROM table */
 	switch (oMode) {
 	case OM_QAM_ITU_A:
 		status = BLChainCmd(state, DRXK_BL_ROM_OFFSET_TAPS_ITU_A, DRXK_BLCC_NR_ELEMENTS_TAPS, DRXK_BLC_TIMEOUT);
@@ -5507,7 +5719,7 @@ static int SetQAMStandard(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	
+	/* IQM Impulse Noise Processing Unit */
 	status = write16(state, IQM_CF_CLP_VAL__A, 500);
 	if (status < 0)
 		goto error;
@@ -5530,7 +5742,7 @@ static int SetQAMStandard(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	
+	/* turn on IQMAF. Must be done before setAgc**() */
 	status = SetIqmAf(state, true);
 	if (status < 0)
 		goto error;
@@ -5538,21 +5750,23 @@ static int SetQAMStandard(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	
+	/* IQM will not be reset from here, sync ADC and update/init AGC */
 	status = ADCSynchronization(state);
 	if (status < 0)
 		goto error;
 
-	
+	/* Set the FSM step period */
 	status = write16(state, SCU_RAM_QAM_FSM_STEP_PERIOD__A, 2000);
 	if (status < 0)
 		goto error;
 
-	
+	/* Halt SCU to enable safe non-atomic accesses */
 	status = write16(state, SCU_COMM_EXEC__A, SCU_COMM_EXEC_HOLD);
 	if (status < 0)
 		goto error;
 
+	/* No more resets of the IQM, current standard correctly set =>
+		now AGCs can be configured. */
 
 	status = InitAGC(state, true);
 	if (status < 0)
@@ -5561,7 +5775,7 @@ static int SetQAMStandard(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	
+	/* Configure AGC's */
 	status = SetAgcRf(state, &(state->m_qamRfAgcCfg), true);
 	if (status < 0)
 		goto error;
@@ -5569,7 +5783,7 @@ static int SetQAMStandard(struct drxk_state *state,
 	if (status < 0)
 		goto error;
 
-	
+	/* Activate SCU to enable SCU commands */
 	status = write16(state, SCU_COMM_EXEC__A, SCU_COMM_EXEC_ACTIVE);
 error:
 	if (status < 0)
@@ -5583,76 +5797,76 @@ static int WriteGPIO(struct drxk_state *state)
 	u16 value = 0;
 
 	dprintk(1, "\n");
-	
+	/* stop lock indicator process */
 	status = write16(state, SCU_RAM_GPIO__A, SCU_RAM_GPIO_HW_LOCK_IND_DISABLE);
 	if (status < 0)
 		goto error;
 
-	
+	/*  Write magic word to enable pdr reg write               */
 	status = write16(state, SIO_TOP_COMM_KEY__A, SIO_TOP_COMM_KEY_KEY);
 	if (status < 0)
 		goto error;
 
 	if (state->m_hasSAWSW) {
-		if (state->UIO_mask & 0x0001) { 
-			
+		if (state->UIO_mask & 0x0001) { /* UIO-1 */
+			/* write to io pad configuration register - output mode */
 			status = write16(state, SIO_PDR_SMA_TX_CFG__A, state->m_GPIOCfg);
 			if (status < 0)
 				goto error;
 
-			
+			/* use corresponding bit in io data output registar */
 			status = read16(state, SIO_PDR_UIO_OUT_LO__A, &value);
 			if (status < 0)
 				goto error;
 			if ((state->m_GPIO & 0x0001) == 0)
-				value &= 0x7FFF;	
+				value &= 0x7FFF;	/* write zero to 15th bit - 1st UIO */
 			else
-				value |= 0x8000;	
-			
+				value |= 0x8000;	/* write one to 15th bit - 1st UIO */
+			/* write back to io data output register */
 			status = write16(state, SIO_PDR_UIO_OUT_LO__A, value);
 			if (status < 0)
 				goto error;
 		}
-		if (state->UIO_mask & 0x0002) { 
-			
+		if (state->UIO_mask & 0x0002) { /* UIO-2 */
+			/* write to io pad configuration register - output mode */
 			status = write16(state, SIO_PDR_SMA_TX_CFG__A, state->m_GPIOCfg);
 			if (status < 0)
 				goto error;
 
-			
+			/* use corresponding bit in io data output registar */
 			status = read16(state, SIO_PDR_UIO_OUT_LO__A, &value);
 			if (status < 0)
 				goto error;
 			if ((state->m_GPIO & 0x0002) == 0)
-				value &= 0xBFFF;	
+				value &= 0xBFFF;	/* write zero to 14th bit - 2st UIO */
 			else
-				value |= 0x4000;	
-			
+				value |= 0x4000;	/* write one to 14th bit - 2st UIO */
+			/* write back to io data output register */
 			status = write16(state, SIO_PDR_UIO_OUT_LO__A, value);
 			if (status < 0)
 				goto error;
 		}
-		if (state->UIO_mask & 0x0004) { 
-			
+		if (state->UIO_mask & 0x0004) { /* UIO-3 */
+			/* write to io pad configuration register - output mode */
 			status = write16(state, SIO_PDR_SMA_TX_CFG__A, state->m_GPIOCfg);
 			if (status < 0)
 				goto error;
 
-			
+			/* use corresponding bit in io data output registar */
 			status = read16(state, SIO_PDR_UIO_OUT_LO__A, &value);
 			if (status < 0)
 				goto error;
 			if ((state->m_GPIO & 0x0004) == 0)
-				value &= 0xFFFB;            
+				value &= 0xFFFB;            /* write zero to 2nd bit - 3rd UIO */
 			else
-				value |= 0x0004;            
-			
+				value |= 0x0004;            /* write one to 2nd bit - 3rd UIO */
+			/* write back to io data output register */
 			status = write16(state, SIO_PDR_UIO_OUT_LO__A, value);
 			if (status < 0)
 				goto error;
 		}
 	}
-	
+	/*  Write magic word to disable pdr reg write               */
 	status = write16(state, SIO_TOP_COMM_KEY__A, 0x0000);
 error:
 	if (status < 0)
@@ -5673,7 +5887,7 @@ static int SwitchAntennaToQAM(struct drxk_state *state)
 	gpio_state = state->m_GPIO & state->antenna_gpio;
 
 	if (state->antenna_dvbt ^ gpio_state) {
-		
+		/* Antenna is on DVB-T mode. Switch */
 		if (state->antenna_dvbt)
 			state->m_GPIO &= ~state->antenna_gpio;
 		else
@@ -5698,7 +5912,7 @@ static int SwitchAntennaToDVBT(struct drxk_state *state)
 	gpio_state = state->m_GPIO & state->antenna_gpio;
 
 	if (!(state->antenna_dvbt ^ gpio_state)) {
-		
+		/* Antenna is on DVB-C mode. Switch */
 		if (state->antenna_dvbt)
 			state->m_GPIO |= state->antenna_gpio;
 		else
@@ -5713,22 +5927,22 @@ static int SwitchAntennaToDVBT(struct drxk_state *state)
 
 static int PowerDownDevice(struct drxk_state *state)
 {
-	
-	
-	
-	
-	
-	
+	/* Power down to requested mode */
+	/* Backup some register settings */
+	/* Set pins with possible pull-ups connected to them in input mode */
+	/* Analog power down */
+	/* ADC power down */
+	/* Power down device */
 	int status;
 
 	dprintk(1, "\n");
 	if (state->m_bPDownOpenBridge) {
-		
+		/* Open I2C bridge before power down of DRXK */
 		status = ConfigureI2CBridge(state, true);
 		if (status < 0)
 			goto error;
 	}
-	
+	/* driver 0.9.0 */
 	status = DVBTEnableOFDMTokenRing(state, false);
 	if (status < 0)
 		goto error;
@@ -5782,33 +5996,33 @@ static int init_drxk(struct drxk_state *state)
 		status = DRXX_Open(state);
 		if (status < 0)
 			goto error;
-		
+		/* Soft reset of OFDM-, sys- and osc-clockdomain */
 		status = write16(state, SIO_CC_SOFT_RST__A, SIO_CC_SOFT_RST_OFDM__M | SIO_CC_SOFT_RST_SYS__M | SIO_CC_SOFT_RST_OSC__M);
 		if (status < 0)
 			goto error;
 		status = write16(state, SIO_CC_UPDATE__A, SIO_CC_UPDATE_KEY);
 		if (status < 0)
 			goto error;
-		
+		/* TODO is this needed, if yes how much delay in worst case scenario */
 		msleep(1);
 		state->m_DRXK_A3_PATCH_CODE = true;
 		status = GetDeviceCapabilities(state);
 		if (status < 0)
 			goto error;
 
-		
-		
-		
+		/* Bridge delay, uses oscilator clock */
+		/* Delay = (delay (nano seconds) * oscclk (kHz))/ 1000 */
+		/* SDA brdige delay */
 		state->m_HICfgBridgeDelay =
 			(u16) ((state->m_oscClockFreq / 1000) *
 				HI_I2C_BRIDGE_DELAY) / 1000;
-		
+		/* Clipping */
 		if (state->m_HICfgBridgeDelay >
 			SIO_HI_RA_RAM_PAR_3_CFG_DBL_SDA__M) {
 			state->m_HICfgBridgeDelay =
 				SIO_HI_RA_RAM_PAR_3_CFG_DBL_SDA__M;
 		}
-		
+		/* SCL bridge delay, same as SDA for now */
 		state->m_HICfgBridgeDelay +=
 			state->m_HICfgBridgeDelay <<
 			SIO_HI_RA_RAM_PAR_3_CFG_DBL_SCL__B;
@@ -5816,7 +6030,7 @@ static int init_drxk(struct drxk_state *state)
 		status = InitHI(state);
 		if (status < 0)
 			goto error;
-		
+		/* disable various processes */
 #if NOA1ROM
 		if (!(state->m_DRXK_A1_ROM_CODE)
 			&& !(state->m_DRXK_A2_ROM_CODE))
@@ -5827,12 +6041,12 @@ static int init_drxk(struct drxk_state *state)
 				goto error;
 		}
 
-		
+		/* disable MPEG port */
 		status = MPEGTSDisable(state);
 		if (status < 0)
 			goto error;
 
-		
+		/* Stop AUD and SCU */
 		status = write16(state, AUD_COMM_EXEC__A, AUD_COMM_EXEC_STOP);
 		if (status < 0)
 			goto error;
@@ -5840,12 +6054,12 @@ static int init_drxk(struct drxk_state *state)
 		if (status < 0)
 			goto error;
 
-		
+		/* enable token-ring bus through OFDM block for possible ucode upload */
 		status = write16(state, SIO_OFDM_SH_OFDM_RING_ENABLE__A, SIO_OFDM_SH_OFDM_RING_ENABLE_ON);
 		if (status < 0)
 			goto error;
 
-		
+		/* include boot loader section */
 		status = write16(state, SIO_BL_COMM_EXEC__A, SIO_BL_COMM_EXEC_ACTIVE);
 		if (status < 0)
 			goto error;
@@ -5856,19 +6070,19 @@ static int init_drxk(struct drxk_state *state)
 		if (state->microcode_name)
 			load_microcode(state, state->microcode_name);
 
-		
+		/* disable token-ring bus through OFDM block for possible ucode upload */
 		status = write16(state, SIO_OFDM_SH_OFDM_RING_ENABLE__A, SIO_OFDM_SH_OFDM_RING_ENABLE_OFF);
 		if (status < 0)
 			goto error;
 
-		
+		/* Run SCU for a little while to initialize microcode version numbers */
 		status = write16(state, SCU_COMM_EXEC__A, SCU_COMM_EXEC_ACTIVE);
 		if (status < 0)
 			goto error;
 		status = DRXX_Open(state);
 		if (status < 0)
 			goto error;
-		
+		/* added for test */
 		msleep(30);
 
 		powerMode = DRXK_POWER_DOWN_OFDM;
@@ -5876,6 +6090,12 @@ static int init_drxk(struct drxk_state *state)
 		if (status < 0)
 			goto error;
 
+		/* Stamp driver version number in SCU data RAM in BCD code
+			Done to enable field application engineers to retreive drxdriver version
+			via I2C from SCU RAM.
+			Not using SCU command interface for SCU register access since no
+			microcode may be present.
+			*/
 		driverVersion =
 			(((DRXK_VERSION_MAJOR / 100) % 10) << 12) +
 			(((DRXK_VERSION_MAJOR / 10) % 10) << 8) +
@@ -5897,18 +6117,24 @@ static int init_drxk(struct drxk_state *state)
 			DRXK_VERSION_MAJOR, DRXK_VERSION_MINOR,
 			DRXK_VERSION_PATCH);
 
+		/* Dirty fix of default values for ROM/PATCH microcode
+			Dirty because this fix makes it impossible to setup suitable values
+			before calling DRX_Open. This solution requires changes to RF AGC speed
+			to be done via the CTRL function after calling DRX_Open */
 
-		
+		/* m_dvbtRfAgcCfg.speed = 3; */
 
-		
+		/* Reset driver debug flags to 0 */
 		status = write16(state, SCU_RAM_DRIVER_DEBUG__A, 0);
 		if (status < 0)
 			goto error;
-		
+		/* driver 0.9.0 */
+		/* Setup FEC OC:
+			NOTE: No more full FEC resets allowed afterwards!! */
 		status = write16(state, FEC_COMM_EXEC__A, FEC_COMM_EXEC_STOP);
 		if (status < 0)
 			goto error;
-		
+		/* MPEGTS functions are still the same */
 		status = MPEGTSDtoInit(state);
 		if (status < 0)
 			goto error;
@@ -5921,7 +6147,7 @@ static int init_drxk(struct drxk_state *state)
 		status = MPEGTSConfigurePins(state, state->m_enableMPEGOutput);
 		if (status < 0)
 			goto error;
-		
+		/* added: configure GPIO */
 		status = WriteGPIO(state);
 		if (status < 0)
 			goto error;
@@ -6019,7 +6245,7 @@ static int drxk_set_parameters(struct dvb_frontend *fe)
 	fe->ops.tuner_ops.get_if_frequency(fe, &IF);
 	Start(state, 0, IF);
 
-	
+	/* printk(KERN_DEBUG "drxk: %s IF=%d done\n", __func__, IF); */
 
 	return 0;
 }
@@ -6103,15 +6329,15 @@ static int drxk_get_tune_settings(struct dvb_frontend *fe, struct dvb_frontend_t
 }
 
 static struct dvb_frontend_ops drxk_ops = {
-	
+	/* .delsys will be filled dynamically */
 	.info = {
 		.name = "DRXK",
 		.frequency_min = 47000000,
 		.frequency_max = 865000000,
-		 
+		 /* For DVB-C */
 		.symbol_rate_min = 870000,
 		.symbol_rate_max = 11700000,
-		
+		/* For DVB-T */
 		.frequency_stepsize = 166667,
 
 		.caps = FE_CAN_QAM_16 | FE_CAN_QAM_32 | FE_CAN_QAM_64 |
@@ -6178,10 +6404,10 @@ struct dvb_frontend *drxk_attach(const struct drxk_config *config,
 	else
 		state->m_enableParallel = false;
 
-	
+	/* NOTE: as more UIO bits will be used, add them to the mask */
 	state->UIO_mask = config->antenna_gpio;
 
-	
+	/* Default gpio to DVB-C */
 	if (!state->antenna_dvbt && state->antenna_gpio)
 		state->m_GPIO |= state->antenna_gpio;
 	else
@@ -6196,7 +6422,7 @@ struct dvb_frontend *drxk_attach(const struct drxk_config *config,
 	if (init_drxk(state) < 0)
 		goto error;
 
-	
+	/* Initialize the supported delivery systems */
 	n = 0;
 	if (state->m_hasDVBC) {
 		state->frontend.ops.delsys[n++] = SYS_DVBC_ANNEX_A;

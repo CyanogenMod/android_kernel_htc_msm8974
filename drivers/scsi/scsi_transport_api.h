@@ -3,4 +3,4 @@
 
 void scsi_schedule_eh(struct Scsi_Host *shost);
 
-#endif 
+#endif /* _SCSI_TRANSPORT_API_H */

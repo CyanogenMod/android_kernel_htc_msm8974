@@ -48,11 +48,14 @@
 
 #include "devices-imx31.h"
 
+/*
+ * This file contains the module-specific initialization routines.
+ */
 
 static unsigned int mx31lite_pins[] = {
-	
+	/* LAN9117 IRQ pin */
 	IOMUX_MODE(MX31_PIN_SFS6, IOMUX_CONFIG_GPIO),
-	
+	/* SPI 1 */
 	MX31_PIN_CSPI2_SCLK__SCLK,
 	MX31_PIN_CSPI2_MOSI__MOSI,
 	MX31_PIN_CSPI2_MISO__MISO,
@@ -96,6 +99,11 @@ static struct platform_device smsc911x_device = {
 	},
 };
 
+/*
+ * SPI
+ *
+ * The MC13783 is the only hard-wired SPI device on the module.
+ */
 
 static int spi_internal_chipselect[] = {
 	MXC_SPI_CS(0),
@@ -119,6 +127,9 @@ static struct spi_board_info mc13783_spi_dev __initdata = {
 	.irq		= IOMUX_TO_IRQ(MX31_PIN_GPIO1_3),
 };
 
+/*
+ * USB
+ */
 
 #define USB_PAD_CFG (PAD_CTL_DRV_MAX | PAD_CTL_SRE_FAST | PAD_CTL_HYS_CMOS | \
 			PAD_CTL_ODE_CMOS | PAD_CTL_100K_PU)
@@ -151,7 +162,7 @@ static int usbh2_init(struct platform_device *pdev)
 
 	mxc_iomux_set_gpr(MUX_PGP_UH2, true);
 
-	
+	/* chip select */
 	mxc_iomux_alloc_pin(IOMUX_MODE(MX31_PIN_DTR_DCE1, IOMUX_CONFIG_GPIO),
 				"USBH2_CS");
 	gpio_request(IOMUX_TO_GPIO(MX31_PIN_DTR_DCE1), "USBH2 CS");
@@ -167,6 +178,9 @@ static struct mxc_usbh_platform_data usbh2_pdata __initdata = {
 	.portsc = MXC_EHCI_MODE_ULPI | MXC_EHCI_UTMI_8BIT,
 };
 
+/*
+ * NOR flash
+ */
 
 static struct physmap_flash_data nor_flash_data = {
 	.width  = 2,
@@ -190,6 +204,9 @@ static struct platform_device physmap_flash_device = {
 
 
 
+/*
+ * This structure defines the MX31 memory map.
+ */
 static struct map_desc mx31lite_io_desc[] __initdata = {
 	{
 		.virtual = MX31_CS4_BASE_ADDR_VIRT,
@@ -199,6 +216,9 @@ static struct map_desc mx31lite_io_desc[] __initdata = {
 	}
 };
 
+/*
+ * Set up static virtual mappings.
+ */
 void __init mx31lite_map_io(void)
 {
 	mx31_map_io();
@@ -233,14 +253,14 @@ static void __init mx31lite_init(void)
 	mxc_iomux_setup_multiple_pins(mx31lite_pins, ARRAY_SIZE(mx31lite_pins),
 				      "mx31lite");
 
-	
+	/* NOR and NAND flash */
 	platform_device_register(&physmap_flash_device);
 	imx31_add_mxc_nand(&mx31lite_nand_board_info);
 
 	imx31_add_spi_imx1(&spi1_pdata);
 	spi_register_board_info(&mc13783_spi_dev, 1);
 
-	
+	/* USB */
 	usbh2_pdata.otg = imx_otg_ulpi_create(ULPI_OTG_DRVVBUS |
 			ULPI_OTG_DRVVBUS_EXT);
 	if (usbh2_pdata.otg)
@@ -248,7 +268,7 @@ static void __init mx31lite_init(void)
 
 	regulator_register_fixed(0, dummy_supplies, ARRAY_SIZE(dummy_supplies));
 
-	
+	/* SMSC9117 IRQ pin */
 	ret = gpio_request(IOMUX_TO_GPIO(MX31_PIN_SFS6), "sms9117-irq");
 	if (ret)
 		pr_warning("could not get LAN irq gpio\n");
@@ -268,7 +288,7 @@ struct sys_timer mx31lite_timer = {
 };
 
 MACHINE_START(MX31LITE, "LogicPD i.MX31 SOM")
-	
+	/* Maintainer: Freescale Semiconductor, Inc. */
 	.atag_offset = 0x100,
 	.map_io = mx31lite_map_io,
 	.init_early = imx31_init_early,

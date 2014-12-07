@@ -134,7 +134,7 @@ int jfs_init_acl(tid_t tid, struct inode *inode, struct inode *dir)
 		}
 		rc = posix_acl_create(&acl, GFP_KERNEL, &inode->i_mode);
 		if (rc < 0)
-			goto cleanup; 
+			goto cleanup; /* posix_acl_release(NULL) is no-op */
 		if (rc > 0)
 			rc = jfs_set_acl(tid, inode, ACL_TYPE_ACCESS, acl);
 cleanup:

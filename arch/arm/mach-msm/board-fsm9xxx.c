@@ -61,10 +61,10 @@
 #define GPIO_MAC_MDIO       127
 #define GPIO_MAC_MDC        128
 #define GPIO_MAC_TX_CLK     133
-#define GPIO_GRFC_FTR0_0	136 
-#define GPIO_GRFC_FTR0_1	137 
-#define GPIO_GRFC_FTR1_0	145 
-#define GPIO_GRFC_FTR1_1	93 
+#define GPIO_GRFC_FTR0_0	136 /* GRFC 20 */
+#define GPIO_GRFC_FTR0_1	137 /* GRFC 21 */
+#define GPIO_GRFC_FTR1_0	145 /* GRFC 22 */
+#define GPIO_GRFC_FTR1_1	93 /* GRFC 19 */
 #define GPIO_GRFC_2		110
 #define GPIO_GRFC_3		109
 #define GPIO_GRFC_4		108
@@ -95,28 +95,32 @@
 #define GPIO_UIM_DATA_IO	76
 #define GPIO_UIM_CLOCK		77
 
-#define GPIO_PM_UIM_M_RST	26	
-#define GPIO_PM_UIM_RST		27	
-#define GPIO_PM_UIM_M_CLK	28	
-#define GPIO_PM_UIM_CLK		29	
+#define GPIO_PM_UIM_M_RST	26	/* UIM_RST input */
+#define GPIO_PM_UIM_RST		27	/* UIM_RST output */
+#define GPIO_PM_UIM_M_CLK	28	/* UIM_CLK input */
+#define GPIO_PM_UIM_CLK		29	/* UIM_CLK output */
 
 #define FPGA_SDCC_STATUS        0x8E0001A8
 
+/* Macros assume PMIC GPIOs start at 0 */
 #define PM8058_GPIO_PM_TO_SYS(pm_gpio)  (pm_gpio + NR_MSM_GPIOS)
 #define PM8058_GPIO_SYS_TO_PM(sys_gpio) (sys_gpio - NR_MSM_GPIOS)
 #define PM8058_MPP_BASE			(NR_MSM_GPIOS + PM8058_GPIOS)
 #define PM8058_MPP_PM_TO_SYS(pm_gpio)	(pm_gpio + PM8058_MPP_BASE)
 #define PM8058_MPP_SYS_TO_PM(sys_gpio)	(sys_gpio - PM8058_MPP_BASE)
 
-#define PMIC_GPIO_5V_PA_PWR	21	
-#define PMIC_GPIO_4_2V_PA_PWR	22	
-#define PMIC_MPP_UIM_M_DATA	0	
-#define PMIC_MPP_UIM_DATA	1	
-#define PMIC_MPP_3		2	
-#define PMIC_MPP_6		5	
-#define PMIC_MPP_7		6	
-#define PMIC_MPP_10		9	
+#define PMIC_GPIO_5V_PA_PWR	21	/* PMIC GPIO Number 22 */
+#define PMIC_GPIO_4_2V_PA_PWR	22	/* PMIC GPIO Number 23 */
+#define PMIC_MPP_UIM_M_DATA	0	/* UIM_DATA input */
+#define PMIC_MPP_UIM_DATA	1	/* UIM_DATA output */
+#define PMIC_MPP_3		2	/* PMIC MPP Number 3 */
+#define PMIC_MPP_6		5	/* PMIC MPP Number 6 */
+#define PMIC_MPP_7		6	/* PMIC MPP Number 7 */
+#define PMIC_MPP_10		9	/* PMIC MPP Number 10 */
 
+/*
+ * PM8058
+ */
 struct pm8xxx_mpp_init_info {
 	unsigned			mpp;
 	struct pm8xxx_mpp_config_data	config;
@@ -142,7 +146,7 @@ static int pm8058_gpios_init(void)
 	};
 
 	struct pm8058_gpio_cfg gpio_cfgs[] = {
-		{				
+		{				/* 5V PA Power */
 			PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_5V_PA_PWR),
 			{
 				.vin_sel = 0,
@@ -155,7 +159,7 @@ static int pm8058_gpios_init(void)
 				.inv_int_pol = 0,
 			},
 		},
-		{				
+		{				/* 4.2V PA Power */
 			PM8058_GPIO_PM_TO_SYS(PMIC_GPIO_4_2V_PA_PWR),
 			{
 				.vin_sel = 0,
@@ -375,8 +379,13 @@ static void pmic8058_xoadc_vreg_shutdown(void)
 	regulator_put(vreg_ldo18_adc);
 }
 
+/* usec. For this ADC,
+ * this time represents clk rate @ txco w/ 1024 decimation ratio.
+ * Each channel has different configuration, thus at the time of starting
+ * the conversion, xoadc will return actual conversion time
+ * */
 static struct adc_properties pm8058_xoadc_data = {
-	.adc_reference          = 2200, 
+	.adc_reference          = 2200, /* milli-voltage for this adc */
 	.bitresolution         = 15,
 	.bipolar                = 0,
 	.conversiontime         = 54,
@@ -395,6 +404,10 @@ static struct xoadc_platform_data pm8058_xoadc_pdata = {
 #define XO_CONSUMERS(_id) \
 	static struct regulator_consumer_supply xo_consumers_##_id[]
 
+/*
+ * Consumer specific regulator names:
+ *                       regulator name         consumer dev_name
+ */
 XO_CONSUMERS(A0) = {
 	REGULATOR_SUPPLY("8058_xo_a0", NULL),
 	REGULATOR_SUPPLY("a0_clk_buffer", "fsm_xo_driver"),
@@ -477,6 +490,9 @@ static int __init buses_init(void)
 	return 0;
 }
 
+/*
+ * EPHY
+ */
 
 static struct msm_gpio phy_config_data[] = {
 	{ GPIO_CFG(GPIO_EPHY_RST_N, 0, GPIO_CFG_OUTPUT,
@@ -509,6 +525,9 @@ static int __init phy_init(void)
 	return 0;
 }
 
+/*
+ * RF
+ */
 
 static struct msm_gpio grfc_config_data[] = {
 	{ GPIO_CFG(GPIO_GRFC_FTR0_0, 7, GPIO_CFG_OUTPUT,
@@ -575,6 +594,9 @@ static int __init grfc_init(void)
 	return 0;
 }
 
+/*
+ * UART
+ */
 
 #ifdef CONFIG_SERIAL_MSM_CONSOLE
 static struct msm_gpio uart1_config_data[] = {
@@ -618,16 +640,16 @@ static void fsm9xxx_init_uart3_uim(void)
 		.vin_sel	= PM8058_GPIO_VIN_L3,
 	};
 
-	
+	/* TLMM */
 	msm_gpios_request_enable(uart3_uim_config_data,
 			ARRAY_SIZE(uart3_uim_config_data));
 
-	
+	/* Put UIM to reset state */
 	gpio_direction_output(GPIO_UIM_RESET, 0);
 	gpio_set_value(GPIO_UIM_RESET, 0);
 	gpio_export(GPIO_UIM_RESET, false);
 
-	
+	/* PMIC */
 	pm8xxx_gpio_config(PM8058_GPIO_PM_TO_SYS(GPIO_PM_UIM_M_RST),
 		&pmic_uim_gpio_in);
 	pm8xxx_gpio_config(PM8058_GPIO_PM_TO_SYS(GPIO_PM_UIM_RST),
@@ -638,6 +660,9 @@ static void fsm9xxx_init_uart3_uim(void)
 		&pmic_uim_gpio_out);
 }
 
+/*
+ * SSBI
+ */
 
 #ifdef CONFIG_I2C_SSBI
 static struct msm_i2c_ssbi_platform_data msm_i2c_ssbi2_pdata = {
@@ -650,6 +675,7 @@ static struct msm_i2c_ssbi_platform_data msm_i2c_ssbi3_pdata = {
 #endif
 
 #if defined(CONFIG_I2C_SSBI) || defined(CONFIG_MSM_SSBI)
+/* Intialize GPIO configuration for SSBI */
 static struct msm_gpio ssbi_gpio_config_data[] = {
 	{ GPIO_CFG(140, 1, GPIO_CFG_OUTPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_4MA),
 		"SSBI_1" },
@@ -668,6 +694,9 @@ fsm9xxx_init_ssbi_gpio(void)
 }
 #endif
 
+/*
+ * User GPIOs
+ */
 
 static void user_gpios_init(void)
 {
@@ -678,6 +707,9 @@ static void user_gpios_init(void)
 			GPIO_CFG_NO_PULL, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
 }
 
+/*
+ * Crypto
+ */
 
 #define QCE_SIZE		0x10000
 
@@ -685,10 +717,10 @@ static void user_gpios_init(void)
 #define QCE_1_BASE		0x80E00000
 #define QCE_2_BASE		0x81000000
 
-#define QCE_NO_HW_KEY_SUPPORT		0 
-#define QCE_NO_SHARE_CE_RESOURCE	0 
-#define QCE_NO_CE_SHARED		0 
-#define QCE_NO_SHA_HMAC_SUPPORT		0 
+#define QCE_NO_HW_KEY_SUPPORT		0 /* No shared HW key with external */
+#define QCE_NO_SHARE_CE_RESOURCE	0 /* No CE resource shared with TZ */
+#define QCE_NO_CE_SHARED		0 /* CE not shared with TZ */
+#define QCE_NO_SHA_HMAC_SUPPORT		0 /* No SHA-HMAC by SHA operation */
 
 static struct resource qcrypto_resources[] = {
 	[0] = {
@@ -860,6 +892,9 @@ static struct platform_device msm_ion_device = {
 	},
 };
 
+/*
+ * Devices
+ */
 
 static struct platform_device *devices[] __initdata = {
 	&fsm9xxx_device_acpuclk,

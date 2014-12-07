@@ -47,4 +47,4 @@
 
 #define set_irq_type(irq, type)
 
-#endif 
+#endif /*  _ASM_UNIT_SMC91111_H */

@@ -1,6 +1,10 @@
 #ifndef _ASM_IA64_STAT_H
 #define _ASM_IA64_STAT_H
 
+/*
+ * Modified 1998, 1999
+ *	David Mosberger-Tang <davidm@hpl.hp.com>, Hewlett-Packard Co
+ */
 
 struct stat {
 	unsigned long	st_dev;
@@ -44,4 +48,4 @@ struct ia64_oldstat {
 	unsigned int	__unused2;
 };
 
-#endif 
+#endif /* _ASM_IA64_STAT_H */

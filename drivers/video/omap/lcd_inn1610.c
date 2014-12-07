@@ -32,7 +32,7 @@ static int innovator1610_panel_init(struct lcd_panel *panel,
 {
 	int r = 0;
 
-	
+	/* configure GPIO(14, 15) as outputs */
 	if (gpio_request_one(14, GPIOF_OUT_INIT_LOW, "lcd_en0")) {
 		pr_err(MODULE_NAME ": can't request GPIO 14\n");
 		r = -1;
@@ -56,7 +56,7 @@ static void innovator1610_panel_cleanup(struct lcd_panel *panel)
 
 static int innovator1610_panel_enable(struct lcd_panel *panel)
 {
-	
+	/* set GPIO14 and GPIO15 high */
 	gpio_set_value(14, 1);
 	gpio_set_value(15, 1);
 	return 0;
@@ -64,7 +64,7 @@ static int innovator1610_panel_enable(struct lcd_panel *panel)
 
 static void innovator1610_panel_disable(struct lcd_panel *panel)
 {
-	
+	/* set GPIO13, GPIO14 and GPIO15 low */
 	gpio_set_value(14, 0);
 	gpio_set_value(15, 0);
 }

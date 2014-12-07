@@ -27,6 +27,7 @@
 #include <linux/pci.h>
 #include "../comedidev.h"
 
+/*  #define DEBUG_MITE */
 #define PCIMIO_COMPAT
 
 #ifdef DEBUG_MITE
@@ -180,99 +181,99 @@ enum mite_registers {
 	   written and read back.  The bits 0x1f always read as 1.
 	   The rest always read as zero. */
 	MITE_UNKNOWN_DMA_BURST_REG = 0x28,
-	MITE_IODWBSR = 0xc0,	
-	MITE_IODWBSR_1 = 0xc4,	
+	MITE_IODWBSR = 0xc0,	/* IO Device Window Base Size Register */
+	MITE_IODWBSR_1 = 0xc4,	/*  IO Device Window Base Size Register 1 */
 	MITE_IODWCR_1 = 0xf4,
 	MITE_PCI_CONFIG_OFFSET = 0x300,
-	MITE_CSIGR = 0x460	
+	MITE_CSIGR = 0x460	/* chip signature */
 };
 static inline int MITE_CHOR(int channel)
-{				
+{				/*  channel operation */
 	return CHAN_OFFSET(channel) + 0x0;
 };
 
 static inline int MITE_CHCR(int channel)
-{				
+{				/*  channel control */
 	return CHAN_OFFSET(channel) + 0x4;
 };
 
 static inline int MITE_TCR(int channel)
-{				
+{				/*  transfer count */
 	return CHAN_OFFSET(channel) + 0x8;
 };
 
 static inline int MITE_MCR(int channel)
-{				
+{				/*  memory configuration */
 	return CHAN_OFFSET(channel) + 0xc;
 };
 
 static inline int MITE_MAR(int channel)
-{				
+{				/*  memory address */
 	return CHAN_OFFSET(channel) + 0x10;
 };
 
 static inline int MITE_DCR(int channel)
-{				
+{				/*  device configuration */
 	return CHAN_OFFSET(channel) + 0x14;
 };
 
 static inline int MITE_DAR(int channel)
-{				
+{				/*  device address */
 	return CHAN_OFFSET(channel) + 0x18;
 };
 
 static inline int MITE_LKCR(int channel)
-{				
+{				/*  link configuration */
 	return CHAN_OFFSET(channel) + 0x1c;
 };
 
 static inline int MITE_LKAR(int channel)
-{				
+{				/*  link address */
 	return CHAN_OFFSET(channel) + 0x20;
 };
 
 static inline int MITE_LLKAR(int channel)
-{				
+{				/*  see mite section of tnt5002 manual */
 	return CHAN_OFFSET(channel) + 0x24;
 };
 
 static inline int MITE_BAR(int channel)
-{				
+{				/*  base address */
 	return CHAN_OFFSET(channel) + 0x28;
 };
 
 static inline int MITE_BCR(int channel)
-{				
+{				/*  base count */
 	return CHAN_OFFSET(channel) + 0x2c;
 };
 
 static inline int MITE_SAR(int channel)
-{				
+{				/*  ? address */
 	return CHAN_OFFSET(channel) + 0x30;
 };
 
 static inline int MITE_WSCR(int channel)
-{				
+{				/*  ? */
 	return CHAN_OFFSET(channel) + 0x34;
 };
 
 static inline int MITE_WSER(int channel)
-{				
+{				/*  ? */
 	return CHAN_OFFSET(channel) + 0x38;
 };
 
 static inline int MITE_CHSR(int channel)
-{				
+{				/*  channel status */
 	return CHAN_OFFSET(channel) + 0x3c;
 };
 
 static inline int MITE_FCR(int channel)
-{				
+{				/*  fifo count */
 	return CHAN_OFFSET(channel) + 0x40;
 };
 
 enum MITE_IODWBSR_bits {
-	WENAB = 0x80,		
+	WENAB = 0x80,		/*  window enable */
 };
 
 static inline unsigned MITE_IODWBSR_1_WSIZE_bits(unsigned size)
@@ -294,27 +295,27 @@ static inline int mite_csigr_version(u32 csigr_bits)
 };
 
 static inline int mite_csigr_type(u32 csigr_bits)
-{				
+{				/*  original mite = 0, minimite = 1 */
 	return (csigr_bits >> 4) & 0xf;
 };
 
 static inline int mite_csigr_mmode(u32 csigr_bits)
-{				
+{				/*  mite mode, minimite = 1 */
 	return (csigr_bits >> 8) & 0x3;
 };
 
 static inline int mite_csigr_imode(u32 csigr_bits)
-{				
+{				/*  cpu port interface mode, pci = 0x3 */
 	return (csigr_bits >> 12) & 0x3;
 };
 
 static inline int mite_csigr_dmac(u32 csigr_bits)
-{				
+{				/*  number of dma channels */
 	return (csigr_bits >> 16) & 0xf;
 };
 
 static inline int mite_csigr_wpdep(u32 csigr_bits)
-{				
+{				/*  write post fifo depth */
 	unsigned int wpdep_bits = (csigr_bits >> 20) & 0x7;
 	if (wpdep_bits == 0)
 		return 0;
@@ -328,7 +329,7 @@ static inline int mite_csigr_wins(u32 csigr_bits)
 };
 
 static inline int mite_csigr_iowins(u32 csigr_bits)
-{				
+{				/*  number of io windows */
 	return (csigr_bits >> 29) & 0x7;
 };
 
@@ -351,8 +352,8 @@ enum MITE_CHOR_bits {
 	CHOR_CLRRB = (1 << 6),
 	CHOR_CLRLC = (1 << 5),
 	CHOR_FRESET = (1 << 4),
-	CHOR_ABORT = (1 << 3),	
-	CHOR_STOP = (1 << 2),	
+	CHOR_ABORT = (1 << 3),	/* stop without emptying fifo */
+	CHOR_STOP = (1 << 2),	/* stop after emptying fifo */
 	CHOR_CONT = (1 << 1),
 	CHOR_START = (1 << 0),
 	CHOR_PON = (CHOR_CLR_SEND_TC | CHOR_CLR_LPAUSE),
@@ -417,6 +418,8 @@ static inline int CR_REQS(int source)
 
 static inline int CR_REQSDRQ(unsigned drq_line)
 {
+	/* This also works on m-series when
+	   using channels (drq_line) 4 or 5. */
 	return CR_REQS((drq_line & 0x3) | 0x4);
 }
 
@@ -449,7 +452,7 @@ enum CHSR_bits {
 	CHSR_OPERR_mask = (3 << 10),
 	CHSR_OPERR_NOERROR = (0 << 10),
 	CHSR_OPERR_FIFOERROR = (1 << 10),
-	CHSR_OPERR_LINKERROR = (1 << 10),	
+	CHSR_OPERR_LINKERROR = (1 << 10),	/* ??? */
 	CHSR_XFERR = (1 << 9),
 	CHSR_END = (1 << 8),
 	CHSR_DRQ1 = (1 << 7),

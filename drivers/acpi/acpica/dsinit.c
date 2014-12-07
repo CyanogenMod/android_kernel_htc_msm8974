@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Module Name: dsinit - Object initialization namespace walk
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -45,10 +50,30 @@
 #define _COMPONENT          ACPI_DISPATCHER
 ACPI_MODULE_NAME("dsinit")
 
+/* Local prototypes */
 static acpi_status
 acpi_ds_init_one_object(acpi_handle obj_handle,
 			u32 level, void *context, void **return_value);
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ds_init_one_object
+ *
+ * PARAMETERS:  obj_handle      - Node for the object
+ *              Level           - Current nesting level
+ *              Context         - Points to a init info struct
+ *              return_value    - Not used
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Callback from acpi_walk_namespace. Invoked for every object
+ *              within the namespace.
+ *
+ *              Currently, the only objects that require initialization are:
+ *              1) Methods
+ *              2) Operation Regions
+ *
+ ******************************************************************************/
 
 static acpi_status
 acpi_ds_init_one_object(acpi_handle obj_handle,
@@ -63,13 +88,17 @@ acpi_ds_init_one_object(acpi_handle obj_handle,
 
 	ACPI_FUNCTION_ENTRY();
 
+	/*
+	 * We are only interested in NS nodes owned by the table that
+	 * was just loaded
+	 */
 	if (node->owner_id != info->owner_id) {
 		return (AE_OK);
 	}
 
 	info->object_count++;
 
-	
+	/* And even then, we are only interested in a few object types */
 
 	type = acpi_ns_get_type(obj_handle);
 
@@ -101,9 +130,26 @@ acpi_ds_init_one_object(acpi_handle obj_handle,
 		break;
 	}
 
+	/*
+	 * We ignore errors from above, and always return OK, since
+	 * we don't want to abort the walk on a single error.
+	 */
 	return (AE_OK);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ds_initialize_objects
+ *
+ * PARAMETERS:  table_desc      - Descriptor for parent ACPI table
+ *              start_node      - Root of subtree to be initialized.
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Walk the namespace starting at "StartNode" and perform any
+ *              necessary initialization on the objects found therein
+ *
+ ******************************************************************************/
 
 acpi_status
 acpi_ds_initialize_objects(u32 table_index,
@@ -125,20 +171,24 @@ acpi_ds_initialize_objects(u32 table_index,
 			  "**** Starting initialization of namespace objects ****\n"));
 	ACPI_DEBUG_PRINT_RAW((ACPI_DB_INIT, "Parsing all Control Methods:"));
 
-	
+	/* Set all init info to zero */
 
 	ACPI_MEMSET(&info, 0, sizeof(struct acpi_init_walk_info));
 
 	info.owner_id = owner_id;
 	info.table_index = table_index;
 
-	
+	/* Walk entire namespace from the supplied root */
 
 	status = acpi_ut_acquire_mutex(ACPI_MTX_NAMESPACE);
 	if (ACPI_FAILURE(status)) {
 		return_ACPI_STATUS(status);
 	}
 
+	/*
+	 * We don't use acpi_walk_namespace since we do not want to acquire
+	 * the namespace reader lock.
+	 */
 	status =
 	    acpi_ns_walk_namespace(ACPI_TYPE_ANY, start_node, ACPI_UINT32_MAX,
 				   ACPI_NS_WALK_UNLOCK, acpi_ds_init_one_object,

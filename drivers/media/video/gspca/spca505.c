@@ -29,8 +29,9 @@ MODULE_AUTHOR("Michel Xhaard <mxhaard@users.sourceforge.net>");
 MODULE_DESCRIPTION("GSPCA/SPCA505 USB Camera Driver");
 MODULE_LICENSE("GPL");
 
+/* specific webcam descriptor */
 struct sd {
-	struct gspca_dev gspca_dev;		
+	struct gspca_dev gspca_dev;		/* !! must be the first item */
 
 	u8 brightness;
 
@@ -39,6 +40,7 @@ struct sd {
 #define Nxultra 1
 };
 
+/* V4L2 controls supported by the driver */
 static int sd_setbrightness(struct gspca_dev *gspca_dev, __s32 val);
 static int sd_getbrightness(struct gspca_dev *gspca_dev, __s32 *val);
 
@@ -89,35 +91,39 @@ static const struct v4l2_pix_format vga_mode[] = {
 
 #define SPCA50X_OFFSET_DATA 10
 
-#define SPCA50X_REG_USB 0x02	
+#define SPCA50X_REG_USB 0x02	/* spca505 501 */
 
-#define SPCA50X_USB_CTRL 0x00	
-#define SPCA50X_CUSB_ENABLE 0x01 
+#define SPCA50X_USB_CTRL 0x00	/* spca505 */
+#define SPCA50X_CUSB_ENABLE 0x01 /* spca505 */
 
-#define SPCA50X_REG_GLOBAL 0x03	
-#define SPCA50X_GMISC0_IDSEL 0x01 
-#define SPCA50X_GLOBAL_MISC0 0x00 
+#define SPCA50X_REG_GLOBAL 0x03	/* spca505 */
+#define SPCA50X_GMISC0_IDSEL 0x01 /* Global control device ID select spca505 */
+#define SPCA50X_GLOBAL_MISC0 0x00 /* Global control miscellaneous 0 spca505 */
 
-#define SPCA50X_GLOBAL_MISC1 0x01 
-#define SPCA50X_GLOBAL_MISC3 0x03 
-#define SPCA50X_GMISC3_SAA7113RST 0x20	
+#define SPCA50X_GLOBAL_MISC1 0x01 /* 505 */
+#define SPCA50X_GLOBAL_MISC3 0x03 /* 505 */
+#define SPCA50X_GMISC3_SAA7113RST 0x20	/* Not sure about this one spca505 */
 
+/* Image format and compression control */
 #define SPCA50X_REG_COMPRESS 0x04
 
+/*
+ * Data to initialize a SPCA505. Common to the CCD and external modes
+ */
 static const u8 spca505_init_data[][3] = {
-	
+	/* bmRequest,value,index */
 	{SPCA50X_REG_GLOBAL, SPCA50X_GMISC3_SAA7113RST, SPCA50X_GLOBAL_MISC3},
-	
+	/* Sensor reset */
 	{SPCA50X_REG_GLOBAL, 0x00, SPCA50X_GLOBAL_MISC3},
 	{SPCA50X_REG_GLOBAL, 0x00, SPCA50X_GLOBAL_MISC1},
-	
+	/* Block USB reset */
 	{SPCA50X_REG_GLOBAL, SPCA50X_GMISC0_IDSEL, SPCA50X_GLOBAL_MISC0},
 
 	{0x05, 0x01, 0x10},
-					
+					/* Maybe power down some stuff */
 	{0x05, 0x0f, 0x11},
 
-	
+	/* Setup internal CCD  ? */
 	{0x06, 0x10, 0x08},
 	{0x06, 0x00, 0x09},
 	{0x06, 0x00, 0x0a},
@@ -138,22 +144,27 @@ static const u8 spca505_init_data[][3] = {
 	{}
 };
 
+/*
+ * Data to initialize the camera using the internal CCD
+ */
 static const u8 spca505_open_data_ccd[][3] = {
-	
-	
+	/* bmRequest,value,index */
+	/* Internal CCD data set */
 	{0x03, 0x04, 0x01},
-	
+	/* This could be a reset */
 	{0x03, 0x00, 0x01},
 
+	/* Setup compression and image registers. 0x6 and 0x7 seem to be
+	   related to H&V hold, and are resolution mode specific */
 		{0x04, 0x10, 0x01},
-		
+		/* DIFF(0x50), was (0x10) */
 	{0x04, 0x00, 0x04},
 	{0x04, 0x00, 0x05},
 	{0x04, 0x20, 0x06},
 	{0x04, 0x20, 0x07},
 
 	{0x08, 0x0a, 0x00},
-	
+	/* DIFF (0x4a), was (0xa) */
 
 	{0x05, 0x00, 0x10},
 	{0x05, 0x00, 0x11},
@@ -185,13 +196,14 @@ static const u8 spca505_open_data_ccd[][3] = {
 		/* DIFF not written */
 
 	{0x03, 0x08, 0x03},
-	
+	/* DIFF (0x3,0x28,0x3) */
 	{0x03, 0x08, 0x01},
 	{0x03, 0x0c, 0x03},
 	/* DIFF not written */
 		{0x03, 0x21, 0x00},
-		
+		/* DIFF (0x39) */
 
+/* Extra block copied from init to hopefully ensure CCD is in a sane state */
 	{0x06, 0x10, 0x08},
 	{0x06, 0x00, 0x09},
 	{0x06, 0x00, 0x0a},
@@ -209,10 +221,10 @@ static const u8 spca505_open_data_ccd[][3] = {
 	{0x06, 0x40, 0x52},
 	{0x06, 0xb6, 0x53},
 	{0x06, 0x3d, 0x54},
-	
+	/* End of extra block */
 
 		{0x06, 0x3f, 0x1},
-		
+		/* Block skipped */
 	{0x06, 0x10, 0x02},
 	{0x06, 0x64, 0x07},
 	{0x06, 0x10, 0x08},
@@ -240,28 +252,28 @@ static const u8 spca505_open_data_ccd[][3] = {
 	{0x05, 0x01, 0xc0},
 	{0x05, 0x10, 0xcb},
 		{0x05, 0x80, 0xc1},
-		
+		/* */
 		{0x05, 0x0, 0xc2},
-		
+		/* 4 was 0 */
 	{0x05, 0x00, 0xca},
 		{0x05, 0x80, 0xc1},
-		
+		/*  */
 	{0x05, 0x04, 0xc2},
 	{0x05, 0x00, 0xca},
 		{0x05, 0x0, 0xc1},
-		
+		/*  */
 	{0x05, 0x00, 0xc2},
 	{0x05, 0x00, 0xca},
 		{0x05, 0x40, 0xc1},
-		
+		/* */
 	{0x05, 0x17, 0xc2},
 	{0x05, 0x00, 0xca},
 		{0x05, 0x80, 0xc1},
-		
+		/* */
 	{0x05, 0x06, 0xc2},
 	{0x05, 0x00, 0xca},
 		{0x05, 0x80, 0xc1},
-		
+		/* */
 	{0x05, 0x04, 0xc2},
 	{0x05, 0x00, 0xca},
 
@@ -276,13 +288,13 @@ static const u8 spca505_open_data_ccd[][3] = {
 	{0x06, 0x15, 0x5a},
 
 	{0x04, 0x00, 0x08},
-	
+	/* Compress = OFF (0x1 to turn on) */
 	{0x04, 0x12, 0x09},
 	{0x04, 0x21, 0x0a},
 	{0x04, 0x10, 0x0b},
 	{0x04, 0x21, 0x0c},
 	{0x04, 0x05, 0x00},
-	
+	/* was 5 (Image Type ? ) */
 	{0x04, 0x00, 0x01},
 
 	{0x06, 0x3f, 0x01},
@@ -304,7 +316,7 @@ static const u8 spca505_open_data_ccd[][3] = {
 	{0x05, 0x01, 0x00},
 	{0x05, 0x05, 0x01},
 		{0x05, 0x00, 0xc1},
-		
+		/* */
 	{0x05, 0x00, 0xc2},
 	{0x05, 0x00, 0xca},
 
@@ -313,9 +325,19 @@ static const u8 spca505_open_data_ccd[][3] = {
 	{}
 };
 
-#define initial_brightness 0x7f	
+/*
+ * Made by Tomasz Zablocki (skalamandra@poczta.onet.pl)
+ * SPCA505b chip based cameras initialization data
+ */
+/* jfm */
+#define initial_brightness 0x7f	/* 0x0(white)-0xff(black) */
+/* #define initial_brightness 0x0	//0x0(white)-0xff(black) */
+/*
+ * Data to initialize a SPCA505. Common to the CCD and external modes
+ */
 static const u8 spca505b_init_data[][3] = {
-	{0x02, 0x00, 0x00},		
+/* start */
+	{0x02, 0x00, 0x00},		/* init */
 	{0x02, 0x00, 0x01},
 	{0x02, 0x00, 0x02},
 	{0x02, 0x00, 0x03},
@@ -370,9 +392,13 @@ static const u8 spca505b_init_data[][3] = {
 	{}
 };
 
+/*
+ * Data to initialize the camera using the internal CCD
+ */
 static const u8 spca505b_open_data_ccd[][3] = {
 
-	{0x03, 0x04, 0x01},		
+/* {0x02,0x00,0x00}, */
+	{0x03, 0x04, 0x01},		/* rst */
 	{0x03, 0x00, 0x01},
 	{0x03, 0x00, 0x00},
 	{0x03, 0x21, 0x00},
@@ -385,6 +411,7 @@ static const u8 spca505b_open_data_ccd[][3] = {
 	{0x03, 0x5c, 0x03},
 	{0x03, 0x18, 0x01},
 
+/* same as 505 */
 	{0x04, 0x10, 0x01},
 	{0x04, 0x00, 0x04},
 	{0x04, 0x00, 0x05},
@@ -408,7 +435,7 @@ static const u8 spca505b_open_data_ccd[][3] = {
 	{0x05, 0xa0, 0x08},
 	{0x05, 0x00, 0x12},
 	{0x05, 0x02, 0x0f},
-	{0x05, 0x80, 0x14},		
+	{0x05, 0x80, 0x14},		/* max exposure off (0=on) */
 	{0x05, 0x01, 0xb0},
 	{0x05, 0x01, 0xbf},
 	{0x03, 0x02, 0x06},
@@ -427,7 +454,7 @@ static const u8 spca505b_open_data_ccd[][3] = {
 	{0x06, 0xfc, 0x0d},
 	{0x06, 0xfc, 0x0e},
 	{0x06, 0xfc, 0x0f},
-	{0x06, 0x11, 0x10},		
+	{0x06, 0x11, 0x10},		/* contrast */
 	{0x06, 0x00, 0x11},
 	{0x06, 0xfe, 0x12},
 	{0x06, 0x00, 0x13},
@@ -492,28 +519,28 @@ static const u8 spca505b_open_data_ccd[][3] = {
 
 	{0x05, 0x8c, 0x25},
 
-	{0x06, 0x4d, 0x51},		
-	{0x06, 0x84, 0x53},		
-	{0x06, 0x00, 0x57},		
+	{0x06, 0x4d, 0x51},		/* maybe saturation (4d) */
+	{0x06, 0x84, 0x53},		/* making green (84) */
+	{0x06, 0x00, 0x57},		/* sharpness (1) */
 	{0x06, 0x18, 0x08},
 	{0x06, 0xfc, 0x09},
 	{0x06, 0xfc, 0x0a},
 	{0x06, 0xfc, 0x0b},
-	{0x06, 0x18, 0x0c},		
+	{0x06, 0x18, 0x0c},		/* maybe hue (18) */
 	{0x06, 0xfc, 0x0d},
 	{0x06, 0xfc, 0x0e},
 	{0x06, 0xfc, 0x0f},
-	{0x06, 0x18, 0x10},		
+	{0x06, 0x18, 0x10},		/* maybe contrast (18) */
 
 	{0x05, 0x01, 0x02},
 
-	{0x04, 0x00, 0x08},		
+	{0x04, 0x00, 0x08},		/* compression */
 	{0x04, 0x12, 0x09},
 	{0x04, 0x21, 0x0a},
 	{0x04, 0x10, 0x0b},
 	{0x04, 0x21, 0x0c},
-	{0x04, 0x1d, 0x00},		
-	{0x04, 0x41, 0x01},		
+	{0x04, 0x1d, 0x00},		/* imagetype (1d) */
+	{0x04, 0x41, 0x01},		/* hardware snapcontrol */
 
 	{0x04, 0x00, 0x04},
 	{0x04, 0x00, 0x05},
@@ -557,9 +584,10 @@ static int reg_write(struct usb_device *dev,
 	return ret;
 }
 
+/* returns: negative is error, pos or zero is data */
 static int reg_read(struct gspca_dev *gspca_dev,
-			u16 req,	
-			u16 index)	
+			u16 req,	/* bRequest */
+			u16 index)	/* wIndex */
 {
 	int ret;
 
@@ -567,10 +595,10 @@ static int reg_read(struct gspca_dev *gspca_dev,
 			usb_rcvctrlpipe(gspca_dev->dev, 0),
 			req,
 			USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-			0,			
+			0,			/* value */
 			index,
 			gspca_dev->usb_buf, 2,
-			500);			
+			500);			/* timeout */
 	if (ret < 0)
 		return ret;
 	return (gspca_dev->usb_buf[1] << 8) + gspca_dev->usb_buf[0];
@@ -591,6 +619,7 @@ static int write_vector(struct gspca_dev *gspca_dev,
 	return 0;
 }
 
+/* this function is called at probe time */
 static int sd_config(struct gspca_dev *gspca_dev,
 			const struct usb_device_id *id)
 {
@@ -602,13 +631,14 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	sd->subtype = id->driver_info;
 	if (sd->subtype != IntelPCCameraPro)
 		cam->nmodes = ARRAY_SIZE(vga_mode);
-	else			
+	else			/* no 640x480 for IntelPCCameraPro */
 		cam->nmodes = ARRAY_SIZE(vga_mode) - 1;
 	sd->brightness = BRIGHTNESS_DEF;
 
 	return 0;
 }
 
+/* this function is called at probe and resume time */
 static int sd_init(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
@@ -636,12 +666,12 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	struct usb_device *dev = gspca_dev->dev;
 	int ret, mode;
 	static u8 mode_tb[][3] = {
-	
-		{0x00, 0x10, 0x10},	
-		{0x01, 0x1a, 0x1a},	
-		{0x02, 0x1c, 0x1d},	
-		{0x04, 0x34, 0x34},	
-		{0x05, 0x40, 0x40}	
+	/*	  r00   r06   r07	*/
+		{0x00, 0x10, 0x10},	/* 640x480 */
+		{0x01, 0x1a, 0x1a},	/* 352x288 */
+		{0x02, 0x1c, 0x1d},	/* 320x240 */
+		{0x04, 0x34, 0x34},	/* 176x144 */
+		{0x05, 0x40, 0x40}	/* 160x120 */
 	};
 
 	if (sd->subtype == Nxultra)
@@ -666,7 +696,9 @@ static int sd_start(struct gspca_dev *gspca_dev)
 		return ret;
 	reg_write(gspca_dev->dev, 0x05, 0xc2, 0x12);
 
-	
+	/* necessary because without it we can see stream
+	 * only once after loading module */
+	/* stopping usb registers Tomasz change */
 	reg_write(dev, 0x02, 0x00, 0x00);
 
 	mode = gspca_dev->cam.cam_mode[(int) gspca_dev->curr_mode].priv;
@@ -685,16 +717,17 @@ static int sd_start(struct gspca_dev *gspca_dev)
 
 static void sd_stopN(struct gspca_dev *gspca_dev)
 {
-	
+	/* Disable ISO packet machine */
 	reg_write(gspca_dev->dev, 0x02, 0x00, 0x00);
 }
 
+/* called on streamoff with alt 0 and on disconnect */
 static void sd_stop0(struct gspca_dev *gspca_dev)
 {
 	if (!gspca_dev->present)
 		return;
 
-	
+	/* This maybe reset or power control */
 	reg_write(gspca_dev->dev, 0x03, 0x03, 0x20);
 	reg_write(gspca_dev->dev, 0x03, 0x01, 0x00);
 	reg_write(gspca_dev->dev, 0x03, 0x00, 0x01);
@@ -703,17 +736,17 @@ static void sd_stop0(struct gspca_dev *gspca_dev)
 }
 
 static void sd_pkt_scan(struct gspca_dev *gspca_dev,
-			u8 *data,			
-			int len)			
+			u8 *data,			/* isoc packet */
+			int len)			/* iso packet length */
 {
 	switch (data[0]) {
-	case 0:				
+	case 0:				/* start of frame */
 		gspca_frame_add(gspca_dev, LAST_PACKET, NULL, 0);
 		data += SPCA50X_OFFSET_DATA;
 		len -= SPCA50X_OFFSET_DATA;
 		gspca_frame_add(gspca_dev, FIRST_PACKET, data, len);
 		break;
-	case 0xff:			
+	case 0xff:			/* drop */
 		break;
 	default:
 		data += 1;
@@ -741,6 +774,7 @@ static int sd_getbrightness(struct gspca_dev *gspca_dev, __s32 *val)
 	return 0;
 }
 
+/* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name = MODULE_NAME,
 	.ctrls = sd_ctrls,
@@ -753,13 +787,16 @@ static const struct sd_desc sd_desc = {
 	.pkt_scan = sd_pkt_scan,
 };
 
+/* -- module initialisation -- */
 static const struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x041e, 0x401d), .driver_info = Nxultra},
 	{USB_DEVICE(0x0733, 0x0430), .driver_info = IntelPCCameraPro},
+/*fixme: may be UsbGrabberPV321 BRIDGE_SPCA506 SENSOR_SAA7113 */
 	{}
 };
 MODULE_DEVICE_TABLE(usb, device_table);
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf,
 			const struct usb_device_id *id)
 {

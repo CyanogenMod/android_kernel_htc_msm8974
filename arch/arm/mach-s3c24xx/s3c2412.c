@@ -63,6 +63,7 @@ static inline void s3c2412_init_gpio2(void)
 #define s3c2412_init_gpio2() do { } while(0)
 #endif
 
+/* Initial IO mappings */
 
 static struct map_desc s3c2412_iodesc[] __initdata = {
 	IODESC_ENT(CLKPWR),
@@ -82,22 +83,23 @@ static struct map_desc s3c2412_iodesc[] __initdata = {
 	},
 };
 
+/* uart registration process */
 
 void __init s3c2412_init_uarts(struct s3c2410_uartcfg *cfg, int no)
 {
 	s3c24xx_init_uartdevs("s3c2412-uart", s3c2410_uart_resources, cfg, no);
 
-	
+	/* rename devices that are s3c2412/s3c2413 specific */
 	s3c_device_sdi.name  = "s3c2412-sdi";
 	s3c_device_lcd.name  = "s3c2412-lcd";
 	s3c_nand_setname("s3c2412-nand");
 
-	
+	/* alter IRQ of SDI controller */
 
 	s3c_device_sdi.resource[1].start = IRQ_S3C2412_SDI;
 	s3c_device_sdi.resource[1].end   = IRQ_S3C2412_SDI;
 
-	
+	/* spi channel related changes, s3c2412/13 specific */
 	s3c_device_spi0.name = "s3c2412-spi";
 	s3c_device_spi0.resource[0].end = S3C24XX_PA_SPI + 0x24;
 	s3c_device_spi1.name = "s3c2412-spi";
@@ -106,12 +108,18 @@ void __init s3c2412_init_uarts(struct s3c2410_uartcfg *cfg, int no)
 
 }
 
+/* s3c2412_idle
+ *
+ * use the standard idle call by ensuring the idle mode
+ * in power config, then issuing the idle co-processor
+ * instruction
+*/
 
 static void s3c2412_idle(void)
 {
 	unsigned long tmp;
 
-	
+	/* ensure our idle mode is to go to idle */
 
 	tmp = __raw_readl(S3C2412_PWRCFG);
 	tmp &= ~S3C2412_PWRCFG_STANDBYWFI_MASK;
@@ -126,6 +134,14 @@ void s3c2412_restart(char mode, const char *cmd)
 	if (mode == 's')
 		soft_restart(0);
 
+	/* errata "Watch-dog/Software Reset Problem" specifies that
+	 * this reset must be done with the SYSCLK sourced from
+	 * EXTCLK instead of FOUT to avoid a glitch in the reset
+	 * mechanism.
+	 *
+	 * See the watchdog section of the S3C2412 manual for more
+	 * information on this fix.
+	 */
 
 	__raw_writel(0x00, S3C2412_CLKSRC);
 	__raw_writel(S3C2412_SWRST_RESET, S3C2412_SWRST);
@@ -133,18 +149,23 @@ void s3c2412_restart(char mode, const char *cmd)
 	mdelay(1);
 }
 
+/* s3c2412_map_io
+ *
+ * register the standard cpu IO areas, and any passed in from the
+ * machine specific initialisation.
+*/
 
 void __init s3c2412_map_io(void)
 {
-	
+	/* move base of IO */
 
 	s3c2412_init_gpio2();
 
-	
+	/* set our idle function */
 
 	arm_pm_idle = s3c2412_idle;
 
-	
+	/* register our io-tables */
 
 	iotable_init(s3c2412_iodesc, ARRAY_SIZE(s3c2412_iodesc));
 }
@@ -162,6 +183,8 @@ void __init_or_cpufreq s3c2412_setup_clocks(void)
 	xtal = clk_get_rate(xtal_clk);
 	clk_put(xtal_clk);
 
+	/* now we've got our machine bits initialised, work out what
+	 * clocks we've got */
 
 	fclk = s3c24xx_get_pll(__raw_readl(S3C2410_MPLLCON), xtal * 2);
 
@@ -169,13 +192,13 @@ void __init_or_cpufreq s3c2412_setup_clocks(void)
 
 	tmp = __raw_readl(S3C2410_CLKDIVN);
 
-	
+	/* work out clock scalings */
 
 	hclk = fclk / ((tmp & S3C2412_CLKDIVN_HDIVN_MASK) + 1);
 	hclk /= ((tmp & S3C2412_CLKDIVN_ARMDIVN) ? 2 : 1);
 	pclk = hclk / ((tmp & S3C2412_CLKDIVN_PDIVN) ? 2 : 1);
 
-	
+	/* print brieft summary of clocks, etc */
 
 	printk("S3C2412: core %ld.%03ld MHz, memory %ld.%03ld MHz, peripheral %ld.%03ld MHz\n",
 	       print_mhz(fclk), print_mhz(hclk), print_mhz(pclk));
@@ -185,12 +208,20 @@ void __init_or_cpufreq s3c2412_setup_clocks(void)
 
 void __init s3c2412_init_clocks(int xtal)
 {
+	/* initialise the clocks here, to allow other things like the
+	 * console to use them
+	 */
 
 	s3c24xx_register_baseclocks(xtal);
 	s3c2412_setup_clocks();
 	s3c2412_baseclk_add();
 }
 
+/* need to register the subsystem before we actually register the device, and
+ * we also need to ensure that it has been initialised before any of the
+ * drivers even try to use it (even if not on an s3c2412 based system)
+ * as a driver which may support both 2410 and 2440 may try and use it.
+*/
 
 struct bus_type s3c2412_subsys = {
 	.name = "s3c2412-core",

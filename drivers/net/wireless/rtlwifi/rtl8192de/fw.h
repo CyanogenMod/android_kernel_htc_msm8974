@@ -42,11 +42,17 @@
 		(GET_FIRMWARE_HDR_SIGNATURE(_pfwhdr) & 0xFFFF) == 0x92D2 ||  \
 		(GET_FIRMWARE_HDR_SIGNATURE(_pfwhdr) & 0xFFFF) == 0x92D3)
 
+/* Define a macro that takes an le32 word, converts it to host ordering,
+ * right shifts by a specified count, creates a mask of the specified
+ * bit count, and extracts that number of bits.
+ */
 
 #define SHIFT_AND_MASK_LE(__pdesc, __shift, __mask)		\
 	((le32_to_cpu(*(((__le32 *)(__pdesc)))) >> (__shift)) &	\
 	BIT_LEN_MASK_32(__mask))
 
+/* Firmware Header(8-byte alinment required) */
+/* --- LONG WORD 0 ---- */
 #define GET_FIRMWARE_HDR_SIGNATURE(__fwhdr)		\
 	SHIFT_AND_MASK_LE(__fwhdr, 0, 16)
 #define GET_FIRMWARE_HDR_CATEGORY(__fwhdr)		\
@@ -60,6 +66,7 @@
 #define GET_FIRMWARE_HDR_RSVD1(__fwhdr)			\
 	SHIFT_AND_MASK_LE(__fwhdr + 4, 24, 8)
 
+/* --- LONG WORD 1 ---- */
 #define GET_FIRMWARE_HDR_MONTH(__fwhdr)			\
 	SHIFT_AND_MASK_LE(__fwhdr + 8, 0, 8)
 #define GET_FIRMWARE_HDR_DATE(__fwhdr)			\
@@ -73,11 +80,13 @@
 #define GET_FIRMWARE_HDR_RSVD2(__fwhdr)			\
 	SHIFT_AND_MASK_LE(__fwhdr + 12, 16, 16)
 
+/* --- LONG WORD 2 ---- */
 #define GET_FIRMWARE_HDR_SVN_IDX(__fwhdr)		\
 	SHIFT_AND_MASK_LE(__fwhdr + 16, 0, 32)
 #define GET_FIRMWARE_HDR_RSVD3(__fwhdr)			\
 	SHIFT_AND_MASK_LE(__fwhdr + 20, 0, 32)
 
+/* --- LONG WORD 3 ---- */
 #define GET_FIRMWARE_HDR_RSVD4(__fwhdr)			\
 	SHIFT_AND_MASK_LE(__fwhdr + 24, 0, 32)
 #define GET_FIRMWARE_HDR_RSVD5(__fwhdr)			\

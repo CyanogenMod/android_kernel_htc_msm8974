@@ -380,6 +380,7 @@ DEFINE_EVENT(ocfs2__ull_ull_uint_uint, name,	\
 		 unsigned int value2, unsigned int value3),	\
 	TP_ARGS(ull, ull1, value2, value3))
 
+/* Trace events for fs/ocfs2/alloc.c. */
 DECLARE_EVENT_CLASS(ocfs2__btree_ops,
 	TP_PROTO(unsigned long long owner,\
 		 unsigned int value1, unsigned int value2),
@@ -712,7 +713,9 @@ DEFINE_OCFS2_ULL_UINT_UINT_UINT_EVENT(ocfs2_trim_group);
 
 DEFINE_OCFS2_ULL_ULL_ULL_EVENT(ocfs2_trim_fs);
 
+/* End of trace events for fs/ocfs2/alloc.c. */
 
+/* Trace events for fs/ocfs2/localalloc.c. */
 
 DEFINE_OCFS2_UINT_UINT_UINT_EVENT(ocfs2_la_set_sizes);
 
@@ -757,7 +760,9 @@ DEFINE_OCFS2_INT_INT_EVENT(ocfs2_local_alloc_new_window);
 
 DEFINE_OCFS2_ULL_UINT_EVENT(ocfs2_local_alloc_new_window_result);
 
+/* End of trace events for fs/ocfs2/localalloc.c. */
 
+/* Trace events for fs/ocfs2/resize.c. */
 
 DEFINE_OCFS2_UINT_UINT_EVENT(ocfs2_update_last_group_and_inode);
 
@@ -765,7 +770,9 @@ DEFINE_OCFS2_ULL_UINT_EVENT(ocfs2_group_extend);
 
 DEFINE_OCFS2_ULL_UINT_UINT_UINT_EVENT(ocfs2_group_add);
 
+/* End of trace events for fs/ocfs2/resize.c. */
 
+/* Trace events for fs/ocfs2/suballoc.c. */
 
 DEFINE_OCFS2_ULL_EVENT(ocfs2_validate_group_descriptor);
 
@@ -869,7 +876,9 @@ DEFINE_OCFS2_ULL_UINT_EVENT(ocfs2_test_suballoc_bit);
 
 DEFINE_OCFS2_ULL_EVENT(ocfs2_test_inode_bit);
 
+/* End of trace events for fs/ocfs2/suballoc.c. */
 
+/* Trace events for fs/ocfs2/refcounttree.c. */
 
 DEFINE_OCFS2_ULL_EVENT(ocfs2_validate_refcount_block);
 
@@ -1106,7 +1115,9 @@ TRACE_EVENT(ocfs2_refcount_cow_hunk,
 		  __entry->max_cpos, __entry->cow_start, __entry->cow_len)
 );
 
+/* End of trace events for fs/ocfs2/refcounttree.c. */
 
+/* Trace events for fs/ocfs2/aops.c. */
 
 DECLARE_EVENT_CLASS(ocfs2__get_block,
 	TP_PROTO(unsigned long long ino, unsigned long long iblock,
@@ -1228,7 +1239,9 @@ TRACE_EVENT(ocfs2_write_end_inline,
 		  __entry->id_count, __entry->features)
 );
 
+/* End of trace events for fs/ocfs2/aops.c. */
 
+/* Trace events for fs/ocfs2/mmap.c. */
 
 TRACE_EVENT(ocfs2_fault,
 	TP_PROTO(unsigned long long ino,
@@ -1250,7 +1263,9 @@ TRACE_EVENT(ocfs2_fault,
 		  __entry->ino, __entry->area, __entry->page, __entry->pgoff)
 );
 
+/* End of trace events for fs/ocfs2/mmap.c. */
 
+/* Trace events for fs/ocfs2/file.c. */
 
 DECLARE_EVENT_CLASS(ocfs2__file_ops,
 	TP_PROTO(void *inode, void *file, void *dentry,
@@ -1461,7 +1476,9 @@ TRACE_EVENT(ocfs2_prepare_inode_for_write,
 
 DEFINE_OCFS2_INT_EVENT(generic_file_aio_read_ret);
 
+/* End of trace events for fs/ocfs2/file.c. */
 
+/* Trace events for fs/ocfs2/inode.c. */
 
 TRACE_EVENT(ocfs2_iget_begin,
 	TP_PROTO(unsigned long long ino, unsigned int flags, int sysfile_type),
@@ -1577,7 +1594,9 @@ TRACE_EVENT(ocfs2_inode_revalidate,
 
 DEFINE_OCFS2_ULL_EVENT(ocfs2_mark_inode_dirty);
 
+/* End of trace events for fs/ocfs2/inode.c. */
 
+/* Trace events for fs/ocfs2/extent_map.c. */
 
 TRACE_EVENT(ocfs2_read_virt_blocks,
 	TP_PROTO(void *inode, unsigned long long vblock, int nr,
@@ -1603,7 +1622,9 @@ TRACE_EVENT(ocfs2_read_virt_blocks,
 		  __entry->nr, __entry->bhs, __entry->flags, __entry->validate)
 );
 
+/* End of trace events for fs/ocfs2/extent_map.c. */
 
+/* Trace events for fs/ocfs2/slot_map.c. */
 
 DEFINE_OCFS2_UINT_EVENT(ocfs2_refresh_slot_info);
 
@@ -1613,11 +1634,15 @@ DEFINE_OCFS2_ULL_UINT_EVENT(ocfs2_map_slot_buffers_block);
 
 DEFINE_OCFS2_INT_EVENT(ocfs2_find_slot);
 
+/* End of trace events for fs/ocfs2/slot_map.c. */
 
+/* Trace events for fs/ocfs2/heartbeat.c. */
 
 DEFINE_OCFS2_INT_EVENT(ocfs2_do_node_down);
 
+/* End of trace events for fs/ocfs2/heartbeat.c. */
 
+/* Trace events for fs/ocfs2/super.c. */
 
 TRACE_EVENT(ocfs2_remount,
 	TP_PROTO(unsigned long s_flags, unsigned long osb_flags, int flags),
@@ -1707,7 +1732,9 @@ TRACE_EVENT(ocfs2_initialize_super,
 		  __entry->root_dir, __entry->system_dir, __entry->cluster_bits)
 );
 
+/* End of trace events for fs/ocfs2/super.c. */
 
+/* Trace events for fs/ocfs2/xattr.c. */
 
 DEFINE_OCFS2_ULL_EVENT(ocfs2_validate_xattr_block);
 
@@ -1825,7 +1852,9 @@ DEFINE_OCFS2_ULL_UINT_UINT_EVENT(ocfs2_reflink_xattr_buckets);
 
 DEFINE_OCFS2_ULL_UINT_EVENT(ocfs2_reflink_xattr_rec);
 
+/* End of trace events for fs/ocfs2/xattr.c. */
 
+/* Trace events for fs/ocfs2/reservations.c. */
 
 DEFINE_OCFS2_UINT_UINT_EVENT(ocfs2_resv_insert);
 
@@ -1939,7 +1968,9 @@ TRACE_EVENT(ocfs2_resmap_claimed_bits_end,
 		  __entry->len, __entry->last_start, __entry->last_len)
 );
 
+/* End of trace events for fs/ocfs2/reservations.c. */
 
+/* Trace events for fs/ocfs2/quota_local.c. */
 
 DEFINE_OCFS2_ULL_UINT_EVENT(ocfs2_recover_local_quota_file);
 
@@ -1947,7 +1978,9 @@ DEFINE_OCFS2_INT_EVENT(ocfs2_finish_quota_recovery);
 
 DEFINE_OCFS2_ULL_ULL_UINT_EVENT(olq_set_dquot);
 
+/* End of trace events for fs/ocfs2/quota_local.c. */
 
+/* Trace events for fs/ocfs2/quota_global.c. */
 
 DEFINE_OCFS2_ULL_EVENT(ocfs2_validate_quota_block);
 
@@ -2004,7 +2037,9 @@ DEFINE_OCFS2_UINT_INT_EVENT(ocfs2_acquire_dquot);
 
 DEFINE_OCFS2_UINT_INT_EVENT(ocfs2_mark_dquot_dirty);
 
+/* End of trace events for fs/ocfs2/quota_global.c. */
 
+/* Trace events for fs/ocfs2/dir.c. */
 DEFINE_OCFS2_INT_EVENT(ocfs2_search_dirblock);
 
 DEFINE_OCFS2_ULL_EVENT(ocfs2_validate_dir_block);
@@ -2118,7 +2153,9 @@ DEFINE_OCFS2_UINT_UINT_UINT_EVENT(ocfs2_dx_dir_rebalance_split);
 
 DEFINE_OCFS2_ULL_INT_EVENT(ocfs2_prepare_dir_for_insert);
 
+/* End of trace events for fs/ocfs2/dir.c. */
 
+/* Trace events for fs/ocfs2/namei.c. */
 
 DECLARE_EVENT_CLASS(ocfs2__dentry_ops,
 	TP_PROTO(void *dir, void *dentry, int name_len, const char *name,
@@ -2351,7 +2388,9 @@ TRACE_EVENT(ocfs2_orphan_del,
 		  __entry->namelen)
 );
 
+/* End of trace events for fs/ocfs2/namei.c. */
 
+/* Trace events for fs/ocfs2/dcache.c. */
 
 TRACE_EVENT(ocfs2_dentry_revalidate,
 	TP_PROTO(void *dentry, int len, const char *name),
@@ -2447,7 +2486,9 @@ TRACE_EVENT(ocfs2_dentry_attach_lock_found,
 	),
 	TP_printk("%s %llu %llu", __get_str(name), __entry->parent, __entry->ino)
 );
+/* End of trace events for fs/ocfs2/dcache.c. */
 
+/* Trace events for fs/ocfs2/export.c. */
 
 TRACE_EVENT(ocfs2_get_dentry_begin,
 	TP_PROTO(void *sb, void *handle, unsigned long long blkno),
@@ -2526,7 +2567,9 @@ DEFINE_OCFS2_ULL_UINT_EVENT(ocfs2_encode_fh_parent);
 
 DEFINE_OCFS2_INT_EVENT(ocfs2_encode_fh_type);
 
+/* End of trace events for fs/ocfs2/export.c. */
 
+/* Trace events for fs/ocfs2/journal.c. */
 
 DEFINE_OCFS2_UINT_EVENT(ocfs2_commit_cache_begin);
 
@@ -2623,7 +2666,9 @@ DEFINE_OCFS2_ULL_EVENT(ocfs2_recover_orphans_iput);
 
 DEFINE_OCFS2_INT_EVENT(ocfs2_wait_on_mount);
 
+/* End of trace events for fs/ocfs2/journal.c. */
 
+/* Trace events for fs/ocfs2/buffer_head_io.c. */
 
 DEFINE_OCFS2_ULL_UINT_EVENT(ocfs2_read_blocks_sync);
 
@@ -2669,7 +2714,9 @@ TRACE_EVENT(ocfs2_read_blocks_begin,
 		  __entry->nr, __entry->flags)
 );
 
+/* End of trace events for fs/ocfs2/buffer_head_io.c. */
 
+/* Trace events for fs/ocfs2/uptodate.c. */
 
 DEFINE_OCFS2_ULL_EVENT(ocfs2_purge_copied_metadata_tree);
 
@@ -2707,8 +2754,10 @@ DEFINE_OCFS2_ULL_ULL_EVENT(ocfs2_remove_metadata_tree);
 
 DEFINE_OCFS2_ULL_ULL_UINT_UINT_EVENT(ocfs2_remove_block_from_cache);
 
-#endif 
+/* End of trace events for fs/ocfs2/uptodate.c. */
+#endif /* _TRACE_OCFS2_H */
 
+/* This part must be outside protection */
 #undef TRACE_INCLUDE_PATH
 #define TRACE_INCLUDE_PATH .
 #define TRACE_INCLUDE_FILE ocfs2_trace

@@ -27,6 +27,15 @@
 #include "index.h"
 #include "ntfs.h"
 
+/**
+ * ntfs_index_ctx_get - allocate and initialize a new index context
+ * @idx_ni:	ntfs index inode with which to initialize the context
+ *
+ * Allocate a new index context, initialize it with @idx_ni and return it.
+ * Return NULL if allocation failed.
+ *
+ * Locking:  Caller must hold i_mutex on the index inode.
+ */
 ntfs_index_context *ntfs_index_ctx_get(ntfs_inode *idx_ni)
 {
 	ntfs_index_context *ictx;
@@ -37,6 +46,14 @@ ntfs_index_context *ntfs_index_ctx_get(ntfs_inode *idx_ni)
 	return ictx;
 }
 
+/**
+ * ntfs_index_ctx_put - release an index context
+ * @ictx:	index context to free
+ *
+ * Release the index context @ictx, releasing all associated resources.
+ *
+ * Locking:  Caller must hold i_mutex on the index inode.
+ */
 void ntfs_index_ctx_put(ntfs_index_context *ictx)
 {
 	if (ictx->entry) {
@@ -131,7 +148,7 @@ int ntfs_index_lookup(const void *key, const int key_len,
 				idx_ni->itype.index.collation_rule));
 		return -EOPNOTSUPP;
 	}
-	
+	/* Get hold of the mft record for the index inode. */
 	m = map_mft_record(base_ni);
 	if (IS_ERR(m)) {
 		ntfs_error(sb, "map_mft_record() failed with error code %ld.",
@@ -143,7 +160,7 @@ int ntfs_index_lookup(const void *key, const int key_len,
 		err = -ENOMEM;
 		goto err_out;
 	}
-	
+	/* Find the index root attribute in the mft record. */
 	err = ntfs_attr_lookup(AT_INDEX_ROOT, idx_ni->name, idx_ni->name_len,
 			CASE_SENSITIVE, 0, NULL, 0, actx);
 	if (unlikely(err)) {
@@ -154,22 +171,30 @@ int ntfs_index_lookup(const void *key, const int key_len,
 		}
 		goto err_out;
 	}
-	
+	/* Get to the index root value (it has been verified in read_inode). */
 	ir = (INDEX_ROOT*)((u8*)actx->attr +
 			le16_to_cpu(actx->attr->data.resident.value_offset));
 	index_end = (u8*)&ir->index + le32_to_cpu(ir->index.index_length);
-	
+	/* The first index entry. */
 	ie = (INDEX_ENTRY*)((u8*)&ir->index +
 			le32_to_cpu(ir->index.entries_offset));
+	/*
+	 * Loop until we exceed valid memory (corruption case) or until we
+	 * reach the last entry.
+	 */
 	for (;; ie = (INDEX_ENTRY*)((u8*)ie + le16_to_cpu(ie->length))) {
-		
+		/* Bounds checks. */
 		if ((u8*)ie < (u8*)actx->mrec || (u8*)ie +
 				sizeof(INDEX_ENTRY_HEADER) > index_end ||
 				(u8*)ie + le16_to_cpu(ie->length) > index_end)
 			goto idx_err_out;
+		/*
+		 * The last entry cannot contain a key.  It can however contain
+		 * a pointer to a child node in the B+tree so we just break out.
+		 */
 		if (ie->flags & INDEX_ENTRY_END)
 			break;
-		
+		/* Further bounds checks. */
 		if ((u32)sizeof(INDEX_ENTRY_HEADER) +
 				le16_to_cpu(ie->key_length) >
 				le16_to_cpu(ie->data.vi.data_offset) ||
@@ -177,7 +202,7 @@ int ntfs_index_lookup(const void *key, const int key_len,
 				le16_to_cpu(ie->data.vi.data_length) >
 				le16_to_cpu(ie->length))
 			goto idx_err_out;
-		
+		/* If the keys match perfectly, we setup @ictx and return 0. */
 		if ((key_len == le16_to_cpu(ie->key_length)) && !memcmp(key,
 				&ie->key, key_len)) {
 ir_done:
@@ -195,34 +220,61 @@ done:
 			ntfs_debug("Done.");
 			return err;
 		}
+		/*
+		 * Not a perfect match, need to do full blown collation so we
+		 * know which way in the B+tree we have to go.
+		 */
 		rc = ntfs_collate(vol, idx_ni->itype.index.collation_rule, key,
 				key_len, &ie->key, le16_to_cpu(ie->key_length));
+		/*
+		 * If @key collates before the key of the current entry, there
+		 * is definitely no such key in this index but we might need to
+		 * descend into the B+tree so we just break out of the loop.
+		 */
 		if (rc == -1)
 			break;
+		/*
+		 * A match should never happen as the memcmp() call should have
+		 * cought it, but we still treat it correctly.
+		 */
 		if (!rc)
 			goto ir_done;
-		
+		/* The keys are not equal, continue the search. */
 	}
+	/*
+	 * We have finished with this index without success.  Check for the
+	 * presence of a child node and if not present setup @ictx and return
+	 * -ENOENT.
+	 */
 	if (!(ie->flags & INDEX_ENTRY_NODE)) {
 		ntfs_debug("Entry not found.");
 		err = -ENOENT;
 		goto ir_done;
-	} 
-	
+	} /* Child node present, descend into it. */
+	/* Consistency check: Verify that an index allocation exists. */
 	if (!NInoIndexAllocPresent(idx_ni)) {
 		ntfs_error(sb, "No index allocation attribute but index entry "
 				"requires one.  Inode 0x%lx is corrupt or "
 				"driver bug.", idx_ni->mft_no);
 		goto err_out;
 	}
-	
+	/* Get the starting vcn of the index_block holding the child node. */
 	vcn = sle64_to_cpup((sle64*)((u8*)ie + le16_to_cpu(ie->length) - 8));
 	ia_mapping = VFS_I(idx_ni)->i_mapping;
+	/*
+	 * We are done with the index root and the mft record.  Release them,
+	 * otherwise we deadlock with ntfs_map_page().
+	 */
 	ntfs_attr_put_search_ctx(actx);
 	unmap_mft_record(base_ni);
 	m = NULL;
 	actx = NULL;
 descend_into_child_node:
+	/*
+	 * Convert vcn to index into the index allocation attribute in units
+	 * of PAGE_CACHE_SIZE and map the page cache page, reading it from
+	 * disk if necessary.
+	 */
 	page = ntfs_map_page(ia_mapping, vcn <<
 			idx_ni->itype.index.vcn_size_bits >> PAGE_CACHE_SHIFT);
 	if (IS_ERR(page)) {
@@ -234,16 +286,16 @@ descend_into_child_node:
 	lock_page(page);
 	kaddr = (u8*)page_address(page);
 fast_descend_into_child_node:
-	
+	/* Get to the index allocation block. */
 	ia = (INDEX_ALLOCATION*)(kaddr + ((vcn <<
 			idx_ni->itype.index.vcn_size_bits) & ~PAGE_CACHE_MASK));
-	
+	/* Bounds checks. */
 	if ((u8*)ia < kaddr || (u8*)ia > kaddr + PAGE_CACHE_SIZE) {
 		ntfs_error(sb, "Out of bounds check failed.  Corrupt inode "
 				"0x%lx or driver bug.", idx_ni->mft_no);
 		goto unm_err_out;
 	}
-	
+	/* Catch multi sector transfer fixup errors. */
 	if (unlikely(!ntfs_is_indx_record(ia->magic))) {
 		ntfs_error(sb, "Index record with vcn 0x%llx is corrupt.  "
 				"Corrupt inode 0x%lx.  Run chkdsk.",
@@ -286,11 +338,16 @@ fast_descend_into_child_node:
 				(unsigned long long)vcn, idx_ni->mft_no);
 		goto unm_err_out;
 	}
-	
+	/* The first index entry. */
 	ie = (INDEX_ENTRY*)((u8*)&ia->index +
 			le32_to_cpu(ia->index.entries_offset));
+	/*
+	 * Iterate similar to above big loop but applied to index buffer, thus
+	 * loop until we exceed valid memory (corruption case) or until we
+	 * reach the last entry.
+	 */
 	for (;; ie = (INDEX_ENTRY*)((u8*)ie + le16_to_cpu(ie->length))) {
-		
+		/* Bounds checks. */
 		if ((u8*)ie < (u8*)ia || (u8*)ie +
 				sizeof(INDEX_ENTRY_HEADER) > index_end ||
 				(u8*)ie + le16_to_cpu(ie->length) > index_end) {
@@ -298,9 +355,13 @@ fast_descend_into_child_node:
 					"0x%lx.", idx_ni->mft_no);
 			goto unm_err_out;
 		}
+		/*
+		 * The last entry cannot contain a key.  It can however contain
+		 * a pointer to a child node in the B+tree so we just break out.
+		 */
 		if (ie->flags & INDEX_ENTRY_END)
 			break;
-		
+		/* Further bounds checks. */
 		if ((u32)sizeof(INDEX_ENTRY_HEADER) +
 				le16_to_cpu(ie->key_length) >
 				le16_to_cpu(ie->data.vi.data_offset) ||
@@ -311,7 +372,7 @@ fast_descend_into_child_node:
 					"0x%lx.", idx_ni->mft_no);
 			goto unm_err_out;
 		}
-		
+		/* If the keys match perfectly, we setup @ictx and return 0. */
 		if ((key_len == le16_to_cpu(ie->key_length)) && !memcmp(key,
 				&ie->key, key_len)) {
 ia_done:
@@ -322,14 +383,31 @@ ia_done:
 			ictx->page = page;
 			goto done;
 		}
+		/*
+		 * Not a perfect match, need to do full blown collation so we
+		 * know which way in the B+tree we have to go.
+		 */
 		rc = ntfs_collate(vol, idx_ni->itype.index.collation_rule, key,
 				key_len, &ie->key, le16_to_cpu(ie->key_length));
+		/*
+		 * If @key collates before the key of the current entry, there
+		 * is definitely no such key in this index but we might need to
+		 * descend into the B+tree so we just break out of the loop.
+		 */
 		if (rc == -1)
 			break;
+		/*
+		 * A match should never happen as the memcmp() call should have
+		 * cought it, but we still treat it correctly.
+		 */
 		if (!rc)
 			goto ia_done;
-		
+		/* The keys are not equal, continue the search. */
 	}
+	/*
+	 * We have finished with this index buffer without success.  Check for
+	 * the presence of a child node and if not present return -ENOENT.
+	 */
 	if (!(ie->flags & INDEX_ENTRY_NODE)) {
 		ntfs_debug("Entry not found.");
 		err = -ENOENT;
@@ -340,10 +418,14 @@ ia_done:
 				"node in inode 0x%lx.", idx_ni->mft_no);
 		goto unm_err_out;
 	}
-	
+	/* Child node present, descend into it. */
 	old_vcn = vcn;
 	vcn = sle64_to_cpup((sle64*)((u8*)ie + le16_to_cpu(ie->length) - 8));
 	if (vcn >= 0) {
+		/*
+		 * If vcn is in the same page cache page as old_vcn we recycle
+		 * the mapped page.
+		 */
 		if (old_vcn << vol->cluster_size_bits >>
 				PAGE_CACHE_SHIFT == vcn <<
 				vol->cluster_size_bits >>

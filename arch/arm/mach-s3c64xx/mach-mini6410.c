@@ -82,6 +82,7 @@ static struct s3c2410_uartcfg mini6410_uartcfgs[] __initdata = {
 	},
 };
 
+/* DM9000AEP 10/100 ethernet controller */
 
 static struct resource mini6410_dm9k_resource[] = {
 	[0] = {
@@ -152,7 +153,7 @@ static struct s3c2410_platform_nand mini6410_nand_info = {
 
 static struct s3c_fb_pd_win mini6410_fb_win[] = {
 	{
-		.win_mode	= {	
+		.win_mode	= {	/* 4.3" 480x272 */
 			.left_margin	= 3,
 			.right_margin	= 2,
 			.upper_margin	= 1,
@@ -165,7 +166,7 @@ static struct s3c_fb_pd_win mini6410_fb_win[] = {
 		.max_bpp	= 32,
 		.default_bpp	= 16,
 	}, {
-		.win_mode	= {	
+		.win_mode	= {	/* 7.0" 800x480 */
 			.left_margin	= 8,
 			.right_margin	= 13,
 			.upper_margin	= 7,
@@ -226,18 +227,24 @@ static void __init mini6410_map_io(void)
 	s3c24xx_init_clocks(12000000);
 	s3c24xx_init_uarts(mini6410_uartcfgs, ARRAY_SIZE(mini6410_uartcfgs));
 
-	
+	/* set the LCD type */
 	tmp = __raw_readl(S3C64XX_SPCON);
 	tmp &= ~S3C64XX_SPCON_LCD_SEL_MASK;
 	tmp |= S3C64XX_SPCON_LCD_SEL_RGB;
 	__raw_writel(tmp, S3C64XX_SPCON);
 
-	
+	/* remove the LCD bypass */
 	tmp = __raw_readl(S3C64XX_MODEM_MIFPCON);
 	tmp &= ~MIFPCON_LCD_BYPASS;
 	__raw_writel(tmp, S3C64XX_MODEM_MIFPCON);
 }
 
+/*
+ * mini6410_features string
+ *
+ * 0-9 LCD configuration
+ *
+ */
 static char mini6410_features_str[12] __initdata = "0";
 
 static int __init mini6410_features_setup(char *str)
@@ -270,7 +277,7 @@ static void mini6410_parse_features(
 		char f = *fp++;
 
 		switch (f) {
-		case '0'...'9':	
+		case '0'...'9':	/* tft screen */
 			if (features->done & FEATURE_SCREEN) {
 				printk(KERN_INFO "MINI6410: '%c' ignored, "
 					"screen type already set\n", f);
@@ -297,7 +304,7 @@ static void __init mini6410_machine_init(void)
 	printk(KERN_INFO "MINI6410: Option string mini6410=%s\n",
 			mini6410_features_str);
 
-	
+	/* Parse the feature string */
 	mini6410_parse_features(&features, mini6410_features_str);
 
 	mini6410_lcd_pdata.win[0] = &mini6410_fb_win[features.lcd_index];
@@ -310,7 +317,7 @@ static void __init mini6410_machine_init(void)
 	s3c_fb_set_platdata(&mini6410_lcd_pdata);
 	s3c24xx_ts_set_platdata(NULL);
 
-	
+	/* configure nCS1 width to 16 bits */
 
 	cs1 = __raw_readl(S3C64XX_SROM_BW) &
 		~(S3C64XX_SROM_BW__CS_MASK << S3C64XX_SROM_BW__NCS1__SHIFT);
@@ -320,7 +327,7 @@ static void __init mini6410_machine_init(void)
 			S3C64XX_SROM_BW__NCS1__SHIFT;
 	__raw_writel(cs1, S3C64XX_SROM_BW);
 
-	
+	/* set timing for nCS1 suitable for ethernet chip */
 
 	__raw_writel((0 << S3C64XX_SROM_BCX__PMC__SHIFT) |
 		(6 << S3C64XX_SROM_BCX__TACP__SHIFT) |
@@ -337,7 +344,7 @@ static void __init mini6410_machine_init(void)
 }
 
 MACHINE_START(MINI6410, "MINI6410")
-	
+	/* Maintainer: Darius Augulis <augulis.darius@gmail.com> */
 	.atag_offset	= 0x100,
 	.init_irq	= s3c6410_init_irq,
 	.handle_irq	= vic_handle_irq,

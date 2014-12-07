@@ -21,6 +21,7 @@
 #define PF_IUCV		AF_IUCV
 #endif
 
+/* Connection and socket states */
 enum {
 	IUCV_CONNECTED = 1,
 	IUCV_OPEN,
@@ -38,16 +39,18 @@ enum {
 #define IUCV_CONN_IDLE_TIMEOUT	(HZ * 60)
 #define IUCV_BUFSIZE_DEFAULT	32768
 
+/* IUCV socket address */
 struct sockaddr_iucv {
 	sa_family_t	siucv_family;
-	unsigned short	siucv_port;		
-	unsigned int	siucv_addr;		
-	char		siucv_nodeid[8];	
-	char		siucv_user_id[8];	
-	char		siucv_name[8];		
+	unsigned short	siucv_port;		/* Reserved */
+	unsigned int	siucv_addr;		/* Reserved */
+	char		siucv_nodeid[8];	/* Reserved */
+	char		siucv_user_id[8];	/* Guest User Id */
+	char		siucv_name[8];		/* Application Name */
 };
 
 
+/* Common socket structures and functions */
 struct sock_msg_q {
 	struct iucv_path	*path;
 	struct iucv_message	msg;
@@ -71,26 +74,28 @@ struct af_iucv_trans_hdr {
 	char destAppName[16];
 	char srcNodeID[8];
 	char srcUserID[8];
-	char srcAppName[16];             
-	struct iucv_message iucv_hdr;    
-	u8 pad;                          
+	char srcAppName[16];             /* => 70 bytes */
+	struct iucv_message iucv_hdr;    /* => 33 bytes */
+	u8 pad;                          /* total 104 bytes */
 } __packed;
 
 enum iucv_tx_notify {
-	
+	/* transmission of skb is completed and was successful */
 	TX_NOTIFY_OK = 0,
-	
+	/* target is unreachable */
 	TX_NOTIFY_UNREACHABLE = 1,
-	
+	/* transfer pending queue full */
 	TX_NOTIFY_TPQFULL = 2,
-	
+	/* general error */
 	TX_NOTIFY_GENERALERROR = 3,
+	/* transmission of skb is pending - may interleave
+	 * with TX_NOTIFY_DELAYED_* */
 	TX_NOTIFY_PENDING = 4,
-	
+	/* transmission of skb was done successfully (delayed) */
 	TX_NOTIFY_DELAYED_OK = 5,
-	
+	/* target unreachable (detected delayed) */
 	TX_NOTIFY_DELAYED_UNREACHABLE = 6,
-	
+	/* general error (detected delayed) */
 	TX_NOTIFY_DELAYED_GENERALERROR = 7,
 };
 
@@ -125,11 +130,13 @@ struct iucv_sock {
 					       enum iucv_tx_notify n);
 };
 
-#define SO_IPRMDATA_MSG	0x0080		
-#define SO_MSGLIMIT	0x1000		
-#define SO_MSGSIZE	0x0800		
+/* iucv socket options (SOL_IUCV) */
+#define SO_IPRMDATA_MSG	0x0080		/* send/recv IPRM_DATA msgs */
+#define SO_MSGLIMIT	0x1000		/* get/set IUCV MSGLIMIT */
+#define SO_MSGSIZE	0x0800		/* get maximum msgsize */
 
-#define SCM_IUCV_TRGCLS	0x0001		
+/* iucv related control messages (scm) */
+#define SCM_IUCV_TRGCLS	0x0001		/* target class control message */
 
 struct iucv_sock_list {
 	struct hlist_head head;
@@ -145,4 +152,4 @@ void iucv_accept_enqueue(struct sock *parent, struct sock *sk);
 void iucv_accept_unlink(struct sock *sk);
 struct sock *iucv_accept_dequeue(struct sock *parent, struct socket *newsock);
 
-#endif 
+#endif /* __IUCV_H */

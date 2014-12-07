@@ -22,10 +22,21 @@
 #include <linux/list.h>
 #include <linux/platform_device.h>
 
+/* RPC API version structure
+ * Version bit 31 : 1->hashkey versioning,
+ *                  0->major-minor (backward compatible) versioning
+ * hashkey versioning:
+ *   Version bits 31-0 hashkey
+ * major-minor (backward compatible) versioning
+ *   Version bits 30-28 reserved (no match)
+ *   Version bits 27-16 major (must match)
+ *   Version bits 15-0  minor (greater or equal)
+ */
 #define RPC_VERSION_MODE_MASK  0x80000000
 #define RPC_VERSION_MAJOR_MASK 0x0fff0000
 #define RPC_VERSION_MINOR_MASK 0x0000ffff
 
+/* callback ID for NULL callback function is -1 */
 #define MSM_RPC_CLIENT_NULL_CB_ID 0xffffffff
 
 struct msm_rpc_endpoint;
@@ -38,12 +49,16 @@ struct rpcsvr_platform_device
 };
 
 #define RPC_DATA_IN	0
+/*
+ * Structures for sending / receiving direct RPC requests
+ * XXX: Any cred/verif lengths > 0 not supported
+ */
 
 struct rpc_request_hdr
 {
 	uint32_t xid;
-	uint32_t type;	
-	uint32_t rpc_vers; 
+	uint32_t type;	/* 0 */
+	uint32_t rpc_vers; /* 2 */
 	uint32_t prog;
 	uint32_t vers;
 	uint32_t procedure;
@@ -75,6 +90,12 @@ typedef struct
 #define RPC_ACCEPTSTAT_GARBAGE_ARGS 4
 #define RPC_ACCEPTSTAT_SYSTEM_ERR 5
 #define RPC_ACCEPTSTAT_PROG_LOCKED 6
+	/*
+	 * Following data is dependant on accept_stat
+	 * If ACCEPTSTAT == PROG_MISMATCH then there is a
+	 * 'rpc_reply_progmismatch_data' structure following the header.
+	 * Otherwise the data is procedure specific
+	 */
 } rpc_accepted_reply_hdr;
 
 struct rpc_reply_hdr
@@ -95,12 +116,17 @@ struct rpc_board_dev {
 	struct platform_device pdev;
 };
 
+/* flags for msm_rpc_connect() */
 #define MSM_RPC_UNINTERRUPTIBLE 0x0001
 
+/* use IS_ERR() to check for failure */
 struct msm_rpc_endpoint *msm_rpc_open(void);
+/* Connect with the specified server version */
 struct msm_rpc_endpoint *msm_rpc_connect(uint32_t prog, uint32_t vers, unsigned flags);
+/* Connect with a compatible server version */
 struct msm_rpc_endpoint *msm_rpc_connect_compatible(uint32_t prog,
 	uint32_t vers, unsigned flags);
+/* check if server version can handle client requested version */
 int msm_rpc_is_compatible_version(uint32_t server_version,
 				  uint32_t client_version);
 
@@ -122,6 +148,13 @@ int msm_rpc_add_board_dev(struct rpc_board_dev *board_dev, int num);
 int msm_rpc_clear_netreset(struct msm_rpc_endpoint *ept);
 
 int msm_rpc_get_curr_pkt_size(struct msm_rpc_endpoint *ept);
+/* simple blocking rpc call
+ *
+ * request is mandatory and must have a rpc_request_hdr
+ * at the start.  The header will be filled out for you.
+ *
+ * reply provides a buffer for replies of reply_max_size
+ */
 int msm_rpc_call_reply(struct msm_rpc_endpoint *ept, uint32_t proc,
 		       void *request, int request_size,
 		       void *reply, int reply_max_size,

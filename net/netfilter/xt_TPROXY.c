@@ -68,6 +68,23 @@ tproxy_laddr4(struct sk_buff *skb, __be32 user_laddr, __be32 daddr)
 	return laddr ? laddr : daddr;
 }
 
+/**
+ * tproxy_handle_time_wait4() - handle IPv4 TCP TIME_WAIT reopen redirections
+ * @skb:	The skb being processed.
+ * @laddr:	IPv4 address to redirect to or zero.
+ * @lport:	TCP port to redirect to or zero.
+ * @sk:		The TIME_WAIT TCP socket found by the lookup.
+ *
+ * We have to handle SYN packets arriving to TIME_WAIT sockets
+ * differently: instead of reopening the connection we should rather
+ * redirect the new connection to the proxy if there's a listener
+ * socket present.
+ *
+ * tproxy_handle_time_wait4() consumes the socket reference passed in.
+ *
+ * Returns the listener socket if there's one, the TIME_WAIT socket if
+ * no such listener is found, or NULL if the TCP header is incomplete.
+ */
 static struct sock *
 tproxy_handle_time_wait4(struct sk_buff *skb, __be32 laddr, __be16 lport,
 			struct sock *sk)
@@ -82,6 +99,8 @@ tproxy_handle_time_wait4(struct sk_buff *skb, __be32 laddr, __be16 lport,
 	}
 
 	if (hp->syn && !hp->rst && !hp->ack && !hp->fin) {
+		/* SYN to a TIME_WAIT socket, we'd rather redirect it
+		 * to a listener socket if there's one */
 		struct sock *sk2;
 
 		sk2 = nf_tproxy_get_sock_v4(dev_net(skb->dev), iph->protocol,
@@ -110,6 +129,10 @@ tproxy_tg4(struct sk_buff *skb, __be32 laddr, __be16 lport,
 	if (hp == NULL)
 		return NF_DROP;
 
+	/* check if there's an ongoing connection on the packet
+	 * addresses, this happens if the redirect already happened
+	 * and the current packet belongs to an already established
+	 * connection */
 	sk = nf_tproxy_get_sock_v4(dev_net(skb->dev), iph->protocol,
 				   iph->saddr, iph->daddr,
 				   hp->source, hp->dest,
@@ -119,18 +142,22 @@ tproxy_tg4(struct sk_buff *skb, __be32 laddr, __be16 lport,
 	if (!lport)
 		lport = hp->dest;
 
-	
+	/* UDP has no TCP_TIME_WAIT state, so we never enter here */
 	if (sk && sk->sk_state == TCP_TIME_WAIT)
-		
+		/* reopening a TIME_WAIT connection needs special handling */
 		sk = tproxy_handle_time_wait4(skb, laddr, lport, sk);
 	else if (!sk)
+		/* no, there's no established connection, check if
+		 * there's a listener on the redirected addr/port */
 		sk = nf_tproxy_get_sock_v4(dev_net(skb->dev), iph->protocol,
 					   iph->saddr, laddr,
 					   hp->source, lport,
 					   skb->dev, NFT_LOOKUP_LISTENER);
 
-	
+	/* NOTE: assign_sock consumes our sk reference */
 	if (sk && tproxy_sk_is_transparent(sk)) {
+		/* This should be in a separate target, but we don't do multiple
+		   targets on the same rule yet */
 		skb->mark = (skb->mark & ~mark_mask) ^ mark_value;
 
 		pr_debug("redirecting: proto %hhu %pI4:%hu -> %pI4:%hu, mark: %x\n",
@@ -192,6 +219,24 @@ tproxy_laddr6(struct sk_buff *skb, const struct in6_addr *user_laddr,
 	return laddr ? laddr : daddr;
 }
 
+/**
+ * tproxy_handle_time_wait6() - handle IPv6 TCP TIME_WAIT reopen redirections
+ * @skb:	The skb being processed.
+ * @tproto:	Transport protocol.
+ * @thoff:	Transport protocol header offset.
+ * @par:	Iptables target parameters.
+ * @sk:		The TIME_WAIT TCP socket found by the lookup.
+ *
+ * We have to handle SYN packets arriving to TIME_WAIT sockets
+ * differently: instead of reopening the connection we should rather
+ * redirect the new connection to the proxy if there's a listener
+ * socket present.
+ *
+ * tproxy_handle_time_wait6() consumes the socket reference passed in.
+ *
+ * Returns the listener socket if there's one, the TIME_WAIT socket if
+ * no such listener is found, or NULL if the TCP header is incomplete.
+ */
 static struct sock *
 tproxy_handle_time_wait6(struct sk_buff *skb, int tproto, int thoff,
 			 const struct xt_action_param *par,
@@ -208,6 +253,8 @@ tproxy_handle_time_wait6(struct sk_buff *skb, int tproto, int thoff,
 	}
 
 	if (hp->syn && !hp->rst && !hp->ack && !hp->fin) {
+		/* SYN to a TIME_WAIT socket, we'd rather redirect it
+		 * to a listener socket if there's one */
 		struct sock *sk2;
 
 		sk2 = nf_tproxy_get_sock_v6(dev_net(skb->dev), tproto,
@@ -250,6 +297,10 @@ tproxy_tg6_v1(struct sk_buff *skb, const struct xt_action_param *par)
 		return NF_DROP;
 	}
 
+	/* check if there's an ongoing connection on the packet
+	 * addresses, this happens if the redirect already happened
+	 * and the current packet belongs to an already established
+	 * connection */
 	sk = nf_tproxy_get_sock_v6(dev_net(skb->dev), tproto,
 				   &iph->saddr, &iph->daddr,
 				   hp->source, hp->dest,
@@ -258,18 +309,22 @@ tproxy_tg6_v1(struct sk_buff *skb, const struct xt_action_param *par)
 	laddr = tproxy_laddr6(skb, &tgi->laddr.in6, &iph->daddr);
 	lport = tgi->lport ? tgi->lport : hp->dest;
 
-	
+	/* UDP has no TCP_TIME_WAIT state, so we never enter here */
 	if (sk && sk->sk_state == TCP_TIME_WAIT)
-		
+		/* reopening a TIME_WAIT connection needs special handling */
 		sk = tproxy_handle_time_wait6(skb, tproto, thoff, par, sk);
 	else if (!sk)
+		/* no there's no established connection, check if
+		 * there's a listener on the redirected addr/port */
 		sk = nf_tproxy_get_sock_v6(dev_net(skb->dev), tproto,
 					   &iph->saddr, laddr,
 					   hp->source, lport,
 					   par->in, NFT_LOOKUP_LISTENER);
 
-	
+	/* NOTE: assign_sock consumes our sk reference */
 	if (sk && tproxy_sk_is_transparent(sk)) {
+		/* This should be in a separate target, but we don't do multiple
+		   targets on the same rule yet */
 		skb->mark = (skb->mark & ~tgi->mark_mask) ^ tgi->mark_value;
 
 		pr_debug("redirecting: proto %hhu %pI6:%hu -> %pI6:%hu, mark: %x\n",

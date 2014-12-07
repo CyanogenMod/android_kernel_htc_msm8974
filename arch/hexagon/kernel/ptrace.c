@@ -45,6 +45,12 @@ static int genregs_get(struct task_struct *target,
 	if (!regs)
 		return -EIO;
 
+	/* The general idea here is that the copyout must happen in
+	 * exactly the same order in which the userspace expects these
+	 * regs. Now, the sequence in userspace does not match the
+	 * sequence in the kernel, so everything past the 32 gprs
+	 * happens one at a time.
+	 */
 	ret = user_regset_copyout(&pos, &count, &kbuf, &ubuf,
 				  &regs->r00, 0, 32*sizeof(unsigned long));
 
@@ -55,7 +61,7 @@ static int genregs_get(struct task_struct *target,
 			offsetof(struct user_regs_struct, USR_REG) + \
 				 sizeof(unsigned long));
 
-	
+	/* Must be exactly same sequence as struct user_regs_struct */
 	ONEXT(&regs->sa0, sa0);
 	ONEXT(&regs->lc0, lc0);
 	ONEXT(&regs->sa1, sa1);
@@ -71,7 +77,7 @@ static int genregs_get(struct task_struct *target,
 	ONEXT(&dummy, cause);
 	ONEXT(&pt_badva(regs), badva);
 
-	
+	/* Pad the rest with zeros, if needed */
 	if (!ret)
 		ret = user_regset_copyout_zero(&pos, &count, &kbuf, &ubuf,
 					offsetof(struct user_regs_struct, pad1), -1);
@@ -100,7 +106,7 @@ static int genregs_set(struct task_struct *target,
 			offsetof(struct user_regs_struct, USR_REG) + \
 				sizeof(unsigned long));
 
-	
+	/* Must be exactly same sequence as struct user_regs_struct */
 	INEXT(&regs->sa0, sa0);
 	INEXT(&regs->lc0, lc0);
 	INEXT(&regs->sa1, sa1);
@@ -113,11 +119,11 @@ static int genregs_set(struct task_struct *target,
 	INEXT(&regs->ugp, ugp);
 	INEXT(&pt_elr(regs), pc);
 
-	
+	/* CAUSE and BADVA aren't writeable. */
 	INEXT(&bucket, cause);
 	INEXT(&bucket, badva);
 
-	
+	/* Ignore the rest, if needed */
 	if (!ret)
 		ret = user_regset_copyin_ignore(&pos, &count, &kbuf, &ubuf,
 					offsetof(struct user_regs_struct, pad1), -1);
@@ -125,6 +131,10 @@ static int genregs_set(struct task_struct *target,
 	if (ret)
 		return ret;
 
+	/*
+	 * This is special; SP is actually restored by the VM via the
+	 * special event record which is set by the special trap.
+	 */
 	regs->hvmer.vmpsp = regs->r29;
 	return 0;
 }
@@ -159,7 +169,7 @@ const struct user_regset_view *task_user_regset_view(struct task_struct *task)
 
 void ptrace_disable(struct task_struct *child)
 {
-	
+	/* Boilerplate - resolves to null inline if no HW single-step */
 	user_disable_single_step(child);
 }
 

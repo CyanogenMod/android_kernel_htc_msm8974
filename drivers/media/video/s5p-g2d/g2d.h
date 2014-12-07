@@ -33,18 +33,18 @@ struct g2d_dev {
 };
 
 struct g2d_frame {
-	
+	/* Original dimensions */
 	u32	width;
 	u32	height;
-	
+	/* Crop size */
 	u32	c_width;
 	u32	c_height;
-	
+	/* Offset */
 	u32	o_width;
 	u32	o_height;
-	
+	/* Image format */
 	struct g2d_fmt *fmt;
-	
+	/* Variables that can calculated once and reused */
 	u32	stride;
 	u32	bottom;
 	u32	right;

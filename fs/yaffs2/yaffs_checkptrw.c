@@ -44,7 +44,7 @@ static int yaffs_checkpt_erase(struct yaffs_dev *dev)
 
 			if (dev->param.
 			    erase_fn(dev,
-				     i - dev->block_offset  )) {
+				     i - dev->block_offset /* realign */ )) {
 				bi->block_state = YAFFS_BLOCK_STATE_EMPTY;
 				dev->n_erased_blocks++;
 				dev->n_free_chunks +=
@@ -116,7 +116,7 @@ static void yaffs2_checkpt_find_block(struct yaffs_dev *dev)
 				tags.ecc_result);
 
 			if (tags.seq_number == YAFFS_SEQUENCE_CHECKPOINT_DATA) {
-				
+				/* Right kind of block */
 				dev->checkpt_next_block = tags.obj_id;
 				dev->checkpt_cur_block = i;
 				dev->checkpt_block_list[dev->
@@ -139,7 +139,7 @@ int yaffs2_checkpt_open(struct yaffs_dev *dev, int writing)
 
 	dev->checkpt_open_write = writing;
 
-	
+	/* Got the functions we need? */
 	if (!dev->param.write_chunk_tags_fn ||
 	    !dev->param.read_chunk_tags_fn ||
 	    !dev->param.erase_fn || !dev->param.bad_block_fn)
@@ -162,15 +162,17 @@ int yaffs2_checkpt_open(struct yaffs_dev *dev, int writing)
 	dev->checkpt_cur_chunk = -1;
 	dev->checkpt_next_block = dev->internal_start_block;
 
-	
+	/* Erase all the blocks in the checkpoint area */
 	if (writing) {
 		memset(dev->checkpt_buffer, 0, dev->data_bytes_per_chunk);
 		dev->checkpt_byte_offs = 0;
 		return yaffs_checkpt_erase(dev);
 	} else {
 		int i;
-		
+		/* Set to a value that will kick off a read */
 		dev->checkpt_byte_offs = dev->data_bytes_per_chunk;
+		/* A checkpoint block list of 1 checkpoint block per 16 block is (hopefully)
+		 * going to be way more than we need */
 		dev->blocks_in_checkpt = 0;
 		dev->checkpt_max_blocks =
 		    (dev->internal_end_block - dev->internal_start_block) / 16 +
@@ -211,11 +213,13 @@ static int yaffs2_checkpt_flush_buffer(struct yaffs_dev *dev)
 		return 0;
 
 	tags.is_deleted = 0;
-	tags.obj_id = dev->checkpt_next_block;	
+	tags.obj_id = dev->checkpt_next_block;	/* Hint to next place to look */
 	tags.chunk_id = dev->checkpt_page_seq + 1;
 	tags.seq_number = YAFFS_SEQUENCE_CHECKPOINT_DATA;
 	tags.n_bytes = dev->data_bytes_per_chunk;
 	if (dev->checkpt_cur_chunk == 0) {
+		/* First chunk we write for the block? Set block state to
+		   checkpoint */
 		struct yaffs_block_info *bi =
 		    yaffs_get_block_info(dev, dev->checkpt_cur_block);
 		bi->block_state = YAFFS_BLOCK_STATE_CHECKPOINT;
@@ -318,7 +322,7 @@ int yaffs2_checkpt_rd(struct yaffs_dev *dev, void *data, int n_bytes)
 
 				dev->n_page_reads++;
 
-				
+				/* read in the next chunk */
 				dev->param.read_chunk_tags_fn(dev,
 							      realigned_chunk,
 							      dev->
@@ -375,7 +379,7 @@ int yaffs_checkpt_close(struct yaffs_dev *dev)
 			if (bi && bi->block_state == YAFFS_BLOCK_STATE_EMPTY)
 				bi->block_state = YAFFS_BLOCK_STATE_CHECKPOINT;
 			else {
-				
+				/* Todo this looks odd... */
 			}
 		}
 		kfree(dev->checkpt_block_list);
@@ -390,7 +394,7 @@ int yaffs_checkpt_close(struct yaffs_dev *dev)
 		dev->checkpt_byte_count);
 
 	if (dev->checkpt_buffer) {
-		
+		/* free the buffer */
 		kfree(dev->checkpt_buffer);
 		dev->checkpt_buffer = NULL;
 		return 1;
@@ -401,7 +405,7 @@ int yaffs_checkpt_close(struct yaffs_dev *dev)
 
 int yaffs2_checkpt_invalidate_stream(struct yaffs_dev *dev)
 {
-	
+	/* Erase the checkpoint data */
 
 	yaffs_trace(YAFFS_TRACE_CHECKPOINT,
 		"checkpoint invalidate of %d blocks",

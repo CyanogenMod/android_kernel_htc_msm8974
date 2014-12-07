@@ -61,10 +61,10 @@ struct battery_thresh {
 };
 
 struct battery_stat {
-	int ac_status;         
-	int mainbat_status;    
-	int mainbat_percent;   
-	int mainbat_voltage;   
+	int ac_status;         /* APM AC Present/Not Present */
+	int mainbat_status;    /* APM Main Battery Status */
+	int mainbat_percent;   /* Main Battery Percentage Charge */
+	int mainbat_voltage;   /* Main Battery Voltage */
 };
 
 struct sharpsl_pm_status {
@@ -79,11 +79,11 @@ struct sharpsl_pm_status {
 #define CHRG_DONE     (2)
 
 	unsigned int flags;
-#define SHARPSL_SUSPENDED       (1 << 0)  
-#define SHARPSL_ALARM_ACTIVE    (1 << 1)  
-#define SHARPSL_BL_LIMIT        (1 << 2)  
-#define SHARPSL_APM_QUEUED      (1 << 3)  
-#define SHARPSL_DO_OFFLINE_CHRG (1 << 4)  
+#define SHARPSL_SUSPENDED       (1 << 0)  /* Device is Suspended */
+#define SHARPSL_ALARM_ACTIVE    (1 << 1)  /* Alarm is for charging event (not user) */
+#define SHARPSL_BL_LIMIT        (1 << 2)  /* Backlight Intensity Limited */
+#define SHARPSL_APM_QUEUED      (1 << 3)  /* APM Event Queued */
+#define SHARPSL_DO_OFFLINE_CHRG (1 << 4)  /* Trigger the offline charger */
 
 	int full_count;
 	unsigned long charge_start_time;
@@ -103,6 +103,7 @@ extern struct battery_thresh sharpsl_battery_levels_noac[];
 void sharpsl_battery_kick(void);
 void sharpsl_pm_led(int val);
 
+/* MAX1111 Channel Definitions */
 #define MAX1111_BATT_VOLT   4u
 #define MAX1111_BATT_TEMP   2u
 #define MAX1111_ACIN_VOLT   6u

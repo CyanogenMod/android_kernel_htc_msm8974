@@ -3,4 +3,4 @@
 
 #include <linux/byteorder/big_endian.h>
 
-#endif 
+#endif /* _PARISC_BYTEORDER_H */

@@ -23,50 +23,51 @@
 #define DRV_VERSION		"0.1.1"
 #define DRV_DESC		"Micrel KS8995 Ethernet switch SPI driver"
 
+/* ------------------------------------------------------------------------ */
 
-#define KS8995_REG_ID0		0x00    
-#define KS8995_REG_ID1		0x01    
+#define KS8995_REG_ID0		0x00    /* Chip ID0 */
+#define KS8995_REG_ID1		0x01    /* Chip ID1 */
 
-#define KS8995_REG_GC0		0x02    
-#define KS8995_REG_GC1		0x03    
-#define KS8995_REG_GC2		0x04    
-#define KS8995_REG_GC3		0x05    
-#define KS8995_REG_GC4		0x06    
-#define KS8995_REG_GC5		0x07    
-#define KS8995_REG_GC6		0x08    
-#define KS8995_REG_GC7		0x09    
-#define KS8995_REG_GC8		0x0a    
-#define KS8995_REG_GC9		0x0b    
+#define KS8995_REG_GC0		0x02    /* Global Control 0 */
+#define KS8995_REG_GC1		0x03    /* Global Control 1 */
+#define KS8995_REG_GC2		0x04    /* Global Control 2 */
+#define KS8995_REG_GC3		0x05    /* Global Control 3 */
+#define KS8995_REG_GC4		0x06    /* Global Control 4 */
+#define KS8995_REG_GC5		0x07    /* Global Control 5 */
+#define KS8995_REG_GC6		0x08    /* Global Control 6 */
+#define KS8995_REG_GC7		0x09    /* Global Control 7 */
+#define KS8995_REG_GC8		0x0a    /* Global Control 8 */
+#define KS8995_REG_GC9		0x0b    /* Global Control 9 */
 
-#define KS8995_REG_PC(p, r)	((0x10 * p) + r)	 
-#define KS8995_REG_PS(p, r)	((0x10 * p) + r + 0xe)  
+#define KS8995_REG_PC(p, r)	((0x10 * p) + r)	 /* Port Control */
+#define KS8995_REG_PS(p, r)	((0x10 * p) + r + 0xe)  /* Port Status */
 
-#define KS8995_REG_TPC0		0x60    
-#define KS8995_REG_TPC1		0x61    
-#define KS8995_REG_TPC2		0x62    
-#define KS8995_REG_TPC3		0x63    
-#define KS8995_REG_TPC4		0x64    
-#define KS8995_REG_TPC5		0x65    
-#define KS8995_REG_TPC6		0x66    
-#define KS8995_REG_TPC7		0x67    
+#define KS8995_REG_TPC0		0x60    /* TOS Priority Control 0 */
+#define KS8995_REG_TPC1		0x61    /* TOS Priority Control 1 */
+#define KS8995_REG_TPC2		0x62    /* TOS Priority Control 2 */
+#define KS8995_REG_TPC3		0x63    /* TOS Priority Control 3 */
+#define KS8995_REG_TPC4		0x64    /* TOS Priority Control 4 */
+#define KS8995_REG_TPC5		0x65    /* TOS Priority Control 5 */
+#define KS8995_REG_TPC6		0x66    /* TOS Priority Control 6 */
+#define KS8995_REG_TPC7		0x67    /* TOS Priority Control 7 */
 
-#define KS8995_REG_MAC0		0x68    
-#define KS8995_REG_MAC1		0x69    
-#define KS8995_REG_MAC2		0x6a    
-#define KS8995_REG_MAC3		0x6b    
-#define KS8995_REG_MAC4		0x6c    
-#define KS8995_REG_MAC5		0x6d    
+#define KS8995_REG_MAC0		0x68    /* MAC address 0 */
+#define KS8995_REG_MAC1		0x69    /* MAC address 1 */
+#define KS8995_REG_MAC2		0x6a    /* MAC address 2 */
+#define KS8995_REG_MAC3		0x6b    /* MAC address 3 */
+#define KS8995_REG_MAC4		0x6c    /* MAC address 4 */
+#define KS8995_REG_MAC5		0x6d    /* MAC address 5 */
 
-#define KS8995_REG_IAC0		0x6e    
-#define KS8995_REG_IAC1		0x6f    
-#define KS8995_REG_IAD7		0x70    
-#define KS8995_REG_IAD6		0x71    
-#define KS8995_REG_IAD5		0x72    
-#define KS8995_REG_IAD4		0x73    
-#define KS8995_REG_IAD3		0x74    
-#define KS8995_REG_IAD2		0x75    
-#define KS8995_REG_IAD1		0x76    
-#define KS8995_REG_IAD0		0x77    
+#define KS8995_REG_IAC0		0x6e    /* Indirect Access Control 0 */
+#define KS8995_REG_IAC1		0x6f    /* Indirect Access Control 0 */
+#define KS8995_REG_IAD7		0x70    /* Indirect Access Data 7 */
+#define KS8995_REG_IAD6		0x71    /* Indirect Access Data 6 */
+#define KS8995_REG_IAD5		0x72    /* Indirect Access Data 5 */
+#define KS8995_REG_IAD4		0x73    /* Indirect Access Data 4 */
+#define KS8995_REG_IAD3		0x74    /* Indirect Access Data 3 */
+#define KS8995_REG_IAD2		0x75    /* Indirect Access Data 2 */
+#define KS8995_REG_IAD1		0x76    /* Indirect Access Data 1 */
+#define KS8995_REG_IAD0		0x77    /* Indirect Access Data 0 */
 
 #define KS8995_REGS_SIZE	0x80
 
@@ -74,7 +75,7 @@
 #define ID1_CHIPID_S		4
 #define ID1_REVISION_M		0x7
 #define ID1_REVISION_S		1
-#define ID1_START_SW		1	
+#define ID1_START_SW		1	/* start the switch */
 
 #define FAMILY_KS8995		0x95
 #define CHIPID_M		0
@@ -82,10 +83,10 @@
 #define KS8995_CMD_WRITE	0x02U
 #define KS8995_CMD_READ		0x03U
 
-#define KS8995_RESET_DELAY	10 
+#define KS8995_RESET_DELAY	10 /* usec */
 
 struct ks8995_pdata {
-	
+	/* not yet implemented */
 };
 
 struct ks8995_switch {
@@ -104,6 +105,7 @@ static inline u8 get_chip_rev(u8 val)
 	return (val >> ID1_REVISION_S) & ID1_REVISION_M;
 }
 
+/* ------------------------------------------------------------------------ */
 static int ks8995_read(struct ks8995_switch *ks, char *buf,
 		 unsigned offset, size_t count)
 {
@@ -177,6 +179,7 @@ static inline int ks8995_write_reg(struct ks8995_switch *ks, u8 addr, u8 val)
 	return (ks8995_write(ks, &buf, addr, 1) != 1);
 }
 
+/* ------------------------------------------------------------------------ */
 
 static int ks8995_stop(struct ks8995_switch *ks)
 {
@@ -201,6 +204,7 @@ static int ks8995_reset(struct ks8995_switch *ks)
 	return ks8995_start(ks);
 }
 
+/* ------------------------------------------------------------------------ */
 
 static ssize_t ks8995_registers_read(struct file *filp, struct kobject *kobj,
 	struct bin_attribute *bin_attr, char *buf, loff_t off, size_t count)
@@ -256,6 +260,7 @@ static struct bin_attribute ks8995_registers_attr = {
 	.write  = ks8995_registers_write,
 };
 
+/* ------------------------------------------------------------------------ */
 
 static int __devinit ks8995_probe(struct spi_device *spi)
 {
@@ -264,7 +269,7 @@ static int __devinit ks8995_probe(struct spi_device *spi)
 	u8      ids[2];
 	int     err;
 
-	
+	/* Chip description */
 	pdata = spi->dev.platform_data;
 
 	ks = kzalloc(sizeof(*ks), GFP_KERNEL);
@@ -338,6 +343,7 @@ static int __devexit ks8995_remove(struct spi_device *spi)
 	return 0;
 }
 
+/* ------------------------------------------------------------------------ */
 
 static struct spi_driver ks8995_driver = {
 	.driver = {

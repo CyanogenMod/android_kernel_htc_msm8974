@@ -5,6 +5,10 @@
 
 #ifdef CONFIG_BUG
 #ifdef CONFIG_DEBUG_BUGVERBOSE
+/*
+ * The penalty for the in-band code path will be the size of break 14.
+ * All other stuff is done out-of-band with exception handlers.
+ */
 #define BUG()								\
 	__asm__ __volatile__ ("0: break 14\n\t"				\
 			      ".section .fixup,\"ax\"\n"		\

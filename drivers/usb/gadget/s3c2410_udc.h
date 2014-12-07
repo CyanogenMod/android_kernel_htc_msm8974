@@ -16,7 +16,7 @@
 
 struct s3c2410_ep {
 	struct list_head		queue;
-	unsigned long			last_io;	
+	unsigned long			last_io;	/* jiffies timestamp */
 	struct usb_gadget		*gadget;
 	struct s3c2410_udc		*dev;
 	const struct usb_endpoint_descriptor *desc;
@@ -33,6 +33,10 @@ struct s3c2410_ep {
 };
 
 
+/* Warning : ep0 has a fifo of 16 bytes */
+/* Don't try to set 32 or 64            */
+/* also testusb 14 fails  wit 16 but is */
+/* fine with 8                          */
 #define EP0_FIFO_SIZE		 8
 #define EP_FIFO_SIZE		64
 #define DEFAULT_POWER_STATE	0x00
@@ -42,15 +46,15 @@ struct s3c2410_ep {
 static const char ep0name [] = "ep0";
 
 static const char *const ep_name[] = {
-	ep0name,                                
-	
+	ep0name,                                /* everyone has ep0 */
+	/* s3c2410 four bidirectional bulk endpoints */
 	"ep1-bulk", "ep2-bulk", "ep3-bulk", "ep4-bulk",
 };
 
 #define S3C2410_ENDPOINTS       ARRAY_SIZE(ep_name)
 
 struct s3c2410_request {
-	struct list_head		queue;		
+	struct list_head		queue;		/* ep's requests */
 	struct usb_request		req;
 };
 

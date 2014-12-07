@@ -45,4 +45,4 @@
 #define MSM_FB_BASE		0x2DE00000
 #define MSM_FB_SIZE		0x00200000
 
-#endif 
+#endif /* __ARCH_ARM_MACH_MSM_BOARD_SWORDFISH_H */

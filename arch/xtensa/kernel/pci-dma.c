@@ -24,6 +24,10 @@
 #include <asm/io.h>
 #include <asm/cacheflush.h>
 
+/*
+ * Note: We assume that the full memory space is always mapped to 'kseg'
+ *	 Otherwise we have to use page attributes (not implemented).
+ */
 
 void *
 dma_alloc_coherent(struct device *dev,size_t size,dma_addr_t *handle,gfp_t flag)
@@ -31,7 +35,7 @@ dma_alloc_coherent(struct device *dev,size_t size,dma_addr_t *handle,gfp_t flag)
 	unsigned long ret;
 	unsigned long uncached = 0;
 
-	
+	/* ignore region speicifiers */
 
 	flag &= ~(__GFP_DMA | __GFP_HIGHMEM);
 
@@ -42,7 +46,7 @@ dma_alloc_coherent(struct device *dev,size_t size,dma_addr_t *handle,gfp_t flag)
 	if (ret == 0)
 		return NULL;
 
-	
+	/* We currently don't support coherent memory outside KSEG */
 
 	if (ret < XCHAL_KSEG_CACHED_VADDR
 	    || ret >= XCHAL_KSEG_CACHED_VADDR + XCHAL_KSEG_SIZE)
@@ -76,13 +80,13 @@ void consistent_sync(void *vaddr, size_t size, int direction)
 	switch (direction) {
 	case PCI_DMA_NONE:
 		BUG();
-	case PCI_DMA_FROMDEVICE:        
+	case PCI_DMA_FROMDEVICE:        /* invalidate only */
 		__invalidate_dcache_range((unsigned long)vaddr,
 				          (unsigned long)size);
 		break;
 
-	case PCI_DMA_TODEVICE:          
-	case PCI_DMA_BIDIRECTIONAL:     
+	case PCI_DMA_TODEVICE:          /* writeback only */
+	case PCI_DMA_BIDIRECTIONAL:     /* writeback and invalidate */
 		__flush_invalidate_dcache_range((unsigned long)vaddr,
 				    		(unsigned long)size);
 		break;

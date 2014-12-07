@@ -90,6 +90,7 @@ static int vp702x_fe_read_status(struct dvb_frontend* fe, fe_status_t *status)
 	return 0;
 }
 
+/* not supported by this Frontend */
 static int vp702x_fe_read_ber(struct dvb_frontend* fe, u32 *ber)
 {
 	struct vp702x_fe_state *st = fe->demodulator_priv;
@@ -98,6 +99,7 @@ static int vp702x_fe_read_ber(struct dvb_frontend* fe, u32 *ber)
 	return 0;
 }
 
+/* not supported by this Frontend */
 static int vp702x_fe_read_unc_blocks(struct dvb_frontend* fe, u32 *unc)
 {
 	struct vp702x_fe_state *st = fe->demodulator_priv;
@@ -139,7 +141,8 @@ static int vp702x_fe_set_frontend(struct dvb_frontend *fe)
 	struct vp702x_fe_state *st = fe->demodulator_priv;
 	struct vp702x_device_state *dst = st->d->priv;
 	u32 freq = fep->frequency/1000;
-	
+	/*CalFrequency*/
+/*	u16 frequencyRef[16] = { 2, 4, 8, 16, 32, 64, 128, 256, 24, 5, 10, 20, 40, 80, 160, 320 }; */
 	u64 sr;
 	u8 *cmd;
 
@@ -150,7 +153,7 @@ static int vp702x_fe_set_frontend(struct dvb_frontend *fe)
 
 	cmd[0] = (freq >> 8) & 0x7f;
 	cmd[1] =  freq       & 0xff;
-	cmd[2] = 1; 
+	cmd[2] = 1; /* divrate == 4 -> frequencyRef[1] -> 1 here */
 
 	sr = (u64) (fep->symbol_rate/1000) << 20;
 	do_div(sr,88000);
@@ -162,10 +165,20 @@ static int vp702x_fe_set_frontend(struct dvb_frontend *fe)
 			fep->frequency, freq, freq, fep->symbol_rate,
 			(unsigned long) sr, (unsigned long) sr);
 
+/*	if (fep->inversion == INVERSION_ON)
+		cmd[6] |= 0x80; */
 
 	if (st->voltage == SEC_VOLTAGE_18)
 		cmd[6] |= 0x40;
 
+/*	if (fep->symbol_rate > 8000000)
+		cmd[6] |= 0x20;
+
+	if (fep->frequency < 1531000)
+		cmd[6] |= 0x04;
+
+	if (st->tone_mode == SEC_TONE_ON)
+		cmd[6] |= 0x01;*/
 
 	cmd[7] = vp702x_chksum(cmd,0,7);
 
@@ -321,7 +334,7 @@ struct dvb_frontend * vp702x_fe_attach(struct dvb_usb_device *d)
 	s->fe.demodulator_priv = s;
 
 	s->lnb_buf[1] = SET_LNB_POWER;
-	s->lnb_buf[3] = 0xff; 
+	s->lnb_buf[3] = 0xff; /* 0=tone burst, 2=data burst, ff=off */
 
 	return &s->fe;
 error:
@@ -335,11 +348,11 @@ static struct dvb_frontend_ops vp702x_fe_ops = {
 		.name           = "Twinhan DST-like frontend (VP7021/VP7020) DVB-S",
 		.frequency_min       = 950000,
 		.frequency_max       = 2150000,
-		.frequency_stepsize  = 1000,   
+		.frequency_stepsize  = 1000,   /* kHz for QPSK frontends */
 		.frequency_tolerance = 0,
 		.symbol_rate_min     = 1000000,
 		.symbol_rate_max     = 45000000,
-		.symbol_rate_tolerance = 500,  
+		.symbol_rate_tolerance = 500,  /* ppm */
 		.caps = FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |
 		FE_CAN_FEC_5_6 | FE_CAN_FEC_7_8 |
 		FE_CAN_QPSK |

@@ -25,13 +25,13 @@
 
 static void digsy_mtc_op_prepare(void *p)
 {
-	
+	/* enable */
 	gpio_set_value(GPIO_EEPROM_OE, 0);
 }
 
 static void digsy_mtc_op_finish(void *p)
 {
-	
+	/* disable */
 	gpio_set_value(GPIO_EEPROM_OE, 1);
 }
 

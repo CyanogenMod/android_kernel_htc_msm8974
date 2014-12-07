@@ -72,11 +72,11 @@ static int cdv_intel_crt_mode_valid(struct drm_connector *connector,
 	if (mode->flags & DRM_MODE_FLAG_DBLSCAN)
 		return MODE_NO_DBLESCAN;
 
-	
+	/* The lowest clock for CDV is 20000KHz */
 	if (mode->clock < 20000)
 		return MODE_CLOCK_LOW;
 
-	
+	/* The max clock for CDV is 355 instead of 400 */
 	max_clock = 355000;
 	if (mode->clock > max_clock)
 		return MODE_CLOCK_HIGH;
@@ -84,7 +84,7 @@ static int cdv_intel_crt_mode_valid(struct drm_connector *connector,
 	if (mode->hdisplay > 1680 || mode->vdisplay > 1050)
 		return MODE_PANEL;
 
-	
+	/* We assume worst case scenario of 32 bpp here, since we don't know */
 	if ((ALIGN(mode->hdisplay * 4, 64) * mode->vdisplay) >
 	    dev_priv->vram_stolen_size)
 		return MODE_MEM;
@@ -119,6 +119,10 @@ static void cdv_intel_crt_mode_set(struct drm_encoder *encoder,
 
 	adpa_reg = ADPA;
 
+	/*
+	 * Disable separate mode multiplier used when cloning SDVO to CRT
+	 * XXX this needs to be adjusted when we really are cloning
+	 */
 	{
 		dpll_md = REG_READ(dpll_md_reg);
 		REG_WRITE(dpll_md_reg,
@@ -140,6 +144,12 @@ static void cdv_intel_crt_mode_set(struct drm_encoder *encoder,
 }
 
 
+/**
+ * Uses CRT_HOTPLUG_EN and CRT_HOTPLUG_STAT to detect CRT presence.
+ *
+ * \return true if CRT is connected.
+ * \return false if CRT is disconnected.
+ */
 static bool cdv_intel_crt_detect_hotplug(struct drm_connector *connector,
 								bool force)
 {
@@ -148,12 +158,16 @@ static bool cdv_intel_crt_detect_hotplug(struct drm_connector *connector,
 	int i, tries = 0, ret = false;
 	u32 adpa_orig;
 
-	
+	/* disable the DAC when doing the hotplug detection */
 
 	adpa_orig = REG_READ(ADPA);
 
 	REG_WRITE(ADPA, adpa_orig & ~(ADPA_DAC_ENABLE));
 
+	/*
+	 * On a CDV thep, CRT detect sequence need to be done twice
+	 * to get a reliable result.
+	 */
 	tries = 2;
 
 	hotplug_en = REG_READ(PORT_HOTPLUG_EN);
@@ -165,10 +179,10 @@ static bool cdv_intel_crt_detect_hotplug(struct drm_connector *connector,
 
 	for (i = 0; i < tries ; i++) {
 		unsigned long timeout;
-		
+		/* turn on the FORCE_DETECT */
 		REG_WRITE(PORT_HOTPLUG_EN, hotplug_en);
 		timeout = jiffies + msecs_to_jiffies(1000);
-		
+		/* wait for FORCE_DETECT to go off */
 		do {
 			if (!(REG_READ(PORT_HOTPLUG_EN) &
 					CRT_HOTPLUG_FORCE_DETECT))
@@ -181,7 +195,7 @@ static bool cdv_intel_crt_detect_hotplug(struct drm_connector *connector,
 	    CRT_HOTPLUG_MONITOR_NONE)
 		ret = true;
 
-	
+	/* Restore the saved ADPA */
 	REG_WRITE(ADPA, adpa_orig);
 	return ret;
 }
@@ -220,6 +234,9 @@ static int cdv_intel_crt_set_property(struct drm_connector *connector,
 	return 0;
 }
 
+/*
+ * Routines for controlling stuff on the analog port
+ */
 
 static const struct drm_encoder_helper_funcs cdv_intel_crt_helper_funcs = {
 	.dpms = cdv_intel_crt_dpms,
@@ -283,9 +300,13 @@ void cdv_intel_crt_init(struct drm_device *dev,
 	psb_intel_connector_attach_encoder(psb_intel_connector,
 					   psb_intel_encoder);
 
-	
+	/* Set up the DDC bus. */
 	i2c_reg = GPIOA;
-	
+	/* Remove the following code for CDV */
+	/*
+	if (dev_priv->crt_ddc_bus != 0)
+		i2c_reg = dev_priv->crt_ddc_bus;
+	}*/
 	psb_intel_encoder->ddc_bus = psb_intel_i2c_create(dev,
 							  i2c_reg, "CRTDDC_A");
 	if (!psb_intel_encoder->ddc_bus) {
@@ -295,6 +316,10 @@ void cdv_intel_crt_init(struct drm_device *dev,
 	}
 
 	psb_intel_encoder->type = INTEL_OUTPUT_ANALOG;
+	/*
+	psb_intel_output->clone_mask = (1 << INTEL_ANALOG_CLONE_BIT);
+	psb_intel_output->crtc_mask = (1 << 0) | (1 << 1);
+	*/
 	connector->interlace_allowed = 0;
 	connector->doublescan_allowed = 0;
 

@@ -10,6 +10,9 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * MSM PCIe controller IRQ driver.
+ */
 
 #define pr_fmt(fmt) "%s: " fmt, __func__
 
@@ -23,6 +26,7 @@
 
 #include "pcie.h"
 
+/* Any address will do here, as it won't be dereferenced */
 #define MSM_PCIE_MSI_PHY 0xa0000000
 
 #define PCIE20_MSI_CTRL_ADDR            (0x820)
@@ -48,6 +52,8 @@ static irqreturn_t handle_msi_irq(int irq, void *data)
 	struct msm_pcie_dev_t *dev = data;
 	void __iomem *ctrl_status;
 
+	/* check for set bits, clear it by setting that bit
+	   and trigger corresponding irq */
 	for (i = 0; i < PCIE20_MSI_CTRL_MAX; i++) {
 		ctrl_status = dev->pcie20 +
 				PCIE20_MSI_CTRL_INTR_STATUS + (i * 12);
@@ -56,7 +62,7 @@ static irqreturn_t handle_msi_irq(int irq, void *data)
 		while (val) {
 			j = find_first_bit(&val, 32);
 			writel_relaxed(BIT(j), ctrl_status);
-			
+			/* ensure that interrupt is cleared (acked) */
 			wmb();
 
 			generic_handle_irq(MSM_PCIE_MSI_INT(j + (32 * i)));
@@ -73,7 +79,7 @@ uint32_t __init msm_pcie_irq_init(struct msm_pcie_dev_t *dev)
 
 	PCIE_DBG("\n");
 
-	
+	/* program MSI controller and enable all interrupts */
 	writel_relaxed(MSM_PCIE_MSI_PHY, dev->pcie20 + PCIE20_MSI_CTRL_ADDR);
 	writel_relaxed(0, dev->pcie20 + PCIE20_MSI_CTRL_UPPER_ADDR);
 
@@ -81,10 +87,10 @@ uint32_t __init msm_pcie_irq_init(struct msm_pcie_dev_t *dev)
 		writel_relaxed(~0, dev->pcie20 +
 			       PCIE20_MSI_CTRL_INTR_EN + (i * 12));
 
-	
+	/* ensure that hardware is configured before proceeding */
 	wmb();
 
-	
+	/* register handler for physical MSI interrupt line */
 	rc = request_irq(PCIE20_INT_MSI, handle_msi_irq, IRQF_TRIGGER_RISING,
 			 "msm_pcie_msi", dev);
 	if (rc) {
@@ -92,7 +98,7 @@ uint32_t __init msm_pcie_irq_init(struct msm_pcie_dev_t *dev)
 		goto out;
 	}
 
-	
+	/* register handler for PCIE_WAKE_N interrupt line */
 	rc = request_irq(dev->wake_n, handle_wake_irq, IRQF_TRIGGER_FALLING,
 			 "msm_pcie_wake", dev);
 	if (rc) {
@@ -103,7 +109,7 @@ uint32_t __init msm_pcie_irq_init(struct msm_pcie_dev_t *dev)
 
 	enable_irq_wake(dev->wake_n);
 
-	
+	/* PCIE_WAKE_N should be enabled only during system suspend */
 	disable_irq(dev->wake_n);
 out:
 	return rc;
@@ -123,6 +129,7 @@ void msm_pcie_destroy_irq(unsigned int irq)
 	clear_bit(pos, msi_irq_in_use);
 }
 
+/* hookup to linux pci msi framework */
 void arch_teardown_msi_irq(unsigned int irq)
 {
 	PCIE_DBG("irq %d deallocated\n", irq);
@@ -160,6 +167,7 @@ again:
 	return irq;
 }
 
+/* hookup to linux pci msi framework */
 int arch_setup_msi_irq(struct pci_dev *pdev, struct msi_desc *desc)
 {
 	int irq;
@@ -173,7 +181,7 @@ int arch_setup_msi_irq(struct pci_dev *pdev, struct msi_desc *desc)
 
 	irq_set_msi_desc(irq, desc);
 
-	
+	/* write msi vector and data */
 	msg.address_hi = 0;
 	msg.address_lo = MSM_PCIE_MSI_PHY;
 	msg.data = irq - MSM_PCIE_MSI_INT(0);

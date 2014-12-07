@@ -26,6 +26,12 @@ struct emac_platform_data {
 	u32 hw_ram_addr;
 	u32 ctrl_ram_size;
 
+	/*
+	 * phy_id can be one of the following:
+	 *   - NULL		: use the first phy on the bus,
+	 *   - ""		: force to 100/full, no mdio control
+	 *   - "<bus>:<addr>"	: use the specified bus and phy
+	 */
 	const char *phy_id;
 
 	u8 rmii_en;
@@ -36,8 +42,8 @@ struct emac_platform_data {
 };
 
 enum {
-	EMAC_VERSION_1,	
-	EMAC_VERSION_2,	
+	EMAC_VERSION_1,	/* DM644x */
+	EMAC_VERSION_2,	/* DM646x */
 };
 
 void davinci_get_mac_addr(struct memory_accessor *mem_acc, void *context);

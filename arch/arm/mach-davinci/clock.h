@@ -16,6 +16,7 @@
 #define DAVINCI_PLL2_BASE 0x01c40c00
 #define MAX_PLL 2
 
+/* PLL/Reset register offsets */
 #define PLLCTL          0x100
 #define PLLCTL_PLLEN    BIT(0)
 #define PLLCTL_PLLPWRDN	BIT(1)
@@ -49,8 +50,19 @@
 #define PLLDIV_EN       BIT(15)
 #define PLLDIV_RATIO_MASK 0x1f
 
+/*
+ * OMAP-L138 system reference guide recommends a wait for 4 OSCIN/CLKIN
+ * cycles to ensure that the PLLC has switched to bypass mode. Delay of 1us
+ * ensures we are good for all > 4MHz OSCIN/CLKIN inputs. Typically the input
+ * is ~25MHz. Units are micro seconds.
+ */
 #define PLL_BYPASS_TIME		1
+/* From OMAP-L138 datasheet table 6-4. Units are micro seconds */
 #define PLL_RESET_TIME		1
+/*
+ * From OMAP-L138 datasheet table 6-4; assuming prediv = 1, sqrt(pllm) = 4
+ * Units are micro seconds.
+ */
 #define PLL_LOCK_TIME		20
 
 #ifndef __ASSEMBLER__
@@ -77,15 +89,15 @@ struct clk {
 	struct module		*owner;
 	const char		*name;
 	unsigned long		rate;
-	unsigned long		maxrate;	
+	unsigned long		maxrate;	/* H/W supported max rate */
 	u8			usecount;
 	u8			lpsc;
 	u8			gpsc;
 	u8			domain;
 	u32			flags;
 	struct clk              *parent;
-	struct list_head	children; 	
-	struct list_head	childnode;	
+	struct list_head	children; 	/* list of children */
+	struct list_head	childnode;	/* parent's child list node */
 	struct pll_data         *pll_data;
 	u32                     div_reg;
 	unsigned long (*recalc) (struct clk *);
@@ -93,12 +105,13 @@ struct clk {
 	int (*round_rate) (struct clk *clk, unsigned long rate);
 };
 
+/* Clock flags: SoC-specific flags start at BIT(16) */
 #define ALWAYS_ENABLED		BIT(1)
 #define CLK_PSC			BIT(2)
-#define CLK_PLL			BIT(3) 
-#define PRE_PLL			BIT(4) 
-#define PSC_SWRSTDISABLE	BIT(5) 
-#define PSC_FORCE		BIT(6) 
+#define CLK_PLL			BIT(3) /* PLL-derived clock */
+#define PRE_PLL			BIT(4) /* source is before PLL mult/div */
+#define PSC_SWRSTDISABLE	BIT(5) /* Disable state is SwRstDisable */
+#define PSC_FORCE		BIT(6) /* Force module state transtition */
 
 #define CLK(dev, con, ck) 	\
 	{			\

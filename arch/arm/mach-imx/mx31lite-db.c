@@ -38,14 +38,20 @@
 
 #include "devices-imx31.h"
 
+/*
+ * This file contains board-specific initialization routines for the
+ * LogicPD i.MX31 SOM-LV development board, aka 'LiteKit'.
+ * If you design an own baseboard for the module, use this file as base
+ * for support code.
+ */
 
 static unsigned int litekit_db_board_pins[] __initdata = {
-	
+	/* UART1 */
 	MX31_PIN_CTS1__CTS1,
 	MX31_PIN_RTS1__RTS1,
 	MX31_PIN_TXD1__TXD1,
 	MX31_PIN_RXD1__RXD1,
-	
+	/* SPI 0 */
 	MX31_PIN_CSPI1_SCLK__SCLK,
 	MX31_PIN_CSPI1_MOSI__MOSI,
 	MX31_PIN_CSPI1_MISO__MISO,
@@ -53,7 +59,7 @@ static unsigned int litekit_db_board_pins[] __initdata = {
 	MX31_PIN_CSPI1_SS0__SS0,
 	MX31_PIN_CSPI1_SS1__SS1,
 	MX31_PIN_CSPI1_SS2__SS2,
-	
+	/* SDHC1 */
 	MX31_PIN_SD1_DATA0__SD1_DATA0,
 	MX31_PIN_SD1_DATA1__SD1_DATA1,
 	MX31_PIN_SD1_DATA2__SD1_DATA2,
@@ -62,10 +68,12 @@ static unsigned int litekit_db_board_pins[] __initdata = {
 	MX31_PIN_SD1_CMD__SD1_CMD,
 };
 
+/* UART */
 static const struct imxuart_platform_data uart_pdata __initconst = {
 	.flags = IMXUART_HAVE_RTSCTS,
 };
 
+/* MMC */
 
 static int gpio_det, gpio_wp;
 
@@ -138,6 +146,7 @@ static const struct imxmmc_platform_data mmc_pdata __initconst = {
 	.exit	   = mxc_mmc1_exit,
 };
 
+/* SPI */
 
 static int spi_internal_chipselect[] = {
 	MXC_SPI_CS(0),
@@ -150,6 +159,7 @@ static const struct spi_imx_master spi0_pdata __initconst = {
 	.num_chipselect	= ARRAY_SIZE(spi_internal_chipselect),
 };
 
+/* GPIO LEDs */
 
 static const struct gpio_led litekit_leds[] __initconst = {
 	{

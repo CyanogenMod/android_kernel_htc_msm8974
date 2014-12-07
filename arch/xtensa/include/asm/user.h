@@ -13,5 +13,8 @@
 #ifndef _XTENSA_USER_H
 #define _XTENSA_USER_H
 
+/* This file usually defines a 'struct user' structure. However, it it only
+ * used for a.out file, which are not supported on Xtensa.
+ */
 
-#endif	
+#endif	/* _XTENSA_USER_H */

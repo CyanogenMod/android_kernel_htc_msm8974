@@ -16,6 +16,7 @@
 
 #ifndef __ASSEMBLY__
 
+/* IRQ IDs presented to drivers */
 enum {
 	IRQ_FPGA__UNUSED			= IRQ_BASE_FPGA,
 	IRQ_FPGA_SYSINT_BUS_EXPANSION_1,
@@ -36,6 +37,6 @@ enum {
 };
 
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_MB93091_FPGA_IRQS_H */

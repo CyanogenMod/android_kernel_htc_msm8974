@@ -159,7 +159,7 @@ uec_set_pauseparam(struct net_device *netdev,
 
 	if (ugeth->phydev->autoneg) {
 		if (netif_running(netdev)) {
-			
+			/* FIXME: automatically restart */
 			printk(KERN_INFO
 				"Please re-open the interface.\n");
 		}
@@ -259,7 +259,7 @@ uec_set_ringparam(struct net_device *netdev,
 	ug_info->bdRingLenTx[queue] = ring->tx_pending;
 
 	if (netif_running(netdev)) {
-		
+		/* FIXME: restart automatically */
 		printk(KERN_INFO
 			"Please re-open the interface.\n");
 	}
@@ -345,6 +345,7 @@ static int uec_nway_reset(struct net_device *netdev)
 	return phy_start_aneg(ugeth->phydev);
 }
 
+/* Report driver information */
 static void
 uec_get_drvinfo(struct net_device *netdev,
                        struct ethtool_drvinfo *drvinfo)
@@ -393,7 +394,7 @@ static int uec_set_wol(struct net_device *netdev, struct ethtool_wolinfo *wol)
 #else
 #define uec_get_wol NULL
 #define uec_set_wol NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static const struct ethtool_ops uec_ethtool_ops = {
 	.get_settings           = uec_get_settings,

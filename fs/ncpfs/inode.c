@@ -110,6 +110,9 @@ static const struct super_operations ncp_sops =
 	.show_options	= ncp_show_options,
 };
 
+/*
+ * Fill in the ncpfs-specific information in the inode.
+ */
 static void ncp_update_dirent(struct inode *inode, struct ncp_entry_info *nwinfo)
 {
 	NCP_FINFO(inode)->DosDirNum = nwinfo->i.DosDirNum;
@@ -131,11 +134,11 @@ void ncp_update_inode(struct inode *inode, struct ncp_entry_info *nwinfo)
 
 static void ncp_update_dates(struct inode *inode, struct nw_info_struct *nwi)
 {
-	
+	/* NFS namespace mode overrides others if it's set. */
 	DPRINTK(KERN_DEBUG "ncp_update_dates_and_mode: (%s) nfs.mode=0%o\n",
 		nwi->entryName, nwi->nfs.mode);
 	if (nwi->nfs.mode) {
-		
+		/* XXX Security? */
 		inode->i_mode = nwi->nfs.mode;
 	}
 
@@ -156,6 +159,8 @@ static void ncp_update_attrs(struct inode *inode, struct ncp_entry_info *nwinfo)
 
 	if (nwi->attributes & aDIR) {
 		inode->i_mode = server->m.dir_mode;
+		/* for directories dataStreamSize seems to be some
+		   Object ID ??? */
 		i_size_write(inode, NCP_BLOCK_SIZE);
 	} else {
 		u32 size;
@@ -169,14 +174,14 @@ static void ncp_update_attrs(struct inode *inode, struct ncp_entry_info *nwinfo)
 			switch (nwi->attributes & (aHIDDEN|aSYSTEM)) {
 				case aHIDDEN:
 					if (server->m.flags & NCP_MOUNT_SYMLINKS) {
-						if (
- (size <= NCP_MAX_SYMLINK_SIZE)) {
+						if (/* (size >= NCP_MIN_SYMLINK_SIZE)
+						 && */ (size <= NCP_MAX_SYMLINK_SIZE)) {
 							inode->i_mode = (inode->i_mode & ~S_IFMT) | S_IFLNK;
 							NCP_FINFO(inode)->flags |= NCPI_KLUDGE_SYMLINK;
 							break;
 						}
 					}
-					
+					/* FALLTHROUGH */
 				case 0:
 					if (server->m.flags & NCP_MOUNT_EXTRAS)
 						inode->i_mode |= S_IRUGO;
@@ -185,9 +190,9 @@ static void ncp_update_attrs(struct inode *inode, struct ncp_entry_info *nwinfo)
 					if (server->m.flags & NCP_MOUNT_EXTRAS)
 						inode->i_mode |= (inode->i_mode >> 2) & S_IXUGO;
 					break;
-				
+				/* case aSYSTEM|aHIDDEN: */
 				default:
-					
+					/* reserved combination */
 					break;
 			}
 		}
@@ -208,6 +213,9 @@ void ncp_update_inode2(struct inode* inode, struct ncp_entry_info *nwinfo)
 	ncp_update_dirent(inode, nwinfo);
 }
 
+/*
+ * Fill in the inode based on the ncp_entry_info structure.  Used only for brand new inodes.
+ */
 static void ncp_set_attr(struct inode *inode, struct ncp_entry_info *nwinfo)
 {
 	struct ncp_server *server = NCP_SERVER(inode);
@@ -235,6 +243,9 @@ static const struct inode_operations ncp_symlink_inode_operations = {
 };
 #endif
 
+/*
+ * Get a new inode.
+ */
 struct inode * 
 ncp_iget(struct super_block *sb, struct ncp_entry_info *info)
 {
@@ -288,7 +299,7 @@ ncp_evict_inode(struct inode *inode)
 	}
 
 	if (ncp_make_closed(inode) != 0) {
-		
+		/* We can't do anything but complain. */
 		printk(KERN_ERR "ncp_evict_inode: could not close\n");
 	}
 }
@@ -352,7 +363,7 @@ static const struct ncp_option ncp_opts[] = {
 	{ "flags",	OPT_INT,	'f' },
 	{ "wdogpid",	OPT_INT,	'w' },
 	{ "ncpfd",	OPT_INT,	'n' },
-	{ "infofd",	OPT_INT,	'i' },	
+	{ "infofd",	OPT_INT,	'i' },	/* v5 */
 	{ "version",	OPT_INT,	'v' },
 	{ NULL,		0,		0 } };
 
@@ -521,9 +532,9 @@ static int ncp_fill_super(struct super_block *sb, void *raw_data, int silent)
 	else
 		default_bufsize = 1024;
 
-	sb->s_flags |= MS_NODIRATIME;	
+	sb->s_flags |= MS_NODIRATIME;	/* probably even noatime */
 	sb->s_maxbytes = 0xFFFFFFFFU;
-	sb->s_blocksize = 1024;	
+	sb->s_blocksize = 1024;	/* Eh...  Is this correct? */
 	sb->s_blocksize_bits = 10;
 	sb->s_magic = NCP_SUPER_MAGIC;
 	sb->s_op = &ncp_sops;
@@ -560,15 +571,29 @@ static int ncp_fill_super(struct super_block *sb, void *raw_data, int silent)
 		server->info_sock = info_sock;
 	}
 
+/*	server->lock = 0;	*/
 	mutex_init(&server->mutex);
 	server->packet = NULL;
+/*	server->buffer_size = 0;	*/
+/*	server->conn_status = 0;	*/
+/*	server->root_dentry = NULL;	*/
+/*	server->root_setuped = 0;	*/
 	mutex_init(&server->root_setup_lock);
 #ifdef CONFIG_NCPFS_PACKET_SIGNING
+/*	server->sign_wanted = 0;	*/
+/*	server->sign_active = 0;	*/
 #endif
 	init_rwsem(&server->auth_rwsem);
 	server->auth.auth_type = NCP_AUTH_NONE;
+/*	server->auth.object_name_len = 0;	*/
+/*	server->auth.object_name = NULL;	*/
+/*	server->auth.object_type = 0;		*/
+/*	server->priv.len = 0;			*/
+/*	server->priv.data = NULL;		*/
 
 	server->m = data;
+	/* Although anything producing this is buggy, it happens
+	   now because of PATH_MAX changes.. */
 	if (server->m.time_out < 1) {
 		server->m.time_out = 10;
 		printk(KERN_INFO "You need to recompile your ncpfs utils..\n");
@@ -578,12 +603,12 @@ static int ncp_fill_super(struct super_block *sb, void *raw_data, int silent)
 	server->m.dir_mode = (server->m.dir_mode & S_IRWXUGO) | S_IFDIR;
 
 #ifdef CONFIG_NCPFS_NLS
-	
+	/* load the default NLS charsets */
 	server->nls_vol = load_nls_default();
 	server->nls_io = load_nls_default();
-#endif 
+#endif /* CONFIG_NCPFS_NLS */
 
-	atomic_set(&server->dentry_ttl, 0);	
+	atomic_set(&server->dentry_ttl, 0);	/* no caching */
 
 	INIT_LIST_HEAD(&server->tx.requests);
 	mutex_init(&server->rcv.creq_mutex);
@@ -634,7 +659,7 @@ static int ncp_fill_super(struct super_block *sb, void *raw_data, int silent)
 		goto out_rxbuf;
 	DPRINTK("ncp_fill_super: NCP_SBP(sb) = %x\n", (int) NCP_SBP(sb));
 
-	error = -EMSGSIZE;	
+	error = -EMSGSIZE;	/* -EREMOTESIDEINCOMPATIBLE */
 #ifdef CONFIG_NCPFS_PACKET_SIGNING
 	if (ncp_negotiate_size_and_options(server, default_bufsize,
 		NCP_DEFAULT_OPTIONS, &(server->buffer_size), &options) == 0)
@@ -656,7 +681,7 @@ static int ncp_fill_super(struct super_block *sb, void *raw_data, int silent)
 		ncp_unlock_server(server);
 	}
 	else 
-#endif	
+#endif	/* CONFIG_NCPFS_PACKET_SIGNING */
 	if (ncp_negotiate_buffersize(server, default_bufsize,
   				     &(server->buffer_size)) != 0)
 		goto out_disconnect;
@@ -664,14 +689,14 @@ static int ncp_fill_super(struct super_block *sb, void *raw_data, int silent)
 
 	memset(&finfo, 0, sizeof(finfo));
 	finfo.i.attributes	= aDIR;
-	finfo.i.dataStreamSize	= 0;	
+	finfo.i.dataStreamSize	= 0;	/* ignored */
 	finfo.i.dirEntNum	= 0;
 	finfo.i.DosDirNum	= 0;
 #ifdef CONFIG_NCPFS_SMALLDOS
 	finfo.i.NSCreator	= NW_NS_DOS;
 #endif
 	finfo.volume		= NCP_NUMBER_OF_VOLUMES;
-	
+	/* set dates of mountpoint to Jan 1, 1986; 00:00 */
 	finfo.i.creationTime	= finfo.i.modifyTime
 				= cpu_to_le16(0x0000);
 	finfo.i.creationDate	= finfo.i.modifyDate
@@ -681,7 +706,7 @@ static int ncp_fill_super(struct super_block *sb, void *raw_data, int silent)
 	finfo.i.entryName[0]	= '\0';
 
 	finfo.opened		= 0;
-	finfo.ino		= 2;	
+	finfo.ino		= 2;	/* tradition */
 
 	server->name_space[finfo.volume] = NW_NS_DOS;
 
@@ -720,6 +745,11 @@ out_fput2:
 out_bdi:
 	bdi_destroy(&server->bdi);
 out_fput:
+	/* 23/12/1998 Marcin Dalecki <dalecki@cs.net.pl>:
+	 * 
+	 * The previously used put_filp(ncp_filp); was bogus, since
+	 * it doesn't perform proper unlocking.
+	 */
 	fput(ncp_filp);
 out:
 	put_pid(data.wdog_pid);
@@ -739,10 +769,10 @@ static void ncp_put_super(struct super_block *sb)
 	ncp_stop_tasks(server);
 
 #ifdef CONFIG_NCPFS_NLS
-	
+	/* unload the NLS charsets */
 	unload_nls(server->nls_vol);
 	unload_nls(server->nls_io);
-#endif 
+#endif /* CONFIG_NCPFS_NLS */
 	mutex_destroy(&server->rcv.creq_mutex);
 	mutex_destroy(&server->root_setup_lock);
 	mutex_destroy(&server->mutex);
@@ -813,6 +843,11 @@ static int ncp_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_namelen = 12;
 	return 0;
 
+	/* We cannot say how much disk space is left on a mounted
+	   NetWare Server, because free space is distributed over
+	   volumes, and the current user might have disk quotas. So
+	   free space is not that simple to determine. Our decision
+	   here is to err conservatively. */
 
 dflt:;
 	buf->f_type = NCP_SUPER_MAGIC;
@@ -835,10 +870,10 @@ int ncp_notify_change(struct dentry *dentry, struct iattr *attr)
 	result = -EIO;
 
 	server = NCP_SERVER(inode);
-	if (!server)	
+	if (!server)	/* How this could happen? */
 		goto out;
 
-	
+	/* ageing the dentry to force validation */
 	ncp_age_dentry(server, dentry);
 
 	result = inode_change_ok(inode, attr);
@@ -874,10 +909,10 @@ int ncp_notify_change(struct dentry *dentry, struct iattr *attr)
 		} else {
 #ifdef CONFIG_NCPFS_EXTRAS			
 			if (server->m.flags & NCP_MOUNT_EXTRAS) {
-				
+				/* any non-default execute bit set */
 				if (newmode & ~server->m.file_mode & S_IXUGO)
 					info.attributes |= aSHARED | aSYSTEM;
-				
+				/* read for group/world and not in default file_mode */
 				else if (newmode & ~server->m.file_mode & S_IRUGO)
 					info.attributes |= aSHARED;
 			} else
@@ -899,7 +934,7 @@ int ncp_notify_change(struct dentry *dentry, struct iattr *attr)
 				goto out;
 			info.attributes &= ~(aSHARED | aSYSTEM);
 			{
-				
+				/* mark partial success */
 				struct iattr tmpattr;
 				
 				tmpattr.ia_valid = ATTR_MODE;
@@ -913,6 +948,8 @@ int ncp_notify_change(struct dentry *dentry, struct iattr *attr)
         }
 #endif
 
+	/* Do SIZE before attributes, otherwise mtime together with size does not work...
+	 */
 	if ((attr->ia_valid & ATTR_SIZE) != 0) {
 		int written;
 
@@ -926,6 +963,8 @@ int ncp_notify_change(struct dentry *dentry, struct iattr *attr)
 		ncp_write_kernel(NCP_SERVER(inode), NCP_FINFO(inode)->file_handle,
 			  attr->ia_size, 0, "", &written);
 
+		/* According to ndir, the changes only take effect after
+		   closing the file */
 		ncp_inode_close(inode);
 		result = ncp_make_closed(inode);
 		if (result)
@@ -959,6 +998,11 @@ int ncp_notify_change(struct dentry *dentry, struct iattr *attr)
 				      inode, info_mask, &info);
 		if (result != 0) {
 			if (info_mask == (DM_CREATE_TIME | DM_CREATE_DATE)) {
+				/* NetWare seems not to allow this. I
+				   do not know why. So, just tell the
+				   user everything went fine. This is
+				   a terrible hack, but I do not know
+				   how to do this correctly. */
 				result = 0;
 			} else
 				goto out;

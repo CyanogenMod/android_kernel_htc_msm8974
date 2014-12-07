@@ -38,10 +38,10 @@
 #define VERSION "0.10"
 
 static struct usb_device_id bpa10x_table[] = {
-	
+	/* Tektronix BPA 100/105 (Digianswer) */
 	{ USB_DEVICE(0x08fd, 0x0002) },
 
-	{ }	
+	{ }	/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, bpa10x_table);
@@ -82,7 +82,7 @@ static int bpa10x_recv(struct hci_dev *hdev, int queue, void *buf, int count)
 		int type, len = 0;
 
 		if (!skb) {
-			
+			/* Start of the frame */
 
 			type = *((__u8 *) buf);
 			count--; buf++;
@@ -137,7 +137,7 @@ static int bpa10x_recv(struct hci_dev *hdev, int queue, void *buf, int count)
 			scb->type = type;
 			scb->expect = len;
 		} else {
-			
+			/* Continuation */
 
 			scb = (void *) skb->cb;
 			len = scb->expect;
@@ -150,7 +150,7 @@ static int bpa10x_recv(struct hci_dev *hdev, int queue, void *buf, int count)
 		scb->expect -= len;
 
 		if (scb->expect == 0) {
-			
+			/* Complete frame */
 
 			data->rx_skb[queue] = NULL;
 
@@ -370,7 +370,7 @@ static int bpa10x_send_frame(struct sk_buff *skb)
 	if (!urb)
 		return -ENOMEM;
 
-	
+	/* Prepend skb with frame type */
 	*skb_push(skb, 1) = bt_cb(skb)->pkt_type;
 
 	switch (bt_cb(skb)->pkt_type) {

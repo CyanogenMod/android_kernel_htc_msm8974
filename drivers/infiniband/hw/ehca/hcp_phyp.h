@@ -45,14 +45,25 @@
 #define __HCP_PHYP_H__
 
 
+/*
+ * eHCA page (mapped into memory)
+ * resource to access eHCA register pages in CPU address space
+*/
 struct h_galpa {
 	u64 fw_handle;
+	/* for pSeries this is a 64bit memory address where
+	   I/O memory is mapped into CPU address space (kv) */
 };
 
+/*
+ * resource to access eHCA address space registers, all types
+ */
 struct h_galpas {
-	u32 pid;		
-	struct h_galpa user;	
-	struct h_galpa kernel;	
+	u32 pid;		/*PID of userspace galpa checking */
+	struct h_galpa user;	/* user space accessible resource,
+				   set to 0 if unused */
+	struct h_galpa kernel;	/* kernel space accessible resource,
+				   set to 0 if unused */
 };
 
 static inline u64 hipz_galpa_load(struct h_galpa galpa, u32 offset)

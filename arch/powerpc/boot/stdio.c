@@ -17,13 +17,16 @@ size_t strnlen(const char * s, size_t count)
 	const char *sc;
 
 	for (sc = s; count-- && *sc != '\0'; ++sc)
-		;
+		/* nothing */;
 	return sc - s;
 }
 
 extern unsigned int __div64_32(unsigned long long *dividend,
 			       unsigned int divisor);
 
+/* The unnecessary pointer compare is there
+ * to check for type safety (n must be 64bit)
+ */
 # define do_div(n,base) ({						\
 	unsigned int __base = (base);					\
 	unsigned int __rem;						\
@@ -45,13 +48,13 @@ static int skip_atoi(const char **s)
 	return i;
 }
 
-#define ZEROPAD	1		
-#define SIGN	2		
-#define PLUS	4		
-#define SPACE	8		
-#define LEFT	16		
-#define SPECIAL	32		
-#define LARGE	64		
+#define ZEROPAD	1		/* pad with zero */
+#define SIGN	2		/* unsigned/signed long */
+#define PLUS	4		/* show plus */
+#define SPACE	8		/* space if plus */
+#define LEFT	16		/* left justified */
+#define SPECIAL	32		/* 0x */
+#define LARGE	64		/* use 'ABCDEF' instead of 'abcdef' */
 
 static char * number(char * str, unsigned long long num, int base, int size, int precision, int type)
 {
@@ -128,13 +131,14 @@ int vsprintf(char *buf, const char *fmt, va_list args)
 	char * str;
 	const char *s;
 
-	int flags;		
+	int flags;		/* flags to number() */
 
-	int field_width;	
-	int precision;		
-	int qualifier;		
-	                        
-				
+	int field_width;	/* width of output field */
+	int precision;		/* min. # of digits for integers; max
+				   number of chars for from string */
+	int qualifier;		/* 'h', 'l', or 'L' for integer fields */
+	                        /* 'z' support added 23/7/1999 S.H.    */
+				/* 'z' changed to 'Z' --davidm 1/25/99 */
 
 	
 	for (str=buf ; *fmt ; ++fmt) {
@@ -143,10 +147,10 @@ int vsprintf(char *buf, const char *fmt, va_list args)
 			continue;
 		}
 			
-		
+		/* process flags */
 		flags = 0;
 		repeat:
-			++fmt;		
+			++fmt;		/* this also skips first '%' */
 			switch (*fmt) {
 				case '-': flags |= LEFT; goto repeat;
 				case '+': flags |= PLUS; goto repeat;
@@ -155,13 +159,13 @@ int vsprintf(char *buf, const char *fmt, va_list args)
 				case '0': flags |= ZEROPAD; goto repeat;
 				}
 		
-		
+		/* get field width */
 		field_width = -1;
 		if ('0' <= *fmt && *fmt <= '9')
 			field_width = skip_atoi(&fmt);
 		else if (*fmt == '*') {
 			++fmt;
-			
+			/* it's the next argument */
 			field_width = va_arg(args, int);
 			if (field_width < 0) {
 				field_width = -field_width;
@@ -169,7 +173,7 @@ int vsprintf(char *buf, const char *fmt, va_list args)
 			}
 		}
 
-		
+		/* get the precision */
 		precision = -1;
 		if (*fmt == '.') {
 			++fmt;	
@@ -177,14 +181,14 @@ int vsprintf(char *buf, const char *fmt, va_list args)
 				precision = skip_atoi(&fmt);
 			else if (*fmt == '*') {
 				++fmt;
-				
+				/* it's the next argument */
 				precision = va_arg(args, int);
 			}
 			if (precision < 0)
 				precision = 0;
 		}
 
-		
+		/* get the conversion qualifier */
 		qualifier = -1;
 		if (*fmt == 'l' && *(fmt + 1) == 'l') {
 			qualifier = 'q';
@@ -195,7 +199,7 @@ int vsprintf(char *buf, const char *fmt, va_list args)
 			++fmt;
 		}
 
-		
+		/* default base */
 		base = 10;
 
 		switch (*fmt) {
@@ -252,7 +256,7 @@ int vsprintf(char *buf, const char *fmt, va_list args)
 			*str++ = '%';
 			continue;
 
-		
+		/* integer number formats - set up the flags and "break" */
 		case 'o':
 			base = 8;
 			break;

@@ -22,6 +22,7 @@
 #include <linux/slab.h>
 #include <linux/syscalls.h>
 #include <mach/board.h>
+/*#include <mach/msm_watchdog.h>*/
 #include <mach/devices_cmdline.h>
 #include <mach/board_htc.h>
 #ifdef CONFIG_OF
@@ -95,11 +96,11 @@ static void keyreset_event(struct input_handle *handle, unsigned int type,
 	    state->key_down == state->key_down_target) {
 		state->restart_disabled = 1;
 		if (restart_requested) {
-			
-			
+			//msm_watchdog_suspend(NULL);
+			/* show blocked processes to debug hang problems */
 			printk(KERN_INFO "\n### Show Blocked State ###\n");
 			show_state_filter(TASK_UNINTERRUPTIBLE);
-			
+			//msm_watchdog_resume(NULL);
 			if (time_after(jiffies, restart_timeout))
 				panic("keyboard reset failed, %d", restart_requested);
 			return;
@@ -111,11 +112,11 @@ static void keyreset_event(struct input_handle *handle, unsigned int type,
 			schedule_delayed_work(&restart_work, KEYRESET_DELAY);
 			restart_requested = 1;
 			restart_timeout = jiffies + 20 * HZ;
-			
-			
+			//msm_watchdog_suspend(NULL);
+			/* show blocked processes to debug hang problems */
 			printk(KERN_INFO "\n### Show Blocked State ###\n");
 			show_state_filter(TASK_UNINTERRUPTIBLE);
-			
+			//msm_watchdog_resume(NULL);
 		}
 	} else if (restart_requested == 1) {
 		if (cancel_delayed_work(&restart_work)) {

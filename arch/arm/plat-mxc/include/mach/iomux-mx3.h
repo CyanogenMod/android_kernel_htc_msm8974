@@ -20,26 +20,32 @@
 #define __MACH_IOMUX_MX3_H__
 
 #include <linux/types.h>
+/*
+ * various IOMUX output functions
+ */
 
-#define	IOMUX_OCONFIG_GPIO (0 << 4)	
-#define	IOMUX_OCONFIG_FUNC (1 << 4)	
-#define	IOMUX_OCONFIG_ALT1 (2 << 4)	
-#define	IOMUX_OCONFIG_ALT2 (3 << 4)	
-#define	IOMUX_OCONFIG_ALT3 (4 << 4)	
-#define	IOMUX_OCONFIG_ALT4 (5 << 4)	
-#define	IOMUX_OCONFIG_ALT5 (6 << 4)	
-#define	IOMUX_OCONFIG_ALT6 (7 << 4)	
-#define	IOMUX_ICONFIG_NONE  0		
-#define	IOMUX_ICONFIG_GPIO  1		
-#define	IOMUX_ICONFIG_FUNC  2		
-#define	IOMUX_ICONFIG_ALT1  4		
-#define	IOMUX_ICONFIG_ALT2  8		
+#define	IOMUX_OCONFIG_GPIO (0 << 4)	/* used as GPIO */
+#define	IOMUX_OCONFIG_FUNC (1 << 4)	/* used as function */
+#define	IOMUX_OCONFIG_ALT1 (2 << 4)	/* used as alternate function 1 */
+#define	IOMUX_OCONFIG_ALT2 (3 << 4)	/* used as alternate function 2 */
+#define	IOMUX_OCONFIG_ALT3 (4 << 4)	/* used as alternate function 3 */
+#define	IOMUX_OCONFIG_ALT4 (5 << 4)	/* used as alternate function 4 */
+#define	IOMUX_OCONFIG_ALT5 (6 << 4)	/* used as alternate function 5 */
+#define	IOMUX_OCONFIG_ALT6 (7 << 4)	/* used as alternate function 6 */
+#define	IOMUX_ICONFIG_NONE  0		/* not configured for input */
+#define	IOMUX_ICONFIG_GPIO  1		/* used as GPIO */
+#define	IOMUX_ICONFIG_FUNC  2		/* used as function */
+#define	IOMUX_ICONFIG_ALT1  4		/* used as alternate function 1 */
+#define	IOMUX_ICONFIG_ALT2  8		/* used as alternate function 2 */
 
 #define IOMUX_CONFIG_GPIO (IOMUX_OCONFIG_GPIO | IOMUX_ICONFIG_GPIO)
 #define IOMUX_CONFIG_FUNC (IOMUX_OCONFIG_FUNC | IOMUX_ICONFIG_FUNC)
 #define IOMUX_CONFIG_ALT1 (IOMUX_OCONFIG_ALT1 | IOMUX_ICONFIG_ALT1)
 #define IOMUX_CONFIG_ALT2 (IOMUX_OCONFIG_ALT2 | IOMUX_ICONFIG_ALT2)
 
+/*
+ * various IOMUX pad functions
+ */
 enum iomux_pad_config {
 	PAD_CTL_NOLOOPBACK	= 0x0 << 9,
 	PAD_CTL_LOOPBACK	= 0x1 << 9,
@@ -62,6 +68,9 @@ enum iomux_pad_config {
 	PAD_CTL_SRE_FAST	= 0x1 << 0
 };
 
+/*
+ * various IOMUX general purpose functions
+ */
 enum iomux_gp_func {
 	MUX_PGP_FIRI			= 1 << 0,
 	MUX_DDR_MODE			= 1 << 1,
@@ -97,15 +106,44 @@ enum iomux_gp_func {
 	MUX_CLKO_DDR_MODE		= 1 << 31,
 };
 
+/*
+ * setups a single pin:
+ * 	- reserves the pin so that it is not claimed by another driver
+ * 	- setups the iomux according to the configuration
+ * 	- if the pin is configured as a GPIO, we claim it through kernel gpiolib
+ */
 int mxc_iomux_alloc_pin(unsigned int pin, const char *label);
+/*
+ * setups mutliple pins
+ * convenient way to call the above function with tables
+ */
 int mxc_iomux_setup_multiple_pins(const unsigned int *pin_list, unsigned count,
 		const char *label);
 
+/*
+ * releases a single pin:
+ * 	- make it available for a future use by another driver
+ * 	- frees the GPIO if the pin was configured as GPIO
+ * 	- DOES NOT reconfigure the IOMUX in its reset state
+ */
 void mxc_iomux_release_pin(unsigned int pin);
+/*
+ * releases multiple pins
+ * convenvient way to call the above function with tables
+ */
 void mxc_iomux_release_multiple_pins(const unsigned int *pin_list, int count);
 
+/*
+ * This function enables/disables the general purpose function for a particular
+ * signal.
+ */
 void mxc_iomux_set_gpr(enum iomux_gp_func, bool en);
 
+/*
+ * This function only configures the iomux hardware.
+ * It is called by the setup functions and should not be called directly anymore.
+ * It is here visible for backward compatibility
+ */
 int mxc_iomux_mode(unsigned int pin_mode);
 
 #define IOMUX_PADNUM_MASK	0x1ff
@@ -126,6 +164,11 @@ int mxc_iomux_mode(unsigned int pin_mode);
 	(((iomux_pin & IOMUX_GPIONUM_MASK) >> IOMUX_GPIONUM_SHIFT) + \
 	MXC_GPIO_IRQ_START)
 
+/*
+ * This enumeration is constructed based on the Section
+ * "sw_pad_ctl & sw_mux_ctl details" of the MX31 IC Spec. Each enumerated
+ * value is constructed based on the rules described above.
+ */
 
 enum iomux_pins {
 	MX31_PIN_TTM_PAD	= IOMUX_PIN(0xff,   0),
@@ -459,8 +502,13 @@ enum iomux_pins {
 };
 
 #define PIN_MAX 327
-#define NB_PORTS 12 
+#define NB_PORTS 12 /* NB_PINS/32, we chose 32 pins per "PORT" */
 
+/*
+ * Convenience values for use with mxc_iomux_mode()
+ *
+ * Format here is MX31_PIN_(pin name)__(function)
+ */
 #define MX31_PIN_CSPI3_MOSI__RXD3	IOMUX_MODE(MX31_PIN_CSPI3_MOSI, IOMUX_CONFIG_ALT1)
 #define MX31_PIN_CSPI3_MISO__TXD3	IOMUX_MODE(MX31_PIN_CSPI3_MISO, IOMUX_CONFIG_ALT1)
 #define MX31_PIN_CSPI3_SCLK__RTS3	IOMUX_MODE(MX31_PIN_CSPI3_SCLK, IOMUX_CONFIG_ALT1)
@@ -690,7 +738,14 @@ enum iomux_pins {
 #define MX31_PIN_WATCHDOG_RST__WATCHDOG_RST	IOMUX_MODE(MX31_PIN_WATCHDOG_RST, IOMUX_CONFIG_FUNC)
 
 
+/*
+ * XXX: The SS0, SS1, SS2, SS3 lines of spi3 are multiplexed with cspi2_ss0,
+ * cspi2_ss1, cspi1_ss0 cspi1_ss1
+ */
 
+/*
+ * This function configures the pad value for a IOMUX pin.
+ */
 void mxc_iomux_set_pad(enum iomux_pins, u32);
 
-#endif 
+#endif /* ifndef __MACH_IOMUX_MX3_H__ */

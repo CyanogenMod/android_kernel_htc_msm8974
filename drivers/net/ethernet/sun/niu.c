@@ -385,6 +385,7 @@ static int esr2_set_rx_cfg(struct niu *np, unsigned long channel, u32 val)
 	return err;
 }
 
+/* Mode is always 10G fiber.  */
 static int serdes_init_niu_10g_fiber(struct niu *np)
 {
 	struct niu_link_config *lp = &np->link_config;
@@ -406,7 +407,7 @@ static int serdes_init_niu_10g_fiber(struct niu *np)
 		rx_cfg |= PLL_RX_CFG_ENTEST;
 	}
 
-	
+	/* Initialize all 4 lanes of the SERDES.  */
 	for (i = 0; i < 4; i++) {
 		int err = esr2_set_tx_cfg(np, i, tx_cfg);
 		if (err)
@@ -451,7 +452,7 @@ static int serdes_init_niu_1g_serdes(struct niu *np)
 		rx_cfg |= PLL_RX_CFG_ENTEST;
 	}
 
-	
+	/* Initialize PLL for 1G */
 	pll_cfg = (PLL_CFG_ENPLL | PLL_CFG_MPY_8X);
 
 	err = mdio_write(np, np->port, NIU_ESR2_DEV_ADDR,
@@ -474,7 +475,7 @@ static int serdes_init_niu_1g_serdes(struct niu *np)
 
 	udelay(200);
 
-	
+	/* Initialize all 4 lanes of the SERDES.  */
 	for (i = 0; i < 4; i++) {
 		err = esr2_set_tx_cfg(np, i, tx_cfg);
 		if (err)
@@ -543,7 +544,7 @@ static int serdes_init_niu_10g_serdes(struct niu *np)
 		rx_cfg |= PLL_RX_CFG_ENTEST;
 	}
 
-	
+	/* Initialize PLL for 10G */
 	pll_cfg = (PLL_CFG_ENPLL | PLL_CFG_MPY_10X);
 
 	err = mdio_write(np, np->port, NIU_ESR2_DEV_ADDR,
@@ -566,7 +567,7 @@ static int serdes_init_niu_10g_serdes(struct niu *np)
 
 	udelay(200);
 
-	
+	/* Initialize all 4 lanes of the SERDES.  */
 	for (i = 0; i < 4; i++) {
 		err = esr2_set_tx_cfg(np, i, tx_cfg);
 		if (err)
@@ -579,7 +580,7 @@ static int serdes_init_niu_10g_serdes(struct niu *np)
 			return err;
 	}
 
-	
+	/* check if serdes is ready */
 
 	switch (np->port) {
 	case 0:
@@ -620,7 +621,7 @@ static int serdes_init_niu_10g_serdes(struct niu *np)
 		pr_info("NIU Port %u signal bits [%08x] are not [%08x] for 10G...trying 1G\n",
 			np->port, (int)(sig & mask), (int)val);
 
-		
+		/* 10G failed, try initializing at 1G */
 		err = serdes_init_niu_1g_serdes(np);
 		if (!err) {
 			np->flags &= ~NIU_FLAGS_10G;
@@ -797,7 +798,7 @@ static int serdes_init_10g(struct niu *np)
 	nw64(ctrl_reg, ctrl_val);
 	nw64(test_cfg_reg, test_cfg_val);
 
-	
+	/* Initialize all 4 lanes of the SERDES.  */
 	for (i = 0; i < 4; i++) {
 		u32 rxtx_ctrl, glue0;
 
@@ -965,7 +966,7 @@ static int serdes_init_1g_serdes(struct niu *np)
 	nw64(ENET_SERDES_RESET, val_rd);
 	mdelay(2000);
 
-	
+	/* Initialize all 4 lanes of the SERDES.  */
 	for (i = 0; i < 4; i++) {
 		u32 rxtx_ctrl, glue0;
 
@@ -1424,12 +1425,12 @@ static int xcvr_init_10g_mrvl88x2011(struct niu *np)
 {
 	int	err;
 
-	
+	/* Set LED functions */
 	err = mrvl88x2011_led_blink_rate(np, MRVL88X2011_LED_BLKRATE_134MS);
 	if (err)
 		return err;
 
-	
+	/* led activity */
 	err = mrvl88x2011_act_led(np, MRVL88X2011_LED_CTL_OFF);
 	if (err)
 		return err;
@@ -1461,7 +1462,7 @@ static int xcvr_init_10g_mrvl88x2011(struct niu *np)
 	if (err < 0)
 		return err;
 
-	
+	/* Enable PMD  */
 	return mdio_write(np, np->phy_addr, MRVL88X2011_USER_DEV1_ADDR,
 			  MRVL88X2011_10G_PMD_TX_DIS, MRVL88X2011_ENA_PMDTX);
 }
@@ -1491,7 +1492,7 @@ static int xcvr_diag_bcm870x(struct niu *np)
 	pr_info("Port %u PHYXS(MII_NWAYTEST) [%04x]\n", np->port, err);
 #endif
 
-	
+	/* XXX dig this out it might not be so useful XXX */
 	err = mdio_read(np, np->phy_addr, BCM8704_USER_DEV3_ADDR,
 			BCM8704_USER_ANALOG_STATUS0);
 	if (err < 0)
@@ -1618,7 +1619,7 @@ static int xcvr_init_10g(struct niu *np)
 	val |= XMAC_CONFIG_FORCE_LED_ON;
 	nw64_mac(XMAC_CONFIG, val);
 
-	
+	/* XXX shared resource, lock parent XXX */
 	val = nr64(MIF_CONFIG);
 	val |= MIF_CONFIG_INDIRECT_MODE;
 	nw64(MIF_CONFIG, val);
@@ -1626,13 +1627,13 @@ static int xcvr_init_10g(struct niu *np)
 	phy_id = phy_decode(np->parent->port_phy, np->port);
 	phy_id = np->parent->phy_probe_info.phy_id[phy_id][np->port];
 
-	
+	/* handle different phy types */
 	switch (phy_id & NIU_PHY_ID_MASK) {
 	case NIU_PHY_ID_MRVL88X2011:
 		err = xcvr_init_10g_mrvl88x2011(np);
 		break;
 
-	default: 
+	default: /* bcom 8704 */
 		err = xcvr_init_10g_bcm8704(np);
 		break;
 	}
@@ -1808,7 +1809,7 @@ static int mii_init_common(struct niu *np)
 
 		bmcr |= (BMCR_ANENABLE | BMCR_ANRESTART);
 	} else {
-		
+		/* !lp->autoneg */
 		int fulldpx;
 
 		if (lp->duplex == DUPLEX_FULL) {
@@ -1820,6 +1821,8 @@ static int mii_init_common(struct niu *np)
 			return -EINVAL;
 
 		if (lp->speed == SPEED_1000) {
+			/* if X-full requested while not supported, or
+			   X-half requested while not supported... */
 			if ((fulldpx && !(estat & ESTATUS_1000_TFULL)) ||
 				(!fulldpx && !(estat & ESTATUS_1000_THALF)))
 				return -EINVAL;
@@ -1863,7 +1866,7 @@ static int xcvr_init_1g(struct niu *np)
 {
 	u64 val;
 
-	
+	/* XXX shared resource, lock parent XXX */
 	val = nr64(MIF_CONFIG);
 	val &= ~MIF_CONFIG_INDIRECT_MODE;
 	nw64(MIF_CONFIG, val);
@@ -1940,7 +1943,7 @@ static int link_status_10g_mrvl(struct niu *np, int *link_up_p)
 	if (err < 0)
 		goto out;
 
-	
+	/* Check PMA/PMD Register: 1.0001.2 == 1 */
 	err = mdio_read(np, np->phy_addr, MRVL88X2011_USER_DEV1_ADDR,
 			MRVL88X2011_PMA_PMD_STATUS_1);
 	if (err < 0)
@@ -1948,7 +1951,7 @@ static int link_status_10g_mrvl(struct niu *np, int *link_up_p)
 
 	pma_status = ((err & MRVL88X2011_LNK_STATUS_OK) ? 1 : 0);
 
-        
+        /* Check PMC Register : 3.0001.2 == 1: read twice */
 	err = mdio_read(np, np->phy_addr, MRVL88X2011_USER_DEV3_ADDR,
 			MRVL88X2011_PMA_PMD_STATUS_1);
 	if (err < 0)
@@ -1961,7 +1964,7 @@ static int link_status_10g_mrvl(struct niu *np, int *link_up_p)
 
 	pcs_status = ((err & MRVL88X2011_LNK_STATUS_OK) ? 1 : 0);
 
-        
+        /* Check XGXS Register : 4.0018.[0-3,12] */
 	err = mdio_read(np, np->phy_addr, MRVL88X2011_USER_DEV4_ADDR,
 			MRVL88X2011_10G_XGXS_LANE_STAT);
 	if (err < 0)
@@ -2098,13 +2101,13 @@ static int link_status_10g(struct niu *np, int *link_up_p)
 		phy_id = phy_decode(np->parent->port_phy, np->port);
 		phy_id = np->parent->phy_probe_info.phy_id[phy_id][np->port];
 
-		
+		/* handle different phy types */
 		switch (phy_id & NIU_PHY_ID_MASK) {
 		case NIU_PHY_ID_MRVL88X2011:
 			err = link_status_10g_mrvl(np, link_up_p);
 			break;
 
-		default: 
+		default: /* bcom 8704 */
 			err = link_status_10g_bcom(np, link_up_p);
 			break;
 		}
@@ -2166,9 +2169,9 @@ static int link_status_10g_hotplug(struct niu *np, int *link_up_p)
 			1 : 0;
 		phy_present = niu_10g_phy_present(np);
 		if (phy_present != phy_present_prev) {
-			
+			/* state change */
 			if (phy_present) {
-				
+				/* A NEM was just plugged in */
 				np->flags |= NIU_FLAGS_HOTPLUG_PHY_PRESENT;
 				if (np->phy_ops->xcvr_init)
 					err = np->phy_ops->xcvr_init(np);
@@ -2176,10 +2179,10 @@ static int link_status_10g_hotplug(struct niu *np, int *link_up_p)
 					err = mdio_read(np, np->phy_addr,
 						BCM8704_PHYXS_DEV_ADDR, MII_BMCR);
 					if (err == 0xffff) {
-						
+						/* No mdio, back-to-back XAUI */
 						goto out;
 					}
-					
+					/* debounce */
 					np->flags &= ~NIU_FLAGS_HOTPLUG_PHY_PRESENT;
 				}
 			} else {
@@ -2193,7 +2196,7 @@ out:
 		if (np->flags & NIU_FLAGS_HOTPLUG_PHY_PRESENT) {
 			err = link_status_10g_bcm8706(np, link_up_p);
 			if (err == 0xffff) {
-				
+				/* No mdio, back-to-back XAUI: it is C10NEM */
 				*link_up_p = 1;
 				np->link_config.active_speed = SPEED_10000;
 				np->link_config.active_duplex = DUPLEX_FULL;
@@ -2283,7 +2286,7 @@ static const struct niu_phy_ops phy_ops_niu_10g_hotplug = {
 
 static const struct niu_phy_ops phy_ops_10g_copper = {
 	.serdes_init		= serdes_init_10g,
-	.link_status		= link_status_10g, 
+	.link_status		= link_status_10g, /* XXX */
 };
 
 static const struct niu_phy_ops phy_ops_1g_fiber = {
@@ -2412,7 +2415,7 @@ static int serdes_init_10g_serdes(struct niu *np)
 	nw64(ctrl_reg, ctrl_val);
 	nw64(test_cfg_reg, test_cfg_val);
 
-	
+	/* Initialize all 4 lanes of the SERDES.  */
 	for (i = 0; i < 4; i++) {
 		u32 rxtx_ctrl, glue0;
 		int err;
@@ -2503,15 +2506,15 @@ static int niu_determine_phy_disposition(struct niu *np)
 			 NIU_FLAGS_FIBER |
 			 NIU_FLAGS_XCVR_SERDES)) {
 		case NIU_FLAGS_10G | NIU_FLAGS_XCVR_SERDES:
-			
+			/* 10G Serdes */
 			tp = &phy_template_niu_10g_serdes;
 			break;
 		case NIU_FLAGS_XCVR_SERDES:
-			
+			/* 1G Serdes */
 			tp = &phy_template_niu_1g_serdes;
 			break;
 		case NIU_FLAGS_10G | NIU_FLAGS_FIBER:
-			
+			/* 10G Fiber */
 		default:
 			if (np->flags & NIU_FLAGS_HOTPLUG_PHY) {
 				tp = &phy_template_niu_10g_hotplug;
@@ -2531,7 +2534,7 @@ static int niu_determine_phy_disposition(struct niu *np)
 			 NIU_FLAGS_FIBER |
 			 NIU_FLAGS_XCVR_SERDES)) {
 		case 0:
-			
+			/* 1G copper */
 			tp = &phy_template_1g_copper;
 			if (plat_type == PLAT_TYPE_VF_P0)
 				phy_addr_off = 10;
@@ -2542,17 +2545,17 @@ static int niu_determine_phy_disposition(struct niu *np)
 			break;
 
 		case NIU_FLAGS_10G:
-			
+			/* 10G copper */
 			tp = &phy_template_10g_copper;
 			break;
 
 		case NIU_FLAGS_FIBER:
-			
+			/* 1G fiber */
 			tp = &phy_template_1g_fiber;
 			break;
 
 		case NIU_FLAGS_10G | NIU_FLAGS_FIBER:
-			
+			/* 10G fiber */
 			tp = &phy_template_10g_fiber;
 			if (plat_type == PLAT_TYPE_VF_P0 ||
 			    plat_type == PLAT_TYPE_VF_P1)
@@ -3160,7 +3163,7 @@ static int fflp_hash_clear(struct niu *np)
 	struct fcram_hash_ipv4 ent;
 	unsigned long i;
 
-	
+	/* IPV4 hash entry with valid bit clear, rest is don't care.  */
 	memset(&ent, 0, sizeof(ent));
 	ent.header = HASH_HEADER_EXT;
 
@@ -3251,9 +3254,10 @@ static int niu_set_tcam_key(struct niu *np, unsigned long class_code, u64 key)
 	return 0;
 }
 
+/* Entries for the ports are interleaved in the TCAM */
 static u16 tcam_get_index(struct niu *np, u16 idx)
 {
-	
+	/* One entry reserved for IP fragment rule */
 	if (idx >= (np->clas.tcam_sz - 1))
 		idx = 0;
 	return np->clas.tcam_top + ((idx+1) * np->parent->num_ports);
@@ -3261,13 +3265,13 @@ static u16 tcam_get_index(struct niu *np, u16 idx)
 
 static u16 tcam_get_size(struct niu *np)
 {
-	
+	/* One entry reserved for IP fragment rule */
 	return np->clas.tcam_sz - 1;
 }
 
 static u16 tcam_get_valid_entry_cnt(struct niu *np)
 {
-	
+	/* One entry reserved for IP fragment rule */
 	return np->clas.tcam_valid_entries - 1;
 }
 
@@ -3644,9 +3648,25 @@ static inline void niu_sync_rx_discard_stats(struct niu *np,
 					     struct rx_ring_info *rp,
 					     const int limit)
 {
+	/* This elaborate scheme is needed for reading the RX discard
+	 * counters, as they are only 16-bit and can overflow quickly,
+	 * and because the overflow indication bit is not usable as
+	 * the counter value does not wrap, but remains at max value
+	 * 0xFFFF.
+	 *
+	 * In theory and in practice counters can be lost in between
+	 * reading nr64() and clearing the counter nw64().  For this
+	 * reason, the number of counter clearings nw64() is
+	 * limited/reduced though the limit parameter.
+	 */
 	int rx_channel = rp->rx_channel;
 	u32 misc, wred;
 
+	/* RXMISC (Receive Miscellaneous Discard Count), covers the
+	 * following discard events: IPP (Input Port Process),
+	 * FFLP/TCAM, Full RCR (Receive Completion Ring) RBR (Receive
+	 * Block Ring) prefetch buffer is empty.
+	 */
 	misc = nr64(RXMISC(rx_channel));
 	if (unlikely((misc & RXMISC_COUNT) > limit)) {
 		nw64(RXMISC(rx_channel), 0);
@@ -3661,7 +3681,7 @@ static inline void niu_sync_rx_discard_stats(struct niu *np,
 			     rx_channel, misc, misc-limit);
 	}
 
-	
+	/* WRED (Weighted Random Early Discard) by hardware */
 	wred = nr64(RED_DIS_CNT(rx_channel));
 	if (unlikely((wred & RED_DIS_CNT_COUNT) > limit)) {
 		nw64(RED_DIS_CNT(rx_channel), 0);
@@ -3718,7 +3738,7 @@ static int niu_rx_work(struct napi_struct *napi, struct niu *np,
 
 	nw64(RX_DMA_CTL_STAT(rp->rx_channel), stat);
 
-	
+	/* Only sync discards stats when qlen indicate potential for drops */
 	if (qlen > 10)
 		niu_sync_rx_discard_stats(np, rp, 0x7FFF);
 
@@ -4376,6 +4396,9 @@ static void niu_set_max_burst(struct niu *np, struct tx_ring_info *rp)
 {
 	int mtu = np->dev->mtu;
 
+	/* These values are recommended by the HW designers for fair
+	 * utilization of DRR amongst the rings.
+	 */
 	rp->max_burst = mtu + 32;
 	if (rp->max_burst > 4096)
 		rp->max_burst = 4096;
@@ -4413,7 +4436,7 @@ static int niu_alloc_tx_ring_info(struct niu *np,
 	rp->cons = 0;
 	rp->wrap_bit = 0;
 
-	
+	/* XXX make these configurable... XXX */
 	rp->mark_freq = rp->pending / 4;
 
 	niu_set_max_burst(np, rp);
@@ -4491,7 +4514,7 @@ static int niu_alloc_channels(struct niu *np)
 
 		niu_size_rbr(np, rp);
 
-		
+		/* XXX better defaults, configurable, etc... XXX */
 		rp->nonsyn_window = 64;
 		rp->nonsyn_threshold = rp->rcr_table_size - 64;
 		rp->syn_window = 64;
@@ -4602,7 +4625,7 @@ static int niu_tx_channel_lpage_init(struct niu *np, int channel)
 	val |= (TX_LOG_PAGE_VLD_PAGE0 | TX_LOG_PAGE_VLD_PAGE1);
 	nw64(TX_LOG_PAGE_VLD(channel), val);
 
-	
+	/* XXX TXDMA 32bit mode? XXX */
 
 	return 0;
 }
@@ -4678,6 +4701,11 @@ static int niu_init_one_tx_channel(struct niu *np, struct tx_ring_info *rp)
 		return -EINVAL;
 	}
 
+	/* The length field in TX_RNG_CFIG is measured in 64-byte
+	 * blocks.  rp->pending is the number of TX descriptors in
+	 * our ring, 8 bytes each, thus we divide by 8 bytes more
+	 * to get the proper value the chip wants.
+	 */
 	ring_len = (rp->pending / 8);
 
 	val = ((ring_len << TX_RNG_CFIG_LEN_SHIFT) |
@@ -4963,7 +4991,7 @@ static int niu_init_rx_channels(struct niu *np)
 	nw64(RED_RAN_INIT, RED_RAN_INIT_OPMODE | (seed & RED_RAN_INIT_VAL));
 	niu_unlock_parent(np, flags);
 
-	
+	/* XXX RXDMA 32bit mode? XXX */
 
 	niu_init_rdc_groups(np);
 	niu_init_drr_weight(np);
@@ -4993,6 +5021,9 @@ static int niu_set_ip_frag_rule(struct niu *np)
 	index = cp->tcam_top;
 	tp = &parent->tcam[index];
 
+	/* Note that the noport bit is the same in both ipv4 and
+	 * ipv6 format TCAM entries.
+	 */
 	memset(tp, 0, sizeof(*tp));
 	tp->key[1] = TCAM_V4KEY1_NOPORT;
 	tp->key_mask[1] = TCAM_V4KEY1_NOPORT;
@@ -5387,7 +5418,7 @@ static int niu_init_pcs(struct niu *np)
 			     NIU_FLAGS_FIBER |
 			     NIU_FLAGS_XCVR_SERDES)) {
 	case NIU_FLAGS_FIBER:
-		
+		/* 1G fiber */
 		nw64_pcs(PCS_CONF, PCS_CONF_MASK | PCS_CONF_ENABLE);
 		nw64_pcs(PCS_DPATH_MODE, 0);
 		niu_pcs_mii_reset(np);
@@ -5396,11 +5427,11 @@ static int niu_init_pcs(struct niu *np)
 	case NIU_FLAGS_10G:
 	case NIU_FLAGS_10G | NIU_FLAGS_FIBER:
 	case NIU_FLAGS_10G | NIU_FLAGS_XCVR_SERDES:
-		
+		/* 10G SERDES */
 		if (!(np->flags & NIU_FLAGS_XMAC))
 			return -EINVAL;
 
-		
+		/* 10G copper or fiber */
 		val = nr64_mac(XMAC_CONFIG);
 		val &= ~XMAC_CONFIG_10G_XPCS_BYPASS;
 		nw64_mac(XMAC_CONFIG, val);
@@ -5421,16 +5452,16 @@ static int niu_init_pcs(struct niu *np)
 
 
 	case NIU_FLAGS_XCVR_SERDES:
-		
+		/* 1G SERDES */
 		niu_pcs_mii_reset(np);
 		nw64_pcs(PCS_CONF, PCS_CONF_MASK | PCS_CONF_ENABLE);
 		nw64_pcs(PCS_DPATH_MODE, 0);
 		break;
 
 	case 0:
-		
+		/* 1G copper */
 	case NIU_FLAGS_XCVR_SERDES | NIU_FLAGS_FIBER:
-		
+		/* 1G RGMII FIBER */
 		nw64_pcs(PCS_DPATH_MODE, PCS_DPATH_MODE_MII);
 		niu_pcs_mii_reset(np);
 		break;
@@ -5542,6 +5573,9 @@ static void niu_init_tx_mac(struct niu *np)
 	else
 		max = 1522;
 
+	/* The XMAC_MIN register only accepts values for TX min which
+	 * have the low 3 bits cleared.
+	 */
 	BUG_ON(min & 0x7);
 
 	if (np->flags & NIU_FLAGS_XMAC)
@@ -5793,6 +5827,11 @@ static int niu_init_mac(struct niu *np)
 		return err;
 	niu_init_rx_mac(np);
 
+	/* This looks hookey but the RX MAC reset we just did will
+	 * undo some of the state we setup in niu_init_tx_mac() so we
+	 * have to call it again.  In particular, the RX MAC reset will
+	 * set the XMAC_MAX register back to it's default value.
+	 */
 	niu_init_tx_mac(np);
 	niu_enable_tx_mac(np, 1);
 
@@ -6396,7 +6435,7 @@ static int niu_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 
 static void niu_netif_stop(struct niu *np)
 {
-	np->dev->trans_start = jiffies;	
+	np->dev->trans_start = jiffies;	/* prevent tx timeout */
 
 	niu_disable_napi(np);
 
@@ -6405,6 +6444,10 @@ static void niu_netif_stop(struct niu *np)
 
 static void niu_netif_start(struct niu *np)
 {
+	/* NOTE: unconditional netif_wake_queue is only appropriate
+	 * so long as all callers are assured to have free tx slots
+	 * (such as after niu_init_hw).
+	 */
 	netif_tx_wake_all_queues(np->dev);
 
 	niu_enable_napi(np);
@@ -7162,7 +7205,7 @@ static int niu_get_ethtool_tcam_entry(struct niu *np,
 		return -EINVAL;
 	}
 
-	
+	/* fill the flow spec entry */
 	class = (tp->key[0] & TCAM_V4KEY0_CLASS_CODE) >>
 		TCAM_V4KEY0_CLASS_CODE_SHIFT;
 	ret = niu_class_to_ethflow(class, &fsp->flow_type);
@@ -7198,7 +7241,7 @@ static int niu_get_ethtool_tcam_entry(struct niu *np,
 	case SCTP_V6_FLOW:
 	case AH_V6_FLOW:
 	case ESP_V6_FLOW:
-		
+		/* Not yet implemented */
 		ret = -EINVAL;
 		break;
 	case IP_USER_FLOW:
@@ -7218,7 +7261,7 @@ static int niu_get_ethtool_tcam_entry(struct niu *np,
 		fsp->ring_cookie = (tp->assoc_data & TCAM_ASSOCDATA_OFFSET) >>
 			TCAM_ASSOCDATA_OFFSET_SHIFT;
 
-	
+	/* put the tcam size here */
 	nfc->data = tcam_get_size(np);
 out:
 	return ret;
@@ -7234,7 +7277,7 @@ static int niu_get_ethtool_tcam_all(struct niu *np,
 	unsigned long flags;
 	int ret = 0;
 
-	
+	/* put the tcam size here */
 	nfc->data = tcam_get_size(np);
 
 	niu_lock_parent(np, flags);
@@ -7310,7 +7353,7 @@ static int niu_set_hash_opts(struct niu *np, struct ethtool_rxnfc *nfc)
 		niu_unlock_parent(np, flags);
 		return 0;
 	} else {
-		
+		/* Discard was set before, but is not set now */
 		if (np->parent->tcam_key[class - CLASS_CODE_USER_PROG1] &
 		    TCAM_KEY_DISC) {
 			niu_lock_parent(np, flags);
@@ -7443,7 +7486,7 @@ static int niu_add_ethtool_tcam_entry(struct niu *np,
 					break;
 				}
 			} else {
-				
+				/* Program new user IP class */
 				switch (i) {
 				case 0:
 					class = CLASS_CODE_USER_PROG1;
@@ -7497,7 +7540,7 @@ static int niu_add_ethtool_tcam_entry(struct niu *np,
 
 	memset(tp, 0, sizeof(*tp));
 
-	
+	/* fill in the tcam key and mask */
 	switch (fsp->flow_type) {
 	case TCP_V4_FLOW:
 	case UDP_V4_FLOW:
@@ -7511,7 +7554,7 @@ static int niu_add_ethtool_tcam_entry(struct niu *np,
 	case SCTP_V6_FLOW:
 	case AH_V6_FLOW:
 	case ESP_V6_FLOW:
-		
+		/* Not yet implemented */
 		netdev_info(np->dev, "niu%d: In %s(): flow %d for IPv6 not implemented\n",
 			    parent->index, __func__, fsp->flow_type);
 		ret = -EINVAL;
@@ -7526,7 +7569,7 @@ static int niu_add_ethtool_tcam_entry(struct niu *np,
 		goto out;
 	}
 
-	
+	/* fill in the assoc data */
 	if (fsp->ring_cookie == RX_CLS_FLOW_DISC) {
 		tp->assoc_data = TCAM_ASSOCDATA_DISC;
 	} else {
@@ -7553,7 +7596,7 @@ static int niu_add_ethtool_tcam_entry(struct niu *np,
 		goto out;
 	}
 
-	
+	/* validate the entry */
 	tp->valid = 1;
 	np->clas.tcam_valid_entries++;
 out:
@@ -7579,7 +7622,7 @@ static int niu_del_ethtool_tcam_entry(struct niu *np, u32 loc)
 	idx = tcam_get_index(np, loc);
 	tp = &parent->tcam[idx];
 
-	
+	/* if the entry is of a user defined class, then update*/
 	class = (tp->key[0] & TCAM_V4KEY0_CLASS_CODE) >>
 		TCAM_V4KEY0_CLASS_CODE_SHIFT;
 
@@ -7589,7 +7632,7 @@ static int niu_del_ethtool_tcam_entry(struct niu *np, u32 loc)
 			if (parent->l3_cls[i] == class) {
 				parent->l3_cls_refcnt[i]--;
 				if (!parent->l3_cls_refcnt[i]) {
-					
+					/* disable class */
 					ret = tcam_user_ip_class_enable(np,
 									class,
 									0);
@@ -7614,7 +7657,7 @@ static int niu_del_ethtool_tcam_entry(struct niu *np, u32 loc)
 	if (ret)
 		goto out;
 
-	
+	/* invalidate the entry */
 	tp->valid = 0;
 	np->clas.tcam_valid_entries--;
 out:
@@ -7854,7 +7897,7 @@ static int niu_set_phys_id(struct net_device *dev,
 	switch (state) {
 	case ETHTOOL_ID_ACTIVE:
 		np->orig_led_state = niu_led_state_save(np);
-		return 1;	
+		return 1;	/* cycle on/off once per second */
 
 	case ETHTOOL_ID_ON:
 		niu_force_led(np, 1);
@@ -7900,6 +7943,11 @@ static int niu_ldg_assign_ldn(struct niu *np, struct niu_parent *parent,
 	parent->ldg_map[ldn] = ldg;
 
 	if (np->parent->plat_type == PLAT_TYPE_NIU) {
+		/* On N2 NIU, the ldn-->ldg assignments are setup and fixed by
+		 * the firmware, and we're not supposed to change them.
+		 * Validate the mapping, because if it's wrong we probably
+		 * won't get any interrupts and that's painful to debug.
+		 */
 		if (nr64(LDG_NUM(ldn)) != ldg) {
 			dev_err(np->device, "Port %u, mis-matched LDG assignment for ldn %d, should be %d is %llu\n",
 				np->port, ldn, ldg,
@@ -8059,6 +8107,7 @@ static void __devinit niu_vpd_parse_version(struct niu *np)
 		np->flags |= NIU_FLAGS_VPD_VALID;
 }
 
+/* ESPC_PIO_EN_ENABLE must be set */
 static int __devinit niu_pci_vpd_scan_props(struct niu *np,
 					    u32 start, u32 end)
 {
@@ -8145,6 +8194,7 @@ static int __devinit niu_pci_vpd_scan_props(struct niu *np,
 	return 0;
 }
 
+/* ESPC_PIO_EN_ENABLE must be set */
 static void __devinit niu_pci_vpd_fetch(struct niu *np, u32 start)
 {
 	u32 offset;
@@ -8179,6 +8229,7 @@ static void __devinit niu_pci_vpd_fetch(struct niu *np, u32 start)
 	}
 }
 
+/* ESPC_PIO_EN_ENABLE must be set */
 static u32 __devinit niu_pci_vpd_offset(struct niu *np)
 {
 	u32 start = 0, end = ESPC_EEPROM_SIZE, ret;
@@ -8187,18 +8238,18 @@ static u32 __devinit niu_pci_vpd_offset(struct niu *np)
 	while (start < end) {
 		ret = start;
 
-		
+		/* ROM header signature?  */
 		err = niu_pci_eeprom_read16(np, start +  0);
 		if (err != 0x55aa)
 			return 0;
 
-		
+		/* Apply offset to PCI data structure.  */
 		err = niu_pci_eeprom_read16(np, start + 23);
 		if (err < 0)
 			return 0;
 		start += err;
 
-		
+		/* Check for "PCIR" signature.  */
 		err = niu_pci_eeprom_read16(np, start +  0);
 		if (err != 0x5043)
 			return 0;
@@ -8206,7 +8257,7 @@ static u32 __devinit niu_pci_vpd_offset(struct niu *np)
 		if (err != 0x4952)
 			return 0;
 
-		
+		/* Check for OBP image type.  */
 		err = niu_pci_eeprom_read(np, start + 20);
 		if (err < 0)
 			return 0;
@@ -8238,27 +8289,27 @@ static int __devinit niu_phy_type_prop_decode(struct niu *np,
 					      const char *phy_prop)
 {
 	if (!strcmp(phy_prop, "mif")) {
-		
+		/* 1G copper, MII */
 		np->flags &= ~(NIU_FLAGS_FIBER |
 			       NIU_FLAGS_10G);
 		np->mac_xcvr = MAC_XCVR_MII;
 	} else if (!strcmp(phy_prop, "xgf")) {
-		
+		/* 10G fiber, XPCS */
 		np->flags |= (NIU_FLAGS_10G |
 			      NIU_FLAGS_FIBER);
 		np->mac_xcvr = MAC_XCVR_XPCS;
 	} else if (!strcmp(phy_prop, "pcs")) {
-		
+		/* 1G fiber, PCS */
 		np->flags &= ~NIU_FLAGS_10G;
 		np->flags |= NIU_FLAGS_FIBER;
 		np->mac_xcvr = MAC_XCVR_PCS;
 	} else if (!strcmp(phy_prop, "xgc")) {
-		
+		/* 10G copper, XPCS */
 		np->flags |= NIU_FLAGS_10G;
 		np->flags &= ~NIU_FLAGS_FIBER;
 		np->mac_xcvr = MAC_XCVR_XPCS;
 	} else if (!strcmp(phy_prop, "xgsd") || !strcmp(phy_prop, "gsd")) {
-		
+		/* 10G Serdes or 1G Serdes, default to 10G */
 		np->flags |= NIU_FLAGS_10G;
 		np->flags &= ~NIU_FLAGS_FIBER;
 		np->flags |= NIU_FLAGS_XCVR_SERDES;
@@ -8394,28 +8445,28 @@ static int __devinit niu_pci_probe_sprom(struct niu *np)
 
 	switch (val8) {
 	case ESPC_PHY_TYPE_1G_COPPER:
-		
+		/* 1G copper, MII */
 		np->flags &= ~(NIU_FLAGS_FIBER |
 			       NIU_FLAGS_10G);
 		np->mac_xcvr = MAC_XCVR_MII;
 		break;
 
 	case ESPC_PHY_TYPE_1G_FIBER:
-		
+		/* 1G fiber, PCS */
 		np->flags &= ~NIU_FLAGS_10G;
 		np->flags |= NIU_FLAGS_FIBER;
 		np->mac_xcvr = MAC_XCVR_PCS;
 		break;
 
 	case ESPC_PHY_TYPE_10G_COPPER:
-		
+		/* 10G copper, XPCS */
 		np->flags |= NIU_FLAGS_10G;
 		np->flags &= ~NIU_FLAGS_FIBER;
 		np->mac_xcvr = MAC_XCVR_XPCS;
 		break;
 
 	case ESPC_PHY_TYPE_10G_FIBER:
-		
+		/* 10G fiber, XPCS */
 		np->flags |= (NIU_FLAGS_10G |
 			      NIU_FLAGS_FIBER);
 		np->mac_xcvr = MAC_XCVR_XPCS;
@@ -8506,9 +8557,15 @@ static int __devinit niu_get_and_validate_port(struct niu *np)
 		} else {
 			parent->num_ports = niu_pci_vpd_get_nports(np);
 			if (!parent->num_ports) {
+				/* Fall back to SPROM as last resort.
+				 * This will fail on most cards.
+				 */
 				parent->num_ports = nr64(ESPC_NUM_PORTS_MACS) &
 					ESPC_NUM_PORTS_MACS_VAL;
 
+				/* All of the current probing methods fail on
+				 * Maramba on-board parts.
+				 */
 				if (!parent->num_ports)
 					parent->num_ports = 4;
 			}
@@ -8532,6 +8589,9 @@ static int __devinit phy_record(struct niu_parent *parent,
 	if (dev_id_1 < 0 || dev_id_2 < 0)
 		return 0;
 	if (type == PHY_TYPE_PMA_PMD || type == PHY_TYPE_PCS) {
+		/* Because of the NIU_PHY_ID_MASK being applied, the 8704
+		 * test covers the 8706 as well.
+		 */
 		if (((id & NIU_PHY_ID_MASK) != NIU_PHY_ID_BCM8704) &&
 		    ((id & NIU_PHY_ID_MASK) != NIU_PHY_ID_MRVL88X2011))
 			return 0;
@@ -8731,7 +8791,7 @@ static int __devinit fill_phy_probe_info(struct niu *np,
 
 	memset(info, 0, sizeof(*info));
 
-	
+	/* Port 0 to 7 are reserved for onboard Serdes, probe the rest.  */
 	niu_lock_parent(np, flags);
 	err = 0;
 	for (port = 8; port < 32; port++) {
@@ -8793,7 +8853,7 @@ static int __devinit walk_phys(struct niu *np, struct niu_parent *parent)
 		       phy_encode(PORT_TYPE_10G, 1));
 	} else if ((np->flags & NIU_FLAGS_XCVR_SERDES) &&
 		   (parent->plat_type == PLAT_TYPE_NIU)) {
-		
+		/* this is the Monza case */
 		if (np->flags & NIU_FLAGS_10G) {
 			val = (phy_encode(PORT_TYPE_10G, 0) |
 			       phy_encode(PORT_TYPE_10G, 1));
@@ -8818,7 +8878,7 @@ static int __devinit walk_phys(struct niu *np, struct niu_parent *parent)
 			else
 				goto unknown_vg_1g_port;
 
-			
+			/* fallthru */
 		case 0x22:
 			val = (phy_encode(PORT_TYPE_10G, 0) |
 			       phy_encode(PORT_TYPE_10G, 1) |
@@ -8843,7 +8903,7 @@ static int __devinit walk_phys(struct niu *np, struct niu_parent *parent)
 			else
 				goto unknown_vg_1g_port;
 
-			
+			/* fallthru */
 		case 0x13:
 			if ((lowest_10g & 0x7) == 0)
 				val = (phy_encode(PORT_TYPE_10G, 0) |
@@ -9079,8 +9139,12 @@ static int __devinit niu_ldg_init(struct niu *np)
 
 		lp->np = np;
 		lp->ldg_num = ldg_num_map[i];
-		lp->timer = 2; 
+		lp->timer = 2; /* XXX */
 
+		/* On N2 NIU the firmware has setup the SID mappings so they go
+		 * to the correct values that will route the LDG to the proper
+		 * interrupt in the NCU interrupt table.
+		 */
 		if (np->parent->plat_type != PLAT_TYPE_NIU) {
 			err = niu_set_ldg_sid(np, lp->ldg_num, port, i);
 			if (err)
@@ -9088,6 +9152,16 @@ static int __devinit niu_ldg_init(struct niu *np)
 		}
 	}
 
+	/* We adopt the LDG assignment ordering used by the N2 NIU
+	 * 'interrupt' properties because that simplifies a lot of
+	 * things.  This ordering is:
+	 *
+	 *	MAC
+	 *	MIF	(if port zero)
+	 *	SYSERR	(if port zero)
+	 *	RX channels
+	 *	TX channels
+	 */
 
 	ldg_rotor = 0;
 
@@ -9954,7 +10028,7 @@ static u64 niu_phys_map_page(struct device *dev, struct page *page,
 static void niu_phys_unmap_page(struct device *dev, u64 dma_address,
 				size_t size, enum dma_data_direction direction)
 {
-	
+	/* Nothing to do.  */
 }
 
 static u64 niu_phys_map_single(struct device *dev, void *cpu_addr,
@@ -9968,7 +10042,7 @@ static void niu_phys_unmap_single(struct device *dev, u64 dma_address,
 				  size_t size,
 				  enum dma_data_direction direction)
 {
-	
+	/* Nothing to do.  */
 }
 
 static const struct niu_ops niu_phys_ops = {
@@ -10150,7 +10224,7 @@ static struct platform_driver niu_of_driver = {
 	.remove		= __devexit_p(niu_of_remove),
 };
 
-#endif 
+#endif /* CONFIG_SPARC64 */
 
 static int __init niu_init(void)
 {

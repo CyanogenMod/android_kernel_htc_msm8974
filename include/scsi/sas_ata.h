@@ -87,4 +87,4 @@ static inline int sas_get_ata_info(struct domain_device *dev, struct ex_phy *phy
 }
 #endif
 
-#endif 
+#endif /* _SAS_ATA_H_ */

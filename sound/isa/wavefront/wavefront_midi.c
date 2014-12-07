@@ -6,6 +6,46 @@
  * software for more info.  
  */
 
+/* The low level driver for the WaveFront ICS2115 MIDI interface(s)
+ *
+ * Note that there is also an MPU-401 emulation (actually, a UART-401
+ * emulation) on the CS4232 on the Tropez and Tropez Plus. This code
+ * has nothing to do with that interface at all.
+ *
+ * The interface is essentially just a UART-401, but is has the
+ * interesting property of supporting what Turtle Beach called
+ * "Virtual MIDI" mode. In this mode, there are effectively *two*
+ * MIDI buses accessible via the interface, one that is routed
+ * solely to/from the external WaveFront synthesizer and the other
+ * corresponding to the pin/socket connector used to link external
+ * MIDI devices to the board.
+ *
+ * This driver fully supports this mode, allowing two distinct MIDI
+ * busses to be used completely independently, giving 32 channels of
+ * MIDI routing, 16 to the WaveFront synth and 16 to the external MIDI
+ * bus. The devices are named /dev/snd/midiCnD0 and /dev/snd/midiCnD1,
+ * where `n' is the card number. Note that the device numbers may be
+ * something other than 0 and 1 if the CS4232 UART/MPU-401 interface
+ * is enabled.
+ *
+ * Switching between the two is accomplished externally by the driver
+ * using the two otherwise unused MIDI bytes. See the code for more details.
+ *
+ * NOTE: VIRTUAL MIDI MODE IS ON BY DEFAULT (see lowlevel/isa/wavefront.c)
+ *
+ * The main reason to turn off Virtual MIDI mode is when you want to
+ * tightly couple the WaveFront synth with an external MIDI
+ * device. You won't be able to distinguish the source of any MIDI
+ * data except via SysEx ID, but thats probably OK, since for the most
+ * part, the WaveFront won't be sending any MIDI data at all.
+ *  
+ * The main reason to turn on Virtual MIDI Mode is to provide two
+ * completely independent 16-channel MIDI buses, one to the
+ * WaveFront and one to any external MIDI devices. Given the 32
+ * voice nature of the WaveFront, its pretty easy to find a use
+ * for all 16 channels driving just that synth.
+ *  
+ */
 
 #include <asm/io.h>
 #include <linux/init.h>
@@ -81,6 +121,16 @@ static void snd_wavefront_midi_output_write(snd_wavefront_card_t *card)
 	int max = 256, mask = 1;
 	int timeout;
 
+	/* Its not OK to try to change the status of "virtuality" of
+	   the MIDI interface while we're outputting stuff.  See
+	   snd_wavefront_midi_{enable,disable}_virtual () for the
+	   other half of this.  
+
+	   The first loop attempts to flush any data from the
+	   current output device, and then the second 
+	   emits the switch byte (if necessary), and starts
+	   outputting data for the output device currently in use.
+	*/
 
 	if (midi->substream_output[midi->output_mpu] == NULL) {
 		goto __second;
@@ -88,7 +138,7 @@ static void snd_wavefront_midi_output_write(snd_wavefront_card_t *card)
 
 	while (max > 0) {
 
-		
+		/* XXX fix me - no hard timing loops allowed! */
 
 		for (timeout = 30000; timeout > 0; timeout--) {
 			if (output_ready (midi))
@@ -131,7 +181,7 @@ static void snd_wavefront_midi_output_write(snd_wavefront_card_t *card)
 
 	while (max > 0) {
 
-		
+		/* XXX fix me - no hard timing loops allowed! */
 
 		for (timeout = 30000; timeout > 0; timeout--) {
 			if (output_ready (midi))
@@ -142,7 +192,7 @@ static void snd_wavefront_midi_output_write(snd_wavefront_card_t *card)
 		if (!midi->isvirtual)
 			mask = 0;
 		mpu = midi->output_mpu ^ mask;
-		mask = 0;	
+		mask = 0;	/* don't invert the value from now */
 		if ((midi->mode[mpu] & MPU401_MODE_OUTPUT) == 0) {
 			spin_unlock_irqrestore (&midi->virtual, flags);
 			return;
@@ -365,7 +415,7 @@ snd_wavefront_midi_interrupt (snd_wavefront_card_t *card)
 
 	midi = &card->wavefront.midi;
 
-	if (!input_avail (midi)) { 
+	if (!input_avail (midi)) { /* not for us */
 		snd_wavefront_midi_output_write(card);
 		return;
 	}
@@ -383,7 +433,7 @@ snd_wavefront_midi_interrupt (snd_wavefront_card_t *card)
 				} else if (byte == WF_INTERNAL_SWITCH) { 
 					substream = midi->substream_output[internal_mpu];
 					mpu = internal_mpu;
-				} 
+				} /* else just leave it as it is */
 			} else {
 				substream = midi->substream_input[internal_mpu];
 				mpu = internal_mpu;
@@ -425,8 +475,8 @@ snd_wavefront_midi_disable_virtual (snd_wavefront_card_t *card)
 	unsigned long flags;
 
 	spin_lock_irqsave (&card->wavefront.midi.virtual, flags);
-	
-	
+	// snd_wavefront_midi_input_close (card->ics2115_external_rmidi);
+	// snd_wavefront_midi_output_close (card->ics2115_external_rmidi);
 	card->wavefront.midi.isvirtual = 0;
 	spin_unlock_irqrestore (&card->wavefront.midi.virtual, flags);
 }
@@ -443,8 +493,11 @@ snd_wavefront_midi_start (snd_wavefront_card_t *card)
 	dev = &card->wavefront;
 	midi = &dev->midi;
 
+	/* The ICS2115 MPU-401 interface doesn't do anything
+	   until its set into UART mode.
+	*/
 
-	
+	/* XXX fix me - no hard timing loops allowed! */
 
 	for (i = 0; i < 30000 && !output_ready (midi); i++);
 
@@ -453,6 +506,9 @@ snd_wavefront_midi_start (snd_wavefront_card_t *card)
 		return -1;
 	}
 
+	/* Any interrupts received from now on
+	   are owned by the MIDI side of things.
+	*/
 
 	dev->interrupts_are_midi = 1;
 	
@@ -473,17 +529,27 @@ snd_wavefront_midi_start (snd_wavefront_card_t *card)
 		return -1;
 	}
 
-	
+	/* Route external MIDI to WaveFront synth (by default) */
     
 	if (snd_wavefront_cmd (dev, WFC_MISYNTH_ON, rbuf, wbuf)) {
 		snd_printk ("can't enable MIDI-IN-2-synth routing.\n");
-		
+		/* XXX error ? */
 	}
 
+	/* Turn on Virtual MIDI, but first *always* turn it off,
+	   since otherwise consecutive reloads of the driver will
+	   never cause the hardware to generate the initial "internal" or 
+	   "external" source bytes in the MIDI data stream. This
+	   is pretty important, since the internal hardware generally will
+	   be used to generate none or very little MIDI output, and
+	   thus the only source of MIDI data is actually external. Without
+	   the switch bytes, the driver will think it all comes from
+	   the internal interface. Duh.
+	*/
 
 	if (snd_wavefront_cmd (dev, WFC_VMIDI_OFF, rbuf, wbuf)) { 
 		snd_printk ("virtual MIDI mode not disabled\n");
-		return 0; 
+		return 0; /* We're OK, but missing the external MIDI dev */
 	}
 
 	snd_wavefront_midi_enable_virtual (card);

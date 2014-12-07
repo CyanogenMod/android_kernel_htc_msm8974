@@ -12,9 +12,9 @@
 #define _XTENSA_PARAM_H
 
 #ifdef __KERNEL__
-# define HZ		CONFIG_HZ	
-# define USER_HZ	100		
-# define CLOCKS_PER_SEC (USER_HZ)	
+# define HZ		CONFIG_HZ	/* internal timer frequency */
+# define USER_HZ	100		/* for user interfaces in "ticks" */
+# define CLOCKS_PER_SEC (USER_HZ)	/* frequnzy at which times() counts */
 #else
 # define HZ		100
 #endif
@@ -29,6 +29,6 @@
 #define NOGROUP		(-1)
 #endif
 
-#define MAXHOSTNAMELEN	64	
+#define MAXHOSTNAMELEN	64	/* max length of hostname */
 
-#endif 
+#endif /* _XTENSA_PARAM_H */

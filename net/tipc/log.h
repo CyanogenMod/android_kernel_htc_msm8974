@@ -37,6 +37,13 @@
 #ifndef _TIPC_LOG_H
 #define _TIPC_LOG_H
 
+/**
+ * struct print_buf - TIPC print buffer structure
+ * @buf: pointer to character array containing print buffer contents
+ * @size: size of character array
+ * @crs: pointer to first unused space in character array (i.e. final NUL)
+ * @echo: echo output to system console if non-zero
+ */
 
 struct print_buf {
 	char *buf;
@@ -45,8 +52,8 @@ struct print_buf {
 	int echo;
 };
 
-#define TIPC_PB_MIN_SIZE 64	
-#define TIPC_PB_MAX_STR 512	
+#define TIPC_PB_MIN_SIZE 64	/* minimum size for a print buffer's array */
+#define TIPC_PB_MAX_STR 512	/* max printable string (with trailing NUL) */
 
 void tipc_printbuf_init(struct print_buf *pb, char *buf, u32 size);
 int  tipc_printbuf_validate(struct print_buf *pb);

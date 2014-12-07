@@ -38,13 +38,21 @@
 struct scsi_cmnd;
 struct Scsi_Host;
 
+/* Number of indirect bufs...the list of these has to fit in the
+ * additional data of the srp_cmd struct along with the indirect
+ * descriptor
+ */
 #define MAX_INDIRECT_BUFS 10
 
 #define IBMVSCSI_MAX_REQUESTS_DEFAULT 100
 #define IBMVSCSI_CMDS_PER_LUN_DEFAULT 16
-#define IBMVSCSI_MAX_SECTORS_DEFAULT 256 
+#define IBMVSCSI_MAX_SECTORS_DEFAULT 256 /* 32 * 8 = default max I/O 32 pages */
 #define IBMVSCSI_MAX_CMDS_PER_LUN 64
 
+/* ------------------------------------------------------------
+ * Data Structures
+ */
+/* an RPA command/response transport queue */
 struct crq_queue {
 	struct viosrp_crq *msgs;
 	int size, cur;
@@ -52,6 +60,7 @@ struct crq_queue {
 	spinlock_t lock;
 };
 
+/* a unit of work for the hosting partition */
 struct srp_event_struct {
 	union viosrp_iu *xfer_iu;
 	struct scsi_cmnd *cmnd;
@@ -69,6 +78,7 @@ struct srp_event_struct {
 	dma_addr_t ext_list_token;
 };
 
+/* a pool of event structs for use */
 struct event_pool {
 	struct srp_event_struct *events;
 	u32 size;
@@ -77,6 +87,7 @@ struct event_pool {
 	dma_addr_t iu_token;
 };
 
+/* all driver data associated with a host adapter */
 struct ibmvscsi_host_data {
 	atomic_t request_limit;
 	int client_migrated;
@@ -96,6 +107,7 @@ struct ibmvscsi_host_data {
 	dma_addr_t adapter_info_addr;
 };
 
+/* routines for managing a command/response queue */
 void ibmvscsi_handle_crq(struct viosrp_crq *crq,
 			 struct ibmvscsi_host_data *hostdata);
 
@@ -117,4 +129,4 @@ struct ibmvscsi_ops {
 
 extern struct ibmvscsi_ops rpavscsi_ops;
 
-#endif				
+#endif				/* IBMVSCSI_H */

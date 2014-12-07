@@ -41,7 +41,7 @@
 
 static void s3c2410_pm_prepare(void)
 {
-	
+	/* ensure at least GSTATUS3 has the resume address */
 
 	__raw_writel(virt_to_phys(s3c_cpu_resume), S3C2410_GSTATUS3);
 
@@ -53,7 +53,7 @@ static void s3c2410_pm_prepare(void)
 		unsigned long ptr;
 		unsigned long calc = 0;
 
-		
+		/* generate check for the bootloader to check on resume */
 
 		for (ptr = 0; ptr < 0x40000; ptr += 0x400)
 			calc += __raw_readl(base+ptr);
@@ -61,13 +61,15 @@ static void s3c2410_pm_prepare(void)
 		__raw_writel(calc, phys_to_virt(H1940_SUSPEND_CHECKSUM));
 	}
 
+	/* RX3715 and RX1950 use similar to H1940 code and the
+	 * same offsets for resume and checksum pointers */
 
 	if (machine_is_rx3715() || machine_is_rx1950()) {
 		void *base = phys_to_virt(H1940_SUSPEND_CHECK);
 		unsigned long ptr;
 		unsigned long calc = 0;
 
-		
+		/* generate check for the bootloader to check on resume */
 
 		for (ptr = 0; ptr < 0x40000; ptr += 0x4)
 			calc += __raw_readl(base+ptr);
@@ -79,6 +81,12 @@ static void s3c2410_pm_prepare(void)
 		s3c2410_gpio_setpin(S3C2410_GPF(2), 1);
 
 	if (machine_is_rx1950()) {
+		/* According to S3C2442 user's manual, page 7-17,
+		 * when the system is operating in NAND boot mode,
+		 * the hardware pin configuration - EINT[23:21] –
+		 * must be set as input for starting up after
+		 * wakeup from sleep mode
+		 */
 		s3c_gpio_cfgpin(S3C2410_GPG(13), S3C2410_GPIO_INPUT);
 		s3c_gpio_cfgpin(S3C2410_GPG(14), S3C2410_GPIO_INPUT);
 		s3c_gpio_cfgpin(S3C2410_GPG(15), S3C2410_GPIO_INPUT);
@@ -89,7 +97,7 @@ static void s3c2410_pm_resume(void)
 {
 	unsigned long tmp;
 
-	
+	/* unset the return-from-sleep flag, to ensure reset */
 
 	tmp = __raw_readl(S3C2410_GSTATUS2);
 	tmp &= S3C2410_GSTATUS2_OFFRESET;
@@ -118,6 +126,7 @@ static struct subsys_interface s3c2410_pm_interface = {
 	.add_dev	= s3c2410_pm_add,
 };
 
+/* register ourselves */
 
 static int __init s3c2410_pm_drvinit(void)
 {

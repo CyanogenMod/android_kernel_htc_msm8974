@@ -30,6 +30,7 @@
  * SOFTWARE.
  */
 
+/* This file is mechanically generated from RTL. Any hand-edits will be lost! */
 
 #define QIB_7322_Revision_OFFS 0x0
 #define QIB_7322_Revision_DEF 0x0000000002010601

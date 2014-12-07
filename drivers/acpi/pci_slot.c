@@ -59,12 +59,12 @@ ACPI_MODULE_NAME("pci_slot");
 				MY_NAME , ## arg);		\
 	} while (0)
 
-#define SLOT_NAME_SIZE 21		
+#define SLOT_NAME_SIZE 21		/* Inspired by #define in acpiphp.h */
 
 struct acpi_pci_slot {
-	acpi_handle root_handle;	
-	struct pci_slot *pci_slot;	
-	struct list_head list;		
+	acpi_handle root_handle;	/* handle of the root bridge */
+	struct pci_slot *pci_slot;	/* corresponding pci_slot */
+	struct list_head list;		/* node in the list of slots */
 };
 
 static int acpi_pci_slot_add(acpi_handle handle);
@@ -89,7 +89,7 @@ check_slot(acpi_handle handle, unsigned long long *sun)
 	dbg("Checking slot on path: %s\n", (char *)buffer.pointer);
 
 	if (check_sta_before_sun) {
-		
+		/* If SxFy doesn't have _STA, we just assume it's there */
 		status = acpi_evaluate_integer(handle, "_STA", NULL, &sta);
 		if (ACPI_SUCCESS(status) && !(sta & ACPI_STA_DEVICE_PRESENT))
 			goto out;
@@ -101,7 +101,7 @@ check_slot(acpi_handle handle, unsigned long long *sun)
 		goto out;
 	}
 
-	
+	/* No _SUN == not a slot == bail */
 	status = acpi_evaluate_integer(handle, "_SUN", NULL, sun);
 	if (ACPI_FAILURE(status)) {
 		dbg("_SUN returned %d on %s\n", status, (char *)buffer.pointer);
@@ -115,11 +115,21 @@ out:
 }
 
 struct callback_args {
-	acpi_walk_callback	user_function;	
+	acpi_walk_callback	user_function;	/* only for walk_p2p_bridge */
 	struct pci_bus		*pci_bus;
 	acpi_handle		root_handle;
 };
 
+/*
+ * register_slot
+ *
+ * Called once for each SxFy object in the namespace. Don't worry about
+ * calling pci_create_slot multiple times for the same pci_bus:device,
+ * since each subsequent call simply bumps the refcount on the pci_slot.
+ *
+ * The number of calls to pci_destroy_slot from unregister_slot is
+ * symmetrical.
+ */
 static acpi_status
 register_slot(acpi_handle handle, u32 lvl, void *context, void **rv)
 {
@@ -164,6 +174,14 @@ register_slot(acpi_handle handle, u32 lvl, void *context, void **rv)
 	return AE_OK;
 }
 
+/*
+ * walk_p2p_bridge - discover and walk p2p bridges
+ * @handle: points to an acpi_pci_root
+ * @context: p2p_bridge_context pointer
+ *
+ * Note that when we call ourselves recursively, we pass a different
+ * value of pci_bus in the child_context.
+ */
 static acpi_status
 walk_p2p_bridge(acpi_handle handle, u32 lvl, void *context, void **rv)
 {
@@ -213,6 +231,14 @@ out:
 	return AE_OK;
 }
 
+/*
+ * walk_root_bridge - generic root bridge walker
+ * @handle: points to an acpi_pci_root
+ * @user_function: user callback for slot objects
+ *
+ * Call user_function for all objects underneath this root bridge.
+ * Walk p2p bridges underneath us and call user_function on those too.
+ */
 static int
 walk_root_bridge(acpi_handle handle, acpi_walk_callback user_function)
 {
@@ -223,7 +249,7 @@ walk_root_bridge(acpi_handle handle, acpi_walk_callback user_function)
 	struct pci_bus *pci_bus;
 	struct callback_args context;
 
-	
+	/* If the bridge doesn't have _STA, we assume it is always there */
 	status = acpi_get_handle(handle, "_STA", &dummy_handle);
 	if (ACPI_SUCCESS(status)) {
 		status = acpi_evaluate_integer(handle, "_STA", NULL, &tmp);
@@ -232,7 +258,7 @@ walk_root_bridge(acpi_handle handle, acpi_walk_callback user_function)
 			return 0;
 		}
 		if ((tmp & ACPI_STA_DEVICE_FUNCTIONING) == 0)
-			
+			/* don't register this object */
 			return 0;
 	}
 
@@ -264,6 +290,10 @@ walk_root_bridge(acpi_handle handle, acpi_walk_callback user_function)
 	return status;
 }
 
+/*
+ * acpi_pci_slot_add
+ * @handle: points to an acpi_pci_root
+ */
 static int
 acpi_pci_slot_add(acpi_handle handle)
 {
@@ -276,6 +306,10 @@ acpi_pci_slot_add(acpi_handle handle)
 	return status;
 }
 
+/*
+ * acpi_pci_slot_remove
+ * @handle: points to an acpi_pci_root
+ */
 static void
 acpi_pci_slot_remove(acpi_handle handle)
 {
@@ -303,6 +337,12 @@ static int do_sta_before_sun(const struct dmi_system_id *d)
 }
 
 static struct dmi_system_id acpi_pci_slot_dmi_table[] __initdata = {
+	/*
+	 * Fujitsu Primequest machines will return 1023 to indicate an
+	 * error if the _SUN method is evaluated on SxFy objects that
+	 * are not present (as indicated by _STA), so for those machines,
+	 * we want to check _STA before evaluating _SUN.
+	 */
 	{
 	 .callback = do_sta_before_sun,
 	 .ident = "Fujitsu PRIMEQUEST",

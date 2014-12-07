@@ -127,7 +127,7 @@ static void rnic_init(struct iwch_dev *rnicp)
 	rnicp->attr.max_rdma_reads_per_qp = 8;
 	rnicp->attr.max_rdma_read_resources =
 	    rnicp->attr.max_rdma_reads_per_qp * rnicp->attr.max_qps;
-	rnicp->attr.max_rdma_read_qp_depth = 8;	
+	rnicp->attr.max_rdma_read_qp_depth = 8;	/* IRD */
 	rnicp->attr.max_rdma_read_depth =
 	    rnicp->attr.max_rdma_read_qp_depth * rnicp->attr.max_qps;
 	rnicp->attr.rq_overflow_handled = 0;
@@ -247,6 +247,9 @@ static void iwch_event_handler(struct t3cdev *tdev, u32 evt, u32 port_id)
 		get_random_bytes(&r, 2);
 		delay += r & 1023;
 
+		/*
+		 * delay is between 1000-2023 usecs.
+		 */
 		schedule_delayed_work(&rnicp->db_drop_task,
 			usecs_to_jiffies(delay));
 		break;

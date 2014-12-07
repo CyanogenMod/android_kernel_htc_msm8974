@@ -38,6 +38,13 @@
 #include <asm/pgtable.h>
 #include <mach/time.h>
 
+/*
+ * Until March of 2007 iq31244 platforms and ep80219 platforms shared the
+ * same machine id, and the processor type was used to select board type.
+ * However this assumption breaks for an iq80219 board which is an iop219
+ * processor on an iq31244 board.  The force_ep80219 flag has been added
+ * for old boot loaders using the iq31244 machine id for an ep80219 platform.
+ */
 static int force_ep80219;
 
 static int is_80219(void)
@@ -54,13 +61,16 @@ static int is_ep80219(void)
 }
 
 
+/*
+ * EP80219/IQ31244 timer tick configuration.
+ */
 static void __init iq31244_timer_init(void)
 {
 	if (is_ep80219()) {
-		
+		/* 33.333 MHz crystal.  */
 		iop_init_time(200000000);
 	} else {
-		
+		/* 33.000 MHz crystal.  */
 		iop_init_time(198000000);
 	}
 }
@@ -70,8 +80,11 @@ static struct sys_timer iq31244_timer = {
 };
 
 
+/*
+ * IQ31244 I/O.
+ */
 static struct map_desc iq31244_io_desc[] __initdata = {
-	{	
+	{	/* on-board devices */
 		.virtual	= IQ31244_UART,
 		.pfn		= __phys_to_pfn(IQ31244_UART),
 		.length		= 0x00100000,
@@ -86,22 +99,25 @@ void __init iq31244_map_io(void)
 }
 
 
+/*
+ * EP80219/IQ31244 PCI.
+ */
 static int __init
 ep80219_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	int irq;
 
 	if (slot == 0) {
-		
+		/* CFlash */
 		irq = IRQ_IOP32X_XINT1;
 	} else if (slot == 1) {
-		
+		/* 82551 Pro 100 */
 		irq = IRQ_IOP32X_XINT0;
 	} else if (slot == 2) {
-		
+		/* PCI-X Slot */
 		irq = IRQ_IOP32X_XINT3;
 	} else if (slot == 3) {
-		
+		/* SATA */
 		irq = IRQ_IOP32X_XINT2;
 	} else {
 		printk(KERN_ERR "ep80219_pci_map_irq() called for unknown "
@@ -128,16 +144,16 @@ iq31244_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 	int irq;
 
 	if (slot == 0) {
-		
+		/* CFlash */
 		irq = IRQ_IOP32X_XINT1;
 	} else if (slot == 1) {
-		
+		/* SATA */
 		irq = IRQ_IOP32X_XINT2;
 	} else if (slot == 2) {
-		
+		/* PCI-X Slot */
 		irq = IRQ_IOP32X_XINT3;
 	} else if (slot == 3) {
-		
+		/* 82546 GigE */
 		irq = IRQ_IOP32X_XINT0;
 	} else {
 		printk(KERN_ERR "iq31244_pci_map_irq called for unknown "
@@ -180,6 +196,9 @@ static int __init iq31244_pci_init(void)
 subsys_initcall(iq31244_pci_init);
 
 
+/*
+ * IQ31244 machine initialisation.
+ */
 static struct physmap_flash_data iq31244_flash_data = {
 	.width		= 2,
 };
@@ -229,20 +248,38 @@ static struct platform_device iq31244_serial_device = {
 	.resource	= &iq31244_uart_resource,
 };
 
+/*
+ * This function will send a SHUTDOWN_COMPLETE message to the PIC
+ * controller over I2C.  We are not using the i2c subsystem since
+ * we are going to power off and it may be removed
+ */
 void ep80219_power_off(void)
 {
+	/*
+	 * Send the Address byte w/ the start condition
+	 */
 	*IOP3XX_IDBR1 = 0x60;
 	*IOP3XX_ICR1 = 0xE9;
 	mdelay(1);
 
+	/*
+	 * Send the START_MSG byte w/ no start or stop condition
+	 */
 	*IOP3XX_IDBR1 = 0x0F;
 	*IOP3XX_ICR1 = 0xE8;
 	mdelay(1);
 
+	/*
+	 * Send the SHUTDOWN_COMPLETE Message ID byte w/ no start or
+	 * stop condition
+	 */
 	*IOP3XX_IDBR1 = 0x03;
 	*IOP3XX_ICR1 = 0xE8;
 	mdelay(1);
 
+	/*
+	 * Send an ignored byte w/ stop condition
+	 */
 	*IOP3XX_IDBR1 = 0x00;
 	*IOP3XX_ICR1 = 0xEA;
 
@@ -275,7 +312,7 @@ static int __init force_ep80219_setup(char *str)
 __setup("force_ep80219", force_ep80219_setup);
 
 MACHINE_START(IQ31244, "Intel IQ31244")
-	
+	/* Maintainer: Intel Corp. */
 	.atag_offset	= 0x100,
 	.map_io		= iq31244_map_io,
 	.init_irq	= iop32x_init_irq,
@@ -284,8 +321,13 @@ MACHINE_START(IQ31244, "Intel IQ31244")
 	.restart	= iop3xx_restart,
 MACHINE_END
 
+/* There should have been an ep80219 machine identifier from the beginning.
+ * Boot roms older than March 2007 do not know the ep80219 machine id.  Pass
+ * "force_ep80219" on the kernel command line, otherwise iq31244 operation
+ * will be selected.
+ */
 MACHINE_START(EP80219, "Intel EP80219")
-	
+	/* Maintainer: Intel Corp. */
 	.atag_offset	= 0x100,
 	.map_io		= iq31244_map_io,
 	.init_irq	= iop32x_init_irq,

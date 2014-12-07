@@ -13,14 +13,17 @@
 
 #ifndef __ASSEMBLY__
 #include <linux/irq.h>
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #include <asm/timer-regs.h>
 #include <unit/clock.h>
 #include <asm/param.h>
 
+/*
+ * jiffies counter specifications
+ */
 
-#define	TMJCBR_MAX		0xffffff	
+#define	TMJCBR_MAX		0xffffff	/* 24bit */
 #define	TMJCIRQ			TMTIRQ
 
 #ifndef __ASSEMBLY__
@@ -29,7 +32,7 @@
 
 #ifndef HZ
 # error HZ undeclared.
-#endif 
+#endif /* !HZ */
 
 #define MN10300_JCCLK		(MN10300_SRC_IOBCLK)
 #define MN10300_TSCCLK		(MN10300_SRC_IOBCLK)
@@ -37,6 +40,7 @@
 #define MN10300_JC_PER_HZ	((MN10300_JCCLK + HZ / 2) / HZ)
 #define MN10300_TSC_PER_HZ	((MN10300_TSCCLK + HZ / 2) / HZ)
 
+/* Check bit width of MTM interval value that sets base register */
 #if (MN10300_JC_PER_HZ - 1) > TMJCBR_MAX
 # error MTM tick timer interval value is overflow.
 #endif
@@ -62,6 +66,12 @@ static inline void reload_jiffies_counter(u32 cnt)
 
 #if defined(CONFIG_SMP) && defined(CONFIG_GENERIC_CLOCKEVENTS) && \
     !defined(CONFIG_GENERIC_CLOCKEVENTS_BROADCAST)
+/*
+ * If we aren't using broadcasting, each core needs its own event timer.
+ * Since CPU0 uses the tick timer which is 24-bits, we use timer 4 & 5
+ * cascaded to 32-bits for CPU1 (but only really use 24-bits to match
+ * CPU0).
+ */
 
 #define	TMJC1IRQ		TM5IRQ
 
@@ -91,15 +101,19 @@ static inline void reload_jiffies_counter1(u32 cnt)
 	TM4MD = TM4MD_COUNT_ENABLE;
 	tmp = TM4MD;
 }
-#endif 
+#endif /* CONFIG_SMP&GENERIC_CLOCKEVENTS&!GENERIC_CLOCKEVENTS_BROADCAST */
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 
+/*
+ * timestamp counter specifications
+ */
 #define	TMTSCBR_MAX	0xffffffff
 
 #ifndef __ASSEMBLY__
 
+/* Use 32-bit timestamp counter */
 #define	TMTSCMD		TMSMD
 #define	TMTSCBR		TMSBR
 #define	TMTSCBC		TMSBC
@@ -109,6 +123,9 @@ static inline void startup_timestamp_counter(void)
 {
 	u32 sync;
 
+	/* set up TMS(Timestamp) 32bit timer register to count real time
+	 * - count down from 4Gig-1 to 0 and wrap at IOBCLK rate
+	 */
 
 	TMTSCBR = TMTSCBR_MAX;
 	sync = TMTSCBR;
@@ -126,6 +143,10 @@ static inline void shutdown_timestamp_counter(void)
 	TMTSCMD = 0;
 }
 
+/*
+ * we use a cascaded pair of 16-bit down-counting timers to count I/O
+ * clock cycles for the purposes of time keeping
+ */
 typedef unsigned long cycles_t;
 
 static inline cycles_t read_timestamp_counter(void)
@@ -133,6 +154,6 @@ static inline cycles_t read_timestamp_counter(void)
 	return (cycles_t)~TMTSCBC;
 }
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_UNIT_TIMEX_H */

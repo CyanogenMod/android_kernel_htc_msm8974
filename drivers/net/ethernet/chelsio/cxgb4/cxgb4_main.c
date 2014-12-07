@@ -71,46 +71,80 @@
 #define DRV_VERSION "1.3.0-ko"
 #define DRV_DESC "Chelsio T4 Network Driver"
 
+/*
+ * Max interrupt hold-off timer value in us.  Queues fall back to this value
+ * under extreme memory pressure so it's largish to give the system time to
+ * recover.
+ */
 #define MAX_SGE_TIMERVAL 200U
 
 #ifdef CONFIG_PCI_IOV
+/*
+ * Virtual Function provisioning constants.  We need two extra Ingress Queues
+ * with Interrupt capability to serve as the VF's Firmware Event Queue and
+ * Forwarded Interrupt Queue (when using MSI mode) -- neither will have Free
+ * Lists associated with them).  For each Ethernet/Control Egress Queue and
+ * for each Free List, we need an Egress Context.
+ */
 enum {
-	VFRES_NPORTS = 1,		
-	VFRES_NQSETS = 2,		
+	VFRES_NPORTS = 1,		/* # of "ports" per VF */
+	VFRES_NQSETS = 2,		/* # of "Queue Sets" per VF */
 
-	VFRES_NVI = VFRES_NPORTS,	
-	VFRES_NETHCTRL = VFRES_NQSETS,	
-	VFRES_NIQFLINT = VFRES_NQSETS+2,
-	VFRES_NIQ = 0,			
-	VFRES_NEQ = VFRES_NQSETS*2,	
-	VFRES_TC = 0,			
-	VFRES_NEXACTF = 16,		
+	VFRES_NVI = VFRES_NPORTS,	/* # of Virtual Interfaces */
+	VFRES_NETHCTRL = VFRES_NQSETS,	/* # of EQs used for ETH or CTRL Qs */
+	VFRES_NIQFLINT = VFRES_NQSETS+2,/* # of ingress Qs/w Free List(s)/intr */
+	VFRES_NIQ = 0,			/* # of non-fl/int ingress queues */
+	VFRES_NEQ = VFRES_NQSETS*2,	/* # of egress queues */
+	VFRES_TC = 0,			/* PCI-E traffic class */
+	VFRES_NEXACTF = 16,		/* # of exact MPS filters */
 
 	VFRES_R_CAPS = FW_CMD_CAP_DMAQ|FW_CMD_CAP_VF|FW_CMD_CAP_PORT,
 	VFRES_WX_CAPS = FW_CMD_CAP_DMAQ|FW_CMD_CAP_VF,
 };
 
+/*
+ * Provide a Port Access Rights Mask for the specified PF/VF.  This is very
+ * static and likely not to be useful in the long run.  We really need to
+ * implement some form of persistent configuration which the firmware
+ * controls.
+ */
 static unsigned int pfvfres_pmask(struct adapter *adapter,
 				  unsigned int pf, unsigned int vf)
 {
 	unsigned int portn, portvec;
 
+	/*
+	 * Give PF's access to all of the ports.
+	 */
 	if (vf == 0)
 		return FW_PFVF_CMD_PMASK_MASK;
 
+	/*
+	 * For VFs, we'll assign them access to the ports based purely on the
+	 * PF.  We assign active ports in order, wrapping around if there are
+	 * fewer active ports than PFs: e.g. active port[pf % nports].
+	 * Unfortunately the adapter's port_info structs haven't been
+	 * initialized yet so we have to compute this.
+	 */
 	if (adapter->params.nports == 0)
 		return 0;
 
 	portn = pf % adapter->params.nports;
 	portvec = adapter->params.portvec;
 	for (;;) {
+		/*
+		 * Isolate the lowest set bit in the port vector.  If we're at
+		 * the port number that we want, return that as the pmask.
+		 * otherwise mask that bit out of the port vector and
+		 * decrement our port number ...
+		 */
 		unsigned int pmask = portvec ^ (portvec & (portvec-1));
 		if (portn == 0)
 			return pmask;
 		portn--;
 		portvec &= ~pmask;
 	}
-	
+	/*NOTREACHED*/
 }
 #endif
 
@@ -141,7 +175,7 @@ enum {
 #define CH_DEVICE(devid, data) { PCI_VDEVICE(CHELSIO, devid), (data) }
 
 static DEFINE_PCI_DEVICE_TABLE(cxgb4_pci_tbl) = {
-	CH_DEVICE(0xa000, 0),  
+	CH_DEVICE(0xa000, 0),  /* PE10K */
 	CH_DEVICE(0x4001, -1),
 	CH_DEVICE(0x4002, -1),
 	CH_DEVICE(0x4003, -1),
@@ -181,11 +215,24 @@ static int dflt_msg_enable = DFLT_MSG_ENABLE;
 module_param(dflt_msg_enable, int, 0644);
 MODULE_PARM_DESC(dflt_msg_enable, "Chelsio T4 default message enable bitmap");
 
+/*
+ * The driver uses the best interrupt scheme available on a platform in the
+ * order MSI-X, MSI, legacy INTx interrupts.  This parameter determines which
+ * of these schemes the driver may consider as follows:
+ *
+ * msi = 2: choose from among all three options
+ * msi = 1: only consider MSI and INTx interrupts
+ * msi = 0: force INTx interrupts
+ */
 static int msi = 2;
 
 module_param(msi, int, 0644);
 MODULE_PARM_DESC(msi, "whether to use INTx (0), MSI (1) or MSI-X (2)");
 
+/*
+ * Queue interrupt hold-off timer values.  Queues default to the first of these
+ * upon creation.
+ */
 static unsigned int intr_holdoff[SGE_NTIMERS - 1] = { 5, 10, 20, 50, 100 };
 
 module_param_array(intr_holdoff, uint, NULL, 0644);
@@ -248,7 +295,7 @@ void t4_os_link_changed(struct adapter *adapter, int port_id, int link_stat)
 {
 	struct net_device *dev = adapter->port[port_id];
 
-	
+	/* Skip changes from disabled ports. */
 	if (netif_running(dev) && link_stat != netif_carrier_ok(dev)) {
 		if (link_stat)
 			netif_carrier_on(dev);
@@ -274,6 +321,10 @@ void t4_os_portmod_changed(const struct adapter *adap, int port_id)
 		netdev_info(dev, "%s module inserted\n", mod_str[pi->mod_type]);
 }
 
+/*
+ * Configure the exact and hash address filters to handle a port's multicast
+ * and secondary unicast MAC addresses.
+ */
 static int set_addr_filters(const struct net_device *dev, bool sleep)
 {
 	u64 mhash = 0;
@@ -288,7 +339,7 @@ static int set_addr_filters(const struct net_device *dev, bool sleep)
 	const struct port_info *pi = netdev_priv(dev);
 	unsigned int mb = pi->adapter->fn;
 
-	
+	/* first do the secondary unicast addresses */
 	netdev_for_each_uc_addr(ha, dev) {
 		addr[naddr++] = ha->addr;
 		if (--uc_cnt == 0 || naddr >= ARRAY_SIZE(addr)) {
@@ -302,7 +353,7 @@ static int set_addr_filters(const struct net_device *dev, bool sleep)
 		}
 	}
 
-	
+	/* next set up the multicast addresses */
 	netdev_for_each_mc_addr(ha, dev) {
 		addr[naddr++] = ha->addr;
 		if (--mc_cnt == 0 || naddr >= ARRAY_SIZE(addr)) {
@@ -320,6 +371,10 @@ static int set_addr_filters(const struct net_device *dev, bool sleep)
 				uhash | mhash, sleep);
 }
 
+/*
+ * Set Rx properties of a port, such as promiscruity, address filters, and MTU.
+ * If @mtu is -1 it is left unchanged.
+ */
 static int set_rxmode(struct net_device *dev, int mtu, bool sleep_ok)
 {
 	int ret;
@@ -334,12 +389,22 @@ static int set_rxmode(struct net_device *dev, int mtu, bool sleep_ok)
 	return ret;
 }
 
+/**
+ *	link_start - enable a port
+ *	@dev: the port to enable
+ *
+ *	Performs the MAC and PHY actions needed to enable a port.
+ */
 static int link_start(struct net_device *dev)
 {
 	int ret;
 	struct port_info *pi = netdev_priv(dev);
 	unsigned int mb = pi->adapter->fn;
 
+	/*
+	 * We do not set address filters and promiscuity here, the stack does
+	 * that step explicitly.
+	 */
 	ret = t4_set_rxmode(pi->adapter, mb, pi->viid, dev->mtu, -1, -1, -1,
 			    !!(dev->features & NETIF_F_HW_VLAN_RX), true);
 	if (ret == 0) {
@@ -359,12 +424,15 @@ static int link_start(struct net_device *dev)
 	return ret;
 }
 
+/*
+ * Response queue handler for the FW event queue.
+ */
 static int fwevtq_handler(struct sge_rspq *q, const __be64 *rsp,
 			  const struct pkt_gl *gl)
 {
 	u8 opcode = ((const struct rss_header *)rsp)->opcode;
 
-	rsp++;                                          
+	rsp++;                                          /* skip RSS header */
 	if (likely(opcode == CPL_SGE_EGR_UPDATE)) {
 		const struct cpl_sge_egr_update *p = (void *)rsp;
 		unsigned int qid = EGR_QID(ntohl(p->opcode_qid));
@@ -398,6 +466,15 @@ static int fwevtq_handler(struct sge_rspq *q, const __be64 *rsp,
 	return 0;
 }
 
+/**
+ *	uldrx_handler - response queue handler for ULD queues
+ *	@q: the response queue that received the packet
+ *	@rsp: the response queue descriptor holding the offload message
+ *	@gl: the gather list of packet fragments
+ *
+ *	Deliver an ingress offload packet to a ULD.  All processing is done by
+ *	the ULD, we just maintain statistics.
+ */
 static int uldrx_handler(struct sge_rspq *q, const __be64 *rsp,
 			 const struct pkt_gl *gl)
 {
@@ -427,6 +504,9 @@ static void disable_msi(struct adapter *adapter)
 	}
 }
 
+/*
+ * Interrupt handler for non-data events used with MSI-X.
+ */
 static irqreturn_t t4_nondata_intr(int irq, void *cookie)
 {
 	struct adapter *adap = cookie;
@@ -440,18 +520,21 @@ static irqreturn_t t4_nondata_intr(int irq, void *cookie)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Name the MSI-X interrupts.
+ */
 static void name_msix_vecs(struct adapter *adap)
 {
 	int i, j, msi_idx = 2, n = sizeof(adap->msix_info[0].desc);
 
-	
+	/* non-data interrupts */
 	snprintf(adap->msix_info[0].desc, n, "%s", adap->port[0]->name);
 
-	
+	/* FW events */
 	snprintf(adap->msix_info[1].desc, n, "%s-FWeventq",
 		 adap->port[0]->name);
 
-	
+	/* Ethernet queues */
 	for_each_port(adap, j) {
 		struct net_device *d = adap->port[j];
 		const struct port_info *pi = netdev_priv(d);
@@ -461,7 +544,7 @@ static void name_msix_vecs(struct adapter *adap)
 				 d->name, i);
 	}
 
-	
+	/* offload queues */
 	for_each_ofldrxq(&adap->sge, i)
 		snprintf(adap->msix_info[msi_idx++].desc, n, "%s-ofld%d",
 			 adap->port[0]->name, i);
@@ -534,6 +617,14 @@ static void free_msix_queue_irqs(struct adapter *adap)
 		free_irq(adap->msix_info[msi++].vec, &s->rdmarxq[i].rspq);
 }
 
+/**
+ *	write_rss - write the RSS table for a given port
+ *	@pi: the port
+ *	@queues: array of queue indices for RSS
+ *
+ *	Sets up the portion of the HW RSS table for the port's VI to distribute
+ *	packets to the Rx queues in @queues.
+ */
 static int write_rss(const struct port_info *pi, const u16 *queues)
 {
 	u16 *rss;
@@ -544,7 +635,7 @@ static int write_rss(const struct port_info *pi, const u16 *queues)
 	if (!rss)
 		return -ENOMEM;
 
-	
+	/* map the queue indices to queue ids */
 	for (i = 0; i < pi->rss_size; i++, queues++)
 		rss[i] = q[*queues].rspq.abs_id;
 
@@ -554,6 +645,12 @@ static int write_rss(const struct port_info *pi, const u16 *queues)
 	return err;
 }
 
+/**
+ *	setup_rss - configure RSS
+ *	@adap: the adapter
+ *
+ *	Sets up RSS for each port.
+ */
 static int setup_rss(struct adapter *adap)
 {
 	int i, err;
@@ -568,12 +665,18 @@ static int setup_rss(struct adapter *adap)
 	return 0;
 }
 
+/*
+ * Return the channel of the ingress queue with the given qid.
+ */
 static unsigned int rxq_to_chan(const struct sge *p, unsigned int qid)
 {
 	qid -= p->ingr_start;
 	return netdev2pinfo(p->ingr_map[qid]->netdev)->tx_chan;
 }
 
+/*
+ * Wait until all NAPI handlers are descheduled.
+ */
 static void quiesce_rx(struct adapter *adap)
 {
 	int i;
@@ -586,6 +689,9 @@ static void quiesce_rx(struct adapter *adap)
 	}
 }
 
+/*
+ * Enable NAPI scheduling and interrupt generation for all Rx queues.
+ */
 static void enable_rx(struct adapter *adap)
 {
 	int i;
@@ -597,13 +703,21 @@ static void enable_rx(struct adapter *adap)
 			continue;
 		if (q->handler)
 			napi_enable(&q->napi);
-		
+		/* 0-increment GTS to start the timer and enable interrupts */
 		t4_write_reg(adap, MYPF_REG(SGE_PF_GTS),
 			     SEINTARM(q->intr_params) |
 			     INGRESSQID(q->cntxt_id));
 	}
 }
 
+/**
+ *	setup_sge_queues - configure SGE Tx/Rx/response queues
+ *	@adap: the adapter
+ *
+ *	Determines how many sets of SGE queues to use and initializes them.
+ *	We support multiple queue sets per port if we have MSI-X, otherwise
+ *	just one queue set per port.
+ */
 static int setup_sge_queues(struct adapter *adap)
 {
 	int err, msi_idx, i, j;
@@ -613,7 +727,7 @@ static int setup_sge_queues(struct adapter *adap)
 	bitmap_zero(s->txq_maperr, MAX_EGRQ);
 
 	if (adap->flags & USING_MSIX)
-		msi_idx = 1;         
+		msi_idx = 1;         /* vector 0 is for non-queue interrupts */
 	else {
 		err = t4_sge_alloc_rxq(adap, &s->intrq, false, adap->port[0], 0,
 				       NULL, NULL);
@@ -655,7 +769,7 @@ freeout:	t4_free_sge_resources(adap);
 		}
 	}
 
-	j = s->ofldqsets / adap->params.nports; 
+	j = s->ofldqsets / adap->params.nports; /* ofld queues per channel */
 	for_each_ofldrxq(s, i) {
 		struct sge_ofld_rxq *q = &s->ofldrxq[i];
 		struct net_device *dev = adap->port[i / j];
@@ -688,6 +802,10 @@ freeout:	t4_free_sge_resources(adap);
 	}
 
 	for_each_port(adap, i) {
+		/*
+		 * Note that ->rdmarxq[i].rspq.cntxt_id below is 0 if we don't
+		 * have RDMA queues, and that's the right value.
+		 */
 		err = t4_sge_alloc_ctrl_txq(adap, &s->ctrlq[i], adap->port[i],
 					    s->fw_evtq.cntxt_id,
 					    s->rdmarxq[i].rspq.cntxt_id);
@@ -701,6 +819,10 @@ freeout:	t4_free_sge_resources(adap);
 	return 0;
 }
 
+/*
+ * Returns 0 if new FW was successfully loaded, a positive errno if a load was
+ * started but failed, and a negative errno if flash load couldn't start.
+ */
 static int upgrade_fw(struct adapter *adap)
 {
 	int ret;
@@ -719,10 +841,13 @@ static int upgrade_fw(struct adapter *adap)
 	hdr = (const struct fw_hdr *)fw->data;
 	vers = ntohl(hdr->fw_ver);
 	if (FW_HDR_FW_VER_MAJOR_GET(vers) != FW_VERSION_MAJOR) {
-		ret = -EINVAL;              
+		ret = -EINVAL;              /* wrong major version, won't do */
 		goto out;
 	}
 
+	/*
+	 * If the flash FW is unusable or we found something newer, load it.
+	 */
 	if (FW_HDR_FW_VER_MAJOR_GET(adap->params.fw_vers) != FW_VERSION_MAJOR ||
 	    vers > adap->params.fw_vers) {
 		ret = -t4_load_fw(adap, fw->data, fw->size);
@@ -734,6 +859,10 @@ out:	release_firmware(fw);
 	return ret;
 }
 
+/*
+ * Allocate a chunk of memory using kmalloc or, if that fails, vmalloc.
+ * The allocated memory is cleared.
+ */
 void *t4_alloc_mem(size_t size)
 {
 	void *p = kzalloc(size, GFP_KERNEL);
@@ -743,6 +872,9 @@ void *t4_alloc_mem(size_t size)
 	return p;
 }
 
+/*
+ * Free memory allocated through alloc_mem().
+ */
 static void t4_free_mem(void *addr)
 {
 	if (is_vmalloc_addr(addr))
@@ -756,6 +888,9 @@ static inline int is_offload(const struct adapter *adap)
 	return adap->params.offload;
 }
 
+/*
+ * Implementation of ethtool operations.
+ */
 
 static u32 get_msglevel(struct net_device *dev)
 {
@@ -893,6 +1028,10 @@ static void get_strings(struct net_device *dev, u32 stringset, u8 *data)
 		memcpy(data, stats_strings, sizeof(stats_strings));
 }
 
+/*
+ * port stats maintained per queue of the port.  They should be in the same
+ * order as in stats_strings above.
+ */
 struct queue_port_stats {
 	u64 tso;
 	u64 tx_csum;
@@ -934,6 +1073,12 @@ static void get_stats(struct net_device *dev, struct ethtool_stats *stats,
 	collect_sge_port_stats(adapter, pi, (struct queue_port_stats *)data);
 }
 
+/*
+ * Return a version number to identify the type of adapter.  The scheme is:
+ * - bits 0..9: chip version
+ * - bits 10..15: chip revision
+ * - bits 16..23: register dump version
+ */
 static inline unsigned int mk_adap_vers(const struct adapter *ap)
 {
 	return 4 | (ap->params.rev << 10) | (1 << 16);
@@ -1285,7 +1430,7 @@ static int get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 		cmd->mdio_support = p->port_type == FW_PORT_TYPE_BT_SGMII ?
 			MDIO_SUPPORTS_C22 : MDIO_SUPPORTS_C45;
 	} else {
-		cmd->phy_address = 0;  
+		cmd->phy_address = 0;  /* not really, but no better option */
 		cmd->transceiver = XCVR_INTERNAL;
 		cmd->mdio_support = 0;
 	}
@@ -1320,10 +1465,14 @@ static int set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	struct link_config *lc = &p->link_cfg;
 	u32 speed = ethtool_cmd_speed(cmd);
 
-	if (cmd->duplex != DUPLEX_FULL)     
+	if (cmd->duplex != DUPLEX_FULL)     /* only full-duplex supported */
 		return -EINVAL;
 
 	if (!(lc->supported & FW_PORT_CAP_ANEG)) {
+		/*
+		 * PHY offers a single speed.  See if that's what's
+		 * being requested.
+		 */
 		if (cmd->autoneg == AUTONEG_DISABLE &&
 		    (lc->supported & speed_to_caps(speed)))
 			return 0;
@@ -1459,6 +1608,9 @@ static int closest_thres(const struct sge *s, int thres)
 	return match;
 }
 
+/*
+ * Return a queue's interrupt hold-off time in us.  0 means no timer.
+ */
 static unsigned int qtimer_val(const struct adapter *adap,
 			       const struct sge_rspq *q)
 {
@@ -1467,6 +1619,16 @@ static unsigned int qtimer_val(const struct adapter *adap,
 	return idx < SGE_NTIMERS ? adap->sge.timer_val[idx] : 0;
 }
 
+/**
+ *	set_rxq_intr_params - set a queue's interrupt holdoff parameters
+ *	@adap: the adapter
+ *	@q: the Rx queue
+ *	@us: the hold-off time in us, or 0 to disable timer
+ *	@cnt: the hold-off packet count, or 0 to disable counter
+ *
+ *	Sets an Rx queue's interrupt hold-off time and packet count.  At least
+ *	one of the two needs to be enabled for the queue to generate interrupts.
+ */
 static int set_rxq_intr_params(struct adapter *adap, struct sge_rspq *q,
 			       unsigned int us, unsigned int cnt)
 {
@@ -1479,7 +1641,7 @@ static int set_rxq_intr_params(struct adapter *adap, struct sge_rspq *q,
 
 		new_idx = closest_thres(&adap->sge, cnt);
 		if (q->desc && q->pktcnt_idx != new_idx) {
-			
+			/* the queue has already been created, update it */
 			v = FW_PARAMS_MNEM(FW_PARAMS_MNEM_DMAQ) |
 			    FW_PARAMS_PARAM_X(FW_PARAMS_PARAM_DMAQ_IQ_INTCNTTHRESH) |
 			    FW_PARAMS_PARAM_YZ(q->cntxt_id);
@@ -1517,6 +1679,23 @@ static int get_coalesce(struct net_device *dev, struct ethtool_coalesce *c)
 	return 0;
 }
 
+/**
+ *	eeprom_ptov - translate a physical EEPROM address to virtual
+ *	@phys_addr: the physical EEPROM address
+ *	@fn: the PCI function number
+ *	@sz: size of function-specific area
+ *
+ *	Translate a physical EEPROM address to virtual.  The first 1K is
+ *	accessed through virtual addresses starting at 31K, the rest is
+ *	accessed through virtual addresses starting at 0.
+ *
+ *	The mapping is as follows:
+ *	[0..1K) -> [31K..32K)
+ *	[1K..1K+A) -> [31K-A..31K)
+ *	[1K+A..ES) -> [0..ES-A-1K)
+ *
+ *	where A = @fn * @sz, and ES = EEPROM size.
+ */
 static int eeprom_ptov(unsigned int phys_addr, unsigned int fn, unsigned int sz)
 {
 	fn *= sz;
@@ -1529,6 +1708,9 @@ static int eeprom_ptov(unsigned int phys_addr, unsigned int fn, unsigned int sz)
 	return -EINVAL;
 }
 
+/*
+ * The next two routines implement eeprom read/write from physical addresses.
+ */
 static int eeprom_rd_phys(struct adapter *adap, unsigned int phys_addr, u32 *v)
 {
 	int vaddr = eeprom_ptov(phys_addr, adap->fn, EEPROMPFSIZE);
@@ -1592,6 +1774,9 @@ static int set_eeprom(struct net_device *dev, struct ethtool_eeprom *eeprom,
 	}
 
 	if (aligned_offset != eeprom->offset || aligned_len != eeprom->len) {
+		/*
+		 * RMW possibly needed for first or last words.
+		 */
 		buf = kmalloc(aligned_len, GFP_KERNEL);
 		if (!buf)
 			return -ENOMEM;
@@ -1812,6 +1997,9 @@ static const struct ethtool_ops cxgb_ethtool_ops = {
 	.flash_device      = set_flash,
 };
 
+/*
+ * debugfs support
+ */
 static ssize_t mem_read(struct file *file, char __user *buf, size_t count,
 			loff_t *ppos)
 {
@@ -1892,7 +2080,13 @@ static int __devinit setup_debugfs(struct adapter *adap)
 	return 0;
 }
 
+/*
+ * upper-layer driver support
+ */
 
+/*
+ * Allocate an active-open TID and set it to the supplied value.
+ */
 int cxgb4_alloc_atid(struct tid_info *t, void *data)
 {
 	int atid = -1;
@@ -1911,6 +2105,9 @@ int cxgb4_alloc_atid(struct tid_info *t, void *data)
 }
 EXPORT_SYMBOL(cxgb4_alloc_atid);
 
+/*
+ * Release an active-open TID.
+ */
 void cxgb4_free_atid(struct tid_info *t, unsigned int atid)
 {
 	union aopen_entry *p = &t->atid_tab[atid];
@@ -1923,6 +2120,9 @@ void cxgb4_free_atid(struct tid_info *t, unsigned int atid)
 }
 EXPORT_SYMBOL(cxgb4_free_atid);
 
+/*
+ * Allocate a server TID and set it to the supplied value.
+ */
 int cxgb4_alloc_stid(struct tid_info *t, int family, void *data)
 {
 	int stid;
@@ -1949,6 +2149,9 @@ int cxgb4_alloc_stid(struct tid_info *t, int family, void *data)
 }
 EXPORT_SYMBOL(cxgb4_alloc_stid);
 
+/*
+ * Release a server TID.
+ */
 void cxgb4_free_stid(struct tid_info *t, unsigned int stid, int family)
 {
 	stid -= t->stid_base;
@@ -1963,6 +2166,9 @@ void cxgb4_free_stid(struct tid_info *t, unsigned int stid, int family)
 }
 EXPORT_SYMBOL(cxgb4_free_stid);
 
+/*
+ * Populate a TID_RELEASE WR.  Caller must properly size the skb.
+ */
 static void mk_tid_release(struct sk_buff *skb, unsigned int chan,
 			   unsigned int tid)
 {
@@ -1974,6 +2180,10 @@ static void mk_tid_release(struct sk_buff *skb, unsigned int chan,
 	OPCODE_TID(req) = htonl(MK_OPCODE_TID(CPL_TID_RELEASE, tid));
 }
 
+/*
+ * Queue a TID release request and if necessary schedule a work queue to
+ * process it.
+ */
 static void cxgb4_queue_tid_release(struct tid_info *t, unsigned int chan,
 				    unsigned int tid)
 {
@@ -1982,7 +2192,7 @@ static void cxgb4_queue_tid_release(struct tid_info *t, unsigned int chan,
 
 	spin_lock_bh(&adap->tid_release_lock);
 	*p = adap->tid_release_head;
-	
+	/* Low 2 bits encode the Tx channel number */
 	adap->tid_release_head = (void **)((uintptr_t)p | chan);
 	if (!adap->tid_release_task_busy) {
 		adap->tid_release_task_busy = true;
@@ -1991,6 +2201,9 @@ static void cxgb4_queue_tid_release(struct tid_info *t, unsigned int chan,
 	spin_unlock_bh(&adap->tid_release_lock);
 }
 
+/*
+ * Process the list of pending TID release requests.
+ */
 static void process_tid_release_list(struct work_struct *work)
 {
 	struct sk_buff *skb;
@@ -2020,6 +2233,10 @@ static void process_tid_release_list(struct work_struct *work)
 	spin_unlock_bh(&adap->tid_release_lock);
 }
 
+/*
+ * Release a TID and inform HW.  If we are unable to allocate the release
+ * message we defer to a work queue.
+ */
 void cxgb4_remove_tid(struct tid_info *t, unsigned int chan, unsigned int tid)
 {
 	void *old;
@@ -2039,6 +2256,9 @@ void cxgb4_remove_tid(struct tid_info *t, unsigned int chan, unsigned int tid)
 }
 EXPORT_SYMBOL(cxgb4_remove_tid);
 
+/*
+ * Allocate and initialize the TID tables.  Returns 0 on success.
+ */
 static int tid_init(struct tid_info *t)
 {
 	size_t size;
@@ -2062,7 +2282,7 @@ static int tid_init(struct tid_info *t)
 	t->atids_in_use = 0;
 	atomic_set(&t->tids_in_use, 0);
 
-	
+	/* Setup the free list for atid_tab and clear the stid bitmap. */
 	if (natids) {
 		while (--natids)
 			t->atid_tab[natids - 1].next = &t->atid_tab[natids];
@@ -2072,6 +2292,17 @@ static int tid_init(struct tid_info *t)
 	return 0;
 }
 
+/**
+ *	cxgb4_create_server - create an IP server
+ *	@dev: the device
+ *	@stid: the server TID
+ *	@sip: local IP address to bind server to
+ *	@sport: the server's TCP port
+ *	@queue: queue to direct messages from this server to
+ *
+ *	Create an IP server for the given port and address.
+ *	Returns <0 on error and one of the %NET_XMIT_* values on success.
+ */
 int cxgb4_create_server(const struct net_device *dev, unsigned int stid,
 			__be32 sip, __be16 sport, unsigned int queue)
 {
@@ -2100,6 +2331,16 @@ int cxgb4_create_server(const struct net_device *dev, unsigned int stid,
 }
 EXPORT_SYMBOL(cxgb4_create_server);
 
+/**
+ *	cxgb4_best_mtu - find the entry in the MTU table closest to an MTU
+ *	@mtus: the HW MTU table
+ *	@mtu: the target MTU
+ *	@idx: index of selected entry in the MTU table
+ *
+ *	Returns the index and the value in the HW MTU table that is closest to
+ *	but does not exceed @mtu, unless @mtu is smaller than any value in the
+ *	table, in which case that smallest available value is selected.
+ */
 unsigned int cxgb4_best_mtu(const unsigned short *mtus, unsigned short mtu,
 			    unsigned int *idx)
 {
@@ -2113,18 +2354,36 @@ unsigned int cxgb4_best_mtu(const unsigned short *mtus, unsigned short mtu,
 }
 EXPORT_SYMBOL(cxgb4_best_mtu);
 
+/**
+ *	cxgb4_port_chan - get the HW channel of a port
+ *	@dev: the net device for the port
+ *
+ *	Return the HW Tx channel of the given port.
+ */
 unsigned int cxgb4_port_chan(const struct net_device *dev)
 {
 	return netdev2pinfo(dev)->tx_chan;
 }
 EXPORT_SYMBOL(cxgb4_port_chan);
 
+/**
+ *	cxgb4_port_viid - get the VI id of a port
+ *	@dev: the net device for the port
+ *
+ *	Return the VI id of the given port.
+ */
 unsigned int cxgb4_port_viid(const struct net_device *dev)
 {
 	return netdev2pinfo(dev)->viid;
 }
 EXPORT_SYMBOL(cxgb4_port_viid);
 
+/**
+ *	cxgb4_port_idx - get the index of a port
+ *	@dev: the net device for the port
+ *
+ *	Return the index of the given port.
+ */
 unsigned int cxgb4_port_idx(const struct net_device *dev)
 {
 	return netdev2pinfo(dev)->port_id;
@@ -2282,6 +2541,15 @@ static void notify_ulds(struct adapter *adap, enum cxgb4_state new_state)
 	mutex_unlock(&uld_mutex);
 }
 
+/**
+ *	cxgb4_register_uld - register an upper-layer driver
+ *	@type: the ULD type
+ *	@p: the ULD methods
+ *
+ *	Registers an upper-layer driver with this driver and notifies the ULD
+ *	about any presently available devices that support its type.  Returns
+ *	%-EBUSY if a ULD of the same type is already registered.
+ */
 int cxgb4_register_uld(enum cxgb4_uld type, const struct cxgb4_uld_info *p)
 {
 	int ret = 0;
@@ -2302,6 +2570,12 @@ out:	mutex_unlock(&uld_mutex);
 }
 EXPORT_SYMBOL(cxgb4_register_uld);
 
+/**
+ *	cxgb4_unregister_uld - unregister an upper-layer driver
+ *	@type: the ULD type
+ *
+ *	Unregisters an existing upper-layer driver.
+ */
 int cxgb4_unregister_uld(enum cxgb4_uld type)
 {
 	struct adapter *adap;
@@ -2317,6 +2591,16 @@ int cxgb4_unregister_uld(enum cxgb4_uld type)
 }
 EXPORT_SYMBOL(cxgb4_unregister_uld);
 
+/**
+ *	cxgb_up - enable the adapter
+ *	@adap: adapter being enabled
+ *
+ *	Called when the first port is enabled, this function performs the
+ *	actions necessary to make an adapter operational, such as completing
+ *	the initialization of HW modules, and enabling interrupts.
+ *
+ *	Must be called with the rtnl lock held.
+ */
 static int cxgb_up(struct adapter *adap)
 {
 	int err;
@@ -2379,6 +2663,9 @@ static void cxgb_down(struct adapter *adapter)
 	adapter->flags &= ~FULL_INIT_DONE;
 }
 
+/*
+ * net_device operations
+ */
 static int cxgb_open(struct net_device *dev)
 {
 	int err;
@@ -2426,7 +2713,7 @@ static struct rtnl_link_stats64 *cxgb_get_stats(struct net_device *dev,
 	ns->rx_packets = stats.rx_frames;
 	ns->multicast  = stats.rx_mcast_frames;
 
-	
+	/* detailed rx_errors */
 	ns->rx_length_errors = stats.rx_jabber + stats.rx_too_long +
 			       stats.rx_runt;
 	ns->rx_over_errors   = 0;
@@ -2438,7 +2725,7 @@ static struct rtnl_link_stats64 *cxgb_get_stats(struct net_device *dev,
 			       stats.rx_trunc2 + stats.rx_trunc3;
 	ns->rx_missed_errors = 0;
 
-	
+	/* detailed tx_errors */
 	ns->tx_aborted_errors   = 0;
 	ns->tx_carrier_errors   = 0;
 	ns->tx_fifo_errors      = 0;
@@ -2492,7 +2779,7 @@ static int cxgb_ioctl(struct net_device *dev, struct ifreq *req, int cmd)
 
 static void cxgb_set_rxmode(struct net_device *dev)
 {
-	
+	/* unfortunately we can't return errors to the stack */
 	set_rxmode(dev, -1, false);
 }
 
@@ -2501,7 +2788,7 @@ static int cxgb_change_mtu(struct net_device *dev, int new_mtu)
 	int ret;
 	struct port_info *pi = netdev_priv(dev);
 
-	if (new_mtu < 81 || new_mtu > MAX_MTU)         
+	if (new_mtu < 81 || new_mtu > MAX_MTU)         /* accommodate SACK */
 		return -EINVAL;
 	ret = t4_set_rxmode(pi->adapter, pi->adapter->fn, pi->viid, new_mtu, -1,
 			    -1, -1, -1, true);
@@ -2573,7 +2860,7 @@ static void setup_memwin(struct adapter *adap)
 {
 	u32 bar0;
 
-	bar0 = pci_resource_start(adap->pdev, 0);  
+	bar0 = pci_resource_start(adap->pdev, 0);  /* truncation intentional */
 	t4_write_reg(adap, PCIE_MEM_ACCESS_REG(PCIE_MEM_ACCESS_BASE_WIN, 0),
 		     (bar0 + MEMWIN0_BASE) | BIR(0) |
 		     WINDOW(ilog2(MEMWIN0_APERTURE) - 10));
@@ -2605,7 +2892,7 @@ static int adap_init1(struct adapter *adap, struct fw_caps_config_cmd *c)
 	u32 v;
 	int ret;
 
-	
+	/* get device capabilities */
 	memset(c, 0, sizeof(*c));
 	c->op_to_write = htonl(FW_CMD_OP(FW_CAPS_CONFIG_CMD) |
 			       FW_CMD_REQUEST | FW_CMD_READ);
@@ -2614,7 +2901,7 @@ static int adap_init1(struct adapter *adap, struct fw_caps_config_cmd *c)
 	if (ret < 0)
 		return ret;
 
-	
+	/* select capabilities we'll be using */
 	if (c->niccaps & htons(FW_CAPS_CONFIG_NIC_VM)) {
 		if (!vf_acls)
 			c->niccaps ^= htons(FW_CAPS_CONFIG_NIC_VM);
@@ -2644,19 +2931,25 @@ static int adap_init1(struct adapter *adap, struct fw_caps_config_cmd *c)
 
 	t4_sge_init(adap);
 
-	
+	/* tweak some settings */
 	t4_write_reg(adap, TP_SHIFT_CNT, 0x64f8849);
 	t4_write_reg(adap, ULP_RX_TDDP_PSZ, HPZ0(PAGE_SHIFT - 12));
 	t4_write_reg(adap, TP_PIO_ADDR, TP_INGRESS_CONFIG);
 	v = t4_read_reg(adap, TP_PIO_DATA);
 	t4_write_reg(adap, TP_PIO_DATA, v & ~CSUM_HAS_PSEUDO_HDR);
 
-	
+	/* get basic stuff going */
 	return t4_early_init(adap, adap->fn);
 }
 
+/*
+ * Max # of ATIDs.  The absolute HW max is 16K but we keep it lower.
+ */
 #define MAX_ATIDS 8192U
 
+/*
+ * Phase 0 of initialization: contact FW, obtain config, perform basic init.
+ */
 static int adap_init0(struct adapter *adap)
 {
 	int ret;
@@ -2667,13 +2960,13 @@ static int adap_init0(struct adapter *adap)
 
 	ret = t4_check_fw_version(adap);
 	if (ret == -EINVAL || ret > 0) {
-		if (upgrade_fw(adap) >= 0)             
+		if (upgrade_fw(adap) >= 0)             /* recache FW version */
 			ret = t4_check_fw_version(adap);
 	}
 	if (ret < 0)
 		return ret;
 
-	
+	/* contact FW, request master */
 	ret = t4_fw_hello(adap, adap->fn, adap->fn, MASTER_MUST, &state);
 	if (ret < 0) {
 		dev_err(adap->pdev_dev, "could not connect to FW, error %d\n",
@@ -2681,7 +2974,7 @@ static int adap_init0(struct adapter *adap)
 		return ret;
 	}
 
-	
+	/* reset device */
 	ret = t4_fw_reset(adap, adap->fn, PIORSTMODE | PIORST);
 	if (ret < 0)
 		goto bye;
@@ -2729,7 +3022,7 @@ static int adap_init0(struct adapter *adap)
 	adap->sge.egr_start = val[6];
 
 	if (c.ofldcaps) {
-		
+		/* query offload-related parameters */
 		params[0] = FW_PARAM_DEV(NTID);
 		params[1] = FW_PARAM_PFVF(SERVER_START);
 		params[2] = FW_PARAM_PFVF(SERVER_END);
@@ -2801,7 +3094,7 @@ static int adap_init0(struct adapter *adap)
 	adap->params.portvec = port_vec;
 	adap->flags |= FW_OK;
 
-	
+	/* These are finalized by FW initialization, load their values now */
 	v = t4_read_reg(adap, TP_TIMER_RESOLUTION);
 	adap->params.tp.tre = TIMERRESOLUTION_GET(v);
 	t4_read_mtu_tbl(adap, adap->params.mtus, NULL);
@@ -2809,6 +3102,14 @@ static int adap_init0(struct adapter *adap)
 		     adap->params.b_wnd);
 
 #ifdef CONFIG_PCI_IOV
+	/*
+	 * Provision resource limits for Virtual Functions.  We currently
+	 * grant them all the same static resource limits except for the Port
+	 * Access Rights Mask which we're assigning based on the PF.  All of
+	 * the static provisioning stuff for both the PF and VF really needs
+	 * to be managed in a persistent manner for each device which the
+	 * firmware controls.
+	 */
 	{
 		int pf, vf;
 
@@ -2816,7 +3117,7 @@ static int adap_init0(struct adapter *adap)
 			if (num_vf[pf] <= 0)
 				continue;
 
-			
+			/* VF numbering starts at 1! */
 			for (vf = 1; vf <= num_vf[pf]; vf++) {
 				ret = t4_cfg_pfvf(adap, adap->fn, pf, vf,
 						  VFRES_NEQ, VFRES_NETHCTRL,
@@ -2838,11 +3139,17 @@ static int adap_init0(struct adapter *adap)
 	setup_memwin(adap);
 	return 0;
 
+	/*
+	 * If a command timed out or failed with EIO FW does not operate within
+	 * its spec or something catastrophic happened to HW/FW, stop issuing
+	 * commands.
+	 */
 bye:	if (ret != -ETIMEDOUT && ret != -EIO)
 		t4_fw_bye(adap, adap->fn);
 	return ret;
 }
 
+/* EEH callbacks */
 
 static pci_ers_result_t eeh_err_detected(struct pci_dev *pdev,
 					 pci_channel_state_t state)
@@ -2961,6 +3268,11 @@ static inline void init_rspq(struct sge_rspq *q, u8 timer_idx, u8 pkt_cnt_idx,
 	q->size = size;
 }
 
+/*
+ * Perform default configuration of DMA queues depending on the number and type
+ * of ports we found and the number of available CPUs.  Most settings can be
+ * modified by the admin prior to actual use.
+ */
 static void __devinit cfg_queues(struct adapter *adap)
 {
 	struct sge *s = &adap->sge;
@@ -2969,6 +3281,10 @@ static void __devinit cfg_queues(struct adapter *adap)
 	for_each_port(adap, i)
 		n10g += is_10g_port(&adap2pinfo(adap, i)->link_cfg);
 
+	/*
+	 * We default to 1 queue per non-10G port and up to # of cores queues
+	 * per 10G port.
+	 */
 	if (n10g)
 		q10g = (MAX_ETH_QSETS - (adap->params.nports - n10g)) / n10g;
 	if (q10g > num_online_cpus())
@@ -2983,16 +3299,21 @@ static void __devinit cfg_queues(struct adapter *adap)
 	}
 
 	s->ethqsets = qidx;
-	s->max_ethqsets = qidx;   
+	s->max_ethqsets = qidx;   /* MSI-X may lower it later */
 
 	if (is_offload(adap)) {
+		/*
+		 * For offload we use 1 queue/channel if all ports are up to 1G,
+		 * otherwise we divide all available queues amongst the channels
+		 * capped by the number of available cores.
+		 */
 		if (n10g) {
 			i = min_t(int, ARRAY_SIZE(s->ofldrxq),
 				  num_online_cpus());
 			s->ofldqsets = roundup(i, adap->params.nports);
 		} else
 			s->ofldqsets = adap->params.nports;
-		
+		/* For RDMA one Rx queue per channel suffices */
 		s->rdmaqs = adap->params.nports;
 	}
 
@@ -3032,6 +3353,10 @@ static void __devinit cfg_queues(struct adapter *adap)
 	init_rspq(&s->intrq, 6, 0, 2 * MAX_INGQ, 64);
 }
 
+/*
+ * Reduce the number of Ethernet queues across all ports to at most n.
+ * n provides at least one queue per port.
+ */
 static void __devinit reduce_ethqs(struct adapter *adap, int n)
 {
 	int i;
@@ -3056,6 +3381,7 @@ static void __devinit reduce_ethqs(struct adapter *adap, int n)
 	}
 }
 
+/* 2 MSI-X vectors needed for the FW queue and non-data interrupts */
 #define EXTRA_VECS 2
 
 static int __devinit enable_msix(struct adapter *adap)
@@ -3072,7 +3398,7 @@ static int __devinit enable_msix(struct adapter *adap)
 	want = s->max_ethqsets + EXTRA_VECS;
 	if (is_offload(adap)) {
 		want += s->rdmaqs + s->ofldqsets;
-		
+		/* need nchan for each possible ULD */
 		ofld_need = 2 * nchan;
 	}
 	need = adap->params.nports + EXTRA_VECS + ofld_need;
@@ -3081,6 +3407,11 @@ static int __devinit enable_msix(struct adapter *adap)
 		want = err;
 
 	if (!err) {
+		/*
+		 * Distribute available vectors to the various queue groups.
+		 * Every group gets its minimum requirement and NIC gets top
+		 * priority for leftovers.
+		 */
 		i = want - EXTRA_VECS - ofld_need;
 		if (i < s->max_ethqsets) {
 			s->max_ethqsets = i;
@@ -3090,7 +3421,7 @@ static int __devinit enable_msix(struct adapter *adap)
 		if (is_offload(adap)) {
 			i = want - EXTRA_VECS - s->max_ethqsets;
 			i -= ofld_need - nchan;
-			s->ofldqsets = (i / nchan) * nchan;  
+			s->ofldqsets = (i / nchan) * nchan;  /* round down */
 		}
 		for (i = 0; i < want; ++i)
 			adap->msix_info[i].vec = entries[i].vector;
@@ -3168,6 +3499,13 @@ static void __devinit enable_pcie_relaxed_ordering(struct pci_dev *dev)
 	}
 }
 
+/*
+ * Free the following resources:
+ * - memory used for tables
+ * - MSI/MSI-X
+ * - net devices
+ * - resources FW is holding for us
+ */
 static void free_some_resources(struct adapter *adapter)
 {
 	unsigned int i;
@@ -3201,15 +3539,15 @@ static int __devinit init_one(struct pci_dev *pdev,
 
 	err = pci_request_regions(pdev, KBUILD_MODNAME);
 	if (err) {
-		
+		/* Just info, some other driver may have claimed the device. */
 		dev_info(&pdev->dev, "cannot obtain PCI resources\n");
 		return err;
 	}
 
-	
+	/* We control everything through one PF */
 	func = PCI_FUNC(pdev->devfn);
 	if (func != ent->driver_data) {
-		pci_save_state(pdev);        
+		pci_save_state(pdev);        /* to restore SR-IOV later */
 		goto sriov;
 	}
 
@@ -3313,11 +3651,15 @@ static int __devinit init_one(struct pci_dev *pdev,
 			goto out_free_dev;
 	}
 
+	/*
+	 * Configure queues and allocate tables now, they can be needed as
+	 * soon as the first register_netdev completes.
+	 */
 	cfg_queues(adapter);
 
 	adapter->l2t = t4_init_l2t();
 	if (!adapter->l2t) {
-		
+		/* We tolerate a lack of L2T, giving up some functionality */
 		dev_warn(&pdev->dev, "could not allocate L2T, continuing\n");
 		adapter->params.offload = 0;
 	}
@@ -3328,7 +3670,7 @@ static int __devinit init_one(struct pci_dev *pdev,
 		adapter->params.offload = 0;
 	}
 
-	
+	/* See what interrupts we'll be using */
 	if (msi > 1 && enable_msix(adapter) == 0)
 		adapter->flags |= USING_MSIX;
 	else if (msi > 0 && pci_enable_msi(pdev) == 0)
@@ -3338,6 +3680,12 @@ static int __devinit init_one(struct pci_dev *pdev,
 	if (err)
 		goto out_free_dev;
 
+	/*
+	 * The card is now ready to go.  If any errors occur during device
+	 * registration we do not fail the whole card but rather proceed only
+	 * with the ports we manage to register successfully.  However we must
+	 * register at least one net device.
+	 */
 	for_each_port(adapter, i) {
 		pi = adap2pinfo(adapter, i);
 		netif_set_real_num_tx_queues(adapter->port[i], pi->nqsets);
@@ -3364,7 +3712,7 @@ static int __devinit init_one(struct pci_dev *pdev,
 		setup_debugfs(adapter);
 	}
 
-	
+	/* PCIe EEH recovery on powerpc platforms needs fundamental reset */
 	pdev->needs_freset = 1;
 
 	if (is_offload(adapter))
@@ -3440,7 +3788,7 @@ static int __init cxgb4_init_module(void)
 {
 	int ret;
 
-	
+	/* Debugfs support is optional, just warn if this fails */
 	cxgb4_debugfs_root = debugfs_create_dir(KBUILD_MODNAME, NULL);
 	if (!cxgb4_debugfs_root)
 		pr_warning("could not create debugfs entry, continuing\n");
@@ -3454,7 +3802,7 @@ static int __init cxgb4_init_module(void)
 static void __exit cxgb4_cleanup_module(void)
 {
 	pci_unregister_driver(&cxgb4_driver);
-	debugfs_remove(cxgb4_debugfs_root);  
+	debugfs_remove(cxgb4_debugfs_root);  /* NULL ok */
 }
 
 module_init(cxgb4_init_module);

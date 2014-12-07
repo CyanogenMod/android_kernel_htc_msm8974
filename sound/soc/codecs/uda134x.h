@@ -9,6 +9,7 @@
 #define UDA134X_EXTADDR_PREFIX	0xC0
 #define UDA134X_EXTDATA_PREFIX	0xE0
 
+/* UDA134X registers */
 #define UDA134X_EA000	0
 #define UDA134X_EA001	1
 #define UDA134X_EA010	2

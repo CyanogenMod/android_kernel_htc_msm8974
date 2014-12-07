@@ -34,7 +34,7 @@
 #include "core.h"
 
 MACHINE_START(VERSATILE_AB, "ARM-Versatile AB")
-	
+	/* Maintainer: ARM Ltd/Deep Blue Solutions Ltd */
 	.atag_offset	= 0x100,
 	.map_io		= versatile_map_io,
 	.init_early	= versatile_init_early,

@@ -53,6 +53,56 @@
  *   return codes. Nothing major, just prettying up.
  */
 
+/*
+ * -----------------------
+ * IOP Message Passing 101
+ * -----------------------
+ *
+ * The host talks to the IOPs using a rather simple message-passing scheme via
+ * a shared memory area in the IOP RAM. Each IOP has seven "channels"; each
+ * channel is conneced to a specific software driver on the IOP. For example
+ * on the SCC IOP there is one channel for each serial port. Each channel has
+ * an incoming and and outgoing message queue with a depth of one.
+ *
+ * A message is 32 bytes plus a state byte for the channel (MSG_IDLE, MSG_NEW,
+ * MSG_RCVD, MSG_COMPLETE). To send a message you copy the message into the
+ * buffer, set the state to MSG_NEW and signal the IOP by setting the IRQ flag
+ * in the IOP control to 1. The IOP will move the state to MSG_RCVD when it
+ * receives the message and then to MSG_COMPLETE when the message processing
+ * has completed. It is the host's responsibility at that point to read the
+ * reply back out of the send channel buffer and reset the channel state back
+ * to MSG_IDLE.
+ *
+ * To receive message from the IOP the same procedure is used except the roles
+ * are reversed. That is, the IOP puts message in the channel with a state of
+ * MSG_NEW, and the host receives the message and move its state to MSG_RCVD
+ * and then to MSG_COMPLETE when processing is completed and the reply (if any)
+ * has been placed back in the receive channel. The IOP will then reset the
+ * channel state to MSG_IDLE.
+ *
+ * Two sets of host interrupts are provided, INT0 and INT1. Both appear on one
+ * interrupt level; they are distinguished by a pair of bits in the IOP status
+ * register. The IOP will raise INT0 when one or more messages in the send
+ * channels have gone to the MSG_COMPLETE state and it will raise INT1 when one
+ * or more messages on the receive channels have gone to the MSG_NEW state.
+ *
+ * Since each channel handles only one message we have to implement a small
+ * interrupt-driven queue on our end. Messages to be sent are placed on the
+ * queue for sending and contain a pointer to an optional callback function.
+ * The handler for a message is called when the message state goes to
+ * MSG_COMPLETE.
+ *
+ * For receiving message we maintain a list of handler functions to call when
+ * a message is received on that IOP/channel combination. The handlers are
+ * called much like an interrupt handler and are passed a copy of the message
+ * from the IOP. The message state will be in MSG_RCVD while the handler runs;
+ * it is the handler's responsibility to call iop_complete_message() when
+ * finished; this function moves the message state to MSG_COMPLETE and signals
+ * the IOP. This two-step process is provided to allow the handler to defer
+ * message processing to a bottom-half handler if the processing will take
+ * a significant amount of time (handlers are called at interrupt time so they
+ * should execute quickly.)
+ */
 
 #include <linux/types.h>
 #include <linux/kernel.h>
@@ -66,19 +116,31 @@
 #include <asm/macints.h>
 #include <asm/mac_iop.h>
 
+/*#define DEBUG_IOP*/
 
+/* Set to non-zero if the IOPs are present. Set by iop_init() */
 
 int iop_scc_present,iop_ism_present;
 
+/* structure for tracking channel listeners */
 
 struct listener {
 	const char *devname;
 	void (*handler)(struct iop_msg *);
 };
 
+/*
+ * IOP structures for the two IOPs
+ *
+ * The SCC IOP controls both serial ports (A and B) as its two functions.
+ * The ISM IOP controls the SWIM (floppy drive) and ADB.
+ */
 
 static volatile struct mac_iop *iop_base[NUM_IOPS];
 
+/*
+ * IOP message queues
+ */
 
 static struct iop_msg iop_msg_pool[NUM_IOP_MSGS];
 static struct iop_msg *iop_send_queue[NUM_IOPS][NUM_IOP_CHAN];
@@ -86,6 +148,9 @@ static struct listener iop_listeners[NUM_IOPS][NUM_IOP_CHAN];
 
 irqreturn_t iop_ism_irq(int, void *);
 
+/*
+ * Private access functions
+ */
 
 static __inline__ void iop_loadaddr(volatile struct mac_iop *iop, __u16 addr)
 {
@@ -160,6 +225,12 @@ static void iop_free_msg(struct iop_msg *msg)
 	msg->status = IOP_MSGSTATUS_UNUSED;
 }
 
+/*
+ * This is called by the startup code before anything else. Its purpose
+ * is to find and initialize the IOPs early in the boot sequence, so that
+ * the serial IOP can be placed into bypass mode _before_ we try to
+ * initialize the serial console.
+ */
 
 void __init iop_preinit(void)
 {
@@ -189,6 +260,9 @@ void __init iop_preinit(void)
 	}
 }
 
+/*
+ * Initialize the IOPs, if present.
+ */
 
 void __init iop_init(void)
 {
@@ -200,10 +274,10 @@ void __init iop_init(void)
 	if (iop_ism_present) {
 		printk("IOP: detected ISM IOP at %p\n", iop_base[IOP_NUM_ISM]);
 		iop_start(iop_base[IOP_NUM_ISM]);
-		iop_alive(iop_base[IOP_NUM_ISM]); 
+		iop_alive(iop_base[IOP_NUM_ISM]); /* clears the alive flag */
 	}
 
-	
+	/* Make the whole pool available and empty the queues */
 
 	for (i = 0 ; i < NUM_IOP_MSGS ; i++) {
 		iop_msg_pool[i].status = IOP_MSGSTATUS_UNUSED;
@@ -219,6 +293,10 @@ void __init iop_init(void)
 	}
 }
 
+/*
+ * Register the interrupt handler for the IOPs.
+ * TODO: might be wrong for non-OSS machines. Anyone?
+ */
 
 void __init iop_register_interrupts(void)
 {
@@ -240,6 +318,13 @@ void __init iop_register_interrupts(void)
 	}
 }
 
+/*
+ * Register or unregister a listener for a specific IOP and channel
+ *
+ * If the handler pointer is NULL the current listener (if any) is
+ * unregistered. Otherwise the new listener is registered provided
+ * there is no existing listener registered.
+ */
 
 int iop_listen(uint iop_num, uint chan,
 		void (*handler)(struct iop_msg *),
@@ -253,6 +338,11 @@ int iop_listen(uint iop_num, uint chan,
 	return 0;
 }
 
+/*
+ * Complete reception of a message, which just means copying the reply
+ * into the buffer, setting the channel state to MSG_COMPLETE and
+ * notifying the IOP.
+ */
 
 void iop_complete_message(struct iop_msg *msg)
 {
@@ -277,6 +367,9 @@ void iop_complete_message(struct iop_msg *msg)
 	iop_free_msg(msg);
 }
 
+/*
+ * Actually put a message into a send channel buffer
+ */
 
 static void iop_do_send(struct iop_msg *msg)
 {
@@ -294,6 +387,10 @@ static void iop_do_send(struct iop_msg *msg)
 	iop_interrupt(iop);
 }
 
+/*
+ * Handle sending a message on a channel that
+ * has gone into the IOP_MSG_COMPLETE state.
+ */
 
 static void iop_handle_send(uint iop_num, uint chan)
 {
@@ -323,6 +420,10 @@ static void iop_handle_send(uint iop_num, uint chan)
 	if (msg) iop_do_send(msg);
 }
 
+/*
+ * Handle reception of a message on a channel that has
+ * gone into the IOP_MSG_NEW state.
+ */
 
 static void iop_handle_recv(uint iop_num, uint chan)
 {
@@ -348,8 +449,8 @@ static void iop_handle_recv(uint iop_num, uint chan)
 
 	iop_writeb(iop, IOP_ADDR_RECV_STATE + chan, IOP_MSG_RCVD);
 
-	
-	
+	/* If there is a listener, call it now. Otherwise complete */
+	/* the message ourselves to avoid possible stalls.         */
 
 	if (msg->handler) {
 		(*msg->handler)(msg);
@@ -366,6 +467,13 @@ static void iop_handle_recv(uint iop_num, uint chan)
 	}
 }
 
+/*
+ * Send a message
+ *
+ * The message is placed at the end of the send queue. Afterwards if the
+ * channel is idle we force an immediate send of the next message in the
+ * queue.
+ */
 
 int iop_send_message(uint iop_num, uint chan, void *privdata,
 		      uint msg_len, __u8 *msg_data,
@@ -403,6 +511,9 @@ int iop_send_message(uint iop_num, uint chan, void *privdata,
 	return 0;
 }
 
+/*
+ * Upload code to the shared RAM of an IOP.
+ */
 
 void iop_upload_code(uint iop_num, __u8 *code_start,
 		     uint code_len, __u16 shared_ram_start)
@@ -416,6 +527,9 @@ void iop_upload_code(uint iop_num, __u8 *code_start,
 	}
 }
 
+/*
+ * Download code from the shared RAM of an IOP.
+ */
 
 void iop_download_code(uint iop_num, __u8 *code_start,
 		       uint code_len, __u16 shared_ram_start)
@@ -429,6 +543,11 @@ void iop_download_code(uint iop_num, __u8 *code_start,
 	}
 }
 
+/*
+ * Compare the code in the shared RAM of an IOP with a copy in system memory
+ * and return 0 on match or the first nonmatching system memory address on
+ * failure.
+ */
 
 __u8 *iop_compare_code(uint iop_num, __u8 *code_start,
 		       uint code_len, __u16 shared_ram_start)
@@ -446,6 +565,9 @@ __u8 *iop_compare_code(uint iop_num, __u8 *code_start,
 	return (__u8 *) 0;
 }
 
+/*
+ * Handle an ISM IOP interrupt
+ */
 
 irqreturn_t iop_ism_irq(int irq, void *dev_id)
 {
@@ -457,7 +579,7 @@ irqreturn_t iop_ism_irq(int irq, void *dev_id)
 	printk("iop_ism_irq: status = %02X\n", (uint) iop->status_ctrl);
 #endif
 
-	
+	/* INT0 indicates a state change on an outgoing message channel */
 
 	if (iop->status_ctrl & IOP_INT0) {
 		iop->status_ctrl = IOP_INT0 | IOP_RUN | IOP_AUTOINC;
@@ -479,7 +601,7 @@ irqreturn_t iop_ism_irq(int irq, void *dev_id)
 #endif
 	}
 
-	if (iop->status_ctrl & IOP_INT1) {	
+	if (iop->status_ctrl & IOP_INT1) {	/* INT1 for incoming msgs */
 		iop->status_ctrl = IOP_INT1 | IOP_RUN | IOP_AUTOINC;
 #ifdef DEBUG_IOP
 		printk("iop_ism_irq: new status = %02X, recv states",

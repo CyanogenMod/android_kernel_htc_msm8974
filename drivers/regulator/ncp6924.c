@@ -23,6 +23,7 @@
 #include <linux/regulator/of_regulator.h>
 #include <linux/i2c.h>
 #include <linux/regulator/ncp6924.h>
+#include <mach/devices_cmdline.h>
 
 enum {
 	VREG_TYPE_DCDC,
@@ -284,6 +285,14 @@ static int __devinit ncp6924_probe(struct i2c_client *client, const struct i2c_d
 	int ret = 0;
 
 	pr_info("%s.\n", __func__);
+
+#ifdef CONFIG_REGULATOR_NCP6924_OFFMODE_CHARGE
+	if (board_mfg_mode() == MFG_MODE_OFFMODE_CHARGING){
+
+		dev_err(dev, "%s: offmode charge, ignore ncp6924 probe.\n", __func__);
+		return -EACCES;
+	}
+#endif
 	if (!dev->of_node) {
 		dev_err(dev, "%s: device tree information missing\n", __func__);
 		return -ENODEV;

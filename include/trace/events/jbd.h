@@ -197,6 +197,7 @@ TRACE_EVENT(jbd_update_superblock_end,
 		   __entry->wait)
 );
 
-#endif 
+#endif /* _TRACE_JBD_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

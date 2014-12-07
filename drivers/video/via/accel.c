@@ -21,12 +21,15 @@
 #include <linux/via-core.h>
 #include "global.h"
 
+/*
+ * Figure out an appropriate bytes-per-pixel setting.
+ */
 static int viafb_set_bpp(void __iomem *engine, u8 bpp)
 {
 	u32 gemode;
 
-	
-	
+	/* Preserve the reserved bits */
+	/* Lowest 2 bits to zero gives us no rotation */
 	gemode = readl(engine + VIA_REG_GEMODE) & 0xfffffcfc;
 	switch (bpp) {
 	case 8:
@@ -75,10 +78,10 @@ static int hw_bitblt_1(void __iomem *engine, u8 op, u32 width, u32 height,
 
 	if (op == VIA_BITBLT_FILL) {
 		switch (fill_rop) {
-		case 0x00: 
-		case 0x5A: 
-		case 0xF0: 
-		case 0xFF: 
+		case 0x00: /* blackness */
+		case 0x5A: /* pattern inversion */
+		case 0xF0: /* pattern copy */
+		case 0xFF: /* whiteness */
 			break;
 		default:
 			printk(KERN_WARNING "hw_bitblt_1: Invalid fill rop: "
@@ -158,7 +161,7 @@ static int hw_bitblt_1(void __iomem *engine, u8 op, u32 width, u32 height,
 	if (op == VIA_BITBLT_FILL)
 		ge_cmd |= fill_rop << 24 | 0x00002000 | 0x00000001;
 	else {
-		ge_cmd |= 0xCC000000; 
+		ge_cmd |= 0xCC000000; /* ROP=SRCCOPY */
 		if (src_mem)
 			ge_cmd |= 0x00000040;
 		if (op == VIA_BITBLT_MONO)
@@ -208,10 +211,10 @@ static int hw_bitblt_2(void __iomem *engine, u8 op, u32 width, u32 height,
 
 	if (op == VIA_BITBLT_FILL) {
 		switch (fill_rop) {
-		case 0x00: 
-		case 0x5A: 
-		case 0xF0: 
-		case 0xFF: 
+		case 0x00: /* blackness */
+		case 0x5A: /* pattern inversion */
+		case 0xF0: /* pattern copy */
+		case 0xFF: /* whiteness */
 			break;
 		default:
 			printk(KERN_WARNING "hw_bitblt_2: Invalid fill rop: "
@@ -290,7 +293,7 @@ static int hw_bitblt_2(void __iomem *engine, u8 op, u32 width, u32 height,
 	if (op == VIA_BITBLT_FILL)
 		ge_cmd |= fill_rop << 24 | 0x00002000 | 0x00000001;
 	else {
-		ge_cmd |= 0xCC000000; 
+		ge_cmd |= 0xCC000000; /* ROP=SRCCOPY */
 		if (src_mem)
 			ge_cmd |= 0x00000040;
 		if (op == VIA_BITBLT_MONO)
@@ -356,6 +359,15 @@ int viafb_setup_engine(struct fb_info *info)
 	viapar->fbmem_used += VQ_SIZE;
 
 #if defined(CONFIG_VIDEO_VIA_CAMERA) || defined(CONFIG_VIDEO_VIA_CAMERA_MODULE)
+	/*
+	 * Set aside a chunk of framebuffer memory for the camera
+	 * driver.  Someday this driver probably needs a proper allocator
+	 * for fbmem; for now, we just have to do this before the
+	 * framebuffer initializes itself.
+	 *
+	 * As for the size: the engine can handle three frames,
+	 * 16 bits deep, up to VGA resolution.
+	 */
 	viapar->shared->vdev->camera_fbmem_size = 3*VGA_HEIGHT*VGA_WIDTH*2;
 	viapar->fbmem_free -= viapar->shared->vdev->camera_fbmem_size;
 	viapar->fbmem_used += viapar->shared->vdev->camera_fbmem_size;
@@ -373,7 +385,7 @@ void viafb_reset_engine(struct viafb_par *viapar)
 	u32 vq_start_addr, vq_end_addr, vq_start_low, vq_end_low, vq_high,
 		vq_len, chip_name = viapar->shared->chip_info.gfx_chip_name;
 
-	
+	/* Initialize registers to reset the 2D engine */
 	switch (viapar->shared->chip_info.twod_engine) {
 	case VIA_2D_ENG_M1:
 		highest_reg = 0x5c;
@@ -385,7 +397,7 @@ void viafb_reset_engine(struct viafb_par *viapar)
 	for (i = 0; i <= highest_reg; i += 4)
 		writel(0x0, engine + i);
 
-	
+	/* Init AGP and VQ regs */
 	switch (chip_name) {
 	case UNICHROME_K8M890:
 	case UNICHROME_P4M900:
@@ -413,7 +425,7 @@ void viafb_reset_engine(struct viafb_par *viapar)
 		break;
 	}
 
-	
+	/* Enable VQ */
 	vq_start_addr = viapar->shared->vq_vram_addr;
 	vq_end_addr = viapar->shared->vq_vram_addr + VQ_SIZE - 1;
 
@@ -468,7 +480,7 @@ void viafb_reset_engine(struct viafb_par *viapar)
 		break;
 	}
 
-	
+	/* Set Cursor Image Base Address */
 	writel(viapar->shared->cursor_vram_addr, engine + VIA_REG_CURSOR_MODE);
 	writel(0x0, engine + VIA_REG_CURSOR_POS);
 	writel(0x0, engine + VIA_REG_CURSOR_ORG);

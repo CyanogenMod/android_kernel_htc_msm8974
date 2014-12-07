@@ -28,6 +28,7 @@
 #include <linux/jffs2.h>
 #include "compr.h"
 
+/* _compress returns the compressed size, -1 if bigger */
 static int jffs2_rtime_compress(unsigned char *data_in,
 				unsigned char *cpage_out,
 				uint32_t *sourcelen, uint32_t *dstlen)
@@ -58,11 +59,11 @@ static int jffs2_rtime_compress(unsigned char *data_in,
 	}
 
 	if (outpos >= pos) {
-		
+		/* We failed */
 		return -1;
 	}
 
-	
+	/* Tell the caller how much we managed to compress, and how much space it took */
 	*sourcelen = pos;
 	*dstlen = outpos;
 	return 0;
@@ -85,7 +86,7 @@ static int jffs2_rtime_decompress(unsigned char *data_in,
 		int repeat;
 
 		value = data_in[pos++];
-		cpage_out[outpos++] = value; 
+		cpage_out[outpos++] = value; /* first the verbatim copied byte */
 		repeat = data_in[pos++];
 		backoffs = positions[value];
 

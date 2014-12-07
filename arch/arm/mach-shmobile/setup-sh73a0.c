@@ -40,6 +40,9 @@
 #include <asm/mach/time.h>
 
 static struct map_desc sh73a0_io_desc[] __initdata = {
+	/* create a 1:1 entity map for 0xe6xxxxxx
+	 * used by CPGA, INTC and PFC.
+	 */
 	{
 		.virtual	= 0xe6000000,
 		.pfn		= __phys_to_pfn(0xe6000000),
@@ -246,6 +249,7 @@ static struct platform_device cmt10_device = {
 	.num_resources	= ARRAY_SIZE(cmt10_resources),
 };
 
+/* TMU */
 static struct sh_timer_config tmu00_platform_data = {
 	.name = "TMU00",
 	.channel_offset = 0x4,
@@ -261,7 +265,7 @@ static struct resource tmu00_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= intcs_evt2irq(0x0e80), 
+		.start	= intcs_evt2irq(0x0e80), /* TMU0_TUNI00 */
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -291,7 +295,7 @@ static struct resource tmu01_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= intcs_evt2irq(0x0ea0), 
+		.start	= intcs_evt2irq(0x0ea0), /* TMU0_TUNI01 */
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -411,6 +415,7 @@ static struct platform_device i2c4_device = {
 	.num_resources	= ARRAY_SIZE(i2c4_resources),
 };
 
+/* Transmit sizes and respective CHCR register values */
 enum {
 	XMIT_SZ_8BIT		= 0,
 	XMIT_SZ_16BIT		= 1,
@@ -421,6 +426,7 @@ enum {
 	XMIT_SZ_512BIT		= 5,
 };
 
+/* log2(size / 8) - used to calculate number of transfers */
 #define TS_SHIFT {			\
 	[XMIT_SZ_8BIT]		= 0,	\
 	[XMIT_SZ_16BIT]		= 1,	\
@@ -607,7 +613,7 @@ static struct sh_dmae_pdata sh73a0_dmae_platform_data = {
 	.channel_num    = ARRAY_SIZE(sh73a0_dmae_channels),
 	.ts_low_shift   = 3,
 	.ts_low_mask    = 0x18,
-	.ts_high_shift  = (20 - 2),     
+	.ts_high_shift  = (20 - 2),     /* 2 bits for shifted low TS */
 	.ts_high_mask   = 0x00300000,
 	.ts_shift       = ts_shift,
 	.ts_shift_num   = ARRAY_SIZE(ts_shift),
@@ -616,7 +622,7 @@ static struct sh_dmae_pdata sh73a0_dmae_platform_data = {
 
 static struct resource sh73a0_dmae_resources[] = {
 	{
-		
+		/* Registers including DMAOR and channels including DMARSx */
 		.start  = 0xfe000020,
 		.end    = 0xfe008a00 - 1,
 		.flags  = IORESOURCE_MEM,
@@ -628,7 +634,7 @@ static struct resource sh73a0_dmae_resources[] = {
 		.flags  = IORESOURCE_IRQ,
 	},
 	{
-		
+		/* IRQ for channels 0-19 */
 		.start  = gic_spi(109),
 		.end    = gic_spi(128),
 		.flags  = IORESOURCE_IRQ,
@@ -673,7 +679,7 @@ static struct platform_device *sh73a0_late_devices[] __initdata = {
 
 void __init sh73a0_add_standard_devices(void)
 {
-	
+	/* Clear software reset bit on SY-DMAC module */
 	__raw_writel(__raw_readl(SRCR2) & ~(1 << 18), SRCR2);
 
 	platform_add_devices(sh73a0_early_devices,
@@ -682,6 +688,7 @@ void __init sh73a0_add_standard_devices(void)
 			    ARRAY_SIZE(sh73a0_late_devices));
 }
 
+/* do nothing for !CONFIG_SMP or !CONFIG_HAVE_TWD */
 void __init __weak sh73a0_register_twd(void) { }
 
 static void __init sh73a0_earlytimer_init(void)
@@ -696,9 +703,9 @@ void __init sh73a0_add_early_devices(void)
 	early_platform_add_devices(sh73a0_early_devices,
 				   ARRAY_SIZE(sh73a0_early_devices));
 
-	
+	/* setup early console here as well */
 	shmobile_setup_console();
 
-	
+	/* override timer setup with soc-specific code */
 	shmobile_timer.init = sh73a0_earlytimer_init;
 }

@@ -17,7 +17,7 @@
 enum {
 	UNUSED = 0,
 
-	
+	/* interrupt sources */
 	IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7,
 	PINT0, PINT1, PINT2, PINT3, PINT4, PINT5, PINT6, PINT7,
 	DMAC0, DMAC1, DMAC2, DMAC3, DMAC4, DMAC5, DMAC6, DMAC7,
@@ -35,11 +35,11 @@ enum {
 
 	SSI0_SSII, SSI1_SSII, SSI2_SSII, SSI3_SSII,
 
-	
+	/* ROM-DEC, SDHI, SRC, and IEB are SH7263 specific */
 	ROMDEC, FLCTL, SDHI, RTC, RCAN0, RCAN1,
 	SRC, IEBI,
 
-	
+	/* interrupt groups */
 	PINT,
 };
 
@@ -115,7 +115,7 @@ static struct intc_vect vectors[] __initdata = {
 	INTC_IRQ(RCAN1, 241), INTC_IRQ(RCAN1, 242),
 	INTC_IRQ(RCAN1, 243),
 
-	
+	/* SH7263-specific trash */
 #ifdef CONFIG_CPU_SUBTYPE_SH7263
 	INTC_IRQ(ROMDEC, 218), INTC_IRQ(ROMDEC, 219),
 	INTC_IRQ(ROMDEC, 220), INTC_IRQ(ROMDEC, 221),
@@ -137,35 +137,35 @@ static struct intc_group groups[] __initdata = {
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xfffe0818, 0, 16, 4,  { IRQ0, IRQ1, IRQ2, IRQ3 } },
-	{ 0xfffe081a, 0, 16, 4,  { IRQ4, IRQ5, IRQ6, IRQ7 } },
-	{ 0xfffe0820, 0, 16, 4,  { PINT, 0, 0, 0 } },
-	{ 0xfffe0c00, 0, 16, 4,  { DMAC0, DMAC1, DMAC2, DMAC3 } },
-	{ 0xfffe0c02, 0, 16, 4,  { DMAC4, DMAC5, DMAC6, DMAC7 } },
-	{ 0xfffe0c04, 0, 16, 4,  { USB, LCDC, CMT0, CMT1 } },
-	{ 0xfffe0c06, 0, 16, 4,  { BSC, WDT, MTU0_ABCD, MTU0_VEF } },
-	{ 0xfffe0c08, 0, 16, 4,  { MTU1_AB, MTU1_VU, MTU2_AB,
+	{ 0xfffe0818, 0, 16, 4, /* IPR01 */ { IRQ0, IRQ1, IRQ2, IRQ3 } },
+	{ 0xfffe081a, 0, 16, 4, /* IPR02 */ { IRQ4, IRQ5, IRQ6, IRQ7 } },
+	{ 0xfffe0820, 0, 16, 4, /* IPR05 */ { PINT, 0, 0, 0 } },
+	{ 0xfffe0c00, 0, 16, 4, /* IPR06 */ { DMAC0, DMAC1, DMAC2, DMAC3 } },
+	{ 0xfffe0c02, 0, 16, 4, /* IPR07 */ { DMAC4, DMAC5, DMAC6, DMAC7 } },
+	{ 0xfffe0c04, 0, 16, 4, /* IPR08 */ { USB, LCDC, CMT0, CMT1 } },
+	{ 0xfffe0c06, 0, 16, 4, /* IPR09 */ { BSC, WDT, MTU0_ABCD, MTU0_VEF } },
+	{ 0xfffe0c08, 0, 16, 4, /* IPR10 */ { MTU1_AB, MTU1_VU, MTU2_AB,
 					      MTU2_VU } },
-	{ 0xfffe0c0a, 0, 16, 4,  { MTU3_ABCD, MTU2_TCI3V, MTU4_ABCD,
+	{ 0xfffe0c0a, 0, 16, 4, /* IPR11 */ { MTU3_ABCD, MTU2_TCI3V, MTU4_ABCD,
 					      MTU2_TCI4V } },
-	{ 0xfffe0c0c, 0, 16, 4,  { ADC_ADI, IIC30, IIC31, IIC32 } },
-	{ 0xfffe0c0e, 0, 16, 4,  { IIC33, SCIF0, SCIF1, SCIF2 } },
-	{ 0xfffe0c10, 0, 16, 4,  { SCIF3, SSU0, SSU1, SSI0_SSII } },
+	{ 0xfffe0c0c, 0, 16, 4, /* IPR12 */ { ADC_ADI, IIC30, IIC31, IIC32 } },
+	{ 0xfffe0c0e, 0, 16, 4, /* IPR13 */ { IIC33, SCIF0, SCIF1, SCIF2 } },
+	{ 0xfffe0c10, 0, 16, 4, /* IPR14 */ { SCIF3, SSU0, SSU1, SSI0_SSII } },
 #ifdef CONFIG_CPU_SUBTYPE_SH7203
-	{ 0xfffe0c12, 0, 16, 4,  { SSI1_SSII, SSI2_SSII,
+	{ 0xfffe0c12, 0, 16, 4, /* IPR15 */ { SSI1_SSII, SSI2_SSII,
 					      SSI3_SSII, 0 } },
-	{ 0xfffe0c14, 0, 16, 4,  { FLCTL, 0, RTC, RCAN0 } },
-	{ 0xfffe0c16, 0, 16, 4,  { RCAN1, 0, 0, 0 } },
+	{ 0xfffe0c14, 0, 16, 4, /* IPR16 */ { FLCTL, 0, RTC, RCAN0 } },
+	{ 0xfffe0c16, 0, 16, 4, /* IPR17 */ { RCAN1, 0, 0, 0 } },
 #else
-	{ 0xfffe0c12, 0, 16, 4,  { SSI1_SSII, SSI2_SSII,
+	{ 0xfffe0c12, 0, 16, 4, /* IPR15 */ { SSI1_SSII, SSI2_SSII,
 					      SSI3_SSII, ROMDEC } },
-	{ 0xfffe0c14, 0, 16, 4,  { FLCTL, SDHI, RTC, RCAN0 } },
-	{ 0xfffe0c16, 0, 16, 4,  { RCAN1, SRC, IEBI, 0 } },
+	{ 0xfffe0c14, 0, 16, 4, /* IPR16 */ { FLCTL, SDHI, RTC, RCAN0 } },
+	{ 0xfffe0c16, 0, 16, 4, /* IPR17 */ { RCAN1, SRC, IEBI, 0 } },
 #endif
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xfffe0808, 0, 16, 
+	{ 0xfffe0808, 0, 16, /* PINTER */
 	  { 0, 0, 0, 0, 0, 0, 0, 0,
 	    PINT7, PINT6, PINT5, PINT4, PINT3, PINT2, PINT1, PINT0 } },
 };
@@ -253,7 +253,7 @@ static struct sh_timer_config cmt0_platform_data = {
 	.channel_offset = 0x02,
 	.timer_bit = 0,
 	.clockevent_rating = 125,
-	.clocksource_rating = 0, 
+	.clocksource_rating = 0, /* disabled due to code generation issues */
 };
 
 static struct resource cmt0_resources[] = {
@@ -282,7 +282,7 @@ static struct sh_timer_config cmt1_platform_data = {
 	.channel_offset = 0x08,
 	.timer_bit = 1,
 	.clockevent_rating = 125,
-	.clocksource_rating = 0, 
+	.clocksource_rating = 0, /* disabled due to code generation issues */
 };
 
 static struct resource cmt1_resources[] = {
@@ -370,7 +370,7 @@ static struct resource rtc_resources[] = {
 		.flags	= IORESOURCE_IO,
 	},
 	[1] = {
-		
+		/* Shared Period/Carry/Alarm IRQ */
 		.start	= 231,
 		.flags	= IORESOURCE_IRQ,
 	},
@@ -423,10 +423,10 @@ static struct platform_device *sh7203_early_devices[] __initdata = {
 
 void __init plat_early_device_setup(void)
 {
-	
+	/* enable CMT clock */
 	__raw_writeb(__raw_readb(STBCR4) & ~0x04, STBCR4);
 
-	
+	/* enable MTU2 clock */
 	__raw_writeb(__raw_readb(STBCR3) & ~0x20, STBCR3);
 
 	early_platform_add_devices(sh7203_early_devices,

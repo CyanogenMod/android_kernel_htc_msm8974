@@ -55,10 +55,11 @@
 	 NETIF_MSG_RX_ERR	| \
 	 NETIF_MSG_TX_ERR)
 
-static int greth_debug = -1;	
+static int greth_debug = -1;	/* -1 == use GRETH_DEF_MSG_ENABLE as value */
 module_param(greth_debug, int, 0);
 MODULE_PARM_DESC(greth_debug, "GRETH bitmapped debugging message enable value");
 
+/* Accept MAC address of the form macaddr=0x08,0x00,0x20,0x30,0x40,0x50 */
 static int macaddr[6];
 module_param_array(macaddr, int, NULL, 0);
 MODULE_PARM_DESC(macaddr, "GRETH Ethernet MAC address");
@@ -167,7 +168,7 @@ static void greth_clean_rings(struct greth_private *greth)
 
 	if (greth->gbit_mac) {
 
-		
+		/* Free and unmap RX buffers */
 		for (i = 0; i < GRETH_RXBD_NUM; i++, rx_bdp++) {
 			if (greth->rx_skbuff[i] != NULL) {
 				dev_kfree_skb(greth->rx_skbuff[i]);
@@ -178,7 +179,7 @@ static void greth_clean_rings(struct greth_private *greth)
 			}
 		}
 
-		
+		/* TX buffers */
 		while (greth->tx_free < GRETH_TXBD_NUM) {
 
 			struct sk_buff *skb = greth->tx_skbuff[greth->tx_last];
@@ -207,7 +208,7 @@ static void greth_clean_rings(struct greth_private *greth)
 		}
 
 
-	} else { 
+	} else { /* 10/100 Mbps MAC */
 
 		for (i = 0; i < GRETH_RXBD_NUM; i++, rx_bdp++) {
 			kfree(greth->rx_bufs[i]);
@@ -236,7 +237,7 @@ static int greth_init_rings(struct greth_private *greth)
 	rx_bd = greth->rx_bd_base;
 	tx_bd = greth->tx_bd_base;
 
-	
+	/* Initialize descriptor rings and buffers */
 	if (greth->gbit_mac) {
 
 		for (i = 0; i < GRETH_RXBD_NUM; i++) {
@@ -264,7 +265,7 @@ static int greth_init_rings(struct greth_private *greth)
 
 	} else {
 
-		
+		/* 10/100 MAC uses a fixed set of buffers and copy to/from SKBs */
 		for (i = 0; i < GRETH_RXBD_NUM; i++) {
 
 			greth->rx_bufs[i] = kmalloc(MAX_FRAME_SIZE, GFP_KERNEL);
@@ -315,13 +316,13 @@ static int greth_init_rings(struct greth_private *greth)
 	greth_write_bd(&rx_bd[GRETH_RXBD_NUM - 1].stat,
 		       greth_read_bd(&rx_bd[GRETH_RXBD_NUM - 1].stat) | GRETH_BD_WR);
 
-	
+	/* Initialize pointers. */
 	greth->rx_cur = 0;
 	greth->tx_next = 0;
 	greth->tx_last = 0;
 	greth->tx_free = GRETH_TXBD_NUM;
 
-	
+	/* Initialize descriptor base address */
 	GRETH_REGSAVE(greth->regs->tx_desc_p, greth->tx_bd_base_phys);
 	GRETH_REGSAVE(greth->regs->rx_desc_p, greth->rx_bd_base_phys);
 
@@ -395,13 +396,13 @@ greth_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	u32 status, dma_addr, ctrl;
 	unsigned long flags;
 
-	
+	/* Clean TX Ring */
 	greth_clean_tx(greth->netdev);
 
 	if (unlikely(greth->tx_free <= 0)) {
-		spin_lock_irqsave(&greth->devlock, flags);
+		spin_lock_irqsave(&greth->devlock, flags);/*save from poll/irq*/
 		ctrl = GRETH_REGLOAD(greth->regs->control);
-		
+		/* Enable TX IRQ only if not already in poll() routine */
 		if (ctrl & GRETH_RXI)
 			GRETH_REGSAVE(greth->regs->control, ctrl | GRETH_TXI);
 		netif_stop_queue(dev);
@@ -428,7 +429,7 @@ greth_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	status = GRETH_BD_EN | GRETH_BD_IE | (skb->len & GRETH_BD_LEN);
 	greth->tx_bufs_length[greth->tx_next] = skb->len & GRETH_BD_LEN;
 
-	
+	/* Wrap around descriptor ring */
 	if (greth->tx_next == GRETH_TXBD_NUM_MASK) {
 		status |= GRETH_BD_WR;
 	}
@@ -436,9 +437,9 @@ greth_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	greth->tx_next = NEXT_TX(greth->tx_next);
 	greth->tx_free--;
 
-	
+	/* Write descriptor control word and enable transmission */
 	greth_write_bd(&bdp->stat, status);
-	spin_lock_irqsave(&greth->devlock, flags); 
+	spin_lock_irqsave(&greth->devlock, flags); /*save from poll/irq*/
 	greth_enable_tx(greth);
 	spin_unlock_irqrestore(&greth->devlock, flags);
 
@@ -459,13 +460,13 @@ greth_start_xmit_gbit(struct sk_buff *skb, struct net_device *dev)
 
 	nr_frags = skb_shinfo(skb)->nr_frags;
 
-	
+	/* Clean TX Ring */
 	greth_clean_tx_gbit(dev);
 
 	if (greth->tx_free < nr_frags + 1) {
-		spin_lock_irqsave(&greth->devlock, flags);
+		spin_lock_irqsave(&greth->devlock, flags);/*save from poll/irq*/
 		ctrl = GRETH_REGLOAD(greth->regs->control);
-		
+		/* Enable TX IRQ only if not already in poll() routine */
 		if (ctrl & GRETH_RXI)
 			GRETH_REGSAVE(greth->regs->control, ctrl | GRETH_TXI);
 		netif_stop_queue(dev);
@@ -482,10 +483,10 @@ greth_start_xmit_gbit(struct sk_buff *skb, struct net_device *dev)
 		goto out;
 	}
 
-	
+	/* Save skb pointer. */
 	greth->tx_skbuff[greth->tx_next] = skb;
 
-	
+	/* Linear buf */
 	if (nr_frags != 0)
 		status = GRETH_TXBD_MORE;
 
@@ -507,7 +508,7 @@ greth_start_xmit_gbit(struct sk_buff *skb, struct net_device *dev)
 
 	curr_tx = NEXT_TX(greth->tx_next);
 
-	
+	/* Frags */
 	for (i = 0; i < nr_frags; i++) {
 		skb_frag_t *frag = &skb_shinfo(skb)->frags[i];
 		greth->tx_skbuff[curr_tx] = NULL;
@@ -518,15 +519,15 @@ greth_start_xmit_gbit(struct sk_buff *skb, struct net_device *dev)
 			status |= GRETH_TXBD_CSALL;
 		status |= skb_frag_size(frag) & GRETH_BD_LEN;
 
-		
+		/* Wrap around descriptor ring */
 		if (curr_tx == GRETH_TXBD_NUM_MASK)
 			status |= GRETH_BD_WR;
 
-		
+		/* More fragments left */
 		if (i < nr_frags - 1)
 			status |= GRETH_TXBD_MORE;
 		else
-			status |= GRETH_BD_IE; 
+			status |= GRETH_BD_IE; /* enable IRQ on last fragment */
 
 		greth_write_bd(&bdp->stat, status);
 
@@ -543,7 +544,7 @@ greth_start_xmit_gbit(struct sk_buff *skb, struct net_device *dev)
 
 	wmb();
 
-	
+	/* Enable the descriptor chain by enabling the first descriptor */
 	bdp = greth->tx_bd_base + greth->tx_next;
 	greth_write_bd(&bdp->stat, greth_read_bd(&bdp->stat) | GRETH_BD_EN);
 	greth->tx_next = curr_tx;
@@ -551,14 +552,14 @@ greth_start_xmit_gbit(struct sk_buff *skb, struct net_device *dev)
 
 	wmb();
 
-	spin_lock_irqsave(&greth->devlock, flags); 
+	spin_lock_irqsave(&greth->devlock, flags); /*save from poll/irq*/
 	greth_enable_tx(greth);
 	spin_unlock_irqrestore(&greth->devlock, flags);
 
 	return NETDEV_TX_OK;
 
 frag_map_error:
-	
+	/* Unmap SKB mappings that succeeded and disable descriptor */
 	for (i = 0; greth->tx_next + i != curr_tx; i++) {
 		bdp = greth->tx_bd_base + greth->tx_next + i;
 		dma_unmap_single(greth->dev,
@@ -586,17 +587,21 @@ static irqreturn_t greth_interrupt(int irq, void *dev_id)
 
 	spin_lock(&greth->devlock);
 
-	
+	/* Get the interrupt events that caused us to be here. */
 	status = GRETH_REGLOAD(greth->regs->status);
 
+	/* Must see if interrupts are enabled also, INT_TX|INT_RX flags may be
+	 * set regardless of whether IRQ is enabled or not. Especially
+	 * important when shared IRQ.
+	 */
 	ctrl = GRETH_REGLOAD(greth->regs->control);
 
-	
+	/* Handle rx and tx interrupts through poll */
 	if (((status & (GRETH_INT_RE | GRETH_INT_RX)) && (ctrl & GRETH_RXI)) ||
 	    ((status & (GRETH_INT_TE | GRETH_INT_TX)) && (ctrl & GRETH_TXI))) {
 		retval = IRQ_HANDLED;
 
-		
+		/* Disable interrupts and schedule poll() */
 		greth_disable_irqs(greth);
 		napi_schedule(&greth->napi);
 	}
@@ -627,7 +632,7 @@ static void greth_clean_tx(struct net_device *dev)
 		if (greth->tx_free == GRETH_TXBD_NUM)
 			break;
 
-		
+		/* Check status for errors */
 		if (unlikely(stat & GRETH_TXBD_STATUS)) {
 			dev->stats.tx_errors++;
 			if (stat & GRETH_TXBD_ERR_AL)
@@ -649,7 +654,7 @@ static void greth_clean_tx(struct net_device *dev)
 
 static inline void greth_update_tx_stats(struct net_device *dev, u32 stat)
 {
-	
+	/* Check status for errors */
 	if (unlikely(stat & GRETH_TXBD_STATUS)) {
 		dev->stats.tx_errors++;
 		if (stat & GRETH_TXBD_ERR_AL)
@@ -678,7 +683,7 @@ static void greth_clean_tx_gbit(struct net_device *dev)
 
 		nr_frags = skb_shinfo(skb)->nr_frags;
 
-		
+		/* We only clean fully completed SKBs */
 		bdp_last_frag = greth->tx_bd_base + SKIP_TX(greth->tx_last, nr_frags);
 
 		GRETH_REGSAVE(greth->regs->status, GRETH_INT_TE | GRETH_INT_TX);
@@ -747,7 +752,7 @@ static int greth_rx(struct net_device *dev, int limit)
 		dma_addr = greth_read_bd(&bdp->addr);
 		bad = 0;
 
-		
+		/* Check status for errors. */
 		if (unlikely(status & GRETH_RXBD_STATUS)) {
 			if (status & GRETH_RXBD_ERR_FT) {
 				dev->stats.rx_length_errors++;
@@ -808,7 +813,7 @@ static int greth_rx(struct net_device *dev, int limit)
 
 		dma_sync_single_for_device(greth->dev, dma_addr, MAX_FRAME_SIZE, DMA_FROM_DEVICE);
 
-		spin_lock_irqsave(&greth->devlock, flags); 
+		spin_lock_irqsave(&greth->devlock, flags); /* save from XMIT */
 		greth_enable_rx(greth);
 		spin_unlock_irqrestore(&greth->devlock, flags);
 
@@ -860,7 +865,7 @@ static int greth_rx_gbit(struct net_device *dev, int limit)
 		if (status & GRETH_BD_EN)
 			break;
 
-		
+		/* Check status for errors. */
 		if (unlikely(status & GRETH_RXBD_STATUS)) {
 
 			if (status & GRETH_RXBD_ERR_FT) {
@@ -876,6 +881,8 @@ static int greth_rx_gbit(struct net_device *dev, int limit)
 			}
 		}
 
+		/* Allocate new skb to replace current, not needed if the
+		 * current skb can be reused */
 		if (!bad && (newskb=netdev_alloc_skb(dev, MAX_FRAME_SIZE + NET_IP_ALIGN))) {
 			skb_reserve(newskb, NET_IP_ALIGN);
 
@@ -885,7 +892,7 @@ static int greth_rx_gbit(struct net_device *dev, int limit)
 						      DMA_FROM_DEVICE);
 
 			if (!dma_mapping_error(greth->dev, dma_addr)) {
-				
+				/* Process the incoming frame. */
 				pkt_len = status & GRETH_BD_LEN;
 
 				dma_unmap_single(greth->dev,
@@ -914,16 +921,22 @@ static int greth_rx_gbit(struct net_device *dev, int limit)
 				if (net_ratelimit())
 					dev_warn(greth->dev, "Could not create DMA mapping, dropping packet\n");
 				dev_kfree_skb(newskb);
-				
+				/* reusing current skb, so it is a drop */
 				dev->stats.rx_dropped++;
 			}
 		} else if (bad) {
-			
+			/* Bad Frame transfer, the skb is reused */
 			dev->stats.rx_dropped++;
 		} else {
+			/* Failed Allocating a new skb. This is rather stupid
+			 * but the current "filled" skb is reused, as if
+			 * transfer failure. One could argue that RX descriptor
+			 * table handling should be divided into cleaning and
+			 * filling as the TX part of the driver
+			 */
 			if (net_ratelimit())
 				dev_warn(greth->dev, "Could not allocate SKB, dropping packet\n");
-			
+			/* reusing current skb, so it is a drop */
 			dev->stats.rx_dropped++;
 		}
 
@@ -1065,7 +1078,7 @@ static void greth_set_multicast_list(struct net_device *dev)
 			return;
 		}
 
-		
+		/* Setup multicast filter */
 		greth_set_hash_filter(dev);
 		cfg |= GRETH_CTRL_MCEN;
 	}
@@ -1264,7 +1277,7 @@ static int greth_mdio_probe(struct net_device *dev)
 	struct phy_device *phy = NULL;
 	int ret;
 
-	
+	/* Find the first PHY */
 	phy = phy_find_first(greth->mdio);
 
 	if (!phy) {
@@ -1343,7 +1356,7 @@ static int greth_mdio_init(struct greth_private *greth)
 
 	phy_start(greth->phy);
 
-	
+	/* If Ethernet debug link is used make autoneg happen right away */
 	if (greth->edcl && greth_edcl == 1) {
 		phy_start_aneg(greth->phy);
 		timeout = jiffies + 6*HZ;
@@ -1362,6 +1375,7 @@ error:
 	return ret;
 }
 
+/* Initialize the GRETH MAC */
 static int __devinit greth_of_probe(struct platform_device *ofdev)
 {
 	struct net_device *dev;
@@ -1409,10 +1423,10 @@ static int __devinit greth_of_probe(struct platform_device *ofdev)
 	if (netif_msg_probe(greth))
 		dev_dbg(greth->dev, "resetting controller.\n");
 
-	
+	/* Reset the controller. */
 	GRETH_REGSAVE(regs->control, GRETH_RESET);
 
-	
+	/* Wait for MAC to reset itself */
 	timeout = jiffies + HZ/100;
 	while (GRETH_REGLOAD(regs->control) & GRETH_RESET) {
 		if (time_after(jiffies, timeout)) {
@@ -1423,22 +1437,24 @@ static int __devinit greth_of_probe(struct platform_device *ofdev)
 		}
 	}
 
-	
+	/* Get default PHY address  */
 	greth->phyaddr = (GRETH_REGLOAD(regs->mdio) >> 11) & 0x1F;
 
-	
+	/* Check if we have GBIT capable MAC */
 	tmp = GRETH_REGLOAD(regs->control);
 	greth->gbit_mac = (tmp >> 27) & 1;
 
-	
+	/* Check for multicast capability */
 	greth->multicast = (tmp >> 25) & 1;
 
 	greth->edcl = (tmp >> 31) & 1;
 
+	/* If we have EDCL we disable the EDCL speed-duplex FSM so
+	 * it doesn't interfere with the software */
 	if (greth->edcl != 0)
 		GRETH_REGORIN(regs->control, GRETH_CTRL_DISDUPLEX);
 
-	
+	/* Check if MAC can handle MDIO interrupts */
 	greth->mdio_int_en = (tmp >> 26) & 1;
 
 	err = greth_mdio_init(greth);
@@ -1448,7 +1464,7 @@ static int __devinit greth_of_probe(struct platform_device *ofdev)
 		goto error2;
 	}
 
-	
+	/* Allocate TX descriptor ring in coherent memory */
 	greth->tx_bd_base = (struct greth_bd *) dma_alloc_coherent(greth->dev,
 								   1024,
 								   &greth->tx_bd_base_phys,
@@ -1463,7 +1479,7 @@ static int __devinit greth_of_probe(struct platform_device *ofdev)
 
 	memset(greth->tx_bd_base, 0, 1024);
 
-	
+	/* Allocate RX descriptor ring in coherent memory */
 	greth->rx_bd_base = (struct greth_bd *) dma_alloc_coherent(greth->dev,
 								   1024,
 								   &greth->rx_bd_base_phys,
@@ -1478,7 +1494,7 @@ static int __devinit greth_of_probe(struct platform_device *ofdev)
 
 	memset(greth->rx_bd_base, 0, 1024);
 
-	
+	/* Get MAC address from: module param, OF property or ID prom */
 	for (i = 0; i < 6; i++) {
 		if (macaddr[i] != 0)
 			break;
@@ -1515,7 +1531,7 @@ static int __devinit greth_of_probe(struct platform_device *ofdev)
 	GRETH_REGSAVE(regs->esa_lsb, dev->dev_addr[2] << 24 | dev->dev_addr[3] << 16 |
 		      dev->dev_addr[4] << 8 | dev->dev_addr[5]);
 
-	
+	/* Clear all pending interrupts except PHY irq */
 	GRETH_REGSAVE(regs->status, 0xFF);
 
 	if (greth->gbit_mac) {
@@ -1542,7 +1558,7 @@ static int __devinit greth_of_probe(struct platform_device *ofdev)
 		goto error5;
 	}
 
-	
+	/* setup NAPI */
 	netif_napi_add(dev, &greth->napi, greth_poll, 64);
 
 	return 0;
@@ -1565,7 +1581,7 @@ static int __devexit greth_of_remove(struct platform_device *of_dev)
 	struct net_device *ndev = dev_get_drvdata(&of_dev->dev);
 	struct greth_private *greth = netdev_priv(ndev);
 
-	
+	/* Free descriptor areas */
 	dma_free_coherent(&of_dev->dev, 1024, greth->rx_bd_base, greth->rx_bd_base_phys);
 
 	dma_free_coherent(&of_dev->dev, 1024, greth->tx_bd_base, greth->tx_bd_base_phys);

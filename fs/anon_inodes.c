@@ -26,6 +26,9 @@ static struct vfsmount *anon_inode_mnt __read_mostly;
 static struct inode *anon_inode_inode;
 static const struct file_operations anon_inode_fops;
 
+/*
+ * anon_inodefs_dname() is called from d_path().
+ */
 static char *anon_inodefs_dname(struct dentry *dentry, char *buffer, int buflen)
 {
 	return dynamic_dname(dentry, buffer, buflen, "anon_inode:%s",
@@ -36,6 +39,10 @@ static const struct dentry_operations anon_inodefs_dentry_operations = {
 	.d_dname	= anon_inodefs_dname,
 };
 
+/*
+ * nop .set_page_dirty method so that people can use .page_mkwrite on
+ * anon inodes.
+ */
 static int anon_set_page_dirty(struct page *page)
 {
 	return 0;
@@ -45,6 +52,11 @@ static const struct address_space_operations anon_aops = {
 	.set_page_dirty = anon_set_page_dirty,
 };
 
+/*
+ * A single inode exists for all anon_inode files. Contrary to pipes,
+ * anon_inode inodes have no associated per-instance data, so we need
+ * only allocate one of them.
+ */
 static struct inode *anon_inode_mkinode(struct super_block *s)
 {
 	struct inode *inode = new_inode_pseudo(s);
@@ -57,6 +69,12 @@ static struct inode *anon_inode_mkinode(struct super_block *s)
 
 	inode->i_mapping->a_ops = &anon_aops;
 
+	/*
+	 * Mark the inode dirty from the very beginning,
+	 * that way it will never be moved to the dirty
+	 * list because mark_inode_dirty() will think
+	 * that it already _is_ on the dirty list.
+	 */
 	inode->i_state = I_DIRTY;
 	inode->i_mode = S_IRUSR | S_IWUSR;
 	inode->i_uid = current_fsuid();
@@ -90,6 +108,22 @@ static struct file_system_type anon_inode_fs_type = {
 	.kill_sb	= kill_anon_super,
 };
 
+/**
+ * anon_inode_getfile - creates a new file instance by hooking it up to an
+ *                      anonymous inode, and a dentry that describe the "class"
+ *                      of the file
+ *
+ * @name:    [in]    name of the "class" of the new file
+ * @fops:    [in]    file operations for the new file
+ * @priv:    [in]    private data for the new file (will be file's private_data)
+ * @flags:   [in]    flags
+ *
+ * Creates a new file by hooking it on a single inode. This is useful for files
+ * that do not need to have a full-fledged inode in order to operate correctly.
+ * All the files created with anon_inode_getfile() will share a single inode,
+ * hence saving memory and avoiding code duplication for the file/inode/dentry
+ * setup.  Returns the newly created file* or an error pointer.
+ */
 struct file *anon_inode_getfile(const char *name,
 				const struct file_operations *fops,
 				void *priv, int flags)
@@ -105,6 +139,10 @@ struct file *anon_inode_getfile(const char *name,
 	if (fops->owner && !try_module_get(fops->owner))
 		return ERR_PTR(-ENOENT);
 
+	/*
+	 * Link the inode to a directory entry by creating a unique name
+	 * using the inode sequence number.
+	 */
 	error = -ENOMEM;
 	this.name = name;
 	this.len = strlen(name);
@@ -114,6 +152,10 @@ struct file *anon_inode_getfile(const char *name,
 		goto err_module;
 
 	path.mnt = mntget(anon_inode_mnt);
+	/*
+	 * We know the anon_inode inode count is always greater than zero,
+	 * so ihold() is safe.
+	 */
 	ihold(anon_inode_inode);
 
 	d_instantiate(path.dentry, anon_inode_inode);
@@ -139,6 +181,22 @@ err_module:
 }
 EXPORT_SYMBOL_GPL(anon_inode_getfile);
 
+/**
+ * anon_inode_getfd - creates a new file instance by hooking it up to an
+ *                    anonymous inode, and a dentry that describe the "class"
+ *                    of the file
+ *
+ * @name:    [in]    name of the "class" of the new file
+ * @fops:    [in]    file operations for the new file
+ * @priv:    [in]    private data for the new file (will be file's private_data)
+ * @flags:   [in]    flags
+ *
+ * Creates a new file by hooking it on a single inode. This is useful for files
+ * that do not need to have a full-fledged inode in order to operate correctly.
+ * All the files created with anon_inode_getfd() will share a single inode,
+ * hence saving memory and avoiding code duplication for the file/inode/dentry
+ * setup.  Returns new descriptor or an error code.
+ */
 int anon_inode_getfd(const char *name, const struct file_operations *fops,
 		     void *priv, int flags)
 {

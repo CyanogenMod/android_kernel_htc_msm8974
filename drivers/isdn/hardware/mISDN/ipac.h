@@ -27,9 +27,9 @@
 struct isac_hw {
 	struct dchannel		dch;
 	u32			type;
-	u32			off;		
+	u32			off;		/* offset to isac regs */
 	char			*name;
-	spinlock_t		*hwlock;	
+	spinlock_t		*hwlock;	/* lock HW access */
 	read_reg_func		*read_reg;
 	write_reg_func		*write_reg;
 	fifo_func		*read_fifo;
@@ -60,7 +60,7 @@ struct hscx_hw {
 	struct bchannel		bch;
 	struct ipac_hw		*ip;
 	u8			fifo_size;
-	u8			off;	
+	u8			off;	/* offset to ICA or ICB */
 	u8			slot;
 	char			log[64];
 };
@@ -70,7 +70,7 @@ struct ipac_hw {
 	struct hscx_hw		hscx[2];
 	char			*name;
 	void			*hw;
-	spinlock_t		*hwlock;	
+	spinlock_t		*hwlock;	/* lock HW access */
 	struct module		*owner;
 	u32			type;
 	read_reg_func		*read_reg;
@@ -91,11 +91,14 @@ struct ipac_hw {
 
 #define ISAC_USE_ARCOFI		0x1000
 
+/* Monitor functions */
 #define MONITOR_RX_0		0x1000
 #define MONITOR_RX_1		0x1001
 #define MONITOR_TX_0		0x2000
 #define MONITOR_TX_1		0x2001
 
+/* All registers original Siemens Spec  */
+/* IPAC/ISAC registers */
 #define ISAC_MASK		0x20
 #define ISAC_ISTA		0x20
 #define ISAC_STAR		0x21
@@ -127,57 +130,62 @@ struct ipac_hw {
 
 #define IPAC_D_TIN2		0x01
 
-#define IPAC_ISTAB		0x20	
-#define IPAC_MASKB		0x20	
-#define IPAC_STARB		0x21	
-#define IPAC_CMDRB		0x21	
-#define IPAC_MODEB		0x22	
-#define IPAC_EXIRB		0x24	
-#define IPAC_RBCLB		0x25	
-#define IPAC_RAH1		0x26	
-#define IPAC_RAH2		0x27	
-#define IPAC_RSTAB		0x27	
-#define IPAC_RAL1		0x28	
-#define IPAC_RAL2		0x29	
-#define IPAC_RHCRB		0x29	
-#define IPAC_XBCL		0x2A	
-#define IPAC_CCR2		0x2C	
-#define IPAC_RBCHB		0x2D	
-#define IPAC_XBCH		0x2D	
-#define HSCX_VSTR		0x2E	
-#define IPAC_RLCR		0x2E	
-#define IPAC_CCR1		0x2F	
-#define IPAC_TSAX		0x30	
-#define IPAC_TSAR		0x31	
-#define IPAC_XCCR		0x32	
-#define IPAC_RCCR		0x33	
+/* IPAC/HSCX */
+#define IPAC_ISTAB		0x20	/* RD	*/
+#define IPAC_MASKB		0x20	/* WR	*/
+#define IPAC_STARB		0x21	/* RD	*/
+#define IPAC_CMDRB		0x21	/* WR	*/
+#define IPAC_MODEB		0x22	/* R/W	*/
+#define IPAC_EXIRB		0x24	/* RD	*/
+#define IPAC_RBCLB		0x25	/* RD	*/
+#define IPAC_RAH1		0x26	/* WR	*/
+#define IPAC_RAH2		0x27	/* WR	*/
+#define IPAC_RSTAB		0x27	/* RD	*/
+#define IPAC_RAL1		0x28	/* R/W	*/
+#define IPAC_RAL2		0x29	/* WR	*/
+#define IPAC_RHCRB		0x29	/* RD	*/
+#define IPAC_XBCL		0x2A	/* WR	*/
+#define IPAC_CCR2		0x2C	/* R/W	*/
+#define IPAC_RBCHB		0x2D	/* RD	*/
+#define IPAC_XBCH		0x2D	/* WR	*/
+#define HSCX_VSTR		0x2E	/* RD	*/
+#define IPAC_RLCR		0x2E	/* WR	*/
+#define IPAC_CCR1		0x2F	/* R/W	*/
+#define IPAC_TSAX		0x30	/* WR	*/
+#define IPAC_TSAR		0x31	/* WR	*/
+#define IPAC_XCCR		0x32	/* WR	*/
+#define IPAC_RCCR		0x33	/* WR	*/
 
+/* IPAC_ISTAB/IPAC_MASKB bits */
 #define IPAC_B_XPR		0x10
 #define IPAC_B_RPF		0x40
 #define IPAC_B_RME		0x80
 #define IPAC_B_ON		0x2F
 
+/* IPAC_EXIRB bits */
 #define IPAC_B_RFS		0x04
 #define IPAC_B_RFO		0x10
 #define IPAC_B_XDU		0x40
 #define IPAC_B_XMR		0x80
 
-#define IPAC_CONF		0xC0	
-#define IPAC_ISTA		0xC1	
-#define IPAC_MASK		0xC1	
-#define IPAC_ID			0xC2	
-#define IPAC_ACFG		0xC3	
-#define IPAC_AOE		0xC4	
-#define IPAC_ARX		0xC5	
-#define IPAC_ATX		0xC5	
-#define IPAC_PITA1		0xC6	
-#define IPAC_PITA2		0xC7	
-#define IPAC_POTA1		0xC8	
-#define IPAC_POTA2		0xC9	
-#define IPAC_PCFG		0xCA	
-#define IPAC_SCFG		0xCB	
-#define IPAC_TIMR2		0xCC	
+/* IPAC special registers */
+#define IPAC_CONF		0xC0	/* R/W	*/
+#define IPAC_ISTA		0xC1	/* RD	*/
+#define IPAC_MASK		0xC1	/* WR	*/
+#define IPAC_ID			0xC2	/* RD	*/
+#define IPAC_ACFG		0xC3	/* R/W	*/
+#define IPAC_AOE		0xC4	/* R/W	*/
+#define IPAC_ARX		0xC5	/* RD	*/
+#define IPAC_ATX		0xC5	/* WR	*/
+#define IPAC_PITA1		0xC6	/* R/W	*/
+#define IPAC_PITA2		0xC7	/* R/W	*/
+#define IPAC_POTA1		0xC8	/* R/W	*/
+#define IPAC_POTA2		0xC9	/* R/W	*/
+#define IPAC_PCFG		0xCA	/* R/W	*/
+#define IPAC_SCFG		0xCB	/* R/W	*/
+#define IPAC_TIMR2		0xCC	/* R/W	*/
 
+/* IPAC_ISTA/_MASK bits */
 #define IPAC__EXB		0x01
 #define IPAC__ICB		0x02
 #define IPAC__EXA		0x04
@@ -188,10 +196,12 @@ struct ipac_hw {
 #define IPAC__INT1		0x80
 #define IPAC__ON		0xC0
 
+/* HSCX ISTA/MASK bits */
 #define HSCX__EXB		0x01
 #define HSCX__EXA		0x02
 #define HSCX__ICA		0x04
 
+/* ISAC/ISACX/IPAC/IPACX L1 commands */
 #define ISAC_CMD_TIM		0x0
 #define ISAC_CMD_RS		0x1
 #define ISAC_CMD_SCZ		0x4
@@ -201,6 +211,7 @@ struct ipac_hw {
 #define ISAC_CMD_ARL		0xA
 #define ISAC_CMD_DUI		0xF
 
+/* ISAC/ISACX/IPAC/IPACX L1 indications */
 #define ISAC_IND_RS		0x1
 #define ISAC_IND_PU		0x7
 #define ISAC_IND_DR		0x0
@@ -215,97 +226,105 @@ struct ipac_hw {
 #define ISAC_IND_AI10		0xD
 #define ISAC_IND_DID		0xF
 
-#define ISACX_RFIFOD		0x00	
-#define ISACX_XFIFOD		0x00	
-#define ISACX_ISTAD		0x20	
-#define ISACX_MASKD		0x20	
-#define ISACX_STARD		0x21	
-#define ISACX_CMDRD		0x21	
-#define ISACX_MODED		0x22	
-#define ISACX_EXMD1		0x23	
-#define ISACX_TIMR1		0x24	
-#define ISACX_SAP1		0x25	
-#define ISACX_SAP2		0x26	
-#define ISACX_RBCLD		0x26	
-#define ISACX_RBCHD		0x27	
-#define ISACX_TEI1		0x27	
-#define ISACX_TEI2		0x28	
-#define ISACX_RSTAD		0x28	
-#define ISACX_TMD		0x29	
-#define ISACX_CIR0		0x2E	
-#define ISACX_CIX0		0x2E	
-#define ISACX_CIR1		0x2F	
-#define ISACX_CIX1		0x2F	
+/* the new ISACX / IPACX */
+/* D-channel registers   */
+#define ISACX_RFIFOD		0x00	/* RD	*/
+#define ISACX_XFIFOD		0x00	/* WR	*/
+#define ISACX_ISTAD		0x20	/* RD	*/
+#define ISACX_MASKD		0x20	/* WR	*/
+#define ISACX_STARD		0x21	/* RD	*/
+#define ISACX_CMDRD		0x21	/* WR	*/
+#define ISACX_MODED		0x22	/* R/W	*/
+#define ISACX_EXMD1		0x23	/* R/W	*/
+#define ISACX_TIMR1		0x24	/* R/W	*/
+#define ISACX_SAP1		0x25	/* WR	*/
+#define ISACX_SAP2		0x26	/* WR	*/
+#define ISACX_RBCLD		0x26	/* RD	*/
+#define ISACX_RBCHD		0x27	/* RD	*/
+#define ISACX_TEI1		0x27	/* WR	*/
+#define ISACX_TEI2		0x28	/* WR	*/
+#define ISACX_RSTAD		0x28	/* RD	*/
+#define ISACX_TMD		0x29	/* R/W	*/
+#define ISACX_CIR0		0x2E	/* RD	*/
+#define ISACX_CIX0		0x2E	/* WR	*/
+#define ISACX_CIR1		0x2F	/* RD	*/
+#define ISACX_CIX1		0x2F	/* WR	*/
 
-#define ISACX_TR_CONF0		0x30	
-#define ISACX_TR_CONF1		0x31	
-#define ISACX_TR_CONF2		0x32	
-#define ISACX_TR_STA		0x33	
-#define ISACX_TR_CMD		0x34	
-#define ISACX_SQRR1		0x35	
-#define ISACX_SQXR1		0x35	
-#define ISACX_SQRR2		0x36	
-#define ISACX_SQXR2		0x36	
-#define ISACX_SQRR3		0x37	
-#define ISACX_SQXR3		0x37	
-#define ISACX_ISTATR		0x38	
-#define ISACX_MASKTR		0x39	
-#define ISACX_TR_MODE		0x3A	
-#define ISACX_ACFG1		0x3C	
-#define ISACX_ACFG2		0x3D	
-#define ISACX_AOE		0x3E	
-#define ISACX_ARX		0x3F	
-#define ISACX_ATX		0x3F	
+/* Transceiver registers  */
+#define ISACX_TR_CONF0		0x30	/* R/W	*/
+#define ISACX_TR_CONF1		0x31	/* R/W	*/
+#define ISACX_TR_CONF2		0x32	/* R/W	*/
+#define ISACX_TR_STA		0x33	/* RD	*/
+#define ISACX_TR_CMD		0x34	/* R/W	*/
+#define ISACX_SQRR1		0x35	/* RD	*/
+#define ISACX_SQXR1		0x35	/* WR	*/
+#define ISACX_SQRR2		0x36	/* RD	*/
+#define ISACX_SQXR2		0x36	/* WR	*/
+#define ISACX_SQRR3		0x37	/* RD	*/
+#define ISACX_SQXR3		0x37	/* WR	*/
+#define ISACX_ISTATR		0x38	/* RD	*/
+#define ISACX_MASKTR		0x39	/* R/W	*/
+#define ISACX_TR_MODE		0x3A	/* R/W	*/
+#define ISACX_ACFG1		0x3C	/* R/W	*/
+#define ISACX_ACFG2		0x3D	/* R/W	*/
+#define ISACX_AOE		0x3E	/* R/W	*/
+#define ISACX_ARX		0x3F	/* RD	*/
+#define ISACX_ATX		0x3F	/* WR	*/
 
-#define ISACX_CDA10		0x40	
-#define ISACX_CDA11		0x41	
-#define ISACX_CDA20		0x42	
-#define ISACX_CDA21		0x43	
-#define ISACX_CDA_TSDP10	0x44	
-#define ISACX_CDA_TSDP11	0x45	
-#define ISACX_CDA_TSDP20	0x46	
-#define ISACX_CDA_TSDP21	0x47	
-#define ISACX_BCHA_TSDP_BC1	0x48	
-#define ISACX_BCHA_TSDP_BC2	0x49	
-#define ISACX_BCHB_TSDP_BC1	0x4A	
-#define ISACX_BCHB_TSDP_BC2	0x4B	
-#define ISACX_TR_TSDP_BC1	0x4C	
-#define ISACX_TR_TSDP_BC2	0x4D	
-#define ISACX_CDA1_CR		0x4E	
-#define ISACX_CDA2_CR		0x4F	
+/* IOM: Timeslot, DPS, CDA  */
+#define ISACX_CDA10		0x40	/* R/W	*/
+#define ISACX_CDA11		0x41	/* R/W	*/
+#define ISACX_CDA20		0x42	/* R/W	*/
+#define ISACX_CDA21		0x43	/* R/W	*/
+#define ISACX_CDA_TSDP10	0x44	/* R/W	*/
+#define ISACX_CDA_TSDP11	0x45	/* R/W	*/
+#define ISACX_CDA_TSDP20	0x46	/* R/W	*/
+#define ISACX_CDA_TSDP21	0x47	/* R/W	*/
+#define ISACX_BCHA_TSDP_BC1	0x48	/* R/W	*/
+#define ISACX_BCHA_TSDP_BC2	0x49	/* R/W	*/
+#define ISACX_BCHB_TSDP_BC1	0x4A	/* R/W	*/
+#define ISACX_BCHB_TSDP_BC2	0x4B	/* R/W	*/
+#define ISACX_TR_TSDP_BC1	0x4C	/* R/W	*/
+#define ISACX_TR_TSDP_BC2	0x4D	/* R/W	*/
+#define ISACX_CDA1_CR		0x4E	/* R/W	*/
+#define ISACX_CDA2_CR		0x4F	/* R/W	*/
 
-#define ISACX_TR_CR		0x50	
-#define ISACX_TRC_CR		0x50	
-#define ISACX_BCHA_CR		0x51	
-#define ISACX_BCHB_CR		0x52	
-#define ISACX_DCI_CR		0x53	
-#define ISACX_DCIC_CR		0x53	
-#define ISACX_MON_CR		0x54	
-#define ISACX_SDS1_CR		0x55	
-#define ISACX_SDS2_CR		0x56	
-#define ISACX_IOM_CR		0x57	
-#define ISACX_STI		0x58	
-#define ISACX_ASTI		0x58	
-#define ISACX_MSTI		0x59	
-#define ISACX_SDS_CONF		0x5A	
-#define ISACX_MCDA		0x5B	
-#define ISACX_MOR		0x5C	
-#define ISACX_MOX		0x5C	
-#define ISACX_MOSR		0x5D	
-#define ISACX_MOCR		0x5E	
-#define ISACX_MSTA		0x5F	
-#define ISACX_MCONF		0x5F	
+/* IOM: Contol, Sync transfer, Monitor    */
+#define ISACX_TR_CR		0x50	/* R/W	*/
+#define ISACX_TRC_CR		0x50	/* R/W	*/
+#define ISACX_BCHA_CR		0x51	/* R/W	*/
+#define ISACX_BCHB_CR		0x52	/* R/W	*/
+#define ISACX_DCI_CR		0x53	/* R/W	*/
+#define ISACX_DCIC_CR		0x53	/* R/W	*/
+#define ISACX_MON_CR		0x54	/* R/W	*/
+#define ISACX_SDS1_CR		0x55	/* R/W	*/
+#define ISACX_SDS2_CR		0x56	/* R/W	*/
+#define ISACX_IOM_CR		0x57	/* R/W	*/
+#define ISACX_STI		0x58	/* RD	*/
+#define ISACX_ASTI		0x58	/* WR	*/
+#define ISACX_MSTI		0x59	/* R/W	*/
+#define ISACX_SDS_CONF		0x5A	/* R/W	*/
+#define ISACX_MCDA		0x5B	/* RD	*/
+#define ISACX_MOR		0x5C	/* RD	*/
+#define ISACX_MOX		0x5C	/* WR	*/
+#define ISACX_MOSR		0x5D	/* RD	*/
+#define ISACX_MOCR		0x5E	/* R/W	*/
+#define ISACX_MSTA		0x5F	/* RD	*/
+#define ISACX_MCONF		0x5F	/* WR	*/
 
-#define ISACX_ISTA		0x60	
-#define ISACX_MASK		0x60	
-#define ISACX_AUXI		0x61	
-#define ISACX_AUXM		0x61	
-#define ISACX_MODE1		0x62	
-#define ISACX_MODE2		0x63	
-#define ISACX_ID		0x64	
-#define ISACX_SRES		0x64	
-#define ISACX_TIMR2		0x65	
+/* Interrupt and general registers */
+#define ISACX_ISTA		0x60	/* RD	*/
+#define ISACX_MASK		0x60	/* WR	*/
+#define ISACX_AUXI		0x61	/* RD	*/
+#define ISACX_AUXM		0x61	/* WR	*/
+#define ISACX_MODE1		0x62	/* R/W	*/
+#define ISACX_MODE2		0x63	/* R/W	*/
+#define ISACX_ID		0x64	/* RD	*/
+#define ISACX_SRES		0x64	/* WR	*/
+#define ISACX_TIMR2		0x65	/* R/W	*/
 
+/* Register Bits */
+/* ISACX/IPACX _ISTAD (R) and _MASKD (W) */
 #define ISACX_D_XDU		0x04
 #define ISACX_D_XMR		0x08
 #define ISACX_D_XPR		0x10
@@ -313,6 +332,7 @@ struct ipac_hw {
 #define ISACX_D_RPF		0x40
 #define ISACX_D_RME		0x80
 
+/* ISACX/IPACX _ISTA (R) and _MASK (W) */
 #define ISACX__ICD		0x01
 #define ISACX__MOS		0x02
 #define ISACX__TRAN		0x04
@@ -323,6 +343,7 @@ struct ipac_hw {
 #define IPACX__ICA		0x80
 #define IPACX__ON		0x2C
 
+/* ISACX/IPACX _CMDRD (W) */
 #define ISACX_CMDRD_XRES	0x01
 #define ISACX_CMDRD_XME		0x02
 #define ISACX_CMDRD_XTF		0x08
@@ -330,6 +351,7 @@ struct ipac_hw {
 #define ISACX_CMDRD_RRES	0x40
 #define ISACX_CMDRD_RMC		0x80
 
+/* ISACX/IPACX _RSTAD (R) */
 #define ISACX_RSTAD_TA		0x01
 #define ISACX_RSTAD_CR		0x02
 #define ISACX_RSTAD_SA0		0x04
@@ -339,32 +361,36 @@ struct ipac_hw {
 #define ISACX_RSTAD_RDO		0x40
 #define ISACX_RSTAD_VFR		0x80
 
+/* ISACX/IPACX _CIR0 (R) */
 #define ISACX_CIR0_BAS		0x01
 #define ISACX_CIR0_SG		0x08
 #define ISACX_CIR0_CIC1		0x08
 #define ISACX_CIR0_CIC0		0x08
 
+/* B-channel registers */
 #define IPACX_OFF_ICA		0x70
 #define IPACX_OFF_ICB		0x80
 
+/* ICA: IPACX_OFF_ICA + Reg ICB: IPACX_OFF_ICB + Reg */
 
-#define IPACX_ISTAB		0x00    
-#define IPACX_MASKB		0x00	
-#define IPACX_STARB		0x01	
-#define IPACX_CMDRB		0x01	
-#define IPACX_MODEB		0x02	
-#define IPACX_EXMB		0x03	
-#define IPACX_RAH1		0x05	
-#define IPACX_RAH2		0x06	
-#define IPACX_RBCLB		0x06	
-#define IPACX_RBCHB		0x07	
-#define IPACX_RAL1		0x07	
-#define IPACX_RAL2		0x08	
-#define IPACX_RSTAB		0x08	
-#define IPACX_TMB		0x09	
-#define IPACX_RFIFOB		0x0A	
-#define IPACX_XFIFOB		0x0A	
+#define IPACX_ISTAB		0x00    /* RD	*/
+#define IPACX_MASKB		0x00	/* WR	*/
+#define IPACX_STARB		0x01	/* RD	*/
+#define IPACX_CMDRB		0x01	/* WR	*/
+#define IPACX_MODEB		0x02	/* R/W	*/
+#define IPACX_EXMB		0x03	/* R/W	*/
+#define IPACX_RAH1		0x05	/* WR	*/
+#define IPACX_RAH2		0x06	/* WR	*/
+#define IPACX_RBCLB		0x06	/* RD	*/
+#define IPACX_RBCHB		0x07	/* RD	*/
+#define IPACX_RAL1		0x07	/* WR	*/
+#define IPACX_RAL2		0x08	/* WR	*/
+#define IPACX_RSTAB		0x08	/* RD	*/
+#define IPACX_TMB		0x09	/* R/W	*/
+#define IPACX_RFIFOB		0x0A	/* RD	*/
+#define IPACX_XFIFOB		0x0A	/* WR	*/
 
+/* IPACX_ISTAB / IPACX_MASKB bits */
 #define IPACX_B_XDU		0x04
 #define IPACX_B_XPR		0x10
 #define IPACX_B_RFO		0x20

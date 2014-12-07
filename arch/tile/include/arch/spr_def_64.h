@@ -168,6 +168,6 @@
 #define SPR_UDN_DEMUX_COUNT_3 0x0b08
 #define SPR_UDN_DIRECTION_PROTECT 0x1505
 
-#endif 
+#endif /* !defined(__ARCH_SPR_DEF_H__) */
 
-#endif 
+#endif /* !defined(__DOXYGEN__) */

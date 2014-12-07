@@ -26,14 +26,15 @@
 
 #include "devices.h"
 
-#define VT8500_IC_DCTR		0x40		
+#define VT8500_IC_DCTR		0x40		/* Destination control
+						register, 64*u8 */
 #define VT8500_INT_ENABLE	(1 << 3)
 #define VT8500_TRIGGER_HIGH	(0 << 4)
 #define VT8500_TRIGGER_RISING	(1 << 4)
 #define VT8500_TRIGGER_FALLING	(2 << 4)
 #define VT8500_EDGE		( VT8500_TRIGGER_RISING \
 				| VT8500_TRIGGER_FALLING)
-#define VT8500_IC_STATUS	0x80		
+#define VT8500_IC_STATUS	0x80		/* Interrupt status, 2*u32 */
 
 static void __iomem *ic_regbase;
 static void __iomem *sic_regbase;
@@ -130,12 +131,12 @@ void __init vt8500_init_irq(void)
 	ic_regbase = ioremap(wmt_ic_base, SZ_64K);
 
 	if (ic_regbase) {
-		
+		/* Enable rotating priority for IRQ */
 		writel((1 << 6), ic_regbase + 0x20);
 		writel(0, ic_regbase + 0x24);
 
 		for (i = 0; i < wmt_nr_irqs; i++) {
-			
+			/* Disable all interrupts and route them to IRQ */
 			writeb(0x00, ic_regbase + VT8500_IC_DCTR + i);
 
 			irq_set_chip_and_handler(i, &vt8500_irq_chip,
@@ -155,14 +156,14 @@ void __init wm8505_init_irq(void)
 	sic_regbase = ioremap(wmt_sic_base, SZ_64K);
 
 	if (ic_regbase && sic_regbase) {
-		
+		/* Enable rotating priority for IRQ */
 		writel((1 << 6), ic_regbase + 0x20);
 		writel(0, ic_regbase + 0x24);
 		writel((1 << 6), sic_regbase + 0x20);
 		writel(0, sic_regbase + 0x24);
 
 		for (i = 0; i < wmt_nr_irqs; i++) {
-			
+			/* Disable all interrupts and route them to IRQ */
 			if (i < 64)
 				writeb(0x00, ic_regbase + VT8500_IC_DCTR + i);
 			else

@@ -21,14 +21,14 @@
  *
  */
 
-#define SND_I2C_DEVICE_ADDRTEN	(1<<0)	
+#define SND_I2C_DEVICE_ADDRTEN	(1<<0)	/* 10-bit I2C address */
 
 struct snd_i2c_device {
 	struct list_head list;
-	struct snd_i2c_bus *bus;	
-	char name[32];		
-	unsigned short flags;	
-	unsigned short addr;	
+	struct snd_i2c_bus *bus;	/* I2C bus */
+	char name[32];		/* some useful device name */
+	unsigned short flags;	/* device flags */
+	unsigned short addr;	/* device address (might be 10-bit) */
 	unsigned long private_value;
 	void *private_data;
 	void (*private_free)(struct snd_i2c_device *device);
@@ -37,9 +37,9 @@ struct snd_i2c_device {
 #define snd_i2c_device(n) list_entry(n, struct snd_i2c_device, list)
 
 struct snd_i2c_bit_ops {
-	void (*start)(struct snd_i2c_bus *bus);	
-	void (*stop)(struct snd_i2c_bus *bus);	
-	void (*direction)(struct snd_i2c_bus *bus, int clock, int data);  
+	void (*start)(struct snd_i2c_bus *bus);	/* transfer start */
+	void (*stop)(struct snd_i2c_bus *bus);	/* transfer stop */
+	void (*direction)(struct snd_i2c_bus *bus, int clock, int data);  /* set line direction (0 = write, 1 = read) */
 	void (*setlines)(struct snd_i2c_bus *bus, int clock, int data);
 	int (*getclock)(struct snd_i2c_bus *bus);
 	int (*getdata)(struct snd_i2c_bus *bus, int ack);
@@ -52,21 +52,21 @@ struct snd_i2c_ops {
 };
 
 struct snd_i2c_bus {
-	struct snd_card *card;	
-	char name[32];		
+	struct snd_card *card;	/* card which I2C belongs to */
+	char name[32];		/* some useful label */
 
 	struct mutex lock_mutex;
 
-	struct snd_i2c_bus *master;	
-	struct list_head buses;	
+	struct snd_i2c_bus *master;	/* master bus when SCK/SCL is shared */
+	struct list_head buses;	/* master: slave buses sharing SCK/SCL, slave: link list */
 
-	struct list_head devices; 
+	struct list_head devices; /* attached devices to this bus */
 
 	union {
 		struct snd_i2c_bit_ops *bit;
 		void *ops;
-	} hw_ops;		
-	struct snd_i2c_ops *ops;	
+	} hw_ops;		/* lowlevel operations */
+	struct snd_i2c_ops *ops;	/* midlevel operations */
 
 	unsigned long private_value;
 	void *private_data;
@@ -101,4 +101,4 @@ int snd_i2c_sendbytes(struct snd_i2c_device *device, unsigned char *bytes, int c
 int snd_i2c_readbytes(struct snd_i2c_device *device, unsigned char *bytes, int count);
 int snd_i2c_probeaddr(struct snd_i2c_bus *bus, unsigned short addr);
 
-#endif 
+#endif /* __SOUND_I2C_H */

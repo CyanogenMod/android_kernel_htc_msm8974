@@ -66,6 +66,13 @@ xfs_fill_statvfs_from_dquot(
 }
 
 
+/*
+ * Directory tree accounting is implemented using project quotas, where
+ * the project identifier is inherited from parent directories.
+ * A statvfs (df, etc.) of a directory that is using project quota should
+ * return a statvfs of the project, not the entire filesystem.
+ * This makes such trees appear as if they are filesystems in themselves.
+ */
 void
 xfs_qm_statvfs(
 	xfs_inode_t		*ip,
@@ -98,6 +105,12 @@ xfs_qm_newmount(
 		gquotaondisk = mp->m_sb.sb_qflags & XFS_GQUOTA_ACCT;
 	}
 
+	/*
+	 * If the device itself is read-only, we can't allow
+	 * the user to change the state of quota on the mount -
+	 * this would generate a transaction on the ro device,
+	 * which would lead to an I/O error and shutdown
+	 */
 
 	if (((uquotaondisk && !XFS_IS_UQUOTA_ON(mp)) ||
 	    (!uquotaondisk &&  XFS_IS_UQUOTA_ON(mp)) ||
@@ -115,9 +128,26 @@ xfs_qm_newmount(
 	}
 
 	if (XFS_IS_QUOTA_ON(mp) || quotaondisk) {
+		/*
+		 * Call mount_quotas at this point only if we won't have to do
+		 * a quotacheck.
+		 */
 		if (quotaondisk && !XFS_QM_NEED_QUOTACHECK(mp)) {
+			/*
+			 * If an error occurred, qm_mount_quotas code
+			 * has already disabled quotas. So, just finish
+			 * mounting, and get on with the boring life
+			 * without disk quotas.
+			 */
 			xfs_qm_mount_quotas(mp);
 		} else {
+			/*
+			 * Clear the quota flags, but remember them. This
+			 * is so that the quota code doesn't get invoked
+			 * before we're ready. This can happen when an
+			 * inode goes inactive and wants to free blocks,
+			 * or via xfs_log_mount_finish.
+			 */
 			*needquotamount = B_TRUE;
 			*quotaflags = mp->m_qflags;
 			mp->m_qflags = 0;

@@ -19,11 +19,17 @@
 
 #define PT_REG_SIZE	  (sizeof(struct pt_regs))
 
+/*
+ * Called by kernel/ptrace.c when detaching.
+ */
 void ptrace_disable(struct task_struct *child)
 {
-	
+	/* nothing to do */
 }
 
+/*
+ * Get a register number from live pt_regs for the specified task.
+ */
 static inline long get_reg(struct task_struct *task, int regno)
 {
 	long *addr = (long *)task_pt_regs(task);
@@ -34,6 +40,9 @@ static inline long get_reg(struct task_struct *task, int regno)
 	return addr[regno];
 }
 
+/*
+ * Write contents of register REGNO in task TASK.
+ */
 static inline int put_reg(struct task_struct *task,
 			  int regno,
 			  unsigned long data)
@@ -46,6 +55,7 @@ static inline int put_reg(struct task_struct *task,
 	return 0;
 }
 
+/* regset get/set implementations */
 
 static int gpr_get(struct task_struct *target,
 		   const struct user_regset *regset,
@@ -67,7 +77,7 @@ static int gpr_set(struct task_struct *target,
 	int ret;
 	struct pt_regs *regs = task_pt_regs(target);
 
-	
+	/* Don't copyin TSR or CSR */
 	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
 				 &regs,
 				 0, PT_TSR * sizeof(long));
@@ -126,12 +136,18 @@ const struct user_regset_view *task_user_regset_view(struct task_struct *task)
 	return &user_c6x_native_view;
 }
 
+/*
+ * Perform ptrace request
+ */
 long arch_ptrace(struct task_struct *child, long request,
 		 unsigned long addr, unsigned long data)
 {
 	int ret = 0;
 
 	switch (request) {
+		/*
+		 * write the word at location addr.
+		 */
 	case PTRACE_POKETEXT:
 		ret = generic_ptrace_pokedata(child, addr, data);
 		if (ret == 0 && request == PTRACE_POKETEXT)
@@ -145,14 +161,26 @@ long arch_ptrace(struct task_struct *child, long request,
 	return ret;
 }
 
+/*
+ * handle tracing of system call entry
+ * - return the revised system call number or ULONG_MAX to cause ENOSYS
+ */
 asmlinkage unsigned long syscall_trace_entry(struct pt_regs *regs)
 {
 	if (tracehook_report_syscall_entry(regs))
+		/* tracing decided this syscall should not happen, so
+		 * We'll return a bogus call number to get an ENOSYS
+		 * error, but leave the original number in
+		 * regs->orig_a4
+		 */
 		return ULONG_MAX;
 
 	return regs->b0;
 }
 
+/*
+ * handle tracing of system call exit
+ */
 asmlinkage void syscall_trace_exit(struct pt_regs *regs)
 {
 	tracehook_report_syscall_exit(regs, 0);

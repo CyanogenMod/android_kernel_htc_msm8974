@@ -22,30 +22,32 @@
 
 #include "ams.h"
 
-#define AMS_COMMAND	0x00	
-#define AMS_STATUS	0x01	
-#define AMS_CTRL1	0x02	
-#define AMS_CTRL2	0x03	
-#define AMS_CTRL3	0x04	
-#define AMS_DATA1	0x05	
-#define AMS_DATA2	0x06	
-#define AMS_DATA3	0x07	
-#define AMS_DATA4	0x08	
-#define AMS_DATAX	0x20	
-#define AMS_DATAY	0x21	
-#define AMS_DATAZ	0x22	
-#define AMS_FREEFALL	0x24	
-#define AMS_SHOCK	0x25	
-#define AMS_SENSLOW	0x26	
-#define AMS_SENSHIGH	0x27	
-#define AMS_CTRLX	0x28	
-#define AMS_CTRLY	0x29	
-#define AMS_CTRLZ	0x2A	
-#define AMS_UNKNOWN1	0x2B	
-#define AMS_UNKNOWN2	0x2C	
-#define AMS_UNKNOWN3	0x2D	
-#define AMS_VENDOR	0x2E	
+/* AMS registers */
+#define AMS_COMMAND	0x00	/* command register */
+#define AMS_STATUS	0x01	/* status register */
+#define AMS_CTRL1	0x02	/* read control 1 (number of values) */
+#define AMS_CTRL2	0x03	/* read control 2 (offset?) */
+#define AMS_CTRL3	0x04	/* read control 3 (size of each value?) */
+#define AMS_DATA1	0x05	/* read data 1 */
+#define AMS_DATA2	0x06	/* read data 2 */
+#define AMS_DATA3	0x07	/* read data 3 */
+#define AMS_DATA4	0x08	/* read data 4 */
+#define AMS_DATAX	0x20	/* data X */
+#define AMS_DATAY	0x21	/* data Y */
+#define AMS_DATAZ	0x22	/* data Z */
+#define AMS_FREEFALL	0x24	/* freefall int control */
+#define AMS_SHOCK	0x25	/* shock int control */
+#define AMS_SENSLOW	0x26	/* sensitivity low limit */
+#define AMS_SENSHIGH	0x27	/* sensitivity high limit */
+#define AMS_CTRLX	0x28	/* control X */
+#define AMS_CTRLY	0x29	/* control Y */
+#define AMS_CTRLZ	0x2A	/* control Z */
+#define AMS_UNKNOWN1	0x2B	/* unknown 1 */
+#define AMS_UNKNOWN2	0x2C	/* unknown 2 */
+#define AMS_UNKNOWN3	0x2D	/* unknown 3 */
+#define AMS_VENDOR	0x2E	/* vendor */
 
+/* AMS commands - use with the AMS_COMMAND register */
 enum ams_i2c_cmd {
 	AMS_CMD_NOOP = 0,
 	AMS_CMD_VERSION,
@@ -164,7 +166,7 @@ static int ams_i2c_probe(struct i2c_client *client,
 	int vmaj, vmin;
 	int result;
 
-	
+	/* There can be only one */
 	if (unlikely(ams_info.has_device))
 		return -ENODEV;
 
@@ -180,7 +182,7 @@ static int ams_i2c_probe(struct i2c_client *client,
 		return -ENODEV;
 	}
 
-	
+	/* get version/vendor information */
 	ams_i2c_write(AMS_CTRL1, 0x02);
 	ams_i2c_write(AMS_CTRL2, 0x85);
 	ams_i2c_write(AMS_CTRL3, 0x01);
@@ -205,14 +207,14 @@ static int ams_i2c_probe(struct i2c_client *client,
 		return -ENODEV;
 	}
 
-	
+	/* Disable interrupts */
 	ams_i2c_set_irq(AMS_IRQ_ALL, 0);
 
 	result = ams_sensor_attach();
 	if (result < 0)
 		return result;
 
-	
+	/* Set default values */
 	ams_i2c_write(AMS_SENSLOW, 0x15);
 	ams_i2c_write(AMS_SENSHIGH, 0x60);
 	ams_i2c_write(AMS_CTRLX, 0x08);
@@ -220,12 +222,12 @@ static int ams_i2c_probe(struct i2c_client *client,
 	ams_i2c_write(AMS_CTRLZ, 0x4F);
 	ams_i2c_write(AMS_UNKNOWN1, 0x14);
 
-	
+	/* Clear interrupts */
 	ams_i2c_clear_irq(AMS_IRQ_ALL);
 
 	ams_info.has_device = 1;
 
-	
+	/* Enable interrupts */
 	ams_i2c_set_irq(AMS_IRQ_ALL, 1);
 
 	printk(KERN_INFO "ams: Found I2C based motion sensor\n");
@@ -238,10 +240,10 @@ static int ams_i2c_remove(struct i2c_client *client)
 	if (ams_info.has_device) {
 		ams_sensor_detach();
 
-		
+		/* Disable interrupts */
 		ams_i2c_set_irq(AMS_IRQ_ALL, 0);
 
-		
+		/* Clear interrupts */
 		ams_i2c_clear_irq(AMS_IRQ_ALL);
 
 		printk(KERN_INFO "ams: Unloading\n");
@@ -261,7 +263,7 @@ int __init ams_i2c_init(struct device_node *np)
 {
 	int result;
 
-	
+	/* Set implementation stuff */
 	ams_info.of_node = np;
 	ams_info.exit = ams_i2c_exit;
 	ams_info.get_vendor = ams_i2c_get_vendor;

@@ -32,6 +32,16 @@ struct pcf50633_bl {
 	unsigned int brightness_limit;
 };
 
+/*
+ * pcf50633_bl_set_brightness_limit
+ *
+ * Update the brightness limit for the pc50633 backlight. The actual brightness
+ * will not go above the limit. This is useful to limit power drain for example
+ * on low battery.
+ *
+ * @dev: Pointer to a pcf50633 device
+ * @limit: The brightness limit. Valid values are 0-63
+ */
 int pcf50633_bl_set_brightness_limit(struct pcf50633 *pcf, unsigned int limit)
 {
 	struct pcf50633_bl *pcf_bl = platform_get_drvdata(pcf->bl_pdev);
@@ -125,6 +135,8 @@ static int __devinit pcf50633_bl_probe(struct platform_device *pdev)
 
 	pcf50633_reg_write(pcf_bl->pcf, PCF50633_REG_LEDDIM, pdata->ramp_time);
 
+	/* Should be different from bl_props.brightness, so we do not exit
+	 * update_status early the first time it's called */
 	pcf_bl->brightness = pcf_bl->bl->props.brightness + 1;
 
 	backlight_update_status(pcf_bl->bl);

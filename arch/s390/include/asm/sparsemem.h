@@ -13,6 +13,6 @@
 #define MAX_PHYSADDR_BITS	31
 #define MAX_PHYSMEM_BITS	31
 
-#endif 
+#endif /* CONFIG_64BIT */
 
-#endif 
+#endif /* _ASM_S390_SPARSEMEM_H */

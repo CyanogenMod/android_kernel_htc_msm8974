@@ -71,6 +71,7 @@ static unsigned int ath5k_debug;
 module_param_named(debug, ath5k_debug, uint, 0);
 
 
+/* debugfs: registers */
 
 struct reg {
 	const char *name;
@@ -79,6 +80,7 @@ struct reg {
 
 #define REG_STRUCT_INIT(r) { #r, r }
 
+/* just a few random registers, might want to add more */
 static const struct reg regs[] = {
 	REG_STRUCT_INIT(AR5K_CR),
 	REG_STRUCT_INIT(AR5K_RXDP),
@@ -137,7 +139,7 @@ static void *reg_start(struct seq_file *seq, loff_t *pos)
 
 static void reg_stop(struct seq_file *seq, void *p)
 {
-	
+	/* nothing to do */
 }
 
 static void *reg_next(struct seq_file *seq, void *p, loff_t *pos)
@@ -183,6 +185,7 @@ static const struct file_operations fops_registers = {
 };
 
 
+/* debugfs: beacons */
 
 static ssize_t read_file_beacon(struct file *file, char __user *user_buf,
 				   size_t count, loff_t *ppos)
@@ -261,6 +264,7 @@ static const struct file_operations fops_beacon = {
 };
 
 
+/* debugfs: reset */
 
 static ssize_t write_file_reset(struct file *file,
 				 const char __user *userbuf,
@@ -280,6 +284,7 @@ static const struct file_operations fops_reset = {
 };
 
 
+/* debugfs: debug level */
 
 static const struct {
 	enum ath5k_debug_level level;
@@ -343,7 +348,7 @@ static ssize_t write_file_debug(struct file *file,
 	for (i = 0; i < ARRAY_SIZE(dbg_info); i++) {
 		if (strncmp(buf, dbg_info[i].name,
 					strlen(dbg_info[i].name)) == 0) {
-			ah->debug.level ^= dbg_info[i].level; 
+			ah->debug.level ^= dbg_info[i].level; /* toggle bit */
 			break;
 		}
 	}
@@ -359,6 +364,7 @@ static const struct file_operations fops_debug = {
 };
 
 
+/* debugfs: antenna */
 
 static ssize_t read_file_antenna(struct file *file, char __user *user_buf,
 				   size_t count, loff_t *ppos)
@@ -469,6 +475,7 @@ static const struct file_operations fops_antenna = {
 	.llseek = default_llseek,
 };
 
+/* debugfs: misc */
 
 static ssize_t read_file_misc(struct file *file, char __user *user_buf,
 				   size_t count, loff_t *ppos)
@@ -523,6 +530,7 @@ static const struct file_operations fops_misc = {
 };
 
 
+/* debugfs: frameerrors */
 
 static ssize_t read_file_frameerrors(struct file *file, char __user *user_buf,
 				   size_t count, loff_t *ppos)
@@ -638,6 +646,7 @@ static const struct file_operations fops_frameerrors = {
 };
 
 
+/* debugfs: ani */
 
 static ssize_t read_file_ani(struct file *file, char __user *user_buf,
 				   size_t count, loff_t *ppos)
@@ -800,6 +809,7 @@ static const struct file_operations fops_ani = {
 };
 
 
+/* debugfs: queues etc */
 
 static ssize_t read_file_queue(struct file *file, char __user *user_buf,
 				   size_t count, loff_t *ppos)
@@ -908,6 +918,7 @@ ath5k_debug_init_device(struct ath5k_hw *ah)
 			    &ah->ah_use_32khz_clock);
 }
 
+/* functions used in other places */
 
 void
 ath5k_debug_dump_bands(struct ath5k_hw *ah)

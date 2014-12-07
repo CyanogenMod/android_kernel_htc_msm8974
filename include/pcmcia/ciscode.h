@@ -15,6 +15,7 @@
 #ifndef _LINUX_CISCODE_H
 #define _LINUX_CISCODE_H
 
+/* Manufacturer and Product ID codes */
 
 #define MANFID_3COM			0x0101
 #define PRODID_3COM_3CXEM556		0x0035
@@ -127,4 +128,4 @@
 
 #define MANFID_NEC			0x0010
 
-#endif 
+#endif /* _LINUX_CISCODE_H */

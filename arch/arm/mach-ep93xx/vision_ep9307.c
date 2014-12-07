@@ -41,6 +41,9 @@
 
 #include "soc.h"
 
+/*************************************************************************
+ * Static I/O mappings for the FPGA
+ *************************************************************************/
 #define VISION_PHYS_BASE	EP93XX_CS7_PHYS_BASE
 #define VISION_VIRT_BASE	0xfebff000
 
@@ -60,10 +63,16 @@ static void __init vision_map_io(void)
 	iotable_init(vision_io_desc, ARRAY_SIZE(vision_io_desc));
 }
 
+/*************************************************************************
+ * Ethernet
+ *************************************************************************/
 static struct ep93xx_eth_data vision_eth_data __initdata = {
 	.phy_id		= 1,
 };
 
+/*************************************************************************
+ * Framebuffer
+ *************************************************************************/
 #define VISION_LCD_ENABLE	EP93XX_GPIO_LINE_EGPIO1
 
 static int vision_lcd_setup(struct platform_device *pdev)
@@ -105,6 +114,9 @@ static struct ep93xxfb_mach_info ep93xxfb_info __initdata = {
 };
 
 
+/*************************************************************************
+ * GPIO Expanders
+ *************************************************************************/
 #define PCA9539_74_GPIO_BASE	(EP93XX_GPIO_LINE_MAX + 1)
 #define PCA9539_75_GPIO_BASE	(PCA9539_74_GPIO_BASE + 16)
 #define PCA9539_76_GPIO_BASE	(PCA9539_75_GPIO_BASE + 16)
@@ -130,6 +142,9 @@ static struct pca953x_platform_data pca953x_77_gpio_data = {
 	.irq_base	= -1,
 };
 
+/*************************************************************************
+ * I2C Bus
+ *************************************************************************/
 static struct i2c_gpio_platform_data vision_i2c_gpio_data __initdata = {
 	.sda_pin		= EP93XX_GPIO_LINE_EEDAT,
 	.scl_pin		= EP93XX_GPIO_LINE_EECLK,
@@ -154,6 +169,9 @@ static struct i2c_board_info vision_i2c_info[] __initdata = {
 	},
 };
 
+/*************************************************************************
+ * SPI Flash
+ *************************************************************************/
 #define VISION_SPI_FLASH_CS	EP93XX_GPIO_LINE_EGPIO7
 
 static struct mtd_partition vision_spi_flash_partitions[] = {
@@ -200,6 +218,9 @@ static struct ep93xx_spi_chip_ops vision_spi_flash_hw = {
 	.cs_control	= vision_spi_flash_hw_cs_control,
 };
 
+/*************************************************************************
+ * SPI SD/MMC host
+ *************************************************************************/
 #define VISION_SPI_MMC_CS	EP93XX_GPIO_LINE_G(2)
 #define VISION_SPI_MMC_WP	EP93XX_GPIO_LINE_F(0)
 #define VISION_SPI_MMC_CD	EP93XX_GPIO_LINE_EGPIO15
@@ -284,6 +305,9 @@ static struct ep93xx_spi_chip_ops vision_spi_mmc_hw = {
 	.cs_control	= vision_spi_mmc_hw_cs_control,
 };
 
+/*************************************************************************
+ * SPI Bus
+ *************************************************************************/
 static struct spi_board_info vision_spi_board_info[] __initdata = {
 	{
 		.modalias		= "sst25l",
@@ -308,6 +332,9 @@ static struct ep93xx_spi_info vision_spi_master __initdata = {
 	.num_chipselect		= ARRAY_SIZE(vision_spi_board_info),
 };
 
+/*************************************************************************
+ * Machine Initialization
+ *************************************************************************/
 static void __init vision_init_machine(void)
 {
 	ep93xx_init_devices();
@@ -316,6 +343,10 @@ static void __init vision_init_machine(void)
 	ep93xx_register_fb(&ep93xxfb_info);
 	ep93xx_register_pwm(1, 0);
 
+	/*
+	 * Request the gpio expander's interrupt gpio line now to prevent
+	 * the kernel from doing a WARN in gpiolib:gpio_ensure_requested().
+	 */
 	if (gpio_request_one(EP93XX_GPIO_LINE_F(7), GPIOF_DIR_IN,
 				"pca9539:74"))
 		pr_warn("cannot request interrupt gpio for pca9539:74\n");
@@ -329,7 +360,7 @@ static void __init vision_init_machine(void)
 }
 
 MACHINE_START(VISION_EP9307, "Vision Engraving Systems EP9307")
-	
+	/* Maintainer: H Hartley Sweeten <hsweeten@visionengravers.com> */
 	.atag_offset	= 0x100,
 	.map_io		= vision_map_io,
 	.init_irq	= ep93xx_init_irq,

@@ -29,13 +29,13 @@ static int tivo_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 	switch (usage->hid & HID_USAGE_PAGE) {
 	case HID_UP_TIVOVENDOR:
 		switch (usage->hid & HID_USAGE) {
-		
+		/* TiVo button */
 		case 0x3d: tivo_map_key_clear(KEY_MEDIA);	break;
-		
+		/* Live TV */
 		case 0x3e: tivo_map_key_clear(KEY_TV);		break;
-		
+		/* Red thumbs down */
 		case 0x41: tivo_map_key_clear(KEY_KPMINUS);	break;
-		
+		/* Green thumbs up */
 		case 0x42: tivo_map_key_clear(KEY_KPPLUS);	break;
 		default:
 			return 0;
@@ -43,9 +43,9 @@ static int tivo_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 		break;
 	case HID_UP_CONSUMER:
 		switch (usage->hid & HID_USAGE) {
-		
+		/* Enter/Last (default mapping: KEY_LAST) */
 		case 0x083: tivo_map_key_clear(KEY_ENTER);	break;
-		
+		/* Info (default mapping: KEY_PROPS) */
 		case 0x209: tivo_map_key_clear(KEY_INFO);	break;
 		default:
 			return 0;
@@ -55,11 +55,13 @@ static int tivo_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 		return 0;
 	}
 
+	/* This means we found a matching mapping here, else, look in the
+	 * standard hid mappings in hid-input.c */
 	return 1;
 }
 
 static const struct hid_device_id tivo_devices[] = {
-	
+	/* TiVo Slide Bluetooth remote, pairs with a Broadcom dongle */
 	{ HID_BLUETOOTH_DEVICE(USB_VENDOR_ID_TIVO, USB_DEVICE_ID_TIVO_SLIDE_BT) },
 	{ HID_USB_DEVICE(USB_VENDOR_ID_TIVO, USB_DEVICE_ID_TIVO_SLIDE) },
 	{ }

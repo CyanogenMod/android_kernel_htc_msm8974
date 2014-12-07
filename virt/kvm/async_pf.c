@@ -78,6 +78,10 @@ static void async_pf_execute(struct work_struct *work)
 	apf->done = true;
 	spin_unlock(&vcpu->async_pf.lock);
 
+	/*
+	 * apf may be freed by kvm_check_async_pf_completion() after
+	 * this point
+	 */
 
 	trace_kvm_async_pf_completed(addr, page, gva);
 
@@ -90,14 +94,14 @@ static void async_pf_execute(struct work_struct *work)
 
 void kvm_clear_async_pf_completion_queue(struct kvm_vcpu *vcpu)
 {
-	
+	/* cancel outstanding work queue item */
 	while (!list_empty(&vcpu->async_pf.queue)) {
 		struct kvm_async_pf *work =
 			list_entry(vcpu->async_pf.queue.next,
 				   typeof(*work), queue);
 		cancel_work_sync(&work->work);
 		list_del(&work->queue);
-		if (!work->done) 
+		if (!work->done) /* work was canceled */
 			kmem_cache_free(async_pf_cache, work);
 	}
 
@@ -148,8 +152,12 @@ int kvm_setup_async_pf(struct kvm_vcpu *vcpu, gva_t gva, gfn_t gfn,
 	if (vcpu->async_pf.queued >= ASYNC_PF_PER_VCPU)
 		return 0;
 
-	
+	/* setup delayed work */
 
+	/*
+	 * do alloc nowait since if we are going to sleep anyway we
+	 * may as well sleep faulting in page
+	 */
 	work = kmem_cache_zalloc(async_pf_cache, GFP_NOWAIT);
 	if (!work)
 		return 0;
@@ -164,6 +172,8 @@ int kvm_setup_async_pf(struct kvm_vcpu *vcpu, gva_t gva, gfn_t gfn,
 	atomic_inc(&work->mm->mm_count);
 	kvm_get_kvm(work->vcpu->kvm);
 
+	/* this can't really happen otherwise gfn_to_pfn_async
+	   would succeed */
 	if (unlikely(kvm_is_error_hva(work->addr)))
 		goto retry_sync;
 
@@ -195,7 +205,7 @@ int kvm_async_pf_wakeup_all(struct kvm_vcpu *vcpu)
 
 	work->page = bad_page;
 	get_page(bad_page);
-	INIT_LIST_HEAD(&work->queue); 
+	INIT_LIST_HEAD(&work->queue); /* for list_del to work */
 
 	spin_lock(&vcpu->async_pf.lock);
 	list_add_tail(&work->link, &vcpu->async_pf.done);

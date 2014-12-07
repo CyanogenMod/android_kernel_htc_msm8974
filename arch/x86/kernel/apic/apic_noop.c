@@ -1,3 +1,13 @@
+/*
+ * NOOP APIC driver.
+ *
+ * Does almost nothing and should be substituted by a real apic driver via
+ * probe routine.
+ *
+ * Though in case if apic is disabled (for some reason) we try
+ * to not uglify the caller's code and allow to call (some) apic routines
+ * like self-ipi, etc...
+ */
 
 #include <linux/threads.h>
 #include <linux/cpumask.h>
@@ -56,17 +66,27 @@ static unsigned int noop_get_apic_id(unsigned long x)
 
 static int noop_probe(void)
 {
+	/*
+	 * NOOP apic should not ever be
+	 * enabled via probe routine
+	 */
 	return 0;
 }
 
 static int noop_apic_id_registered(void)
 {
+	/*
+	 * if we would be really "pedantic"
+	 * we should pass read_apic_id() here
+	 * but since NOOP suppose APIC ID = 0
+	 * lets save a few cycles
+	 */
 	return physid_isset(0, phys_cpu_present_map);
 }
 
 static const struct cpumask *noop_target_cpus(void)
 {
-	
+	/* only BSP here */
 	return cpumask_of(0);
 }
 
@@ -108,7 +128,7 @@ struct apic apic_noop = {
 	.apic_id_registered		= noop_apic_id_registered,
 
 	.irq_delivery_mode		= dest_LowestPrio,
-	
+	/* logical delivery broadcast to all CPUs: */
 	.irq_dest_mode			= 1,
 
 	.target_cpus			= noop_target_cpus,
@@ -150,7 +170,7 @@ struct apic apic_noop = {
 
 	.wakeup_secondary_cpu		= noop_wakeup_secondary_cpu,
 
-	
+	/* should be safe */
 	.trampoline_phys_low		= DEFAULT_TRAMPOLINE_PHYS_LOW,
 	.trampoline_phys_high		= DEFAULT_TRAMPOLINE_PHYS_HIGH,
 

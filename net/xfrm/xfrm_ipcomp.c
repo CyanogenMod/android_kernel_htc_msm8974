@@ -118,7 +118,7 @@ int ipcomp_input(struct xfrm_state *x, struct sk_buff *skb)
 
 	skb->ip_summed = CHECKSUM_NONE;
 
-	
+	/* Remove ipcomp header and decompress original payload */
 	ipch = (void *)skb->data;
 	nexthdr = ipch->nexthdr;
 
@@ -175,7 +175,7 @@ int ipcomp_output(struct xfrm_state *x, struct sk_buff *skb)
 	struct ipcomp_data *ipcd = x->data;
 
 	if (skb->len < ipcd->threshold) {
-		
+		/* Don't bother compressing */
 		goto out_ok;
 	}
 
@@ -188,7 +188,7 @@ int ipcomp_output(struct xfrm_state *x, struct sk_buff *skb)
 		goto out_ok;
 	}
 
-	
+	/* Install ipcomp header, convert into ipcomp datagram. */
 	ipch = ip_comp_hdr(skb);
 	ipch->nexthdr = *skb_mac_header(skb);
 	ipch->flags = 0;
@@ -276,7 +276,7 @@ static struct crypto_comp * __percpu *ipcomp_alloc_tfms(const char *alg_name)
 	struct crypto_comp * __percpu *tfms;
 	int cpu;
 
-	
+	/* This can be any valid CPU ID so we don't need locking. */
 	cpu = raw_smp_processor_id();
 
 	list_for_each_entry(pos, &ipcomp_tfms_list, list) {

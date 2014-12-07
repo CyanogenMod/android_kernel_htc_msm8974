@@ -43,20 +43,30 @@ struct ptp_clock {
 	struct device *dev;
 	struct ptp_clock_info *info;
 	dev_t devid;
-	int index; 
+	int index; /* index into clocks.map */
 	struct pps_device *pps_source;
-	struct timestamp_event_queue tsevq; 
-	struct mutex tsevq_mux; 
+	struct timestamp_event_queue tsevq; /* simple fifo for time stamps */
+	struct mutex tsevq_mux; /* one process at a time reading the fifo */
 	wait_queue_head_t tsev_wq;
-	int defunct; 
+	int defunct; /* tells readers to go away when clock is being removed */
 };
 
+/*
+ * The function queue_cnt() is safe for readers to call without
+ * holding q->lock. Readers use this function to verify that the queue
+ * is nonempty before proceeding with a dequeue operation. The fact
+ * that a writer might concurrently increment the tail does not
+ * matter, since the queue remains nonempty nonetheless.
+ */
 static inline int queue_cnt(struct timestamp_event_queue *q)
 {
 	int cnt = q->tail - q->head;
 	return cnt < 0 ? PTP_MAX_TIMESTAMPS + cnt : cnt;
 }
 
+/*
+ * see ptp_chardev.c
+ */
 
 long ptp_ioctl(struct posix_clock *pc,
 	       unsigned int cmd, unsigned long arg);
@@ -69,6 +79,9 @@ ssize_t ptp_read(struct posix_clock *pc,
 uint ptp_poll(struct posix_clock *pc,
 	      struct file *fp, poll_table *wait);
 
+/*
+ * see ptp_sysfs.c
+ */
 
 extern struct device_attribute ptp_dev_attrs[];
 

@@ -27,7 +27,7 @@ struct usbip_imported_device {
 	uint8_t busnum;
 	uint8_t devnum;
 
-	
+	/* usbip_class_device list */
 	struct dlist *cdev_list;
 	struct usbip_usb_device udev;
 };
@@ -35,10 +35,10 @@ struct usbip_imported_device {
 struct usbip_vhci_driver {
 	char sysfs_mntpath[SYSFS_PATH_MAX];
 
-	
+	/* /sys/devices/platform/vhci_hcd */
 	struct sysfs_device *hc_device;
 
-	
+	/* usbip_class_device list */
 	struct dlist *cdev_list;
 
 	int nports;
@@ -58,9 +58,10 @@ int usbip_vhci_get_free_port(void);
 int usbip_vhci_attach_device2(uint8_t port, int sockfd, uint32_t devid,
 		uint32_t speed);
 
+/* will be removed */
 int usbip_vhci_attach_device(uint8_t port, int sockfd, uint8_t busnum,
 		uint8_t devnum, uint32_t speed);
 
 int usbip_vhci_detach_device(uint8_t port);
 
-#endif 
+#endif /* __VHCI_DRIVER_H */

@@ -33,12 +33,14 @@ extern struct atmel_lcdfb_info mimc200_lcdc_data;
 #include <mach/init.h>
 #include <mach/portmux.h>
 
+/* Oscillator frequencies. These are board-specific */
 unsigned long at32_board_osc_rates[3] = {
-	[0] = 32768,	
-	[1] = 10000000,	
-	[2] = 12000000,	
+	[0] = 32768,	/* 32.768 kHz on RTC osc */
+	[1] = 10000000,	/* 10 MHz on osc0 */
+	[2] = 12000000,	/* 12 MHz on osc1 */
 };
 
+/* Initialized by bootloader-specific startup code. */
 struct tag *bootloader_tags __initdata;
 
 static struct fb_videomode __initdata pt0434827_modes[] = {
@@ -116,6 +118,14 @@ static struct mci_platform_data __initdata mci0_data = {
 	},
 };
 
+/*
+ * The next two functions should go away as the boot loader is
+ * supposed to initialize the macb address registers with a valid
+ * ethernet address. But we need to keep it around for a while until
+ * we can be reasonably sure the boot loader does this.
+ *
+ * The phy_id is ignored as the driver will probe for it.
+ */
 static int __init parse_tag_ethernet(struct tag *tag)
 {
 	int i;
@@ -145,6 +155,11 @@ static void __init set_hw_addr(struct platform_device *pdev)
 	if (!is_valid_ether_addr(addr))
 		return;
 
+	/*
+	 * Since this is board-specific code, we'll cheat and use the
+	 * physical address directly as we happen to know that it's
+	 * the same as the virtual address.
+	 */
 	regs = (void __iomem __force *)res->start;
 	pclk = clk_get(&pdev->dev, "pclk");
 	if (IS_ERR(pclk))
@@ -160,10 +175,10 @@ static void __init set_hw_addr(struct platform_device *pdev)
 
 void __init setup_board(void)
 {
-	at32_map_usart(0, 0, 0);	
-	at32_map_usart(1, 1, 0);	
-	at32_map_usart(2, 2, 0);	
-	at32_map_usart(3, 3, 0);	
+	at32_map_usart(0, 0, 0);	/* USART 0: /dev/ttyS0 (TTL --> Altera) */
+	at32_map_usart(1, 1, 0);	/* USART 1: /dev/ttyS1 (RS232) */
+	at32_map_usart(2, 2, 0);	/* USART 2: /dev/ttyS2 (RS485) */
+	at32_map_usart(3, 3, 0);	/* USART 3: /dev/ttyS3 (RS422 Multidrop) */
 }
 
 static struct i2c_gpio_platform_data i2c_gpio_data = {
@@ -171,7 +186,7 @@ static struct i2c_gpio_platform_data i2c_gpio_data = {
 	.scl_pin		= GPIO_PIN_PA(7),
 	.sda_is_open_drain	= 1,
 	.scl_is_open_drain	= 1,
-	.udelay			= 2,	
+	.udelay			= 2,	/* close to 100 kHz */
 };
 
 static struct platform_device i2c_gpio_device = {
@@ -187,6 +202,10 @@ static struct i2c_board_info __initdata i2c_info[] = {
 
 static int __init mimc200_init(void)
 {
+	/*
+	 * MIMC200 uses 16-bit SDRAM interface, so we don't need to
+	 * reserve any pins for it.
+	 */
 
 	at32_add_device_usart(0);
 	at32_add_device_usart(1);

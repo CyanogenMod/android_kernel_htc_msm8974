@@ -58,16 +58,26 @@
 #include <asm/uaccess.h>
 #include <asm/rtc.h>
 
+/*
+ *	We sponge a minor off of the misc major. No need slurping
+ *	up another valuable major dev number for this. If you add
+ *	an ioctl, make sure you don't conflict with SPARC's RTC
+ *	ioctls.
+ */
 
 static DEFINE_MUTEX(gen_rtc_mutex);
 static DECLARE_WAIT_QUEUE_HEAD(gen_rtc_wait);
 
+/*
+ *	Bits in gen_rtc_status.
+ */
 
-#define RTC_IS_OPEN		0x01	
+#define RTC_IS_OPEN		0x01	/* means /dev/rtc is in use	*/
 
-static unsigned char gen_rtc_status;	
-static unsigned long gen_rtc_irq_data;	
+static unsigned char gen_rtc_status;	/* bitmapped status byte.	*/
+static unsigned long gen_rtc_irq_data;	/* our output to the world	*/
 
+/* months start at 0 now */
 static unsigned char days_in_mo[] =
 {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
@@ -83,13 +93,17 @@ static unsigned long tt_exp;
 
 static void gen_rtc_timer(unsigned long data);
 
-static volatile int stask_active;              
-static volatile int ttask_active;              
-static int stop_rtc_timers;                    
+static volatile int stask_active;              /* schedule_work */
+static volatile int ttask_active;              /* timer_task */
+static int stop_rtc_timers;                    /* don't requeue tasks */
 static DEFINE_SPINLOCK(gen_rtc_lock);
 
 static void gen_rtc_interrupt(unsigned long arg);
 
+/*
+ * Routine to poll RTC seconds field for change as often as possible,
+ * after first RTC_UIE use timer to reduce polling
+ */
 static void genrtc_troutine(struct work_struct *work)
 {
 	unsigned int tmp = get_rtc_ss();
@@ -128,8 +142,18 @@ static void gen_rtc_timer(unsigned long data)
 		stask_active = 0;
 }
 
+/* 
+ * call gen_rtc_interrupt function to signal an RTC_UIE,
+ * arg is unused.
+ * Could be invoked either from a real interrupt handler or
+ * from some routine that periodically (eg 100HZ) monitors
+ * whether RTC_SECS changed
+ */
 static void gen_rtc_interrupt(unsigned long arg)
 {
+	/*  We store the status in the low byte and the number of
+	 *	interrupts received since the last read in the remainder
+	 *	of rtc_irq_data.  */
 
 	gen_rtc_irq_data += 0x100;
 	gen_rtc_irq_data &= ~0xff;
@@ -137,7 +161,7 @@ static void gen_rtc_interrupt(unsigned long arg)
 
 	if (lostint){
 		printk("genrtc: system delaying clock ticks?\n");
-		
+		/* increment count so that userspace knows something is wrong */
 		gen_rtc_irq_data += ((lostint-1)<<8);
 		lostint = 0;
 	}
@@ -145,6 +169,9 @@ static void gen_rtc_interrupt(unsigned long arg)
 	wake_up_interruptible(&gen_rtc_wait);
 }
 
+/*
+ *	Now all the various file operations that we export.
+ */
 static ssize_t gen_rtc_read(struct file *file, char __user *buf,
 			size_t count, loff_t *ppos)
 {
@@ -162,7 +189,7 @@ static ssize_t gen_rtc_read(struct file *file, char __user *buf,
 	if (retval)
 		goto out;
 
-	
+	/* first test allows optimizer to nuke this case for 32-bit machines */
 	if (sizeof (int) != sizeof (long) && count == sizeof (unsigned int)) {
 		unsigned int uidata = data;
 		retval = put_user(uidata, (unsigned int __user *)buf) ?:
@@ -187,6 +214,11 @@ static unsigned int gen_rtc_poll(struct file *file,
 
 #endif
 
+/*
+ * Used to disable/enable interrupts, only RTC_UIE supported
+ * We also clear out any old irq data after an ioctl() that
+ * meddles with the interrupt enable/disable bits.
+ */
 
 static inline void gen_clear_rtc_irq_bit(unsigned char bit)
 {
@@ -252,21 +284,21 @@ static int gen_rtc_ioctl(struct file *file,
 			return -EFAULT;
 	    return set_rtc_pll(&pll);
 
-	case RTC_UIE_OFF:	
+	case RTC_UIE_OFF:	/* disable ints from RTC updates.	*/
 		gen_clear_rtc_irq_bit(RTC_UIE);
 		return 0;
 
-	case RTC_UIE_ON:	
+	case RTC_UIE_ON:	/* enable ints for RTC updates.	*/
 	        return gen_set_rtc_irq_bit(RTC_UIE);
 
-	case RTC_RD_TIME:	
-		
+	case RTC_RD_TIME:	/* Read the time/date from RTC	*/
+		/* this doesn't get week-day, who cares */
 		memset(&wtime, 0, sizeof(wtime));
 		get_rtc_time(&wtime);
 
 		return copy_to_user(argp, &wtime, sizeof(wtime)) ? -EFAULT : 0;
 
-	case RTC_SET_TIME:	
+	case RTC_SET_TIME:	/* Set the RTC */
 	    {
 		int year;
 		unsigned char leap_yr;
@@ -312,6 +344,11 @@ static long gen_rtc_unlocked_ioctl(struct file *file, unsigned int cmd,
 	return ret;
 }
 
+/*
+ *	We enforce only one user at a time here with the open/close.
+ *	Also clear the previous interrupt data on an open, and clean
+ *	up things on a close.
+ */
 
 static int gen_rtc_open(struct inode *inode, struct file *file)
 {
@@ -331,6 +368,10 @@ static int gen_rtc_open(struct inode *inode, struct file *file)
 
 static int gen_rtc_release(struct inode *inode, struct file *file)
 {
+	/*
+	 * Turn off all interrupts once the device is no longer
+	 * in use and clear the data.
+	 */
 
 	gen_clear_rtc_irq_bit(RTC_PIE|RTC_AIE|RTC_UIE);
 
@@ -341,6 +382,9 @@ static int gen_rtc_release(struct inode *inode, struct file *file)
 
 #ifdef CONFIG_PROC_FS
 
+/*
+ *	Info exported via "/proc/driver/rtc".
+ */
 
 static int gen_rtc_proc_output(char *buf)
 {
@@ -395,7 +439,7 @@ static int gen_rtc_proc_output(char *buf)
 		     (flags & RTC_AIE) ? "yes" : "no",
 		     irq_active ? "yes" : "no",
 		     (flags & RTC_PIE) ? "yes" : "no",
-		     0L ,
+		     0L /* freq */,
 		     (flags & RTC_BATT_BAD) ? "bad" : "okay");
 	if (!get_rtc_pll(&pll))
 	    p += sprintf(p,
@@ -437,9 +481,12 @@ static int __init gen_rtc_proc_init(void)
 }
 #else
 static inline int gen_rtc_proc_init(void) { return 0; }
-#endif 
+#endif /* CONFIG_PROC_FS */
 
 
+/*
+ *	The various file operations we support.
+ */
 
 static const struct file_operations gen_rtc_fops = {
 	.owner		= THIS_MODULE,

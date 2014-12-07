@@ -77,6 +77,21 @@ static struct platform_device snowball_led_dev = {
 static struct ab8500_gpio_platform_data ab8500_gpio_pdata = {
 	.gpio_base		= MOP500_AB8500_PIN_GPIO(1),
 	.irq_base		= MOP500_AB8500_VIR_GPIO_IRQ_BASE,
+	/* config_reg is the initial configuration of ab8500 pins.
+	 * The pins can be configured as GPIO or alt functions based
+	 * on value present in GpioSel1 to GpioSel6 and AlternatFunction
+	 * register. This is the array of 7 configuration settings.
+	 * One has to compile time decide these settings. Below is the
+	 * explanation of these setting
+	 * GpioSel1 = 0x00 => Pins GPIO1 to GPIO8 are not used as GPIO
+	 * GpioSel2 = 0x1E => Pins GPIO10 to GPIO13 are configured as GPIO
+	 * GpioSel3 = 0x80 => Pin GPIO24 is configured as GPIO
+	 * GpioSel4 = 0x01 => Pin GPIo25 is configured as GPIO
+	 * GpioSel5 = 0x7A => Pins GPIO34, GPIO36 to GPIO39 are conf as GPIO
+	 * GpioSel6 = 0x00 => Pins GPIO41 & GPIo42 are not configured as GPIO
+	 * AlternaFunction = 0x00 => If Pins GPIO10 to 13 are not configured
+	 * as GPIO then this register selectes the alternate fucntions
+	 */
 	.config_reg		= {0x00, 0x1E, 0x80, 0x01,
 					0x7A, 0x00, 0x00},
 };
@@ -199,18 +214,24 @@ struct platform_device ab8500_device = {
 	.resource = ab8500_resources,
 };
 
+/*
+ * TPS61052
+ */
 
 static struct tps6105x_platform_data mop500_tps61052_data = {
 	.mode = TPS6105X_MODE_VOLTAGE,
 	.regulator_data = &tps61052_regulator,
 };
 
+/*
+ * TC35892
+ */
 
 static void mop500_tc35892_init(struct tc3589x *tc3589x, unsigned int base)
 {
 	struct device *parent = NULL;
 #if 0
-	
+	/* FIXME: Is the sdi actually part of tc3589x? */
 	parent = tc3589x->dev;
 #endif
 	mop500_sdi_tc35892_init(parent);
@@ -283,7 +304,7 @@ static struct i2c_board_info __initdata mop500_i2c0_devices[] = {
 		.irq		= NOMADIK_GPIO_TO_IRQ(217),
 		.platform_data  = &mop500_tc35892_data,
 	},
-	
+	/* I2C0 devices only available prior to HREFv60 */
 	{
 		I2C_BOARD_INFO("tps61052", 0x33),
 		.platform_data  = &mop500_tps61052_data,
@@ -294,36 +315,47 @@ static struct i2c_board_info __initdata mop500_i2c0_devices[] = {
 
 static struct i2c_board_info __initdata mop500_i2c2_devices[] = {
 	{
-		
+		/* lp5521 LED driver, 1st device */
 		I2C_BOARD_INFO("lp5521", 0x33),
 		.platform_data = &lp5521_pri_data,
 	},
 	{
-		
+		/* lp5521 LED driver, 2st device */
 		I2C_BOARD_INFO("lp5521", 0x34),
 		.platform_data = &lp5521_sec_data,
 	},
 	{
-		
+		/* Light sensor Rohm BH1780GLI */
 		I2C_BOARD_INFO("bh1780", 0x29),
 	},
 };
 
 #define U8500_I2C_CONTROLLER(id, _slsu, _tft, _rft, clk, t_out, _sm)	\
 static struct nmk_i2c_controller u8500_i2c##id##_data = { \
-				\
+	/*				\
+	 * slave data setup time, which is	\
+	 * 250 ns,100ns,10ns which is 14,6,2	\
+	 * respectively for a 48 Mhz	\
+	 * i2c clock			\
+	 */				\
 	.slsu		= _slsu,	\
-			\
+	/* Tx FIFO threshold */		\
 	.tft		= _tft,		\
-			\
+	/* Rx FIFO threshold */		\
 	.rft		= _rft,		\
-		\
+	/* std. mode operation */	\
 	.clk_freq	= clk,		\
-	\
+	/* Slave response timeout(ms) */\
 	.timeout	= t_out,	\
 	.sm		= _sm,		\
 }
 
+/*
+ * The board uses 4 i2c controllers, initialize all of
+ * them with slave data setup time of 250 ns,
+ * Tx & Rx FIFO threshold values as 8 and standard
+ * mode of operation
+ */
 U8500_I2C_CONTROLLER(0, 0xe, 1, 8, 100000, 200, I2C_FREQ_MODE_FAST);
 U8500_I2C_CONTROLLER(1, 0xe, 1, 8, 100000, 200, I2C_FREQ_MODE_FAST);
 U8500_I2C_CONTROLLER(2,	0xe, 1, 8, 100000, 200, I2C_FREQ_MODE_FAST);
@@ -385,6 +417,7 @@ static void mop500_prox_deactivate(struct device *dev)
 	regulator_put(prox_regulator);
 }
 
+/* add any platform devices here - TODO */
 static struct platform_device *mop500_platform_devs[] __initdata = {
 	&mop500_gpio_keys_device,
 	&ab8500_device,
@@ -420,6 +453,9 @@ static struct pl022_ssp_controller ssp0_plat = {
 #else
 	.enable_dma = 0,
 #endif
+	/* on this platform, gpio 31,142,144,214 &
+	 * 224 are connected as chip selects
+	 */
 	.num_chipselect = 5,
 };
 
@@ -503,11 +539,11 @@ static void ux500_uart0_reset(void)
 	prcc_rst_clr = (void __iomem *)IO_ADDRESS(U8500_CLKRST1_BASE +
 			PRCC_K_SOFTRST_CLEAR);
 
-	
+	/* Activate soft reset PRCC_K_SOFTRST_CLEAR */
 	writel((readl(prcc_rst_clr) | 0x1), prcc_rst_clr);
 	udelay(1);
 
-	
+	/* Release soft reset PRCC_K_SOFTRST_SET */
 	writel((readl(prcc_rst_set) | 0x1), prcc_rst_set);
 	udelay(1);
 }
@@ -585,7 +621,7 @@ static void __init mop500_init_machine(void)
 
 	mop500_pins_init();
 
-	
+	/* FIXME: parent of ab8500 should be prcmu */
 	for (i = 0; i < ARRAY_SIZE(mop500_platform_devs); i++)
 		mop500_platform_devs[i]->dev.parent = parent;
 
@@ -603,7 +639,7 @@ static void __init mop500_init_machine(void)
 	i2c_register_board_info(2, mop500_i2c2_devices,
 				ARRAY_SIZE(mop500_i2c2_devices));
 
-	
+	/* This board has full regulator constraints */
 	regulator_has_full_constraints();
 }
 
@@ -633,7 +669,7 @@ static void __init snowball_init_machine(void)
 	i2c_register_board_info(2, mop500_i2c2_devices,
 				ARRAY_SIZE(mop500_i2c2_devices));
 
-	
+	/* This board has full regulator constraints */
 	regulator_has_full_constraints();
 }
 
@@ -643,6 +679,11 @@ static void __init hrefv60_init_machine(void)
 	int i2c0_devs;
 	int i;
 
+	/*
+	 * The HREFv60 board removed a GPIO expander and routed
+	 * all these GPIO pins to the internal GPIO controller
+	 * instead.
+	 */
 	mop500_gpio_keys[0].gpio = HREFV60_PROX_SENSE_GPIO;
 
 	parent = u8500_init_devices();
@@ -668,16 +709,16 @@ static void __init hrefv60_init_machine(void)
 	i2c_register_board_info(2, mop500_i2c2_devices,
 				ARRAY_SIZE(mop500_i2c2_devices));
 
-	
+	/* This board has full regulator constraints */
 	regulator_has_full_constraints();
 }
 
 MACHINE_START(U8500, "ST-Ericsson MOP500 platform")
-	
+	/* Maintainer: Srinidhi Kasagar <srinidhi.kasagar@stericsson.com> */
 	.atag_offset	= 0x100,
 	.map_io		= u8500_map_io,
 	.init_irq	= ux500_init_irq,
-	
+	/* we re-use nomadik timer here */
 	.timer		= &ux500_timer,
 	.handle_irq	= gic_handle_irq,
 	.init_machine	= mop500_init_machine,
@@ -696,7 +737,7 @@ MACHINE_START(SNOWBALL, "Calao Systems Snowball platform")
 	.atag_offset	= 0x100,
 	.map_io		= u8500_map_io,
 	.init_irq	= ux500_init_irq,
-	
+	/* we re-use nomadik timer here */
 	.timer		= &ux500_timer,
 	.handle_irq	= gic_handle_irq,
 	.init_machine	= snowball_init_machine,
@@ -713,7 +754,7 @@ struct of_dev_auxdata u8500_auxdata_lookup[] __initdata = {
 };
 
 static const struct of_device_id u8500_soc_node[] = {
-	
+	/* only create devices below soc node */
 	{ .compatible = "stericsson,db8500", },
 	{ },
 };
@@ -732,7 +773,7 @@ static void __init u8500_init_machine(void)
 	for (i = 0; i < ARRAY_SIZE(snowball_platform_devs); i++)
 		snowball_platform_devs[i]->dev.parent = parent;
 
-	
+	/* automatically probe child nodes of db8500 device */
 	of_platform_populate(NULL, u8500_soc_node, u8500_auxdata_lookup, parent);
 
 	if (of_machine_is_compatible("st-ericsson,mop500")) {
@@ -750,6 +791,11 @@ static void __init u8500_init_machine(void)
 
 		snowball_sdi_init(parent);
 	} else if (of_machine_is_compatible("st-ericsson,hrefv60+")) {
+		/*
+		 * The HREFv60 board removed a GPIO expander and routed
+		 * all these GPIO pins to the internal GPIO controller
+		 * instead.
+		 */
 		mop500_gpio_keys[0].gpio = HREFV60_PROX_SENSE_GPIO;
 		i2c0_devs -= NUM_PRE_V60_I2C0_DEVICES;
 		hrefv60_pins_init();
@@ -764,7 +810,7 @@ static void __init u8500_init_machine(void)
 	i2c_register_board_info(2, mop500_i2c2_devices,
 				ARRAY_SIZE(mop500_i2c2_devices));
 
-	
+	/* This board has full regulator constraints */
 	regulator_has_full_constraints();
 }
 
@@ -780,7 +826,7 @@ static const char * u8500_dt_board_compat[] = {
 DT_MACHINE_START(U8500_DT, "ST-Ericsson U8500 platform (Device Tree Support)")
 	.map_io		= u8500_map_io,
 	.init_irq	= ux500_init_irq,
-	
+	/* we re-use nomadik timer here */
 	.timer		= &ux500_timer,
 	.handle_irq	= gic_handle_irq,
 	.init_machine	= u8500_init_machine,

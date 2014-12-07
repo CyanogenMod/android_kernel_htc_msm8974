@@ -66,8 +66,11 @@ static void __init ts72xx_map_io(void)
 }
 
 
-#define TS72XX_NAND_CONTROL_ADDR_LINE	22	
-#define TS72XX_NAND_BUSY_ADDR_LINE	23	
+/*************************************************************************
+ * NAND flash
+ *************************************************************************/
+#define TS72XX_NAND_CONTROL_ADDR_LINE	22	/* 0xN0400000 */
+#define TS72XX_NAND_BUSY_ADDR_LINE	23	/* 0xN0800000 */
 
 static void ts72xx_nand_hwcontrol(struct mtd_info *mtd,
 				  int cmd, unsigned int ctrl)
@@ -81,9 +84,9 @@ static void ts72xx_nand_hwcontrol(struct mtd_info *mtd,
 		addr += (1 << TS72XX_NAND_CONTROL_ADDR_LINE);
 
 		bits = __raw_readb(addr) & ~0x07;
-		bits |= (ctrl & NAND_NCE) << 2;	
-		bits |= (ctrl & NAND_CLE);	
-		bits |= (ctrl & NAND_ALE) >> 2;	
+		bits |= (ctrl & NAND_NCE) << 2;	/* bit 0 -> bit 2 */
+		bits |= (ctrl & NAND_CLE);	/* bit 1 -> bit 1 */
+		bits |= (ctrl & NAND_ALE) >> 2;	/* bit 2 -> bit 0 */
 
 		__raw_writeb(bits, addr);
 	}
@@ -112,17 +115,17 @@ static struct mtd_partition ts72xx_nand_parts[] = {
 		.name		= "TS-BOOTROM",
 		.offset		= 0,
 		.size		= TS72XX_BOOTROM_PART_SIZE,
-		.mask_flags	= MTD_WRITEABLE,	
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
 	}, {
 		.name		= "Linux",
 		.offset		= MTDPART_OFS_RETAIN,
 		.size		= TS72XX_REDBOOT_PART_SIZE,
-				
+				/* leave so much for last partition */
 	}, {
 		.name		= "RedBoot",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= MTDPART_SIZ_FULL,
-		.mask_flags	= MTD_WRITEABLE,	
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
 	},
 };
 
@@ -143,8 +146,8 @@ static struct platform_nand_data ts72xx_nand_data = {
 
 static struct resource ts72xx_nand_resource[] = {
 	{
-		.start		= 0,			
-		.end		= 0,			
+		.start		= 0,			/* filled in later */
+		.end		= 0,			/* filled in later */
 		.flags		= IORESOURCE_MEM,
 	},
 };
@@ -160,6 +163,9 @@ static struct platform_device ts72xx_nand_flash = {
 
 static void __init ts72xx_register_flash(void)
 {
+	/*
+	 * TS7200 has NOR flash all other TS72xx board have NAND flash.
+	 */
 	if (board_is_ts7200()) {
 		ep93xx_register_flash(2, EP93XX_CS6_PHYS_BASE, SZ_16M);
 	} else {
@@ -239,7 +245,7 @@ static void __init ts72xx_init_machine(void)
 }
 
 MACHINE_START(TS72XX, "Technologic Systems TS-72xx SBC")
-	
+	/* Maintainer: Lennert Buytenhek <buytenh@wantstofly.org> */
 	.atag_offset	= 0x100,
 	.map_io		= ts72xx_map_io,
 	.init_irq	= ep93xx_init_irq,

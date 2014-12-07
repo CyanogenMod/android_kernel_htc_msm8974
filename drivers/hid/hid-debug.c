@@ -1,3 +1,10 @@
+/*
+ *  (c) 1999 Andreas Gal		<gal@cs.uni-magdeburg.de>
+ *  (c) 2000-2001 Vojtech Pavlik	<vojtech@ucw.cz>
+ *  (c) 2007-2009 Jiri Kosina
+ *
+ *  HID debugging support
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -347,11 +354,20 @@ static const struct hid_usage_entry hid_usage_table[] = {
     { 0x85, 0x8f, "iOEMInformation" },
     { 0x85, 0x8d, "CapacityGranularity1" },
     { 0x85, 0xd0, "ACPresent" },
-  
+  /* pages 0xff00 to 0xffff are vendor-specific */
   { 0xffff, 0, "Vendor-specific-FF" },
   { 0, 0, NULL }
 };
 
+/* Either output directly into simple seq_file, or (if f == NULL)
+ * allocate a separate buffer that will then be passed to the 'events'
+ * ringbuffer.
+ *
+ * This is because these functions can be called both for "one-shot"
+ * "rdesc" while resolving, or for blocking "events".
+ *
+ * This holds both for resolv_usage_page() and hid_resolv_usage().
+ */
 static char *resolv_usage_page(unsigned page, struct seq_file *f) {
 	const struct hid_usage_entry *p;
 	char *buf = NULL;
@@ -477,7 +493,7 @@ void hid_dump_field(struct hid_field *field, int n, struct seq_file *f) {
 		int sys;
                 __u32 data = field->unit;
 
-		
+		/* First nibble tells us which system we're in. */
 		sys = data & 0xf;
 		data >>= 4;
 
@@ -497,7 +513,7 @@ void hid_dump_field(struct hid_field *field, int n, struct seq_file *f) {
 						seq_printf(f, "*");
 					seq_printf(f, "%s", units[sys][i]);
 					if(nibble != 1) {
-						
+						/* This is a _signed_ nibble(!) */
 
 						int val = nibble & 0x7;
 						if(nibble & 0x08)
@@ -558,6 +574,7 @@ void hid_dump_device(struct hid_device *device, struct seq_file *f)
 }
 EXPORT_SYMBOL_GPL(hid_dump_device);
 
+/* enqueue string to 'events' ring buffer */
 void hid_debug_event(struct hid_device *hdev, char *buf)
 {
 	int i;
@@ -900,12 +917,12 @@ static int hid_debug_rdesc_show(struct seq_file *f, void *p)
 	struct hid_device *hdev = f->private;
 	int i;
 
-	
+	/* dump HID report descriptor */
 	for (i = 0; i < hdev->rsize; i++)
 		seq_printf(f, "%02x ", hdev->rdesc[i]);
 	seq_printf(f, "\n\n");
 
-	
+	/* dump parsed data and input mappings */
 	hid_dump_device(hdev, f);
 	seq_printf(f, "\n");
 	hid_dump_input_mapping(hdev, f);
@@ -971,7 +988,7 @@ static ssize_t hid_debug_events_read(struct file *file, char __user *buffer,
 					break;
 				}
 
-				
+				/* allow O_NONBLOCK from other threads */
 				mutex_unlock(&list->read_mutex);
 				schedule();
 				mutex_lock(&list->read_mutex);
@@ -985,7 +1002,7 @@ static ssize_t hid_debug_events_read(struct file *file, char __user *buffer,
 		if (ret)
 			goto out;
 
-		
+		/* pass the ringbuffer contents to userspace */
 copy_rest:
 		if (list->tail == list->head)
 			goto out;

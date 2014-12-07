@@ -19,6 +19,29 @@
  *
  */
 
+/*
+ * NOTES
+ *
+ *  The extended registers contain mixer settings which are largely
+ *  untapped for the time being.
+ *
+ *  MPU401 and SPDIF are not supported yet.  I don't have the hardware
+ *  to aid in coding and testing, so I won't bother.
+ *
+ *  To quickly load the module,
+ *
+ *  modprobe -a snd-cmi8330 sbport=0x220 sbirq=5 sbdma8=1
+ *    sbdma16=5 wssport=0x530 wssirq=11 wssdma=0 fmport=0x388
+ *
+ *  This card has two mixers and two PCM devices.  I've cheesed it such
+ *  that recording and playback can be done through the same device.
+ *  The driver "magically" routes the capturing to the AD1848 codec,
+ *  and playback to the SB16 codec.  This allows for full-duplex mode
+ *  to some extent.
+ *  The utilities in alsa-utils are aware of both devices, so passing
+ *  the appropriate parameters to amixer and alsactl will give you
+ *  full control over both mixers.
+ */
 
 #include <linux/init.h>
 #include <linux/err.h>
@@ -32,8 +55,13 @@
 #include <sound/sb.h>
 #include <sound/initval.h>
 
+/*
+ */
+/* #define ENABLE_SB_MIXER */
 #define PLAYBACK_ON_SB
 
+/*
+ */
 MODULE_AUTHOR("George Talusan <gstalusan@uwaterloo.ca>");
 MODULE_DESCRIPTION("C-Media CMI8330/CMI8329");
 MODULE_LICENSE("GPL");
@@ -108,21 +136,21 @@ static int pnp_registered;
 
 static unsigned char snd_cmi8330_image[((CMI8330_CDINGAIN)-16) + 1] =
 {
-	0x40,			
+	0x40,			/* 16 - recording mux (SB-mixer-enabled) */
 #ifdef ENABLE_SB_MIXER
-	0x40,			
+	0x40,			/* 17 - mute mux (Mode2) */
 #else
-	0x0,			
+	0x0,			/* 17 - mute mux */
 #endif
-	0x0,			
-	0x0,			
-	0x0,			
-	0x0,			
-	0x0,			
-	0x0,			
-	0x0,			
-	0x0,			
-	0x0			
+	0x0,			/* 18 - vol */
+	0x0,			/* 19 - master volume */
+	0x0,			/* 20 - line-in volume */
+	0x0,			/* 21 - cd-in volume */
+	0x0,			/* 22 - wave volume */
+	0x0,			/* 23 - mute/rec mux */
+	0x0,			/* 24 - wave rec gain */
+	0x0,			/* 25 - line-in rec gain */
+	0x0			/* 26 - cd-in rec gain */
 };
 
 typedef int (*snd_pcm_open_callback_t)(struct snd_pcm_substream *);
@@ -146,7 +174,7 @@ struct snd_cmi8330 {
 	struct snd_cmi8330_stream {
 		struct snd_pcm_ops ops;
 		snd_pcm_open_callback_t open;
-		void *private_data; 
+		void *private_data; /* sb or wss */
 	} streams[2];
 
 	enum card_type type;
@@ -259,10 +287,10 @@ static int __devinit cmi8330_add_sb_mixers(struct snd_sb *chip)
 	unsigned long flags;
 
 	spin_lock_irqsave(&chip->mixer_lock, flags);
-	snd_sbmixer_write(chip, 0x00, 0x00);		
+	snd_sbmixer_write(chip, 0x00, 0x00);		/* mixer reset */
 	spin_unlock_irqrestore(&chip->mixer_lock, flags);
 
-	
+	/* mute and zero volume channels */
 	for (idx = 0; idx < ARRAY_SIZE(cmi8330_sb_init_values); idx++) {
 		spin_lock_irqsave(&chip->mixer_lock, flags);
 		snd_sbmixer_write(chip, cmi8330_sb_init_values[idx][0],
@@ -308,7 +336,7 @@ static int __devinit snd_cmi8330_pnp(int dev, struct snd_cmi8330 *acard,
 	struct pnp_dev *pdev;
 	int err;
 
-	
+	/* CMI8329 has a device with ID A@@0001, CMI8330 does not */
 	acard->type = (id->devs[3].id[0]) ? CMI8329 : CMI8330;
 
 	acard->cap = pnp_request_card_device(card, id->devs[0].id, NULL);
@@ -336,7 +364,7 @@ static int __devinit snd_cmi8330_pnp(int dev, struct snd_cmi8330 *acard,
 	if (pnp_port_start(pdev, 1))
 		fmport[dev] = pnp_port_start(pdev, 1);
 
-	
+	/* allocate SB16 resources */
 	pdev = acard->play;
 
 	err = pnp_activate_dev(pdev);
@@ -348,15 +376,15 @@ static int __devinit snd_cmi8330_pnp(int dev, struct snd_cmi8330 *acard,
 	sbdma8[dev] = pnp_dma(pdev, 0);
 	sbdma16[dev] = pnp_dma(pdev, 1);
 	sbirq[dev] = pnp_irq(pdev, 0);
-	
+	/* On CMI8239, the OPL3 port might be present in SB16 PnP resources */
 	if (fmport[dev] == SNDRV_AUTO_PORT) {
 		if (pnp_port_start(pdev, 1))
 			fmport[dev] = pnp_port_start(pdev, 1);
 		else
-			fmport[dev] = 0x388;	
+			fmport[dev] = 0x388;	/* Or hardwired */
 	}
 
-	
+	/* allocate MPU-401 resources */
 	pdev = acard->mpu;
 
 	err = pnp_activate_dev(pdev);
@@ -370,6 +398,18 @@ static int __devinit snd_cmi8330_pnp(int dev, struct snd_cmi8330 *acard,
 }
 #endif
 
+/*
+ * PCM interface
+ *
+ * since we call the different chip interfaces for playback and capture
+ * directions, we need a trick.
+ *
+ * - copy the ops for each direction into a local record.
+ * - replace the open callback with the new one, which replaces the
+ *   substream->private_data with the corresponding chip instance
+ *   and calls again the original open callback of the chip.
+ *
+ */
 
 #ifdef PLAYBACK_ON_SB
 #define CMI_SB_STREAM	SNDRV_PCM_STREAM_PLAYBACK
@@ -383,7 +423,7 @@ static int snd_cmi8330_playback_open(struct snd_pcm_substream *substream)
 {
 	struct snd_cmi8330 *chip = snd_pcm_substream_chip(substream);
 
-	
+	/* replace the private_data and call the original open callback */
 	substream->private_data = chip->streams[SNDRV_PCM_STREAM_PLAYBACK].private_data;
 	return chip->streams[SNDRV_PCM_STREAM_PLAYBACK].open(substream);
 }
@@ -392,7 +432,7 @@ static int snd_cmi8330_capture_open(struct snd_pcm_substream *substream)
 {
 	struct snd_cmi8330 *chip = snd_pcm_substream_chip(substream);
 
-	
+	/* replace the private_data and call the original open callback */
 	substream->private_data = chip->streams[SNDRV_PCM_STREAM_CAPTURE].private_data;
 	return chip->streams[SNDRV_PCM_STREAM_CAPTURE].open(substream);
 }
@@ -412,14 +452,14 @@ static int __devinit snd_cmi8330_pcm(struct snd_card *card, struct snd_cmi8330 *
 	strcpy(pcm->name, (chip->type == CMI8329) ? "CMI8329" : "CMI8330");
 	pcm->private_data = chip;
 	
-	
+	/* SB16 */
 	ops = snd_sb16dsp_get_pcm_ops(CMI_SB_STREAM);
 	chip->streams[CMI_SB_STREAM].ops = *ops;
 	chip->streams[CMI_SB_STREAM].open = ops->open;
 	chip->streams[CMI_SB_STREAM].ops.open = cmi_open_callbacks[CMI_SB_STREAM];
 	chip->streams[CMI_SB_STREAM].private_data = chip->sb;
 
-	
+	/* AD1848 */
 	ops = snd_wss_get_pcm_ops(CMI_AD_STREAM);
 	chip->streams[CMI_AD_STREAM].ops = *ops;
 	chip->streams[CMI_AD_STREAM].open = ops->open;
@@ -463,6 +503,8 @@ static int snd_cmi8330_resume(struct snd_card *card)
 #endif
 
 
+/*
+ */
 
 #ifdef CONFIG_PNP
 #define is_isapnp_selected(dev)		isapnp[dev]
@@ -524,7 +566,7 @@ static int __devinit snd_cmi8330_probe(struct snd_card *card, int dev)
 		return err;
 	}
 
-	snd_wss_out(acard->wss, CS4231_MISC_INFO, 0x40); 
+	snd_wss_out(acard->wss, CS4231_MISC_INFO, 0x40); /* switch on MODE2 */
 	for (i = CMI8330_RMUX3D; i <= CMI8330_CDINGAIN; i++)
 		snd_wss_out(acard->wss, i,
 			    snd_cmi8330_image[i - CMI8330_RMUX3D]);
@@ -704,7 +746,7 @@ static struct pnp_card_driver cmi8330_pnpc_driver = {
 	.resume		= snd_cmi8330_pnp_resume,
 #endif
 };
-#endif 
+#endif /* CONFIG_PNP */
 
 static int __init alsa_card_cmi8330_init(void)
 {

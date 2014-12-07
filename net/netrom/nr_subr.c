@@ -28,6 +28,9 @@
 #include <linux/interrupt.h>
 #include <net/netrom.h>
 
+/*
+ *	This routine purges all of the queues of frames.
+ */
 void nr_clear_queues(struct sock *sk)
 {
 	struct nr_sock *nr = nr_sk(sk);
@@ -38,11 +41,19 @@ void nr_clear_queues(struct sock *sk)
 	skb_queue_purge(&nr->frag_queue);
 }
 
+/*
+ * This routine purges the input queue of those frames that have been
+ * acknowledged. This replaces the boxes labelled "V(a) <- N(r)" on the
+ * SDL diagram.
+ */
 void nr_frames_acked(struct sock *sk, unsigned short nr)
 {
 	struct nr_sock *nrom = nr_sk(sk);
 	struct sk_buff *skb;
 
+	/*
+	 * Remove all the ack-ed frames from the ack queue.
+	 */
 	if (nrom->va != nr) {
 		while (skb_peek(&nrom->ack_queue) != NULL && nrom->va != nr) {
 			skb = skb_dequeue(&nrom->ack_queue);
@@ -52,6 +63,11 @@ void nr_frames_acked(struct sock *sk, unsigned short nr)
 	}
 }
 
+/*
+ * Requeue all the un-ack-ed frames on the output queue to be picked
+ * up by nr_kick called from the timer. This arrangement handles the
+ * possibility of an empty output queue.
+ */
 void nr_requeue_frames(struct sock *sk)
 {
 	struct sk_buff *skb, *skb_prev = NULL;
@@ -65,6 +81,10 @@ void nr_requeue_frames(struct sock *sk)
 	}
 }
 
+/*
+ *	Validate that the value of nr is between va and vs. Return true or
+ *	false for testing.
+ */
 int nr_validate_nr(struct sock *sk, unsigned short nr)
 {
 	struct nr_sock *nrom = nr_sk(sk);
@@ -78,6 +98,9 @@ int nr_validate_nr(struct sock *sk, unsigned short nr)
 	return nr == nrom->vs;
 }
 
+/*
+ *	Check that ns is within the receive window.
+ */
 int nr_in_rx_window(struct sock *sk, unsigned short ns)
 {
 	struct nr_sock *nr = nr_sk(sk);
@@ -92,6 +115,10 @@ int nr_in_rx_window(struct sock *sk, unsigned short ns)
 	return 0;
 }
 
+/*
+ *  This routine is called when the HDLC layer internally generates a
+ *  control frame.
+ */
 void nr_write_internal(struct sock *sk, int frametype)
 {
 	struct nr_sock *nr = nr_sk(sk);
@@ -120,6 +147,9 @@ void nr_write_internal(struct sock *sk, int frametype)
 	if ((skb = alloc_skb(len, GFP_ATOMIC)) == NULL)
 		return;
 
+	/*
+	 *	Space for AX.25 and NET/ROM network header
+	 */
 	skb_reserve(skb, NR_NETWORK_LEN);
 
 	dptr = skb_put(skb, skb_tailroom(skb));
@@ -178,6 +208,9 @@ void nr_write_internal(struct sock *sk, int frametype)
 	nr_transmit_buffer(sk, skb);
 }
 
+/*
+ * This routine is called to send an error reply.
+ */
 void __nr_transmit_reply(struct sk_buff *skb, int mine, unsigned char cmdflags)
 {
 	struct sk_buff *skbn;

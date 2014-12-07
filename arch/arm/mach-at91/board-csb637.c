@@ -42,13 +42,13 @@
 
 static void __init csb637_init_early(void)
 {
-	
+	/* Initialize processor: 3.6864 MHz crystal */
 	at91_initialize(3686400);
 
-	
+	/* DBGU on ttyS0. (Rx & Tx only) */
 	at91_register_uart(0, 0, 0);
 
-	
+	/* make console=ttyS0 (ie, DBGU) the default */
 	at91_set_serial_console(0);
 }
 
@@ -76,7 +76,7 @@ static struct mtd_partition csb_flash_partitions[] = {
 		.name		= "uMON flash",
 		.offset		= 0,
 		.size		= MTDPART_SIZ_FULL,
-		.mask_flags	= MTD_WRITEABLE,	
+		.mask_flags	= MTD_WRITEABLE,	/* read only */
 	}
 };
 
@@ -105,7 +105,7 @@ static struct platform_device csb_flash = {
 };
 
 static struct gpio_led csb_leds[] = {
-	{	
+	{	/* "d1", red */
 		.name			= "d1",
 		.gpio			= AT91_PIN_PB2,
 		.active_low		= 1,
@@ -115,26 +115,26 @@ static struct gpio_led csb_leds[] = {
 
 static void __init csb637_board_init(void)
 {
-	
+	/* LED(s) */
 	at91_gpio_leds(csb_leds, ARRAY_SIZE(csb_leds));
-	
+	/* Serial */
 	at91_add_device_serial();
-	
+	/* Ethernet */
 	at91_add_device_eth(&csb637_eth_data);
-	
+	/* USB Host */
 	at91_add_device_usbh(&csb637_usbh_data);
-	
+	/* USB Device */
 	at91_add_device_udc(&csb637_udc_data);
-	
+	/* I2C */
 	at91_add_device_i2c(NULL, 0);
-	
+	/* SPI */
 	at91_add_device_spi(NULL, 0);
-	
+	/* NOR flash */
 	platform_device_register(&csb_flash);
 }
 
 MACHINE_START(CSB637, "Cogent CSB637")
-	
+	/* Maintainer: Bill Gatliff */
 	.timer		= &at91rm9200_timer,
 	.map_io		= at91_map_io,
 	.init_early	= csb637_init_early,

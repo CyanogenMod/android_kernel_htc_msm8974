@@ -13,32 +13,32 @@
 
 
 static struct rc_map_table it913x_v2_rc[] = {
-	
-	
-	{ 0x807f12, KEY_POWER2 },	
-	{ 0x807f1a, KEY_VIDEO },	
-	{ 0x807f1e, KEY_MUTE },		
-	{ 0x807f01, KEY_RECORD },	
-	{ 0x807f02, KEY_CHANNELUP },	
-	{ 0x807f03, KEY_TIME },		
-	{ 0x807f04, KEY_VOLUMEUP },	
-	{ 0x807f05, KEY_SCREEN },	
-	{ 0x807f06, KEY_VOLUMEDOWN },	
-	{ 0x807f07, KEY_0 },		
-	{ 0x807f08, KEY_CHANNELDOWN },	
-	{ 0x807f09, KEY_PREVIOUS },	
-	{ 0x807f0a, KEY_1 },		
-	{ 0x807f1b, KEY_2 },		
-	{ 0x807f1f, KEY_3 },		
-	{ 0x807f0c, KEY_4 },		
-	{ 0x807f0d, KEY_5 },		
-	{ 0x807f0e, KEY_6 },		
-	{ 0x807f00, KEY_7 },		
-	{ 0x807f0f, KEY_8 },		
-	{ 0x807f19, KEY_9 },		
+	/* Type 1 */
+	/* 9005 remote */
+	{ 0x807f12, KEY_POWER2 },	/* Power (RED POWER BUTTON)*/
+	{ 0x807f1a, KEY_VIDEO },	/* Source */
+	{ 0x807f1e, KEY_MUTE },		/* Mute */
+	{ 0x807f01, KEY_RECORD },	/* Record */
+	{ 0x807f02, KEY_CHANNELUP },	/* Channel+ */
+	{ 0x807f03, KEY_TIME },		/* TimeShift */
+	{ 0x807f04, KEY_VOLUMEUP },	/* Volume- */
+	{ 0x807f05, KEY_SCREEN },	/* FullScreen */
+	{ 0x807f06, KEY_VOLUMEDOWN },	/* Volume- */
+	{ 0x807f07, KEY_0 },		/* 0 */
+	{ 0x807f08, KEY_CHANNELDOWN },	/* Channel- */
+	{ 0x807f09, KEY_PREVIOUS },	/* Recall */
+	{ 0x807f0a, KEY_1 },		/* 1 */
+	{ 0x807f1b, KEY_2 },		/* 2 */
+	{ 0x807f1f, KEY_3 },		/* 3 */
+	{ 0x807f0c, KEY_4 },		/* 4 */
+	{ 0x807f0d, KEY_5 },		/* 5 */
+	{ 0x807f0e, KEY_6 },		/* 6 */
+	{ 0x807f00, KEY_7 },		/* 7 */
+	{ 0x807f0f, KEY_8 },		/* 8 */
+	{ 0x807f19, KEY_9 },		/* 9 */
 
-	
-	
+	/* Type 2 */
+	/* keys stereo, snapshot unassigned */
 	{ 0x866b00, KEY_0 },
 	{ 0x866b1b, KEY_1 },
 	{ 0x866b02, KEY_2 },
@@ -51,7 +51,7 @@ static struct rc_map_table it913x_v2_rc[] = {
 	{ 0x866b09, KEY_9 },
 	{ 0x866b12, KEY_POWER },
 	{ 0x866b13, KEY_MUTE },
-	{ 0x866b0a, KEY_PREVIOUS }, 
+	{ 0x866b0a, KEY_PREVIOUS }, /* Recall */
 	{ 0x866b1e, KEY_PAUSE },
 	{ 0x866b0c, KEY_VOLUMEUP },
 	{ 0x866b18, KEY_VOLUMEDOWN },

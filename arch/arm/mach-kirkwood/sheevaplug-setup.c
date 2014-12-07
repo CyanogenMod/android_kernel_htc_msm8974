@@ -48,12 +48,12 @@ static struct mv_sata_platform_data sheeva_esata_sata_data = {
 };
 
 static struct mvsdio_platform_data sheevaplug_mvsdio_data = {
-	
+	/* unfortunately the CD signal has not been connected */
 };
 
 static struct mvsdio_platform_data sheeva_esata_mvsdio_data = {
-	.gpio_write_protect = 44, 
-	.gpio_card_detect = 47,	  
+	.gpio_write_protect = 44, /* MPP44 used as SD write protect */
+	.gpio_card_detect = 47,	  /* MPP47 used as SD card detect */
 };
 
 static struct gpio_led sheevaplug_led_pins[] = {
@@ -85,25 +85,28 @@ static struct platform_device sheevaplug_leds = {
 };
 
 static unsigned int sheevaplug_mpp_config[] __initdata = {
-	MPP29_GPIO,	
-	MPP46_GPIO,	
-	MPP49_GPIO,	
+	MPP29_GPIO,	/* USB Power Enable */
+	MPP46_GPIO,	/* LED Red */
+	MPP49_GPIO,	/* LED */
 	0
 };
 
 static unsigned int sheeva_esata_mpp_config[] __initdata = {
-	MPP29_GPIO,	
-	MPP44_GPIO,	
-	MPP47_GPIO,	
-	MPP49_GPIO,	
+	MPP29_GPIO,	/* USB Power Enable */
+	MPP44_GPIO,	/* SD Write Protect */
+	MPP47_GPIO,	/* SD Card Detect */
+	MPP49_GPIO,	/* LED Green */
 	0
 };
 
 static void __init sheevaplug_init(void)
 {
+	/*
+	 * Basic setup. Needs to be called early.
+	 */
 	kirkwood_init();
 
-	
+	/* setup gpio pin select */
 	if (machine_is_esata_sheevaplug())
 		kirkwood_mpp_conf(sheeva_esata_mpp_config);
 	else
@@ -119,11 +122,11 @@ static void __init sheevaplug_init(void)
 
 	kirkwood_ge00_init(&sheevaplug_ge00_data);
 
-	
+	/* honor lower power consumption for plugs with out eSATA */
 	if (machine_is_esata_sheevaplug())
 		kirkwood_sata_init(&sheeva_esata_sata_data);
 
-	
+	/* enable sd wp and sd cd on plugs with esata */
 	if (machine_is_esata_sheevaplug())
 		kirkwood_sdio_init(&sheeva_esata_mvsdio_data);
 	else
@@ -134,7 +137,7 @@ static void __init sheevaplug_init(void)
 
 #ifdef CONFIG_MACH_SHEEVAPLUG
 MACHINE_START(SHEEVAPLUG, "Marvell SheevaPlug Reference Board")
-	
+	/* Maintainer: shadi Ammouri <shadi@marvell.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= sheevaplug_init,
 	.map_io		= kirkwood_map_io,

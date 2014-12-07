@@ -12,10 +12,16 @@
 #ifndef _ASM_IRQ_REGS_H
 #define _ASM_IRQ_REGS_H
 
+/*
+ * Per-cpu current frame pointer - the location of the last exception frame on
+ * the stack
+ * - on FRV, GR28 is dedicated to keeping a pointer to the current exception
+ *   frame
+ */
 #define ARCH_HAS_OWN_IRQ_REGS
 
 #ifndef __ASSEMBLY__
 #define get_irq_regs() (__frame)
 #endif
 
-#endif 
+#endif /* _ASM_IRQ_REGS_H */

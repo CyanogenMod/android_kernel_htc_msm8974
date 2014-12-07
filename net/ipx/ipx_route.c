@@ -1,3 +1,11 @@
+/*
+ *	Implements the IPX routing routines.
+ *	Code moved from af_ipx.c.
+ *
+ *	Arnaldo Carvalho de Melo <acme@conectiva.com.br>, 2003
+ *
+ *	See net/ipx/ChangeLog.
+ */
 
 #include <linux/list.h>
 #include <linux/route.h>
@@ -38,13 +46,16 @@ unlock:
 	return r;
 }
 
+/*
+ * Caller must hold a reference to intrfc
+ */
 int ipxrtr_add_route(__be32 network, struct ipx_interface *intrfc,
 		     unsigned char *node)
 {
 	struct ipx_route *rt;
 	int rc;
 
-	
+	/* Get a route structure; either existing or create */
 	rt = ipxrtr_lookup(network);
 	if (!rt) {
 		rt = kmalloc(sizeof(*rt), GFP_ATOMIC);
@@ -98,7 +109,7 @@ static int ipxrtr_create(struct ipx_route_definition *rd)
 	struct ipx_interface *intrfc;
 	int rc = -ENETUNREACH;
 
-	
+	/* Find the appropriate interface */
 	intrfc = ipxitf_find_using_net(rd->ipx_router_network);
 	if (!intrfc)
 		goto out;
@@ -116,7 +127,7 @@ static int ipxrtr_delete(__be32 net)
 	write_lock_bh(&ipx_routes_lock);
 	list_for_each_entry_safe(r, tmp, &ipx_routes, node)
 		if (r->ir_net == net) {
-			
+			/* Directly connected; can't lose route */
 			rc = -EPERM;
 			if (!r->ir_routed)
 				goto out;
@@ -131,12 +142,16 @@ out:
 	return rc;
 }
 
+/*
+ * The skb has to be unshared, we'll end up calling ipxitf_send, that'll
+ * modify the packet
+ */
 int ipxrtr_route_skb(struct sk_buff *skb)
 {
 	struct ipxhdr *ipx = ipx_hdr(skb);
 	struct ipx_route *r = ipxrtr_lookup(IPX_SKB_CB(skb)->ipx_dest_net);
 
-	if (!r) {	
+	if (!r) {	/* no known route */
 		kfree_skb(skb);
 		return 0;
 	}
@@ -150,6 +165,9 @@ int ipxrtr_route_skb(struct sk_buff *skb)
 	return 0;
 }
 
+/*
+ * Route an outgoing frame from a socket.
+ */
 int ipxrtr_route_packet(struct sock *sk, struct sockaddr_ipx *usipx,
 			struct iovec *iov, size_t len, int noblock)
 {
@@ -162,7 +180,7 @@ int ipxrtr_route_packet(struct sock *sk, struct sockaddr_ipx *usipx,
 	struct ipx_route *rt = NULL;
 	int rc;
 
-	
+	/* Find the appropriate interface on which to send packet */
 	if (!usipx->sipx_network && ipx_primary_net) {
 		usipx->sipx_network = ipx_primary_net->if_netnum;
 		intrfc = ipx_primary_net;
@@ -185,7 +203,7 @@ int ipxrtr_route_packet(struct sock *sk, struct sockaddr_ipx *usipx,
 	skb_reserve(skb, ipx_offset);
 	skb->sk = sk;
 
-	
+	/* Fill in IPX header */
 	skb_reset_network_header(skb);
 	skb_reset_transport_header(skb);
 	skb_put(skb, sizeof(struct ipxhdr));
@@ -201,7 +219,7 @@ int ipxrtr_route_packet(struct sock *sk, struct sockaddr_ipx *usipx,
 #else
 	rc = ntohs(ipxs->port);
 	if (rc == 0x453 || rc == 0x452) {
-		
+		/* RIP/SAP special handling for mars_nwe */
 		IPX_SKB_CB(skb)->ipx_source_net = intrfc->if_netnum;
 		memcpy(ipx->ipx_source.node, intrfc->if_node, IPX_NODE_LEN);
 	} else {
@@ -209,7 +227,7 @@ int ipxrtr_route_packet(struct sock *sk, struct sockaddr_ipx *usipx,
 		memcpy(ipx->ipx_source.node, ipxs->intrfc->if_node,
 			IPX_NODE_LEN);
 	}
-#endif	
+#endif	/* CONFIG_IPX_INTERN */
 	ipx->ipx_source.sock		= ipxs->port;
 	IPX_SKB_CB(skb)->ipx_dest_net	= usipx->sipx_network;
 	memcpy(ipx->ipx_dest.node, usipx->sipx_node, IPX_NODE_LEN);
@@ -221,7 +239,7 @@ int ipxrtr_route_packet(struct sock *sk, struct sockaddr_ipx *usipx,
 		goto out_put;
 	}
 
-	
+	/* Apply checksum. Not allowed on 802.3 links. */
 	if (sk->sk_no_check || intrfc->if_dlink_type == htons(IPX_FRAME_8023))
 		ipx->ipx_checksum = htons(0xFFFF);
 	else
@@ -237,9 +255,12 @@ out:
 	return rc;
 }
 
+/*
+ * We use a normal struct rtentry for route handling
+ */
 int ipxrtr_ioctl(unsigned int cmd, void __user *arg)
 {
-	struct rtentry rt;	
+	struct rtentry rt;	/* Use these to behave like 'other' stacks */
 	struct sockaddr_ipx *sg, *st;
 	int rc = -EFAULT;
 
@@ -250,7 +271,7 @@ int ipxrtr_ioctl(unsigned int cmd, void __user *arg)
 	st = (struct sockaddr_ipx *)&rt.rt_dst;
 
 	rc = -EINVAL;
-	if (!(rt.rt_flags & RTF_GATEWAY) || 
+	if (!(rt.rt_flags & RTF_GATEWAY) || /* Direct routes are fixed */
 	    sg->sipx_family != AF_IPX ||
 	    st->sipx_family != AF_IPX)
 		goto out;

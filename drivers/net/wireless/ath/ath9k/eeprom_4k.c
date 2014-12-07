@@ -690,7 +690,7 @@ static void ath9k_hw_4k_set_txpower(struct ath_hw *ah,
 
 	ENABLE_REGWRITE_BUFFER(ah);
 
-	
+	/* OFDM power per rate */
 	REG_WRITE(ah, AR_PHY_POWER_TX_RATE1,
 		  ATH9K_POW_SM(ratesArray[rate18mb], 24)
 		  | ATH9K_POW_SM(ratesArray[rate12mb], 16)
@@ -702,7 +702,7 @@ static void ath9k_hw_4k_set_txpower(struct ath_hw *ah,
 		  | ATH9K_POW_SM(ratesArray[rate36mb], 8)
 		  | ATH9K_POW_SM(ratesArray[rate24mb], 0));
 
-	
+	/* CCK power per rate */
 	REG_WRITE(ah, AR_PHY_POWER_TX_RATE3,
 		  ATH9K_POW_SM(ratesArray[rate2s], 24)
 		  | ATH9K_POW_SM(ratesArray[rate2l], 16)
@@ -714,7 +714,7 @@ static void ath9k_hw_4k_set_txpower(struct ath_hw *ah,
 		  | ATH9K_POW_SM(ratesArray[rate5_5s], 8)
 		  | ATH9K_POW_SM(ratesArray[rate5_5l], 0));
 
-	
+	/* HT20 power per rate */
 	REG_WRITE(ah, AR_PHY_POWER_TX_RATE5,
 		  ATH9K_POW_SM(ratesArray[rateHt20_3], 24)
 		  | ATH9K_POW_SM(ratesArray[rateHt20_2], 16)
@@ -726,7 +726,7 @@ static void ath9k_hw_4k_set_txpower(struct ath_hw *ah,
 		  | ATH9K_POW_SM(ratesArray[rateHt20_5], 8)
 		  | ATH9K_POW_SM(ratesArray[rateHt20_4], 0));
 
-	
+	/* HT40 power per rate */
 	if (IS_CHAN_HT40(chan)) {
 		REG_WRITE(ah, AR_PHY_POWER_TX_RATE7,
 			  ATH9K_POW_SM(ratesArray[rateHt40_3] +
@@ -785,7 +785,7 @@ static void ath9k_hw_4k_set_gain(struct ath_hw *ah,
 		REG_RMW_FIELD(ah, AR_PHY_GAIN_2GHZ,
 			      AR_PHY_GAIN_2GHZ_XATTEN2_DB, pModal->xatten2Db[0]);
 
-		
+		/* Set the block 1 value to block 0 value */
 		REG_RMW_FIELD(ah, AR_PHY_GAIN_2GHZ + 0x1000,
 			      AR_PHY_GAIN_2GHZ_XATTEN1_MARGIN,
 			      pModal->bswMargin[0]);
@@ -810,6 +810,10 @@ static void ath9k_hw_4k_set_gain(struct ath_hw *ah,
 		      AR9280_PHY_RXGAIN_TXRX_MARGIN, pModal->rxTxMarginCh[0]);
 }
 
+/*
+ * Read EEPROM header info and program the device for correct operation
+ * given the channel value.
+ */
 static void ath9k_hw_4k_set_board_values(struct ath_hw *ah,
 					 struct ath9k_channel *chan)
 {
@@ -827,10 +831,10 @@ static void ath9k_hw_4k_set_board_values(struct ath_hw *ah,
 
 	REG_WRITE(ah, AR_PHY_SWITCH_COM, pModal->antCtrlCommon);
 
-	
+	/* Single chain for 4K EEPROM*/
 	ath9k_hw_4k_set_gain(ah, pModal, eep, txRxAttenLocal);
 
-	
+	/* Initialize Ant Diversity settings from EEPROM */
 	if (pModal->version >= 3) {
 		ant_div_control1 = pModal->antdiv_ctl1;
 		ant_div_control2 = pModal->antdiv_ctl2;

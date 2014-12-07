@@ -14,17 +14,42 @@
 #include <asm/dcache_clear.h>
 #include <asm/page.h>
 
+/*
+ * Your basic SMP spinlocks, allowing only a single CPU anywhere
+ *
+ * (the type definitions are in asm/spinlock_types.h)
+ *
+ * Simple spin lock operations.  There are two variants, one clears IRQ's
+ * on the local processor, one does not.
+ *
+ * We make no fairness assumptions. They have a cost.
+ */
 
 #define arch_spin_is_locked(x)		(*(volatile int *)(&(x)->slock) <= 0)
 #define arch_spin_lock_flags(lock, flags) arch_spin_lock(lock)
 #define arch_spin_unlock_wait(x) \
 		do { cpu_relax(); } while (arch_spin_is_locked(x))
 
+/**
+ * arch_spin_trylock - Try spin lock and return a result
+ * @lock: Pointer to the lock variable
+ *
+ * arch_spin_trylock() tries to get the lock and returns a result.
+ * On the m32r, the result value is 1 (= Success) or 0 (= Failure).
+ */
 static inline int arch_spin_trylock(arch_spinlock_t *lock)
 {
 	int oldval;
 	unsigned long tmp1, tmp2;
 
+	/*
+	 * lock->slock :  =1 : unlock
+	 *             : <=0 : lock
+	 * {
+	 *   oldval = lock->slock; <--+ need atomic operation
+	 *   lock->slock = 0;      <--+
+	 * }
+	 */
 	__asm__ __volatile__ (
 		"# arch_spin_trylock		\n\t"
 		"ldi	%1, #0;			\n\t"
@@ -39,7 +64,7 @@ static inline int arch_spin_trylock(arch_spinlock_t *lock)
 		: "memory"
 #ifdef CONFIG_CHIP_M32700_TS1
 		, "r6"
-#endif	
+#endif	/* CONFIG_CHIP_M32700_TS1 */
 	);
 
 	return (oldval > 0);
@@ -49,6 +74,16 @@ static inline void arch_spin_lock(arch_spinlock_t *lock)
 {
 	unsigned long tmp0, tmp1;
 
+	/*
+	 * lock->slock :  =1 : unlock
+	 *             : <=0 : lock
+	 *
+	 * for ( ; ; ) {
+	 *   lock->slock -= 1;  <-- need atomic operation
+	 *   if (lock->slock == 0) break;
+	 *   for ( ; lock->slock <= 0 ; );
+	 * }
+	 */
 	__asm__ __volatile__ (
 		"# arch_spin_lock		\n\t"
 		".fillinsn			\n"
@@ -73,7 +108,7 @@ static inline void arch_spin_lock(arch_spinlock_t *lock)
 		: "memory"
 #ifdef CONFIG_CHIP_M32700_TS1
 		, "r6"
-#endif	
+#endif	/* CONFIG_CHIP_M32700_TS1 */
 	);
 }
 
@@ -83,15 +118,52 @@ static inline void arch_spin_unlock(arch_spinlock_t *lock)
 	lock->slock = 1;
 }
 
+/*
+ * Read-write spinlocks, allowing multiple readers
+ * but only one writer.
+ *
+ * NOTE! it is quite common to have readers in interrupts
+ * but no interrupt writers. For those circumstances we
+ * can "mix" irq-safe locks - any writer needs to get a
+ * irq-safe write-lock, but readers can get non-irqsafe
+ * read-locks.
+ *
+ * On x86, we implement read-write locks as a 32-bit counter
+ * with the high bit (sign) being the "contended" bit.
+ *
+ * The inline assembly is non-obvious. Think about it.
+ *
+ * Changed to use the same technique as rw semaphores.  See
+ * semaphore.h for details.  -ben
+ */
 
+/**
+ * read_can_lock - would read_trylock() succeed?
+ * @lock: the rwlock in question.
+ */
 #define arch_read_can_lock(x) ((int)(x)->lock > 0)
 
+/**
+ * write_can_lock - would write_trylock() succeed?
+ * @lock: the rwlock in question.
+ */
 #define arch_write_can_lock(x) ((x)->lock == RW_LOCK_BIAS)
 
 static inline void arch_read_lock(arch_rwlock_t *rw)
 {
 	unsigned long tmp0, tmp1;
 
+	/*
+	 * rw->lock :  >0 : unlock
+	 *          : <=0 : lock
+	 *
+	 * for ( ; ; ) {
+	 *   rw->lock -= 1;  <-- need atomic operation
+	 *   if (rw->lock >= 0) break;
+	 *   rw->lock += 1;  <-- need atomic operation
+	 *   for ( ; rw->lock <= 0 ; );
+	 * }
+	 */
 	__asm__ __volatile__ (
 		"# read_lock			\n\t"
 		".fillinsn			\n"
@@ -124,7 +196,7 @@ static inline void arch_read_lock(arch_rwlock_t *rw)
 		: "memory"
 #ifdef CONFIG_CHIP_M32700_TS1
 		, "r6"
-#endif	
+#endif	/* CONFIG_CHIP_M32700_TS1 */
 	);
 }
 
@@ -132,6 +204,17 @@ static inline void arch_write_lock(arch_rwlock_t *rw)
 {
 	unsigned long tmp0, tmp1, tmp2;
 
+	/*
+	 * rw->lock :  =RW_LOCK_BIAS_STR : unlock
+	 *          : !=RW_LOCK_BIAS_STR : lock
+	 *
+	 * for ( ; ; ) {
+	 *   rw->lock -= RW_LOCK_BIAS_STR;  <-- need atomic operation
+	 *   if (rw->lock == 0) break;
+	 *   rw->lock += RW_LOCK_BIAS_STR;  <-- need atomic operation
+	 *   for ( ; rw->lock != RW_LOCK_BIAS_STR ; ) ;
+	 * }
+	 */
 	__asm__ __volatile__ (
 		"# write_lock					\n\t"
 		"seth	%1, #high(" RW_LOCK_BIAS_STR ");	\n\t"
@@ -166,7 +249,7 @@ static inline void arch_write_lock(arch_rwlock_t *rw)
 		: "memory"
 #ifdef CONFIG_CHIP_M32700_TS1
 		, "r7"
-#endif	
+#endif	/* CONFIG_CHIP_M32700_TS1 */
 	);
 }
 
@@ -188,7 +271,7 @@ static inline void arch_read_unlock(arch_rwlock_t *rw)
 		: "memory"
 #ifdef CONFIG_CHIP_M32700_TS1
 		, "r6"
-#endif	
+#endif	/* CONFIG_CHIP_M32700_TS1 */
 	);
 }
 
@@ -212,7 +295,7 @@ static inline void arch_write_unlock(arch_rwlock_t *rw)
 		: "memory"
 #ifdef CONFIG_CHIP_M32700_TS1
 		, "r7"
-#endif	
+#endif	/* CONFIG_CHIP_M32700_TS1 */
 	);
 }
 
@@ -241,4 +324,4 @@ static inline int arch_write_trylock(arch_rwlock_t *lock)
 #define arch_read_relax(lock)	cpu_relax()
 #define arch_write_relax(lock)	cpu_relax()
 
-#endif	
+#endif	/* _ASM_M32R_SPINLOCK_H */

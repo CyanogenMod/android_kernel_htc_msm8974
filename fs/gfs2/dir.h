@@ -50,6 +50,7 @@ static inline void gfs2_str2qstr(struct qstr *name, const char *fname)
 	name->hash = gfs2_disk_hash(name->name, name->len);
 }
 
+/* N.B. This probably ought to take inum & type as args as well */
 static inline void gfs2_qstr2dirent(const struct qstr *name, u16 reclen, struct gfs2_dirent *dent)
 {
 	dent->de_inum.no_addr = cpu_to_be64(0);
@@ -65,4 +66,4 @@ static inline void gfs2_qstr2dirent(const struct qstr *name, u16 reclen, struct 
 extern struct qstr gfs2_qdot;
 extern struct qstr gfs2_qdotdot;
 
-#endif 
+#endif /* __DIR_DOT_H__ */

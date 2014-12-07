@@ -26,7 +26,7 @@
 
 #define IOMMU_READ	(1)
 #define IOMMU_WRITE	(2)
-#define IOMMU_CACHE	(4) 
+#define IOMMU_CACHE	(4) /* DMA cache coherency */
 
 struct iommu_ops;
 struct iommu_group;
@@ -34,6 +34,7 @@ struct bus_type;
 struct device;
 struct iommu_domain;
 
+/* iommu fault flags */
 #define IOMMU_FAULT_READ	0x0
 #define IOMMU_FAULT_WRITE	0x1
 
@@ -48,10 +49,25 @@ struct iommu_domain {
 };
 
 #define IOMMU_CAP_CACHE_COHERENCY	0x1
-#define IOMMU_CAP_INTR_REMAP		0x2	
+#define IOMMU_CAP_INTR_REMAP		0x2	/* isolates device intrs */
 
 #ifdef CONFIG_IOMMU_API
 
+/**
+ * struct iommu_ops - iommu ops and capabilities
+ * @domain_init: init iommu domain
+ * @domain_destroy: destroy iommu domain
+ * @attach_dev: attach device to an iommu domain
+ * @detach_dev: detach device from an iommu domain
+ * @map: map a physically contiguous memory region to an iommu domain
+ * @unmap: unmap a physically contiguous memory region from an iommu domain
+ * @iova_to_phys: translate iova to physical address
+ * @domain_has_cap: domain capabilities query
+ * @commit: commit iommu domain
+ * @add_device: add device to iommu grouping
+ * @remove_device: remove device from iommu grouping
+ * @pgsize_bitmap: bitmap of supported page sizes
+ */
 struct iommu_ops {
 	int (*domain_init)(struct iommu_domain *domain, int flags);
 	void (*domain_destroy)(struct iommu_domain *domain);
@@ -75,12 +91,12 @@ struct iommu_ops {
 	unsigned long pgsize_bitmap;
 };
 
-#define IOMMU_GROUP_NOTIFY_ADD_DEVICE		1 
-#define IOMMU_GROUP_NOTIFY_DEL_DEVICE		2 
-#define IOMMU_GROUP_NOTIFY_BIND_DRIVER		3 
-#define IOMMU_GROUP_NOTIFY_BOUND_DRIVER		4 
-#define IOMMU_GROUP_NOTIFY_UNBIND_DRIVER	5 
-#define IOMMU_GROUP_NOTIFY_UNBOUND_DRIVER	6 
+#define IOMMU_GROUP_NOTIFY_ADD_DEVICE		1 /* Device added */
+#define IOMMU_GROUP_NOTIFY_DEL_DEVICE		2 /* Pre Device removed */
+#define IOMMU_GROUP_NOTIFY_BIND_DRIVER		3 /* Pre Driver bind */
+#define IOMMU_GROUP_NOTIFY_BOUND_DRIVER		4 /* Post Driver bind */
+#define IOMMU_GROUP_NOTIFY_UNBIND_DRIVER	5 /* Pre Driver unbind */
+#define IOMMU_GROUP_NOTIFY_UNBOUND_DRIVER	6 /* Post Driver unbind */
 
 extern int bus_set_iommu(struct bus_type *bus, struct iommu_ops *ops);
 extern bool iommu_present(struct bus_type *bus);
@@ -130,11 +146,39 @@ extern int iommu_group_unregister_notifier(struct iommu_group *group,
 					   struct notifier_block *nb);
 extern int iommu_group_id(struct iommu_group *group);
 
+/**
+ * report_iommu_fault() - report about an IOMMU fault to the IOMMU framework
+ * @domain: the iommu domain where the fault has happened
+ * @dev: the device where the fault has happened
+ * @iova: the faulting address
+ * @flags: mmu fault flags (e.g. IOMMU_FAULT_READ/IOMMU_FAULT_WRITE/...)
+ *
+ * This function should be called by the low-level IOMMU implementations
+ * whenever IOMMU faults happen, to allow high-level users, that are
+ * interested in such events, to know about them.
+ *
+ * This event may be useful for several possible use cases:
+ * - mere logging of the event
+ * - dynamic TLB/PTE loading
+ * - if restarting of the faulting device is required
+ *
+ * Returns 0 on success and an appropriate error code otherwise (if dynamic
+ * PTE/TLB loading will one day be supported, implementations will be able
+ * to tell whether it succeeded or not according to this return value).
+ *
+ * Specifically, -ENOSYS is returned if a fault handler isn't installed
+ * (though fault handlers can also return -ENOSYS, in case they want to
+ * elicit the default behavior of the IOMMU drivers).
+ */
 static inline int report_iommu_fault(struct iommu_domain *domain,
 		struct device *dev, unsigned long iova, int flags)
 {
 	int ret = -ENOSYS;
 
+	/*
+	 * if upper layers showed interest and installed a fault handler,
+	 * invoke it.
+	 */
 	if (domain->handler)
 		ret = domain->handler(domain, dev, iova, flags,
 						domain->handler_token);
@@ -142,7 +186,7 @@ static inline int report_iommu_fault(struct iommu_domain *domain,
 	return ret;
 }
 
-#else 
+#else /* CONFIG_IOMMU_API */
 
 struct iommu_ops {};
 struct iommu_group {};
@@ -299,6 +343,6 @@ static inline int iommu_group_id(struct iommu_group *group)
 {
 	return -ENODEV;
 }
-#endif 
+#endif /* CONFIG_IOMMU_API */
 
-#endif 
+#endif /* __LINUX_IOMMU_H */

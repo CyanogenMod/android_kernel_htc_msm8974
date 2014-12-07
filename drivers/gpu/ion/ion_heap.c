@@ -102,8 +102,7 @@ int ion_heap_map_user(struct ion_heap *heap, struct ion_buffer *buffer,
 
 #define MAX_VMAP_RETRIES 10
 
-int ion_heap_pages_zero(struct page **pages, int num_pages,
-				bool should_invalidate)
+int ion_heap_pages_zero(struct page **pages, int num_pages)
 {
 	int i, j, k, npages_to_vmap;
 	void *ptr = NULL;
@@ -125,18 +124,22 @@ int ion_heap_pages_zero(struct page **pages, int num_pages,
 		if (!ptr)
 			return -ENOMEM;
 
-		memset(ptr, 0, npages_to_vmap * PAGE_SIZE);
-		if (should_invalidate) {
-			for (k = 0; k < npages_to_vmap; k++) {
-				void *p = kmap_atomic(pages[i + k]);
-				phys_addr_t phys = page_to_phys(
-							pages[i + k]);
+		/*
+		 * We have to invalidate the cache here because there
+		 * might be dirty lines to these physical pages (which
+		 * we don't care about) that could get written out at
+		 * any moment.
+		 */
+		for (k = 0; k < npages_to_vmap; k++) {
+			void *p = kmap_atomic(pages[i + k]);
+			phys_addr_t phys = page_to_phys(
+				pages[i + k]);
 
-				dmac_inv_range(p, p + PAGE_SIZE);
-				outer_inv_range(phys, phys + PAGE_SIZE);
-				kunmap_atomic(p);
-			}
+			dmac_inv_range(p, p + PAGE_SIZE);
+			outer_inv_range(phys, phys + PAGE_SIZE);
+			kunmap_atomic(p);
 		}
+		memset(ptr, 0, npages_to_vmap * PAGE_SIZE);
 		vunmap(ptr);
 	}
 
@@ -172,8 +175,7 @@ static void ion_heap_free_pages_mem(struct pages_mem *pages_mem)
 	pages_mem->free_fn(pages_mem->pages);
 }
 
-int ion_heap_high_order_page_zero(struct page *page,
-				int order, bool should_invalidate)
+int ion_heap_high_order_page_zero(struct page *page, int order)
 {
 	int i, ret;
 	struct pages_mem pages_mem;
@@ -186,8 +188,7 @@ int ion_heap_high_order_page_zero(struct page *page,
 	for (i = 0; i < (1 << order); ++i)
 		pages_mem.pages[i] = page + i;
 
-	ret = ion_heap_pages_zero(pages_mem.pages, npages,
-				should_invalidate);
+	ret = ion_heap_pages_zero(pages_mem.pages, npages);
 	ion_heap_free_pages_mem(&pages_mem);
 	return ret;
 }
@@ -216,46 +217,8 @@ int ion_heap_buffer_zero(struct ion_buffer *buffer)
 			pages_mem.pages[npages++] = page + j;
 	}
 
-	ret = ion_heap_pages_zero(pages_mem.pages, npages,
-				ion_buffer_cached(buffer));
+	ret = ion_heap_pages_zero(pages_mem.pages, npages);
 	ion_heap_free_pages_mem(&pages_mem);
-	return ret;
-}
-
-int ion_heap_buffer_zero_old(struct ion_buffer *buffer)
-{
-	struct sg_table *table = buffer->sg_table;
-	pgprot_t pgprot;
-	struct scatterlist *sg;
-	struct vm_struct *vm_struct;
-	int i, j, ret = 0;
-
-	if (buffer->flags & ION_FLAG_CACHED)
-		pgprot = PAGE_KERNEL;
-	else
-		pgprot = pgprot_writecombine(PAGE_KERNEL);
-
-	vm_struct = get_vm_area(PAGE_SIZE, VM_ALLOC);
-	if (!vm_struct)
-		return -ENOMEM;
-
-	for_each_sg(table->sgl, sg, table->nents, i) {
-		struct page *page = sg_page(sg);
-		unsigned long len = sg_dma_len(sg);
-
-		for (j = 0; j < len / PAGE_SIZE; j++) {
-			struct page *sub_page = page + j;
-			struct page **pages = &sub_page;
-			ret = map_vm_area(vm_struct, pgprot, &pages);
-			if (ret)
-				goto end;
-			memset(vm_struct->addr, 0, PAGE_SIZE);
-			unmap_kernel_range((unsigned long)vm_struct->addr,
-					   PAGE_SIZE);
-		}
-	}
-end:
-	free_vm_area(vm_struct);
 	return ret;
 }
 

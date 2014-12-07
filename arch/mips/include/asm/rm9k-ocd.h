@@ -31,6 +31,7 @@ extern volatile void __iomem * const titan_base;
 #define titan_addr(__x__)	(titan_base + (__x__))
 #define scram_addr(__x__)	(scram_base + (__x__))
 
+/* OCD register access */
 #define ocd_readl(__offs__) __raw_readl(ocd_addr(__offs__))
 #define ocd_readw(__offs__) __raw_readw(ocd_addr(__offs__))
 #define ocd_readb(__offs__) __raw_readb(ocd_addr(__offs__))
@@ -41,13 +42,15 @@ extern volatile void __iomem * const titan_base;
 #define ocd_writeb(__val__, __offs__) \
 	__raw_writeb((__val__), ocd_addr(__offs__))
 
+/* TITAN register access - 32 bit-wide only */
 #define titan_readl(__offs__) __raw_readl(titan_addr(__offs__))
 #define titan_writel(__val__, __offs__) \
 	__raw_writel((__val__), titan_addr(__offs__))
 
+/* Protect access to shared TITAN registers */
 extern spinlock_t titan_lock;
 extern int titan_irqflags;
 #define lock_titan_regs() spin_lock_irqsave(&titan_lock, titan_irqflags)
 #define unlock_titan_regs() spin_unlock_irqrestore(&titan_lock, titan_irqflags)
 
-#endif	
+#endif	/* !defined(_ASM_RM9K_OCD_H) */

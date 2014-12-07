@@ -305,11 +305,13 @@ static int msm_hsl_irda_enable_set(void *data, u64 val)
 	if (val) {
 		E("%s(): irda turn on IRDA\n", __func__);
 		spin_lock_irqsave(&port->lock, flags);
-		if (msm_cir_port->cir_sir_switch)
-			gpio_direction_output(msm_cir_port->cir_sir_switch, 1);
 		if (msm_cir_port->cir_learn_en)
 			gpio_direction_output(msm_cir_port->cir_learn_en, 1);
 		gpio_direction_output(msm_cir_port->rst_pin, 0);
+		msleep(10);
+
+		if (msm_cir_port->cir_sir_switch)
+			gpio_direction_output(msm_cir_port->cir_sir_switch, 1);
 		ret = 3;
 		ret |= (int)val;
 		msm_hsl_write(port, ret, UARTDM_IRDA_ADDR);
@@ -512,7 +514,6 @@ static void handle_rx(struct uart_port *port, unsigned int misr)
 static void handle_tx(struct uart_port *port)
 {
 	struct circ_buf *xmit = &port->state->xmit;
-	struct msm_hsl_port *msm_cir_port = htc_cir_port;
 	int sent_tx;
 	int tx_count;
 	int x;
@@ -527,9 +528,6 @@ static void handle_tx(struct uart_port *port)
 	if (tx_count >= port->fifosize)
 		tx_count = port->fifosize;
 
-	if (msm_cir_port->cir_learn_en && cir_enable_flg == PATH_IRDA) {
-		gpio_direction_output(msm_cir_port->cir_learn_en, 0);
-	}
 	
 	if (port->x_char) {
 		wait_for_xmitr(port, UARTDM_ISR_TX_READY_BMSK);
@@ -589,10 +587,6 @@ static void handle_tx(struct uart_port *port)
 
 	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
 		uart_write_wakeup(port);
-
-	if (msm_cir_port->cir_learn_en && cir_enable_flg == PATH_IRDA) {
-		gpio_direction_output(msm_cir_port->cir_learn_en, 1);
-	}
 }
 
 static void handle_delta_cts(struct uart_port *port)
@@ -1535,11 +1529,13 @@ static ssize_t enable_cir_store(struct device *dev,
 	if (cir_en > 1) {
 		D("%s(): Set IRDA mode\n", __func__);
 		spin_lock_irqsave(&port->lock, flags);
-		if (msm_cir_port->cir_sir_switch)
-			gpio_direction_output(msm_cir_port->cir_sir_switch, 1);
 		if (msm_cir_port->cir_learn_en)
 			gpio_direction_output(msm_cir_port->cir_learn_en, 1);
 		gpio_direction_output(msm_cir_port->rst_pin, 0);
+		msleep(10);
+
+		if (msm_cir_port->cir_sir_switch)
+			gpio_direction_output(msm_cir_port->cir_sir_switch, 1);
 		ret = 3;
 		ret |= (int)cir_en;
 		msm_hsl_write(port, ret, UARTDM_IRDA_ADDR);
@@ -1554,6 +1550,30 @@ static ssize_t enable_cir_store(struct device *dev,
 	return count;
 }
 static DEVICE_ATTR(enable_cir, 0664, enable_cir_show, enable_cir_store);
+
+static ssize_t enable_learn_show(struct device *dev,
+			struct device_attribute *attr, char *buf)
+{
+	int ret = 0;
+	return ret;
+}
+
+static ssize_t enable_learn_store(struct device *dev,
+			struct device_attribute *attr, const char *buf,size_t count)
+{
+	int enable = 0;
+	struct msm_hsl_port *msm_cir_port = htc_cir_port;
+
+	sscanf(buf, "%d", &enable);
+	D("%s trigger cir learn, input = %d.\n",__func__, enable);
+	if ((enable == 1) && (msm_cir_port->cir_learn_en)){
+		gpio_direction_output(msm_cir_port->cir_learn_en, 1);
+	} else if ((enable == 0) && (msm_cir_port->cir_learn_en)) {
+		gpio_direction_output(msm_cir_port->cir_learn_en,0);
+	}
+	return count;
+}
+static DEVICE_ATTR(enable_learn, 0666, enable_learn_show, enable_learn_store);
 
 static ssize_t reset_cir_show(struct device *dev,
 			struct device_attribute *attr, char *buf)
@@ -1639,7 +1659,7 @@ static int __devinit msm_serial_hsl_probe_cir(struct platform_device *pdev)
 	struct cir_platform_data *pdata;
 	int ret;
 	u32 line;
-
+	printk("[CIR]%s\n",__func__);
 	if (pdev->id == -1)
 		pdev->id = atomic_inc_return(&msm_serial_hsl_next_id) - 1;
 
@@ -1814,7 +1834,9 @@ printk(KERN_INFO "msm_serial_hsl: port[%d] mapbase:%x\n", port->line, port->mapb
 	ret = device_create_file(msm_hsl_port->cir_dev, &dev_attr_reset_cir);
 	if (ret)
 		goto err_create_ls_device_file;
-
+	ret = device_create_file(msm_hsl_port->cir_dev, &dev_attr_enable_learn);
+	if (ret)
+		goto err_create_ls_device_file;
 err:
 	return ret;
 

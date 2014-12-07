@@ -29,6 +29,7 @@
 
 extern void build_tlb_refill_handler(void);
 
+/* CP0 hazard avoidance. */
 #define BARRIER				\
 	__asm__ __volatile__(		\
 		".set	push\n\t"	\
@@ -36,8 +37,9 @@ extern void build_tlb_refill_handler(void);
 		"nop\n\t"		\
 		".set	pop\n\t")
 
-int r3k_have_wired_reg;		
+int r3k_have_wired_reg;		/* should be in cpu_data? */
 
+/* TLB operations. */
 void local_flush_tlb_all(void)
 {
 	unsigned long flags;
@@ -100,12 +102,12 @@ void local_flush_tlb_range(struct vm_area_struct *vma, unsigned long start,
 				int idx;
 
 				write_c0_entryhi(start | newpid);
-				start += PAGE_SIZE;	
+				start += PAGE_SIZE;	/* BARRIER */
 				tlb_probe();
 				idx = read_c0_index();
 				write_c0_entrylo0(0);
 				write_c0_entryhi(KSEG0);
-				if (idx < 0)		
+				if (idx < 0)		/* BARRIER */
 					continue;
 				tlb_write_indexed();
 			}
@@ -137,12 +139,12 @@ void local_flush_tlb_kernel_range(unsigned long start, unsigned long end)
 			int idx;
 
 			write_c0_entryhi(start);
-			start += PAGE_SIZE;		
+			start += PAGE_SIZE;		/* BARRIER */
 			tlb_probe();
 			idx = read_c0_index();
 			write_c0_entrylo0(0);
 			write_c0_entryhi(KSEG0);
-			if (idx < 0)			
+			if (idx < 0)			/* BARRIER */
 				continue;
 			tlb_write_indexed();
 		}
@@ -174,7 +176,7 @@ void local_flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 		idx = read_c0_index();
 		write_c0_entrylo0(0);
 		write_c0_entryhi(KSEG0);
-		if (idx < 0)				
+		if (idx < 0)				/* BARRIER */
 			goto finish;
 		tlb_write_indexed();
 
@@ -189,6 +191,9 @@ void __update_tlb(struct vm_area_struct *vma, unsigned long address, pte_t pte)
 	unsigned long flags;
 	int idx, pid;
 
+	/*
+	 * Handle debugger faulting in for debugee.
+	 */
 	if (current->active_mm != vma->vm_mm)
 		return;
 
@@ -209,7 +214,7 @@ void __update_tlb(struct vm_area_struct *vma, unsigned long address, pte_t pte)
 	idx = read_c0_index();
 	write_c0_entrylo0(pte_val(pte));
 	write_c0_entryhi(address | pid);
-	if (idx < 0) {					
+	if (idx < 0) {					/* BARRIER */
 		tlb_write_random();
 	} else {
 		tlb_write_indexed();
@@ -225,7 +230,7 @@ void add_wired_entry(unsigned long entrylo0, unsigned long entrylo1,
 	unsigned long old_ctx;
 	static unsigned long wired = 0;
 
-	if (r3k_have_wired_reg) {			
+	if (r3k_have_wired_reg) {			/* TX39XX */
 		unsigned long old_pagemask;
 		unsigned long w;
 
@@ -235,7 +240,7 @@ void add_wired_entry(unsigned long entrylo0, unsigned long entrylo1,
 #endif
 
 		local_irq_save(flags);
-		
+		/* Save old context and create impossible VPN2 value */
 		old_ctx = read_c0_entryhi() & ASID_MASK;
 		old_pagemask = read_c0_pagemask();
 		w = read_c0_wired();
@@ -263,7 +268,7 @@ void add_wired_entry(unsigned long entrylo0, unsigned long entrylo1,
 		write_c0_entrylo0(entrylo0);
 		write_c0_entryhi(entryhi);
 		write_c0_index(wired);
-		wired++;				
+		wired++;				/* BARRIER */
 		tlb_write_indexed();
 		write_c0_entryhi(old_ctx);
 		local_flush_tlb_all();

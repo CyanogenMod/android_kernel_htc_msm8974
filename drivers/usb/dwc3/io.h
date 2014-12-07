@@ -45,12 +45,22 @@
 
 static inline u32 dwc3_readl(void __iomem *base, u32 offset)
 {
+	/*
+	 * We requested the mem region starting from the Globals address
+	 * space, see dwc3_probe in core.c.
+	 * However, the offsets are given starting from xHCI address space.
+	 */
 	return readl(base + (offset - DWC3_GLOBALS_REGS_START));
 }
 
 static inline void dwc3_writel(void __iomem *base, u32 offset, u32 value)
 {
+	/*
+	 * We requested the mem region starting from the Globals address
+	 * space, see dwc3_probe in core.c.
+	 * However, the offsets are given starting from xHCI address space.
+	 */
 	writel(value, base + (offset - DWC3_GLOBALS_REGS_START));
 }
 
-#endif 
+#endif /* __DRIVERS_USB_DWC3_IO_H */

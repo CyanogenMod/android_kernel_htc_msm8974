@@ -20,8 +20,55 @@
 #include "rc80211_pid.h"
 
 
+/* This is an implementation of a TX rate control algorithm that uses a PID
+ * controller. Given a target failed frames rate, the controller decides about
+ * TX rate changes to meet the target failed frames rate.
+ *
+ * The controller basically computes the following:
+ *
+ * adj = CP * err + CI * err_avg + CD * (err - last_err) * (1 + sharpening)
+ *
+ * where
+ * 	adj	adjustment value that is used to switch TX rate (see below)
+ * 	err	current error: target vs. current failed frames percentage
+ * 	last_err	last error
+ * 	err_avg	average (i.e. poor man's integral) of recent errors
+ *	sharpening	non-zero when fast response is needed (i.e. right after
+ *			association or no frames sent for a long time), heading
+ * 			to zero over time
+ * 	CP	Proportional coefficient
+ * 	CI	Integral coefficient
+ * 	CD	Derivative coefficient
+ *
+ * CP, CI, CD are subject to careful tuning.
+ *
+ * The integral component uses a exponential moving average approach instead of
+ * an actual sliding window. The advantage is that we don't need to keep an
+ * array of the last N error values and computation is easier.
+ *
+ * Once we have the adj value, we map it to a rate by means of a learning
+ * algorithm. This algorithm keeps the state of the percentual failed frames
+ * difference between rates. The behaviour of the lowest available rate is kept
+ * as a reference value, and every time we switch between two rates, we compute
+ * the difference between the failed frames each rate exhibited. By doing so,
+ * we compare behaviours which different rates exhibited in adjacent timeslices,
+ * thus the comparison is minimally affected by external conditions. This
+ * difference gets propagated to the whole set of measurements, so that the
+ * reference is always the same. Periodically, we normalize this set so that
+ * recent events weigh the most. By comparing the adj value with this set, we
+ * avoid pejorative switches to lower rates and allow for switches to higher
+ * rates if they behaved well.
+ *
+ * Note that for the computations we use a fixed-point representation to avoid
+ * floating point arithmetic. Hence, all values are shifted left by
+ * RC_PID_ARITH_SHIFT.
+ */
 
 
+/* Adjust the rate while ensuring that we won't switch to a lower rate if it
+ * exhibited a worse failed frames behaviour and we'll choose the highest rate
+ * whose failed frames behaviour is not worse than the one of the original rate
+ * target. While at it, check that the new rate is valid. */
 static void rate_control_pid_adjust_rate(struct ieee80211_supported_band *sband,
 					 struct ieee80211_sta *sta,
 					 struct rc_pid_sta_info *spinfo, int adj,
@@ -33,11 +80,11 @@ static void rate_control_pid_adjust_rate(struct ieee80211_supported_band *sband,
 	band = sband->band;
 	n_bitrates = sband->n_bitrates;
 
-	
+	/* Map passed arguments to sorted values. */
 	cur_sorted = rinfo[cur].rev_index;
 	new_sorted = cur_sorted + adj;
 
-	
+	/* Check limits. */
 	if (new_sorted < 0)
 		new_sorted = rinfo[0].rev_index;
 	else if (new_sorted >= n_bitrates)
@@ -46,20 +93,20 @@ static void rate_control_pid_adjust_rate(struct ieee80211_supported_band *sband,
 	tmp = new_sorted;
 
 	if (adj < 0) {
-		
+		/* Ensure that the rate decrease isn't disadvantageous. */
 		for (probe = cur_sorted; probe >= new_sorted; probe--)
 			if (rinfo[probe].diff <= rinfo[cur_sorted].diff &&
 			    rate_supported(sta, band, rinfo[probe].index))
 				tmp = probe;
 	} else {
-		
+		/* Look for rate increase with zero (or below) cost. */
 		for (probe = new_sorted + 1; probe < n_bitrates; probe++)
 			if (rinfo[probe].diff <= rinfo[new_sorted].diff &&
 			    rate_supported(sta, band, rinfo[probe].index))
 				tmp = probe;
 	}
 
-	
+	/* Fit the rate found to the nearest supported rate. */
 	do {
 		if (rate_supported(sta, band, rinfo[tmp].index)) {
 			spinfo->txrate_idx = rinfo[tmp].index;
@@ -78,6 +125,7 @@ static void rate_control_pid_adjust_rate(struct ieee80211_supported_band *sband,
 #endif
 }
 
+/* Normalize the failed frames per-rate differences. */
 static void rate_control_pid_normalize(struct rc_pid_info *pinfo, int l)
 {
 	int i, norm_offset = pinfo->norm_offset;
@@ -108,12 +156,16 @@ static void rate_control_pid_sample(struct rc_pid_info *pinfo,
 	int adj, i, j, tmp;
 	unsigned long period;
 
+	/* In case nothing happened during the previous control interval, turn
+	 * the sharpening factor on. */
 	period = msecs_to_jiffies(pinfo->sampling_period);
 	if (jiffies - spinfo->last_sample > 2 * period)
 		spinfo->sharp_cnt = pinfo->sharpen_duration;
 
 	spinfo->last_sample = jiffies;
 
+	/* This should never happen, but in case, we assume the old sample is
+	 * still a good measurement and copy it. */
 	if (unlikely(spinfo->tx_num_xmit == 0))
 		pf = spinfo->last_pf;
 	else
@@ -122,7 +174,7 @@ static void rate_control_pid_sample(struct rc_pid_info *pinfo,
 	spinfo->tx_num_xmit = 0;
 	spinfo->tx_num_failed = 0;
 
-	
+	/* If we just switched rate, update the rate behaviour info. */
 	if (pinfo->oldrate != spinfo->txrate_idx) {
 
 		i = rinfo[pinfo->oldrate].rev_index;
@@ -136,7 +188,7 @@ static void rate_control_pid_sample(struct rc_pid_info *pinfo,
 	}
 	rate_control_pid_normalize(pinfo, sband->n_bitrates);
 
-	
+	/* Compute the proportional, integral and derivative errors. */
 	err_prop = (pinfo->target - pf) << RC_PID_ARITH_SHIFT;
 
 	err_avg = spinfo->err_avg_sc >> pinfo->smoothing_shift;
@@ -154,12 +206,12 @@ static void rate_control_pid_sample(struct rc_pid_info *pinfo,
 					 err_der);
 #endif
 
-	
+	/* Compute the controller output. */
 	adj = (err_prop * pinfo->coeff_p + err_int * pinfo->coeff_i
 	      + err_der * pinfo->coeff_d);
 	adj = RC_PID_DO_ARITH_RIGHT_SHIFT(adj, 2 * RC_PID_ARITH_SHIFT);
 
-	
+	/* Change rate. */
 	if (adj)
 		rate_control_pid_adjust_rate(sband, sta, spinfo, adj, rinfo);
 }
@@ -176,6 +228,8 @@ static void rate_control_pid_tx_status(void *priv, struct ieee80211_supported_ba
 	if (!spinfo)
 		return;
 
+	/* Ignore all frames that were sent with a different rate than the rate
+	 * we currently advise mac80211 to use. */
 	if (info->status.rates[0].idx != spinfo->txrate_idx)
 		return;
 
@@ -185,6 +239,9 @@ static void rate_control_pid_tx_status(void *priv, struct ieee80211_supported_ba
 	rate_control_pid_event_tx_status(&spinfo->events, info);
 #endif
 
+	/* We count frames that totally failed to be transmitted as two bad
+	 * frames, those that made it out but had some retries as one good and
+	 * one bad frame. */
 	if (!(info->flags & IEEE80211_TX_STAT_ACK)) {
 		spinfo->tx_num_failed += 2;
 		spinfo->tx_num_xmit++;
@@ -193,7 +250,7 @@ static void rate_control_pid_tx_status(void *priv, struct ieee80211_supported_ba
 		spinfo->tx_num_xmit++;
 	}
 
-	
+	/* Update PID controller state. */
 	period = msecs_to_jiffies(pinfo->sampling_period);
 	if (time_after(jiffies, spinfo->last_sample + period))
 		rate_control_pid_sample(pinfo, sband, sta, spinfo);
@@ -217,7 +274,7 @@ rate_control_pid_get_rate(void *priv, struct ieee80211_sta *sta,
 		info->control.rates[0].count =
 			txrc->hw->conf.short_frame_max_tx_count;
 
-	
+	/* Send management frames and NO_ACK data using lowest rate. */
 	if (rate_control_send_low(sta, priv_sta, txrc))
 		return;
 
@@ -244,7 +301,14 @@ rate_control_pid_rate_init(void *priv, struct ieee80211_supported_band *sband,
 	int i, j, tmp;
 	bool s;
 
+	/* TODO: This routine should consider using RSSI from previous packets
+	 * as we need to have IEEE 802.1X auth succeed immediately after assoc..
+	 * Until that method is implemented, we will use the lowest supported
+	 * rate as a workaround. */
 
+	/* Sort the rates. This is optimized for the most common case (i.e.
+	 * almost-sorted CCK+OFDM rates). Kind of bubble-sort with reversed
+	 * mapping too. */
 	for (i = 0; i < sband->n_bitrates; i++) {
 		rinfo[i].index = i;
 		rinfo[i].rev_index = i;

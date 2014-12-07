@@ -35,4 +35,4 @@ extern void init_ioasic_irqs(int base);
 
 extern void dec_ioasic_clocksource_init(void);
 
-#endif 
+#endif /* __ASM_DEC_IOASIC_H */

@@ -1,7 +1,11 @@
+/*
+ * NetLogic DB1300 board constants
+ */
 
 #ifndef _DB1300_H_
 #define _DB1300_H_
 
+/* FPGA (external mux) interrupt sources */
 #define DB1300_FIRST_INT	(ALCHEMY_GPIC_INT_LAST + 1)
 #define DB1300_IDE_INT		(DB1300_FIRST_INT + 0)
 #define DB1300_ETH_INT		(DB1300_FIRST_INT + 1)
@@ -20,14 +24,17 @@
 #define DB1300_HOST_VBUS_OC_INT	(DB1300_FIRST_INT + 15)
 #define DB1300_LAST_INT		(DB1300_FIRST_INT + 15)
 
+/* SMSC9210 CS */
 #define DB1300_ETH_PHYS_ADDR	0x19000000
 #define DB1300_ETH_PHYS_END	0x197fffff
 
+/* ATA CS */
 #define DB1300_IDE_PHYS_ADDR	0x18800000
 #define DB1300_IDE_REG_SHIFT	5
 #define DB1300_IDE_PHYS_LEN	(16 << DB1300_IDE_REG_SHIFT)
 
+/* NAND CS */
 #define DB1300_NAND_PHYS_ADDR	0x20000000
 #define DB1300_NAND_PHYS_END	0x20000fff
 
-#endif	
+#endif	/* _DB1300_H_ */

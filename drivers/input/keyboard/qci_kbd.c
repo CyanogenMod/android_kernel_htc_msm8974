@@ -16,6 +16,12 @@
  *
  */
 
+ /*
+ *
+ *  The Driver with I/O communications via the I2C Interface for ON2 of AP BU.
+ *  And it is only working on the nuvoTon WPCE775x Embedded Controller.
+ *
+ */
 
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -32,6 +38,7 @@
 
 #include <linux/input/qci_kbd.h>
 
+/* Keyboard special scancode */
 #define RC_KEY_FN          0x70
 #define RC_KEY_BREAK       0x80
 #define KEY_ACK_FA         0xFA
@@ -42,6 +49,7 @@
 #define SCAN_LIDSW_OPEN    0x70
 #define SCAN_LIDSW_CLOSE   0x71
 
+/* Keyboard keycodes */
 #define NOKEY           KEY_RESERVED
 #define KEY_LEFTWIN     KEY_LEFTMETA
 #define KEY_RIGHTWIN    KEY_RIGHTMETA
@@ -54,6 +62,9 @@
 #define KEYBOARD_CMD_ENABLE             0xF4
 #define KEYBOARD_CMD_SET_LED            0xED
 
+/*-----------------------------------------------------------------------------
+ * Keyboard scancode to linux keycode translation table
+ *---------------------------------------------------------------------------*/
 
 static const unsigned char on2_keycode[256] = {
 	[0]   = NOKEY,
@@ -325,15 +336,19 @@ static const u8 emul0_map[128] = {
 	  0,   0,   0,  0,  0,  0,  0,   0,   0,   0,  0,   0,  0,   0,  0,   0,
 };
 
+/*-----------------------------------------------------------------------------
+ * Global variables
+ *---------------------------------------------------------------------------*/
 
 struct input_dev *g_qci_keyboard_dev;
 
+/* General structure to hold the driver data */
 struct i2ckbd_drv_data {
 	struct i2c_client *ki2c_client;
 	struct work_struct work;
 	struct input_dev *qcikbd_dev;
 	struct mutex kb_mutex;
-	unsigned int qcikbd_gpio; 
+	unsigned int qcikbd_gpio; /* GPIO used for interrupt */
 	unsigned int qcikbd_irq;
 	unsigned int key_down;
 	unsigned int escape;
@@ -363,7 +378,7 @@ static int qcikbd_resume(struct device *dev)
 
 	disable_irq_wake(context->qcikbd_irq);
 
-	
+	/* consume any keypress generated while suspended */
 	i2c_smbus_read_byte(ikbdclient);
 	return 0;
 }
@@ -398,6 +413,9 @@ static struct i2c_driver i2ckbd_driver = {
 	.id_table = qcikbd_idtable,
 };
 
+/*-----------------------------------------------------------------------------
+ * Driver functions
+ *---------------------------------------------------------------------------*/
 
 #ifdef CONFIG_KEYBOARD_QCIKBD_LID
 static void process_lid(struct input_dev *ikbdev, unsigned char scancode)
@@ -446,7 +464,7 @@ static void qcikbd_work_handler(struct work_struct *_work)
 		goto work_exit;
 
 	if (ikbd_drv_data->standard_scancodes) {
-		
+		/* pause key is E1 1D 45 */
 		if (scancode == SCAN_EMUL1) {
 			ikbd_drv_data->emul1 = 1;
 			goto work_exit;
@@ -491,7 +509,7 @@ static void qcikbd_work_handler(struct work_struct *_work)
 		} else {
 			keycode = scancode & 0x7f;
 		}
-		
+		/* MS bit of scancode indicates direction of keypress */
 		ikbd_drv_data->key_down = !(scancode & 0x80);
 		if (keycode) {
 			input_event(ikbdev, EV_MSC, MSC_SCAN, scancode);
@@ -505,7 +523,7 @@ static void qcikbd_work_handler(struct work_struct *_work)
 	mutex_unlock(&ikbd_drv_data->kb_mutex);
 
 	if (scancode == RC_KEY_FN) {
-		ikbd_drv_data->fn = 0x80;     
+		ikbd_drv_data->fn = 0x80;     /* select keycode table  > 0x7F */
 	} else {
 		ikbd_drv_data->key_down = 1;
 		if (scancode & RC_KEY_BREAK) {
@@ -551,7 +569,7 @@ static int qcikbd_open(struct input_dev *dev)
 	struct i2ckbd_drv_data *ikbd_drv_data = input_get_drvdata(dev);
 	struct i2c_client *ikbdclient = ikbd_drv_data->ki2c_client;
 
-	
+	/* Send F4h - enable keyboard */
 	i2c_smbus_write_byte(ikbdclient, KEYBOARD_CMD_ENABLE);
 	return 0;
 }
@@ -619,7 +637,7 @@ static int __devinit qcikbd_probe(struct i2c_client *client,
 	if (pdata->repeat)
 		set_bit(EV_REP, context->qcikbd_dev->evbit);
 
-	
+	/* Enable all supported keys */
 	for (i = 1; i < ARRAY_SIZE(on2_keycode) ; i++)
 		set_bit(on2_keycode[i], context->qcikbd_dev->keybit);
 

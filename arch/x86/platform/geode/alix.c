@@ -37,6 +37,7 @@
 
 static bool force = 0;
 module_param(force, bool, 0444);
+/* FIXME: Award bios is not automatically detected as Alix platform */
 MODULE_PARM_DESC(force, "Force detection as ALIX.2/ALIX.3 platform");
 
 static struct gpio_keys_button alix_gpio_buttons[] = {
@@ -104,7 +105,7 @@ static struct __initdata platform_device *alix_devs[] = {
 
 static void __init register_alix(void)
 {
-	
+	/* Setup LED control through leds-gpio driver */
 	platform_add_devices(alix_devs, ARRAY_SIZE(alix_devs));
 }
 
@@ -136,12 +137,12 @@ static bool __init alix_present(unsigned long bios_phys,
 
 		memcpy(name, p, sizeof(name));
 
-		
+		/* remove the first \0 character from string */
 		a = strchr(name, '\0');
 		if (a)
 			*a = ' ';
 
-		
+		/* cut the string at a newline */
 		a = strchr(name, '\r');
 		if (a)
 			*a = '\0';

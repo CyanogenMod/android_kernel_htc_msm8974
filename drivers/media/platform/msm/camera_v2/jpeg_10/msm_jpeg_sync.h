@@ -62,14 +62,24 @@ struct msm_jpeg_device {
 	char	  open_count;
 	uint8_t       op_mode;
 
+	/* event queue including frame done & err indications
+	 */
 	struct msm_jpeg_q evt_q;
 
+	/* output return queue
+	 */
 	struct msm_jpeg_q output_rtn_q;
 
+	/* output buf queue
+	 */
 	struct msm_jpeg_q output_buf_q;
 
+	/* input return queue
+	 */
 	struct msm_jpeg_q input_rtn_q;
 
+	/* input buf queue
+	 */
 	struct msm_jpeg_q input_buf_q;
 
 	struct v4l2_subdev subdev;
@@ -78,7 +88,7 @@ struct msm_jpeg_device {
 
 	dev_t msm_jpeg_devno;
 
-	
+	/*iommu domain and context*/
 	int domain_num;
 	int idx;
 	struct iommu_domain *domain;
@@ -108,4 +118,4 @@ long __msm_jpeg_ioctl(struct msm_jpeg_device *pgmn_dev,
 int __msm_jpeg_init(struct msm_jpeg_device *pgmn_dev);
 int __msm_jpeg_exit(struct msm_jpeg_device *pgmn_dev);
 
-#endif 
+#endif /* MSM_JPEG_SYNC_H */

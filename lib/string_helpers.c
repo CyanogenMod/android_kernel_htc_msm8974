@@ -8,6 +8,18 @@
 #include <linux/export.h>
 #include <linux/string_helpers.h>
 
+/**
+ * string_get_size - get the size in the specified units
+ * @size:	The size to be converted
+ * @units:	units to use (powers of 1000 or 1024)
+ * @buf:	buffer to format to
+ * @len:	length of buffer
+ *
+ * This function returns a string formatted to 3 significant figures
+ * giving the size in the required units.  Returns 0 on success or
+ * error on failure.  @buf is always zero terminated.
+ *
+ */
 int string_get_size(u64 size, const enum string_size_units units,
 		    char *buf, int len)
 {

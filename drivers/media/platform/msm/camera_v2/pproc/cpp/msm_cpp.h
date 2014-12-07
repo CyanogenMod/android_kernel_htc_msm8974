@@ -21,11 +21,6 @@
 #include <media/v4l2-subdev.h>
 #include "msm_sd.h"
 
-/* hw version info:
-  31:28  Major version
-  27:16  Minor version
-  15:0   Revision bits
-**/
 #define CPP_HW_VERSION_1_1_0  0x10010000
 #define CPP_HW_VERSION_1_1_1  0x10010001
 #define CPP_HW_VERSION_2_0_0  0x20000000
@@ -96,12 +91,12 @@ enum cpp_state {
 };
 
 enum msm_queue {
-	MSM_CAM_Q_CTRL,     /* control command or control command status */
-	MSM_CAM_Q_VFE_EVT,  /* adsp event */
-	MSM_CAM_Q_VFE_MSG,  /* adsp message */
-	MSM_CAM_Q_V4L2_REQ, /* v4l2 request */
-	MSM_CAM_Q_VPE_MSG,  /* vpe message */
-	MSM_CAM_Q_PP_MSG,  /* pp message */
+	MSM_CAM_Q_CTRL,     
+	MSM_CAM_Q_VFE_EVT,  
+	MSM_CAM_Q_VFE_MSG,  
+	MSM_CAM_Q_V4L2_REQ, 
+	MSM_CAM_Q_VPE_MSG,  
+	MSM_CAM_Q_PP_MSG,  
 };
 
 struct msm_queue_cmd {
@@ -161,6 +156,13 @@ struct msm_cpp_work_t {
 	struct cpp_device *cpp_dev;
 };
 
+struct msm_cpp_clock_settings_t {
+	long clock_rate;
+	uint64_t avg;
+	uint64_t inst;
+};
+
+
 struct cpp_device {
 	struct platform_device *pdev;
 	struct msm_sd_subdev msm_sd;
@@ -191,7 +193,7 @@ struct cpp_device {
 	struct ion_client *client;
 	struct kref refcount;
 
-	/* Reusing proven tasklet from msm isp */
+	
 	atomic_t irq_cnt;
 	uint8_t taskletq_idx;
 	spinlock_t  tasklet_lock;
@@ -204,15 +206,12 @@ struct cpp_device {
 	uint32_t cpp_open_cnt;
 	struct cpp_hw_info hw_info;
 
-	struct msm_device_queue eventData_q; /* V4L2 Event Payload Queue */
+	struct msm_device_queue eventData_q; 
 
-	/* Processing Queue
-	 * store frame info for frames sent to microcontroller
-	 */
 	struct msm_device_queue processing_q;
 
 	struct msm_cpp_buff_queue_info_t *buff_queue;
 	uint32_t num_buffq;
 	struct v4l2_subdev *buf_mgr_subdev;
 };
-#endif /* __MSM_CPP_H__ */
+#endif 

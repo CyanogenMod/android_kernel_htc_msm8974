@@ -12,18 +12,35 @@
 * consent.
 *****************************************************************************/
 
+/****************************************************************************/
+/**
+*  @file    tmrHw_reg.h
+*
+*  @brief   Definitions for low level Timer registers
+*
+*/
+/****************************************************************************/
 #ifndef _TMRHW_REG_H
 #define _TMRHW_REG_H
 
 #include <mach/csp/mm_io.h>
 #include <mach/csp/hw_cfg.h>
+/* Base address */
 #define tmrHw_MODULE_BASE_ADDR          MM_IO_BASE_TMR
 
-#define tmrHw_LOW_FREQUENCY_MHZ         25	
+/*
+This platform has four different timers running at different clock speed
+
+Timer one   (Timer ID 0) runs at  25 MHz
+Timer two   (Timer ID 1) runs at  25 MHz
+Timer three (Timer ID 2) runs at 150 MHz
+Timer four  (Timer ID 3) runs at 150 MHz
+*/
+#define tmrHw_LOW_FREQUENCY_MHZ         25	/* Always 25MHz from XTAL */
 #define tmrHw_LOW_FREQUENCY_HZ          25000000
 
 #if defined(CFG_GLOBAL_CHIP) && (CFG_GLOBAL_CHIP == FPGA11107)
-#define tmrHw_HIGH_FREQUENCY_MHZ        150	
+#define tmrHw_HIGH_FREQUENCY_MHZ        150	/* Always 150MHz for FPGA */
 #define tmrHw_HIGH_FREQUENCY_HZ         150000000
 #else
 #define tmrHw_HIGH_FREQUENCY_HZ         HW_CFG_BUS_CLK_HZ
@@ -32,20 +49,21 @@
 
 #define tmrHw_LOW_RESOLUTION_CLOCK      tmrHw_LOW_FREQUENCY_HZ
 #define tmrHw_HIGH_RESOLUTION_CLOCK     tmrHw_HIGH_FREQUENCY_HZ
-#define tmrHw_MAX_COUNT                 (0xFFFFFFFF)	
-#define tmrHw_TIMER_NUM_COUNT           (4)	
+#define tmrHw_MAX_COUNT                 (0xFFFFFFFF)	/* maximum number of count a timer can count */
+#define tmrHw_TIMER_NUM_COUNT           (4)	/* Number of timer module supported */
 
 typedef struct {
-	uint32_t LoadValue;	
-	uint32_t CurrentValue;	
-	uint32_t Control;	
-	uint32_t InterruptClear;	
-	uint32_t RawInterruptStatus;	
-	uint32_t InterruptStatus;	
-	uint32_t BackgroundLoad;	
-	uint32_t padding;	
+	uint32_t LoadValue;	/* Load value for timer */
+	uint32_t CurrentValue;	/* Current value for timer */
+	uint32_t Control;	/* Control register */
+	uint32_t InterruptClear;	/* Interrupt clear register */
+	uint32_t RawInterruptStatus;	/* Raw interrupt status */
+	uint32_t InterruptStatus;	/* Masked interrupt status */
+	uint32_t BackgroundLoad;	/* Background load value */
+	uint32_t padding;	/* Padding register */
 } tmrHw_REG_t;
 
+/* Control bot masks */
 #define tmrHw_CONTROL_TIMER_ENABLE            0x00000080
 #define tmrHw_CONTROL_PERIODIC                0x00000040
 #define tmrHw_CONTROL_INTERRUPT_ENABLE        0x00000020
@@ -61,4 +79,4 @@ typedef struct {
 
 #define pTmrHw ((volatile tmrHw_REG_t *)tmrHw_MODULE_BASE_ADDR)
 
-#endif 
+#endif /* _TMRHW_REG_H */

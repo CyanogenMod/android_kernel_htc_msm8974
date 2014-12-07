@@ -19,20 +19,21 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/module.h>		
-#include <linux/moduleparam.h>		
-#include <linux/types.h>		
-#include <linux/errno.h>		
-#include <linux/kernel.h>		
-#include <linux/fs.h>			
-#include <linux/miscdevice.h>		
-#include <linux/watchdog.h>		
-#include <linux/init.h>			
-#include <linux/platform_device.h>	
-#include <linux/spinlock.h>		
-#include <linux/uaccess.h>		
+#include <linux/module.h>		/* For module specific items */
+#include <linux/moduleparam.h>		/* For new moduleparam's */
+#include <linux/types.h>		/* For standard types (like size_t) */
+#include <linux/errno.h>		/* For the -ENODEV/... values */
+#include <linux/kernel.h>		/* For printk/panic/... */
+#include <linux/fs.h>			/* For file operations */
+#include <linux/miscdevice.h>		/* For MODULE_ALIAS_MISCDEV
+							(WATCHDOG_MINOR) */
+#include <linux/watchdog.h>		/* For the watchdog specific items */
+#include <linux/init.h>			/* For __init/__exit/... */
+#include <linux/platform_device.h>	/* For platform_driver framework */
+#include <linux/spinlock.h>		/* For spin_lock/spin_unlock/... */
+#include <linux/uaccess.h>		/* For copy_to_user/put_user/... */
 
-#include <asm/mach-rc32434/integ.h>	
+#include <asm/mach-rc32434/integ.h>	/* For the Watchdog registers */
 
 #define VERSION "1.0"
 
@@ -45,11 +46,17 @@ static struct integ __iomem *wdt_reg;
 
 static int expect_close;
 
+/* Board internal clock speed in Hz,
+ * the watchdog timer ticks at. */
 extern unsigned int idt_cpu_freq;
 
+/* translate wtcompare value to seconds and vice versa */
 #define WTCOMP2SEC(x)	(x / idt_cpu_freq)
 #define SEC2WTCOMP(x)	(x * idt_cpu_freq)
 
+/* Use a default timeout of 20s. This should be
+ * safe for CPU clock speeds up to 400MHz, as
+ * ((2 ^ 32) - 1) / (400MHz / 2) = 21s.  */
 #define WATCHDOG_TIMEOUT 20
 
 static int timeout = WATCHDOG_TIMEOUT;
@@ -62,6 +69,7 @@ module_param(nowayout, bool, 0);
 MODULE_PARM_DESC(nowayout, "Watchdog cannot be stopped once started (default="
 	__MODULE_STRING(WATCHDOG_NOWAYOUT) ")");
 
+/* apply or and nand masks to data read from addr and write back */
 #define SET_BITS(addr, or, nand) \
 	writel((readl(&addr) | or) & ~nand, &addr)
 
@@ -87,21 +95,23 @@ static void rc32434_wdt_start(void)
 
 	spin_lock(&rc32434_wdt_device.io_lock);
 
-	
+	/* zero the counter before enabling */
 	writel(0, &wdt_reg->wtcount);
 
+	/* don't generate a non-maskable interrupt,
+	 * do a warm reset instead */
 	nand = 1 << RC32434_ERR_WNE;
 	or = 1 << RC32434_ERR_WRE;
 
-	
+	/* reset the ERRCS timeout bit in case it's set */
 	nand |= 1 << RC32434_ERR_WTO;
 
 	SET_BITS(wdt_reg->errcs, or, nand);
 
-	
+	/* set the timeout (either default or based on module param) */
 	rc32434_wdt_set(timeout);
 
-	
+	/* reset WTC timeout bit and enable WDT */
 	nand = 1 << RC32434_WTC_TO;
 	or = 1 << RC32434_WTC_EN;
 
@@ -115,7 +125,7 @@ static void rc32434_wdt_stop(void)
 {
 	spin_lock(&rc32434_wdt_device.io_lock);
 
-	
+	/* Disable WDT */
 	SET_BITS(wdt_reg->wtc, 0, 1 << RC32434_WTC_EN);
 
 	spin_unlock(&rc32434_wdt_device.io_lock);
@@ -163,7 +173,7 @@ static ssize_t rc32434_wdt_write(struct file *file, const char *data,
 		if (!nowayout) {
 			size_t i;
 
-			
+			/* In case it was set long ago */
 			expect_close = 0;
 
 			for (i = 0; i != len; i++) {
@@ -225,7 +235,7 @@ static long rc32434_wdt_ioctl(struct file *file, unsigned int cmd,
 			return -EFAULT;
 		if (rc32434_wdt_set(new_timeout))
 			return -EINVAL;
-		
+		/* Fall through */
 	case WDIOC_GETTIMEOUT:
 		return copy_to_user(argp, &timeout, sizeof(int));
 	default:
@@ -269,9 +279,11 @@ static int __devinit rc32434_wdt_probe(struct platform_device *pdev)
 
 	spin_lock_init(&rc32434_wdt_device.io_lock);
 
-	
+	/* Make sure the watchdog is not running */
 	rc32434_wdt_stop();
 
+	/* Check that the heartbeat value is within it's range;
+	 * if not reset to the default */
 	if (rc32434_wdt_set(timeout)) {
 		rc32434_wdt_set(WATCHDOG_TIMEOUT);
 		pr_info("timeout value must be between 0 and %d\n",

@@ -97,6 +97,8 @@ extern void tcp_time_wait(struct sock *sk, int state, int timeo);
 #define TCP_TIMEOUT_INIT ((unsigned)(1*HZ))	
 #define TCP_TIMEOUT_FALLBACK ((unsigned)(3*HZ))	
 
+#define TCP_DELACK_SEG          1       
+
 #define TCP_RESOURCE_PROBE_INTERVAL ((unsigned)(HZ/2U)) 
 
 #define TCP_DELACK_SEG          1
@@ -199,10 +201,13 @@ extern int sysctl_tcp_max_ssthresh;
 extern int sysctl_tcp_cookie_size;
 extern int sysctl_tcp_thin_linear_timeouts;
 extern int sysctl_tcp_thin_dupack;
+extern int sysctl_tcp_default_init_rwnd;
 
 #ifdef CONFIG_HTC_TCP_SYN_FAIL
 extern __be32 sysctl_tcp_syn_fail;
 #endif 
+extern int sysctl_tcp_delack_seg;
+extern int sysctl_tcp_use_userconfig;
 
 extern atomic_long_t tcp_memory_allocated;
 
@@ -299,6 +304,10 @@ extern int tcp_use_userconfig_sysctl_handler(struct ctl_table *, int,
 extern int tcp_proc_delayed_ack_control(struct ctl_table *, int,
 				void __user *, size_t *, loff_t *);
 
+extern int tcp_use_userconfig_sysctl_handler(struct ctl_table *, int,
+                                         void __user *, size_t *, loff_t *);
+extern int tcp_proc_delayed_ack_control(struct ctl_table *, int,
+                void __user *, size_t *, loff_t *);
 static inline void tcp_dec_quickack_mode(struct sock *sk,
 					 const unsigned int pkts)
 {

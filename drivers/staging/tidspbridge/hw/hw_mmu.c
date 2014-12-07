@@ -37,6 +37,9 @@
 #define MMU_LOAD_TLB	0x00000001
 #define MMU_GFLUSH	0x60
 
+/*
+ * hw_mmu_page_size_t: Enumerated Type used to specify the MMU Page Size(SLSS)
+ */
 enum hw_mmu_page_size_t {
 	HW_MMU_SECTION,
 	HW_MMU_LARGE_PAGE,
@@ -44,20 +47,123 @@ enum hw_mmu_page_size_t {
 	HW_MMU_SUPERSECTION
 };
 
+/*
+ * FUNCTION	      : mmu_flush_entry
+ *
+ * INPUTS:
+ *
+ *       Identifier      : base_address
+ *       Type		: const u32
+ *       Description     : Base Address of instance of MMU module
+ *
+ * RETURNS:
+ *
+ *       Type		: hw_status
+ *       Description     : 0		 -- No errors occurred
+ *			 RET_BAD_NULL_PARAM     -- A Pointer
+ *						Paramater was set to NULL
+ *
+ * PURPOSE:	      : Flush the TLB entry pointed by the
+ *			lock counter register
+ *			even if this entry is set protected
+ *
+ * METHOD:	       : Check the Input parameter and Flush a
+ *			 single entry in the TLB.
+ */
 static hw_status mmu_flush_entry(const void __iomem *base_address);
 
+/*
+ * FUNCTION	      : mmu_set_cam_entry
+ *
+ * INPUTS:
+ *
+ *       Identifier      : base_address
+ *       TypE		: const u32
+ *       Description     : Base Address of instance of MMU module
+ *
+ *       Identifier      : page_sz
+ *       TypE		: const u32
+ *       Description     : It indicates the page size
+ *
+ *       Identifier      : preserved_bit
+ *       Type		: const u32
+ *       Description     : It indicates the TLB entry is preserved entry
+ *							or not
+ *
+ *       Identifier      : valid_bit
+ *       Type		: const u32
+ *       Description     : It indicates the TLB entry is valid entry or not
+ *
+ *
+ *       Identifier      : virtual_addr_tag
+ *       Type	    	: const u32
+ *       Description     : virtual Address
+ *
+ * RETURNS:
+ *
+ *       Type	    	: hw_status
+ *       Description     : 0		 -- No errors occurred
+ *			 RET_BAD_NULL_PARAM     -- A Pointer Paramater
+ *						   was set to NULL
+ *			 RET_PARAM_OUT_OF_RANGE -- Input Parameter out
+ *						   of Range
+ *
+ * PURPOSE:	      	: Set MMU_CAM reg
+ *
+ * METHOD:	       	: Check the Input parameters and set the CAM entry.
+ */
 static hw_status mmu_set_cam_entry(const void __iomem *base_address,
 				   const u32 page_sz,
 				   const u32 preserved_bit,
 				   const u32 valid_bit,
 				   const u32 virtual_addr_tag);
 
+/*
+ * FUNCTION	      : mmu_set_ram_entry
+ *
+ * INPUTS:
+ *
+ *       Identifier      : base_address
+ *       Type	    	: const u32
+ *       Description     : Base Address of instance of MMU module
+ *
+ *       Identifier      : physical_addr
+ *       Type	    	: const u32
+ *       Description     : Physical Address to which the corresponding
+ *			 virtual   Address shouldpoint
+ *
+ *       Identifier      : endianism
+ *       Type	    	: hw_endianism_t
+ *       Description     : endianism for the given page
+ *
+ *       Identifier      : element_size
+ *       Type	    	: hw_element_size_t
+ *       Description     : The element size ( 8,16, 32 or 64 bit)
+ *
+ *       Identifier      : mixed_size
+ *       Type	    	: hw_mmu_mixed_size_t
+ *       Description     : Element Size to follow CPU or TLB
+ *
+ * RETURNS:
+ *
+ *       Type	    	: hw_status
+ *       Description     : 0		 -- No errors occurred
+ *			 RET_BAD_NULL_PARAM     -- A Pointer Paramater
+ *							was set to NULL
+ *			 RET_PARAM_OUT_OF_RANGE -- Input Parameter
+ *							out of Range
+ *
+ * PURPOSE:	      : Set MMU_CAM reg
+ *
+ * METHOD:	       : Check the Input parameters and set the RAM entry.
+ */
 static hw_status mmu_set_ram_entry(const void __iomem *base_address,
 				   const u32 physical_addr,
 				   enum hw_endianism_t endianism,
 				   enum hw_element_size_t element_size,
 				   enum hw_mmu_mixed_size_t mixed_size);
 
+/* HW FUNCTIONS */
 
 hw_status hw_mmu_enable(const void __iomem *base_address)
 {
@@ -143,7 +249,7 @@ hw_status hw_mmu_fault_addr_read(const void __iomem *base_address, u32 *addr)
 {
 	hw_status status = 0;
 
-	
+	/* read values from register */
 	*addr = MMUMMU_FAULT_AD_READ_REGISTER32(base_address);
 
 	return status;
@@ -155,7 +261,7 @@ hw_status hw_mmu_ttb_set(const void __iomem *base_address, u32 ttb_phys_addr)
 	u32 load_ttb;
 
 	load_ttb = ttb_phys_addr & ~0x7FUL;
-	
+	/* write values to register */
 	MMUMMU_TTB_WRITE_REGISTER32(base_address, load_ttb);
 
 	return status;
@@ -207,7 +313,7 @@ hw_status hw_mmu_tlb_flush(const void __iomem *base_address, u32 virtual_addr,
 		return -EINVAL;
 	}
 
-	
+	/* Generate the 20-bit tag from virtual address */
 	virtual_addr_tag = ((virtual_addr & MMU_ADDR_MASK) >> 12);
 
 	mmu_set_cam_entry(base_address, pg_size_bits, 0, 0, virtual_addr_tag);
@@ -230,7 +336,7 @@ hw_status hw_mmu_tlb_add(const void __iomem *base_address,
 	u32 virtual_addr_tag;
 	enum hw_mmu_page_size_t mmu_pg_size;
 
-	
+	/*Check the input Parameters */
 	switch (page_sz) {
 	case HW_PAGE_SIZE4KB:
 		mmu_pg_size = HW_MMU_SMALL_PAGE;
@@ -254,22 +360,24 @@ hw_status hw_mmu_tlb_add(const void __iomem *base_address,
 
 	lock_reg = MMUMMU_LOCK_READ_REGISTER32(base_address);
 
-	
+	/* Generate the 20-bit tag from virtual address */
 	virtual_addr_tag = ((virtual_addr & MMU_ADDR_MASK) >> 12);
 
-	
+	/* Write the fields in the CAM Entry Register */
 	mmu_set_cam_entry(base_address, mmu_pg_size, preserved_bit, valid_bit,
 			  virtual_addr_tag);
 
-	
-	
+	/* Write the different fields of the RAM Entry Register */
+	/* endianism of the page,Element Size of the page (8, 16, 32, 64 bit) */
 	mmu_set_ram_entry(base_address, physical_addr, map_attrs->endianism,
 			  map_attrs->element_size, map_attrs->mixed_size);
 
-	
-	
+	/* Update the MMU Lock Register */
+	/* currentVictim between lockedBaseValue and (MMU_Entries_Number - 1) */
 	MMUMMU_LOCK_CURRENT_VICTIM_WRITE32(base_address, entry_num);
 
+	/* Enable loading of an entry in TLB by writing 1
+	   into LD_TLB_REG register */
 	MMUMMU_LD_TLB_WRITE_REGISTER32(base_address, MMU_LOAD_TLB);
 
 	MMUMMU_LOCK_WRITE_REGISTER32(base_address, lock_reg);
@@ -395,17 +503,19 @@ hw_status hw_mmu_pte_clear(const u32 pg_tbl_va, u32 virtual_addr, u32 page_size)
 	return status;
 }
 
+/* mmu_flush_entry */
 static hw_status mmu_flush_entry(const void __iomem *base_address)
 {
 	hw_status status = 0;
 	u32 flush_entry_data = 0x1;
 
-	
+	/* write values to register */
 	MMUMMU_FLUSH_ENTRY_WRITE_REGISTER32(base_address, flush_entry_data);
 
 	return status;
 }
 
+/* mmu_set_cam_entry */
 static hw_status mmu_set_cam_entry(const void __iomem *base_address,
 				   const u32 page_sz,
 				   const u32 preserved_bit,
@@ -419,12 +529,13 @@ static hw_status mmu_set_cam_entry(const void __iomem *base_address,
 	mmu_cam_reg = (mmu_cam_reg) | (page_sz) | (valid_bit << 2) |
 	    (preserved_bit << 3);
 
-	
+	/* write values to register */
 	MMUMMU_CAM_WRITE_REGISTER32(base_address, mmu_cam_reg);
 
 	return status;
 }
 
+/* mmu_set_ram_entry */
 static hw_status mmu_set_ram_entry(const void __iomem *base_address,
 				   const u32 physical_addr,
 				   enum hw_endianism_t endianism,
@@ -438,7 +549,7 @@ static hw_status mmu_set_ram_entry(const void __iomem *base_address,
 	mmu_ram_reg = (mmu_ram_reg) | ((endianism << 9) | (element_size << 7) |
 				       (mixed_size << 6));
 
-	
+	/* write values to register */
 	MMUMMU_RAM_WRITE_REGISTER32(base_address, mmu_ram_reg);
 
 	return status;

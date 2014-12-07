@@ -16,6 +16,15 @@
 #include <linux/err.h>
 #include <linux/string.h>
 
+/**
+ * DOC: basic gatable clock which can gate and ungate it's ouput
+ *
+ * Traits of this clock:
+ * prepare - clk_(un)prepare only ensures parent is (un)prepared
+ * enable - clk_enable and clk_disable are functional & control gating
+ * rate - inherits rate from parent.  No clk_set_rate support
+ * parent - fixed parent.  No clk_set_parent support
+ */
 
 #define to_clk_gate(_hw) container_of(_hw, struct clk_gate, hw)
 
@@ -82,7 +91,7 @@ static int clk_gate_is_enabled(struct clk_hw *hw)
 
 	reg = readl(gate->reg);
 
-	
+	/* if a set bit disables this clk, flip it before masking */
 	if (gate->flags & CLK_GATE_SET_TO_DISABLE)
 		reg ^= BIT(gate->bit_idx);
 
@@ -114,7 +123,7 @@ struct clk *clk_register_gate(struct device *dev, const char *name,
 		return NULL;
 	}
 
-	
+	/* struct clk_gate assignments */
 	gate->reg = reg;
 	gate->bit_idx = bit_idx;
 	gate->flags = clk_gate_flags;

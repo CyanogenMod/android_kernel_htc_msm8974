@@ -5,6 +5,7 @@
  * published by the Free Software Foundation.
  */
 
+/* Kernel module implementing an IP set type: the list:set type */
 
 #include <linux/module.h>
 #include <linux/ip.h>
@@ -20,6 +21,7 @@ MODULE_AUTHOR("Jozsef Kadlecsik <kadlec@blackhole.kfki.hu>");
 MODULE_DESCRIPTION("list:set type of IP sets");
 MODULE_ALIAS("ip_set_list:set");
 
+/* Member elements without and with timeout */
 struct set_elem {
 	ip_set_id_t id;
 };
@@ -29,12 +31,13 @@ struct set_telem {
 	unsigned long timeout;
 };
 
+/* Type structure */
 struct list_set {
-	size_t dsize;		
-	u32 size;		
-	u32 timeout;		
-	struct timer_list gc;	
-	struct set_elem members[0]; 
+	size_t dsize;		/* element size */
+	u32 size;		/* size of set list array */
+	u32 timeout;		/* timeout value */
+	struct timer_list gc;	/* garbage collection */
+	struct set_elem members[0]; /* the set members */
 };
 
 static inline struct set_elem *
@@ -65,6 +68,7 @@ list_set_expired(const struct list_set *map, u32 id)
 	return ip_set_timeout_expired(elem->timeout);
 }
 
+/* Set list without and with timeout */
 
 static int
 list_set_kadt(struct ip_set *set, const struct sk_buff *skb,
@@ -168,7 +172,7 @@ list_set_add(struct list_set *map, u32 i, ip_set_id_t id,
 	const struct set_elem *e = list_set_elem(map, i);
 
 	if (i == map->size - 1 && e->id != IPSET_INVALID_ID)
-		
+		/* Last element replaced: e.g. add new,before,last */
 		ip_set_put_byindex(e->id);
 	if (with_timeout(map->timeout))
 		list_elem_tadd(map, i, id, ip_set_timeout_set(timeout));
@@ -195,7 +199,7 @@ list_set_del(struct list_set *map, u32 i)
 		if (a->id == IPSET_INVALID_ID)
 			break;
 	}
-	
+	/* Last element */
 	a->id = IPSET_INVALID_ID;
 	return 0;
 }
@@ -239,7 +243,7 @@ list_set_uadt(struct ip_set *set, struct nlattr *tb[],
 	id = ip_set_get_byname(nla_data(tb[IPSET_ATTR_NAME]), &s);
 	if (id == IPSET_INVALID_ID)
 		return -IPSET_ERR_NAME;
-	
+	/* "Loop detection" */
 	if (s->type->features & IPSET_TYPE_NAME) {
 		ret = -IPSET_ERR_LOOP;
 		goto finish;
@@ -450,7 +454,7 @@ list_set_list(const struct ip_set *set,
 	}
 finish:
 	ipset_nest_end(skb, atd);
-	
+	/* Set listing finished */
 	cb->args[2] = 0;
 	return 0;
 
@@ -510,6 +514,7 @@ list_set_gc_init(struct ip_set *set)
 	add_timer(&map->gc);
 }
 
+/* Create list:set type of sets */
 
 static bool
 init_list_set(struct ip_set *set, u32 size, size_t dsize,

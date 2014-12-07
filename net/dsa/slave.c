@@ -14,6 +14,7 @@
 #include <linux/phy.h>
 #include "dsa_priv.h"
 
+/* slave mii_bus handling ***************************************************/
 static int dsa_slave_phy_read(struct mii_bus *bus, int addr, int reg)
 {
 	struct dsa_switch *ds = bus->priv;
@@ -46,6 +47,7 @@ void dsa_slave_mii_bus_init(struct dsa_switch *ds)
 }
 
 
+/* slave device handling ****************************************************/
 static int dsa_slave_init(struct net_device *dev)
 {
 	struct dsa_slave_priv *p = netdev_priv(dev);
@@ -170,6 +172,7 @@ static int dsa_slave_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 }
 
 
+/* ethtool operations *******************************************************/
 static int
 dsa_slave_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 {
@@ -327,6 +330,7 @@ static const struct net_device_ops trailer_netdev_ops = {
 };
 #endif
 
+/* slave device setup *******************************************************/
 struct net_device *
 dsa_slave_create(struct dsa_switch *ds, struct device *parent,
 		 int port, char *name)

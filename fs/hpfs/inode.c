@@ -1,3 +1,10 @@
+/*
+ *  linux/fs/hpfs/inode.c
+ *
+ *  Mikulas Patocka (mikulas@artax.karlin.mff.cuni.cz), 1998-1999
+ *
+ *  inode VFS functions
+ */
 
 #include <linux/slab.h>
 #include "hpfs_fn.h"
@@ -42,6 +49,11 @@ void hpfs_read_inode(struct inode *i)
 	int ea_size;
 
 	if (!(fnode = hpfs_map_fnode(sb, i->i_ino, &bh))) {
+		/*i->i_mode |= S_IFREG;
+		i->i_mode &= ~0111;
+		i->i_op = &hpfs_file_iops;
+		i->i_fop = &hpfs_file_ops;
+		clear_nlink(i);*/
 		make_bad_inode(i);
 		return;
 	}
@@ -131,7 +143,11 @@ void hpfs_read_inode(struct inode *i)
 static void hpfs_write_inode_ea(struct inode *i, struct fnode *fnode)
 {
 	struct hpfs_inode_info *hpfs_inode = hpfs_i(i);
- if (hpfs_sb(i->i_sb)->sb_eas >= 2) {
+	/*if (le32_to_cpu(fnode->acl_size_l) || le16_to_cpu(fnode->acl_size_s)) {
+		   Some unknown structures like ACL may be in fnode,
+		   we'd better not overwrite them
+		hpfs_error(i->i_sb, "fnode %08x has some unknown HPFS386 stuctures", i->i_ino);
+	} else*/ if (hpfs_sb(i->i_sb)->sb_eas >= 2) {
 		__le32 ea;
 		if ((i->i_uid != hpfs_sb(i->i_sb)->sb_uid) || hpfs_inode->i_ea_uid) {
 			ea = cpu_to_le32(i->i_uid);
@@ -149,7 +165,7 @@ static void hpfs_write_inode_ea(struct inode *i, struct fnode *fnode)
 			  && i->i_mode != ((hpfs_sb(i->i_sb)->sb_mode & ~(S_ISDIR(i->i_mode) ? 0222 : 0333))
 			  | (S_ISDIR(i->i_mode) ? S_IFDIR : S_IFREG))) || hpfs_inode->i_ea_mode) {
 				ea = cpu_to_le32(i->i_mode);
-				
+				/* sick, but legal */
 				hpfs_set_ea(i, fnode, "MODE", (char *)&ea, 2);
 				hpfs_inode->i_ea_mode = 1;
 			}
@@ -224,7 +240,7 @@ void hpfs_write_inode_nolock(struct inode *i)
 			de->read_date = cpu_to_le32(gmt_to_local(i->i_sb, i->i_atime.tv_sec));
 			de->creation_date = cpu_to_le32(gmt_to_local(i->i_sb, i->i_ctime.tv_sec));
 			de->read_only = !(i->i_mode & 0222);
-			de->ea_size = cpu_to_le32(0);
+			de->ea_size = cpu_to_le32(/*hpfs_inode->i_ea_size*/0);
 			de->file_size = cpu_to_le32(0);
 			hpfs_mark_4buffers_dirty(&qbh);
 			hpfs_brelse4(&qbh);

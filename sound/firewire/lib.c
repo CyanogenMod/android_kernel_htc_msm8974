@@ -13,6 +13,10 @@
 
 #define ERROR_RETRY_DELAY_MS	5
 
+/**
+ * rcode_string - convert a firewire result code to a string
+ * @rcode: the result
+ */
 const char *rcode_string(unsigned int rcode)
 {
 	static const char *const names[] = {
@@ -35,6 +39,19 @@ const char *rcode_string(unsigned int rcode)
 }
 EXPORT_SYMBOL(rcode_string);
 
+/**
+ * snd_fw_transaction - send a request and wait for its completion
+ * @unit: the driver's unit on the target device
+ * @tcode: the transaction code
+ * @offset: the address in the target's address space
+ * @buffer: input/output data
+ * @length: length of @buffer
+ *
+ * Submits an asynchronous request to the target device, and waits for the
+ * response.  The node ID and the current generation are derived from @unit.
+ * On a bus reset or an error, the transaction is retried a few times.
+ * Returns zero on success, or a negative error code.
+ */
 int snd_fw_transaction(struct fw_unit *unit, int tcode,
 		       u64 offset, void *buffer, size_t length)
 {
@@ -43,7 +60,7 @@ int snd_fw_transaction(struct fw_unit *unit, int tcode,
 
 	for (;;) {
 		generation = device->generation;
-		smp_rmb(); 
+		smp_rmb(); /* node_id vs. generation */
 		rcode = fw_run_transaction(device->card, tcode,
 					   device->node_id, generation,
 					   device->max_speed, offset,

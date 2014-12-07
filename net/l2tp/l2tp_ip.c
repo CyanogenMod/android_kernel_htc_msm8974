@@ -29,7 +29,7 @@
 #include "l2tp_core.h"
 
 struct l2tp_ip_sock {
-	
+	/* inet_sock has to be the first member of l2tp_ip_sock */
 	struct inet_sock	inet;
 
 	__u32			conn_id;
@@ -85,6 +85,39 @@ static inline struct sock *l2tp_ip_bind_lookup(struct net *net, __be32 laddr, in
 	return sk;
 }
 
+/* When processing receive frames, there are two cases to
+ * consider. Data frames consist of a non-zero session-id and an
+ * optional cookie. Control frames consist of a regular L2TP header
+ * preceded by 32-bits of zeros.
+ *
+ * L2TPv3 Session Header Over IP
+ *
+ *  0                   1                   2                   3
+ *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                           Session ID                          |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |               Cookie (optional, maximum 64 bits)...
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *                                                                 |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ * L2TPv3 Control Message Header Over IP
+ *
+ *  0                   1                   2                   3
+ *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                      (32 bits of zeros)                       |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |T|L|x|x|S|x|x|x|x|x|x|x|  Ver  |             Length            |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |                     Control Connection ID                     |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ * |               Ns              |               Nr              |
+ * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ *
+ * All control frames are passed to userspace.
+ */
 static int l2tp_ip_recv(struct sk_buff *skb)
 {
 	struct sock *sk;
@@ -96,7 +129,7 @@ static int l2tp_ip_recv(struct sk_buff *skb)
 	int length;
 	int offset;
 
-	
+	/* Point to L2TP header */
 	optr = ptr = skb->data;
 
 	if (!pskb_may_pull(skb, 4))
@@ -105,12 +138,16 @@ static int l2tp_ip_recv(struct sk_buff *skb)
 	session_id = ntohl(*((__be32 *) ptr));
 	ptr += 4;
 
+	/* RFC3931: L2TP/IP packets have the first 4 bytes containing
+	 * the session_id. If it is 0, the packet is a L2TP control
+	 * frame and the session_id value can be discarded.
+	 */
 	if (session_id == 0) {
 		__skb_pull(skb, 4);
 		goto pass_up;
 	}
 
-	
+	/* Ok, this is a data packet. Lookup the session. */
 	session = l2tp_session_find(&init_net, NULL, session_id);
 	if (session == NULL)
 		goto discard;
@@ -119,7 +156,7 @@ static int l2tp_ip_recv(struct sk_buff *skb)
 	if (tunnel == NULL)
 		goto discard;
 
-	
+	/* Trace packet contents, if enabled */
 	if (tunnel->debug & L2TP_MSG_DATA) {
 		length = min(32u, skb->len);
 		if (!pskb_may_pull(skb, length))
@@ -140,7 +177,7 @@ static int l2tp_ip_recv(struct sk_buff *skb)
 	return 0;
 
 pass_up:
-	
+	/* Get the tunnel_id from the L2TP header */
 	if (!pskb_may_pull(skb, 12))
 		goto discard;
 
@@ -181,7 +218,7 @@ discard:
 
 static int l2tp_ip_open(struct sock *sk)
 {
-	
+	/* Prevent autobind. We don't have ports. */
 	inet_sk(sk)->inet_num = IPPROTO_L2TP;
 
 	write_lock_bh(&l2tp_ip_lock);
@@ -237,7 +274,7 @@ static int l2tp_ip_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	if (addr->l2tp_addr.s_addr)
 		inet->inet_rcv_saddr = inet->inet_saddr = addr->l2tp_addr.s_addr;
 	if (chk_addr_ret == RTN_MULTICAST || chk_addr_ret == RTN_BROADCAST)
-		inet->inet_saddr = 0;  
+		inet->inet_saddr = 0;  /* Use device */
 	sk_dst_reset(sk);
 
 	l2tp_ip_sk(sk)->conn_id = addr->l2tp_conn_id;
@@ -357,7 +394,7 @@ static int l2tp_ip_backlog_recv(struct sock *sk, struct sk_buff *skb)
 {
 	int rc;
 
-	
+	/* Charge it to the socket, dropping if the queue is full. */
 	rc = sock_queue_rcv_skb(sk, skb);
 	if (rc < 0)
 		goto drop;
@@ -370,6 +407,9 @@ drop:
 	return -1;
 }
 
+/* Userspace will call sendmsg() on the tunnel socket to send L2TP
+ * control frames.
+ */
 static int l2tp_ip_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *msg, size_t len)
 {
 	struct sk_buff *skb;
@@ -387,7 +427,7 @@ static int l2tp_ip_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *m
 	if (sock_flag(sk, SOCK_DEAD))
 		goto out;
 
-	
+	/* Get and verify the address. */
 	if (msg->msg_name) {
 		struct sockaddr_l2tpip *lip = (struct sockaddr_l2tpip *) msg->msg_name;
 		rc = -EINVAL;
@@ -410,23 +450,23 @@ static int l2tp_ip_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *m
 		connected = 1;
 	}
 
-	
+	/* Allocate a socket buffer */
 	rc = -ENOMEM;
 	skb = sock_wmalloc(sk, 2 + NET_SKB_PAD + sizeof(struct iphdr) +
 			   4 + len, 0, GFP_KERNEL);
 	if (!skb)
 		goto error;
 
-	
+	/* Reserve space for headers, putting IP header on 4-byte boundary. */
 	skb_reserve(skb, 2 + NET_SKB_PAD);
 	skb_reset_network_header(skb);
 	skb_reserve(skb, sizeof(struct iphdr));
 	skb_reset_transport_header(skb);
 
-	
+	/* Insert 0 session_id */
 	*((__be32 *) skb_put(skb, 4)) = 0;
 
-	
+	/* Copy user data into skb */
 	rc = memcpy_fromiovec(skb_put(skb, len), msg->msg_iov, len);
 	if (rc < 0) {
 		kfree_skb(skb);
@@ -443,10 +483,14 @@ static int l2tp_ip_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *m
 
 		inet_opt = rcu_dereference(inet->inet_opt);
 
-		
+		/* Use correct destination address if we have options. */
 		if (inet_opt && inet_opt->opt.srr)
 			daddr = inet_opt->opt.faddr;
 
+		/* If this fails, retransmit mechanism of transport layer will
+		 * keep trying until route appears or the connection times
+		 * itself out.
+		 */
 		rt = ip_route_output_ports(sock_net(sk), fl4, sk,
 					   daddr, inet->inet_saddr,
 					   inet->inet_dport, inet->inet_sport,
@@ -457,17 +501,20 @@ static int l2tp_ip_sendmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *m
 		if (connected)
 			sk_setup_caps(sk, &rt->dst);
 		else
-			dst_release(&rt->dst); 
+			dst_release(&rt->dst); /* safe since we hold rcu_read_lock */
 	}
 
+	/* We dont need to clone dst here, it is guaranteed to not disappear.
+	 *  __dev_xmit_skb() might force a refcount if needed.
+	 */
 	skb_dst_set_noref(skb, &rt->dst);
 
-	
+	/* Queue the packet to IP for output */
 	rc = ip_queue_xmit(skb, &inet->cork.fl);
 	rcu_read_unlock();
 
 error:
-	
+	/* Update stats */
 	if (rc >= 0) {
 		lsa->tx_packets++;
 		lsa->tx_bytes += len;
@@ -520,7 +567,7 @@ static int l2tp_ip_recvmsg(struct kiocb *iocb, struct sock *sk, struct msghdr *m
 
 	sock_recv_timestamp(msg, sk, skb);
 
-	
+	/* Copy the address. */
 	if (sin) {
 		sin->sin_family = AF_INET;
 		sin->sin_addr.s_addr = ip_hdr(skb)->saddr;
@@ -644,4 +691,7 @@ MODULE_AUTHOR("James Chapman <jchapman@katalix.com>");
 MODULE_DESCRIPTION("L2TP over IP");
 MODULE_VERSION("1.0");
 
+/* Use the value of SOCK_DGRAM (2) directory, because __stringify doesn't like
+ * enums
+ */
 MODULE_ALIAS_NET_PF_PROTO_TYPE(PF_INET, 2, IPPROTO_L2TP);

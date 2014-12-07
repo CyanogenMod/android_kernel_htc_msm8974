@@ -17,6 +17,38 @@ static inline pte_t gup_get_pte(pte_t *ptep)
 #ifndef CONFIG_X86_PAE
 	return ACCESS_ONCE(*ptep);
 #else
+	/*
+	 * With get_user_pages_fast, we walk down the pagetables without taking
+	 * any locks.  For this we would like to load the pointers atomically,
+	 * but that is not possible (without expensive cmpxchg8b) on PAE.  What
+	 * we do have is the guarantee that a pte will only either go from not
+	 * present to present, or present to not present or both -- it will not
+	 * switch to a completely different present page without a TLB flush in
+	 * between; something that we are blocking by holding interrupts off.
+	 *
+	 * Setting ptes from not present to present goes:
+	 * ptep->pte_high = h;
+	 * smp_wmb();
+	 * ptep->pte_low = l;
+	 *
+	 * And present to not present goes:
+	 * ptep->pte_low = 0;
+	 * smp_wmb();
+	 * ptep->pte_high = 0;
+	 *
+	 * We must ensure here that the load of pte_low sees l iff pte_high
+	 * sees h. We load pte_high *after* loading pte_low, which ensures we
+	 * don't see an older value of pte_high.  *Then* we recheck pte_low,
+	 * which ensures that we haven't picked up a changed pte high. We might
+	 * have got rubbish values from pte_low and pte_high, but we are
+	 * guaranteed that pte_low will not have the present bit set *unless*
+	 * it is 'l'. And get_user_pages_fast only operates on present ptes, so
+	 * we're safe.
+	 *
+	 * gup_get_pte should not be used or copied outside gup.c without being
+	 * very careful -- it does not atomically load the pte or anything that
+	 * is likely to be useful for you.
+	 */
 	pte_t pte;
 
 retry:
@@ -31,6 +63,11 @@ retry:
 #endif
 }
 
+/*
+ * The performance critical leaf functions are made noinline otherwise gcc
+ * inlines everything into a single function which results in too much
+ * register pressure.
+ */
 static noinline int gup_pte_range(pmd_t pmd, unsigned long addr,
 		unsigned long end, int write, struct page **pages, int *nr)
 {
@@ -84,7 +121,7 @@ static noinline int gup_huge_pmd(pmd_t pmd, unsigned long addr,
 		mask |= _PAGE_RW;
 	if ((pte_flags(pte) & mask) != mask)
 		return 0;
-	
+	/* hugepages are never "special" */
 	VM_BUG_ON(pte_flags(pte) & _PAGE_SPECIAL);
 	VM_BUG_ON(!pfn_valid(pte_pfn(pte)));
 
@@ -116,6 +153,17 @@ static int gup_pmd_range(pud_t pud, unsigned long addr, unsigned long end,
 		pmd_t pmd = *pmdp;
 
 		next = pmd_addr_end(addr, end);
+		/*
+		 * The pmd_trans_splitting() check below explains why
+		 * pmdp_splitting_flush has to flush the tlb, to stop
+		 * this gup-fast code from running while we set the
+		 * splitting bit in the pmd. Returning zero will take
+		 * the slow path that will call wait_split_huge_page()
+		 * if the pmd is still in splitting state. gup-fast
+		 * can't because it has irq disabled and
+		 * wait_split_huge_page() would never return as the
+		 * tlb flush IPI wouldn't run.
+		 */
 		if (pmd_none(pmd) || pmd_trans_splitting(pmd))
 			return 0;
 		if (unlikely(pmd_large(pmd))) {
@@ -143,7 +191,7 @@ static noinline int gup_huge_pud(pud_t pud, unsigned long addr,
 		mask |= _PAGE_RW;
 	if ((pte_flags(pte) & mask) != mask)
 		return 0;
-	
+	/* hugepages are never "special" */
 	VM_BUG_ON(pte_flags(pte) & _PAGE_SPECIAL);
 	VM_BUG_ON(!pfn_valid(pte_pfn(pte)));
 
@@ -189,6 +237,10 @@ static int gup_pud_range(pgd_t pgd, unsigned long addr, unsigned long end,
 	return 1;
 }
 
+/*
+ * Like get_user_pages_fast() except its IRQ-safe in that it won't fall
+ * back to the regular GUP.
+ */
 int __get_user_pages_fast(unsigned long start, int nr_pages, int write,
 			  struct page **pages)
 {
@@ -207,6 +259,24 @@ int __get_user_pages_fast(unsigned long start, int nr_pages, int write,
 					(void __user *)start, len)))
 		return 0;
 
+	/*
+	 * XXX: batch / limit 'nr', to avoid large irq off latency
+	 * needs some instrumenting to determine the common sizes used by
+	 * important workloads (eg. DB2), and whether limiting the batch size
+	 * will decrease performance.
+	 *
+	 * It seems like we're in the clear for the moment. Direct-IO is
+	 * the main guy that batches up lots of get_user_pages, and even
+	 * they are limited to 64-at-a-time which is not so many.
+	 */
+	/*
+	 * This doesn't prevent pagetable teardown, but does prevent
+	 * the pagetables and pages from being freed on x86.
+	 *
+	 * So long as we atomically load page table pointers versus teardown
+	 * (which we do on x86, with the above PAE exception), we can follow the
+	 * address down to the the page and take a ref on it.
+	 */
 	local_irq_save(flags);
 	pgdp = pgd_offset(mm, addr);
 	do {
@@ -261,6 +331,24 @@ int get_user_pages_fast(unsigned long start, int nr_pages, int write,
 		goto slow_irqon;
 #endif
 
+	/*
+	 * XXX: batch / limit 'nr', to avoid large irq off latency
+	 * needs some instrumenting to determine the common sizes used by
+	 * important workloads (eg. DB2), and whether limiting the batch size
+	 * will decrease performance.
+	 *
+	 * It seems like we're in the clear for the moment. Direct-IO is
+	 * the main guy that batches up lots of get_user_pages, and even
+	 * they are limited to 64-at-a-time which is not so many.
+	 */
+	/*
+	 * This doesn't prevent pagetable teardown, but does prevent
+	 * the pagetables and pages from being freed on x86.
+	 *
+	 * So long as we atomically load page table pointers versus teardown
+	 * (which we do on x86, with the above PAE exception), we can follow the
+	 * address down to the the page and take a ref on it.
+	 */
 	local_irq_disable();
 	pgdp = pgd_offset(mm, addr);
 	do {
@@ -283,7 +371,7 @@ int get_user_pages_fast(unsigned long start, int nr_pages, int write,
 slow:
 		local_irq_enable();
 slow_irqon:
-		
+		/* Try to get the remaining pages with get_user_pages */
 		start += nr << PAGE_SHIFT;
 		pages += nr;
 
@@ -292,7 +380,7 @@ slow_irqon:
 			(end - start) >> PAGE_SHIFT, write, 0, pages, NULL);
 		up_read(&mm->mmap_sem);
 
-		
+		/* Have to be a bit careful with return values */
 		if (nr > 0) {
 			if (ret < 0)
 				ret = nr;

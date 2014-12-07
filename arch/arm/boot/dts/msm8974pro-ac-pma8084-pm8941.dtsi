@@ -74,6 +74,54 @@
 		qcom,auto-mode-enable = <0>;
 		status = "okay";
 	};
+
+	pwm@b100 {
+		status = "disabled";
+	};
+
+	pwm@b200 {
+		status = "disabled";
+	};
+
+	pwm@b300 {
+		status = "disabled";
+	};
+
+	pwm@b400 {
+		status = "disabled";
+	};
+
+	pwm@b500 {
+		status = "disabled";
+	};
+
+	pwm@b600 {
+		status = "disabled";
+	};
+
+	pwm@b700 {
+		status = "disabled";
+	};
+
+	pwm@b800 {
+		status = "disabled";
+	};
+
+	pwm@e400 {
+		status = "disabled";
+	};
+
+	pwm@e500 {
+		status = "disabled";
+	};
+
+	pwm@e600 {
+		status = "disabled";
+	};
+
+	pwm@e700 {
+		status = "disabled";
+	};
 };
 
 &pma8084_mvs1 {
@@ -102,6 +150,8 @@
 	vbus_dwc3-supply = <&pm8941_mvs1>;
 	qcom,misc-ref = <&pm8941_misc>;
 	dwc_usb3-adc_tm = <&pm8941_adc_tm>;
+	qcom,usbin-vadc = <&pm8941_vadc>;
+	qcom,utmi-clk-rate = <24000000>;
 	interrupt-map-mask = <0x0 0xffffffff>;
 	interrupt-map = <0x0 0 &intc 0 133 0
 			0x0 1 &spmi_bus 0x0 0x2 0x9 0x0>;

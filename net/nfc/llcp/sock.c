@@ -51,7 +51,7 @@ static int llcp_sock_bind(struct socket *sock, struct sockaddr *addr, int alen)
 	len = min_t(unsigned int, sizeof(llcp_addr), alen);
 	memcpy(&llcp_addr, addr, len);
 
-	
+	/* This is going to be a listening socket, dsap must be 0 */
 	if (llcp_addr.dsap != 0)
 		return -EINVAL;
 
@@ -147,7 +147,7 @@ void nfc_llcp_accept_enqueue(struct sock *parent, struct sock *sk)
 	struct nfc_llcp_sock *llcp_sock = nfc_llcp_sock(sk);
 	struct nfc_llcp_sock *llcp_sock_parent = nfc_llcp_sock(parent);
 
-	
+	/* Lock will be free from unlink */
 	sock_hold(sk);
 
 	list_add_tail(&llcp_sock->accept_queue,
@@ -212,7 +212,7 @@ static int llcp_sock_accept(struct socket *sock, struct socket *newsock,
 
 	timeo = sock_rcvtimeo(sk, flags & O_NONBLOCK);
 
-	
+	/* Wait for an incoming connection. */
 	add_wait_queue_exclusive(sk_sleep(sk), &wait);
 	while (!(new_sk = nfc_llcp_accept_dequeue(sk, newsock))) {
 		set_current_state(TASK_INTERRUPTIBLE);
@@ -341,7 +341,7 @@ static int llcp_sock_release(struct socket *sock)
 
 	lock_sock(sk);
 
-	
+	/* Send a DISC */
 	if (sk->sk_state == LLCP_CONNECTED)
 		nfc_llcp_disconnect(llcp_sock);
 
@@ -363,7 +363,7 @@ static int llcp_sock_release(struct socket *sock)
 		}
 	}
 
-	
+	/* Freeing the SAP */
 	if ((sk->sk_state == LLCP_CONNECTED
 	     && llcp_sock->ssap > LLCP_LOCAL_SAP_OFFSET) ||
 	    sk->sk_state == LLCP_BOUND || sk->sk_state == LLCP_LISTEN)
@@ -538,7 +538,7 @@ static int llcp_sock_recvmsg(struct kiocb *iocb, struct socket *sock,
 		return err;
 	}
 
-	rlen = skb->len;		
+	rlen = skb->len;		/* real length of skb */
 	copied = min_t(unsigned int, rlen, len);
 
 	cskb = skb;
@@ -548,10 +548,10 @@ static int llcp_sock_recvmsg(struct kiocb *iocb, struct socket *sock,
 		return -EFAULT;
 	}
 
-	
+	/* Mark read part of skb as used */
 	if (!(flags & MSG_PEEK)) {
 
-		
+		/* SOCK_STREAM: re-queue skb if it contains unreceived data */
 		if (sk->sk_type == SOCK_STREAM) {
 			skb_pull(skb, copied);
 			if (skb->len) {
@@ -563,10 +563,10 @@ static int llcp_sock_recvmsg(struct kiocb *iocb, struct socket *sock,
 		kfree_skb(skb);
 	}
 
-	
+	/* XXX Queue backlogged skbs */
 
 done:
-	
+	/* SOCK_SEQPACKET: return real length if MSG_TRUNC is set */
 	if (sk->sk_type == SOCK_SEQPACKET && (flags & MSG_TRUNC))
 		copied = rlen;
 

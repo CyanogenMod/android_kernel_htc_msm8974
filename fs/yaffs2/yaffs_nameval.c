@@ -11,6 +11,19 @@
  * published by the Free Software Foundation.
  */
 
+/*
+ * This simple implementation of a name-value store assumes a small number of values and fits
+ * into a small finite buffer.
+ *
+ * Each attribute is stored as a record:
+ *  sizeof(int) bytes   record size.
+ *  strnlen+1 bytes name null terminated.
+ *  nbytes    value.
+ *  ----------
+ *  total size  stored in record size 
+ *
+ * This code has not been tested with unicode yet.
+ */
 
 #include "yaffs_nameval.h"
 
@@ -63,7 +76,7 @@ int nval_del(char *xb, int xb_size, const YCHAR * name)
 	int size;
 
 	if (pos >= 0 && pos < xb_size) {
-		
+		/* Find size, shift rest over this record, then zero out the rest of buffer */
 		memcpy(&size, xb + pos, sizeof(int));
 		memcpy(xb + pos, xb + pos + size, xb_size - (pos + size));
 		memset(xb + (xb_size - size), 0, size);
@@ -122,15 +135,15 @@ int nval_get(const char *xb, int xb_size, const YCHAR * name, char *buf,
 	if (pos >= 0 && pos < xb_size) {
 
 		memcpy(&size, xb + pos, sizeof(int));
-		pos += sizeof(int);	
+		pos += sizeof(int);	/* advance past record length */
 		size -= sizeof(int);
 
-		
+		/* Advance over name string */
 		while (xb[pos] && size > 0 && pos < xb_size) {
 			pos++;
 			size--;
 		}
-		
+		/*Advance over NUL */
 		pos++;
 		size--;
 

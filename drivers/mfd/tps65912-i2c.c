@@ -29,13 +29,13 @@ static int tps65912_i2c_read(struct tps65912 *tps65912, u8 reg,
 	struct i2c_msg xfer[2];
 	int ret;
 
-	
+	/* Write register */
 	xfer[0].addr = i2c->addr;
 	xfer[0].flags = 0;
 	xfer[0].len = 1;
 	xfer[0].buf = &reg;
 
-	
+	/* Read data */
 	xfer[1].addr = i2c->addr;
 	xfer[1].flags = I2C_M_RD;
 	xfer[1].len = bytes;
@@ -53,7 +53,7 @@ static int tps65912_i2c_write(struct tps65912 *tps65912, u8 reg,
 				   int bytes, void *src)
 {
 	struct i2c_client *i2c = tps65912->control_data;
-	
+	/* we add 1 byte for device register */
 	u8 msg[TPS6591X_MAX_REGISTER + 1];
 	int ret;
 
@@ -125,6 +125,7 @@ static int __init tps65912_i2c_init(void)
 
 	return ret;
 }
+/* init early so consumer devices can complete system boot */
 subsys_initcall(tps65912_i2c_init);
 
 static void __exit tps65912_i2c_exit(void)

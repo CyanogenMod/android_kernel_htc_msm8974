@@ -1,3 +1,10 @@
+/**
+ * 	mpc5xxx_get_bus_frequency - Find the bus frequency for a device
+ * 	@node:	device node
+ *
+ * 	Returns bus frequency (IPS on MPC512x, IPB on MPC52xx),
+ * 	or 0 if the bus frequency cannot be found.
+ */
 
 #include <linux/kernel.h>
 #include <linux/of_platform.h>

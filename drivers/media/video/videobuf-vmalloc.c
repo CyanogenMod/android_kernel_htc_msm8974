@@ -49,6 +49,7 @@ MODULE_LICENSE("GPL");
 		printk(KERN_DEBUG "vbuf-vmalloc: " fmt , ## arg)
 
 
+/***************************************************************************/
 
 static void videobuf_vm_open(struct vm_area_struct *vma)
 {
@@ -76,7 +77,7 @@ static void videobuf_vm_close(struct vm_area_struct *vma)
 		dprintk(1, "munmap %p q=%p\n", map, q);
 		videobuf_queue_lock(q);
 
-		
+		/* We need first to cancel streams, before unmapping */
 		if (q->streaming)
 			videobuf_queue_cancel(q);
 
@@ -89,9 +90,17 @@ static void videobuf_vm_close(struct vm_area_struct *vma)
 
 			mem = q->bufs[i]->priv;
 			if (mem) {
+				/* This callback is called only if kernel has
+				   allocated memory and this memory is mmapped.
+				   In this case, memory should be freed,
+				   in order to do memory unmap.
+				 */
 
 				MAGIC_CHECK(mem->magic, MAGIC_VMAL_MEM);
 
+				/* vfree is not atomic - can't be
+				   called with IRQ's disabled
+				 */
 				dprintk(1, "%s: buf[%d] freeing (%p)\n",
 					__func__, i, mem->vaddr);
 
@@ -116,7 +125,15 @@ static const struct vm_operations_struct videobuf_vm_ops = {
 	.close    = videobuf_vm_close,
 };
 
+/* ---------------------------------------------------------------------
+ * vmalloc handlers for the generic methods
+ */
 
+/* Allocated area consists on 3 parts:
+	struct video_buffer
+	struct <driver>_buffer (cx88_buffer, saa7134_buf, ...)
+	struct videobuf_dma_sg_memory
+ */
 
 static struct videobuf_buffer *__videobuf_alloc_vb(size_t size)
 {
@@ -152,7 +169,7 @@ static int __videobuf_iolock(struct videobuf_queue *q,
 	case V4L2_MEMORY_MMAP:
 		dprintk(1, "%s memory method MMAP\n", __func__);
 
-		
+		/* All handling should be done by __videobuf_mmap_mapper() */
 		if (!mem->vaddr) {
 			printk(KERN_ERR "memory is not alloced/mmapped.\n");
 			return -EINVAL;
@@ -168,6 +185,9 @@ static int __videobuf_iolock(struct videobuf_queue *q,
 			return -EINVAL;
 		}
 
+		/* The only USERPTR currently supported is the one needed for
+		 * read() method.
+		 */
 
 		mem->vaddr = vmalloc_user(pages);
 		if (!mem->vaddr) {
@@ -179,10 +199,16 @@ static int __videobuf_iolock(struct videobuf_queue *q,
 
 #if 0
 		int rc;
+		/* Kernel userptr is used also by read() method. In this case,
+		   there's no need to remap, since data will be copied to user
+		 */
 		if (!vb->baddr)
 			return 0;
 
-		
+		/* FIXME: to properly support USERPTR, remap should occur.
+		   The code below won't work, since mem->vma = NULL
+		 */
+		/* Try to remap memory */
 		rc = remap_vmalloc_range(mem->vma, (void *)vb->baddr, 0);
 		if (rc < 0) {
 			printk(KERN_ERR "mmap: remap failed with error %d", rc);
@@ -195,7 +221,7 @@ static int __videobuf_iolock(struct videobuf_queue *q,
 	default:
 		dprintk(1, "%s memory method OVERLAY/unknown\n", __func__);
 
-		
+		/* Currently, doesn't support V4L2_MEMORY_OVERLAY */
 		printk(KERN_ERR "Memory method currently unsupported.\n");
 		return -EINVAL;
 	}
@@ -213,7 +239,7 @@ static int __videobuf_mmap_mapper(struct videobuf_queue *q,
 
 	dprintk(1, "%s\n", __func__);
 
-	
+	/* create mapping + update buffer list */
 	map = kzalloc(sizeof(struct videobuf_mapping), GFP_KERNEL);
 	if (NULL == map)
 		return -ENOMEM;
@@ -235,7 +261,7 @@ static int __videobuf_mmap_mapper(struct videobuf_queue *q,
 	}
 	dprintk(1, "vmalloc is at addr %p (%d pages)\n", mem->vaddr, pages);
 
-	
+	/* Try to remap memory */
 	retval = remap_vmalloc_range(vma, mem->vaddr, 0);
 	if (retval < 0) {
 		printk(KERN_ERR "mmap: remap failed with error %d. ", retval);
@@ -300,6 +326,12 @@ void videobuf_vmalloc_free(struct videobuf_buffer *buf)
 {
 	struct videobuf_vmalloc_memory *mem = buf->priv;
 
+	/* mmapped memory can't be freed here, otherwise mmapped region
+	   would be released, while still needed. In this case, the memory
+	   release should happen inside videobuf_vm_close().
+	   So, it should free memory only if the memory were allocated for
+	   read() operation.
+	 */
 	if ((buf->memory != V4L2_MEMORY_USERPTR) || buf->baddr)
 		return;
 

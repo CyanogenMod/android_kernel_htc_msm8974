@@ -23,7 +23,7 @@ static struct ath9k_platform_data ath79_wmac_data;
 
 static struct resource ath79_wmac_resources[] = {
 	{
-		
+		/* .start and .end fields are filled dynamically */
 		.flags	= IORESOURCE_MEM,
 	}, {
 		.start	= ATH79_CPU_IRQ_IP2,
@@ -44,7 +44,7 @@ static struct platform_device ath79_wmac_device = {
 
 static void __init ar913x_wmac_setup(void)
 {
-	
+	/* reset the WMAC */
 	ath79_device_reset_set(AR913X_RESET_AMBA2WMAC);
 	mdelay(10);
 

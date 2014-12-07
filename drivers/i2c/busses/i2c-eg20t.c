@@ -31,33 +31,33 @@
 #include <linux/ktime.h>
 #include <linux/slab.h>
 
-#define PCH_EVENT_SET	0	
-#define PCH_EVENT_NONE	1	
-#define PCH_MAX_CLK		100000	
-#define PCH_BUFFER_MODE_ENABLE	0x0002	
-#define PCH_EEPROM_SW_RST_MODE_ENABLE	0x0008	
+#define PCH_EVENT_SET	0	/* I2C Interrupt Event Set Status */
+#define PCH_EVENT_NONE	1	/* I2C Interrupt Event Clear Status */
+#define PCH_MAX_CLK		100000	/* Maximum Clock speed in MHz */
+#define PCH_BUFFER_MODE_ENABLE	0x0002	/* flag for Buffer mode enable */
+#define PCH_EEPROM_SW_RST_MODE_ENABLE	0x0008	/* EEPROM SW RST enable flag */
 
-#define PCH_I2CSADR	0x00	
-#define PCH_I2CCTL	0x04	
-#define PCH_I2CSR	0x08	
-#define PCH_I2CDR	0x0C	
-#define PCH_I2CMON	0x10	
-#define PCH_I2CBC	0x14	
-#define PCH_I2CMOD	0x18	
-#define PCH_I2CBUFSLV	0x1C	
-#define PCH_I2CBUFSUB	0x20	
-#define PCH_I2CBUFFOR	0x24	
-#define PCH_I2CBUFCTL	0x28	
-#define PCH_I2CBUFMSK	0x2C	
-#define PCH_I2CBUFSTA	0x30	
-#define PCH_I2CBUFLEV	0x34	
-#define PCH_I2CESRFOR	0x38	
-#define PCH_I2CESRCTL	0x3C	
-#define PCH_I2CESRMSK	0x40	
-#define PCH_I2CESRSTA	0x44	
-#define PCH_I2CTMR	0x48	
-#define PCH_I2CSRST	0xFC	
-#define PCH_I2CNF	0xF8	
+#define PCH_I2CSADR	0x00	/* I2C slave address register */
+#define PCH_I2CCTL	0x04	/* I2C control register */
+#define PCH_I2CSR	0x08	/* I2C status register */
+#define PCH_I2CDR	0x0C	/* I2C data register */
+#define PCH_I2CMON	0x10	/* I2C bus monitor register */
+#define PCH_I2CBC	0x14	/* I2C bus transfer rate setup counter */
+#define PCH_I2CMOD	0x18	/* I2C mode register */
+#define PCH_I2CBUFSLV	0x1C	/* I2C buffer mode slave address register */
+#define PCH_I2CBUFSUB	0x20	/* I2C buffer mode subaddress register */
+#define PCH_I2CBUFFOR	0x24	/* I2C buffer mode format register */
+#define PCH_I2CBUFCTL	0x28	/* I2C buffer mode control register */
+#define PCH_I2CBUFMSK	0x2C	/* I2C buffer mode interrupt mask register */
+#define PCH_I2CBUFSTA	0x30	/* I2C buffer mode status register */
+#define PCH_I2CBUFLEV	0x34	/* I2C buffer mode level register */
+#define PCH_I2CESRFOR	0x38	/* EEPROM software reset mode format register */
+#define PCH_I2CESRCTL	0x3C	/* EEPROM software reset mode ctrl register */
+#define PCH_I2CESRMSK	0x40	/* EEPROM software reset mode */
+#define PCH_I2CESRSTA	0x44	/* EEPROM software reset mode status register */
+#define PCH_I2CTMR	0x48	/* I2C timer register */
+#define PCH_I2CSRST	0xFC	/* I2C reset register */
+#define PCH_I2CNF	0xF8	/* I2C noise filter register */
 
 #define BUS_IDLE_TIMEOUT	20
 #define PCH_I2CCTL_I2CMEN	0x0080
@@ -133,8 +133,23 @@
 #define pch_pci_dbg(pdev, fmt, arg...)  \
 	dev_dbg(&pdev->dev, "%s :" fmt, __func__, ##arg)
 
+/*
+Set the number of I2C instance max
+Intel EG20T PCH :		1ch
+LAPIS Semiconductor ML7213 IOH :	2ch
+LAPIS Semiconductor ML7831 IOH :	1ch
+*/
 #define PCH_I2C_MAX_DEV			2
 
+/**
+ * struct i2c_algo_pch_data - for I2C driver functionalities
+ * @pch_adapter:		stores the reference to i2c_adapter structure
+ * @p_adapter_info:		stores the reference to adapter_info structure
+ * @pch_base_address:		specifies the remapped base address
+ * @pch_buff_mode_en:		specifies if buffer mode is enabled
+ * @pch_event_flag:		specifies occurrence of interrupt events
+ * @pch_i2c_xfer_in_progress:	specifies whether the transfer is completed
+ */
 struct i2c_algo_pch_data {
 	struct i2c_adapter pch_adapter;
 	struct adapter_info *p_adapter_info;
@@ -144,6 +159,16 @@ struct i2c_algo_pch_data {
 	bool pch_i2c_xfer_in_progress;
 };
 
+/**
+ * struct adapter_info - This structure holds the adapter information for the
+			 PCH i2c controller
+ * @pch_data:		stores a list of i2c_algo_pch_data
+ * @pch_i2c_suspended:	specifies whether the system is suspended or not
+ *			perhaps with more lines and words.
+ * @ch_num:		specifies the number of i2c instance
+ *
+ * pch_data has as many elements as maximum I2C channels
+ */
 struct adapter_info {
 	struct i2c_algo_pch_data pch_data[PCH_I2C_MAX_DEV];
 	bool pch_i2c_suspended;
@@ -151,11 +176,12 @@ struct adapter_info {
 };
 
 
-static int pch_i2c_speed = 100; 
-static int pch_clk = 50000;	
+static int pch_i2c_speed = 100; /* I2C bus speed in Kbps */
+static int pch_clk = 50000;	/* specifies I2C clock speed in KHz */
 static wait_queue_head_t pch_event;
 static DEFINE_MUTEX(pch_mutex);
 
+/* Definition for ML7213 by LAPIS Semiconductor */
 #define PCI_VENDOR_ID_ROHM		0x10DB
 #define PCI_DEVICE_ID_ML7213_I2C	0x802D
 #define PCI_DEVICE_ID_ML7223_I2C	0x8010
@@ -187,6 +213,10 @@ static inline void pch_clrbit(void __iomem *addr, u32 offset, u32 bitmask)
 	iowrite32(val, addr + offset);
 }
 
+/**
+ * pch_i2c_init() - hardware initialization of I2C module
+ * @adap:	Pointer to struct i2c_algo_pch_data.
+ */
 static void pch_i2c_init(struct i2c_algo_pch_data *adap)
 {
 	void __iomem *p = adap->pch_base_address;
@@ -194,12 +224,12 @@ static void pch_i2c_init(struct i2c_algo_pch_data *adap)
 	u32 pch_i2ctmr;
 	u32 reg_value;
 
-	
+	/* reset I2C controller */
 	iowrite32(0x01, p + PCH_I2CSRST);
 	msleep(20);
 	iowrite32(0x0, p + PCH_I2CSRST);
 
-	
+	/* Initialize I2C registers */
 	iowrite32(0x21, p + PCH_I2CNF);
 
 	pch_setbit(adap->pch_base_address, PCH_I2CCTL, PCH_I2CCTL_I2CMEN);
@@ -217,13 +247,13 @@ static void pch_i2c_init(struct i2c_algo_pch_data *adap)
 		pch_clk = 62500;
 
 	pch_i2cbc = (pch_clk + (pch_i2c_speed * 4)) / (pch_i2c_speed * 8);
-	
+	/* Set transfer speed in I2CBC */
 	iowrite32(pch_i2cbc, p + PCH_I2CBC);
 
 	pch_i2ctmr = (pch_clk) / 8;
 	iowrite32(pch_i2ctmr, p + PCH_I2CTMR);
 
-	reg_value |= NORMAL_INTR_ENBL;	
+	reg_value |= NORMAL_INTR_ENBL;	/* Enable interrupts in normal mode */
 	iowrite32(reg_value, p + PCH_I2CCTL);
 
 	pch_dbg(adap,
@@ -238,6 +268,11 @@ static inline bool ktime_lt(const ktime_t cmp1, const ktime_t cmp2)
 	return cmp1.tv64 < cmp2.tv64;
 }
 
+/**
+ * pch_i2c_wait_for_bus_idle() - check the status of bus.
+ * @adap:	Pointer to struct i2c_algo_pch_data.
+ * @timeout:	waiting time counter (ms).
+ */
 static s32 pch_i2c_wait_for_bus_idle(struct i2c_algo_pch_data *adap,
 				     s32 timeout)
 {
@@ -256,10 +291,10 @@ static s32 pch_i2c_wait_for_bus_idle(struct i2c_algo_pch_data *adap,
 		}
 
 		if (!schedule)
-			
+			/* Retry after some usecs */
 			udelay(5);
 		else
-			
+			/* Wait a bit more without consuming CPU */
 			usleep_range(20, 1000);
 
 		schedule = 1;
@@ -268,6 +303,12 @@ static s32 pch_i2c_wait_for_bus_idle(struct i2c_algo_pch_data *adap,
 	return 0;
 }
 
+/**
+ * pch_i2c_start() - Generate I2C start condition in normal mode.
+ * @adap:	Pointer to struct i2c_algo_pch_data.
+ *
+ * Generate I2C start condition in normal mode by setting I2CCTL.I2CMSTA to 1.
+ */
 static void pch_i2c_start(struct i2c_algo_pch_data *adap)
 {
 	void __iomem *p = adap->pch_base_address;
@@ -275,6 +316,10 @@ static void pch_i2c_start(struct i2c_algo_pch_data *adap)
 	pch_setbit(adap->pch_base_address, PCH_I2CCTL, PCH_START);
 }
 
+/**
+ * pch_i2c_wait_for_xfer_complete() - initiates a wait for the tx complete event
+ * @adap:	Pointer to struct i2c_algo_pch_data.
+ */
 static s32 pch_i2c_wait_for_xfer_complete(struct i2c_algo_pch_data *adap)
 {
 	long ret;
@@ -298,6 +343,10 @@ static s32 pch_i2c_wait_for_xfer_complete(struct i2c_algo_pch_data *adap)
 	return 0;
 }
 
+/**
+ * pch_i2c_getack() - to confirm ACK/NACK
+ * @adap:	Pointer to struct i2c_algo_pch_data.
+ */
 static s32 pch_i2c_getack(struct i2c_algo_pch_data *adap)
 {
 	u32 reg_val;
@@ -312,14 +361,22 @@ static s32 pch_i2c_getack(struct i2c_algo_pch_data *adap)
 	return 0;
 }
 
+/**
+ * pch_i2c_stop() - generate stop condition in normal mode.
+ * @adap:	Pointer to struct i2c_algo_pch_data.
+ */
 static void pch_i2c_stop(struct i2c_algo_pch_data *adap)
 {
 	void __iomem *p = adap->pch_base_address;
 	pch_dbg(adap, "I2CCTL = %x\n", ioread32(p + PCH_I2CCTL));
-	
+	/* clear the start bit */
 	pch_clrbit(adap->pch_base_address, PCH_I2CCTL, PCH_START);
 }
 
+/**
+ * pch_i2c_repstart() - generate repeated start condition in normal mode
+ * @adap:	Pointer to struct i2c_algo_pch_data.
+ */
 static void pch_i2c_repstart(struct i2c_algo_pch_data *adap)
 {
 	void __iomem *p = adap->pch_base_address;
@@ -327,6 +384,15 @@ static void pch_i2c_repstart(struct i2c_algo_pch_data *adap)
 	pch_setbit(adap->pch_base_address, PCH_I2CCTL, PCH_REPSTART);
 }
 
+/**
+ * pch_i2c_writebytes() - write data to I2C bus in normal mode
+ * @i2c_adap:	Pointer to the struct i2c_adapter.
+ * @last:	specifies whether last message or not.
+ *		In the case of compound mode it will be 1 for last message,
+ *		otherwise 0.
+ * @first:	specifies whether first message or not.
+ *		1 for first message otherwise 0.
+ */
 static s32 pch_i2c_writebytes(struct i2c_adapter *i2c_adap,
 			      struct i2c_msg *msgs, u32 last, u32 first)
 {
@@ -344,7 +410,7 @@ static s32 pch_i2c_writebytes(struct i2c_adapter *i2c_adap,
 	buf = msgs->buf;
 	addr = msgs->addr;
 
-	
+	/* enable master tx */
 	pch_setbit(adap->pch_base_address, PCH_I2CCTL, I2C_TX_MODE);
 
 	pch_dbg(adap, "I2CCTL = %x msgs->len = %d\n", ioread32(p + PCH_I2CCTL),
@@ -370,7 +436,7 @@ static s32 pch_i2c_writebytes(struct i2c_adapter *i2c_adap,
 			}
 			addr_8_lsb = (addr & I2C_ADDR_MSK);
 			iowrite32(addr_8_lsb, p + PCH_I2CDR);
-		} else if (rtn == -EIO) { 
+		} else if (rtn == -EIO) { /* Arbitration Lost */
 			pch_err(adap, "Lost Arbitration\n");
 			pch_clrbit(adap->pch_base_address, PCH_I2CSR,
 				   I2CMAL_BIT);
@@ -378,12 +444,12 @@ static s32 pch_i2c_writebytes(struct i2c_adapter *i2c_adap,
 				   I2CMIF_BIT);
 			pch_i2c_init(adap);
 			return -EAGAIN;
-		} else { 
+		} else { /* wait-event timeout */
 			pch_i2c_stop(adap);
 			return -ETIME;
 		}
 	} else {
-		
+		/* set 7 bit slave address and R/W bit as 0 */
 		iowrite32(addr << 1, p + PCH_I2CDR);
 		if (first)
 			pch_i2c_start(adap);
@@ -396,19 +462,19 @@ static s32 pch_i2c_writebytes(struct i2c_adapter *i2c_adap,
 				"setting\n");
 			return -EIO;
 		}
-	} else if (rtn == -EIO) { 
+	} else if (rtn == -EIO) { /* Arbitration Lost */
 		pch_err(adap, "Lost Arbitration\n");
 		pch_clrbit(adap->pch_base_address, PCH_I2CSR, I2CMAL_BIT);
 		pch_clrbit(adap->pch_base_address, PCH_I2CSR, I2CMIF_BIT);
 		pch_i2c_init(adap);
 		return -EAGAIN;
-	} else { 
+	} else { /* wait-event timeout */
 		pch_i2c_stop(adap);
 		return -ETIME;
 	}
 
 	for (wrcount = 0; wrcount < length; ++wrcount) {
-		
+		/* write buffer value to I2C data register */
 		iowrite32(buf[wrcount], p + PCH_I2CDR);
 		pch_dbg(adap, "writing %x to Data register\n", buf[wrcount]);
 
@@ -423,13 +489,13 @@ static s32 pch_i2c_writebytes(struct i2c_adapter *i2c_adap,
 				   I2CMCF_BIT);
 			pch_clrbit(adap->pch_base_address, PCH_I2CSR,
 				   I2CMIF_BIT);
-		} else { 
+		} else { /* wait-event timeout */
 			pch_i2c_stop(adap);
 			return -ETIME;
 		}
 	}
 
-	
+	/* check if this is the last message */
 	if (last)
 		pch_i2c_stop(adap);
 	else
@@ -440,6 +506,10 @@ static s32 pch_i2c_writebytes(struct i2c_adapter *i2c_adap,
 	return wrcount;
 }
 
+/**
+ * pch_i2c_sendack() - send ACK
+ * @adap:	Pointer to struct i2c_algo_pch_data.
+ */
 static void pch_i2c_sendack(struct i2c_algo_pch_data *adap)
 {
 	void __iomem *p = adap->pch_base_address;
@@ -447,6 +517,10 @@ static void pch_i2c_sendack(struct i2c_algo_pch_data *adap)
 	pch_clrbit(adap->pch_base_address, PCH_I2CCTL, PCH_ACK);
 }
 
+/**
+ * pch_i2c_sendnack() - send NACK
+ * @adap:	Pointer to struct i2c_algo_pch_data.
+ */
 static void pch_i2c_sendnack(struct i2c_algo_pch_data *adap)
 {
 	void __iomem *p = adap->pch_base_address;
@@ -454,6 +528,12 @@ static void pch_i2c_sendnack(struct i2c_algo_pch_data *adap)
 	pch_setbit(adap->pch_base_address, PCH_I2CCTL, PCH_ACK);
 }
 
+/**
+ * pch_i2c_restart() - Generate I2C restart condition in normal mode.
+ * @adap:	Pointer to struct i2c_algo_pch_data.
+ *
+ * Generate I2C restart condition in normal mode by setting I2CCTL.I2CRSTA.
+ */
 static void pch_i2c_restart(struct i2c_algo_pch_data *adap)
 {
 	void __iomem *p = adap->pch_base_address;
@@ -461,6 +541,13 @@ static void pch_i2c_restart(struct i2c_algo_pch_data *adap)
 	pch_setbit(adap->pch_base_address, PCH_I2CCTL, PCH_RESTART);
 }
 
+/**
+ * pch_i2c_readbytes() - read data  from I2C bus in normal mode.
+ * @i2c_adap:	Pointer to the struct i2c_adapter.
+ * @msgs:	Pointer to i2c_msg structure.
+ * @last:	specifies whether last message or not.
+ * @first:	specifies whether first message or not.
+ */
 static s32 pch_i2c_readbytes(struct i2c_adapter *i2c_adap, struct i2c_msg *msgs,
 			     u32 last, u32 first)
 {
@@ -479,7 +566,7 @@ static s32 pch_i2c_readbytes(struct i2c_adapter *i2c_adap, struct i2c_msg *msgs,
 	buf = msgs->buf;
 	addr = msgs->addr;
 
-	
+	/* enable master reception */
 	pch_clrbit(adap->pch_base_address, PCH_I2CCTL, I2C_TX_MODE);
 
 	if (first) {
@@ -502,7 +589,7 @@ static s32 pch_i2c_readbytes(struct i2c_adapter *i2c_adap, struct i2c_msg *msgs,
 			}
 			addr_8_lsb = (addr & I2C_ADDR_MSK);
 			iowrite32(addr_8_lsb, p + PCH_I2CDR);
-		} else if (rtn == -EIO) { 
+		} else if (rtn == -EIO) { /* Arbitration Lost */
 			pch_err(adap, "Lost Arbitration\n");
 			pch_clrbit(adap->pch_base_address, PCH_I2CSR,
 				   I2CMAL_BIT);
@@ -510,7 +597,7 @@ static s32 pch_i2c_readbytes(struct i2c_adapter *i2c_adap, struct i2c_msg *msgs,
 				   I2CMIF_BIT);
 			pch_i2c_init(adap);
 			return -EAGAIN;
-		} else { 
+		} else { /* wait-event timeout */
 			pch_i2c_stop(adap);
 			return -ETIME;
 		}
@@ -525,7 +612,7 @@ static s32 pch_i2c_readbytes(struct i2c_adapter *i2c_adap, struct i2c_msg *msgs,
 			addr_2_msb |= I2C_RD;
 			iowrite32(addr_2_msb | TEN_BIT_ADDR_MASK,
 				  p + PCH_I2CDR);
-		} else if (rtn == -EIO) { 
+		} else if (rtn == -EIO) { /* Arbitration Lost */
 			pch_err(adap, "Lost Arbitration\n");
 			pch_clrbit(adap->pch_base_address, PCH_I2CSR,
 				   I2CMAL_BIT);
@@ -533,17 +620,17 @@ static s32 pch_i2c_readbytes(struct i2c_adapter *i2c_adap, struct i2c_msg *msgs,
 				   I2CMIF_BIT);
 			pch_i2c_init(adap);
 			return -EAGAIN;
-		} else { 
+		} else { /* wait-event timeout */
 			pch_i2c_stop(adap);
 			return -ETIME;
 		}
 	} else {
-		
+		/* 7 address bits + R/W bit */
 		addr = (((addr) << 1) | (I2C_RD));
 		iowrite32(addr, p + PCH_I2CDR);
 	}
 
-	
+	/* check if it is the first message */
 	if (first)
 		pch_i2c_start(adap);
 
@@ -554,20 +641,20 @@ static s32 pch_i2c_readbytes(struct i2c_adapter *i2c_adap, struct i2c_msg *msgs,
 				"setting\n");
 			return -EIO;
 		}
-	} else if (rtn == -EIO) { 
+	} else if (rtn == -EIO) { /* Arbitration Lost */
 		pch_err(adap, "Lost Arbitration\n");
 		pch_clrbit(adap->pch_base_address, PCH_I2CSR, I2CMAL_BIT);
 		pch_clrbit(adap->pch_base_address, PCH_I2CSR, I2CMIF_BIT);
 		pch_i2c_init(adap);
 		return -EAGAIN;
-	} else { 
+	} else { /* wait-event timeout */
 		pch_i2c_stop(adap);
 		return -ETIME;
 	}
 
 	if (length == 0) {
 		pch_i2c_stop(adap);
-		ioread32(p + PCH_I2CDR); 
+		ioread32(p + PCH_I2CDR); /* Dummy read needs */
 
 		count = length;
 	} else {
@@ -575,7 +662,7 @@ static s32 pch_i2c_readbytes(struct i2c_adapter *i2c_adap, struct i2c_msg *msgs,
 		int loop;
 		pch_i2c_sendack(adap);
 
-		
+		/* Dummy read */
 		for (loop = 1, read_index = 0; loop < length; loop++) {
 			buf[read_index] = ioread32(p + PCH_I2CDR);
 
@@ -589,16 +676,16 @@ static s32 pch_i2c_readbytes(struct i2c_adapter *i2c_adap, struct i2c_msg *msgs,
 						"address setting\n");
 					return -EIO;
 				}
-			} else { 
+			} else { /* wait-event timeout */
 				pch_i2c_stop(adap);
 				return -ETIME;
 			}
 
-		}	
+		}	/* end for */
 
 		pch_i2c_sendnack(adap);
 
-		buf[read_index] = ioread32(p + PCH_I2CDR); 
+		buf[read_index] = ioread32(p + PCH_I2CDR); /* Read final - 1 */
 
 		if (length != 1)
 			read_index++;
@@ -610,7 +697,7 @@ static s32 pch_i2c_readbytes(struct i2c_adapter *i2c_adap, struct i2c_msg *msgs,
 					"address setting\n");
 				return -EIO;
 			}
-		} else { 
+		} else { /* wait-event timeout */
 			pch_i2c_stop(adap);
 			return -ETIME;
 		}
@@ -620,13 +707,17 @@ static s32 pch_i2c_readbytes(struct i2c_adapter *i2c_adap, struct i2c_msg *msgs,
 		else
 			pch_i2c_repstart(adap);
 
-		buf[read_index++] = ioread32(p + PCH_I2CDR); 
+		buf[read_index++] = ioread32(p + PCH_I2CDR); /* Read Final */
 		count = read_index;
 	}
 
 	return count;
 }
 
+/**
+ * pch_i2c_cb() - Interrupt handler Call back function
+ * @adap:	Pointer to struct i2c_algo_pch_data.
+ */
 static void pch_i2c_cb(struct i2c_algo_pch_data *adap)
 {
 	u32 sts;
@@ -640,7 +731,7 @@ static void pch_i2c_cb(struct i2c_algo_pch_data *adap)
 	if (sts & I2CMCF_BIT)
 		adap->pch_event_flag |= I2CMCF_EVENT;
 
-	
+	/* clear the applicable bits */
 	pch_clrbit(adap->pch_base_address, PCH_I2CSR, sts);
 
 	pch_dbg(adap, "PCH_I2CSR = %x\n", ioread32(p + PCH_I2CSR));
@@ -648,6 +739,11 @@ static void pch_i2c_cb(struct i2c_algo_pch_data *adap)
 	wake_up(&pch_event);
 }
 
+/**
+ * pch_i2c_handler() - interrupt handler for the PCH I2C controller
+ * @irq:	irq number.
+ * @pData:	cookie passed back to the handler function.
+ */
 static irqreturn_t pch_i2c_handler(int irq, void *pData)
 {
 	u32 reg_val;
@@ -676,6 +772,12 @@ static irqreturn_t pch_i2c_handler(int irq, void *pData)
 	return flag ? IRQ_HANDLED : IRQ_NONE;
 }
 
+/**
+ * pch_i2c_xfer() - Reading adnd writing data through I2C bus
+ * @i2c_adap:	Pointer to the struct i2c_adapter.
+ * @msgs:	Pointer to i2c_msg structure.
+ * @num:	number of messages.
+ */
 static s32 pch_i2c_xfer(struct i2c_adapter *i2c_adap,
 			struct i2c_msg *msgs, s32 num)
 {
@@ -697,7 +799,7 @@ static s32 pch_i2c_xfer(struct i2c_adapter *i2c_adap,
 
 	pch_dbg(adap, "adap->p_adapter_info->pch_i2c_suspended is %d\n",
 		adap->p_adapter_info->pch_i2c_suspended);
-	
+	/* transfer not completed */
 	adap->pch_i2c_xfer_in_progress = true;
 
 	for (i = 0; i < num && ret >= 0; i++) {
@@ -716,13 +818,17 @@ static s32 pch_i2c_xfer(struct i2c_adapter *i2c_adap,
 		}
 	}
 
-	adap->pch_i2c_xfer_in_progress = false;	
+	adap->pch_i2c_xfer_in_progress = false;	/* transfer completed */
 
 	mutex_unlock(&pch_mutex);
 
 	return (ret < 0) ? ret : num;
 }
 
+/**
+ * pch_i2c_func() - return the functionality of the I2C driver
+ * @adap:	Pointer to struct i2c_algo_pch_data.
+ */
 static u32 pch_i2c_func(struct i2c_adapter *adap)
 {
 	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL | I2C_FUNC_10BIT_ADDR;
@@ -733,6 +839,10 @@ static struct i2c_algorithm pch_algorithm = {
 	.functionality = pch_i2c_func
 };
 
+/**
+ * pch_i2c_disbl_int() - Disable PCH I2C interrupts
+ * @adap:	Pointer to struct i2c_algo_pch_data.
+ */
 static void pch_i2c_disbl_int(struct i2c_algo_pch_data *adap)
 {
 	void __iomem *p = adap->pch_base_address;
@@ -781,7 +891,7 @@ static int __devinit pch_i2c_probe(struct pci_dev *pdev,
 		goto err_pci_iomap;
 	}
 
-	
+	/* Set the number of I2C channel instance */
 	adap_info->ch_num = id->driver_data;
 
 	ret = request_irq(pdev->irq, pch_i2c_handler, IRQF_SHARED,
@@ -803,7 +913,7 @@ static int __devinit pch_i2c_probe(struct pci_dev *pdev,
 		pch_adap->algo = &pch_algorithm;
 		pch_adap->algo_data = &adap_info->pch_data[i];
 
-		
+		/* base_addr + offset; */
 		adap_info->pch_data[i].pch_base_address = base_addr + 0x100 * i;
 
 		pch_adap->dev.parent = &pdev->dev;
@@ -875,12 +985,12 @@ static int pch_i2c_suspend(struct pci_dev *pdev, pm_message_t state)
 
 	for (i = 0; i < adap_info->ch_num; i++) {
 		while ((adap_info->pch_data[i].pch_i2c_xfer_in_progress)) {
-			
+			/* Wait until all channel transfers are completed */
 			msleep(20);
 		}
 	}
 
-	
+	/* Disable the i2c interrupts */
 	for (i = 0; i < adap_info->ch_num; i++)
 		pch_i2c_disbl_int(&adap_info->pch_data[i]);
 

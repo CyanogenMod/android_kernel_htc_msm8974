@@ -26,6 +26,7 @@
 
 #include "voltage.h"
 
+/* Powerdomain basic power states */
 #define PWRDM_POWER_OFF		0x0
 #define PWRDM_POWER_RET		0x1
 #define PWRDM_POWER_INACTIVE	0x2
@@ -33,6 +34,7 @@
 
 #define PWRDM_MAX_PWRSTS	4
 
+/* Powerdomain allowable state bitfields */
 #define PWRSTS_ON		(1 << PWRDM_POWER_ON)
 #define PWRSTS_INACTIVE		(1 << PWRDM_POWER_INACTIVE)
 #define PWRSTS_RET		(1 << PWRDM_POWER_RET)
@@ -44,19 +46,59 @@
 #define PWRSTS_OFF_RET_ON	(PWRSTS_OFF_RET | PWRSTS_ON)
 
 
-#define PWRDM_HAS_HDWR_SAR	(1 << 0) 
-#define PWRDM_HAS_MPU_QUIRK	(1 << 1) 
-#define PWRDM_HAS_LOWPOWERSTATECHANGE	(1 << 2) 
+/* Powerdomain flags */
+#define PWRDM_HAS_HDWR_SAR	(1 << 0) /* hardware save-and-restore support */
+#define PWRDM_HAS_MPU_QUIRK	(1 << 1) /* MPU pwr domain has MEM bank 0 bits
+					  * in MEM bank 1 position. This is
+					  * true for OMAP3430
+					  */
+#define PWRDM_HAS_LOWPOWERSTATECHANGE	(1 << 2) /*
+						  * support to transition from a
+						  * sleep state to a lower sleep
+						  * state without waking up the
+						  * powerdomain
+						  */
 
+/*
+ * Number of memory banks that are power-controllable.	On OMAP4430, the
+ * maximum is 5.
+ */
 #define PWRDM_MAX_MEM_BANKS	5
 
+/*
+ * Maximum number of clockdomains that can be associated with a powerdomain.
+ * CORE powerdomain on OMAP4 is the worst case
+ */
 #define PWRDM_MAX_CLKDMS	9
 
+/* XXX A completely arbitrary number. What is reasonable here? */
 #define PWRDM_TRANSITION_BAILOUT 100000
 
 struct clockdomain;
 struct powerdomain;
 
+/**
+ * struct powerdomain - OMAP powerdomain
+ * @name: Powerdomain name
+ * @voltdm: voltagedomain containing this powerdomain
+ * @prcm_offs: the address offset from CM_BASE/PRM_BASE
+ * @prcm_partition: (OMAP4 only) the PRCM partition ID containing @prcm_offs
+ * @pwrsts: Possible powerdomain power states
+ * @pwrsts_logic_ret: Possible logic power states when pwrdm in RETENTION
+ * @flags: Powerdomain flags
+ * @banks: Number of software-controllable memory banks in this powerdomain
+ * @pwrsts_mem_ret: Possible memory bank pwrstates when pwrdm in RETENTION
+ * @pwrsts_mem_on: Possible memory bank pwrstates when pwrdm in ON
+ * @pwrdm_clkdms: Clockdomains in this powerdomain
+ * @node: list_head linking all powerdomains
+ * @voltdm_node: list_head linking all powerdomains in a voltagedomain
+ * @state:
+ * @state_counter:
+ * @timer:
+ * @state_timer:
+ *
+ * @prcm_partition possible values are defined in mach-omap2/prcm44xx.h.
+ */
 struct powerdomain {
 	const char *name;
 	union {
@@ -85,6 +127,27 @@ struct powerdomain {
 #endif
 };
 
+/**
+ * struct pwrdm_ops - Arch specific function implementations
+ * @pwrdm_set_next_pwrst: Set the target power state for a pd
+ * @pwrdm_read_next_pwrst: Read the target power state set for a pd
+ * @pwrdm_read_pwrst: Read the current power state of a pd
+ * @pwrdm_read_prev_pwrst: Read the prev power state entered by the pd
+ * @pwrdm_set_logic_retst: Set the logic state in RET for a pd
+ * @pwrdm_set_mem_onst: Set the Memory state in ON for a pd
+ * @pwrdm_set_mem_retst: Set the Memory state in RET for a pd
+ * @pwrdm_read_logic_pwrst: Read the current logic state of a pd
+ * @pwrdm_read_prev_logic_pwrst: Read the previous logic state entered by a pd
+ * @pwrdm_read_logic_retst: Read the logic state in RET for a pd
+ * @pwrdm_read_mem_pwrst: Read the current memory state of a pd
+ * @pwrdm_read_prev_mem_pwrst: Read the previous memory state entered by a pd
+ * @pwrdm_read_mem_retst: Read the memory state in RET for a pd
+ * @pwrdm_clear_all_prev_pwrst: Clear all previous power states logged for a pd
+ * @pwrdm_enable_hdwr_sar: Enable Hardware Save-Restore feature for the pd
+ * @pwrdm_disable_hdwr_sar: Disable Hardware Save-Restore feature for a pd
+ * @pwrdm_set_lowpwrstchange: Enable pd transitions from a shallow to deep sleep
+ * @pwrdm_wait_transition: Wait for a pd state transition to complete
+ */
 struct pwrdm_ops {
 	int	(*pwrdm_set_next_pwrst)(struct powerdomain *pwrdm, u8 pwrst);
 	int	(*pwrdm_read_next_pwrst)(struct powerdomain *pwrdm);
@@ -166,6 +229,7 @@ extern struct pwrdm_ops omap2_pwrdm_operations;
 extern struct pwrdm_ops omap3_pwrdm_operations;
 extern struct pwrdm_ops omap4_pwrdm_operations;
 
+/* Common Internal functions used across OMAP rev's */
 extern u32 omap2_pwrdm_get_mem_bank_onstate_mask(u8 bank);
 extern u32 omap2_pwrdm_get_mem_bank_retst_mask(u8 bank);
 extern u32 omap2_pwrdm_get_mem_bank_stst_mask(u8 bank);

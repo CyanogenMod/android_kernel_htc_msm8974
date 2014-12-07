@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * Qualcomm PMIC8058 driver
+ *
+ */
 #include <linux/kernel.h>
 #include <linux/platform_device.h>
 #include <linux/slab.h>
@@ -24,11 +28,13 @@
 #define REG_MPP_BASE			0x50
 #define REG_IRQ_BASE			0x1BB
 
-#define PM8058_REG_REV			0x002  
+/* PMIC8058 Revision */
+#define PM8058_REG_REV			0x002  /* PMIC4 revision */
 #define PM8058_VERSION_MASK		0xF0
 #define PM8058_REVISION_MASK		0x0F
 #define PM8058_VERSION_VALUE		0xE0
 
+/* PMIC 8058 Battery Alarm SSBI registers */
 #define REG_BATT_ALARM_THRESH		0x023
 #define REG_BATT_ALARM_CTRL1		0x024
 #define REG_BATT_ALARM_CTRL2		0x0AA
@@ -37,12 +43,15 @@
 #define REG_TEMP_ALRM_CTRL		0x1B
 #define REG_TEMP_ALRM_PWM		0x9B
 
+/* PON CNTL 4 register */
 #define SSBI_REG_ADDR_PON_CNTL_4 0x98
 #define PM8058_PON_RESET_EN_MASK 0x01
 
+/* PON CNTL 5 register */
 #define SSBI_REG_ADDR_PON_CNTL_5 0x7B
 #define PM8058_HARD_RESET_EN_MASK 0x08
 
+/* GP_TEST1 register */
 #define SSBI_REG_ADDR_GP_TEST_1		0x07A
 
 #define PM8058_RTC_BASE			0x1E8
@@ -704,7 +713,7 @@ static int __devinit pm8058_probe(struct platform_device *pdev)
 	pm8058_drvdata.pm_chip_data = pmic;
 	platform_set_drvdata(pdev, &pm8058_drvdata);
 
-	
+	/* Read PMIC chip revision */
 	rc = pm8058_readb(pmic->dev, PM8058_REG_REV, &pmic->revision);
 	if (rc)
 		pr_err("%s: Failed on pm8058_readb for revision: rc=%d.\n",

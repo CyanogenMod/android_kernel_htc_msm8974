@@ -25,11 +25,11 @@ struct tpa2018d1_platform_data {
 };
 
 struct tpa2018d1_config_data {
-	unsigned char *cmd_data;  
+	unsigned char *cmd_data;  /* [mode][cmd_len][cmds..] */
 	unsigned int mode_num;
 	unsigned int data_len;
 };
 
 extern void tpa2018d1_set_speaker_amp(int on);
 
-#endif 
+#endif /* __ASM_ARM_ARCH_TPA2018D1_H */

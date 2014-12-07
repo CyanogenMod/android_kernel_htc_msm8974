@@ -55,4 +55,4 @@ __ioport_map_trapped(unsigned long offset, unsigned long size)
 #define __ioport_map_trapped(offset, size) NULL
 #endif
 
-#endif 
+#endif /* __ASM_SH_IO_TRAPPED_H */

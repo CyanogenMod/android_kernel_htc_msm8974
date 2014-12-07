@@ -3,4 +3,4 @@
 
 #include <asm-generic/mutex-null.h>
 
-#endif 
+#endif /* _ASM_C6X_MUTEX_H */

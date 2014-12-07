@@ -45,6 +45,7 @@
 #define PMAPP_DISP_BACKLIGHT_INIT_PROC		32
 #define PMAPP_VREG_LPM_PINCNTRL_VOTE_PROC	34
 
+/* Clock voter name max length */
 #define PMAPP_CLOCK_VOTER_ID_LEN		4
 
 struct rpc_pmapp_ids {
@@ -55,6 +56,7 @@ struct rpc_pmapp_ids {
 static struct rpc_pmapp_ids rpc_ids;
 static struct msm_rpc_client *client;
 
+/* Add newer versions at the top of array */
 static const unsigned int rpc_vers[] = {
 	PMAPP_RPC_VER_7_1,
 	PMAPP_RPC_VER_6_1,
@@ -72,8 +74,8 @@ static void rpc_pmapp_init_rpc_ids(unsigned long vers)
 		rpc_ids.reg_for_vbus_valid		= 16;
 		rpc_ids.vote_for_vbus_valid_switch	= 17;
 	} else if (vers == PMAPP_RPC_VER_2_1) {
-		rpc_ids.reg_for_vbus_valid		= 0; 
-		rpc_ids.vote_for_vbus_valid_switch	= 0; 
+		rpc_ids.reg_for_vbus_valid		= 0; /* NA */
+		rpc_ids.vote_for_vbus_valid_switch	= 0; /* NA */
 	}
 }
 
@@ -128,7 +130,7 @@ EXPORT_SYMBOL(pmic_vote_3p3_pwr_sel_switch);
 
 struct vbus_sn_notification_args {
 	uint32_t cb_id;
-	uint32_t vbus; 
+	uint32_t vbus; /* vbus = 0 if VBUS is present */
 };
 
 static int vbus_notification_cb(struct msm_rpc_client *client,
@@ -221,7 +223,7 @@ int msm_pm_app_rpc_init(void (*callback)(int online))
 
 done:
 	cb_id = msm_rpc_add_cb_func(client, (void *)callback);
-	
+	/* In case of NULL callback funtion, cb_id would be -1 */
 	if ((int) cb_id < -1)
 		return cb_id;
 	rc =  msm_rpc_client_req(client,
@@ -241,13 +243,14 @@ void msm_pm_app_rpc_deinit(void(*callback)(int online))
 }
 EXPORT_SYMBOL(msm_pm_app_rpc_deinit);
 
+/* error bit flags defined by modem side */
 #define PM_ERR_FLAG__PAR1_OUT_OF_RANGE		(0x0001)
 #define PM_ERR_FLAG__PAR2_OUT_OF_RANGE		(0x0002)
 #define PM_ERR_FLAG__PAR3_OUT_OF_RANGE		(0x0004)
 #define PM_ERR_FLAG__PAR4_OUT_OF_RANGE		(0x0008)
 #define PM_ERR_FLAG__PAR5_OUT_OF_RANGE		(0x0010)
 
-#define PM_ERR_FLAG__ALL_PARMS_OUT_OF_RANGE   	(0x001F) 
+#define PM_ERR_FLAG__ALL_PARMS_OUT_OF_RANGE   	(0x001F) /* all 5 previous */
 
 #define PM_ERR_FLAG__SBI_OPT_ERR		(0x0080)
 #define PM_ERR_FLAG__FEATURE_NOT_SUPPORTED	(0x0100)
@@ -255,11 +258,11 @@ EXPORT_SYMBOL(msm_pm_app_rpc_deinit);
 #define	PMAPP_BUFF_SIZE		256
 
 struct pmapp_buf {
-	char *start;		
-	char *end;		
-	int size;		
-	char *data;		
-	int len;		
+	char *start;		/* buffer start addr */
+	char *end;		/* buffer end addr */
+	int size;		/* buffer size */
+	char *data;		/* payload begin addr */
+	int len;		/* payload len */
 };
 
 static DEFINE_MUTEX(pmapp_mtx);
@@ -329,7 +332,7 @@ static int modem_to_linux_err(uint err)
 		return 0;
 
 	if (err & PM_ERR_FLAG__ALL_PARMS_OUT_OF_RANGE)
-		return -EINVAL;	
+		return -EINVAL;	/* PM_ERR_FLAG__PAR[1..5]_OUT_OF_RANGE */
 
 	if (err & PM_ERR_FLAG__SBI_OPT_ERR)
 		return -EIO;
@@ -406,6 +409,11 @@ static int pmapp_rpc_req_reply(struct pmapp_buf *tbuf, struct pmapp_buf *rbuf,
 		return ans;
 	}
 
+	/*
+	* data is point to next available space at this moment,
+	* move it back to beginning of request header and increase
+	* the length
+	*/
 	tbuf->data = tbuf->start;
 	tbuf->len += sizeof(struct rpc_request_hdr);
 
@@ -416,12 +424,12 @@ static int pmapp_rpc_req_reply(struct pmapp_buf *tbuf, struct pmapp_buf *rbuf,
 
 	if (len <= 0) {
 		printk(KERN_ERR "%s: rpc failed! len = %d\n", __func__, len);
-		pm->endpoint = NULL;	
+		pm->endpoint = NULL;	/* re-connect later ? */
 		return len;
 	}
 
 	rbuf->len = len;
-	
+	/* strip off rpc_reply_hdr */
 	rbuf->data += sizeof(struct rpc_reply_hdr);
 	rbuf->len -= sizeof(struct rpc_reply_hdr);
 
@@ -473,7 +481,7 @@ static int pmapp_rpc_set_only(uint data0, uint data1, uint data2, uint data3,
 		return stat;
 	}
 
-	pmapp_pull_rx_data(rp, &stat);	
+	pmapp_pull_rx_data(rp, &stat);	/* result from server */
 
 	mutex_unlock(&pmapp_mtx);
 

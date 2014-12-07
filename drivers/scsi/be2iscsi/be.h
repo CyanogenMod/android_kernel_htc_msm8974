@@ -25,6 +25,7 @@
 #define MCC_Q_LEN	128
 #define MCC_CQ_LEN	256
 #define MAX_MCC_CMD	16
+/* BladeEngine Generation numbers */
 #define BE_GEN2 2
 #define BE_GEN3 3
 
@@ -37,11 +38,11 @@ struct be_dma_mem {
 struct be_queue_info {
 	struct be_dma_mem dma_mem;
 	u16 len;
-	u16 entry_size;		
+	u16 entry_size;		/* Size of an element in the queue */
 	u16 id;
 	u16 tail, head;
 	bool created;
-	atomic_t used;		
+	atomic_t used;		/* Number of valid elements in the queue */
 };
 
 static inline u32 MODULO(u16 val, u16 limit)
@@ -80,6 +81,7 @@ static inline void queue_tail_inc(struct be_queue_info *q)
 	index_inc(&q->tail, q->len);
 }
 
+/*ISCSI */
 
 struct be_eq_obj {
 	struct be_queue_info q;
@@ -95,18 +97,20 @@ struct be_mcc_obj {
 
 struct be_ctrl_info {
 	u8 __iomem *csr;
-	u8 __iomem *db;		
-	u8 __iomem *pcicfg;	
+	u8 __iomem *db;		/* Door Bell */
+	u8 __iomem *pcicfg;	/* PCI config space */
 	struct pci_dev *pdev;
 
-	
-	spinlock_t mbox_lock;	
+	/* Mbox used for cmd request/response */
+	spinlock_t mbox_lock;	/* For serializing mbox cmds to BE card */
 	struct be_dma_mem mbox_mem;
+	/* Mbox mem is adjusted to align to 16 bytes. The allocated addr
+	 * is stored for freeing purpose */
 	struct be_dma_mem mbox_mem_alloced;
 
-	
+	/* MCC Rings */
 	struct be_mcc_obj mcc_obj;
-	spinlock_t mcc_lock;	
+	spinlock_t mcc_lock;	/* For serializing mcc cmds to BE card */
 	spinlock_t mcc_cq_lock;
 
 	wait_queue_head_t mcc_wait[MAX_MCC_CMD + 1];
@@ -121,18 +125,22 @@ struct be_ctrl_info {
 
 #define PAGE_SHIFT_4K 12
 #define PAGE_SIZE_4K (1 << PAGE_SHIFT_4K)
-#define mcc_timeout		120000 
+#define mcc_timeout		120000 /* 5s timeout */
 
+/* Returns number of pages spanned by the data starting at the given addr */
 #define PAGES_4K_SPANNED(_address, size)				\
 		((u32)((((size_t)(_address) & (PAGE_SIZE_4K - 1)) +	\
 			(size) + (PAGE_SIZE_4K - 1)) >> PAGE_SHIFT_4K))
 
+/* Byte offset into the page corresponding to given address */
 #define OFFSET_IN_PAGE(addr)						\
 		((size_t)(addr) & (PAGE_SIZE_4K-1))
 
+/* Returns bit offset within a DWORD of a bitfield */
 #define AMAP_BIT_OFFSET(_struct, field)					\
 		(((size_t)&(((_struct *)0)->field))%32)
 
+/* Returns the bit mask of the field that is NOT shifted into location. */
 static inline u32 amap_mask(u32 bitsize)
 {
 	return (bitsize == 32 ? 0xFFFFFFFF : (1 << bitsize) - 1);
@@ -177,6 +185,6 @@ static inline void swap_dws(void *wrb, int len)
 		dw++;
 		len -= 4;
 	} while (len);
-#endif 
+#endif /* __BIG_ENDIAN */
 }
-#endif 
+#endif /* BEISCSI_H */

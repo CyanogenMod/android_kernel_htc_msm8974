@@ -12,8 +12,9 @@
 #ifndef _DAVINCI_I2S_H
 #define _DAVINCI_I2S_H
 
+/* McBSP dividers */
 enum davinci_mcbsp_div {
-	DAVINCI_MCBSP_CLKGDV,              
+	DAVINCI_MCBSP_CLKGDV,              /* Sample rate generator divider */
 };
 
 #endif

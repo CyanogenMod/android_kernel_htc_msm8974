@@ -57,16 +57,19 @@
 #ifndef __sctp_sm_h__
 #define __sctp_sm_h__
 
+/*
+ * Possible values for the disposition are:
+ */
 typedef enum {
-	SCTP_DISPOSITION_DISCARD,	 
-	SCTP_DISPOSITION_CONSUME,	 
-	SCTP_DISPOSITION_NOMEM,		 
-	SCTP_DISPOSITION_DELETE_TCB,	 
-	SCTP_DISPOSITION_ABORT,		 
-	SCTP_DISPOSITION_VIOLATION,	 
-	SCTP_DISPOSITION_NOT_IMPL,	 
-	SCTP_DISPOSITION_ERROR,		 
-	SCTP_DISPOSITION_BUG,		 
+	SCTP_DISPOSITION_DISCARD,	 /* No further processing.  */
+	SCTP_DISPOSITION_CONSUME,	 /* Process return values normally.  */
+	SCTP_DISPOSITION_NOMEM,		 /* We ran out of memory--recover.  */
+	SCTP_DISPOSITION_DELETE_TCB,	 /* Close the association.  */
+	SCTP_DISPOSITION_ABORT,		 /* Close the association NOW.  */
+	SCTP_DISPOSITION_VIOLATION,	 /* The peer is misbehaving.  */
+	SCTP_DISPOSITION_NOT_IMPL,	 /* This entry is not implemented.  */
+	SCTP_DISPOSITION_ERROR,		 /* This is plain old user error.  */
+	SCTP_DISPOSITION_BUG,		 /* This is a bug.  */
 } sctp_disposition_t;
 
 typedef struct {
@@ -85,12 +88,18 @@ typedef struct {
 	const char *name;
 } sctp_sm_table_entry_t;
 
+/* A naming convention of "sctp_sf_xxx" applies to all the state functions
+ * currently in use.
+ */
 
+/* Prototypes for generic state functions. */
 sctp_state_fn_t sctp_sf_not_impl;
 sctp_state_fn_t sctp_sf_bug;
 
+/* Prototypes for gener timer state functions. */
 sctp_state_fn_t sctp_sf_timer_ignore;
 
+/* Prototypes for chunk state functions. */
 sctp_state_fn_t sctp_sf_do_9_1_abort;
 sctp_state_fn_t sctp_sf_cookie_wait_abort;
 sctp_state_fn_t sctp_sf_cookie_echoed_abort;
@@ -137,6 +146,7 @@ sctp_state_fn_t sctp_sf_eat_fwd_tsn;
 sctp_state_fn_t sctp_sf_eat_fwd_tsn_fast;
 sctp_state_fn_t sctp_sf_eat_auth;
 
+/* Prototypes for primitive event state functions.  */
 sctp_state_fn_t sctp_sf_do_prm_asoc;
 sctp_state_fn_t sctp_sf_do_prm_send;
 sctp_state_fn_t sctp_sf_do_9_2_prm_shutdown;
@@ -154,16 +164,19 @@ sctp_state_fn_t sctp_sf_ignore_primitive;
 sctp_state_fn_t sctp_sf_do_prm_requestheartbeat;
 sctp_state_fn_t sctp_sf_do_prm_asconf;
 
+/* Prototypes for other event state functions.  */
 sctp_state_fn_t sctp_sf_do_no_pending_tsn;
 sctp_state_fn_t sctp_sf_do_9_2_start_shutdown;
 sctp_state_fn_t sctp_sf_do_9_2_shutdown_ack;
 sctp_state_fn_t sctp_sf_ignore_other;
 sctp_state_fn_t sctp_sf_cookie_wait_icmp_abort;
 
+/* Prototypes for timeout event state functions.  */
 sctp_state_fn_t sctp_sf_do_6_3_3_rtx;
 sctp_state_fn_t sctp_sf_do_6_2_sack;
 sctp_state_fn_t sctp_sf_autoclose_timer_expire;
 
+/* Prototypes for utility support functions.  */
 __u8 sctp_get_chunk_type(struct sctp_chunk *chunk);
 const sctp_sm_table_entry_t *sctp_sm_lookup_event(sctp_event_t,
 					    sctp_state_t,
@@ -175,6 +188,7 @@ struct sctp_association *sctp_make_temp_asoc(const struct sctp_endpoint *,
 __u32 sctp_generate_verification_tag(void);
 void sctp_populate_tie_tags(__u8 *cookie, __u32 curTag, __u32 hisTag);
 
+/* Prototypes for chunk-building functions.  */
 struct sctp_chunk *sctp_make_init(const struct sctp_association *,
 			     const struct sctp_bind_addr *,
 			     gfp_t gfp, int vparam_len);
@@ -252,6 +266,7 @@ struct sctp_chunk *sctp_make_auth(const struct sctp_association *asoc);
 void sctp_chunk_assign_tsn(struct sctp_chunk *);
 void sctp_chunk_assign_ssn(struct sctp_chunk *);
 
+/* Prototypes for statetable processing. */
 
 int sctp_do_sm(sctp_event_t event_type, sctp_subtype_t subtype,
 	       sctp_state_t state,
@@ -260,6 +275,7 @@ int sctp_do_sm(sctp_event_t event_type, sctp_subtype_t subtype,
                void *event_arg,
 	       gfp_t gfp);
 
+/* 2nd level prototypes */
 void sctp_generate_t3_rtx_event(unsigned long peer);
 void sctp_generate_heartbeat_event(unsigned long peer);
 void sctp_generate_proto_unreach_event(unsigned long peer);
@@ -274,12 +290,15 @@ struct sctp_association *sctp_unpack_cookie(const struct sctp_endpoint *,
 int sctp_addip_addr_config(struct sctp_association *, sctp_param_t,
 			   struct sockaddr_storage*, int);
 
+/* 3rd level prototypes */
 __u32 sctp_generate_tag(const struct sctp_endpoint *);
 __u32 sctp_generate_tsn(const struct sctp_endpoint *);
 
+/* Extern declarations for major data structures.  */
 extern sctp_timer_event_t *sctp_timer_events[SCTP_NUM_TIMEOUT_TYPES];
 
 
+/* Get the size of a DATA chunk payload. */
 static inline __u16 sctp_data_size(struct sctp_chunk *chunk)
 {
 	__u16 size;
@@ -290,8 +309,34 @@ static inline __u16 sctp_data_size(struct sctp_chunk *chunk)
 	return size;
 }
 
+/* Compare two TSNs */
 
+/* RFC 1982 - Serial Number Arithmetic
+ *
+ * 2. Comparison
+ *  Then, s1 is said to be equal to s2 if and only if i1 is equal to i2,
+ *  in all other cases, s1 is not equal to s2.
+ *
+ * s1 is said to be less than s2 if, and only if, s1 is not equal to s2,
+ * and
+ *
+ *      (i1 < i2 and i2 - i1 < 2^(SERIAL_BITS - 1)) or
+ *      (i1 > i2 and i1 - i2 > 2^(SERIAL_BITS - 1))
+ *
+ * s1 is said to be greater than s2 if, and only if, s1 is not equal to
+ * s2, and
+ *
+ *      (i1 < i2 and i2 - i1 > 2^(SERIAL_BITS - 1)) or
+ *      (i1 > i2 and i1 - i2 < 2^(SERIAL_BITS - 1))
+ */
 
+/*
+ * RFC 2960
+ *  1.6 Serial Number Arithmetic
+ *
+ * Comparisons and arithmetic on TSNs in this document SHOULD use Serial
+ * Number Arithmetic as defined in [RFC1982] where SERIAL_BITS = 32.
+ */
 
 enum {
 	TSN_SIGN_BIT = (1<<31)
@@ -307,7 +352,16 @@ static inline int TSN_lte(__u32 s, __u32 t)
 	return ((s) == (t)) || (((s) - (t)) & TSN_SIGN_BIT);
 }
 
+/* Compare two SSNs */
 
+/*
+ * RFC 2960
+ *  1.6 Serial Number Arithmetic
+ *
+ * Comparisons and arithmetic on Stream Sequence Numbers in this document
+ * SHOULD use Serial Number Arithmetic as defined in [RFC1982] where
+ * SERIAL_BITS = 16.
+ */
 enum {
 	SSN_SIGN_BIT = (1<<15)
 };
@@ -322,6 +376,11 @@ static inline int SSN_lte(__u16 s, __u16 t)
 	return ((s) == (t)) || (((s) - (t)) & SSN_SIGN_BIT);
 }
 
+/*
+ * ADDIP 3.1.1
+ * The valid range of Serial Number is from 0 to 4294967295 (2**32 - 1). Serial
+ * Numbers wrap back to 0 after reaching 4294967295.
+ */
 enum {
 	ADDIP_SERIAL_SIGN_BIT = (1<<31)
 };
@@ -331,20 +390,51 @@ static inline int ADDIP_SERIAL_gte(__u16 s, __u16 t)
 	return ((s) == (t)) || (((t) - (s)) & ADDIP_SERIAL_SIGN_BIT);
 }
 
+/* Check VTAG of the packet matches the sender's own tag. */
 static inline int
 sctp_vtag_verify(const struct sctp_chunk *chunk,
 		 const struct sctp_association *asoc)
 {
+	/* RFC 2960 Sec 8.5 When receiving an SCTP packet, the endpoint
+	 * MUST ensure that the value in the Verification Tag field of
+	 * the received SCTP packet matches its own Tag. If the received
+	 * Verification Tag value does not match the receiver's own
+	 * tag value, the receiver shall silently discard the packet...
+	 */
         if (ntohl(chunk->sctp_hdr->vtag) == asoc->c.my_vtag)
                 return 1;
 
 	return 0;
 }
 
+/* Check VTAG of the packet matches the sender's own tag and the T bit is
+ * not set, OR its peer's tag and the T bit is set in the Chunk Flags.
+ */
 static inline int
 sctp_vtag_verify_either(const struct sctp_chunk *chunk,
 			const struct sctp_association *asoc)
 {
+        /* RFC 2960 Section 8.5.1, sctpimpguide Section 2.41
+	 *
+	 * B) The receiver of a ABORT MUST accept the packet
+	 *    if the Verification Tag field of the packet matches its own tag
+	 *    and the T bit is not set
+	 *    OR
+	 *    it is set to its peer's tag and the T bit is set in the Chunk
+	 *    Flags.
+	 *    Otherwise, the receiver MUST silently discard the packet
+	 *    and take no further action.
+	 *
+	 * C) The receiver of a SHUTDOWN COMPLETE shall accept the packet
+	 *    if the Verification Tag field of the packet matches its own tag
+	 *    and the T bit is not set
+	 *    OR
+	 *    it is set to its peer's tag and the T bit is set in the Chunk
+	 *    Flags.
+	 *    Otherwise, the receiver MUST silently discard the packet
+	 *    and take no further action.  An endpoint MUST ignore the
+	 *    SHUTDOWN COMPLETE if it is not in the SHUTDOWN-ACK-SENT state.
+	 */
         if ((!sctp_test_T_bit(chunk) &&
              (ntohl(chunk->sctp_hdr->vtag) == asoc->c.my_vtag)) ||
 	    (sctp_test_T_bit(chunk) && asoc->c.peer_vtag &&
@@ -355,4 +445,4 @@ sctp_vtag_verify_either(const struct sctp_chunk *chunk,
 	return 0;
 }
 
-#endif 
+#endif /* __sctp_sm_h__ */

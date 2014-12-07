@@ -18,7 +18,7 @@
 #define CYCLES_PER_SECOND	8000
 #define TICKS_PER_SECOND	(TICKS_PER_CYCLE * CYCLES_PER_SECOND)
 
-#define TRANSFER_DELAY_TICKS	0x2e00 
+#define TRANSFER_DELAY_TICKS	0x2e00 /* 479.17 µs */
 
 #define TAG_CIP			1
 
@@ -27,9 +27,16 @@
 #define AMDTP_FDF_AM824		(0 << 19)
 #define AMDTP_FDF_SFC_SHIFT	16
 
+/* TODO: make these configurable */
 #define INTERRUPT_INTERVAL	16
 #define QUEUE_LENGTH		48
 
+/**
+ * amdtp_out_stream_init - initialize an AMDTP output stream structure
+ * @s: the AMDTP output stream to initialize
+ * @unit: the target of the stream
+ * @flags: the packet transmission method to use
+ */
 int amdtp_out_stream_init(struct amdtp_out_stream *s, struct fw_unit *unit,
 			  enum cip_out_flags flags)
 {
@@ -46,6 +53,10 @@ int amdtp_out_stream_init(struct amdtp_out_stream *s, struct fw_unit *unit,
 }
 EXPORT_SYMBOL(amdtp_out_stream_init);
 
+/**
+ * amdtp_out_stream_destroy - free stream resources
+ * @s: the AMDTP output stream to destroy
+ */
 void amdtp_out_stream_destroy(struct amdtp_out_stream *s)
 {
 	WARN_ON(!IS_ERR(s->context));
@@ -54,6 +65,14 @@ void amdtp_out_stream_destroy(struct amdtp_out_stream *s)
 }
 EXPORT_SYMBOL(amdtp_out_stream_destroy);
 
+/**
+ * amdtp_out_stream_set_rate - set the sample rate
+ * @s: the AMDTP output stream to configure
+ * @rate: the sample rate
+ *
+ * The sample rate must be set before the stream is started, and must not be
+ * changed while the stream is running.
+ */
 void amdtp_out_stream_set_rate(struct amdtp_out_stream *s, unsigned int rate)
 {
 	static const struct {
@@ -83,6 +102,14 @@ void amdtp_out_stream_set_rate(struct amdtp_out_stream *s, unsigned int rate)
 }
 EXPORT_SYMBOL(amdtp_out_stream_set_rate);
 
+/**
+ * amdtp_out_stream_get_max_payload - get the stream's packet size
+ * @s: the AMDTP output stream
+ *
+ * This function must not be called before the stream has been configured
+ * with amdtp_out_stream_set_hw_params(), amdtp_out_stream_set_pcm(), and
+ * amdtp_out_stream_set_midi().
+ */
 unsigned int amdtp_out_stream_get_max_payload(struct amdtp_out_stream *s)
 {
 	static const unsigned int max_data_blocks[] = {
@@ -109,6 +136,14 @@ static void amdtp_write_s32(struct amdtp_out_stream *s,
 			    struct snd_pcm_substream *pcm,
 			    __be32 *buffer, unsigned int frames);
 
+/**
+ * amdtp_out_stream_set_pcm_format - set the PCM format
+ * @s: the AMDTP output stream to configure
+ * @format: the format of the ALSA PCM device
+ *
+ * The sample format must be set before the stream is started, and must not be
+ * changed while the stream is running.
+ */
 void amdtp_out_stream_set_pcm_format(struct amdtp_out_stream *s,
 				     snd_pcm_format_t format)
 {
@@ -118,7 +153,7 @@ void amdtp_out_stream_set_pcm_format(struct amdtp_out_stream *s,
 	switch (format) {
 	default:
 		WARN_ON(1);
-		
+		/* fall through */
 	case SNDRV_PCM_FORMAT_S16:
 		s->transfer_samples = amdtp_write_s16;
 		break;
@@ -134,17 +169,25 @@ static unsigned int calculate_data_blocks(struct amdtp_out_stream *s)
 	unsigned int phase, data_blocks;
 
 	if (!cip_sfc_is_base_44100(s->sfc)) {
-		
+		/* Sample_rate / 8000 is an integer, and precomputed. */
 		data_blocks = s->data_block_state;
 	} else {
 		phase = s->data_block_state;
 
+		/*
+		 * This calculates the number of data blocks per packet so that
+		 * 1) the overall rate is correct and exactly synchronized to
+		 *    the bus clock, and
+		 * 2) packets with a rounded-up number of blocks occur as early
+		 *    as possible in the sequence (to prevent underruns of the
+		 *    device's buffer).
+		 */
 		if (s->sfc == CIP_SFC_44100)
-			
+			/* 6 6 5 6 5 6 5 ... */
 			data_blocks = 5 + ((phase & 1) ^
 					   (phase == 0 || phase >= 40));
 		else
-			
+			/* 12 11 11 11 11 ... or 23 22 22 22 22 ... */
 			data_blocks = 11 * (s->sfc >> 1) + (phase == 0);
 		if (++phase >= (80 >> (s->sfc >> 1)))
 			phase = 0;
@@ -163,6 +206,16 @@ static unsigned int calculate_syt(struct amdtp_out_stream *s,
 		if (!cip_sfc_is_base_44100(s->sfc))
 			syt_offset = s->last_syt_offset + s->syt_offset_state;
 		else {
+		/*
+		 * The time, in ticks, of the n'th SYT_INTERVAL sample is:
+		 *   n * SYT_INTERVAL * 24576000 / sample_rate
+		 * Modulo TICKS_PER_CYCLE, the difference between successive
+		 * elements is about 1386.23.  Rounding the results of this
+		 * formula to the SYT precision results in a sequence of
+		 * differences that begins with:
+		 *   1386 1386 1387 1386 1386 1386 1387 1386 1386 1386 1387 ...
+		 * This code generates _exactly_ the same sequence.
+		 */
 			phase = s->syt_offset_state;
 			index = phase % 13;
 			syt_offset = s->last_syt_offset;
@@ -183,7 +236,7 @@ static unsigned int calculate_syt(struct amdtp_out_stream *s,
 
 		return syt & 0xffff;
 	} else {
-		return 0xffff; 
+		return 0xffff; /* no info */
 	}
 }
 
@@ -334,6 +387,11 @@ static void out_packet_callback(struct fw_iso_context *context, u32 cycle,
 	struct amdtp_out_stream *s = data;
 	unsigned int i, packets = header_length / 4;
 
+	/*
+	 * Compute the cycle of the last queued packet.
+	 * (We need only the four lowest bits for the SYT, so we can ignore
+	 * that bits 0-11 must wrap around at 3072.)
+	 */
 	cycle += QUEUE_LENGTH - packets;
 
 	for (i = 0; i < packets; ++i)
@@ -362,6 +420,17 @@ static int queue_initial_skip_packets(struct amdtp_out_stream *s)
 	return 0;
 }
 
+/**
+ * amdtp_out_stream_start - start sending packets
+ * @s: the AMDTP output stream to start
+ * @channel: the isochronous channel on the bus
+ * @speed: firewire speed code
+ *
+ * The stream cannot be started until it has been configured with
+ * amdtp_out_stream_set_hw_params(), amdtp_out_stream_set_pcm(), and
+ * amdtp_out_stream_set_midi(); and it must be started before any
+ * PCM or MIDI device can be started.
+ */
 int amdtp_out_stream_start(struct amdtp_out_stream *s, int channel, int speed)
 {
 	static const struct {
@@ -436,6 +505,10 @@ err_unlock:
 }
 EXPORT_SYMBOL(amdtp_out_stream_start);
 
+/**
+ * amdtp_out_stream_update - update the stream after a bus reset
+ * @s: the AMDTP output stream
+ */
 void amdtp_out_stream_update(struct amdtp_out_stream *s)
 {
 	ACCESS_ONCE(s->source_node_id_field) =
@@ -443,6 +516,13 @@ void amdtp_out_stream_update(struct amdtp_out_stream *s)
 }
 EXPORT_SYMBOL(amdtp_out_stream_update);
 
+/**
+ * amdtp_out_stream_stop - stop sending packets
+ * @s: the AMDTP output stream to stop
+ *
+ * All PCM and MIDI devices of the stream must be stopped before the stream
+ * itself can be stopped.
+ */
 void amdtp_out_stream_stop(struct amdtp_out_stream *s)
 {
 	mutex_lock(&s->mutex);
@@ -461,6 +541,13 @@ void amdtp_out_stream_stop(struct amdtp_out_stream *s)
 }
 EXPORT_SYMBOL(amdtp_out_stream_stop);
 
+/**
+ * amdtp_out_stream_pcm_abort - abort the running PCM device
+ * @s: the AMDTP stream about to be stopped
+ *
+ * If the isochronous stream needs to be stopped asynchronously, call this
+ * function first to stop the PCM device.
+ */
 void amdtp_out_stream_pcm_abort(struct amdtp_out_stream *s)
 {
 	struct snd_pcm_substream *pcm;

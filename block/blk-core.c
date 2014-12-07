@@ -228,7 +228,8 @@ void __blk_run_queue(struct request_queue *q)
 	if (!q->notified_urgent &&
 		q->elevator->type->ops.elevator_is_urgent_fn &&
 		q->urgent_request_fn &&
-		q->elevator->type->ops.elevator_is_urgent_fn(q)) {
+		q->elevator->type->ops.elevator_is_urgent_fn(q) &&
+		list_empty(&q->flush_data_in_flight)) {
 		q->notified_urgent = true;
 		q->urgent_request_fn(q);
 	} else
@@ -845,7 +846,8 @@ void __blk_put_request(struct request_queue *q, struct request *req)
 	elv_completed_request(q, req);
 
 	
-	WARN_ON(req->bio != NULL);
+	WARN_ON(req->bio && !bio_flagged(req->bio, BIO_DONTFREE));
+
 
 	if (req->cmd_flags & REQ_ALLOCED) {
 		unsigned int flags = req->cmd_flags;
@@ -980,6 +982,8 @@ void init_request_from_bio(struct request *req, struct bio *bio)
 	if (bio->bi_rw & REQ_RAHEAD)
 		req->cmd_flags |= REQ_FAILFAST_MASK;
 
+	req->enter_time = ktime_get();
+	req->pid = task_pid_nr(current);
 	req->errors = 0;
 	req->__sector = bio->bi_sector;
 	req->ioprio = bio_prio(bio);
@@ -1173,7 +1177,7 @@ generic_make_request_checks(struct bio *bio)
 #ifdef CONFIG_MMC_MUST_PREVENT_WP_VIOLATION
 	sprintf(wp_ptn, "mmcblk0p%d", get_partition_num_by_name("system"));
 	if (!strcmp(bdevname(bio->bi_bdev, b), wp_ptn) && !board_mfg_mode() &&
-			(get_tamper_sf() == 1) && (bio->bi_rw & WRITE)) {
+			(get_tamper_sf() == 1) && (get_atsdebug() != 1) && (bio->bi_rw & WRITE)) {
 		pr_info("blk-core: Attempt to write protected partition %s block %Lu \n",
 				bdevname(bio->bi_bdev, b), (unsigned long long)bio->bi_sector);
 		err = 0;
@@ -1589,6 +1593,10 @@ bool blk_update_request(struct request *req, int error, unsigned int nr_bytes)
 	blk_account_io_completion(req, nr_bytes);
 
 	total_bytes = bio_nbytes = 0;
+
+	if (bio_flagged(req->bio, BIO_DONTFREE))
+		return false;
+
 	while ((bio = req->bio) != NULL) {
 		int nbytes;
 

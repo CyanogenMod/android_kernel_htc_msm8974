@@ -26,4 +26,4 @@
 
 #include <asm-generic/irqflags.h>
 
-#endif 
+#endif /* ___ASM_OPENRISC_IRQFLAGS_H */

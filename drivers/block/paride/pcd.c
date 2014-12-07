@@ -84,12 +84,32 @@
 
 */
 
+/* Changes:
+
+	1.01	GRG 1998.01.24	Added test unit ready support
+	1.02    GRG 1998.05.06  Changes to pcd_completion, ready_wait,
+				and loosen interpretation of ATAPI
+			        standard for clearing error status.
+				Use spinlocks. Eliminate sti().
+	1.03    GRG 1998.06.16  Eliminated an Ugh
+	1.04	GRG 1998.08.15  Added extra debugging, improvements to
+				pcd_completion, use HZ in loop timing
+	1.05	GRG 1998.08.16	Conformed to "Uniform CD-ROM" standard
+	1.06    GRG 1998.08.19  Added audio ioctl support
+	1.07    GRG 1998.09.24  Increased reset timeout, added jumbo support
+
+*/
 
 #define	PCD_VERSION	"1.07"
 #define PCD_MAJOR	46
 #define PCD_NAME	"pcd"
 #define PCD_UNITS	4
 
+/* Here are things one can override from the insmod command.
+   Most are autoprobed by paride unless set here.  Verbose is off
+   by default.
+
+*/
 
 static int verbose = 0;
 static int major = PCD_MAJOR;
@@ -107,6 +127,7 @@ static int pcd_drive_count;
 
 enum {D_PRT, D_PRO, D_UNI, D_MOD, D_SLV, D_DLY};
 
+/* end of parameters */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -136,10 +157,10 @@ module_param_array(drive3, int, NULL, 0);
 #include "pseudo.h"
 
 #define PCD_RETRIES	     5
-#define PCD_TMO		   800	
-#define PCD_DELAY           50	
-#define PCD_READY_TMO	    20	
-#define PCD_RESET_TMO	   100	
+#define PCD_TMO		   800	/* timeout in jiffies */
+#define PCD_DELAY           50	/* spin delay in uS */
+#define PCD_READY_TMO	    20	/* in seconds */
+#define PCD_RESET_TMO	   100	/* in tenths of a second */
 
 #define PCD_SPIN	(1000000*PCD_TMO)/(HZ*PCD_DELAY)
 
@@ -169,32 +190,39 @@ static void do_pcd_request(struct request_queue * q);
 static void do_pcd_read(void);
 
 struct pcd_unit {
-	struct pi_adapter pia;	
+	struct pi_adapter pia;	/* interface to paride layer */
 	struct pi_adapter *pi;
-	int drive;		
-	int last_sense;		
-	int changed;		
-	int present;		
-	char *name;		
-	struct cdrom_device_info info;	
+	int drive;		/* master/slave */
+	int last_sense;		/* result of last request sense */
+	int changed;		/* media change seen */
+	int present;		/* does this unit exist ? */
+	char *name;		/* pcd0, pcd1, etc */
+	struct cdrom_device_info info;	/* uniform cdrom interface */
 	struct gendisk *disk;
 };
 
 static struct pcd_unit pcd[PCD_UNITS];
 
 static char pcd_scratch[64];
-static char pcd_buffer[2048];	
-static int pcd_bufblk = -1;	
+static char pcd_buffer[2048];	/* raw block buffer */
+static int pcd_bufblk = -1;	/* block in buffer, in CD units,
+				   -1 for nothing there. See also
+				   pd_unit.
+				 */
 
+/* the variables below are used mainly in the I/O request engine, which
+   processes only one request at a time.
+*/
 
-static struct pcd_unit *pcd_current; 
+static struct pcd_unit *pcd_current; /* current request's drive */
 static struct request *pcd_req;
-static int pcd_retries;		
-static int pcd_busy;		
-static int pcd_sector;		
-static int pcd_count;		
-static char *pcd_buf;		
+static int pcd_retries;		/* retries on current request */
+static int pcd_busy;		/* request being processed ? */
+static int pcd_sector;		/* address of next requested sector */
+static int pcd_count;		/* number of blocks still to do */
+static char *pcd_buf;		/* buffer for request in progress */
 
+/* kernel glue structures */
 
 static int pcd_block_open(struct block_device *bdev, fmode_t mode)
 {
@@ -290,7 +318,7 @@ static void pcd_init_units(void)
 		cd->info.mask = 0;
 		disk->major = major;
 		disk->first_minor = unit;
-		strcpy(disk->disk_name, cd->name);	
+		strcpy(disk->disk_name, cd->name);	/* umm... */
 		disk->fops = &pcd_bdops;
 		disk->flags = GENHD_FL_BLOCK_EVENTS_ON_EXCL_WRITE;
 	}
@@ -360,7 +388,7 @@ static int pcd_command(struct pcd_unit *cd, char *cmd, int dlen, char *fun)
 
 	write_reg(cd, 4, dlen % 256);
 	write_reg(cd, 5, dlen / 256);
-	write_reg(cd, 7, 0xa0);	
+	write_reg(cd, 7, 0xa0);	/* ATAPI packet command */
 
 	if (pcd_wait(cd, IDE_BUSY, IDE_DRQ, fun, "command DRQ")) {
 		pi_disconnect(cd->pi);
@@ -517,7 +545,7 @@ static int pcd_reset(struct pcd_unit *cd)
 	write_reg(cd, 6, 0xa0 + 0x10 * cd->drive);
 	write_reg(cd, 7, 8);
 
-	pcd_sleep(20 * HZ / 1000);	
+	pcd_sleep(20 * HZ / 1000);	/* delay a bit */
 
 	k = 0;
 	while ((k++ < PCD_RESET_TMO) && (status_reg(cd) & IDE_BUSY))
@@ -562,7 +590,7 @@ static int pcd_ready_wait(struct pcd_unit *cd, int tmo)
 		k++;
 		pcd_sleep(HZ);
 	}
-	return 0x000020;	
+	return 0x000020;	/* timeout */
 }
 
 static int pcd_drive_status(struct cdrom_device_info *cdi, int slot_nr)
@@ -607,6 +635,10 @@ static int pcd_identify(struct pcd_unit *cd, char *id)
 	return 0;
 }
 
+/*
+ * returns  0, with id set if drive is detected
+ *	    -1, if drive detection failed
+ */
 static int pcd_probe(struct pcd_unit *cd, int ms, char *id)
 {
 	if (ms == -1) {
@@ -634,7 +666,7 @@ static void pcd_probe_capabilities(void)
 		r = pcd_atapi(cd, cmd, 18, buffer, "mode sense capabilities");
 		if (r)
 			continue;
-		
+		/* we should now have the cap page */
 		if ((buffer[11] & 1) == 0)
 			cd->info.mask |= CDC_CD_R;
 		if ((buffer[11] & 2) == 0)
@@ -660,7 +692,7 @@ static int pcd_detect(void)
 	       name, name, PCD_VERSION, major, nice);
 
 	k = 0;
-	if (pcd_drive_count == 0) { 
+	if (pcd_drive_count == 0) { /* nothing spec'd - so autoprobe for 1 */
 		cd = pcd;
 		if (pi_init(cd->pi, 1, -1, -1, -1, -1, -1, pcd_buffer,
 			    PI_PCD, verbose, cd->name)) {
@@ -695,6 +727,7 @@ static int pcd_detect(void)
 	return -1;
 }
 
+/* I/O request processing */
 static struct request_queue *pcd_queue;
 
 static void do_pcd_request(struct request_queue * q)
@@ -813,6 +846,7 @@ static void do_pcd_read_drq(void)
 	spin_unlock_irqrestore(&pcd_lock, saved_flags);
 }
 
+/* the audio_ioctl stuff is adapted from sr_ioctl.c */
 
 static int pcd_audio_ioctl(struct cdrom_device_info *cdi, unsigned int cmd, void *arg)
 {
@@ -907,7 +941,7 @@ static int __init pcd_init(void)
 	if (pcd_detect())
 		return -ENODEV;
 
-	
+	/* get the atapi capabilities page */
 	pcd_probe_capabilities();
 
 	if (register_blkdev(major, name)) {

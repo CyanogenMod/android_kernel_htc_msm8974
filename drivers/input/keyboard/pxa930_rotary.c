@@ -122,7 +122,7 @@ static int __devinit pxa930_rotary_probe(struct platform_device *pdev)
 	r->pdata = pdata;
 	platform_set_drvdata(pdev, r);
 
-	
+	/* allocate and register the input device */
 	input_dev = input_allocate_device();
 	if (!input_dev) {
 		dev_err(&pdev->dev, "failed to allocate input device\n");

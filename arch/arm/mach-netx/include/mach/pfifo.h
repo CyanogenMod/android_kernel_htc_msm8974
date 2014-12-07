@@ -51,4 +51,4 @@ static inline int pfifo_empty(int no)
 int pfifo_request(unsigned int pfifo_mask);
 void pfifo_free(unsigned int pfifo_mask);
 
-#endif 
+#endif /* ASM_ARCH_PFIFO_H */

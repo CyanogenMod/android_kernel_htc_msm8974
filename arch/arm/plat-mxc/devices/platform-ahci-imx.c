@@ -41,13 +41,14 @@ const struct imx_ahci_imx_data imx53_ahci_imx_data __initconst =
 
 enum {
 	HOST_CAP = 0x00,
-	HOST_CAP_SSS = (1 << 27), 
+	HOST_CAP_SSS = (1 << 27), /* Staggered Spin-up */
 	HOST_PORTS_IMPL	= 0x0c,
-	HOST_TIMER1MS = 0xe0, 
+	HOST_TIMER1MS = 0xe0, /* Timer 1-ms */
 };
 
 static struct clk *sata_clk, *sata_ref_clk;
 
+/* AHCI module Initialization, if return 0, initialization is successful. */
 static int imx_sata_init(struct device *dev, void __iomem *addr)
 {
 	u32 tmpdata;
@@ -65,7 +66,7 @@ static int imx_sata_init(struct device *dev, void __iomem *addr)
 		goto put_sata_clk;
 	}
 
-	
+	/* Get the AHCI SATA PHY CLK */
 	sata_ref_clk = clk_get(dev, "ahci_phy");
 	if (IS_ERR(sata_ref_clk)) {
 		dev_err(dev, "no sata ref clock.\n");
@@ -78,7 +79,7 @@ static int imx_sata_init(struct device *dev, void __iomem *addr)
 		goto put_sata_ref_clk;
 	}
 
-	
+	/* Get the AHB clock rate, and configure the TIMER1MS reg later */
 	clk = clk_get(dev, "ahci_dma");
 	if (IS_ERR(clk)) {
 		dev_err(dev, "no dma clock.\n");

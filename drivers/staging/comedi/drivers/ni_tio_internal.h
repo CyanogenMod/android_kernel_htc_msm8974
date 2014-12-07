@@ -472,29 +472,29 @@ enum Gi_Counting_Mode_Reg_Bits {
 	Gi_Index_Phase_LowA_HighB = 0x1 << Gi_Index_Phase_Bitshift,
 	Gi_Index_Phase_HighA_LowB = 0x2 << Gi_Index_Phase_Bitshift,
 	Gi_Index_Phase_HighA_HighB = 0x3 << Gi_Index_Phase_Bitshift,
-	Gi_HW_Arm_Enable_Bit = 0x80,	
-	Gi_660x_HW_Arm_Select_Mask = 0x7 << Gi_HW_Arm_Select_Shift,	
+	Gi_HW_Arm_Enable_Bit = 0x80,	/* from m-series example code, not documented in 660x register level manual */
+	Gi_660x_HW_Arm_Select_Mask = 0x7 << Gi_HW_Arm_Select_Shift,	/* from m-series example code, not documented in 660x register level manual */
 	Gi_660x_Prescale_X8_Bit = 0x1000,
 	Gi_M_Series_Prescale_X8_Bit = 0x2000,
 	Gi_M_Series_HW_Arm_Select_Mask = 0x1f << Gi_HW_Arm_Select_Shift,
-	
+	/* must be set for clocks over 40MHz, which includes synchronous counting and quadrature modes */
 	Gi_660x_Alternate_Sync_Bit = 0x2000,
 	Gi_M_Series_Alternate_Sync_Bit = 0x4000,
-	Gi_660x_Prescale_X2_Bit = 0x4000,	
+	Gi_660x_Prescale_X2_Bit = 0x4000,	/* from m-series example code, not documented in 660x register level manual */
 	Gi_M_Series_Prescale_X2_Bit = 0x8000,
 };
 
 #define Gi_Source_Select_Shift 2
 #define Gi_Gate_Select_Shift 7
 enum Gi_Input_Select_Bits {
-	Gi_Read_Acknowledges_Irq = 0x1,	
-	Gi_Write_Acknowledges_Irq = 0x2,	
+	Gi_Read_Acknowledges_Irq = 0x1,	/*  not present on 660x */
+	Gi_Write_Acknowledges_Irq = 0x2,	/*  not present on 660x */
 	Gi_Source_Select_Mask = 0x7c,
 	Gi_Gate_Select_Mask = 0x1f << Gi_Gate_Select_Shift,
 	Gi_Gate_Select_Load_Source_Bit = 0x1000,
 	Gi_Or_Gate_Bit = 0x2000,
-	Gi_Output_Polarity_Bit = 0x4000,	
-	Gi_Source_Polarity_Bit = 0x8000	
+	Gi_Output_Polarity_Bit = 0x4000,	/* set to invert */
+	Gi_Source_Polarity_Bit = 0x8000	/* set to invert */
 };
 
 enum Gi_Mode_Bits {
@@ -503,7 +503,7 @@ enum Gi_Mode_Bits {
 	Gi_Level_Gating_Bits = 0x1,
 	Gi_Rising_Edge_Gating_Bits = 0x2,
 	Gi_Falling_Edge_Gating_Bits = 0x3,
-	Gi_Gate_On_Both_Edges_Bit = 0x4,	
+	Gi_Gate_On_Both_Edges_Bit = 0x4,	/* used in conjunction with rising edge gating mode */
 	Gi_Trigger_Mode_for_Edge_Gate_Mask = 0x18,
 	Gi_Edge_Gate_Starts_Stops_Bits = 0x0,
 	Gi_Edge_Gate_Stops_Starts_Bits = 0x8,
@@ -530,12 +530,14 @@ enum Gi_Mode_Bits {
 };
 
 #define Gi_Second_Gate_Select_Shift 7
+/*FIXME: m-series has a second gate subselect bit */
+/*FIXME: m-series second gate sources are undocumented (by NI)*/
 enum Gi_Second_Gate_Bits {
 	Gi_Second_Gate_Mode_Bit = 0x1,
 	Gi_Second_Gate_Select_Mask = 0x1f << Gi_Second_Gate_Select_Shift,
 	Gi_Second_Gate_Polarity_Bit = 0x2000,
-	Gi_Second_Gate_Subselect_Bit = 0x4000,	
-	Gi_Source_Subselect_Bit = 0x8000	
+	Gi_Second_Gate_Subselect_Bit = 0x4000,	/* m-series only */
+	Gi_Source_Subselect_Bit = 0x8000	/* m-series only */
 };
 static inline unsigned Gi_Second_Gate_Select_Bits(unsigned second_gate_select)
 {
@@ -604,6 +606,7 @@ static inline enum Gxx_Status_Bits Gi_Gate_Error_Bit(unsigned counter_index)
 	return G0_Gate_Error_Bit;
 }
 
+/* joint reset register bits */
 static inline unsigned Gi_Reset_Bit(unsigned counter_index)
 {
 	return 0x1 << (2 + (counter_index % 2));
@@ -659,6 +662,7 @@ static inline unsigned Gi_TC_Error_Confirm_Bit(unsigned counter_index)
 	return G0_TC_Error_Confirm_Bit;
 }
 
+/* bits that are the same in G0/G2 and G1/G3 interrupt acknowledge registers */
 enum Gxx_Interrupt_Acknowledge_Bits {
 	Gi_TC_Interrupt_Ack_Bit = 0x4000,
 	Gi_Gate_Interrupt_Ack_Bit = 0x8000
@@ -743,6 +747,9 @@ static inline void ni_tio_set_bits_transient(struct ni_gpct *counter,
 	spin_unlock_irqrestore(&counter_dev->regs_lock, flags);
 }
 
+/* ni_tio_set_bits( ) is for safely writing to registers whose bits may be
+twiddled in interrupt context, or whose software copy may be read in interrupt context.
+*/
 static inline void ni_tio_set_bits(struct ni_gpct *counter,
 				   enum ni_gpct_register register_index,
 				   unsigned bit_mask, unsigned bit_values)
@@ -751,6 +758,10 @@ static inline void ni_tio_set_bits(struct ni_gpct *counter,
 				  0x0);
 }
 
+/* ni_tio_get_soft_copy( ) is for safely reading the software copy of a register
+whose bits might be modified in interrupt context, or whose software copy
+might need to be read in interrupt context.
+*/
 static inline unsigned ni_tio_get_soft_copy(const struct ni_gpct *counter,
 					    enum ni_gpct_register
 					    register_index)
@@ -770,4 +781,4 @@ int ni_tio_arm(struct ni_gpct *counter, int arm, unsigned start_trigger);
 int ni_tio_set_gate_src(struct ni_gpct *counter, unsigned gate_index,
 			unsigned int gate_source);
 
-#endif 
+#endif /* _COMEDI_NI_TIO_INTERNAL_H */

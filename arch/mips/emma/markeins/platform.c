@@ -36,7 +36,7 @@
 #include <asm/emma/emma2rh.h>
 
 
-#define I2C_EMMA2RH "emma2rh-iic" 
+#define I2C_EMMA2RH "emma2rh-iic" /* must be in sync with IIC driver */
 
 static struct resource i2c_emma_resources_0[] = {
 	{

@@ -170,6 +170,9 @@ static void spufs_prune_dir(struct dentry *dir)
 			__d_drop(dentry);
 			spin_unlock(&dentry->d_lock);
 			simple_unlink(dir->d_inode, dentry);
+			/* XXX: what was dcache_lock protecting here? Other
+			 * filesystems (IB, configfs) release dcache_lock
+			 * before unlink */
 			dput(dentry);
 		} else {
 			spin_unlock(&dentry->d_lock);
@@ -179,9 +182,10 @@ static void spufs_prune_dir(struct dentry *dir)
 	mutex_unlock(&dir->d_inode->i_mutex);
 }
 
+/* Caller must hold parent->i_mutex */
 static int spufs_rmdir(struct inode *parent, struct dentry *dir)
 {
-	
+	/* remove all entries */
 	spufs_prune_dir(dir);
 	d_drop(dir);
 
@@ -208,6 +212,15 @@ static int spufs_fill_dir(struct dentry *dir,
 	}
 	return 0;
 out:
+	/*
+	 * remove all children from dir. dir->inode is not set so don't
+	 * just simply use spufs_prune_dir() and panic afterwards :)
+	 * dput() looks like it will do the right thing:
+	 * - dec parent's ref counter
+	 * - remove child from parent's child list
+	 * - free child's inode if possible
+	 * - free child
+	 */
 	list_for_each_entry_safe(dentry, tmp, &dir->d_subdirs, d_u.d_child) {
 		dput(dentry);
 	}
@@ -232,7 +245,7 @@ static int spufs_dir_close(struct inode *inode, struct file *file)
 	mutex_unlock(&parent->i_mutex);
 	WARN_ON(ret);
 
-	
+	/* We have to give up the mm_struct */
 	spu_forget(ctx);
 
 	return dcache_dir_close(inode, file);
@@ -265,7 +278,7 @@ spufs_mkdir(struct inode *dir, struct dentry *dentry, unsigned int flags,
 		inode->i_gid = dir->i_gid;
 		inode->i_mode &= S_ISGID;
 	}
-	ctx = alloc_spu_context(SPUFS_I(dir)->i_gang); 
+	ctx = alloc_spu_context(SPUFS_I(dir)->i_gang); /* XXX gang */
 	SPUFS_I(inode)->i_ctx = ctx;
 	if (!ctx)
 		goto out_iput;
@@ -482,6 +495,10 @@ spufs_create_context(struct inode *inode, struct dentry *dentry,
 			put_spu_context(neighbor);
 	}
 
+	/*
+	 * get references for dget and mntget, will be released
+	 * in error path of *_open().
+	 */
 	ret = spufs_context_open(dget(dentry), mntget(mnt));
 	if (ret < 0) {
 		WARN_ON(spufs_rmdir(inode, dentry));
@@ -574,6 +591,10 @@ static int spufs_create_gang(struct inode *inode,
 	if (ret)
 		goto out;
 
+	/*
+	 * get references for dget and mntget, will be released
+	 * in error path of *_open().
+	 */
 	ret = spufs_gang_open(dget(dentry), mntget(mnt));
 	if (ret < 0) {
 		int err = simple_rmdir(inode, dentry);
@@ -595,15 +616,15 @@ long spufs_create(struct path *path, struct dentry *dentry,
 	int ret;
 
 	ret = -EINVAL;
-	
+	/* check if we are on spufs */
 	if (path->dentry->d_sb->s_type != &spufs_type)
 		goto out;
 
-	
+	/* don't accept undefined flags */
 	if (flags & (~SPU_CREATE_FLAG_ALL))
 		goto out;
 
-	
+	/* only threads can be underneath a gang */
 	if (path->dentry != path->dentry->d_sb->s_root) {
 		if ((flags & SPU_CREATE_GANG) ||
 		    !SPUFS_I(path->dentry->d_inode)->i_gang)
@@ -629,6 +650,7 @@ out:
 	return ret;
 }
 
+/* File system initialization */
 enum {
 	Opt_uid, Opt_gid, Opt_mode, Opt_debug, Opt_err,
 };
@@ -701,7 +723,7 @@ spufs_init_isolated_loader(void)
 	if (!loader)
 		return;
 
-	
+	/* the loader must be align on a 16 byte boundary */
 	isolated_loader = (char *)__get_free_pages(GFP_KERNEL, get_order(size));
 	if (!isolated_loader)
 		return;

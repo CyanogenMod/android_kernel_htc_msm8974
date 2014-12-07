@@ -55,6 +55,15 @@ void gfs2_page_add_databufs(struct gfs2_inode *ip, struct page *page,
 	}
 }
 
+/**
+ * gfs2_get_block_noalloc - Fills in a buffer head with details about a block
+ * @inode: The inode
+ * @lblock: The block number to look up
+ * @bh_result: The buffer head to return the result in
+ * @create: Non-zero if we may add block to the file
+ *
+ * Returns: errno
+ */
 
 static int gfs2_get_block_noalloc(struct inode *inode, sector_t lblock,
 				  struct buffer_head *bh_result, int create)
@@ -97,7 +106,7 @@ static int gfs2_writepage_common(struct page *page,
 		goto out;
 	if (current->journal_info)
 		goto redirty;
-	
+	/* Is the page fully outside i_size? (truncate in progress) */
 	offset = i_size & (PAGE_CACHE_SIZE-1);
 	if (page->index > end_index || (page->index == end_index && !offset)) {
 		page->mapping->a_ops->invalidatepage(page, 0);
@@ -111,6 +120,12 @@ out:
 	return 0;
 }
 
+/**
+ * gfs2_writeback_writepage - Write page for writeback mappings
+ * @page: The page
+ * @wbc: The writeback control
+ *
+ */
 
 static int gfs2_writeback_writepage(struct page *page,
 				    struct writeback_control *wbc)
@@ -124,6 +139,12 @@ static int gfs2_writeback_writepage(struct page *page,
 	return nobh_writepage(page, gfs2_get_block_noalloc, wbc);
 }
 
+/**
+ * gfs2_ordered_writepage - Write page for ordered data files
+ * @page: The page to write
+ * @wbc: The writeback control
+ *
+ */
 
 static int gfs2_ordered_writepage(struct page *page,
 				  struct writeback_control *wbc)
@@ -144,6 +165,16 @@ static int gfs2_ordered_writepage(struct page *page,
 	return block_write_full_page(page, gfs2_get_block_noalloc, wbc);
 }
 
+/**
+ * __gfs2_jdata_writepage - The core of jdata writepage
+ * @page: The page to write
+ * @wbc: The writeback control
+ *
+ * This is shared between writepage and writepages and implements the
+ * core of the writepage operation. If a transaction is required then
+ * PageChecked will have been set and the transaction will have
+ * already been started before this is called.
+ */
 
 static int __gfs2_jdata_writepage(struct page *page, struct writeback_control *wbc)
 {
@@ -162,6 +193,13 @@ static int __gfs2_jdata_writepage(struct page *page, struct writeback_control *w
 	return block_write_full_page(page, gfs2_get_block_noalloc, wbc);
 }
 
+/**
+ * gfs2_jdata_writepage - Write complete page
+ * @page: Page to write
+ *
+ * Returns: errno
+ *
+ */
 
 static int gfs2_jdata_writepage(struct page *page, struct writeback_control *wbc)
 {
@@ -191,12 +229,31 @@ out_ignore:
 	return 0;
 }
 
+/**
+ * gfs2_writeback_writepages - Write a bunch of dirty pages back to disk
+ * @mapping: The mapping to write
+ * @wbc: Write-back control
+ *
+ * For the data=writeback case we can already ignore buffer heads
+ * and write whole extents at once. This is a big reduction in the
+ * number of I/O requests we send and the bmap calls we make in this case.
+ */
 static int gfs2_writeback_writepages(struct address_space *mapping,
 				     struct writeback_control *wbc)
 {
 	return mpage_writepages(mapping, wbc, gfs2_get_block_noalloc);
 }
 
+/**
+ * gfs2_write_jdata_pagevec - Write back a pagevec's worth of pages
+ * @mapping: The mapping
+ * @wbc: The writeback control
+ * @writepage: The writepage function to call for each page
+ * @pvec: The vector of pages
+ * @nr_pages: The number of pages to write
+ *
+ * Returns: non-zero if loop should terminate, zero otherwise
+ */
 
 static int gfs2_write_jdata_pagevec(struct address_space *mapping,
 				    struct writeback_control *wbc,
@@ -241,7 +298,7 @@ static int gfs2_write_jdata_pagevec(struct address_space *mapping,
 			continue;
 		}
 
-		
+		/* Is the page fully outside i_size? (truncate in progress) */
 		if (page->index > end_index || (page->index == end_index && !offset)) {
 			page->mapping->a_ops->invalidatepage(page, 0);
 			unlock_page(page);
@@ -257,6 +314,17 @@ static int gfs2_write_jdata_pagevec(struct address_space *mapping,
 	return ret;
 }
 
+/**
+ * gfs2_write_cache_jdata - Like write_cache_pages but different
+ * @mapping: The mapping to write
+ * @wbc: The writeback control
+ * @writepage: The writepage function to call
+ * @data: The data to pass to writepage
+ *
+ * The reason that we use our own function here is that we need to
+ * start transactions before we grab page locks. This allows us
+ * to get the ordering right.
+ */
 
 static int gfs2_write_cache_jdata(struct address_space *mapping,
 				  struct writeback_control *wbc)
@@ -272,7 +340,7 @@ static int gfs2_write_cache_jdata(struct address_space *mapping,
 
 	pagevec_init(&pvec, 0);
 	if (wbc->range_cyclic) {
-		index = mapping->writeback_index; 
+		index = mapping->writeback_index; /* Start from prev offset */
 		end = -1;
 	} else {
 		index = wbc->range_start >> PAGE_CACHE_SHIFT;
@@ -299,6 +367,10 @@ retry:
 	}
 
 	if (!scanned && !done) {
+		/*
+		 * We hit the last page and there is more work to be done: wrap
+		 * back to the start of the file
+		 */
 		scanned = 1;
 		index = 0;
 		goto retry;
@@ -310,6 +382,12 @@ retry:
 }
 
 
+/**
+ * gfs2_jdata_writepages - Write a bunch of dirty pages back to disk
+ * @mapping: The mapping to write
+ * @wbc: The writeback control
+ * 
+ */
 
 static int gfs2_jdata_writepages(struct address_space *mapping,
 				 struct writeback_control *wbc)
@@ -326,6 +404,13 @@ static int gfs2_jdata_writepages(struct address_space *mapping,
 	return ret;
 }
 
+/**
+ * stuffed_readpage - Fill in a Linux page with stuffed file data
+ * @ip: the inode
+ * @page: the page
+ *
+ * Returns: errno
+ */
 
 static int stuffed_readpage(struct gfs2_inode *ip, struct page *page)
 {
@@ -334,6 +419,11 @@ static int stuffed_readpage(struct gfs2_inode *ip, struct page *page)
 	void *kaddr;
 	int error;
 
+	/*
+	 * Due to the order of unstuffing files and ->fault(), we can be
+	 * asked for a zero page in the case of a stuffed file being extended,
+	 * so we need to supply one here. It doesn't happen often.
+	 */
 	if (unlikely(page->index)) {
 		zero_user(page, 0, PAGE_CACHE_SIZE);
 		SetPageUptodate(page);
@@ -358,6 +448,16 @@ static int stuffed_readpage(struct gfs2_inode *ip, struct page *page)
 }
 
 
+/**
+ * __gfs2_readpage - readpage
+ * @file: The file to read a page for
+ * @page: The page to read
+ *
+ * This is the core of gfs2's readpage. Its used by the internal file
+ * reading code as in that case we already hold the glock. Also its
+ * called by gfs2_readpage() once the required lock has been granted.
+ *
+ */
 
 static int __gfs2_readpage(void *file, struct page *page)
 {
@@ -378,6 +478,15 @@ static int __gfs2_readpage(void *file, struct page *page)
 	return error;
 }
 
+/**
+ * gfs2_readpage - read a page of a file
+ * @file: The file to read
+ * @page: The page of the file
+ *
+ * This deals with the locking required. We have to unlock and
+ * relock the page in order to get the locking in the right
+ * order.
+ */
 
 static int gfs2_readpage(struct file *file, struct page *page)
 {
@@ -405,6 +514,15 @@ out:
 	return error;
 }
 
+/**
+ * gfs2_internal_read - read an internal file
+ * @ip: The gfs2 inode
+ * @ra_state: The readahead state (or NULL for no readahead)
+ * @buf: The buffer to fill
+ * @pos: The file position
+ * @size: The amount to read
+ *
+ */
 
 int gfs2_internal_read(struct gfs2_inode *ip, struct file_ra_state *ra_state,
                        char *buf, loff_t *pos, unsigned size)
@@ -437,6 +555,19 @@ int gfs2_internal_read(struct gfs2_inode *ip, struct file_ra_state *ra_state,
 	return size;
 }
 
+/**
+ * gfs2_readpages - Read a bunch of pages at once
+ *
+ * Some notes:
+ * 1. This is only for readahead, so we can simply ignore any things
+ *    which are slightly inconvenient (such as locking conflicts between
+ *    the page lock and the glock) and return having done no I/O. Its
+ *    obviously not something we'd want to do on too regular a basis.
+ *    Any I/O we ignore at this time will be done via readpage later.
+ * 2. We don't handle stuffed files here we let readpage do the honours.
+ * 3. mpage_readpages() does most of the heavy lifting in the common case.
+ * 4. gfs2_block_map() is relied upon to set BH_Boundary in the right places.
+ */
 
 static int gfs2_readpages(struct file *file, struct address_space *mapping,
 			  struct list_head *pages, unsigned nr_pages)
@@ -461,6 +592,18 @@ out_uninit:
 	return ret;
 }
 
+/**
+ * gfs2_write_begin - Begin to write to a file
+ * @file: The file to write to
+ * @mapping: The mapping in which to write
+ * @pos: The file offset at which to start writing
+ * @len: Length of the write
+ * @flags: Various flags
+ * @pagep: Pointer to return the page
+ * @fsdata: Pointer to return fs data (unused by GFS2)
+ *
+ * Returns: errno
+ */
 
 static int gfs2_write_begin(struct file *file, struct address_space *mapping,
 			    loff_t pos, unsigned len, unsigned flags,
@@ -580,6 +723,10 @@ out_uninit:
 	return error;
 }
 
+/**
+ * adjust_fs_space - Adjusts the free space available due to gfs2_grow
+ * @inode: the rindex inode
+ */
 static void adjust_fs_space(struct inode *inode)
 {
 	struct gfs2_sbd *sdp = inode->i_sb->s_fs_info;
@@ -590,7 +737,7 @@ static void adjust_fs_space(struct inode *inode)
 	struct buffer_head *m_bh, *l_bh;
 	u64 fs_total, new_free;
 
-	
+	/* Total up the file system space, according to the latest rindex. */
 	fs_total = gfs2_ri_total(sdp);
 	if (gfs2_meta_inode_buffer(m_ip, &m_bh) != 0)
 		return;
@@ -615,6 +762,20 @@ out:
 	brelse(m_bh);
 }
 
+/**
+ * gfs2_stuffed_write_end - Write end for stuffed files
+ * @inode: The inode
+ * @dibh: The buffer_head containing the on-disk inode
+ * @pos: The file position
+ * @len: The length of the write
+ * @copied: How much was actually copied by the VFS
+ * @page: The page
+ *
+ * This copies the data from the page into the inode block after
+ * the inode data structure itself.
+ *
+ * Returns: errno
+ */
 static int gfs2_stuffed_write_end(struct inode *inode, struct buffer_head *dibh,
 				  loff_t pos, unsigned len, unsigned copied,
 				  struct page *page)
@@ -733,6 +894,12 @@ failed:
 	return ret;
 }
 
+/**
+ * gfs2_set_page_dirty - Page dirtying function
+ * @page: The page to dirty
+ *
+ * Returns: 1 if it dirtyed the page, or 0 otherwise
+ */
  
 static int gfs2_set_page_dirty(struct page *page)
 {
@@ -740,6 +907,13 @@ static int gfs2_set_page_dirty(struct page *page)
 	return __set_page_dirty_buffers(page);
 }
 
+/**
+ * gfs2_bmap - Block map function
+ * @mapping: Address space info
+ * @lblock: The block to map
+ *
+ * Returns: The disk address for the block or 0 on hole or error
+ */
 
 static sector_t gfs2_bmap(struct address_space *mapping, sector_t lblock)
 {
@@ -806,8 +980,22 @@ out:
 		try_to_release_page(page, 0);
 }
 
+/**
+ * gfs2_ok_for_dio - check that dio is valid on this file
+ * @ip: The inode
+ * @rw: READ or WRITE
+ * @offset: The offset at which we are reading or writing
+ *
+ * Returns: 0 (to ignore the i/o request and thus fall back to buffered i/o)
+ *          1 (to accept the i/o request)
+ */
 static int gfs2_ok_for_dio(struct gfs2_inode *ip, int rw, loff_t offset)
 {
+	/*
+	 * Should we return an error here? I can't see that O_DIRECT for
+	 * a stuffed file makes any sense. For now we'll silently fall
+	 * back to buffered I/O
+	 */
 	if (gfs2_is_stuffed(ip))
 		return 0;
 
@@ -828,13 +1016,21 @@ static ssize_t gfs2_direct_IO(int rw, struct kiocb *iocb,
 	struct gfs2_holder gh;
 	int rv;
 
+	/*
+	 * Deferred lock, even if its a write, since we do no allocation
+	 * on this path. All we need change is atime, and this lock mode
+	 * ensures that other nodes have flushed their buffered read caches
+	 * (i.e. their page cache entries for this inode). We do not,
+	 * unfortunately have the option of only flushing a range like
+	 * the VFS does.
+	 */
 	gfs2_holder_init(ip->i_gl, LM_ST_DEFERRED, 0, &gh);
 	rv = gfs2_glock_nq(&gh);
 	if (rv)
 		return rv;
 	rv = gfs2_ok_for_dio(ip, rw, offset);
 	if (rv != 1)
-		goto out; 
+		goto out; /* dio not valid, fall back to buffered i/o */
 
 	rv = __blockdev_direct_IO(rw, iocb, inode, inode->i_sb->s_bdev, iov,
 				  offset, nr_segs, gfs2_get_block_direct,
@@ -845,6 +1041,16 @@ out:
 	return rv;
 }
 
+/**
+ * gfs2_releasepage - free the metadata associated with a page
+ * @page: the page that's being released
+ * @gfp_mask: passed from Linux VFS, ignored by us
+ *
+ * Call try_to_free_buffers() if the buffers in this page can be
+ * released.
+ *
+ * Returns: 0
+ */
 
 int gfs2_releasepage(struct page *page, gfp_t gfp_mask)
 {
@@ -898,7 +1104,7 @@ int gfs2_releasepage(struct page *page, gfp_t gfp_mask)
 
 	return try_to_free_buffers(page);
 
-not_possible: 
+not_possible: /* Should never happen */
 	WARN_ON(buffer_dirty(bh));
 	WARN_ON(buffer_pinned(bh));
 cannot_release:

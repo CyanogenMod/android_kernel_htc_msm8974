@@ -38,6 +38,9 @@
 #define VSCLKDIS_MASK		(BIT_MASK(11) | BIT_MASK(10) | BIT_MASK(9) |\
 					BIT_MASK(8))
 
+/*
+ * Device specific clocks
+ */
 #define DM646X_REF_FREQ		27000000
 #define DM646X_AUX_FREQ		24000000
 
@@ -163,7 +166,7 @@ static struct clk dsp_clk = {
 	.name = "dsp",
 	.parent = &pll1_sysclk1,
 	.lpsc = DM646X_LPSC_C64X_CPU,
-	.usecount = 1,			
+	.usecount = 1,			/* REVISIT how to disable? */
 };
 
 static struct clk arm_clk = {
@@ -267,14 +270,14 @@ static struct clk pwm0_clk = {
 	.name = "pwm0",
 	.parent = &pll1_sysclk3,
 	.lpsc = DM646X_LPSC_PWM0,
-	.usecount = 1,            
+	.usecount = 1,            /* REVIST: disabling hangs system */
 };
 
 static struct clk pwm1_clk = {
 	.name = "pwm1",
 	.parent = &pll1_sysclk3,
 	.lpsc = DM646X_LPSC_PWM1,
-	.usecount = 1,            
+	.usecount = 1,            /* REVIST: disabling hangs system */
 };
 
 static struct clk timer0_clk = {
@@ -292,7 +295,7 @@ static struct clk timer1_clk = {
 static struct clk timer2_clk = {
 	.name = "timer2",
 	.parent = &pll1_sysclk3,
-	.flags = ALWAYS_ENABLED, 
+	.flags = ALWAYS_ENABLED, /* no LPSC, always enabled; c.f. spruep9a */
 };
 
 
@@ -420,6 +423,12 @@ static struct platform_device dm646x_mdio_device = {
 	.resource	= dm646x_mdio_resources,
 };
 
+/*
+ * Device specific mux setup
+ *
+ *	soc	description	mux  mode   mode  mux	 dbg
+ *				reg  offset mask  mode
+ */
 static const struct mux_config dm646x_pins[] = {
 #ifdef CONFIG_DAVINCI_MUX
 MUX_CFG(DM646X, ATAEN,		0,   0,     5,	  1,	 true)
@@ -469,10 +478,10 @@ static u8 dm646x_default_priorities[DAVINCI_N_AINTC_IRQ] = {
 	[IRQ_DM646X_USBINT]             = 7,
 	[IRQ_DM646X_USBDMAINT]          = 7,
 	[IRQ_DM646X_PCIINT]             = 7,
-	[IRQ_CCINT0]                    = 7,    
-	[IRQ_CCERRINT]                  = 7,    
-	[IRQ_TCERRINT0]                 = 7,    
-	[IRQ_TCERRINT]                  = 7,    
+	[IRQ_CCINT0]                    = 7,    /* dma */
+	[IRQ_CCERRINT]                  = 7,    /* dma */
+	[IRQ_TCERRINT0]                 = 7,    /* dma */
+	[IRQ_TCERRINT]                  = 7,    /* dma */
 	[IRQ_DM646X_TCERRINT2]          = 7,
 	[IRQ_DM646X_TCERRINT3]          = 7,
 	[IRQ_DM646X_IDE]                = 7,
@@ -485,10 +494,10 @@ static u8 dm646x_default_priorities[DAVINCI_N_AINTC_IRQ] = {
 	[IRQ_DM646X_MCASP0RXINT]        = 7,
 	[IRQ_AEMIFINT]                  = 7,
 	[IRQ_DM646X_RESERVED_3]         = 7,
-	[IRQ_DM646X_MCASP1TXINT]        = 7,    
-	[IRQ_TINT0_TINT34]              = 7,    
-	[IRQ_TINT1_TINT12]              = 7,    
-	[IRQ_TINT1_TINT34]              = 7,    
+	[IRQ_DM646X_MCASP1TXINT]        = 7,    /* clockevent */
+	[IRQ_TINT0_TINT34]              = 7,    /* clocksource */
+	[IRQ_TINT1_TINT12]              = 7,    /* DSP timer */
+	[IRQ_TINT1_TINT34]              = 7,    /* system tick */
 	[IRQ_PWMINT0]                   = 7,
 	[IRQ_PWMINT1]                   = 7,
 	[IRQ_DM646X_VLQINT]             = 7,
@@ -519,10 +528,12 @@ static u8 dm646x_default_priorities[DAVINCI_N_AINTC_IRQ] = {
 	[IRQ_EMUINT]                    = 7,
 };
 
+/*----------------------------------------------------------------------*/
 
+/* Four Transfer Controllers on DM646x */
 static const s8
 dm646x_queue_tc_mapping[][2] = {
-	
+	/* {event queue no, TC no} */
 	{0, 0},
 	{1, 1},
 	{2, 2},
@@ -532,7 +543,7 @@ dm646x_queue_tc_mapping[][2] = {
 
 static const s8
 dm646x_queue_priority_mapping[][2] = {
-	
+	/* {event queue no, Priority} */
 	{0, 4},
 	{1, 0},
 	{2, 5},
@@ -542,7 +553,7 @@ dm646x_queue_priority_mapping[][2] = {
 
 static struct edma_soc_info edma_cc0_info = {
 	.n_channel		= 64,
-	.n_region		= 6,	
+	.n_region		= 6,	/* 0-1, 4-7 */
 	.n_slot			= 512,
 	.n_tc			= 4,
 	.n_cc			= 1,
@@ -596,7 +607,7 @@ static struct resource edma_resources[] = {
 		.start	= IRQ_CCERRINT,
 		.flags	= IORESOURCE_IRQ,
 	},
-	
+	/* not using TC*_ERR */
 };
 
 static struct platform_device dm646x_edma_device = {
@@ -614,7 +625,7 @@ static struct resource dm646x_mcasp0_resources[] = {
 		.end 	= DAVINCI_DM646X_MCASP0_REG_BASE + (SZ_1K << 1) - 1,
 		.flags 	= IORESOURCE_MEM,
 	},
-	
+	/* first TX, then RX */
 	{
 		.start	= DAVINCI_DM646X_DMA_MCASP0_AXEVT0,
 		.end	= DAVINCI_DM646X_DMA_MCASP0_AXEVT0,
@@ -634,13 +645,13 @@ static struct resource dm646x_mcasp1_resources[] = {
 		.end	= DAVINCI_DM646X_MCASP1_REG_BASE + (SZ_1K << 1) - 1,
 		.flags	= IORESOURCE_MEM,
 	},
-	
+	/* DIT mode, only TX event */
 	{
 		.start	= DAVINCI_DM646X_DMA_MCASP1_AXEVT1,
 		.end	= DAVINCI_DM646X_DMA_MCASP1_AXEVT1,
 		.flags	= IORESOURCE_DMA,
 	},
-	
+	/* DIT mode, dummy entry */
 	{
 		.start	= -1,
 		.end	= -1,
@@ -736,6 +747,7 @@ static struct platform_device vpif_capture_dev = {
 	.num_resources	= ARRAY_SIZE(vpif_capture_resource),
 };
 
+/*----------------------------------------------------------------------*/
 
 static struct map_desc dm646x_io_desc[] = {
 	{
@@ -752,6 +764,7 @@ static struct map_desc dm646x_io_desc[] = {
 	},
 };
 
+/* Contents of JTAG ID register used to identify exact cpu type */
 static struct davinci_id dm646x_ids[] = {
 	{
 		.variant	= 0x0,
@@ -771,6 +784,12 @@ static struct davinci_id dm646x_ids[] = {
 
 static u32 dm646x_psc_bases[] = { DAVINCI_PWR_SLEEP_CNTRL_BASE };
 
+/*
+ * T0_BOT: Timer 0, bottom:  clockevent source for hrtimers
+ * T0_TOP: Timer 0, top   :  clocksource for generic timekeeping
+ * T1_BOT: Timer 1, bottom:  (used by DSP in TI DSPLink code)
+ * T1_TOP: Timer 1, top   :  <unused>
+ */
 static struct davinci_timer_info dm646x_timer_info = {
 	.timers		= davinci_timer_instance,
 	.clockevent_id	= T0_BOT,
@@ -834,7 +853,7 @@ static struct davinci_soc_info davinci_soc_info_dm646x = {
 	.timer_info		= &dm646x_timer_info,
 	.gpio_type		= GPIO_TYPE_DAVINCI,
 	.gpio_base		= DAVINCI_GPIO_BASE,
-	.gpio_num		= 43, 
+	.gpio_num		= 43, /* Only 33 usable */
 	.gpio_irq		= IRQ_DM646X_GPIOBNK0,
 	.serial_dev		= &dm646x_serial_device,
 	.emac_pdata		= &dm646x_emac_pdata,

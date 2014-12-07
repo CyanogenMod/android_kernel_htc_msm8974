@@ -10,6 +10,24 @@
  * 2 of the License, or (at your option) any later version.
  */
 
+/*
+ * The original "cmos clock" chip was an MC146818 chip, now obsolete.
+ * That defined the register interface now provided by all PCs, some
+ * non-PC systems, and incorporated into ACPI.  Modern PC chipsets
+ * integrate an MC146818 clone in their southbridge, and boards use
+ * that instead of discrete clones like the DS12887 or M48T86.  There
+ * are also clones that connect using the LPC bus.
+ *
+ * That register API is also used directly by various other drivers
+ * (notably for integrated NVRAM), infrastructure (x86 has code to
+ * bypass the RTC framework, directly reading the RTC during boot
+ * and updating minutes/seconds for systems using NTP synch) and
+ * utilities (like userspace 'hwclock', if no /dev node exists).
+ *
+ * So **ALL** calls to CMOS_READ and CMOS_WRITE must be done with
+ * interrupts disabled, holding the global rtc_lock, to exclude those
+ * other drivers and utilities on correctly configured systems.
+ */
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/init.h>
@@ -22,6 +40,7 @@
 #include <linux/of.h>
 #include <linux/of_platform.h>
 
+/* this is for "generic access to PC-style RTC" using CMOS_READ/CMOS_WRITE */
 #include <asm-generic/rtc.h>
 
 struct cmos_rtc {
@@ -36,16 +55,21 @@ struct cmos_rtc {
 	u8			enabled_wake;
 	u8			suspend_ctrl;
 
-	
+	/* newer hardware extends the original register set */
 	u8			day_alrm;
 	u8			mon_alrm;
 	u8			century;
 };
 
+/* both platform and pnp busses use negative numbers for invalid irqs */
 #define is_valid_irq(n)		((n) > 0)
 
 static const char driver_name[] = "rtc_cmos";
 
+/* The RTC_INTR register may have e.g. RTC_PF set even if RTC_PIE is clear;
+ * always mask it against the irq enable bits in RTC_CONTROL.  Bit values
+ * are the same: PF==PIE, AF=AIE, UF=UIE; so RTC_IRQMASK works with both.
+ */
 #define	RTC_IRQMASK	(RTC_PF | RTC_AF | RTC_UF)
 
 static inline int is_intr(u8 rtc_intr)
@@ -55,7 +79,18 @@ static inline int is_intr(u8 rtc_intr)
 	return rtc_intr & RTC_IRQMASK;
 }
 
+/*----------------------------------------------------------------*/
 
+/* Much modern x86 hardware has HPETs (10+ MHz timers) which, because
+ * many BIOS programmers don't set up "sane mode" IRQ routing, are mostly
+ * used in a broken "legacy replacement" mode.  The breakage includes
+ * HPET #1 hijacking the IRQ for this RTC, and being unavailable for
+ * other (better) use.
+ *
+ * When that broken mode is in use, platform glue provides a partial
+ * emulation of hardware RTC IRQ facilities using HPET #1.  We don't
+ * want to use HPET for anything except those IRQs though...
+ */
 #ifdef CONFIG_HPET_EMULATE_RTC
 #include <asm/hpet.h>
 #else
@@ -110,9 +145,14 @@ static inline int hpet_unregister_irq_handler(irq_handler_t handler)
 
 #endif
 
+/*----------------------------------------------------------------*/
 
 #ifdef RTC_PORT
 
+/* Most newer x86 systems have two register banks, the first used
+ * for RTC and NVRAM and the second only for NVRAM.  Caller must
+ * own rtc_lock ... and we won't worry about access during NMI.
+ */
 #define can_bank2	true
 
 static inline unsigned char cmos_read_bank2(unsigned char addr)
@@ -142,15 +182,26 @@ static inline void cmos_write_bank2(unsigned char val, unsigned char addr)
 
 #endif
 
+/*----------------------------------------------------------------*/
 
 static int cmos_read_time(struct device *dev, struct rtc_time *t)
 {
+	/* REVISIT:  if the clock has a "century" register, use
+	 * that instead of the heuristic in get_rtc_time().
+	 * That'll make Y3K compatility (year > 2070) easy!
+	 */
 	get_rtc_time(t);
 	return 0;
 }
 
 static int cmos_set_time(struct device *dev, struct rtc_time *t)
 {
+	/* REVISIT:  set the "century" register if available
+	 *
+	 * NOTE: this ignores the issue whereby updating the seconds
+	 * takes effect exactly 500ms after we write the register.
+	 * (Also queueing and other delays before we get this far.)
+	 */
 	return set_rtc_time(t);
 }
 
@@ -162,6 +213,10 @@ static int cmos_read_alarm(struct device *dev, struct rtc_wkalrm *t)
 	if (!is_valid_irq(cmos->irq))
 		return -EIO;
 
+	/* Basic alarms only support hour, minute, and seconds fields.
+	 * Some also support day and month, for alarms up to a year in
+	 * the future.
+	 */
 	t->time.tm_mday = -1;
 	t->time.tm_mon = -1;
 
@@ -171,7 +226,7 @@ static int cmos_read_alarm(struct device *dev, struct rtc_wkalrm *t)
 	t->time.tm_hour = CMOS_READ(RTC_HOURS_ALARM);
 
 	if (cmos->day_alrm) {
-		
+		/* ignore upper bits on readback per ACPI spec */
 		t->time.tm_mday = CMOS_READ(cmos->day_alrm) & 0x3f;
 		if (!t->time.tm_mday)
 			t->time.tm_mday = -1;
@@ -226,6 +281,9 @@ static void cmos_checkintr(struct cmos_rtc *cmos, unsigned char rtc_control)
 {
 	unsigned char	rtc_intr;
 
+	/* NOTE after changing RTC_xIE bits we always read INTR_FLAGS;
+	 * allegedly some older rtcs need that to handle irqs properly
+	 */
 	rtc_intr = CMOS_READ(RTC_INTR_FLAGS);
 
 	if (is_hpet_enabled())
@@ -240,6 +298,9 @@ static void cmos_irq_enable(struct cmos_rtc *cmos, unsigned char mask)
 {
 	unsigned char	rtc_control;
 
+	/* flush any pending IRQ status, notably for update irqs,
+	 * before we enable new IRQs
+	 */
 	rtc_control = CMOS_READ(RTC_CONTROL);
 	cmos_checkintr(cmos, rtc_control);
 
@@ -278,7 +339,7 @@ static int cmos_set_alarm(struct device *dev, struct rtc_wkalrm *t)
 
 	rtc_control = CMOS_READ(RTC_CONTROL);
 	if (!(rtc_control & RTC_DM_BINARY) || RTC_ALWAYS_BCD) {
-		
+		/* Writing 0xff means "don't care" or "match all".  */
 		mon = (mon <= 12) ? bin2bcd(mon) : 0xff;
 		mday = (mday >= 1 && mday <= 31) ? bin2bcd(mday) : 0xff;
 		hrs = (hrs < 24) ? bin2bcd(hrs) : 0xff;
@@ -288,21 +349,24 @@ static int cmos_set_alarm(struct device *dev, struct rtc_wkalrm *t)
 
 	spin_lock_irq(&rtc_lock);
 
-	
+	/* next rtc irq must not be from previous alarm setting */
 	cmos_irq_disable(cmos, RTC_AIE);
 
-	
+	/* update alarm */
 	CMOS_WRITE(hrs, RTC_HOURS_ALARM);
 	CMOS_WRITE(min, RTC_MINUTES_ALARM);
 	CMOS_WRITE(sec, RTC_SECONDS_ALARM);
 
-	
+	/* the system may support an "enhanced" alarm */
 	if (cmos->day_alrm) {
 		CMOS_WRITE(mday, cmos->day_alrm);
 		if (cmos->mon_alrm)
 			CMOS_WRITE(mon, cmos->mon_alrm);
 	}
 
+	/* FIXME the HPET alarm glue currently ignores day_alrm
+	 * and mon_alrm ...
+	 */
 	hpet_set_alarm_time(t->time.tm_hour, t->time.tm_min, t->time.tm_sec);
 
 	if (t->enabled)
@@ -344,11 +408,14 @@ static int cmos_procfs(struct device *dev, struct seq_file *seq)
 	valid = CMOS_READ(RTC_VALID);
 	spin_unlock_irq(&rtc_lock);
 
+	/* NOTE:  at least ICH6 reports battery status using a different
+	 * (non-RTC) bit; and SQWE is ignored on many current systems.
+	 */
 	return seq_printf(seq,
 			"periodic_IRQ\t: %s\n"
 			"update_IRQ\t: %s\n"
 			"HPET_emulated\t: %s\n"
-			
+			// "square_wave\t: %s\n"
 			"BCD\t\t: %s\n"
 			"DST_enable\t: %s\n"
 			"periodic_freq\t: %d\n"
@@ -356,7 +423,7 @@ static int cmos_procfs(struct device *dev, struct seq_file *seq)
 			(rtc_control & RTC_PIE) ? "yes" : "no",
 			(rtc_control & RTC_UIE) ? "yes" : "no",
 			is_hpet_enabled() ? "yes" : "no",
-			
+			// (rtc_control & RTC_SQWE) ? "yes" : "no",
 			(rtc_control & RTC_DM_BINARY) ? "no" : "yes",
 			(rtc_control & RTC_DST_EN) ? "yes" : "no",
 			cmos->rtc->irq_freq,
@@ -376,7 +443,13 @@ static const struct rtc_class_ops cmos_rtc_ops = {
 	.alarm_irq_enable	= cmos_alarm_irq_enable,
 };
 
+/*----------------------------------------------------------------*/
 
+/*
+ * All these chips have at least 64 bytes of address space, shared by
+ * RTC registers and NVRAM.  Most of those bytes of NVRAM are used
+ * by boot firmware.  Modern chips have 128 or 256 bytes.
+ */
 
 #define NVRAM_OFFSET	(RTC_REG_D + 1)
 
@@ -425,10 +498,15 @@ cmos_nvram_write(struct file *filp, struct kobject *kobj,
 	if ((off + count) > attr->size)
 		count = attr->size - off;
 
+	/* NOTE:  on at least PCs and Ataris, the boot firmware uses a
+	 * checksum on part of the NVRAM data.  That's currently ignored
+	 * here.  If userspace is smart enough to know what fields of
+	 * NVRAM to update, updating checksums is also part of its job.
+	 */
 	off += NVRAM_OFFSET;
 	spin_lock_irq(&rtc_lock);
 	for (retval = 0; count; count--, off++, retval++) {
-		
+		/* don't trash RTC registers */
 		if (off == cmos->day_alrm
 				|| off == cmos->mon_alrm
 				|| off == cmos->century)
@@ -453,9 +531,10 @@ static struct bin_attribute nvram = {
 
 	.read	= cmos_nvram_read,
 	.write	= cmos_nvram_write,
-	
+	/* size gets set up later */
 };
 
+/*----------------------------------------------------------------*/
 
 static struct cmos_rtc	cmos_rtc;
 
@@ -466,12 +545,23 @@ static irqreturn_t cmos_interrupt(int irq, void *p)
 
 	spin_lock(&rtc_lock);
 
+	/* When the HPET interrupt handler calls us, the interrupt
+	 * status is passed as arg1 instead of the irq number.  But
+	 * always clear irq status, even when HPET is in the way.
+	 *
+	 * Note that HPET and RTC are almost certainly out of phase,
+	 * giving different IRQ status ...
+	 */
 	irqstat = CMOS_READ(RTC_INTR_FLAGS);
 	rtc_control = CMOS_READ(RTC_CONTROL);
 	if (is_hpet_enabled())
 		irqstat = (unsigned long)irq & 0xF0;
 	irqstat &= (rtc_control & RTC_IRQMASK) | RTC_IRQF;
 
+	/* All Linux RTC alarms should be treated as if they were oneshot.
+	 * Similar code may be needed in system wakeup paths, in case the
+	 * alarm woke the system.
+	 */
 	if (irqstat & RTC_AIE) {
 		rtc_control &= ~RTC_AIE;
 		CMOS_WRITE(rtc_control, RTC_CONTROL);
@@ -503,13 +593,18 @@ cmos_do_probe(struct device *dev, struct resource *ports, int rtc_irq)
 	unsigned char			rtc_control;
 	unsigned			address_space;
 
-	
+	/* there can be only one ... */
 	if (cmos_rtc.dev)
 		return -EBUSY;
 
 	if (!ports)
 		return -ENODEV;
 
+	/* Claim I/O ports ASAP, minimizing conflict with legacy driver.
+	 *
+	 * REVISIT non-x86 systems may instead use memory space resources
+	 * (needing ioremap etc), not i/o space resources like this ...
+	 */
 	ports = request_region(ports->start,
 			resource_size(ports),
 			driver_name);
@@ -521,6 +616,11 @@ cmos_do_probe(struct device *dev, struct resource *ports, int rtc_irq)
 	cmos_rtc.irq = rtc_irq;
 	cmos_rtc.iomem = ports;
 
+	/* Heuristic to deduce NVRAM size ... do what the legacy NVRAM
+	 * driver did, but don't reject unknown configs.   Old hardware
+	 * won't address 128 bytes.  Newer chips have multiple banks,
+	 * though they may not be listed in one I/O resource.
+	 */
 #if	defined(CONFIG_ATARI)
 	address_space = 64;
 #elif defined(__i386__) || defined(__x86_64__) || defined(__arm__) \
@@ -534,6 +634,15 @@ cmos_do_probe(struct device *dev, struct resource *ports, int rtc_irq)
 	if (can_bank2 && ports->end > (ports->start + 1))
 		address_space = 256;
 
+	/* For ACPI systems extension info comes from the FADT.  On others,
+	 * board specific setup provides it as appropriate.  Systems where
+	 * the alarm IRQ isn't automatically a wakeup IRQ (like ACPI, and
+	 * some almost-clones) can provide hooks to make that behave.
+	 *
+	 * Note that ACPI doesn't preclude putting these registers into
+	 * "extended" areas of the chip, including some that we won't yet
+	 * expect CMOS_READ and friends to handle.
+	 */
 	if (info) {
 		if (info->rtc_day_alarm && info->rtc_day_alarm < 128)
 			cmos_rtc.day_alrm = info->rtc_day_alarm;
@@ -562,17 +671,26 @@ cmos_do_probe(struct device *dev, struct resource *ports, int rtc_irq)
 
 	spin_lock_irq(&rtc_lock);
 
+	/* force periodic irq to CMOS reset default of 1024Hz;
+	 *
+	 * REVISIT it's been reported that at least one x86_64 ALI mobo
+	 * doesn't use 32KHz here ... for portability we might need to
+	 * do something about other clock frequencies.
+	 */
 	cmos_rtc.rtc->irq_freq = 1024;
 	hpet_set_periodic_freq(cmos_rtc.rtc->irq_freq);
 	CMOS_WRITE(RTC_REF_CLCK_32KHZ | 0x06, RTC_FREQ_SELECT);
 
-	
+	/* disable irqs */
 	cmos_irq_disable(&cmos_rtc, RTC_PIE | RTC_AIE | RTC_UIE);
 
 	rtc_control = CMOS_READ(RTC_CONTROL);
 
 	spin_unlock_irq(&rtc_lock);
 
+	/* FIXME:
+	 * <asm-generic/rtc.h> doesn't know 12-hour mode either.
+	 */
        if (is_valid_irq(rtc_irq) && !(rtc_control & RTC_24H)) {
 		dev_warn(dev, "only 24-hr supported\n");
 		retval = -ENXIO;
@@ -605,7 +723,7 @@ cmos_do_probe(struct device *dev, struct resource *ports, int rtc_irq)
 	}
 	hpet_rtc_timer_init();
 
-	
+	/* export at least the first block of NVRAM */
 	nvram.size = address_space - NVRAM_OFFSET;
 	retval = sysfs_create_bin_file(&dev->kobj, &nvram);
 	if (retval < 0) {
@@ -675,7 +793,7 @@ static int cmos_suspend(struct device *dev)
 	struct cmos_rtc	*cmos = dev_get_drvdata(dev);
 	unsigned char	tmp;
 
-	
+	/* only the alarm might be a wakeup event source */
 	spin_lock_irq(&rtc_lock);
 	cmos->suspend_ctrl = tmp = CMOS_READ(RTC_CONTROL);
 	if (tmp & (RTC_PIE|RTC_AIE|RTC_UIE)) {
@@ -688,7 +806,7 @@ static int cmos_suspend(struct device *dev)
 		tmp &= ~mask;
 		CMOS_WRITE(tmp, RTC_CONTROL);
 
-		
+		/* shut down hpet emulation - we don't need it for alarm */
 		hpet_mask_rtc_irq_bit(RTC_PIE|RTC_AIE|RTC_UIE);
 		cmos_checkintr(cmos, tmp);
 	}
@@ -710,6 +828,12 @@ static int cmos_suspend(struct device *dev)
 	return 0;
 }
 
+/* We want RTC alarms to wake us from e.g. ACPI G2/S5 "soft off", even
+ * after a detour through G3 "mechanical off", although the ACPI spec
+ * says wakeup should only work from G1/S4 "hibernate".  To most users,
+ * distinctions between S4 and S5 are pointless.  So when the hardware
+ * allows, don't draw that distinction.
+ */
 static inline int cmos_poweroff(struct device *dev)
 {
 	return cmos_suspend(dev);
@@ -720,7 +844,7 @@ static int cmos_resume(struct device *dev)
 	struct cmos_rtc	*cmos = dev_get_drvdata(dev);
 	unsigned char	tmp = cmos->suspend_ctrl;
 
-	
+	/* re-enable any irqs previously active */
 	if (tmp & RTC_IRQMASK) {
 		unsigned char	mask;
 
@@ -742,6 +866,9 @@ static int cmos_resume(struct device *dev)
 			if (!is_hpet_enabled() || !is_intr(mask))
 				break;
 
+			/* force one-shot behavior if HPET blocked
+			 * the wake alarm's irq
+			 */
 			rtc_update_irq(cmos->rtc, 1, mask);
 			tmp &= ~RTC_AIE;
 			hpet_mask_rtc_irq_bit(RTC_AIE);
@@ -767,7 +894,15 @@ static inline int cmos_poweroff(struct device *dev)
 
 #endif
 
+/*----------------------------------------------------------------*/
 
+/* On non-x86 systems, a "CMOS" RTC lives most naturally on platform_bus.
+ * ACPI systems always list these as PNPACPI devices, and pre-ACPI PCs
+ * probably list them in similar PNPBIOS tables; so PNP is more common.
+ *
+ * We don't use legacy "poke at the hardware" probing.  Ancient PCs that
+ * predate even PNPBIOS should set up platform_bus devices.
+ */
 
 #ifdef	CONFIG_ACPI
 
@@ -783,6 +918,10 @@ static u32 rtc_handler(void *context)
 static inline void rtc_wake_setup(void)
 {
 	acpi_install_fixed_event_handler(ACPI_EVENT_RTC, rtc_handler, NULL);
+	/*
+	 * After the RTC handler is installed, the Fixed_RTC event should
+	 * be disabled. Only when the RTC alarm is set will it be enabled.
+	 */
 	acpi_clear_event(ACPI_EVENT_RTC);
 	acpi_disable_event(ACPI_EVENT_RTC, 0);
 }
@@ -798,6 +937,11 @@ static void rtc_wake_off(struct device *dev)
 	acpi_disable_event(ACPI_EVENT_RTC, 0);
 }
 
+/* Every ACPI platform has a mc146818 compatible "cmos rtc".  Here we find
+ * its device node and pass extra config data.  This helps its driver use
+ * capabilities that the now-obsolete mc146818 didn't have, and informs it
+ * that this board's RTC is wakeup-capable (per ACPI spec).
+ */
 static struct cmos_rtc_board_info acpi_rtc_info;
 
 static void __devinit
@@ -810,7 +954,7 @@ cmos_wake_setup(struct device *dev)
 	acpi_rtc_info.wake_on = rtc_wake_on;
 	acpi_rtc_info.wake_off = rtc_wake_off;
 
-	
+	/* workaround bug in some ACPI tables */
 	if (acpi_gbl_FADT.month_alarm && !acpi_gbl_FADT.day_alarm) {
 		dev_dbg(dev, "bogus FADT month_alarm (%d)\n",
 			acpi_gbl_FADT.month_alarm);
@@ -821,13 +965,13 @@ cmos_wake_setup(struct device *dev)
 	acpi_rtc_info.rtc_mon_alarm = acpi_gbl_FADT.month_alarm;
 	acpi_rtc_info.rtc_century = acpi_gbl_FADT.century;
 
-	
+	/* NOTE:  S4_RTC_WAKE is NOT currently useful to Linux */
 	if (acpi_gbl_FADT.flags & ACPI_FADT_S4_RTC_WAKE)
 		dev_info(dev, "RTC can wake from S4\n");
 
 	dev->platform_data = &acpi_rtc_info;
 
-	
+	/* RTC always wakes from S1/S2/S3, and often S4/STD */
 	device_init_wakeup(dev, 1);
 }
 
@@ -850,6 +994,10 @@ cmos_pnp_probe(struct pnp_dev *pnp, const struct pnp_device_id *id)
 	cmos_wake_setup(&pnp->dev);
 
 	if (pnp_port_start(pnp,0) == 0x70 && !pnp_irq_valid(pnp,0))
+		/* Some machines contain a PNP entry for the RTC, but
+		 * don't define the IRQ. It should always be safe to
+		 * hardcode it in these cases
+		 */
 		return cmos_do_probe(&pnp->dev,
 				pnp_get_resource(pnp, IORESOURCE_IO, 0), 8);
 	else
@@ -903,13 +1051,13 @@ static struct pnp_driver cmos_pnp_driver = {
 	.remove		= __exit_p(cmos_pnp_remove),
 	.shutdown	= cmos_pnp_shutdown,
 
-	
+	/* flag ensures resume() gets called, and stops syslog spam */
 	.flags		= PNP_DRIVER_RES_DO_NOT_CHANGE,
 	.suspend	= cmos_pnp_suspend,
 	.resume		= cmos_pnp_resume,
 };
 
-#endif	
+#endif	/* CONFIG_PNP */
 
 #ifdef CONFIG_OF
 static const struct of_device_id of_cmos_match[] = {
@@ -952,7 +1100,11 @@ static __init void cmos_of_init(struct platform_device *pdev)
 static inline void cmos_of_init(struct platform_device *pdev) {}
 #define of_cmos_match NULL
 #endif
+/*----------------------------------------------------------------*/
 
+/* Platform setup should have set up an RTC device, when PNP is
+ * unavailable ... this could happen even on (older) PCs.
+ */
 
 static int __init cmos_platform_probe(struct platform_device *pdev)
 {
@@ -977,6 +1129,7 @@ static void cmos_platform_shutdown(struct platform_device *pdev)
 	cmos_do_shutdown();
 }
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:rtc_cmos");
 
 static struct platform_driver cmos_platform_driver = {

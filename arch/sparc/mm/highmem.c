@@ -1,4 +1,27 @@
+/*
+ *  highmem.c: virtual kernel memory mappings for high memory
+ *
+ *  Provides kernel-static versions of atomic kmap functions originally
+ *  found as inlines in include/asm-sparc/highmem.h.  These became
+ *  needed as kmap_atomic() and kunmap_atomic() started getting
+ *  called from within modules.
+ *  -- Tomas Szepe <szepe@pinerecords.com>, September 2002
+ *
+ *  But kmap_atomic() and kunmap_atomic() cannot be inlined in
+ *  modules because they are loaded with btfixup-ped functions.
+ */
 
+/*
+ * The use of kmap_atomic/kunmap_atomic is discouraged - kmap/kunmap
+ * gives a more generic (and caching) interface. But kmap_atomic can
+ * be used in IRQ contexts, so in some (very limited) cases we need it.
+ *
+ * XXX This is an old text. Actually, it's good to use atomic kmaps,
+ * provided you remember that they are atomic and not try to sleep
+ * with a kmap taken, much like a spinlock. Non-atomic kmaps are
+ * shared by CPUs, and so precious, and establishing them requires IPI.
+ * Atomic kmaps are lightweight and we may have NCPUS more of them.
+ */
 #include <linux/mm.h>
 #include <linux/highmem.h>
 #include <linux/export.h>
@@ -12,7 +35,7 @@ void *kmap_atomic(struct page *page)
 	unsigned long vaddr;
 	long idx, type;
 
-	
+	/* even !CONFIG_PREEMPT needs this, for in_atomic in do_page_fault */
 	pagefault_disable();
 	if (!PageHighMem(page))
 		return page_address(page);
@@ -21,6 +44,7 @@ void *kmap_atomic(struct page *page)
 	idx = type + KM_TYPE_NR*smp_processor_id();
 	vaddr = __fix_to_virt(FIX_KMAP_BEGIN + idx);
 
+/* XXX Fix - Anton */
 #if 0
 	__flush_cache_one(vaddr);
 #else
@@ -31,6 +55,7 @@ void *kmap_atomic(struct page *page)
 	BUG_ON(!pte_none(*(kmap_pte-idx)));
 #endif
 	set_pte(kmap_pte-idx, mk_pte(page, kmap_prot));
+/* XXX Fix - Anton */
 #if 0
 	__flush_tlb_one(vaddr);
 #else
@@ -46,7 +71,7 @@ void __kunmap_atomic(void *kvaddr)
 	unsigned long vaddr = (unsigned long) kvaddr & PAGE_MASK;
 	int type;
 
-	if (vaddr < FIXADDR_START) { 
+	if (vaddr < FIXADDR_START) { // FIXME
 		pagefault_enable();
 		return;
 	}
@@ -60,15 +85,19 @@ void __kunmap_atomic(void *kvaddr)
 		idx = type + KM_TYPE_NR * smp_processor_id();
 		BUG_ON(vaddr != __fix_to_virt(FIX_KMAP_BEGIN+idx));
 
-		
+		/* XXX Fix - Anton */
 #if 0
 		__flush_cache_one(vaddr);
 #else
 		flush_cache_all();
 #endif
 
+		/*
+		 * force other mappings to Oops if they'll try to access
+		 * this pte without first remap it
+		 */
 		pte_clear(&init_mm, vaddr, kmap_pte-idx);
-		
+		/* XXX Fix - Anton */
 #if 0
 		__flush_tlb_one(vaddr);
 #else
@@ -82,6 +111,7 @@ void __kunmap_atomic(void *kvaddr)
 }
 EXPORT_SYMBOL(__kunmap_atomic);
 
+/* We may be fed a pagetable here by ptep_to_xxx and others. */
 struct page *kmap_atomic_to_page(void *ptr)
 {
 	unsigned long idx, vaddr = (unsigned long)ptr;

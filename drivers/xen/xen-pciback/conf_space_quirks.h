@@ -1,3 +1,9 @@
+/*
+ * PCI Backend - Data structures for special overlays for broken devices.
+ *
+ * Ryan Wilson <hap9@epoch.ncsc.mil>
+ * Chris Bookholt <hap10@epoch.ncsc.mil>
+ */
 
 #ifndef __XEN_PCIBACK_CONF_SPACE_QUIRKS_H__
 #define __XEN_PCIBACK_CONF_SPACE_QUIRKS_H__

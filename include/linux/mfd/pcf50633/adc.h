@@ -16,6 +16,7 @@
 #include <linux/mfd/pcf50633/core.h>
 #include <linux/platform_device.h>
 
+/* ADC Registers */
 #define PCF50633_REG_ADCC3		0x52
 #define PCF50633_REG_ADCC2		0x53
 #define PCF50633_REG_ADCC1		0x54
@@ -69,4 +70,4 @@ pcf50633_adc_async_read(struct pcf50633 *pcf, int mux, int avg,
 extern int
 pcf50633_adc_sync_read(struct pcf50633 *pcf, int mux, int avg);
 
-#endif 
+#endif /* __LINUX_PCF50633_ADC_H */

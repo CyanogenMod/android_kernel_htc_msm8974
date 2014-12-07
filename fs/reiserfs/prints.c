@@ -75,6 +75,7 @@ static char *le_type(struct reiserfs_key *key)
 	return "UNKNOWN";
 }
 
+/* %k */
 static void sprintf_le_key(char *buf, struct reiserfs_key *key)
 {
 	if (key)
@@ -85,6 +86,7 @@ static void sprintf_le_key(char *buf, struct reiserfs_key *key)
 		sprintf(buf, "[NULL]");
 }
 
+/* %K */
 static void sprintf_cpu_key(char *buf, struct cpu_key *key)
 {
 	if (key)
@@ -170,6 +172,18 @@ static char *is_there_reiserfs_struct(char *fmt, int *what)
 	return k;
 }
 
+/* debugging reiserfs we used to print out a lot of different
+   variables, like keys, item headers, buffer heads etc. Values of
+   most fields matter. So it took a long time just to write
+   appropriative printk. With this reiserfs_warning you can use format
+   specification for complex structures like you used to do with
+   printfs for integers, doubles and pointers. For instance, to print
+   out key structure you have to write just:
+   reiserfs_warning ("bad key %k", key);
+   instead of
+   printk ("bad key %lu %lu %lu %lu", key->k_dir_id, key->k_objectid,
+           key->k_offset, key->k_uniqueness);
+*/
 static DEFINE_SPINLOCK(error_lock);
 static void prepare_error_buf(const char *fmt, va_list args)
 {
@@ -229,6 +243,15 @@ static void prepare_error_buf(const char *fmt, va_list args)
 
 }
 
+/* in addition to usual conversion specifiers this accepts reiserfs
+   specific conversion specifiers:
+   %k to print little endian key,
+   %K to print cpu key,
+   %h to print item_head,
+   %t to print directory entry
+   %z to print block head (arg must be struct buffer_head *
+   %b to print buffer_head
+*/
 
 #define do_reiserfs_warning(fmt)\
 {\
@@ -251,6 +274,7 @@ void __reiserfs_warning(struct super_block *sb, const char *id,
 		       id ? id : "", id ? " " : "", function, error_buf);
 }
 
+/* No newline.. reiserfs_info calls can be followed by printk's */
 void reiserfs_info(struct super_block *sb, const char *fmt, ...)
 {
 	do_reiserfs_warning(fmt);
@@ -261,6 +285,7 @@ void reiserfs_info(struct super_block *sb, const char *fmt, ...)
 		printk(KERN_NOTICE "REISERFS %s:", error_buf);
 }
 
+/* No newline.. reiserfs_printk calls can be followed by printk's */
 static void reiserfs_printk(const char *fmt, ...)
 {
 	do_reiserfs_warning(fmt);
@@ -279,6 +304,50 @@ void reiserfs_debug(struct super_block *s, int level, const char *fmt, ...)
 #endif
 }
 
+/* The format:
+
+           maintainer-errorid: [function-name:] message
+
+    where errorid is unique to the maintainer and function-name is
+    optional, is recommended, so that anyone can easily find the bug
+    with a simple grep for the short to type string
+    maintainer-errorid.  Don't bother with reusing errorids, there are
+    lots of numbers out there.
+
+    Example:
+
+    reiserfs_panic(
+	p_sb, "reiser-29: reiserfs_new_blocknrs: "
+	"one of search_start or rn(%d) is equal to MAX_B_NUM,"
+	"which means that we are optimizing location based on the bogus location of a temp buffer (%p).",
+	rn, bh
+    );
+
+    Regular panic()s sometimes clear the screen before the message can
+    be read, thus the need for the while loop.
+
+    Numbering scheme for panic used by Vladimir and Anatoly( Hans completely ignores this scheme, and considers it
+    pointless complexity):
+
+    panics in reiserfs.h have numbers from 1000 to 1999
+    super.c				        2000 to 2999
+    preserve.c (unused)			    3000 to 3999
+    bitmap.c				    4000 to 4999
+    stree.c				        5000 to 5999
+    prints.c				    6000 to 6999
+    namei.c                     7000 to 7999
+    fix_nodes.c                 8000 to 8999
+    dir.c                       9000 to 9999
+	lbalance.c					10000 to 10999
+	ibalance.c		11000 to 11999 not ready
+	do_balan.c		12000 to 12999
+	inode.c			13000 to 13999
+	file.c			14000 to 14999
+    objectid.c                       15000 - 15999
+    buffer.c                         16000 - 16999
+    symlink.c                        17000 - 17999
+
+   .  */
 
 void __reiserfs_panic(struct super_block *sb, const char *id,
 		      const char *function, const char *fmt, ...)
@@ -341,6 +410,9 @@ void reiserfs_abort(struct super_block *sb, int errno, const char *fmt, ...)
 	reiserfs_abort_journal(sb, errno);
 }
 
+/* this prints internal nodes (4 keys/items in line) (dc_number,
+   dc_size)[k_dirid, k_objectid, k_offset, k_uniqueness](dc_number,
+   dc_size)...*/
 static int print_internal(struct buffer_head *bh, int first, int last)
 {
 	struct reiserfs_key *key;
@@ -444,6 +516,7 @@ char *reiserfs_hashname(int code)
 	return "unknown";
 }
 
+/* return 1 if this is not super block */
 static int print_super_block(struct buffer_head *bh)
 {
 	struct reiserfs_super_block *rs =
@@ -469,8 +542,9 @@ static int print_super_block(struct buffer_head *bh)
 	printk("Block count %u\n", sb_block_count(rs));
 	printk("Blocksize %d\n", sb_blocksize(rs));
 	printk("Free blocks %u\n", sb_free_blocks(rs));
-	
-	
+	// FIXME: this would be confusing if
+	// someone stores reiserfs super block in some data block ;)
+//    skipped = (bh->b_blocknr * bh->b_size) / sb_blocksize(rs);
 	skipped = bh->b_blocknr;
 	data_blocks = sb_block_count(rs) - skipped - 1 - sb_bmap_nr(rs) -
 	    (!is_reiserfs_jr(rs) ? sb_jp_journal_size(rs) +
@@ -507,7 +581,7 @@ static int print_desc_block(struct buffer_head *bh)
 	return 0;
 }
 
-void print_block(struct buffer_head *bh, ...)	
+void print_block(struct buffer_head *bh, ...)	//int print_mode, int first, int last)
 {
 	va_list args;
 	int mode, first, last;
@@ -535,6 +609,7 @@ void print_block(struct buffer_head *bh, ...)
 
 static char print_tb_buf[2048];
 
+/* this stores initial state of tree balance in the print_tb_buf */
 void store_print_tb(struct tree_balance *tb)
 {
 	int h = 0;
@@ -593,7 +668,7 @@ void store_print_tb(struct tree_balance *tb)
 		tb->s2num, tb->s2bytes, tb->cur_blknum, tb->lkey[0],
 		tb->rkey[0]);
 
-	
+	/* this prints balance parameters for non-leaf levels */
 	h = 0;
 	do {
 		h++;
@@ -607,7 +682,7 @@ void store_print_tb(struct tree_balance *tb)
 		"=====================================================================\n"
 		"FEB list: ");
 
-	
+	/* print FEB list (list of buffers in form (bh (b_blocknr, b_count), that will be used for new nodes) */
 	h = 0;
 	for (i = 0; i < ARRAY_SIZE(tb->FEB); i++)
 		sprintf(print_tb_buf + strlen(print_tb_buf),
@@ -682,5 +757,12 @@ void check_internal(struct buffer_head *bh)
 void print_statistics(struct super_block *s)
 {
 
+	/*
+	   printk ("reiserfs_put_super: session statistics: balances %d, fix_nodes %d, \
+	   bmap with search %d, without %d, dir2ind %d, ind2dir %d\n",
+	   REISERFS_SB(s)->s_do_balance, REISERFS_SB(s)->s_fix_nodes,
+	   REISERFS_SB(s)->s_bmaps, REISERFS_SB(s)->s_bmaps_without_search,
+	   REISERFS_SB(s)->s_direct2indirect, REISERFS_SB(s)->s_indirect2direct);
+	 */
 
 }

@@ -24,14 +24,20 @@
 
 #include <asm/vr41xx/irq.h>
 
+/*
+ * General-Purpose I/O Pin Number
+ */
 #define TB0287_PCI_SLOT_PIN		2
 #define TB0287_SM501_PIN		3
 #define TB0287_SIL680A_PIN		8
 #define TB0287_RTL8110_PIN		13
 
+/*
+ * Interrupt Number
+ */
 #define TB0287_PCI_SLOT_IRQ		GIU_IRQ(TB0287_PCI_SLOT_PIN)
 #define TB0287_SM501_IRQ		GIU_IRQ(TB0287_SM501_PIN)
 #define TB0287_SIL680A_IRQ		GIU_IRQ(TB0287_SIL680A_PIN)
 #define TB0287_RTL8110_IRQ		GIU_IRQ(TB0287_RTL8110_PIN)
 
-#endif 
+#endif /* __TANBAC_TB0287_H */

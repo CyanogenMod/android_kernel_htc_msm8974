@@ -1,3 +1,4 @@
+/***************************************************************************/
 
 /*
  *	cache.c -- general ColdFire Cache maintenance code
@@ -5,13 +6,21 @@
  *	Copyright (C) 2010, Greg Ungerer (gerg@snapgear.com)
  */
 
+/***************************************************************************/
 
 #include <linux/kernel.h>
 #include <asm/coldfire.h>
 #include <asm/mcfsim.h>
 
+/***************************************************************************/
 #ifdef CACHE_PUSH
+/***************************************************************************/
 
+/*
+ *	Use cpushl to push all dirty cache lines back to memory.
+ *	Older versions of GAS don't seem to know how to generate the
+ *	ColdFire cpushl instruction... Oh well, bit stuff it for now.
+ */
 
 void mcf_cache_push(void)
 {
@@ -27,11 +36,13 @@ void mcf_cache_push(void)
 		"addql	#1,%%d0\n\t"
 		"cmpil	%2,%%d0\n\t"
 		"bne	1b\n\t"
-		: 
+		: /* No output */
 		: "i" (CACHE_LINE_SIZE),
 		  "i" (DCACHE_SIZE / CACHE_WAYS),
 		  "i" (CACHE_WAYS)
 		: "d0", "a0" );
 }
 
-#endif 
+/***************************************************************************/
+#endif /* CACHE_PUSH */
+/***************************************************************************/

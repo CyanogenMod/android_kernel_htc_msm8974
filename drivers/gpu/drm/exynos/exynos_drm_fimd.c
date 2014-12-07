@@ -26,20 +26,33 @@
 #include "exynos_drm_fbdev.h"
 #include "exynos_drm_crtc.h"
 
+/*
+ * FIMD is stand for Fully Interactive Mobile Display and
+ * as a display controller, it transfers contents drawn on memory
+ * to a LCD Panel through Display Interfaces such as RGB or
+ * CPU Interface.
+ */
 
+/* position control register for hardware window 0, 2 ~ 4.*/
 #define VIDOSD_A(win)		(VIDOSD_BASE + 0x00 + (win) * 16)
 #define VIDOSD_B(win)		(VIDOSD_BASE + 0x04 + (win) * 16)
+/* size control register for hardware window 0. */
 #define VIDOSD_C_SIZE_W0	(VIDOSD_BASE + 0x08)
+/* alpha control register for hardware window 1 ~ 4. */
 #define VIDOSD_C(win)		(VIDOSD_BASE + 0x18 + (win) * 16)
+/* size control register for hardware window 1 ~ 4. */
 #define VIDOSD_D(win)		(VIDOSD_BASE + 0x0C + (win) * 16)
 
 #define VIDWx_BUF_START(win, buf)	(VIDW_BUF_START(buf) + (win) * 8)
 #define VIDWx_BUF_END(win, buf)		(VIDW_BUF_END(buf) + (win) * 8)
 #define VIDWx_BUF_SIZE(win, buf)	(VIDW_BUF_SIZE(buf) + (win) * 4)
 
+/* color key control register for hardware window 1 ~ 4. */
 #define WKEYCON0_BASE(x)		((WKEYCON0 + 0x140) + (x * 8))
+/* color key value register for hardware window 1 ~ 4. */
 #define WKEYCON1_BASE(x)		((WKEYCON1 + 0x140) + (x * 8))
 
+/* FIMD has totally five hardware windows. */
 #define WINDOWS_NR	5
 
 #define get_fimd_context(dev)	platform_get_drvdata(to_platform_device(dev))
@@ -55,7 +68,7 @@ struct fimd_win_data {
 	dma_addr_t		dma_addr;
 	void __iomem		*vaddr;
 	unsigned int		buf_offsize;
-	unsigned int		line_size;	
+	unsigned int		line_size;	/* bytes */
 	bool			enabled;
 };
 
@@ -83,7 +96,7 @@ static bool fimd_display_is_connected(struct device *dev)
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	
+	/* TODO. */
 
 	return true;
 }
@@ -101,7 +114,7 @@ static int fimd_check_timing(struct device *dev, void *timing)
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	
+	/* TODO. */
 
 	return 0;
 }
@@ -110,7 +123,7 @@ static int fimd_display_power_on(struct device *dev, int mode)
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	
+	/* TODO */
 
 	return 0;
 }
@@ -133,6 +146,12 @@ static void fimd_dpms(struct device *subdrv_dev, int mode)
 
 	switch (mode) {
 	case DRM_MODE_DPMS_ON:
+		/*
+		 * enable fimd hardware only if suspended status.
+		 *
+		 * P.S. fimd_dpms function would be called at booting time so
+		 * clk_enable could be called double time.
+		 */
 		if (ctx->suspended)
 			pm_runtime_get_sync(subdrv_dev);
 		break;
@@ -183,35 +202,39 @@ static void fimd_commit(struct device *dev)
 
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	
+	/* setup polarity values from machine code. */
 	writel(ctx->vidcon1, ctx->regs + VIDCON1);
 
-	
+	/* setup vertical timing values. */
 	val = VIDTCON0_VBPD(timing->upper_margin - 1) |
 	       VIDTCON0_VFPD(timing->lower_margin - 1) |
 	       VIDTCON0_VSPW(timing->vsync_len - 1);
 	writel(val, ctx->regs + VIDTCON0);
 
-	
+	/* setup horizontal timing values.  */
 	val = VIDTCON1_HBPD(timing->left_margin - 1) |
 	       VIDTCON1_HFPD(timing->right_margin - 1) |
 	       VIDTCON1_HSPW(timing->hsync_len - 1);
 	writel(val, ctx->regs + VIDTCON1);
 
-	
+	/* setup horizontal and vertical display size. */
 	val = VIDTCON2_LINEVAL(timing->yres - 1) |
 	       VIDTCON2_HOZVAL(timing->xres - 1);
 	writel(val, ctx->regs + VIDTCON2);
 
-	
+	/* setup clock source, clock divider, enable dma. */
 	val = ctx->vidcon0;
 	val &= ~(VIDCON0_CLKVAL_F_MASK | VIDCON0_CLKDIR);
 
 	if (ctx->clkdiv > 1)
 		val |= VIDCON0_CLKVAL_F(ctx->clkdiv - 1) | VIDCON0_CLKDIR;
 	else
-		val &= ~VIDCON0_CLKDIR;	
+		val &= ~VIDCON0_CLKDIR;	/* 1:1 clock */
 
+	/*
+	 * fields of register with prefix '_F' would be updated
+	 * at vsync(same as dma start)
+	 */
 	val |= VIDCON0_ENVID | VIDCON0_ENVID_F;
 	writel(val, ctx->regs + VIDCON0);
 }
@@ -421,17 +444,26 @@ static void fimd_win_commit(struct device *dev, int zpos)
 
 	win_data = &ctx->win_data[win];
 
+	/*
+	 * SHADOWCON register is used for enabling timing.
+	 *
+	 * for example, once only width value of a register is set,
+	 * if the dma is started then fimd hardware could malfunction so
+	 * with protect window setting, the register fields with prefix '_F'
+	 * wouldn't be updated at vsync also but updated once unprotect window
+	 * is set.
+	 */
 
-	
+	/* protect windows */
 	val = readl(ctx->regs + SHADOWCON);
 	val |= SHADOWCON_WINx_PROTECT(win);
 	writel(val, ctx->regs + SHADOWCON);
 
-	
+	/* buffer start address */
 	val = (unsigned long)win_data->dma_addr;
 	writel(val, ctx->regs + VIDWx_BUF_START(win, 0));
 
-	
+	/* buffer end address */
 	size = win_data->fb_width * win_data->ovl_height * (win_data->bpp >> 3);
 	val = (unsigned long)(win_data->dma_addr + size);
 	writel(val, ctx->regs + VIDWx_BUF_END(win, 0));
@@ -441,12 +473,12 @@ static void fimd_win_commit(struct device *dev, int zpos)
 	DRM_DEBUG_KMS("ovl_width = %d, ovl_height = %d\n",
 			win_data->ovl_width, win_data->ovl_height);
 
-	
+	/* buffer size */
 	val = VIDW_BUF_SIZE_OFFSET(win_data->buf_offsize) |
 		VIDW_BUF_SIZE_PAGEWIDTH(win_data->line_size);
 	writel(val, ctx->regs + VIDWx_BUF_SIZE(win, 0));
 
-	
+	/* OSD position */
 	val = VIDOSDxA_TOPLEFT_X(win_data->offset_x) |
 		VIDOSDxA_TOPLEFT_Y(win_data->offset_y);
 	writel(val, ctx->regs + VIDOSD_A(win));
@@ -462,9 +494,9 @@ static void fimd_win_commit(struct device *dev, int zpos)
 			win_data->offset_x + win_data->ovl_width - 1,
 			win_data->offset_y + win_data->ovl_height - 1);
 
-	
+	/* hardware window 0 doesn't support alpha channel. */
 	if (win != 0) {
-		
+		/* OSD alpha */
 		alpha = VIDISD14C_ALPHA1_R(0xf) |
 			VIDISD14C_ALPHA1_G(0xf) |
 			VIDISD14C_ALPHA1_B(0xf);
@@ -472,7 +504,7 @@ static void fimd_win_commit(struct device *dev, int zpos)
 		writel(alpha, ctx->regs + VIDOSD_C(win));
 	}
 
-	
+	/* OSD size */
 	if (win != 3 && win != 4) {
 		u32 offset = VIDOSD_D(win);
 		if (win == 0)
@@ -485,16 +517,16 @@ static void fimd_win_commit(struct device *dev, int zpos)
 
 	fimd_win_set_pixfmt(dev, win);
 
-	
+	/* hardware window 0 doesn't support color key. */
 	if (win != 0)
 		fimd_win_set_colkey(dev, win);
 
-	
+	/* wincon */
 	val = readl(ctx->regs + WINCON(win));
 	val |= WINCONx_ENWIN;
 	writel(val, ctx->regs + WINCON(win));
 
-	
+	/* Enable DMA channel and unprotect windows */
 	val = readl(ctx->regs + SHADOWCON);
 	val |= SHADOWCON_CHx_ENABLE(win);
 	val &= ~SHADOWCON_WINx_PROTECT(win);
@@ -520,17 +552,17 @@ static void fimd_win_disable(struct device *dev, int zpos)
 
 	win_data = &ctx->win_data[win];
 
-	
+	/* protect windows */
 	val = readl(ctx->regs + SHADOWCON);
 	val |= SHADOWCON_WINx_PROTECT(win);
 	writel(val, ctx->regs + SHADOWCON);
 
-	
+	/* wincon */
 	val = readl(ctx->regs + WINCON(win));
 	val &= ~WINCONx_ENWIN;
 	writel(val, ctx->regs + WINCON(win));
 
-	
+	/* unprotect windows */
 	val = readl(ctx->regs + SHADOWCON);
 	val &= ~SHADOWCON_CHx_ENABLE(win);
 	val &= ~SHADOWCON_WINx_PROTECT(win);
@@ -564,7 +596,7 @@ static void fimd_finish_pageflip(struct drm_device *drm_dev, int crtc)
 
 	list_for_each_entry_safe(e, t, &dev_priv->pageflip_event_list,
 			base.link) {
-		
+		/* if event's pipe isn't same as crtc then ignore it. */
 		if (crtc != e->pipe)
 			continue;
 
@@ -580,9 +612,17 @@ static void fimd_finish_pageflip(struct drm_device *drm_dev, int crtc)
 	}
 
 	if (is_checked) {
+		/*
+		 * call drm_vblank_put only in case that drm_vblank_get was
+		 * called.
+		 */
 		if (atomic_read(&drm_dev->vblank_refcount[crtc]) > 0)
 			drm_vblank_put(drm_dev, crtc);
 
+		/*
+		 * don't off vblank if vblank_disable_allowed is 1,
+		 * because vblank would be off by timer handler.
+		 */
 		if (!drm_dev->vblank_disable_allowed)
 			drm_vblank_off(drm_dev, crtc);
 	}
@@ -601,10 +641,10 @@ static irqreturn_t fimd_irq_handler(int irq, void *dev_id)
 	val = readl(ctx->regs + VIDINTCON1);
 
 	if (val & VIDINTCON1_INT_FRAME)
-		
+		/* VSYNC interrupt */
 		writel(VIDINTCON1_INT_FRAME, ctx->regs + VIDINTCON1);
 
-	
+	/* check the crtc is detached already from encoder */
 	if (manager->pipe < 0)
 		goto out;
 
@@ -619,8 +659,21 @@ static int fimd_subdrv_probe(struct drm_device *drm_dev, struct device *dev)
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
+	/*
+	 * enable drm irq mode.
+	 * - with irq_enabled = 1, we can use the vblank feature.
+	 *
+	 * P.S. note that we wouldn't use drm irq handler but
+	 *	just specific driver own one instead because
+	 *	drm framework supports only one irq handler.
+	 */
 	drm_dev->irq_enabled = 1;
 
+	/*
+	 * with vblank_disable_allowed = 1, vblank interrupt will be disabled
+	 * by drm timer once a current process gives up ownership of
+	 * vblank event.(after drm_vblank_put function is called)
+	 */
 	drm_dev->vblank_disable_allowed = 1;
 
 	return 0;
@@ -630,7 +683,7 @@ static void fimd_subdrv_remove(struct drm_device *drm_dev)
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	
+	/* TODO. */
 }
 
 static int fimd_calc_clkdiv(struct fimd_context *ctx,
@@ -649,7 +702,7 @@ static int fimd_calc_clkdiv(struct fimd_context *ctx,
 	retrace *= timing->upper_margin + timing->vsync_len +
 				timing->lower_margin + timing->yres;
 
-	
+	/* default framerate is 60Hz */
 	if (!timing->refresh)
 		timing->refresh = 60;
 
@@ -658,7 +711,7 @@ static int fimd_calc_clkdiv(struct fimd_context *ctx,
 	for (clkdiv = 1; clkdiv < 0x100; clkdiv++) {
 		int tmp;
 
-		
+		/* get best framerate */
 		framerate = clk / clkdiv;
 		tmp = timing->refresh - framerate;
 		if (tmp < 0) {
@@ -720,7 +773,7 @@ static int fimd_power_on(struct fimd_context *ctx, bool enable)
 
 		ctx->suspended = false;
 
-		
+		/* if vblank was enabled status, enable it again. */
 		if (test_and_clear_bit(0, &ctx->irq_flags))
 			fimd_enable_vblank(dev);
 
@@ -909,6 +962,11 @@ static int fimd_suspend(struct device *dev)
 	if (pm_runtime_suspended(dev))
 		return 0;
 
+	/*
+	 * do not use pm_runtime_suspend(). if pm_runtime_suspend() is
+	 * called here, an error would be returned by that interface
+	 * because the usage_count of pm runtime is more than 1.
+	 */
 	return fimd_power_on(ctx, false);
 }
 
@@ -916,6 +974,11 @@ static int fimd_resume(struct device *dev)
 {
 	struct fimd_context *ctx = get_fimd_context(dev);
 
+	/*
+	 * if entered to sleep when lcd panel was on, the usage_count
+	 * of pm runtime would still be 1 so in this case, fimd driver
+	 * should be on directly not drawing on pm runtime interface.
+	 */
 	if (!pm_runtime_suspended(dev))
 		return fimd_power_on(ctx, true);
 

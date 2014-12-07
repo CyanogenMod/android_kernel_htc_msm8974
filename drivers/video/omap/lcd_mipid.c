@@ -50,8 +50,10 @@ struct mipid_device {
 	int		enabled;
 	int		revision;
 	unsigned int	saved_bklight_level;
-	unsigned long	hw_guard_end;		
-	unsigned long	hw_guard_wait;		
+	unsigned long	hw_guard_end;		/* next value of jiffies
+						   when we can issue the
+						   next sleep in/out command */
+	unsigned long	hw_guard_wait;		/* max guard time in jiffies */
 
 	struct omapfb_device	*fbdev;
 	struct spi_device	*spi;
@@ -99,6 +101,9 @@ static void mipid_transfer(struct mipid_device *md, int cmd, const u8 *wbuf,
 		spi_message_add_tail(x, &m);
 
 		if (rlen > 1) {
+			/* Arrange for the extra clock before the first
+			 * data bit.
+			 */
 			x->bits_per_word = 9;
 			x->len		 = 2;
 
@@ -187,6 +192,12 @@ static void set_sleep_mode(struct mipid_device *md, int on)
 	hw_guard_wait(md);
 	mipid_cmd(md, cmd);
 	hw_guard_start(md, 120);
+	/*
+	 * When we enable the panel, it seems we _have_ to sleep
+	 * 120 ms before sending the init string. When disabling the
+	 * panel we'll sleep for the duration of 2 frames, so that the
+	 * controller can still provide the PCLK,HS,VS signals.
+	 */
 	if (!on)
 		sleep_time = 120;
 	msleep(sleep_time);
@@ -259,7 +270,7 @@ static u16 read_first_pixel(struct mipid_device *md)
 		pixel = ((red >> 1) << 11) | (green << 5) | (blue >> 1);
 		break;
 	case 24:
-		
+		/* 24 bit -> 16 bit */
 		pixel = ((red >> 3) << 11) | ((green >> 2) << 5) |
 			(blue >> 3);
 		break;
@@ -326,6 +337,9 @@ static void ls041y3_esd_check_mode1(struct mipid_device *md)
 	mipid_read(md, MIPID_CMD_RDDSDR, &state2, 1);
 	dev_dbg(&md->spi->dev, "ESD mode 1 state1 %02x state2 %02x\n",
 		state1, state2);
+	/* Each sleep out command will trigger a self diagnostic and flip
+	* Bit6 if the test passes.
+	*/
 	if (!((state1 ^ state2) & (1 << 6)))
 		ls041y3_esd_recover(md);
 }
@@ -422,6 +436,10 @@ static void mipid_disable(struct lcd_panel *panel)
 {
 	struct mipid_device *md = to_mipid_device(panel);
 
+	/*
+	 * A final ESD work might be called before returning,
+	 * so do this without holding the lock.
+	 */
 	mipid_esd_stop_check(md);
 	mutex_lock(&md->mutex);
 

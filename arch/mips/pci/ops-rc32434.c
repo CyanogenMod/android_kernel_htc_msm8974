@@ -51,7 +51,7 @@ static inline int config_access(unsigned char access_type,
 	unsigned int slot = PCI_SLOT(devfn);
 	u8 func = PCI_FUNC(devfn);
 
-	
+	/* Setup address */
 	PCI_CFG_SET(bus->number, slot, func, where);
 	rc32434_sync();
 
@@ -66,6 +66,10 @@ static inline int config_access(unsigned char access_type,
 }
 
 
+/*
+ * We can't address 8 and 16 bit words directly.  Instead we have to
+ * read/write a 32bit word and mask/modify the data we actually want.
+ */
 static int read_config_byte(struct pci_bus *bus, unsigned int devfn,
 			    int where, u8 *val)
 {
@@ -94,12 +98,20 @@ static int read_config_dword(struct pci_bus *bus, unsigned int devfn,
 	int ret;
 	int delay = 1;
 
+	/*
+	 * Don't scan too far, else there will be errors with plugged in
+	 * daughterboard (rb564).
+	 */
 	if (bus->number == 0 && PCI_SLOT(devfn) > 21)
 		return 0;
 
 retry:
 	ret = config_access(PCI_ACCESS_READ, bus, devfn, where, val);
 
+	/*
+	 * Certain devices react delayed at device scan time, this
+	 * gives them time to settle
+	 */
 	if (where == PCI_VENDOR_ID) {
 		if (ret == 0xffffffff || ret == 0x00000000 ||
 		    ret == 0x0000ffff || ret == 0xffff0000) {

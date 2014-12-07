@@ -40,4 +40,4 @@ extern int mpic_set_affinity(struct irq_data *d,
 			     const struct cpumask *cpumask, bool force);
 extern void mpic_reset_core(int cpu);
 
-#endif 
+#endif /* _POWERPC_SYSDEV_MPIC_H */

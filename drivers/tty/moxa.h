@@ -2,55 +2,67 @@
 #define MOXA_H_FILE
 
 #define	MOXA		0x400
-#define MOXA_GET_IQUEUE 	(MOXA + 1)	
-#define MOXA_GET_OQUEUE 	(MOXA + 2)	
+#define MOXA_GET_IQUEUE 	(MOXA + 1)	/* get input buffered count */
+#define MOXA_GET_OQUEUE 	(MOXA + 2)	/* get output buffered count */
 #define MOXA_GETDATACOUNT       (MOXA + 23)
 #define MOXA_GET_IOQUEUE	(MOXA + 27)
 #define MOXA_FLUSH_QUEUE	(MOXA + 28)
 #define MOXA_GETMSTATUS         (MOXA + 65)
 
+/*
+ *    System Configuration
+ */
 
 #define Magic_code	0x404
 
+/*
+ *    for C218 BIOS initialization
+ */
 #define C218_ConfBase	0x800
-#define C218_status	(C218_ConfBase + 0)	
-#define C218_diag	(C218_ConfBase + 2)	
-#define C218_key	(C218_ConfBase + 4)	
-#define C218DLoad_len	(C218_ConfBase + 6)	
-#define C218check_sum	(C218_ConfBase + 8)	
-#define C218chksum_ok	(C218_ConfBase + 0x0a)	
-#define C218_TestRx	(C218_ConfBase + 0x10)	
-#define C218_TestTx	(C218_ConfBase + 0x18)	
-#define C218_RXerr	(C218_ConfBase + 0x20)	
-#define C218_ErrFlag	(C218_ConfBase + 0x28)	
+#define C218_status	(C218_ConfBase + 0)	/* BIOS running status    */
+#define C218_diag	(C218_ConfBase + 2)	/* diagnostic status      */
+#define C218_key	(C218_ConfBase + 4)	/* WORD (0x218 for C218) */
+#define C218DLoad_len	(C218_ConfBase + 6)	/* WORD           */
+#define C218check_sum	(C218_ConfBase + 8)	/* BYTE           */
+#define C218chksum_ok	(C218_ConfBase + 0x0a)	/* BYTE (1:ok)            */
+#define C218_TestRx	(C218_ConfBase + 0x10)	/* 8 bytes for 8 ports    */
+#define C218_TestTx	(C218_ConfBase + 0x18)	/* 8 bytes for 8 ports    */
+#define C218_RXerr	(C218_ConfBase + 0x20)	/* 8 bytes for 8 ports    */
+#define C218_ErrFlag	(C218_ConfBase + 0x28)	/* 8 bytes for 8 ports    */
 
 #define C218_LoadBuf	0x0F00
 #define C218_KeyCode	0x218
 #define CP204J_KeyCode	0x204
 
+/*
+ *    for C320 BIOS initialization
+ */
 #define C320_ConfBase	0x800
 #define C320_LoadBuf	0x0f00
-#define STS_init	0x05	
+#define STS_init	0x05	/* for C320_status        */
 
-#define C320_status	C320_ConfBase + 0	
-#define C320_diag	C320_ConfBase + 2	
-#define C320_key	C320_ConfBase + 4	
-#define C320DLoad_len	C320_ConfBase + 6	
-#define C320check_sum	C320_ConfBase + 8	
-#define C320chksum_ok	C320_ConfBase + 0x0a	
-#define C320bapi_len	C320_ConfBase + 0x0c	
-#define C320UART_no	C320_ConfBase + 0x0e	
+#define C320_status	C320_ConfBase + 0	/* BIOS running status    */
+#define C320_diag	C320_ConfBase + 2	/* diagnostic status      */
+#define C320_key	C320_ConfBase + 4	/* WORD (0320H for C320) */
+#define C320DLoad_len	C320_ConfBase + 6	/* WORD           */
+#define C320check_sum	C320_ConfBase + 8	/* WORD           */
+#define C320chksum_ok	C320_ConfBase + 0x0a	/* WORD (1:ok)            */
+#define C320bapi_len	C320_ConfBase + 0x0c	/* WORD           */
+#define C320UART_no	C320_ConfBase + 0x0e	/* WORD           */
 
 #define C320_KeyCode	0x320
 
-#define FixPage_addr	0x0000	
-#define DynPage_addr	0x2000	
-#define C218_start	0x3000	
-#define Control_reg	0x1ff0	
+#define FixPage_addr	0x0000	/* starting addr of static page  */
+#define DynPage_addr	0x2000	/* starting addr of dynamic page */
+#define C218_start	0x3000	/* starting addr of C218 BIOS prg */
+#define Control_reg	0x1ff0	/* select page and reset control */
 #define HW_reset	0x80
 
+/*
+ *    Function Codes
+ */
 #define FC_CardReset	0x80
-#define FC_ChannelReset 1	
+#define FC_ChannelReset 1	/* C320 firmware not supported */
 #define FC_EnableCH	2
 #define FC_DisableCH	3
 #define FC_SetParam	4
@@ -66,8 +78,8 @@
 #define FC_LoopbackOFF	14
 #define FC_ClrIrqTable	15
 #define FC_SendXon	16
-#define FC_SetTermIrq	17	
-#define FC_SetCntIrq	18	
+#define FC_SetTermIrq	17	/* C320 firmware not supported */
+#define FC_SetCntIrq	18	/* C320 firmware not supported */
 #define FC_SetBreakIrq	19
 #define FC_SetLineIrq	20
 #define FC_SetFlowCtl	21
@@ -101,6 +113,9 @@
 #define	RxFIFOTrig8	2
 #define	RxFIFOTrig14	3
 
+/*
+ *    Dual-Ported RAM
+ */
 #define DRAM_global	0
 #define INT_data	(DRAM_global + 0)
 #define Config_base	(DRAM_global + 0x108)
@@ -109,17 +124,21 @@
 #define IRQpending	(INT_data + 4)
 #define IRQtable	(INT_data + 8)
 
-#define IntrRx		0x01	
-#define IntrTx		0x02	
-#define IntrFunc	0x04	
-#define IntrBreak	0x08	
-#define IntrLine	0x10	
-#define IntrIntr	0x20	
-#define IntrQuit	0x40	
-#define IntrEOF 	0x80	
+/*
+ *    Interrupt Status
+ */
+#define IntrRx		0x01	/* receiver data O.K.             */
+#define IntrTx		0x02	/* transmit buffer empty  */
+#define IntrFunc	0x04	/* function complete              */
+#define IntrBreak	0x08	/* received break         */
+#define IntrLine	0x10	/* line status change
+				   for transmitter                */
+#define IntrIntr	0x20	/* received INTR code             */
+#define IntrQuit	0x40	/* received QUIT code             */
+#define IntrEOF 	0x80	/* received EOF code              */
 
-#define IntrRxTrigger 	0x100	
-#define IntrTxTrigger 	0x200	
+#define IntrRxTrigger 	0x100	/* rx data count reach tigger value */
+#define IntrTxTrigger 	0x200	/* tx data count below trigger value */
 
 #define Magic_no	(Config_base + 0)
 #define Card_model_no	(Config_base + 2)
@@ -132,22 +151,27 @@
 #define TMS320_PORT2	(Config_base + 24)
 #define TMS320_CLOCK	(Config_base + 26)
 
-#define Extern_table	0x400	
-#define Extern_size	0x60	
-#define RXrptr		0x00	
-#define RXwptr		0x02	
-#define TXrptr		0x04	
-#define TXwptr		0x06	
-#define HostStat	0x08	
+/*
+ *    DATA BUFFER in DRAM
+ */
+#define Extern_table	0x400	/* Base address of the external table
+				   (24 words *    64) total 3K bytes
+				   (24 words * 128) total 6K bytes */
+#define Extern_size	0x60	/* 96 bytes                       */
+#define RXrptr		0x00	/* read pointer for RX buffer     */
+#define RXwptr		0x02	/* write pointer for RX buffer    */
+#define TXrptr		0x04	/* read pointer for TX buffer     */
+#define TXwptr		0x06	/* write pointer for TX buffer    */
+#define HostStat	0x08	/* IRQ flag and general flag      */
 #define FlagStat	0x0A
-#define FlowControl	0x0C	
-				
-				
-				
-				
-				
-#define Break_cnt	0x0E	
-#define CD180TXirq	0x10	
+#define FlowControl	0x0C	/* B7 B6 B5 B4 B3 B2 B1 B0              */
+				/*  x  x  x  x  |  |  |  |            */
+				/*              |  |  |  + CTS flow   */
+				/*              |  |  +--- RTS flow   */
+				/*              |  +------ TX Xon/Xoff */
+				/*              +--------- RX Xon/Xoff */
+#define Break_cnt	0x0E	/* received break count   */
+#define CD180TXirq	0x10	/* if non-0: enable TX irq        */
 #define RX_mask 	0x12
 #define TX_mask 	0x14
 #define Ofs_rxb 	0x16
@@ -167,8 +191,8 @@
 #define FuncArg 	0x42
 #define FuncArg1	0x44
 
-#define C218rx_size	0x2000	
-#define C218tx_size	0x8000	
+#define C218rx_size	0x2000	/* 8K bytes */
+#define C218tx_size	0x8000	/* 32K bytes */
 
 #define C218rx_mask	(C218rx_size - 1)
 #define C218tx_mask	(C218tx_size - 1)
@@ -224,15 +248,21 @@
 #define C320p32tx_spage 3
 #define C320p32buf_pgno 1
 
+/*
+ *    Host Status
+ */
 #define WakeupRx	0x01
 #define WakeupTx	0x02
 #define WakeupBreak	0x08
 #define WakeupLine	0x10
 #define WakeupIntr	0x20
 #define WakeupQuit	0x40
-#define WakeupEOF	0x80	
+#define WakeupEOF	0x80	/* used in VTIME control */
 #define WakeupRxTrigger	0x100
 #define WakeupTxTrigger	0x200
+/*
+ *    Flag status
+ */
 #define Rx_over		0x01
 #define Xoff_state	0x02
 #define Tx_flowOff	0x04
@@ -240,6 +270,9 @@
 #define CTS_state	0x10
 #define DSR_state	0x20
 #define DCD_state	0x80
+/*
+ *    FlowControl
+ */
 #define CTS_FlowCtl	1
 #define RTS_FlowCtl	2
 #define Tx_FlowCtl	4
@@ -254,6 +287,7 @@
 #define DSR_ON		2
 #define DCD_ON		8
 
+/* mode definition */
 #define	MX_CS8		0x03
 #define	MX_CS7		0x02
 #define	MX_CS6		0x01

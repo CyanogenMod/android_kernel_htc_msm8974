@@ -74,6 +74,7 @@
 #define S3C2440_DSC0_ADDR_6mA   (3<<8)
 #define S3C2440_DSC0_ADDR_MASK  (3<<8)
 
+/* D24..D31 */
 #define S3C2440_DSC0_DATA3      (S3C2440_SELECT_DSC0 | 6)
 #define S3C2440_DSC0_DATA3_12mA (0<<6)
 #define S3C2440_DSC0_DATA3_10mA (1<<6)
@@ -81,6 +82,7 @@
 #define S3C2440_DSC0_DATA3_6mA  (3<<6)
 #define S3C2440_DSC0_DATA3_MASK (3<<6)
 
+/* D16..D23 */
 #define S3C2440_DSC0_DATA2      (S3C2440_SELECT_DSC0 | 4)
 #define S3C2440_DSC0_DATA2_12mA (0<<4)
 #define S3C2440_DSC0_DATA2_10mA (1<<4)
@@ -88,6 +90,7 @@
 #define S3C2440_DSC0_DATA2_6mA  (3<<4)
 #define S3C2440_DSC0_DATA2_MASK (3<<4)
 
+/* D8..D15 */
 #define S3C2440_DSC0_DATA1      (S3C2440_SELECT_DSC0 | 2)
 #define S3C2440_DSC0_DATA1_12mA (0<<2)
 #define S3C2440_DSC0_DATA1_10mA (1<<2)
@@ -95,6 +98,7 @@
 #define S3C2440_DSC0_DATA1_6mA  (3<<2)
 #define S3C2440_DSC0_DATA1_MASK (3<<2)
 
+/* D0..D7 */
 #define S3C2440_DSC0_DATA0      (S3C2440_SELECT_DSC0 | 0)
 #define S3C2440_DSC0_DATA0_12mA (0<<0)
 #define S3C2440_DSC0_DATA0_10mA (1<<0)
@@ -123,6 +127,7 @@
 #define S3C2440_DSC1_SCKE_4mA   (3<<24)
 #define S3C2440_DSC1_SCKE_MASK  (3<<24)
 
+/* SDRAM nRAS/nCAS */
 #define S3C2440_DSC1_SDR        (S3C2440_SELECT_DSC1 | 22)
 #define S3C2440_DSC1_SDR_10mA   (0<<22)
 #define S3C2440_DSC1_SDR_8mA    (1<<22)
@@ -130,6 +135,7 @@
 #define S3C2440_DSC1_SDR_4mA    (3<<22)
 #define S3C2440_DSC1_SDR_MASK   (3<<22)
 
+/* NAND Flash Controller */
 #define S3C2440_DSC1_NFC        (S3C2440_SELECT_DSC1 | 20)
 #define S3C2440_DSC1_NFC_10mA   (0<<20)
 #define S3C2440_DSC1_NFC_8mA    (1<<20)
@@ -137,6 +143,7 @@
 #define S3C2440_DSC1_NFC_4mA    (3<<20)
 #define S3C2440_DSC1_NFC_MASK   (3<<20)
 
+/* nBE[0..3] */
 #define S3C2440_DSC1_nBE        (S3C2440_SELECT_DSC1 | 18)
 #define S3C2440_DSC1_nBE_10mA   (0<<18)
 #define S3C2440_DSC1_nBE_8mA    (1<<18)
@@ -207,7 +214,7 @@
 #define S3C2440_DSC1_CS0_4mA    (3<<0)
 #define S3C2440_DSC1_CS0_MASK   (3<<0)
 
-#endif 
+#endif /* CONFIG_CPU_S3C2440 */
 
-#endif	
+#endif	/* __ASM_ARCH_REGS_DSC_H */
 

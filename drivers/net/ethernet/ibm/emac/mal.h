@@ -24,7 +24,21 @@
 #ifndef __IBM_NEWEMAC_MAL_H
 #define __IBM_NEWEMAC_MAL_H
 
+/*
+ * There are some variations on the MAL, we express them in this driver as
+ * MAL Version 1 and 2 though that doesn't match any IBM terminology.
+ *
+ * We call MAL 1 the version in 405GP, 405GPR, 405EP, 440EP, 440GR and
+ * NP405H.
+ *
+ * We call MAL 2 the version in 440GP, 440GX, 440SP, 440SPE and Axon
+ *
+ * The driver expects a "version" property in the emac node containing
+ * a number 1 or 2. New device-trees for EMAC capable platforms are thus
+ * required to include that when porting to arch/powerpc.
+ */
 
+/* MALx DCR registers */
 #define	MAL_CFG			0x00
 #define	  MAL_CFG_SR		0x80000000
 #define   MAL_CFG_PLBB		0x00004000
@@ -33,6 +47,7 @@
 #define   MAL_CFG_LEA		0x00000002
 #define   MAL_CFG_SD		0x00000001
 
+/* MAL V1 CFG bits */
 #define   MAL1_CFG_PLBP_MASK	0x00c00000
 #define   MAL1_CFG_PLBP_10	0x00800000
 #define   MAL1_CFG_GA		0x00200000
@@ -41,6 +56,7 @@
 #define   MAL1_CFG_PLBT_MASK	0x00078000
 #define   MAL1_CFG_DEFAULT	(MAL1_CFG_PLBP_10 | MAL1_CFG_PLBT_MASK)
 
+/* MAL V2 CFG bits */
 #define   MAL2_CFG_RPP_MASK	0x00c00000
 #define   MAL2_CFG_RPP_10	0x00800000
 #define   MAL2_CFG_RMBS_MASK	0x00300000
@@ -65,9 +81,11 @@
 #define   MAL_ESR_OSEI		0x00000002
 #define   MAL_ESR_PBEI		0x00000001
 
+/* MAL V1 ESR bits */
 #define   MAL1_ESR_ONE		0x00080000
 #define   MAL1_ESR_ONEI		0x00000008
 
+/* MAL V2 ESR bits */
 #define   MAL2_ESR_PTE		0x00800000
 #define   MAL2_ESR_PRE		0x00400000
 #define   MAL2_ESR_PWE		0x00200000
@@ -81,11 +99,13 @@
 #define   MAL_IER_OTE		0x00000004
 #define   MAL_IER_OE		0x00000002
 #define   MAL_IER_PE		0x00000001
+/* MAL V1 IER bits */
 #define   MAL1_IER_NWE		0x00000008
 #define   MAL1_IER_SOC_EVENTS	MAL1_IER_NWE
 #define   MAL1_IER_EVENTS	(MAL1_IER_SOC_EVENTS | MAL_IER_DE | \
 				 MAL_IER_OTE | MAL_IER_OE | MAL_IER_PE)
 
+/* MAL V2 IER bits */
 #define   MAL2_IER_PT		0x00000080
 #define   MAL2_IER_PRE		0x00000040
 #define   MAL2_IER_PWE		0x00000020
@@ -106,6 +126,9 @@
 #define MAL_RXCTPR(n)		((n) + 0x40)
 #define MAL_RCBS(n)		((n) + 0x60)
 
+/* In reality MAL can handle TX buffers up to 4095 bytes long,
+ * but this isn't a good round number :) 		 --ebs
+ */
 #define MAL_MAX_TX_SIZE		4080
 #define MAL_MAX_RX_SIZE		4080
 
@@ -122,12 +145,15 @@ static inline int mal_tx_chunks(int len)
 
 #define MAL_CHAN_MASK(n)	(0x80000000 >> (n))
 
+/* MAL Buffer Descriptor structure */
 struct mal_descriptor {
-	u16 ctrl;		
-	u16 data_len;		
-	u32 data_ptr;		
+	u16 ctrl;		/* MAL / Commac status control bits */
+	u16 data_len;		/* Max length is 4K-1 (12 bits)     */
+	u32 data_ptr;		/* pointer to actual data buffer    */
 };
 
+/* the following defines are for the MadMAL status and control registers. */
+/* MADMAL transmit and receive status/control bits  */
 #define MAL_RX_CTRL_EMPTY	0x8000
 #define MAL_RX_CTRL_WRAP	0x4000
 #define MAL_RX_CTRL_CM		0x2000
@@ -166,13 +192,13 @@ struct mal_instance {
 	int			version;
 	dcr_host_t		dcr_host;
 
-	int			num_tx_chans;	
-	int			num_rx_chans;	
-	int 			txeob_irq;	
-	int 			rxeob_irq;	
-	int			txde_irq;	
-	int			rxde_irq;	
-	int			serr_irq;	
+	int			num_tx_chans;	/* Number of TX channels */
+	int			num_rx_chans;	/* Number of RX channels */
+	int 			txeob_irq;	/* TX End Of Buffer IRQ  */
+	int 			rxeob_irq;	/* RX End Of Buffer IRQ  */
+	int			txde_irq;	/* TX Descriptor Error IRQ */
+	int			rxde_irq;	/* RX Descriptor Error IRQ */
+	int			serr_irq;	/* MAL System Error IRQ    */
 
 	struct list_head	poll_list;
 	struct napi_struct	napi;
@@ -203,9 +229,16 @@ static inline void set_mal_dcrn(struct mal_instance *mal, int reg, u32 val)
 	dcr_write(mal->dcr_host, reg, val);
 }
 
+/* Features of various MAL implementations */
 
+/* Set if you have interrupt coalescing and you have to clear the SDR
+ * register for TXEOB and RXEOB interrupts to work
+ */
 #define MAL_FTR_CLEAR_ICINTSTAT	0x00000001
 
+/* Set if your MAL has SERR, TXDE, and RXDE OR'd into a single UIC
+ * interrupt
+ */
 #define MAL_FTR_COMMON_ERR_INT	0x00000002
 
 enum {
@@ -228,6 +261,7 @@ static inline int mal_has_feature(struct mal_instance *dev,
 		(MAL_FTRS_POSSIBLE & dev->features & feature);
 }
 
+/* Register MAL devices */
 int mal_init(void);
 void mal_exit(void);
 
@@ -237,6 +271,9 @@ void mal_unregister_commac(struct mal_instance *mal,
 			   struct mal_commac *commac);
 int mal_set_rcbs(struct mal_instance *mal, int channel, unsigned long size);
 
+/* Returns BD ring offset for a particular channel
+   (in 'struct mal_descriptor' elements)
+*/
 int mal_tx_bd_offset(struct mal_instance *mal, int channel);
 int mal_rx_bd_offset(struct mal_instance *mal, int channel);
 
@@ -248,9 +285,11 @@ void mal_disable_rx_channel(struct mal_instance *mal, int channel);
 void mal_poll_disable(struct mal_instance *mal, struct mal_commac *commac);
 void mal_poll_enable(struct mal_instance *mal, struct mal_commac *commac);
 
+/* Add/remove EMAC to/from MAL polling list */
 void mal_poll_add(struct mal_instance *mal, struct mal_commac *commac);
 void mal_poll_del(struct mal_instance *mal, struct mal_commac *commac);
 
+/* Ethtool MAL registers */
 struct mal_regs {
 	u32 tx_count;
 	u32 rx_count;
@@ -274,4 +313,4 @@ struct mal_regs {
 int mal_get_regs_len(struct mal_instance *mal);
 void *mal_dump_regs(struct mal_instance *mal, void *buf);
 
-#endif 
+#endif /* __IBM_NEWEMAC_MAL_H */

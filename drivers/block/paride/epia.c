@@ -10,6 +10,12 @@
 
 */
 
+/* Changes:
+
+        1.01    GRG 1998.05.06 init_proto, release_proto
+	1.02    GRG 1998.06.17 support older versions of EPIA
+
+*/
 
 #define EPIA_VERSION      "1.02"
 
@@ -23,10 +29,20 @@
 
 #include "paride.h"
 
+/* mode codes:  0  nybble reads on port 1, 8-bit writes
+                1  5/3 reads on ports 1 & 2, 8-bit writes
+                2  8-bit reads and writes
+                3  8-bit EPP mode
+		4  16-bit EPP
+		5  32-bit EPP
+*/
 
 #define j44(a,b)                (((a>>4)&0x0f)+(b&0xf0))
 #define j53(a,b)                (((a>>3)&0x1f)+((b<<4)&0xe0))
 
+/* cont =  0   IDE register file
+   cont =  1   IDE control registers
+*/
 
 static int cont_map[2] = { 0, 0x80 };
 
@@ -88,6 +104,11 @@ static void epia_write_regr( PIA *pi, int cont, int regr, int val)
 #define WR(r,v)         epia_write_regr(pi,0,r,v)
 #define RR(r)           (epia_read_regr(pi,0,r))
 
+/* The use of register 0x84 is entirely unclear - it seems to control
+   some EPP counters ...  currently we know about 3 different block
+   sizes:  the standard 512 byte reads and writes, 12 byte writes and 
+   2048 byte reads (the last two being used in the CDrom drivers.
+*/
 
 static void epia_connect ( PIA *pi  )
 
@@ -105,7 +126,7 @@ static void epia_connect ( PIA *pi  )
 
 static void epia_disconnect ( PIA *pi )
 
-{       
+{       /* WR(0x84,0x10); */
         w0(pi->saved_r0);
         w2(1); w2(4);
         w0(pi->saved_r0);

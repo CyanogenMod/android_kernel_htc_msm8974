@@ -1530,4 +1530,4 @@
 
 #define RADIO_2057_VCM_MASK			 0x7
 
-#endif				
+#endif				/* _BRCM_PHY_RADIO_H_ */

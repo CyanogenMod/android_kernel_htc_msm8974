@@ -1,3 +1,4 @@
+/* eCos HAL interface header */
 
 #ifndef SH_BIOS_H
 #define SH_BIOS_H
@@ -7,6 +8,8 @@
 #define QUERY_CURRENT -1
 #define MANGLER       -3
 
+/* Checking for GDB stub active */
+/* suggestion Jonathan Larmour */
 static int sh_bios_in_gdb_mode(void)
 {
 	static int gdb_active = -1;

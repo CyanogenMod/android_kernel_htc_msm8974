@@ -83,25 +83,37 @@ do {								\
 	}							\
 } while (0)
 
-#else 
+#else /* (defined DEBUG) */
 #define	WL_INFO(fmt, args...)
 #define	WL_TRACE(fmt, args...)
 #define	WL_SCAN(fmt, args...)
 #define	WL_CONN(fmt, args...)
-#endif 
+#endif /* (defined DEBUG) */
 
 #define WL_NUM_SCAN_MAX		1
-#define WL_NUM_PMKIDS_MAX	MAXPMKID	
+#define WL_NUM_PMKIDS_MAX	MAXPMKID	/* will be used
+						 * for 2.6.33 kernel
+						 * or later
+						 */
 #define WL_SCAN_BUF_MAX			(1024 * 8)
 #define WL_TLV_INFO_MAX			1024
 #define WL_BSS_INFO_MAX			2048
-#define WL_ASSOC_INFO_MAX	512	
+#define WL_ASSOC_INFO_MAX	512	/*
+				 * needs to grab assoc info from dongle to
+				 * report it to cfg80211 through "connect"
+				 * event
+				 */
 #define WL_DCMD_LEN_MAX	1024
 #define WL_EXTRA_BUF_MAX	2048
-#define WL_ISCAN_BUF_MAX	2048	
+#define WL_ISCAN_BUF_MAX	2048	/*
+				 * the buf length can be BRCMF_DCMD_MAXLEN
+				 * to reduce iteration
+				 */
 #define WL_ISCAN_TIMER_INTERVAL_MS	3000
 #define WL_SCAN_ERSULTS_LAST	(BRCMF_SCAN_RESULTS_NO_MEM+1)
-#define WL_AP_MAX	256	
+#define WL_AP_MAX	256	/* virtually unlimitted as long
+				 * as kernel memory allows
+				 */
 
 #define WL_ROAM_TRIGGER_LEVEL		-75
 #define WL_ROAM_DELTA			20
@@ -111,6 +123,7 @@ do {								\
 #define WL_SCAN_UNASSOC_TIME		40
 #define WL_SCAN_PASSIVE_TIME		120
 
+/* dongle status */
 enum wl_status {
 	WL_STATUS_READY,
 	WL_STATUS_SCANNING,
@@ -119,12 +132,14 @@ enum wl_status {
 	WL_STATUS_CONNECTED
 };
 
+/* wi-fi mode */
 enum wl_mode {
 	WL_MODE_BSS,
 	WL_MODE_IBSS,
 	WL_MODE_AP
 };
 
+/* dongle profile list */
 enum wl_prof_list {
 	WL_PROF_MODE,
 	WL_PROF_SSID,
@@ -137,13 +152,15 @@ enum wl_prof_list {
 	WL_PROF_DTIMPERIOD
 };
 
+/* dongle iscan state */
 enum wl_iscan_state {
 	WL_ISCAN_STATE_IDLE,
 	WL_ISCAN_STATE_SCANING
 };
 
+/* dongle configuration */
 struct brcmf_cfg80211_conf {
-	u32 mode;		
+	u32 mode;		/* adhoc , infrastructure or ap */
 	u32 frag_threshold;
 	u32 rts_threshold;
 	u32 retry_short;
@@ -152,6 +169,7 @@ struct brcmf_cfg80211_conf {
 	struct ieee80211_channel channel;
 };
 
+/* cfg80211 main event loop */
 struct brcmf_cfg80211_event_loop {
 	s32(*handler[BRCMF_E_LAST]) (struct brcmf_cfg80211_priv *cfg_priv,
 				     struct net_device *ndev,
@@ -159,23 +177,27 @@ struct brcmf_cfg80211_event_loop {
 				     void *data);
 };
 
+/* representing interface of cfg80211 plane */
 struct brcmf_cfg80211_iface {
 	struct brcmf_cfg80211_priv *cfg_priv;
 };
 
 struct brcmf_cfg80211_dev {
-	void *driver_data;	
+	void *driver_data;	/* to store cfg80211 object information */
 };
 
+/* basic structure of scan request */
 struct brcmf_cfg80211_scan_req {
 	struct brcmf_ssid_le ssid_le;
 };
 
+/* basic structure of information element */
 struct brcmf_cfg80211_ie {
 	u16 offset;
 	u8 buf[WL_TLV_INFO_MAX];
 };
 
+/* event queue for cfg80211 main event */
 struct brcmf_cfg80211_event_q {
 	struct list_head evt_q_list;
 	u32 etype;
@@ -183,6 +205,7 @@ struct brcmf_cfg80211_event_q {
 	s8 edata[1];
 };
 
+/* security information with currently associated ap */
 struct brcmf_cfg80211_security {
 	u32 wpa_versions;
 	u32 auth_type;
@@ -191,14 +214,16 @@ struct brcmf_cfg80211_security {
 	u32 wpa_auth;
 };
 
+/* ibss information for currently joined ibss network */
 struct brcmf_cfg80211_ibss {
-	u8 beacon_interval;	
-	u8 atim;		
+	u8 beacon_interval;	/* in millisecond */
+	u8 atim;		/* in millisecond */
 	s8 join_only;
 	u8 band;
 	u8 channel;
 };
 
+/* dongle profile */
 struct brcmf_cfg80211_profile {
 	u32 mode;
 	struct brcmf_ssid ssid;
@@ -210,11 +235,13 @@ struct brcmf_cfg80211_profile {
 	s32 band;
 };
 
+/* dongle iscan event loop */
 struct brcmf_cfg80211_iscan_eloop {
 	s32 (*handler[WL_SCAN_ERSULTS_LAST])
 		(struct brcmf_cfg80211_priv *cfg_priv);
 };
 
+/* dongle iscan controller */
 struct brcmf_cfg80211_iscan_ctrl {
 	struct net_device *ndev;
 	struct timer_list timer;
@@ -228,6 +255,7 @@ struct brcmf_cfg80211_iscan_ctrl {
 	s8 scan_buf[WL_ISCAN_BUF_MAX];
 };
 
+/* association inform */
 struct brcmf_cfg80211_connect_info {
 	u8 *req_ie;
 	s32 req_ie_len;
@@ -235,48 +263,57 @@ struct brcmf_cfg80211_connect_info {
 	s32 resp_ie_len;
 };
 
+/* assoc ie length */
 struct brcmf_cfg80211_assoc_ielen_le {
 	__le32 req_len;
 	__le32 resp_len;
 };
 
+/* wpa2 pmk list */
 struct brcmf_cfg80211_pmk_list {
 	struct pmkid_list pmkids;
 	struct pmkid foo[MAXPMKID - 1];
 };
 
+/* dongle private data of cfg80211 interface */
 struct brcmf_cfg80211_priv {
-	struct wireless_dev *wdev;	
-	struct brcmf_cfg80211_conf *conf;	
-	struct cfg80211_scan_request *scan_request;	
-	struct brcmf_cfg80211_event_loop el;	
-	struct list_head evt_q_list;	
-	spinlock_t	 evt_q_lock;	
-	struct mutex usr_sync;	
-	struct brcmf_scan_results *bss_list;	
+	struct wireless_dev *wdev;	/* representing wl cfg80211 device */
+	struct brcmf_cfg80211_conf *conf;	/* dongle configuration */
+	struct cfg80211_scan_request *scan_request;	/* scan request
+							 object */
+	struct brcmf_cfg80211_event_loop el;	/* main event loop */
+	struct list_head evt_q_list;	/* used for event queue */
+	spinlock_t	 evt_q_lock;	/* for event queue synchronization */
+	struct mutex usr_sync;	/* maily for dongle up/down synchronization */
+	struct brcmf_scan_results *bss_list;	/* bss_list holding scanned
+						 ap information */
 	struct brcmf_scan_results *scan_results;
-	struct brcmf_cfg80211_scan_req *scan_req_int;	
-	struct wl_cfg80211_bss_info *bss_info;	
-	struct brcmf_cfg80211_ie ie;	
-	struct brcmf_cfg80211_profile *profile;	
-	struct brcmf_cfg80211_iscan_ctrl *iscan;	
-	struct brcmf_cfg80211_connect_info conn_info; 
-	struct brcmf_cfg80211_pmk_list *pmk_list;	
-	struct work_struct event_work;	
-	unsigned long status;		
+	struct brcmf_cfg80211_scan_req *scan_req_int;	/* scan request object
+						 for internal purpose */
+	struct wl_cfg80211_bss_info *bss_info;	/* bss information for
+						 cfg80211 layer */
+	struct brcmf_cfg80211_ie ie;	/* information element object for
+					 internal purpose */
+	struct brcmf_cfg80211_profile *profile;	/* holding dongle profile */
+	struct brcmf_cfg80211_iscan_ctrl *iscan;	/* iscan controller */
+	struct brcmf_cfg80211_connect_info conn_info; /* association info */
+	struct brcmf_cfg80211_pmk_list *pmk_list;	/* wpa2 pmk list */
+	struct work_struct event_work;	/* event handler work struct */
+	unsigned long status;		/* current dongle status */
 	void *pub;
-	u32 channel;		
-	bool iscan_on;		
-	bool iscan_kickstart;	
-	bool active_scan;	
-	bool ibss_starter;	
-	bool link_up;		
-	bool pwr_save;		
-	bool dongle_up;		
-	bool roam_on;		
-	bool scan_tried;	
-	u8 *dcmd_buf;		
-	u8 *extra_buf;		
+	u32 channel;		/* current channel */
+	bool iscan_on;		/* iscan on/off switch */
+	bool iscan_kickstart;	/* indicate iscan already started */
+	bool active_scan;	/* current scan mode */
+	bool ibss_starter;	/* indicates this sta is ibss starter */
+	bool link_up;		/* link/connection up flag */
+	bool pwr_save;		/* indicate whether dongle to support
+					 power save mode */
+	bool dongle_up;		/* indicate whether dongle up or not */
+	bool roam_on;		/* on/off switch for dongle self-roaming */
+	bool scan_tried;	/* indicates if first scan attempted */
+	u8 *dcmd_buf;		/* dcmd buffer */
+	u8 *extra_buf;		/* maily to grab assoc information */
 	struct dentry *debugfsdir;
 	u8 ci[0] __aligned(NETDEV_ALIGN);
 };
@@ -320,9 +357,10 @@ extern struct brcmf_cfg80211_dev *brcmf_cfg80211_attach(struct net_device *ndev,
 							void *data);
 extern void brcmf_cfg80211_detach(struct brcmf_cfg80211_dev *cfg);
 
+/* event handler from dongle */
 extern void brcmf_cfg80211_event(struct net_device *ndev,
 				 const struct brcmf_event_msg *e, void *data);
 extern s32 brcmf_cfg80211_up(struct brcmf_cfg80211_dev *cfg_dev);
 extern s32 brcmf_cfg80211_down(struct brcmf_cfg80211_dev *cfg_dev);
 
-#endif				
+#endif				/* _wl_cfg80211_h_ */

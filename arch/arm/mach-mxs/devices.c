@@ -35,10 +35,16 @@ struct platform_device *__init mxs_add_platform_device_dmamask(
 		goto err;
 
 	if (dmamask) {
+		/*
+		 * This memory isn't freed when the device is put,
+		 * I don't have a nice idea for that though.  Conceptually
+		 * dma_mask in struct device should not be a pointer.
+		 * See http://thread.gmane.org/gmane.linux.kernel.pci/9081
+		 */
 		pdev->dev.dma_mask =
 			kmalloc(sizeof(*pdev->dev.dma_mask), GFP_KERNEL);
 		if (!pdev->dev.dma_mask)
-			
+			/* ret is still -ENOMEM; */
 			goto err;
 
 		*pdev->dev.dma_mask = dmamask;

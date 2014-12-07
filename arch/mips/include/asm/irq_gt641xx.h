@@ -57,4 +57,4 @@
 extern void gt641xx_irq_dispatch(void);
 extern void gt641xx_irq_init(void);
 
-#endif 
+#endif /* _ASM_IRQ_GT641XX_H */

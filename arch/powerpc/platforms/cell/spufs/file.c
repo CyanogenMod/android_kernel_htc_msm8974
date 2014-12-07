@@ -42,14 +42,15 @@
 
 #define SPUFS_MMAP_4K (PAGE_SIZE == 0x1000)
 
+/* Simple attribute files */
 struct spufs_attr {
 	int (*get)(void *, u64 *);
 	int (*set)(void *, u64);
-	char get_buf[24];       
+	char get_buf[24];       /* enough to store a u64 and "\n\0" */
 	char set_buf[24];
 	void *data;
-	const char *fmt;        
-	struct mutex mutex;     
+	const char *fmt;        /* format for read operation */
+	struct mutex mutex;     /* protects access to these buffers */
 };
 
 static int spufs_attr_open(struct inode *inode, struct file *file,
@@ -93,9 +94,9 @@ static ssize_t spufs_attr_read(struct file *file, char __user *buf,
 	if (ret)
 		return ret;
 
-	if (*ppos) {		
+	if (*ppos) {		/* continued read */
 		size = strlen(attr->get_buf);
-	} else {		
+	} else {		/* first read */
 		u64 val;
 		ret = attr->get(attr->data, &val);
 		if (ret)
@@ -132,7 +133,7 @@ static ssize_t spufs_attr_write(struct file *file, const char __user *buf,
 	if (copy_from_user(attr->set_buf, buf, size))
 		goto out;
 
-	ret = len; 
+	ret = len; /* claim we got the whole input */
 	attr->set_buf[size] = '\0';
 	val = simple_strtol(attr->set_buf, NULL, 0);
 	attr->set(attr->data, val);
@@ -243,18 +244,18 @@ spufs_mem_mmap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	struct spu_state *csa = &ctx->csa;
 	int psize;
 
-	
+	/* Check what page size we are using */
 	psize = get_slice_psize(vma->vm_mm, address);
 
-	
+	/* Some sanity checking */
 	BUG_ON(csa->use_big_pages != (psize == MMU_PAGE_64K));
 
-	
+	/* Wow, 64K, cool, we need to align the address though */
 	if (csa->use_big_pages) {
 		BUG_ON(vma->vm_start & 0xffff);
 		address &= ~0xfffful;
 	}
-#endif 
+#endif /* CONFIG_SPU_FS_64K_LS */
 
 	offset = vmf->pgoff << PAGE_SHIFT;
 	if (offset >= LS_SIZE)
@@ -314,7 +315,7 @@ static int spufs_mem_mmap(struct file *file, struct vm_area_struct *vma)
 	struct spu_context	*ctx = file->private_data;
 	struct spu_state	*csa = &ctx->csa;
 
-	
+	/* Sanity check VMA alignment */
 	if (csa->use_big_pages) {
 		pr_debug("spufs_mem_mmap 64K, start=0x%lx, end=0x%lx,"
 			 " pgoff=0x%lx\n", vma->vm_start, vma->vm_end,
@@ -324,7 +325,7 @@ static int spufs_mem_mmap(struct file *file, struct vm_area_struct *vma)
 		if (vma->vm_pgoff & 0xf)
 			return -EINVAL;
 	}
-#endif 
+#endif /* CONFIG_SPU_FS_64K_LS */
 
 	if (!(vma->vm_flags & VM_SHARED))
 		return -EINVAL;
@@ -344,16 +345,16 @@ static unsigned long spufs_get_unmapped_area(struct file *file,
 	struct spu_context	*ctx = file->private_data;
 	struct spu_state	*csa = &ctx->csa;
 
-	
+	/* If not using big pages, fallback to normal MM g_u_a */
 	if (!csa->use_big_pages)
 		return current->mm->get_unmapped_area(file, addr, len,
 						      pgoff, flags);
 
-	
+	/* Else, try to obtain a 64K pages slice */
 	return slice_get_unmapped_area(addr, len, flags,
 				       MMU_PAGE_64K, 1, 0);
 }
-#endif 
+#endif /* CONFIG_SPU_FS_64K_LS */
 
 static const struct file_operations spufs_mem_fops = {
 	.open			= spufs_mem_open,
@@ -384,8 +385,21 @@ static int spufs_ps_fault(struct vm_area_struct *vma,
 	if (fatal_signal_pending(current))
 		return VM_FAULT_SIGBUS;
 
+	/*
+	 * Because we release the mmap_sem, the context may be destroyed while
+	 * we're in spu_wait. Grab an extra reference so it isn't destroyed
+	 * in the meantime.
+	 */
 	get_spu_context(ctx);
 
+	/*
+	 * We have to wait for context to be loaded before we have
+	 * pages to hand out to the user, but we don't want to wait
+	 * with the mmap_sem held.
+	 * It is possible to drop the mmap_sem here, but then we need
+	 * to return VM_FAULT_NOPAGE because the mappings may have
+	 * hanged.
+	 */
 	if (spu_acquire(ctx))
 		goto refault;
 
@@ -421,6 +435,9 @@ static const struct vm_operations_struct spufs_cntl_mmap_vmops = {
 	.fault = spufs_cntl_mmap_fault,
 };
 
+/*
+ * mmap support for problem state control area [0x4000 - 0x4fff].
+ */
 static int spufs_cntl_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	if (!(vma->vm_flags & VM_SHARED))
@@ -432,9 +449,9 @@ static int spufs_cntl_mmap(struct file *file, struct vm_area_struct *vma)
 	vma->vm_ops = &spufs_cntl_mmap_vmops;
 	return 0;
 }
-#else 
+#else /* SPUFS_MMAP_4K */
 #define spufs_cntl_mmap NULL
-#endif 
+#endif /* !SPUFS_MMAP_4K */
 
 static int spufs_cntl_get(void *data, u64 *val)
 {
@@ -526,6 +543,8 @@ spufs_regs_read(struct file *file, char __user *buffer,
 	int ret;
 	struct spu_context *ctx = file->private_data;
 
+	/* pre-check for file position: if we'd return EOF, there's no point
+	 * causing a deschedule */
 	if (*pos >= sizeof(ctx->csa.lscsa->gprs))
 		return 0;
 
@@ -619,6 +638,7 @@ static const struct file_operations spufs_fpcr_fops = {
 	.llseek = generic_file_llseek,
 };
 
+/* generic open function for all pipe-like files */
 static int spufs_pipe_open(struct inode *inode, struct file *file)
 {
 	struct spufs_inode_info *i = SPUFS_I(inode);
@@ -627,6 +647,14 @@ static int spufs_pipe_open(struct inode *inode, struct file *file)
 	return nonseekable_open(inode, file);
 }
 
+/*
+ * Read as many bytes from the mailbox as possible, until
+ * one of the conditions becomes true:
+ *
+ * - no more data available in the mailbox
+ * - end of the user provided buffer
+ * - end of the mapped area
+ */
 static ssize_t spufs_mbox_read(struct file *file, char __user *buf,
 			size_t len, loff_t *pos)
 {
@@ -652,6 +680,11 @@ static ssize_t spufs_mbox_read(struct file *file, char __user *buf,
 		if (ret == 0)
 			break;
 
+		/*
+		 * at the end of the mapped area, we can fault
+		 * but still need to return the data we have
+		 * read successfully so far.
+		 */
 		ret = __put_user(mbox_data, udata);
 		if (ret) {
 			if (!count)
@@ -703,6 +736,7 @@ static const struct file_operations spufs_mbox_stat_fops = {
 	.llseek = no_llseek,
 };
 
+/* low-level ibox access function */
 size_t spu_ibox_read(struct spu_context *ctx, u32 *data)
 {
 	return ctx->ops->ibox_read(ctx, data);
@@ -715,6 +749,7 @@ static int spufs_ibox_fasync(int fd, struct file *file, int on)
 	return fasync_helper(fd, file, on, &ctx->ibox_fasync);
 }
 
+/* interrupt-level ibox callback function. */
 void spufs_ibox_callback(struct spu *spu)
 {
 	struct spu_context *ctx = spu->ctx;
@@ -726,6 +761,18 @@ void spufs_ibox_callback(struct spu *spu)
 	kill_fasync(&ctx->ibox_fasync, SIGIO, POLLIN);
 }
 
+/*
+ * Read as many bytes from the interrupt mailbox as possible, until
+ * one of the conditions becomes true:
+ *
+ * - no more data available in the mailbox
+ * - end of the user provided buffer
+ * - end of the mapped area
+ *
+ * If the file is opened without O_NONBLOCK, we wait here until
+ * any data is available, but return when we have been able to
+ * read something.
+ */
 static ssize_t spufs_ibox_read(struct file *file, char __user *buf,
 			size_t len, loff_t *pos)
 {
@@ -745,7 +792,7 @@ static ssize_t spufs_ibox_read(struct file *file, char __user *buf,
 	if (count)
 		goto out;
 
-	
+	/* wait only for the first element */
 	count = 0;
 	if (file->f_flags & O_NONBLOCK) {
 		if (!spu_ibox_read(ctx, &ibox_data)) {
@@ -758,7 +805,7 @@ static ssize_t spufs_ibox_read(struct file *file, char __user *buf,
 			goto out;
 	}
 
-	
+	/* if we can't write at all, return -EFAULT */
 	count = __put_user(ibox_data, udata);
 	if (count)
 		goto out_unlock;
@@ -768,6 +815,11 @@ static ssize_t spufs_ibox_read(struct file *file, char __user *buf,
 		ret = ctx->ops->ibox_read(ctx, &ibox_data);
 		if (ret == 0)
 			break;
+		/*
+		 * at the end of the mapped area, we can fault
+		 * but still need to return the data we have
+		 * read successfully so far.
+		 */
 		ret = __put_user(ibox_data, udata);
 		if (ret)
 			break;
@@ -786,6 +838,10 @@ static unsigned int spufs_ibox_poll(struct file *file, poll_table *wait)
 
 	poll_wait(file, &ctx->ibox_wq, wait);
 
+	/*
+	 * For now keep this uninterruptible and also ignore the rule
+	 * that poll should not sleep.  Will be fixed later.
+	 */
 	mutex_lock(&ctx->state_mutex);
 	mask = ctx->ops->mbox_stat_poll(ctx, POLLIN | POLLRDNORM);
 	spu_release(ctx);
@@ -829,6 +885,7 @@ static const struct file_operations spufs_ibox_stat_fops = {
 	.llseek = no_llseek,
 };
 
+/* low-level mailbox write */
 size_t spu_wbox_write(struct spu_context *ctx, u32 data)
 {
 	return ctx->ops->wbox_write(ctx, data);
@@ -844,6 +901,7 @@ static int spufs_wbox_fasync(int fd, struct file *file, int on)
 	return ret;
 }
 
+/* interrupt-level wbox callback function. */
 void spufs_wbox_callback(struct spu *spu)
 {
 	struct spu_context *ctx = spu->ctx;
@@ -855,6 +913,18 @@ void spufs_wbox_callback(struct spu *spu)
 	kill_fasync(&ctx->wbox_fasync, SIGIO, POLLOUT);
 }
 
+/*
+ * Write as many bytes to the interrupt mailbox as possible, until
+ * one of the conditions becomes true:
+ *
+ * - the mailbox is full
+ * - end of the user provided buffer
+ * - end of the mapped area
+ *
+ * If the file is opened without O_NONBLOCK, we wait here until
+ * space is availabyl, but return when we have been able to
+ * write something.
+ */
 static ssize_t spufs_wbox_write(struct file *file, const char __user *buf,
 			size_t len, loff_t *pos)
 {
@@ -876,6 +946,10 @@ static ssize_t spufs_wbox_write(struct file *file, const char __user *buf,
 	if (count)
 		goto out;
 
+	/*
+	 * make sure we can at least write one element, by waiting
+	 * in case of !O_NONBLOCK
+	 */
 	count = 0;
 	if (file->f_flags & O_NONBLOCK) {
 		if (!spu_wbox_write(ctx, wbox_data)) {
@@ -889,7 +963,7 @@ static ssize_t spufs_wbox_write(struct file *file, const char __user *buf,
 	}
 
 
-	
+	/* write as much as possible */
 	for (count = 4, udata++; (count + 4) <= len; count += 4, udata++) {
 		int ret;
 		ret = __get_user(wbox_data, udata);
@@ -914,6 +988,10 @@ static unsigned int spufs_wbox_poll(struct file *file, poll_table *wait)
 
 	poll_wait(file, &ctx->wbox_wq, wait);
 
+	/*
+	 * For now keep this uninterruptible and also ignore the rule
+	 * that poll should not sleep.  Will be fixed later.
+	 */
 	mutex_lock(&ctx->state_mutex);
 	mask = ctx->ops->mbox_stat_poll(ctx, POLLOUT | POLLWRNORM);
 	spu_release(ctx);
@@ -1052,6 +1130,9 @@ spufs_signal1_mmap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 #if SPUFS_SIGNAL_MAP_SIZE == 0x1000
 	return spufs_ps_fault(vma, vmf, 0x14000, SPUFS_SIGNAL_MAP_SIZE);
 #elif SPUFS_SIGNAL_MAP_SIZE == 0x10000
+	/* For 64k pages, both signal1 and signal2 can be used to mmap the whole
+	 * signal 1 and 2 area
+	 */
 	return spufs_ps_fault(vma, vmf, 0x10000, SPUFS_SIGNAL_MAP_SIZE);
 #else
 #error unsupported page size
@@ -1187,6 +1268,9 @@ spufs_signal2_mmap_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 #if SPUFS_SIGNAL_MAP_SIZE == 0x1000
 	return spufs_ps_fault(vma, vmf, 0x1c000, SPUFS_SIGNAL_MAP_SIZE);
 #elif SPUFS_SIGNAL_MAP_SIZE == 0x10000
+	/* For 64k pages, both signal1 and signal2 can be used to mmap the whole
+	 * signal 1 and 2 area
+	 */
 	return spufs_ps_fault(vma, vmf, 0x10000, SPUFS_SIGNAL_MAP_SIZE);
 #else
 #error unsupported page size
@@ -1208,9 +1292,9 @@ static int spufs_signal2_mmap(struct file *file, struct vm_area_struct *vma)
 	vma->vm_ops = &spufs_signal2_mmap_vmops;
 	return 0;
 }
-#else 
+#else /* SPUFS_MMAP_4K */
 #define spufs_signal2_mmap NULL
-#endif 
+#endif /* !SPUFS_MMAP_4K */
 
 static const struct file_operations spufs_signal2_fops = {
 	.open = spufs_signal2_open,
@@ -1229,6 +1313,11 @@ static const struct file_operations spufs_signal2_nosched_fops = {
 	.llseek = no_llseek,
 };
 
+/*
+ * This is a wrapper around DEFINE_SIMPLE_ATTRIBUTE which does the
+ * work of acquiring (or not) the SPU context before calling through
+ * to the actual get routine. The set routine is called directly.
+ */
 #define SPU_ATTR_NOACQUIRE	0
 #define SPU_ATTR_ACQUIRE	1
 #define SPU_ATTR_ACQUIRE_SAVED	2
@@ -1312,6 +1401,9 @@ static const struct vm_operations_struct spufs_mss_mmap_vmops = {
 	.fault = spufs_mss_mmap_fault,
 };
 
+/*
+ * mmap support for problem state MFC DMA area [0x0000 - 0x0fff].
+ */
 static int spufs_mss_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	if (!(vma->vm_flags & VM_SHARED))
@@ -1323,9 +1415,9 @@ static int spufs_mss_mmap(struct file *file, struct vm_area_struct *vma)
 	vma->vm_ops = &spufs_mss_mmap_vmops;
 	return 0;
 }
-#else 
+#else /* SPUFS_MMAP_4K */
 #define spufs_mss_mmap NULL
-#endif 
+#endif /* !SPUFS_MMAP_4K */
 
 static int spufs_mss_open(struct inode *inode, struct file *file)
 {
@@ -1371,6 +1463,9 @@ static const struct vm_operations_struct spufs_psmap_mmap_vmops = {
 	.fault = spufs_psmap_mmap_fault,
 };
 
+/*
+ * mmap support for full problem state area [0x00000 - 0x1ffff].
+ */
 static int spufs_psmap_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	if (!(vma->vm_flags & VM_SHARED))
@@ -1428,6 +1523,9 @@ static const struct vm_operations_struct spufs_mfc_mmap_vmops = {
 	.fault = spufs_mfc_mmap_fault,
 };
 
+/*
+ * mmap support for problem state MFC DMA area [0x0000 - 0x0fff].
+ */
 static int spufs_mfc_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	if (!(vma->vm_flags & VM_SHARED))
@@ -1439,16 +1537,16 @@ static int spufs_mfc_mmap(struct file *file, struct vm_area_struct *vma)
 	vma->vm_ops = &spufs_mfc_mmap_vmops;
 	return 0;
 }
-#else 
+#else /* SPUFS_MMAP_4K */
 #define spufs_mfc_mmap NULL
-#endif 
+#endif /* !SPUFS_MMAP_4K */
 
 static int spufs_mfc_open(struct inode *inode, struct file *file)
 {
 	struct spufs_inode_info *i = SPUFS_I(inode);
 	struct spu_context *ctx = i->i_ctx;
 
-	
+	/* we don't want to deal with DMA into other processes */
 	if (ctx->owner != current->mm)
 		return -EINVAL;
 
@@ -1476,6 +1574,7 @@ spufs_mfc_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* interrupt-level mfc callback function. */
 void spufs_mfc_callback(struct spu *spu)
 {
 	struct spu_context *ctx = spu->ctx;
@@ -1490,7 +1589,7 @@ void spufs_mfc_callback(struct spu *spu)
 		u32 free_elements, tagstatus;
 		unsigned int mask;
 
-		
+		/* no need for spu_acquire in interrupt context */
 		free_elements = ctx->ops->get_mfc_free_elements(ctx);
 		tagstatus = ctx->ops->read_mfc_tagstatus(ctx);
 
@@ -1506,13 +1605,15 @@ void spufs_mfc_callback(struct spu *spu)
 
 static int spufs_read_mfc_tagstatus(struct spu_context *ctx, u32 *status)
 {
-	
-	
+	/* See if there is one tag group is complete */
+	/* FIXME we need locking around tagwait */
 	*status = ctx->ops->read_mfc_tagstatus(ctx) & ctx->tagwait;
 	ctx->tagwait &= ~*status;
 	if (*status)
 		return 1;
 
+	/* enable interrupt waiting for any tag group,
+	   may silently fail if interrupts are already enabled */
 	ctx->ops->set_mfc_query(ctx, ctx->tagwait, 1);
 	return 0;
 }
@@ -1537,7 +1638,7 @@ static ssize_t spufs_mfc_read(struct file *file, char __user *buffer,
 		if (!(status & ctx->tagwait))
 			ret = -EAGAIN;
 		else
-			
+			/* XXX(hch): shouldn't we clear ret here? */
 			ctx->tagwait &= ~status;
 	} else {
 		ret = spufs_wait(ctx->mfc_wq,
@@ -1611,13 +1712,13 @@ static int spufs_check_valid_dma(struct mfc_dma_command *cmd)
 	}
 
 	if (cmd->tag & 0xfff0) {
-		
+		/* we reserve the higher tag numbers for kernel use */
 		pr_debug("invalid DMA tag\n");
 		return -EIO;
 	}
 
 	if (cmd->class) {
-		
+		/* not supported in this version */
 		pr_debug("invalid DMA class\n");
 		return -EIO;
 	}
@@ -1631,7 +1732,11 @@ static int spu_send_mfc_command(struct spu_context *ctx,
 {
 	*error = ctx->ops->send_mfc_command(ctx, &cmd);
 	if (*error == -EAGAIN) {
+		/* wait for any tag group to complete
+		   so we have space for the new command */
 		ctx->ops->set_mfc_query(ctx, ctx->tagwait, 1);
+		/* try again, because the queue might be
+		   empty again */
 		*error = ctx->ops->send_mfc_command(ctx, &cmd);
 		if (*error == -EAGAIN)
 			return 0;
@@ -1697,6 +1802,10 @@ static unsigned int spufs_mfc_poll(struct file *file,poll_table *wait)
 
 	poll_wait(file, &ctx->mfc_wq, wait);
 
+	/*
+	 * For now keep this uninterruptible and also ignore the rule
+	 * that poll should not sleep.  Will be fixed later.
+	 */
 	mutex_lock(&ctx->state_mutex);
 	ctx->ops->set_mfc_query(ctx, ctx->tagwait, 2);
 	free_elements = ctx->ops->get_mfc_free_elements(ctx);
@@ -1724,6 +1833,7 @@ static int spufs_mfc_flush(struct file *file, fl_owner_t id)
 	if (ret)
 		goto out;
 #if 0
+/* this currently hangs */
 	ret = spufs_wait(ctx->mfc_wq,
 			 ctx->ops->set_mfc_query(ctx, ctx->tagwait, 2));
 	if (ret)
@@ -1920,7 +2030,7 @@ DEFINE_SPUFS_ATTRIBUTE(spufs_id_ops, spufs_id_get, NULL, "0x%llx\n",
 
 static u64 spufs_object_id_get(struct spu_context *ctx)
 {
-	
+	/* FIXME: Should there really be no locking here? */
 	return ctx->object_id;
 }
 
@@ -1978,7 +2088,7 @@ static ssize_t __spufs_mbox_info_read(struct spu_context *ctx,
 {
 	u32 data;
 
-	
+	/* EOF if there's no entry in the mbox */
 	if (!(ctx->csa.prob.mb_stat_R & 0x0000ff))
 		return 0;
 
@@ -2018,7 +2128,7 @@ static ssize_t __spufs_ibox_info_read(struct spu_context *ctx,
 {
 	u32 data;
 
-	
+	/* EOF if there's no entry in the ibox */
 	if (!(ctx->csa.prob.mb_stat_R & 0xff0000))
 		return 0;
 
@@ -2232,6 +2342,15 @@ static unsigned long long spufs_acct_time(struct spu_context *ctx,
 	struct timespec ts;
 	unsigned long long time = ctx->stats.times[state];
 
+	/*
+	 * In general, utilization statistics are updated by the controlling
+	 * thread as the spu context moves through various well defined
+	 * state transitions, but if the context is lazily loaded its
+	 * utilization statistics are not updated as the controlling thread
+	 * is not tightly coupled with the execution of the spu context.  We
+	 * calculate and apply the time delta from the last recorded state
+	 * of the spu context.
+	 */
 	if (ctx->spu && ctx->stats.util_state == state) {
 		ktime_get_ts(&ts);
 		time += timespec_to_ns(&ts) - ctx->stats.tstamp;
@@ -2399,6 +2518,8 @@ static ssize_t spufs_switch_log_read(struct file *file, char __user *buf,
 
 		if (spufs_switch_log_used(ctx) == 0) {
 			if (cnt > 0) {
+				/* If there's data ready to go, we can
+				 * just return straight away */
 				break;
 
 			} else if (file->f_flags & O_NONBLOCK) {
@@ -2406,12 +2527,22 @@ static ssize_t spufs_switch_log_read(struct file *file, char __user *buf,
 				break;
 
 			} else {
+				/* spufs_wait will drop the mutex and
+				 * re-acquire, but since we're in read(), the
+				 * file cannot be _released (and so
+				 * ctx->switch_log is stable).
+				 */
 				error = spufs_wait(ctx->switch_log->wait,
 						spufs_switch_log_used(ctx) > 0);
 
+				/* On error, spufs_wait returns without the
+				 * state mutex held */
 				if (error)
 					return error;
 
+				/* We may have had entries read from underneath
+				 * us while we dropped the mutex in spufs_wait,
+				 * so re-check */
 				if (spufs_switch_log_used(ctx) == 0)
 					continue;
 			}
@@ -2423,6 +2554,8 @@ static ssize_t spufs_switch_log_read(struct file *file, char __user *buf,
 				(ctx->switch_log->tail + 1) %
 				 SWITCH_LOG_BUFSIZE;
 		else
+			/* If the record is greater than space available return
+			 * partial buffer (so far) */
 			break;
 
 		error = copy_to_user(buf + cnt, tbuf, width);
@@ -2466,6 +2599,11 @@ static const struct file_operations spufs_switch_log_fops = {
 	.llseek		= no_llseek,
 };
 
+/**
+ * Log a context switch event to a switch log reader.
+ *
+ * Must be called with ctx->state_mutex held.
+ */
 void spu_switch_log_notify(struct spu *spu, struct spu_context *ctx,
 		u32 type, u32 val)
 {

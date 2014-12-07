@@ -46,13 +46,17 @@
 
 #include "target_core_iblock.h"
 
-#define IBLOCK_MAX_BIO_PER_TASK	 32	
+#define IBLOCK_MAX_BIO_PER_TASK	 32	/* max # of bios to submit at a time */
 #define IBLOCK_BIO_POOL_SIZE	128
 
 static struct se_subsystem_api iblock_template;
 
 static void iblock_bio_done(struct bio *, int);
 
+/*	iblock_attach_hba(): (Part of se_subsystem_api_t template)
+ *
+ *
+ */
 static int iblock_attach_hba(struct se_hba *hba, u32 host_id)
 {
 	pr_debug("CORE_HBA[%d] - TCM iBlock HBA Driver %s on"
@@ -106,6 +110,10 @@ static struct se_device *iblock_create_virtdevice(
 		return ERR_PTR(-ENOMEM);
 	}
 	pr_debug("IBLOCK: Created bio_set()\n");
+	/*
+	 * iblock_check_configfs_dev_params() ensures that ib_dev->ibd_udev_path
+	 * must already have been set in order for echo 1 > $HBA/$DEV/enable to run.
+	 */
 	pr_debug( "IBLOCK: Claiming struct block_device: %s\n",
 			ib_dev->ibd_udev_path);
 
@@ -115,6 +123,10 @@ static struct se_device *iblock_create_virtdevice(
 		ret = PTR_ERR(bd);
 		goto failed;
 	}
+	/*
+	 * Setup the local scope queue_limits from struct request_queue->limits
+	 * to pass into transport_add_device_to_core_hba() as struct se_dev_limits.
+	 */
 	q = bdev_get_queue(bd);
 	limits = &dev_limits.limits;
 	limits->logical_block_size = bdev_logical_block_size(bd);
@@ -131,9 +143,17 @@ static struct se_device *iblock_create_virtdevice(
 	if (!dev)
 		goto failed;
 
+	/*
+	 * Check if the underlying struct block_device request_queue supports
+	 * the QUEUE_FLAG_DISCARD bit for UNMAP/WRITE_SAME in SCSI + TRIM
+	 * in ATA and we need to set TPE=1
+	 */
 	if (blk_queue_discard(q)) {
 		dev->se_sub_dev->se_dev_attrib.max_unmap_lba_count =
 				q->limits.max_discard_sectors;
+		/*
+		 * Currently hardcoded to 1 in Linux/SCSI code..
+		 */
 		dev->se_sub_dev->se_dev_attrib.max_unmap_block_desc_count = 1;
 		dev->se_sub_dev->se_dev_attrib.unmap_granularity =
 				q->limits.discard_granularity >> 9;
@@ -280,6 +300,10 @@ static void iblock_end_io_flush(struct bio *bio, int err)
 	bio_put(bio);
 }
 
+/*
+ * Implement SYCHRONIZE CACHE.  Note that we can't handle lba ranges and must
+ * always flush the whole cache.
+ */
 static void iblock_emulate_sync_cache(struct se_task *task)
 {
 	struct se_cmd *cmd = task->task_se_cmd;
@@ -287,6 +311,10 @@ static void iblock_emulate_sync_cache(struct se_task *task)
 	int immed = (cmd->t_task_cdb[1] & 0x2);
 	struct bio *bio;
 
+	/*
+	 * If the Immediate bit is set, queue up the GOOD response
+	 * for this SYNCHRONIZE_CACHE op.
+	 */
 	if (immed)
 		transport_complete_sync_cache(cmd, 1);
 
@@ -435,6 +463,10 @@ iblock_get_bio(struct se_task *task, sector_t lba, u32 sg_num)
 	struct iblock_req *ib_req = IBLOCK_REQ(task);
 	struct bio *bio;
 
+	/*
+	 * Only allocate as many vector entries as the bio code allows us to,
+	 * we'll loop later on until we have handled the whole request.
+	 */
 	if (sg_num > BIO_MAX_PAGES)
 		sg_num = BIO_MAX_PAGES;
 
@@ -485,6 +517,10 @@ static int iblock_do_task(struct se_task *task)
 	int rw;
 
 	if (task->task_data_direction == DMA_TO_DEVICE) {
+		/*
+		 * Force data to disk if we pretend to not have a volatile
+		 * write cache, or the initiator set the Force Unit Access bit.
+		 */
 		if (dev->se_sub_dev->se_dev_attrib.emulate_write_cache == 0 ||
 		    (dev->se_sub_dev->se_dev_attrib.emulate_fua_write > 0 &&
 		     (cmd->se_cmd_flags & SCF_FUA)))
@@ -495,6 +531,10 @@ static int iblock_do_task(struct se_task *task)
 		rw = READ;
 	}
 
+	/*
+	 * Do starting conversion up from non 512-byte blocksize with
+	 * struct se_task SCSI blocksize into Linux/Block 512 units for BIO.
+	 */
 	if (dev->se_sub_dev->se_dev_attrib.block_size == 4096)
 		block_lba = (task->task_lba << 3);
 	else if (dev->se_sub_dev->se_dev_attrib.block_size == 2048)
@@ -521,6 +561,11 @@ static int iblock_do_task(struct se_task *task)
 	bio_cnt = 1;
 
 	for_each_sg(task->task_sg, sg, task->task_sg_nents, i) {
+		/*
+		 * XXX: if the length the device accepts is shorter than the
+		 *	length of the S/G list entry this will cause and
+		 *	endless loop.  Better hope no driver uses huge pages.
+		 */
 		while (bio_add_page(bio, sg_page(sg), sg->length, sg->offset)
 				!= sg->length) {
 			if (bio_cnt >= IBLOCK_MAX_BIO_PER_TASK) {
@@ -535,7 +580,7 @@ static int iblock_do_task(struct se_task *task)
 			bio_cnt++;
 		}
 
-		
+		/* Always in 512 byte units for Linux/Block */
 		block_lba += sg->length >> IBLOCK_LBA_SHIFT;
 		sg_num--;
 	}
@@ -557,7 +602,7 @@ fail:
 
 static u32 iblock_get_device_rev(struct se_device *dev)
 {
-	return SCSI_SPC_2; 
+	return SCSI_SPC_2; /* Returns SPC-3 in Initiator Data */
 }
 
 static u32 iblock_get_device_type(struct se_device *dev)
@@ -579,12 +624,18 @@ static void iblock_bio_done(struct bio *bio, int err)
 	struct se_task *task = bio->bi_private;
 	struct iblock_req *ibr = IBLOCK_REQ(task);
 
+	/*
+	 * Set -EIO if !BIO_UPTODATE and the passed is still err=0
+	 */
 	if (!test_bit(BIO_UPTODATE, &bio->bi_flags) && !err)
 		err = -EIO;
 
 	if (err != 0) {
 		pr_err("test_bit(BIO_UPTODATE) failed for bio: %p,"
 			" err: %d\n", bio, err);
+		/*
+		 * Bump the ib_bio_err_cnt and release bio.
+		 */
 		atomic_inc(&ibr->ib_bio_err_cnt);
 		smp_mb__after_atomic_inc();
 	}

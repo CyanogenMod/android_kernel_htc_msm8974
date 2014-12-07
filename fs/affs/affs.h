@@ -4,7 +4,15 @@
 #include <linux/amigaffs.h>
 #include <linux/mutex.h>
 
+/* AmigaOS allows file names with up to 30 characters length.
+ * Names longer than that will be silently truncated. If you
+ * want to disallow this, comment out the following #define.
+ * Creating filesystem objects with longer names will then
+ * result in an error (ENAMETOOLONG).
+ */
+/*#define AFFS_NO_TRUNCATE */
 
+/* Ugly macros make the code more pretty. */
 
 #define GET_END_PTR(st,p,sz)		 ((st *)((char *)(p)+((sz)-sizeof(st))))
 #define AFFS_GET_HASHENTRY(data,hashkey) be32_to_cpu(((struct dir_front *)data)->hashtable[hashkey])
@@ -33,82 +41,94 @@
 #define AFFS_AC_MASK		(AFFS_AC_SIZE-1)
 
 struct affs_ext_key {
-	u32	ext;				
-	u32	key;				
+	u32	ext;				/* idx of the extended block */
+	u32	key;				/* block number */
 };
 
+/*
+ * affs fs inode data in memory
+ */
 struct affs_inode_info {
 	atomic_t i_opencnt;
-	struct semaphore i_link_lock;		
-	struct semaphore i_ext_lock;		
+	struct semaphore i_link_lock;		/* Protects internal inode access. */
+	struct semaphore i_ext_lock;		/* Protects internal inode access. */
 #define i_hash_lock i_ext_lock
-	u32	 i_blkcnt;			
-	u32	 i_extcnt;			
-	u32	*i_lc;				
+	u32	 i_blkcnt;			/* block count */
+	u32	 i_extcnt;			/* extended block count */
+	u32	*i_lc;				/* linear cache of extended blocks */
 	u32	 i_lc_size;
 	u32	 i_lc_shift;
 	u32	 i_lc_mask;
-	struct affs_ext_key *i_ac;		
-	u32	 i_ext_last;			
-	struct buffer_head *i_ext_bh;		
+	struct affs_ext_key *i_ac;		/* associative cache of extended blocks */
+	u32	 i_ext_last;			/* last accessed extended block */
+	struct buffer_head *i_ext_bh;		/* bh of last extended block */
 	loff_t	 mmu_private;
-	u32	 i_protect;			
-	u32	 i_lastalloc;			
-	int	 i_pa_cnt;			
+	u32	 i_protect;			/* unused attribute bits */
+	u32	 i_lastalloc;			/* last allocated block */
+	int	 i_pa_cnt;			/* number of preallocated blocks */
 	struct inode vfs_inode;
 };
 
+/* short cut to get to the affs specific inode data */
 static inline struct affs_inode_info *AFFS_I(struct inode *inode)
 {
 	return list_entry(inode, struct affs_inode_info, vfs_inode);
 }
 
+/*
+ * super-block data in memory
+ *
+ * Block numbers are adjusted for their actual size
+ *
+ */
 
 struct affs_bm_info {
-	u32 bm_key;			
-	u32 bm_free;			
+	u32 bm_key;			/* Disk block number */
+	u32 bm_free;			/* Free blocks in here */
 };
 
 struct affs_sb_info {
-	int s_partition_size;		
-	int s_reserved;			
-	
-	u32 s_data_blksize;		
-	u32 s_root_block;		
-	int s_hashsize;			
-	unsigned long s_flags;		
-	uid_t s_uid;			
-	gid_t s_gid;			
-	umode_t s_mode;			
-	struct buffer_head *s_root_bh;	
-	struct mutex s_bmlock;		
-	struct affs_bm_info *s_bitmap;	
-	u32 s_bmap_count;		
-	u32 s_bmap_bits;		
+	int s_partition_size;		/* Partition size in blocks. */
+	int s_reserved;			/* Number of reserved blocks. */
+	//u32 s_blksize;			/* Initial device blksize */
+	u32 s_data_blksize;		/* size of the data block w/o header */
+	u32 s_root_block;		/* FFS root block number. */
+	int s_hashsize;			/* Size of hash table. */
+	unsigned long s_flags;		/* See below. */
+	uid_t s_uid;			/* uid to override */
+	gid_t s_gid;			/* gid to override */
+	umode_t s_mode;			/* mode to override */
+	struct buffer_head *s_root_bh;	/* Cached root block. */
+	struct mutex s_bmlock;		/* Protects bitmap access. */
+	struct affs_bm_info *s_bitmap;	/* Bitmap infos. */
+	u32 s_bmap_count;		/* # of bitmap blocks. */
+	u32 s_bmap_bits;		/* # of bits in one bitmap blocks */
 	u32 s_last_bmap;
 	struct buffer_head *s_bmap_bh;
-	char *s_prefix;			
-	char s_volume[32];		
-	spinlock_t symlink_lock;	
+	char *s_prefix;			/* Prefix for volumes and assigns. */
+	char s_volume[32];		/* Volume prefix for absolute symlinks. */
+	spinlock_t symlink_lock;	/* protects the previous two */
 };
 
-#define SF_INTL		0x0001		
-#define SF_BM_VALID	0x0002		
-#define SF_IMMUTABLE	0x0004		
-#define SF_QUIET	0x0008		
-#define SF_SETUID	0x0010		
-#define SF_SETGID	0x0020		
-#define SF_SETMODE	0x0040		
-#define SF_MUFS		0x0100		
-#define SF_OFS		0x0200		
-#define SF_PREFIX	0x0400		
-#define SF_VERBOSE	0x0800		
+#define SF_INTL		0x0001		/* International filesystem. */
+#define SF_BM_VALID	0x0002		/* Bitmap is valid. */
+#define SF_IMMUTABLE	0x0004		/* Protection bits cannot be changed */
+#define SF_QUIET	0x0008		/* chmod errors will be not reported */
+#define SF_SETUID	0x0010		/* Ignore Amiga uid */
+#define SF_SETGID	0x0020		/* Ignore Amiga gid */
+#define SF_SETMODE	0x0040		/* Ignore Amiga protection bits */
+#define SF_MUFS		0x0100		/* Use MUFS uid/gid mapping */
+#define SF_OFS		0x0200		/* Old filesystem */
+#define SF_PREFIX	0x0400		/* Buffer for prefix is allocated */
+#define SF_VERBOSE	0x0800		/* Talk about fs when mounting */
 
+/* short cut to get to the affs specific sb data */
 static inline struct affs_sb_info *AFFS_SB(struct super_block *sb)
 {
 	return sb->s_fs_info;
 }
 
+/* amigaffs.c */
 
 extern int	affs_insert_hash(struct inode *inode, struct buffer_head *bh);
 extern int	affs_remove_hash(struct inode *dir, struct buffer_head *rem_bh);
@@ -123,6 +143,7 @@ extern void	affs_warning(struct super_block *sb, const char *function, const cha
 extern int	affs_check_name(const unsigned char *name, int len);
 extern int	affs_copy_name(unsigned char *bstr, struct dentry *dentry);
 
+/* bitmap. c */
 
 extern u32	affs_count_free_blocks(struct super_block *s);
 extern void	affs_free_block(struct super_block *sb, u32 block);
@@ -130,6 +151,7 @@ extern u32	affs_alloc_block(struct inode *inode, u32 goal);
 extern int	affs_init_bitmap(struct super_block *sb, int *flags);
 extern void	affs_free_bitmap(struct super_block *sb);
 
+/* namei.c */
 
 extern int	affs_hash_name(struct super_block *sb, const u8 *name, unsigned int len);
 extern struct dentry *affs_lookup(struct inode *dir, struct dentry *dentry, struct nameidata *);
@@ -144,6 +166,7 @@ extern int	affs_symlink(struct inode *dir, struct dentry *dentry,
 extern int	affs_rename(struct inode *old_dir, struct dentry *old_dentry,
 			    struct inode *new_dir, struct dentry *new_dentry);
 
+/* inode.c */
 
 extern unsigned long		 affs_parent_ino(struct inode *dir);
 extern struct inode		*affs_new_inode(struct inode *dir);
@@ -155,14 +178,17 @@ extern int			 affs_write_inode(struct inode *inode,
 					struct writeback_control *wbc);
 extern int			 affs_add_entry(struct inode *dir, struct inode *inode, struct dentry *dentry, s32 type);
 
+/* file.c */
 
 void		affs_free_prealloc(struct inode *inode);
 extern void	affs_truncate(struct inode *);
 int		affs_file_fsync(struct file *, loff_t, loff_t, int);
 
+/* dir.c */
 
 extern void   affs_dir_truncate(struct inode *);
 
+/* jump tables */
 
 extern const struct inode_operations	 affs_file_inode_operations;
 extern const struct inode_operations	 affs_dir_inode_operations;

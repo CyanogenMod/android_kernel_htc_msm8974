@@ -49,6 +49,7 @@ static struct device balloon_dev;
 
 static int register_balloon(struct device *dev);
 
+/* React to a change in the target key */
 static void watch_target(struct xenbus_watch *watch,
 			 const char **vec, unsigned int len)
 {
@@ -57,10 +58,13 @@ static void watch_target(struct xenbus_watch *watch,
 
 	err = xenbus_scanf(XBT_NIL, "memory", "target", "%llu", &new_target);
 	if (err != 1) {
-		
+		/* This is ok (for domain0 at least) - so just return */
 		return;
 	}
 
+	/* The given memory/target value is in KiB, so it needs converting to
+	 * pages. PAGE_SHIFT converts bytes to pages, hence PAGE_SHIFT - 10.
+	 */
 	balloon_set_new_target(new_target >> (PAGE_SHIFT - 10));
 }
 static struct xenbus_watch target_watch = {
@@ -105,7 +109,7 @@ subsys_initcall(balloon_init);
 
 static void balloon_exit(void)
 {
-    
+    /* XXX - release balloon here */
     return;
 }
 

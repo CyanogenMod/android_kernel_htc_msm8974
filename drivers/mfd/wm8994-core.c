@@ -30,6 +30,12 @@
 
 #include "wm8994.h"
 
+/**
+ * wm8994_reg_read: Read a single WM8994 register.
+ *
+ * @wm8994: Device to read from.
+ * @reg: Register to read.
+ */
 int wm8994_reg_read(struct wm8994 *wm8994, unsigned short reg)
 {
 	unsigned int val;
@@ -44,12 +50,27 @@ int wm8994_reg_read(struct wm8994 *wm8994, unsigned short reg)
 }
 EXPORT_SYMBOL_GPL(wm8994_reg_read);
 
+/**
+ * wm8994_bulk_read: Read multiple WM8994 registers
+ *
+ * @wm8994: Device to read from
+ * @reg: First register
+ * @count: Number of registers
+ * @buf: Buffer to fill.  The data will be returned big endian.
+ */
 int wm8994_bulk_read(struct wm8994 *wm8994, unsigned short reg,
 		     int count, u16 *buf)
 {
 	return regmap_bulk_read(wm8994->regmap, reg, buf, count);
 }
 
+/**
+ * wm8994_reg_write: Write a single WM8994 register.
+ *
+ * @wm8994: Device to write to.
+ * @reg: Register to write to.
+ * @val: Value to write.
+ */
 int wm8994_reg_write(struct wm8994 *wm8994, unsigned short reg,
 		     unsigned short val)
 {
@@ -57,6 +78,14 @@ int wm8994_reg_write(struct wm8994 *wm8994, unsigned short reg,
 }
 EXPORT_SYMBOL_GPL(wm8994_reg_write);
 
+/**
+ * wm8994_bulk_write: Write multiple WM8994 registers
+ *
+ * @wm8994: Device to write to
+ * @reg: First register
+ * @count: Number of registers
+ * @buf: Buffer to write from.  Data must be big-endian formatted.
+ */
 int wm8994_bulk_write(struct wm8994 *wm8994, unsigned short reg,
 		      int count, const u16 *buf)
 {
@@ -64,6 +93,14 @@ int wm8994_bulk_write(struct wm8994 *wm8994, unsigned short reg,
 }
 EXPORT_SYMBOL_GPL(wm8994_bulk_write);
 
+/**
+ * wm8994_set_bits: Set the value of a bitfield in a WM8994 register
+ *
+ * @wm8994: Device to write to.
+ * @reg: Register to write to.
+ * @mask: Mask of bits to set.
+ * @val: Value to set (unshifted)
+ */
 int wm8994_set_bits(struct wm8994 *wm8994, unsigned short reg,
 		    unsigned short mask, unsigned short val)
 {
@@ -115,6 +152,11 @@ static struct mfd_cell wm8994_devs[] = {
 	},
 };
 
+/*
+ * Supplies for the main bulk of CODEC; the LDO supplies are ignored
+ * and should be handled via the standard regulator API supply
+ * management.
+ */
 static const char *wm1811_main_supplies[] = {
 	"DBVDD1",
 	"DBVDD2",
@@ -155,6 +197,8 @@ static int wm8994_suspend(struct device *dev)
 	struct wm8994 *wm8994 = dev_get_drvdata(dev);
 	int ret;
 
+	/* Don't actually go through with the suspend if the CODEC is
+	 * still active (eg, for audio passthrough from CP. */
 	ret = wm8994_reg_read(wm8994, WM8994_POWER_MANAGEMENT_1);
 	if (ret < 0) {
 		dev_err(dev, "Failed to read power status: %d\n", ret);
@@ -226,11 +270,16 @@ static int wm8994_suspend(struct device *dev)
 		break;
 	}
 
+	/* Disable LDO pulldowns while the device is suspended if we
+	 * don't know that something will be driving them. */
 	if (!wm8994->ldo_ena_always_driven)
 		wm8994_set_bits(wm8994, WM8994_PULL_CONTROL_2,
 				WM8994_LDO1ENA_PD | WM8994_LDO2ENA_PD,
 				WM8994_LDO1ENA_PD | WM8994_LDO2ENA_PD);
 
+	/* Explicitly put the device into reset in case regulators
+	 * don't get disabled in order to ensure consistent restart.
+	 */
 	wm8994_reg_write(wm8994, WM8994_SOFTWARE_RESET,
 			 wm8994_reg_read(wm8994, WM8994_SOFTWARE_RESET));
 
@@ -254,7 +303,7 @@ static int wm8994_resume(struct device *dev)
 	struct wm8994 *wm8994 = dev_get_drvdata(dev);
 	int ret;
 
-	
+	/* We may have lied to the PM core about suspending */
 	if (!wm8994->suspended)
 		return 0;
 
@@ -272,7 +321,7 @@ static int wm8994_resume(struct device *dev)
 		goto err_enable;
 	}
 
-	
+	/* Disable LDO pulldowns while the device is active */
 	wm8994_set_bits(wm8994, WM8994_PULL_CONTROL_2,
 			WM8994_LDO1ENA_PD | WM8994_LDO2ENA_PD,
 			0);
@@ -332,6 +381,9 @@ static const __devinitdata struct reg_default wm1811_reva_patch[] = {
 	{ 0x102, 0x0 },
 };
 
+/*
+ * Instantiate the generic non-control parts of the device.
+ */
 static __devinit int wm8994_device_init(struct wm8994 *wm8994, int irq)
 {
 	struct wm8994_pdata *pdata = wm8994->dev->platform_data;
@@ -343,7 +395,7 @@ static __devinit int wm8994_device_init(struct wm8994 *wm8994, int irq)
 
 	dev_set_drvdata(wm8994->dev, wm8994);
 
-	
+	/* Add the on-chip regulators first for bootstrapping */
 	ret = mfd_add_devices(wm8994->dev, -1,
 			      wm8994_regulator_devs,
 			      ARRAY_SIZE(wm8994_regulator_devs),
@@ -481,7 +533,7 @@ static __devinit int wm8994_device_init(struct wm8994 *wm8994, int irq)
 		break;
 
 	case WM1811:
-		
+		/* Revision C did not change the relevant layer */
 		if (wm8994->revision > 1)
 			wm8994->revision++;
 		switch (wm8994->revision) {
@@ -540,7 +592,7 @@ static __devinit int wm8994_device_init(struct wm8994 *wm8994, int irq)
 		wm8994->irq_base = pdata->irq_base;
 		wm8994->gpio_base = pdata->gpio_base;
 
-		
+		/* GPIO configuration is only applied if it's non-zero */
 		for (i = 0; i < ARRAY_SIZE(pdata->gpio_defaults); i++) {
 			if (pdata->gpio_defaults[i]) {
 				wm8994_set_bits(wm8994, WM8994_GPIO_1 + i,
@@ -555,12 +607,18 @@ static __devinit int wm8994_device_init(struct wm8994 *wm8994, int irq)
 			pulls |= WM8994_SPKMODE_PU;
 	}
 
-	
+	/* Disable unneeded pulls */
 	wm8994_set_bits(wm8994, WM8994_PULL_CONTROL_2,
 			WM8994_LDO1ENA_PD | WM8994_LDO2ENA_PD |
 			WM8994_SPKMODE_PU | WM8994_CSNADDR_PD,
 			pulls);
 
+	/* In some system designs where the regulators are not in use,
+	 * we can achieve a small reduction in leakage currents by
+	 * floating LDO outputs.  This bit makes no difference if the
+	 * LDOs are enabled, it only affects cases where the LDOs were
+	 * in operation and are then disabled.
+	 */
 	for (i = 0; i < WM8994_NUM_LDO_REGS; i++) {
 		if (wm8994_ldo_in_use(pdata, i))
 			wm8994_set_bits(wm8994, WM8994_LDO_1 + i,

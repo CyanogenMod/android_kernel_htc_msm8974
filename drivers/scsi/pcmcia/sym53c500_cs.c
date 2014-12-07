@@ -40,8 +40,13 @@
 #define SYM53C500_DEBUG 0
 #define VERBOSE_SYM53C500_DEBUG 0
 
+/*
+*  Set this to 0 if you encounter kernel lockups while transferring 
+*  data in PIO mode.  Note this can be changed via "sysfs".
+*/
 #define USE_FAST_PIO 1
 
+/* =============== End of user configurable parameters ============== */
 
 #include <linux/module.h>
 #include <linux/moduleparam.h>
@@ -71,55 +76,62 @@
 #include <pcmcia/ciscode.h>
 
 
+/* ================================================================== */
 
-#define SYNC_MODE 0 		
+#define SYNC_MODE 0 		/* Synchronous transfer mode */
 
-#define C1_IMG   0x07		
-#define C2_IMG   0x48		
-#define C3_IMG   0x20		
-#define C4_IMG   0x04		
-#define C5_IMG   0xa4		
-#define C7_IMG   0x80		
+/* Default configuration */
+#define C1_IMG   0x07		/* ID=7 */
+#define C2_IMG   0x48		/* FE SCSI2 */
+#define C3_IMG   0x20		/* CDB */
+#define C4_IMG   0x04		/* ANE */
+#define C5_IMG   0xa4		/* ? changed from b6= AA PI SIE POL */
+#define C7_IMG   0x80		/* added for SYM53C500 t. corner */
 
+/* Hardware Registers: offsets from io_port (base) */
 
-#define TC_LSB		0x00		
-#define TC_MSB		0x01		
-#define SCSI_FIFO	0x02		
-#define CMD_REG		0x03		
-#define STAT_REG	0x04		
-#define DEST_ID		0x04		
-#define INT_REG		0x05		
-#define SRTIMOUT	0x05		
-#define SEQ_REG		0x06		
-#define SYNCPRD		0x06		
-#define FIFO_FLAGS	0x07		
-#define SYNCOFF		0x07		
-#define CONFIG1		0x08		
-#define CLKCONV		0x09		
-		
-#define CONFIG2		0x0B		
-#define CONFIG3		0x0C		
-#define CONFIG4		0x0D		
-#define TC_HIGH		0x0E		
-		
+/* Control Register Set 0 */
+#define TC_LSB		0x00		/* transfer counter lsb */
+#define TC_MSB		0x01		/* transfer counter msb */
+#define SCSI_FIFO	0x02		/* scsi fifo register */
+#define CMD_REG		0x03		/* command register */
+#define STAT_REG	0x04		/* status register */
+#define DEST_ID		0x04		/* selection/reselection bus id */
+#define INT_REG		0x05		/* interrupt status register */
+#define SRTIMOUT	0x05		/* select/reselect timeout reg */
+#define SEQ_REG		0x06		/* sequence step register */
+#define SYNCPRD		0x06		/* synchronous transfer period */
+#define FIFO_FLAGS	0x07		/* indicates # of bytes in fifo */
+#define SYNCOFF		0x07		/* synchronous offset register */
+#define CONFIG1		0x08		/* configuration register */
+#define CLKCONV		0x09		/* clock conversion register */
+/* #define TESTREG	0x0A */		/* test mode register */
+#define CONFIG2		0x0B		/* configuration 2 register */
+#define CONFIG3		0x0C		/* configuration 3 register */
+#define CONFIG4		0x0D		/* configuration 4 register */
+#define TC_HIGH		0x0E		/* transfer counter high */
+/* #define FIFO_BOTTOM	0x0F */		/* reserve FIFO byte register */
 
-		
-		
-		
-#define PIO_FIFO	0x04		
-		
-		
-		
-#define PIO_STATUS	0x08		
-		
-		
-#define PIO_FLAG	0x0B		
-#define CONFIG5		0x09		
-		
-		
+/* Control Register Set 1 */
+/* #define JUMPER_SENSE	0x00 */		/* jumper sense port reg (r/w) */
+/* #define SRAM_PTR	0x01 */		/* SRAM address pointer reg (r/w) */
+/* #define SRAM_DATA	0x02 */		/* SRAM data register (r/w) */
+#define PIO_FIFO	0x04		/* PIO FIFO registers (r/w) */
+/* #define PIO_FIFO1	0x05 */		/*  */
+/* #define PIO_FIFO2	0x06 */		/*  */
+/* #define PIO_FIFO3	0x07 */		/*  */
+#define PIO_STATUS	0x08		/* PIO status (r/w) */
+/* #define ATA_CMD	0x09 */		/* ATA command/status reg (r/w) */
+/* #define ATA_ERR	0x0A */		/* ATA features/error reg (r/w) */
+#define PIO_FLAG	0x0B		/* PIO flag interrupt enable (r/w) */
+#define CONFIG5		0x09		/* configuration 5 register */
+/* #define SIGNATURE	0x0E */		/* signature register (r) */
+/* #define CONFIG6	0x0F */		/* configuration 6 register (r) */
 #define CONFIG7		0x0d
 
+/* select register set 0 */
 #define REG0(x)		(outb(C4_IMG, (x) + CONFIG4))
+/* select register set 1 */
 #define REG1(x)		outb(C7_IMG, (x) + CONFIG7); outb(C5_IMG, (x) + CONFIG5)
 
 #if SYM53C500_DEBUG
@@ -139,6 +151,7 @@
   outb((count >> 8) & 0xff, (x) + TC_MSB); \
   outb((count >> 16) & 0xff, (x) + TC_HIGH);
 
+/* Chip commands */
 #define DMA_OP               0x80
 
 #define SCSI_NOP             0x00
@@ -172,6 +185,7 @@
 #define RECV_CMD_SEQ         0x2b
 #define TARGET_ABORT_DMA     0x04
 
+/* ================================================================== */
 
 struct scsi_info_t {
 	struct pcmcia_device	*p_dev;
@@ -179,6 +193,9 @@ struct scsi_info_t {
 	unsigned short manf_id;
 };
 
+/*
+*  Repository for per-instance host data.
+*/
 struct sym53c500_data {
 	struct scsi_cmnd *current_SC;
 	int fast_pio;
@@ -194,6 +211,7 @@ enum Phase {
     message_in
 };
 
+/* ================================================================== */
 
 static void
 chip_init(int io_port)
@@ -202,23 +220,23 @@ chip_init(int io_port)
 	outb(0x01, io_port + PIO_STATUS);
 	outb(0x00, io_port + PIO_FLAG);
 
-	outb(C4_IMG, io_port + CONFIG4);	
+	outb(C4_IMG, io_port + CONFIG4);	/* REG0(io_port); */
 	outb(C3_IMG, io_port + CONFIG3);
 	outb(C2_IMG, io_port + CONFIG2);
 	outb(C1_IMG, io_port + CONFIG1);
 
-	outb(0x05, io_port + CLKCONV);	
-	outb(0x9C, io_port + SRTIMOUT);	
-	outb(0x05, io_port + SYNCPRD);	
-	outb(SYNC_MODE, io_port + SYNCOFF);	  
+	outb(0x05, io_port + CLKCONV);	/* clock conversion factor */
+	outb(0x9C, io_port + SRTIMOUT);	/* Selection timeout */
+	outb(0x05, io_port + SYNCPRD);	/* Synchronous transfer period */
+	outb(SYNC_MODE, io_port + SYNCOFF);	/* synchronous mode */  
 }
 
 static void
 SYM53C500_int_host_reset(int io_port)
 {
-	outb(C4_IMG, io_port + CONFIG4);	
+	outb(C4_IMG, io_port + CONFIG4);	/* REG0(io_port); */
 	outb(CHIP_RESET, io_port + CMD_REG);
-	outb(SCSI_NOP, io_port + CMD_REG);	
+	outb(SCSI_NOP, io_port + CMD_REG);	/* required after reset */
 	outb(SCSI_RESET, io_port + CMD_REG);
 	chip_init(io_port);
 }
@@ -227,35 +245,35 @@ static __inline__ int
 SYM53C500_pio_read(int fast_pio, int base, unsigned char *request, unsigned int reqlen)
 {
 	int i;
-	int len;	
+	int len;	/* current scsi fifo size */
 
 	REG1(base);
 	while (reqlen) {
 		i = inb(base + PIO_STATUS);
-		
+		/* VDEB(printk("pio_status=%x\n", i)); */
 		if (i & 0x80) 
 			return 0;
 
 		switch (i & 0x1e) {
 		default:
-		case 0x10:	
+		case 0x10:	/* fifo empty */
 			len = 0;
 			break;
 		case 0x0:
 			len = 1;
 			break; 
-		case 0x8:	
+		case 0x8:	/* fifo 1/3 full */
 			len = 42;
 			break;
-		case 0xc:	
+		case 0xc:	/* fifo 2/3 full */
 			len = 84;
 			break;
-		case 0xe:	
+		case 0xe:	/* fifo full */
 			len = 128;
 			break;
 		}
 
-		if ((i & 0x40) && len == 0) { 
+		if ((i & 0x40) && len == 0) { /* fifo empty and interrupt occurred */
 			return 0;
 		}
 
@@ -282,13 +300,13 @@ static __inline__ int
 SYM53C500_pio_write(int fast_pio, int base, unsigned char *request, unsigned int reqlen)
 {
 	int i = 0;
-	int len;	
+	int len;	/* current scsi fifo size */
 
 	REG1(base);
 	while (reqlen && !(i & 0x40)) {
 		i = inb(base + PIO_STATUS);
-		
-		if (i & 0x80)	
+		/* VDEB(printk("pio_status=%x\n", i)); */
+		if (i & 0x80)	/* error */
 			return 0;
 
 		switch (i & 0x1e) {
@@ -360,9 +378,9 @@ SYM53C500_intr(int irq, void *dev_id)
 	printk("status=%02x, seq_reg=%02x, int_reg=%02x, fifo_size=%02x", 
 	    status, seq_reg, int_reg, fifo_size);
 	printk(", pio=%02x\n", pio_status);
-#endif 
+#endif /* SYM53C500_DEBUG */
 
-	if (int_reg & 0x80) {	
+	if (int_reg & 0x80) {	/* SCSI reset intr */
 		DEB(printk("SYM53C500: reset intr received\n"));
 		curSC->result = DID_RESET << 16;
 		goto idle_out;
@@ -374,39 +392,39 @@ SYM53C500_intr(int irq, void *dev_id)
 		goto idle_out;
 	}
 
-	if (status & 0x20) {		
+	if (status & 0x20) {		/* Parity error */
 		printk("SYM53C500: Warning: parity error!\n");
 		curSC->result = DID_PARITY << 16;
 		goto idle_out;
 	}
 
-	if (status & 0x40) {		
+	if (status & 0x40) {		/* Gross error */
 		printk("SYM53C500: Warning: gross error!\n");
 		curSC->result = DID_ERROR << 16;
 		goto idle_out;
 	}
 
-	if (int_reg & 0x20) {		
+	if (int_reg & 0x20) {		/* Disconnect */
 		DEB(printk("SYM53C500: disconnect intr received\n"));
-		if (curSC->SCp.phase != message_in) {	
+		if (curSC->SCp.phase != message_in) {	/* Unexpected disconnect */
 			curSC->result = DID_NO_CONNECT << 16;
-		} else {	
+		} else {	/* Command complete, return status and message */
 			curSC->result = (curSC->SCp.Status & 0xff)
 			    | ((curSC->SCp.Message & 0xff) << 8) | (DID_OK << 16);
 		}
 		goto idle_out;
 	}
 
-	switch (status & 0x07) {	
-	case 0x00:			
-		if (int_reg & 0x10) {	
+	switch (status & 0x07) {	/* scsi phase */
+	case 0x00:			/* DATA-OUT */
+		if (int_reg & 0x10) {	/* Target requesting info transfer */
 			struct scatterlist *sg;
 			int i;
 
 			curSC->SCp.phase = data_out;
 			VDEB(printk("SYM53C500: Data-Out phase\n"));
 			outb(FLUSH_FIFO, port_base + CMD_REG);
-			LOAD_DMA_COUNT(port_base, scsi_bufflen(curSC));	
+			LOAD_DMA_COUNT(port_base, scsi_bufflen(curSC));	/* Max transfer size */
 			outb(TRANSFER_INFO | DMA_OP, port_base + CMD_REG);
 
 			scsi_for_each_sg(curSC, sg, scsi_sg_count(curSC), i) {
@@ -417,15 +435,15 @@ SYM53C500_intr(int irq, void *dev_id)
 		}
 		break;
 
-	case 0x01:		
-		if (int_reg & 0x10) {	
+	case 0x01:		/* DATA-IN */
+		if (int_reg & 0x10) {	/* Target requesting info transfer */
 			struct scatterlist *sg;
 			int i;
 
 			curSC->SCp.phase = data_in;
 			VDEB(printk("SYM53C500: Data-In phase\n"));
 			outb(FLUSH_FIFO, port_base + CMD_REG);
-			LOAD_DMA_COUNT(port_base, scsi_bufflen(curSC));	
+			LOAD_DMA_COUNT(port_base, scsi_bufflen(curSC));	/* Max transfer size */
 			outb(TRANSFER_INFO | DMA_OP, port_base + CMD_REG);
 
 			scsi_for_each_sg(curSC, sg, scsi_sg_count(curSC), i) {
@@ -436,31 +454,31 @@ SYM53C500_intr(int irq, void *dev_id)
 		}
 		break;
 
-	case 0x02:		
+	case 0x02:		/* COMMAND */
 		curSC->SCp.phase = command_ph;
 		printk("SYM53C500: Warning: Unknown interrupt occurred in command phase!\n");
 		break;
 
-	case 0x03:		
+	case 0x03:		/* STATUS */
 		curSC->SCp.phase = status_ph;
 		VDEB(printk("SYM53C500: Status phase\n"));
 		outb(FLUSH_FIFO, port_base + CMD_REG);
 		outb(INIT_CMD_COMPLETE, port_base + CMD_REG);
 		break;
 
-	case 0x04:		
-	case 0x05:		
+	case 0x04:		/* Reserved */
+	case 0x05:		/* Reserved */
 		printk("SYM53C500: WARNING: Reserved phase!!!\n");
 		break;
 
-	case 0x06:		
+	case 0x06:		/* MESSAGE-OUT */
 		DEB(printk("SYM53C500: Message-Out phase\n"));
 		curSC->SCp.phase = message_out;
-		outb(SET_ATN, port_base + CMD_REG);	
+		outb(SET_ATN, port_base + CMD_REG);	/* Reject the message */
 		outb(MSG_ACCEPT, port_base + CMD_REG);
 		break;
 
-	case 0x07:		
+	case 0x07:		/* MESSAGE-IN */
 		VDEB(printk("SYM53C500: Message-In phase\n"));
 		curSC->SCp.phase = message_in;
 
@@ -471,7 +489,7 @@ SYM53C500_intr(int irq, void *dev_id)
 		DEB(printk("Status = %02x  Message = %02x\n", curSC->SCp.Status, curSC->SCp.Message));
 
 		if (curSC->SCp.Message == SAVE_POINTERS || curSC->SCp.Message == DISCONNECT) {
-			outb(SET_ATN, port_base + CMD_REG);	
+			outb(SET_ATN, port_base + CMD_REG);	/* Reject message */
 			DEB(printk("Discarding SAVE_POINTERS message\n"));
 		}
 		outb(MSG_ACCEPT, port_base + CMD_REG);
@@ -495,8 +513,15 @@ SYM53C500_release(struct pcmcia_device *link)
 
 	dev_dbg(&link->dev, "SYM53C500_release\n");
 
+	/*
+	*  Do this before releasing/freeing resources.
+	*/
 	scsi_remove_host(shost);
 
+	/*
+	*  Interrupts getting hosed on card removal.  Try
+	*  the following code, mostly from qlogicfas.c.
+	*/
 	if (shost->irq)
 		free_irq(shost->irq, shost);
 	if (shost->io_port && shost->n_io_port)
@@ -505,7 +530,7 @@ SYM53C500_release(struct pcmcia_device *link)
 	pcmcia_disable_device(link);
 
 	scsi_host_put(shost);
-} 
+} /* SYM53C500_release */
 
 static const char*
 SYM53C500_info(struct Scsi_Host *SChost)
@@ -545,10 +570,10 @@ SYM53C500_queue_lck(struct scsi_cmnd *SCpnt, void (*done)(struct scsi_cmnd *))
 	data->current_SC->SCp.Status = 0;
 	data->current_SC->SCp.Message = 0;
 
-	
+	/* We are locked here already by the mid layer */
 	REG0(port_base);
-	outb(scmd_id(SCpnt), port_base + DEST_ID);	
-	outb(FLUSH_FIFO, port_base + CMD_REG);	
+	outb(scmd_id(SCpnt), port_base + DEST_ID);	/* set destination */
+	outb(FLUSH_FIFO, port_base + CMD_REG);	/* reset the fifos */
 
 	for (i = 0; i < SCpnt->cmd_len; i++) {
 		outb(SCpnt->cmnd[i], port_base + SCSI_FIFO);
@@ -583,10 +608,10 @@ SYM53C500_biosparm(struct scsi_device *disk,
 	DEB(printk("SYM53C500_biosparm called\n"));
 
 	size = capacity;
-	info_array[0] = 64;		
-	info_array[1] = 32;		
-	info_array[2] = size >> 11;	
-	if (info_array[2] > 1024) {	
+	info_array[0] = 64;		/* heads */
+	info_array[1] = 32;		/* sectors */
+	info_array[2] = size >> 11;	/* cylinders */
+	if (info_array[2] > 1024) {	/* big disk */
 		info_array[0] = 255;
 		info_array[1] = 63;
 		info_array[2] = size / (255 * 63);
@@ -623,6 +648,10 @@ SYM53C500_store_pio(struct device *dev, struct device_attribute *attr,
 		return -EINVAL;
 }
 
+/*
+*  SCSI HBA device attributes we want to
+*  make available via sysfs.
+*/
 static struct device_attribute SYM53C500_pio_attr = {
 	.attr = {
 		.name = "fast_pio",
@@ -637,6 +666,9 @@ static struct device_attribute *SYM53C500_shost_attrs[] = {
 	NULL,
 };
 
+/*
+*  scsi_host_template initializer
+*/
 static struct scsi_host_template sym53c500_driver_template = {
      .module			= THIS_MODULE,
      .name			= "SYM53C500",
@@ -690,15 +722,30 @@ SYM53C500_config(struct pcmcia_device *link)
 	if (ret)
 		goto failed;
 
+	/*
+	*  That's the trouble with copying liberally from another driver.
+	*  Some things probably aren't relevant, and I suspect this entire
+	*  section dealing with manufacturer IDs can be scrapped.	--rct
+	*/
 	if ((info->manf_id == MANFID_MACNICA) ||
 	    (info->manf_id == MANFID_PIONEER) ||
 	    (info->manf_id == 0x0098)) {
-		
+		/* set ATAcmd */
 		outb(0xb4, link->resource[0]->start + 0xd);
 		outb(0x24, link->resource[0]->start + 0x9);
 		outb(0x04, link->resource[0]->start + 0xd);
 	}
 
+	/*
+	*  irq_level == 0 implies tpnt->can_queue == 0, which
+	*  is not supported in 2.6.  Thus, only irq_level > 0
+	*  will be allowed.
+	*
+	*  Possible port_base values are as follows:
+	*
+	*	0x130, 0x230, 0x280, 0x290,
+	*	0x320, 0x330, 0x340, 0x350
+	*/
 	port_base = link->resource[0]->start;
 	irq_level = link->irq;
 
@@ -735,6 +782,10 @@ SYM53C500_config(struct pcmcia_device *link)
 	host->n_io_port = 0x10;
 	host->dma_channel = -1;
 
+	/*
+	*  Note fast_pio is set to USE_FAST_PIO by
+	*  default, but can be changed via "sysfs".
+	*/
 	data->fast_pio = USE_FAST_PIO;
 
 	info->host = host;
@@ -758,13 +809,13 @@ err_release:
 failed:
 	SYM53C500_release(link);
 	return -ENODEV;
-} 
+} /* SYM53C500_config */
 
 static int sym53c500_resume(struct pcmcia_device *link)
 {
 	struct scsi_info_t *info = link->priv;
 
-	
+	/* See earlier comment about manufacturer IDs. */
 	if ((info->manf_id == MANFID_MACNICA) ||
 	    (info->manf_id == MANFID_PIONEER) ||
 	    (info->manf_id == 0x0098)) {
@@ -772,6 +823,10 @@ static int sym53c500_resume(struct pcmcia_device *link)
 		outb(0x24, link->resource[0]->start + 0x9);
 		outb(0x04, link->resource[0]->start + 0xd);
 	}
+	/*
+	 *  If things don't work after a "resume",
+	 *  this is a good place to start looking.
+	 */
 	SYM53C500_int_host_reset(link->resource[0]->start);
 
 	return 0;
@@ -786,7 +841,7 @@ SYM53C500_detach(struct pcmcia_device *link)
 
 	kfree(link->priv);
 	link->priv = NULL;
-} 
+} /* SYM53C500_detach */
 
 static int
 SYM53C500_probe(struct pcmcia_device *link)
@@ -795,7 +850,7 @@ SYM53C500_probe(struct pcmcia_device *link)
 
 	dev_dbg(&link->dev, "SYM53C500_attach()\n");
 
-	
+	/* Create new SCSI device */
 	info = kzalloc(sizeof(*info), GFP_KERNEL);
 	if (!info)
 		return -ENOMEM;
@@ -804,7 +859,7 @@ SYM53C500_probe(struct pcmcia_device *link)
 	link->config_flags |= CONF_ENABLE_IRQ | CONF_AUTO_SET_IO;
 
 	return SYM53C500_config(link);
-} 
+} /* SYM53C500_attach */
 
 MODULE_AUTHOR("Bob Tracy <rct@frus.com>");
 MODULE_DESCRIPTION("SYM53C500 PCMCIA SCSI driver");

@@ -87,7 +87,7 @@ static inline int qe_stop(struct sunqe *qep)
 	void __iomem *mregs = qep->mregs;
 	int tries;
 
-	
+	/* Reset the MACE, then the QEC channel. */
 	sbus_writeb(MREGS_BCONFIG_RESET, mregs + MREGS_BCONFIG);
 	tries = MACE_RESET_RETRIES;
 	while (--tries) {
@@ -147,22 +147,22 @@ static int qe_init(struct sunqe *qep, int from_irq)
 	u32 tmp;
 	int i;
 
-	
+	/* Shut it up. */
 	if (qe_stop(qep))
 		return -EAGAIN;
 
-	
+	/* Setup initial rx/tx init block pointers. */
 	sbus_writel(qep->qblock_dvma + qib_offset(qe_rxd, 0), cregs + CREG_RXDS);
 	sbus_writel(qep->qblock_dvma + qib_offset(qe_txd, 0), cregs + CREG_TXDS);
 
-	
+	/* Enable/mask the various irq's. */
 	sbus_writel(0, cregs + CREG_RIMASK);
 	sbus_writel(1, cregs + CREG_TIMASK);
 
 	sbus_writel(0, cregs + CREG_QMASK);
 	sbus_writel(CREG_MMASK_RXCOLL, cregs + CREG_MMASK);
 
-	
+	/* Setup the FIFO pointers into QEC local memory. */
 	tmp = qep->channel * sbus_readl(gregs + GLOB_MSIZE);
 	sbus_writel(tmp, cregs + CREG_RXRBUFPTR);
 	sbus_writel(tmp, cregs + CREG_RXWBUFPTR);
@@ -172,27 +172,31 @@ static int qe_init(struct sunqe *qep, int from_irq)
 	sbus_writel(tmp, cregs + CREG_TXRBUFPTR);
 	sbus_writel(tmp, cregs + CREG_TXWBUFPTR);
 
-	
+	/* Clear the channel collision counter. */
 	sbus_writel(0, cregs + CREG_CCNT);
 
-	
+	/* For 10baseT, inter frame space nor throttle seems to be necessary. */
 	sbus_writel(0, cregs + CREG_PIPG);
 
-	
+	/* Now dork with the AMD MACE. */
 	sbus_writeb(MREGS_PHYCONFIG_AUTO, mregs + MREGS_PHYCONFIG);
 	sbus_writeb(MREGS_TXFCNTL_AUTOPAD, mregs + MREGS_TXFCNTL);
 	sbus_writeb(0, mregs + MREGS_RXFCNTL);
 
+	/* The QEC dma's the rx'd packets from local memory out to main memory,
+	 * and therefore it interrupts when the packet reception is "complete".
+	 * So don't listen for the MACE talking about it.
+	 */
 	sbus_writeb(MREGS_IMASK_COLL | MREGS_IMASK_RXIRQ, mregs + MREGS_IMASK);
 	sbus_writeb(MREGS_BCONFIG_BSWAP | MREGS_BCONFIG_64TS, mregs + MREGS_BCONFIG);
 	sbus_writeb((MREGS_FCONFIG_TXF16 | MREGS_FCONFIG_RXF32 |
 		     MREGS_FCONFIG_RFWU | MREGS_FCONFIG_TFWU),
 		    mregs + MREGS_FCONFIG);
 
-	
+	/* Only usable interface on QuadEther is twisted pair. */
 	sbus_writeb(MREGS_PLSCONFIG_TP, mregs + MREGS_PLSCONFIG);
 
-	
+	/* Tell MACE we are changing the ether address. */
 	sbus_writeb(MREGS_IACONFIG_ACHNGE | MREGS_IACONFIG_PARESET,
 		    mregs + MREGS_IACONFIG);
 	while ((sbus_readb(mregs + MREGS_IACONFIG) & MREGS_IACONFIG_ACHNGE) != 0)
@@ -204,7 +208,7 @@ static int qe_init(struct sunqe *qep, int from_irq)
 	sbus_writeb(e[4], mregs + MREGS_ETHADDR);
 	sbus_writeb(e[5], mregs + MREGS_ETHADDR);
 
-	
+	/* Clear out the address filter. */
 	sbus_writeb(MREGS_IACONFIG_ACHNGE | MREGS_IACONFIG_LARESET,
 		    mregs + MREGS_IACONFIG);
 	while ((sbus_readb(mregs + MREGS_IACONFIG) & MREGS_IACONFIG_ACHNGE) != 0)
@@ -212,12 +216,12 @@ static int qe_init(struct sunqe *qep, int from_irq)
 	for (i = 0; i < 8; i++)
 		sbus_writeb(0, mregs + MREGS_FILTER);
 
-	
+	/* Address changes are now complete. */
 	sbus_writeb(0, mregs + MREGS_IACONFIG);
 
 	qe_init_rings(qep);
 
-	
+	/* Wait a little bit for the link to come up... */
 	mdelay(5);
 	if (!(sbus_readb(mregs + MREGS_PHYCONFIG) & MREGS_PHYCONFIG_LTESTDIS)) {
 		int tries = 50;
@@ -235,15 +239,21 @@ static int qe_init(struct sunqe *qep, int from_irq)
 			printk(KERN_NOTICE "%s: Warning, link state is down.\n", qep->dev->name);
 	}
 
-	
+	/* Missed packet counter is cleared on a read. */
 	sbus_readb(mregs + MREGS_MPCNT);
 
+	/* Reload multicast information, this will enable the receiver
+	 * and transmitter.
+	 */
 	qe_set_multicast(qep->dev);
 
-	
+	/* QEC should now start to show interrupts. */
 	return 0;
 }
 
+/* Grrr, certain error conditions completely lock up the AMD MACE,
+ * so when we get these we _must_ reset the chip.
+ */
 static int qe_is_bolixed(struct sunqe *qep, u32 qe_status)
 {
 	struct net_device *dev = qep->dev;
@@ -394,6 +404,9 @@ static int qe_is_bolixed(struct sunqe *qep, u32 qe_status)
 	return mace_hwbug_workaround;
 }
 
+/* Per-QE receive interrupt service routine.  Just like on the happy meal
+ * we receive directly into skb's with a small packet copy water mark.
+ */
 static void qe_rx(struct sunqe *qep)
 {
 	struct qe_rxd *rxbase = &qep->qe_block->qe_rxd[0];
@@ -413,9 +426,9 @@ static void qe_rx(struct sunqe *qep)
 			qebuf_offset(rx_buf, (elem & (RX_RING_SIZE - 1)));
 		struct qe_rxd *end_rxd =
 			&rxbase[(elem+RX_RING_SIZE)&(RX_RING_MAXSIZE-1)];
-		int len = (flags & RXD_LENGTH) - 4;  
+		int len = (flags & RXD_LENGTH) - 4;  /* QE adds ether FCS size to len */
 
-		
+		/* Check for errors. */
 		if (len < ETH_ZLEN) {
 			dev->stats.rx_errors++;
 			dev->stats.rx_length_errors++;
@@ -449,13 +462,17 @@ static void qe_rx(struct sunqe *qep)
 
 static void qe_tx_reclaim(struct sunqe *qep);
 
+/* Interrupts for all QE's get filtered out via the QEC master controller,
+ * so we just run through each qe and check to see who is signaling
+ * and thus needs to be serviced.
+ */
 static irqreturn_t qec_interrupt(int irq, void *dev_id)
 {
 	struct sunqec *qecp = dev_id;
 	u32 qec_status;
 	int channel = 0;
 
-	
+	/* Latch the status now. */
 	qec_status = sbus_readl(qecp->gregs + GLOB_STAT);
 	while (channel < 4) {
 		if (qec_status & 0xf) {
@@ -474,6 +491,9 @@ static irqreturn_t qec_interrupt(int irq, void *dev_id)
 				spin_lock(&qep->lock);
 				qe_tx_reclaim(qep);
 				if (TX_BUFFS_AVAIL(qep) > 0) {
+					/* Wake net queue and return to
+					 * lazy tx reclaim.
+					 */
 					netif_wake_queue(qep->dev);
 					sbus_writel(1, qep->qcregs + CREG_TIMASK);
 				}
@@ -507,6 +527,9 @@ static int qe_close(struct net_device *dev)
 	return 0;
 }
 
+/* Reclaim TX'd frames from the ring.  This must always run under
+ * the IRQ protected qep->lock.
+ */
 static void qe_tx_reclaim(struct sunqe *qep)
 {
 	struct qe_txd *txbase = &qep->qe_block->qe_txd[0];
@@ -529,6 +552,9 @@ static void qe_tx_timeout(struct net_device *dev)
 
 	spin_lock_irq(&qep->lock);
 
+	/* Try to reclaim, if that frees up some tx
+	 * entries, we're fine.
+	 */
 	qe_tx_reclaim(qep);
 	tx_full = TX_BUFFS_AVAIL(qep) <= 0;
 
@@ -544,6 +570,7 @@ out:
 	netif_wake_queue(dev);
 }
 
+/* Get a packet queued to go onto the wire. */
 static int qe_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct sunqe *qep = netdev_priv(dev);
@@ -563,7 +590,7 @@ static int qe_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	txbuf_dvma = qbufs_dvma +
 		qebuf_offset(tx_buf, (entry & (TX_RING_SIZE - 1)));
 
-	
+	/* Avoid a race... */
 	qep->qe_block->qe_txd[entry].tx_flags = TXD_UPDATE;
 
 	skb_copy_from_linear_data(skb, txbuf, len);
@@ -573,13 +600,18 @@ static int qe_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		(TXD_OWN | TXD_SOP | TXD_EOP | (len & TXD_LENGTH));
 	qep->tx_new = NEXT_TX(entry);
 
-	
+	/* Get it going. */
 	sbus_writel(CREG_CTRL_TWAKEUP, qep->qcregs + CREG_CTRL);
 
 	dev->stats.tx_packets++;
 	dev->stats.tx_bytes += len;
 
 	if (TX_BUFFS_AVAIL(qep) <= 0) {
+		/* Halt the net queue and enable tx interrupts.
+		 * When the tx queue empties the tx irq handler
+		 * will wake up the queue and return us back to
+		 * the lazy tx reclaim scheme.
+		 */
 		netif_stop_queue(dev);
 		sbus_writel(0, qep->qcregs + CREG_TIMASK);
 	}
@@ -598,7 +630,7 @@ static void qe_set_multicast(struct net_device *dev)
 	int i;
 	u32 crc;
 
-	
+	/* Lock out others. */
 	netif_stop_queue(dev);
 
 	if ((dev->flags & IFF_ALLMULTI) || (netdev_mc_count(dev) > 64)) {
@@ -621,7 +653,7 @@ static void qe_set_multicast(struct net_device *dev)
 			crc >>= 26;
 			hash_table[crc >> 4] |= 1 << (crc & 0xf);
 		}
-		
+		/* Program the qe with the new filter value. */
 		sbus_writeb(MREGS_IACONFIG_ACHNGE | MREGS_IACONFIG_LARESET,
 			    qep->mregs + MREGS_IACONFIG);
 		while ((sbus_readb(qep->mregs + MREGS_IACONFIG) & MREGS_IACONFIG_ACHNGE) != 0)
@@ -633,13 +665,20 @@ static void qe_set_multicast(struct net_device *dev)
 		sbus_writeb(0, qep->mregs + MREGS_IACONFIG);
 	}
 
+	/* Any change of the logical address filter, the physical address,
+	 * or enabling/disabling promiscuous mode causes the MACE to disable
+	 * the receiver.  So we must re-enable them here or else the MACE
+	 * refuses to listen to anything on the network.  Sheesh, took
+	 * me a day or two to find this bug.
+	 */
 	qep->mconfig = new_mconfig;
 	sbus_writeb(qep->mconfig, qep->mregs + MREGS_MCONFIG);
 
-	
+	/* Let us get going again. */
 	netif_wake_queue(dev);
 }
 
+/* Ethtool support... */
 static void qe_get_drvinfo(struct net_device *dev, struct ethtool_drvinfo *info)
 {
 	const struct linux_prom_registers *regs;
@@ -674,6 +713,7 @@ static const struct ethtool_ops qe_ethtool_ops = {
 	.get_link		= qe_get_link,
 };
 
+/* This is only called once at boot time for each card probed. */
 static void qec_init_once(struct sunqec *qecp, struct platform_device *op)
 {
 	u8 bsizes = qecp->qec_bursts;
@@ -686,12 +726,18 @@ static void qec_init_once(struct sunqec *qecp, struct platform_device *op)
 		sbus_writel(GLOB_CTRL_B16, qecp->gregs + GLOB_CTRL);
 	}
 
+	/* Packetsize only used in 100baseT BigMAC configurations,
+	 * set it to zero just to be on the safe side.
+	 */
 	sbus_writel(GLOB_PSIZE_2048, qecp->gregs + GLOB_PSIZE);
 
-	
+	/* Set the local memsize register, divided up to one piece per QE channel. */
 	sbus_writel((resource_size(&op->resource[1]) >> 2),
 		    qecp->gregs + GLOB_MSIZE);
 
+	/* Divide up the local QEC memory amongst the 4 QE receiver and
+	 * transmitter FIFOs.  Basically it is (total / 2 / num_channels).
+	 */
 	sbus_writel((resource_size(&op->resource[1]) >> 2) >> 1,
 		    qecp->gregs + GLOB_TSIZE);
 	sbus_writel((resource_size(&op->resource[1]) >> 2) >> 1,
@@ -702,6 +748,9 @@ static u8 __devinit qec_get_burst(struct device_node *dp)
 {
 	u8 bsizes, bsizes_more;
 
+	/* Find and set the burst sizes for the QEC, since it
+	 * does the actual dma for all 4 channels.
+	 */
 	bsizes = of_getintprop_default(dp, "burst-sizes", 0xff);
 	bsizes &= 0xff;
 	bsizes_more = of_getintprop_default(dp->parent, "burst-sizes", 0xff);
@@ -733,7 +782,7 @@ static struct sunqec * __devinit get_qec(struct platform_device *child)
 			if (!qecp->gregs)
 				goto fail;
 
-			
+			/* Make sure the QEC is in MACE mode. */
 			ctrl = sbus_readl(qecp->gregs + GLOB_CTRL);
 			ctrl &= 0xf0000000;
 			if (ctrl != GLOB_CTRL_MMODE) {
@@ -840,7 +889,7 @@ static int __devinit qec_ether_init(struct platform_device *op)
 	    qe->buffers == NULL || qe->buffers_dvma == 0)
 		goto fail;
 
-	
+	/* Stop this QE. */
 	qe_stop(qe);
 
 	SET_NETDEV_DEV(dev, &op->dev);

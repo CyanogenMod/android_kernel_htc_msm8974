@@ -14,39 +14,39 @@ static __initconst const u64 amd_hw_cache_event_ids
 {
  [ C(L1D) ] = {
 	[ C(OP_READ) ] = {
-		[ C(RESULT_ACCESS) ] = 0x0040, 
-		[ C(RESULT_MISS)   ] = 0x0141, 
+		[ C(RESULT_ACCESS) ] = 0x0040, /* Data Cache Accesses        */
+		[ C(RESULT_MISS)   ] = 0x0141, /* Data Cache Misses          */
 	},
 	[ C(OP_WRITE) ] = {
-		[ C(RESULT_ACCESS) ] = 0x0142, 
+		[ C(RESULT_ACCESS) ] = 0x0142, /* Data Cache Refills :system */
 		[ C(RESULT_MISS)   ] = 0,
 	},
 	[ C(OP_PREFETCH) ] = {
-		[ C(RESULT_ACCESS) ] = 0x0267, 
-		[ C(RESULT_MISS)   ] = 0x0167, 
+		[ C(RESULT_ACCESS) ] = 0x0267, /* Data Prefetcher :attempts  */
+		[ C(RESULT_MISS)   ] = 0x0167, /* Data Prefetcher :cancelled */
 	},
  },
  [ C(L1I ) ] = {
 	[ C(OP_READ) ] = {
-		[ C(RESULT_ACCESS) ] = 0x0080, 
-		[ C(RESULT_MISS)   ] = 0x0081, 
+		[ C(RESULT_ACCESS) ] = 0x0080, /* Instruction cache fetches  */
+		[ C(RESULT_MISS)   ] = 0x0081, /* Instruction cache misses   */
 	},
 	[ C(OP_WRITE) ] = {
 		[ C(RESULT_ACCESS) ] = -1,
 		[ C(RESULT_MISS)   ] = -1,
 	},
 	[ C(OP_PREFETCH) ] = {
-		[ C(RESULT_ACCESS) ] = 0x014B, 
+		[ C(RESULT_ACCESS) ] = 0x014B, /* Prefetch Instructions :Load */
 		[ C(RESULT_MISS)   ] = 0,
 	},
  },
  [ C(LL  ) ] = {
 	[ C(OP_READ) ] = {
-		[ C(RESULT_ACCESS) ] = 0x037D, 
-		[ C(RESULT_MISS)   ] = 0x037E, 
+		[ C(RESULT_ACCESS) ] = 0x037D, /* Requests to L2 Cache :IC+DC */
+		[ C(RESULT_MISS)   ] = 0x037E, /* L2 Cache Misses : IC+DC     */
 	},
 	[ C(OP_WRITE) ] = {
-		[ C(RESULT_ACCESS) ] = 0x017F, 
+		[ C(RESULT_ACCESS) ] = 0x017F, /* L2 Fill/Writeback           */
 		[ C(RESULT_MISS)   ] = 0,
 	},
 	[ C(OP_PREFETCH) ] = {
@@ -56,8 +56,8 @@ static __initconst const u64 amd_hw_cache_event_ids
  },
  [ C(DTLB) ] = {
 	[ C(OP_READ) ] = {
-		[ C(RESULT_ACCESS) ] = 0x0040, 
-		[ C(RESULT_MISS)   ] = 0x0746, 
+		[ C(RESULT_ACCESS) ] = 0x0040, /* Data Cache Accesses        */
+		[ C(RESULT_MISS)   ] = 0x0746, /* L1_DTLB_AND_L2_DLTB_MISS.ALL */
 	},
 	[ C(OP_WRITE) ] = {
 		[ C(RESULT_ACCESS) ] = 0,
@@ -70,8 +70,8 @@ static __initconst const u64 amd_hw_cache_event_ids
  },
  [ C(ITLB) ] = {
 	[ C(OP_READ) ] = {
-		[ C(RESULT_ACCESS) ] = 0x0080, 
-		[ C(RESULT_MISS)   ] = 0x0385, 
+		[ C(RESULT_ACCESS) ] = 0x0080, /* Instruction fecthes        */
+		[ C(RESULT_MISS)   ] = 0x0385, /* L1_ITLB_AND_L2_ITLB_MISS.ALL */
 	},
 	[ C(OP_WRITE) ] = {
 		[ C(RESULT_ACCESS) ] = -1,
@@ -84,8 +84,8 @@ static __initconst const u64 amd_hw_cache_event_ids
  },
  [ C(BPU ) ] = {
 	[ C(OP_READ) ] = {
-		[ C(RESULT_ACCESS) ] = 0x00c2, 
-		[ C(RESULT_MISS)   ] = 0x00c3, 
+		[ C(RESULT_ACCESS) ] = 0x00c2, /* Retired Branch Instr.      */
+		[ C(RESULT_MISS)   ] = 0x00c3, /* Retired Mispredicted BI    */
 	},
 	[ C(OP_WRITE) ] = {
 		[ C(RESULT_ACCESS) ] = -1,
@@ -98,8 +98,8 @@ static __initconst const u64 amd_hw_cache_event_ids
  },
  [ C(NODE) ] = {
 	[ C(OP_READ) ] = {
-		[ C(RESULT_ACCESS) ] = 0xb8e9, 
-		[ C(RESULT_MISS)   ] = 0x98e9, 
+		[ C(RESULT_ACCESS) ] = 0xb8e9, /* CPU Request to Memory, l+r */
+		[ C(RESULT_MISS)   ] = 0x98e9, /* CPU Request to Memory, r   */
 	},
 	[ C(OP_WRITE) ] = {
 		[ C(RESULT_ACCESS) ] = -1,
@@ -112,6 +112,9 @@ static __initconst const u64 amd_hw_cache_event_ids
  },
 };
 
+/*
+ * AMD Performance Monitor K7 and later.
+ */
 static const u64 amd_perfmon_event_map[] =
 {
   [PERF_COUNT_HW_CPU_CYCLES]			= 0x0076,
@@ -120,8 +123,8 @@ static const u64 amd_perfmon_event_map[] =
   [PERF_COUNT_HW_CACHE_MISSES]			= 0x0081,
   [PERF_COUNT_HW_BRANCH_INSTRUCTIONS]		= 0x00c2,
   [PERF_COUNT_HW_BRANCH_MISSES]			= 0x00c3,
-  [PERF_COUNT_HW_STALLED_CYCLES_FRONTEND]	= 0x00d0, 
-  [PERF_COUNT_HW_STALLED_CYCLES_BACKEND]	= 0x00d1, 
+  [PERF_COUNT_HW_STALLED_CYCLES_FRONTEND]	= 0x00d0, /* "Decoder empty" event */
+  [PERF_COUNT_HW_STALLED_CYCLES_BACKEND]	= 0x00d1, /* "Dispatch stalls" event */
 };
 
 static u64 amd_pmu_event_map(int hw_event)
@@ -140,6 +143,11 @@ static int amd_pmu_hw_config(struct perf_event *event)
 		return -EOPNOTSUPP;
 
 	if (event->attr.exclude_host && event->attr.exclude_guest)
+		/*
+		 * When HO == GO == 1 the hardware treats that as GO == HO == 0
+		 * and will count in both modes. We don't want to count in that
+		 * case so we emulate no-counting by setting US = OS = 0.
+		 */
 		event->hw.config &= ~(ARCH_PERFMON_EVENTSEL_USR |
 				      ARCH_PERFMON_EVENTSEL_OS);
 	else if (event->attr.exclude_host)
@@ -155,6 +163,9 @@ static int amd_pmu_hw_config(struct perf_event *event)
 	return 0;
 }
 
+/*
+ * AMD64 events are detected based on their event codes.
+ */
 static inline unsigned int amd_get_event_code(struct hw_perf_event *hwc)
 {
 	return ((hwc->config >> 24) & 0x0f00) | (hwc->config & 0x00ff);
@@ -179,9 +190,20 @@ static void amd_put_event_constraints(struct cpu_hw_events *cpuc,
 	struct amd_nb *nb = cpuc->amd_nb;
 	int i;
 
+	/*
+	 * only care about NB events
+	 */
 	if (!(amd_has_nb(cpuc) && amd_is_nb_event(hwc)))
 		return;
 
+	/*
+	 * need to scan whole list because event may not have
+	 * been assigned during scheduling
+	 *
+	 * no race condition possible because event can only
+	 * be removed on one CPU at a time AND PMU is disabled
+	 * when we come here
+	 */
 	for (i = 0; i < x86_pmu.num_counters; i++) {
 		if (nb->owners[i] == event) {
 			cmpxchg(nb->owners+i, event, NULL);
@@ -190,6 +212,42 @@ static void amd_put_event_constraints(struct cpu_hw_events *cpuc,
 	}
 }
 
+ /*
+  * AMD64 NorthBridge events need special treatment because
+  * counter access needs to be synchronized across all cores
+  * of a package. Refer to BKDG section 3.12
+  *
+  * NB events are events measuring L3 cache, Hypertransport
+  * traffic. They are identified by an event code >= 0xe00.
+  * They measure events on the NorthBride which is shared
+  * by all cores on a package. NB events are counted on a
+  * shared set of counters. When a NB event is programmed
+  * in a counter, the data actually comes from a shared
+  * counter. Thus, access to those counters needs to be
+  * synchronized.
+  *
+  * We implement the synchronization such that no two cores
+  * can be measuring NB events using the same counters. Thus,
+  * we maintain a per-NB allocation table. The available slot
+  * is propagated using the event_constraint structure.
+  *
+  * We provide only one choice for each NB event based on
+  * the fact that only NB events have restrictions. Consequently,
+  * if a counter is available, there is a guarantee the NB event
+  * will be assigned to it. If no slot is available, an empty
+  * constraint is returned and scheduling will eventually fail
+  * for this event.
+  *
+  * Note that all cores attached the same NB compete for the same
+  * counters to host NB events, this is why we use atomic ops. Some
+  * multi-chip CPUs may have more than one NB.
+  *
+  * Given that resources are allocated (cmpxchg), they must be
+  * eventually freed for others to use. This is accomplished by
+  * calling amd_put_event_constraints().
+  *
+  * Non NB events are not impacted by this restriction.
+  */
 static struct event_constraint *
 amd_get_event_constraints(struct cpu_hw_events *cpuc, struct perf_event *event)
 {
@@ -199,24 +257,49 @@ amd_get_event_constraints(struct cpu_hw_events *cpuc, struct perf_event *event)
 	int max = x86_pmu.num_counters;
 	int i, j, k = -1;
 
+	/*
+	 * if not NB event or no NB, then no constraints
+	 */
 	if (!(amd_has_nb(cpuc) && amd_is_nb_event(hwc)))
 		return &unconstrained;
 
+	/*
+	 * detect if already present, if so reuse
+	 *
+	 * cannot merge with actual allocation
+	 * because of possible holes
+	 *
+	 * event can already be present yet not assigned (in hwc->idx)
+	 * because of successive calls to x86_schedule_events() from
+	 * hw_perf_group_sched_in() without hw_perf_enable()
+	 */
 	for (i = 0; i < max; i++) {
+		/*
+		 * keep track of first free slot
+		 */
 		if (k == -1 && !nb->owners[i])
 			k = i;
 
-		
+		/* already present, reuse */
 		if (nb->owners[i] == event)
 			goto done;
 	}
+	/*
+	 * not present, so grab a new slot
+	 * starting either at:
+	 */
 	if (hwc->idx != -1) {
-		
+		/* previous assignment */
 		i = hwc->idx;
 	} else if (k != -1) {
-		
+		/* start from free slot found */
 		i = k;
 	} else {
+		/*
+		 * event not found, no slot found in
+		 * first pass, try again from the
+		 * beginning
+		 */
 		i = 0;
 	}
 	j = i;
@@ -246,6 +329,9 @@ static struct amd_nb *amd_alloc_nb(int cpu)
 
 	nb->nb_id = -1;
 
+	/*
+	 * initialize all possible NB constraints
+	 */
 	for (i = 0; i < x86_pmu.num_counters; i++) {
 		__set_bit(i, nb->event_constraints[i].idxmsk);
 		nb->event_constraints[i].weight = 1;
@@ -350,7 +436,7 @@ static __initconst const struct x86_pmu amd_pmu = {
 	.cntval_bits		= 48,
 	.cntval_mask		= (1ULL << 48) - 1,
 	.apic			= 1,
-	
+	/* use highest bit to detect overflow */
 	.max_period		= (1ULL << 47) - 1,
 	.get_event_constraints	= amd_get_event_constraints,
 	.put_event_constraints	= amd_put_event_constraints,
@@ -362,6 +448,7 @@ static __initconst const struct x86_pmu amd_pmu = {
 	.cpu_dead		= amd_pmu_cpu_dead,
 };
 
+/* AMD Family 15h */
 
 #define AMD_EVENT_TYPE_MASK	0x000000F0ULL
 
@@ -374,6 +461,56 @@ static __initconst const struct x86_pmu amd_pmu = {
 #define AMD_EVENT_DE		0x000000D0ULL
 #define AMD_EVENT_NB		0x000000E0ULL ... 0x000000F0ULL
 
+/*
+ * AMD family 15h event code/PMC mappings:
+ *
+ * type = event_code & 0x0F0:
+ *
+ * 0x000	FP	PERF_CTL[5:3]
+ * 0x010	FP	PERF_CTL[5:3]
+ * 0x020	LS	PERF_CTL[5:0]
+ * 0x030	LS	PERF_CTL[5:0]
+ * 0x040	DC	PERF_CTL[5:0]
+ * 0x050	DC	PERF_CTL[5:0]
+ * 0x060	CU	PERF_CTL[2:0]
+ * 0x070	CU	PERF_CTL[2:0]
+ * 0x080	IC/DE	PERF_CTL[2:0]
+ * 0x090	IC/DE	PERF_CTL[2:0]
+ * 0x0A0	---
+ * 0x0B0	---
+ * 0x0C0	EX/LS	PERF_CTL[5:0]
+ * 0x0D0	DE	PERF_CTL[2:0]
+ * 0x0E0	NB	NB_PERF_CTL[3:0]
+ * 0x0F0	NB	NB_PERF_CTL[3:0]
+ *
+ * Exceptions:
+ *
+ * 0x000	FP	PERF_CTL[3], PERF_CTL[5:3] (*)
+ * 0x003	FP	PERF_CTL[3]
+ * 0x004	FP	PERF_CTL[3], PERF_CTL[5:3] (*)
+ * 0x00B	FP	PERF_CTL[3]
+ * 0x00D	FP	PERF_CTL[3]
+ * 0x023	DE	PERF_CTL[2:0]
+ * 0x02D	LS	PERF_CTL[3]
+ * 0x02E	LS	PERF_CTL[3,0]
+ * 0x043	CU	PERF_CTL[2:0]
+ * 0x045	CU	PERF_CTL[2:0]
+ * 0x046	CU	PERF_CTL[2:0]
+ * 0x054	CU	PERF_CTL[2:0]
+ * 0x055	CU	PERF_CTL[2:0]
+ * 0x08F	IC	PERF_CTL[0]
+ * 0x187	DE	PERF_CTL[0]
+ * 0x188	DE	PERF_CTL[0]
+ * 0x0DB	EX	PERF_CTL[5:0]
+ * 0x0DC	LS	PERF_CTL[5:0]
+ * 0x0DD	LS	PERF_CTL[5:0]
+ * 0x0DE	LS	PERF_CTL[5:0]
+ * 0x0DF	LS	PERF_CTL[5:0]
+ * 0x1D6	EX	PERF_CTL[5:0]
+ * 0x1D8	EX	PERF_CTL[5:0]
+ *
+ * (*) depending on the umask all FPU counters may be used
+ */
 
 static struct event_constraint amd_f15_PMC0  = EVENT_CONSTRAINT(0, 0x01, 0);
 static struct event_constraint amd_f15_PMC20 = EVENT_CONSTRAINT(0, 0x07, 0);
@@ -441,7 +578,7 @@ amd_get_event_constraints_f15h(struct cpu_hw_events *cpuc, struct perf_event *ev
 			return &amd_f15_PMC20;
 		}
 	case AMD_EVENT_NB:
-		
+		/* not yet implemented */
 		return &emptyconstraint;
 	default:
 		return &emptyconstraint;
@@ -465,10 +602,10 @@ static __initconst const struct x86_pmu amd_pmu_f15h = {
 	.cntval_bits		= 48,
 	.cntval_mask		= (1ULL << 48) - 1,
 	.apic			= 1,
-	
+	/* use highest bit to detect overflow */
 	.max_period		= (1ULL << 47) - 1,
 	.get_event_constraints	= amd_get_event_constraints_f15h,
-	
+	/* nortbridge counters not yet implemented: */
 #if 0
 	.put_event_constraints	= amd_put_event_constraints,
 
@@ -481,10 +618,14 @@ static __initconst const struct x86_pmu amd_pmu_f15h = {
 
 __init int amd_pmu_init(void)
 {
-	
+	/* Performance-monitoring supported from K7 and later: */
 	if (boot_cpu_data.x86 < 6)
 		return -ENODEV;
 
+	/*
+	 * If core performance counter extensions exists, it must be
+	 * family 15h, otherwise fail. See x86_pmu_addr_offset().
+	 */
 	switch (boot_cpu_data.x86) {
 	case 0x15:
 		if (!cpu_has_perfctr_core)
@@ -498,7 +639,7 @@ __init int amd_pmu_init(void)
 		break;
 	}
 
-	
+	/* Events are common for all AMDs */
 	memcpy(hw_cache_event_ids, amd_hw_cache_event_ids,
 	       sizeof(hw_cache_event_ids));
 
@@ -511,7 +652,7 @@ void amd_pmu_enable_virt(void)
 
 	cpuc->perf_ctr_virt_mask = 0;
 
-	
+	/* Reload all events */
 	x86_pmu_disable_all();
 	x86_pmu_enable_all(0);
 }
@@ -521,9 +662,15 @@ void amd_pmu_disable_virt(void)
 {
 	struct cpu_hw_events *cpuc = &__get_cpu_var(cpu_hw_events);
 
+	/*
+	 * We only mask out the Host-only bit so that host-only counting works
+	 * when SVM is disabled. If someone sets up a guest-only counter when
+	 * SVM is disabled the Guest-only bits still gets set and the counter
+	 * will not count anything.
+	 */
 	cpuc->perf_ctr_virt_mask = AMD_PERFMON_EVENTSEL_HOSTONLY;
 
-	
+	/* Reload all events */
 	x86_pmu_disable_all();
 	x86_pmu_enable_all(0);
 }

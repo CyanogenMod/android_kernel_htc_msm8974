@@ -23,8 +23,8 @@
 #include <linux/interrupt.h>
 
 #ifdef CONFIG_MIPS_MT_SMP
-#define MIPS_CPU_IPI_RESCHED_IRQ 0	
-#define MIPS_CPU_IPI_CALL_IRQ 1		
+#define MIPS_CPU_IPI_RESCHED_IRQ 0	/* SW int 0 for resched */
+#define MIPS_CPU_IPI_CALL_IRQ 1		/* SW int 1 for call */
 
 
 static void ipi_resched_dispatch(void)
@@ -74,4 +74,4 @@ void __init msp_vsmp_int_init(void)
 	arch_init_ipiirq(MIPS_CPU_IPI_RESCHED_IRQ, &irq_resched);
 	arch_init_ipiirq(MIPS_CPU_IPI_CALL_IRQ, &irq_call);
 }
-#endif 
+#endif /* CONFIG_MIPS_MT_SMP */

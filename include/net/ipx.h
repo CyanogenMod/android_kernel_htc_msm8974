@@ -1,5 +1,13 @@
 #ifndef _NET_INET_IPX_H_
 #define _NET_INET_IPX_H_
+/*
+ *	The following information is in its entirety obtained from:
+ *
+ *	Novell 'IPX Router Specification' Version 1.10 
+ *		Part No. 107-000029-001
+ *
+ *	Which is available from ftp.novell.com
+ */
 
 #include <linux/netdevice.h>
 #include <net/datalink.h>
@@ -25,11 +33,11 @@ struct ipxhdr {
 	__u8			ipx_tctrl;
 	__u8			ipx_type;
 #define IPX_TYPE_UNKNOWN	0x00
-#define IPX_TYPE_RIP		0x01	
-#define IPX_TYPE_SAP		0x04	
-#define IPX_TYPE_SPX		0x05	
-#define IPX_TYPE_NCP		0x11	
-#define IPX_TYPE_PPROP		0x14	
+#define IPX_TYPE_RIP		0x01	/* may also be 0 */
+#define IPX_TYPE_SAP		0x04	/* may also be 0 */
+#define IPX_TYPE_SPX		0x05	/* SPX protocol */
+#define IPX_TYPE_NCP		0x11	/* $lots for docs on this (SPIT) */
+#define IPX_TYPE_PPROP		0x14	/* complicated flood fill brdcast */
 	struct ipx_address	ipx_dest __packed;
 	struct ipx_address	ipx_source __packed;
 };
@@ -40,27 +48,27 @@ static __inline__ struct ipxhdr *ipx_hdr(struct sk_buff *skb)
 }
 
 struct ipx_interface {
-	
+	/* IPX address */
 	__be32			if_netnum;
 	unsigned char		if_node[IPX_NODE_LEN];
 	atomic_t		refcnt;
 
-	
+	/* physical device info */
 	struct net_device	*if_dev;
 	struct datalink_proto	*if_dlink;
 	__be16			if_dlink_type;
 
-	
+	/* socket support */
 	unsigned short		if_sknum;
 	struct hlist_head	if_sklist;
 	spinlock_t		if_sklist_lock;
 
-	
+	/* administrative overhead */
 	int			if_ipx_offset;
 	unsigned char		if_internal;
 	unsigned char		if_primary;
 	
-	struct list_head	node; 
+	struct list_head	node; /* node in ipx_interfaces list */
 };
 
 struct ipx_route {
@@ -68,7 +76,7 @@ struct ipx_route {
 	struct ipx_interface	*ir_intrfc;
 	unsigned char		ir_routed;
 	unsigned char		ir_router_node[IPX_NODE_LEN];
-	struct list_head	node; 
+	struct list_head	node; /* node in ipx_routes list */
 	atomic_t		refcnt;
 };
 
@@ -85,7 +93,7 @@ struct ipx_cb {
 #include <net/sock.h>
 
 struct ipx_sock {
-	
+	/* struct sock has to be the first member of ipx_sock */
 	struct sock		sk;
 	struct ipx_address	dest_addr;
 	struct ipx_interface	*intrfc;
@@ -94,6 +102,10 @@ struct ipx_sock {
 	unsigned char		node[IPX_NODE_LEN];
 #endif
 	unsigned short		type;
+	/*
+	 * To handle special ncp connection-handling sockets for mars_nwe,
+ 	 * the connection number must be stored in the socket.
+	 */
 	unsigned short		ipx_ncp_conn;
 };
 
@@ -145,4 +157,4 @@ static __inline__ void ipxrtr_put(struct ipx_route *rt)
 	        if (atomic_dec_and_test(&rt->refcnt))
 			                kfree(rt);
 }
-#endif 
+#endif /* _NET_INET_IPX_H_ */

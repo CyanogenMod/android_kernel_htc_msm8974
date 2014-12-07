@@ -16,6 +16,7 @@
 #ifndef __ASM_ARCH_REGS_GCR_H
 #define __ASM_ARCH_REGS_GCR_H
 
+/* Global control registers */
 
 #define GCR_BA		W90X900_VA_GCR
 #define REG_PDID	(GCR_BA+0x000)
@@ -35,4 +36,4 @@
 #define REG_GTMP2	(GCR_BA+0x038)
 #define REG_GTMP3	(GCR_BA+0x03C)
 
-#endif 
+#endif /*  __ASM_ARCH_REGS_GCR_H */

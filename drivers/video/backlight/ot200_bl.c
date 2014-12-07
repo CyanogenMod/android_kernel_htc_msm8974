@@ -18,6 +18,7 @@
 
 static struct cs5535_mfgpt_timer *pwm_timer;
 
+/* this array defines the mapping of brightness in % to pwm frequency */
 static const u8 dim_table[101] = {0, 0, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2,
 				  2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4,
 				  4, 5, 5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 9, 9,
@@ -34,7 +35,8 @@ struct ot200_backlight_data {
 
 #define GPIO_DIMM	27
 #define SCALE		1
-#define CMP1MODE	0x2	
+#define CMP1MODE	0x2	/* compare on GE; output high on compare
+				 * greater than or equal */
 #define PWM_SETUP	(SCALE | CMP1MODE << 6 | MFGPT_SETUP_CNTEN)
 #define MAX_COMP2	163
 
@@ -46,7 +48,7 @@ static int ot200_backlight_update_status(struct backlight_device *bl)
 	if (bl->props.state & BL_CORE_FBBLANK)
 		brightness = 0;
 
-	
+	/* enable or disable PWM timer */
 	if (brightness == 0)
 		cs5535_mfgpt_write(pwm_timer, MFGPT_REG_SETUP, 0);
 	else if (data->current_brightness == 0) {
@@ -55,7 +57,7 @@ static int ot200_backlight_update_status(struct backlight_device *bl)
 			MFGPT_SETUP_CNTEN);
 	}
 
-	
+	/* apply new brightness value */
 	cs5535_mfgpt_write(pwm_timer, MFGPT_REG_CMP1,
 		MAX_COMP2 - dim_table[brightness]);
 	data->current_brightness = brightness;
@@ -81,13 +83,13 @@ static int ot200_backlight_probe(struct platform_device *pdev)
 	struct backlight_properties props;
 	int retval = 0;
 
-	
+	/* request gpio */
 	if (gpio_request(GPIO_DIMM, "ot200 backlight dimmer") < 0) {
 		dev_err(&pdev->dev, "failed to request GPIO %d\n", GPIO_DIMM);
 		return -ENODEV;
 	}
 
-	
+	/* request timer */
 	pwm_timer = cs5535_mfgpt_alloc_timer(7, MFGPT_DOMAIN_ANY);
 	if (!pwm_timer) {
 		dev_err(&pdev->dev, "MFGPT 7 not available\n");
@@ -101,11 +103,11 @@ static int ot200_backlight_probe(struct platform_device *pdev)
 		goto error_kzalloc;
 	}
 
-	
+	/* setup gpio */
 	cs5535_gpio_set(GPIO_DIMM, GPIO_OUTPUT_ENABLE);
 	cs5535_gpio_set(GPIO_DIMM, GPIO_OUTPUT_AUX1);
 
-	
+	/* setup timer */
 	cs5535_mfgpt_write(pwm_timer, MFGPT_REG_CMP1, 0);
 	cs5535_mfgpt_write(pwm_timer, MFGPT_REG_CMP2, MAX_COMP2);
 	cs5535_mfgpt_write(pwm_timer, MFGPT_REG_SETUP, PWM_SETUP);
@@ -143,7 +145,7 @@ static int ot200_backlight_remove(struct platform_device *pdev)
 
 	backlight_device_unregister(bl);
 
-	
+	/* on module unload set brightness to 100% */
 	cs5535_mfgpt_write(pwm_timer, MFGPT_REG_COUNTER, 0);
 	cs5535_mfgpt_write(pwm_timer, MFGPT_REG_SETUP, MFGPT_SETUP_CNTEN);
 	cs5535_mfgpt_write(pwm_timer, MFGPT_REG_CMP1,

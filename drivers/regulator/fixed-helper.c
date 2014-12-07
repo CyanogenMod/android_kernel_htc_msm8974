@@ -16,6 +16,12 @@ static void regulator_fixed_release(struct device *dev)
 	kfree(data);
 }
 
+/**
+ * regulator_register_fixed - register a no-op fixed regulator
+ * @id: platform device id
+ * @supplies: consumers for this regulator
+ * @num_supplies: number of consumers
+ */
 struct platform_device *regulator_register_fixed(int id,
 		struct regulator_consumer_supply *supplies, int num_supplies)
 {

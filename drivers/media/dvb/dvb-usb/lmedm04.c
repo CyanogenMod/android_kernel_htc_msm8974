@@ -81,6 +81,7 @@
 
 
 
+/* debug */
 static int dvb_usb_lme2510_debug;
 #define l_dprintk(var, level, args...) do { \
 	if ((var >= level)) \
@@ -179,7 +180,7 @@ static int lme2510_usb_talk(struct dvb_usb_device *d,
 	if (ret < 0)
 		return -EAGAIN;
 
-	
+	/* the read/write capped at 64 */
 	memcpy(buff, wbuf, (wlen < 64) ? wlen : 64);
 
 	ret |= lme2510_bulk_write(d->udev, buff, wlen , 0x01);
@@ -205,7 +206,7 @@ static int lme2510_stream_restart(struct dvb_usb_device *d)
 	if (st->pid_off)
 		ret = lme2510_usb_talk(d, all_pids, sizeof(all_pids),
 			rbuff, sizeof(rbuff));
-	
+	/*Restart Stream Command*/
 	ret = lme2510_usb_talk(d, stream_on, sizeof(stream_on),
 			rbuff, sizeof(rbuff));
 	return ret;
@@ -297,7 +298,7 @@ static void lme2510_int_response(struct urb *lme_urb)
 				break;
 			case TUNER_S7395:
 			case TUNER_S0194:
-				
+				/* Tweak for earlier firmware*/
 				if (ibuf[1] == 0x03) {
 					if (ibuf[2] > 1)
 						st->signal_lock = ibuf[2];
@@ -482,7 +483,7 @@ static int lme2510_msg(struct dvb_usb_device *d,
 			break;
 		}
 	} else {
-		
+		/* TODO rewrite this section */
 		switch (st->tuner_config) {
 		case TUNER_LG:
 			switch (wbuf[3]) {
@@ -675,6 +676,7 @@ static struct i2c_algorithm lme2510_i2c_algo = {
 	.functionality = lme2510_i2c_func,
 };
 
+/* Callbacks for DVB USB */
 static int lme2510_identify_state(struct usb_device *udev,
 		struct dvb_usb_device_properties *props,
 		struct dvb_usb_device_description **desc,
@@ -696,12 +698,12 @@ static int lme2510_streaming_ctrl(struct dvb_usb_adapter *adap, int onoff)
 
 	deb_info(1, "STM  (%02x)", onoff);
 
-	
+	/* Streaming is started by FE_HAS_LOCK */
 	if (onoff == 1)
 		st->stream_on = 1;
 	else {
 		deb_info(1, "STM Steam Off");
-		
+		/* mutex is here only to avoid collision with I2C */
 		mutex_lock(&adap->dev->i2c_mutex);
 
 		ret = lme2510_usb_talk(adap->dev, clear_reg_3,
@@ -774,7 +776,7 @@ static int lme2510_download_firmware(struct usb_device *dev,
 	data[0] = 0x8a;
 	len_in = 1;
 	msleep(2000);
-	ret |= lme2510_bulk_write(dev, data , len_in, 1); 
+	ret |= lme2510_bulk_write(dev, data , len_in, 1); /*Resetting*/
 	ret |= lme2510_bulk_read(dev, data, len_in, 1);
 	msleep(400);
 
@@ -795,7 +797,7 @@ static void lme_coldreset(struct usb_device *dev)
 	data[0] = 0x0a;
 	len_in = 1;
 	info("FRM Firmware Cold Reset");
-	ret |= lme2510_bulk_write(dev, data , len_in, 1); 
+	ret |= lme2510_bulk_write(dev, data , len_in, 1); /*Cold Resetting*/
 	ret |= lme2510_bulk_read(dev, data, len_in, 1);
 
 	return;
@@ -904,7 +906,7 @@ static int lme2510_kill_urb(struct usb_data_stream *stream)
 
 	for (i = 0; i < stream->urbs_submitted; i++) {
 		deb_info(3, "killing URB no. %d.", i);
-		
+		/* stop the URB */
 		usb_kill_urb(stream->urb_list[i]);
 	}
 	stream->urbs_submitted = 0;
@@ -1163,7 +1165,7 @@ static int dm04_lme2510_tuner(struct dvb_usb_adapter *adap)
 		return -ENODEV;
 	}
 
-	
+	/* Start the Interrupt*/
 	ret = lme2510_int_read(adap);
 	if (ret < 0) {
 		info("INT Unable to start Interrupt Service");
@@ -1195,6 +1197,7 @@ static int lme2510_powerup(struct dvb_usb_device *d, int onoff)
 	return ret;
 }
 
+/* DVB USB Driver stuff */
 static struct dvb_usb_device_properties lme2510_properties;
 static struct dvb_usb_device_properties lme2510c_properties;
 
@@ -1236,10 +1239,10 @@ static int lme2510_probe(struct usb_interface *intf,
 }
 
 static struct usb_device_id lme2510_table[] = {
-	{ USB_DEVICE(0x3344, 0x1122) },  
-	{ USB_DEVICE(0x3344, 0x1120) },  
-	{ USB_DEVICE(0x3344, 0x22f0) },  
-	{}		
+	{ USB_DEVICE(0x3344, 0x1122) },  /* LME2510 */
+	{ USB_DEVICE(0x3344, 0x1120) },  /* LME2510C */
+	{ USB_DEVICE(0x3344, 0x22f0) },  /* LME2510C RS2000 */
+	{}		/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, lme2510_table);
@@ -1261,7 +1264,7 @@ static struct dvb_usb_device_properties lme2510_properties = {
 			.pid_filter_ctrl  = lme2510_pid_filter_ctrl,
 			.frontend_attach  = dm04_lme2510_frontend_attach,
 			.tuner_attach = dm04_lme2510_tuner,
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 10,
@@ -1312,7 +1315,7 @@ static struct dvb_usb_device_properties lme2510c_properties = {
 			.pid_filter_ctrl  = lme2510_pid_filter_ctrl,
 			.frontend_attach  = dm04_lme2510_frontend_attach,
 			.tuner_attach = dm04_lme2510_tuner,
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 10,

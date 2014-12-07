@@ -49,16 +49,20 @@ int get_user_timer_page(struct vm_area_struct *vma,
 	struct mm_struct *mm, unsigned long start, unsigned int gup_flags,
 	struct page **pages, int idx, int *goto_next_page)
 {
-	
+	/* Replicates the earlier work done in mm/memory.c */
 	unsigned long pg = start & PAGE_MASK;
 	pgd_t *pgd;
 	pud_t *pud;
 	pmd_t *pmd;
 	pte_t *pte;
 
+	/* Unset this flag -- this only gets activated if the
+	 * caller should go straight to the next_page label on
+	 * return.
+	 */
 	*goto_next_page = 0;
 
-	
+	/* user gate pages are read-only */
 	if (gup_flags & FOLL_WRITE)
 		return idx ? : -EFAULT;
 	if (pg > TASK_SIZE)
@@ -95,7 +99,7 @@ int get_user_timer_page(struct vm_area_struct *vma,
 		get_page(page);
 	}
 	pte_unmap(pte);
-	
+	/* In this case, set the next page */
 	*goto_next_page = 1;
 	return 0;
 }

@@ -12,11 +12,21 @@
  *   more details.
  */
 
+/**
+ * @file
+ *
+ * Some low-level simulator definitions.
+ */
 
 #ifndef __ARCH_SIM_DEF_H__
 #define __ARCH_SIM_DEF_H__
 
 
+/**
+ * Internal: the low bits of the SIM_CONTROL_* SPR values specify
+ * the operation to perform, and the remaining bits are
+ * an operation-specific parameter (often unused).
+ */
 #define _SIM_CONTROL_OPERATOR_BITS 8
 
 
@@ -77,6 +87,7 @@
  * each character in the string, plus a final NUL.  Instead of NUL,
  * you can also use "SIM_PUTC_FLUSH_STRING" or "SIM_PUTC_FLUSH_BINARY".
  */
+/* ISSUE: Document the meaning of "newline", and the handling of NUL. */
 #define SIM_CONTROL_PUTC 12
 
 /**
@@ -211,15 +222,28 @@
 #define SIM_CONTROL_ENABLE_MPIPE_LINK_MAGIC_BYTE 36
 
 
+/*
+ * Syscall numbers for use with "sim_syscall()".
+ */
 
+/** Syscall number for sim_add_watchpoint(). */
 #define SIM_SYSCALL_ADD_WATCHPOINT 2
 
+/** Syscall number for sim_remove_watchpoint(). */
 #define SIM_SYSCALL_REMOVE_WATCHPOINT 3
 
+/** Syscall number for sim_query_watchpoint(). */
 #define SIM_SYSCALL_QUERY_WATCHPOINT 4
 
+/**
+ * Syscall number that asserts that the cache lines whose 64-bit PA
+ * is passed as the second argument to sim_syscall(), and over a
+ * range passed as the third argument, are no longer in cache.
+ * The simulator raises an error if this is not the case.
+ */
 #define SIM_SYSCALL_VALIDATE_LINES_EVICTED 5
 
+/** Syscall number for sim_query_cpu_speed(). */
 #define SIM_SYSCALL_QUERY_CPU_SPEED 6
 
 
@@ -228,28 +252,44 @@
  * SIM_CONTROL_SET_TRACING, and written to SPR_SIM_CONTROL.
  */
 
+/**
+ * @addtogroup arch_sim
+ * @{
+ */
 
+/** Enable --trace-cycle when passed to simulator_set_tracing(). */
 #define SIM_TRACE_CYCLES          0x01
 
+/** Enable --trace-router when passed to simulator_set_tracing(). */
 #define SIM_TRACE_ROUTER          0x02
 
+/** Enable --trace-register-writes when passed to simulator_set_tracing(). */
 #define SIM_TRACE_REGISTER_WRITES 0x04
 
+/** Enable --trace-disasm when passed to simulator_set_tracing(). */
 #define SIM_TRACE_DISASM          0x08
 
+/** Enable --trace-stall-info when passed to simulator_set_tracing(). */
 #define SIM_TRACE_STALL_INFO      0x10
 
+/** Enable --trace-memory-controller when passed to simulator_set_tracing(). */
 #define SIM_TRACE_MEMORY_CONTROLLER 0x20
 
+/** Enable --trace-l2 when passed to simulator_set_tracing(). */
 #define SIM_TRACE_L2_CACHE 0x40
 
+/** Enable --trace-lines when passed to simulator_set_tracing(). */
 #define SIM_TRACE_LINES 0x80
 
+/** Turn off all tracing when passed to simulator_set_tracing(). */
 #define SIM_TRACE_NONE 0
 
+/** Turn on all tracing when passed to simulator_set_tracing(). */
 #define SIM_TRACE_ALL (-1)
 
+/** @} */
 
+/** Computes the value to write to SPR_SIM_CONTROL to set tracing flags. */
 #define SIM_TRACE_SPR_ARG(mask) \
   (SIM_CONTROL_SET_TRACING | ((mask) << _SIM_CONTROL_OPERATOR_BITS))
 
@@ -259,34 +299,53 @@
  * SIM_CONTROL_DUMP, and written to SPR_SIM_CONTROL.
  */
 
+/**
+ * @addtogroup arch_sim
+ * @{
+ */
 
+/** Dump the general-purpose registers. */
 #define SIM_DUMP_REGS          0x001
 
+/** Dump the SPRs. */
 #define SIM_DUMP_SPRS          0x002
 
+/** Dump the ITLB. */
 #define SIM_DUMP_ITLB          0x004
 
+/** Dump the DTLB. */
 #define SIM_DUMP_DTLB          0x008
 
+/** Dump the L1 I-cache. */
 #define SIM_DUMP_L1I           0x010
 
+/** Dump the L1 D-cache. */
 #define SIM_DUMP_L1D           0x020
 
+/** Dump the L2 cache. */
 #define SIM_DUMP_L2            0x040
 
+/** Dump the switch registers. */
 #define SIM_DUMP_SNREGS        0x080
 
+/** Dump the switch ITLB. */
 #define SIM_DUMP_SNITLB        0x100
 
+/** Dump the switch L1 I-cache. */
 #define SIM_DUMP_SNL1I         0x200
 
+/** Dump the current backtrace. */
 #define SIM_DUMP_BACKTRACE     0x400
 
+/** Only dump valid lines in caches. */
 #define SIM_DUMP_VALID_LINES   0x800
 
+/** Dump everything that is dumpable. */
 #define SIM_DUMP_ALL (-1 & ~SIM_DUMP_VALID_LINES)
 
+/** @} */
 
+/** Computes the value to write to SPR_SIM_CONTROL to dump machine state. */
 #define SIM_DUMP_SPR_ARG(mask) \
   (SIM_CONTROL_DUMP | ((mask) << _SIM_CONTROL_OPERATOR_BITS))
 
@@ -296,72 +355,110 @@
  * SIM_CONTROL_PROFILER_CHIP_xxx, and written to SPR_SIM_CONTROL.
  */
 
+/**
+ * @addtogroup arch_sim
+ * @{
+ */
 
+/** Use with with SIM_PROFILER_CHIP_xxx to control the memory controllers. */
 #define SIM_CHIP_MEMCTL        0x001
 
+/** Use with with SIM_PROFILER_CHIP_xxx to control the XAUI interface. */
 #define SIM_CHIP_XAUI          0x002
 
+/** Use with with SIM_PROFILER_CHIP_xxx to control the PCIe interface. */
 #define SIM_CHIP_PCIE          0x004
 
+/** Use with with SIM_PROFILER_CHIP_xxx to control the MPIPE interface. */
 #define SIM_CHIP_MPIPE         0x008
 
+/** Use with with SIM_PROFILER_CHIP_xxx to control the TRIO interface. */
 #define SIM_CHIP_TRIO          0x010
 
+/** Reference all chip devices. */
 #define SIM_CHIP_ALL (-1)
 
+/** @} */
 
+/** Computes the value to write to SPR_SIM_CONTROL to clear chip statistics. */
 #define SIM_PROFILER_CHIP_CLEAR_SPR_ARG(mask) \
   (SIM_CONTROL_PROFILER_CHIP_CLEAR | ((mask) << _SIM_CONTROL_OPERATOR_BITS))
 
+/** Computes the value to write to SPR_SIM_CONTROL to disable chip statistics.*/
 #define SIM_PROFILER_CHIP_DISABLE_SPR_ARG(mask) \
   (SIM_CONTROL_PROFILER_CHIP_DISABLE | ((mask) << _SIM_CONTROL_OPERATOR_BITS))
 
+/** Computes the value to write to SPR_SIM_CONTROL to enable chip statistics. */
 #define SIM_PROFILER_CHIP_ENABLE_SPR_ARG(mask) \
   (SIM_CONTROL_PROFILER_CHIP_ENABLE | ((mask) << _SIM_CONTROL_OPERATOR_BITS))
 
 
 
+/* Shim bitrate controls. */
 
+/** The number of bits used to store the shim id. */
 #define SIM_CONTROL_SHAPING_SHIM_ID_BITS 3
 
+/**
+ * @addtogroup arch_sim
+ * @{
+ */
 
+/** Change the gbe 0 bitrate. */
 #define SIM_CONTROL_SHAPING_GBE_0 0x0
 
+/** Change the gbe 1 bitrate. */
 #define SIM_CONTROL_SHAPING_GBE_1 0x1
 
+/** Change the gbe 2 bitrate. */
 #define SIM_CONTROL_SHAPING_GBE_2 0x2
 
+/** Change the gbe 3 bitrate. */
 #define SIM_CONTROL_SHAPING_GBE_3 0x3
 
+/** Change the xgbe 0 bitrate. */
 #define SIM_CONTROL_SHAPING_XGBE_0 0x4
 
+/** Change the xgbe 1 bitrate. */
 #define SIM_CONTROL_SHAPING_XGBE_1 0x5
 
+/** The type of shaping to do. */
 #define SIM_CONTROL_SHAPING_TYPE_BITS 2
 
+/** Control the multiplier. */
 #define SIM_CONTROL_SHAPING_MULTIPLIER 0
 
+/** Control the PPS. */
 #define SIM_CONTROL_SHAPING_PPS 1
 
+/** Control the BPS. */
 #define SIM_CONTROL_SHAPING_BPS 2
 
+/** The number of bits for the units for the shaping parameter. */
 #define SIM_CONTROL_SHAPING_UNITS_BITS 2
 
+/** Provide a number in single units. */
 #define SIM_CONTROL_SHAPING_UNITS_SINGLE 0
 
+/** Provide a number in kilo units. */
 #define SIM_CONTROL_SHAPING_UNITS_KILO 1
 
+/** Provide a number in mega units. */
 #define SIM_CONTROL_SHAPING_UNITS_MEGA 2
 
+/** Provide a number in giga units. */
 #define SIM_CONTROL_SHAPING_UNITS_GIGA 3
 
+/** @} */
 
+/** How many bits are available for the rate. */
 #define SIM_CONTROL_SHAPING_RATE_BITS \
   (32 - (_SIM_CONTROL_OPERATOR_BITS + \
          SIM_CONTROL_SHAPING_SHIM_ID_BITS + \
          SIM_CONTROL_SHAPING_TYPE_BITS + \
          SIM_CONTROL_SHAPING_UNITS_BITS))
 
+/** Computes the value to write to SPR_SIM_CONTROL to change a bitrate. */
 #define SIM_SHAPING_SPR_ARG(shim, type, units, rate) \
   (SIM_CONTROL_SHAPING | \
    ((shim) | \
@@ -373,16 +470,36 @@
                SIM_CONTROL_SHAPING_UNITS_BITS))) << _SIM_CONTROL_OPERATOR_BITS)
 
 
+/*
+ * Values returned when reading SPR_SIM_CONTROL.
+ * ISSUE: These names should share a longer common prefix.
+ */
 
+/**
+ * When reading SPR_SIM_CONTROL, the mask of simulator tracing bits
+ * (SIM_TRACE_xxx values).
+ */
 #define SIM_TRACE_FLAG_MASK 0xFFFF
 
+/** When reading SPR_SIM_CONTROL, the mask for whether profiling is enabled. */
 #define SIM_PROFILER_ENABLED_MASK 0x10000
 
 
+/*
+ * Special arguments for "SIM_CONTROL_PUTC".
+ */
 
+/**
+ * Flag value for forcing a PUTC string-flush, including
+ * coordinate/cycle prefix and newline.
+ */
 #define SIM_PUTC_FLUSH_STRING 0x100
 
+/**
+ * Flag value for forcing a PUTC binary-data-flush, which skips the
+ * prefix and does not append a newline.
+ */
 #define SIM_PUTC_FLUSH_BINARY 0x101
 
 
-#endif 
+#endif /* __ARCH_SIM_DEF_H__ */

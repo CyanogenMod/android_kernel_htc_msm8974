@@ -10,6 +10,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+ * Qualcomm PMIC 8018 driver header file
+ *
+ */
 
 #ifndef __MFD_PM8018_H
 #define __MFD_PM8018_H
@@ -39,11 +43,13 @@
 #define PM8018_MPP_BLOCK_START	16
 #define PM8018_IRQ_BLOCK_BIT(block, bit) ((block) * 8 + (bit))
 
+/* GPIOs and MPPs [1,N] */
 #define PM8018_GPIO_IRQ(base, gpio)	((base) + \
 		PM8018_IRQ_BLOCK_BIT(PM8018_GPIO_BLOCK_START, (gpio)-1))
 #define PM8018_MPP_IRQ(base, mpp)	((base) + \
 		PM8018_IRQ_BLOCK_BIT(PM8018_MPP_BLOCK_START, (mpp)-1))
 
+/* PMIC Interrupts */
 #define PM8018_RTC_ALARM_IRQ		PM8018_IRQ_BLOCK_BIT(4, 7)
 
 #define PM8018_PWRKEY_REL_IRQ		PM8018_IRQ_BLOCK_BIT(6, 2)

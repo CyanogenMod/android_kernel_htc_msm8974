@@ -45,16 +45,16 @@
 #define POLL_TIMEOUT	(2 * HZ)
 
 struct s6i2c_if {
-	u8 __iomem		*reg; 
+	u8 __iomem		*reg; /* memory mapped registers */
 	int			irq;
 	spinlock_t		lock;
-	struct i2c_msg		*msgs; 
-	int			msgs_num; 
+	struct i2c_msg		*msgs; /* messages currently handled */
+	int			msgs_num; /* nb of msgs to do */
 	int			msgs_push; /* nb of msgs read/written */
-	int			msgs_done; 
+	int			msgs_done; /* nb of msgs finally handled */
 	unsigned		push; /* nb of bytes read/written in msg */
-	unsigned		done; 
-	int			timeout_count; 
+	unsigned		done; /* nb of bytes finally handled */
+	int			timeout_count; /* timeout retries left */
 	struct timer_list	timeout_timer;
 	struct i2c_adapter	adap;
 	struct completion	complete;

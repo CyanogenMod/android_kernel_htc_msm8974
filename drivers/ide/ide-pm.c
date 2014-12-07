@@ -12,7 +12,7 @@ int generic_ide_suspend(struct device *dev, pm_message_t mesg)
 	int ret;
 
 	if (ide_port_acpi(hwif)) {
-		
+		/* call ACPI _GTM only once */
 		if ((drive->dn & 1) == 0 || pair == NULL)
 			ide_acpi_get_timing(hwif);
 	}
@@ -30,7 +30,7 @@ int generic_ide_suspend(struct device *dev, pm_message_t mesg)
 	blk_put_request(rq);
 
 	if (ret == 0 && ide_port_acpi(hwif)) {
-		
+		/* call ACPI _PS3 only after both devices are suspended */
 		if ((drive->dn & 1) || pair == NULL)
 			ide_acpi_set_state(hwif, 0);
 	}
@@ -48,7 +48,7 @@ int generic_ide_resume(struct device *dev)
 	int err;
 
 	if (ide_port_acpi(hwif)) {
-		
+		/* call ACPI _PS0 / _STM only once */
 		if ((drive->dn & 1) == 0 || pair == NULL) {
 			ide_acpi_set_state(hwif, 1);
 			ide_acpi_push_timing(hwif);
@@ -90,19 +90,19 @@ void ide_complete_power_step(ide_drive_t *drive, struct request *rq)
 		return;
 
 	switch (pm->pm_step) {
-	case IDE_PM_FLUSH_CACHE:	
+	case IDE_PM_FLUSH_CACHE:	/* Suspend step 1 (flush cache) */
 		if (pm->pm_state == PM_EVENT_FREEZE)
 			pm->pm_step = IDE_PM_COMPLETED;
 		else
 			pm->pm_step = IDE_PM_STANDBY;
 		break;
-	case IDE_PM_STANDBY:		
+	case IDE_PM_STANDBY:		/* Suspend step 2 (standby) */
 		pm->pm_step = IDE_PM_COMPLETED;
 		break;
-	case IDE_PM_RESTORE_PIO:	
+	case IDE_PM_RESTORE_PIO:	/* Resume step 1 (restore PIO) */
 		pm->pm_step = IDE_PM_IDLE;
 		break;
-	case IDE_PM_IDLE:		
+	case IDE_PM_IDLE:		/* Resume step 2 (idle)*/
 		pm->pm_step = IDE_PM_RESTORE_DMA;
 		break;
 	}
@@ -114,10 +114,10 @@ ide_startstop_t ide_start_power_step(ide_drive_t *drive, struct request *rq)
 	struct ide_cmd cmd = { };
 
 	switch (pm->pm_step) {
-	case IDE_PM_FLUSH_CACHE:	
+	case IDE_PM_FLUSH_CACHE:	/* Suspend step 1 (flush cache) */
 		if (drive->media != ide_disk)
 			break;
-		
+		/* Not supported? Switch to next step now. */
 		if (ata_id_flush_enabled(drive->id) == 0 ||
 		    (drive->dev_flags & IDE_DFLAG_WCACHE) == 0) {
 			ide_complete_power_step(drive, rq);
@@ -128,22 +128,33 @@ ide_startstop_t ide_start_power_step(ide_drive_t *drive, struct request *rq)
 		else
 			cmd.tf.command = ATA_CMD_FLUSH;
 		goto out_do_tf;
-	case IDE_PM_STANDBY:		
+	case IDE_PM_STANDBY:		/* Suspend step 2 (standby) */
 		cmd.tf.command = ATA_CMD_STANDBYNOW1;
 		goto out_do_tf;
-	case IDE_PM_RESTORE_PIO:	
+	case IDE_PM_RESTORE_PIO:	/* Resume step 1 (restore PIO) */
 		ide_set_max_pio(drive);
+		/*
+		 * skip IDE_PM_IDLE for ATAPI devices
+		 */
 		if (drive->media != ide_disk)
 			pm->pm_step = IDE_PM_RESTORE_DMA;
 		else
 			ide_complete_power_step(drive, rq);
 		return ide_stopped;
-	case IDE_PM_IDLE:		
+	case IDE_PM_IDLE:		/* Resume step 2 (idle) */
 		cmd.tf.command = ATA_CMD_IDLEIMMEDIATE;
 		goto out_do_tf;
-	case IDE_PM_RESTORE_DMA:	
+	case IDE_PM_RESTORE_DMA:	/* Resume step 3 (restore DMA) */
+		/*
+		 * Right now, all we do is call ide_set_dma(drive),
+		 * we could be smarter and check for current xfer_speed
+		 * in struct drive etc...
+		 */
 		if (drive->hwif->dma_ops == NULL)
 			break;
+		/*
+		 * TODO: respect IDE_DFLAG_USING_DMA
+		 */
 		ide_set_dma(drive);
 		break;
 	}
@@ -160,6 +171,14 @@ out_do_tf:
 	return do_rw_taskfile(drive, &cmd);
 }
 
+/**
+ *	ide_complete_pm_rq - end the current Power Management request
+ *	@drive: target drive
+ *	@rq: request
+ *
+ *	This function cleans up the current PM request and stops the queue
+ *	if necessary.
+ */
 void ide_complete_pm_rq(ide_drive_t *drive, struct request *rq)
 {
 	struct request_queue *q = drive->queue;
@@ -193,10 +212,18 @@ void ide_check_pm_state(ide_drive_t *drive, struct request *rq)
 
 	if (rq->cmd_type == REQ_TYPE_PM_SUSPEND &&
 	    pm->pm_step == IDE_PM_START_SUSPEND)
-		
+		/* Mark drive blocked when starting the suspend sequence. */
 		drive->dev_flags |= IDE_DFLAG_BLOCKED;
 	else if (rq->cmd_type == REQ_TYPE_PM_RESUME &&
 		 pm->pm_step == IDE_PM_START_RESUME) {
+		/*
+		 * The first thing we do on wakeup is to wait for BSY bit to
+		 * go away (with a looong timeout) as a drive on this hwif may
+		 * just be POSTing itself.
+		 * We do that before even selecting as the "other" device on
+		 * the bus may be broken enough to walk on our toes at this
+		 * point.
+		 */
 		ide_hwif_t *hwif = drive->hwif;
 		const struct ide_tp_ops *tp_ops = hwif->tp_ops;
 		struct request_queue *q = drive->queue;

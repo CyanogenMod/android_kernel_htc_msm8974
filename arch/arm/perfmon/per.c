@@ -10,6 +10,12 @@
  * GNU General Public License for more details.
  */
 
+/*
+per.c
+
+DESCRIPTION: Performance count interface for linux via proc in the T32
+command file style
+*/
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -23,6 +29,11 @@
 #include "perf.h"
 
 #define PM_PER_ERR -1
+/*
+FUNCTION perf_if_proc_init
+
+DESCRIPTION  Initialize the proc interface for thje performance data.
+*/
 static __init int per_init(void)
 {
 

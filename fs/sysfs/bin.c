@@ -27,6 +27,13 @@
 
 #include "sysfs.h"
 
+/*
+ * There's one bin_buffer for each open file.
+ *
+ * filp->private_data points to bin_buffer and
+ * sysfs_dirent->s_bin_attr.buffers points to a the bin_buffer s
+ * sysfs_dirent->s_bin_attr.buffers is protected by sysfs_bin_lock
+ */
 static DEFINE_MUTEX(sysfs_bin_lock);
 
 struct bin_buffer {
@@ -46,7 +53,7 @@ fill_read(struct file *file, char *buffer, loff_t off, size_t count)
 	struct kobject *kobj = attr_sd->s_parent->s_dir.kobj;
 	int rc;
 
-	
+	/* need attr_sd for attr, its parent for kobj */
 	if (!sysfs_get_active(attr_sd))
 		return -ENODEV;
 
@@ -116,7 +123,7 @@ flush_write(struct file *file, char *buffer, loff_t offset, size_t count)
 	struct kobject *kobj = attr_sd->s_parent->s_dir.kobj;
 	int rc;
 
-	
+	/* need attr_sd for attr, its parent for kobj */
 	if (!sysfs_get_active(attr_sd))
 		return -ENODEV;
 
@@ -337,7 +344,7 @@ static int mmap(struct file *file, struct vm_area_struct *vma)
 
 	mutex_lock(&bb->mutex);
 
-	
+	/* need attr_sd for attr, its parent for kobj */
 	rc = -ENODEV;
 	if (!sysfs_get_active(attr_sd))
 		goto out_unlock;
@@ -350,6 +357,11 @@ static int mmap(struct file *file, struct vm_area_struct *vma)
 	if (rc)
 		goto out_put;
 
+	/*
+	 * PowerPC's pci_mmap of legacy_mem uses shmem_zero_setup()
+	 * to satisfy versions of X which crash if the mmap fails: that
+	 * substitutes a new vm_file, and we don't then want bin_vm_ops.
+	 */
 	if (vma->vm_file != file)
 		goto out_put;
 
@@ -357,6 +369,10 @@ static int mmap(struct file *file, struct vm_area_struct *vma)
 	if (bb->mmapped && bb->vm_ops != vma->vm_ops)
 		goto out_put;
 
+	/*
+	 * It is not possible to successfully wrap close.
+	 * So error if someone is trying to use close.
+	 */
 	rc = -EINVAL;
 	if (vma->vm_ops && vma->vm_ops->close)
 		goto out_put;
@@ -380,7 +396,7 @@ static int open(struct inode * inode, struct file * file)
 	struct bin_buffer *bb = NULL;
 	int error;
 
-	
+	/* binary file operations requires both @sd and its parent */
 	if (!sysfs_get_active(attr_sd))
 		return -ENODEV;
 
@@ -407,7 +423,7 @@ static int open(struct inode * inode, struct file * file)
 	hlist_add_head(&bb->list, &attr_sd->s_bin_attr.buffers);
 	mutex_unlock(&sysfs_bin_lock);
 
-	
+	/* open succeeded, put active references */
 	sysfs_put_active(attr_sd);
 	return 0;
 
@@ -459,6 +475,11 @@ void unmap_bin_file(struct sysfs_dirent *attr_sd)
 	mutex_unlock(&sysfs_bin_lock);
 }
 
+/**
+ *	sysfs_create_bin_file - create binary file for object.
+ *	@kobj:	object.
+ *	@attr:	attribute descriptor.
+ */
 
 int sysfs_create_bin_file(struct kobject *kobj,
 			  const struct bin_attribute *attr)
@@ -469,6 +490,11 @@ int sysfs_create_bin_file(struct kobject *kobj,
 }
 
 
+/**
+ *	sysfs_remove_bin_file - remove binary file for object.
+ *	@kobj:	object.
+ *	@attr:	attribute descriptor.
+ */
 
 void sysfs_remove_bin_file(struct kobject *kobj,
 			   const struct bin_attribute *attr)

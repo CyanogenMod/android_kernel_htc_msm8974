@@ -1,3 +1,6 @@
+/*
+ * /dev/nvram driver for Power Macintosh.
+ */
 
 #define NVRAM_VERSION "1.0"
 

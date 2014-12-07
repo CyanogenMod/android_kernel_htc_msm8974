@@ -6,6 +6,9 @@
  *	Joseph Krahn
  */
 
+/*
+ * SpaceTec SpaceBall 2003/3003/4000 FLX driver for Linux
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -40,6 +43,9 @@ MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
+/*
+ * Constants.
+ */
 
 #define SPACEBALL_MAX_LENGTH	128
 #define SPACEBALL_MAX_ID	9
@@ -57,6 +63,9 @@ static char *spaceball_names[] = {
 	"SpaceTec SpaceBall 2003C", "SpaceTec SpaceBall 3003", "SpaceTec SpaceBall SpaceController",
 	"SpaceTec SpaceBall 3003C", "SpaceTec SpaceBall 4000FLX", "SpaceTec SpaceBall 4000FLX Lefty" };
 
+/*
+ * Per-Ball data.
+ */
 
 struct spaceball {
 	struct input_dev *dev;
@@ -66,6 +75,10 @@ struct spaceball {
 	char phys[32];
 };
 
+/*
+ * spaceball_process_packet() decodes packets the driver receives from the
+ * SpaceBall.
+ */
 
 static void spaceball_process_packet(struct spaceball* spaceball)
 {
@@ -77,14 +90,14 @@ static void spaceball_process_packet(struct spaceball* spaceball)
 
 	switch (spaceball->data[0]) {
 
-		case 'D':					
+		case 'D':					/* Ball data */
 			if (spaceball->idx != 15) return;
 			for (i = 0; i < 6; i++)
 				input_report_abs(dev, spaceball_axes[i],
 					(__s16)((data[2 * i + 3] << 8) | data[2 * i + 2]));
 			break;
 
-		case 'K':					
+		case 'K':					/* Button data */
 			if (spaceball->idx != 3) return;
 			input_report_key(dev, BTN_1, (data[2] & 0x01) || (data[2] & 0x20));
 			input_report_key(dev, BTN_2, data[2] & 0x02);
@@ -96,7 +109,7 @@ static void spaceball_process_packet(struct spaceball* spaceball)
 			input_report_key(dev, BTN_8, data[1] & 0x10);
 			break;
 
-		case '.':					
+		case '.':					/* Advanced button data */
 			if (spaceball->idx != 3) return;
 			input_report_key(dev, BTN_1, data[2] & 0x01);
 			input_report_key(dev, BTN_2, data[2] & 0x02);
@@ -113,12 +126,12 @@ static void spaceball_process_packet(struct spaceball* spaceball)
 			input_report_key(dev, BTN_MODE, data[1] & 0x20);
 			break;
 
-		case 'E':					
+		case 'E':					/* Device error */
 			spaceball->data[spaceball->idx - 1] = 0;
 			printk(KERN_ERR "spaceball: Device error. [%s]\n", spaceball->data + 1);
 			break;
 
-		case '?':					
+		case '?':					/* Bad command packet */
 			spaceball->data[spaceball->idx - 1] = 0;
 			printk(KERN_ERR "spaceball: Bad command. [%s]\n", spaceball->data + 1);
 			break;
@@ -127,6 +140,11 @@ static void spaceball_process_packet(struct spaceball* spaceball)
 	input_sync(dev);
 }
 
+/*
+ * Spaceball 4000 FLX packets all start with a one letter packet-type decriptor,
+ * and end in 0x0d. It uses '^' as an escape for CR, XOFF and XON characters which
+ * can occur in the axis values.
+ */
 
 static irqreturn_t spaceball_interrupt(struct serio *serio,
 		unsigned char data, unsigned int flags)
@@ -162,6 +180,9 @@ static irqreturn_t spaceball_interrupt(struct serio *serio,
 	return IRQ_HANDLED;
 }
 
+/*
+ * spaceball_disconnect() is the opposite of spaceball_connect()
+ */
 
 static void spaceball_disconnect(struct serio *serio)
 {
@@ -173,6 +194,11 @@ static void spaceball_disconnect(struct serio *serio)
 	kfree(spaceball);
 }
 
+/*
+ * spaceball_connect() is the routine that is called when someone adds a
+ * new serio device that supports Spaceball protocol and registers it as
+ * an input device.
+ */
 
 static int spaceball_connect(struct serio *serio, struct serio_driver *drv)
 {
@@ -243,6 +269,9 @@ static int spaceball_connect(struct serio *serio, struct serio_driver *drv)
 	return err;
 }
 
+/*
+ * The serio driver structure.
+ */
 
 static struct serio_device_id spaceball_serio_ids[] = {
 	{
@@ -267,6 +296,9 @@ static struct serio_driver spaceball_drv = {
 	.disconnect	= spaceball_disconnect,
 };
 
+/*
+ * The functions for inserting/removing us as a module.
+ */
 
 static int __init spaceball_init(void)
 {

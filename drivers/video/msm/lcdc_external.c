@@ -37,8 +37,8 @@ static int __init lcdc_external_init(void)
 	pinfo.lcdc.v_back_porch = 19;
 	pinfo.lcdc.v_front_porch = 5;
 	pinfo.lcdc.v_pulse_width = 6;
-	pinfo.lcdc.border_clr = 0;	
-	pinfo.lcdc.underflow_clr = 0xff;	
+	pinfo.lcdc.border_clr = 0;	/* blk */
+	pinfo.lcdc.underflow_clr = 0xff;	/* blue */
 	pinfo.lcdc.hsync_skew = 0;
 
 	ret = lcdc_device_register(&pinfo);

@@ -30,7 +30,7 @@ static int __init octeon_cf_device_init(void)
 	int i;
 	int ret = 0;
 
-	
+	/* Setup octeon-cf platform device if present. */
 	base_ptr = 0;
 	if (octeon_bootinfo->major_version == 1
 		&& octeon_bootinfo->minor_version >= 1) {
@@ -44,7 +44,7 @@ static int __init octeon_cf_device_init(void)
 	if (!base_ptr)
 		return ret;
 
-	
+	/* Find CS0 region. */
 	for (i = 0; i < 8; i++) {
 		mio_boot_reg_cfg.u64 = cvmx_read_csr(CVMX_MIO_BOOT_REG_CFGX(i));
 		region_base = mio_boot_reg_cfg.s.base << 16;
@@ -54,7 +54,7 @@ static int __init octeon_cf_device_init(void)
 			break;
 	}
 	if (i >= 7) {
-		
+		/* i and i + 1 are CS0 and CS1, both must be less than 8. */
 		goto out;
 	}
 	octeon_cf_data.base_region = i;
@@ -69,8 +69,13 @@ static int __init octeon_cf_device_init(void)
 
 
 	if (!(base_ptr & 0xfffful)) {
+		/*
+		 * Boot loader signals availability of DMA (true_ide
+		 * mode) by setting low order bits of base_ptr to
+		 * zero.
+		 */
 
-		
+		/* Assume that CS1 immediately follows. */
 		mio_boot_reg_cfg.u64 =
 			cvmx_read_csr(CVMX_MIO_BOOT_REG_CFGX(i + 1));
 		region_base = mio_boot_reg_cfg.s.base << 16;
@@ -115,6 +120,7 @@ out:
 }
 device_initcall(octeon_cf_device_init);
 
+/* Octeon Random Number Generator.  */
 static int __init octeon_rng_device_init(void)
 {
 	struct platform_device *pd;
@@ -195,7 +201,7 @@ static int __init octeon_i2c_device_init(void)
 
 	for (port = 0; port < num_ports; port++) {
 		octeon_i2c_data[port].sys_freq = octeon_get_io_clock_rate();
-		
+		/*FIXME: should be examined. At the moment is set for 100Khz */
 		octeon_i2c_data[port].i2c_freq = 100000;
 
 		pd = platform_device_alloc("i2c-octeon", port);
@@ -240,15 +246,16 @@ out:
 }
 device_initcall(octeon_i2c_device_init);
 
+/* Octeon SMI/MDIO interface.  */
 static int __init octeon_mdiobus_device_init(void)
 {
 	struct platform_device *pd;
 	int ret = 0;
 
 	if (octeon_is_simulation())
-		return 0; 
+		return 0; /* No mdio in the simulator. */
 
-	
+	/* The bus number is the platform_device id.  */
 	pd = platform_device_alloc("mdio-octeon", 0);
 	if (!pd) {
 		ret = -ENOMEM;
@@ -269,6 +276,7 @@ out:
 }
 device_initcall(octeon_mdiobus_device_init);
 
+/* Octeon mgmt port Ethernet interface.  */
 static int __init octeon_mgmt_device_init(void)
 {
 	struct platform_device *pd;
@@ -295,7 +303,7 @@ static int __init octeon_mgmt_device_init(void)
 			ret = -ENOMEM;
 			goto out;
 		}
-		
+		/* No DMA restrictions */
 		pd->dev.coherent_dma_mask = DMA_BIT_MASK(64);
 		pd->dev.dma_mask = &pd->dev.coherent_dma_mask;
 
@@ -345,12 +353,12 @@ static int __init octeon_ehci_device_init(void)
 		}
 	};
 
-	
+	/* Only Octeon2 has ehci/ohci */
 	if (!OCTEON_IS_MODEL(OCTEON_CN63XX))
 		return 0;
 
 	if (octeon_is_simulation() || usb_disabled())
-		return 0; 
+		return 0; /* No USB in the simulator. */
 
 	pd = platform_device_alloc("octeon-ehci", 0);
 	if (!pd) {
@@ -394,12 +402,12 @@ static int __init octeon_ohci_device_init(void)
 		}
 	};
 
-	
+	/* Only Octeon2 has ehci/ohci */
 	if (!OCTEON_IS_MODEL(OCTEON_CN63XX))
 		return 0;
 
 	if (octeon_is_simulation() || usb_disabled())
-		return 0; 
+		return 0; /* No USB in the simulator. */
 
 	pd = platform_device_alloc("octeon-ohci", 0);
 	if (!pd) {
@@ -430,7 +438,7 @@ out:
 }
 device_initcall(octeon_ohci_device_init);
 
-#endif 
+#endif /* CONFIG_USB */
 
 MODULE_AUTHOR("David Daney <ddaney@caviumnetworks.com>");
 MODULE_LICENSE("GPL");

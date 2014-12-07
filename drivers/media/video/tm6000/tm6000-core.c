@@ -30,7 +30,7 @@
 #include <media/v4l2-common.h>
 #include <media/tuner.h>
 
-#define USB_TIMEOUT	(5 * HZ) 
+#define USB_TIMEOUT	(5 * HZ) /* ms */
 
 int tm6000_read_write_usb(struct tm6000_core *dev, u8 req_type, u8 req,
 			  u16 value, u16 index, u8 *buf, u16 len)
@@ -95,7 +95,7 @@ int tm6000_read_write_usb(struct tm6000_core *dev, u8 req_type, u8 req,
 
 	if (req == REQ_16_SET_GET_I2C_WR1_RDN && !(req_type & USB_DIR_IN)) {
 		unsigned int tsleep;
-		
+		/* Calculate delay time, 14000us for 64 bytes */
 		tsleep = (len * 200) + 200;
 		if (tsleep < delay)
 			tsleep = delay;
@@ -218,6 +218,13 @@ void tm6000_set_fourcc_format(struct tm6000_core *dev)
 
 static void tm6000_set_vbi(struct tm6000_core *dev)
 {
+	/*
+	 * FIXME:
+	 * VBI lines and start/end are different between 60Hz and 50Hz
+	 * So, it is very likely that we need to change the config to
+	 * something that takes it into account, doing something different
+	 * if (dev->norm & V4L2_STD_525_60)
+	 */
 
 	if (dev->dev_type == TM6010) {
 		tm6000_set_reg(dev, TM6010_REQ07_R3F_RESET, 0x01);
@@ -281,20 +288,20 @@ int tm6000_init_analog_mode(struct tm6000_core *dev)
 		if (!dev->radio)
 			active |= TM6010_REQ07_RCC_ACTIVE_IF_VIDEO_ENABLE;
 
-		
+		/* Enable video and audio */
 		tm6000_set_reg_mask(dev, TM6010_REQ07_RCC_ACTIVE_IF,
 							active, 0x60);
-		
+		/* Disable TS input */
 		tm6000_set_reg_mask(dev, TM6010_REQ07_RC0_ACTIVE_VIDEO_SOURCE,
 							0x00, 0x40);
 	} else {
-		
+		/* Enables soft reset */
 		tm6000_set_reg(dev, TM6010_REQ07_R3F_RESET, 0x01);
 
 		if (dev->scaler)
-			
+			/* Disable Hfilter and Enable TS Drop err */
 			tm6000_set_reg(dev, TM6010_REQ07_RC0_ACTIVE_VIDEO_SOURCE, 0x20);
-		else	
+		else	/* Enable Hfilter and disable TS Drop err */
 			tm6000_set_reg(dev, TM6010_REQ07_RC0_ACTIVE_VIDEO_SOURCE, 0x80);
 
 		tm6000_set_reg(dev, TM6010_REQ07_RC3_HSTART1, 0x88);
@@ -304,19 +311,29 @@ int tm6000_init_analog_mode(struct tm6000_core *dev)
 		tm6000_set_reg(dev, TM6010_REQ07_RD6_ENDP_REQ1_REQ2, 0x06);
 		tm6000_set_reg(dev, TM6000_REQ07_RDF_PWDOWN_ACLK, 0x1f);
 
-		
+		/* AP Software reset */
 		tm6000_set_reg(dev, TM6010_REQ07_RFF_SOFT_RESET, 0x08);
 		tm6000_set_reg(dev, TM6010_REQ07_RFF_SOFT_RESET, 0x00);
 
 		tm6000_set_fourcc_format(dev);
 
-		
+		/* Disables soft reset */
 		tm6000_set_reg(dev, TM6010_REQ07_R3F_RESET, 0x00);
 	}
 	msleep(20);
 
-	
+	/* Tuner firmware can now be loaded */
 
+	/*
+	 * FIXME: This is a hack! xc3028 "sleeps" when no channel is detected
+	 * for more than a few seconds. Not sure why, as this behavior does
+	 * not happen on other devices with xc3028. So, I suspect that it
+	 * is yet another bug at tm6000. After start sleeping, decoding
+	 * doesn't start automatically. Instead, it requires some
+	 * I2C commands to wake it up. As we want to have image at the
+	 * beginning, we needed to add this hack. The better would be to
+	 * discover some way to make tm6000 to wake up without this hack.
+	 */
 	f.frequency = dev->freq;
 	v4l2_device_call_all(&dev->v4l2_dev, 0, tuner, s_frequency, &f);
 
@@ -325,7 +342,7 @@ int tm6000_init_analog_mode(struct tm6000_core *dev)
 	tm6000_set_vbi(dev);
 	tm6000_set_audio_bitrate(dev, 48000);
 
-	
+	/* switch dvb led off */
 	if (dev->gpio.dvb_led) {
 		tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN,
 			dev->gpio.dvb_led, 0x01);
@@ -337,13 +354,13 @@ int tm6000_init_analog_mode(struct tm6000_core *dev)
 int tm6000_init_digital_mode(struct tm6000_core *dev)
 {
 	if (dev->dev_type == TM6010) {
-		
+		/* Disable video and audio */
 		tm6000_set_reg_mask(dev, TM6010_REQ07_RCC_ACTIVE_IF,
 				0x00, 0x60);
-		
+		/* Enable TS input */
 		tm6000_set_reg_mask(dev, TM6010_REQ07_RC0_ACTIVE_VIDEO_SOURCE,
 				0x40, 0x40);
-		
+		/* all power down, but not the digital data port */
 		tm6000_set_reg(dev, TM6010_REQ07_RFE_POWER_DOWN, 0x28);
 		tm6000_set_reg(dev, TM6010_REQ08_RE2_POWER_DOWN_CTRL1, 0xfc);
 		tm6000_set_reg(dev, TM6010_REQ08_RE6_POWER_DOWN_CTRL2, 0xff);
@@ -376,7 +393,7 @@ int tm6000_init_digital_mode(struct tm6000_core *dev)
 		msleep(100);
 	}
 
-	
+	/* switch dvb led on */
 	if (dev->gpio.dvb_led) {
 		tm6000_set_reg(dev, REQ_03_SET_GET_MCU_PIN,
 			dev->gpio.dvb_led, 0x00);
@@ -392,8 +409,9 @@ struct reg_init {
 	u8 val;
 };
 
+/* The meaning of those initializations are unknown */
 static struct reg_init tm6000_init_tab[] = {
-	
+	/* REG  VALUE */
 	{ TM6000_REQ07_RDF_PWDOWN_ACLK, 0x1f },
 	{ TM6010_REQ07_RFF_SOFT_RESET, 0x08 },
 	{ TM6010_REQ07_RFF_SOFT_RESET, 0x00 },
@@ -404,10 +422,10 @@ static struct reg_init tm6000_init_tab[] = {
 	{ TM6000_REQ07_RE3_VADC_INP_LPF_SEL1, 0x10 },
 	{ TM6000_REQ07_RE5_VADC_INP_LPF_SEL2, 0x00 },
 	{ TM6000_REQ07_RE8_VADC_PWDOWN_CTL, 0x00 },
-	{ TM6000_REQ07_REB_VADC_AADC_MODE, 0x64 },	
+	{ TM6000_REQ07_REB_VADC_AADC_MODE, 0x64 },	/* 48000 bits/sample, external input */
 	{ TM6000_REQ07_REE_VADC_CTRL_SEL_CONTROL, 0xc2 },
 
-	{ TM6010_REQ07_R3F_RESET, 0x01 },		
+	{ TM6010_REQ07_R3F_RESET, 0x01 },		/* Start of soft reset */
 	{ TM6010_REQ07_R00_VIDEO_CONTROL0, 0x00 },
 	{ TM6010_REQ07_R01_VIDEO_CONTROL1, 0x07 },
 	{ TM6010_REQ07_R02_VIDEO_CONTROL2, 0x5f },
@@ -456,7 +474,7 @@ static struct reg_init tm6000_init_tab[] = {
 	{ TM6010_REQ07_R82_COMB_FILTER_CONFIG, 0x42 },
 	{ TM6010_REQ07_RC1_TRESHOLD, 0xd0 },
 	{ TM6010_REQ07_RC3_HSTART1, 0x88 },
-	{ TM6010_REQ07_R3F_RESET, 0x00 },		
+	{ TM6010_REQ07_R3F_RESET, 0x00 },		/* End of the soft reset */
 	{ TM6010_REQ05_R18_IMASK7, 0x00 },
 };
 
@@ -539,7 +557,7 @@ static struct reg_init tm6010_init_tab[] = {
 	{ REQ_04_EN_DISABLE_MCU_INT, 0x02, 0x00 },
 	{ TM6010_REQ07_RD8_IR, 0x0f },
 
-	
+	/* set remote wakeup key:any key wakeup */
 	{ TM6010_REQ07_RE5_REMOTE_WAKEUP,  0xfe },
 	{ TM6010_REQ07_RDA_IR_WAKEUP_SEL,  0xff },
 };
@@ -549,7 +567,7 @@ int tm6000_init(struct tm6000_core *dev)
 	int board, rc = 0, i, size;
 	struct reg_init *tab;
 
-	
+	/* Check board revision */
 	board = tm6000_get_reg32(dev, REQ_40_GET_VERSION, 0, 0);
 	if (board >= 0) {
 		switch (board & 0xff) {
@@ -577,7 +595,7 @@ int tm6000_init(struct tm6000_core *dev)
 		size = ARRAY_SIZE(tm6000_init_tab);
 	}
 
-	
+	/* Load board's initialization table */
 	for (i = 0; i < size; i++) {
 		rc = tm6000_set_reg(dev, tab[i].req, tab[i].reg, tab[i].val);
 		if (rc < 0) {
@@ -588,7 +606,7 @@ int tm6000_init(struct tm6000_core *dev)
 		}
 	}
 
-	msleep(5); 
+	msleep(5); /* Just to be conservative */
 
 	rc = tm6000_cards_setup(dev);
 
@@ -599,18 +617,18 @@ int tm6000_init(struct tm6000_core *dev)
 int tm6000_set_audio_bitrate(struct tm6000_core *dev, int bitrate)
 {
 	int val = 0;
-	u8 areg_f0 = 0x60; 
-	u8 areg_0a = 0x91; 
+	u8 areg_f0 = 0x60; /* ADC MCLK = 250 Fs */
+	u8 areg_0a = 0x91; /* SIF 48KHz */
 
 	switch (bitrate) {
 	case 48000:
-		areg_f0 = 0x60; 
-		areg_0a = 0x91; 
+		areg_f0 = 0x60; /* ADC MCLK = 250 Fs */
+		areg_0a = 0x91; /* SIF 48KHz */
 		dev->audio_bitrate = bitrate;
 		break;
 	case 32000:
-		areg_f0 = 0x00; 
-		areg_0a = 0x90; 
+		areg_f0 = 0x00; /* ADC MCLK = 375 Fs */
+		areg_0a = 0x90; /* SIF 32KHz */
 		dev->audio_bitrate = bitrate;
 		break;
 	default:
@@ -618,7 +636,7 @@ int tm6000_set_audio_bitrate(struct tm6000_core *dev, int bitrate)
 	}
 
 
-	
+	/* enable I2S, if we use sif or external I2S device */
 	if (dev->dev_type == TM6010) {
 		val = tm6000_set_reg(dev, TM6010_REQ08_R0A_A_I2S_MOD, areg_0a);
 		if (val < 0)
@@ -641,7 +659,7 @@ EXPORT_SYMBOL_GPL(tm6000_set_audio_bitrate);
 int tm6000_set_audio_rinput(struct tm6000_core *dev)
 {
 	if (dev->dev_type == TM6010) {
-		
+		/* Audio crossbar setting, default SIF1 */
 		u8 areg_f0;
 		u8 areg_07 = 0x10;
 
@@ -666,15 +684,15 @@ int tm6000_set_audio_rinput(struct tm6000_core *dev)
 			return 0;
 			break;
 		}
-		
+		/* Set audio input crossbar */
 		tm6000_set_reg_mask(dev, TM6010_REQ08_RF0_DAUDIO_INPUT_CONFIG,
 							areg_f0, 0x0f);
-		
+		/* Mux overflow workaround */
 		tm6000_set_reg_mask(dev, TM6010_REQ07_R07_OUTPUT_CONTROL,
 			areg_07, 0xf0);
 	} else {
 		u8 areg_eb;
-		
+		/* Audio setting, default LINE1 */
 		switch (dev->rinput.amux) {
 		case TM6000_AMUX_ADC1:
 			areg_eb = 0x00;
@@ -688,7 +706,7 @@ int tm6000_set_audio_rinput(struct tm6000_core *dev)
 			return 0;
 			break;
 		}
-		
+		/* Set audio input */
 		tm6000_set_reg_mask(dev, TM6000_REQ07_REB_VADC_AADC_MODE,
 							areg_eb, 0x0f);
 	}
@@ -791,7 +809,7 @@ void tm6000_set_volume(struct tm6000_core *dev, int vol)
 
 	if (dev->radio) {
 		mux = dev->rinput.amux;
-		vol += 8; 
+		vol += 8; /* Offset to 0 dB */
 	} else
 		mux = dev->vinput[dev->input].amux;
 
@@ -817,6 +835,9 @@ void tm6000_set_volume(struct tm6000_core *dev, int vol)
 static LIST_HEAD(tm6000_devlist);
 static DEFINE_MUTEX(tm6000_devlist_mutex);
 
+/*
+ * tm6000_realease_resource()
+ */
 
 void tm6000_remove_from_devlist(struct tm6000_core *dev)
 {
@@ -832,6 +853,9 @@ void tm6000_add_into_devlist(struct tm6000_core *dev)
 	mutex_unlock(&tm6000_devlist_mutex);
 };
 
+/*
+ * Extension interface
+ */
 
 static LIST_HEAD(tm6000_extension_devlist);
 
@@ -840,7 +864,7 @@ int tm6000_call_fillbuf(struct tm6000_core *dev, enum tm6000_ops_type type,
 {
 	struct tm6000_ops *ops = NULL;
 
-	
+	/* FIXME: tm6000_extension_devlist_lock should be a spinlock */
 
 	if (!list_empty(&tm6000_extension_devlist)) {
 		list_for_each_entry(ops, &tm6000_extension_devlist, next) {

@@ -34,4 +34,4 @@ struct ath9k_platform_data {
 	int (*external_reset)(void);
 };
 
-#endif 
+#endif /* _LINUX_ATH9K_PLATFORM_H */

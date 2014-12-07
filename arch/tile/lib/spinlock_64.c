@@ -18,11 +18,20 @@
 
 #include "spinlock_common.h"
 
+/*
+ * Read the spinlock value without allocating in our cache and without
+ * causing an invalidation to another cpu with a copy of the cacheline.
+ * This is important when we are spinning waiting for the lock.
+ */
 static inline u32 arch_spin_read_noalloc(void *lock)
 {
 	return atomic_cmpxchg((atomic_t *)lock, -1, -1);
 }
 
+/*
+ * Wait until the high bits (current) match my ticket.
+ * If we notice the overflow bit set on entry, we clear it.
+ */
 void arch_spin_lock_slow(arch_spinlock_t *lock, u32 my_ticket)
 {
 	if (unlikely(my_ticket & __ARCH_SPIN_NEXT_OVERFLOW)) {
@@ -40,6 +49,9 @@ void arch_spin_lock_slow(arch_spinlock_t *lock, u32 my_ticket)
 }
 EXPORT_SYMBOL(arch_spin_lock_slow);
 
+/*
+ * Check the lock to see if it is plausible, and try to get it with cmpxchg().
+ */
 int arch_spin_trylock(arch_spinlock_t *lock)
 {
 	u32 val = arch_spin_read_noalloc(lock);
@@ -58,6 +70,10 @@ void arch_spin_unlock_wait(arch_spinlock_t *lock)
 }
 EXPORT_SYMBOL(arch_spin_unlock_wait);
 
+/*
+ * If the read lock fails due to a writer, we retry periodically
+ * until the value is positive and we write our incremented reader count.
+ */
 void __read_lock_failed(arch_rwlock_t *rw)
 {
 	u32 val;
@@ -69,6 +85,12 @@ void __read_lock_failed(arch_rwlock_t *rw)
 }
 EXPORT_SYMBOL(__read_lock_failed);
 
+/*
+ * If we failed because there were readers, clear the "writer" bit
+ * so we don't block additional readers.  Otherwise, there was another
+ * writer anyway, so our "fetchor" made no difference.  Then wait,
+ * issuing periodic fetchor instructions, till we get the lock.
+ */
 void __write_lock_failed(arch_rwlock_t *rw, u32 val)
 {
 	int iterations = 0;

@@ -29,7 +29,11 @@
 
 unsigned int uvc_gadget_trace_param;
 
+/* --------------------------------------------------------------------------
+ * Function descriptors
+ */
 
+/* string IDs are assigned dynamically */
 
 #define UVC_STRING_ASSOCIATION_IDX		0
 #define UVC_STRING_CONTROL_IDX			1
@@ -43,7 +47,7 @@ static struct usb_string uvc_en_us_strings[] = {
 };
 
 static struct usb_gadget_strings uvc_stringtab = {
-	.language = 0x0409,	
+	.language = 0x0409,	/* en-us */
 	.strings = uvc_en_us_strings,
 };
 
@@ -139,6 +143,9 @@ static const struct usb_descriptor_header * const uvc_hs_streaming[] = {
 	NULL,
 };
 
+/* --------------------------------------------------------------------------
+ * Control requests
+ */
 
 static void
 uvc_function_ep0_complete(struct usb_ep *ep, struct usb_request *req)
@@ -165,13 +172,17 @@ uvc_function_setup(struct usb_function *f, const struct usb_ctrlrequest *ctrl)
 	struct v4l2_event v4l2_event;
 	struct uvc_event *uvc_event = (void *)&v4l2_event.u.data;
 
+	/* printk(KERN_INFO "setup request %02x %02x value %04x index %04x %04x\n",
+	 *	ctrl->bRequestType, ctrl->bRequest, le16_to_cpu(ctrl->wValue),
+	 *	le16_to_cpu(ctrl->wIndex), le16_to_cpu(ctrl->wLength));
+	 */
 
 	if ((ctrl->bRequestType & USB_TYPE_MASK) != USB_TYPE_CLASS) {
 		INFO(f->config->cdev, "invalid request type\n");
 		return -EINVAL;
 	}
 
-	
+	/* Stall too big requests. */
 	if (le16_to_cpu(ctrl->wLength) > UVC_MAX_REQUEST_SIZE)
 		return -EINVAL;
 
@@ -226,6 +237,10 @@ uvc_function_set_alt(struct usb_function *f, unsigned interface, unsigned alt)
 	if (interface != uvc->streaming_intf)
 		return -EINVAL;
 
+	/* TODO
+	if (usb_endpoint_xfer_bulk(&uvc->desc.vs_ep))
+		return alt ? -EINVAL : 0;
+	*/
 
 	switch (alt) {
 	case 0:
@@ -280,6 +295,9 @@ uvc_function_disable(struct usb_function *f)
 	uvc->state = UVC_STATE_DISCONNECTED;
 }
 
+/* --------------------------------------------------------------------------
+ * Connection / disconnection
+ */
 
 void
 uvc_function_connect(struct uvc_device *uvc)
@@ -301,6 +319,9 @@ uvc_function_disconnect(struct uvc_device *uvc)
 		INFO(cdev, "UVC disconnect failed with %d\n", ret);
 }
 
+/* --------------------------------------------------------------------------
+ * USB probe and disconnect
+ */
 
 static int
 uvc_register_video(struct uvc_device *uvc)
@@ -308,7 +329,7 @@ uvc_register_video(struct uvc_device *uvc)
 	struct usb_composite_dev *cdev = uvc->func.config->cdev;
 	struct video_device *video;
 
-	
+	/* TODO reference counting. */
 	video = video_device_alloc();
 	if (video == NULL)
 		return -ENOMEM;
@@ -363,8 +384,19 @@ uvc_copy_descriptors(struct uvc_device *uvc, enum usb_device_speed speed)
 	uvc_streaming_std = (speed == USB_SPEED_FULL)
 			  ? uvc_fs_streaming : uvc_hs_streaming;
 
+	/* Descriptors layout
+	 *
+	 * uvc_iad
+	 * uvc_control_intf
+	 * Class-specific UVC control descriptors
+	 * uvc_control_ep
+	 * uvc_control_cs_ep
+	 * uvc_streaming_intf_alt0
+	 * Class-specific UVC streaming descriptors
+	 * uvc_{fs|hs}_streaming
+	 */
 
-	
+	/* Count descriptors and compute their size. */
 	control_size = 0;
 	streaming_size = 0;
 	bytes = uvc_iad.bLength + uvc_control_intf.bLength
@@ -395,7 +427,7 @@ uvc_copy_descriptors(struct uvc_device *uvc, enum usb_device_speed speed)
 	dst = mem;
 	mem += (n_desc + 1) * sizeof(*src);
 
-	
+	/* Copy the descriptors. */
 	UVC_COPY_DESCRIPTOR(mem, dst, &uvc_iad);
 	UVC_COPY_DESCRIPTOR(mem, dst, &uvc_control_intf);
 
@@ -464,7 +496,7 @@ uvc_function_bind(struct usb_configuration *c, struct usb_function *f)
 
 	INFO(cdev, "uvc_function_bind\n");
 
-	
+	/* Allocate endpoints. */
 	ep = usb_ep_autoconfig(cdev->gadget, &uvc_control_ep);
 	if (!ep) {
 		INFO(cdev, "Unable to allocate control EP\n");
@@ -481,7 +513,7 @@ uvc_function_bind(struct usb_configuration *c, struct usb_function *f)
 	uvc->video.ep = ep;
 	ep->driver_data = uvc;
 
-	
+	/* Allocate interface IDs. */
 	if ((ret = usb_interface_id(c, f)) < 0)
 		goto error;
 	uvc_iad.bFirstInterface = ret;
@@ -494,11 +526,11 @@ uvc_function_bind(struct usb_configuration *c, struct usb_function *f)
 	uvc_streaming_intf_alt1.bInterfaceNumber = ret;
 	uvc->streaming_intf = ret;
 
-	
+	/* Copy descriptors. */
 	f->descriptors = uvc_copy_descriptors(uvc, USB_SPEED_FULL);
 	f->hs_descriptors = uvc_copy_descriptors(uvc, USB_SPEED_HIGH);
 
-	
+	/* Preallocate control endpoint request. */
 	uvc->control_req = usb_ep_alloc_request(cdev->gadget->ep0, GFP_KERNEL);
 	uvc->control_buf = kmalloc(UVC_MAX_REQUEST_SIZE, GFP_KERNEL);
 	if (uvc->control_req == NULL || uvc->control_buf == NULL) {
@@ -510,15 +542,18 @@ uvc_function_bind(struct usb_configuration *c, struct usb_function *f)
 	uvc->control_req->complete = uvc_function_ep0_complete;
 	uvc->control_req->context = uvc;
 
+	/* Avoid letting this gadget enumerate until the userspace server is
+	 * active.
+	 */
 	if ((ret = usb_function_deactivate(f)) < 0)
 		goto error;
 
-	
+	/* Initialise video. */
 	ret = uvc_video_init(&uvc->video);
 	if (ret < 0)
 		goto error;
 
-	
+	/* Register a V4L2 device. */
 	ret = uvc_register_video(uvc);
 	if (ret < 0) {
 		printk(KERN_INFO "Unable to register video device\n");
@@ -532,7 +567,20 @@ error:
 	return ret;
 }
 
+/* --------------------------------------------------------------------------
+ * USB gadget function
+ */
 
+/**
+ * uvc_bind_config - add a UVC function to a configuration
+ * @c: the configuration to support the UVC instance
+ * Context: single threaded during gadget setup
+ *
+ * Returns zero on success, else negative errno.
+ *
+ * Caller must have called @uvc_setup(). Caller is also responsible for
+ * calling @uvc_cleanup() before module unload.
+ */
 int __init
 uvc_bind_config(struct usb_configuration *c,
 		const struct uvc_descriptor_header * const *control,
@@ -542,6 +590,9 @@ uvc_bind_config(struct usb_configuration *c,
 	struct uvc_device *uvc;
 	int ret = 0;
 
+	/* TODO Check if the USB device controller supports the required
+	 * features.
+	 */
 	if (!gadget_is_dualspeed(c->cdev->gadget))
 		return -EINVAL;
 
@@ -551,7 +602,7 @@ uvc_bind_config(struct usb_configuration *c,
 
 	uvc->state = UVC_STATE_DISCONNECTED;
 
-	
+	/* Validate the descriptors. */
 	if (control == NULL || control[0] == NULL ||
 	    control[0]->bDescriptorSubType != UVC_VC_HEADER)
 		goto error;
@@ -568,7 +619,7 @@ uvc_bind_config(struct usb_configuration *c,
 	uvc->desc.fs_streaming = fs_streaming;
 	uvc->desc.hs_streaming = hs_streaming;
 
-	
+	/* Allocate string descriptor numbers. */
 	if ((ret = usb_string_id(c->cdev)) < 0)
 		goto error;
 	uvc_en_us_strings[UVC_STRING_ASSOCIATION_IDX].id = ret;
@@ -585,7 +636,7 @@ uvc_bind_config(struct usb_configuration *c,
 	uvc_streaming_intf_alt0.iInterface = ret;
 	uvc_streaming_intf_alt1.iInterface = ret;
 
-	
+	/* Register the function. */
 	uvc->func.name = "uvc";
 	uvc->func.strings = uvc_function_strings;
 	uvc->func.bind = uvc_function_bind;

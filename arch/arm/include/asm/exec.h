@@ -3,4 +3,4 @@
 
 #define arch_align_stack(x) (x)
 
-#endif 
+#endif /* __ASM_ARM_EXEC_H */

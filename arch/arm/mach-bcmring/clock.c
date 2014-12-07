@@ -44,19 +44,19 @@ static void __clk_enable(struct clk *clk)
 	if (!clk)
 		return;
 
-	
+	/* enable parent clock first */
 	if (clk->parent)
 		__clk_enable(clk->parent);
 
 	if (clk->use_cnt++ == 0) {
-		if (clk_is_pll1(clk)) {	
+		if (clk_is_pll1(clk)) {	/* PLL1 */
 			chipcHw_pll1Enable(clk->rate_hz, 0);
-		} else if (clk_is_pll2(clk)) {	
+		} else if (clk_is_pll2(clk)) {	/* PLL2 */
 			chipcHw_pll2Enable(clk->rate_hz);
-		} else if (clk_is_using_xtal(clk)) {	
+		} else if (clk_is_using_xtal(clk)) {	/* source is crystal */
 			if (!clk_is_primary(clk))
 				chipcHw_bypassClockEnable(clk->csp_id);
-		} else {	
+		} else {	/* source is PLL */
 			chipcHw_setClockEnable(clk->csp_id);
 		}
 	}
@@ -85,14 +85,14 @@ static void __clk_disable(struct clk *clk)
 	BUG_ON(clk->use_cnt == 0);
 
 	if (--clk->use_cnt == 0) {
-		if (clk_is_pll1(clk)) {	
+		if (clk_is_pll1(clk)) {	/* PLL1 */
 			chipcHw_pll1Disable();
-		} else if (clk_is_pll2(clk)) {	
+		} else if (clk_is_pll2(clk)) {	/* PLL2 */
 			chipcHw_pll2Disable();
-		} else if (clk_is_using_xtal(clk)) {	
+		} else if (clk_is_using_xtal(clk)) {	/* source is crystal */
 			if (!clk_is_primary(clk))
 				chipcHw_bypassClockDisable(clk->csp_id);
-		} else {	
+		} else {	/* source is PLL */
 			chipcHw_setClockDisable(clk->csp_id);
 		}
 	}
@@ -193,7 +193,7 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 	if (!clk_is_primary(parent) || !clk_is_bypassable(clk))
 		return -EINVAL;
 
-	
+	/* if more than one user, parent is not allowed */
 	if (clk->use_cnt > 1)
 		return -EBUSY;
 
@@ -208,12 +208,12 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 	else
 		clk->mode &= (~CLK_MODE_XTAL);
 
-	
+	/* if clock is active */
 	if (clk->use_cnt != 0) {
 		clk->use_cnt--;
-		
+		/* enable clock with the new parent */
 		__clk_enable(clk);
-		
+		/* disable the old parent */
 		__clk_disable(old_parent);
 	}
 	spin_unlock_irqrestore(&clk_lock, flags);

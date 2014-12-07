@@ -23,6 +23,10 @@ static inline void ipip_ecn_decapsulate(struct sk_buff *skb)
 		IP_ECN_set_ce(inner_iph);
 }
 
+/* Add encapsulation header.
+ *
+ * The top IP header will be constructed per RFC 2401.
+ */
 static int xfrm4_mode_tunnel_output(struct xfrm_state *x, struct sk_buff *skb)
 {
 	struct dst_entry *dst = skb_dst(skb);
@@ -40,7 +44,7 @@ static int xfrm4_mode_tunnel_output(struct xfrm_state *x, struct sk_buff *skb)
 
 	top_iph->protocol = xfrm_af2proto(skb_dst(skb)->ops->family);
 
-	
+	/* DS disclosed */
 	top_iph->tos = INET_ECN_encapsulate(XFRM_MODE_SKB_CB(skb)->tos,
 					    XFRM_MODE_SKB_CB(skb)->tos);
 

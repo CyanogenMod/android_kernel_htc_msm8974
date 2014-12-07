@@ -4,6 +4,7 @@
 #include <linux/types.h>
 #include <linux/kdev_t.h>
 
+/* I/O Port */
 
 #define MAX_CDB 	12
 #define MAX_SENSE 	14
@@ -19,6 +20,7 @@
 #define ATP880_DEVID1 0x8080
 #define ATP880_DEVID2 0x8081
 
+//#define ED_DBGP
 
 struct atp_unit
 {
@@ -52,9 +54,9 @@ struct atp_unit
 		unsigned long tran_len;
 		unsigned long last_len;
 		unsigned char *prd_pos;
-		unsigned char *prd_table;	
-		dma_addr_t prd_bus;		
-		dma_addr_t prdaddr;		
+		unsigned char *prd_table;	/* Kernel address of PRD table */
+		dma_addr_t prd_bus;		/* Bus address of PRD */
+		dma_addr_t prdaddr;		/* Dynamically updated in driver */
 		struct scsi_cmnd *curr_req;
 	} id[2][16];
     	struct Scsi_Host *host;

@@ -17,6 +17,10 @@
 #include <asm/page.h>
 #include <asm/current.h>
 
+/*
+ * Default implementation of macro that returns current
+ * instruction pointer ("program counter").
+ */
 #define current_text_addr()			\
 ({						\
 	void *__pc;				\
@@ -24,8 +28,27 @@
 	__pc;					\
 })
 
+/*
+ * User space process size. This is mostly meaningless for NOMMU
+ * but some C6X processors may have RAM addresses up to 0xFFFFFFFF.
+ * Since calls like mmap() can return an address or an error, we
+ * have to allow room for error returns when code does something
+ * like:
+ *
+ *       addr = do_mmap(...)
+ *       if ((unsigned long)addr >= TASK_SIZE)
+ *            ... its an error code, not an address ...
+ *
+ * Here, we allow for 4096 error codes which means we really can't
+ * use the last 4K page on systems with RAM extending all the way
+ * to the end of the 32-bit address space.
+ */
 #define TASK_SIZE	0xFFFFF000
 
+/*
+ * This decides where the kernel will search for a free chunk of vm
+ * space during mmap's. We won't be using it
+ */
 #define TASK_UNMAPPED_BASE	0
 
 struct thread_struct {
@@ -36,8 +59,8 @@ struct thread_struct {
 	unsigned long long b11_10;
 	unsigned long long a11_10;
 	unsigned long long ricl_icl;
-	unsigned long  usp;		
-	unsigned long  pc;		
+	unsigned long  usp;		/* user stack pointer */
+	unsigned long  pc;		/* kernel pc */
 	unsigned long  wchan;
 };
 
@@ -58,15 +81,18 @@ struct thread_struct {
 #define free_kernel_stack(page) free_page((page))
 
 
+/* Forward declaration, a strange C thing */
 struct task_struct;
 
 extern void start_thread(struct pt_regs *regs, unsigned int pc,
 			 unsigned long usp);
 
+/* Free all resources held by a thread. */
 static inline void release_thread(struct task_struct *dead_task)
 {
 }
 
+/* Prepare to copy thread state - unlazy all lazy status */
 #define prepare_to_copy(tsk)	do { } while (0)
 
 extern int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags);
@@ -74,8 +100,14 @@ extern int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags);
 #define copy_segments(tsk, mm)		do { } while (0)
 #define release_segments(mm)		do { } while (0)
 
+/*
+ * saved PC of a blocked thread.
+ */
 #define thread_saved_pc(tsk) (task_pt_regs(tsk)->pc)
 
+/*
+ * saved kernel SP and DP of a blocked thread.
+ */
 #ifdef _BIG_ENDIAN
 #define thread_saved_ksp(tsk) \
 	(*(unsigned long *)&(tsk)->thread.b15_14)
@@ -97,6 +129,7 @@ extern unsigned long get_wchan(struct task_struct *p);
 
 extern const struct seq_operations cpuinfo_op;
 
+/* Reset the board */
 #define HARD_RESET_NOW()
 
 extern unsigned int c6x_core_freq;
@@ -105,4 +138,4 @@ extern unsigned int c6x_core_freq;
 extern void (*c6x_restart)(void);
 extern void (*c6x_halt)(void);
 
-#endif 
+#endif /* ASM_C6X_PROCESSOR_H */

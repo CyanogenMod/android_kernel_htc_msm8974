@@ -1,6 +1,16 @@
+/*
+ *  linux/fs/hpfs/dentry.c
+ *
+ *  Mikulas Patocka (mikulas@artax.karlin.mff.cuni.cz), 1998-1999
+ *
+ *  dcache operations
+ */
 
 #include "hpfs_fn.h"
 
+/*
+ * Note: the dentry argument is the parent dentry.
+ */
 
 static int hpfs_hash_dentry(const struct dentry *dentry, const struct inode *inode,
 		struct qstr *qstr)
@@ -12,9 +22,9 @@ static int hpfs_hash_dentry(const struct dentry *dentry, const struct inode *ino
 	if (l == 1) if (qstr->name[0]=='.') goto x;
 	if (l == 2) if (qstr->name[0]=='.' || qstr->name[1]=='.') goto x;
 	hpfs_adjust_length(qstr->name, &l);
-	
-		
-		
+	/*if (hpfs_chk_name(qstr->name,&l))*/
+		/*return -ENAMETOOLONG;*/
+		/*return -ENOENT;*/
 	x:
 
 	hash = init_name_hash();
@@ -34,8 +44,12 @@ static int hpfs_compare_dentry(const struct dentry *parent,
 	unsigned bl = name->len;
 
 	hpfs_adjust_length(str, &al);
-	
+	/*hpfs_adjust_length(b->name, &bl);*/
 
+	/*
+	 * 'str' is the nane of an already existing dentry, so the name
+	 * must be valid. 'name' must be validated first.
+	 */
 
 	if (hpfs_chk_name(name->name, &bl))
 		return 1;

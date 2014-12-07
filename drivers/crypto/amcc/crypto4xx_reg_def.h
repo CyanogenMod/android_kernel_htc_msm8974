@@ -20,6 +20,7 @@
 #ifndef __CRYPTO4XX_REG_DEF_H__
 #define __CRYPTO4XX_REG_DEF_H__
 
+/* CRYPTO4XX Register offset */
 #define CRYPTO4XX_DESCRIPTOR			0x00000000
 #define CRYPTO4XX_CTRL_STAT			0x00000000
 #define CRYPTO4XX_SOURCE			0x00000004
@@ -111,6 +112,9 @@
 #define CRYPTO4XX_PRNG_LFSR_L			0x00070030
 #define CRYPTO4XX_PRNG_LFSR_H			0x00070034
 
+/**
+ * Initialize CRYPTO ENGINE registers, and memory bases.
+ */
 #define PPC4XX_PDR_POLL				0x3ff
 #define PPC4XX_OUTPUT_THRESHOLD			2
 #define PPC4XX_INPUT_THRESHOLD			2
@@ -124,11 +128,20 @@
 #define PPC4XX_INT_DESCR_CNT			4
 #define PPC4XX_INT_TIMEOUT_CNT			0
 #define PPC4XX_INT_CFG				1
+/**
+ * all follow define are ad hoc
+ */
 #define PPC4XX_RING_RETRY			100
 #define PPC4XX_RING_POLL			100
 #define PPC4XX_SDR_SIZE				PPC4XX_NUM_SD
 #define PPC4XX_GDR_SIZE				PPC4XX_NUM_GD
 
+/**
+  * Generic Security Association (SA) with all possible fields. These will
+ * never likely used except for reference purpose. These structure format
+ * can be not changed as the hardware expects them to be layout as defined.
+ * Field can be removed or reduced but ordering can not be changed.
+ */
 #define CRYPTO4XX_DMA_CFG_OFFSET		0x40
 union ce_pe_dma_cfg {
 	struct {
@@ -204,6 +217,7 @@ union ce_part_ring_size  {
 #define MAX_BURST_SIZE_128			2
 #define MAX_BURST_SIZE_256			3
 
+/* gather descriptor control length */
 struct gd_ctl_len {
 	u32 len:16;
 	u32 rsv:14;
@@ -262,8 +276,8 @@ struct ce_pd {
 	union ce_pd_ctl   pd_ctl;
 	u32 src;
 	u32 dest;
-	u32 sa;                 
-	u32 sa_len;             
+	u32 sa;                 /* get from ctx->sa_dma_addr */
+	u32 sa_len;             /* only if dynamic sa is used */
 	union ce_pd_ctl_len pd_ctl_len;
 
 } __attribute__((packed));

@@ -47,7 +47,9 @@ static LIST_HEAD(opened);
 static DEFINE_SPINLOCK(devices_lock);
 static LIST_HEAD(devices);
 
+/* ------------------------------------------------------------------------- */
 
+/* We currently only support the TUNTAP transport protocol. */
 
 #define TRANSPORT_TUNTAP_NAME "tuntap"
 #define TRANSPORT_TUNTAP_MTU ETH_MAX_PACKET
@@ -59,8 +61,10 @@ struct tuntap_info {
 	int fd;
 };
 
+/* ------------------------------------------------------------------------- */
 
 
+/* This structure contains out private information for the driver. */
 
 struct iss_net_private {
 
@@ -97,7 +101,9 @@ struct iss_net_private {
 
 };
 
+/* ======================= ISS SIMCALL INTERFACE =========================== */
 
+/* Note: __simc must _not_ be declared inline! */
 
 static int errno;
 
@@ -144,6 +150,7 @@ static int inline simc_poll(int fd)
 	return __simc(SYS_select_one, fd, XTISS_SELECT_ONE_READ, (int)&tv,0,0);
 }
 
+/* ================================ HELPERS ================================ */
 
 
 static char *split_if_spec(char *str, ...)
@@ -169,6 +176,7 @@ static char *split_if_spec(char *str, ...)
 
 
 #if 0
+/* Adjust SKB. */
 
 struct sk_buff *ether_adjust_skb(struct sk_buff *skb, int extra)
 {
@@ -186,6 +194,7 @@ struct sk_buff *ether_adjust_skb(struct sk_buff *skb, int extra)
 }
 #endif
 
+/* Return the IP address as a string for a given device. */
 
 static void dev_ip_addr(void *d, char *buf, char *bin_buf)
 {
@@ -211,6 +220,7 @@ static void dev_ip_addr(void *d, char *buf, char *bin_buf)
 	}
 }
 
+/* Set Ethernet address of the specified device. */
 
 static void inline set_ether_mac(void *d, unsigned char *addr)
 {
@@ -219,6 +229,7 @@ static void inline set_ether_mac(void *d, unsigned char *addr)
 }
 
 
+/* ======================= TUNTAP TRANSPORT INTERFACE ====================== */
 
 static int tuntap_open(struct iss_net_private *lp)
 {
@@ -227,12 +238,12 @@ static int tuntap_open(struct iss_net_private *lp)
 	int err = -EINVAL;
 	int fd;
 
-	
+	/* We currently only support a fixed configuration. */
 
 	if (!lp->tp.info.tuntap.fixed_config)
 		return -EINVAL;
 
-	if ((fd = simc_open("/dev/net/tun", 02, 0)) < 0) {	
+	if ((fd = simc_open("/dev/net/tun", 02, 0)) < 0) {	/* O_RDWR */
 		printk("Failed to open /dev/net/tun, returned %d "
 		       "(errno = %d)\n", fd, errno);
 		return fd;
@@ -290,13 +301,17 @@ static int tuntap_poll(struct iss_net_private *lp)
 	return simc_poll(lp->tp.info.tuntap.fd);
 }
 
+/*
+ * Currently only a device name is supported.
+ * ethX=tuntap[,[mac address][,[device name]]]
+ */
 
 static int tuntap_probe(struct iss_net_private *lp, int index, char *init)
 {
 	const int len = strlen(TRANSPORT_TUNTAP_NAME);
 	char *dev_name = NULL, *mac_str = NULL, *rem = NULL;
 
-	
+	/* Transport should be 'tuntap': ethX=tuntap,mac,dev_name */
 
 	if (strncmp(init, TRANSPORT_TUNTAP_NAME, len))
 		return 0;
@@ -325,7 +340,7 @@ static int tuntap_probe(struct iss_net_private *lp, int index, char *init)
 #endif
 	lp->mtu = TRANSPORT_TUNTAP_MTU;
 
-	
+	//lp->info.tuntap.gate_addr = gate_addr;
 
 	lp->tp.info.tuntap.fd = -1;
 
@@ -346,6 +361,7 @@ static int tuntap_probe(struct iss_net_private *lp, int index, char *init)
 	return 1;
 }
 
+/* ================================ ISS NET ================================ */
 
 static int iss_net_rx(struct net_device *dev)
 {
@@ -353,12 +369,12 @@ static int iss_net_rx(struct net_device *dev)
 	int pkt_len;
 	struct sk_buff *skb;
 
-	
+	/* Check if there is any new data. */
 
 	if (lp->tp.poll(lp) == 0)
 		return 0;
 
-	
+	/* Try to allocate memory, if it fails, try again next round. */
 
 	if ((skb = dev_alloc_skb(dev->mtu + 2 + ETH_HEADER_OTHER)) == NULL) {
 		lp->stats.rx_dropped++;
@@ -367,7 +383,7 @@ static int iss_net_rx(struct net_device *dev)
 
 	skb_reserve(skb, 2);
 
-	
+	/* Setup skb */
 
 	skb->dev = dev;
 	skb_reset_mac_header(skb);
@@ -380,7 +396,7 @@ static int iss_net_rx(struct net_device *dev)
 
 		lp->stats.rx_bytes += skb->len;
 		lp->stats.rx_packets++;
-	
+	//	netif_rx(skb);
 		netif_rx_ni(skb);
 		return pkt_len;
 	}
@@ -415,7 +431,7 @@ static int iss_net_poll(void)
 			       "shutting it down\n", lp->dev->name, err);
 			dev_close(lp->dev);
 		} else {
-			
+			// FIXME reactivate_fd(lp->fd, ISS_ETH_IRQ);
 		}
 	}
 
@@ -456,6 +472,10 @@ static int iss_net_open(struct net_device *dev)
 
 	netif_start_queue(dev);
 
+	/* clear buffer - it can happen that the host side of the interface
+	 * is full when we get here. In this case, new data is never queued,
+	 * SIGIOs never arrive, and the net never works.
+	 */
 	while ((err = iss_net_rx(dev)) > 0)
 		;
 
@@ -510,7 +530,7 @@ static int iss_net_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		dev->trans_start = jiffies;
 		netif_start_queue(dev);
 
-		
+		/* this is normally done in the interrupt when tx finishes */
 		netif_wake_queue(dev);
 
 	} else if (len == 0) {
@@ -577,7 +597,7 @@ static int iss_net_change_mtu(struct net_device *dev, int new_mtu)
 
 	spin_lock(&lp->lock);
 
-	
+	// FIXME not needed new_mtu = transport_set_mtu(new_mtu, &lp->user);
 
 	if (new_mtu < 0)
 		err = new_mtu;
@@ -611,7 +631,7 @@ static const struct net_device_ops iss_netdev_ops = {
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_change_mtu		= iss_net_change_mtu,
 	.ndo_set_mac_address	= iss_net_set_mac,
-	
+	//.ndo_do_ioctl		= iss_net_ioctl,
 	.ndo_tx_timeout		= iss_net_tx_timeout,
 	.ndo_set_rx_mode	= iss_net_set_multicast_list,
 };
@@ -627,7 +647,7 @@ static int iss_net_configure(int index, char *init)
 		return 1;
 	}
 
-	
+	/* Initialize private element. */
 
 	lp = netdev_priv(dev);
 	*lp = ((struct iss_net_private) {
@@ -636,11 +656,15 @@ static int iss_net_configure(int index, char *init)
 		.lock			= __SPIN_LOCK_UNLOCKED(lp.lock),
 		.dev			= dev,
 		.index			= index,
-		
+		//.fd                   = -1,
 		.mac			= { 0xfe, 0xfd, 0x0, 0x0, 0x0, 0x0 },
 		.have_mac		= 0,
 		});
 
+	/*
+	 * Try all transport protocols.
+	 * Note: more protocols can be added by adding '&& !X_init(lp, eth)'.
+	 */
 
 	if (!tuntap_probe(lp, index, init)) {
 		printk("Invalid arguments. Skipping device!\n");
@@ -652,7 +676,7 @@ static int iss_net_configure(int index, char *init)
 		printk("(%pM) ", lp->mac);
 	printk(": ");
 
-	
+	/* sysfs register */
 
 	if (!driver_registered) {
 		platform_driver_register(&iss_net_driver);
@@ -668,6 +692,11 @@ static int iss_net_configure(int index, char *init)
 	platform_device_register(&lp->pdev);
 	SET_NETDEV_DEV(dev,&lp->pdev.dev);
 
+	/*
+	 * If this name ends up conflicting with an existing registered
+	 * netdevice, that is OK, register_netdev{,ice}() will notice this
+	 * and fail.
+	 */
 	snprintf(dev->name, sizeof dev->name, "eth%d", index);
 
 	dev->netdev_ops = &iss_netdev_ops;
@@ -681,7 +710,7 @@ static int iss_net_configure(int index, char *init)
 
 	if (err) {
 		printk("Error registering net device!\n");
-		
+		/* XXX: should we call ->remove() here? */
 		free_netdev(dev);
 		return 1;
 	}
@@ -696,21 +725,27 @@ static int iss_net_configure(int index, char *init)
 	return 0;
 
 errout:
-	
+	// FIXME: unregister; free, etc..
 	return -EIO;
 
 }
 
+/* ------------------------------------------------------------------------- */
 
+/* Filled in during early boot */
 
 struct list_head eth_cmd_line = LIST_HEAD_INIT(eth_cmd_line);
 
 struct iss_net_init {
 	struct list_head list;
-	char *init;		
+	char *init;		/* init string */
 	int index;
 };
 
+/*
+ * Parse the command line and look for 'ethX=...' fields, and register all
+ * those fields. They will be later initialized in iss_net_init.
+ */
 
 #define ERR KERN_ERR "iss_net_setup: "
 
@@ -768,12 +803,15 @@ static int iss_net_setup(char *str)
 
 __setup("eth=", iss_net_setup);
 
+/*
+ * Initialize all ISS Ethernet devices previously registered in iss_net_setup.
+ */
 
 static int iss_net_init(void)
 {
 	struct list_head *ele, *next;
 
-	
+	/* Walk through all Ethernet devices specified in the command line. */
 
 	list_for_each_safe(ele, next, &eth_cmd_line) {
 		struct iss_net_init *eth;

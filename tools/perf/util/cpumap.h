@@ -14,4 +14,4 @@ void cpu_map__delete(struct cpu_map *map);
 
 size_t cpu_map__fprintf(struct cpu_map *map, FILE *fp);
 
-#endif 
+#endif /* __PERF_CPUMAP_H */

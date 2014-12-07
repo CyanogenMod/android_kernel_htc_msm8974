@@ -41,9 +41,13 @@ static void udf_pc_to_char(struct super_block *sb, unsigned char *from,
 		pc = (struct pathComponent *)(from + elen);
 		switch (pc->componentType) {
 		case 1:
+			/*
+			 * Symlink points to some place which should be agreed
+ 			 * upon between originator and receiver of the media. Ignore.
+			 */
 			if (pc->lengthComponentIdent > 0)
 				break;
-			
+			/* Fall through */
 		case 2:
 			p = to;
 			*p++ = '/';
@@ -55,7 +59,7 @@ static void udf_pc_to_char(struct super_block *sb, unsigned char *from,
 		case 4:
 			memcpy(p, "./", 2);
 			p += 2;
-			
+			/* that would be . - just ignore */
 			break;
 		case 5:
 			p += udf_get_filename(sb, pc->componentIdent, p,
@@ -113,6 +117,9 @@ out:
 	return err;
 }
 
+/*
+ * symlinks can't do much...
+ */
 const struct address_space_operations udf_symlink_aops = {
 	.readpage		= udf_symlink_filler,
 };

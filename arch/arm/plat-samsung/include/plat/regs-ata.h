@@ -53,4 +53,4 @@
 #define S3C_ATA_CFG_SWAP	0x40
 #define S3C_ATA_CFG_IORDYEN	0x02
 
-#endif 
+#endif /* __ASM_PLAT_REGS_ATA_H */

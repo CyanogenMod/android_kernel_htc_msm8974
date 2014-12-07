@@ -48,10 +48,12 @@
 #define MX2_CAM_VERSION "0.0.6"
 #define MX2_CAM_DRIVER_DESCRIPTION "i.MX2x_Camera"
 
+/* reset values */
 #define CSICR1_RESET_VAL	0x40000800
 #define CSICR2_RESET_VAL	0x0
 #define CSICR3_RESET_VAL	0x0
 
+/* csi control reg 1 */
 #define CSICR1_SWAP16_EN	(1 << 31)
 #define CSICR1_EXT_VSYNC	(1 << 30)
 #define CSICR1_EOF_INTEN	(1 << 29)
@@ -62,9 +64,9 @@
 #define CSICR1_RF_OR_INTEN	(1 << 24)
 #define CSICR1_STATFF_LEVEL	(3 << 22)
 #define CSICR1_STATFF_INTEN	(1 << 21)
-#define CSICR1_RXFF_LEVEL(l)	(((l) & 3) << 19)	
-#define CSICR1_FB2_DMA_INTEN	(1 << 20)		
-#define CSICR1_FB1_DMA_INTEN	(1 << 19)		
+#define CSICR1_RXFF_LEVEL(l)	(((l) & 3) << 19)	/* MX27 */
+#define CSICR1_FB2_DMA_INTEN	(1 << 20)		/* MX25 */
+#define CSICR1_FB1_DMA_INTEN	(1 << 19)		/* MX25 */
 #define CSICR1_RXFF_INTEN	(1 << 18)
 #define CSICR1_SOF_POL		(1 << 17)
 #define CSICR1_SOF_INTEN	(1 << 16)
@@ -85,13 +87,14 @@
 #define SHIFT_RXFF_LEVEL	19
 #define SHIFT_MCLKDIV		12
 
+/* control reg 3 */
 #define CSICR3_FRMCNT		(0xFFFF << 16)
 #define CSICR3_FRMCNT_RST	(1 << 15)
 #define CSICR3_DMA_REFLASH_RFF	(1 << 14)
 #define CSICR3_DMA_REFLASH_SFF	(1 << 13)
 #define CSICR3_DMA_REQ_EN_RFF	(1 << 12)
 #define CSICR3_DMA_REQ_EN_SFF	(1 << 11)
-#define CSICR3_RXFF_LEVEL(l)	(((l) & 7) << 4)	
+#define CSICR3_RXFF_LEVEL(l)	(((l) & 7) << 4)	/* MX25 */
 #define CSICR3_CSI_SUP		(1 << 3)
 #define CSICR3_ZERO_PACK_EN	(1 << 2)
 #define CSICR3_ECC_INT_EN	(1 << 1)
@@ -99,11 +102,12 @@
 
 #define SHIFT_FRMCNT		16
 
+/* csi status reg */
 #define CSISR_SFF_OR_INT	(1 << 25)
 #define CSISR_RFF_OR_INT	(1 << 24)
 #define CSISR_STATFF_INT	(1 << 21)
-#define CSISR_DMA_TSF_FB2_INT	(1 << 20)	
-#define CSISR_DMA_TSF_FB1_INT	(1 << 19)	
+#define CSISR_DMA_TSF_FB2_INT	(1 << 20)	/* MX25 */
+#define CSISR_DMA_TSF_FB1_INT	(1 << 19)	/* MX25 */
 #define CSISR_RXFF_INT		(1 << 18)
 #define CSISR_EOF_INT		(1 << 17)
 #define CSISR_SOF_INT		(1 << 16)
@@ -127,6 +131,7 @@
 #define CSIFBUF_PARA		0x30
 #define CSIIMAG_PARA		0x34
 
+/* EMMA PrP */
 #define PRP_CNTL			0x00
 #define PRP_INTR_CNTL			0x04
 #define PRP_INTRSTATUS			0x08
@@ -191,6 +196,7 @@
 #define PRP_CNTL_CH2B2EN	(1 << 30)
 #define PRP_CNTL_CH2FEN		(1 << 31)
 
+/* IRQ Enable and status register */
 #define PRP_INTR_RDERR		(1 << 0)
 #define PRP_INTR_CH1WERR	(1 << 1)
 #define PRP_INTR_CH2WERR	(1 << 2)
@@ -199,6 +205,7 @@
 #define PRP_INTR_LBOVF		(1 << 7)
 #define PRP_INTR_CH2OVF		(1 << 8)
 
+/* Resizing registers */
 #define PRP_RZ_VALID_TBL_LEN(x)	((x) << 24)
 #define PRP_RZ_VALID_BILINEAR	(1 << 31)
 
@@ -224,12 +231,14 @@ struct mx2_prp_cfg {
 	u32 irq_flags;
 };
 
+/* prp resizing parameters */
 struct emma_prp_resize {
-	int		algo; 
-	int		len; 
-	unsigned char	s[RESIZE_NUM_MAX]; 
+	int		algo; /* type of algorithm used */
+	int		len; /* number of coefficients */
+	unsigned char	s[RESIZE_NUM_MAX]; /* table of coefficients */
 };
 
+/* prp configuration for a client-host fmt pair */
 struct mx2_fmt_cfg {
 	enum v4l2_mbus_pixelcode	in_fmt;
 	u32				out_fmt;
@@ -248,8 +257,9 @@ struct mx2_buf_internal {
 	bool			discard;
 };
 
+/* buffer for one video frame */
 struct mx2_buffer {
-	
+	/* common v4l buffer stuff -- must be first */
 	struct vb2_buffer		vb;
 	enum mx2_buffer_state		state;
 	struct mx2_buf_internal		internal;
@@ -299,6 +309,15 @@ static struct mx2_buffer *mx2_ibuf_to_buf(struct mx2_buf_internal *int_buf)
 }
 
 static struct mx2_fmt_cfg mx27_emma_prp_table[] = {
+	/*
+	 * This is a generic configuration which is valid for most
+	 * prp input-output format combinations.
+	 * We set the incomming and outgoing pixelformat to a
+	 * 16 Bit wide format and adjust the bytesperline
+	 * accordingly. With this configuration the inputdata
+	 * will not be changed by the emma and could be any type
+	 * of 16 Bit Pixelformat.
+	 */
 	{
 		.in_fmt		= 0,
 		.out_fmt	= 0,
@@ -306,8 +325,8 @@ static struct mx2_fmt_cfg mx27_emma_prp_table[] = {
 			.channel	= 1,
 			.in_fmt		= PRP_CNTL_DATA_IN_RGB16,
 			.out_fmt	= PRP_CNTL_CH1_OUT_RGB16,
-			.src_pixel	= 0x2ca00565, 
-			.ch1_pixel	= 0x2ca00565, 
+			.src_pixel	= 0x2ca00565, /* RGB565 */
+			.ch1_pixel	= 0x2ca00565, /* RGB565 */
 			.irq_flags	= PRP_INTR_RDERR | PRP_INTR_CH1WERR |
 						PRP_INTR_CH1FC | PRP_INTR_LBOVF,
 		}
@@ -319,7 +338,7 @@ static struct mx2_fmt_cfg mx27_emma_prp_table[] = {
 			.channel	= 2,
 			.in_fmt		= PRP_CNTL_DATA_IN_YUV422,
 			.out_fmt	= PRP_CNTL_CH2_OUT_YUV420,
-			.src_pixel	= 0x22000888, 
+			.src_pixel	= 0x22000888, /* YUV422 (YUYV) */
 			.irq_flags	= PRP_INTR_RDERR | PRP_INTR_CH2WERR |
 					PRP_INTR_CH2FC | PRP_INTR_LBOVF |
 					PRP_INTR_CH2OVF,
@@ -338,7 +357,7 @@ static struct mx2_fmt_cfg *mx27_emma_prp_get_format(
 				(mx27_emma_prp_table[i].out_fmt == out_fmt)) {
 			return &mx27_emma_prp_table[i];
 		}
-	
+	/* If no match return the most generic configuration */
 	return &mx27_emma_prp_table[0];
 };
 
@@ -383,6 +402,10 @@ static void mx2_camera_deactivate(struct mx2_camera_dev *pcdev)
 	}
 }
 
+/*
+ * The following two functions absolutely depend on the fact, that
+ * there can be only one camera on mx2 camera sensor interface
+ */
 static int mx2_camera_add_device(struct soc_camera_device *icd)
 {
 	struct soc_camera_host *ici = to_soc_camera_host(icd->parent);
@@ -484,13 +507,16 @@ static irqreturn_t mx25_camera_irq(int irq_csi, void *data)
 	else if (status & CSISR_DMA_TSF_FB2_INT)
 		mx25_camera_frame_done(pcdev, 2, MX2_STATE_DONE);
 
-	
+	/* FIXME: handle CSISR_RFF_OR_INT */
 
 	writel(status, pcdev->base_csi + CSISR);
 
 	return IRQ_HANDLED;
 }
 
+/*
+ *  Videobuf operations
+ */
 static int mx2_videobuf_setup(struct vb2_queue *vq,
 			const struct v4l2_format *fmt,
 			unsigned int *count, unsigned int *num_planes,
@@ -504,7 +530,7 @@ static int mx2_videobuf_setup(struct vb2_queue *vq,
 
 	dev_dbg(icd->parent, "count=%d, size=%d\n", *count, sizes[0]);
 
-	
+	/* TODO: support for VIDIOC_CREATE_BUFS not ready */
 	if (fmt != NULL)
 		return -ENOTTY;
 
@@ -540,6 +566,10 @@ static int mx2_videobuf_prepare(struct vb2_buffer *vb)
 		return bytes_per_line;
 
 #ifdef DEBUG
+	/*
+	 * This can be useful if you want to see if we actually fill
+	 * the buffer with something
+	 */
 	memset((void *)vb2_plane_vaddr(vb, 0),
 	       0xaa, vb2_get_plane_payload(vb, 0));
 #endif
@@ -595,16 +625,16 @@ static void mx2_videobuf_queue(struct vb2_buffer *vb)
 
 			csicr3 = readl(pcdev->base_csi + CSICR3);
 
-			
+			/* Reflash DMA */
 			writel(csicr3 | CSICR3_DMA_REFLASH_RFF,
 					pcdev->base_csi + CSICR3);
 
-			
+			/* clear & enable interrupts */
 			writel(dma_inten, pcdev->base_csi + CSISR);
 			pcdev->csicr1 |= dma_inten;
 			writel(pcdev->csicr1, pcdev->base_csi + CSICR1);
 
-			
+			/* enable DMA */
 			csicr3 |= CSICR3_DMA_REQ_EN_RFF | CSICR3_RXFF_LEVEL(1);
 			writel(csicr3, pcdev->base_csi + CSICR3);
 		}
@@ -639,6 +669,15 @@ static void mx2_videobuf_release(struct vb2_buffer *vb)
 	}
 #endif
 
+	/*
+	 * Terminate only queued but inactive buffers. Active buffers are
+	 * released when they become inactive after videobuf_waiton().
+	 *
+	 * FIXME: implement forced termination of active buffers for mx27 and
+	 * mx27 eMMA, so that the user won't get stuck in an uninterruptible
+	 * state. This requires a specific handling for each of the these DMA
+	 * types.
+	 */
 
 	spin_lock_irqsave(&pcdev->lock, flags);
 	if (cpu_is_mx25() && buf->state == MX2_STATE_ACTIVE) {
@@ -675,12 +714,12 @@ static void mx27_camera_emma_buf_init(struct soc_camera_device *icd,
 			pcdev->base_emma + PRP_DEST_CH1_LINE_STRIDE);
 		writel(prp->cfg.ch1_pixel,
 			pcdev->base_emma + PRP_CH1_PIXEL_FORMAT_CNTL);
-	} else { 
+	} else { /* channel 2 */
 		writel((icd->user_width << 16) | icd->user_height,
 			pcdev->base_emma + PRP_CH2_OUT_IMAGE_SIZE);
 	}
 
-	
+	/* Enable interrupts */
 	writel(prp->cfg.irq_flags, pcdev->base_emma + PRP_INTR_CNTL);
 }
 
@@ -796,6 +835,13 @@ static int mx2_start_streaming(struct vb2_queue *q, unsigned int count)
 		if (bytesperline < 0)
 			return bytesperline;
 
+		/*
+		 * I didn't manage to properly enable/disable the prp
+		 * on a per frame basis during running transfers,
+		 * thus we allocate a buffer here and use it to
+		 * discard frames when no buffer is available.
+		 * Feel free to work on this ;)
+		 */
 		pcdev->discard_size = icd->user_height * bytesperline;
 		pcdev->discard_buffer = dma_alloc_coherent(ici->v4l2_dev.dev,
 				pcdev->discard_size, &pcdev->discard_buffer_dma,
@@ -1037,7 +1083,7 @@ static int mx2_camera_set_crop(struct soc_camera_device *icd,
 	if (ret < 0)
 		return ret;
 
-	
+	/* The capture device might have changed its output  */
 	ret = v4l2_subdev_call(sd, video, g_mbus_fmt, &mf);
 	if (ret < 0)
 		return ret;
@@ -1063,7 +1109,7 @@ static int mx2_camera_get_formats(struct soc_camera_device *icd,
 
 	ret = v4l2_subdev_call(sd, video, enum_mbus_fmt, idx, &code);
 	if (ret < 0)
-		
+		/* no more formats */
 		return 0;
 
 	fmt = soc_mbus_get_fmtdesc(code);
@@ -1075,6 +1121,10 @@ static int mx2_camera_get_formats(struct soc_camera_device *icd,
 	if (code == V4L2_MBUS_FMT_YUYV8_2X8) {
 		formats++;
 		if (xlate) {
+			/*
+			 * CH2 can output YUV420 which is a standard format in
+			 * soc_mediabus.c
+			 */
 			xlate->host_fmt =
 				soc_mbus_get_fmtdesc(V4L2_MBUS_FMT_YUYV8_1_5X8);
 			xlate->code	= code;
@@ -1084,7 +1134,7 @@ static int mx2_camera_get_formats(struct soc_camera_device *icd,
 		}
 	}
 
-	
+	/* Generic pass-trough */
 	formats++;
 	if (xlate) {
 		xlate->host_fmt = fmt;
@@ -1121,7 +1171,7 @@ static int mx2_emmaprp_resize(struct mx2_camera_dev *pcdev,
 		else if (in == out)
 			continue;
 
-		
+		/* Calculate ratio */
 		m = gcd(in, out);
 		num = in / m;
 		den = out / m;
@@ -1133,8 +1183,8 @@ static int mx2_emmaprp_resize(struct mx2_camera_dev *pcdev,
 			int sum = 0;
 			int j;
 
-			
-			
+			/* Average scaling for >= 2:1 ratios */
+			/* Support can be added for num >=9 and odd values */
 
 			tmprsz.algo = RESIZE_ALGO_AVERAGING;
 			len = num;
@@ -1158,9 +1208,9 @@ static int mx2_emmaprp_resize(struct mx2_camera_dev *pcdev,
 
 			s[len - 1] |= SZ_COEF;
 		} else {
-			
-			int v; 
-			int coeff, nxt; 
+			/* bilinear scaling for < 2:1 ratios */
+			int v; /* overflow counter */
+			int coeff, nxt; /* table output */
 			int in_pos_inc = 2 * den;
 			int out_pos = num;
 			int out_pos_inc = 2 * num;
@@ -1242,7 +1292,7 @@ static int mx2_camera_set_fmt(struct soc_camera_device *icd,
 	if (ret < 0 && ret != -ENOIOCTLCMD)
 		return ret;
 
-	
+	/* Store width and height returned by the sensor for resizing */
 	pcdev->s_width = mf.width;
 	pcdev->s_height = mf.height;
 	dev_dbg(icd->parent, "%s: sensor params: width = %d, height = %d\n",
@@ -1295,15 +1345,15 @@ static int mx2_camera_try_fmt(struct soc_camera_device *icd,
 		return -EINVAL;
 	}
 
-	
+	/* FIXME: implement MX27 limits */
 
-	
+	/* limit to MX25 hardware capabilities */
 	if (cpu_is_mx25()) {
 		if (xlate->host_fmt->bits_per_sample <= 8)
 			width_limit = 0xffff * 4;
 		else
 			width_limit = 0xffff * 2;
-		
+		/* CSIIMAG_PARA limit */
 		if (pix->width > width_limit)
 			pix->width = width_limit;
 		if (pix->height > 0xffff)
@@ -1314,9 +1364,9 @@ static int mx2_camera_try_fmt(struct soc_camera_device *icd,
 		if (pix->bytesperline < 0)
 			return pix->bytesperline;
 		pix->sizeimage = pix->height * pix->bytesperline;
-		
+		/* Check against the CSIRXCNT limit */
 		if (pix->sizeimage > 4 * 0x3ffff) {
-			
+			/* Adjust geometry, preserve aspect ratio */
 			unsigned int new_height = int_sqrt(4 * 0x3ffff *
 					pix->height / pix->bytesperline);
 			pix->width = new_height * pix->width / pix->height;
@@ -1327,7 +1377,7 @@ static int mx2_camera_try_fmt(struct soc_camera_device *icd,
 		}
 	}
 
-	
+	/* limit to sensor capabilities */
 	mf.width	= pix->width;
 	mf.height	= pix->height;
 	mf.field	= pix->field;
@@ -1341,7 +1391,7 @@ static int mx2_camera_try_fmt(struct soc_camera_device *icd,
 	dev_dbg(icd->parent, "%s: sensor params: width = %d, height = %d\n",
 		__func__, pcdev->s_width, pcdev->s_height);
 
-	
+	/* If the sensor does not support image size try PrP resizing */
 	pcdev->emma_prp = mx27_emma_prp_get_format(xlate->code,
 						   xlate->host_fmt->fourcc);
 
@@ -1354,6 +1404,11 @@ static int mx2_camera_try_fmt(struct soc_camera_device *icd,
 
 	if (mf.field == V4L2_FIELD_ANY)
 		mf.field = V4L2_FIELD_NONE;
+	/*
+	 * Driver supports interlaced images provided they have
+	 * both fields so that they can be processed as if they
+	 * were progressive.
+	 */
 	if (mf.field != V4L2_FIELD_NONE && !V4L2_FIELD_HAS_BOTH(mf.field)) {
 		dev_err(icd->parent, "Field type %d unsupported.\n",
 				mf.field);
@@ -1374,7 +1429,7 @@ static int mx2_camera_try_fmt(struct soc_camera_device *icd,
 static int mx2_camera_querycap(struct soc_camera_host *ici,
 			       struct v4l2_capability *cap)
 {
-	
+	/* cap->name is set by the friendly caller:-> */
 	strlcpy(cap->card, MX2_CAM_DRIVER_DESCRIPTION, sizeof(cap->card));
 	cap->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 
@@ -1419,6 +1474,10 @@ static void mx27_camera_frame_done_emma(struct mx2_camera_dev *pcdev,
 	BUG_ON(ibuf->bufnum != bufnum);
 
 	if (ibuf->discard) {
+		/*
+		 * Discard buffer must not be returned to user space.
+		 * Just return it to the discard queue.
+		 */
 		list_move_tail(pcdev->active_bufs.next, &pcdev->discard);
 	} else {
 		buf = mx2_ibuf_to_buf(ibuf);
@@ -1505,7 +1564,7 @@ static irqreturn_t mx27_camera_emma_irq(int irq_emma, void *data)
 		}
 	}
 
-	if (status & (1 << 7)) { 
+	if (status & (1 << 7)) { /* overflow */
 		u32 cntl = readl(pcdev->base_emma + PRP_CNTL);
 		writel(cntl & ~(PRP_CNTL_CH1EN | PRP_CNTL_CH2EN),
 		       pcdev->base_emma + PRP_CNTL);
@@ -1519,10 +1578,14 @@ static irqreturn_t mx27_camera_emma_irq(int irq_emma, void *data)
 		status &= ~(1 << 7);
 	} else if (((status & (3 << 5)) == (3 << 5)) ||
 		((status & (3 << 3)) == (3 << 3))) {
+		/*
+		 * Both buffers have triggered, process the one we're expecting
+		 * to first
+		 */
 		ibuf = list_first_entry(&pcdev->active_bufs,
 					struct mx2_buf_internal, queue);
 		mx27_camera_frame_done_emma(pcdev, ibuf->bufnum, false);
-		status &= ~(1 << (6 - ibuf->bufnum)); 
+		status &= ~(1 << (6 - ibuf->bufnum)); /* mark processed */
 	} else if ((status & (1 << 6)) || (status & (1 << 4))) {
 		mx27_camera_frame_done_emma(pcdev, 0, false);
 	} else if ((status & (1 << 5)) || (status & (1 << 3))) {
@@ -1640,6 +1703,9 @@ static int __devinit mx2_camera_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&pcdev->discard);
 	spin_lock_init(&pcdev->lock);
 
+	/*
+	 * Request the regions.
+	 */
 	if (!request_mem_region(res_csi->start, resource_size(res_csi),
 				MX2_CAM_DRV_NAME)) {
 		err = -EBUSY;
@@ -1666,7 +1732,7 @@ static int __devinit mx2_camera_probe(struct platform_device *pdev)
 	}
 
 	if (cpu_is_mx27()) {
-		
+		/* EMMA support */
 		res_emma = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 		irq_emma = platform_get_irq(pdev, 1);
 

@@ -15,11 +15,13 @@
 
 #include "wm_hubs.h"
 
+/* Sources for AIF1/2 SYSCLK - use with set_dai_sysclk() */
 #define WM8994_SYSCLK_MCLK1 1
 #define WM8994_SYSCLK_MCLK2 2
 #define WM8994_SYSCLK_FLL1  3
 #define WM8994_SYSCLK_FLL2  4
 
+/* OPCLK is also configured with set_dai_sysclk, specify division*10 as rate. */
 #define WM8994_SYSCLK_OPCLK 5
 
 #define WM8994_FLL1 1
@@ -54,6 +56,7 @@ struct wm8994_micdet {
 	bool detecting;
 };
 
+/* codec private data */
 struct wm8994_fll_config {
 	int src;
 	int in;
@@ -90,33 +93,33 @@ struct wm8994_priv {
 	int vss_ena[3];
 	int enh_eq_ena[3];
 
-	
+	/* Platform dependant DRC configuration */
 	const char **drc_texts;
 	int drc_cfg[WM8994_NUM_DRC];
 	struct soc_enum drc_enum;
 
-	
+	/* Platform dependant ReTune mobile configuration */
 	int num_retune_mobile_texts;
 	const char **retune_mobile_texts;
 	int retune_mobile_cfg[WM8994_NUM_EQ];
 	struct soc_enum retune_mobile_enum;
 
-	
+	/* Platform dependant MBC configuration */
 	int mbc_cfg;
 	const char **mbc_texts;
 	struct soc_enum mbc_enum;
 
-	
+	/* Platform dependant VSS configuration */
 	int vss_cfg;
 	const char **vss_texts;
 	struct soc_enum vss_enum;
 
-	
+	/* Platform dependant VSS HPF configuration */
 	int vss_hpf_cfg;
 	const char **vss_hpf_texts;
 	struct soc_enum vss_hpf_enum;
 
-	
+	/* Platform dependant enhanced EQ configuration */
 	int enh_eq_cfg;
 	const char **enh_eq_texts;
 	struct soc_enum enh_eq_enum;

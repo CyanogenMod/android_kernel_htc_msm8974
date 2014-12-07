@@ -65,6 +65,7 @@
 #define MACHINE_TYPE_MSP7100_FPGA	"MSP7100-FPGA"
 #define MACHINE_TYPE_OTHER_FPGA		"OTHER-FPGA"
 
+/* Device Family definitions */
 #define FAMILY_FPGA			0x0000
 #define FAMILY_ZEUS			0x1000
 #define FAMILY_POLO			0x2000
@@ -75,6 +76,7 @@
 #define FAMILY_MSP7100			0x7100
 #define FAMILY_MSP7100_FPGA		0x7f00
 
+/* Device Type definitions */
 #define TYPE_MSP7120			0x7120
 #define TYPE_MSP7130			0x7130
 
@@ -109,12 +111,12 @@
 
 #define SPAD_POLO		'P'
 
-#define TDM_DUET		'D'	
-#define TDM_POLO		'P'	
-#define TDM_TRIAD		'T'	
+#define TDM_DUET		'D'	/* DUET TDMs might exist */
+#define TDM_POLO		'P'	/* POLO TDMs might exist */
+#define TDM_TRIAD		'T'	/* TRIAD TDMs might exist */
 
-#define ZSP_DUET		'D'	
-#define ZSP_TRIAD		'T'	
+#define ZSP_DUET		'D'	/* one DUET zsp engine */
+#define ZSP_TRIAD		'T'	/* two TRIAD zsp engines */
 
 extern char *prom_getenv(char *name);
 extern void prom_init_cmdline(void);
@@ -135,13 +137,18 @@ extern char identify_zsp(void);
 extern unsigned long identify_family(void);
 extern unsigned long identify_revision(void);
 
+/*
+ * The following macro calls prom_printf and puts the format string
+ * into an init section so it can be reclaimed.
+ */
 #define ppfinit(f, x...) \
 	do { \
 		static char _f[] __initdata = KERN_INFO f; \
 		printk(_f, ## x); \
 	} while (0)
 
-#define PROM_MAX_PMEMBLOCKS    7	
+/* Memory descriptor management. */
+#define PROM_MAX_PMEMBLOCKS    7	/* 6 used */
 
 enum yamon_memtypes {
 	yamon_dontuse,
@@ -150,9 +157,9 @@ enum yamon_memtypes {
 };
 
 struct prom_pmemblock {
-	unsigned long base; 
-	unsigned int size;  
-	unsigned int type;  
+	unsigned long base; /* Within KSEG0. */
+	unsigned int size;  /* In bytes. */
+	unsigned int type;  /* free or prom memory */
 };
 
 extern int prom_argc;
@@ -161,4 +168,4 @@ extern char **prom_envp;
 extern int *prom_vec;
 extern struct prom_pmemblock *prom_getmdesc(void);
 
-#endif 
+#endif /* !_ASM_MSP_PROM_H */

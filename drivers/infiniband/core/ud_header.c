@@ -213,6 +213,16 @@ static const struct ib_field deth_table[] = {
 	  .size_bits    = 24 }
 };
 
+/**
+ * ib_ud_header_init - Initialize UD header structure
+ * @payload_bytes:Length of packet payload
+ * @lrh_present: specify if LRH is present
+ * @eth_present: specify if Eth header is present
+ * @vlan_present: packet is tagged vlan
+ * @grh_present:GRH flag (if non-zero, GRH will be included)
+ * @immediate_present: specify if immediate data is present
+ * @header:Structure to initialize
+ */
 void ib_ud_header_init(int     		    payload_bytes,
 		       int		    lrh_present,
 		       int		    eth_present,
@@ -234,8 +244,8 @@ void ib_ud_header_init(int     		    payload_bytes,
 				 IB_DETH_BYTES	+
 				 (grh_present ? IB_GRH_BYTES : 0) +
 				 payload_bytes	+
-				 4		+ 
-				 3) / 4;	  
+				 4		+ /* ICRC     */
+				 3) / 4;	  /* round up */
 		header->lrh.packet_length = cpu_to_be16(packet_length);
 	}
 
@@ -248,8 +258,8 @@ void ib_ud_header_init(int     		    payload_bytes,
 			cpu_to_be16((IB_BTH_BYTES     +
 				     IB_DETH_BYTES    +
 				     payload_bytes    +
-				     4                + 
-				     3) & ~3);          
+				     4                + /* ICRC     */
+				     3) & ~3);          /* round up */
 		header->grh.next_header     = 0x1b;
 	}
 
@@ -268,6 +278,14 @@ void ib_ud_header_init(int     		    payload_bytes,
 }
 EXPORT_SYMBOL(ib_ud_header_init);
 
+/**
+ * ib_ud_header_pack - Pack UD header struct into wire format
+ * @header:UD header struct
+ * @buf:Buffer to pack into
+ *
+ * ib_ud_header_pack() packs the UD header structure @header into wire
+ * format in the buffer @buf.
+ */
 int ib_ud_header_pack(struct ib_ud_header *header,
 		      void                *buf)
 {
@@ -311,6 +329,14 @@ int ib_ud_header_pack(struct ib_ud_header *header,
 }
 EXPORT_SYMBOL(ib_ud_header_pack);
 
+/**
+ * ib_ud_header_unpack - Unpack UD header struct from wire format
+ * @header:UD header struct
+ * @buf:Buffer to pack into
+ *
+ * ib_ud_header_pack() unpacks the UD header structure @header from wire
+ * format in the buffer @buf.
+ */
 int ib_ud_header_unpack(void                *buf,
 			struct ib_ud_header *header)
 {

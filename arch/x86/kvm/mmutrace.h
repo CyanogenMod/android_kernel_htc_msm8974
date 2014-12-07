@@ -49,6 +49,9 @@
 	{ PFERR_RSVD_MASK, "RSVD" },	\
 	{ PFERR_FETCH_MASK, "F" }
 
+/*
+ * A pagetable walk has started
+ */
 TRACE_EVENT(
 	kvm_mmu_pagetable_walk,
 	TP_PROTO(u64 addr, int write_fault, int user_fault, int fetch_fault),
@@ -70,6 +73,7 @@ TRACE_EVENT(
 );
 
 
+/* We just walked a paging element */
 TRACE_EVENT(
 	kvm_mmu_paging_element,
 	TP_PROTO(u64 pte, int level),
@@ -106,6 +110,7 @@ DECLARE_EVENT_CLASS(kvm_mmu_set_bit_class,
 	TP_printk("gpa %llx", __entry->gpa)
 );
 
+/* We set a pte accessed bit */
 DEFINE_EVENT(kvm_mmu_set_bit_class, kvm_mmu_set_accessed_bit,
 
 	TP_PROTO(unsigned long table_gfn, unsigned index, unsigned size),
@@ -113,6 +118,7 @@ DEFINE_EVENT(kvm_mmu_set_bit_class, kvm_mmu_set_accessed_bit,
 	TP_ARGS(table_gfn, index, size)
 );
 
+/* We set a pte dirty bit */
 DEFINE_EVENT(kvm_mmu_set_bit_class, kvm_mmu_set_dirty_bit,
 
 	TP_PROTO(unsigned long table_gfn, unsigned index, unsigned size),
@@ -237,11 +243,12 @@ TRACE_EVENT(
 	TP_printk("addr:%llx gfn %llx access %x", __entry->addr, __entry->gfn,
 		  __entry->access)
 );
-#endif 
+#endif /* _TRACE_KVMMMU_H */
 
 #undef TRACE_INCLUDE_PATH
 #define TRACE_INCLUDE_PATH .
 #undef TRACE_INCLUDE_FILE
 #define TRACE_INCLUDE_FILE mmutrace
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

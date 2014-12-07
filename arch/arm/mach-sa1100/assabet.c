@@ -79,8 +79,14 @@ static void assabet_ucb1x00_reset(enum ucb1x00_reset state)
 }
 
 
+/*
+ * Assabet flash support code.
+ */
 
 #ifdef ASSABET_REV_4
+/*
+ * Phase 4 Assabet has two 28F160B3 flash parts in bank 0:
+ */
 static struct mtd_partition assabet_partitions[] = {
 	{
 		.name		= "bootloader",
@@ -99,6 +105,9 @@ static struct mtd_partition assabet_partitions[] = {
 	}
 };
 #else
+/*
+ * Phase 5 Assabet has two 28F128J3A flash parts in bank 0:
+ */
 static struct mtd_partition assabet_partitions[] = {
 	{
 		.name		= "bootloader",
@@ -130,6 +139,9 @@ static struct resource assabet_flash_resources[] = {
 };
 
 
+/*
+ * Assabet IrDA support code.
+ */
 
 static int assabet_irda_set_power(struct device *dev, unsigned int state)
 {
@@ -178,13 +190,13 @@ static void assabet_lcd_set_visual(u32 visual)
 	u_int is_true_color = visual == FB_VISUAL_TRUECOLOR;
 
 	if (machine_is_assabet()) {
-#if 1		
+#if 1		// phase 4 or newer Assabet's
 		if (is_true_color)
 			ASSABET_BCR_set(ASSABET_BCR_LCD_12RGB);
 		else
 			ASSABET_BCR_clear(ASSABET_BCR_LCD_12RGB);
 #else
-		
+		// older Assabet's
 		if (is_true_color)
 			ASSABET_BCR_clear(ASSABET_BCR_LCD_12RGB);
 		else
@@ -202,6 +214,11 @@ static void assabet_lcd_backlight_power(int on)
 		ASSABET_BCR_clear(ASSABET_BCR_LIGHT_ON);
 }
 
+/*
+ * Turn on/off the backlight.  When turning the backlight on, we wait
+ * 500us after turning it on so we don't cause the supplies to droop
+ * when we enable the LCD controller (and cause a hard reset.)
+ */
 static void assabet_lcd_power(int on)
 {
 	if (on) {
@@ -211,6 +228,11 @@ static void assabet_lcd_power(int on)
 		ASSABET_BCR_clear(ASSABET_BCR_LCD_ON);
 }
 
+/*
+ * The assabet uses a sharp LQ039Q2DS54 LCD module.  It is actually
+ * takes an RGB666 signal, but we provide it with an RGB565 signal
+ * instead (def_rgb_16).
+ */
 static struct sa1100fb_mach_info lq039q2ds54_info = {
 	.pixclock	= 171521,	.bpp		= 16,
 	.xres		= 320,		.yres		= 240,
@@ -267,15 +289,32 @@ static struct resource neponset_resources[] = {
 
 static void __init assabet_init(void)
 {
+	/*
+	 * Ensure that the power supply is in "high power" mode.
+	 */
 	GPSR = GPIO_GPIO16;
 	GPDR |= GPIO_GPIO16;
 
+	/*
+	 * Ensure that these pins are set as outputs and are driving
+	 * logic 0.  This ensures that we won't inadvertently toggle
+	 * the WS latch in the CPLD, and we don't float causing
+	 * excessive power drain.  --rmk
+	 */
 	GPCR = GPIO_SSP_TXD | GPIO_SSP_SCLK | GPIO_SSP_SFRM;
 	GPDR |= GPIO_SSP_TXD | GPIO_SSP_SCLK | GPIO_SSP_SFRM;
 
+	/*
+	 * Also set GPIO27 as an output; this is used to clock UART3
+	 * via the FPGA and as otherwise has no pullups or pulldowns,
+	 * so stop it floating.
+	 */
 	GPCR = GPIO_GPIO27;
 	GPDR |= GPIO_GPIO27;
 
+	/*
+	 * Set up registers for sleep mode.
+	 */
 	PWER = PWER_GPIO0;
 	PGSR = 0;
 	PCFR = 0;
@@ -286,6 +325,12 @@ static void __init assabet_init(void)
 	sa11x0_ppc_configure_mcp();
 
 	if (machine_has_neponset()) {
+		/*
+		 * Angel sets this, but other bootloaders may not.
+		 *
+		 * This must precede any driver calls to BCR_set()
+		 * or BCR_clear().
+		 */
 		ASSABET_BCR = BCR_value = ASSABET_BCR_DB1111;
 
 #ifndef CONFIG_ASSABET_NEPONSET
@@ -308,6 +353,12 @@ static void __init assabet_init(void)
 	sa11x0_register_mcp(&assabet_mcp_data);
 }
 
+/*
+ * On Assabet, we must probe for the Neponset board _before_
+ * paging_init() has occurred to actually determine the amount
+ * of RAM available.  To do so, we map the appropriate IO section
+ * in the page table here in order to access GPIO registers.
+ */
 static void __init map_sa1100_gpio_regs( void )
 {
 	unsigned long phys = __PREG(GPLR) & PMD_MASK;
@@ -320,24 +371,37 @@ static void __init map_sa1100_gpio_regs( void )
 	flush_pmd_entry(pmd);
 }
 
+/*
+ * Read System Configuration "Register"
+ * (taken from "Intel StrongARM SA-1110 Microprocessor Development Board
+ * User's Guide", section 4.4.1)
+ *
+ * This same scan is performed in arch/arm/boot/compressed/head-sa1100.S
+ * to set up the serial port for decompression status messages. We
+ * repeat it here because the kernel may not be loaded as a zImage, and
+ * also because it's a hassle to communicate the SCR value to the kernel
+ * from the decompressor.
+ *
+ * Note that IRQs are guaranteed to be disabled.
+ */
 static void __init get_assabet_scr(void)
 {
 	unsigned long scr, i;
 
-	GPDR |= 0x3fc;			
-	GPSR = 0x3fc;			
-	GPDR &= ~(0x3fc);		
-	for(i = 100; i--; )		
+	GPDR |= 0x3fc;			/* Configure GPIO 9:2 as outputs */
+	GPSR = 0x3fc;			/* Write 0xFF to GPIO 9:2 */
+	GPDR &= ~(0x3fc);		/* Configure GPIO 9:2 as inputs */
+	for(i = 100; i--; )		/* Read GPIO 9:2 */
 		scr = GPLR;
-	GPDR |= 0x3fc;			
-	scr &= 0x3fc;			
+	GPDR |= 0x3fc;			/*  restore correct pin direction */
+	scr &= 0x3fc;			/* save as system configuration byte. */
 	SCR_value = scr;
 }
 
 static void __init
 fixup_assabet(struct tag *tags, char **cmdline, struct meminfo *mi)
 {
-	
+	/* This must be done before any call to machine_has_neponset() */
 	map_sa1100_gpio_regs();
 	get_assabet_scr();
 
@@ -360,6 +424,10 @@ static void assabet_uart_pm(struct uart_port *port, u_int state, u_int oldstate)
 	}
 }
 
+/*
+ * Assabet uses COM_RTS and COM_DTR for both UART1 (com port)
+ * and UART3 (radio module).  We only handle them for UART1 here.
+ */
 static void assabet_set_mctrl(struct uart_port *port, u_int mctrl)
 {
 	if (port->mapbase == _Ser1UTCR0) {
@@ -385,7 +453,7 @@ static u_int assabet_get_mctrl(struct uart_port *port)
 	u_int ret = 0;
 	u_int bsr = ASSABET_BSR;
 
-	
+	/* need 2 reads to read current value */
 	bsr = ASSABET_BSR;
 
 	if (port->mapbase == _Ser1UTCR0) {
@@ -418,12 +486,12 @@ static struct sa1100_port_fns assabet_port_fns __initdata = {
 };
 
 static struct map_desc assabet_io_desc[] __initdata = {
-  	{	
+  	{	/* Board Control Register */
 		.virtual	=  0xf1000000,
 		.pfn		= __phys_to_pfn(0x12000000),
 		.length		= 0x00100000,
 		.type		= MT_DEVICE
-	}, {	
+	}, {	/* MQ200 */
 		.virtual	=  0xf2800000,
 		.pfn		= __phys_to_pfn(0x4b800000),
 		.length		= 0x00800000,
@@ -436,11 +504,27 @@ static void __init assabet_map_io(void)
 	sa1100_map_io();
 	iotable_init(assabet_io_desc, ARRAY_SIZE(assabet_io_desc));
 
+	/*
+	 * Set SUS bit in SDCR0 so serial port 1 functions.
+	 * Its called GPCLKR0 in my SA1110 manual.
+	 */
 	Ser1SDCR0 |= SDCR0_SUS;
 
 	if (!machine_has_neponset())
 		sa1100_register_uart_fns(&assabet_port_fns);
 
+	/*
+	 * When Neponset is attached, the first UART should be
+	 * UART3.  That's what Angel is doing and many documents
+	 * are stating this.
+	 *
+	 * We do the Neponset mapping even if Neponset support
+	 * isn't compiled in so the user will still get something on
+	 * the expected physical serial port.
+	 *
+	 * We no longer do this; not all boot loaders support it,
+	 * and UART3 appears to be somewhat unreliable with blob.
+	 */
 	sa1100_register_uart(0, 1);
 	sa1100_register_uart(2, 3);
 }

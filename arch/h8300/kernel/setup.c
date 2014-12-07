@@ -12,6 +12,9 @@
  *  H8/300 porting Yoshinori Sato <ysato@users.sourceforge.jp>
  */
 
+/*
+ * This file handles the architecture-dependent parts of system setup
+ */
 
 #include <linux/kernel.h>
 #include <linux/sched.h>
@@ -58,6 +61,7 @@ extern void h8300_gpio_init(void);
 
 #if (defined(CONFIG_H8300H_SIM) || defined(CONFIG_H8S_SIM)) \
     && defined(CONFIG_GDB_MAGICPRINT)
+/* printk with gdb service */
 static void gdb_console_output(struct console *c, const char *msg, unsigned len)
 {
 	for (; len > 0; len--) {
@@ -66,6 +70,12 @@ static void gdb_console_output(struct console *c, const char *msg, unsigned len)
 	}
 }
 
+/*
+ *	Setup initial baud/bits/parity. We do two things here:
+ *	- construct a cflag setting for the first rs_open()
+ *	- initialize the serial port
+ *	Return non-zero if we didn't find a serial port.
+ */
 static int __init gdb_console_setup(struct console *co, char *options)
 {
 	return 0;
@@ -87,7 +97,7 @@ void __init setup_arch(char **cmdline_p)
 
 	memory_start = (unsigned long) &_ramstart;
 
-	
+	/* allow for ROMFS on the end of the kernel */
 	if (memcmp((void *)memory_start, "-rom1fs-", 8) == 0) {
 #if defined(CONFIG_BLK_DEV_INITRD)
 		initrd_start = memory_start;
@@ -98,14 +108,14 @@ void __init setup_arch(char **cmdline_p)
 	}
 	memory_start = PAGE_ALIGN(memory_start);
 #if !defined(CONFIG_BLKDEV_RESERVE)
-	memory_end = (unsigned long) &_ramend; 
+	memory_end = (unsigned long) &_ramend; /* by now the stack is part of the init task */
 #if defined(CONFIG_GDB_DEBUG)
 	memory_end -= STUBSIZE;
 #endif
 #else
 	if ((memory_end < CONFIG_BLKDEV_RESERVE_ADDRESS) && 
 	    (memory_end > CONFIG_BLKDEV_RESERVE_ADDRESS))
-	    
+	    /* overlap userarea */
 	    memory_end = CONFIG_BLKDEV_RESERVE_ADDRESS; 
 #endif
 
@@ -136,11 +146,11 @@ void __init setup_arch(char **cmdline_p)
 #endif
 
 #ifdef CONFIG_DEFAULT_CMDLINE
-	
+	/* set from default command line */
 	if (*command_line == '\0')
 		strcpy(command_line,CONFIG_KERNEL_COMMAND);
 #endif
-	
+	/* Keep a copy of command line */
 	*cmdline_p = &command_line[0];
 	memcpy(boot_command_line, command_line, COMMAND_LINE_SIZE);
 	boot_command_line[COMMAND_LINE_SIZE-1] = 0;
@@ -150,19 +160,30 @@ void __init setup_arch(char **cmdline_p)
 		printk(KERN_DEBUG "Command line: '%s'\n", *cmdline_p);
 #endif
 
+	/*
+	 * give all the memory to the bootmap allocator,  tell it to put the
+	 * boot mem_map at the start of memory
+	 */
 	bootmap_size = init_bootmem_node(
 			NODE_DATA(0),
-			memory_start >> PAGE_SHIFT, 
-			PAGE_OFFSET >> PAGE_SHIFT,	
+			memory_start >> PAGE_SHIFT, /* map goes here */
+			PAGE_OFFSET >> PAGE_SHIFT,	/* 0 on coldfire */
 			memory_end >> PAGE_SHIFT);
+	/*
+	 * free the usable memory,  we have to make sure we do not free
+	 * the bootmem bitmap so we then reserve it after freeing it :-)
+	 */
 	free_bootmem(memory_start, memory_end - memory_start);
 	reserve_bootmem(memory_start, bootmap_size, BOOTMEM_DEFAULT);
+	/*
+	 * get kmalloc into gear
+	 */
 	paging_init();
 	h8300_gpio_init();
 #if defined(CONFIG_H8300_AKI3068NET) && defined(CONFIG_IDE)
 	{
 #define AREABIT(addr) (1 << (((addr) >> 21) & 7))
-		
+		/* setup BSC */
 		volatile unsigned char *abwcr = (volatile unsigned char *)ABWCR;
 		volatile unsigned char *cscr = (volatile unsigned char *)CSCR;
 		*abwcr &= ~(AREABIT(CONFIG_H8300_IDE_BASE) | AREABIT(CONFIG_H8300_IDE_ALT));
@@ -174,6 +195,9 @@ void __init setup_arch(char **cmdline_p)
 #endif
 }
 
+/*
+ *	Get CPU information for use by the procfs.
+ */
 
 static int show_cpuinfo(struct seq_file *m, void *v)
 {

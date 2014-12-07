@@ -14,22 +14,29 @@
 #include <asm/pil.h>
 #include <asm/ptrace.h>
 
-#define IMAP_VALID		0x80000000UL	
-#define IMAP_TID_UPA		0x7c000000UL	
-#define IMAP_TID_JBUS		0x7c000000UL	
+/* IMAP/ICLR register defines */
+#define IMAP_VALID		0x80000000UL	/* IRQ Enabled		*/
+#define IMAP_TID_UPA		0x7c000000UL	/* UPA TargetID		*/
+#define IMAP_TID_JBUS		0x7c000000UL	/* JBUS TargetID	*/
 #define IMAP_TID_SHIFT		26
-#define IMAP_AID_SAFARI		0x7c000000UL	
+#define IMAP_AID_SAFARI		0x7c000000UL	/* Safari AgentID	*/
 #define IMAP_AID_SHIFT		26
-#define IMAP_NID_SAFARI		0x03e00000UL	
+#define IMAP_NID_SAFARI		0x03e00000UL	/* Safari NodeID	*/
 #define IMAP_NID_SHIFT		21
-#define IMAP_IGN		0x000007c0UL	
-#define IMAP_INO		0x0000003fUL	
-#define IMAP_INR		0x000007ffUL	
+#define IMAP_IGN		0x000007c0UL	/* IRQ Group Number	*/
+#define IMAP_INO		0x0000003fUL	/* IRQ Number		*/
+#define IMAP_INR		0x000007ffUL	/* Full interrupt number*/
 
-#define ICLR_IDLE		0x00000000UL	
-#define ICLR_TRANSMIT		0x00000001UL	
-#define ICLR_PENDING		0x00000003UL	
+#define ICLR_IDLE		0x00000000UL	/* Idle state		*/
+#define ICLR_TRANSMIT		0x00000001UL	/* Transmit state	*/
+#define ICLR_PENDING		0x00000003UL	/* Pending state	*/
 
+/* The largest number of unique interrupt sources we support.
+ * If this needs to ever be larger than 255, you need to change
+ * the type of ino_bucket->irq as appropriate.
+ *
+ * ino_bucket->irq allocation is made during {sun4v_,}build_irq().
+ */
 #define NR_IRQS    255
 
 extern void irq_install_pre_handler(int irq,
@@ -62,14 +69,14 @@ extern void fixup_irqs(void);
 static inline void set_softint(unsigned long bits)
 {
 	__asm__ __volatile__("wr	%0, 0x0, %%set_softint"
-			     : 
+			     : /* No outputs */
 			     : "r" (bits));
 }
 
 static inline void clear_softint(unsigned long bits)
 {
 	__asm__ __volatile__("wr	%0, 0x0, %%clear_softint"
-			     : 
+			     : /* No outputs */
 			     : "r" (bits));
 }
 

@@ -3,6 +3,10 @@
 
 #include "os.h"
 
+/*
+ * These are exactly the same definitions as in fs.h, but the names are
+ * changed so that this file can be included in both kernel and user files.
+ */
 
 #define HOSTFS_ATTR_MODE	1
 #define HOSTFS_ATTR_UID 	2
@@ -14,9 +18,24 @@
 #define HOSTFS_ATTR_ATIME_SET	128
 #define HOSTFS_ATTR_MTIME_SET	256
 
-#define HOSTFS_ATTR_FORCE	512	
+/* These two are unused by hostfs. */
+#define HOSTFS_ATTR_FORCE	512	/* Not a change, but a change it */
 #define HOSTFS_ATTR_ATTR_FLAG	1024
 
+/*
+ * If you are very careful, you'll notice that these two are missing:
+ *
+ * #define ATTR_KILL_SUID	2048
+ * #define ATTR_KILL_SGID	4096
+ *
+ * and this is because they were added in 2.5 development.
+ * Actually, they are not needed by most ->setattr() methods - they are set by
+ * callers of notify_change() to notify that the setuid/setgid bits must be
+ * dropped.
+ * notify_change() will delete those flags, make sure attr->ia_valid & ATTR_MODE
+ * is on, and remove the appropriate bits from attr->ia_mode (attr is a
+ * "struct iattr *"). -BlaisorBlade
+ */
 
 struct hostfs_iattr {
 	unsigned int	ia_valid;

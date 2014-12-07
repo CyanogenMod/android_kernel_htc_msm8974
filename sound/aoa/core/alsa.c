@@ -20,7 +20,7 @@ int aoa_alsa_init(char *name, struct module *mod, struct device *dev)
 	int err;
 
 	if (aoa_card)
-		
+		/* cannot be EEXIST due to usage in aoa_fabric_register */
 		return -EBUSY;
 
 	err = snd_card_create(index, name, mod, sizeof(struct aoa_card),

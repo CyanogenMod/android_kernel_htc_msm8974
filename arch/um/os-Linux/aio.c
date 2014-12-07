@@ -26,6 +26,10 @@ struct aio_thread_req {
 #if defined(HAVE_AIO_ABI)
 #include <linux/aio_abi.h>
 
+/*
+ * If we have the headers, we are going to build with AIO enabled.
+ * If we don't have aio in libc, we define the necessary stubs here.
+ */
 
 #if !defined(HAVE_AIO_LIBC)
 
@@ -47,6 +51,17 @@ static long io_getevents(aio_context_t ctx_id, long min_nr, long nr,
 
 #endif
 
+/*
+ * The AIO_MMAP cases force the mmapped page into memory here
+ * rather than in whatever place first touches the data.  I used
+ * to do this by touching the page, but that's delicate because
+ * gcc is prone to optimizing that away.  So, what's done here
+ * is we read from the descriptor from which the page was
+ * mapped.  The caller is required to pass an offset which is
+ * inside the page that was mapped.  Thus, when the read
+ * returns, we know that the page is in the page cache, and
+ * that it now backs the mmapped area.
+ */
 
 static int do_aio(aio_context_t ctx, enum aio_type type, int fd, char *buf,
 		  int len, unsigned long long offset, struct aio_context *aio)
@@ -80,6 +95,7 @@ static int do_aio(aio_context_t ctx, enum aio_type type, int fd, char *buf,
 	return (io_submit(ctx, 1, &iocbp) > 0) ? 0 : -errno;
 }
 
+/* Initialized in an initcall and unchanged thereafter */
 static aio_context_t ctx = 0;
 
 static int aio_thread(void *arg)
@@ -145,6 +161,7 @@ static int do_not_aio(struct aio_thread_req *req)
 	return 0;
 }
 
+/* These are initialized in initcalls and not changed */
 static int aio_req_fd_r = -1;
 static int aio_req_fd_w = -1;
 static int aio_pid = -1;
@@ -282,6 +299,7 @@ static int submit_aio_26(enum aio_type type, int io_fd, char *buf, int len,
 }
 #endif
 
+/* Initialized in an initcall and unchanged thereafter */
 static int aio_24 = DEFAULT_24_AIO;
 
 static int __init set_aio_24(char *name, int *add)
@@ -322,6 +340,13 @@ static int init_aio(void)
 	return 0;
 }
 
+/*
+ * The reason for the __initcall/__uml_exitcall asymmetry is that init_aio
+ * needs to be called when the kernel is running because it calls run_helper,
+ * which needs get_free_page.  exit_aio is a __uml_exitcall because the generic
+ * kernel does not run __exitcalls on shutdown, and can't because many of them
+ * break when called outside of module unloading.
+ */
 __initcall(init_aio);
 
 static void exit_aio(void)

@@ -26,14 +26,15 @@
 
 #define MAX_MIDI_EVENT_BUF	256
 
+/* midi status */
 struct snd_midi_event {
-	int qlen;		
-	int read;		
-	int type;		
-	unsigned char lastcmd;	
-	unsigned char nostat;	
-	int bufsize;		
-	unsigned char *buf;	
+	int qlen;		/* queue length */
+	int read;		/* chars read */
+	int type;		/* current event type */
+	unsigned char lastcmd;	/* last command (for MIDI state handling) */
+	unsigned char nostat;	/* no state flag */
+	int bufsize;		/* allocated buffer size */
+	unsigned char *buf;	/* input buffer */
 	spinlock_t lock;
 };
 
@@ -50,4 +51,4 @@ int snd_midi_event_encode_byte(struct snd_midi_event *dev, int c, struct snd_seq
 long snd_midi_event_decode(struct snd_midi_event *dev, unsigned char *buf, long count,
 			   struct snd_seq_event *ev);
 
-#endif 
+#endif /* __SOUND_SEQ_MIDI_EVENT_H */

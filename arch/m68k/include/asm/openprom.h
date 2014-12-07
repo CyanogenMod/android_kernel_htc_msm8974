@@ -8,18 +8,20 @@
  */
 
 
+/* Empirical constants... */
 #ifdef CONFIG_SUN3
-#define KADB_DEBUGGER_BEGVM     0x0fee0000    
+#define KADB_DEBUGGER_BEGVM     0x0fee0000    /* There is no kadb yet but...*/
 #define LINUX_OPPROM_BEGVM      0x0fef0000
-#define LINUX_OPPROM_ENDVM      0x0ff10000    
+#define LINUX_OPPROM_ENDVM      0x0ff10000    /* I think this is right - tm */
 #else
-#define KADB_DEBUGGER_BEGVM     0xffc00000    
+#define KADB_DEBUGGER_BEGVM     0xffc00000    /* Where kern debugger is in virt-mem */
 #define	LINUX_OPPROM_BEGVM	0xffd00000
 #define	LINUX_OPPROM_ENDVM	0xfff00000
 #define	LINUX_OPPROM_MAGIC      0x10010407
 #endif
 
 #ifndef __ASSEMBLY__
+/* V0 prom device operations. */
 struct linux_dev_v0_funcs {
 	int (*v0_devopen)(char *device_str);
 	int (*v0_devclose)(int dev_desc);
@@ -32,12 +34,13 @@ struct linux_dev_v0_funcs {
 	int (*v0_seekdev)(int dev_desc, long logical_offst, int from);
 };
 
+/* V2 and later prom device operations. */
 struct linux_dev_v2_funcs {
-	int (*v2_inst2pkg)(int d);	
+	int (*v2_inst2pkg)(int d);	/* Convert ihandle to phandle */
 	char * (*v2_dumb_mem_alloc)(char *va, unsigned sz);
 	void (*v2_dumb_mem_free)(char *va, unsigned sz);
 
-	
+	/* To map devices into virtual I/O space. */
 	char * (*v2_dumb_mmap)(char *virta, int which_io, unsigned paddr, unsigned sz);
 	void (*v2_dumb_munmap)(char *virta, unsigned size);
 
@@ -47,7 +50,7 @@ struct linux_dev_v2_funcs {
 	int (*v2_dev_write)(int d, char *buf, int nbytes);
 	int (*v2_dev_seek)(int d, int hi, int lo);
 
-	
+	/* Never issued (multistage load support) */
 	void (*v2_wheee2)(void);
 	void (*v2_wheee3)(void);
 };
@@ -61,9 +64,10 @@ struct linux_mlist_v0 {
 struct linux_mem_v0 {
 	struct linux_mlist_v0 **v0_totphys;
 	struct linux_mlist_v0 **v0_prommap;
-	struct linux_mlist_v0 **v0_available; 
+	struct linux_mlist_v0 **v0_available; /* What we can use */
 };
 
+/* Arguments sent to the kernel from the boot prompt. */
 struct linux_arguments_v0 {
 	char *argv[8];
 	char args[100];
@@ -72,9 +76,10 @@ struct linux_arguments_v0 {
 	int boot_dev_unit;
 	int dev_partition;
 	char *kernel_file_name;
-	void *aieee1;           
+	void *aieee1;           /* XXX */
 };
 
+/* V2 and up boot things. */
 struct linux_bootargs_v2 {
 	char **bootpath;
 	char **bootargs;
@@ -110,6 +115,9 @@ struct linux_romvec {
 
 	char		*pv_monid;
 
+	/*
+	 * Frame buffer output and terminal emulation
+	 */
 
 	int		(*pv_fbwritechar)(char);
 	int		*pv_fbaddr;
@@ -118,6 +126,9 @@ struct linux_romvec {
 
 	void		(*pv_reboot)(char *bootstr);
 
+	/*
+	 * Line input and parsing
+	 */
 
 	unsigned char	*pv_linebuf;
 	unsigned char	**pv_lineptr;
@@ -134,6 +145,9 @@ struct linux_romvec {
 	unsigned char	*pv_leds;
 	int		(*pv_setleds)(void);
 
+	/*
+	 * Non-maskable interrupt  (nmi) information
+	 */
 
 	int		(*pv_nmiaddr)(void);
 	int		(*pv_abortentry)(void);
@@ -141,6 +155,9 @@ struct linux_romvec {
 
 	int		*pv_fbtype;
 
+	/*
+	 * Assorted other things
+	 */
 
 	unsigned	pv_romvers;
 	struct globram  *pv_globram;
@@ -165,17 +182,18 @@ struct linux_romvec {
 #endif
 };
 #else
+/* The top level PROM vector. */
 struct linux_romvec {
-	
+	/* Version numbers. */
 	unsigned int pv_magic_cookie;
 	unsigned int pv_romvers;
 	unsigned int pv_plugin_revision;
 	unsigned int pv_printrev;
 
-	
+	/* Version 0 memory descriptors. */
 	struct linux_mem_v0 pv_v0mem;
 
-	
+	/* Node operations. */
 	struct linux_nodeops *pv_nodeops;
 
 	char **pv_bootstr;
@@ -183,22 +201,22 @@ struct linux_romvec {
 
 	char *pv_stdin;
 	char *pv_stdout;
-#define	PROMDEV_KBD	0		
-#define	PROMDEV_SCREEN	0		
-#define	PROMDEV_TTYA	1		
-#define	PROMDEV_TTYB	2		
+#define	PROMDEV_KBD	0		/* input from keyboard */
+#define	PROMDEV_SCREEN	0		/* output to screen */
+#define	PROMDEV_TTYA	1		/* in/out to ttya */
+#define	PROMDEV_TTYB	2		/* in/out to ttyb */
 
-	
+	/* Blocking getchar/putchar.  NOT REENTRANT! (grr) */
 	int (*pv_getchar)(void);
 	void (*pv_putchar)(int ch);
 
-	
+	/* Non-blocking variants. */
 	int (*pv_nbgetchar)(void);
 	int (*pv_nbputchar)(int ch);
 
 	void (*pv_putstr)(char *str, int len);
 
-	
+	/* Miscellany. */
 	void (*pv_reboot)(char *bootstr);
 	void (*pv_printf)(__const__ char *fmt, ...);
 	void (*pv_abort)(void);
@@ -206,7 +224,7 @@ struct linux_romvec {
 	void (*pv_halt)(void);
 	void (**pv_synchook)(void);
 
-	
+	/* Evaluate a forth string, not different proto for V0 and V2->up. */
 	union {
 		void (*v0_eval)(int len, char *str);
 		void (*v2_eval)(char *str);
@@ -214,7 +232,7 @@ struct linux_romvec {
 
 	struct linux_arguments_v0 **pv_v0bootargs;
 
-	
+	/* Get ether address. */
 	unsigned int (*pv_enaddr)(int d, char *enaddr);
 
 	struct linux_bootargs_v2 pv_v2bootargs;
@@ -222,21 +240,39 @@ struct linux_romvec {
 
 	int filler[15];
 
-	
+	/* This one is sun4c/sun4 only. */
 	void (*pv_setctxt)(int ctxt, char *va, int pmeg);
 
+	/* Prom version 3 Multiprocessor routines. This stuff is crazy.
+	 * No joke. Calling these when there is only one cpu probably
+	 * crashes the machine, have to test this. :-)
+	 */
 
+	/* v3_cpustart() will start the cpu 'whichcpu' in mmu-context
+	 * 'thiscontext' executing at address 'prog_counter'
+	 */
 	int (*v3_cpustart)(unsigned int whichcpu, int ctxtbl_ptr,
 			   int thiscontext, char *prog_counter);
 
+	/* v3_cpustop() will cause cpu 'whichcpu' to stop executing
+	 * until a resume cpu call is made.
+	 */
 	int (*v3_cpustop)(unsigned int whichcpu);
 
+	/* v3_cpuidle() will idle cpu 'whichcpu' until a stop or
+	 * resume cpu call is made.
+	 */
 	int (*v3_cpuidle)(unsigned int whichcpu);
 
+	/* v3_cpuresume() will resume processor 'whichcpu' executing
+	 * starting with whatever 'pc' and 'npc' were left at the
+	 * last 'idle' or 'stop' call.
+	 */
 	int (*v3_cpuresume)(unsigned int whichcpu);
 };
 #endif
 
+/* Routines for traversing the prom device tree. */
 struct linux_nodeops {
 	int (*no_nextnode)(int node);
 	int (*no_child)(int node);
@@ -246,29 +282,31 @@ struct linux_nodeops {
 	char * (*no_nextprop)(int node, char *name);
 };
 
+/* More fun PROM structures for device probing. */
 #define PROMREG_MAX     16
 #define PROMVADDR_MAX   16
 #define PROMINTR_MAX    15
 
 struct linux_prom_registers {
-	int which_io;         
-	char *phys_addr;      
-	int reg_size;         
+	int which_io;         /* is this in OBIO space? */
+	char *phys_addr;      /* The physical address of this register */
+	int reg_size;         /* How many bytes does this register take up? */
 };
 
 struct linux_prom_irqs {
-	int pri;    
-	int vector; 
+	int pri;    /* IRQ priority */
+	int vector; /* This is foobar, what does it do? */
 };
 
+/* Element of the "ranges" vector */
 struct linux_prom_ranges {
 	unsigned int ot_child_space;
-	unsigned int ot_child_base;		
+	unsigned int ot_child_base;		/* Bus feels this */
 	unsigned int ot_parent_space;
-	unsigned int ot_parent_base;		
+	unsigned int ot_parent_base;		/* CPU looks from here */
 	unsigned int or_size;
 };
 
-#endif 
+#endif /* !(__ASSEMBLY__) */
 
-#endif 
+#endif /* !(__SPARC_OPENPROM_H) */

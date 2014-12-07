@@ -63,19 +63,19 @@ static void cs5520_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	int controller = drive->dn > 1 ? 1 : 0;
 	const u8 pio = drive->pio_mode - XFER_PIO_0;
 
-	
+	/* 8bit CAT/CRT - 8bit command timing for channel */
 	pci_write_config_byte(pdev, 0x62 + controller, 
 		(cs5520_pio_clocks[pio].recovery << 4) |
 		(cs5520_pio_clocks[pio].assert));
 
-	
+	/* 0x64 - 16bit Primary, 0x68 - 16bit Secondary */
 
-	
-	
+	/* FIXME: should these use address ? */
+	/* Data read timing */
 	pci_write_config_byte(pdev, 0x64 + 4*controller + (drive->dn&1),
 		(cs5520_pio_clocks[pio].recovery << 4) |
 		(cs5520_pio_clocks[pio].assert));
-	
+	/* Write command timing */
 	pci_write_config_byte(pdev, 0x66 + 4*controller + (drive->dn&1),
 		(cs5520_pio_clocks[pio].recovery << 4) |
 		(cs5520_pio_clocks[pio].assert));
@@ -102,6 +102,11 @@ static const struct ide_port_info cyrix_chipset __devinitdata = {
 	.pio_mask	= ATA_PIO4,
 };
 
+/*
+ *	The 5510/5520 are a bit weird. They don't quite set up the way
+ *	the PCI helper layer expects so we must do much of the set up 
+ *	work longhand.
+ */
  
 static int __devinit cs5520_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {
@@ -110,6 +115,9 @@ static int __devinit cs5520_init_one(struct pci_dev *dev, const struct pci_devic
 
 	ide_setup_pci_noise(dev, d);
 
+	/* We must not grab the entire device, it has 'ISA' space in its
+	 * BARS too and we will freak out other bits of the kernel
+	 */
 	if (pci_enable_device_io(dev)) {
 		printk(KERN_WARNING "%s: Unable to enable 55x0.\n", d->name);
 		return -ENODEV;
@@ -121,6 +129,10 @@ static int __devinit cs5520_init_one(struct pci_dev *dev, const struct pci_devic
 		return -ENODEV;
 	}
 
+	/*
+	 *	Now the chipset is configured we can let the core
+	 *	do all the device setup for us
+	 */
 
 	ide_pci_setup_ports(dev, d, &hw[0], &hws[0]);
 	hw[0].irq = 14;

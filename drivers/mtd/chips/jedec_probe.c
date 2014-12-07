@@ -22,6 +22,7 @@
 #include <linux/mtd/cfi.h>
 #include <linux/mtd/gen_probe.h>
 
+/* AMD */
 #define AM29DL800BB	0x22CB
 #define AM29DL800BT	0x224A
 
@@ -43,6 +44,7 @@
 #define AM29SL800DB	0x226B
 #define AM29SL800DT	0x22EA
 
+/* Atmel */
 #define AT49BV512	0x0003
 #define AT29LV512	0x003d
 #define AT49BV16X	0x00C0
@@ -50,9 +52,11 @@
 #define AT49BV32X	0x00C8
 #define AT49BV32XT	0x00C9
 
+/* Eon */
 #define EN29SL800BB	0x226B
 #define EN29SL800BT	0x22EA
 
+/* Fujitsu */
 #define MBM29F040C	0x00A4
 #define MBM29F800BA	0x2258
 #define MBM29LV650UE	0x22D7
@@ -65,8 +69,10 @@
 #define MBM29LV400TC	0x22B9
 #define MBM29LV400BC	0x22BA
 
+/* Hyundai */
 #define HY29F002T	0x00B0
 
+/* Intel */
 #define I28F004B3T	0x00d4
 #define I28F004B3B	0x00d5
 #define I28F400B3T	0x8894
@@ -95,6 +101,7 @@
 #define I82802AB	0x00ad
 #define I82802AC	0x00ac
 
+/* Macronix */
 #define MX29LV040C	0x004F
 #define MX29LV160T	0x22C4
 #define MX29LV160B	0x2249
@@ -104,14 +111,18 @@
 #define MX29F004T	0x0045
 #define MX29F004B	0x0046
 
+/* NEC */
 #define UPD29F064115	0x221C
 
+/* PMC */
 #define PM49FL002	0x006D
 #define PM49FL004	0x006E
 #define PM49FL008	0x006A
 
+/* Sharp */
 #define LH28F640BF	0x00b0
 
+/* ST - www.st.com */
 #define M29F800AB	0x0058
 #define M29W800DT	0x22D7
 #define M29W800DB	0x225B
@@ -128,6 +139,7 @@
 #define M50FLW080B	0x0081
 #define PSD4256G6V	0x00e9
 
+/* SST */
 #define SST29EE020	0x0010
 #define SST29LE020	0x0012
 #define SST29EE512	0x005d
@@ -153,6 +165,7 @@
 #define SST49LF080A	0x005B
 #define SST36VF3203	0x7354
 
+/* Toshiba */
 #define TC58FVT160	0x00C2
 #define TC58FVB160	0x0043
 #define TC58FVT321	0x009A
@@ -160,19 +173,29 @@
 #define TC58FVT641	0x0093
 #define TC58FVB641	0x0095
 
+/* Winbond */
 #define W49V002A	0x00b0
 
 
+/*
+ * Unlock address sets for AMD command sets.
+ * Intel command sets use the MTD_UADDR_UNNECESSARY.
+ * Each identifier, except MTD_UADDR_UNNECESSARY, and
+ * MTD_UADDR_NO_SUPPORT must be defined below in unlock_addrs[].
+ * MTD_UADDR_NOT_SUPPORTED must be 0 so that structure
+ * initialization need not require initializing all of the
+ * unlock addresses for all bit widths.
+ */
 enum uaddr {
-	MTD_UADDR_NOT_SUPPORTED = 0,	
+	MTD_UADDR_NOT_SUPPORTED = 0,	/* data width not supported */
 	MTD_UADDR_0x0555_0x02AA,
 	MTD_UADDR_0x0555_0x0AAA,
 	MTD_UADDR_0x5555_0x2AAA,
 	MTD_UADDR_0x0AAA_0x0554,
 	MTD_UADDR_0x0AAA_0x0555,
 	MTD_UADDR_0xAAAA_0x5555,
-	MTD_UADDR_DONT_CARE,		
-	MTD_UADDR_UNNECESSARY,		
+	MTD_UADDR_DONT_CARE,		/* Requires an arbitrary address */
+	MTD_UADDR_UNNECESSARY,		/* Does not require any address */
 };
 
 
@@ -182,6 +205,16 @@ struct unlock_addr {
 };
 
 
+/*
+ * I don't like the fact that the first entry in unlock_addrs[]
+ * exists, but is for MTD_UADDR_NOT_SUPPORTED - and, therefore,
+ * should not be used.  The  problem is that structures with
+ * initializers have extra fields initialized to 0.  It is _very_
+ * desirable to have the unlock address entries for unsupported
+ * data widths automatically initialized - that means that
+ * MTD_UADDR_NOT_SUPPORTED must be 0 and the first entry here
+ * must go unused.
+ */
 static const struct unlock_addr  unlock_addrs[] = {
 	[MTD_UADDR_NOT_SUPPORTED] = {
 		.addr1 = 0xffff,
@@ -219,8 +252,8 @@ static const struct unlock_addr  unlock_addrs[] = {
 	},
 
 	[MTD_UADDR_DONT_CARE] = {
-		.addr1 = 0x0000,      
-		.addr2 = 0x0000       
+		.addr1 = 0x0000,      /* Doesn't matter which address */
+		.addr2 = 0x0000       /* is used - must be last entry */
 	},
 
 	[MTD_UADDR_UNNECESSARY] = {
@@ -237,8 +270,8 @@ struct amd_flash_info {
 	const uint8_t nr_regions;
 	const uint16_t cmd_set;
 	const uint32_t regions[6];
-	const uint8_t devtypes;		
-	const uint8_t uaddr;		
+	const uint8_t devtypes;		/* Bitmask for x8, x16 etc. */
+	const uint8_t uaddr;		/* unlock addrs for 8, 16, 32, 64 */
 };
 
 #define ERASEINFO(size,blocks) (size<<8)|(blocks-1)
@@ -253,6 +286,11 @@ struct amd_flash_info {
 #define SIZE_8MiB   23
 
 
+/*
+ * Please keep this list ordered by manufacturer!
+ * Fortunately, the list isn't searched often and so a
+ * slow, linear search isn't so bad.
+ */
 static const struct amd_flash_info jedec_table[] = {
 	{
 		.mfr_id		= CFI_MFR_AMD,
@@ -342,6 +380,7 @@ static const struct amd_flash_info jedec_table[] = {
 			ERASEINFO(0x10000,15),
 		}
 	}, {
+/* add DL */
 		.mfr_id		= CFI_MFR_AMD,
 		.dev_id		= AM29DL800BB,
 		.name		= "AMD AM29DL800BB",
@@ -555,7 +594,7 @@ static const struct amd_flash_info jedec_table[] = {
 		.dev_id		= AT49BV16X,
 		.name		= "Atmel AT49BV16X",
 		.devtypes	= CFI_DEVICETYPE_X16|CFI_DEVICETYPE_X8,
-		.uaddr		= MTD_UADDR_0x0555_0x0AAA,	
+		.uaddr		= MTD_UADDR_0x0555_0x0AAA,	/* ???? */
 		.dev_size	= SIZE_2MiB,
 		.cmd_set	= P_ID_AMD_STD,
 		.nr_regions	= 2,
@@ -568,7 +607,7 @@ static const struct amd_flash_info jedec_table[] = {
 		.dev_id		= AT49BV16XT,
 		.name		= "Atmel AT49BV16XT",
 		.devtypes	= CFI_DEVICETYPE_X16|CFI_DEVICETYPE_X8,
-		.uaddr		= MTD_UADDR_0x0555_0x0AAA,	
+		.uaddr		= MTD_UADDR_0x0555_0x0AAA,	/* ???? */
 		.dev_size	= SIZE_2MiB,
 		.cmd_set	= P_ID_AMD_STD,
 		.nr_regions	= 2,
@@ -581,7 +620,7 @@ static const struct amd_flash_info jedec_table[] = {
 		.dev_id		= AT49BV32X,
 		.name		= "Atmel AT49BV32X",
 		.devtypes	= CFI_DEVICETYPE_X16|CFI_DEVICETYPE_X8,
-		.uaddr		= MTD_UADDR_0x0555_0x0AAA,	
+		.uaddr		= MTD_UADDR_0x0555_0x0AAA,	/* ???? */
 		.dev_size	= SIZE_4MiB,
 		.cmd_set	= P_ID_AMD_STD,
 		.nr_regions	= 2,
@@ -594,7 +633,7 @@ static const struct amd_flash_info jedec_table[] = {
 		.dev_id		= AT49BV32XT,
 		.name		= "Atmel AT49BV32XT",
 		.devtypes	= CFI_DEVICETYPE_X16|CFI_DEVICETYPE_X8,
-		.uaddr		= MTD_UADDR_0x0555_0x0AAA,	
+		.uaddr		= MTD_UADDR_0x0555_0x0AAA,	/* ???? */
 		.dev_size	= SIZE_4MiB,
 		.cmd_set	= P_ID_AMD_STD,
 		.nr_regions	= 2,
@@ -1448,7 +1487,7 @@ static const struct amd_flash_info jedec_table[] = {
 			ERASEINFO(0x01000,256),
 		}
 	}, {
-		.mfr_id		= CFI_MFR_SST,     
+		.mfr_id		= CFI_MFR_SST,     /* should be CFI */
 		.dev_id		= SST39LF160,
 		.name		= "SST 39LF160",
 		.devtypes	= CFI_DEVICETYPE_X16,
@@ -1461,7 +1500,7 @@ static const struct amd_flash_info jedec_table[] = {
 			ERASEINFO(0x1000,256)
 		}
 	}, {
-		.mfr_id		= CFI_MFR_SST,     
+		.mfr_id		= CFI_MFR_SST,     /* should be CFI */
 		.dev_id		= SST39VF1601,
 		.name		= "SST 39VF1601",
 		.devtypes	= CFI_DEVICETYPE_X16,
@@ -1474,7 +1513,7 @@ static const struct amd_flash_info jedec_table[] = {
 			ERASEINFO(0x1000,256)
 		}
 	}, {
-		
+		/* CFI is broken: reports AMD_STD, but needs custom uaddr */
 		.mfr_id		= CFI_MFR_SST,
 		.dev_id		= SST39WF1601,
 		.name		= "SST 39WF1601",
@@ -1488,7 +1527,7 @@ static const struct amd_flash_info jedec_table[] = {
 			ERASEINFO(0x1000,256)
 		}
 	}, {
-		
+		/* CFI is broken: reports AMD_STD, but needs custom uaddr */
 		.mfr_id		= CFI_MFR_SST,
 		.dev_id		= SST39WF1602,
 		.name		= "SST 39WF1602",
@@ -1502,7 +1541,7 @@ static const struct amd_flash_info jedec_table[] = {
 			ERASEINFO(0x1000,256)
 		}
 	}, {
-		.mfr_id		= CFI_MFR_SST,     
+		.mfr_id		= CFI_MFR_SST,     /* should be CFI */
 		.dev_id		= SST39VF3201,
 		.name		= "SST 39VF3201",
 		.devtypes	= CFI_DEVICETYPE_X16,
@@ -1544,7 +1583,7 @@ static const struct amd_flash_info jedec_table[] = {
 			ERASEINFO(0x10000,15),
 		}
 	}, {
-		.mfr_id		= CFI_MFR_ST,	
+		.mfr_id		= CFI_MFR_ST,	/* FIXME - CFI device? */
 		.dev_id		= M29W800DT,
 		.name		= "ST M29W800DT",
 		.devtypes	= CFI_DEVICETYPE_X16|CFI_DEVICETYPE_X8,
@@ -1559,7 +1598,7 @@ static const struct amd_flash_info jedec_table[] = {
 			ERASEINFO(0x04000,1)
 		}
 	}, {
-		.mfr_id		= CFI_MFR_ST,	
+		.mfr_id		= CFI_MFR_ST,	/* FIXME - CFI device? */
 		.dev_id		= M29W800DB,
 		.name		= "ST M29W800DB",
 		.devtypes	= CFI_DEVICETYPE_X16|CFI_DEVICETYPE_X8,
@@ -1604,11 +1643,11 @@ static const struct amd_flash_info jedec_table[] = {
 			ERASEINFO(0x10000,7)
 		}
 	}, {
-		.mfr_id		= CFI_MFR_ST,	
+		.mfr_id		= CFI_MFR_ST,	/* FIXME - CFI device? */
 		.dev_id		= M29W160DT,
 		.name		= "ST M29W160DT",
 		.devtypes	= CFI_DEVICETYPE_X16|CFI_DEVICETYPE_X8,
-		.uaddr		= MTD_UADDR_0x0555_0x02AA,	
+		.uaddr		= MTD_UADDR_0x0555_0x02AA,	/* ???? */
 		.dev_size	= SIZE_2MiB,
 		.cmd_set	= P_ID_AMD_STD,
 		.nr_regions	= 4,
@@ -1619,11 +1658,11 @@ static const struct amd_flash_info jedec_table[] = {
 			ERASEINFO(0x04000,1)
 		}
 	}, {
-		.mfr_id		= CFI_MFR_ST,	
+		.mfr_id		= CFI_MFR_ST,	/* FIXME - CFI device? */
 		.dev_id		= M29W160DB,
 		.name		= "ST M29W160DB",
 		.devtypes	= CFI_DEVICETYPE_X16|CFI_DEVICETYPE_X8,
-		.uaddr		= MTD_UADDR_0x0555_0x02AA,	
+		.uaddr		= MTD_UADDR_0x0555_0x02AA,	/* ???? */
 		.dev_size	= SIZE_2MiB,
 		.cmd_set	= P_ID_AMD_STD,
 		.nr_regions	= 4,
@@ -1842,6 +1881,10 @@ static inline u32 jedec_read_mfr(struct map_info *map, uint32_t base,
 	unsigned long mask;
 	int bank = 0;
 
+	/* According to JEDEC "Standard Manufacturer's Identification Code"
+	 * (http://www.jedec.org/download/search/jep106W.pdf)
+	 * several first banks can contain 0x7f instead of actual ID
+	 */
 	do {
 		uint32_t ofs = cfi_build_cmd_addr(0 + (bank << 8), map, cfi);
 		mask = (1 << (cfi->device_type * 8)) - 1;
@@ -1865,7 +1908,7 @@ static inline u32 jedec_read_id(struct map_info *map, uint32_t base,
 
 static void jedec_reset(u32 base, struct map_info *map, struct cfi_private *cfi)
 {
-	
+	/* Reset */
 
 	/* after checking the datasheets for SST, MACRONIX and ATMEL
 	 * (oh and incidentaly the jedec spec - 3.5.3.3) the reset
@@ -1881,8 +1924,13 @@ static void jedec_reset(u32 base, struct map_info *map, struct cfi_private *cfi)
 	}
 
 	cfi_send_gen_cmd(0xF0, cfi->addr_unlock1, base, map, cfi, cfi->device_type, NULL);
+	/* Some misdesigned Intel chips do not respond for 0xF0 for a reset,
+	 * so ensure we're in read mode.  Send both the Intel and the AMD command
+	 * for this.  Intel uses 0xff for this, AMD uses 0xff for NOP, so
+	 * this should be safe.
+	 */
 	cfi_send_gen_cmd(0xFF, 0, base, map, cfi, cfi->device_type, NULL);
-	
+	/* FIXME - should have reset delay before continuing */
 }
 
 
@@ -1903,7 +1951,7 @@ static int cfi_jedec_setup(struct map_info *map, struct cfi_private *cfi, int in
 
 	cfi->cfiq = kmalloc(sizeof(struct cfi_ident) + num_erase_regions * 4, GFP_KERNEL);
 	if (!cfi->cfiq) {
-		
+		//xx printk(KERN_WARNING "%s: kmalloc failed for CFI ident structure\n", map->name);
 		return 0;
 	}
 
@@ -1920,33 +1968,57 @@ static int cfi_jedec_setup(struct map_info *map, struct cfi_private *cfi, int in
 	}
 	cfi->cmdset_priv = NULL;
 
-	
+	/* This may be redundant for some cases, but it doesn't hurt */
 	cfi->mfr = jedec_table[index].mfr_id;
 	cfi->id = jedec_table[index].dev_id;
 
 	uaddr = jedec_table[index].uaddr;
 
+	/* The table has unlock addresses in _bytes_, and we try not to let
+	   our brains explode when we see the datasheets talking about address
+	   lines numbered from A-1 to A18. The CFI table has unlock addresses
+	   in device-words according to the mode the device is connected in */
 	cfi->addr_unlock1 = unlock_addrs[uaddr].addr1 / cfi->device_type;
 	cfi->addr_unlock2 = unlock_addrs[uaddr].addr2 / cfi->device_type;
 
-	return 1;	
+	return 1;	/* ok */
 }
 
 
+/*
+ * There is a BIG problem properly ID'ing the JEDEC device and guaranteeing
+ * the mapped address, unlock addresses, and proper chip ID.  This function
+ * attempts to minimize errors.  It is doubtfull that this probe will ever
+ * be perfect - consequently there should be some module parameters that
+ * could be manually specified to force the chip info.
+ */
 static inline int jedec_match( uint32_t base,
 			       struct map_info *map,
 			       struct cfi_private *cfi,
 			       const struct amd_flash_info *finfo )
 {
-	int rc = 0;           
+	int rc = 0;           /* failure until all tests pass */
 	u32 mfr, id;
 	uint8_t uaddr;
 
+	/*
+	 * The IDs must match.  For X16 and X32 devices operating in
+	 * a lower width ( X8 or X16 ), the device ID's are usually just
+	 * the lower byte(s) of the larger device ID for wider mode.  If
+	 * a part is found that doesn't fit this assumption (device id for
+	 * smaller width mode is completely unrealated to full-width mode)
+	 * then the jedec_table[] will have to be augmented with the IDs
+	 * for different widths.
+	 */
 	switch (cfi->device_type) {
 	case CFI_DEVICETYPE_X8:
 		mfr = (uint8_t)finfo->mfr_id;
 		id = (uint8_t)finfo->dev_id;
 
+		/* bjd: it seems that if we do this, we can end up
+		 * detecting 16bit flashes as an 8bit device, even though
+		 * there aren't.
+		 */
 		if (finfo->dev_id > 0xff) {
 			pr_debug("%s(): ID is not 8bit\n",
 			       __func__);
@@ -1971,7 +2043,7 @@ static inline int jedec_match( uint32_t base,
 		goto match_done;
 	}
 
-	
+	/* the part size must fit in the memory window */
 	pr_debug("MTD %s(): Check fit 0x%.8x + 0x%.8x = 0x%.8x\n",
 	       __func__, base, 1 << finfo->dev_size, base + (1 << finfo->dev_size) );
 	if ( base + cfi_interleave(cfi) * ( 1 << finfo->dev_size ) > map->size ) {
@@ -2019,16 +2091,20 @@ static inline int jedec_match( uint32_t base,
 		goto match_done;
 	}
 
-	
+	/* all tests passed - mark  as success */
 	rc = 1;
 
+	/*
+	 * Put the device back in ID mode - only need to do this if we
+	 * were truly frobbing a real device.
+	 */
 	pr_debug("MTD %s(): return to ID mode\n", __func__ );
 	if (cfi->addr_unlock1) {
 		cfi_send_gen_cmd(0xaa, cfi->addr_unlock1, base, map, cfi, cfi->device_type, NULL);
 		cfi_send_gen_cmd(0x55, cfi->addr_unlock2, base, map, cfi, cfi->device_type, NULL);
 	}
 	cfi_send_gen_cmd(0x90, cfi->addr_unlock1, base, map, cfi, cfi->device_type, NULL);
-	
+	/* FIXME - should have a delay before continuing */
 
  match_done:
 	return rc;
@@ -2053,7 +2129,7 @@ static int jedec_probe_chip(struct map_info *map, __u32 base,
 		cfi->addr_unlock2 = unlock_addrs[uaddr_idx].addr2 / cfi->device_type;
 	}
 
-	
+	/* Make certain we aren't probing past the end of map */
 	if (base >= map->size) {
 		printk(KERN_NOTICE
 			"Probe at base(0x%08x) past the end of the map(0x%08lx)\n",
@@ -2061,25 +2137,27 @@ static int jedec_probe_chip(struct map_info *map, __u32 base,
 		return 0;
 
 	}
-	
+	/* Ensure the unlock addresses we try stay inside the map */
 	probe_offset1 = cfi_build_cmd_addr(cfi->addr_unlock1, map, cfi);
 	probe_offset2 = cfi_build_cmd_addr(cfi->addr_unlock2, map, cfi);
 	if (	((base + probe_offset1 + map_bankwidth(map)) >= map->size) ||
 		((base + probe_offset2 + map_bankwidth(map)) >= map->size))
 		goto retry;
 
-	
+	/* Reset */
 	jedec_reset(base, map, cfi);
 
-	
+	/* Autoselect Mode */
 	if(cfi->addr_unlock1) {
 		cfi_send_gen_cmd(0xaa, cfi->addr_unlock1, base, map, cfi, cfi->device_type, NULL);
 		cfi_send_gen_cmd(0x55, cfi->addr_unlock2, base, map, cfi, cfi->device_type, NULL);
 	}
 	cfi_send_gen_cmd(0x90, cfi->addr_unlock1, base, map, cfi, cfi->device_type, NULL);
-	
+	/* FIXME - should have a delay before continuing */
 
 	if (!cfi->numchips) {
+		/* This is the first time we're called. Set up the CFI
+		   stuff accordingly and return */
 
 		cfi->mfr = jedec_read_mfr(map, base, cfi);
 		cfi->id = jedec_read_id(map, base, cfi);
@@ -2100,7 +2178,7 @@ static int jedec_probe_chip(struct map_info *map, __u32 base,
 		uint16_t mfr;
 		uint16_t id;
 
-		
+		/* Make sure it is a chip of the same manufacturer and id */
 		mfr = jedec_read_mfr(map, base, cfi);
 		id = jedec_read_id(map, base, cfi);
 
@@ -2112,18 +2190,20 @@ static int jedec_probe_chip(struct map_info *map, __u32 base,
 		}
 	}
 
-	
+	/* Check each previous chip locations to see if it's an alias */
 	for (i=0; i < (base >> cfi->chipshift); i++) {
 		unsigned long start;
 		if(!test_bit(i, chip_map)) {
-			continue; 
+			continue; /* Skip location; no valid chip at this address */
 		}
 		start = i << cfi->chipshift;
 		if (jedec_read_mfr(map, start, cfi) == cfi->mfr &&
 		    jedec_read_id(map, start, cfi) == cfi->id) {
+			/* Eep. This chip also looks like it's in autoselect mode.
+			   Is it an alias for the new one? */
 			jedec_reset(start, map, cfi);
 
-			
+			/* If the device IDs go away, it's an alias */
 			if (jedec_read_mfr(map, base, cfi) != cfi->mfr ||
 			    jedec_read_id(map, base, cfi) != cfi->id) {
 				printk(KERN_DEBUG "%s: Found an alias at 0x%x for the chip at 0x%lx\n",
@@ -2131,7 +2211,10 @@ static int jedec_probe_chip(struct map_info *map, __u32 base,
 				return 0;
 			}
 
-			
+			/* Yes, it's actually got the device IDs as data. Most
+			 * unfortunate. Stick the new chip in read mode
+			 * too and if it's the same, assume it's an alias. */
+			/* FIXME: Use other modes to do a proper check */
 			jedec_reset(base, map, cfi);
 			if (jedec_read_mfr(map, base, cfi) == cfi->mfr &&
 			    jedec_read_id(map, base, cfi) == cfi->id) {
@@ -2142,11 +2225,13 @@ static int jedec_probe_chip(struct map_info *map, __u32 base,
 		}
 	}
 
-	set_bit((base >> cfi->chipshift), chip_map); 
+	/* OK, if we got to here, then none of the previous chips appear to
+	   be aliases for the current one. */
+	set_bit((base >> cfi->chipshift), chip_map); /* Update chip map */
 	cfi->numchips++;
 
 ok_out:
-	
+	/* Put it back into Read Mode */
 	jedec_reset(base, map, cfi);
 
 	printk(KERN_INFO "%s: Found %d x%d devices at 0x%x in %d-bit bank\n",
@@ -2163,6 +2248,10 @@ static struct chip_probe jedec_chip_probe = {
 
 static struct mtd_info *jedec_probe(struct map_info *map)
 {
+	/*
+	 * Just use the generic probe stuff to call our CFI-specific
+	 * chip_probe routine in all the possible permutations, etc.
+	 */
 	return mtd_do_chip_probe(map, &jedec_chip_probe);
 }
 

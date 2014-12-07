@@ -10,6 +10,39 @@
  * the Free Software Foundation.
  */
 
+/*
+ * To connect an AT or XT keyboard to the parallel port, a fairly simple adapter
+ * can be made:
+ * 
+ *  Parallel port            Keyboard port
+ *
+ *     +5V --------------------- +5V (4)
+ *  
+ *                 ______
+ *     +5V -------|______|--.
+ *                          |
+ *     ACK (10) ------------|
+ *                          |--- KBD CLOCK (5)
+ *     STROBE (1) ---|<|----'
+ *     
+ *                 ______
+ *     +5V -------|______|--.
+ *                          |
+ *     BUSY (11) -----------|
+ *                          |--- KBD DATA (1)
+ *     AUTOFD (14) --|<|----'
+ *
+ *     GND (18-25) ------------- GND (3)
+ *     
+ * The diodes can be fairly any type, and the resistors should be somewhere
+ * around 5 kOhm, but the adapter will likely work without the resistors,
+ * too.
+ *
+ * The +5V source can be taken either from USB, from mouse or keyboard ports,
+ * or from a joystick port. Unfortunately, the parallel port of a PC doesn't
+ * have a +5V pin, and feeding the keyboard from signal pins is out of question
+ * with 300 mA power reqirement of a typical AT keyboard.
+ */
 
 #include <linux/module.h>
 #include <linux/parport.h>
@@ -29,8 +62,8 @@ static unsigned int parkbd_mode = SERIO_8042;
 module_param_named(mode, parkbd_mode, uint, 0);
 MODULE_PARM_DESC(mode, "Mode of operation: XT = 0/AT = 1 (default)");
 
-#define PARKBD_CLOCK	0x01	
-#define PARKBD_DATA	0x02	
+#define PARKBD_CLOCK	0x01	/* Strobe & Ack */
+#define PARKBD_DATA	0x02	/* AutoFd & Busy */
 
 static int parkbd_buffer;
 static int parkbd_counter;

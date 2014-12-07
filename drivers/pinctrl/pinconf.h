@@ -20,6 +20,10 @@ int pinconf_map_to_setting(struct pinctrl_map const *map,
 void pinconf_free_setting(struct pinctrl_setting const *setting);
 int pinconf_apply_setting(struct pinctrl_setting const *setting);
 
+/*
+ * You will only be interested in these if you're using PINCONF
+ * so don't supply any stubs for these.
+ */
 int pin_config_get_for_pin(struct pinctrl_dev *pctldev, unsigned pin,
 			   unsigned long *config);
 int pin_config_group_get(const char *dev_name, const char *pin_group,
@@ -81,6 +85,10 @@ static inline void pinconf_init_device_debugfs(struct dentry *devroot,
 
 #endif
 
+/*
+ * The following functions are available if the driver uses the generic
+ * pin config.
+ */
 
 #if defined(CONFIG_GENERIC_PINCONF) && defined(CONFIG_DEBUG_FS)
 

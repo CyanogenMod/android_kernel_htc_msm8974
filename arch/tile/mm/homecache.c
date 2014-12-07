@@ -44,6 +44,11 @@
 
 #if CHIP_HAS_COHERENT_LOCAL_CACHE()
 
+/*
+ * The noallocl2 option suppresses all use of the L2 cache to cache
+ * locally from a remote home.  There's no point in using it if we
+ * don't have coherent local caching, though.
+ */
 static int __write_once noallocl2;
 static int __init set_noallocl2(char *str)
 {
@@ -58,10 +63,16 @@ early_param("noallocl2", set_noallocl2);
 
 #endif
 
+/* Provide no-op versions of these routines to keep flush_remote() cleaner. */
 #define mark_caches_evicted_start() 0
 #define mark_caches_evicted_finish(mask, timestamp) do {} while (0)
 
 
+/*
+ * Update the irq_stat for cpus that we are going to interrupt
+ * with TLB or cache flushes.  Also handle removing dataplane cpus
+ * from the TLB flush set, and setting dataplane_tlb_state instead.
+ */
 static void hv_flush_update(const struct cpumask *cache_cpumask,
 			    struct cpumask *tlb_cpumask,
 			    unsigned long tlb_va, unsigned long tlb_length,
@@ -80,10 +91,32 @@ static void hv_flush_update(const struct cpumask *cache_cpumask,
 	for (i = 0; i < asidcount; ++i)
 		cpumask_set_cpu(asids[i].y * smp_width + asids[i].x, &mask);
 
+	/*
+	 * Don't bother to update atomically; losing a count
+	 * here is not that critical.
+	 */
 	for_each_cpu(cpu, &mask)
 		++per_cpu(irq_stat, cpu).irq_hv_flush_count;
 }
 
+/*
+ * This wrapper function around hv_flush_remote() does several things:
+ *
+ *  - Provides a return value error-checking panic path, since
+ *    there's never any good reason for hv_flush_remote() to fail.
+ *  - Accepts a 32-bit PFN rather than a 64-bit PA, which generally
+ *    is the type that Linux wants to pass around anyway.
+ *  - Centralizes the mark_caches_evicted() handling.
+ *  - Canonicalizes that lengths of zero make cpumasks NULL.
+ *  - Handles deferring TLB flushes for dataplane tiles.
+ *  - Tracks remote interrupts in the per-cpu irq_cpustat_t.
+ *
+ * Note that we have to wait until the cache flush completes before
+ * updating the per-cpu last_cache_flush word, since otherwise another
+ * concurrent flush can race, conclude the flush has already
+ * completed, and start to use the page while it's still dirty
+ * remotely (running concurrently with the actual evict, presumably).
+ */
 void flush_remote(unsigned long cache_pfn, unsigned long cache_control,
 		  const struct cpumask *cache_cpumask_orig,
 		  HV_VirtAddr tlb_va, unsigned long tlb_length,
@@ -92,14 +125,17 @@ void flush_remote(unsigned long cache_pfn, unsigned long cache_control,
 		  HV_Remote_ASID *asids, int asidcount)
 {
 	int rc;
-	int timestamp = 0;  
+	int timestamp = 0;  /* happy compiler */
 	struct cpumask cache_cpumask_copy, tlb_cpumask_copy;
 	struct cpumask *cache_cpumask, *tlb_cpumask;
 	HV_PhysAddr cache_pa;
 	char cache_buf[NR_CPUS*5], tlb_buf[NR_CPUS*5];
 
-	mb();   
+	mb();   /* provided just to simplify "magic hypervisor" mode */
 
+	/*
+	 * Canonicalize and copy the cpumasks.
+	 */
 	if (cache_cpumask_orig && cache_control) {
 		cpumask_copy(&cache_cpumask_copy, cache_cpumask_orig);
 		cache_cpumask = &cache_cpumask_copy;
@@ -166,6 +202,11 @@ void homecache_evict(const struct cpumask *mask)
 	flush_remote(0, HV_FLUSH_EVICT_L2, mask, 0, 0, 0, NULL, NULL, 0);
 }
 
+/*
+ * Return a mask of the cpus whose caches currently own these pages.
+ * The return value is whether the pages are all coherently cached
+ * (i.e. none are immutable, incoherent, or uncached).
+ */
 static int homecache_mask(struct page *page, int pages,
 			  struct cpumask *home_mask)
 {
@@ -195,11 +236,16 @@ static int homecache_mask(struct page *page, int pages,
 	return cached_coherently;
 }
 
+/*
+ * Return the passed length, or zero if it's long enough that we
+ * believe we should evict the whole L2 cache.
+ */
 static unsigned long cache_flush_length(unsigned long length)
 {
 	return (length >= CHIP_L2_CACHE_SIZE()) ? HV_FLUSH_EVICT_L2 : length;
 }
 
+/* Flush a page out of whatever cache(s) it is in. */
 void homecache_flush_cache(struct page *page, int order)
 {
 	int pages = 1 << order;
@@ -213,6 +259,7 @@ void homecache_flush_cache(struct page *page, int order)
 }
 
 
+/* Report the home corresponding to a given PTE. */
 static int pte_to_home(pte_t pte)
 {
 	if (hv_pte_get_nc(pte))
@@ -232,19 +279,28 @@ static int pte_to_home(pte_t pte)
 	panic("Bad PTE %#llx\n", pte.val);
 }
 
+/* Update the home of a PTE if necessary (can also be used for a pgprot_t). */
 pte_t pte_set_home(pte_t pte, int home)
 {
-	
+	/* Check for non-linear file mapping "PTEs" and pass them through. */
 	if (pte_file(pte))
 		return pte;
 
 #if CHIP_HAS_MMIO()
-	
+	/* Check for MMIO mappings and pass them through. */
 	if (hv_pte_get_mode(pte) == HV_PTE_MODE_MMIO)
 		return pte;
 #endif
 
 
+	/*
+	 * Only immutable pages get NC mappings.  If we have a
+	 * non-coherent PTE, but the underlying page is not
+	 * immutable, it's likely the result of a forced
+	 * caching setting running up against ptrace setting
+	 * the page to be writable underneath.  In this case,
+	 * just keep the PTE coherent.
+	 */
 	if (hv_pte_get_nc(pte) && home != PAGE_HOME_IMMUTABLE) {
 		pte = hv_pte_clear_nc(pte);
 		pr_err("non-immutable page incoherently referenced: %#llx\n",
@@ -262,9 +318,13 @@ pte_t pte_set_home(pte_t pte, int home)
 		break;
 
 	case PAGE_HOME_IMMUTABLE:
+		/*
+		 * We could home this page anywhere, since it's immutable,
+		 * but by default just home it to follow "hash_default".
+		 */
 		BUG_ON(hv_pte_get_writable(pte));
 		if (pte_get_forcecache(pte)) {
-			
+			/* Upgrade "force any cpu" to "No L3" for immutable. */
 			if (hv_pte_get_mode(pte) == HV_PTE_MODE_CACHE_TILE_L3
 			    && pte_get_anyhome(pte)) {
 				pte = hv_pte_set_mode(pte,
@@ -298,20 +358,26 @@ pte_t pte_set_home(pte_t pte, int home)
 	if (noallocl2)
 		pte = hv_pte_set_no_alloc_l2(pte);
 
-	
+	/* Simplify "no local and no l3" to "uncached" */
 	if (hv_pte_get_no_alloc_l2(pte) && hv_pte_get_no_alloc_l1(pte) &&
 	    hv_pte_get_mode(pte) == HV_PTE_MODE_CACHE_NO_L3) {
 		pte = hv_pte_set_mode(pte, HV_PTE_MODE_UNCACHED);
 	}
 #endif
 
-	
+	/* Checking this case here gives a better panic than from the hv. */
 	BUG_ON(hv_pte_get_mode(pte) == 0);
 
 	return pte;
 }
 EXPORT_SYMBOL(pte_set_home);
 
+/*
+ * The routines in this section are the "static" versions of the normal
+ * dynamic homecaching routines; they just set the home cache
+ * of a kernel page once, and require a full-chip cache/TLB flush,
+ * so they're not suitable for anything but infrequent use.
+ */
 
 #if CHIP_HAS_CBOX_HOME_MAP()
 static inline int initial_page_home(void) { return PAGE_HOME_HASH; }
@@ -355,7 +421,7 @@ struct page *homecache_alloc_pages(gfp_t gfp_mask,
 				   unsigned int order, int home)
 {
 	struct page *page;
-	BUG_ON(gfp_mask & __GFP_HIGHMEM);   
+	BUG_ON(gfp_mask & __GFP_HIGHMEM);   /* must be lowmem */
 	page = alloc_pages(gfp_mask, order);
 	if (page)
 		homecache_change_page_home(page, order, home);
@@ -367,7 +433,7 @@ struct page *homecache_alloc_pages_node(int nid, gfp_t gfp_mask,
 					unsigned int order, int home)
 {
 	struct page *page;
-	BUG_ON(gfp_mask & __GFP_HIGHMEM);   
+	BUG_ON(gfp_mask & __GFP_HIGHMEM);   /* must be lowmem */
 	page = alloc_pages_node(nid, gfp_mask, order);
 	if (page)
 		homecache_change_page_home(page, order, home);

@@ -1,10 +1,16 @@
 #ifndef _SPARC_CACHEFLUSH_H
 #define _SPARC_CACHEFLUSH_H
 
-#include <linux/mm.h>		
+#include <linux/mm.h>		/* Common for other includes */
+// #include <linux/kernel.h> from pgalloc.h
+// #include <linux/sched.h>  from pgalloc.h
 
+// #include <asm/page.h>
 #include <asm/btfixup.h>
 
+/*
+ * Fine grained cache flushing.
+ */
 #ifdef CONFIG_SMP
 
 BTFIXUPDEF_CALL(void, local_flush_cache_all, void)
@@ -33,7 +39,7 @@ extern void smp_flush_cache_page(struct vm_area_struct *vma, unsigned long page)
 extern void smp_flush_page_to_ram(unsigned long page);
 extern void smp_flush_sig_insns(struct mm_struct *mm, unsigned long insn_addr);
 
-#endif 
+#endif /* CONFIG_SMP */
 
 BTFIXUPDEF_CALL(void, flush_cache_all, void)
 BTFIXUPDEF_CALL(void, flush_cache_mm, struct mm_struct *)
@@ -77,8 +83,13 @@ extern void sparc_flush_page_to_ram(struct page *page);
 #define flush_cache_vmap(start, end)		flush_cache_all()
 #define flush_cache_vunmap(start, end)		flush_cache_all()
 
+/* When a context switch happens we must flush all user windows so that
+ * the windows of the current process are flushed onto its stack. This
+ * way the windows are all clean for the next process and the stack
+ * frames are up to date.
+ */
 extern void flush_user_windows(void);
 extern void kill_user_windows(void);
 extern void flushw_all(void);
 
-#endif 
+#endif /* _SPARC_CACHEFLUSH_H */

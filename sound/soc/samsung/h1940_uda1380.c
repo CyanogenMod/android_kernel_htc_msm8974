@@ -99,37 +99,37 @@ static int h1940_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	
+	/* set codec DAI configuration */
 	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S |
 		SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_CBS_CFS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set cpu DAI configuration */
 	ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_I2S |
 		SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_CBS_CFS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* select clock source */
 	ret = snd_soc_dai_set_sysclk(cpu_dai, S3C24XX_CLKSRC_PCLK, rate,
 			SND_SOC_CLOCK_OUT);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set MCLK division for sample rate */
 	ret = snd_soc_dai_set_clkdiv(cpu_dai, S3C24XX_DIV_MCLK,
 		S3C2410_IISMOD_384FS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set BCLK division for sample rate */
 	ret = snd_soc_dai_set_clkdiv(cpu_dai, S3C24XX_DIV_BCLK,
 		S3C2410_IISMOD_32FS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set prescaler division for sample rate */
 	ret = snd_soc_dai_set_clkdiv(cpu_dai, S3C24XX_DIV_PRESCALER,
 		S3C24XX_PRESCALE(div, div));
 	if (ret < 0)
@@ -154,22 +154,24 @@ static int h1940_spk_power(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+/* h1940 machine dapm widgets */
 static const struct snd_soc_dapm_widget uda1380_dapm_widgets[] = {
 	SND_SOC_DAPM_HP("Headphone Jack", NULL),
 	SND_SOC_DAPM_MIC("Mic Jack", NULL),
 	SND_SOC_DAPM_SPK("Speaker", h1940_spk_power),
 };
 
+/* h1940 machine audio_map */
 static const struct snd_soc_dapm_route audio_map[] = {
-	
+	/* headphone connected to VOUTLHP, VOUTRHP */
 	{"Headphone Jack", NULL, "VOUTLHP"},
 	{"Headphone Jack", NULL, "VOUTRHP"},
 
-	
+	/* ext speaker connected to VOUTL, VOUTR  */
 	{"Speaker", NULL, "VOUTL"},
 	{"Speaker", NULL, "VOUTR"},
 
-	
+	/* mic is connected to VINM */
 	{"VINM", NULL, "Mic Jack"},
 };
 
@@ -197,6 +199,7 @@ static int h1940_uda1380_init(struct snd_soc_pcm_runtime *rtd)
 	return 0;
 }
 
+/* s3c24xx digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link h1940_uda1380_dai[] = {
 	{
 		.name		= "uda1380",
@@ -229,7 +232,7 @@ static int __init h1940_init(void)
 	if (!machine_is_h1940())
 		return -ENODEV;
 
-	
+	/* configure some gpios */
 	ret = gpio_request(H1940_LATCH_AUDIO_POWER, "speaker-power");
 	if (ret)
 		goto err_out;
@@ -272,6 +275,7 @@ static void __exit h1940_exit(void)
 module_init(h1940_init);
 module_exit(h1940_exit);
 
+/* Module information */
 MODULE_AUTHOR("Arnaud Patard, Vasily Khoruzhick");
 MODULE_DESCRIPTION("ALSA SoC H1940");
 MODULE_LICENSE("GPL");

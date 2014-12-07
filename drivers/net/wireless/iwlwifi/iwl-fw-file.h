@@ -65,38 +65,53 @@
 
 #include <linux/netdevice.h>
 
+/* v1/v2 uCode file layout */
 struct iwl_ucode_header {
-	__le32 ver;	
+	__le32 ver;	/* major/minor/API/serial */
 	union {
 		struct {
-			__le32 inst_size;	
-			__le32 data_size;	
-			__le32 init_size;	
-			__le32 init_data_size;	
-			__le32 boot_size;	
-			u8 data[0];		
+			__le32 inst_size;	/* bytes of runtime code */
+			__le32 data_size;	/* bytes of runtime data */
+			__le32 init_size;	/* bytes of init code */
+			__le32 init_data_size;	/* bytes of init data */
+			__le32 boot_size;	/* bytes of bootstrap code */
+			u8 data[0];		/* in same order as sizes */
 		} v1;
 		struct {
-			__le32 build;		
-			__le32 inst_size;	
-			__le32 data_size;	
-			__le32 init_size;	
-			__le32 init_data_size;	
-			__le32 boot_size;	
-			u8 data[0];		
+			__le32 build;		/* build number */
+			__le32 inst_size;	/* bytes of runtime code */
+			__le32 data_size;	/* bytes of runtime data */
+			__le32 init_size;	/* bytes of init code */
+			__le32 init_data_size;	/* bytes of init data */
+			__le32 boot_size;	/* bytes of bootstrap code */
+			u8 data[0];		/* in same order as sizes */
 		} v2;
 	} u;
 };
 
+/*
+ * new TLV uCode file layout
+ *
+ * The new TLV file format contains TLVs, that each specify
+ * some piece of data. To facilitate "groups", for example
+ * different instruction image with different capabilities,
+ * bundled with the same init image, an alternative mechanism
+ * is provided:
+ * When the alternative field is 0, that means that the item
+ * is always valid. When it is non-zero, then it is only
+ * valid in conjunction with items of the same alternative,
+ * in which case the driver (user) selects one alternative
+ * to use.
+ */
 
 enum iwl_ucode_tlv_type {
-	IWL_UCODE_TLV_INVALID		= 0, 
+	IWL_UCODE_TLV_INVALID		= 0, /* unused */
 	IWL_UCODE_TLV_INST		= 1,
 	IWL_UCODE_TLV_DATA		= 2,
 	IWL_UCODE_TLV_INIT		= 3,
 	IWL_UCODE_TLV_INIT_DATA		= 4,
 	IWL_UCODE_TLV_BOOT		= 5,
-	IWL_UCODE_TLV_PROBE_MAX_LEN	= 6, 
+	IWL_UCODE_TLV_PROBE_MAX_LEN	= 6, /* a u32 value */
 	IWL_UCODE_TLV_PAN		= 7,
 	IWL_UCODE_TLV_RUNT_EVTLOG_PTR	= 8,
 	IWL_UCODE_TLV_RUNT_EVTLOG_SIZE	= 9,
@@ -117,22 +132,34 @@ enum iwl_ucode_tlv_type {
 };
 
 struct iwl_ucode_tlv {
-	__le16 type;		
-	__le16 alternative;	
-	__le32 length;		
+	__le16 type;		/* see above */
+	__le16 alternative;	/* see comment */
+	__le32 length;		/* not including type/length fields */
 	u8 data[0];
 };
 
 #define IWL_TLV_UCODE_MAGIC	0x0a4c5749
 
 struct iwl_tlv_ucode_header {
+	/*
+	 * The TLV style ucode header is distinguished from
+	 * the v1/v2 style header by first four bytes being
+	 * zero, as such is an invalid combination of
+	 * major/minor/API/serial versions.
+	 */
 	__le32 zero;
 	__le32 magic;
 	u8 human_readable[64];
-	__le32 ver;		
+	__le32 ver;		/* major/minor/API/serial */
 	__le32 build;
-	__le64 alternatives;	
+	__le64 alternatives;	/* bitmask of valid alternatives */
+	/*
+	 * The data contained herein has a TLV layout,
+	 * see above for the TLV header and types.
+	 * Note that each TLV is padded to a length
+	 * that is a multiple of 4 for alignment.
+	 */
 	u8 data[0];
 };
 
-#endif  
+#endif  /* __iwl_fw_file_h__ */

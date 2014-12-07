@@ -32,7 +32,7 @@
 # error "Please select sclk less than cclk"
 # endif
 
-#endif 
+#endif /* CONFIG_BFIN_KERNEL_CLOCK */
 
 #if CONFIG_BOOT_LOAD < FIXED_CODE_END
 # error "The kernel load address must be after the fixed code section"
@@ -42,6 +42,7 @@
 # error "The kernel load address must be 4 byte aligned"
 #endif
 
+/* The entire kernel must be able to make a 24bit pcrel call to start of L1 */
 #if ((0xffffffff - L1_CODE_START + 1) + CONFIG_BOOT_LOAD) > 0x1000000
 # error "The kernel load address is too high; keep it below 10meg for safety"
 #endif
@@ -54,6 +55,7 @@
 # error You are using a part with anomaly 05000448, this issue causes random memory read/write failures - that means random crashes.
 #endif
 
+/* if 220 exists, can not set External Memory WB and L2 not_cached, either External Memory not_cached and L2 WB */
 #if ANOMALY_05000220 && \
 	(defined(CONFIG_BFIN_EXTMEM_WRITEBACK) || defined(CONFIG_BFIN_L2_WRITEBACK))
 # error "Anomaly 05000220 does not allow you to use Write Back cache with L2 or External Memory"

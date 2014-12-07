@@ -40,30 +40,30 @@
 #define APX4DEVKIT_GPIO_USERLED	MXS_GPIO_NR(3, 28)
 
 static const iomux_cfg_t apx4devkit_pads[] __initconst = {
-	
+	/* duart */
 	MX28_PAD_PWM0__DUART_RX | MXS_PAD_CTRL,
 	MX28_PAD_PWM1__DUART_TX | MXS_PAD_CTRL,
 
-	
+	/* auart0 */
 	MX28_PAD_AUART0_RX__AUART0_RX | MXS_PAD_CTRL,
 	MX28_PAD_AUART0_TX__AUART0_TX | MXS_PAD_CTRL,
 	MX28_PAD_AUART0_CTS__AUART0_CTS | MXS_PAD_CTRL,
 	MX28_PAD_AUART0_RTS__AUART0_RTS | MXS_PAD_CTRL,
 
-	
+	/* auart1 */
 	MX28_PAD_AUART1_RX__AUART1_RX | MXS_PAD_CTRL,
 	MX28_PAD_AUART1_TX__AUART1_TX | MXS_PAD_CTRL,
 
-	
+	/* auart2 */
 	MX28_PAD_SSP2_SCK__AUART2_RX | MXS_PAD_CTRL,
 	MX28_PAD_SSP2_MOSI__AUART2_TX | MXS_PAD_CTRL,
 
-	
+	/* auart3 */
 	MX28_PAD_SSP2_MISO__AUART3_RX | MXS_PAD_CTRL,
 	MX28_PAD_SSP2_SS0__AUART3_TX | MXS_PAD_CTRL,
 
 #define MXS_PAD_FEC	(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_PULLUP)
-	
+	/* fec0 */
 	MX28_PAD_ENET0_MDC__ENET0_MDC | MXS_PAD_FEC,
 	MX28_PAD_ENET0_MDIO__ENET0_MDIO | MXS_PAD_FEC,
 	MX28_PAD_ENET0_RX_EN__ENET0_RX_EN | MXS_PAD_FEC,
@@ -74,11 +74,11 @@ static const iomux_cfg_t apx4devkit_pads[] __initconst = {
 	MX28_PAD_ENET0_TXD1__ENET0_TXD1 | MXS_PAD_FEC,
 	MX28_PAD_ENET_CLK__CLKCTRL_ENET | MXS_PAD_FEC,
 
-	
+	/* i2c */
 	MX28_PAD_I2C0_SCL__I2C0_SCL,
 	MX28_PAD_I2C0_SDA__I2C0_SDA,
 
-	
+	/* mmc0 */
 	MX28_PAD_SSP0_DATA0__SSP0_D0 |
 		(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_PULLUP),
 	MX28_PAD_SSP0_DATA1__SSP0_D1 |
@@ -102,10 +102,10 @@ static const iomux_cfg_t apx4devkit_pads[] __initconst = {
 	MX28_PAD_SSP0_SCK__SSP0_SCK |
 		(MXS_PAD_12MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
 
-	
+	/* led */
 	MX28_PAD_PWM3__GPIO_3_28 | MXS_PAD_CTRL,
 
-	
+	/* saif0 & saif1 */
 	MX28_PAD_SAIF0_MCLK__SAIF0_MCLK |
 		(MXS_PAD_12MA | MXS_PAD_3V3 | MXS_PAD_PULLUP),
 	MX28_PAD_SAIF0_LRCLK__SAIF0_LRCLK |
@@ -118,6 +118,7 @@ static const iomux_cfg_t apx4devkit_pads[] __initconst = {
 		(MXS_PAD_12MA | MXS_PAD_3V3 | MXS_PAD_PULLUP),
 };
 
+/* led */
 static const struct gpio_led apx4devkit_leds[] __initconst = {
 	{
 		.name = "user-led",
@@ -141,8 +142,8 @@ static const struct mxs_mmc_platform_data apx4devkit_mmc_pdata __initconst = {
 };
 
 static const struct i2c_board_info apx4devkit_i2c_boardinfo[] __initconst = {
-	{ I2C_BOARD_INFO("sgtl5000", 0x0a) }, 
-	{ I2C_BOARD_INFO("pcf8563", 0x51) }, 
+	{ I2C_BOARD_INFO("sgtl5000", 0x0a) }, /* ASoC */
+	{ I2C_BOARD_INFO("pcf8563", 0x51) }, /* RTC */
 };
 
 #if defined(CONFIG_REGULATOR_FIXED_VOLTAGE) || \
@@ -188,7 +189,7 @@ static void __init apx4devkit_add_regulators(void) {}
 
 static const struct mxs_saif_platform_data
 			apx4devkit_mxs_saif_pdata[] __initconst = {
-	
+	/* working on EXTMSTR0 mode (saif0 master, saif1 slave) */
 	{
 		.master_mode = 1,
 		.master_id = 0,
@@ -215,6 +216,10 @@ static void __init apx4devkit_init(void)
 	mx28_add_auart2();
 	mx28_add_auart3();
 
+	/*
+	 * Register fixup for the Micrel KS8031 PHY clock
+	 * (shares same ID with KS8051)
+	 */
 	phy_register_fixup_for_uid(PHY_ID_KS8051, MICREL_PHY_ID_MASK,
 			apx4devkit_phy_fixup);
 

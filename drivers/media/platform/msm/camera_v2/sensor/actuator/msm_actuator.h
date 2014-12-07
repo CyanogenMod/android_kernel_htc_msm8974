@@ -45,6 +45,8 @@ struct msm_actuator_func_tbl {
 			struct damping_params_t *,
 			int8_t,
 			int16_t);
+	int32_t (*actuator_set_position)(struct msm_actuator_ctrl_t *,
+		struct msm_actuator_set_position_t *);
 	int32_t (*actuator_set_ois_mode) (struct msm_actuator_ctrl_t *, int);
 	int32_t (*actuator_update_ois_tbl) (struct msm_actuator_ctrl_t *, struct sensor_actuator_info_t *);
 };
@@ -99,6 +101,9 @@ struct msm_actuator_ctrl_t {
 	uint16_t pwd_step;
 	uint16_t initial_code;
 	struct msm_camera_i2c_reg_array *i2c_reg_tbl;
+	uint16_t i2c_tbl_index;
+	enum cci_i2c_master_t cci_master;
+	uint32_t subdev_id;
 	struct msm_actuator_af_OTP_info_t af_OTP_info;
 	struct msm_camera_i2c_seq_reg_setting i2c_seq_reg_setting;
 	int32_t ois_slave_id;
@@ -114,9 +119,6 @@ struct msm_actuator_ctrl_t {
 	int medium_step_damping;
 	int big_step_damping;
 	int is_af_infinity_supported;
-	uint16_t i2c_tbl_index;
-	enum cci_i2c_master_t cci_master;
-	uint32_t subdev_id;
 	
 	enum actuator_I2C_func_select act_i2c_select;
 	

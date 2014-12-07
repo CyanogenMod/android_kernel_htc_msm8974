@@ -31,7 +31,7 @@ struct omap_crtc {
 	const char *name;
 	int id;
 
-	
+	/* if there is a pending flip, these will be non-null: */
 	struct drm_pending_vblank_event *event;
 	struct drm_framebuffer *old_fb;
 };
@@ -39,7 +39,7 @@ struct omap_crtc {
 static void omap_crtc_gamma_set(struct drm_crtc *crtc,
 		u16 *red, u16 *green, u16 *blue, uint32_t start, uint32_t size)
 {
-	
+	/* not supported.. at least not yet */
 }
 
 static void omap_crtc_destroy(struct drm_crtc *crtc)
@@ -132,11 +132,20 @@ static void vblank_cb(void *arg)
 
 	omap_crtc->event = NULL;
 
-	
+	/* wakeup userspace */
 	if (event) {
 		do_gettimeofday(&now);
 
 		spin_lock_irqsave(&dev->event_lock, flags);
+		/* TODO: we can't yet use the vblank time accounting,
+		 * because omapdss lower layer is the one that knows
+		 * the irq # and registers the handler, which more or
+		 * less defeats how drm_irq works.. for now just fake
+		 * the sequence number and use gettimeofday..
+		 *
+		event->event.sequence = drm_vblank_count_and_time(
+				dev, omap_crtc->id, &now);
+		 */
 		event->event.sequence = sequence++;
 		event->event.tv_sec = now.tv_sec;
 		event->event.tv_usec = now.tv_usec;
@@ -157,6 +166,10 @@ static void page_flip_cb(void *arg)
 
 	omap_crtc_mode_set_base(crtc, crtc->x, crtc->y, old_fb);
 
+	/* really we'd like to setup the callback atomically w/ setting the
+	 * new scanout buffer to avoid getting stuck waiting an extra vblank
+	 * cycle.. for now go for correctness and later figure out speed..
+	 */
 	omap_plane_on_endwin(omap_crtc->plane, vblank_cb, crtc);
 }
 
@@ -201,6 +214,7 @@ static const struct drm_crtc_helper_funcs omap_crtc_helper_funcs = {
 	.load_lut = omap_crtc_load_lut,
 };
 
+/* initialize crtc */
 struct drm_crtc *omap_crtc_init(struct drm_device *dev,
 		struct omap_overlay *ovl, int id)
 {

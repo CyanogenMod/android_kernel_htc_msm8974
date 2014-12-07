@@ -40,7 +40,7 @@ static int smb329_i2c_write(uint8_t *value, uint8_t reg, uint8_t num_bytes)
 	int ret;
 	struct i2c_msg msg;
 
-	
+	/* write the first byte of buffer as the register address */
 	value[0] = reg;
 	msg.addr = smb329.client->addr;
 	msg.len = num_bytes + 1;
@@ -57,13 +57,13 @@ static int smb329_i2c_read(uint8_t *value, uint8_t reg, uint8_t num_bytes)
 	int ret;
 	struct i2c_msg msg[2];
 
-	
+	/* setup the address to read */
 	msg[0].addr = smb329.client->addr;
 	msg[0].len = 1;
 	msg[0].flags = 0;
 	msg[0].buf = &reg;
 
-	
+	/* setup the read buffer */
 	msg[1].addr = smb329.client->addr;
 	msg[1].flags = I2C_M_RD;
 	msg[1].len = num_bytes;

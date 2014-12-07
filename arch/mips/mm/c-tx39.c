@@ -23,12 +23,14 @@
 #include <asm/bootinfo.h>
 #include <asm/cpu.h>
 
-static unsigned long icache_size, dcache_size;		
+/* For R3000 cores with R4000 style caches */
+static unsigned long icache_size, dcache_size;		/* Size in bytes */
 
 #include <asm/r4kcache.h>
 
-extern int r3k_have_wired_reg;	
+extern int r3k_have_wired_reg;	/* in r3k-tlb.c */
 
+/* This sequence is required to ensure icache is disabled immediately */
 #define TX39_STOP_STREAMING() \
 __asm__ __volatile__( \
 	".set    push\n\t" \
@@ -39,11 +41,12 @@ __asm__ __volatile__( \
 	".set pop" \
 	)
 
+/* TX39H-style cache flush routines. */
 static void tx39h_flush_icache_all(void)
 {
 	unsigned long flags, config;
 
-	
+	/* disable icache (set ICE#) */
 	local_irq_save(flags);
 	config = read_c0_conf();
 	write_c0_conf(config & ~TX39_CONF_ICE);
@@ -55,7 +58,7 @@ static void tx39h_flush_icache_all(void)
 
 static void tx39h_dma_cache_wback_inv(unsigned long addr, unsigned long size)
 {
-	
+	/* Catch bad driver code */
 	BUG_ON(size == 0);
 
 	iob();
@@ -63,6 +66,7 @@ static void tx39h_dma_cache_wback_inv(unsigned long addr, unsigned long size)
 }
 
 
+/* TX39H2,TX39H3 */
 static inline void tx39_blast_dcache_page(unsigned long addr)
 {
 	if (current_cpu_type() != CPU_TX3912)
@@ -82,7 +86,7 @@ static inline void tx39_blast_dcache(void)
 static inline void tx39_blast_icache_page(unsigned long addr)
 {
 	unsigned long flags, config;
-	
+	/* disable icache (set ICE#) */
 	local_irq_save(flags);
 	config = read_c0_conf();
 	write_c0_conf(config & ~TX39_CONF_ICE);
@@ -95,7 +99,7 @@ static inline void tx39_blast_icache_page(unsigned long addr)
 static inline void tx39_blast_icache_page_indexed(unsigned long addr)
 {
 	unsigned long flags, config;
-	
+	/* disable icache (set ICE#) */
 	local_irq_save(flags);
 	config = read_c0_conf();
 	write_c0_conf(config & ~TX39_CONF_ICE);
@@ -108,7 +112,7 @@ static inline void tx39_blast_icache_page_indexed(unsigned long addr)
 static inline void tx39_blast_icache(void)
 {
 	unsigned long flags, config;
-	
+	/* disable icache (set ICE#) */
 	local_irq_save(flags);
 	config = read_c0_conf();
 	write_c0_conf(config & ~TX39_CONF_ICE);
@@ -171,6 +175,10 @@ static void tx39_flush_cache_page(struct vm_area_struct *vma, unsigned long page
 	pmd_t *pmdp;
 	pte_t *ptep;
 
+	/*
+	 * If ownes no valid ASID yet, cannot possibly have gotten
+	 * this page into the cache.
+	 */
 	if (cpu_context(smp_processor_id(), mm) == 0)
 		return;
 
@@ -180,9 +188,19 @@ static void tx39_flush_cache_page(struct vm_area_struct *vma, unsigned long page
 	pmdp = pmd_offset(pudp, page);
 	ptep = pte_offset(pmdp, page);
 
+	/*
+	 * If the page isn't marked valid, the page cannot possibly be
+	 * in the cache.
+	 */
 	if (!(pte_val(*ptep) & _PAGE_PRESENT))
 		return;
 
+	/*
+	 * Doing flushes for another ASID than the current one is
+	 * too difficult since stupid R4k caches do a TLB translation
+	 * for every cache flush operation.  So we do indexed flushes
+	 * in that case, which doesn't overly flush the cache too much.
+	 */
 	if ((mm == current->active_mm) && (pte_val(*ptep) & _PAGE_VALID)) {
 		if (cpu_has_dc_aliases || exec)
 			tx39_blast_dcache_page(page);
@@ -192,6 +210,10 @@ static void tx39_flush_cache_page(struct vm_area_struct *vma, unsigned long page
 		return;
 	}
 
+	/*
+	 * Do indexed flush, too much work to get the (possible) TLB refills
+	 * to work correctly.
+	 */
 	if (cpu_has_dc_aliases || exec)
 		tx39_blast_dcache_page_indexed(page);
 	if (exec)
@@ -219,7 +241,7 @@ static void tx39_flush_icache_range(unsigned long start, unsigned long end)
 		tx39_blast_icache();
 	else {
 		unsigned long flags, config;
-		
+		/* disable icache (set ICE#) */
 		local_irq_save(flags);
 		config = read_c0_conf();
 		write_c0_conf(config & ~TX39_CONF_ICE);
@@ -278,7 +300,7 @@ static void tx39_flush_cache_sigtramp(unsigned long addr)
 
 	protected_writeback_dcache_line(addr & ~(dc_lsize - 1));
 
-	
+	/* disable icache (set ICE#) */
 	local_irq_save(flags);
 	config = read_c0_conf();
 	write_c0_conf(config & ~TX39_CONF_ICE);
@@ -336,7 +358,7 @@ void __cpuinit tx39_cache_init(void)
 
 	switch (current_cpu_type()) {
 	case CPU_TX3912:
-		
+		/* TX39/H core (writethru direct-map cache) */
 		__flush_cache_vmap	= tx39__flush_cache_vmap;
 		__flush_cache_vunmap	= tx39__flush_cache_vunmap;
 		flush_cache_all	= tx39h_flush_icache_all;
@@ -360,10 +382,10 @@ void __cpuinit tx39_cache_init(void)
 	case CPU_TX3922:
 	case CPU_TX3927:
 	default:
-		
+		/* TX39/H2,H3 core (writeback 2way-set-associative cache) */
 		r3k_have_wired_reg = 1;
-		write_c0_wired(0);	
-		
+		write_c0_wired(0);	/* set 8 on reset... */
+		/* board-dependent init code may set WBON */
 
 		__flush_cache_vmap	= tx39__flush_cache_vmap;
 		__flush_cache_vunmap	= tx39__flush_cache_vunmap;

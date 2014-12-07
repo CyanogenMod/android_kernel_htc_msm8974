@@ -60,13 +60,16 @@ static struct ep93xx_eth_data __initdata edb93xx_eth_data = {
 };
 
 
+/*************************************************************************
+ * EDB93xx i2c peripheral handling
+ *************************************************************************/
 static struct i2c_gpio_platform_data __initdata edb93xx_i2c_gpio_data = {
 	.sda_pin		= EP93XX_GPIO_LINE_EEDAT,
 	.sda_is_open_drain	= 0,
 	.scl_pin		= EP93XX_GPIO_LINE_EECLK,
 	.scl_is_open_drain	= 0,
-	.udelay			= 0,	
-	.timeout		= 0,	
+	.udelay			= 0,	/* default to 100 kHz */
+	.timeout		= 0,	/* default to 100 ms */
 };
 
 static struct i2c_board_info __initdata edb93xxa_i2c_board_info[] = {
@@ -97,8 +100,11 @@ static void __init edb93xx_register_i2c(void)
 }
 
 
+/*************************************************************************
+ * EDB93xx SPI peripheral handling
+ *************************************************************************/
 static struct cs4271_platform_data edb93xx_cs4271_data = {
-	.gpio_nreset	= -EINVAL,	
+	.gpio_nreset	= -EINVAL,	/* filled in later */
 };
 
 static int edb93xx_cs4271_hw_setup(struct spi_device *spi)
@@ -153,6 +159,9 @@ static void __init edb93xx_register_spi(void)
 }
 
 
+/*************************************************************************
+ * EDB93xx I2S
+ *************************************************************************/
 static struct platform_device edb93xx_audio_device = {
 	.name		= "edb93xx-audio",
 	.id		= -1,
@@ -174,22 +183,28 @@ static void __init edb93xx_register_i2s(void)
 }
 
 
+/*************************************************************************
+ * EDB93xx pwm
+ *************************************************************************/
 static void __init edb93xx_register_pwm(void)
 {
 	if (machine_is_edb9301() ||
 	    machine_is_edb9302() || machine_is_edb9302a()) {
-		
+		/* EP9301 and EP9302 only have pwm.1 (EGPIO14) */
 		ep93xx_register_pwm(0, 1);
 	} else if (machine_is_edb9307() || machine_is_edb9307a()) {
-		
+		/* EP9307 only has pwm.0 (PWMOUT) */
 		ep93xx_register_pwm(1, 0);
 	} else {
-		
+		/* EP9312 and EP9315 have both */
 		ep93xx_register_pwm(1, 1);
 	}
 }
 
 
+/*************************************************************************
+ * EDB93xx framebuffer
+ *************************************************************************/
 static struct ep93xxfb_mach_info __initdata edb93xxfb_info = {
 	.num_modes	= EP93XXFB_USE_MODEDB,
 	.bpp		= 16,
@@ -198,7 +213,7 @@ static struct ep93xxfb_mach_info __initdata edb93xxfb_info = {
 
 static int __init edb93xx_has_fb(void)
 {
-	
+	/* These platforms have an ep93xx with video capability */
 	return machine_is_edb9307() || machine_is_edb9307a() ||
 	       machine_is_edb9312() || machine_is_edb9315() ||
 	       machine_is_edb9315a();
@@ -233,7 +248,7 @@ static void __init edb93xx_init_machine(void)
 
 #ifdef CONFIG_MACH_EDB9301
 MACHINE_START(EDB9301, "Cirrus Logic EDB9301 Evaluation Board")
-	
+	/* Maintainer: H Hartley Sweeten <hsweeten@visionengravers.com> */
 	.atag_offset	= 0x100,
 	.map_io		= ep93xx_map_io,
 	.init_irq	= ep93xx_init_irq,
@@ -246,7 +261,7 @@ MACHINE_END
 
 #ifdef CONFIG_MACH_EDB9302
 MACHINE_START(EDB9302, "Cirrus Logic EDB9302 Evaluation Board")
-	
+	/* Maintainer: George Kashperko <george@chas.com.ua> */
 	.atag_offset	= 0x100,
 	.map_io		= ep93xx_map_io,
 	.init_irq	= ep93xx_init_irq,
@@ -259,7 +274,7 @@ MACHINE_END
 
 #ifdef CONFIG_MACH_EDB9302A
 MACHINE_START(EDB9302A, "Cirrus Logic EDB9302A Evaluation Board")
-	
+	/* Maintainer: Lennert Buytenhek <buytenh@wantstofly.org> */
 	.atag_offset	= 0x100,
 	.map_io		= ep93xx_map_io,
 	.init_irq	= ep93xx_init_irq,
@@ -272,7 +287,7 @@ MACHINE_END
 
 #ifdef CONFIG_MACH_EDB9307
 MACHINE_START(EDB9307, "Cirrus Logic EDB9307 Evaluation Board")
-	
+	/* Maintainer: Herbert Valerio Riedel <hvr@gnu.org> */
 	.atag_offset	= 0x100,
 	.map_io		= ep93xx_map_io,
 	.init_irq	= ep93xx_init_irq,
@@ -285,7 +300,7 @@ MACHINE_END
 
 #ifdef CONFIG_MACH_EDB9307A
 MACHINE_START(EDB9307A, "Cirrus Logic EDB9307A Evaluation Board")
-	
+	/* Maintainer: H Hartley Sweeten <hsweeten@visionengravers.com> */
 	.atag_offset	= 0x100,
 	.map_io		= ep93xx_map_io,
 	.init_irq	= ep93xx_init_irq,
@@ -298,7 +313,7 @@ MACHINE_END
 
 #ifdef CONFIG_MACH_EDB9312
 MACHINE_START(EDB9312, "Cirrus Logic EDB9312 Evaluation Board")
-	
+	/* Maintainer: Toufeeq Hussain <toufeeq_hussain@infosys.com> */
 	.atag_offset	= 0x100,
 	.map_io		= ep93xx_map_io,
 	.init_irq	= ep93xx_init_irq,
@@ -311,7 +326,7 @@ MACHINE_END
 
 #ifdef CONFIG_MACH_EDB9315
 MACHINE_START(EDB9315, "Cirrus Logic EDB9315 Evaluation Board")
-	
+	/* Maintainer: Lennert Buytenhek <buytenh@wantstofly.org> */
 	.atag_offset	= 0x100,
 	.map_io		= ep93xx_map_io,
 	.init_irq	= ep93xx_init_irq,
@@ -324,7 +339,7 @@ MACHINE_END
 
 #ifdef CONFIG_MACH_EDB9315A
 MACHINE_START(EDB9315A, "Cirrus Logic EDB9315A Evaluation Board")
-	
+	/* Maintainer: Lennert Buytenhek <buytenh@wantstofly.org> */
 	.atag_offset	= 0x100,
 	.map_io		= ep93xx_map_io,
 	.init_irq	= ep93xx_init_irq,

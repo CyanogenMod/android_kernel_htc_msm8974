@@ -33,6 +33,7 @@
 #include "aic94xx_reg.h"
 #include "aic94xx_sds.h"
 
+/* ---------- OCM stuff ---------- */
 
 struct asd_ocm_dir_ent {
 	u8 type;
@@ -44,8 +45,8 @@ struct asd_ocm_dir_ent {
 struct asd_ocm_dir {
 	char sig[2];
 	u8   _r1[2];
-	u8   major;          
-	u8   minor;          
+	u8   major;          /* 0 */
+	u8   minor;          /* 0 */
 	u8   _r2;
 	u8   num_de;
 	struct asd_ocm_dir_ent entry[15];
@@ -64,45 +65,51 @@ struct asd_ocm_dir {
 #define	OCM_DE_ADDC2C_RES3		0x0A
 
 #define OCM_INIT_DIR_ENTRIES	5
+/***************************************************************************
+*  OCM directory default
+***************************************************************************/
 static struct asd_ocm_dir OCMDirInit =
 {
-	.sig = {0x4D, 0x4F},	
-	.num_de = OCM_INIT_DIR_ENTRIES,	
+	.sig = {0x4D, 0x4F},	/* signature */
+	.num_de = OCM_INIT_DIR_ENTRIES,	/* no. of directory entries */
 };
 
+/***************************************************************************
+*  OCM directory Entries default
+***************************************************************************/
 static struct asd_ocm_dir_ent OCMDirEntriesInit[OCM_INIT_DIR_ENTRIES] =
 {
 	{
-		.type = (OCM_DE_ADDC2C_RES0),	
-		.offs = {128},			
-		.size = {0, 4},			
+		.type = (OCM_DE_ADDC2C_RES0),	/* Entry type  */
+		.offs = {128},			/* Offset */
+		.size = {0, 4},			/* size */
 	},
 	{
-		.type = (OCM_DE_ADDC2C_RES1),	
-		.offs = {128, 4},		
-		.size = {0, 4},			
+		.type = (OCM_DE_ADDC2C_RES1),	/* Entry type  */
+		.offs = {128, 4},		/* Offset */
+		.size = {0, 4},			/* size */
 	},
 	{
-		.type = (OCM_DE_ADDC2C_RES2),	
-		.offs = {128, 8},		
-		.size = {0, 4},			
+		.type = (OCM_DE_ADDC2C_RES2),	/* Entry type  */
+		.offs = {128, 8},		/* Offset */
+		.size = {0, 4},			/* size */
 	},
 	{
-		.type = (OCM_DE_ADDC2C_RES3),	
-		.offs = {128, 12},		
-		.size = {0, 4},			
+		.type = (OCM_DE_ADDC2C_RES3),	/* Entry type  */
+		.offs = {128, 12},		/* Offset */
+		.size = {0, 4},			/* size */
 	},
 	{
-		.type = (OCM_DE_WIN_DRVR),	
-		.offs = {128, 16},		
-		.size = {128, 235, 1},		
+		.type = (OCM_DE_WIN_DRVR),	/* Entry type  */
+		.offs = {128, 16},		/* Offset */
+		.size = {128, 235, 1},		/* size */
 	},
 };
 
 struct asd_bios_chim_struct {
 	char sig[4];
-	u8   major;          
-	u8   minor;          
+	u8   major;          /* 1 */
+	u8   minor;          /* 0 */
 	u8   bios_major;
 	u8   bios_minor;
 	__le32  bios_build;
@@ -111,8 +118,19 @@ struct asd_bios_chim_struct {
 	__le16  ue_num;
 	__le16  ue_size;
 	u8  _r[14];
+	/* The unit element array is right here.
+	 */
 } __attribute__ ((packed));
 
+/**
+ * asd_read_ocm_seg - read an on chip memory (OCM) segment
+ * @asd_ha: pointer to the host adapter structure
+ * @buffer: where to write the read data
+ * @offs: offset into OCM where to read from
+ * @size: how many bytes to read
+ *
+ * Return the number of bytes not read. Return 0 on success.
+ */
 static int asd_read_ocm_seg(struct asd_ha_struct *asd_ha, void *buffer,
 			    u32 offs, int size)
 {
@@ -273,15 +291,15 @@ asd_hwi_initialize_ocm_dir (struct asd_ha_struct *asd_ha)
 {
 	int i;
 
-	
+	/* Zero OCM */
 	for (i = 0; i < OCM_MAX_SIZE; i += 4)
 		asd_write_ocm_dword(asd_ha, i, 0);
 
-	
+	/* Write Dir */
 	asd_write_ocm_seg(asd_ha, &OCMDirInit, 0,
 			  sizeof(struct asd_ocm_dir));
 
-	
+	/* Write Dir Entries */
 	for (i = 0; i < OCM_INIT_DIR_ENTRIES; i++)
 		asd_write_ocm_seg(asd_ha, &OCMDirEntriesInit[i],
 				  sizeof(struct asd_ocm_dir) +
@@ -298,7 +316,7 @@ asd_hwi_check_ocm_access (struct asd_ha_struct *asd_ha)
 	int err = 0;
 	u32 v;
 
-	
+	/* check if OCM has been initialized by BIOS */
 	reg = asd_read_reg_dword(asd_ha, EXSICNFGR);
 
 	if (!(reg & OCMINITIALIZED)) {
@@ -329,6 +347,10 @@ out:
 	return err;
 }
 
+/**
+ * asd_read_ocm - read on chip memory (OCM)
+ * @asd_ha: pointer to the host adapter structure
+ */
 int asd_read_ocm(struct asd_ha_struct *asd_ha)
 {
 	int err;
@@ -353,6 +375,7 @@ out:
 	return err;
 }
 
+/* ---------- FLASH stuff ---------- */
 
 #define FLASH_RESET			0xF0
 
@@ -377,12 +400,12 @@ struct asd_flash_de {
 
 struct asd_flash_dir {
 	u8    cookie[32];
-	__le32   rev;		  
+	__le32   rev;		  /* 2 */
 	__le32   chksum;
 	__le32   chksum_antidote;
 	__le32   bld;
-	u8    bld_id[32];	  
-	u8    ver_data[32];	  
+	u8    bld_id[32];	  /* build id data */
+	u8    ver_data[32];	  /* date and time of build */
 	__le32   ae_mask;
 	__le32   v_mask;
 	__le32   oc_mask;
@@ -391,39 +414,39 @@ struct asd_flash_dir {
 } __attribute__ ((packed));
 
 struct asd_manuf_sec {
-	char  sig[2];		  
+	char  sig[2];		  /* 'S', 'M' */
 	u16   offs_next;
-	u8    maj;           
-	u8    min;           
+	u8    maj;           /* 0 */
+	u8    min;           /* 0 */
 	u16   chksum;
 	u16   size;
 	u8    _r[6];
 	u8    sas_addr[SAS_ADDR_SIZE];
 	u8    pcba_sn[ASD_PCBA_SN_SIZE];
-	
+	/* Here start the other segments */
 	u8    linked_list[0];
 } __attribute__ ((packed));
 
 struct asd_manuf_phy_desc {
-	u8    state;         
+	u8    state;         /* low 4 bits */
 #define MS_PHY_STATE_ENABLED    0
 #define MS_PHY_STATE_REPORTED   1
 #define MS_PHY_STATE_HIDDEN     2
 	u8    phy_id;
 	u16   _r;
-	u8    phy_control_0; 
-	u8    phy_control_1; 
-	u8    phy_control_2; 
-	u8    phy_control_3; 
+	u8    phy_control_0; /* mode 5 reg 0x160 */
+	u8    phy_control_1; /* mode 5 reg 0x161 */
+	u8    phy_control_2; /* mode 5 reg 0x162 */
+	u8    phy_control_3; /* mode 5 reg 0x163 */
 } __attribute__ ((packed));
 
 struct asd_manuf_phy_param {
-	char  sig[2];		  
+	char  sig[2];		  /* 'P', 'M' */
 	u16   next;
-	u8    maj;           
-	u8    min;           
-	u8    num_phy_desc;  
-	u8    phy_desc_size; 
+	u8    maj;           /* 0 */
+	u8    min;           /* 2 */
+	u8    num_phy_desc;  /* 8 */
+	u8    phy_desc_size; /* 8 */
 	u8    _r[3];
 	u8    usage_model_id;
 	u32   _r2;
@@ -502,11 +525,11 @@ struct asd_ms_node_desc {
 } __attribute__ ((packed));
 
 struct asd_ms_conn_map {
-	char  sig[2];		  
+	char  sig[2];		  /* 'M', 'C' */
 	__le16 next;
-	u8    maj;		  
-	u8    min;		  
-	__le16 cm_size;		  
+	u8    maj;		  /* 0 */
+	u8    min;		  /* 0 */
+	__le16 cm_size;		  /* size of this struct */
 	u8    num_conn;
 	u8    conn_size;
 	u8    num_nodes;
@@ -518,17 +541,17 @@ struct asd_ms_conn_map {
 
 struct asd_ctrla_phy_entry {
 	u8    sas_addr[SAS_ADDR_SIZE];
-	u8    sas_link_rates;  
+	u8    sas_link_rates;  /* max in hi bits, min in low bits */
 	u8    flags;
 	u8    sata_link_rates;
 	u8    _r[5];
 } __attribute__ ((packed));
 
 struct asd_ctrla_phy_settings {
-	u8    id0;		  
+	u8    id0;		  /* P'h'y */
 	u8    _r;
 	u16   next;
-	u8    num_phys;	      
+	u8    num_phys;	      /* number of PHYs in the PCI function */
 	u8    _r2[3];
 	struct asd_ctrla_phy_entry phy_ent[ASD_MAX_PHYS];
 } __attribute__ ((packed));
@@ -576,6 +599,14 @@ static int asd_read_flash_seg(struct asd_ha_struct *asd_ha,
 	return 0;
 }
 
+/**
+ * asd_find_flash_dir - finds and reads the flash directory
+ * @asd_ha: pointer to the host adapter structure
+ * @flash_dir: pointer to flash directory structure
+ *
+ * If found, the flash directory segment will be copied to
+ * @flash_dir.  Return 1 if found, 0 if not.
+ */
 static int asd_find_flash_dir(struct asd_ha_struct *asd_ha,
 			      struct asd_flash_dir *flash_dir)
 {
@@ -687,6 +718,17 @@ static int asd_ms_get_pcba_sn(struct asd_ha_struct *asd_ha,
 	return 0;
 }
 
+/**
+ * asd_find_ll_by_id - find a linked list entry by its id
+ * @start: void pointer to the first element in the linked list
+ * @id0: the first byte of the id  (offs 0)
+ * @id1: the second byte of the id (offs 1)
+ *
+ * @start has to be the _base_ element start, since the
+ * linked list entries's offset is from this pointer.
+ * Some linked list entries use only the first id, in which case
+ * you can pass 0xFF for the second.
+ */
 static void *asd_find_ll_by_id(void * const start, const u8 id0, const u8 id1)
 {
 	struct asd_ll_el *el = start;
@@ -705,6 +747,26 @@ static void *asd_find_ll_by_id(void * const start, const u8 id0, const u8 id1)
 	return NULL;
 }
 
+/**
+ * asd_ms_get_phy_params - get phy parameters from the manufacturing sector
+ * @asd_ha: pointer to the host adapter structure
+ * @manuf_sec: pointer to the manufacturing sector
+ *
+ * The manufacturing sector contans also the linked list of sub-segments,
+ * since when it was read, its size was taken from the flash directory,
+ * not from the structure size.
+ *
+ * HIDDEN phys do not count in the total count.  REPORTED phys cannot
+ * be enabled but are reported and counted towards the total.
+ * ENABLED phys are enabled by default and count towards the total.
+ * The absolute total phy number is ASD_MAX_PHYS.  hw_prof->num_phys
+ * merely specifies the number of phys the host adapter decided to
+ * report.  E.g., it is possible for phys 0, 1 and 2 to be HIDDEN,
+ * phys 3, 4 and 5 to be REPORTED and phys 6 and 7 to be ENABLED.
+ * In this case ASD_MAX_PHYS is 8, hw_prof->num_phys is 5, and only 2
+ * are actually enabled (enabled by default, max number of phys
+ * enableable in this case).
+ */
 static int asd_ms_get_phy_params(struct asd_ha_struct *asd_ha,
 				 struct asd_manuf_sec *manuf_sec)
 {
@@ -792,12 +854,17 @@ static int asd_ms_get_connector_map(struct asd_ha_struct *asd_ha,
 		return -ENOENT;
 	}
 
-	
+	/* XXX */
 
 	return 0;
 }
 
 
+/**
+ * asd_process_ms - find and extract information from the manufacturing sector
+ * @asd_ha: pointer to the host adapter structure
+ * @flash_dir: pointer to the flash directory
+ */
 static int asd_process_ms(struct asd_ha_struct *asd_ha,
 			  struct asd_flash_dir *flash_dir)
 {
@@ -880,7 +947,7 @@ static int asd_process_ctrla_phy_settings(struct asd_ha_struct *asd_ha,
 			asd_ha->hw_prof.enabled_phys &= ~(1 << i);
 			continue;
 		}
-		
+		/* This is the SAS address which should be sent in IDENTIFY. */
 		memcpy(asd_ha->hw_prof.phy_desc[i].sas_addr, pe->sas_addr,
 		       SAS_ADDR_SIZE);
 		asd_ha->hw_prof.phy_desc[i].max_sas_lrate =
@@ -906,6 +973,11 @@ static int asd_process_ctrla_phy_settings(struct asd_ha_struct *asd_ha,
 	return 0;
 }
 
+/**
+ * asd_process_ctrl_a_user - process CTRL-A user settings
+ * @asd_ha: pointer to the host adapter structure
+ * @flash_dir: pointer to the flash directory
+ */
 static int asd_process_ctrl_a_user(struct asd_ha_struct *asd_ha,
 				   struct asd_flash_dir *flash_dir)
 {
@@ -968,6 +1040,10 @@ out:
 	return err;
 }
 
+/**
+ * asd_read_flash - read flash memory
+ * @asd_ha: pointer to the host adapter structure
+ */
 int asd_read_flash(struct asd_ha_struct *asd_ha)
 {
 	int err;
@@ -1010,6 +1086,13 @@ out:
 	return err;
 }
 
+/**
+ * asd_verify_flash_seg - verify data with flash memory
+ * @asd_ha: pointer to the host adapter structure
+ * @src: pointer to the source data to be verified
+ * @dest_offset: offset from flash memory
+ * @bytes_to_verify: total bytes to verify
+ */
 int asd_verify_flash_seg(struct asd_ha_struct *asd_ha,
 			 const void *src, u32 dest_offset, u32 bytes_to_verify)
 {
@@ -1073,7 +1156,7 @@ int asd_write_flash_seg(struct asd_ha_struct *asd_ha,
 
 	src_buf = (const u8 *)src;
 	for (i = 0; i < bytes_to_write; i++) {
-		
+		/* Setup program command sequence */
 		switch (asd_ha->hw_prof.flash.method) {
 		case FLASH_METHOD_A:
 		{
@@ -1128,6 +1211,10 @@ int asd_chk_write_status(struct asd_ha_struct *asd_ha,
 	u8  nv_data1, nv_data2;
 	u8  toggle_bit1;
 
+	/*
+	 * Read from DQ2 requires sector address
+	 * while it's dont care for DQ6
+	 */
 	reg = asd_ha->hw_prof.flash.bar;
 
 	for (loop_cnt = 0; loop_cnt < 50000; loop_cnt++) {
@@ -1154,6 +1241,16 @@ int asd_chk_write_status(struct asd_ha_struct *asd_ha,
 			}
 		}
 
+		/*
+		 * ERASE is a sector-by-sector operation and requires
+		 * more time to finish while WRITE is byte-byte-byte
+		 * operation and takes lesser time to finish.
+		 *
+		 * For some strange reason a reduced ERASE delay gives different
+		 * behaviour across different spirit boards. Hence we set
+		 * a optimum balance of 50mus for ERASE which works well
+		 * across all boards.
+		 */
 		if (erase_flag) {
 			udelay(FLASH_STATUS_ERASE_DELAY_COUNT);
 		} else {
@@ -1163,6 +1260,12 @@ int asd_chk_write_status(struct asd_ha_struct *asd_ha,
 	return -1;
 }
 
+/**
+ * asd_hwi_erase_nv_sector - Erase the flash memory sectors.
+ * @asd_ha: pointer to the host adapter structure
+ * @flash_addr: pointer to offset from flash memory
+ * @size: total bytes to erase.
+ */
 int asd_erase_nv_sector(struct asd_ha_struct *asd_ha, u32 flash_addr, u32 size)
 {
 	u32 reg;
@@ -1170,9 +1273,13 @@ int asd_erase_nv_sector(struct asd_ha_struct *asd_ha, u32 flash_addr, u32 size)
 
 	reg = asd_ha->hw_prof.flash.bar;
 
-	
+	/* sector staring address */
 	sector_addr = flash_addr & FLASH_SECTOR_SIZE_MASK;
 
+	/*
+	 * Erasing an flash sector needs to be done in six consecutive
+	 * write cyles.
+	 */
 	while (sector_addr < flash_addr+size) {
 		switch (asd_ha->hw_prof.flash.method) {
 		case FLASH_METHOD_A:
@@ -1213,10 +1320,10 @@ int asd_check_flash_type(struct asd_ha_struct *asd_ha)
 	u32 reg;
 	int err;
 
-	
+	/* get Flash memory base address */
 	reg = asd_ha->hw_prof.flash.bar;
 
-	
+	/* Determine flash info */
 	err = asd_reset_flash(asd_ha);
 	if (err) {
 		ASD_DPRINTK("couldn't reset flash. err=%d\n", err);
@@ -1227,6 +1334,10 @@ int asd_check_flash_type(struct asd_ha_struct *asd_ha)
 	asd_ha->hw_prof.flash.manuf = FLASH_MANUF_ID_UNKNOWN;
 	asd_ha->hw_prof.flash.dev_id = FLASH_DEV_ID_UNKNOWN;
 
+	/* Get flash info. This would most likely be AMD Am29LV family flash.
+	 * First try the sequence for word mode.  It is the same as for
+	 * 008B (byte mode only), 160B (word mode) and 800D (word mode).
+	 */
 	inc = asd_ha->hw_prof.flash.wide ? 2 : 1;
 	asd_write_reg_byte(asd_ha, reg + 0xAAA, 0xAA);
 	asd_write_reg_byte(asd_ha, reg + 0x555, 0x55);
@@ -1234,7 +1345,7 @@ int asd_check_flash_type(struct asd_ha_struct *asd_ha)
 	manuf_id = asd_read_reg_byte(asd_ha, reg);
 	dev_id = asd_read_reg_byte(asd_ha, reg + inc);
 	sec_prot = asd_read_reg_byte(asd_ha, reg + inc + inc);
-	
+	/* Get out of autoselect mode. */
 	err = asd_reset_flash(asd_ha);
 	if (err) {
 		ASD_DPRINTK("couldn't reset flash. err=%d\n", err);
@@ -1292,7 +1403,7 @@ int asd_check_flash_type(struct asd_ha_struct *asd_ha)
 			return err;
 		}
 
-		
+		/* Issue Unlock sequence for AM29LV008BT */
 		asd_write_reg_byte(asd_ha, (reg + 0x555), 0xAA);
 		asd_write_reg_byte(asd_ha, (reg + 0x2AA), 0x55);
 		asd_write_reg_byte(asd_ha, (reg + 0x555), 0x90);

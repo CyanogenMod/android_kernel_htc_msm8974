@@ -35,6 +35,9 @@
 
 static int get_tclk(void);
 
+/*****************************************************************************
+ * I/O Address Mapping
+ ****************************************************************************/
 static struct map_desc dove_io_desc[] __initdata = {
 	{
 		.virtual	= DOVE_SB_REGS_VIRT_BASE,
@@ -64,16 +67,25 @@ void __init dove_map_io(void)
 	iotable_init(dove_io_desc, ARRAY_SIZE(dove_io_desc));
 }
 
+/*****************************************************************************
+ * EHCI0
+ ****************************************************************************/
 void __init dove_ehci0_init(void)
 {
 	orion_ehci_init(DOVE_USB0_PHYS_BASE, IRQ_DOVE_USB0, EHCI_PHY_NA);
 }
 
+/*****************************************************************************
+ * EHCI1
+ ****************************************************************************/
 void __init dove_ehci1_init(void)
 {
 	orion_ehci_1_init(DOVE_USB1_PHYS_BASE, IRQ_DOVE_USB1);
 }
 
+/*****************************************************************************
+ * GE00
+ ****************************************************************************/
 void __init dove_ge00_init(struct mv643xx_eth_platform_data *eth_data)
 {
 	orion_ge00_init(eth_data,
@@ -81,41 +93,62 @@ void __init dove_ge00_init(struct mv643xx_eth_platform_data *eth_data)
 			0, get_tclk());
 }
 
+/*****************************************************************************
+ * SoC RTC
+ ****************************************************************************/
 void __init dove_rtc_init(void)
 {
 	orion_rtc_init(DOVE_RTC_PHYS_BASE, IRQ_DOVE_RTC);
 }
 
+/*****************************************************************************
+ * SATA
+ ****************************************************************************/
 void __init dove_sata_init(struct mv_sata_platform_data *sata_data)
 {
 	orion_sata_init(sata_data, DOVE_SATA_PHYS_BASE, IRQ_DOVE_SATA);
 
 }
 
+/*****************************************************************************
+ * UART0
+ ****************************************************************************/
 void __init dove_uart0_init(void)
 {
 	orion_uart0_init(DOVE_UART0_VIRT_BASE, DOVE_UART0_PHYS_BASE,
 			 IRQ_DOVE_UART_0, get_tclk());
 }
 
+/*****************************************************************************
+ * UART1
+ ****************************************************************************/
 void __init dove_uart1_init(void)
 {
 	orion_uart1_init(DOVE_UART1_VIRT_BASE, DOVE_UART1_PHYS_BASE,
 			 IRQ_DOVE_UART_1, get_tclk());
 }
 
+/*****************************************************************************
+ * UART2
+ ****************************************************************************/
 void __init dove_uart2_init(void)
 {
 	orion_uart2_init(DOVE_UART2_VIRT_BASE, DOVE_UART2_PHYS_BASE,
 			 IRQ_DOVE_UART_2, get_tclk());
 }
 
+/*****************************************************************************
+ * UART3
+ ****************************************************************************/
 void __init dove_uart3_init(void)
 {
 	orion_uart3_init(DOVE_UART3_VIRT_BASE, DOVE_UART3_PHYS_BASE,
 			 IRQ_DOVE_UART_3, get_tclk());
 }
 
+/*****************************************************************************
+ * SPI
+ ****************************************************************************/
 void __init dove_spi0_init(void)
 {
 	orion_spi_init(DOVE_SPI0_PHYS_BASE, get_tclk());
@@ -126,11 +159,17 @@ void __init dove_spi1_init(void)
 	orion_spi_1_init(DOVE_SPI1_PHYS_BASE, get_tclk());
 }
 
+/*****************************************************************************
+ * I2C
+ ****************************************************************************/
 void __init dove_i2c_init(void)
 {
 	orion_i2c_init(DOVE_I2C_PHYS_BASE, IRQ_DOVE_I2C, 10);
 }
 
+/*****************************************************************************
+ * Time handling
+ ****************************************************************************/
 void __init dove_init_early(void)
 {
 	orion_time_set_base(TIMER_VIRT_BASE);
@@ -138,7 +177,7 @@ void __init dove_init_early(void)
 
 static int get_tclk(void)
 {
-	
+	/* use DOVE_RESET_SAMPLE_HI/LO to detect tclk */
 	return 166666667;
 }
 
@@ -152,18 +191,27 @@ struct sys_timer dove_timer = {
 	.init = dove_timer_init,
 };
 
+/*****************************************************************************
+ * XOR 0
+ ****************************************************************************/
 void __init dove_xor0_init(void)
 {
 	orion_xor0_init(DOVE_XOR0_PHYS_BASE, DOVE_XOR0_HIGH_PHYS_BASE,
 			IRQ_DOVE_XOR_00, IRQ_DOVE_XOR_01);
 }
 
+/*****************************************************************************
+ * XOR 1
+ ****************************************************************************/
 void __init dove_xor1_init(void)
 {
 	orion_xor1_init(DOVE_XOR1_PHYS_BASE, DOVE_XOR1_HIGH_PHYS_BASE,
 			IRQ_DOVE_XOR_10, IRQ_DOVE_XOR_11);
 }
 
+/*****************************************************************************
+ * SDIO
+ ****************************************************************************/
 static u64 sdio_dmamask = DMA_BIT_MASK(32);
 
 static struct resource dove_sdio0_resources[] = {
@@ -236,7 +284,7 @@ void __init dove_init(void)
 #endif
 	dove_setup_cpu_mbus();
 
-	
+	/* internal devices that every board has */
 	dove_rtc_init();
 	dove_xor0_init();
 	dove_xor1_init();
@@ -244,8 +292,14 @@ void __init dove_init(void)
 
 void dove_restart(char mode, const char *cmd)
 {
+	/*
+	 * Enable soft reset to assert RSTOUTn.
+	 */
 	writel(SOFT_RESET_OUT_EN, RSTOUTn_MASK);
 
+	/*
+	 * Assert soft reset.
+	 */
 	writel(SOFT_RESET, SYSTEM_SOFT_RESET);
 
 	while (1)

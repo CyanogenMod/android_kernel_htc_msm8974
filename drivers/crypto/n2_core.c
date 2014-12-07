@@ -88,6 +88,10 @@ struct n2_request_common {
 };
 #define OFFSET_NOT_RUNNING	(~(unsigned int)0)
 
+/* An async job request records the final tail value it used in
+ * n2_request_common->offset, test to see if that offset is in
+ * the range old_head, new_head, inclusive.
+ */
 static inline bool job_finished(struct spu_queue *q, unsigned int offset,
 				unsigned long old_head, unsigned long new_head)
 {
@@ -101,6 +105,11 @@ static inline bool job_finished(struct spu_queue *q, unsigned int offset,
 	return false;
 }
 
+/* When the HEAD marker is unequal to the actual HEAD, we get
+ * a virtual device INO interrupt.  We should process the
+ * completed CWQ entries and adjust the HEAD marker to clear
+ * the IRQ.
+ */
 static irqreturn_t cwq_intr(int irq, void *dev_id)
 {
 	unsigned long off, new_head, hv_ret;
@@ -117,7 +126,7 @@ static irqreturn_t cwq_intr(int irq, void *dev_id)
 	       smp_processor_id(), new_head, hv_ret);
 
 	for (off = q->head; off != new_head; off = spu_next_offset(q, off)) {
-		
+		/* XXX ... XXX */
 	}
 
 	hv_ret = sun4v_ncs_sethead_marker(q->qhandle, new_head);
@@ -270,7 +279,7 @@ struct n2_hash_ctx {
 	struct crypto_ahash		*fallback_tfm;
 };
 
-#define N2_HASH_KEY_MAX			32 
+#define N2_HASH_KEY_MAX			32 /* HW limit for all HMAC requests */
 
 struct n2_hmac_ctx {
 	struct n2_hash_ctx		base;
@@ -510,6 +519,9 @@ static int n2_do_async_digest(struct ahash_request *req,
 	int err = -ENODEV;
 	int nbytes, cpu;
 
+	/* The total effective length of the operation may not
+	 * exceed 2^16.
+	 */
 	if (unlikely(req->nbytes > (1 << 16))) {
 		struct n2_hash_req_ctx *rctx = ahash_request_ctx(req);
 		struct n2_hash_ctx *ctx = crypto_ahash_ctx(tfm);
@@ -533,6 +545,9 @@ static int n2_do_async_digest(struct ahash_request *req,
 
 	spin_lock_irqsave(&qp->lock, flags);
 
+	/* XXX can do better, improve this later by doing a by-hand scatterlist
+	 * XXX walk, etc.
+	 */
 	ent = qp->q + qp->tail;
 
 	ent->control = control_word_base(nbytes, auth_key_len, 0,
@@ -638,7 +653,7 @@ struct n2_cipher_context {
 		u8		aes[AES_MAX_KEY_SIZE];
 		u8		des[DES_KEY_SIZE];
 		u8		des3[3 * DES_KEY_SIZE];
-		u8		arc4[258]; 
+		u8		arc4[258]; /* S-box, X, Y */
 	} key;
 };
 
@@ -663,6 +678,24 @@ struct n2_request_context {
 	u8			temp_iv[16];
 };
 
+/* The SPU allows some level of flexibility for partial cipher blocks
+ * being specified in a descriptor.
+ *
+ * It merely requires that every descriptor's length field is at least
+ * as large as the cipher block size.  This means that a cipher block
+ * can span at most 2 descriptors.  However, this does not allow a
+ * partial block to span into the final descriptor as that would
+ * violate the rule (since every descriptor's length must be at lest
+ * the block size).  So, for example, assuming an 8 byte block size:
+ *
+ *	0xe --> 0xa --> 0x8
+ *
+ * is a valid length sequence, whereas:
+ *
+ *	0xe --> 0xb --> 0x7
+ *
+ * is not a valid sequence.
+ */
 
 struct n2_cipher_alg {
 	struct list_head	entry;
@@ -1089,7 +1122,7 @@ struct n2_cipher_tmpl {
 };
 
 static const struct n2_cipher_tmpl cipher_tmpls[] = {
-	
+	/* ARC4: only ECB is supported (chaining bits ignored) */
 	{	.name		= "ecb(arc4)",
 		.drv_name	= "ecb-arc4",
 		.block_size	= 1,
@@ -1104,7 +1137,7 @@ static const struct n2_cipher_tmpl cipher_tmpls[] = {
 		},
 	},
 
-	
+	/* DES: ECB CBC and CFB are supported */
 	{	.name		= "ecb(des)",
 		.drv_name	= "ecb-des",
 		.block_size	= DES_BLOCK_SIZE,
@@ -1146,7 +1179,7 @@ static const struct n2_cipher_tmpl cipher_tmpls[] = {
 		},
 	},
 
-	
+	/* 3DES: ECB CBC and CFB are supported */
 	{	.name		= "ecb(des3_ede)",
 		.drv_name	= "ecb-3des",
 		.block_size	= DES_BLOCK_SIZE,
@@ -1187,7 +1220,7 @@ static const struct n2_cipher_tmpl cipher_tmpls[] = {
 			.decrypt	= n2_decrypt_chaining,
 		},
 	},
-	
+	/* AES: ECB CBC and CTR are supported */
 	{	.name		= "ecb(aes)",
 		.drv_name	= "ecb-aes",
 		.block_size	= AES_BLOCK_SIZE,
@@ -1520,6 +1553,16 @@ static void __devexit n2_unregister_algs(void)
 	mutex_unlock(&spu_lock);
 }
 
+/* To map CWQ queues to interrupt sources, the hypervisor API provides
+ * a devino.  This isn't very useful to us because all of the
+ * interrupts listed in the device_node have been translated to
+ * Linux virtual IRQ cookie numbers.
+ *
+ * So we have to back-translate, going through the 'intr' and 'ino'
+ * property tables of the n2cp MDESC node, matching it with the OF
+ * 'interrupts' property entries, in order to to figure out which
+ * devino goes to which already-translated IRQ.
+ */
 static int find_devino_index(struct platform_device *dev, struct spu_mdesc_info *ip,
 			     unsigned long dev_ino)
 {
@@ -1692,6 +1735,9 @@ static void spu_list_destroy(struct list_head *list)
 	}
 }
 
+/* Walk the backward arcs of a CWQ 'exec-unit' node,
+ * gathering cpu membership information.
+ */
 static int spu_mdesc_walk_arcs(struct mdesc_handle *mdesc,
 			       struct platform_device *dev,
 			       u64 node, struct spu_queue *p,
@@ -1718,6 +1764,7 @@ static int spu_mdesc_walk_arcs(struct mdesc_handle *mdesc,
 	return 0;
 }
 
+/* Process an 'exec-unit' MDESC node of type 'cwq'.  */
 static int handle_exec_unit(struct spu_mdesc_info *ip, struct list_head *list,
 			    struct platform_device *dev, struct mdesc_handle *mdesc,
 			    u64 node, const char *iname, unsigned long q_type,

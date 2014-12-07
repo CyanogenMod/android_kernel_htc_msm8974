@@ -2,15 +2,15 @@
 #define __ARCH_ORION5X_MPP_H
 
 #define MPP(_num, _sel, _in, _out, _F5181l, _F5182, _F5281) ( \
-			((_num) & 0xff) | \
-			(((_sel) & 0xf) << 8) | \
-		((!!(_in)) << 12) | \
-		((!!(_out)) << 13) | \
-		((!!(_F5181l)) << 14) | \
-		((!!(_F5182)) << 15) | \
-		((!!(_F5281)) << 16))
+	/* MPP number */		((_num) & 0xff) | \
+	/* MPP select value */		(((_sel) & 0xf) << 8) | \
+	/* may be input signal */	((!!(_in)) << 12) | \
+	/* may be output signal */	((!!(_out)) << 13) | \
+	/* available on F5181l */	((!!(_F5181l)) << 14) | \
+	/* available on F5182 */	((!!(_F5182)) << 15) | \
+	/* available on F5281 */	((!!(_F5281)) << 16))
 
-				
+				/* num sel  i  o  5181 5182 5281 */
 
 #define MPP_F5181_MASK		MPP(0,  0x0, 0, 0, 1,   0,   0)
 #define MPP_F5182_MASK		MPP(0,  0x0, 0, 0, 0,   1,   0)

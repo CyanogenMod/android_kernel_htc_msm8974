@@ -144,6 +144,10 @@ nouveau_gem_new(struct drm_device *dev, int size, int align, uint32_t domain,
 		return ret;
 	nvbo = *pnvbo;
 
+	/* we restrict allowed domains on nv50+ to only the types
+	 * that were requested at creation time.  not possibly on
+	 * earlier chips without busting the ABI.
+	 */
 	nvbo->valid_domains = NOUVEAU_GEM_DOMAIN_VRAM |
 			      NOUVEAU_GEM_DOMAIN_GART;
 	if (dev_priv->card_type >= NV_50)
@@ -219,7 +223,7 @@ nouveau_gem_ioctl_new(struct drm_device *dev, void *data,
 			drm_gem_handle_delete(file_priv, req->info.handle);
 	}
 
-	
+	/* drop reference from allocate - handle holds it now */
 	drm_gem_object_unreference_unlocked(nvbo->gem);
 	return ret;
 }
@@ -672,7 +676,7 @@ nouveau_gem_ioctl_pushbuf(struct drm_device *dev, void *data,
 		return PTR_ERR(bo);
 	}
 
-	
+	/* Ensure all push buffers are on validate list */
 	for (i = 0; i < req->nr_push; i++) {
 		if (push[i].bo_index >= req->nr_buffers) {
 			NV_ERROR(dev, "push %d buffer not in list\n", i);
@@ -681,7 +685,7 @@ nouveau_gem_ioctl_pushbuf(struct drm_device *dev, void *data,
 		}
 	}
 
-	
+	/* Validate buffer list */
 	ret = nouveau_gem_pushbuf_validate(chan, file_priv, bo, req->buffers,
 					   req->nr_buffers, &op, &do_reloc);
 	if (ret) {
@@ -690,7 +694,7 @@ nouveau_gem_ioctl_pushbuf(struct drm_device *dev, void *data,
 		goto out_prevalid;
 	}
 
-	
+	/* Apply any relocations that are required */
 	if (do_reloc) {
 		ret = nouveau_gem_pushbuf_reloc_apply(dev, req, bo);
 		if (ret) {

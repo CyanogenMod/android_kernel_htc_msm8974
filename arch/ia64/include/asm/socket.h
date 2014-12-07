@@ -1,9 +1,18 @@
 #ifndef _ASM_IA64_SOCKET_H
 #define _ASM_IA64_SOCKET_H
 
+/*
+ * Socket related defines.
+ *
+ * Based on <asm-i386/socket.h>.
+ *
+ * Modified 1998-2000
+ *	David Mosberger-Tang <davidm@hpl.hp.com>, Hewlett-Packard Co
+ */
 
 #include <asm/sockios.h>
 
+/* For setsockopt(2) */
 #define SOL_SOCKET	1
 
 #define SO_DEBUG	1
@@ -22,6 +31,7 @@
 #define SO_PRIORITY	12
 #define SO_LINGER	13
 #define SO_BSDCOMPAT	14
+/* To add :#define SO_REUSEPORT 15 */
 #define SO_PASSCRED	16
 #define SO_PEERCRED	17
 #define SO_RCVLOWAT	18
@@ -29,12 +39,14 @@
 #define SO_RCVTIMEO	20
 #define SO_SNDTIMEO	21
 
+/* Security levels - as per NRL IPv6 - don't actually do anything */
 #define SO_SECURITY_AUTHENTICATION		22
 #define SO_SECURITY_ENCRYPTION_TRANSPORT	23
 #define SO_SECURITY_ENCRYPTION_NETWORK		24
 
 #define SO_BINDTODEVICE		25
 
+/* Socket filtering */
 #define SO_ATTACH_FILTER	26
 #define SO_DETACH_FILTER	27
 
@@ -63,6 +75,7 @@
 #define SCM_WIFI_STATUS		SO_WIFI_STATUS
 #define SO_PEEK_OFF		42
 
+/* Instruct lower device to use last 4-bytes of skb data as FCS */
 #define SO_NOFCS		43
 
-#endif 
+#endif /* _ASM_IA64_SOCKET_H */

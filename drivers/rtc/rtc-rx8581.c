@@ -20,43 +20,54 @@
 
 #define DRV_VERSION "0.1"
 
-#define RX8581_REG_SC		0x00 
-#define RX8581_REG_MN		0x01 
-#define RX8581_REG_HR		0x02 
-#define RX8581_REG_DW		0x03 
-#define RX8581_REG_DM		0x04 
-#define RX8581_REG_MO		0x05 
-#define RX8581_REG_YR		0x06 
-#define RX8581_REG_RAM		0x07 
-#define RX8581_REG_AMN		0x08 
-#define RX8581_REG_AHR		0x09 
+#define RX8581_REG_SC		0x00 /* Second in BCD */
+#define RX8581_REG_MN		0x01 /* Minute in BCD */
+#define RX8581_REG_HR		0x02 /* Hour in BCD */
+#define RX8581_REG_DW		0x03 /* Day of Week */
+#define RX8581_REG_DM		0x04 /* Day of Month in BCD */
+#define RX8581_REG_MO		0x05 /* Month in BCD */
+#define RX8581_REG_YR		0x06 /* Year in BCD */
+#define RX8581_REG_RAM		0x07 /* RAM */
+#define RX8581_REG_AMN		0x08 /* Alarm Min in BCD*/
+#define RX8581_REG_AHR		0x09 /* Alarm Hour in BCD */
 #define RX8581_REG_ADM		0x0A
 #define RX8581_REG_ADW		0x0A
 #define RX8581_REG_TMR0		0x0B
 #define RX8581_REG_TMR1		0x0C
-#define RX8581_REG_EXT		0x0D 
-#define RX8581_REG_FLAG		0x0E 
-#define RX8581_REG_CTRL		0x0F 
+#define RX8581_REG_EXT		0x0D /* Extension Register */
+#define RX8581_REG_FLAG		0x0E /* Flag Register */
+#define RX8581_REG_CTRL		0x0F /* Control Register */
 
 
-#define RX8581_FLAG_UF		0x20 
-#define RX8581_FLAG_TF		0x10 
-#define RX8581_FLAG_AF		0x08 
-#define RX8581_FLAG_VLF		0x02 
+/* Flag Register bit definitions */
+#define RX8581_FLAG_UF		0x20 /* Update */
+#define RX8581_FLAG_TF		0x10 /* Timer */
+#define RX8581_FLAG_AF		0x08 /* Alarm */
+#define RX8581_FLAG_VLF		0x02 /* Voltage Low */
 
-#define RX8581_CTRL_UIE		0x20 
-#define RX8581_CTRL_TIE		0x10 
-#define RX8581_CTRL_AIE		0x08 
-#define RX8581_CTRL_STOP	0x02 
-#define RX8581_CTRL_RESET	0x01 
+/* Control Register bit definitions */
+#define RX8581_CTRL_UIE		0x20 /* Update Interrupt Enable */
+#define RX8581_CTRL_TIE		0x10 /* Timer Interrupt Enable */
+#define RX8581_CTRL_AIE		0x08 /* Alarm Interrupt Enable */
+#define RX8581_CTRL_STOP	0x02 /* STOP bit */
+#define RX8581_CTRL_RESET	0x01 /* RESET bit */
 
 static struct i2c_driver rx8581_driver;
 
+/*
+ * In the routines that deal directly with the rx8581 hardware, we use
+ * rtc_time -- month 0-11, hour 0-23, yr = calendar year-epoch.
+ */
 static int rx8581_get_datetime(struct i2c_client *client, struct rtc_time *tm)
 {
 	unsigned char date[7];
 	int data, err;
 
+	/* First we ensure that the "update flag" is not set, we read the
+	 * time and date then re-read the "update flag". If the update flag
+	 * has been set, we know that the time has changed during the read so
+	 * we repeat the whole process again.
+	 */
 	data = i2c_smbus_read_byte_data(client, RX8581_REG_FLAG);
 	if (data < 0) {
 		dev_err(&client->dev, "Unable to read device flags\n");
@@ -64,7 +75,7 @@ static int rx8581_get_datetime(struct i2c_client *client, struct rtc_time *tm)
 	}
 
 	do {
-		
+		/* If update flag set, clear it */
 		if (data & RX8581_FLAG_UF) {
 			err = i2c_smbus_write_byte_data(client,
 				RX8581_REG_FLAG, (data & ~RX8581_FLAG_UF));
@@ -75,7 +86,7 @@ static int rx8581_get_datetime(struct i2c_client *client, struct rtc_time *tm)
 			}
 		}
 
-		
+		/* Now read time and date */
 		err = i2c_smbus_read_i2c_block_data(client, RX8581_REG_SC,
 			7, date);
 		if (err < 0) {
@@ -83,7 +94,7 @@ static int rx8581_get_datetime(struct i2c_client *client, struct rtc_time *tm)
 			return -EIO;
 		}
 
-		
+		/* Check flag register */
 		data = i2c_smbus_read_byte_data(client, RX8581_REG_FLAG);
 		if (data < 0) {
 			dev_err(&client->dev, "Unable to read device flags\n");
@@ -103,13 +114,13 @@ static int rx8581_get_datetime(struct i2c_client *client, struct rtc_time *tm)
 
 	tm->tm_sec = bcd2bin(date[RX8581_REG_SC] & 0x7F);
 	tm->tm_min = bcd2bin(date[RX8581_REG_MN] & 0x7F);
-	tm->tm_hour = bcd2bin(date[RX8581_REG_HR] & 0x3F); 
+	tm->tm_hour = bcd2bin(date[RX8581_REG_HR] & 0x3F); /* rtc hr 0-23 */
 	tm->tm_wday = ilog2(date[RX8581_REG_DW] & 0x7F);
 	tm->tm_mday = bcd2bin(date[RX8581_REG_DM] & 0x3F);
-	tm->tm_mon = bcd2bin(date[RX8581_REG_MO] & 0x1F) - 1; 
+	tm->tm_mon = bcd2bin(date[RX8581_REG_MO] & 0x1F) - 1; /* rtc mn 1-12 */
 	tm->tm_year = bcd2bin(date[RX8581_REG_YR]);
 	if (tm->tm_year < 70)
-		tm->tm_year += 100;	
+		tm->tm_year += 100;	/* assume we are in 1970...2069 */
 
 
 	dev_dbg(&client->dev, "%s: tm is secs=%d, mins=%d, hours=%d, "
@@ -136,21 +147,21 @@ static int rx8581_set_datetime(struct i2c_client *client, struct rtc_time *tm)
 		tm->tm_sec, tm->tm_min, tm->tm_hour,
 		tm->tm_mday, tm->tm_mon, tm->tm_year, tm->tm_wday);
 
-	
+	/* hours, minutes and seconds */
 	buf[RX8581_REG_SC] = bin2bcd(tm->tm_sec);
 	buf[RX8581_REG_MN] = bin2bcd(tm->tm_min);
 	buf[RX8581_REG_HR] = bin2bcd(tm->tm_hour);
 
 	buf[RX8581_REG_DM] = bin2bcd(tm->tm_mday);
 
-	
+	/* month, 1 - 12 */
 	buf[RX8581_REG_MO] = bin2bcd(tm->tm_mon + 1);
 
-	
+	/* year and century */
 	buf[RX8581_REG_YR] = bin2bcd(tm->tm_year % 100);
 	buf[RX8581_REG_DW] = (0x1 << tm->tm_wday);
 
-	
+	/* Stop the clock */
 	data = i2c_smbus_read_byte_data(client, RX8581_REG_CTRL);
 	if (data < 0) {
 		dev_err(&client->dev, "Unable to read control register\n");
@@ -164,14 +175,14 @@ static int rx8581_set_datetime(struct i2c_client *client, struct rtc_time *tm)
 		return -EIO;
 	}
 
-	
+	/* write register's data */
 	err = i2c_smbus_write_i2c_block_data(client, RX8581_REG_SC, 7, buf);
 	if (err < 0) {
 		dev_err(&client->dev, "Unable to write to date registers\n");
 		return -EIO;
 	}
 
-	
+	/* get VLF and clear it */
 	data = i2c_smbus_read_byte_data(client, RX8581_REG_FLAG);
 	if (data < 0) {
 		dev_err(&client->dev, "Unable to read flag register\n");
@@ -185,7 +196,7 @@ static int rx8581_set_datetime(struct i2c_client *client, struct rtc_time *tm)
 		return -EIO;
 	}
 
-	
+	/* Restart the clock */
 	data = i2c_smbus_read_byte_data(client, RX8581_REG_CTRL);
 	if (data < 0) {
 		dev_err(&client->dev, "Unable to read control register\n");

@@ -36,15 +36,87 @@
  *
  */
 
+/*
+ * Maximum value size - used for both key names and value data, and includes
+ * any applicable NULL terminators.
+ *
+ * Note:  This limit is somewhat arbitrary, but falls easily within what is
+ * supported for all native guests (back to Win 2000) and what is reasonable
+ * for the IC KVP exchange functionality.  Note that Windows Me/98/95 are
+ * limited to 255 character key names.
+ *
+ * MSDN recommends not storing data values larger than 2048 bytes in the
+ * registry.
+ *
+ * Note:  This value is used in defining the KVP exchange message - this value
+ * cannot be modified without affecting the message size and compatibility.
+ */
 
+/*
+ * bytes, including any null terminators
+ */
 #define HV_KVP_EXCHANGE_MAX_VALUE_SIZE          (2048)
 
 
+/*
+ * Maximum key size - the registry limit for the length of an entry name
+ * is 256 characters, including the null terminator
+ */
 
 #define HV_KVP_EXCHANGE_MAX_KEY_SIZE            (512)
 
+/*
+ * In Linux, we implement the KVP functionality in two components:
+ * 1) The kernel component which is packaged as part of the hv_utils driver
+ * is responsible for communicating with the host and responsible for
+ * implementing the host/guest protocol. 2) A user level daemon that is
+ * responsible for data gathering.
+ *
+ * Host/Guest Protocol: The host iterates over an index and expects the guest
+ * to assign a key name to the index and also return the value corresponding to
+ * the key. The host will have atmost one KVP transaction outstanding at any
+ * given point in time. The host side iteration stops when the guest returns
+ * an error. Microsoft has specified the following mapping of key names to
+ * host specified index:
+ *
+ *	Index		Key Name
+ *	0		FullyQualifiedDomainName
+ *	1		IntegrationServicesVersion
+ *	2		NetworkAddressIPv4
+ *	3		NetworkAddressIPv6
+ *	4		OSBuildNumber
+ *	5		OSName
+ *	6		OSMajorVersion
+ *	7		OSMinorVersion
+ *	8		OSVersion
+ *	9		ProcessorArchitecture
+ *
+ * The Windows host expects the Key Name and Key Value to be encoded in utf16.
+ *
+ * Guest Kernel/KVP Daemon Protocol: As noted earlier, we implement all of the
+ * data gathering functionality in a user mode daemon. The user level daemon
+ * is also responsible for binding the key name to the index as well. The
+ * kernel and user-level daemon communicate using a connector channel.
+ *
+ * The user mode component first registers with the
+ * the kernel component. Subsequently, the kernel component requests, data
+ * for the specified keys. In response to this message the user mode component
+ * fills in the value corresponding to the specified key. We overload the
+ * sequence field in the cn_msg header to define our KVP message types.
+ *
+ *
+ * The kernel component simply acts as a conduit for communication between the
+ * Windows host and the user-level daemon. The kernel component passes up the
+ * index received from the Host to the user-level daemon. If the index is
+ * valid (supported), the corresponding key as well as its
+ * value (both are strings) is returned. If the index is invalid
+ * (not supported), a NULL key string is returned.
+ */
 
 
+/*
+ * Registry value types.
+ */
 
 #define REG_SZ 1
 #define REG_U32 4
@@ -56,7 +128,7 @@ enum hv_kvp_exchg_op {
 	KVP_OP_DELETE,
 	KVP_OP_ENUMERATE,
 	KVP_OP_REGISTER,
-	KVP_OP_COUNT 
+	KVP_OP_COUNT /* Number of operations, must be last. */
 };
 
 enum hv_kvp_exchg_pool {
@@ -65,7 +137,7 @@ enum hv_kvp_exchg_pool {
 	KVP_POOL_AUTO,
 	KVP_POOL_AUTO_EXTERNAL,
 	KVP_POOL_AUTO_INTERNAL,
-	KVP_POOL_COUNT 
+	KVP_POOL_COUNT /* Number of pools, must be last. */
 };
 
 struct hv_kvp_hdr {
@@ -131,23 +203,26 @@ struct hv_kvp_msg {
 
 
 #define MAX_PAGE_BUFFER_COUNT				19
-#define MAX_MULTIPAGE_BUFFER_COUNT			32 
+#define MAX_MULTIPAGE_BUFFER_COUNT			32 /* 128K */
 
 #pragma pack(push, 1)
 
+/* Single-page buffer */
 struct hv_page_buffer {
 	u32 len;
 	u32 offset;
 	u64 pfn;
 };
 
+/* Multiple-page buffer */
 struct hv_multipage_buffer {
-	
+	/* Length and Offset determines the # of pfns in the array */
 	u32 len;
 	u32 offset;
 	u64 pfn_array[MAX_MULTIPAGE_BUFFER_COUNT];
 };
 
+/* 0x18 includes the proprietary packet header */
 #define MAX_PAGE_BUFFER_PACKET		(0x18 +			\
 					(sizeof(struct hv_page_buffer) * \
 					 MAX_PAGE_BUFFER_COUNT))
@@ -158,27 +233,36 @@ struct hv_multipage_buffer {
 #pragma pack(pop)
 
 struct hv_ring_buffer {
-	
+	/* Offset in bytes from the start of ring data below */
 	u32 write_index;
 
-	
+	/* Offset in bytes from the start of ring data below */
 	u32 read_index;
 
 	u32 interrupt_mask;
 
-	
+	/* Pad it to PAGE_SIZE so that data starts on page boundary */
 	u8	reserved[4084];
 
+	/* NOTE:
+	 * The interrupt_mask field is used only for channels but since our
+	 * vmbus connection also uses this data structure and its data starts
+	 * here, we commented out this field.
+	 */
 
+	/*
+	 * Ring data starts here + RingDataStartOffset
+	 * !!! DO NOT place any fields below this !!!
+	 */
 	u8 buffer[0];
 } __packed;
 
 struct hv_ring_buffer_info {
 	struct hv_ring_buffer *ring_buffer;
-	u32 ring_size;			
+	u32 ring_size;			/* Include the shared header */
 	spinlock_t ring_lock;
 
-	u32 ring_datasize;		
+	u32 ring_datasize;		/* < ring_size */
 	u32 ring_data_startoffset;
 };
 
@@ -190,35 +274,72 @@ struct hv_ring_buffer_debug_info {
 	u32 bytes_avail_towrite;
 };
 
+/*
+ * We use the same version numbering for all Hyper-V modules.
+ *
+ * Definition of versioning is as follows;
+ *
+ *	Major Number	Changes for these scenarios;
+ *			1.	When a new version of Windows Hyper-V
+ *				is released.
+ *			2.	A Major change has occurred in the
+ *				Linux IC's.
+ *			(For example the merge for the first time
+ *			into the kernel) Every time the Major Number
+ *			changes, the Revision number is reset to 0.
+ *	Minor Number	Changes when new functionality is added
+ *			to the Linux IC's that is not a bug fix.
+ *
+ * 3.1 - Added completed hv_utils driver. Shutdown/Heartbeat/Timesync
+ */
 #define HV_DRV_VERSION           "3.1"
 
 
+/*
+ * A revision number of vmbus that is used for ensuring both ends on a
+ * partition are using compatible versions.
+ */
 #define VMBUS_REVISION_NUMBER		13
 
+/* Make maximum size of pipe payload of 16K */
 #define MAX_PIPE_DATA_PAYLOAD		(sizeof(u8) * 16384)
 
+/* Define PipeMode values. */
 #define VMBUS_PIPE_TYPE_BYTE		0x00000000
 #define VMBUS_PIPE_TYPE_MESSAGE		0x00000004
 
+/* The size of the user defined data buffer for non-pipe offers. */
 #define MAX_USER_DEFINED_BYTES		120
 
+/* The size of the user defined data buffer for pipe offers. */
 #define MAX_PIPE_USER_DEFINED_BYTES	116
 
+/*
+ * At the center of the Channel Management library is the Channel Offer. This
+ * struct contains the fundamental information about an offer.
+ */
 struct vmbus_channel_offer {
 	uuid_le if_type;
 	uuid_le if_instance;
-	u64 int_latency; 
+	u64 int_latency; /* in 100ns units */
 	u32 if_revision;
-	u32 server_ctx_size;	
+	u32 server_ctx_size;	/* in bytes */
 	u16 chn_flags;
-	u16 mmio_megabytes;		
+	u16 mmio_megabytes;		/* in bytes * 1024 * 1024 */
 
 	union {
-		
+		/* Non-pipes: The user has MAX_USER_DEFINED_BYTES bytes. */
 		struct {
 			unsigned char user_def[MAX_USER_DEFINED_BYTES];
 		} std;
 
+		/*
+		 * Pipes:
+		 * The following sructure is an integrated pipe protocol, which
+		 * is implemented on top of standard user-defined data. Pipe
+		 * clients have MAX_PIPE_USER_DEFINED_BYTES left for their own
+		 * use.
+		 */
 		struct {
 			u32  pipe_mode;
 			unsigned char user_def[MAX_PIPE_USER_DEFINED_BYTES];
@@ -227,6 +348,7 @@ struct vmbus_channel_offer {
 	u32 padding;
 } __packed;
 
+/* Server Flags */
 #define VMBUS_CHANNEL_ENUMERATE_DEVICE_INTERFACE	1
 #define VMBUS_CHANNEL_SERVER_SUPPORTS_TRANSFER_PAGES	2
 #define VMBUS_CHANNEL_SERVER_SUPPORTS_GPADLS		4
@@ -275,12 +397,23 @@ struct vmadd_remove_transfer_page_set {
 	u16 reserved;
 } __packed;
 
+/*
+ * This structure defines a range in guest physical space that can be made to
+ * look virtually contiguous.
+ */
 struct gpa_range {
 	u32 byte_count;
 	u32 byte_offset;
 	u64 pfn_array[0];
 };
 
+/*
+ * This is the format for an Establish Gpadl packet, which contains a handle by
+ * which this GPADL will be known and a set of GPA ranges associated with it.
+ * This can be converted to a MDL by the guest OS.  If there are multiple GPA
+ * ranges, then the resulting MDL will be "chained," representing multiple VA
+ * ranges.
+ */
 struct vmestablish_gpadl {
 	struct vmpacket_descriptor d;
 	u32 gpadl;
@@ -288,12 +421,20 @@ struct vmestablish_gpadl {
 	struct gpa_range range[1];
 } __packed;
 
+/*
+ * This is the format for a Teardown Gpadl packet, which indicates that the
+ * GPADL handle in the Establish Gpadl packet will never be referenced again.
+ */
 struct vmteardown_gpadl {
 	struct vmpacket_descriptor d;
 	u32 gpadl;
-	u32 reserved;	
+	u32 reserved;	/* for alignment to a 8-byte boundary */
 } __packed;
 
+/*
+ * This is the format for a GPA-Direct packet, which contains a set of GPA
+ * ranges, in addition to commands and/or data.
+ */
 struct vmdata_gpa_direct {
 	struct vmpacket_descriptor d;
 	u32 reserved;
@@ -301,6 +442,7 @@ struct vmdata_gpa_direct {
 	struct gpa_range range[1];
 } __packed;
 
+/* This is the format for a Additional Data Packet. */
 struct vmadditional_data {
 	struct vmpacket_descriptor d;
 	u64 total_bytes;
@@ -350,6 +492,7 @@ enum vmbus_packet_type {
 #define VMBUS_DATA_PACKET_FLAG_COMPLETION_REQUESTED	1
 
 
+/* Version 1 messages */
 enum vmbus_channel_message_type {
 	CHANNELMSG_INVALID			=  0,
 	CHANNELMSG_OFFERCHANNEL		=  1,
@@ -380,16 +523,19 @@ struct vmbus_channel_message_header {
 	u32 padding;
 } __packed;
 
+/* Query VMBus Version parameters */
 struct vmbus_channel_query_vmbus_version {
 	struct vmbus_channel_message_header header;
 	u32 version;
 } __packed;
 
+/* VMBus Version Supported parameters */
 struct vmbus_channel_version_supported {
 	struct vmbus_channel_message_header header;
 	bool version_supported;
 } __packed;
 
+/* Offer Channel parameters */
 struct vmbus_channel_offer_channel {
 	struct vmbus_channel_message_header header;
 	struct vmbus_channel_offer offer;
@@ -398,33 +544,49 @@ struct vmbus_channel_offer_channel {
 	bool monitor_allocated;
 } __packed;
 
+/* Rescind Offer parameters */
 struct vmbus_channel_rescind_offer {
 	struct vmbus_channel_message_header header;
 	u32 child_relid;
 } __packed;
 
+/*
+ * Request Offer -- no parameters, SynIC message contains the partition ID
+ * Set Snoop -- no parameters, SynIC message contains the partition ID
+ * Clear Snoop -- no parameters, SynIC message contains the partition ID
+ * All Offers Delivered -- no parameters, SynIC message contains the partition
+ *		           ID
+ * Flush Client -- no parameters, SynIC message contains the partition ID
+ */
 
+/* Open Channel parameters */
 struct vmbus_channel_open_channel {
 	struct vmbus_channel_message_header header;
 
-	
+	/* Identifies the specific VMBus channel that is being opened. */
 	u32 child_relid;
 
-	
+	/* ID making a particular open request at a channel offer unique. */
 	u32 openid;
 
-	
+	/* GPADL for the channel's ring buffer. */
 	u32 ringbuffer_gpadlhandle;
 
-	
+	/* GPADL for the channel's server context save area. */
 	u32 server_contextarea_gpadlhandle;
 
+	/*
+	* The upstream ring buffer begins at offset zero in the memory
+	* described by RingBufferGpadlHandle. The downstream ring buffer
+	* follows it at this offset (in pages).
+	*/
 	u32 downstream_ringbuffer_pageoffset;
 
-	
+	/* User-specific data to be passed along to the server endpoint. */
 	unsigned char userdata[MAX_USER_DEFINED_BYTES];
 } __packed;
 
+/* Open Channel Result parameters */
 struct vmbus_channel_open_result {
 	struct vmbus_channel_message_header header;
 	u32 child_relid;
@@ -432,15 +594,23 @@ struct vmbus_channel_open_result {
 	u32 status;
 } __packed;
 
+/* Close channel parameters; */
 struct vmbus_channel_close_channel {
 	struct vmbus_channel_message_header header;
 	u32 child_relid;
 } __packed;
 
+/* Channel Message GPADL */
 #define GPADL_TYPE_RING_BUFFER		1
 #define GPADL_TYPE_SERVER_SAVE_AREA	2
 #define GPADL_TYPE_TRANSACTION		8
 
+/*
+ * The number of PFNs in a GPADL message is defined by the number of
+ * pages that would be spanned by ByteCount and ByteOffset.  If the
+ * implied number of PFNs won't fit in this packet, there will be a
+ * follow-up packet that contains more.
+ */
 struct vmbus_channel_gpadl_header {
 	struct vmbus_channel_message_header header;
 	u32 child_relid;
@@ -450,6 +620,7 @@ struct vmbus_channel_gpadl_header {
 	struct gpa_range range[0];
 } __packed;
 
+/* This is the followup packet that contains more PFNs. */
 struct vmbus_channel_gpadl_body {
 	struct vmbus_channel_message_header header;
 	u32 msgnumber;
@@ -532,14 +703,18 @@ struct vmbus_channel_debug_info {
 	struct hv_ring_buffer_debug_info outbound;
 };
 
+/*
+ * Represents each channel msg on the vmbus connection This is a
+ * variable-size data structure depending on the msg type itself
+ */
 struct vmbus_channel_msginfo {
-	
+	/* Bookkeeping stuff */
 	struct list_head msglistentry;
 
-	
+	/* So far, this is only used to handle gpadl body message */
 	struct list_head submsglist;
 
-	
+	/* Synchronize the request/response if needed */
 	struct completion  waitevent;
 	union {
 		struct vmbus_channel_version_supported version_supported;
@@ -550,6 +725,10 @@ struct vmbus_channel_msginfo {
 	} response;
 
 	u32 msgsize;
+	/*
+	 * The channel message that goes out on the "wire".
+	 * It will contain at minimum the VMBUS_CHANNEL_MESSAGE_HEADER header
+	 */
 	unsigned char msg[0];
 };
 
@@ -568,23 +747,27 @@ struct vmbus_channel {
 	enum vmbus_channel_state state;
 
 	struct vmbus_channel_offer_channel offermsg;
+	/*
+	 * These are based on the OfferMsg.MonitorId.
+	 * Save it here for easy access.
+	 */
 	u8 monitor_grp;
 	u8 monitor_bit;
 
 	u32 ringbuffer_gpadlhandle;
 
-	
+	/* Allocated memory for ring buffer */
 	void *ringbuffer_pages;
 	u32 ringbuffer_pagecount;
-	struct hv_ring_buffer_info outbound;	
-	struct hv_ring_buffer_info inbound;	
+	struct hv_ring_buffer_info outbound;	/* send to parent */
+	struct hv_ring_buffer_info inbound;	/* receive from parent */
 	spinlock_t inbound_lock;
 	struct workqueue_struct *controlwq;
 
 	struct vmbus_close_msg close_msg;
 
-	
-	
+	/* Channel callback are invoked in this workqueue context */
+	/* HANDLE dataWorkQueue; */
 
 	void (*onchannel_callback)(void *context);
 	void *channel_callback_context;
@@ -594,6 +777,7 @@ void vmbus_onmessage(void *context);
 
 int vmbus_request_offers(void);
 
+/* The format must be the same as struct vmdata_gpa_direct */
 struct vmbus_channel_packet_page_buffer {
 	u16 type;
 	u16 dataoffset8;
@@ -605,6 +789,7 @@ struct vmbus_channel_packet_page_buffer {
 	struct hv_page_buffer range[MAX_PAGE_BUFFER_COUNT];
 } __packed;
 
+/* The format must be the same as struct vmdata_gpa_direct */
 struct vmbus_channel_packet_multipage_buffer {
 	u16 type;
 	u16 dataoffset8;
@@ -612,7 +797,7 @@ struct vmbus_channel_packet_multipage_buffer {
 	u16 flags;
 	u64 transactionid;
 	u32 reserved;
-	u32 rangecount;		
+	u32 rangecount;		/* Always 1 in this case */
 	struct hv_multipage_buffer range;
 } __packed;
 
@@ -681,10 +866,11 @@ struct hv_dev_port_info {
 	u32 bytes_avail_towrite;
 };
 
+/* Base driver object */
 struct hv_driver {
 	const char *name;
 
-	
+	/* the device type supported by this driver */
 	uuid_le dev_type;
 	const struct hv_vmbus_device_id *id_table;
 
@@ -696,11 +882,12 @@ struct hv_driver {
 
 };
 
+/* Base device object */
 struct hv_device {
-	
+	/* the device type id of this device */
 	uuid_le dev_type;
 
-	
+	/* the device instance id of this device */
 	uuid_le dev_instance;
 
 	struct device device;
@@ -729,6 +916,7 @@ static inline void *hv_get_drvdata(struct hv_device *dev)
 	return dev_get_drvdata(&dev->device);
 }
 
+/* Vmbus interface */
 #define vmbus_driver_register(driver)	\
 	__vmbus_driver_register(driver, THIS_MODULE, KBUILD_MODNAME)
 int __must_check __vmbus_driver_register(struct hv_driver *hv_driver,
@@ -736,11 +924,20 @@ int __must_check __vmbus_driver_register(struct hv_driver *hv_driver,
 					 const char *mod_name);
 void vmbus_driver_unregister(struct hv_driver *hv_driver);
 
+/**
+ * VMBUS_DEVICE - macro used to describe a specific hyperv vmbus device
+ *
+ * This macro is used to create a struct hv_vmbus_device_id that matches a
+ * specific device.
+ */
 #define VMBUS_DEVICE(g0, g1, g2, g3, g4, g5, g6, g7,	\
 		     g8, g9, ga, gb, gc, gd, ge, gf)	\
 	.guid = { g0, g1, g2, g3, g4, g5, g6, g7,	\
 		  g8, g9, ga, gb, gc, gd, ge, gf },
 
+/*
+ * Common header for Hyper-V ICs
+ */
 
 #define ICMSGTYPE_NEGOTIATE		0
 #define ICMSGTYPE_HEARTBEAT		1
@@ -759,6 +956,11 @@ void vmbus_driver_unregister(struct hv_driver *hv_driver);
 #define HV_ERROR_NOT_SUPPORTED		0x80070032
 #define HV_ERROR_MACHINE_LOCKED		0x800704F7
 
+/*
+ * While we want to handle util services as regular devices,
+ * there is only one instance of each of these services; so
+ * we statically allocate the service specific state.
+ */
 
 struct hv_util_service {
 	u8 *recv_buffer;
@@ -792,7 +994,7 @@ struct icmsg_negotiate {
 	u16 icframe_vercnt;
 	u16 icmsg_vercnt;
 	u32 reserved;
-	struct ic_version icversion_data[1]; 
+	struct ic_version icversion_data[1]; /* any size array */
 } __packed;
 
 struct shutdown_msg_data {
@@ -807,12 +1009,13 @@ struct heartbeat_msg_data {
 	u32 reserved[8];
 } __packed;
 
+/* Time Sync IC defs */
 #define ICTIMESYNCFLAG_PROBE	0
 #define ICTIMESYNCFLAG_SYNC	1
 #define ICTIMESYNCFLAG_SAMPLE	2
 
 #ifdef __x86_64__
-#define WLTIMEDELTA	116444736000000000L	
+#define WLTIMEDELTA	116444736000000000L	/* in 100ns unit */
 #else
 #define WLTIMEDELTA	116444736000000000LL
 #endif
@@ -839,5 +1042,5 @@ int hv_kvp_init(struct hv_util_service *);
 void hv_kvp_deinit(void);
 void hv_kvp_onchannelcallback(void *);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _HYPERV_H */

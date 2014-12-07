@@ -23,10 +23,11 @@
 #ifndef __LINUX_LP5523_H
 #define __LINUX_LP5523_H
 
+/* See Documentation/leds/leds-lp5523.txt */
 
 struct lp5523_led_config {
 	u8		chan_nr;
-	u8		led_current; 
+	u8		led_current; /* mA x10, 0 if led is not connected */
 	u8		max_current;
 };
 
@@ -44,4 +45,4 @@ struct lp5523_platform_data {
 	const	char *label;
 };
 
-#endif 
+#endif /* __LINUX_LP5523_H */

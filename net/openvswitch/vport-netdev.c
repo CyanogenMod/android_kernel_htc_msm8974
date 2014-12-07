@@ -32,6 +32,7 @@
 #include "vport-internal_dev.h"
 #include "vport-netdev.h"
 
+/* Must be called with rcu_read_lock. */
 static void netdev_port_receive(struct vport *vport, struct sk_buff *skb)
 {
 	if (unlikely(!vport)) {
@@ -39,6 +40,10 @@ static void netdev_port_receive(struct vport *vport, struct sk_buff *skb)
 		return;
 	}
 
+	/* Make our own copy of the packet.  Otherwise we will mangle the
+	 * packet for anyone who came before us (e.g. tcpdump via AF_PACKET).
+	 * (No one comes after us, since we tell handle_bridge() that we took
+	 * the packet.) */
 	skb = skb_share_check(skb, GFP_ATOMIC);
 	if (unlikely(!skb))
 		return;
@@ -47,6 +52,7 @@ static void netdev_port_receive(struct vport *vport, struct sk_buff *skb)
 	ovs_vport_receive(vport, skb);
 }
 
+/* Called with rcu_read_lock and bottom-halves disabled. */
 static rx_handler_result_t netdev_frame_hook(struct sk_buff **pskb)
 {
 	struct sk_buff *skb = *pskb;
@@ -172,6 +178,7 @@ error:
 	return 0;
 }
 
+/* Returns null if this device is not attached to a datapath. */
 struct vport *ovs_netdev_get_vport(struct net_device *dev)
 {
 	if (likely(dev->priv_flags & IFF_OVS_DATAPATH))

@@ -19,6 +19,7 @@
 
 #define MN_MODE_DUAL_EDGE 0x2
 
+/* MD Registers */
 #define MD4(m_lsb, m, n_lsb, n) \
 		((BVAL((m_lsb+3), m_lsb, m) | BVAL((n_lsb+3), n_lsb, ~(n))) \
 		* !!(n))
@@ -27,6 +28,7 @@
 		* !!(n))
 #define MD16(m, n) ((BVAL(31, 16, m) | BVAL(15, 0, ~(n))) * !!(n))
 
+/* NS Registers */
 #define NS(n_msb, n_lsb, n, m, mde_lsb, d_msb, d_lsb, d, s_msb, s_lsb, s) \
 		(BVAL(n_msb, n_lsb, ~(n-m) * !!(n)) \
 		| (BVAL((mde_lsb+1), mde_lsb, MN_MODE_DUAL_EDGE) * !!(n)) \
@@ -63,12 +65,16 @@
 		| BVAL(s0_msb, s0_lsb, s) \
 		| BVAL(s1_msb, s1_lsb, s))
 
+/* CC Registers */
 #define CC(mde_lsb, n) (BVAL((mde_lsb+1), mde_lsb, MN_MODE_DUAL_EDGE) * !!(n))
 #define CC_BANKED(mde0_lsb, mde1_lsb, n) \
 		((BVAL((mde0_lsb+1), mde0_lsb, MN_MODE_DUAL_EDGE) \
 		| BVAL((mde1_lsb+1), mde1_lsb, MN_MODE_DUAL_EDGE)) \
 		* !!(n))
 
+/*
+ * Clock Definition Macros
+ */
 #define DEFINE_CLK_MEASURE(name) \
 	struct clk name = { \
 		.ops = &clk_ops_empty, \
@@ -76,6 +82,9 @@
 		CLK_INIT(name), \
 	}; \
 
+/*
+ * Generic frequency-definition structs and macros
+ */
 struct clk_freq_tbl {
 	const uint32_t	freq_hz;
 	struct clk	*const src_clk;
@@ -85,6 +94,9 @@ struct clk_freq_tbl {
 	void		*const extra_freq_data;
 };
 
+/* Some clocks have two banks to avoid glitches when switching frequencies.
+ * The unused bank is programmed while running on the other bank, and
+ * switched to afterwards. The following two structs describe the banks. */
 struct bank_mask_info {
 	void *const md_reg;
 	const uint32_t	ns_mask;
@@ -110,6 +122,18 @@ struct bank_masks {
 #define FREQ_END	(UINT_MAX-1)
 #define F_END { .freq_hz = FREQ_END }
 
+/**
+ * struct branch - branch on/off
+ * @ctl_reg: clock control register
+ * @en_mask: ORed with @ctl_reg to enable the clock
+ * @hwcg_reg: hardware clock gating register
+ * @hwcg_mask: ORed with @hwcg_reg to enable hardware clock gating
+ * @halt_reg: halt register
+ * @halt_check: type of halt check to perform
+ * @halt_bit: ANDed with @halt_reg to test for clock halted
+ * @reset_reg: reset register
+ * @reset_mask: ORed with @reset_reg to reset the clock domain
+ */
 struct branch {
 	void __iomem *const ctl_reg;
 	const u32 en_mask;
@@ -137,6 +161,9 @@ void __branch_enable_reg(const struct branch *b, const char *name);
 u32 __branch_disable_reg(const struct branch *b, const char *name);
 enum handoff branch_handoff(struct branch *b, struct clk *c);
 
+/*
+ * Generic clock-definition struct and macros
+ */
 struct rcg_clk {
 	bool		prepared;
 	bool		enabled;
@@ -167,6 +194,16 @@ extern struct clk_ops clk_ops_rcg;
 
 extern struct clk_freq_tbl rcg_dummy_freq;
 
+/**
+ * struct cdiv_clk - integer divider clock with external source selection
+ * @ns_reg: source select and divider settings register
+ * @ext_mask: bit to set to select an external source
+ * @cur_div: current divider setting (or 0 for external source)
+ * @max_div: maximum divider value supported (must be power of 2)
+ * @div_offset: number of bits to shift divider left by in @ns_reg
+ * @b: branch
+ * @c: clock
+ */
 struct cdiv_clk {
 	void __iomem *const ns_reg;
 	u32 ext_mask;
@@ -186,10 +223,22 @@ static inline struct cdiv_clk *to_cdiv_clk(struct clk *c)
 
 extern struct clk_ops clk_ops_cdiv;
 
+/**
+ * struct fixed_clk - fixed rate clock (used for crystal oscillators)
+ * @c: clk
+ */
 struct fixed_clk {
 	struct clk c;
 };
 
+/**
+ * struct branch_clk - branch
+ * @enabled: true if clock is on, false otherwise
+ * @b: branch
+ * @c: clock
+ *
+ * An on/off switch with a rate derived from the parent.
+ */
 struct branch_clk {
 	bool enabled;
 	struct branch b;
@@ -201,6 +250,13 @@ static inline struct branch_clk *to_branch_clk(struct clk *c)
 	return container_of(c, struct branch_clk, c);
 }
 
+/**
+ * struct measure_clk - for rate measurement debug use
+ * @sample_ticks: sample period in reference clock ticks
+ * @multiplier: measurement scale-up factor
+ * @divider: measurement scale-down factor
+ * @c: clock
+*/
 struct measure_clk {
 	u64 sample_ticks;
 	u32 multiplier;
@@ -215,14 +271,20 @@ static inline struct measure_clk *to_measure_clk(struct clk *c)
 	return container_of(c, struct measure_clk, c);
 }
 
+/*
+ * Variables from clock-local driver
+ */
 extern spinlock_t		local_clock_reg_lock;
 extern struct fixed_clk		gnd_clk;
 
+/*
+ * Generic set-rate implementations
+ */
 void set_rate_mnd(struct rcg_clk *rcg, struct clk_freq_tbl *nf);
 void set_rate_nop(struct rcg_clk *rcg, struct clk_freq_tbl *nf);
 void set_rate_mnd_8(struct rcg_clk *rcg, struct clk_freq_tbl *nf);
 void set_rate_mnd_banked(struct rcg_clk *rcg, struct clk_freq_tbl *nf);
 void set_rate_div_banked(struct rcg_clk *rcg, struct clk_freq_tbl *nf);
 
-#endif 
+#endif /* __ARCH_ARM_MACH_MSM_CLOCK_LOCAL_H */
 

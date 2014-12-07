@@ -39,12 +39,40 @@
 #define CREATE_TRACE_POINTS
 #include "docg3.h"
 
+/*
+ * This driver handles the DiskOnChip G3 flash memory.
+ *
+ * As no specification is available from M-Systems/Sandisk, this drivers lacks
+ * several functions available on the chip, as :
+ *  - IPL write
+ *
+ * The bus data width (8bits versus 16bits) is not handled (if_cfg flag), and
+ * the driver assumes a 16bits data bus.
+ *
+ * DocG3 relies on 2 ECC algorithms, which are handled in hardware :
+ *  - a 1 byte Hamming code stored in the OOB for each page
+ *  - a 7 bytes BCH code stored in the OOB for each page
+ * The BCH ECC is :
+ *  - BCH is in GF(2^14)
+ *  - BCH is over data of 520 bytes (512 page + 7 page_info bytes
+ *                                   + 1 hamming byte)
+ *  - BCH can correct up to 4 bits (t = 4)
+ *  - BCH syndroms are calculated in hardware, and checked in hardware as well
+ *
+ */
 
 static unsigned int reliable_mode;
 module_param(reliable_mode, uint, 0);
 MODULE_PARM_DESC(reliable_mode, "Set the docg3 mode (0=normal MLC, 1=fast, "
 		 "2=reliable) : MLC normal operations are in normal mode");
 
+/**
+ * struct docg3_oobinfo - DiskOnChip G3 OOB layout
+ * @eccbytes: 8 bytes are used (1 for Hamming ECC, 7 for BCH ECC)
+ * @eccpos: ecc positions (byte 7 is Hamming ECC, byte 8-14 are BCH ECC)
+ * @oobfree: free pageinfo bytes (byte 0 until byte 6, byte 15
+ * @oobavail: 8 available bytes remaining after ECC toll
+ */
 static struct nand_ecclayout docg3_oobinfo = {
 	.eccbytes = 8,
 	.eccpos = {7, 8, 9, 10, 11, 12, 13, 14},
@@ -117,6 +145,17 @@ static int doc_register_readw(struct docg3 *docg3, int reg)
 	return val;
 }
 
+/**
+ * doc_delay - delay docg3 operations
+ * @docg3: the device
+ * @nbNOPs: the number of NOPs to issue
+ *
+ * As no specification is available, the right timings between chip commands are
+ * unknown. The only available piece of information are the observed nops on a
+ * working docg3 chip.
+ * Therefore, doc_delay relies on a busy loop of NOPs, instead of scheduler
+ * friendlier msleep() functions or blocking mdelay().
+ */
 static void doc_delay(struct docg3 *docg3, int nbNOPs)
 {
 	int i;
@@ -171,6 +210,15 @@ static int doc_reset_seq(struct docg3 *docg3)
 	return ret;
 }
 
+/**
+ * doc_read_data_area - Read data from data area
+ * @docg3: the device
+ * @buf: the buffer to fill in (might be NULL is dummy reads)
+ * @len: the length to read
+ * @first: first time read, DOC_READADDRESS should be set
+ *
+ * Reads bytes from flash data. Handles the single byte / even bytes reads.
+ */
 static void doc_read_data_area(struct docg3 *docg3, void *buf, int len,
 			       int first)
 {
@@ -208,6 +256,14 @@ static void doc_read_data_area(struct docg3 *docg3, void *buf, int len,
 	}
 }
 
+/**
+ * doc_write_data_area - Write data into data area
+ * @docg3: the device
+ * @buf: the buffer to get input bytes from
+ * @len: the length to write
+ *
+ * Writes bytes into flash data. Handles the single byte / even bytes writes.
+ */
 static void doc_write_data_area(struct docg3 *docg3, const void *buf, int len)
 {
 	int i, cdr, len4;
@@ -234,6 +290,21 @@ static void doc_write_data_area(struct docg3 *docg3, const void *buf, int len)
 	}
 }
 
+/**
+ * doc_set_data_mode - Sets the flash to normal or reliable data mode
+ * @docg3: the device
+ *
+ * The reliable data mode is a bit slower than the fast mode, but less errors
+ * occur.  Entering the reliable mode cannot be done without entering the fast
+ * mode first.
+ *
+ * In reliable mode, pages 2*n and 2*n+1 are clones. Writing to page 0 of blocks
+ * (4,5) make the hardware write also to page 1 of blocks blocks(4,5). Reading
+ * from page 0 of blocks (4,5) or from page 1 of blocks (4,5) gives the same
+ * result, which is a logical and between bytes from page 0 and page 1 (which is
+ * consistent with the fact that writing to a page is _clearing_ bits of that
+ * page).
+ */
 static void doc_set_reliable_mode(struct docg3 *docg3)
 {
 	static char *strmode[] = { "normal", "fast", "reliable", "invalid" };
@@ -258,6 +329,16 @@ static void doc_set_reliable_mode(struct docg3 *docg3)
 	doc_delay(docg3, 2);
 }
 
+/**
+ * doc_set_asic_mode - Set the ASIC mode
+ * @docg3: the device
+ * @mode: the mode
+ *
+ * The ASIC can work in 3 modes :
+ *  - RESET: all registers are zeroed
+ *  - NORMAL: receives and handles commands
+ *  - POWERDOWN: minimal poweruse, flash parts shut off
+ */
 static void doc_set_asic_mode(struct docg3 *docg3, u8 mode)
 {
 	int i;
@@ -272,6 +353,14 @@ static void doc_set_asic_mode(struct docg3 *docg3, u8 mode)
 	doc_delay(docg3, 1);
 }
 
+/**
+ * doc_set_device_id - Sets the devices id for cascaded G3 chips
+ * @docg3: the device
+ * @id: the chip to select (amongst 0, 1, 2, 3)
+ *
+ * There can be 4 cascaded G3 chips. This function selects the one which will
+ * should be the active one.
+ */
 static void doc_set_device_id(struct docg3 *docg3, int id)
 {
 	u8 ctrl;
@@ -285,6 +374,17 @@ static void doc_set_device_id(struct docg3 *docg3, int id)
 	doc_writeb(docg3, ctrl, DOC_FLASHCONTROL);
 }
 
+/**
+ * doc_set_extra_page_mode - Change flash page layout
+ * @docg3: the device
+ *
+ * Normally, the flash page is split into the data (512 bytes) and the out of
+ * band data (16 bytes). For each, 4 more bytes can be accessed, where the wear
+ * leveling counters are stored.  To access this last area of 4 bytes, a special
+ * mode must be input to the flash ASIC.
+ *
+ * Returns 0 if no error occured, -EIO else.
+ */
 static int doc_set_extra_page_mode(struct docg3 *docg3)
 {
 	int fctrl;
@@ -301,6 +401,11 @@ static int doc_set_extra_page_mode(struct docg3 *docg3)
 		return 0;
 }
 
+/**
+ * doc_setup_addr_sector - Setup blocks/page/ofs address for one plane
+ * @docg3: the device
+ * @sector: the sector
+ */
 static void doc_setup_addr_sector(struct docg3 *docg3, int sector)
 {
 	doc_delay(docg3, 1);
@@ -310,6 +415,12 @@ static void doc_setup_addr_sector(struct docg3 *docg3, int sector)
 	doc_delay(docg3, 1);
 }
 
+/**
+ * doc_setup_writeaddr_sector - Setup blocks/page/ofs address for one plane
+ * @docg3: the device
+ * @sector: the sector
+ * @ofs: the offset in the page, between 0 and (512 + 16 + 512)
+ */
 static void doc_setup_writeaddr_sector(struct docg3 *docg3, int sector, int ofs)
 {
 	ofs = ofs >> 2;
@@ -321,6 +432,18 @@ static void doc_setup_writeaddr_sector(struct docg3 *docg3, int sector, int ofs)
 	doc_delay(docg3, 1);
 }
 
+/**
+ * doc_seek - Set both flash planes to the specified block, page for reading
+ * @docg3: the device
+ * @block0: the first plane block index
+ * @block1: the second plane block index
+ * @page: the page index within the block
+ * @wear: if true, read will occur on the 4 extra bytes of the wear area
+ * @ofs: offset in page to read
+ *
+ * Programs the flash even and odd planes to the specific block and page.
+ * Alternatively, programs the flash to the wear area of the specified page.
+ */
 static int doc_read_seek(struct docg3 *docg3, int block0, int block1, int page,
 			 int wear, int ofs)
 {
@@ -359,6 +482,17 @@ out:
 	return ret;
 }
 
+/**
+ * doc_write_seek - Set both flash planes to the specified block, page for writing
+ * @docg3: the device
+ * @block0: the first plane block index
+ * @block1: the second plane block index
+ * @page: the page index within the block
+ * @ofs: offset in page to write
+ *
+ * Programs the flash even and odd planes to the specific block and page.
+ * Alternatively, programs the flash to the wear area of the specified page.
+ */
 static int doc_write_seek(struct docg3 *docg3, int block0, int block1, int page,
 			 int ofs)
 {
@@ -401,6 +535,16 @@ out:
 }
 
 
+/**
+ * doc_read_page_ecc_init - Initialize hardware ECC engine
+ * @docg3: the device
+ * @len: the number of bytes covered by the ECC (BCH covered)
+ *
+ * The function does initialize the hardware ECC engine to compute the Hamming
+ * ECC (on 1 byte) and the BCH hardware ECC (on 7 bytes).
+ *
+ * Return 0 if succeeded, -EIO on error
+ */
 static int doc_read_page_ecc_init(struct docg3 *docg3, int len)
 {
 	doc_writew(docg3, DOC_ECCCONF0_READ_MODE
@@ -412,6 +556,16 @@ static int doc_read_page_ecc_init(struct docg3 *docg3, int len)
 	return doc_wait_ready(docg3);
 }
 
+/**
+ * doc_write_page_ecc_init - Initialize hardware BCH ECC engine
+ * @docg3: the device
+ * @len: the number of bytes covered by the ECC (BCH covered)
+ *
+ * The function does initialize the hardware ECC engine to compute the Hamming
+ * ECC (on 1 byte) and the BCH hardware ECC (on 7 bytes).
+ *
+ * Return 0 if succeeded, -EIO on error
+ */
 static int doc_write_page_ecc_init(struct docg3 *docg3, int len)
 {
 	doc_writew(docg3, DOC_ECCCONF0_WRITE_MODE
@@ -423,12 +577,27 @@ static int doc_write_page_ecc_init(struct docg3 *docg3, int len)
 	return doc_wait_ready(docg3);
 }
 
+/**
+ * doc_ecc_disable - Disable Hamming and BCH ECC hardware calculator
+ * @docg3: the device
+ *
+ * Disables the hardware ECC generator and checker, for unchecked reads (as when
+ * reading OOB only or write status byte).
+ */
 static void doc_ecc_disable(struct docg3 *docg3)
 {
 	doc_writew(docg3, DOC_ECCCONF0_READ_MODE, DOC_ECCCONF0);
 	doc_delay(docg3, 4);
 }
 
+/**
+ * doc_hamming_ecc_init - Initialize hardware Hamming ECC engine
+ * @docg3: the device
+ * @nb_bytes: the number of bytes covered by the ECC (Hamming covered)
+ *
+ * This function programs the ECC hardware to compute the hamming code on the
+ * last provided N bytes to the hardware generator.
+ */
 static void doc_hamming_ecc_init(struct docg3 *docg3, int nb_bytes)
 {
 	u8 ecc_conf1;
@@ -439,6 +608,29 @@ static void doc_hamming_ecc_init(struct docg3 *docg3, int nb_bytes)
 	doc_writeb(docg3, ecc_conf1, DOC_ECCCONF1);
 }
 
+/**
+ * doc_ecc_bch_fix_data - Fix if need be read data from flash
+ * @docg3: the device
+ * @buf: the buffer of read data (512 + 7 + 1 bytes)
+ * @hwecc: the hardware calculated ECC.
+ *         It's in fact recv_ecc ^ calc_ecc, where recv_ecc was read from OOB
+ *         area data, and calc_ecc the ECC calculated by the hardware generator.
+ *
+ * Checks if the received data matches the ECC, and if an error is detected,
+ * tries to fix the bit flips (at most 4) in the buffer buf.  As the docg3
+ * understands the (data, ecc, syndroms) in an inverted order in comparison to
+ * the BCH library, the function reverses the order of bits (ie. bit7 and bit0,
+ * bit6 and bit 1, ...) for all ECC data.
+ *
+ * The hardware ecc unit produces oob_ecc ^ calc_ecc.  The kernel's bch
+ * algorithm is used to decode this.  However the hw operates on page
+ * data in a bit order that is the reverse of that of the bch alg,
+ * requiring that the bits be reversed on the result.  Thanks to Ivan
+ * Djelic for his analysis.
+ *
+ * Returns number of fixed bits (0, 1, 2, 3, 4) or -EBADMSG if too many bit
+ * errors were detected and cannot be fixed.
+ */
 static int doc_ecc_bch_fix_data(struct docg3 *docg3, void *buf, u8 *hwecc)
 {
 	u8 ecc[DOC_ECC_BCH_SIZE];
@@ -457,7 +649,7 @@ static int doc_ecc_bch_fix_data(struct docg3 *docg3, void *buf, u8 *hwecc)
 		errorpos[i] = (errorpos[i] & ~7) | (7 - (errorpos[i] & 7));
 	for (i = 0; i < numerrs; i++)
 		if (errorpos[i] < DOC_ECC_BCH_COVERED_BYTES*8)
-			
+			/* error is located in data, correct it */
 			change_bit(errorpos[i], buf);
 out:
 	doc_dbg("doc_ecc_bch_fix_data: flipped %d bits\n", numerrs);
@@ -465,6 +657,32 @@ out:
 }
 
 
+/**
+ * doc_read_page_prepare - Prepares reading data from a flash page
+ * @docg3: the device
+ * @block0: the first plane block index on flash memory
+ * @block1: the second plane block index on flash memory
+ * @page: the page index in the block
+ * @offset: the offset in the page (must be a multiple of 4)
+ *
+ * Prepares the page to be read in the flash memory :
+ *   - tell ASIC to map the flash pages
+ *   - tell ASIC to be in read mode
+ *
+ * After a call to this method, a call to doc_read_page_finish is mandatory,
+ * to end the read cycle of the flash.
+ *
+ * Read data from a flash page. The length to be read must be between 0 and
+ * (page_size + oob_size + wear_size), ie. 532, and a multiple of 4 (because
+ * the extra bytes reading is not implemented).
+ *
+ * As pages are grouped by 2 (in 2 planes), reading from a page must be done
+ * in two steps:
+ *  - one read of 512 bytes at offset 0
+ *  - one read of 512 bytes at offset 512 + 16
+ *
+ * Returns 0 if successful, -EIO if a read error occured.
+ */
 static int doc_read_page_prepare(struct docg3 *docg3, int block0, int block1,
 				 int page, int offset)
 {
@@ -482,7 +700,7 @@ static int doc_read_page_prepare(struct docg3 *docg3, int block0, int block1,
 	if (ret)
 		goto err;
 
-	
+	/* Program the flash address block and page */
 	ret = doc_read_seek(docg3, block0, block1, page, wear_area, offset);
 	if (ret)
 		goto err;
@@ -508,6 +726,14 @@ err:
 	return -EIO;
 }
 
+/**
+ * doc_read_page_getbytes - Reads bytes from a prepared page
+ * @docg3: the device
+ * @len: the number of bytes to be read (must be a multiple of 4)
+ * @buf: the buffer to be filled in (or NULL is forget bytes)
+ * @first: 1 if first time read, DOC_READADDRESS should be set
+ *
+ */
 static int doc_read_page_getbytes(struct docg3 *docg3, int len, u_char *buf,
 				  int first)
 {
@@ -530,6 +756,11 @@ static void doc_write_page_putbytes(struct docg3 *docg3, int len,
 	doc_delay(docg3, 2);
 }
 
+/**
+ * doc_get_bch_hw_ecc - Get hardware calculated BCH ECC
+ * @docg3: the device
+ * @hwecc:  the array of 7 integers where the hardware ecc will be stored
+ */
 static void doc_get_bch_hw_ecc(struct docg3 *docg3, u8 *hwecc)
 {
 	int i;
@@ -538,18 +769,45 @@ static void doc_get_bch_hw_ecc(struct docg3 *docg3, u8 *hwecc)
 		hwecc[i] = doc_register_readb(docg3, DOC_BCH_HW_ECC(i));
 }
 
+/**
+ * doc_page_finish - Ends reading/writing of a flash page
+ * @docg3: the device
+ */
 static void doc_page_finish(struct docg3 *docg3)
 {
 	doc_writeb(docg3, 0, DOC_DATAEND);
 	doc_delay(docg3, 2);
 }
 
+/**
+ * doc_read_page_finish - Ends reading of a flash page
+ * @docg3: the device
+ *
+ * As a side effect, resets the chip selector to 0. This ensures that after each
+ * read operation, the floor 0 is selected. Therefore, if the systems halts, the
+ * reboot will boot on floor 0, where the IPL is.
+ */
 static void doc_read_page_finish(struct docg3 *docg3)
 {
 	doc_page_finish(docg3);
 	doc_set_device_id(docg3, 0);
 }
 
+/**
+ * calc_block_sector - Calculate blocks, pages and ofs.
+
+ * @from: offset in flash
+ * @block0: first plane block index calculated
+ * @block1: second plane block index calculated
+ * @page: page calculated
+ * @ofs: offset in page
+ * @reliable: 0 if docg3 in normal mode, 1 if docg3 in fast mode, 2 if docg3 in
+ * reliable mode.
+ *
+ * The calculation is based on the reliable/normal mode. In normal mode, the 64
+ * pages of a block are available. In reliable mode, as pages 2*n and 2*n+1 are
+ * clones, only 32 pages per block are available.
+ */
 static void calc_block_sector(loff_t from, int *block0, int *block1, int *page,
 			      int *ofs, int reliable)
 {
@@ -572,6 +830,17 @@ static void calc_block_sector(loff_t from, int *block0, int *block1, int *page,
 		*ofs = 0;
 }
 
+/**
+ * doc_read_oob - Read out of band bytes from flash
+ * @mtd: the device
+ * @from: the offset from first block and first page, in bytes, aligned on page
+ *        size
+ * @ops: the mtd oob structure
+ *
+ * Reads flash memory OOB area of pages.
+ *
+ * Returns 0 if read successfull, of -EIO, -EINVAL if an error occured
+ */
 static int doc_read_oob(struct mtd_info *mtd, loff_t from,
 			struct mtd_oob_ops *ops)
 {
@@ -690,6 +959,20 @@ err_in_read:
 	goto out;
 }
 
+/**
+ * doc_read - Read bytes from flash
+ * @mtd: the device
+ * @from: the offset from first block and first page, in bytes, aligned on page
+ *        size
+ * @len: the number of bytes to read (must be a multiple of 4)
+ * @retlen: the number of bytes actually read
+ * @buf: the filled in buffer
+ *
+ * Reads flash memory pages. This function does not read the OOB chunk, but only
+ * the page data.
+ *
+ * Returns 0 if read successfull, of -EIO, -EINVAL if an error occured
+ */
 static int doc_read(struct mtd_info *mtd, loff_t from, size_t len,
 	     size_t *retlen, u_char *buf)
 {
@@ -728,6 +1011,13 @@ static int doc_reload_bbt(struct docg3 *docg3)
 	return ret;
 }
 
+/**
+ * doc_block_isbad - Checks whether a block is good or not
+ * @mtd: the device
+ * @from: the offset to find the correct block
+ *
+ * Returns 1 if block is bad, 0 if block is good
+ */
 static int doc_block_isbad(struct mtd_info *mtd, loff_t from)
 {
 	struct docg3 *docg3 = mtd->priv;
@@ -748,6 +1038,16 @@ static int doc_block_isbad(struct mtd_info *mtd, loff_t from)
 }
 
 #if 0
+/**
+ * doc_get_erase_count - Get block erase count
+ * @docg3: the device
+ * @from: the offset in which the block is.
+ *
+ * Get the number of times a block was erased. The number is the maximum of
+ * erase times between first and second plane (which should be equal normally).
+ *
+ * Returns The number of erases, or -EINVAL or -EIO on error.
+ */
 static int doc_get_erase_count(struct docg3 *docg3, loff_t from)
 {
 	u8 buf[DOC_LAYOUT_WEAR_SIZE];
@@ -781,6 +1081,14 @@ static int doc_get_erase_count(struct docg3 *docg3, loff_t from)
 }
 #endif
 
+/**
+ * doc_get_op_status - get erase/write operation status
+ * @docg3: the device
+ *
+ * Queries the status from the chip, and returns it
+ *
+ * Returns the status (bits DOC_PLANES_STATUS_*)
+ */
 static int doc_get_op_status(struct docg3 *docg3)
 {
 	u8 status;
@@ -794,6 +1102,16 @@ static int doc_get_op_status(struct docg3 *docg3)
 	return status;
 }
 
+/**
+ * doc_write_erase_wait_status - wait for write or erase completion
+ * @docg3: the device
+ *
+ * Wait for the chip to be ready again after erase or write operation, and check
+ * erase/write status.
+ *
+ * Returns 0 if erase successfull, -EIO if erase/write issue, -ETIMEOUT if
+ * timeout
+ */
 static int doc_write_erase_wait_status(struct docg3 *docg3)
 {
 	int i, status, ret = 0;
@@ -818,6 +1136,17 @@ out:
 	return ret;
 }
 
+/**
+ * doc_erase_block - Erase a couple of blocks
+ * @docg3: the device
+ * @block0: the first block to erase (leftmost plane)
+ * @block1: the second block to erase (rightmost plane)
+ *
+ * Erase both blocks, and return operation status
+ *
+ * Returns 0 if erase successful, -EIO if erase issue, -ETIMEOUT if chip not
+ * ready for too long
+ */
 static int doc_erase_block(struct docg3 *docg3, int block0, int block1)
 {
 	int ret, sector;
@@ -849,6 +1178,17 @@ static int doc_erase_block(struct docg3 *docg3, int block0, int block1)
 	return doc_write_erase_wait_status(docg3);
 }
 
+/**
+ * doc_erase - Erase a portion of the chip
+ * @mtd: the device
+ * @info: the erase info
+ *
+ * Erase a bunch of contiguous blocks, by pairs, as a "mtd" page of 1024 is
+ * split into 2 pages of 512 bytes on 2 contiguous blocks.
+ *
+ * Returns 0 if erase successful, -EINVAL if adressing error, -EIO if erase
+ * issue
+ */
 static int doc_erase(struct mtd_info *mtd, struct erase_info *info)
 {
 	struct docg3 *docg3 = mtd->priv;
@@ -922,7 +1262,7 @@ static int doc_write_page(struct docg3 *docg3, loff_t to, const u_char *buf,
 	if (ret)
 		goto err;
 
-	
+	/* Program the flash address block and page */
 	ret = doc_write_seek(docg3, block0, block1, page, ofs);
 	if (ret)
 		goto err;
@@ -957,6 +1297,10 @@ static int doc_write_page(struct docg3 *docg3, loff_t to, const u_char *buf,
 	doc_flash_command(docg3, DOC_CMD_PROG_CYCLE2);
 	doc_delay(docg3, 2);
 
+	/*
+	 * The wait status will perform another doc_page_finish() call, but that
+	 * seems to please the docg3, so leave it.
+	 */
 	ret = doc_write_erase_wait_status(docg3);
 	return ret;
 err:
@@ -964,6 +1308,12 @@ err:
 	return ret;
 }
 
+/**
+ * doc_guess_autoecc - Guess autoecc mode from mbd_oob_ops
+ * @ops: the oob operations
+ *
+ * Returns 0 or 1 if success, -EINVAL if invalid oob mode
+ */
 static int doc_guess_autoecc(struct mtd_oob_ops *ops)
 {
 	int autoecc;
@@ -982,12 +1332,35 @@ static int doc_guess_autoecc(struct mtd_oob_ops *ops)
 	return autoecc;
 }
 
+/**
+ * doc_fill_autooob - Fill a 16 bytes OOB from 8 non-ECC bytes
+ * @dst: the target 16 bytes OOB buffer
+ * @oobsrc: the source 8 bytes non-ECC OOB buffer
+ *
+ */
 static void doc_fill_autooob(u8 *dst, u8 *oobsrc)
 {
 	memcpy(dst, oobsrc, DOC_LAYOUT_OOB_PAGEINFO_SZ);
 	dst[DOC_LAYOUT_OOB_UNUSED_OFS] = oobsrc[DOC_LAYOUT_OOB_PAGEINFO_SZ];
 }
 
+/**
+ * doc_backup_oob - Backup OOB into docg3 structure
+ * @docg3: the device
+ * @to: the page offset in the chip
+ * @ops: the OOB size and buffer
+ *
+ * As the docg3 should write a page with its OOB in one pass, and some userland
+ * applications do write_oob() to setup the OOB and then write(), store the OOB
+ * into a temporary storage. This is very dangerous, as 2 concurrent
+ * applications could store an OOB, and then write their pages (which will
+ * result into one having its OOB corrupted).
+ *
+ * The only reliable way would be for userland to call doc_write_oob() with both
+ * the page data _and_ the OOB area.
+ *
+ * Returns 0 if success, -EINVAL if ops content invalid
+ */
 static int doc_backup_oob(struct docg3 *docg3, loff_t to,
 			  struct mtd_oob_ops *ops)
 {
@@ -1011,6 +1384,21 @@ static int doc_backup_oob(struct docg3 *docg3, loff_t to,
 	return 0;
 }
 
+/**
+ * doc_write_oob - Write out of band bytes to flash
+ * @mtd: the device
+ * @ofs: the offset from first block and first page, in bytes, aligned on page
+ *       size
+ * @ops: the mtd oob structure
+ *
+ * Either write OOB data into a temporary buffer, for the subsequent write
+ * page. The provided OOB should be 16 bytes long. If a data buffer is provided
+ * as well, issue the page write.
+ * Or provide data without OOB, and then a all zeroed OOB will be used (ECC will
+ * still be filled in if asked for).
+ *
+ * Returns 0 is successfull, EINVAL if length is not 14 bytes
+ */
 static int doc_write_oob(struct mtd_info *mtd, loff_t ofs,
 			 struct mtd_oob_ops *ops)
 {
@@ -1252,6 +1640,9 @@ static void doc_unregister_sysfs(struct platform_device *pdev,
 			device_remove_file(dev, &doc_sys_attrs[floor][i]);
 }
 
+/*
+ * Debug sysfs entries
+ */
 static int dbg_flashctrl_show(struct seq_file *s, void *p)
 {
 	struct docg3 *docg3 = (struct docg3 *)s->private;
@@ -1418,6 +1809,11 @@ static void __exit doc_dbg_unregister(struct docg3 *docg3)
 	debugfs_remove_recursive(docg3->debugfs_root);
 }
 
+/**
+ * doc_set_driver_info - Fill the mtd_info structure and docg3 structure
+ * @chip_id: The chip ID of the supported chip
+ * @mtd: The structure to fill
+ */
 static void __init doc_set_driver_info(int chip_id, struct mtd_info *mtd)
 {
 	struct docg3 *docg3 = mtd->priv;
@@ -1455,6 +1851,19 @@ static void __init doc_set_driver_info(int chip_id, struct mtd_info *mtd)
 	mtd->ecc_strength = DOC_ECC_BCH_T;
 }
 
+/**
+ * doc_probe_device - Check if a device is available
+ * @base: the io space where the device is probed
+ * @floor: the floor of the probed device
+ * @dev: the device
+ * @cascade: the cascade of chips this devices will belong to
+ *
+ * Checks whether a device at the specified IO range, and floor is available.
+ *
+ * Returns a mtd_info struct if there is a device, ENODEV if none found, ENOMEM
+ * if a memory allocation failed. If floor 0 is checked, a reset of the ASIC is
+ * launched.
+ */
 static struct mtd_info * __init
 doc_probe_device(struct docg3_cascade *cascade, int floor, struct device *dev)
 {
@@ -1517,6 +1926,10 @@ nomem1:
 	return ERR_PTR(ret);
 }
 
+/**
+ * doc_release_device - Release a docg3 floor
+ * @mtd: the device
+ */
 static void doc_release_device(struct mtd_info *mtd)
 {
 	struct docg3 *docg3 = mtd->priv;
@@ -1528,6 +1941,12 @@ static void doc_release_device(struct mtd_info *mtd)
 	kfree(mtd);
 }
 
+/**
+ * docg3_resume - Awakens docg3 floor
+ * @pdev: platfrom device
+ *
+ * Returns 0 (always successfull)
+ */
 static int docg3_resume(struct platform_device *pdev)
 {
 	int i;
@@ -1546,6 +1965,15 @@ static int docg3_resume(struct platform_device *pdev)
 	return 0;
 }
 
+/**
+ * docg3_suspend - Put in low power mode the docg3 floor
+ * @pdev: platform device
+ * @state: power state
+ *
+ * Shuts off most of docg3 circuitery to lower power consumption.
+ *
+ * Returns 0 if suspend succeeded, -EIO if chip refused suspend
+ */
 static int docg3_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	int floor, i;
@@ -1589,6 +2017,15 @@ static int docg3_suspend(struct platform_device *pdev, pm_message_t state)
 	return 0;
 }
 
+/**
+ * doc_probe - Probe the IO space for a DiskOnChip G3 chip
+ * @pdev: platform device
+ *
+ * Probes for a G3 chip at the specified IO space in the platform data
+ * ressources. The floor 0 must be available.
+ *
+ * Returns 0 on success, -ENOMEM, -ENXIO on error
+ */
 static int __init docg3_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -1664,6 +2101,12 @@ noress:
 	return ret;
 }
 
+/**
+ * docg3_release - Release the driver
+ * @pdev: the platform device
+ *
+ * Returns 0
+ */
 static int __exit docg3_release(struct platform_device *pdev)
 {
 	struct docg3_cascade *cascade = platform_get_drvdata(pdev);

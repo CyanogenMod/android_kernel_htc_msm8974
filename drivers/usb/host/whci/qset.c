@@ -44,6 +44,12 @@ struct whc_qset *qset_alloc(struct whc *whc, gfp_t mem_flags)
 	return qset;
 }
 
+/**
+ * qset_fill_qh - fill the static endpoint state in a qset's QHead
+ * @qset: the qset whose QH needs initializing with static endpoint
+ *        state
+ * @urb:  an urb for a transfer to this endpoint
+ */
 static void qset_fill_qh(struct whc *whc, struct whc_qset *qset, struct urb *urb)
 {
 	struct usb_device *usb_dev = urb->dev;
@@ -65,6 +71,11 @@ static void qset_fill_qh(struct whc *whc, struct whc_qset *qset, struct urb *urb
 		qset->max_burst = 1;
 	}
 
+	/*
+	 * Initial PHY rate is 53.3 Mbit/s for control endpoints or
+	 * the maximum supported by the device for other endpoints
+	 * (unless limited by the user).
+	 */
 	if (usb_pipecontrol(urb->pipe))
 		phy_rate = UWB_PHY_RATE_53;
 	else {
@@ -90,14 +101,25 @@ static void qset_fill_qh(struct whc *whc, struct whc_qset *qset, struct urb *urb
 		| QH_INFO2_MAX_RETRY(3)
 		| QH_INFO2_MAX_SEQ(qset->max_seq - 1)
 		);
+	/* FIXME: where can we obtain these Tx parameters from?  Why
+	 * doesn't the chip know what Tx power to use? It knows the Rx
+	 * strength and can presumably guess the Tx power required
+	 * from that? */
 	qset->qh.info3 = cpu_to_le32(
 		QH_INFO3_TX_RATE(phy_rate)
-		| QH_INFO3_TX_PWR(0) 
+		| QH_INFO3_TX_PWR(0) /* 0 == max power */
 		);
 
 	qset->qh.cur_window = cpu_to_le32((1 << qset->max_burst) - 1);
 }
 
+/**
+ * qset_clear - clear fields in a qset so it may be reinserted into a
+ * schedule.
+ *
+ * The sequence number and current window are not cleared (see
+ * qset_reset()).
+ */
 void qset_clear(struct whc *whc, struct whc_qset *qset)
 {
 	qset->td_start = qset->td_end = qset->ntds = 0;
@@ -114,6 +136,12 @@ void qset_clear(struct whc *whc, struct whc_qset *qset)
 	init_completion(&qset->remove_complete);
 }
 
+/**
+ * qset_reset - reset endpoint state in a qset.
+ *
+ * Clears the sequence number and current window.  This qset must not
+ * be in the ASL or PZL.
+ */
 void qset_reset(struct whc *whc, struct whc_qset *qset)
 {
 	qset->reset = 0;
@@ -122,6 +150,11 @@ void qset_reset(struct whc *whc, struct whc_qset *qset)
 	qset->qh.cur_window = cpu_to_le32((1 << qset->max_burst) - 1);
 }
 
+/**
+ * get_qset - get the qset for an async endpoint
+ *
+ * A new qset is created if one does not already exist.
+ */
 struct whc_qset *get_qset(struct whc *whc, struct urb *urb,
 				 gfp_t mem_flags)
 {
@@ -147,6 +180,12 @@ void qset_remove_complete(struct whc *whc, struct whc_qset *qset)
 	complete(&qset->remove_complete);
 }
 
+/**
+ * qset_add_qtds - add qTDs for an URB to a qset
+ *
+ * Returns true if the list (ASL/PZL) must be updated because (for a
+ * WHCI 0.95 controller) an activated qTD was pointed to be iCur.
+ */
 enum whc_update qset_add_qtds(struct whc *whc, struct whc_qset *qset)
 {
 	struct whc_std *std;
@@ -161,11 +200,11 @@ enum whc_update qset_add_qtds(struct whc *whc, struct whc_qset *qset)
 			break;
 
 		if (std->qtd)
-			continue; 
+			continue; /* already has a qTD */
 
 		qtd = std->qtd = &qset->qtd[qset->td_end];
 
-		
+		/* Fill in setup bytes for control transfers. */
 		if (usb_pipecontrol(std->urb->pipe))
 			memcpy(qtd->setup, std->urb->setup_packet, 8);
 
@@ -174,6 +213,13 @@ enum whc_update qset_add_qtds(struct whc *whc, struct whc_qset *qset)
 		if (whc_std_last(std) && usb_pipeout(std->urb->pipe))
 			status |= QTD_STS_LAST_PKT;
 
+		/*
+		 * For an IN transfer the iAlt field should be set so
+		 * the h/w will automatically advance to the next
+		 * transfer. However, if there are 8 or more TDs
+		 * remaining in this transfer then iAlt cannot be set
+		 * as it could point to somewhere in this transfer.
+		 */
 		if (std->ntds_remaining < WHCI_QSET_TD_MAX) {
 			int ialt;
 			ialt = (qset->td_end + std->ntds_remaining) % WHCI_QSET_TD_MAX;
@@ -200,6 +246,12 @@ enum whc_update qset_add_qtds(struct whc *whc, struct whc_qset *qset)
 	return update;
 }
 
+/**
+ * qset_remove_qtd - remove the first qTD from a qset.
+ *
+ * The qTD might be still active (if it's part of a IN URB that
+ * resulted in a short read) so ensure it's deactivated.
+ */
 static void qset_remove_qtd(struct whc *whc, struct whc_qset *qset)
 {
 	qset->qtd[qset->td_start].status = 0;
@@ -239,6 +291,11 @@ static void qset_copy_bounce_to_sg(struct whc *whc, struct whc_std *std)
 
 }
 
+/**
+ * qset_free_std - remove an sTD and free it.
+ * @whc: the WHCI host controller
+ * @std: the sTD to remove and free.
+ */
 void qset_free_std(struct whc *whc, struct whc_std *std)
 {
 	list_del(&std->list_node);
@@ -268,6 +325,9 @@ void qset_free_std(struct whc *whc, struct whc_std *std)
 	kfree(std);
 }
 
+/**
+ * qset_remove_qtds - remove an URB's qTDs (and sTDs).
+ */
 static void qset_remove_qtds(struct whc *whc, struct whc_qset *qset,
 			     struct urb *urb)
 {
@@ -282,6 +342,9 @@ static void qset_remove_qtds(struct whc *whc, struct whc_qset *qset,
 	}
 }
 
+/**
+ * qset_free_stds - free any remaining sTDs for an URB.
+ */
 static void qset_free_stds(struct whc_qset *qset, struct urb *urb)
 {
 	struct whc_std *std, *t;
@@ -299,7 +362,7 @@ static int qset_fill_page_list(struct whc *whc, struct whc_std *std, gfp_t mem_f
 	size_t pl_len;
 	int p;
 
-	
+	/* Short buffers don't need a page list. */
 	if (std->len <= WHCI_PAGE_SIZE) {
 		std->num_pointers = 0;
 		return 0;
@@ -323,6 +386,9 @@ static int qset_fill_page_list(struct whc *whc, struct whc_std *std, gfp_t mem_f
 	return 0;
 }
 
+/**
+ * urb_dequeue_work - executes asl/pzl update and gives back the urb to the system.
+ */
 static void urb_dequeue_work(struct work_struct *work)
 {
 	struct whc_urb *wurb = container_of(work, struct whc_urb, dequeue_work);
@@ -393,6 +459,18 @@ static int qset_add_urb_sg(struct whc *whc, struct whc_qset *qset, struct urb *u
 		while (dma_remaining) {
 			size_t dma_len;
 
+			/*
+			 * We can use the previous std (if it exists) provided that:
+			 * - the previous one ended on a page boundary.
+			 * - the current one begins on a page boundary.
+			 * - the previous one isn't full.
+			 *
+			 * If a new std is needed but the previous one
+			 * was not a whole number of packets then this
+			 * sg list cannot be mapped onto multiple
+			 * qTDs.  Return an error and let the caller
+			 * sort it out.
+			 */
 			if (!std
 			    || (prev_end & (WHCI_PAGE_SIZE-1))
 			    || (dma_addr & (WHCI_PAGE_SIZE-1))
@@ -409,13 +487,19 @@ static int qset_add_urb_sg(struct whc *whc, struct whc_qset *qset, struct urb *u
 
 			dma_len = dma_remaining;
 
+			/*
+			 * If the remainder of this element doesn't
+			 * fit in a single qTD, limit the qTD to a
+			 * whole number of packets.  This allows the
+			 * remainder to go into the next qTD.
+			 */
 			if (std->len + dma_len > QTD_MAX_XFER_SIZE) {
 				dma_len = (QTD_MAX_XFER_SIZE / qset->max_packet)
 					* qset->max_packet - std->len;
 			}
 
 			std->len += dma_len;
-			std->ntds_remaining = -1; 
+			std->ntds_remaining = -1; /* filled in later */
 
 			sp = dma_addr & ~(WHCI_PAGE_SIZE-1);
 			ep = dma_addr + dma_len;
@@ -440,6 +524,8 @@ static int qset_add_urb_sg(struct whc *whc, struct whc_qset *qset, struct urb *u
 		}
 	}
 
+	/* Now the number of stds is know, go back and fill in
+	   std->ntds_remaining. */
 	list_for_each_entry(std, &qset->stds, list_node) {
 		if (std->ntds_remaining == -1) {
 			pl_len = std->num_pointers * sizeof(struct whc_page_list_entry);
@@ -451,6 +537,13 @@ static int qset_add_urb_sg(struct whc *whc, struct whc_qset *qset, struct urb *u
 	return 0;
 }
 
+/**
+ * qset_add_urb_sg_linearize - add an urb with sg list, copying the data
+ *
+ * If the URB contains an sg list whose elements cannot be directly
+ * mapped to qTDs then the data must be transferred via bounce
+ * buffers.
+ */
 static int qset_add_urb_sg_linearize(struct whc *whc, struct whc_qset *qset,
 				     struct urb *urb, gfp_t mem_flags)
 {
@@ -463,7 +556,7 @@ static int qset_add_urb_sg_linearize(struct whc *whc, struct whc_qset *qset,
 	struct scatterlist *sg;
 	int i;
 
-	
+	/* limit maximum bounce buffer to 16 * 3.5 KiB ~= 28 k */
 	max_std_len = qset->max_burst * qset->max_packet;
 
 	remaining = urb->transfer_buffer_length;
@@ -500,7 +593,7 @@ static int qset_add_urb_sg_linearize(struct whc *whc, struct whc_qset *qset,
 				memcpy(bounce, orig, len);
 
 			std->len += len;
-			std->ntds_remaining = -1; 
+			std->ntds_remaining = -1; /* filled in later */
 
 			bounce += len;
 			orig += len;
@@ -509,6 +602,10 @@ static int qset_add_urb_sg_linearize(struct whc *whc, struct whc_qset *qset,
 		}
 	}
 
+	/*
+	 * For each of the new sTDs, map the bounce buffers, create
+	 * page lists (if necessary), and fill in std->ntds_remaining.
+	 */
 	list_for_each_entry(std, &qset->stds, list_node) {
 		if (std->ntds_remaining != -1)
 			continue;
@@ -525,6 +622,13 @@ static int qset_add_urb_sg_linearize(struct whc *whc, struct whc_qset *qset,
 	return 0;
 }
 
+/**
+ * qset_add_urb - add an urb to the qset's queue.
+ *
+ * The URB is chopped into sTDs, one for each qTD that will required.
+ * At least one qTD (and sTD) is required even if the transfer has no
+ * data (e.g., for some control transfers).
+ */
 int qset_add_urb(struct whc *whc, struct whc_qset *qset, struct urb *urb,
 	gfp_t mem_flags)
 {
@@ -588,6 +692,11 @@ err_no_mem:
 	return -ENOMEM;
 }
 
+/**
+ * qset_remove_urb - remove an URB from the urb queue.
+ *
+ * The URB is returned to the USB subsystem.
+ */
 void qset_remove_urb(struct whc *whc, struct whc_qset *qset,
 			    struct urb *urb, int status)
 {
@@ -595,7 +704,7 @@ void qset_remove_urb(struct whc *whc, struct whc_qset *qset,
 	struct whc_urb *wurb = urb->hcpriv;
 
 	usb_hcd_unlink_urb_from_ep(&wusbhc->usb_hcd, urb);
-	
+	/* Drop the lock as urb->complete() may enqueue another urb. */
 	spin_unlock(&whc->lock);
 	wusbhc_giveback_urb(wusbhc, urb, status);
 	spin_lock(&whc->lock);
@@ -603,6 +712,11 @@ void qset_remove_urb(struct whc *whc, struct whc_qset *qset,
 	kfree(wurb);
 }
 
+/**
+ * get_urb_status_from_qtd - get the completed urb status from qTD status
+ * @urb:    completed urb
+ * @status: qTD status
+ */
 static int get_urb_status_from_qtd(struct urb *urb, u32 status)
 {
 	if (status & QTD_STS_HALTED) {
@@ -621,6 +735,14 @@ static int get_urb_status_from_qtd(struct urb *urb, u32 status)
 	return 0;
 }
 
+/**
+ * process_inactive_qtd - process an inactive (but not halted) qTD.
+ *
+ * Update the urb with the transfer bytes from the qTD, if the urb is
+ * completely transferred or (in the case of an IN only) the LPF is
+ * set, then the transfer is complete and the urb should be returned
+ * to the system.
+ */
 void process_inactive_qtd(struct whc *whc, struct whc_qset *qset,
 				 struct whc_qtd *qtd)
 {
@@ -641,10 +763,19 @@ void process_inactive_qtd(struct whc *whc, struct whc_qset *qset,
 	qset_remove_qtd(whc, qset);
 	qset_free_std(whc, std);
 
+	/*
+	 * Transfers for this URB are complete?  Then return it to the
+	 * USB subsystem.
+	 */
 	if (complete) {
 		qset_remove_qtds(whc, qset, urb);
 		qset_remove_urb(whc, qset, urb, get_urb_status_from_qtd(urb, status));
 
+		/*
+		 * If iAlt isn't valid then the hardware didn't
+		 * advance iCur. Adjust the start and end pointers to
+		 * match iCur.
+		 */
 		if (!(status & QTD_STS_IALT_VALID))
 			qset->td_start = qset->td_end
 				= QH_STATUS_TO_ICUR(le16_to_cpu(qset->qh.status));
@@ -652,6 +783,18 @@ void process_inactive_qtd(struct whc *whc, struct whc_qset *qset,
 	}
 }
 
+/**
+ * process_halted_qtd - process a qset with a halted qtd
+ *
+ * Remove all the qTDs for the failed URB and return the failed URB to
+ * the USB subsystem.  Then remove all other qTDs so the qset can be
+ * removed.
+ *
+ * FIXME: this is the point where rate adaptation can be done.  If a
+ * transfer failed because it exceeded the maximum number of retries
+ * then it could be reactivated with a slower rate without having to
+ * remove the qset.
+ */
 void process_halted_qtd(struct whc *whc, struct whc_qset *qset,
 			       struct whc_qtd *qtd)
 {
@@ -679,6 +822,9 @@ void qset_free(struct whc *whc, struct whc_qset *qset)
 	dma_pool_free(whc->qset_pool, qset, qset->qset_dma);
 }
 
+/**
+ * qset_delete - wait for a qset to be unused, then free it.
+ */
 void qset_delete(struct whc *whc, struct whc_qset *qset)
 {
 	wait_for_completion(&qset->remove_complete);

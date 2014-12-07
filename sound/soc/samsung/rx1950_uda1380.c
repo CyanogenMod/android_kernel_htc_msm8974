@@ -77,6 +77,7 @@ static struct snd_soc_ops rx1950_ops = {
 	.hw_params	= rx1950_hw_params,
 };
 
+/* s3c24xx digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link rx1950_uda1380_dai[] = {
 	{
 		.name		= "uda1380",
@@ -90,22 +91,24 @@ static struct snd_soc_dai_link rx1950_uda1380_dai[] = {
 	},
 };
 
+/* rx1950 machine dapm widgets */
 static const struct snd_soc_dapm_widget uda1380_dapm_widgets[] = {
 	SND_SOC_DAPM_HP("Headphone Jack", NULL),
 	SND_SOC_DAPM_MIC("Mic Jack", NULL),
 	SND_SOC_DAPM_SPK("Speaker", rx1950_spk_power),
 };
 
+/* rx1950 machine audio_map */
 static const struct snd_soc_dapm_route audio_map[] = {
-	
+	/* headphone connected to VOUTLHP, VOUTRHP */
 	{"Headphone Jack", NULL, "VOUTLHP"},
 	{"Headphone Jack", NULL, "VOUTRHP"},
 
-	
+	/* ext speaker connected to VOUTL, VOUTR  */
 	{"Speaker", NULL, "VOUTL"},
 	{"Speaker", NULL, "VOUTR"},
 
-	
+	/* mic is connected to VINM */
 	{"VINM", NULL, "Mic Jack"},
 };
 
@@ -179,37 +182,37 @@ static int rx1950_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	
+	/* set codec DAI configuration */
 	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S |
 		SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_CBS_CFS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set cpu DAI configuration */
 	ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_I2S |
 		SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_CBS_CFS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* select clock source */
 	ret = snd_soc_dai_set_sysclk(cpu_dai, clk_source, rate,
 			SND_SOC_CLOCK_OUT);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set MCLK division for sample rate */
 	ret = snd_soc_dai_set_clkdiv(cpu_dai, S3C24XX_DIV_MCLK,
 		fs_mode);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set BCLK division for sample rate */
 	ret = snd_soc_dai_set_clkdiv(cpu_dai, S3C24XX_DIV_BCLK,
 		S3C2410_IISMOD_32FS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set prescaler division for sample rate */
 	ret = snd_soc_dai_set_clkdiv(cpu_dai, S3C24XX_DIV_PRESCALER,
 		S3C24XX_PRESCALE(div, div));
 	if (ret < 0)
@@ -247,7 +250,7 @@ static int __init rx1950_init(void)
 	if (!machine_is_rx1950())
 		return -ENODEV;
 
-	
+	/* configure some gpios */
 	ret = gpio_request(S3C2410_GPA(1), "speaker-power");
 	if (ret)
 		goto err_gpio;
@@ -292,6 +295,7 @@ static void __exit rx1950_exit(void)
 module_init(rx1950_init);
 module_exit(rx1950_exit);
 
+/* Module information */
 MODULE_AUTHOR("Vasily Khoruzhick");
 MODULE_DESCRIPTION("ALSA SoC RX1950");
 MODULE_LICENSE("GPL");

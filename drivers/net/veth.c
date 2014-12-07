@@ -22,8 +22,8 @@
 #define DRV_NAME	"veth"
 #define DRV_VERSION	"1.0"
 
-#define MIN_MTU 68		
-#define MAX_MTU 65535		
+#define MIN_MTU 68		/* Min L3 MTU */
+#define MAX_MTU 65535		/* Max L3 MTU (arbitrary) */
 
 struct veth_net_stats {
 	u64			rx_packets;
@@ -39,6 +39,9 @@ struct veth_priv {
 	struct veth_net_stats __percpu *stats;
 };
 
+/*
+ * ethtool interface
+ */
 
 static struct {
 	const char string[ETH_GSTRING_LEN];
@@ -104,6 +107,9 @@ static const struct ethtool_ops veth_ethtool_ops = {
 	.get_ethtool_stats	= veth_get_ethtool_stats,
 };
 
+/*
+ * xmit
+ */
 
 static netdev_tx_t veth_xmit(struct sk_buff *skb, struct net_device *dev)
 {
@@ -119,6 +125,8 @@ static netdev_tx_t veth_xmit(struct sk_buff *skb, struct net_device *dev)
 	stats = this_cpu_ptr(priv->stats);
 	rcv_stats = this_cpu_ptr(rcv_priv->stats);
 
+	/* don't change ip_summed == CHECKSUM_PARTIAL, as that
+	   will cause bad checksum on forwarded packets */
 	if (skb->ip_summed == CHECKSUM_NONE &&
 	    rcv->features & NETIF_F_RXCSUM)
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
@@ -146,6 +154,9 @@ rx_drop:
 	return NETDEV_TX_OK;
 }
 
+/*
+ * general routines
+ */
 
 static struct rtnl_link_stats64 *veth_get_stats64(struct net_device *dev,
 						  struct rtnl_link_stats64 *tot)
@@ -262,6 +273,9 @@ static void veth_setup(struct net_device *dev)
 	dev->hw_features = NETIF_F_HW_CSUM | NETIF_F_SG | NETIF_F_RXCSUM;
 }
 
+/*
+ * netlink interface
+ */
 
 static int veth_validate(struct nlattr *tb[], struct nlattr *data[])
 {
@@ -291,6 +305,9 @@ static int veth_newlink(struct net *src_net, struct net_device *dev,
 	struct ifinfomsg *ifmp;
 	struct net *net;
 
+	/*
+	 * create and register peer first
+	 */
 	if (data != NULL && data[VETH_INFO_PEER] != NULL) {
 		struct nlattr *nla_peer;
 
@@ -343,6 +360,12 @@ static int veth_newlink(struct net *src_net, struct net_device *dev,
 	if (err < 0)
 		goto err_configure_peer;
 
+	/*
+	 * register dev last
+	 *
+	 * note, that since we've registered new device the dev's name
+	 * should be re-allocated
+	 */
 
 	if (tb[IFLA_ADDRESS] == NULL)
 		eth_hw_addr_random(dev);
@@ -364,6 +387,9 @@ static int veth_newlink(struct net *src_net, struct net_device *dev,
 
 	netif_carrier_off(dev);
 
+	/*
+	 * tie the deviced together
+	 */
 
 	priv = netdev_priv(dev);
 	priv->peer = peer;
@@ -373,7 +399,7 @@ static int veth_newlink(struct net *src_net, struct net_device *dev,
 	return 0;
 
 err_register_dev:
-	
+	/* nothing to do */
 err_alloc_name:
 err_configure_peer:
 	unregister_netdevice(peer);
@@ -411,6 +437,9 @@ static struct rtnl_link_ops veth_link_ops = {
 	.maxtype	= VETH_INFO_MAX,
 };
 
+/*
+ * init/fini
+ */
 
 static __init int veth_init(void)
 {

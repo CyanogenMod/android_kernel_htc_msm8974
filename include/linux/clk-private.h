@@ -14,6 +14,14 @@
 #include <linux/clk-provider.h>
 #include <linux/list.h>
 
+/*
+ * WARNING: Do not include clk-private.h from any file that implements struct
+ * clk_ops.  Doing so is a layering violation!
+ *
+ * This header exists only to allow for statically initialized clock data.  Any
+ * static clock data must be defined in a separate file from the logic that
+ * implements the clock operations for that same data.
+ */
 
 #ifdef CONFIG_COMMON_CLK
 
@@ -38,6 +46,14 @@ struct clk {
 #endif
 };
 
+/*
+ * DOC: Basic clock implementations common to many platforms
+ *
+ * Each basic clock hardware type is comprised of a structure describing the
+ * clock hardware, implementations of the relevant callbacks in struct clk_ops,
+ * unique flags for that hardware type, a registration function and an
+ * alternative macro for static initialization
+ */
 
 extern struct clk_ops clk_fixed_rate_ops;
 
@@ -154,7 +170,27 @@ extern struct clk_ops clk_mux_ops;
 		.flags = _flags,				\
 	};
 
+/**
+ * __clk_init - initialize the data structures in a struct clk
+ * @dev:	device initializing this clk, placeholder for now
+ * @clk:	clk being initialized
+ *
+ * Initializes the lists in struct clk, queries the hardware for the
+ * parent and rate and sets them both.
+ *
+ * Any struct clk passed into __clk_init must have the following members
+ * populated:
+ * 	.name
+ * 	.ops
+ * 	.hw
+ * 	.parent_names
+ * 	.num_parents
+ * 	.flags
+ *
+ * It is not necessary to call clk_register if __clk_init is used directly with
+ * statically initialized clock data.
+ */
 void __clk_init(struct device *dev, struct clk *clk);
 
-#endif 
-#endif 
+#endif /* CONFIG_COMMON_CLK */
+#endif /* CLK_PRIVATE_H */

@@ -32,11 +32,11 @@ static int dtt200u_fe_read_status(struct dvb_frontend* fe, fe_status_t *stat)
 			*stat = FE_HAS_SIGNAL | FE_HAS_CARRIER |
 				FE_HAS_VITERBI | FE_HAS_SYNC | FE_HAS_LOCK;
 			break;
-		case 0x00: 
-			*stat = FE_TIMEDOUT; 
+		case 0x00: /* pending */
+			*stat = FE_TIMEDOUT; /* during set_frontend */
 			break;
 		default:
-		case 0x02: 
+		case 0x02: /* failed */
 			*stat = 0;
 			break;
 	}
@@ -159,7 +159,7 @@ struct dvb_frontend* dtt200u_fe_attach(struct dvb_usb_device *d)
 {
 	struct dtt200u_fe_state* state = NULL;
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct dtt200u_fe_state), GFP_KERNEL);
 	if (state == NULL)
 		goto error;

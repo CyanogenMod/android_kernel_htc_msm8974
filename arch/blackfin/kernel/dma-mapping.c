@@ -111,6 +111,9 @@ dma_free_coherent(struct device *dev, size_t size, void *vaddr,
 }
 EXPORT_SYMBOL(dma_free_coherent);
 
+/*
+ * Streaming DMA mappings
+ */
 void __dma_sync(dma_addr_t addr, size_t size,
 		enum dma_data_direction dir)
 {

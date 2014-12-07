@@ -1,6 +1,17 @@
 #include "cache.h"
 #include "quote.h"
 
+/* Help to copy the thing properly quoted for the shell safety.
+ * any single quote is replaced with '\'', any exclamation point
+ * is replaced with '\!', and the whole thing is enclosed in a
+ *
+ * E.g.
+ *  original     sq_quote     result
+ *  name     ==> name      ==> 'name'
+ *  a b      ==> a b       ==> 'a b'
+ *  a'b      ==> a'\''b    ==> 'a'\''b'
+ *  a!b      ==> a'\!'b    ==> 'a'\!'b'
+ */
 static inline int need_bs_quote(char c)
 {
 	return (c == '\'' || c == '!');
@@ -32,7 +43,7 @@ void sq_quote_argv(struct strbuf *dst, const char** argv, size_t maxlen)
 {
 	int i;
 
-	
+	/* Copy into destination buffer. */
 	strbuf_grow(dst, 255);
 	for (i = 0; argv[i]; ++i) {
 		strbuf_addch(dst, ' ');

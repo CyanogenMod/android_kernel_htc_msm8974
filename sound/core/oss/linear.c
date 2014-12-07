@@ -25,15 +25,18 @@
 #include <sound/pcm.h>
 #include "pcm_plugin.h"
 
+/*
+ *  Basic linear conversion plugin
+ */
  
 struct linear_priv {
-	int cvt_endian;		
-	unsigned int src_ofs;	
-	unsigned int dst_ofs;	
-	unsigned int copy_ofs;	
-	unsigned int dst_bytes;		
-	unsigned int copy_bytes;	
-	unsigned int flip; 
+	int cvt_endian;		/* need endian conversion? */
+	unsigned int src_ofs;	/* byte offset in source format */
+	unsigned int dst_ofs;	/* byte soffset in destination format */
+	unsigned int copy_ofs;	/* byte offset in temporary u32 data */
+	unsigned int dst_bytes;		/* byte size of destination format */
+	unsigned int copy_bytes;	/* bytes to copy per conversion */
+	unsigned int flip; /* MSB flip for signeness, done after endian conv */
 };
 
 static inline void do_convert(struct linear_priv *data,

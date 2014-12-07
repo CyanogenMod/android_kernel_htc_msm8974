@@ -17,6 +17,7 @@
  *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+/* load loop, this schould take about 1 to 2ms to complete */
 #define ROUNDS(x) {unsigned int rcnt;			       \
 		for (rcnt = 0; rcnt < x*1000; rcnt++) { \
 			(void)(((int)(pow(rcnt, rcnt) * \

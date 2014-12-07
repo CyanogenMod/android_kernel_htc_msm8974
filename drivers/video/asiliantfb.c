@@ -42,6 +42,7 @@
 #include <linux/pci.h>
 #include <asm/io.h>
 
+/* Built in clock of the 69030 */
 static const unsigned Fref = 14318180;
 
 #define mmio_base (p->screen_base + 0x400000)
@@ -104,6 +105,8 @@ static struct fb_ops asiliantfb_ops = {
 	.fb_imageblit	= cfb_imageblit,
 };
 
+/* Calculate the ratios for the dot clocks without using a single long long
+ * value */
 static void asiliant_calc_dclk2(u32 *ppixclock, u8 *dclk2_m, u8 *dclk2_n, u8 *dclk2_div)
 {
 	unsigned pixclock = *ppixclock;
@@ -116,7 +119,7 @@ static void asiliant_calc_dclk2(u32 *ppixclock, u8 *dclk2_m, u8 *dclk2_n, u8 *dc
 	unsigned remainder;
 	unsigned char divisor = 0;
 
-	
+	/* Calculate the frequency required. This is hard enough. */
 	ratio = 1000000 / pixclock;
 	remainder = 1000000 % pixclock;
 	Ftarget = 1000000 * ratio + (1000000 * remainder) / pixclock;
@@ -129,10 +132,12 @@ static void asiliant_calc_dclk2(u32 *ppixclock, u8 *dclk2_m, u8 *dclk2_n, u8 *dc
 	ratio = Ftarget / Fref;
 	remainder = Ftarget % Fref;
 
+	/* This expresses the constraint that 150kHz <= Fref/n <= 5Mhz,
+	 * together with 3 <= n <= 257. */
 	for (n = 3; n <= 257; n++) {
 		unsigned m = n * ratio + (n * remainder) / Fref;
 
-		
+		/* 3 <= m <= 257 */
 		if (m >= 3 && m <= 257) {
 			unsigned new_error = Ftarget * n >= Fref * m ?
 					       ((Ftarget * n) - (Fref * m)) : ((Fref * m) - (Ftarget * n));
@@ -142,8 +147,10 @@ static void asiliant_calc_dclk2(u32 *ppixclock, u8 *dclk2_m, u8 *dclk2_n, u8 *dc
 				best_error = new_error;
 			}
 		}
-		
+		/* But if VLD = 4, then 4m <= 1028 */
 		else if (m <= 1028) {
+			/* remember there are still only 8-bits of precision in m, so
+			 * avoid over-optimistic error calculations */
 			unsigned new_error = Ftarget * n >= Fref * (m & ~3) ?
 					       ((Ftarget * n) - (Fref * (m & ~3))) : ((Fref * (m & ~3)) - (Ftarget * n));
 			if (new_error < best_error) {
@@ -154,9 +161,9 @@ static void asiliant_calc_dclk2(u32 *ppixclock, u8 *dclk2_m, u8 *dclk2_n, u8 *dc
 		}
 	}
 	if (best_m > 257)
-		best_m >>= 2;	
+		best_m >>= 2;	/* divide m by 4, and leave VCO loop divide at 4 */
 	else
-		divisor |= 4;	
+		divisor |= 4;	/* or set VCO loop divide to 1 */
 	*dclk2_m = best_m - 2;
 	*dclk2_n = best_n - 2;
 	*dclk2_div = divisor;
@@ -177,9 +184,9 @@ static void asiliant_set_timing(struct fb_info *p)
 	unsigned wd = (p->var.xres_virtual * ((p->var.bits_per_pixel+7)/8)) / 8;
 
 	if ((p->var.xres == 640) && (p->var.yres == 480) && (p->var.pixclock == 39722)) {
-	  write_fr(0x01, 0x02);  
+	  write_fr(0x01, 0x02);  /* LCD */
 	} else {
-	  write_fr(0x01, 0x01);  
+	  write_fr(0x01, 0x01);  /* CRT */
 	}
 
 	write_cr(0x11, (ve - 1) & 0x0f);
@@ -209,9 +216,9 @@ static void asiliant_set_timing(struct fb_info *p)
 	write_cr(0x18, 0x00);
 
 	if (p->var.xres == 640) {
-	  writeb(0xc7, mmio_base + 0x784);	
+	  writeb(0xc7, mmio_base + 0x784);	/* set misc output reg */
 	} else {
-	  writeb(0x07, mmio_base + 0x784);	
+	  writeb(0x07, mmio_base + 0x784);	/* set misc output reg */
 	}
 }
 
@@ -224,6 +231,8 @@ static int asiliantfb_check_var(struct fb_var_screeninfo *var,
 	remainder = 1000000 % var->pixclock;
 	Ftarget = 1000000 * ratio + (1000000 * remainder) / var->pixclock;
 
+	/* First check the constraint that the maximum post-VCO divisor is 32,
+	 * and the maximum Fvco is 220MHz */
 	if (Ftarget > 220000000 || Ftarget < 3125000) {
 		printk(KERN_ERR "asiliantfb dotclock must be between 3.125 and 220MHz\n");
 		return -ENXIO;
@@ -259,37 +268,37 @@ static int asiliantfb_check_var(struct fb_var_screeninfo *var,
 
 static int asiliantfb_set_par(struct fb_info *p)
 {
-	u8 dclk2_m;		
-	u8 dclk2_n;		
-	u8 dclk2_div;		
+	u8 dclk2_m;		/* Holds m-2 value for register */
+	u8 dclk2_n;		/* Holds n-2 value for register */
+	u8 dclk2_div;		/* Holds divisor bitmask */
 
-	
+	/* Set pixclock */
 	asiliant_calc_dclk2(&p->var.pixclock, &dclk2_m, &dclk2_n, &dclk2_div);
 
-	
+	/* Set color depth */
 	if (p->var.bits_per_pixel == 24) {
-		write_xr(0x81, 0x16);	
-		write_xr(0x82, 0x00);	
-		write_xr(0x20, 0x20);	
+		write_xr(0x81, 0x16);	/* 24 bit packed color mode */
+		write_xr(0x82, 0x00);	/* Disable palettes */
+		write_xr(0x20, 0x20);	/* 24 bit blitter mode */
 	} else if (p->var.bits_per_pixel == 16) {
 		if (p->var.red.offset == 11)
-			write_xr(0x81, 0x15);	
+			write_xr(0x81, 0x15);	/* 16 bit color mode */
 		else
-			write_xr(0x81, 0x14);	
-		write_xr(0x82, 0x00);	
-		write_xr(0x20, 0x10);	
+			write_xr(0x81, 0x14);	/* 15 bit color mode */
+		write_xr(0x82, 0x00);	/* Disable palettes */
+		write_xr(0x20, 0x10);	/* 16 bit blitter mode */
 	} else if (p->var.bits_per_pixel == 8) {
-		write_xr(0x0a, 0x02);	
-		write_xr(0x81, 0x12);	
-		write_xr(0x82, 0x00);	
-		write_xr(0x20, 0x00);	
+		write_xr(0x0a, 0x02);	/* Linear */
+		write_xr(0x81, 0x12);	/* 8 bit color mode */
+		write_xr(0x82, 0x00);	/* Graphics gamma enable */
+		write_xr(0x20, 0x00);	/* 8 bit blitter mode */
 	}
 	p->fix.line_length = p->var.xres * (p->var.bits_per_pixel >> 3);
 	p->fix.visual = (p->var.bits_per_pixel == 8) ? FB_VISUAL_PSEUDOCOLOR : FB_VISUAL_TRUECOLOR;
 	write_xr(0xc4, dclk2_m);
 	write_xr(0xc5, dclk2_n);
 	write_xr(0xc7, dclk2_div);
-	
+	/* Set up the CR registers */
 	asiliant_set_timing(p);
 	return 0;
 }
@@ -303,7 +312,7 @@ static int asiliantfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	green >>= 8;
 	blue >>= 8;
 
-        
+        /* Set hardware palete */
 	writeb(regno, mmio_base + 0x790);
 	udelay(1);
 	writeb(red, mmio_base + 0x791);
@@ -312,19 +321,19 @@ static int asiliantfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 
 	if (regno < 16) {
 		switch(p->var.red.offset) {
-		case 10: 
+		case 10: /* RGB 555 */
 			((u32 *)(p->pseudo_palette))[regno] =
 				((red & 0xf8) << 7) |
 				((green & 0xf8) << 2) |
 				((blue & 0xf8) >> 3);
 			break;
-		case 11: 
+		case 11: /* RGB 565 */
 			((u32 *)(p->pseudo_palette))[regno] =
 				((red & 0xf8) << 8) |
 				((green & 0xfc) << 3) |
 				((blue & 0xf8) >> 3);
 			break;
-		case 16: 
+		case 16: /* RGB 888 */
 			((u32 *)(p->pseudo_palette))[regno] =
 				(red << 16)  |
 				(green << 8) |
@@ -343,37 +352,37 @@ struct chips_init_reg {
 
 static struct chips_init_reg chips_init_sr[] =
 {
-	{0x00, 0x03},		
-	{0x01, 0x01},		
-	{0x02, 0x0f},		
-	{0x04, 0x0e}		
+	{0x00, 0x03},		/* Reset register */
+	{0x01, 0x01},		/* Clocking mode */
+	{0x02, 0x0f},		/* Plane mask */
+	{0x04, 0x0e}		/* Memory mode */
 };
 
 static struct chips_init_reg chips_init_gr[] =
 {
-        {0x03, 0x00},		
-	{0x05, 0x00},		
-	{0x06, 0x01},		
-	{0x08, 0x00}		
+        {0x03, 0x00},		/* Data rotate */
+	{0x05, 0x00},		/* Graphics mode */
+	{0x06, 0x01},		/* Miscellaneous */
+	{0x08, 0x00}		/* Bit mask */
 };
 
 static struct chips_init_reg chips_init_ar[] =
 {
-	{0x10, 0x01},		
-	{0x11, 0x00},		
-	{0x12, 0x0f},		
-	{0x13, 0x00}		
+	{0x10, 0x01},		/* Mode control */
+	{0x11, 0x00},		/* Overscan */
+	{0x12, 0x0f},		/* Memory plane enable */
+	{0x13, 0x00}		/* Horizontal pixel panning */
 };
 
 static struct chips_init_reg chips_init_cr[] =
 {
-	{0x0c, 0x00},		
-	{0x0d, 0x00},		
-	{0x40, 0x00},		
-	{0x41, 0x00},		
-	{0x14, 0x00},		
-	{0x17, 0xe3},		
-	{0x70, 0x00}		
+	{0x0c, 0x00},		/* Start address high */
+	{0x0d, 0x00},		/* Start address low */
+	{0x40, 0x00},		/* Extended Start Address */
+	{0x41, 0x00},		/* Extended Start Address */
+	{0x14, 0x00},		/* Underline location */
+	{0x17, 0xe3},		/* CRT mode control */
+	{0x70, 0x00}		/* Interlace control */
 };
 
 
@@ -421,22 +430,22 @@ static struct chips_init_reg chips_init_fr[] =
 
 static struct chips_init_reg chips_init_xr[] =
 {
-	{0xce, 0x00},		
-	{0xcc, 200 },	        
-	{0xcd, 18  },	        
-	{0xce, 0x90},		
+	{0xce, 0x00},		/* set default memory clock */
+	{0xcc, 200 },	        /* MCLK ratio M */
+	{0xcd, 18  },	        /* MCLK ratio N */
+	{0xce, 0x90},		/* MCLK divisor = 2 */
 
 	{0xc4, 209 },
 	{0xc5, 118 },
 	{0xc7, 32  },
 	{0xcf, 0x06},
-	{0x09, 0x01},		
-	{0x0a, 0x02},		
-	{0x0b, 0x01},		
-	{0x40, 0x03},		
-	{0x80, 0x82},		
-	{0x81, 0x12},		
-	{0x82, 0x08},		
+	{0x09, 0x01},		/* IO Control - CRT controller extensions */
+	{0x0a, 0x02},		/* Frame buffer mapping */
+	{0x0b, 0x01},		/* PCI burst write */
+	{0x40, 0x03},		/* Memory access control */
+	{0x80, 0x82},		/* Pixel pipeline configuration 0 */
+	{0x81, 0x12},		/* Pixel pipeline configuration 1 */
+	{0x82, 0x08},		/* Pixel pipeline configuration 2 */
 
 	{0xd0, 0x0f},
 	{0xd1, 0x01},
@@ -457,7 +466,7 @@ static void __devinit chips_hw_init(struct fb_info *p)
 		write_gr(chips_init_gr[i].addr, chips_init_gr[i].data);
 	for (i = 0; i < ARRAY_SIZE(chips_init_ar); ++i)
 		write_ar(chips_init_ar[i].addr, chips_init_ar[i].data);
-	
+	/* Enable video output in attribute index register */
 	writeb(0x20, mmio_base + 0x780);
 	for (i = 0; i < ARRAY_SIZE(chips_init_cr); ++i)
 		write_cr(chips_init_cr[i].addr, chips_init_cr[i].data);
@@ -471,7 +480,7 @@ static struct fb_fix_screeninfo asiliantfb_fix __devinitdata = {
 	.visual =	FB_VISUAL_PSEUDOCOLOR,
 	.accel =	FB_ACCEL_NONE,
 	.line_length =	640,
-	.smem_len =	0x200000,	
+	.smem_len =	0x200000,	/* 2MB */
 };
 
 static struct fb_var_screeninfo asiliantfb_var __devinitdata = {

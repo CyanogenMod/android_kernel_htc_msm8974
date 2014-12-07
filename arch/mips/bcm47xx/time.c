@@ -32,6 +32,10 @@ void __init plat_time_init(void)
 {
 	unsigned long hz = 0;
 
+	/*
+	 * Use deterministic values for initial counter interrupt
+	 * so that calibrate delay avoids encountering a counter wrap.
+	 */
 	write_c0_count(0);
 	write_c0_compare(0xffff);
 
@@ -51,6 +55,6 @@ void __init plat_time_init(void)
 	if (!hz)
 		hz = 100000000;
 
-	
+	/* Set MIPS counter frequency for fixed_rate_gettimeoffset() */
 	mips_hpt_frequency = hz;
 }

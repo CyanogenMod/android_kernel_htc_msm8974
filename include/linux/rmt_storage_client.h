@@ -31,12 +31,12 @@
 
 
 enum {
-	RMT_STORAGE_NO_ERROR = 0,	
-	RMT_STORAGE_ERROR_PARAM,	
-	RMT_STORAGE_ERROR_PIPE,		
-	RMT_STORAGE_ERROR_UNINIT,	
-	RMT_STORAGE_ERROR_BUSY,		
-	RMT_STORAGE_ERROR_DEVICE	
+	RMT_STORAGE_NO_ERROR = 0,	/* Success */
+	RMT_STORAGE_ERROR_PARAM,	/* Invalid parameters */
+	RMT_STORAGE_ERROR_PIPE,		/* RPC pipe failure */
+	RMT_STORAGE_ERROR_UNINIT,	/* Server is not initalized */
+	RMT_STORAGE_ERROR_BUSY,		/* Device busy */
+	RMT_STORAGE_ERROR_DEVICE	/* Remote storage device */
 } rmt_storage_status;
 
 struct rmt_storage_iovec_desc {
@@ -47,9 +47,9 @@ struct rmt_storage_iovec_desc {
 
 #define MAX_PATH_NAME 32
 struct rmt_storage_event {
-	uint32_t id;		
-	uint32_t sid;		
-	uint32_t handle;	
+	uint32_t id;		/* Event ID */
+	uint32_t sid;		/* Storage ID */
+	uint32_t handle;	/* Client handle */
 	char path[MAX_PATH_NAME];
 	struct rmt_storage_iovec_desc xfer_desc[RMT_STORAGE_MAX_IOVEC_XFR_CNT];
 	uint32_t xfer_cnt;
@@ -64,10 +64,10 @@ struct rmt_storage_send_sts {
 };
 
 struct rmt_shrd_mem_param {
-	uint32_t sid;		
-	uint32_t start;		
-	uint32_t size;		
-	void *base;		
+	uint32_t sid;		/* Storage ID */
+	uint32_t start;		/* Physical memory address */
+	uint32_t size;		/* Physical memory size */
+	void *base;		/* Virtual user-space memory address */
 };
 
 #define RMT_STORAGE_IOCTL_MAGIC (0xC2)

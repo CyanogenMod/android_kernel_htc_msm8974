@@ -32,7 +32,7 @@ static void rbtx4938_machine_restart(char *command)
 	writeb(1, rbtx4938_softresetlock_addr);
 	writeb(1, rbtx4938_sfvol_addr);
 	writeb(1, rbtx4938_softreset_addr);
-	
+	/* fallback */
 	(*_machine_halt)();
 }
 
@@ -47,17 +47,17 @@ static void __init rbtx4938_pci_setup(void)
 	if (__raw_readq(&tx4938_ccfgptr->ccfg) & TX4938_CCFG_PCI66)
 		txx9_pci_option =
 			(txx9_pci_option & ~TXX9_PCI_OPT_CLK_MASK) |
-			TXX9_PCI_OPT_CLK_66; 
+			TXX9_PCI_OPT_CLK_66; /* already configured */
 
-	
+	/* Reset PCI Bus */
 	writeb(0, rbtx4938_pcireset_addr);
-	
+	/* Reset PCIC */
 	txx9_set64(&tx4938_ccfgptr->clkctr, TX4938_CLKCTR_PCIRST);
 	if ((txx9_pci_option & TXX9_PCI_OPT_CLK_MASK) ==
 	    TXX9_PCI_OPT_CLK_66)
 		tx4938_pciclk66_setup();
 	mdelay(10);
-	
+	/* clear PCIC reset */
 	txx9_clear64(&tx4938_ccfgptr->clkctr, TX4938_CLKCTR_PCIRST);
 	writeb(1, rbtx4938_pcireset_addr);
 	iob();
@@ -67,48 +67,50 @@ static void __init rbtx4938_pci_setup(void)
 	if ((txx9_pci_option & TXX9_PCI_OPT_CLK_MASK) ==
 	    TXX9_PCI_OPT_CLK_AUTO &&
 	    txx9_pci66_check(c, 0, 0)) {
-		
+		/* Reset PCI Bus */
 		writeb(0, rbtx4938_pcireset_addr);
-		
+		/* Reset PCIC */
 		txx9_set64(&tx4938_ccfgptr->clkctr, TX4938_CLKCTR_PCIRST);
 		tx4938_pciclk66_setup();
 		mdelay(10);
-		
+		/* clear PCIC reset */
 		txx9_clear64(&tx4938_ccfgptr->clkctr, TX4938_CLKCTR_PCIRST);
 		writeb(1, rbtx4938_pcireset_addr);
 		iob();
-		
+		/* Reinitialize PCIC */
 		tx4938_report_pciclk();
 		tx4927_pcic_setup(tx4938_pcicptr, c, extarb);
 	}
 
 	if (__raw_readq(&tx4938_ccfgptr->pcfg) &
 	    (TX4938_PCFG_ETH0_SEL|TX4938_PCFG_ETH1_SEL)) {
-		
+		/* Reset PCIC1 */
 		txx9_set64(&tx4938_ccfgptr->clkctr, TX4938_CLKCTR_PCIC1RST);
-		
+		/* PCI1DMD==0 => PCI1CLK==GBUSCLK/2 => PCI66 */
 		if (!(__raw_readq(&tx4938_ccfgptr->ccfg)
 		      & TX4938_CCFG_PCI1DMD))
 			tx4938_ccfg_set(TX4938_CCFG_PCI1_66);
 		mdelay(10);
-		
+		/* clear PCIC1 reset */
 		txx9_clear64(&tx4938_ccfgptr->clkctr, TX4938_CLKCTR_PCIC1RST);
 		tx4938_report_pci1clk();
 
-		
+		/* mem:64K(max), io:64K(max) (enough for ETH0,ETH1) */
 		c = txx9_alloc_pci_controller(NULL, 0, 0x10000, 0, 0x10000);
 		register_pci_controller(c);
 		tx4927_pcic_setup(tx4938_pcic1ptr, c, 0);
 	}
 	tx4938_setup_pcierr_irq();
-#endif 
+#endif /* CONFIG_PCI */
 }
 
+/* SPI support */
 
-#define	SEEPROM1_CS	7	
-#define	SEEPROM2_CS	0	
-#define	SEEPROM3_CS	1	
-#define	SRTC_CS	2	
+/* chip select for SPI devices */
+#define	SEEPROM1_CS	7	/* PIO7 */
+#define	SEEPROM2_CS	0	/* IOC */
+#define	SEEPROM3_CS	1	/* IOC */
+#define	SRTC_CS	2	/* IOC */
 #define SPI_BUSNO	0
 
 static int __init rbtx4938_ethaddr_init(void)
@@ -118,7 +120,7 @@ static int __init rbtx4938_ethaddr_init(void)
 	unsigned char sum;
 	int i;
 
-	
+	/* 0-3: "MAC\0", 4-9:eth0, 10-15:eth1, 16:sum */
 	if (spi_eeprom_read(SPI_BUSNO, SEEPROM1_CS, 0, dat, sizeof(dat))) {
 		printk(KERN_ERR "seeprom: read error.\n");
 		return -ENODEV;
@@ -131,13 +133,13 @@ static int __init rbtx4938_ethaddr_init(void)
 			printk(KERN_WARNING "seeprom: bad checksum.\n");
 	}
 	tx4938_ethaddr_init(&dat[4], &dat[4 + 6]);
-#endif 
+#endif /* CONFIG_PCI */
 	return 0;
 }
 
 static void __init rbtx4938_spi_setup(void)
 {
-	
+	/* set SPI_SEL */
 	txx9_set64(&tx4938_ccfgptr->pcfg, TX4938_PCFG_SPI_SEL);
 }
 
@@ -153,7 +155,7 @@ static void __init rbtx4938_mem_setup(void)
 	unsigned long long pcfg;
 
 	if (txx9_master_clock == 0)
-		txx9_master_clock = 25000000; 
+		txx9_master_clock = 25000000; /* 25MHz */
 
 	tx4938_setup();
 
@@ -192,8 +194,8 @@ static void __init rbtx4938_mem_setup(void)
 #endif
 
 	rbtx4938_spi_setup();
-	pcfg = ____raw_readq(&tx4938_ccfgptr->pcfg);	
-	
+	pcfg = ____raw_readq(&tx4938_ccfgptr->pcfg);	/* updated */
+	/* fixup piosel */
 	if ((pcfg & (TX4938_PCFG_ATA_SEL | TX4938_PCFG_NDF_SEL)) ==
 	    TX4938_PCFG_ATA_SEL)
 		writeb((readb(rbtx4938_piosel_addr) & 0x03) | 0x04,
@@ -273,10 +275,10 @@ static int __init rbtx4938_spi_init(void)
 {
 	struct spi_board_info srtc_info = {
 		.modalias = "rtc-rs5c348",
-		.max_speed_hz = 1000000, 
+		.max_speed_hz = 1000000, /* 1.0Mbps @ Vdd 2.0V */
 		.bus_num = 0,
 		.chip_select = 16 + SRTC_CS,
-		
+		/* Mode 1 (High-Active, Shift-Then-Sample), High Avtive CS  */
 		.mode = SPI_MODE_1 | SPI_CS_HIGH,
 	};
 	spi_register_board_info(&srtc_info, 1);
@@ -303,29 +305,29 @@ static void __init rbtx4938_mtd_init(void)
 
 	switch (readb(rbtx4938_bdipsw_addr) & 7) {
 	case 0:
-		
+		/* Boot */
 		txx9_physmap_flash_init(0, 0x1fc00000, 0x400000, &pdata);
-		
+		/* System */
 		txx9_physmap_flash_init(1, 0x1e000000, 0x1000000, &pdata);
 		break;
 	case 1:
-		
+		/* System */
 		txx9_physmap_flash_init(0, 0x1f000000, 0x1000000, &pdata);
-		
+		/* Boot */
 		txx9_physmap_flash_init(1, 0x1ec00000, 0x400000, &pdata);
 		break;
 	case 2:
-		
+		/* Ext */
 		txx9_physmap_flash_init(0, 0x1f000000, 0x1000000, &pdata);
-		
+		/* System */
 		txx9_physmap_flash_init(1, 0x1e000000, 0x1000000, &pdata);
-		
+		/* Boot */
 		txx9_physmap_flash_init(2, 0x1dc00000, 0x400000, &pdata);
 		break;
 	case 3:
-		
+		/* Boot */
 		txx9_physmap_flash_init(1, 0x1bc00000, 0x400000, &pdata);
-		
+		/* System */
 		txx9_physmap_flash_init(2, 0x1a000000, 0x1000000, &pdata);
 		break;
 	}
@@ -344,7 +346,7 @@ static void __init rbtx4938_device_init(void)
 	rbtx4938_ne_init();
 	tx4938_wdt_init();
 	rbtx4938_mtd_init();
-	
+	/* TC58DVM82A1FT: tDH=10ns, tWP=tRP=tREADID=35ns */
 	tx4938_ndfmc_init(10, 35);
 	tx4938_ata_init(RBTX4938_IRQ_IOC_ATA, 0, 1);
 	tx4938_dmac_init(0, 2);

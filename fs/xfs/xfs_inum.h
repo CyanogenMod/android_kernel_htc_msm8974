@@ -18,8 +18,15 @@
 #ifndef __XFS_INUM_H__
 #define	__XFS_INUM_H__
 
+/*
+ * Inode number format:
+ * low inopblog bits - offset in block
+ * next agblklog bits - block number in ag
+ * next agno_log bits - ag number
+ * high agno_log-agblklog-inopblog bits - 0
+ */
 
-typedef	__uint32_t	xfs_agino_t;	
+typedef	__uint32_t	xfs_agino_t;	/* within allocation grp inode number */
 
 #define	NULLFSINO	((xfs_ino_t)-1)
 #define	NULLAGINO	((xfs_agino_t)-1)
@@ -59,4 +66,4 @@ struct xfs_mount;
 #endif
 #define	XFS_MAXINUMBER_32	((xfs_ino_t)((1ULL << 32) - 1ULL))
 
-#endif	
+#endif	/* __XFS_INUM_H__ */

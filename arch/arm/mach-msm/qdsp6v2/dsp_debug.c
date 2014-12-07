@@ -95,7 +95,7 @@ static ssize_t dsp_write(struct file *file, const char __user *buf,
 				return res;
 			}
 		}
-		
+		/* assert DSP NMI */
 		mem_buffer = ioremap(DSP_NMI_ADDR, 0x16);
 		if (IS_ERR((void *)mem_buffer)) {
 			pr_err("%s:map_buffer failed, error = %ld\n", __func__,
@@ -150,7 +150,7 @@ static ssize_t dsp_read(struct file *file, char __user *buf,
 
 	addr = (*pos + dsp_ram_base);
 
-	
+	/* don't blow up if we're unaligned */
 	if (addr & (PAGE_SIZE - 1))
 		mapsize *= 2;
 

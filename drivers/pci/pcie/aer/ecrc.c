@@ -28,9 +28,9 @@
 #include <linux/errno.h>
 #include "../../pci.h"
 
-#define ECRC_POLICY_DEFAULT 0		
-#define ECRC_POLICY_OFF     1		
-#define ECRC_POLICY_ON      2		
+#define ECRC_POLICY_DEFAULT 0		/* ECRC set by BIOS */
+#define ECRC_POLICY_OFF     1		/* ECRC off for performance */
+#define ECRC_POLICY_ON      2		/* ECRC on for data integrity */
 
 static int ecrc_policy = ECRC_POLICY_DEFAULT;
 
@@ -40,6 +40,12 @@ static const char *ecrc_policy_str[] = {
 	[ECRC_POLICY_ON] = "on"
 };
 
+/**
+ * enable_ercr_checking - enable PCIe ECRC checking for a device
+ * @dev: the PCI device
+ *
+ * Returns 0 on success, or negative on failure.
+ */
 static int enable_ecrc_checking(struct pci_dev *dev)
 {
 	int pos;
@@ -62,6 +68,12 @@ static int enable_ecrc_checking(struct pci_dev *dev)
 	return 0;
 }
 
+/**
+ * disable_ercr_checking - disables PCIe ECRC checking for a device
+ * @dev: the PCI device
+ *
+ * Returns 0 on success, or negative on failure.
+ */
 static int disable_ecrc_checking(struct pci_dev *dev)
 {
 	int pos;
@@ -81,6 +93,10 @@ static int disable_ecrc_checking(struct pci_dev *dev)
 	return 0;
 }
 
+/**
+ * pcie_set_ecrc_checking - set/unset PCIe ECRC checking for a device based on global policy
+ * @dev: the PCI device
+ */
 void pcie_set_ecrc_checking(struct pci_dev *dev)
 {
 	switch (ecrc_policy) {
@@ -97,6 +113,9 @@ void pcie_set_ecrc_checking(struct pci_dev *dev)
 	}
 }
 
+/**
+ * pcie_ecrc_get_policy - parse kernel command-line ecrc option
+ */
 void pcie_ecrc_get_policy(char *str)
 {
 	int i;

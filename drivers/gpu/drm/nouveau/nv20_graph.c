@@ -3,6 +3,26 @@
 #include "nouveau_drv.h"
 #include "nouveau_drm.h"
 
+/*
+ * NV20
+ * -----
+ * There are 3 families :
+ * NV20 is 0x10de:0x020*
+ * NV25/28 is 0x10de:0x025* / 0x10de:0x028*
+ * NV2A is 0x10de:0x02A0
+ *
+ * NV30
+ * -----
+ * There are 3 families :
+ * NV30/31 is 0x10de:0x030* / 0x10de:0x031*
+ * NV34 is 0x10de:0x032*
+ * NV35/36 is 0x10de:0x033* / 0x10de:0x034*
+ *
+ * Not seen in the wild, no dumps (probably NV35) :
+ * NV37 is 0x10de:0x00fc, 0x10de:0x00fd
+ * NV38 is 0x10de:0x0333, 0x10de:0x00fe
+ *
+ */
 
 struct nv20_graph_engine {
 	struct nouveau_exec_engine base;
@@ -204,7 +224,7 @@ nv2a_graph_context_init(struct nouveau_gpuobj *ctx)
 	nv_wo32(ctx, 0x0610, 0x00000001);
 	nv_wo32(ctx, 0x0618, 0x00040000);
 	nv_wo32(ctx, 0x061c, 0x00010000);
-	for (i = 0x1a9c; i <= 0x22fc; i += 16) { 
+	for (i = 0x1a9c; i <= 0x22fc; i += 16) { /*XXX: check!! */
 		nv_wo32(ctx, (i + 0), 0x10700ff9);
 		nv_wo32(ctx, (i + 4), 0x0436086c);
 		nv_wo32(ctx, (i + 8), 0x000c001b);
@@ -412,11 +432,11 @@ nv20_graph_context_new(struct nouveau_channel *chan, int engine)
 	if (ret)
 		return ret;
 
-	
+	/* Initialise default context values */
 	pgraph->grctx_init(grctx);
 
-	
-	
+	/* nv20: nv_wo32(dev, chan->ramin_grctx->gpuobj, 10, chan->id<<24); */
+	/* CTX_USER */
 	nv_wo32(grctx, pgraph->grctx_user, (chan->id << 24) | 0x1);
 
 	nv_wo32(pgraph->ctxtab, chan->id * 4, grctx->pinst >> 4);
@@ -436,14 +456,14 @@ nv20_graph_context_del(struct nouveau_channel *chan, int engine)
 	spin_lock_irqsave(&dev_priv->context_switch_lock, flags);
 	nv_mask(dev, NV04_PGRAPH_FIFO, 0x00000001, 0x00000000);
 
-	
+	/* Unload the context if it's the currently active one */
 	if (nv10_graph_channel(dev) == chan)
 		nv20_graph_unload_context(dev);
 
 	nv_mask(dev, NV04_PGRAPH_FIFO, 0x00000001, 0x00000001);
 	spin_unlock_irqrestore(&dev_priv->context_switch_lock, flags);
 
-	
+	/* Free the context resources */
 	nv_wo32(pgraph->ctxtab, chan->id * 4, 0);
 
 	nouveau_gpuobj_ref(NULL, &grctx);
@@ -497,7 +517,7 @@ nv20_graph_init(struct drm_device *dev, int engine)
 	nv_wr32(dev, NV04_PGRAPH_DEBUG_0, 0xFFFFFFFF);
 	nv_wr32(dev, NV04_PGRAPH_DEBUG_0, 0x00000000);
 	nv_wr32(dev, NV04_PGRAPH_DEBUG_1, 0x00118700);
-	nv_wr32(dev, NV04_PGRAPH_DEBUG_3, 0xF3CE0475); 
+	nv_wr32(dev, NV04_PGRAPH_DEBUG_3, 0xF3CE0475); /* 0x4 = auto ctx switch */
 	nv_wr32(dev, NV10_PGRAPH_DEBUG_4, 0x00000000);
 	nv_wr32(dev, 0x40009C           , 0x00000040);
 
@@ -521,7 +541,7 @@ nv20_graph_init(struct drm_device *dev, int engine)
 		nv_wr32(dev, NV10_PGRAPH_RDI_DATA , 0x00000030);
 	}
 
-	
+	/* Turn all the tiling regions off. */
 	for (i = 0; i < NV10_PFB_TILE__SIZE; i++)
 		nv20_graph_set_tile_region(dev, i);
 
@@ -537,7 +557,7 @@ nv20_graph_init(struct drm_device *dev, int engine)
 	tmp = nv_rd32(dev, NV10_PGRAPH_SURFACE) | 0x00020100;
 	nv_wr32(dev, NV10_PGRAPH_SURFACE, tmp);
 
-	
+	/* begin RAM config */
 	vramsz = pci_resource_len(dev->pdev, 0) - 1;
 	nv_wr32(dev, 0x4009A4, nv_rd32(dev, NV04_PFB_CFG0));
 	nv_wr32(dev, 0x4009A8, nv_rd32(dev, NV04_PFB_CFG1));
@@ -550,7 +570,7 @@ nv20_graph_init(struct drm_device *dev, int engine)
 	nv_wr32(dev, 0x400864, vramsz - 1);
 	nv_wr32(dev, 0x400868, vramsz - 1);
 
-	
+	/* interesting.. the below overwrites some of the tile setup above.. */
 	nv_wr32(dev, 0x400B20, 0x00000000);
 	nv_wr32(dev, 0x400B04, 0xFFFFFFFF);
 
@@ -590,7 +610,7 @@ nv30_graph_init(struct drm_device *dev, int engine)
 	nv_wr32(dev, 0x400B84, 0x0c000000);
 	nv_wr32(dev, 0x400098, 0x00000000);
 	nv_wr32(dev, 0x40009C, 0x0005ad00);
-	nv_wr32(dev, 0x400B88, 0x62ff00ff); 
+	nv_wr32(dev, 0x400B88, 0x62ff00ff); /* suspiciously like PGRAPH_DEBUG_2 */
 	nv_wr32(dev, 0x4000a0, 0x00000000);
 	nv_wr32(dev, 0x4000a4, 0x00000008);
 	nv_wr32(dev, 0x4008a8, 0xb784a400);
@@ -611,7 +631,7 @@ nv30_graph_init(struct drm_device *dev, int engine)
 
 	nv_wr32(dev, 0x4000c0, 0x00000016);
 
-	
+	/* Turn all the tiling regions off. */
 	for (i = 0; i < NV10_PFB_TILE__SIZE; i++)
 		nv20_graph_set_tile_region(dev, i);
 
@@ -619,8 +639,8 @@ nv30_graph_init(struct drm_device *dev, int engine)
 	nv_wr32(dev, NV10_PGRAPH_STATE      , 0xFFFFFFFF);
 	nv_wr32(dev, 0x0040075c             , 0x00000001);
 
-	
-	
+	/* begin RAM config */
+	/* vramsz = pci_resource_len(dev->pdev, 0) - 1; */
 	nv_wr32(dev, 0x4009A4, nv_rd32(dev, NV04_PFB_CFG0));
 	nv_wr32(dev, 0x4009A8, nv_rd32(dev, NV04_PFB_CFG1));
 	if (dev_priv->chipset != 0x34) {
@@ -765,7 +785,7 @@ nv20_graph_create(struct drm_device *dev)
 		}
 	}
 
-	
+	/* Create Context Pointer Table */
 	ret = nouveau_gpuobj_new(dev, NULL, 32 * 4, 16, NVOBJ_FLAG_ZERO_ALLOC,
 				 &pgraph->ctxtab);
 	if (ret) {
@@ -776,38 +796,38 @@ nv20_graph_create(struct drm_device *dev)
 	NVOBJ_ENGINE_ADD(dev, GR, &pgraph->base);
 	nouveau_irq_register(dev, 12, nv20_graph_isr);
 
-	
+	/* nvsw */
 	NVOBJ_CLASS(dev, 0x506e, SW);
 	NVOBJ_MTHD (dev, 0x506e, 0x0500, nv04_graph_mthd_page_flip);
 
-	NVOBJ_CLASS(dev, 0x0030, GR); 
-	NVOBJ_CLASS(dev, 0x0039, GR); 
-	NVOBJ_CLASS(dev, 0x004a, GR); 
-	NVOBJ_CLASS(dev, 0x009f, GR); 
-	NVOBJ_CLASS(dev, 0x008a, GR); 
-	NVOBJ_CLASS(dev, 0x0089, GR); 
-	NVOBJ_CLASS(dev, 0x0062, GR); 
-	NVOBJ_CLASS(dev, 0x0043, GR); 
-	NVOBJ_CLASS(dev, 0x0012, GR); 
-	NVOBJ_CLASS(dev, 0x0072, GR); 
-	NVOBJ_CLASS(dev, 0x0019, GR); 
-	NVOBJ_CLASS(dev, 0x0044, GR); 
+	NVOBJ_CLASS(dev, 0x0030, GR); /* null */
+	NVOBJ_CLASS(dev, 0x0039, GR); /* m2mf */
+	NVOBJ_CLASS(dev, 0x004a, GR); /* gdirect */
+	NVOBJ_CLASS(dev, 0x009f, GR); /* imageblit (nv12) */
+	NVOBJ_CLASS(dev, 0x008a, GR); /* ifc */
+	NVOBJ_CLASS(dev, 0x0089, GR); /* sifm */
+	NVOBJ_CLASS(dev, 0x0062, GR); /* surf2d */
+	NVOBJ_CLASS(dev, 0x0043, GR); /* rop */
+	NVOBJ_CLASS(dev, 0x0012, GR); /* beta1 */
+	NVOBJ_CLASS(dev, 0x0072, GR); /* beta4 */
+	NVOBJ_CLASS(dev, 0x0019, GR); /* cliprect */
+	NVOBJ_CLASS(dev, 0x0044, GR); /* pattern */
 	if (dev_priv->card_type == NV_20) {
-		NVOBJ_CLASS(dev, 0x009e, GR); 
-		NVOBJ_CLASS(dev, 0x0096, GR); 
+		NVOBJ_CLASS(dev, 0x009e, GR); /* swzsurf */
+		NVOBJ_CLASS(dev, 0x0096, GR); /* celcius */
 
-		
+		/* kelvin */
 		if (dev_priv->chipset < 0x25)
 			NVOBJ_CLASS(dev, 0x0097, GR);
 		else
 			NVOBJ_CLASS(dev, 0x0597, GR);
 	} else {
-		NVOBJ_CLASS(dev, 0x038a, GR); 
-		NVOBJ_CLASS(dev, 0x0389, GR); 
-		NVOBJ_CLASS(dev, 0x0362, GR); 
-		NVOBJ_CLASS(dev, 0x039e, GR); 
+		NVOBJ_CLASS(dev, 0x038a, GR); /* ifc (nv30) */
+		NVOBJ_CLASS(dev, 0x0389, GR); /* sifm (nv30) */
+		NVOBJ_CLASS(dev, 0x0362, GR); /* surf2d (nv30) */
+		NVOBJ_CLASS(dev, 0x039e, GR); /* swzsurf */
 
-		
+		/* rankine */
 		if (0x00000003 & (1 << (dev_priv->chipset & 0x0f)))
 			NVOBJ_CLASS(dev, 0x0397, GR);
 		else

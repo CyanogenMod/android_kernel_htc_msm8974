@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  */
 
+/**
+ * This file contains the part of the IOMMUv1 PMU driver that actually touches
+ * IOMMU PMU registers.
+ */
 
 #include <linux/io.h>
 #include <linux/interrupt.h>
@@ -47,6 +51,12 @@
 
 static unsigned int iommu_pm_is_hw_access_OK(const struct iommu_pmon *pmon)
 {
+	/*
+	 * IOMMUv1 is not in the always on domain so we need to make sure
+	 * the regulators are turned on in addition to clocks before we allow
+	 * access to the hardware thus we check if we have attached to the
+	 * IOMMU in addition to checking if we have enabled PMU.
+	 */
 	return pmon->enabled && (pmon->iommu_attach_count > 0);
 }
 
@@ -110,7 +120,7 @@ static void iommu_pm_check_for_overflow(struct iommu_pmon *pmon)
 			reg_no = counter->absolute_counter_no / 32;
 			bit_no = counter->absolute_counter_no % 32;
 			if (reg_no != curr_reg) {
-				
+				/* Clear overflow bits */
 				writel_relaxed(reg_value, iommu->base +
 					       PMOVSCLR_(reg_no));
 				curr_reg = reg_no;
@@ -125,7 +135,7 @@ static void iommu_pm_check_for_overflow(struct iommu_pmon *pmon)
 		}
 	}
 
-	
+	/* Clear overflow */
 	writel_relaxed(reg_value, iommu->base + PMOVSCLR_(reg_no));
 }
 
@@ -158,11 +168,11 @@ static void iommu_pm_counter_enable(struct iommu_info *iommu,
 	unsigned int bit_no = counter->absolute_counter_no % 32;
 	unsigned int reg_value;
 
-	
+	/* Clear overflow of counter */
 	reg_value = 1 << bit_no;
 	writel_relaxed(reg_value, iommu->base + PMOVSCLR_(reg_no));
 
-	
+	/* Enable counter */
 	writel_relaxed(reg_value, iommu->base + PMCNTENSET_(reg_no));
 	counter->enabled = 1;
 }
@@ -176,14 +186,17 @@ static void iommu_pm_counter_disable(struct iommu_info *iommu,
 
 	counter->enabled = 0;
 
-	
+	/* Disable counter */
 	reg_value = 1 << bit_no;
 	writel_relaxed(reg_value, iommu->base + PMCNTENCLR_(reg_no));
 
-	
+	/* Clear overflow of counter */
 	writel_relaxed(reg_value, iommu->base + PMOVSCLR_(reg_no));
 }
 
+/*
+ * Must be called after iommu_start_access() is called
+ */
 static void iommu_pm_ovfl_int_enable(struct iommu_info *iommu,
 				     const struct iommu_pmon_counter *counter)
 {
@@ -191,11 +204,14 @@ static void iommu_pm_ovfl_int_enable(struct iommu_info *iommu,
 	unsigned int bit_no = counter->absolute_counter_no % 32;
 	unsigned int reg_value;
 
-	
+	/* Enable overflow interrupt for counter */
 	reg_value = (1 << bit_no);
 	writel_relaxed(reg_value, iommu->base + PMINTENSET_(reg_no));
 }
 
+/*
+ * Must be called after iommu_start_access() is called
+ */
 static void iommu_pm_ovfl_int_disable(struct iommu_info *iommu,
 				      const struct iommu_pmon_counter *counter)
 {
@@ -203,7 +219,7 @@ static void iommu_pm_ovfl_int_disable(struct iommu_info *iommu,
 	unsigned int bit_no = counter->absolute_counter_no % 32;
 	unsigned int reg_value;
 
-	
+	/* Disable overflow interrupt for counter */
 	reg_value = 1 << bit_no;
 	writel_relaxed(reg_value, iommu->base + PMINTENCLR_(reg_no));
 }
@@ -225,7 +241,7 @@ static unsigned int iommu_pm_read_counter(struct iommu_pmon_counter *counter)
 
 static void iommu_pm_initialize_hw(const struct iommu_pmon *pmon)
 {
-	
+	/* No initialization needed */
 }
 
 static struct iommu_pm_hw_ops iommu_pm_hw_ops = {

@@ -20,6 +20,7 @@
 #ifndef __ASM_ARCH_MXC_IIM_H__
 #define __ASM_ARCH_MXC_IIM_H__
 
+/* Register offsets */
 #define MXC_IIMSTAT             0x0000
 #define MXC_IIMSTATM            0x0004
 #define MXC_IIMERR              0x0008
@@ -41,6 +42,7 @@
 #define MXC_IIMHWV2             0x080C
 #define MXC_IIMHAB0             0x0810
 #define MXC_IIMHAB1             0x0814
+/* Definitions for i.MX27 TO2 */
 #define MXC_IIMMAC              0x0814
 #define MXC_IIMPREV_FUSE        0x0818
 #define MXC_IIMSREV_FUSE        0x081C
@@ -49,6 +51,7 @@
 #define MXC_IIMFB0UC17          0x0840
 #define MXC_IIMFB0UC255         0x0BFC
 #define MXC_IIMFBAC1            0x0C00
+/* Definitions for i.MX27 TO2 */
 #define MXC_IIMSUID             0x0C04
 #define MXC_IIMKEY0             0x0C04
 #define MXC_IIMKEY20            0x0C54
@@ -57,6 +60,7 @@
 #define MXC_IIMFB1UC30          0x0C78
 #define MXC_IIMFB1UC255         0x0FFC
 
+/* Bit definitions */
 
 #define MXC_IIMHWV1_WLOCK               (0x1 << 7)
 #define MXC_IIMHWV1_MCU_ENDIAN          (0x1 << 6)
@@ -70,4 +74,4 @@
 #define MXC_IIMHWV2_BP_SDMA             (0x1 << 6)
 #define MXC_IIMHWV2_SCM_DCM             (0x1 << 5)
 
-#endif 
+#endif /* __ASM_ARCH_MXC_IIM_H__ */

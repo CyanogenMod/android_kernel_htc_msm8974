@@ -13,6 +13,15 @@
  * published by the Free Software Foundation.
  */
 
+/* ** CAUTION **
+ *
+ * This is very simple driver.
+ * It can use headphone output / stereo input only
+ *
+ * AK4642 is tested.
+ * AK4643 is tested.
+ * AK4648 is tested.
+ */
 
 #include <linux/delay.h>
 #include <linux/i2c.h>
@@ -60,34 +69,41 @@
 #define HP_MS		0x23
 #define SPK_MS		0x24
 
-#define PMVCM		(1 << 6) 
-#define PMMIN		(1 << 5) 
-#define PMDAC		(1 << 2) 
-#define PMADL		(1 << 0) 
+/* PW_MGMT1*/
+#define PMVCM		(1 << 6) /* VCOM Power Management */
+#define PMMIN		(1 << 5) /* MIN Input Power Management */
+#define PMDAC		(1 << 2) /* DAC Power Management */
+#define PMADL		(1 << 0) /* MIC Amp Lch and ADC Lch Power Management */
 
+/* PW_MGMT2 */
 #define HPMTN		(1 << 6)
 #define PMHPL		(1 << 5)
 #define PMHPR		(1 << 4)
-#define MS		(1 << 3) 
+#define MS		(1 << 3) /* master/slave select */
 #define MCKO		(1 << 1)
 #define PMPLL		(1 << 0)
 
 #define PMHP_MASK	(PMHPL | PMHPR)
 #define PMHP		PMHP_MASK
 
-#define PMADR		(1 << 0) 
+/* PW_MGMT3 */
+#define PMADR		(1 << 0) /* MIC L / ADC R Power Management */
 
-#define MINS		(1 << 6) 
-#define DACL		(1 << 4) 
-#define PMMP		(1 << 2) 
-#define MGAIN0		(1 << 0) 
+/* SG_SL1 */
+#define MINS		(1 << 6) /* Switch from MIN to Speaker */
+#define DACL		(1 << 4) /* Switch from DAC to Stereo or Receiver */
+#define PMMP		(1 << 2) /* MPWR pin Power Management */
+#define MGAIN0		(1 << 0) /* MIC amp gain*/
 
-#define ZTM(param)	((param & 0x3) << 4) 
+/* TIMER */
+#define ZTM(param)	((param & 0x3) << 4) /* ALC Zoro Crossing TimeOut */
 #define WTM(param)	(((param & 0x4) << 4) | ((param & 0x3) << 2))
 
-#define ALC		(1 << 5) 
-#define LMTH0		(1 << 0) 
+/* ALC_CTL1 */
+#define ALC		(1 << 5) /* ALC Enable */
+#define LMTH0		(1 << 0) /* ALC Limiter / Recovery Level */
 
+/* MD_CTL1 */
 #define PLL3		(1 << 7)
 #define PLL2		(1 << 6)
 #define PLL1		(1 << 5)
@@ -103,16 +119,27 @@
 #define LEFT_J		(2 << 0)
 #define I2S		(3 << 0)
 
+/* MD_CTL2 */
 #define FS0		(1 << 0)
 #define FS1		(1 << 1)
 #define FS2		(1 << 2)
 #define FS3		(1 << 5)
 #define FS_MASK		(FS0 | FS1 | FS2 | FS3)
 
+/* MD_CTL3 */
 #define BST1		(1 << 3)
 
+/* MD_CTL4 */
 #define DACH		(1 << 0)
 
+/*
+ * Playback Volume (table 39)
+ *
+ * max : 0x00 : +12.0 dB
+ *       ( 0.5 dB step )
+ * min : 0xFE : -115.0 dB
+ * mute: 0xFF
+ */
 static const DECLARE_TLV_DB_SCALE(out_tlv, -11550, 50, 1);
 
 static const struct snd_kcontrol_new ak4642_snd_controls[] = {
@@ -130,7 +157,7 @@ static const struct snd_kcontrol_new ak4642_lout_mixer_controls[] = {
 
 static const struct snd_soc_dapm_widget ak4642_dapm_widgets[] = {
 
-	
+	/* Outputs */
 	SND_SOC_DAPM_OUTPUT("HPOUTL"),
 	SND_SOC_DAPM_OUTPUT("HPOUTR"),
 	SND_SOC_DAPM_OUTPUT("LINEOUT"),
@@ -146,13 +173,13 @@ static const struct snd_soc_dapm_widget ak4642_dapm_widgets[] = {
 			   &ak4642_lout_mixer_controls[0],
 			   ARRAY_SIZE(ak4642_lout_mixer_controls)),
 
-	
+	/* DAC */
 	SND_SOC_DAPM_DAC("DAC", "HiFi Playback", PW_MGMT1, 2, 0),
 };
 
 static const struct snd_soc_dapm_route ak4642_intercon[] = {
 
-	
+	/* Outputs */
 	{"HPOUTL", NULL, "HPL Out"},
 	{"HPOUTR", NULL, "HPR Out"},
 	{"LINEOUT", NULL, "LINEOUT Mixer"},
@@ -167,11 +194,15 @@ static const struct snd_soc_dapm_route ak4642_intercon[] = {
 	{"LINEOUT Mixer", "DACL", "DAC"},
 };
 
+/* codec private data */
 struct ak4642_priv {
 	unsigned int sysclk;
 	enum snd_soc_control_type control_type;
 };
 
+/*
+ * ak4642 register cache
+ */
 static const u8 ak4642_reg[] = {
 	0x00, 0x00, 0x01, 0x00,
 	0x02, 0x00, 0x00, 0x00,
@@ -205,9 +236,32 @@ static int ak4642_dai_startup(struct snd_pcm_substream *substream,
 	struct snd_soc_codec *codec = dai->codec;
 
 	if (is_play) {
-		snd_soc_write(codec, L_IVC, 0x91); 
-		snd_soc_write(codec, R_IVC, 0x91); 
+		/*
+		 * start headphone output
+		 *
+		 * PLL, Master Mode
+		 * Audio I/F Format :MSB justified (ADC & DAC)
+		 * Bass Boost Level : Middle
+		 *
+		 * This operation came from example code of
+		 * "ASAHI KASEI AK4642" (japanese) manual p97.
+		 */
+		snd_soc_write(codec, L_IVC, 0x91); /* volume */
+		snd_soc_write(codec, R_IVC, 0x91); /* volume */
 	} else {
+		/*
+		 * start stereo input
+		 *
+		 * PLL Master Mode
+		 * Audio I/F Format:MSB justified (ADC & DAC)
+		 * Pre MIC AMP:+20dB
+		 * MIC Power On
+		 * ALC setting:Refer to Table 35
+		 * ALC bit=“1”
+		 *
+		 * This operation came from example code of
+		 * "ASAHI KASEI AK4642" (japanese) manual p94.
+		 */
 		snd_soc_write(codec, SG_SL1, PMMP | MGAIN0);
 		snd_soc_write(codec, TIMER, ZTM(0x3) | WTM(0x3));
 		snd_soc_write(codec, ALC_CTL1, ALC | LMTH0);
@@ -226,7 +280,7 @@ static void ak4642_dai_shutdown(struct snd_pcm_substream *substream,
 
 	if (is_play) {
 	} else {
-		
+		/* stop stereo input */
 		snd_soc_update_bits(codec, PW_MGMT1, PMADL, 0);
 		snd_soc_update_bits(codec, PW_MGMT3, PMADR, 0);
 		snd_soc_update_bits(codec, ALC_CTL1, ALC, 0);
@@ -272,10 +326,10 @@ static int ak4642_dai_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	u8 data;
 	u8 bcko;
 
-	data = MCKO | PMPLL; 
+	data = MCKO | PMPLL; /* use MCKO */
 	bcko = 0;
 
-	
+	/* set master/slave audio interface */
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBM_CFM:
 		data |= MS;
@@ -289,7 +343,7 @@ static int ak4642_dai_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	snd_soc_update_bits(codec, PW_MGMT2, MS | MCKO | PMPLL, data);
 	snd_soc_update_bits(codec, MD_CTL1, BCKO_MASK, bcko);
 
-	
+	/* format type */
 	data = 0;
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_LEFT_J:
@@ -298,6 +352,9 @@ static int ak4642_dai_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	case SND_SOC_DAIFMT_I2S:
 		data = I2S;
 		break;
+	/* FIXME
+	 * Please add RIGHT_J / DSP support here
+	 */
 	default:
 		return -EINVAL;
 		break;
@@ -439,8 +496,8 @@ static struct snd_soc_codec_driver soc_codec_dev_ak4642 = {
 	.remove			= ak4642_remove,
 	.resume			= ak4642_resume,
 	.set_bias_level		= ak4642_set_bias_level,
-	.reg_cache_default	= ak4642_reg,			
-	.reg_cache_size		= ARRAY_SIZE(ak4642_reg),	
+	.reg_cache_default	= ak4642_reg,			/* ak4642 reg */
+	.reg_cache_size		= ARRAY_SIZE(ak4642_reg),	/* ak4642 reg */
 	.reg_word_size		= sizeof(u8),
 	.dapm_widgets		= ak4642_dapm_widgets,
 	.num_dapm_widgets	= ARRAY_SIZE(ak4642_dapm_widgets),
@@ -453,8 +510,8 @@ static struct snd_soc_codec_driver soc_codec_dev_ak4648 = {
 	.remove			= ak4642_remove,
 	.resume			= ak4642_resume,
 	.set_bias_level		= ak4642_set_bias_level,
-	.reg_cache_default	= ak4648_reg,			
-	.reg_cache_size		= ARRAY_SIZE(ak4648_reg),	
+	.reg_cache_default	= ak4648_reg,			/* ak4648 reg */
+	.reg_cache_size		= ARRAY_SIZE(ak4648_reg),	/* ak4648 reg */
 	.reg_word_size		= sizeof(u8),
 	.dapm_widgets		= ak4642_dapm_widgets,
 	.num_dapm_widgets	= ARRAY_SIZE(ak4642_dapm_widgets),

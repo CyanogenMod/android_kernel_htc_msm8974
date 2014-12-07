@@ -25,4 +25,4 @@ extern void __udelay(unsigned long usecs);
 
 #define udelay(usecs) __udelay((usecs))
 
-#endif 
+#endif /* _ASM_DELAY_H */

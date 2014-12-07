@@ -1,5 +1,12 @@
 #ifndef _ASM_GENERIC_TERMIOS_H
 #define _ASM_GENERIC_TERMIOS_H
+/*
+ * Most architectures have straight copies of the x86 code, with
+ * varying levels of bug fixes on top. Usually it's a good idea
+ * to use this generic version instead, but be careful to avoid
+ * ABI changes.
+ * New architectures should not provide their own version.
+ */
 
 #include <asm/termbits.h>
 #include <asm/ioctls.h>
@@ -13,14 +20,15 @@ struct winsize {
 
 #define NCC 8
 struct termio {
-	unsigned short c_iflag;		
-	unsigned short c_oflag;		
-	unsigned short c_cflag;		
-	unsigned short c_lflag;		
-	unsigned char c_line;		
-	unsigned char c_cc[NCC];	
+	unsigned short c_iflag;		/* input mode flags */
+	unsigned short c_oflag;		/* output mode flags */
+	unsigned short c_cflag;		/* control mode flags */
+	unsigned short c_lflag;		/* local mode flags */
+	unsigned char c_line;		/* line discipline */
+	unsigned char c_cc[NCC];	/* control characters */
 };
 
+/* modem lines */
 #define TIOCM_LE	0x001
 #define TIOCM_DTR	0x002
 #define TIOCM_RTS	0x004
@@ -36,13 +44,23 @@ struct termio {
 #define TIOCM_OUT2	0x4000
 #define TIOCM_LOOP	0x8000
 
+/* ioctl (fd, TIOCSERGETLSR, &result) where result may be as below */
 
 #ifdef __KERNEL__
 
 #include <asm/uaccess.h>
 
+/*	intr=^C		quit=^\		erase=del	kill=^U
+	eof=^D		vtime=\0	vmin=\1		sxtc=\0
+	start=^Q	stop=^S		susp=^Z		eol=\0
+	reprint=^R	discard=^U	werase=^W	lnext=^V
+	eol2=\0
+*/
 #define INIT_C_CC "\003\034\177\025\004\0\1\0\021\023\032\0\022\017\027\026\0"
 
+/*
+ * Translate a "termio" structure into a "termios". Ugh.
+ */
 static inline int user_termio_to_kernel_termios(struct ktermios *termios,
 						const struct termio __user *termio)
 {
@@ -76,6 +94,9 @@ static inline int user_termio_to_kernel_termios(struct ktermios *termios,
 	return -EFAULT;
 }
 
+/*
+ * Translate a "termios" structure into a "termio". Ugh.
+ */
 static inline int kernel_termios_to_user_termio(struct termio __user *termio,
 						struct ktermios *termios)
 {
@@ -114,7 +135,7 @@ static inline int kernel_termios_to_user_termios_1(struct termios __user *u,
 {
 	return copy_to_user(u, k, sizeof(struct termios));
 }
-#else 
+#else /* TCGETS2 */
 static inline int user_termios_to_kernel_termios(struct ktermios *k,
 						 struct termios __user *u)
 {
@@ -126,8 +147,8 @@ static inline int kernel_termios_to_user_termios(struct termios __user *u,
 {
 	return copy_to_user(u, k, sizeof(struct termios));
 }
-#endif 
+#endif /* TCGETS2 */
 
-#endif	
+#endif	/* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_GENERIC_TERMIOS_H */

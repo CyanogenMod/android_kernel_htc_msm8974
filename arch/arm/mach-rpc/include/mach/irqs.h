@@ -37,6 +37,9 @@
 #define FIQ_EXPANSIONCARD	6
 #define FIQ_FORCE		7
 
+/*
+ * This is the offset of the FIQ "IRQ" numbers
+ */
 #define FIQ_START		64
 
 #define NR_IRQS			128

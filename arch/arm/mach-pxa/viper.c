@@ -80,6 +80,7 @@ static void viper_icr_clear_bit(unsigned int bit)
 	VIPER_ICR = icr;
 }
 
+/* This function is used from the pcmcia module to reset the CF */
 static void viper_cf_reset(int state)
 {
 	if (state)
@@ -103,6 +104,16 @@ static struct platform_device viper_pcmcia_device = {
 	},
 };
 
+/*
+ * The CPLD version register was not present on VIPER boards prior to
+ * v2i1. On v1 boards where the version register is not present we
+ * will just read back the previous value from the databus.
+ *
+ * Therefore we do two reads. The first time we write 0 to the
+ * (read-only) register before reading and the second time we write
+ * 0xff first. If the two reads do not match or they read back as 0xff
+ * or 0x00 then we have version 1 hardware.
+ */
 static u8 viper_hw_version(void)
 {
 	u8 v1, v2;
@@ -121,6 +132,7 @@ static u8 viper_hw_version(void)
 	return v1;
 }
 
+/* CPU system core operations. */
 static int viper_cpu_suspend(void)
 {
 	viper_icr_set_bit(VIPER_ICR_R_DIS);
@@ -139,6 +151,17 @@ static struct syscore_ops viper_cpu_syscore_ops = {
 
 static unsigned int current_voltage_divisor;
 
+/*
+ * If force is not true then step from existing to new divisor. If
+ * force is true then jump straight to the new divisor. Stepping is
+ * used because if the jump in voltage is too large, the VCC can dip
+ * too low and the regulator cuts out.
+ *
+ * force can be used to initialize the divisor to a know state by
+ * setting the value for the current clock speed, since we are already
+ * running at that speed we know the voltage should be pretty close so
+ * the jump won't be too large
+ */
 static void viper_set_core_cpu_voltage(unsigned long khz, int force)
 {
 	int i = 0;
@@ -195,25 +218,26 @@ static void viper_set_core_cpu_voltage(unsigned long khz, int force)
 	} while (current_voltage_divisor != divisor);
 }
 
+/* Interrupt handling */
 static unsigned long viper_irq_enabled_mask;
 static const int viper_isa_irqs[] = { 3, 4, 5, 6, 7, 10, 11, 12, 9, 14, 15 };
 static const int viper_isa_irq_map[] = {
-	0,		
-	0,		
-	0,		
-	1 << 0,		
-	1 << 1,		
-	1 << 2,		
-	1 << 3,		
-	1 << 4,		
-	0,		
-	1 << 8,		
-	1 << 5,		
-	1 << 6,		
-	1 << 7,		
-	0,		
-	1 << 9,		
-	1 << 10,	
+	0,		/* ISA irq #0, invalid */
+	0,		/* ISA irq #1, invalid */
+	0,		/* ISA irq #2, invalid */
+	1 << 0,		/* ISA irq #3 */
+	1 << 1,		/* ISA irq #4 */
+	1 << 2,		/* ISA irq #5 */
+	1 << 3,		/* ISA irq #6 */
+	1 << 4,		/* ISA irq #7 */
+	0,		/* ISA irq #8, invalid */
+	1 << 8,		/* ISA irq #9 */
+	1 << 5,		/* ISA irq #10 */
+	1 << 6,		/* ISA irq #11 */
+	1 << 7,		/* ISA irq #12 */
+	0,		/* ISA irq #13, invalid */
+	1 << 9,		/* ISA irq #14 */
+	1 << 10,	/* ISA irq #15 */
 };
 
 static inline int viper_irq_to_bitmask(unsigned int irq)
@@ -258,6 +282,8 @@ static void viper_irq_handler(unsigned int irq, struct irq_desc *desc)
 
 	pending = viper_irq_pending();
 	do {
+		/* we're in a chained irq handler,
+		 * so ack the interrupt by hand */
 		desc->irq_data.chip->irq_ack(&desc->irq_data);
 
 		if (likely(pending)) {
@@ -282,7 +308,7 @@ static void __init viper_init_irq(void)
 
 	pxa25x_init_irq();
 
-	
+	/* setup ISA IRQs */
 	for (level = 0; level < ARRAY_SIZE(viper_isa_irqs); level++) {
 		isa_irq = viper_bit_to_irq(level);
 		irq_set_chip_and_handler(isa_irq, &viper_irq_chip,
@@ -295,6 +321,7 @@ static void __init viper_init_irq(void)
 	irq_set_irq_type(gpio_to_irq(VIPER_CPLD_GPIO), IRQ_TYPE_EDGE_BOTH);
 }
 
+/* Flat Panel */
 static struct pxafb_mode_info fb_mode_info[] = {
 	{
 		.pixclock	= 157500,
@@ -326,7 +353,7 @@ static int viper_backlight_init(struct device *dev)
 {
 	int ret;
 
-	
+	/* GPIO9 and 10 control FB backlight. Initialise to off */
 	ret = gpio_request(VIPER_BCKLIGHT_EN_GPIO, "Backlight");
 	if (ret)
 		goto err_request_bckl;
@@ -387,6 +414,7 @@ static struct platform_device viper_backlight_device = {
 	},
 };
 
+/* Ethernet */
 static struct resource smc91x_resources[] = {
 	[0] = {
 		.name	= "smc91x-regs",
@@ -423,6 +451,7 @@ static struct platform_device smc91x_device = {
 	},
 };
 
+/* i2c */
 static struct i2c_gpio_platform_data i2c_bus_data = {
 	.sda_pin = VIPER_RTC_I2C_SDA_GPIO,
 	.scl_pin = VIPER_RTC_I2C_SCL_GPIO,
@@ -432,7 +461,7 @@ static struct i2c_gpio_platform_data i2c_bus_data = {
 
 static struct platform_device i2c_bus_device = {
 	.name		= "i2c-gpio",
-	.id		= 1, 
+	.id		= 1, /* pxa2xx-i2c is bus 0, so start at 1 */
 	.dev = {
 		.platform_data = &i2c_bus_data,
 	}
@@ -444,6 +473,12 @@ static struct i2c_board_info __initdata viper_i2c_devices[] = {
 	},
 };
 
+/*
+ * Serial configuration:
+ * You can either have the standard PXA ports driven by the PXA driver,
+ * or all the ports (PXA + 16850) driven by the 8250 driver.
+ * Choose your poison.
+ */
 
 static struct resource viper_serial_resources[] = {
 #ifndef CONFIG_SERIAL_PXA
@@ -481,7 +516,7 @@ static struct resource viper_serial_resources[] = {
 
 static struct plat_serial8250_port serial_platform_data[] = {
 #ifndef CONFIG_SERIAL_PXA
-	
+	/* Internal UARTs */
 	{
 		.membase	= (void *)&FFUART,
 		.mapbase	= __PREG(FFUART),
@@ -509,7 +544,7 @@ static struct plat_serial8250_port serial_platform_data[] = {
 		.flags		= UPF_BOOT_AUTOCONF | UPF_SKIP_TEST,
 		.iotype		= UPIO_MEM,
 	},
-	
+	/* External UARTs */
 	{
 		.mapbase	= VIPER_UARTA_PHYS,
 		.irq		= PXA_GPIO_TO_IRQ(VIPER_UARTA_GPIO),
@@ -544,18 +579,19 @@ static struct platform_device serial_device = {
 	.resource		= viper_serial_resources,
 };
 
+/* USB */
 static void isp116x_delay(struct device *dev, int delay)
 {
 	ndelay(delay);
 }
 
 static struct resource isp116x_resources[] = {
-	[0] = { 
+	[0] = { /* DATA */
 		.start  = VIPER_USB_PHYS + 0,
 		.end    = VIPER_USB_PHYS + 1,
 		.flags  = IORESOURCE_MEM,
 	},
-	[1] = { 
+	[1] = { /* ADDR */
 		.start  = VIPER_USB_PHYS + 2,
 		.end    = VIPER_USB_PHYS + 3,
 		.flags  = IORESOURCE_MEM,
@@ -567,19 +603,20 @@ static struct resource isp116x_resources[] = {
 	},
 };
 
+/* (DataBusWidth16|AnalogOCEnable|DREQOutputPolarity|DownstreamPort15KRSel ) */
 static struct isp116x_platform_data isp116x_platform_data = {
-	
+	/* Enable internal resistors on downstream ports */
 	.sel15Kres		= 1,
-	
+	/* On-chip overcurrent protection */
 	.oc_enable		= 1,
-	
+	/* INT output polarity */
 	.int_act_high		= 1,
-	
+	/* INT edge or level triggered */
 	.int_edge_triggered	= 0,
 
-	
-	
-	
+	/* WAKEUP pin connected - NOT SUPPORTED  */
+	/* .remote_wakeup_connected = 0, */
+	/* Wakeup by devices on usb bus enabled */
 	.remote_wakeup_enable	= 0,
 	.delay			= isp116x_delay,
 };
@@ -595,18 +632,22 @@ static struct platform_device isp116x_device = {
 
 };
 
+/* MTD */
 static struct resource mtd_resources[] = {
-	[0] = {	
+	[0] = {	/* RedBoot config + filesystem flash */
 		.start	= VIPER_FLASH_PHYS,
 		.end	= VIPER_FLASH_PHYS + SZ_32M - 1,
 		.flags	= IORESOURCE_MEM,
 	},
-	[1] = {	
+	[1] = {	/* Boot flash */
 		.start	= VIPER_BOOT_PHYS,
 		.end	= VIPER_BOOT_PHYS + SZ_1M - 1,
 		.flags	= IORESOURCE_MEM,
 	},
-	[2] = { 
+	[2] = { /*
+		 * SRAM size is actually 256KB, 8bits, with a sparse mapping
+		 * (each byte is on a 16bit boundary).
+		 */
 		.start	= _VIPER_SRAM_BASE,
 		.end	= _VIPER_SRAM_BASE + SZ_512K - 1,
 		.flags	= IORESOURCE_MEM,
@@ -617,7 +658,7 @@ static struct mtd_partition viper_boot_flash_partition = {
 	.name		= "RedBoot",
 	.size		= SZ_1M,
 	.offset		= 0,
-	.mask_flags	= MTD_WRITEABLE,	
+	.mask_flags	= MTD_WRITEABLE,	/* force R/O */
 };
 
 static struct physmap_flash_data viper_flash_data[] = {
@@ -666,31 +707,31 @@ static struct platform_device *viper_devs[] __initdata = {
 };
 
 static mfp_cfg_t viper_pin_config[] __initdata = {
-	
+	/* Chip selects */
 	GPIO15_nCS_1,
 	GPIO78_nCS_2,
 	GPIO79_nCS_3,
 	GPIO80_nCS_4,
 	GPIO33_nCS_5,
 
-	
+	/* AC97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
 	GPIO31_AC97_SYNC,
 
-	
-	GPIO9_GPIO, 				
-	GPIO10_GPIO,				
+	/* FP Backlight */
+	GPIO9_GPIO, 				/* VIPER_BCKLIGHT_EN_GPIO */
+	GPIO10_GPIO,				/* VIPER_LCD_EN_GPIO */
 	GPIO16_PWM0_OUT,
 
-	
+	/* Ethernet PHY Ready */
 	GPIO18_RDY,
 
-	
-	GPIO12_GPIO | MFP_LPM_DRIVE_HIGH,	
+	/* Serial shutdown */
+	GPIO12_GPIO | MFP_LPM_DRIVE_HIGH,	/* VIPER_UART_SHDN_GPIO */
 
-	
+	/* Compact-Flash / PC104 */
 	GPIO48_nPOE,
 	GPIO49_nPWE,
 	GPIO50_nPIOR,
@@ -701,26 +742,26 @@ static mfp_cfg_t viper_pin_config[] __initdata = {
 	GPIO55_nPREG,
 	GPIO56_nPWAIT,
 	GPIO57_nIOIS16,
-	GPIO8_GPIO,				
-	GPIO32_GPIO,				
-	GPIO82_GPIO,				
+	GPIO8_GPIO,				/* VIPER_CF_RDY_GPIO */
+	GPIO32_GPIO,				/* VIPER_CF_CD_GPIO */
+	GPIO82_GPIO,				/* VIPER_CF_POWER_GPIO */
 
-	
-	GPIO20_GPIO,				
+	/* Integrated UPS control */
+	GPIO20_GPIO,				/* VIPER_UPS_GPIO */
 
-	
-	GPIO6_GPIO,				
-	GPIO11_GPIO,				
-	GPIO19_GPIO,				
+	/* Vcc regulator control */
+	GPIO6_GPIO,				/* VIPER_PSU_DATA_GPIO */
+	GPIO11_GPIO,				/* VIPER_PSU_CLK_GPIO */
+	GPIO19_GPIO,				/* VIPER_PSU_nCS_LD_GPIO */
 
-	
-	GPIO26_GPIO,				
-	GPIO27_GPIO,				
-	GPIO83_GPIO,				
-	GPIO84_GPIO,				
+	/* i2c busses */
+	GPIO26_GPIO,				/* VIPER_TPM_I2C_SDA_GPIO */
+	GPIO27_GPIO,				/* VIPER_TPM_I2C_SCL_GPIO */
+	GPIO83_GPIO,				/* VIPER_RTC_I2C_SDA_GPIO */
+	GPIO84_GPIO,				/* VIPER_RTC_I2C_SCL_GPIO */
 
-	
-	GPIO1_GPIO | WAKEUP_ON_EDGE_RISE,	
+	/* PC/104 Interrupt */
+	GPIO1_GPIO | WAKEUP_ON_EDGE_RISE,	/* VIPER_CPLD_GPIO */
 };
 
 static unsigned long viper_tpm;
@@ -744,7 +785,7 @@ static void __init viper_tpm_init(void)
 	};
 	char *errstr;
 
-	
+	/* Allocate TPM i2c bus if requested */
 	if (!viper_tpm)
 		return;
 
@@ -790,7 +831,7 @@ static void __init viper_init_vcore_gpios(void)
 	    gpio_direction_output(VIPER_PSU_nCS_LD_GPIO, 0))
 		goto err_dir;
 
-	
+	/* c/should assume redboot set the correct level ??? */
 	viper_set_core_cpu_voltage(get_clk_frequency_khz(0), 1);
 
 	return;
@@ -827,16 +868,20 @@ static int viper_cpufreq_notifier(struct notifier_block *nb,
 {
 	struct cpufreq_freqs *freq = data;
 
-	
+	/* TODO: Adjust timings??? */
 
 	switch (val) {
 	case CPUFREQ_PRECHANGE:
 		if (freq->old < freq->new) {
+			/* we are getting faster so raise the voltage
+			 * before we change freq */
 			viper_set_core_cpu_voltage(freq->new, 0);
 		}
 		break;
 	case CPUFREQ_POSTCHANGE:
 		if (freq->old > freq->new) {
+			/* we are slowing down so drop the power
+			 * after we change freq */
 			viper_set_core_cpu_voltage(freq->new, 0);
 		}
 		break;
@@ -844,7 +889,7 @@ static int viper_cpufreq_notifier(struct notifier_block *nb,
 		viper_set_core_cpu_voltage(freq->new, 0);
 		break;
 	default:
-		
+		/* ignore */
 		break;
 	}
 
@@ -869,7 +914,7 @@ static void viper_power_off(void)
 {
 	pr_notice("Shutting off UPS\n");
 	gpio_set_value(VIPER_UPS_GPIO, 1);
-	
+	/* Spin to death... */
 	while (1);
 }
 
@@ -885,12 +930,12 @@ static void __init viper_init(void)
 	pxa_set_btuart_info(NULL);
 	pxa_set_stuart_info(NULL);
 
-	
+	/* Wake-up serial console */
 	viper_init_serial_gpio();
 
 	pxa_set_fb_info(NULL, &fb_info);
 
-	
+	/* v1 hardware cannot use the datacs line */
 	version = viper_hw_version();
 	if (version == 0)
 		smc91x_device.num_resources--;
@@ -947,7 +992,7 @@ static void __init viper_map_io(void)
 }
 
 MACHINE_START(VIPER, "Arcom/Eurotech VIPER SBC")
-	
+	/* Maintainer: Marc Zyngier <maz@misterjones.org> */
 	.atag_offset	= 0x100,
 	.map_io		= viper_map_io,
 	.nr_irqs	= PXA_NR_IRQS,

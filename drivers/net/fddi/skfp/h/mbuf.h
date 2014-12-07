@@ -32,9 +32,9 @@
 #endif
 
 struct s_mbuf {
-	struct s_mbuf	*sm_next ;		
-	short		sm_off ;			
-	u_int		sm_len ;			
+	struct s_mbuf	*sm_next ;		/* low level linked list */
+	short		sm_off ;			/* offset in m_data */
+	u_int		sm_len ;			/* len of data */
 #ifdef	PCI
 	int		sm_use_count ;
 #endif
@@ -43,7 +43,8 @@ struct s_mbuf {
 
 typedef struct s_mbuf SMbuf ;
 
+/* mbuf head, to typed data */
 #define	smtod(x,t)	((t)((x)->sm_data + (x)->sm_off))
 #define	smtodoff(x,t,o)	((t)((x)->sm_data + (o)))
 
-#endif	
+#endif	/* _MBUF_ */

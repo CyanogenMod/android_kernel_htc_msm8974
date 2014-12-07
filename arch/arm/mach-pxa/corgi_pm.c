@@ -31,12 +31,12 @@
 
 #include "generic.h"
 
-#define SHARPSL_CHARGE_ON_VOLT         0x99  
-#define SHARPSL_CHARGE_ON_TEMP         0xe0  
-#define SHARPSL_CHARGE_ON_ACIN_HIGH    0x9b  
-#define SHARPSL_CHARGE_ON_ACIN_LOW     0x34  
-#define SHARPSL_FATAL_ACIN_VOLT        182   
-#define SHARPSL_FATAL_NOACIN_VOLT      170   
+#define SHARPSL_CHARGE_ON_VOLT         0x99  /* 2.9V */
+#define SHARPSL_CHARGE_ON_TEMP         0xe0  /* 2.9V */
+#define SHARPSL_CHARGE_ON_ACIN_HIGH    0x9b  /* 6V */
+#define SHARPSL_CHARGE_ON_ACIN_LOW     0x34  /* 2V */
+#define SHARPSL_FATAL_ACIN_VOLT        182   /* 3.45V */
+#define SHARPSL_FATAL_NOACIN_VOLT      170   /* 3.40V */
 
 static struct gpio charger_gpios[] = {
 	{ CORGI_GPIO_ADC_TEMP_ON, GPIOF_OUT_INIT_LOW, "ADC Temp On" },
@@ -86,6 +86,10 @@ static void corgi_postsuspend(void)
 {
 }
 
+/*
+ * Check what brought us out of the suspend.
+ * Return: 0 to sleep, otherwise wake
+ */
 static int corgi_should_wakeup(unsigned int resume_on_alarm)
 {
 	int is_resume = 0;
@@ -99,11 +103,11 @@ static int corgi_should_wakeup(unsigned int resume_on_alarm)
 
 	if ((PEDR & GPIO_bit(CORGI_GPIO_AC_IN))) {
 		if (sharpsl_pm.machinfo->read_devdata(SHARPSL_STATUS_ACIN)) {
-			
+			/* charge on */
 			dev_dbg(sharpsl_pm.dev, "ac insert\n");
 			sharpsl_pm.flags |= SHARPSL_DO_OFFLINE_CHRG;
 		} else {
-			
+			/* charge off */
 			dev_dbg(sharpsl_pm.dev, "ac remove\n");
 			sharpsl_pm_led(SHARPSL_LED_OFF);
 			sharpsl_pm.machinfo->charge(0);

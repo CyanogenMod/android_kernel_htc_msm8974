@@ -128,9 +128,9 @@ static void radeon_benchmark_move(struct radeon_device *rdev, unsigned size,
 		goto out_cleanup;
 	}
 
-	
-	
-	
+	/* r100 doesn't have dma engine so skip the test */
+	/* also, VRAM-to-VRAM test doesn't make much sense for DMA */
+	/* skip it as well if domains are the same */
 	if ((rdev->asic->copy.dma) && (sdomain != ddomain)) {
 		time = radeon_benchmark_do_move(rdev, size, saddr, daddr,
 						RADEON_BENCHMARK_COPY_DMA, n);
@@ -197,54 +197,54 @@ void radeon_benchmark(struct radeon_device *rdev, int test_number)
 
 	switch (test_number) {
 	case 1:
-		
+		/* simple test, VRAM to GTT and GTT to VRAM */
 		radeon_benchmark_move(rdev, 1024*1024, RADEON_GEM_DOMAIN_GTT,
 				      RADEON_GEM_DOMAIN_VRAM);
 		radeon_benchmark_move(rdev, 1024*1024, RADEON_GEM_DOMAIN_VRAM,
 				      RADEON_GEM_DOMAIN_GTT);
 		break;
 	case 2:
-		
+		/* simple test, VRAM to VRAM */
 		radeon_benchmark_move(rdev, 1024*1024, RADEON_GEM_DOMAIN_VRAM,
 				      RADEON_GEM_DOMAIN_VRAM);
 		break;
 	case 3:
-		
+		/* GTT to VRAM, buffer size sweep, powers of 2 */
 		for (i = 1; i <= 16384; i <<= 1)
 			radeon_benchmark_move(rdev, i * RADEON_GPU_PAGE_SIZE,
 					      RADEON_GEM_DOMAIN_GTT,
 					      RADEON_GEM_DOMAIN_VRAM);
 		break;
 	case 4:
-		
+		/* VRAM to GTT, buffer size sweep, powers of 2 */
 		for (i = 1; i <= 16384; i <<= 1)
 			radeon_benchmark_move(rdev, i * RADEON_GPU_PAGE_SIZE,
 					      RADEON_GEM_DOMAIN_VRAM,
 					      RADEON_GEM_DOMAIN_GTT);
 		break;
 	case 5:
-		
+		/* VRAM to VRAM, buffer size sweep, powers of 2 */
 		for (i = 1; i <= 16384; i <<= 1)
 			radeon_benchmark_move(rdev, i * RADEON_GPU_PAGE_SIZE,
 					      RADEON_GEM_DOMAIN_VRAM,
 					      RADEON_GEM_DOMAIN_VRAM);
 		break;
 	case 6:
-		
+		/* GTT to VRAM, buffer size sweep, common modes */
 		for (i = 0; i < RADEON_BENCHMARK_COMMON_MODES_N; i++)
 			radeon_benchmark_move(rdev, common_modes[i],
 					      RADEON_GEM_DOMAIN_GTT,
 					      RADEON_GEM_DOMAIN_VRAM);
 		break;
 	case 7:
-		
+		/* VRAM to GTT, buffer size sweep, common modes */
 		for (i = 0; i < RADEON_BENCHMARK_COMMON_MODES_N; i++)
 			radeon_benchmark_move(rdev, common_modes[i],
 					      RADEON_GEM_DOMAIN_VRAM,
 					      RADEON_GEM_DOMAIN_GTT);
 		break;
 	case 8:
-		
+		/* VRAM to VRAM, buffer size sweep, common modes */
 		for (i = 0; i < RADEON_BENCHMARK_COMMON_MODES_N; i++)
 			radeon_benchmark_move(rdev, common_modes[i],
 					      RADEON_GEM_DOMAIN_VRAM,

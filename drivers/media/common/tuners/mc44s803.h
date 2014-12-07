@@ -41,6 +41,6 @@ static inline struct dvb_frontend *mc44s803_attach(struct dvb_frontend *fe,
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_MEDIA_TUNER_MC44S803 */
 
 #endif

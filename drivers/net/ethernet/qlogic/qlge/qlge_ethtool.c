@@ -49,6 +49,9 @@ static int ql_update_ring_coalescing(struct ql_adapter *qdev)
 	if (!netif_running(qdev->ndev))
 		return status;
 
+	/* Skip the default queue, and update the outbound handler
+	 * queues if they changed.
+	 */
 	cqicb = (struct cqicb *)&qdev->rx_ring[qdev->rss_ring_count];
 	if (le16_to_cpu(cqicb->irq_delay) != qdev->tx_coalesce_usecs ||
 		le16_to_cpu(cqicb->pkt_delay) !=
@@ -70,7 +73,7 @@ static int ql_update_ring_coalescing(struct ql_adapter *qdev)
 		}
 	}
 
-	
+	/* Update the inbound (RSS) handler queues if they changed. */
 	cqicb = (struct cqicb *)&qdev->rx_ring[0];
 	if (le16_to_cpu(cqicb->irq_delay) != qdev->rx_coalesce_usecs ||
 		le16_to_cpu(cqicb->pkt_delay) !=
@@ -107,6 +110,9 @@ static void ql_update_stats(struct ql_adapter *qdev)
 				  "Couldn't get xgmac sem.\n");
 		goto quit;
 	}
+	/*
+	 * Get TX statistics.
+	 */
 	for (i = 0x200; i < 0x280; i += 8) {
 		if (ql_read_xgmac_reg64(qdev, i, &data)) {
 			netif_err(qdev, drv, qdev->ndev,
@@ -118,6 +124,9 @@ static void ql_update_stats(struct ql_adapter *qdev)
 		iter++;
 	}
 
+	/*
+	 * Get RX statistics.
+	 */
 	for (i = 0x300; i < 0x3d0; i += 8) {
 		if (ql_read_xgmac_reg64(qdev, i, &data)) {
 			netif_err(qdev, drv, qdev->ndev,
@@ -129,6 +138,9 @@ static void ql_update_stats(struct ql_adapter *qdev)
 		iter++;
 	}
 
+	/*
+	 * Get Per-priority TX pause frame counter statistics.
+	 */
 	for (i = 0x500; i < 0x540; i += 8) {
 		if (ql_read_xgmac_reg64(qdev, i, &data)) {
 			netif_err(qdev, drv, qdev->ndev,
@@ -140,6 +152,9 @@ static void ql_update_stats(struct ql_adapter *qdev)
 		iter++;
 	}
 
+	/*
+	 * Get Per-priority RX pause frame counter statistics.
+	 */
 	for (i = 0x568; i < 0x5a8; i += 8) {
 		if (ql_read_xgmac_reg64(qdev, i, &data)) {
 			netif_err(qdev, drv, qdev->ndev,
@@ -151,6 +166,9 @@ static void ql_update_stats(struct ql_adapter *qdev)
 		iter++;
 	}
 
+	/*
+	 * Get RX NIC FIFO DROP statistics.
+	 */
 	if (ql_read_xgmac_reg64(qdev, 0x5b8, &data)) {
 		netif_err(qdev, drv, qdev->ndev,
 			  "Error reading status register 0x%.04x.\n", i);
@@ -370,9 +388,9 @@ static void ql_get_drvinfo(struct net_device *ndev,
 static void ql_get_wol(struct net_device *ndev, struct ethtool_wolinfo *wol)
 {
 	struct ql_adapter *qdev = netdev_priv(ndev);
-	
+	/* What we support. */
 	wol->supported = WAKE_MAGIC;
-	
+	/* What we've currently got set. */
 	wol->wolopts = qdev->wol;
 }
 
@@ -405,16 +423,16 @@ static int ql_set_phys_id(struct net_device *ndev,
 
 	switch (state) {
 	case ETHTOOL_ID_ACTIVE:
-		
+		/* Save the current LED settings */
 		if (ql_mb_get_led_cfg(qdev))
 			return -EIO;
 
-		
+		/* Start blinking */
 		ql_mb_set_led_cfg(qdev, QL_LED_BLINK);
 		return 0;
 
 	case ETHTOOL_ID_INACTIVE:
-		
+		/* Restore LED settings */
 		if (ql_mb_set_led_cfg(qdev, qdev->led_config))
 			return -EIO;
 		return 0;
@@ -488,7 +506,7 @@ static int ql_run_loopback_test(struct ql_adapter *qdev)
 			return -EPIPE;
 		atomic_inc(&qdev->lb_count);
 	}
-	
+	/* Give queue time to settle before testing results. */
 	msleep(2);
 	ql_clean_lb_rx_ring(&qdev->rx_ring[0], 128);
 	return atomic_read(&qdev->lb_count) ? -EIO : 0;
@@ -513,15 +531,18 @@ static void ql_self_test(struct net_device *ndev,
 	if (netif_running(ndev)) {
 		set_bit(QL_SELFTEST, &qdev->flags);
 		if (eth_test->flags == ETH_TEST_FL_OFFLINE) {
-			
+			/* Offline tests */
 			if (ql_loopback_test(qdev, &data[0]))
 				eth_test->flags |= ETH_TEST_FL_FAILED;
 
 		} else {
-			
+			/* Online tests */
 			data[0] = 0;
 		}
 		clear_bit(QL_SELFTEST, &qdev->flags);
+		/* Give link time to come up after
+		 * port configuration changes.
+		 */
 		msleep_interruptible(4 * 1000);
 	} else {
 		netif_err(qdev, drv, qdev->ndev,
@@ -560,6 +581,16 @@ static int ql_get_coalesce(struct net_device *dev, struct ethtool_coalesce *c)
 	c->rx_coalesce_usecs = qdev->rx_coalesce_usecs;
 	c->tx_coalesce_usecs = qdev->tx_coalesce_usecs;
 
+	/* This chip coalesces as follows:
+	 * If a packet arrives, hold off interrupts until
+	 * cqicb->int_delay expires, but if no other packets arrive don't
+	 * wait longer than cqicb->pkt_int_delay. But ethtool doesn't use a
+	 * timer to coalesce on a frame basis.  So, we have to take ethtool's
+	 * max_coalesced_frames value and convert it to a delay in microseconds.
+	 * We do this by using a basic thoughput of 1,000,000 frames per
+	 * second @ (1024 bytes).  This means one frame per usec. So it's a
+	 * simple one to one ratio.
+	 */
 	c->rx_max_coalesced_frames = qdev->rx_max_coalesced_frames;
 	c->tx_max_coalesced_frames = qdev->tx_max_coalesced_frames;
 
@@ -570,10 +601,10 @@ static int ql_set_coalesce(struct net_device *ndev, struct ethtool_coalesce *c)
 {
 	struct ql_adapter *qdev = netdev_priv(ndev);
 
-	
+	/* Validate user parameters. */
 	if (c->rx_coalesce_usecs > qdev->rx_ring_size / 2)
 		return -EINVAL;
-       
+       /* Don't wait more than 10 usec. */
 	if (c->rx_max_coalesced_frames > MAX_INTER_FRAME_WAIT)
 		return -EINVAL;
 	if (c->tx_coalesce_usecs > qdev->tx_ring_size / 2)
@@ -581,7 +612,7 @@ static int ql_set_coalesce(struct net_device *ndev, struct ethtool_coalesce *c)
 	if (c->tx_max_coalesced_frames > MAX_INTER_FRAME_WAIT)
 		return -EINVAL;
 
-	
+	/* Verify a change took place before updating the hardware. */
 	if (qdev->rx_coalesce_usecs == c->rx_coalesce_usecs &&
 	    qdev->tx_coalesce_usecs == c->tx_coalesce_usecs &&
 	    qdev->rx_max_coalesced_frames == c->rx_max_coalesced_frames &&

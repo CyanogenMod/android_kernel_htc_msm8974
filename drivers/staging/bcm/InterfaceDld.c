@@ -2,12 +2,12 @@
 
 int InterfaceFileDownload(PVOID arg, struct file *flp, unsigned int on_chip_loc)
 {
-	
+	/* unsigned int reg = 0; */
 	mm_segment_t oldfs = {0};
-	int errno = 0, len = 0; 
+	int errno = 0, len = 0; /* ,is_config_file = 0 */
 	loff_t pos = 0;
 	PS_INTERFACE_ADAPTER psIntfAdapter = (PS_INTERFACE_ADAPTER)arg;
-	
+	/* PMINI_ADAPTER Adapter = psIntfAdapter->psAdapter; */
 	char *buff = kmalloc(MAX_TRANSFER_CTRL_BYTE_USB, GFP_KERNEL);
 
 	if (!buff)
@@ -34,6 +34,10 @@ int InterfaceFileDownload(PVOID arg, struct file *flp, unsigned int on_chip_loc)
 			}
 			break;
 		}
+		/* BCM_DEBUG_PRINT_BUFFER(Adapter,DBG_TYPE_INITEXIT, MP_INIT,
+		 *			  DBG_LVL_ALL, buff,
+		 *			  MAX_TRANSFER_CTRL_BYTE_USB);
+		 */
 		errno = InterfaceWRM(psIntfAdapter, on_chip_loc, buff, len);
 		if (errno) {
 			BCM_DEBUG_PRINT(psIntfAdapter->psAdapter,
@@ -120,7 +124,7 @@ int InterfaceFileReadbackFromChip(PVOID arg, struct file *flp, unsigned int on_c
 			}
 		}
 		on_chip_loc += MAX_TRANSFER_CTRL_BYTE_USB;
-	} 
+	} /* End of while(1) */
 
 exit:
 	kfree(buff);
@@ -149,10 +153,10 @@ static int bcm_download_config_file(PMINI_ADAPTER Adapter, FIRMWARE_INFO *psFwIn
 		return -EFAULT;
 	}
 
-	
+	/* Parse the structure and then Download the Firmware */
 	beceem_parse_target_struct(Adapter);
 
-	
+	/* Initializing the NVM. */
 	BcmInitNVM(Adapter);
 	retval = InitLedSettings(Adapter);
 
@@ -172,7 +176,7 @@ static int bcm_download_config_file(PMINI_ADAPTER Adapter, FIRMWARE_INFO *psFwIn
 		wake_up(&Adapter->LEDInfo.notify_led_event);
 	}
 
-	
+	/* Initialize the DDR Controller */
 	retval = ddr_init(Adapter);
 	if (retval) {
 		BCM_DEBUG_PRINT (Adapter, DBG_TYPE_INITEXIT, MP_INIT, DBG_LVL_ALL, "DDR Init Failed\n");
@@ -230,14 +234,18 @@ int bcm_ioctl_fw_download(PMINI_ADAPTER Adapter, FIRMWARE_INFO *psFwInfo)
 	int retval = STATUS_SUCCESS;
 	PUCHAR buff = NULL;
 
+	/* Config File is needed for the Driver to download the Config file and
+	 * Firmware. Check for the Config file to be first to be sent from the
+	 * Application
+	 */
 	atomic_set(&Adapter->uiMBupdate, FALSE);
 	if (!Adapter->bCfgDownloaded && psFwInfo->u32StartingAddress != CONFIG_BEGIN_ADDR) {
-		
+		/* Can't Download Firmware. */
 		BCM_DEBUG_PRINT(Adapter, DBG_TYPE_INITEXIT, MP_INIT, DBG_LVL_ALL, "Download the config File first\n");
 		return -EINVAL;
 	}
 
-	
+	/* If Config File, Finish the DDR Settings and then Download CFG File */
 	if (psFwInfo->u32StartingAddress == CONFIG_BEGIN_ADDR) {
 		retval = bcm_download_config_file(Adapter, psFwInfo);
 	} else {
@@ -321,7 +329,7 @@ static INT buffRdbkVerify(PMINI_ADAPTER Adapter, PUCHAR mappedbuffer, UINT u32Fi
 		u32FirmwareLength -= len;
 		mappedbuffer += len;
 
-	} 
+	} /* end of while (u32FirmwareLength && !retval) */
 	kfree(readbackbuff);
 	return retval;
 }

@@ -14,6 +14,11 @@
  *
  */
 
+/*
+ * Revised by AKM 2009/04/02
+ * Revised by Motorola 2010/05/27
+ *
+ */
 
 #include <linux/interrupt.h>
 #include <linux/i2c.h>
@@ -50,6 +55,10 @@ struct akm8975_data {
 #endif
 };
 
+/*
+* Because misc devices can not carry a pointer from driver register to
+* open, we keep this global. This limits the driver to a single instance.
+*/
 struct akm8975_data *akmd_data;
 
 static DECLARE_WAIT_QUEUE_HEAD(open_wq);
@@ -145,7 +154,7 @@ static void akm8975_ecs_report_value(struct akm8975_data *akm, short *rbuf)
 				 rbuf[9], rbuf[10], rbuf[11]);
 #endif
 	mutex_lock(&akm->flags_lock);
-	
+	/* Report magnetic sensor information */
 	if (m_flag) {
 		input_report_abs(data->input_dev, ABS_RX, rbuf[0]);
 		input_report_abs(data->input_dev, ABS_RY, rbuf[1]);
@@ -153,7 +162,7 @@ static void akm8975_ecs_report_value(struct akm8975_data *akm, short *rbuf)
 		input_report_abs(data->input_dev, ABS_RUDDER, rbuf[4]);
 	}
 
-	
+	/* Report acceleration sensor information */
 	if (a_flag) {
 		input_report_abs(data->input_dev, ABS_X, rbuf[6]);
 		input_report_abs(data->input_dev, ABS_Y, rbuf[7]);
@@ -161,7 +170,7 @@ static void akm8975_ecs_report_value(struct akm8975_data *akm, short *rbuf)
 		input_report_abs(data->input_dev, ABS_WHEEL, rbuf[5]);
 	}
 
-	
+	/* Report temperature information */
 	if (t_flag)
 		input_report_abs(data->input_dev, ABS_THROTTLE, rbuf[3]);
 
@@ -400,6 +409,7 @@ static int akmd_ioctl(struct inode *inode, struct file *file, unsigned int cmd,
 	return 0;
 }
 
+/* needed to clear the int. pin */
 static void akm_work_func(struct work_struct *work)
 {
 	struct akm8975_data *akm =
@@ -452,6 +462,8 @@ static int akm8975_suspend(struct i2c_client *client, pm_message_t mesg)
 #if AK8975DRV_CALL_DBG
 	pr_info("%s\n", __func__);
 #endif
+	/* TO DO: might need more work after power mgmt
+	   is enabled */
 	return akm8975_power_off(akm);
 }
 
@@ -462,6 +474,8 @@ static int akm8975_resume(struct i2c_client *client)
 #if AK8975DRV_CALL_DBG
 	pr_info("%s\n", __func__);
 #endif
+	/* TO DO: might need more work after power mgmt
+	   is enabled */
 	return akm8975_power_on(akm);
 }
 
@@ -596,29 +610,29 @@ int akm8975_probe(struct i2c_client *client,
 
 	set_bit(EV_ABS, akm->input_dev->evbit);
 
-	
+	/* yaw */
 	input_set_abs_params(akm->input_dev, ABS_RX, 0, 23040, 0, 0);
-	
+	/* pitch */
 	input_set_abs_params(akm->input_dev, ABS_RY, -11520, 11520, 0, 0);
-	
+	/* roll */
 	input_set_abs_params(akm->input_dev, ABS_RZ, -5760, 5760, 0, 0);
-	
+	/* x-axis acceleration */
 	input_set_abs_params(akm->input_dev, ABS_X, -5760, 5760, 0, 0);
-	
+	/* y-axis acceleration */
 	input_set_abs_params(akm->input_dev, ABS_Y, -5760, 5760, 0, 0);
-	
+	/* z-axis acceleration */
 	input_set_abs_params(akm->input_dev, ABS_Z, -5760, 5760, 0, 0);
-	
+	/* temparature */
 	input_set_abs_params(akm->input_dev, ABS_THROTTLE, -30, 85, 0, 0);
-	
+	/* status of magnetic sensor */
 	input_set_abs_params(akm->input_dev, ABS_RUDDER, 0, 3, 0, 0);
-	
+	/* status of acceleration sensor */
 	input_set_abs_params(akm->input_dev, ABS_WHEEL, 0, 3, 0, 0);
-	
+	/* x-axis of raw magnetic vector */
 	input_set_abs_params(akm->input_dev, ABS_HAT0X, -20480, 20479, 0, 0);
-	
+	/* y-axis of raw magnetic vector */
 	input_set_abs_params(akm->input_dev, ABS_HAT0Y, -20480, 20479, 0, 0);
-	
+	/* z-axis of raw magnetic vector */
 	input_set_abs_params(akm->input_dev, ABS_BRAKE, -20480, 20479, 0, 0);
 
 	akm->input_dev->name = "compass";

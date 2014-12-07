@@ -10,6 +10,7 @@
  * GNU General Public License for more details.
  */
 
+/* OF helpers for SLIMbus */
 #include <linux/slimbus/slimbus.h>
 #include <linux/irq.h>
 #include <linux/slab.h>

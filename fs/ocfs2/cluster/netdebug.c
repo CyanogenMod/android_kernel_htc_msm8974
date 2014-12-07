@@ -87,11 +87,11 @@ static struct o2net_send_tracking
 
 	list_for_each_entry(nst, &nst_start->st_net_debug_item,
 			    st_net_debug_item) {
-		
+		/* discover the head of the list */
 		if (&nst->st_net_debug_item == &send_tracking)
 			break;
 
-		
+		/* use st_task to detect real nsts in the list */
 		if (nst->st_task != NULL) {
 			ret = nst;
 			break;
@@ -124,7 +124,7 @@ static void *nst_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 			 &nst->st_net_debug_item);
 	spin_unlock(&o2net_debug_lock);
 
-	return nst; 
+	return nst; /* unused, just needs to be null when done */
 }
 
 static int nst_seq_show(struct seq_file *seq, void *v)
@@ -143,7 +143,7 @@ static int nst_seq_show(struct seq_file *seq, void *v)
 	send = ktime_to_us(ktime_sub(now, nst->st_send_time));
 	status = ktime_to_us(ktime_sub(now, nst->st_status_time));
 
-	
+	/* get_task_comm isn't exported.  oh well. */
 	seq_printf(seq, "%p:\n"
 		   "  pid:          %lu\n"
 		   "  tgid:         %lu\n"
@@ -254,11 +254,11 @@ static struct o2net_sock_container
 
 	list_for_each_entry(sc, &sc_start->sc_net_debug_item,
 			    sc_net_debug_item) {
-		
+		/* discover the head of the list miscast as a sc */
 		if (&sc->sc_net_debug_item == &sock_containers)
 			break;
 
-		
+		/* use sc_page to detect real scs in the list */
 		if (sc->sc_page != NULL) {
 			ret = sc;
 			break;
@@ -292,7 +292,7 @@ static void *sc_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 		list_add(&dummy_sc->sc_net_debug_item, &sc->sc_net_debug_item);
 	spin_unlock(&o2net_debug_lock);
 
-	return sc; 
+	return sc; /* unused, just needs to be null when done */
 }
 
 #ifdef CONFIG_OCFS2_FS_STATS
@@ -311,6 +311,7 @@ static void *sc_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 # define sc_tv_process_total_ns(_s)	(0LL)
 #endif
 
+/* So that debugfs.ocfs2 can determine which format is being used */
 #define O2NET_STATS_STR_VERSION		1
 static void sc_show_sock_stats(struct seq_file *seq,
 			       struct o2net_sock_container *sc)
@@ -339,13 +340,15 @@ static void sc_show_sock_container(struct seq_file *seq,
 
 	if (sc->sc_sock) {
 		inet = inet_sk(sc->sc_sock->sk);
-		
+		/* the stack's structs aren't sparse endian clean */
 		saddr = (__force __be32)inet->inet_saddr;
 		daddr = (__force __be32)inet->inet_daddr;
 		sport = (__force __be16)inet->inet_sport;
 		dport = (__force __be16)inet->inet_dport;
 	}
 
+	/* XXX sigh, inet-> doesn't have sparse annotation so any
+	 * use of it here generates a warning with -Wbitwise */
 	seq_printf(seq, "%p:\n"
 		   "  krefs:           %d\n"
 		   "  sock:            %pI4:%u -> "
@@ -573,4 +576,4 @@ int o2net_debugfs_init(void)
 	return -ENOMEM;
 }
 
-#endif	
+#endif	/* CONFIG_DEBUG_FS */

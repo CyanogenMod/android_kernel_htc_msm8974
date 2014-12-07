@@ -23,6 +23,7 @@
 
 #include <mach/w90p910_keypad.h>
 
+/* Keypad Interface Control Registers */
 #define KPI_CONF		0x00
 #define KPI_3KCONF		0x04
 #define KPI_LPCONF		0x08
@@ -92,7 +93,7 @@ static int w90p910_keypad_open(struct input_dev *dev)
 	const struct w90p910_keypad_platform_data *pdata = keypad->pdata;
 	unsigned int val, config;
 
-	
+	/* Enable unit clock */
 	clk_enable(keypad->clk);
 
 	val = __raw_readl(keypad->mmio_base + KPI_CONF);
@@ -112,7 +113,7 @@ static void w90p910_keypad_close(struct input_dev *dev)
 {
 	struct w90p910_keypad *keypad = input_get_drvdata(dev);
 
-	
+	/* Disable clock unit */
 	clk_disable(keypad->clk);
 }
 
@@ -180,7 +181,7 @@ static int __devinit w90p910_keypad_probe(struct platform_device *pdev)
 		goto failed_free_io;
 	}
 
-	
+	/* set multi-function pin for w90p910 kpi. */
 	mfp_set_groupi(&pdev->dev);
 
 	input_dev->name = pdev->name;
@@ -208,7 +209,7 @@ static int __devinit w90p910_keypad_probe(struct platform_device *pdev)
 		goto failed_put_clk;
 	}
 
-	
+	/* Register the input device */
 	error = input_register_device(input_dev);
 	if (error) {
 		dev_err(&pdev->dev, "failed to register input device\n");

@@ -45,10 +45,16 @@ static int __init dove_pcie_setup(int nr, struct pci_sys_data *sys)
 	pp = &pcie_port[nr];
 	pp->root_bus_nr = sys->busnr;
 
+	/*
+	 * Generic PCIe unit setup.
+	 */
 	orion_pcie_set_local_bus_nr(pp->base, sys->busnr);
 
 	orion_pcie_setup(pp->base);
 
+	/*
+	 * IORESOURCE_IO
+	 */
 	snprintf(pp->io_space_name, sizeof(pp->io_space_name),
 		 "PCIe %d I/O", pp->index);
 	pp->io_space_name[sizeof(pp->io_space_name) - 1] = 0;
@@ -65,6 +71,9 @@ static int __init dove_pcie_setup(int nr, struct pci_sys_data *sys)
 		panic("Request PCIe IO resource failed\n");
 	pci_add_resource_offset(&sys->resources, &pp->res[0], sys->io_offset);
 
+	/*
+	 * IORESOURCE_MEM
+	 */
 	snprintf(pp->mem_space_name, sizeof(pp->mem_space_name),
 		 "PCIe %d MEM", pp->index);
 	pp->mem_space_name[sizeof(pp->mem_space_name) - 1] = 0;
@@ -99,6 +108,10 @@ static struct pcie_port *bus_to_port(int bus)
 
 static int pcie_valid_config(struct pcie_port *pp, int bus, int dev)
 {
+	/*
+	 * Don't go out when trying to access nonexisting devices
+	 * on the local bus.
+	 */
 	if (bus == pp->root_bus_nr && dev > 1)
 		return 0;
 
@@ -148,6 +161,9 @@ static struct pci_ops pcie_ops = {
 
 static void __devinit rc_pci_fixup(struct pci_dev *dev)
 {
+	/*
+	 * Prevent enumeration of root complex.
+	 */
 	if (dev->bus->parent == NULL && dev->devfn == 0) {
 		int i;
 

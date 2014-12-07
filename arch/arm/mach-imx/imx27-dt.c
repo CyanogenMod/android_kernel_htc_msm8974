@@ -29,7 +29,7 @@ static const struct of_dev_auxdata imx27_auxdata_lookup[] __initconst = {
 	OF_DEV_AUXDATA("fsl,imx27-cspi", MX27_CSPI2_BASE_ADDR, "imx27-cspi.1", NULL),
 	OF_DEV_AUXDATA("fsl,imx27-cspi", MX27_CSPI3_BASE_ADDR, "imx27-cspi.2", NULL),
 	OF_DEV_AUXDATA("fsl,imx27-wdt", MX27_WDOG_BASE_ADDR, "imx2-wdt.0", NULL),
-	{  }
+	{ /* sentinel */ }
 };
 
 static int __init imx27_avic_add_irq_domain(struct device_node *np,
@@ -54,7 +54,7 @@ static int __init imx27_gpio_add_irq_domain(struct device_node *np,
 static const struct of_device_id imx27_irq_match[] __initconst = {
 	{ .compatible = "fsl,imx27-avic", .data = imx27_avic_add_irq_domain, },
 	{ .compatible = "fsl,imx27-gpio", .data = imx27_gpio_add_irq_domain, },
-	{  }
+	{ /* sentinel */ }
 };
 
 static void __init imx27_dt_init(void)

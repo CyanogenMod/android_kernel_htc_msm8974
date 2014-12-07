@@ -39,6 +39,7 @@
 
 #define MX3FB_REG_OFFSET	0xB4
 
+/* SDC Registers */
 #define SDC_COM_CONF		(0xB4 - MX3FB_REG_OFFSET)
 #define SDC_GW_CTRL		(0xB8 - MX3FB_REG_OFFSET)
 #define SDC_FG_POS		(0xBC - MX3FB_REG_OFFSET)
@@ -51,6 +52,7 @@
 #define SDC_SHARP_CONF_1	(0xD8 - MX3FB_REG_OFFSET)
 #define SDC_SHARP_CONF_2	(0xDC - MX3FB_REG_OFFSET)
 
+/* Register bits */
 #define SDC_COM_TFT_COLOR	0x00000001UL
 #define SDC_COM_FG_EN		0x00000010UL
 #define SDC_COM_GWSEL		0x00000020UL
@@ -61,6 +63,7 @@
 
 #define SDC_V_SYNC_WIDTH_L	0x00000001UL
 
+/* Display Interface registers */
 #define DI_DISP_IF_CONF		(0x0124 - MX3FB_REG_OFFSET)
 #define DI_DISP_SIG_POL		(0x0128 - MX3FB_REG_OFFSET)
 #define DI_SER_DISP1_CONF	(0x012C - MX3FB_REG_OFFSET)
@@ -101,12 +104,14 @@
 #define DI_DISP_LLA_CONF	(0x01B8 - MX3FB_REG_OFFSET)
 #define DI_DISP_LLA_DATA	(0x01BC - MX3FB_REG_OFFSET)
 
+/* DI_DISP_SIG_POL bits */
 #define DI_D3_VSYNC_POL_SHIFT		28
 #define DI_D3_HSYNC_POL_SHIFT		27
 #define DI_D3_DRDY_SHARP_POL_SHIFT	26
 #define DI_D3_CLK_POL_SHIFT		25
 #define DI_D3_DATA_POL_SHIFT		24
 
+/* DI_DISP_IF_CONF bits */
 #define DI_D3_CLK_IDLE_SHIFT		26
 #define DI_D3_CLK_SEL_SHIFT		25
 #define DI_D3_DATAMSK_SHIFT		24
@@ -120,16 +125,16 @@ struct ipu_di_signal_cfg {
 	unsigned datamask_en:1;
 	unsigned clksel_en:1;
 	unsigned clkidle_en:1;
-	unsigned data_pol:1;	
-	unsigned clk_pol:1;	
+	unsigned data_pol:1;	/* true = inverted */
+	unsigned clk_pol:1;	/* true = rising edge */
 	unsigned enable_pol:1;
-	unsigned Hsync_pol:1;	
+	unsigned Hsync_pol:1;	/* true = active high */
 	unsigned Vsync_pol:1;
 };
 
 static const struct fb_videomode mx3fb_modedb[] = {
 	{
-		
+		/* 240x320 @ 60 Hz */
 		.name		= "Sharp-QVGA",
 		.refresh	= 60,
 		.xres		= 240,
@@ -147,7 +152,7 @@ static const struct fb_videomode mx3fb_modedb[] = {
 		.vmode		= FB_VMODE_NONINTERLACED,
 		.flag		= 0,
 	}, {
-		
+		/* 240x33 @ 60 Hz */
 		.name		= "Sharp-CLI",
 		.refresh	= 60,
 		.xres		= 240,
@@ -165,7 +170,7 @@ static const struct fb_videomode mx3fb_modedb[] = {
 		.vmode		= FB_VMODE_NONINTERLACED,
 		.flag		= 0,
 	}, {
-		
+		/* 640x480 @ 60 Hz */
 		.name		= "NEC-VGA",
 		.refresh	= 60,
 		.xres		= 640,
@@ -181,7 +186,7 @@ static const struct fb_videomode mx3fb_modedb[] = {
 		.vmode		= FB_VMODE_NONINTERLACED,
 		.flag		= 0,
 	}, {
-		
+		/* NTSC TV output */
 		.name		= "TV-NTSC",
 		.refresh	= 60,
 		.xres		= 640,
@@ -197,7 +202,7 @@ static const struct fb_videomode mx3fb_modedb[] = {
 		.vmode		= FB_VMODE_NONINTERLACED,
 		.flag		= 0,
 	}, {
-		
+		/* PAL TV output */
 		.name		= "TV-PAL",
 		.refresh	= 50,
 		.xres		= 640,
@@ -213,7 +218,7 @@ static const struct fb_videomode mx3fb_modedb[] = {
 		.vmode		= FB_VMODE_NONINTERLACED,
 		.flag		= 0,
 	}, {
-		
+		/* TV output VGA mode, 640x480 @ 65 Hz */
 		.name		= "TV-VGA",
 		.refresh	= 60,
 		.xres		= 640,
@@ -248,6 +253,7 @@ struct dma_chan_request {
 	enum ipu_channel	id;
 };
 
+/* MX3 specific framebuffer information. */
 struct mx3fb_info {
 	int				blank;
 	enum ipu_channel		ipu_ch;
@@ -256,18 +262,19 @@ struct mx3fb_info {
 	u32				pseudo_palette[16];
 
 	struct completion		flip_cmpl;
-	struct mutex			mutex;	
+	struct mutex			mutex;	/* Protects fb-ops */
 	struct mx3fb_data		*mx3fb;
 	struct idmac_channel		*idmac_channel;
 	struct dma_async_tx_descriptor	*txd;
 	dma_cookie_t			cookie;
 	struct scatterlist		sg[2];
 
-	u32				sync;	
+	u32				sync;	/* preserve var->sync flags */
 };
 
 static void mx3fb_dma_done(void *);
 
+/* Used fb-mode and bpp. Can be set on kernel command line, therefore file-static. */
 static const char *fb_mode;
 static unsigned long default_bpp = 16;
 
@@ -301,6 +308,7 @@ static void sdc_fb_init(struct mx3fb_info *fbi)
 	mx3fb_write_reg(mx3fb, reg | SDC_COM_BG_EN, SDC_COM_CONF);
 }
 
+/* Returns enabled flag before uninit */
 static uint32_t sdc_fb_uninit(struct mx3fb_info *fbi)
 {
 	struct mx3fb_data *mx3fb = fbi->mx3fb;
@@ -327,7 +335,7 @@ static void sdc_enable_channel(struct mx3fb_info *mx3_fbi)
 	else
 		dev_dbg(mx3fb->dev, "mx3fbi %p, txd = NULL\n", mx3_fbi);
 
-	
+	/* This enables the channel */
 	if (mx3_fbi->cookie < 0) {
 		mx3_fbi->txd = dmaengine_prep_slave_sg(dma_chan,
 		      &mx3_fbi->sg[0], 1, DMA_MEM_TO_DEV, DMA_PREP_INTERRUPT);
@@ -350,7 +358,7 @@ static void sdc_enable_channel(struct mx3fb_info *mx3_fbi)
 			return;
 		}
 
-		
+		/* Just re-activate the same buffer */
 		dma_async_issue_pending(dma_chan);
 		cookie = mx3_fbi->cookie;
 		dev_dbg(mx3fb->dev, "%d: Re-submit %p #%d [%c]\n", __LINE__,
@@ -364,6 +372,11 @@ static void sdc_enable_channel(struct mx3fb_info *mx3_fbi)
 		spin_unlock_irqrestore(&mx3fb->lock, flags);
 	}
 
+	/*
+	 * Attention! Without this msleep the channel keeps generating
+	 * interrupts. Next sdc_set_brightness() is going to be called
+	 * from mx3fb_blank().
+	 */
 	msleep(2);
 }
 
@@ -388,6 +401,14 @@ static void sdc_disable_channel(struct mx3fb_info *mx3_fbi)
 	mx3_fbi->cookie = -EINVAL;
 }
 
+/**
+ * sdc_set_window_pos() - set window position of the respective plane.
+ * @mx3fb:	mx3fb context.
+ * @channel:	IPU DMAC channel ID.
+ * @x_pos:	X coordinate relative to the top left corner to place window at.
+ * @y_pos:	Y coordinate relative to the top left corner to place window at.
+ * @return:	0 on success or negative error code on failure.
+ */
 static int sdc_set_window_pos(struct mx3fb_data *mx3fb, enum ipu_channel channel,
 			      int16_t x_pos, int16_t y_pos)
 {
@@ -401,6 +422,26 @@ static int sdc_set_window_pos(struct mx3fb_data *mx3fb, enum ipu_channel channel
 	return 0;
 }
 
+/**
+ * sdc_init_panel() - initialize a synchronous LCD panel.
+ * @mx3fb:		mx3fb context.
+ * @panel:		panel type.
+ * @pixel_clk:		desired pixel clock frequency in Hz.
+ * @width:		width of panel in pixels.
+ * @height:		height of panel in pixels.
+ * @h_start_width:	number of pixel clocks between the HSYNC signal pulse
+ *			and the start of valid data.
+ * @h_sync_width:	width of the HSYNC signal in units of pixel clocks.
+ * @h_end_width:	number of pixel clocks between the end of valid data
+ *			and the HSYNC signal for next line.
+ * @v_start_width:	number of lines between the VSYNC signal pulse and the
+ *			start of valid data.
+ * @v_sync_width:	width of the VSYNC signal in units of lines
+ * @v_end_width:	number of lines between the end of valid data and the
+ *			VSYNC signal for next frame.
+ * @sig:		bitfield of signal polarities for LCD interface.
+ * @return:		0 on success or negative error code on failure.
+ */
 static int sdc_init_panel(struct mx3fb_data *mx3fb, enum ipu_panel panel,
 			  uint32_t pixel_clk,
 			  uint16_t width, uint16_t height,
@@ -421,7 +462,7 @@ static int sdc_init_panel(struct mx3fb_data *mx3fb, enum ipu_panel panel,
 	if (v_sync_width == 0 || h_sync_width == 0)
 		return -EINVAL;
 
-	
+	/* Init panel size and blanking periods */
 	reg = ((uint32_t) (h_sync_width - 1) << 26) |
 		((uint32_t) (width + h_start_width + h_end_width - 1) << 16);
 	mx3fb_write_reg(mx3fb, reg, SDC_HOR_CONF);
@@ -454,8 +495,13 @@ static int sdc_init_panel(struct mx3fb_data *mx3fb, enum ipu_panel panel,
 		return -EINVAL;
 	}
 
-	
+	/* Init clocking */
 
+	/*
+	 * Calculate divider: fractional part is 4 bits so simply multiple by
+	 * 2^4 to get fractional part, as long as we stay under ~250MHz and on
+	 * i.MX31 it (HSP_CLK) is <= 178MHz. Currently 128.267MHz
+	 */
 	ipu_clk = clk_get(mx3fb->dev, NULL);
 	if (!IS_ERR(ipu_clk)) {
 		div = clk_get_rate(ipu_clk) * 16 / pixel_clk;
@@ -464,7 +510,7 @@ static int sdc_init_panel(struct mx3fb_data *mx3fb, enum ipu_panel panel,
 		div = 0;
 	}
 
-	if (div < 0x40) {	
+	if (div < 0x40) {	/* Divider less than 4 */
 		dev_dbg(mx3fb->dev,
 			"InitPanel() - Pixel clock divider less than 4\n");
 		div = 0x40;
@@ -475,9 +521,14 @@ static int sdc_init_panel(struct mx3fb_data *mx3fb, enum ipu_panel panel,
 
 	spin_lock_irqsave(&mx3fb->lock, lock_flags);
 
+	/*
+	 * DISP3_IF_CLK_DOWN_WR is half the divider value and 2 fraction bits
+	 * fewer. Subtract 1 extra from DISP3_IF_CLK_DOWN_WR based on timing
+	 * debug. DISP3_IF_CLK_UP_WR is 0
+	 */
 	mx3fb_write_reg(mx3fb, (((div / 8) - 1) << 22) | div, DI_DISP3_TIME_CONF);
 
-	
+	/* DI settings */
 	old_conf = mx3fb_read_reg(mx3fb, DI_DISP_IF_CONF) & 0x78FFFFFF;
 	old_conf |= sig.datamask_en << DI_D3_DATAMSK_SHIFT |
 		sig.clksel_en << DI_D3_CLK_SEL_SHIFT |
@@ -509,6 +560,14 @@ static int sdc_init_panel(struct mx3fb_data *mx3fb, enum ipu_panel panel,
 	return 0;
 }
 
+/**
+ * sdc_set_color_key() - set the transparent color key for SDC graphic plane.
+ * @mx3fb:	mx3fb context.
+ * @channel:	IPU DMAC channel ID.
+ * @enable:	boolean to enable or disable color keyl.
+ * @color_key:	24-bit RGB color to use as transparent color key.
+ * @return:	0 on success or negative error code on failure.
+ */
 static int sdc_set_color_key(struct mx3fb_data *mx3fb, enum ipu_channel channel,
 			     bool enable, uint32_t color_key)
 {
@@ -539,6 +598,14 @@ static int sdc_set_color_key(struct mx3fb_data *mx3fb, enum ipu_channel channel,
 	return 0;
 }
 
+/**
+ * sdc_set_global_alpha() - set global alpha blending modes.
+ * @mx3fb:	mx3fb context.
+ * @enable:	boolean to enable or disable global alpha blending. If disabled,
+ *		per pixel blending is used.
+ * @alpha:	global alpha value.
+ * @return:	0 on success or negative error code on failure.
+ */
 static int sdc_set_global_alpha(struct mx3fb_data *mx3fb, bool enable, uint8_t alpha)
 {
 	uint32_t reg;
@@ -565,7 +632,7 @@ static int sdc_set_global_alpha(struct mx3fb_data *mx3fb, bool enable, uint8_t a
 static void sdc_set_brightness(struct mx3fb_data *mx3fb, uint8_t value)
 {
 	dev_dbg(mx3fb->dev, "%s: value = %d\n", __func__, value);
-	
+	/* This might be board-specific */
 	mx3fb_write_reg(mx3fb, 0x03000000UL | value << 16, SDC_PWM_CTRL);
 	return;
 }
@@ -592,6 +659,11 @@ static int mx3fb_map_video_memory(struct fb_info *fbi, unsigned int mem_len,
 				  bool lock);
 static int mx3fb_unmap_video_memory(struct fb_info *fbi);
 
+/**
+ * mx3fb_set_fix() - set fixed framebuffer parameters from variable settings.
+ * @info:	framebuffer information pointer
+ * @return:	0 on success or negative error code on failure.
+ */
 static int mx3fb_set_fix(struct fb_info *fbi)
 {
 	struct fb_fix_screeninfo *fix = &fbi->fix;
@@ -620,7 +692,7 @@ static void mx3fb_dma_done(void *arg)
 
 	dev_dbg(mx3fb->dev, "irq %d callback\n", ichannel->eof_irq);
 
-	
+	/* We only need one interrupt, it will be re-enabled as needed */
 	disable_irq_nosync(ichannel->eof_irq);
 
 	complete(&mx3_fbi->flip_cmpl);
@@ -637,7 +709,7 @@ static int __set_par(struct fb_info *fbi, bool lock)
 	struct idmac_video_param *video = &ichan->params.video;
 	struct scatterlist *sg = mx3_fbi->sg;
 
-	
+	/* Total cleanup */
 	if (mx3_fbi->txd)
 		sdc_disable_channel(mx3_fbi);
 
@@ -714,6 +786,11 @@ static int __set_par(struct fb_info *fbi, bool lock)
 	return 0;
 }
 
+/**
+ * mx3fb_set_par() - set framebuffer parameters and change the operating mode.
+ * @fbi:	framebuffer information pointer.
+ * @return:	0 on success or negative error code on failure.
+ */
 static int mx3fb_set_par(struct fb_info *fbi)
 {
 	struct mx3fb_info *mx3_fbi = fbi->par;
@@ -732,6 +809,11 @@ static int mx3fb_set_par(struct fb_info *fbi)
 	return ret;
 }
 
+/**
+ * mx3fb_check_var() - check and adjust framebuffer variable parameters.
+ * @var:	framebuffer variable parameters
+ * @fbi:	framebuffer information pointer
+ */
 static int mx3fb_check_var(struct fb_var_screeninfo *var, struct fb_info *fbi)
 {
 	struct mx3fb_info *mx3_fbi = fbi->par;
@@ -818,7 +900,7 @@ static int mx3fb_check_var(struct fb_var_screeninfo *var, struct fb_info *fbi)
 	var->width = -1;
 	var->grayscale = 0;
 
-	
+	/* Preserve sync flags */
 	var->sync |= mx3_fbi->sync;
 	mx3_fbi->sync |= var->sync;
 
@@ -843,11 +925,19 @@ static int mx3fb_setcolreg(unsigned int regno, unsigned int red,
 	dev_dbg(fbi->device, "%s, regno = %u\n", __func__, regno);
 
 	mutex_lock(&mx3_fbi->mutex);
+	/*
+	 * If greyscale is true, then we convert the RGB value
+	 * to greyscale no matter what visual we are using.
+	 */
 	if (fbi->var.grayscale)
 		red = green = blue = (19595 * red + 38470 * green +
 				      7471 * blue) >> 16;
 	switch (fbi->fix.visual) {
 	case FB_VISUAL_TRUECOLOR:
+		/*
+		 * 16-bit True Colour.  We encode the RGB value
+		 * according to the RGB bitfield information.
+		 */
 		if (regno < 16) {
 			u32 *pal = fbi->pseudo_palette;
 
@@ -878,6 +968,12 @@ static void __blank(int blank, struct fb_info *fbi)
 
 	mx3_fbi->blank = blank;
 
+	/* Attention!
+	 * Do not call sdc_disable_channel() for a channel that is disabled
+	 * already! This will result in a kernel NULL pointer dereference
+	 * (mx3_fbi->txd is NULL). Hide the fact, that all blank modes are
+	 * handled equally by this driver.
+	 */
 	if (blank > FB_BLANK_UNBLANK && was_blank > FB_BLANK_UNBLANK)
 		return;
 
@@ -888,7 +984,7 @@ static void __blank(int blank, struct fb_info *fbi)
 	case FB_BLANK_NORMAL:
 		sdc_set_brightness(mx3fb, 0);
 		memset((char *)fbi->screen_base, 0, fbi->fix.smem_len);
-		
+		/* Give LCD time to update - enough for 50 and 60 Hz */
 		msleep(25);
 		sdc_disable_channel(mx3_fbi);
 		break;
@@ -899,6 +995,9 @@ static void __blank(int blank, struct fb_info *fbi)
 	}
 }
 
+/**
+ * mx3fb_blank() - blank the display.
+ */
 static int mx3fb_blank(int blank, struct fb_info *fbi)
 {
 	struct mx3fb_info *mx3_fbi = fbi->par;
@@ -916,6 +1015,13 @@ static int mx3fb_blank(int blank, struct fb_info *fbi)
 	return 0;
 }
 
+/**
+ * mx3fb_pan_display() - pan or wrap the display
+ * @var:	variable screen buffer information.
+ * @info:	framebuffer information pointer.
+ *
+ * We look only at xoffset, yoffset and the FB_VMODE_YWRAP flag
+ */
 static int mx3fb_pan_display(struct fb_var_screeninfo *var,
 			     struct fb_info *fbi)
 {
@@ -939,7 +1045,7 @@ static int mx3fb_pan_display(struct fb_var_screeninfo *var,
 
 	if (fbi->var.xoffset == var->xoffset &&
 	    fbi->var.yoffset == var->yoffset)
-		return 0;	
+		return 0;	/* No change, do nothing */
 
 	y_bottom = var->yoffset;
 
@@ -958,6 +1064,11 @@ static int mx3fb_pan_display(struct fb_var_screeninfo *var,
 	dev_dbg(fbi->device, "Updating SDC BG buf %d address=0x%08lX\n",
 		mx3_fbi->cur_ipu_buf, base);
 
+	/*
+	 * We enable the End of Frame interrupt, which will free a tx-descriptor,
+	 * which we will need for the next device_prep_slave_sg(). The
+	 * IRQ-handler will disable the IRQ again.
+	 */
 	init_completion(&mx3_fbi->flip_cmpl);
 	enable_irq(mx3_fbi->idmac_channel->eof_irq);
 
@@ -992,6 +1103,10 @@ static int mx3fb_pan_display(struct fb_var_screeninfo *var,
 	txd->callback_param	= txd;
 	txd->callback		= mx3fb_dma_done;
 
+	/*
+	 * Emulate original mx3fb behaviour: each new call to idmac_tx_submit()
+	 * should switch to another buffer
+	 */
 	cookie = txd->tx_submit(txd);
 	dev_dbg(fbi->device, "%d: Submit %p #%d\n", __LINE__, txd, cookie);
 	if (cookie < 0) {
@@ -1019,6 +1134,11 @@ static int mx3fb_pan_display(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/*
+ * This structure contains the pointers to the control functions that are
+ * invoked by the core framebuffer driver to perform operations like
+ * blitting, rectangle filling, copy regions and cursor definition.
+ */
 static struct fb_ops mx3fb_ops = {
 	.owner = THIS_MODULE,
 	.fb_set_par = mx3fb_set_par,
@@ -1032,7 +1152,14 @@ static struct fb_ops mx3fb_ops = {
 };
 
 #ifdef CONFIG_PM
+/*
+ * Power management hooks.      Note that we won't be called from IRQ context,
+ * unlike the blank functions above, so we may sleep.
+ */
 
+/*
+ * Suspends the framebuffer and blanks the screen. Power management support
+ */
 static int mx3fb_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct mx3fb_data *mx3fb = platform_get_drvdata(pdev);
@@ -1050,6 +1177,9 @@ static int mx3fb_suspend(struct platform_device *pdev, pm_message_t state)
 	return 0;
 }
 
+/*
+ * Resumes the framebuffer and unblanks the screen. Power management support
+ */
 static int mx3fb_resume(struct platform_device *pdev)
 {
 	struct mx3fb_data *mx3fb = platform_get_drvdata(pdev);
@@ -1071,7 +1201,22 @@ static int mx3fb_resume(struct platform_device *pdev)
 #define mx3fb_resume    NULL
 #endif
 
+/*
+ * Main framebuffer functions
+ */
 
+/**
+ * mx3fb_map_video_memory() - allocates the DRAM memory for the frame buffer.
+ * @fbi:	framebuffer information pointer
+ * @mem_len:	length of mapped memory
+ * @lock:	do not lock during initialisation
+ * @return:	Error code indicating success or failure
+ *
+ * This buffer is remapped into a non-cached, non-buffered, memory region to
+ * allow palette and pixel writes to occur without flushing the cache. Once this
+ * area is remapped, all virtual memory access to the video memory should occur
+ * at the new region.
+ */
 static int mx3fb_map_video_memory(struct fb_info *fbi, unsigned int mem_len,
 				  bool lock)
 {
@@ -1101,7 +1246,7 @@ static int mx3fb_map_video_memory(struct fb_info *fbi, unsigned int mem_len,
 
 	fbi->screen_size = fbi->fix.smem_len;
 
-	
+	/* Clear the screen */
 	memset((char *)fbi->screen_base, 0, fbi->fix.smem_len);
 
 	return 0;
@@ -1113,6 +1258,11 @@ err0:
 	return retval;
 }
 
+/**
+ * mx3fb_unmap_video_memory() - de-allocate frame buffer memory.
+ * @fbi:	framebuffer information pointer
+ * @return:	error code indicating success or failure
+ */
 static int mx3fb_unmap_video_memory(struct fb_info *fbi)
 {
 	dma_free_writecombine(fbi->device, fbi->fix.smem_len,
@@ -1126,13 +1276,17 @@ static int mx3fb_unmap_video_memory(struct fb_info *fbi)
 	return 0;
 }
 
+/**
+ * mx3fb_init_fbinfo() - initialize framebuffer information object.
+ * @return:	initialized framebuffer structure.
+ */
 static struct fb_info *mx3fb_init_fbinfo(struct device *dev, struct fb_ops *ops)
 {
 	struct fb_info *fbi;
 	struct mx3fb_info *mx3fbi;
 	int ret;
 
-	
+	/* Allocate sufficient memory for the fb structure */
 	fbi = framebuffer_alloc(sizeof(struct mx3fb_info), dev);
 	if (!fbi)
 		return NULL;
@@ -1149,7 +1303,7 @@ static struct fb_info *mx3fb_init_fbinfo(struct device *dev, struct fb_ops *ops)
 
 	mutex_init(&mx3fbi->mutex);
 
-	
+	/* Allocate colormap */
 	ret = fb_alloc_cmap(&fbi->cmap, 16, 0);
 	if (ret < 0) {
 		framebuffer_release(fbi);
@@ -1210,14 +1364,14 @@ static int init_fb_chan(struct mx3fb_data *mx3fb, struct idmac_channel *ichan)
 
 	fb_videomode_to_modelist(mode, num_modes, &fbi->modelist);
 
-	
+	/* Default Y virtual size is 2x panel size */
 	fbi->var.yres_virtual = fbi->var.yres * 2;
 
 	mx3fb->fbi = fbi;
 
-	
+	/* set Display Interface clock period */
 	mx3fb_write_reg(mx3fb, 0x00100010L, DI_HSP_CLK_PER);
-	
+	/* Might need to trigger HSP clock change - see 44.3.3.8.5 */
 
 	sdc_set_brightness(mx3fb, 255);
 	sdc_set_global_alpha(mx3fb, true, 0xFF);
@@ -1296,6 +1450,10 @@ static int mx3fb_probe(struct platform_device *pdev)
 	struct dma_chan *chan;
 	struct dma_chan_request rq;
 
+	/*
+	 * Display Interface (DI) and Synchronous Display Controller (SDC)
+	 * registers
+	 */
 	sdc_reg = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!sdc_reg)
 		return -EINVAL;
@@ -1314,7 +1472,7 @@ static int mx3fb_probe(struct platform_device *pdev)
 
 	pr_debug("Remapped %pR at %p\n", sdc_reg, mx3fb->reg_base);
 
-	
+	/* IDMAC interface */
 	dmaengine_get();
 
 	mx3fb->dev = dev;
@@ -1379,6 +1537,11 @@ static struct platform_driver mx3fb_driver = {
 	.resume = mx3fb_resume,
 };
 
+/*
+ * Parse user specified options (`video=mx3fb:')
+ * example:
+ * 	video=mx3fb:bpp=16
+ */
 static int __init mx3fb_setup(void)
 {
 #ifndef MODULE

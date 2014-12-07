@@ -162,7 +162,7 @@ struct mlx4_init_hca_param {
 	u8  log_mc_table_sz;
 	u8  log_mpt_sz;
 	u8  log_uar_sz;
-	u8  uar_page_sz; 
+	u8  uar_page_sz; /* log pg sz in 4k chunks */
 };
 
 struct mlx4_init_ib_param {
@@ -208,4 +208,4 @@ int mlx4_UNMAP_ICM_AUX(struct mlx4_dev *dev);
 int mlx4_NOP(struct mlx4_dev *dev);
 int mlx4_MOD_STAT_CFG(struct mlx4_dev *dev, struct mlx4_mod_stat_cfg *cfg);
 
-#endif 
+#endif /* MLX4_FW_H */

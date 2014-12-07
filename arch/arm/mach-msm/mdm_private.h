@@ -30,6 +30,7 @@ struct mdm_ops {
 	void (*image_upgrade_cb)(struct mdm_modem_drv *mdm_drv, int type);
 };
 
+/* Private mdm2 data structure */
 struct mdm_modem_drv {
 	unsigned mdm2ap_errfatal_gpio;
 	unsigned ap2mdm_errfatal_gpio;

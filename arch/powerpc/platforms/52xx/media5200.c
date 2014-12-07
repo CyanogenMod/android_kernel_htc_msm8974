@@ -36,6 +36,7 @@ static struct of_device_id mpc5200_gpio_ids[] __initdata = {
 	{}
 };
 
+/* FPGA register set */
 #define MEDIA5200_IRQ_ENABLE (0x40c)
 #define MEDIA5200_IRQ_STATUS (0x410)
 #define MEDIA5200_NUM_IRQS   (6)
@@ -85,20 +86,25 @@ void media5200_irq_cascade(unsigned int virq, struct irq_desc *desc)
 	int sub_virq, val;
 	u32 status, enable;
 
-	
+	/* Mask off the cascaded IRQ */
 	raw_spin_lock(&desc->lock);
 	chip->irq_mask(&desc->irq_data);
 	raw_spin_unlock(&desc->lock);
 
+	/* Ask the FPGA for IRQ status.  If 'val' is 0, then no irqs
+	 * are pending.  'ffs()' is 1 based */
 	status = in_be32(media5200_irq.regs + MEDIA5200_IRQ_ENABLE);
 	enable = in_be32(media5200_irq.regs + MEDIA5200_IRQ_STATUS);
 	val = ffs((status & enable) >> MEDIA5200_IRQ_SHIFT);
 	if (val) {
 		sub_virq = irq_linear_revmap(media5200_irq.irqhost, val - 1);
+		/* pr_debug("%s: virq=%i s=%.8x e=%.8x hwirq=%i subvirq=%i\n",
+		 *          __func__, virq, status, enable, val - 1, sub_virq);
+		 */
 		generic_handle_irq(sub_virq);
 	}
 
-	
+	/* Processing done; can reenable the cascade now */
 	raw_spin_lock(&desc->lock);
 	chip->irq_ack(&desc->irq_data);
 	if (!irqd_irq_disabled(&desc->irq_data))
@@ -135,15 +141,18 @@ static const struct irq_domain_ops media5200_irq_ops = {
 	.xlate = media5200_irq_xlate,
 };
 
+/*
+ * Setup Media5200 IRQ mapping
+ */
 static void __init media5200_init_irq(void)
 {
 	struct device_node *fpga_np;
 	int cascade_virq;
 
-	
+	/* First setup the regular MPC5200 interrupt controller */
 	mpc52xx_init_irq();
 
-	
+	/* Now find the FPGA IRQ */
 	fpga_np = of_find_compatible_node(NULL, NULL, "fsl,media5200-fpga");
 	if (!fpga_np)
 		goto out;
@@ -159,7 +168,7 @@ static void __init media5200_init_irq(void)
 		goto out;
 	pr_debug("%s: cascaded on virq=%i\n", __func__, cascade_virq);
 
-	
+	/* Disable all FPGA IRQs */
 	out_be32(media5200_irq.regs + MEDIA5200_IRQ_ENABLE, 0);
 
 	spin_lock_init(&media5200_irq.lock);
@@ -179,6 +188,9 @@ static void __init media5200_init_irq(void)
 	pr_err("Could not find Media5200 FPGA; PCI interrupts will not work\n");
 }
 
+/*
+ * Setup the architecture
+ */
 static void __init media5200_setup_arch(void)
 {
 
@@ -189,10 +201,10 @@ static void __init media5200_setup_arch(void)
 	if (ppc_md.progress)
 		ppc_md.progress("media5200_setup_arch()", 0);
 
-	
+	/* Map important registers from the internal memory map */
 	mpc52xx_map_common_devices();
 
-	
+	/* Some mpc5200 & mpc5200b related configuration */
 	mpc5200_setup_xlb_arbiter();
 
 	mpc52xx_setup_pci();
@@ -206,24 +218,28 @@ static void __init media5200_setup_arch(void)
 		return;
 	}
 
-	
+	/* Set port config */
 	port_config = in_be32(&gpio->port_config);
 
-	port_config &= ~0x03000000;	
+	port_config &= ~0x03000000;	/* ATA CS is on csb_4/5		*/
 	port_config |=  0x01000000;
 
 	out_be32(&gpio->port_config, port_config);
 
-	
+	/* Unmap zone */
 	iounmap(gpio);
 
 }
 
+/* list of the supported boards */
 static const char *board[] __initdata = {
 	"fsl,media5200",
 	NULL
 };
 
+/*
+ * Called very early, MMU is off, device-tree isn't unflattened
+ */
 static int __init media5200_probe(void)
 {
 	return of_flat_dt_match(of_get_flat_dt_root(), board);

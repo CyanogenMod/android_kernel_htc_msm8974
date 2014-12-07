@@ -239,6 +239,10 @@ int pas_supported(enum pas_id id)
 	if (!secure_pil)
 		return 0;
 
+	/*
+	 * 8660 SCM doesn't support querying secure PIL support so just return
+	 * true if not overridden on the command line.
+	 */
 	if (cpu_is_msm8x60())
 		return 1;
 
@@ -268,7 +272,7 @@ void scm_pas_init(enum msm_bus_fabric_master_type id)
 			scm_clocks[i] = NULL;
 	}
 
-	
+	/* Fail silently if this clock is not supported */
 	rate = clk_round_rate(scm_clocks[CORE_CLK_SRC], 1);
 	clk_set_rate(scm_clocks[CORE_CLK_SRC], rate);
 

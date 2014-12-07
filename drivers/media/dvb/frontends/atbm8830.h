@@ -30,31 +30,31 @@
 
 struct atbm8830_config {
 
-	
+	/* product type */
 	u8 prod;
 
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 
-	
+	/* parallel or serial transport stream */
 	u8 serial_ts;
 
-	
+	/* transport stream clock output only when receiving valid stream */
 	u8 ts_clk_gated;
 
-	
+	/* Decoder sample TS data at rising edge of clock */
 	u8 ts_sampling_edge;
 
-	
-	u32 osc_clk_freq; 
+	/* Oscillator clock frequency */
+	u32 osc_clk_freq; /* in kHz */
 
-	
-	u32 if_freq; 
+	/* IF frequency */
+	u32 if_freq; /* in kHz */
 
-	
+	/* Swap I/Q for zero IF */
 	u8 zif_swap_iq;
 
-	
+	/* Tuner AGC settings */
 	u8 agc_min;
 	u8 agc_max;
 	u8 agc_hold_loop;
@@ -71,6 +71,6 @@ struct dvb_frontend *atbm8830_attach(const struct atbm8830_config *config,
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_DVB_ATBM8830 */
 
-#endif 
+#endif /* __ATBM8830_H__ */

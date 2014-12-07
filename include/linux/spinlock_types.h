@@ -85,4 +85,4 @@ typedef struct spinlock {
 
 #include <linux/rwlock_types.h>
 
-#endif 
+#endif /* __LINUX_SPINLOCK_TYPES_H */

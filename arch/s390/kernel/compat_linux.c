@@ -64,6 +64,7 @@ u32 psw32_user_bits = PSW32_MASK_DAT | PSW32_MASK_IO | PSW32_MASK_EXT |
 		      PSW32_DEFAULT_KEY | PSW32_MASK_BASE | PSW32_MASK_MCHECK |
 		      PSW32_MASK_PSTATE | PSW32_ASC_HOME;
  
+/* For this source file, we want overflow handling. */
 
 #undef high2lowuid
 #undef high2lowgid
@@ -267,17 +268,22 @@ asmlinkage long sys32_getegid16(void)
 	return high2lowgid(current->cred->egid);
 }
 
+/*
+ * sys32_ipc() is the de-multiplexer for the SysV IPC calls in 32bit emulation.
+ *
+ * This is really horribly ugly.
+ */
 #ifdef CONFIG_SYSVIPC
 asmlinkage long sys32_ipc(u32 call, int first, int second, int third, u32 ptr)
 {
-	if (call >> 16)		
+	if (call >> 16)		/* hack for backward compatibility */
 		return -EINVAL;
 	switch (call) {
 	case SEMTIMEDOP:
 		return compat_sys_semtimedop(first, compat_ptr(ptr),
 					     second, compat_ptr(third));
 	case SEMOP:
-		
+		/* struct sembuf is the same on 32 and 64bit :)) */
 		return sys_semtimedop(first, compat_ptr(ptr),
 				      second, NULL);
 	case SEMGET:
@@ -406,6 +412,10 @@ sys32_rt_sigqueueinfo(int pid, int sig, compat_siginfo_t __user *uinfo)
 	return ret;
 }
 
+/*
+ * sys32_execve() executes a new program after the asm stub has set
+ * things up for us.  This should basically do what I want it to.
+ */
 asmlinkage long sys32_execve(const char __user *name, compat_uptr_t __user *argv,
 			     compat_uptr_t __user *envp)
 {
@@ -505,14 +515,14 @@ struct stat64_emu31 {
 	long            st_size;
 	u32             st_blksize;
 	unsigned char   __pad4[4];
-	u32             __pad5;     
-	u32             st_blocks;  
+	u32             __pad5;     /* future possible st_blocks high bits */
+	u32             st_blocks;  /* Number 512-byte blocks allocated. */
 	u32             st_atime;
 	u32             __pad6;
 	u32             st_mtime;
 	u32             __pad7;
 	u32             st_ctime;
-	u32             __pad8;     
+	u32             __pad8;     /* will be high 32 bits of ctime someday */
 	unsigned long   st_ino;
 };	
 
@@ -579,6 +589,11 @@ asmlinkage long sys32_fstatat64(unsigned int dfd, const char __user *filename,
 	return cp_stat64(statbuf, &stat);
 }
 
+/*
+ * Linux/i386 didn't use to be able to handle more than
+ * 4 system call parameters, so these system calls used a memory
+ * block for parameter passing..
+ */
 
 struct mmap_arg_struct_emu31 {
 	compat_ulong_t addr;
@@ -628,6 +643,11 @@ asmlinkage long sys32_write(unsigned int fd, const char __user * buf, size_t cou
 	return sys_write(fd, buf, count);
 }
 
+/*
+ * 31 bit emulation wrapper functions for sys_fadvise64/fadvise64_64.
+ * These need to rewrite the advise values for POSIX_FADV_{DONTNEED,NOREUSE}
+ * because the 31 bit values differ from the 64 bit values.
+ */
 
 asmlinkage long
 sys32_fadvise64(int fd, loff_t offset, size_t len, int advise)

@@ -20,6 +20,7 @@
 #if !defined (_W100FB_H)
 #define _W100FB_H
 
+/* Block CIF Start: */
 #define mmCHIP_ID           0x0000
 #define mmREVISION_ID       0x0004
 #define mmWRAP_BUF_A        0x0008
@@ -47,12 +48,16 @@
 #define cfgSCRATCH          0x000D
 #define cfgPM4_WRPTR_0      0x000E
 #define cfgPM4_WRPTR_1      0x000F
+/* Block CIF End: */
 
+/* Block CP Start: */
 #define mmSCRATCH_UMSK      0x0280
 #define mmSCRATCH_ADDR      0x0284
 #define mmGEN_INT_CNTL      0x0200
 #define mmGEN_INT_STATUS    0x0204
+/* Block CP End: */
 
+/* Block DISPLAY Start: */
 #define mmLCD_FORMAT        0x0410
 #define mmGRAPHIC_CTRL      0x0414
 #define mmGRAPHIC_OFFSET    0x0418
@@ -114,7 +119,9 @@
 #define mmGAMMA_SLOPE       0x0548
 #define mmGEN_STATUS        0x054C
 #define mmHW_INT            0x0550
+/* Block DISPLAY End: */
 
+/* Block GFX Start: */
 #define mmDST_OFFSET          0x1004
 #define mmDST_PITCH           0x1008
 #define mmDST_Y_X             0x1038
@@ -143,13 +150,17 @@
 #define mmDP_WRITE_MSK        0x12CC
 #define mmENG_CNTL            0x13E8
 #define mmENG_PERF_CNT        0x13F0
+/* Block GFX End: */
 
+/* Block IDCT Start: */
 #define mmIDCT_RUNS         0x0C00
 #define mmIDCT_LEVELS       0x0C04
 #define mmIDCT_CONTROL      0x0C3C
 #define mmIDCT_AUTH_CONTROL 0x0C08
 #define mmIDCT_AUTH         0x0C0C
+/* Block IDCT End: */
 
+/* Block MC Start: */
 #define mmMEM_CNTL             0x0180
 #define mmMEM_ARB              0x0184
 #define mmMC_FB_LOCATION       0x0188
@@ -164,7 +175,9 @@
 #define mmTC_MISMATCH          0x01AC
 #define mmMC_PERF_MON_CNTL     0x01B0
 #define mmMC_PERF_COUNTERS     0x01B4
+/* Block MC End: */
 
+/* Block BM Start: */
 #define mmBM_EXT_MEM_BANDWIDTH    0x0A00
 #define mmBM_OFFSET               0x0A04
 #define mmBM_MEM_EXT_TIMING_CNTL  0x0A08
@@ -178,13 +191,17 @@
 #define mmBM_PERF_COUNTERS        0x0A2C
 #define mmBM_PERF2_MON_CNTL       0x0A30
 #define mmBM_PERF2_COUNTERS       0x0A34
+/* Block BM End: */
 
+/* Block RBBM Start: */
 #define mmWAIT_UNTIL        0x1400
 #define mmISYNC_CNTL        0x1404
 #define mmRBBM_STATUS       0x0140
 #define mmRBBM_CNTL         0x0144
 #define mmNQWAIT_UNTIL      0x0150
+/* Block RBBM End: */
 
+/* Block CG Start: */
 #define mmCLK_PIN_CNTL      0x0080
 #define mmPLL_REF_FB_DIV    0x0084
 #define mmPLL_CNTL          0x0088
@@ -193,7 +210,9 @@
 #define mmCLK_TEST_CNTL     0x0094
 #define mmPWRMGT_CNTL       0x0098
 #define mmPWRMGT_STATUS     0x009C
+/* Block CG End: */
 
+/* default value definitions */
 #define defWRAP_TOP_DIR        0x00000000
 #define defWRAP_START_DIR      0x00000000
 #define defCFGREG_BASE         0x00000000
@@ -221,6 +240,7 @@
 #define CHIP_ID_W3200          0x56441002
 #define CHIP_ID_W3220          0x57441002
 
+/* Register structure definitions */
 
 struct wrap_top_dir_t {
 	u32 top_addr  : 23;
@@ -729,6 +749,7 @@ union pclk_cntl_u {
 #define TESTCLK_SRC_PLL   0x01
 #define TESTCLK_SRC_SCLK  0x02
 #define TESTCLK_SRC_PCLK  0x03
+/* 4 and 5 seem to by XTAL/M */
 #define TESTCLK_SRC_XTAL  0x06
 
 struct clk_test_cntl_t {

@@ -50,6 +50,7 @@
 #define HDMI_PLLCTRL		0x200
 #define HDMI_PHY		0x300
 
+/* HDMI EDID Length move this */
 #define HDMI_EDID_MAX_LENGTH			256
 #define EDID_TIMING_DESCRIPTOR_SIZE		0x12
 #define EDID_DESCRIPTOR_BLOCK0_ADDRESS		0x36
@@ -69,6 +70,19 @@ static struct {
 	struct clk *sys_clk;
 } hdmi;
 
+/*
+ * Logic for the below structure :
+ * user enters the CEA or VESA timings by specifying the HDMI/DVI code.
+ * There is a correspondence between CEA/VESA timing and code, please
+ * refer to section 6.3 in HDMI 1.3 specification for timing code.
+ *
+ * In the below structure, cea_vesa_timings corresponds to all OMAP4
+ * supported CEA and VESA timing values.code_cea corresponds to the CEA
+ * code, It is used to get the timing from cea_vesa_timing array.Similarly
+ * with code_vesa. Code_index is used for back mapping, that is once EDID
+ * is read from the TV, EDID is parsed to find the timing values and then
+ * map it to corresponding CEA or VESA index.
+ */
 
 static const struct hdmi_config cea_timings[] = {
 { {640, 480, 25200, 96, 16, 48, 2, 10, 33, 0, 0, 0}, {1, HDMI_HDMI} },
@@ -88,6 +102,7 @@ static const struct hdmi_config cea_timings[] = {
 { {2880, 576, 108000, 256, 48, 272, 5, 5, 39, 0, 0, 0}, {37, HDMI_HDMI} },
 };
 static const struct hdmi_config vesa_timings[] = {
+/* VESA From Here */
 { {640, 480, 25175, 96, 16, 48, 2 , 11, 31, 0, 0, 0}, {4, HDMI_DVI} },
 { {800, 600, 40000, 128, 40, 88, 4 , 1, 23, 1, 1, 0}, {9, HDMI_DVI} },
 { {848, 480, 33750, 112, 16, 112, 8 , 6, 23, 1, 1, 0}, {0xE, HDMI_DVI} },
@@ -115,6 +130,10 @@ static int hdmi_runtime_get(void)
 
 	DSSDBG("hdmi_runtime_get\n");
 
+	/*
+	 * HACK: Add dss_runtime_get() to ensure DSS clock domain is enabled.
+	 * This should be removed later.
+	 */
 	r = dss_runtime_get();
 	if (r < 0)
 		goto err_get_dss;
@@ -141,6 +160,10 @@ static void hdmi_runtime_put(void)
 	r = pm_runtime_put_sync(&hdmi.pdev->dev);
 	WARN_ON(r < 0);
 
+	/*
+	 * HACK: This is added to complement the dss_runtime_get() call in
+	 * hdmi_runtime_get(). This should be removed later.
+	 */
 	dss_runtime_put();
 }
 
@@ -233,7 +256,7 @@ end:	return cm;
 
 unsigned long hdmi_get_pixel_clock(void)
 {
-	
+	/* HDMI Pixel Clock in Mhz */
 	return hdmi.ip_data.cfg.timings.pixel_clock * 1000;
 }
 
@@ -244,6 +267,10 @@ static void hdmi_compute_pll(struct omap_dss_device *dssdev, int phy,
 	u32 mf;
 
 	clkin = clk_get_rate(hdmi.sys_clk) / 10000;
+	/*
+	 * Input clock is predivided by N + 1
+	 * out put of which is reference clk
+	 */
 	if (dssdev->clocks.hdmi.regn == 0)
 		pi->regn = HDMI_DEFAULT_REGN;
 	else
@@ -256,15 +283,28 @@ static void hdmi_compute_pll(struct omap_dss_device *dssdev, int phy,
 	else
 		pi->regm2 = dssdev->clocks.hdmi.regm2;
 
+	/*
+	 * multiplier is pixel_clk/ref_clk
+	 * Multiplying by 100 to avoid fractional part removal
+	 */
 	pi->regm = phy * pi->regm2 / refclk;
 
+	/*
+	 * fractional multiplier is remainder of the difference between
+	 * multiplier and actual phy(required pixel clock thus should be
+	 * multiplied by 2^18(262144) divided by the reference clock
+	 */
 	mf = (phy - pi->regm / pi->regm2 * refclk) * 262144;
 	pi->regmf = pi->regm2 * mf / refclk;
 
+	/*
+	 * Dcofreq should be set to 1 if required pixel clock
+	 * is greater than 1000MHz
+	 */
 	pi->dcofreq = phy > 1000 * 100;
 	pi->regsd = ((pi->regm * clkin / 10) / (pi->regn * 250) + 5) / 10;
 
-	
+	/* Set the reference clock to sysclk reference */
 	pi->refsel = HDMI_REFSEL_SYSCLK;
 
 	DSSDBG("M = %d Mf = %d\n", pi->regm, pi->regmf);
@@ -292,9 +332,9 @@ static int hdmi_power_on(struct omap_dss_device *dssdev)
 
 	timing = hdmi_get_timings();
 	if (timing == NULL) {
-		
+		/* HDMI code 4 corresponds to 640 * 480 VGA */
 		hdmi.ip_data.cfg.cm.code = 4;
-		
+		/* DVI mode 1 corresponds to HDMI 0 to DVI */
 		hdmi.ip_data.cfg.cm.mode = HDMI_DVI;
 		hdmi.ip_data.cfg = vesa_timings[0];
 	} else {
@@ -306,7 +346,7 @@ static int hdmi_power_on(struct omap_dss_device *dssdev)
 
 	hdmi.ip_data.ops->video_enable(&hdmi.ip_data, 0);
 
-	
+	/* config the PLL and PHY hdmi_set_pll_pwrfirst */
 	r = hdmi.ip_data.ops->pll_enable(&hdmi.ip_data);
 	if (r) {
 		DSSDBG("Failed to lock PLL\n");
@@ -321,15 +361,21 @@ static int hdmi_power_on(struct omap_dss_device *dssdev)
 
 	hdmi.ip_data.ops->video_configure(&hdmi.ip_data);
 
-	
+	/* Make selection of HDMI in DSS */
 	dss_select_hdmi_venc_clk_source(DSS_HDMI_M_PCLK);
 
+	/* Select the dispc clock source as PRCM clock, to ensure that it is not
+	 * DSI PLL source as the clock selected by DSI PLL might not be
+	 * sufficient for the resolution selected / that can be changed
+	 * dynamically by user. This can be moved to single location , say
+	 * Boardfile.
+	 */
 	dss_select_dispc_clk_source(dssdev->clocks.dispc.dispc_fclk_src);
 
-	
+	/* bypass TV gamma table */
 	dispc_enable_gamma_table(0);
 
-	
+	/* tv size */
 	dispc_set_digit_size(dssdev->panel.timings.x_res,
 			dssdev->panel.timings.y_res);
 
@@ -604,36 +650,39 @@ static int hdmi_audio_hw_params(struct snd_pcm_substream *substream,
 	if (err < 0)
 		return err;
 
-	
+	/* Audio wrapper config */
 	audio_format.stereo_channels = HDMI_AUDIO_STEREO_ONECHANNEL;
 	audio_format.active_chnnls_msk = 0x03;
 	audio_format.type = HDMI_AUDIO_TYPE_LPCM;
 	audio_format.sample_order = HDMI_AUDIO_SAMPLE_LEFT_FIRST;
-	
+	/* Disable start/stop signals of IEC 60958 blocks */
 	audio_format.en_sig_blk_strt_end = HDMI_AUDIO_BLOCK_SIG_STARTEND_OFF;
 
 	audio_dma.block_size = 0xC0;
 	audio_dma.mode = HDMI_AUDIO_TRANSF_DMA;
-	audio_dma.fifo_threshold = 0x20; 
+	audio_dma.fifo_threshold = 0x20; /* in number of samples */
 
 	hdmi_wp_audio_config_dma(ip_data, &audio_dma);
 	hdmi_wp_audio_config_format(ip_data, &audio_format);
 
+	/*
+	 * I2S config
+	 */
 	core_cfg.i2s_cfg.en_high_bitrate_aud = false;
-	
+	/* Only used with high bitrate audio */
 	core_cfg.i2s_cfg.cbit_order = false;
-	
+	/* Serial data and word select should change on sck rising edge */
 	core_cfg.i2s_cfg.sck_edge_mode = HDMI_AUDIO_I2S_SCK_EDGE_RISING;
 	core_cfg.i2s_cfg.vbit = HDMI_AUDIO_I2S_VBIT_FOR_PCM;
-	
+	/* Set I2S word select polarity */
 	core_cfg.i2s_cfg.ws_polarity = HDMI_AUDIO_I2S_WS_POLARITY_LOW_IS_LEFT;
 	core_cfg.i2s_cfg.direction = HDMI_AUDIO_I2S_MSB_SHIFTED_FIRST;
-	
+	/* Set serial data to word select shift. See Phillips spec. */
 	core_cfg.i2s_cfg.shift = HDMI_AUDIO_I2S_FIRST_BIT_SHIFT;
-	
+	/* Enable one of the four available serial data channels */
 	core_cfg.i2s_cfg.active_sds = HDMI_AUDIO_I2S_SD0_EN;
 
-	
+	/* Core audio config */
 	core_cfg.freq_sample = sample_freq;
 	core_cfg.n = n;
 	core_cfg.cts = cts;
@@ -651,17 +700,21 @@ static int hdmi_audio_hw_params(struct snd_pcm_substream *substream,
 		core_cfg.mclk_mode = HDMI_AUDIO_MCLK_128FS;
 	core_cfg.layout = HDMI_AUDIO_LAYOUT_2CH;
 	core_cfg.en_spdif = false;
-	
+	/* Use sample frequency from channel status word */
 	core_cfg.fs_override = true;
-	
+	/* Enable ACR packets */
 	core_cfg.en_acr_pkt = true;
-	
+	/* Disable direct streaming digital audio */
 	core_cfg.en_dsd_audio = false;
-	
+	/* Use parallel audio interface */
 	core_cfg.en_parallel_aud_input = true;
 
 	hdmi_core_audio_config(ip_data, &core_cfg);
 
+	/*
+	 * Configure packet
+	 * info frame audio see doc CEA861-D page 74
+	 */
 	aud_if_cfg.db1_coding_type = HDMI_INFOFRAME_AUDIO_DB1CT_FROM_STREAM;
 	aud_if_cfg.db1_channel_count = 2;
 	aud_if_cfg.db2_sample_freq = HDMI_INFOFRAME_AUDIO_DB2SF_FROM_STREAM;
@@ -737,6 +790,7 @@ static void hdmi_put_clocks(void)
 		clk_put(hdmi.sys_clk);
 }
 
+/* HDMI HW IP initialisation */
 static int omapdss_hdmihw_probe(struct platform_device *pdev)
 {
 	struct resource *hdmi_mem;
@@ -753,7 +807,7 @@ static int omapdss_hdmihw_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	
+	/* Base address taken from platform */
 	hdmi.ip_data.base_wp = ioremap(hdmi_mem->start,
 						resource_size(hdmi_mem));
 	if (!hdmi.ip_data.base_wp) {
@@ -779,7 +833,7 @@ static int omapdss_hdmihw_probe(struct platform_device *pdev)
 #if defined(CONFIG_SND_OMAP_SOC_OMAP4_HDMI) || \
 	defined(CONFIG_SND_OMAP_SOC_OMAP4_HDMI_MODULE)
 
-	
+	/* Register ASoC codec DAI */
 	r = snd_soc_register_codec(&pdev->dev, &hdmi_audio_codec_drv,
 					&hdmi_codec_dai_drv, 1);
 	if (r) {

@@ -7,4 +7,4 @@ int snd_usb_init_sample_rate(struct snd_usb_audio *chip, int iface,
 
 int snd_usb_clock_find_source(struct snd_usb_audio *chip, int entity_id);
 
-#endif 
+#endif /* __USBAUDIO_CLOCK_H */

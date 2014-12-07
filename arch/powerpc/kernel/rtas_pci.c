@@ -40,6 +40,7 @@
 #include <asm/ppc-pci.h>
 #include <asm/eeh.h>
 
+/* RTAS tokens */
 static int read_pci_config;
 static int write_pci_config;
 static int ibm_read_pci_config;
@@ -94,7 +95,7 @@ static int rtas_pci_read_config(struct pci_bus *bus,
 
 	busdn = pci_bus_to_OF_node(bus);
 
-	
+	/* Search only direct children of the bus */
 	for (dn = busdn->child; dn; dn = dn->sibling) {
 		struct pci_dn *pdn = PCI_DN(dn);
 		if (pdn && pdn->devfn == devfn
@@ -138,7 +139,7 @@ static int rtas_pci_write_config(struct pci_bus *bus,
 
 	busdn = pci_bus_to_OF_node(bus);
 
-	
+	/* Search only direct children of the bus */
 	for (dn = busdn->child; dn; dn = dn->sibling) {
 		struct pci_dn *pdn = PCI_DN(dn);
 		if (pdn && pdn->devfn == devfn
@@ -174,9 +175,13 @@ static void python_countermeasures(struct device_node *dev)
 		return;
 	}
 
-	
+	/* Python's register file is 1 MB in size. */
 	chip_regs = ioremap(registers.start & ~(0xfffffUL), 0x100000);
 
+	/*
+	 * Firmware doesn't always clear this bit which is critical
+	 * for good performance - Anton
+	 */
 
 #define PRG_CL_RESET_VALID 0x00010000
 
@@ -185,6 +190,10 @@ static void python_countermeasures(struct device_node *dev)
 		printk(KERN_INFO "Python workaround: ");
 		val &= ~PRG_CL_RESET_VALID;
 		out_be32(chip_regs + 0xf6030, val);
+		/*
+		 * We must read it back for changes to
+		 * take effect
+		 */
 		val = in_be32(chip_regs + 0xf6030);
 		printk("reg0: %x\n", val);
 	}
@@ -266,9 +275,13 @@ void __init find_and_init_phbs(void)
 	of_node_put(root);
 	pci_devs_phb_init();
 
-	
+	/* Create EEH devices for all PHBs */
 	eeh_dev_phb_init();
 
+	/*
+	 * PCI_PROBE_ONLY and PCI_REASSIGN_ALL_BUS can be set via properties
+	 * in chosen.
+	 */
 	if (of_chosen) {
 		const int *prop;
 
@@ -281,11 +294,11 @@ void __init find_and_init_phbs(void)
 				pci_clear_flags(PCI_PROBE_ONLY);
 		}
 
-#ifdef CONFIG_PPC32 
+#ifdef CONFIG_PPC32 /* Will be made generic soon */
 		prop = of_get_property(of_chosen,
 				"linux,pci-assign-all-buses", NULL);
 		if (prop && *prop)
 			pci_add_flags(PCI_REASSIGN_ALL_BUS);
-#endif 
+#endif /* CONFIG_PPC32 */
 	}
 }

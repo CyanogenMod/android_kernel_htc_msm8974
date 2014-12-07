@@ -10,6 +10,7 @@
  * GNU General Public License for more details.
  */
 
+/* add additional information to our printk's */
 #define pr_fmt(fmt) "%s: " fmt "\n", __func__
 
 #include <linux/slab.h>
@@ -62,7 +63,7 @@ static ssize_t sysmon_test_write(struct file *file, const char __user *ubuf,
 	if (!dev)
 		return -ENODEV;
 
-	
+	/* Add check for user buf count greater than RD_BUF_SIZE */
 	if (count > RD_BUF_SIZE)
 		count = RD_BUF_SIZE;
 

@@ -19,21 +19,30 @@
 #ifndef H_JFS_XATTR
 #define H_JFS_XATTR
 
+/*
+ * jfs_ea_list describe the on-disk format of the extended attributes.
+ * I know the null-terminator is redundant since namelen is stored, but
+ * I am maintaining compatibility with OS/2 where possible.
+ */
 struct jfs_ea {
-	u8 flag;	
-	u8 namelen;	
-	__le16 valuelen;	
-	char name[0];	
-};			
+	u8 flag;	/* Unused? */
+	u8 namelen;	/* Length of name */
+	__le16 valuelen;	/* Length of value */
+	char name[0];	/* Attribute name (includes null-terminator) */
+};			/* Value immediately follows name */
 
 struct jfs_ea_list {
-	__le32 size;		
-	struct jfs_ea ea[0];	
+	__le32 size;		/* overall size */
+	struct jfs_ea ea[0];	/* Variable length list */
 };
 
+/* Macros for defining maxiumum number of bytes supported for EAs */
 #define MAXEASIZE	65535
 #define MAXEALISTSIZE	MAXEASIZE
 
+/*
+ * some macros for dealing with variable length EA lists.
+ */
 #define EA_SIZE(ea) \
 	(sizeof (struct jfs_ea) + (ea)->namelen + 1 + \
 	 le16_to_cpu((ea)->valuelen))
@@ -63,4 +72,4 @@ static inline int jfs_init_security(tid_t tid, struct inode *inode,
 }
 #endif
 
-#endif	
+#endif	/* H_JFS_XATTR */

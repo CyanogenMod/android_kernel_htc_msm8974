@@ -13,7 +13,11 @@
 #ifndef __ASM_ARCH_NAND_CORE_H
 #define __ASM_ARCH_NAND_CORE_H __FILE__
 
+/* These functions are only for use with the core support code, such as
+ * the cpu specific initialisation code
+ */
 
+/* re-define device name depending on support. */
 static inline void s3c_nand_setname(char *name)
 {
 #ifdef CONFIG_S3C_DEV_NAND
@@ -21,4 +25,4 @@ static inline void s3c_nand_setname(char *name)
 #endif
 }
 
-#endif 
+#endif /* __ASM_ARCH_NAND_CORE_H */

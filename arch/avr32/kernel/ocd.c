@@ -14,6 +14,17 @@
 static long ocd_count;
 static spinlock_t ocd_lock;
 
+/**
+ * ocd_enable - enable on-chip debugging
+ * @child: task to be debugged
+ *
+ * If @child is non-NULL, ocd_enable() first checks if debugging has
+ * already been enabled for @child, and if it has, does nothing.
+ *
+ * If @child is NULL (e.g. when debugging the kernel), or debugging
+ * has not already been enabled for it, ocd_enable() increments the
+ * reference count and enables the debugging hardware.
+ */
 void ocd_enable(struct task_struct *child)
 {
 	u32 dc;
@@ -34,6 +45,17 @@ void ocd_enable(struct task_struct *child)
 	}
 }
 
+/**
+ * ocd_disable - disable on-chip debugging
+ * @child: task that was being debugged, but isn't anymore
+ *
+ * If @child is non-NULL, ocd_disable() checks if debugging is enabled
+ * for @child, and if it isn't, does nothing.
+ *
+ * If @child is NULL (e.g. when debugging the kernel), or debugging is
+ * enabled, ocd_disable() decrements the reference count, and if it
+ * reaches zero, disables the debugging hardware.
+ */
 void ocd_disable(struct task_struct *child)
 {
 	u32 dc;

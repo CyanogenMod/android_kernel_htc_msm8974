@@ -19,6 +19,7 @@
 char dsa_driver_version[] = "0.1";
 
 
+/* switch driver registration ***********************************************/
 static DEFINE_MUTEX(dsa_switch_drivers_mutex);
 static LIST_HEAD(dsa_switch_drivers);
 
@@ -68,6 +69,7 @@ dsa_switch_probe(struct mii_bus *bus, int sw_addr, char **_name)
 }
 
 
+/* basic switch operations **************************************************/
 static struct dsa_switch *
 dsa_switch_setup(struct dsa_switch_tree *dst, int index,
 		 struct device *parent, struct mii_bus *bus)
@@ -79,6 +81,9 @@ dsa_switch_setup(struct dsa_switch_tree *dst, int index,
 	char *name;
 	int i;
 
+	/*
+	 * Probe for switch model.
+	 */
 	drv = dsa_switch_probe(bus, pd->sw_addr, &name);
 	if (drv == NULL) {
 		printk(KERN_ERR "%s[%d]: could not detect attached switch\n",
@@ -89,6 +94,9 @@ dsa_switch_setup(struct dsa_switch_tree *dst, int index,
 		dst->master_netdev->name, index, name);
 
 
+	/*
+	 * Allocate and initialise switch state.
+	 */
 	ds = kzalloc(sizeof(*ds) + drv->priv_size, GFP_KERNEL);
 	if (ds == NULL)
 		return ERR_PTR(-ENOMEM);
@@ -100,6 +108,9 @@ dsa_switch_setup(struct dsa_switch_tree *dst, int index,
 	ds->master_mii_bus = bus;
 
 
+	/*
+	 * Validate supplied switch configuration.
+	 */
 	for (i = 0; i < DSA_MAX_PORTS; i++) {
 		char *name;
 
@@ -123,10 +134,18 @@ dsa_switch_setup(struct dsa_switch_tree *dst, int index,
 	}
 
 
+	/*
+	 * If the CPU connects to this switch, set the switch tree
+	 * tagging protocol to the preferred tagging format of this
+	 * switch.
+	 */
 	if (ds->dst->cpu_switch == index)
 		ds->dst->tag_protocol = drv->tag_protocol;
 
 
+	/*
+	 * Do basic register setup.
+	 */
 	ret = drv->setup(ds);
 	if (ret < 0)
 		goto out;
@@ -147,6 +166,9 @@ dsa_switch_setup(struct dsa_switch_tree *dst, int index,
 		goto out_free;
 
 
+	/*
+	 * Create network devices for physical switch ports.
+	 */
 	for (i = 0; i < DSA_MAX_PORTS; i++) {
 		struct net_device *slave_dev;
 
@@ -179,6 +201,7 @@ static void dsa_switch_destroy(struct dsa_switch *ds)
 }
 
 
+/* link polling *************************************************************/
 static void dsa_link_poll_work(struct work_struct *ugly)
 {
 	struct dsa_switch_tree *dst;
@@ -204,6 +227,7 @@ static void dsa_link_poll_timer(unsigned long _dst)
 }
 
 
+/* platform driver init and cleanup *****************************************/
 static int dev_is_class(struct device *dev, void *class)
 {
 	if (dev->class != NULL && !strcmp(dev->class->name, class))
@@ -318,6 +342,11 @@ static int dsa_probe(struct platform_device *pdev)
 			dst->link_poll_needed = 1;
 	}
 
+	/*
+	 * If we use a tagging format that doesn't have an ethertype
+	 * field, make sure that all packets from this point on get
+	 * sent to the tag format's receive function.
+	 */
 	wmb();
 	dev->dsa_ptr = (void *)dst;
 

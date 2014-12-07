@@ -45,6 +45,7 @@
 #define ISPPRV_CONTRAST_HIGH		0xFF
 #define ISPPRV_CONTRAST_UNITS		0x1
 
+/* Features list */
 #define PREV_LUMA_ENHANCE		OMAP3ISP_PREV_LUMAENH
 #define PREV_INVERSE_ALAW		OMAP3ISP_PREV_INVALAW
 #define PREV_HORZ_MEDIAN_FILTER		OMAP3ISP_PREV_HRZ_MED
@@ -77,6 +78,7 @@ enum preview_input_entity {
 #define PREVIEW_OUTPUT_RESIZER		(1 << 1)
 #define PREVIEW_OUTPUT_MEMORY		(1 << 2)
 
+/* Configure byte layout of YUV image */
 enum preview_ycpos_mode {
 	YCPOS_YCrYCb = 0,
 	YCPOS_YCbYCr = 1,
@@ -84,6 +86,24 @@ enum preview_ycpos_mode {
 	YCPOS_CrYCbY = 3
 };
 
+/*
+ * struct prev_params - Structure for all configuration
+ * @features: Set of features enabled.
+ * @cfa: CFA coefficients.
+ * @csup: Chroma suppression coefficients.
+ * @luma: Luma enhancement coefficients.
+ * @nf: Noise filter coefficients.
+ * @dcor: Noise filter coefficients.
+ * @gamma: Gamma coefficients.
+ * @wbal: White Balance parameters.
+ * @blk_adj: Black adjustment parameters.
+ * @rgb2rgb: RGB blending parameters.
+ * @rgb2ycbcr: RGB to ycbcr parameters.
+ * @hmed: Horizontal median filter.
+ * @yclimit: YC limits parameters.
+ * @contrast: Contrast.
+ * @brightness: Brightness.
+ */
 struct prev_params {
 	u32 features;
 	struct omap3isp_prev_cfa cfa;
@@ -102,6 +122,16 @@ struct prev_params {
 	u8 brightness;
 };
 
+/*
+ * struct isptables_update - Structure for Table Configuration.
+ * @update: Specifies which tables should be updated.
+ * @flag: Specifies which tables should be enabled.
+ * @nf: Pointer to structure for Noise Filter
+ * @lsc: Pointer to LSC gain table. (currently not used)
+ * @gamma: Pointer to gamma correction tables.
+ * @cfa: Pointer to color filter array configuration.
+ * @wbal: Pointer to colour and digital gain configuration.
+ */
 struct isptables_update {
 	u32 update;
 	u32 flag;
@@ -112,10 +142,30 @@ struct isptables_update {
 	struct omap3isp_prev_wbal *wbal;
 };
 
+/* Sink and source previewer pads */
 #define PREV_PAD_SINK			0
 #define PREV_PAD_SOURCE			1
 #define PREV_PADS_NUM			2
 
+/*
+ * struct isp_prev_device - Structure for storing ISP Preview module information
+ * @subdev: V4L2 subdevice
+ * @pads: Media entity pads
+ * @formats: Active formats at the subdev pad
+ * @crop: Active crop rectangle
+ * @input: Module currently connected to the input pad
+ * @output: Bitmask of the active output
+ * @video_in: Input video entity
+ * @video_out: Output video entity
+ * @params: Module configuration data
+ * @shadow_update: If set, update the hardware configured in the next interrupt
+ * @underrun: Whether the preview entity has queued buffers on the output
+ * @state: Current preview pipeline state
+ * @lock: Shadow update lock
+ * @update: Bitmask of the parameters to be updated
+ *
+ * This structure is used to store the OMAP ISP Preview module Information.
+ */
 struct isp_prev_device {
 	struct v4l2_subdev subdev;
 	struct media_pad pads[PREV_PADS_NUM];
@@ -154,4 +204,4 @@ int omap3isp_preview_busy(struct isp_prev_device *isp_prev);
 
 void omap3isp_preview_restore_context(struct isp_device *isp);
 
-#endif	
+#endif	/* OMAP3_ISP_PREVIEW_H */

@@ -43,13 +43,14 @@
 #define ELF_R_TYPE  ELF64_R_TYPE
 #endif
 
+/* The 64-bit MIPS ELF ABI uses an unusual reloc format. */
 typedef struct
 {
-	Elf32_Word    r_sym;	
-	unsigned char r_ssym;	
-	unsigned char r_type3;	
-	unsigned char r_type2;	
-	unsigned char r_type1;	
+	Elf32_Word    r_sym;	/* Symbol index */
+	unsigned char r_ssym;	/* Special symbol for 2nd relocation */
+	unsigned char r_type3;	/* 3rd relocation type */
+	unsigned char r_type2;	/* 2nd relocation type */
+	unsigned char r_type1;	/* 1st relocation type */
 } _Elf64_Mips_R_Info;
 
 typedef union
@@ -80,7 +81,7 @@ static inline void __endian(const void *src, void *dest, unsigned int size)
 	__x;							\
 })
 
-#else 
+#else /* endianness matches */
 
 #define TO_NATIVE(x) (x)
 
@@ -130,10 +131,12 @@ struct elf_info {
 	char	     *modinfo;
 	unsigned int modinfo_len;
 
-	
+	/* support for 32bit section numbers */
 
-	unsigned int num_sections; 
+	unsigned int num_sections; /* max_secindex + 1 */
 	unsigned int secindex_strings;
+	/* if Nth symbol table entry has .st_shndx = SHN_XINDEX,
+	 * take shndx from symtab_shndx_start[N] instead */
 	Elf32_Word   *symtab_shndx_start;
 	Elf32_Word   *symtab_shndx_stop;
 };
@@ -143,8 +146,14 @@ static inline int is_shndx_special(unsigned int i)
 	return i != SHN_XINDEX && i >= SHN_LORESERVE && i <= SHN_HIRESERVE;
 }
 
+/*
+ * Move reserved section indices SHN_LORESERVE..SHN_HIRESERVE out of
+ * the way to -256..-1, to avoid conflicting with real section
+ * indices.
+ */
 #define SPECIAL(i) ((i) - (SHN_HIRESERVE + 1))
 
+/* Accessor for sym->st_shndx, hides ugliness of "64k sections" */
 static inline unsigned int get_secindex(const struct elf_info *info,
 					const Elf_Sym *sym)
 {
@@ -155,17 +164,20 @@ static inline unsigned int get_secindex(const struct elf_info *info,
 	return info->symtab_shndx_start[sym - info->symtab_start];
 }
 
+/* file2alias.c */
 extern unsigned int cross_build;
 void handle_moddevtable(struct module *mod, struct elf_info *info,
 			Elf_Sym *sym, const char *symname);
 void add_moddevtable(struct buffer *buf, struct module *mod);
 
+/* sumversion.c */
 void maybe_frob_rcs_version(const char *modfilename,
 			    char *version,
 			    void *modinfo,
 			    unsigned long modinfo_offset);
 void get_src_version(const char *modname, char sum[], unsigned sumlen);
 
+/* from modpost.c */
 void *grab_file(const char *filename, unsigned long *size);
 char* get_next_line(unsigned long *pos, void *file, unsigned long size);
 void release_file(void *file, unsigned long size);

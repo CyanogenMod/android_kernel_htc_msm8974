@@ -60,7 +60,10 @@
 #define DRV_VERSION "1.5.0.0"
 #define PFX         DRV_NAME ": "
 
-#ifndef PCI_VENDOR_ID_NETEFFECT	
+/*
+ * NetEffect PCI vendor id and NE010 PCI device id.
+ */
+#ifndef PCI_VENDOR_ID_NETEFFECT	/* not in pci.ids yet */
 #define PCI_VENDOR_ID_NETEFFECT          0x1678
 #define PCI_DEVICE_ID_NETEFFECT_NE020    0x0100
 #define PCI_DEVICE_ID_NETEFFECT_NE020_KR 0x0110
@@ -82,6 +85,7 @@
 #define NES_MAX_ARP_TABLE_SIZE  4096
 
 #define NES_NIC_CEQ_SIZE        8
+/* NICs will be on a separate CQ */
 #define NES_CCEQ_SIZE ((nesadapter->max_cq / nesadapter->port_count) - 32)
 
 #define NES_MAX_PORT_COUNT 4
@@ -103,6 +107,8 @@
 #define NES_AEQ_EVENT_TIMEOUT         2500
 #define NES_DISCONNECT_EVENT_TIMEOUT  2000
 
+/* debug levels */
+/* must match userspace */
 #define NES_DBG_HW          0x00000001
 #define NES_DBG_INIT        0x00000002
 #define NES_DBG_ISR         0x00000004
@@ -237,7 +243,7 @@ struct nes_device {
 	unsigned int           mac_index;
 	unsigned int           nes_stack_start;
 
-	
+	/* Control Structures */
 	void                   *cqp_vbase;
 	dma_addr_t             cqp_pbase;
 	u32                    cqp_mem_size;
@@ -272,6 +278,7 @@ struct nes_device {
 	u8                     link_recheck;
 };
 
+/* Receive skb private area - must fit in skb->cb area */
 struct nes_rskb_cb {
 	u64                    busaddr;
 	u32                    maplen;
@@ -285,6 +292,13 @@ static inline __le32 get_crc_value(struct nes_v4_quad *nes_quad)
 	u32 crc_value;
 	crc_value = crc32c(~0, (void *)nes_quad, sizeof (struct nes_v4_quad));
 
+	/*
+	 * With commit ef19454b ("[LIB] crc32c: Keep intermediate crc
+	 * state in cpu order"), behavior of crc32c changes on
+	 * big-endian platforms.  Our algorithm expects the previous
+	 * behavior; otherwise we have RDMA connection establishment
+	 * issue on big-endian.
+	 */
 	return cpu_to_le32(crc_value);
 }
 
@@ -325,6 +339,7 @@ nes_fill_init_qp_wqe(struct nes_hw_qp_wqe *wqe, struct nes_qp *nesqp, u32 head)
 	set_wqe_32bit_value(wqe->wqe_words, NES_IWARP_SQ_WQE_COMP_CTX_LOW_IDX, value);
 }
 
+/* Read from memory-mapped device */
 static inline u32 nes_read_indexed(struct nes_device *nesdev, u32 reg_index)
 {
 	unsigned long flags;
@@ -355,6 +370,7 @@ static inline u8 nes_read8(const void __iomem *addr)
 	return readb(addr);
 }
 
+/* Write to memory-mapped device */
 static inline void nes_write_indexed(struct nes_device *nesdev, u32 reg_index, u32 val)
 {
 	unsigned long flags;
@@ -487,11 +503,13 @@ static inline struct nes_qp *to_nesqp(struct ib_qp *ibqp)
 
 
 
+/* nes.c */
 void nes_add_ref(struct ib_qp *);
 void nes_rem_ref(struct ib_qp *);
 struct ib_qp *nes_get_qp(struct ib_device *, int);
 
 
+/* nes_hw.c */
 struct nes_adapter *nes_init_adapter(struct nes_device *, u8);
 void  nes_nic_init_timer_defaults(struct nes_device *, u8);
 void nes_destroy_adapter(struct nes_adapter *);
@@ -507,10 +525,12 @@ int nes_destroy_cqp(struct nes_device *);
 int nes_nic_cm_xmit(struct sk_buff *, struct net_device *);
 void nes_recheck_link_status(struct work_struct *work);
 
+/* nes_nic.c */
 struct net_device *nes_netdev_init(struct nes_device *, void __iomem *);
 void nes_netdev_destroy(struct net_device *);
 int nes_nic_cm_xmit(struct sk_buff *, struct net_device *);
 
+/* nes_cm.c */
 void *nes_cm_create(struct net_device *);
 int nes_cm_recv(struct sk_buff *, struct net_device *);
 void nes_update_arp(unsigned char *, u32, u32, u16, u16);
@@ -521,6 +541,7 @@ int nes_manage_apbvt(struct nes_vnic *, u32, u32, u32);
 int nes_cm_disconn(struct nes_qp *);
 void nes_cm_disconn_worker(void *);
 
+/* nes_verbs.c */
 int nes_hw_modify_qp(struct nes_device *, struct nes_qp *, u32, u32, u32);
 int nes_modify_qp(struct ib_qp *, struct ib_qp_attr *, int, struct ib_udata *);
 struct nes_ib_device *nes_init_ofa_device(struct net_device *);
@@ -528,6 +549,7 @@ void  nes_port_ibevent(struct nes_vnic *nesvnic);
 void nes_destroy_ofa_device(struct nes_ib_device *);
 int nes_register_ofa_device(struct nes_ib_device *);
 
+/* nes_util.c */
 int nes_read_eeprom_values(struct nes_device *, struct nes_adapter *);
 void nes_write_1G_phy_reg(struct nes_device *, u8, u8, u16);
 void nes_read_1G_phy_reg(struct nes_device *, u8, u8, u16 *);
@@ -545,4 +567,4 @@ void nes_clc(unsigned long);
 void nes_dump_mem(unsigned int, void *, int);
 u32 nes_crc32(u32, u32, u32, u32, u8 *, u32, u32, u32);
 
-#endif	
+#endif	/* __NES_H */

@@ -128,6 +128,10 @@ static struct request *get_alua_req(struct scsi_device *sdev,
 	return rq;
 }
 
+/*
+ * submit_vpd_inquiry - Issue an INQUIRY VPD page 0x83 command
+ * @sdev: sdev the command should be sent to
+ */
 static int submit_vpd_inquiry(struct scsi_device *sdev, struct alua_dh_data *h)
 {
 	struct request *rq;
@@ -137,7 +141,7 @@ static int submit_vpd_inquiry(struct scsi_device *sdev, struct alua_dh_data *h)
 	if (!rq)
 		goto done;
 
-	
+	/* Prepare the command. */
 	rq->cmd[0] = INQUIRY;
 	rq->cmd[1] = 1;
 	rq->cmd[2] = 0x83;
@@ -161,6 +165,10 @@ done:
 	return err;
 }
 
+/*
+ * submit_rtpg - Issue a REPORT TARGET GROUP STATES command
+ * @sdev: sdev the command should be sent to
+ */
 static unsigned submit_rtpg(struct scsi_device *sdev, struct alua_dh_data *h)
 {
 	struct request *rq;
@@ -170,7 +178,7 @@ static unsigned submit_rtpg(struct scsi_device *sdev, struct alua_dh_data *h)
 	if (!rq)
 		goto done;
 
-	
+	/* Prepare the command. */
 	rq->cmd[0] = MAINTENANCE_IN;
 	rq->cmd[1] = MI_REPORT_TARGET_PGS;
 	rq->cmd[6] = (h->bufflen >> 24) & 0xff;
@@ -196,6 +204,15 @@ done:
 	return err;
 }
 
+/*
+ * alua_stpg - Evaluate SET TARGET GROUP STATES
+ * @sdev: the device to be evaluated
+ * @state: the new target group state
+ *
+ * Send a SET TARGET GROUP STATES command to the device.
+ * We only have to test here if we should resubmit the command;
+ * any other error is assumed as a failure.
+ */
 static void stpg_endio(struct request *req, int error)
 {
 	struct alua_dh_data *h = req->end_io_data;
@@ -243,13 +260,20 @@ done:
 	return;
 }
 
+/*
+ * submit_stpg - Issue a SET TARGET GROUP STATES command
+ *
+ * Currently we're only setting the current target port group state
+ * to 'active/optimized' and let the array firmware figure out
+ * the states of the remaining groups.
+ */
 static unsigned submit_stpg(struct alua_dh_data *h)
 {
 	struct request *rq;
 	int stpg_len = 8;
 	struct scsi_device *sdev = h->sdev;
 
-	
+	/* Prepare the data buffer */
 	memset(h->buff, 0, stpg_len);
 	h->buff[4] = TPGS_STATE_OPTIMIZED & 0x0f;
 	h->buff[6] = (h->group_id >> 8) & 0xff;
@@ -259,7 +283,7 @@ static unsigned submit_stpg(struct alua_dh_data *h)
 	if (!rq)
 		return SCSI_DH_RES_TEMP_UNAVAIL;
 
-	
+	/* Prepare the command. */
 	rq->cmd[0] = MAINTENANCE_OUT;
 	rq->cmd[1] = MO_SET_TARGET_PGS;
 	rq->cmd[6] = (stpg_len >> 24) & 0xff;
@@ -277,6 +301,13 @@ static unsigned submit_stpg(struct alua_dh_data *h)
 	return SCSI_DH_OK;
 }
 
+/*
+ * alua_check_tpgs - Evaluate TPGS setting
+ * @sdev: device to be checked
+ *
+ * Examine the TPGS setting of the sdev to find out if ALUA
+ * is supported.
+ */
 static int alua_check_tpgs(struct scsi_device *sdev, struct alua_dh_data *h)
 {
 	int err = SCSI_DH_OK;
@@ -307,6 +338,13 @@ static int alua_check_tpgs(struct scsi_device *sdev, struct alua_dh_data *h)
 	return err;
 }
 
+/*
+ * alua_vpd_inquiry - Evaluate INQUIRY vpd page 0x83
+ * @sdev: device to be checked
+ *
+ * Extract the relative target port and the target port group
+ * descriptor from the list of identificators.
+ */
 static int alua_vpd_inquiry(struct scsi_device *sdev, struct alua_dh_data *h)
 {
 	int len;
@@ -319,29 +357,32 @@ static int alua_vpd_inquiry(struct scsi_device *sdev, struct alua_dh_data *h)
 	if (err != SCSI_DH_OK)
 		return err;
 
-	
+	/* Check if vpd page exceeds initial buffer */
 	len = (h->buff[2] << 8) + h->buff[3] + 4;
 	if (len > h->bufflen) {
-		
+		/* Resubmit with the correct length */
 		if (realloc_buffer(h, len)) {
 			sdev_printk(KERN_WARNING, sdev,
 				    "%s: kmalloc buffer failed\n",
 				    ALUA_DH_NAME);
-			
+			/* Temporary failure, bypass */
 			return SCSI_DH_DEV_TEMP_BUSY;
 		}
 		goto retry;
 	}
 
+	/*
+	 * Now look for the correct descriptor.
+	 */
 	d = h->buff + 4;
 	while (d < h->buff + len) {
 		switch (d[1] & 0xf) {
 		case 0x4:
-			
+			/* Relative target port */
 			h->rel_port = (d[6] << 8) + d[7];
 			break;
 		case 0x5:
-			
+			/* Target port group */
 			h->group_id = (d[6] << 8) + d[7];
 			break;
 		default:
@@ -351,6 +392,11 @@ static int alua_vpd_inquiry(struct scsi_device *sdev, struct alua_dh_data *h)
 	}
 
 	if (h->group_id == -1) {
+		/*
+		 * Internal error; TPGS supported but required
+		 * VPD identification descriptors not present.
+		 * Disable ALUA support
+		 */
 		sdev_printk(KERN_INFO, sdev,
 			    "%s: No target port descriptors found\n",
 			    ALUA_DH_NAME);
@@ -394,26 +440,58 @@ static int alua_check_sense(struct scsi_device *sdev,
 	switch (sense_hdr->sense_key) {
 	case NOT_READY:
 		if (sense_hdr->asc == 0x04 && sense_hdr->ascq == 0x0a)
+			/*
+			 * LUN Not Accessible - ALUA state transition
+			 */
 			return ADD_TO_MLQUEUE;
 		if (sense_hdr->asc == 0x04 && sense_hdr->ascq == 0x0b)
+			/*
+			 * LUN Not Accessible -- Target port in standby state
+			 */
 			return SUCCESS;
 		if (sense_hdr->asc == 0x04 && sense_hdr->ascq == 0x0c)
+			/*
+			 * LUN Not Accessible -- Target port in unavailable state
+			 */
 			return SUCCESS;
 		if (sense_hdr->asc == 0x04 && sense_hdr->ascq == 0x12)
+			/*
+			 * LUN Not Ready -- Offline
+			 */
 			return SUCCESS;
 		break;
 	case UNIT_ATTENTION:
 		if (sense_hdr->asc == 0x29 && sense_hdr->ascq == 0x00)
+			/*
+			 * Power On, Reset, or Bus Device Reset, just retry.
+			 */
 			return ADD_TO_MLQUEUE;
 		if (sense_hdr->asc == 0x2a && sense_hdr->ascq == 0x01)
+			/*
+			 * Mode Parameters Changed
+			 */
 			return ADD_TO_MLQUEUE;
 		if (sense_hdr->asc == 0x2a && sense_hdr->ascq == 0x06)
+			/*
+			 * ALUA state changed
+			 */
 			return ADD_TO_MLQUEUE;
 		if (sense_hdr->asc == 0x2a && sense_hdr->ascq == 0x07)
+			/*
+			 * Implicit ALUA state transition failed
+			 */
 			return ADD_TO_MLQUEUE;
 		if (sense_hdr->asc == 0x3f && sense_hdr->ascq == 0x03)
+			/*
+			 * Inquiry data has changed
+			 */
 			return ADD_TO_MLQUEUE;
 		if (sense_hdr->asc == 0x3f && sense_hdr->ascq == 0x0e)
+			/*
+			 * REPORTED_LUNS_DATA_HAS_CHANGED is reported
+			 * when switching controllers on targets like
+			 * Intel Multi-Flex. We can just retry.
+			 */
 			return ADD_TO_MLQUEUE;
 		break;
 	}
@@ -421,6 +499,14 @@ static int alua_check_sense(struct scsi_device *sdev,
 	return SCSI_RETURN_NOT_HANDLED;
 }
 
+/*
+ * alua_rtpg - Evaluate REPORT TARGET GROUP STATES
+ * @sdev: the device to be evaluated.
+ *
+ * Evaluate the Target Port Group State.
+ * Returns SCSI_DH_DEV_OFFLINED if the path is
+ * found to be unusable.
+ */
 static int alua_rtpg(struct scsi_device *sdev, struct alua_dh_data *h)
 {
 	struct scsi_sense_hdr sense_hdr;
@@ -455,11 +541,11 @@ static int alua_rtpg(struct scsi_device *sdev, struct alua_dh_data *h)
 		(h->buff[2] << 8) + h->buff[3] + 4;
 
 	if (len > h->bufflen) {
-		
+		/* Resubmit with the correct length */
 		if (realloc_buffer(h, len)) {
 			sdev_printk(KERN_WARNING, sdev,
 				    "%s: kmalloc buffer failed\n",__func__);
-			
+			/* Temporary failure, bypass */
 			return SCSI_DH_DEV_TEMP_BUSY;
 		}
 		goto retry;
@@ -487,28 +573,35 @@ static int alua_rtpg(struct scsi_device *sdev, struct alua_dh_data *h)
 	switch (h->state) {
 	case TPGS_STATE_TRANSITIONING:
 		if (time_before(jiffies, expiry)) {
-			
+			/* State transition, retry */
 			interval *= 2;
 			msleep(interval);
 			goto retry;
 		}
-		
+		/* Transitioning time exceeded, set port to standby */
 		err = SCSI_DH_RETRY;
 		h->state = TPGS_STATE_STANDBY;
 		break;
 	case TPGS_STATE_OFFLINE:
 	case TPGS_STATE_UNAVAILABLE:
-		
+		/* Path unusable for unavailable/offline */
 		err = SCSI_DH_DEV_OFFLINED;
 		break;
 	default:
-		
+		/* Useable path if active */
 		err = SCSI_DH_OK;
 		break;
 	}
 	return err;
 }
 
+/*
+ * alua_initialize - Initialize ALUA state
+ * @sdev: the device to be initialized
+ *
+ * For the prep_fn to work correctly we have
+ * to initialize the ALUA state for the device.
+ */
 static int alua_initialize(struct scsi_device *sdev, struct alua_dh_data *h)
 {
 	int err;
@@ -529,6 +622,16 @@ out:
 	return err;
 }
 
+/*
+ * alua_activate - activate a path
+ * @sdev: device on the path to be activated
+ *
+ * We're currently switching the port group to be activated only and
+ * let the array figure out the rest.
+ * There may be other arrays which require us to switch all port groups
+ * based on a certain policy. But until we actually encounter them it
+ * should be okay.
+ */
 static int alua_activate(struct scsi_device *sdev,
 			activate_complete fn, void *data)
 {
@@ -556,6 +659,12 @@ out:
 	return 0;
 }
 
+/*
+ * alua_prep_fn - request callback
+ *
+ * Fail I/O to all paths not in state
+ * active/optimized or active/non-optimized.
+ */
 static int alua_prep_fn(struct scsi_device *sdev, struct request *req)
 {
 	struct alua_dh_data *h = get_alua_data(sdev);
@@ -592,6 +701,10 @@ static struct scsi_device_handler alua_dh = {
 	.match = alua_match,
 };
 
+/*
+ * alua_bus_attach - Attach device handler
+ * @sdev: device to be attached to
+ */
 static int alua_bus_attach(struct scsi_device *sdev)
 {
 	struct scsi_dh_data *scsi_dh_data;
@@ -637,6 +750,10 @@ failed:
 	return -EINVAL;
 }
 
+/*
+ * alua_bus_detach - Detach device handler
+ * @sdev: device to be detached from
+ */
 static void alua_bus_detach(struct scsi_device *sdev)
 {
 	struct scsi_dh_data *scsi_dh_data;

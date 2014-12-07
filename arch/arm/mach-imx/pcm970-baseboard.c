@@ -30,14 +30,14 @@
 #include "devices-imx27.h"
 
 static const int pcm970_pins[] __initconst = {
-	
+	/* SDHC */
 	PB4_PF_SD2_D0,
 	PB5_PF_SD2_D1,
 	PB6_PF_SD2_D2,
 	PB7_PF_SD2_D3,
 	PB8_PF_SD2_CMD,
 	PB9_PF_SD2_CLK,
-	
+	/* display */
 	PA5_PF_LSCLK,
 	PA6_PF_LD0,
 	PA7_PF_LD1,
@@ -65,9 +65,13 @@ static const int pcm970_pins[] __initconst = {
 	PA29_PF_VSYNC,
 	PA30_PF_CONTRAST,
 	PA31_PF_OE_ACD,
+	/*
+	 * it seems the data line misses a pullup, so we must enable
+	 * the internal pullup as a local workaround
+	 */
 	PD17_PF_I2C_DATA | GPIO_PUEN,
 	PD18_PF_I2C_CLK,
-	
+	/* Camera */
 	PB10_PF_CSI_D0,
 	PB11_PF_CSI_D1,
 	PB12_PF_CSI_D2,
@@ -126,7 +130,7 @@ static struct imx_fb_videomode pcm970_modes[] = {
 			.refresh	= 60,
 			.xres		= 240,
 			.yres		= 320,
-			.pixclock	= 188679, 
+			.pixclock	= 188679, /* in ps (5.3MHz) */
 			.hsync_len	= 7,
 			.left_margin	= 5,
 			.right_margin	= 16,
@@ -134,6 +138,15 @@ static struct imx_fb_videomode pcm970_modes[] = {
 			.upper_margin	= 7,
 			.lower_margin	= 9,
 		},
+		/*
+		 * - HSYNC active high
+		 * - VSYNC active high
+		 * - clk notenabled while idle
+		 * - clock not inverted
+		 * - data not inverted
+		 * - data enable low active
+		 * - enable sharp mode
+		 */
 		.pcr		= 0xF00080C0,
 		.bpp		= 16,
 	}, {
@@ -150,6 +163,15 @@ static struct imx_fb_videomode pcm970_modes[] = {
 			.hsync_len	= 96,
 			.vsync_len	= 1,
 		},
+		/*
+		 * - HSYNC active low (1 << 22)
+		 * - VSYNC active low (1 << 23)
+		 * - clk notenabled while idle
+		 * - clock not inverted
+		 * - data not inverted
+		 * - data enable low active
+		 * - enable sharp mode
+		 */
 		.pcr = 0xF0008080 | (1<<22) | (1<<23) | (1<<19),
 		.bpp = 32,
 	},
@@ -191,6 +213,12 @@ static struct platform_device pcm970_sja1000 = {
 	.num_resources = ARRAY_SIZE(pcm970_sja1000_resources),
 };
 
+/*
+ * system init for baseboard usage. Will be called by pcm038 init.
+ *
+ * Add platform devices present on this baseboard and init
+ * them from CPU side as far as required to use them later on
+ */
 void __init pcm970_baseboard_init(void)
 {
 	mxc_gpio_setup_multiple_pins(pcm970_pins, ARRAY_SIZE(pcm970_pins),

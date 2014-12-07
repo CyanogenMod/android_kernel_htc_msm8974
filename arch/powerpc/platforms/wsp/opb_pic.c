@@ -21,11 +21,11 @@
 
 #define OPB_NR_IRQS 32
 
-#define OPB_MLSASIER	0x04    
-#define OPB_MLSIR	0x50	
-#define OPB_MLSIER	0x54	
-#define OPB_MLSIPR	0x58	
-#define OPB_MLSIIR	0x5c	
+#define OPB_MLSASIER	0x04    /* MLS Accumulated Status IER */
+#define OPB_MLSIR	0x50	/* MLS Interrupt Register */
+#define OPB_MLSIER	0x54	/* MLS Interrupt Enable Register */
+#define OPB_MLSIPR	0x58	/* MLS Interrupt Polarity Register */
+#define OPB_MLSIIR	0x5c	/* MLS Interrupt Inputs Register */
 
 static int opb_index = 0;
 
@@ -77,7 +77,7 @@ static void opb_mask_irq(struct irq_data *d)
 
 	ier = opb_in(opb, OPB_MLSIER);
 	opb_out(opb, OPB_MLSIER, ier & mask);
-	ier = opb_in(opb, OPB_MLSIER); 
+	ier = opb_in(opb, OPB_MLSIER); // Flush posted writes
 
 	spin_unlock_irqrestore(&opb->lock, flags);
 }
@@ -94,7 +94,7 @@ static void opb_ack_irq(struct irq_data *d)
 	spin_lock_irqsave(&opb->lock, flags);
 
 	opb_out(opb, OPB_MLSIR, bitset);
-	opb_in(opb, OPB_MLSIR); 
+	opb_in(opb, OPB_MLSIR); // Flush posted writes
 
 	spin_unlock_irqrestore(&opb->lock, flags);
 }
@@ -113,10 +113,10 @@ static void opb_mask_ack_irq(struct irq_data *d)
 
 	ier = opb_in(opb, OPB_MLSIER);
 	opb_out(opb, OPB_MLSIER, ier & ~bitset);
-	ier = opb_in(opb, OPB_MLSIER); 
+	ier = opb_in(opb, OPB_MLSIER); // Flush posted writes
 
 	opb_out(opb, OPB_MLSIR, bitset);
-	ir = opb_in(opb, OPB_MLSIR); 
+	ir = opb_in(opb, OPB_MLSIR); // Flush posted writes
 
 	spin_unlock_irqrestore(&opb->lock, flags);
 }
@@ -129,6 +129,11 @@ static int opb_set_irq_type(struct irq_data *d, unsigned int flow)
 
 	opb = d->chip_data;
 
+	/* The only information we're interested in in the type is whether it's
+	 * a high or low trigger. For high triggered interrupts, the polarity
+	 * set for it in the MLS Interrupt Polarity Register is 0, for low
+	 * interrupts it's 1 so that the proper input in the MLS Interrupt Input
+	 * Register is interrupted as asserting the interrupt. */
 
 	switch (flow) {
 		case IRQ_TYPE_NONE:
@@ -155,11 +160,11 @@ static int opb_set_irq_type(struct irq_data *d, unsigned int flow)
 	ipr = opb_in(opb, OPB_MLSIPR);
 	ipr = (ipr & mask) | (invert ? bit : 0);
 	opb_out(opb, OPB_MLSIPR, ipr);
-	ipr = opb_in(opb, OPB_MLSIPR);  
+	ipr = opb_in(opb, OPB_MLSIPR);  // Flush posted writes
 
 	spin_unlock_irqrestore(&opb->lock, flags);
 
-	
+	/* Record the type in the interrupt descriptor */
 	irqd_set_trigger_type(d, flow);
 
 	return 0;
@@ -181,6 +186,8 @@ static int opb_host_map(struct irq_domain *host, unsigned int virq,
 
 	opb = host->host_data;
 
+	/* Most of the important stuff is handled by the generic host code, like
+	 * the lookup, so just attach some info to the virtual irq */
 
 	irq_set_chip_data(virq, opb);
 	irq_set_chip_and_handler(virq, &opb_irq_chip, handle_level_irq);
@@ -201,14 +208,18 @@ irqreturn_t opb_irq_handler(int irq, void *private)
 
 	opb = (struct opb_pic *) private;
 
+	/* Read the OPB MLS Interrupt Register for
+	 * asserted interrupts */
 	ir = opb_in(opb, OPB_MLSIR);
 	if (!ir)
 		return IRQ_NONE;
 
 	do {
-		
+		/* Get 1 - 32 source, *NOT* bit */
 		src = 32 - ffs(ir);
 
+		/* Translate from the OPB's conception of interrupt number to
+		 * Linux's virtual IRQ */
 
 		subvirq = irq_linear_revmap(opb->host, src);
 
@@ -234,13 +245,16 @@ struct opb_pic *opb_pic_init_one(struct device_node *dn)
 		return NULL;
 	}
 
-	
+	/* Get access to the OPB MMIO registers */
 	opb->regs = ioremap(res.start + 0x10000, 0x1000);
 	if (!opb->regs) {
 		printk(KERN_ERR "opb: Failed to allocate register space!\n");
 		goto free_opb;
 	}
 
+	/* Allocate an irq domain so that Linux knows that despite only
+	 * having one interrupt to issue, we're the controller for multiple
+	 * hardware IRQs, so later we can lookup their virtual IRQs. */
 
 	opb->host = irq_domain_add_linear(dn, OPB_NR_IRQS, &opb_host_ops, opb);
 	if (!opb->host) {
@@ -251,11 +265,11 @@ struct opb_pic *opb_pic_init_one(struct device_node *dn)
 	opb->index = opb_index++;
 	spin_lock_init(&opb->lock);
 
-	
+	/* Disable all interrupts by default */
 	opb_out(opb, OPB_MLSASIER, 0);
 	opb_out(opb, OPB_MLSIER, 0);
 
-	
+	/* ACK any interrupts left by FW */
 	opb_out(opb, OPB_MLSIR, 0xFFFFFFFF);
 
 	return opb;
@@ -274,24 +288,24 @@ void __init opb_pic_init(void)
 	int virq;
 	int rc;
 
-	
+	/* Call init_one for each OPB device */
 	for_each_compatible_node(dn, NULL, "ibm,opb") {
 
-		
+		/* Fill in an OPB struct */
 		opb = opb_pic_init_one(dn);
 		if (!opb) {
 			printk(KERN_WARNING "opb: Failed to init node, skipped!\n");
 			continue;
 		}
 
-		
+		/* Map / get opb's hardware virtual irq */
 		virq = irq_of_parse_and_map(dn, 0);
 		if (virq <= 0) {
 			printk("opb: irq_op_parse_and_map failed!\n");
 			continue;
 		}
 
-		
+		/* Attach opb interrupt handler to new virtual IRQ */
 		rc = request_irq(virq, opb_irq_handler, IRQF_NO_THREAD,
 				 "OPB LS Cascade", opb);
 		if (rc) {

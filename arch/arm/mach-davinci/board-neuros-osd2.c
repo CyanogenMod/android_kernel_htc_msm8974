@@ -48,36 +48,40 @@
 #define	NTOSD2_MSP430_I2C_ADDR		0x59
 #define	NTOSD2_MSP430_IRQ		2
 
+/* Neuros OSD2 has a Samsung 256 MByte NAND flash (Dev ID of 0xAA,
+ * 2048 blocks in the device, 64 pages per block, 2048 bytes per
+ * page.
+ */
 
 #define NAND_BLOCK_SIZE		SZ_128K
 
 static struct mtd_partition davinci_ntosd2_nandflash_partition[] = {
 	{
-		
+		/* UBL (a few copies) plus U-Boot */
 		.name		= "bootloader",
 		.offset		= 0,
 		.size		= 15 * NAND_BLOCK_SIZE,
-		.mask_flags	= MTD_WRITEABLE, 
+		.mask_flags	= MTD_WRITEABLE, /* force read-only */
 	}, {
-		
+		/* U-Boot environment */
 		.name		= "params",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= 1 * NAND_BLOCK_SIZE,
 		.mask_flags	= 0,
 	}, {
-		
+		/* Kernel */
 		.name		= "kernel",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= SZ_4M,
 		.mask_flags	= 0,
 	}, {
-		
+		/* File System */
 		.name		= "filesystem",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= MTDPART_SIZ_FULL,
 		.mask_flags	= 0,
 	}
-	
+	/* A few blocks at end hold a flash Bad Block Table. */
 };
 
 static struct davinci_nand_pdata davinci_ntosd2_nandflash_data = {
@@ -158,9 +162,12 @@ static void __init davinci_ntosd2_map_io(void)
 	dm644x_init();
 }
 
+/*
+ I2C initialization
+*/
 static struct davinci_i2c_platform_data ntosd2_i2c_pdata = {
-	.bus_freq	= 20 ,
-	.bus_delay	= 100 ,
+	.bus_freq	= 20 /* kHz */,
+	.bus_delay	= 100 /* usec */,
 };
 
 static struct i2c_board_info __initdata ntosd2_i2c_info[] =  {
@@ -226,7 +233,7 @@ static __init void davinci_ntosd2_init(void)
 		davinci_cfg_reg(DM644X_HPIEN_DISABLE);
 		davinci_cfg_reg(DM644X_ATAEN_DISABLE);
 
-		
+		/* only one device will be jumpered and detected */
 		if (HAS_NAND)
 			platform_device_register(
 					&davinci_ntosd2_nandflash_device);
@@ -235,7 +242,7 @@ static __init void davinci_ntosd2_init(void)
 	platform_add_devices(davinci_ntosd2_devices,
 				ARRAY_SIZE(davinci_ntosd2_devices));
 
-	
+	/* Initialize I2C interface specific for this board */
 	status = ntosd2_init_i2c();
 	if (status < 0)
 		pr_warning("davinci_ntosd2_init: msp430 irq setup failed:"
@@ -247,6 +254,14 @@ static __init void davinci_ntosd2_init(void)
 	soc_info->emac_pdata->phy_id = NEUROS_OSD2_PHY_ID;
 
 	davinci_setup_usb(1000, 8);
+	/*
+	 * Mux the pins to be GPIOs, VLYNQEN is already done at startup.
+	 * The AEAWx are five new AEAW pins that can be muxed by separately.
+	 * They are a bitmask for GPIO management. According TI
+	 * documentation (http://www.ti.com/lit/gpn/tms320dm6446) to employ
+	 * gpio(10,11,12,13) for leds any combination of bits works except
+	 * four last. So we are to reset all five.
+	 */
 	davinci_cfg_reg(DM644X_AEAW0);
 	davinci_cfg_reg(DM644X_AEAW1);
 	davinci_cfg_reg(DM644X_AEAW2);
@@ -257,7 +272,7 @@ static __init void davinci_ntosd2_init(void)
 }
 
 MACHINE_START(NEUROS_OSD2, "Neuros OSD2")
-	
+	/* Maintainer: Neuros Technologies <neuros@groups.google.com> */
 	.atag_offset	= 0x100,
 	.map_io		 = davinci_ntosd2_map_io,
 	.init_irq	= davinci_irq_init,

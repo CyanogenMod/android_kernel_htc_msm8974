@@ -36,19 +36,20 @@ module_param(m5mols_debug, int, 0644);
 #define MODULE_NAME		"M5MOLS"
 #define M5MOLS_I2C_CHECK_RETRY	500
 
+/* The regulator consumer names for external voltage regulators */
 static struct regulator_bulk_data supplies[] = {
 	{
-		.supply = "core",	
+		.supply = "core",	/* ARM core power, 1.2V */
 	}, {
-		.supply	= "dig_18",	
+		.supply	= "dig_18",	/* digital power 1, 1.8V */
 	}, {
-		.supply	= "d_sensor",	
+		.supply	= "d_sensor",	/* sensor power 1, 1.8V */
 	}, {
-		.supply	= "dig_28",	
+		.supply	= "dig_28",	/* digital power 2, 2.8V */
 	}, {
-		.supply	= "a_sensor",	
+		.supply	= "a_sensor",	/* analog power */
 	}, {
-		.supply	= "dig_12",	
+		.supply	= "dig_12",	/* digital power 3, 1.2V */
 	},
 };
 
@@ -71,46 +72,54 @@ static struct v4l2_mbus_framefmt m5mols_default_ffmt[M5MOLS_RESTYPE_MAX] = {
 #define SIZE_DEFAULT_FFMT	ARRAY_SIZE(m5mols_default_ffmt)
 
 static const struct m5mols_resolution m5mols_reg_res[] = {
-	{ 0x01, M5MOLS_RESTYPE_MONITOR, 128, 96 },	
-	{ 0x03, M5MOLS_RESTYPE_MONITOR, 160, 120 },	
-	{ 0x05, M5MOLS_RESTYPE_MONITOR, 176, 144 },	
+	{ 0x01, M5MOLS_RESTYPE_MONITOR, 128, 96 },	/* SUB-QCIF */
+	{ 0x03, M5MOLS_RESTYPE_MONITOR, 160, 120 },	/* QQVGA */
+	{ 0x05, M5MOLS_RESTYPE_MONITOR, 176, 144 },	/* QCIF */
 	{ 0x06, M5MOLS_RESTYPE_MONITOR, 176, 176 },
-	{ 0x08, M5MOLS_RESTYPE_MONITOR, 240, 320 },	
-	{ 0x09, M5MOLS_RESTYPE_MONITOR, 320, 240 },	
-	{ 0x0c, M5MOLS_RESTYPE_MONITOR, 240, 400 },	
-	{ 0x0d, M5MOLS_RESTYPE_MONITOR, 400, 240 },	
-	{ 0x0e, M5MOLS_RESTYPE_MONITOR, 352, 288 },	
+	{ 0x08, M5MOLS_RESTYPE_MONITOR, 240, 320 },	/* QVGA */
+	{ 0x09, M5MOLS_RESTYPE_MONITOR, 320, 240 },	/* QVGA */
+	{ 0x0c, M5MOLS_RESTYPE_MONITOR, 240, 400 },	/* WQVGA */
+	{ 0x0d, M5MOLS_RESTYPE_MONITOR, 400, 240 },	/* WQVGA */
+	{ 0x0e, M5MOLS_RESTYPE_MONITOR, 352, 288 },	/* CIF */
 	{ 0x13, M5MOLS_RESTYPE_MONITOR, 480, 360 },
-	{ 0x15, M5MOLS_RESTYPE_MONITOR, 640, 360 },	
-	{ 0x17, M5MOLS_RESTYPE_MONITOR, 640, 480 },	
+	{ 0x15, M5MOLS_RESTYPE_MONITOR, 640, 360 },	/* qHD */
+	{ 0x17, M5MOLS_RESTYPE_MONITOR, 640, 480 },	/* VGA */
 	{ 0x18, M5MOLS_RESTYPE_MONITOR, 720, 480 },
-	{ 0x1a, M5MOLS_RESTYPE_MONITOR, 800, 480 },	
-	{ 0x1f, M5MOLS_RESTYPE_MONITOR, 800, 600 },	
-	{ 0x21, M5MOLS_RESTYPE_MONITOR, 1280, 720 },	
-	{ 0x25, M5MOLS_RESTYPE_MONITOR, 1920, 1080 },	
-	{ 0x29, M5MOLS_RESTYPE_MONITOR, 3264, 2448 },	
-	{ 0x39, M5MOLS_RESTYPE_MONITOR, 800, 602 },	
+	{ 0x1a, M5MOLS_RESTYPE_MONITOR, 800, 480 },	/* WVGA */
+	{ 0x1f, M5MOLS_RESTYPE_MONITOR, 800, 600 },	/* SVGA */
+	{ 0x21, M5MOLS_RESTYPE_MONITOR, 1280, 720 },	/* HD */
+	{ 0x25, M5MOLS_RESTYPE_MONITOR, 1920, 1080 },	/* 1080p */
+	{ 0x29, M5MOLS_RESTYPE_MONITOR, 3264, 2448 },	/* 2.63fps 8M */
+	{ 0x39, M5MOLS_RESTYPE_MONITOR, 800, 602 },	/* AHS_MON debug */
 
-	{ 0x02, M5MOLS_RESTYPE_CAPTURE, 320, 240 },	
-	{ 0x04, M5MOLS_RESTYPE_CAPTURE, 400, 240 },	
+	{ 0x02, M5MOLS_RESTYPE_CAPTURE, 320, 240 },	/* QVGA */
+	{ 0x04, M5MOLS_RESTYPE_CAPTURE, 400, 240 },	/* WQVGA */
 	{ 0x07, M5MOLS_RESTYPE_CAPTURE, 480, 360 },
-	{ 0x08, M5MOLS_RESTYPE_CAPTURE, 640, 360 },	
-	{ 0x09, M5MOLS_RESTYPE_CAPTURE, 640, 480 },	
-	{ 0x0a, M5MOLS_RESTYPE_CAPTURE, 800, 480 },	
-	{ 0x10, M5MOLS_RESTYPE_CAPTURE, 1280, 720 },	
-	{ 0x14, M5MOLS_RESTYPE_CAPTURE, 1280, 960 },	
-	{ 0x17, M5MOLS_RESTYPE_CAPTURE, 1600, 1200 },	
-	{ 0x19, M5MOLS_RESTYPE_CAPTURE, 1920, 1080 },	
-	{ 0x1a, M5MOLS_RESTYPE_CAPTURE, 2048, 1152 },	
+	{ 0x08, M5MOLS_RESTYPE_CAPTURE, 640, 360 },	/* qHD */
+	{ 0x09, M5MOLS_RESTYPE_CAPTURE, 640, 480 },	/* VGA */
+	{ 0x0a, M5MOLS_RESTYPE_CAPTURE, 800, 480 },	/* WVGA */
+	{ 0x10, M5MOLS_RESTYPE_CAPTURE, 1280, 720 },	/* HD */
+	{ 0x14, M5MOLS_RESTYPE_CAPTURE, 1280, 960 },	/* 1M */
+	{ 0x17, M5MOLS_RESTYPE_CAPTURE, 1600, 1200 },	/* 2M */
+	{ 0x19, M5MOLS_RESTYPE_CAPTURE, 1920, 1080 },	/* Full-HD */
+	{ 0x1a, M5MOLS_RESTYPE_CAPTURE, 2048, 1152 },	/* 3Mega */
 	{ 0x1b, M5MOLS_RESTYPE_CAPTURE, 2048, 1536 },
-	{ 0x1c, M5MOLS_RESTYPE_CAPTURE, 2560, 1440 },	
+	{ 0x1c, M5MOLS_RESTYPE_CAPTURE, 2560, 1440 },	/* 4Mega */
 	{ 0x1d, M5MOLS_RESTYPE_CAPTURE, 2560, 1536 },
-	{ 0x1f, M5MOLS_RESTYPE_CAPTURE, 2560, 1920 },	
-	{ 0x21, M5MOLS_RESTYPE_CAPTURE, 3264, 1836 },	
+	{ 0x1f, M5MOLS_RESTYPE_CAPTURE, 2560, 1920 },	/* 5Mega */
+	{ 0x21, M5MOLS_RESTYPE_CAPTURE, 3264, 1836 },	/* 6Mega */
 	{ 0x22, M5MOLS_RESTYPE_CAPTURE, 3264, 1960 },
-	{ 0x25, M5MOLS_RESTYPE_CAPTURE, 3264, 2448 },	
+	{ 0x25, M5MOLS_RESTYPE_CAPTURE, 3264, 2448 },	/* 8Mega */
 };
 
+/**
+ * m5mols_swap_byte - an byte array to integer conversion function
+ * @size: size in bytes of I2C packet defined in the M-5MOLS datasheet
+ *
+ * Convert I2C data byte array with performing any required byte
+ * reordering to assure proper values for each data type, regardless
+ * of the architecture endianness.
+ */
 static u32 m5mols_swap_byte(u8 *data, u8 length)
 {
 	if (length == 1)
@@ -121,6 +130,14 @@ static u32 m5mols_swap_byte(u8 *data, u8 length)
 		return be32_to_cpu(*((u32 *)data));
 }
 
+/**
+ * m5mols_read -  I2C read function
+ * @reg: combination of size, category and command for the I2C packet
+ * @size: desired size of I2C packet
+ * @val: read value
+ *
+ * Returns 0 on success, or else negative errno.
+ */
 static int m5mols_read(struct v4l2_subdev *sd, u32 size, u32 reg, u32 *val)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
@@ -150,7 +167,7 @@ static int m5mols_read(struct v4l2_subdev *sd, u32 size, u32 reg, u32 *val)
 	msg[1].len = size + 1;
 	msg[1].buf = rbuf;
 
-	
+	/* minimum stabilization time */
 	usleep_range(200, 200);
 
 	ret = i2c_transfer(client->adapter, msg, 2);
@@ -213,6 +230,13 @@ int m5mols_read_u32(struct v4l2_subdev *sd, u32 reg, u32 *val)
 	return m5mols_read(sd, I2C_SIZE(reg), reg, val);
 }
 
+/**
+ * m5mols_write - I2C command write function
+ * @reg: combination of size, category and command for the I2C packet
+ * @val: value to write
+ *
+ * Returns 0 on success, or else negative errno.
+ */
 int m5mols_write(struct v4l2_subdev *sd, u32 reg, u32 val)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
@@ -257,6 +281,18 @@ int m5mols_write(struct v4l2_subdev *sd, u32 reg, u32 val)
 	return ret < 0 ? ret : -EIO;
 }
 
+/**
+ * m5mols_busy_wait - Busy waiting with I2C register polling
+ * @reg: the I2C_REG() address of an 8-bit status register to check
+ * @value: expected status register value
+ * @mask: bit mask for the read status register value
+ * @timeout: timeout in miliseconds, or -1 for default timeout
+ *
+ * The @reg register value is ORed with @mask before comparing with @value.
+ *
+ * Return: 0 if the requested condition became true within less than
+ *         @timeout ms, or else negative errno.
+ */
 int m5mols_busy_wait(struct v4l2_subdev *sd, u32 reg, u32 value, u32 mask,
 		     int timeout)
 {
@@ -277,6 +313,12 @@ int m5mols_busy_wait(struct v4l2_subdev *sd, u32 reg, u32 value, u32 mask,
 	return -EBUSY;
 }
 
+/**
+ * m5mols_enable_interrupt - Clear interrupt pending bits and unmask interrupts
+ *
+ * Before writing desired interrupt value the INT_FACTOR register should
+ * be read to clear pending interrupts.
+ */
 int m5mols_enable_interrupt(struct v4l2_subdev *sd, u8 reg)
 {
 	struct m5mols_info *info = to_m5mols(sd);
@@ -304,6 +346,12 @@ int m5mols_wait_interrupt(struct v4l2_subdev *sd, u8 irq_mask, u32 timeout)
 				M5MOLS_I2C_RDY_WAIT_FL | irq_mask, -1);
 }
 
+/**
+ * m5mols_reg_mode - Write the mode and check busy status
+ *
+ * It always accompanies a little delay changing the M-5MOLS mode, so it is
+ * needed checking current busy status to guarantee right mode.
+ */
 static int m5mols_reg_mode(struct v4l2_subdev *sd, u8 mode)
 {
 	int ret = m5mols_write(sd, SYSTEM_SYSMODE, mode);
@@ -313,6 +361,14 @@ static int m5mols_reg_mode(struct v4l2_subdev *sd, u8 mode)
 				M5MOLS_MODE_CHANGE_TIMEOUT);
 }
 
+/**
+ * m5mols_mode - manage the M-5MOLS's mode
+ * @mode: the required operation mode
+ *
+ * The commands of M-5MOLS are grouped into specific modes. Each functionality
+ * can be guaranteed only when the sensor is operating in mode which which
+ * a command belongs to.
+ */
 int m5mols_mode(struct m5mols_info *info, u8 mode)
 {
 	struct v4l2_subdev *sd = &info->sd;
@@ -362,6 +418,12 @@ int m5mols_mode(struct m5mols_info *info, u8 mode)
 	return ret;
 }
 
+/**
+ * m5mols_get_version - retrieve full revisions information of M-5MOLS
+ *
+ * The version information includes revisions of hardware and firmware,
+ * AutoFocus alghorithm version and the version string.
+ */
 static int m5mols_get_version(struct v4l2_subdev *sd)
 {
 	struct m5mols_info *info = to_m5mols(sd);
@@ -413,6 +475,10 @@ static int m5mols_get_version(struct v4l2_subdev *sd)
 	return ret;
 }
 
+/**
+ * __find_restype - Lookup M-5MOLS resolution type according to pixel code
+ * @code: pixel code
+ */
 static enum m5mols_restype __find_restype(enum v4l2_mbus_pixelcode code)
 {
 	enum m5mols_restype type = M5MOLS_RESTYPE_MONITOR;
@@ -425,6 +491,15 @@ static enum m5mols_restype __find_restype(enum v4l2_mbus_pixelcode code)
 	return 0;
 }
 
+/**
+ * __find_resolution - Lookup preset and type of M-5MOLS's resolution
+ * @mf: pixel format to find/negotiate the resolution preset for
+ * @type: M-5MOLS resolution type
+ * @resolution:	M-5MOLS resolution preset register value
+ *
+ * Find nearest resolution matching resolution preset and adjust mf
+ * to supported values.
+ */
 static int __find_resolution(struct v4l2_subdev *sd,
 			     struct v4l2_mbus_framefmt *mf,
 			     enum m5mols_restype *type,
@@ -535,6 +610,13 @@ static struct v4l2_subdev_pad_ops m5mols_pad_ops = {
 	.set_fmt	= m5mols_set_fmt,
 };
 
+/**
+ * m5mols_restore_controls - Apply current control values to the registers
+ *
+ * m5mols_do_scenemode() handles all parameters for which there is yet no
+ * individual control. It should be replaced at some point by setting each
+ * control individually, in required register set up order.
+ */
 int m5mols_restore_controls(struct m5mols_info *info)
 {
 	int ret;
@@ -552,6 +634,12 @@ int m5mols_restore_controls(struct m5mols_info *info)
 	return ret;
 }
 
+/**
+ * m5mols_start_monitor - Start the monitor mode
+ *
+ * Before applying the controls setup the resolution and frame rate
+ * in PARAMETER mode, and then switch over to MONITOR mode.
+ */
 static int m5mols_start_monitor(struct m5mols_info *info)
 {
 	struct v4l2_subdev *sd = &info->sd;
@@ -600,6 +688,10 @@ static int m5mols_s_ctrl(struct v4l2_ctrl *ctrl)
 	int ispstate = info->mode;
 	int ret;
 
+	/*
+	 * If needed, defer restoring the controls until
+	 * the device is fully initialized.
+	 */
 	if (!info->isp_ready) {
 		info->ctrl_sync = 0;
 		return 0;
@@ -662,19 +754,27 @@ static int m5mols_sensor_power(struct m5mols_info *info, bool enable)
 	return ret;
 }
 
+/* m5mols_update_fw - optional firmware update routine */
 int __attribute__ ((weak)) m5mols_update_fw(struct v4l2_subdev *sd,
 		int (*set_power)(struct m5mols_info *, bool))
 {
 	return 0;
 }
 
+/**
+ * m5mols_fw_start - M-5MOLS internal ARM controller initialization
+ *
+ * Execute the M-5MOLS internal ARM controller initialization sequence.
+ * This function should be called after the supply voltage has been
+ * applied and before any requests to the device are made.
+ */
 static int m5mols_fw_start(struct v4l2_subdev *sd)
 {
 	struct m5mols_info *info = to_m5mols(sd);
 	int ret;
 
 	atomic_set(&info->irq_done, 0);
-	
+	/* Wait until I2C slave is initialized in Flash Writer mode */
 	ret = m5mols_busy_wait(sd, FLASH_CAM_START, REG_IN_FLASH_MODE,
 			       M5MOLS_I2C_RDY_WAIT_FL | 0xff, -1);
 	if (!ret)
@@ -709,7 +809,7 @@ static int m5mols_init_controls(struct m5mols_info *info)
 	u16 step_zoom;
 	int ret;
 
-	
+	/* Determine value's range & step of controls for various FW version */
 	ret = m5mols_read_u16(sd, AE_MAX_GAIN_MON, &max_exposure);
 	if (!ret)
 		step_zoom = is_manufacturer(info, REG_SAMSUNG_OPTICS) ? 31 : 1;
@@ -748,6 +848,13 @@ static int m5mols_init_controls(struct m5mols_info *info)
 	return 0;
 }
 
+/**
+ * m5mols_s_power - Main sensor power control function
+ *
+ * To prevent breaking the lens when the sensor is powered off the Soft-Landing
+ * algorithm is called where available. The Soft-Landing algorithm availability
+ * dependends on the firmware provider.
+ */
 static int m5mols_s_power(struct v4l2_subdev *sd, int on)
 {
 	struct m5mols_info *info = to_m5mols(sd);
@@ -800,6 +907,9 @@ static const struct v4l2_subdev_core_ops m5mols_core_ops = {
 	.log_status	= m5mols_log_status,
 };
 
+/*
+ * V4L2 subdev internal operations
+ */
 static int m5mols_open(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh)
 {
 	struct v4l2_mbus_framefmt *format = v4l2_subdev_get_try_format(fh, 0);

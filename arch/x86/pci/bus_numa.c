@@ -43,6 +43,11 @@ void x86_pci_root_bus_resources(int bus, struct list_head *resources)
 	return;
 
 default_resources:
+	/*
+	 * We don't have any host bridge aperture information from the
+	 * "native host bridge drivers," e.g., amd_bus or broadcom_bus,
+	 * so fall back to the defaults historically used by pci_create_bus().
+	 */
 	printk(KERN_DEBUG "PCI: root bus %02x: using default resources\n", bus);
 	pci_add_resource(resources, &ioport_resource);
 	pci_add_resource(resources, &iomem_resource);
@@ -63,7 +68,7 @@ void __devinit update_res(struct pci_root_info *info, resource_size_t start,
 	if (!merge)
 		goto addit;
 
-	
+	/* try to merge it with old one */
 	for (i = 0; i < info->res_num; i++) {
 		resource_size_t final_start, final_end;
 		resource_size_t common_start, common_end;
@@ -87,7 +92,7 @@ void __devinit update_res(struct pci_root_info *info, resource_size_t start,
 
 addit:
 
-	
+	/* need to add that */
 	if (info->res_num >= RES_NUM)
 		return;
 

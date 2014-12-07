@@ -52,8 +52,9 @@
 
 #define GPIO_MMC1_CARD_DETECT	mfp_to_gpio(MFP_PIN_GPIO15)
 
+/* Littleton MFP configurations */
 static mfp_cfg_t littleton_mfp_cfg[] __initdata = {
-	
+	/* LCD */
 	GPIO54_LCD_LDD_0,
 	GPIO55_LCD_LDD_1,
 	GPIO56_LCD_LDD_2,
@@ -77,15 +78,15 @@ static mfp_cfg_t littleton_mfp_cfg[] __initdata = {
 	GPIO74_LCD_PCLK,
 	GPIO75_LCD_BIAS,
 
-	
+	/* SSP2 */
 	GPIO25_SSP2_SCLK,
 	GPIO27_SSP2_TXD,
-	GPIO17_GPIO,	
+	GPIO17_GPIO,	/* SFRM as chip-select */
 
-	
+	/* Debug Ethernet */
 	GPIO90_GPIO,
 
-	
+	/* Keypad */
 	GPIO107_KP_DKIN_0,
 	GPIO108_KP_DKIN_1,
 	GPIO115_KP_MKIN_0,
@@ -100,16 +101,16 @@ static mfp_cfg_t littleton_mfp_cfg[] __initdata = {
 	GPIO124_KP_MKOUT_3,
 	GPIO125_KP_MKOUT_4,
 
-	
+	/* MMC1 */
 	GPIO3_MMC1_DAT0,
 	GPIO4_MMC1_DAT1,
 	GPIO5_MMC1_DAT2,
 	GPIO6_MMC1_DAT3,
 	GPIO7_MMC1_CLK,
 	GPIO8_MMC1_CMD,
-	GPIO15_GPIO, 
+	GPIO15_GPIO, /* card detect */
 
-	
+	/* UART3 */
 	GPIO107_UART3_CTS,
 	GPIO108_UART3_RTS,
 	GPIO109_UART3_TXD,
@@ -147,7 +148,7 @@ static struct platform_device smc91x_device = {
 #if defined(CONFIG_FB_PXA) || defined(CONFIG_FB_PXA_MODULE)
 static struct pxafb_mode_info tpo_tdo24mtea1_modes[] = {
 	[0] = {
-		
+		/* VGA */
 		.pixclock	= 38250,
 		.xres		= 480,
 		.yres		= 640,
@@ -161,7 +162,7 @@ static struct pxafb_mode_info tpo_tdo24mtea1_modes[] = {
 		.sync		= 0,
 	},
 	[1] = {
-		
+		/* QVGA */
 		.pixclock	= 153000,
 		.xres		= 240,
 		.yres		= 320,
@@ -188,7 +189,7 @@ static void littleton_init_lcd(void)
 }
 #else
 static inline void littleton_init_lcd(void) {};
-#endif 
+#endif /* CONFIG_FB_PXA || CONFIG_FB_PXA_MODULE */
 
 #if defined(CONFIG_SPI_PXA2XX) || defined(CONFIG_SPI_PXA2XX_MODULE)
 static struct pxa2xx_spi_master littleton_spi_info = {
@@ -222,13 +223,13 @@ static inline void littleton_init_spi(void) {}
 
 #if defined(CONFIG_KEYBOARD_PXA27x) || defined(CONFIG_KEYBOARD_PXA27x_MODULE)
 static unsigned int littleton_matrix_key_map[] = {
-	
+	/* KEY(row, col, key_code) */
 	KEY(1, 3, KEY_0), KEY(0, 0, KEY_1), KEY(1, 0, KEY_2), KEY(2, 0, KEY_3),
 	KEY(0, 1, KEY_4), KEY(1, 1, KEY_5), KEY(2, 1, KEY_6), KEY(0, 2, KEY_7),
 	KEY(1, 2, KEY_8), KEY(2, 2, KEY_9),
 
-	KEY(0, 3, KEY_KPASTERISK), 	
-	KEY(2, 3, KEY_KPDOT), 		
+	KEY(0, 3, KEY_KPASTERISK), 	/* * */
+	KEY(2, 3, KEY_KPDOT), 		/* # */
 
 	KEY(5, 4, KEY_ENTER),
 
@@ -244,8 +245,8 @@ static unsigned int littleton_matrix_key_map[] = {
 	KEY(4, 2, KEY_VOLUMEUP),
 	KEY(4, 3, KEY_VOLUMEDOWN),
 
-	KEY(3, 0, KEY_F22),	
-	KEY(3, 1, KEY_F23),	
+	KEY(3, 0, KEY_F22),	/* soft1 */
+	KEY(3, 1, KEY_F23),	/* soft2 */
 };
 
 static struct pxa27x_keypad_platform_data littleton_keypad_info = {
@@ -291,18 +292,18 @@ static struct mtd_partition littleton_nand_partitions[] = {
 		.name        = "Bootloader",
 		.offset      = 0,
 		.size        = 0x060000,
-		.mask_flags  = MTD_WRITEABLE, 
+		.mask_flags  = MTD_WRITEABLE, /* force read-only */
 	},
 	[1] = {
 		.name        = "Kernel",
 		.offset      = 0x060000,
 		.size        = 0x200000,
-		.mask_flags  = MTD_WRITEABLE, 
+		.mask_flags  = MTD_WRITEABLE, /* force read-only */
 	},
 	[2] = {
 		.name        = "Filesystem",
 		.offset      = 0x0260000,
-		.size        = 0x3000000,     
+		.size        = 0x3000000,     /* 48M - rootfs */
 	},
 	[3] = {
 		.name        = "MassStorage",
@@ -313,8 +314,13 @@ static struct mtd_partition littleton_nand_partitions[] = {
 		.name        = "BBT",
 		.offset      = 0x6FA0000,
 		.size        = 0x80000,
-		.mask_flags  = MTD_WRITEABLE,  
+		.mask_flags  = MTD_WRITEABLE,  /* force read-only */
 	},
+	/* NOTE: we reserve some blocks at the end of the NAND flash for
+	 * bad block management, and the max number of relocation blocks
+	 * differs on different platforms. Please take care with it when
+	 * defining the partition table.
+	 */
 };
 
 static struct pxa3xx_nand_platform_data littleton_nand_info = {
@@ -330,7 +336,7 @@ static void __init littleton_init_nand(void)
 }
 #else
 static inline void littleton_init_nand(void) {}
-#endif 
+#endif /* CONFIG_MTD_NAND_PXA3xx || CONFIG_MTD_NAND_PXA3xx_MODULE */
 
 #if defined(CONFIG_I2C_PXA) || defined(CONFIG_I2C_PXA_MODULE)
 static struct led_info littleton_da9034_leds[] = {
@@ -406,17 +412,21 @@ static void __init littleton_init_i2c(void)
 }
 #else
 static inline void littleton_init_i2c(void) {}
-#endif 
+#endif /* CONFIG_I2C_PXA || CONFIG_I2C_PXA_MODULE */
 
 static void __init littleton_init(void)
 {
-	
+	/* initialize MFP configurations */
 	pxa3xx_mfp_config(ARRAY_AND_SIZE(littleton_mfp_cfg));
 
 	pxa_set_ffuart_info(NULL);
 	pxa_set_btuart_info(NULL);
 	pxa_set_stuart_info(NULL);
 
+	/*
+	 * Note: we depend bootloader set the correct
+	 * value to MSC register for SMC91x.
+	 */
 	platform_device_register(&smc91x_device);
 
 	littleton_init_spi();

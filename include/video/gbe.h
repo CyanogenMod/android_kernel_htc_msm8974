@@ -11,73 +11,73 @@
 #define __GBE_H__
 
 struct sgi_gbe {
-	volatile uint32_t ctrlstat;	
-	volatile uint32_t dotclock;	
-	volatile uint32_t i2c;		
-	volatile uint32_t sysclk;	
-	volatile uint32_t i2cfp;	
-	volatile uint32_t id;		
-	volatile uint32_t config;       
-	volatile uint32_t bist;         
+	volatile uint32_t ctrlstat;	/* general control */
+	volatile uint32_t dotclock;	/* dot clock PLL control */
+	volatile uint32_t i2c;		/* crt I2C control */
+	volatile uint32_t sysclk;	/* system clock PLL control */
+	volatile uint32_t i2cfp;	/* flat panel I2C control */
+	volatile uint32_t id;		/* device id/chip revision */
+	volatile uint32_t config;       /* power on configuration [1] */
+	volatile uint32_t bist;         /* internal bist status [1] */
 	uint32_t _pad0[0x010000/4 - 8];
-	volatile uint32_t vt_xy;	
-	volatile uint32_t vt_xymax;	
-	volatile uint32_t vt_vsync;	
-	volatile uint32_t vt_hsync;	
-	volatile uint32_t vt_vblank;	
-	volatile uint32_t vt_hblank;	
-	volatile uint32_t vt_flags;	
-	volatile uint32_t vt_f2rf_lock;	
-	volatile uint32_t vt_intr01;	
-	volatile uint32_t vt_intr23;	
-	volatile uint32_t fp_hdrv;	
-	volatile uint32_t fp_vdrv;	
-	volatile uint32_t fp_de;	
-	volatile uint32_t vt_hpixen;	
-	volatile uint32_t vt_vpixen;	
-	volatile uint32_t vt_hcmap;	
-	volatile uint32_t vt_vcmap;	
-	volatile uint32_t did_start_xy;	
-	volatile uint32_t crs_start_xy;	
-	volatile uint32_t vc_start_xy;	
+	volatile uint32_t vt_xy;	/* current dot coords */
+	volatile uint32_t vt_xymax;	/* maximum dot coords */
+	volatile uint32_t vt_vsync;	/* vsync on/off */
+	volatile uint32_t vt_hsync;	/* hsync on/off */
+	volatile uint32_t vt_vblank;	/* vblank on/off */
+	volatile uint32_t vt_hblank;	/* hblank on/off */
+	volatile uint32_t vt_flags;	/* polarity of vt signals */
+	volatile uint32_t vt_f2rf_lock;	/* f2rf & framelck y coord */
+	volatile uint32_t vt_intr01;	/* intr 0,1 y coords */
+	volatile uint32_t vt_intr23;	/* intr 2,3 y coords */
+	volatile uint32_t fp_hdrv;	/* flat panel hdrv on/off */
+	volatile uint32_t fp_vdrv;	/* flat panel vdrv on/off */
+	volatile uint32_t fp_de;	/* flat panel de on/off */
+	volatile uint32_t vt_hpixen;	/* intrnl horiz pixel on/off */
+	volatile uint32_t vt_vpixen;	/* intrnl vert pixel on/off */
+	volatile uint32_t vt_hcmap;	/* cmap write (horiz) */
+	volatile uint32_t vt_vcmap;	/* cmap write (vert) */
+	volatile uint32_t did_start_xy;	/* eol/f did/xy reset val */
+	volatile uint32_t crs_start_xy;	/* eol/f crs/xy reset val */
+	volatile uint32_t vc_start_xy;	/* eol/f vc/xy reset val */
 	uint32_t _pad1[0xffb0/4];
-	volatile uint32_t ovr_width_tile;
-	volatile uint32_t ovr_inhwctrl;	
-	volatile uint32_t ovr_control;	
+	volatile uint32_t ovr_width_tile;/*overlay plane ctrl 0 */
+	volatile uint32_t ovr_inhwctrl;	/* overlay plane ctrl 1 */
+	volatile uint32_t ovr_control;	/* overlay plane ctrl 1 */
 	uint32_t _pad2[0xfff4/4];
-	volatile uint32_t frm_size_tile;
-	volatile uint32_t frm_size_pixel;
-	volatile uint32_t frm_inhwctrl;	
-	volatile uint32_t frm_control;	
+	volatile uint32_t frm_size_tile;/* normal plane ctrl 0 */
+	volatile uint32_t frm_size_pixel;/*normal plane ctrl 1 */
+	volatile uint32_t frm_inhwctrl;	/* normal plane ctrl 2 */
+	volatile uint32_t frm_control;	/* normal plane ctrl 3 */
 	uint32_t _pad3[0xfff0/4];
-	volatile uint32_t did_inhwctrl;	
-	volatile uint32_t did_control;	
+	volatile uint32_t did_inhwctrl;	/* DID control */
+	volatile uint32_t did_control;	/* DID shadow */
 	uint32_t _pad4[0x7ff8/4];
-	volatile uint32_t mode_regs[32];
+	volatile uint32_t mode_regs[32];/* WID table */
 	uint32_t _pad5[0x7f80/4];
-	volatile uint32_t cmap[6144];	
+	volatile uint32_t cmap[6144];	/* color map */
 	uint32_t _pad6[0x2000/4];
-	volatile uint32_t cm_fifo;	
+	volatile uint32_t cm_fifo;	/* color map fifo status */
 	uint32_t _pad7[0x7ffc/4];
-	volatile uint32_t gmap[256];	
+	volatile uint32_t gmap[256];	/* gamma map */
 	uint32_t _pad8[0x7c00/4];
-	volatile uint32_t gmap10[1024];	
+	volatile uint32_t gmap10[1024];	/* gamma map */
 	uint32_t _pad9[0x7000/4];
-	volatile uint32_t crs_pos;	
-	volatile uint32_t crs_ctl;	
-	volatile uint32_t crs_cmap[3];	
+	volatile uint32_t crs_pos;	/* cusror control 0 */
+	volatile uint32_t crs_ctl;	/* cusror control 1 */
+	volatile uint32_t crs_cmap[3];	/* crs cmap */
 	uint32_t _pad10[0x7fec/4];
-	volatile uint32_t crs_glyph[64];
+	volatile uint32_t crs_glyph[64];/* crs glyph */
 	uint32_t _pad11[0x7f00/4];
-	volatile uint32_t vc_0;	
-	volatile uint32_t vc_1;	
-	volatile uint32_t vc_2;	
-	volatile uint32_t vc_3;	
-	volatile uint32_t vc_4;	
-	volatile uint32_t vc_5;	
-	volatile uint32_t vc_6;	
-	volatile uint32_t vc_7;	
-	volatile uint32_t vc_8;	
+	volatile uint32_t vc_0;	/* video capture crtl 0 */
+	volatile uint32_t vc_1;	/* video capture crtl 1 */
+	volatile uint32_t vc_2;	/* video capture crtl 2 */
+	volatile uint32_t vc_3;	/* video capture crtl 3 */
+	volatile uint32_t vc_4;	/* video capture crtl 4 */
+	volatile uint32_t vc_5;	/* video capture crtl 5 */
+	volatile uint32_t vc_6;	/* video capture crtl 6 */
+	volatile uint32_t vc_7;	/* video capture crtl 7 */
+	volatile uint32_t vc_8;	/* video capture crtl 8 */
 };
 
 #define MASK(msb, lsb)		\
@@ -92,6 +92,9 @@ struct sgi_gbe {
 #define SET_GBE_FIELD(reg, field, v, f)		\
 	SET((v), (f), GBE_##reg##_##field##_MSB, GBE_##reg##_##field##_LSB)
 
+/*
+ * Bit mask information
+ */
 #define GBE_CTRLSTAT_CHIPID_MSB		 3
 #define GBE_CTRLSTAT_CHIPID_LSB		 0
 #define GBE_CTRLSTAT_SENSE_N_MSB	 4
@@ -252,6 +255,7 @@ struct sgi_gbe {
 #define GBE_VC_START_XY_VC_STARTX_MSB	11
 #define GBE_VC_START_XY_VC_STARTX_LSB	 0
 
+/* Constants */
 
 #define GBE_FRM_DEPTH_8		0
 #define GBE_FRM_DEPTH_16	1
@@ -274,35 +278,40 @@ struct sgi_gbe {
 
 #define GBE_TLB_SIZE		128
 
+/* [1] - only GBE revision 2 and later */
 
+/*
+ * Video Timing Data Structure
+ */
 
 struct gbe_timing_info {
 	int flags;
-	short width;		
+	short width;		/* Monitor resolution */
 	short height;
-	int fields_sec;		
-	int cfreq;		
-	short htotal;		
-	short hblank_start;	
-	short hblank_end;	
-	short hsync_start;	
-	short hsync_end;	
-	short vtotal;		
-	short vblank_start;	
-	short vblank_end;	
-	short vsync_start;	
-	short vsync_end;	
-	short pll_m;		
-	short pll_n;		
-	short pll_p;		
+	int fields_sec;		/* fields/sec  (Hz -3 dec. places */
+	int cfreq;		/* pixel clock frequency (MHz -3 dec. places) */
+	short htotal;		/* Horizontal total pixels */
+	short hblank_start;	/* Horizontal blank start */
+	short hblank_end;	/* Horizontal blank end */
+	short hsync_start;	/* Horizontal sync start */
+	short hsync_end;	/* Horizontal sync end */
+	short vtotal;		/* Vertical total lines */
+	short vblank_start;	/* Vertical blank start */
+	short vblank_end;	/* Vertical blank end */
+	short vsync_start;	/* Vertical sync start */
+	short vsync_end;	/* Vertical sync end */
+	short pll_m;		/* PLL M parameter */
+	short pll_n;		/* PLL P parameter */
+	short pll_p;		/* PLL N parameter */
 };
 
+/* Defines for gbe_vof_info_t flags */
 
 #define GBE_VOF_UNKNOWNMON	1
 #define GBE_VOF_STEREO		2
-#define GBE_VOF_DO_GENSYNC	4	
-#define GBE_VOF_SYNC_ON_GREEN	8	
-#define GBE_VOF_FLATPANEL	0x1000	
-#define GBE_VOF_MAGICKEY	0x2000	
+#define GBE_VOF_DO_GENSYNC	4	/* enable incoming sync */
+#define GBE_VOF_SYNC_ON_GREEN	8	/* sync on green */
+#define GBE_VOF_FLATPANEL	0x1000	/* FLATPANEL Timing */
+#define GBE_VOF_MAGICKEY	0x2000	/* Backdoor key */
 
-#endif		
+#endif		/* ! __GBE_H__ */

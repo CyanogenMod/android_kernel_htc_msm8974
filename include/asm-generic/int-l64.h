@@ -1,3 +1,9 @@
+/*
+ * asm-generic/int-l64.h
+ *
+ * Integer declarations for architectures which use "long"
+ * for 64-bit types.
+ */
 
 #ifndef _ASM_GENERIC_INT_L64_H
 #define _ASM_GENERIC_INT_L64_H
@@ -5,6 +11,10 @@
 #include <asm/bitsperlong.h>
 
 #ifndef __ASSEMBLY__
+/*
+ * __xx is ok: it doesn't pollute the POSIX namespace. Use these in the
+ * header files exported to user space
+ */
 
 typedef __signed__ char __s8;
 typedef unsigned char __u8;
@@ -18,7 +28,7 @@ typedef unsigned int __u32;
 typedef __signed__ long __s64;
 typedef unsigned long __u64;
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #ifdef __KERNEL__
 
@@ -45,7 +55,7 @@ typedef unsigned long u64;
 #define S64_C(x) x ## L
 #define U64_C(x) x ## UL
 
-#else 
+#else /* __ASSEMBLY__ */
 
 #define S8_C(x)  x
 #define U8_C(x)  x
@@ -56,8 +66,8 @@ typedef unsigned long u64;
 #define S64_C(x) x
 #define U64_C(x) x
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_GENERIC_INT_L64_H */

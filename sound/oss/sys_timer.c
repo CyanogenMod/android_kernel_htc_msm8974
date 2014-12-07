@@ -1,9 +1,19 @@
 /*
+ * sound/oss/sys_timer.c
+ *
+ * The default timer for the Level 2 sequencer interface
+ * Uses the (1/HZ sec) timer of kernel.
+ */
+/*
  * Copyright (C) by Hannu Savolainen 1993-1997
  *
  * OSS/Free for Linux is distributed under the GNU GENERAL PUBLIC LICENSE (GPL)
  * Version 2 (June 1991). See the "COPYING" file distributed with this software
  * for more info.
+ */
+/*
+ * Thomas Sailer   : ioctl code reworked (vmalloc/vfree removed)
+ * Andrew Veliath  : adapted tmr2ticks from level 1 sequencer (avoid overflow)
  */
 #include <linux/spinlock.h>
 #include "sound_config.h"
@@ -23,12 +33,17 @@ static DEFINE_TIMER(def_tmr, poll_def_tmr, 0, 0);
 static unsigned long
 tmr2ticks(int tmr_value)
 {
+	/*
+	 *    Convert timer ticks to MIDI ticks
+	 */
 
 	unsigned long tmp;
 	unsigned long scale;
 
+	/* tmr_value (ticks per sec) *
+	   1000000 (usecs per sec) / HZ (ticks per sec) -=> usecs */
 	tmp = tmr_value * (1000000 / HZ);
-	scale = (60 * 1000000) / (curr_tempo * curr_timebase);	
+	scale = (60 * 1000000) / (curr_tempo * curr_timebase);	/* usecs per MIDI tick */
 	return (tmp + scale / 2) / scale;
 }
 
@@ -115,7 +130,7 @@ def_tmr_event(int dev, unsigned char *event)
 		    {
 			    long            time;
 
-			    if (parm <= curr_ticks)	
+			    if (parm <= curr_ticks)	/* It's the time */
 				    return TIMER_NOT_ARMED;
 
 			    time = parm;
@@ -171,6 +186,7 @@ def_tmr_get_time(int dev)
 	return curr_ticks;
 }
 
+/* same as sound_timer.c:timer_ioctl!? */
 static int def_tmr_ioctl(int dev, unsigned int cmd, void __user *arg)
 {
 	int __user *p = arg;
@@ -224,7 +240,7 @@ static int def_tmr_ioctl(int dev, unsigned int cmd, void __user *arg)
 	case SNDCTL_SEQ_CTRLRATE:
 		if (__get_user(val, p))
 			return -EFAULT;
-		if (val != 0)	
+		if (val != 0)	/* Can't change */
 			return -EINVAL;
 		val = ((curr_tempo * curr_timebase) + 30) / 60;
 		return __put_user(val, p);
@@ -233,7 +249,7 @@ static int def_tmr_ioctl(int dev, unsigned int cmd, void __user *arg)
 		return __put_user(curr_ticks, p);
 		
 	case SNDCTL_TMR_METRONOME:
-		
+		/* NOP */
 		break;
 		
 	default:;
@@ -246,7 +262,7 @@ def_tmr_arm(int dev, long time)
 {
 	if (time < 0)
 		time = curr_ticks + 1;
-	else if (time <= curr_ticks)	
+	else if (time <= curr_ticks)	/* It's the time */
 		return;
 
 	next_event_time = prev_event_time = time;
@@ -258,8 +274,8 @@ struct sound_timer_operations default_sound_timer =
 {
 	.owner		= THIS_MODULE,
 	.info		= {"System clock", 0},
-	.priority	= 0,	
-	.devlink	= 0,	
+	.priority	= 0,	/* Priority */
+	.devlink	= 0,	/* Local device link */
 	.open		= def_tmr_open,
 	.close		= def_tmr_close,
 	.event		= def_tmr_event,

@@ -70,6 +70,14 @@ enum sci_remote_device_not_ready_reason_code {
 	SCIC_REMOTE_DEVICE_NOT_READY_REASON_CODE_MAX
 };
 
+/**
+ * isci_remote_device - isci representation of a sas expander / end point
+ * @device_port_width: hw setting for number of simultaneous connections
+ * @connection_rate: per-taskcontext connection rate for this device
+ * @working_request: SATA requests have no tag we for unaccelerated
+ *                   protocols we need a method to associate unsolicited
+ *                   frames with a pending request
+ */
 struct isci_remote_device {
 	#define IDEV_START_PENDING 0
 	#define IDEV_STOP_PENDING 1
@@ -89,7 +97,7 @@ struct isci_remote_device {
 	bool is_direct_attached;
 	struct isci_port *owning_port;
 	struct sci_remote_node_context rnc;
-	
+	/* XXX unify with device reference counting and delete */
 	u32 started_request_count;
 	struct isci_request *working_request;
 	u32 not_ready_reason;
@@ -97,6 +105,7 @@ struct isci_remote_device {
 
 #define ISCI_REMOTE_DEVICE_START_TIMEOUT 5000
 
+/* device reference routines must be called under sci_lock */
 static inline struct isci_remote_device *isci_lookup_device(struct domain_device *dev)
 {
 	struct isci_remote_device *idev = dev->lldd_dev;
@@ -123,16 +132,125 @@ void isci_remote_device_nuke_requests(struct isci_host *ihost,
 void isci_remote_device_gone(struct domain_device *domain_dev);
 int isci_remote_device_found(struct domain_device *domain_dev);
 
+/**
+ * sci_remote_device_stop() - This method will stop both transmission and
+ *    reception of link activity for the supplied remote device.  This method
+ *    disables normal IO requests from flowing through to the remote device.
+ * @remote_device: This parameter specifies the device to be stopped.
+ * @timeout: This parameter specifies the number of milliseconds in which the
+ *    stop operation should complete.
+ *
+ * An indication of whether the device was successfully stopped. SCI_SUCCESS
+ * This value is returned if the transmission and reception for the device was
+ * successfully stopped.
+ */
 enum sci_status sci_remote_device_stop(
 	struct isci_remote_device *idev,
 	u32 timeout);
 
+/**
+ * sci_remote_device_reset() - This method will reset the device making it
+ *    ready for operation. This method must be called anytime the device is
+ *    reset either through a SMP phy control or a port hard reset request.
+ * @remote_device: This parameter specifies the device to be reset.
+ *
+ * This method does not actually cause the device hardware to be reset. This
+ * method resets the software object so that it will be operational after a
+ * device hardware reset completes. An indication of whether the device reset
+ * was accepted. SCI_SUCCESS This value is returned if the device reset is
+ * started.
+ */
 enum sci_status sci_remote_device_reset(
 	struct isci_remote_device *idev);
 
+/**
+ * sci_remote_device_reset_complete() - This method informs the device object
+ *    that the reset operation is complete and the device can resume operation
+ *    again.
+ * @remote_device: This parameter specifies the device which is to be informed
+ *    of the reset complete operation.
+ *
+ * An indication that the device is resuming operation. SCI_SUCCESS the device
+ * is resuming operation.
+ */
 enum sci_status sci_remote_device_reset_complete(
 	struct isci_remote_device *idev);
 
+/**
+ * enum sci_remote_device_states - This enumeration depicts all the states
+ *    for the common remote device state machine.
+ * @SCI_DEV_INITIAL: Simply the initial state for the base remote device
+ * state machine.
+ *
+ * @SCI_DEV_STOPPED: This state indicates that the remote device has
+ * successfully been stopped.  In this state no new IO operations are
+ * permitted.  This state is entered from the INITIAL state.  This state
+ * is entered from the STOPPING state.
+ *
+ * @SCI_DEV_STARTING: This state indicates the the remote device is in
+ * the process of becoming ready (i.e. starting).  In this state no new
+ * IO operations are permitted.  This state is entered from the STOPPED
+ * state.
+ *
+ * @SCI_DEV_READY: This state indicates the remote device is now ready.
+ * Thus, the user is able to perform IO operations on the remote device.
+ * This state is entered from the STARTING state.
+ *
+ * @SCI_STP_DEV_IDLE: This is the idle substate for the stp remote
+ * device.  When there are no active IO for the device it is is in this
+ * state.
+ *
+ * @SCI_STP_DEV_CMD: This is the command state for for the STP remote
+ * device.  This state is entered when the device is processing a
+ * non-NCQ command.  The device object will fail any new start IO
+ * requests until this command is complete.
+ *
+ * @SCI_STP_DEV_NCQ: This is the NCQ state for the STP remote device.
+ * This state is entered when the device is processing an NCQ reuqest.
+ * It will remain in this state so long as there is one or more NCQ
+ * requests being processed.
+ *
+ * @SCI_STP_DEV_NCQ_ERROR: This is the NCQ error state for the STP
+ * remote device.  This state is entered when an SDB error FIS is
+ * received by the device object while in the NCQ state.  The device
+ * object will only accept a READ LOG command while in this state.
+ *
+ * @SCI_STP_DEV_ATAPI_ERROR: This is the ATAPI error state for the STP
+ * ATAPI remote device.  This state is entered when ATAPI device sends
+ * error status FIS without data while the device object is in CMD
+ * state.  A suspension event is expected in this state.  The device
+ * object will resume right away.
+ *
+ * @SCI_STP_DEV_AWAIT_RESET: This is the READY substate indicates the
+ * device is waiting for the RESET task coming to be recovered from
+ * certain hardware specific error.
+ *
+ * @SCI_SMP_DEV_IDLE: This is the ready operational substate for the
+ * remote device.  This is the normal operational state for a remote
+ * device.
+ *
+ * @SCI_SMP_DEV_CMD: This is the suspended state for the remote device.
+ * This is the state that the device is placed in when a RNC suspend is
+ * received by the SCU hardware.
+ *
+ * @SCI_DEV_STOPPING: This state indicates that the remote device is in
+ * the process of stopping.  In this state no new IO operations are
+ * permitted, but existing IO operations are allowed to complete.  This
+ * state is entered from the READY state.  This state is entered from
+ * the FAILED state.
+ *
+ * @SCI_DEV_FAILED: This state indicates that the remote device has
+ * failed.  In this state no new IO operations are permitted.  This
+ * state is entered from the INITIALIZING state.  This state is entered
+ * from the READY state.
+ *
+ * @SCI_DEV_RESETTING: This state indicates the device is being reset.
+ * In this state no new IO operations are permitted.  This state is
+ * entered from the READY state.
+ *
+ * @SCI_DEV_FINAL: Simply the final state for the base remote device
+ * state machine.
+ */
 #define REMOTE_DEV_STATES {\
 	C(DEV_INITIAL),\
 	C(DEV_STOPPED),\
@@ -173,10 +291,13 @@ static inline bool dev_is_expander(struct domain_device *dev)
 
 static inline void sci_remote_device_decrement_request_count(struct isci_remote_device *idev)
 {
+	/* XXX delete this voodoo when converting to the top-level device
+	 * reference count
+	 */
 	if (WARN_ONCE(idev->started_request_count == 0,
 		      "%s: tried to decrement started_request_count past 0!?",
 			__func__))
-		;
+		/* pass */;
 	else
 		idev->started_request_count--;
 }
@@ -212,4 +333,4 @@ void sci_remote_device_post_request(
 	struct isci_remote_device *idev,
 	u32 request);
 
-#endif 
+#endif /* !defined(_ISCI_REMOTE_DEVICE_H_) */

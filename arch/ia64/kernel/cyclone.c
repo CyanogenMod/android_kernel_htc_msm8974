@@ -6,6 +6,7 @@
 #include <linux/clocksource.h>
 #include <asm/io.h>
 
+/* IBM Summit (EXA) Cyclone counter code*/
 #define CYCLONE_CBAR_ADDR 0xFEB00CD0
 #define CYCLONE_PMCC_OFFSET 0x51A0
 #define CYCLONE_MPMC_OFFSET 0x51D0
@@ -36,17 +37,17 @@ static struct clocksource clocksource_cyclone = {
 int __init init_cyclone_clock(void)
 {
 	u64 __iomem *reg;
-	u64 base;	
-	u64 offset;	
+	u64 base;	/* saved cyclone base address */
+	u64 offset;	/* offset from pageaddr to cyclone_timer register */
 	int i;
-	u32 __iomem *cyclone_timer;	
+	u32 __iomem *cyclone_timer;	/* Cyclone MPMC0 register */
 
 	if (!use_cyclone)
 		return 0;
 
 	printk(KERN_INFO "Summit chipset: Starting Cyclone Counter.\n");
 
-	
+	/* find base address */
 	offset = (CYCLONE_CBAR_ADDR);
 	reg = ioremap_nocache(offset, sizeof(u64));
 	if(!reg){
@@ -64,7 +65,7 @@ int __init init_cyclone_clock(void)
 		return -ENODEV;
 	}
 
-	
+	/* setup PMCC */
 	offset = (base + CYCLONE_PMCC_OFFSET);
 	reg = ioremap_nocache(offset, sizeof(u64));
 	if(!reg){
@@ -76,7 +77,7 @@ int __init init_cyclone_clock(void)
 	writel(0x00000001,reg);
 	iounmap(reg);
 
-	
+	/* setup MPCS */
 	offset = (base + CYCLONE_MPCS_OFFSET);
 	reg = ioremap_nocache(offset, sizeof(u64));
 	if(!reg){
@@ -88,7 +89,7 @@ int __init init_cyclone_clock(void)
 	writel(0x00000001,reg);
 	iounmap(reg);
 
-	
+	/* map in cyclone_timer */
 	offset = (base + CYCLONE_MPMC_OFFSET);
 	cyclone_timer = ioremap_nocache(offset, sizeof(u32));
 	if(!cyclone_timer){
@@ -98,7 +99,7 @@ int __init init_cyclone_clock(void)
 		return -ENODEV;
 	}
 
-	
+	/*quick test to make sure its ticking*/
 	for(i=0; i<3; i++){
 		u32 old = readl(cyclone_timer);
 		int stall = 100;
@@ -112,7 +113,7 @@ int __init init_cyclone_clock(void)
 			return -ENODEV;
 		}
 	}
-	
+	/* initialize last tick */
 	cyclone_mc = cyclone_timer;
 	clocksource_cyclone.archdata.fsys_mmio = cyclone_timer;
 	clocksource_register_hz(&clocksource_cyclone, CYCLONE_TIMER_FREQ);

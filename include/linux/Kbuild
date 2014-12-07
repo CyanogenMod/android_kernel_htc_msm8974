@@ -147,6 +147,7 @@ header-y += generic_serial.h
 header-y += genetlink.h
 header-y += gfs2_ondisk.h
 header-y += gigaset_dev.h
+header-y += hbtp_input.h
 header-y += hdlc.h
 header-y += hdlcdrv.h
 header-y += hdreg.h
@@ -457,4 +458,7 @@ header-y += avtimer.h
 header-y += msm_ipa.h
 header-y += time_helper.h
 header-y += minifb.h
+header-y += msm_pft.h
 header-y += msm_thermal_ioctl.h
+header-y += shub_ctrl.h
+

@@ -22,6 +22,12 @@ extern unsigned long ___set_bit(unsigned long *addr, unsigned long mask);
 extern unsigned long ___clear_bit(unsigned long *addr, unsigned long mask);
 extern unsigned long ___change_bit(unsigned long *addr, unsigned long mask);
 
+/*
+ * Set bit 'nr' in 32-bit quantity at address 'addr' where bit '0'
+ * is in the highest of the four bytes and bit '31' is the high bit
+ * within the first byte. Sparc is BIG-Endian. Unless noted otherwise
+ * all bit-ops return 0 if bit was previously clear and != 0 otherwise.
+ */
 static inline int test_and_set_bit(unsigned long nr, volatile unsigned long *addr)
 {
 	unsigned long *ADDR, mask;
@@ -100,6 +106,6 @@ static inline void change_bit(unsigned long nr, volatile unsigned long *addr)
 #include <asm-generic/bitops/le.h>
 #include <asm-generic/bitops/ext2-atomic.h>
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* defined(_SPARC_BITOPS_H) */

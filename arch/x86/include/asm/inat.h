@@ -22,28 +22,37 @@
  */
 #include <asm/inat_types.h>
 
+/*
+ * Internal bits. Don't use bitmasks directly, because these bits are
+ * unstable. You should use checking functions.
+ */
 
 #define INAT_OPCODE_TABLE_SIZE 256
 #define INAT_GROUP_TABLE_SIZE 8
 
-#define INAT_PFX_OPNDSZ	1	 
-#define INAT_PFX_REPE	2	 
-#define INAT_PFX_REPNE	3	 
-#define INAT_PFX_LOCK	4	
-#define INAT_PFX_CS	5	
-#define INAT_PFX_DS	6	
-#define INAT_PFX_ES	7	
-#define INAT_PFX_FS	8	
-#define INAT_PFX_GS	9	
-#define INAT_PFX_SS	10	
-#define INAT_PFX_ADDRSZ	11	
-#define INAT_PFX_REX	12	
-#define INAT_PFX_VEX2	13	
-#define INAT_PFX_VEX3	14	
+/* Legacy last prefixes */
+#define INAT_PFX_OPNDSZ	1	/* 0x66 */ /* LPFX1 */
+#define INAT_PFX_REPE	2	/* 0xF3 */ /* LPFX2 */
+#define INAT_PFX_REPNE	3	/* 0xF2 */ /* LPFX3 */
+/* Other Legacy prefixes */
+#define INAT_PFX_LOCK	4	/* 0xF0 */
+#define INAT_PFX_CS	5	/* 0x2E */
+#define INAT_PFX_DS	6	/* 0x3E */
+#define INAT_PFX_ES	7	/* 0x26 */
+#define INAT_PFX_FS	8	/* 0x64 */
+#define INAT_PFX_GS	9	/* 0x65 */
+#define INAT_PFX_SS	10	/* 0x36 */
+#define INAT_PFX_ADDRSZ	11	/* 0x67 */
+/* x86-64 REX prefix */
+#define INAT_PFX_REX	12	/* 0x4X */
+/* AVX VEX prefixes */
+#define INAT_PFX_VEX2	13	/* 2-bytes VEX prefix */
+#define INAT_PFX_VEX3	14	/* 3-bytes VEX prefix */
 
 #define INAT_LSTPFX_MAX	3
 #define INAT_LGCPFX_MAX	11
 
+/* Immediate size */
 #define INAT_IMM_BYTE		1
 #define INAT_IMM_WORD		2
 #define INAT_IMM_DWORD		3
@@ -52,21 +61,26 @@
 #define INAT_IMM_VWORD32	6
 #define INAT_IMM_VWORD		7
 
+/* Legacy prefix */
 #define INAT_PFX_OFFS	0
 #define INAT_PFX_BITS	4
 #define INAT_PFX_MAX    ((1 << INAT_PFX_BITS) - 1)
 #define INAT_PFX_MASK	(INAT_PFX_MAX << INAT_PFX_OFFS)
+/* Escape opcodes */
 #define INAT_ESC_OFFS	(INAT_PFX_OFFS + INAT_PFX_BITS)
 #define INAT_ESC_BITS	2
 #define INAT_ESC_MAX	((1 << INAT_ESC_BITS) - 1)
 #define INAT_ESC_MASK	(INAT_ESC_MAX << INAT_ESC_OFFS)
+/* Group opcodes (1-16) */
 #define INAT_GRP_OFFS	(INAT_ESC_OFFS + INAT_ESC_BITS)
 #define INAT_GRP_BITS	5
 #define INAT_GRP_MAX	((1 << INAT_GRP_BITS) - 1)
 #define INAT_GRP_MASK	(INAT_GRP_MAX << INAT_GRP_OFFS)
+/* Immediates */
 #define INAT_IMM_OFFS	(INAT_GRP_OFFS + INAT_GRP_BITS)
 #define INAT_IMM_BITS	3
 #define INAT_IMM_MASK	(((1 << INAT_IMM_BITS) - 1) << INAT_IMM_OFFS)
+/* Flags */
 #define INAT_FLAG_OFFS	(INAT_IMM_OFFS + INAT_IMM_BITS)
 #define INAT_MODRM	(1 << (INAT_FLAG_OFFS))
 #define INAT_FORCE64	(1 << (INAT_FLAG_OFFS + 1))
@@ -75,11 +89,13 @@
 #define INAT_VARIANT	(1 << (INAT_FLAG_OFFS + 4))
 #define INAT_VEXOK	(1 << (INAT_FLAG_OFFS + 5))
 #define INAT_VEXONLY	(1 << (INAT_FLAG_OFFS + 6))
+/* Attribute making macros for attribute tables */
 #define INAT_MAKE_PREFIX(pfx)	(pfx << INAT_PFX_OFFS)
 #define INAT_MAKE_ESCAPE(esc)	(esc << INAT_ESC_OFFS)
 #define INAT_MAKE_GROUP(grp)	((grp << INAT_GRP_OFFS) | INAT_MODRM)
 #define INAT_MAKE_IMM(imm)	(imm << INAT_IMM_OFFS)
 
+/* Attribute search APIs */
 extern insn_attr_t inat_get_opcode_attribute(insn_byte_t opcode);
 extern int inat_get_last_prefix_id(insn_byte_t last_pfx);
 extern insn_attr_t inat_get_escape_attribute(insn_byte_t opcode,
@@ -92,6 +108,7 @@ extern insn_attr_t inat_get_avx_attribute(insn_byte_t opcode,
 					  insn_byte_t vex_m,
 					  insn_byte_t vex_pp);
 
+/* Attribute checking functions */
 static inline int inat_is_legacy_prefix(insn_attr_t attr)
 {
 	attr &= INAT_PFX_MASK;

@@ -41,14 +41,23 @@
 
 #include "ide-floppy.h"
 
+/*
+ * After each failed packet command we issue a request sense command and retry
+ * the packet command IDEFLOPPY_MAX_PC_RETRIES times.
+ */
 #define IDEFLOPPY_MAX_PC_RETRIES	3
 
+/* format capacities descriptor codes */
 #define CAPACITY_INVALID	0x00
 #define CAPACITY_UNFORMATTED	0x01
 #define CAPACITY_CURRENT	0x02
 #define CAPACITY_NO_CARTRIDGE	0x03
 
-#define IDEFLOPPY_PC_DELAY	(HZ/20)	
+/*
+ * The following delay solves a problem with ATAPI Zip 100 drive where BSY bit
+ * was apparently being deasserted before the unit was ready to receive data.
+ */
+#define IDEFLOPPY_PC_DELAY	(HZ/20)	/* default delay for ZIP 100 (50ms) */
 
 static int ide_floppy_callback(ide_drive_t *drive, int dsc)
 {
@@ -64,7 +73,7 @@ static int ide_floppy_callback(ide_drive_t *drive, int dsc)
 
 	if (pc->c[0] == GPCMD_READ_10 || pc->c[0] == GPCMD_WRITE_10 ||
 	    rq->cmd_type == REQ_TYPE_BLOCK_PC)
-		uptodate = 1; 
+		uptodate = 1; /* FIXME */
 	else if (pc->c[0] == GPCMD_REQUEST_SENSE) {
 
 		u8 *buf = bio_data(rq->bio);
@@ -97,7 +106,7 @@ static int ide_floppy_callback(ide_drive_t *drive, int dsc)
 static void ide_floppy_report_error(struct ide_disk_obj *floppy,
 				    struct ide_atapi_pc *pc)
 {
-	
+	/* suppress error messages resulting from Medium not present */
 	if (floppy->sense_key == 0x02 &&
 	    floppy->asc       == 0x3a &&
 	    floppy->ascq      == 0x00)
@@ -120,7 +129,7 @@ static ide_startstop_t ide_floppy_issue_pc(ide_drive_t *drive,
 	    pc->c[0] != GPCMD_REQUEST_SENSE)
 		drive->failed_pc = pc;
 
-	
+	/* Set the current packet command */
 	drive->pc = pc;
 
 	if (pc->retries > IDEFLOPPY_MAX_PC_RETRIES) {
@@ -129,7 +138,7 @@ static ide_startstop_t ide_floppy_issue_pc(ide_drive_t *drive,
 		if (!(pc->flags & PC_FLAG_SUPPRESS_ERROR))
 			ide_floppy_report_error(floppy, pc);
 
-		
+		/* Giving up */
 		pc->error = IDE_DRV_ERROR_GENERAL;
 
 		drive->failed_pc = NULL;
@@ -154,9 +163,10 @@ void ide_floppy_create_read_capacity_cmd(struct ide_atapi_pc *pc)
 	pc->req_xfer = 255;
 }
 
+/* A mode sense command is used to "sense" floppy parameters. */
 void ide_floppy_create_mode_sense_cmd(struct ide_atapi_pc *pc, u8 page_code)
 {
-	u16 length = 8; 
+	u16 length = 8; /* sizeof(Mode Parameter Header) = 8 Bytes */
 
 	ide_init_pc(pc);
 	pc->c[0] = GPCMD_MODE_SENSE_10;
@@ -292,6 +302,10 @@ out_end:
 	return ide_stopped;
 }
 
+/*
+ * Look at the flexible disk page parameters. We ignore the CHS capacity
+ * parameters and use the LBA parameters instead.
+ */
 static int ide_floppy_get_flexible_disk_page(ide_drive_t *drive,
 					     struct ide_atapi_pc *pc)
 {
@@ -351,6 +365,10 @@ static int ide_floppy_get_flexible_disk_page(ide_drive_t *drive,
 	return 0;
 }
 
+/*
+ * Determine if a media is present in the floppy drive, and if so, its LBA
+ * capacity.
+ */
 static int ide_floppy_get_capacity(ide_drive_t *drive)
 {
 	struct ide_disk_obj *floppy = drive->driver_data;
@@ -375,7 +393,7 @@ static int ide_floppy_get_capacity(ide_drive_t *drive)
 	}
 	header_len = pc_buf[3];
 	cap_desc = &pc_buf[4];
-	desc_cnt = header_len / 8; 
+	desc_cnt = header_len / 8; /* capacity descriptor of 8 bytes */
 
 	for (i = 0; i < desc_cnt; i++) {
 		unsigned int desc_start = 4 + i*8;
@@ -390,14 +408,21 @@ static int ide_floppy_get_capacity(ide_drive_t *drive)
 
 		if (i)
 			continue;
+		/*
+		 * the code below is valid only for the 1st descriptor, ie i=0
+		 */
 
 		switch (pc_buf[desc_start + 4] & 0x03) {
-		
+		/* Clik! drive returns this instead of CAPACITY_CURRENT */
 		case CAPACITY_UNFORMATTED:
 			if (!(drive->atapi_flags & IDE_AFLAG_CLIK_DRIVE))
+				/*
+				 * If it is not a clik drive, break out
+				 * (maintains previous driver behaviour)
+				 */
 				break;
 		case CAPACITY_CURRENT:
-			
+			/* Normal Zip/LS-120 disks */
 			if (memcmp(cap_desc, &floppy->cap_desc, 8))
 				printk(KERN_INFO PFX "%s: %dkB, %d blocks, %d "
 				       "sector size\n",
@@ -423,6 +448,10 @@ static int ide_floppy_get_capacity(ide_drive_t *drive)
 			}
 			break;
 		case CAPACITY_NO_CARTRIDGE:
+			/*
+			 * This is a KERN_ERR so it appears on screen
+			 * for the user to see
+			 */
 			printk(KERN_ERR PFX "%s: No disk in drive\n",
 			       drive->name);
 			break;
@@ -435,7 +464,7 @@ static int ide_floppy_get_capacity(ide_drive_t *drive)
 					     pc_buf[desc_start + 4] & 0x03);
 	}
 
-	
+	/* Clik! disk does not support get_flexible_disk_page */
 	if (!(drive->atapi_flags & IDE_AFLAG_CLIK_DRIVE))
 		(void) ide_floppy_get_flexible_disk_page(drive, &pc);
 
@@ -449,17 +478,30 @@ static void ide_floppy_setup(ide_drive_t *drive)
 
 	drive->pc_callback	 = ide_floppy_callback;
 
+	/*
+	 * We used to check revisions here. At this point however I'm giving up.
+	 * Just assume they are all broken, its easier.
+	 *
+	 * The actual reason for the workarounds was likely a driver bug after
+	 * all rather than a firmware bug, and the workaround below used to hide
+	 * it. It should be fixed as of version 1.9, but to be on the safe side
+	 * we'll leave the limitation below for the 2.2.x tree.
+	 */
 	if (!strncmp((char *)&id[ATA_ID_PROD], "IOMEGA ZIP 100 ATAPI", 20)) {
 		drive->atapi_flags |= IDE_AFLAG_ZIP_DRIVE;
-		
+		/* This value will be visible in the /proc/ide/hdx/settings */
 		drive->pc_delay = IDEFLOPPY_PC_DELAY;
 		blk_queue_max_hw_sectors(drive->queue, 64);
 	}
 
+	/*
+	 * Guess what? The IOMEGA Clik! drive also needs the above fix. It makes
+	 * nasty clicking noises without it, so please don't remove this.
+	 */
 	if (strncmp((char *)&id[ATA_ID_PROD], "IOMEGA Clik!", 11) == 0) {
 		blk_queue_max_hw_sectors(drive->queue, 64);
 		drive->atapi_flags |= IDE_AFLAG_CLIK_DRIVE;
-		
+		/* IOMEGA Clik! drives do not support lock/unlock commands */
 		drive->dev_flags &= ~IDE_DFLAG_DOORLOCKING;
 	}
 

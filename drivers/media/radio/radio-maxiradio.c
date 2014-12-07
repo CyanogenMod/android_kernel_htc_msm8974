@@ -1,3 +1,36 @@
+/*
+ * Guillemot Maxi Radio FM 2000 PCI radio card driver for Linux
+ * (C) 2001 Dimitromanolakis Apostolos <apdim@grecian.net>
+ *
+ * Based in the radio Maestro PCI driver. Actually it uses the same chip
+ * for radio but different pci controller.
+ *
+ * I didn't have any specs I reversed engineered the protocol from
+ * the windows driver (radio.dll).
+ *
+ * The card uses the TEA5757 chip that includes a search function but it
+ * is useless as I haven't found any way to read back the frequency. If
+ * anybody does please mail me.
+ *
+ * For the pdf file see:
+ * http://www.nxp.com/acrobat_download2/expired_datasheets/TEA5757_5759_3.pdf 
+ *
+ *
+ * CHANGES:
+ *   0.75b
+ *     - better pci interface thanks to Francois Romieu <romieu@cogenit.fr>
+ *
+ *   0.75      Sun Feb  4 22:51:27 EET 2001
+ *     - tiding up
+ *     - removed support for multiple devices as it didn't work anyway
+ *
+ * BUGS:
+ *   - card unmutes if you change frequency
+ *
+ * (c) 2006, 2007 by Mauro Carvalho Chehab <mchehab@infradead.org>:
+ *	- Conversion to V4L2 API
+ *      - Uses video_ioctl2 for parsing and to add debug support
+ */
 
 
 #include <linux/module.h>
@@ -25,6 +58,7 @@ static int radio_nr = -1;
 module_param(radio_nr, int, 0644);
 MODULE_PARM_DESC(radio_nr, "Radio device number");
 
+/* TEA5757 pin mappings */
 static const int clk = 1, data = 2, wren = 4, mo_st = 8, power = 16;
 
 static atomic_t maxiradio_instance = ATOMIC_INIT(0);
@@ -38,7 +72,7 @@ struct maxiradio
 	struct v4l2_device v4l2_dev;
 	struct pci_dev *pdev;
 
-	u16	io;	
+	u16	io;	/* base of radio io */
 };
 
 static inline struct maxiradio *to_maxiradio(struct v4l2_device *v4l2_dev)
@@ -59,6 +93,8 @@ static void maxiradio_tea575x_set_pins(struct snd_tea575x *tea, u8 pins)
 	outb(bits, dev->io);
 }
 
+/* Note: this card cannot read out the data of the shift registers,
+   only the mono/stereo pin works. */
 static u8 maxiradio_tea575x_get_pins(struct snd_tea575x *tea)
 {
 	struct maxiradio *dev = tea->private_data;
@@ -100,6 +136,8 @@ static int __devinit maxiradio_probe(struct pci_dev *pdev, const struct pci_devi
 	}
 	dev->tea.private_data = dev;
 	dev->tea.ops = &maxiradio_tea_ops;
+	/* The data pin cannot be read. This may be a hardware limitation, or
+	   we just don't know how to read it. */
 	dev->tea.cannot_read_data = true;
 	dev->tea.v4l2_dev = v4l2_dev;
 	dev->tea.radio_nr = radio_nr;
@@ -140,7 +178,7 @@ static void __devexit maxiradio_remove(struct pci_dev *pdev)
 	struct maxiradio *dev = to_maxiradio(v4l2_dev);
 
 	snd_tea575x_exit(&dev->tea);
-	
+	/* Turn off power */
 	outb(0, dev->io);
 	v4l2_device_unregister(v4l2_dev);
 	release_region(pci_resource_start(pdev, 0), pci_resource_len(pdev, 0));

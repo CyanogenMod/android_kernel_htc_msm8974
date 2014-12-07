@@ -78,6 +78,7 @@ static void ocfs2_set_slot(struct ocfs2_slot_info *si,
 	si->si_slots[slot_num].sl_node_num = node_num;
 }
 
+/* This version is for the extended slot map */
 static void ocfs2_update_slot_info_extended(struct ocfs2_slot_info *si)
 {
 	int b, i, slotno;
@@ -99,6 +100,10 @@ static void ocfs2_update_slot_info_extended(struct ocfs2_slot_info *si)
 	}
 }
 
+/*
+ * Post the slot information on disk into our slot_info struct.
+ * Must be protected by osb_lock.
+ */
 static void ocfs2_update_slot_info_old(struct ocfs2_slot_info *si)
 {
 	int i;
@@ -116,6 +121,10 @@ static void ocfs2_update_slot_info_old(struct ocfs2_slot_info *si)
 
 static void ocfs2_update_slot_info(struct ocfs2_slot_info *si)
 {
+	/*
+	 * The slot data will have been refreshed when ocfs2_super_lock
+	 * was taken.
+	 */
 	if (si->si_extended)
 		ocfs2_update_slot_info_extended(si);
 	else
@@ -135,6 +144,11 @@ int ocfs2_refresh_slot_info(struct ocfs2_super *osb)
 
 	trace_ocfs2_refresh_slot_info(si->si_blocks);
 
+	/*
+	 * We pass -1 as blocknr because we expect all of si->si_bh to
+	 * be !NULL.  Thus, ocfs2_read_blocks() will ignore blocknr.  If
+	 * this is not true, the read of -1 (UINT64_MAX) will fail.
+	 */
 	ret = ocfs2_read_blocks(INODE_CACHE(si->si_inode), -1, si->si_blocks,
 				si->si_bh, OCFS2_BH_IGNORE_CACHE, NULL);
 	if (ret == 0) {
@@ -146,6 +160,8 @@ int ocfs2_refresh_slot_info(struct ocfs2_super *osb)
 	return ret;
 }
 
+/* post the our slot info stuff into it's destination bh and write it
+ * out. */
 static void ocfs2_update_disk_slot_extended(struct ocfs2_slot_info *si,
 					    int slot_num,
 					    struct buffer_head **bh)
@@ -203,6 +219,10 @@ static int ocfs2_update_disk_slot(struct ocfs2_super *osb,
 	return status;
 }
 
+/*
+ * Calculate how many bytes are needed by the slot map.  Returns
+ * an error if the slot map file is too small.
+ */
 static int ocfs2_slot_map_physical_size(struct ocfs2_super *osb,
 					struct inode *inode,
 					unsigned long long *bytes)
@@ -226,6 +246,8 @@ static int ocfs2_slot_map_physical_size(struct ocfs2_super *osb,
 	return 0;
 }
 
+/* try to find global node in the slot info. Returns -ENOENT
+ * if nothing is found. */
 static int __ocfs2_node_num_to_slot(struct ocfs2_slot_info *si,
 				    unsigned int node_num)
 {
@@ -355,7 +377,7 @@ static int ocfs2_map_slot_buffers(struct ocfs2_super *osb,
 	else
 		si->si_slots_per_block = osb->sb->s_blocksize / sizeof(__le16);
 
-	
+	/* The size checks above should ensure this */
 	BUG_ON((osb->max_slots / si->si_slots_per_block) > blocks);
 
 	trace_ocfs2_map_slot_buffers(bytes, si->si_blocks);
@@ -378,7 +400,7 @@ static int ocfs2_map_slot_buffers(struct ocfs2_super *osb,
 
 		trace_ocfs2_map_slot_buffers_block((unsigned long long)blkno, i);
 
-		bh = NULL;  
+		bh = NULL;  /* Acquire a fresh bh */
 		status = ocfs2_read_blocks(INODE_CACHE(si->si_inode), blkno,
 					   1, &bh, OCFS2_BH_IGNORE_CACHE, NULL);
 		if (status < 0) {
@@ -455,8 +477,14 @@ int ocfs2_find_slot(struct ocfs2_super *osb)
 	spin_lock(&osb->osb_lock);
 	ocfs2_update_slot_info(si);
 
+	/* search for ourselves first and take the slot if it already
+	 * exists. Perhaps we need to mark this in a variable for our
+	 * own journal recovery? Possibly not, though we certainly
+	 * need to warn to the user */
 	slot = __ocfs2_node_num_to_slot(si, osb->node_num);
 	if (slot < 0) {
+		/* if no slot yet, then just take 1st available
+		 * one. */
 		slot = __ocfs2_find_empty_slot(si, osb->preferred_slot);
 		if (slot < 0) {
 			spin_unlock(&osb->osb_lock);

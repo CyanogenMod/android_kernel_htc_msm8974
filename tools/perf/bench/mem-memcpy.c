@@ -200,7 +200,7 @@ int bench_mem_memcpy(int argc, const char **argv,
 		return 1;
 	}
 
-	
+	/* same to without specifying either of prefault and no-prefault */
 	if (only_prefault && no_prefault)
 		only_prefault = no_prefault = false;
 
@@ -222,7 +222,7 @@ int bench_mem_memcpy(int argc, const char **argv,
 		printf("# Copying %s Bytes ...\n\n", length_str);
 
 	if (!only_prefault && !no_prefault) {
-		
+		/* show both of results */
 		if (use_clock) {
 			result_clock[0] =
 				do_memcpy_clock(routines[i].fn, len, false);
@@ -294,7 +294,7 @@ int bench_mem_memcpy(int argc, const char **argv,
 		}
 		break;
 	default:
-		
+		/* reaching this means there's some disaster: */
 		die("unknown format: %d\n", bench_format);
 		break;
 	}

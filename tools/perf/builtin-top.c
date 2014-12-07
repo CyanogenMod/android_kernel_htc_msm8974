@@ -122,6 +122,9 @@ static int perf_top__parse_source(struct perf_top *top, struct hist_entry *he)
 	sym = he->ms.sym;
 	map = he->ms.map;
 
+	/*
+	 * We can't annotate with just /proc/kallsyms
+	 */
 	if (map->dso->symtab_type == SYMTAB__KALLSYMS) {
 		pr_err("Can't annotate %s: No vmlinux file was found in the "
 		       "path\n", sym->name);
@@ -357,7 +360,7 @@ static void perf_top__prompt_symbol(struct perf_top *top, const char *msg)
 	struct rb_node *next;
 	size_t dummy = 0;
 
-	
+	/* zero counters of active symbol */
 	if (syme) {
 		__zero_source_counters(syme);
 		top->sym_filter_entry = NULL;
@@ -494,7 +497,7 @@ static void perf_top__handle_keypress(struct perf_top *top, int c)
 			break;
 		case 'E':
 			if (top->evlist->nr_entries > 1) {
-				
+				/* Select 0 as the default event: */
 				int counter = 0;
 
 				fprintf(stderr, "\nAvailable events:");
@@ -579,6 +582,11 @@ static void *display_thread_tui(void *arg)
 
 	perf_top__sort_new_samples(top);
 
+	/*
+	 * Initialize the uid_filter_str, in the future the TUI will allow
+	 * Zooming in/out UIDs. For now juse use whatever the user passed
+	 * via --uid.
+	 */
 	list_for_each_entry(pos, &top->evlist->entries, node)
 		pos->hists.uid_filter_str = top->uid_str;
 
@@ -608,18 +616,22 @@ static void *display_thread(void *arg)
 repeat:
 	delay_msecs = top->delay_secs * 1000;
 	tcsetattr(0, TCSANOW, &tc);
-	
+	/* trash return*/
 	getc(stdin);
 
 	while (1) {
 		perf_top__print_sym_table(top);
+		/*
+		 * Either timeout expired or we got an EINTR due to SIGWINCH,
+		 * refresh screen in both cases.
+		 */
 		switch (poll(&stdin_poll, 1, delay_msecs)) {
 		case 0:
 			continue;
 		case -1:
 			if (errno == EINTR)
 				continue;
-			
+			/* Fall trhu */
 		default:
 			goto process_hotkey;
 		}
@@ -634,6 +646,7 @@ process_hotkey:
 	return NULL;
 }
 
+/* Tag samples to be skipped. */
 static const char *skip_symbols[] = {
 	"intel_idle",
 	"default_idle",
@@ -654,6 +667,10 @@ static int symbol_filter(struct map *map __used, struct symbol *sym)
 	const char *name = sym->name;
 	int i;
 
+	/*
+	 * ppc64 uses function descriptors and appends a '.' to the
+	 * start of every instruction address. Remove it.
+	 */
 	if (name[0] == '.')
 		name++;
 
@@ -724,6 +741,17 @@ static void perf_event__process_sample(struct perf_tool *tool,
 
 	if (al.sym == NULL) {
 		const char *msg = "Kernel samples will not be resolved.\n";
+		/*
+		 * As we do lazy loading of symtabs we only will know if the
+		 * specified vmlinux file is invalid when we actually have a
+		 * hit in kernel space and then try to load it. So if we get
+		 * here and there are _no_ symbols in the DSO backing the
+		 * kernel map, bail out.
+		 *
+		 * We may never get here, for instance, if we use -K/
+		 * --hide-kernel-symbols, even if the user specifies an
+		 * invalid --vmlinux ;-)
+		 */
 		if (!top->kptr_restrict_warned && !top->vmlinux_warned &&
 		    al.map == machine->vmlinux_maps[MAP__FUNCTION] &&
 		    RB_EMPTY_ROOT(&al.map->dso->symbols[MAP__FUNCTION])) {
@@ -816,7 +844,11 @@ static void perf_top__mmap_read_idx(struct perf_top *top, int idx)
 			break;
 		case PERF_RECORD_MISC_GUEST_USER:
 			++top->guest_us_samples;
-			
+			/*
+			 * TODO: we don't process guest user from host side
+			 * except simple counting.
+			 */
+			/* Fall thru */
 		default:
 			continue;
 		}
@@ -896,10 +928,18 @@ try_again:
 					top->exclude_guest_missing = true;
 					goto fallback_missing_features;
 				} else if (!top->sample_id_all_missing) {
+					/*
+					 * Old kernel, no attr->sample_id_type_all field
+					 */
 					top->sample_id_all_missing = true;
 					goto retry_sample_id;
 				}
 			}
+			/*
+			 * If it's cycles then fall back to hrtimer
+			 * based cpu-clock-tick sw counter, which
+			 * is always available even if no PMU support:
+			 */
 			if (attr->type == PERF_TYPE_HARDWARE &&
 			    attr->config == PERF_COUNT_HW_CPU_CYCLES) {
 				if (verbose)
@@ -964,6 +1004,10 @@ static int __cmd_top(struct perf_top *top)
 {
 	pthread_t thread;
 	int ret;
+	/*
+	 * FIXME: perf_session__new should allow passing a O_MMAP, so that all this
+	 * mmap reading, etc is encapsulated in it. Use O_WRONLY for now.
+	 */
 	top->session = perf_session__new(NULL, O_WRONLY, false, false, NULL);
 	if (top->session == NULL)
 		return -ENOMEM;
@@ -983,7 +1027,7 @@ static int __cmd_top(struct perf_top *top)
 	top->session->evlist = top->evlist;
 	perf_session__update_sample_type(top->session);
 
-	
+	/* Wait for a minimal set of events before starting the snapshot */
 	poll(top->evlist->pollfd, top->evlist->nr_fds, 100);
 
 	perf_top__mmap_read(top);
@@ -1027,6 +1071,9 @@ parse_callchain_opt(const struct option *opt, const char *arg, int unset)
 	char *tok, *tok2;
 	char *endptr;
 
+	/*
+	 * --no-call-graph
+	 */
 	if (unset) {
 		top->dont_use_callchains = true;
 		return 0;
@@ -1041,7 +1088,7 @@ parse_callchain_opt(const struct option *opt, const char *arg, int unset)
 	if (!tok)
 		return -1;
 
-	
+	/* get the output mode */
 	if (!strncmp(tok, "graph", strlen(arg)))
 		callchain_param.mode = CHAIN_GRAPH_ABS;
 
@@ -1059,7 +1106,7 @@ parse_callchain_opt(const struct option *opt, const char *arg, int unset)
 	} else
 		return -1;
 
-	
+	/* get the min percentage */
 	tok = strtok(NULL, ",");
 	if (!tok)
 		goto setup;
@@ -1068,7 +1115,7 @@ parse_callchain_opt(const struct option *opt, const char *arg, int unset)
 	if (tok == endptr)
 		return -1;
 
-	
+	/* get the print limit */
 	tok2 = strtok(NULL, ",");
 	if (!tok2)
 		goto setup;
@@ -1080,7 +1127,7 @@ parse_callchain_opt(const struct option *opt, const char *arg, int unset)
 			goto setup;
 	}
 
-	
+	/* get the call chain order */
 	if (!strcmp(tok2, "caller"))
 		callchain_param.order = ORDER_CALLER;
 	else if (!strcmp(tok2, "callee"))
@@ -1108,7 +1155,7 @@ int cmd_top(int argc, const char **argv, const char *prefix __used)
 		.count_filter	     = 5,
 		.delay_secs	     = 2,
 		.uid		     = UINT_MAX,
-		.freq		     = 1000, 
+		.freq		     = 1000, /* 1 KHz */
 		.mmap_pages	     = 128,
 		.sym_pcnt_filter     = 5,
 	};
@@ -1210,7 +1257,7 @@ int cmd_top(int argc, const char **argv, const char *prefix __used)
 	if (top.uid_str != NULL && top.uid == UINT_MAX - 1)
 		goto out_delete_evlist;
 
-	
+	/* CPU and PID are mutually exclusive */
 	if (top.target_tid && top.cpu_list) {
 		printf("WARNING: PID switch overriding CPU\n");
 		sleep(1);
@@ -1235,6 +1282,9 @@ int cmd_top(int argc, const char **argv, const char *prefix __used)
 	if (top.delay_secs < 1)
 		top.delay_secs = 1;
 
+	/*
+	 * User specified count overrides default frequency.
+	 */
 	if (top.default_interval)
 		top.freq = 0;
 	else if (top.freq) {
@@ -1245,6 +1295,9 @@ int cmd_top(int argc, const char **argv, const char *prefix __used)
 	}
 
 	list_for_each_entry(pos, &top.evlist->entries, node) {
+		/*
+		 * Fill in the ones not specifically initialized via -c:
+		 */
 		if (!pos->attr.sample_period)
 			pos->attr.sample_period = top.default_interval;
 	}
@@ -1261,6 +1314,10 @@ int cmd_top(int argc, const char **argv, const char *prefix __used)
 	sort_entry__setup_elide(&sort_comm, symbol_conf.comm_list, "comm", stdout);
 	sort_entry__setup_elide(&sort_sym, symbol_conf.sym_list, "symbol", stdout);
 
+	/*
+	 * Avoid annotation data structures overhead when symbols aren't on the
+	 * sort list.
+	 */
 	top.sort_has_symbols = sort_sym.list.next != NULL;
 
 	get_term_dimensions(&top.winsize);

@@ -12,9 +12,42 @@
  */
 
 
+/*
+ * This file requires the following identifiers used in USB strings to
+ * be defined (each of type pointer to char):
+ *  - fsg_string_manufacturer -- name of the manufacturer
+ *  - fsg_string_product      -- name of the product
+ *  - fsg_string_config       -- name of the configuration
+ *  - fsg_string_interface    -- name of the interface
+ * The first four are only needed when FSG_DESCRIPTORS_DEVICE_STRINGS
+ * macro is defined prior to including this file.
+ */
 
+/*
+ * When FSG_NO_INTR_EP is defined fsg_fs_intr_in_desc and
+ * fsg_hs_intr_in_desc objects as well as
+ * FSG_FS_FUNCTION_PRE_EP_ENTRIES and FSG_HS_FUNCTION_PRE_EP_ENTRIES
+ * macros are not defined.
+ *
+ * When FSG_NO_DEVICE_STRINGS is defined FSG_STRING_MANUFACTURER,
+ * FSG_STRING_PRODUCT, FSG_STRING_SERIAL and FSG_STRING_CONFIG are not
+ * defined (as well as corresponding entries in string tables are
+ * missing) and FSG_STRING_INTERFACE has value of zero.
+ *
+ * When FSG_NO_OTG is defined fsg_otg_desc won't be defined.
+ */
 
+/*
+ * When FSG_BUFFHD_STATIC_BUFFER is defined when this file is included
+ * the fsg_buffhd structure's buf field will be an array of FSG_BUFLEN
+ * characters rather then a pointer to void.
+ */
 
+/*
+ * When USB_GADGET_DEBUG_FILES is defined the module param num_buffers
+ * sets the number of pipeline buffers (length of the fsg_buffhd array).
+ * The valid range of num_buffers is: num >= 2 && num <= 4.
+ */
 
 
 #include <linux/usb/storage.h>
@@ -22,28 +55,56 @@
 #include <asm/unaligned.h>
 
 
-#define FSG_VENDOR_ID	0x0525	
-#define FSG_PRODUCT_ID	0xa4a5	
+/*
+ * Thanks to NetChip Technologies for donating this product ID.
+ *
+ * DO NOT REUSE THESE IDs with any other driver!!  Ever!!
+ * Instead:  allocate your own, using normal USB-IF procedures.
+ */
+#define FSG_VENDOR_ID	0x0525	/* NetChip */
+#define FSG_PRODUCT_ID	0xa4a5	/* Linux-USB File-backed Storage Gadget */
 
 
+/*-------------------------------------------------------------------------*/
 
 
 #ifndef DEBUG
 #undef VERBOSE_DEBUG
 #undef DUMP_MSGS
-#endif 
+#endif /* !DEBUG */
 
 #ifdef VERBOSE_DEBUG
 #define VLDBG	LDBG
 #else
 #define VLDBG(lun, fmt, args...) do { } while (0)
-#endif 
+#endif /* VERBOSE_DEBUG */
 
 #define LDBG(lun, fmt, args...)   dev_dbg (&(lun)->dev, fmt, ## args)
 #define LERROR(lun, fmt, args...) dev_err (&(lun)->dev, fmt, ## args)
 #define LWARN(lun, fmt, args...)  dev_warn(&(lun)->dev, fmt, ## args)
 #define LINFO(lun, fmt, args...)  dev_info(&(lun)->dev, fmt, ## args)
 
+/*
+ * Keep those macros in sync with those in
+ * include/linux/usb/composite.h or else GCC will complain.  If they
+ * are identical (the same names of arguments, white spaces in the
+ * same places) GCC will allow redefinition otherwise (even if some
+ * white space is removed or added) warning will be issued.
+ *
+ * Those macros are needed here because File Storage Gadget does not
+ * include the composite.h header.  For composite gadgets those macros
+ * are redundant since composite.h is included any way.
+ *
+ * One could check whether those macros are already defined (which
+ * would indicate composite.h had been included) or not (which would
+ * indicate we were in FSG) but this is not done because a warning is
+ * desired if definitions here differ from the ones in composite.h.
+ *
+ * We want the definitions to match and be the same in File Storage
+ * Gadget as well as Mass Storage Function (and so composite gadgets
+ * using MSF).  If someone changes them in composite.h it will produce
+ * a warning in this file when building MSF.
+ */
 #define DBG(d, fmt, args...)     dev_dbg(&(d)->gadget->dev , fmt , ## args)
 #define VDBG(d, fmt, args...)    dev_vdbg(&(d)->gadget->dev , fmt , ## args)
 #define ERROR(d, fmt, args...)   dev_err(&(d)->gadget->dev , fmt , ## args)
@@ -54,8 +115,8 @@
 
 #ifdef DUMP_MSGS
 
-#  define dump_msg(fsg,  label,			\
-		    buf,  length) do {	\
+#  define dump_msg(fsg, /* const char * */ label,			\
+		   /* const u8 * */ buf, /* unsigned */ length) do {	\
 	if (length < 512) {						\
 		DBG(fsg, "%s, length %u:\n", label, length);		\
 		print_hex_dump(KERN_DEBUG, "", DUMP_PREFIX_OFFSET,	\
@@ -67,8 +128,8 @@
 
 #else
 
-#  define dump_msg(fsg,  label, \
-		    buf,  length) do { } while (0)
+#  define dump_msg(fsg, /* const char * */ label, \
+		   /* const u8 * */ buf, /* unsigned */ length) do { } while (0)
 
 #  ifdef VERBOSE_DEBUG
 
@@ -80,11 +141,13 @@
 
 #    define dump_cdb(fsg) do { } while (0)
 
-#  endif 
+#  endif /* VERBOSE_DEBUG */
 
-#endif 
+#endif /* DUMP_MSGS */
 
+/*-------------------------------------------------------------------------*/
 
+/* CBI Interrupt data structure */
 struct interrupt_data {
 	u8	bType;
 	u8	bValue;
@@ -92,11 +155,14 @@ struct interrupt_data {
 
 #define CBI_INTERRUPT_DATA_LEN		2
 
+/* CBI Accept Device-Specific Command request */
 #define USB_CBI_ADSC_REQUEST		0x00
 
 
+/* Length of a SCSI Command Data Block */
 #define MAX_COMMAND_SIZE	16
 
+/* SCSI Sense Key/Additional Sense Code/ASC Qualifier values */
 #define SS_NO_SENSE				0
 #define SS_COMMUNICATION_FAILURE		0x040800
 #define SS_INVALID_COMMAND			0x052000
@@ -112,11 +178,12 @@ struct interrupt_data {
 #define SS_WRITE_ERROR				0x030c02
 #define SS_WRITE_PROTECTED			0x072700
 
-#define SK(x)		((u8) ((x) >> 16))	
+#define SK(x)		((u8) ((x) >> 16))	/* Sense Key byte, etc. */
 #define ASC(x)		((u8) ((x) >> 8))
 #define ASCQ(x)		((u8) (x))
 
 
+/*-------------------------------------------------------------------------*/
 
 
 struct fsg_lun {
@@ -137,8 +204,8 @@ struct fsg_lun {
 	u32		sense_data_info;
 	u32		unit_attention_data;
 
-	unsigned int	blkbits;	
-	unsigned int	blksize;	
+	unsigned int	blkbits;	/* Bits of logical block size of bound block device */
+	unsigned int	blksize;	/* logical block size of bound block device */
 	struct device	dev;
 #ifdef CONFIG_USB_MSC_PROFILING
 	spinlock_t	lock;
@@ -161,8 +228,9 @@ static struct fsg_lun *fsg_lun_from_dev(struct device *dev)
 }
 
 
+/* Big enough to hold our biggest descriptor */
 #define EP0_BUFSIZE	256
-#define DELAYED_STATUS	(EP0_BUFSIZE + 999)	
+#define DELAYED_STATUS	(EP0_BUFSIZE + 999)	/* An impossibly large value */
 
 #ifdef CONFIG_USB_CSW_HACK
 #define fsg_num_buffers		4
@@ -175,11 +243,16 @@ MODULE_PARM_DESC(num_buffers, "Number of pipeline buffers");
 
 #else
 
+/*
+ * Number of buffers we will use.
+ * 2 is usually enough for good buffering pipeline
+ */
 #define fsg_num_buffers	CONFIG_USB_GADGET_STORAGE_NUM_BUFFERS
 
-#endif 
-#endif 
+#endif /* CONFIG_USB_DEBUG */
+#endif /* CONFIG_USB_CSW_HACK */
 
+/* check if fsg_num_buffers is within a valid range */
 static inline int fsg_num_buffers_validate(void)
 {
 	if (fsg_num_buffers >= 2 && fsg_num_buffers <= 4)
@@ -189,8 +262,10 @@ static inline int fsg_num_buffers_validate(void)
 	return -EINVAL;
 }
 
+/* Default size of buffer length. */
 #define FSG_BUFLEN	((u32)16384)
 
+/* Maximal number of LUNs supported in mass storage function */
 #define FSG_MAX_LUNS	8
 
 enum fsg_buffer_state {
@@ -208,6 +283,11 @@ struct fsg_buffhd {
 	enum fsg_buffer_state		state;
 	struct fsg_buffhd		*next;
 
+	/*
+	 * The NetChip 2280 is faster, and handles some protocol faults
+	 * better, if we don't submit any short bulk-out read requests.
+	 * So we will record the intended request length here.
+	 */
 	unsigned int			bulk_out_intended_length;
 
 	struct usb_request		*inreq;
@@ -217,7 +297,7 @@ struct fsg_buffhd {
 };
 
 enum fsg_state {
-	
+	/* This one isn't used anywhere */
 	FSG_STATE_COMMAND_PHASE = -10,
 	FSG_STATE_DATA_PHASE,
 	FSG_STATE_STATUS_PHASE,
@@ -240,6 +320,7 @@ enum data_direction {
 };
 
 
+/*-------------------------------------------------------------------------*/
 
 
 static inline u32 get_unaligned_be24(u8 *buf)
@@ -248,6 +329,7 @@ static inline u32 get_unaligned_be24(u8 *buf)
 }
 
 
+/*-------------------------------------------------------------------------*/
 
 
 enum {
@@ -271,19 +353,24 @@ fsg_otg_desc = {
 };
 #endif
 
+/* There is only one interface. */
 
 static struct usb_interface_descriptor
 fsg_intf_desc = {
 	.bLength =		sizeof fsg_intf_desc,
 	.bDescriptorType =	USB_DT_INTERFACE,
 
-	.bNumEndpoints =	2,		
+	.bNumEndpoints =	2,		/* Adjusted during fsg_bind() */
 	.bInterfaceClass =	USB_CLASS_MASS_STORAGE,
-	.bInterfaceSubClass =	USB_SC_SCSI,	
-	.bInterfaceProtocol =	USB_PR_BULK,	
+	.bInterfaceSubClass =	USB_SC_SCSI,	/* Adjusted during fsg_bind() */
+	.bInterfaceProtocol =	USB_PR_BULK,	/* Adjusted during fsg_bind() */
 	.iInterface =		FSG_STRING_INTERFACE,
 };
 
+/*
+ * Three full-speed endpoint descriptors: bulk-in, bulk-out, and
+ * interrupt-in.
+ */
 
 static struct usb_endpoint_descriptor
 fsg_fs_bulk_in_desc = {
@@ -292,7 +379,7 @@ fsg_fs_bulk_in_desc = {
 
 	.bEndpointAddress =	USB_DIR_IN,
 	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
-	
+	/* wMaxPacketSize set by autoconfiguration */
 };
 
 static struct usb_endpoint_descriptor
@@ -302,7 +389,7 @@ fsg_fs_bulk_out_desc = {
 
 	.bEndpointAddress =	USB_DIR_OUT,
 	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
-	
+	/* wMaxPacketSize set by autoconfiguration */
 };
 
 #ifndef FSG_NO_INTR_EP
@@ -315,7 +402,7 @@ fsg_fs_intr_in_desc = {
 	.bEndpointAddress =	USB_DIR_IN,
 	.bmAttributes =		USB_ENDPOINT_XFER_INT,
 	.wMaxPacketSize =	cpu_to_le16(2),
-	.bInterval =		32,	
+	.bInterval =		32,	/* frames -> 32 ms */
 };
 
 #ifndef FSG_NO_OTG
@@ -340,12 +427,20 @@ static struct usb_descriptor_header *fsg_fs_function[] = {
 };
 
 
+/*
+ * USB 2.0 devices need to expose both high speed and full speed
+ * descriptors, unless they only run at full speed.
+ *
+ * That means alternate endpoint descriptors (bigger packets)
+ * and a "device qualifier" ... plus more construction options
+ * for the configuration descriptor.
+ */
 static struct usb_endpoint_descriptor
 fsg_hs_bulk_in_desc = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType =	USB_DT_ENDPOINT,
 
-	
+	/* bEndpointAddress copied from fs_bulk_in_desc during fsg_bind() */
 	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
 	.wMaxPacketSize =	cpu_to_le16(512),
 };
@@ -355,10 +450,10 @@ fsg_hs_bulk_out_desc = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType =	USB_DT_ENDPOINT,
 
-	
+	/* bEndpointAddress copied from fs_bulk_out_desc during fsg_bind() */
 	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
 	.wMaxPacketSize =	cpu_to_le16(512),
-	.bInterval =		1,	
+	.bInterval =		1,	/* NAK every 1 uframe */
 };
 
 #ifndef FSG_NO_INTR_EP
@@ -368,10 +463,10 @@ fsg_hs_intr_in_desc = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType =	USB_DT_ENDPOINT,
 
-	
+	/* bEndpointAddress copied from fs_intr_in_desc during fsg_bind() */
 	.bmAttributes =		USB_ENDPOINT_XFER_INT,
 	.wMaxPacketSize =	cpu_to_le16(2),
-	.bInterval =		9,	
+	.bInterval =		9,	/* 2**(9-1) = 256 uframes -> 32 ms */
 };
 
 #ifndef FSG_NO_OTG
@@ -400,7 +495,7 @@ fsg_ss_bulk_in_desc = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType =	USB_DT_ENDPOINT,
 
-	
+	/* bEndpointAddress copied from fs_bulk_in_desc during fsg_bind() */
 	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
 	.wMaxPacketSize =	cpu_to_le16(1024),
 };
@@ -409,7 +504,7 @@ static struct usb_ss_ep_comp_descriptor fsg_ss_bulk_in_comp_desc = {
 	.bLength =		sizeof(fsg_ss_bulk_in_comp_desc),
 	.bDescriptorType =	USB_DT_SS_ENDPOINT_COMP,
 
-	
+	/*.bMaxBurst =		DYNAMIC, */
 };
 
 static struct usb_endpoint_descriptor
@@ -417,7 +512,7 @@ fsg_ss_bulk_out_desc = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType =	USB_DT_ENDPOINT,
 
-	
+	/* bEndpointAddress copied from fs_bulk_out_desc during fsg_bind() */
 	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
 	.wMaxPacketSize =	cpu_to_le16(1024),
 };
@@ -426,7 +521,7 @@ static struct usb_ss_ep_comp_descriptor fsg_ss_bulk_out_comp_desc = {
 	.bLength =		sizeof(fsg_ss_bulk_in_comp_desc),
 	.bDescriptorType =	USB_DT_SS_ENDPOINT_COMP,
 
-	
+	/*.bMaxBurst =		DYNAMIC, */
 };
 
 #ifndef FSG_NO_INTR_EP
@@ -436,10 +531,10 @@ fsg_ss_intr_in_desc = {
 	.bLength =		USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType =	USB_DT_ENDPOINT,
 
-	
+	/* bEndpointAddress copied from fs_intr_in_desc during fsg_bind() */
 	.bmAttributes =		USB_ENDPOINT_XFER_INT,
 	.wMaxPacketSize =	cpu_to_le16(2),
-	.bInterval =		9,	
+	.bInterval =		9,	/* 2**(9-1) = 256 uframes -> 32 ms */
 };
 
 static struct usb_ss_ep_comp_descriptor fsg_ss_intr_in_comp_desc = {
@@ -470,7 +565,7 @@ static __maybe_unused struct usb_ss_cap_descriptor fsg_ss_cap_desc = {
 	.bDescriptorType =	USB_DT_DEVICE_CAPABILITY,
 	.bDevCapabilityType =	USB_SS_CAP_TYPE,
 
-	
+	/* .bmAttributes = LTM is not supported yet */
 
 	.wSpeedSupported =	cpu_to_le16(USB_LOW_SPEED_OPERATION
 		| USB_FULL_SPEED_OPERATION
@@ -508,6 +603,7 @@ static struct usb_descriptor_header *fsg_ss_function[] = {
 	NULL,
 };
 
+/* Maxpacket and other transfer characteristics vary by speed. */
 static __maybe_unused struct usb_endpoint_descriptor *
 fsg_ep_desc(struct usb_gadget *g, struct usb_endpoint_descriptor *fs,
 		struct usb_endpoint_descriptor *hs,
@@ -521,6 +617,7 @@ fsg_ep_desc(struct usb_gadget *g, struct usb_endpoint_descriptor *fs,
 }
 
 
+/* Static strings, in UTF-8 (for simplicity we use only ASCII characters) */
 static struct usb_string		fsg_strings[] = {
 #ifndef FSG_NO_DEVICE_STRINGS
 	{FSG_STRING_MANUFACTURER,	fsg_string_manufacturer},
@@ -533,13 +630,17 @@ static struct usb_string		fsg_strings[] = {
 };
 
 static struct usb_gadget_strings	fsg_stringtab = {
-	.language	= 0x0409,		
+	.language	= 0x0409,		/* en-us */
 	.strings	= fsg_strings,
 };
 
 
- 
+ /*-------------------------------------------------------------------------*/
 
+/*
+ * If the next two routines are called while the gadget is registered,
+ * the caller must own fsg->filesem for writing.
+ */
 
 static int fsg_lun_open(struct fsg_lun *curlun, const char *filename)
 {
@@ -551,7 +652,7 @@ static int fsg_lun_open(struct fsg_lun *curlun, const char *filename)
 	loff_t				num_sectors;
 	loff_t				min_sectors;
 
-	
+	/* R/W if we can, R/O if we must */
 	ro = curlun->initially_ro;
 	if (!ro) {
 		filp = filp_open(filename, O_RDWR | O_LARGEFILE, 0);
@@ -575,6 +676,10 @@ static int fsg_lun_open(struct fsg_lun *curlun, const char *filename)
 		goto out;
 	}
 
+	/*
+	 * If we can't read the file, it's no good.
+	 * If we can't write the file, use it read-only.
+	 */
 	if (!filp->f_op || !(filp->f_op->read || filp->f_op->aio_read)) {
 		LINFO(curlun, "file not readable: %s\n", filename);
 		goto out;
@@ -600,10 +705,10 @@ static int fsg_lun_open(struct fsg_lun *curlun, const char *filename)
 		curlun->blkbits = 9;
 	}
 
-	num_sectors = size >> curlun->blkbits; 
+	num_sectors = size >> curlun->blkbits; /* File size in logic-block-size blocks */
 	min_sectors = 1;
 	if (curlun->cdrom) {
-		min_sectors = 300;	
+		min_sectors = 300;	/* Smallest track is 300 frames */
 		if (num_sectors >= 256*60*75) {
 			num_sectors = 256*60*75 - 1;
 			LINFO(curlun, "file too big: %s\n", filename);
@@ -641,7 +746,12 @@ static void fsg_lun_close(struct fsg_lun *curlun)
 }
 
 
+/*-------------------------------------------------------------------------*/
 
+/*
+ * Sync the file data, don't bother with the metadata.
+ * This code was copied from fs/buffer.c:sys_fdatasync().
+ */
 static int fsg_lun_fsync_sub(struct fsg_lun *curlun)
 {
 	struct file	*filp = curlun->filp;
@@ -654,22 +764,23 @@ static int fsg_lun_fsync_sub(struct fsg_lun *curlun)
 static void store_cdrom_address(u8 *dest, int msf, u32 addr)
 {
 	if (msf) {
-		
-		addr >>= 2;		
-		addr += 2*75;		
-		dest[3] = addr % 75;	
+		/* Convert to Minutes-Seconds-Frames */
+		addr >>= 2;		/* Convert to 2048-byte frames */
+		addr += 2*75;		/* Lead-in occupies 2 seconds */
+		dest[3] = addr % 75;	/* Frames */
 		addr /= 75;
-		dest[2] = addr % 60;	
+		dest[2] = addr % 60;	/* Seconds */
 		addr /= 60;
-		dest[1] = addr;		
-		dest[0] = 0;		
+		dest[1] = addr;		/* Minutes */
+		dest[0] = 0;		/* Reserved */
 	} else {
-		
+		/* Absolute sector */
 		put_unaligned_be32(addr, dest);
 	}
 }
 
 
+/*-------------------------------------------------------------------------*/
 
 
 static ssize_t fsg_show_ro(struct device *dev, struct device_attribute *attr,
@@ -744,17 +855,17 @@ static ssize_t fsg_show_file(struct device *dev, struct device_attribute *attr,
 	ssize_t		rc;
 
 	down_read(filesem);
-	if (fsg_lun_is_open(curlun)) {	
+	if (fsg_lun_is_open(curlun)) {	/* Get the complete pathname */
 		p = d_path(&curlun->filp->f_path, buf, PAGE_SIZE - 1);
 		if (IS_ERR(p))
 			rc = PTR_ERR(p);
 		else {
 			rc = strlen(p);
 			memmove(buf, p, rc);
-			buf[rc] = '\n';		
+			buf[rc] = '\n';		/* Add a newline */
 			buf[++rc] = 0;
 		}
-	} else {				
+	} else {				/* No file, return 0 bytes */
 		*buf = 0;
 		rc = 0;
 	}
@@ -775,6 +886,10 @@ static ssize_t fsg_store_ro(struct device *dev, struct device_attribute *attr,
 	if (rc)
 		return rc;
 
+	/*
+	 * Allow the write-enable status to change only while the
+	 * backing file is closed.
+	 */
 	down_read(filesem);
 	if (fsg_lun_is_open(curlun)) {
 		LDBG(curlun, "read-only status change prevented\n");
@@ -801,7 +916,7 @@ static ssize_t fsg_store_nofua(struct device *dev,
 	if (ret)
 		return ret;
 
-	
+	/* Sync data when switching from async mode to sync */
 	if (!nofua && curlun->nofua)
 		fsg_lun_fsync_sub(curlun);
 
@@ -819,24 +934,27 @@ static ssize_t fsg_store_file(struct device *dev, struct device_attribute *attr,
 
 
 #if !defined(CONFIG_USB_G_ANDROID)
+	/* disabled in android because we need to allow closing the backing file
+	 * if the media was removed
+	 */
 	if (curlun->prevent_medium_removal && fsg_lun_is_open(curlun)) {
 		LDBG(curlun, "eject attempt prevented\n");
-		return -EBUSY;				
+		return -EBUSY;				/* "Door is locked" */
 	}
 #endif
 
-	
+	/* Remove a trailing newline */
 	if (count > 0 && buf[count-1] == '\n')
-		((char *) buf)[count-1] = 0;		
+		((char *) buf)[count-1] = 0;		/* Ugh! */
 
-	
+	/* Eject current medium */
 	down_write(filesem);
 	if (fsg_lun_is_open(curlun)) {
 		fsg_lun_close(curlun);
 		curlun->unit_attention_data = SS_MEDIUM_NOT_PRESENT;
 	}
 
-	
+	/* Load new medium */
 	if (count > 0 && buf[0]) {
 		rc = fsg_lun_open(curlun, buf);
 		if (rc == 0)

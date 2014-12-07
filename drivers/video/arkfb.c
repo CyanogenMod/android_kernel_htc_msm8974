@@ -23,7 +23,7 @@
 #include <linux/svga.h>
 #include <linux/init.h>
 #include <linux/pci.h>
-#include <linux/console.h> 
+#include <linux/console.h> /* Why should fb driver call console functions? because console_lock() */
 #include <video/vga.h>
 
 #ifdef CONFIG_MTRR
@@ -42,6 +42,7 @@ struct arkfb_info {
 };
 
 
+/* ------------------------------------------------------------------------- */
 
 
 static const struct svga_fb_format arkfb_formats[] = {
@@ -65,6 +66,7 @@ static const struct svga_fb_format arkfb_formats[] = {
 };
 
 
+/* CRT timing register sets */
 
 static const struct vga_regset ark_h_total_regs[]        = {{0x00, 0, 7}, {0x41, 7, 7}, VGA_REGSET_END};
 static const struct vga_regset ark_h_display_regs[]      = {{0x01, 0, 7}, {0x41, 6, 6}, VGA_REGSET_END};
@@ -76,6 +78,7 @@ static const struct vga_regset ark_h_sync_end_regs[]     = {{0x05, 0, 4}, VGA_RE
 static const struct vga_regset ark_v_total_regs[]        = {{0x06, 0, 7}, {0x07, 0, 0}, {0x07, 5, 5}, {0x40, 7, 7}, VGA_REGSET_END};
 static const struct vga_regset ark_v_display_regs[]      = {{0x12, 0, 7}, {0x07, 1, 1}, {0x07, 6, 6}, {0x40, 6, 6}, VGA_REGSET_END};
 static const struct vga_regset ark_v_blank_start_regs[]  = {{0x15, 0, 7}, {0x07, 3, 3}, {0x09, 5, 5}, {0x40, 5, 5}, VGA_REGSET_END};
+// const struct vga_regset ark_v_blank_end_regs[]    = {{0x16, 0, 6}, VGA_REGSET_END};
 static const struct vga_regset ark_v_blank_end_regs[]    = {{0x16, 0, 7}, VGA_REGSET_END};
 static const struct vga_regset ark_v_sync_start_regs[]   = {{0x10, 0, 7}, {0x07, 2, 2}, {0x07, 7, 7}, {0x40, 4, 4}, VGA_REGSET_END};
 static const struct vga_regset ark_v_sync_end_regs[]     = {{0x11, 0, 3}, VGA_REGSET_END};
@@ -92,8 +95,10 @@ static const struct svga_timing_regs ark_timing_regs     = {
 };
 
 
+/* ------------------------------------------------------------------------- */
 
 
+/* Module parameters */
 
 static char *mode_option __devinitdata = "640x480-8@60";
 
@@ -121,6 +126,7 @@ module_param(threshold, int, 0644);
 MODULE_PARM_DESC(threshold, "FIFO threshold");
 
 
+/* ------------------------------------------------------------------------- */
 
 
 static void arkfb_settile(struct fb_info *info, struct fb_tilemap *map)
@@ -169,13 +175,16 @@ static struct fb_tile_ops arkfb_tile_ops = {
 };
 
 
+/* ------------------------------------------------------------------------- */
 
 
+/* image data is MSB-first, fb structure is MSB-first too */
 static inline u32 expand_color(u32 c)
 {
 	return ((c & 1) | ((c & 2) << 7) | ((c & 4) << 14) | ((c & 8) << 21)) * 0xFF;
 }
 
+/* arkfb_iplan_imageblit silently assumes that almost everything is 8-pixel aligned */
 static void arkfb_iplan_imageblit(struct fb_info *info, const struct fb_image *image)
 {
 	u32 fg = expand_color(image->fg_color);
@@ -204,6 +213,7 @@ static void arkfb_iplan_imageblit(struct fb_info *info, const struct fb_image *i
 
 }
 
+/* arkfb_iplan_fillrect silently assumes that almost everything is 8-pixel aligned */
 static void arkfb_iplan_fillrect(struct fb_info *info, const struct fb_fillrect *rect)
 {
 	u32 fg = expand_color(rect->color);
@@ -225,12 +235,14 @@ static void arkfb_iplan_fillrect(struct fb_info *info, const struct fb_fillrect 
 }
 
 
+/* image data is MSB-first, fb structure is high-nibble-in-low-byte-first */
 static inline u32 expand_pixel(u32 c)
 {
 	return (((c &  1) << 24) | ((c &  2) << 27) | ((c &  4) << 14) | ((c &   8) << 17) |
 		((c & 16) <<  4) | ((c & 32) <<  7) | ((c & 64) >>  6) | ((c & 128) >>  3)) * 0xF;
 }
 
+/* arkfb_cfb4_imageblit silently assumes that almost everything is 8-pixel aligned */
 static void arkfb_cfb4_imageblit(struct fb_info *info, const struct fb_image *image)
 {
 	u32 fg = image->fg_color * 0x11111111;
@@ -282,6 +294,7 @@ static void arkfb_fillrect(struct fb_info *info, const struct fb_fillrect *rect)
 }
 
 
+/* ------------------------------------------------------------------------- */
 
 
 enum
@@ -358,8 +371,10 @@ static inline void dac_release(struct dac_info *info)
 }
 
 
+/* ------------------------------------------------------------------------- */
 
 
+/* ICS5342 DAC */
 
 struct ics5342_info
 {
@@ -369,6 +384,7 @@ struct ics5342_info
 
 #define DAC_PAR(info) ((struct ics5342_info *) info)
 
+/* LSB is set to distinguish unused slots */
 static const u8 ics5342_mode_table[DAC_MAX] = {
 	[DAC_PSEUDO8_8]  = 0x01, [DAC_RGB1555_8]  = 0x21, [DAC_RGB0565_8]  = 0x61,
 	[DAC_RGB0888_8]  = 0x41, [DAC_PSEUDO8_16] = 0x11, [DAC_RGB1555_16] = 0x31,
@@ -396,15 +412,18 @@ static int ics5342_set_mode(struct dac_info *info, int mode)
 static const struct svga_pll ics5342_pll = {3, 129, 3, 33, 0, 3,
 	60000, 250000, 14318};
 
+/* pd4 - allow only posdivider 4 (r=2) */
 static const struct svga_pll ics5342_pll_pd4 = {3, 129, 3, 33, 2, 2,
 	60000, 335000, 14318};
 
+/* 270 MHz should be upper bound for VCO clock according to specs,
+   but that is too restrictive in pd4 case */
 
 static int ics5342_set_freq(struct dac_info *info, int channel, u32 freq)
 {
 	u16 m, n, r;
 
-	
+	/* only postdivider 4 (r=2) is valid in mode DAC_PSEUDO8_16 */
 	int rv = svga_compute_pll((DAC_PAR(info)->mode == DAC_PSEUDO8_16)
 				  ? &ics5342_pll_pd4 : &ics5342_pll,
 				  freq, &m, &n, &r, 0);
@@ -442,11 +461,12 @@ static struct dac_info * ics5342_init(dac_read_regs_t drr, dac_write_regs_t dwr,
 	info->dac_read_regs = drr;
 	info->dac_write_regs = dwr;
 	info->data = data;
-	DAC_PAR(info)->mode = DAC_PSEUDO8_8; 
+	DAC_PAR(info)->mode = DAC_PSEUDO8_8; /* estimation */
 	return info;
 }
 
 
+/* ------------------------------------------------------------------------- */
 
 
 static unsigned short dac_regs[4] = {0x3c8, 0x3c9, 0x3c6, 0x3c7};
@@ -501,12 +521,13 @@ static void ark_set_pixclock(struct fb_info *info, u32 pixclock)
 		return;
 	}
 
-	
+	/* Set VGA misc register  */
 	regval = vga_r(par->state.vgabase, VGA_MIS_R);
 	vga_w(par->state.vgabase, VGA_MIS_W, regval | VGA_MIS_ENB_PLL_LOAD);
 }
 
 
+/* Open framebuffer */
 
 static int arkfb_open(struct fb_info *info, int user)
 {
@@ -530,6 +551,7 @@ static int arkfb_open(struct fb_info *info, int user)
 	return 0;
 }
 
+/* Close framebuffer */
 
 static int arkfb_release(struct fb_info *info, int user)
 {
@@ -552,12 +574,13 @@ static int arkfb_release(struct fb_info *info, int user)
 	return 0;
 }
 
+/* Validate passed in var */
 
 static int arkfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 {
 	int rv, mem, step;
 
-	
+	/* Find appropriate format */
 	rv = svga_match_format (arkfb_formats, var, NULL);
 	if (rv < 0)
 	{
@@ -565,19 +588,19 @@ static int arkfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		return rv;
 	}
 
-	
+	/* Do not allow to have real resoulution larger than virtual */
 	if (var->xres > var->xres_virtual)
 		var->xres_virtual = var->xres;
 
 	if (var->yres > var->yres_virtual)
 		var->yres_virtual = var->yres;
 
-	
+	/* Round up xres_virtual to have proper alignment of lines */
 	step = arkfb_formats[rv].xresstep - 1;
 	var->xres_virtual = (var->xres_virtual+step) & ~step;
 
 
-	
+	/* Check whether have enough memory */
 	mem = ((var->bits_per_pixel * var->xres_virtual) >> 3) * var->yres_virtual;
 	if (mem > info->screen_size)
 	{
@@ -592,13 +615,14 @@ static int arkfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		return rv;
 	}
 
-	
+	/* Interlaced mode is broken */
 	if (var->vmode & FB_VMODE_INTERLACED)
 		return -EINVAL;
 
 	return 0;
 }
 
+/* Set video mode from par */
 
 static int arkfb_set_par(struct fb_info *info)
 {
@@ -614,7 +638,7 @@ static int arkfb_set_par(struct fb_info *info)
 		info->flags &= ~FBINFO_MISC_TILEBLITTING;
 		info->tileops = NULL;
 
-		
+		/* in 4bpp supports 8p wide tiles only, any tiles otherwise */
 		info->pixmap.blit_x = (bpp == 4) ? (1 << (8 - 1)) : (~(u32)0);
 		info->pixmap.blit_y = ~(u32)0;
 
@@ -627,7 +651,7 @@ static int arkfb_set_par(struct fb_info *info)
 		info->flags |= FBINFO_MISC_TILEBLITTING;
 		info->tileops = &arkfb_tile_ops;
 
-		
+		/* supports 8x16 tiles only */
 		info->pixmap.blit_x = 1 << (8 - 1);
 		info->pixmap.blit_y = 1 << (16 - 1);
 
@@ -639,14 +663,14 @@ static int arkfb_set_par(struct fb_info *info)
 	info->var.yoffset = 0;
 	info->var.activate = FB_ACTIVATE_NOW;
 
-	
+	/* Unlock registers */
 	svga_wcrt_mask(par->state.vgabase, 0x11, 0x00, 0x80);
 
-	
+	/* Blank screen and turn off sync */
 	svga_wseq_mask(par->state.vgabase, 0x01, 0x20, 0x20);
 	svga_wcrt_mask(par->state.vgabase, 0x17, 0x00, 0x80);
 
-	
+	/* Set default values */
 	svga_set_default_gfx_regs(par->state.vgabase);
 	svga_set_default_atc_regs(par->state.vgabase);
 	svga_set_default_seq_regs(par->state.vgabase);
@@ -654,25 +678,25 @@ static int arkfb_set_par(struct fb_info *info)
 	svga_wcrt_multi(par->state.vgabase, ark_line_compare_regs, 0xFFFFFFFF);
 	svga_wcrt_multi(par->state.vgabase, ark_start_address_regs, 0);
 
-	
-	svga_wseq_mask(par->state.vgabase, 0x10, 0x1F, 0x1F); 
-	svga_wseq_mask(par->state.vgabase, 0x12, 0x03, 0x03); 
+	/* ARK specific initialization */
+	svga_wseq_mask(par->state.vgabase, 0x10, 0x1F, 0x1F); /* enable linear framebuffer and full memory access */
+	svga_wseq_mask(par->state.vgabase, 0x12, 0x03, 0x03); /* 4 MB linear framebuffer size */
 
 	vga_wseq(par->state.vgabase, 0x13, info->fix.smem_start >> 16);
 	vga_wseq(par->state.vgabase, 0x14, info->fix.smem_start >> 24);
 	vga_wseq(par->state.vgabase, 0x15, 0);
 	vga_wseq(par->state.vgabase, 0x16, 0);
 
-	
-	
+	/* Set the FIFO threshold register */
+	/* It is fascinating way to store 5-bit value in 8-bit register */
 	regval = 0x10 | ((threshold & 0x0E) >> 1) | (threshold & 0x01) << 7 | (threshold & 0x10) << 1;
 	vga_wseq(par->state.vgabase, 0x18, regval);
 
-	
+	/* Set the offset register */
 	pr_debug("fb%d: offset register       : %d\n", info->node, offset_value);
 	svga_wcrt_multi(par->state.vgabase, ark_offset_regs, offset_value);
 
-	
+	/* fix for hi-res textmode */
 	svga_wcrt_mask(par->state.vgabase, 0x40, 0x08, 0x08);
 
 	if (info->var.vmode & FB_VMODE_DOUBLE)
@@ -689,14 +713,14 @@ static int arkfb_set_par(struct fb_info *info)
 	hdiv = 1;
 	mode = svga_match_format(arkfb_formats, &(info->var), &(info->fix));
 
-	
+	/* Set mode-specific register values */
 	switch (mode) {
 	case 0:
 		pr_debug("fb%d: text mode\n", info->node);
 		svga_set_textmode_vga_regs(par->state.vgabase);
 
-		vga_wseq(par->state.vgabase, 0x11, 0x10); 
-		svga_wcrt_mask(par->state.vgabase, 0x46, 0x00, 0x04); 
+		vga_wseq(par->state.vgabase, 0x11, 0x10); /* basic VGA mode */
+		svga_wcrt_mask(par->state.vgabase, 0x46, 0x00, 0x04); /* 8bit pixel path */
 		dac_set_mode(par->dac, DAC_PSEUDO8_8);
 
 		break;
@@ -704,29 +728,29 @@ static int arkfb_set_par(struct fb_info *info)
 		pr_debug("fb%d: 4 bit pseudocolor\n", info->node);
 		vga_wgfx(par->state.vgabase, VGA_GFX_MODE, 0x40);
 
-		vga_wseq(par->state.vgabase, 0x11, 0x10); 
-		svga_wcrt_mask(par->state.vgabase, 0x46, 0x00, 0x04); 
+		vga_wseq(par->state.vgabase, 0x11, 0x10); /* basic VGA mode */
+		svga_wcrt_mask(par->state.vgabase, 0x46, 0x00, 0x04); /* 8bit pixel path */
 		dac_set_mode(par->dac, DAC_PSEUDO8_8);
 		break;
 	case 2:
 		pr_debug("fb%d: 4 bit pseudocolor, planar\n", info->node);
 
-		vga_wseq(par->state.vgabase, 0x11, 0x10); 
-		svga_wcrt_mask(par->state.vgabase, 0x46, 0x00, 0x04); 
+		vga_wseq(par->state.vgabase, 0x11, 0x10); /* basic VGA mode */
+		svga_wcrt_mask(par->state.vgabase, 0x46, 0x00, 0x04); /* 8bit pixel path */
 		dac_set_mode(par->dac, DAC_PSEUDO8_8);
 		break;
 	case 3:
 		pr_debug("fb%d: 8 bit pseudocolor\n", info->node);
 
-		vga_wseq(par->state.vgabase, 0x11, 0x16); 
+		vga_wseq(par->state.vgabase, 0x11, 0x16); /* 8bpp accel mode */
 
 		if (info->var.pixclock > 20000) {
 			pr_debug("fb%d: not using multiplex\n", info->node);
-			svga_wcrt_mask(par->state.vgabase, 0x46, 0x00, 0x04); 
+			svga_wcrt_mask(par->state.vgabase, 0x46, 0x00, 0x04); /* 8bit pixel path */
 			dac_set_mode(par->dac, DAC_PSEUDO8_8);
 		} else {
 			pr_debug("fb%d: using multiplex\n", info->node);
-			svga_wcrt_mask(par->state.vgabase, 0x46, 0x04, 0x04); 
+			svga_wcrt_mask(par->state.vgabase, 0x46, 0x04, 0x04); /* 16bit pixel path */
 			dac_set_mode(par->dac, DAC_PSEUDO8_16);
 			hdiv = 2;
 		}
@@ -734,22 +758,22 @@ static int arkfb_set_par(struct fb_info *info)
 	case 4:
 		pr_debug("fb%d: 5/5/5 truecolor\n", info->node);
 
-		vga_wseq(par->state.vgabase, 0x11, 0x1A); 
-		svga_wcrt_mask(par->state.vgabase, 0x46, 0x04, 0x04); 
+		vga_wseq(par->state.vgabase, 0x11, 0x1A); /* 16bpp accel mode */
+		svga_wcrt_mask(par->state.vgabase, 0x46, 0x04, 0x04); /* 16bit pixel path */
 		dac_set_mode(par->dac, DAC_RGB1555_16);
 		break;
 	case 5:
 		pr_debug("fb%d: 5/6/5 truecolor\n", info->node);
 
-		vga_wseq(par->state.vgabase, 0x11, 0x1A); 
-		svga_wcrt_mask(par->state.vgabase, 0x46, 0x04, 0x04); 
+		vga_wseq(par->state.vgabase, 0x11, 0x1A); /* 16bpp accel mode */
+		svga_wcrt_mask(par->state.vgabase, 0x46, 0x04, 0x04); /* 16bit pixel path */
 		dac_set_mode(par->dac, DAC_RGB0565_16);
 		break;
 	case 6:
 		pr_debug("fb%d: 8/8/8 truecolor\n", info->node);
 
-		vga_wseq(par->state.vgabase, 0x11, 0x16); 
-		svga_wcrt_mask(par->state.vgabase, 0x46, 0x04, 0x04); 
+		vga_wseq(par->state.vgabase, 0x11, 0x16); /* 8bpp accel mode ??? */
+		svga_wcrt_mask(par->state.vgabase, 0x46, 0x04, 0x04); /* 16bit pixel path */
 		dac_set_mode(par->dac, DAC_RGB0888_16);
 		hmul = 3;
 		hdiv = 2;
@@ -757,8 +781,8 @@ static int arkfb_set_par(struct fb_info *info)
 	case 7:
 		pr_debug("fb%d: 8/8/8/8 truecolor\n", info->node);
 
-		vga_wseq(par->state.vgabase, 0x11, 0x1E); 
-		svga_wcrt_mask(par->state.vgabase, 0x46, 0x04, 0x04); 
+		vga_wseq(par->state.vgabase, 0x11, 0x1E); /* 32bpp accel mode */
+		svga_wcrt_mask(par->state.vgabase, 0x46, 0x04, 0x04); /* 16bit pixel path */
 		dac_set_mode(par->dac, DAC_RGB8888_16);
 		hmul = 2;
 		break;
@@ -773,19 +797,20 @@ static int arkfb_set_par(struct fb_info *info)
 			 (info->var.vmode & FB_VMODE_INTERLACED) ? 2 : 1,
 			  hmul, info->node);
 
-	
+	/* Set interlaced mode start/end register */
 	value = info->var.xres + info->var.left_margin + info->var.right_margin + info->var.hsync_len;
 	value = ((value * hmul / hdiv) / 8) - 5;
 	vga_wcrt(par->state.vgabase, 0x42, (value + 1) / 2);
 
 	memset_io(info->screen_base, 0x00, screen_size);
-	
+	/* Device and screen back on */
 	svga_wcrt_mask(par->state.vgabase, 0x17, 0x80, 0x80);
 	svga_wseq_mask(par->state.vgabase, 0x01, 0x00, 0x20);
 
 	return 0;
 }
 
+/* Set a colour register */
 
 static int arkfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 				u_int transp, struct fb_info *fb)
@@ -846,6 +871,7 @@ static int arkfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	return 0;
 }
 
+/* Set the display blanking state */
 
 static int arkfb_blank(int blank_mode, struct fb_info *info)
 {
@@ -874,13 +900,14 @@ static int arkfb_blank(int blank_mode, struct fb_info *info)
 }
 
 
+/* Pan the display */
 
 static int arkfb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 {
 	struct arkfb_info *par = info->par;
 	unsigned int offset;
 
-	
+	/* Calculate the offset */
 	if (info->var.bits_per_pixel == 0) {
 		offset = (var->yoffset / 16) * (info->var.xres_virtual / 2)
 		       + (var->xoffset / 2);
@@ -891,15 +918,17 @@ static int arkfb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info
 		offset = offset >> ((info->var.bits_per_pixel == 4) ? 2 : 3);
 	}
 
-	
+	/* Set the offset */
 	svga_wcrt_multi(par->state.vgabase, ark_start_address_regs, offset);
 
 	return 0;
 }
 
 
+/* ------------------------------------------------------------------------- */
 
 
+/* Frame buffer operations */
 
 static struct fb_ops arkfb_ops = {
 	.owner		= THIS_MODULE,
@@ -917,8 +946,10 @@ static struct fb_ops arkfb_ops = {
 };
 
 
+/* ------------------------------------------------------------------------- */
 
 
+/* PCI probe */
 static int __devinit ark_pci_probe(struct pci_dev *dev, const struct pci_device_id *id)
 {
 	struct pci_bus_region bus_reg;
@@ -928,13 +959,13 @@ static int __devinit ark_pci_probe(struct pci_dev *dev, const struct pci_device_
 	int rc;
 	u8 regval;
 
-	
+	/* Ignore secondary VGA device because there is no VGA arbitration */
 	if (! svga_primary_device(dev)) {
 		dev_info(&(dev->dev), "ignoring secondary device\n");
 		return -ENODEV;
 	}
 
-	
+	/* Allocate and fill driver data structure */
 	info = framebuffer_alloc(sizeof(struct arkfb_info), &(dev->dev));
 	if (! info) {
 		dev_err(&(dev->dev), "cannot allocate memory\n");
@@ -947,7 +978,7 @@ static int __devinit ark_pci_probe(struct pci_dev *dev, const struct pci_device_
 	info->flags = FBINFO_PARTIAL_PAN_OK | FBINFO_HWACCEL_YPAN;
 	info->fbops = &arkfb_ops;
 
-	
+	/* Prepare PCI device */
 	rc = pci_enable_device(dev);
 	if (rc < 0) {
 		dev_err(info->device, "cannot enable PCI device\n");
@@ -970,7 +1001,7 @@ static int __devinit ark_pci_probe(struct pci_dev *dev, const struct pci_device_
 	info->fix.smem_start = pci_resource_start(dev, 0);
 	info->fix.smem_len = pci_resource_len(dev, 0);
 
-	
+	/* Map physical IO memory address into kernel space */
 	info->screen_base = pci_iomap(dev, 0, 0);
 	if (! info->screen_base) {
 		rc = -ENOMEM;
@@ -987,7 +1018,7 @@ static int __devinit ark_pci_probe(struct pci_dev *dev, const struct pci_device_
 
 	par->state.vgabase = (void __iomem *) vga_res.start;
 
-	
+	/* FIXME get memsize */
 	regval = vga_rseq(par->state.vgabase, 0x10);
 	info->screen_size = (1 << (regval >> 6)) << 20;
 	info->fix.smem_len = info->screen_size;
@@ -1001,7 +1032,7 @@ static int __devinit ark_pci_probe(struct pci_dev *dev, const struct pci_device_
 	info->fix.accel = FB_ACCEL_NONE;
 	info->pseudo_palette = (void*) (par->pseudo_palette);
 
-	
+	/* Prepare startup mode */
 	rc = fb_find_mode(&(info->var), info, mode_option, NULL, 0, NULL, 8);
 	if (! ((rc == 1) || (rc == 2))) {
 		rc = -EINVAL;
@@ -1024,7 +1055,7 @@ static int __devinit ark_pci_probe(struct pci_dev *dev, const struct pci_device_
 	printk(KERN_INFO "fb%d: %s on %s, %d MB RAM\n", info->node, info->fix.id,
 		 pci_name(dev), info->fix.smem_len >> 20);
 
-	
+	/* Record a reference to the driver data */
 	pci_set_drvdata(dev, info);
 
 #ifdef CONFIG_MTRR
@@ -1036,7 +1067,7 @@ static int __devinit ark_pci_probe(struct pci_dev *dev, const struct pci_device_
 
 	return 0;
 
-	
+	/* Error handling */
 err_reg_fb:
 	fb_dealloc_cmap(&info->cmap);
 err_alloc_cmap:
@@ -1047,11 +1078,13 @@ err_iomap:
 err_dac:
 	pci_release_regions(dev);
 err_request_regions:
+/*	pci_disable_device(dev); */
 err_enable_device:
 	framebuffer_release(info);
 	return rc;
 }
 
+/* PCI remove */
 
 static void __devexit ark_pci_remove(struct pci_dev *dev)
 {
@@ -1073,6 +1106,7 @@ static void __devexit ark_pci_remove(struct pci_dev *dev)
 
 		pci_iounmap(dev, info->screen_base);
 		pci_release_regions(dev);
+/*		pci_disable_device(dev); */
 
 		pci_set_drvdata(dev, NULL);
 		framebuffer_release(info);
@@ -1081,6 +1115,7 @@ static void __devexit ark_pci_remove(struct pci_dev *dev)
 
 
 #ifdef CONFIG_PM
+/* PCI suspend */
 
 static int ark_pci_suspend (struct pci_dev* dev, pm_message_t state)
 {
@@ -1111,6 +1146,7 @@ static int ark_pci_suspend (struct pci_dev* dev, pm_message_t state)
 }
 
 
+/* PCI resume */
 
 static int ark_pci_resume (struct pci_dev* dev)
 {
@@ -1144,8 +1180,9 @@ fail:
 #else
 #define ark_pci_suspend NULL
 #define ark_pci_resume NULL
-#endif 
+#endif /* CONFIG_PM */
 
+/* List of boards that we are trying to support */
 
 static struct pci_device_id ark_devices[] __devinitdata = {
 	{PCI_DEVICE(0xEDD8, 0xA099)},
@@ -1164,6 +1201,7 @@ static struct pci_driver arkfb_pci_driver = {
 	.resume		= ark_pci_resume,
 };
 
+/* Cleanup */
 
 static void __exit arkfb_cleanup(void)
 {
@@ -1171,6 +1209,7 @@ static void __exit arkfb_cleanup(void)
 	pci_unregister_driver(&arkfb_pci_driver);
 }
 
+/* Driver Initialisation */
 
 static int __init arkfb_init(void)
 {

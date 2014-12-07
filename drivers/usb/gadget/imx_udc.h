@@ -15,10 +15,12 @@
 
 #include <linux/types.h>
 
-#define EP_NO(ep)	((ep->bEndpointAddress) & ~USB_DIR_IN) 
+/* Helper macros */
+#define EP_NO(ep)	((ep->bEndpointAddress) & ~USB_DIR_IN) /* IN:1, OUT:0 */
 #define EP_DIR(ep)	((ep->bEndpointAddress) & USB_DIR_IN ? 1 : 0)
 #define IMX_USB_NB_EP	6
 
+/* Driver structures */
 struct imx_request {
 	struct usb_request			req;
 	struct list_head			queue;
@@ -60,106 +62,127 @@ struct imx_udc_struct {
 						usbd_int[7];
 };
 
-#define  USB_FRAME		(0x00)	
-#define  USB_SPEC		(0x04)	
-#define  USB_STAT		(0x08)	
-#define  USB_CTRL		(0x0C)	
-#define  USB_DADR		(0x10)	
-#define  USB_DDAT		(0x14)	
-#define  USB_INTR		(0x18)	
-#define  USB_MASK		(0x1C)	
-#define  USB_ENAB		(0x24)	
-#define  USB_EP_STAT(x)		(0x30 + (x*0x30)) 
-#define  USB_EP_INTR(x)		(0x34 + (x*0x30)) 
-#define  USB_EP_MASK(x)		(0x38 + (x*0x30)) 
-#define  USB_EP_FDAT(x)		(0x3C + (x*0x30)) 
-#define  USB_EP_FDAT0(x)	(0x3C + (x*0x30)) 
-#define  USB_EP_FDAT1(x)	(0x3D + (x*0x30)) 
-#define  USB_EP_FDAT2(x)	(0x3E + (x*0x30)) 
-#define  USB_EP_FDAT3(x)	(0x3F + (x*0x30)) 
-#define  USB_EP_FSTAT(x)	(0x40 + (x*0x30)) 
-#define  USB_EP_FCTRL(x)	(0x44 + (x*0x30)) 
-#define  USB_EP_LRFP(x)		(0x48 + (x*0x30)) 
-#define  USB_EP_LWFP(x)		(0x4C + (x*0x30)) 
-#define  USB_EP_FALRM(x)	(0x50 + (x*0x30)) 
-#define  USB_EP_FRDP(x)		(0x54 + (x*0x30)) 
-#define  USB_EP_FWRP(x)		(0x58 + (x*0x30)) 
-#define CTRL_CMDOVER		(1<<6)	
-#define CTRL_CMDERROR		(1<<5)	
-#define CTRL_FE_ENA		(1<<3)	
-#define CTRL_UDC_RST		(1<<2)	
-#define CTRL_AFE_ENA		(1<<1)	
-#define CTRL_RESUME		(1<<0)	
+/* USB registers */
+#define  USB_FRAME		(0x00)	/* USB frame */
+#define  USB_SPEC		(0x04)	/* USB Spec */
+#define  USB_STAT		(0x08)	/* USB Status */
+#define  USB_CTRL		(0x0C)	/* USB Control */
+#define  USB_DADR		(0x10)	/* USB Desc RAM addr */
+#define  USB_DDAT		(0x14)	/* USB Desc RAM/EP buffer data */
+#define  USB_INTR		(0x18)	/* USB interrupt */
+#define  USB_MASK		(0x1C)	/* USB Mask */
+#define  USB_ENAB		(0x24)	/* USB Enable */
+#define  USB_EP_STAT(x)		(0x30 + (x*0x30)) /* USB status/control */
+#define  USB_EP_INTR(x)		(0x34 + (x*0x30)) /* USB interrupt */
+#define  USB_EP_MASK(x)		(0x38 + (x*0x30)) /* USB mask */
+#define  USB_EP_FDAT(x)		(0x3C + (x*0x30)) /* USB FIFO data */
+#define  USB_EP_FDAT0(x)	(0x3C + (x*0x30)) /* USB FIFO data */
+#define  USB_EP_FDAT1(x)	(0x3D + (x*0x30)) /* USB FIFO data */
+#define  USB_EP_FDAT2(x)	(0x3E + (x*0x30)) /* USB FIFO data */
+#define  USB_EP_FDAT3(x)	(0x3F + (x*0x30)) /* USB FIFO data */
+#define  USB_EP_FSTAT(x)	(0x40 + (x*0x30)) /* USB FIFO status */
+#define  USB_EP_FCTRL(x)	(0x44 + (x*0x30)) /* USB FIFO control */
+#define  USB_EP_LRFP(x)		(0x48 + (x*0x30)) /* USB last rd f. pointer */
+#define  USB_EP_LWFP(x)		(0x4C + (x*0x30)) /* USB last wr f. pointer */
+#define  USB_EP_FALRM(x)	(0x50 + (x*0x30)) /* USB FIFO alarm */
+#define  USB_EP_FRDP(x)		(0x54 + (x*0x30)) /* USB FIFO read pointer */
+#define  USB_EP_FWRP(x)		(0x58 + (x*0x30)) /* USB FIFO write pointer */
+/* USB Control Register Bit Fields.*/
+#define CTRL_CMDOVER		(1<<6)	/* UDC status */
+#define CTRL_CMDERROR		(1<<5)	/* UDC status */
+#define CTRL_FE_ENA		(1<<3)	/* Enable Font End logic */
+#define CTRL_UDC_RST		(1<<2)	/* UDC reset */
+#define CTRL_AFE_ENA		(1<<1)	/* Analog Font end enable */
+#define CTRL_RESUME		(1<<0)	/* UDC resume */
+/* USB Status Register Bit Fields.*/
 #define STAT_RST		(1<<8)
 #define STAT_SUSP		(1<<7)
 #define STAT_CFG		(3<<5)
 #define STAT_INTF		(3<<3)
 #define STAT_ALTSET		(7<<0)
-#define INTR_WAKEUP		(1<<31)	
-#define INTR_MSOF		(1<<7)	
-#define INTR_SOF		(1<<6)	
-#define INTR_RESET_STOP		(1<<5)	
-#define INTR_RESET_START	(1<<4)	
-#define INTR_RESUME		(1<<3)	
-#define INTR_SUSPEND		(1<<2)	
-#define INTR_FRAME_MATCH	(1<<1)	
-#define INTR_CFG_CHG		(1<<0)	
-#define ENAB_RST		(1<<31)	
-#define ENAB_ENAB		(1<<30)	
-#define ENAB_SUSPEND		(1<<29)	
-#define ENAB_ENDIAN		(1<<28)	
-#define ENAB_PWRMD		(1<<0)	
-#define DADR_CFG		(1<<31)	
-#define DADR_BSY		(1<<30)	
-#define DADR_DADR		(0x1FF)	
-#define DDAT_DDAT		(0xFF)	
-#define EPSTAT_BCOUNT		(0x7F<<16)	
-#define EPSTAT_SIP		(1<<8)	
-#define EPSTAT_DIR		(1<<7)	
-#define EPSTAT_MAX		(3<<5)	
-#define EPSTAT_TYP		(3<<3)	
-#define EPSTAT_ZLPS		(1<<2)	
-#define EPSTAT_FLUSH		(1<<1)	
-#define EPSTAT_STALL		(1<<0)	
-#define FSTAT_FRAME_STAT	(0xF<<24)	
-#define FSTAT_ERR		(1<<22)	
-#define FSTAT_UF		(1<<21)	
-#define FSTAT_OF		(1<<20)	
-#define FSTAT_FR		(1<<19)	
-#define FSTAT_FULL		(1<<18)	
-#define FSTAT_ALRM		(1<<17)	
-#define FSTAT_EMPTY		(1<<16)	
-#define FCTRL_WFR		(1<<29)	
-#define EPINTR_FIFO_FULL	(1<<8)	
-#define EPINTR_FIFO_EMPTY	(1<<7)	
-#define EPINTR_FIFO_ERROR	(1<<6)	
-#define EPINTR_FIFO_HIGH	(1<<5)	
-#define EPINTR_FIFO_LOW		(1<<4)	
-#define EPINTR_MDEVREQ		(1<<3)	
-#define EPINTR_EOT		(1<<2)	
-#define EPINTR_DEVREQ		(1<<1)	
-#define EPINTR_EOF		(1<<0)	
+/* USB Interrupt Status/Mask Registers Bit fields */
+#define INTR_WAKEUP		(1<<31)	/* Wake up Interrupt */
+#define INTR_MSOF		(1<<7)	/* Missed Start of Frame */
+#define INTR_SOF		(1<<6)	/* Start of Frame */
+#define INTR_RESET_STOP		(1<<5)	/* Reset Signaling stop */
+#define INTR_RESET_START	(1<<4)	/* Reset Signaling start */
+#define INTR_RESUME		(1<<3)	/* Suspend to resume */
+#define INTR_SUSPEND		(1<<2)	/* Active to suspend */
+#define INTR_FRAME_MATCH	(1<<1)	/* Frame matched */
+#define INTR_CFG_CHG		(1<<0)	/* Configuration change occurred */
+/* USB Enable Register Bit Fields.*/
+#define ENAB_RST		(1<<31)	/* Reset USB modules */
+#define ENAB_ENAB		(1<<30)	/* Enable USB modules*/
+#define ENAB_SUSPEND		(1<<29)	/* Suspend USB modules */
+#define ENAB_ENDIAN		(1<<28)	/* Endian of USB modules */
+#define ENAB_PWRMD		(1<<0)	/* Power mode of USB modules */
+/* USB Descriptor Ram Address Register bit fields */
+#define DADR_CFG		(1<<31)	/* Configuration */
+#define DADR_BSY		(1<<30)	/* Busy status */
+#define DADR_DADR		(0x1FF)	/* Descriptor Ram Address */
+/* USB Descriptor RAM/Endpoint Buffer Data Register bit fields */
+#define DDAT_DDAT		(0xFF)	/* Descriptor Endpoint Buffer */
+/* USB Endpoint Status Register bit fields */
+#define EPSTAT_BCOUNT		(0x7F<<16)	/* Endpoint FIFO byte count */
+#define EPSTAT_SIP		(1<<8)	/* Endpoint setup in progress */
+#define EPSTAT_DIR		(1<<7)	/* Endpoint transfer direction */
+#define EPSTAT_MAX		(3<<5)	/* Endpoint Max packet size */
+#define EPSTAT_TYP		(3<<3)	/* Endpoint type */
+#define EPSTAT_ZLPS		(1<<2)	/* Send zero length packet */
+#define EPSTAT_FLUSH		(1<<1)	/* Endpoint FIFO Flush */
+#define EPSTAT_STALL		(1<<0)	/* Force stall */
+/* USB Endpoint FIFO Status Register bit fields */
+#define FSTAT_FRAME_STAT	(0xF<<24)	/* Frame status bit [0-3] */
+#define FSTAT_ERR		(1<<22)	/* FIFO error */
+#define FSTAT_UF		(1<<21)	/* FIFO underflow */
+#define FSTAT_OF		(1<<20)	/* FIFO overflow */
+#define FSTAT_FR		(1<<19)	/* FIFO frame ready */
+#define FSTAT_FULL		(1<<18)	/* FIFO full */
+#define FSTAT_ALRM		(1<<17)	/* FIFO alarm */
+#define FSTAT_EMPTY		(1<<16)	/* FIFO empty */
+/* USB Endpoint FIFO Control Register bit fields */
+#define FCTRL_WFR		(1<<29)	/* Write frame end */
+/* USB Endpoint Interrupt Status Regsiter bit fields */
+#define EPINTR_FIFO_FULL	(1<<8)	/* fifo full */
+#define EPINTR_FIFO_EMPTY	(1<<7)	/* fifo empty */
+#define EPINTR_FIFO_ERROR	(1<<6)	/* fifo error */
+#define EPINTR_FIFO_HIGH	(1<<5)	/* fifo high */
+#define EPINTR_FIFO_LOW		(1<<4)	/* fifo low */
+#define EPINTR_MDEVREQ		(1<<3)	/* multi Device request */
+#define EPINTR_EOT		(1<<2)	/* fifo end of transfer */
+#define EPINTR_DEVREQ		(1<<1)	/* Device request */
+#define EPINTR_EOF		(1<<0)	/* fifo end of frame */
 
+/* Debug macros */
 #ifdef DEBUG
 
+/* #define DEBUG_REQ */
+/* #define DEBUG_TRX */
+/* #define DEBUG_INIT */
+/* #define DEBUG_EP0 */
+/* #define DEBUG_EPX */
+/* #define DEBUG_IRQ */
+/* #define DEBUG_EPIRQ */
+/* #define DEBUG_DUMP */
+/* #define DEBUG_ERR */
 
 #ifdef DEBUG_REQ
 	#define D_REQ(dev, args...)	dev_dbg(dev, ## args)
 #else
 	#define D_REQ(dev, args...)	do {} while (0)
-#endif 
+#endif /* DEBUG_REQ */
 
 #ifdef DEBUG_TRX
 	#define D_TRX(dev, args...)	dev_dbg(dev, ## args)
 #else
 	#define D_TRX(dev, args...)	do {} while (0)
-#endif 
+#endif /* DEBUG_TRX */
 
 #ifdef DEBUG_INIT
 	#define D_INI(dev, args...)	dev_dbg(dev, ## args)
 #else
 	#define D_INI(dev, args...)	do {} while (0)
-#endif 
+#endif /* DEBUG_INIT */
 
 #ifdef DEBUG_EP0
 	static const char *state_name[] = {
@@ -172,13 +195,13 @@ struct imx_udc_struct {
 	#define D_EP0(dev, args...)	dev_dbg(dev, ## args)
 #else
 	#define D_EP0(dev, args...)	do {} while (0)
-#endif 
+#endif /* DEBUG_EP0 */
 
 #ifdef DEBUG_EPX
 	#define D_EPX(dev, args...)	dev_dbg(dev, ## args)
 #else
 	#define D_EPX(dev, args...)	do {} while (0)
-#endif 
+#endif /* DEBUG_EP0 */
 
 #ifdef DEBUG_IRQ
 	static void dump_intr(const char *label, int irqreg, struct device *dev)
@@ -196,7 +219,7 @@ struct imx_udc_struct {
 	}
 #else
 	#define dump_intr(x, y, z)		do {} while (0)
-#endif 
+#endif /* DEBUG_IRQ */
 
 #ifdef DEBUG_EPIRQ
 	static void dump_ep_intr(const char *label, int nr, int irqreg,
@@ -215,7 +238,7 @@ struct imx_udc_struct {
 	}
 #else
 	#define dump_ep_intr(x, y, z, i)	do {} while (0)
-#endif 
+#endif /* DEBUG_IRQ */
 
 #ifdef DEBUG_DUMP
 	static void dump_usb_stat(const char *label,
@@ -303,7 +326,7 @@ struct imx_udc_struct {
 	#define dump_ep_stat(x, y)		do {} while (0)
 	#define dump_usb_stat(x, y)		do {} while (0)
 	#define dump_req(x, y, z)		do {} while (0)
-#endif 
+#endif /* DEBUG_DUMP */
 
 #ifdef DEBUG_ERR
 	#define D_ERR(dev, args...)	dev_dbg(dev, ## args)
@@ -323,6 +346,6 @@ struct imx_udc_struct {
 	#define dump_usb_stat(x, y)		do {} while (0)
 	#define dump_req(x, y, z)		do {} while (0)
 	#define D_ERR(dev, args...)		do {} while (0)
-#endif 
+#endif /* DEBUG */
 
-#endif 
+#endif /* __LINUX_USB_GADGET_IMX_H */

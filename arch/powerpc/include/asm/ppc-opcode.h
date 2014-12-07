@@ -15,6 +15,7 @@
 #include <linux/stringify.h>
 #include <asm/asm-compat.h>
 
+/* sorted alphabetically */
 #define PPC_INST_DCBA			0x7c0005ec
 #define PPC_INST_DCBA_MASK		0xfc0007fe
 #define PPC_INST_DCBAL			0x7c2005ec
@@ -63,6 +64,7 @@
 #define PPC_INST_NAP			0x4c000364
 #define PPC_INST_SLEEP			0x4c0003a4
 
+/* A2 specific instructions */
 #define PPC_INST_ERATWE			0x7c0001a6
 #define PPC_INST_ERATRE			0x7c000166
 #define PPC_INST_ERATILX		0x7c000066
@@ -70,6 +72,7 @@
 #define PPC_INST_ERATSX			0x7c000126
 #define PPC_INST_ERATSX_DOT		0x7c000127
 
+/* Misc instructions for BPF compiler */
 #define PPC_INST_LD			0xe8000000
 #define PPC_INST_LHZ			0xa0000000
 #define PPC_INST_LWZ			0x80000000
@@ -105,6 +108,7 @@
 #define PPC_INST_BRANCH			0x48000000
 #define PPC_INST_BRANCH_COND		0x40800000
 
+/* macros to insert fields into opcodes */
 #define __PPC_RA(a)	(((a) & 0x1f) << 16)
 #define __PPC_RB(b)	(((b) & 0x1f) << 11)
 #define __PPC_RS(s)	(((s) & 0x1f) << 21)
@@ -121,12 +125,17 @@
 #define __PPC_ME(s)	(((s) & 0x1f) << 1)
 #define __PPC_BI(s)	(((s) & 0x1f) << 16)
 
+/*
+ * Only use the larx hint bit on 64bit CPUs. e500v1/v2 based CPUs will treat a
+ * larx with EH set as an illegal instruction.
+ */
 #ifdef CONFIG_PPC64
 #define __PPC_EH(eh)	(((eh) & 0x1) << 0)
 #else
 #define __PPC_EH(eh)	0
 #endif
 
+/* Deal with instructions that older assemblers aren't aware of */
 #define	PPC_DCBAL(a, b)		stringify_in_c(.long PPC_INST_DCBAL | \
 					__PPC_RA(a) | __PPC_RB(b))
 #define	PPC_DCBZL(a, b)		stringify_in_c(.long PPC_INST_DCBZL | \
@@ -178,6 +187,10 @@
 #define PPC_SLBFEE_DOT(t, b)	stringify_in_c(.long PPC_INST_SLBFEE | \
 					__PPC_RT(t) | __PPC_RB(b))
 
+/*
+ * Define what the VSX XX1 form instructions will look like, then add
+ * the 128 bit load store instructions based on that.
+ */
 #define VSX_XX1(s, a, b)	(__PPC_XS(s) | __PPC_RA(a) | __PPC_RB(b))
 #define VSX_XX3(t, a, b)	(__PPC_XT(t) | __PPC_XA(a) | __PPC_XB(b))
 #define STXVD2X(s, a, b)	stringify_in_c(.long PPC_INST_STXVD2X | \
@@ -190,4 +203,4 @@
 #define PPC_NAP			stringify_in_c(.long PPC_INST_NAP)
 #define PPC_SLEEP		stringify_in_c(.long PPC_INST_SLEEP)
 
-#endif 
+#endif /* _ASM_POWERPC_PPC_OPCODE_H */

@@ -154,6 +154,7 @@ static struct snd_soc_dapm_route audio_paths[] = {
 
 static struct snd_soc_jack tobermory_headset;
 
+/* Headset jack detection DAPM pins */
 static struct snd_soc_jack_pin tobermory_headset_pins[] = {
 	{
 		.pin = "Headset Mic",

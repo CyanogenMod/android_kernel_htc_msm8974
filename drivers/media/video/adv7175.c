@@ -46,6 +46,7 @@ static int debug;
 module_param(debug, int, 0);
 MODULE_PARM_DESC(debug, "Debug level (0-1)");
 
+/* ----------------------------------------------------------------------- */
 
 struct adv7175 {
 	struct v4l2_subdev sd;
@@ -65,6 +66,7 @@ static enum v4l2_mbus_pixelcode adv7175_codes[] = {
 	V4L2_MBUS_FMT_UYVY8_1X16,
 };
 
+/* ----------------------------------------------------------------------- */
 
 static inline int adv7175_write(struct v4l2_subdev *sd, u8 reg, u8 value)
 {
@@ -87,8 +89,10 @@ static int adv7175_write_block(struct v4l2_subdev *sd,
 	int ret = -1;
 	u8 reg;
 
+	/* the adv7175 has an autoincrement function, use it if
+	 * the adapter understands raw I2C */
 	if (i2c_check_functionality(client->adapter, I2C_FUNC_I2C)) {
-		
+		/* do raw I2C, not smbus compatible */
 		u8 block_data[32];
 		int block_len;
 
@@ -106,7 +110,7 @@ static int adv7175_write_block(struct v4l2_subdev *sd,
 				break;
 		}
 	} else {
-		
+		/* do some slow I2C emulation kind of thing */
 		while (len >= 2) {
 			reg = *data++;
 			ret = adv7175_write(sd, reg, *data++);
@@ -121,6 +125,8 @@ static int adv7175_write_block(struct v4l2_subdev *sd,
 
 static void set_subcarrier_freq(struct v4l2_subdev *sd, int pass_through)
 {
+	/* for some reason pass_through NTSC needs
+	 * a different sub-carrier freq to remain stable. */
 	if (pass_through)
 		adv7175_write(sd, 0x02, 0x00);
 	else
@@ -131,10 +137,13 @@ static void set_subcarrier_freq(struct v4l2_subdev *sd, int pass_through)
 	adv7175_write(sd, 0x05, 0x25);
 }
 
+/* ----------------------------------------------------------------------- */
+/* Output filter:  S-Video  Composite */
 
-#define MR050       0x11	
-#define MR060       0x14	
+#define MR050       0x11	/* 0x09 */
+#define MR060       0x14	/* 0x0c */
 
+/* ----------------------------------------------------------------------- */
 
 #define TR0MODE     0x46
 #define TR0RST	    0x80
@@ -144,50 +153,50 @@ static void set_subcarrier_freq(struct v4l2_subdev *sd, int pass_through)
 
 static const unsigned char init_common[] = {
 
-	0x00, MR050,		
-	0x01, 0x00,		
-	0x02, 0x0c,		
-	0x03, 0x8c,		
-	0x04, 0x79,		
-	0x05, 0x26,		
-	0x06, 0x40,		
+	0x00, MR050,		/* MR0, PAL enabled */
+	0x01, 0x00,		/* MR1 */
+	0x02, 0x0c,		/* subc. freq. */
+	0x03, 0x8c,		/* subc. freq. */
+	0x04, 0x79,		/* subc. freq. */
+	0x05, 0x26,		/* subc. freq. */
+	0x06, 0x40,		/* subc. phase */
 
-	0x07, TR0MODE,		
-	0x08, 0x21,		
-	0x09, 0x00,		
-	0x0a, 0x00,		
-	0x0b, 0x00,		
-	0x0c, TR1CAPT,		
-	0x0d, 0x4f,		
-	0x0e, 0x00,		
-	0x0f, 0x00,		
-	0x10, 0x00,		
-	0x11, 0x00,		
+	0x07, TR0MODE,		/* TR0, 16bit */
+	0x08, 0x21,		/*  */
+	0x09, 0x00,		/*  */
+	0x0a, 0x00,		/*  */
+	0x0b, 0x00,		/*  */
+	0x0c, TR1CAPT,		/* TR1 */
+	0x0d, 0x4f,		/* MR2 */
+	0x0e, 0x00,		/*  */
+	0x0f, 0x00,		/*  */
+	0x10, 0x00,		/*  */
+	0x11, 0x00,		/*  */
 };
 
 static const unsigned char init_pal[] = {
-	0x00, MR050,		
-	0x01, 0x00,		
-	0x02, 0x0c,		
-	0x03, 0x8c,		
-	0x04, 0x79,		
-	0x05, 0x26,		
-	0x06, 0x40,		
+	0x00, MR050,		/* MR0, PAL enabled */
+	0x01, 0x00,		/* MR1 */
+	0x02, 0x0c,		/* subc. freq. */
+	0x03, 0x8c,		/* subc. freq. */
+	0x04, 0x79,		/* subc. freq. */
+	0x05, 0x26,		/* subc. freq. */
+	0x06, 0x40,		/* subc. phase */
 };
 
 static const unsigned char init_ntsc[] = {
-	0x00, MR060,		
-	0x01, 0x00,		
-	0x02, 0x55,		
-	0x03, 0x55,		
-	0x04, 0x55,		
-	0x05, 0x25,		
-	0x06, 0x1a,		
+	0x00, MR060,		/* MR0, NTSC enabled */
+	0x01, 0x00,		/* MR1 */
+	0x02, 0x55,		/* subc. freq. */
+	0x03, 0x55,		/* subc. freq. */
+	0x04, 0x55,		/* subc. freq. */
+	0x05, 0x25,		/* subc. freq. */
+	0x06, 0x1a,		/* subc. phase */
 };
 
 static int adv7175_init(struct v4l2_subdev *sd, u32 val)
 {
-	
+	/* This is just for testing!!! */
 	adv7175_write_block(sd, init_common, sizeof(init_common));
 	adv7175_write(sd, 0x07, TR0MODE | TR0RST);
 	adv7175_write(sd, 0x07, TR0MODE);
@@ -201,19 +210,25 @@ static int adv7175_s_std_output(struct v4l2_subdev *sd, v4l2_std_id std)
 	if (std & V4L2_STD_NTSC) {
 		adv7175_write_block(sd, init_ntsc, sizeof(init_ntsc));
 		if (encoder->input == 0)
-			adv7175_write(sd, 0x0d, 0x4f);	
+			adv7175_write(sd, 0x0d, 0x4f);	/* Enable genlock */
 		adv7175_write(sd, 0x07, TR0MODE | TR0RST);
 		adv7175_write(sd, 0x07, TR0MODE);
 	} else if (std & V4L2_STD_PAL) {
 		adv7175_write_block(sd, init_pal, sizeof(init_pal));
 		if (encoder->input == 0)
-			adv7175_write(sd, 0x0d, 0x4f);	
+			adv7175_write(sd, 0x0d, 0x4f);	/* Enable genlock */
 		adv7175_write(sd, 0x07, TR0MODE | TR0RST);
 		adv7175_write(sd, 0x07, TR0MODE);
 	} else if (std & V4L2_STD_SECAM) {
+		/* This is an attempt to convert
+		 * SECAM->PAL (typically it does not work
+		 * due to genlock: when decoder is in SECAM
+		 * and encoder in in PAL the subcarrier can
+		 * not be syncronized with horizontal
+		 * quency) */
 		adv7175_write_block(sd, init_pal, sizeof(init_pal));
 		if (encoder->input == 0)
-			adv7175_write(sd, 0x0d, 0x49);	
+			adv7175_write(sd, 0x0d, 0x49);	/* Disable genlock */
 		adv7175_write(sd, 0x07, TR0MODE | TR0RST);
 		adv7175_write(sd, 0x07, TR0MODE);
 	} else {
@@ -231,6 +246,9 @@ static int adv7175_s_routing(struct v4l2_subdev *sd,
 {
 	struct adv7175 *encoder = to_adv7175(sd);
 
+	/* RJ: input = 0: input is from decoder
+	   input = 1: input is from ZR36060
+	   input = 2: color bar */
 
 	switch (input) {
 	case 0:
@@ -239,14 +257,14 @@ static int adv7175_s_routing(struct v4l2_subdev *sd,
 		if (encoder->norm & V4L2_STD_NTSC)
 			set_subcarrier_freq(sd, 1);
 
-		adv7175_write(sd, 0x0c, TR1CAPT);	
+		adv7175_write(sd, 0x0c, TR1CAPT);	/* TR1 */
 		if (encoder->norm & V4L2_STD_SECAM)
-			adv7175_write(sd, 0x0d, 0x49);	
+			adv7175_write(sd, 0x0d, 0x49);	/* Disable genlock */
 		else
-			adv7175_write(sd, 0x0d, 0x4f);	
+			adv7175_write(sd, 0x0d, 0x4f);	/* Enable genlock */
 		adv7175_write(sd, 0x07, TR0MODE | TR0RST);
 		adv7175_write(sd, 0x07, TR0MODE);
-		
+		/*udelay(10);*/
 		break;
 
 	case 1:
@@ -255,11 +273,11 @@ static int adv7175_s_routing(struct v4l2_subdev *sd,
 		if (encoder->norm & V4L2_STD_NTSC)
 			set_subcarrier_freq(sd, 0);
 
-		adv7175_write(sd, 0x0c, TR1PLAY);	
+		adv7175_write(sd, 0x0c, TR1PLAY);	/* TR1 */
 		adv7175_write(sd, 0x0d, 0x49);
 		adv7175_write(sd, 0x07, TR0MODE | TR0RST);
 		adv7175_write(sd, 0x07, TR0MODE);
-		
+		/* udelay(10); */
 		break;
 
 	case 2:
@@ -271,7 +289,7 @@ static int adv7175_s_routing(struct v4l2_subdev *sd,
 		adv7175_write(sd, 0x0d, 0x49);
 		adv7175_write(sd, 0x07, TR0MODE | TR0RST);
 		adv7175_write(sd, 0x07, TR0MODE);
-		
+		/* udelay(10); */
 		break;
 
 	default:
@@ -354,6 +372,7 @@ static int adv7175_s_power(struct v4l2_subdev *sd, int on)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct v4l2_subdev_core_ops adv7175_core_ops = {
 	.g_chip_ident = adv7175_g_chip_ident,
@@ -374,6 +393,7 @@ static const struct v4l2_subdev_ops adv7175_ops = {
 	.video = &adv7175_video_ops,
 };
 
+/* ----------------------------------------------------------------------- */
 
 static int adv7175_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
@@ -382,7 +402,7 @@ static int adv7175_probe(struct i2c_client *client,
 	struct adv7175 *encoder;
 	struct v4l2_subdev *sd;
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -ENODEV;
 
@@ -418,6 +438,7 @@ static int adv7175_remove(struct i2c_client *client)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct i2c_device_id adv7175_id[] = {
 	{ "adv7175", 0 },

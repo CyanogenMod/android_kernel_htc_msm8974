@@ -42,7 +42,7 @@ enum master_slave_mode {
 struct cs42l51_private {
 	enum snd_soc_control_type control_type;
 	unsigned int mclk;
-	unsigned int audio_mode;	
+	unsigned int audio_mode;	/* The mode (I2S or left-justified) */
 	enum master_slave_mode func;
 };
 
@@ -81,7 +81,7 @@ static int cs42l51_get_chan_mix(struct snd_kcontrol *kcontrol,
 	case 0:
 		ucontrol->value.integer.value[0] = 0;
 		break;
-	
+	/* same value : (L+R)/2 and (R+L)/2 */
 	case 1:
 	case 2:
 		ucontrol->value.integer.value[0] = 1;
@@ -124,6 +124,8 @@ static int cs42l51_set_chan_mix(struct snd_kcontrol *kcontrol,
 
 static const DECLARE_TLV_DB_SCALE(adc_pcm_tlv, -5150, 50, 0);
 static const DECLARE_TLV_DB_SCALE(tone_tlv, -1050, 150, 0);
+/* This is a lie. after -102 db, it stays at -102 */
+/* maybe a range would be better */
 static const DECLARE_TLV_DB_SCALE(aout_tlv, -11550, 50, 0);
 
 static const DECLARE_TLV_DB_SCALE(boost_tlv, 1600, 1600, 0);
@@ -163,6 +165,12 @@ static const struct snd_kcontrol_new cs42l51_snd_controls[] = {
 			cs42l51_get_chan_mix, cs42l51_set_chan_mix),
 };
 
+/*
+ * to power down, one must:
+ * 1.) Enable the PDN bit
+ * 2.) enable power-down for the select channels
+ * 3.) disable the PDN bit.
+ */
 static int cs42l51_pdn_event(struct snd_soc_dapm_widget *w,
 		struct snd_kcontrol *kcontrol, int event)
 {
@@ -222,7 +230,7 @@ static const struct snd_soc_dapm_widget cs42l51_dapm_widgets[] = {
 		CS42L51_POWER_CTL1, 6, 1,
 		cs42l51_pdn_event, SND_SOC_DAPM_PRE_POST_PMD),
 
-	
+	/* analog/mic */
 	SND_SOC_DAPM_INPUT("AIN1L"),
 	SND_SOC_DAPM_INPUT("AIN1R"),
 	SND_SOC_DAPM_INPUT("AIN2L"),
@@ -235,11 +243,11 @@ static const struct snd_soc_dapm_widget cs42l51_dapm_widgets[] = {
 	SND_SOC_DAPM_MIXER("Mic Preamp Right",
 		CS42L51_MIC_POWER_CTL, 3, 1, NULL, 0),
 
-	
+	/* HP */
 	SND_SOC_DAPM_OUTPUT("HPL"),
 	SND_SOC_DAPM_OUTPUT("HPR"),
 
-	
+	/* mux */
 	SND_SOC_DAPM_MUX("DAC Mux", SND_SOC_NOPM, 0, 0,
 		&cs42l51_dac_mux_controls),
 	SND_SOC_DAPM_MUX("PGA-ADC Mux Left", SND_SOC_NOPM, 0, 0,
@@ -372,16 +380,16 @@ static int cs42l51_hw_params(struct snd_pcm_substream *substream,
 		break;
 	}
 
-	
-	rate = params_rate(params);     
-	ratio = cs42l51->mclk / rate;    
+	/* Figure out which MCLK/LRCK ratio to use */
+	rate = params_rate(params);     /* Sampling rate, in Hz */
+	ratio = cs42l51->mclk / rate;    /* MCLK/LRCK ratio */
 	for (i = 0; i < nr_ratios; i++) {
 		if (ratios[i].ratio == ratio)
 			break;
 	}
 
 	if (i == nr_ratios) {
-		
+		/* We did not find a matching ratio */
 		dev_err(codec->dev, "could not find matching ratio\n");
 		return -EINVAL;
 	}
@@ -517,6 +525,13 @@ static int cs42l51_probe(struct snd_soc_codec *codec)
 		return ret;
 	}
 
+	/*
+	 * DAC configuration
+	 * - Use signal processor
+	 * - auto mute
+	 * - vol changes immediate
+	 * - no de-emphasize
+	 */
 	reg = CS42L51_DAC_CTL_DATA_SEL(1)
 		| CS42L51_DAC_CTL_AMUTE | CS42L51_DAC_CTL_DACSZ(0);
 	ret = snd_soc_write(codec, CS42L51_DAC_CTL, reg);
@@ -545,7 +560,7 @@ static int cs42l51_i2c_probe(struct i2c_client *i2c_client,
 	struct cs42l51_private *cs42l51;
 	int ret;
 
-	
+	/* Verify that we have a CS42L51 */
 	ret = i2c_smbus_read_byte_data(i2c_client, CS42L51_CHIP_REV_ID);
 	if (ret < 0) {
 		dev_err(&i2c_client->dev, "failed to read I2C\n");

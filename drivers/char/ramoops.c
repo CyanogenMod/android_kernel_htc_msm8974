@@ -85,7 +85,7 @@ static void ramoops_do_dump(struct kmsg_dumper *dumper,
 	    reason != KMSG_DUMP_PANIC)
 		return;
 
-	
+	/* Only dump oopses if dump_oops is set */
 	if (reason == KMSG_DUMP_OOPS && !cxt->dump_oops)
 		return;
 
@@ -127,7 +127,7 @@ static int __init ramoops_probe(struct platform_device *pdev)
 	pdata->mem_size = rounddown_pow_of_two(pdata->mem_size);
 	pdata->record_size = rounddown_pow_of_two(pdata->record_size);
 
-	
+	/* Check for the minimum memory size */
 	if (pdata->mem_size < MIN_MEM_SIZE &&
 			pdata->record_size < MIN_MEM_SIZE) {
 		pr_err("memory size too small, minium is %lu\n", MIN_MEM_SIZE);
@@ -166,6 +166,10 @@ static int __init ramoops_probe(struct platform_device *pdev)
 		goto fail1;
 	}
 
+	/*
+	 * Update the module parameter variables as well so they are visible
+	 * through /sys/module/ramoops/parameters/
+	 */
 	mem_size = pdata->mem_size;
 	mem_address = pdata->mem_address;
 	record_size = pdata->record_size;
@@ -206,6 +210,10 @@ static int __init ramoops_init(void)
 	int ret;
 	ret = platform_driver_probe(&ramoops_driver, ramoops_probe);
 	if (ret == -ENODEV) {
+		/*
+		 * If we didn't find a platform device, we use module parameters
+		 * building platform data on the fly.
+		 */
 		pr_info("platform device not found, using module parameters\n");
 		dummy_data = kzalloc(sizeof(struct ramoops_platform_data),
 				     GFP_KERNEL);

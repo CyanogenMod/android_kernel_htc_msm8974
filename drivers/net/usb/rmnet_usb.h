@@ -29,11 +29,21 @@
 #define RMNET_CTRL_DEV_READY	1
 #define RMNET_CTRL_DEV_MUX_EN	2
 
+/*MUX header bit masks*/
 #define MUX_CTRL_MASK	0x1
 #define MUX_PAD_SHIFT	0x2
 
+/*max padding bytes for n byte alignment*/
 #define MAX_PAD_BYTES(n)	(n-1)
 
+/*
+ *MUX Header Format
+ *BIT 0 : Mux type 0: Data, 1: control
+ *BIT 1: Reserved
+ *BIT 2-7: Pad bytes
+ *BIT 8-15: Mux ID
+ *BIT 16-31: PACKET_LEN_WITH_PADDING (Bytes)
+ */
 struct mux_hdr {
 	__u8	padding_info;
 	__u8	mux_id;
@@ -42,14 +52,14 @@ struct mux_hdr {
 
 struct rmnet_ctrl_dev {
 
-	
+	/*for debugging purpose*/
 	char			name[CTRL_DEV_MAX_LEN];
 
 	struct cdev		cdev;
 	struct device		*devicep;
 	unsigned		ch_id;
 
-	
+	/*to identify the usb device*/
 	unsigned		id;
 
 	struct usb_interface	*intf;
@@ -77,12 +87,12 @@ struct rmnet_ctrl_dev {
 
 	unsigned int		mdm_wait_timeout;
 
-	
+	/*input control lines (DSR, CTS, CD, RI)*/
 	unsigned int		cbits_tolocal;
-	
+	/*output control lines (DTR, RTS)*/
 	unsigned int		cbits_tomdm;
 
-	
+	/*counters*/
 	unsigned int		snd_encap_cmd_cnt;
 	unsigned int		get_encap_resp_cnt;
 	unsigned int		resp_avail_cnt;
@@ -104,4 +114,4 @@ extern int rmnet_usb_ctrl_probe(struct usb_interface *intf,
 				unsigned long *data);
 extern void rmnet_usb_ctrl_disconnect(struct rmnet_ctrl_dev *);
 
-#endif 
+#endif /* __RMNET_USB_H*/

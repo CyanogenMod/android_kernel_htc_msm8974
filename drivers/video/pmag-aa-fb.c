@@ -43,17 +43,29 @@
 #include "bt455.h"
 #include "bt431.h"
 
+/* Version information */
 #define DRIVER_VERSION "0.02"
 #define DRIVER_AUTHOR "Karsten Merker <merker@linuxtag.org>"
 #define DRIVER_DESCRIPTION "PMAG-AA Framebuffer Driver"
 
+/* Prototypes */
 static int aafb_set_var(struct fb_var_screeninfo *var, int con,
 			struct fb_info *info);
 
+/*
+ * Bt455 RAM DAC register base offset (rel. to TC slot base address).
+ */
 #define PMAG_AA_BT455_OFFSET		0x100000
 
+/*
+ * Bt431 cursor generator offset (rel. to TC slot base address).
+ */
 #define PMAG_AA_BT431_OFFSET		0x180000
 
+/*
+ * Begin of PMAG-AA framebuffer memory relative to TC slot address,
+ * resolution is 1280x1024x1 (8 bits deep, but only LSB is used).
+ */
 #define PMAG_AA_ONBOARD_FBMEM_OFFSET	0x200000
 
 struct aafb_cursor {
@@ -80,6 +92,9 @@ struct aafb_info {
 	unsigned long fb_line_length;
 };
 
+/*
+ * Max 3 TURBOchannel slots -> max 3 PMAG-AA.
+ */
 static struct aafb_info my_fb_info[3];
 
 static struct aafb_par {
@@ -283,7 +298,7 @@ static int aafb_set_cmap(struct fb_cmap *cmap, int kspc, int con,
 
 static int aafb_ioctl(struct fb_info *info, u32 cmd, unsigned long arg)
 {
-	
+	/* TODO: Not yet implemented */
 	return -ENOIOCTLCMD;
 }
 
@@ -296,7 +311,7 @@ static int aafb_switch(int con, struct fb_info *info)
 	if (old->conp && old->conp->vc_sw && old->conp->vc_sw->con_cursor)
 		old->conp->vc_sw->con_cursor(old->conp, CM_ERASE);
 
-	
+	/* Set the current console. */
 	currcon = con;
 	aafb_set_disp(new, con, ip);
 
@@ -371,6 +386,7 @@ static int aafb_update_var(int con, struct fb_info *info)
 	return 0;
 }
 
+/* 0 unblanks, any other blanks. */
 
 static void aafb_blank(int blank, struct fb_info *info)
 {
@@ -398,12 +414,19 @@ static int __init init_one(int slot)
 
 	memset(ip, 0, sizeof(struct aafb_info));
 
+	/*
+	 * Framebuffer display memory base address and friends.
+	 */
 	ip->bt455 = (struct bt455_regs *) (base_addr + PMAG_AA_BT455_OFFSET);
 	ip->bt431 = (struct bt431_regs *) (base_addr + PMAG_AA_BT431_OFFSET);
 	ip->fb_start = base_addr + PMAG_AA_ONBOARD_FBMEM_OFFSET;
-	ip->fb_size = 2048 * 1024; 
+	ip->fb_size = 2048 * 1024; /* fb_fix_screeninfo.smem_length
+				      seems to be physical */
 	ip->fb_line_length = 2048;
 
+	/*
+	 * Let there be consoles..
+	 */
 	strcpy(ip->info.modename, "PMAG-AA");
 	ip->info.node = -1;
 	ip->info.flags = FBINFO_FLAG_DEFAULT;
@@ -416,17 +439,20 @@ static int __init init_one(int slot)
 
 	aafb_set_disp(&ip->disp, currcon, ip);
 
+	/*
+	 * Configure the RAM DACs.
+	 */
 	bt455_erase_cursor(ip->bt455);
 
-	
+	/* Init colormap. */
 	bt455_write_cmap_entry(ip->bt455, 0, 0x00, 0x00, 0x00);
 	bt455_write_cmap_entry(ip->bt455, 1, 0x0f, 0x0f, 0x0f);
 
-	
+	/* Init hardware cursor. */
 	bt431_init_cursor(ip->bt431);
 	aafb_cursor_init(ip);
 
-	
+	/* Clear the screen. */
 	memset ((void *)ip->fb_start, 0, ip->fb_size);
 
 	if (register_framebuffer(&ip->info) < 0)
@@ -448,6 +474,9 @@ static int __exit exit_one(int slot)
 	return 0;
 }
 
+/*
+ * Initialise the framebuffer.
+ */
 int __init pmagaafb_init(void)
 {
 	int sid;

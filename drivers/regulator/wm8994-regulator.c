@@ -39,7 +39,7 @@ static int wm8994_ldo_enable(struct regulator_dev *rdev)
 {
 	struct wm8994_ldo *ldo = rdev_get_drvdata(rdev);
 
-	
+	/* If we have no soft control assume that the LDO is always enabled. */
 	if (!ldo->enable)
 		return 0;
 
@@ -53,7 +53,7 @@ static int wm8994_ldo_disable(struct regulator_dev *rdev)
 {
 	struct wm8994_ldo *ldo = rdev_get_drvdata(rdev);
 
-	
+	/* If we have no soft control assume that the LDO is always enabled. */
 	if (!ldo->enable)
 		return -EINVAL;
 
@@ -72,6 +72,8 @@ static int wm8994_ldo_is_enabled(struct regulator_dev *rdev)
 
 static int wm8994_ldo_enable_time(struct regulator_dev *rdev)
 {
+	/* 3ms is fairly conservative but this shouldn't be too performance
+	 * critical; can be tweaked per-system if required. */
 	return 3000;
 }
 
@@ -326,6 +328,7 @@ static void __exit wm8994_ldo_exit(void)
 }
 module_exit(wm8994_ldo_exit);
 
+/* Module information */
 MODULE_AUTHOR("Mark Brown <broonie@opensource.wolfsonmicro.com>");
 MODULE_DESCRIPTION("WM8994 LDO driver");
 MODULE_LICENSE("GPL");

@@ -51,17 +51,20 @@
 
 #include "hci_uart.h"
 
+/* HCILL commands */
 #define HCILL_GO_TO_SLEEP_IND	0x30
 #define HCILL_GO_TO_SLEEP_ACK	0x31
 #define HCILL_WAKE_UP_IND	0x32
 #define HCILL_WAKE_UP_ACK	0x33
 
+/* HCILL receiver States */
 #define HCILL_W4_PACKET_TYPE	0
 #define HCILL_W4_EVENT_HDR	1
 #define HCILL_W4_ACL_HDR	2
 #define HCILL_W4_SCO_HDR	3
 #define HCILL_W4_DATA		4
 
+/* HCILL states */
 enum hcill_states_e {
 	HCILL_ASLEEP,
 	HCILL_ASLEEP_TO_AWAKE,
@@ -78,11 +81,15 @@ struct ll_struct {
 	unsigned long rx_count;
 	struct sk_buff *rx_skb;
 	struct sk_buff_head txq;
-	spinlock_t hcill_lock;		
-	unsigned long hcill_state;	
-	struct sk_buff_head tx_wait_q;	
+	spinlock_t hcill_lock;		/* HCILL state lock	*/
+	unsigned long hcill_state;	/* HCILL power state	*/
+	struct sk_buff_head tx_wait_q;	/* HCILL wait queue	*/
 };
 
+/*
+ * Builds and sends an HCILL command packet.
+ * These are very simple packets with only 1 cmd byte
+ */
 static int send_hcill_cmd(u8 cmd, struct hci_uart *hu)
 {
 	int err = 0;
@@ -92,7 +99,7 @@ static int send_hcill_cmd(u8 cmd, struct hci_uart *hu)
 
 	BT_DBG("hu %p cmd 0x%x", hu, cmd);
 
-	
+	/* allocate packet */
 	skb = bt_skb_alloc(1, GFP_ATOMIC);
 	if (!skb) {
 		BT_ERR("cannot allocate memory for HCILL packet");
@@ -100,17 +107,18 @@ static int send_hcill_cmd(u8 cmd, struct hci_uart *hu)
 		goto out;
 	}
 
-	
+	/* prepare packet */
 	hcill_packet = (struct hcill_cmd *) skb_put(skb, 1);
 	hcill_packet->cmd = cmd;
 	skb->dev = (void *) hu->hdev;
 
-	
+	/* send packet */
 	skb_queue_tail(&ll->txq, skb);
 out:
 	return err;
 }
 
+/* Initialize protocol */
 static int ll_open(struct hci_uart *hu)
 {
 	struct ll_struct *ll;
@@ -132,6 +140,7 @@ static int ll_open(struct hci_uart *hu)
 	return 0;
 }
 
+/* Flush protocol data */
 static int ll_flush(struct hci_uart *hu)
 {
 	struct ll_struct *ll = hu->priv;
@@ -144,6 +153,7 @@ static int ll_flush(struct hci_uart *hu)
 	return 0;
 }
 
+/* Close protocol */
 static int ll_close(struct hci_uart *hu)
 {
 	struct ll_struct *ll = hu->priv;
@@ -162,6 +172,13 @@ static int ll_close(struct hci_uart *hu)
 	return 0;
 }
 
+/*
+ * internal function, which does common work of the device wake up process:
+ * 1. places all pending packets (waiting in tx_wait_q list) in txq list.
+ * 2. changes internal state to HCILL_AWAKE.
+ * Note: assumes that hcill_lock spinlock is taken,
+ * shouldn't be called otherwise!
+ */
 static void __ll_do_awake(struct ll_struct *ll)
 {
 	struct sk_buff *skb = NULL;
@@ -172,6 +189,9 @@ static void __ll_do_awake(struct ll_struct *ll)
 	ll->hcill_state = HCILL_AWAKE;
 }
 
+/*
+ * Called upon a wake-up-indication from the device
+ */
 static void ll_device_want_to_wakeup(struct hci_uart *hu)
 {
 	unsigned long flags;
@@ -179,36 +199,49 @@ static void ll_device_want_to_wakeup(struct hci_uart *hu)
 
 	BT_DBG("hu %p", hu);
 
-	
+	/* lock hcill state */
 	spin_lock_irqsave(&ll->hcill_lock, flags);
 
 	switch (ll->hcill_state) {
 	case HCILL_ASLEEP_TO_AWAKE:
+		/*
+		 * This state means that both the host and the BRF chip
+		 * have simultaneously sent a wake-up-indication packet.
+		 * Traditionaly, in this case, receiving a wake-up-indication
+		 * was enough and an additional wake-up-ack wasn't needed.
+		 * This has changed with the BRF6350, which does require an
+		 * explicit wake-up-ack. Other BRF versions, which do not
+		 * require an explicit ack here, do accept it, thus it is
+		 * perfectly safe to always send one.
+		 */
 		BT_DBG("dual wake-up-indication");
-		
+		/* deliberate fall-through - do not add break */
 	case HCILL_ASLEEP:
-		
+		/* acknowledge device wake up */
 		if (send_hcill_cmd(HCILL_WAKE_UP_ACK, hu) < 0) {
 			BT_ERR("cannot acknowledge device wake up");
 			goto out;
 		}
 		break;
 	default:
-		
+		/* any other state is illegal */
 		BT_ERR("received HCILL_WAKE_UP_IND in state %ld", ll->hcill_state);
 		break;
 	}
 
-	
+	/* send pending packets and change state to HCILL_AWAKE */
 	__ll_do_awake(ll);
 
 out:
 	spin_unlock_irqrestore(&ll->hcill_lock, flags);
 
-	
+	/* actually send the packets */
 	hci_uart_tx_wakeup(hu);
 }
 
+/*
+ * Called upon a sleep-indication from the device
+ */
 static void ll_device_want_to_sleep(struct hci_uart *hu)
 {
 	unsigned long flags;
@@ -216,29 +249,32 @@ static void ll_device_want_to_sleep(struct hci_uart *hu)
 
 	BT_DBG("hu %p", hu);
 
-	
+	/* lock hcill state */
 	spin_lock_irqsave(&ll->hcill_lock, flags);
 
-	
+	/* sanity check */
 	if (ll->hcill_state != HCILL_AWAKE)
 		BT_ERR("ERR: HCILL_GO_TO_SLEEP_IND in state %ld", ll->hcill_state);
 
-	
+	/* acknowledge device sleep */
 	if (send_hcill_cmd(HCILL_GO_TO_SLEEP_ACK, hu) < 0) {
 		BT_ERR("cannot acknowledge device sleep");
 		goto out;
 	}
 
-	
+	/* update state */
 	ll->hcill_state = HCILL_ASLEEP;
 
 out:
 	spin_unlock_irqrestore(&ll->hcill_lock, flags);
 
-	
+	/* actually send the sleep ack packet */
 	hci_uart_tx_wakeup(hu);
 }
 
+/*
+ * Called upon wake-up-acknowledgement from the device
+ */
 static void ll_device_woke_up(struct hci_uart *hu)
 {
 	unsigned long flags;
@@ -246,22 +282,24 @@ static void ll_device_woke_up(struct hci_uart *hu)
 
 	BT_DBG("hu %p", hu);
 
-	
+	/* lock hcill state */
 	spin_lock_irqsave(&ll->hcill_lock, flags);
 
-	
+	/* sanity check */
 	if (ll->hcill_state != HCILL_ASLEEP_TO_AWAKE)
 		BT_ERR("received HCILL_WAKE_UP_ACK in state %ld", ll->hcill_state);
 
-	
+	/* send pending packets and change state to HCILL_AWAKE */
 	__ll_do_awake(ll);
 
 	spin_unlock_irqrestore(&ll->hcill_lock, flags);
 
-	
+	/* actually send the packets */
 	hci_uart_tx_wakeup(hu);
 }
 
+/* Enqueue frame for transmittion (padding, crc, etc) */
+/* may be called from two simultaneous tasklets */
 static int ll_enqueue(struct hci_uart *hu, struct sk_buff *skb)
 {
 	unsigned long flags = 0;
@@ -269,13 +307,13 @@ static int ll_enqueue(struct hci_uart *hu, struct sk_buff *skb)
 
 	BT_DBG("hu %p skb %p", hu, skb);
 
-	
+	/* Prepend skb with frame type */
 	memcpy(skb_push(skb, 1), &bt_cb(skb)->pkt_type, 1);
 
-	
+	/* lock hcill state */
 	spin_lock_irqsave(&ll->hcill_lock, flags);
 
-	
+	/* act according to current state */
 	switch (ll->hcill_state) {
 	case HCILL_AWAKE:
 		BT_DBG("device awake, sending normally");
@@ -283,9 +321,9 @@ static int ll_enqueue(struct hci_uart *hu, struct sk_buff *skb)
 		break;
 	case HCILL_ASLEEP:
 		BT_DBG("device asleep, waking up and queueing packet");
-		
+		/* save packet for later */
 		skb_queue_tail(&ll->tx_wait_q, skb);
-		
+		/* awake device */
 		if (send_hcill_cmd(HCILL_WAKE_UP_IND, hu) < 0) {
 			BT_ERR("cannot wake up device");
 			break;
@@ -294,7 +332,7 @@ static int ll_enqueue(struct hci_uart *hu, struct sk_buff *skb)
 		break;
 	case HCILL_ASLEEP_TO_AWAKE:
 		BT_DBG("device waking up, queueing packet");
-		
+		/* transient state; just keep packet for later */
 		skb_queue_tail(&ll->tx_wait_q, skb);
 		break;
 	default:
@@ -332,6 +370,7 @@ static inline int ll_check_data_len(struct ll_struct *ll, int len)
 	return 0;
 }
 
+/* Recv data */
 static int ll_recv(struct hci_uart *hu, void *data, int count)
 {
 	struct ll_struct *ll = hu->priv;
@@ -389,7 +428,7 @@ static int ll_recv(struct hci_uart *hu, void *data, int count)
 			}
 		}
 
-		
+		/* HCILL_W4_PACKET_TYPE */
 		switch (*ptr) {
 		case HCI_EVENT_PKT:
 			BT_DBG("Event packet");
@@ -412,7 +451,7 @@ static int ll_recv(struct hci_uart *hu, void *data, int count)
 			type = HCI_SCODATA_PKT;
 			break;
 
-		
+		/* HCILL signals */
 		case HCILL_GO_TO_SLEEP_IND:
 			BT_DBG("HCILL_GO_TO_SLEEP_IND packet");
 			ll_device_want_to_sleep(hu);
@@ -420,7 +459,7 @@ static int ll_recv(struct hci_uart *hu, void *data, int count)
 			continue;
 
 		case HCILL_GO_TO_SLEEP_ACK:
-			
+			/* shouldn't happen */
 			BT_ERR("received HCILL_GO_TO_SLEEP_ACK (in state %ld)", ll->hcill_state);
 			ptr++; count--;
 			continue;
@@ -446,7 +485,7 @@ static int ll_recv(struct hci_uart *hu, void *data, int count)
 
 		ptr++; count--;
 
-		
+		/* Allocate packet */
 		ll->rx_skb = bt_skb_alloc(HCI_MAX_FRAME_SIZE, GFP_ATOMIC);
 		if (!ll->rx_skb) {
 			BT_ERR("Can't allocate mem for new packet");

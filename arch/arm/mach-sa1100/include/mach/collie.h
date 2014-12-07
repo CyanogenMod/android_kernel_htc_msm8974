@@ -1,3 +1,15 @@
+/*
+ * arch/arm/mach-sa1100/include/mach/collie.h
+ *
+ * This file contains the hardware specific definitions for Collie
+ * Only include this file from SA1100-specific files.
+ *
+ * ChangeLog:
+ *   04-06-2001 Lineo Japan, Inc.
+ *   04-16-2001 SHARP Corporation
+ *   07-07-2002 Chris Larson <clarson@digi.com>
+ *
+ */
 #ifndef __ASM_ARCH_COLLIE_H
 #define __ASM_ARCH_COLLIE_H
 
@@ -19,6 +31,7 @@ extern void locomolcd_power(int on);
 				COLLIE_SCP_LB_VOL_CHG)
 #define COLLIE_SCOOP_IO_OUT	(COLLIE_SCP_MUTE_L | COLLIE_SCP_MUTE_R)
 
+/* GPIOs for gpiolib  */
 
 #define COLLIE_GPIO_ON_KEY		(0)
 #define COLLIE_GPIO_AC_IN		(1)
@@ -36,6 +49,7 @@ extern void locomolcd_power(int on);
 #define COLLIE_GPIO_GA_INT		(25)
 #define COLLIE_GPIO_MAIN_BAT_LOW	(26)
 
+/* GPIO definitions for direct register access */
 
 #define _COLLIE_GPIO_ON_KEY		GPIO_GPIO(0)
 #define _COLLIE_GPIO_AC_IN		GPIO_GPIO(1)
@@ -45,6 +59,7 @@ extern void locomolcd_power(int on);
 #define _COLLIE_GPIO_nREMOCON_ON	GPIO_GPIO(18)
 #define _COLLIE_GPIO_CO			GPIO_GPIO(20)
 #define _COLLIE_GPIO_WAKEUP		GPIO_GPIO(24)
+/* Interrupts */
 
 #define COLLIE_IRQ_GPIO_ON_KEY		IRQ_GPIO0
 #define COLLIE_IRQ_GPIO_AC_IN		IRQ_GPIO1
@@ -58,6 +73,7 @@ extern void locomolcd_power(int on);
 #define COLLIE_IRQ_GPIO_GA_INT		IRQ_GPIO25
 #define COLLIE_IRQ_GPIO_MAIN_BAT_LOW	IRQ_GPIO26
 
+/* GPIO's on the TC35143AF (Toshiba Analog Frontend) */
 #define COLLIE_TC35143_GPIO_BASE	(GPIO_MAX + 13)
 #define COLLIE_TC35143_GPIO_VERSION0    UCB_IO_0
 #define COLLIE_TC35143_GPIO_TBL_CHK     UCB_IO_1

@@ -6,6 +6,9 @@
  * Copyright (c) 2005 Silicon Graphics, Inc.  All rights reserved.
  */
 
+/*
+ *	MOATB Core Services driver.
+ */
 
 #include <linux/interrupt.h>
 #include <linux/module.h>
@@ -42,6 +45,9 @@ static int mbcs_major;
 
 static LIST_HEAD(soft_list);
 
+/*
+ * file operations
+ */
 static const struct file_operations mbcs_ops = {
 	.open = mbcs_open,
 	.llseek = mbcs_sram_llseek,
@@ -202,14 +208,14 @@ static inline int mbcs_getdma_start(struct mbcs_soft *soft)
 	mmr_base = soft->mmr_base;
 	gdma = &soft->getdma;
 
-	
+	/* check that host address got setup */
 	if (!gdma->hostAddr)
 		return -1;
 
 	numPkts =
 	    (gdma->bytes + (MBCS_CACHELINE_SIZE - 1)) / MBCS_CACHELINE_SIZE;
 
-	
+	/* program engine */
 	mbcs_getdma_set(mmr_base, tiocx_dma_addr(gdma->hostAddr),
 		   gdma->localAddr,
 		   (gdma->localAddr < MB2) ? 0 :
@@ -223,7 +229,7 @@ static inline int mbcs_getdma_start(struct mbcs_soft *soft)
 		   gdma->amoModType,
 		   gdma->intrHostDest, gdma->intrVector);
 
-	
+	/* start engine */
 	cm_control.cm_control_reg = MBCS_MMR_GET(mmr_base, MBCS_CM_CONTROL);
 	cm_control.rd_dma_go = 1;
 	MBCS_MMR_SET(mmr_base, MBCS_CM_CONTROL, cm_control.cm_control_reg);
@@ -242,14 +248,14 @@ static inline int mbcs_putdma_start(struct mbcs_soft *soft)
 	mmr_base = soft->mmr_base;
 	pdma = &soft->putdma;
 
-	
+	/* check that host address got setup */
 	if (!pdma->hostAddr)
 		return -1;
 
 	numPkts =
 	    (pdma->bytes + (MBCS_CACHELINE_SIZE - 1)) / MBCS_CACHELINE_SIZE;
 
-	
+	/* program engine */
 	mbcs_putdma_set(mmr_base, tiocx_dma_addr(pdma->hostAddr),
 		   pdma->localAddr,
 		   (pdma->localAddr < MB2) ? 0 :
@@ -263,7 +269,7 @@ static inline int mbcs_putdma_start(struct mbcs_soft *soft)
 		   pdma->amoModType,
 		   pdma->intrHostDest, pdma->intrVector);
 
-	
+	/* start engine */
 	cm_control.cm_control_reg = MBCS_MMR_GET(mmr_base, MBCS_CM_CONTROL);
 	cm_control.wr_dma_go = 1;
 	MBCS_MMR_SET(mmr_base, MBCS_CM_CONTROL, cm_control.cm_control_reg);
@@ -289,7 +295,7 @@ static inline int mbcs_algo_start(struct mbcs_soft *soft)
 		 algo_soft->intrHostDest,
 		 algo_soft->intrVector, algo_soft->algoStepCount);
 
-	
+	/* start algorithm */
 	cm_control.cm_control_reg = MBCS_MMR_GET(mmr_base, MBCS_CM_CONTROL);
 	cm_control.alg_done_int_en = 1;
 	cm_control.alg_go = 1;
@@ -381,7 +387,7 @@ static int mbcs_open(struct inode *ip, struct file *fp)
 	mutex_lock(&mbcs_mutex);
 	minor = iminor(ip);
 
-	
+	/* Nothing protects access to this list... */
 	list_for_each_entry(soft, &soft_list, list) {
 		if (soft->nasid == minor) {
 			fp->private_data = soft->cxdev;
@@ -460,7 +466,7 @@ static loff_t mbcs_sram_llseek(struct file * filp, loff_t off, int whence)
 		newpos = MBCS_SRAM_SIZE + off;
 		break;
 
-	default:		
+	default:		/* can't happen */
 		return -EINVAL;
 	}
 
@@ -501,7 +507,7 @@ static int mbcs_gscr_mmap(struct file *fp, struct vm_area_struct *vma)
 
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 
-	
+	/* Remap-pfn-range will mark the range VM_IO and VM_RESERVED */
 	if (remap_pfn_range(vma,
 			    vma->vm_start,
 			    __pa(soft->gscr_addr) >> PAGE_SHIFT,
@@ -512,6 +518,12 @@ static int mbcs_gscr_mmap(struct file *fp, struct vm_area_struct *vma)
 	return 0;
 }
 
+/**
+ * mbcs_completion_intr_handler - Primary completion handler.
+ * @irq: irq
+ * @arg: soft struct for device
+ *
+ */
 static irqreturn_t
 mbcs_completion_intr_handler(int irq, void *arg)
 {
@@ -524,7 +536,7 @@ mbcs_completion_intr_handler(int irq, void *arg)
 	cm_status.cm_status_reg = MBCS_MMR_GET(mmr_base, MBCS_CM_STATUS);
 
 	if (cm_status.rd_dma_done) {
-		
+		/* stop dma-read engine, clear status */
 		cm_control.cm_control_reg =
 		    MBCS_MMR_GET(mmr_base, MBCS_CM_CONTROL);
 		cm_control.rd_dma_clr = 1;
@@ -534,7 +546,7 @@ mbcs_completion_intr_handler(int irq, void *arg)
 		wake_up(&soft->dmaread_queue);
 	}
 	if (cm_status.wr_dma_done) {
-		
+		/* stop dma-write engine, clear status */
 		cm_control.cm_control_reg =
 		    MBCS_MMR_GET(mmr_base, MBCS_CM_CONTROL);
 		cm_control.wr_dma_clr = 1;
@@ -544,7 +556,7 @@ mbcs_completion_intr_handler(int irq, void *arg)
 		wake_up(&soft->dmawrite_queue);
 	}
 	if (cm_status.alg_done) {
-		
+		/* clear status */
 		cm_control.cm_control_reg =
 		    MBCS_MMR_GET(mmr_base, MBCS_CM_CONTROL);
 		cm_control.alg_done_clr = 1;
@@ -557,6 +569,11 @@ mbcs_completion_intr_handler(int irq, void *arg)
 	return IRQ_HANDLED;
 }
 
+/**
+ * mbcs_intr_alloc - Allocate interrupts.
+ * @dev: device pointer
+ *
+ */
 static int mbcs_intr_alloc(struct cx_dev *dev)
 {
 	struct sn_irq_info *sn_irq;
@@ -630,6 +647,11 @@ static int mbcs_intr_alloc(struct cx_dev *dev)
 	return 0;
 }
 
+/**
+ * mbcs_intr_dealloc - Remove interrupts.
+ * @dev: device pointer
+ *
+ */
 static void mbcs_intr_dealloc(struct cx_dev *dev)
 {
 	struct mbcs_soft *soft;
@@ -661,16 +683,16 @@ static inline int mbcs_hw_init(struct mbcs_soft *soft)
 	mbcs_gscr_pioaddr_set(soft);
 	mbcs_debug_pioaddr_set(soft);
 
-	
+	/* clear errors */
 	err_stat = MBCS_MMR_GET(mmr_base, MBCS_CM_ERR_STAT);
 	MBCS_MMR_SET(mmr_base, MBCS_CM_CLR_ERR_STAT, err_stat);
 	MBCS_MMR_ZERO(mmr_base, MBCS_CM_ERROR_DETAIL1);
 
-	
-	
+	/* enable interrupts */
+	/* turn off 2^23 (INT_EN_PIO_REQ_ADDR_INV) */
 	MBCS_MMR_SET(mmr_base, MBCS_CM_ERR_INT_EN, 0x3ffffff7e00ffUL);
 
-	
+	/* arm status regs and clear engines */
 	cm_control.cm_control_reg = MBCS_MMR_GET(mmr_base, MBCS_CM_CONTROL);
 	cm_control.rearm_stat_regs = 1;
 	cm_control.alg_clr = 1;
@@ -688,6 +710,10 @@ static ssize_t show_algo(struct device *dev, struct device_attribute *attr, char
 	struct mbcs_soft *soft = cx_dev->soft;
 	uint64_t debug0;
 
+	/*
+	 * By convention, the first debug register contains the
+	 * algorithm number and revision.
+	 */
 	debug0 = *(uint64_t *) soft->debug_addr;
 
 	return sprintf(buf, "0x%x 0x%x\n",
@@ -717,6 +743,12 @@ static ssize_t store_algo(struct device *dev, struct device_attribute *attr, con
 
 DEVICE_ATTR(algo, 0644, show_algo, store_algo);
 
+/**
+ * mbcs_probe - Initialize for device
+ * @dev: device pointer
+ * @device_id: id table pointer
+ *
+ */
 static int mbcs_probe(struct cx_dev *dev, const struct cx_device_id *id)
 {
 	struct mbcs_soft *soft;
@@ -747,7 +779,7 @@ static int mbcs_probe(struct cx_dev *dev, const struct cx_device_id *id)
 
 	mbcs_hw_init(soft);
 
-	
+	/* Allocate interrupts */
 	mbcs_intr_alloc(dev);
 
 	device_create_file(&dev->dev, &dev_attr_algo);
@@ -801,7 +833,7 @@ static int __init mbcs_init(void)
 	if (!ia64_platform_is("sn2"))
 		return -ENODEV;
 
-	
+	// Put driver into chrdevs[].  Get major number.
 	rv = register_chrdev(mbcs_major, DEVICE_NAME, &mbcs_ops);
 	if (rv < 0) {
 		DBG(KERN_ALERT "mbcs_init: can't get major number. %d\n", rv);

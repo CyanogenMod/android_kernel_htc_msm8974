@@ -144,6 +144,14 @@
 
 #define DRIVER_NAME		"ade7854"
 
+/**
+ * struct ade7854_state - device instance specific data
+ * @spi:			actual spi_device
+ * @indio_dev:		industrial I/O device structure
+ * @buf_lock:		mutex to protect tx and rx
+ * @tx:			transmit buffer
+ * @rx:			receive buffer
+ **/
 struct ade7854_state {
 	struct spi_device	*spi;
 	struct i2c_client	*i2c;

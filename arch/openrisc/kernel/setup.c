@@ -63,7 +63,7 @@ static unsigned long __init setup_memory(void)
 
 	memory_end = memory_start = 0;
 
-	
+	/* Find main memory where is the kernel */
 	for_each_memblock(memory, region) {
 		memory_start = region->base;
 		memory_end = region->base + region->size;
@@ -76,12 +76,19 @@ static unsigned long __init setup_memory(void)
 	}
 
 	ram_start_pfn = PFN_UP(memory_start);
-	
+	/* free_ram_start_pfn is first page after kernel */
 	free_ram_start_pfn = PFN_UP(__pa(&_end));
 	ram_end_pfn = PFN_DOWN(memblock_end_of_DRAM());
 
 	max_pfn = ram_end_pfn;
 
+	/*
+	 * initialize the boot-time allocator (with low memory only).
+	 *
+	 * This makes the memory from the end of the kernel to the end of
+	 * RAM usable.
+	 * init_bootmem sets the global values min_low_pfn, max_low_pfn.
+	 */
 	bootmap_size = init_bootmem(free_ram_start_pfn,
 				    ram_end_pfn - ram_start_pfn);
 	free_bootmem(PFN_PHYS(free_ram_start_pfn),
@@ -193,6 +200,14 @@ void __init setup_cpuinfo(void)
 	print_cpuinfo();
 }
 
+/**
+ * or32_early_setup
+ *
+ * Handles the pointer to the device tree that this kernel is to use
+ * for establishing the available platform devices.
+ *
+ * Falls back on built-in device tree in case null pointer is passed.
+ */
 
 void __init or32_early_setup(unsigned int fdt)
 {
@@ -244,6 +259,13 @@ void __init detect_unit_config(unsigned long upr, unsigned long mask,
 		printk("not present\n");
 }
 
+/*
+ * calibrate_delay
+ *
+ * Lightweight calibrate_delay implementation that calculates loops_per_jiffy
+ * from the clock frequency passed in via the device tree
+ *
+ */
 
 void __cpuinit calibrate_delay(void)
 {
@@ -267,7 +289,7 @@ void __init setup_arch(char **cmdline_p)
 
 	setup_cpuinfo();
 
-	
+	/* process 1's initial memory region is the kernel code/data */
 	init_mm.start_code = (unsigned long)&_stext;
 	init_mm.end_code = (unsigned long)&_etext;
 	init_mm.end_data = (unsigned long)&_edata;
@@ -283,10 +305,10 @@ void __init setup_arch(char **cmdline_p)
 	initrd_below_start_ok = 1;
 #endif
 
-	
+	/* setup bootmem allocator */
 	max_low_pfn = setup_memory();
 
-	
+	/* paging_init() sets up the MMU and marks all pages as reserved */
 	paging_init();
 
 #if defined(CONFIG_VT) && defined(CONFIG_DUMMY_CONSOLE)
@@ -336,7 +358,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 
 static void *c_start(struct seq_file *m, loff_t * pos)
 {
-	
+	/* We only have one CPU... */
 	return *pos < 1 ? (void *)1 : NULL;
 }
 

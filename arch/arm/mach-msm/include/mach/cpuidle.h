@@ -37,4 +37,4 @@ int msm_cpuidle_init(void);
 static inline int msm_cpuidle_init(void) { return -ENOSYS; }
 #endif
 
-#endif 
+#endif /* __ARCH_ARM_MACH_MSM_CPUIDLE_H */

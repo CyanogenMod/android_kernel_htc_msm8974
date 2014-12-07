@@ -31,6 +31,10 @@
 #include <linux/kernel.h>
 #include "ieee754.h"
 
+/*
+ * Very naff exception handler (you can plug in your own and
+ * override this).
+ */
 
 static const char *const rtnames[] = {
 	"sp", "dp", "xp", "si", "di"

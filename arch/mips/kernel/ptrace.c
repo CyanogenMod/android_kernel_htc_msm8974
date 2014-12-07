@@ -38,12 +38,22 @@
 #include <asm/bootinfo.h>
 #include <asm/reg.h>
 
+/*
+ * Called by kernel/ptrace.c when detaching..
+ *
+ * Make sure single step bits etc are not set.
+ */
 void ptrace_disable(struct task_struct *child)
 {
-	
+	/* Don't load the watchpoint registers for the ex-child. */
 	clear_tsk_thread_flag(child, TIF_LOAD_WATCH);
 }
 
+/*
+ * Read a general register set.  We always use the 64-bit format, even
+ * for 32-bit kernels and for 32-bit processes on a 64-bit kernel.
+ * Registers are sign extended to fill the available space.
+ */
 int ptrace_getregs(struct task_struct *child, __s64 __user *data)
 {
 	struct pt_regs *regs;
@@ -66,6 +76,11 @@ int ptrace_getregs(struct task_struct *child, __s64 __user *data)
 	return 0;
 }
 
+/*
+ * Write a general register set.  As for PTRACE_GETREGS, we always use
+ * the 64-bit format.  On a 32-bit kernel only the lower order half
+ * (according to endianness) will be used.
+ */
 int ptrace_setregs(struct task_struct *child, __s64 __user *data)
 {
 	struct pt_regs *regs;
@@ -203,7 +218,7 @@ int ptrace_set_watch_regs(struct task_struct *child,
 		return -EIO;
 	if (!access_ok(VERIFY_READ, addr, sizeof(struct pt_watch_regs)))
 		return -EIO;
-	
+	/* Check the values. */
 	for (i = 0; i < current_cpu_data.watch_reg_use_cnt; i++) {
 		__get_user(lt[i], &addr->WATCH_STYLE.watchlo[i]);
 #ifdef CONFIG_32BIT
@@ -222,12 +237,12 @@ int ptrace_set_watch_regs(struct task_struct *child,
 		if (ht[i] & ~0xff8)
 			return -EINVAL;
 	}
-	
+	/* Install them. */
 	for (i = 0; i < current_cpu_data.watch_reg_use_cnt; i++) {
 		if (lt[i] & 7)
 			watch_active = 1;
 		child->thread.watch.mips3264.watchlo[i] = lt[i];
-		
+		/* Set the G bit. */
 		child->thread.watch.mips3264.watchhi[i] = ht[i];
 	}
 
@@ -248,19 +263,19 @@ long arch_ptrace(struct task_struct *child, long request,
 	unsigned long __user *datalp = (void __user *) data;
 
 	switch (request) {
-	
-	case PTRACE_PEEKTEXT: 
+	/* when I and D space are separate, these will need to be fixed. */
+	case PTRACE_PEEKTEXT: /* read word at location addr. */
 	case PTRACE_PEEKDATA:
 		ret = generic_ptrace_peekdata(child, addr, data);
 		break;
 
-	
+	/* Read the word at location addr in the USER area. */
 	case PTRACE_PEEKUSR: {
 		struct pt_regs *regs;
 		unsigned long tmp = 0;
 
 		regs = task_pt_regs(child);
-		ret = 0;  
+		ret = 0;  /* Default return value. */
 
 		switch (addr) {
 		case 0 ... 31:
@@ -271,6 +286,11 @@ long arch_ptrace(struct task_struct *child, long request,
 				fpureg_t *fregs = get_fpu_regs(child);
 
 #ifdef CONFIG_32BIT
+				/*
+				 * The odd registers are actually the high
+				 * order bits of the values stored in the even
+				 * registers - unless we're using r2k_switch.S.
+				 */
 				if (addr & 1)
 					tmp = (unsigned long) (fregs[((addr & ~1) - 32)] >> 32);
 				else
@@ -280,7 +300,7 @@ long arch_ptrace(struct task_struct *child, long request,
 				tmp = fregs[addr - FPR_BASE];
 #endif
 			} else {
-				tmp = -1;	
+				tmp = -1;	/* FP not yet used  */
 			}
 			break;
 		case PC:
@@ -306,12 +326,12 @@ long arch_ptrace(struct task_struct *child, long request,
 		case FPC_CSR:
 			tmp = child->thread.fpu.fcr31;
 			break;
-		case FPC_EIR: {	
+		case FPC_EIR: {	/* implementation / version register */
 			unsigned int flags;
 #ifdef CONFIG_MIPS_MT_SMTC
 			unsigned long irqflags;
 			unsigned int mtflags;
-#endif 
+#endif /* CONFIG_MIPS_MT_SMTC */
 
 			preempt_disable();
 			if (!cpu_has_fpu) {
@@ -320,10 +340,10 @@ long arch_ptrace(struct task_struct *child, long request,
 			}
 
 #ifdef CONFIG_MIPS_MT_SMTC
-			
+			/* Read-modify-write of Status must be atomic */
 			local_irq_save(irqflags);
 			mtflags = dmt();
-#endif 
+#endif /* CONFIG_MIPS_MT_SMTC */
 			if (cpu_has_mipsmt) {
 				unsigned int vpflags = dvpe();
 				flags = read_c0_status();
@@ -340,7 +360,7 @@ long arch_ptrace(struct task_struct *child, long request,
 #ifdef CONFIG_MIPS_MT_SMTC
 			emt(mtflags);
 			local_irq_restore(irqflags);
-#endif 
+#endif /* CONFIG_MIPS_MT_SMTC */
 			preempt_enable();
 			break;
 		}
@@ -373,8 +393,8 @@ long arch_ptrace(struct task_struct *child, long request,
 		break;
 	}
 
-	
-	case PTRACE_POKETEXT: 
+	/* when I and D space are separate, this will have to be fixed. */
+	case PTRACE_POKETEXT: /* write the word at location addr. */
 	case PTRACE_POKEDATA:
 		ret = generic_ptrace_pokedata(child, addr, data);
 		break;
@@ -392,12 +412,17 @@ long arch_ptrace(struct task_struct *child, long request,
 			fpureg_t *fregs = get_fpu_regs(child);
 
 			if (!tsk_used_math(child)) {
-				
+				/* FP not yet used  */
 				memset(&child->thread.fpu, ~0,
 				       sizeof(child->thread.fpu));
 				child->thread.fpu.fcr31 = 0;
 			}
 #ifdef CONFIG_32BIT
+			/*
+			 * The odd registers are actually the high order bits
+			 * of the values stored in the even registers - unless
+			 * we're using r2k_switch.S.
+			 */
 			if (addr & 1) {
 				fregs[(addr & ~1) - FPR_BASE] &= 0xffffffff;
 				fregs[(addr & ~1) - FPR_BASE] |= ((unsigned long long) data) << 32;
@@ -448,7 +473,7 @@ long arch_ptrace(struct task_struct *child, long request,
 			child->thread.dsp.dspcontrol = data;
 			break;
 		default:
-			
+			/* The rest are not allowed. */
 			ret = -EIO;
 			break;
 		}
@@ -503,9 +528,13 @@ static inline int audit_arch(void)
 	return arch;
 }
 
+/*
+ * Notification of system call entry/exit
+ * - triggered by current->work.syscall_trace
+ */
 asmlinkage void syscall_trace_enter(struct pt_regs *regs)
 {
-	
+	/* do the secure computing check first */
 	secure_computing(regs->regs[2]);
 
 	if (!(current->ptrace & PT_PTRACED))
@@ -514,9 +543,16 @@ asmlinkage void syscall_trace_enter(struct pt_regs *regs)
 	if (!test_thread_flag(TIF_SYSCALL_TRACE))
 		goto out;
 
+	/* The 0x80 provides a way for the tracing parent to distinguish
+	   between a syscall stop and SIGTRAP delivery */
 	ptrace_notify(SIGTRAP | ((current->ptrace & PT_TRACESYSGOOD) ?
 	                         0x80 : 0));
 
+	/*
+	 * this isn't the same as continuing with a signal, but it will do
+	 * for normal use.  strace only continues with a signal if the
+	 * stopping signal is not SIGTRAP.  -brl
+	 */
 	if (current->exit_code) {
 		send_sig(current->exit_code, current, 1);
 		current->exit_code = 0;
@@ -528,6 +564,10 @@ out:
 			    regs->regs[6], regs->regs[7]);
 }
 
+/*
+ * Notification of system call entry/exit
+ * - triggered by current->work.syscall_trace
+ */
 asmlinkage void syscall_trace_leave(struct pt_regs *regs)
 {
 	audit_syscall_exit(regs);
@@ -538,9 +578,16 @@ asmlinkage void syscall_trace_leave(struct pt_regs *regs)
 	if (!test_thread_flag(TIF_SYSCALL_TRACE))
 		return;
 
+	/* The 0x80 provides a way for the tracing parent to distinguish
+	   between a syscall stop and SIGTRAP delivery */
 	ptrace_notify(SIGTRAP | ((current->ptrace & PT_TRACESYSGOOD) ?
 	                         0x80 : 0));
 
+	/*
+	 * this isn't the same as continuing with a signal, but it will do
+	 * for normal use.  strace only continues with a signal if the
+	 * stopping signal is not SIGTRAP.  -brl
+	 */
 	if (current->exit_code) {
 		send_sig(current->exit_code, current, 1);
 		current->exit_code = 0;

@@ -62,11 +62,11 @@ static const struct hc_driver ohci_spear_hc_driver = {
 	.product_desc		= "SPEAr OHCI",
 	.hcd_priv_size		= sizeof(struct spear_ohci),
 
-	
+	/* generic hardware linkage */
 	.irq			= ohci_irq,
 	.flags			= HCD_USB11 | HCD_MEMORY,
 
-	
+	/* basic lifecycle operations */
 	.start			= ohci_spear_start,
 	.stop			= ohci_stop,
 	.shutdown		= ohci_shutdown,
@@ -75,15 +75,15 @@ static const struct hc_driver ohci_spear_hc_driver = {
 	.bus_resume		= ohci_bus_resume,
 #endif
 
-	
+	/* managing i/o requests and associated device resources */
 	.urb_enqueue		= ohci_urb_enqueue,
 	.urb_dequeue		= ohci_urb_dequeue,
 	.endpoint_disable	= ohci_endpoint_disable,
 
-	
+	/* scheduling support */
 	.get_frame_number	= ohci_get_frame,
 
-	
+	/* root hub support */
 	.hub_status_data	= ohci_hub_status_data,
 	.hub_control		= ohci_hub_control,
 
@@ -222,6 +222,7 @@ static int spear_ohci_hcd_drv_resume(struct platform_device *dev)
 }
 #endif
 
+/* Driver definition to register with the platform bus */
 static struct platform_driver spear_ohci_hcd_driver = {
 	.probe =	spear_ohci_hcd_drv_probe,
 	.remove =	spear_ohci_hcd_drv_remove,

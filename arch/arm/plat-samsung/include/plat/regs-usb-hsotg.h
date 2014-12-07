@@ -167,6 +167,7 @@
 #define S3C_DPTXFSIZn_DPTxFStAddr_MASK		(0xffff << 0)
 #define S3C_DPTXFSIZn_DPTxFStAddr_SHIFT		(0)
 
+/* Device mode registers */
 #define S3C_DCFG				S3C_HSOTG_REG(0x800)
 
 #define S3C_DCFG_EPMisCnt_MASK			(0x1f << 18)
@@ -263,6 +264,11 @@
 #define S3C_DIEPCTL(_a)				S3C_HSOTG_REG(0x900 + ((_a) * 0x20))
 #define S3C_DOEPCTL(_a)				S3C_HSOTG_REG(0xB00 + ((_a) * 0x20))
 
+/* EP0 specialness:
+ * bits[29..28] - reserved (no SetD0PID, SetD1PID)
+ * bits[25..22] - should always be zero, this isn't a periodic endpoint
+ * bits[10..0] - MPS setting differenct for EP0
+*/
 #define S3C_D0EPCTL_MPS_MASK			(0x3 << 0)
 #define S3C_D0EPCTL_MPS_SHIFT			(0)
 #define S3C_D0EPCTL_MPS_64			(0x0 << 0)
@@ -370,4 +376,4 @@
 
 #define S3C_EPFIFO(_a)				S3C_HSOTG_REG(0x1000 + ((_a) * 0x1000))
 
-#endif 
+#endif /* __PLAT_S3C64XX_REGS_USB_HSOTG_H */

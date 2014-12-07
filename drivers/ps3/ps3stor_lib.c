@@ -24,6 +24,11 @@
 #include <asm/lv1call.h>
 #include <asm/ps3stor.h>
 
+/*
+ * A workaround for flash memory I/O errors when the internal hard disk
+ * has not been formatted for OtherOS use.  Delay disk close until flash
+ * memory is closed.
+ */
 
 static struct ps3_flash_workaround {
 	int flash_open;
@@ -86,7 +91,7 @@ static int ps3stor_probe_access(struct ps3_storage_device *dev)
 	unsigned long n;
 
 	if (dev->sbd.match_id == PS3_MATCH_ID_STOR_ROM) {
-		
+		/* special case: CD-ROM is assumed always accessible */
 		dev->accessible_regions = 1;
 		return 0;
 	}
@@ -111,7 +116,7 @@ static int ps3stor_probe_access(struct ps3_storage_device *dev)
 			__func__, __LINE__, i);
 		set_bit(i, &dev->accessible_regions);
 
-		
+		/* We can access at least one region */
 		error = 0;
 	}
 	if (error)
@@ -133,6 +138,13 @@ static int ps3stor_probe_access(struct ps3_storage_device *dev)
 }
 
 
+/**
+ *	ps3stor_setup - Setup a storage device before use
+ *	@dev: Pointer to a struct ps3_storage_device
+ *	@handler: Pointer to an interrupt handler
+ *
+ *	Returns 0 for success, or an error code
+ */
 int ps3stor_setup(struct ps3_storage_device *dev, irq_handler_t handler)
 {
 	int error, res, alignment;
@@ -221,6 +233,10 @@ fail:
 EXPORT_SYMBOL_GPL(ps3stor_setup);
 
 
+/**
+ *	ps3stor_teardown - Tear down a storage device after use
+ *	@dev: Pointer to a struct ps3_storage_device
+ */
 void ps3stor_teardown(struct ps3_storage_device *dev)
 {
 	int error;
@@ -246,6 +262,17 @@ void ps3stor_teardown(struct ps3_storage_device *dev)
 EXPORT_SYMBOL_GPL(ps3stor_teardown);
 
 
+/**
+ *	ps3stor_read_write_sectors - read/write from/to a storage device
+ *	@dev: Pointer to a struct ps3_storage_device
+ *	@lpar: HV logical partition address
+ *	@start_sector: First sector to read/write
+ *	@sectors: Number of sectors to read/write
+ *	@write: Flag indicating write (non-zero) or read (zero)
+ *
+ *	Returns 0 for success, -1 in case of failure to submit the command, or
+ *	an LV1 status value in case of other errors
+ */
 u64 ps3stor_read_write_sectors(struct ps3_storage_device *dev, u64 lpar,
 			       u64 start_sector, u64 sectors, int write)
 {
@@ -284,6 +311,18 @@ u64 ps3stor_read_write_sectors(struct ps3_storage_device *dev, u64 lpar,
 EXPORT_SYMBOL_GPL(ps3stor_read_write_sectors);
 
 
+/**
+ *	ps3stor_send_command - send a device command to a storage device
+ *	@dev: Pointer to a struct ps3_storage_device
+ *	@cmd: Command number
+ *	@arg1: First command argument
+ *	@arg2: Second command argument
+ *	@arg3: Third command argument
+ *	@arg4: Fourth command argument
+ *
+ *	Returns 0 for success, -1 in case of failure to submit the command, or
+ *	an LV1 status value in case of other errors
+ */
 u64 ps3stor_send_command(struct ps3_storage_device *dev, u64 cmd, u64 arg1,
 			 u64 arg2, u64 arg3, u64 arg4)
 {

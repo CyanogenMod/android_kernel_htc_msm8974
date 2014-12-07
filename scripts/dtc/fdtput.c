@@ -28,20 +28,28 @@
 
 #include "util.h"
 
+/* These are the operations we support */
 enum oper_type {
-	OPER_WRITE_PROP,		
-	OPER_CREATE_NODE,		
+	OPER_WRITE_PROP,		/* Write a property in a node */
+	OPER_CREATE_NODE,		/* Create a new node */
 };
 
 struct display_info {
-	enum oper_type oper;	
-	int type;		
-	int size;		
-	int verbose;		
-	int auto_path;		
+	enum oper_type oper;	/* operation to perform */
+	int type;		/* data type (s/i/u/x or 0 for default) */
+	int size;		/* data size (1/2/4) */
+	int verbose;		/* verbose output */
+	int auto_path;		/* automatically create all path components */
 };
 
 
+/**
+ * Report an error with a particular node.
+ *
+ * @param name		Node name to report error on
+ * @param namelen	Length of node name, or -1 to use entire string
+ * @param err		Error number to report (-FDT_ERR_...)
+ */
 static void report_error(const char *name, int namelen, int err)
 {
 	if (namelen == -1)
@@ -50,13 +58,22 @@ static void report_error(const char *name, int namelen, int err)
 		fdt_strerror(err));
 }
 
+/**
+ * Encode a series of arguments in a property value.
+ *
+ * @param disp		Display information / options
+ * @param arg		List of arguments from command line
+ * @param arg_count	Number of arguments (may be 0)
+ * @param valuep	Returns buffer containing value
+ * @param *value_len	Returns length of value encoded
+ */
 static int encode_value(struct display_info *disp, char **arg, int arg_count,
 			char **valuep, int *value_len)
 {
-	char *value = NULL;	
-	int value_size = 0;	
-	char *ptr;		
-	int len;		
+	char *value = NULL;	/* holding area for value */
+	int value_size = 0;	/* size of holding area */
+	char *ptr;		/* pointer to current value position */
+	int len;		/* length of this cell/string/byte */
 	int ival;
 	int upto;	/* the number of bytes we have written to buf */
 	char fmt[3];
@@ -70,13 +87,13 @@ static int encode_value(struct display_info *disp, char **arg, int arg_count,
 	fmt[1] = disp->type ? disp->type : 'd';
 	fmt[2] = '\0';
 	for (; arg_count > 0; arg++, arg_count--, upto += len) {
-		
+		/* assume integer unless told otherwise */
 		if (disp->type == 's')
 			len = strlen(*arg) + 1;
 		else
 			len = disp->size == -1 ? 4 : disp->size;
 
-		
+		/* enlarge our value buffer by a suitable margin if needed */
 		if (upto + len > value_size) {
 			value_size = (upto + len) + 500;
 			value = realloc(value, value_size);
@@ -134,18 +151,28 @@ static int store_key_value(void *blob, const char *node_name,
 	return 0;
 }
 
+/**
+ * Create paths as needed for all components of a path
+ *
+ * Any components of the path that do not exist are created. Errors are
+ * reported.
+ *
+ * @param blob		FDT blob to write into
+ * @param in_path	Path to process
+ * @return 0 if ok, -1 on error
+ */
 static int create_paths(void *blob, const char *in_path)
 {
 	const char *path = in_path;
 	const char *sep;
 	int node, offset = 0;
 
-	
+	/* skip leading '/' */
 	while (*path == '/')
 		path++;
 
 	for (sep = path; *sep; path = sep + 1, offset = node) {
-		
+		/* equivalent to strchrnul(), but it requires _GNU_SOURCE */
 		sep = strchr(path, '/');
 		if (!sep)
 			sep = path + strlen(path);
@@ -165,6 +192,17 @@ static int create_paths(void *blob, const char *in_path)
 	return 0;
 }
 
+/**
+ * Create a new node in the fdt.
+ *
+ * This will overwrite the node_name string. Any error is reported.
+ *
+ * TODO: Perhaps create fdt_path_offset_namelen() so we don't need to do this.
+ *
+ * @param blob		FDT blob to write into
+ * @param node_name	Name of node to create
+ * @return new node offset if found, or -1 on failure
+ */
 static int create_node(void *blob, const char *node_name)
 {
 	int node = 0;
@@ -207,6 +245,10 @@ static int do_fdtput(struct display_info *disp, const char *filename,
 
 	switch (disp->oper) {
 	case OPER_WRITE_PROP:
+		/*
+		 * Convert the arguments into a single binary value, then
+		 * store them into the property.
+		 */
 		assert(arg_count >= 2);
 		if (disp->auto_path && create_paths(blob, *arg))
 			return -1;
@@ -268,6 +310,15 @@ int main(int argc, char *argv[])
 		if (c == -1)
 			break;
 
+		/*
+		 * TODO: add options to:
+		 * - delete property
+		 * - delete node (optionally recursively)
+		 * - rename node
+		 * - pack fdt before writing
+		 * - set amount of free space when writing
+		 * - expand fdt if value doesn't fit
+		 */
 		switch (c) {
 		case 'c':
 			disp.oper = OPER_CREATE_NODE;

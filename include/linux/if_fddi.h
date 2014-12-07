@@ -26,16 +26,21 @@
 
 #include <linux/types.h>
 
-#define FDDI_K_ALEN			6		
-#define FDDI_K_8022_HLEN	16		
-#define FDDI_K_SNAP_HLEN	21		
-#define FDDI_K_8022_ZLEN	16		
-#define FDDI_K_SNAP_ZLEN	21		
-#define FDDI_K_8022_DLEN	4475	
-#define FDDI_K_SNAP_DLEN	4470	
-#define FDDI_K_LLC_ZLEN		13		
-#define FDDI_K_LLC_LEN		4491	
+/*
+ *  Define max and min legal sizes.  The frame sizes do not include
+ *  4 byte FCS/CRC (frame check sequence).
+ */
+#define FDDI_K_ALEN			6		/* Octets in one FDDI address */
+#define FDDI_K_8022_HLEN	16		/* Total octets in 802.2 header */
+#define FDDI_K_SNAP_HLEN	21		/* Total octets in 802.2 SNAP header */
+#define FDDI_K_8022_ZLEN	16		/* Min octets in 802.2 frame sans FCS */
+#define FDDI_K_SNAP_ZLEN	21		/* Min octets in 802.2 SNAP frame sans FCS */
+#define FDDI_K_8022_DLEN	4475	/* Max octets in 802.2 payload */
+#define FDDI_K_SNAP_DLEN	4470	/* Max octets in 802.2 SNAP payload */
+#define FDDI_K_LLC_ZLEN		13		/* Min octets in LLC frame sans FCS */
+#define FDDI_K_LLC_LEN		4491	/* Max octets in LLC frame sans FCS */
 
+/* Define FDDI Frame Control (FC) Byte values */
 #define FDDI_FC_K_VOID					0x00	
 #define FDDI_FC_K_NON_RESTRICTED_TOKEN	0x80	
 #define FDDI_FC_K_RESTRICTED_TOKEN		0xC0	
@@ -53,35 +58,40 @@
 #define FDDI_FC_K_RESERVED_MIN			0x70
 #define FDDI_FC_K_RESERVED_MAX			0x7F
 
+/* Define LLC and SNAP constants */
 #define FDDI_EXTENDED_SAP	0xAA
 #define FDDI_UI_CMD			0x03
 
+/* Define 802.2 Type 1 header */
 struct fddi_8022_1_hdr {
-	__u8	dsap;					
-	__u8	ssap;					
-	__u8	ctrl;					
+	__u8	dsap;					/* destination service access point */
+	__u8	ssap;					/* source service access point */
+	__u8	ctrl;					/* control byte #1 */
 } __attribute__((packed));
 
+/* Define 802.2 Type 2 header */
 struct fddi_8022_2_hdr {
-	__u8	dsap;					
-	__u8	ssap;					
-	__u8	ctrl_1;					
-	__u8	ctrl_2;					
+	__u8	dsap;					/* destination service access point */
+	__u8	ssap;					/* source service access point */
+	__u8	ctrl_1;					/* control byte #1 */
+	__u8	ctrl_2;					/* control byte #2 */
 } __attribute__((packed));
 
+/* Define 802.2 SNAP header */
 #define FDDI_K_OUI_LEN	3
 struct fddi_snap_hdr {
-	__u8	dsap;					
-	__u8	ssap;					
-	__u8	ctrl;					
-	__u8	oui[FDDI_K_OUI_LEN];	
-	__be16	ethertype;				
+	__u8	dsap;					/* always 0xAA */
+	__u8	ssap;					/* always 0xAA */
+	__u8	ctrl;					/* always 0x03 */
+	__u8	oui[FDDI_K_OUI_LEN];	/* organizational universal id */
+	__be16	ethertype;				/* packet type ID field */
 } __attribute__((packed));
 
+/* Define FDDI LLC frame header */
 struct fddihdr {
-	__u8	fc;						
-	__u8	daddr[FDDI_K_ALEN];		
-	__u8	saddr[FDDI_K_ALEN];		
+	__u8	fc;						/* frame control */
+	__u8	daddr[FDDI_K_ALEN];		/* destination address */
+	__u8	saddr[FDDI_K_ALEN];		/* source address */
 	union
 		{
 		struct fddi_8022_1_hdr		llc_8022_1;
@@ -93,13 +103,14 @@ struct fddihdr {
 #ifdef __KERNEL__
 #include <linux/netdevice.h>
 
+/* Define FDDI statistics structure */
 struct fddi_statistics {
 
-	
+	/* Generic statistics. */
 
 	struct net_device_stats gen;
 
-	
+	/* Detailed FDDI statistics.  Adopted from RFC 1512 */
 
 	__u8	smt_station_id[8];
 	__u32	smt_op_version_id;
@@ -183,6 +194,6 @@ struct fddi_statistics {
 	__u32	port_ler_flag[2];
 	__u32	port_hardware_present[2];
 };
-#endif 
+#endif /* __KERNEL__ */
 
-#endif	
+#endif	/* _LINUX_IF_FDDI_H */

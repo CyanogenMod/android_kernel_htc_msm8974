@@ -26,7 +26,13 @@
 #include "mpp.h"
 #include "ts78xx-fpga.h"
 
+/*****************************************************************************
+ * TS-78xx Info
+ ****************************************************************************/
 
+/*
+ * FPGA - lives where the PCI bus would be at ORION5X_PCI_MEM_PHYS_BASE
+ */
 #define TS78XX_FPGA_REGS_PHYS_BASE	0xe8000000
 #define TS78XX_FPGA_REGS_VIRT_BASE	0xff900000
 #define TS78XX_FPGA_REGS_SIZE		SZ_1M
@@ -34,8 +40,12 @@
 static struct ts78xx_fpga_data ts78xx_fpga = {
 	.id		= 0,
 	.state		= 1,
+/*	.supports	= ... - populated by ts78xx_fpga_supports() */
 };
 
+/*****************************************************************************
+ * I/O Address Mapping
+ ****************************************************************************/
 static struct map_desc ts78xx_io_desc[] __initdata = {
 	{
 		.virtual	= TS78XX_FPGA_REGS_VIRT_BASE,
@@ -51,14 +61,23 @@ void __init ts78xx_map_io(void)
 	iotable_init(ts78xx_io_desc, ARRAY_SIZE(ts78xx_io_desc));
 }
 
+/*****************************************************************************
+ * Ethernet
+ ****************************************************************************/
 static struct mv643xx_eth_platform_data ts78xx_eth_data = {
 	.phy_addr	= MV643XX_ETH_PHY_ADDR(0),
 };
 
+/*****************************************************************************
+ * SATA
+ ****************************************************************************/
 static struct mv_sata_platform_data ts78xx_sata_data = {
 	.n_ports	= 2,
 };
 
+/*****************************************************************************
+ * RTC M48T86 - nicked^Wborrowed from arch/arm/mach-ep93xx/ts72xx.c
+ ****************************************************************************/
 #define TS_RTC_CTRL	(TS78XX_FPGA_REGS_VIRT_BASE | 0x808)
 #define TS_RTC_DATA	(TS78XX_FPGA_REGS_VIRT_BASE | 0x80c)
 
@@ -88,6 +107,16 @@ static struct platform_device ts78xx_ts_rtc_device = {
 	.num_resources	= 0,
 };
 
+/*
+ * TS uses some of the user storage space on the RTC chip so see if it is
+ * present; as it's an optional feature at purchase time and not all boards
+ * will have it present
+ *
+ * I've used the method TS use in their rtc7800.c example for the detection
+ *
+ * TODO: track down a guinea pig without an RTC to see if we can work out a
+ * 		better RTC detection routine
+ */
 static int ts78xx_ts_rtc_load(void)
 {
 	int rc;
@@ -124,9 +153,20 @@ static void ts78xx_ts_rtc_unload(void)
 	platform_device_del(&ts78xx_ts_rtc_device);
 }
 
-#define TS_NAND_CTRL	(TS78XX_FPGA_REGS_VIRT_BASE | 0x800)	
-#define TS_NAND_DATA	(TS78XX_FPGA_REGS_PHYS_BASE | 0x804)	
+/*****************************************************************************
+ * NAND Flash
+ ****************************************************************************/
+#define TS_NAND_CTRL	(TS78XX_FPGA_REGS_VIRT_BASE | 0x800)	/* VIRT */
+#define TS_NAND_DATA	(TS78XX_FPGA_REGS_PHYS_BASE | 0x804)	/* PHYS */
 
+/*
+ * hardware specific access to control-lines
+ *
+ * ctrl:
+ * NAND_NCE: bit 0 -> bit 2
+ * NAND_CLE: bit 1 -> bit 1
+ * NAND_ALE: bit 2 -> bit 0
+ */
 static void ts78xx_ts_nand_cmd_ctrl(struct mtd_info *mtd, int cmd,
 			unsigned int ctrl)
 {
@@ -238,6 +278,13 @@ static struct platform_nand_data ts78xx_ts_nand_data = {
 		.bbt_options		= NAND_BBT_USE_FLASH,
 	},
 	.ctrl	= {
+		/*
+		 * The HW ECC offloading functions, used to give about a 9%
+		 * performance increase for 'dd if=/dev/mtdblockX' and 5% for
+		 * nanddump.  This all however was changed by git commit
+		 * e6cf5df1838c28bb060ac45b5585e48e71bbc740 so now there is
+		 * no performance advantage to be had so we no longer bother
+		 */
 		.cmd_ctrl		= ts78xx_ts_nand_cmd_ctrl,
 		.dev_ready		= ts78xx_ts_nand_dev_ready,
 		.write_buf		= ts78xx_ts_nand_write_buf,
@@ -280,6 +327,9 @@ static void ts78xx_ts_nand_unload(void)
 	platform_device_del(&ts78xx_ts_nand_device);
 }
 
+/*****************************************************************************
+ * HW RNG
+ ****************************************************************************/
 #define TS_RNG_DATA	(TS78XX_FPGA_REGS_PHYS_BASE | 0x044)
 
 static struct resource ts78xx_ts_rng_resource = {
@@ -289,7 +339,7 @@ static struct resource ts78xx_ts_rng_resource = {
 };
 
 static struct timeriomem_rng_data ts78xx_ts_rng_data = {
-	.period		= 1000000, 
+	.period		= 1000000, /* one second */
 };
 
 static struct platform_device ts78xx_ts_rng_device = {
@@ -321,6 +371,9 @@ static void ts78xx_ts_rng_unload(void)
 	platform_device_del(&ts78xx_ts_rng_device);
 }
 
+/*****************************************************************************
+ * FPGA 'hotplug' support code
+ ****************************************************************************/
 static void ts78xx_fpga_devices_zero_init(void)
 {
 	ts78xx_fpga.supports.ts_rtc.init = 0;
@@ -330,7 +383,7 @@ static void ts78xx_fpga_devices_zero_init(void)
 
 static void ts78xx_fpga_supports(void)
 {
-	
+	/* TODO: put this 'table' into ts78xx-fpga.h */
 	switch (ts78xx_fpga.id) {
 	case TS7800_REV_1:
 	case TS7800_REV_2:
@@ -346,7 +399,7 @@ static void ts78xx_fpga_supports(void)
 		ts78xx_fpga.supports.ts_rng.present = 1;
 		break;
 	default:
-		
+		/* enable devices if magic matches */
 		switch ((ts78xx_fpga.id >> 8) & 0xffffff) {
 		case TS7800_FPGA_MAGIC:
 			pr_warning("TS-7800 FPGA: unrecognized revision 0x%.2x\n",
@@ -433,6 +486,13 @@ static int ts78xx_fpga_unload(void)
 
 	fpga_id = readl(TS78XX_FPGA_REGS_VIRT_BASE);
 
+	/*
+	 * There does not seem to be a feasible way to block access to the GPIO
+	 * pins from userspace (/dev/mem).  This if clause should hopefully warn
+	 * those foolish enough not to follow 'policy' :)
+	 *
+	 * UrJTAG SVN since r1381 can be used to reprogram the FPGA
+	 */
 	if (ts78xx_fpga.id != fpga_id) {
 		pr_err("TS-78xx FPGA: magic/rev mismatch\n"
 			"TS-78xx FPGA: was 0x%.6x/%.2x but now 0x%.6x/%.2x\n",
@@ -494,15 +554,18 @@ static ssize_t ts78xx_fpga_store(struct kobject *kobj,
 static struct kobj_attribute ts78xx_fpga_attr =
 	__ATTR(ts78xx_fpga, 0644, ts78xx_fpga_show, ts78xx_fpga_store);
 
+/*****************************************************************************
+ * General Setup
+ ****************************************************************************/
 static unsigned int ts78xx_mpp_modes[] __initdata = {
 	MPP0_UNUSED,
-	MPP1_GPIO,		
-	MPP2_GPIO,		
-	MPP3_GPIO,		
-	MPP4_GPIO,		
-	MPP5_GPIO,		
-	MPP6_GPIO,		
-	MPP7_GPIO,		
+	MPP1_GPIO,		/* JTAG Clock */
+	MPP2_GPIO,		/* JTAG Data In */
+	MPP3_GPIO,		/* Lat ECP2 256 FPGA - PB2B */
+	MPP4_GPIO,		/* JTAG Data Out */
+	MPP5_GPIO,		/* JTAG TMS */
+	MPP6_GPIO,		/* Lat ECP2 256 FPGA - PB31A_CLK4+ */
+	MPP7_GPIO,		/* Lat ECP2 256 FPGA - PB22B */
 	MPP8_UNUSED,
 	MPP9_UNUSED,
 	MPP10_UNUSED,
@@ -515,6 +578,14 @@ static unsigned int ts78xx_mpp_modes[] __initdata = {
 	MPP17_UART,
 	MPP18_UART,
 	MPP19_UART,
+	/*
+	 * MPP[20] PCI Clock Out 1
+	 * MPP[21] PCI Clock Out 0
+	 * MPP[22] Unused
+	 * MPP[23] Unused
+	 * MPP[24] Unused
+	 * MPP[25] Unused
+	 */
 	0,
 };
 
@@ -522,10 +593,16 @@ static void __init ts78xx_init(void)
 {
 	int ret;
 
+	/*
+	 * Setup basic Orion functions. Need to be called early.
+	 */
 	orion5x_init();
 
 	orion5x_mpp_conf(ts78xx_mpp_modes);
 
+	/*
+	 * Configure peripherals.
+	 */
 	orion5x_ehci0_init();
 	orion5x_ehci1_init();
 	orion5x_eth_init(&ts78xx_eth_data);
@@ -534,7 +611,7 @@ static void __init ts78xx_init(void)
 	orion5x_uart1_init();
 	orion5x_xor_init();
 
-	
+	/* FPGA init */
 	ts78xx_fpga_devices_zero_init();
 	ret = ts78xx_fpga_load();
 	ret = sysfs_create_file(power_kobj, &ts78xx_fpga_attr.attr);
@@ -543,7 +620,7 @@ static void __init ts78xx_init(void)
 }
 
 MACHINE_START(TS78XX, "Technologic Systems TS-78xx SBC")
-	
+	/* Maintainer: Alexander Clouter <alex@digriz.org.uk> */
 	.atag_offset	= 0x100,
 	.init_machine	= ts78xx_init,
 	.map_io		= ts78xx_map_io,

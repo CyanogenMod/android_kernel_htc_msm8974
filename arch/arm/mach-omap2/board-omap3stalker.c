@@ -84,6 +84,9 @@ static inline void __init omap3stalker_init_eth(void)
 }
 #endif
 
+/*
+ * OMAP3 DSS control signals
+ */
 
 #define DSS_ENABLE_GPIO	199
 #define LCD_PANEL_BKLIGHT_GPIO	210
@@ -168,6 +171,7 @@ static struct regulator_consumer_supply omap3stalker_vsim_supply[] = {
 	REGULATOR_SUPPLY("vmmc_aux", "omap_hsmmc.0"),
 };
 
+/* VMMC1 for MMC1 pins CMD, CLK, DAT0..DAT3 (20 mA, plus card == max 220 mA) */
 static struct regulator_init_data omap3stalker_vmmc1 = {
 	.constraints		= {
 		.min_uV			= 1850000,
@@ -181,6 +185,7 @@ static struct regulator_init_data omap3stalker_vmmc1 = {
 	.consumer_supplies	= omap3stalker_vmmc1_supply,
 };
 
+/* VSIM for MMC1 pins DAT4..DAT7 (2 mA, plus card == max 50 mA) */
 static struct regulator_init_data omap3stalker_vsim = {
 	.constraints		= {
 		.min_uV			= 1800000,
@@ -202,7 +207,7 @@ static struct omap2_hsmmc_info mmc[] = {
 		.gpio_wp	= 23,
 		.deferred	= true,
 	 },
-	{}			
+	{}			/* Terminator */
 };
 
 static struct gpio_keys_button gpio_buttons[] = {
@@ -240,13 +245,13 @@ static struct gpio_led gpio_leds[] = {
 	 },
 	{
 	 .name			= "stalker:D3:mmc0",
-	 .gpio			= -EINVAL,	
+	 .gpio			= -EINVAL,	/* gets replaced */
 	 .active_low		= true,
 	 .default_trigger	= "mmc0",
 	 },
 	{
 	 .name			= "stalker:D4:heartbeat",
-	 .gpio			= -EINVAL,	
+	 .gpio			= -EINVAL,	/* gets replaced */
 	 .active_low		= true,
 	 .default_trigger	= "heartbeat",
 	 },
@@ -269,21 +274,25 @@ static int
 omap3stalker_twl_gpio_setup(struct device *dev,
 			    unsigned gpio, unsigned ngpio)
 {
-	
+	/* gpio + 0 is "mmc0_cd" (input/IRQ) */
 	mmc[0].gpio_cd = gpio + 0;
 	omap_hsmmc_late_init(mmc);
 
+	/*
+	 * Most GPIOs are for USB OTG.  Some are mostly sent to
+	 * the P2 connector; notably LEDA for the LCD backlight.
+	 */
 
-	
+	/* TWL4030_GPIO_MAX + 0 == ledA, LCD Backlight control */
 	gpio_request_one(gpio + TWL4030_GPIO_MAX, GPIOF_OUT_INIT_LOW,
 			 "EN_LCD_BKL");
 
-	
+	/* gpio + 7 == DVI Enable */
 	gpio_request_one(gpio + 7, GPIOF_OUT_INIT_LOW, "EN_DVI");
 
-	
+	/* TWL4030_GPIO_MAX + 1 == ledB (out, mmc0) */
 	gpio_leds[2].gpio = gpio + TWL4030_GPIO_MAX + 1;
-	
+	/* GPIO + 13 == ledsync (out, heartbeat) */
 	gpio_leds[3].gpio = gpio + 13;
 
 	platform_device_register(&leds_gpio);
@@ -333,7 +342,7 @@ static struct twl4030_keypad_data omap3stalker_kp_data = {
 };
 
 static struct twl4030_platform_data omap3stalker_twldata = {
-	
+	/* platform_data for children goes here */
 	.keypad		= &omap3stalker_kp_data,
 	.gpio		= &omap3stalker_gpio_data,
 	.vmmc1		= &omap3stalker_vmmc1,
@@ -435,12 +444,13 @@ static void __init omap3_stalker_init(void)
 
 	omap3stalker_init_eth();
 	omap3_stalker_display_init();
+/* Ensure SDRC pins are mux'd for self-refresh */
 	omap_mux_init_signal("sdr_cke0", OMAP_PIN_OUTPUT);
 	omap_mux_init_signal("sdr_cke1", OMAP_PIN_OUTPUT);
 }
 
 MACHINE_START(SBC3530, "OMAP3 STALKER")
-	
+	/* Maintainer: Jason Lam -lzg@ema-tech.com */
 	.atag_offset		= 0x100,
 	.map_io			= omap3_map_io,
 	.init_early		= omap35xx_init_early,

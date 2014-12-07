@@ -166,6 +166,6 @@ void rose_setup(struct net_device *dev)
 	dev->addr_len		= ROSE_ADDR_LEN;
 	dev->type		= ARPHRD_ROSE;
 
-	
+	/* New-style flags. */
 	dev->flags		= IFF_NOARP;
 }

@@ -11,6 +11,9 @@
 
 #ifndef _B1LLI_H_
 #define _B1LLI_H_
+/*
+ * struct for loading t4 file 
+ */
 typedef struct avmb1_t4file {
 	int len;
 	unsigned char *data;
@@ -37,6 +40,9 @@ typedef struct avmb1_getdef {
 	int cardstate;
 } avmb1_getdef;
 
+/*
+ * struct for adding new cards 
+ */
 typedef struct avmb1_carddef {
 	int port;
 	int irq;
@@ -51,17 +57,17 @@ typedef struct avmb1_extcarddef {
 	int port;
 	int irq;
         int cardtype;
-        int cardnr;  
+        int cardnr;  /* for HEMA/T1 */
 } avmb1_extcarddef;
 
-#define	AVMB1_LOAD		0	
-#define AVMB1_ADDCARD		1	
-#define AVMB1_RESETCARD		2	
-#define	AVMB1_LOAD_AND_CONFIG	3	
-#define	AVMB1_ADDCARD_WITH_TYPE	4	
-#define AVMB1_GET_CARDINFO	5	
-#define AVMB1_REMOVECARD	6	
+#define	AVMB1_LOAD		0	/* load image to card */
+#define AVMB1_ADDCARD		1	/* add a new card - OBSOLETE */
+#define AVMB1_RESETCARD		2	/* reset a card */
+#define	AVMB1_LOAD_AND_CONFIG	3	/* load image and config to card */
+#define	AVMB1_ADDCARD_WITH_TYPE	4	/* add a new card, with cardtype */
+#define AVMB1_GET_CARDINFO	5	/* get cardtype */
+#define AVMB1_REMOVECARD	6	/* remove a card - OBSOLETE */
 
 #define	AVMB1_REGISTERCARD_IS_OBSOLETE
 
-#endif				
+#endif				/* _B1LLI_H_ */

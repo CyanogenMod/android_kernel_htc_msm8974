@@ -9,6 +9,12 @@
  * published by the Free Software Foundation.
  */
 
+/*
+ * This driver manages PCI I/O APICs added by hotplug after boot.  We try to
+ * claim all I/O APIC PCI devices, but those present at boot were registered
+ * when we parsed the ACPI MADT, so we'll fail when we try to re-register
+ * them.
+ */
 
 #include <linux/pci.h>
 #include <linux/module.h>
@@ -39,6 +45,10 @@ static int __devinit ioapic_probe(struct pci_dev *dev, const struct pci_device_i
 	if (ACPI_FAILURE(status))
 		return -EINVAL;
 
+	/*
+	 * The previous code in acpiphp evaluated _MAT if _GSB failed, but
+	 * ACPI spec 4.0 sec 6.2.2 requires _GSB for hot-pluggable I/O APICs.
+	 */
 
 	ioapic = kzalloc(sizeof(*ioapic), GFP_KERNEL);
 	if (!ioapic)

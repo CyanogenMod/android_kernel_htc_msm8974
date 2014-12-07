@@ -31,6 +31,10 @@
 #include "decompressor.h"
 #include "squashfs.h"
 
+/*
+ * This file (and decompressor.h) implements a decompressor framework for
+ * Squashfs, allowing multiple decompressors to be easily supported
+ */
 
 static const struct squashfs_decompressor squashfs_lzma_unsupported_comp_ops = {
 	NULL, NULL, NULL, LZMA_COMPRESSION, "lzma", 0
@@ -85,6 +89,9 @@ void *squashfs_decompressor_init(struct super_block *sb, unsigned short flags)
 	void *strm, *buffer = NULL;
 	int length = 0;
 
+	/*
+	 * Read decompressor specific options from file system if present
+	 */
 	if (SQUASHFS_COMP_OPTS(flags)) {
 		buffer = kmalloc(PAGE_CACHE_SIZE, GFP_KERNEL);
 		if (buffer == NULL)

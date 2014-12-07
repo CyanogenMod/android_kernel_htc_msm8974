@@ -84,17 +84,31 @@ enum radeon_hpd_id {
 
 #define RADEON_MAX_I2C_BUS 16
 
+/* radeon gpio-based i2c
+ * 1. "mask" reg and bits
+ *    grabs the gpio pins for software use
+ *    0=not held  1=held
+ * 2. "a" reg and bits
+ *    output pin value
+ *    0=low 1=high
+ * 3. "en" reg and bits
+ *    sets the pin direction
+ *    0=input 1=output
+ * 4. "y" reg and bits
+ *    input pin value
+ *    0=low 1=high
+ */
 struct radeon_i2c_bus_rec {
 	bool valid;
-	
+	/* id used by atom */
 	uint8_t i2c_id;
-	
+	/* id used by atom */
 	enum radeon_hpd_id hpd;
-	
+	/* can be used with hw i2c engine */
 	bool hw_capable;
-	
+	/* uses multi-media i2c engine */
 	bool mm_i2c;
-	
+	/* regs and bits */
 	uint32_t mask_clk_reg;
 	uint32_t mask_data_reg;
 	uint32_t a_clk_reg;
@@ -120,6 +134,7 @@ struct radeon_tmds_pll {
 
 #define RADEON_MAX_BIOS_CONNECTOR 16
 
+/* pll flags */
 #define RADEON_PLL_USE_BIOS_DIVS        (1 << 0)
 #define RADEON_PLL_NO_ODD_POST_DIV      (1 << 1)
 #define RADEON_PLL_USE_REF_DIV          (1 << 2)
@@ -137,14 +152,14 @@ struct radeon_tmds_pll {
 #define RADEON_PLL_PREFER_MINM_OVER_MAXP (1 << 14)
 
 struct radeon_pll {
-	
+	/* reference frequency */
 	uint32_t reference_freq;
 
-	
+	/* fixed dividers */
 	uint32_t reference_div;
 	uint32_t post_div;
 
-	
+	/* pll in/out limits */
 	uint32_t pll_in_min;
 	uint32_t pll_in_max;
 	uint32_t pll_out_min;
@@ -153,7 +168,7 @@ struct radeon_pll {
 	uint32_t lcd_pll_out_max;
 	uint32_t best_vco;
 
-	
+	/* divider limits */
 	uint32_t min_ref_div;
 	uint32_t max_ref_div;
 	uint32_t min_post_div;
@@ -163,10 +178,10 @@ struct radeon_pll {
 	uint32_t min_frac_feedback_div;
 	uint32_t max_frac_feedback_div;
 
-	
+	/* flags for the current clock */
 	uint32_t flags;
 
-	
+	/* pll id */
 	uint32_t id;
 };
 
@@ -180,6 +195,7 @@ struct radeon_i2c_chan {
 	struct radeon_i2c_bus_rec rec;
 };
 
+/* mostly for macs, but really any system without connector tables */
 enum radeon_connector_table {
 	CT_NONE = 0,
 	CT_GENERIC,
@@ -209,29 +225,31 @@ struct radeon_mode_info {
 	enum radeon_connector_table connector_table;
 	bool mode_config_initialized;
 	struct radeon_crtc *crtcs[6];
-	
+	/* DVI-I properties */
 	struct drm_property *coherent_mode_property;
-	
+	/* DAC enable load detect */
 	struct drm_property *load_detect_property;
-	
+	/* TV standard */
 	struct drm_property *tv_std_property;
-	
+	/* legacy TMDS PLL detect */
 	struct drm_property *tmds_pll_property;
-	
+	/* underscan */
 	struct drm_property *underscan_property;
 	struct drm_property *underscan_hborder_property;
 	struct drm_property *underscan_vborder_property;
-	
+	/* hardcoded DFP edid from BIOS */
 	struct edid *bios_hardcoded_edid;
 	int bios_hardcoded_edid_size;
 
-	
+	/* pointer to fbdev info structure */
 	struct radeon_fbdev *rfbdev;
 };
 
 #define MAX_H_CODE_TIMING_LEN 32
 #define MAX_V_CODE_TIMING_LEN 32
 
+/* need to store these as reading
+   back code tables is excessive */
 struct radeon_tv_regs {
 	uint32_t tv_uv_adr;
 	uint32_t timing_cntl;
@@ -262,18 +280,18 @@ struct radeon_crtc {
 	fixed20_12 hsc;
 	struct drm_display_mode native_mode;
 	int pll_id;
-	
+	/* page flipping */
 	struct radeon_unpin_work *unpin_work;
 	int deferred_flip_completion;
 };
 
 struct radeon_encoder_primary_dac {
-	
+	/* legacy primary dac */
 	uint32_t ps2_pdac_adj;
 };
 
 struct radeon_encoder_lvds {
-	
+	/* legacy lvds */
 	uint16_t panel_vcc_delay;
 	uint8_t  panel_pwr_delay;
 	uint8_t  panel_digon_delay;
@@ -283,7 +301,7 @@ struct radeon_encoder_lvds {
 	uint16_t panel_fb_divider;
 	bool     use_bios_dividers;
 	uint32_t lvds_gen_cntl;
-	
+	/* panel mode */
 	struct drm_display_mode native_mode;
 	struct backlight_device *bl_dev;
 	int      dpms_mode;
@@ -291,7 +309,7 @@ struct radeon_encoder_lvds {
 };
 
 struct radeon_encoder_tv_dac {
-	
+	/* legacy tv dac */
 	uint32_t ps2_tvdac_adj;
 	uint32_t ntsc_tvdac_adj;
 	uint32_t pal_tvdac_adj;
@@ -306,17 +324,18 @@ struct radeon_encoder_tv_dac {
 };
 
 struct radeon_encoder_int_tmds {
-	
+	/* legacy int tmds */
 	struct radeon_tmds_pll tmds_pll[4];
 };
 
 struct radeon_encoder_ext_tmds {
-	
+	/* tmds over dvo */
 	struct radeon_i2c_chan *i2c_bus;
 	uint8_t slave_addr;
 	enum radeon_dvo_chip dvo_chip;
 };
 
+/* spread spectrum */
 struct radeon_atom_ss {
 	uint16_t percentage;
 	uint8_t type;
@@ -324,21 +343,21 @@ struct radeon_atom_ss {
 	uint8_t delay;
 	uint8_t range;
 	uint8_t refdiv;
-	
+	/* asic_ss */
 	uint16_t rate;
 	uint16_t amount;
 };
 
 struct radeon_encoder_atom_dig {
 	bool linkb;
-	
+	/* atom dig */
 	bool coherent_mode;
-	int dig_encoder; 
-	
+	int dig_encoder; /* -1 disabled, 0 DIGA, 1 DIGB, etc. */
+	/* atom lvds/edp */
 	uint32_t lcd_misc;
 	uint16_t panel_pwr_delay;
 	uint32_t lcd_ss_id;
-	
+	/* panel mode */
 	struct drm_display_mode native_mode;
 	struct backlight_device *bl_dev;
 	int dpms_mode;
@@ -375,7 +394,7 @@ struct radeon_encoder {
 
 struct radeon_connector_atom_dig {
 	uint32_t igp_lane_info;
-	
+	/* displayport */
 	struct radeon_i2c_chan *dp_i2c_bus;
 	u8 dpcd[8];
 	u8 dp_sink_type;
@@ -401,12 +420,12 @@ struct radeon_router {
 	u32 router_id;
 	struct radeon_i2c_bus_rec i2c_info;
 	u8 i2c_addr;
-	
+	/* i2c mux */
 	bool ddc_valid;
 	u8 ddc_mux_type;
 	u8 ddc_mux_control_pin;
 	u8 ddc_mux_state;
-	
+	/* clock/data mux */
 	bool cd_valid;
 	u8 cd_mux_type;
 	u8 cd_mux_control_pin;
@@ -418,13 +437,15 @@ struct radeon_connector {
 	uint32_t connector_id;
 	uint32_t devices;
 	struct radeon_i2c_chan *ddc_bus;
-	
+	/* some systems have an hdmi and vga port with a shared ddc line */
 	bool shared_ddc;
 	bool use_digital;
+	/* we need to mind the EDID between detect
+	   and get modes due to analog/digital/tvencoder */
 	struct edid *edid;
 	void *con_priv;
 	bool dac_load_detect;
-	bool detected_by_load; 
+	bool detected_by_load; /* if the connection status was determined by load */
 	uint16_t connector_object_id;
 	struct radeon_hpd hpd;
 	struct radeon_router router;
@@ -656,6 +677,7 @@ void radeon_panel_mode_fixup(struct drm_encoder *encoder,
 			     struct drm_display_mode *adjusted_mode);
 void atom_rv515_force_tv_scaler(struct radeon_device *rdev, struct radeon_crtc *radeon_crtc);
 
+/* legacy tv */
 void radeon_legacy_tv_adjust_crtc_reg(struct drm_encoder *encoder,
 				      uint32_t *h_total_disp, uint32_t *h_sync_strt_wid,
 				      uint32_t *v_total_disp, uint32_t *v_sync_strt_wid);
@@ -669,6 +691,7 @@ void radeon_legacy_tv_mode_set(struct drm_encoder *encoder,
 			       struct drm_display_mode *mode,
 			       struct drm_display_mode *adjusted_mode);
 
+/* fbdev layer */
 int radeon_fbdev_init(struct radeon_device *rdev);
 void radeon_fbdev_fini(struct radeon_device *rdev);
 void radeon_fbdev_set_suspend(struct radeon_device *rdev, int state);

@@ -28,6 +28,7 @@
 #ifndef __RS100D_H__
 #define __RS100D_H__
 
+/* Registers */
 #define R_00015C_NB_TOM                              0x00015C
 #define   S_00015C_MC_FB_START(x)                      (((x) & 0xFFFF) << 0)
 #define   G_00015C_MC_FB_START(x)                      (((x) >> 0) & 0xFFFF)

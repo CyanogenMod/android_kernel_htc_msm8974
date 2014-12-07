@@ -1,3 +1,6 @@
+/*
+ *  Support for Versatile FPGA-based IRQ controllers
+ */
 #include <linux/irq.h>
 #include <linux/io.h>
 

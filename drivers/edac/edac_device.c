@@ -31,6 +31,9 @@
 #include "edac_core.h"
 #include "edac_module.h"
 
+/* lock for the list: 'edac_device_list', manipulation of this list
+ * is protected by the 'device_ctls_mutex' lock
+ */
 static DEFINE_MUTEX(device_ctls_mutex);
 static LIST_HEAD(edac_device_list);
 
@@ -44,14 +47,28 @@ static void edac_device_dump_device(struct edac_device_ctl_info *edac_dev)
 		edac_dev->mod_name, edac_dev->ctl_name);
 	debugf3("\tpvt_info = %p\n\n", edac_dev->pvt_info);
 }
-#endif				
+#endif				/* CONFIG_EDAC_DEBUG */
 
 
+/*
+ * edac_device_alloc_ctl_info()
+ *	Allocate a new edac device control info structure
+ *
+ *	The control structure is allocated in complete chunk
+ *	from the OS. It is in turn sub allocated to the
+ *	various objects that compose the struture
+ *
+ *	The structure has a 'nr_instance' array within itself.
+ *	Each instance represents a major component
+ *		Example:  L1 cache and L2 cache are 2 instance components
+ *
+ *	Within each instance is an array of 'nr_blocks' blockoffsets
+ */
 struct edac_device_ctl_info *edac_device_alloc_ctl_info(
 	unsigned sz_private,
 	char *edac_device_name, unsigned nr_instances,
 	char *edac_block_name, unsigned nr_blocks,
-	unsigned offset_value,		
+	unsigned offset_value,		/* zero, 1, or other based offset */
 	struct edac_dev_sysfs_block_attribute *attrib_spec, unsigned nr_attrib,
 	int device_index)
 {
@@ -68,34 +85,61 @@ struct edac_device_ctl_info *edac_device_alloc_ctl_info(
 	debugf4("%s() instances=%d blocks=%d\n",
 		__func__, nr_instances, nr_blocks);
 
+	/* Calculate the size of memory we need to allocate AND
+	 * determine the offsets of the various item arrays
+	 * (instance,block,attrib) from the start of an  allocated structure.
+	 * We want the alignment of each item  (instance,block,attrib)
+	 * to be at least as stringent as what the compiler would
+	 * provide if we could simply hardcode everything into a single struct.
+	 */
 	dev_ctl = (struct edac_device_ctl_info *)NULL;
 
+	/* Calc the 'end' offset past end of ONE ctl_info structure
+	 * which will become the start of the 'instance' array
+	 */
 	dev_inst = edac_align_ptr(&dev_ctl[1], sizeof(*dev_inst));
 
+	/* Calc the 'end' offset past the instance array within the ctl_info
+	 * which will become the start of the block array
+	 */
 	dev_blk = edac_align_ptr(&dev_inst[nr_instances], sizeof(*dev_blk));
 
+	/* Calc the 'end' offset past the dev_blk array
+	 * which will become the start of the attrib array, if any.
+	 */
 	count = nr_instances * nr_blocks;
 	dev_attrib = edac_align_ptr(&dev_blk[count], sizeof(*dev_attrib));
 
-	
+	/* Check for case of when an attribute array is specified */
 	if (nr_attrib > 0) {
-		
+		/* calc how many nr_attrib we need */
 		count *= nr_attrib;
 
-		
+		/* Calc the 'end' offset past the attributes array */
 		pvt = edac_align_ptr(&dev_attrib[count], sz_private);
 	} else {
-		
+		/* no attribute array specificed */
 		pvt = edac_align_ptr(dev_attrib, sz_private);
 	}
 
+	/* 'pvt' now points to where the private data area is.
+	 * At this point 'pvt' (like dev_inst,dev_blk and dev_attrib)
+	 * is baselined at ZERO
+	 */
 	total_size = ((unsigned long)pvt) + sz_private;
 
-	
+	/* Allocate the amount of memory for the set of control structures */
 	dev_ctl = kzalloc(total_size, GFP_KERNEL);
 	if (dev_ctl == NULL)
 		return NULL;
 
+	/* Adjust pointers so they point within the actual memory we
+	 * just allocated rather than an imaginary chunk of memory
+	 * located at address 0.
+	 * 'dev_ctl' points to REAL memory, while the others are
+	 * ZERO based and thus need to be adjusted to point within
+	 * the allocated memory.
+	 */
 	dev_inst = (struct edac_device_instance *)
 		(((char *)dev_ctl) + ((unsigned long)dev_inst));
 	dev_blk = (struct edac_device_block *)
@@ -104,23 +148,23 @@ struct edac_device_ctl_info *edac_device_alloc_ctl_info(
 		(((char *)dev_ctl) + ((unsigned long)dev_attrib));
 	pvt = sz_private ? (((char *)dev_ctl) + ((unsigned long)pvt)) : NULL;
 
-	
+	/* Begin storing the information into the control info structure */
 	dev_ctl->dev_idx = device_index;
 	dev_ctl->nr_instances = nr_instances;
 	dev_ctl->instances = dev_inst;
 	dev_ctl->pvt_info = pvt;
 
-	
+	/* Default logging of CEs and UEs */
 	dev_ctl->log_ce = 1;
 	dev_ctl->log_ue = 1;
 
-	
+	/* Name of this edac device */
 	snprintf(dev_ctl->name,sizeof(dev_ctl->name),"%s",edac_device_name);
 
 	debugf4("%s() edac_dev=%p next after end=%p\n",
 		__func__, dev_ctl, pvt + sz_private );
 
-	
+	/* Initialize every Instance */
 	for (instance = 0; instance < nr_instances; instance++) {
 		inst = &dev_inst[instance];
 		inst->ctl = dev_ctl;
@@ -128,11 +172,11 @@ struct edac_device_ctl_info *edac_device_alloc_ctl_info(
 		blk_p = &dev_blk[instance * nr_blocks];
 		inst->blocks = blk_p;
 
-		
+		/* name of this instance */
 		snprintf(inst->name, sizeof(inst->name),
 			 "%s%u", edac_device_name, instance);
 
-		
+		/* Initialize every block in each instance */
 		for (block = 0; block < nr_blocks; block++) {
 			blk = &blk_p[block];
 			blk->instance = inst;
@@ -144,10 +188,13 @@ struct edac_device_ctl_info *edac_device_alloc_ctl_info(
 				__func__, instance, inst, block,
 				blk, blk->name);
 
+			/* if there are NO attributes OR no attribute pointer
+			 * then continue on to next block iteration
+			 */
 			if ((nr_attrib == 0) || (attrib_spec == NULL))
 				continue;
 
-			
+			/* setup the attribute array for this block */
 			blk->nr_attribs = nr_attrib;
 			attrib_p = &dev_attrib[block*nr_instances*nr_attrib];
 			blk->block_attributes = attrib_p;
@@ -155,14 +202,22 @@ struct edac_device_ctl_info *edac_device_alloc_ctl_info(
 			debugf4("%s() THIS BLOCK_ATTRIB=%p\n",
 				__func__, blk->block_attributes);
 
+			/* Initialize every user specified attribute in this
+			 * block with the data the caller passed in
+			 * Each block gets its own copy of pointers,
+			 * and its unique 'value'
+			 */
 			for (attr = 0; attr < nr_attrib; attr++) {
 				attrib = &attrib_p[attr];
 
+				/* populate the unique per attrib
+				 * with the code pointers and info
+				 */
 				attrib->attr = attrib_spec[attr].attr;
 				attrib->show = attrib_spec[attr].show;
 				attrib->store = attrib_spec[attr].store;
 
-				attrib->block = blk;	
+				attrib->block = blk;	/* up link */
 
 				debugf4("%s() alloc-attrib=%p attrib_name='%s' "
 					"attrib-spec=%p spec-name=%s\n",
@@ -174,26 +229,50 @@ struct edac_device_ctl_info *edac_device_alloc_ctl_info(
 		}
 	}
 
-	
+	/* Mark this instance as merely ALLOCATED */
 	dev_ctl->op_state = OP_ALLOC;
 
+	/*
+	 * Initialize the 'root' kobj for the edac_device controller
+	 */
 	err = edac_device_register_sysfs_main_kobj(dev_ctl);
 	if (err) {
 		kfree(dev_ctl);
 		return NULL;
 	}
 
+	/* at this point, the root kobj is valid, and in order to
+	 * 'free' the object, then the function:
+	 *	edac_device_unregister_sysfs_main_kobj() must be called
+	 * which will perform kobj unregistration and the actual free
+	 * will occur during the kobject callback operation
+	 */
 
 	return dev_ctl;
 }
 EXPORT_SYMBOL_GPL(edac_device_alloc_ctl_info);
 
+/*
+ * edac_device_free_ctl_info()
+ *	frees the memory allocated by the edac_device_alloc_ctl_info()
+ *	function
+ */
 void edac_device_free_ctl_info(struct edac_device_ctl_info *ctl_info)
 {
 	edac_device_unregister_sysfs_main_kobj(ctl_info);
 }
 EXPORT_SYMBOL_GPL(edac_device_free_ctl_info);
 
+/*
+ * find_edac_device_by_dev
+ *	scans the edac_device list for a specific 'struct device *'
+ *
+ *	lock to be held prior to call:	device_ctls_mutex
+ *
+ *	Return:
+ *		pointer to control structure managing 'dev'
+ *		NULL if not found on list
+ */
 static struct edac_device_ctl_info *find_edac_device_by_dev(struct device *dev)
 {
 	struct edac_device_ctl_info *edac_dev;
@@ -211,6 +290,17 @@ static struct edac_device_ctl_info *find_edac_device_by_dev(struct device *dev)
 	return NULL;
 }
 
+/*
+ * add_edac_dev_to_global_list
+ *	Before calling this function, caller must
+ *	assign a unique value to edac_dev->dev_idx.
+ *
+ *	lock to be held prior to call:	device_ctls_mutex
+ *
+ *	Return:
+ *		0 on success
+ *		1 on failure.
+ */
 static int add_edac_dev_to_global_list(struct edac_device_ctl_info *edac_dev)
 {
 	struct list_head *item, *insert_before;
@@ -218,12 +308,12 @@ static int add_edac_dev_to_global_list(struct edac_device_ctl_info *edac_dev)
 
 	insert_before = &edac_device_list;
 
-	
+	/* Determine if already on the list */
 	rover = find_edac_device_by_dev(edac_dev->dev);
 	if (unlikely(rover != NULL))
 		goto fail0;
 
-	
+	/* Insert in ascending order by 'dev_idx', so find position */
 	list_for_each(item, &edac_device_list) {
 		rover = list_entry(item, struct edac_device_ctl_info, link);
 
@@ -254,15 +344,33 @@ fail1:
 	return 1;
 }
 
+/*
+ * del_edac_device_from_global_list
+ */
 static void del_edac_device_from_global_list(struct edac_device_ctl_info
 						*edac_device)
 {
 	list_del_rcu(&edac_device->link);
 
+	/* these are for safe removal of devices from global list while
+	 * NMI handlers may be traversing list
+	 */
 	synchronize_rcu();
 	INIT_LIST_HEAD(&edac_device->link);
 }
 
+/*
+ * edac_device_workq_function
+ *	performs the operation scheduled by a workq request
+ *
+ *	this workq is embedded within an edac_device_ctl_info
+ *	structure, that needs to be polled for possible error events.
+ *
+ *	This operation is to acquire the list mutex lock
+ *	(thus preventing insertation or deletion)
+ *	and then call the device's poll function IFF this device is
+ *	running polled and there is a poll function defined.
+ */
 static void edac_device_workq_function(struct work_struct *work_req)
 {
 	struct delayed_work *d_work = to_delayed_work(work_req);
@@ -270,13 +378,13 @@ static void edac_device_workq_function(struct work_struct *work_req)
 
 	mutex_lock(&device_ctls_mutex);
 
-	
+	/* If we are being removed, bail out immediately */
 	if (edac_dev->op_state == OP_OFFLINE) {
 		mutex_unlock(&device_ctls_mutex);
 		return;
 	}
 
-	
+	/* Only poll controllers that are running polled and have a check */
 	if ((edac_dev->op_state == OP_RUNNING_POLL) &&
 		(edac_dev->edac_check != NULL)) {
 			edac_dev->edac_check(edac_dev);
@@ -284,6 +392,11 @@ static void edac_device_workq_function(struct work_struct *work_req)
 
 	mutex_unlock(&device_ctls_mutex);
 
+	/* Reschedule the workq for the next time period to start again
+	 * if the number of msec is for 1 sec, then adjust to the next
+	 * whole one second to save timers fireing all over the period
+	 * between integral seconds
+	 */
 	if (edac_dev->poll_msec == 1000)
 		queue_delayed_work(edac_workqueue, &edac_dev->work,
 				round_jiffies_relative(edac_dev->delay));
@@ -292,16 +405,30 @@ static void edac_device_workq_function(struct work_struct *work_req)
 				edac_dev->delay);
 }
 
+/*
+ * edac_device_workq_setup
+ *	initialize a workq item for this edac_device instance
+ *	passing in the new delay period in msec
+ */
 void edac_device_workq_setup(struct edac_device_ctl_info *edac_dev,
 				unsigned msec)
 {
 	debugf0("%s()\n", __func__);
 
+	/* take the arg 'msec' and set it into the control structure
+	 * to used in the time period calculation
+	 * then calc the number of jiffies that represents
+	 */
 	edac_dev->poll_msec = msec;
 	edac_dev->delay = msecs_to_jiffies(msec);
 
 	INIT_DELAYED_WORK(&edac_dev->work, edac_device_workq_function);
 
+	/* optimize here for the 1 second case, which will be normal value, to
+	 * fire ON the 1 second time event. This helps reduce all sorts of
+	 * timers firing on sub-second basis, while they are happy
+	 * to fire together on the 1 second exactly
+	 */
 	if (edac_dev->poll_msec == 1000)
 		queue_delayed_work(edac_workqueue, &edac_dev->work,
 				round_jiffies_relative(edac_dev->delay));
@@ -310,32 +437,49 @@ void edac_device_workq_setup(struct edac_device_ctl_info *edac_dev,
 				edac_dev->delay);
 }
 
+/*
+ * edac_device_workq_teardown
+ *	stop the workq processing on this edac_dev
+ */
 void edac_device_workq_teardown(struct edac_device_ctl_info *edac_dev)
 {
 	int status;
 
 	status = cancel_delayed_work(&edac_dev->work);
 	if (status == 0) {
-		
+		/* workq instance might be running, wait for it */
 		flush_workqueue(edac_workqueue);
 	}
 }
 
+/*
+ * edac_device_reset_delay_period
+ *
+ *	need to stop any outstanding workq queued up at this time
+ *	because we will be resetting the sleep time.
+ *	Then restart the workq on the new delay
+ */
 void edac_device_reset_delay_period(struct edac_device_ctl_info *edac_dev,
 					unsigned long value)
 {
-	
+	/* cancel the current workq request, without the mutex lock */
 	edac_device_workq_teardown(edac_dev);
 
-	
+	/* acquire the mutex before doing the workq setup */
 	mutex_lock(&device_ctls_mutex);
 
-	
+	/* restart the workq request, with new delay value */
 	edac_device_workq_setup(edac_dev, value);
 
 	mutex_unlock(&device_ctls_mutex);
 }
 
+/*
+ * edac_device_alloc_index: Allocate a unique device index number
+ *
+ * Return:
+ *	allocated index number
+ */
 int edac_device_alloc_index(void)
 {
 	static atomic_t device_indexes = ATOMIC_INIT(0);
@@ -344,6 +488,17 @@ int edac_device_alloc_index(void)
 }
 EXPORT_SYMBOL_GPL(edac_device_alloc_index);
 
+/**
+ * edac_device_add_device: Insert the 'edac_dev' structure into the
+ * edac_device global list and create sysfs entries associated with
+ * edac_device structure.
+ * @edac_device: pointer to the edac_device structure to be added to the list
+ * 'edac_device' structure.
+ *
+ * Return:
+ *	0	Success
+ *	!0	Failure
+ */
 int edac_device_add_device(struct edac_device_ctl_info *edac_dev)
 {
 	debugf0("%s()\n", __func__);
@@ -357,27 +512,31 @@ int edac_device_add_device(struct edac_device_ctl_info *edac_dev)
 	if (add_edac_dev_to_global_list(edac_dev))
 		goto fail0;
 
-	
+	/* set load time so that error rate can be tracked */
 	edac_dev->start_time = jiffies;
 
-	
+	/* create this instance's sysfs entries */
 	if (edac_device_create_sysfs(edac_dev)) {
 		edac_device_printk(edac_dev, KERN_WARNING,
 					"failed to create sysfs device\n");
 		goto fail1;
 	}
 
-	
+	/* If there IS a check routine, then we are running POLLED */
 	if (edac_dev->edac_check != NULL) {
-		
+		/* This instance is NOW RUNNING */
 		edac_dev->op_state = OP_RUNNING_POLL;
 
+		/*
+		 * enable workq processing on this instance,
+		 * default = 1000 msec
+		 */
 		edac_device_workq_setup(edac_dev, 1000);
 	} else {
 		edac_dev->op_state = OP_RUNNING_INTERRUPT;
 	}
 
-	
+	/* Report action taken */
 	edac_device_printk(edac_dev, KERN_INFO,
 				"Giving out device to module '%s' controller "
 				"'%s': DEV '%s' (%s)\n",
@@ -390,7 +549,7 @@ int edac_device_add_device(struct edac_device_ctl_info *edac_dev)
 	return 0;
 
 fail1:
-	
+	/* Some error, so remove the entry from the lsit */
 	del_edac_device_from_global_list(edac_dev);
 
 fail0:
@@ -399,6 +558,19 @@ fail0:
 }
 EXPORT_SYMBOL_GPL(edac_device_add_device);
 
+/**
+ * edac_device_del_device:
+ *	Remove sysfs entries for specified edac_device structure and
+ *	then remove edac_device structure from global list
+ *
+ * @pdev:
+ *	Pointer to 'struct device' representing edac_device
+ *	structure to remove.
+ *
+ * Return:
+ *	Pointer to removed edac_device structure,
+ *	OR NULL if device not found.
+ */
 struct edac_device_ctl_info *edac_device_del_device(struct device *dev)
 {
 	struct edac_device_ctl_info *edac_dev;
@@ -407,25 +579,25 @@ struct edac_device_ctl_info *edac_device_del_device(struct device *dev)
 
 	mutex_lock(&device_ctls_mutex);
 
-	
+	/* Find the structure on the list, if not there, then leave */
 	edac_dev = find_edac_device_by_dev(dev);
 	if (edac_dev == NULL) {
 		mutex_unlock(&device_ctls_mutex);
 		return NULL;
 	}
 
-	
+	/* mark this instance as OFFLINE */
 	edac_dev->op_state = OP_OFFLINE;
 
-	
+	/* deregister from global list */
 	del_edac_device_from_global_list(edac_dev);
 
 	mutex_unlock(&device_ctls_mutex);
 
-	
+	/* clear workq processing on this instance */
 	edac_device_workq_teardown(edac_dev);
 
-	
+	/* Tear down the sysfs entries for this instance */
 	edac_device_remove_sysfs(edac_dev);
 
 	edac_printk(KERN_INFO, EDAC_MC,
@@ -453,6 +625,10 @@ static inline int edac_device_get_panic_on_ue(struct edac_device_ctl_info
 	return edac_dev->panic_on_ue;
 }
 
+/*
+ * edac_device_handle_ce
+ *	perform a common output and handling of an 'edac_dev' CE event
+ */
 void edac_device_handle_ce(struct edac_device_ctl_info *edac_dev,
 			int inst_nr, int block_nr, const char *msg)
 {
@@ -483,7 +659,7 @@ void edac_device_handle_ce(struct edac_device_ctl_info *edac_dev,
 		block->counters.ce_count++;
 	}
 
-	
+	/* Propagate the count up the 'totals' tree */
 	instance->counters.ce_count++;
 	edac_dev->counters.ce_count++;
 
@@ -495,6 +671,10 @@ void edac_device_handle_ce(struct edac_device_ctl_info *edac_dev,
 }
 EXPORT_SYMBOL_GPL(edac_device_handle_ce);
 
+/*
+ * edac_device_handle_ue
+ *	perform a common output and handling of an 'edac_dev' UE event
+ */
 void edac_device_handle_ue(struct edac_device_ctl_info *edac_dev,
 			int inst_nr, int block_nr, const char *msg)
 {
@@ -525,7 +705,7 @@ void edac_device_handle_ue(struct edac_device_ctl_info *edac_dev,
 		block->counters.ue_count++;
 	}
 
-	
+	/* Propagate the count up the 'totals' tree */
 	instance->counters.ue_count++;
 	edac_dev->counters.ue_count++;
 

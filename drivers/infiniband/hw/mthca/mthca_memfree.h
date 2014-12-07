@@ -176,4 +176,4 @@ int mthca_alloc_db(struct mthca_dev *dev, enum mthca_db_type type,
 		   u32 qn, __be32 **db);
 void mthca_free_db(struct mthca_dev *dev, int type, int db_index);
 
-#endif 
+#endif /* MTHCA_MEMFREE_H */

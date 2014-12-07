@@ -23,6 +23,15 @@
 
 #include "cx25840-core.h"
 
+/*
+ * Mike Isely <isely@pobox.com> - The FWSEND parameter controls the
+ * size of the firmware chunks sent down the I2C bus to the chip.
+ * Previously this had been set to 1024 but unfortunately some I2C
+ * implementations can't transfer data in such big gulps.
+ * Specifically, the pvrusb2 driver has a hard limit of around 60
+ * bytes, due to the encapsulation there of I2C traffic into USB
+ * messages.  So we have to significantly reduce this parameter.
+ */
 #define FWSEND 48
 
 #define FWDEV(x) &((x)->dev)
@@ -35,20 +44,20 @@ MODULE_PARM_DESC(firmware, "Firmware image to load");
 
 static void start_fw_load(struct i2c_client *client)
 {
-	
+	/* DL_ADDR_LB=0 DL_ADDR_HB=0 */
 	cx25840_write(client, 0x800, 0x00);
 	cx25840_write(client, 0x801, 0x00);
-	
+	// DL_MAP=3 DL_AUTO_INC=0 DL_ENABLE=1
 	cx25840_write(client, 0x803, 0x0b);
-	
+	/* AUTO_INC_DIS=1 */
 	cx25840_write(client, 0x000, 0x20);
 }
 
 static void end_fw_load(struct i2c_client *client)
 {
-	
+	/* AUTO_INC_DIS=0 */
 	cx25840_write(client, 0x000, 0x00);
-	
+	/* DL_ENABLE=0 */
 	cx25840_write(client, 0x803, 0x03);
 }
 
@@ -67,7 +76,7 @@ static const char *get_fw_name(struct i2c_client *client)
 
 static int check_fw_load(struct i2c_client *client, int size)
 {
-	
+	/* DL_ADDR_HB DL_ADDR_LB */
 	int s = cx25840_read(client, 0x801) << 8;
 	s |= cx25840_read(client, 0x800);
 
@@ -104,14 +113,14 @@ int cx25840_loadfw(struct i2c_client *client)
 	u32 gpio_oe = 0, gpio_da = 0;
 
 	if (is_cx2388x(state)) {
-		
+		/* Preserve the GPIO OE and output bits */
 		gpio_oe = cx25840_read(client, 0x160);
 		gpio_da = cx25840_read(client, 0x164);
 	}
 
 	if (is_cx231xx(state) && MAX_BUF_SIZE > 16) {
 		v4l_err(client, " Firmware download size changed to 16 bytes max length\n");
-		MAX_BUF_SIZE = 16;  
+		MAX_BUF_SIZE = 16;  /* cx231xx cannot accept more than 16 bytes at a time */
 	}
 
 	if (request_firmware(&fw, fwname, FWDEV(client)) != 0) {
@@ -148,7 +157,7 @@ int cx25840_loadfw(struct i2c_client *client)
 	release_firmware(fw);
 
 	if (is_cx2388x(state)) {
-		
+		/* Restore GPIO configuration after f/w load */
 		cx25840_write(client, 0x160, gpio_oe);
 		cx25840_write(client, 0x164, gpio_da);
 	}

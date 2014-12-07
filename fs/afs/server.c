@@ -13,17 +13,22 @@
 #include <linux/slab.h>
 #include "internal.h"
 
-static unsigned afs_server_timeout = 10;	
+static unsigned afs_server_timeout = 10;	/* server timeout in seconds */
 
 static void afs_reap_server(struct work_struct *);
 
+/* tree of all the servers, indexed by IP address */
 static struct rb_root afs_servers = RB_ROOT;
 static DEFINE_RWLOCK(afs_servers_lock);
 
+/* LRU list of all the servers not currently in use */
 static LIST_HEAD(afs_server_graveyard);
 static DEFINE_SPINLOCK(afs_server_graveyard_lock);
 static DECLARE_DELAYED_WORK(afs_server_reaper, afs_reap_server);
 
+/*
+ * install a server record in the master tree
+ */
 static int afs_install_server(struct afs_server *server)
 {
 	struct afs_server *xserver;
@@ -58,6 +63,9 @@ error:
 	return ret;
 }
 
+/*
+ * allocate a new server record
+ */
 static struct afs_server *afs_alloc_server(struct afs_cell *cell,
 					   const struct in_addr *addr)
 {
@@ -90,6 +98,9 @@ static struct afs_server *afs_alloc_server(struct afs_cell *cell,
 	return server;
 }
 
+/*
+ * get an FS-server record for a cell
+ */
 struct afs_server *afs_lookup_server(struct afs_cell *cell,
 				     const struct in_addr *addr)
 {
@@ -97,7 +108,7 @@ struct afs_server *afs_lookup_server(struct afs_cell *cell,
 
 	_enter("%p,%pI4", cell, &addr->s_addr);
 
-	
+	/* quick scan of the list to see if we already have the server */
 	read_lock(&cell->servers_lock);
 
 	list_for_each_entry(server, &cell->servers, link) {
@@ -114,7 +125,7 @@ struct afs_server *afs_lookup_server(struct afs_cell *cell,
 
 	write_lock(&cell->servers_lock);
 
-	
+	/* check the cell's server list again */
 	list_for_each_entry(server, &cell->servers, link) {
 		if (server->addr.s_addr == addr->s_addr)
 			goto found_server;
@@ -132,7 +143,7 @@ struct afs_server *afs_lookup_server(struct afs_cell *cell,
 	_leave(" = %p{%d}", server, atomic_read(&server->usage));
 	return server;
 
-	
+	/* found a matching server quickly */
 found_server_quickly:
 	_debug("found quickly");
 	afs_get_server(server);
@@ -146,7 +157,7 @@ no_longer_unused:
 	_leave(" = %p{%d}", server, atomic_read(&server->usage));
 	return server;
 
-	
+	/* found a matching server on the second pass */
 found_server:
 	_debug("found");
 	afs_get_server(server);
@@ -154,7 +165,7 @@ found_server:
 	kfree(candidate);
 	goto no_longer_unused;
 
-	
+	/* found a server that seems to be in two cells */
 server_in_two_cells:
 	write_unlock(&cell->servers_lock);
 	kfree(candidate);
@@ -164,6 +175,9 @@ server_in_two_cells:
 	return ERR_PTR(-EEXIST);
 }
 
+/*
+ * look up a server by its IP address
+ */
 struct afs_server *afs_find_server(const struct in_addr *_addr)
 {
 	struct afs_server *server = NULL;
@@ -198,6 +212,10 @@ found:
 	return server;
 }
 
+/*
+ * destroy a server record
+ * - removes from the cell list
+ */
 void afs_put_server(struct afs_server *server)
 {
 	if (!server)
@@ -227,6 +245,9 @@ void afs_put_server(struct afs_server *server)
 	_leave(" [dead]");
 }
 
+/*
+ * destroy a dead server
+ */
 static void afs_destroy_server(struct afs_server *server)
 {
 	_enter("%p", server);
@@ -243,6 +264,9 @@ static void afs_destroy_server(struct afs_server *server)
 	kfree(server);
 }
 
+/*
+ * reap dead server records
+ */
 static void afs_reap_server(struct work_struct *work)
 {
 	LIST_HEAD(corpses);
@@ -257,7 +281,7 @@ static void afs_reap_server(struct work_struct *work)
 		server = list_entry(afs_server_graveyard.next,
 				    struct afs_server, grave);
 
-		
+		/* the queue is ordered most dead first */
 		expiry = server->time_of_death + afs_server_timeout;
 		if (expiry > now) {
 			delay = (expiry - now) * HZ;
@@ -285,7 +309,7 @@ static void afs_reap_server(struct work_struct *work)
 
 	spin_unlock(&afs_server_graveyard_lock);
 
-	
+	/* now reap the corpses we've extracted */
 	while (!list_empty(&corpses)) {
 		server = list_entry(corpses.next, struct afs_server, grave);
 		list_del(&server->grave);
@@ -293,6 +317,9 @@ static void afs_reap_server(struct work_struct *work)
 	}
 }
 
+/*
+ * discard all the server records for rmmod
+ */
 void __exit afs_purge_servers(void)
 {
 	afs_server_timeout = 0;

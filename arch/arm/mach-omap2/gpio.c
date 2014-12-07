@@ -36,6 +36,14 @@ static int __init omap2_gpio_dev_init(struct omap_hwmod *oh, void *unused)
 	int id;
 	struct powerdomain *pwrdm;
 
+	/*
+	 * extract the device id from name field available in the
+	 * hwmod database and use the same for constructing ids for
+	 * gpio devices.
+	 * CAUTION: Make sure the name in the hwmod database does
+	 * not change. If changed, make corresponding change here
+	 * or make use of static variable mechanism to handle this.
+	 */
 	sscanf(oh->name, "gpio%d", &id);
 
 	pdata = kzalloc(sizeof(struct omap_gpio_platform_data), GFP_KERNEL);
@@ -58,12 +66,12 @@ static int __init omap2_gpio_dev_init(struct omap_hwmod *oh, void *unused)
 	switch (oh->class->rev) {
 	case 0:
 		if (id == 1)
-			
+			/* non-wakeup GPIO pins for OMAP2 Bank1 */
 			pdata->non_wakeup_gpios = 0xe203ffc0;
 		else if (id == 2)
-			
+			/* non-wakeup GPIO pins for OMAP2 Bank2 */
 			pdata->non_wakeup_gpios = 0x08700040;
-		
+		/* fall through */
 
 	case 1:
 		pdata->regs->revision = OMAP24XX_GPIO_REVISION;
@@ -131,6 +139,11 @@ static int __init omap2_gpio_dev_init(struct omap_hwmod *oh, void *unused)
 	return 0;
 }
 
+/*
+ * gpio_init needs to be done before
+ * machine_init functions access gpio APIs.
+ * Hence gpio_init is a postcore_initcall.
+ */
 static int __init omap2_gpio_init(void)
 {
 	return omap_hwmod_for_each_by_class("gpio", omap2_gpio_dev_init,

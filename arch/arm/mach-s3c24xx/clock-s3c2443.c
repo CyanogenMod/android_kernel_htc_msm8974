@@ -46,8 +46,24 @@
 #include <plat/clock-clksrc.h>
 #include <plat/cpu.h>
 
+/* We currently have to assume that the system is running
+ * from the XTPll input, and that all ***REFCLKs are being
+ * fed from it, as we cannot read the state of OM[4] from
+ * software.
+ *
+ * It would be possible for each board initialisation to
+ * set the correct muxing at initialisation
+*/
 
+/* clock selections */
 
+/* armdiv
+ *
+ * this clock is sourced from msysclk and can have a number of
+ * divider values applied to it to then be fed into armclk.
+ * The real clock definition is done in s3c2443-clock.c,
+ * only the armdiv divisor table must be defined here.
+*/
 
 static unsigned int armdiv[16] = {
 	[S3C2443_CLKDIV0_ARMDIV_1 >> S3C2443_CLKDIV0_ARMDIV_SHIFT]	= 1,
@@ -60,6 +76,10 @@ static unsigned int armdiv[16] = {
 	[S3C2443_CLKDIV0_ARMDIV_16 >> S3C2443_CLKDIV0_ARMDIV_SHIFT]	= 16,
 };
 
+/* hsspi
+ *
+ * high-speed spi clock, sourced from esysclk
+*/
 
 static struct clksrc_clk clk_hsspi = {
 	.clk	= {
@@ -72,6 +92,12 @@ static struct clksrc_clk clk_hsspi = {
 };
 
 
+/* clk_hsmcc_div
+ *
+ * this clock is sourced from epll, and is fed through a divider,
+ * to a mux controlled by sclkcon where either it or a extclk can
+ * be fed to the hsmmc block
+*/
 
 static struct clksrc_clk clk_hsmmc_div = {
 	.clk	= {
@@ -119,6 +145,7 @@ static struct clk clk_hsmmc = {
 	},
 };
 
+/* standard clock definitions */
 
 static struct clk init_clocks_off[] = {
 	{
@@ -141,6 +168,7 @@ static struct clk init_clocks_off[] = {
 	}
 };
 
+/* clocks to add straight away */
 
 static struct clksrc_clk *clksrcs[] __initdata = {
 	&clk_hsspi,
@@ -168,8 +196,17 @@ void __init s3c2443_init_clocks(int xtal)
 	for (ptr = 0; ptr < ARRAY_SIZE(clksrcs); ptr++)
 		s3c_register_clksrc(clksrcs[ptr], 1);
 
+	/* We must be careful disabling the clocks we are not intending to
+	 * be using at boot time, as subsystems such as the LCD which do
+	 * their own DMA requests to the bus can cause the system to lockup
+	 * if they where in the middle of requesting bus access.
+	 *
+	 * Disabling the LCD clock if the LCD is active is very dangerous,
+	 * and therefore the bootloader should be careful to not enable
+	 * the LCD clock if it is not needed.
+	*/
 
-	
+	/* install (and disable) the clocks we do not need immediately */
 
 	s3c_register_clocks(init_clocks_off, ARRAY_SIZE(init_clocks_off));
 	s3c_disable_clocks(init_clocks_off, ARRAY_SIZE(init_clocks_off));

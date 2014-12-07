@@ -21,13 +21,14 @@
 
 #include "bnx2x_hsi.h"
 
-#define LLFC_DRIVER_TRAFFIC_TYPE_MAX 3 
+#define LLFC_DRIVER_TRAFFIC_TYPE_MAX 3 /* NW, iSCSI, FCoE */
 struct bnx2x_dcbx_app_params {
 	u32 enabled;
 	u32 traffic_type_priority[LLFC_DRIVER_TRAFFIC_TYPE_MAX];
 };
 
 #define DCBX_COS_MAX_NUM_E2	DCBX_E2E3_MAX_NUM_COS
+/* bnx2x currently limits numbers of supported COSes to 3 to be extended to 6 */
 #define BNX2X_MAX_COS_SUPPORT	3
 #define DCBX_COS_MAX_NUM_E3B0	BNX2X_MAX_COS_SUPPORT
 #define DCBX_COS_MAX_NUM	BNX2X_MAX_COS_SUPPORT
@@ -35,6 +36,10 @@ struct bnx2x_dcbx_app_params {
 struct bnx2x_dcbx_cos_params {
 	u32	bw_tbl;
 	u32	pri_bitmask;
+	/*
+	 * strict priority: valid values are 0..5; 0 is highest priority.
+	 * There can't be two COSes with the same priority.
+	 */
 	u8	strict;
 #define BNX2X_DCBX_STRICT_INVALID			DCBX_COS_MAX_NUM
 #define BNX2X_DCBX_STRICT_COS_HIGHEST			0
@@ -44,7 +49,7 @@ struct bnx2x_dcbx_cos_params {
 
 struct bnx2x_dcbx_pg_params {
 	u32 enabled;
-	u8 num_of_cos; 
+	u8 num_of_cos; /* valid COS entries */
 	struct bnx2x_dcbx_cos_params	cos_params[DCBX_COS_MAX_NUM];
 };
 
@@ -177,6 +182,7 @@ struct pg_help_data {
 	u8				num_of_pg;
 };
 
+/* forward DCB/PFC related declarations */
 struct bnx2x;
 void bnx2x_dcbx_update(struct work_struct *work);
 void bnx2x_dcbx_init_params(struct bnx2x *bp);
@@ -190,9 +196,10 @@ enum {
 
 void bnx2x_dcbx_set_params(struct bnx2x *bp, u32 state);
 void bnx2x_dcbx_pmf_update(struct bnx2x *bp);
+/* DCB netlink */
 #ifdef BCM_DCBNL
 extern const struct dcbnl_rtnl_ops bnx2x_dcbnl_ops;
 int bnx2x_dcbnl_update_applist(struct bnx2x *bp, bool delall);
-#endif 
+#endif /* BCM_DCBNL */
 
-#endif 
+#endif /* BNX2X_DCB_H */

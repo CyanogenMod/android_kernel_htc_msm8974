@@ -30,6 +30,7 @@
 #define GPIO_SDC1_HW_DET	80
 #define GPIO_SDC2_DAT1_WAKEUP	26
 
+/* MDM9x15 has 2 SDCC controllers */
 enum sdcc_controllers {
 	SDCC1,
 	SDCC2,
@@ -37,38 +38,50 @@ enum sdcc_controllers {
 };
 
 #ifdef CONFIG_MMC_MSM_SDC1_SUPPORT
+/* All SDCC controllers requires VDD/VCC voltage */
 static struct msm_mmc_reg_data mmc_vdd_reg_data[MAX_SDCC_CONTROLLER] = {
-	
+	/* SDCC1 : External card slot connected */
 	[SDCC1] = {
 		.name = "sdc_vdd",
+		/*
+		 * This is a gpio-regulator and does not support
+		 * regulator_set_voltage and regulator_set_optimum_mode
+		 */
 		.high_vol_level = 2950000,
 		.low_vol_level = 2950000,
-		.hpm_uA = 600000, 
+		.hpm_uA = 600000, /* 600mA */
 	}
 };
 
+/* All SDCC controllers may require voting for VDD PAD voltage */
 static struct msm_mmc_reg_data mmc_vdd_io_reg_data[MAX_SDCC_CONTROLLER] = {
-	
+	/* SDCC1 : External card slot connected */
 	[SDCC1] = {
 		.name = "sdc_vdd_io",
 		.high_vol_level = 2950000,
 		.low_vol_level = 1850000,
 		.always_on = true,
 		.lpm_sup = true,
-		
+		/* Max. Active current required is 16 mA */
 		.hpm_uA = 16000,
+		/*
+		 * Sleep current required is ~300 uA. But min. vote can be
+		 * in terms of mA (min. 1 mA). So let's vote for 2 mA
+		 * during sleep.
+		 */
 		.lpm_uA = 2000,
 	}
 };
 
 static struct msm_mmc_slot_reg_data mmc_slot_vreg_data[MAX_SDCC_CONTROLLER] = {
-	
+	/* SDCC1 : External card slot connected */
 	[SDCC1] = {
 		.vdd_data = &mmc_vdd_reg_data[SDCC1],
 		.vdd_io_data = &mmc_vdd_io_reg_data[SDCC1],
 	}
 };
 
+/* SDC1 pad data */
 static struct msm_mmc_pad_drv sdc1_pad_drv_on_cfg[] = {
 	{TLMM_HDRV_SDC1_CLK, GPIO_CFG_16MA},
 	{TLMM_HDRV_SDC1_CMD, GPIO_CFG_10MA},
@@ -201,11 +214,11 @@ static struct mmc_platform_data *msm9615_sdc2_pdata;
 void __init msm9615_init_mmc(void)
 {
 	if (msm9615_sdc1_pdata)
-		
+		/* SDC1: External card slot for SD/MMC cards */
 		msm_add_sdcc(1, msm9615_sdc1_pdata);
 
 	if (msm9615_sdc2_pdata)
-		
+		/* SDC2: External card slot used for WLAN */
 		msm_add_sdcc(2, msm9615_sdc2_pdata);
 }
 #else

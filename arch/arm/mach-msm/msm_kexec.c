@@ -22,7 +22,7 @@
 void arch_kexec(void)
 {
 #ifdef CONFIG_MSM_WATCHDOG
-	
+	/* Prevent watchdog from resetting SoC */
 	writel(0, WDT0_EN);
 	pr_crit("KEXEC: MSM Watchdog Exit - Deactivated\n");
 #endif

@@ -21,6 +21,12 @@
 
 */
 
+/*
+	This is some serious bloatware.
+
+	Taken from Dave A.'s PCL-711 driver, 'cuz I thought it
+	was cool.
+*/
 
 #define __NO_VERSION__
 #include "comedidev.h"

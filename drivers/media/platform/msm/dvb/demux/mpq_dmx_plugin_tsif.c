@@ -19,16 +19,21 @@
 #include "mpq_dmx_plugin_common.h"
 
 
+/* TSIF HW configuration: */
 #define TSIF_COUNT				2
 
+/* Max number of section filters */
 #define DMX_TSIF_MAX_SECTION_FILTER_NUM	64
 
+/* When TSIF driver notifies demux that new packets are received */
 #define DMX_TSIF_PACKETS_IN_CHUNK_DEF		512
 #define DMX_TSIF_CHUNKS_IN_BUF			16
 #define DMX_TSIF_TIME_LIMIT			10000
 
+/* TSIF_DRIVER_MODE: 3 means manual control from debugfs. use 2 normally. */
 #define DMX_TSIF_DRIVER_MODE_DEF		2
 
+/* module parameters for load time configuration: */
 static int threshold = DMX_TSIF_PACKETS_IN_CHUNK_DEF;
 static int tsif_mode = DMX_TSIF_DRIVER_MODE_DEF;
 static int clock_inv;
@@ -37,51 +42,63 @@ module_param(tsif_mode, int, S_IRUGO | S_IWUSR);
 module_param(clock_inv, int, S_IRUGO | S_IWUSR);
 
 
+/*
+ * TSIF driver information
+ */
 struct tsif_driver_info {
-	
+	/* handler to TSIF driver */
 	void *tsif_handler;
-	
+	/* TSIF driver data buffer pointer */
 	void *data_buffer;
-	
+	/* TSIF driver data buffer size, in packets */
 	int buffer_size;
-	
+	/* TSIF driver read pointer */
 	int ri;
-	
+	/* TSIF driver write pointer */
 	int wi;
-	
+	/* TSIF driver state */
 	enum tsif_state state;
 };
 
 
+/*
+ * The following structure hold singelton information
+ * required for dmx implementation on top of TSIF.
+ */
 static struct
 {
-	
+	/* Information for each TSIF input processing */
 	struct {
-		
+		/* thread processing TS packets from TSIF */
 		struct task_struct *thread;
 		wait_queue_head_t wait_queue;
 
-		
+		/* Counter for data notifications from TSIF */
 		atomic_t data_cnt;
 
-		
+		/* TSIF alias */
 		char name[TSIF_NAME_LENGTH];
 
-		
+		/* TSIF driver information */
 		struct tsif_driver_info tsif_driver;
 
-		
+		/* TSIF reference count (counts start/stop operations */
 		int ref_count;
 
-		
+		/* Pointer to the demux connected to this TSIF */
 		struct mpq_demux *mpq_demux;
 
-		
+		/* mutex protecting the data-structure */
 		struct mutex mutex;
 	} tsif[TSIF_COUNT];
 } mpq_dmx_tsif_info;
 
 
+/**
+ * Demux thread function handling data from specific TSIF.
+ *
+ * @arg: TSIF number
+ */
 static int mpq_dmx_tsif_thread(void *arg)
 {
 	struct mpq_demux *mpq_demux;
@@ -109,7 +126,7 @@ static int mpq_dmx_tsif_thread(void *arg)
 		tsif_driver = &(mpq_dmx_tsif_info.tsif[tsif].tsif_driver);
 		mpq_demux = mpq_dmx_tsif_info.tsif[tsif].mpq_demux;
 
-		
+		/* Check if driver handler is still valid */
 		if (tsif_driver->tsif_handler == NULL) {
 			mutex_unlock(&mpq_dmx_tsif_info.tsif[tsif].mutex);
 			MPQ_DVB_DBG_PRINT(
@@ -160,6 +177,10 @@ static int mpq_dmx_tsif_thread(void *arg)
 				tsif_driver->tsif_handler,
 					tsif_driver->ri);
 		} else {
+			/*
+			 * wi < ri, means wraparound on cyclic buffer.
+			 * Handle in two stages.
+			 */
 			packets = (tsif_driver->buffer_size - tsif_driver->ri);
 			mpq_demux->hw_notification_size = packets;
 
@@ -170,7 +191,7 @@ static int mpq_dmx_tsif_thread(void *arg)
 				(packets * TSIF_PKT_SIZE),
 				DMX_TSP_FORMAT_192_TAIL);
 
-			
+			/* tsif_driver->ri should be 0 after this */
 			tsif_driver->ri =
 				(tsif_driver->ri + packets) %
 				tsif_driver->buffer_size;
@@ -203,6 +224,11 @@ static int mpq_dmx_tsif_thread(void *arg)
 }
 
 
+/**
+ * Callback function from TSIF driver when new data is ready.
+ *
+ * @user: user-data holding TSIF number
+ */
 static void mpq_tsif_callback(void *user)
 {
 	int tsif = (int)user;
@@ -210,7 +236,7 @@ static void mpq_tsif_callback(void *user)
 
 	MPQ_DVB_DBG_PRINT("%s executed, tsif = %d\n", __func__,	tsif);
 
-	
+	/* Save statistics on TSIF notifications */
 	mpq_demux = mpq_dmx_tsif_info.tsif[tsif].mpq_demux;
 	mpq_dmx_update_hw_statistics(mpq_demux);
 
@@ -219,6 +245,13 @@ static void mpq_tsif_callback(void *user)
 }
 
 
+/**
+ * Attach to TSIF driver and start TSIF operation.
+ *
+ * @mpq_demux: the mpq_demux we are working on.
+ *
+ * Return	error code.
+ */
 static int mpq_tsif_dmx_start(struct mpq_demux *mpq_demux)
 {
 	int ret = 0;
@@ -227,13 +260,13 @@ static int mpq_tsif_dmx_start(struct mpq_demux *mpq_demux)
 
 	MPQ_DVB_DBG_PRINT("%s executed\n", __func__);
 
-	
+	/* determine the TSIF we are reading from */
 	if (mpq_demux->source == DMX_SOURCE_FRONT0) {
 		tsif = 0;
 	} else if (mpq_demux->source == DMX_SOURCE_FRONT1) {
 		tsif = 1;
 	} else {
-		
+		/* invalid source */
 		MPQ_DVB_ERR_PRINT(
 			"%s: invalid input source (%d)\n",
 			__func__,
@@ -248,7 +281,7 @@ static int mpq_tsif_dmx_start(struct mpq_demux *mpq_demux)
 	if (mpq_dmx_tsif_info.tsif[tsif].ref_count == 0) {
 		tsif_driver = &(mpq_dmx_tsif_info.tsif[tsif].tsif_driver);
 
-		
+		/* Attach to TSIF driver */
 		tsif_driver->tsif_handler =
 			tsif_attach(tsif, mpq_tsif_callback, (void *)tsif);
 		if (IS_ERR_OR_NULL(tsif_driver->tsif_handler)) {
@@ -267,14 +300,14 @@ static int mpq_tsif_dmx_start(struct mpq_demux *mpq_demux)
 				__func__, clock_inv);
 		}
 
-		
+		/* Set TSIF driver mode */
 		ret = tsif_set_mode(tsif_driver->tsif_handler, tsif_mode);
 		if (ret < 0) {
 			MPQ_DVB_ERR_PRINT("%s: tsif_set_mode (%d) failed\n",
 				__func__, tsif_mode);
 		}
 
-		
+		/* Set TSIF buffer configuration */
 		ret = tsif_set_buf_config(tsif_driver->tsif_handler,
 						threshold,
 						DMX_TSIF_CHUNKS_IN_BUF);
@@ -286,7 +319,7 @@ static int mpq_tsif_dmx_start(struct mpq_demux *mpq_demux)
 			MPQ_DVB_ERR_PRINT("Using default TSIF driver values\n");
 		}
 
-		
+		/* Start TSIF driver */
 		ret = tsif_start(tsif_driver->tsif_handler);
 		if (ret < 0) {
 			mutex_unlock(&mpq_dmx_tsif_info.tsif[tsif].mutex);
@@ -294,11 +327,15 @@ static int mpq_tsif_dmx_start(struct mpq_demux *mpq_demux)
 			return ret;
 		}
 
+		/*
+		 * Get data buffer information from TSIF driver
+		 * (must be called after tsif_start)
+		 */
 		tsif_get_info(tsif_driver->tsif_handler,
 				&(tsif_driver->data_buffer),
 				&(tsif_driver->buffer_size));
 
-		
+		/* save pointer to the mpq_demux we are working on */
 		mpq_dmx_tsif_info.tsif[tsif].mpq_demux = mpq_demux;
 	}
 	mpq_dmx_tsif_info.tsif[tsif].ref_count++;
@@ -309,6 +346,13 @@ static int mpq_tsif_dmx_start(struct mpq_demux *mpq_demux)
 }
 
 
+/**
+ * Stop TSIF operation and detach from TSIF driver.
+ *
+ * @mpq_demux: the mpq_demux we are working on.
+ *
+ * Return	error code.
+ */
 static int mpq_tsif_dmx_stop(struct mpq_demux *mpq_demux)
 {
 	int tsif;
@@ -316,13 +360,13 @@ static int mpq_tsif_dmx_stop(struct mpq_demux *mpq_demux)
 
 	MPQ_DVB_DBG_PRINT("%s executed\n", __func__);
 
-	
+	/* determine the TSIF we are reading from */
 	if (mpq_demux->source == DMX_SOURCE_FRONT0) {
 		tsif = 0;
 	} else if (mpq_demux->source == DMX_SOURCE_FRONT1) {
 		tsif = 1;
 	} else {
-		
+		/* invalid source */
 		MPQ_DVB_ERR_PRINT(
 			"%s: invalid input source (%d)\n",
 			__func__,
@@ -353,6 +397,13 @@ static int mpq_tsif_dmx_stop(struct mpq_demux *mpq_demux)
 }
 
 
+/**
+ * Start filtering according to feed parameter.
+ *
+ * @feed: the feed we are working on.
+ *
+ * Return	error code.
+ */
 static int mpq_tsif_dmx_start_filtering(struct dvb_demux_feed *feed)
 {
 	int ret = 0;
@@ -372,7 +423,7 @@ static int mpq_tsif_dmx_start_filtering(struct dvb_demux_feed *feed)
 	}
 
 	if (mpq_demux->source < DMX_SOURCE_DVR0) {
-		
+		/* Source from TSIF, need to configure TSIF hardware */
 		ret = mpq_tsif_dmx_start(mpq_demux);
 
 		if (ret < 0) {
@@ -384,6 +435,9 @@ static int mpq_tsif_dmx_start_filtering(struct dvb_demux_feed *feed)
 		}
 	}
 
+	/* Always feed sections/PES starting from a new one and
+	 * do not partial transfer data from older one
+	 */
 	feed->pusi_seen = 0;
 
 	ret = mpq_dmx_init_mpq_feed(feed);
@@ -403,6 +457,13 @@ static int mpq_tsif_dmx_start_filtering(struct dvb_demux_feed *feed)
 }
 
 
+/**
+ * Stop filtering according to feed parameter.
+ *
+ * @feed: the feed we are working on.
+ *
+ * Return	error code.
+ */
 static int mpq_tsif_dmx_stop_filtering(struct dvb_demux_feed *feed)
 {
 	int ret = 0;
@@ -424,7 +485,7 @@ static int mpq_tsif_dmx_stop_filtering(struct dvb_demux_feed *feed)
 	mpq_dmx_terminate_feed(feed);
 
 	if (mpq_demux->source < DMX_SOURCE_DVR0) {
-		
+		/* Source from TSIF, need to configure TSIF hardware */
 		ret = mpq_tsif_dmx_stop(mpq_demux);
 	}
 
@@ -432,6 +493,15 @@ static int mpq_tsif_dmx_stop_filtering(struct dvb_demux_feed *feed)
 }
 
 
+/**
+ * TSIF demux plugin write-to-decoder function.
+ *
+ * @feed: The feed we are working on.
+ * @buf: The data buffer to process.
+ * @len: The data buffer length.
+ *
+ * Return	error code
+ */
 static int mpq_tsif_dmx_write_to_decoder(
 					struct dvb_demux_feed *feed,
 					const u8 *buf,
@@ -439,6 +509,10 @@ static int mpq_tsif_dmx_write_to_decoder(
 {
 	MPQ_DVB_DBG_PRINT("%s executed\n", __func__);
 
+	/*
+	 * It is assumed that this function is called once for each
+	 * TS packet of the relevant feed.
+	 */
 	if (len > TSIF_PKT_SIZE)
 		MPQ_DVB_DBG_PRINT(
 				"%s: warnning - len larger than one packet\n",
@@ -453,6 +527,14 @@ static int mpq_tsif_dmx_write_to_decoder(
 	return 0;
 }
 
+/**
+ * Returns demux capabilities of TSIF plugin
+ *
+ * @demux: demux device
+ * @caps: Returned capbabilities
+ *
+ * Return     error code
+ */
 static int mpq_tsif_dmx_get_caps(struct dmx_demux *demux,
 				struct dmx_caps *caps)
 {
@@ -481,10 +563,10 @@ static int mpq_tsif_dmx_get_caps(struct dmx_demux *demux,
 	caps->memory_input_max_bitrate = 72;
 	caps->num_cipher_ops = 0;
 
-	
+	/* TSIF reports 3 bytes STC at unit of 27MHz/256 */
 	caps->max_stc = (u64)0xFFFFFF * 256;
 
-	
+	/* Buffer requirements */
 	caps->section.flags =
 		DMX_BUFFER_EXTERNAL_SUPPORT	|
 		DMX_BUFFER_INTERNAL_SUPPORT;
@@ -533,6 +615,16 @@ static int mpq_tsif_dmx_get_caps(struct dmx_demux *demux,
 	return 0;
 }
 
+/**
+ * Reads TSIF STC from TSPP
+ *
+ * @demux: demux device
+ * @num: STC number. 0 for TSIF0 and 1 for TSIF1.
+ * @stc: STC value
+ * @base: divisor to get 90KHz value
+ *
+ * Return     error code
+ */
 static int mpq_tsif_dmx_get_stc(struct dmx_demux *demux, unsigned int num,
 		u64 *stc, unsigned int *base)
 {
@@ -554,12 +646,20 @@ static int mpq_tsif_dmx_get_stc(struct dmx_demux *demux, unsigned int num,
 
 	tsif_get_ref_clk_counter(tsif_driver->tsif_handler, &tcr_counter);
 
-	*stc = ((u64)tcr_counter) * 256; 
-	*base = 300; 
+	*stc = ((u64)tcr_counter) * 256; /* conversion to 27MHz */
+	*base = 300; /* divisor to get 90KHz clock from stc value */
 
 	return 0;
 }
 
+/**
+ * Initialize a single demux device.
+ *
+ * @mpq_adapter: MPQ DVB adapter
+ * @mpq_demux: The demux device to initialize
+ *
+ * Return	error code
+ */
 static int mpq_tsif_dmx_init(
 		struct dvb_adapter *mpq_adapter,
 		struct mpq_demux *mpq_demux)
@@ -568,7 +668,7 @@ static int mpq_tsif_dmx_init(
 
 	MPQ_DVB_DBG_PRINT("%s executed\n", __func__);
 
-	
+	/* Set the kernel-demux object capabilities */
 	mpq_demux->demux.dmx.capabilities =
 		DMX_TS_FILTERING		|
 		DMX_PES_FILTERING		|
@@ -577,7 +677,7 @@ static int mpq_tsif_dmx_init(
 		DMX_CRC_CHECKING		|
 		DMX_TS_DESCRAMBLING;
 
-	
+	/* Set dvb-demux "virtual" function pointers */
 	mpq_demux->demux.priv = (void *)mpq_demux;
 	mpq_demux->demux.filternum = DMX_TSIF_MAX_SECTION_FILTER_NUM;
 	mpq_demux->demux.feednum = MPQ_MAX_DMX_FILES;
@@ -594,14 +694,14 @@ static int mpq_tsif_dmx_init(
 	mpq_demux->demux.oob_command = mpq_dmx_oob_command;
 	mpq_demux->demux.convert_ts = mpq_dmx_convert_tts;
 
-	
+	/* Initialize dvb_demux object */
 	result = dvb_dmx_init(&mpq_demux->demux);
 	if (result < 0) {
 		MPQ_DVB_ERR_PRINT("%s: dvb_dmx_init failed\n", __func__);
 		goto init_failed;
 	}
 
-	
+	/* Now initailize the dmx-dev object */
 	mpq_demux->dmxdev.filternum = MPQ_MAX_DMX_FILES;
 	mpq_demux->dmxdev.demux = &mpq_demux->demux.dmx;
 	mpq_demux->dmxdev.capabilities = DMXDEV_CAP_DUPLEX;
@@ -620,7 +720,7 @@ static int mpq_tsif_dmx_init(
 		goto init_failed_dmx_release;
 	}
 
-	
+	/* Extend dvb-demux debugfs with TSIF statistics. */
 	mpq_dmx_init_debugfs_entries(mpq_demux);
 
 	return 0;
@@ -632,6 +732,11 @@ init_failed:
 }
 
 
+/**
+ * Module initialization function.
+ *
+ * Return	error code
+ */
 static int __init mpq_dmx_tsif_plugin_init(void)
 {
 	int i;
@@ -639,7 +744,7 @@ static int __init mpq_dmx_tsif_plugin_init(void)
 
 	MPQ_DVB_DBG_PRINT("%s executed\n", __func__);
 
-	
+	/* check module parameters validity */
 	if (threshold < 1) {
 		MPQ_DVB_ERR_PRINT(
 			"%s: invalid threshold parameter, using %d instead\n",
@@ -705,6 +810,9 @@ static int __init mpq_dmx_tsif_plugin_init(void)
 }
 
 
+/**
+ * Module exit function.
+ */
 static void __exit mpq_dmx_tsif_plugin_exit(void)
 {
 	int i;
@@ -722,7 +830,7 @@ static void __exit mpq_dmx_tsif_plugin_exit(void)
 				tsif_stop(tsif_driver->tsif_handler);
 		}
 
-		
+		/* Detach from TSIF driver to avoid further notifications. */
 		if (tsif_driver->tsif_handler)
 			tsif_detach(tsif_driver->tsif_handler);
 

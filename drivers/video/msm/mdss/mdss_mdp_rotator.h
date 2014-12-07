@@ -84,4 +84,4 @@ struct msm_sync_pt_data *mdss_mdp_rotator_sync_pt_get(
 int mdss_mdp_rotator_play(struct msm_fb_data_type *mfd,
 			    struct msmfb_overlay_data *req);
 int mdss_mdp_rotator_unset(int ndx);
-#endif 
+#endif /* MDSS_MDP_ROTATOR_H */

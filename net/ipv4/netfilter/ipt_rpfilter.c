@@ -23,6 +23,7 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Florian Westphal <fw@strlen.de>");
 MODULE_DESCRIPTION("iptables: ipv4 reverse path filter match");
 
+/* don't try to find route from mcast/bcast/zeronet */
 static __be32 rpfilter_get_saddr(__be32 addr)
 {
 	if (ipv4_is_multicast(addr) || ipv4_is_lbcast(addr) ||

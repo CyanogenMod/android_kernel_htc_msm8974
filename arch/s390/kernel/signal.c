@@ -53,6 +53,9 @@ typedef struct
 	struct ucontext uc;
 } rt_sigframe;
 
+/*
+ * Atomically swap in the new signal mask, and wait for a signal.
+ */
 SYSCALL_DEFINE3(sigsuspend, int, history0, int, history1, old_sigset_t, mask)
 {
 	sigset_t blocked;
@@ -105,39 +108,47 @@ SYSCALL_DEFINE2(sigaltstack, const stack_t __user *, uss,
 	return do_sigaltstack(uss, uoss, regs->gprs[15]);
 }
 
+/* Returns non-zero on fault. */
 static int save_sigregs(struct pt_regs *regs, _sigregs __user *sregs)
 {
 	_sigregs user_sregs;
 
 	save_access_regs(current->thread.acrs);
 
+	/* Copy a 'clean' PSW mask to the user to avoid leaking
+	   information about whether PER is currently on.  */
 	user_sregs.regs.psw.mask = psw_user_bits |
 		(regs->psw.mask & PSW_MASK_USER);
 	user_sregs.regs.psw.addr = regs->psw.addr;
 	memcpy(&user_sregs.regs.gprs, &regs->gprs, sizeof(sregs->regs.gprs));
 	memcpy(&user_sregs.regs.acrs, current->thread.acrs,
 	       sizeof(sregs->regs.acrs));
+	/* 
+	 * We have to store the fp registers to current->thread.fp_regs
+	 * to merge them with the emulated registers.
+	 */
 	save_fp_regs(&current->thread.fp_regs);
 	memcpy(&user_sregs.fpregs, &current->thread.fp_regs,
 	       sizeof(s390_fp_regs));
 	return __copy_to_user(sregs, &user_sregs, sizeof(_sigregs));
 }
 
+/* Returns positive number on error */
 static int restore_sigregs(struct pt_regs *regs, _sigregs __user *sregs)
 {
 	int err;
 	_sigregs user_sregs;
 
-	
+	/* Alwys make any pending restarted system call return -EINTR */
 	current_thread_info()->restart_block.fn = do_no_restart_syscall;
 
 	err = __copy_from_user(&user_sregs, sregs, sizeof(_sigregs));
 	if (err)
 		return err;
-	
+	/* Use regs->psw.mask instead of psw_user_bits to preserve PER bit. */
 	regs->psw.mask = (regs->psw.mask & ~PSW_MASK_USER) |
 		(user_sregs.regs.psw.mask & PSW_MASK_USER);
-	
+	/* Check for invalid amode */
 	if (regs->psw.mask & PSW_MASK_EA)
 		regs->psw.mask |= PSW_MASK_BA;
 	regs->psw.addr = user_sregs.regs.psw.addr;
@@ -151,7 +162,7 @@ static int restore_sigregs(struct pt_regs *regs, _sigregs __user *sregs)
 	current->thread.fp_regs.fpc &= FPC_VALID_MASK;
 
 	restore_fp_regs(&current->thread.fp_regs);
-	clear_thread_flag(TIF_SYSCALL);	
+	clear_thread_flag(TIF_SYSCALL);	/* No longer in a system call */
 	return 0;
 }
 
@@ -198,27 +209,33 @@ badframe:
 	return 0;
 }
 
+/*
+ * Set up a signal frame.
+ */
 
 
+/*
+ * Determine which stack to use..
+ */
 static inline void __user *
 get_sigframe(struct k_sigaction *ka, struct pt_regs * regs, size_t frame_size)
 {
 	unsigned long sp;
 
-	
+	/* Default to using normal stack */
 	sp = regs->gprs[15];
 
-	
+	/* Overflow on alternate signal stack gives SIGSEGV. */
 	if (on_sig_stack(sp) && !on_sig_stack((sp - frame_size) & -8UL))
 		return (void __user *) -1UL;
 
-	
+	/* This is the X/Open sanctioned signal stack switching.  */
 	if (ka->sa.sa_flags & SA_ONSTACK) {
 		if (! sas_ss_flags(sp))
 			sp = current->sas_ss_sp + current->sas_ss_size;
 	}
 
-	
+	/* This is the legacy signal stack switching. */
 	else if (!user_mode(regs) &&
 		 !(ka->sa.sa_flags & SA_RESTORER) &&
 		 ka->sa.sa_restorer) {
@@ -258,6 +275,8 @@ static int setup_frame(int sig, struct k_sigaction *ka,
 	if (__put_user(&frame->sregs, &frame->sc.sregs))
 		goto give_sigsegv;
 
+	/* Set up to return from userspace.  If provided, use a stub
+	   already in userspace.  */
 	if (ka->sa.sa_flags & SA_RESTORER) {
                 regs->gprs[14] = (unsigned long)
 			ka->sa.sa_restorer | PSW_ADDR_AMODE;
@@ -269,27 +288,29 @@ static int setup_frame(int sig, struct k_sigaction *ka,
 			goto give_sigsegv;
 	}
 
-	
+	/* Set up backchain. */
 	if (__put_user(regs->gprs[15], (addr_t __user *) frame))
 		goto give_sigsegv;
 
-	
+	/* Set up registers for signal handler */
 	regs->gprs[15] = (unsigned long) frame;
-	regs->psw.mask |= PSW_MASK_EA | PSW_MASK_BA;	
+	regs->psw.mask |= PSW_MASK_EA | PSW_MASK_BA;	/* 64 bit amode */
 	regs->psw.addr = (unsigned long) ka->sa.sa_handler | PSW_ADDR_AMODE;
 
 	regs->gprs[2] = map_signal(sig);
 	regs->gprs[3] = (unsigned long) &frame->sc;
 
+	/* We forgot to include these in the sigcontext.
+	   To avoid breaking binary compatibility, they are passed as args. */
 	if (sig == SIGSEGV || sig == SIGBUS || sig == SIGILL ||
 	    sig == SIGTRAP || sig == SIGFPE) {
-		
+		/* set extra registers only for synchronous signals */
 		regs->gprs[4] = regs->int_code & 127;
 		regs->gprs[5] = regs->int_parm_long;
 		regs->gprs[6] = task_thread_info(current)->last_break;
 	}
 
-	
+	/* Place signal number on stack to allow backtrace from handler.  */
 	if (__put_user(regs->gprs[2], (int __user *) &frame->signo))
 		goto give_sigsegv;
 	return 0;
@@ -315,7 +336,7 @@ static int setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 	if (copy_siginfo_to_user(&frame->info, info))
 		goto give_sigsegv;
 
-	
+	/* Create the ucontext.  */
 	err |= __put_user(0, &frame->uc.uc_flags);
 	err |= __put_user(NULL, &frame->uc.uc_link);
 	err |= __put_user((void __user *)current->sas_ss_sp, &frame->uc.uc_stack.ss_sp);
@@ -327,6 +348,8 @@ static int setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 	if (err)
 		goto give_sigsegv;
 
+	/* Set up to return from userspace.  If provided, use a stub
+	   already in userspace.  */
 	if (ka->sa.sa_flags & SA_RESTORER) {
                 regs->gprs[14] = (unsigned long)
 			ka->sa.sa_restorer | PSW_ADDR_AMODE;
@@ -338,13 +361,13 @@ static int setup_rt_frame(int sig, struct k_sigaction *ka, siginfo_t *info,
 			goto give_sigsegv;
 	}
 
-	
+	/* Set up backchain. */
 	if (__put_user(regs->gprs[15], (addr_t __user *) frame))
 		goto give_sigsegv;
 
-	
+	/* Set up registers for signal handler */
 	regs->gprs[15] = (unsigned long) frame;
-	regs->psw.mask |= PSW_MASK_EA | PSW_MASK_BA;	
+	regs->psw.mask |= PSW_MASK_EA | PSW_MASK_BA;	/* 64 bit amode */
 	regs->psw.addr = (unsigned long) ka->sa.sa_handler | PSW_ADDR_AMODE;
 
 	regs->gprs[2] = map_signal(sig);
@@ -364,7 +387,7 @@ static int handle_signal(unsigned long sig, struct k_sigaction *ka,
 {
 	int ret;
 
-	
+	/* Set up the stack frame */
 	if (ka->sa.sa_flags & SA_SIGINFO)
 		ret = setup_rt_frame(sig, ka, info, oldset, regs);
 	else
@@ -375,6 +398,15 @@ static int handle_signal(unsigned long sig, struct k_sigaction *ka,
 	return 0;
 }
 
+/*
+ * Note that 'init' is a special process: it doesn't get signals it doesn't
+ * want to handle. Thus you cannot kill init even with a SIGKILL even by
+ * mistake.
+ *
+ * Note that we go through the signals twice: once to check the signals that
+ * the kernel can handle, and then we build all the user-level signal handling
+ * stack-frames in one go after that.
+ */
 void do_signal(struct pt_regs *regs)
 {
 	siginfo_t info;
@@ -382,6 +414,12 @@ void do_signal(struct pt_regs *regs)
 	struct k_sigaction ka;
 	sigset_t *oldset;
 
+	/*
+	 * We want the common case to go fast, which
+	 * is why we may in certain cases get here from
+	 * kernel mode. Just return without doing anything
+	 * if so.
+	 */
 	if (!user_mode(regs))
 		return;
 
@@ -390,15 +428,20 @@ void do_signal(struct pt_regs *regs)
 	else
 		oldset = &current->blocked;
 
+	/*
+	 * Get signal to deliver. When running under ptrace, at this point
+	 * the debugger may change all our registers, including the system
+	 * call information.
+	 */
 	current_thread_info()->system_call =
 		test_thread_flag(TIF_SYSCALL) ? regs->int_code : 0;
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 
 	if (signr > 0) {
-		
+		/* Whee!  Actually deliver the signal.  */
 		if (current_thread_info()->system_call) {
 			regs->int_code = current_thread_info()->system_call;
-			
+			/* Check for system call restarting. */
 			switch (regs->gprs[2]) {
 			case -ERESTART_RESTARTBLOCK:
 			case -ERESTARTNOHAND:
@@ -409,7 +452,7 @@ void do_signal(struct pt_regs *regs)
 					regs->gprs[2] = -EINTR;
 					break;
 				}
-			
+			/* fallthrough */
 			case -ERESTARTNOINTR:
 				regs->gprs[2] = regs->orig_gpr2;
 				regs->psw.addr =
@@ -418,40 +461,52 @@ void do_signal(struct pt_regs *regs)
 				break;
 			}
 		}
-		
+		/* No longer in a system call */
 		clear_thread_flag(TIF_SYSCALL);
 
 		if ((is_compat_task() ?
 		     handle_signal32(signr, &ka, &info, oldset, regs) :
 		     handle_signal(signr, &ka, &info, oldset, regs)) == 0) {
+			/*
+			 * A signal was successfully delivered; the saved
+			 * sigmask will have been stored in the signal frame,
+			 * and will be restored by sigreturn, so we can simply
+			 * clear the TIF_RESTORE_SIGMASK flag.
+			 */
 			if (test_thread_flag(TIF_RESTORE_SIGMASK))
 				clear_thread_flag(TIF_RESTORE_SIGMASK);
 
+			/*
+			 * Let tracing know that we've done the handler setup.
+			 */
 			tracehook_signal_handler(signr, &info, &ka, regs,
 					 test_thread_flag(TIF_SINGLE_STEP));
 		}
 		return;
 	}
 
-	
+	/* No handlers present - check for system call restart */
 	clear_thread_flag(TIF_SYSCALL);
 	if (current_thread_info()->system_call) {
 		regs->int_code = current_thread_info()->system_call;
 		switch (regs->gprs[2]) {
 		case -ERESTART_RESTARTBLOCK:
-			
+			/* Restart with sys_restart_syscall */
 			regs->int_code = __NR_restart_syscall;
-		
+		/* fallthrough */
 		case -ERESTARTNOHAND:
 		case -ERESTARTSYS:
 		case -ERESTARTNOINTR:
-			
+			/* Restart system call with magic TIF bit. */
 			regs->gprs[2] = regs->orig_gpr2;
 			set_thread_flag(TIF_SYSCALL);
 			break;
 		}
 	}
 
+	/*
+	 * If there's no signal to deliver, we just put the saved sigmask back.
+	 */
 	if (test_thread_flag(TIF_RESTORE_SIGMASK)) {
 		clear_thread_flag(TIF_RESTORE_SIGMASK);
 		sigprocmask(SIG_SETMASK, &current->saved_sigmask, NULL);

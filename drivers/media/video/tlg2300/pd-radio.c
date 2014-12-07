@@ -23,9 +23,9 @@ static int poseidon_fm_open(struct file *filp);
 
 #define MAX_PREEMPHASIS (V4L2_PREEMPHASIS_75_uS + 1)
 static int preemphasis[MAX_PREEMPHASIS] = {
-	TLG_TUNE_ASTD_NONE,   
-	TLG_TUNE_ASTD_FM_EUR, 
-	TLG_TUNE_ASTD_FM_US,  
+	TLG_TUNE_ASTD_NONE,   /* V4L2_PREEMPHASIS_DISABLED */
+	TLG_TUNE_ASTD_FM_EUR, /* V4L2_PREEMPHASIS_50_uS    */
+	TLG_TUNE_ASTD_FM_US,  /* V4L2_PREEMPHASIS_75_uS    */
 };
 
 static int poseidon_check_mode_radio(struct poseidon *p)
@@ -97,7 +97,7 @@ static int poseidon_fm_open(struct file *filp)
 
 	usb_autopm_get_interface(p->interface);
 	if (0 == p->state) {
-		
+		/* default pre-emphasis */
 		if (p->radio_data.pre_emphasis == 0)
 			p->radio_data.pre_emphasis = TLG_TUNE_ASTD_FM_EUR;
 		set_debug_mode(vfd, debug_mode);
@@ -221,7 +221,7 @@ static int set_frequency(struct poseidon *p, __u32 frequency)
 	ret = send_set_req(p, TUNER_AUD_ANA_STD,
 				p->radio_data.pre_emphasis, &status);
 
-	freq =  (frequency * 125) * 500 / 1000;
+	freq =  (frequency * 125) * 500 / 1000;/* kHZ */
 	if (freq < TUNER_FREQ_MIN_FM/1000 || freq > TUNER_FREQ_MAX_FM/1000) {
 		ret = -EINVAL;
 		goto error;
@@ -327,7 +327,7 @@ static int tlg_fm_vidioc_queryctrl(struct file *file, void *priv,
 
 	ctrl->id &= ~V4L2_CTRL_FLAG_NEXT_CTRL;
 	if (ctrl->id != V4L2_CID_TUNE_PREEMPHASIS) {
-		
+		/* return the next supported control */
 		ctrl->id = V4L2_CID_TUNE_PREEMPHASIS;
 		v4l2_ctrl_query_fill(ctrl, V4L2_PREEMPHASIS_DISABLED,
 					V4L2_PREEMPHASIS_75_uS, 1,

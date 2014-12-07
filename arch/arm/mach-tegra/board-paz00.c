@@ -49,7 +49,7 @@
 
 static struct plat_serial8250_port debug_uart_platform_data[] = {
 	{
-		
+		/* serial port on JP1 */
 		.membase	= IO_ADDRESS(TEGRA_UARTA_BASE),
 		.mapbase	= TEGRA_UARTA_BASE,
 		.irq		= INT_UARTA,
@@ -59,7 +59,7 @@ static struct plat_serial8250_port debug_uart_platform_data[] = {
 		.regshift	= 2,
 		.uartclk	= 216000000,
 	}, {
-		
+		/* serial port on mini-pcie */
 		.membase	= IO_ADDRESS(TEGRA_UARTC_BASE),
 		.mapbase	= TEGRA_UARTC_BASE,
 		.irq		= INT_UARTC,
@@ -172,7 +172,7 @@ static void __init tegra_paz00_fixup(struct tag *tags, char **cmdline,
 }
 
 static __initdata struct tegra_clk_init_table paz00_clk_init_table[] = {
-	
+	/* name		parent		rate		enabled */
 	{ "uarta",	"pll_p",	216000000,	true },
 	{ "uartc",	"pll_p",	216000000,	true },
 

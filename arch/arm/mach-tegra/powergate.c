@@ -119,6 +119,10 @@ int tegra_powergate_remove_clamping(int id)
 	if (id < 0 || id >= tegra_num_powerdomains)
 		return -EINVAL;
 
+	/*
+	 * Tegra 2 has a bug where PCIE and VDE clamping masks are
+	 * swapped relatively to the partition ids
+	 */
 	if (id ==  TEGRA_POWERGATE_VDEC)
 		mask = (1 << TEGRA_POWERGATE_PCIE);
 	else if	(id == TEGRA_POWERGATE_PCIE)
@@ -131,6 +135,7 @@ int tegra_powergate_remove_clamping(int id)
 	return 0;
 }
 
+/* Must be called with clk disabled, and returns with clk enabled */
 int tegra_powergate_sequence_power_up(int id, struct clk *clk)
 {
 	int ret;
@@ -184,7 +189,7 @@ int __init tegra_powergate_init(void)
 		tegra_cpu_domains = tegra30_cpu_domains;
 		break;
 	default:
-		
+		/* Unknown Tegra variant. Disable powergating */
 		tegra_num_powerdomains = 0;
 		break;
 	}

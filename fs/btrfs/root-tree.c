@@ -21,6 +21,11 @@
 #include "disk-io.h"
 #include "print-tree.h"
 
+/*
+ * lookup the root with the highest offset for a given objectid.  The key we do
+ * find is copied into 'key'.  If we find something return 0, otherwise 1, < 0
+ * on error.
+ */
 int btrfs_find_last_root(struct btrfs_root *root, u64 objectid,
 			struct btrfs_root_item *item, struct btrfs_key *key)
 {
@@ -74,6 +79,9 @@ void btrfs_set_root_node(struct btrfs_root_item *item,
 	btrfs_set_root_generation(item, btrfs_header_generation(node));
 }
 
+/*
+ * copy the data in 'item' into the btree
+ */
 int btrfs_update_root(struct btrfs_trans_handle *trans, struct btrfs_root
 		      *root, struct btrfs_key *key, struct btrfs_root_item
 		      *item)
@@ -118,6 +126,12 @@ int btrfs_insert_root(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 	return btrfs_insert_item(trans, root, key, item, sizeof(*item));
 }
 
+/*
+ * at mount time we want to find all the old transaction snapshots that were in
+ * the process of being deleted if we crashed.  This is any root item with an
+ * offset lower than the latest root.  They need to be queued for deletion to
+ * finish what was happening when we crashed.
+ */
 int btrfs_find_dead_roots(struct btrfs_root *root, u64 objectid)
 {
 	struct btrfs_root *dead_root;
@@ -262,6 +276,7 @@ int btrfs_find_orphan_roots(struct btrfs_root *tree_root)
 	return err;
 }
 
+/* drop the root item for 'key' from 'root' */
 int btrfs_del_root(struct btrfs_trans_handle *trans, struct btrfs_root *root,
 		   struct btrfs_key *key)
 {
@@ -358,6 +373,21 @@ int btrfs_find_root_ref(struct btrfs_root *tree_root,
 	return ret;
 }
 
+/*
+ * add a btrfs_root_ref item.  type is either BTRFS_ROOT_REF_KEY
+ * or BTRFS_ROOT_BACKREF_KEY.
+ *
+ * The dirid, sequence, name and name_len refer to the directory entry
+ * that is referencing the root.
+ *
+ * For a forward ref, the root_id is the id of the tree referencing
+ * the root and ref_id is the id of the subvol  or snapshot.
+ *
+ * For a back ref the root_id is the id of the subvol or snapshot and
+ * ref_id is the id of the tree referencing it.
+ *
+ * Will return 0, -ENOMEM, or anything from the CoW path
+ */
 int btrfs_add_root_ref(struct btrfs_trans_handle *trans,
 		       struct btrfs_root *tree_root,
 		       u64 root_id, u64 ref_id, u64 dirid, u64 sequence,
@@ -407,6 +437,12 @@ again:
 	return 0;
 }
 
+/*
+ * Old btrfs forgets to init root_item->flags and root_item->byte_limit
+ * for subvolumes. To work around this problem, we steal a bit from
+ * root_item->inode_item->flags, and use it to indicate if those fields
+ * have been properly initialized.
+ */
 void btrfs_check_and_init_root_item(struct btrfs_root_item *root_item)
 {
 	u64 inode_flags = le64_to_cpu(root_item->inode.flags);

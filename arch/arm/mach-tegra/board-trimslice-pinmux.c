@@ -145,11 +145,11 @@ static struct tegra_pingroup_config trimslice_pinmux[] = {
 };
 
 static struct tegra_gpio_table gpio_table[] = {
-	{ .gpio = TRIMSLICE_GPIO_SD4_CD, .enable = true	}, 
-	{ .gpio = TRIMSLICE_GPIO_SD4_WP, .enable = true	}, 
+	{ .gpio = TRIMSLICE_GPIO_SD4_CD, .enable = true	}, /* mmc4 cd */
+	{ .gpio = TRIMSLICE_GPIO_SD4_WP, .enable = true	}, /* mmc4 wp */
 
-	{ .gpio = TRIMSLICE_GPIO_USB1_MODE, .enable = true }, 
-	{ .gpio = TRIMSLICE_GPIO_USB2_RST,  .enable = true }, 
+	{ .gpio = TRIMSLICE_GPIO_USB1_MODE, .enable = true }, /* USB1 mode */
+	{ .gpio = TRIMSLICE_GPIO_USB2_RST,  .enable = true }, /* USB2 PHY rst */
 };
 
 static struct tegra_board_pinmux_conf conf = {

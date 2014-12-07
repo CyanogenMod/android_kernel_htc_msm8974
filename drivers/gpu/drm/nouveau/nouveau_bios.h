@@ -88,13 +88,13 @@ enum dcb_type {
 	OUTPUT_TMDS = 2,
 	OUTPUT_LVDS = 3,
 	OUTPUT_DP = 6,
-	OUTPUT_EOL = 14, 
+	OUTPUT_EOL = 14, /* DCB 4.0+, appears to be end-of-list */
 	OUTPUT_UNUSED = 15,
 	OUTPUT_ANY = -1
 };
 
 struct dcb_entry {
-	int index;	
+	int index;	/* may not be raw dcb index if merging has happened */
 	enum dcb_type type;
 	uint8_t i2c_index;
 	uint8_t heads;
@@ -145,7 +145,7 @@ enum nouveau_or {
 };
 
 enum LVDS_script {
-	
+	/* Order *does* matter here */
 	LVDS_INIT = 1,
 	LVDS_RESET,
 	LVDS_BACKLIGHT_ON,
@@ -154,6 +154,11 @@ enum LVDS_script {
 	LVDS_PANEL_OFF
 };
 
+/* these match types in pll limits table version 0x40,
+ * nouveau uses them on all chipsets internally where a
+ * specific pll needs to be referenced, but the exact
+ * register isn't known.
+ */
 enum pll_types {
 	PLL_CORE   = 0x01,
 	PLL_SHADER = 0x02,
@@ -184,6 +189,14 @@ struct pll_lims {
 	} vco1, vco2;
 
 	uint8_t max_log2p;
+	/*
+	 * for most pre nv50 cards setting a log2P of 7 (the common max_log2p
+	 * value) is no different to 6 (at least for vplls) so allowing the MNP
+	 * calc to use 7 causes the generated clock to be out by a factor of 2.
+	 * however, max_log2p cannot be fixed-up during parsing as the
+	 * unmodified max_log2p value is still needed for setting mplls, hence
+	 * an additional max_usable_log2p member
+	 */
 	uint8_t max_usable_log2p;
 	uint8_t log2p_bias;
 
@@ -234,8 +247,8 @@ struct nvbios {
 	uint16_t ram_restrict_tbl_ptr;
 	uint8_t ram_restrict_group_count;
 
-	uint16_t some_script_ptr; 
-	uint16_t init96_tbl_ptr; 
+	uint16_t some_script_ptr; /* BIT I + 14 */
+	uint16_t init96_tbl_ptr; /* BIT I + 16 */
 
 	struct dcb_table dcb;
 
@@ -250,7 +263,7 @@ struct nvbios {
 	} display;
 
 	struct {
-		uint16_t fptablepointer;	
+		uint16_t fptablepointer;	/* also used by tmds */
 		uint16_t fpxlatetableptr;
 		int xlatwidth;
 		uint16_t lvdsmanufacturerpointer;
@@ -266,7 +279,7 @@ struct nvbios {
 		uint8_t strapless_is_24bit;
 		uint8_t *edid;
 
-		
+		/* will need resetting after suspend */
 		int last_script_invoc;
 		bool lvds_init_run;
 	} fp;

@@ -32,38 +32,38 @@
 #define GPIO_NAND_RB	(10)
 
 static unsigned long cmx255_pin_config[] = {
-	
+	/* AC'97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
 	GPIO31_AC97_SYNC,
 
-	
+	/* BTUART */
 	GPIO42_BTUART_RXD,
 	GPIO43_BTUART_TXD,
 	GPIO44_BTUART_CTS,
 	GPIO45_BTUART_RTS,
 
-	
+	/* STUART */
 	GPIO46_STUART_RXD,
 	GPIO47_STUART_TXD,
 
-	
+	/* LCD */
 	GPIOxx_LCD_TFT_16BPP,
 
-	
+	/* SSP1 */
 	GPIO23_SSP1_SCLK,
 	GPIO24_SSP1_SFRM,
 	GPIO25_SSP1_TXD,
 	GPIO26_SSP1_RXD,
 
-	
+	/* SSP2 */
 	GPIO81_SSP2_CLK_OUT,
 	GPIO82_SSP2_FRM_OUT,
 	GPIO83_SSP2_TXD,
 	GPIO84_SSP2_RXD,
 
-	
+	/* PC Card */
 	GPIO48_nPOE,
 	GPIO49_nPWE,
 	GPIO50_nPIOR,
@@ -75,7 +75,7 @@ static unsigned long cmx255_pin_config[] = {
 	GPIO56_nPWAIT,
 	GPIO57_nIOIS16,
 
-	
+	/* SDRAM and local bus */
 	GPIO15_nCS_1,
 	GPIO78_nCS_2,
 	GPIO79_nCS_3,
@@ -83,18 +83,18 @@ static unsigned long cmx255_pin_config[] = {
 	GPIO33_nCS_5,
 	GPIO18_RDY,
 
-	
+	/* GPIO */
 	GPIO0_GPIO	| WAKEUP_ON_EDGE_BOTH,
-	GPIO9_GPIO,				
+	GPIO9_GPIO,				/* PC card reset */
 
-	
-	GPIO5_GPIO	| MFP_LPM_DRIVE_HIGH,	
-	GPIO4_GPIO	| MFP_LPM_DRIVE_LOW,	
-	GPIO3_GPIO	| MFP_LPM_DRIVE_LOW,	
-	GPIO10_GPIO,				
+	/* NAND controls */
+	GPIO5_GPIO	| MFP_LPM_DRIVE_HIGH,	/* NAND CE# */
+	GPIO4_GPIO	| MFP_LPM_DRIVE_LOW,	/* NAND ALE */
+	GPIO3_GPIO	| MFP_LPM_DRIVE_LOW,	/* NAND CLE */
+	GPIO10_GPIO,				/* NAND Ready/Busy */
 
-	
-	GPIO22_GPIO,	
+	/* interrupts */
+	GPIO22_GPIO,	/* DM9000 interrupt */
 };
 
 #if defined(CONFIG_SPI_PXA2XX)
@@ -126,12 +126,12 @@ static struct mtd_partition cmx255_nor_partitions[] = {
 		.name		= "ARMmon",
 		.size		= 0x00030000,
 		.offset		= 0,
-		.mask_flags	= MTD_WRITEABLE  
+		.mask_flags	= MTD_WRITEABLE  /* force read-only */
 	} , {
 		.name		= "ARMmon setup block",
 		.size		= 0x00010000,
 		.offset		= MTDPART_OFS_APPEND,
-		.mask_flags	= MTD_WRITEABLE  
+		.mask_flags	= MTD_WRITEABLE  /* force read-only */
 	} , {
 		.name		= "kernel",
 		.size		= 0x00160000,
@@ -145,7 +145,7 @@ static struct mtd_partition cmx255_nor_partitions[] = {
 
 static struct physmap_flash_data cmx255_nor_flash_data[] = {
 	{
-		.width		= 2,	
+		.width		= 2,	/* bankwidth in bytes */
 		.parts		= cmx255_nor_partitions,
 		.nr_parts	= ARRAY_SIZE(cmx255_nor_partitions)
 	}

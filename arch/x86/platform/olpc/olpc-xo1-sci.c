@@ -73,6 +73,7 @@ static void ac_status_changed(void)
 	}
 }
 
+/* Report current ebook switch state through input layer */
 static void send_ebook_state(void)
 {
 	unsigned char state;
@@ -88,7 +89,7 @@ static void send_ebook_state(void)
 
 static void flip_lid_inverter(void)
 {
-	
+	/* gpio is high; invert so we'll get l->h event interrupt */
 	if (lid_inverted)
 		cs5535_gpio_clear(OLPC_GPIO_LID, GPIO_INPUT_INVERT);
 	else
@@ -98,17 +99,28 @@ static void flip_lid_inverter(void)
 
 static void detect_lid_state(void)
 {
+	/*
+	 * the edge detector hookup on the gpio inputs on the geode is
+	 * odd, to say the least.  See http://dev.laptop.org/ticket/5703
+	 * for details, but in a nutshell:  we don't use the edge
+	 * detectors.  instead, we make use of an anomoly:  with the both
+	 * edge detectors turned off, we still get an edge event on a
+	 * positive edge transition.  to take advantage of this, we use the
+	 * front-end inverter to ensure that that's the edge we're always
+	 * going to see next.
+	 */
 
 	int state;
 
 	state = cs5535_gpio_isset(OLPC_GPIO_LID, GPIO_READ_BACK);
-	lid_open = !state ^ !lid_inverted; 
+	lid_open = !state ^ !lid_inverted; /* x ^^ y */
 	if (!state)
 		return;
 
 	flip_lid_inverter();
 }
 
+/* Report current lid switch state through input layer */
 static void send_lid_state(void)
 {
 	input_report_switch(lid_switch_idev, SW_LID, !lid_open);
@@ -139,6 +151,15 @@ static ssize_t lid_wake_mode_set(struct device *dev,
 static DEVICE_ATTR(lid_wake_mode, S_IWUSR | S_IRUGO, lid_wake_mode_show,
 		   lid_wake_mode_set);
 
+/*
+ * Process all items in the EC's SCI queue.
+ *
+ * This is handled in a workqueue because olpc_ec_cmd can be slow (and
+ * can even timeout).
+ *
+ * If propagate_events is false, the queue is drained without events being
+ * generated for the interrupts.
+ */
 static void process_sci_queue(bool propagate_events)
 {
 	int r;
@@ -199,7 +220,7 @@ static irqreturn_t xo1_sci_intr(int irq, void *dev_id)
 		input_sync(power_button_idev);
 	}
 
-	if (gpe & CS5536_GPIOM7_PME_FLAG) { 
+	if (gpe & CS5536_GPIOM7_PME_FLAG) { /* EC GPIO */
 		cs5535_gpio_set(OLPC_GPIO_ECSCI, GPIO_NEGATIVE_EDGE_STS);
 		schedule_work(&sci_work);
 	}
@@ -230,7 +251,7 @@ static int xo1_sci_suspend(struct platform_device *pdev, pm_message_t state)
 		   (!lid_open && lid_wake_mode == LID_WAKE_CLOSE)) {
 		flip_lid_inverter();
 
-		
+		/* we may have just caused an event */
 		cs5535_gpio_set(OLPC_GPIO_LID, GPIO_NEGATIVE_EDGE_STS);
 		cs5535_gpio_set(OLPC_GPIO_LID, GPIO_POSITIVE_EDGE_STS);
 
@@ -242,14 +263,18 @@ static int xo1_sci_suspend(struct platform_device *pdev, pm_message_t state)
 
 static int xo1_sci_resume(struct platform_device *pdev)
 {
+	/*
+	 * We don't know what may have happened while we were asleep.
+	 * Reestablish our lid setup so we're sure to catch all transitions.
+	 */
 	detect_lid_state();
 	send_lid_state();
 	cs5535_gpio_set(OLPC_GPIO_LID, GPIO_EVENTS_ENABLE);
 
-	
+	/* Enable all EC events */
 	olpc_ec_mask_write(EC_SCI_SRC_ALL);
 
-	
+	/* Power/battery status might have changed too */
 	battery_status_changed();
 	ac_status_changed();
 	return 0;
@@ -267,14 +292,14 @@ static int __devinit setup_sci_interrupt(struct platform_device *pdev)
 	if (sci_irq) {
 		dev_info(&pdev->dev, "SCI is mapped to IRQ %d\n", sci_irq);
 	} else {
-		
+		/* Zero means masked */
 		dev_info(&pdev->dev, "SCI unmapped. Mapping to IRQ 3\n");
 		sci_irq = 3;
 		lo |= 0x00300000;
 		wrmsrl(0x51400020, lo);
 	}
 
-	
+	/* Select level triggered in PIC */
 	if (sci_irq < 8) {
 		lo = inb(CS5536_PIC_INT_SEL1);
 		lo |= 1 << sci_irq;
@@ -285,7 +310,7 @@ static int __devinit setup_sci_interrupt(struct platform_device *pdev)
 		outb(lo, CS5536_PIC_INT_SEL2);
 	}
 
-	
+	/* Enable SCI from power button, and clear pending interrupts */
 	sts = inl(acpi_base + CS5536_PM1_STS);
 	outl((CS5536_PM_PWRBTN << 16) | 0xffff, acpi_base + CS5536_PM1_STS);
 
@@ -306,16 +331,30 @@ static int __devinit setup_ec_sci(void)
 
 	gpio_direction_input(OLPC_GPIO_ECSCI);
 
-	
+	/* Clear pending EC SCI events */
 	cs5535_gpio_set(OLPC_GPIO_ECSCI, GPIO_NEGATIVE_EDGE_STS);
 	cs5535_gpio_set(OLPC_GPIO_ECSCI, GPIO_POSITIVE_EDGE_STS);
 
+	/*
+	 * Enable EC SCI events, and map them to both a PME and the SCI
+	 * interrupt.
+	 *
+	 * Ordinarily, in addition to functioning as GPIOs, Geode GPIOs can
+	 * be mapped to regular interrupts *or* Geode-specific Power
+	 * Management Events (PMEs) - events that bring the system out of
+	 * suspend. In this case, we want both of those things - the system
+	 * wakeup, *and* the ability to get an interrupt when an event occurs.
+	 *
+	 * To achieve this, we map the GPIO to a PME, and then we use one
+	 * of the many generic knobs on the CS5535 PIC to additionally map the
+	 * PME to the regular SCI interrupt line.
+	 */
 	cs5535_gpio_set(OLPC_GPIO_ECSCI, GPIO_EVENTS_ENABLE);
 
-	
+	/* Set the SCI to cause a PME event on group 7 */
 	cs5535_gpio_setup_event(OLPC_GPIO_ECSCI, 7, 1);
 
-	
+	/* And have group 7 also fire the SCI interrupt */
 	cs5535_pic_unreqz_select_high(7, sci_irq);
 
 	return 0;
@@ -339,20 +378,20 @@ static int __devinit setup_lid_events(void)
 	cs5535_gpio_clear(OLPC_GPIO_LID, GPIO_INPUT_INVERT);
 	lid_inverted = 0;
 
-	
+	/* Clear edge detection and event enable for now */
 	cs5535_gpio_clear(OLPC_GPIO_LID, GPIO_EVENTS_ENABLE);
 	cs5535_gpio_clear(OLPC_GPIO_LID, GPIO_NEGATIVE_EDGE_EN);
 	cs5535_gpio_clear(OLPC_GPIO_LID, GPIO_POSITIVE_EDGE_EN);
 	cs5535_gpio_set(OLPC_GPIO_LID, GPIO_NEGATIVE_EDGE_STS);
 	cs5535_gpio_set(OLPC_GPIO_LID, GPIO_POSITIVE_EDGE_STS);
 
-	
+	/* Set the LID to cause an PME event on group 6 */
 	cs5535_gpio_setup_event(OLPC_GPIO_LID, 6, 1);
 
-	
+	/* Set PME group 6 to fire the SCI interrupt */
 	cs5535_gpio_set_irq(6, sci_irq);
 
-	
+	/* Enable the event */
 	cs5535_gpio_set(OLPC_GPIO_LID, GPIO_EVENTS_ENABLE);
 
 	return 0;
@@ -474,7 +513,7 @@ static int __devinit xo1_sci_probe(struct platform_device *pdev)
 	struct resource *res;
 	int r;
 
-	
+	/* don't run on non-XOs */
 	if (!machine_is_olpc())
 		return -ENODEV;
 
@@ -509,15 +548,15 @@ static int __devinit xo1_sci_probe(struct platform_device *pdev)
 	if (r)
 		goto err_ecsci;
 
-	
+	/* Enable PME generation for EC-generated events */
 	outl(CS5536_GPIOM6_PME_EN | CS5536_GPIOM7_PME_EN,
 		acpi_base + CS5536_PM_GPE0_EN);
 
-	
+	/* Clear pending events */
 	outl(0xffffffff, acpi_base + CS5536_PM_GPE0_STS);
 	process_sci_queue(false);
 
-	
+	/* Initial sync */
 	send_ebook_state();
 	detect_lid_state();
 	send_lid_state();
@@ -526,7 +565,7 @@ static int __devinit xo1_sci_probe(struct platform_device *pdev)
 	if (r)
 		goto err_sci;
 
-	
+	/* Enable all EC events */
 	olpc_ec_mask_write(EC_SCI_SRC_ALL);
 
 	return r;

@@ -26,16 +26,16 @@ typedef union _U_MIBS_IP_ADDRESS
 {
     struct
 	{
-		
+		//Source Ip Address Range
 		ULONG		ulIpv4Addr[MIBS_MAX_IP_RANGE_LENGTH];
-		
+		//Source Ip Mask Address Range
 		ULONG       ulIpv4Mask[MIBS_MAX_IP_RANGE_LENGTH];
 	};
 	struct
 	{
-		
+		//Source Ip Address Range
 		ULONG		ulIpv6Addr[MIBS_MAX_IP_RANGE_LENGTH * 4];
-		
+		//Source Ip Mask Address Range
 		ULONG       ulIpv6Mask[MIBS_MAX_IP_RANGE_LENGTH * 4];
 
 	};
@@ -58,15 +58,15 @@ typedef struct _S_MIBS_HOST_INFO
 {
 	ULONG64			GoodTransmits;
 	ULONG64			GoodReceives;
-	
+	// this to keep track of the Tx and Rx MailBox Registers.
 	ULONG			NumDesUsed;
 	ULONG			CurrNumFreeDesc;
 	ULONG			PrevNumFreeDesc;
-	
+	// to keep track the no of byte received
 	ULONG			PrevNumRcevBytes;
 	ULONG			CurrNumRcevBytes;
 
-	
+	/* QOS Related */
 	ULONG			BEBucketSize;
 	ULONG			rtPSBucketSize;
 	ULONG			LastTxQueueIndex;
@@ -84,21 +84,21 @@ typedef struct _S_MIBS_CLASSIFIER_RULE
 	B_UINT16            uiClassifierRuleIndex;
 	BOOLEAN				bUsed;
 	USHORT				usVCID_Value;
-	
+	// This field detemines the Classifier Priority
 	B_UINT8             u8ClassifierRulePriority;
 	U_MIBS_IP_ADDRESS   stSrcIpAddress;
-	
+	/*IP Source Address Length*/
 	UCHAR               ucIPSourceAddressLength;
 
 	U_MIBS_IP_ADDRESS   stDestIpAddress;
-	
+	/* IP Destination Address Length */
 	UCHAR               ucIPDestinationAddressLength;
-	UCHAR               ucIPTypeOfServiceLength;
-	UCHAR               ucTosLow;
-	UCHAR               ucTosHigh;
-	UCHAR               ucTosMask;
-	UCHAR               ucProtocolLength;
-	UCHAR               ucProtocol[MIBS_MAX_PROTOCOL_LENGTH];
+	UCHAR               ucIPTypeOfServiceLength;//Type of service Length
+	UCHAR               ucTosLow;//Tos Low
+	UCHAR               ucTosHigh;//Tos High
+	UCHAR               ucTosMask;//Tos Mask
+	UCHAR               ucProtocolLength;//protocol Length
+	UCHAR               ucProtocol[MIBS_MAX_PROTOCOL_LENGTH];//protocol Length
 	USHORT				usSrcPortRangeLo[MIBS_MAX_PORT_RANGE];
 	USHORT				usSrcPortRangeHi[MIBS_MAX_PORT_RANGE];
 	UCHAR               ucSrcPortRangeLength;
@@ -118,19 +118,19 @@ typedef struct _S_MIBS_CLASSIFIER_RULE
 typedef struct _S_MIBS_PHS_RULE
 {
 	ULONG		ulSFID;
-	
+	/// brief 8bit PHSI Of The Service Flow
 	B_UINT8     u8PHSI;
-	
+	/// brief PHSF Of The Service Flow
 	B_UINT8     u8PHSFLength;
 	B_UINT8     u8PHSF[MIBS_MAX_PHS_LENGTHS];
-	
+	/// brief PHSM Of The Service Flow
 	B_UINT8     u8PHSMLength;
 	B_UINT8     u8PHSM[MIBS_MAX_PHS_LENGTHS];
-	
+	/// brief 8bit PHSS Of The Service Flow
 	B_UINT8     u8PHSS;
-	
+	/// brief 8bit PHSV Of The Service Flow
 	B_UINT8     u8PHSV;
-	
+	// Reserved bytes are 5, so that it is similar to S_PHS_RULE structure.
 	B_UINT8	    reserved[5];
 
 	LONG	    PHSModifiedBytes;
@@ -167,19 +167,19 @@ typedef struct _S_MIBS_EXTSERVICEFLOW_PARAMETERS
 
 typedef struct _S_MIBS_SERVICEFLOW_TABLE
 {
-	 
+	 //classification extension Rule
 	ULONG		ulSFID;
     USHORT		usVCID_Value;
 	UINT		uiThreshold;
-	
+	// This field determines the priority of the SF Queues
 	B_UINT8     u8TrafficPriority;
 
 	BOOLEAN		bValid;
    	BOOLEAN     bActive;
 	BOOLEAN		bActivateRequestSent;
-	
+	//BE or rtPS
 	B_UINT8		u8QueueType;
-	
+	//maximum size of the bucket for the queue
 	UINT		uiMaxBucketSize;
 	UINT		uiCurrentQueueDepthOnTarget;
 	UINT		uiCurrentBytesOnHost;

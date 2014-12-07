@@ -35,6 +35,10 @@
 #include <asm/uaccess.h>
 #include <asm/bootinfo.h>
 
+/*
+ * Tracing a 32-bit process with a 64-bit strace and vice versa will not
+ * work.  I don't know how to fix this.
+ */
 long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 			compat_ulong_t caddr, compat_ulong_t cdata)
 {
@@ -44,6 +48,15 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 
 	switch (request) {
 
+	/*
+	 * Read 4 bytes of the other process' storage
+	 *  data is a pointer specifying where the user wants the
+	 *	4 bytes copied into
+	 *  addr is a pointer in the user's storage that contains an 8 byte
+	 *	address in the other process of the 4 bytes that is to be read
+	 * (this is run in a 32-bit process looking at a 64-bit process)
+	 * when I and D space are separate, these will need to be fixed.
+	 */
 	case PTRACE_PEEKTEXT_3264:
 	case PTRACE_PEEKDATA_3264: {
 		u32 tmp;
@@ -52,7 +65,7 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 
 		ret = -EIO;
 
-		
+		/* Get the addr in the other process that we want to read */
 		if (get_user(addrOthers, (u32 __user * __user *) (unsigned long) addr) != 0)
 			break;
 
@@ -64,13 +77,13 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 		break;
 	}
 
-	
+	/* Read the word at location addr in the USER area. */
 	case PTRACE_PEEKUSR: {
 		struct pt_regs *regs;
 		unsigned int tmp;
 
 		regs = task_pt_regs(child);
-		ret = 0;  
+		ret = 0;  /* Default return value. */
 
 		switch (addr) {
 		case 0 ... 31:
@@ -80,12 +93,17 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 			if (tsk_used_math(child)) {
 				fpureg_t *fregs = get_fpu_regs(child);
 
+				/*
+				 * The odd registers are actually the high
+				 * order bits of the values stored in the even
+				 * registers - unless we're using r2k_switch.S.
+				 */
 				if (addr & 1)
 					tmp = (unsigned long) (fregs[((addr & ~1) - 32)] >> 32);
 				else
 					tmp = (unsigned long) (fregs[(addr - 32)] & 0xffffffff);
 			} else {
-				tmp = -1;	
+				tmp = -1;	/* FP not yet used  */
 			}
 			break;
 		case PC:
@@ -106,12 +124,12 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 		case FPC_CSR:
 			tmp = child->thread.fpu.fcr31;
 			break;
-		case FPC_EIR: {	
+		case FPC_EIR: {	/* implementation / version register */
 			unsigned int flags;
 #ifdef CONFIG_MIPS_MT_SMTC
 			unsigned int irqflags;
 			unsigned int mtflags;
-#endif 
+#endif /* CONFIG_MIPS_MT_SMTC */
 
 			preempt_disable();
 			if (!cpu_has_fpu) {
@@ -121,10 +139,10 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 			}
 
 #ifdef CONFIG_MIPS_MT_SMTC
-			
+			/* Read-modify-write of Status must be atomic */
 			local_irq_save(irqflags);
 			mtflags = dmt();
-#endif 
+#endif /* CONFIG_MIPS_MT_SMTC */
 
 			if (cpu_has_mipsmt) {
 				unsigned int vpflags = dvpe();
@@ -142,7 +160,7 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 #ifdef CONFIG_MIPS_MT_SMTC
 			emt(mtflags);
 			local_irq_restore(irqflags);
-#endif 
+#endif /* CONFIG_MIPS_MT_SMTC */
 			preempt_enable();
 			break;
 		}
@@ -188,7 +206,7 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 	case PTRACE_POKEDATA_3264: {
 		u32 __user * addrOthers;
 
-		
+		/* Get the addr in the other process that we want to write into */
 		ret = -EIO;
 		if (get_user(addrOthers, (u32 __user * __user *) (unsigned long) addr) != 0)
 			break;
@@ -213,16 +231,23 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 			fpureg_t *fregs = get_fpu_regs(child);
 
 			if (!tsk_used_math(child)) {
-				
+				/* FP not yet used  */
 				memset(&child->thread.fpu, ~0,
 				       sizeof(child->thread.fpu));
 				child->thread.fpu.fcr31 = 0;
 			}
+			/*
+			 * The odd registers are actually the high order bits
+			 * of the values stored in the even registers - unless
+			 * we're using r2k_switch.S.
+			 */
 			if (addr & 1) {
 				fregs[(addr & ~1) - FPR_BASE] &= 0xffffffff;
 				fregs[(addr & ~1) - FPR_BASE] |= ((unsigned long long) data) << 32;
 			} else {
 				fregs[addr - FPR_BASE] &= ~0xffffffffLL;
+				/* Must cast, lest sign extension fill upper
+				   bits!  */
 				fregs[addr - FPR_BASE] |= (unsigned int)data;
 			}
 			break;
@@ -259,7 +284,7 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 			child->thread.dsp.dspcontrol = data;
 			break;
 		default:
-			
+			/* The rest are not allowed. */
 			ret = -EIO;
 			break;
 		}

@@ -15,4 +15,4 @@
 
 extern struct tty_driver *sclp_tty_driver;
 
-#endif	
+#endif	/* __SCLP_TTY_H__ */

@@ -30,7 +30,7 @@ static void * reg_base;
 
 static int uartlite_open(void)
 {
-	
+	/* Clear the RX FIFO */
 	out_be32(reg_base + ULITE_CONTROL, ULITE_CONTROL_RST_RX);
 	return 0;
 }
@@ -38,7 +38,7 @@ static int uartlite_open(void)
 static void uartlite_putc(unsigned char c)
 {
 	u32 reg = ULITE_STATUS_TXFULL;
-	while (reg & ULITE_STATUS_TXFULL) 
+	while (reg & ULITE_STATUS_TXFULL) /* spin on TXFULL bit */
 		reg = in_be32(reg_base + ULITE_STATUS);
 	out_be32(reg_base + ULITE_TX, c);
 }
@@ -46,7 +46,7 @@ static void uartlite_putc(unsigned char c)
 static unsigned char uartlite_getc(void)
 {
 	u32 reg = 0;
-	while (!(reg & ULITE_STATUS_RXVALID)) 
+	while (!(reg & ULITE_STATUS_RXVALID)) /* spin waiting for RXVALID bit */
 		reg = in_be32(reg_base + ULITE_STATUS);
 	return in_be32(reg_base + ULITE_RX);
 }

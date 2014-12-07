@@ -15,6 +15,15 @@
 #include <mach/msm_smem.h>
 #include "ipa_i.h"
 
+/*
+ * EP0 (teth)
+ * A2_BAM(1)->(12)DMA_BAM->DMA_BAM(13)->(6)IPA_BAM->IPA_BAM(10)->USB_BAM(0)
+ * A2_BAM(0)<-(15)DMA_BAM<-DMA_BAM(14)<-(7)IPA_BAM<-IPA_BAM(11)<-USB_BAM(1)
+ *
+ * EP2 (emb)
+ * A2_BAM(5)->(16)DMA_BAM->DMA_BAM(17)->(8)IPA_BAM->
+ * A2_BAM(4)<-(19)DMA_BAM<-DMA_BAM(18)<-(9)IPA_BAM<-
+ */
 
 #define A2_TETHERED_PIPE_UL      0
 #define DMA_A2_TETHERED_PIPE_UL  15
@@ -450,6 +459,11 @@ fail_get_a2_prop:
 	return ret;
 }
 
+/**
+ * ipa_bridge_init()
+ *
+ * Return codes: 0: success, -ENOMEM: failure
+ */
 int ipa_bridge_init(void)
 {
 	int i;
@@ -468,6 +482,20 @@ int ipa_bridge_init(void)
 	return 0;
 }
 
+/**
+ * ipa_bridge_setup() - setup SW bridge leg
+ * @dir: downlink or uplink (from air interface perspective)
+ * @type: tethered or embedded bridge
+ * @props: bridge leg properties (EP config, callbacks, etc)
+ * @clnt_hdl: [out] handle of IPA EP belonging to bridge leg
+ *
+ * NOTE: IT IS CALLER'S RESPONSIBILITY TO ENSURE BAMs ARE
+ * OPERATIONAL AS LONG AS BRIDGE REMAINS UP
+ *
+ * Return codes:
+ * 0: success
+ * various negative error codes on errors
+ */
 int ipa_bridge_setup(enum ipa_bridge_dir dir, enum ipa_bridge_type type,
 		     struct ipa_sys_connect_params *props, u32 *clnt_hdl)
 {
@@ -498,6 +526,16 @@ bail_ipa:
 }
 EXPORT_SYMBOL(ipa_bridge_setup);
 
+/**
+ * ipa_bridge_teardown() - teardown SW bridge leg
+ * @dir: downlink or uplink (from air interface perspective)
+ * @type: tethered or embedded bridge
+ * @clnt_hdl: handle of IPA EP
+ *
+ * Return codes:
+ * 0: success
+ * various negative error codes on errors
+ */
 int ipa_bridge_teardown(enum ipa_bridge_dir dir, enum ipa_bridge_type type,
 			u32 clnt_hdl)
 {

@@ -14,8 +14,25 @@
 #include <asm/barrier.h>
 #include <asm/war.h>
 
+/*
+ * Your basic SMP spinlocks, allowing only a single CPU anywhere
+ *
+ * Simple spin lock operations.  There are two variants, one clears IRQ's
+ * on the local processor, one does not.
+ *
+ * These are fair FIFO ticket locks
+ *
+ * (the type definitions are in asm/spinlock_types.h)
+ */
 
 
+/*
+ * Ticket locks are conceptually two parts, one indicating the current head of
+ * the queue, and the other indicating the current tail. The lock is acquired
+ * by atomically noting the tail and incrementing it by one (thus adding
+ * ourself to the queue and noting our position), then waiting until the head
+ * becomes equal to the the initial value of the tail.
+ */
 
 static inline int arch_spin_is_locked(arch_spinlock_t *lock)
 {
@@ -186,9 +203,25 @@ static inline unsigned int arch_spin_trylock(arch_spinlock_t *lock)
 	return tmp;
 }
 
+/*
+ * Read-write spinlocks, allowing multiple readers but only one writer.
+ *
+ * NOTE! it is quite common to have readers in interrupts but no interrupt
+ * writers. For those circumstances we can "mix" irq-safe locks - any writer
+ * needs to get a irq-safe write-lock, but readers can get non-irqsafe
+ * read-locks.
+ */
 
+/*
+ * read_can_lock - would read_trylock() succeed?
+ * @lock: the rwlock in question.
+ */
 #define arch_read_can_lock(rw)	((rw)->lock >= 0)
 
+/*
+ * write_can_lock - would write_trylock() succeed?
+ * @lock: the rwlock in question.
+ */
 #define arch_write_can_lock(rw)	(!(rw)->lock)
 
 static inline void arch_read_lock(arch_rwlock_t *rw)
@@ -233,6 +266,9 @@ static inline void arch_read_lock(arch_rwlock_t *rw)
 	smp_llsc_mb();
 }
 
+/* Note the use of sub, not subu which will make the kernel die with an
+   overflow exception if we ever try to unlock an rwlock that is already
+   unlocked or is being held by a writer.  */
 static inline void arch_read_unlock(arch_rwlock_t *rw)
 {
 	unsigned int tmp;
@@ -419,4 +455,4 @@ static inline int arch_write_trylock(arch_rwlock_t *rw)
 #define arch_read_relax(lock)	cpu_relax()
 #define arch_write_relax(lock)	cpu_relax()
 
-#endif 
+#endif /* _ASM_SPINLOCK_H */

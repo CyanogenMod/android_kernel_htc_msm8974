@@ -35,12 +35,14 @@ static unsigned int trout_row_gpios[] = { 42, 41, 40, 39, 38, 37, 36 };
 static const unsigned short trout_keymap[ARRAY_SIZE(trout_col_gpios) * ARRAY_SIZE(trout_row_gpios)] = {
 	[KEYMAP_INDEX(0, 0)] = KEY_BACK,
 	[KEYMAP_INDEX(0, 1)] = KEY_HOME,
+//	[KEYMAP_INDEX(0, 2)] = KEY_,
 	[KEYMAP_INDEX(0, 3)] = KEY_BACKSPACE,
 	[KEYMAP_INDEX(0, 4)] = KEY_ENTER,
 	[KEYMAP_INDEX(0, 5)] = KEY_RIGHTALT,
 	[KEYMAP_INDEX(0, 6)] = KEY_P,
 
 	[KEYMAP_INDEX(1, 0)] = KEY_MENU,
+//	[KEYMAP_INDEX(1, 0)] = 229, // SOFT1
 	[KEYMAP_INDEX(1, 1)] = KEY_SEND,
 	[KEYMAP_INDEX(1, 2)] = KEY_END,
 	[KEYMAP_INDEX(1, 3)] = KEY_LEFTALT,
@@ -69,7 +71,7 @@ static const unsigned short trout_keymap[ARRAY_SIZE(trout_col_gpios) * ARRAY_SIZ
 	[KEYMAP_INDEX(4, 2)] = KEY_V,
 	[KEYMAP_INDEX(4, 3)] = KEY_G,
 	[KEYMAP_INDEX(4, 4)] = KEY_C,
-	
+	//[KEYMAP_INDEX(4, 5)] = KEY_,
 	[KEYMAP_INDEX(4, 6)] = KEY_T,
 
 	[KEYMAP_INDEX(5, 0)] = KEY_2,
@@ -90,7 +92,7 @@ static const unsigned short trout_keymap[ARRAY_SIZE(trout_col_gpios) * ARRAY_SIZ
 
 	[KEYMAP_INDEX(7, 0)] = KEY_3,
 	[KEYMAP_INDEX(7, 1)] = KEY_E,
-	[KEYMAP_INDEX(7, 2)] = KEY_EMAIL, 
+	[KEYMAP_INDEX(7, 2)] = KEY_EMAIL, // @
 	[KEYMAP_INDEX(7, 3)] = KEY_VOLUMEDOWN,
 	[KEYMAP_INDEX(7, 4)] = KEY_X,
 	[KEYMAP_INDEX(7, 5)] = KEY_F,
@@ -103,6 +105,7 @@ static unsigned int trout_row_gpios_evt2[] = { 42, 41, 40, 39, 38, 37, 36 };
 static const unsigned short trout_keymap_evt2_1[ARRAY_SIZE(trout_col_gpios) * ARRAY_SIZE(trout_row_gpios)] = {
 	[KEYMAP_INDEX(0, 0)] = KEY_BACK,
 	[KEYMAP_INDEX(0, 1)] = KEY_HOME,
+//	[KEYMAP_INDEX(0, 2)] = KEY_,
 	[KEYMAP_INDEX(0, 3)] = KEY_BACKSPACE,
 	[KEYMAP_INDEX(0, 4)] = KEY_ENTER,
 	[KEYMAP_INDEX(0, 5)] = KEY_RIGHTSHIFT,
@@ -110,6 +113,7 @@ static const unsigned short trout_keymap_evt2_1[ARRAY_SIZE(trout_col_gpios) * AR
 
 	[KEYMAP_INDEX(1, 0)] = KEY_MENU,
 	[KEYMAP_INDEX(1, 1)] = KEY_SEND,
+//	[KEYMAP_INDEX(1, 2)] = KEY_,
 	[KEYMAP_INDEX(1, 3)] = KEY_LEFTSHIFT,
 	[KEYMAP_INDEX(1, 4)] = KEY_A,
 	[KEYMAP_INDEX(1, 5)] = KEY_COMPOSE,
@@ -136,6 +140,7 @@ static const unsigned short trout_keymap_evt2_1[ARRAY_SIZE(trout_col_gpios) * AR
 	[KEYMAP_INDEX(4, 2)] = KEY_V,
 	[KEYMAP_INDEX(4, 3)] = KEY_G,
 	[KEYMAP_INDEX(4, 4)] = KEY_C,
+//	[KEYMAP_INDEX(4, 5)] = KEY_,
 	[KEYMAP_INDEX(4, 6)] = KEY_T,
 
 	[KEYMAP_INDEX(5, 0)] = KEY_2,
@@ -156,7 +161,7 @@ static const unsigned short trout_keymap_evt2_1[ARRAY_SIZE(trout_col_gpios) * AR
 
 	[KEYMAP_INDEX(7, 0)] = KEY_3,
 	[KEYMAP_INDEX(7, 1)] = KEY_E,
-	[KEYMAP_INDEX(7, 2)] = KEY_EMAIL, 
+	[KEYMAP_INDEX(7, 2)] = KEY_EMAIL, // @
 	[KEYMAP_INDEX(7, 3)] = KEY_VOLUMEDOWN,
 	[KEYMAP_INDEX(7, 4)] = KEY_X,
 	[KEYMAP_INDEX(7, 5)] = KEY_F,
@@ -166,16 +171,18 @@ static const unsigned short trout_keymap_evt2_1[ARRAY_SIZE(trout_col_gpios) * AR
 static const unsigned short trout_keymap_evt2_2[ARRAY_SIZE(trout_col_gpios) * ARRAY_SIZE(trout_row_gpios)] = {
 	[KEYMAP_INDEX(0, 0)] = KEY_BACK,
 	[KEYMAP_INDEX(0, 1)] = KEY_HOME,
+//	[KEYMAP_INDEX(0, 2)] = KEY_,
 	[KEYMAP_INDEX(0, 3)] = KEY_BACKSPACE,
 	[KEYMAP_INDEX(0, 4)] = KEY_ENTER,
 	[KEYMAP_INDEX(0, 5)] = KEY_RIGHTSHIFT,
 	[KEYMAP_INDEX(0, 6)] = KEY_P,
 
-	[KEYMAP_INDEX(1, 0)] = KEY_MENU, 
+	[KEYMAP_INDEX(1, 0)] = KEY_MENU, /* external menu key */
 	[KEYMAP_INDEX(1, 1)] = KEY_SEND,
+//	[KEYMAP_INDEX(1, 2)] = KEY_,
 	[KEYMAP_INDEX(1, 3)] = KEY_LEFTSHIFT,
 	[KEYMAP_INDEX(1, 4)] = KEY_A,
-	[KEYMAP_INDEX(1, 5)] = KEY_F1, 
+	[KEYMAP_INDEX(1, 5)] = KEY_F1, /* qwerty menu key */
 	[KEYMAP_INDEX(1, 6)] = KEY_Q,
 
 	[KEYMAP_INDEX(2, 0)] = KEY_U,
@@ -199,7 +206,7 @@ static const unsigned short trout_keymap_evt2_2[ARRAY_SIZE(trout_col_gpios) * AR
 	[KEYMAP_INDEX(4, 2)] = KEY_V,
 	[KEYMAP_INDEX(4, 3)] = KEY_G,
 	[KEYMAP_INDEX(4, 4)] = KEY_C,
-	[KEYMAP_INDEX(4, 5)] = KEY_EMAIL, 
+	[KEYMAP_INDEX(4, 5)] = KEY_EMAIL, // @
 	[KEYMAP_INDEX(4, 6)] = KEY_T,
 
 	[KEYMAP_INDEX(5, 0)] = KEY_2,
@@ -236,18 +243,18 @@ static struct gpio_event_matrix_info trout_keypad_matrix_info = {
 	.ninputs = ARRAY_SIZE(trout_row_gpios),
 	.settle_time.tv.nsec = 40 * NSEC_PER_USEC,
 	.poll_time.tv.nsec = 20 * NSEC_PER_MSEC,
-	.flags = GPIOKPF_LEVEL_TRIGGERED_IRQ | GPIOKPF_REMOVE_PHANTOM_KEYS |GPIOKPF_PRINT_UNMAPPED_KEYS 
+	.flags = GPIOKPF_LEVEL_TRIGGERED_IRQ | GPIOKPF_REMOVE_PHANTOM_KEYS |GPIOKPF_PRINT_UNMAPPED_KEYS /*| GPIOKPF_PRINT_MAPPED_KEYS*/
 };
 
 static struct gpio_event_direct_entry trout_keypad_nav_map[] = {
 	{ TROUT_POWER_KEY,              KEY_POWER    },
-	{ TROUT_GPIO_CAM_BTN_STEP1_N,   KEY_CAMERA-1 }, 
+	{ TROUT_GPIO_CAM_BTN_STEP1_N,   KEY_CAMERA-1 }, //steal KEY_HP
 	{ TROUT_GPIO_CAM_BTN_STEP2_N,   KEY_CAMERA   },
 };
 
 static struct gpio_event_direct_entry trout_keypad_nav_map_evt2[] = {
 	{ TROUT_POWER_KEY,              KEY_END      },
-	{ TROUT_GPIO_CAM_BTN_STEP1_N,   KEY_CAMERA-1 }, 
+	{ TROUT_GPIO_CAM_BTN_STEP1_N,   KEY_CAMERA-1 }, //steal KEY_HP
 	{ TROUT_GPIO_CAM_BTN_STEP2_N,   KEY_CAMERA   },
 };
 
@@ -298,32 +305,32 @@ static int __init trout_init_keypad(void)
 
 	switch (system_rev) {
 	case 0:
-		
+		/* legacy default keylayout */
 		break;
 	case 1:
-		
+		/* v1 has a new keyboard layout */
 		trout_keypad_matrix_info.keymap = trout_keymap_evt2_1;
 		trout_keypad_matrix_info.output_gpios = trout_col_gpios_evt2;
 		trout_keypad_matrix_info.input_gpios = trout_row_gpios_evt2;
 		
-		
+		/* v1 has new direct keys */
 		trout_keypad_nav_info.keymap = trout_keypad_nav_map_evt2;
 		trout_keypad_nav_info.keymap_size = ARRAY_SIZE(trout_keypad_nav_map_evt2);
 
-		
+		/* userspace needs to know about these changes as well */
 		trout_keypad_data.name = "trout-keypad-v2";
 		break;
-	default: 
-		
+	default: /* 2, 3, 4 currently */
+		/* v2 has a new keyboard layout */
 		trout_keypad_matrix_info.keymap = trout_keymap_evt2_2;
 		trout_keypad_matrix_info.output_gpios = trout_col_gpios_evt2;
 		trout_keypad_matrix_info.input_gpios = trout_row_gpios_evt2;
 		
-		
+		/* v2 has new direct keys */
 		trout_keypad_nav_info.keymap = trout_keypad_nav_map_evt2;
 		trout_keypad_nav_info.keymap_size = ARRAY_SIZE(trout_keypad_nav_map_evt2);
 
-		
+		/* userspace needs to know about these changes as well */
 		if (!strcmp(keycaps, "qwertz")) {
 			trout_keypad_data.name = "trout-keypad-qwertz";
 		} else {

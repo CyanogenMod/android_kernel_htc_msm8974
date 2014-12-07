@@ -16,7 +16,7 @@
 enum {
 	UNUSED = 0,
 
-	
+	/* interrupt sources */
 	IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7,
 	IRQ8, IRQ9, IRQ10, IRQ11, IRQ12, IRQ13, IRQ14, IRQ15,
 
@@ -28,7 +28,7 @@ enum {
 	MTU2_GROUP1, MTU2_GROUP2, MTU2_GROUP3, MTU2_GROUP4, MTU2_GROUP5,
 	MTU2_TGI3B, MTU2_TGI3C,
 
-	
+	/* interrupt groups */
 	PINT,
 };
 
@@ -85,28 +85,28 @@ static struct intc_group groups[] __initdata = {
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xfffd9418, 0, 16, 4,  { IRQ0, IRQ1, IRQ2, IRQ3 } },
-	{ 0xfffd941a, 0, 16, 4,  { IRQ4, IRQ5, IRQ6, IRQ7 } },
-	{ 0xfffd941c, 0, 16, 4,  { IRQ8, IRQ9, IRQ10, IRQ11 } },
-	{ 0xfffd941e, 0, 16, 4,  { IRQ12, IRQ13, IRQ14, IRQ15 } },
-	{ 0xfffd9420, 0, 16, 4,  { PINT, 0, 0, 0 } },
-	{ 0xfffd9800, 0, 16, 4,  { } },
-	{ 0xfffd9802, 0, 16, 4,  { } },
-	{ 0xfffd9804, 0, 16, 4,  { } },
-	{ 0xfffd9806, 0, 16, 4,  { } },
-	{ 0xfffd9808, 0, 16, 4,  { } },
-	{ 0xfffd980a, 0, 16, 4,  { } },
-	{ 0xfffd980c, 0, 16, 4,  { } },
-	{ 0xfffd980e, 0, 16, 4,  { } },
-	{ 0xfffd9810, 0, 16, 4,  { 0, 0, 0, SCIF0 } },
-	{ 0xfffd9812, 0, 16, 4, 
+	{ 0xfffd9418, 0, 16, 4, /* IPR01 */ { IRQ0, IRQ1, IRQ2, IRQ3 } },
+	{ 0xfffd941a, 0, 16, 4, /* IPR02 */ { IRQ4, IRQ5, IRQ6, IRQ7 } },
+	{ 0xfffd941c, 0, 16, 4, /* IPR03 */ { IRQ8, IRQ9, IRQ10, IRQ11 } },
+	{ 0xfffd941e, 0, 16, 4, /* IPR04 */ { IRQ12, IRQ13, IRQ14, IRQ15 } },
+	{ 0xfffd9420, 0, 16, 4, /* IPR05 */ { PINT, 0, 0, 0 } },
+	{ 0xfffd9800, 0, 16, 4, /* IPR06 */ { } },
+	{ 0xfffd9802, 0, 16, 4, /* IPR07 */ { } },
+	{ 0xfffd9804, 0, 16, 4, /* IPR08 */ { } },
+	{ 0xfffd9806, 0, 16, 4, /* IPR09 */ { } },
+	{ 0xfffd9808, 0, 16, 4, /* IPR10 */ { } },
+	{ 0xfffd980a, 0, 16, 4, /* IPR11 */ { } },
+	{ 0xfffd980c, 0, 16, 4, /* IPR12 */ { } },
+	{ 0xfffd980e, 0, 16, 4, /* IPR13 */ { } },
+	{ 0xfffd9810, 0, 16, 4, /* IPR14 */ { 0, 0, 0, SCIF0 } },
+	{ 0xfffd9812, 0, 16, 4, /* IPR15 */
 		{ SCIF1, MTU2_GROUP1, MTU2_GROUP2, MTU2_GROUP3 } },
-	{ 0xfffd9814, 0, 16, 4, 
+	{ 0xfffd9814, 0, 16, 4, /* IPR16 */
 		{ MTU2_TGI3B, MTU2_TGI3C, MTU2_GROUP4, MTU2_GROUP5 } },
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xfffd9408, 0, 16, 
+	{ 0xfffd9408, 0, 16, /* PINTER */
 	  { 0, 0, 0, 0, 0, 0, 0, 0,
 	    PINT7, PINT6, PINT5, PINT4, PINT3, PINT2, PINT1, PINT0 } },
 };

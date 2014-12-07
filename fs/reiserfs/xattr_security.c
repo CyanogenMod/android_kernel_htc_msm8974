@@ -50,6 +50,9 @@ static size_t security_list(struct dentry *dentry, char *list, size_t list_len,
 	return len;
 }
 
+/* Initializes the security context for a new inode and returns the number
+ * of blocks needed for the transaction. If successful, reiserfs_security
+ * must be released using reiserfs_security_free when the caller is done. */
 int reiserfs_security_init(struct inode *dir, struct inode *inode,
 			   const struct qstr *qstr,
 			   struct reiserfs_security_handle *sec)
@@ -59,7 +62,7 @@ int reiserfs_security_init(struct inode *dir, struct inode *inode,
 
 	sec->name = NULL;
 
-	
+	/* Don't add selinux attributes on xattrs - they'll never get used */
 	if (IS_PRIVATE(dir))
 		return 0;
 
@@ -78,6 +81,8 @@ int reiserfs_security_init(struct inode *dir, struct inode *inode,
 	if (sec->length && reiserfs_xattrs_initialized(inode->i_sb)) {
 		blocks = reiserfs_xattr_jcreate_nblocks(inode) +
 			 reiserfs_xattr_nblocks(inode, sec->length);
+		/* We don't want to count the directories twice if we have
+		 * a default ACL. */
 		REISERFS_I(inode)->i_flags |= i_has_xattr_dir;
 	}
 	return blocks;

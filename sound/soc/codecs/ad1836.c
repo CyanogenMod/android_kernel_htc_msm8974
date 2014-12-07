@@ -27,10 +27,14 @@ enum ad1836_type {
 	AD1838,
 };
 
+/* codec private data */
 struct ad1836_priv {
 	enum ad1836_type type;
 };
 
+/*
+ * AD1836 volume/mute/de-emphasis etc. controls
+ */
 static const char *ad1836_deemp[] = {"None", "44.1kHz", "32kHz", "48kHz"};
 
 static const struct soc_enum ad1836_deemp_enum =
@@ -90,11 +94,11 @@ static const struct snd_soc_dapm_route ad183x_adc_routes[] = {
 };
 
 static const struct snd_kcontrol_new ad183x_controls[] = {
-	
+	/* ADC high-pass filter */
 	SOC_SINGLE("ADC High Pass Filter Switch", AD1836_ADC_CTRL1,
 			AD1836_ADC_HIGHPASS_FILTER, 1, 0),
 
-	
+	/* DAC de-emphasis */
 	SOC_ENUM("Playback Deemphasis", ad1836_deemp_enum),
 };
 
@@ -118,11 +122,17 @@ static const struct snd_kcontrol_new ad1836_controls[] = {
 	    ad1836_in_tlv),
 };
 
+/*
+ * DAI ops entries
+ */
 
 static int ad1836_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		unsigned int fmt)
 {
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
+	/* at present, we support adc aux mode to interface with
+	 * blackfin sport tdm mode
+	 */
 	case SND_SOC_DAIFMT_DSP_A:
 		break;
 	default:
@@ -137,7 +147,7 @@ static int ad1836_set_dai_fmt(struct snd_soc_dai *codec_dai,
 	}
 
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
-	
+	/* ALCLK,ABCLK are both output, AD1836 can only be master */
 	case SND_SOC_DAIFMT_CBM_CFM:
 		break;
 	default:
@@ -156,7 +166,7 @@ static int ad1836_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_codec *codec = rtd->codec;
 
-	
+	/* bit size */
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 		word_len = AD1836_WORD_LEN_16;
@@ -215,14 +225,14 @@ static struct snd_soc_dai_driver ad183x_dais[] = {
 #ifdef CONFIG_PM
 static int ad1836_suspend(struct snd_soc_codec *codec)
 {
-	
+	/* reset clock control mode */
 	return snd_soc_update_bits(codec, AD1836_ADC_CTRL2,
 		AD1836_ADC_SERFMT_MASK, 0);
 }
 
 static int ad1836_resume(struct snd_soc_codec *codec)
 {
-	
+	/* restore clock control mode */
 	return snd_soc_update_bits(codec, AD1836_ADC_CTRL2,
 		AD1836_ADC_SERFMT_MASK, AD1836_ADC_AUX);
 }
@@ -249,23 +259,23 @@ static int ad1836_probe(struct snd_soc_codec *codec)
 		return ret;
 	}
 
-	
-	
+	/* default setting for ad1836 */
+	/* de-emphasis: 48kHz, power-on dac */
 	snd_soc_write(codec, AD1836_DAC_CTRL1, 0x300);
-	
+	/* unmute dac channels */
 	snd_soc_write(codec, AD1836_DAC_CTRL2, 0x0);
-	
+	/* high-pass filter enable, power-on adc */
 	snd_soc_write(codec, AD1836_ADC_CTRL1, 0x100);
-	
+	/* unmute adc channles, adc aux mode */
 	snd_soc_write(codec, AD1836_ADC_CTRL2, 0x180);
-	
+	/* volume */
 	for (i = 1; i <= num_dacs; ++i) {
 		snd_soc_write(codec, AD1836_DAC_L_VOL(i), 0x3FF);
 		snd_soc_write(codec, AD1836_DAC_R_VOL(i), 0x3FF);
 	}
 
 	if (ad1836->type == AD1836) {
-		
+		/* left/right diff:PGA/MUX */
 		snd_soc_write(codec, AD1836_ADC_CTRL3, 0x3A);
 		ret = snd_soc_add_codec_controls(codec, ad1836_controls,
 				ARRAY_SIZE(ad1836_controls));
@@ -302,9 +312,10 @@ static int ad1836_probe(struct snd_soc_codec *codec)
 	return ret;
 }
 
+/* power down chip */
 static int ad1836_remove(struct snd_soc_codec *codec)
 {
-	
+	/* reset clock control mode */
 	return snd_soc_update_bits(codec, AD1836_ADC_CTRL2,
 		AD1836_ADC_SERFMT_MASK, 0);
 }

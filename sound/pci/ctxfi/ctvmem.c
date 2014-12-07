@@ -24,6 +24,10 @@
 #define CT_PTES_PER_PAGE (CT_PAGE_SIZE / sizeof(void *))
 #define CT_ADDRS_PER_PAGE (CT_PTES_PER_PAGE * CT_PAGE_SIZE)
 
+/* *
+ * Find or create vm block based on requested @size.
+ * @size must be page aligned.
+ * */
 static struct ct_vm_block *
 get_vm_block(struct ct_vm *vm, unsigned int size)
 {
@@ -41,13 +45,13 @@ get_vm_block(struct ct_vm *vm, unsigned int size)
 	list_for_each(pos, &vm->unused) {
 		entry = list_entry(pos, struct ct_vm_block, list);
 		if (entry->size >= size)
-			break; 
+			break; /* found a block that is big enough */
 	}
 	if (pos == &vm->unused)
 		goto out;
 
 	if (entry->size == size) {
-		
+		/* Move the vm node from unused list to used list directly */
 		list_move(&entry->list, &vm->used);
 		vm->size -= size;
 		block = entry;
@@ -84,7 +88,7 @@ static void put_vm_block(struct ct_vm *vm, struct ct_vm_block *block)
 	list_for_each(pos, &vm->unused) {
 		entry = list_entry(pos, struct ct_vm_block, list);
 		if (entry->addr >= (block->addr + block->size))
-			break; 
+			break; /* found a position */
 	}
 	if (pos == &vm->unused) {
 		list_add_tail(&block->list, &vm->unused);
@@ -117,6 +121,7 @@ static void put_vm_block(struct ct_vm *vm, struct ct_vm_block *block)
 	mutex_unlock(&vm->lock);
 }
 
+/* Map host addr (kmalloced/vmalloced) to device logical addr. */
 static struct ct_vm_block *
 ct_vm_map(struct ct_vm *vm, struct snd_pcm_substream *substream, int size)
 {
@@ -147,10 +152,15 @@ ct_vm_map(struct ct_vm *vm, struct snd_pcm_substream *substream, int size)
 
 static void ct_vm_unmap(struct ct_vm *vm, struct ct_vm_block *block)
 {
-	
+	/* do unmapping */
 	put_vm_block(vm, block);
 }
 
+/* *
+ * return the host physical addr of the @index-th device
+ * page table page on success, or ~0UL on failure.
+ * The first returned ~0UL indicates the termination.
+ * */
 static dma_addr_t
 ct_get_ptp_phys(struct ct_vm *vm, int index)
 {
@@ -175,7 +185,7 @@ int ct_vm_create(struct ct_vm **rvm, struct pci_dev *pci)
 
 	mutex_init(&vm->lock);
 
-	
+	/* Allocate page table pages */
 	for (i = 0; i < CT_PTP_NUM; i++) {
 		err = snd_dma_alloc_pages(SNDRV_DMA_TYPE_DEV,
 					  snd_dma_pci_data(pci),
@@ -184,7 +194,7 @@ int ct_vm_create(struct ct_vm **rvm, struct pci_dev *pci)
 			break;
 	}
 	if (err < 0) {
-		
+		/* no page table pages are allocated */
 		ct_vm_destroy(vm);
 		return -ENOMEM;
 	}
@@ -205,13 +215,15 @@ int ct_vm_create(struct ct_vm **rvm, struct pci_dev *pci)
 	return 0;
 }
 
+/* The caller must ensure no mapping pages are being used
+ * by hardware before calling this function */
 void ct_vm_destroy(struct ct_vm *vm)
 {
 	int i;
 	struct list_head *pos;
 	struct ct_vm_block *entry;
 
-	
+	/* free used and unused list nodes */
 	while (!list_empty(&vm->used)) {
 		pos = vm->used.next;
 		list_del(pos);
@@ -225,7 +237,7 @@ void ct_vm_destroy(struct ct_vm *vm)
 		kfree(entry);
 	}
 
-	
+	/* free allocated page table pages */
 	for (i = 0; i < CT_PTP_NUM; i++)
 		snd_dma_free_pages(&vm->ptp[i]);
 

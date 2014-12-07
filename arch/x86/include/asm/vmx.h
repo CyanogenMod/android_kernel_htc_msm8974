@@ -27,6 +27,9 @@
 
 #include <linux/types.h>
 
+/*
+ * Definitions of Primary Processor-Based VM-Execution Controls.
+ */
 #define CPU_BASED_VIRTUAL_INTR_PENDING          0x00000004
 #define CPU_BASED_USE_TSC_OFFSETING             0x00000008
 #define CPU_BASED_HLT_EXITING                   0x00000080
@@ -47,6 +50,9 @@
 #define CPU_BASED_MONITOR_EXITING               0x20000000
 #define CPU_BASED_PAUSE_EXITING                 0x40000000
 #define CPU_BASED_ACTIVATE_SECONDARY_CONTROLS   0x80000000
+/*
+ * Definitions of Secondary Processor-Based VM-Execution Controls.
+ */
 #define SECONDARY_EXEC_VIRTUALIZE_APIC_ACCESSES 0x00000001
 #define SECONDARY_EXEC_ENABLE_EPT               0x00000002
 #define SECONDARY_EXEC_RDTSCP			0x00000008
@@ -78,6 +84,7 @@
 #define VM_ENTRY_LOAD_IA32_PAT			0x00004000
 #define VM_ENTRY_LOAD_IA32_EFER                 0x00008000
 
+/* VMCS Encodings */
 enum vmcs_field {
 	VIRTUAL_PROCESSOR_ID            = 0x00000000,
 	GUEST_ES_SELECTOR               = 0x00000800,
@@ -275,11 +282,14 @@ enum vmcs_field {
 #define EXIT_REASON_WBINVD		54
 #define EXIT_REASON_XSETBV		55
 
-#define INTR_INFO_VECTOR_MASK           0xff            
-#define INTR_INFO_INTR_TYPE_MASK        0x700           
-#define INTR_INFO_DELIVER_CODE_MASK     0x800           
-#define INTR_INFO_UNBLOCK_NMI		0x1000		
-#define INTR_INFO_VALID_MASK            0x80000000      
+/*
+ * Interruption-information format
+ */
+#define INTR_INFO_VECTOR_MASK           0xff            /* 7:0 */
+#define INTR_INFO_INTR_TYPE_MASK        0x700           /* 10:8 */
+#define INTR_INFO_DELIVER_CODE_MASK     0x800           /* 11 */
+#define INTR_INFO_UNBLOCK_NMI		0x1000		/* 12 */
+#define INTR_INFO_VALID_MASK            0x80000000      /* 31 */
 #define INTR_INFO_RESVD_BITS_MASK       0x7ffff000
 
 #define VECTORING_INFO_VECTOR_MASK           	INTR_INFO_VECTOR_MASK
@@ -287,27 +297,32 @@ enum vmcs_field {
 #define VECTORING_INFO_DELIVER_CODE_MASK    	INTR_INFO_DELIVER_CODE_MASK
 #define VECTORING_INFO_VALID_MASK       	INTR_INFO_VALID_MASK
 
-#define INTR_TYPE_EXT_INTR              (0 << 8) 
-#define INTR_TYPE_NMI_INTR		(2 << 8) 
-#define INTR_TYPE_HARD_EXCEPTION	(3 << 8) 
-#define INTR_TYPE_SOFT_INTR             (4 << 8) 
-#define INTR_TYPE_SOFT_EXCEPTION	(6 << 8) 
+#define INTR_TYPE_EXT_INTR              (0 << 8) /* external interrupt */
+#define INTR_TYPE_NMI_INTR		(2 << 8) /* NMI */
+#define INTR_TYPE_HARD_EXCEPTION	(3 << 8) /* processor exception */
+#define INTR_TYPE_SOFT_INTR             (4 << 8) /* software interrupt */
+#define INTR_TYPE_SOFT_EXCEPTION	(6 << 8) /* software exception */
 
+/* GUEST_INTERRUPTIBILITY_INFO flags. */
 #define GUEST_INTR_STATE_STI		0x00000001
 #define GUEST_INTR_STATE_MOV_SS		0x00000002
 #define GUEST_INTR_STATE_SMI		0x00000004
 #define GUEST_INTR_STATE_NMI		0x00000008
 
+/* GUEST_ACTIVITY_STATE flags */
 #define GUEST_ACTIVITY_ACTIVE		0
 #define GUEST_ACTIVITY_HLT		1
 #define GUEST_ACTIVITY_SHUTDOWN		2
 #define GUEST_ACTIVITY_WAIT_SIPI	3
 
-#define CONTROL_REG_ACCESS_NUM          0x7     
-#define CONTROL_REG_ACCESS_TYPE         0x30    
-#define CONTROL_REG_ACCESS_REG          0xf00   
+/*
+ * Exit Qualifications for MOV for Control Register Access
+ */
+#define CONTROL_REG_ACCESS_NUM          0x7     /* 2:0, number of control reg.*/
+#define CONTROL_REG_ACCESS_TYPE         0x30    /* 5:4, access type */
+#define CONTROL_REG_ACCESS_REG          0xf00   /* 10:8, general purpose reg. */
 #define LMSW_SOURCE_DATA_SHIFT 16
-#define LMSW_SOURCE_DATA  (0xFFFF << LMSW_SOURCE_DATA_SHIFT) 
+#define LMSW_SOURCE_DATA  (0xFFFF << LMSW_SOURCE_DATA_SHIFT) /* 16:31 lmsw source */
 #define REG_EAX                         (0 << 8)
 #define REG_ECX                         (1 << 8)
 #define REG_EDX                         (2 << 8)
@@ -325,15 +340,21 @@ enum vmcs_field {
 #define REG_R14                        (14 << 8)
 #define REG_R15                        (15 << 8)
 
-#define DEBUG_REG_ACCESS_NUM            0x7     
-#define DEBUG_REG_ACCESS_TYPE           0x10    
+/*
+ * Exit Qualifications for MOV for Debug Register Access
+ */
+#define DEBUG_REG_ACCESS_NUM            0x7     /* 2:0, number of debug reg. */
+#define DEBUG_REG_ACCESS_TYPE           0x10    /* 4, direction of access */
 #define TYPE_MOV_TO_DR                  (0 << 4)
 #define TYPE_MOV_FROM_DR                (1 << 4)
-#define DEBUG_REG_ACCESS_REG(eq)        (((eq) >> 8) & 0xf) 
+#define DEBUG_REG_ACCESS_REG(eq)        (((eq) >> 8) & 0xf) /* 11:8, general purpose reg. */
 
 
-#define APIC_ACCESS_OFFSET              0xfff   
-#define APIC_ACCESS_TYPE                0xf000  
+/*
+ * Exit Qualifications for APIC-Access
+ */
+#define APIC_ACCESS_OFFSET              0xfff   /* 11:0, offset within the APIC page */
+#define APIC_ACCESS_TYPE                0xf000  /* 15:12, access type */
 #define TYPE_LINEAR_APIC_INST_READ      (0 << 12)
 #define TYPE_LINEAR_APIC_INST_WRITE     (1 << 12)
 #define TYPE_LINEAR_APIC_INST_FETCH     (2 << 12)
@@ -341,6 +362,7 @@ enum vmcs_field {
 #define TYPE_PHYSICAL_APIC_EVENT        (10 << 12)
 #define TYPE_PHYSICAL_APIC_INST         (15 << 12)
 
+/* segment AR */
 #define SEGMENT_AR_L_MASK (1 << 13)
 
 #define AR_TYPE_ACCESSES_MASK 1
@@ -386,8 +408,8 @@ enum vmcs_field {
 #define VMX_EPT_EXTENT_CONTEXT_BIT		(1ull << 25)
 #define VMX_EPT_EXTENT_GLOBAL_BIT		(1ull << 26)
 
-#define VMX_VPID_EXTENT_SINGLE_CONTEXT_BIT      (1ull << 9) 
-#define VMX_VPID_EXTENT_GLOBAL_CONTEXT_BIT      (1ull << 10) 
+#define VMX_VPID_EXTENT_SINGLE_CONTEXT_BIT      (1ull << 9) /* (41 - 32) */
+#define VMX_VPID_EXTENT_GLOBAL_CONTEXT_BIT      (1ull << 10) /* (42 - 32) */
 
 #define VMX_EPT_DEFAULT_GAW			3
 #define VMX_EPT_MAX_GAW				0x4
@@ -420,11 +442,17 @@ struct vmx_msr_entry {
 	u64 value;
 } __aligned(16);
 
+/*
+ * Exit Qualifications for entry failure during or after loading guest state
+ */
 #define ENTRY_FAIL_DEFAULT		0
 #define ENTRY_FAIL_PDPTE		2
 #define ENTRY_FAIL_NMI			3
 #define ENTRY_FAIL_VMCS_LINK_PTR	4
 
+/*
+ * VM-instruction error numbers
+ */
 enum vm_instruction_error_number {
 	VMXERR_VMCALL_IN_VMX_ROOT_OPERATION = 1,
 	VMXERR_VMCLEAR_INVALID_ADDRESS = 2,

@@ -1,6 +1,6 @@
 /* include/asm-arm/arch-msm/usbdiag.h
  *
- * Copyright (c) 2008-2010, 2012, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2008-2010, 2012-2013,The Linux Foundation. All rights reserved.
  *
  * All source code in this file is licensed under the following license except
  * where indicated.
@@ -24,6 +24,7 @@
 #include <linux/err.h>
 
 
+/*DRIVER_DIAG_FUNCTION*/
 #define DIAG_ERR(fmt, args...) \
 	printk(KERN_ERR "[USBDIAG:ERR] " fmt, ## args)
 #define DIAG_WARNING(fmt, args...) \
@@ -33,6 +34,7 @@
 #define DIAG_DBUG(fmt, args...) \
 	printk(KERN_DEBUG "[USBDIAG] " fmt, ## args)
 
+/*DRIVER_DIAGFWD_FUNCTION*/
 #define DIAGFWD_ERR(fmt, args...) \
 	printk(KERN_ERR "[USBDIAG:ERR] " fmt, ## args)
 #define DIAGFWD_WARNING(fmt, args...) \
@@ -42,6 +44,7 @@
 #define DIAGFWD_DBUG(fmt, args...) \
 	printk(KERN_DEBUG "[USBDIAG] " fmt, ## args)
 
+/* DRIVER_SDLOG_FUNCTION*/
 #define SDLOG_ERR(fmt, args...) \
 	printk(KERN_ERR "[USBDIAG:ERR] " fmt, ## args)
 #define SDLOG_WARNING(fmt, args...) \
@@ -51,6 +54,7 @@
 #define SDLOG_DBUG(fmt, args...) \
 	printk(KERN_DEBUG "[USBDIAG] " fmt, ## args)
 
+/* #define SDQXDM_DEBUG */
 #define DIAG_XPST 1
 
 #define DIAG_LEGACY		"diag"
@@ -84,7 +88,6 @@ struct usb_diag_ch *usb_diag_open(const char *name, void *priv,
 		void (*notify)(void *, unsigned, struct diag_request *));
 void usb_diag_close(struct usb_diag_ch *ch);
 int usb_diag_alloc_req(struct usb_diag_ch *ch, int n_write, int n_read);
-void usb_diag_free_req(struct usb_diag_ch *ch);
 int usb_diag_read(struct usb_diag_ch *ch, struct diag_request *d_req);
 int usb_diag_write(struct usb_diag_ch *ch, struct diag_request *d_req);
 #else
@@ -101,9 +104,6 @@ int usb_diag_alloc_req(struct usb_diag_ch *ch, int n_write, int n_read)
 {
 	return -ENODEV;
 }
-static inline void usb_diag_free_req(struct usb_diag_ch *ch)
-{
-}
 static inline
 int usb_diag_read(struct usb_diag_ch *ch, struct diag_request *d_req)
 {
@@ -114,10 +114,10 @@ int usb_diag_write(struct usb_diag_ch *ch, struct diag_request *d_req)
 {
 	return -ENODEV;
 }
-#endif 
+#endif /* CONFIG_USB_G_ANDROID */
 int checkcmd_modem_epst(unsigned char *buf);
 int modem_to_userspace(void *buf, int r, int cmdtype, int is9k);
 extern int sdio_diag_initialized;
 extern int smd_diag_initialized;
 
-#endif 
+#endif /* _DRIVERS_USB_DIAG_H_ */

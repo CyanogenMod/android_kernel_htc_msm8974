@@ -89,17 +89,33 @@ tee_tg4(struct sk_buff *skb, const struct xt_action_param *par)
 
 	if (percpu_read(tee_active))
 		return XT_CONTINUE;
+	/*
+	 * Copy the skb, and route the copy. Will later return %XT_CONTINUE for
+	 * the original skb, which should continue on its way as if nothing has
+	 * happened. The copy should be independently delivered to the TEE
+	 * --gateway.
+	 */
 	skb = pskb_copy(skb, GFP_ATOMIC);
 	if (skb == NULL)
 		return XT_CONTINUE;
 
 #ifdef WITH_CONNTRACK
-	
+	/* Avoid counting cloned packets towards the original connection. */
 	nf_conntrack_put(skb->nfct);
 	skb->nfct     = &nf_ct_untracked_get()->ct_general;
 	skb->nfctinfo = IP_CT_NEW;
 	nf_conntrack_get(skb->nfct);
 #endif
+	/*
+	 * If we are in PREROUTING/INPUT, the checksum must be recalculated
+	 * since the length could have changed as a result of defragmentation.
+	 *
+	 * We also decrease the TTL to mitigate potential TEE loops
+	 * between two hosts.
+	 *
+	 * Set %IP_DF so that the original source is notified of a potentially
+	 * decreased MTU on the clone route. IPv6 does this too.
+	 */
 	iph = ip_hdr(skb);
 	iph->frag_off |= htons(IP_DF);
 	if (par->hooknum == NF_INET_PRE_ROUTING ||
@@ -212,7 +228,7 @@ static int tee_tg_check(const struct xt_tgchk_param *par)
 	struct xt_tee_tginfo *info = par->targinfo;
 	struct xt_tee_priv *priv;
 
-	
+	/* 0.0.0.0 and :: not allowed */
 	if (memcmp(&info->gw, &tee_zero_address,
 		   sizeof(tee_zero_address)) == 0)
 		return -EINVAL;

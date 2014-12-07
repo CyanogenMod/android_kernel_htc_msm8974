@@ -1,3 +1,9 @@
+/*
+ * Trivial I/O routine definitions, intentionally meant to be included
+ * multiple times. Ugly I/O routine concatenation helpers taken from
+ * alpha. Must be included _before_ io.h to avoid preprocessor-induced
+ * routine mismatch.
+ */
 #define IO_CONCAT(a,b)	_IO_CONCAT(a,b)
 #define _IO_CONCAT(a,b)	a ## _ ## b
 

@@ -1,3 +1,4 @@
+/* /proc routines for Host AP driver */
 
 #include <linux/types.h>
 #include <linux/proc_fs.h>
@@ -49,7 +50,7 @@ static int prism2_debug_proc_read(char *page, char **start, off_t off,
 
 	return (p - page);
 }
-#endif 
+#endif /* PRISM2_NO_PROCFS_DEBUG */
 
 
 static int prism2_stats_proc_read(char *page, char **start, off_t off,
@@ -94,7 +95,7 @@ static int prism2_stats_proc_read(char *page, char **start, off_t off,
 		     sums->rx_message_in_msg_fragments);
 	p += sprintf(p, "RxMessageInBadMsgFragments=%u\n",
 		     sums->rx_message_in_bad_msg_fragments);
-	
+	/* FIX: this may grow too long for one page(?) */
 
 	return (p - page);
 }
@@ -302,7 +303,7 @@ static int prism2_io_debug_proc_read(char *page, char **start, off_t off,
 
 	return count;
 }
-#endif 
+#endif /* PRISM2_IO_DEBUG */
 
 
 #ifndef PRISM2_NO_STATION_MODES
@@ -382,7 +383,7 @@ static int prism2_scan_results_proc_read(char *page, char **start, off_t off,
 
 	return len;
 }
-#endif 
+#endif /* PRISM2_NO_STATION_MODES */
 
 
 void hostap_init_proc(local_info_t *local)
@@ -405,7 +406,7 @@ void hostap_init_proc(local_info_t *local)
 #ifndef PRISM2_NO_PROCFS_DEBUG
 	create_proc_read_entry("debug", 0, local->proc,
 			       prism2_debug_proc_read, local);
-#endif 
+#endif /* PRISM2_NO_PROCFS_DEBUG */
 	create_proc_read_entry("stats", 0, local->proc,
 			       prism2_stats_proc_read, local);
 	create_proc_read_entry("wds", 0, local->proc,
@@ -421,11 +422,11 @@ void hostap_init_proc(local_info_t *local)
 #ifdef PRISM2_IO_DEBUG
 	create_proc_read_entry("io_debug", 0, local->proc,
 			       prism2_io_debug_proc_read, local);
-#endif 
+#endif /* PRISM2_IO_DEBUG */
 #ifndef PRISM2_NO_STATION_MODES
 	create_proc_read_entry("scan_results", 0, local->proc,
 			       prism2_scan_results_proc_read, local);
-#endif 
+#endif /* PRISM2_NO_STATION_MODES */
 }
 
 
@@ -434,10 +435,10 @@ void hostap_remove_proc(local_info_t *local)
 	if (local->proc != NULL) {
 #ifndef PRISM2_NO_STATION_MODES
 		remove_proc_entry("scan_results", local->proc);
-#endif 
+#endif /* PRISM2_NO_STATION_MODES */
 #ifdef PRISM2_IO_DEBUG
 		remove_proc_entry("io_debug", local->proc);
-#endif 
+#endif /* PRISM2_IO_DEBUG */
 		remove_proc_entry("pda", local->proc);
 		remove_proc_entry("aux_dump", local->proc);
 		remove_proc_entry("wds", local->proc);
@@ -446,7 +447,7 @@ void hostap_remove_proc(local_info_t *local)
 		remove_proc_entry("crypt", local->proc);
 #ifndef PRISM2_NO_PROCFS_DEBUG
 		remove_proc_entry("debug", local->proc);
-#endif 
+#endif /* PRISM2_NO_PROCFS_DEBUG */
 		if (hostap_proc != NULL)
 			remove_proc_entry(local->proc->name, hostap_proc);
 	}

@@ -12,6 +12,11 @@
  *   more details.
  */
 
+/**
+ * @file
+ *
+ * ABI-related register definitions.
+ */
 
 #ifndef __ARCH_ABI_H__
 
@@ -20,8 +25,10 @@
 # include <arch/chip.h>
 #endif
 
+/* Provide the basic machine types. */
 #ifndef __INT_REG_BITS
 
+/** Number of bits in a register. */
 #if defined __tilegx__
 # define __INT_REG_BITS 64
 #elif defined __tilepro__
@@ -36,74 +43,99 @@
 #if __INT_REG_BITS == 64
 
 #ifndef __ASSEMBLER__
+/** Unsigned type that can hold a register. */
 typedef unsigned long long __uint_reg_t;
 
+/** Signed type that can hold a register. */
 typedef long long __int_reg_t;
 #endif
 
+/** String prefix to use for printf(). */
 #define __INT_REG_FMT "ll"
 
 #else
 
 #ifndef __ASSEMBLER__
+/** Unsigned type that can hold a register. */
 typedef unsigned long __uint_reg_t;
 
+/** Signed type that can hold a register. */
 typedef long __int_reg_t;
 #endif
 
+/** String prefix to use for printf(). */
 #define __INT_REG_FMT "l"
 
 #endif
-#endif 
+#endif /* __INT_REG_BITS */
 
 
 #ifndef __need_int_reg_t
 
 
 #ifndef __ASSEMBLER__
+/** Unsigned type that can hold a register. */
 typedef __uint_reg_t uint_reg_t;
 
+/** Signed type that can hold a register. */
 typedef __int_reg_t int_reg_t;
 #endif
 
+/** String prefix to use for printf(). */
 #define INT_REG_FMT __INT_REG_FMT
 
+/** Number of bits in a register. */
 #define INT_REG_BITS __INT_REG_BITS
 
 
+/* Registers 0 - 55 are "normal", but some perform special roles. */
 
-#define TREG_FP       52   
-#define TREG_TP       53   
-#define TREG_SP       54   
-#define TREG_LR       55   
+#define TREG_FP       52   /**< Frame pointer. */
+#define TREG_TP       53   /**< Thread pointer. */
+#define TREG_SP       54   /**< Stack pointer. */
+#define TREG_LR       55   /**< Link to calling function PC. */
 
+/** Index of last normal general-purpose register. */
 #define TREG_LAST_GPR 55
 
+/* Registers 56 - 62 are "special" network registers. */
 
-#define TREG_SN       56   
-#define TREG_IDN0     57   
-#define TREG_IDN1     58   
-#define TREG_UDN0     59   
-#define TREG_UDN1     60   
-#define TREG_UDN2     61   
-#define TREG_UDN3     62   
+#define TREG_SN       56   /**< Static network access. */
+#define TREG_IDN0     57   /**< IDN demux 0 access. */
+#define TREG_IDN1     58   /**< IDN demux 1 access. */
+#define TREG_UDN0     59   /**< UDN demux 0 access. */
+#define TREG_UDN1     60   /**< UDN demux 1 access. */
+#define TREG_UDN2     61   /**< UDN demux 2 access. */
+#define TREG_UDN3     62   /**< UDN demux 3 access. */
+
+/* Register 63 is the "special" zero register. */
+
+#define TREG_ZERO     63   /**< "Zero" register; always reads as "0". */
 
 
-#define TREG_ZERO     63   
-
-
+/** By convention, this register is used to hold the syscall number. */
 #define TREG_SYSCALL_NR      10
 
+/** Name of register that holds the syscall number, for use in assembly. */
 #define TREG_SYSCALL_NR_NAME r10
 
 
+/**
+ * The ABI requires callers to allocate a caller state save area of
+ * this many bytes at the bottom of each stack frame.
+ */
 #define C_ABI_SAVE_AREA_SIZE (2 * (INT_REG_BITS / 8))
 
+/**
+ * The operand to an 'info' opcode directing the backtracer to not
+ * try to find the calling frame.
+ */
 #define INFO_OP_CANNOT_BACKTRACE 2
 
 
-#endif 
+#endif /* !__need_int_reg_t */
 
+/* Make sure we later can get all the definitions and declarations.  */
 #undef __need_int_reg_t
 
-#endif 
+#endif /* !__ARCH_ABI_H__ */

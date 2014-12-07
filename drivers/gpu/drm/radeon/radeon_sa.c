@@ -23,6 +23,10 @@
  * of the Software.
  *
  */
+/*
+ * Authors:
+ *    Jerome Glisse <glisse@freedesktop.org>
+ */
 #include "drmP.h"
 #include "drm.h"
 #include "radeon.h"
@@ -73,7 +77,7 @@ int radeon_sa_bo_manager_start(struct radeon_device *rdev,
 		return -EINVAL;
 	}
 
-	
+	/* map the buffer */
 	r = radeon_bo_reserve(sa_manager->bo, false);
 	if (r) {
 		dev_err(rdev->dev, "(%d) failed to reserve manager bo\n", r);
@@ -109,6 +113,21 @@ int radeon_sa_bo_manager_suspend(struct radeon_device *rdev,
 	return r;
 }
 
+/*
+ * Principe is simple, we keep a list of sub allocation in offset
+ * order (first entry has offset == 0, last entry has the highest
+ * offset).
+ *
+ * When allocating new object we first check if there is room at
+ * the end total_size - (last_object_offset + last_object_size) >=
+ * alloc_size. If so we allocate new object there.
+ *
+ * When there is not enough room at the end, we start waiting for
+ * each sub object until we reach object_offset+object_size >=
+ * alloc_size, this object then become the sub object we return.
+ *
+ * Alignment can't be bigger than page size
+ */
 int radeon_sa_bo_new(struct radeon_device *rdev,
 		     struct radeon_sa_manager *sa_manager,
 		     struct radeon_sa_bo *sa_bo,
@@ -121,16 +140,16 @@ int radeon_sa_bo_new(struct radeon_device *rdev,
 	BUG_ON(align > RADEON_GPU_PAGE_SIZE);
 	BUG_ON(size > sa_manager->size);
 
-	
+	/* no one ? */
 	head = sa_manager->sa_bo.prev;
 	if (list_empty(&sa_manager->sa_bo)) {
 		goto out;
 	}
 
-	
+	/* look for a hole big enough */
 	offset = 0;
 	list_for_each_entry(tmp, &sa_manager->sa_bo, list) {
-		
+		/* room before this object ? */
 		if ((tmp->offset - offset) >= size) {
 			head = tmp->list.prev;
 			goto out;
@@ -142,7 +161,7 @@ int radeon_sa_bo_new(struct radeon_device *rdev,
 		}
 		offset += wasted;
 	}
-	
+	/* room at the end ? */
 	head = sa_manager->sa_bo.prev;
 	tmp = list_entry(head, struct radeon_sa_bo, list);
 	offset = tmp->offset + tmp->size;
@@ -152,7 +171,7 @@ int radeon_sa_bo_new(struct radeon_device *rdev,
 	}
 	offset += wasted;
 	if ((sa_manager->size - offset) < size) {
-		
+		/* failed to find somethings big enough */
 		return -ENOMEM;
 	}
 

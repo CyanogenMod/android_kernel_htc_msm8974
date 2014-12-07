@@ -3,4 +3,4 @@
 
 extern unsigned long arch_align_stack(unsigned long sp);
 
-#endif 
+#endif /* _ASM_SCORE_EXEC_H */

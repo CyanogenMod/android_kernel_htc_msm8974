@@ -782,6 +782,7 @@ void fd_install(unsigned int fd, struct file *file)
 	BUG_ON(fdt->fd[fd] != NULL);
 	rcu_assign_pointer(fdt->fd[fd], file);
 	fdt->user[fd].installer = current->pid;
+	getnstimeofday(&fdt->user[fd].open_time);
 	spin_unlock(&files->file_lock);
 }
 
@@ -950,6 +951,7 @@ int filp_close(struct file *filp, fl_owner_t id)
 		dnotify_flush(filp, id);
 		locks_remove_posix(filp, id);
 	}
+	security_file_close(filp);
 	fput(filp);
 	return retval;
 }

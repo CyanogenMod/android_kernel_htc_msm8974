@@ -20,9 +20,17 @@
 #define __ASM_ARCH_MXC_BOARD_PCM038_H__
 
 #ifndef __ASSEMBLY__
+/*
+ * This CPU module needs a baseboard to work. After basic initializing
+ * its own devices, it calls the baseboard's init function.
+ * TODO: Add your own baseboard init function and call it from
+ * inside pcm038_init().
+ *
+ * This example here is for the development board. Refer pcm970-baseboard.c
+ */
 
 extern void pcm970_baseboard_init(void);
 
 #endif
 
-#endif 
+#endif /* __ASM_ARCH_MXC_BOARD_PCM038_H__ */

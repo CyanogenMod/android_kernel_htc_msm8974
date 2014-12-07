@@ -33,6 +33,10 @@ static void rtc_device_release(struct device *dev)
 
 #if defined(CONFIG_PM) && defined(CONFIG_RTC_HCTOSYS_DEVICE)
 
+/*
+ * On suspend(), measure the delta between one RTC and the
+ * system's wall clock; restore it on resume().
+ */
 
 static struct timespec old_rtc, old_system, old_delta;
 
@@ -45,18 +49,28 @@ static int rtc_suspend(struct device *dev, pm_message_t mesg)
 	if (strcmp(dev_name(&rtc->dev), CONFIG_RTC_HCTOSYS_DEVICE) != 0)
 		return 0;
 
-	
+	/* snapshot the current RTC and system time at suspend*/
 	rtc_read_time(rtc, &tm);
 	getnstimeofday(&old_system);
 	rtc_tm_to_time(&tm, &old_rtc.tv_sec);
 
 
+	/*
+	 * To avoid drift caused by repeated suspend/resumes,
+	 * which each can add ~1 second drift error,
+	 * try to compensate so the difference in system time
+	 * and rtc time stays close to constant.
+	 */
 	delta = timespec_sub(old_system, old_rtc);
 	delta_delta = timespec_sub(delta, old_delta);
 	if (delta_delta.tv_sec < -2 || delta_delta.tv_sec >= 2) {
+		/*
+		 * if delta_delta is too large, assume time correction
+		 * has occured and set old_delta to the current delta.
+		 */
 		old_delta = delta;
 	} else {
-		
+		/* Otherwise try to adjust old_system to compensate */
 		old_system = timespec_sub(old_system, delta_delta);
 	}
 
@@ -73,7 +87,7 @@ static int rtc_resume(struct device *dev)
 	if (strcmp(dev_name(&rtc->dev), CONFIG_RTC_HCTOSYS_DEVICE) != 0)
 		return 0;
 
-	
+	/* snapshot the current rtc and system time at resume */
 	getnstimeofday(&new_system);
 	rtc_read_time(rtc, &tm);
 	if (rtc_valid_tm(&tm) != 0) {
@@ -88,9 +102,16 @@ static int rtc_resume(struct device *dev)
 		return 0;
 	}
 
-	
+	/* calculate the RTC time delta (sleep time)*/
 	sleep_time = timespec_sub(new_rtc, old_rtc);
 
+	/*
+	 * Since these RTC suspend/resume handlers are not called
+	 * at the very end of suspend or the start of resume,
+	 * some run-time may pass on either sides of the sleep time
+	 * so subtract kernel run-time between rtc_suspend to rtc_resume
+	 * to keep things accurate.
+	 */
 	sleep_time = timespec_sub(sleep_time,
 			timespec_sub(new_system, old_system));
 
@@ -105,6 +126,15 @@ static int rtc_resume(struct device *dev)
 #endif
 
 
+/**
+ * rtc_device_register - register w/ RTC class
+ * @dev: the device to register
+ *
+ * rtc_device_unregister() must be called when the class device is no
+ * longer needed.
+ *
+ * Returns the pointer to the new struct class device.
+ */
 struct rtc_device *rtc_device_register(const char *name, struct device *dev,
 					const struct rtc_class_ops *ops,
 					struct module *owner)
@@ -139,19 +169,19 @@ struct rtc_device *rtc_device_register(const char *name, struct device *dev,
 	spin_lock_init(&rtc->irq_task_lock);
 	init_waitqueue_head(&rtc->irq_queue);
 
-	
+	/* Init timerqueue */
 	timerqueue_init_head(&rtc->timerqueue);
 	INIT_WORK(&rtc->irqwork, rtc_timer_do_work);
-	
+	/* Init aie timer */
 	rtc_timer_init(&rtc->aie_timer, rtc_aie_update_irq, (void *)rtc);
-	
+	/* Init uie timer */
 	rtc_timer_init(&rtc->uie_rtctimer, rtc_uie_update_irq, (void *)rtc);
-	
+	/* Init pie timer */
 	hrtimer_init(&rtc->pie_timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 	rtc->pie_timer.function = rtc_pie_update_irq;
 	rtc->pie_enabled = 0;
 
-	
+	/* Check to see if there is an ALARM already set in hw */
 	err = __rtc_read_alarm(rtc, &alrm);
 
 	if (!err && !rtc_valid_tm(&alrm.time))
@@ -191,10 +221,18 @@ exit:
 EXPORT_SYMBOL_GPL(rtc_device_register);
 
 
+/**
+ * rtc_device_unregister - removes the previously registered RTC class device
+ *
+ * @rtc: the RTC class device to destroy
+ */
 void rtc_device_unregister(struct rtc_device *rtc)
 {
 	if (get_device(&rtc->dev) != NULL) {
 		mutex_lock(&rtc->ops_lock);
+		/* remove innards of this RTC, then disable it, before
+		 * letting any rtc_class_open() users access it again
+		 */
 		rtc_sysfs_del_device(rtc);
 		rtc_dev_del_device(rtc);
 		rtc_proc_del_device(rtc);

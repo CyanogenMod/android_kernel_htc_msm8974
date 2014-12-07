@@ -48,4 +48,4 @@ extern void mantis_gpio_set_bits(struct mantis_pci *mantis, u32 bitpos, u8 value
 
 extern int mantis_stream_control(struct mantis_pci *mantis, enum mantis_stream_control stream_ctl);
 
-#endif 
+#endif /* __MANTIS_IOC_H */

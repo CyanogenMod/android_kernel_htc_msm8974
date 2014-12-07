@@ -31,6 +31,7 @@ extern asmlinkage void fpu_save(struct fpu_state_struct *);
 #define switch_fpu(prev, next) do {} while (0)
 #endif
 
+/* context switching is now performed out-of-line in switch_to.S */
 extern asmlinkage
 struct task_struct *__switch_to(struct thread_struct *prev,
 				struct thread_struct *next,
@@ -45,4 +46,4 @@ do {									\
 	current->thread.wchan = 0;					\
 } while (0)
 
-#endif 
+#endif /* _ASM_SWITCH_TO_H */

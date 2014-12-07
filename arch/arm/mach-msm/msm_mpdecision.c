@@ -111,9 +111,9 @@ enum {
 };
 
 enum {
-	HPUPDATE_WAITING = 0, 
-	HPUPDATE_SCHEDULED = 1, 
-	HPUPDATE_IN_PROGRESS = 2, 
+	HPUPDATE_WAITING = 0, /* we are waiting for cpumask update */
+	HPUPDATE_SCHEDULED = 1, /* we are in the process of hotplugging */
+	HPUPDATE_IN_PROGRESS = 2, /* we are in the process of hotplugging */
 };
 
 static int msm_mpd_enabled = 1;
@@ -130,6 +130,14 @@ static ktime_t last_down_time;
 
 static bool ok_to_update_tz(int nr, int last_nr)
 {
+	/*
+	 * Exclude unnecessary TZ reports if run queue haven't changed much from
+	 * the last reported value. The divison by rq_avg_divide is to
+	 * filter out small changes in the run queue average which won't cause
+	 * a online cpu mask change. Also if the cpu online count does not match
+	 * the count requested by TZ and we are not in the process of bringing
+	 * cpus online as indicated by a HPUPDATE_IN_PROGRESS in msm_mpd.hpdata
+	 */
 	return
 	(((nr / msm_mpd.rq_avg_divide)
 				!= (last_nr / msm_mpd.rq_avg_divide))
@@ -147,7 +155,7 @@ static enum hrtimer_restart msm_mpd_rq_avg_poll_timer(struct hrtimer *timer)
 	enum hrtimer_restart restart = HRTIMER_RESTART;
 
 	spin_lock_irqsave(&rq_avg_lock, flags);
-	
+	/* If running on the wrong cpu, don't restart */
 	if (&per_cpu(rq_avg_poll_timer, cpu) != timer)
 		restart = HRTIMER_NORESTART;
 
@@ -178,7 +186,7 @@ static enum hrtimer_restart msm_mpd_rq_avg_poll_timer(struct hrtimer *timer)
 out:
 	hrtimer_set_expires(timer, msm_mpd.next_update);
 	spin_unlock_irqrestore(&rq_avg_lock, flags);
-	
+	/* set next expiration */
 	return restart;
 }
 
@@ -263,7 +271,7 @@ static int __ref msm_mpd_update_scm(enum msm_dcvs_scm_event event, int nr)
 	msm_mpd.hpupdate = HPUPDATE_SCHEDULED;
 	wake_up(&msm_mpd.wait_hpq);
 
-	
+	/* Start MP Decision slack timer */
 	if (slack_us) {
 		hrtimer_cancel(&msm_mpd.slack_timer);
 		ret = hrtimer_start(&msm_mpd.slack_timer,
@@ -360,6 +368,12 @@ static int __cpuinit msm_mpd_do_hotplug(void *data)
 			break;
 
 		msm_mpd.hpupdate = HPUPDATE_IN_PROGRESS;
+		/*
+		 * Bring online any offline cores, then offline any online
+		 * cores.  Whenever a core is off/onlined restart the procedure
+		 * in case a new core is desired to be brought online in the
+		 * mean time.
+		 */
 restart:
 		for_each_possible_cpu(cpu) {
 			if ((atomic_read(&msm_mpd.algo_cpu_mask) & (1 << cpu))
@@ -479,18 +493,30 @@ static int __ref msm_mpd_set_enabled(uint32_t enable)
 
 static int msm_mpd_set_rq_avg_poll_ms(uint32_t val)
 {
+	/*
+	 * No need to do anything. Just let the timer set its own next poll
+	 * interval when it next fires.
+	 */
 	msm_mpd.rq_avg_poll_ms = val;
 	return 0;
 }
 
 static int msm_mpd_set_iowait_threshold_pct(uint32_t val)
 {
+	/*
+	 * No need to do anything. Just let the timer set its own next poll
+	 * interval when it next fires.
+	 */
 	msm_mpd.iowait_threshold_pct = val;
 	return 0;
 }
 
 static int msm_mpd_set_rq_avg_divide(uint32_t val)
 {
+	/*
+	 * No need to do anything. New value will be used next time
+	 * the decision is made as to whether to update tz.
+	 */
 
 	if (val == 0)
 		return -EINVAL;

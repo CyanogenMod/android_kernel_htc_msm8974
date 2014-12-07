@@ -1,3 +1,5 @@
+/* Masquerade.  Simple mapping which alters range to a local IP address
+   (depending on route). */
 
 /* (C) 1999-2001 Paul `Rusty' Russell
  * (C) 2002-2006 Netfilter Core Team <coreteam@netfilter.org>
@@ -25,6 +27,7 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Netfilter Core Team <coreteam@netfilter.org>");
 MODULE_DESCRIPTION("Xtables: automatic-address SNAT");
 
+/* FIXME: Multiple targets. --RR */
 static int masquerade_tg_check(const struct xt_tgchk_param *par)
 {
 	const struct nf_nat_ipv4_multi_range_compat *mr = par->targinfo;
@@ -64,6 +67,9 @@ masquerade_tg(struct sk_buff *skb, const struct xt_action_param *par)
 	NF_CT_ASSERT(ct && (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED ||
 			    ctinfo == IP_CT_RELATED_REPLY));
 
+	/* Source address is 0.0.0.0 - locally generated packet that is
+	 * probably not supposed to be masqueraded.
+	 */
 	if (ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple.src.u3.ip == 0)
 		return NF_ACCEPT;
 
@@ -77,13 +83,13 @@ masquerade_tg(struct sk_buff *skb, const struct xt_action_param *par)
 
 	nat->masq_index = par->out->ifindex;
 
-	
+	/* Transfer from original range. */
 	newrange = ((struct nf_nat_ipv4_range)
 		{ mr->range[0].flags | NF_NAT_RANGE_MAP_IPS,
 		  newsrc, newsrc,
 		  mr->range[0].min, mr->range[0].max });
 
-	
+	/* Hand modified range to generic setup. */
 	return nf_nat_setup_info(ct, &newrange, NF_NAT_MANIP_SRC);
 }
 
@@ -106,6 +112,9 @@ static int masq_device_event(struct notifier_block *this,
 	struct net *net = dev_net(dev);
 
 	if (event == NETDEV_DOWN) {
+		/* Device was downed.  Search entire table for
+		   conntracks which were associated with that device,
+		   and forget them. */
 		NF_CT_ASSERT(dev->ifindex != 0);
 
 		nf_ct_iterate_cleanup(net, device_cmp,
@@ -149,9 +158,9 @@ static int __init masquerade_tg_init(void)
 	ret = xt_register_target(&masquerade_tg_reg);
 
 	if (ret == 0) {
-		
+		/* Register for device down reports */
 		register_netdevice_notifier(&masq_dev_notifier);
-		
+		/* Register IP address change reports */
 		register_inetaddr_notifier(&masq_inet_notifier);
 	}
 

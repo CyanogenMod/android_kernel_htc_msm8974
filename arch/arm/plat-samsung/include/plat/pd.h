@@ -27,4 +27,4 @@ enum exynos4_pd_block {
 	PD_GPS
 };
 
-#endif 
+#endif /* __ASM_PLAT_SAMSUNG_PD_H */

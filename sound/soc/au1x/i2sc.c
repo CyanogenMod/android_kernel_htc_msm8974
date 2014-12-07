@@ -1,3 +1,10 @@
+/*
+ * Au1000/Au1500/Au1100 I2S controller driver for ASoC
+ *
+ * (c) 2011 Manuel Lauss <manuel.lauss@googlemail.com>
+ *
+ * Note: clock supplied to the I2S controller must be 256x samplerate.
+ */
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -15,7 +22,7 @@
 #define I2S_CFG		0x04
 #define I2S_ENABLE	0x08
 
-#define CFG_XU		(1 << 25)	
+#define CFG_XU		(1 << 25)	/* tx underflow */
 #define CFG_XO		(1 << 24)
 #define CFG_RU		(1 << 23)
 #define CFG_RO		(1 << 22)
@@ -24,25 +31,26 @@
 #define CFG_TF		(1 << 19)
 #define CFG_RR		(1 << 18)
 #define CFG_RF		(1 << 17)
-#define CFG_ICK		(1 << 12)	
-#define CFG_PD		(1 << 11)	
-#define CFG_LB		(1 << 10)	
-#define CFG_IC		(1 << 9)	
-#define CFG_FM_I2S	(0 << 7)	
-#define CFG_FM_LJ	(1 << 7)	
-#define CFG_FM_RJ	(2 << 7)	
+#define CFG_ICK		(1 << 12)	/* clock invert */
+#define CFG_PD		(1 << 11)	/* set to make I2SDIO INPUT */
+#define CFG_LB		(1 << 10)	/* loopback */
+#define CFG_IC		(1 << 9)	/* word select invert */
+#define CFG_FM_I2S	(0 << 7)	/* I2S format */
+#define CFG_FM_LJ	(1 << 7)	/* left-justified */
+#define CFG_FM_RJ	(2 << 7)	/* right-justified */
 #define CFG_FM_MASK	(3 << 7)
-#define CFG_TN		(1 << 6)	
-#define CFG_RN		(1 << 5)	
+#define CFG_TN		(1 << 6)	/* tx fifo en */
+#define CFG_RN		(1 << 5)	/* rx fifo en */
 #define CFG_SZ_8	(0x08)
 #define CFG_SZ_16	(0x10)
 #define CFG_SZ_18	(0x12)
 #define CFG_SZ_20	(0x14)
 #define CFG_SZ_24	(0x18)
 #define CFG_SZ_MASK	(0x1f)
-#define EN_D		(1 << 1)	
-#define EN_CE		(1 << 0)	
+#define EN_D		(1 << 1)	/* DISable */
+#define EN_CE		(1 << 0)	/* clock enable */
 
+/* only limited by clock generator and board design */
 #define AU1XI2SC_RATES \
 	SNDRV_PCM_RATE_CONTINUOUS
 
@@ -93,7 +101,7 @@ static int au1xi2s_set_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 		goto out;
 	}
 
-	c &= ~(CFG_IC | CFG_ICK);		
+	c &= ~(CFG_IC | CFG_ICK);		/* IB-IF */
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_NB_NF:
 		c |= CFG_IC | CFG_ICK;
@@ -110,9 +118,9 @@ static int au1xi2s_set_fmt(struct snd_soc_dai *cpu_dai, unsigned int fmt)
 		goto out;
 	}
 
-	
+	/* I2S controller only supports master */
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
-	case SND_SOC_DAIFMT_CBS_CFS:	
+	case SND_SOC_DAIFMT_CBS_CFS:	/* CODEC slave */
 		break;
 	default:
 		goto out;
@@ -133,7 +141,7 @@ static int au1xi2s_trigger(struct snd_pcm_substream *substream,
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
 	case SNDRV_PCM_TRIGGER_RESUME:
-		
+		/* power up */
 		WR(ctx, I2S_ENABLE, EN_D | EN_CE);
 		WR(ctx, I2S_ENABLE, EN_CE);
 		ctx->cfg |= (stype == PCM_TX) ? CFG_TN : CFG_RN;
@@ -143,7 +151,7 @@ static int au1xi2s_trigger(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 		ctx->cfg &= ~((stype == PCM_TX) ? CFG_TN : CFG_RN);
 		WR(ctx, I2S_CFG, ctx->cfg);
-		WR(ctx, I2S_ENABLE, EN_D);		
+		WR(ctx, I2S_ENABLE, EN_D);		/* power off */
 		break;
 	default:
 		return -EINVAL;
@@ -261,7 +269,7 @@ static int __devexit au1xi2s_drvremove(struct platform_device *pdev)
 
 	snd_soc_unregister_dai(&pdev->dev);
 
-	WR(ctx, I2S_ENABLE, EN_D);	
+	WR(ctx, I2S_ENABLE, EN_D);	/* clock off, disable */
 
 	return 0;
 }
@@ -271,7 +279,7 @@ static int au1xi2s_drvsuspend(struct device *dev)
 {
 	struct au1xpsc_audio_data *ctx = dev_get_drvdata(dev);
 
-	WR(ctx, I2S_ENABLE, EN_D);	
+	WR(ctx, I2S_ENABLE, EN_D);	/* clock off, disable */
 
 	return 0;
 }

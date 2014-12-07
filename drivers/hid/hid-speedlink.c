@@ -31,6 +31,12 @@ static int speedlink_input_mapping(struct hid_device *hdev,
 		struct hid_field *field, struct hid_usage *usage,
 		unsigned long **bit, int *max)
 {
+	/*
+	 * The Cezanne mouse has a second "keyboard" USB endpoint for it is
+	 * able to map keyboard events to the button presses.
+	 * It sends a standard keyboard report descriptor, though, whose
+	 * LEDs we ignore.
+	 */
 	switch (usage->hid & HID_USAGE_PAGE) {
 	case HID_UP_LED:
 		return -1;
@@ -41,11 +47,11 @@ static int speedlink_input_mapping(struct hid_device *hdev,
 static int speedlink_event(struct hid_device *hdev, struct hid_field *field,
 		struct hid_usage *usage, __s32 value)
 {
-	
-	
+	/* No other conditions due to usage_table. */
+	/* Fix "jumpy" cursor (invalid events sent by device). */
 	if (value == 256)
 		return 1;
-	
+	/* Drop useless distance 0 events (on button clicks etc.) as well */
 	if (value == 0)
 		return 1;
 

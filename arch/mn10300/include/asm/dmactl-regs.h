@@ -13,4 +13,4 @@
 
 #include <proc/dmactl-regs.h>
 
-#endif 
+#endif /* _ASM_DMACTL_REGS_H */

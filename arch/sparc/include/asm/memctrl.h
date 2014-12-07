@@ -6,4 +6,4 @@ typedef int (*dimm_printer_t)(int synd_code, unsigned long paddr, char *buf, int
 int register_dimm_printer(dimm_printer_t func);
 void unregister_dimm_printer(dimm_printer_t func);
 
-#endif 
+#endif /* _SPARC_MEMCTRL_H */

@@ -1123,6 +1123,7 @@ EXPORT_SYMBOL_GPL(crypto_fl_tab);
 EXPORT_SYMBOL_GPL(crypto_it_tab);
 EXPORT_SYMBOL_GPL(crypto_il_tab);
 
+/* initialise the key schedule from the user supplied key */
 
 #define star_x(x) (((x) & 0x7f7f7f7f) << 1) ^ ((((x) & 0x80808080) >> 7) * 0x1b)
 
@@ -1198,6 +1199,20 @@ EXPORT_SYMBOL_GPL(crypto_il_tab);
 	ctx->key_enc[8 * i + 15] = t;			\
 } while (0)
 
+/**
+ * crypto_aes_expand_key - Expands the AES key as described in FIPS-197
+ * @ctx:	The location where the computed key will be stored.
+ * @in_key:	The supplied key.
+ * @key_len:	The length of the supplied key.
+ *
+ * Returns 0 on success. The function fails only if an invalid key size (or
+ * pointer) is supplied.
+ * The expanded key size is 240 bytes (max of 14 rounds with a unique 16 bytes
+ * key schedule plus a 16 bytes key which is used before the first round).
+ * The decryption key is prepared for the "Equivalent Inverse Cipher" as
+ * described in FIPS-197. The first slot (16 bytes) of each key (enc or dec) is
+ * for the initial combination, the second slot for the first round and so on.
+ */
 int crypto_aes_expand_key(struct crypto_aes_ctx *ctx, const u8 *in_key,
 		unsigned int key_len)
 {
@@ -1253,6 +1268,17 @@ int crypto_aes_expand_key(struct crypto_aes_ctx *ctx, const u8 *in_key,
 }
 EXPORT_SYMBOL_GPL(crypto_aes_expand_key);
 
+/**
+ * crypto_aes_set_key - Set the AES key.
+ * @tfm:	The %crypto_tfm that is used in the context.
+ * @in_key:	The input key.
+ * @key_len:	The size of the key.
+ *
+ * Returns 0 on success, on failure the %CRYPTO_TFM_RES_BAD_KEY_LEN flag in tfm
+ * is set. The function uses crypto_aes_expand_key() to expand the key.
+ * &crypto_aes_ctx _must_ be the private data embedded in @tfm which is
+ * retrieved with crypto_tfm_ctx().
+ */
 int crypto_aes_set_key(struct crypto_tfm *tfm, const u8 *in_key,
 		unsigned int key_len)
 {
@@ -1269,6 +1295,7 @@ int crypto_aes_set_key(struct crypto_tfm *tfm, const u8 *in_key,
 }
 EXPORT_SYMBOL_GPL(crypto_aes_set_key);
 
+/* encrypt a block of text */
 
 #define f_rn(bo, bi, n, k)	do {				\
 	bo[n] = crypto_ft_tab[0][byte(bi[n], 0)] ^			\
@@ -1340,6 +1367,7 @@ static void aes_encrypt(struct crypto_tfm *tfm, u8 *out, const u8 *in)
 	dst[3] = cpu_to_le32(b0[3]);
 }
 
+/* decrypt a block of text */
 
 #define i_rn(bo, bi, n, k)	do {				\
 	bo[n] = crypto_it_tab[0][byte(bi[n], 0)] ^			\

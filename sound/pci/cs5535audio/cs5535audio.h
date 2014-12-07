@@ -9,6 +9,7 @@
 
 #define CS5535AUDIO_MAX_DESCRIPTORS	128
 
+/* acc_codec bar0 reg addrs */
 #define ACC_GPIO_STATUS			0x00
 #define ACC_CODEC_STATUS		0x08
 #define ACC_CODEC_CNTL			0x0C
@@ -22,17 +23,22 @@
 #define ACC_BM0_PNTR			0x60
 #define ACC_BM1_PNTR			0x64
 
+/* acc_codec bar0 reg bits */
+/* ACC_IRQ_STATUS */
 #define IRQ_STS 			0
 #define WU_IRQ_STS 			1
 #define BM0_IRQ_STS 			2
 #define BM1_IRQ_STS 			3
+/* ACC_BMX_STATUS */
 #define EOP				(1<<0)
 #define BM_EOP_ERR			(1<<1)
+/* ACC_BMX_CTL */
 #define BM_CTL_EN			0x01
 #define BM_CTL_PAUSE			0x03
 #define BM_CTL_DIS			0x00
 #define BM_CTL_BYTE_ORD_LE		0x00
 #define BM_CTL_BYTE_ORD_BE		0x04
+/* cs5535 specific ac97 codec register defines */
 #define CMD_MASK			0xFF00FFFF
 #define CMD_NEW				0x00010000
 #define STS_NEW				0x00020000
@@ -103,17 +109,17 @@ void olpc_mic_bias(struct snd_ac97 *ac97, int on);
 
 static inline void olpc_capture_open(struct snd_ac97 *ac97)
 {
-	
+	/* default to Analog Input off */
 	olpc_analog_input(ac97, 0);
-	
+	/* enable MIC Bias for recording */
 	olpc_mic_bias(ac97, 1);
 }
 
 static inline void olpc_capture_close(struct snd_ac97 *ac97)
 {
-	
+	/* disable Analog Input */
 	olpc_analog_input(ac97, 0);
-	
+	/* disable the MIC Bias (so the recording LED turns off) */
 	olpc_mic_bias(ac97, 0);
 }
 #else
@@ -132,5 +138,5 @@ static inline void olpc_capture_close(struct snd_ac97 *ac97) { }
 
 int __devinit snd_cs5535audio_pcm(struct cs5535audio *cs5535audio);
 
-#endif 
+#endif /* __SOUND_CS5535AUDIO_H */
 

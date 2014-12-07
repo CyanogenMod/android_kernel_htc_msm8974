@@ -30,7 +30,7 @@ static void slc90e66_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	int control = 0;
 	const u8 pio = drive->pio_mode - XFER_PIO_0;
 
-				     
+				     /* ISP  RTC */
 	static const u8 timings[][2] = {
 					{ 0, 0 },
 					{ 0, 0 },
@@ -42,16 +42,16 @@ static void slc90e66_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	pci_read_config_word(dev, master_port, &master_data);
 
 	if (pio > 1)
-		control |= 1;	
+		control |= 1;	/* Programmable timing on */
 	if (drive->media == ide_disk)
-		control |= 4;	
+		control |= 4;	/* Prefetch, post write */
 	if (ide_pio_need_iordy(drive, pio))
-		control |= 2;	
+		control |= 2;	/* IORDY */
 	if (is_slave) {
 		master_data |=  0x4000;
 		master_data &= ~0x0070;
 		if (pio > 1) {
-			
+			/* Set PPE, IE and TIME */
 			master_data |= control << 4;
 		}
 		pci_read_config_byte(dev, slave_port, &slave_data);
@@ -61,7 +61,7 @@ static void slc90e66_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	} else {
 		master_data &= ~0x3307;
 		if (pio > 1) {
-			
+			/* enable PPE, IE and TIME */
 			master_data |= control;
 		}
 		master_data |= (timings[pio][0] << 12) | (timings[pio][1] << 8);
@@ -109,7 +109,7 @@ static void slc90e66_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 			drive->pio_mode =
 				mwdma_to_pio[speed - XFER_MW_DMA_0] + XFER_PIO_0;
 		else
-			drive->pio_mode = XFER_PIO_2; 
+			drive->pio_mode = XFER_PIO_2; /* for SWDMA2 */
 
 		slc90e66_set_pio_mode(hwif, drive);
 	}
@@ -122,7 +122,7 @@ static u8 slc90e66_cable_detect(ide_hwif_t *hwif)
 
 	pci_read_config_byte(dev, 0x47, &reg47);
 
-	
+	/* bit[0(1)]: 0:80, 1:40 */
 	return (reg47 & mask) ? ATA_CBL_PATA40 : ATA_CBL_PATA80;
 }
 

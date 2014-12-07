@@ -27,6 +27,7 @@
 #include <asm/ip32/mace.h>
 #include <asm/ip32/ip32_ints.h>
 
+/* issue a PIO read to make sure no PIO writes are pending */
 static void inline flush_crime_bus(void)
 {
 	crime->control;
@@ -37,7 +38,75 @@ static void inline flush_mace_bus(void)
 	mace->perif.ctrl.misc;
 }
 
+/*
+ * O2 irq map
+ *
+ * IP0 -> software (ignored)
+ * IP1 -> software (ignored)
+ * IP2 -> (irq0) C crime 1.1 all interrupts; crime 1.5 ???
+ * IP3 -> (irq1) X unknown
+ * IP4 -> (irq2) X unknown
+ * IP5 -> (irq3) X unknown
+ * IP6 -> (irq4) X unknown
+ * IP7 -> (irq5) 7 CPU count/compare timer (system timer)
+ *
+ * crime: (C)
+ *
+ * CRIME_INT_STAT 31:0:
+ *
+ * 0  ->  8  Video in 1
+ * 1  ->  9 Video in 2
+ * 2  -> 10  Video out
+ * 3  -> 11  Mace ethernet
+ * 4  -> S  SuperIO sub-interrupt
+ * 5  -> M  Miscellaneous sub-interrupt
+ * 6  -> A  Audio sub-interrupt
+ * 7  -> 15  PCI bridge errors
+ * 8  -> 16  PCI SCSI aic7xxx 0
+ * 9  -> 17 PCI SCSI aic7xxx 1
+ * 10 -> 18 PCI slot 0
+ * 11 -> 19 unused (PCI slot 1)
+ * 12 -> 20 unused (PCI slot 2)
+ * 13 -> 21 unused (PCI shared 0)
+ * 14 -> 22 unused (PCI shared 1)
+ * 15 -> 23 unused (PCI shared 2)
+ * 16 -> 24 GBE0 (E)
+ * 17 -> 25 GBE1 (E)
+ * 18 -> 26 GBE2 (E)
+ * 19 -> 27 GBE3 (E)
+ * 20 -> 28 CPU errors
+ * 21 -> 29 Memory errors
+ * 22 -> 30 RE empty edge (E)
+ * 23 -> 31 RE full edge (E)
+ * 24 -> 32 RE idle edge (E)
+ * 25 -> 33 RE empty level
+ * 26 -> 34 RE full level
+ * 27 -> 35 RE idle level
+ * 28 -> 36 unused (software 0) (E)
+ * 29 -> 37 unused (software 1) (E)
+ * 30 -> 38 unused (software 2) - crime 1.5 CPU SysCorError (E)
+ * 31 -> 39 VICE
+ *
+ * S, M, A: Use the MACE ISA interrupt register
+ * MACE_ISA_INT_STAT 31:0
+ *
+ * 0-7 -> 40-47 Audio
+ * 8 -> 48 RTC
+ * 9 -> 49 Keyboard
+ * 10 -> X Keyboard polled
+ * 11 -> 51 Mouse
+ * 12 -> X Mouse polled
+ * 13-15 -> 53-55 Count/compare timers
+ * 16-19 -> 56-59 Parallel (16 E)
+ * 20-25 -> 60-62 Serial 1 (22 E)
+ * 26-31 -> 66-71 Serial 2 (28 E)
+ *
+ * Note that this means IRQs 12-14, 50, and 52 do not exist.  This is a
+ * different IRQ map than IRIX uses, but that's OK as Linux irq handling
+ * is quite different anyway.
+ */
 
+/* Some initial interrupts to set up */
 extern irqreturn_t crime_memerr_intr(int irq, void *dev_id);
 extern irqreturn_t crime_cpuerr_intr(int irq, void *dev_id);
 
@@ -51,6 +120,10 @@ static struct irqaction cpuerr_irq = {
 	.name = "CRIME CPU error",
 };
 
+/*
+ * This is for pure CRIME interrupts - ie not MACE.  The advantage?
+ * We get to split the register in half and do faster lookups.
+ */
 
 static uint64_t crime_mask;
 
@@ -82,7 +155,7 @@ static void crime_edge_mask_and_ack_irq(struct irq_data *d)
 	unsigned int bit = d->irq - CRIME_IRQ_BASE;
 	uint64_t crime_int;
 
-	
+	/* Edge triggered interrupts must be cleared. */
 	crime_int = crime->hard_int;
 	crime_int &= ~(1 << bit);
 	crime->hard_int = crime_int;
@@ -98,6 +171,11 @@ static struct irq_chip crime_edge_interrupt = {
 	.irq_unmask	= crime_enable_irq,
 };
 
+/*
+ * This is for MACE PCI interrupts.  We can decrease bus traffic by masking
+ * as close to the source as possible.  This also means we can take the
+ * next chunk of the CRIME register in one piece.
+ */
 
 static unsigned long macepci_mask;
 
@@ -125,6 +203,9 @@ static struct irq_chip ip32_macepci_interrupt = {
 	.irq_unmask = enable_macepci_irq,
 };
 
+/* This is used for MACE ISA interrupts.  That means bits 4-6 in the
+ * CRIME register.
+ */
 
 #define MACEISA_AUDIO_INT	(MACEISA_AUDIO_SW_INT |		\
 				 MACEISA_AUDIO_SC_INT |		\
@@ -207,7 +288,7 @@ static void mask_and_ack_maceisa_irq(struct irq_data *d)
 {
 	unsigned long mace_int;
 
-	
+	/* edge triggered */
 	mace_int = mace->perif.ctrl.istat;
 	mace_int &= ~(1 << (d->irq - MACEISA_AUDIO_SW_IRQ));
 	mace->perif.ctrl.istat = mace_int;
@@ -229,6 +310,9 @@ static struct irq_chip ip32_maceisa_edge_interrupt = {
 	.irq_unmask	= enable_maceisa_irq,
 };
 
+/* This is used for regular non-ISA, non-PCI MACE interrupts.  That means
+ * bits 0-3 and 7 in the CRIME register.
+ */
 
 static void enable_mace_irq(struct irq_data *d)
 {
@@ -273,17 +357,24 @@ static void ip32_unknown_interrupt(void)
 	while(1) ;
 }
 
+/* CRIME 1.1 appears to deliver all interrupts to this one pin. */
+/* change this to loop over all edge-triggered irqs, exception masked out ones */
 static void ip32_irq0(void)
 {
 	uint64_t crime_int;
 	int irq = 0;
 
+	/*
+	 * Sanity check interrupt numbering enum.
+	 * MACE got 32 interrupts and there are 32 MACE ISA interrupts daisy
+	 * chained.
+	 */
 	BUILD_BUG_ON(CRIME_VICE_IRQ - MACE_VID_IN1_IRQ != 31);
 	BUILD_BUG_ON(MACEISA_SERIAL2_RDMAOR_IRQ - MACEISA_AUDIO_SW_IRQ != 31);
 
 	crime_int = crime->istat & crime_mask;
 
-	
+	/* crime sometime delivers spurious interrupts, ignore them */
 	if (unlikely(crime_int == 0))
 		return;
 
@@ -345,6 +436,8 @@ void __init arch_init_irq(void)
 {
 	unsigned int irq;
 
+	/* Install our interrupt handler, then clear and disable all
+	 * CRIME and MACE interrupts. */
 	crime->imask = 0;
 	crime->hard_int = 0;
 	crime->soft_int = 0;

@@ -18,12 +18,18 @@
 #ifndef	__XFS_LOG_H__
 #define __XFS_LOG_H__
 
+/* get lsn fields */
 #define CYCLE_LSN(lsn) ((uint)((lsn)>>32))
 #define BLOCK_LSN(lsn) ((uint)(lsn))
 
+/* this is used in a spot where we might otherwise double-endian-flip */
 #define CYCLE_LSN_DISK(lsn) (((__be32 *)&(lsn))[0])
 
 #ifdef __KERNEL__
+/*
+ * By comparing each component, we don't have to worry about extra
+ * endian issues in treating two 32 bit numbers as one 64 bit number
+ */
 static inline xfs_lsn_t	_lsn_cmp(xfs_lsn_t lsn1, xfs_lsn_t lsn2)
 {
 	if (CYCLE_LSN(lsn1) != CYCLE_LSN(lsn2))
@@ -37,19 +43,32 @@ static inline xfs_lsn_t	_lsn_cmp(xfs_lsn_t lsn1, xfs_lsn_t lsn2)
 
 #define	XFS_LSN_CMP(x,y) _lsn_cmp(x,y)
 
+/*
+ * Macros, structures, prototypes for interface to the log manager.
+ */
 
+/*
+ * Flags to xfs_log_done()
+ */
 #define XFS_LOG_REL_PERM_RESERV	0x1
 
+/*
+ * Flags to xfs_log_force()
+ *
+ *	XFS_LOG_SYNC:	Synchronous force in-core log to disk
+ */
 #define XFS_LOG_SYNC		0x1
 
-#endif	
+#endif	/* __KERNEL__ */
 
 
+/* Log Clients */
 #define XFS_TRANSACTION		0x69
 #define XFS_VOLUME		0x2
 #define XFS_LOG			0xaa
 
 
+/* Region types for iovec's i_type */
 #define XLOG_REG_TYPE_BFORMAT		1
 #define XLOG_REG_TYPE_BCHUNK		2
 #define XLOG_REG_TYPE_EFI_FORMAT	3
@@ -72,20 +91,24 @@ static inline xfs_lsn_t	_lsn_cmp(xfs_lsn_t lsn1, xfs_lsn_t lsn2)
 #define XLOG_REG_TYPE_MAX		19
 
 typedef struct xfs_log_iovec {
-	void		*i_addr;	
-	int		i_len;		
-	uint		i_type;		
+	void		*i_addr;	/* beginning address of region */
+	int		i_len;		/* length in bytes of region */
+	uint		i_type;		/* type of region */
 } xfs_log_iovec_t;
 
 struct xfs_log_vec {
-	struct xfs_log_vec	*lv_next;	
-	int			lv_niovecs;	
-	struct xfs_log_iovec	*lv_iovecp;	
-	struct xfs_log_item	*lv_item;	
-	char			*lv_buf;	
-	int			lv_buf_len;	
+	struct xfs_log_vec	*lv_next;	/* next lv in build list */
+	int			lv_niovecs;	/* number of iovecs in lv */
+	struct xfs_log_iovec	*lv_iovecp;	/* iovec array */
+	struct xfs_log_item	*lv_item;	/* owner */
+	char			*lv_buf;	/* formatted buffer */
+	int			lv_buf_len;	/* size of formatted buffer */
 };
 
+/*
+ * Structure used to pass callback function and the function's argument
+ * to the log manager.
+ */
 typedef struct xfs_log_callback {
 	struct xfs_log_callback	*cb_next;
 	void			(*cb_func)(void *, int);
@@ -94,6 +117,7 @@ typedef struct xfs_log_callback {
 
 
 #ifdef __KERNEL__
+/* Log manager interfaces */
 struct xfs_mount;
 struct xlog_in_core;
 struct xlog_ticket;
@@ -157,4 +181,4 @@ int	xfs_log_commit_cil(struct xfs_mount *mp, struct xfs_trans *tp,
 bool	xfs_log_item_in_current_chkpt(struct xfs_log_item *lip);
 
 #endif
-#endif	
+#endif	/* __XFS_LOG_H__ */

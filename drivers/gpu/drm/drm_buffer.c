@@ -25,15 +25,29 @@
  *
  *
  **************************************************************************/
+/*
+ * Multipart buffer for coping data which is larger than the page size.
+ *
+ * Authors:
+ * Pauli Nieminen <suokkos-at-gmail-dot-com>
+ */
 
 #include <linux/export.h>
 #include "drm_buffer.h"
 
+/**
+ * Allocate the drm buffer object.
+ *
+ *   buf: Pointer to a pointer where the object is stored.
+ *   size: The number of bytes to allocate.
+ */
 int drm_buffer_alloc(struct drm_buffer **buf, int size)
 {
 	int nr_pages = size / PAGE_SIZE + 1;
 	int idx;
 
+	/* Allocating pointer table to end of structure makes drm_buffer
+	 * variable sized */
 	*buf = kzalloc(sizeof(struct drm_buffer) + nr_pages*sizeof(char *),
 			GFP_KERNEL);
 
@@ -66,7 +80,7 @@ int drm_buffer_alloc(struct drm_buffer **buf, int size)
 
 error_out:
 
-	
+	/* Only last element can be null pointer so check for it first. */
 	if ((*buf)->data[idx])
 		kfree((*buf)->data[idx]);
 
@@ -78,6 +92,13 @@ error_out:
 }
 EXPORT_SYMBOL(drm_buffer_alloc);
 
+/**
+ * Copy the user data to the begin of the buffer and reset the processing
+ * iterator.
+ *
+ *   user_data: A pointer the data that is copied to the buffer.
+ *   size: The Number of bytes to copy.
+ */
 int drm_buffer_copy_from_user(struct drm_buffer *buf,
 			      void __user *user_data, int size)
 {
@@ -108,6 +129,9 @@ int drm_buffer_copy_from_user(struct drm_buffer *buf,
 }
 EXPORT_SYMBOL(drm_buffer_copy_from_user);
 
+/**
+ * Free the drm buffer object
+ */
 void drm_buffer_free(struct drm_buffer *buf)
 {
 
@@ -123,6 +147,18 @@ void drm_buffer_free(struct drm_buffer *buf)
 }
 EXPORT_SYMBOL(drm_buffer_free);
 
+/**
+ * Read an object from buffer that may be split to multiple parts. If object
+ * is not split function just returns the pointer to object in buffer. But in
+ * case of split object data is copied to given stack object that is suplied
+ * by caller.
+ *
+ * The processing location of the buffer is also advanced to the next byte
+ * after the object.
+ *
+ *   objsize: The size of the objet in bytes.
+ *   stack_obj: A pointer to a memory location where object can be copied.
+ */
 void *drm_buffer_read_object(struct drm_buffer *buf,
 		int objsize, void *stack_obj)
 {
@@ -133,7 +169,7 @@ void *drm_buffer_read_object(struct drm_buffer *buf,
 	if (idx + objsize <= PAGE_SIZE) {
 		obj = &buf->data[page][idx];
 	} else {
-		
+		/* The object is split which forces copy to temporary object.*/
 		int beginsz = PAGE_SIZE - idx;
 		memcpy(stack_obj, &buf->data[page][idx], beginsz);
 

@@ -23,6 +23,17 @@
 #ifndef __ASM_ARCH_MSM_IOMAP_7XXX_H
 #define __ASM_ARCH_MSM_IOMAP_7XXX_H
 
+/* Physical base address and size of peripherals.
+ * Ordered by the virtual base addresses they will be mapped at.
+ *
+ * MSM_VIC_BASE must be an value that can be loaded via a "mov"
+ * instruction, otherwise entry-macro.S will not compile.
+ *
+ * If you add or remove entries here, you'll want to edit the
+ * msm_io_desc array in arch/arm/mach-msm/io.c to reflect your
+ * changes.
+ *
+ */
 
 #define MSM7XXX_VIC_PHYS          0xC0000000
 #define MSM7XXX_VIC_SIZE          SZ_4K

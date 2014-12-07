@@ -26,6 +26,17 @@
 
 #include "autofs_i.h"
 
+/*
+ * This module implements an interface for routing autofs ioctl control
+ * commands via a miscellaneous device file.
+ *
+ * The alternate interface is needed because we need to be able open
+ * an ioctl file descriptor on an autofs mount that may be covered by
+ * another mount. This situation arises when starting automount(8)
+ * or other user space daemon which uses direct mounts or offset
+ * mounts (used for autofs lazy mount/umount of nested mount trees),
+ * which have been left busy at at service shutdown.
+ */
 
 #define AUTOFS_DEV_IOCTL_SIZE	sizeof(struct autofs_dev_ioctl)
 
@@ -39,6 +50,10 @@ static int check_name(const char *name)
 	return 0;
 }
 
+/*
+ * Check a string doesn't overrun the chunk of
+ * memory we copied from user land.
+ */
 static int invalid_str(char *str, size_t size)
 {
 	if (memchr(str, 0, size))
@@ -46,6 +61,13 @@ static int invalid_str(char *str, size_t size)
 	return -EINVAL;
 }
 
+/*
+ * Check that the user compiled against correct version of autofs
+ * misc device code.
+ *
+ * As well as checking the version compatibility this always copies
+ * the kernel interface version out.
+ */
 static int check_dev_ioctl_version(int cmd, struct autofs_dev_ioctl *param)
 {
 	int err = 0;
@@ -60,13 +82,17 @@ static int check_dev_ioctl_version(int cmd, struct autofs_dev_ioctl *param)
 		err = -EINVAL;
 	}
 
-	
+	/* Fill in the kernel version. */
 	param->ver_major = AUTOFS_DEV_IOCTL_VERSION_MAJOR;
 	param->ver_minor = AUTOFS_DEV_IOCTL_VERSION_MINOR;
 
 	return err;
 }
 
+/*
+ * Copy parameter control struct, including a possible path allocated
+ * at the end of the struct.
+ */
 static struct autofs_dev_ioctl *copy_dev_ioctl(struct autofs_dev_ioctl __user *in)
 {
 	struct autofs_dev_ioctl tmp;
@@ -86,6 +112,10 @@ static inline void free_dev_ioctl(struct autofs_dev_ioctl *param)
 	return;
 }
 
+/*
+ * Check sanity of parameter control fields and if a path is present
+ * check that it is terminated and contains at least one "/".
+ */
 static int validate_dev_ioctl(int cmd, struct autofs_dev_ioctl *param)
 {
 	int err;
@@ -119,6 +149,10 @@ out:
 	return err;
 }
 
+/*
+ * Get the autofs super block info struct from the file opened on
+ * the autofs mount point.
+ */
 static struct autofs_sb_info *autofs_dev_ioctl_sbi(struct file *f)
 {
 	struct autofs_sb_info *sbi = NULL;
@@ -131,6 +165,7 @@ static struct autofs_sb_info *autofs_dev_ioctl_sbi(struct file *f)
 	return sbi;
 }
 
+/* Return autofs module protocol version */
 static int autofs_dev_ioctl_protover(struct file *fp,
 				     struct autofs_sb_info *sbi,
 				     struct autofs_dev_ioctl *param)
@@ -139,6 +174,7 @@ static int autofs_dev_ioctl_protover(struct file *fp,
 	return 0;
 }
 
+/* Return autofs module protocol sub version */
 static int autofs_dev_ioctl_protosubver(struct file *fp,
 					struct autofs_sb_info *sbi,
 					struct autofs_dev_ioctl *param)
@@ -161,7 +197,7 @@ static int find_autofs_mount(const char *pathname,
 		if (path.dentry->d_sb->s_magic == AUTOFS_SUPER_MAGIC) {
 			if (test(&path, data)) {
 				path_get(&path);
-				if (!err) 
+				if (!err) /* already found some */
 					path_put(res);
 				*res = path;
 				err = 0;
@@ -199,6 +235,10 @@ static void autofs_dev_ioctl_fd_install(unsigned int fd, struct file *file)
 }
 
 
+/*
+ * Open a file descriptor on the autofs mount point corresponding
+ * to the given path and device number (aka. new_encode_dev(sb->s_dev)).
+ */
 static int autofs_dev_ioctl_open_mountpoint(const char *name, dev_t devid)
 {
 	int err, fd;
@@ -212,6 +252,10 @@ static int autofs_dev_ioctl_open_mountpoint(const char *name, dev_t devid)
 		if (err)
 			goto out;
 
+		/*
+		 * Find autofs super block that has the device number
+		 * corresponding to the autofs fs we want to open.
+		 */
 
 		filp = dentry_open(path.dentry, path.mnt, O_RDONLY,
 				   current_cred());
@@ -230,6 +274,7 @@ out:
 	return err;
 }
 
+/* Open a file descriptor on an autofs mount point */
 static int autofs_dev_ioctl_openmount(struct file *fp,
 				      struct autofs_sb_info *sbi,
 				      struct autofs_dev_ioctl *param)
@@ -238,7 +283,7 @@ static int autofs_dev_ioctl_openmount(struct file *fp,
 	dev_t devid;
 	int err, fd;
 
-	
+	/* param->path has already been checked */
 	if (!param->openmount.devid)
 		return -EINVAL;
 
@@ -259,6 +304,7 @@ out:
 	return err;
 }
 
+/* Close file descriptor allocated above (user can also use close(2)). */
 static int autofs_dev_ioctl_closemount(struct file *fp,
 				       struct autofs_sb_info *sbi,
 				       struct autofs_dev_ioctl *param)
@@ -266,6 +312,10 @@ static int autofs_dev_ioctl_closemount(struct file *fp,
 	return sys_close(param->ioctlfd);
 }
 
+/*
+ * Send "ready" status for an existing wait (either a mount or an expire
+ * request).
+ */
 static int autofs_dev_ioctl_ready(struct file *fp,
 				  struct autofs_sb_info *sbi,
 				  struct autofs_dev_ioctl *param)
@@ -276,6 +326,10 @@ static int autofs_dev_ioctl_ready(struct file *fp,
 	return autofs4_wait_release(sbi, token, 0);
 }
 
+/*
+ * Send "fail" status for an existing wait (either a mount or an expire
+ * request).
+ */
 static int autofs_dev_ioctl_fail(struct file *fp,
 				 struct autofs_sb_info *sbi,
 				 struct autofs_dev_ioctl *param)
@@ -288,6 +342,18 @@ static int autofs_dev_ioctl_fail(struct file *fp,
 	return autofs4_wait_release(sbi, token, status);
 }
 
+/*
+ * Set the pipe fd for kernel communication to the daemon.
+ *
+ * Normally this is set at mount using an option but if we
+ * are reconnecting to a busy mount then we need to use this
+ * to tell the autofs mount about the new kernel pipe fd. In
+ * order to protect mounts against incorrectly setting the
+ * pipefd we also require that the autofs mount be catatonic.
+ *
+ * This also sets the process group id used to identify the
+ * controlling process (eg. the owning automount(8) daemon).
+ */
 static int autofs_dev_ioctl_setpipefd(struct file *fp,
 				      struct autofs_sb_info *sbi,
 				      struct autofs_dev_ioctl *param)
@@ -325,6 +391,10 @@ out:
 	return err;
 }
 
+/*
+ * Make the autofs mount point catatonic, no longer responsive to
+ * mount requests. Also closes the kernel pipe file descriptor.
+ */
 static int autofs_dev_ioctl_catatonic(struct file *fp,
 				      struct autofs_sb_info *sbi,
 				      struct autofs_dev_ioctl *param)
@@ -333,6 +403,7 @@ static int autofs_dev_ioctl_catatonic(struct file *fp,
 	return 0;
 }
 
+/* Set the autofs mount timeout */
 static int autofs_dev_ioctl_timeout(struct file *fp,
 				    struct autofs_sb_info *sbi,
 				    struct autofs_dev_ioctl *param)
@@ -345,6 +416,14 @@ static int autofs_dev_ioctl_timeout(struct file *fp,
 	return 0;
 }
 
+/*
+ * Return the uid and gid of the last request for the mount
+ *
+ * When reconstructing an autofs mount tree with active mounts
+ * we need to re-connect to mounts that may have used the original
+ * process uid and gid (or string variations of them) for mount
+ * lookups within the map entry.
+ */
 static int autofs_dev_ioctl_requester(struct file *fp,
 				      struct autofs_sb_info *sbi,
 				      struct autofs_dev_ioctl *param)
@@ -381,6 +460,10 @@ out:
 	return err;
 }
 
+/*
+ * Call repeatedly until it returns -EAGAIN, meaning there's nothing
+ * more that can be done.
+ */
 static int autofs_dev_ioctl_expire(struct file *fp,
 				   struct autofs_sb_info *sbi,
 				   struct autofs_dev_ioctl *param)
@@ -394,6 +477,7 @@ static int autofs_dev_ioctl_expire(struct file *fp,
 	return autofs4_do_expire_multi(sbi->sb, mnt, sbi, how);
 }
 
+/* Check if autofs mount point is in use */
 static int autofs_dev_ioctl_askumount(struct file *fp,
 				      struct autofs_sb_info *sbi,
 				      struct autofs_dev_ioctl *param)
@@ -404,6 +488,28 @@ static int autofs_dev_ioctl_askumount(struct file *fp,
 	return 0;
 }
 
+/*
+ * Check if the given path is a mountpoint.
+ *
+ * If we are supplied with the file descriptor of an autofs
+ * mount we're looking for a specific mount. In this case
+ * the path is considered a mountpoint if it is itself a
+ * mountpoint or contains a mount, such as a multi-mount
+ * without a root mount. In this case we return 1 if the
+ * path is a mount point and the super magic of the covering
+ * mount if there is one or 0 if it isn't a mountpoint.
+ *
+ * If we aren't supplied with a file descriptor then we
+ * lookup the nameidata of the path and check if it is the
+ * root of a mount. If a type is given we are looking for
+ * a particular autofs mount and if we don't find a match
+ * we return fail. If the located nameidata path is the
+ * root of a mount we return 1 along with the super magic
+ * of the mount or 0 otherwise.
+ *
+ * In both cases the the device number (as returned by
+ * new_encode_dev()) is also returned.
+ */
 static int autofs_dev_ioctl_ismountpoint(struct file *fp,
 					 struct autofs_sb_info *sbi,
 					 struct autofs_dev_ioctl *param)
@@ -460,6 +566,11 @@ out:
 	return err;
 }
 
+/*
+ * Our range of ioctl numbers isn't 0 based so we need to shift
+ * the array index by _IOC_NR(AUTOFS_CTL_IOC_FIRST) for the table
+ * lookup.
+ */
 #define cmd_idx(cmd)	(cmd - _IOC_NR(AUTOFS_DEV_IOCTL_IOC_FIRST))
 
 static ioctl_fn lookup_dev_ioctl(unsigned int cmd)
@@ -501,6 +612,7 @@ static ioctl_fn lookup_dev_ioctl(unsigned int cmd)
 	return (idx >= ARRAY_SIZE(_ioctls)) ? NULL : _ioctls[idx].fn;
 }
 
+/* ioctl dispatcher */
 static int _autofs_dev_ioctl(unsigned int command, struct autofs_dev_ioctl __user *user)
 {
 	struct autofs_dev_ioctl *param;
@@ -510,7 +622,7 @@ static int _autofs_dev_ioctl(unsigned int command, struct autofs_dev_ioctl __use
 	ioctl_fn fn = NULL;
 	int err = 0;
 
-	
+	/* only root can play with this */
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
@@ -522,7 +634,7 @@ static int _autofs_dev_ioctl(unsigned int command, struct autofs_dev_ioctl __use
 		return -ENOTTY;
 	}
 
-	
+	/* Copy the parameters into kernel space. */
 	param = copy_dev_ioctl(user);
 	if (IS_ERR(param))
 		return PTR_ERR(param);
@@ -531,7 +643,7 @@ static int _autofs_dev_ioctl(unsigned int command, struct autofs_dev_ioctl __use
 	if (err)
 		goto out;
 
-	
+	/* The validate routine above always sets the version */
 	if (cmd == AUTOFS_DEV_IOCTL_VERSION_CMD)
 		goto done;
 
@@ -544,6 +656,11 @@ static int _autofs_dev_ioctl(unsigned int command, struct autofs_dev_ioctl __use
 	fp = NULL;
 	sbi = NULL;
 
+	/*
+	 * For obvious reasons the openmount can't have a file
+	 * descriptor yet. We don't take a reference to the
+	 * file during close to allow for immediate release.
+	 */
 	if (cmd != AUTOFS_DEV_IOCTL_OPENMOUNT_CMD &&
 	    cmd != AUTOFS_DEV_IOCTL_CLOSEMOUNT_CMD) {
 		fp = fget(param->ioctlfd);
@@ -567,6 +684,10 @@ static int _autofs_dev_ioctl(unsigned int command, struct autofs_dev_ioctl __use
 			goto out;
 		}
 
+		/*
+		 * Admin needs to be able to set the mount catatonic in
+		 * order to be able to perform the re-open.
+		 */
 		if (!autofs4_oz_mode(sbi) &&
 		    cmd != AUTOFS_DEV_IOCTL_CATATONIC_CMD) {
 			err = -EACCES;
@@ -619,6 +740,7 @@ static struct miscdevice _autofs_dev_ioctl_misc = {
 MODULE_ALIAS_MISCDEV(AUTOFS_MINOR);
 MODULE_ALIAS("devname:autofs");
 
+/* Register/deregister misc character device */
 int autofs_dev_ioctl_init(void)
 {
 	int r;

@@ -156,7 +156,7 @@ qla4xxx_get_acb_state(struct bsg_job *bsg_job)
 	if (unlikely(pci_channel_offline(ha->pdev)))
 		goto leave;
 
-	
+	/* Only 4022 and above adapters are supported */
 	if (is_qla4010(ha))
 		goto leave;
 
@@ -215,7 +215,7 @@ qla4xxx_read_nvram(struct bsg_job *bsg_job)
 	if (unlikely(pci_channel_offline(ha->pdev)))
 		goto leave;
 
-	
+	/* Only 40xx adapters are supported */
 	if (!(is_qla4010(ha) || is_qla4022(ha) || is_qla4032(ha)))
 		goto leave;
 
@@ -229,7 +229,7 @@ qla4xxx_read_nvram(struct bsg_job *bsg_job)
 	len = bsg_job->reply_payload.payload_len;
 	total_len = offset + len;
 
-	
+	/* total len should not be greater than max NVRAM size */
 	if ((is_qla4010(ha) && total_len > QL4010_NVRAM_SIZE) ||
 	    ((is_qla4022(ha) || is_qla4032(ha)) &&
 	     total_len > QL40X2_NVRAM_SIZE)) {
@@ -300,7 +300,7 @@ qla4xxx_update_nvram(struct bsg_job *bsg_job)
 	len = bsg_job->request_payload.payload_len;
 	total_len = offset + len;
 
-	
+	/* total len should not be greater than max NVRAM size */
 	if ((is_qla4010(ha) && total_len > QL4010_NVRAM_SIZE) ||
 	    ((is_qla4022(ha) || is_qla4032(ha)) &&
 	     total_len > QL40X2_NVRAM_SIZE)) {
@@ -399,7 +399,7 @@ qla4xxx_bsg_get_acb(struct bsg_job *bsg_job)
 	if (unlikely(pci_channel_offline(ha->pdev)))
 		goto leave;
 
-	
+	/* Only 4022 and above adapters are supported */
 	if (is_qla4010(ha))
 		goto leave;
 
@@ -446,6 +446,10 @@ leave:
 	return rval;
 }
 
+/**
+ * qla4xxx_process_vendor_specific - handle vendor specific bsg request
+ * @job: iscsi_bsg_job to handle
+ **/
 int qla4xxx_process_vendor_specific(struct bsg_job *bsg_job)
 {
 	struct iscsi_bsg_reply *bsg_reply = bsg_job->reply;
@@ -486,6 +490,10 @@ int qla4xxx_process_vendor_specific(struct bsg_job *bsg_job)
 	}
 }
 
+/**
+ * qla4xxx_bsg_request - handle bsg request from ISCSI transport
+ * @job: iscsi_bsg_job to handle
+ */
 int qla4xxx_bsg_request(struct bsg_job *bsg_job)
 {
 	struct iscsi_bsg_request *bsg_req = bsg_job->request;

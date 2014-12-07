@@ -62,18 +62,20 @@ static LIST_HEAD(ddebug_tables);
 static int verbose = 0;
 module_param(verbose, int, 0644);
 
+/* Return the last part of a pathname */
 static inline const char *basename(const char *path)
 {
 	const char *tail = strrchr(path, '/');
 	return tail ? tail+1 : path;
 }
 
+/* Return the path relative to source root */
 static inline const char *trim_prefix(const char *path)
 {
 	int skip = strlen(__FILE__) - strlen("lib/dynamic_debug.c");
 
 	if (strncmp(path, __FILE__, skip))
-		skip = 0; 
+		skip = 0; /* prefix mismatch, don't skip */
 
 	return path + skip;
 }
@@ -87,6 +89,7 @@ static struct { unsigned flag:8; char opt_char; } opt_array[] = {
 	{ _DPRINTK_FLAGS_NONE, '_' },
 };
 
+/* format a string into buf[] which describes the _ddebug's flags */
 static char *ddebug_describe_flags(struct _ddebug *dp, char *buf,
 				    size_t maxlen)
 {
@@ -107,7 +110,7 @@ static char *ddebug_describe_flags(struct _ddebug *dp, char *buf,
 #define vpr_info_dq(q, msg)						\
 do {									\
 	if (verbose)							\
-					\
+		/* trim last char off format print */			\
 		pr_info("%s: func=\"%s\" file=\"%s\" "			\
 			"module=\"%s\" format=\"%.*s\" "		\
 			"lineno=%u-%u",					\
@@ -120,6 +123,12 @@ do {									\
 			q->first_lineno, q->last_lineno);		\
 } while (0)
 
+/*
+ * Search the tables for _ddebug's which match the given `query' and
+ * apply the `flags' and `mask' to them.  Returns number of matching
+ * callsites, normally the same as number of changes.  If verbose,
+ * logs the changes.  Takes ddebug_lock.
+ */
 static int ddebug_change(const struct ddebug_query *query,
 			unsigned int flags, unsigned int mask)
 {
@@ -129,35 +138,35 @@ static int ddebug_change(const struct ddebug_query *query,
 	unsigned int nfound = 0;
 	char flagbuf[10];
 
-	
+	/* search for matching ddebugs */
 	mutex_lock(&ddebug_lock);
 	list_for_each_entry(dt, &ddebug_tables, link) {
 
-		
+		/* match against the module name */
 		if (query->module && strcmp(query->module, dt->mod_name))
 			continue;
 
 		for (i = 0 ; i < dt->num_ddebugs ; i++) {
 			struct _ddebug *dp = &dt->ddebugs[i];
 
-			
+			/* match against the source filename */
 			if (query->filename &&
 			    strcmp(query->filename, dp->filename) &&
 			    strcmp(query->filename, basename(dp->filename)) &&
 			    strcmp(query->filename, trim_prefix(dp->filename)))
 				continue;
 
-			
+			/* match against the function */
 			if (query->function &&
 			    strcmp(query->function, dp->function))
 				continue;
 
-			
+			/* match against the format */
 			if (query->format &&
 			    !strstr(dp->format, query->format))
 				continue;
 
-			
+			/* match against the line number range */
 			if (query->first_lineno &&
 			    dp->lineno < query->first_lineno)
 				continue;
@@ -187,6 +196,12 @@ static int ddebug_change(const struct ddebug_query *query,
 	return nfound;
 }
 
+/*
+ * Split the buffer `buf' into space-separated words.
+ * Handles simple " and ' quoting, i.e. without nested,
+ * embedded or escaped \".  Return the number of words
+ * or <0 on error.
+ */
 static int ddebug_tokenize(char *buf, char *words[], int maxwords)
 {
 	int nwords = 0;
@@ -194,31 +209,31 @@ static int ddebug_tokenize(char *buf, char *words[], int maxwords)
 	while (*buf) {
 		char *end;
 
-		
+		/* Skip leading whitespace */
 		buf = skip_spaces(buf);
 		if (!*buf)
-			break;	
+			break;	/* oh, it was trailing whitespace */
 		if (*buf == '#')
-			break;	
+			break;	/* token starts comment, skip rest of line */
 
-		
+		/* find `end' of word, whitespace separated or quoted */
 		if (*buf == '"' || *buf == '\'') {
 			int quote = *buf++;
 			for (end = buf ; *end && *end != quote ; end++)
 				;
 			if (!*end)
-				return -EINVAL;	
+				return -EINVAL;	/* unclosed quote */
 		} else {
 			for (end = buf ; *end && !isspace(*end) ; end++)
 				;
 			BUG_ON(end == buf);
 		}
 
-		
+		/* `buf' is start of word, `end' is one past its end */
 		if (nwords == maxwords)
-			return -EINVAL;	
+			return -EINVAL;	/* ran out of words[] before bytes */
 		if (*end)
-			*end++ = '\0';	
+			*end++ = '\0';	/* terminate the word */
 		words[nwords++] = buf;
 		buf = end;
 	}
@@ -234,6 +249,11 @@ static int ddebug_tokenize(char *buf, char *words[], int maxwords)
 	return nwords;
 }
 
+/*
+ * Parse a single line number.  Note that the empty string ""
+ * is treated as a special case and converted to zero, which
+ * is later treated as a "don't care" value.
+ */
 static inline int parse_lineno(const char *str, unsigned int *val)
 {
 	char *end = NULL;
@@ -246,6 +266,11 @@ static inline int parse_lineno(const char *str, unsigned int *val)
 	return end == NULL || end == str || *end != '\0' ? -EINVAL : 0;
 }
 
+/*
+ * Undo octal escaping in a string, inplace.  This is useful to
+ * allow the user to express a query which matches a format
+ * containing embedded spaces.
+ */
 #define isodigit(c)		((c) >= '0' && (c) <= '7')
 static char *unescape(char *str)
 {
@@ -296,13 +321,28 @@ static int check_set(const char **dest, char *src, char *name)
 	return rc;
 }
 
+/*
+ * Parse words[] as a ddebug query specification, which is a series
+ * of (keyword, value) pairs chosen from these possibilities:
+ *
+ * func <function-name>
+ * file <full-pathname>
+ * file <base-filename>
+ * module <module-name>
+ * format <escaped-string-to-find-in-format>
+ * line <lineno>
+ * line <first-lineno>-<last-lineno> // where either may be empty
+ *
+ * Only 1 of each type is allowed.
+ * Returns 0 on success, <0 on error.
+ */
 static int ddebug_parse_query(char *words[], int nwords,
 			       struct ddebug_query *query)
 {
 	unsigned int i;
 	int rc;
 
-	
+	/* check we have an even number of words */
 	if (nwords % 2 != 0)
 		return -EINVAL;
 	memset(query, 0, sizeof(*query));
@@ -329,7 +369,7 @@ static int ddebug_parse_query(char *words[], int nwords,
 			if (parse_lineno(first, &query->first_lineno) < 0)
 				return -EINVAL;
 			if (last) {
-				
+				/* range <first>-<last> */
 				if (parse_lineno(last, &query->last_lineno)
 				    < query->first_lineno) {
 					pr_err("last-line < 1st-line\n");
@@ -349,6 +389,12 @@ static int ddebug_parse_query(char *words[], int nwords,
 	return 0;
 }
 
+/*
+ * Parse `str' as a flags specification, format [-+=][p]+.
+ * Sets up *maskp and *flagsp to be used when changing the
+ * flags fields of matched _ddebug's.  Returns 0 on success
+ * or <0 on error.
+ */
 static int ddebug_parse_flags(const char *str, unsigned int *flagsp,
 			       unsigned int *maskp)
 {
@@ -380,7 +426,7 @@ static int ddebug_parse_flags(const char *str, unsigned int *flagsp,
 	if (verbose)
 		pr_info("flags=0x%x\n", flags);
 
-	
+	/* calculate final *flagsp, *maskp according to mask and op */
 	switch (op) {
 	case '=':
 		*maskp = 0;
@@ -416,13 +462,17 @@ static int ddebug_exec_query(char *query_string)
 	if (ddebug_parse_flags(words[nwords-1], &flags, &mask))
 		return -EINVAL;
 
-	
+	/* actually go and implement the change */
 	nfound = ddebug_change(&query, flags, mask);
 	vpr_info_dq((&query), (nfound) ? "applied" : "no-match");
 
 	return nfound;
 }
 
+/* handle multiple queries in query string, continue on error, return
+   last error or number of matching callsites.  Module name is either
+   in param (for boot arg) or perhaps in query string.
+*/
 static int ddebug_exec_queries(char *query)
 {
 	char *split;
@@ -578,6 +628,10 @@ static __init int ddebug_setup_query(char *str)
 
 __setup("ddebug_query=", ddebug_setup_query);
 
+/*
+ * File_ops->write method for <debugfs>/dynamic_debug/conrol.  Gathers the
+ * command text from userspace, parses and executes it.
+ */
 #define USER_BUF_PAGE 4096
 static ssize_t ddebug_proc_write(struct file *file, const char __user *ubuf,
 				  size_t len, loff_t *offp)
@@ -611,6 +665,11 @@ static ssize_t ddebug_proc_write(struct file *file, const char __user *ubuf,
 	return len;
 }
 
+/*
+ * Set the iterator to point to the first _ddebug object
+ * and return a pointer to that first object.  Returns
+ * NULL if there are no _ddebugs at all.
+ */
 static struct _ddebug *ddebug_iter_first(struct ddebug_iter *iter)
 {
 	if (list_empty(&ddebug_tables)) {
@@ -624,12 +683,18 @@ static struct _ddebug *ddebug_iter_first(struct ddebug_iter *iter)
 	return &iter->table->ddebugs[iter->idx];
 }
 
+/*
+ * Advance the iterator to point to the next _ddebug
+ * object from the one the iterator currently points at,
+ * and returns a pointer to the new _ddebug.  Returns
+ * NULL if the iterator has seen all the _ddebugs.
+ */
 static struct _ddebug *ddebug_iter_next(struct ddebug_iter *iter)
 {
 	if (iter->table == NULL)
 		return NULL;
 	if (++iter->idx == iter->table->num_ddebugs) {
-		
+		/* iterate to next table */
 		iter->idx = 0;
 		if (list_is_last(&iter->table->link, &ddebug_tables)) {
 			iter->table = NULL;
@@ -641,6 +706,11 @@ static struct _ddebug *ddebug_iter_next(struct ddebug_iter *iter)
 	return &iter->table->ddebugs[iter->idx];
 }
 
+/*
+ * Seq_ops start method.  Called at the start of every
+ * read() call from userspace.  Takes the ddebug_lock and
+ * seeks the seq_file's iterator to the given position.
+ */
 static void *ddebug_proc_start(struct seq_file *m, loff_t *pos)
 {
 	struct ddebug_iter *iter = m->private;
@@ -662,6 +732,11 @@ static void *ddebug_proc_start(struct seq_file *m, loff_t *pos)
 	return dp;
 }
 
+/*
+ * Seq_ops next method.  Called several times within a read()
+ * call from userspace, with ddebug_lock held.  Walks to the
+ * next _ddebug object with a special case for the header line.
+ */
 static void *ddebug_proc_next(struct seq_file *m, void *p, loff_t *pos)
 {
 	struct ddebug_iter *iter = m->private;
@@ -679,6 +754,12 @@ static void *ddebug_proc_next(struct seq_file *m, void *p, loff_t *pos)
 	return dp;
 }
 
+/*
+ * Seq_ops show method.  Called several times within a read()
+ * call from userspace, with ddebug_lock held.  Formats the
+ * current _ddebug as a single human-readable line, with a
+ * special case for the header line.
+ */
 static int ddebug_proc_show(struct seq_file *m, void *p)
 {
 	struct ddebug_iter *iter = m->private;
@@ -704,6 +785,10 @@ static int ddebug_proc_show(struct seq_file *m, void *p)
 	return 0;
 }
 
+/*
+ * Seq_ops stop method.  Called at the end of each read()
+ * call from userspace.  Drops ddebug_lock.
+ */
 static void ddebug_proc_stop(struct seq_file *m, void *p)
 {
 	if (verbose)
@@ -718,6 +803,13 @@ static const struct seq_operations ddebug_proc_seqops = {
 	.stop = ddebug_proc_stop
 };
 
+/*
+ * File_ops->open method for <debugfs>/dynamic_debug/control.  Does
+ * the seq_file setup dance, and also creates an iterator to walk the
+ * _ddebugs.  Note that we create a seq_file always, even for O_WRONLY
+ * files where it's not needed, as doing so simplifies the ->release
+ * method.
+ */
 static int ddebug_proc_open(struct inode *inode, struct file *file)
 {
 	struct ddebug_iter *iter;
@@ -748,6 +840,10 @@ static const struct file_operations ddebug_proc_fops = {
 	.write = ddebug_proc_write
 };
 
+/*
+ * Allocate a new ddebug_table for the given module
+ * and add it to the global list.
+ */
 int ddebug_add_module(struct _ddebug *tab, unsigned int n,
 			     const char *name)
 {
@@ -783,6 +879,10 @@ static void ddebug_table_free(struct ddebug_table *dt)
 	kfree(dt);
 }
 
+/*
+ * Called in response to a module being unloaded.  Removes
+ * any ddebug_table's which point at the module.
+ */
 int ddebug_remove_module(const char *mod_name)
 {
 	struct ddebug_table *dt, *nextdt;
@@ -866,7 +966,7 @@ static int __init dynamic_debug_init(void)
 	if (ret)
 		goto out_free;
 
-	
+	/* ddebug_query boot param got passed -> set it up */
 	if (ddebug_setup_string[0] != '\0') {
 		ret = ddebug_exec_queries(ddebug_setup_string);
 		if (ret < 0)
@@ -875,7 +975,7 @@ static int __init dynamic_debug_init(void)
 		else
 			pr_info("%d changes by ddebug_query\n", ret);
 
-		
+		/* keep tables even on ddebug_query parse error */
 		ret = 0;
 	}
 
@@ -886,5 +986,7 @@ out_free:
 		ddebug_init_success = 1;
 	return 0;
 }
+/* Allow early initialization for boot messages via boot param */
 arch_initcall(dynamic_debug_init);
+/* Debugfs setup must be done later */
 module_init(dynamic_debug_init_debugfs);

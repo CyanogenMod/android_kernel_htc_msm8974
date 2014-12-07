@@ -14,14 +14,28 @@
 
 #include <linux/perf_event.h>
 
+/*
+ *          |   NHM/WSM    |      SNB     |
+ * register -------------------------------
+ *          |  HT  | no HT |  HT  | no HT |
+ *-----------------------------------------
+ * offcore  | core | core  | cpu  | core  |
+ * lbr_sel  | core | core  | cpu  | core  |
+ * ld_lat   | cpu  | core  | cpu  | core  |
+ *-----------------------------------------
+ *
+ * Given that there is a small number of shared regs,
+ * we can pre-allocate their slot in the per-cpu
+ * per-core reg tables.
+ */
 enum extra_reg_type {
-	EXTRA_REG_NONE  = -1,	
+	EXTRA_REG_NONE  = -1,	/* not used */
 
-	EXTRA_REG_RSP_0 = 0,	
-	EXTRA_REG_RSP_1 = 1,	
-	EXTRA_REG_LBR   = 2,	
+	EXTRA_REG_RSP_0 = 0,	/* offcore_response_0 */
+	EXTRA_REG_RSP_1 = 1,	/* offcore_response_1 */
+	EXTRA_REG_LBR   = 2,	/* lbr_select */
 
-	EXTRA_REG_MAX		
+	EXTRA_REG_MAX		/* number of entries needed */
 };
 
 struct event_constraint {
@@ -36,14 +50,20 @@ struct event_constraint {
 };
 
 struct amd_nb {
-	int nb_id;  
-	int refcnt; 
+	int nb_id;  /* NorthBridge id */
+	int refcnt; /* reference count */
 	struct perf_event *owners[X86_PMC_IDX_MAX];
 	struct event_constraint event_constraints[X86_PMC_IDX_MAX];
 };
 
+/* The maximal number of PEBS events: */
 #define MAX_PEBS_EVENTS		4
 
+/*
+ * A debug store configuration.
+ *
+ * We only support architectures that use 64bit fields.
+ */
 struct debug_store {
 	u64	bts_buffer_base;
 	u64	bts_index;
@@ -56,23 +76,35 @@ struct debug_store {
 	u64	pebs_event_reset[MAX_PEBS_EVENTS];
 };
 
+/*
+ * Per register state.
+ */
 struct er_account {
-	raw_spinlock_t		lock;	
-	u64                 config;	
-	u64                 reg;	
-	atomic_t            ref;	
+	raw_spinlock_t		lock;	/* per-core: protect structure */
+	u64                 config;	/* extra MSR config */
+	u64                 reg;	/* extra MSR number */
+	atomic_t            ref;	/* reference count */
 };
 
+/*
+ * Per core/cpu state
+ *
+ * Used to coordinate shared registers between HT threads or
+ * among events on a single PMU.
+ */
 struct intel_shared_regs {
 	struct er_account       regs[EXTRA_REG_MAX];
-	int                     refcnt;		
-	unsigned                core_id;	
+	int                     refcnt;		/* per-core: #HT threads */
+	unsigned                core_id;	/* per-core: core id */
 };
 
 #define MAX_LBR_ENTRIES		16
 
 struct cpu_hw_events {
-	struct perf_event	*events[X86_PMC_IDX_MAX]; 
+	/*
+	 * Generic x86 PMC bits
+	 */
+	struct perf_event	*events[X86_PMC_IDX_MAX]; /* in counter order */
 	unsigned long		active_mask[BITS_TO_LONGS(X86_PMC_IDX_MAX)];
 	unsigned long		running[BITS_TO_LONGS(X86_PMC_IDX_MAX)];
 	int			enabled;
@@ -80,15 +112,21 @@ struct cpu_hw_events {
 	int			n_events;
 	int			n_added;
 	int			n_txn;
-	int			assign[X86_PMC_IDX_MAX]; 
+	int			assign[X86_PMC_IDX_MAX]; /* event to counter assignment */
 	u64			tags[X86_PMC_IDX_MAX];
-	struct perf_event	*event_list[X86_PMC_IDX_MAX]; 
+	struct perf_event	*event_list[X86_PMC_IDX_MAX]; /* in enabled order */
 
 	unsigned int		group_flag;
 
+	/*
+	 * Intel DebugStore bits
+	 */
 	struct debug_store	*ds;
 	u64			pebs_enabled;
 
+	/*
+	 * Intel LBR bits
+	 */
 	int				lbr_users;
 	void				*lbr_context;
 	struct perf_branch_stack	lbr_stack;
@@ -96,14 +134,24 @@ struct cpu_hw_events {
 	struct er_account		*lbr_sel;
 	u64				br_sel;
 
+	/*
+	 * Intel host/guest exclude bits
+	 */
 	u64				intel_ctrl_guest_mask;
 	u64				intel_ctrl_host_mask;
 	struct perf_guest_switch_msr	guest_switch_msrs[X86_PMC_IDX_MAX];
 
+	/*
+	 * manage shared (per-core, per-cpu) registers
+	 * used on Intel NHM/WSM/SNB
+	 */
 	struct intel_shared_regs	*shared_regs;
 
+	/*
+	 * AMD specific bits
+	 */
 	struct amd_nb			*amd_nb;
-	
+	/* Inverted mask of bits to clear in the perf_ctr ctrl registers */
 	u64				perf_ctr_virt_mask;
 
 	void				*kfree_on_online;
@@ -120,15 +168,53 @@ struct cpu_hw_events {
 #define EVENT_CONSTRAINT(c, n, m)	\
 	__EVENT_CONSTRAINT(c, n, m, HWEIGHT(n), 0)
 
+/*
+ * The overlap flag marks event constraints with overlapping counter
+ * masks. This is the case if the counter mask of such an event is not
+ * a subset of any other counter mask of a constraint with an equal or
+ * higher weight, e.g.:
+ *
+ *  c_overlaps = EVENT_CONSTRAINT_OVERLAP(0, 0x09, 0);
+ *  c_another1 = EVENT_CONSTRAINT(0, 0x07, 0);
+ *  c_another2 = EVENT_CONSTRAINT(0, 0x38, 0);
+ *
+ * The event scheduler may not select the correct counter in the first
+ * cycle because it needs to know which subsequent events will be
+ * scheduled. It may fail to schedule the events then. So we set the
+ * overlap flag for such constraints to give the scheduler a hint which
+ * events to select for counter rescheduling.
+ *
+ * Care must be taken as the rescheduling algorithm is O(n!) which
+ * will increase scheduling cycles for an over-commited system
+ * dramatically.  The number of such EVENT_CONSTRAINT_OVERLAP() macros
+ * and its counter masks must be kept at a minimum.
+ */
 #define EVENT_CONSTRAINT_OVERLAP(c, n, m)	\
 	__EVENT_CONSTRAINT(c, n, m, HWEIGHT(n), 1)
 
+/*
+ * Constraint on the Event code.
+ */
 #define INTEL_EVENT_CONSTRAINT(c, n)	\
 	EVENT_CONSTRAINT(c, n, ARCH_PERFMON_EVENTSEL_EVENT)
 
+/*
+ * Constraint on the Event code + UMask + fixed-mask
+ *
+ * filter mask to validate fixed counter events.
+ * the following filters disqualify for fixed counters:
+ *  - inv
+ *  - edge
+ *  - cnt-mask
+ *  The other filters are supported by fixed counters.
+ *  The any-thread option is supported starting with v3.
+ */
 #define FIXED_EVENT_CONSTRAINT(c, n)	\
 	EVENT_CONSTRAINT(c, (1ULL << (32+n)), X86_RAW_EVENT_MASK)
 
+/*
+ * Constraint on the Event code + UMask
+ */
 #define INTEL_UEVENT_CONSTRAINT(c, n)	\
 	EVENT_CONSTRAINT(c, n, INTEL_ARCH_EVENT_MASK)
 
@@ -138,12 +224,22 @@ struct cpu_hw_events {
 #define for_each_event_constraint(e, c)	\
 	for ((e) = (c); (e)->weight; (e)++)
 
+/*
+ * Extra registers for specific events.
+ *
+ * Some events need large masks and require external MSRs.
+ * Those extra MSRs end up being shared for all events on
+ * a PMU and sometimes between PMU of sibling HT threads.
+ * In either case, the kernel needs to handle conflicting
+ * accesses to those extra, shared, regs. The data structure
+ * to manage those registers is stored in cpu_hw_event.
+ */
 struct extra_reg {
 	unsigned int		event;
 	unsigned int		msr;
 	u64			config_mask;
 	u64			valid_mask;
-	int			idx;  
+	int			idx;  /* per_xxx->regs[] reg index */
 };
 
 #define EVENT_EXTRA_REG(e, ms, m, vm, i) {	\
@@ -198,7 +294,13 @@ union x86_pmu_config {
 
 #define X86_CONFIG(args...) ((union x86_pmu_config){.bits = {args}}).value
 
+/*
+ * struct x86_pmu - generic x86 pmu
+ */
 struct x86_pmu {
+	/*
+	 * Generic x86 PMC bits
+	 */
 	const char	*name;
 	int		version;
 	int		(*handle_irq)(struct pt_regs *);
@@ -233,32 +335,53 @@ struct x86_pmu {
 	struct x86_pmu_quirk *quirks;
 	int		perfctr_second_write;
 
+	/*
+	 * sysfs attrs
+	 */
 	int		attr_rdpmc;
 	struct attribute **format_attrs;
 
+	/*
+	 * CPU Hotplug hooks
+	 */
 	int		(*cpu_prepare)(int cpu);
 	void		(*cpu_starting)(int cpu);
 	void		(*cpu_dying)(int cpu);
 	void		(*cpu_dead)(int cpu);
 	void		(*flush_branch_stack)(void);
 
+	/*
+	 * Intel Arch Perfmon v2+
+	 */
 	u64			intel_ctrl;
 	union perf_capabilities intel_cap;
 
+	/*
+	 * Intel DebugStore bits
+	 */
 	int		bts, pebs;
 	int		bts_active, pebs_active;
 	int		pebs_record_size;
 	void		(*drain_pebs)(struct pt_regs *regs);
 	struct event_constraint *pebs_constraints;
 
-	unsigned long	lbr_tos, lbr_from, lbr_to; 
-	int		lbr_nr;			   
-	u64		lbr_sel_mask;		   
-	const int	*lbr_sel_map;		   
+	/*
+	 * Intel LBR
+	 */
+	unsigned long	lbr_tos, lbr_from, lbr_to; /* MSR base regs       */
+	int		lbr_nr;			   /* hardware stack size */
+	u64		lbr_sel_mask;		   /* LBR_SELECT valid bits */
+	const int	*lbr_sel_map;		   /* lbr_select mappings */
 
+	/*
+	 * Extra registers for events
+	 */
 	struct extra_reg *extra_regs;
 	unsigned int er_flags;
 
+	/*
+	 * Intel host/guest support (KVM)
+	 */
 	struct perf_guest_switch_msr *(*guest_get_msrs)(int *nr);
 };
 
@@ -280,6 +403,13 @@ DECLARE_PER_CPU(struct cpu_hw_events, cpu_hw_events);
 
 int x86_perf_event_set_period(struct perf_event *event);
 
+/*
+ * Generalized hw caching related hw_event table, filled
+ * in on a per model basis. A value of 0 means
+ * 'not supported', -1 means 'hw_event makes no sense on
+ * this CPU', any other value means the raw hw_event
+ * ID.
+ */
 
 #define C(x) PERF_COUNT_HW_CACHE_##x
 
@@ -298,7 +428,7 @@ static inline int x86_pmu_addr_offset(int index)
 {
 	int offset;
 
-	
+	/* offset = X86_FEATURE_PERFCTR_CORE ? index << 1 : index */
 	alternative_io(ASM_NOP2,
 		       "shll $1, %%eax",
 		       X86_FEATURE_PERFCTR_CORE,
@@ -368,14 +498,14 @@ static inline bool kernel_ip(unsigned long ip)
 
 int amd_pmu_init(void);
 
-#else 
+#else /* CONFIG_CPU_SUP_AMD */
 
 static inline int amd_pmu_init(void)
 {
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_CPU_SUP_AMD */
 
 #ifdef CONFIG_CPU_SUP_INTEL
 
@@ -452,7 +582,7 @@ int p4_pmu_init(void);
 
 int p6_pmu_init(void);
 
-#else 
+#else /* CONFIG_CPU_SUP_INTEL */
 
 static inline void reserve_ds_buffers(void)
 {
@@ -472,4 +602,4 @@ static inline struct intel_shared_regs *allocate_shared_regs(int cpu)
 	return NULL;
 }
 
-#endif 
+#endif /* CONFIG_CPU_SUP_INTEL */

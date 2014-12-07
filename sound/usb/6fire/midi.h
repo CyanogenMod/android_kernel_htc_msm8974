@@ -31,7 +31,7 @@ struct midi_runtime {
 	spinlock_t out_lock;
 	struct snd_rawmidi_substream *out;
 	struct urb out_urb;
-	u8 out_serial; 
+	u8 out_serial; /* serial number of out packet */
 	u8 out_buffer[MIDI_BUFSIZE];
 	int buffer_offset;
 
@@ -41,5 +41,5 @@ struct midi_runtime {
 int __devinit usb6fire_midi_init(struct sfire_chip *chip);
 void usb6fire_midi_abort(struct sfire_chip *chip);
 void usb6fire_midi_destroy(struct sfire_chip *chip);
-#endif 
+#endif /* USB6FIRE_MIDI_H */
 

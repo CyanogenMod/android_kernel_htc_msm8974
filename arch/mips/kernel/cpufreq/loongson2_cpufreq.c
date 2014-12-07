@@ -13,7 +13,7 @@
 #include <linux/cpufreq.h>
 #include <linux/module.h>
 #include <linux/err.h>
-#include <linux/sched.h>	
+#include <linux/sched.h>	/* set_cpus_allowed() */
 #include <linux/delay.h>
 #include <linux/platform_device.h>
 
@@ -48,6 +48,9 @@ static unsigned int loongson2_cpufreq_get(unsigned int cpu)
 	return clk_get_rate(cpuclk);
 }
 
+/*
+ * Here we notify other drivers of the proposed change and the final change.
+ */
 static int loongson2_cpufreq_target(struct cpufreq_policy *policy,
 				     unsigned int target_freq,
 				     unsigned int relation)
@@ -85,15 +88,15 @@ static int loongson2_cpufreq_target(struct cpufreq_policy *policy,
 	if (freqs.new == freqs.old)
 		return 0;
 
-	
+	/* notifiers */
 	cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
 	set_cpus_allowed_ptr(current, &cpus_allowed);
 
-	
+	/* setting the cpu frequency */
 	clk_set_rate(cpuclk, freq);
 
-	
+	/* notifiers */
 	cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
 
 	pr_debug("cpufreq: set frequency %u kHz\n", freq);
@@ -118,7 +121,7 @@ static int loongson2_cpufreq_cpu_init(struct cpufreq_policy *policy)
 	if (!cpuclk->rate)
 		return -EINVAL;
 
-	
+	/* clock table init */
 	for (i = 2;
 	     (loongson2_clockmod_table[i].frequency != CPUFREQ_TABLE_END);
 	     i++)
@@ -182,7 +185,7 @@ static int __init cpufreq_init(void)
 {
 	int ret;
 
-	
+	/* Register platform stuff */
 	ret = platform_driver_register(&platform_driver);
 	if (ret)
 		return ret;

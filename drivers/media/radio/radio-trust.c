@@ -1,3 +1,19 @@
+/* radio-trust.c - Trust FM Radio card driver for Linux 2.2
+ * by Eric Lammerts <eric@scintilla.utwente.nl>
+ *
+ * Based on radio-aztech.c. Original notes:
+ *
+ * Adapted to support the Video for Linux API by
+ * Russell Kroll <rkroll@exploits.org>.  Based on original tuner code by:
+ *
+ * Quay Ly
+ * Donald Song
+ * Jason Lewis      (jlewis@twilight.vtc.vsc.edu)
+ * Scott McGrath    (smcgrath@twilight.vtc.vsc.edu)
+ * William McGrath  (wmcgrath@twilight.vtc.vsc.edu)
+ *
+ * Converted to V4L2 API by Mauro Carvalho Chehab <mchehab@infradead.org>
+ */
 
 #include <stdarg.h>
 #include <linux/module.h>
@@ -15,6 +31,7 @@ MODULE_DESCRIPTION("A driver for the Trust FM Radio card.");
 MODULE_LICENSE("GPL");
 MODULE_VERSION("0.1.99");
 
+/* acceptable ports: 0x350 (JP3 shorted), 0x358 (JP3 open) */
 
 #ifndef CONFIG_RADIO_TRUST_PORT
 #define CONFIG_RADIO_TRUST_PORT -1
@@ -43,6 +60,7 @@ static struct radio_isa_card *trust_alloc(void)
 	return tr ? &tr->isa : NULL;
 }
 
+/* i2c addresses */
 #define TDA7318_ADDR 0x88
 #define TSA6060T_ADDR 0xc4
 
@@ -59,7 +77,7 @@ static void write_i2c(struct trust *tr, int n, ...)
 
 	va_start(args, n);
 
-	
+	/* start condition */
 	TR_SET_SDA;
 	TR_SET_SCL;
 	TR_DELAY;
@@ -79,7 +97,7 @@ static void write_i2c(struct trust *tr, int n, ...)
 			TR_CLR_SCL;
 			TR_DELAY;
 		}
-		
+		/* acknowledge bit */
 		TR_SET_SDA;
 		TR_SET_SCL;
 		TR_DELAY;
@@ -87,7 +105,7 @@ static void write_i2c(struct trust *tr, int n, ...)
 		TR_DELAY;
 	}
 
-	
+	/* stop condition */
 	TR_CLR_SDA;
 	TR_DELAY;
 	TR_SET_SCL;
@@ -130,8 +148,8 @@ static int trust_s_frequency(struct radio_isa_card *isa, u32 freq)
 {
 	struct trust *tr = container_of(isa, struct trust, isa);
 
-	freq /= 160;	
-	freq += 1070;	
+	freq /= 160;	/* Convert to 10 kHz units	*/
+	freq += 1070;	/* Add 10.7 MHz IF		*/
 	write_i2c(tr, 5, TSA6060T_ADDR, (freq << 1) | 1,
 			freq >> 7, 0x60 | ((freq >> 15) & 1), 0);
 	return 0;
@@ -167,11 +185,11 @@ static int trust_initialize(struct radio_isa_card *isa)
 	struct trust *tr = container_of(isa, struct trust, isa);
 
 	tr->ioval = 0xf;
-	write_i2c(tr, 2, TDA7318_ADDR, 0x80);	
-	write_i2c(tr, 2, TDA7318_ADDR, 0xa0);	
-	write_i2c(tr, 2, TDA7318_ADDR, 0xc0);	
-	write_i2c(tr, 2, TDA7318_ADDR, 0xe0);	
-	write_i2c(tr, 2, TDA7318_ADDR, 0x40);	
+	write_i2c(tr, 2, TDA7318_ADDR, 0x80);	/* speaker att. LF = 0 dB */
+	write_i2c(tr, 2, TDA7318_ADDR, 0xa0);	/* speaker att. RF = 0 dB */
+	write_i2c(tr, 2, TDA7318_ADDR, 0xc0);	/* speaker att. LR = 0 dB */
+	write_i2c(tr, 2, TDA7318_ADDR, 0xe0);	/* speaker att. RR = 0 dB */
+	write_i2c(tr, 2, TDA7318_ADDR, 0x40);	/* stereo 1 input, gain = 18.75 dB */
 
 	v4l2_ctrl_new_std(&isa->hdl, &trust_ctrl_ops,
 				V4L2_CID_AUDIO_BASS, 0, 15, 1, 8);

@@ -40,6 +40,17 @@
 
 
 
+/**
+ * mei_ioctl_connect_client - the connect to fw client IOCTL function
+ *
+ * @dev: the device structure
+ * @data: IOCTL connect data, input and output parameters
+ * @file: private data of the file object
+ *
+ * Locking: called under "dev->device_lock" lock
+ *
+ * returns 0 on success, <0 on failure.
+ */
 int mei_ioctl_connect_client(struct file *file,
 			struct mei_connect_client_data *data)
 {
@@ -63,7 +74,7 @@ int mei_ioctl_connect_client(struct file *file,
 	dev_dbg(&dev->pdev->dev, "mei_ioctl_connect_client() Entry\n");
 
 
-	
+	/* buffered ioctl cb */
 	cb = kzalloc(sizeof(struct mei_cl_cb), GFP_KERNEL);
 	if (!cb) {
 		rets = -ENOMEM;
@@ -83,7 +94,7 @@ int mei_ioctl_connect_client(struct file *file,
 		goto end;
 	}
 
-	
+	/* find ME client we're trying to connect to */
 	i = mei_find_me_client_index(dev, data->in_client_uuid);
 	if (i >= 0 && !dev->me_clients[i].props.fixed_address) {
 		cl->me_client_id = dev->me_clients[i].client_id;
@@ -97,6 +108,9 @@ int mei_ioctl_connect_client(struct file *file,
 	dev_dbg(&dev->pdev->dev, "FW Client - Max Msg Len = %d\n",
 			dev->me_clients[i].props.max_msg_length);
 
+	/* if we're connecting to amthi client then we will use the
+	 * existing connection
+	 */
 	if (uuid_le_cmp(data->in_client_uuid, mei_amthi_guid) == 0) {
 		dev_dbg(&dev->pdev->dev, "FW Client is amthi\n");
 		if (dev->iamthif_cl.state != MEI_FILE_CONNECTED) {
@@ -138,7 +152,7 @@ int mei_ioctl_connect_client(struct file *file,
 	}
 
 
-	
+	/* prepare the output buffer */
 	client = &data->out_client_properties;
 	client->max_msg_length = dev->me_clients[i].props.max_msg_length;
 	client->protocol_version = dev->me_clients[i].props.protocol_version;
@@ -200,6 +214,14 @@ end:
 	return rets;
 }
 
+/**
+ * find_amthi_read_list_entry - finds a amthilist entry for current file
+ *
+ * @dev: the device structure
+ * @file: pointer to file object
+ *
+ * returns   returned a list entry on success, NULL on failure.
+ */
 struct mei_cl_cb *find_amthi_read_list_entry(
 		struct mei_device *dev,
 		struct file *file)
@@ -218,6 +240,23 @@ struct mei_cl_cb *find_amthi_read_list_entry(
 	return NULL;
 }
 
+/**
+ * amthi_read - read data from AMTHI client
+ *
+ * @dev: the device structure
+ * @if_num:  minor number
+ * @file: pointer to file object
+ * @*ubuf: pointer to user data in user space
+ * @length: data length to read
+ * @offset: data read offset
+ *
+ * Locking: called under "dev->device_lock" lock
+ *
+ * returns
+ *  returned data length on success,
+ *  zero if no data to read,
+ *  negative on failure.
+ */
 int amthi_read(struct mei_device *dev, struct file *file,
 	       char __user *ubuf, size_t length, loff_t *offset)
 {
@@ -228,7 +267,7 @@ int amthi_read(struct mei_device *dev, struct file *file,
 	unsigned long timeout;
 	int i;
 
-	
+	/* Only Posible if we are in timeout */
 	if (!cl || cl != &dev->iamthif_cl) {
 		dev_dbg(&dev->pdev->dev, "bad file ext.\n");
 		return -ETIMEDOUT;
@@ -250,14 +289,14 @@ int amthi_read(struct mei_device *dev, struct file *file,
 	dev_dbg(&dev->pdev->dev, "checking amthi data\n");
 	cb = find_amthi_read_list_entry(dev, file);
 
-	
+	/* Check for if we can block or not*/
 	if (cb == NULL && file->f_flags & O_NONBLOCK)
 		return -EAGAIN;
 
 
 	dev_dbg(&dev->pdev->dev, "waiting for amthi data\n");
 	while (cb == NULL) {
-		
+		/* unlock the Mutex */
 		mutex_unlock(&dev->device_lock);
 
 		wait_ret = wait_event_interruptible(dev->iamthif_cl.wait,
@@ -268,7 +307,7 @@ int amthi_read(struct mei_device *dev, struct file *file,
 
 		dev_dbg(&dev->pdev->dev, "woke up from sleep\n");
 
-		
+		/* Locking again the Mutex */
 		mutex_lock(&dev->device_lock);
 	}
 
@@ -284,27 +323,32 @@ int amthi_read(struct mei_device *dev, struct file *file,
 
 		if  (time_after(jiffies, timeout)) {
 			dev_dbg(&dev->pdev->dev, "amthi Time out\n");
-			
+			/* 15 sec for the message has expired */
 			list_del(&cb->cb_list);
 			rets = -ETIMEDOUT;
 			goto free;
 		}
 	}
-	
+	/* if the whole message will fit remove it from the list */
 	if (cb->information >= *offset && length >= (cb->information - *offset))
 		list_del(&cb->cb_list);
 	else if (cb->information > 0 && cb->information <= *offset) {
-		
+		/* end of the message has been reached */
 		list_del(&cb->cb_list);
 		rets = 0;
 		goto free;
 	}
+		/* else means that not full buffer will be read and do not
+		 * remove message from deletion list
+		 */
 
 	dev_dbg(&dev->pdev->dev, "amthi cb->response_buffer size - %d\n",
 	    cb->response_buffer.size);
 	dev_dbg(&dev->pdev->dev, "amthi cb->information - %lu\n",
 	    cb->information);
 
+	/* length is being turncated to PAGE_SIZE, however,
+	 * the information may be longer */
 	length = min_t(size_t, length, (cb->information - *offset));
 
 	if (copy_to_user(ubuf, cb->response_buffer.data + *offset, length))
@@ -324,6 +368,15 @@ out:
 	return rets;
 }
 
+/**
+ * mei_start_read - the start read client message function.
+ *
+ * @dev: the device structure
+ * @if_num:  minor number
+ * @cl: private data of the file object
+ *
+ * returns 0 on success, <0 on failure.
+ */
 int mei_start_read(struct mei_device *dev, struct mei_cl *cl)
 {
 	struct mei_cl_cb *cb;
@@ -374,7 +427,7 @@ int mei_start_read(struct mei_device *dev, struct mei_cl *cl)
 	}
 	dev_dbg(&dev->pdev->dev, "allocation call back data success.\n");
 	cb->major_file_operations = MEI_READ;
-	
+	/* make sure information is zero before we start */
 	cb->information = 0;
 	cb->file_private = (void *) cl;
 	cl->read_cb = cb;
@@ -394,6 +447,14 @@ unlock:
 	return rets;
 }
 
+/**
+ * amthi_write - write iamthif data to amthi client
+ *
+ * @dev: the device structure
+ * @cb: mei call back struct
+ *
+ * returns 0 on success, <0 on failure.
+ */
 int amthi_write(struct mei_device *dev, struct mei_cl_cb *cb)
 {
 	struct mei_msg_hdr mei_hdr;
@@ -468,6 +529,13 @@ int amthi_write(struct mei_device *dev, struct mei_cl_cb *cb)
 	return 0;
 }
 
+/**
+ * iamthif_ioctl_send_msg - send cmd data to amthi client
+ *
+ * @dev: the device structure
+ *
+ * returns 0 on success, <0 on failure.
+ */
 void mei_run_next_iamthif_cmd(struct mei_device *dev)
 {
 	struct mei_cl *cl_tmp;
@@ -506,6 +574,11 @@ void mei_run_next_iamthif_cmd(struct mei_device *dev)
 	}
 }
 
+/**
+ * mei_free_cb_private - free mei_cb_private related memory
+ *
+ * @cb: mei callback struct
+ */
 void mei_free_cb_private(struct mei_cl_cb *cb)
 {
 	if (cb == NULL)

@@ -11,12 +11,15 @@
 
 #include <linux/posix_acl.h>
 
+/* Extended attribute names */
 #define POSIX_ACL_XATTR_ACCESS	"system.posix_acl_access"
 #define POSIX_ACL_XATTR_DEFAULT	"system.posix_acl_default"
 
+/* Supported ACL a_version fields */
 #define POSIX_ACL_XATTR_VERSION	0x0002
 
 
+/* An undefined entry e_id value */
 #define ACL_UNDEFINED_ID	(-1)
 
 typedef struct {
@@ -52,4 +55,4 @@ posix_acl_xattr_count(size_t size)
 struct posix_acl *posix_acl_from_xattr(const void *value, size_t size);
 int posix_acl_to_xattr(const struct posix_acl *acl, void *buffer, size_t size);
 
-#endif	
+#endif	/* _POSIX_ACL_XATTR_H */

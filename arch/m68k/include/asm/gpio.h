@@ -21,11 +21,25 @@
 #include <asm/coldfire.h>
 #include <asm/mcfsim.h>
 
+/*
+ * The Freescale Coldfire family is quite varied in how they implement GPIO.
+ * Some parts have 8 bit ports, some have 16bit and some have 32bit; some have
+ * only one port, others have multiple ports; some have a single data latch
+ * for both input and output, others have a separate pin data register to read
+ * input; some require a read-modify-write access to change an output, others
+ * have set and clear registers for some of the outputs; Some have all the
+ * GPIOs in a single control area, others have some GPIOs implemented in
+ * different modules.
+ *
+ * This implementation attempts accommodate the differences while presenting
+ * a generic interface that will optimize to as few instructions as possible.
+ */
 #if defined(CONFIG_M5206) || defined(CONFIG_M5206e) || \
     defined(CONFIG_M520x) || defined(CONFIG_M523x) || \
     defined(CONFIG_M527x) || defined(CONFIG_M528x) || \
     defined(CONFIG_M532x) || defined(CONFIG_M54xx)
 
+/* These parts have GPIO organized by 8 bit ports */
 
 #define MCFGPIO_PORTTYPE		u8
 #define MCFGPIO_PORTSIZE		8
@@ -34,6 +48,7 @@
 
 #elif defined(CONFIG_M5307) || defined(CONFIG_M5407) || defined(CONFIG_M5272)
 
+/* These parts have GPIO organized by 16 bit ports */
 
 #define MCFGPIO_PORTTYPE		u16
 #define MCFGPIO_PORTSIZE		16
@@ -42,6 +57,7 @@
 
 #elif defined(CONFIG_M5249)
 
+/* These parts have GPIO organized by 32 bit ports */
 
 #define MCFGPIO_PORTTYPE		u32
 #define MCFGPIO_PORTSIZE		32
@@ -55,7 +71,16 @@
 
 #if defined(CONFIG_M520x) || defined(CONFIG_M523x) || \
     defined(CONFIG_M527x) || defined(CONFIG_M528x) || defined(CONFIG_M532x)
+/*
+ * These parts have an 'Edge' Port module (external interrupt/GPIO) which uses
+ * read-modify-write to change an output and a GPIO module which has separate
+ * set/clr registers to directly change outputs with a single write access.
+ */
 #if defined(CONFIG_M528x)
+/*
+ * The 528x also has GPIOs in other modules (GPT, QADC) which use
+ * read-modify-write as well as those controlled by the EPORT and GPIO modules.
+ */
 #define MCFGPIO_SCR_START		40
 #else
 #define MCFGPIO_SCR_START		8
@@ -69,11 +94,16 @@
 #else
 
 #define MCFGPIO_SCR_START		MCFGPIO_PIN_MAX
+/* with MCFGPIO_SCR == MCFGPIO_PIN_MAX, these will be optimized away */
 #define MCFGPIO_SETR_PORT(gpio)		0
 #define MCFGPIO_CLRR_PORT(gpio)		0
 
 #endif
+/*
+ * Coldfire specific helper functions
+ */
 
+/* return the port pin data register for a gpio */
 static inline u32 __mcf_gpio_ppdr(unsigned gpio)
 {
 #if defined(CONFIG_M5206) || defined(CONFIG_M5206e) || \
@@ -112,6 +142,7 @@ static inline u32 __mcf_gpio_ppdr(unsigned gpio)
 #endif
 }
 
+/* return the port output data register for a gpio */
 static inline u32 __mcf_gpio_podr(unsigned gpio)
 {
 #if defined(CONFIG_M5206) || defined(CONFIG_M5206e) || \
@@ -150,6 +181,12 @@ static inline u32 __mcf_gpio_podr(unsigned gpio)
 #endif
 }
 
+/*
+ * The Generic GPIO functions
+ *
+ * If the gpio is a compile time constant and is one of the Coldfire gpios,
+ * use the inline version, otherwise dispatch thru gpiolib.
+ */
 
 static inline int gpio_get_value(unsigned gpio)
 {

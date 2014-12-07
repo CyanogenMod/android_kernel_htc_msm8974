@@ -18,4 +18,4 @@
 int mipi_orise_device_register(struct msm_panel_info *pinfo,
 					u32 channel, u32 panel);
 
-#endif  
+#endif  /* MIPI_ORISE_H */

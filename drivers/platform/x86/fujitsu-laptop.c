@@ -1,3 +1,4 @@
+/*-*-linux-c-*-*/
 
 /*
   Copyright (C) 2007,2008 Jonathan Woithe <jwoithe@physics.adelaide.edu.au>
@@ -26,6 +27,34 @@
   02110-1301, USA.
  */
 
+/*
+ * fujitsu-laptop.c - Fujitsu laptop support, providing access to additional
+ * features made available on a range of Fujitsu laptops including the
+ * P2xxx/P5xxx/S6xxx/S7xxx series.
+ *
+ * This driver exports a few files in /sys/devices/platform/fujitsu-laptop/;
+ * others may be added at a later date.
+ *
+ *   lcd_level - Screen brightness: contains a single integer in the
+ *   range 0..7. (rw)
+ *
+ * In addition to these platform device attributes the driver
+ * registers itself in the Linux backlight control subsystem and is
+ * available to userspace under /sys/class/backlight/fujitsu-laptop/.
+ *
+ * Hotkeys present on certain Fujitsu laptops (eg: the S6xxx series) are
+ * also supported by this driver.
+ *
+ * This driver has been tested on a Fujitsu Lifebook S6410, S7020 and
+ * P8010.  It should work on most P-series and S-series Lifebooks, but
+ * YMMV.
+ *
+ * The module parameter use_alt_lcd_levels switches between different ACPI
+ * brightness controls which are used by different Fujitsu laptops.  In most
+ * cases the correct method is automatically detected. "use_alt_lcd_levels=1"
+ * is applicable for a Fujitsu Lifebook S6410 if autodetection fails.
+ *
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -61,14 +90,17 @@
 #define ACPI_VIDEO_NOTIFY_INC_BRIGHTNESS     0x86
 #define ACPI_VIDEO_NOTIFY_DEC_BRIGHTNESS     0x87
 
+/* FUNC interface - command values */
 #define FUNC_RFKILL	0x1000
 #define FUNC_LEDS	0x1001
 #define FUNC_BUTTONS	0x1002
 #define FUNC_BACKLIGHT  0x1004
 
+/* FUNC interface - responses */
 #define UNSUPPORTED_CMD 0x80000000
 
 #if defined(CONFIG_LEDS_CLASS) || defined(CONFIG_LEDS_CLASS_MODULE)
+/* FUNC interface - LED control */
 #define FUNC_LED_OFF	0x1
 #define FUNC_LED_ON	0x30001
 #define KEYBOARD_LAMPS	0x100
@@ -76,7 +108,8 @@
 #define LOGOLAMP_ALWAYS  0x4000
 #endif
 
-#define KEY1_CODE	0x410	
+/* Hotkey details */
+#define KEY1_CODE	0x410	/* codes for the keys in the GIRB register */
 #define KEY2_CODE	0x411
 #define KEY3_CODE	0x412
 #define KEY4_CODE	0x413
@@ -84,6 +117,7 @@
 #define MAX_HOTKEY_RINGBUFFER_SIZE 100
 #define RINGBUFFERSIZE 40
 
+/* Debugging */
 #define FUJLAPTOP_LOG	   ACPI_FUJITSU_HID ": "
 #define FUJLAPTOP_ERR	   KERN_ERR FUJLAPTOP_LOG
 #define FUJLAPTOP_NOTICE   KERN_NOTICE FUJLAPTOP_LOG
@@ -107,6 +141,7 @@
 #define vdbg_printk(a_dbg_level, format, arg...)
 #endif
 
+/* Device controlling the backlight and associated keys */
 struct fujitsu_t {
 	acpi_handle acpi_handle;
 	struct acpi_device *dev;
@@ -125,6 +160,7 @@ static struct fujitsu_t *fujitsu;
 static int use_alt_lcd_levels = -1;
 static int disable_brightness_adjust = -1;
 
+/* Device used to access other hotkeys on the laptop */
 struct fujitsu_hotkey_t {
 	acpi_handle acpi_handle;
 	struct acpi_device *dev;
@@ -171,6 +207,7 @@ static u32 dbg_level = 0x03;
 
 static void acpi_fujitsu_notify(struct acpi_device *device, u32 event);
 
+/* Fujitsu ACPI interface function */
 
 static int call_fext_func(int cmd, int arg0, int arg1, int arg2)
 {
@@ -224,6 +261,7 @@ static int call_fext_func(int cmd, int arg0, int arg1, int arg2)
 }
 
 #if defined(CONFIG_LEDS_CLASS) || defined(CONFIG_LEDS_CLASS_MODULE)
+/* LED class callbacks */
 
 static void logolamp_set(struct led_classdev *cdev,
 			       enum led_brightness brightness)
@@ -274,6 +312,7 @@ static enum led_brightness kblamps_get(struct led_classdev *cdev)
 }
 #endif
 
+/* Hardware access for LCD brightness control */
 
 static int set_lcd_level(int level)
 {
@@ -370,6 +409,7 @@ static int get_max_brightness(void)
 	return fujitsu->max_brightness;
 }
 
+/* Backlight device stuff */
 
 static int bl_get_brightness(struct backlight_device *b)
 {
@@ -404,6 +444,7 @@ static const struct backlight_ops fujitsubl_ops = {
 	.update_status = bl_update_status,
 };
 
+/* Platform LCD brightness device */
 
 static ssize_t
 show_max_brightness(struct device *dev,
@@ -561,25 +602,25 @@ static void dmi_check_cb_common(const struct dmi_system_id *id)
 static int dmi_check_cb_s6410(const struct dmi_system_id *id)
 {
 	dmi_check_cb_common(id);
-	fujitsu->keycode1 = KEY_SCREENLOCK;	
-	fujitsu->keycode2 = KEY_HELP;	
+	fujitsu->keycode1 = KEY_SCREENLOCK;	/* "Lock" */
+	fujitsu->keycode2 = KEY_HELP;	/* "Mobility Center" */
 	return 1;
 }
 
 static int dmi_check_cb_s6420(const struct dmi_system_id *id)
 {
 	dmi_check_cb_common(id);
-	fujitsu->keycode1 = KEY_SCREENLOCK;	
-	fujitsu->keycode2 = KEY_HELP;	
+	fujitsu->keycode1 = KEY_SCREENLOCK;	/* "Lock" */
+	fujitsu->keycode2 = KEY_HELP;	/* "Mobility Center" */
 	return 1;
 }
 
 static int dmi_check_cb_p8010(const struct dmi_system_id *id)
 {
 	dmi_check_cb_common(id);
-	fujitsu->keycode1 = KEY_HELP;	
-	fujitsu->keycode3 = KEY_SWITCHVIDEOMODE;	
-	fujitsu->keycode4 = KEY_WWW;	
+	fujitsu->keycode1 = KEY_HELP;	/* "Support" */
+	fujitsu->keycode3 = KEY_SWITCHVIDEOMODE;	/* "Presentation" */
+	fujitsu->keycode4 = KEY_WWW;	/* "Internet" */
 	return 1;
 }
 
@@ -608,6 +649,7 @@ static struct dmi_system_id fujitsu_dmi_table[] = {
 	{}
 };
 
+/* ACPI device for LCD brightness control */
 
 static int acpi_fujitsu_add(struct acpi_device *device)
 {
@@ -669,7 +711,7 @@ static int acpi_fujitsu_add(struct acpi_device *device)
 			pr_err("_INI Method failed\n");
 	}
 
-	
+	/* do config (detect defaults) */
 	use_alt_lcd_levels = use_alt_lcd_levels == 1 ? 1 : 0;
 	disable_brightness_adjust = disable_brightness_adjust == 1 ? 1 : 0;
 	vdbg_printk(FUJLAPTOP_DBG_INFO,
@@ -703,6 +745,7 @@ static int acpi_fujitsu_remove(struct acpi_device *device, int type)
 	return 0;
 }
 
+/* Brightness notify */
 
 static void acpi_fujitsu_notify(struct acpi_device *device, u32 event)
 {
@@ -760,6 +803,7 @@ static void acpi_fujitsu_notify(struct acpi_device *device, u32 event)
 	}
 }
 
+/* ACPI device for hotkey handling */
 
 static int acpi_fujitsu_hotkey_add(struct acpi_device *device)
 {
@@ -779,7 +823,7 @@ static int acpi_fujitsu_hotkey_add(struct acpi_device *device)
 	sprintf(acpi_device_class(device), "%s", ACPI_FUJITSU_CLASS);
 	device->driver_data = fujitsu_hotkey;
 
-	
+	/* kfifo */
 	spin_lock_init(&fujitsu_hotkey->fifo_lock);
 	error = kfifo_alloc(&fujitsu_hotkey->fifo, RINGBUFFERSIZE * sizeof(int),
 			GFP_KERNEL);
@@ -838,12 +882,14 @@ static int acpi_fujitsu_hotkey_add(struct acpi_device *device)
 	i = 0;
 	while (call_fext_func(FUNC_BUTTONS, 0x1, 0x0, 0x0) != 0
 		&& (i++) < MAX_HOTKEY_RINGBUFFER_SIZE)
-		; 
+		; /* No action, result is discarded */
 	vdbg_printk(FUJLAPTOP_DBG_INFO, "Discarded %i ringbuffer entries\n", i);
 
 	fujitsu_hotkey->rfkill_supported =
 		call_fext_func(FUNC_RFKILL, 0x0, 0x0, 0x0);
 
+	/* Make sure our bitmask of supported functions is cleared if the
+	   RFKILL function block is not implemented, like on the S7020. */
 	if (fujitsu_hotkey->rfkill_supported == UNSUPPORTED_CMD)
 		fujitsu_hotkey->rfkill_supported = 0;
 
@@ -851,7 +897,7 @@ static int acpi_fujitsu_hotkey_add(struct acpi_device *device)
 		fujitsu_hotkey->rfkill_state =
 			call_fext_func(FUNC_RFKILL, 0x4, 0x0, 0x0);
 
-	
+	/* Suspect this is a keymap of the application panel, print it */
 	pr_info("BTNI: [0x%x]\n", call_fext_func(FUNC_BUTTONS, 0x0, 0x0, 0x0));
 
 #if defined(CONFIG_LEDS_CLASS) || defined(CONFIG_LEDS_CLASS_MODULE)
@@ -1001,6 +1047,7 @@ static void acpi_fujitsu_hotkey_notify(struct acpi_device *device, u32 event)
 	}
 }
 
+/* Initialization */
 
 static const struct acpi_device_id fujitsu_device_ids[] = {
 	{ACPI_FUJITSU_HID, 0},
@@ -1056,7 +1103,7 @@ static int __init fujitsu_init(void)
 		goto fail_acpi;
 	}
 
-	
+	/* Register platform stuff */
 
 	fujitsu->pf_device = platform_device_alloc("fujitsu-laptop", -1);
 	if (!fujitsu->pf_device) {
@@ -1074,7 +1121,7 @@ static int __init fujitsu_init(void)
 	if (ret)
 		goto fail_platform_device2;
 
-	
+	/* Register backlight stuff */
 
 	if (!acpi_video_backlight_support()) {
 		struct backlight_properties props;
@@ -1099,7 +1146,7 @@ static int __init fujitsu_init(void)
 	if (ret)
 		goto fail_backlight;
 
-	
+	/* Register hotkey driver */
 
 	fujitsu_hotkey = kzalloc(sizeof(struct fujitsu_hotkey_t), GFP_KERNEL);
 	if (!fujitsu_hotkey) {
@@ -1113,7 +1160,7 @@ static int __init fujitsu_init(void)
 		goto fail_hotkey1;
 	}
 
-	
+	/* Sync backlight power status (needs FUJ02E3 device, hence deferred) */
 
 	if (!acpi_video_backlight_support()) {
 		if (call_fext_func(FUNC_BACKLIGHT, 0x2, 0x4, 0x0) == 3)

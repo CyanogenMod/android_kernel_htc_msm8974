@@ -16,9 +16,11 @@
 #include <asm/adc.h>
 #include <mach/hp6xx.h>
 
+/* percentage values */
 #define APM_CRITICAL			10
 #define APM_LOW				30
 
+/* resonably sane values */
 #define HP680_BATTERY_MAX		898
 #define HP680_BATTERY_MIN		486
 #define HP680_BATTERY_AC_ON		1023
@@ -39,13 +41,13 @@ static void hp6x0_apm_get_power_status(struct apm_power_info *info)
 	percentage = 100 * (battery - HP680_BATTERY_MIN) /
 			   (HP680_BATTERY_MAX - HP680_BATTERY_MIN);
 
-	
+	/* % of full battery */
 	info->battery_life = percentage;
 
-	
+	/* We want our estimates in minutes */
 	info->units = 0;
 
-	
+	/* Extremely(!!) rough estimate, we will replace this with a datalist later on */
 	info->time = (2 * battery);
 
 	info->ac_line_status = (battery > HP680_BATTERY_AC_ON) ?

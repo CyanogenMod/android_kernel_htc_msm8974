@@ -27,7 +27,7 @@ static inline u_char
 readreg(unsigned int ale, unsigned long adr, u_char off)
 {
 	register u_int ret;
-	unsigned int *po = (unsigned int *) adr;	
+	unsigned int *po = (unsigned int *) adr;	/* Postoffice */
 
 	*po = (GCS_2 | PO_WRITE | off);
 	__WAITI20__(po);
@@ -50,7 +50,7 @@ readfifo(unsigned int ale, unsigned long adr, u_char off, u_char *data, int size
 static inline void
 writereg(unsigned int ale, unsigned long adr, u_char off, u_char data)
 {
-	unsigned int *po = (unsigned int *) adr;	
+	unsigned int *po = (unsigned int *) adr;	/* Postoffice */
 	*po = (GCS_2 | PO_WRITE | off);
 	__WAITI20__(po);
 	*po = (ale | PO_WRITE | data);
@@ -68,6 +68,7 @@ writefifo(unsigned int ale, unsigned long adr, u_char off, u_char *data, int siz
 }
 
 
+/* Interface functions */
 
 static u_char
 ReadISAC(struct IsdnCardState *cs, u_char offset)
@@ -105,6 +106,9 @@ WriteJADE(struct IsdnCardState *cs, int jade, u_char offset, u_char value)
 	writereg(cs->hw.ax.jade_ale, cs->hw.ax.jade_adr, offset + (jade == -1 ? 0 : (jade ? 0xC0 : 0x80)), value);
 }
 
+/*
+ * fast interrupt JADE stuff goes here
+ */
 
 #define READJADE(cs, nr, reg) readreg(cs->hw.ax.jade_ale,		\
 				      cs->hw.ax.jade_adr, reg + (nr == -1 ? 0 : (nr ? 0xC0 : 0x80)))
@@ -129,28 +133,28 @@ bkm_interrupt(int intno, void *dev_id)
 	spin_lock_irqsave(&cs->lock, flags);
 	pI20_Regs = (I20_REGISTER_FILE *) (cs->hw.ax.base);
 
-	
+	/* ISDN interrupt pending? */
 	if (pI20_Regs->i20IntStatus & intISDN) {
-		
+		/* Reset the ISDN interrupt     */
 		pI20_Regs->i20IntStatus = intISDN;
-		
+		/* Disable ISDN interrupt */
 		pI20_Regs->i20IntCtrl &= ~intISDN;
-		
+		/* Channel A first */
 		val = readreg(cs->hw.ax.jade_ale, cs->hw.ax.jade_adr, jade_HDLC_ISR + 0x80);
 		if (val) {
 			jade_int_main(cs, val, 0);
 		}
-		
+		/* Channel B  */
 		val = readreg(cs->hw.ax.jade_ale, cs->hw.ax.jade_adr, jade_HDLC_ISR + 0xC0);
 		if (val) {
 			jade_int_main(cs, val, 1);
 		}
-		
+		/* D-Channel */
 		val = readreg(cs->hw.ax.isac_ale, cs->hw.ax.isac_adr, ISAC_ISTA);
 		if (val) {
 			isac_interrupt(cs, val);
 		}
-		
+		/* Reenable ISDN interrupt */
 		pI20_Regs->i20IntCtrl |= intISDN;
 		spin_unlock_irqrestore(&cs->lock, flags);
 		return IRQ_HANDLED;
@@ -177,7 +181,7 @@ enable_bkm_int(struct IsdnCardState *cs, unsigned bEnable)
 		if (bEnable)
 			pI20_Regs->i20IntCtrl |= (intISDN | intPCI);
 		else
-			
+			/* CAUTION: This disables the video capture driver too */
 			pI20_Regs->i20IntCtrl &= ~(intISDN | intPCI);
 	}
 }
@@ -187,15 +191,15 @@ reset_bkm(struct IsdnCardState *cs)
 {
 	if (cs->typ == ISDN_CTYPE_BKM_A4T) {
 		I20_REGISTER_FILE *pI20_Regs = (I20_REGISTER_FILE *) (cs->hw.ax.base);
-		
-		pI20_Regs->i20SysControl = 0xFF;	
+		/* Issue the I20 soft reset     */
+		pI20_Regs->i20SysControl = 0xFF;	/* all in */
 		mdelay(10);
-		
+		/* Remove the soft reset */
 		pI20_Regs->i20SysControl = sysRESET | 0xFF;
 		mdelay(10);
-		
+		/* Set our configuration */
 		pI20_Regs->i20SysControl = sysRESET | sysCFG;
-		
+		/* Issue ISDN reset     */
 		pI20_Regs->i20GuestControl = guestWAIT_CFG |
 			g_A4T_JADE_RES |
 			g_A4T_ISAR_RES |
@@ -204,7 +208,7 @@ reset_bkm(struct IsdnCardState *cs)
 			g_A4T_ISAR_BOOTR;
 		mdelay(10);
 
-		
+		/* Remove RESET state from ISDN */
 		pI20_Regs->i20GuestControl &= ~(g_A4T_ISAC_RES |
 						g_A4T_JADE_RES |
 						g_A4T_ISAR_RES);
@@ -219,14 +223,14 @@ BKM_card_msg(struct IsdnCardState *cs, int mt, void *arg)
 
 	switch (mt) {
 	case CARD_RESET:
-		
+		/* Disable ints */
 		spin_lock_irqsave(&cs->lock, flags);
 		enable_bkm_int(cs, 0);
 		reset_bkm(cs);
 		spin_unlock_irqrestore(&cs->lock, flags);
 		return (0);
 	case CARD_RELEASE:
-		
+		/* Sanity */
 		spin_lock_irqsave(&cs->lock, flags);
 		enable_bkm_int(cs, 0);
 		reset_bkm(cs);
@@ -239,7 +243,7 @@ BKM_card_msg(struct IsdnCardState *cs, int mt, void *arg)
 		clear_pending_jade_ints(cs);
 		initisac(cs);
 		initjade(cs);
-		
+		/* Enable ints */
 		enable_bkm_int(cs, 1);
 		spin_unlock_irqrestore(&cs->lock, flags);
 		return (0);
@@ -261,14 +265,14 @@ static int __devinit a4t_pci_probe(struct pci_dev *dev_a4t,
 	sub_sys = dev_a4t->subsystem_device;
 	if ((sub_sys == PCI_DEVICE_ID_BERKOM_A4T) && (sub_vendor == PCI_VENDOR_ID_BERKOM)) {
 		if (pci_enable_device(dev_a4t))
-			return (0);	
+			return (0);	/* end loop & function */
 		*found = 1;
 		*pci_memaddr = pci_resource_start(dev_a4t, 0);
 		cs->irq = dev_a4t->irq;
-		return (1);		
+		return (1);		/* end loop */
 	}
 
-	return (-1);			
+	return (-1);			/* continue looping */
 }
 
 static int __devinit a4t_cs_init(struct IsdnCard *card,
@@ -277,12 +281,12 @@ static int __devinit a4t_cs_init(struct IsdnCard *card,
 {
 	I20_REGISTER_FILE *pI20_Regs;
 
-	if (!cs->irq) {		
+	if (!cs->irq) {		/* IRQ range check ?? */
 		printk(KERN_WARNING "HiSax: Telekom A4T: No IRQ\n");
 		return (0);
 	}
 	cs->hw.ax.base = (long) ioremap(pci_memaddr, 4096);
-	
+	/* Check suspecious address */
 	pI20_Regs = (I20_REGISTER_FILE *) (cs->hw.ax.base);
 	if ((pI20_Regs->i20IntStatus & 0x8EFFFFFF) != 0) {
 		printk(KERN_WARNING "HiSax: Telekom A4T address "
@@ -313,7 +317,7 @@ static int __devinit a4t_cs_init(struct IsdnCard *card,
 	cs->irq_func = &bkm_interrupt;
 	cs->irq_flags |= IRQF_SHARED;
 	ISACVersion(cs, "Telekom A4T:");
-	
+	/* Jade version */
 	JadeVersion(cs, "Telekom A4T:");
 
 	return (1);

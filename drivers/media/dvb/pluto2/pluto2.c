@@ -45,15 +45,15 @@ DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 
 #define DRIVER_NAME		"pluto2"
 
-#define REG_PIDn(n)		((n) << 2)	
-#define REG_PCAR		0x0020		
-#define REG_TSCR		0x0024		
-#define REG_MISC		0x0028		
-#define REG_MMAC		0x002c		
-#define REG_IMAC		0x0030		
-#define REG_LMAC		0x0034		
-#define REG_SPID		0x0038		
-#define REG_SLCS		0x003c		
+#define REG_PIDn(n)		((n) << 2)	/* PID n pattern registers */
+#define REG_PCAR		0x0020		/* PC address register */
+#define REG_TSCR		0x0024		/* TS ctrl & status */
+#define REG_MISC		0x0028		/* miscellaneous */
+#define REG_MMAC		0x002c		/* MSB MAC address */
+#define REG_IMAC		0x0030		/* ISB MAC address */
+#define REG_LMAC		0x0034		/* LSB MAC address */
+#define REG_SPID		0x0038		/* SPI data */
+#define REG_SLCS		0x003c		/* serial links ctrl/status */
 
 #define PID0_NOFIL		(0x0001 << 16)
 #define PIDn_ENP		(0x0001 << 15)
@@ -96,11 +96,11 @@ DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 #define NHWFILTERS		8
 
 struct pluto {
-	
+	/* pci */
 	struct pci_dev *pdev;
 	u8 __iomem *io_mem;
 
-	
+	/* dvb */
 	struct dmx_frontend hw_frontend;
 	struct dmx_frontend mem_frontend;
 	struct dmxdev dmxdev;
@@ -111,16 +111,16 @@ struct pluto {
 	unsigned int full_ts_users;
 	unsigned int users;
 
-	
+	/* i2c */
 	struct i2c_algo_bit_data i2c_bit;
 	struct i2c_adapter i2c_adap;
 	unsigned int i2cbug;
 
-	
+	/* irq */
 	unsigned int overflow;
 	unsigned int dead;
 
-	
+	/* dma */
 	dma_addr_t dma_addr;
 	u8 dma_buf[TS_DMA_BYTES];
 	u8 dummy[4096];
@@ -156,7 +156,7 @@ static inline void pluto_rw(struct pluto *pluto, u32 reg, u32 mask, u32 bits)
 
 static void pluto_write_tscr(struct pluto *pluto, u32 val)
 {
-	
+	/* set the number of packets */
 	val &= ~TSCR_ADEF;
 	val |= TS_DMA_PACKETS / 2;
 
@@ -182,6 +182,8 @@ static void pluto_setscl(void *data, int state)
 	else
 		pluto_rw(pluto, REG_SLCS, SLCS_SCL, 0);
 
+	/* try to detect i2c_inb() to workaround hardware bug:
+	 * reset SDA to high after SCL has been set to low */
 	if ((state) && (pluto->i2cbug == 0)) {
 		pluto->i2cbug = 1;
 	} else {
@@ -256,7 +258,7 @@ static int pluto_start_feed(struct dvb_demux_feed *f)
 {
 	struct pluto *pluto = feed_to_pluto(f);
 
-	
+	/* enable PID filtering */
 	if (pluto->users++ == 0)
 		pluto_rw(pluto, REG_PIDn(0), PID0_AFIL | PID0_NOFIL, 0);
 
@@ -272,7 +274,7 @@ static int pluto_stop_feed(struct dvb_demux_feed *f)
 {
 	struct pluto *pluto = feed_to_pluto(f);
 
-	
+	/* disable PID filtering */
 	if (--pluto->users == 0)
 		pluto_rw(pluto, REG_PIDn(0), PID0_AFIL, PID0_AFIL);
 
@@ -286,9 +288,21 @@ static int pluto_stop_feed(struct dvb_demux_feed *f)
 
 static void pluto_dma_end(struct pluto *pluto, unsigned int nbpackets)
 {
+	/* synchronize the DMA transfer with the CPU
+	 * first so that we see updated contents. */
 	pci_dma_sync_single_for_cpu(pluto->pdev, pluto->dma_addr,
 			TS_DMA_BYTES, PCI_DMA_FROMDEVICE);
 
+	/* Workaround for broken hardware:
+	 * [1] On startup NBPACKETS seems to contain an uninitialized value,
+	 *     but no packets have been transferred.
+	 * [2] Sometimes (actually very often) NBPACKETS stays at zero
+	 *     although one packet has been transferred.
+	 * [3] Sometimes (actually rarely), the card gets into an erroneous
+	 *     mode where it continuously generates interrupts, claiming it
+	 *     has received nbpackets>TS_DMA_PACKETS packets, but no packet
+	 *     has been transferred. Only a reset seems to solve this
+	 */
 	if ((nbpackets == 0) || (nbpackets > TS_DMA_PACKETS)) {
 		unsigned int i = 0;
 		while (pluto->dma_buf[i] == 0x47)
@@ -302,12 +316,14 @@ static void pluto_dma_end(struct pluto *pluto, unsigned int nbpackets)
 
 	dvb_dmx_swfilter_packets(&pluto->demux, pluto->dma_buf, nbpackets);
 
+	/* clear the dma buffer. this is needed to be able to identify
+	 * new valid ts packets above */
 	memset(pluto->dma_buf, 0, nbpackets * 188);
 
-	
+	/* reset the dma address */
 	pluto_set_dma_addr(pluto);
 
-	
+	/* sync the buffer and give it back to the card */
 	pci_dma_sync_single_for_device(pluto->pdev, pluto->dma_addr,
 			TS_DMA_BYTES, PCI_DMA_FROMDEVICE);
 }
@@ -317,7 +333,7 @@ static irqreturn_t pluto_irq(int irq, void *dev_id)
 	struct pluto *pluto = dev_id;
 	u32 tscr;
 
-	
+	/* check whether an interrupt occurred on this device */
 	tscr = pluto_readreg(pluto, REG_TSCR);
 	if (!(tscr & (TSCR_DE | TSCR_OVR)))
 		return IRQ_NONE;
@@ -325,15 +341,15 @@ static irqreturn_t pluto_irq(int irq, void *dev_id)
 	if (tscr == 0xffffffff) {
 		if (pluto->dead == 0)
 			dev_err(&pluto->pdev->dev, "card has hung or been ejected.\n");
-		
+		/* It's dead Jim */
 		pluto->dead = 1;
 		return IRQ_HANDLED;
 	}
 
-	
+	/* dma end interrupt */
 	if (tscr & TSCR_DE) {
 		pluto_dma_end(pluto, (tscr & TSCR_NBPACKETS) >> 24);
-		
+		/* overflow interrupt */
 		if (tscr & TSCR_OVR)
 			pluto->overflow++;
 		if (pluto->overflow) {
@@ -346,7 +362,7 @@ static irqreturn_t pluto_irq(int irq, void *dev_id)
 		pluto->overflow++;
 	}
 
-	
+	/* ACK the interrupt */
 	pluto_write_tscr(pluto, tscr | TSCR_IACK);
 
 	return IRQ_HANDLED;
@@ -356,11 +372,11 @@ static void __devinit pluto_enable_irqs(struct pluto *pluto)
 {
 	u32 val = pluto_readreg(pluto, REG_TSCR);
 
-	
+	/* disable AFUL and LOCK interrupts */
 	val |= (TSCR_MSKA | TSCR_MSKL);
-	
+	/* enable DMA and OVERFLOW interrupts */
 	val &= ~(TSCR_DEM | TSCR_MSKO);
-	
+	/* clear pending interrupts */
 	val |= TSCR_IACK;
 
 	pluto_write_tscr(pluto, val);
@@ -370,9 +386,9 @@ static void pluto_disable_irqs(struct pluto *pluto)
 {
 	u32 val = pluto_readreg(pluto, REG_TSCR);
 
-	
+	/* disable all interrupts */
 	val |= (TSCR_DEM | TSCR_MSKO | TSCR_MSKA | TSCR_MSKL);
-	
+	/* clear pending interrupts */
 	val |= TSCR_IACK;
 
 	pluto_write_tscr(pluto, val);
@@ -382,23 +398,23 @@ static int __devinit pluto_hw_init(struct pluto *pluto)
 {
 	pluto_reset_frontend(pluto, 1);
 
-	
+	/* set automatic LED control by FPGA */
 	pluto_rw(pluto, REG_MISC, MISC_ALED, MISC_ALED);
 
-	
+	/* set data endianess */
 #ifdef __LITTLE_ENDIAN
 	pluto_rw(pluto, REG_PIDn(0), PID0_END, PID0_END);
 #else
 	pluto_rw(pluto, REG_PIDn(0), PID0_END, 0);
 #endif
-	
+	/* map DMA and set address */
 	pluto_dma_map(pluto);
 	pluto_set_dma_addr(pluto);
 
-	
+	/* enable interrupts */
 	pluto_enable_irqs(pluto);
 
-	
+	/* reset TS logic */
 	pluto_reset_ts(pluto, 1);
 
 	return 0;
@@ -406,15 +422,15 @@ static int __devinit pluto_hw_init(struct pluto *pluto)
 
 static void pluto_hw_exit(struct pluto *pluto)
 {
-	
+	/* disable interrupts */
 	pluto_disable_irqs(pluto);
 
 	pluto_reset_ts(pluto, 0);
 
-	
+	/* LED: disable automatic control, enable yellow, disable green */
 	pluto_rw(pluto, REG_MISC, MISC_ALED | MISC_LED1 | MISC_LED0, MISC_LED1);
 
-	
+	/* unmap DMA */
 	pluto_dma_unmap(pluto);
 
 	pluto_reset_frontend(pluto, 0);
@@ -428,6 +444,7 @@ static inline u32 divide(u32 numerator, u32 denominator)
 	return DIV_ROUND_CLOSEST(numerator, denominator);
 }
 
+/* LG Innotek TDTE-E001P (Infineon TUA6034) */
 static int lg_tdtpe001p_tuner_set_params(struct dvb_frontend *fe)
 {
 	struct dtv_frontend_properties *p = &fe->dtv_property_cache;
@@ -437,11 +454,11 @@ static int lg_tdtpe001p_tuner_set_params(struct dvb_frontend *fe)
 	u8 buf[4];
 	u32 div;
 
-	
-	
-	
-	
-	
+	// Fref = 166.667 Hz
+	// Fref * 3 = 500.000 Hz
+	// IF = 36166667
+	// IF / Fref = 217
+	//div = divide(p->frequency + 36166667, 166667);
 	div = divide(p->frequency * 3, 500000) + 217;
 	buf[0] = (div >> 8) & 0x7f;
 	buf[1] = (div >> 0) & 0xff;
@@ -453,9 +470,9 @@ static int lg_tdtpe001p_tuner_set_params(struct dvb_frontend *fe)
 	else
 		buf[2] = 0xf4;
 
-	
-	
-	
+	// VHF: 174-230 MHz
+	// center: 350 MHz
+	// UHF: 470-862 MHz
 	if (p->frequency < 350000000)
 		buf[3] = 0x02;
 	else
@@ -598,7 +615,7 @@ static int __devinit pluto2_probe(struct pci_dev *pdev,
 	if (ret < 0)
 		goto err_kfree;
 
-	
+	/* enable interrupts */
 	pci_write_config_dword(pdev, 0x6c, 0x8000);
 
 	ret = pci_set_dma_mask(pdev, DMA_BIT_MASK(32));
@@ -627,7 +644,7 @@ static int __devinit pluto2_probe(struct pci_dev *pdev,
 	if (ret < 0)
 		goto err_free_irq;
 
-	
+	/* i2c */
 	i2c_set_adapdata(&pluto->i2c_adap, pluto);
 	strcpy(pluto->i2c_adap.name, DRIVER_NAME);
 	pluto->i2c_adap.owner = THIS_MODULE;
@@ -641,7 +658,7 @@ static int __devinit pluto2_probe(struct pci_dev *pdev,
 	pluto->i2c_bit.udelay = 10;
 	pluto->i2c_bit.timeout = 10;
 
-	
+	/* Raise SCL and SDA */
 	pluto_setsda(pluto, 1);
 	pluto_setscl(pluto, 1);
 
@@ -649,7 +666,7 @@ static int __devinit pluto2_probe(struct pci_dev *pdev,
 	if (ret < 0)
 		goto err_pluto_hw_exit;
 
-	
+	/* dvb */
 	ret = dvb_register_adapter(&pluto->dvb_adapter, DRIVER_NAME,
 				   THIS_MODULE, &pdev->dev, adapter_nr);
 	if (ret < 0)
@@ -775,7 +792,7 @@ static struct pci_device_id pluto2_id_table[] __devinitdata = {
 		.subvendor = PCI_ANY_ID,
 		.subdevice = PCI_ANY_ID,
 	}, {
-		
+		/* empty */
 	},
 };
 

@@ -27,12 +27,12 @@ static unsigned int count_be_handler;
 static unsigned int count_be_interrupt;
 static int debug_be_interrupt;
 
-static unsigned int cpu_err_stat;	
-static unsigned int gio_err_stat;	
-static unsigned int cpu_err_addr;	
-static unsigned int gio_err_addr;	
+static unsigned int cpu_err_stat;	/* Status reg for CPU */
+static unsigned int gio_err_stat;	/* Status reg for GIO */
+static unsigned int cpu_err_addr;	/* Error address reg for CPU */
+static unsigned int gio_err_addr;	/* Error address reg for GIO */
 static unsigned int extio_stat;
-static unsigned int hpc3_berr_stat;	
+static unsigned int hpc3_berr_stat;	/* Bus error interrupt status */
 
 struct hpc3_stat {
 	unsigned long addr;
@@ -52,7 +52,7 @@ static struct {
 	struct {
 		u32 lo;
 		u32 hi;
-	} tags[1][2], tagd[4][2], tagi[4][2]; 
+	} tags[1][2], tagd[4][2], tagi[4][2]; /* Way 0/1 */
 } cache_tags;
 
 static inline void save_cache_tags(unsigned busaddr)
@@ -61,37 +61,52 @@ static inline void save_cache_tags(unsigned busaddr)
 	int i;
 	cache_tags.err_addr = addr;
 
+	/*
+	 * Starting with a bus-address, save secondary cache (indexed by
+	 * PA[23..18:7..6]) tags first.
+	 */
 	addr &= ~1L;
 #define tag cache_tags.tags[0]
 	cache_op(Index_Load_Tag_S, addr);
-	tag[0].lo = read_c0_taglo();	
-	tag[0].hi = read_c0_taghi();	
+	tag[0].lo = read_c0_taglo();	/* PA[35:18], VA[13:12] */
+	tag[0].hi = read_c0_taghi();	/* PA[39:36] */
 	cache_op(Index_Load_Tag_S, addr | 1L);
-	tag[1].lo = read_c0_taglo();	
-	tag[1].hi = read_c0_taghi();	
+	tag[1].lo = read_c0_taglo();	/* PA[35:18], VA[13:12] */
+	tag[1].hi = read_c0_taghi();	/* PA[39:36] */
 #undef tag
 
+	/*
+	 * Save all primary data cache (indexed by VA[13:5]) tags which
+	 * might fit to this bus-address, knowing that VA[11:0] == PA[11:0].
+	 * Saving all tags and evaluating them later is easier and safer
+	 * than relying on VA[13:12] from the secondary cache tags to pick
+	 * matching primary tags here already.
+	 */
 	addr &= (0xffL << 56) | ((1 << 12) - 1);
 #define tag cache_tags.tagd[i]
 	for (i = 0; i < 4; ++i, addr += (1 << 12)) {
 		cache_op(Index_Load_Tag_D, addr);
-		tag[0].lo = read_c0_taglo();	
-		tag[0].hi = read_c0_taghi();	
+		tag[0].lo = read_c0_taglo();	/* PA[35:12] */
+		tag[0].hi = read_c0_taghi();	/* PA[39:36] */
 		cache_op(Index_Load_Tag_D, addr | 1L);
-		tag[1].lo = read_c0_taglo();	
-		tag[1].hi = read_c0_taghi();	
+		tag[1].lo = read_c0_taglo();	/* PA[35:12] */
+		tag[1].hi = read_c0_taghi();	/* PA[39:36] */
 	}
 #undef tag
 
+	/*
+	 * Save primary instruction cache (indexed by VA[13:6]) tags
+	 * the same way.
+	 */
 	addr &= (0xffL << 56) | ((1 << 12) - 1);
 #define tag cache_tags.tagi[i]
 	for (i = 0; i < 4; ++i, addr += (1 << 12)) {
 		cache_op(Index_Load_Tag_I, addr);
-		tag[0].lo = read_c0_taglo();	
-		tag[0].hi = read_c0_taghi();	
+		tag[0].lo = read_c0_taglo();	/* PA[35:12] */
+		tag[0].hi = read_c0_taghi();	/* PA[39:36] */
 		cache_op(Index_Load_Tag_I, addr | 1L);
-		tag[1].lo = read_c0_taglo();	
-		tag[1].hi = read_c0_taghi();	
+		tag[1].lo = read_c0_taglo();	/* PA[35:12] */
+		tag[1].hi = read_c0_taghi();	/* PA[39:36] */
 	}
 #undef tag
 }
@@ -103,7 +118,7 @@ static void save_and_clear_buserr(void)
 {
 	int i;
 
-	
+	/* save status registers */
 	cpu_err_addr = sgimc->cerr;
 	cpu_err_stat = sgimc->cstat;
 	gio_err_addr = sgimc->gerr;
@@ -112,27 +127,27 @@ static void save_and_clear_buserr(void)
 	hpc3_berr_stat = hpc3c0->bestat;
 
 	hpc3.scsi[0].addr  = (unsigned long)&hpc3c0->scsi_chan0;
-	hpc3.scsi[0].ctrl  = hpc3c0->scsi_chan0.ctrl; 
+	hpc3.scsi[0].ctrl  = hpc3c0->scsi_chan0.ctrl; /* HPC3_SCTRL_ACTIVE ? */
 	hpc3.scsi[0].cbp   = hpc3c0->scsi_chan0.cbptr;
 	hpc3.scsi[0].ndptr = hpc3c0->scsi_chan0.ndptr;
 
 	hpc3.scsi[1].addr  = (unsigned long)&hpc3c0->scsi_chan1;
-	hpc3.scsi[1].ctrl  = hpc3c0->scsi_chan1.ctrl; 
+	hpc3.scsi[1].ctrl  = hpc3c0->scsi_chan1.ctrl; /* HPC3_SCTRL_ACTIVE ? */
 	hpc3.scsi[1].cbp   = hpc3c0->scsi_chan1.cbptr;
 	hpc3.scsi[1].ndptr = hpc3c0->scsi_chan1.ndptr;
 
 	hpc3.ethrx.addr  = (unsigned long)&hpc3c0->ethregs.rx_cbptr;
-	hpc3.ethrx.ctrl  = hpc3c0->ethregs.rx_ctrl; 
+	hpc3.ethrx.ctrl  = hpc3c0->ethregs.rx_ctrl; /* HPC3_ERXCTRL_ACTIVE ? */
 	hpc3.ethrx.cbp   = hpc3c0->ethregs.rx_cbptr;
 	hpc3.ethrx.ndptr = hpc3c0->ethregs.rx_ndptr;
 
 	hpc3.ethtx.addr  = (unsigned long)&hpc3c0->ethregs.tx_cbptr;
-	hpc3.ethtx.ctrl  = hpc3c0->ethregs.tx_ctrl; 
+	hpc3.ethtx.ctrl  = hpc3c0->ethregs.tx_ctrl; /* HPC3_ETXCTRL_ACTIVE ? */
 	hpc3.ethtx.cbp   = hpc3c0->ethregs.tx_cbptr;
 	hpc3.ethtx.ndptr = hpc3c0->ethregs.tx_ndptr;
 
 	for (i = 0; i < 8; ++i) {
-		
+		/* HPC3_PDMACTRL_ISACT ? */
 		hpc3.pbdma[i].addr  = (unsigned long)&hpc3c0->pbdma[i];
 		hpc3.pbdma[i].ctrl  = hpc3c0->pbdma[i].pbdma_ctrl;
 		hpc3.pbdma[i].cbp   = hpc3c0->pbdma[i].pbdma_bptr;
@@ -155,11 +170,11 @@ static void print_cache_tags(void)
 
 	printk(KERN_ERR "Cache tags @ %08x:\n", (unsigned)cache_tags.err_addr);
 
-	
+	/* PA[31:12] shifted to PTag0 (PA[35:12]) format */
 	scw = (cache_tags.err_addr >> 4) & 0x0fffff00;
 
 	scb = cache_tags.err_addr & ((1 << 12) - 1) & ~((1 << 5) - 1);
-	for (i = 0; i < 4; ++i) { 
+	for (i = 0; i < 4; ++i) { /* for each possible VA[13:12] value */
 		if ((cache_tags.tagd[i][0].lo & 0x0fffff00) != scw &&
 		    (cache_tags.tagd[i][1].lo & 0x0fffff00) != scw)
 		    continue;
@@ -170,7 +185,7 @@ static void print_cache_tags(void)
 			scb | (1 << 12)*i);
 	}
 	scb = cache_tags.err_addr & ((1 << 12) - 1) & ~((1 << 6) - 1);
-	for (i = 0; i < 4; ++i) { 
+	for (i = 0; i < 4; ++i) { /* for each possible VA[13:12] value */
 		if ((cache_tags.tagi[i][0].lo & 0x0fffff00) != scw &&
 		    (cache_tags.tagi[i][1].lo & 0x0fffff00) != scw)
 		    continue;
@@ -181,8 +196,8 @@ static void print_cache_tags(void)
 			scb | (1 << 12)*i);
 	}
 	i = read_c0_config();
-	scb = i & (1 << 13) ? 7:6;      
-	scw = ((i >> 16) & 7) + 19 - 1; 
+	scb = i & (1 << 13) ? 7:6;      /* scblksize = 2^[7..6] */
+	scw = ((i >> 16) & 7) + 19 - 1; /* scwaysize = 2^[24..19] / 2 */
 
 	i = ((1 << scw) - 1) & ~((1 << scb) - 1);
 	printk(KERN_ERR "S: 0: %08x %08x, 1: %08x %08x  (PA[%u:%u] %05x)\n",
@@ -282,6 +297,10 @@ static void print_buserr(const struct pt_regs *regs)
 	       field, regs->cp0_epc, field, regs->regs[31]);
 }
 
+/*
+ * Check, whether MC's (virtual) DMA address caused the bus error.
+ * See "Virtual DMA Specification", Draft 1.5, Feb 13 1992, SGI
+ */
 
 static int addr_is_ram(unsigned long addr, unsigned sz)
 {
@@ -297,22 +316,27 @@ static int addr_is_ram(unsigned long addr, unsigned sz)
 
 static int check_microtlb(u32 hi, u32 lo, unsigned long vaddr)
 {
-	
+	/* This is likely rather similar to correct code ;-) */
 
-	vaddr &= 0x7fffffff; 
+	vaddr &= 0x7fffffff; /* Doc. states that top bit is ignored */
 
-	
+	/* If tlb-entry is valid and VPN-high (bits [30:21] ?) matches... */
 	if ((lo & 2) && (vaddr >> 21) == ((hi<<1) >> 22)) {
 		u32 ctl = sgimc->dma_ctrl;
 		if (ctl & 1) {
-			unsigned int pgsz = (ctl & 2) ? 14:12; 
-			
-			unsigned long pte = (lo >> 6) << 12; 
+			unsigned int pgsz = (ctl & 2) ? 14:12; /* 16k:4k */
+			/* PTEIndex is VPN-low (bits [22:14]/[20:12] ?) */
+			unsigned long pte = (lo >> 6) << 12; /* PTEBase */
 			pte += 8*((vaddr >> pgsz) & 0x1ff);
 			if (addr_is_ram(pte, 8)) {
+				/*
+				 * Note: Since DMA hardware does look up
+				 * translation on its own, this PTE *must*
+				 * match the TLB/EntryLo-register format !
+				 */
 				unsigned long a = *(unsigned long *)
 						PHYS_TO_XKSEG_UNCACHED(pte);
-				a = (a & 0x3f) << 6; 
+				a = (a & 0x3f) << 6; /* PFN */
 				a += vaddr & ((1 << pgsz) - 1);
 				return (cpu_err_addr == a);
 			}
@@ -326,7 +350,7 @@ static int check_vdma_memaddr(void)
 	if (cpu_err_stat & CPU_ERRMASK) {
 		u32 a = sgimc->maddronly;
 
-		if (!(sgimc->dma_ctrl & 0x100)) 
+		if (!(sgimc->dma_ctrl & 0x100)) /* Xlate-bit clear ? */
 			return (cpu_err_addr == a);
 
 		if (check_microtlb(sgimc->dtlb_hi0, sgimc->dtlb_lo0, a) ||
@@ -348,31 +372,45 @@ static int check_vdma_gioaddr(void)
 	return 0;
 }
 
+/*
+ * MC sends an interrupt whenever bus or parity errors occur. In addition,
+ * if the error happened during a CPU read, it also asserts the bus error
+ * pin on the R4K. Code in bus error handler save the MC bus error registers
+ * and then clear the interrupt when this happens.
+ */
 
 static int ip28_be_interrupt(const struct pt_regs *regs)
 {
 	int i;
 
 	save_and_clear_buserr();
-	
+	/*
+	 * Try to find out, whether we got here by a mispredicted speculative
+	 * load/store operation.  If so, it's not fatal, we can go on.
+	 */
+	/* Any cause other than "Interrupt" (ExcCode 0) is fatal. */
 	if (regs->cp0_cause & CAUSEF_EXCCODE)
 		goto mips_be_fatal;
 
-	
+	/* Any cause other than "Bus error interrupt" (IP6) is weird. */
 	if ((regs->cp0_cause & CAUSEF_IP6) != CAUSEF_IP6)
 		goto mips_be_fatal;
 
 	if (extio_stat & (EXTIO_HPC3_BUSERR | EXTIO_EISA_BUSERR))
 		goto mips_be_fatal;
 
-	
+	/* Any state other than "Memory bus error" is fatal. */
 	if (cpu_err_stat & CPU_ERRMASK & ~SGIMC_CSTAT_ADDR)
 		goto mips_be_fatal;
 
-	
+	/* GIO errors other than timeouts are fatal */
 	if (gio_err_stat & GIO_ERRMASK & ~SGIMC_GSTAT_TIME)
 		goto mips_be_fatal;
 
+	/*
+	 * Now we have an asynchronous bus error, speculatively or DMA caused.
+	 * Need to search all DMA descriptors for the error address.
+	 */
 	for (i = 0; i < sizeof(hpc3)/sizeof(struct hpc3_stat); ++i) {
 		struct hpc3_stat *hp = (struct hpc3_stat *)&hpc3 + i;
 		if ((cpu_err_stat & CPU_ERRMASK) &&
@@ -389,7 +427,7 @@ static int ip28_be_interrupt(const struct pt_regs *regs)
 		       CPHYSADDR(hp->addr), hp->ctrl, hp->ndptr, hp->cbp);
 		goto mips_be_fatal;
 	}
-	
+	/* Check MC's virtual DMA stuff. */
 	if (check_vdma_memaddr()) {
 		printk(KERN_ERR "at GIO DMA: mem address 0x%08x.\n",
 			sgimc->maddronly);
@@ -400,7 +438,7 @@ static int ip28_be_interrupt(const struct pt_regs *regs)
 			sgimc->gmaddronly);
 		goto mips_be_fatal;
 	}
-	
+	/* A speculative bus error... */
 	if (debug_be_interrupt) {
 		print_buserr(regs);
 		printk(KERN_ERR "discarded!\n");
@@ -419,7 +457,7 @@ void ip22_be_interrupt(int irq)
 	count_be_interrupt++;
 
 	if (ip28_be_interrupt(regs) != MIPS_BE_DISCARD) {
-		
+		/* Assume it would be too dangerous to continue ... */
 		die_if_kernel("Oops", regs);
 		force_sig(SIGBUS, current);
 	} else if (debug_be_interrupt)
@@ -428,6 +466,10 @@ void ip22_be_interrupt(int irq)
 
 static int ip28_be_handler(struct pt_regs *regs, int is_fixup)
 {
+	/*
+	 * We arrive here only in the unusual case of do_be() invocation,
+	 * i.e. by a bus error exception without a bus error interrupt.
+	 */
 	if (is_fixup) {
 		count_be_is_fixup++;
 		save_and_clear_buserr();

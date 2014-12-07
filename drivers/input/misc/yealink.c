@@ -17,6 +17,34 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
+/*
+ * Description:
+ *   Driver for the USB-P1K voip usb phone.
+ *   This device is produced by Yealink Network Technology Co Ltd
+ *   but may be branded under several names:
+ *	- Yealink usb-p1k
+ *	- Tiptel 115
+ *	- ...
+ *
+ * This driver is based on:
+ *   - the usbb2k-api	http://savannah.nongnu.org/projects/usbb2k-api/
+ *   - information from	http://memeteau.free.fr/usbb2k
+ *   - the xpad-driver	drivers/input/joystick/xpad.c
+ *
+ * Thanks to:
+ *   - Olivier Vandorpe, for providing the usbb2k-api.
+ *   - Martin Diehl, for spotting my memory allocation bug.
+ *
+ * History:
+ *   20050527 henk	First version, functional keyboard. Keyboard events
+ *			will pop-up on the ../input/eventX bus.
+ *   20050531 henk	Added led, LCD, dialtone and sysfs interface.
+ *   20050610 henk	Cleanups, make it ready for public consumption.
+ *   20050630 henk	Cleanups, fixes in response to comments.
+ *   20050701 henk	sysfs write serialisation, fix potential unload races
+ *   20050801 henk	Added ringtone, restructure USB
+ *   20050816 henk	Merge 2.6.13-rc6
+ */
 
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -32,7 +60,7 @@
 #define DRIVER_AUTHOR "Henk Vergonet"
 #define DRIVER_DESC "Yealink phone driver"
 
-#define YEALINK_POLLING_FREQUENCY	10	
+#define YEALINK_POLLING_FREQUENCY	10	/* in [Hz] */
 
 struct yld_status {
 	u8	lcd[24];
@@ -42,6 +70,9 @@ struct yld_status {
 	u8	keynum;
 } __attribute__ ((packed));
 
+/*
+ * Register the LCD segment and icon map
+ */
 #define _LOC(k,l)	{ .a = (k), .m = (l) }
 #define _SEG(t, a, am, b, bm, c, cm, d, dm, e, em, f, fm, g, gm)	\
 	{ .type	= (t),							\
@@ -68,24 +99,24 @@ static const struct lcd_segment_map {
 };
 
 struct yealink_dev {
-	struct input_dev *idev;		
-	struct usb_device *udev;	
+	struct input_dev *idev;		/* input device */
+	struct usb_device *udev;	/* usb device */
 
-	
+	/* irq input channel */
 	struct yld_ctl_packet	*irq_data;
 	dma_addr_t		irq_dma;
 	struct urb		*urb_irq;
 
-	
+	/* control output channel */
 	struct yld_ctl_packet	*ctl_data;
 	dma_addr_t		ctl_dma;
 	struct usb_ctrlrequest	*ctl_req;
 	struct urb		*urb_ctl;
 
-	char phys[64];			
+	char phys[64];			/* physical device path */
 
-	u8 lcdMap[ARRAY_SIZE(lcdMap)];	
-	int key_code;			
+	u8 lcdMap[ARRAY_SIZE(lcdMap)];	/* state of LCD, LED ... */
+	int key_code;			/* last reported key	 */
 
 	unsigned int shutdown:1;
 
@@ -97,9 +128,19 @@ struct yealink_dev {
 };
 
 
+/*******************************************************************************
+ * Yealink lcd interface
+ ******************************************************************************/
 
+/*
+ * Register a default 7 segment character set
+ */
 static SEG7_DEFAULT_MAP(map_seg7);
 
+ /* Display a char,
+  * char '\9' and '\n' are placeholders and do not overwrite the original text.
+  * A space will always hide an icon.
+  */
 static int setChar(struct yealink_dev *yld, int el, int chr)
 {
 	int i, a, m, val;
@@ -139,40 +180,66 @@ static int setChar(struct yealink_dev *yld, int el, int chr)
 	return 0;
 };
 
+/*******************************************************************************
+ * Yealink key interface
+ ******************************************************************************/
 
+/* Map device buttons to internal key events.
+ *
+ * USB-P1K button layout:
+ *
+ *             up
+ *       IN           OUT
+ *            down
+ *
+ *     pickup   C    hangup
+ *       1      2      3
+ *       4      5      6
+ *       7      8      9
+ *       *      0      #
+ *
+ * The "up" and "down" keys, are symbolised by arrows on the button.
+ * The "pickup" and "hangup" keys are symbolised by a green and red phone
+ * on the button.
+ */
 static int map_p1k_to_key(int scancode)
 {
-	switch(scancode) {		
-	case 0x23: return KEY_LEFT;	
-	case 0x33: return KEY_UP;	
-	case 0x04: return KEY_RIGHT;	
-	case 0x24: return KEY_DOWN;	
-	case 0x03: return KEY_ENTER;	
-	case 0x14: return KEY_BACKSPACE; 
-	case 0x13: return KEY_ESC;	
-	case 0x00: return KEY_1;	
-	case 0x01: return KEY_2;	
-	case 0x02: return KEY_3;	
-	case 0x10: return KEY_4;	
-	case 0x11: return KEY_5;	
-	case 0x12: return KEY_6;	
-	case 0x20: return KEY_7;	
-	case 0x21: return KEY_8;	
-	case 0x22: return KEY_9;	
-	case 0x30: return KEY_KPASTERISK; 
-	case 0x31: return KEY_0;	
+	switch(scancode) {		/* phone key:	*/
+	case 0x23: return KEY_LEFT;	/*   IN		*/
+	case 0x33: return KEY_UP;	/*   up		*/
+	case 0x04: return KEY_RIGHT;	/*   OUT	*/
+	case 0x24: return KEY_DOWN;	/*   down	*/
+	case 0x03: return KEY_ENTER;	/*   pickup	*/
+	case 0x14: return KEY_BACKSPACE; /*  C		*/
+	case 0x13: return KEY_ESC;	/*   hangup	*/
+	case 0x00: return KEY_1;	/*   1		*/
+	case 0x01: return KEY_2;	/*   2 		*/
+	case 0x02: return KEY_3;	/*   3		*/
+	case 0x10: return KEY_4;	/*   4		*/
+	case 0x11: return KEY_5;	/*   5		*/
+	case 0x12: return KEY_6;	/*   6		*/
+	case 0x20: return KEY_7;	/*   7		*/
+	case 0x21: return KEY_8;	/*   8		*/
+	case 0x22: return KEY_9;	/*   9		*/
+	case 0x30: return KEY_KPASTERISK; /* *		*/
+	case 0x31: return KEY_0;	/*   0		*/
 	case 0x32: return KEY_LEFTSHIFT |
-			  KEY_3 << 8;	
+			  KEY_3 << 8;	/*   #		*/
 	}
 	return -EINVAL;
 }
 
+/* Completes a request by converting the data into events for the
+ * input subsystem.
+ *
+ * The key parameter can be cascaded: key2 << 8 | key1
+ */
 static void report_key(struct yealink_dev *yld, int key)
 {
 	struct input_dev *idev = yld->idev;
 
 	if (yld->key_code >= 0) {
-		
+		/* old key up */
 		input_report_key(idev, yld->key_code & 0xff, 0);
 		if (yld->key_code >> 8)
 			input_report_key(idev, yld->key_code >> 8, 0);
@@ -180,7 +247,7 @@ static void report_key(struct yealink_dev *yld, int key)
 
 	yld->key_code = key;
 	if (key >= 0) {
-		
+		/* new valid key */
 		input_report_key(idev, key & 0xff, 1);
 		if (key >> 8)
 			input_report_key(idev, key >> 8, 1);
@@ -188,6 +255,9 @@ static void report_key(struct yealink_dev *yld, int key)
 	input_sync(idev);
 }
 
+/*******************************************************************************
+ * Yealink usb communication interface
+ ******************************************************************************/
 
 static int yealink_cmd(struct yealink_dev *yld, struct yld_ctl_packet *p)
 {
@@ -208,17 +278,17 @@ static int yealink_cmd(struct yealink_dev *yld, struct yld_ctl_packet *p)
 }
 
 static u8 default_ringtone[] = {
-	0xEF,			
-	0xFB, 0x1E, 0x00, 0x0C,	
-	0xFC, 0x18, 0x00, 0x0C,	
+	0xEF,			/* volume [0-255] */
+	0xFB, 0x1E, 0x00, 0x0C,	/* 1250 [hz], 12/100 [s] */
+	0xFC, 0x18, 0x00, 0x0C,	/* 1000 [hz], 12/100 [s] */
 	0xFB, 0x1E, 0x00, 0x0C,
 	0xFC, 0x18, 0x00, 0x0C,
 	0xFB, 0x1E, 0x00, 0x0C,
 	0xFC, 0x18, 0x00, 0x0C,
 	0xFB, 0x1E, 0x00, 0x0C,
 	0xFC, 0x18, 0x00, 0x0C,
-	0xFF, 0xFF, 0x01, 0x90,	
-	0x00, 0x00		
+	0xFF, 0xFF, 0x01, 0x90,	/* silent, 400/100 [s] */
+	0x00, 0x00		/* end of sequence */
 };
 
 static int yealink_set_ringtone(struct yealink_dev *yld, u8 *buf, size_t size)
@@ -229,7 +299,7 @@ static int yealink_set_ringtone(struct yealink_dev *yld, u8 *buf, size_t size)
 	if (size <= 0)
 		return -EINVAL;
 
-	
+	/* Set the ringtone volume */
 	memset(yld->ctl_data, 0, sizeof(*(yld->ctl_data)));
 	yld->ctl_data->cmd	= CMD_RING_VOLUME;
 	yld->ctl_data->size	= 1;
@@ -254,6 +324,8 @@ static int yealink_set_ringtone(struct yealink_dev *yld, u8 *buf, size_t size)
 	return 0;
 }
 
+/* keep stat_master & stat_copy in sync.
+ */
 static int yealink_do_idle_tasks(struct yealink_dev *yld)
 {
 	u8 val;
@@ -266,26 +338,29 @@ static int yealink_do_idle_tasks(struct yealink_dev *yld)
 	yld->ctl_data->size = 1;
 	yld->ctl_data->sum  = 0xff - CMD_KEYPRESS;
 
-	
+	/* If state update pointer wraps do a KEYPRESS first. */
 	if (ix >= sizeof(yld->master)) {
 		yld->stat_ix = 0;
 		return 0;
 	}
 
-	
+	/* find update candidates: copy != master */
 	do {
 		val = yld->master.b[ix];
 		if (val != yld->copy.b[ix])
 			goto send_update;
 	} while (++ix < sizeof(yld->master));
 
-	
+	/* nothing todo, wait a bit and poll for a KEYPRESS */
 	yld->stat_ix = 0;
+	/* TODO how can we wait abit. ??
+	 * msleep_interruptible(1000 / YEALINK_POLLING_FREQUENCY);
+	 */
 	return 0;
 
 send_update:
 
-	
+	/* Setup an appropriate update request */
 	yld->copy.b[ix] = val;
 	yld->ctl_data->data[0] = val;
 
@@ -315,6 +390,8 @@ send_update:
 		if (len > sizeof(yld->ctl_data->data))
 			len = sizeof(yld->ctl_data->data);
 
+		/* Combine up to <len> consecutive LCD bytes in a singe request
+		 */
 		yld->ctl_data->cmd	= CMD_LCD;
 		yld->ctl_data->offset	= cpu_to_be16(ix);
 		yld->ctl_data->size	= len;
@@ -331,6 +408,20 @@ send_update:
 	return 1;
 }
 
+/* Decide on how to handle responses
+ *
+ * The state transition diagram is somethhing like:
+ *
+ *          syncState<--+
+ *               |      |
+ *               |    idle
+ *              \|/     |
+ * init --ok--> waitForKey --ok--> getKey
+ *  ^               ^                |
+ *  |               +-------ok-------+
+ * error,start
+ *
+ */
 static void urb_irq_callback(struct urb *urb)
 {
 	struct yealink_dev *yld = urb->context;
@@ -375,12 +466,12 @@ static void urb_ctl_callback(struct urb *urb)
 	switch (yld->ctl_data->cmd) {
 	case CMD_KEYPRESS:
 	case CMD_SCANCODE:
-		
+		/* ask for a response */
 		if (!yld->shutdown)
 			ret = usb_submit_urb(yld->urb_irq, GFP_ATOMIC);
 		break;
 	default:
-		
+		/* send new command */
 		yealink_do_idle_tasks(yld);
 		if (!yld->shutdown)
 			ret = usb_submit_urb(yld->urb_ctl, GFP_ATOMIC);
@@ -391,7 +482,29 @@ static void urb_ctl_callback(struct urb *urb)
 		err("%s - usb_submit_urb failed %d", __func__, ret);
 }
 
+/*******************************************************************************
+ * input event interface
+ ******************************************************************************/
 
+/* TODO should we issue a ringtone on a SND_BELL event?
+static int input_ev(struct input_dev *dev, unsigned int type,
+		unsigned int code, int value)
+{
+
+	if (type != EV_SND)
+		return -EINVAL;
+
+	switch (code) {
+	case SND_BELL:
+	case SND_TONE:
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+*/
 
 static int input_open(struct input_dev *dev)
 {
@@ -400,14 +513,14 @@ static int input_open(struct input_dev *dev)
 
 	dbg("%s", __func__);
 
-	
+	/* force updates to device */
 	for (i = 0; i<sizeof(yld->master); i++)
 		yld->copy.b[i] = ~yld->master.b[i];
-	yld->key_code = -1;	
+	yld->key_code = -1;	/* no keys pressed */
 
         yealink_set_ringtone(yld, default_ringtone, sizeof(default_ringtone));
 
-	
+	/* issue INIT */
 	memset(yld->ctl_data, 0, sizeof(*(yld->ctl_data)));
 	yld->ctl_data->cmd	= CMD_INIT;
 	yld->ctl_data->size	= 10;
@@ -425,6 +538,10 @@ static void input_close(struct input_dev *dev)
 	struct yealink_dev *yld = input_get_drvdata(dev);
 
 	yld->shutdown = 1;
+	/*
+	 * Make sure the flag is seen by other CPUs before we start
+	 * killing URBs so new URBs won't be submitted
+	 */
 	smp_wmb();
 
 	usb_kill_urb(yld->urb_ctl);
@@ -434,9 +551,14 @@ static void input_close(struct input_dev *dev)
 	smp_wmb();
 }
 
+/*******************************************************************************
+ * sysfs interface
+ ******************************************************************************/
 
 static DECLARE_RWSEM(sysfs_rwsema);
 
+/* Interface to the 7-segments translation table aka. char set.
+ */
 static ssize_t show_map(struct device *dev, struct device_attribute *attr,
 				char *buf)
 {
@@ -453,7 +575,16 @@ static ssize_t store_map(struct device *dev, struct device_attribute *attr,
 	return sizeof(map_seg7);
 }
 
+/* Interface to the LCD.
+ */
 
+/* Reading /sys/../lineX will return the format string with its settings:
+ *
+ * Example:
+ * cat ./line3
+ * 888888888888
+ * Linux Rocks!
+ */
 static ssize_t show_line(struct device *dev, char *buf, int a, int b)
 {
 	struct yealink_dev *yld;
@@ -543,7 +674,11 @@ static ssize_t store_line3(struct device *dev, struct device_attribute *attr,
 	return store_line(dev, buf, count, LCD_LINE3_OFFSET, LCD_LINE3_SIZE);
 }
 
+/* Interface to visible and audible "icons", these include:
+ * pictures on the LCD, the LED, and the dialtone signal.
+ */
 
+/* Get a list of "switchable elements" with their current state. */
 static ssize_t get_icons(struct device *dev, struct device_attribute *attr,
 			char *buf)
 {
@@ -568,6 +703,7 @@ static ssize_t get_icons(struct device *dev, struct device_attribute *attr,
 	return ret;
 }
 
+/* Change the visibility of a particular element. */
 static ssize_t set_icon(struct device *dev, const char *buf, size_t count,
 			int chr)
 {
@@ -606,7 +742,10 @@ static ssize_t hide_icon(struct device *dev, struct device_attribute *attr,
 	return set_icon(dev, buf, count, ' ');
 }
 
+/* Upload a ringtone to the device.
+ */
 
+/* Stores raw ringtone data in the phone */
 static ssize_t store_ringtone(struct device *dev,
 		struct device_attribute *attr,
 		const char *buf, size_t count)
@@ -620,7 +759,7 @@ static ssize_t store_ringtone(struct device *dev,
 		return -ENODEV;
 	}
 
-	
+	/* TODO locking with async usb control interface??? */
 	yealink_set_ringtone(yld, (char *)buf, count);
 	up_write(&sysfs_rwsema);
 	return count;
@@ -655,6 +794,9 @@ static struct attribute_group yld_attr_group = {
 	.attrs = yld_attributes
 };
 
+/*******************************************************************************
+ * Linux interface and usb initialisation
+ ******************************************************************************/
 
 struct driver_info {
 	char *name;
@@ -739,7 +881,7 @@ static int usb_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	if (!input_dev)
 		return usb_cleanup(yld, -ENOMEM);
 
-	
+	/* allocate usb buffers */
 	yld->irq_data = usb_alloc_coherent(udev, USB_PKT_LEN,
 					   GFP_ATOMIC, &yld->irq_dma);
 	if (yld->irq_data == NULL)
@@ -754,7 +896,7 @@ static int usb_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	if (yld->ctl_req == NULL)
 		return usb_cleanup(yld, -ENOMEM);
 
-	
+	/* allocate urb structures */
 	yld->urb_irq = usb_alloc_urb(0, GFP_KERNEL);
         if (yld->urb_irq == NULL)
 		return usb_cleanup(yld, -ENOMEM);
@@ -763,13 +905,13 @@ static int usb_probe(struct usb_interface *intf, const struct usb_device_id *id)
         if (yld->urb_ctl == NULL)
 		return usb_cleanup(yld, -ENOMEM);
 
-	
+	/* get a handle to the interrupt data pipe */
 	pipe = usb_rcvintpipe(udev, endpoint->bEndpointAddress);
 	ret = usb_maxpacket(udev, pipe, usb_pipeout(pipe));
 	if (ret != USB_PKT_LEN)
 		err("invalid payload size %d, expected %zd", ret, USB_PKT_LEN);
 
-	
+	/* initialise irq urb */
 	usb_fill_int_urb(yld->urb_irq, udev, pipe, yld->irq_data,
 			USB_PKT_LEN,
 			urb_irq_callback,
@@ -778,7 +920,7 @@ static int usb_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	yld->urb_irq->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
 	yld->urb_irq->dev = udev;
 
-	
+	/* initialise ctl urb */
 	yld->ctl_req->bRequestType = USB_TYPE_CLASS | USB_RECIP_INTERFACE |
 				      USB_DIR_OUT;
 	yld->ctl_req->bRequest	= USB_REQ_SET_CONFIGURATION;
@@ -793,11 +935,11 @@ static int usb_probe(struct usb_interface *intf, const struct usb_device_id *id)
 	yld->urb_ctl->transfer_flags	|= URB_NO_TRANSFER_DMA_MAP;
 	yld->urb_ctl->dev = udev;
 
-	
+	/* find out the physical bus location */
 	usb_make_path(udev, yld->phys, sizeof(yld->phys));
 	strlcat(yld->phys,  "/input0", sizeof(yld->phys));
 
-	
+	/* register settings for the input device */
 	input_dev->name = nfo->name;
 	input_dev->phys = yld->phys;
 	usb_to_input_id(udev, &input_dev->id);
@@ -807,9 +949,9 @@ static int usb_probe(struct usb_interface *intf, const struct usb_device_id *id)
 
 	input_dev->open = input_open;
 	input_dev->close = input_close;
-	
+	/* input_dev->event = input_ev;	TODO */
 
-	
+	/* register available key events */
 	input_dev->evbit[0] = BIT_MASK(EV_KEY);
 	for (i = 0; i < 256; i++) {
 		int k = map_p1k_to_key(i);
@@ -826,15 +968,15 @@ static int usb_probe(struct usb_interface *intf, const struct usb_device_id *id)
 
 	usb_set_intfdata(intf, yld);
 
-	
+	/* clear visible elements */
 	for (i = 0; i < ARRAY_SIZE(lcdMap); i++)
 		setChar(yld, i, ' ');
 
-	
+	/* display driver version on LCD line 3 */
 	store_line3(&intf->dev, NULL,
 			DRIVER_VERSION, sizeof(DRIVER_VERSION));
 
-	
+	/* Register sysfs hooks (don't care about failure) */
 	ret = sysfs_create_group(&intf->dev.kobj, &yld_attr_group);
 	return 0;
 }

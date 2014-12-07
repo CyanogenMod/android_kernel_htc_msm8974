@@ -16,6 +16,7 @@
 
 #ifndef __ASSEMBLY__
 
+/* IRQ IDs presented to drivers */
 enum {
 	IRQ_MB93493_VDC			= IRQ_BASE_MB93493 + 0,
 	IRQ_MB93493_VCC			= IRQ_BASE_MB93493 + 1,
@@ -29,8 +30,9 @@ enum {
 	IRQ_MB93493_AUDIO_IN		= IRQ_BASE_MB93493 + 10,
 };
 
-#define ROUTE_VIA_IRQ0	0	
-#define ROUTE_VIA_IRQ1	1	
+/* IRQ multiplexor mappings */
+#define ROUTE_VIA_IRQ0	0	/* route IRQ by way of CPU external IRQ 0 */
+#define ROUTE_VIA_IRQ1	1	/* route IRQ by way of CPU external IRQ 1 */
 
 #define IRQ_MB93493_VDC_ROUTE		ROUTE_VIA_IRQ0
 #define IRQ_MB93493_VCC_ROUTE		ROUTE_VIA_IRQ1
@@ -43,6 +45,6 @@ enum {
 #define IRQ_MB93493_GPIO_ROUTE		ROUTE_VIA_IRQ1
 #define IRQ_MB93493_AUDIO_IN_ROUTE	ROUTE_VIA_IRQ1
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_MB93493_IRQS_H */

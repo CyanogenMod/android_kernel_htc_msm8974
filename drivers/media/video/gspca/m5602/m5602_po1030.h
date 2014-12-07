@@ -23,6 +23,7 @@
 
 #include "m5602_sensor.h"
 
+/*****************************************************************************/
 
 #define PO1030_DEVID_H		0x00
 #define PO1030_DEVID_L		0x01
@@ -67,6 +68,7 @@
 
 #define PO1030_ADCOFFSET	0x2c
 
+/* Gamma Correction Coeffs */
 #define PO1030_GC0		0x2d
 #define PO1030_GC1		0x2e
 #define PO1030_GC2		0x2f
@@ -76,6 +78,7 @@
 #define PO1030_GC6		0x33
 #define PO1030_GC7		0x34
 
+/* Color Transform Matrix */
 #define PO1030_CT0		0x35
 #define PO1030_CT1		0x36
 #define PO1030_CT2		0x37
@@ -96,6 +99,7 @@
 #define PO1030_AWB_RED_TUNING	0x47
 #define PO1030_AWB_BLUE_TUNING	0x48
 
+/* Output format control */
 #define PO1030_OUTFORMCTRL1	0x5a
 #define PO1030_OUTFORMCTRL2	0x5b
 #define PO1030_OUTFORMCTRL3	0x5c
@@ -131,6 +135,7 @@
 
 #define PO1030_SUBSAMPLING	(1 << 6)
 
+/*****************************************************************************/
 
 #define PO1030_GLOBAL_GAIN_DEFAULT	0x12
 #define PO1030_EXPOSURE_DEFAULT		0x0085
@@ -138,7 +143,9 @@
 #define PO1030_RED_GAIN_DEFAULT		0x36
 #define PO1030_GREEN_GAIN_DEFAULT	0x40
 
+/*****************************************************************************/
 
+/* Kernel module parameters */
 extern int force_sensor;
 extern bool dump_sensor;
 
@@ -236,22 +243,24 @@ static const unsigned char init_po1030[][3] = {
 	{SENSOR, PO1030_GC6, 0xc0},
 	{SENSOR, PO1030_GC7, 0xff},
 
-	
+	/* Set the width to 751 */
 	{SENSOR, PO1030_FRAMEWIDTH_H, 0x02},
 	{SENSOR, PO1030_FRAMEWIDTH_L, 0xef},
 
-	
+	/* Set the height to 540 */
 	{SENSOR, PO1030_FRAMEHEIGHT_H, 0x02},
 	{SENSOR, PO1030_FRAMEHEIGHT_L, 0x1c},
 
-	
+	/* Set the x window to 1 */
 	{SENSOR, PO1030_WINDOWX_H, 0x00},
 	{SENSOR, PO1030_WINDOWX_L, 0x01},
 
-	
+	/* Set the y window to 1 */
 	{SENSOR, PO1030_WINDOWY_H, 0x00},
 	{SENSOR, PO1030_WINDOWY_L, 0x01},
 
+	/* with a very low lighted environment increase the exposure but
+	 * decrease the FPS (Frame Per Second) */
 	{BRIDGE, M5602_XB_SEN_CLK_DIV, 0x00},
 	{BRIDGE, M5602_XB_SEN_CLK_CTRL, 0xb0},
 

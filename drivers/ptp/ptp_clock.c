@@ -37,13 +37,15 @@
 #define PTP_PPS_EVENT PPS_CAPTUREASSERT
 #define PTP_PPS_MODE (PTP_PPS_DEFAULTS | PPS_CANWAIT | PPS_TSFMT_TSPEC)
 
+/* private globals */
 
 static dev_t ptp_devt;
 static struct class *ptp_class;
 
 static DECLARE_BITMAP(ptp_clocks_map, PTP_MAX_CLOCKS);
-static DEFINE_MUTEX(ptp_clocks_mutex); 
+static DEFINE_MUTEX(ptp_clocks_mutex); /* protects 'ptp_clocks_map' */
 
+/* time stamp event queue operations */
 
 static inline int queue_free(struct timestamp_event_queue *q)
 {
@@ -77,12 +79,25 @@ static void enqueue_external_timestamp(struct timestamp_event_queue *queue,
 
 static s32 scaled_ppm_to_ppb(long ppm)
 {
+	/*
+	 * The 'freq' field in the 'struct timex' is in parts per
+	 * million, but with a 16 bit binary fractional field.
+	 *
+	 * We want to calculate
+	 *
+	 *    ppb = scaled_ppm * 1000 / 2^16
+	 *
+	 * which simplifies to
+	 *
+	 *    ppb = scaled_ppm * 125 / 2^13
+	 */
 	s64 ppb = 1 + ppm;
 	ppb *= 125;
 	ppb >>= 13;
 	return (s32) ppb;
 }
 
+/* posix clock implementation */
 
 static int ptp_clock_getres(struct posix_clock *pc, struct timespec *tp)
 {
@@ -155,7 +170,7 @@ static void delete_ptp_clock(struct posix_clock *pc)
 
 	mutex_destroy(&ptp->tsevq_mux);
 
-	
+	/* Remove the clock from the bit map. */
 	mutex_lock(&ptp_clocks_mutex);
 	clear_bit(ptp->index, ptp_clocks_map);
 	mutex_unlock(&ptp_clocks_mutex);
@@ -163,6 +178,7 @@ static void delete_ptp_clock(struct posix_clock *pc)
 	kfree(ptp);
 }
 
+/* public interface */
 
 struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info)
 {
@@ -172,7 +188,7 @@ struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info)
 	if (info->n_alarm > PTP_MAX_ALARMS)
 		return ERR_PTR(-EINVAL);
 
-	
+	/* Find a free clock slot and reserve it. */
 	err = -EBUSY;
 	mutex_lock(&ptp_clocks_mutex);
 	index = find_first_zero_bit(ptp_clocks_map, PTP_MAX_CLOCKS);
@@ -181,7 +197,7 @@ struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info)
 	else
 		goto no_slot;
 
-	
+	/* Initialize a clock structure. */
 	err = -ENOMEM;
 	ptp = kzalloc(sizeof(struct ptp_clock), GFP_KERNEL);
 	if (ptp == NULL)
@@ -196,7 +212,7 @@ struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info)
 	mutex_init(&ptp->tsevq_mux);
 	init_waitqueue_head(&ptp->tsev_wq);
 
-	
+	/* Create a new device in our class. */
 	ptp->dev = device_create(ptp_class, NULL, ptp->devid, ptp,
 				 "ptp%d", ptp->index);
 	if (IS_ERR(ptp->dev))
@@ -208,7 +224,7 @@ struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info)
 	if (err)
 		goto no_sysfs;
 
-	
+	/* Register a new PPS source. */
 	if (info->pps) {
 		struct pps_source_info pps;
 		memset(&pps, 0, sizeof(pps));
@@ -222,7 +238,7 @@ struct ptp_clock *ptp_clock_register(struct ptp_clock_info *info)
 		}
 	}
 
-	
+	/* Create a posix clock. */
 	err = posix_clock_register(&ptp->clock, ptp->devid);
 	if (err) {
 		pr_err("failed to create posix clock\n");
@@ -255,7 +271,7 @@ int ptp_clock_unregister(struct ptp_clock *ptp)
 	ptp->defunct = 1;
 	wake_up_interruptible(&ptp->tsev_wq);
 
-	
+	/* Release the clock's resources. */
 	if (ptp->pps_source)
 		pps_unregister_source(ptp->pps_source);
 	ptp_cleanup_sysfs(ptp);
@@ -288,6 +304,7 @@ void ptp_clock_event(struct ptp_clock *ptp, struct ptp_clock_event *event)
 }
 EXPORT_SYMBOL(ptp_clock_event);
 
+/* module operations */
 
 static void __exit ptp_exit(void)
 {

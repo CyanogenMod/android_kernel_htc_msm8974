@@ -8,6 +8,9 @@
 #define NV_CTXDMA_PAGE_MASK  (NV_CTXDMA_PAGE_SIZE - 1)
 
 struct nouveau_sgdma_be {
+	/* this has to be the first field so populate/unpopulated in
+	 * nouve_bo.c works properly, otherwise have to move them here
+	 */
 	struct ttm_dma_tt ttm;
 	struct drm_device *dev;
 	u64 offset;
@@ -286,7 +289,7 @@ nv50_sgdma_bind(struct ttm_tt *ttm, struct ttm_mem_reg *mem)
 	struct nouveau_sgdma_be *nvbe = (struct nouveau_sgdma_be *)ttm;
 	struct nouveau_mem *node = mem->mm_node;
 
-	
+	/* noop: bound in move_notify() */
 	node->pages = nvbe->ttm.dma_address;
 	return 0;
 }
@@ -294,7 +297,7 @@ nv50_sgdma_bind(struct ttm_tt *ttm, struct ttm_mem_reg *mem)
 static int
 nv50_sgdma_unbind(struct ttm_tt *ttm)
 {
-	
+	/* noop: unbound in move_notify() */
 	return 0;
 }
 
@@ -340,6 +343,10 @@ nouveau_sgdma_init(struct drm_device *dev)
 	else
 		aper_size = 64 * 1024 * 1024;
 
+	/* Dear NVIDIA, NV44+ would like proper present bits in PTEs for
+	 * christmas.  The cards before it have them, the cards after
+	 * it have them, why is NV44 so unloved?
+	 */
 	dev_priv->gart_info.dummy.page = alloc_page(GFP_DMA32 | GFP_KERNEL);
 	if (!dev_priv->gart_info.dummy.page)
 		return -ENOMEM;
@@ -392,10 +399,10 @@ nouveau_sgdma_init(struct drm_device *dev)
 		}
 
 		nv_wo32(gpuobj, 0, NV_CLASS_DMA_IN_MEMORY |
-				   (1 << 12)  |
-				   (0 << 13)  |
-				   (0 << 14)  |
-				   (2 << 16) );
+				   (1 << 12) /* PT present */ |
+				   (0 << 13) /* PT *not* linear */ |
+				   (0 << 14) /* RW */ |
+				   (2 << 16) /* PCI */);
 		nv_wo32(gpuobj, 4, aper_size - 1);
 
 		dev_priv->gart_info.sg_ctxdma = gpuobj;

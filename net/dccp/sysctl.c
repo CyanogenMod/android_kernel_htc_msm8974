@@ -18,10 +18,11 @@
 #error This file should not be compiled without CONFIG_SYSCTL defined
 #endif
 
+/* Boundary values */
 static int		zero     = 0,
 			u8_max   = 0xFF;
 static unsigned long	seqw_min = DCCPF_SEQ_WMIN,
-			seqw_max = 0xFFFFFFFF;		
+			seqw_max = 0xFFFFFFFF;		/* maximum on 32 bit */
 
 static struct ctl_table dccp_default_table[] = {
 	{
@@ -30,7 +31,7 @@ static struct ctl_table dccp_default_table[] = {
 		.maxlen		= sizeof(sysctl_dccp_sequence_window),
 		.mode		= 0644,
 		.proc_handler	= proc_doulongvec_minmax,
-		.extra1		= &seqw_min,		
+		.extra1		= &seqw_min,		/* RFC 4340, 7.5.2 */
 		.extra2		= &seqw_max,
 	},
 	{
@@ -40,7 +41,7 @@ static struct ctl_table dccp_default_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
 		.extra1		= &zero,
-		.extra2		= &u8_max,		
+		.extra2		= &u8_max,		/* RFC 4340, 10. */
 	},
 	{
 		.procname	= "tx_ccid",
@@ -49,7 +50,7 @@ static struct ctl_table dccp_default_table[] = {
 		.mode		= 0644,
 		.proc_handler	= proc_dointvec_minmax,
 		.extra1		= &zero,
-		.extra2		= &u8_max,		
+		.extra2		= &u8_max,		/* RFC 4340, 10. */
 	},
 	{
 		.procname	= "request_retries",

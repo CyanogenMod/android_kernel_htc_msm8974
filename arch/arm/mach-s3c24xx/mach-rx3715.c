@@ -54,7 +54,7 @@
 #include "common.h"
 
 static struct map_desc rx3715_iodesc[] __initdata = {
-	
+	/* dump ISA space somewhere unused */
 
 	{
 		.virtual	= (u32)S3C24XX_VA_ISA_WORD,
@@ -86,7 +86,7 @@ static struct s3c2410_uartcfg rx3715_uartcfgs[] = {
 		.ufcon	     = 0x00,
 		.clk_sel	= S3C2410_UCON_CLKSEL3,
 	},
-	
+	/* IR port */
 	[2] = {
 		.hwport	     = 2,
 		.uart_flags  = UPF_CONS_FLOW,
@@ -97,6 +97,7 @@ static struct s3c2410_uartcfg rx3715_uartcfgs[] = {
 	}
 };
 
+/* framebuffer lcd controller information */
 
 static struct s3c2410fb_display rx3715_lcdcfg __initdata = {
 	.lcdcon5 =	S3C2410_LCDCON5_INVVLINE |
@@ -180,6 +181,7 @@ static void __init rx3715_map_io(void)
 	s3c24xx_init_uarts(rx3715_uartcfgs, ARRAY_SIZE(rx3715_uartcfgs));
 }
 
+/* H1940 and RX3715 need to reserve this for suspend */
 static void __init rx3715_reserve(void)
 {
 	memblock_reserve(0x30003000, 0x1000);
@@ -204,7 +206,7 @@ static void __init rx3715_init_machine(void)
 }
 
 MACHINE_START(RX3715, "IPAQ-RX3715")
-	
+	/* Maintainer: Ben Dooks <ben-linux@fluff.org> */
 	.atag_offset	= 0x100,
 	.map_io		= rx3715_map_io,
 	.reserve	= rx3715_reserve,

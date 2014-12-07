@@ -1,3 +1,10 @@
+/*
+ *  linux/fs/hpfs/dnode.c
+ *
+ *  Mikulas Patocka (mikulas@artax.karlin.mff.cuni.cz), 1998-1999
+ *
+ *  handling directory dnode tree - adding, deleteing & searching for dirents
+ */
 
 #include "hpfs_fn.h"
 
@@ -56,7 +63,7 @@ void hpfs_del_pos(struct inode *inode, loff_t *pos)
 	}
 	return;
 	not_f:
-	
+	/*printk("HPFS: warning: position pointer %p->%08x not found\n", pos, (int)*pos);*/
 	return;
 }
 
@@ -76,6 +83,10 @@ static void hpfs_pos_subst(loff_t *p, loff_t f, loff_t t)
 	if (*p == f) *p = t;
 }
 
+/*void hpfs_hpfs_pos_substd(loff_t *p, loff_t f, loff_t t)
+{
+	if ((*p & ~0x3f) == (f & ~0x3f)) *p = (t & ~0x3f) | (*p & 0x3f);
+}*/
 
 static void hpfs_pos_ins(loff_t *p, loff_t d, loff_t c)
 {
@@ -146,6 +157,7 @@ static void set_last_pointer(struct super_block *s, struct dnode *d, dnode_secno
 	}
 }
 
+/* Add an entry to dnode and don't care if it grows over 2048 bytes */
 
 struct hpfs_dirent *hpfs_add_de(struct super_block *s, struct dnode *d,
 				const unsigned char *name,
@@ -176,6 +188,7 @@ struct hpfs_dirent *hpfs_add_de(struct super_block *s, struct dnode *d,
 	return de;
 }
 
+/* Delete dirent and don't care about its subtree */
 
 static void hpfs_delete_de(struct super_block *s, struct dnode *d,
 			   struct hpfs_dirent *de)
@@ -208,6 +221,7 @@ static void fix_up_ptrs(struct super_block *s, struct dnode *d)
 		}
 }
 
+/* Add an entry to dnode and do dnode splitting if required */
 
 static int hpfs_add_to_dnode(struct inode *i, dnode_secno dno,
 			     const unsigned char *name, unsigned namelen,
@@ -262,6 +276,11 @@ static int hpfs_add_to_dnode(struct inode *i, dnode_secno dno,
 		return 0;
 	}
 	if (!nd) if (!(nd = kmalloc(0x924, GFP_NOFS))) {
+		/* 0x924 is a max size of dnode after adding a dirent with
+		   max name length. We alloc this only once. There must
+		   not be any error while splitting dnodes, otherwise the
+		   whole directory, not only file we're adding, would
+		   be lost. */
 		printk("HPFS: out of memory for dnode splitting\n");
 		hpfs_brelse4(&qbh);
 		kfree(nname);
@@ -346,6 +365,13 @@ static int hpfs_add_to_dnode(struct inode *i, dnode_secno dno,
 	goto go_up_a;
 }
 
+/*
+ * Add an entry to directory btree.
+ * I hate such crazy directory structure.
+ * It's easy to read but terrible to write.
+ * I wrote this directory code 4 times.
+ * I hope, now it's finally bug-free.
+ */
 
 int hpfs_add_dirent(struct inode *i,
 		    const unsigned char *name, unsigned namelen,
@@ -389,6 +415,10 @@ int hpfs_add_dirent(struct inode *i,
 	return c;
 }
 
+/* 
+ * Find dirent with higher name in 'from' subtree and move it to 'to' dnode.
+ * Return the dnode we moved from (to be checked later if it's empty)
+ */
 
 static secno move_to_top(struct inode *i, dnode_secno from, dnode_secno to)
 {
@@ -470,6 +500,10 @@ static secno move_to_top(struct inode *i, dnode_secno from, dnode_secno to)
 	return dno;
 }
 
+/* 
+ * Check if a dnode is empty and delete it from the tree
+ * (chkdsk doesn't like empty dnodes)
+ */
 
 static void delete_empty_dnode(struct inode *i, dnode_secno dno)
 {
@@ -578,7 +612,7 @@ static void delete_empty_dnode(struct inode *i, dnode_secno dno)
 			hpfs_brelse4(&qbh1);
 		}
 		hpfs_add_to_dnode(i, ndown, de_cp->name, de_cp->namelen, de_cp, de_cp->down ? de_down_pointer(de_cp) : 0);
-		
+		/*printk("UP-TO-DNODE: %08x (ndown = %08x, down = %08x, dno = %08x)\n", up, ndown, down, dno);*/
 		dno = up;
 		kfree(de_cp);
 		goto try_it_again;
@@ -660,6 +694,7 @@ static void delete_empty_dnode(struct inode *i, dnode_secno dno)
 }
 
 
+/* Delete dirent from directory */
 
 int hpfs_remove_dirent(struct inode *i, dnode_secno dno, struct hpfs_dirent *de,
 		       struct quad_buffer_head *qbh, int depth)
@@ -814,7 +849,7 @@ struct hpfs_dirent *map_pos_dirent(struct inode *inode, loff_t *posp,
 	if (!(de = map_nth_dirent(inode->i_sb, dno, pos, qbh, &dnode)))
 		goto bail;
 
-	
+	/* Going to the next dirent */
 	if ((d = de_next_de(de)) < dnode_end_de(dnode)) {
 		if (!(++*posp & 077)) {
 			hpfs_error(inode->i_sb,
@@ -822,7 +857,7 @@ struct hpfs_dirent *map_pos_dirent(struct inode *inode, loff_t *posp,
 				(unsigned long long)*posp);
 			goto bail;
 		}
-		
+		/* We're going down the tree */
 		if (d->down) {
 			*posp = ((loff_t) hpfs_de_as_down_as_possible(inode->i_sb, de_down_pointer(d)) << 4) + 1;
 		}
@@ -830,7 +865,7 @@ struct hpfs_dirent *map_pos_dirent(struct inode *inode, loff_t *posp,
 		return de;
 	}
 
-	
+	/* Going up */
 	if (dnode->root_dnode) goto bail;
 
 	if (!(up_dnode = hpfs_map_dnode(inode->i_sb, le32_to_cpu(dnode->up), &qbh0)))
@@ -858,6 +893,7 @@ struct hpfs_dirent *map_pos_dirent(struct inode *inode, loff_t *posp,
 	return de;
 }
 
+/* Find a dirent in tree */
 
 struct hpfs_dirent *map_dirent(struct inode *inode, dnode_secno dno,
 			       const unsigned char *name, unsigned len,
@@ -894,6 +930,11 @@ struct hpfs_dirent *map_dirent(struct inode *inode, dnode_secno dno,
 	return NULL;
 }
 
+/*
+ * Remove empty directory. In normal cases it is only one dnode with two
+ * entries, but we must handle also such obscure cases when it's a tree
+ * of empty dnodes.
+ */
 
 void hpfs_remove_dtree(struct super_block *s, dnode_secno dno)
 {
@@ -938,6 +979,10 @@ void hpfs_remove_dtree(struct super_block *s, dnode_secno dno)
 	hpfs_error(s, "directory %08x is corrupted or not empty", rdno);
 }
 
+/* 
+ * Find dirent for specified fnode. Use truncated 15-char name in fnode as
+ * a help for searching.
+ */
 
 struct hpfs_dirent *map_fnode_dirent(struct super_block *s, fnode_secno fno,
 				     struct fnode *f, struct quad_buffer_head *qbh)
@@ -963,7 +1008,7 @@ struct hpfs_dirent *map_fnode_dirent(struct super_block *s, fnode_secno fno,
 	else {
 		memcpy(name2, name1, 15);
 		memset(name2 + 15, 0xff, 256 - 15);
-		
+		/*name2[15] = 0xff;*/
 		name1len = 15; name2len = 256;
 	}
 	if (!(upf = hpfs_map_fnode(s, le32_to_cpu(f->up), &bh))) {

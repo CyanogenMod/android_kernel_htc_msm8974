@@ -14,4 +14,4 @@
 
 void ath79_register_wmac(u8 *cal_data);
 
-#endif 
+#endif /* _ATH79_DEV_WMAC_H */

@@ -26,25 +26,32 @@
 
 #include <video/radeon.h>
 
+/***************************************************************
+ * Most of the definitions here are adapted right from XFree86 *
+ ***************************************************************/
 
 
+/*
+ * Chip families. Must fit in the low 16 bits of a long word
+ */
 enum radeon_family {
 	CHIP_FAMILY_UNKNOW,
 	CHIP_FAMILY_LEGACY,
 	CHIP_FAMILY_RADEON,
 	CHIP_FAMILY_RV100,
-	CHIP_FAMILY_RS100,    
+	CHIP_FAMILY_RS100,    /* U1 (IGP320M) or A3 (IGP320)*/
 	CHIP_FAMILY_RV200,
-	CHIP_FAMILY_RS200,    
+	CHIP_FAMILY_RS200,    /* U2 (IGP330M/340M/350M) or A4 (IGP330/340/345/350),
+				 RS250 (IGP 7000) */
 	CHIP_FAMILY_R200,
 	CHIP_FAMILY_RV250,
-	CHIP_FAMILY_RS300,    
+	CHIP_FAMILY_RS300,    /* Radeon 9000 IGP */
 	CHIP_FAMILY_RV280,
 	CHIP_FAMILY_R300,
 	CHIP_FAMILY_R350,
 	CHIP_FAMILY_RV350,
-	CHIP_FAMILY_RV380,    
-	CHIP_FAMILY_R420,     
+	CHIP_FAMILY_RV380,    /* RV370/RV380/M22/M24 */
+	CHIP_FAMILY_R420,     /* R420/R423/M18 */
 	CHIP_FAMILY_RC410,
 	CHIP_FAMILY_RS400,
 	CHIP_FAMILY_RS480,
@@ -68,6 +75,9 @@ enum radeon_family {
                                ((rinfo)->family == CHIP_FAMILY_RC410) || \
                                ((rinfo)->family == CHIP_FAMILY_RS480))
 
+/*
+ * Chip flags
+ */
 enum radeon_chip_flags {
 	CHIP_FAMILY_MASK	= 0x0000ffffUL,
 	CHIP_FLAGS_MASK		= 0xffff0000UL,
@@ -76,6 +86,9 @@ enum radeon_chip_flags {
 	CHIP_HAS_CRTC2		= 0x00040000UL,	
 };
 
+/*
+ * Errata workarounds
+ */
 enum radeon_errata {
 	CHIP_ERRATA_R300_CG		= 0x00000001,
 	CHIP_ERRATA_PLL_DUMMYREADS	= 0x00000002,
@@ -83,15 +96,21 @@ enum radeon_errata {
 };
 
 
+/*
+ * Monitor types
+ */
 enum radeon_montype {
 	MT_NONE = 0,
-	MT_CRT,		
-	MT_LCD,		
-	MT_DFP,		
-	MT_CTV,		
-	MT_STV		
+	MT_CRT,		/* CRT */
+	MT_LCD,		/* LCD */
+	MT_DFP,		/* DVI */
+	MT_CTV,		/* composite TV */
+	MT_STV		/* S-Video out */
 };
 
+/*
+ * DDC i2c ports
+ */
 enum ddc_type {
 	ddc_none,
 	ddc_monid,
@@ -100,6 +119,9 @@ enum ddc_type {
 	ddc_crt2,
 };
 
+/*
+ * Connector types
+ */
 enum conn_type {
 	conn_none,
 	conn_proprietary,
@@ -109,6 +131,9 @@ enum conn_type {
 };
 
 
+/*
+ * PLL infos
+ */
 struct pll_info {
 	int ppll_max;
 	int ppll_min;
@@ -118,8 +143,14 @@ struct pll_info {
 };
 
 
+/*
+ * This structure contains the various registers manipulated by this
+ * driver for setting or restoring a mode. It's mostly copied from
+ * XFree's RADEONSaveRec structure. A few chip settings might still be
+ * tweaked without beeing reflected or saved in these registers though
+ */
 struct radeon_regs {
-	
+	/* Common registers */
 	u32		ovr_clr;
 	u32		ovr_wid_left_right;
 	u32		ovr_wid_top_bottom;
@@ -136,19 +167,19 @@ struct radeon_regs {
 	u32		surface_cntl;
 	u32		bios_5_scratch;
 
-	
+	/* Other registers to save for VT switches or driver load/unload */
 	u32		dp_datatype;
 	u32		rbbm_soft_reset;
 	u32		clock_cntl_index;
 	u32		amcgpio_en_reg;
 	u32		amcgpio_mask;
 
-	
+	/* Surface/tiling registers */
 	u32		surf_lower_bound[8];
 	u32		surf_upper_bound[8];
 	u32		surf_info[8];
 
-	
+	/* CRTC registers */
 	u32		crtc_gen_cntl;
 	u32		crtc_ext_cntl;
 	u32		dac_cntl;
@@ -163,7 +194,7 @@ struct radeon_regs {
 	u32		grph_buffer_cntl;
 	u32		crtc_more_cntl;
 
-	
+	/* CRTC2 registers */
 	u32		crtc2_gen_cntl;
 	u32		dac2_cntl;
 	u32		disp_output_cntl;
@@ -178,7 +209,7 @@ struct radeon_regs {
 	u32		crtc2_offset_cntl;
 	u32		crtc2_pitch;
 
-	
+	/* Flat panel regs */
 	u32 		fp_crtc_h_total_disp;
 	u32		fp_crtc_v_total_disp;
 	u32		fp_gen_cntl;
@@ -195,28 +226,28 @@ struct radeon_regs {
 	u32		tmds_crc;
 	u32		tmds_transmitter_cntl;
 
-	
+	/* Computed values for PLL */
 	u32		dot_clock_freq;
 	int		feedback_div;
 	int		post_div;	
 
-	
+	/* PLL registers */
 	u32		ppll_div_3;
 	u32		ppll_ref_div;
 	u32		vclk_ecp_cntl;
 	u32		clk_cntl_index;
 
-	
+	/* Computed values for PLL2 */
 	u32		dot_clock_freq_2;
 	int		feedback_div_2;
 	int		post_div_2;
 
-	
+	/* PLL2 registers */
 	u32		p2pll_ref_div;
 	u32		p2pll_div_0;
 	u32		htotal_cntl2;
 
-       	
+       	/* Palette */
 	int		palette_valid;
 };
 
@@ -246,9 +277,9 @@ struct radeon_i2c_chan {
 #endif
 
 enum radeon_pm_mode {
-	radeon_pm_none	= 0,		
-	radeon_pm_d2	= 0x00000001,	
-	radeon_pm_off	= 0x00000002,	
+	radeon_pm_none	= 0,		/* Nothing supported */
+	radeon_pm_d2	= 0x00000001,	/* Can do D2 state */
+	radeon_pm_off	= 0x00000002,	/* Can resume from D3 cold */
 };
 
 typedef void (*reinit_function_ptr)(struct radeonfb_info *rinfo);
@@ -320,10 +351,10 @@ struct radeonfb_info {
 	enum radeon_pm_mode	pm_mode;
 	reinit_function_ptr     reinit_func;
 
-	
+	/* Lock on register access */
 	spinlock_t		reg_lock;
 
-	
+	/* Timer used for delayed LVDS operations */
 	struct timer_list	lvds_timer;
 	u32			pending_lvds_gen_cntl;
 
@@ -336,7 +367,16 @@ struct radeonfb_info {
 #define PRIMARY_MONITOR(rinfo)	(rinfo->mon1_type)
 
 
+/*
+ * IO macros
+ */
 
+/* Note about this function: we have some rare cases where we must not schedule,
+ * this typically happen with our special "wake up early" hook which allows us to
+ * wake up the graphic chip (and thus get the console back) before everything else
+ * on some machines that support that mechanism. At this point, interrupts are off
+ * and scheduling is not permitted
+ */
 static inline void _radeon_msleep(struct radeonfb_info *rinfo, unsigned long ms)
 {
 	if (rinfo->no_schedule || oops_in_progress)
@@ -369,6 +409,23 @@ static inline void _OUTREGP(struct radeonfb_info *rinfo, u32 addr,
 
 #define OUTREGP(addr,val,mask)	_OUTREGP(rinfo, addr, val,mask)
 
+/*
+ * Note about PLL register accesses:
+ *
+ * I have removed the spinlock on them on purpose. The driver now
+ * expects that it will only manipulate the PLL registers in normal
+ * task environment, where radeon_msleep() will be called, protected
+ * by a semaphore (currently the console semaphore) so that no conflict
+ * will happen on the PLL register index.
+ *
+ * With the latest changes to the VT layer, this is guaranteed for all
+ * calls except the actual drawing/blits which aren't supposed to use
+ * the PLL registers anyway
+ *
+ * This is very important for the workarounds to work properly. The only
+ * possible exception to this rule is the call to unblank(), which may
+ * be done at irq time if an oops is in progress.
+ */
 static inline void radeon_pll_errata_after_index(struct radeonfb_info *rinfo)
 {
 	if (!(rinfo->errata & CHIP_ERRATA_PLL_DUMMYREADS))
@@ -381,7 +438,7 @@ static inline void radeon_pll_errata_after_index(struct radeonfb_info *rinfo)
 static inline void radeon_pll_errata_after_data(struct radeonfb_info *rinfo)
 {
 	if (rinfo->errata & CHIP_ERRATA_PLL_DELAY) {
-		
+		/* we can't deal with posted writes here ... */
 		_radeon_msleep(rinfo, 5);
 	}
 	if (rinfo->errata & CHIP_ERRATA_R300_CG) {
@@ -441,6 +498,9 @@ static inline void __OUTPLLP(struct radeonfb_info *rinfo, unsigned int index,
 			  (readb(rinfo->bios_seg + (v) + 2) << 16) | \
 			  (readb(rinfo->bios_seg + (v) + 3) << 24))
 
+/*
+ * Inline utilities
+ */
 static inline int round_div(int num, int den)
 {
         return (num + (den / 2)) / den;
@@ -469,6 +529,9 @@ static inline u32 radeon_get_dstbpp(u16 depth)
 	}
 }
 
+/*
+ * 2D Engine helper routines
+ */
 
 static inline void _radeon_fifo_wait(struct radeonfb_info *rinfo, int entries)
 {
@@ -486,13 +549,16 @@ static inline void radeon_engine_flush (struct radeonfb_info *rinfo)
 {
 	int i;
 
-	
+	/* Initiate flush */
 	OUTREGP(DSTCACHE_CTLSTAT, RB2D_DC_FLUSH_ALL,
 	        ~RB2D_DC_FLUSH_ALL);
 
+	/* Ensure FIFO is empty, ie, make sure the flush commands
+	 * has reached the cache
+	 */
 	_radeon_fifo_wait (rinfo, 64);
 
-	
+	/* Wait for the flush to complete */
 	for (i=0; i < 2000000; i++) {
 		if (!(INREG(DSTCACHE_CTLSTAT) & RB2D_DC_BUSY))
 			return;
@@ -506,7 +572,7 @@ static inline void _radeon_engine_idle(struct radeonfb_info *rinfo)
 {
 	int i;
 
-	
+	/* ensure FIFO is empty before waiting for idle */
 	_radeon_fifo_wait (rinfo, 64);
 
 	for (i=0; i<2000000; i++) {
@@ -525,15 +591,18 @@ static inline void _radeon_engine_idle(struct radeonfb_info *rinfo)
 #define radeon_msleep(ms)		_radeon_msleep(rinfo,ms)
 
 
+/* I2C Functions */
 extern void radeon_create_i2c_busses(struct radeonfb_info *rinfo);
 extern void radeon_delete_i2c_busses(struct radeonfb_info *rinfo);
 extern int radeon_probe_i2c_connector(struct radeonfb_info *rinfo, int conn, u8 **out_edid);
 
+/* PM Functions */
 extern int radeonfb_pci_suspend(struct pci_dev *pdev, pm_message_t state);
 extern int radeonfb_pci_resume(struct pci_dev *pdev);
 extern void radeonfb_pm_init(struct radeonfb_info *rinfo, int dynclk, int ignore_devlist, int force_sleep);
 extern void radeonfb_pm_exit(struct radeonfb_info *rinfo);
 
+/* Monitor probe functions */
 extern void radeon_probe_screens(struct radeonfb_info *rinfo,
 				 const char *monitor_layout, int ignore_edid);
 extern void radeon_check_modes(struct radeonfb_info *rinfo, const char *mode_option);
@@ -541,6 +610,7 @@ extern int radeon_match_mode(struct radeonfb_info *rinfo,
 			     struct fb_var_screeninfo *dest,
 			     const struct fb_var_screeninfo *src);
 
+/* Accel functions */
 extern void radeonfb_fillrect(struct fb_info *info, const struct fb_fillrect *region);
 extern void radeonfb_copyarea(struct fb_info *info, const struct fb_copyarea *area);
 extern void radeonfb_imageblit(struct fb_info *p, const struct fb_image *image);
@@ -548,10 +618,12 @@ extern int radeonfb_sync(struct fb_info *info);
 extern void radeonfb_engine_init (struct radeonfb_info *rinfo);
 extern void radeonfb_engine_reset(struct radeonfb_info *rinfo);
 
+/* Other functions */
 extern int radeon_screen_blank(struct radeonfb_info *rinfo, int blank, int mode_switch);
 extern void radeon_write_mode (struct radeonfb_info *rinfo, struct radeon_regs *mode,
 			       int reg_only);
 
+/* Backlight functions */
 #ifdef CONFIG_FB_RADEON_BACKLIGHT
 extern void radeonfb_bl_init(struct radeonfb_info *rinfo);
 extern void radeonfb_bl_exit(struct radeonfb_info *rinfo);
@@ -560,4 +632,4 @@ static inline void radeonfb_bl_init(struct radeonfb_info *rinfo) {}
 static inline void radeonfb_bl_exit(struct radeonfb_info *rinfo) {}
 #endif
 
-#endif 
+#endif /* __RADEONFB_H__ */

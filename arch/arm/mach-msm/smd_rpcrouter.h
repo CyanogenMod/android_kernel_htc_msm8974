@@ -28,6 +28,7 @@
 #include <mach/msm_smd.h>
 #include <mach/msm_rpcrouter.h>
 
+/* definitions for the R2R wire protcol */
 
 #define RPCROUTER_VERSION			1
 #define RPCROUTER_PROCESSORS_MAX		4
@@ -55,6 +56,17 @@
 #define RPCROUTER_XPRT_EVENT_OPEN  2
 #define RPCROUTER_XPRT_EVENT_CLOSE 3
 
+/* Restart states for endpoint.
+ *
+ * Two different bits are specified here, one for
+ * the remote server notification (RESTART_PEND_SVR)
+ * and one for client notification (RESTART_PEND_NTFY).
+ * The client notification is used to ensure that
+ * the client gets notified by an ENETRESET return
+ * code at least once, even if they miss the actual
+ * reset event.  The server notification is used to
+ * properly handle the reset state of the endpoint.
+ */
 #define RESTART_NORMAL 0x0
 #define RESTART_PEND_SVR 0x1
 #define RESTART_PEND_NTFY 0x2
@@ -87,6 +99,7 @@ struct rr_header {
 	uint32_t dst_cid;
 };
 
+/* internals */
 
 #define RPCROUTER_MAX_REMOTE_SERVERS		100
 
@@ -149,19 +162,19 @@ struct msm_rpc_reply {
 	struct list_head list;
 	uint32_t pid;
 	uint32_t cid;
-	uint32_t prog; 
-	uint32_t vers; 
-	uint32_t xid; 
+	uint32_t prog; /* be32 */
+	uint32_t vers; /* be32 */
+	uint32_t xid; /* be32 */
 };
 
 struct msm_rpc_endpoint {
 	struct list_head list;
 
-	
+	/* incomplete packets waiting for assembly */
 	struct list_head incomplete;
 	spinlock_t incomplete_lock;
 
-	
+	/* complete packets waiting to be read */
 	struct list_head read_q;
 	spinlock_t read_q_lock;
 	struct wake_lock read_q_wake_lock;
@@ -169,34 +182,38 @@ struct msm_rpc_endpoint {
 	unsigned flags;
 	uint32_t forced_wakeup;
 
-	
+	/* restart handling */
 	int restart_state;
 	spinlock_t restart_lock;
 	wait_queue_head_t restart_wait;
 
-	
+	/* modem restart notifications */
 	int do_setup_notif;
 	void *client_data;
 	void (*cb_restart_teardown)(void *client_data);
 	void (*cb_restart_setup)(void *client_data);
 
-	
+	/* endpoint address */
 	uint32_t pid;
 	uint32_t cid;
 
+	/* bound remote address
+	 * if not connected (dst_pid == 0xffffffff) RPC_CALL writes fail
+	 * RPC_CALLs must be to the prog/vers below or they will fail
+	 */
 	uint32_t dst_pid;
 	uint32_t dst_cid;
-	uint32_t dst_prog; 
-	uint32_t dst_vers; 
+	uint32_t dst_prog; /* be32 */
+	uint32_t dst_vers; /* be32 */
 
-	
+	/* reply queue for inbound messages */
 	struct list_head reply_pend_q;
 	struct list_head reply_avail_q;
 	spinlock_t reply_q_lock;
 	uint32_t reply_cnt;
 	struct wake_lock reply_q_wake_lock;
 
-	
+	/* device node if this endpoint is accessed via userspace */
 	dev_t dev;
 };
 
@@ -217,6 +234,7 @@ struct rpcrouter_xprt {
 	int (*close)(void);
 };
 
+/* shared between smd_rpcrouter*.c */
 void msm_rpcrouter_xprt_notify(struct rpcrouter_xprt *xprt, unsigned event);
 int __msm_rpc_read(struct msm_rpc_endpoint *ept,
 		   struct rr_fragment **frag,

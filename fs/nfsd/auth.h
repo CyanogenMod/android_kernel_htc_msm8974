@@ -13,6 +13,10 @@
 #define nfsd_ruid(rq, uid)	((u32)(uid))
 #define nfsd_rgid(rq, gid)	((u32)(gid))
 
+/*
+ * Set the current process's fsuid/fsgid etc to those of the NFS
+ * client user
+ */
 int nfsd_setuser(struct svc_rqst *, struct svc_export *);
 
-#endif 
+#endif /* LINUX_NFSD_AUTH_H */

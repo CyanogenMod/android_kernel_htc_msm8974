@@ -17,6 +17,7 @@
 #define PNX4008_DUMCONF_VA_BASE		IO_ADDRESS(PNX4008_DUMCONF_BASE)
 #define PNX4008_DUM_MAIN_VA_BASE	IO_ADDRESS(PNX4008_DUM_MAINCFG_BASE)
 
+/* DUM CFG ADDRESSES */
 #define DUM_CH_BASE_ADR		(PNX4008_DUMCONF_VA_BASE + 0x00)
 #define DUM_CH_MIN_ADR		(PNX4008_DUMCONF_VA_BASE + 0x00)
 #define DUM_CH_MAX_ADR		(PNX4008_DUMCONF_VA_BASE + 0x04)
@@ -71,6 +72,7 @@
 #define DUM_SYNC_MODE         (*(volatile u32 *)(DUM_SYNC_MODE_ADR))
 #define DUM_SYNC_OUT_C        (*(volatile u32 *)(DUM_SYNC_OUT_C_ADR))
 
+/* DUM SLAVE ADDRESSES */
 #define DUM_SLAVE_WRITE_ADR      (PNX4008_DUM_MAINCFG_BASE + 0x0000000)
 #define DUM_SLAVE_READ1_I_ADR    (PNX4008_DUM_MAINCFG_BASE + 0x1000000)
 #define DUM_SLAVE_READ1_R_ADR    (PNX4008_DUM_MAINCFG_BASE + 0x1000004)
@@ -84,6 +86,7 @@
 #define DUM_SLAVE_READ2_I  ((volatile u8 *)(DUM_SLAVE_READ2_I_ADR))
 #define DUM_SLAVE_READ2_R  ((volatile u16 *)(DUM_SLAVE_READ2_R_ADR))
 
+/* Sony display register addresses */
 #define DISP_0_REG            (0x00)
 #define DISP_1_REG            (0x01)
 #define DISP_CAL_REG          (0x20)
@@ -105,9 +108,11 @@
 #define DISP_TIMING_REG       (0x98)
 #define DISP_DUMP_REG         (0x99)
 
+/* Sony display constants */
 #define SONY_ID1              (0x22)
 #define SONY_ID2              (0x23)
 
+/* Philips display register addresses */
 #define PH_DISP_ORIENT_REG    (0x003)
 #define PH_DISP_YPOINT_REG    (0x200)
 #define PH_DISP_XPOINT_REG    (0x201)
@@ -117,9 +122,11 @@
 #define PH_DISP_XMIN_REG      (0x408)
 #define PH_DISP_XMAX_REG      (0x409)
 
+/* Misc constants */
 #define NO_VALID_DISPLAY_FOUND      (0)
 #define DISPLAY2_IS_NOT_CONNECTED   (0)
 
+/* register values */
 #define V_BAC_ENABLE		(BIT(0))
 #define V_BAC_DISABLE_IDLE	(BIT(1))
 #define V_BAC_DISABLE_TRIG	(BIT(2))
@@ -128,6 +135,7 @@
 #define BAC_ENABLED		(BIT(0))
 #define BAC_DISABLED		0
 
+/* Sony LCD commands */
 #define V_LCD_STANDBY_OFF	((BIT(25)) | (0 << 16) | DISP_0_REG)
 #define V_LCD_USE_9BIT_BUS	((BIT(25)) | (2 << 16) | DISP_1_REG)
 #define V_LCD_SYNC_RISE_L	((BIT(25)) | (0 << 16) | DISP_SYNC_RISE_L_REG)
@@ -200,4 +208,4 @@ struct disp_window {
 	u32 ymax;
 };
 
-#endif				
+#endif				/* #ifndef __PNX008_DUM_H__ */

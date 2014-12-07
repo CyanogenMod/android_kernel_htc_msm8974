@@ -44,6 +44,7 @@
 #define DEBUG
 #define NETLINK_CONNECTOR 	11
 
+/* Hopefully your userspace connector.h matches this kernel */
 #define CN_TEST_IDX		CN_NETLINK_USERS + 3
 #define CN_TEST_VAL		0x456
 
@@ -131,7 +132,7 @@ int main(int argc, char *argv[])
 			return 0;
 
 		default:
-			
+			/* getopt() outputs an error for us */
 			usage();
 			return 1;
 		}
@@ -156,7 +157,7 @@ int main(int argc, char *argv[])
 	}
 
 	l_local.nl_family = AF_NETLINK;
-	l_local.nl_groups = -1; 
+	l_local.nl_groups = -1; /* bitmask of requested groups */
 	l_local.nl_pid = 0;
 
 	ulog("subscribing to %u.%u\n", CN_TEST_IDX, CN_TEST_VAL);
@@ -169,7 +170,7 @@ int main(int argc, char *argv[])
 
 #if 0
 	{
-		int on = 0x57; 
+		int on = 0x57; /* Additional group number */
 		setsockopt(s, SOL_NETLINK, NETLINK_ADD_MEMBERSHIP, &on, sizeof(on));
 	}
 #endif

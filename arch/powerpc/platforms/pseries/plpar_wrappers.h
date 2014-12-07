@@ -7,6 +7,7 @@
 #include <asm/paca.h>
 #include <asm/page.h>
 
+/* Get state of physical CPU from query_cpu_stopped */
 int smp_query_cpu_stopped(unsigned int pcpu);
 #define QCSS_STOPPED 0
 #define QCSS_STOPPING 1
@@ -49,7 +50,7 @@ static inline long extended_cede_processor(unsigned long latency_hint)
 static inline long vpa_call(unsigned long flags, unsigned long cpu,
 		unsigned long vpa)
 {
-	
+	/* flags are in bits 16-18 (counting from most significant bit) */
 	flags = flags << (63 - 18);
 
 	return plpar_hcall_norets(H_REGISTER_VPA, flags, cpu, vpa);
@@ -148,6 +149,7 @@ static inline long plpar_pte_remove(unsigned long flags, unsigned long ptex,
 	return rc;
 }
 
+/* plpar_pte_remove_raw can be called in real mode. It calls plpar_hcall_raw */
 static inline long plpar_pte_remove_raw(unsigned long flags, unsigned long ptex,
 		unsigned long avpn, unsigned long *old_pteh_ret,
 		unsigned long *old_ptel_ret)
@@ -177,6 +179,7 @@ static inline long plpar_pte_read(unsigned long flags, unsigned long ptex,
 	return rc;
 }
 
+/* plpar_pte_read_raw can be called in real mode. It calls plpar_hcall_raw */
 static inline long plpar_pte_read_raw(unsigned long flags, unsigned long ptex,
 		unsigned long *old_pteh_ret, unsigned long *old_ptel_ret)
 {
@@ -191,6 +194,10 @@ static inline long plpar_pte_read_raw(unsigned long flags, unsigned long ptex,
 	return rc;
 }
 
+/*
+ * plpar_pte_read_4_raw can be called in real mode.
+ * ptes must be 8*sizeof(unsigned long)
+ */
 static inline long plpar_pte_read_4_raw(unsigned long flags, unsigned long ptex,
 					unsigned long *ptes)
 
@@ -247,7 +254,7 @@ static inline long plpar_get_term_char(unsigned long termno,
 {
 	long rc;
 	unsigned long retbuf[PLPAR_HCALL_BUFSIZE];
-	unsigned long *lbuf = (unsigned long *)buf_ret;	
+	unsigned long *lbuf = (unsigned long *)buf_ret;	/* TODO: alignment? */
 
 	rc = plpar_hcall(H_GET_TERM_CHAR, retbuf, termno);
 
@@ -261,9 +268,9 @@ static inline long plpar_get_term_char(unsigned long termno,
 static inline long plpar_put_term_char(unsigned long termno, unsigned long len,
 		const char *buffer)
 {
-	unsigned long *lbuf = (unsigned long *)buffer;	
+	unsigned long *lbuf = (unsigned long *)buffer;	/* TODO: alignment? */
 	return plpar_hcall_norets(H_PUT_TERM_CHAR, termno, len, lbuf[0],
 			lbuf[1]);
 }
 
-#endif 
+#endif /* _PSERIES_PLPAR_WRAPPERS_H */

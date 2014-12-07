@@ -40,6 +40,9 @@
 #include <asm/io.h>
 #include "agp.h"
 
+/* Due to XFree86 brain-damage, we can't go to 1.0 until they
+ * fix some real stupidity. It's only by chance we can bump
+ * past 0.99 at all due to some boolean logic error. */
 #define AGPGART_VERSION_MAJOR 0
 #define AGPGART_VERSION_MINOR 103
 static const struct agp_version agp_current_version =
@@ -57,6 +60,10 @@ EXPORT_SYMBOL(agp_bridge);
 EXPORT_SYMBOL(agp_bridges);
 EXPORT_SYMBOL(agp_find_bridge);
 
+/**
+ *	agp_backend_acquire  -  attempt to acquire an agp backend.
+ *
+ */
 struct agp_bridge_data *agp_backend_acquire(struct pci_dev *pdev)
 {
 	struct agp_bridge_data *bridge;
@@ -74,6 +81,14 @@ struct agp_bridge_data *agp_backend_acquire(struct pci_dev *pdev)
 EXPORT_SYMBOL(agp_backend_acquire);
 
 
+/**
+ *	agp_backend_release  -  release the lock on the agp backend.
+ *
+ *	The caller must insure that the graphics aperture translation table
+ *	is read for use by another entity.
+ *
+ *	(Ensure that all memory it bound is unbound.)
+ */
 void agp_backend_release(struct agp_bridge_data *bridge)
 {
 
@@ -165,7 +180,7 @@ static int agp_backend_initialize(struct agp_bridge_data *bridge)
 	}
 	got_keylist = 1;
 
-	
+	/* FIXME vmalloc'd memory not guaranteed contiguous */
 
 	if (bridge->driver->configure()) {
 		dev_err(&bridge->dev->dev, "error configuring host chipset\n");
@@ -193,6 +208,7 @@ err_out:
 	return rc;
 }
 
+/* cannot be __exit b/c as it could be called from __init code */
 static void agp_backend_cleanup(struct agp_bridge_data *bridge)
 {
 	if (bridge->driver->cleanup)
@@ -212,6 +228,9 @@ static void agp_backend_cleanup(struct agp_bridge_data *bridge)
 	}
 }
 
+/* When we remove the global variable agp_bridge from all drivers
+ * then agp_alloc_bridge and agp_generic_find_bridge need to be updated
+ */
 
 struct agp_bridge_data *agp_alloc_bridge(void)
 {
@@ -257,7 +276,7 @@ int agp_add_bridge(struct agp_bridge_data *bridge)
 		goto err_put_bridge;
 	}
 
-	
+	/* Grab reference on the chipset driver. */
 	if (!try_module_get(bridge->driver->owner)) {
 		dev_info(&bridge->dev->dev, "can't lock chipset driver\n");
 		error = -EINVAL;

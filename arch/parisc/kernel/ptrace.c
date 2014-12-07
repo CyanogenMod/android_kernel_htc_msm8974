@@ -25,20 +25,30 @@
 #include <asm/processor.h>
 #include <asm/asm-offsets.h>
 
+/* PSW bits we allow the debugger to modify */
 #define USER_PSW_BITS	(PSW_N | PSW_V | PSW_CB)
 
+/*
+ * Called by kernel/ptrace.c when detaching..
+ *
+ * Make sure single step bits etc are not set.
+ */
 void ptrace_disable(struct task_struct *task)
 {
 	clear_tsk_thread_flag(task, TIF_SINGLESTEP);
 	clear_tsk_thread_flag(task, TIF_BLOCKSTEP);
 
-	
+	/* make sure the trap bits are not set */
 	pa_psw(task)->r = 0;
 	pa_psw(task)->t = 0;
 	pa_psw(task)->h = 0;
 	pa_psw(task)->l = 0;
 }
 
+/*
+ * The following functions are called by ptrace_resume() when
+ * enabling or disabling single/block tracing.
+ */
 void user_disable_single_step(struct task_struct *task)
 {
 	ptrace_disable(task);
@@ -52,7 +62,7 @@ void user_enable_single_step(struct task_struct *task)
 	if (pa_psw(task)->n) {
 		struct siginfo si;
 
-		
+		/* Nullified, just crank over the queue. */
 		task_regs(task)->iaoq[0] = task_regs(task)->iaoq[1];
 		task_regs(task)->iasq[0] = task_regs(task)->iasq[1];
 		task_regs(task)->iaoq[1] = task_regs(task)->iaoq[0] + 4;
@@ -62,15 +72,25 @@ void user_enable_single_step(struct task_struct *task)
 		pa_psw(task)->z = 0;
 		pa_psw(task)->b = 0;
 		ptrace_disable(task);
+		/* Don't wake up the task, but let the
+		   parent know something happened. */
 		si.si_code = TRAP_TRACE;
 		si.si_addr = (void __user *) (task_regs(task)->iaoq[0] & ~3);
 		si.si_signo = SIGTRAP;
 		si.si_errno = 0;
 		force_sig_info(SIGTRAP, &si, task);
-		
+		/* notify_parent(task, SIGCHLD); */
 		return;
 	}
 
+	/* Enable recovery counter traps.  The recovery counter
+	 * itself will be set to zero on a task switch.  If the
+	 * task is suspended on a syscall then the syscall return
+	 * path will overwrite the recovery counter with a suitable
+	 * value such that it traps once back in user space.  We
+	 * disable interrupts in the tasks PSW here also, to avoid
+	 * interrupts while the recovery counter is decrementing.
+	 */
 	pa_psw(task)->r = 1;
 	pa_psw(task)->t = 0;
 	pa_psw(task)->h = 0;
@@ -82,7 +102,7 @@ void user_enable_block_step(struct task_struct *task)
 	clear_tsk_thread_flag(task, TIF_SINGLESTEP);
 	set_tsk_thread_flag(task, TIF_BLOCKSTEP);
 
-	
+	/* Enable taken branch trap. */
 	pa_psw(task)->r = 0;
 	pa_psw(task)->t = 1;
 	pa_psw(task)->h = 0;
@@ -97,6 +117,8 @@ long arch_ptrace(struct task_struct *child, long request,
 
 	switch (request) {
 
+	/* Read the word at location addr in the USER area.  For ptraced
+	   processes, the kernel saves all regs on a syscall. */
 	case PTRACE_PEEKUSR:
 		if ((addr & (sizeof(unsigned long)-1)) ||
 		     addr >= sizeof(struct pt_regs))
@@ -117,6 +139,11 @@ long arch_ptrace(struct task_struct *child, long request,
 		 * r31/r31+4, and not with the values in pt_regs.
 		 */
 		if (addr == PT_PSW) {
+			/* Allow writing to Nullify, Divide-step-correction,
+			 * and carry/borrow bits.
+			 * BEWARE, if you set N, and then single step, it won't
+			 * stop on the nullified instruction.
+			 */
 			data &= USER_PSW_BITS;
 			task_regs(child)->gr[0] &= ~USER_PSW_BITS;
 			task_regs(child)->gr[0] |= data;
@@ -147,14 +174,24 @@ long arch_ptrace(struct task_struct *child, long request,
 
 #ifdef CONFIG_COMPAT
 
+/* This function is needed to translate 32 bit pt_regs offsets in to
+ * 64 bit pt_regs offsets.  For example, a 32 bit gdb under a 64 bit kernel
+ * will request offset 12 if it wants gr3, but the lower 32 bits of
+ * the 64 bit kernels view of gr3 will be at offset 28 (3*8 + 4).
+ * This code relies on a 32 bit pt_regs being comprised of 32 bit values
+ * except for the fp registers which (a) are 64 bits, and (b) follow
+ * the gr registers at the start of pt_regs.  The 32 bit pt_regs should
+ * be half the size of the 64 bit pt_regs, plus 32*4 to allow for fr[]
+ * being 64 bit in both cases.
+ */
 
 static compat_ulong_t translate_usr_offset(compat_ulong_t offset)
 {
 	if (offset < 0)
 		return sizeof(struct pt_regs);
-	else if (offset <= 32*4)	
+	else if (offset <= 32*4)	/* gr[0..31] */
 		return offset * 2 + 4;
-	else if (offset <= 32*4+32*8)	
+	else if (offset <= 32*4+32*8)	/* gr[0..31] + fr[0..31] */
 		return offset + 32*4;
 	else if (offset < sizeof(struct pt_regs)/2 + 32*4)
 		return offset * 2 + 4 - 32*8;
@@ -193,6 +230,9 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 		 * r31/r31+4, and not with the values in pt_regs.
 		 */
 		if (addr == PT_PSW) {
+			/* Since PT_PSW==0, it is valid for 32 bit processes
+			 * under 64 bit kernels as well.
+			 */
 			ret = arch_ptrace(child, request, addr, data);
 		} else {
 			if (addr & (sizeof(compat_uint_t)-1))
@@ -201,14 +241,14 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 			if (addr >= sizeof(struct pt_regs))
 				break;
 			if (addr >= PT_FR0 && addr <= PT_FR31 + 4) {
-				
+				/* Special case, fp regs are 64 bits anyway */
 				*(__u64 *) ((char *) task_regs(child) + addr) = data;
 				ret = 0;
 			}
 			else if ((addr >= PT_GR1+4 && addr <= PT_GR31+4) ||
 					addr == PT_IAOQ0+4 || addr == PT_IAOQ1+4 ||
 					addr == PT_SAR+4) {
-				
+				/* Zero the top 32 bits */
 				*(__u32 *) ((char *) task_regs(child) + addr - 4) = 0;
 				*(__u32 *) ((char *) task_regs(child) + addr) = data;
 				ret = 0;

@@ -20,18 +20,18 @@
 #define DRV_NAME	"rtc-ds1302"
 #define DRV_VERSION	"0.1.1"
 
-#define	RTC_CMD_READ	0x81		
-#define	RTC_CMD_WRITE	0x80		
+#define	RTC_CMD_READ	0x81		/* Read command */
+#define	RTC_CMD_WRITE	0x80		/* Write command */
 
-#define RTC_ADDR_RAM0	0x20		
-#define RTC_ADDR_TCR	0x08		
-#define	RTC_ADDR_YEAR	0x06		
-#define	RTC_ADDR_DAY	0x05		
-#define	RTC_ADDR_MON	0x04		
-#define	RTC_ADDR_DATE	0x03		
-#define	RTC_ADDR_HOUR	0x02		
-#define	RTC_ADDR_MIN	0x01		
-#define	RTC_ADDR_SEC	0x00		
+#define RTC_ADDR_RAM0	0x20		/* Address of RAM0 */
+#define RTC_ADDR_TCR	0x08		/* Address of trickle charge register */
+#define	RTC_ADDR_YEAR	0x06		/* Address of year register */
+#define	RTC_ADDR_DAY	0x05		/* Address of day of week register */
+#define	RTC_ADDR_MON	0x04		/* Address of month register */
+#define	RTC_ADDR_DATE	0x03		/* Address of day of month register */
+#define	RTC_ADDR_HOUR	0x02		/* Address of hour register */
+#define	RTC_ADDR_MIN	0x01		/* Address of minute register */
+#define	RTC_ADDR_SEC	0x00		/* Address of second register */
 
 #ifdef CONFIG_SH_SECUREEDGE5410
 #include <asm/rtc.h>
@@ -58,8 +58,8 @@ static inline void ds1302_reset(void)
 
 static inline void ds1302_clock(void)
 {
-	set_dp(get_dp() | RTC_SCLK);	
-	set_dp(get_dp() & ~RTC_SCLK);	
+	set_dp(get_dp() | RTC_SCLK);	/* clock high */
+	set_dp(get_dp() & ~RTC_SCLK);	/* clock low */
 }
 
 static inline void ds1302_start(void)
@@ -161,7 +161,7 @@ static int ds1302_rtc_read_time(struct device *dev, struct rtc_time *tm)
 
 static int ds1302_rtc_set_time(struct device *dev, struct rtc_time *tm)
 {
-	
+	/* Stop RTC */
 	ds1302_writebyte(RTC_ADDR_SEC, ds1302_readbyte(RTC_ADDR_SEC) | 0x80);
 
 	ds1302_writebyte(RTC_ADDR_SEC, bin2bcd(tm->tm_sec));
@@ -172,7 +172,7 @@ static int ds1302_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	ds1302_writebyte(RTC_ADDR_MON, bin2bcd(tm->tm_mon + 1));
 	ds1302_writebyte(RTC_ADDR_YEAR, bin2bcd(tm->tm_year % 100));
 
-	
+	/* Start RTC */
 	ds1302_writebyte(RTC_ADDR_SEC, ds1302_readbyte(RTC_ADDR_SEC) & ~0x80);
 
 	return 0;
@@ -214,10 +214,10 @@ static int __init ds1302_rtc_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	
+	/* Reset */
 	ds1302_reset();
 
-	
+	/* Write a magic value to the DS1302 RAM, and see if it sticks. */
 	ds1302_writebyte(RTC_ADDR_RAM0, 0x42);
 	if (ds1302_readbyte(RTC_ADDR_RAM0) != 0x42) {
 		dev_err(&pdev->dev, "Failed to probe");

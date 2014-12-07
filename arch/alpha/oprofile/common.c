@@ -30,12 +30,17 @@ static struct op_counter_config ctr[20];
 static struct op_system_config sys;
 static struct op_register_config reg;
 
+/* Called from do_entInt to handle the performance monitor interrupt.  */
 
 static void
 op_handle_interrupt(unsigned long which, struct pt_regs *regs)
 {
 	model->handle_interrupt(which, regs, ctr);
 
+	/* If the user has selected an interrupt frequency that is
+	   not exactly the width of the counter, write a new value
+	   into the counter such that it'll overflow after N more
+	   events.  */
 	if ((reg.need_reset >> which) & 1)
 		model->reset_ctr(&reg, which);
 }
@@ -45,20 +50,20 @@ op_axp_setup(void)
 {
 	unsigned long i, e;
 
-	
+	/* Install our interrupt handler into the existing hook.  */
 	save_perf_irq = perf_irq;
 	perf_irq = op_handle_interrupt;
 
-	
+	/* Compute the mask of enabled counters.  */
 	for (i = e = 0; i < model->num_counters; ++i)
 		if (ctr[i].enabled)
 			e |= 1 << i;
 	reg.enable = e;
 
-	
+	/* Pre-compute the values to stuff in the hardware registers.  */
 	model->reg_setup(&reg, ctr, &sys);
 
-	
+	/* Configure the registers on all cpus.  */
 	(void)smp_call_function(model->cpu_setup, &reg, 1);
 	model->cpu_setup(&reg);
 	return 0;
@@ -67,7 +72,7 @@ op_axp_setup(void)
 static void
 op_axp_shutdown(void)
 {
-	
+	/* Remove our interrupt handler.  We may be removing this module.  */
 	perf_irq = save_perf_irq;
 }
 
@@ -88,7 +93,7 @@ op_axp_start(void)
 static inline void
 op_axp_cpu_stop(void *dummy)
 {
-	
+	/* Disable performance monitoring for all counters.  */
 	wrperfmon(0, -1);
 }
 
@@ -114,7 +119,7 @@ op_axp_create_files(struct super_block *sb, struct dentry *root)
 		oprofilefs_create_ulong(sb, dir, "enabled", &ctr[i].enabled);
                 oprofilefs_create_ulong(sb, dir, "event", &ctr[i].event);
 		oprofilefs_create_ulong(sb, dir, "count", &ctr[i].count);
-		
+		/* Dummies.  */
 		oprofilefs_create_ulong(sb, dir, "kernel", &ctr[i].kernel);
 		oprofilefs_create_ulong(sb, dir, "user", &ctr[i].user);
 		oprofilefs_create_ulong(sb, dir, "unit_mask", &ctr[i].unit_mask);
@@ -142,12 +147,16 @@ oprofile_arch_init(struct oprofile_operations *ops)
 		lmodel = &op_model_ev4;
 		break;
 	case IMPLVER_EV5:
+		/* 21164PC has a slightly different set of events.
+		   Recognize the chip by the presence of the MAX insns.  */
 		if (!amask(AMASK_MAX))
 			lmodel = &op_model_pca56;
 		else
 			lmodel = &op_model_ev5;
 		break;
 	case IMPLVER_EV6:
+		/* 21264A supports ProfileMe.
+		   Recognize the chip by the presence of the CIX insns.  */
 		if (!amask(AMASK_CIX))
 			lmodel = &op_model_ev67;
 		else

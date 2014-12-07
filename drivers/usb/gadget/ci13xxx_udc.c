@@ -572,9 +572,6 @@ static int hw_usb_reset(void)
 	hw_cwrite(CAP_ENDPTFLUSH,    ~0, ~0);   
 
 	
-	hw_cwrite(CAP_ENDPTSETUPSTAT, 0,  0);   
-
-	
 	hw_cwrite(CAP_ENDPTCOMPLETE,  0,  0);   
 
 	
@@ -2776,6 +2773,8 @@ static int ci13xxx_vbus_session(struct usb_gadget *_gadget, int is_active)
 
 	spin_lock_irqsave(udc->lock, flags);
 	udc->vbus_active = is_active;
+	 
+	_gadget->ats_reset_irq_count = 0;
 	if (udc->driver)
 		gadget_ready = 1;
 	spin_unlock_irqrestore(udc->lock, flags);
@@ -2814,6 +2813,8 @@ static int ci13xxx_pullup(struct usb_gadget *_gadget, int is_active)
 	unsigned long flags;
 
 	spin_lock_irqsave(udc->lock, flags);
+	 
+	_gadget->ats_reset_irq_count = 0;
 	udc->softconnect = is_active;
 	if (((udc->udc_driver->flags & CI13XXX_PULLUP_ON_VBUS) &&
 			!udc->vbus_active) || !udc->driver) {
@@ -3084,19 +3085,27 @@ static irqreturn_t udc_irq(void)
 
 		
 		if (USBi_URI & intr) {
-			USB_INFO("reset\n");
+			USB_INFO("reset, count %d\n",udc->gadget.ats_reset_irq_count);
 			isr_statistics.uri++;
 
+			if (udc->gadget.ats_reset_irq_count == 50) {
+				udc->gadget.ats_reset_irq_count++;
+				if (udc->driver->broadcast_abnormal_usb_reset) {
+							printk(KERN_INFO "[USB] gadget irq :abnormal the amount of reset irq!\n");
+							udc->driver->broadcast_abnormal_usb_reset();
+				}
+			} else if (udc->gadget.ats_reset_irq_count < 50)
+				udc->gadget.ats_reset_irq_count++;
 
-		
-		if (board_mfg_mode() == 5 || msm_otg_usb_disable) {
-			USB_INFO("Offmode / QuickBootMode\n");
-			spin_unlock(udc->lock);
-			if (udc->transceiver)
-				udc->transceiver->notify_usb_disabled();
-			spin_lock(udc->lock);
-		}
-		
+			
+			if (board_mfg_mode() == 5 || msm_otg_usb_disable) {
+				USB_INFO("Offmode / QuickBootMode\n");
+				spin_unlock(udc->lock);
+				if (udc->transceiver)
+					udc->transceiver->notify_usb_disabled();
+				spin_lock(udc->lock);
+			}
+			
 			isr_reset_handler(udc);
 			if (udc->transceiver)
 				udc->transceiver->notify_usb_attached(NULL);

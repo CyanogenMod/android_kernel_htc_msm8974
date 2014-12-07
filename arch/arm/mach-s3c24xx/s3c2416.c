@@ -89,11 +89,11 @@ int __init s3c2416_init(void)
 {
 	printk(KERN_INFO "S3C2416: Initializing architecture\n");
 
-	
+	/* change WDT IRQ number */
 	s3c_device_wdt.resource[1].start = IRQ_S3C2443_WDT;
 	s3c_device_wdt.resource[1].end   = IRQ_S3C2443_WDT;
 
-	
+	/* the i2c devices are directly compatible with s3c2440 */
 	s3c_i2c0_setname("s3c2440-i2c");
 	s3c_i2c1_setname("s3c2440-i2c");
 
@@ -117,19 +117,29 @@ void __init s3c2416_init_uarts(struct s3c2410_uartcfg *cfg, int no)
 	s3c_nand_setname("s3c2412-nand");
 }
 
+/* s3c2416_map_io
+ *
+ * register the standard cpu IO areas, and any passed in from the
+ * machine specific initialisation.
+ */
 
 void __init s3c2416_map_io(void)
 {
 	s3c24xx_gpiocfg_default.set_pull = samsung_gpio_setpull_updown;
 	s3c24xx_gpiocfg_default.get_pull = samsung_gpio_getpull_updown;
 
-	
+	/* initialize device information early */
 	s3c2416_default_sdhci0();
 	s3c2416_default_sdhci1();
 
 	iotable_init(s3c2416_iodesc, ARRAY_SIZE(s3c2416_iodesc));
 }
 
+/* need to register the subsystem before we actually register the device, and
+ * we also need to ensure that it has been initialised before any of the
+ * drivers even try to use it (even if not on an s3c2416 based system)
+ * as a driver which may support both 2443 and 2440 may try and use it.
+*/
 
 static int __init s3c2416_core_init(void)
 {

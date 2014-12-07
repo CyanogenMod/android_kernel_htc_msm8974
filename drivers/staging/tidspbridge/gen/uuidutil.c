@@ -17,16 +17,26 @@
  */
 #include <linux/types.h>
 
+/*  ----------------------------------- Host OS */
 #include <dspbridge/host_os.h>
 
+/*  ----------------------------------- DSP/BIOS Bridge */
 #include <dspbridge/dbdefs.h>
 
+/*  ----------------------------------- This */
 #include <dspbridge/uuidutil.h>
 
+/*
+ *  ======== uuid_uuid_to_string ========
+ *  Purpose:
+ *      Converts a struct dsp_uuid to a string.
+ *      Note: snprintf format specifier is:
+ *      %[flags] [width] [.precision] [{h | l | I64 | L}]type
+ */
 void uuid_uuid_to_string(struct dsp_uuid *uuid_obj, char *sz_uuid,
 			 s32 size)
 {
-	s32 i;			
+	s32 i;			/* return result from snprintf. */
 
 	i = snprintf(sz_uuid, size,
 		     "%.8X_%.4X_%.4X_%.2X%.2X_%.2X%.2X%.2X%.2X%.2X%.2X",
@@ -53,6 +63,11 @@ static s32 uuid_hex_to_bin(char *buf, s32 len)
 	return result;
 }
 
+/*
+ *  ======== uuid_uuid_from_string ========
+ *  Purpose:
+ *      Converts a string to a struct dsp_uuid.
+ */
 void uuid_uuid_from_string(char *sz_uuid, struct dsp_uuid *uuid_obj)
 {
 	s32 j;
@@ -60,19 +75,19 @@ void uuid_uuid_from_string(char *sz_uuid, struct dsp_uuid *uuid_obj)
 	uuid_obj->data1 = uuid_hex_to_bin(sz_uuid, 8);
 	sz_uuid += 8;
 
-	
+	/* Step over underscore */
 	sz_uuid++;
 
 	uuid_obj->data2 = (u16) uuid_hex_to_bin(sz_uuid, 4);
 	sz_uuid += 4;
 
-	
+	/* Step over underscore */
 	sz_uuid++;
 
 	uuid_obj->data3 = (u16) uuid_hex_to_bin(sz_uuid, 4);
 	sz_uuid += 4;
 
-	
+	/* Step over underscore */
 	sz_uuid++;
 
 	uuid_obj->data4 = (u8) uuid_hex_to_bin(sz_uuid, 2);
@@ -81,7 +96,7 @@ void uuid_uuid_from_string(char *sz_uuid, struct dsp_uuid *uuid_obj)
 	uuid_obj->data5 = (u8) uuid_hex_to_bin(sz_uuid, 2);
 	sz_uuid += 2;
 
-	
+	/* Step over underscore */
 	sz_uuid++;
 
 	for (j = 0; j < 6; j++) {

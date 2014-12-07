@@ -53,13 +53,13 @@ static int safe_close;
 
 static void geodewdt_ping(void)
 {
-	
+	/* Stop the counter */
 	cs5535_mfgpt_write(wdt_timer, MFGPT_REG_SETUP, 0);
 
-	
+	/* Reset the counter */
 	cs5535_mfgpt_write(wdt_timer, MFGPT_REG_COUNTER, 0);
 
-	
+	/* Enable the counter */
 	cs5535_mfgpt_write(wdt_timer, MFGPT_REG_SETUP, MFGPT_SETUP_CNTEN);
 }
 
@@ -189,7 +189,7 @@ static long geodewdt_ioctl(struct file *file, unsigned int cmd,
 
 		if (geodewdt_set_heartbeat(interval))
 			return -EINVAL;
-	
+	/* Fall through */
 	case WDIOC_GETTIMEOUT:
 		return put_user(timeout, p);
 
@@ -225,15 +225,15 @@ static int __devinit geodewdt_probe(struct platform_device *dev)
 		return -ENODEV;
 	}
 
-	
+	/* Set up the timer */
 
 	cs5535_mfgpt_write(wdt_timer, MFGPT_REG_SETUP,
 			  GEODEWDT_SCALE | (3 << 8));
 
-	
+	/* Set up comparator 2 to reset when the event fires */
 	cs5535_mfgpt_toggle_event(wdt_timer, MFGPT_CMP2, MFGPT_EVENT_RESET, 1);
 
-	
+	/* Set up the initial timeout */
 
 	cs5535_mfgpt_write(wdt_timer, MFGPT_REG_CMP2,
 		timeout * GEODEWDT_HZ);

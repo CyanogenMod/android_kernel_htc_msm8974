@@ -28,11 +28,11 @@
 static void isp116x_pfm_delay(struct device *dev, int delay)
 {
 
-	
+	/* 400Mhz PXA2 = 2.5ns / instruction */
 
 	int cyc = delay / 10;
 
-	
+	/* 4 Instructions = 4 x 2.5ns = 10ns */
 	__asm__ volatile ("0:\n"
 		"subs %0, %1, #1\n"
 		"bge 0b\n"
@@ -90,6 +90,7 @@ static void __init mp900c_init(void)
 	platform_add_devices(devices, ARRAY_SIZE(devices));
 }
 
+/* Maintainer - Michael Petchkovsky <mkpetch@internode.on.net> */
 MACHINE_START(NEC_MP900, "MobilePro900/C")
 	.atag_offset	= 0x220100,
 	.timer		= &pxa_timer,

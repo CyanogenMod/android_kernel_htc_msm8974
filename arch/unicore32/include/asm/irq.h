@@ -92,7 +92,7 @@
 #define IRQ_PCIINTD             IRQ_GPIOLOW4
 #endif
 
-#define IRQ_SD_CD               IRQ_GPIO6 
+#define IRQ_SD_CD               IRQ_GPIO6 /* falling or rising trigger */
 
 #ifndef __ASSEMBLY__
 struct pt_regs;

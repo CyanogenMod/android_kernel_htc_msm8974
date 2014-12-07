@@ -36,6 +36,8 @@
 
 #include "radeon_family.h"
 
+/* General customization:
+ */
 
 #define DRIVER_AUTHOR		"Gareth Hughes, Keith Whitwell, others."
 
@@ -43,6 +45,70 @@
 #define DRIVER_DESC		"ATI Radeon"
 #define DRIVER_DATE		"20080528"
 
+/* Interface history:
+ *
+ * 1.1 - ??
+ * 1.2 - Add vertex2 ioctl (keith)
+ *     - Add stencil capability to clear ioctl (gareth, keith)
+ *     - Increase MAX_TEXTURE_LEVELS (brian)
+ * 1.3 - Add cmdbuf ioctl (keith)
+ *     - Add support for new radeon packets (keith)
+ *     - Add getparam ioctl (keith)
+ *     - Add flip-buffers ioctl, deprecate fullscreen foo (keith).
+ * 1.4 - Add scratch registers to get_param ioctl.
+ * 1.5 - Add r200 packets to cmdbuf ioctl
+ *     - Add r200 function to init ioctl
+ *     - Add 'scalar2' instruction to cmdbuf
+ * 1.6 - Add static GART memory manager
+ *       Add irq handler (won't be turned on unless X server knows to)
+ *       Add irq ioctls and irq_active getparam.
+ *       Add wait command for cmdbuf ioctl
+ *       Add GART offset query for getparam
+ * 1.7 - Add support for cube map registers: R200_PP_CUBIC_FACES_[0..5]
+ *       and R200_PP_CUBIC_OFFSET_F1_[0..5].
+ *       Added packets R200_EMIT_PP_CUBIC_FACES_[0..5] and
+ *       R200_EMIT_PP_CUBIC_OFFSETS_[0..5].  (brian)
+ * 1.8 - Remove need to call cleanup ioctls on last client exit (keith)
+ *       Add 'GET' queries for starting additional clients on different VT's.
+ * 1.9 - Add DRM_IOCTL_RADEON_CP_RESUME ioctl.
+ *       Add texture rectangle support for r100.
+ * 1.10- Add SETPARAM ioctl; first parameter to set is FB_LOCATION, which
+ *       clients use to tell the DRM where they think the framebuffer is
+ *       located in the card's address space
+ * 1.11- Add packet R200_EMIT_RB3D_BLENDCOLOR to support GL_EXT_blend_color
+ *       and GL_EXT_blend_[func|equation]_separate on r200
+ * 1.12- Add R300 CP microcode support - this just loads the CP on r300
+ *       (No 3D support yet - just microcode loading).
+ * 1.13- Add packet R200_EMIT_TCL_POINT_SPRITE_CNTL for ARB_point_parameters
+ *     - Add hyperz support, add hyperz flags to clear ioctl.
+ * 1.14- Add support for color tiling
+ *     - Add R100/R200 surface allocation/free support
+ * 1.15- Add support for texture micro tiling
+ *     - Add support for r100 cube maps
+ * 1.16- Add R200_EMIT_PP_TRI_PERF_CNTL packet to support brilinear
+ *       texture filtering on r200
+ * 1.17- Add initial support for R300 (3D).
+ * 1.18- Add support for GL_ATI_fragment_shader, new packets
+ *       R200_EMIT_PP_AFS_0/1, R200_EMIT_PP_TXCTLALL_0-5 (replaces
+ *       R200_EMIT_PP_TXFILTER_0-5, 2 more regs) and R200_EMIT_ATF_TFACTOR
+ *       (replaces R200_EMIT_TFACTOR_0 (8 consts instead of 6)
+ * 1.19- Add support for gart table in FB memory and PCIE r300
+ * 1.20- Add support for r300 texrect
+ * 1.21- Add support for card type getparam
+ * 1.22- Add support for texture cache flushes (R300_TX_CNTL)
+ * 1.23- Add new radeon memory map work from benh
+ * 1.24- Add general-purpose packet for manipulating scratch registers (r300)
+ * 1.25- Add support for r200 vertex programs (R200_EMIT_VAP_PVS_CNTL,
+ *       new packet type)
+ * 1.26- Add support for variable size PCI(E) gart aperture
+ * 1.27- Add support for IGP GART
+ * 1.28- Add support for VBL on CRTC2
+ * 1.29- R500 3D cmd buffer support
+ * 1.30- Add support for occlusion queries
+ * 1.31- Add support for num Z pipes from GET_PARAM
+ * 1.32- fixes for rv740 setup
+ * 1.33- Add r6xx/r7xx const buffer support
+ */
 #define DRIVER_MAJOR		1
 #define DRIVER_MINOR		33
 #define DRIVER_PATCHLEVEL	0
@@ -66,11 +132,11 @@ typedef struct drm_radeon_ring_buffer {
 	int size;
 	int size_l2qw;
 
-	int rptr_update; 
-	int rptr_update_l2qw; 
+	int rptr_update; /* Double Words */
+	int rptr_update_l2qw; /* log2 Quad Words */
 
-	int fetch_size; 
-	int fetch_size_l2ow; 
+	int fetch_size; /* Double Words */
+	int fetch_size_l2ow; /* log2 Oct Words */
 
 	u32 tail;
 	u32 tail_mask;
@@ -94,7 +160,7 @@ struct mem_block {
 	struct mem_block *prev;
 	int start;
 	int size;
-	struct drm_file *file_priv; 
+	struct drm_file *file_priv; /* NULL: free, -1: heap, other: real files */
 };
 
 struct radeon_surface {
@@ -187,7 +253,7 @@ typedef struct drm_radeon_private {
 	struct mem_block *gart_heap;
 	struct mem_block *fb_heap;
 
-	
+	/* SW interrupt */
 	wait_queue_head_t swi_queue;
 	atomic_t swi_emitted;
 	int vblank_crtc;
@@ -205,8 +271,8 @@ typedef struct drm_radeon_private {
 
 	int have_z_offset;
 
-	
-	uint32_t flags;		
+	/* starting from here on, data is preserved across an open */
+	uint32_t flags;		/* see radeon_chip_flags */
 	resource_size_t fb_aper_offset;
 
 	int num_gb_pipes;
@@ -214,7 +280,7 @@ typedef struct drm_radeon_private {
 	int track_flush;
 	drm_local_map_t *mmio;
 
-	
+	/* r6xx/r7xx pipe/shader config */
 	int r600_max_pipes;
 	int r600_max_tile_pipes;
 	int r600_max_simds;
@@ -239,10 +305,10 @@ typedef struct drm_radeon_private {
 	struct mutex cs_mutex;
 	u32 cs_id_scnt;
 	u32 cs_id_wcnt;
-	
+	/* r6xx/r7xx drm blit vertex buffer */
 	struct drm_buf *blit_vb;
 
-	
+	/* firmware */
 	const struct firmware *me_fw, *pfp_fw;
 } drm_radeon_private_t;
 
@@ -269,6 +335,9 @@ extern void radeon_set_ring_head(drm_radeon_private_t *dev_priv, u32 val);
 #define GET_RING_HEAD(dev_priv)	radeon_get_ring_head(dev_priv)
 #define SET_RING_HEAD(dev_priv, val) radeon_set_ring_head(dev_priv, val)
 
+/* Check whether the given hardware address is inside the framebuffer or the
+ * GART area.
+ */
 static __inline__ int radeon_check_offset(drm_radeon_private_t *dev_priv,
 					  u64 off)
 {
@@ -281,9 +350,10 @@ static __inline__ int radeon_check_offset(drm_radeon_private_t *dev_priv,
 		(off >= gart_start && off <= gart_end));
 }
 
+/* radeon_state.c */
 extern void radeon_cp_discard_buffer(struct drm_device *dev, struct drm_master *master, struct drm_buf *buf);
 
-				
+				/* radeon_cp.c */
 extern int radeon_cp_init(struct drm_device *dev, void *data, struct drm_file *file_priv);
 extern int radeon_cp_start(struct drm_device *dev, void *data, struct drm_file *file_priv);
 extern int radeon_cp_stop(struct drm_device *dev, void *data, struct drm_file *file_priv);
@@ -320,7 +390,7 @@ extern void radeon_enable_bm(struct drm_radeon_private *dev_priv);
 extern u32 radeon_read_ring_rptr(drm_radeon_private_t *dev_priv, u32 off);
 extern void radeon_write_ring_rptr(drm_radeon_private_t *dev_priv, u32 off, u32 val);
 
-				
+				/* radeon_irq.c */
 extern void radeon_irq_set_state(struct drm_device *dev, u32 mask, int state);
 extern int radeon_irq_emit(struct drm_device *dev, void *data, struct drm_file *file_priv);
 extern int radeon_irq_wait(struct drm_device *dev, void *data, struct drm_file *file_priv);
@@ -355,12 +425,14 @@ extern long radeon_kms_compat_ioctl(struct file *filp, unsigned int cmd,
 extern int radeon_master_create(struct drm_device *dev, struct drm_master *master);
 extern void radeon_master_destroy(struct drm_device *dev, struct drm_master *master);
 extern void radeon_cp_dispatch_flip(struct drm_device *dev, struct drm_master *master);
+/* r300_cmdbuf.c */
 extern void r300_init_reg_flags(struct drm_device *dev);
 
 extern int r300_do_cp_cmdbuf(struct drm_device *dev,
 			     struct drm_file *file_priv,
 			     drm_radeon_kcmd_buffer_t *cmdbuf);
 
+/* r600_cp.c */
 extern int r600_do_engine_reset(struct drm_device *dev);
 extern int r600_do_cleanup_cp(struct drm_device *dev);
 extern int r600_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
@@ -380,6 +452,7 @@ extern int r600_cp_dispatch_texture(struct drm_device *dev,
 				    struct drm_file *file_priv,
 				    drm_radeon_texture_t *tex,
 				    drm_radeon_tex_image_t *image);
+/* r600_blit.c */
 extern int r600_prepare_blit_copy(struct drm_device *dev, struct drm_file *file_priv);
 extern void r600_done_blit_copy(struct drm_device *dev);
 extern void r600_blit_copy(struct drm_device *dev,
@@ -390,6 +463,7 @@ extern void r600_blit_swap(struct drm_device *dev,
 			   int sx, int sy, int dx, int dy,
 			   int w, int h, int src_pitch, int dst_pitch, int cpp);
 
+/* atpx handler */
 #if defined(CONFIG_VGA_SWITCHEROO)
 void radeon_register_atpx_handler(void);
 void radeon_unregister_atpx_handler(void);
@@ -398,17 +472,22 @@ static inline void radeon_register_atpx_handler(void) {}
 static inline void radeon_unregister_atpx_handler(void) {}
 #endif
 
+/* Flags for stats.boxes
+ */
 #define RADEON_BOX_DMA_IDLE      0x1
 #define RADEON_BOX_RING_FULL     0x2
 #define RADEON_BOX_FLIP          0x4
 #define RADEON_BOX_WAIT_IDLE     0x8
 #define RADEON_BOX_TEXTURE_LOAD  0x10
 
+/* Register definitions, register access macros and drmAddMap constants
+ * for Radeon kernel driver.
+ */
 #define RADEON_MM_INDEX		        0x0000
 #define RADEON_MM_DATA		        0x0004
 
 #define RADEON_AGP_COMMAND		0x0f60
-#define RADEON_AGP_COMMAND_PCI_CONFIG   0x0060	
+#define RADEON_AGP_COMMAND_PCI_CONFIG   0x0060	/* offset in PCI config */
 #	define RADEON_AGP_ENABLE	(1<<8)
 #define RADEON_AUX_SCISSOR_CNTL		0x26f0
 #	define RADEON_EXCLUSIVE_SCISSOR_0	(1 << 24)
@@ -418,10 +497,19 @@ static inline void radeon_unregister_atpx_handler(void) {}
 #	define RADEON_SCISSOR_1_ENABLE		(1 << 29)
 #	define RADEON_SCISSOR_2_ENABLE		(1 << 30)
 
+/*
+ * PCIE radeons (rv370/rv380, rv410, r423/r430/r480, r5xx)
+ * don't have an explicit bus mastering disable bit.  It's handled
+ * by the PCI D-states.  PMI_BM_DIS disables D-state bus master
+ * handling, not bus mastering itself.
+ */
 #define RADEON_BUS_CNTL			0x0030
+/* r1xx, r2xx, r300, r(v)350, r420/r481, rs400/rs480 */
 #	define RADEON_BUS_MASTER_DIS		(1 << 6)
+/* rs600/rs690/rs740 */
 #	define RS600_BUS_MASTER_DIS		(1 << 14)
 #	define RS600_MSI_REARM		        (1 << 20)
+/* see RS400_MSI_REARM in AIC_CNTL for rs480 */
 
 #define RADEON_BUS_CNTL1		0x0034
 #	define RADEON_PMI_BM_DIS		(1 << 2)
@@ -432,6 +520,7 @@ static inline void radeon_unregister_atpx_handler(void) {}
 #	define RV370_PMI_INT_DIS		(1 << 6)
 
 #define RADEON_MSI_REARM_EN		0x0160
+/* rv370/rv380, rv410, r423/r430/r480, r5xx */
 #	define RV370_MSI_REARM_EN		(1 << 0)
 
 #define RADEON_CLOCK_CNTL_DATA		0x000c
@@ -475,8 +564,10 @@ static inline void radeon_unregister_atpx_handler(void) {}
 #   define RS690_MC_INDEX_WR_ACK        0x7f
 #define RS690_MC_DATA                   0x7c
 
+/* MC indirect registers */
 #define RS480_MC_MISC_CNTL              0x18
 #	define RS480_DISABLE_GTW	(1 << 1)
+/* switch between MCIND GART and MM GART registers. 0 = mmgart, 1 = mcind gart */
 #	define RS480_GART_INDEX_REG_EN	(1 << 12)
 #	define RS690_BLOCK_GFX_D3_EN	(1 << 14)
 #define RS480_K8_FB_LOCATION            0x1e
@@ -490,7 +581,7 @@ static inline void radeon_unregister_atpx_handler(void) {}
 #	define RS480_PDC_EN	        (1 << 31)
 #define RS480_GART_BASE                 0x2c
 #define RS480_GART_CACHE_CNTRL          0x2e
-#	define RS480_GART_CACHE_INVALIDATE (1 << 0) 
+#	define RS480_GART_CACHE_INVALIDATE (1 << 0) /* wait for it to clear */
 #define RS480_AGP_ADDRESS_SPACE_SIZE    0x38
 #	define RS480_GART_EN	        (1 << 0)
 #	define RS480_VA_SIZE_32MB	(0 << 1)
@@ -583,13 +674,14 @@ static inline void radeon_unregister_atpx_handler(void) {}
 #define RADEON_MPP_TB_CONFIG		0x01c0
 #define RADEON_MEM_CNTL			0x0140
 #define RADEON_MEM_SDRAM_MODE_REG	0x0158
-#define RADEON_AGP_BASE_2		0x015c 
+#define RADEON_AGP_BASE_2		0x015c /* r200+ only */
 #define RS480_AGP_BASE_2		0x0164
 #define RADEON_AGP_BASE			0x0170
 
+/* pipe config regs */
 #define R400_GB_PIPE_SELECT             0x402c
 #define RV530_GB_PIPE_SELECT2           0x4124
-#define R500_DYN_SCLK_PWMEM_PIPE        0x000d 
+#define R500_DYN_SCLK_PWMEM_PIPE        0x000d /* PLL */
 #define R300_GB_TILE_CONFIG             0x4018
 #       define R300_ENABLE_TILING       (1 << 0)
 #       define R300_PIPE_COUNT_RV350    (0 << 1)
@@ -724,7 +816,7 @@ extern u32 radeon_get_scratch(drm_radeon_private_t *dev_priv, int index);
 #define RADEON_PP_TXFILTER_1		0x1c6c
 #define RADEON_PP_TXFILTER_2		0x1c84
 
-#define R300_RB2D_DSTCACHE_CTLSTAT	0x342c 
+#define R300_RB2D_DSTCACHE_CTLSTAT	0x342c /* use R300_DSTCACHE_CTLSTAT */
 #define R300_DSTCACHE_CTLSTAT		0x1714
 #	define R300_RB2D_DC_FLUSH		(3 << 0)
 #	define R300_RB2D_DC_FREE		(3 << 2)
@@ -786,7 +878,29 @@ extern u32 radeon_get_scratch(drm_radeon_private_t *dev_priv, int index);
 #	define RADEON_SOFT_RESET_E2		(1 <<  5)
 #	define RADEON_SOFT_RESET_RB		(1 <<  6)
 #	define RADEON_SOFT_RESET_HDP		(1 <<  7)
+/*
+ *   6:0  Available slots in the FIFO
+ *   8    Host Interface active
+ *   9    CP request active
+ *   10   FIFO request active
+ *   11   Host Interface retry active
+ *   12   CP retry active
+ *   13   FIFO retry active
+ *   14   FIFO pipeline busy
+ *   15   Event engine busy
+ *   16   CP command stream busy
+ *   17   2D engine busy
+ *   18   2D portion of render backend busy
+ *   20   3D setup engine busy
+ *   26   GA engine busy
+ *   27   CBA 2D engine busy
+ *   31   2D engine busy or 3D engine busy or FIFO not empty or CP busy or
+ *           command stream queue not empty or Ring Buffer not empty
+ */
 #define RADEON_RBBM_STATUS		0x0e40
+/* Same as the previous RADEON_RBBM_STATUS; this is a mirror of that register.  */
+/* #define RADEON_RBBM_STATUS		0x1740 */
+/* bits 6:0 are dword slots available in the cmd fifo */
 #	define RADEON_RBBM_FIFOCNT_MASK		0x007f
 #	define RADEON_HIRQ_ON_RBB	(1 <<  8)
 #	define RADEON_CPRQ_ON_RBB	(1 <<  9)
@@ -799,13 +913,13 @@ extern u32 radeon_get_scratch(drm_radeon_private_t *dev_priv, int index);
 #	define RADEON_CP_CMDSTRM_BUSY	(1 << 16)
 #	define RADEON_E2_BUSY		(1 << 17)
 #	define RADEON_RB2D_BUSY		(1 << 18)
-#	define RADEON_RB3D_BUSY		(1 << 19) 
+#	define RADEON_RB3D_BUSY		(1 << 19) /* not used on r300 */
 #	define RADEON_VAP_BUSY		(1 << 20)
-#	define RADEON_RE_BUSY		(1 << 21) 
-#	define RADEON_TAM_BUSY		(1 << 22) 
-#	define RADEON_TDM_BUSY		(1 << 23) 
-#	define RADEON_PB_BUSY		(1 << 24) 
-#	define RADEON_TIM_BUSY		(1 << 25) 
+#	define RADEON_RE_BUSY		(1 << 21) /* not used on r300 */
+#	define RADEON_TAM_BUSY		(1 << 22) /* not used on r300 */
+#	define RADEON_TDM_BUSY		(1 << 23) /* not used on r300 */
+#	define RADEON_PB_BUSY		(1 << 24) /* not used on r300 */
+#	define RADEON_TIM_BUSY		(1 << 25) /* not used on r300 */
 #	define RADEON_GA_BUSY		(1 << 26)
 #	define RADEON_CBA2D_BUSY	(1 << 27)
 #	define RADEON_RBBM_ACTIVE	(1 << 31)
@@ -912,6 +1026,7 @@ extern u32 radeon_get_scratch(drm_radeon_private_t *dev_priv, int index);
 #	define RADEON_DEPTH_FORMAT_16BIT_INT_Z	(0 << 0)
 #	define RADEON_DEPTH_FORMAT_24BIT_INT_Z	(2 << 0)
 
+/* CP registers */
 #define RADEON_CP_ME_RAM_ADDR		0x07d4
 #define RADEON_CP_ME_RAM_RADDR		0x07d8
 #define RADEON_CP_ME_RAM_DATAH		0x07dc
@@ -954,6 +1069,7 @@ extern u32 radeon_get_scratch(drm_radeon_private_t *dev_priv, int index);
 #define RADEON_AIC_TLB_ADDR		0x01e4
 #define RADEON_AIC_TLB_DATA		0x01e8
 
+/* CP command packets */
 #define RADEON_CP_PACKET0		0x00000000
 #	define RADEON_ONE_REG_WR		(1 << 15)
 #define RADEON_CP_PACKET1		0x40000000
@@ -963,7 +1079,7 @@ extern u32 radeon_get_scratch(drm_radeon_private_t *dev_priv, int index);
 #       define RADEON_CP_NEXT_CHAR              0x00001900
 #       define RADEON_CP_PLY_NEXTSCAN           0x00001D00
 #       define RADEON_CP_SET_SCISSORS           0x00001E00
-	     
+	     /* GEN_INDX_PRIM is unsupported starting with R300 */
 #	define RADEON_3D_RNDR_GEN_INDX_PRIM	0x00002300
 #	define RADEON_WAIT_FOR_IDLE		0x00002600
 #	define RADEON_3D_DRAW_VBUF		0x00002800
@@ -1184,14 +1300,14 @@ extern u32 radeon_get_scratch(drm_radeon_private_t *dev_priv, int index);
 #define R200_RE_POINTSIZE                 0x2648
 #define R200_SE_TCL_INPUT_VTX_VECTOR_ADDR_0 0x2254
 
-#define RADEON_PP_TEX_SIZE_0                0x1d04	
+#define RADEON_PP_TEX_SIZE_0                0x1d04	/* NPOT */
 #define RADEON_PP_TEX_SIZE_1                0x1d0c
 #define RADEON_PP_TEX_SIZE_2                0x1d14
 
 #define RADEON_PP_CUBIC_FACES_0             0x1d24
 #define RADEON_PP_CUBIC_FACES_1             0x1d28
 #define RADEON_PP_CUBIC_FACES_2             0x1d2c
-#define RADEON_PP_CUBIC_OFFSET_T0_0         0x1dd0	
+#define RADEON_PP_CUBIC_OFFSET_T0_0         0x1dd0	/* bits [31:5] */
 #define RADEON_PP_CUBIC_OFFSET_T1_0         0x1e00
 #define RADEON_PP_CUBIC_OFFSET_T2_0         0x1e14
 
@@ -1216,7 +1332,7 @@ extern u32 radeon_get_scratch(drm_radeon_private_t *dev_priv, int index);
 #define R200_PP_TRI_PERF 0x2cf8
 
 #define R200_PP_AFS_0                     0x2f80
-#define R200_PP_AFS_1                     0x2f00	
+#define R200_PP_AFS_1                     0x2f00	/* same as txcblend_0 */
 
 #define R200_VAP_PVS_CNTL_1               0x22D0
 
@@ -1248,6 +1364,7 @@ extern u32 radeon_get_scratch(drm_radeon_private_t *dev_priv, int index);
 #define R500_D1_VBLANK_INTERRUPT (1 << 4)
 #define R500_D2_VBLANK_INTERRUPT (1 << 5)
 
+/* R6xx/R7xx registers */
 #define R600_MC_VM_FB_LOCATION                                 0x2180
 #define R600_MC_VM_AGP_TOP                                     0x2184
 #define R600_MC_VM_AGP_BOT                                     0x2188
@@ -1710,7 +1827,8 @@ extern u32 radeon_get_scratch(drm_radeon_private_t *dev_priv, int index);
 #define R700_CGTS_TCC_DISABLE                                  0x9148
 #define R700_CGTS_USER_TCC_DISABLE                             0x914c
 
-#define RADEON_MAX_USEC_TIMEOUT		100000	
+/* Constants */
+#define RADEON_MAX_USEC_TIMEOUT		100000	/* 100 ms */
 
 #define RADEON_LAST_FRAME_REG		RADEON_SCRATCH_REG0
 #define RADEON_LAST_DISPATCH_REG	RADEON_SCRATCH_REG1
@@ -1807,6 +1925,9 @@ do {									\
 #define CP_PACKET3( pkt, n )						\
 	(RADEON_CP_PACKET3 | (pkt) | ((n) << 16))
 
+/* ================================================================
+ * Engine control helper macros
+ */
 
 #define RADEON_WAIT_UNTIL_2D_IDLE() do {				\
 	OUT_RING( CP_PACKET0( RADEON_WAIT_UNTIL, 0 ) );			\
@@ -1872,7 +1993,12 @@ do {									\
 	}                                                               \
 } while (0)
 
+/* ================================================================
+ * Misc helper macros
+ */
 
+/* Perfbox functionality only.
+ */
 #define RING_SPACE_TEST_WITH_RETURN( dev_priv )				\
 do {									\
 	if (!(dev_priv->stats.boxes & RADEON_BOX_DMA_IDLE)) {		\
@@ -1931,6 +2057,9 @@ do {								\
 	OUT_RING(age);							\
 } while (0)
 
+/* ================================================================
+ * Ring control
+ */
 
 #define RADEON_VERBOSE	0
 
@@ -2011,6 +2140,9 @@ extern void radeon_commit_ring(drm_radeon_private_t *dev_priv);
 	write &= mask;						\
 } while (0)
 
+/**
+ * Copy given number of dwords from drm buffer to the ring buffer.
+ */
 #define OUT_RING_DRM_BUFFER(buf, sz) do {				\
 	int _size = (sz) * 4;						\
 	struct drm_buffer *_buf = (buf);				\
@@ -2036,4 +2168,4 @@ extern void radeon_commit_ring(drm_radeon_private_t *dev_priv);
 } while (0)
 
 
-#endif				
+#endif				/* __RADEON_DRV_H__ */

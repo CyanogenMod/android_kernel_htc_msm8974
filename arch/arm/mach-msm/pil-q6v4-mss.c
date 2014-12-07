@@ -55,36 +55,38 @@ struct q6v4_modem {
 static DEFINE_MUTEX(pil_q6v4_modem_lock);
 static unsigned pil_q6v4_modem_count;
 
+/* Bring modem subsystem out of reset */
 static void pil_q6v4_init_modem(void __iomem *base, void __iomem *cbase,
 				void __iomem *jtag_clk)
 {
 	mutex_lock(&pil_q6v4_modem_lock);
 	if (!pil_q6v4_modem_count) {
-		
+		/* Enable MSS clocks */
 		writel_relaxed(0x10, cbase + SFAB_MSS_M_ACLK_CTL);
 		writel_relaxed(0x10, cbase + SFAB_MSS_S_HCLK_CTL);
 		writel_relaxed(0x10, cbase + MSS_S_HCLK_CTL);
 		writel_relaxed(0x10, cbase + MSS_SLP_CLK_CTL);
-		
+		/* Wait for clocks to enable */
 		mb();
 		udelay(10);
 
-		
+		/* De-assert MSS reset */
 		writel_relaxed(0x0, cbase + MSS_RESET);
 		mb();
 		udelay(10);
-		
+		/* Enable MSS */
 		writel_relaxed(0x7, base);
 	}
 
-	
-	
+	/* Enable JTAG clocks */
+	/* TODO: Remove if/when Q6 software enables them? */
 	writel_relaxed(0x10, jtag_clk);
 
 	pil_q6v4_modem_count++;
 	mutex_unlock(&pil_q6v4_modem_lock);
 }
 
+/* Put modem subsystem back into reset */
 static void pil_q6v4_shutdown_modem(struct q6v4_modem *mdm)
 {
 	mutex_lock(&pil_q6v4_modem_lock);
@@ -199,7 +201,7 @@ static int modem_shutdown(const struct subsys_desc *subsys)
 {
 	struct q6v4_modem *drv = desc_to_modem(subsys);
 
-	
+	/* The watchdogs keep running even after the modem is shutdown */
 	writel_relaxed(0x0, drv->q6_fw.wdog_base + 0x24);
 	writel_relaxed(0x0, drv->q6_sw.wdog_base + 0x24);
 	mb();
@@ -275,7 +277,7 @@ static void smsm_state_cb(void *data, uint32_t old_state, uint32_t new_state)
 {
 	struct q6v4_modem *drv = data;
 
-	
+	/* Ignore if we're the one that set SMSM_RESET */
 	if (drv->crash_shutdown)
 		return;
 
@@ -363,7 +365,7 @@ static int __devinit pil_q6v4_modem_driver_probe(struct platform_device *pdev)
 	if (drv_sw->wdog_irq < 0)
 		return drv_sw->wdog_irq;
 
-	drv->loadable = !!pdata; 
+	drv->loadable = !!pdata; /* No pdata = don't use PIL */
 	if (drv->loadable) {
 		ret = pil_q6v4_proc_init(drv_fw, pdev, 0);
 		if (ret)

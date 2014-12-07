@@ -38,14 +38,20 @@
 #include <linux/usb/serial.h>
 #include <linux/usb/irda.h>
 
+/*
+ * Version Information
+ */
 #define DRIVER_VERSION "v0.5"
 #define DRIVER_AUTHOR "Greg Kroah-Hartman <greg@kroah.com>, Johan Hovold <jhovold@gmail.com>"
 #define DRIVER_DESC "USB IR Dongle driver"
 
 static bool debug;
 
+/* if overridden by the user, then use their value for the size of the read and
+ * write urbs */
 static int buffer_size;
 
+/* if overridden by the user, then use the specified number of XBOFs */
 static int xbof = -1;
 
 static int  ir_startup (struct usb_serial *serial);
@@ -56,16 +62,17 @@ static void ir_process_read_urb(struct urb *urb);
 static void ir_set_termios(struct tty_struct *tty,
 		struct usb_serial_port *port, struct ktermios *old_termios);
 
+/* Not that this lot means you can only have one per system */
 static u8 ir_baud;
 static u8 ir_xbof;
 static u8 ir_add_bof;
 
 static const struct usb_device_id ir_id_table[] = {
-	{ USB_DEVICE(0x050f, 0x0180) },		
-	{ USB_DEVICE(0x08e9, 0x0100) },		
-	{ USB_DEVICE(0x09c4, 0x0011) },		
+	{ USB_DEVICE(0x050f, 0x0180) },		/* KC Technology, KC-180 */
+	{ USB_DEVICE(0x08e9, 0x0100) },		/* XTNDAccess */
+	{ USB_DEVICE(0x09c4, 0x0011) },		/* ACTiSys ACT-IR2000U */
 	{ USB_INTERFACE_INFO(USB_CLASS_APP_SPEC, USB_SUBCLASS_IRDA, 0) },
-	{ }					
+	{ }					/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, ir_id_table);
@@ -110,6 +117,18 @@ static inline void irda_usb_dump_class_desc(struct usb_irda_cs_descriptor *desc)
 	dbg("bMaxUnicastList=%x", desc->bMaxUnicastList);
 }
 
+/*------------------------------------------------------------------*/
+/*
+ * Function irda_usb_find_class_desc(dev, ifnum)
+ *
+ *    Returns instance of IrDA class descriptor, or NULL if not found
+ *
+ * The class descriptor is some extra info that IrDA USB devices will
+ * offer to us, describing their IrDA characteristics. We will use that in
+ * irda_usb_init_qos()
+ *
+ * Based on the same function in drivers/net/irda/irda-usb.c
+ */
 static struct usb_irda_cs_descriptor *
 irda_usb_find_class_desc(struct usb_device *dev, unsigned int ifnum)
 {
@@ -150,7 +169,7 @@ static u8 ir_xbof_change(u8 xbof)
 {
 	u8 result;
 
-	
+	/* reference irda-usb.c */
 	switch (xbof) {
 	case 48:
 		result = 0x10;
@@ -250,7 +269,7 @@ static int ir_open(struct tty_struct *tty, struct usb_serial_port *port)
 	for (i = 0; i < ARRAY_SIZE(port->write_urbs); ++i)
 		port->write_urbs[i]->transfer_flags = URB_ZERO_PACKET;
 
-	
+	/* Start reading from the device */
 	return usb_serial_generic_open(tty, port);
 }
 
@@ -260,6 +279,13 @@ static int ir_prepare_write_buffer(struct usb_serial_port *port,
 	unsigned char *buf = dest;
 	int count;
 
+	/*
+	 * The first byte of the packet we send to the device contains an
+	 * inbound header which indicates an additional number of BOFs and
+	 * a baud rate change.
+	 *
+	 * See section 5.4.2.2 of the USB IrDA spec.
+	 */
 	*buf = ir_xbof | ir_baud;
 
 	count = kfifo_out_locked(&port->write_fifo, buf + 1, size - 1,
@@ -275,6 +301,11 @@ static void ir_process_read_urb(struct urb *urb)
 
 	if (!urb->actual_length)
 		return;
+	/*
+	 * The first byte of the packet we get from the device
+	 * contains a busy indicator and baud rate change.
+	 * See section 5.4.1.2 of the USB IrDA spec.
+	 */
 	if (*data & 0x0f)
 		ir_baud = *data & 0x0f;
 
@@ -315,6 +346,11 @@ static void ir_set_termios(struct tty_struct *tty,
 
 	baud = tty_get_baud_rate(tty);
 
+	/*
+	 * FIXME, we should compare the baud request against the
+	 * capability stated in the IR header that we got in the
+	 * startup function.
+	 */
 
 	switch (baud) {
 	case 2400:
@@ -354,10 +390,13 @@ static void ir_set_termios(struct tty_struct *tty,
 	else
 		ir_xbof = ir_xbof_change(xbof) ;
 
-	
+	/* Only speed changes are supported */
 	tty_termios_copy_hw(tty->termios, old_termios);
 	tty_encode_baud_rate(tty, baud, baud);
 
+	/*
+	 * send the baud change out on an "empty" data packet
+	 */
 	urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!urb) {
 		dev_err(&port->dev, "%s - no more urbs\n", __func__);

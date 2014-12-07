@@ -46,10 +46,13 @@ struct uvc_event
 #define UVC_INTF_CONTROL		0
 #define UVC_INTF_STREAMING		1
 
+/* ------------------------------------------------------------------------
+ * Debugging, printing and logging
+ */
 
 #ifdef __KERNEL__
 
-#include <linux/usb.h>	
+#include <linux/usb.h>	/* For usb_endpoint_* */
 #include <linux/usb/gadget.h>
 #include <linux/videodev2.h>
 #include <linux/version.h>
@@ -88,6 +91,9 @@ extern unsigned int uvc_gadget_trace_param;
 #define uvc_printk(level, msg...) \
 	printk(level "uvcvideo: " msg)
 
+/* ------------------------------------------------------------------------
+ * Driver specific constants
+ */
 
 #define DRIVER_VERSION				"0.1.0"
 #define DRIVER_VERSION_NUMBER			KERNEL_VERSION(0, 1, 0)
@@ -98,19 +104,22 @@ extern unsigned int uvc_gadget_trace_param;
 #define UVC_MAX_REQUEST_SIZE			64
 #define UVC_MAX_EVENTS				4
 
+/* ------------------------------------------------------------------------
+ * Structures
+ */
 
 struct uvc_video
 {
 	struct usb_ep *ep;
 
-	
+	/* Frame parameters */
 	u8 bpp;
 	u32 fcc;
 	unsigned int width;
 	unsigned int height;
 	unsigned int imagesize;
 
-	
+	/* Requests */
 	unsigned int req_size;
 	struct usb_request *req[UVC_NUM_REQUESTS];
 	__u8 *req_buffer[UVC_NUM_REQUESTS];
@@ -120,7 +129,7 @@ struct uvc_video
 	void (*encode) (struct usb_request *req, struct uvc_video *video,
 			struct uvc_buffer *buf);
 
-	
+	/* Context data used by the completion handler */
 	__u32 payload_size;
 	__u32 max_payload_size;
 
@@ -142,7 +151,7 @@ struct uvc_device
 	struct usb_function func;
 	struct uvc_video video;
 
-	
+	/* Descriptors */
 	struct {
 		const struct uvc_descriptor_header * const *control;
 		const struct uvc_descriptor_header * const *fs_streaming;
@@ -156,7 +165,7 @@ struct uvc_device
 
 	unsigned int streaming_intf;
 
-	
+	/* Events */
 	unsigned int event_length;
 	unsigned int event_setup_out : 1;
 };
@@ -175,13 +184,16 @@ struct uvc_file_handle
 #define to_uvc_file_handle(handle) \
 	container_of(handle, struct uvc_file_handle, vfh)
 
+/* ------------------------------------------------------------------------
+ * Functions
+ */
 
 extern void uvc_endpoint_stream(struct uvc_device *dev);
 
 extern void uvc_function_connect(struct uvc_device *uvc);
 extern void uvc_function_disconnect(struct uvc_device *uvc);
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _UVC_GADGET_H_ */
 

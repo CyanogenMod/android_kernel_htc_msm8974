@@ -28,30 +28,34 @@
 
 static volatile unsigned char *via;
 
-#define RS		0x200		
-#define B		0		
-#define A		RS		
-#define DIRB		(2*RS)		
-#define DIRA		(3*RS)		
-#define SR		(10*RS)		
-#define ACR		(11*RS)		
-#define IFR		(13*RS)		
-#define IER		(14*RS)		
+/* VIA registers - spaced 0x200 bytes apart - only the ones we actually use */
+#define RS		0x200		/* skip between registers */
+#define B		0		/* B-side data */
+#define A		RS		/* A-side data */
+#define DIRB		(2*RS)		/* B-side direction (1=output) */
+#define DIRA		(3*RS)		/* A-side direction (1=output) */
+#define SR		(10*RS)		/* Shift register */
+#define ACR		(11*RS)		/* Auxiliary control register */
+#define IFR		(13*RS)		/* Interrupt flag register */
+#define IER		(14*RS)		/* Interrupt enable register */
 
-#define TREQ		0x08		
-#define TACK		0x10		
-#define TIP		0x20		
-#define ST_MASK		0x30		
+/* Bits in B data register: all active low */
+#define TREQ		0x08		/* Transfer request (input) */
+#define TACK		0x10		/* Transfer acknowledge (output) */
+#define TIP		0x20		/* Transfer in progress (output) */
+#define ST_MASK		0x30		/* mask for selecting ADB state bits */
 
-#define SR_CTRL		0x1c		
-#define SR_EXT		0x0c		
-#define SR_OUT		0x10		
+/* Bits in ACR */
+#define SR_CTRL		0x1c		/* Shift register control bits */
+#define SR_EXT		0x0c		/* Shift on external clock */
+#define SR_OUT		0x10		/* Shift out if 1 */
 
-#define IER_SET		0x80		
-#define IER_CLR		0		
-#define SR_INT		0x04		
-#define SR_DATA		0x08		
-#define SR_CLOCK	0x10		
+/* Bits in IFR and IER */
+#define IER_SET		0x80		/* set bits in IER */
+#define IER_CLR		0		/* clear bits in IER */
+#define SR_INT		0x04		/* Shift register full/empty */
+#define SR_DATA		0x08		/* Shift register data */
+#define SR_CLOCK	0x10		/* Shift register clock */
 
 #define ADB_DELAY 150
 
@@ -89,9 +93,9 @@ struct adb_driver via_maciisi_driver = {
 	maciisi_probe,
 	maciisi_init,
 	maciisi_send_request,
-	NULL, 
+	NULL, /* maciisi_adb_autopoll, */
 	maciisi_poll,
-	NULL 
+	NULL /* maciisi_reset_adb_bus */
 };
 
 static int
@@ -128,6 +132,7 @@ maciisi_init(void)
 	return 0;
 }
 
+/* Flush data from the ADB controller */
 static void
 maciisi_stfu(void)
 {
@@ -155,11 +160,11 @@ maciisi_stfu(void)
 		while(1)
 		{
 			int poll_timeout = ADB_DELAY * 5;
-			
+			/* Poll for SR interrupt */
 			while (!(via[IFR] & SR_INT) && poll_timeout-- > 0)
 				status = via[B] & (TIP|TREQ);
 
-			tmp = via[SR]; 
+			tmp = via[SR]; /* Clear shift register */
 #ifdef DEBUG_MACIISI_ADB
 			printk(KERN_DEBUG "maciisi_stfu: status %x timeout %d data %x\n",
 			       status, poll_timeout, tmp);
@@ -167,13 +172,13 @@ maciisi_stfu(void)
 			if(via[B] & TREQ)
 				break;
 	
-			
+			/* ACK on-off */
 			via[B] |= TACK;
 			udelay(ADB_DELAY);
 			via[B] &= ~TACK;
 		}
 
-		
+		/* end frame */
 		via[B] &= ~TIP;
 		udelay(ADB_DELAY);
 	}
@@ -181,25 +186,26 @@ maciisi_stfu(void)
 	via[IER] = IER_SET | SR_INT;	
 }
 
+/* All specifically VIA-related initialization goes here */
 static int
 maciisi_init_via(void)
 {
 	int	i;
 	
-	
+	/* Set the lines up. We want TREQ as input TACK|TIP as output */
 	via[DIRB] = (via[DIRB] | TACK | TIP) & ~TREQ;
-	
+	/* Shift register on input */
 	via[ACR]  = (via[ACR] & ~SR_CTRL) | SR_EXT;
 #ifdef DEBUG_MACIISI_ADB
 	printk(KERN_DEBUG "maciisi_init_via: initial status %x\n", via[B] & (TIP|TREQ));
 #endif
-	
+	/* Wipe any pending data and int */
 	tmp = via[SR];
-	
+	/* Enable keyboard interrupts */
 	via[IER] = IER_SET | SR_INT;
-	
+	/* Set initial state: idle */
 	via[B] &= ~(TACK|TIP);
-	
+	/* Clear interrupt bit */
 	via[IFR] = SR_INT;
 
 	for(i = 0; i < 60; i++) {
@@ -218,6 +224,7 @@ maciisi_init_via(void)
 	return 0;
 }
 
+/* Send a request, possibly waiting for a reply */
 static int
 maciisi_send_request(struct adb_request* req, int sync)
 {
@@ -247,6 +254,13 @@ maciisi_send_request(struct adb_request* req, int sync)
 	i = maciisi_write(req);
 	if (i)
 	{
+		/* Normally, if a packet requires syncing, that happens at the end of
+		 * maciisi_send_request. But if the transfer fails, it will be restarted
+		 * by maciisi_interrupt(). We use need_sync to tell maciisi_interrupt
+		 * when to sync a packet that it sends out.
+		 * 
+		 * Suggestions on a better way to do this are welcome.
+		 */
 		if(i == -EBUSY && sync)
 			need_sync = 1;
 		else
@@ -259,6 +273,7 @@ maciisi_send_request(struct adb_request* req, int sync)
 	return 0;
 }
 
+/* Poll the ADB chip until the request completes */
 static void maciisi_sync(struct adb_request *req)
 {
 	int count = 0; 
@@ -267,11 +282,13 @@ static void maciisi_sync(struct adb_request *req)
 	printk(KERN_DEBUG "maciisi_sync called\n");
 #endif
 
-	
+	/* If for some reason the ADB chip shuts up on us, we want to avoid an endless loop. */
 	while (!req->complete && count++ < 50) {
 		maciisi_poll();
 	}
-	if (count > 50) 
+	/* This could be BAD... when the ADB controller doesn't respond
+	 * for this long, it's probably not coming back :-( */
+	if (count > 50) /* Hopefully shouldn't happen */
 		printk(KERN_ERR "maciisi_send_request: poll timed out!\n");
 }
 
@@ -293,12 +310,15 @@ maciisi_request(struct adb_request *req, void (*done)(struct adb_request *),
 	return maciisi_send_request(req, 1);
 }
 
+/* Enqueue a request, and run the queue if possible */
 static int
 maciisi_write(struct adb_request* req)
 {
 	unsigned long flags;
 	int i;
 
+	/* We will accept CUDA packets - the VIA sends them to us, so
+           it figures that we should be able to send them to it */
 	if (req->nbytes < 2 || req->data[0] > CUDA_PACKET) {
 		printk(KERN_ERR "maciisi_write: packet too small or not an ADB or CUDA packet\n");
 		req->complete = 1;
@@ -354,7 +374,7 @@ maciisi_start(void)
 #endif
 
 	if (maciisi_state != idle) {
-		
+		/* shouldn't happen */
 		printk(KERN_ERR "maciisi_start: maciisi_start called when driver busy!\n");
 		return -EBUSY;
 	}
@@ -371,21 +391,21 @@ maciisi_start(void)
 		return -EBUSY;
 	}
 
-	
+	/* Okay, send */
 #ifdef DEBUG_MACIISI_ADB
 	printk(KERN_DEBUG "maciisi_start: sending\n");
 #endif
-	
+	/* Set state to active */
 	via[B] |= TIP;
-	
+	/* ACK off */
 	via[B] &= ~TACK;
-	
+	/* Delay */
 	udelay(ADB_DELAY);
-	
+	/* Shift out and send */
 	via[ACR] |= SR_OUT;
 	via[SR] = req->data[0];
 	data_index = 1;
-	
+	/* ACK on */
 	via[B] |= TACK;
 	maciisi_state = sending;
 
@@ -401,12 +421,15 @@ maciisi_poll(void)
 	if (via[IFR] & SR_INT) {
 		maciisi_interrupt(0, NULL);
 	}
-	else 
+	else /* avoid calling this function too quickly in a loop */
 		udelay(ADB_DELAY);
 
 	local_irq_restore(flags);
 }
 
+/* Shift register interrupt - this is *supposed* to mean that the
+   register is either full or empty. In practice, I have no idea what
+   it means :( */
 static irqreturn_t
 maciisi_interrupt(int irq, void* arg)
 {
@@ -426,14 +449,14 @@ maciisi_interrupt(int irq, void* arg)
 #endif
 
 	if (!(via[IFR] & SR_INT)) {
-		
+		/* Shouldn't happen, we hope */
 		printk(KERN_ERR "maciisi_interrupt: called without interrupt flag set\n");
 		local_irq_restore(flags);
 		return IRQ_NONE;
 	}
 
-	
-	
+	/* Clear the interrupt */
+	/* via[IFR] = SR_INT; */
 
  switch_start:
 	switch (maciisi_state) {
@@ -443,13 +466,13 @@ maciisi_interrupt(int irq, void* arg)
 
 		if(!reading_reply)
 			udelay(ADB_DELAY);
-		
+		/* Shift in */
 		via[ACR] &= ~SR_OUT;
- 		
+ 		/* Signal start of frame */
 		via[B] |= TIP;
-		
+		/* Clear the interrupt (throw this value on the floor, it's useless) */
 		tmp = via[SR];
-		
+		/* ACK adb chip, high-low */
 		via[B] |= TACK;
 		udelay(ADB_DELAY);
 		via[B] &= ~TACK;
@@ -463,67 +486,69 @@ maciisi_interrupt(int irq, void* arg)
 		break;
 
 	case sending:
-		
-		
+		/* via[SR]; */
+		/* Set ACK off */
 		via[B] &= ~TACK;
 		req = current_req;
 
 		if (!(status & TREQ)) {
-			
+			/* collision */
 			printk(KERN_ERR "maciisi_interrupt: send collision\n");
-			
+			/* Set idle and input */
 			via[ACR] &= ~SR_OUT;
 			tmp = via[SR];
 			via[B] &= ~TIP;
-			
+			/* Must re-send */
 			reading_reply = 0;
 			reply_len = 0;
 			maciisi_state = idle;
 			udelay(ADB_DELAY);
-			
+			/* process this now, because the IFR has been cleared */
 			goto switch_start;
 		}
 
 		udelay(ADB_DELAY);
 
 		if (data_index >= req->nbytes) {
-			
-			
+			/* Sent the whole packet, put the bus back in idle state */
+			/* Shift in, we are about to read a reply (hopefully) */
 			via[ACR] &= ~SR_OUT;
 			tmp = via[SR];
-			
+			/* End of frame */
 			via[B] &= ~TIP;
 			req->sent = 1;
 			maciisi_state = idle;
 			if (req->reply_expected) {
+				/* Note: only set this once we've
+                                   successfully sent the packet */
 				reading_reply = 1;
 			} else {
 				current_req = req->next;
 				if (req->done)
 					(*req->done)(req);
-				
+				/* Do any queued requests now */
 				i = maciisi_start();
 				if(i == 0 && need_sync) {
-					
+					/* Packet needs to be synced */
 					maciisi_sync(current_req);
 				}
 				if(i != -EBUSY)
 					need_sync = 0;
 			}
 		} else {
-			
-			
+			/* Sending more stuff */
+			/* Shift out */
 			via[ACR] |= SR_OUT;
-			
+			/* Write */
 			via[SR] = req->data[data_index++];
-			
+			/* Signal 'byte ready' */
 			via[B] |= TACK;
 		}
 		break;
 
 	case reading:
-		
-		 
+		/* Shift in */
+		/* via[ACR] &= ~SR_OUT; */ /* Not in 2.2 */
 		if (reply_len++ > 16) {
 			printk(KERN_ERR "maciisi_interrupt: reply too long, aborting read\n");
 			via[B] |= TACK;
@@ -532,39 +557,39 @@ maciisi_interrupt(int irq, void* arg)
 			maciisi_state = idle;
 			i = maciisi_start();
 			if(i == 0 && need_sync) {
-				
+				/* Packet needs to be synced */
 				maciisi_sync(current_req);
 			}
 			if(i != -EBUSY)
 				need_sync = 0;
 			break;
 		}
-		
+		/* Read data */
 		*reply_ptr++ = via[SR];
 		status = via[B] & (TIP|TREQ);
-		
+		/* ACK on/off */
 		via[B] |= TACK;
 		udelay(ADB_DELAY);
 		via[B] &= ~TACK;	
 		if (!(status & TREQ))
-			break; 
+			break; /* more stuff to deal with */
 		
-		
+		/* end of frame */
 		via[B] &= ~TIP;
-		tmp = via[SR]; 
-		udelay(ADB_DELAY); 
+		tmp = via[SR]; /* That's what happens in 2.2 */
+		udelay(ADB_DELAY); /* Give controller time to recover */
 
-		
+		/* end of packet, deal with it */
 		if (reading_reply) {
 			req = current_req;
 			req->reply_len = reply_ptr - req->reply;
 			if (req->data[0] == ADB_PACKET) {
-				
+				/* Have to adjust the reply from ADB commands */
 				if (req->reply_len <= 2 || (req->reply[1] & 2) != 0) {
-					
+					/* the 0x2 bit indicates no response */
 					req->reply_len = 0;
 				} else {
-					
+					/* leave just the command and result bytes in the reply */
 					req->reply_len -= 2;
 					memmove(req->reply, req->reply + 2, req->reply_len);
 				}
@@ -582,7 +607,7 @@ maciisi_interrupt(int irq, void* arg)
 			current_req = req->next;
 			if (req->done)
 				(*req->done)(req);
-			
+			/* Obviously, we got it */
 			reading_reply = 0;
 		} else {
 			maciisi_input(maciisi_rbuf, reply_ptr - maciisi_rbuf);
@@ -590,7 +615,7 @@ maciisi_interrupt(int irq, void* arg)
 		maciisi_state = idle;
 		status = via[B] & (TIP|TREQ);
 		if (!(status & TREQ)) {
-			
+			/* Timeout?! More likely, another packet coming in already */
 #ifdef DEBUG_MACIISI_ADB
 			printk(KERN_DEBUG "extra data after packet: status %x ifr %x\n",
 			       status, via[IFR]);
@@ -603,18 +628,18 @@ maciisi_interrupt(int irq, void* arg)
 			reading_reply = 0;
 			reply_ptr = maciisi_rbuf;
 #else
-			
+			/* Process the packet now */
 			reading_reply = 0;
 			goto switch_start;
 #endif
-			
-			
+			/* We used to do this... but the controller might actually have data for us */
+			/* maciisi_stfu(); */
 		}
 		else {
-			
+			/* Do any queued requests now if possible */
 			i = maciisi_start();
 			if(i == 0 && need_sync) {
-				
+				/* Packet needs to be synced */
 				maciisi_sync(current_req);
 			}
 			if(i != -EBUSY)

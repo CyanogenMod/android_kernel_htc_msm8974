@@ -30,13 +30,16 @@
 #include <linux/io.h>
 #include <linux/slab.h>
 
+/* ID's for SERCOS III PCI card (PLX 9030) */
 #define SERCOS_SUB_VENDOR_ID  0x1971
 #define SERCOS_SUB_SYSID_3530 0x3530
 #define SERCOS_SUB_SYSID_3535 0x3535
 #define SERCOS_SUB_SYSID_3780 0x3780
 
+/* Interrupt Enable Register */
 #define IER0_OFFSET 0x08
 
+/* Interrupt Status Register */
 #define ISR0_OFFSET 0x18
 
 struct sercos3_priv {
@@ -44,24 +47,26 @@ struct sercos3_priv {
 	spinlock_t ier0_cache_lock;
 };
 
+/* this function assumes ier0_cache_lock is locked! */
 static void sercos3_disable_interrupts(struct uio_info *info,
 				       struct sercos3_priv *priv)
 {
 	void __iomem *ier0 = info->mem[3].internal_addr + IER0_OFFSET;
 
-	
+	/* add enabled interrupts to cache */
 	priv->ier0_cache |= ioread32(ier0);
 
-	
+	/* disable interrupts */
 	iowrite32(0, ier0);
 }
 
+/* this function assumes ier0_cache_lock is locked! */
 static void sercos3_enable_interrupts(struct uio_info *info,
 				      struct sercos3_priv *priv)
 {
 	void __iomem *ier0 = info->mem[3].internal_addr + IER0_OFFSET;
 
-	
+	/* restore previously enabled interrupts */
 	iowrite32(ioread32(ier0) | priv->ier0_cache, ier0);
 	priv->ier0_cache = 0;
 }
@@ -132,7 +137,7 @@ static int __devinit sercos3_pci_probe(struct pci_dev *dev,
 	if (pci_request_regions(dev, "sercos3"))
 		goto out_disable;
 
-	
+	/* we only need PCI BAR's 0, 2, 3, 4, 5 */
 	if (sercos3_setup_iomem(dev, info, 0, 0))
 		goto out_unmap;
 	if (sercos3_setup_iomem(dev, info, 1, 2))

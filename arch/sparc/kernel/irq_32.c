@@ -29,8 +29,9 @@
 #else
 #define SMP_NOP2
 #define SMP_NOP3
-#endif 
+#endif /* SMP */
 
+/* platform specific irq setup */
 struct sparc_irq_config sparc_irq_config;
 
 unsigned long arch_local_irq_save(void)
@@ -40,7 +41,7 @@ unsigned long arch_local_irq_save(void)
 
 	__asm__ __volatile__(
 		"rd	%%psr, %0\n\t"
-		SMP_NOP3	
+		SMP_NOP3	/* Sun4m + Cypress + SMP bug */
 		"or	%0, %2, %1\n\t"
 		"wr	%1, 0, %%psr\n\t"
 		"nop; nop; nop\n"
@@ -58,7 +59,7 @@ void arch_local_irq_enable(void)
 
 	__asm__ __volatile__(
 		"rd	%%psr, %0\n\t"
-		SMP_NOP3	
+		SMP_NOP3	/* Sun4m + Cypress + SMP bug */
 		"andn	%0, %1, %0\n\t"
 		"wr	%0, 0, %%psr\n\t"
 		"nop; nop; nop\n"
@@ -75,7 +76,7 @@ void arch_local_irq_restore(unsigned long old_psr)
 	__asm__ __volatile__(
 		"rd	%%psr, %0\n\t"
 		"and	%2, %1, %2\n\t"
-		SMP_NOP2	
+		SMP_NOP2	/* Sun4m + Cypress + SMP bug */
 		"andn	%0, %1, %0\n\t"
 		"wr	%0, %2, %%psr\n\t"
 		"nop; nop; nop\n"
@@ -85,14 +86,49 @@ void arch_local_irq_restore(unsigned long old_psr)
 }
 EXPORT_SYMBOL(arch_local_irq_restore);
 
+/*
+ * Dave Redman (djhr@tadpole.co.uk)
+ *
+ * IRQ numbers.. These are no longer restricted to 15..
+ *
+ * this is done to enable SBUS cards and onboard IO to be masked
+ * correctly. using the interrupt level isn't good enough.
+ *
+ * For example:
+ *   A device interrupting at sbus level6 and the Floppy both come in
+ *   at IRQ11, but enabling and disabling them requires writing to
+ *   different bits in the SLAVIO/SEC.
+ *
+ * As a result of these changes sun4m machines could now support
+ * directed CPU interrupts using the existing enable/disable irq code
+ * with tweaks.
+ *
+ * Sun4d complicates things even further.  IRQ numbers are arbitrary
+ * 32-bit values in that case.  Since this is similar to sparc64,
+ * we adopt a virtual IRQ numbering scheme as is done there.
+ * Virutal interrupt numbers are allocated by build_irq().  So NR_IRQS
+ * just becomes a limit of how many interrupt sources we can handle in
+ * a single system.  Even fully loaded SS2000 machines top off at
+ * about 32 interrupt sources or so, therefore a NR_IRQS value of 64
+ * is more than enough.
+  *
+ * We keep a map of per-PIL enable interrupts.  These get wired
+ * up via the irq_chip->startup() method which gets invoked by
+ * the generic IRQ layer during request_irq().
+ */
 
 
+/* Table of allocated irqs. Unused entries has irq == 0 */
 static struct irq_bucket irq_table[NR_IRQS];
+/* Protect access to irq_table */
 static DEFINE_SPINLOCK(irq_table_lock);
 
+/* Map between the irq identifier used in hw to the irq_bucket. */
 struct irq_bucket *irq_map[SUN4D_MAX_IRQ];
+/* Protect access to irq_map */
 static DEFINE_SPINLOCK(irq_map_lock);
 
+/* Allocate a new irq from the irq_table */
 unsigned int irq_alloc(unsigned int real_irq, unsigned int pil)
 {
 	unsigned long flags;
@@ -123,6 +159,10 @@ found:
 	return i;
 }
 
+/* Based on a single pil handler_irq may need to call several
+ * interrupt handlers. Use irq_map as entry to irq_table,
+ * and let each entry in irq_table point to the next entry.
+ */
 void irq_link(unsigned int irq)
 {
 	struct irq_bucket *p;
@@ -162,6 +202,7 @@ void irq_unlink(unsigned int irq)
 }
 
 
+/* /proc/interrupts printing */
 int arch_show_interrupts(struct seq_file *p, int prec)
 {
 	int j;
@@ -219,12 +260,12 @@ int sparc_floppy_request_irq(unsigned int irq, irq_handler_t irq_handler)
 	if (err)
 		return -1;
 
-	
+	/* Save for later use in floppy interrupt handler */
 	floppy_irq = irq;
 
 	cpu_irq = (irq & (NR_IRQS - 1));
 
-	
+	/* Dork with trap table if we get this far. */
 #define INSTANTIATE(table) \
 	table[SP_TRAP_IRQ1+(cpu_irq-1)].inst_one = SPARC_RD_PSR_L0; \
 	table[SP_TRAP_IRQ1+(cpu_irq-1)].inst_two = \
@@ -243,11 +284,22 @@ int sparc_floppy_request_irq(unsigned int irq, irq_handler_t irq_handler)
 	INSTANTIATE(trap_table)
 #endif
 #undef INSTANTIATE
+	/*
+	 * XXX Correct thing whould be to flush only I- and D-cache lines
+	 * which contain the handler in question. But as of time of the
+	 * writing we have no CPU-neutral interface to fine-grained flushes.
+	 */
 	flush_cache_all();
 	return 0;
 }
 EXPORT_SYMBOL(sparc_floppy_request_irq);
 
+/*
+ * These variables are used to access state from the assembler
+ * interrupt handler, floppy_hardint, so we cannot put these in
+ * the floppy driver image because that would not work in the
+ * modular case.
+ */
 volatile unsigned char *fdc_status;
 EXPORT_SYMBOL(fdc_status);
 
@@ -266,6 +318,11 @@ EXPORT_SYMBOL(pdma_base);
 unsigned long pdma_areasize;
 EXPORT_SYMBOL(pdma_areasize);
 
+/* Use the generic irq support to call floppy_interrupt
+ * which was setup using request_irq() in sparc_floppy_request_irq().
+ * We only have one floppy interrupt so we do not need to check
+ * for additional handlers being wired up by irq_link()
+ */
 void sparc_floppy_irq(int irq, void *dev_id, struct pt_regs *regs)
 {
 	struct pt_regs *old_regs;
@@ -278,6 +335,13 @@ void sparc_floppy_irq(int irq, void *dev_id, struct pt_regs *regs)
 }
 #endif
 
+/* djhr
+ * This could probably be made indirect too and assigned in the CPU
+ * bits of the code. That would be much nicer I think and would also
+ * fit in with the idea of being able to tune your kernel for your machine
+ * by removing unrequired machine and device support.
+ *
+ */
 
 void __init init_IRQ(void)
 {

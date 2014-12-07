@@ -23,6 +23,7 @@
 #include <linux/slab.h>
 #include "tpm.h"
 
+/* National definitions */
 enum tpm_nsc_addr{
 	TPM_NSC_IRQ = 0x07,
 	TPM_NSC_BASE0_HI = 0x60,
@@ -47,30 +48,35 @@ enum tpm_nsc_status_loc {
 	NSC_DATA = 0x00
 };
 
+/* status bits */
 enum tpm_nsc_status {
-	NSC_STATUS_OBF = 0x01,	
-	NSC_STATUS_IBF = 0x02,	
-	NSC_STATUS_F0 = 0x04,	
-	NSC_STATUS_A2 = 0x08,	
-	NSC_STATUS_RDY = 0x10,	
-	NSC_STATUS_IBR = 0x20	
+	NSC_STATUS_OBF = 0x01,	/* output buffer full */
+	NSC_STATUS_IBF = 0x02,	/* input buffer full */
+	NSC_STATUS_F0 = 0x04,	/* F0 */
+	NSC_STATUS_A2 = 0x08,	/* A2 */
+	NSC_STATUS_RDY = 0x10,	/* ready to receive command */
+	NSC_STATUS_IBR = 0x20	/* ready to receive data */
 };
 
+/* command bits */
 enum tpm_nsc_cmd_mode {
-	NSC_COMMAND_NORMAL = 0x01,	
+	NSC_COMMAND_NORMAL = 0x01,	/* normal mode */
 	NSC_COMMAND_EOC = 0x03,
 	NSC_COMMAND_CANCEL = 0x22
 };
+/*
+ * Wait for a certain status to appear
+ */
 static int wait_for_stat(struct tpm_chip *chip, u8 mask, u8 val, u8 * data)
 {
 	unsigned long stop;
 
-	
+	/* status immediately available check */
 	*data = inb(chip->vendor.base + NSC_STATUS);
 	if ((*data & mask) == val)
 		return 0;
 
-	
+	/* wait for status */
 	stop = jiffies + 10 * HZ;
 	do {
 		msleep(TPM_TIMEOUT);
@@ -88,14 +94,14 @@ static int nsc_wait_for_ready(struct tpm_chip *chip)
 	int status;
 	unsigned long stop;
 
-	
+	/* status immediately available check */
 	status = inb(chip->vendor.base + NSC_STATUS);
 	if (status & NSC_STATUS_OBF)
 		status = inb(chip->vendor.base + NSC_DATA);
 	if (status & NSC_STATUS_RDY)
 		return 0;
 
-	
+	/* wait for status */
 	stop = jiffies + 100;
 	do {
 		msleep(TPM_TIMEOUT);
@@ -133,7 +139,7 @@ static int tpm_nsc_recv(struct tpm_chip *chip, u8 * buf, size_t count)
 		return -EIO;
 	}
 
-	
+	/* read the whole packet */
 	for (p = buffer; p < &buffer[count]; p++) {
 		if (wait_for_stat
 		    (chip, NSC_STATUS_OBF, NSC_STATUS_OBF, &data) < 0) {
@@ -171,6 +177,12 @@ static int tpm_nsc_send(struct tpm_chip *chip, u8 * buf, size_t count)
 	u8 data;
 	int i;
 
+	/*
+	 * If we hit the chip with back to back commands it locks up
+	 * and never set IBF. Hitting it with this "hammer" seems to
+	 * fix it. Not sure why this is needed, we followed the flow
+	 * chart in the manual to the letter.
+	 */
 	outb(NSC_COMMAND_CANCEL, chip->vendor.base + NSC_COMMAND);
 
 	if (nsc_wait_for_ready(chip) != 0)
@@ -289,7 +301,7 @@ static int __init init_nsc(void)
 	struct tpm_chip *chip;
 	unsigned long base;
 
-	
+	/* verify that it is a National part (SID) */
 	if (tpm_read_index(TPM_ADDR, NSC_SID_INDEX) != 0xEF) {
 		nscAddrBase = (tpm_read_index(TPM_SUPERIO_ADDR, 0x2C)<<8)|
 			(tpm_read_index(TPM_SUPERIO_ADDR, 0x2B)&0xFE);
@@ -305,7 +317,7 @@ static int __init init_nsc(void)
 	lo = tpm_read_index(nscAddrBase, TPM_NSC_BASE0_LO);
 	base = (hi<<8) | lo;
 
-	
+	/* enable the DPM module */
 	tpm_write_index(nscAddrBase, NSC_LDC_INDEX, 0x01);
 
 	pdev = platform_device_alloc("tpm_nscl0", -1);

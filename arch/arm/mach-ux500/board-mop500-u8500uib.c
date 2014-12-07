@@ -16,9 +16,13 @@
 
 #include "board-mop500.h"
 
+/* Dummy data that can be overridden by staging driver */
 struct i2c_board_info __initdata __weak mop500_i2c3_devices_u8500[] = {
 };
 
+/*
+ * TC35893
+ */
 static const unsigned int u8500_keymap[] = {
 	KEY(3, 1, KEY_END),
 	KEY(4, 1, KEY_POWER),

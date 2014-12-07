@@ -49,6 +49,11 @@
 
 static const char fw_barker[] = "*WESTOPFORNOONE*";
 
+/*
+ * @op_code: Op code we're looking for.
+ * @index: There can be several instances of the same opcode within
+ *         the firmware. Index specifies which one we're looking for.
+ */
 static int iwm_fw_op_offset(struct iwm_priv *iwm, const struct firmware *fw,
 			    u16 op_code, u32 index)
 {
@@ -60,7 +65,7 @@ static int iwm_fw_op_offset(struct iwm_priv *iwm, const struct firmware *fw,
 	fw_offset = 0;
 	fw_ptr = fw->data;
 
-	
+	/* We first need to look for the firmware barker */
 	if (memcmp(fw_ptr, fw_barker, IWM_HDR_BARKER_LEN)) {
 		IWM_ERR(iwm, "No barker string in this FW\n");
 		return -EINVAL;
@@ -146,6 +151,13 @@ static int iwm_load_firmware_chunk(struct iwm_priv *iwm,
 
 	return ret;
 }
+/*
+ * To load a fw image to the target, we basically go through the
+ * fw, looking for OP_MEM_DESC records. Once we found one, we
+ * pass it to iwm_load_firmware_chunk().
+ * The OP_MEM_DESC records contain the actuall memory chunk to be
+ * sent, but also the destination address.
+ */
 static int iwm_load_img(struct iwm_priv *iwm, const char *img_name)
 {
 	const struct firmware *fw;
@@ -177,21 +189,21 @@ static int iwm_load_img(struct iwm_priv *iwm, const char *img_name)
 		opcode_idx++;
 	}
 
-	
+	/* Read firmware version */
 	fw_offset = iwm_fw_op_offset(iwm, fw, IWM_HDR_REC_OP_SW_VER, 0);
 	if (fw_offset < 0)
 		goto err_release_fw;
 
 	ver = (struct iwm_fw_img_ver *)(fw->data + fw_offset);
 
-	
+	/* Read build tag */
 	fw_offset = iwm_fw_op_offset(iwm, fw, IWM_HDR_REC_OP_BUILD_TAG, 0);
 	if (fw_offset < 0)
 		goto err_release_fw;
 
 	build_tag = (char *)(fw->data + fw_offset);
 
-	
+	/* Read build date */
 	fw_offset = iwm_fw_op_offset(iwm, fw, IWM_HDR_REC_OP_BUILD_DATE, 0);
 	if (fw_offset < 0)
 		goto err_release_fw;
@@ -228,7 +240,7 @@ static int iwm_load_umac(struct iwm_priv *iwm)
 	if (ret < 0)
 		return ret;
 
-	
+	/* We've loaded the UMAC, we can tell the target to jump there */
 	target_cmd.opcode = UMAC_HDI_OUT_OPCODE_JUMP;
 	target_cmd.addr = cpu_to_le32(UMAC_MU_FW_INST_DATA_12_ADDR);
 	target_cmd.op1_sz = 0;
@@ -259,7 +271,7 @@ static int iwm_load_lmac(struct iwm_priv *iwm, const char *img_name)
 static int iwm_init_calib(struct iwm_priv *iwm, unsigned long cfg_bitmap,
 			  unsigned long expected_bitmap, u8 rx_iq_cmd)
 {
-	
+	/* Read RX IQ calibration result from EEPROM */
 	if (test_bit(rx_iq_cmd, &cfg_bitmap)) {
 		iwm_store_rxiq_calib_result(iwm);
 		set_bit(PHY_CALIBRATE_RX_IQ_CMD, &iwm->calib_done_map);
@@ -283,20 +295,32 @@ static int iwm_init_calib(struct iwm_priv *iwm, unsigned long cfg_bitmap,
 	return 0;
 }
 
+/*
+ * We currently have to load 3 FWs:
+ * 1) The UMAC (Upper MAC).
+ * 2) The calibration LMAC (Lower MAC).
+ *    We then send the calibration init command, so that the device can
+ *    run a first calibration round.
+ * 3) The operational LMAC, which replaces the calibration one when it's
+ *    done with the first calibration round.
+ *
+ * Once those 3 FWs have been loaded, we send the periodic calibration
+ * command, and then the device is available for regular 802.11 operations.
+ */
 int iwm_load_fw(struct iwm_priv *iwm)
 {
 	unsigned long init_calib_map, periodic_calib_map;
 	unsigned long expected_calib_map;
 	int ret;
 
-	
+	/* We first start downloading the UMAC */
 	ret = iwm_load_umac(iwm);
 	if (ret < 0) {
 		IWM_ERR(iwm, "UMAC loading failed\n");
 		return ret;
 	}
 
-	
+	/* Handle UMAC_ALIVE notification */
 	ret = iwm_notif_handle(iwm, UMAC_NOTIFY_OPCODE_ALIVE, IWM_SRC_UMAC,
 			       WAIT_NOTIF_TIMEOUT);
 	if (ret) {
@@ -304,14 +328,14 @@ int iwm_load_fw(struct iwm_priv *iwm)
 		return ret;
 	}
 
-	
+	/* UMAC is alive, we can download the calibration LMAC */
 	ret = iwm_load_lmac(iwm, iwm->bus_ops->calib_lmac_name);
 	if (ret) {
 		IWM_ERR(iwm, "Calibration LMAC loading failed\n");
 		return ret;
 	}
 
-	
+	/* Handle UMAC_INIT_COMPLETE notification */
 	ret = iwm_notif_handle(iwm, UMAC_NOTIFY_OPCODE_INIT_COMPLETE,
 			       IWM_SRC_UMAC, WAIT_NOTIF_TIMEOUT);
 	if (ret) {
@@ -320,7 +344,7 @@ int iwm_load_fw(struct iwm_priv *iwm)
 		return ret;
 	}
 
-	
+	/* Read EEPROM data */
 	ret = iwm_eeprom_init(iwm);
 	if (ret < 0) {
 		IWM_ERR(iwm, "Couldn't init eeprom array\n");
@@ -335,7 +359,7 @@ int iwm_load_fw(struct iwm_priv *iwm)
 	ret = iwm_init_calib(iwm, init_calib_map, expected_calib_map,
 			     CALIB_CFG_RX_IQ_IDX);
 	if (ret < 0) {
-		
+		/* Let's try the old way */
 		ret = iwm_init_calib(iwm, expected_calib_map,
 				     expected_calib_map,
 				     PHY_CALIBRATE_RX_IQ_CMD);
@@ -345,7 +369,7 @@ int iwm_load_fw(struct iwm_priv *iwm)
 		}
 	}
 
-	
+	/* Handle LMAC CALIBRATION_COMPLETE notification */
 	ret = iwm_notif_handle(iwm, CALIBRATION_COMPLETE_NOTIFICATION,
 			       IWM_SRC_LMAC, WAIT_NOTIF_TIMEOUT);
 	if (ret) {
@@ -364,7 +388,7 @@ int iwm_load_fw(struct iwm_priv *iwm)
 		goto out;
 	}
 
-	
+	/* Download the operational LMAC */
 	ret = iwm_load_lmac(iwm, iwm->bus_ops->lmac_name);
 	if (ret) {
 		IWM_ERR(iwm, "LMAC loading failed\n");

@@ -16,12 +16,16 @@
 
 #define DM_MSG_PREFIX "transaction manager"
 
+/*----------------------------------------------------------------*/
 
 struct shadow_info {
 	struct hlist_node hlist;
 	dm_block_t where;
 };
 
+/*
+ * It would be nice if we scaled with the size of transaction.
+ */
 #define HASH_SIZE 256
 #define HASH_MASK (HASH_SIZE - 1)
 
@@ -36,6 +40,7 @@ struct dm_transaction_manager {
 	struct hlist_head buckets[HASH_SIZE];
 };
 
+/*----------------------------------------------------------------*/
 
 static int is_shadow(struct dm_transaction_manager *tm, dm_block_t b)
 {
@@ -55,6 +60,10 @@ static int is_shadow(struct dm_transaction_manager *tm, dm_block_t b)
 	return r;
 }
 
+/*
+ * This can silently fail if there's no memory.  We're ok with this since
+ * creating redundant shadows causes no harm.
+ */
 static void insert_shadow(struct dm_transaction_manager *tm, dm_block_t b)
 {
 	unsigned bucket;
@@ -89,6 +98,7 @@ static void wipe_shadow_table(struct dm_transaction_manager *tm)
 	spin_unlock(&tm->lock);
 }
 
+/*----------------------------------------------------------------*/
 
 static struct dm_transaction_manager *dm_tm_create(struct dm_block_manager *bm,
 						   struct dm_space_map *sm)
@@ -178,6 +188,10 @@ int dm_tm_new_block(struct dm_transaction_manager *tm,
 		return r;
 	}
 
+	/*
+	 * New blocks count as shadows in that they don't need to be
+	 * shadowed again.
+	 */
 	insert_shadow(tm, new_block);
 
 	return 0;
@@ -254,6 +268,9 @@ EXPORT_SYMBOL_GPL(dm_tm_unlock);
 
 void dm_tm_inc(struct dm_transaction_manager *tm, dm_block_t b)
 {
+	/*
+	 * The non-blocking clone doesn't support this.
+	 */
 	BUG_ON(tm->is_clone);
 
 	dm_sm_inc_block(tm->sm, b);
@@ -262,6 +279,9 @@ EXPORT_SYMBOL_GPL(dm_tm_inc);
 
 void dm_tm_dec(struct dm_transaction_manager *tm, dm_block_t b)
 {
+	/*
+	 * The non-blocking clone doesn't support this.
+	 */
 	BUG_ON(tm->is_clone);
 
 	dm_sm_dec_block(tm->sm, b);
@@ -282,6 +302,7 @@ struct dm_block_manager *dm_tm_get_bm(struct dm_transaction_manager *tm)
 	return tm->bm;
 }
 
+/*----------------------------------------------------------------*/
 
 static int dm_tm_create_internal(struct dm_block_manager *bm,
 				 dm_block_t sb_location,
@@ -376,3 +397,4 @@ int dm_tm_open_with_sm(struct dm_block_manager *bm, dm_block_t sb_location,
 }
 EXPORT_SYMBOL_GPL(dm_tm_open_with_sm);
 
+/*----------------------------------------------------------------*/

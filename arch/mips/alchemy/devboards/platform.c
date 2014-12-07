@@ -1,3 +1,6 @@
+/*
+ * devoard misc stuff.
+ */
 
 #include <linux/init.h>
 #include <linux/mtd/mtd.h>
@@ -44,6 +47,7 @@ static int __init db1x_late_setup(void)
 }
 device_initcall(db1x_late_setup);
 
+/* register a pcmcia socket */
 int __init db1x_register_pcmcia_socket(phys_addr_t pcmcia_attr_start,
 				       phys_addr_t pcmcia_attr_end,
 				       phys_addr_t pcmcia_mem_start,
@@ -157,14 +161,17 @@ int __init db1x_register_norflash(unsigned long size, int width,
 	if (!pd)
 		goto out3;
 
-	
+	/* NOR flash ends at 0x20000000, regardless of size */
 	res->start = 0x20000000 - size;
 	res->end = 0x20000000 - 1;
 	res->flags = IORESOURCE_MEM;
 
+	/* partition setup.  Most Develboards have a switch which allows
+	 * to swap the physical locations of the 2 NOR flash banks.
+	 */
 	i = 0;
 	if (!swapped) {
-		
+		/* first NOR chip */
 		parts[i].offset = 0;
 		parts[i].name = "User FS";
 		parts[i].size = size / 2;

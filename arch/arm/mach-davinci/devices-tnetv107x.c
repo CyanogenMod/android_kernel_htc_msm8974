@@ -26,6 +26,7 @@
 
 #include "clock.h"
 
+/* Base addresses for on-chip devices */
 #define TNETV107X_TPCC_BASE			0x01c00000
 #define TNETV107X_TPTC0_BASE			0x01c10000
 #define TNETV107X_TPTC1_BASE			0x01c10400
@@ -41,6 +42,7 @@
 #define TNETV107X_ASYNC_EMIF_DATA_CE2_BASE	0x44000000
 #define TNETV107X_ASYNC_EMIF_DATA_CE3_BASE	0x48000000
 
+/* TNETV107X specific EDMA3 information */
 #define EDMA_TNETV107X_NUM_DMACH	64
 #define EDMA_TNETV107X_NUM_TCC		64
 #define EDMA_TNETV107X_NUM_PARAMENTRY	128
@@ -57,14 +59,14 @@
 #define TNETV107X_DMACH_SDIO1_TX		29
 
 static const s8 edma_tc_mapping[][2] = {
-	
+	/* event queue no	TC no	*/
 	{	 0,		 0	},
 	{	 1,		 1	},
 	{	-1,		-1	}
 };
 
 static const s8 edma_priority_mapping[][2] = {
-	
+	/* event queue no	Prio	*/
 	{	 0,		 3	},
 	{	 1,		 7	},
 	{	-1,		-1	}
@@ -164,48 +166,48 @@ struct platform_device tnetv107x_serial_device = {
 };
 
 static struct resource mmc0_resources[] = {
-	{ 
+	{ /* Memory mapped registers */
 		.start	= TNETV107X_SDIO0_BASE,
 		.end	= TNETV107X_SDIO0_BASE + 0x0ff,
 		.flags	= IORESOURCE_MEM
 	},
-	{ 
+	{ /* MMC interrupt */
 		.start	= IRQ_TNETV107X_MMC0,
 		.flags	= IORESOURCE_IRQ
 	},
-	{ 
+	{ /* SDIO interrupt */
 		.start	= IRQ_TNETV107X_SDIO0,
 		.flags	= IORESOURCE_IRQ
 	},
-	{ 
+	{ /* DMA RX */
 		.start	= EDMA_CTLR_CHAN(0, TNETV107X_DMACH_SDIO0_RX),
 		.flags	= IORESOURCE_DMA
 	},
-	{ 
+	{ /* DMA TX */
 		.start	= EDMA_CTLR_CHAN(0, TNETV107X_DMACH_SDIO0_TX),
 		.flags	= IORESOURCE_DMA
 	},
 };
 
 static struct resource mmc1_resources[] = {
-	{ 
+	{ /* Memory mapped registers */
 		.start	= TNETV107X_SDIO1_BASE,
 		.end	= TNETV107X_SDIO1_BASE + 0x0ff,
 		.flags	= IORESOURCE_MEM
 	},
-	{ 
+	{ /* MMC interrupt */
 		.start	= IRQ_TNETV107X_MMC1,
 		.flags	= IORESOURCE_IRQ
 	},
-	{ 
+	{ /* SDIO interrupt */
 		.start	= IRQ_TNETV107X_SDIO1,
 		.flags	= IORESOURCE_IRQ
 	},
-	{ 
+	{ /* DMA RX */
 		.start	= EDMA_CTLR_CHAN(0, TNETV107X_DMACH_SDIO1_RX),
 		.flags	= IORESOURCE_DMA
 	},
-	{ 
+	{ /* DMA TX */
 		.start	= EDMA_CTLR_CHAN(0, TNETV107X_DMACH_SDIO1_TX),
 		.flags	= IORESOURCE_DMA
 	},
@@ -266,7 +268,7 @@ static int __init nand_init(int chipsel, struct davinci_nand_pdata *data)
 	u32	range;
 	int	ret;
 
-	
+	/* Figure out the resource range from the ale/cle masks */
 	range = max(data->mask_cle, data->mask_ale);
 	range = PAGE_ALIGN(range + 4) - 1;
 
@@ -366,6 +368,11 @@ void __init tnetv107x_devices_init(struct tnetv107x_device_info *info)
 	int i, error;
 	struct clk *tsc_clk;
 
+	/*
+	 * The reset defaults for tnetv107x tsc clock divider is set too high.
+	 * This forces the clock down to a range that allows the ADC to
+	 * complete sample conversion in time.
+	 */
 	tsc_clk = clk_get(NULL, "sys_tsc_clk");
 	if (tsc_clk) {
 		error = clk_set_rate(tsc_clk, 5000000);

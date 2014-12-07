@@ -9,6 +9,7 @@
  *  (mailto:DL-MPTFusionLinux@lsi.com)
  *
  */
+/*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
 /*
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -47,8 +48,12 @@
 #ifndef SCSIHOST_H_INCLUDED
 #define SCSIHOST_H_INCLUDED
 
+/*=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=*/
+/*
+ *	SCSI Public stuff...
+ */
 
-#define MPT_SCANDV_GOOD			(0x00000000) 
+#define MPT_SCANDV_GOOD			(0x00000000) /* must be 0 */
 #define MPT_SCANDV_DID_RESET		(0x00000001)
 #define MPT_SCANDV_SENSE		(0x00000002)
 #define MPT_SCANDV_SOME_ERROR		(0x00000004)
@@ -59,13 +64,13 @@
 
 #define MPT_SCANDV_MAX_RETRIES		(10)
 
-#define MPT_ICFLAG_BUF_CAP	0x01	
-#define MPT_ICFLAG_ECHO		0x02	
-#define MPT_ICFLAG_EBOS		0x04	
-#define MPT_ICFLAG_PHYS_DISK	0x08	
-#define MPT_ICFLAG_TAGGED_CMD	0x10	
-#define MPT_ICFLAG_DID_RESET	0x20	
-#define MPT_ICFLAG_RESERVED	0x40	
+#define MPT_ICFLAG_BUF_CAP	0x01	/* ReadBuffer Read Capacity format */
+#define MPT_ICFLAG_ECHO		0x02	/* ReadBuffer Echo buffer format */
+#define MPT_ICFLAG_EBOS		0x04	/* ReadBuffer Echo buffer has EBOS */
+#define MPT_ICFLAG_PHYS_DISK	0x08	/* Any SCSI IO but do Phys Disk Format */
+#define MPT_ICFLAG_TAGGED_CMD	0x10	/* Do tagged IO */
+#define MPT_ICFLAG_DID_RESET	0x20	/* Bus Reset occurred with this command */
+#define MPT_ICFLAG_RESERVED	0x40	/* Reserved has been issued */
 
 #define MPT_SCSI_CMD_PER_DEV_HIGH	64
 #define MPT_SCSI_CMD_PER_DEV_LOW	32
@@ -74,6 +79,9 @@
 
 #define MPT_SCSI_MAX_SECTORS    8192
 
+/* SCSI driver setup structure. Settings can be overridden
+ * by command line options.
+ */
 #define MPTSCSIH_DOMAIN_VALIDATION      1
 #define MPTSCSIH_MAX_WIDTH              1
 #define MPTSCSIH_MIN_SYNC               0x08
@@ -84,15 +92,15 @@
 
 
 typedef struct _internal_cmd {
-	char		*data;		
-	dma_addr_t	data_dma;	
-	int		size;		
-	u8		cmd;		
-	u8		channel;	
-	u8		id;		
+	char		*data;		/* data pointer */
+	dma_addr_t	data_dma;	/* data dma address */
+	int		size;		/* transfer size */
+	u8		cmd;		/* SCSI Op Code */
+	u8		channel;	/* bus number */
+	u8		id;		/* SCSI ID (virtual) */
 	int		lun;
-	u8		flags;		
-	u8		physDiskNum;	
+	u8		flags;		/* Bit Field - See above */
+	u8		physDiskNum;	/* Phys disk number, -1 else */
 	u8		rsvd2;
 	u8		rsvd;
 } INTERNAL_CMD;

@@ -82,7 +82,7 @@ static ssize_t send_ping_cmd(struct file *file, const char __user *ubuf,
 		return -ENOMEM;
 	}
 
-	
+	/* hdlc encoded ping command */
 	buf[0] = 0x0C;
 	buf[1] = 0x14;
 	buf[2] = 0x3A;

@@ -39,8 +39,18 @@ MODULE_LICENSE("GPL v2");
 static const char f_midi_shortname[] = "f_midi";
 static const char f_midi_longname[] = "MIDI Gadget";
 
+/*
+ * We can only handle 16 cables on one single endpoint, as cable numbers are
+ * stored in 4-bit fields. And as the interface currently only holds one
+ * single endpoint, this is the maximum number of ports we can allow.
+ */
 #define MAX_PORTS 16
 
+/*
+ * This is a gadget, and the IN/OUT naming is from the host's perspective.
+ * USB -> OUT endpoint -> rawmidi
+ * USB <- IN endpoint  <- rawmidi
+ */
 struct gmidi_in_port {
 	struct f_midi *midi;
 	int active;
@@ -87,16 +97,18 @@ DECLARE_UAC_AC_HEADER_DESCRIPTOR(1);
 DECLARE_USB_MIDI_OUT_JACK_DESCRIPTOR(1);
 DECLARE_USB_MS_ENDPOINT_DESCRIPTOR(16);
 
+/* B.3.1  Standard AC Interface Descriptor */
 static struct usb_interface_descriptor ac_interface_desc __initdata = {
 	.bLength =		USB_DT_INTERFACE_SIZE,
 	.bDescriptorType =	USB_DT_INTERFACE,
-	
-	
+	/* .bInterfaceNumber =	DYNAMIC */
+	/* .bNumEndpoints =	DYNAMIC */
 	.bInterfaceClass =	USB_CLASS_AUDIO,
 	.bInterfaceSubClass =	USB_SUBCLASS_AUDIOCONTROL,
-	
+	/* .iInterface =	DYNAMIC */
 };
 
+/* B.3.2  Class-Specific AC Interface Descriptor */
 static struct uac1_ac_header_descriptor_1 ac_header_desc __initdata = {
 	.bLength =		UAC_DT_AC_HEADER_SIZE(1),
 	.bDescriptorType =	USB_DT_CS_INTERFACE,
@@ -104,27 +116,30 @@ static struct uac1_ac_header_descriptor_1 ac_header_desc __initdata = {
 	.bcdADC =		cpu_to_le16(0x0100),
 	.wTotalLength =		cpu_to_le16(UAC_DT_AC_HEADER_SIZE(1)),
 	.bInCollection =	1,
-	
+	/* .baInterfaceNr =	DYNAMIC */
 };
 
+/* B.4.1  Standard MS Interface Descriptor */
 static struct usb_interface_descriptor ms_interface_desc __initdata = {
 	.bLength =		USB_DT_INTERFACE_SIZE,
 	.bDescriptorType =	USB_DT_INTERFACE,
-	
+	/* .bInterfaceNumber =	DYNAMIC */
 	.bNumEndpoints =	2,
 	.bInterfaceClass =	USB_CLASS_AUDIO,
 	.bInterfaceSubClass =	USB_SUBCLASS_MIDISTREAMING,
-	
+	/* .iInterface =	DYNAMIC */
 };
 
+/* B.4.2  Class-Specific MS Interface Descriptor */
 static struct usb_ms_header_descriptor ms_header_desc __initdata = {
 	.bLength =		USB_DT_MS_HEADER_SIZE,
 	.bDescriptorType =	USB_DT_CS_INTERFACE,
 	.bDescriptorSubtype =	USB_MS_HEADER,
 	.bcdMSC =		cpu_to_le16(0x0100),
-	
+	/* .wTotalLength =	DYNAMIC */
 };
 
+/* B.5.1  Standard Bulk OUT Endpoint Descriptor */
 static struct usb_endpoint_descriptor bulk_out_desc = {
 	.bLength =		USB_DT_ENDPOINT_AUDIO_SIZE,
 	.bDescriptorType =	USB_DT_ENDPOINT,
@@ -132,14 +147,16 @@ static struct usb_endpoint_descriptor bulk_out_desc = {
 	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
 };
 
+/* B.5.2  Class-specific MS Bulk OUT Endpoint Descriptor */
 static struct usb_ms_endpoint_descriptor_16 ms_out_desc = {
-	
+	/* .bLength =		DYNAMIC */
 	.bDescriptorType =	USB_DT_CS_ENDPOINT,
 	.bDescriptorSubtype =	USB_MS_GENERAL,
-	
-	
+	/* .bNumEmbMIDIJack =	DYNAMIC */
+	/* .baAssocJackID =	DYNAMIC */
 };
 
+/* B.6.1  Standard Bulk IN Endpoint Descriptor */
 static struct usb_endpoint_descriptor bulk_in_desc = {
 	.bLength =		USB_DT_ENDPOINT_AUDIO_SIZE,
 	.bDescriptorType =	USB_DT_ENDPOINT,
@@ -147,24 +164,26 @@ static struct usb_endpoint_descriptor bulk_in_desc = {
 	.bmAttributes =		USB_ENDPOINT_XFER_BULK,
 };
 
+/* B.6.2  Class-specific MS Bulk IN Endpoint Descriptor */
 static struct usb_ms_endpoint_descriptor_16 ms_in_desc = {
-	
+	/* .bLength =		DYNAMIC */
 	.bDescriptorType =	USB_DT_CS_ENDPOINT,
 	.bDescriptorSubtype =	USB_MS_GENERAL,
-	
-	
+	/* .bNumEmbMIDIJack =	DYNAMIC */
+	/* .baAssocJackID =	DYNAMIC */
 };
 
+/* string IDs are assigned dynamically */
 
 #define STRING_FUNC_IDX			0
 
 static struct usb_string midi_string_defs[] = {
 	[STRING_FUNC_IDX].s = "MIDI function",
-	{  } 
+	{  } /* end of list */
 };
 
 static struct usb_gadget_strings midi_stringtab = {
-	.language	= 0x0409,	
+	.language	= 0x0409,	/* en-us */
 	.strings	= midi_string_defs,
 };
 
@@ -199,6 +218,9 @@ static const uint8_t f_midi_cin_length[] = {
 	0, 0, 2, 3, 3, 1, 2, 3, 3, 3, 3, 3, 2, 2, 3, 1
 };
 
+/*
+ * Receives a chunk of MIDI data.
+ */
 static void f_midi_read_data(struct usb_ep *ep, int cable,
 			     uint8_t *data, int length)
 {
@@ -206,7 +228,7 @@ static void f_midi_read_data(struct usb_ep *ep, int cable,
 	struct snd_rawmidi_substream *substream = midi->out_substream[cable];
 
 	if (!substream)
-		
+		/* Nobody is listening - throw it on the floor. */
 		return;
 
 	if (!test_bit(cable, &midi->out_triggered))
@@ -236,20 +258,22 @@ f_midi_complete(struct usb_ep *ep, struct usb_request *req)
 	int status = req->status;
 
 	switch (status) {
-	case 0:			 
+	case 0:			 /* normal completion */
 		if (ep == midi->out_ep) {
-			
+			/* We received stuff. req is queued again, below */
 			f_midi_handle_out_data(ep, req);
 		} else if (ep == midi->in_ep) {
+			/* Our transmit completed. See if there's more to go.
+			 * f_midi_transmit eats req, don't queue it again. */
 			f_midi_transmit(midi, req);
 			return;
 		}
 		break;
 
-	
-	case -ECONNABORTED:	
-	case -ECONNRESET:	
-	case -ESHUTDOWN:	
+	/* this endpoint is normally active while we're configured */
+	case -ECONNABORTED:	/* hardware forced ep reset */
+	case -ECONNRESET:	/* request dequeued */
+	case -ESHUTDOWN:	/* disconnect from host */
 		VDBG(cdev, "%s gone (%d), %d/%d\n", ep->name, status,
 				req->actual, req->length);
 		if (ep == midi->out_ep)
@@ -258,12 +282,14 @@ f_midi_complete(struct usb_ep *ep, struct usb_request *req)
 		free_ep_req(ep, req);
 		return;
 
-	case -EOVERFLOW:	
+	case -EOVERFLOW:	/* buffer overrun on read means that
+				 * we didn't provide a big enough buffer.
+				 */
 	default:
 		DBG(cdev, "%s complete --> %d, %d/%d\n", ep->name,
 				status, req->actual, req->length);
 		break;
-	case -EREMOTEIO:	
+	case -EREMOTEIO:	/* short read */
 		break;
 	}
 
@@ -272,7 +298,7 @@ f_midi_complete(struct usb_ep *ep, struct usb_request *req)
 		ERROR(cdev, "kill %s:  resubmit %d bytes --> %d\n",
 				ep->name, req->length, status);
 		usb_ep_set_halt(ep);
-		
+		/* FIXME recover later ... somehow */
 	}
 }
 
@@ -337,7 +363,7 @@ static int f_midi_set_alt(struct usb_function *f, unsigned intf, unsigned alt)
 
 	midi->out_ep->driver_data = midi;
 
-	
+	/* allocate a bunch of read buffers and queue them all at once. */
 	for (i = 0; i < midi->qlen && err == 0; i++) {
 		struct usb_request *req =
 			alloc_ep_req(midi->out_ep, midi->buflen);
@@ -362,6 +388,10 @@ static void f_midi_disable(struct usb_function *f)
 
 	DBG(cdev, "disable\n");
 
+	/*
+	 * just disable endpoints, forcing completion of pending i/o.
+	 * all our completion handlers free their requests in this case.
+	 */
 	usb_ep_disable(midi->in_ep);
 	usb_ep_disable(midi->out_ep);
 }
@@ -374,7 +404,7 @@ static void f_midi_unbind(struct usb_configuration *c, struct usb_function *f)
 
 	DBG(cdev, "unbind\n");
 
-	
+	/* just to be sure */
 	f_midi_disable(f);
 
 	card = midi->card;
@@ -407,6 +437,9 @@ static void f_midi_transmit_packet(struct usb_request *req, uint8_t p0,
 	req->length = length + 4;
 }
 
+/*
+ * Converts MIDI commands to USB MIDI packets.
+ */
 static void f_midi_transmit_byte(struct usb_request *req,
 				 struct gmidi_in_port *port, uint8_t b)
 {
@@ -462,7 +495,7 @@ static void f_midi_transmit_byte(struct usb_request *req,
 			port->state = STATE_1PARAM;
 		else
 			port->state = STATE_2PARAM_1;
-	} else { 
+	} else { /* b < 0x80 */
 		switch (port->state) {
 		case STATE_1PARAM:
 			if (port->data[0] < 0xf0) {
@@ -630,6 +663,7 @@ static struct snd_rawmidi_ops gmidi_out_ops = {
 	.trigger = f_midi_out_trigger
 };
 
+/* register as a sound "card" */
 static int f_midi_register_card(struct f_midi *midi)
 {
 	struct snd_card *card;
@@ -656,7 +690,7 @@ static int f_midi_register_card(struct f_midi *midi)
 	strcpy(card->longname, f_midi_longname);
 	strcpy(card->shortname, f_midi_shortname);
 
-	
+	/* Set up rawmidi */
 	snd_component_add(card, "MIDI");
 	err = snd_rawmidi_new(card, card->longname, 0,
 			      midi->out_ports, midi->in_ports, &rmidi);
@@ -671,12 +705,16 @@ static int f_midi_register_card(struct f_midi *midi)
 			    SNDRV_RAWMIDI_INFO_DUPLEX;
 	rmidi->private_data = midi;
 
+	/*
+	 * Yes, rawmidi OUTPUT = USB IN, and rawmidi INPUT = USB OUT.
+	 * It's an upside-down world being a gadget.
+	 */
 	snd_rawmidi_set_ops(rmidi, SNDRV_RAWMIDI_STREAM_OUTPUT, &gmidi_in_ops);
 	snd_rawmidi_set_ops(rmidi, SNDRV_RAWMIDI_STREAM_INPUT, &gmidi_out_ops);
 
 	snd_card_set_dev(card, &midi->gadget->dev);
 
-	
+	/* register it - we're ready to go */
 	err = snd_card_register(card);
 	if (err < 0) {
 		ERROR(midi, "snd_card_register() failed\n");
@@ -694,6 +732,7 @@ fail:
 	return err;
 }
 
+/* MIDI function driver setup/binding */
 
 static int __init
 f_midi_bind(struct usb_configuration *c, struct usb_function *f)
@@ -707,7 +746,7 @@ f_midi_bind(struct usb_configuration *c, struct usb_function *f)
 	struct f_midi *midi = func_to_midi(f);
 	int status, n, jack = 1, i = 0;
 
-	
+	/* maybe allocate device-global string ID */
 	if (midi_string_defs[0].id == 0) {
 		status = usb_string_id(c->cdev);
 		if (status < 0)
@@ -715,7 +754,7 @@ f_midi_bind(struct usb_configuration *c, struct usb_function *f)
 		midi_string_defs[0].id = status;
 	}
 
-	
+	/* We have two interfaces, AudioControl and MIDIStreaming */
 	status = usb_interface_id(c, f);
 	if (status < 0)
 		goto fail;
@@ -729,18 +768,18 @@ f_midi_bind(struct usb_configuration *c, struct usb_function *f)
 
 	status = -ENODEV;
 
-	
+	/* allocate instance-specific endpoints */
 	midi->in_ep = usb_ep_autoconfig(cdev->gadget, &bulk_in_desc);
 	if (!midi->in_ep)
 		goto fail;
-	midi->in_ep->driver_data = cdev;	
+	midi->in_ep->driver_data = cdev;	/* claim */
 
 	midi->out_ep = usb_ep_autoconfig(cdev->gadget, &bulk_out_desc);
 	if (!midi->out_ep)
 		goto fail;
-	midi->out_ep->driver_data = cdev;	
+	midi->out_ep->driver_data = cdev;	/* claim */
 
-	
+	/* allocate temporary function list */
 	midi_function = kcalloc((MAX_PORTS * 4) + 9, sizeof(*midi_function),
 				GFP_KERNEL);
 	if (!midi_function) {
@@ -748,13 +787,18 @@ f_midi_bind(struct usb_configuration *c, struct usb_function *f)
 		goto fail;
 	}
 
+	/*
+	 * construct the function's descriptor set. As the number of
+	 * input and output MIDI ports is configurable, we have to do
+	 * it that way.
+	 */
 
-	
+	/* add the headers - these are always the same */
 	midi_function[i++] = (struct usb_descriptor_header *) &ac_interface_desc;
 	midi_function[i++] = (struct usb_descriptor_header *) &ac_header_desc;
 	midi_function[i++] = (struct usb_descriptor_header *) &ms_interface_desc;
 
-	
+	/* calculate the header's wTotalLength */
 	n = USB_DT_MS_HEADER_SIZE
 		+ (midi->in_ports + midi->out_ports) *
 			(USB_DT_MIDI_IN_SIZE + USB_DT_MIDI_OUT_SIZE(1));
@@ -762,7 +806,7 @@ f_midi_bind(struct usb_configuration *c, struct usb_function *f)
 
 	midi_function[i++] = (struct usb_descriptor_header *) &ms_header_desc;
 
-	
+	/* configure the external IN jacks, each linked to an embedded OUT jack */
 	for (n = 0; n < midi->in_ports; n++) {
 		struct usb_midi_in_jack_descriptor *in_ext = &jack_in_ext_desc[n];
 		struct usb_midi_out_jack_descriptor_1 *out_emb = &jack_out_emb_desc[n];
@@ -786,11 +830,11 @@ f_midi_bind(struct usb_configuration *c, struct usb_function *f)
 		out_emb->iJack			= 0;
 		midi_function[i++] = (struct usb_descriptor_header *) out_emb;
 
-		
+		/* link it to the endpoint */
 		ms_in_desc.baAssocJackID[n] = out_emb->bJackID;
 	}
 
-	
+	/* configure the external OUT jacks, each linked to an embedded IN jack */
 	for (n = 0; n < midi->out_ports; n++) {
 		struct usb_midi_in_jack_descriptor *in_emb = &jack_in_emb_desc[n];
 		struct usb_midi_out_jack_descriptor_1 *out_ext = &jack_out_ext_desc[n];
@@ -814,25 +858,30 @@ f_midi_bind(struct usb_configuration *c, struct usb_function *f)
 		out_ext->pins[0].baSourcePin =	1;
 		midi_function[i++] = (struct usb_descriptor_header *) out_ext;
 
-		
+		/* link it to the endpoint */
 		ms_out_desc.baAssocJackID[n] = in_emb->bJackID;
 	}
 
-	
+	/* configure the endpoint descriptors ... */
 	ms_out_desc.bLength = USB_DT_MS_ENDPOINT_SIZE(midi->in_ports);
 	ms_out_desc.bNumEmbMIDIJack = midi->in_ports;
 
 	ms_in_desc.bLength = USB_DT_MS_ENDPOINT_SIZE(midi->out_ports);
 	ms_in_desc.bNumEmbMIDIJack = midi->out_ports;
 
-	
+	/* ... and add them to the list */
 	midi_function[i++] = (struct usb_descriptor_header *) &bulk_out_desc;
 	midi_function[i++] = (struct usb_descriptor_header *) &ms_out_desc;
 	midi_function[i++] = (struct usb_descriptor_header *) &bulk_in_desc;
 	midi_function[i++] = (struct usb_descriptor_header *) &ms_in_desc;
 	midi_function[i++] = NULL;
 
-	
+	/*
+	 * support all relevant hardware speeds... we expect that when
+	 * hardware is dual speed, all bulk-capable endpoints work at
+	 * both speeds
+	 */
+	/* copy descriptors, and track endpoint copies */
 	if (gadget_is_dualspeed(c->cdev->gadget)) {
 		c->highspeed = true;
 		bulk_in_desc.wMaxPacketSize = cpu_to_le16(512);
@@ -847,7 +896,7 @@ f_midi_bind(struct usb_configuration *c, struct usb_function *f)
 	return 0;
 
 fail:
-	
+	/* we might as well release our claims on endpoints */
 	if (midi->out_ep)
 		midi->out_ep->driver_data = NULL;
 	if (midi->in_ep)
@@ -858,6 +907,17 @@ fail:
 	return status;
 }
 
+/**
+ * f_midi_bind_config - add USB MIDI function to a configuration
+ * @c: the configuration to supcard the USB audio function
+ * @index: the soundcard index to use for the ALSA device creation
+ * @id: the soundcard id to use for the ALSA device creation
+ * @buflen: the buffer length to use
+ * @qlen the number of read requests to pre-allocate
+ * Context: single threaded during gadget setup
+ *
+ * Returns zero on success, else negative errno.
+ */
 int __init f_midi_bind_config(struct usb_configuration *c,
 			      int index, char *id,
 			      unsigned int in_ports,
@@ -868,11 +928,11 @@ int __init f_midi_bind_config(struct usb_configuration *c,
 	struct f_midi *midi;
 	int status, i;
 
-	
+	/* sanity check */
 	if (in_ports > MAX_PORTS || out_ports > MAX_PORTS)
 		return -EINVAL;
 
-	
+	/* allocate and initialize one new instance */
 	midi = kzalloc(sizeof *midi, GFP_KERNEL);
 	if (!midi) {
 		status = -ENOMEM;
@@ -895,7 +955,7 @@ int __init f_midi_bind_config(struct usb_configuration *c,
 	midi->gadget = c->cdev->gadget;
 	tasklet_init(&midi->tasklet, f_midi_in_tasklet, (unsigned long) midi);
 
-	
+	/* set up ALSA midi devices */
 	midi->in_ports = in_ports;
 	midi->out_ports = out_ports;
 	status = f_midi_register_card(midi);

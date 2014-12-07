@@ -126,6 +126,18 @@ static inline struct ts_ops *lookup_ts_algo(const char *name)
 	return NULL;
 }
 
+/**
+ * textsearch_register - register a textsearch module
+ * @ops: operations lookup table
+ *
+ * This function must be called by textsearch modules to announce
+ * their presence. The specified &@ops must have %name set to a
+ * unique identifier and the callbacks find(), init(), get_pattern(),
+ * and get_pattern_len() must be implemented.
+ *
+ * Returns 0 or -EEXISTS if another module has already registered
+ * with same name.
+ */
 int textsearch_register(struct ts_ops *ops)
 {
 	int err = -EEXIST;
@@ -148,6 +160,18 @@ errout:
 	return err;
 }
 
+/**
+ * textsearch_unregister - unregister a textsearch module
+ * @ops: operations lookup table
+ *
+ * This function must be called by textsearch modules to announce
+ * their disappearance for examples when the module gets unloaded.
+ * The &ops parameter must be the same as the one during the
+ * registration.
+ *
+ * Returns 0 on success or -ENOENT if no matching textsearch
+ * registration was found.
+ */
 int textsearch_unregister(struct ts_ops *ops)
 {
 	int err = 0;
@@ -187,7 +211,19 @@ static unsigned int get_linear_data(unsigned int consumed, const u8 **dst,
 	return 0;
 }
 
- 
+/**
+ * textsearch_find_continuous - search a pattern in continuous/linear data
+ * @conf: search configuration
+ * @state: search state
+ * @data: data to search in
+ * @len: length of data
+ *
+ * A simplified version of textsearch_find() for continuous/linear data.
+ * Call textsearch_next() to retrieve subsequent matches.
+ *
+ * Returns the position of first occurrence of the pattern or
+ * %UINT_MAX if no occurrence was found.
+ */ 
 unsigned int textsearch_find_continuous(struct ts_config *conf,
 					struct ts_state *state,
 					const void *data, unsigned int len)
@@ -201,6 +237,26 @@ unsigned int textsearch_find_continuous(struct ts_config *conf,
 	return textsearch_find(conf, state);
 }
 
+/**
+ * textsearch_prepare - Prepare a search
+ * @algo: name of search algorithm
+ * @pattern: pattern data
+ * @len: length of pattern
+ * @gfp_mask: allocation mask
+ * @flags: search flags
+ *
+ * Looks up the search algorithm module and creates a new textsearch
+ * configuration for the specified pattern. Upon completion all
+ * necessary refcnts are held and the configuration must be put back
+ * using textsearch_put() after usage.
+ *
+ * Note: The format of the pattern may not be compatible between
+ *       the various search algorithms.
+ *
+ * Returns a new textsearch configuration according to the specified
+ * parameters or a ERR_PTR(). If a zero length pattern is passed, this
+ * function returns EINVAL.
+ */
 struct ts_config *textsearch_prepare(const char *algo, const void *pattern,
 				     unsigned int len, gfp_t gfp_mask, int flags)
 {
@@ -213,6 +269,11 @@ struct ts_config *textsearch_prepare(const char *algo, const void *pattern,
 
 	ops = lookup_ts_algo(algo);
 #ifdef CONFIG_MODULES
+	/*
+	 * Why not always autoload you may ask. Some users are
+	 * in a situation where requesting a module may deadlock,
+	 * especially when the module is located on a NFS mount.
+	 */
 	if (ops == NULL && flags & TS_AUTOLOAD) {
 		request_module("ts_%s", algo);
 		ops = lookup_ts_algo(algo);
@@ -238,6 +299,13 @@ errout:
 	return ERR_PTR(err);
 }
 
+/**
+ * textsearch_destroy - destroy a search configuration
+ * @conf: search configuration
+ *
+ * Releases all references of the configuration and frees
+ * up the memory.
+ */
 void textsearch_destroy(struct ts_config *conf)
 {
 	if (conf->ops) {

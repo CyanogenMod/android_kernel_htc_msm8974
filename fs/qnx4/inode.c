@@ -1,3 +1,16 @@
+/*
+ * QNX4 file system, Linux implementation.
+ *
+ * Version : 0.2.1
+ *
+ * Using parts of the xiafs filesystem.
+ *
+ * History :
+ *
+ * 01-06-1998 by Richard Frowijn : first release.
+ * 20-06-1998 by Frank Denis : Linux 2.1.99+ support, boot signature, misc.
+ * 30-06-1998 by Frank Denis : first step to write inodes.
+ */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -47,7 +60,7 @@ static int qnx4_get_block( struct inode *inode, sector_t iblock, struct buffer_h
 
 	phys = qnx4_block_map( inode, iblock );
 	if ( phys ) {
-		
+		// logical block is before EOF
 		map_bh(bh, inode->i_sb, phys);
 	}
 	return 0;
@@ -74,14 +87,14 @@ unsigned long qnx4_block_map( struct inode *inode, long iblock )
 	u32 block = try_extent(&qnx4_inode->di_first_xtnt, &offset);
 
 	if (block) {
-		
+		// iblock is in the first extent. This is easy.
 	} else {
-		
+		// iblock is beyond first extent. We have to follow the extent chain.
 		i_xblk = le32_to_cpu(qnx4_inode->di_xblk);
 		ix = 0;
 		while ( --nxtnt > 0 ) {
 			if ( ix == 0 ) {
-				
+				// read next xtnt block.
 				bh = sb_bread(inode->i_sb, i_xblk - 1);
 				if ( !bh ) {
 					QNX4DEBUG((KERN_ERR "qnx4: I/O error reading xtnt block [%ld])\n", i_xblk - 1));
@@ -95,7 +108,7 @@ unsigned long qnx4_block_map( struct inode *inode, long iblock )
 			}
 			block = try_extent(&xblk->xblk_xtnts[ix], &offset);
 			if (block) {
-				
+				// got it!
 				break;
 			}
 			if ( ++ix >= xblk->xblk_num_xtnts ) {
@@ -130,6 +143,11 @@ static int qnx4_statfs(struct dentry *dentry, struct kstatfs *buf)
 	return 0;
 }
 
+/*
+ * Check the root directory of the filesystem to make sure
+ * it really _is_ a qnx4 filesystem, and to check the size
+ * of the directory entry.
+ */
 static const char *qnx4_checkroot(struct super_block *sb)
 {
 	struct buffer_head *bh;
@@ -143,7 +161,7 @@ static const char *qnx4_checkroot(struct super_block *sb)
 	rd = le32_to_cpu(qnx4_sb(sb)->sb->RootDir.di_first_xtnt.xtnt_blk) - 1;
 	rl = le32_to_cpu(qnx4_sb(sb)->sb->RootDir.di_first_xtnt.xtnt_size);
 	for (j = 0; j < rl; j++) {
-		bh = sb_bread(sb, rd + j);	
+		bh = sb_bread(sb, rd + j);	/* root dir, first block */
 		if (bh == NULL)
 			return "unable to read root entry.";
 		rootdir = (struct qnx4_inode_entry *) bh->b_data;
@@ -157,7 +175,7 @@ static const char *qnx4_checkroot(struct super_block *sb)
 			brelse(bh);
 			if (!qnx4_sb(sb)->BitMap)
 				return "not enough memory for bitmap inode";
-			
+			/* keep bitmap inode known */
 			return NULL;
 		}
 		brelse(bh);
@@ -180,6 +198,9 @@ static int qnx4_fill_super(struct super_block *s, void *data, int silent)
 
 	sb_set_blocksize(s, QNX4_BLOCK_SIZE);
 
+	/* Check the superblock signature. Since the qnx4 code is
+	   dangerous, we should leave as quickly as possible
+	   if we don't belong here... */
 	bh = sb_bread(s, 1);
 	if (!bh) {
 		printk(KERN_ERR "qnx4: unable to read the superblock\n");
@@ -192,12 +213,12 @@ static int qnx4_fill_super(struct super_block *s, void *data, int silent)
 	}
 	s->s_op = &qnx4_sops;
 	s->s_magic = QNX4_SUPER_MAGIC;
-	s->s_flags |= MS_RDONLY;	
+	s->s_flags |= MS_RDONLY;	/* Yup, read-only yet */
 	qnx4_sb(s)->sb_buf = bh;
 	qnx4_sb(s)->sb = (struct qnx4_super_block *) bh->b_data;
 
 
- 	
+ 	/* check before allocating dentries, inodes, .. */
 	errmsg = qnx4_checkroot(s);
 	if (errmsg != NULL) {
  		if (!silent)
@@ -205,7 +226,7 @@ static int qnx4_fill_super(struct super_block *s, void *data, int silent)
 		goto out;
 	}
 
- 	
+ 	/* does root not have inode number QNX4_ROOT_INO ?? */
 	root = qnx4_iget(s, QNX4_ROOT_INO * QNX4_INODES_PER_BLOCK);
 	if (IS_ERR(root)) {
 		printk(KERN_ERR "qnx4: get inode failed\n");

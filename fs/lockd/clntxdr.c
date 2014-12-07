@@ -21,6 +21,10 @@
 #  error "NLM host name cannot be larger than XDR_MAX_NETOBJ!"
 #endif
 
+/*
+ * Declare the space requirements for NLM arguments and replies as
+ * number of 32bit-words
+ */
 #define NLM_cookie_sz		(1+(NLM_MAXCOOKIELEN>>2))
 #define NLM_caller_sz		(1+(NLMCLNT_OHSIZE>>2))
 #define NLM_owner_sz		(1+(NLMCLNT_OHSIZE>>2))
@@ -67,6 +71,9 @@ static void nlm_compute_offsets(const struct nlm_lock *lock,
 		*l_len = loff_t_to_s32(fl->fl_end - fl->fl_start + 1);
 }
 
+/*
+ * Handle decode buffer overflows out-of-line.
+ */
 static void print_overflow_msg(const char *func, const struct xdr_stream *xdr)
 {
 	dprintk("lockd: %s prematurely hit the end of our receive buffer. "
@@ -75,6 +82,18 @@ static void print_overflow_msg(const char *func, const struct xdr_stream *xdr)
 }
 
 
+/*
+ * Encode/decode NLMv3 basic data types
+ *
+ * Basic NLMv3 data types are not defined in an IETF standards
+ * document.  X/Open has a description of these data types that
+ * is useful.  See Chapter 10 of "Protocols for Interworking:
+ * XNFS, Version 3W".
+ *
+ * Not all basic data types have their own encoding and decoding
+ * functions.  For run-time efficiency, some data types are encoded
+ * or decoded inline.
+ */
 
 static void encode_bool(struct xdr_stream *xdr, const int value)
 {
@@ -92,6 +111,9 @@ static void encode_int32(struct xdr_stream *xdr, const s32 value)
 	*p = cpu_to_be32(value);
 }
 
+/*
+ *	typedef opaque netobj<MAXNETOBJ_SZ>
+ */
 static void encode_netobj(struct xdr_stream *xdr,
 			  const u8 *data, const unsigned int length)
 {
@@ -125,6 +147,9 @@ out_overflow:
 	return -EIO;
 }
 
+/*
+ *	netobj cookie;
+ */
 static void encode_cookie(struct xdr_stream *xdr,
 			  const struct nlm_cookie *cookie)
 {
@@ -142,7 +167,7 @@ static int decode_cookie(struct xdr_stream *xdr,
 	if (unlikely(p == NULL))
 		goto out_overflow;
 	length = be32_to_cpup(p++);
-	
+	/* apparently HPUX can return empty cookies */
 	if (length == 0)
 		goto out_hpux;
 	if (length > NLM_MAXCOOKIELEN)
@@ -165,12 +190,33 @@ out_overflow:
 	return -EIO;
 }
 
+/*
+ *	netobj fh;
+ */
 static void encode_fh(struct xdr_stream *xdr, const struct nfs_fh *fh)
 {
 	BUG_ON(fh->size != NFS2_FHSIZE);
 	encode_netobj(xdr, (u8 *)&fh->data, NFS2_FHSIZE);
 }
 
+/*
+ *	enum nlm_stats {
+ *		LCK_GRANTED = 0,
+ *		LCK_DENIED = 1,
+ *		LCK_DENIED_NOLOCKS = 2,
+ *		LCK_BLOCKED = 3,
+ *		LCK_DENIED_GRACE_PERIOD = 4
+ *	};
+ *
+ *
+ *	struct nlm_stat {
+ *		nlm_stats stat;
+ *	};
+ *
+ * NB: we don't swap bytes for the NLM status values.  The upper
+ * layers deal directly with the status value in network byte
+ * order.
+ */
 
 static void encode_nlm_stat(struct xdr_stream *xdr,
 			    const __be32 stat)
@@ -203,6 +249,15 @@ out_overflow:
 	return -EIO;
 }
 
+/*
+ *	struct nlm_holder {
+ *		bool exclusive;
+ *		int uppid;
+ *		netobj oh;
+ *		unsigned l_offset;
+ *		unsigned l_len;
+ *	};
+ */
 static void encode_nlm_holder(struct xdr_stream *xdr,
 			      const struct nlm_res *result)
 {
@@ -266,9 +321,12 @@ out_overflow:
 	return -EIO;
 }
 
+/*
+ *	string caller_name<LM_MAXSTRLEN>;
+ */
 static void encode_caller_name(struct xdr_stream *xdr, const char *name)
 {
-	
+	/* NB: client-side does not set lock->len */
 	u32 length = strlen(name);
 	__be32 *p;
 
@@ -277,6 +335,16 @@ static void encode_caller_name(struct xdr_stream *xdr, const char *name)
 	xdr_encode_opaque(p, name, length);
 }
 
+/*
+ *	struct nlm_lock {
+ *		string caller_name<LM_MAXSTRLEN>;
+ *		netobj fh;
+ *		netobj oh;
+ *		int uppid;
+ *		unsigned l_offset;
+ *		unsigned l_len;
+ *	};
+ */
 static void encode_nlm_lock(struct xdr_stream *xdr,
 			    const struct nlm_lock *lock)
 {
@@ -296,7 +364,20 @@ static void encode_nlm_lock(struct xdr_stream *xdr,
 }
 
 
+/*
+ * NLMv3 XDR encode functions
+ *
+ * NLMv3 argument types are defined in Chapter 10 of The Open Group's
+ * "Protocols for Interworking: XNFS, Version 3W".
+ */
 
+/*
+ *	struct nlm_testargs {
+ *		netobj cookie;
+ *		bool exclusive;
+ *		struct nlm_lock alock;
+ *	};
+ */
 static void nlm_xdr_enc_testargs(struct rpc_rqst *req,
 				 struct xdr_stream *xdr,
 				 const struct nlm_args *args)
@@ -308,6 +389,16 @@ static void nlm_xdr_enc_testargs(struct rpc_rqst *req,
 	encode_nlm_lock(xdr, lock);
 }
 
+/*
+ *	struct nlm_lockargs {
+ *		netobj cookie;
+ *		bool block;
+ *		bool exclusive;
+ *		struct nlm_lock alock;
+ *		bool reclaim;
+ *		int state;
+ *	};
+ */
 static void nlm_xdr_enc_lockargs(struct rpc_rqst *req,
 				 struct xdr_stream *xdr,
 				 const struct nlm_args *args)
@@ -322,6 +413,14 @@ static void nlm_xdr_enc_lockargs(struct rpc_rqst *req,
 	encode_int32(xdr, args->state);
 }
 
+/*
+ *	struct nlm_cancargs {
+ *		netobj cookie;
+ *		bool block;
+ *		bool exclusive;
+ *		struct nlm_lock alock;
+ *	};
+ */
 static void nlm_xdr_enc_cancargs(struct rpc_rqst *req,
 				 struct xdr_stream *xdr,
 				 const struct nlm_args *args)
@@ -334,6 +433,12 @@ static void nlm_xdr_enc_cancargs(struct rpc_rqst *req,
 	encode_nlm_lock(xdr, lock);
 }
 
+/*
+ *	struct nlm_unlockargs {
+ *		netobj cookie;
+ *		struct nlm_lock alock;
+ *	};
+ */
 static void nlm_xdr_enc_unlockargs(struct rpc_rqst *req,
 				   struct xdr_stream *xdr,
 				   const struct nlm_args *args)
@@ -344,6 +449,12 @@ static void nlm_xdr_enc_unlockargs(struct rpc_rqst *req,
 	encode_nlm_lock(xdr, lock);
 }
 
+/*
+ *	struct nlm_res {
+ *		netobj cookie;
+ *		nlm_stat stat;
+ *	};
+ */
 static void nlm_xdr_enc_res(struct rpc_rqst *req,
 			    struct xdr_stream *xdr,
 			    const struct nlm_res *result)
@@ -352,6 +463,19 @@ static void nlm_xdr_enc_res(struct rpc_rqst *req,
 	encode_nlm_stat(xdr, result->status);
 }
 
+/*
+ *	union nlm_testrply switch (nlm_stats stat) {
+ *	case LCK_DENIED:
+ *		struct nlm_holder holder;
+ *	default:
+ *		void;
+ *	};
+ *
+ *	struct nlm_testres {
+ *		netobj cookie;
+ *		nlm_testrply test_stat;
+ *	};
+ */
 static void encode_nlm_testrply(struct xdr_stream *xdr,
 				const struct nlm_res *result)
 {
@@ -369,7 +493,26 @@ static void nlm_xdr_enc_testres(struct rpc_rqst *req,
 }
 
 
+/*
+ * NLMv3 XDR decode functions
+ *
+ * NLMv3 result types are defined in Chapter 10 of The Open Group's
+ * "Protocols for Interworking: XNFS, Version 3W".
+ */
 
+/*
+ *	union nlm_testrply switch (nlm_stats stat) {
+ *	case LCK_DENIED:
+ *		struct nlm_holder holder;
+ *	default:
+ *		void;
+ *	};
+ *
+ *	struct nlm_testres {
+ *		netobj cookie;
+ *		nlm_testrply test_stat;
+ *	};
+ */
 static int decode_nlm_testrply(struct xdr_stream *xdr,
 			       struct nlm_res *result)
 {
@@ -398,6 +541,12 @@ out:
 	return error;
 }
 
+/*
+ *	struct nlm_res {
+ *		netobj cookie;
+ *		nlm_stat stat;
+ *	};
+ */
 static int nlm_xdr_dec_res(struct rpc_rqst *req,
 			   struct xdr_stream *xdr,
 			   struct nlm_res *result)
@@ -413,6 +562,9 @@ out:
 }
 
 
+/*
+ * For NLM, a void procedure really returns nothing
+ */
 #define nlm_xdr_dec_norep	NULL
 
 #define PROC(proc, argtype, restype)	\

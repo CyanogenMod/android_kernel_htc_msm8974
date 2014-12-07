@@ -137,7 +137,7 @@ enum {
 	CPL_ABORT_NO_RST,
 };
 
-enum {                     
+enum {                     /* TX_PKT_XT checksum types */
 	TX_CSUM_TCP    = 0,
 	TX_CSUM_UDP    = 1,
 	TX_CSUM_CRC16  = 4,
@@ -161,6 +161,7 @@ union opcode_tid {
 #define OPCODE_TID(cmd) ((cmd)->ot.opcode_tid)
 #define GET_TID(cmd) (ntohl(OPCODE_TID(cmd)) & 0xFFFFFF)
 
+/* partitioning of TID fields that also carry a queue id */
 #define GET_TID_TID(x) ((x) & 0x3fff)
 #define GET_TID_QID(x) (((x) >> 14) & 0x3ff)
 #define TID_QID(x)     ((x) << 14)
@@ -456,13 +457,13 @@ struct cpl_tx_pkt_lso_core {
 	__be16 mss;
 	__be32 seqno_offset;
 	__be32 len;
-	
+	/* encapsulated CPL (TX_PKT, TX_PKT_XT or TX_DATA) follows here */
 };
 
 struct cpl_tx_pkt_lso {
 	WR_HDR;
 	struct cpl_tx_pkt_lso_core c;
-	
+	/* encapsulated CPL (TX_PKT, TX_PKT_XT or TX_DATA) follows here */
 };
 
 struct cpl_iscsi_hdr {
@@ -630,6 +631,7 @@ struct cpl_fw6_msg {
 	__be64 data[4];
 };
 
+/* cpl_fw6_msg.type values */
 enum {
 	FW6_TYPE_CMD_RPL = 0,
 };
@@ -665,12 +667,12 @@ struct ulp_mem_io {
 	WR_HDR;
 	__be32 cmd;
 #define ULP_MEMIO_ORDER(x) ((x) << 23)
-	__be32 len16;             
-	__be32 dlen;              
+	__be32 len16;             /* command length */
+	__be32 dlen;              /* data length in 32-byte units */
 #define ULP_MEMIO_DATA_LEN(x) ((x) << 0)
 	__be32 lock_addr;
 #define ULP_MEMIO_ADDR(x) ((x) << 0)
 #define ULP_MEMIO_LOCK(x) ((x) << 31)
 };
 
-#endif  
+#endif  /* __T4_MSG_H */

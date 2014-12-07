@@ -21,6 +21,11 @@
 #include <linux/mman.h>
 #include <linux/compat.h>
 
+/*
+ * Top of mmap area (just below the process stack).
+ *
+ * Leave an at least ~128 MB hole.
+ */
 #define MIN_GAP (128*1024*1024)
 #define MAX_GAP (TASK_SIZE/6*5)
 
@@ -40,6 +45,10 @@ static inline unsigned long mmap_base(struct mm_struct *mm)
 	return PAGE_ALIGN(TASK_SIZE - gap - random_factor);
 }
 
+/*
+ * This function, called very early during the creation of a new
+ * process VM image, sets up which VM layout function to use:
+ */
 void arch_pick_mmap_layout(struct mm_struct *mm)
 {
 #if !defined(__tilegx__)
@@ -50,6 +59,10 @@ void arch_pick_mmap_layout(struct mm_struct *mm)
 	int is_32bit = 0;
 #endif
 
+	/*
+	 * Use standard layout if the expected stack growth is unlimited
+	 * or we are running native 64 bits.
+	 */
 	if (!is_32bit || rlimit(RLIMIT_STACK) == RLIM_INFINITY) {
 		mm->mmap_base = TASK_UNMAPPED_BASE;
 		mm->get_unmapped_area = arch_get_unmapped_area;

@@ -22,6 +22,9 @@
 #include <net/ip.h>
 #include "ar-internal.h"
 
+/*
+ * handle an error received on the local endpoint
+ */
 void rxrpc_UDP_error_report(struct sock *sk)
 {
 	struct sock_exterr_skb *serr;
@@ -72,18 +75,18 @@ void rxrpc_UDP_error_report(struct sock *sk)
 
 		_net("Rx Received ICMP Fragmentation Needed (%d)", mtu);
 
-		
+		/* wind down the local interface MTU */
 		if (mtu > 0 && peer->if_mtu == 65535 && mtu < peer->if_mtu) {
 			peer->if_mtu = mtu;
 			_net("I/F MTU %u", mtu);
 		}
 
-		
+		/* ip_rt_frag_needed() may have eaten the info */
 		if (mtu == 0)
 			mtu = ntohs(icmp_hdr(skb)->un.frag.mtu);
 
 		if (mtu == 0) {
-			
+			/* they didn't give us a size, estimate one */
 			if (mtu > 1500) {
 				mtu >>= 1;
 				if (mtu < 1500)
@@ -107,11 +110,11 @@ void rxrpc_UDP_error_report(struct sock *sk)
 
 	rxrpc_put_peer(peer);
 
-	
+	/* pass the transport ref to error_handler to release */
 	skb_queue_tail(&trans->error_queue, skb);
 	rxrpc_queue_work(&trans->error_handler);
 
-	
+	/* reset and regenerate socket error */
 	spin_lock_bh(&sk->sk_error_queue.lock);
 	sk->sk_err = 0;
 	skb = skb_peek(&sk->sk_error_queue);
@@ -126,6 +129,9 @@ void rxrpc_UDP_error_report(struct sock *sk)
 	_leave("");
 }
 
+/*
+ * deal with UDP error messages
+ */
 void rxrpc_UDP_error_handler(struct work_struct *work)
 {
 	struct sock_extended_err *ee;
@@ -169,7 +175,7 @@ void rxrpc_UDP_error_handler(struct work_struct *work)
 			case ICMP_FRAG_NEEDED:
 				_net("Rx Received ICMP Fragmentation Needed (%d)",
 				     ee->ee_info);
-				err = 0; 
+				err = 0; /* dealt with elsewhere */
 				break;
 			case ICMP_NET_UNKNOWN:
 				_net("Rx Received ICMP Unknown Network");
@@ -210,6 +216,8 @@ void rxrpc_UDP_error_handler(struct work_struct *work)
 		break;
 	}
 
+	/* terminate all the affected calls if there's an unrecoverable
+	 * error */
 	if (err) {
 		struct rxrpc_call *call, *_n;
 

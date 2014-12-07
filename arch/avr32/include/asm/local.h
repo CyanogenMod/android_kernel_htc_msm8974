@@ -3,4 +3,4 @@
 
 #include <asm-generic/local.h>
 
-#endif 
+#endif /* __ASM_AVR32_LOCAL_H */

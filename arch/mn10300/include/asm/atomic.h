@@ -18,15 +18,42 @@
 #include <asm-generic/atomic.h>
 #else
 
+/*
+ * Atomic operations that C can't guarantee us.  Useful for
+ * resource counting etc..
+ */
 
 #define ATOMIC_INIT(i)	{ (i) }
 
 #ifdef __KERNEL__
 
+/**
+ * atomic_read - read atomic variable
+ * @v: pointer of type atomic_t
+ *
+ * Atomically reads the value of @v.  Note that the guaranteed
+ * useful range of an atomic_t is only 24 bits.
+ */
 #define atomic_read(v)	(ACCESS_ONCE((v)->counter))
 
+/**
+ * atomic_set - set atomic variable
+ * @v: pointer of type atomic_t
+ * @i: required value
+ *
+ * Atomically sets the value of @v to @i.  Note that the guaranteed
+ * useful range of an atomic_t is only 24 bits.
+ */
 #define atomic_set(v, i) (((v)->counter) = (i))
 
+/**
+ * atomic_add_return - add integer to atomic variable
+ * @i: integer value to add
+ * @v: pointer of type atomic_t
+ *
+ * Atomically adds @i to @v and returns the result
+ * Note that the guaranteed useful range of an atomic_t is only 24 bits.
+ */
 static inline int atomic_add_return(int i, atomic_t *v)
 {
 	int retval;
@@ -38,7 +65,7 @@ static inline int atomic_add_return(int i, atomic_t *v)
 		"	mov	(_ADR,%3),%1	\n"
 		"	add	%5,%1		\n"
 		"	mov	%1,(_ADR,%3)	\n"
-		"	mov	(_ADR,%3),%0	\n"	
+		"	mov	(_ADR,%3),%0	\n"	/* flush */
 		"	mov	(_ASR,%3),%0	\n"
 		"	or	%0,%0		\n"
 		"	bne	1b		\n"
@@ -58,6 +85,14 @@ static inline int atomic_add_return(int i, atomic_t *v)
 	return retval;
 }
 
+/**
+ * atomic_sub_return - subtract integer from atomic variable
+ * @i: integer value to subtract
+ * @v: pointer of type atomic_t
+ *
+ * Atomically subtracts @i from @v and returns the result
+ * Note that the guaranteed useful range of an atomic_t is only 24 bits.
+ */
 static inline int atomic_sub_return(int i, atomic_t *v)
 {
 	int retval;
@@ -69,7 +104,7 @@ static inline int atomic_sub_return(int i, atomic_t *v)
 		"	mov	(_ADR,%3),%1	\n"
 		"	sub	%5,%1		\n"
 		"	mov	%1,(_ADR,%3)	\n"
-		"	mov	(_ADR,%3),%0	\n"	
+		"	mov	(_ADR,%3),%0	\n"	/* flush */
 		"	mov	(_ASR,%3),%0	\n"
 		"	or	%0,%0		\n"
 		"	bne	1b		\n"
@@ -132,6 +167,13 @@ static inline void atomic_dec(atomic_t *v)
 #define atomic_xchg(ptr, v)		(xchg(&(ptr)->counter, (v)))
 #define atomic_cmpxchg(v, old, new)	(cmpxchg(&((v)->counter), (old), (new)))
 
+/**
+ * atomic_clear_mask - Atomically clear bits in memory
+ * @mask: Mask of the bits to be cleared
+ * @v: pointer to word in memory
+ *
+ * Atomically clears the bits set in mask from the memory word specified.
+ */
 static inline void atomic_clear_mask(unsigned long mask, unsigned long *addr)
 {
 #ifdef CONFIG_SMP
@@ -142,7 +184,7 @@ static inline void atomic_clear_mask(unsigned long mask, unsigned long *addr)
 		"	mov	(_ADR,%2),%0	\n"
 		"	and	%4,%0		\n"
 		"	mov	%0,(_ADR,%2)	\n"
-		"	mov	(_ADR,%2),%0	\n"	
+		"	mov	(_ADR,%2),%0	\n"	/* flush */
 		"	mov	(_ASR,%2),%0	\n"
 		"	or	%0,%0		\n"
 		"	bne	1b		\n"
@@ -159,6 +201,13 @@ static inline void atomic_clear_mask(unsigned long mask, unsigned long *addr)
 #endif
 }
 
+/**
+ * atomic_set_mask - Atomically set bits in memory
+ * @mask: Mask of the bits to be set
+ * @v: pointer to word in memory
+ *
+ * Atomically sets the bits set in mask from the memory word specified.
+ */
 static inline void atomic_set_mask(unsigned long mask, unsigned long *addr)
 {
 #ifdef CONFIG_SMP
@@ -169,7 +218,7 @@ static inline void atomic_set_mask(unsigned long mask, unsigned long *addr)
 		"	mov	(_ADR,%2),%0	\n"
 		"	or	%4,%0		\n"
 		"	mov	%0,(_ADR,%2)	\n"
-		"	mov	(_ADR,%2),%0	\n"	
+		"	mov	(_ADR,%2),%0	\n"	/* flush */
 		"	mov	(_ASR,%2),%0	\n"
 		"	or	%0,%0		\n"
 		"	bne	1b		\n"
@@ -185,11 +234,12 @@ static inline void atomic_set_mask(unsigned long mask, unsigned long *addr)
 #endif
 }
 
+/* Atomic operations are already serializing on MN10300??? */
 #define smp_mb__before_atomic_dec()	barrier()
 #define smp_mb__after_atomic_dec()	barrier()
 #define smp_mb__before_atomic_inc()	barrier()
 #define smp_mb__after_atomic_inc()	barrier()
 
-#endif 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* CONFIG_SMP */
+#endif /* _ASM_ATOMIC_H */

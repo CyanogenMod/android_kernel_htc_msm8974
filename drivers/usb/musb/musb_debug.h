@@ -55,4 +55,4 @@ static inline void musb_exit_debugfs(struct musb *musb)
 }
 #endif
 
-#endif				
+#endif				/*  __MUSB_LINUX_DEBUG_H__ */

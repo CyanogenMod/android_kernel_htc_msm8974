@@ -34,6 +34,12 @@ struct tx4939_rng {
 static void rng_io_start(void)
 {
 #ifndef CONFIG_64BIT
+	/*
+	 * readq is reading a 64-bit register using a 64-bit load.  On
+	 * a 32-bit kernel however interrupts or any other processor
+	 * exception would clobber the upper 32-bit of the processor
+	 * register so interrupts need to be disabled.
+	 */
 	local_irq_disable();
 #endif
 }
@@ -74,7 +80,7 @@ static int tx4939_rng_data_present(struct hwrng *rng, int wait)
 				read_rng(rngdev->base, TX4939_RNG_ROR(2));
 			rngdev->data_avail =
 				sizeof(rngdev->databuf) / sizeof(u32);
-			
+			/* Start RNG */
 			write_rng(TX4939_RNG_RCSR_ST,
 				  rngdev->base, TX4939_RNG_RCSR);
 			wait = 0;
@@ -82,7 +88,7 @@ static int tx4939_rng_data_present(struct hwrng *rng, int wait)
 		rng_io_end();
 		if (!wait)
 			break;
-		
+		/* 90 bus clock cycles by default for generation */
 		ndelay(90 * 5);
 	}
 	return rngdev->data_avail;
@@ -118,12 +124,20 @@ static int __init tx4939_rng_probe(struct platform_device *dev)
 	rngdev->rng.data_read = tx4939_rng_data_read;
 
 	rng_io_start();
-	
+	/* Reset RNG */
 	write_rng(TX4939_RNG_RCSR_RST, rngdev->base, TX4939_RNG_RCSR);
 	write_rng(0, rngdev->base, TX4939_RNG_RCSR);
-	
+	/* Start RNG */
 	write_rng(TX4939_RNG_RCSR_ST, rngdev->base, TX4939_RNG_RCSR);
 	rng_io_end();
+	/*
+	 * Drop first two results.  From the datasheet:
+	 * The quality of the random numbers generated immediately
+	 * after reset can be insufficient.  Therefore, do not use
+	 * random numbers obtained from the first and second
+	 * generations; use the ones from the third or subsequent
+	 * generation.
+	 */
 	for (i = 0; i < 2; i++) {
 		rngdev->data_avail = 0;
 		if (!tx4939_rng_data_present(&rngdev->rng, 1))

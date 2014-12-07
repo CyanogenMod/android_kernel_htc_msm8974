@@ -21,4 +21,4 @@ struct michael_mic_ctx {
 void michael_mic(const u8 *key, struct ieee80211_hdr *hdr,
 		 const u8 *data, size_t data_len, u8 *mic);
 
-#endif 
+#endif /* MICHAEL_H */

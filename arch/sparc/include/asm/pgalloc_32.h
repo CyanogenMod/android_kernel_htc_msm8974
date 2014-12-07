@@ -65,4 +65,4 @@ BTFIXUPDEF_CALL(void, pte_free, pgtable_t )
 #define pte_free(mm, pte)		BTFIXUP_CALL(pte_free)(pte)
 #define __pte_free_tlb(tlb, pte, addr)	pte_free((tlb)->mm, pte)
 
-#endif 
+#endif /* _SPARC_PGALLOC_H */

@@ -38,4 +38,4 @@
 
 extern struct snd_ice1712_card_info  snd_vt1720_mobo_cards[];
 
-#endif 
+#endif /* __SOUND_VT1720_MOBO_H */

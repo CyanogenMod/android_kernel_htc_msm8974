@@ -28,12 +28,15 @@ MODULE_AUTHOR("Carsten Paeth");
 MODULE_LICENSE("GPL");
 
 
+/*====================================================================*/
 
+/* Parameters that can be set with 'insmod' */
 
 static int isdnprot = 2;
 
 module_param(isdnprot, int, 0);
 
+/*====================================================================*/
 
 static int avma1cs_config(struct pcmcia_device *link) __devinit;
 static void avma1cs_release(struct pcmcia_device *link);
@@ -43,20 +46,20 @@ static int __devinit avma1cs_probe(struct pcmcia_device *p_dev)
 {
 	dev_dbg(&p_dev->dev, "avma1cs_attach()\n");
 
-	
+	/* General socket configuration */
 	p_dev->config_flags |= CONF_ENABLE_IRQ | CONF_AUTO_SET_IO;
 	p_dev->config_index = 1;
 	p_dev->config_regs = PRESENT_OPTION;
 
 	return avma1cs_config(p_dev);
-} 
+} /* avma1cs_attach */
 
 static void __devexit avma1cs_detach(struct pcmcia_device *link)
 {
 	dev_dbg(&link->dev, "avma1cs_detach(0x%p)\n", link);
 	avma1cs_release(link);
 	kfree(link->priv);
-} 
+} /* avma1cs_detach */
 
 static int avma1cs_configcheck(struct pcmcia_device *p_dev, void *priv_data)
 {
@@ -86,12 +89,18 @@ static int __devinit avma1cs_config(struct pcmcia_device *link)
 		return -ENODEV;
 
 	do {
+		/*
+		 * allocate an interrupt line
+		 */
 		if (!link->irq) {
-			
+			/* undo */
 			pcmcia_disable_device(link);
 			break;
 		}
 
+		/*
+		 * configure the PCMCIA socket
+		 */
 		i = pcmcia_enable_device(link);
 		if (i != 0) {
 			pcmcia_disable_device(link);
@@ -100,7 +109,7 @@ static int __devinit avma1cs_config(struct pcmcia_device *link)
 
 	} while (0);
 
-	
+	/* If any step failed, release any partially configured state */
 	if (i != 0) {
 		avma1cs_release(link);
 		return -ENODEV;
@@ -122,7 +131,7 @@ static int __devinit avma1cs_config(struct pcmcia_device *link)
 	link->priv = (void *) (unsigned long) i;
 
 	return 0;
-} 
+} /* avma1cs_config */
 
 static void avma1cs_release(struct pcmcia_device *link)
 {
@@ -130,11 +139,11 @@ static void avma1cs_release(struct pcmcia_device *link)
 
 	dev_dbg(&link->dev, "avma1cs_release(0x%p)\n", link);
 
-	
+	/* now unregister function with hisax */
 	HiSax_closecard(minor);
 
 	pcmcia_disable_device(link);
-} 
+} /* avma1cs_release */
 
 static const struct pcmcia_device_id avma1cs_ids[] = {
 	PCMCIA_DEVICE_PROD_ID12("AVM", "ISDN A", 0x95d42008, 0xadc9d4bb),

@@ -25,6 +25,55 @@
  */
 #ifndef PC_INIT_H_
 #define PC_INIT_H_
+/*------------------------------------------------------------------*/
+/*
+  Initialisation parameters for the card
+  0x0008 <byte> TEI
+  0x0009 <byte> NT2 flag
+  0x000a <byte> Default DID length
+  0x000b <byte> Disable watchdog flag
+  0x000c <byte> Permanent connection flag
+  0x000d <byte> Bit 3-8: L1 Hunt Group/Tristate
+  0x000d <byte> Bit 1: QSig small CR length if set to 1
+  0x000d <byte> Bit 2: QSig small CHI length if set to 1
+  0x000e <byte> Bit 1-3: Stable L2, 0=OnDemand,1=NoDisc,2=permanent
+  0x000e <byte> Bit 4: NT mode
+  0x000e <byte> Bit 5: QSig Channel ID format
+  0x000e <byte> Bit 6: QSig Call Forwarding Allowed Flag
+  0x000e <byte> Bit 7: Disable AutoSPID Flag
+  0x000f <byte> No order check flag
+  0x0010 <byte> Force companding type:0=default,1=a-law,2=u-law
+  0x0012 <byte> Low channel flag
+  0x0013 <byte> Protocol version
+  0x0014 <byte> CRC4 option:0=default,1=double_frm,2=multi_frm,3=auto
+  0x0015 <byte> Bit 0: NoHscx30, Bit 1: Loopback flag, Bit 2: ForceHscx30
+  0x0016 <byte> DSP info
+  0x0017-0x0019 Serial number
+  0x001a <byte> Card type
+  0x0020 <string> OAD 0
+  0x0040 <string> OSA 0
+  0x0060 <string> SPID 0 (if not T.1)
+  0x0060 <struct> if T.1: Robbed Bit Configuration
+  0x0060          length (8)
+  0x0061          RBS Answer Delay
+  0x0062          RBS Config Bit 3, 4:
+  0  0 -> Wink Start
+  1  0 -> Loop Start
+  0  1 -> Ground Start
+  1  1 -> reserved
+  Bit 5, 6:
+  0  0 -> Pulse Dial -> Rotary
+  1  0 -> DTMF
+  0  1 -> MF
+  1  1 -> reserved
+  0x0063          RBS RX Digit Timeout
+  0x0064          RBS Bearer Capability
+  0x0065-0x0069   RBS Debug Mask
+  0x0080 <string> OAD 1
+  0x00a0 <string> OSA 1
+  0x00c0 <string> SPID 1
+  0x00e0 <w-element list> Additional configuration
+*/
 #define PCINIT_END_OF_LIST                0x00
 #define PCINIT_MODEM_GUARD_TONE           0x01
 #define PCINIT_MODEM_MIN_SPEED            0x02
@@ -67,6 +116,7 @@
 #define PCINIT_ALERTTO                    0x27
 #define PCINIT_MODEM_EYE_SETUP            0x28
 #define PCINIT_FAX_V34_OPTIONS            0x29
+/*------------------------------------------------------------------*/
 #define PCINIT_MODEM_GUARD_TONE_NONE            0x00
 #define PCINIT_MODEM_GUARD_TONE_550HZ           0x01
 #define PCINIT_MODEM_GUARD_TONE_1800HZ          0x02
@@ -148,6 +198,7 @@
 #define PCINIT_MODEM_SPEAKER_VOLUME_HIGH        0x02
 #define PCINIT_MODEM_SPEAKER_VOLUME_MAX         0x03
 #define PCINIT_MODEM_SPEAKER_VOLUME_CHOICES     0x04
+/*------------------------------------------------------------------*/
 #define PCINIT_FAXCONFIG_DISABLE_FINE           0x0001
 #define PCINIT_FAXCONFIG_DISABLE_ECM            0x0002
 #define PCINIT_FAXCONFIG_ECM_64_BYTES           0x0004
@@ -207,6 +258,10 @@
 #define PCINIT_FAXCONFIG_DISABLE_3000_SYMBOLS   0x08000000L
 #define PCINIT_FAXCONFIG_DISABLE_3200_SYMBOLS   0x10000000L
 #define PCINIT_FAXCONFIG_DISABLE_3429_SYMBOLS   0x20000000L
+/*--------------------------------------------------------------------------*/
 #define PCINIT_XDI_CMA_FOR_ALL_NL_PRIMITIVES    0x01
+/*--------------------------------------------------------------------------*/
 #define PCINIT_FPGA_PLX_ACCESS_SUPPORTED        0x01
+/*--------------------------------------------------------------------------*/
 #endif
+/*--------------------------------------------------------------------------*/

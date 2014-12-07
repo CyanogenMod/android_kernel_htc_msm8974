@@ -1,3 +1,4 @@
+/* $Date: 2005/03/07 23:59:05 $ $RCSfile: mv88e1xxx.h,v $ $Revision: 1.13 $ */
 #ifndef CHELSIO_MV8E1XXX_H
 #define CHELSIO_MV8E1XXX_H
 
@@ -12,15 +13,18 @@
 # define ADVERTISE_PAUSE_ASYM 0x800
 #endif
 
-#define MII_GBCR 9       
-#define MII_GBSR 10      
+/* Gigabit MII registers */
+#define MII_GBCR 9       /* 1000Base-T control register */
+#define MII_GBSR 10      /* 1000Base-T status register */
 
+/* 1000Base-T control register fields */
 #define GBCR_ADV_1000HALF         0x100
 #define GBCR_ADV_1000FULL         0x200
 #define GBCR_PREFER_MASTER        0x400
 #define GBCR_MANUAL_AS_MASTER     0x800
 #define GBCR_MANUAL_CONFIG_ENABLE 0x1000
 
+/* 1000Base-T status register fields */
 #define GBSR_LP_1000HALF  0x400
 #define GBSR_LP_1000FULL  0x800
 #define GBSR_REMOTE_OK    0x1000
@@ -28,6 +32,7 @@
 #define GBSR_LOCAL_MASTER 0x4000
 #define GBSR_MASTER_FAULT 0x8000
 
+/* Marvell PHY interrupt status bits. */
 #define MV88E1XXX_INTR_JABBER          0x0001
 #define MV88E1XXX_INTR_POLARITY_CHNG   0x0002
 #define MV88E1XXX_INTR_ENG_DETECT_CHNG 0x0010
@@ -43,6 +48,7 @@
 #define MV88E1XXX_INTR_SPEED_CHNG      0x4000
 #define MV88E1XXX_INTR_AUTONEG_ERR     0x8000
 
+/* Marvell PHY specific registers. */
 #define MV88E1XXX_SPECIFIC_CNTRL_REGISTER               16
 #define MV88E1XXX_SPECIFIC_STATUS_REGISTER              17
 #define MV88E1XXX_INTERRUPT_ENABLE_REGISTER             18
@@ -59,11 +65,13 @@
 #define MV88E1XXX_EXTENDED_ADDR_REGISTER                29
 #define MV88E1XXX_EXTENDED_REGISTER                     30
 
+/* PHY specific control register fields */
 #define S_PSCR_MDI_XOVER_MODE    5
 #define M_PSCR_MDI_XOVER_MODE    0x3
 #define V_PSCR_MDI_XOVER_MODE(x) ((x) << S_PSCR_MDI_XOVER_MODE)
 #define G_PSCR_MDI_XOVER_MODE(x) (((x) >> S_PSCR_MDI_XOVER_MODE) & M_PSCR_MDI_XOVER_MODE)
 
+/* Extended PHY specific control register fields */
 #define S_DOWNSHIFT_ENABLE 8
 #define V_DOWNSHIFT_ENABLE (1 << S_DOWNSHIFT_ENABLE)
 
@@ -72,6 +80,7 @@
 #define V_DOWNSHIFT_CNT(x) ((x) << S_DOWNSHIFT_CNT)
 #define G_DOWNSHIFT_CNT(x) (((x) >> S_DOWNSHIFT_CNT) & M_DOWNSHIFT_CNT)
 
+/* PHY specific status register fields */
 #define S_PSSR_JABBER 0
 #define V_PSSR_JABBER (1 << S_PSSR_JABBER)
 

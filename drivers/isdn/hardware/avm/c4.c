@@ -34,16 +34,18 @@
 #undef AVM_C4_DEBUG
 #undef AVM_C4_POLLDEBUG
 
+/* ------------------------------------------------------------- */
 
 static char *revision = "$Revision: 1.1.2.2 $";
 
+/* ------------------------------------------------------------- */
 
 static bool suppress_pollack;
 
 static struct pci_device_id c4_pci_tbl[] = {
 	{ PCI_VENDOR_ID_DEC, PCI_DEVICE_ID_DEC_21285, PCI_VENDOR_ID_AVM, PCI_DEVICE_ID_AVM_C4, 0, 0, (unsigned long)4 },
 	{ PCI_VENDOR_ID_DEC, PCI_DEVICE_ID_DEC_21285, PCI_VENDOR_ID_AVM, PCI_DEVICE_ID_AVM_C2, 0, 0, (unsigned long)2 },
-	{ }			
+	{ }			/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(pci, c4_pci_tbl);
@@ -52,9 +54,11 @@ MODULE_AUTHOR("Carsten Paeth");
 MODULE_LICENSE("GPL");
 module_param(suppress_pollack, bool, 0);
 
+/* ------------------------------------------------------------- */
 
 static void c4_dispatch_tx(avmcard *card);
 
+/* ------------------------------------------------------------- */
 
 #define DC21285_DRAM_A0MR	0x40000000
 #define DC21285_DRAM_A1MR	0x40004000
@@ -89,6 +93,7 @@ static void c4_dispatch_tx(avmcard *card);
 
 #define SDRAM_SIZE		0x1000000
 
+/* ------------------------------------------------------------- */
 
 #define	MBOX_PEEK_POKE		MAILBOX_0
 
@@ -97,6 +102,7 @@ static void c4_dispatch_tx(avmcard *card);
 #define DBELL_RNWR		0x40
 #define DBELL_INIT		0x80
 
+/* ------------------------------------------------------------- */
 
 #define	MBOX_UP_ADDR		MAILBOX_0
 #define	MBOX_UP_LEN		MAILBOX_1
@@ -110,6 +116,7 @@ static void c4_dispatch_tx(avmcard *card);
 #define	DBELL_RESET_HOST	0x40000000
 #define	DBELL_RESET_ARM		0x80000000
 
+/* ------------------------------------------------------------- */
 
 #define	DRAM_TIMING_DEF		0x001A01A5
 #define DRAM_AD_SZ_DEF0		0x00000045
@@ -120,10 +127,12 @@ static void c4_dispatch_tx(avmcard *card);
 #define	INIT_XBUS_CYCLE		0x100016DB
 #define	INIT_XBUS_STROBE	0xF1F1F1F1
 
+/* ------------------------------------------------------------- */
 
-#define	RESET_TIMEOUT		(15 * HZ)	
-#define	PEEK_POKE_TIMEOUT	(HZ / 10)	
+#define	RESET_TIMEOUT		(15 * HZ)	/* 15 sec */
+#define	PEEK_POKE_TIMEOUT	(HZ / 10)	/* 0.1 sec */
 
+/* ------------------------------------------------------------- */
 
 #define c4outmeml(addr, value)	writel(value, addr)
 #define c4inmeml(addr)	readl(addr)
@@ -132,6 +141,7 @@ static void c4_dispatch_tx(avmcard *card);
 #define c4outmemb(addr, value)	writeb(value, addr)
 #define c4inmemb(addr)	readb(addr)
 
+/* ------------------------------------------------------------- */
 
 static inline int wait_for_doorbell(avmcard *card, unsigned long t)
 {
@@ -180,6 +190,7 @@ static int c4_peek(avmcard *card,  unsigned long off, unsigned long *valuep)
 	return 0;
 }
 
+/* ------------------------------------------------------------- */
 
 static int c4_load_t4file(avmcard *card, capiloaddatapart *t4file)
 {
@@ -223,6 +234,7 @@ static int c4_load_t4file(avmcard *card, capiloaddatapart *t4file)
 	return 0;
 }
 
+/* ------------------------------------------------------------- */
 
 static inline void _put_byte(void **pp, u8 val)
 {
@@ -279,6 +291,7 @@ static inline u32 _get_slice(void **pp, unsigned char *dp)
 	return len;
 }
 
+/* ------------------------------------------------------------- */
 
 static void c4_reset(avmcard *card)
 {
@@ -298,6 +311,7 @@ static void c4_reset(avmcard *card)
 	c4_poke(card, DC21285_ARMCSR_BASE + CHAN_2_CONTROL, 0);
 }
 
+/* ------------------------------------------------------------- */
 
 static int c4_detect(avmcard *card)
 {
@@ -362,7 +376,7 @@ static int c4_detect(avmcard *card)
 	if (c4_poke(card, DC21285_ARMCSR_BASE + DRAM_ADDR_SIZE_3, DRAM_AD_SZ_NULL))
 		return 22;
 
-	
+	/* Transputer test */
 
 	if (c4_poke(card, 0x000000, 0x11111111)
 	    || c4_poke(card, 0x400000, 0x22222222)
@@ -391,6 +405,7 @@ static int c4_detect(avmcard *card)
 	return 0;
 }
 
+/* ------------------------------------------------------------- */
 
 static void c4_dispatch_tx(avmcard *card)
 {
@@ -402,7 +417,7 @@ static void c4_dispatch_tx(avmcard *card)
 	void *p;
 
 
-	if (card->csr & DBELL_DOWN_ARM) { 
+	if (card->csr & DBELL_DOWN_ARM) { /* tx busy */
 		return;
 	}
 
@@ -460,6 +475,7 @@ static void c4_dispatch_tx(avmcard *card)
 	dev_kfree_skb_any(skb);
 }
 
+/* ------------------------------------------------------------- */
 
 static void queue_pollack(avmcard *card)
 {
@@ -482,6 +498,7 @@ static void queue_pollack(avmcard *card)
 	c4_dispatch_tx(card);
 }
 
+/* ------------------------------------------------------------- */
 
 static void c4_handle_rx(avmcard *card)
 {
@@ -510,7 +527,7 @@ static void c4_handle_rx(avmcard *card)
 		if (cidx >= card->nlogcontr) cidx = 0;
 		ctrl = &card->ctrlinfo[cidx].capi_ctrl;
 
-		if (MsgLen < 30) { 
+		if (MsgLen < 30) { /* not CAPI 64Bit */
 			memset(card->msgbuf + MsgLen, 0, 30 - MsgLen);
 			MsgLen = 30;
 			CAPIMSG_SETLEN(card->msgbuf, 30);
@@ -644,6 +661,7 @@ static void c4_handle_rx(avmcard *card)
 	}
 }
 
+/* ------------------------------------------------------------- */
 
 static irqreturn_t c4_handle_interrupt(avmcard *card)
 {
@@ -708,6 +726,7 @@ static irqreturn_t c4_interrupt(int interrupt, void *devptr)
 	return c4_handle_interrupt(card);
 }
 
+/* ------------------------------------------------------------- */
 
 static void c4_send_init(avmcard *card)
 {
@@ -922,6 +941,7 @@ static void c4_remove(struct pci_dev *pdev)
 	b1_free_card(card);
 }
 
+/* ------------------------------------------------------------- */
 
 
 static void c4_register_appl(struct capi_ctr *ctrl,
@@ -967,6 +987,7 @@ static void c4_register_appl(struct capi_ctr *ctrl,
 	}
 }
 
+/* ------------------------------------------------------------- */
 
 static void c4_release_appl(struct capi_ctr *ctrl, u16 appl)
 {
@@ -1001,6 +1022,7 @@ static void c4_release_appl(struct capi_ctr *ctrl, u16 appl)
 	}
 }
 
+/* ------------------------------------------------------------- */
 
 
 static u16 c4_send_message(struct capi_ctr *ctrl, struct sk_buff *skb)
@@ -1025,6 +1047,7 @@ static u16 c4_send_message(struct capi_ctr *ctrl, struct sk_buff *skb)
 	return retval;
 }
 
+/* ------------------------------------------------------------- */
 
 static char *c4_procinfo(struct capi_ctr *ctrl)
 {
@@ -1117,6 +1140,7 @@ static const struct file_operations c4_proc_fops = {
 	.release	= single_release,
 };
 
+/* ------------------------------------------------------------- */
 
 static int c4_add_card(struct capicardparams *p, struct pci_dev *dev,
 		       int nr_controllers)
@@ -1223,6 +1247,7 @@ err:
 	return retval;
 }
 
+/* ------------------------------------------------------------- */
 
 static int __devinit c4_probe(struct pci_dev *dev,
 			      const struct pci_device_id *ent)

@@ -1,3 +1,6 @@
+/*
+ * fdtdump.c - Contributed by Pantelis Antoniou <pantelis.antoniou AT gmail.com>
+ */
 
 #include <stdint.h>
 #include <stdio.h>
@@ -19,7 +22,7 @@ static void print_data(const char *data, int len)
 	int i;
 	const char *p = data;
 
-	
+	/* no data, don't print */
 	if (len == 0)
 		return;
 
@@ -94,7 +97,7 @@ static void dump_blob(void *blob)
 	p = p_struct;
 	while ((tag = fdt32_to_cpu(GET_CELL(p))) != FDT_END) {
 
-		
+		/* printf("tag: 0x%08x (%d)\n", tag, p - p_struct); */
 
 		if (tag == FDT_BEGIN_NODE) {
 			s = p;

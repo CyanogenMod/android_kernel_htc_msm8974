@@ -32,47 +32,47 @@
 #include <mach/regs-uart.h>
 #include <mach/regs-ost.h>
 
-#define FICP		__REG(0x40800000)  
-#define ICCR0		__REG(0x40800000)  
-#define ICCR1		__REG(0x40800004)  
-#define ICCR2		__REG(0x40800008)  
-#define ICDR		__REG(0x4080000c)  
-#define ICSR0		__REG(0x40800014)  
-#define ICSR1		__REG(0x40800018)  
+#define FICP		__REG(0x40800000)  /* Start of FICP area */
+#define ICCR0		__REG(0x40800000)  /* ICP Control Register 0 */
+#define ICCR1		__REG(0x40800004)  /* ICP Control Register 1 */
+#define ICCR2		__REG(0x40800008)  /* ICP Control Register 2 */
+#define ICDR		__REG(0x4080000c)  /* ICP Data Register */
+#define ICSR0		__REG(0x40800014)  /* ICP Status Register 0 */
+#define ICSR1		__REG(0x40800018)  /* ICP Status Register 1 */
 
-#define ICCR0_AME	(1 << 7)	
-#define ICCR0_TIE	(1 << 6)	
-#define ICCR0_RIE	(1 << 5)	
-#define ICCR0_RXE	(1 << 4)	
-#define ICCR0_TXE	(1 << 3)	
-#define ICCR0_TUS	(1 << 2)	
-#define ICCR0_LBM	(1 << 1)	
-#define ICCR0_ITR	(1 << 0)	
+#define ICCR0_AME	(1 << 7)	/* Address match enable */
+#define ICCR0_TIE	(1 << 6)	/* Transmit FIFO interrupt enable */
+#define ICCR0_RIE	(1 << 5)	/* Receive FIFO interrupt enable */
+#define ICCR0_RXE	(1 << 4)	/* Receive enable */
+#define ICCR0_TXE	(1 << 3)	/* Transmit enable */
+#define ICCR0_TUS	(1 << 2)	/* Transmit FIFO underrun select */
+#define ICCR0_LBM	(1 << 1)	/* Loopback mode */
+#define ICCR0_ITR	(1 << 0)	/* IrDA transmission */
 
-#define ICCR2_RXP       (1 << 3)	
-#define ICCR2_TXP       (1 << 2)	
-#define ICCR2_TRIG	(3 << 0)	
-#define ICCR2_TRIG_8    (0 << 0)	
-#define ICCR2_TRIG_16   (1 << 0)	
-#define ICCR2_TRIG_32   (2 << 0)	
+#define ICCR2_RXP       (1 << 3)	/* Receive Pin Polarity select */
+#define ICCR2_TXP       (1 << 2)	/* Transmit Pin Polarity select */
+#define ICCR2_TRIG	(3 << 0)	/* Receive FIFO Trigger threshold */
+#define ICCR2_TRIG_8    (0 << 0)	/* 	>= 8 bytes */
+#define ICCR2_TRIG_16   (1 << 0)	/*	>= 16 bytes */
+#define ICCR2_TRIG_32   (2 << 0)	/*	>= 32 bytes */
 
 #ifdef CONFIG_PXA27x
-#define ICSR0_EOC	(1 << 6)	
+#define ICSR0_EOC	(1 << 6)	/* DMA End of Descriptor Chain */
 #endif
-#define ICSR0_FRE	(1 << 5)	
-#define ICSR0_RFS	(1 << 4)	
-#define ICSR0_TFS	(1 << 3)	
-#define ICSR0_RAB	(1 << 2)	
-#define ICSR0_TUR	(1 << 1)	
-#define ICSR0_EIF	(1 << 0)	
+#define ICSR0_FRE	(1 << 5)	/* Framing error */
+#define ICSR0_RFS	(1 << 4)	/* Receive FIFO service request */
+#define ICSR0_TFS	(1 << 3)	/* Transnit FIFO service request */
+#define ICSR0_RAB	(1 << 2)	/* Receiver abort */
+#define ICSR0_TUR	(1 << 1)	/* Trunsmit FIFO underun */
+#define ICSR0_EIF	(1 << 0)	/* End/Error in FIFO */
 
-#define ICSR1_ROR	(1 << 6)	
-#define ICSR1_CRE	(1 << 5)	
-#define ICSR1_EOF	(1 << 4)	
-#define ICSR1_TNF	(1 << 3)	
-#define ICSR1_RNE	(1 << 2)	
-#define ICSR1_TBY	(1 << 1)	
-#define ICSR1_RSY	(1 << 0)	
+#define ICSR1_ROR	(1 << 6)	/* Receiver FIFO underrun  */
+#define ICSR1_CRE	(1 << 5)	/* CRC error */
+#define ICSR1_EOF	(1 << 4)	/* End of frame */
+#define ICSR1_TNF	(1 << 3)	/* Transmit FIFO not full */
+#define ICSR1_RNE	(1 << 2)	/* Receive FIFO not empty */
+#define ICSR1_TBY	(1 << 1)	/* Tramsmiter busy flag */
+#define ICSR1_RSY	(1 << 0)	/* Recevier synchronized flag */
 
 #define IrSR_RXPL_NEG_IS_ZERO (1<<4)
 #define IrSR_RXPL_POS_IS_ZERO 0x0
@@ -166,6 +166,9 @@ inline static void pxa_irda_fir_dma_tx_start(struct pxa_irda *si)
 	DCSR(si->txdma) |= DCSR_RUN;
 }
 
+/*
+ * Set the IrDA communications mode.
+ */
 static void pxa_irda_set_mode(struct pxa_irda *si, int mode)
 {
 	if (si->pdata->transceiver_mode)
@@ -179,6 +182,9 @@ static void pxa_irda_set_mode(struct pxa_irda *si, int mode)
 	}
 }
 
+/*
+ * Set the IrDA communications speed.
+ */
 static int pxa_irda_set_speed(struct pxa_irda *si, int speed)
 {
 	unsigned long flags;
@@ -188,30 +194,30 @@ static int pxa_irda_set_speed(struct pxa_irda *si, int speed)
 	case 9600:	case 19200:	case 38400:
 	case 57600:	case 115200:
 
-		
-		
+		/* refer to PXA250/210 Developer's Manual 10-7 */
+		/*  BaudRate = 14.7456 MHz / (16*Divisor) */
 		divisor = 14745600 / (16 * speed);
 
 		local_irq_save(flags);
 
 		if (IS_FIR(si)) {
-			
+			/* stop RX DMA */
 			DCSR(si->rxdma) &= ~DCSR_RUN;
-			
+			/* disable FICP */
 			ICCR0 = 0;
 			pxa_irda_disable_clk(si);
 
-			
+			/* set board transceiver to SIR mode */
 			pxa_irda_set_mode(si, IR_SIRMODE);
 
-			
+			/* enable the STUART clock */
 			pxa_irda_enable_sirclk(si);
 		}
 
-		
+		/* disable STUART first */
 		STIER = 0;
 
-		
+		/* access DLL & DLH */
 		STLCR |= LCR_DLAB;
 		STDLL = divisor & 0xff;
 		STDLH = divisor >> 8;
@@ -227,18 +233,18 @@ static int pxa_irda_set_speed(struct pxa_irda *si, int speed)
 	case 4000000:
 		local_irq_save(flags);
 
-		
+		/* disable STUART */
 		STIER = 0;
 		STISR = 0;
 		pxa_irda_disable_clk(si);
 
-		
+		/* disable FICP first */
 		ICCR0 = 0;
 
-		
+		/* set board transceiver to FIR mode */
 		pxa_irda_set_mode(si, IR_FIRMODE);
 
-		
+		/* enable the FICP clock */
 		pxa_irda_enable_firclk(si);
 
 		si->speed = speed;
@@ -255,6 +261,7 @@ static int pxa_irda_set_speed(struct pxa_irda *si, int speed)
 	return 0;
 }
 
+/* SIR interrupt service routine. */
 static irqreturn_t pxa_irda_sir_irq(int irq, void *dev_id)
 {
 	struct net_device *dev = dev_id;
@@ -264,7 +271,7 @@ static irqreturn_t pxa_irda_sir_irq(int irq, void *dev_id)
 	iir = STIIR;
 
 	switch  (iir & 0x0F) {
-	case 0x06: 
+	case 0x06: /* Receiver Line Status */
 	  	lsr = STLSR;
 		while (lsr & LSR_FIFOE) {
 			data = STRBR;
@@ -285,10 +292,10 @@ static irqreturn_t pxa_irda_sir_irq(int irq, void *dev_id)
 		si->last_oscr = OSCR;
 		break;
 
-	case 0x04: 
-	  	   
+	case 0x04: /* Received Data Available */
+	  	   /* forth through */
 
-	case 0x0C: 
+	case 0x0C: /* Character Timeout Indication */
 	  	do  {
 		    dev->stats.rx_bytes++;
 	            async_unwrap_char(dev, &dev->stats, &si->rx_buff, STRBR);
@@ -296,7 +303,7 @@ static irqreturn_t pxa_irda_sir_irq(int irq, void *dev_id)
 		si->last_oscr = OSCR;
 	  	break;
 
-	case 0x02: 
+	case 0x02: /* Transmit FIFO Data Request */
 	    	while ((si->tx_buff.len) && (STLSR & LSR_TDRQ)) {
 	    		STTHR = *si->tx_buff.data++;
 			si->tx_buff.len -= 1;
@@ -306,21 +313,26 @@ static irqreturn_t pxa_irda_sir_irq(int irq, void *dev_id)
 			dev->stats.tx_packets++;
 			dev->stats.tx_bytes += si->tx_buff.data - si->tx_buff.head;
 
-                        
+                        /* We need to ensure that the transmitter has finished. */
 			while ((STLSR & LSR_TEMT) == 0)
 				cpu_relax();
 			si->last_oscr = OSCR;
 
+			/*
+		 	* Ok, we've finished transmitting.  Now enable
+		 	* the receiver.  Sometimes we get a receive IRQ
+		 	* immediately after a transmit...
+		 	*/
 			if (si->newspeed) {
 				pxa_irda_set_speed(si, si->newspeed);
 				si->newspeed = 0;
 			} else {
-				
+				/* enable IR Receiver, disable IR Transmitter */
 				STISR = IrSR_IR_RECEIVE_ON | IrSR_XMODE_PULSE_1_6;
-				
+				/* enable STUART and receive interrupts */
 				STIER = IER_UUE | IER_RLSE | IER_RAVIE | IER_RTIOE;
 			}
-			
+			/* I'm hungry! */
 			netif_wake_queue(dev);
 		}
 		break;
@@ -329,6 +341,7 @@ static irqreturn_t pxa_irda_sir_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/* FIR Receive DMA interrupt handler */
 static void pxa_irda_fir_dma_rx_irq(int channel, void *data)
 {
 	int dcsr = DCSR(channel);
@@ -338,6 +351,7 @@ static void pxa_irda_fir_dma_rx_irq(int channel, void *data)
 	printk(KERN_DEBUG "pxa_ir: fir rx dma bus error %#x\n", dcsr);
 }
 
+/* FIR Transmit DMA interrupt handler */
 static void pxa_irda_fir_dma_tx_irq(int channel, void *data)
 {
 	struct net_device *dev = data;
@@ -358,6 +372,10 @@ static void pxa_irda_fir_dma_tx_irq(int channel, void *data)
 		cpu_relax();
 	si->last_oscr = OSCR;
 
+	/*
+	 * HACK: It looks like the TBY bit is dropped too soon.
+	 * Without this delay things break.
+	 */
 	udelay(120);
 
 	if (si->newspeed) {
@@ -378,15 +396,16 @@ static void pxa_irda_fir_dma_tx_irq(int channel, void *data)
 	netif_wake_queue(dev);
 }
 
+/* EIF(Error in FIFO/End in Frame) handler for FIR */
 static void pxa_irda_fir_irq_eif(struct pxa_irda *si, struct net_device *dev, int icsr0)
 {
 	unsigned int len, stat, data;
 
-	
+	/* Get the current data position. */
 	len = DTADR(si->rxdma) - si->dma_rx_buff_phy;
 
 	do {
-		
+		/* Read Status, and then Data. 	 */
 		stat = ICSR1;
 		rmb();
 		data = ICDR;
@@ -404,13 +423,13 @@ static void pxa_irda_fir_irq_eif(struct pxa_irda *si, struct net_device *dev, in
 		} else	{
 			si->dma_rx_buff[len++] = data;
 		}
-		
+		/* If we hit the end of frame, there's no point in continuing. */
 		if (stat & ICSR1_EOF)
 			break;
 	} while (ICSR0 & ICSR0_EIF);
 
 	if (stat & ICSR1_EOF) {
-		
+		/* end of frame. */
 		struct sk_buff *skb;
 
 		if (icsr0 & ICSR0_FRE) {
@@ -426,12 +445,12 @@ static void pxa_irda_fir_irq_eif(struct pxa_irda *si, struct net_device *dev, in
 			return;
 		}
 
-		
+		/* Align IP header to 20 bytes  */
 		skb_reserve(skb, 1);
 		skb_copy_to_linear_data(skb, si->dma_rx_buff, len);
 		skb_put(skb, len);
 
-		
+		/* Feed it to IrLAP  */
 		skb->dev = dev;
 		skb_reset_mac_header(skb);
 		skb->protocol = htons(ETH_P_IRDA);
@@ -442,13 +461,14 @@ static void pxa_irda_fir_irq_eif(struct pxa_irda *si, struct net_device *dev, in
 	}
 }
 
+/* FIR interrupt handler */
 static irqreturn_t pxa_irda_fir_irq(int irq, void *dev_id)
 {
 	struct net_device *dev = dev_id;
 	struct pxa_irda *si = netdev_priv(dev);
 	int icsr0, i = 64;
 
-	
+	/* stop RX DMA */
 	DCSR(si->rxdma) &= ~DCSR_RUN;
 	si->last_oscr = OSCR;
 	icsr0 = ICSR0;
@@ -465,7 +485,7 @@ static irqreturn_t pxa_irda_fir_irq(int irq, void *dev_id)
 	}
 
 	if (icsr0 & ICSR0_EIF) {
-		
+		/* An error in FIFO occurred, or there is a end of frame */
 		pxa_irda_fir_irq_eif(si, dev, icsr0);
 	}
 
@@ -481,14 +501,23 @@ static irqreturn_t pxa_irda_fir_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/* hard_xmit interface of irda device */
 static int pxa_irda_hard_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct pxa_irda *si = netdev_priv(dev);
 	int speed = irda_get_next_speed(skb);
 
+	/*
+	 * Does this packet contain a request to change the interface
+	 * speed?  If so, remember it until we complete the transmission
+	 * of this frame.
+	 */
 	if (speed != si->speed && speed != -1)
 		si->newspeed = speed;
 
+	/*
+	 * If this is an empty frame, we can bypass a lot.
+	 */
 	if (skb->len == 0) {
 		if (si->newspeed) {
 			si->newspeed = 0;
@@ -504,11 +533,11 @@ static int pxa_irda_hard_xmit(struct sk_buff *skb, struct net_device *dev)
 		si->tx_buff.data = si->tx_buff.head;
 		si->tx_buff.len  = async_wrap_skb(skb, si->tx_buff.data, si->tx_buff.truesize);
 
-		
+		/* Disable STUART interrupts and switch to transmit mode. */
 		STIER = 0;
 		STISR = IrSR_IR_TRANSMIT_ON | IrSR_XMODE_PULSE_1_6;
 
-		
+		/* enable STUART and transmit interrupts */
 		STIER = IER_UUE | IER_TIE;
 	} else {
 		unsigned long mtt = irda_get_mtt(skb);
@@ -520,7 +549,7 @@ static int pxa_irda_hard_xmit(struct sk_buff *skb, struct net_device *dev)
 			while ((unsigned)(OSCR - si->last_oscr)/4 < mtt)
 				cpu_relax();
 
-		
+		/* stop RX DMA,  disable FICP */
 		DCSR(si->rxdma) &= ~DCSR_RUN;
 		ICCR0 = 0;
 
@@ -542,6 +571,10 @@ static int pxa_irda_ioctl(struct net_device *dev, struct ifreq *ifreq, int cmd)
 	case SIOCSBANDWIDTH:
 		ret = -EPERM;
 		if (capable(CAP_NET_ADMIN)) {
+			/*
+			 * We are unable to set the speed if the
+			 * device is not running.
+			 */
 			if (netif_running(dev)) {
 				ret = pxa_irda_set_speed(si,
 						rq->ifr_baudrate);
@@ -576,25 +609,25 @@ static int pxa_irda_ioctl(struct net_device *dev, struct ifreq *ifreq, int cmd)
 
 static void pxa_irda_startup(struct pxa_irda *si)
 {
-	
+	/* Disable STUART interrupts */
 	STIER = 0;
-	
+	/* enable STUART interrupt to the processor */
 	STMCR = MCR_OUT2;
-	
+	/* configure SIR frame format: StartBit - Data 7 ... Data 0 - Stop Bit */
 	STLCR = LCR_WLS0 | LCR_WLS1;
-	
+	/* enable FIFO, we use FIFO to improve performance */
 	STFCR = FCR_TRFIFOE | FCR_ITL_32;
 
-	
+	/* disable FICP */
 	ICCR0 = 0;
-	
+	/* configure FICP ICCR2 */
 	ICCR2 = ICCR2_TXP | ICCR2_TRIG_32;
 
-	
+	/* configure DMAC */
 	DRCMR(17) = si->rxdma | DRCMR_MAPVLD;
 	DRCMR(18) = si->txdma | DRCMR_MAPVLD;
 
-	
+	/* force SIR reinitialization */
 	si->speed = 4000000;
 	pxa_irda_set_speed(si, 9600);
 
@@ -607,18 +640,18 @@ static void pxa_irda_shutdown(struct pxa_irda *si)
 
 	local_irq_save(flags);
 
-	
+	/* disable STUART and interrupt */
 	STIER = 0;
-	
+	/* disable STUART SIR mode */
 	STISR = 0;
 
-	
+	/* disable DMA */
 	DCSR(si->txdma) &= ~DCSR_RUN;
 	DCSR(si->rxdma) &= ~DCSR_RUN;
-	
+	/* disable FICP */
 	ICCR0 = 0;
 
-	
+	/* disable the STUART or FICP clocks */
 	pxa_irda_disable_clk(si);
 
 	DRCMR(17) = 0;
@@ -626,7 +659,7 @@ static void pxa_irda_shutdown(struct pxa_irda *si)
 
 	local_irq_restore(flags);
 
-	
+	/* power off board transceiver */
 	pxa_irda_set_mode(si, IR_OFF);
 
 	printk(KERN_DEBUG "pxa_ir: irda shutdown\n");
@@ -647,6 +680,9 @@ static int pxa_irda_start(struct net_device *dev)
 	if (err)
 		goto err_irq2;
 
+	/*
+	 * The interrupt must remain disabled for now.
+	 */
 	disable_irq(IRQ_STUART);
 	disable_irq(IRQ_ICP);
 
@@ -670,14 +706,20 @@ static int pxa_irda_start(struct net_device *dev)
 	if (!si->dma_tx_buff)
 		goto err_dma_tx_buff;
 
-	
+	/* Setup the serial port for the initial speed. */
 	pxa_irda_startup(si);
 
+	/*
+	 * Open a new IrLAP layer instance.
+	 */
 	si->irlap = irlap_open(dev, &si->qos, "pxa");
 	err = -ENOMEM;
 	if (!si->irlap)
 		goto err_irlap;
 
+	/*
+	 * Now enable the interrupt and start the queue
+	 */
 	enable_irq(IRQ_STUART);
 	enable_irq(IRQ_ICP);
 	netif_start_queue(dev);
@@ -712,7 +754,7 @@ static int pxa_irda_stop(struct net_device *dev)
 
 	pxa_irda_shutdown(si);
 
-	
+	/* Stop IrLAP */
 	if (si->irlap) {
 		irlap_close(si->irlap);
 		si->irlap = NULL;
@@ -816,6 +858,9 @@ static int pxa_irda_probe(struct platform_device *pdev)
 		goto err_mem_4;
 	}
 
+	/*
+	 * Initialise the SIR buffers
+	 */
 	err = pxa_irda_init_iobuf(&si->rx_buff, 14384);
 	if (err)
 		goto err_mem_4;
@@ -855,7 +900,7 @@ static int pxa_irda_probe(struct platform_device *pdev)
 		baudrate_mask |= IR_4000000 << 8;
 
 	si->qos.baud_rate.bits &= baudrate_mask;
-	si->qos.min_turn_time.bits = 7;  
+	si->qos.min_turn_time.bits = 7;  /* 1ms or more */
 
 	irda_qos_bits_to_value(&si->qos);
 

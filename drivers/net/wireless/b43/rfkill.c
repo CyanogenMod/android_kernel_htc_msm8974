@@ -25,12 +25,14 @@
 #include "b43.h"
 
 
+/* Returns TRUE, if the radio is enabled in hardware. */
 bool b43_is_hw_radio_enabled(struct b43_wldev *dev)
 {
 	return !(b43_read32(dev, B43_MMIO_RADIO_HWENABLED_HI)
 		& B43_MMIO_RADIO_HWENABLED_HI_MASK);
 }
 
+/* The poll callback for the hardware button. */
 void b43_rfkill_poll(struct ieee80211_hw *hw)
 {
 	struct b43_wl *wl = hw_to_b43_wl(hw);

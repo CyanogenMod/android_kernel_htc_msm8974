@@ -17,6 +17,8 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+// #define	DEBUG			// error path messages, extra info
+// #define	VERBOSE			// more; success messages
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -32,19 +34,36 @@
 #include <asm/unaligned.h>
 
 
+/*
+ * Netchip 1080 driver ... http://www.netchip.com
+ * (Sept 2004:  End-of-life announcement has been sent.)
+ * Used in (some) LapLink cables
+ */
 
 #define frame_errors	data[1]
 
+/*
+ * NetChip framing of ethernet packets, supporting additional error
+ * checks for links that may drop bulk packets from inside messages.
+ * Odd USB length == always short read for last usb packet.
+ *	- nc_header
+ *	- Ethernet header (14 bytes)
+ *	- payload
+ *	- (optional padding byte, if needed so length becomes odd)
+ *	- nc_trailer
+ *
+ * This framing is to be avoided for non-NetChip devices.
+ */
 
-struct nc_header {		
-	__le16	hdr_len;		
-	__le16	packet_len;		
-	__le16	packet_id;		
+struct nc_header {		// packed:
+	__le16	hdr_len;		// sizeof nc_header (LE, all)
+	__le16	packet_len;		// payload size (including ethhdr)
+	__le16	packet_id;		// detects dropped packets
 #define MIN_HEADER	6
 
-	
-	
-	
+	// all else is optional, and must start with:
+	// __le16	vendorId;	// from usb-if
+	// __le16	productId;
 } __packed;
 
 #define	PAD_BYTE	((unsigned char)0xAC)
@@ -53,6 +72,7 @@ struct nc_trailer {
 	__le16	packet_id;
 } __packed;
 
+// packets may use FLAG_FRAMING_NC and optional pad
 #define FRAMED_SIZE(mtu) (sizeof (struct nc_header) \
 				+ sizeof (struct ethhdr) \
 				+ (mtu) \
@@ -61,15 +81,28 @@ struct nc_trailer {
 
 #define MIN_FRAMED	FRAMED_SIZE(0)
 
+/* packets _could_ be up to 64KB... */
 #define NC_MAX_PACKET	32767
 
 
-#define	NC_READ_TTL_MS	((u8)255)	
+/*
+ * Zero means no timeout; else, how long a 64 byte bulk packet may be queued
+ * before the hardware drops it.  If that's done, the driver will need to
+ * frame network packets to guard against the dropped USB packets.  The win32
+ * driver sets this for both sides of the link.
+ */
+#define	NC_READ_TTL_MS	((u8)255)	// ms
 
+/*
+ * We ignore most registers and EEPROM contents.
+ */
 #define	REG_USBCTL	((u8)0x04)
 #define REG_TTL		((u8)0x10)
 #define REG_STATUS	((u8)0x11)
 
+/*
+ * Vendor specific requests to read/write data
+ */
 #define	REQUEST_REGISTER	((u8)0x10)
 #define	REQUEST_EEPROM		((u8)0x11)
 
@@ -96,6 +129,7 @@ nc_register_read(struct usbnet *dev, u8 regnum, u16 *retval_ptr)
 	return nc_vendor_read(dev, REQUEST_REGISTER, regnum, retval_ptr);
 }
 
+// no retval ... can become async, usable in_interrupt()
 static void
 nc_vendor_write(struct usbnet *dev, u8 req, u8 regnum, u16 value)
 {
@@ -104,7 +138,7 @@ nc_vendor_write(struct usbnet *dev, u8 req, u8 regnum, u16 value)
 		req,
 		USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
 		value, regnum,
-		NULL, 0,			
+		NULL, 0,			// data is in setup packet
 		USB_CTRL_SET_TIMEOUT);
 }
 
@@ -130,7 +164,7 @@ static void nc_dump_registers(struct usbnet *dev)
 	for (reg = 0; reg < 0x20; reg++) {
 		int retval;
 
-		
+		// reading some registers is trouble
 		if (reg >= 0x08 && reg <= 0xf)
 			continue;
 		if (reg >= 0x12 && reg <= 0x1e)
@@ -149,14 +183,20 @@ static void nc_dump_registers(struct usbnet *dev)
 #endif
 
 
+/*-------------------------------------------------------------------------*/
 
+/*
+ * Control register
+ */
 
 #define	USBCTL_WRITABLE_MASK	0x1f0f
+// bits 15-13 reserved, r/o
 #define	USBCTL_ENABLE_LANG	(1 << 12)
 #define	USBCTL_ENABLE_MFGR	(1 << 11)
 #define	USBCTL_ENABLE_PROD	(1 << 10)
 #define	USBCTL_ENABLE_SERIAL	(1 << 9)
 #define	USBCTL_ENABLE_DEFAULTS	(1 << 8)
+// bits 7-4 reserved, r/o
 #define	USBCTL_FLUSH_OTHER	(1 << 3)
 #define	USBCTL_FLUSH_THIS	(1 << 2)
 #define	USBCTL_DISCONN_OTHER	(1 << 1)
@@ -183,7 +223,11 @@ static inline void nc_dump_usbctl(struct usbnet *dev, u16 usbctl)
 		  usbctl & ~USBCTL_WRITABLE_MASK);
 }
 
+/*-------------------------------------------------------------------------*/
 
+/*
+ * Status register
+ */
 
 #define	STATUS_PORT_A		(1 << 15)
 
@@ -208,8 +252,8 @@ static inline void nc_dump_status(struct usbnet *dev, u16 status)
 		  dev->udev->bus->bus_name, dev->udev->devpath,
 		  status,
 
-		  
-		  
+		  // XXX the packet counts don't seem right
+		  // (1 at reset, not 0); maybe UNSPEC too
 
 		  (status & STATUS_PORT_A) ? 'A' : 'B',
 		  STATUS_PACKETS_THIS(status),
@@ -225,7 +269,11 @@ static inline void nc_dump_status(struct usbnet *dev, u16 status)
 		  status & STATUS_UNSPEC_MASK);
 }
 
+/*-------------------------------------------------------------------------*/
 
+/*
+ * TTL register
+ */
 
 #define	TTL_THIS(ttl)	(0x00ff & ttl)
 #define	TTL_OTHER(ttl)	(0x00ff & (ttl >> 8))
@@ -238,6 +286,7 @@ static inline void nc_dump_ttl(struct usbnet *dev, u16 ttl)
 		  ttl, TTL_THIS(ttl), TTL_OTHER(ttl));
 }
 
+/*-------------------------------------------------------------------------*/
 
 static int net1080_reset(struct usbnet *dev)
 {
@@ -248,7 +297,7 @@ static int net1080_reset(struct usbnet *dev)
 	if (!vp)
 		return -ENOMEM;
 
-	
+	// nc_dump_registers(dev);
 
 	if ((retval = nc_register_read(dev, REG_STATUS, vp)) < 0) {
 		dbg("can't read %s-%s status: %d",
@@ -273,7 +322,7 @@ static int net1080_reset(struct usbnet *dev)
 		goto done;
 	}
 	ttl = *vp;
-	
+	// nc_dump_ttl(dev, ttl);
 
 	nc_register_write(dev, REG_TTL,
 			MK_TTL(NC_READ_TTL_MS, TTL_OTHER(ttl)) );
@@ -323,7 +372,7 @@ static void nc_ensure_sync(struct usbnet *dev)
 		struct usb_ctrlrequest	*req;
 		int			status;
 
-		
+		/* Send a flush */
 		urb = usb_alloc_urb(0, GFP_ATOMIC);
 		if (!urb)
 			return;
@@ -343,6 +392,9 @@ static void nc_ensure_sync(struct usbnet *dev)
 		req->wIndex = cpu_to_le16(REG_USBCTL);
 		req->wLength = cpu_to_le16(0);
 
+		/* queue an async control request, we don't need
+		 * to do anything when it finishes except clean up.
+		 */
 		usb_fill_control_urb(urb, dev->udev,
 			usb_sndctrlpipe(dev->udev, 0),
 			(unsigned char *) req,
@@ -392,10 +444,10 @@ static int net1080_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 		nc_ensure_sync(dev);
 		return 0;
 	} else if (hdr_len > MIN_HEADER) {
-		
+		// out of band data for us?
 		dbg("header OOB, %d bytes", hdr_len - MIN_HEADER);
 		nc_ensure_sync(dev);
-		
+		// switch (vendor/product ids) { ... }
 	}
 	skb_pull(skb, hdr_len);
 
@@ -450,12 +502,12 @@ net1080_tx_fixup(struct usbnet *dev, struct sk_buff *skb, gfp_t flags)
 
 		if (padlen <= tailroom &&
 		    sizeof(struct nc_header) <= headroom)
-			
+			/* There's enough head and tail room */
 			goto encapsulate;
 
 		if ((sizeof (struct nc_header) + padlen) <
 				(headroom + tailroom)) {
-			
+			/* There's enough total room, so just readjust */
 			skb->data = memmove(skb->head
 						+ sizeof (struct nc_header),
 					    skb->data, skb->len);
@@ -464,7 +516,7 @@ net1080_tx_fixup(struct usbnet *dev, struct sk_buff *skb, gfp_t flags)
 		}
 	}
 
-	
+	/* Create a new skb to use with the correct size */
 	skb2 = skb_copy_expand(skb,
 				sizeof (struct nc_header),
 				padlen,
@@ -475,13 +527,13 @@ net1080_tx_fixup(struct usbnet *dev, struct sk_buff *skb, gfp_t flags)
 	skb = skb2;
 
 encapsulate:
-	
+	/* header first */
 	header = (struct nc_header *) skb_push(skb, sizeof *header);
 	header->hdr_len = cpu_to_le16(sizeof (*header));
 	header->packet_len = cpu_to_le16(len);
 	header->packet_id = cpu_to_le16((u16)dev->xid++);
 
-	
+	/* maybe pad; then trailer */
 	if (!((skb->len + sizeof *trailer) & 0x01))
 		*skb_put(skb, 1) = PAD_BYTE;
 	trailer = (struct nc_trailer *) skb_put(skb, sizeof *trailer);
@@ -518,13 +570,13 @@ static const struct driver_info	net1080_info = {
 
 static const struct usb_device_id	products [] = {
 {
-	USB_DEVICE(0x0525, 0x1080),	
+	USB_DEVICE(0x0525, 0x1080),	// NetChip ref design
 	.driver_info =	(unsigned long) &net1080_info,
 }, {
-	USB_DEVICE(0x06D0, 0x0622),	
+	USB_DEVICE(0x06D0, 0x0622),	// Laplink Gold
 	.driver_info =	(unsigned long) &net1080_info,
 },
-	{ },		
+	{ },		// END
 };
 MODULE_DEVICE_TABLE(usb, products);
 

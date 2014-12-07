@@ -35,7 +35,7 @@ fixup_clep7312(struct tag *tags, char **cmdline, struct meminfo *mi)
 
 
 MACHINE_START(CLEP7212, "Cirrus Logic 7212/7312")
-	
+	/* Maintainer: Nobody */
 	.atag_offset	= 0x0100,
 	.fixup		= fixup_clep7312,
 	.map_io		= clps711x_map_io,

@@ -143,6 +143,10 @@ static __init int s5p_gpioint_add(struct samsung_gpio_chip *chip)
 		       bank->irq);
 	}
 
+	/*
+	 * chained GPIO irq has been successfully registered, allocate new gpio
+	 * int group and assign irq nubmers
+	 */
 	chip->irq_base = S5P_GPIOINT_BASE +
 			 used_gpioint_groups * S5P_GPIOINT_GROUP_SIZE;
 	used_gpioint_groups++;
@@ -180,11 +184,11 @@ int __init s5p_register_gpio_interrupt(int pin)
 	offset = pin - my_chip->chip.base;
 	group = my_chip->group;
 
-	
+	/* check if the group has been already registered */
 	if (my_chip->irq_base)
 		return my_chip->irq_base + offset;
 
-	
+	/* register gpio group */
 	ret = s5p_gpioint_add(my_chip);
 	if (ret == 0) {
 		my_chip->chip.to_irq = samsung_gpiolib_to_irq;

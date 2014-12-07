@@ -31,6 +31,7 @@
 
 static bool sr_enable_on_init;
 
+/* Read EFUSE values from control registers for OMAP3430 */
 static void __init sr_set_nvalues(struct omap_volt_data *volt_data,
 				struct omap_sr_data *sr_data)
 {
@@ -45,6 +46,11 @@ static void __init sr_set_nvalues(struct omap_volt_data *volt_data,
 
 	for (i = 0; i < count; i++) {
 		u32 v;
+		/*
+		 * In OMAP4 the efuse registers are 24 bit aligned.
+		 * A __raw_readl will fail for non-32 bit aligned address
+		 * and hence the 8-bit read and shift.
+		 */
 		if (cpu_is_omap44xx()) {
 			u16 offset = volt_data[i].sr_efuse_offs;
 
@@ -120,6 +126,10 @@ exit:
 	return 0;
 }
 
+/*
+ * API to be called from board files to enable smartreflex
+ * autocompensation at init.
+ */
 void __init omap_enable_smartreflex_on_init(void)
 {
 	sr_enable_on_init = true;

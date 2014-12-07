@@ -23,6 +23,7 @@
 #include <linux/regulator/machine.h>
 #include <linux/mfd/tps6586x.h>
 
+/* supply control and voltage setting  */
 #define TPS6586X_SUPPLYENA	0x10
 #define TPS6586X_SUPPLYENB	0x11
 #define TPS6586X_SUPPLYENC	0x12
@@ -43,6 +44,7 @@
 #define TPS6586X_LDO4V1		0x32
 #define TPS6586X_LDO4V2		0x33
 
+/* converter settings  */
 #define TPS6586X_SUPPLYV1	0x41
 #define TPS6586X_SUPPLYV2	0x42
 #define TPS6586X_SUPPLYV3	0x43
@@ -63,7 +65,7 @@ struct tps6586x_regulator {
 
 	int *voltages;
 
-	
+	/* for DVM regulators */
 	int go_reg;
 	int go_bit;
 };
@@ -79,7 +81,7 @@ static int tps6586x_ldo_list_voltage(struct regulator_dev *rdev,
 	struct tps6586x_regulator *info = rdev_get_drvdata(rdev);
 	int rid = rdev_get_id(rdev);
 
-	
+	/* LDO0 has minimal voltage 1.2V rather than 1.25V */
 	if ((rid == TPS6586X_ID_LDO_0) && (selector == 0))
 		return (info->voltages[0] - 50) * 1000;
 
@@ -98,11 +100,11 @@ static int __tps6586x_ldo_set_voltage(struct device *parent,
 	for (val = 0; val < ri->desc.n_voltages; val++) {
 		uV = ri->voltages[val] * 1000;
 
-		
+		/* LDO0 has minimal voltage 1.2 rather than 1.25 */
 		if (ri->desc.id == TPS6586X_ID_LDO_0 && val == 0)
 			uV -= 50 * 1000;
 
-		
+		/* use the first in-range value */
 		if (min_uV <= uV && uV <= max_uV) {
 
 			*selector = val;
@@ -295,6 +297,11 @@ static struct tps6586x_regulator tps6586x_regulator[] = {
 	TPS6586X_DVM(SM_1, dvm, SM1V1, 0, 5, ENA, 0, ENB, 0, VCC1, 0),
 };
 
+/*
+ * TPS6586X has 2 enable bits that are OR'ed to determine the actual
+ * regulator state. Clearing one of this bits allows switching
+ * regulator on and of with single register write.
+ */
 static inline int tps6586x_regulator_preinit(struct device *parent,
 					     struct tps6586x_regulator *ri)
 {
@@ -316,6 +323,10 @@ static inline int tps6586x_regulator_preinit(struct device *parent,
 	if (!(val2 & (1 << ri->enable_bit[1])))
 		return 0;
 
+	/*
+	 * The regulator is on, but it's enabled with the bit we don't
+	 * want to use, so we switch the enable bits
+	 */
 	if (!(val1 & (1 << ri->enable_bit[0]))) {
 		ret = tps6586x_set_bits(parent, ri->enable_reg[0],
 					1 << ri->enable_bit[0]);
@@ -340,7 +351,7 @@ static int tps6586x_regulator_set_slew_rate(struct platform_device *pdev)
 	if (!(setting->slew_rate & TPS6586X_SLEW_RATE_SET))
 		return 0;
 
-	
+	/* only SM0 and SM1 can have the slew rate settings */
 	switch (pdev->id) {
 	case TPS6586X_ID_SM_0:
 		reg = TPS6586X_SM0SL;

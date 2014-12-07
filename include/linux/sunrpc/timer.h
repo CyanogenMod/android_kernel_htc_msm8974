@@ -12,10 +12,10 @@
 #include <linux/atomic.h>
 
 struct rpc_rtt {
-	unsigned long timeo;	
-	unsigned long srtt[5];	
-	unsigned long sdrtt[5];	
-	int ntimeouts[5];	
+	unsigned long timeo;	/* default timeout value */
+	unsigned long srtt[5];	/* smoothed round trip time << 3 */
+	unsigned long sdrtt[5];	/* smoothed medium deviation of RTT */
+	int ntimeouts[5];	/* Number of timeouts for the last request */
 };
 
 
@@ -46,4 +46,4 @@ static inline int rpc_ntimeo(struct rpc_rtt *rt, int timer)
 	return rt->ntimeouts[timer-1];
 }
 
-#endif 
+#endif /* _LINUX_SUNRPC_TIMER_H */

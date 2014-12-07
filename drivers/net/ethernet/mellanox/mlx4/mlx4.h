@@ -101,7 +101,9 @@ enum {
 	MLX4_COMM_CMD_FLR = 254
 };
 
+/*The flag indicates that the slave should delay the RESET cmd*/
 #define MLX4_DELAY_RESET_SLAVE 0xbbbbbbb
+/*indicates how many retries will be done if we are in the middle of FLR*/
 #define NUM_OF_RESET_RETRIES	10
 #define SLEEP_TIME_IN_RESET	(2 * 1000)
 enum mlx4_resource {
@@ -125,6 +127,15 @@ enum mlx4_alloc_mode {
 };
 
 
+/*
+ *Virtual HCR structures.
+ * mlx4_vhcr is the sw representation, in machine endianess
+ *
+ * mlx4_vhcr_cmd is the formalized structure, the one that is passed
+ * to FW to go through communication channel.
+ * It is big endian, and has the same structure as the physical HCR
+ * used by command interface
+ */
 struct mlx4_vhcr {
 	u64	in_param;
 	u64	out_param;
@@ -163,9 +174,9 @@ struct mlx4_cmd_info {
 
 #ifdef CONFIG_MLX4_DEBUG
 extern int mlx4_debug_level;
-#else 
+#else /* CONFIG_MLX4_DEBUG */
 #define mlx4_debug_level	(0)
-#endif 
+#endif /* CONFIG_MLX4_DEBUG */
 
 #define mlx4_dbg(mdev, format, arg...)					\
 do {									\
@@ -217,6 +228,9 @@ struct mlx4_icm_table {
 	struct mlx4_icm	      **icm;
 };
 
+/*
+ * Must be packed because mtt_seg is 64 bits but only aligned to 32 bits.
+ */
 struct mlx4_mpt_entry {
 	__be32 flags;
 	__be32 qpn;
@@ -234,6 +248,9 @@ struct mlx4_mpt_entry {
 	__be32 first_byte_offset;
 } __packed;
 
+/*
+ * Must be packed because start is 64 bits but only aligned to 32 bits.
+ */
 struct mlx4_eq_context {
 	__be32			flags;
 	u16			reserved1[3];
@@ -449,12 +466,12 @@ struct mlx4_slave_state {
 	struct mlx4_slave_eqe eq[MLX4_MFUNC_MAX_EQES];
 	struct list_head mcast_filters[MLX4_MAX_PORTS + 1];
 	struct mlx4_vlan_fltr *vlan_filter[MLX4_MAX_PORTS + 1];
-	
+	/* event type to eq number lookup */
 	struct mlx4_slave_event_eq_info event_eq[MLX4_EVENT_TYPES_NUM];
 	u16 eq_pi;
 	u16 eq_ci;
 	spinlock_t lock;
-	
+	/*initialized via the kzalloc*/
 	u8 is_slave_going_down;
 	u32 cookie;
 };
@@ -466,9 +483,9 @@ struct slave_list {
 
 struct mlx4_resource_tracker {
 	spinlock_t lock;
-	
+	/* tree for each resources */
 	struct radix_tree_root res_tree[MLX4_NUM_OF_RESOURCE_TYPE];
-	
+	/* num_of_slave's lists, one per slave */
 	struct slave_list *slave_list;
 };
 
@@ -983,6 +1000,7 @@ void mlx4_init_mac_table(struct mlx4_dev *dev, struct mlx4_mac_table *table);
 void mlx4_init_vlan_table(struct mlx4_dev *dev, struct mlx4_vlan_table *table);
 
 int mlx4_SET_PORT(struct mlx4_dev *dev, u8 port);
+/* resource tracker functions*/
 int mlx4_get_slave_from_resource_id(struct mlx4_dev *dev,
 				    enum mlx4_resource resource_type,
 				    int resource_id, int *slave);
@@ -1090,4 +1108,4 @@ static inline spinlock_t *mlx4_tlock(struct mlx4_dev *dev)
 
 #define NOT_MASKED_PD_BITS 17
 
-#endif 
+#endif /* MLX4_H */

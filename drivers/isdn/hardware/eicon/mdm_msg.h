@@ -29,6 +29,19 @@
 #define DSP_UDATA_INDICATION_DCD_ON  0x02
 #define DSP_UDATA_INDICATION_CTS_OFF  0x03
 #define DSP_UDATA_INDICATION_CTS_ON  0x04
+/* =====================================================================
+   DCD_OFF Message:
+   <word> time of DCD off (sampled from counter at 8kHz)
+   DCD_ON Message:
+   <word> time of DCD on (sampled from counter at 8kHz)
+   <byte> connected norm
+   <word> connected options
+   <dword> connected speed (bit/s, max of tx and rx speed)
+   <word> roundtrip delay (ms)
+   <dword> connected speed tx (bit/s)
+   <dword> connected speed rx (bit/s)
+   Size of this message == 19 bytes, but we will receive only 11
+   ===================================================================== */
 #define DSP_CONNECTED_NORM_UNSPECIFIED      0
 #define DSP_CONNECTED_NORM_V21              1
 #define DSP_CONNECTED_NORM_V23              2
@@ -115,6 +128,28 @@
 #define DSP_CONNECTED_OPTION_MASK_ERROR_CORRECT  0x03e4
 #define DSP_CONNECTED_OPTION_MASK_COMPRESSION    0x0320
 #define DSP_UDATA_INDICATION_DISCONNECT         5
+/*
+  returns:
+  <byte> cause
+*/
+/* ==========================================================
+   DLC: B2 modem configuration
+   ========================================================== */
+/*
+  Fields in assign DLC information element for modem protocol V.42/MNP:
+  <byte> length of information element
+  <word> information field length
+  <byte> address A       (not used, default 3)
+  <byte> address B       (not used, default 1)
+  <byte> modulo mode     (not used, default 7)
+  <byte> window size     (not used, default 7)
+  <word> XID length      (not used, default 0)
+  ...    XID information (not used, default empty)
+  <byte> modem protocol negotiation options
+  <byte> modem protocol options
+  <byte> modem protocol break configuration
+  <byte> modem protocol application options
+*/
 #define DLC_MODEMPROT_DISABLE_V42_V42BIS     0x01
 #define DLC_MODEMPROT_DISABLE_MNP_MNP5       0x02
 #define DLC_MODEMPROT_REQUIRE_PROTOCOL       0x04
@@ -136,6 +171,37 @@
 #define DLC_MODEMPROT_BREAK_CONFIG_MASK      0x03
 #define DLC_MODEMPROT_APPL_EARLY_CONNECT     0x01
 #define DLC_MODEMPROT_APPL_PASS_INDICATIONS  0x02
+/* ==========================================================
+   CAI parameters used for the modem L1 configuration
+   ========================================================== */
+/*
+  Fields in assign CAI information element:
+  <byte> length of information element
+  <byte> info field and B-channel hardware
+  <byte> rate adaptation bit rate
+  <byte> async framing parameters
+  <byte> reserved
+  <word> packet length
+  <byte> modem line taking options
+  <byte> modem modulation negotiation parameters
+  <byte> modem modulation options
+  <byte> modem disabled modulations mask low
+  <byte> modem disabled modulations mask high
+  <byte> modem enabled modulations mask
+  <word> modem min TX speed
+  <word> modem max TX speed
+  <word> modem min RX speed
+  <word> modem max RX speed
+  <byte> modem disabled symbol rates mask
+  <byte> modem info options mask
+  <byte> modem transmit level adjust
+  <byte> modem speaker parameters
+  <word> modem private debug config
+  <struct> modem reserved
+  <struct> v18 config parameters
+  <struct> v18 probing sequence
+  <struct> v18 probing message
+*/
 #define DSP_CAI_HARDWARE_HDLC_64K          0x05
 #define DSP_CAI_HARDWARE_HDLC_56K          0x08
 #define DSP_CAI_HARDWARE_TRANSP            0x09
@@ -244,19 +310,31 @@
 #define DSP_CAI_MODEM_SPEAKER_VOLUME_HIGH  0x08
 #define DSP_CAI_MODEM_SPEAKER_VOLUME_MAX   0x0c
 #define DSP_CAI_MODEM_SPEAKER_VOLUME_MASK  0x0c
+/* ==========================================================
+   DCD/CTS State
+   ========================================================== */
 #define MDM_WANT_CONNECT_B3_ACTIVE_I  0x01
 #define MDM_NCPI_VALID                0x02
 #define MDM_NCPI_CTS_ON_RECEIVED      0x04
 #define MDM_NCPI_DCD_ON_RECEIVED      0x08
+/* ==========================================================
+   CAPI NCPI Constants
+   ========================================================== */
 #define MDM_NCPI_ECM_V42              0x0001
 #define MDM_NCPI_ECM_MNP              0x0002
 #define MDM_NCPI_TRANSPARENT          0x0004
 #define MDM_NCPI_COMPRESSED           0x0010
+/* ==========================================================
+   CAPI B2 Config Constants
+   ========================================================== */
 #define MDM_B2_DISABLE_V42bis         0x0001
 #define MDM_B2_DISABLE_MNP            0x0002
 #define MDM_B2_DISABLE_TRANS          0x0004
 #define MDM_B2_DISABLE_V42            0x0008
 #define MDM_B2_DISABLE_COMP           0x0010
+/* ==========================================================
+   CAPI B1 Config Constants
+   ========================================================== */
 #define MDM_CAPI_DISABLE_RETRAIN      0x0001
 #define MDM_CAPI_DISABLE_RING_TONE    0x0002
 #define MDM_CAPI_GUARD_1800           0x0004

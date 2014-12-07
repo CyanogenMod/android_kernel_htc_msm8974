@@ -24,8 +24,8 @@ struct cplb_entry {
 };
 
 struct cplb_boundary {
-	unsigned long eaddr; 
-	unsigned long data; 
+	unsigned long eaddr; /* End of this region.  */
+	unsigned long data; /* CPLB data value.  */
 };
 
 extern struct cplb_boundary dcplb_bounds[];
@@ -54,7 +54,7 @@ extern void set_mask_dcplbs(unsigned long *, unsigned int);
 
 extern void __noreturn panic_cplb_error(int seqstat, struct pt_regs *);
 
-#endif 
+#endif /* CONFIG_MPU */
 
 extern void bfin_icache_init(struct cplb_entry *icplb_tbl);
 extern void bfin_dcache_init(struct cplb_entry *icplb_tbl);

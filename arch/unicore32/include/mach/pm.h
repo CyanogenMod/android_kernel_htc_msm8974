@@ -26,14 +26,17 @@ struct puv3_cpu_pm_fns {
 
 extern struct puv3_cpu_pm_fns *puv3_cpu_pm_fns;
 
+/* sleep.S */
 extern void puv3_cpu_suspend(unsigned int);
 
 extern void puv3_cpu_resume(void);
 
 extern int puv3_pm_enter(suspend_state_t state);
 
+/* Defined in hibernate_asm.S */
 extern int restore_image(pgd_t *resume_pg_dir, struct pbe *restore_pblist);
 
+/* References to section boundaries */
 extern const void __nosave_begin, __nosave_end;
 
 extern struct pbe *restore_pblist;

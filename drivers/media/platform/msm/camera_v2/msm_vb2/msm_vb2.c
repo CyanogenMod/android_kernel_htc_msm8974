@@ -20,6 +20,10 @@ static int msm_vb2_queue_setup(struct vb2_queue *q,
 	int i;
 	struct msm_v4l2_format_data *data = q->drv_priv;
 
+	if (!data) {
+		pr_err("%s: drv_priv NULL\n", __func__);
+		return -EINVAL;
+	}
 	if (data->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
 		if (WARN_ON(data->num_planes > VIDEO_MAX_PLANES))
 			return -EINVAL;
@@ -139,11 +143,9 @@ static void msm_vb2_buf_cleanup(struct vb2_buffer *vb)
 
 	spin_lock_irqsave(&stream->stream_lock, flags);
 	
-    list_for_each(p, &stream->queued_list) {
-             ++num_count_list;
-    }
-	pr_err("%s:%d] CAMDBUF info sid:%d vb2:%u list:%u total:%u lend:%u\n", __func__, __LINE__, 
-		stream->stream_id, vb->vb2_queue->num_buffers, num_count_list, stream->num_total, stream->num_lend);
+	list_for_each(p, &stream->queued_list) {
+		++num_count_list;
+	}
 	if (num_count_list != stream->num_total || stream->num_lend > 0)
 		pr_err("%s:%d] CAMDBUF Error some buf lost!!", __func__, __LINE__);
 	stream->num_total = 0;

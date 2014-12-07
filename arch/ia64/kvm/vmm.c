@@ -50,7 +50,7 @@ static int __init  kvm_vmm_init(void)
 
 	vmm_fpswa_interface = fpswa_interface;
 
-	
+	/*Register vmm data to kvm side*/
 	return kvm_init(&vmm_info, 1024, 0, THIS_MODULE);
 }
 

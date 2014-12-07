@@ -30,6 +30,7 @@ extern int kvmppc_44x_emul_tlbsx(struct kvm_vcpu *vcpu, u8 rt, u8 ra, u8 rb,
                                  u8 rc);
 extern int kvmppc_44x_emul_tlbwe(struct kvm_vcpu *vcpu, u8 ra, u8 rs, u8 ws);
 
+/* TLB helper functions */
 static inline unsigned int get_tlb_size(const struct kvmppc_44x_tlbe *tlbe)
 {
 	return (tlbe->word0 >> 4) & 0xf;
@@ -82,4 +83,4 @@ static inline unsigned int get_mmucr_sts(const struct kvm_vcpu *vcpu)
 	return (vcpu->arch.mmucr >> 16) & 0x1;
 }
 
-#endif 
+#endif /* __KVM_POWERPC_TLB_H__ */

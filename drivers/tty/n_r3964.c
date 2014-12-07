@@ -59,19 +59,29 @@
 #include <linux/slab.h>
 #include <linux/tty.h>
 #include <linux/errno.h>
-#include <linux/string.h>	
-#include <linux/signal.h>	
+#include <linux/string.h>	/* used in new tty drivers */
+#include <linux/signal.h>	/* used in new tty drivers */
 #include <linux/ioctl.h>
 #include <linux/n_r3964.h>
 #include <linux/poll.h>
 #include <linux/init.h>
 #include <asm/uaccess.h>
 
+/*#define DEBUG_QUEUE*/
 
+/* Log successful handshake and protocol operations  */
+/*#define DEBUG_PROTO_S*/
 
+/* Log handshake and protocol errors: */
+/*#define DEBUG_PROTO_E*/
 
+/* Log Linediscipline operations (open, close, read, write...): */
+/*#define DEBUG_LDISC*/
 
+/* Log module and memory operations (init, cleanup; kmalloc, kfree): */
+/*#define DEBUG_MODUL*/
 
+/* Macro helpers for debug output: */
 #define TRACE(format, args...) printk("r3964: " format "\n" , ## args)
 
 #ifdef DEBUG_MODUL
@@ -160,7 +170,13 @@ static void dump_block(const unsigned char *block, unsigned int length)
 	}
 }
 
+/*************************************************************
+ * Driver initialisation
+ *************************************************************/
 
+/*************************************************************
+ * Module support routines
+ *************************************************************/
 
 static void __exit r3964_exit(void)
 {
@@ -184,6 +200,9 @@ static int __init r3964_init(void)
 
 	printk("r3964: Philips r3964 Driver $Revision: 1.10 $\n");
 
+	/*
+	 * Register the tty line discipline
+	 */
 
 	status = tty_register_ldisc(N_R3964, &tty_ldisc_N_R3964);
 	if (status == 0) {
@@ -202,6 +221,9 @@ static int __init r3964_init(void)
 module_init(r3964_init);
 module_exit(r3964_exit);
 
+/*************************************************************
+ * Protocol implementation routines
+ *************************************************************/
 
 static void add_tx_queue(struct r3964_info *pInfo,
 			 struct r3964_block_header *pHeader)
@@ -314,7 +336,7 @@ static void remove_from_rx_queue(struct r3964_info *pInfo,
 	spin_lock_irqsave(&pInfo->lock, flags);
 
 	if (pInfo->rx_first == pHeader) {
-		
+		/* Remove the first block in the linked list: */
 		pInfo->rx_first = pHeader->next;
 
 		if (pInfo->rx_first == NULL) {
@@ -322,14 +344,14 @@ static void remove_from_rx_queue(struct r3964_info *pInfo,
 		}
 		pInfo->blocks_in_rx_queue--;
 	} else {
-		
+		/* Find block to remove: */
 		for (pFind = pInfo->rx_first; pFind; pFind = pFind->next) {
 			if (pFind->next == pHeader) {
-				
+				/* Got it. */
 				pFind->next = pHeader->next;
 				pInfo->blocks_in_rx_queue--;
 				if (pFind->next == NULL) {
-					
+					/* Oh, removed the last one! */
 					pInfo->rx_last = pFind;
 				}
 				break;
@@ -349,7 +371,7 @@ static void remove_from_rx_queue(struct r3964_info *pInfo,
 static void put_char(struct r3964_info *pInfo, unsigned char ch)
 {
 	struct tty_struct *tty = pInfo->tty;
-	
+	/* FIXME: put_char should not be called from an IRQ */
 	tty_put_char(tty, ch);
 	pInfo->bcc ^= ch;
 }
@@ -432,7 +454,7 @@ static void transmit_block(struct r3964_info *pInfo)
 			break;
 
 		if (pBlock->data[pInfo->tx_position] == DLE) {
-			
+			/* send additional DLE char: */
 			put_char(pInfo, DLE);
 		}
 		put_char(pInfo, pBlock->data[pInfo->tx_position++]);
@@ -460,7 +482,7 @@ static void on_receive_block(struct r3964_info *pInfo)
 
 	length = pInfo->rx_position;
 
-	
+	/* compare byte checksum characters: */
 	if (pInfo->flags & R3964_BCC) {
 		if (pInfo->bcc != pInfo->last_rx) {
 			TRACE_PE("checksum error - got %x but expected %x",
@@ -469,7 +491,7 @@ static void on_receive_block(struct r3964_info *pInfo)
 		}
 	}
 
-	
+	/* check for errors (parity, overrun,...): */
 	if (pInfo->flags & R3964_ERROR) {
 		TRACE_PE("on_receive_block - transmission failed error %x",
 			 pInfo->flags & R3964_ERROR);
@@ -487,13 +509,13 @@ static void on_receive_block(struct r3964_info *pInfo)
 		return;
 	}
 
-	
+	/* received block; submit DLE: */
 	put_char(pInfo, DLE);
 	flush(pInfo);
 	del_timer_sync(&pInfo->tmr);
 	TRACE_PS(" rx success: got %d chars", length);
 
-	
+	/* prepare struct r3964_block_header: */
 	pBlock = kmalloc(length + sizeof(struct r3964_block_header),
 			GFP_KERNEL);
 	TRACE_M("on_receive_block - kmalloc %p", pBlock);
@@ -510,10 +532,10 @@ static void on_receive_block(struct r3964_info *pInfo)
 
 	memcpy(pBlock->data, pInfo->rx_buf, length);
 
-	
+	/* queue block into rx_queue: */
 	add_rx_queue(pInfo, pBlock);
 
-	
+	/* notify attached client processes: */
 	for (pClient = pInfo->firstClient; pClient; pClient = pClient->next) {
 		if (pClient->sig_flags & R3964_SIG_DATA) {
 			add_msg(pClient, R3964_MSG_DATA, length, R3964_OK,
@@ -578,10 +600,10 @@ static void receive_char(struct r3964_info *pInfo, const unsigned char c)
 		}
 		break;
 	case R3964_WAIT_FOR_RX_REPEAT:
-		
+		/* FALLTHROUGH */
 	case R3964_IDLE:
 		if (c == STX) {
-			
+			/* Prevent rx_queue from overflow: */
 			if (pInfo->blocks_in_rx_queue >=
 			    R3964_MAX_BLOCKS_IN_RX_QUEUE) {
 				TRACE_PE("IDLE - got STX but no space in "
@@ -592,7 +614,7 @@ static void receive_char(struct r3964_info *pInfo, const unsigned char c)
 				break;
 			}
 start_receiving:
-			
+			/* Ok, start receiving: */
 			TRACE_PS("IDLE - got STX");
 			pInfo->rx_position = 0;
 			pInfo->last_rx = 0;
@@ -631,7 +653,7 @@ char_to_buf:
 				mod_timer(&pInfo->tmr, jiffies + R3964_TO_ZVZ);
 			}
 		}
-		
+		/* else: overflow-msg? BUF_SIZE>MTU; should not happen? */
 		break;
 	case R3964_WAIT_FOR_BCC:
 		pInfo->last_rx = c;
@@ -732,7 +754,7 @@ static int enable_signals(struct r3964_info *pInfo, struct pid *pid, int arg)
 	struct r3964_message *pMsg;
 
 	if ((arg & R3964_SIG_ALL) == 0) {
-		
+		/* Remove client from client list */
 		for (ppClient = &pInfo->firstClient; *ppClient;
 		     ppClient = &(*ppClient)->next) {
 			pClient = *ppClient;
@@ -759,10 +781,10 @@ static int enable_signals(struct r3964_info *pInfo, struct pid *pid, int arg)
 	} else {
 		pClient = findClient(pInfo, pid);
 		if (pClient) {
-			
+			/* update signal options */
 			pClient->sig_flags = arg;
 		} else {
-			
+			/* add client to client list */
 			pClient = kmalloc(sizeof(struct r3964_client_info),
 					GFP_KERNEL);
 			TRACE_M("enable_signals - kmalloc %p", pClient);
@@ -865,7 +887,7 @@ queue_the_message:
 			goto queue_the_message;
 		}
 	}
-	
+	/* Send SIGIO signal to client process: */
 	if (pClient->sig_flags & R3964_USE_SIGIO) {
 		kill_pid(pClient->pid, SIGIO, 1);
 	}
@@ -913,6 +935,9 @@ static void remove_client_block(struct r3964_info *pInfo,
 	pClient->next_block_to_read = NULL;
 }
 
+/*************************************************************
+ * Line discipline routines
+ *************************************************************/
 
 static int r3964_open(struct tty_struct *tty)
 {
@@ -985,9 +1010,13 @@ static void r3964_close(struct tty_struct *tty)
 
 	TRACE_L("close");
 
+	/*
+	 * Make sure that our task queue isn't activated.  If it
+	 * is, take it out of the linked list.
+	 */
 	del_timer_sync(&pInfo->tmr);
 
-	
+	/* Remove client-structs and message queues: */
 	pClient = pInfo->firstClient;
 	while (pClient) {
 		pNext = pClient->next;
@@ -1003,7 +1032,7 @@ static void r3964_close(struct tty_struct *tty)
 		TRACE_M("r3964_close - client kfree %p", pClient);
 		pClient = pNext;
 	}
-	
+	/* Remove jobs from tx_queue: */
 	spin_lock_irqsave(&pInfo->lock, flags);
 	pHeader = pInfo->tx_first;
 	pInfo->tx_first = pInfo->tx_last = NULL;
@@ -1015,7 +1044,7 @@ static void r3964_close(struct tty_struct *tty)
 		pHeader = pNextHeader;
 	}
 
-	
+	/* Free buffers: */
 	wake_up_interruptible(&pInfo->read_wait);
 	kfree(pInfo->rx_buf);
 	TRACE_M("r3964_close - rx_buf kfree %p", pInfo->rx_buf);
@@ -1042,24 +1071,24 @@ static ssize_t r3964_read(struct tty_struct *tty, struct file *file,
 	if (pClient) {
 		pMsg = remove_msg(pInfo, pClient);
 		if (pMsg == NULL) {
-			
+			/* no messages available. */
 			if (file->f_flags & O_NONBLOCK) {
 				ret = -EAGAIN;
 				goto unlock;
 			}
-			
+			/* block until there is a message: */
 			wait_event_interruptible_tty(pInfo->read_wait,
 					(pMsg = remove_msg(pInfo, pClient)));
 		}
 
-		
+		/* If we still haven't got a message, we must have been signalled */
 
 		if (!pMsg) {
 			ret = -EINTR;
 			goto unlock;
 		}
 
-		
+		/* deliver msg to client process: */
 		theMsg.msg_id = pMsg->msg_id;
 		theMsg.arg = pMsg->arg;
 		theMsg.error_code = pMsg->error_code;
@@ -1091,10 +1120,16 @@ static ssize_t r3964_write(struct tty_struct *tty, struct file *file,
 	unsigned char *new_data;
 
 	TRACE_L("write request, %d characters", count);
+/* 
+ * Verify the pointers 
+ */
 
 	if (!pInfo)
 		return -EIO;
 
+/*
+ * Ensure that the caller does not wish to send too much.
+ */
 	if (count > R3964_MTU) {
 		if (pInfo->flags & R3964_DEBUG) {
 			TRACE_L(KERN_WARNING "r3964_write: truncating user "
@@ -1102,6 +1137,9 @@ static ssize_t r3964_write(struct tty_struct *tty, struct file *file,
 		}
 		count = R3964_MTU;
 	}
+/*
+ * Allocate a buffer for the data and copy it from the buffer with header prepended
+ */
 	new_data = kmalloc(count + sizeof(struct r3964_block_header),
 			GFP_KERNEL);
 	TRACE_M("r3964_write - kmalloc %p", new_data);
@@ -1125,12 +1163,15 @@ static ssize_t r3964_write(struct tty_struct *tty, struct file *file,
 		pHeader->owner = pClient;
 	}
 
-	memcpy(pHeader->data, data, count);	
+	memcpy(pHeader->data, data, count);	/* We already verified this */
 
 	if (pInfo->flags & R3964_DEBUG) {
 		dump_block(pHeader->data, count);
 	}
 
+/*
+ * Add buffer to transmit-queue:
+ */
 	add_tx_queue(pInfo, pHeader);
 	trigger_transmit(pInfo);
 
@@ -1172,6 +1213,7 @@ static void r3964_set_termios(struct tty_struct *tty, struct ktermios *old)
 	TRACE_L("set_termios");
 }
 
+/* Called without the kernel lock held - fine */
 static unsigned int r3964_poll(struct tty_struct *tty, struct file *file,
 			struct poll_table_struct *wait)
 {

@@ -71,7 +71,7 @@ static int snapshot_open(struct inode *inode, struct file *filp)
 	filp->private_data = data;
 	memset(&data->handle, 0, sizeof(struct snapshot_handle));
 	if ((filp->f_flags & O_ACCMODE) == O_RDONLY) {
-		
+		/* Hibernating.  The image device should be accessible. */
 		data->swap = swsusp_resume_device ?
 			swap_type_of(swsusp_resume_device, 0, NULL) : -1;
 		data->mode = O_RDONLY;
@@ -79,6 +79,10 @@ static int snapshot_open(struct inode *inode, struct file *filp)
 		if (error)
 			pm_notifier_call_chain(PM_POST_HIBERNATION);
 	} else {
+		/*
+		 * Resuming.  We may need to wait for the image device to
+		 * appear.
+		 */
 		wait_for_device_probe();
 		scsi_complete_async_scans();
 
@@ -139,7 +143,7 @@ static ssize_t snapshot_read(struct file *filp, char __user *buf,
 		res = -ENODATA;
 		goto Unlock;
 	}
-	if (!pg_offp) { 
+	if (!pg_offp) { /* on page boundary? */
 		res = snapshot_read_next(&data->handle);
 		if (res <= 0)
 			goto Unlock;
@@ -258,6 +262,14 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 		swsusp_free();
 		memset(&data->handle, 0, sizeof(struct snapshot_handle));
 		data->ready = 0;
+		/*
+		 * It is necessary to thaw kernel threads here, because
+		 * SNAPSHOT_CREATE_IMAGE may be invoked directly after
+		 * SNAPSHOT_FREE.  In that case, if kernel threads were not
+		 * thawed, the preallocation of memory carried out by
+		 * hibernation_snapshot() might run into problems (i.e. it
+		 * might fail or even deadlock).
+		 */
 		thaw_kernel_threads();
 		break;
 
@@ -308,6 +320,10 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 			error = -EPERM;
 			break;
 		}
+		/*
+		 * Tasks are frozen and the notifiers have been called with
+		 * PM_HIBERNATION_PREPARE
+		 */
 		error = suspend_devices_and_enter(PM_SUSPEND_MEM);
 		data->ready = 0;
 		break;
@@ -335,6 +351,10 @@ static long snapshot_ioctl(struct file *filp, unsigned int cmd,
 				break;
 			}
 
+			/*
+			 * User space encodes device types as two-byte values,
+			 * so we need to recode them
+			 */
 			swdev = new_decode_dev(swap_area.dev);
 			if (swdev) {
 				offset = swap_area.offset;
@@ -416,7 +436,7 @@ snapshot_compat_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	}
 }
 
-#endif 
+#endif /* CONFIG_COMPAT */
 
 static const struct file_operations snapshot_fops = {
 	.open = snapshot_open,

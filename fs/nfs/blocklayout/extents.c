@@ -33,15 +33,17 @@
 #include "blocklayout.h"
 #define NFSDBG_FACILITY         NFSDBG_PNFS_LD
 
+/* Bit numbers */
 #define EXTENT_INITIALIZED 0
 #define EXTENT_WRITTEN     1
 #define EXTENT_IN_COMMIT   2
 #define INTERNAL_EXISTS    MY_MAX_TAGS
 #define INTERNAL_MASK      ((1 << INTERNAL_EXISTS) - 1)
 
+/* Returns largest t<=s s.t. t%base==0 */
 static inline sector_t normalize(sector_t s, int base)
 {
-	sector_t tmp = s; 
+	sector_t tmp = s; /* Since do_div modifies its argument */
 	return s - do_div(tmp, base);
 }
 
@@ -50,7 +52,9 @@ static inline sector_t normalize_up(sector_t s, int base)
 	return normalize(s + base - 1, base);
 }
 
+/* Complete stub using list while determine API wanted */
 
+/* Returns tags, or negative */
 static int32_t _find_entry(struct my_tree *tree, u64 s)
 {
 	struct pnfs_inval_tracking *pos;
@@ -81,6 +85,10 @@ int _has_tag(struct my_tree *tree, u64 s, int32_t tag)
 		return 1;
 }
 
+/* Creates entry with tag, or if entry already exists, unions tag to it.
+ * If storage is not NULL, newly created entry will use it.
+ * Returns number of entries added, or negative on error.
+ */
 static int _add_entry(struct my_tree *tree, u64 s, int32_t tag,
 		      struct pnfs_inval_tracking *storage)
 {
@@ -110,6 +118,8 @@ static int _add_entry(struct my_tree *tree, u64 s, int32_t tag,
 	}
 }
 
+/* XXXX Really want option to not create */
+/* Over range, unions tag with existing entries, else creates entry with tag */
 static int _set_range(struct my_tree *tree, int32_t tag, u64 s, u64 length)
 {
 	u64 i;
@@ -122,6 +132,7 @@ static int _set_range(struct my_tree *tree, int32_t tag, u64 s, u64 length)
 	return 0;
 }
 
+/* Ensure that future operations on given range of tree will not malloc */
 static int _preload_range(struct pnfs_inval_markings *marks,
 		u64 offset, u64 length)
 {
@@ -135,7 +146,7 @@ static int _preload_range(struct pnfs_inval_markings *marks,
 	end = normalize_up(offset + length, tree->mtt_step_size);
 	count = (int)(end - start) / (int)tree->mtt_step_size;
 
-	
+	/* Pre-malloc what memory we might need */
 	storage = kcalloc(count, sizeof(*storage), GFP_NOFS);
 	if (!storage)
 		return -ENOMEM;
@@ -163,6 +174,7 @@ static int _preload_range(struct pnfs_inval_markings *marks,
 	return status;
 }
 
+/* We are relying on page lock to serialize this */
 int bl_is_sector_init(struct pnfs_inval_markings *marks, sector_t isect)
 {
 	int rv;
@@ -173,6 +185,7 @@ int bl_is_sector_init(struct pnfs_inval_markings *marks, sector_t isect)
 	return rv;
 }
 
+/* Assume start, end already sector aligned */
 static int
 _range_has_tag(struct my_tree *tree, u64 start, u64 end, int32_t tag)
 {
@@ -214,6 +227,10 @@ static int is_range_written(struct pnfs_inval_markings *marks,
 	return rv;
 }
 
+/* Marks sectors in [offest, offset_length) as having been initialized.
+ * All lengths are step-aligned, where step is min(pagesize, blocksize).
+ * Currently assumes offset is page-aligned
+ */
 int bl_mark_sectors_init(struct pnfs_inval_markings *marks,
 			     sector_t offset, sector_t length)
 {
@@ -283,6 +300,10 @@ static void print_clist(struct list_head *list, unsigned int count)
 	}
 }
 
+/* Note: In theory, we should do more checking that devid's match between
+ * old and new, but if they don't, the lists are too corrupt to salvage anyway.
+ */
+/* Note this is very similar to bl_add_merge_extent */
 static void add_to_commitlist(struct pnfs_block_layout *bl,
 			      struct pnfs_block_short_extent *new)
 {
@@ -294,19 +315,22 @@ static void add_to_commitlist(struct pnfs_block_layout *bl,
 	print_short_extent(new);
 	print_clist(clist, bl->bl_count);
 	bl->bl_count++;
+	/* Scan for proper place to insert, extending new to the left
+	 * as much as possible.
+	 */
 	list_for_each_entry_safe(old, save, clist, bse_node) {
 		if (new->bse_f_offset < old->bse_f_offset)
 			break;
 		if (end <= old->bse_f_offset + old->bse_length) {
-			
+			/* Range is already in list */
 			bl->bl_count--;
 			kfree(new);
 			return;
 		} else if (new->bse_f_offset <=
 				old->bse_f_offset + old->bse_length) {
-			
+			/* new overlaps or abuts existing be */
 			if (new->bse_mdev == old->bse_mdev) {
-				
+				/* extend new to fully replace old */
 				new->bse_length += new->bse_f_offset -
 						old->bse_f_offset;
 				new->bse_f_offset = old->bse_f_offset;
@@ -316,15 +340,21 @@ static void add_to_commitlist(struct pnfs_block_layout *bl,
 			}
 		}
 	}
+	/* Note that if we never hit the above break, old will not point to a
+	 * valid extent.  However, in that case &old->bse_node==list.
+	 */
 	list_add_tail(&new->bse_node, &old->bse_node);
+	/* Scan forward for overlaps.  If we find any, extend new and
+	 * remove the overlapped extent.
+	 */
 	old = list_prepare_entry(new, clist, bse_node);
 	list_for_each_entry_safe_continue(old, save, clist, bse_node) {
 		if (end < old->bse_f_offset)
 			break;
-		
+		/* new overlaps or abuts old */
 		if (new->bse_mdev == old->bse_mdev) {
 			if (end < old->bse_f_offset + old->bse_length) {
-				
+				/* extend new to fully cover old */
 				end = old->bse_f_offset + old->bse_length;
 				new->bse_length = end - new->bse_f_offset;
 			}
@@ -337,6 +367,11 @@ static void add_to_commitlist(struct pnfs_block_layout *bl,
 	print_clist(clist, bl->bl_count);
 }
 
+/* Note the range described by offset, length is guaranteed to be contained
+ * within be.
+ * new will be freed, either by this function or add_to_commitlist if they
+ * decide not to use it, or after LAYOUTCOMMIT uses it in the commitlist.
+ */
 int bl_mark_for_commit(struct pnfs_block_extent *be,
 		    sector_t offset, sector_t length,
 		    struct pnfs_block_short_extent *new)
@@ -438,7 +473,7 @@ static void print_elist(struct list_head *list)
 static inline int
 extents_consistent(struct pnfs_block_extent *old, struct pnfs_block_extent *new)
 {
-	
+	/* Note this assumes new->be_f_offset >= old->be_f_offset */
 	return (new->be_state == old->be_state) &&
 		((new->be_state == PNFS_BLOCK_NONE_DATA) ||
 		 ((new->be_v_offset - old->be_v_offset ==
@@ -446,6 +481,16 @@ extents_consistent(struct pnfs_block_extent *old, struct pnfs_block_extent *new)
 		  new->be_mdev == old->be_mdev));
 }
 
+/* Adds new to appropriate list in bl, modifying new and removing existing
+ * extents as appropriate to deal with overlaps.
+ *
+ * See bl_find_get_extent for list constraints.
+ *
+ * Refcount on new is already set.  If end up not using it, or error out,
+ * need to put the reference.
+ *
+ * bl->bl_ext_lock is held by caller.
+ */
 int
 bl_add_merge_extent(struct pnfs_block_layout *bl,
 		     struct pnfs_block_extent *new)
@@ -459,12 +504,15 @@ bl_add_merge_extent(struct pnfs_block_layout *bl,
 	list = &bl->bl_extents[bl_choose_list(new->be_state)];
 	print_elist(list);
 
+	/* Scan for proper place to insert, extending new to the left
+	 * as much as possible.
+	 */
 	list_for_each_entry_safe_reverse(be, tmp, list, be_node) {
 		if (new->be_f_offset >= be->be_f_offset + be->be_length)
 			break;
 		if (new->be_f_offset >= be->be_f_offset) {
 			if (end <= be->be_f_offset + be->be_length) {
-				
+				/* new is a subset of existing be*/
 				if (extents_consistent(be, new)) {
 					dprintk("%s: new is subset, ignoring\n",
 						__func__);
@@ -474,8 +522,10 @@ bl_add_merge_extent(struct pnfs_block_layout *bl,
 					goto out_err;
 				}
 			} else {
+				/* |<--   be   -->|
+				 *          |<--   new   -->| */
 				if (extents_consistent(be, new)) {
-					
+					/* extend new to fully replace be */
 					new->be_length += new->be_f_offset -
 						be->be_f_offset;
 					new->be_f_offset = be->be_f_offset;
@@ -488,9 +538,9 @@ bl_add_merge_extent(struct pnfs_block_layout *bl,
 				}
 			}
 		} else if (end >= be->be_f_offset + be->be_length) {
-			
+			/* new extent overlap existing be */
 			if (extents_consistent(be, new)) {
-				
+				/* extend new to fully replace be */
 				dprintk("%s: removing %p\n", __func__, be);
 				list_del(&be->be_node);
 				bl_put_extent(be);
@@ -498,8 +548,10 @@ bl_add_merge_extent(struct pnfs_block_layout *bl,
 				goto out_err;
 			}
 		} else if (end > be->be_f_offset) {
+			/*           |<--   be   -->|
+			 *|<--   new   -->| */
 			if (extents_consistent(new, be)) {
-				
+				/* extend new to fully replace be */
 				new->be_length += be->be_f_offset + be->be_length -
 					new->be_f_offset - new->be_length;
 				dprintk("%s: removing %p\n", __func__, be);
@@ -510,9 +562,15 @@ bl_add_merge_extent(struct pnfs_block_layout *bl,
 			}
 		}
 	}
+	/* Note that if we never hit the above break, be will not point to a
+	 * valid extent.  However, in that case &be->be_node==list.
+	 */
 	list_add(&new->be_node, &be->be_node);
 	dprintk("%s: inserting new\n", __func__);
 	print_elist(list);
+	/* FIXME - The per-list consistency checks have all been done,
+	 * should now check cross-list consistency.
+	 */
 	return 0;
 
  out_err:
@@ -520,6 +578,14 @@ bl_add_merge_extent(struct pnfs_block_layout *bl,
 	return -EIO;
 }
 
+/* Returns extent, or NULL.  If a second READ extent exists, it is returned
+ * in cow_read, if given.
+ *
+ * The extents are kept in two seperate ordered lists, one for READ and NONE,
+ * one for READWRITE and INVALID.  Within each list, we assume:
+ * 1. Extents are ordered by file offset.
+ * 2. For any given isect, there is at most one extents that matches.
+ */
 struct pnfs_block_extent *
 bl_find_get_extent(struct pnfs_block_layout *bl, sector_t isect,
 	    struct pnfs_block_extent **cow_read)
@@ -535,7 +601,7 @@ bl_find_get_extent(struct pnfs_block_layout *bl, sector_t isect,
 			if (isect >= be->be_f_offset + be->be_length)
 				break;
 			if (isect >= be->be_f_offset) {
-				
+				/* We have found an extent */
 				dprintk("%s Get %p (%i)\n", __func__, be,
 					atomic_read(&be->be_refcnt.refcount));
 				kref_get(&be->be_refcnt);
@@ -559,6 +625,7 @@ bl_find_get_extent(struct pnfs_block_layout *bl, sector_t isect,
 	return ret;
 }
 
+/* Similar to bl_find_get_extent, but called with lock held, and ignores cow */
 static struct pnfs_block_extent *
 bl_find_get_extent_locked(struct pnfs_block_layout *bl, sector_t isect)
 {
@@ -573,7 +640,7 @@ bl_find_get_extent_locked(struct pnfs_block_layout *bl, sector_t isect)
 			if (isect >= be->be_f_offset + be->be_length)
 				break;
 			if (isect >= be->be_f_offset) {
-				
+				/* We have found an extent */
 				dprintk("%s Get %p (%i)\n", __func__, be,
 					atomic_read(&be->be_refcnt.refcount));
 				kref_get(&be->be_refcnt);
@@ -600,10 +667,10 @@ encode_pnfs_block_layoutupdate(struct pnfs_block_layout *bl,
 	 * entire block to be marked WRITTEN before it can be added.
 	 */
 	spin_lock(&bl->bl_ext_lock);
-	
-	
+	/* Want to adjust for possible truncate */
+	/* We now want to adjust argument range */
 
-	
+	/* XDR encode the ranges found */
 	xdr_start = xdr_reserve_space(xdr, 8);
 	if (!xdr_start)
 		goto out;
@@ -629,13 +696,14 @@ out:
 	return 0;
 }
 
+/* Helper function to set_to_rw that initialize a new extent */
 static void
 _prep_new_extent(struct pnfs_block_extent *new,
 		 struct pnfs_block_extent *orig,
 		 sector_t offset, sector_t length, int state)
 {
 	kref_init(&new->be_refcnt);
-	
+	/* don't need to INIT_LIST_HEAD(&new->be_node) */
 	memcpy(&new->be_devid, &orig->be_devid, sizeof(struct nfs4_deviceid));
 	new->be_mdev = orig->be_mdev;
 	new->be_f_offset = offset;
@@ -645,6 +713,9 @@ _prep_new_extent(struct pnfs_block_extent *new,
 	new->be_inval = orig->be_inval;
 }
 
+/* Tries to merge be with extent in front of it in list.
+ * Frees storage if not used.
+ */
 static struct pnfs_block_extent *
 _front_merge(struct pnfs_block_extent *be, struct list_head *head,
 	     struct pnfs_block_extent *storage)
@@ -682,11 +753,11 @@ set_to_rw(struct pnfs_block_layout *bl, u64 offset, u64 length)
 	int i = 0, j;
 
 	dprintk("%s(%llu, %llu)\n", __func__, offset, length);
-	
+	/* Create storage for up to three new extents e1, e2, e3 */
 	e1 = kmalloc(sizeof(*e1), GFP_ATOMIC);
 	e2 = kmalloc(sizeof(*e2), GFP_ATOMIC);
 	e3 = kmalloc(sizeof(*e3), GFP_ATOMIC);
-	
+	/* BUG - we are ignoring any failure */
 	if (!e1 || !e2 || !e3)
 		goto out_nosplit;
 
@@ -697,7 +768,7 @@ set_to_rw(struct pnfs_block_layout *bl, u64 offset, u64 length)
 		spin_unlock(&bl->bl_ext_lock);
 		goto out_nosplit;
 	}
-	
+	/* Add e* to children, bumping e*'s krefs */
 	if (be->be_f_offset != offset) {
 		_prep_new_extent(e1, be, be->be_f_offset,
 				 offset - be->be_f_offset,
@@ -721,7 +792,10 @@ set_to_rw(struct pnfs_block_layout *bl, u64 offset, u64 length)
 	} else
 		merge2 = e3;
 
-	
+	/* Remove be from list, and insert the e* */
+	/* We don't get refs on e*, since this list is the base reference
+	 * set when init'ed.
+	 */
 	if (i < 3)
 		children[i] = NULL;
 	new = children[0];
@@ -734,13 +808,16 @@ set_to_rw(struct pnfs_block_layout *bl, u64 offset, u64 length)
 		list_add(&new->be_node, &old->be_node);
 	}
 	if (merge2) {
-		
+		/* This is a HACK, should just create a _back_merge function */
 		new = list_entry(new->be_node.next,
 				 struct pnfs_block_extent, be_node);
 		new = _front_merge(new, &bl->bl_extents[RW_EXTENT], merge2);
 	}
 	spin_unlock(&bl->bl_ext_lock);
 
+	/* Since we removed the base reference above, be is now scheduled for
+	 * destruction.
+	 */
 	bl_put_extent(be);
 	dprintk("%s returns %llu after split\n", __func__, rv);
 	return rv;

@@ -15,4 +15,4 @@
 #define PROCESSOR_VENDOR_NAME	"Panasonic"
 #define PROCESSOR_MODEL_NAME	"mn2ws0050"
 
-#endif 
+#endif /* _ASM_PROC_PROC_H */

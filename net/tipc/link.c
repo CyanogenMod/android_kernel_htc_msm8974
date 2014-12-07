@@ -42,20 +42,41 @@
 #include "config.h"
 
 
+/*
+ * Out-of-range value for link session numbers
+ */
 
 #define INVALID_SESSION 0x10000
 
+/*
+ * Link state events:
+ */
 
-#define  STARTING_EVT    856384768	
-#define  TRAFFIC_MSG_EVT 560815u	
-#define  TIMEOUT_EVT     560817u	
+#define  STARTING_EVT    856384768	/* link processing trigger */
+#define  TRAFFIC_MSG_EVT 560815u	/* rx'd ??? */
+#define  TIMEOUT_EVT     560817u	/* link timer expired */
 
+/*
+ * The following two 'message types' is really just implementation
+ * data conveniently stored in the message header.
+ * They must not be considered part of the protocol
+ */
 #define OPEN_MSG   0
 #define CLOSED_MSG 1
 
+/*
+ * State value stored in 'exp_msg_count'
+ */
 
 #define START_CHANGEOVER 100000u
 
+/**
+ * struct tipc_link_name - deconstructed link name
+ * @addr_local: network address of node at this end
+ * @if_local: name of interface at this end
+ * @addr_peer: network address of node at far end
+ * @if_peer: name of interface at far end
+ */
 
 struct tipc_link_name {
 	u32 addr_local;
@@ -81,6 +102,9 @@ static void link_print(struct tipc_link *l_ptr, const char *str);
 static void link_start(struct tipc_link *l_ptr);
 static int link_send_long_buf(struct tipc_link *l_ptr, struct sk_buff *buf);
 
+/*
+ *  Simple link routines
+ */
 
 static unsigned int align(unsigned int i)
 {
@@ -116,6 +140,9 @@ static u32 link_last_sent(struct tipc_link *l_ptr)
 	return mod(link_next_sent(l_ptr) - 1);
 }
 
+/*
+ *  Simple non-static link routines (i.e. referenced outside this file)
+ */
 
 int tipc_link_is_up(struct tipc_link *l_ptr)
 {
@@ -130,6 +157,13 @@ int tipc_link_is_active(struct tipc_link *l_ptr)
 		(l_ptr->owner->active_links[1] == l_ptr);
 }
 
+/**
+ * link_name_validate - validate & (optionally) deconstruct tipc_link name
+ * @name - ptr to link name string
+ * @name_parts - ptr to area for link name components (or NULL if not needed)
+ *
+ * Returns 1 if link name is valid, otherwise 0.
+ */
 
 static int link_name_validate(const char *name,
 				struct tipc_link_name *name_parts)
@@ -145,15 +179,15 @@ static int link_name_validate(const char *name,
 	u32 if_local_len;
 	u32 if_peer_len;
 
-	
+	/* copy link name & ensure length is OK */
 
 	name_copy[TIPC_MAX_LINK_NAME - 1] = 0;
-	
+	/* need above in case non-Posix strncpy() doesn't pad with nulls */
 	strncpy(name_copy, name, TIPC_MAX_LINK_NAME);
 	if (name_copy[TIPC_MAX_LINK_NAME - 1] != 0)
 		return 0;
 
-	
+	/* ensure all component parts of link name are present */
 
 	addr_local = name_copy;
 	if_local = strchr(addr_local, ':');
@@ -171,7 +205,7 @@ static int link_name_validate(const char *name,
 	*(if_peer++) = 0;
 	if_peer_len = strlen(if_peer) + 1;
 
-	
+	/* validate component parts of link name */
 
 	if ((sscanf(addr_local, "%u.%u.%u%c",
 		    &z_local, &c_local, &n_local, &dummy) != 3) ||
@@ -185,7 +219,7 @@ static int link_name_validate(const char *name,
 	    (strspn(if_peer, tipc_alphabet) != (if_peer_len - 1)))
 		return 0;
 
-	
+	/* return link name components, if necessary */
 
 	if (name_parts) {
 		name_parts->addr_local = tipc_addr(z_local, c_local, n_local);
@@ -196,12 +230,21 @@ static int link_name_validate(const char *name,
 	return 1;
 }
 
+/**
+ * link_timeout - handle expiration of link timer
+ * @l_ptr: pointer to link
+ *
+ * This routine must not grab "tipc_net_lock" to avoid a potential deadlock conflict
+ * with tipc_link_delete().  (There is no risk that the node will be deleted by
+ * another thread because tipc_link_delete() always cancels the link timer before
+ * tipc_node_delete() is called.)
+ */
 
 static void link_timeout(struct tipc_link *l_ptr)
 {
 	tipc_node_lock(l_ptr->owner);
 
-	
+	/* update counters used in statistical profiling of send traffic */
 
 	l_ptr->stats.accu_queue_sz += l_ptr->out_queue_size;
 	l_ptr->stats.queue_sz_counts++;
@@ -234,7 +277,7 @@ static void link_timeout(struct tipc_link *l_ptr)
 		}
 	}
 
-	
+	/* do all other link processing performed on a periodic basis */
 
 	link_check_defragm_bufs(l_ptr);
 
@@ -251,6 +294,14 @@ static void link_set_timer(struct tipc_link *l_ptr, u32 time)
 	k_start_timer(&l_ptr->timer, time);
 }
 
+/**
+ * tipc_link_create - create a new link
+ * @n_ptr: pointer to associated node
+ * @b_ptr: pointer to associated bearer
+ * @media_addr: media address to use when sending messages over link
+ *
+ * Returns pointer to link.
+ */
 
 struct tipc_link *tipc_link_create(struct tipc_node *n_ptr,
 			      struct tipc_bearer *b_ptr,
@@ -288,7 +339,7 @@ struct tipc_link *tipc_link_create(struct tipc_node *n_ptr,
 		tipc_node(tipc_own_addr),
 		if_name,
 		tipc_zone(peer), tipc_cluster(peer), tipc_node(peer));
-		
+		/* note: peer i/f name is updated by reset/activate message */
 	memcpy(&l_ptr->media_addr, media_addr, sizeof(*media_addr));
 	l_ptr->owner = n_ptr;
 	l_ptr->checkpoint = 1;
@@ -324,6 +375,14 @@ struct tipc_link *tipc_link_create(struct tipc_node *n_ptr,
 	return l_ptr;
 }
 
+/**
+ * tipc_link_delete - delete a link
+ * @l_ptr: pointer to link
+ *
+ * Note: 'tipc_net_lock' is write_locked, bearer is locked.
+ * This routine must not grab the node lock until after link timer cancellation
+ * to avoid a potential deadlock situation.
+ */
 
 void tipc_link_delete(struct tipc_link *l_ptr)
 {
@@ -351,6 +410,15 @@ static void link_start(struct tipc_link *l_ptr)
 	tipc_node_unlock(l_ptr->owner);
 }
 
+/**
+ * link_schedule_port - schedule port for deferred sending
+ * @l_ptr: pointer to link
+ * @origport: reference to sending port
+ * @sz: amount of data to be sent
+ *
+ * Schedules port for renewed sending of messages after link congestion
+ * has abated.
+ */
 
 static int link_schedule_port(struct tipc_link *l_ptr, u32 origport, u32 sz)
 {
@@ -404,6 +472,10 @@ exit:
 	spin_unlock_bh(&tipc_port_list_lock);
 }
 
+/**
+ * link_release_outqueue - purge link's outbound message queue
+ * @l_ptr: pointer to link
+ */
 
 static void link_release_outqueue(struct tipc_link *l_ptr)
 {
@@ -419,6 +491,10 @@ static void link_release_outqueue(struct tipc_link *l_ptr)
 	l_ptr->out_queue_size = 0;
 }
 
+/**
+ * tipc_link_reset_fragments - purge link's inbound message fragments queue
+ * @l_ptr: pointer to link
+ */
 
 void tipc_link_reset_fragments(struct tipc_link *l_ptr)
 {
@@ -433,6 +509,10 @@ void tipc_link_reset_fragments(struct tipc_link *l_ptr)
 	l_ptr->defragm_buf = NULL;
 }
 
+/**
+ * tipc_link_stop - purge all inbound and outbound messages associated with link
+ * @l_ptr: pointer to link
+ */
 
 void tipc_link_stop(struct tipc_link *l_ptr)
 {
@@ -468,10 +548,10 @@ void tipc_link_reset(struct tipc_link *l_ptr)
 
 	msg_set_session(l_ptr->pmsg, ((msg_session(l_ptr->pmsg) + 1) & 0xffff));
 
-	
+	/* Link is down, accept any session */
 	l_ptr->peer_session = INVALID_SESSION;
 
-	
+	/* Prepare for max packet size negotiation */
 	link_init_max_pkt(l_ptr);
 
 	l_ptr->state = RESET_UNKNOWN;
@@ -488,7 +568,7 @@ void tipc_link_reset(struct tipc_link *l_ptr)
 		l_ptr->exp_msg_count = START_CHANGEOVER;
 	}
 
-	
+	/* Clean up all queues: */
 
 	link_release_outqueue(l_ptr);
 	kfree_skb(l_ptr->proto_msg_queue);
@@ -526,6 +606,11 @@ static void link_activate(struct tipc_link *l_ptr)
 	tipc_bearer_add_dest(l_ptr->b_ptr, l_ptr->addr);
 }
 
+/**
+ * link_state_event - link finite state machine
+ * @l_ptr: pointer to link
+ * @event: state machine event to process
+ */
 
 static void link_state_event(struct tipc_link *l_ptr, unsigned event)
 {
@@ -533,12 +618,12 @@ static void link_state_event(struct tipc_link *l_ptr, unsigned event)
 	u32 cont_intv = l_ptr->continuity_interval;
 
 	if (!l_ptr->started && (event != STARTING_EVT))
-		return;		
+		return;		/* Not yet. */
 
 	if (link_blocked(l_ptr)) {
 		if (event == TIMEOUT_EVT)
 			link_set_timer(l_ptr, cont_intv);
-		return;	  
+		return;	  /* Changeover going on */
 	}
 
 	switch (l_ptr->state) {
@@ -616,7 +701,7 @@ static void link_state_event(struct tipc_link *l_ptr, unsigned event)
 							 1, 0, 0, 0, 0);
 				l_ptr->fsm_msg_cnt++;
 				link_set_timer(l_ptr, cont_intv / 4);
-			} else {	
+			} else {	/* Link has failed */
 				warn("Resetting link <%s>, peer not responding\n",
 				     l_ptr->name);
 				tipc_link_reset(l_ptr);
@@ -656,7 +741,7 @@ static void link_state_event(struct tipc_link *l_ptr, unsigned event)
 			break;
 		case STARTING_EVT:
 			l_ptr->started = 1;
-			
+			/* fall through */
 		case TIMEOUT_EVT:
 			tipc_link_send_proto_msg(l_ptr, RESET_MSG, 0, 0, 0, 0, 0);
 			l_ptr->fsm_msg_cnt++;
@@ -696,6 +781,10 @@ static void link_state_event(struct tipc_link *l_ptr, unsigned event)
 	}
 }
 
+/*
+ * link_bundle_buf(): Append contents of a buffer to
+ * the tail of an existing one.
+ */
 
 static int link_bundle_buf(struct tipc_link *l_ptr,
 			   struct sk_buff *bundler,
@@ -766,6 +855,11 @@ static void link_add_chain_to_outqueue(struct tipc_link *l_ptr,
 	}
 }
 
+/*
+ * tipc_link_send_buf() is the 'full path' for messages, called from
+ * inside TIPC when the 'fast path' in tipc_send_buf
+ * has failed, and from link_send()
+ */
 
 int tipc_link_send_buf(struct tipc_link *l_ptr, struct sk_buff *buf)
 {
@@ -777,7 +871,7 @@ int tipc_link_send_buf(struct tipc_link *l_ptr, struct sk_buff *buf)
 	u32 queue_limit = l_ptr->queue_limit[imp];
 	u32 max_packet = l_ptr->max_pkt;
 
-	
+	/* Match msg importance against queue limits: */
 
 	if (unlikely(queue_size >= queue_limit)) {
 		if (imp <= TIPC_CRITICAL_IMPORTANCE) {
@@ -793,12 +887,12 @@ int tipc_link_send_buf(struct tipc_link *l_ptr, struct sk_buff *buf)
 		return dsz;
 	}
 
-	
+	/* Fragmentation needed ? */
 
 	if (size > max_packet)
 		return link_send_long_buf(l_ptr, buf);
 
-	
+	/* Packet can be queued or sent: */
 
 	if (likely(!tipc_bearer_congested(l_ptr->b_ptr, l_ptr) &&
 		   !link_congested(l_ptr))) {
@@ -813,12 +907,12 @@ int tipc_link_send_buf(struct tipc_link *l_ptr, struct sk_buff *buf)
 		}
 		return dsz;
 	}
-	
+	/* Congestion: can message be bundled ?: */
 
 	if ((msg_user(msg) != CHANGEOVER_PROTOCOL) &&
 	    (msg_user(msg) != MSG_FRAGMENTER)) {
 
-		
+		/* Try adding message to an existing bundle */
 
 		if (l_ptr->next_out &&
 		    link_bundle_buf(l_ptr, l_ptr->last_out, buf)) {
@@ -826,7 +920,7 @@ int tipc_link_send_buf(struct tipc_link *l_ptr, struct sk_buff *buf)
 			return dsz;
 		}
 
-		
+		/* Try creating a new bundle */
 
 		if (size <= max_packet * 2 / 3) {
 			struct sk_buff *bundler = tipc_buf_acquire(max_packet);
@@ -852,6 +946,11 @@ int tipc_link_send_buf(struct tipc_link *l_ptr, struct sk_buff *buf)
 	return dsz;
 }
 
+/*
+ * tipc_link_send(): same as tipc_link_send_buf(), but the link to use has
+ * not been selected yet, and the the owner node is not locked
+ * Called by TIPC internal users, e.g. the name distributor
+ */
 
 int tipc_link_send(struct sk_buff *buf, u32 dest, u32 selector)
 {
@@ -876,6 +975,15 @@ int tipc_link_send(struct sk_buff *buf, u32 dest, u32 selector)
 	return res;
 }
 
+/*
+ * tipc_link_send_names - send name table entries to new neighbor
+ *
+ * Send routine for bulk delivery of name table messages when contact
+ * with a new neighbor occurs. No link congestion checking is performed
+ * because name table messages *must* be delivered. The messages must be
+ * small enough not to require fragmentation.
+ * Called without any locks held.
+ */
 
 void tipc_link_send_names(struct list_head *message_list, u32 dest)
 {
@@ -893,7 +1001,7 @@ void tipc_link_send_names(struct list_head *message_list, u32 dest)
 		tipc_node_lock(n_ptr);
 		l_ptr = n_ptr->active_links[0];
 		if (l_ptr) {
-			
+			/* convert circular list to linear list */
 			((struct sk_buff *)message_list->prev)->next = NULL;
 			link_add_chain_to_outqueue(l_ptr,
 				(struct sk_buff *)message_list->next, 0);
@@ -904,7 +1012,7 @@ void tipc_link_send_names(struct list_head *message_list, u32 dest)
 	}
 	read_unlock_bh(&tipc_net_lock);
 
-	
+	/* discard the messages if they couldn't be sent */
 
 	list_for_each_safe(buf, temp_buf, ((struct sk_buff *)message_list)) {
 		list_del((struct list_head *)buf);
@@ -912,6 +1020,12 @@ void tipc_link_send_names(struct list_head *message_list, u32 dest)
 	}
 }
 
+/*
+ * link_send_buf_fast: Entry for data messages where the
+ * destination link is known and the header is complete,
+ * inclusive total message length. Very time critical.
+ * Link is locked. Returns user data length.
+ */
 
 static int link_send_buf_fast(struct tipc_link *l_ptr, struct sk_buff *buf,
 			      u32 *used_max_pkt)
@@ -936,9 +1050,15 @@ static int link_send_buf_fast(struct tipc_link *l_ptr, struct sk_buff *buf,
 		} else
 			*used_max_pkt = l_ptr->max_pkt;
 	}
-	return tipc_link_send_buf(l_ptr, buf);  
+	return tipc_link_send_buf(l_ptr, buf);  /* All other cases */
 }
 
+/*
+ * tipc_send_buf_fast: Entry for data messages where the
+ * destination node is known and the header is complete,
+ * inclusive total message length.
+ * Returns user data length.
+ */
 int tipc_send_buf_fast(struct sk_buff *buf, u32 destnode)
 {
 	struct tipc_link *l_ptr;
@@ -967,6 +1087,12 @@ int tipc_send_buf_fast(struct sk_buff *buf, u32 destnode)
 }
 
 
+/*
+ * tipc_link_send_sections_fast: Entry for messages where the
+ * destination processor is known and the header is complete,
+ * except for total message length.
+ * Returns user data length or errno.
+ */
 int tipc_link_send_sections_fast(struct tipc_port *sender,
 				 struct iovec const *msg_sect,
 				 const u32 num_sect,
@@ -981,6 +1107,10 @@ int tipc_link_send_sections_fast(struct tipc_port *sender,
 	u32 selector = msg_origport(hdr) & 1;
 
 again:
+	/*
+	 * Try building message using port's max_pkt hint.
+	 * (Must not hold any locks while building message.)
+	 */
 
 	res = tipc_msg_build(hdr, msg_sect, num_sect, total_len,
 			     sender->max_pkt, !sender->user_port, &buf);
@@ -1000,12 +1130,12 @@ exit:
 				return res;
 			}
 
-			
+			/* Exit if build request was invalid */
 
 			if (unlikely(res < 0))
 				goto exit;
 
-			
+			/* Exit if link (or bearer) is congested */
 
 			if (link_congested(l_ptr) ||
 			    !list_empty(&l_ptr->b_ptr->cong_links)) {
@@ -1014,6 +1144,10 @@ exit:
 				goto exit;
 			}
 
+			/*
+			 * Message size exceeds max_pkt hint; update hint,
+			 * then re-try fast path or fragment the message
+			 */
 
 			sender->max_pkt = l_ptr->max_pkt;
 			tipc_node_unlock(node);
@@ -1031,7 +1165,7 @@ exit:
 	}
 	read_unlock_bh(&tipc_net_lock);
 
-	
+	/* Couldn't find a link to the destination node */
 
 	if (buf)
 		return tipc_reject_msg(buf, TIPC_ERR_NO_NODE);
@@ -1041,6 +1175,20 @@ exit:
 	return res;
 }
 
+/*
+ * link_send_sections_long(): Entry for long messages where the
+ * destination node is known and the header is complete,
+ * inclusive total message length.
+ * Link and bearer congestion status have been checked to be ok,
+ * and are ignored if they change.
+ *
+ * Note that fragments do not use the full link MTU so that they won't have
+ * to undergo refragmentation if link changeover causes them to be sent
+ * over another link with an additional tunnel header added as prefix.
+ * (Refragmentation will still occur if the other link has a smaller MTU.)
+ *
+ * Returns user data length or errno.
+ */
 static int link_send_sections_long(struct tipc_port *sender,
 				   struct iovec const *msg_sect,
 				   u32 num_sect,
@@ -1062,9 +1210,9 @@ static int link_send_sections_long(struct tipc_port *sender,
 again:
 	fragm_no = 1;
 	max_pkt = sender->max_pkt - INT_H_SIZE;
-		
+		/* leave room for tunnel header in case of link changeover */
 	fragm_sz = max_pkt - INT_H_SIZE;
-		
+		/* leave room for fragmentation header in each fragment */
 	rest = dsz;
 	fragm_crs = 0;
 	fragm_rest = 0;
@@ -1072,14 +1220,14 @@ again:
 	sect_crs = NULL;
 	curr_sect = -1;
 
-	
+	/* Prepare reusable fragment header: */
 
 	tipc_msg_init(&fragm_hdr, MSG_FRAGMENTER, FIRST_FRAGMENT,
 		 INT_H_SIZE, msg_destnode(hdr));
 	msg_set_size(&fragm_hdr, max_pkt);
 	msg_set_fragm_no(&fragm_hdr, 1);
 
-	
+	/* Prepare header of first fragment: */
 
 	buf_chain = buf = tipc_buf_acquire(max_pkt);
 	if (!buf)
@@ -1089,12 +1237,12 @@ again:
 	hsz = msg_hdr_sz(hdr);
 	skb_copy_to_linear_data_offset(buf, INT_H_SIZE, hdr, hsz);
 
-	
+	/* Chop up message: */
 
 	fragm_crs = INT_H_SIZE + hsz;
 	fragm_rest = fragm_sz - hsz;
 
-	do {		
+	do {		/* For all sections */
 		u32 sz;
 
 		if (!sect_rest) {
@@ -1127,7 +1275,7 @@ error:
 
 		if (!fragm_rest && rest) {
 
-			
+			/* Initiate new fragment: */
 			if (rest <= fragm_sz) {
 				fragm_sz = rest;
 				msg_set_type(&fragm_hdr, LAST_FRAGMENT);
@@ -1149,6 +1297,10 @@ error:
 		}
 	} while (rest > 0);
 
+	/*
+	 * Now we have a buffer chain. Select a link and check
+	 * that packet size is still OK
+	 */
 	node = tipc_node_find(destaddr);
 	if (likely(node)) {
 		tipc_node_lock(node);
@@ -1176,7 +1328,7 @@ reject:
 						 total_len, TIPC_ERR_NO_NODE);
 	}
 
-	
+	/* Append chain of fragments to send queue & send them */
 
 	l_ptr->long_msg_seq_no++;
 	link_add_chain_to_outqueue(l_ptr, buf_chain, l_ptr->long_msg_seq_no);
@@ -1187,14 +1339,17 @@ reject:
 	return dsz;
 }
 
+/*
+ * tipc_link_push_packet: Push one unsent packet to the media
+ */
 u32 tipc_link_push_packet(struct tipc_link *l_ptr)
 {
 	struct sk_buff *buf = l_ptr->first_out;
 	u32 r_q_size = l_ptr->retransm_queue_size;
 	u32 r_q_head = l_ptr->retransm_queue_head;
 
-	
-	
+	/* Step to position where retransmission failed, if any,    */
+	/* consider that buffers may have been released in meantime */
 
 	if (r_q_size && buf) {
 		u32 last = lesser(mod(r_q_head + r_q_size),
@@ -1209,7 +1364,7 @@ u32 tipc_link_push_packet(struct tipc_link *l_ptr)
 		l_ptr->retransm_queue_size = r_q_size = mod(last - first);
 	}
 
-	
+	/* Continue retransmission now, if there is anything: */
 
 	if (r_q_size && buf) {
 		msg_set_ack(buf_msg(buf), mod(l_ptr->next_in_no - 1));
@@ -1225,7 +1380,7 @@ u32 tipc_link_push_packet(struct tipc_link *l_ptr)
 		}
 	}
 
-	
+	/* Send deferred protocol message, if any: */
 
 	buf = l_ptr->proto_msg_queue;
 	if (buf) {
@@ -1242,7 +1397,7 @@ u32 tipc_link_push_packet(struct tipc_link *l_ptr)
 		}
 	}
 
-	
+	/* Send one deferred data message, if send window not full: */
 
 	buf = l_ptr->next_out;
 	if (buf) {
@@ -1267,6 +1422,10 @@ u32 tipc_link_push_packet(struct tipc_link *l_ptr)
 	return PUSH_FINISHED;
 }
 
+/*
+ * push_queue(): push out the unsent messages of a link where
+ *               congestion has abated. Node is locked
+ */
 void tipc_link_push_queue(struct tipc_link *l_ptr)
 {
 	u32 res;
@@ -1292,7 +1451,7 @@ static void link_reset_all(unsigned long addr)
 	n_ptr = tipc_node_find((u32)addr);
 	if (!n_ptr) {
 		read_unlock_bh(&tipc_net_lock);
-		return;	
+		return;	/* node no longer exists */
 	}
 
 	tipc_node_lock(n_ptr);
@@ -1320,14 +1479,14 @@ static void link_retransmit_failure(struct tipc_link *l_ptr,
 
 	if (l_ptr->addr) {
 
-		
+		/* Handle failure on standard link */
 
 		link_print(l_ptr, "Resetting link\n");
 		tipc_link_reset(l_ptr);
 
 	} else {
 
-		
+		/* Handle failure on broadcast link */
 
 		struct tipc_node *n_ptr;
 		char addr_string[16];
@@ -1376,7 +1535,7 @@ void tipc_link_retransmit(struct tipc_link *l_ptr, struct sk_buff *buf,
 		}
 		return;
 	} else {
-		
+		/* Detect repeated retransmit failures on uncongested bearer */
 
 		if (l_ptr->last_retransmitted == msg_seqno(msg)) {
 			if (++l_ptr->stale_count > 100) {
@@ -1409,6 +1568,9 @@ void tipc_link_retransmit(struct tipc_link *l_ptr, struct sk_buff *buf,
 	l_ptr->retransm_queue_head = l_ptr->retransm_queue_size = 0;
 }
 
+/**
+ * link_insert_deferred_queue - insert deferred messages back into receive chain
+ */
 
 static struct sk_buff *link_insert_deferred_queue(struct tipc_link *l_ptr,
 						  struct sk_buff *buf)
@@ -1428,6 +1590,18 @@ static struct sk_buff *link_insert_deferred_queue(struct tipc_link *l_ptr,
 	return buf;
 }
 
+/**
+ * link_recv_buf_validate - validate basic format of received message
+ *
+ * This routine ensures a TIPC message has an acceptable header, and at least
+ * as much data as the header indicates it should.  The routine also ensures
+ * that the entire message header is stored in the main fragment of the message
+ * buffer, to simplify future access to message header fields.
+ *
+ * Note: Having extra info present in the message header or data areas is OK.
+ * TIPC will ignore the excess, under the assumption that it is optional info
+ * introduced by a later release of the protocol.
+ */
 
 static int link_recv_buf_validate(struct sk_buff *buf)
 {
@@ -1466,6 +1640,14 @@ static int link_recv_buf_validate(struct sk_buff *buf)
 	return pskb_may_pull(buf, hdr_size);
 }
 
+/**
+ * tipc_recv_msg - process TIPC messages arriving from off-node
+ * @head: pointer to message buffer chain
+ * @tb_ptr: pointer to bearer message arrived on
+ *
+ * Invoked with no locks held.  Bearer pointer must point to a valid bearer
+ * structure (i.e. cannot be NULL), but bearer can be inactive.
+ */
 
 void tipc_recv_msg(struct sk_buff *head, struct tipc_bearer *b_ptr)
 {
@@ -1483,22 +1665,22 @@ void tipc_recv_msg(struct sk_buff *head, struct tipc_bearer *b_ptr)
 
 		head = head->next;
 
-		
+		/* Ensure bearer is still enabled */
 
 		if (unlikely(!b_ptr->active))
 			goto cont;
 
-		
+		/* Ensure message is well-formed */
 
 		if (unlikely(!link_recv_buf_validate(buf)))
 			goto cont;
 
-		
+		/* Ensure message data is a single contiguous unit */
 
 		if (unlikely(skb_linearize(buf)))
 			goto cont;
 
-		
+		/* Handle arrival of a non-unicast link message */
 
 		msg = buf_msg(buf);
 
@@ -1510,20 +1692,20 @@ void tipc_recv_msg(struct sk_buff *head, struct tipc_bearer *b_ptr)
 			continue;
 		}
 
-		
+		/* Discard unicast link messages destined for another node */
 
 		if (unlikely(!msg_short(msg) &&
 			     (msg_destnode(msg) != tipc_own_addr)))
 			goto cont;
 
-		
+		/* Locate neighboring node that sent message */
 
 		n_ptr = tipc_node_find(msg_prevnode(msg));
 		if (unlikely(!n_ptr))
 			goto cont;
 		tipc_node_lock(n_ptr);
 
-		
+		/* Locate unicast link endpoint that should handle message */
 
 		l_ptr = n_ptr->links[b_ptr->identity];
 		if (unlikely(!l_ptr)) {
@@ -1531,7 +1713,7 @@ void tipc_recv_msg(struct sk_buff *head, struct tipc_bearer *b_ptr)
 			goto cont;
 		}
 
-		
+		/* Verify that communication with node is currently allowed */
 
 		if ((n_ptr->block_setup & WAIT_PEER_DOWN) &&
 			msg_user(msg) == LINK_PROTOCOL &&
@@ -1545,12 +1727,12 @@ void tipc_recv_msg(struct sk_buff *head, struct tipc_bearer *b_ptr)
 			goto cont;
 		}
 
-		
+		/* Validate message sequence number info */
 
 		seq_no = msg_seqno(msg);
 		ackd = msg_ack(msg);
 
-		
+		/* Release acked messages */
 
 		if (n_ptr->bclink.supported)
 			tipc_bclink_acknowledge(n_ptr, msg_bcast_ack(msg));
@@ -1569,7 +1751,7 @@ void tipc_recv_msg(struct sk_buff *head, struct tipc_bearer *b_ptr)
 			l_ptr->out_queue_size -= released;
 		}
 
-		
+		/* Try sending any messages link endpoint has pending */
 
 		if (unlikely(l_ptr->next_out))
 			tipc_link_push_queue(l_ptr);
@@ -1580,7 +1762,7 @@ void tipc_recv_msg(struct sk_buff *head, struct tipc_bearer *b_ptr)
 			tipc_link_send_proto_msg(l_ptr, STATE_MSG, 0, 0, 0, 0, 0);
 		}
 
-		
+		/* Now (finally!) process the incoming message */
 
 protocol_check:
 		if (likely(link_working_working(l_ptr))) {
@@ -1659,7 +1841,7 @@ deliver:
 		link_state_event(l_ptr, TRAFFIC_MSG_EVT);
 
 		if (link_working_working(l_ptr)) {
-			
+			/* Re-insert in front of queue */
 			buf->next = head;
 			head = buf;
 			tipc_node_unlock(n_ptr);
@@ -1672,6 +1854,11 @@ cont:
 	read_unlock_bh(&tipc_net_lock);
 }
 
+/*
+ * tipc_link_defer_pkt - Add out-of-sequence message to deferred reception queue
+ *
+ * Returns increase in queue length (i.e. 0 or 1)
+ */
 
 u32 tipc_link_defer_pkt(struct sk_buff **head, struct sk_buff **tail,
 			struct sk_buff *buf)
@@ -1682,20 +1869,20 @@ u32 tipc_link_defer_pkt(struct sk_buff **head, struct sk_buff **tail,
 
 	buf->next = NULL;
 
-	
+	/* Empty queue ? */
 	if (*head == NULL) {
 		*head = *tail = buf;
 		return 1;
 	}
 
-	
+	/* Last ? */
 	if (less(buf_seqno(*tail), seq_no)) {
 		(*tail)->next = buf;
 		*tail = buf;
 		return 1;
 	}
 
-	
+	/* Locate insertion point in queue, then insert; discard if duplicate */
 	prev = head;
 	queue_buf = *head;
 	for (;;) {
@@ -1718,6 +1905,9 @@ u32 tipc_link_defer_pkt(struct sk_buff **head, struct sk_buff **tail,
 	return 1;
 }
 
+/*
+ * link_handle_out_of_seq_msg - handle arrival of out-of-sequence packet
+ */
 
 static void link_handle_out_of_seq_msg(struct tipc_link *l_ptr,
 				       struct sk_buff *buf)
@@ -1729,10 +1919,14 @@ static void link_handle_out_of_seq_msg(struct tipc_link *l_ptr,
 		return;
 	}
 
-	
+	/* Record OOS packet arrival (force mismatch on next timeout) */
 
 	l_ptr->checkpoint--;
 
+	/*
+	 * Discard packet if a duplicate; otherwise add it to deferred queue
+	 * and notify peer of gap as per protocol specification
+	 */
 
 	if (less(seq_no, mod(l_ptr->next_in_no))) {
 		l_ptr->stats.duplicates++;
@@ -1750,6 +1944,9 @@ static void link_handle_out_of_seq_msg(struct tipc_link *l_ptr,
 		l_ptr->stats.duplicates++;
 }
 
+/*
+ * Send protocol message to the other endpoint.
+ */
 void tipc_link_send_proto_msg(struct tipc_link *l_ptr, u32 msg_typ,
 				int probe_msg, u32 gap, u32 tolerance,
 				u32 priority, u32 ack_mtu)
@@ -1759,7 +1956,7 @@ void tipc_link_send_proto_msg(struct tipc_link *l_ptr, u32 msg_typ,
 	u32 msg_size = sizeof(l_ptr->proto_msg);
 	int r_flag;
 
-	
+	/* Discard any previous message that was deferred due to congestion */
 
 	if (l_ptr->proto_msg_queue) {
 		kfree_skb(l_ptr->proto_msg_queue);
@@ -1769,12 +1966,12 @@ void tipc_link_send_proto_msg(struct tipc_link *l_ptr, u32 msg_typ,
 	if (link_blocked(l_ptr))
 		return;
 
-	
+	/* Abort non-RESET send if communication with node is prohibited */
 
 	if ((l_ptr->owner->block_setup) && (msg_typ != RESET_MSG))
 		return;
 
-	
+	/* Create protocol message with "out-of-sequence" sequence number */
 
 	msg_set_type(msg, msg_typ);
 	msg_set_net_plane(msg, l_ptr->b_ptr->net_plane);
@@ -1819,7 +2016,7 @@ void tipc_link_send_proto_msg(struct tipc_link *l_ptr, u32 msg_typ,
 			l_ptr->stats.sent_probes++;
 		}
 		l_ptr->stats.sent_states++;
-	} else {		
+	} else {		/* RESET_MSG or ACTIVATE_MSG */
 		msg_set_ack(msg, mod(l_ptr->reset_checkpoint - 1));
 		msg_set_seq_gap(msg, 0);
 		msg_set_next_sent(msg, 1);
@@ -1842,14 +2039,14 @@ void tipc_link_send_proto_msg(struct tipc_link *l_ptr, u32 msg_typ,
 
 	skb_copy_to_linear_data(buf, msg, sizeof(l_ptr->proto_msg));
 
-	
+	/* Defer message if bearer is already congested */
 
 	if (tipc_bearer_congested(l_ptr->b_ptr, l_ptr)) {
 		l_ptr->proto_msg_queue = buf;
 		return;
 	}
 
-	
+	/* Defer message if attempting to send results in bearer congestion */
 
 	if (!tipc_bearer_send(l_ptr->b_ptr, buf, &l_ptr->media_addr)) {
 		tipc_bearer_schedule(l_ptr->b_ptr, l_ptr);
@@ -1858,12 +2055,17 @@ void tipc_link_send_proto_msg(struct tipc_link *l_ptr, u32 msg_typ,
 		return;
 	}
 
-	
+	/* Discard message if it was sent successfully */
 
 	l_ptr->unacked_window = 0;
 	kfree_skb(buf);
 }
 
+/*
+ * Receive protocol message :
+ * Note that network plane id propagates through the network, and may
+ * change at any time. The node with lowest address rules
+ */
 
 static void link_recv_proto_msg(struct tipc_link *l_ptr, struct sk_buff *buf)
 {
@@ -1876,7 +2078,7 @@ static void link_recv_proto_msg(struct tipc_link *l_ptr, struct sk_buff *buf)
 	if (link_blocked(l_ptr))
 		goto exit;
 
-	
+	/* record unnumbered packet arrival (force mismatch on next timeout) */
 
 	l_ptr->checkpoint--;
 
@@ -1892,19 +2094,23 @@ static void link_recv_proto_msg(struct tipc_link *l_ptr, struct sk_buff *buf)
 		if (!link_working_unknown(l_ptr) &&
 		    (l_ptr->peer_session != INVALID_SESSION)) {
 			if (less_eq(msg_session(msg), l_ptr->peer_session))
-				break; 
+				break; /* duplicate or old reset: ignore */
 		}
 
 		if (!msg_redundant_link(msg) && (link_working_working(l_ptr) ||
 				link_working_unknown(l_ptr))) {
+			/*
+			 * peer has lost contact -- don't allow peer's links
+			 * to reactivate before we recognize loss & clean up
+			 */
 			l_ptr->owner->block_setup = WAIT_NODE_DOWN;
 		}
 
 		link_state_event(l_ptr, RESET_MSG);
 
-		
+		/* fall thru' */
 	case ACTIVATE_MSG:
-		
+		/* Update link settings according other endpoint's values */
 
 		strcpy((strrchr(l_ptr->name, ':') + 1), (char *)msg_data(msg));
 
@@ -1926,7 +2132,7 @@ static void link_recv_proto_msg(struct tipc_link *l_ptr, struct sk_buff *buf)
 		}
 		l_ptr->owner->bclink.supportable = (max_pkt_info != 0);
 
-		
+		/* Synchronize broadcast link info, if not done previously */
 
 		if (!tipc_node_is_up(l_ptr->owner)) {
 			l_ptr->owner->bclink.last_sent =
@@ -1952,7 +2158,7 @@ static void link_recv_proto_msg(struct tipc_link *l_ptr, struct sk_buff *buf)
 			warn("Resetting link <%s>, priority change %u->%u\n",
 			     l_ptr->name, l_ptr->priority, msg_linkprio(msg));
 			l_ptr->priority = msg_linkprio(msg);
-			tipc_link_reset(l_ptr); 
+			tipc_link_reset(l_ptr); /* Enforce change to take effect */
 			break;
 		}
 		link_state_event(l_ptr, TRAFFIC_MSG_EVT);
@@ -1978,7 +2184,7 @@ static void link_recv_proto_msg(struct tipc_link *l_ptr, struct sk_buff *buf)
 				max_pkt_ack = msg_size(msg);
 		}
 
-		
+		/* Protocol message before retransmits, reduce loss risk */
 
 		if (l_ptr->owner->bclink.supported)
 			tipc_bclink_update_link_state(l_ptr->owner,
@@ -2000,6 +2206,10 @@ exit:
 }
 
 
+/*
+ * tipc_link_tunnel(): Send one message via a link belonging to
+ * another bearer. Owner node is locked.
+ */
 static void tipc_link_tunnel(struct tipc_link *l_ptr,
 			     struct tipc_msg *tunnel_hdr,
 			     struct tipc_msg  *msg,
@@ -2029,6 +2239,10 @@ static void tipc_link_tunnel(struct tipc_link *l_ptr,
 
 
 
+/*
+ * changeover(): Send whole message queue via the remaining link
+ *               Owner node is locked.
+ */
 
 void tipc_link_changeover(struct tipc_link *l_ptr)
 {
@@ -2110,7 +2324,7 @@ void tipc_link_send_duplicate(struct tipc_link *l_ptr, struct tipc_link *tunnel)
 
 		if (msg_user(msg) == MSG_BUNDLER)
 			msg_set_type(msg, CLOSED_MSG);
-		msg_set_ack(msg, mod(l_ptr->next_in_no - 1));	
+		msg_set_ack(msg, mod(l_ptr->next_in_no - 1));	/* Update */
 		msg_set_bcast_ack(msg, l_ptr->owner->bclink.last_in);
 		msg_set_size(&tunnel_hdr, length + INT_H_SIZE);
 		outbuf = tipc_buf_acquire(length + INT_H_SIZE);
@@ -2131,6 +2345,14 @@ void tipc_link_send_duplicate(struct tipc_link *l_ptr, struct tipc_link *tunnel)
 
 
 
+/**
+ * buf_extract - extracts embedded TIPC message from another message
+ * @skb: encapsulating message buffer
+ * @from_pos: offset to extract from
+ *
+ * Returns a new message buffer containing an embedded message.  The
+ * encapsulating message itself is left unchanged.
+ */
 
 static struct sk_buff *buf_extract(struct sk_buff *skb, u32 from_pos)
 {
@@ -2144,6 +2366,10 @@ static struct sk_buff *buf_extract(struct sk_buff *skb, u32 from_pos)
 	return eb;
 }
 
+/*
+ *  link_recv_changeover_msg(): Receive tunneled packet sent
+ *  via other link. Node is locked. Return extracted buffer.
+ */
 
 static int link_recv_changeover_msg(struct tipc_link **l_ptr,
 				    struct sk_buff **buf)
@@ -2178,7 +2404,7 @@ static int link_recv_changeover_msg(struct tipc_link **l_ptr,
 		return 1;
 	}
 
-	
+	/* First original message ?: */
 
 	if (tipc_link_is_up(dest_link)) {
 		info("Resetting link <%s>, changeover initiated by peer\n",
@@ -2193,7 +2419,7 @@ static int link_recv_changeover_msg(struct tipc_link **l_ptr,
 			goto exit;
 	}
 
-	
+	/* Receive original message */
 
 	if (dest_link->exp_msg_count == 0) {
 		warn("Link switchover error, "
@@ -2218,6 +2444,9 @@ exit:
 	return 0;
 }
 
+/*
+ *  Bundler functionality:
+ */
 void tipc_link_recv_bundle(struct sk_buff *buf)
 {
 	u32 msgcount = msg_msgcnt(buf_msg(buf));
@@ -2236,8 +2465,16 @@ void tipc_link_recv_bundle(struct sk_buff *buf)
 	kfree_skb(buf);
 }
 
+/*
+ *  Fragmentation/defragmentation:
+ */
 
 
+/*
+ * link_send_long_buf: Entry for buffers needing fragmentation.
+ * The buffer is complete, inclusive total message length.
+ * Returns user data length.
+ */
 static int link_send_long_buf(struct tipc_link *l_ptr, struct sk_buff *buf)
 {
 	struct sk_buff *buf_chain = NULL;
@@ -2258,12 +2495,12 @@ static int link_send_long_buf(struct tipc_link *l_ptr, struct sk_buff *buf)
 	else
 		destaddr = msg_destnode(inmsg);
 
-	
+	/* Prepare reusable fragment header: */
 
 	tipc_msg_init(&fragm_hdr, MSG_FRAGMENTER, FIRST_FRAGMENT,
 		 INT_H_SIZE, destaddr);
 
-	
+	/* Chop up message: */
 
 	while (rest > 0) {
 		struct sk_buff *fragm;
@@ -2297,7 +2534,7 @@ static int link_send_long_buf(struct tipc_link *l_ptr, struct sk_buff *buf)
 	}
 	kfree_skb(buf);
 
-	
+	/* Append chain of fragments to send queue & send them */
 
 	l_ptr->long_msg_seq_no++;
 	link_add_chain_to_outqueue(l_ptr, buf_chain, l_ptr->long_msg_seq_no);
@@ -2308,6 +2545,12 @@ static int link_send_long_buf(struct tipc_link *l_ptr, struct sk_buff *buf)
 	return dsz;
 }
 
+/*
+ * A pending message being re-assembled must store certain values
+ * to handle subsequent fragments correctly. The following functions
+ * help storing these values in unused, available fields in the
+ * pending message. This makes dynamic memory allocation unnecessary.
+ */
 
 static void set_long_msg_seqno(struct sk_buff *buf, u32 seqno)
 {
@@ -2344,6 +2587,10 @@ static void incr_timer_cnt(struct sk_buff *buf)
 	msg_incr_reroute_cnt(buf_msg(buf));
 }
 
+/*
+ * tipc_link_recv_fragment(): Called with node lock on. Returns
+ * the reassembled buffer if message is complete.
+ */
 int tipc_link_recv_fragment(struct sk_buff **pending, struct sk_buff **fb,
 			    struct tipc_msg **m)
 {
@@ -2355,7 +2602,7 @@ int tipc_link_recv_fragment(struct sk_buff **pending, struct sk_buff **fb,
 
 	*fb = NULL;
 
-	
+	/* Is there an incomplete message waiting for this fragment? */
 
 	while (pbuf && ((buf_seqno(pbuf) != long_msg_seq_no) ||
 			(msg_orignode(fragm) != msg_orignode(buf_msg(pbuf))))) {
@@ -2381,7 +2628,7 @@ int tipc_link_recv_fragment(struct sk_buff **pending, struct sk_buff **fb,
 			*pending = pbuf;
 			skb_copy_to_linear_data(pbuf, imsg,
 						msg_data_sz(fragm));
-			
+			/*  Prepare buffer for subsequent fragments. */
 
 			set_long_msg_seqno(pbuf, long_msg_seq_no);
 			set_fragm_size(pbuf, fragm_sz);
@@ -2402,7 +2649,7 @@ int tipc_link_recv_fragment(struct sk_buff **pending, struct sk_buff **fb,
 					       msg_data(fragm), dsz);
 		kfree_skb(fbuf);
 
-		
+		/* Is message complete? */
 
 		if (exp_frags == 0) {
 			if (prev)
@@ -2421,6 +2668,10 @@ int tipc_link_recv_fragment(struct sk_buff **pending, struct sk_buff **fb,
 	return 0;
 }
 
+/**
+ * link_check_defragm_bufs - flush stale incoming message fragments
+ * @l_ptr: pointer to link
+ */
 
 static void link_check_defragm_bufs(struct tipc_link *l_ptr)
 {
@@ -2466,12 +2717,12 @@ static void link_set_supervision_props(struct tipc_link *l_ptr, u32 tolerance)
 
 void tipc_link_set_queue_limits(struct tipc_link *l_ptr, u32 window)
 {
-	
+	/* Data messages from this node, inclusive FIRST_FRAGM */
 	l_ptr->queue_limit[TIPC_LOW_IMPORTANCE] = window;
 	l_ptr->queue_limit[TIPC_MEDIUM_IMPORTANCE] = (window / 3) * 4;
 	l_ptr->queue_limit[TIPC_HIGH_IMPORTANCE] = (window / 3) * 5;
 	l_ptr->queue_limit[TIPC_CRITICAL_IMPORTANCE] = (window / 3) * 6;
-	
+	/* Transiting data messages,inclusive FIRST_FRAGM */
 	l_ptr->queue_limit[TIPC_LOW_IMPORTANCE + 4] = 300;
 	l_ptr->queue_limit[TIPC_MEDIUM_IMPORTANCE + 4] = 600;
 	l_ptr->queue_limit[TIPC_HIGH_IMPORTANCE + 4] = 900;
@@ -2479,10 +2730,20 @@ void tipc_link_set_queue_limits(struct tipc_link *l_ptr, u32 window)
 	l_ptr->queue_limit[CONN_MANAGER] = 1200;
 	l_ptr->queue_limit[CHANGEOVER_PROTOCOL] = 2500;
 	l_ptr->queue_limit[NAME_DISTRIBUTOR] = 3000;
-	
+	/* FRAGMENT and LAST_FRAGMENT packets */
 	l_ptr->queue_limit[MSG_FRAGMENTER] = 4000;
 }
 
+/**
+ * link_find_link - locate link by name
+ * @name - ptr to link name string
+ * @node - ptr to area to be filled with ptr to associated node
+ *
+ * Caller must hold 'tipc_net_lock' to ensure node and bearer are not deleted;
+ * this also prevents link deletion.
+ *
+ * Returns pointer to link (or 0 if invalid link name).
+ */
 
 static struct tipc_link *link_find_link(const char *name,
 					struct tipc_node **node)
@@ -2509,6 +2770,14 @@ static struct tipc_link *link_find_link(const char *name,
 	return l_ptr;
 }
 
+/**
+ * link_value_is_valid -- validate proposed link tolerance/priority/window
+ *
+ * @cmd - value type (TIPC_CMD_SET_LINK_*)
+ * @new_value - the new value
+ *
+ * Returns 1 if value is within range, 0 if not.
+ */
 
 static int link_value_is_valid(u16 cmd, u32 new_value)
 {
@@ -2526,6 +2795,16 @@ static int link_value_is_valid(u16 cmd, u32 new_value)
 }
 
 
+/**
+ * link_cmd_set_value - change priority/tolerance/window for link/bearer/media
+ * @name - ptr to link, bearer, or media name
+ * @new_value - new value of link, bearer, or media setting
+ * @cmd - which link, bearer, or media attribute to set (TIPC_CMD_SET_LINK_*)
+ *
+ * Caller must hold 'tipc_net_lock' to ensure link/bearer/media is not deleted.
+ *
+ * Returns 0 if value updated and negative value on error.
+ */
 
 static int link_cmd_set_value(const char *name, u32 new_value, u16 cmd)
 {
@@ -2536,6 +2815,10 @@ static int link_cmd_set_value(const char *name, u32 new_value, u16 cmd)
 
 	l_ptr = link_find_link(name, &node);
 	if (l_ptr) {
+		/*
+		 * acquire node lock for tipc_link_send_proto_msg().
+		 * see "TIPC locking policy" in net.c.
+		 */
 		tipc_node_lock(node);
 		switch (cmd) {
 		case TIPC_CMD_SET_LINK_TOL:
@@ -2623,6 +2906,10 @@ struct sk_buff *tipc_link_cmd_config(const void *req_tlv_area, int req_tlv_space
 	return tipc_cfg_reply_none();
 }
 
+/**
+ * link_reset_statistics - reset link statistics
+ * @l_ptr: pointer to link
+ */
 
 static void link_reset_statistics(struct tipc_link *l_ptr)
 {
@@ -2661,12 +2948,23 @@ struct sk_buff *tipc_link_cmd_reset_stats(const void *req_tlv_area, int req_tlv_
 	return tipc_cfg_reply_none();
 }
 
+/**
+ * percent - convert count to a percentage of total (rounding up or down)
+ */
 
 static u32 percent(u32 count, u32 total)
 {
 	return (count * 100 + (total / 2)) / total;
 }
 
+/**
+ * tipc_link_stats - print link statistics
+ * @name: link name
+ * @buf: print buffer area
+ * @buf_size: size of print buffer area
+ *
+ * Returns length of print buffer data string (or 0 if error)
+ */
 
 static int tipc_link_stats(const char *name, char *buf, const u32 buf_size)
 {
@@ -2782,6 +3080,13 @@ struct sk_buff *tipc_link_cmd_show_stats(const void *req_tlv_area, int req_tlv_s
 	return buf;
 }
 
+/**
+ * tipc_link_get_max_pkt - get maximum packet size to use when sending to destination
+ * @dest: network address of destination node
+ * @selector: used to select from set of active links
+ *
+ * If no active link can be found, uses default maximum packet size.
+ */
 
 u32 tipc_link_get_max_pkt(u32 dest, u32 selector)
 {

@@ -121,6 +121,7 @@ static struct snd_soc_ops speyside_ops = {
 
 static struct snd_soc_jack speyside_headset;
 
+/* Headset jack detection DAPM pins */
 static struct snd_soc_jack_pin speyside_headset_pins[] = {
 	{
 		.pin = "Headset Mic",
@@ -128,6 +129,7 @@ static struct snd_soc_jack_pin speyside_headset_pins[] = {
 	},
 };
 
+/* Default the headphone selection to active high */
 static int speyside_jack_polarity;
 
 static int speyside_get_micbias(struct snd_soc_dapm_widget *source,
@@ -147,7 +149,7 @@ static void speyside_set_polarity(struct snd_soc_codec *codec,
 	speyside_jack_polarity = !polarity;
 	gpio_direction_output(WM8996_HPSEL_GPIO, speyside_jack_polarity);
 
-	
+	/* Re-run DAPM to make sure we're using the correct mic bias */
 	snd_soc_dapm_sync(&codec->dapm);
 }
 
@@ -221,7 +223,7 @@ static struct snd_soc_dai_link speyside_dai[] = {
 
 static int speyside_wm9081_init(struct snd_soc_dapm_context *dapm)
 {
-	
+	/* At any time the WM9081 is active it will have this clock */
 	return snd_soc_codec_set_sysclk(dapm->codec, WM9081_SYSCLK_MCLK, 0,
 					MCLK_AUDIO_RATE, 0);
 }

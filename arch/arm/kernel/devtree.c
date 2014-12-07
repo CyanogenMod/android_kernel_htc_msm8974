@@ -36,7 +36,7 @@ void __init early_init_dt_add_memory_arch(u64 base, u64 size)
 	if (size > ((phys_addr_t)~0))
 		size = ((phys_addr_t)~0);
 
-	
+	/* arm_add_memory() already checks for the case of base + size > 4GB */
 #endif
 	arm_add_memory(base, size);
 }
@@ -53,10 +53,15 @@ void __init arm_dt_memblock_reserve(void)
 	if (!initial_boot_params)
 		return;
 
-	
+	/* Reserve the dtb region */
 	memblock_reserve(virt_to_phys(initial_boot_params),
 			 be32_to_cpu(initial_boot_params->totalsize));
 
+	/*
+	 * Process the reserve map.  This will probably overlap the initrd
+	 * and dtb locations which are already reserved, but overlaping
+	 * doesn't hurt anything
+	 */
 	reserve_map = ((void*)initial_boot_params) +
 			be32_to_cpu(initial_boot_params->off_mem_rsvmap);
 	while (1) {
@@ -68,6 +73,13 @@ void __init arm_dt_memblock_reserve(void)
 	}
 }
 
+/**
+ * setup_machine_fdt - Machine setup when an dtb was passed to the kernel
+ * @dt_phys: physical address of dt blob
+ *
+ * If a dtb was passed to the kernel in r2, then use it to choose the
+ * correct machine_desc and to setup the system.
+ */
 struct machine_desc * __init setup_machine_fdt(unsigned int dt_phys)
 {
 	struct boot_param_header *devtree;
@@ -81,11 +93,11 @@ struct machine_desc * __init setup_machine_fdt(unsigned int dt_phys)
 
 	devtree = phys_to_virt(dt_phys);
 
-	
+	/* check device tree validity */
 	if (be32_to_cpu(devtree->magic) != OF_DT_HEADER)
 		return NULL;
 
-	
+	/* Search the mdescs for the 'best' compatible value match */
 	initial_boot_params = devtree;
 	dt_root = of_get_flat_dt_root();
 	for_each_machine_desc(mdesc) {
@@ -110,7 +122,7 @@ struct machine_desc * __init setup_machine_fdt(unsigned int dt_phys)
 		}
 		early_print("]\n\n");
 
-		dump_machine_table(); 
+		dump_machine_table(); /* does not return */
 	}
 
 	model = of_get_flat_dt_prop(dt_root, "model", NULL);
@@ -120,14 +132,14 @@ struct machine_desc * __init setup_machine_fdt(unsigned int dt_phys)
 		model = "<unknown>";
 	pr_info("Machine: %s, model: %s\n", mdesc_best->name, model);
 
-	
+	/* Retrieve various information from the /chosen node */
 	of_scan_flat_dt(early_init_dt_scan_chosen, boot_command_line);
-	
+	/* Initialize {size,address}-cells info */
 	of_scan_flat_dt(early_init_dt_scan_root, NULL);
-	
+	/* Setup memory, calling early_init_dt_add_memory_arch */
 	of_scan_flat_dt(early_init_dt_scan_memory, NULL);
 
-	
+	/* Change machine number to match the mdesc we're using */
 	__machine_arch_type = mdesc_best->nr;
 
 	return mdesc_best;

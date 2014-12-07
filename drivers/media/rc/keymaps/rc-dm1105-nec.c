@@ -13,10 +13,13 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* DVBWorld remotes
+   Igor M. Liplianin <liplianin@me.by>
+ */
 
 static struct rc_map_table dm1105_nec[] = {
-	{ 0x0a, KEY_POWER2},		
-	{ 0x0c, KEY_MUTE},		
+	{ 0x0a, KEY_POWER2},		/* power */
+	{ 0x0c, KEY_MUTE},		/* mute */
 	{ 0x11, KEY_1},
 	{ 0x12, KEY_2},
 	{ 0x13, KEY_3},
@@ -27,32 +30,32 @@ static struct rc_map_table dm1105_nec[] = {
 	{ 0x18, KEY_8},
 	{ 0x19, KEY_9},
 	{ 0x10, KEY_0},
-	{ 0x1c, KEY_CHANNELUP},		
-	{ 0x0f, KEY_CHANNELDOWN},	
-	{ 0x1a, KEY_VOLUMEUP},		
-	{ 0x0e, KEY_VOLUMEDOWN},	
-	{ 0x04, KEY_RECORD},		
-	{ 0x09, KEY_CHANNEL},		
-	{ 0x08, KEY_BACKSPACE},		
-	{ 0x07, KEY_FASTFORWARD},	
-	{ 0x0b, KEY_PAUSE},		
-	{ 0x02, KEY_ESC},		
-	{ 0x03, KEY_TAB},		
-	{ 0x00, KEY_UP},		
-	{ 0x1f, KEY_ENTER},		
-	{ 0x01, KEY_DOWN},		
-	{ 0x05, KEY_RECORD},		
-	{ 0x06, KEY_STOP},		
-	{ 0x40, KEY_ZOOM},		
-	{ 0x1e, KEY_TV},		
-	{ 0x1b, KEY_B},			
+	{ 0x1c, KEY_CHANNELUP},		/* ch+ */
+	{ 0x0f, KEY_CHANNELDOWN},	/* ch- */
+	{ 0x1a, KEY_VOLUMEUP},		/* vol+ */
+	{ 0x0e, KEY_VOLUMEDOWN},	/* vol- */
+	{ 0x04, KEY_RECORD},		/* rec */
+	{ 0x09, KEY_CHANNEL},		/* fav */
+	{ 0x08, KEY_BACKSPACE},		/* rewind */
+	{ 0x07, KEY_FASTFORWARD},	/* fast */
+	{ 0x0b, KEY_PAUSE},		/* pause */
+	{ 0x02, KEY_ESC},		/* cancel */
+	{ 0x03, KEY_TAB},		/* tab */
+	{ 0x00, KEY_UP},		/* up */
+	{ 0x1f, KEY_ENTER},		/* ok */
+	{ 0x01, KEY_DOWN},		/* down */
+	{ 0x05, KEY_RECORD},		/* cap */
+	{ 0x06, KEY_STOP},		/* stop */
+	{ 0x40, KEY_ZOOM},		/* full */
+	{ 0x1e, KEY_TV},		/* tvmode */
+	{ 0x1b, KEY_B},			/* recall */
 };
 
 static struct rc_map_list dm1105_nec_map = {
 	.map = {
 		.scan    = dm1105_nec,
 		.size    = ARRAY_SIZE(dm1105_nec),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_DM1105_NEC,
 	}
 };

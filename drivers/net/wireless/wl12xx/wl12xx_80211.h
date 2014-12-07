@@ -1,9 +1,10 @@
 #ifndef __WL12XX_80211_H__
 #define __WL12XX_80211_H__
 
-#include <linux/if_ether.h>	
+#include <linux/if_ether.h>	/* ETH_ALEN */
 #include <linux/if_arp.h>
 
+/* RATES */
 #define IEEE80211_CCK_RATE_1MB		        0x02
 #define IEEE80211_CCK_RATE_2MB		        0x04
 #define IEEE80211_CCK_RATE_5MB		        0x0B
@@ -52,9 +53,11 @@
 				      IEEE80211_CCK_DEFAULT_RATES_MASK)
 
 
+/* This really should be 8, but not for our firmware */
 #define MAX_SUPPORTED_RATES 32
 #define MAX_COUNTRY_TRIPLETS 32
 
+/* Headers */
 struct ieee80211_header {
 	__le16 frame_ctl;
 	__le16 duration_id;
@@ -70,6 +73,7 @@ struct wl12xx_ie_header {
 	u8 len;
 } __packed;
 
+/* IEs */
 
 struct wl12xx_ie_ssid {
 	struct wl12xx_ie_header header;
@@ -99,6 +103,7 @@ struct wl12xx_ie_country {
 } __packed;
 
 
+/* Templates */
 
 struct wl12xx_null_data_template {
 	struct ieee80211_header header;
@@ -112,7 +117,7 @@ struct wl12xx_ps_poll_template {
 } __packed;
 
 struct wl12xx_arp_rsp_template {
-	
+	/* not including ieee80211 header */
 
 	u8 llc_hdr[sizeof(rfc1042_header)];
 	__be16 llc_type;

@@ -12,6 +12,19 @@
 
 struct iio_dummy_accel_calibscale;
 
+/**
+ * struct iio_dummy_state - device instance specific state.
+ * @dac_val:			cache for dac value
+ * @single_ended_adc_val:	cache for single ended adc value
+ * @differential_adc_val:	cache for differential adc value
+ * @accel_val:			cache for acceleration value
+ * @accel_calibbias:		cache for acceleration calibbias
+ * @accel_calibscale:		cache for acceleration calibscale
+ * @lock:			lock to ensure state is consistent
+ * @event_irq:			irq number for event line (faked)
+ * @event_val:			cache for event theshold value
+ * @event_en:			cache of whether event is enabled
+ */
 struct iio_dummy_state {
 	int dac_val;
 	int single_ended_adc_val;
@@ -24,7 +37,7 @@ struct iio_dummy_state {
 	int event_irq;
 	int event_val;
 	bool event_en;
-#endif 
+#endif /* CONFIG_IIO_SIMPLE_DUMMY_EVENTS */
 };
 
 #ifdef CONFIG_IIO_SIMPLE_DUMMY_EVENTS
@@ -49,7 +62,7 @@ int iio_simple_dummy_write_event_value(struct iio_dev *indio_dev,
 int iio_simple_dummy_events_register(struct iio_dev *indio_dev);
 int iio_simple_dummy_events_unregister(struct iio_dev *indio_dev);
 
-#else 
+#else /* Stubs for when events are disabled at compile time */
 
 static inline int
 iio_simple_dummy_events_register(struct iio_dev *indio_dev)
@@ -63,8 +76,17 @@ iio_simple_dummy_events_unregister(struct iio_dev *indio_dev)
 	return 0;
 };
 
-#endif 
+#endif /* CONFIG_IIO_SIMPLE_DUMMY_EVENTS*/
 
+/**
+ * enum iio_simple_dummy_scan_elements - scan index enum
+ * @voltage0:		the single ended voltage channel
+ * @diffvoltage1m2:	first differential channel
+ * @diffvoltage3m4:	second differenial channel
+ * @accelx:		acceleration channel
+ *
+ * Enum provides convenient numbering for the scan index.
+ */
 enum iio_simple_dummy_scan_elements {
 	voltage0,
 	diffvoltage1m2,
@@ -83,4 +105,4 @@ static inline int iio_simple_dummy_configure_buffer(struct iio_dev *indio_dev)
 static inline
 void iio_simple_dummy_unconfigure_buffer(struct iio_dev *indio_dev)
 {};
-#endif 
+#endif /* CONFIG_IIO_SIMPLE_DUMMY_BUFFER */

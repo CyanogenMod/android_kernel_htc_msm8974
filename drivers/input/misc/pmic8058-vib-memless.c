@@ -50,6 +50,7 @@ struct pmic8058_vib {
 	struct pm8058_chip	*pm_chip;
 };
 
+/* REVISIT: just for debugging, will be removed in final working version */
 static void __dump_vib_regs(struct pmic8058_vib *vib, char *msg)
 {
 	u8 temp;
@@ -125,6 +126,10 @@ static void pmic8058_work_handler(struct work_struct *work)
 	if (rc < 0)
 		return;
 
+	/*
+	 * Vibrator support voltage ranges from 1.2 to 3.1V, so
+	 * scale the FF speed to these range.
+	 */
 	if (info->speed) {
 		info->state = 1;
 		info->level = ((VIB_MAX_LEVELS * info->speed) / MAX_FF_SPEED) +
@@ -201,7 +206,7 @@ static int __devinit pmic8058_vib_probe(struct platform_device *pdev)
 	__set_bit(FF_RUMBLE, vib->info->ffbit);
 	__dump_vib_regs(vib, "boot_vib_default");
 
-	
+	/* operate in manual mode */
 	rc = pmic8058_vib_read_u8(vib, &val, VIB_DRV);
 	if (rc < 0)
 		goto err_read_vib;

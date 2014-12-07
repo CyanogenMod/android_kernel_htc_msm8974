@@ -31,4 +31,4 @@ void send_outstanding_bat_ogm_packet(struct work_struct *work);
 void purge_outstanding_packets(struct bat_priv *bat_priv,
 			       const struct hard_iface *hard_iface);
 
-#endif 
+#endif /* _NET_BATMAN_ADV_SEND_H_ */

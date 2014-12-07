@@ -83,12 +83,19 @@ int prism2mgmt_flashdl_state(wlandevice_t *wlandev, void *msgp);
 int prism2mgmt_flashdl_write(wlandevice_t *wlandev, void *msgp);
 int prism2mgmt_autojoin(wlandevice_t *wlandev, void *msgp);
 
+/*---------------------------------------------------------------
+* conversion functions going between wlan message data types and
+* Prism2 data types
+---------------------------------------------------------------*/
+/* byte area conversion functions*/
 void prism2mgmt_pstr2bytearea(u8 *bytearea, p80211pstrd_t *pstr);
 void prism2mgmt_bytearea2pstr(u8 *bytearea, p80211pstrd_t *pstr, int len);
 
+/* byte string conversion functions*/
 void prism2mgmt_pstr2bytestr(hfa384x_bytestr_t *bytestr, p80211pstrd_t *pstr);
 void prism2mgmt_bytestr2pstr(hfa384x_bytestr_t *bytestr, p80211pstrd_t *pstr);
 
+/* functions to convert Group Addresses */
 void prism2mgmt_get_grpaddr(u32 did, p80211pstrd_t *pstr, hfa384x_t *priv);
 int prism2mgmt_set_grpaddr(u32 did,
 			   u8 *prism2buf, p80211pstrd_t *pstr,

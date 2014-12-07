@@ -39,23 +39,27 @@
 #undef DEBUG_PKT
 #define DEBUG_RINGS
 
-#define PCI200SYN_PLX_SIZE	0x80	
-#define PCI200SYN_SCA_SIZE	0x400	
+#define PCI200SYN_PLX_SIZE	0x80	/* PLX control window size (128b) */
+#define PCI200SYN_SCA_SIZE	0x400	/* SCA window size (1Kb) */
 #define MAX_TX_BUFFERS		10
 
 static int pci_clock_freq = 33000000;
 #define CLOCK_BASE pci_clock_freq
 
+/*
+ *      PLX PCI9052 local configuration and shared runtime registers.
+ *      This structure can be used to access 9052 registers (memory mapped).
+ */
 typedef struct {
-	u32 loc_addr_range[4];	
-	u32 loc_rom_range;	
-	u32 loc_addr_base[4];	
-	u32 loc_rom_base;	
-	u32 loc_bus_descr[4];	
-	u32 rom_bus_descr;	
-	u32 cs_base[4];		
-	u32 intr_ctrl_stat;	
-	u32 init_ctrl;		
+	u32 loc_addr_range[4];	/* 00-0Ch : Local Address Ranges */
+	u32 loc_rom_range;	/* 10h : Local ROM Range */
+	u32 loc_addr_base[4];	/* 14-20h : Local Address Base Addrs */
+	u32 loc_rom_base;	/* 24h : Local ROM Base */
+	u32 loc_bus_descr[4];	/* 28-34h : Local Bus Descriptors */
+	u32 rom_bus_descr;	/* 38h : ROM Bus Descriptor */
+	u32 cs_base[4];		/* 3C-48h : Chip Select Base Addrs */
+	u32 intr_ctrl_stat;	/* 4Ch : Interrupt Control/Status */
+	u32 init_ctrl;		/* 50h : EEPROM ctrl, Init Ctrl, etc */
 }plx9052;
 
 
@@ -64,28 +68,28 @@ typedef struct port_s {
 	struct napi_struct napi;
 	struct net_device *netdev;
 	struct card_s *card;
-	spinlock_t lock;	
+	spinlock_t lock;	/* TX lock */
 	sync_serial_settings settings;
-	int rxpart;		
+	int rxpart;		/* partial frame received, next frame invalid*/
 	unsigned short encoding;
 	unsigned short parity;
-	u16 rxin;		
-	u16 txin;		
+	u16 rxin;		/* rx ring buffer 'in' pointer */
+	u16 txin;		/* tx ring buffer 'in' and 'last' pointers */
 	u16 txlast;
-	u8 rxs, txs, tmc;	
-	u8 chan;		
+	u8 rxs, txs, tmc;	/* SCA registers */
+	u8 chan;		/* physical port # - 0 or 1 */
 }port_t;
 
 
 
 typedef struct card_s {
-	u8 __iomem *rambase;	
-	u8 __iomem *scabase;	
-	plx9052 __iomem *plxbase;
-	u16 rx_ring_buffers;	
+	u8 __iomem *rambase;	/* buffer memory base (virtual) */
+	u8 __iomem *scabase;	/* SCA memory base (virtual) */
+	plx9052 __iomem *plxbase;/* PLX registers memory base (virtual) */
+	u16 rx_ring_buffers;	/* number of buffers in a ring */
 	u16 tx_ring_buffers;
-	u16 buff_offset;	
-	u8 irq;			
+	u16 buff_offset;	/* offset of first buffer of first channel */
+	u8 irq;			/* interrupt request level */
 
 	port_t ports[2];
 }card_t;
@@ -124,23 +128,23 @@ static void pci200_set_iface(port_t *port)
 		port->card);
 	switch(port->settings.clock_type) {
 	case CLOCK_INT:
-		rxs |= CLK_BRG; 
-		txs |= CLK_PIN_OUT | CLK_TX_RXCLK; 
+		rxs |= CLK_BRG; /* BRG output */
+		txs |= CLK_PIN_OUT | CLK_TX_RXCLK; /* RX clock */
 		break;
 
 	case CLOCK_TXINT:
-		rxs |= CLK_LINE; 
-		txs |= CLK_PIN_OUT | CLK_BRG; 
+		rxs |= CLK_LINE; /* RXC input */
+		txs |= CLK_PIN_OUT | CLK_BRG; /* BRG output */
 		break;
 
 	case CLOCK_TXFROMRX:
-		rxs |= CLK_LINE; 
-		txs |= CLK_PIN_OUT | CLK_TX_RXCLK; 
+		rxs |= CLK_LINE; /* RXC input */
+		txs |= CLK_PIN_OUT | CLK_TX_RXCLK; /* RX clock */
 		break;
 
-	default:		
-		rxs |= CLK_LINE; 
-		txs |= CLK_PIN_OUT | CLK_LINE; 
+	default:		/* EXTernal clock */
+		rxs |= CLK_LINE; /* RXC input */
+		txs |= CLK_PIN_OUT | CLK_LINE; /* TXC input */
 		break;
 	}
 
@@ -199,7 +203,7 @@ static int pci200_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	case IF_GET_IFACE:
 		ifr->ifr_settings.type = IF_IFACE_V35;
 		if (ifr->ifr_settings.size < size) {
-			ifr->ifr_settings.size = size; 
+			ifr->ifr_settings.size = size; /* data size wanted */
 			return -ENOBUFS;
 		}
 		if (copy_to_user(line, &port->settings, size))
@@ -218,12 +222,12 @@ static int pci200_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		    new_line.clock_type != CLOCK_TXFROMRX &&
 		    new_line.clock_type != CLOCK_INT &&
 		    new_line.clock_type != CLOCK_TXINT)
-			return -EINVAL;	
+			return -EINVAL;	/* No such clock setting */
 
 		if (new_line.loopback != 0 && new_line.loopback != 1)
 			return -EINVAL;
 
-		memcpy(&port->settings, &new_line, size); 
+		memcpy(&port->settings, &new_line, size); /* Update settings */
 		pci200_set_iface(port);
 		sca_flush(port->card);
 		return 0;
@@ -279,9 +283,9 @@ static int __devinit pci200_pci_init_one(struct pci_dev *pdev,
 	u32 __iomem *p;
 	int i;
 	u32 ramsize;
-	u32 ramphys;		
-	u32 scaphys;		
-	u32 plxphys;		
+	u32 ramphys;		/* buffer memory base */
+	u32 scaphys;		/* SCA memory base */
+	u32 plxphys;		/* PLX registers memory base */
 
 	i = pci_enable_device(pdev);
 	if (i)
@@ -333,20 +337,20 @@ static int __devinit pci200_pci_init_one(struct pci_dev *pdev,
 		return -EFAULT;
 	}
 
-	
+	/* Reset PLX */
 	p = &card->plxbase->init_ctrl;
 	writel(readl(p) | 0x40000000, p);
-	readl(p);		
+	readl(p);		/* Flush the write - do not use sca_flush */
 	udelay(1);
 
 	writel(readl(p) & ~0x40000000, p);
-	readl(p);		
+	readl(p);		/* Flush the write - do not use sca_flush */
 	udelay(1);
 
 	ramsize = sca_detect_ram(card, card->rambase,
 				 pci_resource_len(pdev, 3));
 
-	
+	/* number of TX + RX buffers for one port - this is dual port card */
 	i = ramsize / (2 * (sizeof(pkt_desc) + HDLC_MAX_MRU));
 	card->tx_ring_buffers = min(i / 2, MAX_TX_BUFFERS);
 	card->rx_ring_buffers = i - card->tx_ring_buffers;
@@ -364,11 +368,11 @@ static int __devinit pci200_pci_init_one(struct pci_dev *pdev,
 		return -EFAULT;
 	}
 
-	
+	/* Enable interrupts on the PCI bridge */
 	p = &card->plxbase->intr_ctrl_stat;
 	writew(readw(p) | 0x0040, p);
 
-	
+	/* Allocate IRQ */
 	if (request_irq(pdev->irq, sca_intr, IRQF_SHARED, "pci200syn", card)) {
 		pr_warn("could not allocate IRQ%d\n", pdev->irq);
 		pci200_pci_remove_one(pdev);

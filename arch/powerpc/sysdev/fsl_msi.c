@@ -32,7 +32,7 @@ LIST_HEAD(msi_head);
 
 struct fsl_msi_feature {
 	u32 fsl_pic_ip;
-	u32 msiir_offset; 
+	u32 msiir_offset; /* Offset of MSIIR, relative to start of MSIR bank */
 };
 
 struct fsl_msi_cascade_data {
@@ -45,6 +45,10 @@ static inline u32 fsl_msi_read(u32 __iomem *base, unsigned int reg)
 	return in_be32(base + (reg >> 2));
 }
 
+/*
+ * We do not need this actually. The MSIR register has been read once
+ * in the cascade interrupt. So, this MSI interrupt has been acked
+*/
 static void fsl_msi_end_irq(struct irq_data *d)
 {
 }
@@ -124,11 +128,11 @@ static void fsl_compose_msi_msg(struct pci_dev *pdev, int hwirq,
 {
 	struct fsl_msi *msi_data = fsl_msi_data;
 	struct pci_controller *hose = pci_bus_to_host(pdev->bus);
-	u64 address; 
+	u64 address; /* Physical address of the MSIIR */
 	int len;
 	const u64 *reg;
 
-	
+	/* If the msi-address-64 property exists, then use it */
 	reg = of_get_property(hose->dn, "msi-address-64", &len);
 	if (reg && (len == sizeof(u64)))
 		address = be64_to_cpup(reg);
@@ -155,6 +159,10 @@ static int fsl_setup_msi_irqs(struct pci_dev *pdev, int nvec, int type)
 	struct msi_msg msg;
 	struct fsl_msi *msi_data;
 
+	/*
+	 * If the PCI node has an fsl,msi property, then we need to use it
+	 * to find the specific MSI.
+	 */
 	np = of_parse_phandle(hose->dn, "fsl,msi", 0);
 	if (np) {
 		if (of_device_is_compatible(np, "fsl,mpic-msi") ||
@@ -169,7 +177,19 @@ static int fsl_setup_msi_irqs(struct pci_dev *pdev, int nvec, int type)
 	}
 
 	list_for_each_entry(entry, &pdev->msi_list, list) {
+		/*
+		 * Loop over all the MSI devices until we find one that has an
+		 * available interrupt.
+		 */
 		list_for_each_entry(msi_data, &msi_head, list) {
+			/*
+			 * If the PCI node has an fsl,msi property, then we
+			 * restrict our search to the corresponding MSI node.
+			 * The simplest way is to skip over MSI nodes with the
+			 * wrong phandle. Under the Freescale hypervisor, this
+			 * has the additional benefit of skipping over MSI
+			 * nodes that are not mapped in the PAMU.
+			 */
 			if (phandle && (phandle != msi_data->phandle))
 				continue;
 
@@ -192,7 +212,7 @@ static int fsl_setup_msi_irqs(struct pci_dev *pdev, int nvec, int type)
 			rc = -ENOSPC;
 			goto out_free;
 		}
-		
+		/* chip_data is msi_data via host->hostdata in host->map() */
 		irq_set_msi_desc(virq, entry);
 
 		fsl_compose_msi_msg(pdev, hwirq, &msg, msi_data);
@@ -201,7 +221,7 @@ static int fsl_setup_msi_irqs(struct pci_dev *pdev, int nvec, int type)
 	return 0;
 
 out_free:
-	
+	/* free by the caller of this function */
 	return rc;
 }
 
@@ -376,6 +396,10 @@ static int __devinit fsl_of_msi_probe(struct platform_device *dev)
 		goto error_out;
 	}
 
+	/*
+	 * Under the Freescale hypervisor, the msi nodes don't have a 'reg'
+	 * property.  Instead, we use hypercalls to access the MSI.
+	 */
 	if ((features->fsl_pic_ip & FSL_PIC_IP_MASK) != FSL_PIC_IP_VMPIC) {
 		err = of_address_to_resource(dev->dev.of_node, 0, &res);
 		if (err) {
@@ -397,6 +421,10 @@ static int __devinit fsl_of_msi_probe(struct platform_device *dev)
 
 	msi->feature = features->fsl_pic_ip;
 
+	/*
+	 * Remember the phandle, so that we can match with any PCI nodes
+	 * that have an "fsl,msi" property.
+	 */
 	msi->phandle = dev->dev.of_node->phandle;
 
 	rc = fsl_msi_init_allocator(msi);
@@ -440,7 +468,7 @@ static int __devinit fsl_of_msi_probe(struct platform_device *dev)
 
 	list_add_tail(&msi->list, &msi_head);
 
-	
+	/* The multiple setting ppc_md.setup_msi_irqs will not harm things */
 	if (!ppc_md.setup_msi_irqs) {
 		ppc_md.setup_msi_irqs = fsl_setup_msi_irqs;
 		ppc_md.teardown_msi_irqs = fsl_teardown_msi_irqs;

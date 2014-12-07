@@ -9,6 +9,27 @@
 
 #include "spufs.h"
 
+/**
+ * sys_spu_run - run code loaded into an SPU
+ *
+ * @unpc:    next program counter for the SPU
+ * @ustatus: status of the SPU
+ *
+ * This system call transfers the control of execution of a
+ * user space thread to an SPU. It will return when the
+ * SPU has finished executing or when it hits an error
+ * condition and it will be interrupted if a signal needs
+ * to be delivered to a handler in user space.
+ *
+ * The next program counter is set to the passed value
+ * before the SPU starts fetching code and the user space
+ * pointer gets updated with the new value when returning
+ * from kernel space.
+ *
+ * The status value returned from spu_run reflects the
+ * value of the spu_status register after the SPU has stopped.
+ *
+ */
 static long do_spu_run(struct file *filp,
 			__u32 __user *unpc,
 			__u32 __user *ustatus)
@@ -21,7 +42,7 @@ static long do_spu_run(struct file *filp,
 	if (get_user(npc, unpc))
 		goto out;
 
-	
+	/* check if this file was created by spu_create */
 	ret = -EINVAL;
 	if (filp->f_op != &spufs_context_fops)
 		goto out;

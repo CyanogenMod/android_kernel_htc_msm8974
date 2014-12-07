@@ -36,6 +36,7 @@
 #define AMD8131_EDAC_REVISION	" Ver: 1.0.0"
 #define AMD8131_EDAC_MOD_STR	"amd8131_edac"
 
+/* Wrapper functions for accessing PCI configuration space */
 static void edac_pci_read_dword(struct pci_dev *dev, int reg, u32 *val32)
 {
 	int ret;
@@ -64,6 +65,7 @@ static char * const bridge_str[] = {
 	[NO_BRIDGE] = "NO BRIDGE",
 };
 
+/* Support up to two AMD8131 chipsets on a platform */
 static struct amd8131_dev_info amd8131_devices[] = {
 	{
 	.inst = NORTH_A,
@@ -93,41 +95,47 @@ static void amd8131_pcix_init(struct amd8131_dev_info *dev_info)
 	u32 val32;
 	struct pci_dev *dev = dev_info->dev;
 
-	
+	/* First clear error detection flags */
 	edac_pci_read_dword(dev, REG_MEM_LIM, &val32);
 	if (val32 & MEM_LIMIT_MASK)
 		edac_pci_write_dword(dev, REG_MEM_LIM, val32);
 
-	
+	/* Clear Discard Timer Timedout flag */
 	edac_pci_read_dword(dev, REG_INT_CTLR, &val32);
 	if (val32 & INT_CTLR_DTS)
 		edac_pci_write_dword(dev, REG_INT_CTLR, val32);
 
-	
+	/* Clear CRC Error flag on link side A */
 	edac_pci_read_dword(dev, REG_LNK_CTRL_A, &val32);
 	if (val32 & LNK_CTRL_CRCERR_A)
 		edac_pci_write_dword(dev, REG_LNK_CTRL_A, val32);
 
-	
+	/* Clear CRC Error flag on link side B */
 	edac_pci_read_dword(dev, REG_LNK_CTRL_B, &val32);
 	if (val32 & LNK_CTRL_CRCERR_B)
 		edac_pci_write_dword(dev, REG_LNK_CTRL_B, val32);
 
+	/*
+	 * Then enable all error detections.
+	 *
+	 * Setup Discard Timer Sync Flood Enable,
+	 * System Error Enable and Parity Error Enable.
+	 */
 	edac_pci_read_dword(dev, REG_INT_CTLR, &val32);
 	val32 |= INT_CTLR_PERR | INT_CTLR_SERR | INT_CTLR_DTSE;
 	edac_pci_write_dword(dev, REG_INT_CTLR, val32);
 
-	
+	/* Enable overall SERR Error detection */
 	edac_pci_read_dword(dev, REG_STS_CMD, &val32);
 	val32 |= STS_CMD_SERREN;
 	edac_pci_write_dword(dev, REG_STS_CMD, val32);
 
-	
+	/* Setup CRC Flood Enable for link side A */
 	edac_pci_read_dword(dev, REG_LNK_CTRL_A, &val32);
 	val32 |= LNK_CTRL_CRCFEN;
 	edac_pci_write_dword(dev, REG_LNK_CTRL_A, val32);
 
-	
+	/* Setup CRC Flood Enable for link side B */
 	edac_pci_read_dword(dev, REG_LNK_CTRL_B, &val32);
 	val32 |= LNK_CTRL_CRCFEN;
 	edac_pci_write_dword(dev, REG_LNK_CTRL_B, val32);
@@ -138,22 +146,22 @@ static void amd8131_pcix_exit(struct amd8131_dev_info *dev_info)
 	u32 val32;
 	struct pci_dev *dev = dev_info->dev;
 
-	
+	/* Disable SERR, PERR and DTSE Error detection */
 	edac_pci_read_dword(dev, REG_INT_CTLR, &val32);
 	val32 &= ~(INT_CTLR_PERR | INT_CTLR_SERR | INT_CTLR_DTSE);
 	edac_pci_write_dword(dev, REG_INT_CTLR, val32);
 
-	
+	/* Disable overall System Error detection */
 	edac_pci_read_dword(dev, REG_STS_CMD, &val32);
 	val32 &= ~STS_CMD_SERREN;
 	edac_pci_write_dword(dev, REG_STS_CMD, val32);
 
-	
+	/* Disable CRC Sync Flood on link side A */
 	edac_pci_read_dword(dev, REG_LNK_CTRL_A, &val32);
 	val32 &= ~LNK_CTRL_CRCFEN;
 	edac_pci_write_dword(dev, REG_LNK_CTRL_A, val32);
 
-	
+	/* Disable CRC Sync Flood on link side B */
 	edac_pci_read_dword(dev, REG_LNK_CTRL_B, &val32);
 	val32 &= ~LNK_CTRL_CRCFEN;
 	edac_pci_write_dword(dev, REG_LNK_CTRL_B, val32);
@@ -165,7 +173,7 @@ static void amd8131_pcix_check(struct edac_pci_ctl_info *edac_dev)
 	struct pci_dev *dev = dev_info->dev;
 	u32 val32;
 
-	
+	/* Check PCI-X Bridge Memory Base-Limit Register for errors */
 	edac_pci_read_dword(dev, REG_MEM_LIM, &val32);
 	if (val32 & MEM_LIMIT_MASK) {
 		printk(KERN_INFO "Error(s) in mem limit register "
@@ -185,7 +193,7 @@ static void amd8131_pcix_check(struct edac_pci_ctl_info *edac_dev)
 		edac_pci_handle_npe(edac_dev, edac_dev->ctl_name);
 	}
 
-	
+	/* Check if Discard Timer timed out */
 	edac_pci_read_dword(dev, REG_INT_CTLR, &val32);
 	if (val32 & INT_CTLR_DTS) {
 		printk(KERN_INFO "Error(s) in interrupt and control register "
@@ -198,7 +206,7 @@ static void amd8131_pcix_check(struct edac_pci_ctl_info *edac_dev)
 		edac_pci_handle_npe(edac_dev, edac_dev->ctl_name);
 	}
 
-	
+	/* Check if CRC error happens on link side A */
 	edac_pci_read_dword(dev, REG_LNK_CTRL_A, &val32);
 	if (val32 & LNK_CTRL_CRCERR_A) {
 		printk(KERN_INFO "Error(s) in link conf and control register "
@@ -211,7 +219,7 @@ static void amd8131_pcix_check(struct edac_pci_ctl_info *edac_dev)
 		edac_pci_handle_npe(edac_dev, edac_dev->ctl_name);
 	}
 
-	
+	/* Check if CRC error happens on link side B */
 	edac_pci_read_dword(dev, REG_LNK_CTRL_B, &val32);
 	if (val32 & LNK_CTRL_CRCERR_B) {
 		printk(KERN_INFO "Error(s) in link conf and control register "
@@ -233,6 +241,11 @@ static struct amd8131_info amd8131_chipset = {
 	.check = amd8131_pcix_check,
 };
 
+/*
+ * There are 4 PCIX Bridges on ATCA-6101 that share the same PCI Device ID,
+ * so amd8131_probe() would be called by kernel 4 times, with different
+ * address of pci_dev for each of them each time.
+ */
 static int amd8131_probe(struct pci_dev *dev, const struct pci_device_id *id)
 {
 	struct amd8131_dev_info *dev_info;
@@ -242,9 +255,13 @@ static int amd8131_probe(struct pci_dev *dev, const struct pci_device_id *id)
 		if (dev_info->devfn == dev->devfn)
 			break;
 
-	if (dev_info->inst == NO_BRIDGE) 
+	if (dev_info->inst == NO_BRIDGE) /* should never happen */
 		return -ENODEV;
 
+	/*
+	 * We can't call pci_get_device() as we are used to do because
+	 * there are 4 of them but pci_dev_get() instead.
+	 */
 	dev_info->dev = pci_dev_get(dev);
 
 	if (pci_enable_device(dev_info->dev)) {
@@ -256,6 +273,11 @@ static int amd8131_probe(struct pci_dev *dev, const struct pci_device_id *id)
 		return -ENODEV;
 	}
 
+	/*
+	 * we do not allocate extra private structure for
+	 * edac_pci_ctl_info, but make use of existing
+	 * one instead.
+	 */
 	dev_info->edac_idx = edac_pci_alloc_index();
 	dev_info->edac_dev = edac_pci_alloc_ctl_info(0, dev_info->ctl_name);
 	if (!dev_info->edac_dev)
@@ -297,7 +319,7 @@ static void amd8131_remove(struct pci_dev *dev)
 		if (dev_info->devfn == dev->devfn)
 			break;
 
-	if (dev_info->inst == NO_BRIDGE) 
+	if (dev_info->inst == NO_BRIDGE) /* should never happen */
 		return;
 
 	if (dev_info->edac_dev) {
@@ -322,7 +344,7 @@ static const struct pci_device_id amd8131_edac_pci_tbl[] = {
 	},
 	{
 	0,
-	}			
+	}			/* table is NULL-terminated */
 };
 MODULE_DEVICE_TABLE(pci, amd8131_edac_pci_tbl);
 
@@ -338,7 +360,7 @@ static int __init amd8131_edac_init(void)
 	printk(KERN_INFO "AMD8131 EDAC driver " AMD8131_EDAC_REVISION "\n");
 	printk(KERN_INFO "\t(c) 2008 Wind River Systems, Inc.\n");
 
-	
+	/* Only POLL mode supported so far */
 	edac_op_state = EDAC_OPSTATE_POLL;
 
 	return pci_register_driver(&amd8131_edac_driver);

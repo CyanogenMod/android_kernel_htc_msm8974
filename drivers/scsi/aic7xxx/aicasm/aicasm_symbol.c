@@ -89,7 +89,7 @@ symbol_delete(symbol_t *symbol)
 
 		key.data = symbol->name;
 		key.size = strlen(symbol->name);
-		symtable->del(symtable, &key, 0);
+		symtable->del(symtable, &key, /*flags*/0);
 	}
 	switch(symbol->type) {
 	case SCBLOC:
@@ -131,14 +131,14 @@ symbol_delete(symbol_t *symbol)
 void
 symtable_open()
 {
-	symtable = dbopen(NULL,
-			  O_CREAT | O_NONBLOCK | O_RDWR, 0, DB_HASH,
-			  NULL);
+	symtable = dbopen(/*filename*/NULL,
+			  O_CREAT | O_NONBLOCK | O_RDWR, /*mode*/0, DB_HASH,
+			  /*openinfo*/NULL);
 
 	if (symtable == NULL) {
 		perror("Symbol table creation failed");
 		exit(EX_SOFTWARE);
-		
+		/* NOTREACHED */
 	}
 }
 
@@ -159,6 +159,10 @@ symtable_close()
 	}
 }
 
+/*
+ * The semantics of get is to return an uninitialized symbol entry
+ * if a lookup fails.
+ */
 symbol_t *
 symtable_get(char *name)
 {
@@ -170,20 +174,20 @@ symtable_get(char *name)
 	key.data = (void *)name;
 	key.size = strlen(name);
 
-	if ((retval = symtable->get(symtable, &key, &data, 0)) != 0) {
+	if ((retval = symtable->get(symtable, &key, &data, /*flags*/0)) != 0) {
 		if (retval == -1) {
 			perror("Symbol table get operation failed");
 			exit(EX_SOFTWARE);
-			
+			/* NOTREACHED */
 		} else if (retval == 1) {
-			
+			/* Symbol wasn't found, so create a new one */
 			symbol_t *new_symbol;
 
 			new_symbol = symbol_create(name);
 			data.data = &new_symbol;
 			data.size = sizeof(new_symbol);
 			if (symtable->put(symtable, &key, &data,
-					  0) !=0) {
+					  /*flags*/0) !=0) {
 				perror("Symtable put failed");
 				exit(EX_SOFTWARE);
 			}
@@ -191,13 +195,13 @@ symtable_get(char *name)
 		} else {
 			perror("Unexpected return value from db get routine");
 			exit(EX_SOFTWARE);
-			
+			/* NOTREACHED */
 		}
 	}
 	memcpy(&stored_ptr, data.data, sizeof(stored_ptr));
 	stored_ptr->count++;
 	data.data = &stored_ptr;
-	if (symtable->put(symtable, &key, &data, 0) !=0) {
+	if (symtable->put(symtable, &key, &data, /*flags*/0) !=0) {
 		perror("Symtable put failed");
 		exit(EX_SOFTWARE);
 	}
@@ -226,7 +230,7 @@ symlist_add(symlist_t *symlist, symbol_t *symbol, int how)
 	newnode = (symbol_node_t *)malloc(sizeof(symbol_node_t));
 	if (newnode == NULL) {
 		stop("symlist_add: Unable to malloc symbol_node", EX_SOFTWARE);
-		
+		/* NOTREACHED */
 	}
 	newnode->symbol = symbol;
 	if (how == SYMLIST_SORT) {
@@ -248,7 +252,7 @@ symlist_add(symlist_t *symlist, symbol_t *symbol, int how)
 		default:
 			stop("symlist_add: Invalid symbol type for sorting",
 			     EX_SOFTWARE);
-			
+			/* NOTREACHED */
 		}
 
 		curnode = SLIST_FIRST(symlist);
@@ -319,7 +323,7 @@ symlist_merge(symlist_t *symlist_dest, symlist_t *symlist_src1,
 		SLIST_INSERT_HEAD(symlist_dest, node, links);
 	}
 
-	
+	/* These are now empty */
 	SLIST_INIT(symlist_src1);
 	SLIST_INIT(symlist_src2);
 }
@@ -459,6 +463,11 @@ aic_print_reg_dump_entry(FILE *dfile, symbol_node_t *curnode)
 void
 symtable_dump(FILE *ofile, FILE *dfile)
 {
+	/*
+	 * Sort the registers by address with a simple insertion sort.
+	 * Put bitmasks next to the first register that defines them.
+	 * Put constants at the end.
+	 */
 	symlist_t	 registers;
 	symlist_t	 masks;
 	symlist_t	 constants;
@@ -523,7 +532,7 @@ symtable_dump(FILE *ofile, FILE *dfile)
 		flag = R_NEXT;
 	}
 
-	
+	/* Register dianostic functions/declarations first. */
 	aic_print_file_prologue(ofile);
 	aic_print_reg_dump_types(ofile);
 	aic_print_file_prologue(dfile);
@@ -567,7 +576,7 @@ symtable_dump(FILE *ofile, FILE *dfile)
 	fprintf(stderr, "%s: %d of %d register definitions used\n", appname,
 		reg_used, reg_count);
 
-	
+	/* Fold in the masks and bits */
 	while (SLIST_FIRST(&masks) != NULL) {
 		char *regname;
 
@@ -580,7 +589,7 @@ symtable_dump(FILE *ofile, FILE *dfile)
 		SLIST_INSERT_AFTER(regnode, curnode, links);
 	}
 
-	
+	/* Add the aliases */
 	while (SLIST_FIRST(&aliases) != NULL) {
 		char *regname;
 
@@ -592,7 +601,7 @@ symtable_dump(FILE *ofile, FILE *dfile)
 		SLIST_INSERT_AFTER(regnode, curnode, links);
 	}
 
-	
+	/* Output generated #defines. */
 	while (SLIST_FIRST(&registers) != NULL) {
 		symbol_node_t *curnode;
 		u_int value;
@@ -629,7 +638,7 @@ symtable_dump(FILE *ofile, FILE *dfile)
 			tab_str2 = "\t";
 			break;
 		default:
-			value = 0; 
+			value = 0; /* Quiet compiler */
 			tab_str = NULL;
 			tab_str2 = NULL;
 			stop("symtable_dump: Invalid symbol type "

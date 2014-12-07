@@ -176,12 +176,21 @@ void mem_cgroup_sockets_destroy(struct cgroup *cgrp)
 }
 #endif
 
+/*
+ * Each address family might have different locking rules, so we have
+ * one slock key per address family:
+ */
 static struct lock_class_key af_family_keys[AF_MAX];
 static struct lock_class_key af_family_slock_keys[AF_MAX];
 
 struct static_key memcg_socket_limit_enabled;
 EXPORT_SYMBOL(memcg_socket_limit_enabled);
 
+/*
+ * Make lock validator output more readable. (we pre-construct these
+ * strings build-time, so that runtime initialization of socket
+ * locks is fast):
+ */
 static const char *const af_family_key_strings[AF_MAX+1] = {
   "sk_lock-AF_UNSPEC", "sk_lock-AF_UNIX"     , "sk_lock-AF_INET"     ,
   "sk_lock-AF_AX25"  , "sk_lock-AF_IPX"      , "sk_lock-AF_APPLETALK",
@@ -231,18 +240,29 @@ static const char *const af_family_clock_key_strings[AF_MAX+1] = {
   "clock-AF_NFC"   , "clock-AF_MAX"
 };
 
+/*
+ * sk_callback_lock locking rules are per-address-family,
+ * so split the lock classes by using a per-AF key:
+ */
 static struct lock_class_key af_callback_keys[AF_MAX];
 
+/* Take into consideration the size of the struct sk_buff overhead in the
+ * determination of these values, since that is non-constant across
+ * platforms.  This makes socket queueing behavior and performance
+ * not depend upon such differences.
+ */
 #define _SK_MEM_PACKETS		256
 #define _SK_MEM_OVERHEAD	SKB_TRUESIZE(256)
 #define SK_WMEM_MAX		(_SK_MEM_OVERHEAD * _SK_MEM_PACKETS)
 #define SK_RMEM_MAX		(_SK_MEM_OVERHEAD * _SK_MEM_PACKETS)
 
+/* Run time adjustable parameters. */
 __u32 sysctl_wmem_max __read_mostly = SK_WMEM_MAX;
 __u32 sysctl_rmem_max __read_mostly = SK_RMEM_MAX;
 __u32 sysctl_wmem_default __read_mostly = SK_WMEM_MAX;
 __u32 sysctl_rmem_default __read_mostly = SK_RMEM_MAX;
 
+/* Maximal space eaten by iovec or ancillary data plus some space */
 int sysctl_optmem_max __read_mostly = sizeof(unsigned long)*(2*UIO_MAXIOV+512);
 EXPORT_SYMBOL(sysctl_optmem_max);
 
@@ -337,8 +357,16 @@ int sock_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	skb->dev = NULL;
 	skb_set_owner_r(skb, sk);
 
+	/* Cache the SKB length before we tack it onto the receive
+	 * queue.  Once it is added it no longer belongs to us and
+	 * may be freed by other threads of control pulling packets
+	 * from the queue.
+	 */
 	skb_len = skb->len;
 
+	/* we escape from rcu protected region, make sure we dont leak
+	 * a norefcounted dst
+	 */
 	skb_dst_force(skb);
 
 	spin_lock_irqsave(&list->lock, flags);
@@ -370,6 +398,9 @@ int sk_receive_skb(struct sock *sk, struct sk_buff *skb, const int nested)
 	else
 		bh_lock_sock(sk);
 	if (!sock_owned_by_user(sk)) {
+		/*
+		 * trylock + unlock semantics:
+		 */
 		mutex_acquire(&sk->sk_lock.dep_map, 0, 1, _RET_IP_);
 
 		rc = sk_backlog_rcv(sk, skb);
@@ -434,7 +465,7 @@ static int sock_bindtodevice(struct sock *sk, char __user *optval, int optlen)
 	char devname[IFNAMSIZ];
 	int index;
 
-	
+	/* Sorry... */
 	ret = -EPERM;
 	if (!capable(CAP_NET_RAW))
 		goto out;
@@ -443,6 +474,11 @@ static int sock_bindtodevice(struct sock *sk, char __user *optval, int optlen)
 	if (optlen < 0)
 		goto out;
 
+	/* Bind this socket to a particular device like "eth0",
+	 * as specified in the passed interface name. If the
+	 * name is "" or the option length is zero the socket
+	 * is not bound.
+	 */
 	if (optlen > IFNAMSIZ - 1)
 		optlen = IFNAMSIZ - 1;
 	memset(devname, 0, sizeof(devname));
@@ -486,6 +522,10 @@ static inline void sock_valbool_flag(struct sock *sk, int bit, int valbool)
 		sock_reset_flag(sk, bit);
 }
 
+/*
+ *	This is meant for all protocols to use and covers goings on
+ *	at the socket level. Everything here is generic.
+ */
 
 int sock_setsockopt(struct socket *sock, int level, int optname,
 		    char __user *optval, unsigned int optlen)
@@ -496,6 +536,9 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 	struct linger ling;
 	int ret = 0;
 
+	/*
+	 *	Options without arguments
+	 */
 
 	if (optname == SO_BINDTODEVICE)
 		return sock_bindtodevice(sk, optval, optlen);
@@ -533,6 +576,10 @@ int sock_setsockopt(struct socket *sock, int level, int optname,
 		sock_valbool_flag(sk, SOCK_BROADCAST, valbool);
 		break;
 	case SO_SNDBUF:
+		/* Don't error on this BSD doesn't and if you think
+		   about it this is right. Otherwise apps have to
+		   play 'guess the biggest size' games. RCVBUF/SNDBUF
+		   are treated in BSD as hints */
 
 		if (val > sysctl_wmem_max)
 			val = sysctl_wmem_max;
@@ -543,6 +590,10 @@ set_sndbuf:
 		else
 			sk->sk_sndbuf = val * 2;
 
+		/*
+		 *	Wake up sending tasks if we
+		 *	upped the value.
+		 */
 		sk->sk_write_space(sk);
 		break;
 
@@ -554,11 +605,30 @@ set_sndbuf:
 		goto set_sndbuf;
 
 	case SO_RCVBUF:
+		/* Don't error on this BSD doesn't and if you think
+		   about it this is right. Otherwise apps have to
+		   play 'guess the biggest size' games. RCVBUF/SNDBUF
+		   are treated in BSD as hints */
 
 		if (val > sysctl_rmem_max)
 			val = sysctl_rmem_max;
 set_rcvbuf:
 		sk->sk_userlocks |= SOCK_RCVBUF_LOCK;
+		/*
+		 * We double it on the way in to account for
+		 * "struct sk_buff" etc. overhead.   Applications
+		 * assume that the SO_RCVBUF setting they make will
+		 * allow that much actual data to be received on that
+		 * socket.
+		 *
+		 * Applications are unaware that "struct sk_buff" and
+		 * other overheads allocate from the receive buffer
+		 * during socket buffer allocation.
+		 *
+		 * And after considering the possible alternatives,
+		 * returning the value we actually used in getsockopt
+		 * is the most desirable behavior.
+		 */
 		if ((val * 2) < SOCK_MIN_RCVBUF)
 			sk->sk_rcvbuf = SOCK_MIN_RCVBUF;
 		else
@@ -598,7 +668,7 @@ set_rcvbuf:
 
 	case SO_LINGER:
 		if (optlen < sizeof(ling)) {
-			ret = -EINVAL;	
+			ret = -EINVAL;	/* 1003.1g */
 			break;
 		}
 		if (copy_from_user(&ling, optval, sizeof(ling))) {
@@ -713,6 +783,8 @@ set_rcvbuf:
 			sk->sk_mark = val;
 		break;
 
+		/* We implement the SO_SNDLOWAT etc to
+		   not be settable (1003.1g 5.3) */
 	case SO_RXQ_OVFL:
 		sock_valbool_flag(sk, SOCK_RXQ_OVFL, valbool);
 		break;
@@ -931,6 +1003,9 @@ int sock_getsockopt(struct socket *sock, int level, int optname,
 		goto lenout;
 	}
 
+	/* Dubious BSD thing... Probably nobody even uses it, but
+	 * the UNIX standard wants it for whatever reason... -DaveM
+	 */
 	case SO_ACCEPTCONN:
 		v.val = sk->sk_state == TCP_LISTEN;
 		break;
@@ -977,6 +1052,11 @@ lenout:
 	return 0;
 }
 
+/*
+ * Initialize an sk_lock.
+ *
+ * (We also register the sk_lock with the lock validator.)
+ */
 static inline void sock_lock_init(struct sock *sk)
 {
 	sock_lock_init_class_and_name(sk,
@@ -986,6 +1066,11 @@ static inline void sock_lock_init(struct sock *sk)
 			af_family_keys + sk->sk_family);
 }
 
+/*
+ * Copy all fields from osk to nsk but nsk->sk_refcnt must not change yet,
+ * even temporarly, because of RCU lookups. sk_node should also be left as is.
+ * We must not copy fields between sk_dontcopy_begin and sk_dontcopy_end
+ */
 static void sock_copy(struct sock *nsk, const struct sock *osk)
 {
 #ifdef CONFIG_SECURITY_NETWORK
@@ -1002,6 +1087,10 @@ static void sock_copy(struct sock *nsk, const struct sock *osk)
 #endif
 }
 
+/*
+ * caches using SLAB_DESTROY_BY_RCU should let .next pointer from nulls nodes
+ * un-modified. Special care is taken when initializing object to zero.
+ */
 static inline void sk_prot_clear_nulls(struct sock *sk, int size)
 {
 	if (offsetof(struct sock, sk_node.next) != 0)
@@ -1092,7 +1181,7 @@ void sock_update_classid(struct sock *sk)
 {
 	u32 classid;
 
-	rcu_read_lock();  
+	rcu_read_lock();  /* doing current task, which cannot vanish. */
 	classid = task_cls_classid(current);
 	rcu_read_unlock();
 	if (classid && classid != sk->sk_classid)
@@ -1110,6 +1199,13 @@ void sock_update_netprioidx(struct sock *sk)
 EXPORT_SYMBOL_GPL(sock_update_netprioidx);
 #endif
 
+/**
+ *	sk_alloc - All socket objects are allocated here
+ *	@net: the applicable net namespace
+ *	@family: protocol family
+ *	@priority: for allocation (%GFP_KERNEL, %GFP_ATOMIC, etc)
+ *	@prot: struct proto associated with this new sock instance
+ */
 struct sock *sk_alloc(struct net *net, int family, gfp_t priority,
 		      struct proto *prot)
 {
@@ -1118,6 +1214,10 @@ struct sock *sk_alloc(struct net *net, int family, gfp_t priority,
 	sk = sk_prot_alloc(prot, priority | __GFP_ZERO, family);
 	if (sk) {
 		sk->sk_family = family;
+		/*
+		 * See comment in struct sock definition to understand
+		 * why we need sk_prot_creator -acme
+		 */
 		sk->sk_prot = sk->sk_prot_creator = prot;
 		sock_lock_init(sk);
 		sock_net_set(sk, get_net(net));
@@ -1160,11 +1260,23 @@ static void __sk_free(struct sock *sk)
 
 void sk_free(struct sock *sk)
 {
+	/*
+	 * We subtract one from sk_wmem_alloc and can know if
+	 * some packets are still in some tx queue.
+	 * If not null, sock_wfree() will call __sk_free(sk) later
+	 */
 	if (atomic_dec_and_test(&sk->sk_wmem_alloc))
 		__sk_free(sk);
 }
 EXPORT_SYMBOL(sk_free);
 
+/*
+ * Last sock_put should drop reference to sk->sk_net. It has already
+ * been dropped in sk_change_net. Taking reference to stopping namespace
+ * is not an option.
+ * Take reference to a socket to remove it from hash _alive_ and after that
+ * destroy it in the context of init_net.
+ */
 void sk_release_kernel(struct sock *sk)
 {
 	if (sk == NULL || sk->sk_socket == NULL)
@@ -1184,6 +1296,13 @@ static void sk_update_clone(const struct sock *sk, struct sock *newsk)
 		sock_update_memcg(newsk);
 }
 
+/**
+ *	sk_clone_lock - clone a socket, and lock its clone
+ *	@sk: the socket to clone
+ *	@priority: for allocation (%GFP_KERNEL, %GFP_ATOMIC, etc)
+ *
+ *	Caller must unlock socket even in error path (bh_unlock_sock(newsk))
+ */
 struct sock *sk_clone_lock(const struct sock *sk, const gfp_t priority)
 {
 	struct sock *newsk;
@@ -1194,7 +1313,7 @@ struct sock *sk_clone_lock(const struct sock *sk, const gfp_t priority)
 
 		sock_copy(newsk, sk);
 
-		
+		/* SANITY */
 		get_net(sock_net(newsk));
 		sk_node_init(&newsk->sk_node);
 		sock_lock_init(newsk);
@@ -1203,6 +1322,9 @@ struct sock *sk_clone_lock(const struct sock *sk, const gfp_t priority)
 		newsk->sk_backlog.len = 0;
 
 		atomic_set(&newsk->sk_rmem_alloc, 0);
+		/*
+		 * sk_wmem_alloc set to one (see sk_free() and sock_wfree())
+		 */
 		atomic_set(&newsk->sk_wmem_alloc, 1);
 		atomic_set(&newsk->sk_omem_alloc, 0);
 		skb_queue_head_init(&newsk->sk_receive_queue);
@@ -1231,6 +1353,8 @@ struct sock *sk_clone_lock(const struct sock *sk, const gfp_t priority)
 			sk_filter_charge(newsk, filter);
 
 		if (unlikely(xfrm_sk_clone_policy(newsk))) {
+			/* It is still raw copy of parent, so invalidate
+			 * destructor and make plain sk_free() */
 			newsk->sk_destruct = NULL;
 			bh_unlock_sock(newsk);
 			sk_free(newsk);
@@ -1240,9 +1364,24 @@ struct sock *sk_clone_lock(const struct sock *sk, const gfp_t priority)
 
 		newsk->sk_err	   = 0;
 		newsk->sk_priority = 0;
+		/*
+		 * Before updating sk_refcnt, we must commit prior changes to memory
+		 * (Documentation/RCU/rculist_nulls.txt for details)
+		 */
 		smp_wmb();
 		atomic_set(&newsk->sk_refcnt, 2);
 
+		/*
+		 * Increment the counter in the same struct proto as the master
+		 * sock (sk_refcnt_debug_inc uses newsk->sk_prot->socks, that
+		 * is the same as sk->sk_prot->socks, as this field was copied
+		 * with memcpy).
+		 *
+		 * This _changes_ the previous behaviour, where
+		 * tcp_create_openreq_child always was incrementing the
+		 * equivalent to tcp_prot->socks (inet_sock_nr), so this have
+		 * to be taken into account in all callers. -acme
+		 */
 		sk_refcnt_debug_inc(newsk);
 		sk_set_socket(newsk, NULL);
 		newsk->sk_wq = NULL;
@@ -1291,23 +1430,40 @@ void __init sk_init(void)
 	}
 }
 
+/*
+ *	Simple resource managers for sockets.
+ */
 
 
+/*
+ * Write buffer destructor automatically called from kfree_skb.
+ */
 void sock_wfree(struct sk_buff *skb)
 {
 	struct sock *sk = skb->sk;
 	unsigned int len = skb->truesize;
 
 	if (!sock_flag(sk, SOCK_USE_WRITE_QUEUE)) {
+		/*
+		 * Keep a reference on sk_wmem_alloc, this will be released
+		 * after sk_write_space() call
+		 */
 		atomic_sub(len - 1, &sk->sk_wmem_alloc);
 		sk->sk_write_space(sk);
 		len = 1;
 	}
+	/*
+	 * if sk_wmem_alloc reaches 0, we must finish what sk_free()
+	 * could not do because of in-flight packets
+	 */
 	if (atomic_sub_and_test(len, &sk->sk_wmem_alloc))
 		__sk_free(sk);
 }
 EXPORT_SYMBOL(sock_wfree);
 
+/*
+ * Read buffer destructor automatically called from kfree_skb.
+ */
 void sock_rfree(struct sk_buff *skb)
 {
 	struct sock *sk = skb->sk;
@@ -1341,6 +1497,9 @@ unsigned long sock_i_ino(struct sock *sk)
 }
 EXPORT_SYMBOL(sock_i_ino);
 
+/*
+ * Allocate a skb from the socket's send buffer.
+ */
 struct sk_buff *sock_wmalloc(struct sock *sk, unsigned long size, int force,
 			     gfp_t priority)
 {
@@ -1355,6 +1514,9 @@ struct sk_buff *sock_wmalloc(struct sock *sk, unsigned long size, int force,
 }
 EXPORT_SYMBOL(sock_wmalloc);
 
+/*
+ * Allocate a skb from the socket's receive buffer.
+ */
 struct sk_buff *sock_rmalloc(struct sock *sk, unsigned long size, int force,
 			     gfp_t priority)
 {
@@ -1368,11 +1530,17 @@ struct sk_buff *sock_rmalloc(struct sock *sk, unsigned long size, int force,
 	return NULL;
 }
 
+/*
+ * Allocate a memory block from the socket's option memory buffer.
+ */
 void *sock_kmalloc(struct sock *sk, int size, gfp_t priority)
 {
 	if ((unsigned)size <= sysctl_optmem_max &&
 	    atomic_read(&sk->sk_omem_alloc) + size < sysctl_optmem_max) {
 		void *mem;
+		/* First do the add, to avoid the race if kmalloc
+		 * might sleep.
+		 */
 		atomic_add(size, &sk->sk_omem_alloc);
 		mem = kmalloc(size, priority);
 		if (mem)
@@ -1383,6 +1551,9 @@ void *sock_kmalloc(struct sock *sk, int size, gfp_t priority)
 }
 EXPORT_SYMBOL(sock_kmalloc);
 
+/*
+ * Free an option memory block.
+ */
 void sock_kfree_s(struct sock *sk, void *mem, int size)
 {
 	kfree(mem);
@@ -1390,6 +1561,9 @@ void sock_kfree_s(struct sock *sk, void *mem, int size)
 }
 EXPORT_SYMBOL(sock_kfree_s);
 
+/* It is almost wait_for_tcp_memory minus release_sock/lock_sock.
+   I think, these locks should be removed for datagram sockets.
+ */
 static long sock_wait_for_wmem(struct sock *sk, long timeo)
 {
 	DEFINE_WAIT(wait);
@@ -1415,6 +1589,9 @@ static long sock_wait_for_wmem(struct sock *sk, long timeo)
 }
 
 
+/*
+ *	Generic send/receive buffer handlers
+ */
 
 struct sk_buff *sock_alloc_send_pskb(struct sock *sk, unsigned long header_len,
 				     unsigned long data_len, int noblock,
@@ -1449,7 +1626,7 @@ struct sk_buff *sock_alloc_send_pskb(struct sock *sk, unsigned long header_len,
 			if (skb) {
 				int i;
 
-				
+				/* No pages, we're done... */
 				if (!data_len)
 					break;
 
@@ -1474,7 +1651,7 @@ struct sk_buff *sock_alloc_send_pskb(struct sock *sk, unsigned long header_len,
 					data_len -= PAGE_SIZE;
 				}
 
-				
+				/* Full success... */
 				break;
 			}
 			err = -ENOBUFS;
@@ -1543,6 +1720,12 @@ static void __release_sock(struct sock *sk)
 			skb->next = NULL;
 			sk_backlog_rcv(sk, skb);
 
+			/*
+			 * We are in process context here with softirqs
+			 * disabled, use cond_resched_softirq() to preempt.
+			 * This is safe to do because we've taken the backlog
+			 * queue private:
+			 */
 			cond_resched_softirq();
 
 			skb = next;
@@ -1551,9 +1734,23 @@ static void __release_sock(struct sock *sk)
 		bh_lock_sock(sk);
 	} while ((skb = sk->sk_backlog.head) != NULL);
 
+	/*
+	 * Doing the zeroing here guarantee we can not loop forever
+	 * while a wild producer attempts to flood us.
+	 */
 	sk->sk_backlog.len = 0;
 }
 
+/**
+ * sk_wait_data - wait for data to arrive at sk_receive_queue
+ * @sk:    sock to wait on
+ * @timeo: for how long
+ *
+ * Now socket state including sk->sk_err is changed only under lock,
+ * hence we may omit checks after joining wait queue.
+ * We check receive queue before schedule() only as optimization;
+ * it is very likely that release_sock() added new data.
+ */
 int sk_wait_data(struct sock *sk, long *timeo)
 {
 	int rc;
@@ -1568,6 +1765,16 @@ int sk_wait_data(struct sock *sk, long *timeo)
 }
 EXPORT_SYMBOL(sk_wait_data);
 
+/**
+ *	__sk_mem_schedule - increase sk_forward_alloc and memory_allocated
+ *	@sk: socket
+ *	@size: memory size to allocate
+ *	@kind: allocation type
+ *
+ *	If kind is SK_MEM_SEND, it means wmem allocation. Otherwise it means
+ *	rmem allocation. This function assumes that protocols which have
+ *	memory_pressure use sk_wmem_queued as write buffer accounting.
+ */
 int __sk_mem_schedule(struct sock *sk, int size, int kind)
 {
 	struct proto *prot = sk->sk_prot;
@@ -1579,29 +1786,29 @@ int __sk_mem_schedule(struct sock *sk, int size, int kind)
 
 	allocated = sk_memory_allocated_add(sk, amt, &parent_status);
 
-	
+	/* Under limit. */
 	if (parent_status == UNDER_LIMIT &&
 			allocated <= sk_prot_mem_limits(sk, 0)) {
 		sk_leave_memory_pressure(sk);
 		return 1;
 	}
 
-	
+	/* Under pressure. (we or our parents) */
 	if ((parent_status > SOFT_LIMIT) ||
 			allocated > sk_prot_mem_limits(sk, 1))
 		sk_enter_memory_pressure(sk);
 
-	
+	/* Over hard limit (we or our parents) */
 	if ((parent_status == OVER_LIMIT) ||
 			(allocated > sk_prot_mem_limits(sk, 2)))
 		goto suppress_allocation;
 
-	
+	/* guarantee minimum buffer size under pressure */
 	if (kind == SK_MEM_RECV) {
 		if (atomic_read(&sk->sk_rmem_alloc) < prot->sysctl_rmem[0])
 			return 1;
 
-	} else { 
+	} else { /* SK_MEM_SEND */
 		if (sk->sk_type == SOCK_STREAM) {
 			if (sk->sk_wmem_queued < prot->sysctl_wmem[0])
 				return 1;
@@ -1628,13 +1835,16 @@ suppress_allocation:
 	if (kind == SK_MEM_SEND && sk->sk_type == SOCK_STREAM) {
 		sk_stream_moderate_sndbuf(sk);
 
+		/* Fail only if socket is _under_ its sndbuf.
+		 * In this case we cannot block, so that we have to fail.
+		 */
 		if (sk->sk_wmem_queued + size >= sk->sk_sndbuf)
 			return 1;
 	}
 
 	trace_sock_exceed_buf_limit(sk, prot, allocated);
 
-	
+	/* Alas. Undo changes. */
 	sk->sk_forward_alloc -= amt * SK_MEM_QUANTUM;
 
 	sk_memory_allocated_sub(sk, amt);
@@ -1643,6 +1853,10 @@ suppress_allocation:
 }
 EXPORT_SYMBOL(__sk_mem_schedule);
 
+/**
+ *	__sk_reclaim - reclaim memory_allocated
+ *	@sk: socket
+ */
 void __sk_mem_reclaim(struct sock *sk)
 {
 	sk_memory_allocated_sub(sk,
@@ -1656,6 +1870,12 @@ void __sk_mem_reclaim(struct sock *sk)
 EXPORT_SYMBOL(__sk_mem_reclaim);
 
 
+/*
+ * Set of default routines for initialising struct proto_ops when
+ * the protocol does not support a particular function. In certain
+ * cases where it makes no sense for a protocol to have a "do nothing"
+ * function, some default processing is provided.
+ */
 
 int sock_no_bind(struct socket *sock, struct sockaddr *saddr, int len)
 {
@@ -1743,7 +1963,7 @@ EXPORT_SYMBOL(sock_no_recvmsg);
 
 int sock_no_mmap(struct file *file, struct socket *sock, struct vm_area_struct *vma)
 {
-	
+	/* Mirror missing mmap method error code */
 	return -ENODEV;
 }
 EXPORT_SYMBOL(sock_no_mmap);
@@ -1762,6 +1982,9 @@ ssize_t sock_no_sendpage(struct socket *sock, struct page *page, int offset, siz
 }
 EXPORT_SYMBOL(sock_no_sendpage);
 
+/*
+ *	Default Socket Callbacks
+ */
 
 static void sock_def_wakeup(struct sock *sk)
 {
@@ -1805,13 +2028,16 @@ static void sock_def_write_space(struct sock *sk)
 
 	rcu_read_lock();
 
+	/* Do not wake up a writer until he can make "significant"
+	 * progress.  --DaveM
+	 */
 	if ((atomic_read(&sk->sk_wmem_alloc) << 1) <= sk->sk_sndbuf) {
 		wq = rcu_dereference(sk->sk_wq);
 		if (wq_has_sleeper(wq))
 			wake_up_interruptible_sync_poll(&wq->wait, POLLOUT |
 						POLLWRNORM | POLLWRBAND);
 
-		
+		/* Should agree with poll, otherwise some programs break */
 		if (sock_writeable(sk))
 			sk_wake_async(sk, SOCK_WAKE_SPACE, POLL_OUT);
 	}
@@ -1900,6 +2126,10 @@ void sock_init_data(struct socket *sock, struct sock *sk)
 
 	sk->sk_stamp = ktime_set(-1L, 0);
 
+	/*
+	 * Before updating sk_refcnt, we must commit prior changes to memory
+	 * (Documentation/RCU/rculist_nulls.txt for details)
+	 */
 	smp_wmb();
 	atomic_set(&sk->sk_refcnt, 1);
 	atomic_set(&sk->sk_drops, 0);
@@ -1914,6 +2144,9 @@ void lock_sock_nested(struct sock *sk, int subclass)
 		__lock_sock(sk);
 	sk->sk_lock.owned = 1;
 	spin_unlock(&sk->sk_lock.slock);
+	/*
+	 * The sk_lock has mutex_lock() semantics here:
+	 */
 	mutex_acquire(&sk->sk_lock.dep_map, subclass, 0, _RET_IP_);
 	local_bh_enable();
 }
@@ -1921,6 +2154,9 @@ EXPORT_SYMBOL(lock_sock_nested);
 
 void release_sock(struct sock *sk)
 {
+	/*
+	 * The sk_lock has mutex_unlock() semantics:
+	 */
 	mutex_release(&sk->sk_lock.dep_map, 1, _RET_IP_);
 
 	spin_lock_bh(&sk->sk_lock.slock);
@@ -1933,17 +2169,33 @@ void release_sock(struct sock *sk)
 }
 EXPORT_SYMBOL(release_sock);
 
+/**
+ * lock_sock_fast - fast version of lock_sock
+ * @sk: socket
+ *
+ * This version should be used for very small section, where process wont block
+ * return false if fast path is taken
+ *   sk_lock.slock locked, owned = 0, BH disabled
+ * return true if slow path is taken
+ *   sk_lock.slock unlocked, owned = 1, BH enabled
+ */
 bool lock_sock_fast(struct sock *sk)
 {
 	might_sleep();
 	spin_lock_bh(&sk->sk_lock.slock);
 
 	if (!sk->sk_lock.owned)
+		/*
+		 * Note : We must disable BH
+		 */
 		return false;
 
 	__lock_sock(sk);
 	sk->sk_lock.owned = 1;
 	spin_unlock(&sk->sk_lock.slock);
+	/*
+	 * The sk_lock has mutex_lock() semantics here:
+	 */
 	mutex_acquire(&sk->sk_lock.dep_map, 0, 0, _RET_IP_);
 	local_bh_enable();
 	return true;
@@ -1988,11 +2240,23 @@ void sock_enable_timestamp(struct sock *sk, int flag)
 		unsigned long previous_flags = sk->sk_flags;
 
 		sock_set_flag(sk, flag);
+		/*
+		 * we just set one of the two flags which require net
+		 * time stamping, but time stamping might have been on
+		 * already because of the other one
+		 */
 		if (!(previous_flags & SK_FLAGS_TIMESTAMP))
 			net_enable_timestamp();
 	}
 }
 
+/*
+ *	Get a socket option on an socket.
+ *
+ *	FIX: POSIX 1003.1g is very ambiguous here. It states that
+ *	asynchronous errors should be reported by getsockopt. We assume
+ *	this means if you specify SO_ERROR (otherwise whats the point of it).
+ */
 int sock_common_getsockopt(struct socket *sock, int level, int optname,
 			   char __user *optval, int __user *optlen)
 {
@@ -2031,6 +2295,9 @@ int sock_common_recvmsg(struct kiocb *iocb, struct socket *sock,
 }
 EXPORT_SYMBOL(sock_common_recvmsg);
 
+/*
+ *	Set socket options on an inet socket.
+ */
 int sock_common_setsockopt(struct socket *sock, int level, int optname,
 			   char __user *optval, unsigned int optlen)
 {
@@ -2059,9 +2326,27 @@ void sk_common_release(struct sock *sk)
 	if (sk->sk_prot->destroy)
 		sk->sk_prot->destroy(sk);
 
+	/*
+	 * Observation: when sock_common_release is called, processes have
+	 * no access to socket. But net still has.
+	 * Step one, detach it from networking:
+	 *
+	 * A. Remove from hash tables.
+	 */
 
 	sk->sk_prot->unhash(sk);
 
+	/*
+	 * In this point socket cannot receive new packets, but it is possible
+	 * that some packets are in flight because some CPU runs receiver and
+	 * did hash table lookup before we unhashed socket. They will achieve
+	 * receive queue and will be purged by socket destructor.
+	 *
+	 * Also we still have packets pending on receive queue and probably,
+	 * our own packets waiting in device queues. sock_destroy will drain
+	 * receive queue, but transmitted packets will delay socket destruction
+	 * until the last reference will be released.
+	 */
 
 	sock_orphan(sk);
 
@@ -2073,7 +2358,7 @@ void sk_common_release(struct sock *sk)
 EXPORT_SYMBOL(sk_common_release);
 
 #ifdef CONFIG_PROC_FS
-#define PROTO_INUSE_NR	64	
+#define PROTO_INUSE_NR	64	/* should be enough for the first time */
 struct prot_inuse {
 	int val[PROTO_INUSE_NR];
 };
@@ -2403,4 +2688,4 @@ static int __init proto_init(void)
 
 subsys_initcall(proto_init);
 
-#endif 
+#endif /* PROC_FS */

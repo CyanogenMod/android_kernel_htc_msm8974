@@ -1,3 +1,10 @@
+/*
+ *  include/asm-s390/mman.h
+ *
+ *  S390 version
+ *
+ *  Derived from "include/asm-i386/mman.h"
+ */
 
 #ifndef __S390_MMAN_H__
 #define __S390_MMAN_H__
@@ -11,4 +18,4 @@ int s390_mmap_check(unsigned long addr, unsigned long len);
 #endif
 #endif
 
-#endif 
+#endif /* __S390_MMAN_H__ */

@@ -15,6 +15,7 @@ int of_getprop(const void *phandle, const char *name, void *buf,
 int of_setprop(const void *phandle, const char *name, const void *buf,
 	       const int buflen);
 
+/* Console functions */
 void of_console_init(void);
 
-#endif 
+#endif /* _PPC_BOOT_OF_H_ */

@@ -36,28 +36,28 @@
 
 #define DRVNAME "f71808e_wdt"
 
-#define SIO_F71808FG_LD_WDT	0x07	
-#define SIO_UNLOCK_KEY		0x87	
-#define SIO_LOCK_KEY		0xAA	
+#define SIO_F71808FG_LD_WDT	0x07	/* Watchdog timer logical device */
+#define SIO_UNLOCK_KEY		0x87	/* Key to enable Super-I/O */
+#define SIO_LOCK_KEY		0xAA	/* Key to diasble Super-I/O */
 
-#define SIO_REG_LDSEL		0x07	
-#define SIO_REG_DEVID		0x20	
-#define SIO_REG_DEVREV		0x22	
-#define SIO_REG_MANID		0x23	
-#define SIO_REG_ROM_ADDR_SEL	0x27	
-#define SIO_REG_MFUNCT1		0x29	
-#define SIO_REG_MFUNCT2		0x2a	
-#define SIO_REG_MFUNCT3		0x2b	
-#define SIO_REG_ENABLE		0x30	
-#define SIO_REG_ADDR		0x60	
+#define SIO_REG_LDSEL		0x07	/* Logical device select */
+#define SIO_REG_DEVID		0x20	/* Device ID (2 bytes) */
+#define SIO_REG_DEVREV		0x22	/* Device revision */
+#define SIO_REG_MANID		0x23	/* Fintek ID (2 bytes) */
+#define SIO_REG_ROM_ADDR_SEL	0x27	/* ROM address select */
+#define SIO_REG_MFUNCT1		0x29	/* Multi function select 1 */
+#define SIO_REG_MFUNCT2		0x2a	/* Multi function select 2 */
+#define SIO_REG_MFUNCT3		0x2b	/* Multi function select 3 */
+#define SIO_REG_ENABLE		0x30	/* Logical device enable */
+#define SIO_REG_ADDR		0x60	/* Logical device address (2 bytes) */
 
-#define SIO_FINTEK_ID		0x1934	
-#define SIO_F71808_ID		0x0901	
-#define SIO_F71858_ID		0x0507	
-#define SIO_F71862_ID		0x0601	
-#define SIO_F71869_ID		0x0814	
-#define SIO_F71882_ID		0x0541	
-#define SIO_F71889_ID		0x0723	
+#define SIO_FINTEK_ID		0x1934	/* Manufacturers ID */
+#define SIO_F71808_ID		0x0901	/* Chipset ID */
+#define SIO_F71858_ID		0x0507	/* Chipset ID */
+#define SIO_F71862_ID		0x0601	/* Chipset ID */
+#define SIO_F71869_ID		0x0814	/* Chipset ID */
+#define SIO_F71882_ID		0x0541	/* Chipset ID */
+#define SIO_F71889_ID		0x0723	/* Chipset ID */
 
 #define F71808FG_REG_WDO_CONF		0xf0
 #define F71808FG_REG_WDT_CONF		0xf5
@@ -70,17 +70,20 @@
 #define F71808FG_FLAG_WD_PULSE		4
 #define F71808FG_FLAG_WD_UNIT		3
 
-#define WATCHDOG_TIMEOUT	60	
+/* Default values */
+#define WATCHDOG_TIMEOUT	60	/* 1 minute default timeout */
 #define WATCHDOG_MAX_TIMEOUT	(60 * 255)
-#define WATCHDOG_PULSE_WIDTH	125	
-#define WATCHDOG_F71862FG_PIN	63	
+#define WATCHDOG_PULSE_WIDTH	125	/* 125 ms, default pulse width for
+					   watchdog signal */
+#define WATCHDOG_F71862FG_PIN	63	/* default watchdog reset output
+					   pin number 63 */
 
 static unsigned short force_id;
 module_param(force_id, ushort, 0);
 MODULE_PARM_DESC(force_id, "Override the detected device ID");
 
 static const int max_timeout = WATCHDOG_MAX_TIMEOUT;
-static int timeout = WATCHDOG_TIMEOUT;	
+static int timeout = WATCHDOG_TIMEOUT;	/* default timeout in seconds */
 module_param(timeout, int, 0);
 MODULE_PARM_DESC(timeout,
 	"Watchdog timeout in seconds. 1<= timeout <="
@@ -119,6 +122,7 @@ static const char *f71808e_names[] = {
 	"f71889fg",
 };
 
+/* Super-I/O Function prototypes */
 static inline int superio_inb(int base, int reg);
 static inline int superio_inw(int base, int reg);
 static inline void superio_outb(int base, int reg, u8 val);
@@ -137,17 +141,18 @@ struct watchdog_data {
 	struct watchdog_info ident;
 
 	unsigned short	timeout;
-	u8		timer_val;	
+	u8		timer_val;	/* content for the wd_time register */
 	char		minutes_mode;
-	u8		pulse_val;	
-	char		pulse_mode;	
-	char		caused_reboot;	
+	u8		pulse_val;	/* pulse width flag */
+	char		pulse_mode;	/* enable pulse output mode? */
+	char		caused_reboot;	/* last reboot was by the watchdog */
 };
 
 static struct watchdog_data watchdog = {
 	.lock = __MUTEX_INITIALIZER(watchdog.lock),
 };
 
+/* Super I/O functions */
 static inline int superio_inb(int base, int reg)
 {
 	outb(reg, base);
@@ -184,13 +189,13 @@ static inline void superio_clear_bit(int base, int reg, int bit)
 
 static inline int superio_enter(int base)
 {
-	
+	/* Don't step on other drivers' I/O space by accident */
 	if (!request_muxed_region(base, 2, DRVNAME)) {
 		pr_err("I/O address 0x%04x already in use\n", (int)base);
 		return -EBUSY;
 	}
 
-	
+	/* according to the datasheet the key must be send twice! */
 	outb(SIO_UNLOCK_KEY, base);
 	outb(SIO_UNLOCK_KEY, base);
 
@@ -271,15 +276,15 @@ static int watchdog_keepalive(void)
 	superio_select(watchdog.sioaddr, SIO_F71808FG_LD_WDT);
 
 	if (watchdog.minutes_mode)
-		
+		/* select minutes for timer units */
 		superio_set_bit(watchdog.sioaddr, F71808FG_REG_WDT_CONF,
 				F71808FG_FLAG_WD_UNIT);
 	else
-		
+		/* select seconds for timer units */
 		superio_clear_bit(watchdog.sioaddr, F71808FG_REG_WDT_CONF,
 				F71808FG_FLAG_WD_UNIT);
 
-	
+	/* Set timer value */
 	superio_outb(watchdog.sioaddr, F71808FG_REG_WD_TIME,
 			   watchdog.timer_val);
 
@@ -292,10 +297,12 @@ exit_unlock:
 
 static int f71862fg_pin_configure(unsigned short ioaddr)
 {
+	/* When ioaddr is non-zero the calling function has to take care of
+	   mutex handling and superio preparation! */
 
 	if (f71862fg_pin == 63) {
 		if (ioaddr) {
-			
+			/* SPI must be disabled first to use this pin! */
 			superio_clear_bit(ioaddr, SIO_REG_ROM_ADDR_SEL, 6);
 			superio_set_bit(ioaddr, SIO_REG_MFUNCT3, 4);
 		}
@@ -311,7 +318,7 @@ static int f71862fg_pin_configure(unsigned short ioaddr)
 
 static int watchdog_start(void)
 {
-	
+	/* Make sure we don't die as soon as the watchdog is enabled below */
 	int err = watchdog_keepalive();
 	if (err)
 		return err;
@@ -322,10 +329,10 @@ static int watchdog_start(void)
 		goto exit_unlock;
 	superio_select(watchdog.sioaddr, SIO_F71808FG_LD_WDT);
 
-	
+	/* Watchdog pin configuration */
 	switch (watchdog.type) {
 	case f71808fg:
-		
+		/* Set pin 21 to GPIO23/WDTRST#, then to WDTRST# */
 		superio_clear_bit(watchdog.sioaddr, SIO_REG_MFUNCT2, 3);
 		superio_clear_bit(watchdog.sioaddr, SIO_REG_MFUNCT3, 3);
 		break;
@@ -337,22 +344,26 @@ static int watchdog_start(void)
 		break;
 
 	case f71869:
-		
+		/* GPIO14 --> WDTRST# */
 		superio_clear_bit(watchdog.sioaddr, SIO_REG_MFUNCT1, 4);
 		break;
 
 	case f71882fg:
-		
+		/* Set pin 56 to WDTRST# */
 		superio_set_bit(watchdog.sioaddr, SIO_REG_MFUNCT1, 1);
 		break;
 
 	case f71889fg:
-		
+		/* set pin 40 to WDTRST# */
 		superio_outb(watchdog.sioaddr, SIO_REG_MFUNCT3,
 			superio_inb(watchdog.sioaddr, SIO_REG_MFUNCT3) & 0xcf);
 		break;
 
 	default:
+		/*
+		 * 'default' label to shut up the compiler and catch
+		 * programmer errors
+		 */
 		err = -ENODEV;
 		goto exit_superio;
 	}
@@ -366,19 +377,19 @@ static int watchdog_start(void)
 			F71808FG_FLAG_WD_EN);
 
 	if (watchdog.pulse_mode) {
-		
+		/* Select "pulse" output mode with given duration */
 		u8 wdt_conf = superio_inb(watchdog.sioaddr,
 				F71808FG_REG_WDT_CONF);
 
-		
+		/* Set WD_PSWIDTH bits (1:0) */
 		wdt_conf = (wdt_conf & 0xfc) | (watchdog.pulse_val & 0x03);
-		
+		/* Set WD_PULSE to "pulse" mode */
 		wdt_conf |= BIT(F71808FG_FLAG_WD_PULSE);
 
 		superio_outb(watchdog.sioaddr, F71808FG_REG_WDT_CONF,
 				wdt_conf);
 	} else {
-		
+		/* Select "level" output mode */
 		superio_clear_bit(watchdog.sioaddr, F71808FG_REG_WDT_CONF,
 				F71808FG_FLAG_WD_PULSE);
 	}
@@ -425,6 +436,10 @@ static int watchdog_get_status(void)
 
 static bool watchdog_is_running(void)
 {
+	/*
+	 * if we fail to determine the watchdog's status assume it to be
+	 * running to be on the safe side
+	 */
 	bool is_running = true;
 
 	mutex_lock(&watchdog.lock);
@@ -443,12 +458,13 @@ exit_unlock:
 	return is_running;
 }
 
+/* /dev/watchdog api */
 
 static int watchdog_open(struct inode *inode, struct file *file)
 {
 	int err;
 
-	
+	/* If the watchdog is alive we don't need to start it again */
 	if (test_and_set_bit(0, &watchdog.opened))
 		return -EBUSY;
 
@@ -478,6 +494,16 @@ static int watchdog_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ *      watchdog_write:
+ *      @file: file handle to the watchdog
+ *      @buf: buffer to write
+ *      @count: count of bytes
+ *      @ppos: pointer to the position to write. No seeks allowed
+ *
+ *      A write to a watchdog device is defined as a keepalive signal. Any
+ *      write of data will do, as we we don't define content meaning.
+ */
 
 static ssize_t watchdog_write(struct file *file, const char __user *buf,
 			    size_t count, loff_t *ppos)
@@ -486,7 +512,7 @@ static ssize_t watchdog_write(struct file *file, const char __user *buf,
 		if (!nowayout) {
 			size_t i;
 
-			
+			/* In case it was set long ago */
 			bool expect_close = false;
 
 			for (i = 0; i != count; i++) {
@@ -496,18 +522,28 @@ static ssize_t watchdog_write(struct file *file, const char __user *buf,
 				expect_close = (c == 'V');
 			}
 
-			
+			/* Properly order writes across fork()ed processes */
 			mutex_lock(&watchdog.lock);
 			watchdog.expect_close = expect_close;
 			mutex_unlock(&watchdog.lock);
 		}
 
-		
+		/* someone wrote to us, we should restart timer */
 		watchdog_keepalive();
 	}
 	return count;
 }
 
+/*
+ *      watchdog_ioctl:
+ *      @inode: inode of the device
+ *      @file: file handle to the device
+ *      @cmd: watchdog command
+ *      @arg: argument pointer
+ *
+ *      The watchdog API defines a common set of functions for all watchdogs
+ *      according to their available features.
+ */
 static long watchdog_ioctl(struct file *file, unsigned int cmd,
 	unsigned long arg)
 {
@@ -558,7 +594,7 @@ static long watchdog_ioctl(struct file *file, unsigned int cmd,
 			return -EINVAL;
 
 		watchdog_keepalive();
-		
+		/* Fall */
 
 	case WDIOC_GETTIMEOUT:
 		return put_user(watchdog.timeout, uarg.i);
@@ -600,6 +636,9 @@ static int __init watchdog_init(int sioaddr)
 {
 	int wdt_conf, err = 0;
 
+	/* No need to lock watchdog.lock here because no entry points
+	 * into the module have been registered yet.
+	 */
 	watchdog.sioaddr = sioaddr;
 	watchdog.ident.options = WDIOC_SETTIMEOUT
 				| WDIOF_MAGICCLOSE
@@ -658,13 +697,13 @@ static int __init watchdog_init(int sioaddr)
 		superio_select(watchdog.sioaddr, SIO_F71808FG_LD_WDT);
 
 		if (start_withtimeout > 0xff) {
-			
+			/* select minutes for timer units */
 			superio_set_bit(sioaddr, F71808FG_REG_WDT_CONF,
 				F71808FG_FLAG_WD_UNIT);
 			superio_outb(sioaddr, F71808FG_REG_WD_TIME,
 				DIV_ROUND_UP(start_withtimeout, 60));
 		} else {
-			
+			/* select seconds for timer units */
 			superio_clear_bit(sioaddr, F71808FG_REG_WDT_CONF,
 				F71808FG_FLAG_WD_UNIT);
 			superio_outb(sioaddr, F71808FG_REG_WD_TIME,
@@ -714,7 +753,7 @@ static int __init f71808e_find(int sioaddr)
 		break;
 	case SIO_F71862_ID:
 		watchdog.type = f71862fg;
-		err = f71862fg_pin_configure(0); 
+		err = f71862fg_pin_configure(0); /* validate module parameter */
 		break;
 	case SIO_F71869_ID:
 		watchdog.type = f71869;
@@ -726,7 +765,7 @@ static int __init f71808e_find(int sioaddr)
 		watchdog.type = f71889fg;
 		break;
 	case SIO_F71858_ID:
-		
+		/* Confirmed (by datasheet) not to have a watchdog. */
 		err = -ENODEV;
 		goto exit;
 	default:

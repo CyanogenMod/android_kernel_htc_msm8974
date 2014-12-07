@@ -30,7 +30,7 @@
 #include <net/wpan-phy.h>
 #include <net/af_ieee802154.h>
 #include <net/ieee802154_netdev.h>
-#include <net/rtnetlink.h> 
+#include <net/rtnetlink.h> /* for rtnl_{un,}lock */
 #include <linux/nl802154.h>
 
 #include "ieee802154.h"
@@ -80,6 +80,8 @@ out:
 static int ieee802154_list_phy(struct sk_buff *skb,
 	struct genl_info *info)
 {
+	/* Request for interface name, index, type, IEEE address,
+	   PAN Id, short address */
 	struct sk_buff *msg;
 	struct wpan_phy *phy;
 	const char *name;
@@ -92,7 +94,7 @@ static int ieee802154_list_phy(struct sk_buff *skb,
 
 	name = nla_data(info->attrs[IEEE802154_ATTR_PHY_NAME]);
 	if (name[nla_len(info->attrs[IEEE802154_ATTR_PHY_NAME]) - 1] != '\0')
-		return -EINVAL; 
+		return -EINVAL; /* phy name should be null-terminated */
 
 
 	phy = wpan_phy_find(name);
@@ -185,13 +187,13 @@ static int ieee802154_add_iface(struct sk_buff *skb,
 
 	name = nla_data(info->attrs[IEEE802154_ATTR_PHY_NAME]);
 	if (name[nla_len(info->attrs[IEEE802154_ATTR_PHY_NAME]) - 1] != '\0')
-		return -EINVAL; 
+		return -EINVAL; /* phy name should be null-terminated */
 
 	if (info->attrs[IEEE802154_ATTR_DEV_NAME]) {
 		devname = nla_data(info->attrs[IEEE802154_ATTR_DEV_NAME]);
 		if (devname[nla_len(info->attrs[IEEE802154_ATTR_DEV_NAME]) - 1]
 				!= '\0')
-			return -EINVAL; 
+			return -EINVAL; /* phy name should be null-terminated */
 	} else  {
 		devname = "wpan%d";
 	}
@@ -232,6 +234,10 @@ static int ieee802154_add_iface(struct sk_buff *skb,
 		nla_memcpy(&addr.sa_data, info->attrs[IEEE802154_ATTR_HW_ADDR],
 				IEEE802154_ADDR_LEN);
 
+		/*
+		 * strangely enough, some callbacks (inetdev_event) from
+		 * dev_set_mac_address require RTNL_LOCK
+		 */
 		rtnl_lock();
 		rc = dev_set_mac_address(dev, &addr);
 		rtnl_unlock();
@@ -249,7 +255,7 @@ static int ieee802154_add_iface(struct sk_buff *skb,
 	return ieee802154_nl_reply(msg, info);
 
 dev_unregister:
-	rtnl_lock(); 
+	rtnl_lock(); /* del_iface must be called with RTNL lock */
 	phy->del_iface(phy, dev);
 	dev_put(dev);
 	rtnl_unlock();
@@ -276,7 +282,7 @@ static int ieee802154_del_iface(struct sk_buff *skb,
 
 	name = nla_data(info->attrs[IEEE802154_ATTR_DEV_NAME]);
 	if (name[nla_len(info->attrs[IEEE802154_ATTR_DEV_NAME]) - 1] != '\0')
-		return -EINVAL; 
+		return -EINVAL; /* name should be null-terminated */
 
 	dev = dev_get_by_name(genl_info_net(info), name);
 	if (!dev)
@@ -286,7 +292,7 @@ static int ieee802154_del_iface(struct sk_buff *skb,
 	BUG_ON(!phy);
 
 	rc = -EINVAL;
-	
+	/* phy name is optional, but should be checked if it's given */
 	if (info->attrs[IEEE802154_ATTR_PHY_NAME]) {
 		struct wpan_phy *phy2;
 
@@ -294,7 +300,7 @@ static int ieee802154_del_iface(struct sk_buff *skb,
 			nla_data(info->attrs[IEEE802154_ATTR_PHY_NAME]);
 		if (pname[nla_len(info->attrs[IEEE802154_ATTR_PHY_NAME]) - 1]
 				!= '\0')
-			
+			/* name should be null-terminated */
 			goto out_dev;
 
 		phy2 = wpan_phy_find(pname);
@@ -321,7 +327,7 @@ static int ieee802154_del_iface(struct sk_buff *skb,
 	rtnl_lock();
 	phy->del_iface(phy, dev);
 
-	
+	/* We don't have device anymore */
 	dev_put(dev);
 	dev = NULL;
 
@@ -352,6 +358,9 @@ static struct genl_ops ieee802154_phy_ops[] = {
 	IEEE802154_OP(IEEE802154_DEL_IFACE, ieee802154_del_iface),
 };
 
+/*
+ * No need to unregister as family unregistration will do it.
+ */
 int nl802154_phy_register(void)
 {
 	int i;

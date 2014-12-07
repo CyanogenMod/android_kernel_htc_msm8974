@@ -385,7 +385,7 @@ static int sd_write_data(struct rtsx_chip *chip, u8 trans_mode,
 		buf_len = 0;
 
 	if (buf_len > 512) {
-		
+		/* This function can't write data more than one page */
 		TRACE_RET(chip, STATUS_FAIL);
 	}
 
@@ -1108,7 +1108,7 @@ static int sd_query_switch_result(struct rtsx_chip *chip, u8 func_group, u8 func
 		}
 	}
 
-	
+	/* Check 'Busy Status' */
 	if ((buf[DATA_STRUCTURE_VER_OFFSET] == 0x01) &&
 		    ((buf[check_busy_offset] & switch_busy) == switch_busy)) {
 		TRACE_RET(chip, STATUS_FAIL);
@@ -1168,6 +1168,9 @@ static int sd_check_switch_mode(struct rtsx_chip *chip, u8 mode,
 		RTSX_DEBUGP("func_group3_mask = 0x%02x\n", buf[0x09]);
 		RTSX_DEBUGP("func_group4_mask = 0x%02x\n", buf[0x07]);
 	} else {
+		/* Maximum current consumption, check whether current is acceptable;
+		 * bit[511:496] = 0x0000 means some error happaned.
+		 */
 		u16 cc = ((u16)buf[0] << 8) | buf[1];
 		RTSX_DEBUGP("Maximum current consumption: %dmA\n", cc);
 		if ((cc == 0) || (cc > 800)) {
@@ -1253,7 +1256,7 @@ static int sd_switch_function(struct rtsx_chip *chip, u8 bus_width)
 	int i;
 	u8 func_to_switch = 0;
 
-	
+	/* Get supported functions */
 	retval = sd_check_switch_mode(chip, SD_CHECK_MODE,
 			NO_ARGUMENT, NO_ARGUMENT, bus_width);
 	if (retval != STATUS_SUCCESS) {
@@ -1262,7 +1265,7 @@ static int sd_switch_function(struct rtsx_chip *chip, u8 bus_width)
 
 	sd_card->func_group1_mask &= ~(sd_card->sd_switch_fail);
 
-	
+	/* Function Group 1: Access Mode */
 	for (i = 0; i < 4; i++) {
 		switch ((u8)(chip->sd_speed_prior >> (i*8))) {
 		case SDR104_SUPPORT:
@@ -1348,10 +1351,13 @@ static int sd_switch_function(struct rtsx_chip *chip, u8 bus_width)
 	}
 
 	if (!func_to_switch || (func_to_switch == HS_SUPPORT)) {
+		/* Do not try to switch current limit if the card doesn't
+		 * support UHS mode or we don't want it to support UHS mode
+		 */
 		return STATUS_SUCCESS;
 	}
 
-	
+	/* Function Group 4: Current Limit */
 	func_to_switch = 0xFF;
 
 	for (i = 0; i < 4; i++) {
@@ -2262,11 +2268,11 @@ static int sd_check_wp_state(struct rtsx_chip *chip)
 	sd_card_type = ((u16)buf[2] << 8) | buf[3];
 	RTSX_DEBUGP("sd_card_type = 0x%04x\n", sd_card_type);
 	if ((sd_card_type == 0x0001) || (sd_card_type == 0x0002)) {
-		
+		/* ROM card or OTP */
 		chip->card_wp |= SD_CARD;
 	}
 
-	
+	/* Check SD Machanical Write-Protect Switch */
 	val = rtsx_readl(chip, RTSX_BIPR);
 	if (val & SD_WRITE_PROTECT) {
 		chip->card_wp |= SD_CARD;
@@ -2340,7 +2346,7 @@ Switch_Fail:
 		RTSX_DEBUGP("Normal card!\n");
 	}
 
-	
+	/* Start Initialization Process of SD Card */
 RTY_SD_RST:
 	retval = sd_send_cmd_get_rsp(chip, GO_IDLE_STATE, 0, SD_RSP_TYPE_R0, NULL, 0);
 	if (retval != STATUS_SUCCESS) {
@@ -2520,11 +2526,14 @@ SD_UNLOCK_ENTRY:
 
 	if (!sd_dont_switch) {
 		if (sd20_mode) {
+			/* Set sd_switch_fail here, because we needn't
+			 * switch to UHS mode
+			 */
 			sd_card->sd_switch_fail = SDR104_SUPPORT_MASK |
 				DDR50_SUPPORT_MASK | SDR50_SUPPORT_MASK;
 		}
 
-		
+		/* Check the card whether follow SD1.1 spec or higher */
 		retval = sd_check_spec(chip, switch_bus_width);
 		if (retval == STATUS_SUCCESS) {
 			retval = sd_switch_function(chip, switch_bus_width);
@@ -2875,7 +2884,7 @@ static int mmc_switch_timing_bus(struct rtsx_chip *chip, int switch_ddr)
 		TRACE_RET(chip, STATUS_FAIL);
 	}
 
-	
+	/* Test Bus Procedure */
 	retval = mmc_test_switch_bus(chip, MMC_8BIT_BUS);
 	if (retval == SWITCH_SUCCESS) {
 		SET_MMC_8BIT(sd_card);
@@ -3020,7 +3029,7 @@ MMC_UNLOCK_ENTRY:
 
 	if (!sd_card->mmc_dont_switch_bus) {
 		if (spec_ver == 4) {
-			
+			/* MMC 4.x Cards */
 			retval = mmc_switch_timing_bus(chip, switch_ddr);
 			if (retval != STATUS_SUCCESS) {
 				retval = sd_init_power(chip);
@@ -4490,7 +4499,7 @@ int sd_execute_write_data(struct scsi_cmnd *srb, struct rtsx_chip *chip)
 			lock_cmd_fail = 1;
 		}
 	}
-#endif 
+#endif /* SUPPORT_SD_LOCK */
 
 	if (standby) {
 		retval = sd_select_card(chip, 1);
@@ -4577,7 +4586,7 @@ int sd_execute_write_data(struct scsi_cmnd *srb, struct rtsx_chip *chip)
 		set_sense_type(chip, lun, SENSE_TYPE_NO_SENSE);
 		TRACE_RET(chip, TRANSPORT_FAILED);
 	}
-#endif  
+#endif  /* SUPPORT_SD_LOCK */
 
 	scsi_set_resid(srb, 0);
 	return TRANSPORT_GOOD;

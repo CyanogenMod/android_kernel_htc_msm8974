@@ -32,6 +32,13 @@
 #define MIN_RAW_PIX_BYTES	2
 #define MIN_RAW_CMD_BYTES	(RAW_HEADER_BYTES + MIN_RAW_PIX_BYTES)
 
+/*
+ * Trims identical data from front and back of line
+ * Sets new front buffer address and width
+ * And returns byte count of identical pixels
+ * Assumes CPU natural alignment (unsigned long)
+ * for back and front buffer ptrs and width
+ */
 #if 0
 static int udl_trim_hline(const u8 *bback, const u8 **bfront, int *width_bytes)
 {
@@ -79,6 +86,33 @@ static inline u16 pixel32_to_be16p(const uint8_t *pixel)
 	return retval;
 }
 
+/*
+ * Render a command stream for an encoded horizontal line segment of pixels.
+ *
+ * A command buffer holds several commands.
+ * It always begins with a fresh command header
+ * (the protocol doesn't require this, but we enforce it to allow
+ * multiple buffers to be potentially encoded and sent in parallel).
+ * A single command encodes one contiguous horizontal line of pixels
+ *
+ * The function relies on the client to do all allocation, so that
+ * rendering can be done directly to output buffers (e.g. USB URBs).
+ * The function fills the supplied command buffer, providing information
+ * on where it left off, so the client may call in again with additional
+ * buffers if the line will take several buffers to complete.
+ *
+ * A single command can transmit a maximum of 256 pixels,
+ * regardless of the compression ratio (protocol design limit).
+ * To the hardware, 0 for a size byte means 256
+ *
+ * Rather than 256 pixel commands which are either rl or raw encoded,
+ * the rlx command simply assumes alternating raw and rl spans within one cmd.
+ * This has a slightly larger header overhead, but produces more even results.
+ * It also processes all data (read and write) in a single pass.
+ * Performance benchmarks of common cases show it having just slightly better
+ * compression than 256 pixel raw or rle commands, with similar CPU consumpion.
+ * But for very rl friendly data, will compress not quite as well.
+ */
 static void udl_compress_hline16(
 	const u8 **pixel_start_ptr,
 	const u8 *const pixel_end,
@@ -97,7 +131,7 @@ static void udl_compress_hline16(
 		const u8 *raw_pixel_start = 0;
 		const u8 *cmd_pixel_start, *cmd_pixel_end = 0;
 
-		prefetchw((void *) cmd); 
+		prefetchw((void *) cmd); /* pull in one cache line at least */
 
 		*cmd++ = 0xaf;
 		*cmd++ = 0x6b;
@@ -105,10 +139,10 @@ static void udl_compress_hline16(
 		*cmd++ = (uint8_t) ((dev_addr >> 8) & 0xFF);
 		*cmd++ = (uint8_t) ((dev_addr) & 0xFF);
 
-		cmd_pixels_count_byte = cmd++; 
+		cmd_pixels_count_byte = cmd++; /*  we'll know this later */
 		cmd_pixel_start = pixel;
 
-		raw_pixels_count_byte = cmd++; 
+		raw_pixels_count_byte = cmd++; /*  we'll know this later */
 		raw_pixel_start = pixel;
 
 		cmd_pixel_end = pixel + (min(MAX_CMD_PIXELS + 1,
@@ -130,7 +164,7 @@ static void udl_compress_hline16(
 
 			if (unlikely((pixel < cmd_pixel_end) &&
 				     (!memcmp(pixel, repeating_pixel, bpp)))) {
-				
+				/* go back and fill in raw pixel count */
 				*raw_pixels_count_byte = (((repeating_pixel -
 						raw_pixel_start) / bpp) + 1) & 0xFF;
 
@@ -139,17 +173,17 @@ static void udl_compress_hline16(
 					pixel += bpp;
 				}
 
-				
+				/* immediately after raw data is repeat byte */
 				*cmd++ = (((pixel - repeating_pixel) / bpp) - 1) & 0xFF;
 
-				
+				/* Then start another raw pixel span */
 				raw_pixel_start = pixel;
 				raw_pixels_count_byte = cmd++;
 			}
 		}
 
 		if (pixel > raw_pixel_start) {
-			
+			/* finalize last RAW span */
 			*raw_pixels_count_byte = ((pixel-raw_pixel_start) / bpp) & 0xFF;
 		}
 
@@ -158,7 +192,7 @@ static void udl_compress_hline16(
 	}
 
 	if (cmd_buffer_end <= MIN_RLX_CMD_BYTES + cmd) {
-		
+		/* Fill leftover bytes with no-ops */
 		if (cmd_buffer_end > cmd)
 			memset(cmd, 0xAF, cmd_buffer_end - cmd);
 		cmd = (uint8_t *) cmd_buffer_end;
@@ -171,6 +205,12 @@ static void udl_compress_hline16(
 	return;
 }
 
+/*
+ * There are 3 copies of every pixel: The front buffer that the fbdev
+ * client renders to, the actual framebuffer across the USB bus in hardware
+ * (that we can only write to, slowly, and can never read), and (optionally)
+ * our shadow copy that tracks what's been sent to that hardware buffer.
+ */
 int udl_render_hline(struct drm_device *dev, int bpp, struct urb **urb_ptr,
 		     const char *front, char **urb_buf_ptr,
 		     u32 byte_offset, u32 byte_width,
@@ -195,11 +235,11 @@ int udl_render_hline(struct drm_device *dev, int bpp, struct urb **urb_ptr,
 		if (cmd >= cmd_end) {
 			int len = cmd - (u8 *) urb->transfer_buffer;
 			if (udl_submit_urb(dev, urb, len))
-				return 1; 
+				return 1; /* lost pixels is set */
 			*sent_ptr += len;
 			urb = udl_get_urb(dev);
 			if (!urb)
-				return 1; 
+				return 1; /* lost_pixels is set */
 			*urb_ptr = urb;
 			cmd = urb->transfer_buffer;
 			cmd_end = &cmd[urb->transfer_buffer_length];

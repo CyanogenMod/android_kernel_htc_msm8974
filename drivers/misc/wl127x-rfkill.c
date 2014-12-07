@@ -49,7 +49,7 @@ static int wl127x_rfkill_probe(struct platform_device *pdev)
 {
 	int rc = 0;
 	struct wl127x_rfkill_platform_data *pdata = pdev->dev.platform_data;
-	enum rfkill_state default_state = RFKILL_STATE_SOFT_BLOCKED;  
+	enum rfkill_state default_state = RFKILL_STATE_SOFT_BLOCKED;  /* off */
 
 	rc = gpio_request(pdata->nshutdown_gpio, "wl127x_nshutdown_gpio");
 	if (unlikely(rc))
@@ -68,7 +68,7 @@ static int wl127x_rfkill_probe(struct platform_device *pdev)
 
 	pdata->rfkill->name = "wl127x";
 	pdata->rfkill->state = default_state;
-	
+	/* userspace cannot take exclusive control */
 	pdata->rfkill->user_claim_unsupported = 1;
 	pdata->rfkill->user_claim = 0;
 	pdata->rfkill->data = (void *) pdata->nshutdown_gpio;

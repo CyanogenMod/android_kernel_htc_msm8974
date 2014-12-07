@@ -199,7 +199,7 @@ nouveau_vm_map_pgt(struct nouveau_vm *vm, u32 pde, u32 type)
 	if (unlikely(ret))
 		return ret;
 
-	
+	/* someone beat us to filling the PDE while we didn't have the lock */
 	if (unlikely(vpgt->refcount[big]++)) {
 		mutex_unlock(&vm->mm.mutex);
 		nouveau_gpuobj_ref(NULL, &pgt);

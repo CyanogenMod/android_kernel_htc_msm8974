@@ -17,6 +17,9 @@
  * Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+/*
+ * driver for Silicon Image SiI 164 PanelLink Transmitter
+ */
 
 #include <linux/slab.h>
 #include "via_aux.h"
@@ -31,7 +34,7 @@ static void probe(struct via_aux_bus *bus, u8 addr)
 		.bus	=	bus,
 		.addr	=	addr,
 		.name	=	name};
-	
+	/* check vendor id and device id */
 	const u8 id[] = {0x01, 0x00, 0x06, 0x00}, len = ARRAY_SIZE(id);
 	u8 tmp[len];
 

@@ -66,7 +66,7 @@ int mantis_uart_read(struct mantis_pci *mantis, u8 *data)
 	struct mantis_hwconfig *config = mantis->hwconfig;
 	u32 stat = 0, i;
 
-	
+	/* get data */
 	for (i = 0; i < (config->bytes + 1); i++) {
 
 		stat = mmread(MANTIS_UART_STAT);
@@ -145,7 +145,7 @@ int mantis_uart_init(struct mantis_pci *mantis)
 	struct mantis_hwconfig *config = mantis->hwconfig;
 	struct mantis_uart_params params;
 
-	
+	/* default parity: */
 	params.baud_rate = config->baud_rate;
 	params.parity = config->parity;
 	dprintk(MANTIS_INFO, 1, "Initializing UART @ %sbps parity:%s",
@@ -157,18 +157,18 @@ int mantis_uart_init(struct mantis_pci *mantis)
 
 	INIT_WORK(&mantis->uart_work, mantis_uart_work);
 
-	
+	/* disable interrupt */
 	mmwrite(mmread(MANTIS_UART_CTL) & 0xffef, MANTIS_UART_CTL);
 
 	mantis_uart_setup(mantis, &params);
 
-	
+	/* default 1 byte */
 	mmwrite((mmread(MANTIS_UART_BAUD) | (config->bytes << 8)), MANTIS_UART_BAUD);
 
-	
+	/* flush buffer */
 	mmwrite((mmread(MANTIS_UART_CTL) | MANTIS_UART_RXFLUSH), MANTIS_UART_CTL);
 
-	
+	/* enable interrupt */
 	mmwrite(mmread(MANTIS_INT_MASK) | 0x800, MANTIS_INT_MASK);
 	mmwrite(mmread(MANTIS_UART_CTL) | MANTIS_UART_RXINT, MANTIS_UART_CTL);
 
@@ -181,7 +181,7 @@ EXPORT_SYMBOL_GPL(mantis_uart_init);
 
 void mantis_uart_exit(struct mantis_pci *mantis)
 {
-	
+	/* disable interrupt */
 	mmwrite(mmread(MANTIS_UART_CTL) & 0xffef, MANTIS_UART_CTL);
 	flush_work_sync(&mantis->uart_work);
 }

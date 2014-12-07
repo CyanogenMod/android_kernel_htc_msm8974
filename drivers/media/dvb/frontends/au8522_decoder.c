@@ -20,6 +20,14 @@
  * 02110-1301, USA.
  */
 
+/* Developer notes:
+ *
+ * VBI support is not yet working
+ * Enough is implemented here for CVBS and S-Video inputs, but the actual
+ *  analog demodulator code isn't implemented (not needed for xc5000 since it
+ *  has its own demodulator and outputs CVBS)
+ *
+ */
 
 #include <linux/kernel.h>
 #include <linux/slab.h>
@@ -49,6 +57,10 @@ struct au8522_register_config {
 };
 
 
+/* Video Decoder Filter Coefficients
+   The values are as follows from left to right
+   0="ATV RF" 1="ATV RF13" 2="CVBS" 3="S-Video" 4="PAL" 5=CVBS13" 6="SVideo13"
+*/
 static const struct au8522_register_config filter_coef[] = {
 	{AU8522_FILTER_COEF_R410, {0x25, 0x00, 0x25, 0x25, 0x00, 0x00, 0x00} },
 	{AU8522_FILTER_COEF_R411, {0x20, 0x00, 0x20, 0x20, 0x00, 0x00, 0x00} },
@@ -86,6 +98,11 @@ static const struct au8522_register_config filter_coef[] = {
 			 / sizeof(struct au8522_register_config))
 
 
+/* Registers 0x060b through 0x0652 are the LP Filter coefficients
+   The values are as follows from left to right
+   0="SIF" 1="ATVRF/ATVRF13"
+   Note: the "ATVRF/ATVRF13" mode has never been tested
+*/
 static const struct au8522_register_config lpfilter_coef[] = {
 	{0x060b, {0x21, 0x0b} },
 	{0x060c, {0xad, 0xad} },
@@ -172,7 +189,7 @@ static void setup_vbi(struct au8522_state *state, int aud_input)
 {
 	int i;
 
-	
+	/* These are set to zero regardless of what mode we're in */
 	au8522_writereg(state, AU8522_TVDEC_VBI_CTRL_H_REG017H, 0x00);
 	au8522_writereg(state, AU8522_TVDEC_VBI_CTRL_L_REG018H, 0x00);
 	au8522_writereg(state, AU8522_TVDEC_VBI_USER_TOTAL_BITS_REG019H, 0x00);
@@ -189,12 +206,16 @@ static void setup_vbi(struct au8522_state *state, int aud_input)
 	au8522_writereg(state, AU8522_TVDEC_VBI_USER_FRAME_MASK0_REG023H,
 			0x00);
 
-	
+	/* Setup the VBI registers */
 	for (i = 0x30; i < 0x60; i++)
 		au8522_writereg(state, i, 0x40);
 
+	/* For some reason, every register is 0x40 except register 0x44
+	   (confirmed via the HVR-950q USB capture) */
 	au8522_writereg(state, 0x44, 0x60);
 
+	/* Enable VBI (we always do this regardless of whether the user is
+	   viewing closed caption info) */
 	au8522_writereg(state, AU8522_TVDEC_VBI_CTRL_H_REG017H,
 			AU8522_TVDEC_VBI_CTRL_H_REG017H_CCON);
 
@@ -205,7 +226,7 @@ static void setup_decoder_defaults(struct au8522_state *state, u8 input_mode)
 	int i;
 	int filter_coef_type;
 
-	
+	/* Provide reasonable defaults for picture tuning values */
 	au8522_writereg(state, AU8522_TVDEC_SHARPNESSREG009H, 0x07);
 	au8522_writereg(state, AU8522_TVDEC_BRIGHTNESS_REG00AH, 0xed);
 	state->brightness = 0xed - 128;
@@ -218,14 +239,14 @@ static void setup_decoder_defaults(struct au8522_state *state, u8 input_mode)
 	au8522_writereg(state, AU8522_TVDEC_HUE_L_REG00FH, 0x00);
 	state->hue = 0x00;
 
-	
+	/* Other decoder registers */
 	au8522_writereg(state, AU8522_TVDEC_INT_MASK_REG010H, 0x00);
 
 	if (input_mode == 0x23) {
-		
+		/* S-Video input mapping */
 		au8522_writereg(state, AU8522_VIDEO_MODE_REG011H, 0x04);
 	} else {
-		
+		/* All other modes (CVBS/ATVRF etc.) */
 		au8522_writereg(state, AU8522_VIDEO_MODE_REG011H, 0x00);
 	}
 
@@ -301,18 +322,22 @@ static void setup_decoder_defaults(struct au8522_state *state, u8 input_mode)
 
 	if (input_mode == AU8522_INPUT_CONTROL_REG081H_SVIDEO_CH13 ||
 	    input_mode == AU8522_INPUT_CONTROL_REG081H_SVIDEO_CH24) {
-		
+		/* Despite what the table says, for the HVR-950q we still need
+		   to be in CVBS mode for the S-Video input (reason unknown). */
+		/* filter_coef_type = 3; */
 		filter_coef_type = 5;
 	} else {
 		filter_coef_type = 5;
 	}
 
-	
+	/* Load the Video Decoder Filter Coefficients */
 	for (i = 0; i < NUM_FILTER_COEF; i++) {
 		au8522_writereg(state, filter_coef[i].reg_name,
 				filter_coef[i].reg_val[filter_coef_type]);
 	}
 
+	/* It's not clear what these registers are for, but they are always
+	   set to the same value regardless of what mode we're in */
 	au8522_writereg(state, AU8522_REG42EH, 0x87);
 	au8522_writereg(state, AU8522_REG42FH, 0xa2);
 	au8522_writereg(state, AU8522_REG430H, 0xbf);
@@ -326,14 +351,14 @@ static void setup_decoder_defaults(struct au8522_state *state, u8 input_mode)
 
 static void au8522_setup_cvbs_mode(struct au8522_state *state)
 {
-	
+	/* here we're going to try the pre-programmed route */
 	au8522_writereg(state, AU8522_MODULE_CLOCK_CONTROL_REG0A3H,
 			AU8522_MODULE_CLOCK_CONTROL_REG0A3H_CVBS);
 
-	
+	/* PGA in automatic mode */
 	au8522_writereg(state, AU8522_PGA_CONTROL_REG082H, 0x00);
 
-	
+	/* Enable clamping control */
 	au8522_writereg(state, AU8522_CLAMPING_CONTROL_REG083H, 0x00);
 
 	au8522_writereg(state, AU8522_INPUT_CONTROL_REG081H,
@@ -347,19 +372,21 @@ static void au8522_setup_cvbs_mode(struct au8522_state *state)
 
 static void au8522_setup_cvbs_tuner_mode(struct au8522_state *state)
 {
-	
+	/* here we're going to try the pre-programmed route */
 	au8522_writereg(state, AU8522_MODULE_CLOCK_CONTROL_REG0A3H,
 			AU8522_MODULE_CLOCK_CONTROL_REG0A3H_CVBS);
 
+	/* It's not clear why we have to have the PGA in automatic mode while
+	   enabling clamp control, but it's what Windows does */
 	au8522_writereg(state, AU8522_PGA_CONTROL_REG082H, 0x00);
 
-	
+	/* Enable clamping control */
 	au8522_writereg(state, AU8522_CLAMPING_CONTROL_REG083H, 0x0e);
 
-	
+	/* Disable automatic PGA (since the CVBS is coming from the tuner) */
 	au8522_writereg(state, AU8522_PGA_CONTROL_REG082H, 0x10);
 
-	
+	/* Set input mode to CVBS on channel 4 with SIF audio input enabled */
 	au8522_writereg(state, AU8522_INPUT_CONTROL_REG081H,
 			AU8522_INPUT_CONTROL_REG081H_CVBS_CH4_SIF);
 
@@ -375,14 +402,14 @@ static void au8522_setup_svideo_mode(struct au8522_state *state)
 	au8522_writereg(state, AU8522_MODULE_CLOCK_CONTROL_REG0A3H,
 			AU8522_MODULE_CLOCK_CONTROL_REG0A3H_SVIDEO);
 
-	
+	/* Set input to Y on Channe1, C on Channel 3 */
 	au8522_writereg(state, AU8522_INPUT_CONTROL_REG081H,
 			AU8522_INPUT_CONTROL_REG081H_SVIDEO_CH13);
 
-	
+	/* PGA in automatic mode */
 	au8522_writereg(state, AU8522_PGA_CONTROL_REG082H, 0x00);
 
-	
+	/* Enable clamping control */
 	au8522_writereg(state, AU8522_CLAMPING_CONTROL_REG083H, 0x00);
 
 	setup_decoder_defaults(state,
@@ -392,6 +419,7 @@ static void au8522_setup_svideo_mode(struct au8522_state *state)
 			AU8522_SYSTEM_MODULE_CONTROL_0_REG0A4H_CVBS);
 }
 
+/* ----------------------------------------------------------------------- */
 
 static void disable_audio_input(struct au8522_state *state)
 {
@@ -406,10 +434,13 @@ static void disable_audio_input(struct au8522_state *state)
 			AU8522_SYSTEM_MODULE_CONTROL_0_REG0A4H_SVIDEO);
 }
 
+/* 0=disable, 1=SIF */
 static void set_audio_input(struct au8522_state *state, int aud_input)
 {
 	int i;
 
+	/* Note that this function needs to be used in conjunction with setting
+	   the input routing via register 0x81 */
 
 	if (aud_input == AU8522_AUDIO_NONE) {
 		disable_audio_input(state);
@@ -417,19 +448,19 @@ static void set_audio_input(struct au8522_state *state, int aud_input)
 	}
 
 	if (aud_input != AU8522_AUDIO_SIF) {
-		
+		/* The caller asked for a mode we don't currently support */
 		printk(KERN_ERR "Unsupported audio mode requested! mode=%d\n",
 		       aud_input);
 		return;
 	}
 
-	
+	/* Load the Audio Decoder Filter Coefficients */
 	for (i = 0; i < NUM_LPFILTER_COEF; i++) {
 		au8522_writereg(state, lpfilter_coef[i].reg_name,
 				lpfilter_coef[i].reg_val[0]);
 	}
 
-	
+	/* Setup audio */
 	au8522_writereg(state, AU8522_AUDIO_VOLUME_L_REG0F2H, 0x00);
 	au8522_writereg(state, AU8522_AUDIO_VOLUME_R_REG0F3H, 0x00);
 	au8522_writereg(state, AU8522_AUDIO_VOLUME_REG0F4H, 0x00);
@@ -454,6 +485,7 @@ static void set_audio_input(struct au8522_state *state, int aud_input)
 	au8522_writereg(state, AU8522_I2S_CTRL_2_REG112H, 0xc2);
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int au8522_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 {
@@ -489,7 +521,7 @@ static int au8522_s_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 	case V4L2_CID_AUDIO_TREBLE:
 	case V4L2_CID_AUDIO_BALANCE:
 	case V4L2_CID_AUDIO_MUTE:
-		
+		/* Not yet implemented */
 	default:
 		return -EINVAL;
 	}
@@ -501,6 +533,9 @@ static int au8522_g_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 {
 	struct au8522_state *state = to_state(sd);
 
+	/* Note that we are using values cached in the state structure instead
+	   of reading the registers due to issues with i2c reads not working
+	   properly/consistently yet on the HVR-950q */
 
 	switch (ctrl->id) {
 	case V4L2_CID_BRIGHTNESS:
@@ -520,7 +555,7 @@ static int au8522_g_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 	case V4L2_CID_AUDIO_TREBLE:
 	case V4L2_CID_AUDIO_BALANCE:
 	case V4L2_CID_AUDIO_MUTE:
-		
+		/* Not yet supported */
 	default:
 		return -EINVAL;
 	}
@@ -528,6 +563,7 @@ static int au8522_g_ctrl(struct v4l2_subdev *sd, struct v4l2_control *ctrl)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 #ifdef CONFIG_VIDEO_ADV_DEBUG
 static int au8522_g_register(struct v4l2_subdev *sd,
@@ -570,6 +606,8 @@ static int au8522_s_stream(struct v4l2_subdev *sd, int enable)
 		au8522_writereg(state, AU8522_SYSTEM_MODULE_CONTROL_0_REG0A4H,
 				AU8522_SYSTEM_MODULE_CONTROL_0_REG0A4H_CVBS);
 	} else {
+		/* This does not completely power down the device
+		   (it only reduces it from around 140ma to 80ma) */
 		au8522_writereg(state, AU8522_SYSTEM_MODULE_CONTROL_0_REG0A4H,
 				1 << 5);
 	}
@@ -602,6 +640,9 @@ static int au8522_reset(struct v4l2_subdev *sd, u32 val)
 
 	state->operational_mode = AU8522_ANALOG_MODE;
 
+	/* Clear out any state associated with the digital side of the
+	   chip, so that when it gets powered back up it won't think
+	   that it is already tuned */
 	state->current_frequency = 0;
 
 	au8522_writereg(state, 0xa4, 1 << 5);
@@ -616,6 +657,9 @@ static int au8522_s_video_routing(struct v4l2_subdev *sd,
 
 	au8522_reset(sd, 0);
 
+	/* Jam open the i2c gate to the tuner.  We do this here to handle the
+	   case where the user went into digital mode (causing the gate to be
+	   closed), and then came back to analog mode */
 	au8522_writereg(state, 0x106, 1);
 
 	if (input == AU8522_COMPOSITE_CH1) {
@@ -645,7 +689,7 @@ static int au8522_g_tuner(struct v4l2_subdev *sd, struct v4l2_tuner *vt)
 	struct au8522_state *state = to_state(sd);
 	u8 lock_status;
 
-	
+	/* Interrogate the decoder to see if we are getting a real signal */
 	lock_status = au8522_readreg(state, 0x00);
 	if (lock_status == 0xa2)
 		vt->signal = 0xffff;
@@ -673,10 +717,11 @@ static int au8522_g_chip_ident(struct v4l2_subdev *sd,
 
 static int au8522_log_status(struct v4l2_subdev *sd)
 {
-	
+	/* FIXME: Add some status info here */
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct v4l2_subdev_core_ops au8522_core_ops = {
 	.log_status = au8522_log_status,
@@ -711,6 +756,7 @@ static const struct v4l2_subdev_ops au8522_ops = {
 	.video = &au8522_video_ops,
 };
 
+/* ----------------------------------------------------------------------- */
 
 static int au8522_probe(struct i2c_client *client,
 			const struct i2c_device_id *did)
@@ -720,24 +766,24 @@ static int au8522_probe(struct i2c_client *client,
 	int instance;
 	struct au8522_config *demod_config;
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter,
 				     I2C_FUNC_SMBUS_BYTE_DATA)) {
 		return -EIO;
 	}
 
-	
+	/* allocate memory for the internal state */
 	instance = au8522_get_state(&state, client->adapter, client->addr);
 	switch (instance) {
 	case 0:
 		printk(KERN_ERR "au8522_decoder allocation failed\n");
 		return -EIO;
 	case 1:
-		
+		/* new demod instance */
 		printk(KERN_INFO "au8522_decoder creating new instance...\n");
 		break;
 	default:
-		
+		/* existing demod instance */
 		printk(KERN_INFO "au8522_decoder attach existing instance.\n");
 		break;
 	}
@@ -762,7 +808,7 @@ static int au8522_probe(struct i2c_client *client,
 	state->id = 8522;
 	state->rev = 0;
 
-	
+	/* Jam open the i2c gate to the tuner */
 	au8522_writereg(state, 0x106, 1);
 
 	return 0;

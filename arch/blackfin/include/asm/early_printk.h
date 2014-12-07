@@ -10,6 +10,7 @@
 #define __ASM_EARLY_PRINTK_H__
 
 #ifdef CONFIG_EARLY_PRINTK
+/* For those that don't include it already */
 #include <linux/console.h>
 
 extern int setup_early_printk(char *);
@@ -30,6 +31,6 @@ extern void early_shadow_write(struct console *con, const char *s,
 #define setup_early_printk(fmt) do { } while (0)
 #define enable_shadow_console(fmt)  do { } while (0)
 #define early_shadow_stamp() do { } while (0)
-#endif 
+#endif /* CONFIG_EARLY_PRINTK */
 
-#endif 
+#endif /* __ASM_EARLY_PRINTK_H__ */

@@ -26,20 +26,35 @@
 #  define MAX_DMA_CHANNELS	0
 #endif
 
+/*
+ * Read and write modes can mean drastically different things depending on the
+ * channel configuration. Consult your DMAC documentation and module
+ * implementation for further clues.
+ */
 #define DMA_MODE_READ		0x00
 #define DMA_MODE_WRITE		0x01
 #define DMA_MODE_MASK		0x01
 
 #define DMA_AUTOINIT		0x10
 
+/*
+ * DMAC (dma_info) flags
+ */
 enum {
 	DMAC_CHANNELS_CONFIGURED	= 0x01,
-	DMAC_CHANNELS_TEI_CAPABLE	= 0x02,	
+	DMAC_CHANNELS_TEI_CAPABLE	= 0x02,	/* Transfer end interrupt */
 };
 
+/*
+ * DMA channel capabilities / flags
+ */
 enum {
 	DMA_CONFIGURED			= 0x01,
 
+	/*
+	 * Transfer end interrupt, inherited from DMAC.
+	 * wait_queue used in dma_wait_for_completion.
+	 */
 	DMA_TEI_CAPABLE			= 0x02,
 };
 
@@ -58,10 +73,10 @@ struct dma_ops {
 };
 
 struct dma_channel {
-	char dev_id[16];		
+	char dev_id[16];		/* unique name per DMAC of channel */
 
-	unsigned int chan;		
-	unsigned int vchan;		
+	unsigned int chan;		/* DMAC channel number */
+	unsigned int vchan;		/* Virtual channel number */
 
 	unsigned int mode;
 	unsigned int count;
@@ -102,6 +117,7 @@ struct dma_chan_caps {
 
 #define to_dma_channel(channel) container_of(channel, struct dma_channel, dev)
 
+/* arch/sh/drivers/dma/dma-api.c */
 extern int dma_xfer(unsigned int chan, unsigned long from,
 		    unsigned long to, size_t size, unsigned int mode);
 
@@ -130,6 +146,7 @@ extern struct dma_info *get_dma_info_by_name(const char *dmac_name);
 extern int dma_extend(unsigned int chan, unsigned long op, void *param);
 extern int register_chan_caps(const char *dmac, struct dma_chan_caps *capslist);
 
+/* arch/sh/drivers/dma/dma-sysfs.c */
 extern int dma_create_sysfs_files(struct dma_channel *, struct dma_info *);
 extern void dma_remove_sysfs_files(struct dma_channel *, struct dma_info *);
 
@@ -139,5 +156,5 @@ extern int isa_dma_bridge_buggy;
 #define isa_dma_bridge_buggy	(0)
 #endif
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASM_SH_DMA_H */

@@ -40,6 +40,9 @@
 
 #ifndef __ASSEMBLY__
 
+/* This structure can grow, it's real size is used by head.S code
+ * via the mkdefs mechanism.
+ */
 struct cpu_spec;
 
 typedef	void (*cpu_setup_t)(unsigned long offset, struct cpu_spec* spec);
@@ -72,44 +75,51 @@ extern int machine_check_e500(struct pt_regs *regs);
 extern int machine_check_e200(struct pt_regs *regs);
 extern int machine_check_47x(struct pt_regs *regs);
 
+/* NOTE WELL: Update identify_cpu() if fields are added or removed! */
 struct cpu_spec {
-	
+	/* CPU is matched via (PVR & pvr_mask) == pvr_value */
 	unsigned int	pvr_mask;
 	unsigned int	pvr_value;
 
 	char		*cpu_name;
-	unsigned long	cpu_features;		
-	unsigned int	cpu_user_features;	
-	unsigned int	mmu_features;		
+	unsigned long	cpu_features;		/* Kernel features */
+	unsigned int	cpu_user_features;	/* Userland features */
+	unsigned int	mmu_features;		/* MMU features */
 
-	
+	/* cache line sizes */
 	unsigned int	icache_bsize;
 	unsigned int	dcache_bsize;
 
-	
+	/* number of performance monitor counters */
 	unsigned int	num_pmcs;
 	enum powerpc_pmc_type pmc_type;
 
+	/* this is called to initialize various CPU bits like L1 cache,
+	 * BHT, SPD, etc... from head.S before branching to identify_machine
+	 */
 	cpu_setup_t	cpu_setup;
-	
+	/* Used to restore cpu setup on secondary processors and at resume */
 	cpu_restore_t	cpu_restore;
 
-	
+	/* Used by oprofile userspace to select the right counters */
 	char		*oprofile_cpu_type;
 
-	
+	/* Processor specific oprofile operations */
 	enum powerpc_oprofile_type oprofile_type;
 
-	
+	/* Bit locations inside the mmcra change */
 	unsigned long	oprofile_mmcra_sihv;
 	unsigned long	oprofile_mmcra_sipr;
 
-	
+	/* Bits to clear during an oprofile exception */
 	unsigned long	oprofile_mmcra_clear;
 
-	
+	/* Name of processor class, for the ELF AT_PLATFORM entry */
 	char		*platform;
 
+	/* Processor specific machine check handling. Return negative
+	 * if the error is fatal, 1 if it was fully recovered and 0 to
+	 * pass up (not CPU originated) */
 	int		(*machine_check)(struct pt_regs *regs);
 };
 
@@ -123,9 +133,11 @@ extern void do_feature_fixups(unsigned long value, void *fixup_start,
 
 extern const char *powerpc_base_platform;
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
+/* CPU kernel features */
 
+/* Retain the 32b definitions all use bottom half of word */
 #define CPU_FTR_COHERENT_ICACHE		ASM_CONST(0x0000000000000001)
 #define CPU_FTR_L2CR			ASM_CONST(0x0000000000000002)
 #define CPU_FTR_SPEC7450		ASM_CONST(0x0000000000000004)
@@ -157,6 +169,10 @@ extern const char *powerpc_base_platform;
 #define CPU_FTR_NOEXECUTE		ASM_CONST(0x0000000010000000)
 #define CPU_FTR_INDEXED_DCR		ASM_CONST(0x0000000020000000)
 
+/*
+ * Add the 64-bit processor unique features in the top half of the word;
+ * on 32-bit, make the names available but defined to be 0.
+ */
 #ifdef __powerpc64__
 #define LONG_ASM_CONST(x)		ASM_CONST(x)
 #else
@@ -194,6 +210,9 @@ extern const char *powerpc_base_platform;
 #define MMU_FTR_PPCAS_ARCH_V2 	(MMU_FTR_SLB | MMU_FTR_TLBIEL | \
 				 MMU_FTR_16M_PAGE)
 
+/* We only set the altivec features if the kernel was compiled with altivec
+ * support
+ */
 #ifdef CONFIG_ALTIVEC
 #define CPU_FTR_ALTIVEC_COMP	CPU_FTR_ALTIVEC
 #define PPC_FEATURE_HAS_ALTIVEC_COMP PPC_FEATURE_HAS_ALTIVEC
@@ -202,6 +221,9 @@ extern const char *powerpc_base_platform;
 #define PPC_FEATURE_HAS_ALTIVEC_COMP    0
 #endif
 
+/* We only set the VSX features if the kernel was compiled with VSX
+ * support
+ */
 #ifdef CONFIG_VSX
 #define CPU_FTR_VSX_COMP	CPU_FTR_VSX
 #define PPC_FEATURE_HAS_VSX_COMP PPC_FEATURE_HAS_VSX
@@ -210,6 +232,9 @@ extern const char *powerpc_base_platform;
 #define PPC_FEATURE_HAS_VSX_COMP    0
 #endif
 
+/* We only set the spe features if the kernel was compiled with spe
+ * support
+ */
 #ifdef CONFIG_SPE
 #define CPU_FTR_SPE_COMP	CPU_FTR_SPE
 #define PPC_FEATURE_HAS_SPE_COMP PPC_FEATURE_HAS_SPE
@@ -222,6 +247,11 @@ extern const char *powerpc_base_platform;
 #define PPC_FEATURE_HAS_EFP_DOUBLE_COMP 0
 #endif
 
+/* We need to mark all pages as being coherent if we're SMP or we have a
+ * 74[45]x and an MPC107 host bridge. Also 83xx and PowerQUICC II
+ * require it for PCI "streaming/prefetch" to work properly.
+ * This is also required by 52xx family.
+ */
 #if defined(CONFIG_SMP) || defined(CONFIG_MPC10X_BRIDGE) \
 	|| defined(CONFIG_PPC_83xx) || defined(CONFIG_8260) \
 	|| defined(CONFIG_PPC_MPC52xx)
@@ -230,6 +260,9 @@ extern const char *powerpc_base_platform;
 #define CPU_FTR_COMMON                  0
 #endif
 
+/* The powersave features NAP & DOZE seems to confuse BDI when
+   debugging. So if a BDI is used, disable theses
+ */
 #ifndef CONFIG_BDI_SWITCH
 #define CPU_FTR_MAYBE_CAN_DOZE	CPU_FTR_CAN_DOZE
 #define CPU_FTR_MAYBE_CAN_NAP	CPU_FTR_CAN_NAP
@@ -363,6 +396,7 @@ extern const char *powerpc_base_platform;
 	    CPU_FTR_DEBUG_LVL_EXC)
 #define CPU_FTRS_GENERIC_32	(CPU_FTR_COMMON | CPU_FTR_NODSISRALIGN)
 
+/* 64-bit CPUs */
 #define CPU_FTRS_POWER3	(CPU_FTR_USE_TB | \
 	    CPU_FTR_IABR | CPU_FTR_PPC_LE)
 #define CPU_FTRS_RS64	(CPU_FTR_USE_TB | \
@@ -457,7 +491,7 @@ enum {
 #endif
 	    0,
 };
-#endif 
+#endif /* __powerpc64__ */
 
 #ifdef __powerpc64__
 #ifdef CONFIG_PPC_BOOK3E
@@ -502,7 +536,7 @@ enum {
 #endif
 	    CPU_FTRS_POSSIBLE,
 };
-#endif 
+#endif /* __powerpc64__ */
 
 static inline int cpu_has_feature(unsigned long feature)
 {
@@ -514,9 +548,9 @@ static inline int cpu_has_feature(unsigned long feature)
 
 #ifdef CONFIG_HAVE_HW_BREAKPOINT
 #define HBP_NUM 1
-#endif 
+#endif /* CONFIG_HAVE_HW_BREAKPOINT */
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASM_POWERPC_CPUTABLE_H */

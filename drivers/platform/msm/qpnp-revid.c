@@ -65,6 +65,16 @@ static u8 qpnp_read_byte(struct spmi_device *spmi, u16 addr)
 	return val;
 }
 
+/**
+ * get_revid_data - Return the revision information of PMIC
+ * @dev_node: Pointer to the revid peripheral of the PMIC for which
+ *		revision information is seeked
+ *
+ * CONTEXT: Should be called in non atomic context
+ *
+ * RETURNS: pointer to struct pmic_revid_data filled with the information
+ *		about the PMIC revision
+ */
 struct pmic_revid_data *get_revid_data(struct device_node *dev_node)
 {
 	struct revid_chip *revid_chip;
@@ -90,6 +100,12 @@ static size_t build_pmic_string(char *buf, size_t n, int sid,
 		u8 subtype, u8 rev1, u8 rev2, u8 rev3, u8 rev4)
 {
 	size_t pos = 0;
+	/*
+	 * In early versions of PM8941 and PM8226, the major revision number
+	 * started incrementing from 0 (eg 0 = v1.0, 1 = v2.0).
+	 * Increment the major revision number here if the chip is an early
+	 * version of PM8941 or PM8226.
+	 */
 	if (((int)subtype == PM8941_PERIPHERAL_SUBTYPE
 			|| (int)subtype == PM8226_PERIPHERAL_SUBTYPE)
 			&& rev4 < 0x02)

@@ -40,11 +40,11 @@ MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{Brooktree,Bt878},"
 		"{Brooktree,Bt879}}");
 
-static int index[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = -2}; 
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	
-static int digital_rate[SNDRV_CARDS];	
-static bool load_all;	
+static int index[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = -2}; /* Exclude the first card */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	/* Enable this card */
+static int digital_rate[SNDRV_CARDS];	/* digital input rate */
+static bool load_all;	/* allow to load the non-whitelisted cards */
 
 module_param_array(index, int, NULL, 0444);
 MODULE_PARM_DESC(index, "Index value for Bt87x soundcard");
@@ -58,70 +58,76 @@ module_param(load_all, bool, 0444);
 MODULE_PARM_DESC(load_all, "Allow to load the non-whitelisted cards");
 
 
-#define REG_INT_STAT		0x100	
-#define REG_INT_MASK		0x104	
-#define REG_GPIO_DMA_CTL	0x10c	
-#define REG_PACKET_LEN		0x110	
-#define REG_RISC_STRT_ADD	0x114	
-#define REG_RISC_COUNT		0x120	
+/* register offsets */
+#define REG_INT_STAT		0x100	/* interrupt status */
+#define REG_INT_MASK		0x104	/* interrupt mask */
+#define REG_GPIO_DMA_CTL	0x10c	/* audio control */
+#define REG_PACKET_LEN		0x110	/* audio packet lengths */
+#define REG_RISC_STRT_ADD	0x114	/* RISC program start address */
+#define REG_RISC_COUNT		0x120	/* RISC program counter */
 
-#define INT_OFLOW	(1 <<  3)	
-#define INT_RISCI	(1 << 11)	
-#define INT_FBUS	(1 << 12)	
-#define INT_FTRGT	(1 << 13)	
-#define INT_FDSR	(1 << 14)	
-#define INT_PPERR	(1 << 15)	
-#define INT_RIPERR	(1 << 16)	
-#define INT_PABORT	(1 << 17)	
-#define INT_OCERR	(1 << 18)	
-#define INT_SCERR	(1 << 19)	
-#define INT_RISC_EN	(1 << 27)	
-#define INT_RISCS_SHIFT	      28	
+/* interrupt bits */
+#define INT_OFLOW	(1 <<  3)	/* audio A/D overflow */
+#define INT_RISCI	(1 << 11)	/* RISC instruction IRQ bit set */
+#define INT_FBUS	(1 << 12)	/* FIFO overrun due to bus access latency */
+#define INT_FTRGT	(1 << 13)	/* FIFO overrun due to target latency */
+#define INT_FDSR	(1 << 14)	/* FIFO data stream resynchronization */
+#define INT_PPERR	(1 << 15)	/* PCI parity error */
+#define INT_RIPERR	(1 << 16)	/* RISC instruction parity error */
+#define INT_PABORT	(1 << 17)	/* PCI master or target abort */
+#define INT_OCERR	(1 << 18)	/* invalid opcode */
+#define INT_SCERR	(1 << 19)	/* sync counter overflow */
+#define INT_RISC_EN	(1 << 27)	/* DMA controller running */
+#define INT_RISCS_SHIFT	      28	/* RISC status bits */
 
-#define CTL_FIFO_ENABLE		(1 <<  0)	
-#define CTL_RISC_ENABLE		(1 <<  1)	
-#define CTL_PKTP_4		(0 <<  2)	
-#define CTL_PKTP_8		(1 <<  2)	
-#define CTL_PKTP_16		(2 <<  2)	
-#define CTL_ACAP_EN		(1 <<  4)	
-#define CTL_DA_APP		(1 <<  5)	
-#define CTL_DA_IOM_AFE		(0 <<  6)	
-#define CTL_DA_IOM_DA		(1 <<  6)	
-#define CTL_DA_SDR_SHIFT	       8	
+/* audio control bits */
+#define CTL_FIFO_ENABLE		(1 <<  0)	/* enable audio data FIFO */
+#define CTL_RISC_ENABLE		(1 <<  1)	/* enable audio DMA controller */
+#define CTL_PKTP_4		(0 <<  2)	/* packet mode FIFO trigger point - 4 DWORDs */
+#define CTL_PKTP_8		(1 <<  2)	/* 8 DWORDs */
+#define CTL_PKTP_16		(2 <<  2)	/* 16 DWORDs */
+#define CTL_ACAP_EN		(1 <<  4)	/* enable audio capture */
+#define CTL_DA_APP		(1 <<  5)	/* GPIO input */
+#define CTL_DA_IOM_AFE		(0 <<  6)	/* audio A/D input */
+#define CTL_DA_IOM_DA		(1 <<  6)	/* digital audio input */
+#define CTL_DA_SDR_SHIFT	       8	/* DDF first stage decimation rate */
 #define CTL_DA_SDR_MASK		(0xf<< 8)
-#define CTL_DA_LMT		(1 << 12)	
-#define CTL_DA_ES2		(1 << 13)	
-#define CTL_DA_SBR		(1 << 14)	
-#define CTL_DA_DPM		(1 << 15)	
-#define CTL_DA_LRD_SHIFT	      16	
-#define CTL_DA_MLB		(1 << 21)	
-#define CTL_DA_LRI		(1 << 22)	
-#define CTL_DA_SCE		(1 << 23)	
-#define CTL_A_SEL_STV		(0 << 24)	
-#define CTL_A_SEL_SFM		(1 << 24)	
-#define CTL_A_SEL_SML		(2 << 24)	
-#define CTL_A_SEL_SMXC		(3 << 24)	
+#define CTL_DA_LMT		(1 << 12)	/* limit audio data values */
+#define CTL_DA_ES2		(1 << 13)	/* enable DDF stage 2 */
+#define CTL_DA_SBR		(1 << 14)	/* samples rounded to 8 bits */
+#define CTL_DA_DPM		(1 << 15)	/* data packet mode */
+#define CTL_DA_LRD_SHIFT	      16	/* ALRCK delay */
+#define CTL_DA_MLB		(1 << 21)	/* MSB/LSB format */
+#define CTL_DA_LRI		(1 << 22)	/* left/right indication */
+#define CTL_DA_SCE		(1 << 23)	/* sample clock edge */
+#define CTL_A_SEL_STV		(0 << 24)	/* TV tuner audio input */
+#define CTL_A_SEL_SFM		(1 << 24)	/* FM audio input */
+#define CTL_A_SEL_SML		(2 << 24)	/* mic/line audio input */
+#define CTL_A_SEL_SMXC		(3 << 24)	/* MUX bypass */
 #define CTL_A_SEL_SHIFT		      24
 #define CTL_A_SEL_MASK		(3 << 24)
-#define CTL_A_PWRDN		(1 << 26)	
-#define CTL_A_G2X		(1 << 27)	
-#define CTL_A_GAIN_SHIFT	      28	
+#define CTL_A_PWRDN		(1 << 26)	/* analog audio power-down */
+#define CTL_A_G2X		(1 << 27)	/* audio gain boost */
+#define CTL_A_GAIN_SHIFT	      28	/* audio input gain */
 #define CTL_A_GAIN_MASK		(0xf<<28)
 
-#define RISC_WRITE	(0x1 << 28)	
-#define RISC_WRITEC	(0x5 << 28)	
-#define RISC_SKIP	(0x2 << 28)	
-#define RISC_JUMP	(0x7 << 28)	
-#define RISC_SYNC	(0x8 << 28)	
+/* RISC instruction opcodes */
+#define RISC_WRITE	(0x1 << 28)	/* write FIFO data to memory at address */
+#define RISC_WRITEC	(0x5 << 28)	/* write FIFO data to memory at current address */
+#define RISC_SKIP	(0x2 << 28)	/* skip FIFO data */
+#define RISC_JUMP	(0x7 << 28)	/* jump to address */
+#define RISC_SYNC	(0x8 << 28)	/* synchronize with FIFO */
 
-#define RISC_BYTES_ENABLE	(0xf << 12)	
-#define RISC_RESYNC		(  1 << 15)	
-#define RISC_SET_STATUS_SHIFT	        16	
-#define RISC_RESET_STATUS_SHIFT	        20	
-#define RISC_IRQ		(  1 << 24)	
-#define RISC_EOL		(  1 << 26)	
-#define RISC_SOL		(  1 << 27)	
+/* RISC instruction bits */
+#define RISC_BYTES_ENABLE	(0xf << 12)	/* byte enable bits */
+#define RISC_RESYNC		(  1 << 15)	/* disable FDSR errors */
+#define RISC_SET_STATUS_SHIFT	        16	/* set status bits */
+#define RISC_RESET_STATUS_SHIFT	        20	/* clear status bits */
+#define RISC_IRQ		(  1 << 24)	/* interrupt */
+#define RISC_EOL		(  1 << 26)	/* end of line */
+#define RISC_SOL		(  1 << 27)	/* start of line */
 
+/* SYNC status bits values */
 #define RISC_SYNC_FM1	0x6
 #define RISC_SYNC_VRO	0xc
 
@@ -137,27 +143,30 @@ MODULE_PARM_DESC(load_all, "Allow to load the non-whitelisted cards");
 			  INT_RIPERR | INT_PABORT | INT_OCERR)
 #define MY_INTERRUPTS (INT_RISCI | ERROR_INTERRUPTS)
 
+/* SYNC, one WRITE per line, one extra WRITE per page boundary, SYNC, JUMP */
 #define MAX_RISC_SIZE ((1 + 255 + (PAGE_ALIGN(255 * 4092) / PAGE_SIZE - 1) + 1 + 1) * 8)
 
+/* Cards with configuration information */
 enum snd_bt87x_boardid {
 	SND_BT87X_BOARD_UNKNOWN,
-	SND_BT87X_BOARD_GENERIC,	
-	SND_BT87X_BOARD_ANALOG,		
+	SND_BT87X_BOARD_GENERIC,	/* both an & dig interfaces, 32kHz */
+	SND_BT87X_BOARD_ANALOG,		/* board with no external A/D */
 	SND_BT87X_BOARD_OSPREY2x0,
 	SND_BT87X_BOARD_OSPREY440,
 	SND_BT87X_BOARD_AVPHONE98,
 };
 
+/* Card configuration */
 struct snd_bt87x_board {
-	int dig_rate;		
-	u32 digital_fmt;	
-	unsigned no_analog:1;	
-	unsigned no_digital:1;	
+	int dig_rate;		/* Digital input sampling rate */
+	u32 digital_fmt;	/* Register settings for digital input */
+	unsigned no_analog:1;	/* No analog input */
+	unsigned no_digital:1;	/* No digital input */
 };
 
 static __devinitdata struct snd_bt87x_board snd_bt87x_boards[] = {
 	[SND_BT87X_BOARD_UNKNOWN] = {
-		.dig_rate = 32000, 
+		.dig_rate = 32000, /* just a guess */
 	},
 	[SND_BT87X_BOARD_GENERIC] = {
 		.dig_rate = 32000,
@@ -288,7 +297,7 @@ static void snd_bt87x_pci_error(struct snd_bt87x *chip, unsigned int status)
 			   status & ERROR_INTERRUPTS, pci_status);
 	else {
 		snd_printk(KERN_ERR "Aieee - PCI parity error detected!\n");
-		
+		/* error 'handling' similar to aic7xxx_pci.c: */
 		chip->pci_parity_errors++;
 		if (chip->pci_parity_errors > 20) {
 			snd_printk(KERN_ERR "Too many PCI parity errors observed.\n");
@@ -323,9 +332,9 @@ static irqreturn_t snd_bt87x_interrupt(int irq, void *dev_id)
 	if ((irq_status & INT_RISCI) && (chip->reg_control & CTL_ACAP_EN)) {
 		int current_block, irq_block;
 
-		
+		/* assume that exactly one line has been recorded */
 		chip->current_line = (chip->current_line + 1) % chip->lines;
-		
+		/* but check if some interrupts have been skipped */
 		current_block = chip->current_line * 16 / chip->lines;
 		irq_block = status >> INT_RISCS_SHIFT;
 		if (current_block != irq_block)
@@ -343,7 +352,7 @@ static struct snd_pcm_hardware snd_bt87x_digital_hw = {
 		SNDRV_PCM_INFO_MMAP_VALID |
 		SNDRV_PCM_INFO_BATCH,
 	.formats = SNDRV_PCM_FMTBIT_S16_LE,
-	.rates = 0, 
+	.rates = 0, /* set at runtime */
 	.channels_min = 2,
 	.channels_max = 2,
 	.buffer_bytes_max = 255 * 4092,
@@ -778,54 +787,58 @@ fail:
 	  .device = chip, \
 	  .subvendor = subvend, .subdevice = subdev, \
 	  .driver_data = SND_BT87X_BOARD_ ## id }
+/* driver_data is the card id for that device */
 
 static DEFINE_PCI_DEVICE_TABLE(snd_bt87x_ids) = {
-	
+	/* Hauppauge WinTV series */
 	BT_DEVICE(PCI_DEVICE_ID_BROOKTREE_878, 0x0070, 0x13eb, GENERIC),
-	
+	/* Hauppauge WinTV series */
 	BT_DEVICE(PCI_DEVICE_ID_BROOKTREE_879, 0x0070, 0x13eb, GENERIC),
-	
+	/* Viewcast Osprey 200 */
 	BT_DEVICE(PCI_DEVICE_ID_BROOKTREE_878, 0x0070, 0xff01, OSPREY2x0),
-	
+	/* Viewcast Osprey 440 (rate is configurable via gpio) */
 	BT_DEVICE(PCI_DEVICE_ID_BROOKTREE_878, 0x0070, 0xff07, OSPREY440),
-	
+	/* ATI TV-Wonder */
 	BT_DEVICE(PCI_DEVICE_ID_BROOKTREE_878, 0x1002, 0x0001, GENERIC),
-	
+	/* Leadtek Winfast tv 2000xp delux */
 	BT_DEVICE(PCI_DEVICE_ID_BROOKTREE_878, 0x107d, 0x6606, GENERIC),
-	
+	/* Pinnacle PCTV */
 	BT_DEVICE(PCI_DEVICE_ID_BROOKTREE_878, 0x11bd, 0x0012, GENERIC),
-	
+	/* Voodoo TV 200 */
 	BT_DEVICE(PCI_DEVICE_ID_BROOKTREE_878, 0x121a, 0x3000, GENERIC),
-	
+	/* Askey Computer Corp. MagicTView'99 */
 	BT_DEVICE(PCI_DEVICE_ID_BROOKTREE_878, 0x144f, 0x3000, GENERIC),
-	
+	/* AVerMedia Studio No. 103, 203, ...? */
 	BT_DEVICE(PCI_DEVICE_ID_BROOKTREE_878, 0x1461, 0x0003, AVPHONE98),
-	
+	/* Prolink PixelView PV-M4900 */
 	BT_DEVICE(PCI_DEVICE_ID_BROOKTREE_878, 0x1554, 0x4011, GENERIC),
-	
+	/* Pinnacle  Studio PCTV rave */
 	BT_DEVICE(PCI_DEVICE_ID_BROOKTREE_878, 0xbd11, 0x1200, GENERIC),
 	{ }
 };
 MODULE_DEVICE_TABLE(pci, snd_bt87x_ids);
 
+/* cards known not to have audio
+ * (DVB cards use the audio function to transfer MPEG data) */
 static struct {
 	unsigned short subvendor, subdevice;
 } blacklist[] __devinitdata = {
-	{0x0071, 0x0101}, 
-	{0x11bd, 0x001c}, 
-	{0x11bd, 0x0026}, 
-	{0x1461, 0x0761}, 
-	{0x1461, 0x0771}, 
-	{0x1822, 0x0001}, 
-	{0x18ac, 0xd500}, 
-	{0x18ac, 0xdb10}, 
-	{0x18ac, 0xdb11}, 
-	{0x270f, 0xfc00}, 
-	{0x7063, 0x2000}, 
+	{0x0071, 0x0101}, /* Nebula Electronics DigiTV */
+	{0x11bd, 0x001c}, /* Pinnacle PCTV Sat */
+	{0x11bd, 0x0026}, /* Pinnacle PCTV SAT CI */
+	{0x1461, 0x0761}, /* AVermedia AverTV DVB-T */
+	{0x1461, 0x0771}, /* AVermedia DVB-T 771 */
+	{0x1822, 0x0001}, /* Twinhan VisionPlus DVB-T */
+	{0x18ac, 0xd500}, /* DVICO FusionHDTV 5 Lite */
+	{0x18ac, 0xdb10}, /* DVICO FusionHDTV DVB-T Lite */
+	{0x18ac, 0xdb11}, /* Ultraview DVB-T Lite */
+	{0x270f, 0xfc00}, /* Chaintech Digitop DST-1000 DVB-S */
+	{0x7063, 0x2000}, /* pcHDTV HD-2000 TV */
 };
 
 static struct pci_driver driver;
 
+/* return the id of the card, or a negative value if it's blacklisted */
 static int __devinit snd_bt87x_detect_card(struct pci_dev *pci)
 {
 	int i;
@@ -943,6 +956,8 @@ static void __devexit snd_bt87x_remove(struct pci_dev *pci)
 	pci_set_drvdata(pci, NULL);
 }
 
+/* default entries for all Bt87x cards - it's not exported */
+/* driver_data is set to 0 to call detection */
 static DEFINE_PCI_DEVICE_TABLE(snd_bt87x_default_ids) = {
 	BT_DEVICE(PCI_DEVICE_ID_BROOKTREE_878, PCI_ANY_ID, PCI_ANY_ID, UNKNOWN),
 	BT_DEVICE(PCI_DEVICE_ID_BROOKTREE_879, PCI_ANY_ID, PCI_ANY_ID, UNKNOWN),

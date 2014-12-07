@@ -9,11 +9,12 @@
  * Hitachi SolutionEngine support
  */
 
+/* Box specific addresses.  */
 
-#define PA_ROM		0x00000000	
-#define PA_ROM_SIZE	0x00400000	
-#define PA_FROM		0x01000000	
-#define PA_FROM_SIZE	0x00400000	
+#define PA_ROM		0x00000000	/* EPROM */
+#define PA_ROM_SIZE	0x00400000	/* EPROM size 4M byte */
+#define PA_FROM		0x01000000	/* EPROM */
+#define PA_FROM_SIZE	0x00400000	/* EPROM size 4M byte */
 #define PA_EXT1		0x04000000
 #define PA_EXT1_SIZE	0x04000000
 #define PA_EXT2		0x08000000
@@ -25,26 +26,26 @@
 #define PA_EXT4_SIZE	0x02000000
 #define PA_EXT5		0x14000000
 #define PA_EXT5_SIZE	0x04000000
-#define PA_PCIC		0x18000000	
+#define PA_PCIC		0x18000000	/* MR-SHPC-01 PCMCIA */
 
-#define PA_83902	0xb0000000	
-#define PA_83902_IF	0xb0040000	
-#define PA_83902_RST	0xb0080000	
+#define PA_83902	0xb0000000	/* DP83902A */
+#define PA_83902_IF	0xb0040000	/* DP83902A remote io port */
+#define PA_83902_RST	0xb0080000	/* DP83902A reset port */
 
-#define PA_SUPERIO	0xb0400000	
-#define PA_DIPSW0	0xb0800000	
-#define PA_DIPSW1	0xb0800002	
-#define PA_LED		0xb0c00000	
+#define PA_SUPERIO	0xb0400000	/* SMC37C935A super io chip */
+#define PA_DIPSW0	0xb0800000	/* Dip switch 5,6 */
+#define PA_DIPSW1	0xb0800002	/* Dip switch 7,8 */
+#define PA_LED		0xb0c00000	/* LED */
 #if defined(CONFIG_CPU_SUBTYPE_SH7705)
 #define PA_BCR		0xb0e00000
 #else
-#define PA_BCR		0xb1400000	
+#define PA_BCR		0xb1400000	/* FPGA */
 #endif
 
-#define PA_MRSHPC	0xb83fffe0	
-#define PA_MRSHPC_MW1	0xb8400000	
-#define PA_MRSHPC_MW2	0xb8500000	
-#define PA_MRSHPC_IO	0xb8600000	
+#define PA_MRSHPC	0xb83fffe0	/* MR-SHPC-01 PCMCIA controller */
+#define PA_MRSHPC_MW1	0xb8400000	/* MR-SHPC-01 memory window base */
+#define PA_MRSHPC_MW2	0xb8500000	/* MR-SHPC-01 attribute window base */
+#define PA_MRSHPC_IO	0xb8600000	/* MR-SHPC-01 I/O window base */
 #define MRSHPC_OPTION   (PA_MRSHPC + 6)
 #define MRSHPC_CSR      (PA_MRSHPC + 8)
 #define MRSHPC_ISR      (PA_MRSHPC + 10)
@@ -93,13 +94,17 @@
 #define IRQ_CFCARD	7
 #endif
 
+/* SH Ether support (SH7710/SH7712) */
+/* Base address */
 #define SH_ETH0_BASE 0xA7000000
 #define SH_ETH1_BASE 0xA7000400
+/* PHY ID */
 #if defined(CONFIG_CPU_SUBTYPE_SH7710)
 # define PHY_ID 0x00
 #elif defined(CONFIG_CPU_SUBTYPE_SH7712)
 # define PHY_ID 0x01
 #endif
+/* Ether IRQ */
 #define SH_ETH0_IRQ	80
 #define SH_ETH1_IRQ	81
 #define SH_TSU_IRQ	82
@@ -109,4 +114,4 @@ void init_se_IRQ(void);
 #define __IO_PREFIX	se
 #include <asm/io_generic.h>
 
-#endif  
+#endif  /* __ASM_SH_HITACHI_SE_H */

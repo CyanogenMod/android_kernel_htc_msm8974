@@ -28,15 +28,27 @@
 #include <linux/export.h>
 #include <scsi/scsi_cmnd.h>
 
+/**
+ * bsg_destroy_job - routine to teardown/delete a bsg job
+ * @job: bsg_job that is to be torn down
+ */
 static void bsg_destroy_job(struct bsg_job *job)
 {
-	put_device(job->dev);	
+	put_device(job->dev);	/* release reference for the request */
 
 	kfree(job->request_payload.sg_list);
 	kfree(job->reply_payload.sg_list);
 	kfree(job);
 }
 
+/**
+ * bsg_job_done - completion routine for bsg requests
+ * @job: bsg_job that is complete
+ * @result: job reply result
+ * @reply_payload_rcv_len: length of payload recvd
+ *
+ * The LLD should call this when the bsg job has completed.
+ */
 void bsg_job_done(struct bsg_job *job, int result,
 		  unsigned int reply_payload_rcv_len)
 {
@@ -46,23 +58,27 @@ void bsg_job_done(struct bsg_job *job, int result,
 
 	err = job->req->errors = result;
 	if (err < 0)
-		
+		/* we're only returning the result field in the reply */
 		job->req->sense_len = sizeof(u32);
 	else
 		job->req->sense_len = job->reply_len;
-	
+	/* we assume all request payload was transferred, residual == 0 */
 	req->resid_len = 0;
 
 	if (rsp) {
 		WARN_ON(reply_payload_rcv_len > rsp->resid_len);
 
-		
+		/* set reply (bidi) residual */
 		rsp->resid_len -= min(reply_payload_rcv_len, rsp->resid_len);
 	}
 	blk_complete_request(req);
 }
 EXPORT_SYMBOL_GPL(bsg_job_done);
 
+/**
+ * bsg_softirq_done - softirq done routine for destroying the bsg requests
+ * @rq: BSG request that holds the job to be destroyed
+ */
 static void bsg_softirq_done(struct request *rq)
 {
 	struct bsg_job *job = rq->special;
@@ -86,6 +102,11 @@ static int bsg_map_buffer(struct bsg_buffer *buf, struct request *req)
 	return 0;
 }
 
+/**
+ * bsg_create_job - create the bsg_job structure for the bsg request
+ * @dev: device that is being sent the bsg request
+ * @req: BSG request that needs a job structure
+ */
 static int bsg_create_job(struct device *dev, struct request *req)
 {
 	struct request *rsp = req->next_rq;
@@ -106,7 +127,8 @@ static int bsg_create_job(struct device *dev, struct request *req)
 	job->request = req->cmd;
 	job->request_len = req->cmd_len;
 	job->reply = req->sense;
-	job->reply_len = SCSI_SENSE_BUFFERSIZE;	
+	job->reply_len = SCSI_SENSE_BUFFERSIZE;	/* Size of sense buffer
+						 * allocated */
 	if (req->bio) {
 		ret = bsg_map_buffer(&job->request_payload, req);
 		if (ret)
@@ -118,7 +140,7 @@ static int bsg_create_job(struct device *dev, struct request *req)
 			goto failjob_rls_rqst_payload;
 	}
 	job->dev = dev;
-	
+	/* take a reference for the request */
 	get_device(job->dev);
 	return 0;
 
@@ -129,6 +151,10 @@ failjob_rls_job:
 	return -ENOMEM;
 }
 
+/*
+ * bsg_goose_queue - restart queue in case it was stopped
+ * @q: request q to be restarted
+ */
 void bsg_goose_queue(struct request_queue *q)
 {
 	if (!q)
@@ -138,6 +164,15 @@ void bsg_goose_queue(struct request_queue *q)
 }
 EXPORT_SYMBOL_GPL(bsg_goose_queue);
 
+/**
+ * bsg_request_fn - generic handler for bsg requests
+ * @q: request queue to manage
+ *
+ * On error the create_bsg_job function should return a -Exyz error value
+ * that will be set to the req->errors.
+ *
+ * Drivers/subsys should pass this to the queue init function.
+ */
 void bsg_request_fn(struct request_queue *q)
 {
 	struct device *dev = q->queuedata;
@@ -175,6 +210,17 @@ void bsg_request_fn(struct request_queue *q)
 }
 EXPORT_SYMBOL_GPL(bsg_request_fn);
 
+/**
+ * bsg_setup_queue - Create and add the bsg hooks so we can receive requests
+ * @dev: device to attach bsg device to
+ * @q: request queue setup by caller
+ * @name: device to give bsg device
+ * @job_fn: bsg job handler
+ * @dd_job_size: size of LLD data needed for each job
+ *
+ * The caller should have setup the reuqest queue with bsg_request_fn
+ * as the request_fn.
+ */
 int bsg_setup_queue(struct device *dev, struct request_queue *q,
 		    char *name, bsg_job_fn *job_fn, int dd_job_size)
 {
@@ -198,35 +244,53 @@ int bsg_setup_queue(struct device *dev, struct request_queue *q,
 }
 EXPORT_SYMBOL_GPL(bsg_setup_queue);
 
+/**
+ * bsg_remove_queue - Deletes the bsg dev from the q
+ * @q:	the request_queue that is to be torn down.
+ *
+ * Notes:
+ *   Before unregistering the queue empty any requests that are blocked
+ */
 void bsg_remove_queue(struct request_queue *q)
 {
-	struct request *req; 
-	int counts; 
+	struct request *req; /* block request */
+	int counts; /* totals for request_list count and starved */
 
 	if (!q)
 		return;
 
-	
+	/* Stop taking in new requests */
 	spin_lock_irq(q->queue_lock);
 	blk_stop_queue(q);
 
-	
+	/* drain all requests in the queue */
 	while (1) {
+		/* need the lock to fetch a request
+		 * this may fetch the same reqeust as the previous pass
+		 */
 		req = blk_fetch_request(q);
-		
+		/* save requests in use and starved */
 		counts = q->rq.count[0] + q->rq.count[1] +
 			 q->rq.starved[0] + q->rq.starved[1];
 		spin_unlock_irq(q->queue_lock);
-		
+		/* any requests still outstanding? */
 		if (counts == 0)
 			break;
 
+		/* This may be the same req as the previous iteration,
+		 * always send the blk_end_request_all after a prefetch.
+		 * It is not okay to not end the request because the
+		 * prefetch started the request.
+		 */
 		if (req) {
+			/* return -ENXIO to indicate that this queue is
+			 * going away
+			 */
 			req->errors = -ENXIO;
 			blk_end_request_all(req, -ENXIO);
 		}
 
-		msleep(200); 
+		msleep(200); /* allow bsg to possibly finish */
 		spin_lock_irq(q->queue_lock);
 	}
 	bsg_unregister_queue(q);

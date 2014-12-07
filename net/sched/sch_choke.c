@@ -21,55 +21,87 @@
 #include <net/red.h>
 #include <net/flow_keys.h>
 
+/*
+   CHOKe stateless AQM for fair bandwidth allocation
+   =================================================
 
+   CHOKe (CHOose and Keep for responsive flows, CHOose and Kill for
+   unresponsive flows) is a variant of RED that penalizes misbehaving flows but
+   maintains no flow state. The difference from RED is an additional step
+   during the enqueuing process. If average queue size is over the
+   low threshold (qmin), a packet is chosen at random from the queue.
+   If both the new and chosen packet are from the same flow, both
+   are dropped. Unlike RED, CHOKe is not really a "classful" qdisc because it
+   needs to access packets in queue randomly. It has a minimal class
+   interface to allow overriding the builtin flow classifier with
+   filters.
+
+   Source:
+   R. Pan, B. Prabhakar, and K. Psounis, "CHOKe, A Stateless
+   Active Queue Management Scheme for Approximating Fair Bandwidth Allocation",
+   IEEE INFOCOM, 2000.
+
+   A. Tang, J. Wang, S. Low, "Understanding CHOKe: Throughput and Spatial
+   Characteristics", IEEE/ACM Transactions on Networking, 2004
+
+ */
+
+/* Upper bound on size of sk_buff table (packets) */
 #define CHOKE_MAX_QUEUE	(128*1024 - 1)
 
 struct choke_sched_data {
+/* Parameters */
 	u32		 limit;
 	unsigned char	 flags;
 
 	struct red_parms parms;
 
+/* Variables */
 	struct red_vars  vars;
 	struct tcf_proto *filter_list;
 	struct {
-		u32	prob_drop;	
-		u32	prob_mark;	
-		u32	forced_drop;	
-		u32	forced_mark;	
-		u32	pdrop;          
-		u32	other;          
-		u32	matched;	
+		u32	prob_drop;	/* Early probability drops */
+		u32	prob_mark;	/* Early probability marks */
+		u32	forced_drop;	/* Forced drops, qavg > max_thresh */
+		u32	forced_mark;	/* Forced marks, qavg > max_thresh */
+		u32	pdrop;          /* Drops due to queue limits */
+		u32	other;          /* Drops due to drop() calls */
+		u32	matched;	/* Drops to flow match */
 	} stats;
 
 	unsigned int	 head;
 	unsigned int	 tail;
 
-	unsigned int	 tab_mask; 
+	unsigned int	 tab_mask; /* size - 1 */
 
 	struct sk_buff **tab;
 };
 
+/* deliver a random number between 0 and N - 1 */
 static u32 random_N(unsigned int N)
 {
 	return reciprocal_divide(random32(), N);
 }
 
+/* number of elements in queue including holes */
 static unsigned int choke_len(const struct choke_sched_data *q)
 {
 	return (q->tail - q->head) & q->tab_mask;
 }
 
+/* Is ECN parameter configured */
 static int use_ecn(const struct choke_sched_data *q)
 {
 	return q->flags & TC_RED_ECN;
 }
 
+/* Should packets over max just be dropped (versus marked) */
 static int use_harddrop(const struct choke_sched_data *q)
 {
 	return q->flags & TC_RED_HARDDROP;
 }
 
+/* Move head pointer forward to skip over holes */
 static void choke_zap_head_holes(struct choke_sched_data *q)
 {
 	do {
@@ -79,6 +111,7 @@ static void choke_zap_head_holes(struct choke_sched_data *q)
 	} while (q->tab[q->head] == NULL);
 }
 
+/* Move tail pointer backwards to reuse holes */
 static void choke_zap_tail_holes(struct choke_sched_data *q)
 {
 	do {
@@ -88,6 +121,7 @@ static void choke_zap_tail_holes(struct choke_sched_data *q)
 	} while (q->tab[q->tail] == NULL);
 }
 
+/* Drop packet from queue array by creating a "hole" */
 static void choke_drop_by_idx(struct Qdisc *sch, unsigned int idx)
 {
 	struct choke_sched_data *q = qdisc_priv(sch);
@@ -128,6 +162,11 @@ static u16 choke_get_classid(const struct sk_buff *skb)
 	return choke_skb_cb(skb)->classid;
 }
 
+/*
+ * Compare flow of two packets
+ *  Returns true only if source and destination address and port match.
+ *          false for special cases
+ */
 static bool choke_match_flow(struct sk_buff *skb1,
 			     struct sk_buff *skb2)
 {
@@ -149,6 +188,12 @@ static bool choke_match_flow(struct sk_buff *skb1,
 		       sizeof(struct flow_keys));
 }
 
+/*
+ * Classify flow using either:
+ *  1. pre-existing classification result in skb
+ *  2. fast internal classification
+ *  3. use TC filter based classification
+ */
 static bool choke_classify(struct sk_buff *skb,
 			   struct Qdisc *sch, int *qerr)
 
@@ -175,6 +220,12 @@ static bool choke_classify(struct sk_buff *skb,
 	return false;
 }
 
+/*
+ * Select a packet at random from queue
+ * HACK: since queue can have holes from previous deletion; retry several
+ *   times to find a random skb but then just give up and return the head
+ * Will return NULL if queue is empty (q->head == q->tail)
+ */
 static struct sk_buff *choke_peek_random(const struct choke_sched_data *q,
 					 unsigned int *pidx)
 {
@@ -191,6 +242,10 @@ static struct sk_buff *choke_peek_random(const struct choke_sched_data *q,
 	return q->tab[*pidx = q->head];
 }
 
+/*
+ * Compare new packet with random packet in queue
+ * returns true if matched and sets *pidx
+ */
 static bool choke_match_random(const struct choke_sched_data *q,
 			       struct sk_buff *nskb,
 			       unsigned int *pidx)
@@ -214,31 +269,31 @@ static int choke_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 	int ret = NET_XMIT_SUCCESS | __NET_XMIT_BYPASS;
 
 	if (q->filter_list) {
-		
+		/* If using external classifiers, get result and record it. */
 		if (!choke_classify(skb, sch, &ret))
-			goto other_drop;	
+			goto other_drop;	/* Packet was eaten by filter */
 	}
 
 	choke_skb_cb(skb)->keys_valid = 0;
-	
+	/* Compute average queue usage (see RED) */
 	q->vars.qavg = red_calc_qavg(p, &q->vars, sch->q.qlen);
 	if (red_is_idling(&q->vars))
 		red_end_of_idle_period(&q->vars);
 
-	
+	/* Is queue small? */
 	if (q->vars.qavg <= p->qth_min)
 		q->vars.qcount = -1;
 	else {
 		unsigned int idx;
 
-		
+		/* Draw a packet at random from queue and compare flow */
 		if (choke_match_random(q, skb, &idx)) {
 			q->stats.matched++;
 			choke_drop_by_idx(sch, idx);
 			goto congestion_drop;
 		}
 
-		
+		/* Queue is large, always mark/drop */
 		if (q->vars.qavg > p->qth_max) {
 			q->vars.qcount = -1;
 
@@ -267,7 +322,7 @@ static int choke_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 			q->vars.qR = red_random(p);
 	}
 
-	
+	/* Admit new packet */
 	if (sch->q.qlen < q->limit) {
 		q->tab[q->tail] = skb;
 		q->tail = (q->tail + 1) & q->tab_mask;

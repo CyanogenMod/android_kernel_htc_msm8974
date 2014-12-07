@@ -51,10 +51,11 @@ static bool debug;
 #define USB_STREAMZAP_VENDOR_ID		0x0e9c
 #define USB_STREAMZAP_PRODUCT_ID	0x0000
 
+/* table of devices that work with this driver */
 static struct usb_device_id streamzap_table[] = {
-	
+	/* Streamzap Remote Control */
 	{ USB_DEVICE(USB_STREAMZAP_VENDOR_ID, USB_STREAMZAP_PRODUCT_ID) },
-	
+	/* Terminating entry */
 	{ }
 };
 
@@ -65,8 +66,10 @@ MODULE_DEVICE_TABLE(usb, streamzap_table);
 #define SZ_TIMEOUT    0xff
 #define SZ_RESOLUTION 256
 
+/* number of samples buffered */
 #define SZ_BUF_LEN 128
 
+/* from ir-rc5-sz-decoder.c */
 #ifdef CONFIG_IR_RC5_SZ_DECODER_MODULE
 #define load_rc5_sz_decode()    request_module("ir-rc5-sz-decoder")
 #else
@@ -80,31 +83,32 @@ enum StreamzapDecoderState {
 	IgnorePulse
 };
 
+/* structure to hold our device specific stuff */
 struct streamzap_ir {
-	
+	/* ir-core */
 	struct rc_dev *rdev;
 
-	
+	/* core device info */
 	struct device *dev;
 
-	
+	/* usb */
 	struct usb_device	*usbdev;
 	struct usb_interface	*interface;
 	struct usb_endpoint_descriptor *endpoint;
 	struct urb		*urb_in;
 
-	
+	/* buffer & dma */
 	unsigned char		*buf_in;
 	dma_addr_t		dma_in;
 	unsigned int		buf_in_len;
 
-	
+	/* track what state we're in */
 	enum StreamzapDecoderState decoder_state;
-	
+	/* tracks whether we are currently receiving some signal */
 	bool			idle;
-	
+	/* sum of signal lengths received since signal start */
 	unsigned long		sum;
-	
+	/* start time of signal; necessary for gap tracking */
 	struct timeval		signal_last;
 	struct timeval		signal_start;
 	bool			timeout_enabled;
@@ -114,6 +118,7 @@ struct streamzap_ir {
 };
 
 
+/* local function prototypes */
 static int streamzap_probe(struct usb_interface *interface,
 			   const struct usb_device_id *id);
 static void streamzap_disconnect(struct usb_interface *interface);
@@ -121,6 +126,7 @@ static void streamzap_callback(struct urb *urb);
 static int streamzap_suspend(struct usb_interface *intf, pm_message_t message);
 static int streamzap_resume(struct usb_interface *intf);
 
+/* usb specific object needed to register this driver with the usb subsystem */
 static struct usb_driver streamzap_driver = {
 	.name =		DRIVER_NAME,
 	.probe =	streamzap_probe,
@@ -151,7 +157,7 @@ static void sz_push_full_pulse(struct streamzap_ir *sz,
 		deltv = sz->signal_start.tv_sec - sz->signal_last.tv_sec;
 		rawir.pulse = false;
 		if (deltv > 15) {
-			
+			/* really long time */
 			rawir.duration = IR_MAX_DURATION;
 		} else {
 			rawir.duration = (int)(deltv * 1000000 +
@@ -201,6 +207,12 @@ static void sz_push_half_space(struct streamzap_ir *sz,
 	sz_push_full_space(sz, value & SZ_SPACE_MASK);
 }
 
+/**
+ * streamzap_callback - usb IRQ handler callback
+ *
+ * This procedure is invoked on reception of data from
+ * the usb remote.
+ */
 static void streamzap_callback(struct urb *urb)
 {
 	struct streamzap_ir *sz;
@@ -217,6 +229,10 @@ static void streamzap_callback(struct urb *urb)
 	case -ECONNRESET:
 	case -ENOENT:
 	case -ESHUTDOWN:
+		/*
+		 * this urb is terminated, clean up.
+		 * sz might already be invalid at this point
+		 */
 		dev_err(sz->dev, "urb terminated, status: %d\n", urb->status);
 		return;
 	default:
@@ -323,6 +339,13 @@ out:
 	return NULL;
 }
 
+/**
+ *	streamzap_probe
+ *
+ *	Called by usb-core to associated with a candidate device
+ *	On any failure the return value is the ERROR
+ *	On success return 0
+ */
 static int __devinit streamzap_probe(struct usb_interface *intf,
 				     const struct usb_device_id *id)
 {
@@ -333,7 +356,7 @@ static int __devinit streamzap_probe(struct usb_interface *intf,
 	int retval = -ENOMEM;
 	int pipe, maxp;
 
-	
+	/* Allocate space for device driver specific data */
 	sz = kzalloc(sizeof(struct streamzap_ir), GFP_KERNEL);
 	if (!sz)
 		return -ENOMEM;
@@ -341,7 +364,7 @@ static int __devinit streamzap_probe(struct usb_interface *intf,
 	sz->usbdev = usbdev;
 	sz->interface = intf;
 
-	
+	/* Check to ensure endpoint information matches requirements */
 	iface_host = intf->cur_altsetting;
 
 	if (iface_host->desc.bNumEndpoints != 1) {
@@ -378,7 +401,7 @@ static int __devinit streamzap_probe(struct usb_interface *intf,
 		goto free_sz;
 	}
 
-	
+	/* Allocate the USB buffer and IRQ URB */
 	sz->buf_in = usb_alloc_coherent(usbdev, maxp, GFP_ATOMIC, &sz->dma_in);
 	if (!sz->buf_in)
 		goto free_sz;
@@ -407,20 +430,20 @@ static int __devinit streamzap_probe(struct usb_interface *intf,
 
 	sz->idle = true;
 	sz->decoder_state = PulseSpace;
-	
+	/* FIXME: don't yet have a way to set this */
 	sz->timeout_enabled = true;
 	sz->rdev->timeout = ((US_TO_NS(SZ_TIMEOUT * SZ_RESOLUTION) &
 				IR_MAX_DURATION) | 0x03000000);
 	#if 0
-	
-	
+	/* not yet supported, depends on patches from maxim */
+	/* see also: LIRC_GET_REC_RESOLUTION and LIRC_SET_REC_TIMEOUT */
 	sz->min_timeout = US_TO_NS(SZ_TIMEOUT * SZ_RESOLUTION);
 	sz->max_timeout = US_TO_NS(SZ_TIMEOUT * SZ_RESOLUTION);
 	#endif
 
 	do_gettimeofday(&sz->signal_start);
 
-	
+	/* Complete final initialisations */
 	usb_fill_int_urb(sz->urb_in, usbdev, pipe, sz->buf_in,
 			 maxp, (usb_complete_t)streamzap_callback,
 			 sz, sz->endpoint->bInterval);
@@ -435,7 +458,7 @@ static int __devinit streamzap_probe(struct usb_interface *intf,
 	dev_info(sz->dev, "Registered %s on usb%d:%d\n", name,
 		 usbdev->bus->busnum, usbdev->devnum);
 
-	
+	/* Load the streamzap not-quite-rc5 decoder too */
 	load_rc5_sz_decode();
 
 	return 0;
@@ -450,6 +473,16 @@ free_sz:
 	return retval;
 }
 
+/**
+ * streamzap_disconnect
+ *
+ * Called by the usb core when the device is removed from the system.
+ *
+ * This routine guarantees that the driver will not submit any more urbs
+ * by clearing dev->usbdev.  It is also supposed to terminate any currently
+ * active urbs.  Unfortunately, usb_bulk_msg(), used in streamzap_read(),
+ * does not provide any way to do this.
+ */
 static void streamzap_disconnect(struct usb_interface *interface)
 {
 	struct streamzap_ir *sz = usb_get_intfdata(interface);

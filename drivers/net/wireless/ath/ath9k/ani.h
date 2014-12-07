@@ -23,15 +23,19 @@
 
 #define BEACON_RSSI(ahp) (ahp->stats.avgbrssi)
 
+/* units are errors per second */
 #define ATH9K_ANI_OFDM_TRIG_HIGH_OLD      500
 #define ATH9K_ANI_OFDM_TRIG_HIGH_NEW      1000
 
+/* units are errors per second */
 #define ATH9K_ANI_OFDM_TRIG_LOW_OLD       200
 #define ATH9K_ANI_OFDM_TRIG_LOW_NEW       400
 
+/* units are errors per second */
 #define ATH9K_ANI_CCK_TRIG_HIGH_OLD       200
 #define ATH9K_ANI_CCK_TRIG_HIGH_NEW       600
 
+/* units are errors per second */
 #define ATH9K_ANI_CCK_TRIG_LOW_OLD        100
 #define ATH9K_ANI_CCK_TRIG_LOW_NEW        300
 
@@ -51,6 +55,7 @@
 #define ATH9K_ANI_PERIOD_OLD              100
 #define ATH9K_ANI_PERIOD_NEW              1000
 
+/* in ms */
 #define ATH9K_ANI_POLLINTERVAL_OLD        100
 #define ATH9K_ANI_POLLINTERVAL_NEW        1000
 
@@ -65,6 +70,7 @@
 
 #define ATH9K_ANI_ENABLE_MRC_CCK          true
 
+/* values here are relative to the INI */
 
 enum ath9k_ani_cmd {
 	ATH9K_ANI_PRESENT = 0x1,
@@ -87,6 +93,7 @@ struct ath9k_mib_stats {
 	u32 beacons;
 };
 
+/* INI default values for ANI registers */
 struct ath9k_ani_default {
 	u16 m1ThreshLow;
 	u16 m2ThreshLow;
@@ -153,4 +160,4 @@ void ath9k_hw_disable_mib_counters(struct ath_hw *ah);
 void ath9k_hw_ani_setup(struct ath_hw *ah);
 void ath9k_hw_ani_init(struct ath_hw *ah);
 
-#endif 
+#endif /* ANI_H */

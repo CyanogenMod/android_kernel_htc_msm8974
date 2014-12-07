@@ -28,7 +28,7 @@ int xmon_expect(const char *str, unsigned long timeout)
 	int c;
 	unsigned long t0;
 
-	
+	/* assume 25MHz default timebase if tb_ticks_per_sec not set yet */
 	timeout *= tb_ticks_per_sec? tb_ticks_per_sec: 25000000;
 	t0 = get_tbl();
 	do {

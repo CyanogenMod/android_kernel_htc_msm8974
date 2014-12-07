@@ -29,6 +29,7 @@
 #define XEN_PLATFORM_ERR_PROTOCOL -2
 #define XEN_PLATFORM_ERR_BLACKLIST -3
 
+/* store the value of xen_emul_unplug after the unplug is done */
 int xen_platform_pci_unplug;
 EXPORT_SYMBOL_GPL(xen_platform_pci_unplug);
 #ifdef CONFIG_XEN_PVHVM
@@ -71,14 +72,21 @@ void xen_unplug_emulated_devices(void)
 {
 	int r;
 
-	
+	/* user explicitly requested no unplug */
 	if (xen_emul_unplug & XEN_UNPLUG_NEVER)
 		return;
-	
+	/* check the version of the xen platform PCI device */
 	r = check_platform_magic();
+	/* If the version matches enable the Xen platform PCI driver.
+	 * Also enable the Xen platform PCI driver if the host does
+	 * not support the unplug protocol (XEN_PLATFORM_ERR_MAGIC)
+	 * but the user told us that unplugging is unnecessary. */
 	if (r && !(r == XEN_PLATFORM_ERR_MAGIC &&
 			(xen_emul_unplug & XEN_UNPLUG_UNNECESSARY)))
 		return;
+	/* Set the default value of xen_emul_unplug depending on whether or
+	 * not the Xen PV frontends and the Xen platform PCI driver have
+	 * been compiled for this kernel (modules or built-in are both OK). */
 	if (!xen_emul_unplug) {
 		if (xen_must_unplug_nics()) {
 			printk(KERN_INFO "Netfront and the Xen platform PCI driver have "
@@ -94,7 +102,7 @@ void xen_unplug_emulated_devices(void)
 			xen_emul_unplug |= XEN_UNPLUG_ALL_IDE_DISKS;
 		}
 	}
-	
+	/* Now unplug the emulated devices */
 	if (!(xen_emul_unplug & XEN_UNPLUG_UNNECESSARY))
 		outw(xen_emul_unplug, XEN_IOPORT_UNPLUG);
 	xen_platform_pci_unplug = xen_emul_unplug;

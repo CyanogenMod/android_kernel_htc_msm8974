@@ -33,7 +33,7 @@
 #define PREBOOT
 #else
 #include <linux/decompress/unlzma.h>
-#endif 
+#endif /* STATIC */
 
 #include <linux/decompress/mm.h>
 
@@ -87,6 +87,7 @@ static int INIT nofill(void *buffer, unsigned int len)
 	return -1;
 }
 
+/* Called twice: once at startup and once in rc_normalize() */
 static void INIT rc_read(struct rc *rc)
 {
 	rc->buffer_size = rc->fill((char *)rc->buffer, LZMA_IOBUF_SIZE);
@@ -96,6 +97,7 @@ static void INIT rc_read(struct rc *rc)
 	rc->buffer_end = rc->buffer + rc->buffer_size;
 }
 
+/* Called once */
 static inline void INIT rc_init(struct rc *rc,
 				       int (*fill)(void*, unsigned int),
 				       char *buffer, int buffer_size)
@@ -125,6 +127,7 @@ static inline void INIT rc_init_code(struct rc *rc)
 }
 
 
+/* Called twice, but one callsite is in inline'd rc_is_bit_0_helper() */
 static void INIT rc_do_normalize(struct rc *rc)
 {
 	if (rc->ptr >= rc->buffer_end)
@@ -138,6 +141,10 @@ static inline void INIT rc_normalize(struct rc *rc)
 		rc_do_normalize(rc);
 }
 
+/* Called 9 times */
+/* Why rc_is_bit_0_helper exists?
+ *Because we want to always expose (rc->code < rc->bound) to optimizer
+ */
 static inline uint32_t INIT rc_is_bit_0_helper(struct rc *rc, uint16_t *p)
 {
 	rc_normalize(rc);
@@ -150,6 +157,7 @@ static inline int INIT rc_is_bit_0(struct rc *rc, uint16_t *p)
 	return rc->code < t;
 }
 
+/* Called ~10 times, but very small, thus inlined */
 static inline void INIT rc_update_bit_0(struct rc *rc, uint16_t *p)
 {
 	rc->range = rc->bound;
@@ -162,6 +170,7 @@ static inline void INIT rc_update_bit_1(struct rc *rc, uint16_t *p)
 	*p -= *p >> RC_MOVE_BITS;
 }
 
+/* Called 4 times in unlzma loop */
 static int INIT rc_get_bit(struct rc *rc, uint16_t *p, int *symbol)
 {
 	if (rc_is_bit_0(rc, p)) {
@@ -175,6 +184,7 @@ static int INIT rc_get_bit(struct rc *rc, uint16_t *p, int *symbol)
 	}
 }
 
+/* Called once */
 static inline int INIT rc_direct_bit(struct rc *rc)
 {
 	rc_normalize(rc);
@@ -186,6 +196,7 @@ static inline int INIT rc_direct_bit(struct rc *rc)
 	return 0;
 }
 
+/* Called twice */
 static inline void INIT
 rc_bit_tree_decode(struct rc *rc, uint16_t *p, int num_levels, int *symbol)
 {

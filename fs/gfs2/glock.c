@@ -46,10 +46,10 @@
 #include "trace_gfs2.h"
 
 struct gfs2_glock_iter {
-	int hash;			
-	struct gfs2_sbd *sdp;		
-	struct gfs2_glock *gl;		
-	char string[512];		
+	int hash;			/* hash bucket index         */
+	struct gfs2_sbd *sdp;		/* incore superblock         */
+	struct gfs2_glock *gl;		/* current glock struct      */
+	char string[512];		/* scratch space             */
 };
 
 typedef void (*glock_examiner) (struct gfs2_glock * gl);
@@ -72,6 +72,12 @@ static DEFINE_SPINLOCK(lru_lock);
 static struct hlist_bl_head gl_hash_table[GFS2_GL_HASH_SIZE];
 static struct dentry *gfs2_root;
 
+/**
+ * gl_hash() - Turn glock number into hash bucket number
+ * @lock: The glock number
+ *
+ * Returns: The number of the corresponding hash bucket
+ */
 
 static unsigned int gl_hash(const struct gfs2_sbd *sdp,
 			    const struct lm_lockname *name)
@@ -115,6 +121,11 @@ void gfs2_glock_free(struct gfs2_glock *gl)
 		wake_up(&sdp->sd_glock_wait);
 }
 
+/**
+ * gfs2_glock_hold() - increment reference count on glock
+ * @gl: The glock to hold
+ *
+ */
 
 void gfs2_glock_hold(struct gfs2_glock *gl)
 {
@@ -122,6 +133,12 @@ void gfs2_glock_hold(struct gfs2_glock *gl)
 	atomic_inc(&gl->gl_ref);
 }
 
+/**
+ * demote_ok - Check to see if it's ok to unlock a glock
+ * @gl: the glock
+ *
+ * Returns: 1 if it's ok
+ */
 
 static int demote_ok(const struct gfs2_glock *gl)
 {
@@ -167,6 +184,13 @@ static void gfs2_glock_remove_from_lru(struct gfs2_glock *gl)
 	spin_unlock(&lru_lock);
 }
 
+/**
+ * __gfs2_glock_schedule_for_reclaim - Add a glock to the reclaim list
+ * @gl: the glock
+ *
+ * If the glock is demotable, then we add it (or move it) to the end
+ * of the glock LRU list.
+ */
 
 static void __gfs2_glock_schedule_for_reclaim(struct gfs2_glock *gl)
 {
@@ -174,6 +198,13 @@ static void __gfs2_glock_schedule_for_reclaim(struct gfs2_glock *gl)
 		gfs2_glock_add_to_lru(gl);
 }
 
+/**
+ * gfs2_glock_put_nolock() - Decrement reference count on glock
+ * @gl: The glock to put
+ *
+ * This function should only be used if the caller has its own reference
+ * to the glock, in addition to the one it is dropping.
+ */
 
 void gfs2_glock_put_nolock(struct gfs2_glock *gl)
 {
@@ -181,6 +212,11 @@ void gfs2_glock_put_nolock(struct gfs2_glock *gl)
 		GLOCK_BUG_ON(gl, 1);
 }
 
+/**
+ * gfs2_glock_put() - Decrement reference count on glock
+ * @gl: The glock to put
+ *
+ */
 
 void gfs2_glock_put(struct gfs2_glock *gl)
 {
@@ -200,6 +236,13 @@ void gfs2_glock_put(struct gfs2_glock *gl)
 	}
 }
 
+/**
+ * search_bucket() - Find struct gfs2_glock by lock number
+ * @bucket: the bucket to search
+ * @name: The lock name
+ *
+ * Returns: NULL, or the struct gfs2_glock with the requested number
+ */
 
 static struct gfs2_glock *search_bucket(unsigned int hash,
 					const struct gfs2_sbd *sdp,
@@ -220,6 +263,13 @@ static struct gfs2_glock *search_bucket(unsigned int hash,
 	return NULL;
 }
 
+/**
+ * may_grant - check if its ok to grant a new lock
+ * @gl: The glock
+ * @gh: The lock request which we wish to grant
+ *
+ * Returns: true if its ok to grant the lock
+ */
 
 static inline int may_grant(const struct gfs2_glock *gl, const struct gfs2_holder *gh)
 {
@@ -249,6 +299,10 @@ static void gfs2_holder_wake(struct gfs2_holder *gh)
 	wake_up_bit(&gh->gh_iflags, HIF_WAIT);
 }
 
+/**
+ * do_error - Something unexpected has happened during a lock request
+ *
+ */
 
 static inline void do_error(struct gfs2_glock *gl, const int ret)
 {
@@ -269,6 +323,13 @@ static inline void do_error(struct gfs2_glock *gl, const int ret)
 	}
 }
 
+/**
+ * do_promote - promote as many requests as possible on the current queue
+ * @gl: The glock
+ * 
+ * Returns: 1 if there is a blocked holder at the head of the list, or 2
+ *          if a type specific operation is underway.
+ */
 
 static int do_promote(struct gfs2_glock *gl)
 __releases(&gl->gl_spin)
@@ -286,7 +347,7 @@ restart:
 			if (gh->gh_list.prev == &gl->gl_holders &&
 			    glops->go_lock) {
 				spin_unlock(&gl->gl_spin);
-				
+				/* FIXME: eliminate this eventually */
 				ret = glops->go_lock(gh);
 				spin_lock(&gl->gl_spin);
 				if (ret) {
@@ -316,6 +377,10 @@ restart:
 	return 0;
 }
 
+/**
+ * find_first_waiter - find the first gh that's waiting for the glock
+ * @gl: the glock
+ */
 
 static inline struct gfs2_holder *find_first_waiter(const struct gfs2_glock *gl)
 {
@@ -328,6 +393,12 @@ static inline struct gfs2_holder *find_first_waiter(const struct gfs2_glock *gl)
 	return NULL;
 }
 
+/**
+ * state_change - record that the glock is now in a different state
+ * @gl: the glock
+ * @new_state the new state
+ *
+ */
 
 static void state_change(struct gfs2_glock *gl, unsigned int new_state)
 {
@@ -346,7 +417,7 @@ static void state_change(struct gfs2_glock *gl, unsigned int new_state)
 		clear_bit(GLF_QUEUED, &gl->gl_flags);
 
 	if (new_state != gl->gl_target)
-		
+		/* shorten our minimum hold time */
 		gl->gl_hold_time = max(gl->gl_hold_time - GL_GLOCK_HOLD_DECR,
 				       GL_GLOCK_MIN_HOLD);
 	gl->gl_state = new_state;
@@ -361,6 +432,12 @@ static void gfs2_demote_wake(struct gfs2_glock *gl)
 	wake_up_bit(&gl->gl_flags, GLF_DEMOTE);
 }
 
+/**
+ * finish_xmote - The DLM has replied to one of our lock requests
+ * @gl: The glock
+ * @ret: The status from the DLM
+ *
+ */
 
 static void finish_xmote(struct gfs2_glock *gl, unsigned int ret)
 {
@@ -374,15 +451,15 @@ static void finish_xmote(struct gfs2_glock *gl, unsigned int ret)
 	state_change(gl, state);
 	gh = find_first_waiter(gl);
 
-	
+	/* Demote to UN request arrived during demote to SH or DF */
 	if (test_bit(GLF_DEMOTE_IN_PROGRESS, &gl->gl_flags) &&
 	    state != LM_ST_UNLOCKED && gl->gl_demote_state == LM_ST_UNLOCKED)
 		gl->gl_target = LM_ST_UNLOCKED;
 
-	
+	/* Check for state != intended state */
 	if (unlikely(state != gl->gl_target)) {
 		if (gh && !test_bit(GLF_DEMOTE_IN_PROGRESS, &gl->gl_flags)) {
-			
+			/* move to back of queue and try next entry */
 			if (ret & LM_OUT_CANCELED) {
 				if ((gh->gh_flags & LM_FLAG_PRIORITY) == 0)
 					list_move_tail(&gh->gh_list, &gl->gl_holders);
@@ -390,7 +467,7 @@ static void finish_xmote(struct gfs2_glock *gl, unsigned int ret)
 				gl->gl_target = gh->gh_state;
 				goto retry;
 			}
-			
+			/* Some error or failed "try lock" - report it */
 			if ((ret & LM_OUT_ERROR) ||
 			    (gh->gh_flags & (LM_FLAG_TRY | LM_FLAG_TRY_1CB))) {
 				gl->gl_target = gl->gl_state;
@@ -399,17 +476,17 @@ static void finish_xmote(struct gfs2_glock *gl, unsigned int ret)
 			}
 		}
 		switch(state) {
-		
+		/* Unlocked due to conversion deadlock, try again */
 		case LM_ST_UNLOCKED:
 retry:
 			do_xmote(gl, gh, gl->gl_target);
 			break;
-		
+		/* Conversion fails, unlock and try again */
 		case LM_ST_SHARED:
 		case LM_ST_DEFERRED:
 			do_xmote(gl, gh, LM_ST_UNLOCKED);
 			break;
-		default: 
+		default: /* Everything else */
 			printk(KERN_ERR "GFS2: wanted %u got %u\n", gl->gl_target, state);
 			GLOCK_BUG_ON(gl, 1);
 		}
@@ -417,7 +494,7 @@ retry:
 		return;
 	}
 
-	
+	/* Fast path - we got what we asked for */
 	if (test_and_clear_bit(GLF_DEMOTE_IN_PROGRESS, &gl->gl_flags))
 		gfs2_demote_wake(gl);
 	if (state != LM_ST_UNLOCKED) {
@@ -440,6 +517,13 @@ out_locked:
 	spin_unlock(&gl->gl_spin);
 }
 
+/**
+ * do_xmote - Calls the DLM to change the state of a lock
+ * @gl: The lock state
+ * @gh: The holder (only for promotes)
+ * @target: The target lock state
+ *
+ */
 
 static void do_xmote(struct gfs2_glock *gl, struct gfs2_holder *gh, unsigned int target)
 __releases(&gl->gl_spin)
@@ -457,7 +541,7 @@ __acquires(&gl->gl_spin)
 	if ((target == LM_ST_UNLOCKED || target == LM_ST_DEFERRED) &&
 	    glops->go_inval) {
 		set_bit(GLF_INVALIDATE_IN_PROGRESS, &gl->gl_flags);
-		do_error(gl, 0); 
+		do_error(gl, 0); /* Fail queued try locks */
 	}
 	gl->gl_req = target;
 	set_bit(GLF_BLOCKING, &gl->gl_flags);
@@ -474,10 +558,10 @@ __acquires(&gl->gl_spin)
 
 	gfs2_glock_hold(gl);
 	if (sdp->sd_lockstruct.ls_ops->lm_lock)	{
-		
+		/* lock_dlm */
 		ret = sdp->sd_lockstruct.ls_ops->lm_lock(gl, target, lck_flags);
 		GLOCK_BUG_ON(gl, ret);
-	} else { 
+	} else { /* lock_nolock */
 		finish_xmote(gl, target);
 		if (queue_delayed_work(glock_workqueue, &gl->gl_work, 0) == 0)
 			gfs2_glock_put(gl);
@@ -486,6 +570,10 @@ __acquires(&gl->gl_spin)
 	spin_lock(&gl->gl_spin);
 }
 
+/**
+ * find_first_holder - find the first "holder" gh
+ * @gl: the glock
+ */
 
 static inline struct gfs2_holder *find_first_holder(const struct gfs2_glock *gl)
 {
@@ -499,6 +587,12 @@ static inline struct gfs2_holder *find_first_holder(const struct gfs2_glock *gl)
 	return NULL;
 }
 
+/**
+ * run_queue - do all outstanding tasks related to a glock
+ * @gl: The glock in question
+ * @nonblock: True if we must not block in run_queue
+ *
+ */
 
 static void run_queue(struct gfs2_glock *gl, const int nonblock)
 __releases(&gl->gl_spin)
@@ -532,7 +626,7 @@ __acquires(&gl->gl_spin)
 		gh = find_first_waiter(gl);
 		gl->gl_target = gh->gh_state;
 		if (!(gh->gh_flags & (LM_FLAG_TRY | LM_FLAG_TRY_1CB)))
-			do_error(gl, 0); 
+			do_error(gl, 0); /* Fail queued try locks */
 	}
 	do_xmote(gl, gh, gl->gl_target);
 out:
@@ -561,7 +655,7 @@ static void delete_work_func(struct work_struct *work)
 	u64 no_addr = gl->gl_name.ln_number;
 
 	ip = gl->gl_object;
-	
+	/* Note: Unsafe to dereference ip as we don't hold right refs/locks */
 
 	if (ip)
 		inode = gfs2_ilookup(sdp->sd_vfs, no_addr, 1);
@@ -613,6 +707,18 @@ static void glock_work_func(struct work_struct *work)
 		gfs2_glock_put(gl);
 }
 
+/**
+ * gfs2_glock_get() - Get a glock, or create one if one doesn't exist
+ * @sdp: The GFS2 superblock
+ * @number: the lock number
+ * @glops: The glock_operations to use
+ * @create: If 0, don't create the glock if it doesn't exist
+ * @glp: the glock is returned here
+ *
+ * This does not lock a glock, just finds/creates structures for one.
+ *
+ * Returns: errno
+ */
 
 int gfs2_glock_get(struct gfs2_sbd *sdp, u64 number,
 		   const struct gfs2_glock_operations *glops, int create,
@@ -655,7 +761,7 @@ int gfs2_glock_get(struct gfs2_sbd *sdp, u64 number,
 	gl->gl_ops = glops;
 	gl->gl_dstamp = ktime_set(0, 0);
 	preempt_disable();
-	
+	/* We use the global stats to estimate the initial per-glock stats */
 	gl->gl_stats = this_cpu_ptr(sdp->sd_lkstats)->lkstats[glops->go_type];
 	preempt_enable();
 	gl->gl_stats.stats[GFS2_LKS_DCOUNT] = 0;
@@ -696,6 +802,14 @@ int gfs2_glock_get(struct gfs2_sbd *sdp, u64 number,
 	return 0;
 }
 
+/**
+ * gfs2_holder_init - initialize a struct gfs2_holder in the default way
+ * @gl: the glock
+ * @state: the state we're requesting
+ * @flags: the modifier flags
+ * @gh: the holder structure
+ *
+ */
 
 void gfs2_holder_init(struct gfs2_glock *gl, unsigned int state, unsigned flags,
 		      struct gfs2_holder *gh)
@@ -711,6 +825,15 @@ void gfs2_holder_init(struct gfs2_glock *gl, unsigned int state, unsigned flags,
 	gfs2_glock_hold(gl);
 }
 
+/**
+ * gfs2_holder_reinit - reinitialize a struct gfs2_holder so we can requeue it
+ * @state: the state we're requesting
+ * @flags: the modifier flags
+ * @gh: the holder structure
+ *
+ * Don't mess with the glock.
+ *
+ */
 
 void gfs2_holder_reinit(unsigned int state, unsigned flags, struct gfs2_holder *gh)
 {
@@ -723,6 +846,11 @@ void gfs2_holder_reinit(unsigned int state, unsigned flags, struct gfs2_holder *
 	gh->gh_owner_pid = get_pid(task_pid(current));
 }
 
+/**
+ * gfs2_holder_uninit - uninitialize a holder structure (drop glock reference)
+ * @gh: the holder structure
+ *
+ */
 
 void gfs2_holder_uninit(struct gfs2_holder *gh)
 {
@@ -732,6 +860,14 @@ void gfs2_holder_uninit(struct gfs2_holder *gh)
 	gh->gh_ip = 0;
 }
 
+/**
+ * gfs2_glock_holder_wait
+ * @word: unused
+ *
+ * This function and gfs2_glock_demote_wait both show up in the WCHAN
+ * field. Thus I've separated these otherwise identical functions in
+ * order to be more informative to the user.
+ */
 
 static int gfs2_glock_holder_wait(void *word)
 {
@@ -751,8 +887,8 @@ static void wait_on_holder(struct gfs2_holder *gh)
 
 	might_sleep();
 	wait_on_bit(&gh->gh_iflags, HIF_WAIT, gfs2_glock_holder_wait, TASK_UNINTERRUPTIBLE);
-	if (time_after(jiffies, time1 + HZ)) 
-		
+	if (time_after(jiffies, time1 + HZ)) /* have we waited > a second? */
+		/* Lengthen the minimum hold time. */
 		gh->gh_gl->gl_hold_time = min(gh->gh_gl->gl_hold_time +
 					      GL_GLOCK_HOLD_INCR,
 					      GL_GLOCK_MAX_HOLD);
@@ -764,6 +900,14 @@ static void wait_on_demote(struct gfs2_glock *gl)
 	wait_on_bit(&gl->gl_flags, GLF_DEMOTE, gfs2_glock_demote_wait, TASK_UNINTERRUPTIBLE);
 }
 
+/**
+ * handle_callback - process a demote request
+ * @gl: the glock
+ * @state: the state the caller wants us to change to
+ *
+ * There are only two requests that we are going to see in actual
+ * practise: LM_ST_SHARED and LM_ST_UNLOCKED
+ */
 
 static void handle_callback(struct gfs2_glock *gl, unsigned int state,
 			    unsigned long delay)
@@ -783,6 +927,12 @@ static void handle_callback(struct gfs2_glock *gl, unsigned int state,
 	trace_gfs2_demote_rq(gl);
 }
 
+/**
+ * gfs2_glock_wait - wait on a glock acquisition
+ * @gh: the glock holder
+ *
+ * Returns: 0 on success
+ */
 
 int gfs2_glock_wait(struct gfs2_holder *gh)
 {
@@ -811,6 +961,15 @@ void gfs2_print_dbg(struct seq_file *seq, const char *fmt, ...)
 	va_end(args);
 }
 
+/**
+ * add_to_queue - Add a holder to the wait queue (but look for recursion)
+ * @gh: the holder structure to add
+ *
+ * Eventually we should move the recursive locking trap to a
+ * debugging option or something like that. This is the fast
+ * path and needs to have the minimum number of distractions.
+ * 
+ */
 
 static inline void add_to_queue(struct gfs2_holder *gh)
 __releases(&gl->gl_spin)
@@ -884,6 +1043,14 @@ trap_recursive:
 	BUG();
 }
 
+/**
+ * gfs2_glock_nq - enqueue a struct gfs2_holder onto a glock (acquire a glock)
+ * @gh: the holder structure
+ *
+ * if (gh->gh_flags & GL_ASYNC), this never returns an error
+ *
+ * Returns: 0, GLR_TRYFAILED, or errno on failure
+ */
 
 int gfs2_glock_nq(struct gfs2_holder *gh)
 {
@@ -911,12 +1078,23 @@ int gfs2_glock_nq(struct gfs2_holder *gh)
 	return error;
 }
 
+/**
+ * gfs2_glock_poll - poll to see if an async request has been completed
+ * @gh: the holder
+ *
+ * Returns: 1 if the request is ready to be gfs2_glock_wait()ed on
+ */
 
 int gfs2_glock_poll(struct gfs2_holder *gh)
 {
 	return test_bit(HIF_WAIT, &gh->gh_iflags) ? 0 : 1;
 }
 
+/**
+ * gfs2_glock_dq - dequeue a struct gfs2_holder from a glock (release a glock)
+ * @gh: the glock holder
+ *
+ */
 
 void gfs2_glock_dq(struct gfs2_holder *gh)
 {
@@ -966,6 +1144,11 @@ void gfs2_glock_dq_wait(struct gfs2_holder *gh)
 	wait_on_demote(gl);
 }
 
+/**
+ * gfs2_glock_dq_uninit - dequeue a holder from a glock and initialize it
+ * @gh: the holder structure
+ *
+ */
 
 void gfs2_glock_dq_uninit(struct gfs2_holder *gh)
 {
@@ -973,6 +1156,17 @@ void gfs2_glock_dq_uninit(struct gfs2_holder *gh)
 	gfs2_holder_uninit(gh);
 }
 
+/**
+ * gfs2_glock_nq_num - acquire a glock based on lock number
+ * @sdp: the filesystem
+ * @number: the lock number
+ * @glops: the glock operations for the type of glock
+ * @state: the state to acquire the glock in
+ * @flags: modifier flags for the acquisition
+ * @gh: the struct gfs2_holder
+ *
+ * Returns: errno
+ */
 
 int gfs2_glock_nq_num(struct gfs2_sbd *sdp, u64 number,
 		      const struct gfs2_glock_operations *glops,
@@ -990,6 +1184,12 @@ int gfs2_glock_nq_num(struct gfs2_sbd *sdp, u64 number,
 	return error;
 }
 
+/**
+ * glock_compare - Compare two struct gfs2_glock structures for sorting
+ * @arg_a: the first structure
+ * @arg_b: the second structure
+ *
+ */
 
 static int glock_compare(const void *arg_a, const void *arg_b)
 {
@@ -1006,6 +1206,14 @@ static int glock_compare(const void *arg_a, const void *arg_b)
 	return 0;
 }
 
+/**
+ * nq_m_sync - synchonously acquire more than one glock in deadlock free order
+ * @num_gh: the number of structures
+ * @ghs: an array of struct gfs2_holder structures
+ *
+ * Returns: 0 on success (all glocks acquired),
+ *          errno on failure (no glocks acquired)
+ */
 
 static int nq_m_sync(unsigned int num_gh, struct gfs2_holder *ghs,
 		     struct gfs2_holder **p)
@@ -1032,6 +1240,15 @@ static int nq_m_sync(unsigned int num_gh, struct gfs2_holder *ghs,
 	return error;
 }
 
+/**
+ * gfs2_glock_nq_m - acquire multiple glocks
+ * @num_gh: the number of structures
+ * @ghs: an array of struct gfs2_holder structures
+ *
+ *
+ * Returns: 0 on success (all glocks acquired),
+ *          errno on failure (no glocks acquired)
+ */
 
 int gfs2_glock_nq_m(unsigned int num_gh, struct gfs2_holder *ghs)
 {
@@ -1061,6 +1278,12 @@ int gfs2_glock_nq_m(unsigned int num_gh, struct gfs2_holder *ghs)
 	return error;
 }
 
+/**
+ * gfs2_glock_dq_m - release multiple glocks
+ * @num_gh: the number of structures
+ * @ghs: an array of struct gfs2_holder structures
+ *
+ */
 
 void gfs2_glock_dq_m(unsigned int num_gh, struct gfs2_holder *ghs)
 {
@@ -1068,6 +1291,12 @@ void gfs2_glock_dq_m(unsigned int num_gh, struct gfs2_holder *ghs)
 		gfs2_glock_dq(&ghs[num_gh]);
 }
 
+/**
+ * gfs2_glock_dq_uninit_m - release multiple glocks
+ * @num_gh: the number of structures
+ * @ghs: an array of struct gfs2_holder structures
+ *
+ */
 
 void gfs2_glock_dq_uninit_m(unsigned int num_gh, struct gfs2_holder *ghs)
 {
@@ -1098,6 +1327,16 @@ void gfs2_glock_cb(struct gfs2_glock *gl, unsigned int state)
 		gfs2_glock_put(gl);
 }
 
+/**
+ * gfs2_should_freeze - Figure out if glock should be frozen
+ * @gl: The glock in question
+ *
+ * Glocks are not frozen if (a) the result of the dlm operation is
+ * an error, (b) the locking operation was an unlock operation or
+ * (c) if there is a "noexp" flagged request anywhere in the queue
+ *
+ * Returns: 1 if freezing should occur, 0 otherwise
+ */
 
 static int gfs2_should_freeze(const struct gfs2_glock *gl)
 {
@@ -1118,6 +1357,14 @@ static int gfs2_should_freeze(const struct gfs2_glock *gl)
 	return 1;
 }
 
+/**
+ * gfs2_glock_complete - Callback used by locking
+ * @gl: Pointer to the glock
+ * @ret: The return value from the dlm
+ *
+ * The gl_reply field is under the gl_spin lock so that it is ok
+ * to use a bitfield shared with other glock state fields.
+ */
 
 void gfs2_glock_complete(struct gfs2_glock *gl, int ret)
 {
@@ -1166,7 +1413,7 @@ static int gfs2_shrink_glock_memory(struct shrinker *shrink,
 		clear_bit(GLF_LRU, &gl->gl_flags);
 		atomic_dec(&lru_count);
 
-		
+		/* Test for being demotable */
 		if (!test_and_set_bit(GLF_LOCK, &gl->gl_flags)) {
 			gfs2_glock_hold(gl);
 			spin_unlock(&lru_lock);
@@ -1200,6 +1447,13 @@ static struct shrinker glock_shrinker = {
 	.seeks = DEFAULT_SEEKS,
 };
 
+/**
+ * examine_bucket - Call a function for glock in a hash bucket
+ * @examiner: the function
+ * @sdp: the filesystem
+ * @bucket: the bucket
+ *
+ */
 
 static void examine_bucket(glock_examiner examiner, const struct gfs2_sbd *sdp,
 			  unsigned int hash)
@@ -1226,6 +1480,13 @@ static void glock_hash_walk(glock_examiner examiner, const struct gfs2_sbd *sdp)
 }
 
 
+/**
+ * thaw_glock - thaw out a glock which has an unprocessed reply waiting
+ * @gl: The glock to thaw
+ *
+ * N.B. When we freeze a glock, we leave a ref to the glock outstanding,
+ * so this has to result in the ref count being dropped by one.
+ */
 
 static void thaw_glock(struct gfs2_glock *gl)
 {
@@ -1237,6 +1498,11 @@ static void thaw_glock(struct gfs2_glock *gl)
 		gfs2_glock_put(gl);
 }
 
+/**
+ * clear_glock - look at a glock and see if we can free it from glock cache
+ * @gl: the glock to look at
+ *
+ */
 
 static void clear_glock(struct gfs2_glock *gl)
 {
@@ -1251,6 +1517,11 @@ static void clear_glock(struct gfs2_glock *gl)
 		gfs2_glock_put(gl);
 }
 
+/**
+ * gfs2_glock_thaw - Thaw any frozen glocks
+ * @sdp: The super block
+ *
+ */
 
 void gfs2_glock_thaw(struct gfs2_sbd *sdp)
 {
@@ -1271,6 +1542,13 @@ static void dump_glock_func(struct gfs2_glock *gl)
 	dump_glock(NULL, gl);
 }
 
+/**
+ * gfs2_gl_hash_clear - Empty out the glock hash table
+ * @sdp: the filesystem
+ * @wait: wait until it's all gone
+ *
+ * Called when unmounting the filesystem.
+ */
 
 void gfs2_gl_hash_clear(struct gfs2_sbd *sdp)
 {
@@ -1338,6 +1616,13 @@ static const char *hflags2str(char *buf, unsigned flags, unsigned long iflags)
 	return buf;
 }
 
+/**
+ * dump_holder - print information about a glock holder
+ * @seq: the seq_file struct
+ * @gh: the glock holder
+ *
+ * Returns: 0 on success, -ENOBUFS when we run out of space
+ */
 
 static int dump_holder(struct seq_file *seq, const struct gfs2_holder *gh)
 {
@@ -1393,6 +1678,23 @@ static const char *gflags2str(char *buf, const struct gfs2_glock *gl)
 	return buf;
 }
 
+/**
+ * __dump_glock - print information about a glock
+ * @seq: The seq_file struct
+ * @gl: the glock
+ *
+ * The file format is as follows:
+ * One line per object, capital letters are used to indicate objects
+ * G = glock, I = Inode, R = rgrp, H = holder. Glocks are not indented,
+ * other objects are indented by a single space and follow the glock to
+ * which they are related. Fields are indicated by lower case letters
+ * followed by a colon and the field value, except for strings which are in
+ * [] so that its possible to see if they are composed of spaces for
+ * example. The field's are n = number (id of the object), f = flags,
+ * t = type, s = state, r = refcount, e = error, p = pid.
+ *
+ * Returns: 0 on success, -ENOBUFS when we run out of space
+ */
 
 static int __dump_glock(struct seq_file *seq, const struct gfs2_glock *gl)
 {
@@ -1403,7 +1705,7 @@ static int __dump_glock(struct seq_file *seq, const struct gfs2_glock *gl)
 	int error = 0;
 
 	dtime = jiffies - gl->gl_demote_time;
-	dtime *= 1000000/HZ; 
+	dtime *= 1000000/HZ; /* demote time in uSec */
 	if (!test_bit(GLF_DEMOTE, &gl->gl_flags))
 		dtime = 0;
 	gfs2_print_dbg(seq, "G:  s:%s n:%u/%llx f:%s t:%s d:%s/%llu a:%d v:%d r:%d m:%ld\n",
@@ -1563,7 +1865,7 @@ static int gfs2_glock_iter_next(struct gfs2_glock_iter *gi)
 			}
 			gi->gl = glock_hash_chain(gi->hash);
 		}
-	
+	/* Skip entries for other sb and dead entries */
 	} while (gi->sdp != gi->gl->gl_sbd || atomic_read(&gi->gl->gl_ref) == 0);
 
 	return 0;

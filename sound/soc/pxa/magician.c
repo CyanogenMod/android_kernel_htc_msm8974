@@ -75,7 +75,7 @@ static int magician_startup(struct snd_pcm_substream *substream)
 
 	mutex_lock(&codec->mutex);
 
-	
+	/* check the jack status at stream startup */
 	magician_ext_control(codec);
 
 	mutex_unlock(&codec->mutex);
@@ -83,6 +83,9 @@ static int magician_startup(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+/*
+ * Magician uses SSP port for playback.
+ */
 static int magician_playback_hw_params(struct snd_pcm_substream *substream,
 				       struct snd_pcm_hw_params *params)
 {
@@ -95,17 +98,21 @@ static int magician_playback_hw_params(struct snd_pcm_substream *substream,
 
 	width = snd_pcm_format_physical_width(params_format(params));
 
+	/*
+	 * rate = SSPSCLK / (2 * width(16 or 32))
+	 * SSPSCLK = (ACPS / ACDS) / SSPSCLKDIV(div4 or div1)
+	 */
 	switch (params_rate(params)) {
 	case 8000:
-		
+		/* off by a factor of 2: bug in the PXA27x audio clock? */
 		acps = 32842000;
 		switch (width) {
 		case 16:
-			
+			/* 513156 Hz ~= _2_ * 8000 Hz * 32 (+0.23%) */
 			acds = PXA_SSP_CLK_AUDIO_DIV_16;
 			break;
-		default: 
-			
+		default: /* 32 */
+			/* 1026312 Hz ~= _2_ * 8000 Hz * 64 (+0.23%) */
 			acds = PXA_SSP_CLK_AUDIO_DIV_8;
 		}
 		break;
@@ -113,11 +120,11 @@ static int magician_playback_hw_params(struct snd_pcm_substream *substream,
 		acps = 5622000;
 		switch (width) {
 		case 16:
-			
+			/* 351375 Hz ~= 11025 Hz * 32 (-0.41%) */
 			acds = PXA_SSP_CLK_AUDIO_DIV_4;
 			break;
-		default: 
-			
+		default: /* 32 */
+			/* 702750 Hz ~= 11025 Hz * 64 (-0.41%) */
 			acds = PXA_SSP_CLK_AUDIO_DIV_2;
 		}
 		break;
@@ -125,11 +132,11 @@ static int magician_playback_hw_params(struct snd_pcm_substream *substream,
 		acps = 5622000;
 		switch (width) {
 		case 16:
-			
+			/* 702750 Hz ~= 22050 Hz * 32 (-0.41%) */
 			acds = PXA_SSP_CLK_AUDIO_DIV_2;
 			break;
-		default: 
-			
+		default: /* 32 */
+			/* 1405500 Hz ~= 22050 Hz * 64 (-0.41%) */
 			acds = PXA_SSP_CLK_AUDIO_DIV_1;
 		}
 		break;
@@ -137,11 +144,11 @@ static int magician_playback_hw_params(struct snd_pcm_substream *substream,
 		acps = 5622000;
 		switch (width) {
 		case 16:
-			
+			/* 1405500 Hz ~= 44100 Hz * 32 (-0.41%) */
 			acds = PXA_SSP_CLK_AUDIO_DIV_2;
 			break;
-		default: 
-			
+		default: /* 32 */
+			/* 2811000 Hz ~= 44100 Hz * 64 (-0.41%) */
 			acds = PXA_SSP_CLK_AUDIO_DIV_1;
 		}
 		break;
@@ -149,11 +156,11 @@ static int magician_playback_hw_params(struct snd_pcm_substream *substream,
 		acps = 12235000;
 		switch (width) {
 		case 16:
-			
+			/* 1529375 Hz ~= 48000 Hz * 32 (-0.44%) */
 			acds = PXA_SSP_CLK_AUDIO_DIV_2;
 			break;
-		default: 
-			
+		default: /* 32 */
+			/* 3058750 Hz ~= 48000 Hz * 64 (-0.44%) */
 			acds = PXA_SSP_CLK_AUDIO_DIV_1;
 		}
 		break;
@@ -162,11 +169,11 @@ static int magician_playback_hw_params(struct snd_pcm_substream *substream,
 		acps = 12235000;
 		switch (width) {
 		case 16:
-			
+			/* 3058750 Hz ~= 96000 Hz * 32 (-0.44%) */
 			acds = PXA_SSP_CLK_AUDIO_DIV_1;
 			break;
-		default: 
-			
+		default: /* 32 */
+			/* 6117500 Hz ~= 96000 Hz * 64 (-0.44%) */
 			acds = PXA_SSP_CLK_AUDIO_DIV_2;
 			div4 = PXA_SSP_CLK_SCDB_1;
 			break;
@@ -174,13 +181,13 @@ static int magician_playback_hw_params(struct snd_pcm_substream *substream,
 		break;
 	}
 
-	
+	/* set codec DAI configuration */
 	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_MSB |
 			SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_CBS_CFS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set cpu DAI configuration */
 	ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_DSP_A |
 			SND_SOC_DAIFMT_NB_IF | SND_SOC_DAIFMT_CBS_CFS);
 	if (ret < 0)
@@ -190,25 +197,25 @@ static int magician_playback_hw_params(struct snd_pcm_substream *substream,
 	if (ret < 0)
 		return ret;
 
-	
+	/* set audio clock as clock source */
 	ret = snd_soc_dai_set_sysclk(cpu_dai, PXA_SSP_CLK_AUDIO, 0,
 			SND_SOC_CLOCK_OUT);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set the SSP audio system clock ACDS divider */
 	ret = snd_soc_dai_set_clkdiv(cpu_dai,
 			PXA_SSP_AUDIO_DIV_ACDS, acds);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set the SSP audio system clock SCDB divider4 */
 	ret = snd_soc_dai_set_clkdiv(cpu_dai,
 			PXA_SSP_AUDIO_DIV_SCDB, div4);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set SSP audio pll clock */
 	ret = snd_soc_dai_set_pll(cpu_dai, 0, 0, 0, acps);
 	if (ret < 0)
 		return ret;
@@ -216,6 +223,9 @@ static int magician_playback_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/*
+ * Magician uses I2S for capture.
+ */
 static int magician_capture_hw_params(struct snd_pcm_substream *substream,
 				      struct snd_pcm_hw_params *params)
 {
@@ -224,21 +234,21 @@ static int magician_capture_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	int ret = 0;
 
-	
+	/* set codec DAI configuration */
 	ret = snd_soc_dai_set_fmt(codec_dai,
 			SND_SOC_DAIFMT_MSB | SND_SOC_DAIFMT_NB_NF |
 			SND_SOC_DAIFMT_CBS_CFS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set cpu DAI configuration */
 	ret = snd_soc_dai_set_fmt(cpu_dai,
 			SND_SOC_DAIFMT_MSB | SND_SOC_DAIFMT_NB_NF |
 			SND_SOC_DAIFMT_CBS_CFS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set the I2S system clock as output */
 	ret = snd_soc_dai_set_sysclk(cpu_dai, PXA2XX_I2S_SYSCLK, 0,
 			SND_SOC_CLOCK_OUT);
 	if (ret < 0)
@@ -344,6 +354,7 @@ static int magician_mic_bias(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+/* magician machine dapm widgets */
 static const struct snd_soc_dapm_widget uda1380_dapm_widgets[] = {
 	SND_SOC_DAPM_HP("Headphone Jack", magician_hp_power),
 	SND_SOC_DAPM_SPK("Speaker", magician_spk_power),
@@ -351,17 +362,18 @@ static const struct snd_soc_dapm_widget uda1380_dapm_widgets[] = {
 	SND_SOC_DAPM_MIC("Headset Mic", magician_mic_bias),
 };
 
+/* magician machine audio_map */
 static const struct snd_soc_dapm_route audio_map[] = {
 
-	
+	/* Headphone connected to VOUTL, VOUTR */
 	{"Headphone Jack", NULL, "VOUTL"},
 	{"Headphone Jack", NULL, "VOUTR"},
 
-	
+	/* Speaker connected to VOUTL, VOUTR */
 	{"Speaker", NULL, "VOUTL"},
 	{"Speaker", NULL, "VOUTR"},
 
-	
+	/* Mics are connected to VINM */
 	{"VINM", NULL, "Headset Mic"},
 	{"VINM", NULL, "Call Mic"},
 };
@@ -381,36 +393,40 @@ static const struct snd_kcontrol_new uda1380_magician_controls[] = {
 			magician_get_input, magician_set_input),
 };
 
+/*
+ * Logic for a uda1380 as connected on a HTC Magician
+ */
 static int magician_uda1380_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_codec *codec = rtd->codec;
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 	int err;
 
-	
+	/* NC codec pins */
 	snd_soc_dapm_nc_pin(dapm, "VOUTLHP");
 	snd_soc_dapm_nc_pin(dapm, "VOUTRHP");
 
-	
+	/* FIXME: is anything connected here? */
 	snd_soc_dapm_nc_pin(dapm, "VINL");
 	snd_soc_dapm_nc_pin(dapm, "VINR");
 
-	
+	/* Add magician specific controls */
 	err = snd_soc_add_codec_controls(codec, uda1380_magician_controls,
 				ARRAY_SIZE(uda1380_magician_controls));
 	if (err < 0)
 		return err;
 
-	
+	/* Add magician specific widgets */
 	snd_soc_dapm_new_controls(dapm, uda1380_dapm_widgets,
 				  ARRAY_SIZE(uda1380_dapm_widgets));
 
-	
+	/* Set up magician specific audio path interconnects */
 	snd_soc_dapm_add_routes(dapm, audio_map, ARRAY_SIZE(audio_map));
 
 	return 0;
 }
 
+/* magician digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link magician_dai[] = {
 {
 	.name = "uda1380",
@@ -433,6 +449,7 @@ static struct snd_soc_dai_link magician_dai[] = {
 }
 };
 
+/* magician audio machine driver */
 static struct snd_soc_card snd_soc_card_magician = {
 	.name = "Magician",
 	.owner = THIS_MODULE,
@@ -443,6 +460,9 @@ static struct snd_soc_card snd_soc_card_magician = {
 
 static struct platform_device *magician_snd_device;
 
+/*
+ * FIXME: move into magician board file once merged into the pxa tree
+ */
 static struct uda1380_platform_data uda1380_info = {
 	.gpio_power = EGPIO_MAGICIAN_CODEC_POWER,
 	.gpio_reset = EGPIO_MAGICIAN_CODEC_RESET,

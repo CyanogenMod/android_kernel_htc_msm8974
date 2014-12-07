@@ -32,10 +32,12 @@
 
 #include "cbe_cpufreq.h"
 
+/* to write to MIC register */
 static u64 MIC_Slow_Fast_Timer_table[] = {
 	[0 ... 7] = 0x007fc00000000000ull,
 };
 
+/* more values for the MIC */
 static u64 MIC_Slow_Next_Timer_table[] = {
 	0x0000240000000000ull,
 	0x0000268000000000ull,
@@ -74,15 +76,15 @@ int cbe_cpufreq_set_pmode(int cpu, unsigned int pmode)
 	out_be64(&mic_tm_regs->slow_next_timer_1, MIC_Slow_Next_Timer_table[pmode]);
 
 	value = in_be64(&pmd_regs->pmcr);
-	
+	/* set bits to zero */
 	value &= 0xFFFFFFFFFFFFFFF8ull;
-	
+	/* set bits to next pmode */
 	value |= pmode;
 
 	out_be64(&pmd_regs->pmcr, value);
 
 #ifdef DEBUG
-	
+	/* wait until new pmode appears in status register */
 	value = in_be64(&pmd_regs->pmsr) & 0x07;
 	while (value != pmode) {
 		cpu_relax();

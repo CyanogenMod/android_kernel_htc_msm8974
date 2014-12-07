@@ -24,11 +24,14 @@
 #define RPC_MAX_SLOT_TABLE_LIMIT	(65536U)
 #define RPC_MAX_SLOT_TABLE	RPC_MAX_SLOT_TABLE_LIMIT
 
+/*
+ * This describes a timeout strategy
+ */
 struct rpc_timeout {
-	unsigned long		to_initval,		
-				to_maxval,		
-				to_increment;		
-	unsigned int		to_retries;		
+	unsigned long		to_initval,		/* initial timeout */
+				to_maxval,		/* max timeout */
+				to_increment;		/* if !exponential */
+	unsigned int		to_retries;		/* max # of retries */
 	unsigned char		to_exponential;
 };
 
@@ -46,45 +49,63 @@ struct rpc_task;
 struct rpc_xprt;
 struct seq_file;
 
+/*
+ * This describes a complete RPC request
+ */
 struct rpc_rqst {
-	struct rpc_xprt *	rq_xprt;		
-	struct xdr_buf		rq_snd_buf;		
-	struct xdr_buf		rq_rcv_buf;		
+	/*
+	 * This is the user-visible part
+	 */
+	struct rpc_xprt *	rq_xprt;		/* RPC client */
+	struct xdr_buf		rq_snd_buf;		/* send buffer */
+	struct xdr_buf		rq_rcv_buf;		/* recv buffer */
 
-	struct rpc_task *	rq_task;	
-	struct rpc_cred *	rq_cred;	
-	__be32			rq_xid;		
-	int			rq_cong;	
-	u32			rq_seqno;	
+	/*
+	 * This is the private part
+	 */
+	struct rpc_task *	rq_task;	/* RPC task data */
+	struct rpc_cred *	rq_cred;	/* Bound cred */
+	__be32			rq_xid;		/* request XID */
+	int			rq_cong;	/* has incremented xprt->cong */
+	u32			rq_seqno;	/* gss seq no. used on req. */
 	int			rq_enc_pages_num;
-	struct page		**rq_enc_pages;	
-	void (*rq_release_snd_buf)(struct rpc_rqst *); 
+	struct page		**rq_enc_pages;	/* scratch pages for use by
+						   gss privacy code */
+	void (*rq_release_snd_buf)(struct rpc_rqst *); /* release rq_enc_pages */
 	struct list_head	rq_list;
 
-	__u32 *			rq_buffer;	
+	__u32 *			rq_buffer;	/* XDR encode buffer */
 	size_t			rq_callsize,
 				rq_rcvsize;
-	size_t			rq_xmit_bytes_sent;	
-	size_t			rq_reply_bytes_recvd;	
-							
+	size_t			rq_xmit_bytes_sent;	/* total bytes sent */
+	size_t			rq_reply_bytes_recvd;	/* total reply bytes */
+							/* received */
 
-	struct xdr_buf		rq_private_buf;		
-	unsigned long		rq_majortimeo;	
-	unsigned long		rq_timeout;	
-	ktime_t			rq_rtt;		
-	unsigned int		rq_retries;	
+	struct xdr_buf		rq_private_buf;		/* The receive buffer
+							 * used in the softirq.
+							 */
+	unsigned long		rq_majortimeo;	/* major timeout alarm */
+	unsigned long		rq_timeout;	/* Current timeout value */
+	ktime_t			rq_rtt;		/* round-trip time */
+	unsigned int		rq_retries;	/* # of retries */
 	unsigned int		rq_connect_cookie;
+						/* A cookie used to track the
+						   state of the transport
+						   connection */
 	
-	u32			rq_bytes_sent;	
+	/*
+	 * Partial send handling
+	 */
+	u32			rq_bytes_sent;	/* Bytes we have sent */
 
-	ktime_t			rq_xtime;	
+	ktime_t			rq_xtime;	/* transmit time stamp */
 	int			rq_ntrans;
 
 #if defined(CONFIG_SUNRPC_BACKCHANNEL)
-	struct list_head	rq_bc_list;	
-	unsigned long		rq_bc_pa_state;	
-	struct list_head	rq_bc_pa_list;	
-#endif 
+	struct list_head	rq_bc_list;	/* Callback service list */
+	unsigned long		rq_bc_pa_state;	/* Backchannel prealloc state */
+	struct list_head	rq_bc_pa_list;	/* Backchannel prealloc list */
+#endif /* CONFIG_SUNRPC_BACKCHANEL */
 };
 #define rq_svec			rq_snd_buf.head
 #define rq_slen			rq_snd_buf.len
@@ -107,6 +128,15 @@ struct rpc_xprt_ops {
 	void		(*print_stats)(struct rpc_xprt *xprt, struct seq_file *seq);
 };
 
+/*
+ * RPC transport identifiers
+ *
+ * To preserve compatibility with the historical use of raw IP protocol
+ * id's for transport selection, UDP and TCP identifiers are specified
+ * with the previous values. No such restriction exists for new transports,
+ * except that they may not collide with these values (17 and 6,
+ * respectively).
+ */
 #define XPRT_TRANSPORT_BC       (1 << 31)
 enum xprt_transports {
 	XPRT_TRANSPORT_UDP	= IPPROTO_UDP,
@@ -117,70 +147,85 @@ enum xprt_transports {
 };
 
 struct rpc_xprt {
-	atomic_t		count;		
-	struct rpc_xprt_ops *	ops;		
+	atomic_t		count;		/* Reference count */
+	struct rpc_xprt_ops *	ops;		/* transport methods */
 
-	const struct rpc_timeout *timeout;	
-	struct sockaddr_storage	addr;		
-	size_t			addrlen;	
-	int			prot;		
+	const struct rpc_timeout *timeout;	/* timeout parms */
+	struct sockaddr_storage	addr;		/* server address */
+	size_t			addrlen;	/* size of server address */
+	int			prot;		/* IP protocol */
 
-	unsigned long		cong;		
-	unsigned long		cwnd;		
+	unsigned long		cong;		/* current congestion */
+	unsigned long		cwnd;		/* congestion window */
 
-	size_t			max_payload;	
-	unsigned int		tsh_size;	
+	size_t			max_payload;	/* largest RPC payload size,
+						   in bytes */
+	unsigned int		tsh_size;	/* size of transport specific
+						   header */
 
-	struct rpc_wait_queue	binding;	
-	struct rpc_wait_queue	sending;	
-	struct rpc_wait_queue	pending;	
-	struct rpc_wait_queue	backlog;	
-	struct list_head	free;		
-	unsigned int		max_reqs;	
-	unsigned int		min_reqs;	
-	atomic_t		num_reqs;	
-	unsigned long		state;		
-	unsigned char		shutdown   : 1,	
-				resvport   : 1; 
-	unsigned int		bind_index;	
+	struct rpc_wait_queue	binding;	/* requests waiting on rpcbind */
+	struct rpc_wait_queue	sending;	/* requests waiting to send */
+	struct rpc_wait_queue	pending;	/* requests in flight */
+	struct rpc_wait_queue	backlog;	/* waiting for slot */
+	struct list_head	free;		/* free slots */
+	unsigned int		max_reqs;	/* max number of slots */
+	unsigned int		min_reqs;	/* min number of slots */
+	atomic_t		num_reqs;	/* total slots */
+	unsigned long		state;		/* transport state */
+	unsigned char		shutdown   : 1,	/* being shut down */
+				resvport   : 1; /* use a reserved port */
+	unsigned int		bind_index;	/* bind function index */
 
+	/*
+	 * Connection of transports
+	 */
 	unsigned long		bind_timeout,
 				reestablish_timeout;
-	unsigned int		connect_cookie;	
+	unsigned int		connect_cookie;	/* A cookie that gets bumped
+						   every time the transport
+						   is reconnected */
 
+	/*
+	 * Disconnection of idle transports
+	 */
 	struct work_struct	task_cleanup;
 	struct timer_list	timer;
 	unsigned long		last_used,
 				idle_timeout;
 
-	spinlock_t		transport_lock;	
-	spinlock_t		reserve_lock;	
-	u32			xid;		
-	struct rpc_task *	snd_task;	
-	struct svc_xprt		*bc_xprt;	
+	/*
+	 * Send stuff
+	 */
+	spinlock_t		transport_lock;	/* lock transport info */
+	spinlock_t		reserve_lock;	/* lock slot table */
+	u32			xid;		/* Next XID value to use */
+	struct rpc_task *	snd_task;	/* Task blocked in send */
+	struct svc_xprt		*bc_xprt;	/* NFSv4.1 backchannel */
 #if defined(CONFIG_SUNRPC_BACKCHANNEL)
-	struct svc_serv		*bc_serv;       
-						
-	unsigned int		bc_alloc_count;	
-	spinlock_t		bc_pa_lock;	
-	struct list_head	bc_pa_list;	
-#endif 
+	struct svc_serv		*bc_serv;       /* The RPC service which will */
+						/* process the callback */
+	unsigned int		bc_alloc_count;	/* Total number of preallocs */
+	spinlock_t		bc_pa_lock;	/* Protects the preallocated
+						 * items */
+	struct list_head	bc_pa_list;	/* List of preallocated
+						 * backchannel rpc_rqst's */
+#endif /* CONFIG_SUNRPC_BACKCHANNEL */
 	struct list_head	recv;
 
 	struct {
-		unsigned long		bind_count,	
-					connect_count,	
-					connect_start,	
-					connect_time,	
-					sends,		
-					recvs,		
-					bad_xids,	
-					max_slots;	
+		unsigned long		bind_count,	/* total number of binds */
+					connect_count,	/* total number of connects */
+					connect_start,	/* connect start timestamp */
+					connect_time,	/* jiffies waiting for connect */
+					sends,		/* how many complete requests */
+					recvs,		/* how many complete requests */
+					bad_xids,	/* lookup_rqst didn't find XID */
+					max_slots;	/* max rpc_slots used */
 
-		unsigned long long	req_u,		
-					bklog_u,	
-					sending_u,	
-					pending_u;	
+		unsigned long long	req_u,		/* average requests on the wire */
+					bklog_u,	/* backlog queue utilization */
+					sending_u,	/* send q utilization */
+					pending_u;	/* pend q utilization */
 	} stat;
 
 	struct net		*xprt_net;
@@ -189,9 +234,12 @@ struct rpc_xprt {
 };
 
 #if defined(CONFIG_SUNRPC_BACKCHANNEL)
-#define	RPC_BC_PA_IN_USE	0x0001		
-						
-#endif 
+/*
+ * Backchannel flags
+ */
+#define	RPC_BC_PA_IN_USE	0x0001		/* Preallocated backchannel */
+						/* buffer in use */
+#endif /* CONFIG_SUNRPC_BACKCHANNEL */
 
 #if defined(CONFIG_SUNRPC_BACKCHANNEL)
 static inline int bc_prealloc(struct rpc_rqst *req)
@@ -203,26 +251,29 @@ static inline int bc_prealloc(struct rpc_rqst *req)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_SUNRPC_BACKCHANNEL */
 
 struct xprt_create {
-	int			ident;		
+	int			ident;		/* XPRT_TRANSPORT identifier */
 	struct net *		net;
-	struct sockaddr *	srcaddr;	
-	struct sockaddr *	dstaddr;	
+	struct sockaddr *	srcaddr;	/* optional local address */
+	struct sockaddr *	dstaddr;	/* remote peer address */
 	size_t			addrlen;
 	const char		*servername;
-	struct svc_xprt		*bc_xprt;	
+	struct svc_xprt		*bc_xprt;	/* NFSv4.1 backchannel */
 };
 
 struct xprt_class {
 	struct list_head	list;
-	int			ident;		
+	int			ident;		/* XPRT_TRANSPORT identifier */
 	struct rpc_xprt *	(*setup)(struct xprt_create *);
 	struct module		*owner;
 	char			name[32];
 };
 
+/*
+ * Generic internal transport functions
+ */
 struct rpc_xprt		*xprt_create_transport(struct xprt_create *args);
 void			xprt_connect(struct rpc_task *task);
 void			xprt_reserve(struct rpc_task *task);
@@ -247,6 +298,9 @@ static inline __be32 *xprt_skip_transport_header(struct rpc_xprt *xprt, __be32 *
 	return p + xprt->tsh_size;
 }
 
+/*
+ * Transport switch helper functions
+ */
 int			xprt_register_transport(struct xprt_class *type);
 int			xprt_unregister_transport(struct xprt_class *type);
 int			xprt_load_transport(const char *);
@@ -263,6 +317,9 @@ void			xprt_disconnect_done(struct rpc_xprt *xprt);
 void			xprt_force_disconnect(struct rpc_xprt *xprt);
 void			xprt_conditional_disconnect(struct rpc_xprt *xprt, unsigned int cookie);
 
+/*
+ * Reserved bit positions in xprt->state
+ */
 #define XPRT_LOCKED		(0)
 #define XPRT_CONNECTED		(1)
 #define XPRT_CONNECTING		(2)
@@ -342,6 +399,6 @@ static inline int xprt_test_and_set_binding(struct rpc_xprt *xprt)
 	return test_and_set_bit(XPRT_BINDING, &xprt->state);
 }
 
-#endif 
+#endif /* __KERNEL__*/
 
-#endif 
+#endif /* _LINUX_SUNRPC_XPRT_H */

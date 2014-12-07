@@ -13,6 +13,13 @@
 #ifndef LINUX_BMA150_MODULE_H
 #define LINUX_BMA150_MODULE_H
 
+/**
+ * struct bma150_platform_data - data to set up bma150 driver
+ *
+ * @setup: optional callback to activate the driver.
+ * @teardown: optional callback to invalidate the driver.
+ *
+**/
 
 struct bma150_platform_data {
 	int (*setup)(struct device *);
@@ -21,4 +28,4 @@ struct bma150_platform_data {
 	void (*power_off)(void);
 };
 
-#endif 
+#endif /* LINUX_BMA150_MODULE_H */

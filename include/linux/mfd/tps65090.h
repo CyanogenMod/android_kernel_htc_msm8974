@@ -34,9 +34,13 @@ struct tps65090_platform_data {
 	struct tps65090_subdev_info *subdevs;
 };
 
+/*
+ * NOTE: the functions below are not intended for use outside
+ * of the TPS65090 sub-device drivers
+ */
 extern int tps65090_write(struct device *dev, int reg, uint8_t val);
 extern int tps65090_read(struct device *dev, int reg, uint8_t *val);
 extern int tps65090_set_bits(struct device *dev, int reg, uint8_t bit_num);
 extern int tps65090_clr_bits(struct device *dev, int reg, uint8_t bit_num);
 
-#endif 
+#endif /*__LINUX_MFD_TPS65090_H */

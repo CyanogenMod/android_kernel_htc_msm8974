@@ -28,7 +28,7 @@ static int tps65912_spi_write(struct tps65912 *tps65912, u8 addr,
 	struct spi_device *spi = tps65912->control_data;
 	u8 *data = (u8 *) src;
 	int ret;
-	
+	/* bit 23 is the read/write bit */
 	unsigned long spi_data = 1 << 23 | addr << 15 | *data;
 	struct spi_transfer xfer;
 	struct spi_message msg;
@@ -53,7 +53,7 @@ static int tps65912_spi_read(struct tps65912 *tps65912, u8 addr,
 							int bytes, void *dest)
 {
 	struct spi_device *spi = tps65912->control_data;
-	
+	/* bit 23 is the read/write bit */
 	unsigned long spi_data = 0 << 23 | addr << 15;
 	struct spi_transfer xfer;
 	struct spi_message msg;
@@ -127,6 +127,7 @@ static int __init tps65912_spi_init(void)
 
 	return 0;
 }
+/* init early so consumer devices can complete system boot */
 subsys_initcall(tps65912_spi_init);
 
 static void __exit tps65912_spi_exit(void)

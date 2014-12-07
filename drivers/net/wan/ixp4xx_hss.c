@@ -32,34 +32,35 @@
 
 #define DRV_NAME		"ixp4xx_hss"
 
-#define PKT_EXTRA_FLAGS		0 
-#define PKT_NUM_PIPES		1 
-#define PKT_PIPE_FIFO_SIZEW	4 
+#define PKT_EXTRA_FLAGS		0 /* orig 1 */
+#define PKT_NUM_PIPES		1 /* 1, 2 or 4 */
+#define PKT_PIPE_FIFO_SIZEW	4 /* total 4 dwords per HSS */
 
-#define RX_DESCS		16 
-#define TX_DESCS		16 
+#define RX_DESCS		16 /* also length of all RX queues */
+#define TX_DESCS		16 /* also length of all TX queues */
 
 #define POOL_ALLOC_SIZE		(sizeof(struct desc) * (RX_DESCS + TX_DESCS))
-#define RX_SIZE			(HDLC_MAX_MRU + 4) 
-#define MAX_CLOSE_WAIT		1000 
+#define RX_SIZE			(HDLC_MAX_MRU + 4) /* NPE needs more space */
+#define MAX_CLOSE_WAIT		1000 /* microseconds */
 #define HSS_COUNT		2
-#define FRAME_SIZE		256 
+#define FRAME_SIZE		256 /* doesn't matter at this point */
 #define FRAME_OFFSET		0
 #define MAX_CHANNELS		(FRAME_SIZE / 8)
 
 #define NAPI_WEIGHT		16
 
-#define HSS0_CHL_RXTRIG_QUEUE	12	
-#define HSS0_PKT_RX_QUEUE	13	
-#define HSS0_PKT_TX0_QUEUE	14	
+/* Queue IDs */
+#define HSS0_CHL_RXTRIG_QUEUE	12	/* orig size = 32 dwords */
+#define HSS0_PKT_RX_QUEUE	13	/* orig size = 32 dwords */
+#define HSS0_PKT_TX0_QUEUE	14	/* orig size = 16 dwords */
 #define HSS0_PKT_TX1_QUEUE	15
 #define HSS0_PKT_TX2_QUEUE	16
 #define HSS0_PKT_TX3_QUEUE	17
-#define HSS0_PKT_RXFREE0_QUEUE	18	
+#define HSS0_PKT_RXFREE0_QUEUE	18	/* orig size = 16 dwords */
 #define HSS0_PKT_RXFREE1_QUEUE	19
 #define HSS0_PKT_RXFREE2_QUEUE	20
 #define HSS0_PKT_RXFREE3_QUEUE	21
-#define HSS0_PKT_TXDONE_QUEUE	22	
+#define HSS0_PKT_TXDONE_QUEUE	22	/* orig size = 64 dwords */
 
 #define HSS1_CHL_RXTRIG_QUEUE	10
 #define HSS1_PKT_RX_QUEUE	0
@@ -78,59 +79,81 @@
 #define NPE_PKT_MODE_56KMODE		2
 #define NPE_PKT_MODE_56KENDIAN_MSB	4
 
-#define PKT_HDLC_IDLE_ONES		0x1 
-#define PKT_HDLC_CRC_32			0x2 
-#define PKT_HDLC_MSB_ENDIAN		0x4 
+/* PKT_PIPE_HDLC_CFG_WRITE flags */
+#define PKT_HDLC_IDLE_ONES		0x1 /* default = flags */
+#define PKT_HDLC_CRC_32			0x2 /* default = CRC-16 */
+#define PKT_HDLC_MSB_ENDIAN		0x4 /* default = LE */
 
 
+/* hss_config, PCRs */
+/* Frame sync sampling, default = active low */
 #define PCR_FRM_SYNC_ACTIVE_HIGH	0x40000000
 #define PCR_FRM_SYNC_FALLINGEDGE	0x80000000
 #define PCR_FRM_SYNC_RISINGEDGE		0xC0000000
 
+/* Frame sync pin: input (default) or output generated off a given clk edge */
 #define PCR_FRM_SYNC_OUTPUT_FALLING	0x20000000
 #define PCR_FRM_SYNC_OUTPUT_RISING	0x30000000
 
+/* Frame and data clock sampling on edge, default = falling */
 #define PCR_FCLK_EDGE_RISING		0x08000000
 #define PCR_DCLK_EDGE_RISING		0x04000000
 
+/* Clock direction, default = input */
 #define PCR_SYNC_CLK_DIR_OUTPUT		0x02000000
 
+/* Generate/Receive frame pulses, default = enabled */
 #define PCR_FRM_PULSE_DISABLED		0x01000000
 
- 
+ /* Data rate is full (default) or half the configured clk speed */
 #define PCR_HALF_CLK_RATE		0x00200000
 
+/* Invert data between NPE and HSS FIFOs? (default = no) */
 #define PCR_DATA_POLARITY_INVERT	0x00100000
 
+/* TX/RX endianness, default = LSB */
 #define PCR_MSB_ENDIAN			0x00080000
 
+/* Normal (default) / open drain mode (TX only) */
 #define PCR_TX_PINS_OPEN_DRAIN		0x00040000
 
+/* No framing bit transmitted and expected on RX? (default = framing bit) */
 #define PCR_SOF_NO_FBIT			0x00020000
 
+/* Drive data pins? */
 #define PCR_TX_DATA_ENABLE		0x00010000
 
+/* Voice 56k type: drive the data pins low (default), high, high Z */
 #define PCR_TX_V56K_HIGH		0x00002000
 #define PCR_TX_V56K_HIGH_IMP		0x00004000
 
+/* Unassigned type: drive the data pins low (default), high, high Z */
 #define PCR_TX_UNASS_HIGH		0x00000800
 #define PCR_TX_UNASS_HIGH_IMP		0x00001000
 
+/* T1 @ 1.544MHz only: Fbit dictated in FIFO (default) or high Z */
 #define PCR_TX_FB_HIGH_IMP		0x00000400
 
+/* 56k data endiannes - which bit unused: high (default) or low */
 #define PCR_TX_56KE_BIT_0_UNUSED	0x00000200
 
+/* 56k data transmission type: 32/8 bit data (default) or 56K data */
 #define PCR_TX_56KS_56K_DATA		0x00000100
 
+/* hss_config, cCR */
+/* Number of packetized clients, default = 1 */
 #define CCR_NPE_HFIFO_2_HDLC		0x04000000
 #define CCR_NPE_HFIFO_3_OR_4HDLC	0x08000000
 
+/* default = no loopback */
 #define CCR_LOOPBACK			0x02000000
 
+/* HSS number, default = 0 (first) */
 #define CCR_SECOND_HSS			0x01000000
 
 
-#define CLK42X_SPEED_EXP	((0x3FF << 22) | (  2 << 12) |   15) 
+/* hss_config, clkCR: main:10, num:10, denom:12 */
+#define CLK42X_SPEED_EXP	((0x3FF << 22) | (  2 << 12) |   15) /*65 KHz*/
 
 #define CLK42X_SPEED_512KHZ	((  130 << 22) | (  2 << 12) |   15)
 #define CLK42X_SPEED_1536KHZ	((   43 << 22) | ( 18 << 12) |   47)
@@ -146,28 +169,59 @@
 #define CLK46X_SPEED_4096KHZ	((   16 << 22) | (280 << 12) | 1023)
 #define CLK46X_SPEED_8192KHZ	((    8 << 22) | (280 << 12) | 2047)
 
+/*
+ * HSS_CONFIG_CLOCK_CR register consists of 3 parts:
+ *     A (10 bits), B (10 bits) and C (12 bits).
+ * IXP42x HSS clock generator operation (verified with an oscilloscope):
+ * Each clock bit takes 7.5 ns (1 / 133.xx MHz).
+ * The clock sequence consists of (C - B) states of 0s and 1s, each state is
+ * A bits wide. It's followed by (B + 1) states of 0s and 1s, each state is
+ * (A + 1) bits wide.
+ *
+ * The resulting average clock frequency (assuming 33.333 MHz oscillator) is:
+ * freq = 66.666 MHz / (A + (B + 1) / (C + 1))
+ * minimum freq = 66.666 MHz / (A + 1)
+ * maximum freq = 66.666 MHz / A
+ *
+ * Example: A = 2, B = 2, C = 7, CLOCK_CR register = 2 << 22 | 2 << 12 | 7
+ * freq = 66.666 MHz / (2 + (2 + 1) / (7 + 1)) = 28.07 MHz (Mb/s).
+ * The clock sequence is: 1100110011 (5 doubles) 000111000 (3 triples).
+ * The sequence takes (C - B) * A + (B + 1) * (A + 1) = 5 * 2 + 3 * 3 bits
+ * = 19 bits (each 7.5 ns long) = 142.5 ns (then the sequence repeats).
+ * The sequence consists of 4 complete clock periods, thus the average
+ * frequency (= clock rate) is 4 / 142.5 ns = 28.07 MHz (Mb/s).
+ * (max specified clock rate for IXP42x HSS is 8.192 Mb/s).
+ */
 
+/* hss_config, LUT entries */
 #define TDMMAP_UNASSIGNED	0
-#define TDMMAP_HDLC		1	
-#define TDMMAP_VOICE56K		2	
-#define TDMMAP_VOICE64K		3	
+#define TDMMAP_HDLC		1	/* HDLC - packetized */
+#define TDMMAP_VOICE56K		2	/* Voice56K - 7-bit channelized */
+#define TDMMAP_VOICE64K		3	/* Voice64K - 8-bit channelized */
 
-#define HSS_CONFIG_TX_PCR	0x00 
+/* offsets into HSS config */
+#define HSS_CONFIG_TX_PCR	0x00 /* port configuration registers */
 #define HSS_CONFIG_RX_PCR	0x04
-#define HSS_CONFIG_CORE_CR	0x08 
-#define HSS_CONFIG_CLOCK_CR	0x0C 
-#define HSS_CONFIG_TX_FCR	0x10 
+#define HSS_CONFIG_CORE_CR	0x08 /* loopback control, HSS# */
+#define HSS_CONFIG_CLOCK_CR	0x0C /* clock generator control */
+#define HSS_CONFIG_TX_FCR	0x10 /* frame configuration registers */
 #define HSS_CONFIG_RX_FCR	0x14
-#define HSS_CONFIG_TX_LUT	0x18 
+#define HSS_CONFIG_TX_LUT	0x18 /* channel look-up tables */
 #define HSS_CONFIG_RX_LUT	0x38
 
 
+/* NPE command codes */
+/* writes the ConfigWord value to the location specified by offset */
 #define PORT_CONFIG_WRITE		0x40
 
+/* triggers the NPE to load the contents of the configuration table */
 #define PORT_CONFIG_LOAD		0x41
 
+/* triggers the NPE to return an HssErrorReadResponse message */
 #define PORT_ERROR_READ			0x42
 
+/* triggers the NPE to reset internal status and enable the HssPacketized
+   operation for the flow specified by pPipe */
 #define PKT_PIPE_FLOW_ENABLE		0x50
 #define PKT_PIPE_FLOW_DISABLE		0x51
 #define PKT_NUM_PIPES_WRITE		0x52
@@ -177,13 +231,15 @@
 #define PKT_PIPE_RX_SIZE_WRITE		0x56
 #define PKT_PIPE_MODE_WRITE		0x57
 
-#define ERR_SHUTDOWN		1 
-#define ERR_HDLC_ALIGN		2 
-#define ERR_HDLC_FCS		3 
-#define ERR_RXFREE_Q_EMPTY	4 
-#define ERR_HDLC_TOO_LONG	5 
-#define ERR_HDLC_ABORT		6 
-#define ERR_DISCONNECTING	7 
+/* HDLC packet status values - desc->status */
+#define ERR_SHUTDOWN		1 /* stop or shutdown occurrence */
+#define ERR_HDLC_ALIGN		2 /* HDLC alignment error */
+#define ERR_HDLC_FCS		3 /* HDLC Frame Check Sum error */
+#define ERR_RXFREE_Q_EMPTY	4 /* RX-free queue became empty while receiving
+				     this packet (if buf_len < pkt_len) */
+#define ERR_HDLC_TOO_LONG	5 /* HDLC frame size too long */
+#define ERR_HDLC_ABORT		6 /* abort sequence received */
+#define ERR_DISCONNECTING	7 /* disconnect is in progress */
 
 
 #ifdef __ARMEB__
@@ -203,7 +259,7 @@ struct port {
 	struct napi_struct napi;
 	struct hss_plat_info *plat;
 	buffer_t *rx_buff_tab[RX_DESCS], *tx_buff_tab[TX_DESCS];
-	struct desc *desc_tab;	
+	struct desc *desc_tab;	/* coherent */
 	u32 desc_tab_phys;
 	unsigned int id;
 	unsigned int clock_type, clock_rate, loopback;
@@ -212,6 +268,7 @@ struct port {
 	u32 clock_reg;
 };
 
+/* NPE message structure */
 struct msg {
 #ifdef __ARMEB__
 	u8 cmd, unused, hss_port, index;
@@ -230,20 +287,21 @@ struct msg {
 #endif
 };
 
+/* HDLC packet descriptor */
 struct desc {
-	u32 next;		
+	u32 next;		/* pointer to next buffer, unused */
 
 #ifdef __ARMEB__
-	u16 buf_len;		
-	u16 pkt_len;		
-	u32 data;		
+	u16 buf_len;		/* buffer length */
+	u16 pkt_len;		/* packet length */
+	u32 data;		/* pointer to data buffer in RAM */
 	u8 status;
 	u8 error_count;
 	u16 __reserved;
 #else
-	u16 pkt_len;		
-	u16 buf_len;		
-	u32 data;		
+	u16 pkt_len;		/* packet length */
+	u16 buf_len;		/* buffer length */
+	u32 data;		/* pointer to data buffer in RAM */
 	u16 __reserved;
 	u8 error_count;
 	u8 status;
@@ -260,6 +318,9 @@ struct desc {
 				 ((n) + RX_DESCS) * sizeof(struct desc))
 #define tx_desc_ptr(port, n)	(&(port)->desc_tab[(n) + RX_DESCS])
 
+/*****************************************************************************
+ * global variables
+ ****************************************************************************/
 
 static int ports_open;
 static struct dma_pool *dma_pool;
@@ -273,6 +334,9 @@ static const struct {
 		  HSS1_PKT_RXFREE0_QUEUE},
 };
 
+/*****************************************************************************
+ * utility functions
+ ****************************************************************************/
 
 static inline struct port* dev_to_port(struct net_device *dev)
 {
@@ -288,6 +352,9 @@ static inline void memcpy_swab32(u32 *dest, u32 *src, int cnt)
 }
 #endif
 
+/*****************************************************************************
+ * HSS access
+ ****************************************************************************/
 
 static void hss_npe_send(struct port *port, struct msg *msg, const char* what)
 {
@@ -379,13 +446,13 @@ static void hss_config(struct port *port)
 	hss_npe_send(port, &msg, "HSS_LOAD_CONFIG");
 
 	if (npe_recv_message(port->npe, &msg, "HSS_LOAD_CONFIG") ||
-	    
+	    /* HSS_LOAD_CONFIG for port #1 returns port_id = #4 */
 	    msg.cmd != PORT_CONFIG_LOAD || msg.data32) {
 		pr_crit("HSS-%i: HSS_LOAD_CONFIG failed\n", port->id);
 		BUG();
 	}
 
-	
+	/* HDLC may stop working without this - check FIXME */
 	npe_recv_message(port->npe, &msg, "FLUSH_IT");
 }
 
@@ -396,8 +463,8 @@ static void hss_set_hdlc_cfg(struct port *port)
 	memset(&msg, 0, sizeof(msg));
 	msg.cmd = PKT_PIPE_HDLC_CFG_WRITE;
 	msg.hss_port = port->id;
-	msg.data8a = port->hdlc_cfg; 
-	msg.data8b = port->hdlc_cfg | (PKT_EXTRA_FLAGS << 3); 
+	msg.data8a = port->hdlc_cfg; /* rx_cfg */
+	msg.data8b = port->hdlc_cfg | (PKT_EXTRA_FLAGS << 3); /* tx_cfg */
 	hss_npe_send(port, &msg, "HSS_SET_HDLC_CFG");
 }
 
@@ -436,7 +503,7 @@ static void hss_stop_hdlc(struct port *port)
 	msg.cmd = PKT_PIPE_FLOW_DISABLE;
 	msg.hss_port = port->id;
 	hss_npe_send(port, &msg, "HSS_DISABLE_PKT_PIPE");
-	hss_get_status(port); 
+	hss_get_status(port); /* make sure it's halted */
 }
 
 static int hss_load_firmware(struct port *port)
@@ -452,7 +519,7 @@ static int hss_load_firmware(struct port *port)
 				     port->dev)))
 		return err;
 
-	
+	/* HDLC mode configuration */
 	memset(&msg, 0, sizeof(msg));
 	msg.cmd = PKT_NUM_PIPES_WRITE;
 	msg.hss_port = port->id;
@@ -465,22 +532,25 @@ static int hss_load_firmware(struct port *port)
 
 	msg.cmd = PKT_PIPE_MODE_WRITE;
 	msg.data8a = NPE_PKT_MODE_HDLC;
-	
-	
+	/* msg.data8b = inv_mask */
+	/* msg.data8c = or_mask */
 	hss_npe_send(port, &msg, "HSS_SET_PKT_MODE");
 
 	msg.cmd = PKT_PIPE_RX_SIZE_WRITE;
-	msg.data16a = HDLC_MAX_MRU; 
+	msg.data16a = HDLC_MAX_MRU; /* including CRC */
 	hss_npe_send(port, &msg, "HSS_SET_PKT_RX_SIZE");
 
 	msg.cmd = PKT_PIPE_IDLE_PATTERN_WRITE;
-	msg.data32 = 0x7F7F7F7F; 
+	msg.data32 = 0x7F7F7F7F; /* ??? FIXME */
 	hss_npe_send(port, &msg, "HSS_SET_PKT_IDLE");
 
 	port->initialized = 1;
 	return 0;
 }
 
+/*****************************************************************************
+ * packetized (HDLC) operation
+ ****************************************************************************/
 
 static inline void debug_pkt(struct net_device *dev, const char *func,
 			     u8 *data, int len)
@@ -533,6 +603,8 @@ static inline void queue_put_desc(unsigned int queue, u32 phys,
 	debug_desc(phys, desc);
 	BUG_ON(phys & 0x1F);
 	qmgr_put_entry(queue, phys);
+	/* Don't check for queue overflow here, we've allocated sufficient
+	   length and queues >= 32 don't support this check anyway. */
 }
 
 
@@ -620,11 +692,11 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 			printk(KERN_DEBUG "%s: hss_hdlc_poll all done\n",
 			       dev->name);
 #endif
-			return received; 
+			return received; /* all work done */
 		}
 
 		desc = rx_desc_ptr(port, n);
-#if 0 
+#if 0 /* FIXME - error_count counts modulo 256, perhaps we should use it */
 		if (desc->error_count)
 			printk(KERN_DEBUG "%s: hss_hdlc_poll status 0x%02X"
 			       " errors %u\n", dev->name, desc->status,
@@ -662,21 +734,21 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 			dev->stats.rx_length_errors++;
 			dev->stats.rx_errors++;
 			break;
-		default:	
+		default:	/* FIXME - remove printk */
 			netdev_err(dev, "hss_hdlc_poll: status 0x%02X errors %u\n",
 				   desc->status, desc->error_count);
 			dev->stats.rx_errors++;
 		}
 
 		if (!skb) {
-			
+			/* put the desc back on RX-ready queue */
 			desc->buf_len = RX_SIZE;
 			desc->pkt_len = desc->status = 0;
 			queue_put_desc(rxfreeq, rx_desc_phys(port, n), desc);
 			continue;
 		}
 
-		
+		/* process received frame */
 #ifdef __ARMEB__
 		temp = skb;
 		skb = port->rx_buff_tab[n];
@@ -697,7 +769,7 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 		dev->stats.rx_bytes += skb->len;
 		netif_receive_skb(skb);
 
-		
+		/* put the new buffer on RX-free queue */
 #ifdef __ARMEB__
 		port->rx_buff_tab[n] = temp;
 		desc->data = phys;
@@ -710,7 +782,7 @@ static int hss_hdlc_poll(struct napi_struct *napi, int budget)
 #if DEBUG_RX
 	printk(KERN_DEBUG "hss_hdlc_poll: end, not all work done\n");
 #endif
-	return received;	
+	return received;	/* not all work done */
 }
 
 
@@ -744,7 +816,7 @@ static void hss_hdlc_txdone_irq(void *pdev)
 		start = qmgr_stat_below_low_watermark(port->plat->txreadyq);
 		queue_put_desc(port->plat->txreadyq,
 			       tx_desc_phys(port, n_desc), desc);
-		if (start) { 
+		if (start) { /* TX-ready queue was empty */
 #if DEBUG_TX
 			printk(KERN_DEBUG "%s: hss_hdlc_txdone_irq xmit"
 			       " ready\n", dev->name);
@@ -777,11 +849,11 @@ static int hss_hdlc_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	len = skb->len;
 #ifdef __ARMEB__
-	offset = 0; 
+	offset = 0; /* no need to keep alignment */
 	bytes = len;
 	mem = skb->data;
 #else
-	offset = (int)skb->data & 3; 
+	offset = (int)skb->data & 3; /* keep 32-bit alignment */
 	bytes = ALIGN(offset + len, 4);
 	if (!(mem = kmalloc(bytes, GFP_ATOMIC))) {
 		dev_kfree_skb(skb);
@@ -818,12 +890,12 @@ static int hss_hdlc_xmit(struct sk_buff *skb, struct net_device *dev)
 	wmb();
 	queue_put_desc(queue_ids[port->id].tx, tx_desc_phys(port, n), desc);
 
-	if (qmgr_stat_below_low_watermark(txreadyq)) { 
+	if (qmgr_stat_below_low_watermark(txreadyq)) { /* empty */
 #if DEBUG_TX
 		printk(KERN_DEBUG "%s: hss_hdlc_xmit queue full\n", dev->name);
 #endif
 		netif_stop_queue(dev);
-		
+		/* we could miss TX ready interrupt */
 		if (!qmgr_stat_below_low_watermark(txreadyq)) {
 #if DEBUG_TX
 			printk(KERN_DEBUG "%s: hss_hdlc_xmit ready again\n",
@@ -905,10 +977,10 @@ static int init_hdlc_queues(struct port *port)
 					      &port->desc_tab_phys)))
 		return -ENOMEM;
 	memset(port->desc_tab, 0, POOL_ALLOC_SIZE);
-	memset(port->rx_buff_tab, 0, sizeof(port->rx_buff_tab)); 
+	memset(port->rx_buff_tab, 0, sizeof(port->rx_buff_tab)); /* tables */
 	memset(port->tx_buff_tab, 0, sizeof(port->tx_buff_tab));
 
-	
+	/* Setup RX buffers */
 	for (i = 0; i < RX_DESCS; i++) {
 		struct desc *desc = rx_desc_ptr(port, i);
 		buffer_t *buff;
@@ -993,7 +1065,7 @@ static int hss_hdlc_open(struct net_device *dev)
 			goto err_unlock;
 	spin_unlock_irqrestore(&npe_lock, flags);
 
-	
+	/* Populate queues with buffers, no failure after this point */
 	for (i = 0; i < TX_DESCS; i++)
 		queue_put_desc(port->plat->txreadyq,
 			       tx_desc_phys(port, i), tx_desc_ptr(port, i));
@@ -1019,7 +1091,7 @@ static int hss_hdlc_open(struct net_device *dev)
 
 	hss_start_hdlc(port);
 
-	
+	/* we may already have RX data, enables IRQ */
 	napi_schedule(&port->napi);
 	return 0;
 
@@ -1037,7 +1109,7 @@ static int hss_hdlc_close(struct net_device *dev)
 {
 	struct port *port = dev_to_port(dev);
 	unsigned long flags;
-	int i, buffs = RX_DESCS; 
+	int i, buffs = RX_DESCS; /* allocated RX buffers */
 
 	spin_lock_irqsave(&npe_lock, flags);
 	ports_open--;
@@ -1058,7 +1130,7 @@ static int hss_hdlc_close(struct net_device *dev)
 
 	buffs = TX_DESCS;
 	while (queue_get_desc(queue_ids[port->id].tx, port, 1) >= 0)
-		buffs--; 
+		buffs--; /* cancel TX */
 
 	i = 0;
 	do {
@@ -1113,7 +1185,7 @@ static int hss_hdlc_attach(struct net_device *dev, unsigned short encoding,
 static u32 check_clock(u32 rate, u32 a, u32 b, u32 c,
 		       u32 *best, u32 *best_diff, u32 *reg)
 {
-	
+	/* a is 10-bit, b is 10-bit, c is 12-bit */
 	u64 new_rate;
 	u32 new_diff;
 
@@ -1135,16 +1207,16 @@ static void find_best_clock(u32 rate, u32 *best, u32 *reg)
 
 	a = ixp4xx_timer_freq / rate;
 
-	if (a > 0x3FF) { 
+	if (a > 0x3FF) { /* 10-bit value - we can go as slow as ca. 65 kb/s */
 		check_clock(rate, 0x3FF, 1, 1, best, &diff, reg);
 		return;
 	}
-	if (a == 0) { 
-		a = 1; 
+	if (a == 0) { /* > 66.666 MHz */
+		a = 1; /* minimum divider is 1 (a = 0, b = 1, c = 1) */
 		rate = ixp4xx_timer_freq;
 	}
 
-	if (rate * a == ixp4xx_timer_freq) { 
+	if (rate * a == ixp4xx_timer_freq) { /* don't divide by 0 later */
 		check_clock(rate, a - 1, 1, 1, best, &diff, reg);
 		return;
 	}
@@ -1153,8 +1225,8 @@ static void find_best_clock(u32 rate, u32 *best, u32 *reg)
 		u64 c = (b + 1) * (u64)rate;
 		do_div(c, ixp4xx_timer_freq - rate * a);
 		c--;
-		if (c >= 0xFFF) { 
-			if (b == 0 && 
+		if (c >= 0xFFF) { /* 12-bit - no need to check more 'b's */
+			if (b == 0 && /* also try a bit higher rate */
 			    !check_clock(rate, a - 1, 1, 1, best, &diff, reg))
 				return;
 			check_clock(rate, a, b, 0xFFF, best, &diff, reg);
@@ -1183,7 +1255,7 @@ static int hss_hdlc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	case IF_GET_IFACE:
 		ifr->ifr_settings.type = IF_IFACE_V35;
 		if (ifr->ifr_settings.size < size) {
-			ifr->ifr_settings.size = size; 
+			ifr->ifr_settings.size = size; /* data size wanted */
 			return -ENOBUFS;
 		}
 		memset(&new_line, 0, sizeof(new_line));
@@ -1206,12 +1278,12 @@ static int hss_hdlc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 			clk = port->plat->set_clock(port->id, clk);
 
 		if (clk != CLOCK_EXT && clk != CLOCK_INT)
-			return -EINVAL;	
+			return -EINVAL;	/* No such clock setting */
 
 		if (new_line.loopback != 0 && new_line.loopback != 1)
 			return -EINVAL;
 
-		port->clock_type = clk; 
+		port->clock_type = clk; /* Update settings */
 		if (clk == CLOCK_INT)
 			find_best_clock(new_line.clock_rate, &port->clock_rate,
 					&port->clock_reg);
@@ -1239,6 +1311,9 @@ static int hss_hdlc_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	}
 }
 
+/*****************************************************************************
+ * initialization
+ ****************************************************************************/
 
 static const struct net_device_ops hss_hdlc_ops = {
 	.ndo_open       = hss_hdlc_open,

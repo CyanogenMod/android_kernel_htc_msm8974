@@ -256,7 +256,7 @@ static void print_pin_caps(struct snd_info_buffer *buffer,
 	if (caps & AC_PINCAP_BALANCE)
 		snd_iprintf(buffer, " Balanced");
 	if (caps & AC_PINCAP_HDMI) {
-		
+		/* Realtek uses this bit as a different meaning */
 		if ((codec->vendor_id >> 16) == 0x10ec)
 			snd_iprintf(buffer, " R/L");
 		else {
@@ -311,11 +311,19 @@ static void print_pin_caps(struct snd_info_buffer *buffer,
 	snd_iprintf(buffer, "    Conn = %s, Color = %s\n",
 		    get_jack_connection(caps),
 		    get_jack_color(caps));
+	/* Default association and sequence values refer to default grouping
+	 * of pin complexes and their sequence within the group. This is used
+	 * for priority and resource allocation.
+	 */
 	snd_iprintf(buffer, "    DefAssociation = 0x%x, Sequence = 0x%x\n",
 		    (caps & AC_DEFCFG_DEF_ASSOC) >> AC_DEFCFG_ASSOC_SHIFT,
 		    caps & AC_DEFCFG_SEQUENCE);
 	if (((caps & AC_DEFCFG_MISC) >> AC_DEFCFG_MISC_SHIFT) &
 	    AC_DEFCFG_MISC_NO_PRESENCE) {
+		/* Miscellaneous bit indicates external hardware does not
+		 * support presence detection even if the pin complex
+		 * indicates it is supported.
+		 */
 		snd_iprintf(buffer, "    Misc = NO_PRESENCE\n");
 	}
 }
@@ -538,7 +546,7 @@ static void print_gpio(struct snd_info_buffer *buffer,
 			    (sticky & (1<<i)) ? 1 : 0,
 			    (data & (1<<i)) ? 1 : 0,
 			    (unsol & (1<<i)) ? 1 : 0);
-	
+	/* FIXME: add GPO and GPI pin information */
 	print_nid_array(buffer, codec, nid, &codec->mixers);
 	print_nid_array(buffer, codec, nid, &codec->nids);
 }
@@ -629,6 +637,9 @@ static void print_codec_info(struct snd_info_entry *entry,
 		print_nid_array(buffer, codec, nid, &codec->nids);
 		print_nid_pcms(buffer, codec, nid);
 
+		/* volume knob is a special widget that always have connection
+		 * list
+		 */
 		if (wid_type == AC_WID_VOL_KNB)
 			wid_caps |= AC_WCAP_CONN_LIST;
 
@@ -711,6 +722,9 @@ static void print_codec_info(struct snd_info_entry *entry,
 	snd_hda_power_down(codec);
 }
 
+/*
+ * create a proc read
+ */
 int snd_hda_codec_proc_new(struct hda_codec *codec)
 {
 	char name[32];

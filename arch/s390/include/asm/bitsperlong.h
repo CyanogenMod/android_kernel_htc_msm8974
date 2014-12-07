@@ -9,5 +9,5 @@
 
 #include <asm-generic/bitsperlong.h>
 
-#endif 
+#endif /* __ASM_S390_BITSPERLONG_H */
 

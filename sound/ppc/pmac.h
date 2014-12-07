@@ -40,11 +40,15 @@
 #include <asm/prom.h>
 #include <asm/machdep.h>
 
+/* maximum number of fragments */
 #define PMAC_MAX_FRAGS		32
 
 
 #define PMAC_SUPPORT_AUTOMUTE
 
+/*
+ * DBDMA space
+ */
 struct pmac_dbdma {
 	dma_addr_t dma_base;
 	dma_addr_t addr;
@@ -53,14 +57,17 @@ struct pmac_dbdma {
 	int size;
 };
 
+/*
+ * playback/capture stream
+ */
 struct pmac_stream {
-	int running;	
+	int running;	/* boolean */
 
-	int stream;	
+	int stream;	/* PLAYBACK/CAPTURE */
 
-	int dma_size; 
-	int period_size; 
-	int buffer_size; 
+	int dma_size; /* in bytes */
+	int period_size; /* in bytes */
+	int buffer_size; /* in kbytes */
 	int nperiods, cur_period;
 
 	struct pmac_dbdma cmd;
@@ -68,11 +75,13 @@ struct pmac_stream {
 
 	struct snd_pcm_substream *substream;
 
-	unsigned int cur_freqs;		
-	unsigned int cur_formats;	
+	unsigned int cur_freqs;		/* currently available frequencies */
+	unsigned int cur_formats;	/* currently available formats */
 };
 
 
+/*
+ */
 
 enum snd_pmac_model {
 	PMAC_AWACS, PMAC_SCREAMER, PMAC_BURGUNDY, PMAC_DACA, PMAC_TUMBLER,
@@ -82,7 +91,7 @@ enum snd_pmac_model {
 struct snd_pmac {
 	struct snd_card *card;
 
-	
+	/* h/w info */
 	struct device_node *node;
 	struct pci_dev *pdev;
 	unsigned int revision;
@@ -109,15 +118,15 @@ struct snd_pmac {
 
 	int num_freqs;
 	int *freq_table;
-	unsigned int freqs_ok;		
-	unsigned int formats_ok;	
+	unsigned int freqs_ok;		/* bit flags */
+	unsigned int formats_ok;	/* pcm hwinfo */
 	int active;
 	int rate_index;
-	int format;			
+	int format;			/* current format */
 
 	spinlock_t reg_lock;
 	volatile struct awacs_regs __iomem *awacs;
-	int awacs_reg[8]; 
+	int awacs_reg[8]; /* register cache */
 	unsigned int hp_stat_mask;
 
 	unsigned char __iomem *latch_base;
@@ -134,18 +143,18 @@ struct snd_pmac {
 
 	struct pmac_beep *beep;
 
-	unsigned int control_mask;	
+	unsigned int control_mask;	/* control mask */
 
-	
+	/* mixer stuffs */
 	void *mixer_data;
 	void (*mixer_free)(struct snd_pmac *);
 	struct snd_kcontrol *master_sw_ctl;
 	struct snd_kcontrol *speaker_sw_ctl;
-	struct snd_kcontrol *drc_sw_ctl;	
+	struct snd_kcontrol *drc_sw_ctl;	/* only used for tumbler -ReneR */
 	struct snd_kcontrol *hp_detect_ctl;
 	struct snd_kcontrol *lineout_sw_ctl;
 
-	
+	/* lowlevel callbacks */
 	void (*set_format)(struct snd_pmac *chip);
 	void (*update_automute)(struct snd_pmac *chip, int do_notify);
 	int (*detect_headphone)(struct snd_pmac *chip);
@@ -157,6 +166,7 @@ struct snd_pmac {
 };
 
 
+/* exported functions */
 int snd_pmac_new(struct snd_card *card, struct snd_pmac **chip_return);
 int snd_pmac_pcm_new(struct snd_pmac *chip);
 int snd_pmac_attach_beep(struct snd_pmac *chip);
@@ -172,12 +182,14 @@ void snd_pmac_suspend(struct snd_pmac *chip);
 void snd_pmac_resume(struct snd_pmac *chip);
 #endif
 
+/* initialize mixer */
 int snd_pmac_awacs_init(struct snd_pmac *chip);
 int snd_pmac_burgundy_init(struct snd_pmac *chip);
 int snd_pmac_daca_init(struct snd_pmac *chip);
 int snd_pmac_tumbler_init(struct snd_pmac *chip);
 int snd_pmac_tumbler_post_init(void);
 
+/* i2c functions */
 struct pmac_keywest {
 	int addr;
 	struct i2c_client *client;
@@ -189,9 +201,10 @@ struct pmac_keywest {
 int snd_pmac_keywest_init(struct pmac_keywest *i2c);
 void snd_pmac_keywest_cleanup(struct pmac_keywest *i2c);
 
+/* misc */
 #define snd_pmac_boolean_stereo_info	snd_ctl_boolean_stereo_info
 #define snd_pmac_boolean_mono_info	snd_ctl_boolean_mono_info
 
 int snd_pmac_add_automute(struct snd_pmac *chip);
 
-#endif 
+#endif /* __PMAC_H */

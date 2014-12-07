@@ -19,8 +19,9 @@
 #define K_BKSPC 0x7f
 #define K_DEL	SL_KEY_DELETE
 
+/* Not really keys */
 #define K_TIMER	 -1
 #define K_ERROR	 -2
 #define K_RESIZE -3
 
-#endif 
+#endif /* _PERF_KEYSYMS_H_ */

@@ -104,7 +104,7 @@ static int conf_askvalue(struct symbol *sym, const char *def)
 			return 0;
 		}
 		check_stdin();
-		
+		/* fall through */
 	case oldaskconfig:
 		fflush(stdout);
 		xfgets(line, 128, stdin);
@@ -143,13 +143,13 @@ static int conf_string(struct menu *menu)
 		case '\n':
 			break;
 		case '?':
-			
+			/* print help */
 			if (line[1] == '\n') {
 				print_help(menu);
 				def = NULL;
 				break;
 			}
-			
+			/* fall through */
 		default:
 			line[strlen(line)-1] = 0;
 			def = line;
@@ -304,7 +304,7 @@ static int conf_choice(struct menu *menu)
 				break;
 			}
 			check_stdin();
-			
+			/* fall through */
 		case oldaskconfig:
 			fflush(stdout);
 			xfgets(line, 128, stdin);
@@ -370,7 +370,7 @@ static void conf(struct menu *menu)
 				check_conf(menu);
 				return;
 			}
-			
+			/* fall through */
 		case P_COMMENT:
 			prompt = menu_get_prompt(menu);
 			if (prompt)
@@ -481,7 +481,7 @@ int main(int ac, char **av)
 {
 	const char *progname = av[0];
 	int opt;
-	const char *name, *defconfig_file = NULL ;
+	const char *name, *defconfig_file = NULL /* gcc uninit */;
 	struct stat tmpstat;
 
 	setlocale(LC_ALL, "");
@@ -503,6 +503,10 @@ int main(int ac, char **av)
 			struct timeval now;
 			unsigned int seed;
 
+			/*
+			 * Use microseconds derived seed,
+			 * compensate for systems where it may be zero
+			 */
 			gettimeofday(&now, NULL);
 
 			seed = (unsigned int)((now.tv_sec + 1) * (now.tv_usec + 1));
@@ -531,7 +535,7 @@ int main(int ac, char **av)
 	}
 	name = av[optind];
 	conf_parse(name);
-	
+	//zconfdump(stdout);
 	if (sync_kconfig) {
 		name = conf_get_configname();
 		if (stat(name, &tmpstat)) {
@@ -628,12 +632,12 @@ int main(int ac, char **av)
 		rootEntry = &rootmenu;
 		conf(&rootmenu);
 		input_mode = silentoldconfig;
-		
+		/* fall through */
 	case oldconfig:
 	case listnewconfig:
 	case oldnoconfig:
 	case silentoldconfig:
-		
+		/* Update until a loop caused no more changes */
 		do {
 			conf_cnt = 0;
 			check_conf(&rootmenu);
@@ -644,6 +648,9 @@ int main(int ac, char **av)
 	}
 
 	if (sync_kconfig) {
+		/* silentoldconfig is used during the build so we shall update autoconf.
+		 * All other commands are only used to generate a config.
+		 */
 		if (conf_get_changed() && conf_write(NULL)) {
 			fprintf(stderr, _("\n*** Error during writing of the configuration.\n\n"));
 			exit(1);
@@ -667,6 +674,9 @@ int main(int ac, char **av)
 	return 0;
 }
 
+/*
+ * Helper function to facilitate fgets() by Jean Sacren.
+ */
 void xfgets(char *str, int size, FILE *in)
 {
 	if (fgets(str, size, in) == NULL)

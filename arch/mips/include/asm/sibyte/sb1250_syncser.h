@@ -35,6 +35,9 @@
 
 #include "sb1250_defs.h"
 
+/*
+ * Serial Mode Configuration Register
+ */
 
 #define M_SYNCSER_CRC_MODE                 _SB_MAKEMASK1(0)
 #define M_SYNCSER_MSB_FIRST                _SB_MAKEMASK1(1)
@@ -48,6 +51,9 @@
 #define M_SYNCSER_LOOP_MODE                _SB_MAKEMASK1(8)
 #define M_SYNCSER_LOOPBACK                 _SB_MAKEMASK1(9)
 
+/*
+ * Serial Clock Source and Line Interface Mode Register
+ */
 
 #define M_SYNCSER_RXCLK_INV                _SB_MAKEMASK1(0)
 #define M_SYNCSER_RXCLK_EXT                _SB_MAKEMASK1(1)
@@ -75,6 +81,9 @@
 #define M_SYNCSER_TXSYNC_EDGE              _SB_MAKEMASK1(14)
 #define M_SYNCSER_TXSYNC_INT               _SB_MAKEMASK1(15)
 
+/*
+ * Serial Command Register
+ */
 
 #define M_SYNCSER_CMD_RX_EN                _SB_MAKEMASK1(0)
 #define M_SYNCSER_CMD_TX_EN                _SB_MAKEMASK1(1)
@@ -82,10 +91,16 @@
 #define M_SYNCSER_CMD_TX_RESET             _SB_MAKEMASK1(3)
 #define M_SYNCSER_CMD_TX_PAUSE             _SB_MAKEMASK1(5)
 
+/*
+ * Serial DMA Enable Register
+ */
 
 #define M_SYNCSER_DMA_RX_EN                _SB_MAKEMASK1(0)
 #define M_SYNCSER_DMA_TX_EN                _SB_MAKEMASK1(4)
 
+/*
+ * Serial Status Register
+ */
 
 #define M_SYNCSER_RX_CRCERR                _SB_MAKEMASK1(0)
 #define M_SYNCSER_RX_ABORT                 _SB_MAKEMASK1(1)
@@ -114,6 +129,9 @@
 #define M_SYNCSER_TX_DERR                  _SB_MAKEMASK1(30)
 #define M_SYNCSER_TX_DZERO                 _SB_MAKEMASK1(31)
 
+/*
+ * Sequencer Table Entry format
+ */
 
 #define M_SYNCSER_SEQ_LAST                 _SB_MAKEMASK1(0)
 #define M_SYNCSER_SEQ_BYTE                 _SB_MAKEMASK1(1)

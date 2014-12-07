@@ -23,6 +23,10 @@
 
 #include "pinctrl-tegra.h"
 
+/*
+ * Most pins affected by the pinmux can also be GPIOs. Define these first.
+ * These must match how the GPIO driver names/numbers its pins.
+ */
 #define _GPIO(offset)			(offset)
 
 #define TEGRA_PIN_VI_GP6_PA0		_GPIO(0)
@@ -250,6 +254,7 @@
 #define TEGRA_PIN_PBB6			_GPIO(222)
 #define TEGRA_PIN_PBB7			_GPIO(223)
 
+/* All non-GPIO pins follow */
 #define NUM_GPIOS			(TEGRA_PIN_PBB7 + 1)
 #define _PIN(offset)			(NUM_GPIOS + (offset))
 
@@ -509,7 +514,7 @@ static const struct pinctrl_pin_desc tegra20_pins[] = {
 	PINCTRL_PIN(TEGRA_PIN_GEN2_I2C_SCL_PT5, "GEN2_I2C_SCL PT5"),
 	PINCTRL_PIN(TEGRA_PIN_GEN2_I2C_SDA_PT6, "GEN2_I2C_SDA PT6"),
 	PINCTRL_PIN(TEGRA_PIN_GMI_DPD_PT7, "GMI_DPD PT7"),
-	
+	/* PU0..6: GPIO only */
 	PINCTRL_PIN(TEGRA_PIN_PU0, "PU0"),
 	PINCTRL_PIN(TEGRA_PIN_PU1, "PU1"),
 	PINCTRL_PIN(TEGRA_PIN_PU2, "PU2"),
@@ -518,13 +523,13 @@ static const struct pinctrl_pin_desc tegra20_pins[] = {
 	PINCTRL_PIN(TEGRA_PIN_PU5, "PU5"),
 	PINCTRL_PIN(TEGRA_PIN_PU6, "PU6"),
 	PINCTRL_PIN(TEGRA_PIN_JTAG_RTCK_PU7, "JTAG_RTCK PU7"),
-	
+	/* PV0..1: GPIO only */
 	PINCTRL_PIN(TEGRA_PIN_PV0, "PV0"),
 	PINCTRL_PIN(TEGRA_PIN_PV1, "PV1"),
-	
+	/* PV2..3: Balls are named after GPIO not function */
 	PINCTRL_PIN(TEGRA_PIN_PV2, "PV2"),
 	PINCTRL_PIN(TEGRA_PIN_PV3, "PV3"),
-	
+	/* PV4..6: GPIO only */
 	PINCTRL_PIN(TEGRA_PIN_PV4, "PV4"),
 	PINCTRL_PIN(TEGRA_PIN_PV5, "PV5"),
 	PINCTRL_PIN(TEGRA_PIN_PV6, "PV6"),
@@ -2590,6 +2595,7 @@ static const struct tegra_function tegra20_functions[] = {
 #define PULLUPDOWN_REG_A	0xa0
 #define PINGROUP_REG_A		0x868
 
+/* Pin group with mux control, and typically tri-state and pull-up/down too */
 #define MUX_PG(pg_name, f0, f1, f2, f3, f_safe,			\
 	       tri_r, tri_b, mux_r, mux_b, pupd_r, pupd_b)	\
 	{							\
@@ -2619,6 +2625,7 @@ static const struct tegra_function tegra20_functions[] = {
 		.drv_reg = -1,					\
 	}
 
+/* Pin groups with only pull up and pull down control */
 #define PULL_PG(pg_name, pupd_r, pupd_b)			\
 	{							\
 		.name = #pg_name,				\
@@ -2636,6 +2643,7 @@ static const struct tegra_function tegra20_functions[] = {
 		.drv_reg = -1,					\
 	}
 
+/* Pin groups for drive strength registers (configurable version) */
 #define DRV_PG_EXT(pg_name, r, hsm_b, schmitt_b, lpmd_b,	\
 		   drvdn_b, drvup_b,				\
 		   slwr_b, slwr_w, slwf_b, slwf_w)		\
@@ -2665,11 +2673,12 @@ static const struct tegra_function tegra20_functions[] = {
 		.slwf_width = slwf_w,				\
 	}
 
+/* Pin groups for drive strength registers (simple version) */
 #define DRV_PG(pg_name, r) \
 	DRV_PG_EXT(pg_name, r, 2,  3,  4, 12, 20, 28, 2, 30, 2)
 
 static const struct tegra_pingroup tegra20_groups[] = {
-	
+	/*     name,   f0,        f1,        f2,        f3,            f_safe,    tri r/b,  mux r/b,  pupd r/b */
 	MUX_PG(ata,    IDE,       NAND,      GMI,       RSVD4,         IDE,       0x14, 0,  0x80, 24, 0xa0, 0),
 	MUX_PG(atb,    IDE,       NAND,      GMI,       SDIO4,         IDE,       0x14, 1,  0x80, 16, 0xa0, 2),
 	MUX_PG(atc,    IDE,       NAND,      GMI,       SDIO4,         IDE,       0x14, 2,  0x80, 22, 0xa0, 4),
@@ -2777,7 +2786,7 @@ static const struct tegra_pingroup tegra20_groups[] = {
 	MUX_PG(uca,    UARTC,     RSVD2,     GMI,       RSVD4,         RSVD4,     0x18, 22, 0x84, 16, 0xac, 8),
 	MUX_PG(ucb,    UARTC,     PWM,       GMI,       RSVD4,         RSVD4,     0x18, 23, 0x84, 18, 0xac, 10),
 	MUX_PG(uda,    SPI1,      RSVD2,     UARTD,     ULPI,          RSVD2,     0x20, 13, 0x80, 8,  0xb0, 16),
-	
+	/*      pg_name, pupd_r/b */
 	PULL_PG(ck32,    0xb0, 14),
 	PULL_PG(ddrc,    0xac, 26),
 	PULL_PG(pmca,    0xb0, 4),
@@ -2793,7 +2802,7 @@ static const struct tegra_pingroup tegra20_groups[] = {
 	PULL_PG(ld19_18, 0xac, 14),
 	PULL_PG(ld21_20, 0xac, 16),
 	PULL_PG(ld23_22, 0xac, 18),
-	
+	/*     pg_name,    r */
 	DRV_PG(ao1,        0x868),
 	DRV_PG(ao2,        0x86c),
 	DRV_PG(at1,        0x870),
@@ -2817,12 +2826,12 @@ static const struct tegra_pingroup tegra20_groups[] = {
 	DRV_PG(uart3,      0x8b8),
 	DRV_PG(vi1,        0x8bc),
 	DRV_PG(vi2,        0x8c0),
-	
+	/*         pg_name, r, hsm_b, schmitt_b, lpmd_b, drvdn_b, drvup_b, slwr_b, slwr_w, slwf_b, slwf_w */
 	DRV_PG_EXT(xm2a,   0x8c4, -1, -1,  4, 14, 19, 24, 4, 28, 4),
 	DRV_PG_EXT(xm2c,   0x8c8, -1,  3, -1, 14, 19, 24, 4, 28, 4),
 	DRV_PG_EXT(xm2d,   0x8cc, -1,  3, -1, 14, 19, 24, 4, 28, 4),
 	DRV_PG_EXT(xm2clk, 0x8d0, -1, -1, -1, 14, 19, 24, 4, 28, 4),
-	
+	/*     pg_name,    r */
 	DRV_PG(sdio1,      0x8e0),
 	DRV_PG(crt,        0x8ec),
 	DRV_PG(ddc,        0x8f0),

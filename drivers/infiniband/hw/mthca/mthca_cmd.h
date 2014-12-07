@@ -40,41 +40,41 @@
 #define MTHCA_MAILBOX_SIZE 4096
 
 enum {
-	
+	/* command completed successfully: */
 	MTHCA_CMD_STAT_OK 	      = 0x00,
-	
+	/* Internal error (such as a bus error) occurred while processing command: */
 	MTHCA_CMD_STAT_INTERNAL_ERR   = 0x01,
-	
+	/* Operation/command not supported or opcode modifier not supported: */
 	MTHCA_CMD_STAT_BAD_OP 	      = 0x02,
-	
+	/* Parameter not supported or parameter out of range: */
 	MTHCA_CMD_STAT_BAD_PARAM      = 0x03,
-	
+	/* System not enabled or bad system state: */
 	MTHCA_CMD_STAT_BAD_SYS_STATE  = 0x04,
-	
+	/* Attempt to access reserved or unallocaterd resource: */
 	MTHCA_CMD_STAT_BAD_RESOURCE   = 0x05,
-	
+	/* Requested resource is currently executing a command, or is otherwise busy: */
 	MTHCA_CMD_STAT_RESOURCE_BUSY  = 0x06,
-	
+	/* memory error: */
 	MTHCA_CMD_STAT_DDR_MEM_ERR    = 0x07,
-	
+	/* Required capability exceeds device limits: */
 	MTHCA_CMD_STAT_EXCEED_LIM     = 0x08,
-	
+	/* Resource is not in the appropriate state or ownership: */
 	MTHCA_CMD_STAT_BAD_RES_STATE  = 0x09,
-	
+	/* Index out of range: */
 	MTHCA_CMD_STAT_BAD_INDEX      = 0x0a,
-	
+	/* FW image corrupted: */
 	MTHCA_CMD_STAT_BAD_NVMEM      = 0x0b,
-	
+	/* Attempt to modify a QP/EE which is not in the presumed state: */
 	MTHCA_CMD_STAT_BAD_QPEE_STATE = 0x10,
-	
+	/* Bad segment parameters (Address/Size): */
 	MTHCA_CMD_STAT_BAD_SEG_PARAM  = 0x20,
-	
+	/* Memory Region has Memory Windows bound to: */
 	MTHCA_CMD_STAT_REG_BOUND      = 0x21,
-	
+	/* HCA local attached memory not present: */
 	MTHCA_CMD_STAT_LAM_NOT_PRE    = 0x22,
-	
+	/* Bad management packet (silently discarded): */
 	MTHCA_CMD_STAT_BAD_PKT 	      = 0x30,
-	
+	/* More outstanding CQEs in CQ than new CQ size: */
 	MTHCA_CMD_STAT_BAD_SIZE       = 0x40
 };
 
@@ -322,4 +322,4 @@ int mthca_MGID_HASH(struct mthca_dev *dev, struct mthca_mailbox *mailbox,
 		    u16 *hash);
 int mthca_NOP(struct mthca_dev *dev);
 
-#endif 
+#endif /* MTHCA_CMD_H */

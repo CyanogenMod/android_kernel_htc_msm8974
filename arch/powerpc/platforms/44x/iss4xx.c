@@ -49,11 +49,12 @@ static int __init iss4xx_device_probe(void)
 }
 machine_device_initcall(iss4xx, iss4xx_device_probe);
 
+/* We can have either UICs or MPICs */
 static void __init iss4xx_init_irq(void)
 {
 	struct device_node *np;
 
-	
+	/* Find top level interrupt controller */
 	for_each_node_with_property(np, "interrupt-controller") {
 		if (of_get_property(np, "interrupts", NULL) == NULL)
 			break;
@@ -61,12 +62,15 @@ static void __init iss4xx_init_irq(void)
 	if (np == NULL)
 		panic("Can't find top level interrupt controller");
 
-	
+	/* Check type and do appropriate initialization */
 	if (of_device_is_compatible(np, "ibm,uic")) {
 		uic_init_tree();
 		ppc_md.get_irq = uic_get_irq;
 #ifdef CONFIG_MPIC
 	} else if (of_device_is_compatible(np, "chrp,open-pic")) {
+		/* The MPIC driver will get everything it needs from the
+		 * device-tree, just pass 0 to all arguments
+		 */
 		struct mpic *mpic = mpic_alloc(np, 0, MPIC_NO_RESET, 0, 0, " MPIC     ");
 		BUG_ON(mpic == NULL);
 		mpic_init(mpic);
@@ -91,6 +95,10 @@ static int __cpuinit smp_iss4xx_kick_cpu(int cpu)
 
 	BUG_ON(cpunode == NULL);
 
+	/* Assume spin table. We could test for the enable-method in
+	 * the device-tree but currently there's little point as it's
+	 * our only supported method
+	 */
 	spin_table_addr_prop = of_get_property(cpunode, "cpu-release-addr",
 					       NULL);
 	if (spin_table_addr_prop == NULL) {
@@ -98,6 +106,9 @@ static int __cpuinit smp_iss4xx_kick_cpu(int cpu)
 		return -ENOENT;
 	}
 
+	/* Assume it's mapped as part of the linear mapping. This is a bit
+	 * fishy but will work fine for now
+	 */
 	spin_table = (u32 *)__va(*spin_table_addr_prop);
 	pr_debug("CPU%d: Spin table mapped at %p\n", cpu, spin_table);
 
@@ -124,15 +135,18 @@ static void __init iss4xx_smp_init(void)
 		smp_ops = &iss_smp_ops;
 }
 
-#else 
+#else /* CONFIG_SMP */
 static void __init iss4xx_smp_init(void) { }
-#endif 
+#endif /* CONFIG_SMP */
 
 static void __init iss4xx_setup_arch(void)
 {
 	iss4xx_smp_init();
 }
 
+/*
+ * Called very early, MMU is off, device-tree isn't unflattened
+ */
 static int __init iss4xx_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();

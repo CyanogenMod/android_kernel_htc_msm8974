@@ -36,6 +36,7 @@
 #include <linux/mutex.h>
 #include <linux/delay.h>
 
+/* Addresses to scan */
 static const unsigned short normal_i2c[] = {
 	0x2c, 0x2d, 0x2e, 0x2f, I2C_CLIENT_END
 };
@@ -57,6 +58,7 @@ MODULE_PARM_DESC(reset, "Set to 1 to reset chip, not recommended");
 #define W83795_REG_CONFIG_CONFIG48	0x04
 #define W83795_REG_CONFIG_START	0x01
 
+/* Multi-Function Pin Ctrl Registers */
 #define W83795_REG_VOLT_CTRL1		0x02
 #define W83795_REG_VOLT_CTRL2		0x03
 #define W83795_REG_TEMP_CTRL1		0x04
@@ -70,55 +72,59 @@ MODULE_PARM_DESC(reset, "Set to 1 to reset chip, not recommended");
 #define TEMP_CRIT_HYST			2
 #define TEMP_WARN			3
 #define TEMP_WARN_HYST			4
+/*
+ * only crit and crit_hyst affect real-time alarm status
+ * current crit crit_hyst warn warn_hyst
+ */
 static const u16 W83795_REG_TEMP[][5] = {
-	{0x21, 0x96, 0x97, 0x98, 0x99},	
-	{0x22, 0x9a, 0x9b, 0x9c, 0x9d},	
-	{0x23, 0x9e, 0x9f, 0xa0, 0xa1},	
-	{0x24, 0xa2, 0xa3, 0xa4, 0xa5},	
-	{0x1f, 0xa6, 0xa7, 0xa8, 0xa9},	
-	{0x20, 0xaa, 0xab, 0xac, 0xad},	
+	{0x21, 0x96, 0x97, 0x98, 0x99},	/* TD1/TR1 */
+	{0x22, 0x9a, 0x9b, 0x9c, 0x9d},	/* TD2/TR2 */
+	{0x23, 0x9e, 0x9f, 0xa0, 0xa1},	/* TD3/TR3 */
+	{0x24, 0xa2, 0xa3, 0xa4, 0xa5},	/* TD4/TR4 */
+	{0x1f, 0xa6, 0xa7, 0xa8, 0xa9},	/* TR5 */
+	{0x20, 0xaa, 0xab, 0xac, 0xad},	/* TR6 */
 };
 
 #define IN_READ				0
 #define IN_MAX				1
 #define IN_LOW				2
 static const u16 W83795_REG_IN[][3] = {
-	
-	{0x10, 0x70, 0x71},	
-	{0x11, 0x72, 0x73},	
-	{0x12, 0x74, 0x75},	
-	{0x13, 0x76, 0x77},	
-	{0x14, 0x78, 0x79},	
-	{0x15, 0x7a, 0x7b},	
-	{0x16, 0x7c, 0x7d},	
-	{0x17, 0x7e, 0x7f},	
-	{0x18, 0x80, 0x81},	
-	{0x19, 0x82, 0x83},	
-	{0x1A, 0x84, 0x85},	
-	{0x1B, 0x86, 0x87},	
-	{0x1C, 0x88, 0x89},	
-	{0x1D, 0x8a, 0x8b},	
-	{0x1E, 0x8c, 0x8d},	
-	{0x1F, 0xa6, 0xa7},	
-	{0x20, 0xaa, 0xab},	
-	{0x21, 0x96, 0x97},	
-	{0x22, 0x9a, 0x9b},	
-	{0x23, 0x9e, 0x9f},	
-	{0x24, 0xa2, 0xa3},	
+	/* Current, HL, LL */
+	{0x10, 0x70, 0x71},	/* VSEN1 */
+	{0x11, 0x72, 0x73},	/* VSEN2 */
+	{0x12, 0x74, 0x75},	/* VSEN3 */
+	{0x13, 0x76, 0x77},	/* VSEN4 */
+	{0x14, 0x78, 0x79},	/* VSEN5 */
+	{0x15, 0x7a, 0x7b},	/* VSEN6 */
+	{0x16, 0x7c, 0x7d},	/* VSEN7 */
+	{0x17, 0x7e, 0x7f},	/* VSEN8 */
+	{0x18, 0x80, 0x81},	/* VSEN9 */
+	{0x19, 0x82, 0x83},	/* VSEN10 */
+	{0x1A, 0x84, 0x85},	/* VSEN11 */
+	{0x1B, 0x86, 0x87},	/* VTT */
+	{0x1C, 0x88, 0x89},	/* 3VDD */
+	{0x1D, 0x8a, 0x8b},	/* 3VSB */
+	{0x1E, 0x8c, 0x8d},	/* VBAT */
+	{0x1F, 0xa6, 0xa7},	/* VSEN12 */
+	{0x20, 0xaa, 0xab},	/* VSEN13 */
+	{0x21, 0x96, 0x97},	/* VSEN14 */
+	{0x22, 0x9a, 0x9b},	/* VSEN15 */
+	{0x23, 0x9e, 0x9f},	/* VSEN16 */
+	{0x24, 0xa2, 0xa3},	/* VSEN17 */
 };
 #define W83795_REG_VRLSB		0x3C
 
 static const u8 W83795_REG_IN_HL_LSB[] = {
-	0x8e,	
-	0x90,	
-	0x92,	
-	0x94,	
-	0xa8,	
-	0xac,	
-	0x98,	
-	0x9c,	
-	0xa0,	
-	0xa4,	
+	0x8e,	/* VSEN1-4 */
+	0x90,	/* VSEN5-8 */
+	0x92,	/* VSEN9-11 */
+	0x94,	/* VTT, 3VDD, 3VSB, 3VBAT */
+	0xa8,	/* VSEN12 */
+	0xac,	/* VSEN13 */
+	0x98,	/* VSEN14 */
+	0x9c,	/* VSEN15 */
+	0xa0,	/* VSEN16 */
+	0xa4,	/* VSEN17 */
 };
 
 #define IN_LSB_REG(index, type) \
@@ -128,28 +134,28 @@ static const u8 W83795_REG_IN_HL_LSB[] = {
 #define IN_LSB_SHIFT			0
 #define IN_LSB_IDX			1
 static const u8 IN_LSB_SHIFT_IDX[][2] = {
-	
-	{0x00, 0x00},	
-	{0x02, 0x00},	
-	{0x04, 0x00},	
-	{0x06, 0x00},	
-	{0x00, 0x01},	
-	{0x02, 0x01},	
-	{0x04, 0x01},	
-	{0x06, 0x01},	
-	{0x00, 0x02},	
-	{0x02, 0x02},	
-	{0x04, 0x02},	
-	{0x00, 0x03},	
-	{0x02, 0x03},	
-	{0x04, 0x03},	
-	{0x06, 0x03},	
-	{0x06, 0x04},	
-	{0x06, 0x05},	
-	{0x06, 0x06},	
-	{0x06, 0x07},	
-	{0x06, 0x08},	
-	{0x06, 0x09},	
+	/* High/Low LSB shift, LSB No. */
+	{0x00, 0x00},	/* VSEN1 */
+	{0x02, 0x00},	/* VSEN2 */
+	{0x04, 0x00},	/* VSEN3 */
+	{0x06, 0x00},	/* VSEN4 */
+	{0x00, 0x01},	/* VSEN5 */
+	{0x02, 0x01},	/* VSEN6 */
+	{0x04, 0x01},	/* VSEN7 */
+	{0x06, 0x01},	/* VSEN8 */
+	{0x00, 0x02},	/* VSEN9 */
+	{0x02, 0x02},	/* VSEN10 */
+	{0x04, 0x02},	/* VSEN11 */
+	{0x00, 0x03},	/* VTT */
+	{0x02, 0x03},	/* 3VDD */
+	{0x04, 0x03},	/* 3VSB	*/
+	{0x06, 0x03},	/* VBAT	*/
+	{0x06, 0x04},	/* VSEN12 */
+	{0x06, 0x05},	/* VSEN13 */
+	{0x06, 0x06},	/* VSEN14 */
+	{0x06, 0x07},	/* VSEN15 */
+	{0x06, 0x08},	/* VSEN16 */
+	{0x06, 0x09},	/* VSEN17 */
 };
 
 
@@ -230,7 +236,7 @@ static const u8 tss_map[4][6] = {
 
 static inline u16 in_from_reg(u8 index, u16 val)
 {
-	
+	/* 3VDD, 3VSB and VBAT: 6 mV/bit; other inputs: 2 mV/bit */
 	if (index >= 12 && index <= 14)
 		return val * 6;
 	else
@@ -301,23 +307,23 @@ static u8 pwm_freq_to_reg(unsigned long val, u16 clkin)
 	u8 reg0, reg1;
 	unsigned long best0, best1;
 
-	
+	/* Best fit for cksel = 0 */
 	for (reg0 = 0; reg0 < ARRAY_SIZE(pwm_freq_cksel0) - 1; reg0++) {
 		if (val > (pwm_freq_cksel0[reg0] +
 			   pwm_freq_cksel0[reg0 + 1]) / 2)
 			break;
 	}
-	if (val < 375)	
+	if (val < 375)	/* cksel = 1 can't beat this */
 		return reg0;
 	best0 = pwm_freq_cksel0[reg0];
 
-	
+	/* Best fit for cksel = 1 */
 	base_clock = clkin * 1000 / ((clkin == 48000) ? 384 : 256);
 	reg1 = SENSORS_LIMIT(DIV_ROUND_CLOSEST(base_clock, val), 1, 128);
 	best1 = base_clock / reg1;
 	reg1 = 0x80 | (reg1 - 1);
 
-	
+	/* Choose the closest one */
 	if (abs(val - best0) > abs(val - best1))
 		return reg1;
 	else
@@ -329,67 +335,86 @@ enum chip_types {w83795g, w83795adg};
 struct w83795_data {
 	struct device *hwmon_dev;
 	struct mutex update_lock;
-	unsigned long last_updated;	
+	unsigned long last_updated;	/* In jiffies */
 	enum chip_types chip_type;
 
 	u8 bank;
 
-	u32 has_in;		
-	u8 has_dyn_in;		
-	u16 in[21][3];		
-	u8 in_lsb[10][3];	
-	u8 has_gain;		
+	u32 has_in;		/* Enable monitor VIN or not */
+	u8 has_dyn_in;		/* Only in2-0 can have this */
+	u16 in[21][3];		/* Register value, read/high/low */
+	u8 in_lsb[10][3];	/* LSB Register value, high/low */
+	u8 has_gain;		/* has gain: in17-20 * 8 */
 
-	u16 has_fan;		
-	u16 fan[14];		
-	u16 fan_min[14];	
+	u16 has_fan;		/* Enable fan14-1 or not */
+	u16 fan[14];		/* Register value combine */
+	u16 fan_min[14];	/* Register value combine */
 
-	u8 has_temp;		
-	s8 temp[6][5];		
+	u8 has_temp;		/* Enable monitor temp6-1 or not */
+	s8 temp[6][5];		/* current, crit, crit_hyst, warn, warn_hyst */
 	u8 temp_read_vrlsb[6];
-	u8 temp_mode;		
-	u8 temp_src[3];		
+	u8 temp_mode;		/* Bit vector, 0 = TR, 1 = TD */
+	u8 temp_src[3];		/* Register value */
 
-	u8 enable_dts;		
-	u8 has_dts;		
-	s8 dts[8];		
-	u8 dts_read_vrlsb[8];	
-	s8 dts_ext[4];		
+	u8 enable_dts;		/*
+				 * Enable PECI and SB-TSI,
+				 * bit 0: =1 enable, =0 disable,
+				 * bit 1: =1 AMD SB-TSI, =0 Intel PECI
+				 */
+	u8 has_dts;		/* Enable monitor DTS temp */
+	s8 dts[8];		/* Register value */
+	u8 dts_read_vrlsb[8];	/* Register value */
+	s8 dts_ext[4];		/* Register value */
 
-	u8 has_pwm;		
-	u8 pwm[8][5];		
-	u16 clkin;		
-	u8 pwm_fcms[2];		
-	u8 pwm_tfmr[6];		
-	u8 pwm_fomc;		
+	u8 has_pwm;		/*
+				 * 795g supports 8 pwm, 795adg only supports 2,
+				 * no config register, only affected by chip
+				 * type
+				 */
+	u8 pwm[8][5];		/*
+				 * Register value, output, freq, start,
+				 *  non stop, stop time
+				 */
+	u16 clkin;		/* CLKIN frequency in kHz */
+	u8 pwm_fcms[2];		/* Register value */
+	u8 pwm_tfmr[6];		/* Register value */
+	u8 pwm_fomc;		/* Register value */
 
-	u16 target_speed[8];	
-	u8 tol_speed;		
-	u8 pwm_temp[6][4];	
-	u8 sf4_reg[6][2][7];	
+	u16 target_speed[8];	/*
+				 * Register value, target speed for speed
+				 * cruise
+				 */
+	u8 tol_speed;		/* tolerance of target speed */
+	u8 pwm_temp[6][4];	/* TTTI, CTFS, HCT, HOT */
+	u8 sf4_reg[6][2][7];	/* 6 temp, temp/dcpwm, 7 registers */
 
-	u8 setup_pwm[3];	
+	u8 setup_pwm[3];	/* Register value */
 
-	u8 alarms[6];		
+	u8 alarms[6];		/* Register value */
 	u8 enable_beep;
-	u8 beeps[6];		
+	u8 beeps[6];		/* Register value */
 
 	char valid;
 	char valid_limits;
 	char valid_pwm_config;
 };
 
+/*
+ * Hardware access
+ * We assume that nobdody can change the bank outside the driver.
+ */
 
+/* Must be called with data->update_lock held, except during initialization */
 static int w83795_set_bank(struct i2c_client *client, u8 bank)
 {
 	struct w83795_data *data = i2c_get_clientdata(client);
 	int err;
 
-	
+	/* If the same bank is already set, nothing to do */
 	if ((data->bank & 0x07) == bank)
 		return 0;
 
-	
+	/* Change to new bank, preserve all other bits */
 	bank |= data->bank & ~0x07;
 	err = i2c_smbus_write_byte_data(client, W83795_REG_BANKSEL, bank);
 	if (err < 0) {
@@ -403,24 +428,26 @@ static int w83795_set_bank(struct i2c_client *client, u8 bank)
 	return 0;
 }
 
+/* Must be called with data->update_lock held, except during initialization */
 static u8 w83795_read(struct i2c_client *client, u16 reg)
 {
 	int err;
 
 	err = w83795_set_bank(client, reg >> 8);
 	if (err < 0)
-		return 0x00;	
+		return 0x00;	/* Arbitrary */
 
 	err = i2c_smbus_read_byte_data(client, reg & 0xff);
 	if (err < 0) {
 		dev_err(&client->dev,
 			"Failed to read from register 0x%03x, err %d\n",
 			(int)reg, err);
-		return 0x00;	
+		return 0x00;	/* Arbitrary */
 	}
 	return err;
 }
 
+/* Must be called with data->update_lock held, except during initialization */
 static int w83795_write(struct i2c_client *client, u16 reg, u8 value)
 {
 	int err;
@@ -443,7 +470,7 @@ static void w83795_update_limits(struct i2c_client *client)
 	int i, limit;
 	u8 lsb;
 
-	
+	/* Read the voltage limits */
 	for (i = 0; i < ARRAY_SIZE(data->in); i++) {
 		if (!(data->has_in & (1 << i)))
 			continue;
@@ -462,9 +489,13 @@ static void w83795_update_limits(struct i2c_client *client)
 			w83795_read(client, IN_LSB_REG(i, IN_LOW));
 	}
 
-	
-	lsb = 0; 
+	/* Read the fan limits */
+	lsb = 0; /* Silent false gcc warning */
 	for (i = 0; i < ARRAY_SIZE(data->fan); i++) {
+		/*
+		 * Each register contains LSB for 2 fans, but we want to
+		 * read it only once to save time
+		 */
 		if ((i & 1) == 0 && (data->has_fan & (3 << i)))
 			lsb = w83795_read(client, W83795_REG_FAN_MIN_LSB(i));
 
@@ -476,7 +507,7 @@ static void w83795_update_limits(struct i2c_client *client)
 			(lsb >> W83795_REG_FAN_MIN_LSB_SHIFT(i)) & 0x0F;
 	}
 
-	
+	/* Read the temperature limits */
 	for (i = 0; i < ARRAY_SIZE(data->temp); i++) {
 		if (!(data->has_temp & (1 << i)))
 			continue;
@@ -485,14 +516,14 @@ static void w83795_update_limits(struct i2c_client *client)
 				w83795_read(client, W83795_REG_TEMP[i][limit]);
 	}
 
-	
+	/* Read the DTS limits */
 	if (data->enable_dts) {
 		for (limit = DTS_CRIT; limit <= DTS_WARN_HYST; limit++)
 			data->dts_ext[limit] =
 				w83795_read(client, W83795_REG_DTS_EXT(limit));
 	}
 
-	
+	/* Read beep settings */
 	if (data->enable_beep) {
 		for (i = 0; i < ARRAY_SIZE(data->beeps); i++)
 			data->beeps[i] =
@@ -513,11 +544,11 @@ static struct w83795_data *w83795_update_pwm_config(struct device *dev)
 	if (data->valid_pwm_config)
 		goto END;
 
-	
+	/* Read temperature source selection */
 	for (i = 0; i < ARRAY_SIZE(data->temp_src); i++)
 		data->temp_src[i] = w83795_read(client, W83795_REG_TSS(i));
 
-	
+	/* Read automatic fan speed control settings */
 	data->pwm_fcms[0] = w83795_read(client, W83795_REG_FCMS1);
 	data->pwm_fcms[1] = w83795_read(client, W83795_REG_FCMS2);
 	for (i = 0; i < ARRAY_SIZE(data->pwm_tfmr); i++)
@@ -546,7 +577,7 @@ static struct w83795_data *w83795_update_pwm_config(struct device *dev)
 		data->pwm_temp[i][TEMP_PWM_HOT] = tmp & 0x0f;
 	}
 
-	
+	/* Read SmartFanIV trip points */
 	for (i = 0; i < ARRAY_SIZE(data->sf4_reg); i++) {
 		for (tmp = 0; tmp < 7; tmp++) {
 			data->sf4_reg[i][SF4_TEMP][tmp] =
@@ -557,7 +588,7 @@ static struct w83795_data *w83795_update_pwm_config(struct device *dev)
 		}
 	}
 
-	
+	/* Read setup PWM */
 	for (i = 0; i < ARRAY_SIZE(data->setup_pwm); i++)
 		data->setup_pwm[i] =
 			w83795_read(client, W83795_REG_SETUP_PWM(i));
@@ -586,7 +617,7 @@ static struct w83795_data *w83795_update_device(struct device *dev)
 	      || !data->valid))
 		goto END;
 
-	
+	/* Update the voltages value */
 	for (i = 0; i < ARRAY_SIZE(data->in); i++) {
 		if (!(data->has_in & (1 << i)))
 			continue;
@@ -595,7 +626,7 @@ static struct w83795_data *w83795_update_device(struct device *dev)
 		data->in[i][IN_READ] = tmp;
 	}
 
-	
+	/* in0-2 can have dynamic limits (W83795G only) */
 	if (data->has_dyn_in) {
 		u8 lsb_max = w83795_read(client, IN_LSB_REG(0, IN_MAX));
 		u8 lsb_low = w83795_read(client, IN_LSB_REG(0, IN_LOW));
@@ -612,7 +643,7 @@ static struct w83795_data *w83795_update_device(struct device *dev)
 		}
 	}
 
-	
+	/* Update fan */
 	for (i = 0; i < ARRAY_SIZE(data->fan); i++) {
 		if (!(data->has_fan & (1 << i)))
 			continue;
@@ -620,7 +651,7 @@ static struct w83795_data *w83795_update_device(struct device *dev)
 		data->fan[i] |= w83795_read(client, W83795_REG_VRLSB) >> 4;
 	}
 
-	
+	/* Update temperature */
 	for (i = 0; i < ARRAY_SIZE(data->temp); i++) {
 		data->temp[i][TEMP_READ] =
 			w83795_read(client, W83795_REG_TEMP[i][TEMP_READ]);
@@ -628,7 +659,7 @@ static struct w83795_data *w83795_update_device(struct device *dev)
 			w83795_read(client, W83795_REG_VRLSB);
 	}
 
-	
+	/* Update dts temperature */
 	if (data->enable_dts) {
 		for (i = 0; i < ARRAY_SIZE(data->dts); i++) {
 			if (!(data->has_dts & (1 << i)))
@@ -640,24 +671,29 @@ static struct w83795_data *w83795_update_device(struct device *dev)
 		}
 	}
 
-	
+	/* Update pwm output */
 	for (i = 0; i < data->has_pwm; i++) {
 		data->pwm[i][PWM_OUTPUT] =
 		    w83795_read(client, W83795_REG_PWM(i, PWM_OUTPUT));
 	}
 
+	/*
+	 * Update intrusion and alarms
+	 * It is important to read intrusion first, because reading from
+	 * register SMI STS6 clears the interrupt status temporarily.
+	 */
 	tmp = w83795_read(client, W83795_REG_ALARM_CTRL);
-	
+	/* Switch to interrupt status for intrusion if needed */
 	if (tmp & ALARM_CTRL_RTSACS)
 		w83795_write(client, W83795_REG_ALARM_CTRL,
 			     tmp & ~ALARM_CTRL_RTSACS);
 	intrusion = w83795_read(client, W83795_REG_ALARM(5)) & (1 << 6);
-	
+	/* Switch to real-time alarms */
 	w83795_write(client, W83795_REG_ALARM_CTRL, tmp | ALARM_CTRL_RTSACS);
 	for (i = 0; i < ARRAY_SIZE(data->alarms); i++)
 		data->alarms[i] = w83795_read(client, W83795_REG_ALARM(i));
 	data->alarms[5] |= intrusion;
-	
+	/* Restore original configuration if needed */
 	if (!(tmp & ALARM_CTRL_RTSACS))
 		w83795_write(client, W83795_REG_ALARM_CTRL,
 			     tmp & ~ALARM_CTRL_RTSACS);
@@ -670,6 +706,9 @@ END:
 	return data;
 }
 
+/*
+ * Sysfs attributes
+ */
 
 #define ALARM_STATUS      0
 #define BEEP_ENABLE       1
@@ -686,7 +725,7 @@ show_alarm_beep(struct device *dev, struct device_attribute *attr, char *buf)
 
 	if (nr == ALARM_STATUS)
 		val = (data->alarms[index] >> bit) & 1;
-	else		
+	else		/* BEEP_ENABLE */
 		val = (data->beeps[index] >> bit) & 1;
 
 	return sprintf(buf, "%u\n", val);
@@ -720,6 +759,7 @@ store_beep(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/* Write 0 to clear chassis alarm */
 static ssize_t
 store_chassis_clear(struct device *dev,
 		    struct device_attribute *attr, const char *buf,
@@ -737,7 +777,7 @@ store_chassis_clear(struct device *dev,
 	val |= 0x80;
 	w83795_write(client, W83795_REG_CLR_CHASSIS, val);
 
-	
+	/* Clear status and force cache refresh */
 	w83795_read(client, W83795_REG_ALARM(5));
 	data->valid = 0;
 	mutex_unlock(&data->update_lock);
@@ -867,19 +907,19 @@ show_pwm_enable(struct device *dev, struct device_attribute *attr, char *buf)
 	int index = sensor_attr->index;
 	u8 tmp;
 
-	
+	/* Speed cruise mode */
 	if (data->pwm_fcms[0] & (1 << index)) {
 		tmp = 2;
 		goto out;
 	}
-	
+	/* Thermal cruise or SmartFan IV mode */
 	for (tmp = 0; tmp < 6; tmp++) {
 		if (data->pwm_tfmr[tmp] & (1 << index)) {
 			tmp = 3;
 			goto out;
 		}
 	}
-	
+	/* Manual mode */
 	tmp = 1;
 
 out:
@@ -914,10 +954,10 @@ store_pwm_enable(struct device *dev, struct device_attribute *attr,
 	mutex_lock(&data->update_lock);
 	switch (val) {
 	case 1:
-		
+		/* Clear speed cruise mode bits */
 		data->pwm_fcms[0] &= ~(1 << index);
 		w83795_write(client, W83795_REG_FCMS1, data->pwm_fcms[0]);
-		
+		/* Clear thermal cruise mode bits */
 		for (i = 0; i < 6; i++) {
 			data->pwm_tfmr[i] &= ~(1 << index);
 			w83795_write(client, W83795_REG_TFMR(i),
@@ -941,13 +981,18 @@ show_pwm_mode(struct device *dev, struct device_attribute *attr, char *buf)
 	unsigned int mode;
 
 	if (data->pwm_fomc & (1 << index))
-		mode = 0;	
+		mode = 0;	/* DC */
 	else
-		mode = 1;	
+		mode = 1;	/* PWM */
 
 	return sprintf(buf, "%u\n", mode);
 }
 
+/*
+ * Check whether a given temperature source can ever be useful.
+ * Returns the number of selectable temperature channels which are
+ * enabled.
+ */
 static int w83795_tss_useful(const struct w83795_data *data, int tsrc)
 {
 	int useful = 0, i;
@@ -955,9 +1000,9 @@ static int w83795_tss_useful(const struct w83795_data *data, int tsrc)
 	for (i = 0; i < 4; i++) {
 		if (tss_map[i][tsrc] == TSS_MAP_RESERVED)
 			continue;
-		if (tss_map[i][tsrc] < 6)	
+		if (tss_map[i][tsrc] < 6)	/* Analog */
 			useful += (data->has_temp >> tss_map[i][tsrc]) & 1;
-		else				
+		else				/* Digital */
 			useful += (data->has_dts >> (tss_map[i][tsrc] - 6)) & 1;
 	}
 
@@ -974,13 +1019,13 @@ show_temp_src(struct device *dev, struct device_attribute *attr, char *buf)
 	u8 tmp = data->temp_src[index / 2];
 
 	if (index & 1)
-		tmp >>= 4;	
+		tmp >>= 4;	/* Pick high nibble */
 	else
-		tmp &= 0x0f;	
+		tmp &= 0x0f;	/* Pick low nibble */
 
-	
+	/* Look-up the actual temperature channel number */
 	if (tmp >= 4 || tss_map[tmp][index] == TSS_MAP_RESERVED)
-		return -EINVAL;		
+		return -EINVAL;		/* Shouldn't happen */
 
 	return sprintf(buf, "%u\n", (unsigned int)tss_map[tmp][index] + 1);
 }
@@ -1002,12 +1047,12 @@ store_temp_src(struct device *dev, struct device_attribute *attr,
 	    channel < 1 || channel > 14)
 		return -EINVAL;
 
-	
+	/* Check if request can be fulfilled */
 	for (tmp = 0; tmp < 4; tmp++) {
 		if (tss_map[tmp][index] == channel - 1)
 			break;
 	}
-	if (tmp == 4)	
+	if (tmp == 4)	/* No match */
 		return -EINVAL;
 
 	mutex_lock(&data->update_lock);
@@ -1392,13 +1437,14 @@ show_temp_mode(struct device *dev, struct device_attribute *attr, char *buf)
 	int tmp;
 
 	if (data->temp_mode & (1 << index))
-		tmp = 3;	
+		tmp = 3;	/* Thermal diode */
 	else
-		tmp = 4;	
+		tmp = 4;	/* Thermistor */
 
 	return sprintf(buf, "%d\n", tmp);
 }
 
+/* Only for temp1-4 (temp5-6 can only be thermistor) */
 static ssize_t
 store_temp_mode(struct device *dev, struct device_attribute *attr,
 		const char *buf, size_t count)
@@ -1419,11 +1465,11 @@ store_temp_mode(struct device *dev, struct device_attribute *attr,
 
 	mutex_lock(&data->update_lock);
 	if (val == 3) {
-		
+		/* Thermal diode */
 		val = 0x01;
 		data->temp_mode |= 1 << index;
 	} else if (val == 4) {
-		
+		/* Thermistor */
 		val = 0x03;
 		data->temp_mode &= ~(1 << index);
 	}
@@ -1439,6 +1485,7 @@ store_temp_mode(struct device *dev, struct device_attribute *attr,
 }
 
 
+/* show/store VIN */
 static ssize_t
 show_in(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -1452,7 +1499,7 @@ show_in(struct device *dev, struct device_attribute *attr, char *buf)
 
 	switch (nr) {
 	case IN_READ:
-		
+		/* calculate this value again by sensors as sensors3.conf */
 		if ((index >= 17) &&
 		    !((data->has_gain >> (index - 17)) & 1))
 			val *= 8;
@@ -1570,6 +1617,10 @@ store_sf_setup(struct device *dev, struct device_attribute *attr,
 
 #define NOT_USED			-1
 
+/*
+ * Don't change the attribute order, _max, _min and _beep are accessed by index
+ * somewhere else in the code
+ */
 #define SENSOR_ATTR_IN(index) {						\
 	SENSOR_ATTR_2(in##index##_input, S_IRUGO, show_in, NULL,	\
 		IN_READ, index), \
@@ -1583,6 +1634,10 @@ store_sf_setup(struct device *dev, struct device_attribute *attr,
 		show_alarm_beep, store_beep, BEEP_ENABLE,		\
 		index + ((index > 14) ? 1 : 0)) }
 
+/*
+ * Don't change the attribute order, _beep is accessed by index
+ * somewhere else in the code
+ */
 #define SENSOR_ATTR_FAN(index) {					\
 	SENSOR_ATTR_2(fan##index##_input, S_IRUGO, show_fan,		\
 		NULL, FAN_INPUT, index - 1), \
@@ -1611,6 +1666,10 @@ store_sf_setup(struct device *dev, struct device_attribute *attr,
 	SENSOR_ATTR_2(fan##index##_target, S_IWUSR | S_IRUGO, \
 		show_fanin, store_fanin, FANIN_TARGET, index - 1) }
 
+/*
+ * Don't change the attribute order, _beep is accessed by index
+ * somewhere else in the code
+ */
 #define SENSOR_ATTR_DTS(index) {					\
 	SENSOR_ATTR_2(temp##index##_type, S_IRUGO ,		\
 		show_dts_mode, NULL, NOT_USED, index - 7),	\
@@ -1629,6 +1688,10 @@ store_sf_setup(struct device *dev, struct device_attribute *attr,
 	SENSOR_ATTR_2(temp##index##_beep, S_IWUSR | S_IRUGO,		\
 		show_alarm_beep, store_beep, BEEP_ENABLE, index + 17) }
 
+/*
+ * Don't change the attribute order, _beep is accessed by index
+ * somewhere else in the code
+ */
 #define SENSOR_ATTR_TEMP(index) {					\
 	SENSOR_ATTR_2(temp##index##_type, S_IRUGO | (index < 4 ? S_IWUSR : 0), \
 		show_temp_mode, store_temp_mode, NOT_USED, index - 1),	\
@@ -1801,11 +1864,14 @@ static const struct sensor_device_attribute_2 sda_beep_files[] = {
 		      store_beep, BEEP_ENABLE, 47),
 };
 
+/*
+ * Driver interface
+ */
 
 static void w83795_init_client(struct i2c_client *client)
 {
 	struct w83795_data *data = i2c_get_clientdata(client);
-	static const u16 clkin[4] = {	
+	static const u16 clkin[4] = {	/* in kHz */
 		14318, 24000, 33333, 48000
 	};
 	u8 config;
@@ -1813,7 +1879,7 @@ static void w83795_init_client(struct i2c_client *client)
 	if (reset)
 		w83795_write(client, W83795_REG_CONFIG, 0x80);
 
-	
+	/* Start monitoring if needed */
 	config = w83795_read(client, W83795_REG_CONFIG);
 	if (!(config & W83795_REG_CONFIG_START)) {
 		dev_info(&client->dev, "Enabling monitoring operations\n");
@@ -1831,6 +1897,10 @@ static int w83795_get_device_id(struct i2c_client *client)
 
 	device_id = i2c_smbus_read_byte_data(client, W83795_REG_DEVICEID);
 
+	/*
+	 * Special case for rev. A chips; can't be checked first because later
+	 * revisions emulate this for compatibility
+	 */
 	if (device_id < 0 || (device_id & 0xf0) != 0x50) {
 		int alt_id;
 
@@ -1843,6 +1913,7 @@ static int w83795_get_device_id(struct i2c_client *client)
 	return device_id;
 }
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int w83795_detect(struct i2c_client *client,
 			 struct i2c_board_info *info)
 {
@@ -1861,7 +1932,7 @@ static int w83795_detect(struct i2c_client *client,
 		return -ENODEV;
 	}
 
-	
+	/* Check Nuvoton vendor ID */
 	vendor_id = i2c_smbus_read_byte_data(client, W83795_REG_VENDORID);
 	expected = bank & 0x80 ? 0x5c : 0xa3;
 	if (vendor_id != expected) {
@@ -1871,7 +1942,7 @@ static int w83795_detect(struct i2c_client *client,
 		return -ENODEV;
 	}
 
-	
+	/* Check device ID */
 	device_id = w83795_get_device_id(client) |
 		    (i2c_smbus_read_byte_data(client, W83795_REG_CHIPID) << 8);
 	if ((device_id >> 4) != 0x795) {
@@ -1881,6 +1952,10 @@ static int w83795_detect(struct i2c_client *client,
 		return -ENODEV;
 	}
 
+	/*
+	 * If Nuvoton chip, address of chip and W83795_REG_I2C_ADDR
+	 * should match
+	 */
 	if ((bank & 0x07) == 0) {
 		i2c_addr = i2c_smbus_read_byte_data(client,
 						    W83795_REG_I2C_ADDR);
@@ -1892,6 +1967,12 @@ static int w83795_detect(struct i2c_client *client,
 		}
 	}
 
+	/*
+	 * Check 795 chip type: 795G or 795ADG
+	 * Usually we don't write to chips during detection, but here we don't
+	 * quite have the choice; hopefully it's OK, we are about to return
+	 * success anyway
+	 */
 	if ((bank & 0x07) != 0)
 		i2c_smbus_write_byte_data(client, W83795_REG_BANKSEL,
 					  bank & ~0x07);
@@ -2006,6 +2087,7 @@ static int w83795_handle_files(struct device *dev, int (*fn)(struct device *,
 	return 0;
 }
 
+/* We need a wrapper that fits in w83795_handle_files */
 static int device_remove_file_wrapper(struct device *dev,
 				      const struct device_attribute *attr)
 {
@@ -2021,7 +2103,7 @@ static void w83795_check_dynamic_in_limits(struct i2c_client *client)
 
 	vid_ctl = w83795_read(client, W83795_REG_VID_CTRL);
 
-	
+	/* Return immediately if VRM isn't configured */
 	if ((vid_ctl & 0x07) == 0x00 || (vid_ctl & 0x07) == 0x07)
 		return;
 
@@ -2030,7 +2112,7 @@ static void w83795_check_dynamic_in_limits(struct i2c_client *client)
 		if (!(data->has_dyn_in & (1 << i)))
 			continue;
 
-		
+		/* Voltage limits in dynamic mode, switch to read-only */
 		err_max = sysfs_chmod_file(&client->dev.kobj,
 					   &w83795_in[i][2].dev_attr.attr,
 					   S_IRUGO);
@@ -2046,20 +2128,21 @@ static void w83795_check_dynamic_in_limits(struct i2c_client *client)
 	}
 }
 
+/* Check pins that can be used for either temperature or voltage monitoring */
 static void w83795_apply_temp_config(struct w83795_data *data, u8 config,
 				     int temp_chan, int in_chan)
 {
-	
+	/* config is a 2-bit value */
 	switch (config) {
-	case 0x2: 
+	case 0x2: /* Voltage monitoring */
 		data->has_in |= 1 << in_chan;
 		break;
-	case 0x1: 
+	case 0x1: /* Thermal diode */
 		if (temp_chan >= 4)
 			break;
 		data->temp_mode |= 1 << temp_chan;
-		
-	case 0x3: 
+		/* fall through */
+	case 0x3: /* Thermistor */
 		data->has_temp |= 1 << temp_chan;
 		break;
 	}
@@ -2085,16 +2168,16 @@ static int w83795_probe(struct i2c_client *client,
 	data->bank = i2c_smbus_read_byte_data(client, W83795_REG_BANKSEL);
 	mutex_init(&data->update_lock);
 
-	
+	/* Initialize the chip */
 	w83795_init_client(client);
 
-	
+	/* Check which voltages and fans are present */
 	data->has_in = w83795_read(client, W83795_REG_VOLT_CTRL1)
 		     | (w83795_read(client, W83795_REG_VOLT_CTRL2) << 8);
 	data->has_fan = w83795_read(client, W83795_REG_FANIN_CTRL1)
 		      | (w83795_read(client, W83795_REG_FANIN_CTRL2) << 8);
 
-	
+	/* Check which analog temperatures and extra voltages are present */
 	tmp = w83795_read(client, W83795_REG_TEMP_CTRL1);
 	if (tmp & 0x20)
 		data->enable_dts = 1;
@@ -2106,14 +2189,14 @@ static int w83795_probe(struct i2c_client *client,
 	w83795_apply_temp_config(data, (tmp >> 2) & 0x3, 1, 18);
 	w83795_apply_temp_config(data, tmp & 0x3, 0, 17);
 
-	
+	/* Check DTS enable status */
 	if (data->enable_dts) {
 		if (1 & w83795_read(client, W83795_REG_DTSC))
 			data->enable_dts |= 2;
 		data->has_dts = w83795_read(client, W83795_REG_DTSE);
 	}
 
-	
+	/* Report PECI Tbase values */
 	if (data->enable_dts == 1) {
 		for (i = 0; i < 8; i++) {
 			if (!(data->has_dts & (1 << i)))
@@ -2127,17 +2210,21 @@ static int w83795_probe(struct i2c_client *client,
 
 	data->has_gain = w83795_read(client, W83795_REG_VMIGB_CTRL) & 0x0f;
 
-	
+	/* pwm and smart fan */
 	if (data->chip_type == w83795g)
 		data->has_pwm = 8;
 	else
 		data->has_pwm = 2;
 
-	
+	/* Check if BEEP pin is available */
 	if (data->chip_type == w83795g) {
-		
+		/* The W83795G has a dedicated BEEP pin */
 		data->enable_beep = 1;
 	} else {
+		/*
+		 * The W83795ADG has a shared pin for OVT# and BEEP, so you
+		 * can't have both
+		 */
 		tmp = w83795_read(client, W83795_REG_OVT_CFG);
 		if ((tmp & OVT_CFG_SEL) == 0)
 			data->enable_beep = 1;

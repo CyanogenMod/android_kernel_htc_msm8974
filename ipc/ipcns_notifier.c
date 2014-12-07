@@ -28,10 +28,22 @@ static int ipcns_callback(struct notifier_block *self,
 	struct ipc_namespace *ns;
 
 	switch (action) {
-	case IPCNS_MEMCHANGED:   
+	case IPCNS_MEMCHANGED:   /* amount of lowmem has changed */
 	case IPCNS_CREATED:
 	case IPCNS_REMOVED:
+		/*
+		 * It's time to recompute msgmni
+		 */
 		ns = container_of(self, struct ipc_namespace, ipcns_nb);
+		/*
+		 * No need to get a reference on the ns: the 1st job of
+		 * free_ipc_ns() is to unregister the callback routine.
+		 * blocking_notifier_chain_unregister takes the wr lock to do
+		 * it.
+		 * When this callback routine is called the rd lock is held by
+		 * blocking_notifier_call_chain.
+		 * So the ipc ns cannot be freed while we are here.
+		 */
 		recompute_msgmni(ns);
 		break;
 	default:

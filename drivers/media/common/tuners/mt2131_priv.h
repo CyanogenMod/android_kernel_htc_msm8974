@@ -22,11 +22,13 @@
 #ifndef __MT2131_PRIV_H__
 #define __MT2131_PRIV_H__
 
+/* Regs */
 #define MT2131_PWR              0x07
 #define MT2131_UPC_1            0x0b
 #define MT2131_AGC_RL           0x10
 #define MT2131_MISC_2           0x15
 
+/* frequency values in KHz */
 #define MT2131_IF1              1220
 #define MT2131_IF2              44000
 #define MT2131_FREF             16000
@@ -38,5 +40,9 @@ struct mt2131_priv {
 	u32 frequency;
 };
 
-#endif 
+#endif /* __MT2131_PRIV_H__ */
 
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ */

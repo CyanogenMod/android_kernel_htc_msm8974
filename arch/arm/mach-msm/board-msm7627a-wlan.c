@@ -106,11 +106,11 @@ static unsigned int setup_wlan_clock(bool on)
 	int rc = 0;
 
 	if (on) {
-		
+		/* Vote for A0 clock */
 		rc = pmapp_clock_vote(id, PMAPP_CLOCK_ID_A0,
 					PMAPP_CLOCK_VOTE_ON);
 	} else {
-		
+		/* Vote against A0 clock */
 		rc = pmapp_clock_vote(id, PMAPP_CLOCK_ID_A0,
 					 PMAPP_CLOCK_VOTE_OFF);
 	}
@@ -223,7 +223,7 @@ static unsigned int msm_AR600X_setup_power(bool on)
 		goto out;
 	}
 
-	
+	/* GPIO_WLAN_3V3_EN is only required for the QRD7627a */
 	if (machine_is_msm7627a_qrd1()) {
 		rc = gpio_tlmm_config(GPIO_CFG(GPIO_WLAN_3V3_EN, 0,
 					GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL,
@@ -236,6 +236,10 @@ static unsigned int msm_AR600X_setup_power(bool on)
 		gpio_set_value(GPIO_WLAN_3V3_EN, 1);
 	}
 
+	/*
+	 * gpio_wlan_sys_rest_en is not from the GPIO expander for QRD7627a,
+	 * EVB1.0 and QRD8625,so the below step is required for those devices.
+	 */
 	if (machine_is_msm7627a_qrd1() || machine_is_msm7627a_evb()
 					|| machine_is_msm8625_evb()
 					|| machine_is_msm8625_evt()
@@ -266,14 +270,14 @@ static unsigned int msm_AR600X_setup_power(bool on)
 		}
 	}
 
-	
+	/* Enable the A0 clock */
 	rc = setup_wlan_clock(on);
 	if (rc) {
 		pr_err("%s: setup_wlan_clock = %d\n", __func__, rc);
 		goto set_gpio_fail;
 	}
 
-	
+	/* Configure A0 clock to be slave to WLAN_CLK_PWR_REQ */
 	rc = pmapp_clock_vote(id, PMAPP_CLOCK_ID_A0,
 				 PMAPP_CLOCK_VOTE_PIN_CTRL);
 	if (rc) {
@@ -295,7 +299,7 @@ gpio_fail:
 	    machine_is_msm7627a_qrd3() || machine_is_msm8625_qrd7()))
 			gpio_free(gpio_wlan_sys_rest_en);
 qrd_gpio_fail:
-	
+	/* GPIO_WLAN_3V3_EN is only required for the QRD7627a */
 	if (machine_is_msm7627a_qrd1())
 		gpio_free(GPIO_WLAN_3V3_EN);
 reg_disable:
@@ -315,13 +319,17 @@ static unsigned int msm_AR600X_shutdown_power(bool on)
 		return 0;
 	}
 
-	
+	/* Disable the A0 clock */
 	rc = setup_wlan_clock(on);
 	if (rc) {
 		pr_err("%s: setup_wlan_clock = %d\n", __func__, rc);
 		goto set_clock_fail;
 	}
 
+	/*
+	 * gpio_wlan_sys_rest_en is not from the GPIO expander for QRD7627a,
+	 * EVB1.0 and QRD8625,so the below step is required for those devices.
+	 */
 	if (machine_is_msm7627a_qrd1() || machine_is_msm7627a_evb()
 					|| machine_is_msm8625_evb()
 					|| machine_is_msm8625_evt()
@@ -346,7 +354,7 @@ static unsigned int msm_AR600X_shutdown_power(bool on)
 		gpio_free(gpio_wlan_sys_rest_en);
 	}
 
-	
+	/* GPIO_WLAN_3V3_EN is only required for the QRD7627a */
 	if (machine_is_msm7627a_qrd1()) {
 		rc = gpio_tlmm_config(GPIO_CFG(GPIO_WLAN_3V3_EN, 0,
 					GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL,
@@ -378,7 +386,7 @@ gpio_fail:
 	    machine_is_msm7627a_qrd3() || machine_is_msm8625_qrd7()))
 			gpio_free(gpio_wlan_sys_rest_en);
 qrd_gpio_fail:
-	
+	/* GPIO_WLAN_3V3_EN is only required for the QRD7627a */
 	if (machine_is_msm7627a_qrd1())
 		gpio_free(GPIO_WLAN_3V3_EN);
 reg_disable:

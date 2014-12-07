@@ -40,7 +40,7 @@ static int wm8350_i2c_read_device(struct wm8350 *wm8350, char reg,
 static int wm8350_i2c_write_device(struct wm8350 *wm8350, char reg,
 				   int bytes, void *src)
 {
-	
+	/* we add 1 byte for device register */
 	u8 msg[(WM8350_MAX_REGISTER << 1) + 1];
 	int ret;
 
@@ -115,6 +115,7 @@ static int __init wm8350_i2c_init(void)
 {
 	return i2c_add_driver(&wm8350_i2c_driver);
 }
+/* init early so consumer devices can complete system boot */
 subsys_initcall(wm8350_i2c_init);
 
 static void __exit wm8350_i2c_exit(void)

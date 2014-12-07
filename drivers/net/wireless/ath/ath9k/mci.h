@@ -19,14 +19,14 @@
 
 #include "ar9003_mci.h"
 
-#define ATH_MCI_SCHED_BUF_SIZE		(16 * 16) 
+#define ATH_MCI_SCHED_BUF_SIZE		(16 * 16) /* 16 entries, 4 dword each */
 #define ATH_MCI_GPM_MAX_ENTRY		16
 #define ATH_MCI_GPM_BUF_SIZE		(ATH_MCI_GPM_MAX_ENTRY * 16)
 #define ATH_MCI_DEF_BT_PERIOD		40
 #define ATH_MCI_BDR_DUTY_CYCLE		20
 #define ATH_MCI_MAX_DUTY_CYCLE		90
 
-#define ATH_MCI_DEF_AGGR_LIMIT		6 
+#define ATH_MCI_DEF_AGGR_LIMIT		6 /* in 0.24 ms */
 #define ATH_MCI_MAX_ACL_PROFILE		7
 #define ATH_MCI_MAX_SCO_PROFILE		1
 #define ATH_MCI_MAX_PROFILE		(ATH_MCI_MAX_ACL_PROFILE +\
@@ -90,9 +90,9 @@ struct ath_mci_profile_info {
 	bool master;
 	bool edr;
 	u8 voice_type;
-	u16 T;		
-	u8 W;		
-	u8 A;		
+	u16 T;		/* Voice: Tvoice, HID: Tsniff,        in slots */
+	u8 W;		/* Voice: Wvoice, HID: Sniff timeout, in slots */
+	u8 A;		/*		  HID: Sniff attempt, in slots */
 	struct list_head list;
 };
 
@@ -116,9 +116,9 @@ struct ath_mci_profile {
 };
 
 struct ath_mci_buf {
-	void *bf_addr;		
-	dma_addr_t bf_paddr;    
-	u32 bf_len;		
+	void *bf_addr;		/* virtual addr of desc */
+	dma_addr_t bf_paddr;    /* physical addr of buffer */
+	u32 bf_len;		/* len of data */
 };
 
 struct ath_mci_coex {

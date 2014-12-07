@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -51,6 +51,7 @@ static struct ocmem_plat_data *ocmem_pdata;
 
 #define CLIENT_NAME_MAX 10
 
+/* Must be in sync with enum ocmem_client */
 static const char *client_names[OCMEM_CLIENT_MAX] = {
 	"graphics",
 	"video",
@@ -62,6 +63,7 @@ static const char *client_names[OCMEM_CLIENT_MAX] = {
 	"other_os",
 };
 
+/* Must be in sync with enum ocmem_zstat_item */
 static const char *zstat_names[NR_OCMEM_ZSTAT_ITEMS] = {
 	"Allocation requests",
 	"Synchronous allocations",
@@ -93,8 +95,9 @@ struct ocmem_quota_table {
 	unsigned int tail;
 };
 
+/* This static table will go away with device tree support */
 static struct ocmem_quota_table qt[OCMEM_CLIENT_MAX] = {
-	
+	/* name,        id,     start,  size,   min, tail */
 	{ "graphics", OCMEM_GRAPHICS, 0x0, 0x100000, 0x80000, 0},
 	{ "video", OCMEM_VIDEO, 0x100000, 0x80000, 0x55000, 1},
 	{ "camera", OCMEM_CAMERA, 0x0, 0x0, 0x0, 0},
@@ -240,7 +243,7 @@ int __devinit of_ocmem_parse_regions(struct device *dev,
 	int rc = 0;
 	int id = -1;
 
-	
+	/*Compute total partitions */
 	for_each_child_of_node(dev->of_node, child)
 		nr_parts++;
 
@@ -331,8 +334,9 @@ static int parse_power_ctrl_config(struct ocmem_plat_data *pdata,
 	return 0;
 
 }
-#endif 
+#endif /* CONFIG_MSM_OCMEM_LOCAL_POWER_CTRL */
 
+/* Core Clock Operations */
 int ocmem_enable_core_clock(void)
 {
 	int ret;
@@ -351,6 +355,7 @@ void ocmem_disable_core_clock(void)
 	pr_debug("ocmem: Disabled core clock\n");
 }
 
+/* Branch Clock Operations */
 int ocmem_enable_iface_clock(void)
 {
 	int ret;
@@ -504,7 +509,7 @@ static struct ocmem_plat_data * __devinit parse_dt_config
 		return NULL;
 	}
 
-	
+	/* Figure out the number of partititons */
 	nr_parts = of_ocmem_parse_regions(dev, &parts);
 	if (nr_parts <= 0) {
 		dev_err(dev, "No valid OCMEM partitions found\n");
@@ -660,7 +665,7 @@ static int ocmem_zone_init(struct platform_device *pdev)
 			return -EBUSY;
 		}
 
-		
+		/* Initialize zone allocators */
 		z_ops = devm_kzalloc(dev, sizeof(struct ocmem_zone_ops),
 				GFP_KERNEL);
 		if (!z_ops) {
@@ -669,7 +674,7 @@ static int ocmem_zone_init(struct platform_device *pdev)
 			return -EBUSY;
 		}
 
-		
+		/* Initialize zone parameters */
 		zone->z_start = start;
 		zone->z_head = zone->z_start;
 		zone->z_end = start + part->p_size;
@@ -694,7 +699,7 @@ static int ocmem_zone_init(struct platform_device *pdev)
 			z_ops->allocate = allocate_head;
 			z_ops->free = free_head;
 		}
-		
+		/* zap the counters */
 		memset(zone->z_stat, 0 , sizeof(zone->z_stat));
 		zone->active = true;
 		active_zones++;
@@ -729,6 +734,7 @@ static int ocmem_zone_init(struct platform_device *pdev)
 	return 0;
 }
 
+/* Enable the ocmem graphics mpU as a workaround */
 #ifdef CONFIG_MSM_OCMEM_NONSECURE
 static int ocmem_init_gfx_mpu(struct platform_device *pdev)
 {
@@ -755,7 +761,7 @@ static int ocmem_init_gfx_mpu(struct platform_device *pdev)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_MSM_OCMEM_NONSECURE */
 
 static int __devinit ocmem_debugfs_init(struct platform_device *pdev)
 {
@@ -783,6 +789,7 @@ static int __devinit msm_ocmem_probe(struct platform_device *pdev)
 	struct device   *dev = &pdev->dev;
 	struct clk *ocmem_core_clk = NULL;
 	struct clk *ocmem_iface_clk = NULL;
+	int rc;
 
 	if (!pdev->dev.of_node) {
 		dev_info(dev, "Missing Configuration in Device Tree\n");
@@ -791,11 +798,11 @@ static int __devinit msm_ocmem_probe(struct platform_device *pdev)
 		ocmem_pdata = parse_dt_config(pdev);
 	}
 
-	
+	/* Check if we have some configuration data to start */
 	if (!ocmem_pdata)
 		return -ENODEV;
 
-	
+	/* Sanity Checks */
 	BUG_ON(!IS_ALIGNED(ocmem_pdata->size, PAGE_SIZE));
 	BUG_ON(!IS_ALIGNED(ocmem_pdata->base, PAGE_SIZE));
 
@@ -808,7 +815,7 @@ static int __devinit msm_ocmem_probe(struct platform_device *pdev)
 		return PTR_ERR(ocmem_core_clk);
 	}
 
-	
+	/* The core clock is synchronous with graphics */
 	if (clk_set_rate(ocmem_core_clk, 1000) < 0) {
 		dev_err(dev, "Set rate failed on the core clock\n");
 		return -EBUSY;
@@ -825,10 +832,23 @@ static int __devinit msm_ocmem_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, ocmem_pdata);
 
-	
-	
-	if (ocmem_enable_sec_program(OCMEM_SECURE_DEV_ID))
+	rc = ocmem_enable_core_clock();
+	if (rc < 0)
+		goto core_clk_fail;
+
+	rc = ocmem_enable_iface_clock();
+	if (rc < 0)
+		goto iface_clk_fail;
+
+	/* Parameter to be updated based on TZ */
+	/* Allow the OCMEM CSR to be programmed */
+	if (ocmem_restore_sec_program(OCMEM_SECURE_DEV_ID)) {
+		ocmem_disable_iface_clock();
+		ocmem_disable_core_clock();
 		return -EBUSY;
+	}
+	ocmem_disable_iface_clock();
+	ocmem_disable_core_clock();
 
 	if (ocmem_debugfs_init(pdev))
 		dev_err(dev, "ocmem: No debugfs node available\n");
@@ -855,6 +875,11 @@ static int __devinit msm_ocmem_probe(struct platform_device *pdev)
 
 	dev_dbg(dev, "initialized successfully\n");
 	return 0;
+
+iface_clk_fail:
+	ocmem_disable_core_clock();
+core_clk_fail:
+	return rc;
 }
 
 static int __devexit msm_ocmem_remove(struct platform_device *pdev)

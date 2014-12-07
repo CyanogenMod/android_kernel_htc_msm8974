@@ -15,7 +15,7 @@
 
 #include <linux/sched.h>
 #include <linux/threads.h>
-#include <asm/processor.h>	
+#include <asm/processor.h>	/* For TASK_SIZE */
 #include <asm/mmu.h>
 #include <asm/page.h>
 #include <asm/pgalloc.h>
@@ -46,10 +46,15 @@ static inline void local_flush_tlb_range(struct vm_area_struct *vma,
 #define flush_tlb_page local_flush_tlb_page
 #define flush_tlb_range local_flush_tlb_range
 
+/*
+ * This is called in munmap when we have freed up some page-table
+ * pages.  We don't need to do anything here, there's nothing special
+ * about our page-table pages.  -- paulus
+ */
 static inline void flush_tlb_pgtables(struct mm_struct *mm,
 	unsigned long start, unsigned long end) { }
 
-#else 
+#else /* CONFIG_MMU */
 
 #define flush_tlb()				BUG()
 #define flush_tlb_all()				BUG()
@@ -59,6 +64,6 @@ static inline void flush_tlb_pgtables(struct mm_struct *mm,
 #define flush_tlb_pgtables(mm, start, end)	BUG()
 #define flush_tlb_kernel_range(start, end)	BUG()
 
-#endif 
+#endif /* CONFIG_MMU */
 
-#endif 
+#endif /* _ASM_MICROBLAZE_TLBFLUSH_H */

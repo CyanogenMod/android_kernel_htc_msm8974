@@ -48,6 +48,11 @@
 #include <asm/unistd.h>
 #include <asm/mca.h>
 
+/*
+ * Note: alignment of 4 entries/cacheline was empirically determined
+ * to be a good tradeoff between hot cachelines & spreading the array
+ * across too many cacheline.
+ */
 static struct local_tlb_flush_counts {
 	unsigned int count;
 } __attribute__((__aligned__(32))) local_tlb_flush_counts[NR_CPUS];
@@ -68,6 +73,9 @@ extern void cpu_halt (void);
 static void
 stop_this_cpu(void)
 {
+	/*
+	 * Remove this CPU:
+	 */
 	set_cpu_online(smp_processor_id(), false);
 	max_xtp();
 	local_irq_disable();
@@ -80,7 +88,7 @@ cpu_die(void)
 	max_xtp();
 	local_irq_disable();
 	cpu_halt();
-	
+	/* Should never be here */
 	BUG();
 	for (;;);
 }
@@ -92,9 +100,9 @@ handle_IPI (int irq, void *dev_id)
 	unsigned long *pending_ipis = &__ia64_per_cpu_var(ipi_operation);
 	unsigned long ops;
 
-	mb();	
+	mb();	/* Order interrupt and bit testing. */
 	while ((ops = xchg(pending_ipis, 0)) != 0) {
-		mb();	
+		mb();	/* Order bit clearing and data access. */
 		do {
 			unsigned long which;
 
@@ -122,7 +130,7 @@ handle_IPI (int irq, void *dev_id)
 				break;
 			}
 		} while (ops);
-		mb();	
+		mb();	/* Order data access and bit testing. */
 	}
 	put_cpu();
 	return IRQ_HANDLED;
@@ -130,6 +138,9 @@ handle_IPI (int irq, void *dev_id)
 
 
 
+/*
+ * Called with preemption disabled.
+ */
 static inline void
 send_IPI_single (int dest_cpu, int op)
 {
@@ -137,6 +148,9 @@ send_IPI_single (int dest_cpu, int op)
 	platform_send_ipi(dest_cpu, IA64_IPI_VECTOR, IA64_IPI_DM_INT, 0);
 }
 
+/*
+ * Called with preemption disabled.
+ */
 static inline void
 send_IPI_allbutself (int op)
 {
@@ -148,6 +162,9 @@ send_IPI_allbutself (int op)
 	}
 }
 
+/*
+ * Called with preemption disabled.
+ */
 static inline void
 send_IPI_mask(const struct cpumask *mask, int op)
 {
@@ -158,6 +175,9 @@ send_IPI_mask(const struct cpumask *mask, int op)
 	}
 }
 
+/*
+ * Called with preemption disabled.
+ */
 static inline void
 send_IPI_all (int op)
 {
@@ -168,6 +188,9 @@ send_IPI_all (int op)
 	}
 }
 
+/*
+ * Called with preemption disabled.
+ */
 static inline void
 send_IPI_self (int op)
 {
@@ -194,6 +217,9 @@ kdump_smp_send_init(void)
 	}
 }
 #endif
+/*
+ * Called with preemption disabled.
+ */
 void
 smp_send_reschedule (int cpu)
 {
@@ -201,6 +227,9 @@ smp_send_reschedule (int cpu)
 }
 EXPORT_SYMBOL_GPL(smp_send_reschedule);
 
+/*
+ * Called with preemption disabled.
+ */
 static void
 smp_send_local_flush_tlb (int cpu)
 {
@@ -210,11 +239,18 @@ smp_send_local_flush_tlb (int cpu)
 void
 smp_local_flush_tlb(void)
 {
+	/*
+	 * Use atomic ops. Otherwise, the load/increment/store sequence from
+	 * a "++" operation can have the line stolen between the load & store.
+	 * The overhead of the atomic op in negligible in this case & offers
+	 * significant benefit for the brief periods where lots of cpus
+	 * are simultaneously flushing TLBs.
+	 */
 	ia64_fetchadd(1, &local_tlb_flush_counts[smp_processor_id()].count, acq);
 	local_flush_tlb_all();
 }
 
-#define FLUSH_DELAY	5 
+#define FLUSH_DELAY	5 /* Usec backoff to eliminate excessive cacheline bouncing */
 
 void
 smp_flush_tlb_cpumask(cpumask_t xcpumask)
@@ -258,7 +294,7 @@ smp_flush_tlb_mm (struct mm_struct *mm)
 {
 	cpumask_var_t cpus;
 	preempt_disable();
-	
+	/* this happens for the common case of a single-threaded fork():  */
 	if (likely(mm == current->active_mm && atomic_read(&mm->mm_users) == 1))
 	{
 		local_finish_flush_tlb_mm(mm);
@@ -290,6 +326,9 @@ void arch_send_call_function_ipi_mask(const struct cpumask *mask)
 	send_IPI_mask(mask, IPI_CALL_FUNC);
 }
 
+/*
+ * this function calls the 'stop' function on all other CPUs in the system.
+ */
 void
 smp_send_stop (void)
 {

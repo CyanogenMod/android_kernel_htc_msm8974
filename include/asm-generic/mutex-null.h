@@ -1,3 +1,12 @@
+/*
+ * include/asm-generic/mutex-null.h
+ *
+ * Generic implementation of the mutex fastpath, based on NOP :-)
+ *
+ * This is used by the mutex-debugging infrastructure, but it can also
+ * be used by architectures that (for whatever reason) want to use the
+ * spinlock based slowpath.
+ */
 #ifndef _ASM_GENERIC_MUTEX_NULL_H
 #define _ASM_GENERIC_MUTEX_NULL_H
 

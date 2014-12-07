@@ -52,36 +52,61 @@
 #define PAS16_DEFAULT_BOARD_4_IRQ 15
 
 
+/*
+ * The Pro Audio Spectrum boards are I/O mapped. They use a Zilog 5380
+ * SCSI controller, which is the equivalent of NCR's 5380.  "Pseudo-DMA"
+ * architecture is used, where a PAL drives the DMA signals on the 5380
+ * allowing fast, blind transfers with proper handshaking. 
+ */
 
 
+/* The Time-out Counter register is used to safe-guard against a stuck
+ * bus (in the case of RDY driven handshake) or a stuck byte (if 16-Bit
+ * DMA conversion is used).  The counter uses a 28.224MHz clock
+ * divided by 14 as its clock source.  In the case of a stuck byte in
+ * the holding register, an interrupt is generated (and mixed with the
+ * one with the drive) using the CD-ROM interrupt pointer.
+ */
  
 #define P_TIMEOUT_COUNTER_REG	0x4000
-#define P_TC_DISABLE	0x80	
-				
+#define P_TC_DISABLE	0x80	/* Set to 0 to enable timeout int. */
+				/* Bits D6-D0 contain timeout count */
 
 
 #define P_TIMEOUT_STATUS_REG_OFFSET	0x4001
-#define P_TS_TIM		0x80	
-					
-#define P_TS_ARM_DRQ_INT	0x08	
-#define P_TS_ENABLE_TO_ERR_INTERRUPT	
-#define P_TS_ENABLE_WAIT		
+#define P_TS_TIM		0x80	/* check timeout status */
+					/* Bits D6-D4 N/U */
+#define P_TS_ARM_DRQ_INT	0x08	/* Arm DRQ Int.  When set high,
+					 * the next rising edge will
+					 * cause a CD-ROM interrupt.
+					 * When set low, the interrupt
+					 * will be cleared.  There is
+					 * no status available for
+					 * this interrupt.
+					 */
+#define P_TS_ENABLE_TO_ERR_INTERRUPT	/* Enable timeout error int. */
+#define P_TS_ENABLE_WAIT		/* Enable Wait */
 
-#define P_TS_CT			0x01	
+#define P_TS_CT			0x01	/* clear timeout. Note: writing
+					 * to this register clears the
+					 * timeout error int. or status
+					 */
 
 
- 
+/*
+ * The data register reads/writes to/from the 5380 in pseudo-DMA mode
+ */ 
 
-#define P_DATA_REG_OFFSET	0x5c00	
+#define P_DATA_REG_OFFSET	0x5c00	/* rw */
 
-#define P_STATUS_REG_OFFSET	0x5c01	
-#define P_ST_RDY		0x80	
+#define P_STATUS_REG_OFFSET	0x5c01	/* ro */
+#define P_ST_RDY		0x80	/* 5380 DDRQ Status */
 
 #define P_IRQ_STATUS		0x5c03
-#define P_IS_IRQ		0x80	
+#define P_IS_IRQ		0x80	/* DIRQ status */
 
 #define PCB_CONFIG 0x803
-#define MASTER_ADDRESS_PTR 0x9a01  
+#define MASTER_ADDRESS_PTR 0x9a01  /* Fixed position - no relo */
 #define SYS_CONFIG_4 0x8003
 #define WAIT_STATE 0xbc00
 #define OPERATION_MODE_1 0xec03
@@ -140,9 +165,11 @@ static int pas16_bus_reset(Scsi_Cmnd *);
 #define NCR5380_bus_reset pas16_bus_reset
 #define NCR5380_proc_info pas16_proc_info
 
+/* 15 14 12 10 7 5 3 
+   1101 0100 1010 1000 */
    
 #define PAS16_IRQS 0xd4a8 
 
-#endif 
-#endif 
-#endif 
+#endif /* else def HOSTS_C */
+#endif /* ndef ASM */
+#endif /* PAS16_H */

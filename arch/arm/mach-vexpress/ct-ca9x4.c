@@ -1,3 +1,6 @@
+/*
+ * Versatile Express Core Tile Cortex A9x4 Support
+ */
 #include <linux/init.h>
 #include <linux/gfp.h>
 #include <linux/device.h>
@@ -127,14 +130,14 @@ static struct clk ct_sp804_clk = {
 };
 
 static struct clk_lookup lookups[] = {
-	{	
+	{	/* CLCD */
 		.dev_id		= "ct:clcd",
 		.clk		= &osc1_clk,
-	}, {	
+	}, {	/* SP804 timers */
 		.dev_id		= "sp804",
 		.con_id		= "ct-timer0",
 		.clk		= &ct_sp804_clk,
-	}, {	
+	}, {	/* SP804 timers */
 		.dev_id		= "sp804",
 		.con_id		= "ct-timer1",
 		.clk		= &ct_sp804_clk,
@@ -183,7 +186,7 @@ static void __init ct_ca9x4_init(void)
 #ifdef CONFIG_CACHE_L2X0
 	void __iomem *l2x0_base = ioremap(CT_CA9X4_L2CC, SZ_4K);
 
-	
+	/* set RAM latencies to 1 cycle for this core tile. */
 	writel(0, l2x0_base + L2X0_TAG_LATENCY_CTRL);
 	writel(0, l2x0_base + L2X0_DATA_LATENCY_CTRL);
 

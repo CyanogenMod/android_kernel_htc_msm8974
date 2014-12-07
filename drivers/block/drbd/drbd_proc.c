@@ -48,9 +48,9 @@ const struct file_operations drbd_proc_fops = {
 
 void seq_printf_with_thousands_grouping(struct seq_file *seq, long v)
 {
-	
+	/* v is in kB/sec. We don't expect TiByte/sec yet. */
 	if (unlikely(v >= 1000000)) {
-		
+		/* cool: > GiByte/s */
 		seq_printf(seq, "%ld,", v / 1000000);
 		v /= 1000000;
 		seq_printf(seq, "%03ld,%03ld", v/1000, v % 1000);
@@ -60,6 +60,12 @@ void seq_printf_with_thousands_grouping(struct seq_file *seq, long v)
 		seq_printf(seq, "%ld", v);
 }
 
+/*lge
+ * progress bars shamelessly adapted from driver/md/md.c
+ * output looks like
+ *	[=====>..............] 33.5% (23456/123456)
+ *	finish: 2:20:20 speed: 6,345 (6,456) K/sec
+ */
 static void drbd_syncer_progress(struct drbd_conf *mdev, struct seq_file *seq)
 {
 	unsigned long db, dt, dbdt, rt, rs_left;
@@ -85,7 +91,7 @@ static void drbd_syncer_progress(struct drbd_conf *mdev, struct seq_file *seq)
 		seq_printf(seq, "sync'ed:");
 	seq_printf(seq, "%3u.%u%% ", res / 10, res % 10);
 
-	
+	/* if more than a few GB, display in MB */
 	if (mdev->rs_total > (4UL << (30 - BM_BLOCK_SHIFT)))
 		seq_printf(seq, "(%lu/%lu)M",
 			    (unsigned long) Bit2KB(rs_left >> 10),
@@ -104,7 +110,10 @@ static void drbd_syncer_progress(struct drbd_conf *mdev, struct seq_file *seq)
 	 * db: blocks written from mark until now
 	 * rt: remaining time
 	 */
-	
+	/* Rolling marks. last_mark+1 may just now be modified.  last_mark+2 is
+	 * at least (DRBD_SYNC_MARKS-2)*DRBD_SYNC_MARK_STEP old, and has at
+	 * least DRBD_SYNC_MARK_STEP time before it will be modified. */
+	/* ------------------------ ~18s average ------------------------ */
 	i = (mdev->rs_last_mark + 2) % DRBD_SYNC_MARKS;
 	dt = (jiffies - mdev->rs_mark_time[i]) / HZ;
 	if (dt > (DRBD_SYNC_MARK_STEP * DRBD_SYNC_MARKS))
@@ -113,7 +122,7 @@ static void drbd_syncer_progress(struct drbd_conf *mdev, struct seq_file *seq)
 	if (!dt)
 		dt++;
 	db = mdev->rs_mark_left[i] - rs_left;
-	rt = (dt * (rs_left / (db/100+1)))/100; 
+	rt = (dt * (rs_left / (db/100+1)))/100; /* seconds */
 
 	seq_printf(seq, "finish: %lu:%02lu:%02lu",
 		rt / 3600, (rt % 3600) / 60, rt % 60);
@@ -122,9 +131,9 @@ static void drbd_syncer_progress(struct drbd_conf *mdev, struct seq_file *seq)
 	seq_printf(seq, " speed: ");
 	seq_printf_with_thousands_grouping(seq, dbdt);
 	seq_printf(seq, " (");
-	
+	/* ------------------------- ~3s average ------------------------ */
 	if (proc_details >= 1) {
-		
+		/* this is what drbd_rs_should_slow_down() uses */
 		i = (mdev->rs_last_mark + DRBD_SYNC_MARKS-1) % DRBD_SYNC_MARKS;
 		dt = (jiffies - mdev->rs_mark_time[i]) / HZ;
 		if (!dt)
@@ -135,7 +144,9 @@ static void drbd_syncer_progress(struct drbd_conf *mdev, struct seq_file *seq)
 		seq_printf(seq, " -- ");
 	}
 
-	
+	/* --------------------- long term average ---------------------- */
+	/* mean speed since syncer started
+	 * we do account for PausedSync periods */
 	dt = (jiffies - mdev->rs_start - mdev->rs_paused) / HZ;
 	if (dt == 0)
 		dt = 1;
@@ -152,6 +163,8 @@ static void drbd_syncer_progress(struct drbd_conf *mdev, struct seq_file *seq)
 	seq_printf(seq, " K/sec%s\n", stalled ? " (stalled)" : "");
 
 	if (proc_details >= 1) {
+		/* 64 bit:
+		 * we convert to sectors in the display below. */
 		unsigned long bm_bits = drbd_bm_bits(mdev);
 		unsigned long bit_pos;
 		if (mdev->state.conn == C_VERIFY_S ||
@@ -159,6 +172,8 @@ static void drbd_syncer_progress(struct drbd_conf *mdev, struct seq_file *seq)
 			bit_pos = bm_bits - mdev->ov_left;
 		else
 			bit_pos = mdev->bm_resync_fo;
+		/* Total sectors may be slightly off for oddly
+		 * sized devices. So what. */
 		seq_printf(seq,
 			"\t%3d%% sector pos: %llu/%llu\n",
 			(int)(bit_pos / (bm_bits/100+1)),
@@ -192,6 +207,25 @@ static int drbd_seq_show(struct seq_file *seq, void *v)
 	seq_printf(seq, "version: " REL_VERSION " (api:%d/proto:%d-%d)\n%s\n",
 		   API_VERSION, PRO_VERSION_MIN, PRO_VERSION_MAX, drbd_buildtag());
 
+	/*
+	  cs .. connection state
+	  ro .. node role (local/remote)
+	  ds .. disk state (local/remote)
+	     protocol
+	     various flags
+	  ns .. network send
+	  nr .. network receive
+	  dw .. disk write
+	  dr .. disk read
+	  al .. activity log write count
+	  bm .. bitmap update write count
+	  pe .. pending (waiting for ack or data reply)
+	  ua .. unack'd (still need to send ack or data reply)
+	  ap .. application requests accepted, but not yet completed
+	  ep .. number of epochs currently "on the fly", P_BARRIER_ACK pending
+	  wo .. write ordering mode currently in use
+	 oos .. known out-of-sync kB
+	*/
 
 	for (i = 0; i < minor_count; i++) {
 		mdev = minor_to_mdev(i);
@@ -282,3 +316,4 @@ static int drbd_proc_release(struct inode *inode, struct file *file)
 	return single_release(inode, file);
 }
 
+/* PROC FS stuff end */

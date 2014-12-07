@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * Qualcomm PMIC8058 PWM driver
+ *
+ */
 
 #define pr_fmt(fmt)	"%s: " fmt, __func__
 
@@ -22,10 +26,11 @@
 #include <linux/pmic8058-pwm.h>
 
 #define	PM8058_LPG_BANKS		8
-#define	PM8058_PWM_CHANNELS		PM8058_LPG_BANKS	
+#define	PM8058_PWM_CHANNELS		PM8058_LPG_BANKS	/* MAX=8 */
 
 #define	PM8058_LPG_CTL_REGS		7
 
+/* PMIC8058 LPG/PWM */
 #define	SSBI_REG_ADDR_LPG_CTL_BASE	0x13C
 #define	SSBI_REG_ADDR_LPG_CTL(n)	(SSBI_REG_ADDR_LPG_CTL_BASE + (n))
 #define	SSBI_REG_ADDR_LPG_BANK_SEL	0x143
@@ -34,6 +39,7 @@
 #define	SSBI_REG_ADDR_LPG_LUT_CFG1	0x146
 #define	SSBI_REG_ADDR_LPG_TEST		0x147
 
+/* Control 0 */
 #define	PM8058_PWM_1KHZ_COUNT_MASK	0xF0
 #define	PM8058_PWM_1KHZ_COUNT_SHIFT	4
 
@@ -49,17 +55,21 @@
 #define	PM8058_PWM_RAMP_GEN_START	(PM8058_PWM_RAMP_GEN_EN \
 					| PM8058_PWM_RAMP_START)
 
+/* Control 1 */
 #define	PM8058_PWM_REVERSE_EN		0x80
 #define	PM8058_PWM_BYPASS_LUT		0x40
 #define	PM8058_PWM_HIGH_INDEX_MASK	0x3F
 
+/* Control 2 */
 #define	PM8058_PWM_LOOP_EN		0x80
 #define	PM8058_PWM_RAMP_UP		0x40
 #define	PM8058_PWM_LOW_INDEX_MASK	0x3F
 
+/* Control 3 */
 #define	PM8058_PWM_VALUE_BIT7_0		0xFF
 #define	PM8058_PWM_VALUE_BIT5_0		0x3F
 
+/* Control 4 */
 #define	PM8058_PWM_VALUE_BIT8		0x80
 
 #define	PM8058_PWM_CLK_SEL_MASK		0x60
@@ -82,27 +92,43 @@
 #define	PM8058_PWM_M_MIN	0
 #define	PM8058_PWM_M_MAX	7
 
+/* Control 5 */
 #define	PM8058_PWM_PAUSE_COUNT_HI_MASK		0xFC
 #define	PM8058_PWM_PAUSE_COUNT_HI_SHIFT		2
 
 #define	PM8058_PWM_PAUSE_ENABLE_HIGH		0x02
 #define	PM8058_PWM_SIZE_9_BIT			0x01
 
+/* Control 6 */
 #define	PM8058_PWM_PAUSE_COUNT_LO_MASK		0xFC
 #define	PM8058_PWM_PAUSE_COUNT_LO_SHIFT		2
 
 #define	PM8058_PWM_PAUSE_ENABLE_LOW		0x02
 #define	PM8058_PWM_RESERVED			0x01
 
-#define	PM8058_PWM_PAUSE_COUNT_MAX		56 
+#define	PM8058_PWM_PAUSE_COUNT_MAX		56 /* < 2^6 = 64*/
 
+/* LUT_CFG1 */
 #define	PM8058_PWM_LUT_READ			0x40
 
+/* TEST */
 #define	PM8058_PWM_DTEST_MASK		0x38
 #define	PM8058_PWM_DTEST_SHIFT		3
 
 #define	PM8058_PWM_DTEST_BANK_MASK	0x07
 
+/* PWM frequency support
+ *
+ * PWM Frequency = Clock Frequency / (N * T)
+ * 	or
+ * PWM Period = Clock Period * (N * T)
+ * 	where
+ * N = 2^9 or 2^6 for 9-bit or 6-bit PWM size
+ * T = Pre-divide * 2^m, m = 0..7 (exponent)
+ *
+ * We use this formula to figure out m for the best pre-divide and clock:
+ * (PWM Period / N) / 2^m = (Pre-divide * Clock Period)
+*/
 #define	NUM_CLOCKS	3
 
 #define	NSEC_1000HZ	(NSEC_PER_SEC / 1000)
@@ -112,7 +138,7 @@
 #define	CLK_PERIOD_MIN	NSEC_19P2MHZ
 #define	CLK_PERIOD_MAX	NSEC_1000HZ
 
-#define	NUM_PRE_DIVIDE	3	
+#define	NUM_PRE_DIVIDE	3	/* No default support for pre-divide = 6 */
 
 #define	PRE_DIVIDE_0		2
 #define	PRE_DIVIDE_1		3
@@ -149,17 +175,18 @@ static unsigned int pt_t[NUM_PRE_DIVIDE][NUM_CLOCKS] = {
 
 #define	CHAN_LUT_SIZE		(PM_PWM_LUT_SIZE / PM8058_PWM_CHANNELS)
 
+/* Private data */
 struct pm8058_pwm_chip;
 
 struct pwm_device {
 	struct device		*dev;
-	int			pwm_id;		
+	int			pwm_id;		/* = bank/channel id */
 	int			in_use;
 	const char		*label;
 	struct pm8058_pwm_period	period;
 	int			pwm_value;
 	int			pwm_period;
-	int			use_lut;	
+	int			use_lut;	/* Use LUT to output PWM */
 	u8			pwm_ctl[PM8058_LPG_CTL_REGS];
 	int			irq;
 	struct pm8058_pwm_chip  *chip;
@@ -175,7 +202,7 @@ struct pm8058_pwm_chip {
 static struct pm8058_pwm_chip	*pwm_chip;
 
 struct pm8058_pwm_lut {
-	
+	/* LUT parameters */
 	int	lut_duty_ms;
 	int	lut_lo_index;
 	int	lut_hi_index;
@@ -197,6 +224,7 @@ static u16 pause_count[PM8058_PWM_PAUSE_COUNT_MAX + 1] = {
 	7000
 };
 
+/* Internal functions */
 static void pm8058_pwm_save(u8 *u8p, u8 mask, u8 val)
 {
 	*u8p &= ~mask;
@@ -274,7 +302,7 @@ static void pm8058_pwm_calc_period(unsigned int period_us,
 	int	last_err, cur_err, better_err, better_m;
 	unsigned int	tmp_p, last_p, min_err, period_n;
 
-	
+	/* PWM Period / N : handle underflow or overflow */
 	if (period_us < (PM_PWM_PERIOD_MAX / NSEC_PER_USEC))
 		period_n = (period_us * NSEC_PER_USEC) >> 6;
 	else
@@ -295,7 +323,7 @@ static void pm8058_pwm_calc_period(unsigned int period_us,
 			last_p = tmp_p;
 			for (m = 0; m <= PM8058_PWM_M_MAX; m++) {
 				if (tmp_p <= pt_t[div][clk]) {
-					
+					/* Found local best */
 					if (!m) {
 						better_err = pt_t[div][clk] -
 							tmp_p;
@@ -330,7 +358,7 @@ static void pm8058_pwm_calc_period(unsigned int period_us,
 		}
 	}
 
-	
+	/* Use higher resolution */
 	if (best_m >= 3 && n == 6) {
 		n += 3;
 		best_m -= 3;
@@ -352,7 +380,7 @@ static void pm8058_pwm_calc_pwm_value(struct pwm_device *pwm,
 {
 	unsigned int max_pwm_value, tmp;
 
-	
+	/* Figure out pwm_value with overflow handling */
 	tmp = 1 << (sizeof(tmp) * 8 - pwm->period.pwm_size);
 	if (duty_us < tmp) {
 		tmp = duty_us << pwm->period.pwm_size;
@@ -450,7 +478,7 @@ static void pm8058_pwm_save_duty_time(struct pwm_device *pwm,
 	int	i;
 	u8	mask, val;
 
-	
+	/* Linear search for duty time */
 	for (i = 0; i < PM8058_PWM_1KHZ_COUNT_MAX; i++) {
 		if (duty_msec[i] >= lut->lut_duty_ms)
 			break;
@@ -472,7 +500,7 @@ static void pm8058_pwm_save_pause(struct pwm_device *pwm,
 	if (lut->flags & PM_PWM_LUT_PAUSE_HI_EN) {
 		pause_cnt = (lut->lut_pause_hi + duty_msec[time_cnt] / 2)
 				/ duty_msec[time_cnt];
-		
+		/* Linear search for pause time */
 		for (i = 0; i < PM8058_PWM_PAUSE_COUNT_MAX; i++) {
 			if (pause_count[i] >= pause_cnt)
 				break;
@@ -487,7 +515,7 @@ static void pm8058_pwm_save_pause(struct pwm_device *pwm,
 	pm8058_pwm_save(&pwm->pwm_ctl[5], mask, val);
 
 	if (lut->flags & PM_PWM_LUT_PAUSE_LO_EN) {
-		
+		/* Linear search for pause time */
 		pause_cnt = (lut->lut_pause_lo + duty_msec[time_cnt] / 2)
 				/ duty_msec[time_cnt];
 		for (i = 0; i < PM8058_PWM_PAUSE_COUNT_MAX; i++) {
@@ -508,7 +536,7 @@ static int pm8058_pwm_write(struct pwm_device *pwm, int start, int end)
 {
 	int	i, rc;
 
-	
+	/* Write in reverse way so 0 would be the last */
 	for (i = end - 1; i >= start; i--) {
 		rc = pm8xxx_writeb(pwm->dev->parent,
 				  SSBI_REG_ADDR_LPG_CTL(i),
@@ -539,6 +567,10 @@ static int pm8058_pwm_change_lut(struct pwm_device *pwm,
 	return rc;
 }
 
+/* APIs */
+/*
+ * pwm_request - request a PWM device
+ */
 struct pwm_device *pwm_request(int pwm_id, const char *label)
 {
 	struct pwm_device	*pwm;
@@ -565,6 +597,9 @@ struct pwm_device *pwm_request(int pwm_id, const char *label)
 }
 EXPORT_SYMBOL(pwm_request);
 
+/*
+ * pwm_free - free a PWM device
+ */
 void pwm_free(struct pwm_device *pwm)
 {
 	if (pwm == NULL || IS_ERR(pwm) || pwm->chip == NULL)
@@ -586,6 +621,13 @@ void pwm_free(struct pwm_device *pwm)
 }
 EXPORT_SYMBOL(pwm_free);
 
+/*
+ * pwm_config - change a PWM device configuration
+ *
+ * @pwm: the PWM device
+ * @period_us: period in micro second
+ * @duty_us: duty cycle in micro second
+ */
 int pwm_config(struct pwm_device *pwm, int duty_us, int period_us)
 {
 	int				rc;
@@ -629,6 +671,9 @@ out_unlock:
 }
 EXPORT_SYMBOL(pwm_config);
 
+/*
+ * pwm_enable - start a PWM output toggling
+ */
 int pwm_enable(struct pwm_device *pwm)
 {
 	int	rc;
@@ -655,6 +700,9 @@ int pwm_enable(struct pwm_device *pwm)
 }
 EXPORT_SYMBOL(pwm_enable);
 
+/*
+ * pwm_disable - stop a PWM output toggling
+ */
 void pwm_disable(struct pwm_device *pwm)
 {
 	if (pwm == NULL || IS_ERR(pwm) || pwm->chip == NULL)
@@ -674,6 +722,12 @@ void pwm_disable(struct pwm_device *pwm)
 }
 EXPORT_SYMBOL(pwm_disable);
 
+/**
+ * pm8058_pwm_config_period - change PWM period
+ *
+ * @pwm: the PWM device
+ * @pwm_p: period in struct pm8058_pwm_period
+ */
 int pm8058_pwm_config_period(struct pwm_device *pwm,
 			     struct pm8058_pwm_period *period)
 {
@@ -706,6 +760,12 @@ out_unlock:
 }
 EXPORT_SYMBOL(pm8058_pwm_config_period);
 
+/**
+ * pm8058_pwm_config_duty_cycle - change PWM duty cycle
+ *
+ * @pwm: the PWM device
+ * @pwm_value: the duty cycle in raw PWM value (< 2^pwm_size)
+ */
 int pm8058_pwm_config_duty_cycle(struct pwm_device *pwm, int pwm_value)
 {
 	struct pm8058_pwm_lut	lut;
@@ -761,6 +821,19 @@ out_unlock:
 }
 EXPORT_SYMBOL(pm8058_pwm_config_duty_cycle);
 
+/**
+ * pm8058_pwm_lut_config - change a PWM device configuration to use LUT
+ *
+ * @pwm: the PWM device
+ * @period_us: period in micro second
+ * @duty_pct: arrary of duty cycles in percent, like 20, 50.
+ * @duty_time_ms: time for each duty cycle in millisecond
+ * @start_idx: start index in lookup table from 0 to MAX-1
+ * @idx_len: number of index
+ * @pause_lo: pause time in millisecond at low index
+ * @pause_hi: pause time in millisecond at high index
+ * @flags: control flags
+ */
 int pm8058_pwm_lut_config(struct pwm_device *pwm, int period_us,
 			  int duty_pct[], int duty_time_ms, int start_idx,
 			  int idx_len, int pause_lo, int pause_hi, int flags)
@@ -823,6 +896,12 @@ out_unlock:
 }
 EXPORT_SYMBOL(pm8058_pwm_lut_config);
 
+/**
+ * pm8058_pwm_lut_enable - control a PWM device to start/stop LUT ramp
+ *
+ * @pwm: the PWM device
+ * @start: to start (1), or stop (0)
+ */
 int pm8058_pwm_lut_enable(struct pwm_device *pwm, int start)
 {
 	if (pwm == NULL || IS_ERR(pwm))
@@ -929,7 +1008,7 @@ int pm8058_pwm_set_dtest(struct pwm_device *pwm, int enable)
 	else {
 		reg = pwm->pwm_id & PM8058_PWM_DTEST_BANK_MASK;
 		if (enable)
-			
+			/* Only Test 1 available */
 			reg |= (1 << PM8058_PWM_DTEST_SHIFT) &
 				PM8058_PWM_DTEST_MASK;
 		rc = pm8xxx_writeb(pwm->dev->parent,

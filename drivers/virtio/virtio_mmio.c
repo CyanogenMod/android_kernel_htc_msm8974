@@ -57,6 +57,8 @@
 
 
 
+/* The alignment to use between consumer and producer parts of vring.
+ * Currently hardcoded to the page size. */
 #define VIRTIO_MMIO_VRING_ALIGN		PAGE_SIZE
 
 
@@ -71,36 +73,37 @@ struct virtio_mmio_device {
 	void __iomem *base;
 	unsigned long version;
 
-	
+	/* a list of queues so we can dispatch IRQs */
 	spinlock_t lock;
 	struct list_head virtqueues;
 };
 
 struct virtio_mmio_vq_info {
-	
+	/* the actual virtqueue */
 	struct virtqueue *vq;
 
-	
+	/* the number of entries in the queue */
 	unsigned int num;
 
-	
+	/* the index of the queue */
 	int queue_index;
 
-	
+	/* the virtual address of the ring queue */
 	void *queue;
 
-	
+	/* the list node for the virtqueues list */
 	struct list_head node;
 };
 
 
 
+/* Configuration interface */
 
 static u32 vm_get_features(struct virtio_device *vdev)
 {
 	struct virtio_mmio_device *vm_dev = to_virtio_mmio_device(vdev);
 
-	
+	/* TODO: Features > 32 bits */
 	writel(0, vm_dev->base + VIRTIO_MMIO_HOST_FEATURES_SEL);
 
 	return readl(vm_dev->base + VIRTIO_MMIO_HOST_FEATURES);
@@ -111,7 +114,7 @@ static void vm_finalize_features(struct virtio_device *vdev)
 	struct virtio_mmio_device *vm_dev = to_virtio_mmio_device(vdev);
 	int i;
 
-	
+	/* Give virtio_ring a chance to accept features. */
 	vring_transport_features(vdev);
 
 	for (i = 0; i < ARRAY_SIZE(vdev->features); i++) {
@@ -154,7 +157,7 @@ static void vm_set_status(struct virtio_device *vdev, u8 status)
 {
 	struct virtio_mmio_device *vm_dev = to_virtio_mmio_device(vdev);
 
-	
+	/* We should never be setting status to 0. */
 	BUG_ON(status == 0);
 
 	writel(status, vm_dev->base + VIRTIO_MMIO_STATUS);
@@ -164,21 +167,26 @@ static void vm_reset(struct virtio_device *vdev)
 {
 	struct virtio_mmio_device *vm_dev = to_virtio_mmio_device(vdev);
 
-	
+	/* 0 status means a reset. */
 	writel(0, vm_dev->base + VIRTIO_MMIO_STATUS);
 }
 
 
 
+/* Transport interface */
 
+/* the notify function used when creating a virt queue */
 static void vm_notify(struct virtqueue *vq)
 {
 	struct virtio_mmio_device *vm_dev = to_virtio_mmio_device(vq->vdev);
 	struct virtio_mmio_vq_info *info = vq->priv;
 
+	/* We write the queue's selector into the notification register to
+	 * signal the other end */
 	writel(info->queue_index, vm_dev->base + VIRTIO_MMIO_QUEUE_NOTIFY);
 }
 
+/* Notify all virtqueues on an interrupt. */
 static irqreturn_t vm_interrupt(int irq, void *opaque)
 {
 	struct virtio_mmio_device *vm_dev = opaque;
@@ -189,7 +197,7 @@ static irqreturn_t vm_interrupt(int irq, void *opaque)
 	unsigned long flags;
 	irqreturn_t ret = IRQ_NONE;
 
-	
+	/* Read and acknowledge interrupts */
 	status = readl(vm_dev->base + VIRTIO_MMIO_INTERRUPT_STATUS);
 	writel(status, vm_dev->base + VIRTIO_MMIO_INTERRUPT_ACK);
 
@@ -223,7 +231,7 @@ static void vm_del_vq(struct virtqueue *vq)
 
 	vring_del_virtqueue(vq);
 
-	
+	/* Select and deactivate the queue */
 	writel(info->queue_index, vm_dev->base + VIRTIO_MMIO_QUEUE_SEL);
 	writel(0, vm_dev->base + VIRTIO_MMIO_QUEUE_PFN);
 
@@ -255,16 +263,16 @@ static struct virtqueue *vm_setup_vq(struct virtio_device *vdev, unsigned index,
 	unsigned long flags, size;
 	int err;
 
-	
+	/* Select the queue we're interested in */
 	writel(index, vm_dev->base + VIRTIO_MMIO_QUEUE_SEL);
 
-	
+	/* Queue shouldn't already be set up. */
 	if (readl(vm_dev->base + VIRTIO_MMIO_QUEUE_PFN)) {
 		err = -ENOENT;
 		goto error_available;
 	}
 
-	
+	/* Allocate and fill out our active queue description */
 	info = kmalloc(sizeof(*info), GFP_KERNEL);
 	if (!info) {
 		err = -ENOMEM;
@@ -272,11 +280,16 @@ static struct virtqueue *vm_setup_vq(struct virtio_device *vdev, unsigned index,
 	}
 	info->queue_index = index;
 
+	/* Allocate pages for the queue - start with a queue as big as
+	 * possible (limited by maximum size allowed by device), drop down
+	 * to a minimal size, just big enough to fit descriptor table
+	 * and two rings (which makes it "alignment_size * 2")
+	 */
 	info->num = readl(vm_dev->base + VIRTIO_MMIO_QUEUE_NUM_MAX);
 	while (1) {
 		size = PAGE_ALIGN(vring_size(info->num,
 				VIRTIO_MMIO_VRING_ALIGN));
-		
+		/* Already smallest possible allocation? */
 		if (size <= VIRTIO_MMIO_VRING_ALIGN * 2) {
 			err = -ENOMEM;
 			goto error_alloc_pages;
@@ -289,14 +302,14 @@ static struct virtqueue *vm_setup_vq(struct virtio_device *vdev, unsigned index,
 		info->num /= 2;
 	}
 
-	
+	/* Activate the queue */
 	writel(info->num, vm_dev->base + VIRTIO_MMIO_QUEUE_NUM);
 	writel(VIRTIO_MMIO_VRING_ALIGN,
 			vm_dev->base + VIRTIO_MMIO_QUEUE_ALIGN);
 	writel(virt_to_phys(info->queue) >> PAGE_SHIFT,
 			vm_dev->base + VIRTIO_MMIO_QUEUE_PFN);
 
-	
+	/* Create the vring */
 	vq = vring_new_virtqueue(info->num, VIRTIO_MMIO_VRING_ALIGN, vdev,
 				 true, info->queue, vm_notify, callback, name);
 	if (!vq) {
@@ -370,6 +383,7 @@ static struct virtio_config_ops virtio_mmio_config_ops = {
 
 
 
+/* Platform device */
 
 static int __devinit virtio_mmio_probe(struct platform_device *pdev)
 {
@@ -399,14 +413,14 @@ static int __devinit virtio_mmio_probe(struct platform_device *pdev)
 	if (vm_dev->base == NULL)
 		return -EFAULT;
 
-	
+	/* Check magic value */
 	magic = readl(vm_dev->base + VIRTIO_MMIO_MAGIC_VALUE);
 	if (memcmp(&magic, "virt", 4) != 0) {
 		dev_warn(&pdev->dev, "Wrong magic value 0x%08lx!\n", magic);
 		return -ENODEV;
 	}
 
-	
+	/* Check device version */
 	vm_dev->version = readl(vm_dev->base + VIRTIO_MMIO_VERSION);
 	if (vm_dev->version != 1) {
 		dev_err(&pdev->dev, "Version %ld not supported!\n",
@@ -435,6 +449,7 @@ static int __devexit virtio_mmio_remove(struct platform_device *pdev)
 
 
 
+/* Platform driver */
 
 static struct of_device_id virtio_mmio_match[] = {
 	{ .compatible = "virtio,mmio", },

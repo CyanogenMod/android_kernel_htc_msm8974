@@ -91,7 +91,7 @@ void xonar_hdmi_pcm_hardware_filter(unsigned int channel,
 void xonar_set_hdmi_params(struct oxygen *chip, struct xonar_hdmi *hdmi,
 			   struct snd_pcm_hw_params *params)
 {
-	hdmi->params[0] = 0; 
+	hdmi->params[0] = 0; /* 1 = non-audio */
 	switch (params_rate(params)) {
 	case 44100:
 		hdmi->params[1] = IEC958_AES3_CON_FS_44100;
@@ -99,7 +99,7 @@ void xonar_set_hdmi_params(struct oxygen *chip, struct xonar_hdmi *hdmi,
 	case 48000:
 		hdmi->params[1] = IEC958_AES3_CON_FS_48000;
 		break;
-	default: 
+	default: /* 96000 */
 		hdmi->params[1] = IEC958_AES3_CON_FS_96000;
 		break;
 	case 192000:
@@ -111,7 +111,7 @@ void xonar_set_hdmi_params(struct oxygen *chip, struct xonar_hdmi *hdmi,
 		hdmi->params[3] = 0;
 	else
 		hdmi->params[3] = 0xc0;
-	hdmi->params[4] = 1; 
+	hdmi->params[4] = 1; /* ? */
 	hdmi_write_command(chip, 0x54, 5, hdmi->params);
 }
 

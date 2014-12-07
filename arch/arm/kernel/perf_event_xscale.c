@@ -34,7 +34,7 @@ enum xscale_perf_types {
 	XSCALE_PERFCTR_BCU_ECC_NO_ELOG		= 0x14,
 	XSCALE_PERFCTR_BCU_1_BIT_ERR		= 0x15,
 	XSCALE_PERFCTR_RMW			= 0x16,
-	
+	/* XSCALE_PERFCTR_CCNT is not hardware defined */
 	XSCALE_PERFCTR_CCNT			= 0xFE,
 	XSCALE_PERFCTR_UNUSED			= 0xFF,
 };
@@ -191,7 +191,7 @@ xscale1pmu_read_pmnc(void)
 static inline void
 xscale1pmu_write_pmnc(u32 val)
 {
-	
+	/* upper 4bits and 7, 11 are write-as-0 */
 	val &= 0xffff77f;
 	asm volatile("mcr p14, 0, %0, c0, c0, 0" : : "r" (val));
 }
@@ -228,8 +228,19 @@ xscale1pmu_handle_irq(int irq_num, void *dev)
 	struct pt_regs *regs;
 	int idx;
 
+	/*
+	 * NOTE: there's an A stepping erratum that states if an overflow
+	 *       bit already exists and another occurs, the previous
+	 *       Overflow bit gets cleared. There's no workaround.
+	 *	 Fixed in B stepping or later.
+	 */
 	pmnc = xscale1pmu_read_pmnc();
 
+	/*
+	 * Write the value back to clear the overflow flags. Overflow
+	 * flags remain in pmnc for use below. We also disable the PMU
+	 * while we process the interrupt.
+	 */
 	xscale1pmu_write_pmnc(pmnc & ~XSCALE_PMU_ENABLE);
 
 	if (!(pmnc & XSCALE1_OVERFLOWED_MASK))
@@ -262,6 +273,9 @@ xscale1pmu_handle_irq(int irq_num, void *dev)
 
 	irq_work_run();
 
+	/*
+	 * Re-enable the PMU.
+	 */
 	pmnc = xscale1pmu_read_pmnc() | XSCALE_PMU_ENABLE;
 	xscale1pmu_write_pmnc(pmnc);
 
@@ -468,14 +482,14 @@ xscale2pmu_read_pmnc(void)
 {
 	u32 val;
 	asm volatile("mrc p14, 0, %0, c0, c1, 0" : "=r" (val));
-	
+	/* bits 1-2 and 4-23 are read-unpredictable */
 	return val & 0xff000009;
 }
 
 static inline void
 xscale2pmu_write_pmnc(u32 val)
 {
-	
+	/* bits 4-23 are write-as-0, 24-31 are write ignored */
 	val &= 0xf;
 	asm volatile("mcr p14, 0, %0, c0, c1, 0" : : "r" (val));
 }
@@ -560,16 +574,16 @@ xscale2pmu_handle_irq(int irq_num, void *dev)
 	struct pt_regs *regs;
 	int idx;
 
-	
+	/* Disable the PMU. */
 	pmnc = xscale2pmu_read_pmnc();
 	xscale2pmu_write_pmnc(pmnc & ~XSCALE_PMU_ENABLE);
 
-	
+	/* Check the overflow flag register. */
 	of_flags = xscale2pmu_read_overflow_flags();
 	if (!(of_flags & XSCALE2_OVERFLOWED_MASK))
 		return IRQ_NONE;
 
-	
+	/* Clear the overflow bits. */
 	xscale2pmu_write_overflow_flags(of_flags);
 
 	regs = get_irq_regs();
@@ -599,6 +613,9 @@ xscale2pmu_handle_irq(int irq_num, void *dev)
 
 	irq_work_run();
 
+	/*
+	 * Re-enable the PMU.
+	 */
 	pmnc = xscale2pmu_read_pmnc() | XSCALE_PMU_ENABLE;
 	xscale2pmu_write_pmnc(pmnc);
 
@@ -821,4 +838,4 @@ static struct arm_pmu *__init xscale2pmu_init(void)
 {
 	return NULL;
 }
-#endif	
+#endif	/* CONFIG_CPU_XSCALE */

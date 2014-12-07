@@ -43,17 +43,17 @@ struct modem_irq {
 
 static void setup_modem_intcon(void __iomem *modem_intcon_base)
 {
-	
+	/* IC_DESTINATION_BASE_ARRAY - Which CPU to receive the IRQ */
 	writel(MODEM_INTCON_CPU_NBR, modem_intcon_base + DEST_IRQ41_OFFSET);
 	writel(MODEM_INTCON_CPU_NBR, modem_intcon_base + DEST_IRQ43_OFFSET);
 	writel(MODEM_INTCON_CPU_NBR, modem_intcon_base + DEST_IRQ45_OFFSET);
 
-	
+	/* IC_PRIORITY_BASE_ARRAY - IRQ priority in modem IRQ controller */
 	writel(MODEM_INTCON_PRIO_HIGH, modem_intcon_base + PRIO_IRQ41_OFFSET);
 	writel(MODEM_INTCON_PRIO_HIGH, modem_intcon_base + PRIO_IRQ43_OFFSET);
 	writel(MODEM_INTCON_PRIO_HIGH, modem_intcon_base + PRIO_IRQ45_OFFSET);
 
-	
+	/* IC_ALLOW_ARRAY - IRQ enable */
 	writel(MODEM_INTCON_ALLOW_IRQ41 |
 		   MODEM_INTCON_ALLOW_IRQ43 |
 		   MODEM_INTCON_ALLOW_IRQ45,
@@ -66,7 +66,7 @@ static irqreturn_t modem_cpu_irq_handler(int irq, void *data)
 	int virt_irq;
 	struct modem_irq *mi = (struct modem_irq *)data;
 
-	
+	/* Read modem side IRQ number from modem IRQ controller */
 	real_irq = readl(mi->modem_intcon_base + MODEM_IRQ_REG_OFFSET) & 0xFF;
 	virt_irq = IRQ_MODEM_EVENTS_BASE + real_irq;
 
@@ -125,7 +125,7 @@ static int modem_irq_init(void)
 	modem_irq_chip = dummy_irq_chip;
 	modem_irq_chip.name = "modem_irq";
 
-	
+	/* Create the virtual IRQ:s needed */
 	create_virtual_irq(MBOX_PAIR0_VIRT_IRQ, &modem_irq_chip);
 	create_virtual_irq(MBOX_PAIR1_VIRT_IRQ, &modem_irq_chip);
 	create_virtual_irq(MBOX_PAIR2_VIRT_IRQ, &modem_irq_chip);

@@ -18,5 +18,5 @@ struct ethoc_platform_data {
 	s8 phy_id;
 };
 
-#endif 
+#endif /* !LINUX_NET_ETHOC_H */
 

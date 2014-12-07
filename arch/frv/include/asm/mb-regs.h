@@ -17,6 +17,7 @@
 #include <asm/mem-layout.h>
 
 #ifndef __ASSEMBLY__
+/* gcc builtins, annotated */
 
 unsigned long __builtin_read8(volatile void __iomem *);
 unsigned long __builtin_read16(volatile void __iomem *);
@@ -26,36 +27,42 @@ void __builtin_write16(volatile void __iomem *, unsigned short);
 void __builtin_write32(volatile void __iomem *, unsigned long);
 #endif
 
-#define __region_IO	KERNEL_IO_START	
+#define __region_IO	KERNEL_IO_START	/* the region from 0xe0000000 to 0xffffffff has suitable
+					 * protection laid over the top for use in memory-mapped
+					 * I/O
+					 */
 
-#define __region_CS0	0xff000000	
+#define __region_CS0	0xff000000	/* Boot ROMs area */
 
 #ifdef CONFIG_MB93091_VDK
+/*
+ * VDK motherboard and CPU card specific stuff
+ */
 
 #include <asm/mb93091-fpga-irqs.h>
 
 #define IRQ_CPU_MB93493_0	IRQ_CPU_EXTERNAL0
 #define IRQ_CPU_MB93493_1	IRQ_CPU_EXTERNAL1
 
-#define __region_CS2	0xe0000000	
-#define __region_CS2_M		0x0fffffff 
-#define __region_CS2_C		0x00000000 
-#define __region_CS5	0xf0000000	
+#define __region_CS2	0xe0000000	/* SLBUS/PCI I/O space */
+#define __region_CS2_M		0x0fffffff /* mask */
+#define __region_CS2_C		0x00000000 /* control */
+#define __region_CS5	0xf0000000	/* MB93493 CSC area (DAV daughter board) */
 #define __region_CS5_M		0x00ffffff
 #define __region_CS5_C		0x00010000
-#define __region_CS7	0xf1000000	
+#define __region_CS7	0xf1000000	/* CB70 CPU-card PCMCIA port I/O space */
 #define __region_CS7_M		0x00ffffff
 #define __region_CS7_C		0x00410701
-#define __region_CS1	0xfc000000	
+#define __region_CS1	0xfc000000	/* SLBUS/PCI bridge control registers */
 #define __region_CS1_M		0x000fffff
 #define __region_CS1_C		0x00000000
-#define __region_CS6	0xfc100000	
+#define __region_CS6	0xfc100000	/* CB70 CPU-card DM9000 LAN I/O space */
 #define __region_CS6_M		0x000fffff
 #define __region_CS6_C		0x00400707
-#define __region_CS3	0xfc200000	
+#define __region_CS3	0xfc200000	/* MB93493 CSR area (DAV daughter board) */
 #define __region_CS3_M		0x000fffff
 #define __region_CS3_C		0xc8100000
-#define __region_CS4	0xfd000000	
+#define __region_CS4	0xfd000000	/* CB70 CPU-card extra flash space */
 #define __region_CS4_M		0x00ffffff
 #define __region_CS4_C		0x00000f07
 
@@ -97,10 +104,10 @@ do {									\
 #define __get_LCD(B)		__builtin_read32((volatile void __iomem *) (B))
 #define __set_LCD(B,X)		__builtin_write32((volatile void __iomem *) (B), (X))
 
-#define LCD_D			0x000000ff		
-#define LCD_RW			0x00000100		
-#define LCD_RS			0x00000200		
-#define LCD_E			0x00000400		
+#define LCD_D			0x000000ff		/* LCD data bus */
+#define LCD_RW			0x00000100		/* LCD R/W signal */
+#define LCD_RS			0x00000200		/* LCD Register Select */
+#define LCD_E			0x00000400		/* LCD Start Enable Signal */
 
 #define LCD_CMD_CLEAR		(LCD_E|0x001)
 #define LCD_CMD_HOME		(LCD_E|0x002)
@@ -122,36 +129,39 @@ do {									\
 #define LCD_DATA_READ		(LCD_E|LCD_RS|LCD_RW)
 
 #else
+/*
+ * PDK unit specific stuff
+ */
 
 #include <asm/mb93093-fpga-irqs.h>
 
 #define IRQ_CPU_MB93493_0	IRQ_CPU_EXTERNAL0
 #define IRQ_CPU_MB93493_1	IRQ_CPU_EXTERNAL1
 
-#define __region_CS5	0xf0000000	
-#define __region_CS5_M		0x00ffffff 
-#define __region_CS5_C		0x00010000 
-#define __region_CS2	0x20000000	
+#define __region_CS5	0xf0000000	/* MB93493 CSC area (DAV daughter board) */
+#define __region_CS5_M		0x00ffffff /* mask */
+#define __region_CS5_C		0x00010000 /* control */
+#define __region_CS2	0x20000000	/* FPGA registers */
 #define __region_CS2_M		0x000fffff
 #define __region_CS2_C		0x00000000
-#define __region_CS1	0xfc100000	
+#define __region_CS1	0xfc100000	/* LAN registers */
 #define __region_CS1_M		0x000fffff
 #define __region_CS1_C		0x00010404
-#define __region_CS3	0xfc200000	
+#define __region_CS3	0xfc200000	/* MB93493 CSR area (DAV daughter board) */
 #define __region_CS3_M		0x000fffff
 #define __region_CS3_C		0xc8000000
-#define __region_CS4	0xfd000000	
+#define __region_CS4	0xfd000000	/* extra ROMs area */
 #define __region_CS4_M		0x00ffffff
 #define __region_CS4_C		0x00000f07
 
-#define __region_CS6	0xfe000000	
+#define __region_CS6	0xfe000000	/* not used - hide behind CPU resource I/O regs */
 #define __region_CS6_M		0x000fffff
 #define __region_CS6_C		0x00000f07
-#define __region_CS7	0xfe000000	
+#define __region_CS7	0xfe000000	/* not used - hide behind CPU resource I/O regs */
 #define __region_CS7_M		0x000fffff
 #define __region_CS7_C		0x00000f07
 
-#define __is_PCI_IO(addr)	0	
+#define __is_PCI_IO(addr)	0	/* no PCI */
 #define __is_PCI_MEM(addr)	0
 #define __is_PCI_addr(addr)	0
 #define __region_PCI_IO		0
@@ -187,4 +197,4 @@ do {									\
 
 #endif
 
-#endif 
+#endif /* _ASM_MB_REGS_H */

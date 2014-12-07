@@ -32,7 +32,16 @@
 #define SALSA20_MIN_KEY_SIZE  16U
 #define SALSA20_MAX_KEY_SIZE  32U
 
+/*
+ * Start of code taken from D. J. Bernstein's reference implementation.
+ * With some modifications and optimizations made to suit our needs.
+ */
 
+/*
+salsa20-ref.c version 20051118
+D. J. Bernstein
+Public domain.
+*/
 
 #define U32TO8_LITTLE(p, v) \
 	{ (p)[0] = (v >>  0) & 0xff; (p)[1] = (v >>  8) & 0xff; \
@@ -103,10 +112,10 @@ static void salsa20_keysetup(struct salsa20_ctx *ctx, const u8 *k, u32 kbytes)
 	ctx->input[2] = U8TO32_LITTLE(k + 4);
 	ctx->input[3] = U8TO32_LITTLE(k + 8);
 	ctx->input[4] = U8TO32_LITTLE(k + 12);
-	if (kbytes == 32) { 
+	if (kbytes == 32) { /* recommended */
 		k += 16;
 		constants = sigma;
-	} else { 
+	} else { /* kbytes == 16 */
 		constants = tau;
 	}
 	ctx->input[11] = U8TO32_LITTLE(k + 0);
@@ -153,6 +162,9 @@ static void salsa20_encrypt_bytes(struct salsa20_ctx *ctx, u8 *dst,
 	}
 }
 
+/*
+ * End of code taken from D. J. Bernstein's reference implementation.
+ */
 
 static int setkey(struct crypto_tfm *tfm, const u8 *key,
 		  unsigned int keysize)

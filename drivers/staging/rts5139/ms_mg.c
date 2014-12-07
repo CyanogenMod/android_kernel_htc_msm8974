@@ -109,6 +109,16 @@ int mg_set_tpc_para_sub(struct rts51x_chip *chip, int type, u8 mg_entry_num)
 	return STATUS_SUCCESS;
 }
 
+/**
+  * Get MagciGate ID and set Leaf ID to medium.
+
+  * After receiving this SCSI command, adapter shall fulfill 2 tasks
+  * below in order:
+  * 1. send GET_ID TPC command to get MagicGate ID and hold it till
+  * Response&challenge CMD.
+  * 2. send SET_ID TPC command to medium with Leaf ID released by host
+  * in this SCSI CMD.
+  */
 int mg_set_leaf_id(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 {
 	int retval;
@@ -153,6 +163,13 @@ int mg_set_leaf_id(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 	return STATUS_SUCCESS;
 }
 
+/**
+  * Send Local EKB to host.
+
+  * After receiving this SCSI command, adapter shall read the divided
+  * data(1536 bytes totally) from medium by using READ_LONG_DATA TPC
+  * for 3 times, and report data to host with data-length is 1052 bytes.
+  */
 int mg_get_local_EKB(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 {
 	int retval = STATUS_FAIL;
@@ -205,6 +222,13 @@ GetEKBFinish:
 	return retval;
 }
 
+/**
+  * Send challenge(host) to medium.
+
+  * After receiving this SCSI command, adapter shall sequentially issues
+  * TPC commands to the medium for writing 8-bytes data as challenge
+  * by host within a short data packet.
+  */
 int mg_chg(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 {
 	struct ms_info *ms_card = &(chip->ms_card);
@@ -286,6 +310,16 @@ int mg_chg(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 	return STATUS_SUCCESS;
 }
 
+/**
+  * Send Response and Challenge data  to host.
+
+  * After receiving this SCSI command, adapter shall communicates with
+  * the medium, get parameters(HRd, Rms, MagicGateID) by using READ_SHORT_DATA
+  * TPC and send the data to host according to certain format required by
+  * MG-R specification.
+  * The paremeter MagicGateID is the one that adapter has obtained from
+  * the medium by TPC commands in Set Leaf ID command phase previously.
+  */
 int mg_get_rsp_chg(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 {
 	struct ms_info *ms_card = &(chip->ms_card);
@@ -348,6 +382,13 @@ int mg_get_rsp_chg(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 	return STATUS_SUCCESS;
 }
 
+/**
+  * Send response(host) to medium.
+
+  * After receiving this SCSI command, adapter shall sequentially
+  * issues TPC commands to the medium for writing 8-bytes data as
+  * challenge by host within a short data packet.
+  */
 int mg_rsp(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 {
 	struct ms_info *ms_card = &(chip->ms_card);
@@ -395,6 +436,17 @@ int mg_rsp(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 	return STATUS_SUCCESS;
 }
 
+/** * Send ICV data to host.
+
+  * After receiving this SCSI command, adapter shall read the divided
+  * data(1024 bytes totally) from medium by using READ_LONG_DATA TPC
+  * for 2 times, and report data to host with data-length is 1028 bytes.
+  *
+  * Since the extra 4 bytes data is just only a prefix to original data
+  * that read from medium, so that the 4-byte data pushed into Ring buffer
+  * precedes data tramsinssion from medium to Ring buffer by DMA mechanisim
+  * in order to get maximum performance and minimum code size simultaneously.
+  */
 int mg_get_ICV(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 {
 	struct ms_info *ms_card = &(chip->ms_card);
@@ -448,6 +500,17 @@ GetICVFinish:
 	return retval;
 }
 
+/**
+  * Send ICV data to medium.
+
+  * After receiving this SCSI command, adapter shall receive 1028 bytes
+  * and write the later 1024 bytes to medium by WRITE_LONG_DATA TPC
+  * consecutively.
+  *
+  * Since the first 4-bytes data is just only a prefix to original data
+  * that sent by host, and it should be skipped by shifting DMA pointer
+  * before writing 1024 bytes to medium.
+  */
 int mg_set_ICV(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 {
 	struct ms_info *ms_card = &(chip->ms_card);
@@ -576,4 +639,4 @@ SetICVFinish:
 	return retval;
 }
 
-#endif 
+#endif /* SUPPORT_MAGIC_GATE */

@@ -28,4 +28,4 @@
 
 void dlm_print_version(void);
 
-#endif 
+#endif /* DLM_VER_H */

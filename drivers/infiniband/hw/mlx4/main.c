@@ -224,7 +224,7 @@ static int ib_link_query_port(struct ib_device *ibdev, u8 port,
 	props->max_vl_num	= out_mad->data[37] >> 4;
 	props->init_type_reply	= out_mad->data[41] >> 4;
 
-	
+	/* Check if extended speeds (EDR/FDR/...) are supported */
 	if (props->port_cap_flags & IB_PORT_EXTENDED_SPEEDS_SUP) {
 		ext_active_speed = out_mad->data[62] >> 4;
 
@@ -238,7 +238,7 @@ static int ib_link_query_port(struct ib_device *ibdev, u8 port,
 		}
 	}
 
-	
+	/* If reported active speed is QDR, check if is FDR-10 */
 	if (props->active_speed == IB_SPEED_QDR) {
 		init_query_mad(in_mad);
 		in_mad->attr_id = MLX4_ATTR_EXTENDED_PORT_INFO;
@@ -249,12 +249,12 @@ static int ib_link_query_port(struct ib_device *ibdev, u8 port,
 		if (err)
 			goto out;
 
-		
+		/* Checking LinkSpeedActive for FDR-10 */
 		if (out_mad->data[15] & 0x1)
 			props->active_speed = IB_SPEED_FDR10;
 	}
 
-	
+	/* Avoid wrong speed value returned by FW if the IB link is down. */
 	if (props->state == IB_PORT_DOWN)
 		 props->active_speed = IB_SPEED_SDR;
 
@@ -434,6 +434,10 @@ static int mlx4_ib_modify_device(struct ib_device *ibdev, int mask,
 	memcpy(ibdev->node_desc, props->node_desc, 64);
 	spin_unlock(&to_mdev(ibdev)->sm_lock);
 
+	/*
+	 * If possible, pass node desc to FW, so it can generate
+	 * a 144 trap.  If cmd fails, just ignore.
+	 */
 	mailbox = mlx4_alloc_cmd_mailbox(to_mdev(ibdev)->dev);
 	if (IS_ERR(mailbox))
 		return 0;
@@ -1090,7 +1094,7 @@ static void *mlx4_ib_add(struct mlx4_dev *dev)
 	mlx4_foreach_ib_transport_port(i, dev)
 		num_ports++;
 
-	
+	/* No point in registering a device with no ports... */
 	if (num_ports == 0)
 		return NULL;
 

@@ -37,6 +37,9 @@ extern PISDN_ADAPTER IoAdapters[MAX_ADAPTER];
 extern void divas_get_version(char *);
 extern void diva_get_vserial_number(PISDN_ADAPTER IoAdapter, char *buf);
 
+/*********************************************************
+ ** Functions for /proc interface / File operations
+ *********************************************************/
 
 static char *divas_proc_name = "divas";
 static char *adapter_dir_name = "adapter";
@@ -44,6 +47,9 @@ static char *info_proc_name = "info";
 static char *grp_opt_proc_name = "group_optimization";
 static char *d_l1_down_proc_name = "dynamic_l1_down";
 
+/*
+** "divas" entry
+*/
 
 extern struct proc_dir_entry *proc_net_eicon;
 static struct proc_dir_entry *divas_proc_entry = NULL;
@@ -255,7 +261,7 @@ static ssize_t info_proc_write(struct file *file, const char __user *buffer,
 	if (copy_from_user(c, buffer, 4))
 		return -EFAULT;
 
-	
+	/* this is for test purposes only */
 	if (!memcmp(c, "trap", 4)) {
 		(*(IoAdapter->os_trap_nfy_Fnc)) (IoAdapter, IoAdapter->ANum);
 		return (count);
@@ -341,7 +347,13 @@ static const struct file_operations info_proc_fops = {
 	.write		= info_proc_write,
 };
 
+/*
+** adapter proc init/de-init
+*/
 
+/* --------------------------------------------------------------------------
+   Create adapter directory and files in proc file system
+   -------------------------------------------------------------------------- */
 int create_adapter_proc(diva_os_xdi_adapter_t *a)
 {
 	struct proc_dir_entry *de, *pe;
@@ -372,6 +384,9 @@ int create_adapter_proc(diva_os_xdi_adapter_t *a)
 	return (1);
 }
 
+/* --------------------------------------------------------------------------
+   Remove adapter directory and files in proc file system
+   -------------------------------------------------------------------------- */
 void remove_adapter_proc(diva_os_xdi_adapter_t *a)
 {
 	char tmp[16];

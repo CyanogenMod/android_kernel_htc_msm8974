@@ -35,19 +35,24 @@
 extern void cmx255_init(void);
 extern void cmx270_init(void);
 
+/* reserve IRQs for IT8152 */
 #define CMX2XX_NR_IRQS		(IRQ_BOARD_START + 40)
 
+/* virtual addresses for statically mapped regions */
 #define CMX2XX_VIRT_BASE	(void __iomem *)(0xe8000000)
 #define CMX2XX_IT8152_VIRT	(CMX2XX_VIRT_BASE)
 
+/* physical address if local-bus attached devices */
 #define CMX255_DM9000_PHYS_BASE (PXA_CS1_PHYS + (8 << 22))
 #define CMX270_DM9000_PHYS_BASE	(PXA_CS1_PHYS + (6 << 22))
 
+/* leds */
 #define CMX255_GPIO_RED		(27)
 #define CMX255_GPIO_GREEN	(32)
 #define CMX270_GPIO_RED		(93)
 #define CMX270_GPIO_GREEN	(94)
 
+/* GPIO IRQ usage */
 #define GPIO22_ETHIRQ		(22)
 #define GPIO10_ETHIRQ		(10)
 #define CMX255_GPIO_IT8152_IRQ	(0)
@@ -118,6 +123,7 @@ static void __init cmx2xx_init_dm9000(void)
 static inline void cmx2xx_init_dm9000(void) {}
 #endif
 
+/* UCB1400 touchscreen controller */
 #if defined(CONFIG_TOUCHSCREEN_UCB1400) || defined(CONFIG_TOUCHSCREEN_UCB1400_MODULE)
 static struct platform_device cmx2xx_ts_device = {
 	.name		= "ucb1400_core",
@@ -132,6 +138,7 @@ static void __init cmx2xx_init_touchscreen(void)
 static inline void cmx2xx_init_touchscreen(void) {}
 #endif
 
+/* CM-X270 LEDs */
 #if defined(CONFIG_LEDS_GPIO) || defined(CONFIG_LEDS_GPIO_MODULE)
 static struct gpio_led cmx2xx_leds[] = {
 	[0] = {
@@ -175,6 +182,11 @@ static inline void cmx2xx_init_leds(void) {}
 #endif
 
 #if defined(CONFIG_FB_PXA) || defined(CONFIG_FB_PXA_MODULE)
+/*
+  Display definitions
+  keep these for backwards compatibility, although symbolic names (as
+  e.g. in lpd270.c) looks better
+*/
 #define MTYPE_STN320x240	0
 #define MTYPE_TFT640x480	1
 #define MTYPE_CRT640x480	2
@@ -350,13 +362,20 @@ static int __init cmx2xx_set_display(char *str)
 	case MTYPE_STN640x480:
 		cmx2xx_display = &generic_stn_640x480;
 		break;
-	default: 
+	default: /* fallback to CRT 640x480 */
 		cmx2xx_display = &generic_crt_640x480;
 		break;
 	}
 	return 1;
 }
 
+/*
+   This should be done really early to get proper configuration for
+   frame buffer.
+   Indeed, pxafb parameters can be used istead, but CM-X2XX bootloader
+   has limitied line length for kernel command line, and also it will
+   break compatibitlty with proprietary releases already in field.
+*/
 __setup("monitor=", cmx2xx_set_display);
 
 static void __init cmx2xx_init_display(void)
@@ -374,12 +393,12 @@ static int cmx2xx_suspend(void)
 {
 	cmx2xx_pci_suspend();
 
-	
+	/* save MSC registers */
 	sleep_save_msc[0] = __raw_readl(MSC0);
 	sleep_save_msc[1] = __raw_readl(MSC1);
 	sleep_save_msc[2] = __raw_readl(MSC2);
 
-	
+	/* setup power saving mode registers */
 	PCFR = 0x0;
 	PSLR = 0xff400000;
 	PMCR  = 0x00000005;
@@ -398,7 +417,7 @@ static void cmx2xx_resume(void)
 {
 	cmx2xx_pci_resume();
 
-	
+	/* restore MSC registers */
 	__raw_writel(sleep_save_msc[0], MSC0);
 	__raw_writel(sleep_save_msc[1], MSC1);
 	__raw_writel(sleep_save_msc[2], MSC2);
@@ -460,8 +479,9 @@ static void __init cmx2xx_init_irq(void)
 }
 
 #ifdef CONFIG_PCI
+/* Map PCI companion statically */
 static struct map_desc cmx2xx_io_desc[] __initdata = {
-	[0] = { 
+	[0] = { /* PCI bridge */
 		.virtual	= (unsigned long)CMX2XX_IT8152_VIRT,
 		.pfn		= __phys_to_pfn(PXA_CS4_PHYS),
 		.length		= SZ_64M,
@@ -497,7 +517,7 @@ MACHINE_START(ARMCORE, "Compulab CM-X2XX")
 	.map_io		= cmx2xx_map_io,
 	.nr_irqs	= CMX2XX_NR_IRQS,
 	.init_irq	= cmx2xx_init_irq,
-	
+	/* NOTE: pxa25x_handle_irq() works on PXA27x w/o camera support */
 	.handle_irq	= pxa25x_handle_irq,
 	.timer		= &pxa_timer,
 	.init_machine	= cmx2xx_init,

@@ -106,7 +106,7 @@ static int bmp18x_init_hw(struct bmp18x_data_bus *data_bus)
 	int ret = 0;
 	if (data_bus->client) {
 		ret = bmp18x_config_regulator(data_bus->client, 1);
-		
+		/* The minimum start up time of bmp18x is 10ms */
 		usleep_range(15000, 20000);
 	}
 	return ret;
@@ -143,7 +143,7 @@ static int bmp18x_set_power(struct bmp18x_data *data, int on)
 				return rc;
 			}
 		}
-		
+		/* The minimum start up time of bmp18x is 10ms */
 		usleep_range(15000, 20000);
 		data->power_enabled = true;
 	} else {

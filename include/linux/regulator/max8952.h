@@ -99,13 +99,13 @@ enum {
 };
 
 enum {
-	MAX8952_SYNC_FREQ_26MHZ, 
+	MAX8952_SYNC_FREQ_26MHZ, /* Default */
 	MAX8952_SYNC_FREQ_13MHZ,
 	MAX8952_SYNC_FREQ_19_2MHZ,
 };
 
 enum {
-	MAX8952_RAMP_32mV_us = 0, 
+	MAX8952_RAMP_32mV_us = 0, /* Default */
 	MAX8952_RAMP_16mV_us,
 	MAX8952_RAMP_8mV_us,
 	MAX8952_RAMP_4mV_us,
@@ -123,7 +123,7 @@ struct max8952_platform_data {
 	int gpio_en;
 
 	u8 default_mode;
-	u8 dvs_mode[MAX8952_NUM_DVS_MODE]; 
+	u8 dvs_mode[MAX8952_NUM_DVS_MODE]; /* MAX8952_DVS_MODEx_XXXXmV */
 
 	u8 sync_freq;
 	u8 ramp_speed;
@@ -132,4 +132,4 @@ struct max8952_platform_data {
 };
 
 
-#endif 
+#endif /* REGULATOR_MAX8952 */

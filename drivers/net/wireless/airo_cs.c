@@ -41,6 +41,7 @@
 #include "airo.h"
 
 
+/*====================================================================*/
 
 MODULE_AUTHOR("Benjamin Reed");
 MODULE_DESCRIPTION("Support for Cisco/Aironet 802.11 wireless ethernet "
@@ -49,6 +50,7 @@ MODULE_DESCRIPTION("Support for Cisco/Aironet 802.11 wireless ethernet "
 MODULE_LICENSE("Dual BSD/GPL");
 MODULE_SUPPORTED_DEVICE("Aironet 4500, 4800 and Cisco 340 PCMCIA cards");
 
+/*====================================================================*/
 
 static int airo_config(struct pcmcia_device *link);
 static void airo_release(struct pcmcia_device *link);
@@ -65,7 +67,7 @@ static int airo_probe(struct pcmcia_device *p_dev)
 
 	dev_dbg(&p_dev->dev, "airo_attach()\n");
 
-	
+	/* Allocate space for private device-specific data */
 	local = kzalloc(sizeof(local_info_t), GFP_KERNEL);
 	if (!local) {
 		printk(KERN_ERR "airo_cs: no memory for new device\n");
@@ -74,7 +76,7 @@ static int airo_probe(struct pcmcia_device *p_dev)
 	p_dev->priv = local;
 
 	return airo_config(p_dev);
-} 
+} /* airo_attach */
 
 static void airo_detach(struct pcmcia_device *link)
 {
@@ -88,7 +90,7 @@ static void airo_detach(struct pcmcia_device *link)
 	((local_info_t *)link->priv)->eth_dev = NULL;
 
 	kfree(link->priv);
-} 
+} /* airo_detach */
 
 static int airo_cs_config_check(struct pcmcia_device *p_dev, void *priv_data)
 {
@@ -132,7 +134,7 @@ static int airo_config(struct pcmcia_device *link)
  failed:
 	airo_release(link);
 	return -ENODEV;
-} 
+} /* airo_config */
 
 static void airo_release(struct pcmcia_device *link)
 {

@@ -78,14 +78,14 @@ enum acpi_smb_status_codes {
 };
 
 enum acpi_smb_offset {
-	ACPI_SMB_PROTOCOL = 0,	
-	ACPI_SMB_STATUS = 1,	
-	ACPI_SMB_ADDRESS = 2,	
-	ACPI_SMB_COMMAND = 3,	
-	ACPI_SMB_DATA = 4,	
-	ACPI_SMB_BLOCK_COUNT = 0x24,	
-	ACPI_SMB_ALARM_ADDRESS = 0x25,	
-	ACPI_SMB_ALARM_DATA = 0x26,	
+	ACPI_SMB_PROTOCOL = 0,	/* protocol, PEC */
+	ACPI_SMB_STATUS = 1,	/* status */
+	ACPI_SMB_ADDRESS = 2,	/* address */
+	ACPI_SMB_COMMAND = 3,	/* command */
+	ACPI_SMB_DATA = 4,	/* 32 data registers */
+	ACPI_SMB_BLOCK_COUNT = 0x24,	/* number of data bytes */
+	ACPI_SMB_ALARM_ADDRESS = 0x25,	/* alarm address */
+	ACPI_SMB_ALARM_DATA = 0x26,	/* 2 bytes alarm data */
 };
 
 static inline int smb_hc_read(struct acpi_smb_hc *hc, u8 address, u8 *data)
@@ -110,6 +110,11 @@ static int wait_transaction_complete(struct acpi_smb_hc *hc, int timeout)
 	if (wait_event_timeout(hc->wait, smb_check_done(hc),
 			       msecs_to_jiffies(timeout)))
 		return 0;
+	/*
+	 * After the timeout happens, OS will try to check the status of SMbus.
+	 * If the status is what OS expected, it will be regarded as the bogus
+	 * timeout.
+	 */
 	if (smb_check_done(hc))
 		return 0;
 	else
@@ -142,6 +147,10 @@ static int acpi_smbus_transaction(struct acpi_smb_hc *hc, u8 protocol,
 	}
 	smb_hc_write(hc, ACPI_SMB_ADDRESS, address << 1);
 	smb_hc_write(hc, ACPI_SMB_PROTOCOL, protocol);
+	/*
+	 * Wait for completion. Save the status code, data size,
+	 * and data into the return package (if required by the protocol).
+	 */
 	ret = wait_transaction_complete(hc, 1000);
 	if (ret || !(protocol & 0x01))
 		goto end;
@@ -221,7 +230,7 @@ static int smbus_alarm(void *context)
 	u8 address;
 	if (smb_hc_read(hc, ACPI_SMB_STATUS, &status.raw))
 		return 0;
-	
+	/* Check if it is only a completion notify */
 	if (status.fields.done)
 		wake_up(&hc->wait);
 	if (!status.fields.alarm)
@@ -230,7 +239,7 @@ static int smbus_alarm(void *context)
 	smb_hc_read(hc, ACPI_SMB_ALARM_ADDRESS, &address);
 	status.fields.alarm = 0;
 	smb_hc_write(hc, ACPI_SMB_STATUS, status.raw);
-	
+	/* We are only interested in events coming from known devices */
 	switch (address >> 1) {
 		case ACPI_SBS_CHARGER:
 		case ACPI_SBS_MANAGER:

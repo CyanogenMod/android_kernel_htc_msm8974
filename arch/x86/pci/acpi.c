@@ -31,7 +31,7 @@ static int __init set_nouse_crs(const struct dmi_system_id *id)
 }
 
 static const struct dmi_system_id pci_use_crs_table[] __initconst = {
-	
+	/* http://bugzilla.kernel.org/show_bug.cgi?id=14183 */
 	{
 		.callback = set_use_crs,
 		.ident = "IBM System x3800",
@@ -40,8 +40,8 @@ static const struct dmi_system_id pci_use_crs_table[] __initconst = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "x3800"),
 		},
 	},
-	
-	
+	/* https://bugzilla.kernel.org/show_bug.cgi?id=16007 */
+	/* 2006 AMD HT/VIA system with two host bridges */
         {
 		.callback = set_use_crs,
 		.ident = "ASRock ALiveSATA2-GLAN",
@@ -49,8 +49,8 @@ static const struct dmi_system_id pci_use_crs_table[] __initconst = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "ALiveSATA2-GLAN"),
                 },
         },
-	
-	
+	/* https://bugzilla.kernel.org/show_bug.cgi?id=30552 */
+	/* 2006 AMD HT/VIA system with two host bridges */
 	{
 		.callback = set_use_crs,
 		.ident = "ASUS M2V-MX SE",
@@ -60,7 +60,7 @@ static const struct dmi_system_id pci_use_crs_table[] __initconst = {
 			DMI_MATCH(DMI_BIOS_VENDOR, "American Megatrends Inc."),
 		},
 	},
-	
+	/* https://bugzilla.kernel.org/show_bug.cgi?id=42619 */
 	{
 		.callback = set_use_crs,
 		.ident = "MSI MS-7253",
@@ -71,9 +71,9 @@ static const struct dmi_system_id pci_use_crs_table[] __initconst = {
 		},
 	},
 
-	
+	/* Now for the blacklist.. */
 
-	
+	/* https://bugzilla.redhat.com/show_bug.cgi?id=769657 */
 	{
 		.callback = set_nouse_crs,
 		.ident = "Dell Studio 1557",
@@ -83,7 +83,7 @@ static const struct dmi_system_id pci_use_crs_table[] __initconst = {
 			DMI_MATCH(DMI_BIOS_VERSION, "A09"),
 		},
 	},
-	
+	/* https://bugzilla.redhat.com/show_bug.cgi?id=769657 */
 	{
 		.callback = set_nouse_crs,
 		.ident = "Thinkpad SL510",
@@ -105,6 +105,10 @@ void __init pci_acpi_crs_quirks(void)
 
 	dmi_check_system(pci_use_crs_table);
 
+	/*
+	 * If the user specifies "pci=use_crs" or "pci=nocrs" explicitly, that
+	 * takes precedence over anything we figured out above.
+	 */
 	if (pci_probe & PCI_ROOT_NO_CRS)
 		pci_use_crs = false;
 	else if (pci_probe & PCI_USE__CRS)
@@ -202,7 +206,7 @@ setup_resource(struct acpi_resource *acpi_res, void *data)
 	start = addr.minimum + addr.translation_offset;
 	orig_end = end = addr.maximum + addr.translation_offset;
 
-	
+	/* Exclude non-addressable range or non-addressable portion of range */
 	end = min(end, (u64)iomem_resource.end);
 	if (end <= start) {
 		dev_info(&info->bridge->dev,
@@ -263,6 +267,11 @@ static void coalesce_windows(struct pci_root_info *info, unsigned long type)
 			if (!(res2->flags & type))
 				continue;
 
+			/*
+			 * I don't like throwing away windows because then
+			 * our resources no longer match the ACPI _CRS, but
+			 * the kernel resource tree doesn't allow overlaps.
+			 */
 			if (resource_contains(res1, res2->start) ||
 			    resource_contains(res1, res2->end) ||
 			    resource_contains(res2, res1->start) ||
@@ -380,6 +389,10 @@ struct pci_bus * __devinit pci_acpi_scan_root(struct acpi_pci_root *root)
 	if (node != -1 && !node_online(node))
 		node = -1;
 
+	/* Allocate per-root-bus (not per bus) arch-specific data.
+	 * TODO: leak; this memory is never freed.
+	 * It's arguable whether it's worth the trouble to care.
+	 */
 	sd = kzalloc(sizeof(*sd), GFP_KERNEL);
 	if (!sd) {
 		printk(KERN_WARNING "pci_bus %04x:%02x: "
@@ -389,13 +402,25 @@ struct pci_bus * __devinit pci_acpi_scan_root(struct acpi_pci_root *root)
 
 	sd->domain = domain;
 	sd->node = node;
+	/*
+	 * Maybe the desired pci bus has been already scanned. In such case
+	 * it is unnecessary to scan the pci bus with the given domain,busnum.
+	 */
 	bus = pci_find_bus(domain, busnum);
 	if (bus) {
+		/*
+		 * If the desired bus exits, the content of bus->sysdata will
+		 * be replaced by sd.
+		 */
 		memcpy(bus->sysdata, sd, sizeof(*sd));
 		kfree(sd);
 	} else {
 		get_current_resources(device, busnum, domain, &resources);
 
+		/*
+		 * _CRS with no apertures is normal, so only fall back to
+		 * defaults or native bridge info if we're ignoring _CRS.
+		 */
 		if (!pci_use_crs)
 			x86_pci_root_bus_resources(busnum, &resources);
 		bus = pci_create_root_bus(NULL, busnum, &pci_root_ops, sd,
@@ -406,6 +431,9 @@ struct pci_bus * __devinit pci_acpi_scan_root(struct acpi_pci_root *root)
 			pci_free_resource_list(&resources);
 	}
 
+	/* After the PCI-E bus has been walked and all devices discovered,
+	 * configure any settings of the fabric that might be necessary.
+	 */
 	if (bus) {
 		struct pci_bus *child;
 		list_for_each_entry(child, &bus->children, node) {
@@ -447,6 +475,11 @@ int __init pci_acpi_init(void)
 	x86_init.pci.init_irq = x86_init_noop;
 
 	if (pci_routeirq) {
+		/*
+		 * PCI IRQ routing is set up by pci_enable_device(), but we
+		 * also do it here in case there are still broken drivers that
+		 * don't use pci_enable_device().
+		 */
 		printk(KERN_INFO "PCI: Routing PCI interrupts for all devices because \"pci=routeirq\" specified\n");
 		for_each_pci_dev(dev)
 			acpi_pci_irq_enable(dev);

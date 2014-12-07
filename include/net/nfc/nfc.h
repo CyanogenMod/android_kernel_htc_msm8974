@@ -34,6 +34,17 @@
 
 struct nfc_dev;
 
+/**
+ * data_exchange_cb_t - Definition of nfc_data_exchange callback
+ *
+ * @context: nfc_data_exchange cb_context parameter
+ * @skb: response data
+ * @err: If an error has occurred during data exchange, it is the
+ *	error number. Zero means no error.
+ *
+ * When a rx or tx package is lost or corrupted or the target gets out
+ * of the operating field, err is -EIO.
+ */
 typedef void (*data_exchange_cb_t)(void *context, struct sk_buff *skb,
 								int err);
 
@@ -103,6 +114,11 @@ struct nfc_dev *nfc_allocate_device(struct nfc_ops *ops,
 				    int tx_headroom,
 				    int tx_tailroom);
 
+/**
+ * nfc_free_device - free nfc device
+ *
+ * @dev: The nfc device to free
+ */
 static inline void nfc_free_device(struct nfc_dev *dev)
 {
 	put_device(&dev->dev);
@@ -112,22 +128,44 @@ int nfc_register_device(struct nfc_dev *dev);
 
 void nfc_unregister_device(struct nfc_dev *dev);
 
+/**
+ * nfc_set_parent_dev - set the parent device
+ *
+ * @nfc_dev: The nfc device whose parent is being set
+ * @dev: The parent device
+ */
 static inline void nfc_set_parent_dev(struct nfc_dev *nfc_dev,
 				      struct device *dev)
 {
 	nfc_dev->dev.parent = dev;
 }
 
+/**
+ * nfc_set_drvdata - set driver specifc data
+ *
+ * @dev: The nfc device
+ * @data: Pointer to driver specifc data
+ */
 static inline void nfc_set_drvdata(struct nfc_dev *dev, void *data)
 {
 	dev_set_drvdata(&dev->dev, data);
 }
 
+/**
+ * nfc_get_drvdata - get driver specifc data
+ *
+ * @dev: The nfc device
+ */
 static inline void *nfc_get_drvdata(struct nfc_dev *dev)
 {
 	return dev_get_drvdata(&dev->dev);
 }
 
+/**
+ * nfc_device_name - get the nfc device name
+ *
+ * @dev: The nfc device whose name to return
+ */
 static inline const char *nfc_device_name(struct nfc_dev *dev)
 {
 	return dev_name(&dev->dev);
@@ -147,4 +185,4 @@ int nfc_targets_found(struct nfc_dev *dev,
 int nfc_dep_link_is_up(struct nfc_dev *dev, u32 target_idx,
 		       u8 comm_mode, u8 rf_mode);
 
-#endif 
+#endif /* __NET_NFC_H */

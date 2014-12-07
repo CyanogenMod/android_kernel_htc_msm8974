@@ -27,7 +27,7 @@
 static void ptrace_child(void)
 {
 	int ret;
-	
+	/* Calling os_getpid because some libcs cached getpid incorrectly */
 	int pid = os_getpid(), ppid = getppid();
 	int sc_result;
 
@@ -38,14 +38,26 @@ static void ptrace_child(void)
 	}
 	kill(pid, SIGSTOP);
 
+	/*
+	 * This syscall will be intercepted by the parent. Don't call more than
+	 * once, please.
+	 */
 	sc_result = os_getpid();
 
 	if (sc_result == pid)
-		
+		/* Nothing modified by the parent, we are running normally. */
 		ret = 1;
 	else if (sc_result == ppid)
+		/*
+		 * Expected in check_ptrace and check_sysemu when they succeed
+		 * in modifying the stack frame
+		 */
 		ret = 0;
 	else
+		/* Serious trouble! This could be caused by a bug in host 2.6
+		 * SKAS3/2.6 patch before release -V6, together with a bug in
+		 * the UML code itself.
+		 */
 		ret = 2;
 
 	exit(ret);
@@ -97,6 +109,12 @@ static int start_ptraced_child(void)
 	return pid;
 }
 
+/* When testing for SYSEMU support, if it is one of the broken versions, we
+ * must just avoid using sysemu, not panic, but only if SYSEMU features are
+ * broken.
+ * So only for SYSEMU features we test mustpanic, while normal host features
+ * must work anyway!
+ */
 static int stop_ptraced_child(int pid, int exitcode, int mustexit)
 {
 	int status, n, ret = 0;
@@ -122,6 +140,7 @@ static int stop_ptraced_child(int pid, int exitcode, int mustexit)
 	return ret;
 }
 
+/* Changed only during early boot */
 int ptrace_faultinfo;
 static int disable_ptrace_faultinfo;
 
@@ -146,6 +165,7 @@ static int __init skas0_cmd_param(char *str, int* add)
 	return 0;
 }
 
+/* The two __uml_setup would conflict, without this stupid alias. */
 
 static int __init mode_skas0_cmd_param(char *str, int* add)
 	__attribute__((alias("skas0_cmd_param")));
@@ -158,6 +178,7 @@ __uml_setup("mode=skas0", mode_skas0_cmd_param,
 "mode=skas0\n"
 "    Disables SKAS3 and SKAS4 usage, so that SKAS0 is used.\n\n");
 
+/* Changed only during early boot */
 static int force_sysemu_disabled = 0;
 
 static int __init nosysemu_cmd_param(char *str, int* add)
@@ -337,11 +358,14 @@ void __init os_early_checks(void)
 {
 	int pid;
 
-	
+	/* Print out the core dump limits early */
 	check_coredump_limit();
 
 	check_ptrace();
 
+	/* Need to check this early because mmapping happens before the
+	 * kernel is running.
+	 */
 	check_tmpexec();
 
 	pid = start_ptraced_child();
@@ -416,7 +440,7 @@ static inline void check_skas3_ptrace_ldt(void)
 	int pid, n;
 	unsigned char ldtbuf[40];
 	struct ptrace_ldt ldt_op = (struct ptrace_ldt) {
-		.func = 2, 
+		.func = 2, /* read default ldt */
 		.ptr = ldtbuf,
 		.bytecount = sizeof(ldtbuf)};
 

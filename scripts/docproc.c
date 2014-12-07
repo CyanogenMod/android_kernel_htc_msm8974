@@ -45,6 +45,8 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+/* exitstatus is used to keep track of any failing calls to kernel-doc,
+ * but execution continues. */
 int exitstatus = 0;
 
 typedef void DFL(char *);
@@ -100,12 +102,15 @@ static void usage (void)
 	fprintf(stderr, "                     KBUILD_SRC: absolute path to kernel source tree.\n");
 }
 
+/*
+ * Execute kernel-doc with parameters given in svec
+ */
 static void exec_kernel_doc(char **svec)
 {
 	pid_t pid;
 	int ret;
 	char real_filename[PATH_MAX + 1];
-	
+	/* Make sure output generated so far are flushed */
 	fflush(stdout);
 	switch (pid=fork()) {
 		case -1:
@@ -129,6 +134,7 @@ static void exec_kernel_doc(char **svec)
 		exitstatus = 0xff;
 }
 
+/* Types used to create list of all exported symbols in a number of files */
 struct symbols
 {
 	char *name;
@@ -151,12 +157,14 @@ static void add_new_symbol(struct symfile *sym, char * symname)
 	sym->symbollist[sym->symbolcnt++].name = strdup(symname);
 }
 
+/* Add a filename to the list */
 static struct symfile * add_new_file(char * filename)
 {
 	symfilelist[symfilecnt++].filename = strdup(filename);
 	return &symfilelist[symfilecnt - 1];
 }
 
+/* Check if file already are present in the list */
 static struct symfile * filename_exist(char * filename)
 {
 	int i;
@@ -166,11 +174,16 @@ static struct symfile * filename_exist(char * filename)
 	return NULL;
 }
 
+/*
+ * List all files referenced within the template file.
+ * Files are separated by tabs.
+ */
 static void adddep(char * file)		   { printf("\t%s", file); }
 static void adddep2(char * file, char * line)     { line = line; adddep(file); }
 static void noaction(char * line)		   { line = line; }
 static void noaction2(char * file, char * line)   { file = file; line = line; }
 
+/* Echo the line without further action */
 static void printline(char * line)               { printf("%s", line); }
 
 /*
@@ -205,11 +218,11 @@ static void find_export_symbols(char * filename)
 				/* Skip EXPORT_SYMBOL{_GPL} */
 				while (isalnum(*p) || *p == '_')
 					p++;
-				
+				/* Remove parentheses & additional whitespace */
 				while (isspace(*p))
 					p++;
 				if (*p != '(')
-					continue; 
+					continue; /* Syntax error? */
 				else
 					p++;
 				while (isspace(*p))
@@ -225,6 +238,15 @@ static void find_export_symbols(char * filename)
 	}
 }
 
+/*
+ * Document all external or internal functions in a file.
+ * Call kernel-doc with following parameters:
+ * kernel-doc -docbook -nofunction function_name1 filename
+ * Function names are obtained from all the src files
+ * by find_export_symbols.
+ * intfunc uses -nofunction
+ * extfunc uses -function
+ */
 static void docfunctions(char * filename, char * type)
 {
 	int i,j;
@@ -260,15 +282,20 @@ static void docfunctions(char * filename, char * type)
 static void intfunc(char * filename) {	docfunctions(filename, NOFUNCTION); }
 static void extfunc(char * filename) { docfunctions(filename, FUNCTION);   }
 
+/*
+ * Document specific function(s) in a file.
+ * Call kernel-doc with the following parameters:
+ * kernel-doc -docbook -function function1 [-function function2]
+ */
 static void singfunc(char * filename, char * line)
 {
-	char *vec[200]; 
+	char *vec[200]; /* Enough for specific functions */
         int i, idx = 0;
         int startofsym = 1;
 	vec[idx++] = KERNELDOC;
 	vec[idx++] = DOCBOOK;
 
-        
+        /* Split line up in individual parameters preceded by FUNCTION */
         for (i=0; line[i]; i++) {
                 if (isspace(line[i])) {
                         line[i] = '\0';
@@ -291,9 +318,14 @@ static void singfunc(char * filename, char * line)
 	exec_kernel_doc(vec);
 }
 
+/*
+ * Insert specific documentation section from a file.
+ * Call kernel-doc with the following parameters:
+ * kernel-doc -docbook -function "doc section" filename
+ */
 static void docsect(char *filename, char *line)
 {
-	char *vec[6]; 
+	char *vec[6]; /* kerneldoc -docbook -function "section" file NULL */
 	char *s;
 
 	for (s = line; *s; s++)
@@ -318,7 +350,7 @@ static void docsect(char *filename, char *line)
 
 static void find_all_symbols(char *filename)
 {
-	char *vec[4]; 
+	char *vec[4]; /* kerneldoc -list file NULL */
 	pid_t pid;
 	int ret, i, count, start;
 	char real_filename[PATH_MAX + 1];
@@ -374,7 +406,7 @@ static void find_all_symbols(char *filename)
 		exitstatus = 0xff;
 
 	count = 0;
-	
+	/* poor man's strtok, but with counting */
 	for (i = 0; i < data_len; i++) {
 		if (data[i] == '\n') {
 			count++;
@@ -394,6 +426,16 @@ static void find_all_symbols(char *filename)
 	}
 }
 
+/*
+ * Parse file, calling action specific functions for:
+ * 1) Lines containing !E
+ * 2) Lines containing !I
+ * 3) Lines containing !D
+ * 4) Lines containing !F
+ * 5) Lines containing !P
+ * 6) Lines containing !C
+ * 7) Default lines - lines not matching the above
+ */
 static void parse_file(FILE *infile)
 {
 	char line[MAXLINESZ];
@@ -418,19 +460,19 @@ static void parse_file(FILE *infile)
                                         symbolsonly(line+2);
                                         break;
 				case 'F':
-					
+					/* filename */
 					while (*s && !isspace(*s)) s++;
 					*s++ = '\0';
-                                        
+                                        /* function names */
 					while (isspace(*s))
 						s++;
 					singlefunctions(line +2, s);
 					break;
 				case 'P':
-					
+					/* filename */
 					while (*s && !isspace(*s)) s++;
 					*s++ = '\0';
-					
+					/* DOC: section name */
 					while (isspace(*s))
 						s++;
 					docsection(line + 2, s);
@@ -467,7 +509,7 @@ int main(int argc, char *argv[])
 		usage();
 		exit(1);
 	}
-	
+	/* Open file, exit on error */
 	infile = fopen(argv[2], "r");
         if (infile == NULL) {
                 fprintf(stderr, "docproc: ");
@@ -476,7 +518,14 @@ int main(int argc, char *argv[])
         }
 
 	if (strcmp("doc", argv[1]) == 0) {
-		
+		/* Need to do this in two passes.
+		 * First pass is used to collect all symbols exported
+		 * in the various files;
+		 * Second pass generate the documentation.
+		 * This is required because some functions are declared
+		 * and exported in different files :-((
+		 */
+		/* Collect symbols */
 		defaultline       = noaction;
 		internalfunctions = find_export_symbols;
 		externalfunctions = find_export_symbols;
@@ -486,7 +535,7 @@ int main(int argc, char *argv[])
 		findall           = find_all_symbols;
 		parse_file(infile);
 
-		
+		/* Rewind to start from beginning of file again */
 		fseek(infile, 0, SEEK_SET);
 		defaultline       = printline;
 		internalfunctions = intfunc;
@@ -505,6 +554,8 @@ int main(int argc, char *argv[])
 				all_list[i]);
 		}
 	} else if (strcmp("depend", argv[1]) == 0) {
+		/* Create first part of dependency chain
+		 * file.tmpl */
 		printf("%s\t", argv[2]);
 		defaultline       = noaction;
 		internalfunctions = adddep;

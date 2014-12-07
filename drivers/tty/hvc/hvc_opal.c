@@ -53,11 +53,12 @@ typedef enum hv_protocol {
 } hv_protocol_t;
 
 struct hvc_opal_priv {
-	hv_protocol_t		proto;	
-	struct hvsi_priv	hvsi;	
+	hv_protocol_t		proto;	/* Raw data or HVSI packets */
+	struct hvsi_priv	hvsi;	/* HVSI specific data */
 };
 static struct hvc_opal_priv *hvc_opal_privs[MAX_NR_HVC_CONSOLES];
 
+/* For early boot console */
 static struct hvc_opal_priv hvc_opal_boot_priv;
 static u32 hvc_opal_boot_termno;
 
@@ -185,7 +186,7 @@ static int __devinit hvc_opal_probe(struct platform_device *dev)
 	reg = of_get_property(dev->dev.of_node, "reg", NULL);
 	termno = reg ? be32_to_cpup(reg) : 0;
 
-	
+	/* Is it our boot one ? */
 	if (hvc_opal_privs[termno] == &hvc_opal_boot_priv) {
 		pv = hvc_opal_privs[termno];
 		boot = 1;
@@ -199,7 +200,7 @@ static int __devinit hvc_opal_probe(struct platform_device *dev)
 			hvsilib_init(&pv->hvsi, opal_get_chars, opal_put_chars,
 				     termno, 0);
 
-		
+		/* Instanciate now to establish a mapping index==vtermno */
 		hvc_instantiate(termno, termno, ops);
 	} else {
 		pr_err("hvc_opal: Device %s has duplicate terminal number #%d\n",
@@ -212,7 +213,7 @@ static int __devinit hvc_opal_probe(struct platform_device *dev)
 		dev->dev.of_node->full_name,
 		boot ? " (boot console)" : "");
 
-	
+	/* We don't do IRQ yet */
 	hp = hvc_alloc(termno, 0, ops, MAX_VIO_PUT_CHARS);
 	if (IS_ERR(hp))
 		return PTR_ERR(hp);
@@ -251,7 +252,7 @@ static int __init hvc_opal_init(void)
 	if (!firmware_has_feature(FW_FEATURE_OPAL))
 		return -ENODEV;
 
-	
+	/* Register as a vio device to receive callbacks */
 	return platform_driver_register(&hvc_opal_driver);
 }
 module_init(hvc_opal_init);
@@ -307,7 +308,7 @@ static int udbg_opal_getc(void)
 	for (;;) {
 		ch = udbg_opal_getc_poll();
 		if (ch == -1) {
-			
+			/* This shouldn't be needed...but... */
 			volatile unsigned long delay;
 			for (delay=0; delay < 2000000; delay++)
 				;
@@ -322,7 +323,7 @@ static void udbg_init_opal_common(void)
 	udbg_putc = udbg_opal_putc;
 	udbg_getc = udbg_opal_getc;
 	udbg_getc_poll = udbg_opal_getc_poll;
-	tb_ticks_per_usec = 0x200; 
+	tb_ticks_per_usec = 0x200; /* Make udelay not suck */
 }
 
 void __init hvc_opal_init_early(void)
@@ -333,7 +334,7 @@ void __init hvc_opal_init_early(void)
 	const struct hv_ops *ops;
 	u32 index;
 
-	
+	/* find the boot console from /chosen/stdout */
 	if (of_chosen)
 		name = of_get_property(of_chosen, "linux,stdout-path", NULL);
 	if (name) {
@@ -345,6 +346,9 @@ void __init hvc_opal_init_early(void)
 	} else {
 		struct device_node *opal, *np;
 
+		/* Current OPAL takeover doesn't provide the stdout
+		 * path, so we hard wire it
+		 */
 		opal = of_find_node_by_path("/ibm,opal/consoles");
 		if (opal)
 			pr_devel("hvc_opal: Found consoles in new location\n");
@@ -372,7 +376,7 @@ void __init hvc_opal_init_early(void)
 		return;
 	hvc_opal_privs[index] = &hvc_opal_boot_priv;
 
-	
+	/* Check the protocol */
 	if (of_device_is_compatible(stdout_node, "ibm,opal-console-raw")) {
 		hvc_opal_boot_priv.proto = HV_PROTOCOL_RAW;
 		ops = &hvc_opal_raw_ops;
@@ -383,7 +387,7 @@ void __init hvc_opal_init_early(void)
 		ops = &hvc_opal_hvsi_ops;
 		hvsilib_init(&hvc_opal_boot_priv.hvsi, opal_get_chars,
 			     opal_put_chars, index, 1);
-		
+		/* HVSI, perform the handshake now */
 		hvsilib_establish(&hvc_opal_boot_priv.hvsi);
 		pr_devel("hvc_opal: Found HVSI console\n");
 	} else
@@ -405,7 +409,7 @@ void __init udbg_init_debug_opal(void)
 	hvc_opal_boot_termno = index;
 	udbg_init_opal_common();
 }
-#endif 
+#endif /* CONFIG_PPC_EARLY_DEBUG_OPAL_RAW */
 
 #ifdef CONFIG_PPC_EARLY_DEBUG_OPAL_HVSI
 void __init udbg_init_debug_opal_hvsi(void)
@@ -418,4 +422,4 @@ void __init udbg_init_debug_opal_hvsi(void)
 		     index, 1);
 	hvsilib_establish(&hvc_opal_boot_priv.hvsi);
 }
-#endif 
+#endif /* CONFIG_PPC_EARLY_DEBUG_OPAL_HVSI */

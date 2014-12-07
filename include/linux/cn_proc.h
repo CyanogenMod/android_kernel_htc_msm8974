@@ -20,14 +20,33 @@
 
 #include <linux/types.h>
 
+/*
+ * Userspace sends this enum to register with the kernel that it is listening
+ * for events on the connector.
+ */
 enum proc_cn_mcast_op {
 	PROC_CN_MCAST_LISTEN = 1,
 	PROC_CN_MCAST_IGNORE = 2
 };
 
+/*
+ * From the user's point of view, the process
+ * ID is the thread group ID and thread ID is the internal
+ * kernel "pid". So, fields are assigned as follow:
+ *
+ *  In user space     -  In  kernel space
+ *
+ * parent process ID  =  parent->tgid
+ * parent thread  ID  =  parent->pid
+ * child  process ID  =  child->tgid
+ * child  thread  ID  =  child->pid
+ */
 
 struct proc_event {
 	enum what {
+		/* Use successive bits so the enums can be used to record
+		 * sets of events as well
+		 */
 		PROC_EVENT_NONE = 0x00000000,
 		PROC_EVENT_FORK = 0x00000001,
 		PROC_EVENT_EXEC = 0x00000002,
@@ -36,14 +55,14 @@ struct proc_event {
 		PROC_EVENT_SID  = 0x00000080,
 		PROC_EVENT_PTRACE = 0x00000100,
 		PROC_EVENT_COMM = 0x00000200,
-		
-		
+		/* "next" should be 0x00000400 */
+		/* "last" is the last process event: exit */
 		PROC_EVENT_EXIT = 0x80000000
 	} what;
 	__u32 cpu;
 	__u64 __attribute__((aligned(8))) timestamp_ns;
-		
-	union { 
+		/* Number of nano seconds since system boot */
+	union { /* must be last field of proc_event struct */
 		struct {
 			__u32 err;
 		} ack;
@@ -64,8 +83,8 @@ struct proc_event {
 			__kernel_pid_t process_pid;
 			__kernel_pid_t process_tgid;
 			union {
-				__u32 ruid; 
-				__u32 rgid; 
+				__u32 ruid; /* task uid */
+				__u32 rgid; /* task gid */
 			} r;
 			union {
 				__u32 euid;
@@ -131,6 +150,6 @@ static inline void proc_ptrace_connector(struct task_struct *task,
 
 static inline void proc_exit_connector(struct task_struct *task)
 {}
-#endif	
-#endif	
-#endif	
+#endif	/* CONFIG_PROC_EVENTS */
+#endif	/* __KERNEL__ */
+#endif	/* CN_PROC_H */

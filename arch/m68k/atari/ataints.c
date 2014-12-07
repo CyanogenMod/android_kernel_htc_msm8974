@@ -51,14 +51,32 @@
 #include <asm/entry.h>
 
 
+/*
+ * Atari interrupt handling scheme:
+ * --------------------------------
+ *
+ * All interrupt source have an internal number (defined in
+ * <asm/atariints.h>): Autovector interrupts are 1..7, then follow ST-MFP,
+ * TT-MFP, SCC, and finally VME interrupts. Vector numbers for the latter can
+ * be allocated by atari_register_vme_int().
+ */
 
+/*
+ * Bitmap for free interrupt vector numbers
+ * (new vectors starting from 0x70 can be allocated by
+ * atari_register_vme_int())
+ */
 static int free_vme_vec_bitmap;
 
+/* GK:
+ * HBL IRQ handler for Falcon. Nobody needs it :-)
+ * ++andreas: raise ipl to disable further HBLANK interrupts.
+ */
 asmlinkage void falcon_hblhandler(void);
 asm(".text\n"
 __ALIGN_STR "\n\t"
 "falcon_hblhandler:\n\t"
-	"orw	#0x200,%sp@\n\t"	
+	"orw	#0x200,%sp@\n\t"	/* set saved ipl to 2 */
 	"rte");
 
 extern void atari_microwire_cmd(int cmd);
@@ -103,6 +121,16 @@ static struct irq_chip atari_irq_chip = {
 	.irq_disable	= atari_irq_disable,
 };
 
+/*
+ * void atari_init_IRQ (void)
+ *
+ * Parameters:	None
+ *
+ * Returns:	Nothing
+ *
+ * This function should be called during kernel startup to initialize
+ * the atari IRQ handling routines.
+ */
 
 void __init atari_init_IRQ(void)
 {
@@ -110,58 +138,73 @@ void __init atari_init_IRQ(void)
 	m68k_setup_irq_controller(&atari_irq_chip, handle_simple_irq, 1,
 				  NUM_ATARI_SOURCES - 1);
 
-	
+	/* Initialize the MFP(s) */
 
 #ifdef ATARI_USE_SOFTWARE_EOI
-	st_mfp.vec_adr  = 0x48;	
+	st_mfp.vec_adr  = 0x48;	/* Software EOI-Mode */
 #else
-	st_mfp.vec_adr  = 0x40;	
+	st_mfp.vec_adr  = 0x40;	/* Automatic EOI-Mode */
 #endif
-	st_mfp.int_en_a = 0x00;	
+	st_mfp.int_en_a = 0x00;	/* turn off MFP-Ints */
 	st_mfp.int_en_b = 0x00;
-	st_mfp.int_mk_a = 0xff;	
+	st_mfp.int_mk_a = 0xff;	/* no Masking */
 	st_mfp.int_mk_b = 0xff;
 
 	if (ATARIHW_PRESENT(TT_MFP)) {
 #ifdef ATARI_USE_SOFTWARE_EOI
-		tt_mfp.vec_adr  = 0x58;		
+		tt_mfp.vec_adr  = 0x58;		/* Software EOI-Mode */
 #else
-		tt_mfp.vec_adr  = 0x50;		
+		tt_mfp.vec_adr  = 0x50;		/* Automatic EOI-Mode */
 #endif
-		tt_mfp.int_en_a = 0x00;		
+		tt_mfp.int_en_a = 0x00;		/* turn off MFP-Ints */
 		tt_mfp.int_en_b = 0x00;
-		tt_mfp.int_mk_a = 0xff;		
+		tt_mfp.int_mk_a = 0xff;		/* no Masking */
 		tt_mfp.int_mk_b = 0xff;
 	}
 
 	if (ATARIHW_PRESENT(SCC) && !atari_SCC_reset_done) {
 		atari_scc.cha_a_ctrl = 9;
 		MFPDELAY();
-		atari_scc.cha_a_ctrl = (char) 0xc0; 
+		atari_scc.cha_a_ctrl = (char) 0xc0; /* hardware reset */
 	}
 
 	if (ATARIHW_PRESENT(SCU)) {
-		
-		tt_scu.sys_mask = 0x10;		
-		tt_scu.vme_mask = 0x60;		
+		/* init the SCU if present */
+		tt_scu.sys_mask = 0x10;		/* enable VBL (for the cursor) and
+									 * disable HSYNC interrupts (who
+									 * needs them?)  MFP and SCC are
+									 * enabled in VME mask
+									 */
+		tt_scu.vme_mask = 0x60;		/* enable MFP and SCC ints */
 	} else {
+		/* If no SCU and no Hades, the HSYNC interrupt needs to be
+		 * disabled this way. (Else _inthandler in kernel/sys_call.S
+		 * gets overruns)
+		 */
 
 		vectors[VEC_INT2] = falcon_hblhandler;
 		vectors[VEC_INT4] = falcon_hblhandler;
 	}
 
 	if (ATARIHW_PRESENT(PCM_8BIT) && ATARIHW_PRESENT(MICROWIRE)) {
+		/* Initialize the LM1992 Sound Controller to enable
+		   the PSG sound.  This is misplaced here, it should
+		   be in an atasound_init(), that doesn't exist yet. */
 		atari_microwire_cmd(MW_LM1992_PSG_HIGH);
 	}
 
 	stdma_init();
 
-	
+	/* Initialize the PSG: all sounds off, both ports output */
 	sound_ym.rd_data_reg_sel = 7;
 	sound_ym.wd_data = 0xff;
 }
 
 
+/*
+ * atari_register_vme_int() returns the number of a free interrupt vector for
+ * hardware with a programmable int vector (probably a VME board).
+ */
 
 unsigned long atari_register_vme_int(void)
 {

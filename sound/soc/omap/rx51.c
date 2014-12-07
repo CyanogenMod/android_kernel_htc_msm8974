@@ -42,13 +42,17 @@
 #define RX51_TVOUT_SEL_GPIO		40
 #define RX51_JACK_DETECT_GPIO		177
 #define RX51_ECI_SW_GPIO		182
+/*
+ * REVISIT: TWL4030 GPIO base in RX-51. Now statically defined to 192. This
+ * gpio is reserved in arch/arm/mach-omap2/board-rx51-peripherals.c
+ */
 #define RX51_SPEAKER_AMP_TWL_GPIO	(192 + 7)
 
 enum {
 	RX51_JACK_DISABLED,
-	RX51_JACK_TVOUT,		
-	RX51_JACK_HP,			
-	RX51_JACK_HS,			
+	RX51_JACK_TVOUT,		/* tv-out with stereo output */
+	RX51_JACK_HP,			/* headphone: stereo output, no mic */
+	RX51_JACK_HS,			/* headset: stereo output with mic */
 };
 
 static int rx51_spk_func;
@@ -112,7 +116,7 @@ static int rx51_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
 
-	
+	/* Set the codec system clock for DAC and ADC */
 	return snd_soc_dai_set_sysclk(codec_dai, 0, 19200000,
 				      SND_SOC_CLOCK_IN);
 }
@@ -286,22 +290,22 @@ static int rx51_aic34_init(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 	int err;
 
-	
+	/* Set up NC codec pins */
 	snd_soc_dapm_nc_pin(dapm, "MIC3L");
 	snd_soc_dapm_nc_pin(dapm, "MIC3R");
 	snd_soc_dapm_nc_pin(dapm, "LINE1R");
 
-	
+	/* Add RX-51 specific controls */
 	err = snd_soc_add_card_controls(rtd->card, aic34_rx51_controls,
 				   ARRAY_SIZE(aic34_rx51_controls));
 	if (err < 0)
 		return err;
 
-	
+	/* Add RX-51 specific widgets */
 	snd_soc_dapm_new_controls(dapm, aic34_dapm_widgets,
 				  ARRAY_SIZE(aic34_dapm_widgets));
 
-	
+	/* Set up RX-51 specific audio path audio_map */
 	snd_soc_dapm_add_routes(dapm, audio_map, ARRAY_SIZE(audio_map));
 
 	err = tpa6130a2_add_controls(codec);
@@ -313,7 +317,7 @@ static int rx51_aic34_init(struct snd_soc_pcm_runtime *rtd)
 	if (err < 0)
 		return err;
 
-	
+	/* AV jack detection */
 	err = snd_soc_jack_new(codec, "AV Jack",
 			       SND_JACK_HEADSET | SND_JACK_VIDEOOUT,
 			       &rx51_av_jack);
@@ -344,6 +348,7 @@ static int rx51_aic34b_init(struct snd_soc_dapm_context *dapm)
 				       ARRAY_SIZE(audio_mapb));
 }
 
+/* Digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link rx51_dai[] = {
 	{
 		.name = "TLV320AIC34",
@@ -374,6 +379,7 @@ static struct snd_soc_codec_conf rx51_codec_conf[] = {
 	},
 };
 
+/* Audio card */
 static struct snd_soc_card rx51_sound_card = {
 	.name = "RX-51",
 	.owner = THIS_MODULE,

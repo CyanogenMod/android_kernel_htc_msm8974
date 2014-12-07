@@ -1,7 +1,18 @@
+/*
+ * nicstar.h
+ *
+ * Header file for the nicstar device driver.
+ *
+ * Author: Rui Prior (rprior@inescn.pt)
+ * PowerPC support by Jay Talbott (jay_talbott@mcg.mot.com) April 1999
+ *
+ * (C) INESC 1998
+ */
 
 #ifndef _LINUX_NICSTAR_H_
 #define _LINUX_NICSTAR_H_
 
+/* Includes */
 
 #include <linux/types.h>
 #include <linux/pci.h>
@@ -11,49 +22,59 @@
 #include <linux/atmdev.h>
 #include <linux/atm_nicstar.h>
 
+/* Options */
 
-#define NS_MAX_CARDS 4		
+#define NS_MAX_CARDS 4		/* Maximum number of NICStAR based cards
+				   controlled by the device driver. Must
+				   be <= 5 */
 
-#undef RCQ_SUPPORT		
+#undef RCQ_SUPPORT		/* Do not define this for now */
 
-#define NS_TST_NUM_ENTRIES 2340	
-#define NS_TST_RESERVED 340	
+#define NS_TST_NUM_ENTRIES 2340	/* + 1 for return */
+#define NS_TST_RESERVED 340	/* N. entries reserved for UBR/ABR/VBR */
 
-#define NS_SMBUFSIZE 48		
-#define NS_LGBUFSIZE 16384	
-#define NS_RSQSIZE 8192		
-#define NS_VPIBITS 2		
+#define NS_SMBUFSIZE 48		/* 48, 96, 240 or 2048 */
+#define NS_LGBUFSIZE 16384	/* 2048, 4096, 8192 or 16384 */
+#define NS_RSQSIZE 8192		/* 2048, 4096 or 8192 */
+#define NS_VPIBITS 2		/* 0, 1, 2, or 8 */
 
-#define NS_MAX_RCTSIZE 4096	
+#define NS_MAX_RCTSIZE 4096	/* Number of entries. 4096 or 16384.
+				   Define 4096 only if (all) your card(s)
+				   have 32K x 32bit SRAM, in which case
+				   setting this to 16384 will just waste a
+				   lot of memory.
+				   Setting this to 4096 for a card with
+				   128K x 32bit SRAM will limit the maximum
+				   VCI. */
 
-				
+				/*#define NS_PCI_LATENCY 64*//* Must be a multiple of 32 */
 
-	
-#define NUM_SB 32		
-#define NUM_LB 24		
-#define NUM_HB 8		
-#define NUM_IOVB 48		
+	/* Number of buffers initially allocated */
+#define NUM_SB 32		/* Must be even */
+#define NUM_LB 24		/* Must be even */
+#define NUM_HB 8		/* Pre-allocated huge buffers */
+#define NUM_IOVB 48		/* Iovec buffers */
 
-	
-#define MIN_SB 8		
-#define MIN_LB 8		
+	/* Lower level for count of buffers */
+#define MIN_SB 8		/* Must be even */
+#define MIN_LB 8		/* Must be even */
 #define MIN_HB 6
 #define MIN_IOVB 8
 
-	
-#define MAX_SB 64		
-#define MAX_LB 48		
+	/* Upper level for count of buffers */
+#define MAX_SB 64		/* Must be even, <= 508 */
+#define MAX_LB 48		/* Must be even, <= 508 */
 #define MAX_HB 10
 #define MAX_IOVB 80
 
-	
-#define TOP_SB 256		
-#define TOP_LB 128		
+	/* These are the absolute maximum allowed for the ioctl() */
+#define TOP_SB 256		/* Must be even, <= 508 */
+#define TOP_LB 128		/* Must be even, <= 508 */
 #define TOP_HB 64
 #define TOP_IOVB 256
 
-#define MAX_TBD_PER_VC 1	
-#define MAX_TBD_PER_SCQ 10	
+#define MAX_TBD_PER_VC 1	/* Number of TBDs before a TSR */
+#define MAX_TBD_PER_SCQ 10	/* Only meaningful for variable rate SCQs */
 
 #undef ENABLE_TSQFIE
 
@@ -63,18 +84,25 @@
 
 #define PCR_TOLERANCE (1.0001)
 
+/* ESI stuff */
 
 #define NICSTAR_EPROM_MAC_ADDR_OFFSET 0x6C
 #define NICSTAR_EPROM_MAC_ADDR_OFFSET_ALT 0xF6
 
+/* #defines */
 
 #define NS_IOREMAP_SIZE 4096
 
-#define BUF_SM		0x00000000	
-#define BUF_LG		0x00000001	
-#define BUF_NONE 	0xffffffff	
+/*
+ * BUF_XX distinguish the Rx buffers depending on their (small/large) size.
+ * BUG_SM and BUG_LG are both used by the driver and the device.
+ * BUF_NONE is only used by the driver.
+ */
+#define BUF_SM		0x00000000	/* These two are used for push_rxbufs() */
+#define BUF_LG		0x00000001	/* CMD, Write_FreeBufQ, LBUF bit */
+#define BUF_NONE 	0xffffffff	/* Software only: */
 
-#define NS_HBUFSIZE 65568	
+#define NS_HBUFSIZE 65568	/* Size of max. AAL5 PDU */
 #define NS_MAX_IOVECS (2 + (65568 - NS_SMBUFSIZE) / \
                        (NS_LGBUFSIZE - (NS_LGBUFSIZE % 48)))
 #define NS_IOVBUFSIZE (NS_MAX_IOVECS * (sizeof(struct iovec)))
@@ -82,11 +110,12 @@
 #define NS_SMBUFSIZE_USABLE (NS_SMBUFSIZE - NS_SMBUFSIZE % 48)
 #define NS_LGBUFSIZE_USABLE (NS_LGBUFSIZE - NS_LGBUFSIZE % 48)
 
-#define NS_AAL0_HEADER (ATM_AAL0_SDU - ATM_CELL_PAYLOAD)	
+#define NS_AAL0_HEADER (ATM_AAL0_SDU - ATM_CELL_PAYLOAD)	/* 4 bytes */
 
 #define NS_SMSKBSIZE (NS_SMBUFSIZE + NS_AAL0_HEADER)
 #define NS_LGSKBSIZE (NS_SMBUFSIZE + NS_LGBUFSIZE)
 
+/* NICStAR structures located in host memory */
 
 /*
  * RSQ - Receive Status Queue
@@ -158,7 +187,7 @@ typedef struct ns_rcqe {
 	cell_payload payload;
 } ns_rcqe;
 
-#define NS_RCQE_SIZE 64		
+#define NS_RCQE_SIZE 64		/* bytes */
 
 #define ns_rcqe_islast(ns_rcqep) \
         (le32_to_cpu((ns_rcqep)->word_2) != 0x00000000)
@@ -180,6 +209,8 @@ typedef struct ns_scqe {
 	u32 word_4;
 } ns_scqe;
 
+   /* NOTE: SCQ entries can be either a TBD (Transmit Buffer Descriptors)
+      or TSR (Transmit Status Requests) */
 
 #define NS_SCQE_TYPE_TBD 0x00000000
 #define NS_SCQE_TYPE_TSR 0x80000000
@@ -207,7 +238,7 @@ typedef struct ns_scqe {
 
 #define NS_TSR_INTENABLE 0x20000000
 
-#define NS_TSR_SCDISVBR 0xFFFF	
+#define NS_TSR_SCDISVBR 0xFFFF	/* Use as scdi for VBR SCD */
 
 #define ns_tsr_mkword_1(flags) \
         (cpu_to_le32(NS_SCQE_TYPE_TSR | (flags)))
@@ -235,6 +266,9 @@ typedef struct ns_tsi {
 	u32 word_2;
 } ns_tsi;
 
+   /* NOTE: The first word can be a status word copied from the TSR which
+      originated the TSI, or a timer overflow indicator. In this last
+      case, the value of the first word is all zeroes. */
 
 #define NS_TSI_EMPTY          0x80000000
 #define NS_TSI_TIMESTAMP_MASK 0x00FFFFFF
@@ -260,6 +294,7 @@ typedef struct ns_tsi {
 #define ns_tsi_getscqpos(ns_tsip) \
         (le32_to_cpu((ns_tsip)->word_1) & 0x00007FFF)
 
+/* NICStAR structures located in local SRAM */
 
 /*
  * RCT - Receive Connection Table
@@ -274,7 +309,7 @@ typedef struct ns_rcte {
 	u32 aal5_crc32;
 } ns_rcte;
 
-#define NS_RCTE_BSFB            0x00200000	
+#define NS_RCTE_BSFB            0x00200000	/* Rev. D only */
 #define NS_RCTE_NZGFC           0x00100000
 #define NS_RCTE_CONNECTOPEN     0x00080000
 #define NS_RCTE_AALMASK         0x00070000
@@ -294,8 +329,10 @@ typedef struct ns_rcte {
 #define NS_RCTE_FBDSIZE_SM 0x00000000
 #define NS_RCTE_FBDSIZE_LG 0x00001000
 
-#define NS_RCT_ENTRY_SIZE 4	
+#define NS_RCT_ENTRY_SIZE 4	/* Number of dwords */
 
+   /* NOTE: We could make macros to contruct the first word of the RCTE,
+      but that doesn't seem to make much sense... */
 
 /*
  * FBD - Free Buffer Descriptor
@@ -318,13 +355,20 @@ typedef u32 ns_tste;
 
 #define NS_TST_OPCODE_MASK 0x60000000
 
-#define NS_TST_OPCODE_NULL     0x00000000	
-#define NS_TST_OPCODE_FIXED    0x20000000	
+#define NS_TST_OPCODE_NULL     0x00000000	/* Insert null cell */
+#define NS_TST_OPCODE_FIXED    0x20000000	/* Cell from a fixed rate channel */
 #define NS_TST_OPCODE_VARIABLE 0x40000000
-#define NS_TST_OPCODE_END      0x60000000	
+#define NS_TST_OPCODE_END      0x60000000	/* Jump */
 
 #define ns_tste_make(opcode, sramad) (opcode | sramad)
 
+   /* NOTE:
+
+      - When the opcode is FIXED, sramad specifies the SRAM address of the
+      SCD for that fixed rate channel.
+      - When the opcode is END, sramad specifies the SRAM address of the
+      location of the next TST entry to read.
+    */
 
 /*
  * SCD - Segmentation Channel Descriptor
@@ -341,15 +385,18 @@ typedef struct ns_scd {
 	ns_scqe cache_b;
 } ns_scd;
 
-#define NS_SCD_BASE_MASK_VAR 0xFFFFE000	
-#define NS_SCD_BASE_MASK_FIX 0xFFFFFC00	
+#define NS_SCD_BASE_MASK_VAR 0xFFFFE000	/* Variable rate */
+#define NS_SCD_BASE_MASK_FIX 0xFFFFFC00	/* Fixed rate */
 #define NS_SCD_TAIL_MASK_VAR 0x00001FF0
 #define NS_SCD_TAIL_MASK_FIX 0x000003F0
 #define NS_SCD_HEAD_MASK_VAR 0x00001FF0
 #define NS_SCD_HEAD_MASK_FIX 0x000003F0
 #define NS_SCD_XMITFOREVER   0x02000000
 
+   /* NOTE: There are other fields in word 2 of the SCD, but as they should
+      not be needed in the device driver they are not defined here. */
 
+/* NICStAR local SRAM memory map */
 
 #define NS_RCT           0x00000
 #define NS_RCT_32_END    0x03FFF
@@ -372,81 +419,93 @@ typedef struct ns_scd {
 #define NS_LGFBQ         0x1FC00
 #define NS_LGFBQ_END     0x1FFFF
 
+/* NISCtAR operation registers */
 
+/* See Section 3.4 of `IDT77211 NICStAR User Manual' from www.idt.com */
 
 enum ns_regs {
-	DR0 = 0x00,		
-	DR1 = 0x04,		
-	DR2 = 0x08,		
-	DR3 = 0x0C,		
-	CMD = 0x10,		
-	CFG = 0x14,		
-	STAT = 0x18,		
-	RSQB = 0x1C,		
-	RSQT = 0x20,		
-	RSQH = 0x24,		
-	CDC = 0x28,		
-	VPEC = 0x2C,		
-	ICC = 0x30,		
-	RAWCT = 0x34,		
-	TMR = 0x38,		
-	TSTB = 0x3C,		
-	TSQB = 0x40,		
-	TSQT = 0x44,		
-	TSQH = 0x48,		
-	GP = 0x4C,		
-	VPM = 0x50		
+	DR0 = 0x00,		/* Data Register 0 R/W */
+	DR1 = 0x04,		/* Data Register 1 W */
+	DR2 = 0x08,		/* Data Register 2 W */
+	DR3 = 0x0C,		/* Data Register 3 W */
+	CMD = 0x10,		/* Command W */
+	CFG = 0x14,		/* Configuration R/W */
+	STAT = 0x18,		/* Status R/W */
+	RSQB = 0x1C,		/* Receive Status Queue Base W */
+	RSQT = 0x20,		/* Receive Status Queue Tail R */
+	RSQH = 0x24,		/* Receive Status Queue Head W */
+	CDC = 0x28,		/* Cell Drop Counter R/clear */
+	VPEC = 0x2C,		/* VPI/VCI Lookup Error Count R/clear */
+	ICC = 0x30,		/* Invalid Cell Count R/clear */
+	RAWCT = 0x34,		/* Raw Cell Tail R */
+	TMR = 0x38,		/* Timer R */
+	TSTB = 0x3C,		/* Transmit Schedule Table Base R/W */
+	TSQB = 0x40,		/* Transmit Status Queue Base W */
+	TSQT = 0x44,		/* Transmit Status Queue Tail R */
+	TSQH = 0x48,		/* Transmit Status Queue Head W */
+	GP = 0x4C,		/* General Purpose R/W */
+	VPM = 0x50		/* VPI/VCI Mask W */
 };
 
+/* NICStAR commands issued to the CMD register */
 
+/* Top 4 bits are command opcode, lower 28 are parameters. */
 
 #define NS_CMD_NO_OPERATION         0x00000000
-	
+	/* params always 0 */
 
 #define NS_CMD_OPENCLOSE_CONNECTION 0x20000000
-	
+	/* b19{1=open,0=close} b18-2{SRAM addr} */
 
 #define NS_CMD_WRITE_SRAM           0x40000000
-	
+	/* b18-2{SRAM addr} b1-0{burst size} */
 
 #define NS_CMD_READ_SRAM            0x50000000
-	
+	/* b18-2{SRAM addr} */
 
 #define NS_CMD_WRITE_FREEBUFQ       0x60000000
-	
+	/* b0{large buf indicator} */
 
 #define NS_CMD_READ_UTILITY         0x80000000
-	
+	/* b8{1=select UTL_CS1} b9{1=select UTL_CS0} b7-0{bus addr} */
 
 #define NS_CMD_WRITE_UTILITY        0x90000000
-	
+	/* b8{1=select UTL_CS1} b9{1=select UTL_CS0} b7-0{bus addr} */
 
 #define NS_CMD_OPEN_CONNECTION (NS_CMD_OPENCLOSE_CONNECTION | 0x00080000)
 #define NS_CMD_CLOSE_CONNECTION NS_CMD_OPENCLOSE_CONNECTION
 
+/* NICStAR configuration bits */
 
-#define NS_CFG_SWRST          0x80000000	
-#define NS_CFG_RXPATH         0x20000000	
-#define NS_CFG_SMBUFSIZE_MASK 0x18000000	
-#define NS_CFG_LGBUFSIZE_MASK 0x06000000	
-#define NS_CFG_EFBIE          0x01000000	
-#define NS_CFG_RSQSIZE_MASK   0x00C00000	
-#define NS_CFG_ICACCEPT       0x00200000	
-#define NS_CFG_IGNOREGFC      0x00100000	
-#define NS_CFG_VPIBITS_MASK   0x000C0000	
-#define NS_CFG_RCTSIZE_MASK   0x00030000	
-#define NS_CFG_VCERRACCEPT    0x00008000	
-#define NS_CFG_RXINT_MASK     0x00007000	
-#define NS_CFG_RAWIE          0x00000800	
-#define NS_CFG_RSQAFIE        0x00000400	
-#define NS_CFG_RXRM           0x00000200	
-#define NS_CFG_TMRROIE        0x00000080	
-#define NS_CFG_TXEN           0x00000020	
-#define NS_CFG_TXIE           0x00000010	
-#define NS_CFG_TXURIE         0x00000008	
-#define NS_CFG_UMODE          0x00000004	
-#define NS_CFG_TSQFIE         0x00000002	
-#define NS_CFG_PHYIE          0x00000001	
+#define NS_CFG_SWRST          0x80000000	/* Software Reset */
+#define NS_CFG_RXPATH         0x20000000	/* Receive Path Enable */
+#define NS_CFG_SMBUFSIZE_MASK 0x18000000	/* Small Receive Buffer Size */
+#define NS_CFG_LGBUFSIZE_MASK 0x06000000	/* Large Receive Buffer Size */
+#define NS_CFG_EFBIE          0x01000000	/* Empty Free Buffer Queue
+						   Interrupt Enable */
+#define NS_CFG_RSQSIZE_MASK   0x00C00000	/* Receive Status Queue Size */
+#define NS_CFG_ICACCEPT       0x00200000	/* Invalid Cell Accept */
+#define NS_CFG_IGNOREGFC      0x00100000	/* Ignore General Flow Control */
+#define NS_CFG_VPIBITS_MASK   0x000C0000	/* VPI/VCI Bits Size Select */
+#define NS_CFG_RCTSIZE_MASK   0x00030000	/* Receive Connection Table Size */
+#define NS_CFG_VCERRACCEPT    0x00008000	/* VPI/VCI Error Cell Accept */
+#define NS_CFG_RXINT_MASK     0x00007000	/* End of Receive PDU Interrupt
+						   Handling */
+#define NS_CFG_RAWIE          0x00000800	/* Raw Cell Qu' Interrupt Enable */
+#define NS_CFG_RSQAFIE        0x00000400	/* Receive Queue Almost Full
+						   Interrupt Enable */
+#define NS_CFG_RXRM           0x00000200	/* Receive RM Cells */
+#define NS_CFG_TMRROIE        0x00000080	/* Timer Roll Over Interrupt
+						   Enable */
+#define NS_CFG_TXEN           0x00000020	/* Transmit Operation Enable */
+#define NS_CFG_TXIE           0x00000010	/* Transmit Status Interrupt
+						   Enable */
+#define NS_CFG_TXURIE         0x00000008	/* Transmit Under-run Interrupt
+						   Enable */
+#define NS_CFG_UMODE          0x00000004	/* Utopia Mode (cell/byte) Select */
+#define NS_CFG_TSQFIE         0x00000002	/* Transmit Status Queue Full
+						   Interrupt Enable */
+#define NS_CFG_PHYIE          0x00000001	/* PHY Interrupt Enable */
 
 #define NS_CFG_SMBUFSIZE_48    0x00000000
 #define NS_CFG_SMBUFSIZE_96    0x08000000
@@ -477,33 +536,35 @@ enum ns_regs {
 #define NS_CFG_RXINT_624US   0x00003000
 #define NS_CFG_RXINT_899US   0x00004000
 
+/* NICStAR STATus bits */
 
-#define NS_STAT_SFBQC_MASK 0xFF000000	
-#define NS_STAT_LFBQC_MASK 0x00FF0000	
-#define NS_STAT_TSIF       0x00008000	
-#define NS_STAT_TXICP      0x00004000	
-#define NS_STAT_TSQF       0x00001000	
-#define NS_STAT_TMROF      0x00000800	
-#define NS_STAT_PHYI       0x00000400	
-#define NS_STAT_CMDBZ      0x00000200	
-#define NS_STAT_SFBQF      0x00000100	
-#define NS_STAT_LFBQF      0x00000080	
-#define NS_STAT_RSQF       0x00000040	
-#define NS_STAT_EOPDU      0x00000020	
-#define NS_STAT_RAWCF      0x00000010	
-#define NS_STAT_SFBQE      0x00000008	
-#define NS_STAT_LFBQE      0x00000004	
-#define NS_STAT_RSQAF      0x00000002	
+#define NS_STAT_SFBQC_MASK 0xFF000000	/* hi 8 bits Small Buffer Queue Count */
+#define NS_STAT_LFBQC_MASK 0x00FF0000	/* hi 8 bits Large Buffer Queue Count */
+#define NS_STAT_TSIF       0x00008000	/* Transmit Status Queue Indicator */
+#define NS_STAT_TXICP      0x00004000	/* Transmit Incomplete PDU */
+#define NS_STAT_TSQF       0x00001000	/* Transmit Status Queue Full */
+#define NS_STAT_TMROF      0x00000800	/* Timer Overflow */
+#define NS_STAT_PHYI       0x00000400	/* PHY Device Interrupt */
+#define NS_STAT_CMDBZ      0x00000200	/* Command Busy */
+#define NS_STAT_SFBQF      0x00000100	/* Small Buffer Queue Full */
+#define NS_STAT_LFBQF      0x00000080	/* Large Buffer Queue Full */
+#define NS_STAT_RSQF       0x00000040	/* Receive Status Queue Full */
+#define NS_STAT_EOPDU      0x00000020	/* End of PDU */
+#define NS_STAT_RAWCF      0x00000010	/* Raw Cell Flag */
+#define NS_STAT_SFBQE      0x00000008	/* Small Buffer Queue Empty */
+#define NS_STAT_LFBQE      0x00000004	/* Large Buffer Queue Empty */
+#define NS_STAT_RSQAF      0x00000002	/* Receive Status Queue Almost Full */
 
 #define ns_stat_sfbqc_get(stat) (((stat) & NS_STAT_SFBQC_MASK) >> 23)
 #define ns_stat_lfbqc_get(stat) (((stat) & NS_STAT_LFBQC_MASK) >> 15)
 
+/* #defines which depend on other #defines */
 
 #define NS_TST0 NS_TST_FRSCD
 #define NS_TST1 (NS_TST_FRSCD + NS_TST_NUM_ENTRIES + 1)
 
 #define NS_FRSCD (NS_TST1 + NS_TST_NUM_ENTRIES + 1)
-#define NS_FRSCD_SIZE 12	
+#define NS_FRSCD_SIZE 12	/* 12 dwords */
 #define NS_FRSCD_NUM ((NS_TST_FRSCD_END + 1 - NS_FRSCD) / NS_FRSCD_SIZE)
 
 #if (NS_SMBUFSIZE == 48)
@@ -516,7 +577,7 @@ enum ns_regs {
 #define NS_CFG_SMBUFSIZE NS_CFG_SMBUFSIZE_2048
 #else
 #error NS_SMBUFSIZE is incorrect in nicstar.h
-#endif 
+#endif /* NS_SMBUFSIZE */
 
 #if (NS_LGBUFSIZE == 2048)
 #define NS_CFG_LGBUFSIZE NS_CFG_LGBUFSIZE_2048
@@ -528,7 +589,7 @@ enum ns_regs {
 #define NS_CFG_LGBUFSIZE NS_CFG_LGBUFSIZE_16384
 #else
 #error NS_LGBUFSIZE is incorrect in nicstar.h
-#endif 
+#endif /* NS_LGBUFSIZE */
 
 #if (NS_RSQSIZE == 2048)
 #define NS_CFG_RSQSIZE NS_CFG_RSQSIZE_2048
@@ -538,7 +599,7 @@ enum ns_regs {
 #define NS_CFG_RSQSIZE NS_CFG_RSQSIZE_8192
 #else
 #error NS_RSQSIZE is incorrect in nicstar.h
-#endif 
+#endif /* NS_RSQSIZE */
 
 #if (NS_VPIBITS == 0)
 #define NS_CFG_VPIBITS NS_CFG_VPIBITS_0
@@ -550,32 +611,34 @@ enum ns_regs {
 #define NS_CFG_VPIBITS NS_CFG_VPIBITS_8
 #else
 #error NS_VPIBITS is incorrect in nicstar.h
-#endif 
+#endif /* NS_VPIBITS */
 
 #ifdef RCQ_SUPPORT
 #define NS_CFG_RAWIE_OPT NS_CFG_RAWIE
 #else
 #define NS_CFG_RAWIE_OPT 0x00000000
-#endif 
+#endif /* RCQ_SUPPORT */
 
 #ifdef ENABLE_TSQFIE
 #define NS_CFG_TSQFIE_OPT NS_CFG_TSQFIE
 #else
 #define NS_CFG_TSQFIE_OPT 0x00000000
-#endif 
+#endif /* ENABLE_TSQFIE */
 
+/* PCI stuff */
 
 #ifndef PCI_VENDOR_ID_IDT
 #define PCI_VENDOR_ID_IDT 0x111D
-#endif 
+#endif /* PCI_VENDOR_ID_IDT */
 
 #ifndef PCI_DEVICE_ID_IDT_IDT77201
 #define PCI_DEVICE_ID_IDT_IDT77201 0x0001
-#endif 
+#endif /* PCI_DEVICE_ID_IDT_IDT77201 */
 
+/* Device driver structures */
 
 struct ns_skb_prv {
-	u32 buf_type;		
+	u32 buf_type;		/* BUF_SM/BUF_LG/BUF_NONE */
 	u32 dma;
 	int iovcnt;
 };
@@ -601,14 +664,16 @@ typedef struct scq_info {
 	ns_scqe *base;
 	ns_scqe *last;
 	ns_scqe *next;
-	volatile ns_scqe *tail;	
+	volatile ns_scqe *tail;	/* Not related to the nicstar register */
 	unsigned num_entries;
-	struct sk_buff **skb;	
-	u32 scd;		
-	int tbd_count;		
+	struct sk_buff **skb;	/* Pointer to an array of pointers
+				   to the sk_buffs used for tx */
+	u32 scd;		/* SRAM address of the corresponding
+				   SCD */
+	int tbd_count;		/* Only meaningful on variable rate */
 	wait_queue_head_t scqfull_waitq;
-	volatile char full;	
-	spinlock_t lock;	
+	volatile char full;	/* SCQ full indicator */
+	spinlock_t lock;	/* SCQ spinlock */
 } scq_info;
 
 typedef struct rsq_info {
@@ -620,27 +685,31 @@ typedef struct rsq_info {
 } rsq_info;
 
 typedef struct skb_pool {
-	volatile int count;	
+	volatile int count;	/* number of buffers in the queue */
 	struct sk_buff_head queue;
 } skb_pool;
 
+/* NOTE: for small and large buffer pools, the count is not used, as the
+         actual value used for buffer management is the one read from the
+	 card. */
 
 typedef struct vc_map {
-	volatile unsigned int tx:1;	
-	volatile unsigned int rx:1;	
+	volatile unsigned int tx:1;	/* TX vc? */
+	volatile unsigned int rx:1;	/* RX vc? */
 	struct atm_vcc *tx_vcc, *rx_vcc;
-	struct sk_buff *rx_iov;	
-	scq_info *scq;		
-	u32 cbr_scd;		
+	struct sk_buff *rx_iov;	/* RX iovector skb */
+	scq_info *scq;		/* To keep track of the SCQ */
+	u32 cbr_scd;		/* SRAM address of the corresponding
+				   SCD. 0x00000000 for UBR/VBR/ABR */
 	int tbd_count;
 } vc_map;
 
 typedef struct ns_dev {
-	int index;		
-	int sram_size;		
-	void __iomem *membase;	
+	int index;		/* Card ID to the device driver */
+	int sram_size;		/* In k x 32bit words. 32 or 128 */
+	void __iomem *membase;	/* Card's memory base address */
 	unsigned long max_pcr;
-	int rct_size;		
+	int rct_size;		/* Number of entries */
 	int vpibits;
 	int vcibits;
 	struct pci_dev *pcidev;
@@ -648,13 +717,13 @@ typedef struct ns_dev {
 	struct atm_dev *atmdev;
 	tsq_info tsq;
 	rsq_info rsq;
-	scq_info *scq0, *scq1, *scq2;	
-	skb_pool sbpool;	
-	skb_pool lbpool;	
-	skb_pool hbpool;	
-	skb_pool iovpool;	
-	volatile int efbie;	
-	volatile u32 tst_addr;	
+	scq_info *scq0, *scq1, *scq2;	/* VBR SCQs */
+	skb_pool sbpool;	/* Small buffers */
+	skb_pool lbpool;	/* Large buffers */
+	skb_pool hbpool;	/* Pre-allocated huge buffers */
+	skb_pool iovpool;	/* iovector buffers */
+	volatile int efbie;	/* Empty free buf. queue int. enabled */
+	volatile u32 tst_addr;	/* SRAM address of the TST in use */
 	volatile int tst_free_entries;
 	vc_map vcmap[NS_MAX_RCTSIZE];
 	vc_map *tste2vc[NS_TST_NUM_ENTRIES];
@@ -669,13 +738,21 @@ typedef struct ns_dev {
 	u32 sm_addr;
 	struct sk_buff *lg_handle;
 	u32 lg_addr;
-	struct sk_buff *rcbuf;	
+	struct sk_buff *rcbuf;	/* Current raw cell buffer */
         struct ns_rcqe *rawcell;
-	u32 rawch;		
-	unsigned intcnt;	
-	spinlock_t int_lock;	
-	spinlock_t res_lock;	
+	u32 rawch;		/* Raw cell queue head */
+	unsigned intcnt;	/* Interrupt counter */
+	spinlock_t int_lock;	/* Interrupt lock */
+	spinlock_t res_lock;	/* Card resource lock */
 } ns_dev;
 
+   /* NOTE: Each tste2vc entry relates a given TST entry to the corresponding
+      CBR vc. If the entry is not allocated, it must be NULL.
 
-#endif 
+      There are two TSTs so the driver can modify them on the fly
+      without stopping the transmission.
+
+      scd2vc allows us to find out unused fixed rate SCDs, because
+      they must have a NULL pointer here. */
+
+#endif /* _LINUX_NICSTAR_H_ */

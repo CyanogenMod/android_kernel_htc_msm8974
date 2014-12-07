@@ -30,19 +30,19 @@ struct smem_ram_ptn {
 	unsigned start;
 	unsigned size;
 
-	
+	/* RAM Partition attribute: READ_ONLY, READWRITE etc.  */
 	unsigned attr;
 
-	
+	/* RAM Partition category: EBI0, EBI1, IRAM, IMEM */
 	unsigned category;
 
-	
+	/* RAM Partition domain: APPS, MODEM, APPS & MODEM (SHARED) etc. */
 	unsigned domain;
 
-	
+	/* RAM Partition type: system, bootloader, appsboot, apps etc. */
 	unsigned type;
 
-	
+	/* reserved for future expansion without changing version number */
 	unsigned reserved2, reserved3, reserved4, reserved5;
 } __attribute__ ((__packed__));
 
@@ -61,7 +61,7 @@ struct smem_ram_ptable {
 static struct mem_region_t {
 	u64 start;
 	u64 size;
-	
+	/* reserved for future use */
 	u64 num_partitions;
 	int state;
 } mem_regions[MAX_NR_REGIONS];
@@ -78,14 +78,16 @@ enum {
 
 static int default_mask = ~0x0;
 
+/* Return the number of chipselects populated with a memory bank */
+/* This is 7x30 only and will be re-implemented in the future */
 
 #if defined(CONFIG_ARCH_MSM7X30)
 unsigned int get_num_populated_chipselects()
 {
-	
-	
+	/* Currently, Linux cannot determine the memory toplogy of a target */
+	/* This is a kludge until all this info is figured out from smem */
 
-	
+	/* There is atleast one chipselect populated for hosting the 1st bank */
 	unsigned int num_chipselects = 1;
 	int i;
 	for (i = 0; i < meminfo.nr_banks; i++) {
@@ -121,9 +123,9 @@ int __init meminfo_init(unsigned int type, unsigned int min_bank_size)
 	unsigned long bank_start;
 	unsigned long region_size;
 	struct smem_ram_ptable *ram_ptable;
-	
+	/* physical memory banks */
 	unsigned int nr_mem_banks = 0;
-	
+	/* logical memory regions for dmm */
 	nr_mem_regions = 0;
 
 	ram_ptable = smem_alloc(SMEM_USABLE_RAM_PARTITION_TABLE,
@@ -138,6 +140,10 @@ int __init meminfo_init(unsigned int type, unsigned int min_bank_size)
 			ram_ptable->version, ram_ptable->len);
 
 	for (i = 0; i < ram_ptable->len; i++) {
+		/* A bank is valid only if is greater than min_bank_size. If
+		 * non-valid memory (e.g. modem memory) became greater than
+		 * min_bank_size, there is currently no way to differentiate.
+		 */
 		if (ram_ptable->parts[i].type == type &&
 			ram_ptable->parts[i].size >= min_bank_size) {
 			bank_start = ram_ptable->parts[i].start;

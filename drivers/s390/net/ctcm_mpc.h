@@ -16,19 +16,33 @@
 #include <linux/skbuff.h>
 #include "fsm.h"
 
+/*
+ * MPC external interface
+ * Note that ctc_mpc_xyz are called with a lock on ................
+ */
 
+/*  port_number is the mpc device 0, 1, 2 etc mpc2 is port_number 2 */
 
+/*  passive open  Just wait for XID2 exchange */
 extern int ctc_mpc_alloc_channel(int port,
 		void (*callback)(int port_num, int max_write_size));
+/* active open  Alloc then send XID2 */
 extern void ctc_mpc_establish_connectivity(int port,
 		void (*callback)(int port_num, int rc, int max_write_size));
 
 extern void ctc_mpc_dealloc_ch(int port);
 extern void ctc_mpc_flow_control(int port, int flowc);
 
+/*
+ * other MPC Group prototypes and structures
+ */
 
 #define ETH_P_SNA_DIX	0x80D5
 
+/*
+ * Declaration of an XID2
+ *
+ */
 #define ALLZEROS 0x0000000000000000
 
 #define XID_FM2		0x20
@@ -80,7 +94,7 @@ struct th_header {
 #define TH_SEG_BLK	0x20
 #define TH_LAST_SEG	0x10
 #define TH_PDU_PART	0x08
-	__u8	th_is_xid;	
+	__u8	th_is_xid;	/* is 0x01 if this is XID  */
 	__u32	th_seq_num;
 } __attribute__ ((packed));
 
@@ -104,7 +118,7 @@ struct th_sweep {
 struct pdu {
 	__u32	pdu_offset;
 	__u8	pdu_flag;
-	__u8	pdu_proto;   
+	__u8	pdu_proto;   /*  0x01 is APPN SNA  */
 	__u16	pdu_seq;
 } __attribute__ ((packed));
 
@@ -122,6 +136,9 @@ struct qllc {
 } __attribute__ ((packed));
 
 
+/*
+ * Definition of one MPC group
+ */
 
 #define MAX_MPCGCHAN		10
 #define MPC_XID_TIMEOUT_VALUE	10000
@@ -180,7 +197,7 @@ struct mpc_group {
 	int		xidnogood;
 	int		send_qllc_disc;
 	fsm_timer	timer;
-	fsm_instance	*fsm; 
+	fsm_instance	*fsm; /* group xid fsm */
 };
 
 #ifdef DEBUGDATA
@@ -192,6 +209,12 @@ static inline void ctcmpc_dumpit(char *buf, int len)
 #endif
 
 #ifdef DEBUGDATA
+/*
+ * Dump header and first 16 bytes of an sk_buff for debugging purposes.
+ *
+ * skb	 The struct sk_buff to dump.
+ * offset Offset relative to skb-data, where to start the dump.
+ */
 void ctcmpc_dump_skb(struct sk_buff *skb, int offset);
 #else
 static inline void ctcmpc_dump_skb(struct sk_buff *skb, int offset)
@@ -214,3 +237,4 @@ void mpc_action_send_discontact(unsigned long thischan);
 void mpc_action_discontact(fsm_instance *fi, int event, void *arg);
 void ctcmpc_bh(unsigned long thischan);
 #endif
+/* --- This is the END my friend --- */

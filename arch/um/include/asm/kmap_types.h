@@ -6,6 +6,7 @@
 #ifndef __UM_KMAP_TYPES_H
 #define __UM_KMAP_TYPES_H
 
+/* No more #include "asm/arch/kmap_types.h" ! */
 
 enum km_type {
 	KM_BOUNCE_READ,
@@ -13,7 +14,7 @@ enum km_type {
 	KM_SKB_DATA_SOFTIRQ,
 	KM_USER0,
 	KM_USER1,
-	KM_UML_USERCOPY,	
+	KM_UML_USERCOPY,	/* UML specific, for copy_*_user - used in do_op_one_page */
 	KM_BIO_SRC_IRQ,
 	KM_BIO_DST_IRQ,
 	KM_PTE0,

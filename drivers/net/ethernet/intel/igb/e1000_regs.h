@@ -28,69 +28,71 @@
 #ifndef _E1000_REGS_H_
 #define _E1000_REGS_H_
 
-#define E1000_CTRL     0x00000  
-#define E1000_STATUS   0x00008  
-#define E1000_EECD     0x00010  
-#define E1000_EERD     0x00014  
-#define E1000_CTRL_EXT 0x00018  
-#define E1000_MDIC     0x00020  
-#define E1000_MDICNFG  0x00E04  
-#define E1000_SCTL     0x00024  
-#define E1000_FCAL     0x00028  
-#define E1000_FCAH     0x0002C  
-#define E1000_FCT      0x00030  
-#define E1000_CONNSW   0x00034  
-#define E1000_VET      0x00038  
-#define E1000_ICR      0x000C0  
-#define E1000_ITR      0x000C4  
-#define E1000_ICS      0x000C8  
-#define E1000_IMS      0x000D0  
-#define E1000_IMC      0x000D8  
-#define E1000_IAM      0x000E0  
-#define E1000_RCTL     0x00100  
-#define E1000_FCTTV    0x00170  
-#define E1000_TXCW     0x00178  
-#define E1000_EICR     0x01580  
+#define E1000_CTRL     0x00000  /* Device Control - RW */
+#define E1000_STATUS   0x00008  /* Device Status - RO */
+#define E1000_EECD     0x00010  /* EEPROM/Flash Control - RW */
+#define E1000_EERD     0x00014  /* EEPROM Read - RW */
+#define E1000_CTRL_EXT 0x00018  /* Extended Device Control - RW */
+#define E1000_MDIC     0x00020  /* MDI Control - RW */
+#define E1000_MDICNFG  0x00E04  /* MDI Config - RW */
+#define E1000_SCTL     0x00024  /* SerDes Control - RW */
+#define E1000_FCAL     0x00028  /* Flow Control Address Low - RW */
+#define E1000_FCAH     0x0002C  /* Flow Control Address High -RW */
+#define E1000_FCT      0x00030  /* Flow Control Type - RW */
+#define E1000_CONNSW   0x00034  /* Copper/Fiber switch control - RW */
+#define E1000_VET      0x00038  /* VLAN Ether Type - RW */
+#define E1000_ICR      0x000C0  /* Interrupt Cause Read - R/clr */
+#define E1000_ITR      0x000C4  /* Interrupt Throttling Rate - RW */
+#define E1000_ICS      0x000C8  /* Interrupt Cause Set - WO */
+#define E1000_IMS      0x000D0  /* Interrupt Mask Set - RW */
+#define E1000_IMC      0x000D8  /* Interrupt Mask Clear - WO */
+#define E1000_IAM      0x000E0  /* Interrupt Acknowledge Auto Mask */
+#define E1000_RCTL     0x00100  /* RX Control - RW */
+#define E1000_FCTTV    0x00170  /* Flow Control Transmit Timer Value - RW */
+#define E1000_TXCW     0x00178  /* TX Configuration Word - RW */
+#define E1000_EICR     0x01580  /* Ext. Interrupt Cause Read - R/clr */
 #define E1000_EITR(_n) (0x01680 + (0x4 * (_n)))
-#define E1000_EICS     0x01520  
-#define E1000_EIMS     0x01524  
-#define E1000_EIMC     0x01528  
-#define E1000_EIAC     0x0152C  
-#define E1000_EIAM     0x01530  
-#define E1000_GPIE     0x01514  
-#define E1000_IVAR0    0x01700  
-#define E1000_IVAR_MISC 0x01740 
-#define E1000_TCTL     0x00400  
-#define E1000_TCTL_EXT 0x00404  
-#define E1000_TIPG     0x00410  
-#define E1000_AIT      0x00458  
-#define E1000_LEDCTL   0x00E00  
-#define E1000_PBA      0x01000  
-#define E1000_PBS      0x01008  
-#define E1000_EEMNGCTL 0x01010  
-#define E1000_EEWR     0x0102C  
-#define E1000_I2CCMD   0x01028  
-#define E1000_FRTIMER  0x01048  
-#define E1000_TCPTIMER 0x0104C  
-#define E1000_FCRTL    0x02160  
-#define E1000_FCRTH    0x02168  
-#define E1000_FCRTV    0x02460  
+#define E1000_EICS     0x01520  /* Ext. Interrupt Cause Set - W0 */
+#define E1000_EIMS     0x01524  /* Ext. Interrupt Mask Set/Read - RW */
+#define E1000_EIMC     0x01528  /* Ext. Interrupt Mask Clear - WO */
+#define E1000_EIAC     0x0152C  /* Ext. Interrupt Auto Clear - RW */
+#define E1000_EIAM     0x01530  /* Ext. Interrupt Ack Auto Clear Mask - RW */
+#define E1000_GPIE     0x01514  /* General Purpose Interrupt Enable - RW */
+#define E1000_IVAR0    0x01700  /* Interrupt Vector Allocation (array) - RW */
+#define E1000_IVAR_MISC 0x01740 /* IVAR for "other" causes - RW */
+#define E1000_TCTL     0x00400  /* TX Control - RW */
+#define E1000_TCTL_EXT 0x00404  /* Extended TX Control - RW */
+#define E1000_TIPG     0x00410  /* TX Inter-packet gap -RW */
+#define E1000_AIT      0x00458  /* Adaptive Interframe Spacing Throttle - RW */
+#define E1000_LEDCTL   0x00E00  /* LED Control - RW */
+#define E1000_PBA      0x01000  /* Packet Buffer Allocation - RW */
+#define E1000_PBS      0x01008  /* Packet Buffer Size */
+#define E1000_EEMNGCTL 0x01010  /* MNG EEprom Control */
+#define E1000_EEWR     0x0102C  /* EEPROM Write Register - RW */
+#define E1000_I2CCMD   0x01028  /* SFPI2C Command Register - RW */
+#define E1000_FRTIMER  0x01048  /* Free Running Timer - RW */
+#define E1000_TCPTIMER 0x0104C  /* TCP Timer - RW */
+#define E1000_FCRTL    0x02160  /* Flow Control Receive Threshold Low - RW */
+#define E1000_FCRTH    0x02168  /* Flow Control Receive Threshold High - RW */
+#define E1000_FCRTV    0x02460  /* Flow Control Refresh Timer Value - RW */
 
-#define E1000_TSYNCRXCTL 0x0B620 
-#define E1000_TSYNCTXCTL 0x0B614 
-#define E1000_TSYNCRXCFG 0x05F50 
-#define E1000_RXSTMPL    0x0B624 
-#define E1000_RXSTMPH    0x0B628 
-#define E1000_RXSATRL    0x0B62C 
-#define E1000_RXSATRH    0x0B630 
-#define E1000_TXSTMPL    0x0B618 
-#define E1000_TXSTMPH    0x0B61C 
-#define E1000_SYSTIML    0x0B600 
-#define E1000_SYSTIMH    0x0B604 
-#define E1000_TIMINCA    0x0B608 
-#define E1000_TSAUXC     0x0B640 
-#define E1000_SYSTIMR    0x0B6F8 
+/* IEEE 1588 TIMESYNCH */
+#define E1000_TSYNCRXCTL 0x0B620 /* Rx Time Sync Control register - RW */
+#define E1000_TSYNCTXCTL 0x0B614 /* Tx Time Sync Control register - RW */
+#define E1000_TSYNCRXCFG 0x05F50 /* Time Sync Rx Configuration - RW */
+#define E1000_RXSTMPL    0x0B624 /* Rx timestamp Low - RO */
+#define E1000_RXSTMPH    0x0B628 /* Rx timestamp High - RO */
+#define E1000_RXSATRL    0x0B62C /* Rx timestamp attribute low - RO */
+#define E1000_RXSATRH    0x0B630 /* Rx timestamp attribute high - RO */
+#define E1000_TXSTMPL    0x0B618 /* Tx timestamp value Low - RO */
+#define E1000_TXSTMPH    0x0B61C /* Tx timestamp value High - RO */
+#define E1000_SYSTIML    0x0B600 /* System time register Low - RO */
+#define E1000_SYSTIMH    0x0B604 /* System time register High - RO */
+#define E1000_TIMINCA    0x0B608 /* Increment attributes register - RW */
+#define E1000_TSAUXC     0x0B640 /* Timesync Auxiliary Control register */
+#define E1000_SYSTIMR    0x0B6F8 /* System time register Residue */
 
+/* Filtering Registers */
 #define E1000_SAQF(_n) (0x5980 + 4 * (_n))
 #define E1000_DAQF(_n) (0x59A0 + 4 * (_n))
 #define E1000_SPQF(_n) (0x59C0 + 4 * (_n))
@@ -99,23 +101,26 @@
 #define E1000_DAQF0 E1000_DAQF(0)
 #define E1000_SPQF0 E1000_SPQF(0)
 #define E1000_FTQF0 E1000_FTQF(0)
-#define E1000_SYNQF(_n) (0x055FC + (4 * (_n))) 
-#define E1000_ETQF(_n)  (0x05CB0 + (4 * (_n))) 
+#define E1000_SYNQF(_n) (0x055FC + (4 * (_n))) /* SYN Packet Queue Fltr */
+#define E1000_ETQF(_n)  (0x05CB0 + (4 * (_n))) /* EType Queue Fltr */
 
 #define E1000_RQDPC(_n) (0x0C030 + ((_n) * 0x40))
 
-#define E1000_DMACR             0x02508 
-#define E1000_DMCTXTH           0x03550 
-#define E1000_DMCTLX            0x02514 
-#define E1000_DMCRTRH           0x05DD0 
-#define E1000_DMCCNT            0x05DD4 
-#define E1000_FCRTC             0x02170 
-#define E1000_PCIEMISC          0x05BB8 
+/* DMA Coalescing registers */
+#define E1000_DMACR             0x02508 /* Control Register */
+#define E1000_DMCTXTH           0x03550 /* Transmit Threshold */
+#define E1000_DMCTLX            0x02514 /* Time to Lx Request */
+#define E1000_DMCRTRH           0x05DD0 /* Receive Packet Rate Threshold */
+#define E1000_DMCCNT            0x05DD4 /* Current Rx Count */
+#define E1000_FCRTC             0x02170 /* Flow Control Rx high watermark */
+#define E1000_PCIEMISC          0x05BB8 /* PCIE misc config register */
 
-#define E1000_RTTDQSEL	0x3604	
-#define E1000_RTTBCNRC	0x36B0	
+/* TX Rate Limit Registers */
+#define E1000_RTTDQSEL	0x3604	/* Tx Desc Plane Queue Select - WO */
+#define E1000_RTTBCNRC	0x36B0	/* Tx BCN Rate-Scheduler Config - WO */
 
-#define E1000_RXPBS    0x02404  
+/* Split and Replication RX Control - RW */
+#define E1000_RXPBS    0x02404  /* Rx Packet Buffer Size - RW */
 /*
  * Convenience macros
  *
@@ -156,103 +161,110 @@
 				    : (0x0E038 + ((_n) * 0x40)))
 #define E1000_TDWBAH(_n)  ((_n) < 4 ? (0x0383C + ((_n) * 0x100)) \
 				    : (0x0E03C + ((_n) * 0x40)))
-#define E1000_TDFH     0x03410  
-#define E1000_TDFT     0x03418  
-#define E1000_TDFHS    0x03420  
-#define E1000_TDFPC    0x03430  
-#define E1000_DTXCTL   0x03590  
-#define E1000_CRCERRS  0x04000  
-#define E1000_ALGNERRC 0x04004  
-#define E1000_SYMERRS  0x04008  
-#define E1000_RXERRC   0x0400C  
-#define E1000_MPC      0x04010  
-#define E1000_SCC      0x04014  
-#define E1000_ECOL     0x04018  
-#define E1000_MCC      0x0401C  
-#define E1000_LATECOL  0x04020  
-#define E1000_COLC     0x04028  
-#define E1000_DC       0x04030  
-#define E1000_TNCRS    0x04034  
-#define E1000_SEC      0x04038  
-#define E1000_CEXTERR  0x0403C  
-#define E1000_RLEC     0x04040  
-#define E1000_XONRXC   0x04048  
-#define E1000_XONTXC   0x0404C  
-#define E1000_XOFFRXC  0x04050  
-#define E1000_XOFFTXC  0x04054  
-#define E1000_FCRUC    0x04058  
-#define E1000_PRC64    0x0405C  
-#define E1000_PRC127   0x04060  
-#define E1000_PRC255   0x04064  
-#define E1000_PRC511   0x04068  
-#define E1000_PRC1023  0x0406C  
-#define E1000_PRC1522  0x04070  
-#define E1000_GPRC     0x04074  
-#define E1000_BPRC     0x04078  
-#define E1000_MPRC     0x0407C  
-#define E1000_GPTC     0x04080  
-#define E1000_GORCL    0x04088  
-#define E1000_GORCH    0x0408C  
-#define E1000_GOTCL    0x04090  
-#define E1000_GOTCH    0x04094  
-#define E1000_RNBC     0x040A0  
-#define E1000_RUC      0x040A4  
-#define E1000_RFC      0x040A8  
-#define E1000_ROC      0x040AC  
-#define E1000_RJC      0x040B0  
-#define E1000_MGTPRC   0x040B4  
-#define E1000_MGTPDC   0x040B8  
-#define E1000_MGTPTC   0x040BC  
-#define E1000_TORL     0x040C0  
-#define E1000_TORH     0x040C4  
-#define E1000_TOTL     0x040C8  
-#define E1000_TOTH     0x040CC  
-#define E1000_TPR      0x040D0  
-#define E1000_TPT      0x040D4  
-#define E1000_PTC64    0x040D8  
-#define E1000_PTC127   0x040DC  
-#define E1000_PTC255   0x040E0  
-#define E1000_PTC511   0x040E4  
-#define E1000_PTC1023  0x040E8  
-#define E1000_PTC1522  0x040EC  
-#define E1000_MPTC     0x040F0  
-#define E1000_BPTC     0x040F4  
-#define E1000_TSCTC    0x040F8  
-#define E1000_TSCTFC   0x040FC  
-#define E1000_IAC      0x04100  
+#define E1000_TDFH     0x03410  /* TX Data FIFO Head - RW */
+#define E1000_TDFT     0x03418  /* TX Data FIFO Tail - RW */
+#define E1000_TDFHS    0x03420  /* TX Data FIFO Head Saved - RW */
+#define E1000_TDFPC    0x03430  /* TX Data FIFO Packet Count - RW */
+#define E1000_DTXCTL   0x03590  /* DMA TX Control - RW */
+#define E1000_CRCERRS  0x04000  /* CRC Error Count - R/clr */
+#define E1000_ALGNERRC 0x04004  /* Alignment Error Count - R/clr */
+#define E1000_SYMERRS  0x04008  /* Symbol Error Count - R/clr */
+#define E1000_RXERRC   0x0400C  /* Receive Error Count - R/clr */
+#define E1000_MPC      0x04010  /* Missed Packet Count - R/clr */
+#define E1000_SCC      0x04014  /* Single Collision Count - R/clr */
+#define E1000_ECOL     0x04018  /* Excessive Collision Count - R/clr */
+#define E1000_MCC      0x0401C  /* Multiple Collision Count - R/clr */
+#define E1000_LATECOL  0x04020  /* Late Collision Count - R/clr */
+#define E1000_COLC     0x04028  /* Collision Count - R/clr */
+#define E1000_DC       0x04030  /* Defer Count - R/clr */
+#define E1000_TNCRS    0x04034  /* TX-No CRS - R/clr */
+#define E1000_SEC      0x04038  /* Sequence Error Count - R/clr */
+#define E1000_CEXTERR  0x0403C  /* Carrier Extension Error Count - R/clr */
+#define E1000_RLEC     0x04040  /* Receive Length Error Count - R/clr */
+#define E1000_XONRXC   0x04048  /* XON RX Count - R/clr */
+#define E1000_XONTXC   0x0404C  /* XON TX Count - R/clr */
+#define E1000_XOFFRXC  0x04050  /* XOFF RX Count - R/clr */
+#define E1000_XOFFTXC  0x04054  /* XOFF TX Count - R/clr */
+#define E1000_FCRUC    0x04058  /* Flow Control RX Unsupported Count- R/clr */
+#define E1000_PRC64    0x0405C  /* Packets RX (64 bytes) - R/clr */
+#define E1000_PRC127   0x04060  /* Packets RX (65-127 bytes) - R/clr */
+#define E1000_PRC255   0x04064  /* Packets RX (128-255 bytes) - R/clr */
+#define E1000_PRC511   0x04068  /* Packets RX (255-511 bytes) - R/clr */
+#define E1000_PRC1023  0x0406C  /* Packets RX (512-1023 bytes) - R/clr */
+#define E1000_PRC1522  0x04070  /* Packets RX (1024-1522 bytes) - R/clr */
+#define E1000_GPRC     0x04074  /* Good Packets RX Count - R/clr */
+#define E1000_BPRC     0x04078  /* Broadcast Packets RX Count - R/clr */
+#define E1000_MPRC     0x0407C  /* Multicast Packets RX Count - R/clr */
+#define E1000_GPTC     0x04080  /* Good Packets TX Count - R/clr */
+#define E1000_GORCL    0x04088  /* Good Octets RX Count Low - R/clr */
+#define E1000_GORCH    0x0408C  /* Good Octets RX Count High - R/clr */
+#define E1000_GOTCL    0x04090  /* Good Octets TX Count Low - R/clr */
+#define E1000_GOTCH    0x04094  /* Good Octets TX Count High - R/clr */
+#define E1000_RNBC     0x040A0  /* RX No Buffers Count - R/clr */
+#define E1000_RUC      0x040A4  /* RX Undersize Count - R/clr */
+#define E1000_RFC      0x040A8  /* RX Fragment Count - R/clr */
+#define E1000_ROC      0x040AC  /* RX Oversize Count - R/clr */
+#define E1000_RJC      0x040B0  /* RX Jabber Count - R/clr */
+#define E1000_MGTPRC   0x040B4  /* Management Packets RX Count - R/clr */
+#define E1000_MGTPDC   0x040B8  /* Management Packets Dropped Count - R/clr */
+#define E1000_MGTPTC   0x040BC  /* Management Packets TX Count - R/clr */
+#define E1000_TORL     0x040C0  /* Total Octets RX Low - R/clr */
+#define E1000_TORH     0x040C4  /* Total Octets RX High - R/clr */
+#define E1000_TOTL     0x040C8  /* Total Octets TX Low - R/clr */
+#define E1000_TOTH     0x040CC  /* Total Octets TX High - R/clr */
+#define E1000_TPR      0x040D0  /* Total Packets RX - R/clr */
+#define E1000_TPT      0x040D4  /* Total Packets TX - R/clr */
+#define E1000_PTC64    0x040D8  /* Packets TX (64 bytes) - R/clr */
+#define E1000_PTC127   0x040DC  /* Packets TX (65-127 bytes) - R/clr */
+#define E1000_PTC255   0x040E0  /* Packets TX (128-255 bytes) - R/clr */
+#define E1000_PTC511   0x040E4  /* Packets TX (256-511 bytes) - R/clr */
+#define E1000_PTC1023  0x040E8  /* Packets TX (512-1023 bytes) - R/clr */
+#define E1000_PTC1522  0x040EC  /* Packets TX (1024-1522 Bytes) - R/clr */
+#define E1000_MPTC     0x040F0  /* Multicast Packets TX Count - R/clr */
+#define E1000_BPTC     0x040F4  /* Broadcast Packets TX Count - R/clr */
+#define E1000_TSCTC    0x040F8  /* TCP Segmentation Context TX - R/clr */
+#define E1000_TSCTFC   0x040FC  /* TCP Segmentation Context TX Fail - R/clr */
+#define E1000_IAC      0x04100  /* Interrupt Assertion Count */
+/* Interrupt Cause Rx Packet Timer Expire Count */
 #define E1000_ICRXPTC  0x04104
+/* Interrupt Cause Rx Absolute Timer Expire Count */
 #define E1000_ICRXATC  0x04108
+/* Interrupt Cause Tx Packet Timer Expire Count */
 #define E1000_ICTXPTC  0x0410C
+/* Interrupt Cause Tx Absolute Timer Expire Count */
 #define E1000_ICTXATC  0x04110
+/* Interrupt Cause Tx Queue Empty Count */
 #define E1000_ICTXQEC  0x04118
+/* Interrupt Cause Tx Queue Minimum Threshold Count */
 #define E1000_ICTXQMTC 0x0411C
+/* Interrupt Cause Rx Descriptor Minimum Threshold Count */
 #define E1000_ICRXDMTC 0x04120
-#define E1000_ICRXOC   0x04124  
-#define E1000_PCS_CFG0    0x04200  
-#define E1000_PCS_LCTL    0x04208  
-#define E1000_PCS_LSTAT   0x0420C  
-#define E1000_CBTMPC      0x0402C  
-#define E1000_HTDPMC      0x0403C  
-#define E1000_CBRMPC      0x040FC  
-#define E1000_RPTHC       0x04104  
-#define E1000_HGPTC       0x04118  
-#define E1000_HTCBDPC     0x04124  
-#define E1000_HGORCL      0x04128  
-#define E1000_HGORCH      0x0412C  
-#define E1000_HGOTCL      0x04130  
-#define E1000_HGOTCH      0x04134  
-#define E1000_LENERRS     0x04138  
-#define E1000_SCVPC       0x04228  
-#define E1000_PCS_ANADV   0x04218  
-#define E1000_PCS_LPAB    0x0421C  
-#define E1000_PCS_NPTX    0x04220  
-#define E1000_PCS_LPABNP  0x04224  
-#define E1000_RXCSUM   0x05000  
-#define E1000_RLPML    0x05004  
-#define E1000_RFCTL    0x05008  
-#define E1000_MTA      0x05200  
-#define E1000_RA       0x05400  
-#define E1000_RA2      0x054E0  
+#define E1000_ICRXOC   0x04124  /* Interrupt Cause Receiver Overrun Count */
+#define E1000_PCS_CFG0    0x04200  /* PCS Configuration 0 - RW */
+#define E1000_PCS_LCTL    0x04208  /* PCS Link Control - RW */
+#define E1000_PCS_LSTAT   0x0420C  /* PCS Link Status - RO */
+#define E1000_CBTMPC      0x0402C  /* Circuit Breaker TX Packet Count */
+#define E1000_HTDPMC      0x0403C  /* Host Transmit Discarded Packets */
+#define E1000_CBRMPC      0x040FC  /* Circuit Breaker RX Packet Count */
+#define E1000_RPTHC       0x04104  /* Rx Packets To Host */
+#define E1000_HGPTC       0x04118  /* Host Good Packets TX Count */
+#define E1000_HTCBDPC     0x04124  /* Host TX Circuit Breaker Dropped Count */
+#define E1000_HGORCL      0x04128  /* Host Good Octets Received Count Low */
+#define E1000_HGORCH      0x0412C  /* Host Good Octets Received Count High */
+#define E1000_HGOTCL      0x04130  /* Host Good Octets Transmit Count Low */
+#define E1000_HGOTCH      0x04134  /* Host Good Octets Transmit Count High */
+#define E1000_LENERRS     0x04138  /* Length Errors Count */
+#define E1000_SCVPC       0x04228  /* SerDes/SGMII Code Violation Pkt Count */
+#define E1000_PCS_ANADV   0x04218  /* AN advertisement - RW */
+#define E1000_PCS_LPAB    0x0421C  /* Link Partner Ability - RW */
+#define E1000_PCS_NPTX    0x04220  /* AN Next Page Transmit - RW */
+#define E1000_PCS_LPABNP  0x04224  /* Link Partner Ability Next Page - RW */
+#define E1000_RXCSUM   0x05000  /* RX Checksum Control - RW */
+#define E1000_RLPML    0x05004  /* RX Long Packet Max Length */
+#define E1000_RFCTL    0x05008  /* Receive Filter Control*/
+#define E1000_MTA      0x05200  /* Multicast Table Array - RW Array */
+#define E1000_RA       0x05400  /* Receive Address - RW Array */
+#define E1000_RA2      0x054E0  /* 2nd half of receive address array - RW Array */
 #define E1000_PSRTYPE(_i)       (0x05480 + ((_i) * 4))
 #define E1000_RAL(_i)  (((_i) <= 15) ? (0x05400 + ((_i) * 8)) : \
                                        (0x054E0 + ((_i - 16) * 8)))
@@ -264,49 +276,55 @@
 #define E1000_FFMT_REG(_i)      (0x09000 + ((_i) * 8))
 #define E1000_FFVT_REG(_i)      (0x09800 + ((_i) * 8))
 #define E1000_FFLT_REG(_i)      (0x05F00 + ((_i) * 8))
-#define E1000_VFTA     0x05600  
-#define E1000_VT_CTL   0x0581C  
-#define E1000_WUC      0x05800  
-#define E1000_WUFC     0x05808  
-#define E1000_WUS      0x05810  
-#define E1000_MANC     0x05820  
-#define E1000_IPAV     0x05838  
-#define E1000_WUPL     0x05900  
+#define E1000_VFTA     0x05600  /* VLAN Filter Table Array - RW Array */
+#define E1000_VT_CTL   0x0581C  /* VMDq Control - RW */
+#define E1000_WUC      0x05800  /* Wakeup Control - RW */
+#define E1000_WUFC     0x05808  /* Wakeup Filter Control - RW */
+#define E1000_WUS      0x05810  /* Wakeup Status - RO */
+#define E1000_MANC     0x05820  /* Management Control - RW */
+#define E1000_IPAV     0x05838  /* IP Address Valid - RW */
+#define E1000_WUPL     0x05900  /* Wakeup Packet Length - RW */
 
-#define E1000_SW_FW_SYNC  0x05B5C 
-#define E1000_CCMCTL      0x05B48 
-#define E1000_GIOCTL      0x05B44 
-#define E1000_SCCTL       0x05B4C 
-#define E1000_GCR         0x05B00 
-#define E1000_FACTPS    0x05B30 
-#define E1000_SWSM      0x05B50 
-#define E1000_FWSM      0x05B54 
-#define E1000_DCA_CTRL  0x05B74 
+#define E1000_SW_FW_SYNC  0x05B5C /* Software-Firmware Synchronization - RW */
+#define E1000_CCMCTL      0x05B48 /* CCM Control Register */
+#define E1000_GIOCTL      0x05B44 /* GIO Analog Control Register */
+#define E1000_SCCTL       0x05B4C /* PCIc PLL Configuration Register */
+#define E1000_GCR         0x05B00 /* PCI-Ex Control */
+#define E1000_FACTPS    0x05B30 /* Function Active and Power State to MNG */
+#define E1000_SWSM      0x05B50 /* SW Semaphore */
+#define E1000_FWSM      0x05B54 /* FW Semaphore */
+#define E1000_DCA_CTRL  0x05B74 /* DCA Control - RW */
 
-#define E1000_MRQC      0x05818 
-#define E1000_IMIR(_i)      (0x05A80 + ((_i) * 4))  
-#define E1000_IMIREXT(_i)   (0x05AA0 + ((_i) * 4))  
-#define E1000_IMIRVP    0x05AC0 
+/* RSS registers */
+#define E1000_MRQC      0x05818 /* Multiple Receive Control - RW */
+#define E1000_IMIR(_i)      (0x05A80 + ((_i) * 4))  /* Immediate Interrupt */
+#define E1000_IMIREXT(_i)   (0x05AA0 + ((_i) * 4))  /* Immediate Interrupt Ext*/
+#define E1000_IMIRVP    0x05AC0 /* Immediate Interrupt RX VLAN Priority - RW */
+/* MSI-X Allocation Register (_i) - RW */
 #define E1000_MSIXBM(_i)    (0x01600 + ((_i) * 4))
+/* Redirection Table - RW Array */
 #define E1000_RETA(_i)  (0x05C00 + ((_i) * 4))
-#define E1000_RSSRK(_i) (0x05C80 + ((_i) * 4)) 
+#define E1000_RSSRK(_i) (0x05C80 + ((_i) * 4)) /* RSS Random Key - RW Array */
 
-#define E1000_MBVFICR   0x00C80 
-#define E1000_MBVFIMR   0x00C84 
-#define E1000_VFLRE     0x00C88 
-#define E1000_VFRE      0x00C8C 
-#define E1000_VFTE      0x00C90 
-#define E1000_QDE       0x02408 
-#define E1000_DTXSWC    0x03500 
-#define E1000_WVBR      0x03554 
-#define E1000_RPLOLR    0x05AF0 
-#define E1000_UTA       0x0A000 
-#define E1000_IOVTCL    0x05BBC 
-#define E1000_TXSWC     0x05ACC 
+/* VT Registers */
+#define E1000_MBVFICR   0x00C80 /* Mailbox VF Cause - RWC */
+#define E1000_MBVFIMR   0x00C84 /* Mailbox VF int Mask - RW */
+#define E1000_VFLRE     0x00C88 /* VF Register Events - RWC */
+#define E1000_VFRE      0x00C8C /* VF Receive Enables */
+#define E1000_VFTE      0x00C90 /* VF Transmit Enables */
+#define E1000_QDE       0x02408 /* Queue Drop Enable - RW */
+#define E1000_DTXSWC    0x03500 /* DMA Tx Switch Control - RW */
+#define E1000_WVBR      0x03554 /* VM Wrong Behavior - RWS */
+#define E1000_RPLOLR    0x05AF0 /* Replication Offload - RW */
+#define E1000_UTA       0x0A000 /* Unicast Table Array - RW */
+#define E1000_IOVTCL    0x05BBC /* IOV Control Register */
+#define E1000_TXSWC     0x05ACC /* Tx Switch Control */
+/* These act per VF so an array friendly macro is used */
 #define E1000_P2VMAILBOX(_n)   (0x00C00 + (4 * (_n)))
 #define E1000_VMBMEM(_n)       (0x00800 + (64 * (_n)))
 #define E1000_VMOLR(_n)        (0x05AD0 + (4 * (_n)))
-#define E1000_VLVF(_n)         (0x05D00 + (4 * (_n))) 
+#define E1000_VLVF(_n)         (0x05D00 + (4 * (_n))) /* VLAN Virtual Machine
+                                                       * Filter - RW */
 #define E1000_VMVIR(_n)        (0x03700 + (4 * (_n)))
 
 #define wr32(reg, value) (writel(value, hw->hw_addr + reg))
@@ -318,16 +336,20 @@
 #define array_rd32(reg, offset) \
 	(readl(hw->hw_addr + reg + ((offset) << 2)))
 
-#define E1000_PCIEMISC          0x05BB8 
+/* DMA Coalescing registers */
+#define E1000_PCIEMISC          0x05BB8 /* PCIE misc config register */
 
-#define E1000_IPCNFG  0x0E38  
-#define E1000_EEER    0x0E30  
+/* Energy Efficient Ethernet "EEE" register */
+#define E1000_IPCNFG  0x0E38  /* Internal PHY Configuration */
+#define E1000_EEER    0x0E30  /* Energy Efficient Ethernet */
 
-#define E1000_THSTAT    0x08110 
+/* Thermal Sensor Register */
+#define E1000_THSTAT    0x08110 /* Thermal Sensor Status */
 
-#define E1000_B2OSPC    0x08FE0 
-#define E1000_B2OGPRC   0x04158 
-#define E1000_O2BGPTC   0x08FE4 
-#define E1000_O2BSPC    0x0415C 
+/* OS2BMC Registers */
+#define E1000_B2OSPC    0x08FE0 /* BMC2OS packets sent by BMC */
+#define E1000_B2OGPRC   0x04158 /* BMC2OS packets received by host */
+#define E1000_O2BGPTC   0x08FE4 /* OS2BMC packets received by BMC */
+#define E1000_O2BSPC    0x0415C /* OS2BMC packets transmitted by host */
 
 #endif

@@ -23,4 +23,4 @@
 #define R10000_LLSC_WAR			0
 #define MIPS34K_MISSED_ITLB_WAR		0
 
-#endif 
+#endif /* __ASM_MIPS_MACH_CAVIUM_OCTEON_WAR_H */

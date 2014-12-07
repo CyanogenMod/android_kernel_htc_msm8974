@@ -36,7 +36,7 @@ struct pt_regs;
 struct kprobe;
 
 typedef unsigned int kprobe_opcode_t;
-#define BREAKPOINT_INSTRUCTION	0x7fe00008	
+#define BREAKPOINT_INSTRUCTION	0x7fe00008	/* trap */
 #define MAX_INSN_SIZE 1
 
 #define IS_TW(instr)		(((instr) & 0xfc0007fe) == 0x7c000008)
@@ -45,6 +45,14 @@ typedef unsigned int kprobe_opcode_t;
 #define IS_TWI(instr)		(((instr) & 0xfc000000) == 0x0c000000)
 
 #ifdef CONFIG_PPC64
+/*
+ * 64bit powerpc uses function descriptors.
+ * Handle cases where:
+ * 		- User passes a <.symbol> or <module:.symbol>
+ * 		- User passes a <symbol> or <module:symbol>
+ * 		- User passes a non-existent symbol, kallsyms_lookup_name
+ * 		  returns 0. Don't deref the NULL pointer in that case
+ */
 #define kprobe_lookup_name(name, addr)					\
 {									\
 	addr = (kprobe_opcode_t *)kallsyms_lookup_name(name);		\
@@ -68,6 +76,7 @@ typedef unsigned int kprobe_opcode_t;
 #define is_trap(instr)	(IS_TW(instr) || IS_TD(instr) || \
 			IS_TWI(instr) || IS_TDI(instr))
 #else
+/* Use stock kprobe_lookup_name since ppc32 doesn't use function descriptors */
 #define is_trap(instr)	(IS_TW(instr) || IS_TWI(instr))
 #endif
 
@@ -77,9 +86,14 @@ typedef unsigned int kprobe_opcode_t;
 void kretprobe_trampoline(void);
 extern void arch_remove_kprobe(struct kprobe *p);
 
+/* Architecture specific copy of original instruction */
 struct arch_specific_insn {
-	
+	/* copy of original instruction */
 	kprobe_opcode_t *insn;
+	/*
+	 * Set in kprobes code, initially to 0. If the instruction can be
+	 * eumulated, this is set to 1, if not, to -1.
+	 */
 	int boostable;
 };
 
@@ -89,6 +103,7 @@ struct prev_kprobe {
 	unsigned long saved_msr;
 };
 
+/* per-cpu kprobe control block */
 struct kprobe_ctlblk {
 	unsigned long kprobe_status;
 	unsigned long kprobe_saved_msr;
@@ -99,5 +114,5 @@ struct kprobe_ctlblk {
 extern int kprobe_exceptions_notify(struct notifier_block *self,
 					unsigned long val, void *data);
 extern int kprobe_fault_handler(struct pt_regs *regs, int trapnr);
-#endif 
-#endif	
+#endif /* __KERNEL__ */
+#endif	/* _ASM_POWERPC_KPROBES_H */

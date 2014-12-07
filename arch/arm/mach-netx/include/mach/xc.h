@@ -39,4 +39,4 @@ int xc_request_firmware(struct xc* x);
 struct xc* request_xc(int xcno, struct device *dev);
 void free_xc(struct xc *x);
 
-#endif 
+#endif /* __ASM_ARCH_XC_H */

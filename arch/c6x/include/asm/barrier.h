@@ -24,4 +24,4 @@
 #define smp_wmb()	         barrier()
 #define smp_read_barrier_depends()	do { } while (0)
 
-#endif 
+#endif /* _ASM_C6X_BARRIER_H */

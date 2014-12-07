@@ -42,6 +42,9 @@
 #include "dev.h"
 
 
+/********************************************************************/
+/* Module stuff                                                     */
+/********************************************************************/
 
 MODULE_AUTHOR("Holger Schurig <hs4233@mail.mn-solutions.de>");
 MODULE_DESCRIPTION("Driver for Marvell 83xx compact flash WLAN cards");
@@ -49,6 +52,9 @@ MODULE_LICENSE("GPL");
 
 
 
+/********************************************************************/
+/* Data structures                                                  */
+/********************************************************************/
 
 struct if_cs_card {
 	struct pcmcia_device *p_dev;
@@ -84,11 +90,19 @@ MODULE_FIRMWARE("libertas_cs_helper.fw");
 MODULE_FIRMWARE("libertas_cs.fw");
 
 
+/********************************************************************/
+/* Hardware access                                                  */
+/********************************************************************/
 
+/* This define enables wrapper functions which allow you
+   to dump all register accesses. You normally won't this,
+   except for development */
+/* #define DEBUG_IO */
 
 #ifdef DEBUG_IO
 static int debug_output = 0;
 #else
+/* This way the compiler optimizes the printk's away */
 #define debug_output 0
 #endif
 
@@ -145,6 +159,18 @@ static inline void if_cs_write16_rep(
 }
 
 
+/*
+ * I know that polling/delaying is frowned upon. However, this procedure
+ * with polling is needed while downloading the firmware. At this stage,
+ * the hardware does unfortunately not create any interrupts.
+ *
+ * Fortunately, this function is never used once the firmware is in
+ * the card. :-)
+ *
+ * As a reference, see the "Firmware Specification v5.1", page 18
+ * and 19. I did not follow their suggested timing to the word,
+ * but this works nice & fast anyway.
+ */
 static int if_cs_poll_while_fw_download(struct if_cs_card *card, uint addr, u8 reg)
 {
 	int i;
@@ -160,6 +186,9 @@ static int if_cs_poll_while_fw_download(struct if_cs_card *card, uint addr, u8 r
 
 
 
+/*
+ * First the bitmasks for the host/card interrupt/status registers:
+ */
 #define IF_CS_BIT_TX			0x0001
 #define IF_CS_BIT_RX			0x0002
 #define IF_CS_BIT_COMMAND		0x0004
@@ -169,39 +198,115 @@ static int if_cs_poll_while_fw_download(struct if_cs_card *card, uint addr, u8 r
 
 
 
+/*
+ * It's not really clear to me what the host status register is for. It
+ * needs to be set almost in union with "host int cause". The following
+ * bits from above are used:
+ *
+ *   IF_CS_BIT_TX         driver downloaded a data packet
+ *   IF_CS_BIT_RX         driver got a data packet
+ *   IF_CS_BIT_COMMAND    driver downloaded a command
+ *   IF_CS_BIT_RESP       not used (has some meaning with powerdown)
+ *   IF_CS_BIT_EVENT      driver read a host event
+ */
 #define IF_CS_HOST_STATUS		0x00000000
 
+/*
+ * With the host int cause register can the host (that is, Linux) cause
+ * an interrupt in the firmware, to tell the firmware about those events:
+ *
+ *   IF_CS_BIT_TX         a data packet has been downloaded
+ *   IF_CS_BIT_RX         a received data packet has retrieved
+ *   IF_CS_BIT_COMMAND    a firmware block or a command has been downloaded
+ *   IF_CS_BIT_RESP       not used (has some meaning with powerdown)
+ *   IF_CS_BIT_EVENT      a host event (link lost etc) has been retrieved
+ */
 #define IF_CS_HOST_INT_CAUSE		0x00000002
 
+/*
+ * The host int mask register is used to enable/disable interrupt.  However,
+ * I have the suspicion that disabled interrupts are lost.
+ */
 #define IF_CS_HOST_INT_MASK		0x00000004
 
+/*
+ * Used to send or receive data packets:
+ */
 #define IF_CS_WRITE			0x00000016
 #define IF_CS_WRITE_LEN			0x00000014
 #define IF_CS_READ			0x00000010
 #define IF_CS_READ_LEN			0x00000024
 
+/*
+ * Used to send commands (and to send firmware block) and to
+ * receive command responses:
+ */
 #define IF_CS_CMD			0x0000001A
 #define IF_CS_CMD_LEN			0x00000018
 #define IF_CS_RESP			0x00000012
 #define IF_CS_RESP_LEN			0x00000030
 
+/*
+ * The card status registers shows what the card/firmware actually
+ * accepts:
+ *
+ *   IF_CS_BIT_TX        you may send a data packet
+ *   IF_CS_BIT_RX        you may retrieve a data packet
+ *   IF_CS_BIT_COMMAND   you may send a command
+ *   IF_CS_BIT_RESP      you may retrieve a command response
+ *   IF_CS_BIT_EVENT     the card has a event for use (link lost, snr low etc)
+ *
+ * When reading this register several times, you will get back the same
+ * results --- with one exception: the IF_CS_BIT_EVENT clear itself
+ * automatically.
+ *
+ * Not that we don't rely on BIT_RX,_BIT_RESP or BIT_EVENT because
+ * we handle this via the card int cause register.
+ */
 #define IF_CS_CARD_STATUS		0x00000020
 #define IF_CS_CARD_STATUS_MASK		0x7f00
 
+/*
+ * The card int cause register is used by the card/firmware to notify us
+ * about the following events:
+ *
+ *   IF_CS_BIT_TX        a data packet has successfully been sentx
+ *   IF_CS_BIT_RX        a data packet has been received and can be retrieved
+ *   IF_CS_BIT_COMMAND   not used
+ *   IF_CS_BIT_RESP      the firmware has a command response for us
+ *   IF_CS_BIT_EVENT     the card has a event for use (link lost, snr low etc)
+ */
 #define IF_CS_CARD_INT_CAUSE		0x00000022
 
+/*
+ * This is used to for handshaking with the card's bootloader/helper image
+ * to synchronize downloading of firmware blocks.
+ */
 #define IF_CS_SQ_READ_LOW		0x00000028
 #define IF_CS_SQ_HELPER_OK		0x10
 
+/*
+ * The scratch register tells us ...
+ *
+ * IF_CS_SCRATCH_BOOT_OK     the bootloader runs
+ * IF_CS_SCRATCH_HELPER_OK   the helper firmware already runs
+ */
 #define IF_CS_SCRATCH			0x0000003F
 #define IF_CS_SCRATCH_BOOT_OK		0x00
 #define IF_CS_SCRATCH_HELPER_OK		0x5a
 
+/*
+ * Used to detect ancient chips:
+ */
 #define IF_CS_PRODUCT_ID		0x0000001C
 #define IF_CS_CF8385_B1_REV		0x12
 #define IF_CS_CF8381_B3_REV		0x04
 #define IF_CS_CF8305_B1_REV		0x03
 
+/*
+ * Used to detect other cards than CF8385 since their revisions of silicon
+ * doesn't match those from CF8385, eg. CF8381 B3 works with this driver.
+ */
 #define CF8305_MANFID		0x02db
 #define CF8305_CARDID		0x8103
 #define CF8381_MANFID		0x02db
@@ -209,9 +314,13 @@ static int if_cs_poll_while_fw_download(struct if_cs_card *card, uint addr, u8 r
 #define CF8385_MANFID		0x02df
 #define CF8385_CARDID		0x8103
 
+/*
+ * FIXME: just use the 'driver_info' field of 'struct pcmcia_device_id' when
+ * that gets fixed.  Currently there's no way to access it from the probe hook.
+ */
 static inline u32 get_model(u16 manf_id, u16 card_id)
 {
-	
+	/* NOTE: keep in sync with if_cs_ids */
 	if (manf_id == CF8305_MANFID && card_id == CF8305_CARDID)
 		return MODEL_8305;
 	else if (manf_id == CF8381_MANFID && card_id == CF8381_CARDID)
@@ -221,6 +330,9 @@ static inline u32 get_model(u16 manf_id, u16 card_id)
 	return MODEL_UNKNOWN;
 }
 
+/********************************************************************/
+/* I/O and interrupt handling                                       */
+/********************************************************************/
 
 static inline void if_cs_enable_ints(struct if_cs_card *card)
 {
@@ -234,6 +346,9 @@ static inline void if_cs_disable_ints(struct if_cs_card *card)
 	if_cs_write16(card, IF_CS_HOST_INT_MASK, IF_CS_BIT_MASK);
 }
 
+/*
+ * Called from if_cs_host_to_card to send a command to the hardware
+ */
 static int if_cs_send_cmd(struct lbs_private *priv, u8 *buf, u16 nb)
 {
 	struct if_cs_card *card = (struct if_cs_card *)priv->card;
@@ -243,7 +358,7 @@ static int if_cs_send_cmd(struct lbs_private *priv, u8 *buf, u16 nb)
 	lbs_deb_enter(LBS_DEB_CS);
 	if_cs_disable_ints(card);
 
-	
+	/* Is hardware ready? */
 	while (1) {
 		u16 status = if_cs_read16(card, IF_CS_CARD_STATUS);
 		if (status & IF_CS_BIT_COMMAND)
@@ -258,12 +373,16 @@ static int if_cs_send_cmd(struct lbs_private *priv, u8 *buf, u16 nb)
 	if_cs_write16(card, IF_CS_CMD_LEN, nb);
 
 	if_cs_write16_rep(card, IF_CS_CMD, buf, nb / 2);
-	
+	/* Are we supposed to transfer an odd amount of bytes? */
 	if (nb & 1)
 		if_cs_write8(card, IF_CS_CMD, buf[nb-1]);
 
+	/* "Assert the download over interrupt command in the Host
+	 * status register" */
 	if_cs_write16(card, IF_CS_HOST_STATUS, IF_CS_BIT_COMMAND);
 
+	/* "Assert the download over interrupt command in the Card
+	 * interrupt case register" */
 	if_cs_write16(card, IF_CS_HOST_INT_CAUSE, IF_CS_BIT_COMMAND);
 	ret = 0;
 
@@ -273,6 +392,9 @@ done:
 	return ret;
 }
 
+/*
+ * Called from if_cs_host_to_card to send a data to the hardware
+ */
 static void if_cs_send_data(struct lbs_private *priv, u8 *buf, u16 nb)
 {
 	struct if_cs_card *card = (struct if_cs_card *)priv->card;
@@ -286,7 +408,7 @@ static void if_cs_send_data(struct lbs_private *priv, u8 *buf, u16 nb)
 
 	if_cs_write16(card, IF_CS_WRITE_LEN, nb);
 
-	
+	/* write even number of bytes, then odd byte if necessary */
 	if_cs_write16_rep(card, IF_CS_WRITE, buf, nb / 2);
 	if (nb & 1)
 		if_cs_write8(card, IF_CS_WRITE, buf[nb-1]);
@@ -298,6 +420,9 @@ static void if_cs_send_data(struct lbs_private *priv, u8 *buf, u16 nb)
 	lbs_deb_leave(LBS_DEB_CS);
 }
 
+/*
+ * Get the command result out of the card.
+ */
 static int if_cs_receive_cmdres(struct lbs_private *priv, u8 *data, u32 *len)
 {
 	unsigned long flags;
@@ -306,7 +431,7 @@ static int if_cs_receive_cmdres(struct lbs_private *priv, u8 *data, u32 *len)
 
 	lbs_deb_enter(LBS_DEB_CS);
 
-	
+	/* is hardware ready? */
 	status = if_cs_read16(priv->card, IF_CS_CARD_STATUS);
 	if ((status & IF_CS_BIT_RESP) == 0) {
 		netdev_err(priv->dev, "no cmd response in card\n");
@@ -322,15 +447,17 @@ static int if_cs_receive_cmdres(struct lbs_private *priv, u8 *data, u32 *len)
 		goto out;
 	}
 
-	
+	/* read even number of bytes, then odd byte if necessary */
 	if_cs_read16_rep(priv->card, IF_CS_RESP, data, *len/sizeof(u16));
 	if (*len & 1)
 		data[*len-1] = if_cs_read8(priv->card, IF_CS_RESP);
 
+	/* This is a workaround for a firmware that reports too much
+	 * bytes */
 	*len -= 8;
 	ret = 0;
 
-	
+	/* Clear this flag again */
 	spin_lock_irqsave(&priv->driver_lock, flags);
 	priv->dnld_sent = DNLD_RES_RECEIVED;
 	spin_unlock_irqrestore(&priv->driver_lock, flags);
@@ -361,10 +488,10 @@ static struct sk_buff *if_cs_receive_data(struct lbs_private *priv)
 	if (!skb)
 		goto out;
 	skb_put(skb, len);
-	skb_reserve(skb, 2);
+	skb_reserve(skb, 2);/* 16 byte align */
 	data = skb->data;
 
-	
+	/* read even number of bytes, then odd byte if necessary */
 	if_cs_read16_rep(priv->card, IF_CS_READ, data, len/sizeof(u16));
 	if (len & 1)
 		data[len-1] = if_cs_read8(priv->card, IF_CS_READ);
@@ -386,17 +513,17 @@ static irqreturn_t if_cs_interrupt(int irq, void *data)
 
 	lbs_deb_enter(LBS_DEB_CS);
 
-	
+	/* Ask card interrupt cause register if there is something for us */
 	cause = if_cs_read16(card, IF_CS_CARD_INT_CAUSE);
 	lbs_deb_cs("cause 0x%04x\n", cause);
 
 	if (cause == 0) {
-		
+		/* Not for us */
 		return IRQ_NONE;
 	}
 
 	if (cause == 0xffff) {
-		
+		/* Read in junk, the card has probably been removed */
 		card->priv->surpriseremoved = 1;
 		return IRQ_HANDLED;
 	}
@@ -439,7 +566,7 @@ static irqreturn_t if_cs_interrupt(int irq, void *data)
 		lbs_queue_event(priv, (status & IF_CS_CARD_STATUS_MASK) >> 8);
 	}
 
-	
+	/* Clear interrupt cause */
 	if_cs_write16(card, IF_CS_CARD_INT_CAUSE, cause & IF_CS_BIT_MASK);
 
 	lbs_deb_leave(LBS_DEB_CS);
@@ -449,7 +576,15 @@ static irqreturn_t if_cs_interrupt(int irq, void *data)
 
 
 
+/********************************************************************/
+/* Firmware                                                         */
+/********************************************************************/
 
+/*
+ * Tries to program the helper firmware.
+ *
+ * Return 0 on success
+ */
 static int if_cs_prog_helper(struct if_cs_card *card, const struct firmware *fw)
 {
 	int ret = 0;
@@ -458,15 +593,23 @@ static int if_cs_prog_helper(struct if_cs_card *card, const struct firmware *fw)
 
 	lbs_deb_enter(LBS_DEB_CS);
 
+	/*
+	 * This is the only place where an unaligned register access happens on
+	 * the CF8305 card, therefore for the sake of speed of the driver, we do
+	 * the alignment correction here.
+	 */
 	if (card->align_regs)
 		scratch = if_cs_read16(card, IF_CS_SCRATCH) >> 8;
 	else
 		scratch = if_cs_read8(card, IF_CS_SCRATCH);
 
+	/* "If the value is 0x5a, the firmware is already
+	 * downloaded successfully"
+	 */
 	if (scratch == IF_CS_SCRATCH_HELPER_OK)
 		goto done;
 
-	
+	/* "If the value is != 00, it is invalid value of register */
 	if (scratch != IF_CS_SCRATCH_BOOT_OK) {
 		ret = -ENODEV;
 		goto done;
@@ -474,29 +617,45 @@ static int if_cs_prog_helper(struct if_cs_card *card, const struct firmware *fw)
 
 	lbs_deb_cs("helper size %td\n", fw->size);
 
-	
-	
+	/* "Set the 5 bytes of the helper image to 0" */
+	/* Not needed, this contains an ARM branch instruction */
 
 	for (;;) {
-		
+		/* "the number of bytes to send is 256" */
 		int count = 256;
 		int remain = fw->size - sent;
 
 		if (remain < count)
 			count = remain;
 
+		/*
+		 * "write the number of bytes to be sent to the I/O Command
+		 * write length register"
+		 */
 		if_cs_write16(card, IF_CS_CMD_LEN, count);
 
-		
+		/* "write this to I/O Command port register as 16 bit writes */
 		if (count)
 			if_cs_write16_rep(card, IF_CS_CMD,
 				&fw->data[sent],
 				count >> 1);
 
+		/*
+		 * "Assert the download over interrupt command in the Host
+		 * status register"
+		 */
 		if_cs_write8(card, IF_CS_HOST_STATUS, IF_CS_BIT_COMMAND);
 
+		/*
+		 * "Assert the download over interrupt command in the Card
+		 * interrupt case register"
+		 */
 		if_cs_write16(card, IF_CS_HOST_INT_CAUSE, IF_CS_BIT_COMMAND);
 
+		/*
+		 * "The host polls the Card Status register ... for 50 ms before
+		 * declaring a failure"
+		 */
 		ret = if_cs_poll_while_fw_download(card, IF_CS_CARD_STATUS,
 			IF_CS_BIT_COMMAND);
 		if (ret < 0) {
@@ -581,7 +740,11 @@ done:
 
 
 
+/********************************************************************/
+/* Callback functions for libertas.ko                               */
+/********************************************************************/
 
+/* Send commands or data packets to the card */
 static int if_cs_host_to_card(struct lbs_private *priv,
 	u8 type,
 	u8 *buf,
@@ -636,7 +799,7 @@ static int if_cs_ioprobe(struct pcmcia_device *p_dev, void *priv_data)
 		return -ENODEV;
 	}
 
-	
+	/* This reserves IO space but doesn't actually enable it */
 	return pcmcia_request_io(p_dev);
 }
 
@@ -665,10 +828,15 @@ static int if_cs_probe(struct pcmcia_device *p_dev)
 		goto out1;
 	}
 
+	/*
+	 * Allocate an interrupt line.  Note that this does not assign
+	 * a handler to the interrupt, unless the 'Handler' member of
+	 * the irq structure is initialized.
+	 */
 	if (!p_dev->irq)
 		goto out1;
 
-	
+	/* Initialize io access */
 	card->iobase = ioport_map(p_dev->resource[0]->start,
 				resource_size(p_dev->resource[0]));
 	if (!card->iobase) {
@@ -683,9 +851,13 @@ static int if_cs_probe(struct pcmcia_device *p_dev)
 		goto out2;
 	}
 
-	
+	/* Finally, report what we've done */
 	lbs_deb_cs("irq %d, io %pR", p_dev->irq, p_dev->resource[0]);
 
+	/*
+	 * Most of the libertas cards can do unaligned register access, but some
+	 * weird ones cannot. That's especially true for the CF8305 card.
+	 */
 	card->align_regs = false;
 
 	card->model = get_model(p_dev->manf_id, p_dev->card_id);
@@ -695,7 +867,7 @@ static int if_cs_probe(struct pcmcia_device *p_dev)
 		goto out2;
 	}
 
-	
+	/* Check if we have a current silicon */
 	prod_id = if_cs_read8(card, IF_CS_PRODUCT_ID);
 	if (card->model == MODEL_8305) {
 		card->align_regs = true;
@@ -725,21 +897,21 @@ static int if_cs_probe(struct pcmcia_device *p_dev)
 		goto out2;
 	}
 
-	
+	/* Load the firmware early, before calling into libertas.ko */
 	ret = if_cs_prog_helper(card, helper);
 	if (ret == 0 && (card->model != MODEL_8305))
 		ret = if_cs_prog_real(card, mainfw);
 	if (ret)
 		goto out2;
 
-	
+	/* Make this card known to the libertas driver */
 	priv = lbs_add_card(card, &p_dev->dev);
 	if (!priv) {
 		ret = -ENOMEM;
 		goto out2;
 	}
 
-	
+	/* Finish setting up fields in lbs_private */
 	card->priv = priv;
 	priv->card = card;
 	priv->hw_host_to_card = if_cs_host_to_card;
@@ -748,7 +920,7 @@ static int if_cs_probe(struct pcmcia_device *p_dev)
 	priv->reset_deep_sleep_wakeup = NULL;
 	priv->fw_ready = 1;
 
-	
+	/* Now actually get the IRQ */
 	ret = request_irq(p_dev->irq, if_cs_interrupt,
 		IRQF_SHARED, DRV_NAME, card);
 	if (ret) {
@@ -756,10 +928,14 @@ static int if_cs_probe(struct pcmcia_device *p_dev)
 		goto out3;
 	}
 
+	/*
+	 * Clear any interrupt cause that happened while sending
+	 * firmware/initializing card
+	 */
 	if_cs_write16(card, IF_CS_CARD_INT_CAUSE, IF_CS_BIT_MASK);
 	if_cs_enable_ints(card);
 
-	
+	/* And finally bring the card up */
 	if (lbs_start_card(priv) != 0) {
 		pr_err("could not activate card\n");
 		goto out3;
@@ -802,12 +978,15 @@ static void if_cs_detach(struct pcmcia_device *p_dev)
 
 
 
+/********************************************************************/
+/* Module initialization                                            */
+/********************************************************************/
 
 static const struct pcmcia_device_id if_cs_ids[] = {
 	PCMCIA_DEVICE_MANF_CARD(CF8305_MANFID, CF8305_CARDID),
 	PCMCIA_DEVICE_MANF_CARD(CF8381_MANFID, CF8381_CARDID),
 	PCMCIA_DEVICE_MANF_CARD(CF8385_MANFID, CF8385_CARDID),
-	
+	/* NOTE: keep in sync with get_model() */
 	PCMCIA_DEVICE_NULL,
 };
 MODULE_DEVICE_TABLE(pcmcia, if_cs_ids);

@@ -23,4 +23,4 @@ static bool mhl_is_enabled(void)
 }
 #endif
 
-#endif 
+#endif /* __MHL_API_H__ */

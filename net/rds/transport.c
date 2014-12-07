@@ -101,6 +101,12 @@ struct rds_transport *rds_trans_get_preferred(__be32 addr)
 	return ret;
 }
 
+/*
+ * This returns the number of stats entries in the snapshot and only
+ * copies them using the iter if there is enough space for them.  The
+ * caller passes in the global stats so that we can size and copy while
+ * holding the lock.
+ */
 unsigned int rds_trans_stats_info_copy(struct rds_info_iterator *iter,
 				       unsigned int avail)
 

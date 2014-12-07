@@ -27,8 +27,14 @@ struct cfmuxl {
 	struct list_head frml_list;
 	struct cflayer *up_cache[UP_CACHE_SIZE];
 	struct cflayer *dn_cache[DN_CACHE_SIZE];
+	/*
+	 * Set when inserting or removing downwards layers.
+	 */
 	spinlock_t transmit_lock;
 
+	/*
+	 * Set when inserting or removing upwards layers.
+	 */
 	spinlock_t receive_lock;
 
 };
@@ -84,7 +90,7 @@ int cfmuxl_set_uplayer(struct cflayer *layr, struct cflayer *up, u8 linkid)
 
 	spin_lock_bh(&muxl->receive_lock);
 
-	
+	/* Two entries with same id is wrong, so remove old layer from mux */
 	old = get_from_id(&muxl->srvl_list, linkid);
 	if (old != NULL)
 		list_del_rcu(&old->node);
@@ -183,12 +189,16 @@ static int cfmuxl_receive(struct cflayer *layr, struct cfpkt *pkt)
 		pr_debug("Received data on unknown link ID = %d (0x%x)"
 			" up == NULL", id, id);
 		cfpkt_destroy(pkt);
+		/*
+		 * Don't return ERROR, since modem misbehaves and sends out
+		 * flow on before linksetup response.
+		 */
 
 		rcu_read_unlock();
-		return  0;
+		return /* CFGLU_EPROT; */ 0;
 	}
 
-	
+	/* We can't hold rcu_lock during receive, so take a ref count instead */
 	cfsrvl_get(up);
 	rcu_read_unlock();
 
@@ -222,7 +232,7 @@ static int cfmuxl_transmit(struct cflayer *layr, struct cfpkt *pkt)
 	linkid = info->channel_id;
 	cfpkt_add_head(pkt, &linkid, 1);
 
-	
+	/* We can't hold rcu_lock during receive, so take a ref count instead */
 	cffrml_hold(dn);
 
 	rcu_read_unlock();
@@ -249,7 +259,7 @@ static void cfmuxl_ctrlcmd(struct cflayer *layr, enum caif_ctrlcmd ctrl,
 					layer->id != 0)
 				cfmuxl_remove_uplayer(layr, layer->id);
 
-			
+			/* NOTE: ctrlcmd is not allowed to block */
 			layer->ctrlcmd(layer, ctrl, phyid);
 		}
 	}

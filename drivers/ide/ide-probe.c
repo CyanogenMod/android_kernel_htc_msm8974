@@ -39,6 +39,14 @@
 #include <asm/uaccess.h>
 #include <asm/io.h>
 
+/**
+ *	generic_id		-	add a generic drive id
+ *	@drive:	drive to make an ID block for
+ *	
+ *	Add a fake id field to the drive we are passed. This allows
+ *	use to skip a ton of NULL checks (which people always miss) 
+ *	and make drive properties unconditional outside of this file
+ */
  
 static void generic_id(ide_drive_t *drive)
 {
@@ -53,21 +61,21 @@ static void ide_disk_init_chs(ide_drive_t *drive)
 {
 	u16 *id = drive->id;
 
-	
+	/* Extract geometry if we did not already have one for the drive */
 	if (!drive->cyl || !drive->head || !drive->sect) {
 		drive->cyl  = drive->bios_cyl  = id[ATA_ID_CYLS];
 		drive->head = drive->bios_head = id[ATA_ID_HEADS];
 		drive->sect = drive->bios_sect = id[ATA_ID_SECTORS];
 	}
 
-	
+	/* Handle logical geometry translation by the drive */
 	if (ata_id_current_chs_valid(id)) {
 		drive->cyl  = id[ATA_ID_CUR_CYLS];
 		drive->head = id[ATA_ID_CUR_HEADS];
 		drive->sect = id[ATA_ID_CUR_SECTORS];
 	}
 
-	
+	/* Use physical geometry if what we have still makes no sense */
 	if (drive->head > 16 && id[ATA_ID_HEADS] && id[ATA_ID_HEADS] <= 16) {
 		drive->cyl  = id[ATA_ID_CYLS];
 		drive->head = id[ATA_ID_HEADS];
@@ -99,7 +107,7 @@ static void ide_classify_ata_dev(ide_drive_t *drive)
 	char *m = (char *)&id[ATA_ID_PROD];
 	int is_cfa = ata_id_is_cfa(id);
 
-	
+	/* CF devices are *not* removable in Linux definition of the term */
 	if (is_cfa == 0 && (id[ATA_ID_CONFIG] & (1 << 7)))
 		drive->dev_flags |= IDE_DFLAG_REMOVABLE;
 
@@ -132,12 +140,12 @@ static void ide_classify_atapi_dev(ide_drive_t *drive)
 				break;
 			}
 		}
-		
+		/* Early cdrom models used zero */
 		type = ide_cdrom;
 	case ide_cdrom:
 		drive->dev_flags |= IDE_DFLAG_REMOVABLE;
 #ifdef CONFIG_PPC
-		
+		/* kludge for Apple PowerBook internal zip */
 		if (!strstr(m, "CD-ROM") && strstr(m, "ZIP")) {
 			printk(KERN_CONT "FLOPPY");
 			type = ide_floppy;
@@ -160,15 +168,25 @@ static void ide_classify_atapi_dev(ide_drive_t *drive)
 
 	printk(KERN_CONT " drive\n");
 	drive->media = type;
-	
+	/* an ATAPI device ignores DRDY */
 	drive->ready_stat = 0;
 	if (ata_id_cdb_intr(id))
 		drive->atapi_flags |= IDE_AFLAG_DRQ_INTERRUPT;
 	drive->dev_flags |= IDE_DFLAG_DOORLOCKING;
-	
+	/* we don't do head unloading on ATAPI devices */
 	drive->dev_flags |= IDE_DFLAG_NO_UNLOAD;
 }
 
+/**
+ *	do_identify	-	identify a drive
+ *	@drive: drive to identify 
+ *	@cmd: command used
+ *	@id: buffer for IDENTIFY data
+ *
+ *	Called when we have issued a drive identify command to
+ *	read and parse the results. This function is run with
+ *	interrupts disabled. 
+ */
 
 static void do_identify(ide_drive_t *drive, u8 cmd, u16 *id)
 {
@@ -177,9 +195,9 @@ static void do_identify(ide_drive_t *drive, u8 cmd, u16 *id)
 	unsigned long flags;
 	int bswap = 1;
 
-	
+	/* local CPU only; some systems need this */
 	local_irq_save(flags);
-	
+	/* read 512 bytes of id info */
 	hwif->tp_ops->input_data(drive, NULL, id, SECTOR_SIZE);
 	local_irq_restore(flags);
 
@@ -190,11 +208,15 @@ static void do_identify(ide_drive_t *drive, u8 cmd, u16 *id)
 #endif
 	ide_fix_driveid(id);
 
+	/*
+	 *  ATA_CMD_ID_ATA returns little-endian info,
+	 *  ATA_CMD_ID_ATAPI *usually* returns little-endian info.
+	 */
 	if (cmd == ATA_CMD_ID_ATAPI) {
-		if ((m[0] == 'N' && m[1] == 'E') ||  
-		    (m[0] == 'F' && m[1] == 'X') ||  
-		    (m[0] == 'P' && m[1] == 'i'))    
-			
+		if ((m[0] == 'N' && m[1] == 'E') ||  /* NEC */
+		    (m[0] == 'F' && m[1] == 'X') ||  /* Mitsumi */
+		    (m[0] == 'P' && m[1] == 'i'))    /* Pioneer */
+			/* Vertos drives may still be weird */
 			bswap ^= 1;
 	}
 
@@ -202,7 +224,7 @@ static void do_identify(ide_drive_t *drive, u8 cmd, u16 *id)
 	ide_fixstring((char *)&id[ATA_ID_FW_REV], ATA_ID_FW_REV_LEN, bswap);
 	ide_fixstring((char *)&id[ATA_ID_SERNO], ATA_ID_SERNO_LEN, bswap);
 
-	
+	/* we depend on this a lot! */
 	m[ATA_ID_PROD_LEN - 1] = '\0';
 
 	if (strstr(m, "E X A B Y T E N E S T"))
@@ -211,6 +233,19 @@ static void do_identify(ide_drive_t *drive, u8 cmd, u16 *id)
 		drive->dev_flags |= IDE_DFLAG_PRESENT;
 }
 
+/**
+ *	ide_dev_read_id	-	send ATA/ATAPI IDENTIFY command
+ *	@drive: drive to identify
+ *	@cmd: command to use
+ *	@id: buffer for IDENTIFY data
+ *	@irq_ctx: flag set when called from the IRQ context
+ *
+ *	Sends an ATA(PI) IDENTIFY request to a drive and waits for a response.
+ *
+ *	Returns:	0  device was identified
+ *			1  device timed-out (no response to identify request)
+ *			2  device aborted the command (refused to identify itself)
+ */
 
 int ide_dev_read_id(ide_drive_t *drive, u8 cmd, u16 *id, int irq_ctx)
 {
@@ -221,10 +256,14 @@ int ide_dev_read_id(ide_drive_t *drive, u8 cmd, u16 *id, int irq_ctx)
 	unsigned long timeout;
 	u8 s = 0, a = 0;
 
+	/*
+	 * Disable device IRQ.  Otherwise we'll get spurious interrupts
+	 * during the identify phase that the IRQ handler isn't expecting.
+	 */
 	if (io_ports->ctl_addr)
 		tp_ops->write_devctl(hwif, ATA_NIEN | ATA_DEVCTL_OBS);
 
-	
+	/* take a deep breath */
 	if (irq_ctx)
 		mdelay(50);
 	else
@@ -235,29 +274,32 @@ int ide_dev_read_id(ide_drive_t *drive, u8 cmd, u16 *id, int irq_ctx)
 		a = tp_ops->read_altstatus(hwif);
 		s = tp_ops->read_status(hwif);
 		if ((a ^ s) & ~ATA_IDX)
-			
+			/* ancient Seagate drives, broken interfaces */
 			printk(KERN_INFO "%s: probing with STATUS(0x%02x) "
 					 "instead of ALTSTATUS(0x%02x)\n",
 					 drive->name, s, a);
 		else
-			
+			/* use non-intrusive polling */
 			use_altstatus = 1;
 	}
 
+	/* set features register for atapi
+	 * identify command to be sure of reply
+	 */
 	if (cmd == ATA_CMD_ID_ATAPI) {
 		struct ide_taskfile tf;
 
 		memset(&tf, 0, sizeof(tf));
-		
+		/* disable DMA & overlap */
 		tp_ops->tf_load(drive, &tf, IDE_VALID_FEATURE);
 	}
 
-	
+	/* ask drive for ID */
 	tp_ops->exec_command(hwif, cmd);
 
 	timeout = ((cmd == ATA_CMD_ID_ATA) ? WAIT_WORSTCASE : WAIT_PIDENTIFY) / 2;
 
-	
+	/* wait for IRQ and ATA_DRQ */
 	if (irq_ctx) {
 		rc = __ide_wait_stat(drive, ATA_DRQ, BAD_R_STAT, timeout, &s);
 		if (rc)
@@ -272,14 +314,14 @@ int ide_dev_read_id(ide_drive_t *drive, u8 cmd, u16 *id, int irq_ctx)
 	}
 
 	if (OK_STAT(s, ATA_DRQ, BAD_R_STAT)) {
-		
+		/* drive returned ID */
 		do_identify(drive, cmd, id);
-		
+		/* drive responded with ID */
 		rc = 0;
-		
+		/* clear drive IRQ */
 		(void)tp_ops->read_status(hwif);
 	} else {
-		
+		/* drive refused ID */
 		rc = 2;
 	}
 	return rc;
@@ -293,7 +335,7 @@ int ide_busy_sleep(ide_drive_t *drive, unsigned long timeout, int altstatus)
 	timeout += jiffies;
 
 	do {
-		msleep(50);	
+		msleep(50);	/* give drive a breather */
 		stat = altstatus ? hwif->tp_ops->read_altstatus(hwif)
 				 : hwif->tp_ops->read_status(hwif);
 		if ((stat & ATA_BUSY) == 0)
@@ -302,7 +344,7 @@ int ide_busy_sleep(ide_drive_t *drive, unsigned long timeout, int altstatus)
 
 	printk(KERN_ERR "%s: timeout in %s\n", drive->name, __func__);
 
-	return 1;	
+	return 1;	/* drive timed-out */
 }
 
 static u8 ide_read_device(ide_drive_t *drive)
@@ -314,6 +356,26 @@ static u8 ide_read_device(ide_drive_t *drive)
 	return tf.device;
 }
 
+/**
+ *	do_probe		-	probe an IDE device
+ *	@drive: drive to probe
+ *	@cmd: command to use
+ *
+ *	do_probe() has the difficult job of finding a drive if it exists,
+ *	without getting hung up if it doesn't exist, without trampling on
+ *	ethernet cards, and without leaving any IRQs dangling to haunt us later.
+ *
+ *	If a drive is "known" to exist (from CMOS or kernel parameters),
+ *	but does not respond right away, the probe will "hang in there"
+ *	for the maximum wait time (about 30 seconds), otherwise it will
+ *	exit much more quickly.
+ *
+ * Returns:	0  device was identified
+ *		1  device timed-out (no response to identify request)
+ *		2  device aborted the command (refused to identify itself)
+ *		3  bad status from device (possible for ATAPI drives)
+ *		4  probe was not attempted because failure was obvious
+ */
 
 static int do_probe (ide_drive_t *drive, u8 cmd)
 {
@@ -323,7 +385,7 @@ static int do_probe (ide_drive_t *drive, u8 cmd)
 	int rc;
 	u8 present = !!(drive->dev_flags & IDE_DFLAG_PRESENT), stat;
 
-	
+	/* avoid waiting for inappropriate probes */
 	if (present && drive->media != ide_disk && cmd == ATA_CMD_ID_ATA)
 		return 4;
 
@@ -333,18 +395,21 @@ static int do_probe (ide_drive_t *drive, u8 cmd)
 		(cmd == ATA_CMD_ID_ATA) ? "ATA" : "ATAPI");
 #endif
 
+	/* needed for some systems
+	 * (e.g. crw9624 as drive0 with disk as slave)
+	 */
 	msleep(50);
 	tp_ops->dev_select(drive);
 	msleep(50);
 
 	if (ide_read_device(drive) != drive->select && present == 0) {
 		if (drive->dn & 1) {
-			
+			/* exit with drive0 selected */
 			tp_ops->dev_select(hwif->devices[0]);
-			
+			/* allow ATA_BUSY to assert & clear */
 			msleep(50);
 		}
-		
+		/* no i/f present: mmm.. this should be a 4 -ml */
 		return 3;
 	}
 
@@ -354,7 +419,7 @@ static int do_probe (ide_drive_t *drive, u8 cmd)
 	    present || cmd == ATA_CMD_ID_ATAPI) {
 		rc = ide_dev_read_id(drive, cmd, id, 0);
 		if (rc)
-			
+			/* failed: try again */
 			rc = ide_dev_read_id(drive, cmd, id, 0);
 
 		stat = tp_ops->read_status(hwif);
@@ -373,26 +438,37 @@ static int do_probe (ide_drive_t *drive, u8 cmd)
 			rc = ide_dev_read_id(drive, cmd, id, 0);
 		}
 
-		
+		/* ensure drive IRQ is clear */
 		stat = tp_ops->read_status(hwif);
 
 		if (rc == 1)
 			printk(KERN_ERR "%s: no response (status = 0x%02x)\n",
 					drive->name, stat);
 	} else {
-		
+		/* not present or maybe ATAPI */
 		rc = 3;
 	}
 	if (drive->dn & 1) {
-		
+		/* exit with drive0 selected */
 		tp_ops->dev_select(hwif->devices[0]);
 		msleep(50);
-		
+		/* ensure drive irq is clear */
 		(void)tp_ops->read_status(hwif);
 	}
 	return rc;
 }
 
+/**
+ *	probe_for_drives	-	upper level drive probe
+ *	@drive: drive to probe for
+ *
+ *	probe_for_drive() tests for existence of a given drive using do_probe()
+ *	and presents things to the user as needed.
+ *
+ *	Returns:	0  no device was found
+ *			1  device was found
+ *			   (note: IDE_DFLAG_PRESENT might still be not set)
+ */
 
 static u8 probe_for_drive(ide_drive_t *drive)
 {
@@ -405,13 +481,13 @@ static u8 probe_for_drive(ide_drive_t *drive)
 	m = (char *)&drive->id[ATA_ID_PROD];
 	strcpy(m, "UNKNOWN");
 
-	
+	/* skip probing? */
 	if ((drive->dev_flags & IDE_DFLAG_NOPROBE) == 0) {
-		
+		/* if !(success||timed-out) */
 		cmd = ATA_CMD_ID_ATA;
 		rc = do_probe(drive, cmd);
 		if (rc >= 2) {
-			
+			/* look for ATAPI device */
 			cmd = ATA_CMD_ID_ATAPI;
 			rc = do_probe(drive, cmd);
 		}
@@ -419,7 +495,7 @@ static u8 probe_for_drive(ide_drive_t *drive)
 		if ((drive->dev_flags & IDE_DFLAG_PRESENT) == 0)
 			return 0;
 
-		
+		/* identification failed? */
 		if ((drive->dev_flags & IDE_DFLAG_ID_READ) == 0) {
 			if (drive->media == ide_disk) {
 				printk(KERN_INFO "%s: non-IDE drive, CHS=%d/%d/%d\n",
@@ -428,7 +504,7 @@ static u8 probe_for_drive(ide_drive_t *drive)
 			} else if (drive->media == ide_cdrom) {
 				printk(KERN_INFO "%s: ATAPI cdrom (?)\n", drive->name);
 			} else {
-				
+				/* nuke it */
 				printk(KERN_WARNING "%s: Unknown device on bus refused identification. Ignoring.\n", drive->name);
 				drive->dev_flags &= ~IDE_DFLAG_PRESENT;
 			}
@@ -443,7 +519,7 @@ static u8 probe_for_drive(ide_drive_t *drive)
 	if ((drive->dev_flags & IDE_DFLAG_PRESENT) == 0)
 		return 0;
 
-	
+	/* The drive wasn't being helpful. Add generic info only */
 	if ((drive->dev_flags & IDE_DFLAG_ID_READ) == 0) {
 		generic_id(drive);
 		return 1;
@@ -468,7 +544,7 @@ static int ide_register_port(ide_hwif_t *hwif)
 {
 	int ret;
 
-	
+	/* register with global device tree */
 	dev_set_name(&hwif->gendev, hwif->name);
 	dev_set_drvdata(&hwif->gendev, hwif);
 	if (hwif->gendev.parent == NULL)
@@ -492,6 +568,31 @@ out:
 	return ret;
 }
 
+/**
+ *	ide_port_wait_ready	-	wait for port to become ready
+ *	@hwif: IDE port
+ *
+ *	This is needed on some PPCs and a bunch of BIOS-less embedded
+ *	platforms.  Typical cases are:
+ *
+ *	- The firmware hard reset the disk before booting the kernel,
+ *	  the drive is still doing it's poweron-reset sequence, that
+ *	  can take up to 30 seconds.
+ *
+ *	- The firmware does nothing (or no firmware), the device is
+ *	  still in POST state (same as above actually).
+ *
+ *	- Some CD/DVD/Writer combo drives tend to drive the bus during
+ *	  their reset sequence even when they are non-selected slave
+ *	  devices, thus preventing discovery of the main HD.
+ *
+ *	Doing this wait-for-non-busy should not harm any existing
+ *	configuration and fix some issues like the above.
+ *
+ *	BenH.
+ *
+ *	Returns 0 on success, error code (< 0) otherwise.
+ */
 
 static int ide_port_wait_ready(ide_hwif_t *hwif)
 {
@@ -501,15 +602,21 @@ static int ide_port_wait_ready(ide_hwif_t *hwif)
 
 	printk(KERN_DEBUG "Probing IDE interface %s...\n", hwif->name);
 
+	/* Let HW settle down a bit from whatever init state we
+	 * come from */
 	mdelay(2);
 
+	/* Wait for BSY bit to go away, spec timeout is 30 seconds,
+	 * I know of at least one disk who takes 31 seconds, I use 35
+	 * here to be safe
+	 */
 	rc = ide_wait_not_busy(hwif, 35000);
 	if (rc)
 		return rc;
 
-	
+	/* Now make sure both master & slave are ready */
 	ide_port_for_each_dev(i, drive, hwif) {
-		
+		/* Ignore disks that we will not probe for later. */
 		if ((drive->dev_flags & IDE_DFLAG_NOPROBE) == 0 ||
 		    (drive->dev_flags & IDE_DFLAG_PRESENT)) {
 			tp_ops->dev_select(drive);
@@ -523,13 +630,21 @@ static int ide_port_wait_ready(ide_hwif_t *hwif)
 					  drive->name);
 	}
 out:
-	
+	/* Exit function with master reselected (let's be sane) */
 	if (i)
 		tp_ops->dev_select(hwif->devices[0]);
 
 	return rc;
 }
 
+/**
+ *	ide_undecoded_slave	-	look for bad CF adapters
+ *	@dev1: slave device
+ *
+ *	Analyse the drives on the interface and attempt to decide if we
+ *	have the same drive viewed twice. This occurs with crap CF adapters
+ *	and PCMCIA sometimes.
+ */
 
 void ide_undecoded_slave(ide_drive_t *dev1)
 {
@@ -538,21 +653,21 @@ void ide_undecoded_slave(ide_drive_t *dev1)
 	if ((dev1->dn & 1) == 0 || (dev0->dev_flags & IDE_DFLAG_PRESENT) == 0)
 		return;
 
-	
+	/* If the models don't match they are not the same product */
 	if (strcmp((char *)&dev0->id[ATA_ID_PROD],
 		   (char *)&dev1->id[ATA_ID_PROD]))
 		return;
 
-	
+	/* Serial numbers do not match */
 	if (strncmp((char *)&dev0->id[ATA_ID_SERNO],
 		    (char *)&dev1->id[ATA_ID_SERNO], ATA_ID_SERNO_LEN))
 		return;
 
-	
+	/* No serial number, thankfully very rare for CF */
 	if (*(char *)&dev0->id[ATA_ID_SERNO] == 0)
 		return;
 
-	
+	/* Appears to be an IDE flash adapter with decode bugs */
 	printk(KERN_WARNING "ide-probe: ignoring undecoded slave\n");
 
 	dev1->dev_flags &= ~IDE_DFLAG_PRESENT;
@@ -572,6 +687,10 @@ static int ide_probe_port(ide_hwif_t *hwif)
 	    (hwif->devices[1]->dev_flags & IDE_DFLAG_NOPROBE))
 		return -EACCES;
 
+	/*
+	 * We must always disable IRQ, as probe_for_drive will assert IRQ, but
+	 * we'll install our IRQ driver much later...
+	 */
 	irqd = hwif->irq;
 	if (irqd)
 		disable_irq(hwif->irq);
@@ -579,12 +698,20 @@ static int ide_probe_port(ide_hwif_t *hwif)
 	if (ide_port_wait_ready(hwif) == -EBUSY)
 		printk(KERN_DEBUG "%s: Wait for ready failed before probe !\n", hwif->name);
 
+	/*
+	 * Second drive should only exist if first drive was found,
+	 * but a lot of cdrom drives are configured as single slaves.
+	 */
 	ide_port_for_each_dev(i, drive, hwif) {
 		(void) probe_for_drive(drive);
 		if (drive->dev_flags & IDE_DFLAG_PRESENT)
 			rc = 0;
 	}
 
+	/*
+	 * Use cached IRQ number. It might be (and is...) changed by probe
+	 * code above
+	 */
 	if (irqd)
 		enable_irq(irqd);
 
@@ -614,6 +741,9 @@ static void ide_port_tune_devices(ide_hwif_t *hwif)
 	}
 }
 
+/*
+ * init request queue
+ */
 static int ide_init_queue(ide_drive_t *drive)
 {
 	struct request_queue *q;
@@ -621,6 +751,13 @@ static int ide_init_queue(ide_drive_t *drive)
 	int max_sectors = 256;
 	int max_sg_entries = PRD_ENTRIES;
 
+	/*
+	 *	Our default set up assumes the normal IDE case,
+	 *	that is 64K segmenting, standard PRD setup
+	 *	and LBA28. Some drivers then impose their own
+	 *	limits and LBA48 we could raise it but as yet
+	 *	do not.
+	 */
 
 	q = blk_init_queue_node(do_ide_request, NULL, hwif_to_node(hwif));
 	if (!q)
@@ -634,16 +771,25 @@ static int ide_init_queue(ide_drive_t *drive)
 	blk_queue_max_hw_sectors(q, max_sectors);
 
 #ifdef CONFIG_PCI
+	/* When we have an IOMMU, we may have a problem where pci_map_sg()
+	 * creates segments that don't completely match our boundary
+	 * requirements and thus need to be broken up again. Because it
+	 * doesn't align properly either, we may actually have to break up
+	 * to more segments than what was we got in the first place, a max
+	 * worst case is twice as many.
+	 * This will be fixed once we teach pci_map_sg() about our boundary
+	 * requirements, hopefully soon. *FIXME*
+	 */
 	if (!PCI_DMA_BUS_IS_PHYS)
 		max_sg_entries >>= 1;
-#endif 
+#endif /* CONFIG_PCI */
 
 	blk_queue_max_segments(q, max_sg_entries);
 
-	
+	/* assign drive queue */
 	drive->queue = q;
 
-	
+	/* needs drive->queue to be set */
 	ide_toggle_bounce(drive, 1);
 
 	return 0;
@@ -651,6 +797,10 @@ static int ide_init_queue(ide_drive_t *drive)
 
 static DEFINE_MUTEX(ide_cfg_mtx);
 
+/*
+ * For any present drive:
+ * - allocate the block device queue
+ */
 static int ide_port_setup_devices(ide_hwif_t *hwif)
 {
 	ide_drive_t *drive;
@@ -681,15 +831,18 @@ static void ide_host_enable_irqs(struct ide_host *host)
 		if (hwif == NULL)
 			continue;
 
-		
+		/* clear any pending IRQs */
 		hwif->tp_ops->read_status(hwif);
 
-		
+		/* unmask IRQs */
 		if (hwif->io_ports.ctl_addr)
 			hwif->tp_ops->write_devctl(hwif, ATA_DEVCTL_OBS);
 	}
 }
 
+/*
+ * This routine sets up the IRQ for an IDE interface.
+ */
 static int init_irq (ide_hwif_t *hwif)
 {
 	struct ide_io_ports *io_ports = &hwif->io_ports;
@@ -710,7 +863,7 @@ static int init_irq (ide_hwif_t *hwif)
 #else
 	printk(KERN_INFO "%s at 0x%08lx on irq %d", hwif->name,
 		io_ports->data_addr, hwif->irq);
-#endif 
+#endif /* __mc68000__ */
 	if (hwif->host->host_flags & IDE_HFLAG_SERIALIZE)
 		printk(KERN_CONT " (serialized)");
 	printk(KERN_CONT "\n");
@@ -722,7 +875,7 @@ out_up:
 
 static int ata_lock(dev_t dev, void *data)
 {
-	
+	/* FIXME: we want to pin hwif down */
 	return 0;
 }
 
@@ -900,14 +1053,14 @@ static void ide_init_port(ide_hwif_t *hwif, unsigned int port,
 	if (d->init_iops)
 		d->init_iops(hwif);
 
-	
+	/* ->host_flags may be set by ->init_iops (or even earlier...) */
 	hwif->host_flags |= d->host_flags;
 	hwif->pio_mask = d->pio_mask;
 
 	if (d->tp_ops)
 		hwif->tp_ops = d->tp_ops;
 
-	
+	/* ->set_pio_mode for DTC2278 is currently limited to port 0 */
 	if ((hwif->host_flags & IDE_HFLAG_DTC2278) == 0 || hwif->channel == 0)
 		hwif->port_ops = d->port_ops;
 
@@ -950,7 +1103,7 @@ static void ide_init_port(ide_hwif_t *hwif, unsigned int port,
 			hwif->rqsize = 65536;
 	}
 
-	
+	/* call chipset specific routine for each enabled port */
 	if (d->init_hwif)
 		d->init_hwif(hwif);
 }
@@ -1001,7 +1154,7 @@ static void ide_port_init_devices_data(ide_hwif_t *hwif)
 
 static void ide_init_port_data(ide_hwif_t *hwif, unsigned int index)
 {
-	
+	/* fill in any non-zero initial values */
 	hwif->index	= index;
 	hwif->major	= ide_hwif_to_major[index];
 
@@ -1034,6 +1187,12 @@ static void ide_init_port_hw(ide_hwif_t *hwif, struct ide_hw *hw)
 
 static unsigned int ide_indexes;
 
+/**
+ *	ide_find_port_slot	-	find free port slot
+ *	@d: IDE port info
+ *
+ *	Return the new port slot index or -ENOENT if we are out of free slots.
+ */
 
 static int ide_find_port_slot(const struct ide_port_info *d)
 {
@@ -1041,6 +1200,16 @@ static int ide_find_port_slot(const struct ide_port_info *d)
 	u8 bootable = (d && (d->host_flags & IDE_HFLAG_NON_BOOTABLE)) ? 0 : 1;
 	u8 i = (d && (d->host_flags & IDE_HFLAG_QD_2ND_PORT)) ? 1 : 0;
 
+	/*
+	 * Claim an unassigned slot.
+	 *
+	 * Give preference to claiming other slots before claiming ide0/ide1,
+	 * just in case there's another interface yet-to-be-scanned
+	 * which uses ports 0x1f0/0x170 (the ide0/ide1 defaults).
+	 *
+	 * Unless there is a bootable card that does not use the standard
+	 * ports 0x1f0/0x170 (the ide0/ide1 defaults).
+	 */
 	mutex_lock(&ide_cfg_mtx);
 	if (bootable) {
 		if ((ide_indexes | i) != (1 << MAX_HWIFS) - 1)
@@ -1087,6 +1256,14 @@ static int ide_port_alloc_devices(ide_hwif_t *hwif, int node)
 		if (drive == NULL)
 			goto out_nomem;
 
+		/*
+		 * In order to keep things simple we have an id
+		 * block for all drives at all times. If the device
+		 * is pre ATA or refuses ATA/ATAPI identify we
+		 * will add faked data to this.
+		 *
+		 * Also note that 0 everywhere means "can't do X"
+		 */
 		drive->id = kzalloc_node(SECTOR_SIZE, GFP_KERNEL, node);
 		if (drive->id == NULL)
 			goto out_nomem;
@@ -1328,6 +1505,19 @@ void ide_port_unregister_devices(ide_hwif_t *hwif)
 }
 EXPORT_SYMBOL_GPL(ide_port_unregister_devices);
 
+/**
+ *	ide_unregister		-	free an IDE interface
+ *	@hwif: IDE interface
+ *
+ *	Perform the final unregister of an IDE interface.
+ *
+ *	Locking:
+ *	The caller must not hold the IDE locks.
+ *
+ *	It is up to the caller to be sure there is no pending I/O here,
+ *	and that the interface will not be reopened (present/vanishing
+ *	locking isn't yet done BTW).
+ */
 
 static void ide_unregister(ide_hwif_t *hwif)
 {
@@ -1349,6 +1539,9 @@ static void ide_unregister(ide_hwif_t *hwif)
 	device_unregister(&hwif->gendev);
 	wait_for_completion(&hwif->gendev_rel_comp);
 
+	/*
+	 * Remove us from the kernel's knowledge
+	 */
 	blk_unregister_region(MKDEV(hwif->major, 0), MAX_DRIVES<<PARTN_BITS);
 	kfree(hwif->sg_table);
 	unregister_blkdev(hwif->major, hwif->name);

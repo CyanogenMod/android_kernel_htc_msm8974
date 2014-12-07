@@ -23,7 +23,7 @@ adfs_fplus_read(struct super_block *sb, unsigned int id, unsigned int sz, struct
 
 	dir->nr_buffers = 0;
 
-	
+	/* start off using fixed bh set - only alloc for big dirs */
 	dir->bh_fplus = &dir->bh[0];
 
 	block = __adfs_block_map(sb, id, 0);
@@ -56,7 +56,7 @@ adfs_fplus_read(struct super_block *sb, unsigned int id, unsigned int sz, struct
 
 	size >>= sb->s_blocksize_bits;
 	if (size > sizeof(dir->bh)/sizeof(dir->bh[0])) {
-		
+		/* this directory is too big for fixed bh set, must allocate */
 		struct buffer_head **bh_fplus =
 			kzalloc(size * sizeof(struct buffer_head *),
 				GFP_KERNEL);
@@ -66,7 +66,7 @@ adfs_fplus_read(struct super_block *sb, unsigned int id, unsigned int sz, struct
 			goto out;
 		}
 		dir->bh_fplus = bh_fplus;
-		
+		/* copy over the pointer to the block that we've already read */
 		dir->bh_fplus[0] = dir->bh[0];
 	}
 
@@ -199,11 +199,15 @@ adfs_fplus_getnext(struct adfs_dir *dir, struct object_info *obj)
 
 	obj->filetype = -1;
 
+	/*
+	 * object is a file and is filetyped and timestamped?
+	 * RISC OS 12-bit filetype is stored in load_address[19:8]
+	 */
 	if ((0 == (obj->attr & ADFS_NDA_DIRECTORY)) &&
 		(0xfff00000 == (0xfff00000 & obj->loadaddr))) {
 		obj->filetype = (__u16) ((0x000fff00 & obj->loadaddr) >> 8);
 
-		
+		/* optionally append the ,xyz hex filetype suffix */
 		if (ADFS_SB(dir->sb)->s_ftsuffix)
 			obj->name_len +=
 				append_filetype_suffix(

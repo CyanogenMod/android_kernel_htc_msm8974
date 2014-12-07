@@ -43,11 +43,12 @@
 
 #define DRIVER_NAME     "lis3lv02d"
 
+/* joystick device poll interval in milliseconds */
 #define MDPS_POLL_INTERVAL 50
 #define MDPS_POLL_MIN	   0
 #define MDPS_POLL_MAX	   2000
 
-#define LIS3_SYSFS_POWERDOWN_DELAY 5000 
+#define LIS3_SYSFS_POWERDOWN_DELAY 5000 /* In milliseconds */
 
 #define SELFTEST_OK	       0
 #define SELFTEST_FAIL	       -1
@@ -56,11 +57,26 @@
 #define IRQ_LINE0	       0
 #define IRQ_LINE1	       1
 
+/*
+ * The sensor can also generate interrupts (DRDY) but it's pretty pointless
+ * because they are generated even if the data do not change. So it's better
+ * to keep the interrupt for the free-fall event. The values are updated at
+ * 40Hz (at the lowest frequency), but as it can be pretty time consuming on
+ * some low processor, we poll the sensor only at 20Hz... enough for the
+ * joystick.
+ */
 
 #define LIS3_PWRON_DELAY_WAI_12B	(5000)
 #define LIS3_PWRON_DELAY_WAI_8B		(3000)
 
+/*
+ * LIS3LV02D spec says 1024 LSBs corresponds 1 G -> 1LSB is 1000/1024 mG
+ * LIS302D spec says: 18 mG / digit
+ * LIS3_ACCURACY is used to increase accuracy of the intermediate
+ * calculation results.
+ */
 #define LIS3_ACCURACY			1024
+/* Sensitivity values for -2G +2G scale */
 #define LIS3_SENSITIVITY_12B		((LIS3_ACCURACY * 1000) / 1024)
 #define LIS3_SENSITIVITY_8B		(18 * LIS3_ACCURACY)
 
@@ -74,6 +90,9 @@ struct lis3lv02d lis3_dev = {
 };
 EXPORT_SYMBOL_GPL(lis3_dev);
 
+/* just like param_set_int() but does sanity-check so that it won't point
+ * over the axis array size
+ */
 static int param_set_axis(const char *val, const struct kernel_param *kp)
 {
 	int ret = param_set_int(val, kp);
@@ -112,10 +131,17 @@ static s16 lis3lv02d_read_12(struct lis3lv02d *lis3, int reg)
 
 	lis3->read(lis3, reg - 1, &lo);
 	lis3->read(lis3, reg, &hi);
-	
+	/* In "12 bit right justified" mode, bit 6, bit 7, bit 8 = bit 5 */
 	return (s16)((hi << 8) | lo);
 }
 
+/**
+ * lis3lv02d_get_axis - For the given axis, give the value converted
+ * @axis:      1,2,3 - can also be negative
+ * @hw_values: raw values returned by the hardware
+ *
+ * Returns the converted value.
+ */
 static inline int lis3lv02d_get_axis(s8 axis, int hw_values[3])
 {
 	if (axis > 0)
@@ -124,6 +150,15 @@ static inline int lis3lv02d_get_axis(s8 axis, int hw_values[3])
 		return -hw_values[-axis - 1];
 }
 
+/**
+ * lis3lv02d_get_xyz - Get X, Y and Z axis values from the accelerometer
+ * @lis3: pointer to the device struct
+ * @x:    where to store the X axis value
+ * @y:    where to store the Y axis value
+ * @z:    where to store the Z axis value
+ *
+ * Note that 40Hz input device can eat up about 10% CPU at 800MHZ
+ */
 static void lis3lv02d_get_xyz(struct lis3lv02d *lis3, int *x, int *y, int *z)
 {
 	int position[3];
@@ -137,7 +172,7 @@ static void lis3lv02d_get_xyz(struct lis3lv02d *lis3, int *x, int *y, int *z)
 				position[i] = (s16)le16_to_cpu(data[i]);
 		} else {
 			u8 data[5];
-			
+			/* Data: x, dummy, y, dummy, z */
 			lis3->blkread(lis3, OUTX, 5, data);
 			for (i = 0; i < 3; i++)
 				position[i] = (s8)data[i * 2];
@@ -156,10 +191,12 @@ static void lis3lv02d_get_xyz(struct lis3lv02d *lis3, int *x, int *y, int *z)
 	*z = lis3lv02d_get_axis(lis3->ac.z, position);
 }
 
+/* conversion btw sampling rate and the register values */
 static int lis3_12_rates[4] = {40, 160, 640, 2560};
 static int lis3_8_rates[2] = {100, 400};
 static int lis3_3dc_rates[16] = {0, 1, 10, 25, 50, 100, 200, 400, 1600, 5000};
 
+/* ODR is Output Data Rate */
 static int lis3lv02d_get_odr(struct lis3lv02d *lis3)
 {
 	u8 ctrl;
@@ -178,7 +215,7 @@ static int lis3lv02d_get_pwron_wait(struct lis3lv02d *lis3)
 	if (WARN_ONCE(div == 0, "device returned spurious data"))
 		return -ENXIO;
 
-	
+	/* LIS3 power on delay is quite long */
 	msleep(lis3->pwron_delay / div);
 	return 0;
 }
@@ -193,7 +230,7 @@ static int lis3lv02d_set_odr(struct lis3lv02d *lis3, int rate)
 
 	lis3->read(lis3, CTRL_REG1, &ctrl);
 	ctrl &= ~lis3->odr_mask;
-	len = 1 << hweight_long(lis3->odr_mask); 
+	len = 1 << hweight_long(lis3->odr_mask); /* # of possible values */
 	shift = ffs(lis3->odr_mask) - 1;
 
 	for (i = 0; i < len; i++)
@@ -221,7 +258,7 @@ static int lis3lv02d_selftest(struct lis3lv02d *lis3, s16 results[3])
 		lis3->data_ready_count[IRQ_LINE0] = 0;
 		lis3->data_ready_count[IRQ_LINE1] = 0;
 
-		
+		/* Change interrupt cfg to data ready for selftest */
 		atomic_inc(&lis3->wake_thread);
 		lis3->irq_cfg = LIS3_IRQ1_DATA_READY | LIS3_IRQ2_DATA_READY;
 		lis3->read(lis3, CTRL_REG3, &ctrl_reg_data);
@@ -247,12 +284,12 @@ static int lis3lv02d_selftest(struct lis3lv02d *lis3, s16 results[3])
 	if (ret)
 		goto fail;
 
-	
+	/* Read directly to avoid axis remap */
 	x = lis3->read_data(lis3, OUTX);
 	y = lis3->read_data(lis3, OUTY);
 	z = lis3->read_data(lis3, OUTZ);
 
-	
+	/* back to normal settings */
 	lis3->write(lis3, ctlreg, reg);
 	ret = lis3lv02d_get_pwron_wait(lis3);
 	if (ret)
@@ -265,7 +302,7 @@ static int lis3lv02d_selftest(struct lis3lv02d *lis3, s16 results[3])
 	ret = 0;
 
 	if (lis3->whoami == WAI_8B) {
-		
+		/* Restore original interrupt configuration */
 		atomic_dec(&lis3->wake_thread);
 		lis3->write(lis3, CTRL_REG3, ctrl_reg_data);
 		lis3->irq_cfg = irq_cfg;
@@ -286,7 +323,7 @@ static int lis3lv02d_selftest(struct lis3lv02d *lis3, s16 results[3])
 	if (lis3->pdata) {
 		int i;
 		for (i = 0; i < 3; i++) {
-			
+			/* Check against selftest acceptance limits */
 			if ((results[i] < lis3->pdata->st_min_limits[i]) ||
 			    (results[i] > lis3->pdata->st_max_limits[i])) {
 				ret = SELFTEST_FAIL;
@@ -295,12 +332,17 @@ static int lis3lv02d_selftest(struct lis3lv02d *lis3, s16 results[3])
 		}
 	}
 
-	
+	/* test passed */
 fail:
 	mutex_unlock(&lis3->mutex);
 	return ret;
 }
 
+/*
+ * Order of registers in the list affects to order of the restore process.
+ * Perhaps it is a good idea to set interrupt enable register as a last one
+ * after all other configurations
+ */
 static u8 lis3_wai8_regs[] = { FF_WU_CFG_1, FF_WU_THS_1, FF_WU_DURATION_1,
 			       FF_WU_CFG_2, FF_WU_THS_2, FF_WU_DURATION_2,
 			       CLICK_CFG, CLICK_SRC, CLICK_THSY_X, CLICK_THSZ,
@@ -332,7 +374,7 @@ void lis3lv02d_poweroff(struct lis3lv02d *lis3)
 {
 	if (lis3->reg_ctrl)
 		lis3_context_save(lis3);
-	
+	/* disable X,Y,Z axis and power down */
 	lis3->write(lis3, CTRL_REG1, 0x00);
 	if (lis3->reg_ctrl)
 		lis3->reg_ctrl(lis3, LIS3_REG_OFF);
@@ -346,6 +388,12 @@ int lis3lv02d_poweron(struct lis3lv02d *lis3)
 
 	lis3->init(lis3);
 
+	/*
+	 * Common configuration
+	 * BDU: (12 bits sensors only) LSB and MSB values are not updated until
+	 *      both have been read. So the value read will always be correct.
+	 * Set BOOT bit to refresh factory tuning values.
+	 */
 	if (lis3->pdata) {
 		lis3->read(lis3, CTRL_REG2, &reg);
 		if (lis3->whoami ==  WAI_12B)
@@ -390,6 +438,10 @@ static void lis3lv02d_joystick_open(struct input_polled_dev *pidev)
 
 	if (lis3->pdata && lis3->whoami == WAI_8B && lis3->idev)
 		atomic_set(&lis3->wake_thread, 1);
+	/*
+	 * Update coordinates for the case where poll interval is 0 and
+	 * the chip in running purely under interrupt control
+	 */
 	lis3lv02d_joystick_poll(pidev);
 }
 
@@ -409,6 +461,11 @@ static irqreturn_t lis302dl_interrupt(int irq, void *data)
 	if (!test_bit(0, &lis3->misc_opened))
 		goto out;
 
+	/*
+	 * Be careful: on some HP laptops the bios force DD when on battery and
+	 * the lid is closed. This leads to interrupts as soon as a little move
+	 * is done.
+	 */
 	atomic_inc(&lis3->count);
 
 	wake_up_interruptible(&lis3->misc_wait);
@@ -449,7 +506,7 @@ static inline void lis302dl_data_ready(struct lis3lv02d *lis3, int index)
 {
 	int dummy;
 
-	
+	/* Dummy read to ack interrupt */
 	lis3lv02d_get_xyz(lis3, &dummy, &dummy, &dummy);
 	lis3->data_ready_count[index]++;
 }
@@ -490,7 +547,7 @@ static int lis3lv02d_misc_open(struct inode *inode, struct file *file)
 					      struct lis3lv02d, miscdev);
 
 	if (test_and_set_bit(0, &lis3->misc_opened))
-		return -EBUSY; 
+		return -EBUSY; /* already open */
 
 	if (lis3->pm_dev)
 		pm_runtime_get_sync(lis3->pm_dev);
@@ -505,7 +562,7 @@ static int lis3lv02d_misc_release(struct inode *inode, struct file *file)
 					      struct lis3lv02d, miscdev);
 
 	fasync_helper(-1, file, 0, &lis3->async_queue);
-	clear_bit(0, &lis3->misc_opened); 
+	clear_bit(0, &lis3->misc_opened); /* release the device */
 	if (lis3->pm_dev)
 		pm_runtime_put(lis3->pm_dev);
 	return 0;
@@ -550,6 +607,8 @@ static ssize_t lis3lv02d_misc_read(struct file *file, char __user *buf,
 	else
 		byte_data = 255;
 
+	/* make sure we are not going into copy_to_user() with
+	 * TASK_INTERRUPTIBLE state */
 	set_current_state(TASK_RUNNING);
 	if (copy_to_user(buf, &byte_data, sizeof(byte_data)))
 		retval = -EFAULT;
@@ -667,8 +726,16 @@ void lis3lv02d_joystick_disable(struct lis3lv02d *lis3)
 }
 EXPORT_SYMBOL_GPL(lis3lv02d_joystick_disable);
 
+/* Sysfs stuff */
 static void lis3lv02d_sysfs_poweron(struct lis3lv02d *lis3)
 {
+	/*
+	 * SYSFS functions are fast visitors so put-call
+	 * immediately after the get-call. However, keep
+	 * chip running for a while and schedule delayed
+	 * suspend. This way periodic sysfs calls doesn't
+	 * suffer from relatively long power up time.
+	 */
 
 	if (lis3->pm_dev) {
 		pm_runtime_get_sync(lis3->pm_dev);
@@ -776,10 +843,10 @@ int lis3lv02d_remove_fs(struct lis3lv02d *lis3)
 	sysfs_remove_group(&lis3->pdev->dev.kobj, &lis3lv02d_attribute_group);
 	platform_device_unregister(lis3->pdev);
 	if (lis3->pm_dev) {
-		
+		/* Barrier after the sysfs remove */
 		pm_runtime_barrier(lis3->pm_dev);
 
-		
+		/* SYSFS may have left chip running. Turn off if necessary */
 		if (!pm_runtime_suspended(lis3->pm_dev))
 			lis3lv02d_poweroff(lis3);
 
@@ -818,19 +885,19 @@ static void lis3lv02d_8b_configure(struct lis3lv02d *lis3,
 	if (p->wakeup_flags) {
 		lis3->write(lis3, FF_WU_CFG_1, p->wakeup_flags);
 		lis3->write(lis3, FF_WU_THS_1, p->wakeup_thresh & 0x7f);
-		
+		/* pdata value + 1 to keep this backward compatible*/
 		lis3->write(lis3, FF_WU_DURATION_1, p->duration1 + 1);
-		ctrl2 ^= HP_FF_WU1; 
+		ctrl2 ^= HP_FF_WU1; /* Xor to keep compatible with old pdata*/
 	}
 
 	if (p->wakeup_flags2) {
 		lis3->write(lis3, FF_WU_CFG_2, p->wakeup_flags2);
 		lis3->write(lis3, FF_WU_THS_2, p->wakeup_thresh2 & 0x7f);
-		
+		/* pdata value + 1 to keep this backward compatible*/
 		lis3->write(lis3, FF_WU_DURATION_2, p->duration2 + 1);
-		ctrl2 ^= HP_FF_WU2; 
+		ctrl2 ^= HP_FF_WU2; /* Xor to keep compatible with old pdata*/
 	}
-	
+	/* Configure hipass filters */
 	lis3->write(lis3, CTRL_REG2, ctrl2);
 
 	if (p->irq2) {
@@ -845,6 +912,10 @@ static void lis3lv02d_8b_configure(struct lis3lv02d *lis3,
 	}
 }
 
+/*
+ * Initialise the accelerometer and the various subsystems.
+ * Should be rather independent of the bus system.
+ */
 int lis3lv02d_init_device(struct lis3lv02d *lis3)
 {
 	int err;
@@ -916,6 +987,8 @@ int lis3lv02d_init_device(struct lis3lv02d *lis3)
 	if (lis3lv02d_joystick_enable(lis3))
 		pr_err("joystick initialization failed\n");
 
+	/* passing in platform specific data is purely optional and only
+	 * used by the SPI transport layer at the moment */
 	if (lis3->pdata) {
 		struct lis3lv02d_platform_data *p = lis3->pdata;
 
@@ -932,12 +1005,23 @@ int lis3lv02d_init_device(struct lis3lv02d *lis3)
 			lis3lv02d_set_odr(lis3, p->default_rate);
 	}
 
-	
+	/* bail if we did not get an IRQ from the bus layer */
 	if (!lis3->irq) {
 		pr_debug("No IRQ. Disabling /dev/freefall\n");
 		goto out;
 	}
 
+	/*
+	 * The sensor can generate interrupts for free-fall and direction
+	 * detection (distinguishable with FF_WU_SRC and DD_SRC) but to keep
+	 * the things simple and _fast_ we activate it only for free-fall, so
+	 * no need to read register (very slow with ACPI). For the same reason,
+	 * we forbid shared interrupts.
+	 *
+	 * IRQF_TRIGGER_RISING seems pointless on HP laptops because the
+	 * io-apic is not configurable (and generates a warning) but I keep it
+	 * in case of support for other hardware.
+	 */
 	if (lis3->pdata && lis3->whoami == WAI_8B)
 		thread_fn = lis302dl_interrupt_thread1_8b;
 	else

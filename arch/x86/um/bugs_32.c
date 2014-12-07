@@ -9,6 +9,7 @@
 #include "sysdep/ptrace.h"
 #include <generated/asm-offsets.h>
 
+/* Set during early boot */
 static int host_has_cmov = 1;
 static jmp_buf cmov_test_return;
 
@@ -25,7 +26,7 @@ void arch_check_bugs(void)
 	printk(UM_KERN_INFO "Checking for host processor cmov support...");
 	new.sa_handler = cmov_sigill_test_handler;
 
-	
+	/* Make sure that SIGILL is enabled after the handler longjmps back */
 	new.sa_flags = SA_NODEFER;
 	sigemptyset(&new.sa_mask);
 	sigaction(SIGILL, &new, &old);
@@ -44,6 +45,10 @@ void arch_examine_signal(int sig, struct uml_pt_regs *regs)
 {
 	unsigned char tmp[2];
 
+	/*
+	 * This is testing for a cmov (0x0f 0x4x) instruction causing a
+	 * SIGILL in init.
+	 */
 	if ((sig != SIGILL) || (get_current_pid() != 1))
 		return;
 

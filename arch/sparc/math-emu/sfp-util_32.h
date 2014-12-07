@@ -71,6 +71,8 @@
 	     "r" ((USItype)(v))						\
 	   : "%g1", "%g2", "cc")
 
+/* It's quite necessary to add this much assembler for the sparc.
+   The default udiv_qrnnd (in C) is more than 10 times slower!  */
 #define udiv_qrnnd(q, r, n1, n0, d) \
   __asm__ ("! Inlined udiv_qrnnd\n\t"					\
 	   "mov	32,%%g1\n\t"						\

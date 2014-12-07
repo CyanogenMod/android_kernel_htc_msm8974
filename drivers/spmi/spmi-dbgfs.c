@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -27,6 +27,7 @@
 #include <linux/of_device.h>
 #include <linux/debugfs.h>
 #endif
+#include <mach/devices_cmdline.h>
 
 
 #define ADDR_LEN	 6	
@@ -39,9 +40,9 @@ static const char *DFS_ROOT_NAME	= "spmi";
 static const mode_t DFS_MODE = S_IRUSR | S_IWUSR;
 
 struct spmi_log_buffer {
-	u32  rpos;	
-	u32  wpos;	
-	u32  len;	
+	size_t rpos;	
+	size_t wpos;	
+	size_t len;	
 	char data[0];	
 };
 
@@ -518,10 +519,10 @@ static struct dentry *spmi_dfs_create_fs(void)
 
 	pr_debug("Creating SPMI debugfs file-system\n");
 	root = debugfs_create_dir(DFS_ROOT_NAME, NULL);
-	if (IS_ERR(root)) {
+	if (IS_ERR_OR_NULL(root)) {
 		pr_err("Error creating top level directory err:%ld",
 			(long)root);
-		if ((int)root == -ENODEV)
+		if (PTR_ERR(root) == -ENODEV)
 			pr_err("debugfs is not enabled in the kernel");
 		return NULL;
 	}
@@ -1237,6 +1238,26 @@ int htc_vreg_dump(int vreg_id, struct seq_file *m, char *vreg_buffer, int curr_l
 
         return curr_len;
 }
+#if defined(CONFIG_MACH_EYE_UL)
+#define PN547_I2C_POWEROFF_SEQUENCE_FOR_EYE
+#elif defined(CONFIG_MACH_EYE_WL)
+#define PN547_I2C_POWEROFF_SEQUENCE_FOR_EYE
+#elif defined(CONFIG_MACH_EYE_WHL)
+#define PN547_I2C_POWEROFF_SEQUENCE_FOR_EYE
+#endif
+#if defined(PN547_I2C_POWEROFF_SEQUENCE_FOR_EYE)
+void force_disable_PM8941_VREG_ID_L22(void)
+{
+	int ret;
+	uint8_t voltage_sel = 0x00;
+	
+	
+	ret = spmi_write_data(qpnp_vregs.ctrl, &voltage_sel, 0x15546, 1);
+	if (ret) {
+                pr_err("force_disable_PM8941_VREG_ID_L22, SPMI write failed, err = %zu\n", ret);
+        }
+}
+#endif
 
 int htc_vregs_dump(char *vreg_buffer, int curr_len)
 {
@@ -1295,21 +1316,12 @@ static int voltage_debug_get(void *data, u64 *val)
 DEFINE_SIMPLE_ATTRIBUTE(voltage_fops, voltage_debug_get,
 			voltage_debug_set, "%lld\n");
 
-static int htc_vreg_dump_debugfs_init(void)
+
+static int htc_voltage_debugfs_init(void)
 {
-        static struct dentry *debugfs_vregs_base;
 		static struct dentry *debugfs_voltages_base;
-		int i;
 		struct _vreg *vreg = NULL;
-
-        debugfs_vregs_base = debugfs_create_dir("htc_vreg", NULL);
-
-        if (!debugfs_vregs_base)
-                return -ENOMEM;
-
-        if (!debugfs_create_file("list_vregs", S_IRUGO, debugfs_vregs_base,
-                                NULL, &list_vregs_fops))
-                return -ENOMEM;
+		int i;
 
 		debugfs_voltages_base = debugfs_create_dir("htc_voltage", NULL);
 
@@ -1321,6 +1333,93 @@ static int htc_vreg_dump_debugfs_init(void)
 		}
 
         return 0;
+}
+
+static int htc_vreg_dump_debugfs_init(void)
+{
+        static struct dentry *debugfs_vregs_base;
+
+        debugfs_vregs_base = debugfs_create_dir("htc_vreg", NULL);
+
+        if (!debugfs_vregs_base)
+                return -ENOMEM;
+
+        if (!debugfs_create_file("list_vregs", S_IRUGO, debugfs_vregs_base,
+                                NULL, &list_vregs_fops))
+                return -ENOMEM;
+
+        return 0;
+}
+
+static int htc_regulator_enable(struct _qpnp_vregs *qpnp_vregs, struct _vreg *vreg)
+{
+	int ret =0;
+	u8 enabled = 0x80;
+
+	ret = spmi_write_data(qpnp_vregs->ctrl, &enabled, vreg->base_addr + qpnp_vregs->en_ctl_offset, 1);
+	if (ret < 0) {
+		pr_err("%s: SPMI read failed, err = %d\n", __func__, ret);
+		return ret;
+	}
+
+	return ret;
+}
+
+static int htc_regulator_disable(struct _qpnp_vregs *qpnp_vregs, struct _vreg *vreg)
+{
+	int ret =0;
+	u8 disabled = 0x00;
+
+	ret = spmi_write_data(qpnp_vregs->ctrl, &disabled, vreg->base_addr + qpnp_vregs->en_ctl_offset, 1);
+	if (ret < 0) {
+		pr_err("%s: SPMI read failed, err = %d\n", __func__, ret);
+		return ret;
+	}
+
+	return ret;
+}
+
+static int htc_reg_debug_enable_set(void *data, u64 val)
+{
+	struct _vreg *vreg = data;
+	int ret;
+
+	if (val)
+		ret = htc_regulator_enable(&qpnp_vregs, vreg);
+	else
+		ret = htc_regulator_disable(&qpnp_vregs, vreg);
+
+	return ret;
+}
+
+static int htc_reg_debug_enable_get(void *data, u64 *val)
+{
+	struct _vreg *vreg = data;
+	*val = htc_vreg_is_enabled(&qpnp_vregs, vreg);
+
+	return 0;
+}
+
+DEFINE_SIMPLE_ATTRIBUTE(switch_fops, htc_reg_debug_enable_get,
+			htc_reg_debug_enable_set, "%llu\n");
+
+
+static int htc_vreg_switch_debugfs_init(void)
+{
+	static struct dentry *debugfs_switch_base;
+	struct _vreg *vreg = NULL;
+	int i;
+
+	debugfs_switch_base = debugfs_create_dir("htc_vreg_switchs", NULL);
+
+	for (i = 0; i < qpnp_vregs.total_vregs; i++) {
+		vreg = &qpnp_vregs.vregs[i];
+		if(!debugfs_create_file(vreg->name, S_IRUGO, debugfs_switch_base,
+				vreg, &switch_fops))
+		return -ENOMEM;
+	}
+
+	return 0;
 }
 
 struct vreg_type_lookup_table {
@@ -1430,6 +1529,12 @@ static int __devinit htc_vreg_dump_probe(struct platform_device *pdev)
 		pr_err("%s: Fail to get pull down bit offset\n", __func__);
 
 	htc_vreg_dump_debugfs_init();
+	
+	if (get_tamper_sf() == 0 && board_is_super_cid())
+	{
+		htc_voltage_debugfs_init();
+		htc_vreg_switch_debugfs_init();
+	}
 	return 0;
 }
 

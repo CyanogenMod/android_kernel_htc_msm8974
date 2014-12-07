@@ -7,6 +7,10 @@
 #include <linux/debugfs.h>
 #include <linux/atomic.h>
 
+/*
+ * For explanation of the elements of this struct, see
+ * Documentation/fault-injection/fault-injection.txt
+ */
 struct fault_attr {
 	unsigned long probability;
 	unsigned long interval;
@@ -40,7 +44,7 @@ bool should_fail(struct fault_attr *attr, ssize_t size);
 struct dentry *fault_create_debugfs_attr(const char *name,
 			struct dentry *parent, struct fault_attr *attr);
 
-#else 
+#else /* CONFIG_FAULT_INJECTION_DEBUG_FS */
 
 static inline struct dentry *fault_create_debugfs_attr(const char *name,
 			struct dentry *parent, struct fault_attr *attr)
@@ -48,9 +52,9 @@ static inline struct dentry *fault_create_debugfs_attr(const char *name,
 	return ERR_PTR(-ENODEV);
 }
 
-#endif 
+#endif /* CONFIG_FAULT_INJECTION_DEBUG_FS */
 
-#endif 
+#endif /* CONFIG_FAULT_INJECTION */
 
 #ifdef CONFIG_FAILSLAB
 extern bool should_failslab(size_t size, gfp_t gfpflags, unsigned long flags);
@@ -60,6 +64,6 @@ static inline bool should_failslab(size_t size, gfp_t gfpflags,
 {
 	return false;
 }
-#endif 
+#endif /* CONFIG_FAILSLAB */
 
-#endif 
+#endif /* _LINUX_FAULT_INJECT_H */

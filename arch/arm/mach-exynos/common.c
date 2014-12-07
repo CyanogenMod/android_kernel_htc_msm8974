@@ -98,6 +98,7 @@ static struct cpu_table cpu_ids[] __initdata = {
 	},
 };
 
+/* Initial IO mappings */
 
 static struct map_desc exynos_iodesc[] __initdata = {
 	{
@@ -284,15 +285,20 @@ void exynos5_restart(char mode, const char *cmd)
 	__raw_writel(0x1, EXYNOS_SWRESET);
 }
 
+/*
+ * exynos_map_io
+ *
+ * register the standard cpu IO areas
+ */
 
 void __init exynos_init_io(struct map_desc *mach_desc, int size)
 {
-	
+	/* initialize the io descriptors we need for initialization */
 	iotable_init(exynos_iodesc, ARRAY_SIZE(exynos_iodesc));
 	if (mach_desc)
 		iotable_init(mach_desc, size);
 
-	
+	/* detect cpu id and rev. */
 	s5p_init_cpu(S5P_VA_CHIPID);
 
 	s3c_init_cpu(samsung_cpu_id, cpu_ids, ARRAY_SIZE(cpu_ids));
@@ -307,7 +313,7 @@ static void __init exynos4_map_io(void)
 	else
 		iotable_init(exynos4_iodesc1, ARRAY_SIZE(exynos4_iodesc1));
 
-	
+	/* initialize device information early */
 	exynos4_default_sdhci0();
 	exynos4_default_sdhci1();
 	exynos4_default_sdhci2();
@@ -325,7 +331,7 @@ static void __init exynos4_map_io(void)
 	s3c_sdhci_setname(2, "exynos4-sdhci");
 	s3c_sdhci_setname(3, "exynos4-sdhci");
 
-	
+	/* The I2C bus controllers are directly compatible with s3c2440 */
 	s3c_i2c0_setname("s3c2440-i2c");
 	s3c_i2c1_setname("s3c2440-i2c");
 	s3c_i2c2_setname("s3c2440-i2c");
@@ -348,7 +354,7 @@ static void __init exynos5_map_io(void)
 	s3c_sdhci_setname(2, "exynos4-sdhci");
 	s3c_sdhci_setname(3, "exynos4-sdhci");
 
-	
+	/* The I2C bus controllers are directly compatible with s3c2440 */
 	s3c_i2c0_setname("s3c2440-i2c");
 	s3c_i2c1_setname("s3c2440-i2c");
 	s3c_i2c2_setname("s3c2440-i2c");
@@ -486,12 +492,12 @@ static void __init combiner_init(unsigned int combiner_nr, void __iomem *base,
 	combiner_data[combiner_nr].irq_offset = irq_start;
 	combiner_data[combiner_nr].irq_mask = 0xff << ((combiner_nr % 4) << 3);
 
-	
+	/* Disable all interrupts */
 
 	__raw_writel(combiner_data[combiner_nr].irq_mask,
 		     base + COMBINER_ENABLE_CLEAR);
 
-	
+	/* Setup the Linux IRQ subsystem */
 
 	for (i = irq_start; i < combiner_data[combiner_nr].irq_offset
 				+ MAX_IRQ_IN_COMBINER; i++) {
@@ -529,6 +535,11 @@ void __init exynos4_init_irq(void)
 		combiner_cascade_irq(irq, IRQ_SPI(irq));
 	}
 
+	/*
+	 * The parameters of s5p_init_irq() are for VIC init.
+	 * Theses parameters should be NULL and 0 because EXYNOS4
+	 * uses GIC instead of VIC.
+	 */
 	s5p_init_irq(NULL, 0);
 }
 
@@ -546,6 +557,11 @@ void __init exynos5_init_irq(void)
 		combiner_cascade_irq(irq, IRQ_SPI(irq));
 	}
 
+	/*
+	 * The parameters of s5p_init_irq() are for VIC init.
+	 * Theses parameters should be NULL and 0 because EXYNOS4
+	 * uses GIC instead of VIC.
+	 */
 	s5p_init_irq(NULL, 0);
 }
 
@@ -593,7 +609,7 @@ static int __init exynos4_l2x0_cache_init(void)
 
 	if (!(__raw_readl(S5P_VA_L2CC + L2X0_CTRL) & 0x1)) {
 		l2x0_saved_regs.phy_base = EXYNOS4_PA_L2CC;
-		
+		/* TAG, Data Latency Control: 2 cycles */
 		l2x0_saved_regs.tag_latency = 0x110;
 
 		if (soc_is_exynos4212() || soc_is_exynos4412())
@@ -612,11 +628,11 @@ static int __init exynos4_l2x0_cache_init(void)
 		__raw_writel(l2x0_saved_regs.data_latency,
 				S5P_VA_L2CC + L2X0_DATA_LATENCY_CTRL);
 
-		
+		/* L2X0 Prefetch Control */
 		__raw_writel(l2x0_saved_regs.prefetch_ctrl,
 				S5P_VA_L2CC + L2X0_PREFETCH_CTRL);
 
-		
+		/* L2X0 Power Control */
 		__raw_writel(l2x0_saved_regs.pwr_ctrl,
 				S5P_VA_L2CC + L2X0_POWER_CTRL);
 
@@ -638,7 +654,7 @@ static int __init exynos5_l2_cache_init(void)
 		return 0;
 
 	asm volatile("mrc p15, 0, %0, c1, c0, 0\n"
-		     "bic %0, %0, #(1 << 2)\n"	
+		     "bic %0, %0, #(1 << 2)\n"	/* cache disable */
 		     "mcr p15, 0, %0, c1, c0, 0\n"
 		     "mrc p15, 1, %0, c9, c0, 2\n"
 		     : "=r"(val));
@@ -647,7 +663,7 @@ static int __init exynos5_l2_cache_init(void)
 
 	asm volatile("mcr p15, 1, %0, c9, c0, 2\n" : : "r"(val));
 	asm volatile("mrc p15, 0, %0, c1, c0, 0\n"
-		     "orr %0, %0, #(1 << 2)\n"	
+		     "orr %0, %0, #(1 << 2)\n"	/* cache enable */
 		     "mcr p15, 0, %0, c1, c0, 0\n"
 		     : : "r"(val));
 
@@ -665,6 +681,7 @@ static int __init exynos_init(void)
 		return device_register(&exynos4_dev);
 }
 
+/* uart registration process */
 
 static void __init exynos_init_uarts(struct s3c2410_uartcfg *cfg, int no)
 {
@@ -868,6 +885,15 @@ static struct irq_chip exynos_irq_eint = {
 #endif
 };
 
+/*
+ * exynos4_irq_demux_eint
+ *
+ * This function demuxes the IRQ from from EINTs 16 to 31.
+ * It is designed to be inlined into the specific handler
+ * s5p_irq_demux_eintX_Y.
+ *
+ * Each EINT pend/mask registers handle eight of them.
+ */
 static inline void exynos_irq_demux_eint(unsigned int start)
 {
 	unsigned int irq;

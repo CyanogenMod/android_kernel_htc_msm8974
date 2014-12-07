@@ -24,12 +24,12 @@
 
 #include <linux/dvb/frontend.h>
 
-#define CXD2820R_GPIO_D (0 << 0) 
-#define CXD2820R_GPIO_E (1 << 0) 
-#define CXD2820R_GPIO_O (0 << 1) 
-#define CXD2820R_GPIO_I (1 << 1) 
-#define CXD2820R_GPIO_L (0 << 2) 
-#define CXD2820R_GPIO_H (1 << 2) 
+#define CXD2820R_GPIO_D (0 << 0) /* disable */
+#define CXD2820R_GPIO_E (1 << 0) /* enable */
+#define CXD2820R_GPIO_O (0 << 1) /* output */
+#define CXD2820R_GPIO_I (1 << 1) /* input */
+#define CXD2820R_GPIO_L (0 << 2) /* output low */
+#define CXD2820R_GPIO_H (1 << 2) /* output high */
 
 #define CXD2820R_TS_SERIAL        0x08
 #define CXD2820R_TS_SERIAL_MSB    0x28
@@ -37,14 +37,36 @@
 #define CXD2820R_TS_PARALLEL_MSB  0x70
 
 struct cxd2820r_config {
+	/* Demodulator I2C address.
+	 * Driver determines DVB-C slave I2C address automatically from master
+	 * address.
+	 * Default: none, must set
+	 * Values: 0x6c, 0x6d
+	 */
 	u8 i2c_address;
 
+	/* TS output mode.
+	 * Default: none, must set.
+	 * Values:
+	 */
 	u8 ts_mode;
 
+	/* IF AGC polarity.
+	 * Default: 0
+	 * Values: 0, 1
+	 */
 	bool if_agc_polarity;
 
+	/* Spectrum inversion.
+	 * Default: 0
+	 * Values: 0, 1
+	 */
 	bool spec_inv;
 
+	/* GPIOs for all used modes.
+	 * Default: none, disabled
+	 * Values: <see above>
+	 */
 	u8 gpio_dvbt[3];
 	u8 gpio_dvbt2[3];
 	u8 gpio_dvbc[3];
@@ -69,4 +91,4 @@ static inline struct dvb_frontend *cxd2820r_attach(
 
 #endif
 
-#endif 
+#endif /* CXD2820R_H */

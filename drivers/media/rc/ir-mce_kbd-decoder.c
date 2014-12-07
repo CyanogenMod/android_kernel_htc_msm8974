@@ -18,8 +18,18 @@
 
 #include "rc-core-priv.h"
 
+/*
+ * This decoder currently supports:
+ * - MCIR-2 29-bit IR signals used for mouse movement and buttons
+ * - MCIR-2 32-bit IR signals used for standard keyboard keys
+ *
+ * The media keys on the keyboard send RC-6 signals that are inditinguishable
+ * from the keys of the same name on the stock MCE remote, and will be handled
+ * by the standard RC-6 decoder, and be made available to the system via the
+ * input device for the remote, rather than the keyboard/mouse one.
+ */
 
-#define MCIR2_UNIT		333333	
+#define MCIR2_UNIT		333333	/* ns */
 #define MCIR2_HEADER_NBITS	5
 #define MCIR2_MOUSE_NBITS	29
 #define MCIR2_KEYBOARD_NBITS	32
@@ -30,7 +40,7 @@
 #define MCIR2_BIT_END		(1 * MCIR2_UNIT)
 #define MCIR2_BIT_0		(1 * MCIR2_UNIT)
 #define MCIR2_BIT_SET		(2 * MCIR2_UNIT)
-#define MCIR2_MODE_MASK		0xf	
+#define MCIR2_MODE_MASK		0xf	/* for the header bits */
 #define MCIR2_KEYBOARD_HEADER	0x4
 #define MCIR2_MOUSE_HEADER	0x1
 #define MCIR2_MASK_KEYS_START	0xe0
@@ -165,11 +175,11 @@ static void ir_mce_kbd_process_keyboard_data(struct input_dev *idev,
 
 static void ir_mce_kbd_process_mouse_data(struct input_dev *idev, u32 scancode)
 {
-	
+	/* raw mouse coordinates */
 	u8 xdata = (scancode >> 7) & 0x7f;
 	u8 ydata = (scancode >> 14) & 0x7f;
 	int x, y;
-	
+	/* mouse buttons */
 	bool right = scancode & 0x40;
 	bool left  = scancode & 0x20;
 
@@ -193,6 +203,13 @@ static void ir_mce_kbd_process_mouse_data(struct input_dev *idev, u32 scancode)
 	input_report_key(idev, BTN_RIGHT, right);
 }
 
+/**
+ * ir_mce_kbd_decode() - Decode one mce_kbd pulse or space
+ * @dev:	the struct rc_dev descriptor of the device
+ * @ev:		the struct ir_raw_event descriptor of the pulse/space
+ *
+ * This function returns -EINVAL if the pulse violates the state machine
+ */
 static int ir_mce_kbd_decode(struct rc_dev *dev, struct ir_raw_event ev)
 {
 	struct mce_kbd_dec *data = &dev->raw->mce_kbd;
@@ -224,6 +241,9 @@ again:
 		if (!ev.pulse)
 			break;
 
+		/* Note: larger margin on first pulse since each MCIR2_UNIT
+		   is quite short and some hardware takes some time to
+		   adjust to the signal */
 		if (!eq_margin(ev.duration, MCIR2_PREFIX_PULSE, MCIR2_UNIT))
 			break;
 
@@ -307,13 +327,13 @@ again:
 			else
 				delay = msecs_to_jiffies(100);
 			mod_timer(&data->rx_timeout, jiffies + delay);
-			
+			/* Pass data to keyboard buffer parser */
 			ir_mce_kbd_process_keyboard_data(data->idev, scancode);
 			break;
 		case MCIR2_MOUSE_NBITS:
 			scancode = data->body & 0x1fffff;
 			IR_dprintk(1, "mouse data 0x%06x\n", scancode);
-			
+			/* Pass data to mouse buffer parser */
 			ir_mce_kbd_process_mouse_data(data->idev, scancode);
 			break;
 		default:
@@ -351,20 +371,20 @@ static int ir_mce_kbd_register(struct rc_dev *dev)
 	idev->name = mce_kbd->name;
 	idev->phys = mce_kbd->phys;
 
-	
+	/* Keyboard bits */
 	set_bit(EV_KEY, idev->evbit);
 	set_bit(EV_REP, idev->evbit);
 	for (i = 0; i < sizeof(kbd_keycodes); i++)
 		set_bit(kbd_keycodes[i], idev->keybit);
 
-	
+	/* Mouse bits */
 	set_bit(EV_REL, idev->evbit);
 	set_bit(REL_X, idev->relbit);
 	set_bit(REL_Y, idev->relbit);
 	set_bit(BTN_LEFT, idev->keybit);
 	set_bit(BTN_RIGHT, idev->keybit);
 
-	
+	/* Report scancodes too */
 	set_bit(EV_MSC, idev->evbit);
 	set_bit(MSC_SCAN, idev->mscbit);
 
@@ -374,6 +394,8 @@ static int ir_mce_kbd_register(struct rc_dev *dev)
 	input_set_drvdata(idev, mce_kbd);
 
 #if 0
+	/* Adding this reference means two input devices are associated with
+	 * this rc-core device, which ir-keytable doesn't cope with yet */
 	idev->dev.parent = &dev->dev;
 #endif
 

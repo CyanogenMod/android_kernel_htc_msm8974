@@ -24,13 +24,13 @@
 #ifdef gpio_out_low_reg
 #undef gpio_out_low_reg
 #define gpio_out_low_reg	GPIO_DATA_LO_REG_6345
-#endif 
-#endif 
+#endif /* gpio_out_low_reg */
+#endif /* CONFIG_BCM63XX_CPU_6345 */
 
 static inline void bcm63xx_gpio_out_low_reg_init(void)
 {
 }
-#else 
+#else /* ! BCMCPU_RUNTIME_DETECT */
 static u32 gpio_out_low_reg;
 
 static void bcm63xx_gpio_out_low_reg_init(void)
@@ -44,7 +44,7 @@ static void bcm63xx_gpio_out_low_reg_init(void)
 		break;
 	}
 }
-#endif 
+#endif /* ! BCMCPU_RUNTIME_DETECT */
 
 static DEFINE_SPINLOCK(bcm63xx_gpio_lock);
 static u32 gpio_out_low, gpio_out_high;

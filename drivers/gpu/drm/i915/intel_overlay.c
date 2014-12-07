@@ -32,30 +32,37 @@
 #include "i915_reg.h"
 #include "intel_drv.h"
 
+/* Limits for overlay size. According to intel doc, the real limits are:
+ * Y width: 4095, UV width (planar): 2047, Y height: 2047,
+ * UV width (planar): * 1023. But the xorg thinks 2048 for height and width. Use
+ * the mininum of both.  */
 #define IMAGE_MAX_WIDTH		2048
-#define IMAGE_MAX_HEIGHT	2046 
+#define IMAGE_MAX_HEIGHT	2046 /* 2 * 1023 */
+/* on 830 and 845 these large limits result in the card hanging */
 #define IMAGE_MAX_WIDTH_LEGACY	1024
 #define IMAGE_MAX_HEIGHT_LEGACY	1088
 
+/* overlay register definitions */
+/* OCMD register */
 #define OCMD_TILED_SURFACE	(0x1<<19)
 #define OCMD_MIRROR_MASK	(0x3<<17)
 #define OCMD_MIRROR_MODE	(0x3<<17)
 #define OCMD_MIRROR_HORIZONTAL	(0x1<<17)
 #define OCMD_MIRROR_VERTICAL	(0x2<<17)
 #define OCMD_MIRROR_BOTH	(0x3<<17)
-#define OCMD_BYTEORDER_MASK	(0x3<<14) 
-#define OCMD_UV_SWAP		(0x1<<14) 
-#define OCMD_Y_SWAP		(0x2<<14) 
-#define OCMD_Y_AND_UV_SWAP	(0x3<<14) 
+#define OCMD_BYTEORDER_MASK	(0x3<<14) /* zero for YUYV or FOURCC YUY2 */
+#define OCMD_UV_SWAP		(0x1<<14) /* YVYU */
+#define OCMD_Y_SWAP		(0x2<<14) /* UYVY or FOURCC UYVY */
+#define OCMD_Y_AND_UV_SWAP	(0x3<<14) /* VYUY */
 #define OCMD_SOURCE_FORMAT_MASK (0xf<<10)
-#define OCMD_RGB_888		(0x1<<10) 
-#define OCMD_RGB_555		(0x2<<10) 
-#define OCMD_RGB_565		(0x3<<10) 
+#define OCMD_RGB_888		(0x1<<10) /* not in i965 Intel docs */
+#define OCMD_RGB_555		(0x2<<10) /* not in i965 Intel docs */
+#define OCMD_RGB_565		(0x3<<10) /* not in i965 Intel docs */
 #define OCMD_YUV_422_PACKED	(0x8<<10)
-#define OCMD_YUV_411_PACKED	(0x9<<10) 
+#define OCMD_YUV_411_PACKED	(0x9<<10) /* not in i965 Intel docs */
 #define OCMD_YUV_420_PLANAR	(0xc<<10)
 #define OCMD_YUV_422_PLANAR	(0xd<<10)
-#define OCMD_YUV_410_PLANAR	(0xe<<10) 
+#define OCMD_YUV_410_PLANAR	(0xe<<10) /* also 411 */
 #define OCMD_TVSYNCFLIP_PARITY	(0x1<<9)
 #define OCMD_TVSYNCFLIP_ENABLE	(0x1<<7)
 #define OCMD_BUF_TYPE_MASK	(0x1<<5)
@@ -70,6 +77,7 @@
 #define OCMD_FIELD1		(0x1<<1)
 #define OCMD_ENABLE		(0x1<<0)
 
+/* OCONFIG register */
 #define OCONF_PIPE_MASK		(0x1<<18)
 #define OCONF_PIPE_A		(0x0<<18)
 #define OCONF_PIPE_B		(0x1<<18)
@@ -82,6 +90,7 @@
 #define OCONF_THREE_LINE_BUFFER	(0x1<<0)
 #define OCONF_TWO_LINE_BUFFER	(0x0<<0)
 
+/* DCLRKM (dst-key) register */
 #define DST_KEY_ENABLE		(0x1<<31)
 #define CLK_RGB24_MASK		0x0
 #define CLK_RGB16_MASK		0x070307
@@ -93,8 +102,10 @@
 #define RGB15_TO_COLORKEY(c) \
 	(((c & 0x7c00) << 9) | ((c & 0x03E0) << 6) | ((c & 0x001F) << 3))
 
+/* overlay flip addr flag */
 #define OFC_UPDATE		0x1
 
+/* polyphase filter coefficients */
 #define N_HORIZ_Y_TAPS          5
 #define N_VERT_Y_TAPS           3
 #define N_HORIZ_UV_TAPS         3
@@ -102,6 +113,7 @@
 #define N_PHASES                17
 #define MAX_TAPS                5
 
+/* memory bufferd overlay registers */
 struct overlay_registers {
 	u32 OBUF_0Y;
 	u32 OBUF_1Y;
@@ -130,7 +142,7 @@ struct overlay_registers {
 	u32 SCLRKEN;
 	u32 OCONFIG;
 	u32 OCMD;
-	u32 RESERVED1; 
+	u32 RESERVED1; /* 0x6C */
 	u32 OSTART_0Y;
 	u32 OSTART_1Y;
 	u32 OSTART_0U;
@@ -143,16 +155,16 @@ struct overlay_registers {
 	u32 OTILEOFF_0V;
 	u32 OTILEOFF_1U;
 	u32 OTILEOFF_1V;
-	u32 FASTHSCALE; 
-	u32 UVSCALEV; 
-	u32 RESERVEDC[(0x200 - 0xA8) / 4]; 
-	u16 Y_VCOEFS[N_VERT_Y_TAPS * N_PHASES]; 
+	u32 FASTHSCALE; /* 0xA0 */
+	u32 UVSCALEV; /* 0xA4 */
+	u32 RESERVEDC[(0x200 - 0xA8) / 4]; /* 0xA8 - 0x1FC */
+	u16 Y_VCOEFS[N_VERT_Y_TAPS * N_PHASES]; /* 0x200 */
 	u16 RESERVEDD[0x100 / 2 - N_VERT_Y_TAPS * N_PHASES];
-	u16 Y_HCOEFS[N_HORIZ_Y_TAPS * N_PHASES]; 
+	u16 Y_HCOEFS[N_HORIZ_Y_TAPS * N_PHASES]; /* 0x300 */
 	u16 RESERVEDE[0x200 / 2 - N_HORIZ_Y_TAPS * N_PHASES];
-	u16 UV_VCOEFS[N_VERT_UV_TAPS * N_PHASES]; 
+	u16 UV_VCOEFS[N_VERT_UV_TAPS * N_PHASES]; /* 0x500 */
 	u16 RESERVEDF[0x100 / 2 - N_VERT_UV_TAPS * N_PHASES];
-	u16 UV_HCOEFS[N_HORIZ_UV_TAPS * N_PHASES]; 
+	u16 UV_HCOEFS[N_HORIZ_UV_TAPS * N_PHASES]; /* 0x600 */
 	u16 RESERVEDG[0x100 / 2 - N_HORIZ_UV_TAPS * N_PHASES];
 };
 
@@ -163,14 +175,14 @@ struct intel_overlay {
 	struct drm_i915_gem_object *old_vid_bo;
 	int active;
 	int pfit_active;
-	u32 pfit_vscale_ratio; 
+	u32 pfit_vscale_ratio; /* shifted-point number, (1<<12) == 1.0 */
 	u32 color_key;
 	u32 brightness, contrast, saturation;
 	u32 old_xscale, old_yscale;
-	
+	/* register access */
 	u32 flip_addr;
 	struct drm_i915_gem_object *reg_bo;
-	
+	/* flip handling */
 	uint32_t last_flip_req;
 	void (*flip_tail)(struct intel_overlay *);
 };
@@ -222,6 +234,7 @@ static int intel_overlay_do_wait_request(struct intel_overlay *overlay,
 	return 0;
 }
 
+/* Workaround for i830 bug where pipe a must be enable to change control regs */
 static int
 i830_activate_pipe_a(struct drm_device *dev)
 {
@@ -238,7 +251,7 @@ i830_activate_pipe_a(struct drm_device *dev)
 	if (crtc->dpms_mode == DRM_MODE_DPMS_ON)
 		return 0;
 
-	
+	/* most i8xx have pipe a forced on, so don't trust dpms mode */
 	if (I915_READ(_PIPEACONF) & PIPECONF_ENABLE)
 		return 0;
 
@@ -269,6 +282,7 @@ i830_deactivate_pipe_a(struct drm_device *dev)
 	crtc_funcs->dpms(crtc, DRM_MODE_DPMS_OFF);
 }
 
+/* overlay needs to be disable in OCMD reg */
 static int intel_overlay_on(struct intel_overlay *overlay)
 {
 	struct drm_device *dev = overlay->dev;
@@ -312,6 +326,7 @@ out:
 	return ret;
 }
 
+/* overlay needs to be enabled in OCMD reg */
 static int intel_overlay_continue(struct intel_overlay *overlay,
 				  bool load_polyphase_filter)
 {
@@ -331,7 +346,7 @@ static int intel_overlay_continue(struct intel_overlay *overlay,
 	if (load_polyphase_filter)
 		flip_addr |= OFC_UPDATE;
 
-	
+	/* check for underruns */
 	tmp = I915_READ(DOVSTA);
 	if (tmp & (1 << 17))
 		DRM_DEBUG("overlay underrun, DOVSTA: %x\n", tmp);
@@ -369,7 +384,7 @@ static void intel_overlay_off_tail(struct intel_overlay *overlay)
 {
 	struct drm_i915_gem_object *obj = overlay->vid_bo;
 
-	
+	/* never have the overlay hw on without showing a frame */
 	BUG_ON(!overlay->vid_bo);
 
 	i915_gem_object_unpin(obj);
@@ -381,6 +396,7 @@ static void intel_overlay_off_tail(struct intel_overlay *overlay)
 	overlay->active = 0;
 }
 
+/* overlay needs to be disabled in OCMD reg */
 static int intel_overlay_off(struct intel_overlay *overlay)
 {
 	struct drm_device *dev = overlay->dev;
@@ -395,6 +411,10 @@ static int intel_overlay_off(struct intel_overlay *overlay)
 	if (request == NULL)
 		return -ENOMEM;
 
+	/* According to intel docs the overlay hw may hang (when switching
+	 * off) without loading the filter coeffs. It is however unclear whether
+	 * this applies to the disabling of the overlay or to the switching off
+	 * of the hw. Do it in both cases */
 	flip_addr |= OFC_UPDATE;
 
 	ret = BEGIN_LP_RING(6);
@@ -402,11 +422,11 @@ static int intel_overlay_off(struct intel_overlay *overlay)
 		kfree(request);
 		return ret;
 	}
-	
+	/* wait for overlay to go idle */
 	OUT_RING(MI_OVERLAY_FLIP | MI_OVERLAY_CONTINUE);
 	OUT_RING(flip_addr);
 	OUT_RING(MI_WAIT_FOR_EVENT | MI_WAIT_FOR_OVERLAY_FLIP);
-	
+	/* turn overlay off */
 	OUT_RING(MI_OVERLAY_FLIP | MI_OVERLAY_OFF);
 	OUT_RING(flip_addr);
 	OUT_RING(MI_WAIT_FOR_EVENT | MI_WAIT_FOR_OVERLAY_FLIP);
@@ -416,6 +436,8 @@ static int intel_overlay_off(struct intel_overlay *overlay)
 					     intel_overlay_off_tail);
 }
 
+/* recover from an interruption due to a signal
+ * We have to be careful not to repeat work forever an make forward progess. */
 static int intel_overlay_recover_from_interrupt(struct intel_overlay *overlay)
 {
 	struct drm_device *dev = overlay->dev;
@@ -437,19 +459,26 @@ static int intel_overlay_recover_from_interrupt(struct intel_overlay *overlay)
 	return 0;
 }
 
+/* Wait for pending overlay flip and release old frame.
+ * Needs to be called before the overlay register are changed
+ * via intel_overlay_(un)map_regs
+ */
 static int intel_overlay_release_old_vid(struct intel_overlay *overlay)
 {
 	struct drm_device *dev = overlay->dev;
 	drm_i915_private_t *dev_priv = dev->dev_private;
 	int ret;
 
+	/* Only wait if there is actually an old frame to release to
+	 * guarantee forward progress.
+	 */
 	if (!overlay->old_vid_bo)
 		return 0;
 
 	if (I915_READ(ISR) & I915_OVERLAY_PLANE_FLIP_PENDING_INTERRUPT) {
 		struct drm_i915_gem_request *request;
 
-		
+		/* synchronous slowpath */
 		request = kzalloc(sizeof(*request), GFP_KERNEL);
 		if (request == NULL)
 			return -ENOMEM;
@@ -497,7 +526,7 @@ static int packed_depth_bytes(u32 format)
 	case I915_OVERLAY_YUV422:
 		return 4;
 	case I915_OVERLAY_YUV411:
-		
+		/* return 6; not implemented */
 	default:
 		return -EINVAL;
 	}
@@ -600,7 +629,7 @@ static bool update_scaling_factors(struct intel_overlay *overlay,
 				   struct overlay_registers *regs,
 				   struct put_image_params *params)
 {
-	
+	/* fixed point with a 12 bit shift */
 	u32 xscale, yscale, xscale_UV, yscale_UV;
 #define FP_SHIFT 12
 #define FRACT_MASK 0xfff
@@ -620,12 +649,16 @@ static bool update_scaling_factors(struct intel_overlay *overlay,
 	else
 		yscale = 1 << FP_SHIFT;
 
-	
+	/*if (params->format & I915_OVERLAY_YUV_PLANAR) {*/
 	xscale_UV = xscale/uv_hscale;
 	yscale_UV = yscale/uv_vscale;
-	
+	/* make the Y scale to UV scale ratio an exact multiply */
 	xscale = xscale_UV * uv_hscale;
 	yscale = yscale_UV * uv_vscale;
+	/*} else {
+	  xscale_UV = 0;
+	  yscale_UV = 0;
+	  }*/
 
 	if (xscale != overlay->old_xscale || yscale != overlay->old_yscale)
 		scale_changed = true;
@@ -695,7 +728,7 @@ static u32 overlay_cmd_reg(struct put_image_params *params)
 			cmd |= OCMD_YUV_410_PLANAR;
 			break;
 		}
-	} else { 
+	} else { /* YUV packed */
 		switch (params->format & I915_OVERLAY_DEPTH_MASK) {
 		case I915_OVERLAY_YUV422:
 			cmd |= OCMD_YUV_422_PACKED;
@@ -865,7 +898,7 @@ static int check_overlay_possible_on_crtc(struct intel_overlay *overlay,
 	if (!crtc->active)
 		return -EINVAL;
 
-	
+	/* can't use the overlay with double wide pipe */
 	if (INTEL_INFO(overlay->dev)->gen < 4 &&
 	    (I915_READ(PIPECONF(crtc->pipe)) & (PIPECONF_DOUBLE_WIDE | PIPECONF_ENABLE)) != PIPECONF_ENABLE)
 		return -EINVAL;
@@ -880,8 +913,11 @@ static void update_pfit_vscale_ratio(struct intel_overlay *overlay)
 	u32 pfit_control = I915_READ(PFIT_CONTROL);
 	u32 ratio;
 
+	/* XXX: This is not the same logic as in the xorg driver, but more in
+	 * line with the intel documentation for the i965
+	 */
 	if (INTEL_INFO(dev)->gen >= 4) {
-		
+		/* on i965 use the PGM reg to read out the autoscaler values */
 		ratio = I915_READ(PFIT_PGM_RATIOS) >> PFIT_VERT_SCALE_SHIFT_965;
 	} else {
 		if (pfit_control & VERT_AUTO_SCALE)
@@ -912,7 +948,7 @@ static int check_overlay_scaling(struct put_image_params *rec)
 {
 	u32 tmp;
 
-	
+	/* downscaling limit is 8.0 */
 	tmp = ((rec->src_scan_h << 16) / rec->dst_h) >> 16;
 	if (tmp > 7)
 		return -EINVAL;
@@ -933,7 +969,7 @@ static int check_overlay_src(struct drm_device *dev,
 	int depth;
 	u32 tmp;
 
-	
+	/* check src dimensions */
 	if (IS_845G(dev) || IS_I830(dev)) {
 		if (rec->src_height > IMAGE_MAX_HEIGHT_LEGACY ||
 		    rec->src_width  > IMAGE_MAX_WIDTH_LEGACY)
@@ -944,15 +980,15 @@ static int check_overlay_src(struct drm_device *dev,
 			return -EINVAL;
 	}
 
-	
+	/* better safe than sorry, use 4 as the maximal subsampling ratio */
 	if (rec->src_height < N_VERT_Y_TAPS*4 ||
 	    rec->src_width  < N_HORIZ_Y_TAPS*4)
 		return -EINVAL;
 
-	
+	/* check alignment constraints */
 	switch (rec->flags & I915_OVERLAY_TYPE_MASK) {
 	case I915_OVERLAY_RGB:
-		
+		/* not implemented */
 		return -EINVAL;
 
 	case I915_OVERLAY_YUV_PACKED:
@@ -963,11 +999,11 @@ static int check_overlay_src(struct drm_device *dev,
 		if (depth < 0)
 			return depth;
 
-		
+		/* ignore UV planes */
 		rec->stride_UV = 0;
 		rec->offset_U = 0;
 		rec->offset_V = 0;
-		
+		/* check pixel alignment */
 		if (rec->offset_Y % depth)
 			return -EINVAL;
 		break;
@@ -975,7 +1011,7 @@ static int check_overlay_src(struct drm_device *dev,
 	case I915_OVERLAY_YUV_PLANAR:
 		if (uv_vscale < 0 || uv_hscale < 0)
 			return -EINVAL;
-		
+		/* no offset restrictions for planar formats */
 		break;
 
 	default:
@@ -985,7 +1021,7 @@ static int check_overlay_src(struct drm_device *dev,
 	if (rec->src_width % uv_hscale)
 		return -EINVAL;
 
-	
+	/* stride checking */
 	if (IS_I830(dev) || IS_845G(dev))
 		stride_mask = 255;
 	else
@@ -1001,11 +1037,11 @@ static int check_overlay_src(struct drm_device *dev,
 	if (rec->stride_Y > tmp || rec->stride_UV > 2*1024)
 		return -EINVAL;
 
-	
+	/* check buffer dimensions */
 	switch (rec->flags & I915_OVERLAY_TYPE_MASK) {
 	case I915_OVERLAY_RGB:
 	case I915_OVERLAY_YUV_PACKED:
-		
+		/* always 4 Y values per depth pixels */
 		if (packed_width_bytes(rec->flags, rec->src_width) > rec->stride_Y)
 			return -EINVAL;
 
@@ -1034,26 +1070,30 @@ static int check_overlay_src(struct drm_device *dev,
 	return 0;
 }
 
+/**
+ * Return the pipe currently connected to the panel fitter,
+ * or -1 if the panel fitter is not present or not in use
+ */
 static int intel_panel_fitter_pipe(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	u32  pfit_control;
 
-	
+	/* i830 doesn't have a panel fitter */
 	if (IS_I830(dev))
 		return -1;
 
 	pfit_control = I915_READ(PFIT_CONTROL);
 
-	
+	/* See if the panel fitter is in use */
 	if ((pfit_control & PFIT_ENABLE) == 0)
 		return -1;
 
-	
+	/* 965 can place panel fitter on either pipe */
 	if (IS_GEN4(dev))
 		return (pfit_control >> 29) & 0x3;
 
-	
+	/* older chips can only use pipe 1 */
 	return 1;
 }
 
@@ -1137,7 +1177,7 @@ int intel_overlay_put_image(struct drm_device *dev, void *data,
 		overlay->crtc = crtc;
 		crtc->overlay = overlay;
 
-		
+		/* line too wide, i.e. one-line-mode */
 		if (mode->hdisplay > 1024 &&
 		    intel_panel_fitter_pipe(dev) == crtc->pipe) {
 			overlay->pfit_active = 1;
@@ -1153,7 +1193,7 @@ int intel_overlay_put_image(struct drm_device *dev, void *data,
 	if (overlay->pfit_active) {
 		params->dst_y = ((((u32)put_image_rec->dst_y) << 12) /
 				 overlay->pfit_vscale_ratio);
-		
+		/* shifting right rounds downwards, so add 1 */
 		params->dst_h = ((((u32)put_image_rec->dst_height) << 12) /
 				 overlay->pfit_vscale_ratio) + 1;
 	} else {
@@ -1183,7 +1223,7 @@ int intel_overlay_put_image(struct drm_device *dev, void *data,
 	params->offset_U = put_image_rec->offset_U;
 	params->offset_V = put_image_rec->offset_V;
 
-	
+	/* Check scaling after src size to prevent a divide-by-zero. */
 	ret = check_overlay_scaling(params);
 	if (ret != 0)
 		goto out_unlock;
@@ -1401,7 +1441,7 @@ void intel_setup_overlay(struct drm_device *dev)
 		}
 	}
 
-	
+	/* init all values */
 	overlay->color_key = 0x0101fe;
 	overlay->brightness = -19;
 	overlay->contrast = 75;
@@ -1440,6 +1480,9 @@ void intel_cleanup_overlay(struct drm_device *dev)
 	if (!dev_priv->overlay)
 		return;
 
+	/* The bo's should be free'd by the generic code already.
+	 * Furthermore modesetting teardown happens beforehand so the
+	 * hardware should be off already */
 	BUG_ON(dev_priv->overlay->active);
 
 	drm_gem_object_unreference_unlocked(&dev_priv->overlay->reg_bo->base);

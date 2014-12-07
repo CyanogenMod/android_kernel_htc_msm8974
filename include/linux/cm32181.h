@@ -20,6 +20,8 @@
 
 #define ALS_CALIBRATED		0x6DA5
 
+/*cm32181*/
+/*Define ALS Command Code*/
 #define	ALS_CMD		0x00
 #define	ALS_HW		0x01
 #define	ALS_LW		0x02
@@ -27,6 +29,7 @@
 #define	ALS_DATA	0x04
 #define	ALS_STATUS	0x06
 
+/*for ALS command*/
 #define CM32181_ALS_SM_1		(0 << 11)
 #define CM32181_ALS_SM_2		(1 << 11)
 #define CM32181_ALS_SM_1_8		(2 << 11)
@@ -40,7 +43,7 @@
 #define CM32181_ALS_PERS_4		(2 << 4)
 #define CM32181_ALS_PERS_8		(3 << 4)
 #define CM32181_ALS_INT_EN		(1 << 1)
-#define CM32181_ALS_SD			(1 << 0) 
+#define CM32181_ALS_SD			(1 << 0) /*enable/disable ALS func, 1:disable , 0: enable*/
 
 #define LS_PWR_ON				(1 << 0)
 #define PS_PWR_ON				(1 << 1)
@@ -56,7 +59,7 @@ struct cm32181_platform_data {
 	uint32_t *levels;
 	uint32_t golden_adc;
 	uint32_t emmc_als_kadc;
-	int (*power)(int, uint8_t); 
+	int (*power)(int, uint8_t); /* power to the chip */
         uint32_t cm32181_slave_address;
 	uint16_t ls_cmd;
 

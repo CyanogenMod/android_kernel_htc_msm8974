@@ -51,7 +51,7 @@ static int bf5xx_tdm_set_dai_fmt(struct snd_soc_dai *cpu_dai,
 {
 	int ret = 0;
 
-	
+	/* interface format:support TDM,slave mode */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_DSP_A:
 		break;
@@ -94,7 +94,7 @@ static int bf5xx_tdm_hw_params(struct snd_pcm_substream *substream,
 		bf5xx_tdm->rcr2 |= 31;
 		sport_handle->wdsize = 4;
 		break;
-		
+		/* at present, we only support 32bit transfer */
 	default:
 		pr_err("not supported PCM format yet\n");
 		return -EINVAL;
@@ -102,6 +102,14 @@ static int bf5xx_tdm_hw_params(struct snd_pcm_substream *substream,
 	}
 
 	if (!bf5xx_tdm->configured) {
+		/*
+		 * TX and RX are not independent,they are enabled at the
+		 * same time, even if only one side is running. So, we
+		 * need to configure both of them at the time when the first
+		 * stream is opened.
+		 *
+		 * CPU DAI:slave mode.
+		 */
 		ret = sport_config_rx(sport_handle, bf5xx_tdm->rcr1,
 			bf5xx_tdm->rcr2, 0, 0);
 		if (ret) {
@@ -128,7 +136,7 @@ static void bf5xx_tdm_shutdown(struct snd_pcm_substream *substream,
 	struct sport_device *sport_handle = snd_soc_dai_get_drvdata(dai);
 	struct bf5xx_tdm_port *bf5xx_tdm = sport_handle->private_data;
 
-	
+	/* No active stream, SPORT is allowed to be configured again. */
 	if (!dai->active)
 		bf5xx_tdm->configured = 0;
 }
@@ -179,7 +187,7 @@ static int bf5xx_tdm_suspend(struct snd_soc_dai *dai)
 	if (dai->capture_active)
 		sport_rx_stop(sport);
 
-	
+	/* isolate sync/clock pins from codec while sports resume */
 	peripheral_free_list(sport->pin_req);
 
 	return 0;
@@ -246,13 +254,13 @@ static int __devinit bfin_tdm_probe(struct platform_device *pdev)
 	struct sport_device *sport_handle;
 	int ret;
 
-	
+	/* configure SPORT for TDM */
 	sport_handle = sport_init(pdev, 4, 8 * sizeof(u32),
 		sizeof(struct bf5xx_tdm_port));
 	if (!sport_handle)
 		return -ENODEV;
 
-	
+	/* SPORT works in TDM mode */
 	ret = sport_set_multichannel(sport_handle, 8, 0xFF, 1);
 	if (ret) {
 		pr_err("SPORT is busy!\n");
@@ -308,6 +316,7 @@ static struct platform_driver bfin_tdm_driver = {
 
 module_platform_driver(bfin_tdm_driver);
 
+/* Module information */
 MODULE_AUTHOR("Barry Song");
 MODULE_DESCRIPTION("TDM driver for ADI Blackfin");
 MODULE_LICENSE("GPL");

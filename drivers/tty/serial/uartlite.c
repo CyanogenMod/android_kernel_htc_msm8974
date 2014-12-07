@@ -30,6 +30,12 @@
 #define ULITE_MINOR		187
 #define ULITE_NR_UARTS		4
 
+/* ---------------------------------------------------------------------
+ * Register definitions
+ *
+ * For register details see datasheet:
+ * http://www.xilinx.com/support/documentation/ip_documentation/opb_uartlite.pdf 
+ */
 
 #define ULITE_RX		0x00
 #define ULITE_TX		0x04
@@ -54,6 +60,9 @@
 
 static struct uart_port ulite_ports[ULITE_NR_UARTS];
 
+/* ---------------------------------------------------------------------
+ * Core UART driver operations
+ */
 
 static int ulite_receive(struct uart_port *port, int stat)
 {
@@ -65,7 +74,7 @@ static int ulite_receive(struct uart_port *port, int stat)
 		     | ULITE_STATUS_FRAME)) == 0)
 		return 0;
 
-	
+	/* stats */
 	if (stat & ULITE_STATUS_RXVALID) {
 		port->icount.rx++;
 		ch = ioread32be(port->membase + ULITE_RX);
@@ -81,7 +90,7 @@ static int ulite_receive(struct uart_port *port, int stat)
 		port->icount.frame++;
 
 
-	
+	/* drop byte with parity error if IGNPAR specificed */
 	if (stat & port->ignore_status_mask & ULITE_STATUS_PARITY)
 		stat &= ~ULITE_STATUS_RXVALID;
 
@@ -126,7 +135,7 @@ static int ulite_transmit(struct uart_port *port, int stat)
 	xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE-1);
 	port->icount.tx++;
 
-	
+	/* wake up */
 	if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
 		uart_write_wakeup(port);
 
@@ -145,7 +154,7 @@ static irqreturn_t ulite_isr(int irq, void *dev_id)
 		n++;
 	} while (busy);
 
-	
+	/* work done? */
 	if (n > 1) {
 		tty_flip_buffer_push(port->state->port.tty);
 		return IRQ_HANDLED;
@@ -173,12 +182,12 @@ static unsigned int ulite_get_mctrl(struct uart_port *port)
 
 static void ulite_set_mctrl(struct uart_port *port, unsigned int mctrl)
 {
-	
+	/* N/A */
 }
 
 static void ulite_stop_tx(struct uart_port *port)
 {
-	
+	/* N/A */
 }
 
 static void ulite_start_tx(struct uart_port *port)
@@ -188,19 +197,19 @@ static void ulite_start_tx(struct uart_port *port)
 
 static void ulite_stop_rx(struct uart_port *port)
 {
-	
+	/* don't forward any more data (like !CREAD) */
 	port->ignore_status_mask = ULITE_STATUS_RXVALID | ULITE_STATUS_PARITY
 		| ULITE_STATUS_FRAME | ULITE_STATUS_OVERRUN;
 }
 
 static void ulite_enable_ms(struct uart_port *port)
 {
-	
+	/* N/A */
 }
 
 static void ulite_break_ctl(struct uart_port *port, int ctl)
 {
-	
+	/* N/A */
 }
 
 static int ulite_startup(struct uart_port *port)
@@ -222,7 +231,7 @@ static int ulite_startup(struct uart_port *port)
 static void ulite_shutdown(struct uart_port *port)
 {
 	iowrite32be(0, port->membase + ULITE_CONTROL);
-	ioread32be(port->membase + ULITE_CONTROL); 
+	ioread32be(port->membase + ULITE_CONTROL); /* dummy */
 	free_irq(port->irq, port);
 }
 
@@ -246,13 +255,13 @@ static void ulite_set_termios(struct uart_port *port, struct ktermios *termios,
 		port->ignore_status_mask |= ULITE_STATUS_PARITY
 			| ULITE_STATUS_FRAME | ULITE_STATUS_OVERRUN;
 
-	
+	/* ignore all characters if CREAD is not set */
 	if ((termios->c_cflag & CREAD) == 0)
 		port->ignore_status_mask |=
 			ULITE_STATUS_RXVALID | ULITE_STATUS_PARITY
 			| ULITE_STATUS_FRAME | ULITE_STATUS_OVERRUN;
 
-	
+	/* update timeout */
 	baud = uart_get_baud_rate(port, termios, old, 0, 460800);
 	uart_update_timeout(port, termios->c_cflag, baud);
 
@@ -299,7 +308,7 @@ static void ulite_config_port(struct uart_port *port, int flags)
 
 static int ulite_verify_port(struct uart_port *port, struct serial_struct *ser)
 {
-	
+	/* we don't want the core code to modify any port params */
 	return -EINVAL;
 }
 
@@ -318,7 +327,7 @@ static void ulite_put_poll_char(struct uart_port *port, unsigned char ch)
 	while (ioread32be(port->membase + ULITE_STATUS) & ULITE_STATUS_TXFULL)
 		cpu_relax();
 
-	
+	/* write char to device */
 	iowrite32be(ch, port->membase + ULITE_TX);
 }
 #endif
@@ -346,6 +355,9 @@ static struct uart_ops ulite_ops = {
 #endif
 };
 
+/* ---------------------------------------------------------------------
+ * Console driver operations
+ */
 
 #ifdef CONFIG_SERIAL_UARTLITE_CONSOLE
 static void ulite_console_wait_tx(struct uart_port *port)
@@ -353,7 +365,7 @@ static void ulite_console_wait_tx(struct uart_port *port)
 	int i;
 	u8 val;
 
-	
+	/* Spin waiting for TX fifo to have space available */
 	for (i = 0; i < 100000; i++) {
 		val = ioread32be(port->membase + ULITE_STATUS);
 		if ((val & ULITE_STATUS_TXFULL) == 0)
@@ -381,7 +393,7 @@ static void ulite_console_write(struct console *co, const char *s,
 	} else
 		spin_lock_irqsave(&port->lock, flags);
 
-	
+	/* save and disable interrupt */
 	ier = ioread32be(port->membase + ULITE_STATUS) & ULITE_STATUS_IE;
 	iowrite32be(0, port->membase + ULITE_CONTROL);
 
@@ -389,7 +401,7 @@ static void ulite_console_write(struct console *co, const char *s,
 
 	ulite_console_wait_tx(port);
 
-	
+	/* restore interrupt state */
 	if (ier)
 		iowrite32be(ULITE_CONTROL_IE, port->membase + ULITE_CONTROL);
 
@@ -410,13 +422,13 @@ static int __devinit ulite_console_setup(struct console *co, char *options)
 
 	port = &ulite_ports[co->index];
 
-	
+	/* Has the device been initialized yet? */
 	if (!port->mapbase) {
 		pr_debug("console on ttyUL%i not present\n", co->index);
 		return -ENODEV;
 	}
 
-	
+	/* not initialized yet? */
 	if (!port->membase) {
 		if (ulite_request_port(port))
 			return -ENODEV;
@@ -436,7 +448,7 @@ static struct console ulite_console = {
 	.device	= uart_console_device,
 	.setup	= ulite_console_setup,
 	.flags	= CON_PRINTBUFFER,
-	.index	= -1, 
+	.index	= -1, /* Specified on the cmdline (e.g. console=ttyUL0 ) */
 	.data	= &ulite_uart_driver,
 };
 
@@ -448,7 +460,7 @@ static int __init ulite_console_init(void)
 
 console_initcall(ulite_console_init);
 
-#endif 
+#endif /* CONFIG_SERIAL_UARTLITE_CONSOLE */
 
 static struct uart_driver ulite_uart_driver = {
 	.owner		= THIS_MODULE,
@@ -462,13 +474,25 @@ static struct uart_driver ulite_uart_driver = {
 #endif
 };
 
+/* ---------------------------------------------------------------------
+ * Port assignment functions (mapping devices to uart_port structures)
+ */
 
+/** ulite_assign: register a uartlite device with the driver
+ *
+ * @dev: pointer to device structure
+ * @id: requested id number.  Pass -1 for automatic port assignment
+ * @base: base address of uartlite registers
+ * @irq: irq number for uartlite
+ *
+ * Returns: 0 on success, <0 otherwise
+ */
 static int __devinit ulite_assign(struct device *dev, int id, u32 base, int irq)
 {
 	struct uart_port *port;
 	int rc;
 
-	
+	/* if id = -1; then scan for a free id and use that */
 	if (id < 0) {
 		for (id = 0; id < ULITE_NR_UARTS; id++)
 			if (ulite_ports[id].mapbase == 0)
@@ -491,7 +515,7 @@ static int __devinit ulite_assign(struct device *dev, int id, u32 base, int irq)
 	port->fifosize = 16;
 	port->regshift = 2;
 	port->iotype = UPIO_MEM;
-	port->iobase = 1; 
+	port->iobase = 1; /* mark port in use */
 	port->mapbase = base;
 	port->membase = NULL;
 	port->ops = &ulite_ops;
@@ -503,7 +527,7 @@ static int __devinit ulite_assign(struct device *dev, int id, u32 base, int irq)
 
 	dev_set_drvdata(dev, port);
 
-	
+	/* Register the port */
 	rc = uart_add_one_port(&ulite_uart_driver, port);
 	if (rc) {
 		dev_err(dev, "uart_add_one_port() failed; err=%i\n", rc);
@@ -515,6 +539,10 @@ static int __devinit ulite_assign(struct device *dev, int id, u32 base, int irq)
 	return 0;
 }
 
+/** ulite_release: register a uartlite device with the driver
+ *
+ * @dev: pointer to device structure
+ */
 static int __devexit ulite_release(struct device *dev)
 {
 	struct uart_port *port = dev_get_drvdata(dev);
@@ -529,15 +557,19 @@ static int __devexit ulite_release(struct device *dev)
 	return rc;
 }
 
+/* ---------------------------------------------------------------------
+ * Platform bus binding
+ */
 
 #if defined(CONFIG_OF)
+/* Match table for of_platform binding */
 static struct of_device_id ulite_of_match[] __devinitdata = {
 	{ .compatible = "xlnx,opb-uartlite-1.00.b", },
 	{ .compatible = "xlnx,xps-uartlite-1.00.a", },
 	{}
 };
 MODULE_DEVICE_TABLE(of, ulite_of_match);
-#endif 
+#endif /* CONFIG_OF */
 
 static int __devinit ulite_probe(struct platform_device *pdev)
 {
@@ -567,6 +599,7 @@ static int __devexit ulite_remove(struct platform_device *pdev)
 	return ulite_release(&pdev->dev);
 }
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:uartlite");
 
 static struct platform_driver ulite_platform_driver = {
@@ -579,6 +612,9 @@ static struct platform_driver ulite_platform_driver = {
 	},
 };
 
+/* ---------------------------------------------------------------------
+ * Module setup/teardown
+ */
 
 int __init ulite_init(void)
 {

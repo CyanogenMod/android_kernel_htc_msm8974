@@ -138,7 +138,7 @@ static int wm2000_power_up(struct i2c_client *i2c, int analogue)
 	wm2000_write(i2c, WM2000_REG_SYS_CTL2, WM2000_ANC_ENG_CLR);
 	wm2000_write(i2c, WM2000_REG_SYS_CTL2, WM2000_ANC_ENG_SET);
 
-	
+	/* Wait for ANC engine to become ready */
 	if (!wm2000_poll_bit(i2c, WM2000_REG_ANC_STAT,
 			     WM2000_ANC_ENG_IDLE, 1)) {
 		dev_err(&i2c->dev, "ANC engine failed to reset\n");
@@ -153,6 +153,8 @@ static int wm2000_power_up(struct i2c_client *i2c, int analogue)
 
 	wm2000_write(i2c, WM2000_REG_SYS_CTL2, WM2000_RAM_SET);
 
+	/* Open code download of the data since it is the only bulk
+	 * write we do. */
 	dev_dbg(&i2c->dev, "Downloading %d bytes\n",
 		wm2000->anc_download_size - 2);
 
@@ -650,6 +652,7 @@ static int wm2000_anc_power_event(struct snd_soc_dapm_widget *w,
 }
 
 static const struct snd_soc_dapm_widget wm2000_dapm_widgets[] = {
+/* Externally visible pins */
 SND_SOC_DAPM_OUTPUT("SPKN"),
 SND_SOC_DAPM_OUTPUT("SPKP"),
 
@@ -661,6 +664,7 @@ SND_SOC_DAPM_PGA_E("ANC Engine", SND_SOC_NOPM, 0, 0, NULL, 0,
 		   SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_PRE_PMD),
 };
 
+/* Target, Path, Source */
 static const struct snd_soc_dapm_route wm2000_audio_map[] = {
 	{ "SPKN", NULL, "ANC Engine" },
 	{ "SPKP", NULL, "ANC Engine" },
@@ -696,7 +700,7 @@ static int wm2000_probe(struct snd_soc_codec *codec)
 {
 	struct wm2000_priv *wm2000 = dev_get_drvdata(codec->dev);
 
-	
+	/* This will trigger a transition to standby mode by default */
 	wm2000_anc_set_mode(wm2000);
 
 	return 0;
@@ -751,7 +755,7 @@ static int __devinit wm2000_i2c_probe(struct i2c_client *i2c,
 		goto out;
 	}
 
-	
+	/* Verify that this is a WM2000 */
 	reg = wm2000_read(i2c, WM2000_REG_ID1);
 	id = reg << 8;
 	reg = wm2000_read(i2c, WM2000_REG_ID2);
@@ -782,7 +786,7 @@ static int __devinit wm2000_i2c_probe(struct i2c_client *i2c,
 		goto out_regmap_exit;
 	}
 
-	
+	/* Pre-cook the concatenation of the register address onto the image */
 	wm2000->anc_download_size = fw->size + 2;
 	wm2000->anc_download = devm_kzalloc(&i2c->dev,
 					    wm2000->anc_download_size,

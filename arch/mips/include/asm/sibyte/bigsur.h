@@ -27,6 +27,7 @@
 #define SIBYTE_HAVE_IDE    1
 #endif
 
+/* Generic bus chip selects */
 #define LEDS_CS         3
 #define LEDS_PHYS       0x100a0000
 
@@ -44,4 +45,4 @@
 #define K_INT_PC_READY  (K_INT_GPIO_0 + K_GPIO_PC_READY)
 #endif
 
-#endif 
+#endif /* __ASM_SIBYTE_BIGSUR_H */

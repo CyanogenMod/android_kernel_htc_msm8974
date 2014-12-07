@@ -31,6 +31,9 @@ struct of_spmi_res_info {
 	uint32_t num_irq;
 };
 
+/*
+ * Initialize r_info structure for safe usage
+ */
 static inline void of_spmi_init_resource(struct of_spmi_res_info *r_info,
 					 struct device_node *node)
 {
@@ -39,6 +42,11 @@ static inline void of_spmi_init_resource(struct of_spmi_res_info *r_info,
 	r_info->num_irq = 0;
 }
 
+/*
+ * Calculate the number of resources to allocate
+ *
+ * The caller is responsible for initializing the of_spmi_res_info structure.
+ */
 static void of_spmi_sum_resources(struct of_spmi_res_info *r_info,
 				  bool has_reg)
 {
@@ -55,6 +63,12 @@ static void of_spmi_sum_resources(struct of_spmi_res_info *r_info,
 	if (!has_reg)
 		return;
 
+	/*
+	 * We can't use of_address_to_resource here since it includes
+	 * address translation; and address translation assumes that no
+	 * parent buses have a size-cell of 0. But SPMI does have a
+	 * size-cell of 0.
+	 */
 	i = 0;
 	while (of_get_address(r_info->node, i, &size, &flags) != NULL)
 		i++;
@@ -62,6 +76,9 @@ static void of_spmi_sum_resources(struct of_spmi_res_info *r_info,
 	r_info->num_reg += i;
 }
 
+/*
+ * Allocate dev_node array for spmi_device - used with spmi-dev-container
+ */
 static inline int of_spmi_alloc_devnode_store(struct of_spmi_dev_info *d_info,
 					      uint32_t num_dev_node)
 {
@@ -74,6 +91,10 @@ static inline int of_spmi_alloc_devnode_store(struct of_spmi_dev_info *d_info,
 	return 0;
 }
 
+/*
+ * Allocate enough memory to handle the resources associated with the
+ * primary node.
+ */
 static int of_spmi_allocate_node_resources(struct of_spmi_dev_info *d_info,
 					   struct of_spmi_res_info *r_info)
 {
@@ -91,6 +112,10 @@ static int of_spmi_allocate_node_resources(struct of_spmi_dev_info *d_info,
 	return 0;
 }
 
+/*
+ * Allocate enough memory to handle the resources associated with the
+ * spmi-dev-container nodes.
+ */
 static int of_spmi_allocate_devnode_resources(struct of_spmi_dev_info *d_info,
 					      struct of_spmi_res_info *r_info,
 					      uint32_t idx)
@@ -109,11 +134,17 @@ static int of_spmi_allocate_devnode_resources(struct of_spmi_dev_info *d_info,
 	return 0;
 }
 
+/*
+ * free node resources - used with primary node
+ */
 static void of_spmi_free_node_resources(struct of_spmi_dev_info *d_info)
 {
 	kfree(d_info->b_info.res.resource);
 }
 
+/*
+ * free devnode resources - used with spmi-dev-container
+ */
 static void of_spmi_free_devnode_resources(struct of_spmi_dev_info *d_info)
 {
 	int i;
@@ -137,7 +168,7 @@ static void of_spmi_populate_resources(struct of_spmi_dev_info *d_info,
 
 	if ((num_irq || num_reg) && (res != NULL)) {
 		for (i = 0; i < num_reg; i++, res++) {
-			
+			/* Addresses are always 16 bits */
 			addrp = of_get_address(r_info->node, i, &size, &flags);
 			BUG_ON(!addrp);
 			res->start = be32_to_cpup(addrp);
@@ -151,6 +182,9 @@ static void of_spmi_populate_resources(struct of_spmi_dev_info *d_info,
 	}
 }
 
+/*
+ * Gather primary node resources and populate.
+ */
 static void of_spmi_populate_node_resources(struct of_spmi_dev_info *d_info,
 					    struct of_spmi_res_info *r_info)
 
@@ -164,6 +198,9 @@ static void of_spmi_populate_node_resources(struct of_spmi_dev_info *d_info,
 	of_spmi_populate_resources(d_info, r_info, res);
 }
 
+/*
+ * Gather node devnode resources and populate - used with spmi-dev-container.
+ */
 static void of_spmi_populate_devnode_resources(struct of_spmi_dev_info *d_info,
 					       struct of_spmi_res_info *r_info,
 					       int idx)
@@ -178,6 +215,9 @@ static void of_spmi_populate_devnode_resources(struct of_spmi_dev_info *d_info,
 	of_spmi_populate_resources(d_info, r_info, res);
 }
 
+/*
+ * create a single spmi_device
+ */
 static int of_spmi_create_device(struct of_spmi_dev_info *d_info,
 				 struct device_node *node)
 {
@@ -206,6 +246,11 @@ static int of_spmi_create_device(struct of_spmi_dev_info *d_info,
 	return 0;
 }
 
+/*
+ * Walks all children of a node containing the spmi-dev-container
+ * binding. This special type of spmi_device can include resources
+ * from more than one device node.
+ */
 static void of_spmi_walk_dev_container(struct of_spmi_dev_info *d_info,
 					struct device_node *container)
 {
@@ -217,6 +262,10 @@ static void of_spmi_walk_dev_container(struct of_spmi_dev_info *d_info,
 	if (!of_device_is_available(container))
 		return;
 
+	/*
+	 * Count the total number of device_nodes so we know how much
+	 * device_store to allocate.
+	 */
 	for_each_child_of_node(container, node) {
 		if (!of_device_is_available(node))
 			continue;
@@ -269,6 +318,11 @@ static void of_spmi_walk_dev_container(struct of_spmi_dev_info *d_info,
 	}
 }
 
+/*
+ * Walks all children of a node containing the spmi-slave-container
+ * binding. This indicates that all spmi_devices created from this
+ * point all share the same slave_id.
+ */
 static void of_spmi_walk_slave_container(struct of_spmi_dev_info *d_info,
 					 struct device_node *container)
 {
@@ -282,6 +336,10 @@ static void of_spmi_walk_slave_container(struct of_spmi_dev_info *d_info,
 		if (!of_device_is_available(node))
 			continue;
 
+		/**
+		 * Check to see if this node contains children which
+		 * should be all created as the same spmi_device.
+		 */
 		if (of_get_property(node, "spmi-dev-container", NULL)) {
 			of_spmi_walk_dev_container(d_info, node);
 			continue;
@@ -316,7 +374,7 @@ int of_spmi_register_devices(struct spmi_controller *ctrl)
 {
 	struct device_node *node = ctrl->dev.of_node;
 
-	
+	/* Only register child devices if the ctrl has a node pointer set */
 	if (!node)
 		return -ENODEV;
 
@@ -330,6 +388,10 @@ int of_spmi_register_devices(struct spmi_controller *ctrl)
 		return -EINVAL;
 	}
 
+	/**
+	 * Make best effort to launch as many nodes as possible. If there are
+	 * syntax errors, we will simply ignore that subtree and keep going.
+	 */
 	for_each_child_of_node(ctrl->dev.of_node, node) {
 		struct of_spmi_dev_info d_info = {};
 		const __be32 *slave_id;
@@ -355,6 +417,10 @@ int of_spmi_register_devices(struct spmi_controller *ctrl)
 		} else {
 			struct of_spmi_res_info r_info;
 
+			/**
+			 * A dev container at the second level without a slave
+			 * container is considered an error.
+			 */
 			if (have_dev_container) {
 				dev_err(&ctrl->dev, "%s: structural error,"
 				     " node %s has spmi-dev-container without"

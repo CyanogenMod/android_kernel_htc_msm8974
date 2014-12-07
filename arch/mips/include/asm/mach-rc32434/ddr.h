@@ -31,6 +31,7 @@
 
 #include <asm/mach-rc32434/rb.h>
 
+/* DDR register structure */
 struct ddr_ram {
 	u32 ddrbase;
 	u32 ddrmask;
@@ -47,10 +48,12 @@ struct ddr_ram {
 
 #define DDR0_PHYS_ADDR		0x18018000
 
+/* DDR banks masks */
 #define DDR_MASK		0xffff0000
 #define DDR0_BASE_MSK		DDR_MASK
 #define DDR1_BASE_MSK		DDR_MASK
 
+/* DDR bank0 registers */
 #define RC32434_DDR0_ATA_BIT		5
 #define RC32434_DDR0_ATA_MSK		0x000000E0
 #define RC32434_DDR0_DBW_BIT		8
@@ -80,10 +83,12 @@ struct ddr_ram {
 #define RC32434_DDR0_RE_BIT		31
 #define RC32434_DDR0_RE_MSK		0x80000000
 
+/* DDR bank C registers */
 #define RC32434_DDRC_MSK(x)		BIT_TO_MASK(x)
 #define RC32434_DDRC_CES_BIT		0
 #define RC32434_DDRC_ACE_BIT		1
 
+/* Custom DDR bank registers */
 #define RC32434_DCST_MSK(x)		BIT_TO_MASK(x)
 #define RC32434_DCST_CS_BIT		0
 #define RC32434_DCST_CS_MSK		0x00000003
@@ -94,6 +99,7 @@ struct ddr_ram {
 #define RC32434_DSCT_BA_BIT		6
 #define RC32434_DSCT_BA_MSK		0x000000c0
 
+/* DDR QSC registers */
 #define RC32434_QSC_DM_BIT		0
 #define RC32434_QSC_DM_MSK		0x00000003
 #define RC32434_QSC_DQSBS_BIT		2
@@ -105,6 +111,7 @@ struct ddr_ram {
 #define RC32434_QSC_BDP_BIT		25
 #define RC32434_QSC_BDP_MSK		0x7e000000
 
+/* DDR LLC registers */
 #define RC32434_LLC_EAO_BIT		0
 #define RC32434_LLC_EAO_MSK		0x00000001
 #define RC32434_LLC_EO_BIT		1
@@ -116,16 +123,19 @@ struct ddr_ram {
 #define RC32434_LLC_SP_BIT		11
 #define RC32434_LLC_SP_MSK		0x001ff800
 
+/* DDR LLFC registers */
 #define RC32434_LLFC_MSK(x)		BIT_TO_MASK(x)
 #define RC32434_LLFC_MEN_BIT		0
 #define RC32434_LLFC_EAN_BIT		1
 #define RC32434_LLFC_FF_BIT		2
 
+/* DDR DLLTA registers */
 #define RC32434_DLLTA_ADDR_BIT		2
 #define RC32434_DLLTA_ADDR_MSK		0xfffffffc
 
+/* DDR DLLED registers */
 #define RC32434_DLLED_MSK(x)		BIT_TO_MASK(x)
 #define RC32434_DLLED_DBE_BIT		0
 #define RC32434_DLLED_DTE_BIT		1
 
-#endif  
+#endif  /* _ASM_RC32434_DDR_H_ */

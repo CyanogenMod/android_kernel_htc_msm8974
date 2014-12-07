@@ -16,4 +16,4 @@ extern int omap_barrier_reserve_memblock(void);
 static inline void omap_barrier_reserve_memblock(void)
 { }
 #endif
-#endif 
+#endif /* __OMAP_SECURE_H__ */

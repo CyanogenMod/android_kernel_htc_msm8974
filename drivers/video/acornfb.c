@@ -37,40 +37,57 @@
 
 #include "acornfb.h"
 
+/*
+ * VIDC machines can't do 16 or 32BPP modes.
+ */
 #ifdef HAS_VIDC
 #undef FBCON_HAS_CFB16
 #undef FBCON_HAS_CFB32
 #endif
 
+/*
+ * Default resolution.
+ * NOTE that it has to be supported in the table towards
+ * the end of this file.
+ */
 #define DEFAULT_XRES	640
 #define DEFAULT_YRES	480
 #define DEFAULT_BPP	4
 
+/*
+ * define this to debug the video mode selection
+ */
 #undef DEBUG_MODE_SELECTION
 
+/*
+ * Translation from RISC OS monitor types to actual
+ * HSYNC and VSYNC frequency ranges.  These are
+ * probably not right, but they're the best info I
+ * have.  Allow 1% either way on the nominal for TVs.
+ */
 #define NR_MONTYPES	6
 static struct fb_monspecs monspecs[NR_MONTYPES] __devinitdata = {
-	{	
+	{	/* TV		*/
 		.hfmin	= 15469,
 		.hfmax	= 15781,
 		.vfmin	= 49,
 		.vfmax	= 51,
-	}, {	
+	}, {	/* Multi Freq	*/
 		.hfmin	= 0,
 		.hfmax	= 99999,
 		.vfmin	= 0,
 		.vfmax	= 199,
-	}, {	
+	}, {	/* Hi-res mono	*/
 		.hfmin	= 58608,
 		.hfmax	= 58608,
 		.vfmin	= 64,
 		.vfmax	= 64,
-	}, {	
+	}, {	/* VGA		*/
 		.hfmin	= 30000,
 		.hfmax	= 70000,
 		.vfmin	= 60,
 		.vfmax	= 60,
-	}, {	
+	}, {	/* SVGA		*/
 		.hfmin	= 30000,
 		.hfmax	= 70000,
 		.vfmin	= 56,
@@ -87,12 +104,26 @@ static struct fb_info fb_info;
 static struct acornfb_par current_par;
 static struct vidc_timing current_vidc;
 
-extern unsigned int vram_size;	
+extern unsigned int vram_size;	/* set by setup.c */
 
 #ifdef HAS_VIDC
 
 #define MAX_SIZE	480*1024
 
+/* CTL     VIDC	Actual
+ * 24.000  0	 8.000
+ * 25.175  0	 8.392
+ * 36.000  0	12.000
+ * 24.000  1	12.000
+ * 25.175  1	12.588
+ * 24.000  2	16.000
+ * 25.175  2	16.783
+ * 36.000  1	18.000
+ * 24.000  3	24.000
+ * 36.000  2	24.000
+ * 25.175  3	25.175
+ * 36.000  3	36.000
+ */
 struct pixclock {
 	u_long	min_clock;
 	u_long	max_clock;
@@ -101,11 +132,11 @@ struct pixclock {
 };
 
 static struct pixclock arc_clocks[] = {
-	
-	{ 123750, 126250, VIDC_CTRL_DIV3,   VID_CTL_24MHz },	
-	{  82500,  84167, VIDC_CTRL_DIV2,   VID_CTL_24MHz },	
-	{  61875,  63125, VIDC_CTRL_DIV1_5, VID_CTL_24MHz },	
-	{  41250,  42083, VIDC_CTRL_DIV1,   VID_CTL_24MHz },	
+	/* we allow +/-1% on these */
+	{ 123750, 126250, VIDC_CTRL_DIV3,   VID_CTL_24MHz },	/*  8.000MHz */
+	{  82500,  84167, VIDC_CTRL_DIV2,   VID_CTL_24MHz },	/* 12.000MHz */
+	{  61875,  63125, VIDC_CTRL_DIV1_5, VID_CTL_24MHz },	/* 16.000MHz */
+	{  41250,  42083, VIDC_CTRL_DIV1,   VID_CTL_24MHz },	/* 24.000MHz */
 };
 
 static struct pixclock *
@@ -125,6 +156,18 @@ acornfb_valid_pixrate(struct fb_var_screeninfo *var)
 	return NULL;
 }
 
+/* VIDC Rules:
+ * hcr  : must be even (interlace, hcr/2 must be even)
+ * hswr : must be even
+ * hdsr : must be odd
+ * hder : must be odd
+ *
+ * vcr  : must be odd
+ * vswr : >= 1
+ * vdsr : >= 1
+ * vder : >= vdsr
+ * if interlaced, then hcr/2 must be even
+ */
 static void
 acornfb_set_timing(struct fb_var_screeninfo *var)
 {
@@ -143,7 +186,7 @@ acornfb_set_timing(struct fb_var_screeninfo *var)
 	vid_ctl  = pclk->vid_ctl;
 
 	bandwidth = var->pixclock * 8 / var->bits_per_pixel;
-	
+	/* 25.175, 4bpp = 79.444ns per byte, 317.776ns per word: fifo = 2,6 */
 	if (bandwidth > 143500)
 		vidc_ctl |= VIDC_CTRL_FIFO_3_7;
 	else if (bandwidth > 71750)
@@ -176,7 +219,7 @@ acornfb_set_timing(struct fb_var_screeninfo *var)
 		break;
 	}
 
-	if (var->sync & FB_SYNC_COMP_HIGH_ACT) 
+	if (var->sync & FB_SYNC_COMP_HIGH_ACT) /* should be FB_SYNC_COMP */
 		vidc_ctl |= VIDC_CTRL_CSYNC;
 	else {
 		if (!(var->sync & FB_SYNC_HOR_HIGH_ACT))
@@ -191,7 +234,7 @@ acornfb_set_timing(struct fb_var_screeninfo *var)
 	display_end	= display_start + var->xres;
 	cycle		= display_end + var->right_margin;
 
-	
+	/* if interlaced, then hcr/2 must be even */
 	is_interlaced = (var->vmode & FB_VMODE_MASK) == FB_VMODE_INTERLACED;
 
 	if (is_interlaced) {
@@ -300,6 +343,16 @@ acornfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 
 #define MAX_SIZE	2*1024*1024
 
+/* VIDC20 has a different set of rules from the VIDC:
+ *  hcr  : must be multiple of 4
+ *  hswr : must be even
+ *  hdsr : must be even
+ *  hder : must be even
+ *  vcr  : >= 2, (interlace, must be odd)
+ *  vswr : >= 1
+ *  vdsr : >= 1
+ *  vder : >= vdsr
+ */
 static void acornfb_set_timing(struct fb_info *info)
 {
 	struct fb_var_screeninfo *var = &info->var;
@@ -373,7 +426,7 @@ static void acornfb_set_timing(struct fb_info *info)
 
 	ext_ctl = acornfb_default_econtrol();
 
-	if (var->sync & FB_SYNC_COMP_HIGH_ACT) 
+	if (var->sync & FB_SYNC_COMP_HIGH_ACT) /* should be FB_SYNC_COMP */
 		ext_ctl |= VIDC20_ECTL_HS_NCSYNC | VIDC20_ECTL_VS_NCSYNC;
 	else {
 		if (var->sync & FB_SYNC_HOR_HIGH_ACT)
@@ -394,9 +447,15 @@ static void acornfb_set_timing(struct fb_info *info)
 	if (current_par.using_vram && info->fix.smem_len == 2048*1024)
 		words_per_line /= 2;
 
-	
+	/* RiscPC doesn't use the VIDC's VRAM control. */
 	dat_ctl = VIDC20_DCTL_VRAM_DIS | VIDC20_DCTL_SNA | words_per_line;
 
+	/* The data bus width is dependent on both the type
+	 * and amount of video memory.
+	 *     DRAM	32bit low
+	 * 1MB VRAM	32bit
+	 * 2MB VRAM	64bit
+	 */
 	if (current_par.using_vram && current_par.vram_half_sam == 2048)
 		dat_ctl |= VIDC20_DCTL_BUS_D63_0;
 	else
@@ -428,6 +487,24 @@ static void acornfb_set_timing(struct fb_info *info)
 #endif
 }
 
+/*
+ * We have to take note of the VIDC20's 16-bit palette here.
+ * The VIDC20 looks up a 16 bit pixel as follows:
+ *
+ *   bits   111111
+ *          5432109876543210
+ *   red            ++++++++  (8 bits,  7 to 0)
+ *  green       ++++++++      (8 bits, 11 to 4)
+ *   blue   ++++++++          (8 bits, 15 to 8)
+ *
+ * We use a pixel which looks like:
+ *
+ *   bits   111111
+ *          5432109876543210
+ *   red               +++++  (5 bits,  4 to  0)
+ *  green         +++++       (5 bits,  9 to  5)
+ *   blue    +++++            (5 bits, 14 to 10)
+ */
 static int
 acornfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 		  u_int trans, struct fb_info *info)
@@ -464,7 +541,7 @@ acornfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 			pal.vidc20.green = current_par.palette[(i >> 1) & 31].vidc20.green;
 			pal.vidc20.blue  = current_par.palette[(i >> 2) & 31].vidc20.blue;
 			vidc_writel(pal.p);
-			
+			/* Palette register pointer auto-increments */
 		}
 	} else {
 		vidc_writel(0x10000000 | regno);
@@ -475,14 +552,21 @@ acornfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 }
 #endif
 
+/*
+ * Before selecting the timing parameters, adjust
+ * the resolution to fit the rules.
+ */
 static int
 acornfb_adjust_timing(struct fb_info *info, struct fb_var_screeninfo *var, u_int fontht)
 {
 	u_int font_line_len, sam_size, min_size, size, nr_y;
 
-	
+	/* xres must be even */
 	var->xres = (var->xres + 1) & ~1;
 
+	/*
+	 * We don't allow xres_virtual to differ from xres
+	 */
 	var->xres_virtual = var->xres;
 	var->xoffset = 0;
 
@@ -491,12 +575,26 @@ acornfb_adjust_timing(struct fb_info *info, struct fb_var_screeninfo *var, u_int
 	else
 		sam_size = 16;
 
+	/*
+	 * Now, find a value for yres_virtual which allows
+	 * us to do ywrap scrolling.  The value of
+	 * yres_virtual must be such that the end of the
+	 * displayable frame buffer must be aligned with
+	 * the start of a font line.
+	 */
 	font_line_len = var->xres * var->bits_per_pixel * fontht / 8;
 	min_size = var->xres * var->yres * var->bits_per_pixel / 8;
 
+	/*
+	 * If minimum screen size is greater than that we have
+	 * available, reject it.
+	 */
 	if (min_size > info->fix.smem_len)
 		return -EINVAL;
 
+	/* Find int 'y', such that y * fll == s * sam < maxsize
+	 * y = s * sam / fll; s = maxsize / sam
+	 */
 	for (size = info->fix.smem_len;
 	     nr_y = size / font_line_len, min_size <= size;
 	     size -= sam_size) {
@@ -507,6 +605,9 @@ acornfb_adjust_timing(struct fb_info *info, struct fb_var_screeninfo *var, u_int
 
 	if (var->accel_flags & FB_ACCELF_TEXT) {
 		if (min_size > size) {
+			/*
+			 * failed, use ypan
+			 */
 			size = info->fix.smem_len;
 			var->yres_virtual = size / (font_line_len / fontht);
 		} else
@@ -516,6 +617,9 @@ acornfb_adjust_timing(struct fb_info *info, struct fb_var_screeninfo *var, u_int
 
 	current_par.screen_end = info->fix.smem_start + size;
 
+	/*
+	 * Fix yres & yoffset if needed.
+	 */
 	if (var->yres > var->yres_virtual)
 		var->yres = var->yres_virtual;
 
@@ -527,26 +631,26 @@ acornfb_adjust_timing(struct fb_info *info, struct fb_var_screeninfo *var, u_int
 			var->yoffset = var->yres_virtual - var->yres;
 	}
 
-	
+	/* hsync_len must be even */
 	var->hsync_len = (var->hsync_len + 1) & ~1;
 
 #ifdef HAS_VIDC
-	
+	/* left_margin must be odd */
 	if ((var->left_margin & 1) == 0) {
 		var->left_margin -= 1;
 		var->right_margin += 1;
 	}
 
-	
+	/* right_margin must be odd */
 	var->right_margin |= 1;
 #elif defined(HAS_VIDC20)
-	
+	/* left_margin must be even */
 	if (var->left_margin & 1) {
 		var->left_margin += 1;
 		var->right_margin -= 1;
 	}
 
-	
+	/* right_margin must be even */
 	if (var->right_margin & 1)
 		var->right_margin += 1;
 #endif
@@ -563,6 +667,13 @@ acornfb_validate_timing(struct fb_var_screeninfo *var,
 {
 	unsigned long hs, vs;
 
+	/*
+	 * hs(Hz) = 10^12 / (pixclock * xtotal)
+	 * vs(Hz) = hs(Hz) / ytotal
+	 *
+	 * No need to do long long divisions or anything
+	 * like that if you factor it correctly
+	 */
 	hs = 1953125000 / var->pixclock;
 	hs = hs * 512 /
 	     (var->xres + var->left_margin + var->right_margin + var->hsync_len);
@@ -591,6 +702,9 @@ acornfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 	u_int fontht;
 	int err;
 
+	/*
+	 * FIXME: Find the font height
+	 */
 	fontht = 8;
 
 	var->red.msb_right = 0;
@@ -635,13 +749,24 @@ acornfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		return -EINVAL;
 	}
 
+	/*
+	 * Check to see if the pixel rate is valid.
+	 */
 	if (!acornfb_valid_pixrate(var))
 		return -EINVAL;
 
+	/*
+	 * Validate and adjust the resolution to
+	 * match the video generator hardware.
+	 */
 	err = acornfb_adjust_timing(info, var, fontht);
 	if (err)
 		return err;
 
+	/*
+	 * Validate the timing against the
+	 * monitor hardware.
+	 */
 	return acornfb_validate_timing(var, &info->monspecs);
 }
 
@@ -746,52 +871,55 @@ static struct fb_ops acornfb_ops = {
 	.fb_imageblit	= cfb_imageblit,
 };
 
+/*
+ * Everything after here is initialisation!!!
+ */
 static struct fb_videomode modedb[] __devinitdata = {
-	{	
+	{	/* 320x256 @ 50Hz */
 		NULL, 50,  320,  256, 125000,  92,  62,  35, 19,  38, 2,
 		FB_SYNC_COMP_HIGH_ACT,
 		FB_VMODE_NONINTERLACED
-	}, {	
+	}, {	/* 640x250 @ 50Hz, 15.6 kHz hsync */
 		NULL, 50,  640,  250,  62500, 185, 123,  38, 21,  76, 3,
 		0,
 		FB_VMODE_NONINTERLACED
-	}, {	
+	}, {	/* 640x256 @ 50Hz, 15.6 kHz hsync */
 		NULL, 50,  640,  256,  62500, 185, 123,  35, 18,  76, 3,
 		0,
 		FB_VMODE_NONINTERLACED
-	}, {	
+	}, {	/* 640x512 @ 50Hz, 26.8 kHz hsync */
 		NULL, 50,  640,  512,  41667, 113,  87,  18,  1,  56, 3,
 		0,
 		FB_VMODE_NONINTERLACED
-	}, {	
+	}, {	/* 640x250 @ 70Hz, 31.5 kHz hsync */
 		NULL, 70,  640,  250,  39722,  48,  16, 109, 88,  96, 2,
 		0,
 		FB_VMODE_NONINTERLACED
-	}, {	
+	}, {	/* 640x256 @ 70Hz, 31.5 kHz hsync */
 		NULL, 70,  640,  256,  39722,  48,  16, 106, 85,  96, 2,
 		0,
 		FB_VMODE_NONINTERLACED
-	}, {	
+	}, {	/* 640x352 @ 70Hz, 31.5 kHz hsync */
 		NULL, 70,  640,  352,  39722,  48,  16,  58, 37,  96, 2,
 		0,
 		FB_VMODE_NONINTERLACED
-	}, {	
+	}, {	/* 640x480 @ 60Hz, 31.5 kHz hsync */
 		NULL, 60,  640,  480,  39722,  48,  16,  32, 11,  96, 2,
 		0,
 		FB_VMODE_NONINTERLACED
-	}, {	
+	}, {	/* 800x600 @ 56Hz, 35.2 kHz hsync */
 		NULL, 56,  800,  600,  27778, 101,  23,  22,  1, 100, 2,
 		0,
 		FB_VMODE_NONINTERLACED
-	}, {	
+	}, {	/* 896x352 @ 60Hz, 21.8 kHz hsync */
 		NULL, 60,  896,  352,  41667,  59,  27,   9,  0, 118, 3,
 		0,
 		FB_VMODE_NONINTERLACED
-	}, {	
+	}, {	/* 1024x 768 @ 60Hz, 48.4 kHz hsync */
 		NULL, 60, 1024,  768,  15385, 160,  24,  29,  3, 136, 6,
 		0,
 		FB_VMODE_NONINTERLACED
-	}, {	
+	}, {	/* 1280x1024 @ 60Hz, 63.8 kHz hsync */
 		NULL, 60, 1280, 1024,   9090, 186,  96,  38,  1, 160, 3,
 		0,
 		FB_VMODE_NONINTERLACED
@@ -835,6 +963,9 @@ static void __devinit acornfb_init_fbinfo(void)
 	fb_info.fix.line_length	= 0;
 	fb_info.fix.accel	= FB_ACCEL_NONE;
 
+	/*
+	 * setup initial parameters
+	 */
 	memset(&fb_info.var, 0, sizeof(fb_info.var));
 
 #if defined(HAS_VIDC20)
@@ -858,6 +989,35 @@ static void __devinit acornfb_init_fbinfo(void)
 	current_par.dpms	   = 0;
 }
 
+/*
+ * setup acornfb options:
+ *
+ *  mon:hmin-hmax:vmin-vmax:dpms:width:height
+ *	Set monitor parameters:
+ *		hmin   = horizontal minimum frequency (Hz)
+ *		hmax   = horizontal maximum frequency (Hz)	(optional)
+ *		vmin   = vertical minimum frequency (Hz)
+ *		vmax   = vertical maximum frequency (Hz)	(optional)
+ *		dpms   = DPMS supported?			(optional)
+ *		width  = width of picture in mm.		(optional)
+ *		height = height of picture in mm.		(optional)
+ *
+ * montype:type
+ *	Set RISC-OS style monitor type:
+ *		0 (or tv)	- TV frequency
+ *		1 (or multi)	- Multi frequency
+ *		2 (or hires)	- Hi-res monochrome
+ *		3 (or vga)	- VGA
+ *		4 (or svga)	- SVGA
+ *		auto, or option missing
+ *				- try hardware detect
+ *
+ * dram:size
+ *	Set the amount of DRAM to use for the frame buffer
+ *	(even if you have VRAM).
+ *	size can optionally be followed by 'M' or 'K' for
+ *	MB or KB respectively.
+ */
 static void __devinit acornfb_parse_mon(char *opt)
 {
 	char *p = opt;
@@ -1011,22 +1171,39 @@ static int __devinit acornfb_setup(char *options)
 	return 0;
 }
 
+/*
+ * Detect type of monitor connected
+ *  For now, we just assume SVGA
+ */
 static int __devinit acornfb_detect_monitortype(void)
 {
 	return 4;
 }
 
+/*
+ * This enables the unused memory to be freed on older Acorn machines.
+ * We are freeing memory on behalf of the architecture initialisation
+ * code here.
+ */
 static inline void
 free_unused_pages(unsigned int virtual_start, unsigned int virtual_end)
 {
 	int mb_freed = 0;
 
+	/*
+	 * Align addresses
+	 */
 	virtual_start = PAGE_ALIGN(virtual_start);
 	virtual_end = PAGE_ALIGN(virtual_end);
 
 	while (virtual_start < virtual_end) {
 		struct page *page;
 
+		/*
+		 * Clear page reserved bit,
+		 * set count to 1, and free
+		 * the page.
+		 */
 		page = virt_to_page(virtual_start);
 		ClearPageReserved(page);
 		init_page_count(page);
@@ -1065,6 +1242,9 @@ static int __devinit acornfb_probe(struct platform_device *dev)
 		fb_info.monspecs.dpms = current_par.dpms;
 	}
 
+	/*
+	 * Try to select a suitable default mode
+	 */
 	for (i = 0; i < ARRAY_SIZE(modedb); i++) {
 		unsigned long hs;
 
@@ -1086,6 +1266,11 @@ static int __devinit acornfb_probe(struct platform_device *dev)
 	fb_info.fix.smem_start = SCREEN_START;
 	current_par.using_vram = 0;
 
+	/*
+	 * If vram_size is set, we are using VRAM in
+	 * a Risc PC.  However, if the user has specified
+	 * an amount of DRAM then use that instead.
+	 */
 	if (vram_size && !current_par.dram_size) {
 		size = vram_size;
 		current_par.vram_half_sam = vram_size / 1024;
@@ -1095,6 +1280,9 @@ static int __devinit acornfb_probe(struct platform_device *dev)
 	else
 		size = MAX_SIZE;
 
+	/*
+	 * Limit maximum screen size.
+	 */
 	if (size > MAX_SIZE)
 		size = MAX_SIZE;
 
@@ -1105,6 +1293,11 @@ static int __devinit acornfb_probe(struct platform_device *dev)
 		dma_addr_t handle;
 		void *base;
 
+		/*
+		 * RiscPC needs to allocate the DRAM memory
+		 * for the framebuffer if we are not using
+		 * VRAM.
+		 */
 		base = dma_alloc_writecombine(current_par.dev, size, &handle,
 					      GFP_KERNEL);
 		if (base == NULL) {
@@ -1118,21 +1311,36 @@ static int __devinit acornfb_probe(struct platform_device *dev)
 	}
 #endif
 #if defined(HAS_VIDC)
+	/*
+	 * Archimedes/A5000 machines use a fixed address for their
+	 * framebuffers.  Free unused pages
+	 */
 	free_unused_pages(PAGE_OFFSET + size, PAGE_OFFSET + MAX_SIZE);
 #endif
 
 	fb_info.fix.smem_len = size;
 	current_par.palette_size   = VIDC_PALETTE_SIZE;
 
+	/*
+	 * Lookup the timing for this resolution.  If we can't
+	 * find it, then we can't restore it if we change
+	 * the resolution, so we disable this feature.
+	 */
 	do {
 		rc = fb_find_mode(&fb_info.var, &fb_info, NULL, modedb,
 				 ARRAY_SIZE(modedb),
 				 &acornfb_default_mode, DEFAULT_BPP);
+		/*
+		 * If we found an exact match, all ok.
+		 */
 		if (rc == 1)
 			break;
 
 		rc = fb_find_mode(&fb_info.var, &fb_info, NULL, NULL, 0,
 				  &acornfb_default_mode, DEFAULT_BPP);
+		/*
+		 * If we found an exact match, all ok.
+		 */
 		if (rc == 1)
 			break;
 
@@ -1146,6 +1354,10 @@ static int __devinit acornfb_probe(struct platform_device *dev)
 				  &acornfb_default_mode, DEFAULT_BPP);
 	} while (0);
 
+	/*
+	 * If we didn't find an exact match, try the
+	 * generic database.
+	 */
 	if (rc == 0) {
 		printk("Acornfb: no valid mode found\n");
 		return -EINVAL;

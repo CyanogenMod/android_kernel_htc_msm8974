@@ -36,7 +36,7 @@ module_param_named(debug_mask, pwrsink_debug_mask, int,
 		S_IRUGO | S_IWUSR | S_IWGRP);
 
 static int initialized;
-static unsigned audio_path = 1;	
+static unsigned audio_path = 1;	/* HTC_SND_DEVICE_SPEAKER = 1 */
 static struct pwr_sink_audio audio_sink_array[PWRSINK_AUDIO_LAST + 1];
 static struct pwr_sink *sink_array[PWRSINK_LAST + 1];
 static DEFINE_SPINLOCK(sink_lock);
@@ -90,12 +90,14 @@ EXPORT_SYMBOL(htc_pwrsink_set);
 
 static void compute_audio_current(void)
 {
-	
+	/* unsigned long flags; */
 	unsigned max_percent = 0;
 	int i, active_audio_sinks = 0;
 	pwrsink_audio_id_type last_active_audio_sink = 0;
 
-	
+	/* Make sure this segment will be spinlocked
+	before computing by calling function. */
+	/* spin_lock_irqsave(&audio_sink_lock, flags); */
 	for (i = 0; i <= PWRSINK_AUDIO_LAST; ++i) {
 		max_percent = (audio_sink_array[i].percent > max_percent) ?
 				audio_sink_array[i].percent : max_percent;
@@ -108,21 +110,21 @@ static void compute_audio_current(void)
 		htc_pwrsink_set(PWRSINK_AUDIO, 0);
 	else if (active_audio_sinks == 1) {
 		pwrsink_audio_id_type laas =  last_active_audio_sink;
-		
-		if (audio_path == 1)	
+		/* TODO: add volume and routing path current. */
+		if (audio_path == 1)	/* Speaker */
 			htc_pwrsink_set(PWRSINK_AUDIO,
 				audio_sink_array[laas].percent);
 		else
 			htc_pwrsink_set(PWRSINK_AUDIO,
 				audio_sink_array[laas].percent * 9 / 10);
 	} else if (active_audio_sinks > 1) {
-		
-		if (audio_path == 1)	
+		/* TODO: add volume and routing path current. */
+		if (audio_path == 1)	/* Speaker */
 			htc_pwrsink_set(PWRSINK_AUDIO, max_percent);
 		else
 			htc_pwrsink_set(PWRSINK_AUDIO, max_percent * 9 / 10);
 	}
-	
+	/* spin_unlock_irqrestore(&audio_sink_lock, flags); */
 
 	if (pwrsink_debug_mask & PWRSINK_DEBUG_CURR_CHANGE_AUDIO)
 		pr_info("%s: active_audio_sinks=%d, audio_path=%d\n", __func__,

@@ -44,13 +44,16 @@
 #include <linux/hwmon.h>
 #include <linux/workqueue.h>
 
+/* data port used by Apple SMC */
 #define APPLESMC_DATA_PORT	0x300
+/* command/status port used by Apple SMC */
 #define APPLESMC_CMD_PORT	0x304
 
-#define APPLESMC_NR_PORTS	32 
+#define APPLESMC_NR_PORTS	32 /* 0x300-0x31f */
 
 #define APPLESMC_MAX_DATA_LENGTH 32
 
+/* wait up to 32 ms for a status change. */
 #define APPLESMC_MIN_WAIT	0x0040
 #define APPLESMC_MAX_WAIT	0x8000
 
@@ -60,36 +63,37 @@
 #define APPLESMC_GET_KEY_BY_INDEX_CMD	0x12
 #define APPLESMC_GET_KEY_TYPE_CMD	0x13
 
-#define KEY_COUNT_KEY		"#KEY" 
+#define KEY_COUNT_KEY		"#KEY" /* r-o ui32 */
 
-#define LIGHT_SENSOR_LEFT_KEY	"ALV0" 
-#define LIGHT_SENSOR_RIGHT_KEY	"ALV1" 
-#define BACKLIGHT_KEY		"LKSB" 
+#define LIGHT_SENSOR_LEFT_KEY	"ALV0" /* r-o {alv (6-10 bytes) */
+#define LIGHT_SENSOR_RIGHT_KEY	"ALV1" /* r-o {alv (6-10 bytes) */
+#define BACKLIGHT_KEY		"LKSB" /* w-o {lkb (2 bytes) */
 
-#define CLAMSHELL_KEY		"MSLD" 
+#define CLAMSHELL_KEY		"MSLD" /* r-o ui8 (unused) */
 
-#define MOTION_SENSOR_X_KEY	"MO_X" 
-#define MOTION_SENSOR_Y_KEY	"MO_Y" 
-#define MOTION_SENSOR_Z_KEY	"MO_Z" 
-#define MOTION_SENSOR_KEY	"MOCN" 
+#define MOTION_SENSOR_X_KEY	"MO_X" /* r-o sp78 (2 bytes) */
+#define MOTION_SENSOR_Y_KEY	"MO_Y" /* r-o sp78 (2 bytes) */
+#define MOTION_SENSOR_Z_KEY	"MO_Z" /* r-o sp78 (2 bytes) */
+#define MOTION_SENSOR_KEY	"MOCN" /* r/w ui16 */
 
-#define FANS_COUNT		"FNum" 
-#define FANS_MANUAL		"FS! " 
-#define FAN_ID_FMT		"F%dID" 
+#define FANS_COUNT		"FNum" /* r-o ui8 */
+#define FANS_MANUAL		"FS! " /* r-w ui16 */
+#define FAN_ID_FMT		"F%dID" /* r-o char[16] */
 
+/* List of keys used to read/write fan speeds */
 static const char *const fan_speed_fmt[] = {
-	"F%dAc",		
-	"F%dMn",		
-	"F%dMx",		
-	"F%dSf",		
-	"F%dTg",		
+	"F%dAc",		/* actual speed */
+	"F%dMn",		/* minimum speed (rw) */
+	"F%dMx",		/* maximum speed */
+	"F%dSf",		/* safe speed - not all models */
+	"F%dTg",		/* target speed (manual: rw) */
 };
 
-#define INIT_TIMEOUT_MSECS	5000	
-#define INIT_WAIT_MSECS		50	
+#define INIT_TIMEOUT_MSECS	5000	/* wait up to 5s for device init ... */
+#define INIT_WAIT_MSECS		50	/* ... in 50ms increments */
 
-#define APPLESMC_POLL_INTERVAL	50	
-#define APPLESMC_INPUT_FUZZ	4	
+#define APPLESMC_POLL_INTERVAL	50	/* msecs */
+#define APPLESMC_INPUT_FUZZ	4	/* input event threshold */
 #define APPLESMC_INPUT_FLAT	4
 
 #define SENSOR_X 0
@@ -99,39 +103,43 @@ static const char *const fan_speed_fmt[] = {
 #define to_index(attr) (to_sensor_dev_attr(attr)->index & 0xffff)
 #define to_option(attr) (to_sensor_dev_attr(attr)->index >> 16)
 
+/* Dynamic device node attributes */
 struct applesmc_dev_attr {
-	struct sensor_device_attribute sda;	
-	char name[32];				
+	struct sensor_device_attribute sda;	/* hwmon attributes */
+	char name[32];				/* room for node file name */
 };
 
+/* Dynamic device node group */
 struct applesmc_node_group {
-	char *format;				
-	void *show;				
-	void *store;				
-	int option;				
-	struct applesmc_dev_attr *nodes;	
+	char *format;				/* format string */
+	void *show;				/* show function */
+	void *store;				/* store function */
+	int option;				/* function argument */
+	struct applesmc_dev_attr *nodes;	/* dynamic node array */
 };
 
+/* AppleSMC entry - cached register information */
 struct applesmc_entry {
-	char key[5];		
-	u8 valid;		
-	u8 len;			
-	char type[5];		
-	u8 flags;		
+	char key[5];		/* four-letter key code */
+	u8 valid;		/* set when entry is successfully read once */
+	u8 len;			/* bounded by APPLESMC_MAX_DATA_LENGTH */
+	char type[5];		/* four-letter type code */
+	u8 flags;		/* 0x10: func; 0x40: write; 0x80: read */
 };
 
+/* Register lookup and registers common to all SMCs */
 static struct applesmc_registers {
-	struct mutex mutex;		
-	unsigned int key_count;		
-	unsigned int fan_count;		
-	unsigned int temp_count;	
-	unsigned int temp_begin;	
-	unsigned int temp_end;		
-	int num_light_sensors;		
-	bool has_accelerometer;		
-	bool has_key_backlight;		
-	bool init_complete;		
-	struct applesmc_entry *cache;	
+	struct mutex mutex;		/* register read/write mutex */
+	unsigned int key_count;		/* number of SMC registers */
+	unsigned int fan_count;		/* number of fans */
+	unsigned int temp_count;	/* number of temperature registers */
+	unsigned int temp_begin;	/* temperature lower index bound */
+	unsigned int temp_end;		/* temperature upper index bound */
+	int num_light_sensors;		/* number of light sensors */
+	bool has_accelerometer;		/* has motion sensor */
+	bool has_key_backlight;		/* has keyboard backlight */
+	bool init_complete;		/* true when fully initialized */
+	struct applesmc_entry *cache;	/* cached key entries */
 } smcreg = {
 	.mutex = __MUTEX_INITIALIZER(smcreg.mutex),
 };
@@ -153,6 +161,11 @@ static unsigned int key_at_index;
 
 static struct workqueue_struct *applesmc_led_wq;
 
+/*
+ * __wait_status - Wait up to 32ms for the status port to get a certain value
+ * (masked with 0x0f), returning zero if the value is obtained.  Callers must
+ * hold applesmc_lock.
+ */
 static int __wait_status(u8 val)
 {
 	int us;
@@ -168,6 +181,11 @@ static int __wait_status(u8 val)
 	return -EIO;
 }
 
+/*
+ * special treatment of command port - on newer macbooks, it seems necessary
+ * to resend the command byte before polling the status again. Callers must
+ * hold applesmc_lock.
+ */
 static int send_command(u8 cmd)
 {
 	int us;
@@ -249,6 +267,12 @@ static int read_register_count(unsigned int *count)
 	return 0;
 }
 
+/*
+ * Serialized I/O
+ *
+ * Returns zero on success or a negative error on failure.
+ * All functions below are concurrency safe - callers should NOT hold lock.
+ */
 
 static int applesmc_read_entry(const struct applesmc_entry *entry,
 			       u8 *buf, u8 len)
@@ -407,6 +431,9 @@ static int applesmc_has_key(const char *key, bool *value)
 	return 0;
 }
 
+/*
+ * applesmc_read_motion_sensor - Read motion sensor (X, Y or Z).
+ */
 static int applesmc_read_motion_sensor(int index, s16 *value)
 {
 	u8 buffer[2];
@@ -431,6 +458,9 @@ static int applesmc_read_motion_sensor(int index, s16 *value)
 	return ret;
 }
 
+/*
+ * applesmc_device_init - initialize the accelerometer.  Can sleep.
+ */
 static void applesmc_device_init(void)
 {
 	int total;
@@ -452,6 +482,9 @@ static void applesmc_device_init(void)
 	pr_warn("failed to init the device\n");
 }
 
+/*
+ * applesmc_init_smcreg_try - Try to initialize register cache. Idempotent.
+ */
 static int applesmc_init_smcreg_try(void)
 {
 	struct applesmc_registers *s = &smcreg;
@@ -509,6 +542,12 @@ static int applesmc_init_smcreg_try(void)
 	return 0;
 }
 
+/*
+ * applesmc_init_smcreg - Initialize register cache.
+ *
+ * Retries until initialization is successful, or the operation times out.
+ *
+ */
 static int applesmc_init_smcreg(void)
 {
 	int ms, ret;
@@ -536,6 +575,7 @@ static void applesmc_destroy_smcreg(void)
 	smcreg.init_complete = false;
 }
 
+/* Device model stuff */
 static int applesmc_probe(struct platform_device *dev)
 {
 	int ret;
@@ -549,6 +589,7 @@ static int applesmc_probe(struct platform_device *dev)
 	return 0;
 }
 
+/* Synchronize device with memorized backlight state */
 static int applesmc_pm_resume(struct device *dev)
 {
 	if (smcreg.has_key_backlight)
@@ -556,6 +597,7 @@ static int applesmc_pm_resume(struct device *dev)
 	return 0;
 }
 
+/* Reinitialize device on resume from hibernation */
 static int applesmc_pm_restore(struct device *dev)
 {
 	applesmc_device_init();
@@ -576,6 +618,10 @@ static struct platform_driver applesmc_driver = {
 	},
 };
 
+/*
+ * applesmc_calibrate - Set our "resting" values.  Callers must
+ * hold applesmc_lock.
+ */
 static void applesmc_calibrate(void)
 {
 	applesmc_read_motion_sensor(SENSOR_X, &rest_x);
@@ -599,6 +645,7 @@ static void applesmc_idev_poll(struct input_polled_dev *dev)
 	input_sync(idev);
 }
 
+/* Sysfs Files */
 
 static ssize_t applesmc_name_show(struct device *dev,
 				   struct device_attribute *attr, char *buf)
@@ -649,7 +696,7 @@ static ssize_t applesmc_light_show(struct device *dev,
 	}
 
 	ret = applesmc_read_key(LIGHT_SENSOR_LEFT_KEY, buffer, data_length);
-	
+	/* newer macbooks report a single 10-bit bigendian value */
 	if (data_length == 10) {
 		left = be16_to_cpu(*(__be16 *)(buffer + 6)) >> 2;
 		goto out;
@@ -667,6 +714,7 @@ out:
 		return snprintf(sysfsbuf, PAGE_SIZE, "(%d,%d)\n", left, right);
 }
 
+/* Displays sensor key as label */
 static ssize_t applesmc_show_sensor_label(struct device *dev,
 			struct device_attribute *devattr, char *sysfsbuf)
 {
@@ -680,6 +728,7 @@ static ssize_t applesmc_show_sensor_label(struct device *dev,
 	return snprintf(sysfsbuf, PAGE_SIZE, "%s\n", entry->key);
 }
 
+/* Displays degree Celsius * 1000 */
 static ssize_t applesmc_show_temperature(struct device *dev,
 			struct device_attribute *devattr, char *sysfsbuf)
 {
@@ -738,7 +787,7 @@ static ssize_t applesmc_store_fan_speed(struct device *dev,
 	u8 buffer[2];
 
 	if (kstrtoul(sysfsbuf, 10, &speed) < 0 || speed >= 0x4000)
-		return -EINVAL;		
+		return -EINVAL;		/* Bigger than a 14-bit value */
 
 	sprintf(newkey, fan_speed_fmt[to_option(attr)], to_index(attr));
 
@@ -985,7 +1034,11 @@ static struct applesmc_node_group temp_group[] = {
 	{ }
 };
 
+/* Module stuff */
 
+/*
+ * applesmc_destroy_nodes - remove files and free associated memory
+ */
 static void applesmc_destroy_nodes(struct applesmc_node_group *groups)
 {
 	struct applesmc_node_group *grp;
@@ -1000,6 +1053,9 @@ static void applesmc_destroy_nodes(struct applesmc_node_group *groups)
 	}
 }
 
+/*
+ * applesmc_create_nodes - create a two-dimensional group of sysfs files
+ */
 static int applesmc_create_nodes(struct applesmc_node_group *groups, int num)
 {
 	struct applesmc_node_group *grp;
@@ -1037,6 +1093,7 @@ out:
 	return ret;
 }
 
+/* Create accelerometer ressources */
 static int applesmc_create_accelerometer(void)
 {
 	struct input_dev *idev;
@@ -1058,10 +1115,10 @@ static int applesmc_create_accelerometer(void)
 	applesmc_idev->poll = applesmc_idev_poll;
 	applesmc_idev->poll_interval = APPLESMC_POLL_INTERVAL;
 
-	
+	/* initial calibrate for the input device */
 	applesmc_calibrate();
 
-	
+	/* initialize the input device */
 	idev = applesmc_idev->input;
 	idev->name = "applesmc";
 	idev->id.bustype = BUS_HOST;
@@ -1089,6 +1146,7 @@ out:
 	return ret;
 }
 
+/* Release all ressources used by the accelerometer */
 static void applesmc_release_accelerometer(void)
 {
 	if (!smcreg.has_accelerometer)
@@ -1135,6 +1193,10 @@ static int applesmc_dmi_match(const struct dmi_system_id *id)
 	return 1;
 }
 
+/*
+ * Note that DMI_MATCH(...,"MacBook") will match "MacBookPro1,1".
+ * So we need to put "Apple MacBook Pro" before "Apple MacBook".
+ */
 static __initdata struct dmi_system_id applesmc_whitelist[] = {
 	{ applesmc_dmi_match, "Apple MacBook Air", {
 	  DMI_MATCH(DMI_BOARD_VENDOR, "Apple"),
@@ -1190,7 +1252,7 @@ static int __init applesmc_init(void)
 		goto out_driver;
 	}
 
-	
+	/* create register cache */
 	ret = applesmc_init_smcreg();
 	if (ret)
 		goto out_device;

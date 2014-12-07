@@ -136,7 +136,7 @@ struct cpu_map *cpu_map__new(const char *cpu_list)
 		}
 
 		for (; start_cpu <= end_cpu; start_cpu++) {
-			
+			/* check for duplicates */
 			for (i = 0; i < nr_cpus; i++)
 				if (tmp_cpus[i] == (int)start_cpu)
 					goto invalid;

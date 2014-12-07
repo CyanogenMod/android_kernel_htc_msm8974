@@ -30,7 +30,21 @@
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
 
+/*
+ * This driver supports various Lineage Compact Power Line DC/DC and AC/DC
+ * converters such as CP1800, CP2000AC, CP2000DC, CP2100DC, and others.
+ *
+ * The devices are nominally PMBus compliant. However, most standard PMBus
+ * commands are not supported. Specifically, all hardware monitoring and
+ * status reporting commands are non-standard. For this reason, a standard
+ * PMBus driver can not be used.
+ *
+ * All Lineage CPL devices have a built-in I2C bus master selector (PCA9541).
+ * To ensure device access, this driver should only be used as client driver
+ * to the pca9541 I2C master selector driver.
+ */
 
+/* Command codes */
 #define PEM_OPERATION		0x01
 #define PEM_CLEAR_INFO_FLAGS	0x03
 #define PEM_VOUT_COMMAND	0x21
@@ -43,6 +57,7 @@
 #define PEM_FAN_NORMAL_SPEED	0xe0
 #define PEM_READ_FAN_SPEED	0xe1
 
+/* offsets in data string */
 #define PEM_DATA_STATUS_2	0
 #define PEM_DATA_STATUS_1	1
 #define PEM_DATA_ALARM_2	2
@@ -52,18 +67,22 @@
 #define PEM_DATA_CURRENT	6
 #define PEM_DATA_TEMP		7
 
+/* Virtual entries, to report constants */
 #define PEM_DATA_TEMP_MAX	10
 #define PEM_DATA_TEMP_CRIT	11
 
+/* offsets in input string */
 #define PEM_INPUT_VOLTAGE	0
 #define PEM_INPUT_POWER_LSB	1
 #define PEM_INPUT_POWER_MSB	2
 
+/* offsets in fan data */
 #define PEM_FAN_ADJUSTMENT	0
 #define PEM_FAN_FAN1		1
 #define PEM_FAN_FAN2		2
 #define PEM_FAN_FAN3		3
 
+/* Status register bits */
 #define STS1_OUTPUT_ON		(1 << 0)
 #define STS1_LEDS_FLASHING	(1 << 1)
 #define STS1_EXT_FAULT		(1 << 2)
@@ -81,6 +100,7 @@
 #define STS2_WILL_RESTART	(1 << 6)
 #define STS2_PEC_ERR		(1 << 7)
 
+/* Alarm register bits */
 #define ALRM1_VIN_OUT_LIMIT	(1 << 0)
 #define ALRM1_VOUT_OUT_LIMIT	(1 << 1)
 #define ALRM1_OV_VOLT_SHUTDOWN	(1 << 2)
@@ -100,7 +120,7 @@
 
 #define FIRMWARE_REV_LEN	4
 #define DATA_STRING_LEN		9
-#define INPUT_STRING_LEN	5	
+#define INPUT_STRING_LEN	5	/* 4 for most devices	*/
 #define FAN_SPEED_LEN		5
 
 struct pem_data {
@@ -110,7 +130,7 @@ struct pem_data {
 	bool valid;
 	bool fans_supported;
 	int input_length;
-	unsigned long last_updated;	
+	unsigned long last_updated;	/* in jiffies */
 
 	u8 firmware_rev[FIRMWARE_REV_LEN];
 	u8 data_string[DATA_STRING_LEN];
@@ -148,7 +168,7 @@ static struct pem_data *pem_update_device(struct device *dev)
 	if (time_after(jiffies, data->last_updated + HZ) || !data->valid) {
 		int result;
 
-		
+		/* Read data string */
 		result = pem_read_block(client, PEM_READ_DATA_STRING,
 					data->data_string,
 					sizeof(data->data_string));
@@ -157,7 +177,7 @@ static struct pem_data *pem_update_device(struct device *dev)
 			goto abort;
 		}
 
-		
+		/* Read input string */
 		if (data->input_length) {
 			result = pem_read_block(client, PEM_READ_INPUT_STRING,
 						data->input_string,
@@ -168,7 +188,7 @@ static struct pem_data *pem_update_device(struct device *dev)
 			}
 		}
 
-		
+		/* Read fan speeds */
 		if (data->fans_supported) {
 			result = pem_read_block(client, PEM_READ_FAN_SPEED,
 						data->fan_speed,
@@ -204,10 +224,10 @@ static long pem_get_data(u8 *data, int len, int index)
 		val = data[index] * 1000;
 		break;
 	case PEM_DATA_TEMP_MAX:
-		val = 97 * 1000;	
+		val = 97 * 1000;	/* 97 degrees C per datasheet */
 		break;
 	case PEM_DATA_TEMP_CRIT:
-		val = 107 * 1000;	
+		val = 107 * 1000;	/* 107 degrees C per datasheet */
 		break;
 	default:
 		WARN_ON_ONCE(1);
@@ -256,6 +276,10 @@ static long pem_get_fan(u8 *data, int len, int index)
 	return val;
 }
 
+/*
+ * Show boolean, either a fault or an alarm.
+ * .nr points to the register, .index is the bit mask to check
+ */
 static ssize_t pem_show_bool(struct device *dev,
 			     struct device_attribute *da, char *buf)
 {
@@ -318,6 +342,7 @@ static ssize_t pem_show_fan(struct device *dev, struct device_attribute *da,
 	return snprintf(buf, PAGE_SIZE, "%ld\n", value);
 }
 
+/* Voltages */
 static SENSOR_DEVICE_ATTR(in1_input, S_IRUGO, pem_show_data, NULL,
 			  PEM_DATA_VOUT_LSB);
 static SENSOR_DEVICE_ATTR_2(in1_alarm, S_IRUGO, pem_show_bool, NULL,
@@ -330,16 +355,19 @@ static SENSOR_DEVICE_ATTR_2(in2_alarm, S_IRUGO, pem_show_bool, NULL,
 			    PEM_DATA_ALARM_1,
 			    ALRM1_VIN_OUT_LIMIT | ALRM1_PRIMARY_FAULT);
 
+/* Currents */
 static SENSOR_DEVICE_ATTR(curr1_input, S_IRUGO, pem_show_data, NULL,
 			  PEM_DATA_CURRENT);
 static SENSOR_DEVICE_ATTR_2(curr1_alarm, S_IRUGO, pem_show_bool, NULL,
 			    PEM_DATA_ALARM_1, ALRM1_VIN_OVERCURRENT);
 
+/* Power */
 static SENSOR_DEVICE_ATTR(power1_input, S_IRUGO, pem_show_input, NULL,
 			  PEM_INPUT_POWER_LSB);
 static SENSOR_DEVICE_ATTR_2(power1_alarm, S_IRUGO, pem_show_bool, NULL,
 			    PEM_DATA_ALARM_1, ALRM1_POWER_LIMIT);
 
+/* Fans */
 static SENSOR_DEVICE_ATTR(fan1_input, S_IRUGO, pem_show_fan, NULL,
 			  PEM_FAN_FAN1);
 static SENSOR_DEVICE_ATTR(fan2_input, S_IRUGO, pem_show_fan, NULL,
@@ -349,6 +377,7 @@ static SENSOR_DEVICE_ATTR(fan3_input, S_IRUGO, pem_show_fan, NULL,
 static SENSOR_DEVICE_ATTR_2(fan1_alarm, S_IRUGO, pem_show_bool, NULL,
 			    PEM_DATA_ALARM_2, ALRM2_FAN_FAULT);
 
+/* Temperatures */
 static SENSOR_DEVICE_ATTR(temp1_input, S_IRUGO, pem_show_data, NULL,
 			  PEM_DATA_TEMP);
 static SENSOR_DEVICE_ATTR(temp1_max, S_IRUGO, pem_show_data, NULL,
@@ -426,6 +455,10 @@ static int pem_probe(struct i2c_client *client,
 	i2c_set_clientdata(client, data);
 	mutex_init(&data->update_lock);
 
+	/*
+	 * We use the next two commands to determine if the device is really
+	 * there.
+	 */
 	ret = pem_read_block(client, PEM_READ_FIRMWARE_REV,
 			     data->firmware_rev, sizeof(data->firmware_rev));
 	if (ret < 0)
@@ -439,11 +472,17 @@ static int pem_probe(struct i2c_client *client,
 		 data->firmware_rev[0], data->firmware_rev[1],
 		 data->firmware_rev[2]);
 
-	
+	/* Register sysfs hooks */
 	ret = sysfs_create_group(&client->dev.kobj, &pem_group);
 	if (ret)
 		return ret;
 
+	/*
+	 * Check if input readings are supported.
+	 * This is the case if we can read input data,
+	 * and if the returned data is not all zeros.
+	 * Note that input alarms are always supported.
+	 */
 	ret = pem_read_block(client, PEM_READ_INPUT_STRING,
 			     data->input_string,
 			     sizeof(data->input_string) - 1);
@@ -451,7 +490,7 @@ static int pem_probe(struct i2c_client *client,
 		     data->input_string[2]))
 		data->input_length = sizeof(data->input_string) - 1;
 	else if (ret < 0) {
-		
+		/* Input string is one byte longer for some devices */
 		ret = pem_read_block(client, PEM_READ_INPUT_STRING,
 				    data->input_string,
 				    sizeof(data->input_string));
@@ -466,6 +505,12 @@ static int pem_probe(struct i2c_client *client,
 			goto out_remove_groups;
 	}
 
+	/*
+	 * Check if fan speed readings are supported.
+	 * This is the case if we can read fan speed data,
+	 * and if the returned data is not all zeros.
+	 * Note that the fan alarm is always supported.
+	 */
 	ret = pem_read_block(client, PEM_READ_FAN_SPEED,
 			     data->fan_speed,
 			     sizeof(data->fan_speed));

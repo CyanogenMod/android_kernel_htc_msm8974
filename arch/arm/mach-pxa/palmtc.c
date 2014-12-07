@@ -42,15 +42,18 @@
 #include "generic.h"
 #include "devices.h"
 
+/******************************************************************************
+ * Pin configuration
+ ******************************************************************************/
 static unsigned long palmtc_pin_config[] __initdata = {
-	
+	/* MMC */
 	GPIO6_MMC_CLK,
 	GPIO8_MMC_CS0,
-	GPIO12_GPIO,	
-	GPIO32_GPIO,	
-	GPIO54_GPIO,	
+	GPIO12_GPIO,	/* detect */
+	GPIO32_GPIO,	/* power */
+	GPIO54_GPIO,	/* r/o switch */
 
-	
+	/* PCMCIA */
 	GPIO52_nPCE_1,
 	GPIO53_nPCE_2,
 	GPIO50_nPIOR,
@@ -62,54 +65,57 @@ static unsigned long palmtc_pin_config[] __initdata = {
 	GPIO57_nIOIS16,
 	GPIO56_nPWAIT,
 
-	
+	/* AC97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
 	GPIO31_AC97_SYNC,
 
-	
-	GPIO45_GPIO,	
+	/* IrDA */
+	GPIO45_GPIO,	/* ir disable */
 	GPIO46_FICP_RXD,
 	GPIO47_FICP_TXD,
 
-	
+	/* PWM */
 	GPIO17_PWM1_OUT,
 
-	
-	GPIO4_GPIO,	
-	GPIO36_GPIO,	
+	/* USB */
+	GPIO4_GPIO,	/* detect */
+	GPIO36_GPIO,	/* pullup */
 
-	
+	/* LCD */
 	GPIOxx_LCD_TFT_16BPP,
 
-	
-	GPIO0_GPIO | WAKEUP_ON_EDGE_BOTH,	
-	GPIO9_GPIO | WAKEUP_ON_EDGE_BOTH,	
-	GPIO10_GPIO | WAKEUP_ON_EDGE_BOTH,	
-	GPIO11_GPIO | WAKEUP_ON_EDGE_BOTH,	
-	GPIO18_GPIO | MFP_LPM_DRIVE_LOW,	
-	GPIO19_GPIO | MFP_LPM_DRIVE_LOW,	
-	GPIO20_GPIO | MFP_LPM_DRIVE_LOW,	
-	GPIO21_GPIO | MFP_LPM_DRIVE_LOW,	
-	GPIO22_GPIO | MFP_LPM_DRIVE_LOW,	
-	GPIO23_GPIO | MFP_LPM_DRIVE_LOW,	
-	GPIO24_GPIO | MFP_LPM_DRIVE_LOW,	
-	GPIO25_GPIO | MFP_LPM_DRIVE_LOW,	
-	GPIO26_GPIO | MFP_LPM_DRIVE_LOW,	
-	GPIO27_GPIO | MFP_LPM_DRIVE_LOW,	
-	GPIO79_GPIO | MFP_LPM_DRIVE_LOW,	
-	GPIO80_GPIO | MFP_LPM_DRIVE_LOW,	
+	/* MATRIX KEYPAD */
+	GPIO0_GPIO | WAKEUP_ON_EDGE_BOTH,	/* in 0 */
+	GPIO9_GPIO | WAKEUP_ON_EDGE_BOTH,	/* in 1 */
+	GPIO10_GPIO | WAKEUP_ON_EDGE_BOTH,	/* in 2 */
+	GPIO11_GPIO | WAKEUP_ON_EDGE_BOTH,	/* in 3 */
+	GPIO18_GPIO | MFP_LPM_DRIVE_LOW,	/* out 0 */
+	GPIO19_GPIO | MFP_LPM_DRIVE_LOW,	/* out 1 */
+	GPIO20_GPIO | MFP_LPM_DRIVE_LOW,	/* out 2 */
+	GPIO21_GPIO | MFP_LPM_DRIVE_LOW,	/* out 3 */
+	GPIO22_GPIO | MFP_LPM_DRIVE_LOW,	/* out 4 */
+	GPIO23_GPIO | MFP_LPM_DRIVE_LOW,	/* out 5 */
+	GPIO24_GPIO | MFP_LPM_DRIVE_LOW,	/* out 6 */
+	GPIO25_GPIO | MFP_LPM_DRIVE_LOW,	/* out 7 */
+	GPIO26_GPIO | MFP_LPM_DRIVE_LOW,	/* out 8 */
+	GPIO27_GPIO | MFP_LPM_DRIVE_LOW,	/* out 9 */
+	GPIO79_GPIO | MFP_LPM_DRIVE_LOW,	/* out 10 */
+	GPIO80_GPIO | MFP_LPM_DRIVE_LOW,	/* out 11 */
 
-	
-	GPIO7_GPIO | WAKEUP_ON_EDGE_BOTH,	
+	/* PXA GPIO KEYS */
+	GPIO7_GPIO | WAKEUP_ON_EDGE_BOTH,	/* hotsync button on cradle */
 
-	
-	GPIO1_RST,	
-	GPIO2_GPIO,	
-	GPIO16_GPIO,	
+	/* MISC */
+	GPIO1_RST,	/* reset */
+	GPIO2_GPIO,	/* earphone detect */
+	GPIO16_GPIO,	/* backlight switch */
 };
 
+/******************************************************************************
+ * SD/MMC card controller
+ ******************************************************************************/
 #if defined(CONFIG_MMC_PXA) || defined(CONFIG_MMC_PXA_MODULE)
 static struct pxamci_platform_data palmtc_mci_platform_data = {
 	.ocr_mask		= MMC_VDD_32_33 | MMC_VDD_33_34,
@@ -127,6 +133,9 @@ static void __init palmtc_mmc_init(void)
 static inline void palmtc_mmc_init(void) {}
 #endif
 
+/******************************************************************************
+ * GPIO keys
+ ******************************************************************************/
 #if defined(CONFIG_KEYBOARD_GPIO) || defined(CONFIG_KEYBOARD_GPIO_MODULE)
 static struct gpio_keys_button palmtc_pxa_buttons[] = {
 	{KEY_F8, GPIO_NR_PALMTC_HOTSYNC_BUTTON, 1, "HotSync Button", EV_KEY, 1},
@@ -153,6 +162,9 @@ static void __init palmtc_keys_init(void)
 static inline void palmtc_keys_init(void) {}
 #endif
 
+/******************************************************************************
+ * Backlight
+ ******************************************************************************/
 #if defined(CONFIG_BACKLIGHT_PWM) || defined(CONFIG_BACKLIGHT_PWM_MODULE)
 static int palmtc_backlight_init(struct device *dev)
 {
@@ -175,7 +187,7 @@ err:
 
 static int palmtc_backlight_notify(struct device *dev, int brightness)
 {
-	
+	/* backlight is on when GPIO16 AF0 is high */
 	gpio_set_value(GPIO_NR_PALMTC_BL_POWER, brightness);
 	return brightness;
 }
@@ -211,6 +223,9 @@ static void __init palmtc_pwm_init(void)
 static inline void palmtc_pwm_init(void) {}
 #endif
 
+/******************************************************************************
+ * IrDA
+ ******************************************************************************/
 #if defined(CONFIG_IRDA) || defined(CONFIG_IRDA_MODULE)
 static struct pxaficp_platform_data palmtc_ficp_platform_data = {
 	.gpio_pwdown		= GPIO_NR_PALMTC_IR_DISABLE,
@@ -225,6 +240,9 @@ static void __init palmtc_irda_init(void)
 static inline void palmtc_irda_init(void) {}
 #endif
 
+/******************************************************************************
+ * Keyboard
+ ******************************************************************************/
 #if defined(CONFIG_KEYBOARD_MATRIX) || defined(CONFIG_KEYBOARD_MATRIX_MODULE)
 static const uint32_t palmtc_matrix_keys[] = {
 	KEY(0, 0, KEY_F1),
@@ -317,6 +335,9 @@ static void __init palmtc_mkp_init(void)
 static inline void palmtc_mkp_init(void) {}
 #endif
 
+/******************************************************************************
+ * UDC
+ ******************************************************************************/
 #if defined(CONFIG_USB_PXA25X)||defined(CONFIG_USB_PXA25X_MODULE)
 static struct gpio_vbus_mach_info palmtc_udc_info = {
 	.gpio_vbus		= GPIO_NR_PALMTC_USB_DETECT_N,
@@ -340,6 +361,9 @@ static void __init palmtc_udc_init(void)
 static inline void palmtc_udc_init(void) {}
 #endif
 
+/******************************************************************************
+ * Touchscreen / Battery / GPIO-extender
+ ******************************************************************************/
 #if	defined(CONFIG_TOUCHSCREEN_UCB1400) || \
 	defined(CONFIG_TOUCHSCREEN_UCB1400_MODULE)
 static struct platform_device palmtc_ucb1400_device = {
@@ -356,6 +380,9 @@ static void __init palmtc_ts_init(void)
 static inline void palmtc_ts_init(void) {}
 #endif
 
+/******************************************************************************
+ * LEDs
+ ******************************************************************************/
 #if defined(CONFIG_LEDS_GPIO) || defined(CONFIG_LEDS_GPIO_MODULE)
 struct gpio_led palmtc_gpio_leds[] = {
 {
@@ -393,6 +420,9 @@ static void __init palmtc_leds_init(void)
 static inline void palmtc_leds_init(void) {}
 #endif
 
+/******************************************************************************
+ * NOR Flash
+ ******************************************************************************/
 #if defined(CONFIG_MTD_PHYSMAP) || defined(CONFIG_MTD_PHYSMAP_MODULE)
 static struct resource palmtc_flash_resource = {
 	.start	= PXA_CS0_PHYS,
@@ -447,6 +477,9 @@ static void __init palmtc_nor_init(void)
 static inline void palmtc_nor_init(void) {}
 #endif
 
+/******************************************************************************
+ * Framebuffer
+ ******************************************************************************/
 #if defined(CONFIG_FB_PXA) || defined(CONFIG_FB_PXA_MODULE)
 static struct pxafb_mode_info palmtc_lcd_modes[] = {
 	{
@@ -479,6 +512,9 @@ static void __init palmtc_lcd_init(void)
 static inline void palmtc_lcd_init(void) {}
 #endif
 
+/******************************************************************************
+ * Machine init
+ ******************************************************************************/
 static void __init palmtc_init(void)
 {
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(palmtc_pin_config));

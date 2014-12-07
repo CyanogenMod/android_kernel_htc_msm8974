@@ -31,6 +31,7 @@
 #include "machvec_impl.h"
 
 
+/* Note mask bit is true for ENABLED irqs.  */
 static unsigned long cached_irq_mask;
 
 static inline void
@@ -70,12 +71,18 @@ rx164_device_interrupt(unsigned long vector)
 	volatile unsigned int *dirr;
 	long i;
 
+	/* Read the interrupt summary register.  On Polaris, this is
+	   the DIRR register in PCI config space (offset 0x84).  */
 	dirr = (void *)(POLARIS_DENSE_CONFIG_BASE + 0x84);
 	pld = *dirr;
 
+	/*
+	 * Now for every possible bit set, work through them and call
+	 * the appropriate interrupt handler.
+	 */
 	while (pld) {
 		i = ffz(~pld);
-		pld &= pld - 1; 
+		pld &= pld - 1; /* clear least bit set */
 		if (i == 20) {
 			isa_no_iack_sc_device_interrupt(vector);
 		} else {
@@ -102,38 +109,74 @@ rx164_init_irq(void)
 }
 
 
+/*
+ * The RX164 changed its interrupt routing between pass1 and pass2...
+ *
+ * PASS1:
+ *
+ *      Slot    IDSEL   INTA    INTB    INTC    INTD    
+ *      0       6       5       10      15      20
+ *      1       7       4       9       14      19
+ *      2       5       3       8       13      18
+ *      3       9       2       7       12      17
+ *      4       10      1       6       11      16
+ *
+ * PASS2:
+ *      Slot    IDSEL   INTA    INTB    INTC    INTD    
+ *      0       5       1       7       12      17
+ *      1       6       2       8       13      18
+ *      2       8       3       9       14      19
+ *      3       9       4       10      15      20
+ *      4       10      5       11      16      6
+ *      
+ */
 
+/*
+ * IdSel       
+ *   5  32 bit PCI option slot 0
+ *   6  64 bit PCI option slot 1
+ *   7  PCI-ISA bridge
+ *   7  64 bit PCI option slot 2
+ *   9  32 bit PCI option slot 3
+ *  10  PCI-PCI bridge
+ * 
+ */
 
 static int __init
 rx164_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 #if 0
 	static char irq_tab_pass1[6][5] __initdata = {
-	  
-	  { 16+3, 16+3, 16+8, 16+13, 16+18},      
-	  { 16+5, 16+5, 16+10, 16+15, 16+20},     
-	  { 16+4, 16+4, 16+9, 16+14, 16+19},      
-	  { -1,     -1,    -1,    -1,   -1},      
-	  { 16+2, 16+2, 16+7, 16+12, 16+17},      
-	  { 16+1, 16+1, 16+6, 16+11, 16+16},      
+	  /*INT   INTA  INTB  INTC   INTD */
+	  { 16+3, 16+3, 16+8, 16+13, 16+18},      /* IdSel 5,  slot 2 */
+	  { 16+5, 16+5, 16+10, 16+15, 16+20},     /* IdSel 6,  slot 0 */
+	  { 16+4, 16+4, 16+9, 16+14, 16+19},      /* IdSel 7,  slot 1 */
+	  { -1,     -1,    -1,    -1,   -1},      /* IdSel 8, PCI/ISA bridge */
+	  { 16+2, 16+2, 16+7, 16+12, 16+17},      /* IdSel 9,  slot 3 */
+	  { 16+1, 16+1, 16+6, 16+11, 16+16},      /* IdSel 10, slot 4 */
 	};
 #else
 	static char irq_tab[6][5] __initdata = {
-	  
-	  { 16+0, 16+0, 16+6, 16+11, 16+16},      
-	  { 16+1, 16+1, 16+7, 16+12, 16+17},      
-	  { -1,     -1,    -1,    -1,   -1},      
-	  { 16+2, 16+2, 16+8, 16+13, 16+18},      
-	  { 16+3, 16+3, 16+9, 16+14, 16+19},      
-	  { 16+4, 16+4, 16+10, 16+15, 16+5},      
+	  /*INT   INTA  INTB  INTC   INTD */
+	  { 16+0, 16+0, 16+6, 16+11, 16+16},      /* IdSel 5,  slot 0 */
+	  { 16+1, 16+1, 16+7, 16+12, 16+17},      /* IdSel 6,  slot 1 */
+	  { -1,     -1,    -1,    -1,   -1},      /* IdSel 7, PCI/ISA bridge */
+	  { 16+2, 16+2, 16+8, 16+13, 16+18},      /* IdSel 8,  slot 2 */
+	  { 16+3, 16+3, 16+9, 16+14, 16+19},      /* IdSel 9,  slot 3 */
+	  { 16+4, 16+4, 16+10, 16+15, 16+5},      /* IdSel 10, PCI-PCI */
 	};
 #endif
 	const long min_idsel = 5, max_idsel = 10, irqs_per_slot = 5;
 
+	/* JRP - Need to figure out how to distinguish pass1 from pass2,
+	   and use the correct table.  */
 	return COMMON_TABLE_LOOKUP;
 }
 
 
+/*
+ * The System Vector
+ */
 
 struct alpha_machine_vector rx164_mv __initmv = {
 	.vector_name		= "RX164",

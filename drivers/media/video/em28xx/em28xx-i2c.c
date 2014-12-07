@@ -31,6 +31,7 @@
 #include <media/v4l2-common.h>
 #include <media/tuner.h>
 
+/* ----------------------------------------------------------- */
 
 static unsigned int i2c_scan;
 module_param(i2c_scan, int, 0444);
@@ -48,6 +49,10 @@ do {							\
       } 						\
 } while (0)
 
+/*
+ * em2800_i2c_send_max4()
+ * send up to 4 bytes to the i2c device
+ */
 static int em2800_i2c_send_max4(struct em28xx *dev, unsigned char addr,
 				char *buf, int len)
 {
@@ -81,6 +86,9 @@ static int em2800_i2c_send_max4(struct em28xx *dev, unsigned char addr,
 	return -EIO;
 }
 
+/*
+ * em2800_i2c_send_bytes()
+ */
 static int em2800_i2c_send_bytes(void *data, unsigned char addr, char *buf,
 				 short len)
 {
@@ -103,6 +111,10 @@ static int em2800_i2c_send_bytes(void *data, unsigned char addr, char *buf,
 	return wrcount;
 }
 
+/*
+ * em2800_i2c_check_for_device()
+ * check if there is a i2c_device at the supplied address
+ */
 static int em2800_i2c_check_for_device(struct em28xx *dev, unsigned char addr)
 {
 	char msg;
@@ -134,11 +146,15 @@ static int em2800_i2c_check_for_device(struct em28xx *dev, unsigned char addr)
 	return -ENODEV;
 }
 
+/*
+ * em2800_i2c_recv_bytes()
+ * read from the i2c device
+ */
 static int em2800_i2c_recv_bytes(struct em28xx *dev, unsigned char addr,
 				 char *buf, int len)
 {
 	int ret;
-	
+	/* check for the device and set i2c read address */
 	ret = em2800_i2c_check_for_device(dev, addr);
 	if (ret) {
 		em28xx_warn
@@ -155,6 +171,9 @@ static int em2800_i2c_recv_bytes(struct em28xx *dev, unsigned char addr,
 	return ret;
 }
 
+/*
+ * em28xx_i2c_send_bytes()
+ */
 static int em28xx_i2c_send_bytes(void *data, unsigned char addr, char *buf,
 				 short len, int stop)
 {
@@ -164,7 +183,7 @@ static int em28xx_i2c_send_bytes(void *data, unsigned char addr, char *buf,
 
 	wrcount = dev->em28xx_write_regs_req(dev, stop ? 2 : 3, addr, buf, len);
 
-	
+	/* Seems to be required after a write */
 	for (write_timeout = EM2800_I2C_WRITE_TIMEOUT; write_timeout > 0;
 	     write_timeout -= 5) {
 		ret = dev->em28xx_read_reg(dev, 0x05);
@@ -176,6 +195,10 @@ static int em28xx_i2c_send_bytes(void *data, unsigned char addr, char *buf,
 	return wrcount;
 }
 
+/*
+ * em28xx_i2c_recv_bytes()
+ * read a byte from the i2c device
+ */
 static int em28xx_i2c_recv_bytes(struct em28xx *dev, unsigned char addr,
 				 char *buf, int len)
 {
@@ -190,6 +213,10 @@ static int em28xx_i2c_recv_bytes(struct em28xx *dev, unsigned char addr,
 	return ret;
 }
 
+/*
+ * em28xx_i2c_check_for_device()
+ * check if there is a i2c_device at the supplied address
+ */
 static int em28xx_i2c_check_for_device(struct em28xx *dev, unsigned char addr)
 {
 	int ret;
@@ -204,6 +231,10 @@ static int em28xx_i2c_check_for_device(struct em28xx *dev, unsigned char addr)
 	return 0;
 }
 
+/*
+ * em28xx_i2c_xfer()
+ * the main i2c transfer function
+ */
 static int em28xx_i2c_xfer(struct i2c_adapter *i2c_adap,
 			   struct i2c_msg msgs[], int num)
 {
@@ -217,7 +248,7 @@ static int em28xx_i2c_xfer(struct i2c_adapter *i2c_adap,
 		dprintk2(2, "%s %s addr=%x len=%d:",
 			 (msgs[i].flags & I2C_M_RD) ? "read" : "write",
 			 i == num - 1 ? "stop" : "nonstop", addr, msgs[i].len);
-		if (!msgs[i].len) { 
+		if (!msgs[i].len) { /* no len: check only for device presence */
 			if (dev->board.is_em2800)
 				rc = em2800_i2c_check_for_device(dev, addr);
 			else
@@ -228,7 +259,7 @@ static int em28xx_i2c_xfer(struct i2c_adapter *i2c_adap,
 			}
 
 		} else if (msgs[i].flags & I2C_M_RD) {
-			
+			/* read bytes */
 			if (dev->board.is_em2800)
 				rc = em2800_i2c_recv_bytes(dev, addr,
 							   msgs[i].buf,
@@ -242,7 +273,7 @@ static int em28xx_i2c_xfer(struct i2c_adapter *i2c_adap,
 					printk(" %02x", msgs[i].buf[byte]);
 			}
 		} else {
-			
+			/* write bytes */
 			if (i2c_debug >= 2) {
 				for (byte = 0; byte < msgs[i].len; byte++)
 					printk(" %02x", msgs[i].buf[byte]);
@@ -269,6 +300,10 @@ err:
 	return rc;
 }
 
+/* based on linux/sunrpc/svcauth.h and linux/hash.h
+ * The original hash function returns a different value, if arch is x86_64
+ *  or i386.
+ */
 static inline unsigned long em28xx_hash_mem(char *buf, int length, int bits)
 {
 	unsigned long hash = 0;
@@ -299,12 +334,19 @@ static int em28xx_i2c_eeprom(struct em28xx *dev, unsigned char *eedata, int len)
 	if (dev->chip_id == CHIP_ID_EM2874 ||
 	    dev->chip_id == CHIP_ID_EM28174 ||
 	    dev->chip_id == CHIP_ID_EM2884) {
+		/* Empia switched to a 16-bit addressable eeprom in newer
+		   devices.  While we could certainly write a routine to read
+		   the eeprom, there is nothing of use in there that cannot be
+		   accessed through registers, and there is the risk that we
+		   could corrupt the eeprom (since a 16-bit read call is
+		   interpreted as a write call by 8-bit eeproms).
+		*/
 		return 0;
 	}
 
 	dev->i2c_client.addr = 0xa0 >> 1;
 
-	
+	/* Check if board has eeprom */
 	err = i2c_master_recv(&dev->i2c_client, &buf, 0);
 	if (err < 0) {
 		em28xx_errdev("board has no eeprom\n");
@@ -400,7 +442,11 @@ static int em28xx_i2c_eeprom(struct em28xx *dev, unsigned char *eedata, int len)
 	return 0;
 }
 
+/* ----------------------------------------------------------- */
 
+/*
+ * functionality()
+ */
 static u32 functionality(struct i2c_adapter *adap)
 {
 	return I2C_FUNC_SMBUS_EMUL;
@@ -421,7 +467,12 @@ static struct i2c_client em28xx_client_template = {
 	.name = "em28xx internal",
 };
 
+/* ----------------------------------------------------------- */
 
+/*
+ * i2c_devs
+ * incomplete list of known devices
+ */
 static char *i2c_devs[128] = {
 	[0x4a >> 1] = "saa7113h",
 	[0x60 >> 1] = "remote IR sensor",
@@ -439,6 +490,10 @@ static char *i2c_devs[128] = {
 	[0xc6 >> 1] = "tuner (analog)",
 };
 
+/*
+ * do_i2c_scan()
+ * check i2c address range for devices
+ */
 void em28xx_do_i2c_scan(struct em28xx *dev)
 {
 	u8 i2c_devicelist[128];
@@ -461,6 +516,10 @@ void em28xx_do_i2c_scan(struct em28xx *dev)
 					ARRAY_SIZE(i2c_devicelist), 32);
 }
 
+/*
+ * em28xx_i2c_register()
+ * register i2c bus
+ */
 int em28xx_i2c_register(struct em28xx *dev)
 {
 	int retval;
@@ -494,12 +553,16 @@ int em28xx_i2c_register(struct em28xx *dev)
 	if (i2c_scan)
 		em28xx_do_i2c_scan(dev);
 
-	
+	/* Instantiate the IR receiver device, if present */
 	em28xx_register_i2c_ir(dev);
 
 	return 0;
 }
 
+/*
+ * em28xx_i2c_unregister()
+ * unregister i2c_bus
+ */
 int em28xx_i2c_unregister(struct em28xx *dev)
 {
 	i2c_del_adapter(&dev->i2c_adap);

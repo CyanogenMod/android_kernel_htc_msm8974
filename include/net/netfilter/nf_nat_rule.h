@@ -12,4 +12,4 @@ extern int nf_nat_rule_find(struct sk_buff *skb,
 			    const struct net_device *out,
 			    struct nf_conn *ct);
 
-#endif 
+#endif /* _NF_NAT_RULE_H */

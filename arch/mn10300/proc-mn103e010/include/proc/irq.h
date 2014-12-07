@@ -29,6 +29,6 @@
 
 #define XIRQ2IRQ(num)	(XIRQ0 + num)
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_PROC_IRQ_H */

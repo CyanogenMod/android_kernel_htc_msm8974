@@ -45,18 +45,27 @@ struct sctp_association;
 struct sctp_authkey;
 struct sctp_hmacalgo;
 
+/*
+ * Define a generic struct that will hold all the info
+ * necessary for an HMAC transform
+ */
 struct sctp_hmac {
-	__u16 hmac_id;		
-	char *hmac_name;	
-	__u16 hmac_len;		
+	__u16 hmac_id;		/* one of the above ids */
+	char *hmac_name;	/* name for loading */
+	__u16 hmac_len;		/* length of the signature */
 };
 
+/* This is generic structure that containst authentication bytes used
+ * as keying material.  It's a what is referred to as byte-vector all
+ * over SCTP-AUTH
+ */
 struct sctp_auth_bytes {
 	atomic_t refcnt;
 	__u32 len;
 	__u8  data[];
 };
 
+/* Definition for a shared key, weather endpoint or association */
 struct sctp_shared_key {
 	struct list_head key_list;
 	__u16 key_id;
@@ -101,6 +110,7 @@ void sctp_auth_calculate_hmac(const struct sctp_association *asoc,
 			    struct sk_buff *skb,
 			    struct sctp_auth_chunk *auth, gfp_t gfp);
 
+/* API Helpers */
 int sctp_auth_ep_add_chunkid(struct sctp_endpoint *ep, __u8 chunk_id);
 int sctp_auth_ep_set_hmacs(struct sctp_endpoint *ep,
 			    struct sctp_hmacalgo *hmacs);

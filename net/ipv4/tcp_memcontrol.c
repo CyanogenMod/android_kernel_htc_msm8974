@@ -51,6 +51,11 @@ EXPORT_SYMBOL(memcg_tcp_enter_memory_pressure);
 
 int tcp_init_cgroup(struct cgroup *cgrp, struct cgroup_subsys *ss)
 {
+	/*
+	 * The root cgroup does not use res_counters, but rather,
+	 * rely on the data already collected by the network
+	 * subsystem
+	 */
 	struct res_counter *res_parent = NULL;
 	struct cg_proto *cg_proto, *parent_cg;
 	struct tcp_memcontrol *tcp;
@@ -154,7 +159,7 @@ static int tcp_cgroup_write(struct cgroup *cont, struct cftype *cft,
 
 	switch (cft->private) {
 	case RES_LIMIT:
-		
+		/* see memcontrol.c */
 		ret = res_counter_memparse_write_strategy(buffer, &val);
 		if (ret)
 			break;

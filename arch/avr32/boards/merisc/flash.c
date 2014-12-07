@@ -14,6 +14,7 @@
 #include <linux/mtd/physmap.h>
 #include <mach/smc.h>
 
+/* Will be translated to units of 14.3 ns, rounded up */
 static struct smc_timing flash_timing __initdata = {
 	.ncs_read_setup		= 1 * 14,
 	.nrd_setup		= 5 * 14,

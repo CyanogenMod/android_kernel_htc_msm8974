@@ -102,7 +102,7 @@ static struct snd_soc_dai_link e750_dai[] = {
 		.platform_name = "pxa-pcm-audio",
 		.codec_name = "wm9705-codec",
 		.init = e750_ac97_init,
-		
+		/* use ops to check startup state */
 	},
 	{
 		.name = "AC97 Aux",
@@ -167,6 +167,7 @@ static struct platform_driver e750_driver = {
 
 module_platform_driver(e750_driver);
 
+/* Module information */
 MODULE_AUTHOR("Ian Molton <spyro@f2s.com>");
 MODULE_DESCRIPTION("ALSA SoC driver for e750");
 MODULE_LICENSE("GPL v2");

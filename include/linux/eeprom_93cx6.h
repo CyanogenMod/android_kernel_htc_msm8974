@@ -18,7 +18,15 @@
 	59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+/*
+	Module: eeprom_93cx6
+	Abstract: EEPROM reader datastructures for 93cx6 chipsets.
+	Supported chipsets: 93c46, 93c56 and 93c66.
+ */
 
+/*
+ * EEPROM operation defines.
+ */
 #define PCI_EEPROM_WIDTH_93C46	6
 #define PCI_EEPROM_WIDTH_93C56	8
 #define PCI_EEPROM_WIDTH_93C66	8
@@ -30,6 +38,24 @@
 #define PCI_EEPROM_EWDS_OPCODE	0x10
 #define PCI_EEPROM_EWEN_OPCODE	0x13
 
+/**
+ * struct eeprom_93cx6 - control structure for setting the commands
+ * for reading the eeprom data.
+ * @data: private pointer for the driver.
+ * @register_read(struct eeprom_93cx6 *eeprom): handler to
+ * read the eeprom register, this function should set all reg_* fields.
+ * @register_write(struct eeprom_93cx6 *eeprom): handler to
+ * write to the eeprom register by using all reg_* fields.
+ * @width: eeprom width, should be one of the PCI_EEPROM_WIDTH_* defines
+ * @drive_data: Set if we're driving the data line.
+ * @reg_data_in: register field to indicate data input
+ * @reg_data_out: register field to indicate data output
+ * @reg_data_clock: register field to set the data clock
+ * @reg_chip_select: register field to set the chip select
+ *
+ * This structure is used for the communication between the driver
+ * and the eeprom_93cx6 handlers for reading the eeprom.
+ */
 struct eeprom_93cx6 {
 	void *data;
 

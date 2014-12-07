@@ -1,3 +1,9 @@
+/*
+ * Picvue PVC160206 display driver
+ *
+ * Brian Murphy <brian@murphy.dk>
+ *
+ */
 #include <linux/kernel.h>
 #include <linux/delay.h>
 #include <asm/bootinfo.h>

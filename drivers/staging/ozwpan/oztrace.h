@@ -18,11 +18,11 @@ extern unsigned long trace_flags;
 	} while (0)
 #else
 #define oz_trace2(...)
-#endif 
+#endif /* #ifdef WANT_VERBOSE_TRACE */
 #else
 #define oz_trace(...)
 #define oz_trace2(...)
-#endif 
+#endif /* #ifdef WANT_TRACE */
 
 #define OZ_TRACE_STREAM		0x1
 #define OZ_TRACE_URB		0x2
@@ -31,5 +31,5 @@ extern unsigned long trace_flags;
 #define OZ_TRACE_RX_FRAMES	0x10
 #define OZ_TRACE_TX_FRAMES	0x20
 
-#endif 
+#endif /* Sentry */
 

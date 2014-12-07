@@ -25,12 +25,13 @@
 #define DEFAULT_HEARTBEAT	19
 #define MAX_HEARTBEAT		(0x10000000 >> 6)
 
+/* missing bitmask in headers */
 #define BV_RTC_PERSISTENT1_GENERAL__RTC_FORCE_UPDATER     0x80000000
 
 #define WDT_IN_USE		0
 #define WDT_OK_TO_CLOSE		1
 
-#define WDOG_COUNTER_RATE	1000 
+#define WDOG_COUNTER_RATE	1000 /* 1 kHz clock */
 
 static DEFINE_SPINLOCK(stmp3xxx_wdt_io_lock);
 static unsigned long wdt_status;
@@ -160,7 +161,7 @@ static long stmp3xxx_wdt_ioctl(struct file *file, unsigned int cmd,
 
 		heartbeat = new_heartbeat;
 		wdt_ping();
-		
+		/* Fall through */
 
 	case WDIOC_GETTIMEOUT:
 		ret = put_user(heartbeat, p);
@@ -215,7 +216,7 @@ static int __devinit stmp3xxx_wdt_probe(struct platform_device *pdev)
 	boot_status = !!boot_status;
 	stmp3xxx_clearl(BV_RTC_PERSISTENT1_GENERAL__RTC_FORCE_UPDATER,
 			REGS_RTC_BASE + HW_RTC_PERSISTENT1);
-	wdt_disable();		
+	wdt_disable();		/* disable for now */
 
 	ret = misc_register(&stmp3xxx_wdt_miscdev);
 	if (ret < 0) {

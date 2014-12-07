@@ -10,6 +10,9 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * WWAN Network Interface.
+ */
 
 #include <linux/module.h>
 #include <linux/kernel.h>
@@ -36,8 +39,8 @@
 #define IPA_RM_INACTIVITY_TIMER 1000
 #define WWAN_DEVICE_COUNT (8)
 #define WWAN_DATA_LEN 2000
-#define HEADROOM_FOR_A2_MUX   8 
-#define TAILROOM              8 
+#define HEADROOM_FOR_A2_MUX   8 /* for mux header */
+#define TAILROOM              8 /* for padding by mux layer */
 
 enum wwan_device_status {
 	WWAN_DEVICE_INACTIVE = 0,
@@ -66,6 +69,15 @@ static enum a2_mux_logical_channel_id
 	A2_MUX_WWAN_7
 };
 
+/**
+ * struct wwan_private - WWAN private data
+ * @stats: iface statistics
+ * @ch_id: channel id
+ * @lock: spinlock for mutual exclusion
+ * @device_status: holds device status
+ *
+ * WWAN private - holds all relevant info about WWAN driver
+ */
 struct wwan_private {
 	struct net_device_stats stats;
 	uint32_t ch_id;
@@ -79,7 +91,7 @@ static struct net_device *netdevs[WWAN_DEVICE_COUNT];
 static __be16 wwan_ip_type_trans(struct sk_buff *skb)
 {
 	__be16 protocol = 0;
-	
+	/* Determine L3 protocol */
 	switch (skb->data[0] & 0xf0) {
 	case 0x40:
 		protocol = htons(ETH_P_IP);
@@ -90,12 +102,21 @@ static __be16 wwan_ip_type_trans(struct sk_buff *skb)
 	default:
 		pr_err("[%s] %s() L3 protocol decode error: 0x%02x",
 		       skb->dev->name, __func__, skb->data[0] & 0xf0);
-		
+		/* skb will be dropped in upper layer for unknown protocol */
 		break;
 	}
 	return protocol;
 }
 
+/**
+ * a2_mux_recv_notify() - Deliver an RX packet to network stack
+ *
+ * @skb: skb to be delivered
+ * @dev: network device
+ *
+ * Return codes:
+ * None
+ */
 static void a2_mux_recv_notify(void *dev, struct sk_buff *skb)
 {
 	struct wwan_private *wwan_ptr = netdev_priv(dev);
@@ -110,6 +131,18 @@ static void a2_mux_recv_notify(void *dev, struct sk_buff *skb)
 	netif_rx(skb);
 }
 
+/**
+ * wwan_send_packet() - Deliver a TX packet to A2 MUX driver.
+ *
+ * @skb: skb to be delivered
+ * @dev: network device
+ *
+ * Return codes:
+ * 0: success
+ * -EAGAIN: A2 MUX is not ready to send the skb. try later
+ * -EFAULT: A2 MUX rejected the skb
+ * -EPREM: Unknown error
+ */
 static int wwan_send_packet(struct sk_buff *skb, struct net_device *dev)
 {
 	struct wwan_private *wwan_ptr = netdev_priv(dev);
@@ -125,6 +158,17 @@ static int wwan_send_packet(struct sk_buff *skb, struct net_device *dev)
 	return ret;
 }
 
+/**
+ * a2_mux_write_done() - Update device statistics and start
+ * network stack queue is was stop and A2 MUX queue is below low
+ * watermark.
+ *
+ * @dev: network device
+ * @skb: skb to be delivered
+ *
+ * Return codes:
+ * None
+ */
 static void a2_mux_write_done(void *dev, struct sk_buff *skb)
 {
 	struct wwan_private *wwan_ptr = netdev_priv(dev);
@@ -155,6 +199,17 @@ static void a2_mux_write_done(void *dev, struct sk_buff *skb)
 	spin_unlock_irqrestore(&wwan_ptr->lock, flags);
 }
 
+/**
+ * a2_mux_notify() - Callback function for A2 MUX events Handles
+ * A2_MUX_RECEIVE and A2_MUX_WRITE_DONE events.
+ *
+ * @dev: network device
+ * @event: A2 MUX event
+ * @data: Additional data provided by A2 MUX
+ *
+ * Return codes:
+ * None
+ */
 static void a2_mux_notify(void *dev, enum a2_mux_event_type event,
 			  unsigned long data)
 {
@@ -178,10 +233,32 @@ static void a2_mux_notify(void *dev, enum a2_mux_event_type event,
 	}
 }
 
+/**
+ * ipa_rm_resource_granted() - Called upon
+ * IPA_RM_RESOURCE_GRANTED event. Wakes up queue is was stopped.
+ *
+ * @work: work object supplied ny workqueue
+ *
+ * Return codes:
+ * None
+ */
 static void ipa_rm_resource_granted(void *dev)
 {
 	netif_wake_queue(dev);
 }
+/**
+ * ipa_rm_notify() - Callback function for RM events. Handles
+ * IPA_RM_RESOURCE_GRANTED and IPA_RM_RESOURCE_RELEASED events.
+ * IPA_RM_RESOURCE_GRANTED is handled in the context of shared
+ * workqueue.
+ *
+ * @dev: network device
+ * @event: IPA RM event
+ * @data: Additional data provided by IPA RM
+ *
+ * Return codes:
+ * None
+ */
 static void ipa_rm_notify(void *dev, enum ipa_rm_event event,
 			  unsigned long data)
 {
@@ -298,6 +375,16 @@ static int __wwan_open(struct net_device *dev)
 	return 0;
 }
 
+/**
+ * wwan_open() - Opens the wwan network interface. Opens logical
+ * channel on A2 MUX driver and starts the network stack queue
+ *
+ * @dev: network device
+ *
+ * Return codes:
+ * 0: success
+ * -ENODEV: Error while opening logical channel on A2 MUX driver
+ */
 static int wwan_open(struct net_device *dev)
 {
 	int rc = 0;
@@ -317,6 +404,8 @@ static int __wwan_close(struct net_device *dev)
 
 	if (wwan_ptr->device_status == WWAN_DEVICE_ACTIVE) {
 		wwan_ptr->device_status = WWAN_DEVICE_INACTIVE;
+		/* do not close wwan port once up,  this causes
+			remote side to hang if tried to open again */
 		INIT_COMPLETION(wwan_ptr->resource_granted_completion);
 		rc = ipa_rm_inactivity_timer_request_resource(
 			ipa_rm_resource_by_ch_id[wwan_ptr->ch_id]);
@@ -351,6 +440,17 @@ static int __wwan_close(struct net_device *dev)
 		return -EBADF;
 }
 
+/**
+ * wwan_stop() - Stops the wwan network interface. Closes
+ * logical channel on A2 MUX driver and stops the network stack
+ * queue
+ *
+ * @dev: network device
+ *
+ * Return codes:
+ * 0: success
+ * -ENODEV: Error while opening logical channel on A2 MUX driver
+ */
 static int wwan_stop(struct net_device *dev)
 {
 	pr_debug("[%s] wwan_stop()\n", dev->name);
@@ -369,6 +469,21 @@ static int wwan_change_mtu(struct net_device *dev, int new_mtu)
 	return 0;
 }
 
+/**
+ * wwan_xmit() - Transmits an skb. In charge of asking IPA
+ * RM needed resources. In case that IPA RM is not ready, then
+ * the skb is saved for tranmitting as soon as IPA RM resources
+ * are granted.
+ *
+ * @skb: skb to be transmitted
+ * @dev: network device
+ *
+ * Return codes:
+ * 0: success
+ * NETDEV_TX_BUSY: Error while transmitting the skb. Try again
+ * later
+ * -EFAULT: Error while transmitting the skb
+ */
 static int wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct wwan_private *wwan_ptr = netdev_priv(dev);
@@ -396,6 +511,10 @@ static int wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 		ret = NETDEV_TX_BUSY;
 		goto exit;
 	}
+	/*
+	 * detected SSR a bit early.  shut some things down now, and leave
+	 * the rest to the main ssr handling code when that happens later
+	 */
 	if (ret == -EFAULT) {
 		netif_carrier_off(dev);
 		dev_kfree_skb_any(skb);
@@ -403,6 +522,14 @@ static int wwan_xmit(struct sk_buff *skb, struct net_device *dev)
 		goto exit;
 	}
 	if (ret == -EAGAIN) {
+		/*
+		 * This should not happen
+		 * EAGAIN means we attempted to overflow the high watermark
+		 * Clearly the queue is not stopped like it should be, so
+		 * stop it and return BUSY to the TCP/IP framework.  It will
+		 * retry this packet with the queue is restarted which happens
+		 * in the write_done callback when the low watermark is hit.
+		 */
 		netif_stop_queue(dev);
 		ret = NETDEV_TX_BUSY;
 		goto exit;
@@ -433,17 +560,32 @@ static void wwan_tx_timeout(struct net_device *dev)
 	ipa_bam_reg_dump();
 }
 
+/**
+ * wwan_ioctl() - I/O control for wwan network driver.
+ *
+ * @dev: network device
+ * @ifr: ignored
+ * @cmd: cmd to be excecuded. can be one of the following:
+ * WWAN_IOCTL_OPEN - Open the network interface
+ * WWAN_IOCTL_CLOSE - Close the network interface
+ *
+ * Return codes:
+ * 0: success
+ * NETDEV_TX_BUSY: Error while transmitting the skb. Try again
+ * later
+ * -EFAULT: Error while transmitting the skb
+ */
 static int wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
 	int rc = 0;
 
 	switch (cmd) {
-	case RMNET_IOCTL_SET_LLP_IP:        
+	case RMNET_IOCTL_SET_LLP_IP:        /* Set RAWIP protocol */
 		break;
-	case RMNET_IOCTL_GET_LLP:           
+	case RMNET_IOCTL_GET_LLP:           /* Get link protocol state */
 		ifr->ifr_ifru.ifru_data = (void *) RMNET_MODE_LLP_IP;
 		break;
-	case RMNET_IOCTL_SET_QOS_DISABLE:   
+	case RMNET_IOCTL_SET_QOS_DISABLE:   /* Set QoS header disabled */
 		break;
 	case RMNET_IOCTL_FLOW_ENABLE:
 		tc_qdisc_flow_control(dev, (u32)ifr->ifr_data, 1);
@@ -453,19 +595,19 @@ static int wwan_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		tc_qdisc_flow_control(dev, (u32)ifr->ifr_data, 0);
 		pr_debug("[%s] %s: disabled flow", dev->name, __func__);
 		break;
-	case RMNET_IOCTL_GET_QOS:           
-		
+	case RMNET_IOCTL_GET_QOS:           /* Get QoS header state    */
+		/* QoS disabled */
 		ifr->ifr_ifru.ifru_data = (void *) 0;
 		break;
-	case RMNET_IOCTL_GET_OPMODE:        
+	case RMNET_IOCTL_GET_OPMODE:        /* Get operation mode      */
 		ifr->ifr_ifru.ifru_data = (void *) RMNET_MODE_LLP_IP;
 		break;
-	case RMNET_IOCTL_OPEN:  
+	case RMNET_IOCTL_OPEN:  /* Open transport port */
 		rc = __wwan_open(dev);
 		pr_debug("[%s] wwan_ioctl(): open transport port\n",
 		     dev->name);
 		break;
-	case RMNET_IOCTL_CLOSE:  
+	case RMNET_IOCTL_CLOSE:  /* Close transport port */
 		rc = __wwan_close(dev);
 		pr_debug("[%s] wwan_ioctl(): close transport port\n",
 		     dev->name);
@@ -490,12 +632,20 @@ static const struct net_device_ops wwan_ops_ip = {
 	.ndo_validate_addr = 0,
 };
 
+/**
+ * wwan_setup() - Setups the wwan network driver.
+ *
+ * @dev: network device
+ *
+ * Return codes:
+ * None
+ */
 static void wwan_setup(struct net_device *dev)
 {
 	dev->netdev_ops = &wwan_ops_ip;
 	ether_setup(dev);
-	
-	dev->header_ops = 0;  
+	/* set this after calling ether_setup */
+	dev->header_ops = 0;  /* No header */
 	dev->type = ARPHRD_RAWIP;
 	dev->hard_header_len = 0;
 	dev->mtu = WWAN_DATA_LEN;
@@ -506,6 +656,15 @@ static void wwan_setup(struct net_device *dev)
 	dev->watchdog_timeo = 1000;
 }
 
+/**
+ * wwan_init() - Initialized the module and registers as a
+ * network interface to the network stack
+ *
+ * Return codes:
+ * 0: success
+ * -ENOMEM: No memory available
+ * -EFAULT: Internal error
+ */
 static int __init wwan_init(void)
 {
 	int ret;

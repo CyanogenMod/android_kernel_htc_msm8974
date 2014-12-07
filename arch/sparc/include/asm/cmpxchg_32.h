@@ -13,6 +13,7 @@
 
 #include <asm/btfixup.h>
 
+/* This has special calling conventions */
 #ifndef CONFIG_SMP
 BTFIXUPDEF_CALL(void, ___xchg32, void)
 #endif
@@ -32,6 +33,8 @@ static inline unsigned long xchg_u32(__volatile__ unsigned long *m, unsigned lon
 	ptr = (unsigned long *) m;
 	ret = val;
 
+	/* Note: this is magic and the nop there is
+	   really needed. */
 	__asm__ __volatile__(
 	"mov	%%o7, %%g4\n\t"
 	"call	___f____xchg32\n\t"
@@ -58,11 +61,22 @@ static inline unsigned long __xchg(unsigned long x, __volatile__ void * ptr, int
 
 #define xchg(ptr,x) ((__typeof__(*(ptr)))__xchg((unsigned long)(x),(ptr),sizeof(*(ptr))))
 
+/* Emulate cmpxchg() the same way we emulate atomics,
+ * by hashing the object address and indexing into an array
+ * of spinlocks to get a bit of performance...
+ *
+ * See arch/sparc/lib/atomic32.c for implementation.
+ *
+ * Cribbed from <asm-parisc/atomic.h>
+ */
 #define __HAVE_ARCH_CMPXCHG	1
 
+/* bug catcher for when unsupported size is used - won't link */
 extern void __cmpxchg_called_with_bad_pointer(void);
+/* we only need to support cmpxchg of a u32 on sparc */
 extern unsigned long __cmpxchg_u32(volatile u32 *m, u32 old, u32 new_);
 
+/* don't worry...optimizer will get rid of most of this */
 static inline unsigned long
 __cmpxchg(volatile void *ptr, unsigned long old, unsigned long new_, int size)
 {
@@ -86,9 +100,13 @@ __cmpxchg(volatile void *ptr, unsigned long old, unsigned long new_, int size)
 
 #include <asm-generic/cmpxchg-local.h>
 
+/*
+ * cmpxchg_local and cmpxchg64_local are atomic wrt current CPU. Always make
+ * them available.
+ */
 #define cmpxchg_local(ptr, o, n)				  	       \
 	((__typeof__(*(ptr)))__cmpxchg_local_generic((ptr), (unsigned long)(o),\
 			(unsigned long)(n), sizeof(*(ptr))))
 #define cmpxchg64_local(ptr, o, n) __cmpxchg64_local_generic((ptr), (o), (n))
 
-#endif 
+#endif /* __ARCH_SPARC_CMPXCHG__ */

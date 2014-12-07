@@ -38,7 +38,7 @@ struct bfin_rot {
 
 static void report_key_event(struct input_dev *input, int keycode)
 {
-	
+	/* simulate a press-n-release */
 	input_report_key(input, keycode, 1);
 	input_sync(input);
 	input_report_key(input, keycode, 0);
@@ -84,8 +84,8 @@ static irqreturn_t bfin_rotary_isr(int irq, void *dev_id)
 		break;
 	}
 
-	bfin_write_CNT_COMMAND(W1LCNT_ZERO);	
-	bfin_write_CNT_STATUS(-1);	
+	bfin_write_CNT_COMMAND(W1LCNT_ZERO);	/* Clear COUNTER */
+	bfin_write_CNT_STATUS(-1);	/* Clear STATUS */
 
 	return IRQ_HANDLED;
 }
@@ -97,7 +97,7 @@ static int __devinit bfin_rotary_probe(struct platform_device *pdev)
 	struct input_dev *input;
 	int error;
 
-	
+	/* Basic validation */
 	if ((pdata->rotary_up_key && !pdata->rotary_down_key) ||
 	    (!pdata->rotary_up_key && pdata->rotary_down_key)) {
 		return -EINVAL;

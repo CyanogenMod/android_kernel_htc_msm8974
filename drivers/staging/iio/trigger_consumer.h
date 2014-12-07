@@ -7,6 +7,20 @@
  * the Free Software Foundation.
  */
 
+/**
+ * struct iio_poll_func - poll function pair
+ *
+ * @indio_dev:			data specific to device (passed into poll func)
+ * @h:				the function that is actually run on trigger
+ * @thread:			threaded interrupt part
+ * @type:			the type of interrupt (basically if oneshot)
+ * @name:			name used to identify the trigger consumer.
+ * @irq:			the corresponding irq as allocated from the
+ *				trigger pool
+ * @timestamp:			some devices need a timestamp grabbed as soon
+ *				as possible after the trigger - hence handler
+ *				passes it via here.
+ **/
 struct iio_poll_func {
 	struct iio_dev *indio_dev;
 	irqreturn_t (*h)(int irq, void *p);
@@ -30,5 +44,9 @@ irqreturn_t iio_pollfunc_store_time(int irq, void *p);
 
 void iio_trigger_notify_done(struct iio_trigger *trig);
 
+/*
+ * Two functions for common case where all that happens is a pollfunc
+ * is attached and detached from a trigger
+ */
 int iio_triggered_buffer_postenable(struct iio_dev *indio_dev);
 int iio_triggered_buffer_predisable(struct iio_dev *indio_dev);

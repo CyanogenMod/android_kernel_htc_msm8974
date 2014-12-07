@@ -16,6 +16,7 @@
 #ifndef __ASM_ARCH_MXC_TIMEX_H__
 #define __ASM_ARCH_MXC_TIMEX_H__
 
+/* Bogus value */
 #define CLOCK_TICK_RATE	12345678
 
-#endif				
+#endif				/* __ASM_ARCH_MXC_TIMEX_H__ */

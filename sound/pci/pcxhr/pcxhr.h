@@ -27,16 +27,18 @@
 #include <linux/mutex.h>
 #include <sound/pcm.h>
 
-#define PCXHR_DRIVER_VERSION		0x000906	
-#define PCXHR_DRIVER_VERSION_STRING	"0.9.6"		
+#define PCXHR_DRIVER_VERSION		0x000906	/* 0.9.6 */
+#define PCXHR_DRIVER_VERSION_STRING	"0.9.6"		/* 0.9.6 */
 
 
 #define PCXHR_MAX_CARDS		6
 #define PCXHR_PLAYBACK_STREAMS	4
 
-#define PCXHR_GRANULARITY	96	
+#define PCXHR_GRANULARITY	96	/* min 96 and multiple of 48 */
+/* transfer granularity of pipes and the dsp time (MBOX4) */
 #define PCXHR_GRANULARITY_MIN	96
-#define PCXHR_GRANULARITY_HR22	192	
+/* TODO : granularity could be 64 or 128 */
+#define PCXHR_GRANULARITY_HR22	192	/* granularity for stereo cards */
 
 struct snd_pcxhr;
 struct pcxhr_mgr;
@@ -69,60 +71,60 @@ struct pcxhr_mgr {
 
 	int granularity;
 
-	
+	/* card access with 1 mem bar and 2 io bar's */
 	unsigned long port[3];
 
-	
-	char shortname[32];		
-	char longname[96];		
+	/* share the name */
+	char shortname[32];		/* short name of this soundcard */
+	char longname[96];		/* name of this soundcard */
 
-	
+	/* message tasklet */
 	struct tasklet_struct msg_taskq;
 	struct pcxhr_rmh *prmh;
-	
+	/* trigger tasklet */
 	struct tasklet_struct trigger_taskq;
 
-	spinlock_t lock;		
-	spinlock_t msg_lock;		
+	spinlock_t lock;		/* interrupt spinlock */
+	spinlock_t msg_lock;		/* message spinlock */
 
-	struct mutex setup_mutex;	
-	struct mutex mixer_mutex;	
+	struct mutex setup_mutex;	/* mutex used in hw_params, open and close */
+	struct mutex mixer_mutex;	/* mutex for mixer */
 
-	
-	unsigned int dsp_loaded;	
-	unsigned int dsp_version;	
+	/* hardware interface */
+	unsigned int dsp_loaded;	/* bit flags of loaded dsp indices */
+	unsigned int dsp_version;	/* read from embedded once firmware is loaded */
 	int playback_chips;
 	int capture_chips;
 	int fw_file_set;
 	int firmware_num;
 	unsigned int is_hr_stereo:1;
-	unsigned int board_has_aes1:1;	
-	unsigned int board_has_analog:1; 
-	unsigned int board_has_mic:1; 
-	unsigned int board_aes_in_192k:1;
-	unsigned int mono_capture:1; 
+	unsigned int board_has_aes1:1;	/* if 1 board has AES1 plug and SRC */
+	unsigned int board_has_analog:1; /* if 0 the board is digital only */
+	unsigned int board_has_mic:1; /* if 1 the board has microphone input */
+	unsigned int board_aes_in_192k:1;/* if 1 the aes input plugs do support 192kHz */
+	unsigned int mono_capture:1; /* if 1 the board does mono capture */
 
 	struct snd_dma_buffer hostport;
 
-	enum pcxhr_clock_type use_clock_type;	
-	enum pcxhr_clock_type cur_clock_type;	
+	enum pcxhr_clock_type use_clock_type;	/* clock type selected by mixer */
+	enum pcxhr_clock_type cur_clock_type;	/* current clock type synced */
 	int sample_rate;
 	int ref_count_rate;
-	int timer_toggle;		
-	int dsp_time_last;		
-	int dsp_time_err;		
-	unsigned int src_it_dsp;	
-	unsigned int io_num_reg_cont;	
-	unsigned int codec_speed;	
-	unsigned int sample_rate_real;	
+	int timer_toggle;		/* timer interrupt toggles between the two values 0x200 and 0x300 */
+	int dsp_time_last;		/* the last dsp time (read by interrupt) */
+	int dsp_time_err;		/* dsp time errors */
+	unsigned int src_it_dsp;	/* dsp interrupt source */
+	unsigned int io_num_reg_cont;	/* backup of IO_NUM_REG_CONT */
+	unsigned int codec_speed;	/* speed mode of the codecs */
+	unsigned int sample_rate_real;	/* current real sample rate */
 	int last_reg_stat;
 	int async_err_stream_xrun;
 	int async_err_pipe_xrun;
 	int async_err_other_last;
 
-	unsigned char xlx_cfg;		
-	unsigned char xlx_selmic;	
-	unsigned char dsp_reset;	
+	unsigned char xlx_cfg;		/* copy of PCXHR_XLX_CFG register */
+	unsigned char xlx_selmic;	/* copy of PCXHR_XLX_SELMIC register */
+	unsigned char dsp_reset;	/* copy of PCXHR_DSP_RESET register */
 };
 
 
@@ -142,12 +144,12 @@ struct pcxhr_stream {
 	snd_pcm_format_t format;
 	struct pcxhr_pipe *pipe;
 
-	enum pcxhr_stream_status status;	
+	enum pcxhr_stream_status status;	/* free, open, running, draining, pause */
 
-	u_int64_t timer_abs_periods;	
-	u_int32_t timer_period_frag;	
-	u_int32_t timer_buf_periods;	
-	int timer_is_synced;		
+	u_int64_t timer_abs_periods;	/* timer: samples elapsed since TRIGGER_START (multiple of period_size) */
+	u_int32_t timer_period_frag;	/* timer: samples elapsed since last call to snd_pcm_period_elapsed (0..period_size) */
+	u_int32_t timer_buf_periods;	/* nb of periods in the buffer that have already elapsed */
+	int timer_is_synced;		/* if(0) : timer needs to be resynced with real hardware pointer */
 
 	int channels;
 };
@@ -160,42 +162,42 @@ enum pcxhr_pipe_status {
 
 struct pcxhr_pipe {
 	enum pcxhr_pipe_status status;
-	int is_capture;		
-	int first_audio;	
+	int is_capture;		/* this is a capture pipe */
+	int first_audio;	/* first audio num */
 };
 
 
 struct snd_pcxhr {
 	struct snd_card *card;
 	struct pcxhr_mgr *mgr;
-	int chip_idx;		
+	int chip_idx;		/* zero based */
 
-	struct snd_pcm *pcm;		
+	struct snd_pcm *pcm;		/* PCM */
 
-	struct pcxhr_pipe playback_pipe;	
-	struct pcxhr_pipe capture_pipe[2];	
+	struct pcxhr_pipe playback_pipe;	/* 1 stereo pipe only */
+	struct pcxhr_pipe capture_pipe[2];	/* 1 stereo or 2 mono pipes */
 
 	struct pcxhr_stream playback_stream[PCXHR_PLAYBACK_STREAMS];
-	struct pcxhr_stream capture_stream[2];	
+	struct pcxhr_stream capture_stream[2];	/* 1 stereo or 2 mono streams */
 	int nb_streams_play;
 	int nb_streams_capt;
 
-	int analog_playback_active[2];	
-	int analog_playback_volume[2];	
-	int analog_capture_volume[2];	
+	int analog_playback_active[2];	/* Mixer : Master Playback !mute */
+	int analog_playback_volume[2];	/* Mixer : Master Playback Volume */
+	int analog_capture_volume[2];	/* Mixer : Master Capture Volume */
 	int digital_playback_active[PCXHR_PLAYBACK_STREAMS][2];
 	int digital_playback_volume[PCXHR_PLAYBACK_STREAMS][2];
-	int digital_capture_volume[2];	
-	int monitoring_active[2];	
-	int monitoring_volume[2];	
-	int audio_capture_source;	
-	int mic_volume;			
-	int mic_boost;			
-	int mic_active;			
-	int analog_capture_active;	
-	int phantom_power;		
+	int digital_capture_volume[2];	/* Mixer : Digital Capture Volume */
+	int monitoring_active[2];	/* Mixer : Monitoring Active */
+	int monitoring_volume[2];	/* Mixer : Monitoring Volume */
+	int audio_capture_source;	/* Mixer : Audio Capture Source */
+	int mic_volume;			/* used by cards with MIC only */
+	int mic_boost;			/* used by cards with MIC only */
+	int mic_active;			/* used by cards with MIC only */
+	int analog_capture_active;	/* used by cards with MIC only */
+	int phantom_power;		/* used by cards with MIC only */
 
-	unsigned char aes_bits[5];	
+	unsigned char aes_bits[5];	/* Mixer : IEC958_AES bits */
 };
 
 struct pcxhr_hostport
@@ -204,10 +206,11 @@ struct pcxhr_hostport
 	char reserved[2];
 };
 
+/* exported */
 int pcxhr_create_pcm(struct snd_pcxhr *chip);
 int pcxhr_set_clock(struct pcxhr_mgr *mgr, unsigned int rate);
 int pcxhr_get_external_clock(struct pcxhr_mgr *mgr,
 			     enum pcxhr_clock_type clock_type,
 			     int *sample_rate);
 
-#endif 
+#endif /* __SOUND_PCXHR_H */

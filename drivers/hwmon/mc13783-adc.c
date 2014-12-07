@@ -30,6 +30,7 @@
 
 #define DRIVER_NAME	"mc13783-adc"
 
+/* platform device id driver data */
 #define MC13783_ADC_16CHANS	1
 #define MC13783_ADC_BPDIV2	2
 
@@ -83,6 +84,10 @@ static ssize_t mc13783_adc_read_bp(struct device *dev,
 	if (driver_data & MC13783_ADC_BPDIV2)
 		val = DIV_ROUND_CLOSEST(val * 9, 2);
 	else
+		/*
+		 * BP (channel 2) reports with offset 2.4V to the actual value
+		 * to fit the input range of the ADC.  unit = 2.25mV = 9/4 mV.
+		 */
 		val = DIV_ROUND_CLOSEST(val * 9, 4) + 2400;
 
 	return sprintf(buf, "%u\n", val);
@@ -97,6 +102,10 @@ static ssize_t mc13783_adc_read_gp(struct device *dev,
 	if (ret)
 		return ret;
 
+	/*
+	 * input range is [0, 2.3V], val has 10 bits, so each bit
+	 * is worth 9/4 mV.
+	 */
 	val = DIV_ROUND_CLOSEST(val * 9, 4);
 
 	return sprintf(buf, "%u\n", val);
@@ -129,6 +138,7 @@ static const struct attribute_group mc13783_group_base = {
 	.attrs = mc13783_attr_base,
 };
 
+/* these are only used if MC13783_ADC_16CHANS is provided in driver data */
 static struct attribute *mc13783_attr_16chans[] = {
 	&sensor_dev_attr_in8_input.dev_attr.attr,
 	&sensor_dev_attr_in9_input.dev_attr.attr,
@@ -141,6 +151,7 @@ static const struct attribute_group mc13783_group_16chans = {
 	.attrs = mc13783_attr_16chans,
 };
 
+/* last four channels may be occupied by the touchscreen */
 static struct attribute *mc13783_attr_ts[] = {
 	&sensor_dev_attr_in12_input.dev_attr.attr,
 	&sensor_dev_attr_in13_input.dev_attr.attr,
@@ -180,7 +191,7 @@ static int __init mc13783_adc_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, priv);
 
-	
+	/* Register sysfs hooks */
 	ret = sysfs_create_group(&pdev->dev.kobj, &mc13783_group_base);
 	if (ret)
 		goto out_err_create_base;
@@ -256,7 +267,7 @@ static const struct platform_device_id mc13783_adc_idtable[] = {
 		.name = "mc13892-adc",
 		.driver_data = MC13783_ADC_BPDIV2,
 	}, {
-		
+		/* sentinel */
 	}
 };
 MODULE_DEVICE_TABLE(platform, mc13783_adc_idtable);

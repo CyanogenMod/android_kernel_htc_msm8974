@@ -43,7 +43,7 @@ nv50_fifo_playlist_update(struct drm_device *dev)
 	cur = pfifo->playlist[pfifo->cur_playlist];
 	pfifo->cur_playlist = !pfifo->cur_playlist;
 
-	
+	/* We never schedule channel 0 or 127 */
 	for (i = 1, nr = 0; i < 127; i++) {
 		if (dev_priv->channels.ptr[i] &&
 		    dev_priv->channels.ptr[i]->ramfc) {
@@ -151,7 +151,7 @@ nv50_fifo_init_regs(struct drm_device *dev)
 	nv_wr32(dev, 0x3270, 0);
 	nv_wr32(dev, 0x2044, 0x01003fff);
 
-	
+	/* Enable dummy channels setup by nv50_instmem.c */
 	nv50_fifo_channel_enable(dev, 0);
 	nv50_fifo_channel_enable(dev, 127);
 }
@@ -273,7 +273,7 @@ nv50_fifo_create_context(struct nouveau_channel *chan)
 
 	nv_wo32(ramfc, 0x48, chan->pushbuf->cinst >> 4);
 	nv_wo32(ramfc, 0x80, ((chan->ramht->bits - 9) << 27) |
-			     (4 << 24)  |
+			     (4 << 24) /* SEARCH_FULL */ |
 			     (chan->ramht->gpuobj->cinst >> 4));
 	nv_wo32(ramfc, 0x44, 0x01003fff);
 	nv_wo32(ramfc, 0x60, 0x7fffffff);
@@ -315,19 +315,19 @@ nv50_fifo_destroy_context(struct nouveau_channel *chan)
 	spin_lock_irqsave(&dev_priv->context_switch_lock, flags);
 	pfifo->reassign(dev, false);
 
-	
+	/* Unload the context if it's the currently active one */
 	if (pfifo->channel_id(dev) == chan->id) {
 		pfifo->disable(dev);
 		pfifo->unload_context(dev);
 		pfifo->enable(dev);
 	}
 
-	
+	/* This will ensure the channel is seen as disabled. */
 	nouveau_gpuobj_ref(chan->ramfc, &ramfc);
 	nouveau_gpuobj_ref(NULL, &chan->ramfc);
 	nv50_fifo_channel_disable(dev, chan->id);
 
-	
+	/* Dummy channel, also used on ch 127 */
 	if (chan->id == 0)
 		nv50_fifo_channel_disable(dev, 127);
 	nv50_fifo_playlist_update(dev);
@@ -335,7 +335,7 @@ nv50_fifo_destroy_context(struct nouveau_channel *chan)
 	pfifo->reassign(dev, true);
 	spin_unlock_irqrestore(&dev_priv->context_switch_lock, flags);
 
-	
+	/* Free the channel resources */
 	if (chan->user) {
 		iounmap(chan->user);
 		chan->user = NULL;
@@ -399,7 +399,7 @@ nv50_fifo_load_context(struct nouveau_channel *chan)
 	nv_wr32(dev, NV03_PFIFO_CACHE1_PUT, cnt << 2);
 	nv_wr32(dev, NV03_PFIFO_CACHE1_GET, 0);
 
-	
+	/* guessing that all the 0x34xx regs aren't on NV50 */
 	if (dev_priv->chipset != 0x50) {
 		nv_wr32(dev, 0x340c, nv_ro32(ramfc, 0x88));
 		nv_wr32(dev, 0x3400, nv_ro32(ramfc, 0x8c));
@@ -482,7 +482,7 @@ nv50_fifo_unload_context(struct drm_device *dev)
 		ptr += 8;
 	}
 
-	
+	/* guessing that all the 0x34xx regs aren't on NV50 */
 	if (dev_priv->chipset != 0x50) {
 		nv_wo32(ramfc, 0x84, ptr >> 3);
 		nv_wo32(ramfc, 0x88, nv_rd32(dev, 0x340c));
@@ -494,7 +494,7 @@ nv50_fifo_unload_context(struct drm_device *dev)
 
 	dev_priv->engine.instmem.flush(dev);
 
-	
+	/*XXX: probably reload ch127 (NULL) state back too */
 	nv_wr32(dev, NV03_PFIFO_CACHE1_PUSH1, 127);
 	return 0;
 }

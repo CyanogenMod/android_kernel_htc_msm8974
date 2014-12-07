@@ -20,6 +20,8 @@
 
 #define AD1836_DAC_CTRL2               1
 
+/* These macros are one-based. So AD183X_MUTE_LEFT(1) will return the mute bit
+ * for the first ADC/DAC */
 #define AD1836_MUTE_LEFT(x) (((x) * 2) - 2)
 #define AD1836_MUTE_RIGHT(x) (((x) * 2) - 1)
 

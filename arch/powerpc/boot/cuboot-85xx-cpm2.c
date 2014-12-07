@@ -30,6 +30,10 @@ static void platform_fixups(void)
 	dt_fixup_mac_address_by_alias("ethernet2", bd.bi_enet2addr);
 	dt_fixup_cpu_clocks(bd.bi_intfreq, bd.bi_busfreq / 8, bd.bi_busfreq);
 
+	/* Unfortunately, the specific model number is encoded in the
+	 * soc node name in existing dts files -- once that is fixed,
+	 * this can do a simple path lookup.
+	 */
 	devp = find_node_by_devtype(NULL, "soc");
 	if (devp) {
 		void *serial = NULL;

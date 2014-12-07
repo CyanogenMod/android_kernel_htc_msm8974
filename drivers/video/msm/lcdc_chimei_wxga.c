@@ -31,9 +31,9 @@ static struct pwm_device *bl_pwm;
 
 static struct msm_panel_common_pdata *cm_pdata;
 static struct platform_device *cm_fbpdev;
-static int led_pwm;		
-static int led_en;		
-static int lvds_pwr_down;	
+static int led_pwm;		/* pm8058 gpio 24, channel 0 */
+static int led_en;		/* pm8058 gpio 1 */
+static int lvds_pwr_down;	/* msm gpio 30 */
 static int chimei_bl_level = 1;
 
 
@@ -65,11 +65,11 @@ static int lcdc_chimei_panel_on(struct platform_device *pdev)
 {
 	int ret;
 
-	
+	/* panel powered on here */
 
 	ret = gpio_request(lvds_pwr_down, "lvds_pwr_down");
 	if (ret == 0) {
-		
+		/* output, pull high to enable */
 		gpio_direction_output(lvds_pwr_down, 1);
 	} else {
 		pr_err("%s: lvds_pwr_down=%d, gpio_request failed\n",
@@ -77,7 +77,7 @@ static int lcdc_chimei_panel_on(struct platform_device *pdev)
 	}
 
 	msleep(200);
-	
+	/* power on led pwm power >= 200 ms */
 
 	if (chimei_bl_level == 0)
 		chimei_bl_level = 1;
@@ -87,7 +87,7 @@ static int lcdc_chimei_panel_on(struct platform_device *pdev)
 
 	ret = gpio_request(led_en, "led_en");
 	if (ret == 0) {
-		
+		/* output, pull high */
 		gpio_direction_output(led_en, 1);
 	} else {
 		pr_err("%s: led_en=%d, gpio_request failed\n",
@@ -98,7 +98,7 @@ static int lcdc_chimei_panel_on(struct platform_device *pdev)
 
 static int lcdc_chimei_panel_off(struct platform_device *pdev)
 {
-	
+	/* pull low to disable */
 	gpio_set_value_cansleep(led_en, 0);
 	gpio_free(led_en);
 
@@ -107,13 +107,13 @@ static int lcdc_chimei_panel_off(struct platform_device *pdev)
 	lcdc_chimei_set_backlight(0);
 
 	msleep(200);
-	
+	/* power off led pwm power >= 200 ms */
 
-	
+	/* pull low to shut down lvds */
 	gpio_set_value_cansleep(lvds_pwr_down, 0);
 	gpio_free(lvds_pwr_down);
 
-	
+	/* panel power off here */
 
 	return 0;
 }
@@ -207,6 +207,10 @@ static int __init lcdc_chimei_lvds_panel_init(void)
 	pinfo->bl_max = PWM_LEVEL;
 	pinfo->bl_min = 1;
 
+	/*
+	 * this panel is operated by de,
+	 * vsycn and hsync are ignored
+	 */
 	pinfo->lcdc.h_back_porch = 108;
 	pinfo->lcdc.h_front_porch = 0;
 	pinfo->lcdc.h_pulse_width = 1;

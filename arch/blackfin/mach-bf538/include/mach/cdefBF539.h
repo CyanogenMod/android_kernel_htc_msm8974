@@ -7,6 +7,7 @@
 #ifndef _CDEF_BF539_H
 #define _CDEF_BF539_H
 
+/* Include MMRs Common to BF538 								*/
 #include "cdefBF538.h"
 
 #define bfin_read_MXVR_CONFIG()        bfin_read16(MXVR_CONFIG)
@@ -236,4 +237,4 @@
 #define bfin_read_MXVR_BLOCK_CNT()     bfin_read16(MXVR_BLOCK_CNT)
 #define bfin_write_MXVR_BLOCK_CNT(val) bfin_write16(MXVR_BLOCK_CNT, val)
 
-#endif 
+#endif /* _CDEF_BF539_H */

@@ -14,4 +14,4 @@
 
 #error no spinlocks for FR-V yet
 
-#endif 
+#endif /* _ASM_SPINLOCK_H */

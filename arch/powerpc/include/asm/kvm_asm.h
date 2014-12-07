@@ -20,6 +20,7 @@
 #ifndef __POWERPC_KVM_ASM_H__
 #define __POWERPC_KVM_ASM_H__
 
+/* IVPR must be 64KiB-aligned. */
 #define VCPU_SIZE_ORDER 4
 #define VCPU_SIZE_LOG   (VCPU_SIZE_ORDER + 12)
 #define VCPU_TLB_PGSZ   PPC44x_TLB_64K
@@ -42,11 +43,13 @@
 #define BOOKE_INTERRUPT_ITLB_MISS 14
 #define BOOKE_INTERRUPT_DEBUG 15
 
+/* E500 */
 #define BOOKE_INTERRUPT_SPE_UNAVAIL 32
 #define BOOKE_INTERRUPT_SPE_FP_DATA 33
 #define BOOKE_INTERRUPT_SPE_FP_ROUND 34
 #define BOOKE_INTERRUPT_PERFORMANCE_MONITOR 35
 
+/* book3s */
 
 #define BOOK3S_INTERRUPT_SYSTEM_RESET	0x100
 #define BOOK3S_INTERRUPT_MACHINE_CHECK	0x200
@@ -95,8 +98,8 @@
 #define BOOK3S_HFLAG_PAIRED_SINGLE		0x4
 #define BOOK3S_HFLAG_NATIVE_PS			0x8
 
-#define RESUME_FLAG_NV          (1<<0)  
-#define RESUME_FLAG_HOST        (1<<1)  
+#define RESUME_FLAG_NV          (1<<0)  /* Reload guest nonvolatile state? */
+#define RESUME_FLAG_HOST        (1<<1)  /* Resume host? */
 
 #define RESUME_GUEST            0
 #define RESUME_GUEST_NV         RESUME_FLAG_NV
@@ -109,4 +112,4 @@
 
 #define KVM_INST_FETCH_FAILED	-1
 
-#endif 
+#endif /* __POWERPC_KVM_ASM_H__ */

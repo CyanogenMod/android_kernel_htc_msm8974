@@ -92,7 +92,22 @@ static const char *const aa_audit_type[] = {
 	"AUTO"
 };
 
+/*
+ * Currently AppArmor auditing is fed straight into the audit framework.
+ *
+ * TODO:
+ * netlink interface for complain mode
+ * user auditing, - send user auditing to netlink interface
+ * system control of whether user audit messages go to system log
+ */
 
+/**
+ * audit_base - core AppArmor function.
+ * @ab: audit buffer to fill (NOT NULL)
+ * @ca: audit structure containing data to audit (NOT NULL)
+ *
+ * Record common AppArmor audit data from @sa
+ */
 static void audit_pre(struct audit_buffer *ab, void *ca)
 {
 	struct common_audit_data *sa = ca;
@@ -136,6 +151,11 @@ static void audit_pre(struct audit_buffer *ab, void *ca)
 	}
 }
 
+/**
+ * aa_audit_msg - Log a message to the audit subsystem
+ * @sa: audit event structure (NOT NULL)
+ * @cb: optional callback fn for type specific fields (MAYBE NULL)
+ */
 void aa_audit_msg(int type, struct common_audit_data *sa,
 		  void (*cb) (struct audit_buffer *, void *))
 {
@@ -143,6 +163,18 @@ void aa_audit_msg(int type, struct common_audit_data *sa,
 	common_lsm_audit(sa, audit_pre, cb);
 }
 
+/**
+ * aa_audit - Log a profile based audit event to the audit subsystem
+ * @type: audit type for the message
+ * @profile: profile to check against (NOT NULL)
+ * @gfp: allocation flags to use
+ * @sa: audit event (NOT NULL)
+ * @cb: optional callback fn for type specific fields (MAYBE NULL)
+ *
+ * Handle default message switching based off of audit mode flags
+ *
+ * Returns: error on failure
+ */
 int aa_audit(int type, struct aa_profile *profile, gfp_t gfp,
 	     struct common_audit_data *sa,
 	     void (*cb) (struct audit_buffer *, void *))

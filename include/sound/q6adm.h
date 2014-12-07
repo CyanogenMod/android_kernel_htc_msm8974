@@ -17,6 +17,7 @@
 #define ADM_PATH_LIVE_REC 0x2
 #define ADM_PATH_NONLIVE_REC 0x3
 
+/* multiple copp per stream. */
 struct route_payload {
 	unsigned int copp_ids[AFE_MAX_PORTS];
 	unsigned short num_copps;
@@ -56,4 +57,4 @@ int adm_multi_ch_copp_pseudo_open_v3(int port_id, int path, int rate,
 int adm_get_copp_id(int port_id);
 #endif
 
-#endif 
+#endif /* __Q6_ADM_H__ */

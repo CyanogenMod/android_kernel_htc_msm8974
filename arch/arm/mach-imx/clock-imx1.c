@@ -30,6 +30,7 @@
 
 #define IO_ADDR_CCM(off)	(MX1_IO_ADDRESS(MX1_CCM_BASE_ADDR + (off)))
 
+/* CCM register addresses */
 #define CCM_CSCR	IO_ADDR_CCM(0x0)
 #define CCM_MPCTL0	IO_ADDR_CCM(0x4)
 #define CCM_SPCTL0	IO_ADDR_CCM(0xc)
@@ -54,6 +55,7 @@
 
 #define IO_ADDR_SCM(off)	(MX1_IO_ADDRESS(MX1_SCM_BASE_ADDR + (off)))
 
+/* SCM register addresses */
 #define SCM_GCCR	IO_ADDR_SCM(0xc)
 
 #define SCM_GCCR_DMA_CLK_EN_OFFSET	3
@@ -134,6 +136,7 @@ static struct clk clk16m = {
 	.disable = _clk_disable,
 };
 
+/* in Hz */
 static unsigned long clk32_rate;
 
 static unsigned long clk32_get_rate(struct clk *clk)
@@ -225,6 +228,9 @@ static struct clk fclk = {
 	.get_rate = fclk_get_rate,
 };
 
+/*
+ *  get hclk ( SDRAM, CSI, Memory Stick, I2C, DMA )
+ */
 static unsigned long hclk_get_rate(struct clk *clk)
 {
 	return clk_get_rate(clk->parent) / (((__raw_readl(CCM_CSCR) &
@@ -307,6 +313,9 @@ static struct clk clk48m = {
 	.set_rate = clk48m_set_rate,
 };
 
+/*
+ *  get peripheral clock 1 ( UART[12], Timer[12], PWM )
+ */
 static unsigned long perclk1_get_rate(struct clk *clk)
 {
 	return clk_get_rate(clk->parent) / (((__raw_readl(CCM_PCDR) &
@@ -341,6 +350,9 @@ static int perclk1_set_rate(struct clk *clk, unsigned long rate)
 	return 0;
 }
 
+/*
+ *  get peripheral clock 2 ( LCD, SD, SPI[12] )
+ */
 static unsigned long perclk2_get_rate(struct clk *clk)
 {
 	return clk_get_rate(clk->parent) / (((__raw_readl(CCM_PCDR) &
@@ -375,6 +387,9 @@ static int perclk2_set_rate(struct clk *clk, unsigned long rate)
 	return 0;
 }
 
+/*
+ *  get peripheral clock 3 ( SSI )
+ */
 static unsigned long perclk3_get_rate(struct clk *clk)
 {
 	return clk_get_rate(clk->parent) / (((__raw_readl(CCM_PCDR) &
@@ -589,23 +604,23 @@ int __init mx1_clocks_init(unsigned long fref)
 {
 	unsigned int reg;
 
-	
+	/* disable clocks we are able to */
 	__raw_writel(0, SCM_GCCR);
 
 	clk32_rate = fref;
 	reg = __raw_readl(CCM_CSCR);
 
-	
+	/* detect clock reference for system PLL */
 	if (reg & CCM_CSCR_SYSTEM_SEL) {
 		prem_clk.parent = &clk16m;
 	} else {
-		
+		/* ensure that oscillator is disabled */
 		reg &= ~(1 << CCM_CSCR_OSC_EN_SHIFT);
 		__raw_writel(reg, CCM_CSCR);
 		prem_clk.parent = &clk32_premult;
 	}
 
-	
+	/* detect reference for CLKO */
 	reg = (reg & CCM_CSCR_CLKO_MASK) >> CCM_CSCR_CLKO_OFFSET;
 	clko_clk.parent = (struct clk *)clko_clocks[reg];
 

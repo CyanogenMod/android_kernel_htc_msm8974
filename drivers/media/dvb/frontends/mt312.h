@@ -29,10 +29,10 @@
 #include <linux/dvb/frontend.h>
 
 struct mt312_config {
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 
-	
+	/* inverted voltage setting */
 	unsigned int voltage_inverted:1;
 };
 
@@ -46,6 +46,6 @@ static inline struct dvb_frontend *mt312_attach(
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_DVB_MT312 */
 
-#endif 
+#endif /* MT312_H */

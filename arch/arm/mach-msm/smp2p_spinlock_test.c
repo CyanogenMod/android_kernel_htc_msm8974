@@ -26,6 +26,7 @@
 #define RS_END_THIEF_PID_BIT 20
 #define RS_END_THIEF_MASK 0x00f00000
 
+/* Spinlock commands used for testing Apps<->RPM spinlocks. */
 enum RPM_SPINLOCK_CMDS {
 	RPM_CMD_INVALID,
 	RPM_CMD_START,
@@ -34,6 +35,7 @@ enum RPM_SPINLOCK_CMDS {
 	RPM_CMD_END,
 };
 
+/* Shared structure for testing Apps<->RPM spinlocks. */
 struct rpm_spinlock_test {
 	uint32_t apps_cmd;
 	uint32_t apps_lock_count;
@@ -41,6 +43,14 @@ struct rpm_spinlock_test {
 	uint32_t rpm_lock_count;
 };
 
+/**
+ * smp2p_ut_remote_spinlock_core - Verify remote spinlock.
+ *
+ * @s:           Pointer to output file
+ * @remote_pid:  Remote processor to test
+ * @use_trylock: Use trylock to prevent an Apps deadlock if the
+ *               remote spinlock fails.
+ */
 static void smp2p_ut_remote_spinlock_core(struct seq_file *s, int remote_pid,
 		bool use_trylock)
 {
@@ -72,7 +82,7 @@ static void smp2p_ut_remote_spinlock_core(struct seq_file *s, int remote_pid,
 		smem_spinlock = smem_get_remote_spinlock();
 		UT_ASSERT_PTR(smem_spinlock, !=, NULL);
 
-		
+		/* Open output entry */
 		ret = msm_smp2p_out_open(remote_pid, SMP2P_RLPB_ENTRY_NAME,
 			&cb_out.nb, &handle);
 		UT_ASSERT_INT(ret, ==, 0);
@@ -83,7 +93,7 @@ static void smp2p_ut_remote_spinlock_core(struct seq_file *s, int remote_pid,
 		UT_ASSERT_INT(cb_out.cb_count, ==, 1);
 		UT_ASSERT_INT(cb_out.event_open, ==, 1);
 
-		
+		/* Open inbound entry */
 		ret = msm_smp2p_in_register(remote_pid, SMP2P_RLPB_ENTRY_NAME,
 				&cb_in.nb);
 		UT_ASSERT_INT(ret, ==, 0);
@@ -94,7 +104,7 @@ static void smp2p_ut_remote_spinlock_core(struct seq_file *s, int remote_pid,
 		UT_ASSERT_INT(cb_in.cb_count, ==, 1);
 		UT_ASSERT_INT(cb_in.event_open, ==, 1);
 
-		
+		/* Send start */
 		mock_cb_data_reset(&cb_in);
 		mock_cb_data_reset(&cb_out);
 		test_request = 0x0;
@@ -117,7 +127,7 @@ static void smp2p_ut_remote_spinlock_core(struct seq_file *s, int remote_pid,
 		test_response = SMP2P_GET_RMT_CMD(test_response);
 		if (test_response != SMP2P_LB_CMD_RSPIN_LOCKED &&
 				test_response != SMP2P_LB_CMD_RSPIN_UNLOCKED) {
-			
+			/* invalid response from remote - abort test */
 			test_request = 0x0;
 			SMP2P_SET_RMT_CMD_TYPE(test_request, 1);
 			SMP2P_SET_RMT_CMD(test_request, SMP2P_LB_CMD_RSPIN_END);
@@ -127,7 +137,7 @@ static void smp2p_ut_remote_spinlock_core(struct seq_file *s, int remote_pid,
 					test_response);
 		}
 
-		
+		/* Run spinlock test */
 		if (use_trylock)
 			seq_printf(s, "\tUsing remote_spin_trylock\n");
 		else
@@ -140,7 +150,7 @@ static void smp2p_ut_remote_spinlock_core(struct seq_file *s, int remote_pid,
 		test_request = 0x0;
 		SMP2P_SET_RMT_CMD_TYPE_REQ(test_request);
 		for (test_num = 0; !failed && test_num < 10000; ++test_num) {
-			
+			/* try to acquire spinlock */
 			if (use_trylock) {
 				unsigned long j_start = jiffies;
 				while (!remote_spin_trylock_irqsave(
@@ -161,19 +171,19 @@ static void smp2p_ut_remote_spinlock_core(struct seq_file *s, int remote_pid,
 			have_lock = true;
 			++lock_count;
 
-			
+			/* tell the remote side that we have the lock */
 			SMP2P_SET_RMT_DATA(test_request, lock_count);
 			SMP2P_SET_RMT_CMD(test_request,
 					SMP2P_LB_CMD_RSPIN_LOCKED);
 			ret = msm_smp2p_out_write(handle, test_request);
 			UT_ASSERT_INT(ret, ==, 0);
 
-			
+			/* verify the other side doesn't say it has the lock */
 			for (n = 0; n < 1000; ++n) {
 				spinlock_owner =
 					remote_spin_owner(smem_spinlock);
 				if (spinlock_owner != REMOTE_SPIN_PID) {
-					
+					/* lock stolen by remote side */
 					seq_printf(s,
 						"\tFail: Remote side (%d) stole lock (pid %d)\n",
 						remote_pid, spinlock_owner);
@@ -193,7 +203,7 @@ static void smp2p_ut_remote_spinlock_core(struct seq_file *s, int remote_pid,
 			if (failed)
 				break;
 
-			
+			/* tell remote side we are unlocked and release lock */
 			SMP2P_SET_RMT_CMD(test_request,
 					SMP2P_LB_CMD_RSPIN_UNLOCKED);
 			(void)msm_smp2p_out_write(handle, test_request);
@@ -203,7 +213,7 @@ static void smp2p_ut_remote_spinlock_core(struct seq_file *s, int remote_pid,
 		if (have_lock)
 			remote_spin_unlock_irqrestore(smem_spinlock, flags);
 
-		
+		/* End test */
 		mock_cb_data_reset(&cb_in);
 		SMP2P_SET_RMT_CMD(test_request, SMP2P_LB_CMD_RSPIN_END);
 		SMP2P_SET_RMT_DATA(test_request, lock_count |
@@ -244,7 +254,7 @@ static void smp2p_ut_remote_spinlock_core(struct seq_file *s, int remote_pid,
 		}
 		seq_printf(s, "\n");
 
-		
+		/* Cleanup */
 		ret = msm_smp2p_out_close(&handle);
 		UT_ASSERT_INT(ret, ==, 0);
 		UT_ASSERT_PTR(handle, ==, NULL);
@@ -258,7 +268,7 @@ static void smp2p_ut_remote_spinlock_core(struct seq_file *s, int remote_pid,
 
 	if (failed) {
 		if (handle) {
-			
+			/* send end command */
 			test_request = 0;
 			SMP2P_SET_RMT_CMD(test_request, SMP2P_LB_CMD_RSPIN_END);
 			SMP2P_SET_RMT_DATA(test_request, lock_count);
@@ -273,6 +283,14 @@ static void smp2p_ut_remote_spinlock_core(struct seq_file *s, int remote_pid,
 	}
 }
 
+/**
+ * smp2p_ut_remote_spinlock_pid - Verify remote spinlock for a processor.
+ *
+ * @s:           Pointer to output file
+ * @pid:         Processor to test
+ * @use_trylock: Use trylock to prevent an Apps deadlock if the
+ *               remote spinlock fails.
+ */
 static void smp2p_ut_remote_spinlock_pid(struct seq_file *s, int pid,
 		bool use_trylock)
 {
@@ -292,6 +310,11 @@ static void smp2p_ut_remote_spinlock_pid(struct seq_file *s, int pid,
 	msm_smp2p_init_rmt_lpb_proc(pid);
 }
 
+/**
+ * smp2p_ut_remote_spinlock - Verify remote spinlock for all processors.
+ *
+ * @s:   pointer to output file
+ */
 static void smp2p_ut_remote_spinlock(struct seq_file *s)
 {
 	int pid;
@@ -300,6 +323,11 @@ static void smp2p_ut_remote_spinlock(struct seq_file *s)
 		smp2p_ut_remote_spinlock_pid(s, pid, false);
 }
 
+/**
+ * smp2p_ut_remote_spin_trylock - Verify remote trylock for all processors.
+ *
+ * @s:   Pointer to output file
+ */
 static void smp2p_ut_remote_spin_trylock(struct seq_file *s)
 {
 	int pid;
@@ -308,6 +336,14 @@ static void smp2p_ut_remote_spin_trylock(struct seq_file *s)
 		smp2p_ut_remote_spinlock_pid(s, pid, true);
 }
 
+/**
+ * smp2p_ut_remote_spinlock - Verify remote spinlock for all processors.
+ *
+ * @s:   pointer to output file
+ *
+ * This test verifies inbound and outbound functionality for all
+ * configured remote processor.
+ */
 static void smp2p_ut_remote_spinlock_modem(struct seq_file *s)
 {
 	smp2p_ut_remote_spinlock_pid(s, SMP2P_MODEM_PROC, false);
@@ -323,6 +359,12 @@ static void smp2p_ut_remote_spinlock_wcnss(struct seq_file *s)
 	smp2p_ut_remote_spinlock_pid(s, SMP2P_WIRELESS_PROC, false);
 }
 
+/**
+ * smp2p_ut_remote_spinlock_rpm - Verify remote spinlock.
+ *
+ * @s:   pointer to output file
+ * @remote_pid:  Remote processor to test
+ */
 static void smp2p_ut_remote_spinlock_rpm(struct seq_file *s)
 {
 	int failed = 0;
@@ -343,7 +385,7 @@ static void smp2p_ut_remote_spinlock_rpm(struct seq_file *s)
 				sizeof(struct rpm_spinlock_test));
 		UT_ASSERT_PTR(0, !=, data_ptr);
 
-		
+		/* Send start */
 		writel_relaxed(0, &data_ptr->apps_lock_count);
 		writel_relaxed(RPM_CMD_START, &data_ptr->apps_cmd);
 
@@ -355,24 +397,28 @@ static void smp2p_ut_remote_spinlock_rpm(struct seq_file *s)
 			usleep(1000);
 		}
 		if (readl_relaxed(&data_ptr->rpm_cmd) == RPM_CMD_INVALID) {
-			
+			/* timeout waiting for RPM */
 			writel_relaxed(RPM_CMD_INVALID, &data_ptr->apps_cmd);
 			UT_ASSERT_INT(RPM_CMD_LOCKED, !=, RPM_CMD_INVALID);
 		}
 
-		
+		/* Run spinlock test */
 		flags = 0;
 		have_lock = false;
 		for (test_num = 0; !failed && test_num < 10000; ++test_num) {
-			
+			/* acquire spinlock */
 			remote_spin_lock_irqsave(smem_spinlock, flags);
 			have_lock = true;
 			writel_relaxed(++data_ptr->apps_lock_count,
 				&data_ptr->apps_lock_count);
 			writel_relaxed(RPM_CMD_LOCKED, &data_ptr->apps_cmd);
+			/*
+			 * Ensure that the remote side sees our lock has
+			 * been acquired before we start polling their status.
+			 */
 			wmb();
 
-			
+			/* verify the other side doesn't say it has the lock */
 			for (n = 0; n < 1000; ++n) {
 				UT_ASSERT_HEX(RPM_CMD_UNLOCKED, ==,
 					readl_relaxed(&data_ptr->rpm_cmd));
@@ -380,16 +426,20 @@ static void smp2p_ut_remote_spinlock_rpm(struct seq_file *s)
 			if (failed)
 				break;
 
-			
+			/* release spinlock */
 			have_lock = false;
 			writel_relaxed(RPM_CMD_UNLOCKED, &data_ptr->apps_cmd);
+			/*
+			 * Ensure that our status-update write was committed
+			 * before we unlock the spinlock.
+			 */
 			wmb();
 			remote_spin_unlock_irqrestore(smem_spinlock, flags);
 		}
 		if (have_lock)
 			remote_spin_unlock_irqrestore(smem_spinlock, flags);
 
-		
+		/* End test */
 		writel_relaxed(RPM_CMD_INVALID, &data_ptr->apps_cmd);
 		seq_printf(s,
 				"\tLocked spinlock local %u remote %u\n",
@@ -408,6 +458,17 @@ static void smp2p_ut_remote_spinlock_rpm(struct seq_file *s)
 
 static int __init smp2p_debugfs_init(void)
 {
+	/*
+	 * Add Unit Test entries.
+	 *
+	 * The idea with unit tests is that you can run all of them
+	 * from ADB shell by doing:
+	 *  adb shell
+	 *  cat ut*
+	 *
+	 * And if particular tests fail, you can then repeatedly run the
+	 * failing tests as you debug and resolve the failing test.
+	 */
 	smp2p_debug_create("ut_remote_spinlock",
 		smp2p_ut_remote_spinlock);
 	smp2p_debug_create("ut_remote_spin_trylock",

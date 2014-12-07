@@ -1,7 +1,7 @@
 /*
  * f_qdss.c -- QDSS function Driver
  *
- * Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
 
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -138,13 +138,14 @@ static struct usb_descriptor_header *qdss_ss_desc[] = {
 	NULL,
 };
 
+/* string descriptors: */
 #define QDSS_DATA_IDX	0
 #define QDSS_CTRL_IDX	1
 
 static struct usb_string qdss_string_defs[] = {
 	[QDSS_DATA_IDX].s = "QDSS DATA",
 	[QDSS_CTRL_IDX].s = "QDSS CTRL",
-	{}, 
+	{}, /* end of list */
 };
 
 static struct usb_gadget_strings qdss_string_table = {
@@ -162,6 +163,7 @@ static inline struct f_qdss *func_to_qdss(struct usb_function *f)
 	return container_of(f, struct f_qdss, function);
 }
 
+/*----------------------------------------------------------------------*/
 
 static void qdss_ctrl_write_complete(struct usb_ep *ep,
 	struct usb_request *req)
@@ -173,7 +175,7 @@ static void qdss_ctrl_write_complete(struct usb_ep *ep,
 	pr_debug("qdss_ctrl_write_complete\n");
 
 	if (!req->status) {
-		
+		/* send zlp */
 		if ((req->length >= ep->maxpacket) &&
 				((req->length % ep->maxpacket) == 0)) {
 			req->length = 0;
@@ -327,7 +329,7 @@ static int qdss_bind(struct usb_configuration *c, struct usb_function *f)
 		return -ENOTSUPP;
 	}
 
-	
+	/* Allocate data I/F */
 	iface = usb_interface_id(c, f);
 	if (iface < 0) {
 		pr_err("interface allocation error\n");
@@ -336,7 +338,7 @@ static int qdss_bind(struct usb_configuration *c, struct usb_function *f)
 	qdss_data_intf_desc.bInterfaceNumber = iface;
 	qdss->data_iface_id = iface;
 
-	
+	/* Allocate ctrl I/F */
 	iface = usb_interface_id(c, f);
 	if (iface < 0) {
 		pr_err("interface allocation error\n");
@@ -372,7 +374,7 @@ static int qdss_bind(struct usb_configuration *c, struct usb_function *f)
 	qdss->ctrl_out = ep;
 	ep->driver_data = qdss;
 
-	
+	/*update descriptors*/
 	qdss_hs_data_desc.bEndpointAddress =
 		qdss_ss_data_desc.bEndpointAddress;
 	qdss_hs_ctrl_in_desc.bEndpointAddress =
@@ -386,7 +388,7 @@ static int qdss_bind(struct usb_configuration *c, struct usb_function *f)
 		goto fail;
 	}
 
-	
+	/* update ss descriptors */
 	if (gadget_is_superspeed(gadget)) {
 		f->ss_descriptors = usb_copy_descriptors(qdss_ss_desc);
 		if (!f->ss_descriptors) {
@@ -412,6 +414,8 @@ static void qdss_unbind(struct usb_configuration *c, struct usb_function *f)
 	struct usb_gadget *gadget = c->cdev->gadget;
 
 	pr_debug("qdss_unbind\n");
+
+	flush_workqueue(qdss->wq);
 
 	if (gadget_is_dwc3(gadget))
 		dwc3_tx_fifo_resize_request(qdss->data, false);
@@ -453,11 +457,11 @@ static void usb_qdss_disconnect_work(struct work_struct *work)
 	if (status)
 		pr_err("%s: uninit_data error\n", __func__);
 
-	
+	/* notify qdss to cancell all active transfers*/
 	if (qdss->ch.notify) {
 		qdss->ch.notify(qdss->ch.priv, USB_QDSS_DISCONNECT, NULL,
 			NULL);
-		
+		/* If the app was never started, we can skip USB BAM reset */
 		status = set_qdss_data_connection(qdss->cdev->gadget,
 			qdss->data, qdss->data->address, 0);
 		if (status)
@@ -482,7 +486,7 @@ static void qdss_disable(struct usb_function *f)
 	qdss->usb_connected = 0;
 	spin_unlock_irqrestore(&qdss->lock, flags);
 
-	
+	/*cancell all active xfers*/
 	qdss_eps_disable(f);
 
 	queue_work(qdss->wq, &qdss->disconnect_w);
@@ -696,7 +700,7 @@ int usb_qdss_ctrl_read(struct usb_qdss_ch *ch, struct qdss_request *d_req)
 	req->context = d_req;
 
 	if (usb_ep_queue(qdss->ctrl_out, req, GFP_ATOMIC)) {
-		
+		/* If error add the link to linked list again*/
 		spin_lock_irqsave(&qdss->lock, flags);
 		list_add_tail(&req->list, &qdss->ctrl_read_pool);
 		spin_unlock_irqrestore(&qdss->lock, flags);
@@ -769,7 +773,7 @@ struct usb_qdss_ch *usb_qdss_open(const char *name, void *priv,
 	}
 
 	spin_lock_irqsave(&d_lock, flags);
-	
+	/* Check if we already have a channel with this name */
 	list_for_each_entry(ch, &usb_qdss_ch_list, list) {
 		if (!strcmp(name, ch->name)) {
 			found = 1;
@@ -805,7 +809,7 @@ struct usb_qdss_ch *usb_qdss_open(const char *name, void *priv,
 	ch->app_conn = 1;
 	spin_unlock_irqrestore(&d_lock, flags);
 
-	
+	/* the case USB cabel was connected befor qdss called  qdss_open*/
 	if (qdss->usb_connected == 1)
 		queue_work(qdss->wq, &qdss->connect_w);
 

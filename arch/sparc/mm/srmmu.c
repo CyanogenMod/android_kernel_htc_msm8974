@@ -39,6 +39,7 @@
 #include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
 
+/* Now the cpu specific definitions. */
 #include <asm/viking.h>
 #include <asm/mxcc.h>
 #include <asm/ross.h>
@@ -90,6 +91,11 @@ static DEFINE_SPINLOCK(srmmu_context_spinlock);
 
 static int is_hypersparc;
 
+/*
+ * In general all page table modifications should use the V8 atomic
+ * swap instruction.  This insures the mmu and the cpu are in sync
+ * with respect to ref/mod bits in the page tables.
+ */
 static inline unsigned long srmmu_swap(unsigned long *addr, unsigned long value)
 {
 	__asm__ __volatile__("swap [%2], %0" : "=&r" (value) : "0" (value), "r" (addr));
@@ -101,6 +107,7 @@ static inline void srmmu_set_pte(pte_t *ptep, pte_t pteval)
 	srmmu_swap((unsigned long *)ptep, pte_val(pteval));
 }
 
+/* The very generic SRMMU page table operations. */
 static inline int srmmu_device_memory(unsigned long x)
 {
 	return ((x & 0xF0000000) != 0);
@@ -108,11 +115,14 @@ static inline int srmmu_device_memory(unsigned long x)
 
 static int srmmu_cache_pagetables;
 
+/* these will be initialized in srmmu_nocache_calcsize() */
 static unsigned long srmmu_nocache_size;
 static unsigned long srmmu_nocache_end;
 
+/* 1 bit <=> 256 bytes of nocache <=> 64 PTEs */
 #define SRMMU_NOCACHE_BITMAP_SHIFT (PAGE_SHIFT - 4)
 
+/* The context table is a nocache user with the biggest alignment needs. */
 #define SRMMU_NOCACHE_ALIGN_MAX (sizeof(ctxd_t)*SRMMU_MAX_CONTEXTS)
 
 void *srmmu_nocache_pool;
@@ -122,6 +132,11 @@ static struct bit_map srmmu_nocache_map;
 static unsigned long srmmu_pte_pfn(pte_t pte)
 {
 	if (srmmu_device_memory(pte_val(pte))) {
+		/* Just return something that will cause
+		 * pfn_valid() to return false.  This makes
+		 * copy_one_pte() to just directly copy to
+		 * PTE over.
+		 */
 		return ~0UL;
 	}
 	return (pte_val(pte) & SRMMU_PTE_PMASK) >> (PAGE_SHIFT-4);
@@ -193,6 +208,10 @@ static inline pte_t srmmu_pte_mkdirty(pte_t pte)
 static inline pte_t srmmu_pte_mkyoung(pte_t pte)
 { return __pte(pte_val(pte) | SRMMU_REF);}
 
+/*
+ * Conversion functions: convert a page and protection to a page entry,
+ * and a page entry and page directory to the page they refer to.
+ */
 static pte_t srmmu_mk_pte(struct page *page, pgprot_t pgprot)
 { return __pte((page_to_pfn(page) << (PAGE_SHIFT-4)) | pgprot_val(pgprot)); }
 
@@ -202,6 +221,7 @@ static pte_t srmmu_mk_pte_phys(unsigned long page, pgprot_t pgprot)
 static pte_t srmmu_mk_pte_io(unsigned long page, pgprot_t pgprot, int space)
 { return __pte(((page) >> 4) | (space << 28) | pgprot_val(pgprot)); }
 
+/* XXX should we hyper_flush_whole_icache here - Anton */
 static inline void srmmu_ctxd_set(ctxd_t *ctxp, pgd_t *pgdp)
 { srmmu_set_pte((pte_t *)ctxp, (SRMMU_ET_PTD | (__nocache_pa((unsigned long) pgdp) >> 4))); }
 
@@ -210,7 +230,7 @@ static inline void srmmu_pgd_set(pgd_t * pgdp, pmd_t * pmdp)
 
 static void srmmu_pmd_set(pmd_t *pmdp, pte_t *ptep)
 {
-	unsigned long ptp;	
+	unsigned long ptp;	/* Physical address, shifted right by 4 */
 	int i;
 
 	ptp = __nocache_pa((unsigned long) ptep) >> 4;
@@ -222,10 +242,10 @@ static void srmmu_pmd_set(pmd_t *pmdp, pte_t *ptep)
 
 static void srmmu_pmd_populate(pmd_t *pmdp, struct page *ptep)
 {
-	unsigned long ptp;	
+	unsigned long ptp;	/* Physical address, shifted right by 4 */
 	int i;
 
-	ptp = page_to_pfn(ptep) << (PAGE_SHIFT-4);	
+	ptp = page_to_pfn(ptep) << (PAGE_SHIFT-4);	/* watch for overflow */
 	for (i = 0; i < PTRS_PER_PTE/SRMMU_REAL_PTRS_PER_PTE; i++) {
 		srmmu_set_pte((pte_t *)&pmdp->pmdv[i], SRMMU_ET_PTD | ptp);
 		ptp += (SRMMU_REAL_PTRS_PER_PTE*sizeof(pte_t) >> 4);
@@ -235,16 +255,18 @@ static void srmmu_pmd_populate(pmd_t *pmdp, struct page *ptep)
 static inline pte_t srmmu_pte_modify(pte_t pte, pgprot_t newprot)
 { return __pte((pte_val(pte) & SRMMU_CHG_MASK) | pgprot_val(newprot)); }
 
+/* to find an entry in a top-level page table... */
 static inline pgd_t *srmmu_pgd_offset(struct mm_struct * mm, unsigned long address)
 { return mm->pgd + (address >> SRMMU_PGDIR_SHIFT); }
 
+/* Find an entry in the second-level page table.. */
 static inline pmd_t *srmmu_pmd_offset(pgd_t * dir, unsigned long address)
 {
 	return (pmd_t *) srmmu_pgd_page(*dir) +
 	    ((address >> PMD_SHIFT) & (PTRS_PER_PMD - 1));
 }
 
- 
+/* Find an entry in the third-level page table.. */ 
 static inline pte_t *srmmu_pte_offset(pmd_t * dir, unsigned long address)
 {
 	void *pte;
@@ -271,6 +293,11 @@ static swp_entry_t srmmu_swp_entry(unsigned long type, unsigned long offset)
 		| (offset & SRMMU_SWP_OFF_MASK) << SRMMU_SWP_OFF_SHIFT };
 }
 
+/*
+ * size: bytes to allocate in the nocache area.
+ * align: bytes, number to align at.
+ * Returns the virtual address of the allocated area.
+ */
 static unsigned long __srmmu_get_nocache(int size, int align)
 {
 	int offset;
@@ -346,8 +373,12 @@ static void srmmu_free_nocache(unsigned long vaddr, int size)
 static void srmmu_early_allocate_ptable_skeleton(unsigned long start,
 						 unsigned long end);
 
-extern unsigned long probe_memory(void);	
+extern unsigned long probe_memory(void);	/* in fault.c */
 
+/*
+ * Reserve nocache dynamically proportionally to the amount of
+ * system RAM. -- Tomas Szepe <szepe@pinerecords.com>, June 2002
+ */
 static void srmmu_nocache_calcsize(void)
 {
 	unsigned long sysmemavail = probe_memory() / 1024;
@@ -356,12 +387,12 @@ static void srmmu_nocache_calcsize(void)
 	srmmu_nocache_npages =
 		sysmemavail / SRMMU_NOCACHE_ALCRATIO / 1024 * 256;
 
- 
-	
+ /* P3 XXX The 4x overuse: corroborated by /proc/meminfo. */
+	// if (srmmu_nocache_npages < 256) srmmu_nocache_npages = 256;
 	if (srmmu_nocache_npages < SRMMU_MIN_NOCACHE_PAGES)
 		srmmu_nocache_npages = SRMMU_MIN_NOCACHE_PAGES;
 
-	
+	/* anything above 1280 blows up */
 	if (srmmu_nocache_npages > SRMMU_MAX_NOCACHE_PAGES)
 		srmmu_nocache_npages = SRMMU_MAX_NOCACHE_PAGES;
 
@@ -446,6 +477,14 @@ static void srmmu_pmd_free(pmd_t * pmd)
 	srmmu_free_nocache((unsigned long)pmd, SRMMU_PMD_TABLE_SIZE);
 }
 
+/*
+ * Hardware needs alignment to 256 only, but we align to whole page size
+ * to reduce fragmentation problems due to the buddy principle.
+ * XXX Provide actual fragmentation statistics in /proc.
+ *
+ * Alignments up to the page size are the same for physical and virtual
+ * addresses of the nocache area.
+ */
 static pte_t *
 srmmu_pte_alloc_one_kernel(struct mm_struct *mm, unsigned long address)
 {
@@ -475,14 +514,16 @@ static void srmmu_pte_free(pgtable_t pte)
 	unsigned long p;
 
 	pgtable_page_dtor(pte);
-	p = (unsigned long)page_address(pte);	
+	p = (unsigned long)page_address(pte);	/* Cached address (for test) */
 	if (p == 0)
 		BUG();
-	p = page_to_pfn(pte) << PAGE_SHIFT;	
-	p = (unsigned long) __nocache_va(p);	
+	p = page_to_pfn(pte) << PAGE_SHIFT;	/* Physical address */
+	p = (unsigned long) __nocache_va(p);	/* Nocached virtual */
 	srmmu_free_nocache(p, PTE_SIZE);
 }
 
+/*
+ */
 static inline void alloc_context(struct mm_struct *old_mm, struct mm_struct *mm)
 {
 	struct ctx_list *ctxp;
@@ -538,6 +579,7 @@ static void srmmu_switch_mm(struct mm_struct *old_mm, struct mm_struct *mm,
 	srmmu_set_context(mm->context);
 }
 
+/* Low level IO area allocation on the SRMMU. */
 static inline void srmmu_mapioaddr(unsigned long physaddr,
     unsigned long virt_addr, int bus_type)
 {
@@ -552,6 +594,11 @@ static inline void srmmu_mapioaddr(unsigned long physaddr,
 	ptep = srmmu_pte_offset(pmdp, virt_addr);
 	tmp = (physaddr >> 4) | SRMMU_ET_PTE;
 
+	/*
+	 * I need to test whether this is consistent over all
+	 * sun4m's.  The bus_type represents the upper 4 bits of
+	 * 36-bit physical address on the I/O space lines...
+	 */
 	tmp |= (bus_type << 28);
 	tmp |= SRMMU_PRIV;
 	__flush_page_to_ram(virt_addr);
@@ -580,7 +627,7 @@ static inline void srmmu_unmapioaddr(unsigned long virt_addr)
 	pmdp = srmmu_pmd_offset(pgdp, virt_addr);
 	ptep = srmmu_pte_offset(pmdp, virt_addr);
 
-	
+	/* No need to flush uncacheable page. */
 	srmmu_pte_clear(ptep);
 }
 
@@ -594,6 +641,15 @@ static void srmmu_unmapiorange(unsigned long virt_addr, unsigned int len)
 	flush_tlb_all();
 }
 
+/*
+ * On the SRMMU we do not have the problems with limited tlb entries
+ * for mapping kernel pages, so we just take things from the free page
+ * pool.  As a side effect we are putting a little too much pressure
+ * on the gfp() subsystem.  This setup also makes the logic of the
+ * iommu mapping code a lot easier as we can transparently handle
+ * mappings on the kernel stack without any special code as we did
+ * need on the sun4c.
+ */
 static struct thread_info *srmmu_alloc_thread_info_node(int node)
 {
 	struct thread_info *ret;
@@ -603,7 +659,7 @@ static struct thread_info *srmmu_alloc_thread_info_node(int node)
 #ifdef CONFIG_DEBUG_STACK_USAGE
 	if (ret)
 		memset(ret, 0, PAGE_SIZE << THREAD_INFO_ORDER);
-#endif 
+#endif /* DEBUG_STACK_USAGE */
 
 	return ret;
 }
@@ -613,6 +669,7 @@ static void srmmu_free_thread_info(struct thread_info *ti)
 	free_pages((unsigned long)ti, THREAD_INFO_ORDER);
 }
 
+/* tsunami.S */
 extern void tsunami_flush_cache_all(void);
 extern void tsunami_flush_cache_mm(struct mm_struct *mm);
 extern void tsunami_flush_cache_range(struct vm_area_struct *vma, unsigned long start, unsigned long end);
@@ -626,12 +683,23 @@ extern void tsunami_flush_tlb_range(struct vm_area_struct *vma, unsigned long st
 extern void tsunami_flush_tlb_page(struct vm_area_struct *vma, unsigned long page);
 extern void tsunami_setup_blockops(void);
 
+/*
+ * Workaround, until we find what's going on with Swift. When low on memory,
+ * it sometimes loops in fault/handle_mm_fault incl. flush_tlb_page to find
+ * out it is already in page tables/ fault again on the same instruction.
+ * I really don't understand it, have checked it and contexts
+ * are right, flush_tlb_all is done as well, and it faults again...
+ * Strange. -jj
+ *
+ * The following code is a deadwood that may be necessary when
+ * we start to make precise page flushes again. --zaitcev
+ */
 static void swift_update_mmu_cache(struct vm_area_struct * vma, unsigned long address, pte_t *ptep)
 {
 #if 0
 	static unsigned long last;
 	unsigned int val;
-	
+	/* unsigned int n; */
 
 	if (address == last) {
 		val = srmmu_hwprobe(address);
@@ -647,6 +715,7 @@ static void swift_update_mmu_cache(struct vm_area_struct * vma, unsigned long ad
 #endif
 }
 
+/* swift.S */
 extern void swift_flush_cache_all(void);
 extern void swift_flush_cache_mm(struct mm_struct *mm);
 extern void swift_flush_cache_range(struct vm_area_struct *vma,
@@ -661,7 +730,7 @@ extern void swift_flush_tlb_range(struct vm_area_struct *vma,
 				  unsigned long start, unsigned long end);
 extern void swift_flush_tlb_page(struct vm_area_struct *vma, unsigned long page);
 
-#if 0  
+#if 0  /* P3: deadwood to debug precise flushes on Swift. */
 void swift_flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 {
 	int cctx, ctx1;
@@ -669,6 +738,7 @@ void swift_flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 	page &= PAGE_MASK;
 	if ((ctx1 = vma->vm_mm->context) != -1) {
 		cctx = srmmu_get_context();
+/* Is context # ever different from current context? P3 */
 		if (cctx != ctx1) {
 			printk("flush ctx %02x curr %02x\n", ctx1, cctx);
 			srmmu_set_context(ctx1);
@@ -677,20 +747,27 @@ void swift_flush_tlb_page(struct vm_area_struct *vma, unsigned long page)
 					"r" (page), "i" (ASI_M_FLUSH_PROBE));
 			srmmu_set_context(cctx);
 		} else {
-			 
-			
-			
+			 /* Rm. prot. bits from virt. c. */
+			/* swift_flush_cache_all(); */
+			/* swift_flush_cache_page(vma, page); */
 			swift_flush_page(page);
 
 			__asm__ __volatile__("sta %%g0, [%0] %1\n\t" : :
 				"r" (page), "i" (ASI_M_FLUSH_PROBE));
-			
+			/* same as above: srmmu_flush_tlb_page() */
 		}
 	}
 }
 #endif
 
+/*
+ * The following are all MBUS based SRMMU modules, and therefore could
+ * be found in a multiprocessor configuration.  On the whole, these
+ * chips seems to be much more touchy about DVMA and page tables
+ * with respect to cache coherency.
+ */
 
+/* Cypress flushes. */
 static void cypress_flush_cache_all(void)
 {
 	volatile unsigned long cypress_sucks;
@@ -703,7 +780,7 @@ static void cypress_flush_cache_all(void)
 				     "r" (faddr), "r" (0x40000),
 				     "i" (ASI_M_DATAC_TAG));
 
-		
+		/* If modified and valid, kick it. */
 		if((tagval & 0x60) == 0x60)
 			cypress_sucks = *(unsigned long *)(0xf0020000 + faddr);
 	}
@@ -826,6 +903,7 @@ static void cypress_flush_cache_page(struct vm_area_struct *vma, unsigned long p
 	FLUSH_END
 }
 
+/* Cypress is copy-back, at least that is how we configure it. */
 static void cypress_flush_page_to_ram(unsigned long page)
 {
 	register unsigned long a, b, c, d, e, f, g;
@@ -853,10 +931,15 @@ static void cypress_flush_page_to_ram(unsigned long page)
 	} while(line != page);
 }
 
+/* Cypress is also IO cache coherent. */
 static void cypress_flush_page_for_dma(unsigned long page)
 {
 }
 
+/* Cypress has unified L2 VIPT, from which both instructions and data
+ * are stored.  It does not have an onboard icache of any sort, therefore
+ * no flush is necessary.
+ */
 static void cypress_flush_sig_insns(struct mm_struct *mm, unsigned long insn_addr)
 {
 }
@@ -874,7 +957,7 @@ static void cypress_flush_tlb_mm(struct mm_struct *mm)
 	"sta	%2, [%0] %3\n\t"
 	"sta	%%g0, [%1] %4\n\t"
 	"sta	%%g5, [%0] %3\n"
-	: 
+	: /* no outputs */
 	: "r" (SRMMU_CTX_REG), "r" (0x300), "r" (mm->context),
 	  "i" (ASI_M_MMUREGS), "i" (ASI_M_FLUSH_PROBE)
 	: "g5");
@@ -897,7 +980,7 @@ static void cypress_flush_tlb_range(struct vm_area_struct *vma, unsigned long st
 		"bne	1b\n\t"
 		" sta	%%g0, [%2 + %3] %6\n\t"
 		"sta	%%g5, [%0] %5\n"
-	: 
+	: /* no outputs */
 	: "r" (SRMMU_CTX_REG), "r" (mm->context), "r" (start | 0x200),
 	  "r" (size), "r" (SRMMU_PGDIR_SIZE), "i" (ASI_M_MMUREGS),
 	  "i" (ASI_M_FLUSH_PROBE)
@@ -915,13 +998,14 @@ static void cypress_flush_tlb_page(struct vm_area_struct *vma, unsigned long pag
 	"sta	%1, [%0] %3\n\t"
 	"sta	%%g0, [%2] %4\n\t"
 	"sta	%%g5, [%0] %3\n"
-	: 
+	: /* no outputs */
 	: "r" (SRMMU_CTX_REG), "r" (mm->context), "r" (page & PAGE_MASK),
 	  "i" (ASI_M_MMUREGS), "i" (ASI_M_FLUSH_PROBE)
 	: "g5");
 	FLUSH_END
 }
 
+/* viking.S */
 extern void viking_flush_cache_all(void);
 extern void viking_flush_cache_mm(struct mm_struct *mm);
 extern void viking_flush_cache_range(struct vm_area_struct *vma, unsigned long start,
@@ -945,6 +1029,7 @@ extern void sun4dsmp_flush_tlb_range(struct vm_area_struct *vma, unsigned long s
 extern void sun4dsmp_flush_tlb_page(struct vm_area_struct *vma,
 				  unsigned long page);
 
+/* hypersparc.S */
 extern void hypersparc_flush_cache_all(void);
 extern void hypersparc_flush_cache_mm(struct mm_struct *mm);
 extern void hypersparc_flush_cache_range(struct vm_area_struct *vma, unsigned long start, unsigned long end);
@@ -958,6 +1043,12 @@ extern void hypersparc_flush_tlb_range(struct vm_area_struct *vma, unsigned long
 extern void hypersparc_flush_tlb_page(struct vm_area_struct *vma, unsigned long page);
 extern void hypersparc_setup_blockops(void);
 
+/*
+ * NOTE: All of this startup code assumes the low 16mb (approx.) of
+ *       kernel mappings are done with one single contiguous chunk of
+ *       ram.  On small ram machines (classics mainly) we only get
+ *       around 8mb mapped for us.
+ */
 
 static void __init early_pgtable_allocfail(char *type)
 {
@@ -1027,18 +1118,23 @@ static void __init srmmu_allocate_ptable_skeleton(unsigned long start,
 	}
 }
 
+/*
+ * This is much cleaner than poking around physical address space
+ * looking at the prom's page table directly which is what most
+ * other OS's do.  Yuck... this is much better.
+ */
 static void __init srmmu_inherit_prom_mappings(unsigned long start,
 					       unsigned long end)
 {
 	pgd_t *pgdp;
 	pmd_t *pmdp;
 	pte_t *ptep;
-	int what = 0; 
+	int what = 0; /* 0 = normal-pte, 1 = pmd-level pte, 2 = pgd-level pte */
 	unsigned long prompte;
 
 	while(start <= end) {
 		if (start == 0)
-			break; 
+			break; /* probably wrap around */
 		if(start == 0xfef00000)
 			start = KADB_DEBUGGER_BEGVM;
 		if(!(prompte = srmmu_hwprobe(start))) {
@@ -1046,7 +1142,7 @@ static void __init srmmu_inherit_prom_mappings(unsigned long start,
 			continue;
 		}
     
-		
+		/* A red snapper, see what it really is. */
 		what = 0;
     
 		if(!(start & ~(SRMMU_REAL_PMD_MASK))) {
@@ -1083,7 +1179,12 @@ static void __init srmmu_inherit_prom_mappings(unsigned long start,
 			srmmu_pmd_set(__nocache_fix(pmdp), ptep);
 		}
 		if(what == 1) {
-			unsigned int x;	
+			/*
+			 * We bend the rule where all 16 PTPs in a pmd_t point
+			 * inside the same PTE page, and we leak a perfectly
+			 * good hardware PTE piece. Alternatives seem worse.
+			 */
+			unsigned int x;	/* Index of HW PMD in soft cluster */
 			x = (start >> PMD_SHIFT) & 15;
 			*(unsigned long *)__nocache_fix(&pmdp->pmdv[x]) = prompte;
 			start += SRMMU_REAL_PMD_SIZE;
@@ -1097,6 +1198,7 @@ static void __init srmmu_inherit_prom_mappings(unsigned long start,
 
 #define KERNEL_PTE(page_shifted) ((page_shifted)|SRMMU_CACHE|SRMMU_PRIV|SRMMU_VALID)
 
+/* Create a third-level SRMMU 16MB page mapping. */
 static void __init do_large_mapping(unsigned long vaddr, unsigned long phys_base)
 {
 	pgd_t *pgdp = pgd_offset_k(vaddr);
@@ -1106,12 +1208,13 @@ static void __init do_large_mapping(unsigned long vaddr, unsigned long phys_base
 	*(pgd_t *)__nocache_fix(pgdp) = __pgd(big_pte);
 }
 
+/* Map sp_bank entry SP_ENTRY, starting at virtual address VBASE. */
 static unsigned long __init map_spbank(unsigned long vbase, int sp_entry)
 {
 	unsigned long pstart = (sp_banks[sp_entry].base_addr & SRMMU_PGDIR_MASK);
 	unsigned long vstart = (vbase & SRMMU_PGDIR_MASK);
 	unsigned long vend = SRMMU_PGDIR_ALIGN(vbase + sp_banks[sp_entry].num_bytes);
-	
+	/* Map "low" memory only */
 	const unsigned long min_vaddr = PAGE_OFFSET;
 	const unsigned long max_vaddr = PAGE_OFFSET + SRMMU_MAXMEM;
 
@@ -1150,6 +1253,7 @@ static inline void map_kernel(void)
 	BTFIXUPSET_SIMM13(user_ptrs_per_pgd, PAGE_OFFSET / SRMMU_PGDIR_SIZE);
 }
 
+/* Paging initialization on the Sparc Reference MMU. */
 extern void sparc_context_init(int);
 
 void (*poke_srmmu)(void) __cpuinitdata = NULL;
@@ -1166,12 +1270,12 @@ void __init srmmu_paging_init(void)
 	pte_t *pte;
 	unsigned long pages_avail;
 
-	sparc_iomap.start = SUN4M_IOBASE_VADDR;	
+	sparc_iomap.start = SUN4M_IOBASE_VADDR;	/* 16MB of IOSPACE on all sun4m's. */
 
 	if (sparc_cpu_model == sun4d)
-		num_contexts = 65536; 
+		num_contexts = 65536; /* We know it is Viking */
 	else {
-		
+		/* Find the number of contexts on the srmmu. */
 		cpunode = prom_getchild(prom_root_node);
 		num_contexts = 0;
 		while(cpunode != 0) {
@@ -1197,7 +1301,7 @@ void __init srmmu_paging_init(void)
         srmmu_inherit_prom_mappings(0xfe400000,(LINUX_OPPROM_ENDVM-PAGE_SIZE));
 	map_kernel();
 
-	
+	/* ctx table has to be physically aligned to its size */
 	srmmu_context_table = (ctxd_t *)__srmmu_get_nocache(num_contexts*sizeof(ctxd_t), num_contexts*sizeof(ctxd_t));
 	srmmu_ctx_table_phys = (ctxd_t *)__nocache_pa((unsigned long)srmmu_context_table);
 
@@ -1207,7 +1311,7 @@ void __init srmmu_paging_init(void)
 	flush_cache_all();
 	srmmu_set_ctable_ptr((unsigned long)srmmu_ctx_table_phys);
 #ifdef CONFIG_SMP
-	
+	/* Stop from hanging here... */
 	local_flush_tlb_all();
 #else
 	flush_tlb_all();
@@ -1286,6 +1390,7 @@ static void srmmu_destroy_context(struct mm_struct *mm)
 	}
 }
 
+/* Init various srmmu chip types. */
 static void __init srmmu_is_bad(void)
 {
 	prom_printf("Could not determine SRMMU chip type.\n");
@@ -1325,7 +1430,7 @@ static void __init init_vac_layout(void)
 				max_size = vac_cache_size;
 			if(vac_line_size < min_line_size)
 				min_line_size = vac_line_size;
-			
+			//FIXME: cpus not contiguous!!
 			cpu++;
 			if (cpu >= nr_cpu_ids || !cpu_online(cpu))
 				break;
@@ -1359,7 +1464,7 @@ static void __cpuinit poke_hypersparc(void)
 
 	srmmu_set_mmureg(mreg);
 
-#if 0 
+#if 0 /* XXX I think this is bad news... -DaveM */
 	hyper_clear_all_tags();
 #endif
 
@@ -1425,14 +1530,14 @@ static void __cpuinit poke_cypress(void)
 					     "r" (faddr), "r" (0x40000),
 					     "i" (ASI_M_DATAC_TAG));
 
-			
+			/* If modified and valid, kick it. */
 			if((tagval & 0x60) == 0x60)
 				cypress_sucks = *(unsigned long *)
 							(0xf0020000 + faddr);
 		}
 	}
 
-	
+	/* And one more, for our good neighbor, Mr. Broken Cypress. */
 	clear = srmmu_get_faddr();
 	clear = srmmu_get_fstatus();
 
@@ -1493,12 +1598,21 @@ static void __cpuinit poke_swift(void)
 {
 	unsigned long mreg;
 
-	
+	/* Clear any crap from the cache or else... */
 	swift_flush_cache_all();
 
-	
+	/* Enable I & D caches */
 	mreg = srmmu_get_mmureg();
 	mreg |= (SWIFT_IE | SWIFT_DE);
+	/*
+	 * The Swift branch folding logic is completely broken.  At
+	 * trap time, if things are just right, if can mistakenly
+	 * think that a trap is coming from kernel mode when in fact
+	 * it is coming from user mode (it mis-executes the branch in
+	 * the trap code).  So you see things like crashme completely
+	 * hosing your machine which is completely unacceptable.  Turn
+	 * this shit off... nice job Fujitsu.
+	 */
 	mreg &= ~(SWIFT_BF);
 	srmmu_set_mmureg(mreg);
 }
@@ -1520,11 +1634,33 @@ static void __init init_swift(void)
 	case 0x30:
 		srmmu_modtype = Swift_lots_o_bugs;
 		hwbug_bitmask |= (HWBUG_KERN_ACCBROKEN | HWBUG_KERN_CBITBROKEN);
+		/*
+		 * Gee george, I wonder why Sun is so hush hush about
+		 * this hardware bug... really braindamage stuff going
+		 * on here.  However I think we can find a way to avoid
+		 * all of the workaround overhead under Linux.  Basically,
+		 * any page fault can cause kernel pages to become user
+		 * accessible (the mmu gets confused and clears some of
+		 * the ACC bits in kernel ptes).  Aha, sounds pretty
+		 * horrible eh?  But wait, after extensive testing it appears
+		 * that if you use pgd_t level large kernel pte's (like the
+		 * 4MB pages on the Pentium) the bug does not get tripped
+		 * at all.  This avoids almost all of the major overhead.
+		 * Welcome to a world where your vendor tells you to,
+		 * "apply this kernel patch" instead of "sorry for the
+		 * broken hardware, send it back and we'll give you
+		 * properly functioning parts"
+		 */
 		break;
 	case 0x25:
 	case 0x31:
 		srmmu_modtype = Swift_bad_c;
 		hwbug_bitmask |= HWBUG_KERN_CBITBROKEN;
+		/*
+		 * You see Sun allude to this hardware bug but never
+		 * admit things directly, they'll say things like,
+		 * "the Swift chip cache problems" or similar.
+		 */
 		break;
 	default:
 		srmmu_modtype = Swift_ok;
@@ -1550,6 +1686,13 @@ static void __init init_swift(void)
 
 	flush_page_for_dma_global = 0;
 
+	/*
+	 * Are you now convinced that the Swift is one of the
+	 * biggest VLSI abortions of all time?  Bravo Fujitsu!
+	 * Fujitsu, the !#?!%$'d up processor people.  I bet if
+	 * you examined the microcode of the Swift you'd find
+	 * XXX's all over the place.
+	 */
 	poke_srmmu = poke_swift;
 }
 
@@ -1585,6 +1728,7 @@ static void turbosparc_flush_cache_page(struct vm_area_struct *vma, unsigned lon
 	FLUSH_END
 }
 
+/* TurboSparc is copy-back, if we turn it on, but this does not work. */
 static void turbosparc_flush_page_to_ram(unsigned long page)
 {
 #ifdef TURBOSPARC_WRITEBACK
@@ -1637,36 +1781,38 @@ static void __cpuinit poke_turbosparc(void)
 	unsigned long mreg = srmmu_get_mmureg();
 	unsigned long ccreg;
 
-	
+	/* Clear any crap from the cache or else... */
 	turbosparc_flush_cache_all();
-	mreg &= ~(TURBOSPARC_ICENABLE | TURBOSPARC_DCENABLE); 
-	mreg &= ~(TURBOSPARC_PCENABLE);		
+	mreg &= ~(TURBOSPARC_ICENABLE | TURBOSPARC_DCENABLE); /* Temporarily disable I & D caches */
+	mreg &= ~(TURBOSPARC_PCENABLE);		/* Don't check parity */
 	srmmu_set_mmureg(mreg);
 	
 	ccreg = turbosparc_get_ccreg();
 
 #ifdef TURBOSPARC_WRITEBACK
-	ccreg |= (TURBOSPARC_SNENABLE);		
+	ccreg |= (TURBOSPARC_SNENABLE);		/* Do DVMA snooping in Dcache */
 	ccreg &= ~(TURBOSPARC_uS2 | TURBOSPARC_WTENABLE);
+			/* Write-back D-cache, emulate VLSI
+			 * abortion number three, not number one */
 #else
-	
+	/* For now let's play safe, optimize later */
 	ccreg |= (TURBOSPARC_SNENABLE | TURBOSPARC_WTENABLE);
-			
+			/* Do DVMA snooping in Dcache, Write-thru D-cache */
 	ccreg &= ~(TURBOSPARC_uS2);
-			
+			/* Emulate VLSI abortion number three, not number one */
 #endif
 
 	switch (ccreg & 7) {
-	case 0: 
-	case 7: 
+	case 0: /* No SE cache */
+	case 7: /* Test mode */
 		break;
 	default:
 		ccreg |= (TURBOSPARC_SCENABLE);
 	}
 	turbosparc_set_ccreg (ccreg);
 
-	mreg |= (TURBOSPARC_ICENABLE | TURBOSPARC_DCENABLE); 
-	mreg |= (TURBOSPARC_ICSNOOP);		
+	mreg |= (TURBOSPARC_ICENABLE | TURBOSPARC_DCENABLE); /* I & D caches on */
+	mreg |= (TURBOSPARC_ICSNOOP);		/* Icache snooping on */
 	srmmu_set_mmureg(mreg);
 }
 
@@ -1706,6 +1852,11 @@ static void __cpuinit poke_tsunami(void)
 
 static void __init init_tsunami(void)
 {
+	/*
+	 * Tsunami's pretty sane, Sun and TI actually got it
+	 * somewhat right this time.  Fujitsu should have
+	 * taken some lessons from them.
+	 */
 
 	srmmu_name = "TI Tsunami";
 	srmmu_modtype = Tsunami;
@@ -1742,20 +1893,25 @@ static void __cpuinit poke_viking(void)
 		mxcc_control &= ~(MXCC_CTL_RRC);
 		mxcc_set_creg(mxcc_control);
 
+		/*
+		 * We don't need memory parity checks.
+		 * XXX This is a mess, have to dig out later. ecd.
+		viking_mxcc_turn_off_parity(&mreg, &mxcc_control);
+		 */
 
-		
+		/* We do cache ptables on MXCC. */
 		mreg |= VIKING_TCENABLE;
 	} else {
 		unsigned long bpreg;
 
 		mreg &= ~(VIKING_TCENABLE);
 		if(smp_catch++) {
-			
+			/* Must disable mixed-cmd mode here for other cpu's. */
 			bpreg = viking_get_bpreg();
 			bpreg &= ~(VIKING_ACTION_MIX);
 			viking_set_bpreg(bpreg);
 
-			
+			/* Just in case PROM does something funny. */
 			msi_set_sync();
 		}
 	}
@@ -1771,7 +1927,7 @@ static void __init init_viking(void)
 {
 	unsigned long mreg = srmmu_get_mmureg();
 
-	
+	/* Ahhh, the viking.  SRMMU VLSI abortion number two... */
 	if(mreg & VIKING_MMODE) {
 		srmmu_name = "TI Viking";
 		viking_mxcc_present = 0;
@@ -1781,6 +1937,13 @@ static void __init init_viking(void)
 		BTFIXUPSET_CALL(pmd_clear, srmmu_pmd_clear, BTFIXUPCALL_NORM);
 		BTFIXUPSET_CALL(pgd_clear, srmmu_pgd_clear, BTFIXUPCALL_NORM);
 
+		/*
+		 * We need this to make sure old viking takes no hits
+		 * on it's cache for dma snoops to workaround the
+		 * "load from non-cacheable memory" interrupt bug.
+		 * This is only necessary because of the new way in
+		 * which we use the IOMMU.
+		 */
 		BTFIXUPSET_CALL(flush_page_for_dma, viking_flush_page, BTFIXUPCALL_NORM);
 
 		flush_page_for_dma_global = 0;
@@ -1790,7 +1953,7 @@ static void __init init_viking(void)
 
 		srmmu_cache_pagetables = 1;
 
-		
+		/* MXCC vikings lack the DMA snooping bug. */
 		BTFIXUPSET_CALL(flush_page_for_dma, viking_flush_page_for_dma, BTFIXUPCALL_NOP);
 	}
 
@@ -1859,6 +2022,7 @@ void __init init_leon(void)
 }
 #endif
 
+/* Probe for the srmmu chip version. */
 static void __init get_srmmu_type(void)
 {
 	unsigned long mreg, psr;
@@ -1873,53 +2037,57 @@ static void __init get_srmmu_type(void)
 	psr_typ = (psr >> 28) & 0xf;
 	psr_vers = (psr >> 24) & 0xf;
 
-	
+	/* First, check for sparc-leon. */
 	if (sparc_cpu_model == sparc_leon) {
 		init_leon();
 		return;
 	}
 
-	
+	/* Second, check for HyperSparc or Cypress. */
 	if(mod_typ == 1) {
 		switch(mod_rev) {
 		case 7:
-			
+			/* UP or MP Hypersparc */
 			init_hypersparc();
 			break;
 		case 0:
 		case 2:
-			
+			/* Uniprocessor Cypress */
 			init_cypress_604();
 			break;
 		case 10:
 		case 11:
 		case 12:
-			
+			/* _REALLY OLD_ Cypress MP chips... */
 		case 13:
 		case 14:
 		case 15:
-			
+			/* MP Cypress mmu/cache-controller */
 			init_cypress_605(mod_rev);
 			break;
 		default:
-			
+			/* Some other Cypress revision, assume a 605. */
 			init_cypress_605(mod_rev);
 			break;
 		}
 		return;
 	}
 	
+	/*
+	 * Now Fujitsu TurboSparc. It might happen that it is
+	 * in Swift emulation mode, so we will check later...
+	 */
 	if (psr_typ == 0 && psr_vers == 5) {
 		init_turbosparc();
 		return;
 	}
 
-	
+	/* Next check for Fujitsu Swift. */
 	if(psr_typ == 0 && psr_vers == 4) {
 		phandle cpunode;
 		char node_str[128];
 
-		
+		/* Look if it is not a TurboSparc emulating Swift... */
 		cpunode = prom_getchild(prom_root_node);
 		while((cpunode = prom_getsibling(cpunode)) != 0) {
 			prom_getstring(cpunode, "device_type", node_str, sizeof(node_str));
@@ -1937,7 +2105,7 @@ static void __init get_srmmu_type(void)
 		return;
 	}
 
-	
+	/* Now the Viking family of srmmu. */
 	if(psr_typ == 4 &&
 	   ((psr_vers == 0) ||
 	    ((psr_vers == 1) && (mod_typ == 0) && (mod_rev == 0)))) {
@@ -1945,16 +2113,17 @@ static void __init get_srmmu_type(void)
 		return;
 	}
 
-	
+	/* Finally the Tsunami. */
 	if(psr_typ == 4 && psr_vers == 1 && (mod_typ || mod_rev)) {
 		init_tsunami();
 		return;
 	}
 
-	
+	/* Oh well */
 	srmmu_is_bad();
 }
 
+/* don't laugh, static pagetables */
 static void srmmu_check_pgt_cache(int low, int high)
 {
 }
@@ -1987,6 +2156,7 @@ static void __init patch_window_trap_handlers(void)
 }
 
 #ifdef CONFIG_SMP
+/* Local cross-calls. */
 static void smp_flush_page_for_dma(unsigned long page)
 {
 	xc1((smpfunc_t) BTFIXUP_CALL(local_flush_page_for_dma), page);
@@ -2012,6 +2182,7 @@ static pgprot_t srmmu_pgprot_noncached(pgprot_t prot)
 	return prot;
 }
 
+/* Load up routines and constants for sun4m and sun4d mmu */
 void __init ld_mmu_srmmu(void)
 {
 	extern void ld_mmu_iommu(void);
@@ -2032,7 +2203,7 @@ void __init ld_mmu_srmmu(void)
 	BTFIXUPSET_INT(page_kernel, pgprot_val(SRMMU_PAGE_KERNEL));
 	page_kernel = pgprot_val(SRMMU_PAGE_KERNEL);
 
-	
+	/* Functions */
 	BTFIXUPSET_CALL(pgprot_noncached, srmmu_pgprot_noncached, BTFIXUPCALL_NORM);
 #ifndef CONFIG_SMP	
 	BTFIXUPSET_CALL(___xchg32, ___xchg32_sun4md, BTFIXUPCALL_SWAPG1G2);
@@ -2110,7 +2281,7 @@ void __init ld_mmu_srmmu(void)
 	patch_window_trap_handlers();
 
 #ifdef CONFIG_SMP
-	
+	/* El switcheroo... */
 
 	BTFIXUPCOPY_CALL(local_flush_cache_all, flush_cache_all);
 	BTFIXUPCOPY_CALL(local_flush_cache_mm, flush_cache_mm);
@@ -2140,7 +2311,7 @@ void __init ld_mmu_srmmu(void)
 	BTFIXUPSET_CALL(flush_page_for_dma, smp_flush_page_for_dma, BTFIXUPCALL_NORM);
 
 	if (poke_srmmu == poke_viking) {
-		
+		/* Avoid unnecessary cross calls. */
 		BTFIXUPCOPY_CALL(flush_cache_all, local_flush_cache_all);
 		BTFIXUPCOPY_CALL(flush_cache_mm, local_flush_cache_mm);
 		BTFIXUPCOPY_CALL(flush_cache_range, local_flush_cache_range);

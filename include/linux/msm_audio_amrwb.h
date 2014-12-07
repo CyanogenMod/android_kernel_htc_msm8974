@@ -15,4 +15,4 @@ struct msm_audio_amrwb_enc_config {
 	uint32_t dtx_enable;
 	uint32_t frame_format;
 };
-#endif 
+#endif /* __MSM_AUDIO_AMRWB_H */

@@ -28,10 +28,12 @@ MODULE_AUTHOR("Jean-Francois Moine <http://moinejf.free.fr>");
 MODULE_DESCRIPTION("Benq DC E300 USB Camera Driver");
 MODULE_LICENSE("GPL");
 
+/* specific webcam descriptor */
 struct sd {
-	struct gspca_dev gspca_dev;	
+	struct gspca_dev gspca_dev;	/* !! must be the first item */
 };
 
+/* V4L2 controls supported by the driver */
 static const struct ctrl sd_ctrls[] = {
 };
 
@@ -44,6 +46,7 @@ static const struct v4l2_pix_format vga_mode[] = {
 
 static void sd_isoc_irq(struct urb *urb);
 
+/* -- write a register -- */
 static void reg_w(struct gspca_dev *gspca_dev,
 			u16 value, u16 index)
 {
@@ -66,6 +69,7 @@ static void reg_w(struct gspca_dev *gspca_dev,
 	}
 }
 
+/* this function is called at probe time */
 static int sd_config(struct gspca_dev *gspca_dev,
 			const struct usb_device_id *id)
 {
@@ -75,17 +79,19 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	return 0;
 }
 
+/* this function is called at probe and resume time */
 static int sd_init(struct gspca_dev *gspca_dev)
 {
 	return 0;
 }
 
+/* -- start the camera -- */
 static int sd_start(struct gspca_dev *gspca_dev)
 {
 	struct urb *urb;
 	int i, n;
 
-	
+	/* create 4 URBs - 2 on endpoint 0x83 and 2 on 0x082 */
 #if MAX_NURBS < 4
 #error "Not enough URBs in the gspca table"
 #endif
@@ -142,12 +148,13 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 }
 
 static void sd_pkt_scan(struct gspca_dev *gspca_dev,
-			u8 *data,		
-			int len)		
+			u8 *data,		/* isoc packet */
+			int len)		/* iso packet length */
 {
-	
+	/* unused */
 }
 
+/* reception of an URB */
 static void sd_isoc_irq(struct urb *urb)
 {
 	struct gspca_dev *gspca_dev = (struct gspca_dev *) urb->context;
@@ -160,7 +167,7 @@ static void sd_isoc_irq(struct urb *urb)
 		return;
 	if (urb->status != 0) {
 		if (urb->status == -ESHUTDOWN)
-			return;		
+			return;		/* disconnection */
 #ifdef CONFIG_PM
 		if (gspca_dev->frozen)
 			return;
@@ -169,18 +176,18 @@ static void sd_isoc_irq(struct urb *urb)
 		return;
 	}
 
-	
+	/* if this is a control URN (ep 0x83), wait */
 	if (urb == gspca_dev->urb[0] || urb == gspca_dev->urb[2])
 		return;
 
-	
+	/* scan both received URBs */
 	if (urb == gspca_dev->urb[1])
 		urb0 = gspca_dev->urb[0];
 	else
 		urb0 = gspca_dev->urb[2];
 	for (i = 0; i < urb->number_of_packets; i++) {
 
-		
+		/* check the packet status and length */
 		if (urb0->iso_frame_desc[i].actual_length != SD_PKT_SZ
 		    || urb->iso_frame_desc[i].actual_length != SD_PKT_SZ) {
 			PDEBUG(D_ERR, "ISOC bad lengths %d / %d",
@@ -199,11 +206,27 @@ static void sd_isoc_irq(struct urb *urb)
 			continue;
 		}
 
+		/*
+		 * The images are received in URBs of different endpoints
+		 * (0x83 and 0x82).
+		 * Image pieces in URBs of ep 0x83 are continuated in URBs of
+		 * ep 0x82 of the same index.
+		 * The packets in the URBs of endpoint 0x83 start with:
+		 *	- 80 ba/bb 00 00 = start of image followed by 'ff d8'
+		 *	- 04 ba/bb oo oo = image piece
+		 *		where 'oo oo' is the image offset
+						(not cheked)
+		 *	- (other -> bad frame)
+		 * The images are JPEG encoded with full header and
+		 * normal ff escape.
+		 * The end of image ('ff d9') may occur in any URB.
+		 * (not cheked)
+		 */
 		data = (u8 *) urb0->transfer_buffer
 					+ urb0->iso_frame_desc[i].offset;
 		if (data[0] == 0x80 && (data[1] & 0xfe) == 0xba) {
 
-			
+			/* new image */
 			gspca_frame_add(gspca_dev, LAST_PACKET,
 					NULL, 0);
 			gspca_frame_add(gspca_dev, FIRST_PACKET,
@@ -221,7 +244,7 @@ static void sd_isoc_irq(struct urb *urb)
 					data, SD_PKT_SZ);
 	}
 
-	
+	/* resubmit the URBs */
 	st = usb_submit_urb(urb0, GFP_ATOMIC);
 	if (st < 0)
 		pr_err("usb_submit_urb(0) ret %d\n", st);
@@ -230,6 +253,7 @@ static void sd_isoc_irq(struct urb *urb)
 		pr_err("usb_submit_urb() ret %d\n", st);
 }
 
+/* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name = MODULE_NAME,
 	.ctrls = sd_ctrls,
@@ -241,12 +265,14 @@ static const struct sd_desc sd_desc = {
 	.pkt_scan = sd_pkt_scan,
 };
 
+/* -- module initialisation -- */
 static const struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x04a5, 0x3035)},
 	{}
 };
 MODULE_DEVICE_TABLE(usb, device_table);
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf,
 			const struct usb_device_id *id)
 {

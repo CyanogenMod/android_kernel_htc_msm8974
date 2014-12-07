@@ -33,6 +33,8 @@ struct c67x00_lcp_int_data {
 	u16 regs[COMM_REGS];
 };
 
+/* -------------------------------------------------------------------------- */
+/* Interface definitions */
 
 #define COMM_ACK			0x0FED
 #define COMM_NAK			0xDEAD
@@ -41,19 +43,31 @@ struct c67x00_lcp_int_data {
 #define COMM_EXEC_INT			0xCE01
 #define COMM_INT_NUM			0x01C2
 
+/* Registers 0 to COMM_REGS-1 */
 #define COMM_R(x)			(0x01C4 + 2 * (x))
 
 #define HUSB_SIE_pCurrentTDPtr(x)	((x) ? 0x01B2 : 0x01B0)
 #define HUSB_SIE_pTDListDone_Sem(x)	((x) ? 0x01B8 : 0x01B6)
 #define HUSB_pEOT			0x01B4
 
+/* Software interrupts */
+/* 114, 115: */
 #define HUSB_SIE_INIT_INT(x)		((x) ? 0x0073 : 0x0072)
 #define HUSB_RESET_INT			0x0074
 
 #define SUSB_INIT_INT			0x0071
 #define SUSB_INIT_INT_LOC		(SUSB_INIT_INT * 2)
 
+/* -----------------------------------------------------------------------
+ * HPI implementation
+ *
+ * The c67x00 chip also support control via SPI or HSS serial
+ * interfaces.  However, this driver assumes that register access can
+ * be performed from IRQ context.  While this is a safe assuption with
+ * the HPI interface, it is not true for the serial interfaces.
+ */
 
+/* HPI registers */
 #define HPI_DATA	0
 #define HPI_MAILBOX	1
 #define HPI_ADDR	2
@@ -102,6 +116,9 @@ static void hpi_write_word(struct c67x00_device *dev, u16 reg, u16 value)
 	spin_unlock_irqrestore(&dev->hpi.lock, flags);
 }
 
+/*
+ * Only data is little endian, addr has cpu endianess
+ */
 static void hpi_write_words_le16(struct c67x00_device *dev, u16 addr,
 				 __le16 *data, u16 count)
 {
@@ -117,6 +134,9 @@ static void hpi_write_words_le16(struct c67x00_device *dev, u16 addr,
 	spin_unlock_irqrestore(&dev->hpi.lock, flags);
 }
 
+/*
+ * Only data is little endian, addr has cpu endianess
+ */
 static void hpi_read_words_le16(struct c67x00_device *dev, u16 addr,
 				__le16 *data, u16 count)
 {
@@ -214,6 +234,8 @@ void c67x00_ll_hpi_disable_sofeop(struct c67x00_sie *sie)
 		       SOFEOP_TO_HPI_EN(sie->sie_num));
 }
 
+/* -------------------------------------------------------------------------- */
+/* Transactions */
 
 static inline u16 ll_recv_msg(struct c67x00_device *dev)
 {
@@ -225,13 +247,15 @@ static inline u16 ll_recv_msg(struct c67x00_device *dev)
 	return (res == 0) ? -EIO : 0;
 }
 
+/* -------------------------------------------------------------------------- */
+/* General functions */
 
 u16 c67x00_ll_fetch_siemsg(struct c67x00_device *dev, int sie_num)
 {
 	u16 val;
 
 	val = hpi_read_word(dev, SIEMSG_REG(sie_num));
-	
+	/* clear register to allow next message */
 	hpi_write_word(dev, SIEMSG_REG(sie_num), 0);
 
 	return val;
@@ -242,6 +266,9 @@ u16 c67x00_ll_get_usb_ctl(struct c67x00_sie *sie)
 	return hpi_read_word(sie->dev, USB_CTL_REG(sie->sie_num));
 }
 
+/**
+ * c67x00_ll_usb_clear_status - clear the USB status bits
+ */
 void c67x00_ll_usb_clear_status(struct c67x00_sie *sie, u16 bits)
 {
 	hpi_write_word(sie->dev, USB_STAT_REG(sie->sie_num), bits);
@@ -252,6 +279,7 @@ u16 c67x00_ll_usb_get_status(struct c67x00_sie *sie)
 	return hpi_read_word(sie->dev, USB_STAT_REG(sie->sie_num));
 }
 
+/* -------------------------------------------------------------------------- */
 
 static int c67x00_comm_exec_int(struct c67x00_device *dev, u16 nr,
 				struct c67x00_lcp_int_data *data)
@@ -269,6 +297,8 @@ static int c67x00_comm_exec_int(struct c67x00_device *dev, u16 nr,
 	return rc;
 }
 
+/* -------------------------------------------------------------------------- */
+/* Host specific functions */
 
 void c67x00_ll_set_husb_eot(struct c67x00_device *dev, u16 value)
 {
@@ -284,7 +314,7 @@ static inline void c67x00_ll_husb_sie_init(struct c67x00_sie *sie)
 	int rc;
 
 	rc = c67x00_comm_exec_int(dev, HUSB_SIE_INIT_INT(sie->sie_num), &data);
-	BUG_ON(rc); 
+	BUG_ON(rc); /* No return path for error code; crash spectacularly */
 }
 
 void c67x00_ll_husb_reset(struct c67x00_sie *sie, int port)
@@ -293,10 +323,10 @@ void c67x00_ll_husb_reset(struct c67x00_sie *sie, int port)
 	struct c67x00_lcp_int_data data;
 	int rc;
 
-	data.regs[0] = 50;	
+	data.regs[0] = 50;	/* Reset USB port for 50ms */
 	data.regs[1] = port | (sie->sie_num << 1);
 	rc = c67x00_comm_exec_int(dev, HUSB_RESET_INT, &data);
-	BUG_ON(rc); 
+	BUG_ON(rc); /* No return path for error code; crash spectacularly */
 }
 
 void c67x00_ll_husb_set_current_td(struct c67x00_sie *sie, u16 addr)
@@ -316,12 +346,12 @@ u16 c67x00_ll_husb_get_frame(struct c67x00_sie *sie)
 
 void c67x00_ll_husb_init_host_port(struct c67x00_sie *sie)
 {
-	
+	/* Set port into host mode */
 	hpi_set_bits(sie->dev, USB_CTL_REG(sie->sie_num), HOST_MODE);
 	c67x00_ll_husb_sie_init(sie);
-	
+	/* Clear interrupts */
 	c67x00_ll_usb_clear_status(sie, HOST_STAT_MASK);
-	
+	/* Check */
 	if (!(hpi_read_word(sie->dev, USB_CTL_REG(sie->sie_num)) & HOST_MODE))
 		dev_warn(sie_dev(sie),
 			 "SIE %d not set to host mode\n", sie->sie_num);
@@ -329,19 +359,20 @@ void c67x00_ll_husb_init_host_port(struct c67x00_sie *sie)
 
 void c67x00_ll_husb_reset_port(struct c67x00_sie *sie, int port)
 {
-	
+	/* Clear connect change */
 	c67x00_ll_usb_clear_status(sie, PORT_CONNECT_CHANGE(port));
 
-	
+	/* Enable interrupts */
 	hpi_set_bits(sie->dev, HPI_IRQ_ROUTING_REG,
 		     SOFEOP_TO_CPU_EN(sie->sie_num));
 	hpi_set_bits(sie->dev, HOST_IRQ_EN_REG(sie->sie_num),
 		     SOF_EOP_IRQ_EN | DONE_IRQ_EN);
 
-	
+	/* Enable pull down transistors */
 	hpi_set_bits(sie->dev, USB_CTL_REG(sie->sie_num), PORT_RES_EN(port));
 }
 
+/* -------------------------------------------------------------------------- */
 
 void c67x00_ll_irq(struct c67x00_device *dev, u16 int_status)
 {
@@ -352,6 +383,7 @@ void c67x00_ll_irq(struct c67x00_device *dev, u16 int_status)
 	complete(&dev->hpi.lcp.msg_received);
 }
 
+/* -------------------------------------------------------------------------- */
 
 int c67x00_ll_reset(struct c67x00_device *dev)
 {
@@ -365,13 +397,18 @@ int c67x00_ll_reset(struct c67x00_device *dev)
 	return rc;
 }
 
+/* -------------------------------------------------------------------------- */
 
+/**
+ * c67x00_ll_write_mem_le16 - write into c67x00 memory
+ * Only data is little endian, addr has cpu endianess.
+ */
 void c67x00_ll_write_mem_le16(struct c67x00_device *dev, u16 addr,
 			      void *data, int len)
 {
 	u8 *buf = data;
 
-	
+	/* Sanity check */
 	if (addr + len > 0xffff) {
 		dev_err(&dev->pdev->dev,
 			"Trying to write beyond writable region!\n");
@@ -379,7 +416,7 @@ void c67x00_ll_write_mem_le16(struct c67x00_device *dev, u16 addr,
 	}
 
 	if (addr & 0x01) {
-		
+		/* unaligned access */
 		u16 tmp;
 		tmp = hpi_read_word(dev, addr - 1);
 		tmp = (tmp & 0x00ff) | (*buf++ << 8);
@@ -401,13 +438,17 @@ void c67x00_ll_write_mem_le16(struct c67x00_device *dev, u16 addr,
 	}
 }
 
+/**
+ * c67x00_ll_read_mem_le16 - read from c67x00 memory
+ * Only data is little endian, addr has cpu endianess.
+ */
 void c67x00_ll_read_mem_le16(struct c67x00_device *dev, u16 addr,
 			     void *data, int len)
 {
 	u8 *buf = data;
 
 	if (addr & 0x01) {
-		
+		/* unaligned access */
 		u16 tmp;
 		tmp = hpi_read_word(dev, addr - 1);
 		*buf++ = (tmp >> 8) & 0x00ff;
@@ -427,6 +468,7 @@ void c67x00_ll_read_mem_le16(struct c67x00_device *dev, u16 addr,
 	}
 }
 
+/* -------------------------------------------------------------------------- */
 
 void c67x00_ll_init(struct c67x00_device *dev)
 {

@@ -1,3 +1,6 @@
+/*
+ * RTC related functions
+ */
 #include <linux/platform_device.h>
 #include <linux/mc146818rtc.h>
 #include <linux/acpi.h>
@@ -12,10 +15,16 @@
 #include <asm/mrst.h>
 
 #ifdef CONFIG_X86_32
+/*
+ * This is a special lock that is owned by the CPU and holds the index
+ * register we are working with.  It is required for NMI access to the
+ * CMOS/RTC registers.  See include/asm-i386/mc146818rtc.h for details.
+ */
 volatile unsigned long cmos_lock;
 EXPORT_SYMBOL(cmos_lock);
-#endif 
+#endif /* CONFIG_X86_32 */
 
+/* For two digit years assume time is always after that */
 #define CMOS_YEARS_OFFS 2000
 
 DEFINE_SPINLOCK(rtc_lock);
@@ -40,11 +49,11 @@ int mach_set_rtc_mmss(unsigned long nowtime)
 
 	spin_lock_irqsave(&rtc_lock, flags);
 
-	 
+	 /* tell the clock it's being set */
 	save_control = CMOS_READ(RTC_CONTROL);
 	CMOS_WRITE((save_control|RTC_SET), RTC_CONTROL);
 
-	
+	/* stop and reset prescaler */
 	save_freq_select = CMOS_READ(RTC_FREQ_SELECT);
 	CMOS_WRITE((save_freq_select|RTC_DIV_RESET2), RTC_FREQ_SELECT);
 
@@ -52,9 +61,15 @@ int mach_set_rtc_mmss(unsigned long nowtime)
 	if (!(save_control & RTC_DM_BINARY) || RTC_ALWAYS_BCD)
 		cmos_minutes = bcd2bin(cmos_minutes);
 
+	/*
+	 * since we're only adjusting minutes and seconds,
+	 * don't interfere with hour overflow. This avoids
+	 * messing with unknown time zones but requires your
+	 * RTC not to be off by more than 15 minutes
+	 */
 	real_seconds = nowtime % 60;
 	real_minutes = nowtime / 60;
-	
+	/* correct for half hour time zone */
 	if (((abs(real_minutes - cmos_minutes) + 15)/30) & 1)
 		real_minutes += 30;
 	real_minutes %= 60;
@@ -73,6 +88,13 @@ int mach_set_rtc_mmss(unsigned long nowtime)
 		retval = -1;
 	}
 
+	/* The following flags have to be released exactly in this order,
+	 * otherwise the DS12887 (popular MC146818A clone with integrated
+	 * battery and quartz) will not reset the oscillator and will not
+	 * update precisely 500 ms later. You won't find this mentioned in
+	 * the Dallas Semiconductor data sheets, but who believes data
+	 * sheets anyway ...                           -- Markus Kuhn
+	 */
 	CMOS_WRITE(save_control, RTC_CONTROL);
 	CMOS_WRITE(save_freq_select, RTC_FREQ_SELECT);
 
@@ -88,6 +110,12 @@ unsigned long mach_get_cmos_time(void)
 
 	spin_lock_irqsave(&rtc_lock, flags);
 
+	/*
+	 * If UIP is clear, then we have >= 244 microseconds before
+	 * RTC registers will be updated.  Spec sheet says that this
+	 * is the reliable way to read RTC - registers. If UIP is set
+	 * then the register access might be invalid.
+	 */
 	while ((CMOS_READ(RTC_FREQ_SELECT) & RTC_UIP))
 		cpu_relax();
 
@@ -128,6 +156,7 @@ unsigned long mach_get_cmos_time(void)
 	return mktime(year, mon, day, hour, min, sec);
 }
 
+/* Routines for accessing the CMOS RAM/RTC. */
 unsigned char rtc_cmos_read(unsigned char addr)
 {
 	unsigned char val;
@@ -155,6 +184,7 @@ int update_persistent_clock(struct timespec now)
 	return x86_platform.set_wallclock(now.tv_sec);
 }
 
+/* not static: needed by APM */
 void read_persistent_clock(struct timespec *ts)
 {
 	unsigned long retval;
@@ -213,7 +243,7 @@ static __init int add_rtc_cmos(void)
 	if (of_have_populated_dt())
 		return 0;
 
-	
+	/* Intel MID platforms don't have ioport rtc */
 	if (mrst_identify_cpu())
 		return -ENODEV;
 

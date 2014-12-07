@@ -36,6 +36,9 @@
 #include <plat/addr-map.h>
 #include "common.h"
 
+/*****************************************************************************
+ * I/O Address Mapping
+ ****************************************************************************/
 static struct map_desc orion5x_io_desc[] __initdata = {
 	{
 		.virtual	= ORION5X_REGS_VIRT_BASE,
@@ -66,6 +69,9 @@ void __init orion5x_map_io(void)
 }
 
 
+/*****************************************************************************
+ * EHCI0
+ ****************************************************************************/
 void __init orion5x_ehci0_init(void)
 {
 	orion_ehci_init(ORION5X_USB0_PHYS_BASE, IRQ_ORION5X_USB0_CTRL,
@@ -73,12 +79,18 @@ void __init orion5x_ehci0_init(void)
 }
 
 
+/*****************************************************************************
+ * EHCI1
+ ****************************************************************************/
 void __init orion5x_ehci1_init(void)
 {
 	orion_ehci_1_init(ORION5X_USB1_PHYS_BASE, IRQ_ORION5X_USB1_CTRL);
 }
 
 
+/*****************************************************************************
+ * GE00
+ ****************************************************************************/
 void __init orion5x_eth_init(struct mv643xx_eth_platform_data *eth_data)
 {
 	orion_ge00_init(eth_data,
@@ -87,12 +99,18 @@ void __init orion5x_eth_init(struct mv643xx_eth_platform_data *eth_data)
 }
 
 
+/*****************************************************************************
+ * Ethernet switch
+ ****************************************************************************/
 void __init orion5x_eth_switch_init(struct dsa_platform_data *d, int irq)
 {
 	orion_ge00_switch_init(d, irq);
 }
 
 
+/*****************************************************************************
+ * I2C
+ ****************************************************************************/
 void __init orion5x_i2c_init(void)
 {
 	orion_i2c_init(I2C_PHYS_BASE, IRQ_ORION5X_I2C, 8);
@@ -100,30 +118,45 @@ void __init orion5x_i2c_init(void)
 }
 
 
+/*****************************************************************************
+ * SATA
+ ****************************************************************************/
 void __init orion5x_sata_init(struct mv_sata_platform_data *sata_data)
 {
 	orion_sata_init(sata_data, ORION5X_SATA_PHYS_BASE, IRQ_ORION5X_SATA);
 }
 
 
+/*****************************************************************************
+ * SPI
+ ****************************************************************************/
 void __init orion5x_spi_init()
 {
 	orion_spi_init(SPI_PHYS_BASE, orion5x_tclk);
 }
 
 
+/*****************************************************************************
+ * UART0
+ ****************************************************************************/
 void __init orion5x_uart0_init(void)
 {
 	orion_uart0_init(UART0_VIRT_BASE, UART0_PHYS_BASE,
 			 IRQ_ORION5X_UART0, orion5x_tclk);
 }
 
+/*****************************************************************************
+ * UART1
+ ****************************************************************************/
 void __init orion5x_uart1_init(void)
 {
 	orion_uart1_init(UART1_VIRT_BASE, UART1_PHYS_BASE,
 			 IRQ_ORION5X_UART1, orion5x_tclk);
 }
 
+/*****************************************************************************
+ * XOR engine
+ ****************************************************************************/
 void __init orion5x_xor_init(void)
 {
 	orion_xor0_init(ORION5X_XOR_PHYS_BASE,
@@ -131,6 +164,9 @@ void __init orion5x_xor_init(void)
 			IRQ_ORION5X_XOR0, IRQ_ORION5X_XOR1);
 }
 
+/*****************************************************************************
+ * Cryptographic Engines and Security Accelerator (CESA)
+ ****************************************************************************/
 static void __init orion5x_crypto_init(void)
 {
 	orion5x_setup_sram_win();
@@ -138,12 +174,18 @@ static void __init orion5x_crypto_init(void)
 			  SZ_8K, IRQ_ORION5X_CESA);
 }
 
+/*****************************************************************************
+ * Watchdog
+ ****************************************************************************/
 void __init orion5x_wdt_init(void)
 {
 	orion_wdt_init(orion5x_tclk);
 }
 
 
+/*****************************************************************************
+ * Time handling
+ ****************************************************************************/
 void __init orion5x_init_early(void)
 {
 	orion_time_set_base(TIMER_VIRT_BASE);
@@ -176,6 +218,12 @@ struct sys_timer orion5x_timer = {
 };
 
 
+/*****************************************************************************
+ * General
+ ****************************************************************************/
+/*
+ * Identify device ID and rev from PCIe configuration header space '0'.
+ */
 static void __init orion5x_id(u32 *dev, u32 *rev, char **dev_name)
 {
 	orion5x_pcie_id(dev, rev);
@@ -223,28 +271,49 @@ void __init orion5x_init(void)
 	orion5x_id(&dev, &rev, &dev_name);
 	printk(KERN_INFO "Orion ID: %s. TCLK=%d.\n", dev_name, orion5x_tclk);
 
+	/*
+	 * Setup Orion address map
+	 */
 	orion5x_setup_cpu_mbus_bridge();
 
+	/*
+	 * Don't issue "Wait for Interrupt" instruction if we are
+	 * running on D0 5281 silicon.
+	 */
 	if (dev == MV88F5281_DEV_ID && rev == MV88F5281_REV_D0) {
 		printk(KERN_INFO "Orion: Applying 5281 D0 WFI workaround.\n");
 		disable_hlt();
 	}
 
+	/*
+	 * The 5082/5181l/5182/6082/6082l/6183 have crypto
+	 * while 5180n/5181/5281 don't have crypto.
+	 */
 	if ((dev == MV88F5181_DEV_ID && rev >= MV88F5181L_REV_A0) ||
 	    dev == MV88F5182_DEV_ID || dev == MV88F6183_DEV_ID)
 		orion5x_crypto_init();
 
+	/*
+	 * Register watchdog driver
+	 */
 	orion5x_wdt_init();
 }
 
 void orion5x_restart(char mode, const char *cmd)
 {
+	/*
+	 * Enable and issue soft reset
+	 */
 	orion5x_setbits(RSTOUTn_MASK, (1 << 2));
 	orion5x_setbits(CPU_SOFT_RESET, 1);
 	mdelay(200);
 	orion5x_clrbits(CPU_SOFT_RESET, 1);
 }
 
+/*
+ * Many orion-based systems have buggy bootloader implementations.
+ * This is a common fixup for bogus memory tags.
+ */
 void __init tag_fixup_mem32(struct tag *t, char **from,
 			    struct meminfo *meminfo)
 {

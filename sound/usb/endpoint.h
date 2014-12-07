@@ -18,4 +18,4 @@ int snd_usb_substream_prepare(struct snd_usb_substream *subs,
 int snd_usb_substream_playback_trigger(struct snd_pcm_substream *substream, int cmd);
 int snd_usb_substream_capture_trigger(struct snd_pcm_substream *substream, int cmd);
 
-#endif 
+#endif /* __USBAUDIO_ENDPOINT_H */

@@ -164,6 +164,10 @@ static void psy_changed(void)
 {
 	update_charger();
 
+	/*
+	 * Okay, charger set. Now wait a bit before notifying supplicants,
+	 * charge power should stabilize.
+	 */
 	mod_timer(&supply_timer,
 		  jiffies + msecs_to_jiffies(pdata->wait_for_charger));
 }
@@ -183,6 +187,10 @@ static irqreturn_t power_changed_isr(int irq, void *power_supply)
 	else
 		return IRQ_NONE;
 
+	/*
+	 * Wait a bit before reading ac/usb line status and setting charger,
+	 * because ac/usb status readings may lag from irq.
+	 */
 	mod_timer(&charger_timer,
 		  jiffies + msecs_to_jiffies(pdata->wait_for_status));
 
@@ -245,6 +253,10 @@ static int otg_handle_notification(struct notifier_block *nb,
 		return NOTIFY_OK;
 	}
 
+	/*
+	 * Wait a bit before reading ac/usb line status and setting charger,
+	 * because ac/usb status readings may lag from irq.
+	 */
 	mod_timer(&charger_timer,
 		  jiffies + msecs_to_jiffies(pdata->wait_for_status));
 
@@ -484,7 +496,7 @@ static int pda_power_resume(struct platform_device *pdev)
 #else
 #define pda_power_suspend NULL
 #define pda_power_resume NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static struct platform_driver pda_power_pdrv = {
 	.driver = {

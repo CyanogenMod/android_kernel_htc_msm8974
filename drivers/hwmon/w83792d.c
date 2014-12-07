@@ -28,6 +28,12 @@
  *     by CR[0x49h].
  */
 
+/*
+ * Supports following chips:
+ *
+ * Chip	#vin	#fanin	#pwm	#temp	wchipid	vendid	i2c	ISA
+ * w83792d	9	7	7	3	0x7a	0x5ca3	yes	no
+ */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -39,9 +45,11 @@
 #include <linux/mutex.h>
 #include <linux/sysfs.h>
 
+/* Addresses to scan */
 static const unsigned short normal_i2c[] = { 0x2c, 0x2d, 0x2e, 0x2f,
 						I2C_CLIENT_END };
 
+/* Insmod parameters */
 
 static unsigned short force_subclients[4];
 module_param_array(force_subclients, short, NULL, 0);
@@ -52,140 +60,141 @@ static bool init;
 module_param(init, bool, 0);
 MODULE_PARM_DESC(init, "Set to one to force chip initialization");
 
+/* The W83792D registers */
 static const u8 W83792D_REG_IN[9] = {
-	0x20,	
-	0x21,	
-	0x22,	
-	0x23,	
-	0x24,	
-	0x25,	
-	0x26,	
-	0xB0,	
-	0xB1	
+	0x20,	/* Vcore A in DataSheet */
+	0x21,	/* Vcore B in DataSheet */
+	0x22,	/* VIN0 in DataSheet */
+	0x23,	/* VIN1 in DataSheet */
+	0x24,	/* VIN2 in DataSheet */
+	0x25,	/* VIN3 in DataSheet */
+	0x26,	/* 5VCC in DataSheet */
+	0xB0,	/* 5VSB in DataSheet */
+	0xB1	/* VBAT in DataSheet */
 };
-#define W83792D_REG_LOW_BITS1 0x3E  
-#define W83792D_REG_LOW_BITS2 0x3F  
+#define W83792D_REG_LOW_BITS1 0x3E  /* Low Bits I in DataSheet */
+#define W83792D_REG_LOW_BITS2 0x3F  /* Low Bits II in DataSheet */
 static const u8 W83792D_REG_IN_MAX[9] = {
-	0x2B,	
-	0x2D,	
-	0x2F,	
-	0x31,	
-	0x33,	
-	0x35,	
-	0x37,	
-	0xB4,	
-	0xB6	
+	0x2B,	/* Vcore A High Limit in DataSheet */
+	0x2D,	/* Vcore B High Limit in DataSheet */
+	0x2F,	/* VIN0 High Limit in DataSheet */
+	0x31,	/* VIN1 High Limit in DataSheet */
+	0x33,	/* VIN2 High Limit in DataSheet */
+	0x35,	/* VIN3 High Limit in DataSheet */
+	0x37,	/* 5VCC High Limit in DataSheet */
+	0xB4,	/* 5VSB High Limit in DataSheet */
+	0xB6	/* VBAT High Limit in DataSheet */
 };
 static const u8 W83792D_REG_IN_MIN[9] = {
-	0x2C,	
-	0x2E,	
-	0x30,	
-	0x32,	
-	0x34,	
-	0x36,	
-	0x38,	
-	0xB5,	
-	0xB7	
+	0x2C,	/* Vcore A Low Limit in DataSheet */
+	0x2E,	/* Vcore B Low Limit in DataSheet */
+	0x30,	/* VIN0 Low Limit in DataSheet */
+	0x32,	/* VIN1 Low Limit in DataSheet */
+	0x34,	/* VIN2 Low Limit in DataSheet */
+	0x36,	/* VIN3 Low Limit in DataSheet */
+	0x38,	/* 5VCC Low Limit in DataSheet */
+	0xB5,	/* 5VSB Low Limit in DataSheet */
+	0xB7	/* VBAT Low Limit in DataSheet */
 };
 static const u8 W83792D_REG_FAN[7] = {
-	0x28,	
-	0x29,	
-	0x2A,	
-	0xB8,	
-	0xB9,	
-	0xBA,	
-	0xBE	
+	0x28,	/* FAN 1 Count in DataSheet */
+	0x29,	/* FAN 2 Count in DataSheet */
+	0x2A,	/* FAN 3 Count in DataSheet */
+	0xB8,	/* FAN 4 Count in DataSheet */
+	0xB9,	/* FAN 5 Count in DataSheet */
+	0xBA,	/* FAN 6 Count in DataSheet */
+	0xBE	/* FAN 7 Count in DataSheet */
 };
 static const u8 W83792D_REG_FAN_MIN[7] = {
-	0x3B,	
-	0x3C,	
-	0x3D,	
-	0xBB,	
-	0xBC,	
-	0xBD,	
-	0xBF	
+	0x3B,	/* FAN 1 Count Low Limit in DataSheet */
+	0x3C,	/* FAN 2 Count Low Limit in DataSheet */
+	0x3D,	/* FAN 3 Count Low Limit in DataSheet */
+	0xBB,	/* FAN 4 Count Low Limit in DataSheet */
+	0xBC,	/* FAN 5 Count Low Limit in DataSheet */
+	0xBD,	/* FAN 6 Count Low Limit in DataSheet */
+	0xBF	/* FAN 7 Count Low Limit in DataSheet */
 };
-#define W83792D_REG_FAN_CFG 0x84	
+#define W83792D_REG_FAN_CFG 0x84	/* FAN Configuration in DataSheet */
 static const u8 W83792D_REG_FAN_DIV[4] = {
-	0x47,	
-	0x5B,	
-	0x5C,	
-	0x9E	
+	0x47,	/* contains FAN2 and FAN1 Divisor */
+	0x5B,	/* contains FAN4 and FAN3 Divisor */
+	0x5C,	/* contains FAN6 and FAN5 Divisor */
+	0x9E	/* contains FAN7 Divisor. */
 };
 static const u8 W83792D_REG_PWM[7] = {
-	0x81,	
-	0x83,	
-	0x94,	
-	0xA3,	
-	0xA4,	
-	0xA5,	
-	0xA6	
+	0x81,	/* FAN 1 Duty Cycle, be used to control */
+	0x83,	/* FAN 2 Duty Cycle, be used to control */
+	0x94,	/* FAN 3 Duty Cycle, be used to control */
+	0xA3,	/* FAN 4 Duty Cycle, be used to control */
+	0xA4,	/* FAN 5 Duty Cycle, be used to control */
+	0xA5,	/* FAN 6 Duty Cycle, be used to control */
+	0xA6	/* FAN 7 Duty Cycle, be used to control */
 };
 #define W83792D_REG_BANK		0x4E
 #define W83792D_REG_TEMP2_CONFIG	0xC2
 #define W83792D_REG_TEMP3_CONFIG	0xCA
 
 static const u8 W83792D_REG_TEMP1[3] = {
-	0x27,	
-	0x39,	
-	0x3A,	
+	0x27,	/* TEMP 1 in DataSheet */
+	0x39,	/* TEMP 1 Over in DataSheet */
+	0x3A,	/* TEMP 1 Hyst in DataSheet */
 };
 
 static const u8 W83792D_REG_TEMP_ADD[2][6] = {
-	{ 0xC0,		
-	  0xC1,		
-	  0xC5,		
-	  0xC6,		
-	  0xC3,		
-	  0xC4 },	
-	{ 0xC8,		
-	  0xC9,		
-	  0xCD,		
-	  0xCE,		
-	  0xCB,		
-	  0xCC }	
+	{ 0xC0,		/* TEMP 2 in DataSheet */
+	  0xC1,		/* TEMP 2(0.5 deg) in DataSheet */
+	  0xC5,		/* TEMP 2 Over High part in DataSheet */
+	  0xC6,		/* TEMP 2 Over Low part in DataSheet */
+	  0xC3,		/* TEMP 2 Thyst High part in DataSheet */
+	  0xC4 },	/* TEMP 2 Thyst Low part in DataSheet */
+	{ 0xC8,		/* TEMP 3 in DataSheet */
+	  0xC9,		/* TEMP 3(0.5 deg) in DataSheet */
+	  0xCD,		/* TEMP 3 Over High part in DataSheet */
+	  0xCE,		/* TEMP 3 Over Low part in DataSheet */
+	  0xCB,		/* TEMP 3 Thyst High part in DataSheet */
+	  0xCC }	/* TEMP 3 Thyst Low part in DataSheet */
 };
 
 static const u8 W83792D_REG_THERMAL[3] = {
-	0x85,	
-	0x86,	
-	0x96	
+	0x85,	/* SmartFanI: Fan1 target value */
+	0x86,	/* SmartFanI: Fan2 target value */
+	0x96	/* SmartFanI: Fan3 target value */
 };
 
 static const u8 W83792D_REG_TOLERANCE[3] = {
-	0x87,	
-	0x87,	
-	0x97	
+	0x87,	/* (bit3-0)SmartFan Fan1 tolerance */
+	0x87,	/* (bit7-4)SmartFan Fan2 tolerance */
+	0x97	/* (bit3-0)SmartFan Fan3 tolerance */
 };
 
 static const u8 W83792D_REG_POINTS[3][4] = {
-	{ 0x85,		
-	  0xE3,		
-	  0xE4,		
-	  0xE5 },	
-	{ 0x86,		
-	  0xE6,		
-	  0xE7,		
-	  0xE8 },	
-	{ 0x96,		
-	  0xE9,		
-	  0xEA,		
-	  0xEB }	
+	{ 0x85,		/* SmartFanII: Fan1 temp point 1 */
+	  0xE3,		/* SmartFanII: Fan1 temp point 2 */
+	  0xE4,		/* SmartFanII: Fan1 temp point 3 */
+	  0xE5 },	/* SmartFanII: Fan1 temp point 4 */
+	{ 0x86,		/* SmartFanII: Fan2 temp point 1 */
+	  0xE6,		/* SmartFanII: Fan2 temp point 2 */
+	  0xE7,		/* SmartFanII: Fan2 temp point 3 */
+	  0xE8 },	/* SmartFanII: Fan2 temp point 4 */
+	{ 0x96,		/* SmartFanII: Fan3 temp point 1 */
+	  0xE9,		/* SmartFanII: Fan3 temp point 2 */
+	  0xEA,		/* SmartFanII: Fan3 temp point 3 */
+	  0xEB }	/* SmartFanII: Fan3 temp point 4 */
 };
 
 static const u8 W83792D_REG_LEVELS[3][4] = {
-	{ 0x88,		
-	  0x88,		
-	  0xE0,		
-	  0xE0 },	
-	{ 0x89,		
-	  0x89,		
-	  0xE1,		
-	  0xE1 },	
-	{ 0x98,		
-	  0x98,		
-	  0xE2,		
-	  0xE2 }	
+	{ 0x88,		/* (bit3-0) SmartFanII: Fan1 Non-Stop */
+	  0x88,		/* (bit7-4) SmartFanII: Fan1 Level 1 */
+	  0xE0,		/* (bit7-4) SmartFanII: Fan1 Level 2 */
+	  0xE0 },	/* (bit3-0) SmartFanII: Fan1 Level 3 */
+	{ 0x89,		/* (bit3-0) SmartFanII: Fan2 Non-Stop */
+	  0x89,		/* (bit7-4) SmartFanII: Fan2 Level 1 */
+	  0xE1,		/* (bit7-4) SmartFanII: Fan2 Level 2 */
+	  0xE1 },	/* (bit3-0) SmartFanII: Fan2 Level 3 */
+	{ 0x98,		/* (bit3-0) SmartFanII: Fan3 Non-Stop */
+	  0x98,		/* (bit7-4) SmartFanII: Fan3 Level 1 */
+	  0xE2,		/* (bit7-4) SmartFanII: Fan3 Level 2 */
+	  0xE2 }	/* (bit3-0) SmartFanII: Fan3 Level 3 */
 };
 
 #define W83792D_REG_GPIO_EN		0x1A
@@ -197,17 +206,24 @@ static const u8 W83792D_REG_LEVELS[3][4] = {
 #define W83792D_REG_PIN			0x4B
 #define W83792D_REG_I2C_SUBADDR		0x4A
 
-#define W83792D_REG_ALARM1 0xA9		
-#define W83792D_REG_ALARM2 0xAA		
-#define W83792D_REG_ALARM3 0xAB		
-#define W83792D_REG_CHASSIS 0x42	
-#define W83792D_REG_CHASSIS_CLR 0x44	
+#define W83792D_REG_ALARM1 0xA9		/* realtime status register1 */
+#define W83792D_REG_ALARM2 0xAA		/* realtime status register2 */
+#define W83792D_REG_ALARM3 0xAB		/* realtime status register3 */
+#define W83792D_REG_CHASSIS 0x42	/* Bit 5: Case Open status bit */
+#define W83792D_REG_CHASSIS_CLR 0x44	/* Bit 7: Case Open CLR_CHS/Reset bit */
 
+/* control in0/in1 's limit modifiability */
 #define W83792D_REG_VID_IN_B		0x17
 
 #define W83792D_REG_VBAT		0x5D
 #define W83792D_REG_I2C_ADDR		0x48
 
+/*
+ * Conversions. Rounding and limit checking is only done on the TO_REG
+ * variants. Note that you should be a bit careful with which arguments
+ * these macros are called: arguments may be evaluated more than once.
+ * Fixing this is just not worth it.
+ */
 #define IN_FROM_REG(nr, val) (((nr) <= 1) ? ((val) * 2) : \
 		((((nr) == 6) || ((nr) == 7)) ? ((val) * 6) : ((val) * 4)))
 #define IN_TO_REG(nr, val) (((nr) <= 1) ? ((val) / 2) : \
@@ -226,9 +242,11 @@ FAN_TO_REG(long rpm, int div)
 				((val) == 255 ? 0 : \
 						1350000 / ((val) * (div))))
 
+/* for temp1 */
 #define TEMP1_TO_REG(val)	(SENSORS_LIMIT(((val) < 0 ? (val)+0x100*1000 \
 					: (val)) / 1000, 0, 0xff))
 #define TEMP1_FROM_REG(val)	(((val) & 0x80 ? (val)-0x100 : (val)) * 1000)
+/* for temp2 and temp3, because they need additional resolution */
 #define TEMP_ADD_FROM_REG(val1, val2) \
 	((((val1) & 0x80 ? (val1)-0x100 \
 		: (val1)) * 1000) + ((val2 & 0x80) ? 500 : 0))
@@ -256,30 +274,33 @@ struct w83792d_data {
 	struct device *hwmon_dev;
 
 	struct mutex update_lock;
-	char valid;		
-	unsigned long last_updated;	
+	char valid;		/* !=0 if following fields are valid */
+	unsigned long last_updated;	/* In jiffies */
 
-	
+	/* array of 2 pointers to subclients */
 	struct i2c_client *lm75[2];
 
-	u8 in[9];		
-	u8 in_max[9];		
-	u8 in_min[9];		
-	u16 low_bits;		
-	u8 fan[7];		
-	u8 fan_min[7];		
-	u8 temp1[3];		
-	u8 temp_add[2][6];	
-	u8 fan_div[7];		
-	u8 pwm[7];		
+	u8 in[9];		/* Register value */
+	u8 in_max[9];		/* Register value */
+	u8 in_min[9];		/* Register value */
+	u16 low_bits;		/* Additional resolution to voltage in6-0 */
+	u8 fan[7];		/* Register value */
+	u8 fan_min[7];		/* Register value */
+	u8 temp1[3];		/* current, over, thyst */
+	u8 temp_add[2][6];	/* Register value */
+	u8 fan_div[7];		/* Register encoding, shifted right */
+	u8 pwm[7];		/*
+				 * We only consider the first 3 set of pwm,
+				 * although 792 chip has 7 set of pwm.
+				 */
 	u8 pwmenable[3];
-	u32 alarms;		
-	u8 chassis;		
-	u8 chassis_clear;	
-	u8 thermal_cruise[3];	
-	u8 tolerance[3];	
-	u8 sf2_points[3][4];	
-	u8 sf2_levels[3][4];	
+	u32 alarms;		/* realtime status register encoding,combined */
+	u8 chassis;		/* Chassis status */
+	u8 chassis_clear;	/* CLR_CHS, clear chassis intrusion detection */
+	u8 thermal_cruise[3];	/* Smart FanI: Fan1,2,3 target value */
+	u8 tolerance[3];	/* Fan1,2,3 tolerance(Smart Fan I/II) */
+	u8 sf2_points[3][4];	/* Smart FanII: Fan1,2,3 temperature points */
+	u8 sf2_levels[3][4];	/* Smart FanII: Fan1,2,3 duty cycle levels */
 };
 
 static int w83792d_probe(struct i2c_client *client,
@@ -315,10 +336,15 @@ static struct i2c_driver w83792d_driver = {
 
 static inline long in_count_from_reg(int nr, struct w83792d_data *data)
 {
-	
+	/* in7 and in8 do not have low bits, but the formula still works */
 	return (data->in[nr] << 2) | ((data->low_bits >> (2 * nr)) & 0x03);
 }
 
+/*
+ * The SMBus locks itself. The Winbond W83792D chip has a bank register,
+ * but the driver only accesses registers in bank 0, so we don't have
+ * to switch banks and lock access between switches.
+ */
 static inline int w83792d_read_value(struct i2c_client *client, u8 reg)
 {
 	return i2c_smbus_read_byte_data(client, reg);
@@ -330,6 +356,7 @@ w83792d_write_value(struct i2c_client *client, u8 reg, u8 value)
 	return i2c_smbus_write_byte_data(client, reg, value);
 }
 
+/* following are the sysfs callback functions */
 static ssize_t show_in(struct device *dev, struct device_attribute *attr,
 			char *buf)
 {
@@ -429,6 +456,12 @@ show_fan_div(struct device *dev, struct device_attribute *attr,
 	return sprintf(buf, "%u\n", DIV_FROM_REG(data->fan_div[nr - 1]));
 }
 
+/*
+ * Note: we save and restore the fan minimum here, because its value is
+ * determined in part by the fan divisor.  This follows the principle of
+ * least surprise; the user doesn't expect the fan minimum to change just
+ * because the divisor changed.
+ */
 static ssize_t
 store_fan_div(struct device *dev, struct device_attribute *attr,
 		const char *buf, size_t count)
@@ -438,7 +471,7 @@ store_fan_div(struct device *dev, struct device_attribute *attr,
 	struct i2c_client *client = to_i2c_client(dev);
 	struct w83792d_data *data = i2c_get_clientdata(client);
 	unsigned long min;
-	
+	/*u8 reg;*/
 	u8 fan_div_reg = 0;
 	u8 tmp_fan_div;
 	unsigned long val;
@@ -448,7 +481,7 @@ store_fan_div(struct device *dev, struct device_attribute *attr,
 	if (err)
 		return err;
 
-	
+	/* Save fan_min */
 	mutex_lock(&data->update_lock);
 	min = FAN_FROM_REG(data->fan_min[nr],
 			   DIV_FROM_REG(data->fan_div[nr]));
@@ -462,7 +495,7 @@ store_fan_div(struct device *dev, struct device_attribute *attr,
 	w83792d_write_value(client, W83792D_REG_FAN_DIV[nr >> 1],
 					fan_div_reg | tmp_fan_div);
 
-	
+	/* Restore fan_min */
 	data->fan_min[nr] = FAN_TO_REG(min, DIV_FROM_REG(data->fan_div[nr]));
 	w83792d_write_value(client, W83792D_REG_FAN_MIN[nr], data->fan_min[nr]);
 	mutex_unlock(&data->update_lock);
@@ -470,6 +503,7 @@ store_fan_div(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/* read/write the temperature1, includes measured value and limits */
 
 static ssize_t show_temp1(struct device *dev, struct device_attribute *attr,
 				char *buf)
@@ -503,6 +537,7 @@ static ssize_t store_temp1(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/* read/write the temperature2-3, includes measured value and limits */
 
 static ssize_t show_temp23(struct device *dev, struct device_attribute *attr,
 				char *buf)
@@ -545,6 +580,7 @@ static ssize_t store_temp23(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/* get reatime status of all sensors items: voltage, temp, fan */
 static ssize_t
 show_alarms_reg(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -582,13 +618,13 @@ show_pwmenable(struct device *dev, struct device_attribute *attr,
 
 	switch (data->pwmenable[nr]) {
 	case 0:
-		pwm_enable_tmp = 1; 
+		pwm_enable_tmp = 1; /* manual mode */
 		break;
 	case 1:
-		pwm_enable_tmp = 3; 
+		pwm_enable_tmp = 3; /*thermal cruise/Smart Fan I */
 		break;
 	case 2:
-		pwm_enable_tmp = 2; 
+		pwm_enable_tmp = 2; /* Smart Fan II */
 		break;
 	}
 
@@ -642,13 +678,13 @@ store_pwmenable(struct device *dev, struct device_attribute *attr,
 	mutex_lock(&data->update_lock);
 	switch (val) {
 	case 1:
-		data->pwmenable[nr] = 0; 
+		data->pwmenable[nr] = 0; /* manual mode */
 		break;
 	case 2:
-		data->pwmenable[nr] = 2; 
+		data->pwmenable[nr] = 2; /* Smart Fan II */
 		break;
 	case 3:
-		data->pwmenable[nr] = 1; 
+		data->pwmenable[nr] = 1; /* thermal cruise/Smart Fan I */
 		break;
 	}
 	cfg1_tmp = data->pwmenable[0];
@@ -691,9 +727,9 @@ store_pwm_mode(struct device *dev, struct device_attribute *attr,
 
 	mutex_lock(&data->update_lock);
 	data->pwm[nr] = w83792d_read_value(client, W83792D_REG_PWM[nr]);
-	if (val) {			
+	if (val) {			/* PWM mode */
 		data->pwm[nr] |= 0x80;
-	} else {			
+	} else {			/* DC mode */
 		data->pwm[nr] &= 0x7f;
 	}
 	w83792d_write_value(client, W83792D_REG_PWM[nr], data->pwm[nr]);
@@ -771,12 +807,13 @@ store_chassis_clear(struct device *dev, struct device_attribute *attr,
 	mutex_lock(&data->update_lock);
 	reg = w83792d_read_value(client, W83792D_REG_CHASSIS_CLR);
 	w83792d_write_value(client, W83792D_REG_CHASSIS_CLR, reg | 0x80);
-	data->valid = 0;		
+	data->valid = 0;		/* Force cache refresh */
 	mutex_unlock(&data->update_lock);
 
 	return count;
 }
 
+/* For Smart Fan I / Thermal Cruise */
 static ssize_t
 show_thermal_cruise(struct device *dev, struct device_attribute *attr,
 			char *buf)
@@ -816,6 +853,7 @@ store_thermal_cruise(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/* For Smart Fan I/Thermal Cruise and Smart Fan II */
 static ssize_t
 show_tolerance(struct device *dev, struct device_attribute *attr,
 		char *buf)
@@ -857,6 +895,7 @@ store_tolerance(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/* For Smart Fan II */
 static ssize_t
 show_sf2_point(struct device *dev, struct device_attribute *attr,
 		char *buf)
@@ -988,6 +1027,7 @@ w83792d_detect_subclients(struct i2c_client *new_client)
 
 	return 0;
 
+/* Undo inits in case of errors */
 
 ERROR_SC_1:
 	if (data->lm75[0] != NULL)
@@ -1329,6 +1369,7 @@ static const struct attribute_group w83792d_group = {
 	.attrs = w83792d_attributes,
 };
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int
 w83792d_detect(struct i2c_client *client, struct i2c_board_info *info)
 {
@@ -1344,22 +1385,26 @@ w83792d_detect(struct i2c_client *client, struct i2c_board_info *info)
 
 	val1 = w83792d_read_value(client, W83792D_REG_BANK);
 	val2 = w83792d_read_value(client, W83792D_REG_CHIPMAN);
-	
-	if (!(val1 & 0x07)) {  
+	/* Check for Winbond ID if in bank 0 */
+	if (!(val1 & 0x07)) {  /* is Bank0 */
 		if ((!(val1 & 0x80) && val2 != 0xa3) ||
 		    ((val1 & 0x80) && val2 != 0x5c))
 			return -ENODEV;
 	}
+	/*
+	 * If Winbond chip, address of chip and W83792D_REG_I2C_ADDR
+	 * should match
+	 */
 	if (w83792d_read_value(client, W83792D_REG_I2C_ADDR) != address)
 		return -ENODEV;
 
-	
+	/*  Put it now into bank 0 and Vendor ID High Byte */
 	w83792d_write_value(client,
 			    W83792D_REG_BANK,
 			    (w83792d_read_value(client,
 				W83792D_REG_BANK) & 0x78) | 0x80);
 
-	
+	/* Determine the chip type. */
 	val1 = w83792d_read_value(client, W83792D_REG_WCHIPID);
 	val2 = w83792d_read_value(client, W83792D_REG_CHIPMAN);
 	if (val1 != 0x7a || val2 != 0x5c)
@@ -1391,20 +1436,24 @@ w83792d_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	if (err)
 		goto ERROR1;
 
-	
+	/* Initialize the chip */
 	w83792d_init_client(client);
 
-	
+	/* A few vars need to be filled upon startup */
 	for (i = 0; i < 7; i++) {
 		data->fan_min[i] = w83792d_read_value(client,
 					W83792D_REG_FAN_MIN[i]);
 	}
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&dev->kobj, &w83792d_group);
 	if (err)
 		goto ERROR3;
 
+	/*
+	 * Read GPIO enable register to check if pins for fan 4,5 are used as
+	 * GPIO
+	 */
 	val1 = w83792d_read_value(client, W83792D_REG_GPIO_EN);
 
 	if (!(val1 & 0x40)) {
@@ -1484,6 +1533,13 @@ w83792d_init_client(struct i2c_client *client)
 	if (init)
 		w83792d_write_value(client, W83792D_REG_CONFIG, 0x80);
 
+	/*
+	 * Clear the bit6 of W83792D_REG_VID_IN_B(set it into 0):
+	 * W83792D_REG_VID_IN_B bit6 = 0: the high/low limit of
+	 * vin0/vin1 can be modified by user;
+	 * W83792D_REG_VID_IN_B bit6 = 1: the high/low limit of
+	 * vin0/vin1 auto-updated, can NOT be modified by user.
+	 */
 	vid_in_b = w83792d_read_value(client, W83792D_REG_VID_IN_B);
 	w83792d_write_value(client, W83792D_REG_VID_IN_B,
 			    vid_in_b & 0xbf);
@@ -1495,7 +1551,7 @@ w83792d_init_client(struct i2c_client *client)
 	w83792d_write_value(client, W83792D_REG_TEMP3_CONFIG,
 				temp3_cfg & 0xe6);
 
-	
+	/* Start monitoring */
 	w83792d_write_value(client, W83792D_REG_CONFIG,
 			    (w83792d_read_value(client,
 						W83792D_REG_CONFIG) & 0xf7)
@@ -1516,7 +1572,7 @@ static struct w83792d_data *w83792d_update_device(struct device *dev)
 	    || time_before(jiffies, data->last_updated) || !data->valid) {
 		dev_dbg(dev, "Starting device update\n");
 
-		
+		/* Update the voltages measured value and limits */
 		for (i = 0; i < 9; i++) {
 			data->in[i] = w83792d_read_value(client,
 						W83792D_REG_IN[i]);
@@ -1530,12 +1586,12 @@ static struct w83792d_data *w83792d_update_device(struct device *dev)
 				 (w83792d_read_value(client,
 						W83792D_REG_LOW_BITS2) << 8);
 		for (i = 0; i < 7; i++) {
-			
+			/* Update the Fan measured value and limits */
 			data->fan[i] = w83792d_read_value(client,
 						W83792D_REG_FAN[i]);
 			data->fan_min[i] = w83792d_read_value(client,
 						W83792D_REG_FAN_MIN[i]);
-			
+			/* Update the PWM/DC Value and PWM/DC flag */
 			data->pwm[i] = w83792d_read_value(client,
 						W83792D_REG_PWM[i]);
 		}
@@ -1556,7 +1612,7 @@ static struct w83792d_data *w83792d_update_device(struct device *dev)
 			}
 		}
 
-		
+		/* Update the Fan Divisor */
 		for (i = 0; i < 4; i++) {
 			reg_array_tmp[i] = w83792d_read_value(client,
 							W83792D_REG_FAN_DIV[i]);
@@ -1569,32 +1625,32 @@ static struct w83792d_data *w83792d_update_device(struct device *dev)
 		data->fan_div[5] = (reg_array_tmp[2] >> 4) & 0x07;
 		data->fan_div[6] = reg_array_tmp[3] & 0x07;
 
-		
+		/* Update the realtime status */
 		data->alarms = w83792d_read_value(client, W83792D_REG_ALARM1) +
 			(w83792d_read_value(client, W83792D_REG_ALARM2) << 8) +
 			(w83792d_read_value(client, W83792D_REG_ALARM3) << 16);
 
-		
+		/* Update CaseOpen status and it's CLR_CHS. */
 		data->chassis = (w83792d_read_value(client,
 			W83792D_REG_CHASSIS) >> 5) & 0x01;
 		data->chassis_clear = (w83792d_read_value(client,
 			W83792D_REG_CHASSIS_CLR) >> 7) & 0x01;
 
-		
+		/* Update Thermal Cruise/Smart Fan I target value */
 		for (i = 0; i < 3; i++) {
 			data->thermal_cruise[i] =
 				w83792d_read_value(client,
 				W83792D_REG_THERMAL[i]) & 0x7f;
 		}
 
-		
+		/* Update Smart Fan I/II tolerance */
 		reg_tmp = w83792d_read_value(client, W83792D_REG_TOLERANCE[0]);
 		data->tolerance[0] = reg_tmp & 0x0f;
 		data->tolerance[1] = (reg_tmp >> 4) & 0x0f;
 		data->tolerance[2] = w83792d_read_value(client,
 					W83792D_REG_TOLERANCE[2]) & 0x0f;
 
-		
+		/* Update Smart Fan II temperature points */
 		for (i = 0; i < 3; i++) {
 			for (j = 0; j < 4; j++) {
 				data->sf2_points[i][j]
@@ -1603,7 +1659,7 @@ static struct w83792d_data *w83792d_update_device(struct device *dev)
 			}
 		}
 
-		
+		/* Update Smart Fan II duty cycle levels */
 		for (i = 0; i < 3; i++) {
 			reg_tmp = w83792d_read_value(client,
 						W83792D_REG_LEVELS[i][0]);

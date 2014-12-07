@@ -25,25 +25,48 @@
 	59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+/*
+	Module: rt2800pci
+	Abstract: Data structures and registers for the rt2800pci module.
+	Supported chipsets: RT2800E & RT2800ED.
+ */
 
 #ifndef RT2800PCI_H
 #define RT2800PCI_H
 
+/*
+ * Queue register offset macros
+ */
 #define TX_QUEUE_REG_OFFSET		0x10
 #define TX_BASE_PTR(__x)		(TX_BASE_PTR0 + ((__x) * TX_QUEUE_REG_OFFSET))
 #define TX_MAX_CNT(__x)			(TX_MAX_CNT0 + ((__x) * TX_QUEUE_REG_OFFSET))
 #define TX_CTX_IDX(__x)			(TX_CTX_IDX0 + ((__x) * TX_QUEUE_REG_OFFSET))
 #define TX_DTX_IDX(__x)			(TX_DTX_IDX0 + ((__x) * TX_QUEUE_REG_OFFSET))
 
+/*
+ * 8051 firmware image.
+ */
 #define FIRMWARE_RT2860			"rt2860.bin"
 #define FIRMWARE_IMAGE_BASE		0x2000
 
+/*
+ * DMA descriptor defines.
+ */
 #define TXD_DESC_SIZE			(4 * sizeof(__le32))
 #define RXD_DESC_SIZE			(4 * sizeof(__le32))
 
+/*
+ * TX descriptor format for TX, PRIO and Beacon Ring.
+ */
 
+/*
+ * Word0
+ */
 #define TXD_W0_SD_PTR0			FIELD32(0xffffffff)
 
+/*
+ * Word1
+ */
 #define TXD_W1_SD_LEN1			FIELD32(0x00003fff)
 #define TXD_W1_LAST_SEC1		FIELD32(0x00004000)
 #define TXD_W1_BURST			FIELD32(0x00008000)
@@ -51,24 +74,50 @@
 #define TXD_W1_LAST_SEC0		FIELD32(0x40000000)
 #define TXD_W1_DMA_DONE			FIELD32(0x80000000)
 
+/*
+ * Word2
+ */
 #define TXD_W2_SD_PTR1			FIELD32(0xffffffff)
 
+/*
+ * Word3
+ * WIV: Wireless Info Valid. 1: Driver filled WI, 0: DMA needs to copy WI
+ * QSEL: Select on-chip FIFO ID for 2nd-stage output scheduler.
+ *       0:MGMT, 1:HCCA 2:EDCA
+ */
 #define TXD_W3_WIV			FIELD32(0x01000000)
 #define TXD_W3_QSEL			FIELD32(0x06000000)
 #define TXD_W3_TCO			FIELD32(0x20000000)
 #define TXD_W3_UCO			FIELD32(0x40000000)
 #define TXD_W3_ICO			FIELD32(0x80000000)
 
+/*
+ * RX descriptor format for RX Ring.
+ */
 
+/*
+ * Word0
+ */
 #define RXD_W0_SDP0			FIELD32(0xffffffff)
 
+/*
+ * Word1
+ */
 #define RXD_W1_SDL1			FIELD32(0x00003fff)
 #define RXD_W1_SDL0			FIELD32(0x3fff0000)
 #define RXD_W1_LS0			FIELD32(0x40000000)
 #define RXD_W1_DMA_DONE			FIELD32(0x80000000)
 
+/*
+ * Word2
+ */
 #define RXD_W2_SDP1			FIELD32(0xffffffff)
 
+/*
+ * Word3
+ * AMSDU: RX with 802.3 header, not 802.11 header.
+ * DECRYPTED: This frame is being decrypted.
+ */
 #define RXD_W3_BA			FIELD32(0x00000001)
 #define RXD_W3_DATA			FIELD32(0x00000002)
 #define RXD_W3_NULLDATA			FIELD32(0x00000004)
@@ -88,4 +137,4 @@
 #define RXD_W3_PLCP_SIGNAL		FIELD32(0x00020000)
 #define RXD_W3_PLCP_RSSI		FIELD32(0x00040000)
 
-#endif 
+#endif /* RT2800PCI_H */

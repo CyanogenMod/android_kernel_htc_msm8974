@@ -12,9 +12,16 @@
 #ifndef __OV772X_H__
 #define __OV772X_H__
 
-#define OV772X_FLAG_VFLIP	(1 << 0) 
-#define OV772X_FLAG_HFLIP	(1 << 1) 
+/* for flags */
+#define OV772X_FLAG_VFLIP	(1 << 0) /* Vertical flip image */
+#define OV772X_FLAG_HFLIP	(1 << 1) /* Horizontal flip image */
 
+/*
+ * for Edge ctrl
+ *
+ * strength also control Auto or Manual Edge Control Mode
+ * see also OV772X_MANUAL_EDGE_CTRL
+ */
 struct ov772x_edge_ctrl {
 	unsigned char strength;
 	unsigned char threshold;
@@ -22,7 +29,7 @@ struct ov772x_edge_ctrl {
 	unsigned char lower;
 };
 
-#define OV772X_MANUAL_EDGE_CTRL		0x80 
+#define OV772X_MANUAL_EDGE_CTRL		0x80 /* un-used bit of strength */
 #define OV772X_EDGE_STRENGTH_MASK	0x1F
 #define OV772X_EDGE_THRESHOLD_MASK	0x0F
 #define OV772X_EDGE_UPPER_MASK		0xFF
@@ -41,9 +48,12 @@ struct ov772x_edge_ctrl {
 	.threshold = (t & OV772X_EDGE_THRESHOLD_MASK),	\
 }
 
+/*
+ * ov772x camera info
+ */
 struct ov772x_camera_info {
 	unsigned long		flags;
 	struct ov772x_edge_ctrl	edgectrl;
 };
 
-#endif 
+#endif /* __OV772X_H__ */

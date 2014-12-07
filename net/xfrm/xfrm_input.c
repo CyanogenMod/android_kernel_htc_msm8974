@@ -1,3 +1,11 @@
+/*
+ * xfrm_input.c
+ *
+ * Changes:
+ * 	YOSHIFUJI Hideaki @USAGI
+ * 		Split up af-specific portion
+ *
+ */
 
 #include <linux/slab.h>
 #include <linux/module.h>
@@ -38,6 +46,7 @@ struct sec_path *secpath_dup(struct sec_path *src)
 }
 EXPORT_SYMBOL(secpath_dup);
 
+/* Fetch spi and seq from ipsec header */
 
 int xfrm_parse_spi(struct sk_buff *skb, u8 nexthdr, __be32 *spi, __be32 *seq)
 {
@@ -106,7 +115,7 @@ int xfrm_input(struct sk_buff *skb, int nexthdr, __be32 spi, int encap_type)
 	int decaps = 0;
 	int async = 0;
 
-	
+	/* A negative encap_type indicates async resumption. */
 	if (encap_type < 0) {
 		async = 1;
 		x = xfrm_input_state(skb);
@@ -114,7 +123,7 @@ int xfrm_input(struct sk_buff *skb, int nexthdr, __be32 spi, int encap_type)
 		goto resume;
 	}
 
-	
+	/* Allocate new secpath or COW existing one. */
 	if (!skb->sp || atomic_read(&skb->sp->refcnt) != 1) {
 		struct sec_path *sp;
 
@@ -200,7 +209,7 @@ resume:
 			goto drop_unlock;
 		}
 
-		
+		/* only the first xfrm gets the encap type */
 		encap_type = 0;
 
 		if (async && x->repl->check(x, skb, seq)) {
@@ -235,6 +244,10 @@ resume:
 			break;
 		}
 
+		/*
+		 * We need the inner address.  However, we only get here for
+		 * transport mode so the outer address is identical.
+		 */
 		daddr = &x->id.daddr;
 		family = x->outer_mode->afinfo->family;
 

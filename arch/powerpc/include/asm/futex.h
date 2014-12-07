@@ -117,5 +117,5 @@ futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
         return ret;
 }
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_POWERPC_FUTEX_H */

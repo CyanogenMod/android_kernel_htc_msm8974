@@ -1,7 +1,33 @@
+/*
+ * Stage 1 of the trace events.
+ *
+ * Override the macros in <trace/trace_events.h> to include the following:
+ *
+ * struct ftrace_raw_<call> {
+ *	struct trace_entry		ent;
+ *	<type>				<item>;
+ *	<type2>				<item2>[<len>];
+ *	[...]
+ * };
+ *
+ * The <type> <item> is created by the __field(type, item) macro or
+ * the __array(type2, item2, len) macro.
+ * We simply do "type item;", and that will create the fields
+ * in the structure.
+ */
 
 #include <linux/ftrace_event.h>
 #include <linux/coresight-stm.h>
 
+/*
+ * DECLARE_EVENT_CLASS can be used to add a generic function
+ * handlers for events. That is, if all events have the same
+ * parameters and just have distinct trace points.
+ * Each tracepoint can be defined with DEFINE_EVENT and that
+ * will map the DECLARE_EVENT_CLASS to the tracepoint.
+ *
+ * TRACE_EVENT is a one to one mapping between tracepoint and template.
+ */
 #undef TRACE_EVENT
 #define TRACE_EVENT(name, proto, args, tstruct, assign, print) \
 	DECLARE_EVENT_CLASS(name,			       \
@@ -50,6 +76,7 @@
 #define DEFINE_EVENT_PRINT(template, name, proto, args, print)	\
 	DEFINE_EVENT(template, name, PARAMS(proto), PARAMS(args))
 
+/* Callbacks are meaningless to ftrace. */
 #undef TRACE_EVENT_FN
 #define TRACE_EVENT_FN(name, proto, args, tstruct,			\
 		assign, print, reg, unreg)				\
@@ -63,6 +90,21 @@
 #include TRACE_INCLUDE(TRACE_INCLUDE_FILE)
 
 
+/*
+ * Stage 2 of the trace events.
+ *
+ * Include the following:
+ *
+ * struct ftrace_data_offsets_<call> {
+ *	u32				<item1>;
+ *	u32				<item2>;
+ *	[...]
+ * };
+ *
+ * The __dynamic_array() macro will create each u32 <item>, this is
+ * to keep the offset of each array from the beginning of the event.
+ * The size of an array is also encoded, in the higher 16 bits of <item>.
+ */
 
 #undef __field
 #define __field(type, item)
@@ -97,6 +139,43 @@
 
 #include TRACE_INCLUDE(TRACE_INCLUDE_FILE)
 
+/*
+ * Stage 3 of the trace events.
+ *
+ * Override the macros in <trace/trace_events.h> to include the following:
+ *
+ * enum print_line_t
+ * ftrace_raw_output_<call>(struct trace_iterator *iter, int flags)
+ * {
+ *	struct trace_seq *s = &iter->seq;
+ *	struct ftrace_raw_<call> *field; <-- defined in stage 1
+ *	struct trace_entry *entry;
+ *	struct trace_seq *p = &iter->tmp_seq;
+ *	int ret;
+ *
+ *	entry = iter->ent;
+ *
+ *	if (entry->type != event_<call>->event.type) {
+ *		WARN_ON_ONCE(1);
+ *		return TRACE_TYPE_UNHANDLED;
+ *	}
+ *
+ *	field = (typeof(field))entry;
+ *
+ *	trace_seq_init(p);
+ *	ret = trace_seq_printf(s, "%s: ", <call>);
+ *	if (ret)
+ *		ret = trace_seq_printf(s, <TP_printk> "\n");
+ *	if (!ret)
+ *		return TRACE_TYPE_PARTIAL_LINE;
+ *
+ *	return TRACE_TYPE_HANDLED;
+ * }
+ *
+ * This is the method used to print the raw event to the trace
+ * output format. Note, this is not needed if the data is read
+ * in binary.
+ */
 
 #undef __entry
 #define __entry field
@@ -277,6 +356,9 @@ ftrace_define_fields_##call(struct ftrace_event_call *event_call)	\
 
 #include TRACE_INCLUDE(TRACE_INCLUDE_FILE)
 
+/*
+ * remember the offset of each array from the beginning of the event.
+ */
 
 #undef __entry
 #define __entry entry
@@ -322,6 +404,74 @@ static inline notrace int ftrace_get_offsets_##call(			\
 
 #include TRACE_INCLUDE(TRACE_INCLUDE_FILE)
 
+/*
+ * Stage 4 of the trace events.
+ *
+ * Override the macros in <trace/trace_events.h> to include the following:
+ *
+ * For those macros defined with TRACE_EVENT:
+ *
+ * static struct ftrace_event_call event_<call>;
+ *
+ * static void ftrace_raw_event_<call>(void *__data, proto)
+ * {
+ *	struct ftrace_event_call *event_call = __data;
+ *	struct ftrace_data_offsets_<call> __maybe_unused __data_offsets;
+ *	struct ring_buffer_event *event;
+ *	struct ftrace_raw_<call> *entry; <-- defined in stage 1
+ *	struct ring_buffer *buffer;
+ *	unsigned long irq_flags;
+ *	int __data_size;
+ *	int pc;
+ *
+ *	local_save_flags(irq_flags);
+ *	pc = preempt_count();
+ *
+ *	__data_size = ftrace_get_offsets_<call>(&__data_offsets, args);
+ *
+ *	event = trace_current_buffer_lock_reserve(&buffer,
+ *				  event_<call>->event.type,
+ *				  sizeof(*entry) + __data_size,
+ *				  irq_flags, pc);
+ *	if (!event)
+ *		return;
+ *	entry	= ring_buffer_event_data(event);
+ *
+ *	{ <assign>; }  <-- Here we assign the entries by the __field and
+ *			   __array macros.
+ *
+ *	if (!filter_current_check_discard(buffer, event_call, entry, event))
+ *		trace_current_buffer_unlock_commit(buffer,
+ *						   event, irq_flags, pc);
+ * }
+ *
+ * static struct trace_event ftrace_event_type_<call> = {
+ *	.trace			= ftrace_raw_output_<call>, <-- stage 2
+ * };
+ *
+ * static const char print_fmt_<call>[] = <TP_printk>;
+ *
+ * static struct ftrace_event_class __used event_class_<template> = {
+ *	.system			= "<system>",
+ *	.define_fields		= ftrace_define_fields_<call>,
+ *	.fields			= LIST_HEAD_INIT(event_class_##call.fields),
+ *	.raw_init		= trace_event_raw_init,
+ *	.probe			= ftrace_raw_event_##call,
+ *	.reg			= ftrace_event_reg,
+ * };
+ *
+ * static struct ftrace_event_call event_<call> = {
+ *	.name			= "<call>",
+ *	.class			= event_class_<template>,
+ *	.event			= &ftrace_event_type_<call>,
+ *	.print_fmt		= print_fmt_<call>,
+ * };
+ * // its only safe to use pointers when doing linker tricks to
+ * // create an array.
+ * static struct ftrace_event_call __used
+ * __attribute__((section("_ftrace_events"))) *__event_<call> = &event_<call>;
+ *
+ */
 
 #ifdef CONFIG_PERF_EVENTS
 
@@ -335,7 +485,7 @@ static inline notrace int ftrace_get_offsets_##call(			\
 #else
 #define _TRACE_PERF_PROTO(call, proto)
 #define _TRACE_PERF_INIT(call)
-#endif 
+#endif /* CONFIG_PERF_EVENTS */
 
 #undef __entry
 #define __entry entry
@@ -402,6 +552,11 @@ ftrace_raw_event_##call(void *__data, proto)				\
 						  event, irq_flags, pc); \
 	}								\
 }
+/*
+ * The ftrace_test_probe is compiled out, it is only here as a build time check
+ * to make sure that if the tracepoint handling changes, the ftrace probe will
+ * fail to compile unless it too is updated.
+ */
 
 #undef DEFINE_EVENT
 #define DEFINE_EVENT(template, call, proto, args)			\
@@ -468,6 +623,79 @@ __attribute__((section("_ftrace_events"))) *__event_##call = &event_##call
 
 #include TRACE_INCLUDE(TRACE_INCLUDE_FILE)
 
+/*
+ * Define the insertion callback to perf events
+ *
+ * The job is very similar to ftrace_raw_event_<call> except that we don't
+ * insert in the ring buffer but in a perf counter.
+ *
+ * static void ftrace_perf_<call>(proto)
+ * {
+ *	struct ftrace_data_offsets_<call> __maybe_unused __data_offsets;
+ *	struct ftrace_event_call *event_call = &event_<call>;
+ *	extern void perf_tp_event(int, u64, u64, void *, int);
+ *	struct ftrace_raw_##call *entry;
+ *	struct perf_trace_buf *trace_buf;
+ *	u64 __addr = 0, __count = 1;
+ *	unsigned long irq_flags;
+ *	struct trace_entry *ent;
+ *	int __entry_size;
+ *	int __data_size;
+ *	int __cpu
+ *	int pc;
+ *
+ *	pc = preempt_count();
+ *
+ *	__data_size = ftrace_get_offsets_<call>(&__data_offsets, args);
+ *
+ *	// Below we want to get the aligned size by taking into account
+ *	// the u32 field that will later store the buffer size
+ *	__entry_size = ALIGN(__data_size + sizeof(*entry) + sizeof(u32),
+ *			     sizeof(u64));
+ *	__entry_size -= sizeof(u32);
+ *
+ *	// Protect the non nmi buffer
+ *	// This also protects the rcu read side
+ *	local_irq_save(irq_flags);
+ *	__cpu = smp_processor_id();
+ *
+ *	if (in_nmi())
+ *		trace_buf = rcu_dereference_sched(perf_trace_buf_nmi);
+ *	else
+ *		trace_buf = rcu_dereference_sched(perf_trace_buf);
+ *
+ *	if (!trace_buf)
+ *		goto end;
+ *
+ *	trace_buf = per_cpu_ptr(trace_buf, __cpu);
+ *
+ * 	// Avoid recursion from perf that could mess up the buffer
+ * 	if (trace_buf->recursion++)
+ *		goto end_recursion;
+ *
+ * 	raw_data = trace_buf->buf;
+ *
+ *	// Make recursion update visible before entering perf_tp_event
+ *	// so that we protect from perf recursions.
+ *
+ *	barrier();
+ *
+ *	//zero dead bytes from alignment to avoid stack leak to userspace:
+ *	*(u64 *)(&raw_data[__entry_size - sizeof(u64)]) = 0ULL;
+ *	entry = (struct ftrace_raw_<call> *)raw_data;
+ *	ent = &entry->ent;
+ *	tracing_generic_entry_update(ent, irq_flags, pc);
+ *	ent->type = event_call->id;
+ *
+ *	<tstruct> <- do some jobs with dynamic arrays
+ *
+ *	<assign>  <- affect our values
+ *
+ *	perf_tp_event(event_call->id, __addr, __count, entry,
+ *		     __entry_size);  <- submit them to perf counter
+ *
+ * }
+ */
 
 #ifdef CONFIG_PERF_EVENTS
 
@@ -530,6 +758,11 @@ perf_trace_##call(void *__data, proto)					\
 		__count, &__regs, head);				\
 }
 
+/*
+ * This part is compiled out, it is only here as a build time check
+ * to make sure that if the tracepoint handling changes, the
+ * perf probe will fail to compile unless it too is updated.
+ */
 #undef DEFINE_EVENT
 #define DEFINE_EVENT(template, call, proto, args)			\
 static inline void perf_test_probe_##call(void)				\
@@ -543,7 +776,7 @@ static inline void perf_test_probe_##call(void)				\
 	DEFINE_EVENT(template, name, PARAMS(proto), PARAMS(args))
 
 #include TRACE_INCLUDE(TRACE_INCLUDE_FILE)
-#endif 
+#endif /* CONFIG_PERF_EVENTS */
 
 #undef _TRACE_PROFILE_INIT
 

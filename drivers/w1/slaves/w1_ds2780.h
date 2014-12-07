@@ -16,12 +16,15 @@
 #ifndef _W1_DS2780_H
 #define _W1_DS2780_H
 
+/* Function commands */
 #define W1_DS2780_READ_DATA		0x69
 #define W1_DS2780_WRITE_DATA		0x6C
 #define W1_DS2780_COPY_DATA		0x48
 #define W1_DS2780_RECALL_DATA		0xB8
 #define W1_DS2780_LOCK			0x6A
 
+/* Register map */
+/* Register 0x00 Reserved */
 #define DS2780_STATUS_REG		0x01
 #define DS2780_RAAC_MSB_REG		0x02
 #define DS2780_RAAC_LSB_REG		0x03
@@ -49,9 +52,12 @@
 #define DS2780_AE_LSB_REG		0x19
 #define DS2780_SE_MSB_REG		0x1A
 #define DS2780_SE_LSB_REG		0x1B
+/* Register 0x1C - 0x1E Reserved */
 #define DS2780_EEPROM_REG		0x1F
 #define DS2780_EEPROM_BLOCK0_START	0x20
+/* Register 0x20 - 0x2F User EEPROM */
 #define DS2780_EEPROM_BLOCK0_END	0x2F
+/* Register 0x30 - 0x5F Reserved */
 #define DS2780_EEPROM_BLOCK1_START	0x60
 #define DS2780_CONTROL_REG		0x60
 #define DS2780_AB_REG			0x61
@@ -83,24 +89,36 @@
 #define DS2780_FRSGAIN_MSB_REG		0x7B
 #define DS2780_FRSGAIN_LSB_REG		0x7C
 #define DS2780_EEPROM_BLOCK1_END	0x7C
+/* Register 0x7D - 0xFF Reserved */
 
+/* Number of valid register addresses */
 #define DS2780_DATA_SIZE		0x80
 
+/* Status register bits */
 #define DS2780_STATUS_REG_CHGTF		(1 << 7)
 #define DS2780_STATUS_REG_AEF		(1 << 6)
 #define DS2780_STATUS_REG_SEF		(1 << 5)
 #define DS2780_STATUS_REG_LEARNF	(1 << 4)
+/* Bit 3 Reserved */
 #define DS2780_STATUS_REG_UVF		(1 << 2)
 #define DS2780_STATUS_REG_PORF		(1 << 1)
+/* Bit 0 Reserved */
 
+/* Control register bits */
+/* Bit 7 Reserved */
 #define DS2780_CONTROL_REG_UVEN		(1 << 6)
 #define DS2780_CONTROL_REG_PMOD		(1 << 5)
 #define DS2780_CONTROL_REG_RNAOP	(1 << 4)
+/* Bit 0 - 3 Reserved */
 
+/* Special feature register bits */
+/* Bit 1 - 7 Reserved */
 #define DS2780_SFR_REG_PIOSC		(1 << 0)
 
+/* EEPROM register bits */
 #define DS2780_EEPROM_REG_EEC		(1 << 7)
 #define DS2780_EEPROM_REG_LOCK		(1 << 6)
+/* Bit 2 - 6 Reserved */
 #define DS2780_EEPROM_REG_BL1		(1 << 1)
 #define DS2780_EEPROM_REG_BL0		(1 << 0)
 
@@ -110,4 +128,4 @@ extern int w1_ds2780_io_nolock(struct device *dev, char *buf, int addr,
 			size_t count, int io);
 extern int w1_ds2780_eeprom_cmd(struct device *dev, int addr, int cmd);
 
-#endif 
+#endif /* !_W1_DS2780_H */

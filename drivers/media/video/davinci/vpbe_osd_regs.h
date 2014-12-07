@@ -17,12 +17,15 @@
 #ifndef _VPBE_OSD_REGS_H
 #define _VPBE_OSD_REGS_H
 
+/* VPBE Global Registers */
 #define VPBE_PID				0x0
 #define VPBE_PCR				0x4
 
+/* VPSS CLock Registers */
 #define VPSSCLK_PID				0x00
 #define VPSSCLK_CLKCTRL				0x04
 
+/* VPSS Buffer Logic Registers */
 #define VPSSBL_PID				0x00
 #define VPSSBL_PCR				0x04
 #define VPSSBL_BCR				0x08
@@ -32,6 +35,7 @@
 #define VPSSBL_MEMCTRL				0x18
 #define VPSSBL_CCDCMUX				0x1C
 
+/* DM365 ISP5 system configuration */
 #define ISP5_PID				0x0
 #define ISP5_PCCR				0x4
 #define ISP5_BCR				0x8
@@ -42,6 +46,7 @@
 #define ISP5_EVTSEL				0x1c
 #define ISP5_CCDCMUX				0x20
 
+/* VPBE On-Screen Display Subsystem Registers (OSD) */
 #define OSD_MODE				0x00
 #define OSD_VIDWINMD				0x04
 #define OSD_OSDWIN0MD				0x08
@@ -111,6 +116,7 @@
 #define OSD_TRANSPBMPIDX			0xFC
 #define OSD_PPVWIN0ADR				0xFC
 
+/* bit definitions */
 #define VPBE_PCR_VENC_DIV			(1 << 1)
 #define VPBE_PCR_CLK_OFF			(1 << 0)
 
@@ -130,11 +136,14 @@
 #define VPSSBL_INTSTAT_CCDC_VDINT1		(1 << 1)
 #define VPSSBL_INTSTAT_CCDC_VDINT0		(1 << 0)
 
+/* DM365 ISP5 bit definitions */
 #define ISP5_INTSTAT_VENCINT			(1 << 21)
 #define ISP5_INTSTAT_OSDINT			(1 << 20)
 
+/* VMOD TVTYP options for HDMD=0 */
 #define SDTV_NTSC				0
 #define SDTV_PAL				1
+/* VMOD TVTYP options for HDMD=1 */
 #define HDTV_525P				0
 #define HDTV_625P				1
 #define HDTV_1080I				2
@@ -352,4 +361,4 @@
 #define OSD_TRANSPBMPIDX_BMP0_SHIFT		0
 #define OSD_TRANSPBMPIDX_BMP0			0xff
 
-#endif				
+#endif				/* _DAVINCI_VPBE_H_ */

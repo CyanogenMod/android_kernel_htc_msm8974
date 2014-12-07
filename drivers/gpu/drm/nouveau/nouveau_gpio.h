@@ -29,6 +29,7 @@ struct gpio_func {
 	u8 log[2];
 };
 
+/* nouveau_gpio.c */
 int  nouveau_gpio_create(struct drm_device *);
 void nouveau_gpio_destroy(struct drm_device *);
 int  nouveau_gpio_init(struct drm_device *);

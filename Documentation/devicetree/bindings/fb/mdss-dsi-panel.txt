@@ -4,14 +4,23 @@ mdss-dsi-panel is a dsi panel device which supports panels that
 are compatable with MIPI display serial interface specification.
 
 Required properties:
-- compatible:				Specifies the version for DSI HW. that
-					this panel will be worked with
-					"qcom,mdss-dsi-panel" = DSI v6.0
+- compatible:				This property applies to DSI V2 panels only.
+					This property should not be added for panels
+					that work based on version "V6.0"
+					DSI panels that are of different versions
+					are initialized by the drivers for dsi controller.
+					This property specifies the version
+					for DSI HW that this panel will work with
 					"qcom,dsi-panel-v2" = DSI V2.0
-- status:        			A string that has to be set to "okay/ok" to enable
-					the panel driver. By default this property will be
-					set to "disable". Will be set to "ok/okay" status
-					for specific platforms.
+- status:        			This property applies to DSI V2 panels only.
+					This property should not be added for panels
+					that work based on version "V6.0"
+					DSI panels that are of different versions
+					are initialized by the drivers for dsi controller.
+					A string that has to be set to "okay/ok"
+					to enable the panel driver. By default this property
+					will be set to "disable". Will be set to "ok/okay"
+					status for specific platforms.
 - qcom,mdss-dsi-panel-controller:	Specifies the phandle for the DSI controller that
 					this panel will be mapped to.
 - qcom,mdss-dsi-panel-width:		Specifies panel width in pixels.
@@ -117,6 +126,9 @@ Optional properties:
 						implemented during suspend/resume.
 					"dfps_immediate_clk_mode" = FPS change request is
 						implemented immediately using DSI clocks.
+					"dfps_immediate_porch_mode" = FPS change request is
+						implemented immediately by changing panel porch
+						values.
 - qcom,mdss-dsi-bl-pmic-control-type:	A string that specifies the implementation of backlight
 					control for this panel.
 					"bl_ctrl_pwm" = Backlight controlled by PWM gpio.
@@ -148,15 +160,9 @@ Optional properties:
 					1 = TE through TE gpio pin. (default)
 - qcom,mdss-dsi-te-dcs-command:		Inserts the dcs command.
 					1 = default value.
-- qcom,mdss-dsi-te-v-sync-rd-ptr-irq-line:	Configures the scan line number that the dsi
-					pixel transfer will start on. Rasing this number
-					will result in delaying the start of the pixel
-					transfer.
+- qcom,mdss-dsi-wr-mem-start:		DCS command for write_memory_start.
 					0x2c = default value.
-- qcom,mdss-dsi-te-v-sync-continue-lines:	Represents the difference in number of lines
-					between estimated read pointer and write pointer
-					to allow the updating of all the lines except
-					the first line of the frame.
+- qcom,mdss-dsi-wr-mem-continue:	DCS command for write_memory_continue.
 					0x3c = default value.
 - qcom,mdss-dsi-h-sync-pulse:		Specifies the pulse mode option for the panel.
 					0 = Don't send hsa/he following vs/ve packet(default)
@@ -249,6 +255,8 @@ Optional properties:
 					mode. This master delay (t_init_delay as per DSI spec) should be sum
 					of DSI internal delay to reach fuctional after power up and minimum
 					delay required by panel to reach functional.
+- qcom,mdss-dsi-rx-eot-ignore:		Boolean used to enable ignoring end of transmission packets.
+- qcom,mdss-dsi-tx-eot-append:		Boolean used to enable appending end of transmission packets.
 
 - qcom,display-on-cmds:			A byte stream formed by multiple dcs packets base on
 					qcom dsi controller protocol.
@@ -279,15 +287,19 @@ Optional properties:
 
 - htc,mdss-pp-hue:			Specifies pp hue adjustment for panel
 
+- htc,mdss-bl-brt:			A array that specifies the brt_dim, brt_min, brt_def, brt_high, brt_max for
+					brightness mapping function
+
+- htc,frame-suffix-cmds: 		A byte stream formed by multiple dcs packets base on
+					qcom dsi controller protocol.
+
 Note, if a given optional qcom,* binding is not present, then the driver will configure
 the default values specified.
 
 Example:
-&soc {
-	qcom,mdss_dsi_sim_video {
-		compatible = "qcom,mdss-dsi-panel";
+&mdss_mdp {
+	dsi_sim_vid: qcom,mdss_dsi_sim_video {
 		qcom,mdss-dsi-panel-name = "simulator video mode dsi panel";
-		status = "disable";
 		qcom,mdss-dsi-panel-controller = <&mdss_dsi0>;
 		qcom,mdss-dsi-panel-height = <1280>;
 		qcom,mdss-dsi-panel-width = <720>;
@@ -330,8 +342,8 @@ Example:
 		qcom,mdss-dsi-te-check-enable;
 		qcom,mdss-dsi-te-using-te-pin;
 		qcom,mdss-dsi-te-dcs-command = <1>;
-		qcom,mdss-dsi-te-v-sync-continue-lines = <0x3c>;
-		qcom,mdss-dsi-te-v-sync-rd-ptr-irq-line = <0x2c>;
+		qcom,mdss-dsi-wr-mem-continue = <0x3c>;
+		qcom,mdss-dsi-wr-mem-start = <0x2c>;
 		qcom,mdss-dsi-te-pin-select = <1>;
 		qcom,mdss-dsi-h-sync-pulse = <1>;
 		qcom,mdss-dsi-hfp-power-mode;
@@ -374,5 +386,7 @@ Example:
 		qcom,mdss-dsi-reset-sequence = <1 2>, <0 10>, <1 10>;
 		qcom,mdss-dsi-lp11-init;
 		qcom,mdss-dsi-init-delay-us = <100>;
+		mdss-dsi-rx-eot-ignore;
+		mdss-dsi-tx-eot-append;
 	};
 };

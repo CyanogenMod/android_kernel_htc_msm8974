@@ -16,9 +16,10 @@
 
 #define SNAP_SIZE sizeof(struct ieee80211_snap_hdr)
 
+/* for Rx reordering buffer control */
 struct recv_reorder_ctrl {
 	struct _adapter	*padapter;
-	u16 indicate_seq; 
+	u16 indicate_seq; /* =wstart_b, init_value=0xffff */
 	u16 wend_b;
 	u8 wsize_b;
 	struct  __queue pending_recvframe_queue;
@@ -34,10 +35,10 @@ struct	stainfo_rxcache	{
 
 
 struct smooth_rssi_data {
-	u32	elements[100];	
-	u32	index;		
-	u32	total_num;	
-	u32	total_val;	
+	u32	elements[100];	/* array to store values */
+	u32	index;		/* index to current array to store */
+	u32	total_num;	/* num of valid elements */
+	u32	total_val;	/* sum of valid elements */
 };
 
 struct rx_pkt_attrib {
@@ -51,10 +52,10 @@ struct rx_pkt_attrib {
 	u8   pw_save;
 	u8    mfrag;
 	u8    mdata;
-	u8	privacy; 
+	u8	privacy; /* in frame_ctrl field */
 	u8	bdecrypted;
-	int	hdrlen;	 
-	int	encrypt; 
+	int	hdrlen;	 /* the WLAN Header Len */
+	int	encrypt; /* 0 no encrypt. != 0 encrypt algorith */
 	int	iv_len;
 	int	icv_len;
 	int	priority;
@@ -65,9 +66,9 @@ struct rx_pkt_attrib {
 	u8	ta[ETH_ALEN];
 	u8	ra[ETH_ALEN];
 	u8	bssid[ETH_ALEN];
-	u8	tcpchk_valid; 
-	u8	ip_chkrpt; 
-	u8	tcp_chkrpt; 
+	u8	tcpchk_valid; /* 0: invalid, 1: valid */
+	u8	ip_chkrpt; /* 0: incorrect, 1: correct */
+	u8	tcp_chkrpt; /* 0: incorrect, 1: correct */
 	u8	signal_qual;
 	s8	rx_mimo_signal_qual[2];
 	u8	mcs_rate;
@@ -75,6 +76,13 @@ struct rx_pkt_attrib {
 	u8	signal_strength;
 };
 
+/*
+accesser of recv_priv: recv_entry(dispatch / passive level);
+recv_thread(passive) ; returnpkt(dispatch)
+; halt(passive) ;
+
+using enter_critical section to protect
+*/
 struct recv_priv {
 	spinlock_t lock;
 	struct  __queue	free_recv_queue;
@@ -96,10 +104,10 @@ struct recv_priv {
 	struct sk_buff_head free_recv_skb_queue;
 	struct sk_buff_head rx_skb_queue;
 	u8 *pallocated_recv_buf;
-	u8 *precv_buf;    
+	u8 *precv_buf;    /* 4 alignment */
 	struct  __queue	free_recv_buf_queue;
 	u32	free_recv_buf_queue_cnt;
-	
+	/* For the phy informatiom */
 	s8 rssi;
 	u8 signal;
 	u8 noise;
@@ -111,7 +119,7 @@ struct recv_priv {
 struct sta_recv_priv {
 	spinlock_t lock;
 	sint	option;
-	struct  __queue defrag_q; 
+	struct  __queue defrag_q; /* keeping the fragment frame until defrag */
 	struct	stainfo_rxcache rxcache;
 	uint	sta_rx_bytes;
 	uint	sta_rx_pkts;
@@ -120,6 +128,7 @@ struct sta_recv_priv {
 
 #include "rtl8712_recv.h"
 
+/* get a free recv_frame from pfree_recv_queue */
 union recv_frame *r8712_alloc_recvframe(struct  __queue *pfree_recv_queue);
 union recv_frame *r8712_dequeue_recvframe(struct  __queue *queue);
 int r8712_enqueue_recvframe(union recv_frame *precvframe,
@@ -135,7 +144,7 @@ int recv_func(struct _adapter *padapter, void *pcontext);
 
 static inline u8 *get_rxmem(union recv_frame *precvframe)
 {
-	
+	/* always return rx_head... */
 	if (precvframe == NULL)
 		return NULL;
 	return precvframe->u.hdr.rx_head;
@@ -148,7 +157,7 @@ static inline u8 *get_rx_status(union recv_frame *precvframe)
 
 static inline u8 *get_recvframe_data(union recv_frame *precvframe)
 {
-	
+	/* always return rx_data */
 	if (precvframe == NULL)
 		return NULL;
 	return precvframe->u.hdr.rx_data;
@@ -156,8 +165,14 @@ static inline u8 *get_recvframe_data(union recv_frame *precvframe)
 
 static inline u8 *recvframe_push(union recv_frame *precvframe, sint sz)
 {
-	
+	/* append data before rx_data */
 
+	/* add data to the start of recv_frame
+	 *
+	 * This function extends the used data area of the recv_frame at the
+	 * buffer start. rx_data must be still larger than rx_head, after
+	 * pushing.
+	 */
 
 	if (precvframe == NULL)
 		return NULL;
@@ -172,6 +187,8 @@ static inline u8 *recvframe_push(union recv_frame *precvframe, sint sz)
 
 static inline u8 *recvframe_pull(union recv_frame *precvframe, sint sz)
 {
+	/* used for extract sz bytes from rx_data, update rx_data and return
+	 *  the updated rx_data to the caller */
 	if (precvframe == NULL)
 		return NULL;
 	precvframe->u.hdr.rx_data += sz;
@@ -185,6 +202,9 @@ static inline u8 *recvframe_pull(union recv_frame *precvframe, sint sz)
 
 static inline u8 *recvframe_put(union recv_frame *precvframe, sint sz)
 {
+	/* used for append sz bytes from ptr to rx_tail, update rx_tail and
+	 * return the updated rx_tail to the caller
+	 * after putting, rx_tail must be still larger than rx_end. */
 	unsigned char *prev_rx_tail;
 
 	if (precvframe == NULL)
@@ -201,6 +221,10 @@ static inline u8 *recvframe_put(union recv_frame *precvframe, sint sz)
 
 static inline u8 *recvframe_pull_tail(union recv_frame *precvframe, sint sz)
 {
+	/* rmv data from rx_tail (by yitsen)
+	 * used for extract sz bytes from rx_end, update rx_end and return the
+	 * updated rx_end to the caller
+	 * after pulling, rx_end must be still larger than rx_data. */
 	if (precvframe == NULL)
 		return NULL;
 	precvframe->u.hdr.rx_tail -= sz;
@@ -222,6 +246,9 @@ static inline _buffer *get_rxbuf_desc(union recv_frame *precvframe)
 
 static inline union recv_frame *rxmem_to_recvframe(u8 *rxmem)
 {
+	/* due to the design of 2048 bytes alignment of recv_frame, we can
+	 * reference the union recv_frame from any given member of recv_frame.
+	 * rxmem indicates the any member/address in recv_frame */
 	return (union recv_frame *)(((addr_t)rxmem >> RXFRAME_ALIGN) <<
 				  RXFRAME_ALIGN);
 }
@@ -237,7 +264,7 @@ static inline union recv_frame *pkt_to_recvframe(_pkt *pkt)
 
 static inline u8 *pkt_to_recvmem(_pkt *pkt)
 {
-	
+	/* return the rx_head */
 	union recv_frame *precv_frame = pkt_to_recvframe(pkt);
 
 	return	precv_frame->u.hdr.rx_head;
@@ -245,7 +272,7 @@ static inline u8 *pkt_to_recvmem(_pkt *pkt)
 
 static inline u8 *pkt_to_recvdata(_pkt *pkt)
 {
-	
+	/* return the rx_data */
 	union recv_frame *precv_frame = pkt_to_recvframe(pkt);
 
 	return	precv_frame->u.hdr.rx_data;

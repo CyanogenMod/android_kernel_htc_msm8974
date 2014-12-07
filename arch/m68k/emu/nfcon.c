@@ -113,7 +113,7 @@ static int __init nf_debug_setup(char *arg)
 
 early_param("debug", nf_debug_setup);
 
-#endif 
+#endif /* !MODULE */
 
 static int __init nfcon_init(void)
 {

@@ -49,10 +49,12 @@ static unsigned int core_debug;
 module_param(core_debug, int, 0644);
 MODULE_PARM_DESC(core_debug, "enable debug messages [core]");
 
-static int adjust_compression = 1;	
+static int adjust_compression = 1;	/* Set the compression to be adaptive */
 module_param(adjust_compression, int, 0444);
 MODULE_PARM_DESC(adjust_compression, " Set the ADPCM compression for the device.  Default: 1 (On)");
 
+/* To help people with Black and White output with using s-video input.
+ * Some cables and input device are wired differently. */
 static int switch_svideo_input;
 module_param(switch_svideo_input, int, 0444);
 MODULE_PARM_DESC(switch_svideo_input, " Set the S-Video input.  Some cables and input device are wired differently. Default: 0 (Off)");
@@ -66,7 +68,7 @@ module_param(adjust_y_offset, int, 0644);
 MODULE_PARM_DESC(adjust_y_offset, "adjust Y offset display [core]");
 
 
-#define	ENABLE_HEXDUMP	0	
+#define	ENABLE_HEXDUMP	0	/* Enable if you need it */
 
 
 #ifdef USBVISION_DEBUG
@@ -91,15 +93,29 @@ static const int max_imgheight = MAX_FRAME_HEIGHT;
 static const int min_imgwidth = MIN_FRAME_WIDTH;
 static const int min_imgheight = MIN_FRAME_HEIGHT;
 
-#define DEFAULT_SCRATCH_BUF_SIZE	(0x20000)		
+/* The value of 'scratch_buf_size' affects quality of the picture
+ * in many ways. Shorter buffers may cause loss of data when client
+ * is too slow. Larger buffers are memory-consuming and take longer
+ * to work with. This setting can be adjusted, but the default value
+ * should be OK for most desktop users.
+ */
+#define DEFAULT_SCRATCH_BUF_SIZE	(0x20000)		/* 128kB memory scratch buffer */
 static const int scratch_buf_size = DEFAULT_SCRATCH_BUF_SIZE;
 
+/* Function prototypes */
 static int usbvision_request_intra(struct usb_usbvision *usbvision);
 static int usbvision_unrequest_intra(struct usb_usbvision *usbvision);
 static int usbvision_adjust_compression(struct usb_usbvision *usbvision);
 static int usbvision_measure_bandwidth(struct usb_usbvision *usbvision);
 
+/*******************************/
+/* Memory management functions */
+/*******************************/
 
+/*
+ * Here we want the physical address of the memory.
+ * This is used when initializing the contents of the area.
+ */
 
 static void *usbvision_rvmalloc(unsigned long size)
 {
@@ -111,7 +127,7 @@ static void *usbvision_rvmalloc(unsigned long size)
 	if (!mem)
 		return NULL;
 
-	memset(mem, 0, size); 
+	memset(mem, 0, size); /* Clear the ram out, no junk to the user */
 	adr = (unsigned long) mem;
 	while (size > 0) {
 		SetPageReserved(vmalloc_to_page((void *)adr));
@@ -160,7 +176,10 @@ static void usbvision_hexdump(const unsigned char *data, int len)
 }
 #endif
 
-static int scratch_len(struct usb_usbvision *usbvision)    
+/********************************
+ * scratch ring buffer handling
+ ********************************/
+static int scratch_len(struct usb_usbvision *usbvision)    /* This returns the amount of data actually in the buffer */
 {
 	int len = usbvision->scratch_write_ptr - usbvision->scratch_read_ptr;
 
@@ -172,14 +191,15 @@ static int scratch_len(struct usb_usbvision *usbvision)
 }
 
 
+/* This returns the free space left in the buffer */
 static int scratch_free(struct usb_usbvision *usbvision)
 {
 	int free = usbvision->scratch_read_ptr - usbvision->scratch_write_ptr;
 	if (free <= 0)
 		free += scratch_buf_size;
 	if (free) {
-		free -= 1;							
-										
+		free -= 1;							/* at least one byte in the buffer must */
+										/* left blank, otherwise there is no chance to differ between full and empty */
 	}
 	PDEBUG(DBG_SCRATCH, "return %d\n", free);
 
@@ -187,6 +207,7 @@ static int scratch_free(struct usb_usbvision *usbvision)
 }
 
 
+/* This puts data into the buffer */
 static int scratch_put(struct usb_usbvision *usbvision, unsigned char *data,
 		       int len)
 {
@@ -199,7 +220,7 @@ static int scratch_put(struct usb_usbvision *usbvision, unsigned char *data,
 		len_part = scratch_buf_size - usbvision->scratch_write_ptr;
 		memcpy(usbvision->scratch + usbvision->scratch_write_ptr, data, len_part);
 		if (len == len_part) {
-			usbvision->scratch_write_ptr = 0;			
+			usbvision->scratch_write_ptr = 0;			/* just set write_ptr to zero */
 		} else {
 			memcpy(usbvision->scratch, data + len_part, len - len_part);
 			usbvision->scratch_write_ptr = len - len_part;
@@ -211,6 +232,7 @@ static int scratch_put(struct usb_usbvision *usbvision, unsigned char *data,
 	return len;
 }
 
+/* This marks the write_ptr as position of new frame header */
 static void scratch_mark_header(struct usb_usbvision *usbvision)
 {
 	PDEBUG(DBG_SCRATCH, "header at write_ptr=%d\n", usbvision->scratch_headermarker_write_ptr);
@@ -221,6 +243,7 @@ static void scratch_mark_header(struct usb_usbvision *usbvision)
 	usbvision->scratch_headermarker_write_ptr %= USBVISION_NUM_HEADERMARKER;
 }
 
+/* This gets data from the buffer at the given "ptr" position */
 static int scratch_get_extra(struct usb_usbvision *usbvision,
 			     unsigned char *data, int *ptr, int len)
 {
@@ -233,7 +256,7 @@ static int scratch_get_extra(struct usb_usbvision *usbvision,
 		len_part = scratch_buf_size - *ptr;
 		memcpy(data, usbvision->scratch + *ptr, len_part);
 		if (len == len_part) {
-			*ptr = 0;							
+			*ptr = 0;							/* just set the y_ptr to zero */
 		} else {
 			memcpy(data + len_part, usbvision->scratch, len - len_part);
 			*ptr = len - len_part;
@@ -246,6 +269,7 @@ static int scratch_get_extra(struct usb_usbvision *usbvision,
 }
 
 
+/* This sets the scratch extra read pointer */
 static void scratch_set_extra_ptr(struct usb_usbvision *usbvision, int *ptr,
 				  int len)
 {
@@ -255,6 +279,7 @@ static void scratch_set_extra_ptr(struct usb_usbvision *usbvision, int *ptr,
 }
 
 
+/* This increments the scratch extra read pointer */
 static void scratch_inc_extra_ptr(int *ptr, int len)
 {
 	*ptr = (*ptr + len) % scratch_buf_size;
@@ -263,6 +288,7 @@ static void scratch_inc_extra_ptr(int *ptr, int len)
 }
 
 
+/* This gets data from the buffer */
 static int scratch_get(struct usb_usbvision *usbvision, unsigned char *data,
 		       int len)
 {
@@ -275,7 +301,7 @@ static int scratch_get(struct usb_usbvision *usbvision, unsigned char *data,
 		len_part = scratch_buf_size - usbvision->scratch_read_ptr;
 		memcpy(data, usbvision->scratch + usbvision->scratch_read_ptr, len_part);
 		if (len == len_part) {
-			usbvision->scratch_read_ptr = 0;				
+			usbvision->scratch_read_ptr = 0;				/* just set the read_ptr to zero */
 		} else {
 			memcpy(data + len_part, usbvision->scratch, len - len_part);
 			usbvision->scratch_read_ptr = len - len_part;
@@ -288,6 +314,7 @@ static int scratch_get(struct usb_usbvision *usbvision, unsigned char *data,
 }
 
 
+/* This sets read pointer to next header and returns it */
 static int scratch_get_header(struct usb_usbvision *usbvision,
 			      struct usbvision_frame_header *header)
 {
@@ -316,6 +343,7 @@ static int scratch_get_header(struct usb_usbvision *usbvision,
 }
 
 
+/* This removes len bytes of old data from the buffer */
 static void scratch_rm_old(struct usb_usbvision *usbvision, int len)
 {
 	usbvision->scratch_read_ptr += len;
@@ -324,6 +352,7 @@ static void scratch_rm_old(struct usb_usbvision *usbvision, int len)
 }
 
 
+/* This resets the buffer - kills all data in it too */
 static void scratch_reset(struct usb_usbvision *usbvision)
 {
 	PDEBUG(DBG_SCRATCH, "\n");
@@ -354,6 +383,11 @@ void usbvision_scratch_free(struct usb_usbvision *usbvision)
 	usbvision->scratch = NULL;
 }
 
+/*
+ * usbvision_decompress_alloc()
+ *
+ * allocates intermediate buffer for decompression
+ */
 int usbvision_decompress_alloc(struct usb_usbvision *usbvision)
 {
 	int IFB_size = MAX_FRAME_WIDTH * MAX_FRAME_HEIGHT * 3 / 2;
@@ -368,6 +402,11 @@ int usbvision_decompress_alloc(struct usb_usbvision *usbvision)
 	return 0;
 }
 
+/*
+ * usbvision_decompress_free()
+ *
+ * frees intermediate buffer for decompression
+ */
 void usbvision_decompress_free(struct usb_usbvision *usbvision)
 {
 	vfree(usbvision->intra_frame_buffer);
@@ -375,6 +414,14 @@ void usbvision_decompress_free(struct usb_usbvision *usbvision)
 
 }
 
+/************************************************************
+ * Here comes the data parsing stuff that is run as interrupt
+ ************************************************************/
+/*
+ * usbvision_find_header()
+ *
+ * Locate one of supported header markers in the scratch buffer.
+ */
 static enum parse_state usbvision_find_header(struct usb_usbvision *usbvision)
 {
 	struct usbvision_frame *frame;
@@ -383,7 +430,7 @@ static enum parse_state usbvision_find_header(struct usb_usbvision *usbvision)
 	frame = usbvision->cur_frame;
 
 	while (scratch_get_header(usbvision, &frame->isoc_header) == USBVISION_HEADER_LENGTH) {
-		
+		/* found header in scratch */
 		PDEBUG(DBG_HEADER, "found header: 0x%02x%02x %d %d %d %d %#x 0x%02x %u %u",
 				frame->isoc_header.magic_2,
 				frame->isoc_header.magic_1,
@@ -399,7 +446,7 @@ static enum parse_state usbvision_find_header(struct usb_usbvision *usbvision)
 		if (usbvision->request_intra) {
 			if (frame->isoc_header.format_param & 0x80) {
 				found_header = 1;
-				usbvision->last_isoc_frame_num = -1; 
+				usbvision->last_isoc_frame_num = -1; /* do not check for lost frames this time */
 				usbvision_unrequest_intra(usbvision);
 				break;
 			}
@@ -413,18 +460,18 @@ static enum parse_state usbvision_find_header(struct usb_usbvision *usbvision)
 		frame->frmwidth = frame->isoc_header.frame_width * usbvision->stretch_width;
 		frame->frmheight = frame->isoc_header.frame_height * usbvision->stretch_height;
 		frame->v4l2_linesize = (frame->frmwidth * frame->v4l2_format.depth) >> 3;
-	} else { 
+	} else { /* no header found */
 		PDEBUG(DBG_HEADER, "skipping scratch data, no header");
 		scratch_reset(usbvision);
 		return parse_state_end_parse;
 	}
 
-	
+	/* found header */
 	if (frame->isoc_header.data_format == ISOC_MODE_COMPRESS) {
-		
+		/* check isoc_header.frame_num for lost frames */
 		if (usbvision->last_isoc_frame_num >= 0) {
 			if (((usbvision->last_isoc_frame_num + 1) % 32) != frame->isoc_header.frame_num) {
-				
+				/* unexpected frame drop: need to request new intra frame */
 				PDEBUG(DBG_HEADER, "Lost frame before %d on USB", frame->isoc_header.frame_num);
 				usbvision_request_intra(usbvision);
 				return parse_state_next_frame;
@@ -446,15 +493,15 @@ static enum parse_state usbvision_parse_lines_422(struct usb_usbvision *usbvisio
 	unsigned char *f;
 	int len;
 	int i;
-	unsigned char yuyv[4] = { 180, 128, 10, 128 }; 
-	unsigned char rv, gv, bv;	
+	unsigned char yuyv[4] = { 180, 128, 10, 128 }; /* YUV components */
+	unsigned char rv, gv, bv;	/* RGB components */
 	int clipmask_index, bytes_per_pixel;
 	int stretch_bytes, clipmask_add;
 
 	frame  = usbvision->cur_frame;
 	f = frame->data + (frame->v4l2_linesize * frame->curline);
 
-	
+	/* Make sure there's enough data for the entire line */
 	len = (frame->isoc_header.frame_width * 2) + 5;
 	if (scratch_len(usbvision) < len) {
 		PDEBUG(DBG_PARSE, "out of data in line %d, need %u.\n", frame->curline, len);
@@ -473,8 +520,8 @@ static enum parse_state usbvision_parse_lines_422(struct usb_usbvision *usbvisio
 		scratch_get(usbvision, &yuyv[0], 4);
 
 		if (frame->v4l2_format.format == V4L2_PIX_FMT_YUYV) {
-			*f++ = yuyv[0]; 
-			*f++ = yuyv[3]; 
+			*f++ = yuyv[0]; /* Y */
+			*f++ = yuyv[3]; /* U */
 		} else {
 			YUV_TO_RGB_BY_THE_BOOK(yuyv[0], yuyv[1], yuyv[3], rv, gv, bv);
 			switch (frame->v4l2_format.format) {
@@ -507,8 +554,8 @@ static enum parse_state usbvision_parse_lines_422(struct usb_usbvision *usbvisio
 		f += stretch_bytes;
 
 		if (frame->v4l2_format.format == V4L2_PIX_FMT_YUYV) {
-			*f++ = yuyv[2]; 
-			*f++ = yuyv[1]; 
+			*f++ = yuyv[2]; /* Y */
+			*f++ = yuyv[1]; /* V */
 		} else {
 			YUV_TO_RGB_BY_THE_BOOK(yuyv[2], yuyv[1], yuyv[3], rv, gv, bv);
 			switch (frame->v4l2_format.format) {
@@ -549,6 +596,7 @@ static enum parse_state usbvision_parse_lines_422(struct usb_usbvision *usbvisio
 	return parse_state_continue;
 }
 
+/* The decompression routine  */
 static int usbvision_decompress(struct usb_usbvision *usbvision, unsigned char *compressed,
 								unsigned char *decompressed, int *start_pos,
 								int *block_typestart_pos, int len)
@@ -559,7 +607,7 @@ static int usbvision_decompress(struct usb_usbvision *usbvision, unsigned char *
 	integrator = 0;
 	pos = *start_pos;
 	block_type_pos = *block_typestart_pos;
-	max_pos = 396; 
+	max_pos = 396; /* pos + len; */
 	extra_pos = pos;
 	block_len = 0;
 	block_byte = 0;
@@ -578,7 +626,7 @@ static int usbvision_decompress(struct usb_usbvision *usbvision, unsigned char *
 			}
 			block_type = (block_type_byte & 0xC0) >> 6;
 
-			
+			/* statistic: */
 			usbvision->compr_block_types[block_type]++;
 
 			pos = extra_pos;
@@ -609,7 +657,7 @@ static int usbvision_decompress(struct usb_usbvision *usbvision, unsigned char *
 				block_byte = compressed[pos];
 				pos++;
 			}
-			if (block_type == 1) 
+			if (block_type == 1) /* inter Block */
 				integrator = decompressed[idx];
 			switch (block_byte & 0xC0) {
 			case 0x03 << 6:
@@ -662,14 +710,14 @@ static enum parse_state usbvision_parse_compress(struct usb_usbvision *usbvision
 	frame = usbvision->cur_frame;
 	image_size = frame->frmwidth * frame->frmheight;
 	if ((frame->v4l2_format.format == V4L2_PIX_FMT_YUV422P) ||
-	    (frame->v4l2_format.format == V4L2_PIX_FMT_YVU420)) {       
-		
+	    (frame->v4l2_format.format == V4L2_PIX_FMT_YVU420)) {       /* this is a planar format */
+		/* ... v4l2_linesize not used here. */
 		f = frame->data + (frame->width * frame->curline);
 	} else
 		f = frame->data + (frame->v4l2_linesize * frame->curline);
 
-	if (frame->v4l2_format.format == V4L2_PIX_FMT_YUYV) { 
-		
+	if (frame->v4l2_format.format == V4L2_PIX_FMT_YUYV) { /* initialise u and v pointers */
+		/* get base of u and b planes add halfoffset */
 		u = frame->data
 			+ image_size
 			+ (frame->frmwidth >> 1) * frame->curline;
@@ -685,31 +733,31 @@ static enum parse_state usbvision_parse_compress(struct usb_usbvision *usbvision
 	if (scratch_len(usbvision) < USBVISION_STRIP_HEADER_LEN)
 		return parse_state_out;
 
-	
+	/* get strip header without changing the scratch_read_ptr */
 	scratch_set_extra_ptr(usbvision, &strip_ptr, 0);
 	scratch_get_extra(usbvision, &strip_header[0], &strip_ptr,
 				USBVISION_STRIP_HEADER_LEN);
 
 	if (strip_header[0] != USBVISION_STRIP_MAGIC) {
-		
+		/* wrong strip magic */
 		usbvision->strip_magic_errors++;
 		return parse_state_next_frame;
 	}
 
 	if (frame->curline != (int)strip_header[2]) {
-		
+		/* line number mismatch error */
 		usbvision->strip_line_number_errors++;
 	}
 
 	strip_len = 2 * (unsigned int)strip_header[1];
 	if (strip_len > USBVISION_STRIP_LEN_MAX) {
-		
-		
+		/* strip overrun */
+		/* I think this never happens */
 		usbvision_request_intra(usbvision);
 	}
 
 	if (scratch_len(usbvision) < strip_len) {
-		
+		/* there is not enough data for the strip */
 		return parse_state_out;
 	}
 
@@ -760,8 +808,8 @@ static enum parse_state usbvision_parse_compress(struct usb_usbvision *usbvision
 		} else if (frame->v4l2_format.format == V4L2_PIX_FMT_YVU420) {
 			*f++ = Y[idx];
 			if (!((idx & 0x01) | (frame->curline & 0x01))) {
-				
-				
+				/* only need do this for 1 in 4 pixels */
+				/* intraframe buffer is YUV420 format */
 				*u++ = U[idx >> 1];
 				*v++ = V[idx >> 1];
 			}
@@ -798,7 +846,7 @@ static enum parse_state usbvision_parse_compress(struct usb_usbvision *usbvision
 		}
 		clipmask_index++;
 	}
-	
+	/* Deal with non-integer no. of bytes for YUV420P */
 	if (frame->v4l2_format.format != V4L2_PIX_FMT_YVU420)
 		*pcopylen += frame->v4l2_linesize;
 	else
@@ -834,9 +882,9 @@ static enum parse_state usbvision_parse_lines_420(struct usb_usbvision *usbvisio
 	const int sub_block_size = 32;
 	const int y_step[] = { 0, 0, 0, 2 }, y_step_size = 4;
 	const int uv_step[] = { 0, 0, 0, 4 }, uv_step_size = 4;
-	unsigned char y[2], u, v;	
+	unsigned char y[2], u, v;	/* YUV components */
 	int y_, u_, v_, vb, uvg, ur;
-	int r_, g_, b_;			
+	int r_, g_, b_;			/* RGB components */
 	unsigned char g;
 	int clipmask_even_index, clipmask_odd_index, bytes_per_pixel;
 	int clipmask_add, stretch_bytes;
@@ -845,9 +893,9 @@ static enum parse_state usbvision_parse_lines_420(struct usb_usbvision *usbvisio
 	f_even = frame->data + (frame->v4l2_linesize * frame->curline);
 	f_odd  = f_even + frame->v4l2_linesize * usbvision->stretch_height;
 
-	
-	
-	
+	/* Make sure there's enough data for the entire line */
+	/* In this mode usbvision transfer 3 bytes for every 2 pixels */
+	/* I need two lines to decode the color */
 	bytes_per_pixel = frame->v4l2_format.bytes_per_pixel;
 	stretch_bytes = (usbvision->stretch_width - 1) * bytes_per_pixel;
 	clipmask_even_index = frame->curline * MAX_FRAME_WIDTH;
@@ -856,14 +904,14 @@ static enum parse_state usbvision_parse_lines_420(struct usb_usbvision *usbvisio
 	pixel_per_line = frame->isoc_header.frame_width;
 
 	if (scratch_len(usbvision) < (int)pixel_per_line * 3) {
-		
+		/* printk(KERN_DEBUG "out of data, need %d\n", len); */
 		return parse_state_out;
 	}
 
 	if ((frame->curline + 1) >= frame->frmheight)
 		return parse_state_next_frame;
 
-	block_split = (pixel_per_line%y_block_size) ? 1 : 0;	
+	block_split = (pixel_per_line%y_block_size) ? 1 : 0;	/* are some blocks splitted into different lines? */
 
 	y_odd_offset = (pixel_per_line / y_block_size) * (y_block_size + uv_block_size)
 			+ block_split * uv_block_size;
@@ -879,7 +927,7 @@ static enum parse_state usbvision_parse_lines_420(struct usb_usbvision *usbvisio
 			scratch_get_extra(usbvision, &u, &u_ptr, 1);
 			scratch_get_extra(usbvision, &v, &v_ptr, 1);
 
-			
+			/* I don't use the YUV_TO_RGB macro for better performance */
 			v_ = v - 128;
 			u_ = u - 128;
 			vb = 132252 * v_;
@@ -1081,6 +1129,14 @@ static enum parse_state usbvision_parse_lines_420(struct usb_usbvision *usbvisio
 	return parse_state_continue;
 }
 
+/*
+ * usbvision_parse_data()
+ *
+ * Generic routine to parse the scratch buffer. It employs either
+ * usbvision_find_header() or usbvision_parse_lines() to do most
+ * of work.
+ *
+ */
 static void usbvision_parse_data(struct usb_usbvision *usbvision)
 {
 	struct usbvision_frame *frame;
@@ -1110,7 +1166,7 @@ static void usbvision_parse_data(struct usb_usbvision *usbvision)
 			continue;
 		if ((newstate == parse_state_next_frame) || (newstate == parse_state_out))
 			break;
-		return;	
+		return;	/* parse_state_end_parse */
 	}
 
 	if (newstate == parse_state_next_frame) {
@@ -1125,7 +1181,7 @@ static void usbvision_parse_data(struct usb_usbvision *usbvision)
 
 		usbvision->frame_num++;
 
-		
+		/* This will cause the process to request another frame. */
 		if (waitqueue_active(&usbvision->wait_frame)) {
 			PDEBUG(DBG_PARSE, "Wake up !");
 			wake_up_interruptible(&usbvision->wait_frame);
@@ -1134,11 +1190,14 @@ static void usbvision_parse_data(struct usb_usbvision *usbvision)
 		frame->grabstate = frame_state_grabbing;
 	}
 
-	
+	/* Update the frame's uncompressed length. */
 	frame->scanlength += copylen;
 }
 
 
+/*
+ * Make all of the blocks of data contiguous
+ */
 static int usbvision_compress_isochronous(struct usb_usbvision *usbvision,
 					  struct urb *urb)
 {
@@ -1151,19 +1210,19 @@ static int usbvision_compress_isochronous(struct usb_usbvision *usbvision,
 
 		packet_data = urb->transfer_buffer + urb->iso_frame_desc[i].offset;
 
-		
-		if (packet_stat) {	
+		/* Detect and ignore errored packets */
+		if (packet_stat) {	/* packet_stat != 0 ????????????? */
 			PDEBUG(DBG_ISOC, "data error: [%d] len=%d, status=%X", i, packet_len, packet_stat);
 			usbvision->isoc_err_count++;
 			continue;
 		}
 
-		
+		/* Detect and ignore empty packets */
 		if (packet_len < 0) {
 			PDEBUG(DBG_ISOC, "error packet [%d]", i);
 			usbvision->isoc_skip_count++;
 			continue;
-		} else if (packet_len == 0) {	
+		} else if (packet_len == 0) {	/* Frame end ????? */
 			PDEBUG(DBG_ISOC, "null packet [%d]", i);
 			usbvision->isocstate = isoc_state_no_frame;
 			usbvision->isoc_skip_count++;
@@ -1176,13 +1235,21 @@ static int usbvision_compress_isochronous(struct usb_usbvision *usbvision,
 
 		PDEBUG(DBG_ISOC, "packet ok [%d] len=%d", i, packet_len);
 
-		if (usbvision->isocstate == isoc_state_no_frame) { 
+		if (usbvision->isocstate == isoc_state_no_frame) { /* new frame begins */
 			usbvision->isocstate = isoc_state_in_frame;
 			scratch_mark_header(usbvision);
 			usbvision_measure_bandwidth(usbvision);
 			PDEBUG(DBG_ISOC, "packet with header");
 		}
 
+		/*
+		 * If usbvision continues to feed us with data but there is no
+		 * consumption (if, for example, V4L client fell asleep) we
+		 * may overflow the buffer. We have to move old data over to
+		 * free room for new data. This is bad for old data. If we
+		 * just drop new data then it's bad for new data... choose
+		 * your favorite evil here.
+		 */
 		if (scratch_free(usbvision) < packet_len) {
 			usbvision->scratch_ovf_count++;
 			PDEBUG(DBG_ISOC, "scratch buf overflow! scr_len: %d, n: %d",
@@ -1190,7 +1257,7 @@ static int usbvision_compress_isochronous(struct usb_usbvision *usbvision,
 			scratch_rm_old(usbvision, packet_len - scratch_free(usbvision));
 		}
 
-		
+		/* Now we know that there is enough room in scratch buffer */
 		scratch_put(usbvision, packet_data, packet_len);
 		totlen += packet_len;
 		usbvision->isoc_data_count += packet_len;
@@ -1219,17 +1286,17 @@ static void usbvision_isoc_irq(struct urb *urb)
 	unsigned long start_time = jiffies;
 	struct usbvision_frame **f;
 
-	
+	/* We don't want to do anything if we are about to be removed! */
 	if (!USBVISION_IS_OPERATIONAL(usbvision))
 		return;
 
-	
+	/* any urb with wrong status is ignored without acknowledgement */
 	if (urb->status == -ENOENT)
 		return;
 
 	f = &usbvision->cur_frame;
 
-	
+	/* Manage streaming interruption */
 	if (usbvision->streaming == stream_interrupt) {
 		usbvision->streaming = stream_idle;
 		if ((*f)) {
@@ -1240,14 +1307,14 @@ static void usbvision_isoc_irq(struct urb *urb)
 		wake_up_interruptible(&usbvision->wait_stream);
 	}
 
-	
+	/* Copy the data received into our scratch buffer */
 	len = usbvision_compress_isochronous(usbvision, urb);
 
 	usbvision->isoc_urb_count++;
 	usbvision->urb_length = len;
 
 	if (usbvision->streaming == stream_on) {
-		
+		/* If we collected enough data let's parse! */
 		if (scratch_len(usbvision) > USBVISION_HEADER_LENGTH &&
 		    !list_empty(&(usbvision->inqueue))) {
 			if (!(*f)) {
@@ -1257,6 +1324,8 @@ static void usbvision_isoc_irq(struct urb *urb)
 			}
 			usbvision_parse_data(usbvision);
 		} else {
+			/* If we don't have a frame
+			  we're current working on, complain */
 			PDEBUG(DBG_IRQ,
 			       "received data, but no one needs it");
 			scratch_reset(usbvision);
@@ -1286,7 +1355,16 @@ static void usbvision_isoc_irq(struct urb *urb)
 	return;
 }
 
+/*************************************/
+/* Low level usbvision access functions */
+/*************************************/
 
+/*
+ * usbvision_read_reg()
+ *
+ * return  < 0 -> Error
+ *        >= 0 -> Data
+ */
 
 int usbvision_read_reg(struct usb_usbvision *usbvision, unsigned char reg)
 {
@@ -1377,7 +1455,7 @@ static int usbvision_write_reg_irq(struct usb_usbvision *usbvision, int address,
 
 	err_code = usb_submit_urb(usbvision->ctrl_urb, GFP_ATOMIC);
 	if (err_code < 0) {
-		
+		/* error in usb_submit_urb() */
 		usbvision->ctrl_urb_busy = 0;
 	}
 	PDEBUG(DBG_IRQ, "submit %d byte: error %d", len, err_code);
@@ -1402,11 +1480,15 @@ static int usbvision_init_compression(struct usb_usbvision *usbvision)
 	return err_code;
 }
 
+/* this function measures the used bandwidth since last call
+ * return:    0 : no error
+ * sets used_bandwidth to 1-100 : 1-100% of full bandwidth resp. to isoc_packet_size
+ */
 static int usbvision_measure_bandwidth(struct usb_usbvision *usbvision)
 {
 	int err_code = 0;
 
-	if (usbvision->isoc_measure_bandwidth_count < 2) { 
+	if (usbvision->isoc_measure_bandwidth_count < 2) { /* this gives an average bandwidth of 3 frames */
 		usbvision->isoc_measure_bandwidth_count++;
 		return err_code;
 	}
@@ -1435,23 +1517,23 @@ static int usbvision_adjust_compression(struct usb_usbvision *usbvision)
 			int distortion;
 
 			if (usbvision->bridge_type == BRIDGE_NT1004 || usbvision->bridge_type == BRIDGE_NT1005) {
-				buffer[0] = (unsigned char)(4 + 16 * usbvision->compr_level / 100);	
-				buffer[1] = (unsigned char)(4 + 8 * usbvision->compr_level / 100);	
+				buffer[0] = (unsigned char)(4 + 16 * usbvision->compr_level / 100);	/* PCM Threshold 1 */
+				buffer[1] = (unsigned char)(4 + 8 * usbvision->compr_level / 100);	/* PCM Threshold 2 */
 				distortion = 7 + 248 * usbvision->compr_level / 100;
-				buffer[2] = (unsigned char)(distortion & 0xFF);				
-				buffer[3] = (unsigned char)(distortion & 0xFF);				
+				buffer[2] = (unsigned char)(distortion & 0xFF);				/* Average distortion Threshold (inter) */
+				buffer[3] = (unsigned char)(distortion & 0xFF);				/* Average distortion Threshold (intra) */
 				distortion = 1 + 42 * usbvision->compr_level / 100;
-				buffer[4] = (unsigned char)(distortion & 0xFF);				
-				buffer[5] = (unsigned char)(distortion & 0xFF);				
-			} else { 
-				buffer[0] = (unsigned char)(4 + 16 * usbvision->compr_level / 100);	
-				buffer[1] = (unsigned char)(4 + 8 * usbvision->compr_level / 100);	
+				buffer[4] = (unsigned char)(distortion & 0xFF);				/* Maximum distortion Threshold (inter) */
+				buffer[5] = (unsigned char)(distortion & 0xFF);				/* Maximum distortion Threshold (intra) */
+			} else { /* BRIDGE_NT1003 */
+				buffer[0] = (unsigned char)(4 + 16 * usbvision->compr_level / 100);	/* PCM threshold 1 */
+				buffer[1] = (unsigned char)(4 + 8 * usbvision->compr_level / 100);	/* PCM threshold 2 */
 				distortion = 2 + 253 * usbvision->compr_level / 100;
-				buffer[2] = (unsigned char)(distortion & 0xFF);				
-				buffer[3] = 0;	
+				buffer[2] = (unsigned char)(distortion & 0xFF);				/* distortion threshold bit0-7 */
+				buffer[3] = 0;	/* (unsigned char)((distortion >> 8) & 0x0F);		distortion threshold bit 8-11 */
 				distortion = 0 + 43 * usbvision->compr_level / 100;
-				buffer[4] = (unsigned char)(distortion & 0xFF);				
-				buffer[5] = 0; 
+				buffer[4] = (unsigned char)(distortion & 0xFF);				/* maximum distortion bit0-7 */
+				buffer[5] = 0; /* (unsigned char)((distortion >> 8) & 0x01);		maximum distortion bit 8 */
 			}
 			err_code = usbvision_write_reg_irq(usbvision, USBVISION_PCM_THR1, buffer, 6);
 			if (err_code == 0) {
@@ -1488,6 +1570,9 @@ static int usbvision_unrequest_intra(struct usb_usbvision *usbvision)
 	return err_code;
 }
 
+/*******************************
+ * usbvision utility functions
+ *******************************/
 
 int usbvision_power_off(struct usb_usbvision *usbvision)
 {
@@ -1502,6 +1587,7 @@ int usbvision_power_off(struct usb_usbvision *usbvision)
 	return err_code;
 }
 
+/* configure webcam image sensor using the serial port */
 static int usbvision_init_webcam(struct usb_usbvision *usbvision)
 {
 	int rc;
@@ -1520,7 +1606,7 @@ static int usbvision_init_webcam(struct usb_usbvision *usbvision)
 	};
 	char value[3];
 
-	
+	/* the only difference between PAL and NTSC init_values */
 	if (usbvision_device_data[usbvision->dev_model].video_norm == V4L2_STD_NTSC)
 		init_values[4][1] = 0x34;
 
@@ -1537,7 +1623,7 @@ static int usbvision_init_webcam(struct usb_usbvision *usbvision)
 		if (rc < 0)
 			return rc;
 		usbvision_write_reg(usbvision, USBVISION_SER_MODE, USBVISION_SER_MODE_SIO);
-		
+		/* write 3 bytes to the serial port using SIO mode */
 		usbvision_write_reg(usbvision, USBVISION_SER_CONT, 3 | 0x10);
 		usbvision_write_reg(usbvision, USBVISION_IOPIN_REG, 0);
 		usbvision_write_reg(usbvision, USBVISION_SER_MODE, USBVISION_SER_MODE_SOFT);
@@ -1550,6 +1636,10 @@ static int usbvision_init_webcam(struct usb_usbvision *usbvision)
 	return 0;
 }
 
+/*
+ * usbvision_set_video_format()
+ *
+ */
 static int usbvision_set_video_format(struct usb_usbvision *usbvision, int format)
 {
 	static const char proc[] = "usbvision_set_video_format";
@@ -1568,8 +1658,8 @@ static int usbvision_set_video_format(struct usb_usbvision *usbvision, int forma
 		       format);
 		format = ISOC_MODE_YUV420;
 	}
-	value[0] = 0x0A;  
-	value[1] = format; 
+	value[0] = 0x0A;  /* TODO: See the effect of the filter */
+	value[1] = format; /* Sets the VO_MODE register which follows FILT_CONT */
 	rc = usb_control_msg(usbvision->dev, usb_sndctrlpipe(usbvision->dev, 1),
 			     USBVISION_OP_CODE,
 			     USB_DIR_OUT | USB_TYPE_VENDOR |
@@ -1584,6 +1674,10 @@ static int usbvision_set_video_format(struct usb_usbvision *usbvision, int forma
 	return rc;
 }
 
+/*
+ * usbvision_set_output()
+ *
+ */
 
 int usbvision_set_output(struct usb_usbvision *usbvision, int width,
 			 int height)
@@ -1621,12 +1715,12 @@ int usbvision_set_output(struct usb_usbvision *usbvision, int width,
 						usb_width, usb_height, width, height,
 						usbvision->stretch_width, usbvision->stretch_height);
 
-	
+	/* I'll not rewrite the same values */
 	if ((usb_width != usbvision->curwidth) || (usb_height != usbvision->curheight)) {
-		value[0] = usb_width & 0xff;		
-		value[1] = (usb_width >> 8) & 0x03;	
-		value[2] = usb_height & 0xff;		
-		value[3] = (usb_height >> 8) & 0x03;	
+		value[0] = usb_width & 0xff;		/* LSB */
+		value[1] = (usb_width >> 8) & 0x03;	/* MSB */
+		value[2] = usb_height & 0xff;		/* LSB */
+		value[3] = (usb_height >> 8) & 0x03;	/* MSB */
 
 		err_code = usb_control_msg(usbvision->dev, usb_sndctrlpipe(usbvision->dev, 1),
 			     USBVISION_OP_CODE,
@@ -1658,7 +1752,7 @@ int usbvision_set_output(struct usb_usbvision *usbvision, int width,
 
 	PDEBUG(DBG_FUNC, "frame_rate %d fps, frame_drop %d", frame_rate, frame_drop);
 
-	frame_drop = FRAMERATE_MAX;	
+	frame_drop = FRAMERATE_MAX;	/* We can allow the maximum here, because dropping is controlled */
 
 	if (usbvision_device_data[usbvision->dev_model].codec == CODEC_WEBCAM) {
 		if (usbvision_device_data[usbvision->dev_model].video_norm == V4L2_STD_PAL)
@@ -1667,21 +1761,33 @@ int usbvision_set_output(struct usb_usbvision *usbvision, int width,
 			frame_drop = 30;
 	}
 
+	/* frame_drop = 7; => frame_phase = 1, 5, 9, 13, 17, 21, 25, 0, 4, 8, ...
+		=> frame_skip = 4;
+		=> frame_rate = (7 + 1) * 25 / 32 = 200 / 32 = 6.25;
+
+	   frame_drop = 9; => frame_phase = 1, 5, 8, 11, 14, 17, 21, 24, 27, 1, 4, 8, ...
+	    => frame_skip = 4, 3, 3, 3, 3, 4, 3, 3, 3, 3, 4, ...
+		=> frame_rate = (9 + 1) * 25 / 32 = 250 / 32 = 7.8125;
+	*/
 	err_code = usbvision_write_reg(usbvision, USBVISION_FRM_RATE, frame_drop);
 	return err_code;
 }
 
 
+/*
+ * usbvision_frames_alloc
+ * allocate the required frames
+ */
 int usbvision_frames_alloc(struct usb_usbvision *usbvision, int number_of_frames)
 {
 	int i;
 
-	
+	/* needs to be page aligned cause the buffers can be mapped individually! */
 	usbvision->max_frame_size = PAGE_ALIGN(usbvision->curwidth *
 						usbvision->curheight *
 						usbvision->palette.bytes_per_pixel);
 
-	
+	/* Try to do my best to allocate the frames the user want in the remaining memory */
 	usbvision->num_frames = number_of_frames;
 	while (usbvision->num_frames > 0) {
 		usbvision->fbuf_size = usbvision->num_frames * usbvision->max_frame_size;
@@ -1695,12 +1801,15 @@ int usbvision_frames_alloc(struct usb_usbvision *usbvision, int number_of_frames
 	init_waitqueue_head(&usbvision->wait_frame);
 	init_waitqueue_head(&usbvision->wait_stream);
 
-	
+	/* Allocate all buffers */
 	for (i = 0; i < usbvision->num_frames; i++) {
 		usbvision->frame[i].index = i;
 		usbvision->frame[i].grabstate = frame_state_unused;
 		usbvision->frame[i].data = usbvision->fbuf +
 			i * usbvision->max_frame_size;
+		/*
+		 * Set default sizes for read operation.
+		 */
 		usbvision->stretch_width = 1;
 		usbvision->stretch_height = 1;
 		usbvision->frame[i].width = usbvision->curwidth;
@@ -1712,9 +1821,13 @@ int usbvision_frames_alloc(struct usb_usbvision *usbvision, int number_of_frames
 	return usbvision->num_frames;
 }
 
+/*
+ * usbvision_frames_free
+ * frees memory allocated for the frames
+ */
 void usbvision_frames_free(struct usb_usbvision *usbvision)
 {
-	
+	/* Have to free all that memory */
 	PDEBUG(DBG_FUNC, "free %d frames", usbvision->num_frames);
 
 	if (usbvision->fbuf != NULL) {
@@ -1724,6 +1837,10 @@ void usbvision_frames_free(struct usb_usbvision *usbvision)
 		usbvision->num_frames = 0;
 	}
 }
+/*
+ * usbvision_empty_framequeues()
+ * prepare queues for incoming and outgoing frames
+ */
 void usbvision_empty_framequeues(struct usb_usbvision *usbvision)
 {
 	u32 i;
@@ -1737,11 +1854,15 @@ void usbvision_empty_framequeues(struct usb_usbvision *usbvision)
 	}
 }
 
+/*
+ * usbvision_stream_interrupt()
+ * stops streaming
+ */
 int usbvision_stream_interrupt(struct usb_usbvision *usbvision)
 {
 	int ret = 0;
 
-	
+	/* stop reading from the device */
 
 	usbvision->streaming = stream_interrupt;
 	ret = wait_event_timeout(usbvision->wait_stream,
@@ -1750,6 +1871,10 @@ int usbvision_stream_interrupt(struct usb_usbvision *usbvision)
 	return ret;
 }
 
+/*
+ * usbvision_set_compress_params()
+ *
+ */
 
 static int usbvision_set_compress_params(struct usb_usbvision *usbvision)
 {
@@ -1757,19 +1882,19 @@ static int usbvision_set_compress_params(struct usb_usbvision *usbvision)
 	int rc;
 	unsigned char value[6];
 
-	value[0] = 0x0F;    
-	value[1] = 0x01;    
-	value[2] = 0x00;    
-	value[3] = 0x00;    
-	value[4] = 0xA2;    
-	value[5] = 0x00;    
+	value[0] = 0x0F;    /* Intra-Compression cycle */
+	value[1] = 0x01;    /* Reg.45 one line per strip */
+	value[2] = 0x00;    /* Reg.46 Force intra mode on all new frames */
+	value[3] = 0x00;    /* Reg.47 FORCE_UP <- 0 normal operation (not force) */
+	value[4] = 0xA2;    /* Reg.48 BUF_THR I'm not sure if this does something in not compressed mode. */
+	value[5] = 0x00;    /* Reg.49 DVI_YUV This has nothing to do with compression */
 
-	
-	
-	
-	
-	
-	
+	/* catched values for NT1004 */
+	/* value[0] = 0xFF; Never apply intra mode automatically */
+	/* value[1] = 0xF1; Use full frame height for virtual strip width; One line per strip */
+	/* value[2] = 0x01; Force intra mode on all new frames */
+	/* value[3] = 0x00; Strip size 400 Bytes; do not force up */
+	/* value[4] = 0xA2; */
 	if (!USBVISION_IS_OPERATIONAL(usbvision))
 		return 0;
 
@@ -1786,19 +1911,19 @@ static int usbvision_set_compress_params(struct usb_usbvision *usbvision)
 	}
 
 	if (usbvision->bridge_type == BRIDGE_NT1004) {
-		value[0] =  20; 
-		value[1] =  12; 
-		value[2] = 255; 
-		value[3] = 255; 
-		value[4] =  43; 
-		value[5] =  43; 
+		value[0] =  20; /* PCM Threshold 1 */
+		value[1] =  12; /* PCM Threshold 2 */
+		value[2] = 255; /* Distortion Threshold inter */
+		value[3] = 255; /* Distortion Threshold intra */
+		value[4] =  43; /* Max Distortion inter */
+		value[5] =  43; /* Max Distortion intra */
 	} else {
-		value[0] =  20; 
-		value[1] =  12; 
-		value[2] = 255; 
-		value[3] =   0; 
-		value[4] =  43; 
-		value[5] =   0; 
+		value[0] =  20; /* PCM Threshold 1 */
+		value[1] =  12; /* PCM Threshold 2 */
+		value[2] = 255; /* Distortion Threshold d7-d0 */
+		value[3] =   0; /* Distortion Threshold d11-d8 */
+		value[4] =  43; /* Max Distortion d7-d0 */
+		value[5] =   0; /* Max Distortion d8 */
 	}
 
 	if (!USBVISION_IS_OPERATIONAL(usbvision))
@@ -1818,6 +1943,13 @@ static int usbvision_set_compress_params(struct usb_usbvision *usbvision)
 }
 
 
+/*
+ * usbvision_set_input()
+ *
+ * Set the input (saa711x, ...) size x y and other misc input params
+ * I've no idea if this parameters are right
+ *
+ */
 int usbvision_set_input(struct usb_usbvision *usbvision)
 {
 	static const char proc[] = "usbvision_set_input: ";
@@ -1828,15 +1960,17 @@ int usbvision_set_input(struct usb_usbvision *usbvision)
 	if (!USBVISION_IS_OPERATIONAL(usbvision))
 		return 0;
 
-	
+	/* Set input format expected from decoder*/
 	if (usbvision_device_data[usbvision->dev_model].vin_reg1_override) {
 		value[0] = usbvision_device_data[usbvision->dev_model].vin_reg1;
 	} else if (usbvision_device_data[usbvision->dev_model].codec == CODEC_SAA7113) {
-		
+		/* SAA7113 uses 8 bit output */
 		value[0] = USBVISION_8_422_SYNC;
 	} else {
+		/* I'm sure only about d2-d0 [010] 16 bit 4:2:2 usin sync pulses
+		 * as that is how saa7111 is configured */
 		value[0] = USBVISION_16_422_SYNC;
-		
+		/* | USBVISION_VSNC_POL | USBVISION_VCLK_POL);*/
 	}
 
 	rc = usbvision_write_reg(usbvision, USBVISION_VIN_REG1, value[0]);
@@ -1849,37 +1983,37 @@ int usbvision_set_input(struct usb_usbvision *usbvision)
 
 	if (usbvision->tvnorm_id & V4L2_STD_PAL) {
 		value[0] = 0xC0;
-		value[1] = 0x02;	
+		value[1] = 0x02;	/* 0x02C0 -> 704 Input video line length */
 		value[2] = 0x20;
-		value[3] = 0x01;	
+		value[3] = 0x01;	/* 0x0120 -> 288 Input video n. of lines */
 		value[4] = 0x60;
-		value[5] = 0x00;	
+		value[5] = 0x00;	/* 0x0060 -> 96 Input video h offset */
 		value[6] = 0x16;
-		value[7] = 0x00;	
+		value[7] = 0x00;	/* 0x0016 -> 22 Input video v offset */
 	} else if (usbvision->tvnorm_id & V4L2_STD_SECAM) {
 		value[0] = 0xC0;
-		value[1] = 0x02;	
+		value[1] = 0x02;	/* 0x02C0 -> 704 Input video line length */
 		value[2] = 0x20;
-		value[3] = 0x01;	
+		value[3] = 0x01;	/* 0x0120 -> 288 Input video n. of lines */
 		value[4] = 0x01;
-		value[5] = 0x00;	
+		value[5] = 0x00;	/* 0x0001 -> 01 Input video h offset */
 		value[6] = 0x01;
-		value[7] = 0x00;	
-	} else {	
+		value[7] = 0x00;	/* 0x0001 -> 01 Input video v offset */
+	} else {	/* V4L2_STD_NTSC */
 		value[0] = 0xD0;
-		value[1] = 0x02;	
+		value[1] = 0x02;	/* 0x02D0 -> 720 Input video line length */
 		value[2] = 0xF0;
-		value[3] = 0x00;	
+		value[3] = 0x00;	/* 0x00F0 -> 240 Input video number of lines */
 		value[4] = 0x50;
-		value[5] = 0x00;	
+		value[5] = 0x00;	/* 0x0050 -> 80 Input video h offset */
 		value[6] = 0x10;
-		value[7] = 0x00;	
+		value[7] = 0x00;	/* 0x0010 -> 16 Input video v offset */
 	}
 
-	
+	/* webcam is only 480 pixels wide, both PAL and NTSC version */
 	if (usbvision_device_data[usbvision->dev_model].codec == CODEC_WEBCAM) {
 		value[0] = 0xe0;
-		value[1] = 0x01;	
+		value[1] = 0x01;	/* 0x01E0 -> 480 Input video line length */
 	}
 
 	if (usbvision_device_data[usbvision->dev_model].x_offset >= 0) {
@@ -1903,7 +2037,7 @@ int usbvision_set_input(struct usb_usbvision *usbvision)
 	}
 
 	rc = usb_control_msg(usbvision->dev, usb_sndctrlpipe(usbvision->dev, 1),
-			     USBVISION_OP_CODE,	
+			     USBVISION_OP_CODE,	/* USBVISION specific code */
 			     USB_DIR_OUT | USB_TYPE_VENDOR | USB_RECIP_ENDPOINT, 0,
 			     (__u16) USBVISION_LXSIZE_I, value, 8, HZ);
 	if (rc < 0) {
@@ -1913,12 +2047,12 @@ int usbvision_set_input(struct usb_usbvision *usbvision)
 	}
 
 
-	dvi_yuv_value = 0x00;	
+	dvi_yuv_value = 0x00;	/* U comes after V, Ya comes after U/V, Yb comes after Yb */
 
 	if (usbvision_device_data[usbvision->dev_model].dvi_yuv_override) {
 		dvi_yuv_value = usbvision_device_data[usbvision->dev_model].dvi_yuv;
 	} else if (usbvision_device_data[usbvision->dev_model].codec == CODEC_SAA7113) {
-		
+		/* This changes as the fine sync control changes. Further investigation necessary */
 		dvi_yuv_value = 0x06;
 	}
 
@@ -1926,6 +2060,13 @@ int usbvision_set_input(struct usb_usbvision *usbvision)
 }
 
 
+/*
+ * usbvision_set_dram_settings()
+ *
+ * Set the buffer address needed by the usbvision dram to operate
+ * This values has been taken with usbsnoop.
+ *
+ */
 
 static int usbvision_set_dram_settings(struct usb_usbvision *usbvision)
 {
@@ -1941,9 +2082,9 @@ static int usbvision_set_dram_settings(struct usb_usbvision *usbvision)
 		value[5] = 0xe0;
 		value[6] = 0x71;
 		value[7] = 0xff;
-		
-		
-		
+		/* UR:  0x0E200-0x3FFFF = 204288 Words (1 Word = 2 Byte) */
+		/* FDL: 0x00000-0x0E099 =  57498 Words */
+		/* VDW: 0x0E3FF-0x3FFFF */
 	} else {
 		value[0] = 0x42;
 		value[1] = 0x00;
@@ -1954,12 +2095,24 @@ static int usbvision_set_dram_settings(struct usb_usbvision *usbvision)
 		value[6] = 0x00;
 		value[7] = 0xff;
 	}
+	/* These are the values of the address of the video buffer,
+	 * they have to be loaded into the USBVISION_DRM_PRM1-8
+	 *
+	 * Start address of video output buffer for read:	drm_prm1-2 -> 0x00000
+	 * End address of video output buffer for read:		drm_prm1-3 -> 0x1ffff
+	 * Start address of video frame delay buffer:		drm_prm1-4 -> 0x20000
+	 *    Only used in compressed mode
+	 * End address of video frame delay buffer:		drm_prm1-5-6 -> 0x3ffff
+	 *    Only used in compressed mode
+	 * Start address of video output buffer for write:	drm_prm1-7 -> 0x00000
+	 * End address of video output buffer for write:	drm_prm1-8 -> 0x1ffff
+	 */
 
 	if (!USBVISION_IS_OPERATIONAL(usbvision))
 		return 0;
 
 	rc = usb_control_msg(usbvision->dev, usb_sndctrlpipe(usbvision->dev, 1),
-			     USBVISION_OP_CODE,	
+			     USBVISION_OP_CODE,	/* USBVISION specific code */
 			     USB_DIR_OUT | USB_TYPE_VENDOR |
 			     USB_RECIP_ENDPOINT, 0,
 			     (__u16) USBVISION_DRM_PRM1, value, 8, HZ);
@@ -1969,7 +2122,7 @@ static int usbvision_set_dram_settings(struct usb_usbvision *usbvision)
 		return rc;
 	}
 
-	
+	/* Restart the video buffer logic */
 	rc = usbvision_write_reg(usbvision, USBVISION_DRM_CONT, USBVISION_RES_UR |
 				   USBVISION_RES_FDL | USBVISION_RES_VDW);
 	if (rc < 0)
@@ -1979,6 +2132,13 @@ static int usbvision_set_dram_settings(struct usb_usbvision *usbvision)
 	return rc;
 }
 
+/*
+ * ()
+ *
+ * Power on the device, enables suspend-resume logic
+ * &  reset the isoc End-Point
+ *
+ */
 
 int usbvision_power_on(struct usb_usbvision *usbvision)
 {
@@ -2008,7 +2168,11 @@ int usbvision_power_on(struct usb_usbvision *usbvision)
 }
 
 
+/*
+ * usbvision timer stuff
+ */
 
+/* to call usbvision_power_off from task queue */
 static void call_usbvision_power_off(struct work_struct *work)
 {
 	struct usb_usbvision *usbvision = container_of(work, struct usb_usbvision, power_off_work);
@@ -2054,6 +2218,11 @@ void usbvision_reset_power_off_timer(struct usb_usbvision *usbvision)
 		del_timer(&usbvision->power_off_timer);
 }
 
+/*
+ * usbvision_begin_streaming()
+ * Sure you have to put bit 7 to 0, if not incoming frames are droped, but no
+ * idea about the rest
+ */
 int usbvision_begin_streaming(struct usb_usbvision *usbvision)
 {
 	if (usbvision->isoc_mode == ISOC_MODE_COMPRESS)
@@ -2062,6 +2231,10 @@ int usbvision_begin_streaming(struct usb_usbvision *usbvision)
 		USBVISION_NOHVALID | usbvision->vin_reg2_preset);
 }
 
+/*
+ * usbvision_restart_isoc()
+ * Not sure yet if touching here PWR_REG make loose the config
+ */
 
 int usbvision_restart_isoc(struct usb_usbvision *usbvision)
 {
@@ -2082,7 +2255,7 @@ int usbvision_restart_isoc(struct usb_usbvision *usbvision)
 	if (ret < 0)
 		return ret;
 
-	
+	/* TODO: schedule timeout */
 	while ((usbvision_read_reg(usbvision, USBVISION_STATUS_REG) & 0x01) != 1)
 		;
 
@@ -2123,7 +2296,7 @@ int usbvision_setup(struct usb_usbvision *usbvision, int format)
 	usbvision_set_output(usbvision, MAX_USB_WIDTH, MAX_USB_HEIGHT);
 	usbvision_restart_isoc(usbvision);
 
-	
+	/* cosas del PCM */
 	return USBVISION_IS_OPERATIONAL(usbvision);
 }
 
@@ -2155,6 +2328,10 @@ int usbvision_set_alternate(struct usb_usbvision *dev)
 	return 0;
 }
 
+/*
+ * usbvision_init_isoc()
+ *
+ */
 int usbvision_init_isoc(struct usb_usbvision *usbvision)
 {
 	struct usb_device *dev = usbvision->dev;
@@ -2167,7 +2344,7 @@ int usbvision_init_isoc(struct usb_usbvision *usbvision)
 	usbvision->cur_frame = NULL;
 	scratch_reset(usbvision);
 
-	
+	/* Alternate interface 1 is is the biggest frame size */
 	err_code = usbvision_set_alternate(usbvision);
 	if (err_code < 0) {
 		usbvision->last_error = err_code;
@@ -2184,7 +2361,7 @@ int usbvision_init_isoc(struct usb_usbvision *usbvision)
 
 
 
-	
+	/* We double buffer the Iso lists */
 
 	for (buf_idx = 0; buf_idx < USBVISION_NUMSBUF; buf_idx++) {
 		int j, k;
@@ -2220,7 +2397,7 @@ int usbvision_init_isoc(struct usb_usbvision *usbvision)
 		}
 	}
 
-	
+	/* Submit all URBs */
 	for (buf_idx = 0; buf_idx < USBVISION_NUMSBUF; buf_idx++) {
 			err_code = usb_submit_urb(usbvision->sbuf[buf_idx].urb,
 						 GFP_KERNEL);
@@ -2238,6 +2415,13 @@ int usbvision_init_isoc(struct usb_usbvision *usbvision)
 	return 0;
 }
 
+/*
+ * usbvision_stop_isoc()
+ *
+ * This procedure stops streaming and deallocates URBs. Then it
+ * activates zero-bandwidth alt. setting of the video interface.
+ *
+ */
 void usbvision_stop_isoc(struct usb_usbvision *usbvision)
 {
 	int buf_idx, err_code, reg_value;
@@ -2246,7 +2430,7 @@ void usbvision_stop_isoc(struct usb_usbvision *usbvision)
 	if ((usbvision->streaming == stream_off) || (usbvision->dev == NULL))
 		return;
 
-	
+	/* Unschedule all of the iso td's */
 	for (buf_idx = 0; buf_idx < USBVISION_NUMSBUF; buf_idx++) {
 		usb_kill_urb(usbvision->sbuf[buf_idx].urb);
 		if (usbvision->sbuf[buf_idx].data) {
@@ -2263,7 +2447,7 @@ void usbvision_stop_isoc(struct usb_usbvision *usbvision)
 	usbvision->streaming = stream_off;
 
 	if (!usbvision->remove_pending) {
-		
+		/* Set packet size to 0 */
 		usbvision->iface_alt = 0;
 		err_code = usb_set_interface(usbvision->dev, usbvision->iface,
 					    usbvision->iface_alt);
@@ -2287,26 +2471,29 @@ void usbvision_stop_isoc(struct usb_usbvision *usbvision)
 
 int usbvision_muxsel(struct usb_usbvision *usbvision, int channel)
 {
-	
-	
+	/* inputs #0 and #3 are constant for every SAA711x. */
+	/* inputs #1 and #2 are variable for SAA7111 and SAA7113 */
 	int mode[4] = { SAA7115_COMPOSITE0, 0, 0, SAA7115_COMPOSITE3 };
 	int audio[] = { 1, 0, 0, 0 };
-	
-	
-	
-	
+	/* channel 0 is TV with audiochannel 1 (tuner mono) */
+	/* channel 1 is Composite with audio channel 0 (line in) */
+	/* channel 2 is S-Video with audio channel 0 (line in) */
+	/* channel 3 is additional video inputs to the device with audio channel 0 (line in) */
 
 	RESTRICT_TO_RANGE(channel, 0, usbvision->video_inputs);
 	usbvision->ctl_input = channel;
 
-	
-	
-	
+	/* set the new channel */
+	/* Regular USB TV Tuners -> channel: 0 = Television, 1 = Composite, 2 = S-Video */
+	/* Four video input devices -> channel: 0 = Chan White, 1 = Chan Green, 2 = Chan Yellow, 3 = Chan Red */
 
 	switch (usbvision_device_data[usbvision->dev_model].codec) {
 	case CODEC_SAA7113:
 		mode[1] = SAA7115_COMPOSITE2;
 		if (switch_svideo_input) {
+			/* To handle problems with S-Video Input for
+			 * some devices.  Use switch_svideo_input
+			 * parameter when loading the module.*/
 			mode[2] = SAA7115_COMPOSITE1;
 		} else {
 			mode[2] = SAA7115_SVIDEO1;
@@ -2314,7 +2501,7 @@ int usbvision_muxsel(struct usb_usbvision *usbvision, int channel)
 		break;
 	case CODEC_SAA7111:
 	default:
-		
+		/* modes for saa7111 */
 		mode[1] = SAA7115_COMPOSITE1;
 		mode[2] = SAA7115_SVIDEO1;
 		break;
@@ -2324,3 +2511,10 @@ int usbvision_muxsel(struct usb_usbvision *usbvision, int channel)
 	return 0;
 }
 
+/*
+ * Overrides for Emacs so that we follow Linus's tabbing style.
+ * ---------------------------------------------------------------------------
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

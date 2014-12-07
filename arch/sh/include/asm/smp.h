@@ -14,9 +14,11 @@
 
 #define raw_smp_processor_id()	(current_thread_info()->cpu)
 
+/* Map from cpu id to sequential logical cpu number. */
 extern int __cpu_number_map[NR_CPUS];
 #define cpu_number_map(cpu)  __cpu_number_map[cpu]
 
+/* The reverse map from sequential logical cpu number to cpu id.  */
 extern int __cpu_logical_map[NR_CPUS];
 #define cpu_logical_map(cpu)  __cpu_logical_map[cpu]
 
@@ -26,7 +28,7 @@ enum {
 	SMP_MSG_FUNCTION_SINGLE,
 	SMP_MSG_TIMER,
 
-	SMP_MSG_NR,	
+	SMP_MSG_NR,	/* must be last */
 };
 
 DECLARE_PER_CPU(int, cpu_state);
@@ -51,7 +53,7 @@ extern int __cpu_disable(void);
 
 static inline void __cpu_die(unsigned int cpu)
 {
-	extern struct plat_smp_ops *mp_ops;     
+	extern struct plat_smp_ops *mp_ops;     /* private */
 
 	mp_ops->cpu_die(cpu);
 }
@@ -59,10 +61,10 @@ static inline void __cpu_die(unsigned int cpu)
 
 static inline int hard_smp_processor_id(void)
 {
-	extern struct plat_smp_ops *mp_ops;	
+	extern struct plat_smp_ops *mp_ops;	/* private */
 
 	if (!mp_ops)
-		return 0;	
+		return 0;	/* boot CPU */
 
 	return mp_ops->smp_processor_id();
 }
@@ -71,6 +73,6 @@ static inline int hard_smp_processor_id(void)
 
 #define hard_smp_processor_id()	(0)
 
-#endif 
+#endif /* CONFIG_SMP */
 
-#endif 
+#endif /* __ASM_SH_SMP_H */

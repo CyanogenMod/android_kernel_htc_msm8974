@@ -30,4 +30,4 @@ dma_addr_t videobuf_to_dma_contig(struct videobuf_buffer *buf);
 void videobuf_dma_contig_free(struct videobuf_queue *q,
 			      struct videobuf_buffer *buf);
 
-#endif 
+#endif /* _VIDEOBUF_DMA_CONTIG_H */

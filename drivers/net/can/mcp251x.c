@@ -76,6 +76,7 @@
 #include <linux/spi/spi.h>
 #include <linux/uaccess.h>
 
+/* SPI interface instruction set */
 #define INSTRUCTION_WRITE	0x02
 #define INSTRUCTION_READ	0x03
 #define INSTRUCTION_BIT_MODIFY	0x05
@@ -83,6 +84,7 @@
 #define INSTRUCTION_READ_RXB(n)	(((n) == 0) ? 0x90 : 0x94)
 #define INSTRUCTION_RESET	0xC0
 
+/* MPC251x registers */
 #define CANSTAT	      0x0e
 #define CANCTRL	      0x0f
 #  define CANCTRL_REQOP_MASK	    0xe0
@@ -196,6 +198,10 @@
 #define SET_BYTE(val, byte)			\
 	(((val) & 0xff) << ((byte) * 8))
 
+/*
+ * Buffer size required for the largest SPI transfer (i.e., reading a
+ * frame)
+ */
 #define CAN_FRAME_MAX_DATA_LEN	8
 #define SPI_TRANSFER_BUF_LEN	(6 + CAN_FRAME_MAX_DATA_LEN)
 #define CAN_FRAME_MAX_BITS	128
@@ -204,7 +210,7 @@
 
 #define DEVICE_NAME "mcp251x"
 
-static int mcp251x_enable_dma; 
+static int mcp251x_enable_dma; /* Enable SPI DMA. Default: 0 (Off) */
 module_param(mcp251x_enable_dma, int, S_IRUGO);
 MODULE_PARM_DESC(mcp251x_enable_dma, "Enable SPI DMA. Default: 0 (Off)");
 
@@ -231,7 +237,7 @@ struct mcp251x_priv {
 	struct spi_device *spi;
 	enum mcp251x_model model;
 
-	struct mutex mcp_lock; 
+	struct mutex mcp_lock; /* SPI device lock */
 
 	u8 *spi_tx_buf;
 	u8 *spi_rx_buf;
@@ -278,6 +284,19 @@ static void mcp251x_clean(struct net_device *net)
 	priv->tx_len = 0;
 }
 
+/*
+ * Note about handling of error return of mcp251x_spi_trans: accessing
+ * registers via SPI is not really different conceptually than using
+ * normal I/O assembler instructions, although it's much more
+ * complicated from a practical POV. So it's not advisable to always
+ * check the return value of this function. Imagine that every
+ * read{b,l}, write{b,l} and friends would be bracketed in "if ( < 0)
+ * error();", it would be a great mess (well there are some situation
+ * when exception handling C++ like could be useful after all). So we
+ * just check that transfers are OK at the beginning of our
+ * conversation with the chip and to avoid doing really nasty things
+ * (like injecting bogus packets in the network stack).
+ */
 static int mcp251x_spi_trans(struct spi_device *spi, int len)
 {
 	struct mcp251x_priv *priv = dev_get_drvdata(&spi->dev);
@@ -381,13 +400,13 @@ static void mcp251x_hw_tx(struct spi_device *spi, struct can_frame *frame,
 	u32 sid, eid, exide, rtr;
 	u8 buf[SPI_TRANSFER_BUF_LEN];
 
-	exide = (frame->can_id & CAN_EFF_FLAG) ? 1 : 0; 
+	exide = (frame->can_id & CAN_EFF_FLAG) ? 1 : 0; /* Extended ID Enable */
 	if (exide)
 		sid = (frame->can_id & CAN_EFF_MASK) >> 18;
 	else
-		sid = frame->can_id & CAN_SFF_MASK; 
-	eid = frame->can_id & CAN_EFF_MASK; 
-	rtr = (frame->can_id & CAN_RTR_FLAG) ? 1 : 0; 
+		sid = frame->can_id & CAN_SFF_MASK; /* Standard ID */
+	eid = frame->can_id & CAN_EFF_MASK; /* Extended ID */
+	rtr = (frame->can_id & CAN_RTR_FLAG) ? 1 : 0; /* Remote transmission */
 
 	buf[TXBCTRL_OFF] = INSTRUCTION_LOAD_TXB(tx_buf_idx);
 	buf[TXBSIDH_OFF] = sid >> SIDH_SHIFT;
@@ -439,28 +458,28 @@ static void mcp251x_hw_rx(struct spi_device *spi, int buf_idx)
 
 	mcp251x_hw_rx_frame(spi, buf, buf_idx);
 	if (buf[RXBSIDL_OFF] & RXBSIDL_IDE) {
-		
+		/* Extended ID format */
 		frame->can_id = CAN_EFF_FLAG;
 		frame->can_id |=
-			
+			/* Extended ID part */
 			SET_BYTE(buf[RXBSIDL_OFF] & RXBSIDL_EID, 2) |
 			SET_BYTE(buf[RXBEID8_OFF], 1) |
 			SET_BYTE(buf[RXBEID0_OFF], 0) |
-			
+			/* Standard ID part */
 			(((buf[RXBSIDH_OFF] << RXBSIDH_SHIFT) |
 			  (buf[RXBSIDL_OFF] >> RXBSIDL_SHIFT)) << 18);
-		
+		/* Remote transmission request */
 		if (buf[RXBDLC_OFF] & RXBDLC_RTR)
 			frame->can_id |= CAN_RTR_FLAG;
 	} else {
-		
+		/* Standard ID format */
 		frame->can_id =
 			(buf[RXBSIDH_OFF] << RXBSIDH_SHIFT) |
 			(buf[RXBSIDL_OFF] >> RXBSIDL_SHIFT);
 		if (buf[RXBSIDL_OFF] & RXBSIDL_SRR)
 			frame->can_id |= CAN_RTR_FLAG;
 	}
-	
+	/* Data length */
 	frame->can_dlc = get_can_dlc(buf[RXBDLC_OFF] & RXBDLC_LEN_MASK);
 	memcpy(frame->data, buf + RXBDAT_OFF, frame->can_dlc);
 
@@ -502,7 +521,7 @@ static int mcp251x_do_set_mode(struct net_device *net, enum can_mode mode)
 	switch (mode) {
 	case CAN_MODE_START:
 		mcp251x_clean(net);
-		
+		/* We have to delay work since SPI I/O may sleep */
 		priv->can.state = CAN_STATE_ERROR_ACTIVE;
 		priv->restart_tx = 1;
 		if (priv->can.restart_ms == 0)
@@ -521,22 +540,22 @@ static int mcp251x_set_normal_mode(struct spi_device *spi)
 	struct mcp251x_priv *priv = dev_get_drvdata(&spi->dev);
 	unsigned long timeout;
 
-	
+	/* Enable interrupts */
 	mcp251x_write_reg(spi, CANINTE,
 			  CANINTE_ERRIE | CANINTE_TX2IE | CANINTE_TX1IE |
 			  CANINTE_TX0IE | CANINTE_RX1IE | CANINTE_RX0IE);
 
 	if (priv->can.ctrlmode & CAN_CTRLMODE_LOOPBACK) {
-		
+		/* Put device into loopback mode */
 		mcp251x_write_reg(spi, CANCTRL, CANCTRL_REQOP_LOOPBACK);
 	} else if (priv->can.ctrlmode & CAN_CTRLMODE_LISTENONLY) {
-		
+		/* Put device into listen-only mode */
 		mcp251x_write_reg(spi, CANCTRL, CANCTRL_REQOP_LISTEN_ONLY);
 	} else {
-		
+		/* Put device into normal mode */
 		mcp251x_write_reg(spi, CANCTRL, CANCTRL_REQOP_NORMAL);
 
-		
+		/* Wait for the device to enter normal mode */
 		timeout = jiffies + HZ;
 		while (mcp251x_read_reg(spi, CANSTAT) & CANCTRL_REQOP_MASK) {
 			schedule();
@@ -599,7 +618,7 @@ static int mcp251x_hw_reset(struct spi_device *spi)
 		return -EIO;
 	}
 
-	
+	/* Wait for reset to finish */
 	timeout = jiffies + HZ;
 	mdelay(10);
 	while ((mcp251x_read_reg(spi, CANSTAT) & CANCTRL_REQOP_MASK)
@@ -620,12 +639,18 @@ static int mcp251x_hw_probe(struct spi_device *spi)
 
 	mcp251x_hw_reset(spi);
 
+	/*
+	 * Please note that these are "magic values" based on after
+	 * reset defaults taken from data sheet which allows us to see
+	 * if we really have a chip on the bus (we avoid common all
+	 * zeroes or all ones situations)
+	 */
 	st1 = mcp251x_read_reg(spi, CANSTAT) & 0xEE;
 	st2 = mcp251x_read_reg(spi, CANCTRL) & 0x17;
 
 	dev_dbg(&spi->dev, "CANSTAT 0x%02x CANCTRL 0x%02x\n", st1, st2);
 
-	
+	/* Check for power up default values */
 	return (st1 == 0x80 && st2 == 0x07) ? 1 : 0;
 }
 
@@ -657,7 +682,7 @@ static int mcp251x_stop(struct net_device *net)
 
 	mutex_lock(&priv->mcp_lock);
 
-	
+	/* Disable and clear pending interrupts */
 	mcp251x_write_reg(spi, CANINTE, 0x00);
 	mcp251x_write_reg(spi, CANINTF, 0x00);
 
@@ -768,25 +793,29 @@ static irqreturn_t mcp251x_can_ist(int irq, void *dev_id)
 
 		mcp251x_read_2regs(spi, CANINTF, &intf, &eflag);
 
-		
+		/* mask out flags we don't care about */
 		intf &= CANINTF_RX | CANINTF_TX | CANINTF_ERR;
 
-		
+		/* receive buffer 0 */
 		if (intf & CANINTF_RX0IF) {
 			mcp251x_hw_rx(spi, 0);
+			/*
+			 * Free one buffer ASAP
+			 * (The MCP2515 does this automatically.)
+			 */
 			if (mcp251x_is_2510(spi))
 				mcp251x_write_bits(spi, CANINTF, CANINTF_RX0IF, 0x00);
 		}
 
-		
+		/* receive buffer 1 */
 		if (intf & CANINTF_RX1IF) {
 			mcp251x_hw_rx(spi, 1);
-			
+			/* the MCP2515 does this automatically */
 			if (mcp251x_is_2510(spi))
 				clear_intf |= CANINTF_RX1IF;
 		}
 
-		
+		/* any error or tx interrupt we need to clear? */
 		if (intf & (CANINTF_ERR | CANINTF_TX))
 			clear_intf |= intf & (CANINTF_ERR | CANINTF_TX);
 		if (clear_intf)
@@ -795,7 +824,7 @@ static irqreturn_t mcp251x_can_ist(int irq, void *dev_id)
 		if (eflag)
 			mcp251x_write_bits(spi, EFLG, eflag, 0x00);
 
-		
+		/* Update can state */
 		if (eflag & EFLG_TXBO) {
 			new_state = CAN_STATE_BUS_OFF;
 			can_id |= CAN_ERR_BUSOFF;
@@ -819,13 +848,13 @@ static irqreturn_t mcp251x_can_ist(int irq, void *dev_id)
 			new_state = CAN_STATE_ERROR_ACTIVE;
 		}
 
-		
+		/* Update can state statistics */
 		switch (priv->can.state) {
 		case CAN_STATE_ERROR_ACTIVE:
 			if (new_state >= CAN_STATE_ERROR_WARNING &&
 			    new_state <= CAN_STATE_BUS_OFF)
 				priv->can.can_stats.error_warning++;
-		case CAN_STATE_ERROR_WARNING:	
+		case CAN_STATE_ERROR_WARNING:	/* fallthrough */
 			if (new_state >= CAN_STATE_ERROR_PASSIVE &&
 			    new_state <= CAN_STATE_BUS_OFF)
 				priv->can.can_stats.error_passive++;
@@ -836,7 +865,7 @@ static irqreturn_t mcp251x_can_ist(int irq, void *dev_id)
 		priv->can.state = new_state;
 
 		if (intf & CANINTF_ERRIF) {
-			
+			/* Handle overflow counters */
 			if (eflag & (EFLG_RX0OVR | EFLG_RX1OVR)) {
 				if (eflag & EFLG_RX0OVR) {
 					net->stats.rx_over_errors++;
@@ -951,10 +980,10 @@ static int __devinit mcp251x_can_probe(struct spi_device *spi)
 	int ret = -ENODEV;
 
 	if (!pdata)
-		
+		/* Platform data is required for osc freq */
 		goto error_out;
 
-	
+	/* Allocate can/net device */
 	net = alloc_candev(sizeof(struct mcp251x_priv), TX_ECHO_SKB_MAX);
 	if (!net) {
 		ret = -ENOMEM;
@@ -977,10 +1006,14 @@ static int __devinit mcp251x_can_probe(struct spi_device *spi)
 	priv->spi = spi;
 	mutex_init(&priv->mcp_lock);
 
-	
+	/* If requested, allocate DMA buffers */
 	if (mcp251x_enable_dma) {
 		spi->dev.coherent_dma_mask = ~0;
 
+		/*
+		 * Minimum coherent DMA allocation is PAGE_SIZE, so allocate
+		 * that much and share it between Tx and Rx DMA buffers.
+		 */
 		priv->spi_tx_buf = dma_alloc_coherent(&spi->dev,
 						      PAGE_SIZE,
 						      &priv->spi_tx_dma,
@@ -992,12 +1025,12 @@ static int __devinit mcp251x_can_probe(struct spi_device *spi)
 			priv->spi_rx_dma = (dma_addr_t)(priv->spi_tx_dma +
 							(PAGE_SIZE / 2));
 		} else {
-			
+			/* Fall back to non-DMA */
 			mcp251x_enable_dma = 0;
 		}
 	}
 
-	
+	/* Allocate non-DMA buffers */
 	if (!mcp251x_enable_dma) {
 		priv->spi_tx_buf = kmalloc(SPI_TRANSFER_BUF_LEN, GFP_KERNEL);
 		if (!priv->spi_tx_buf) {
@@ -1014,18 +1047,18 @@ static int __devinit mcp251x_can_probe(struct spi_device *spi)
 	if (pdata->power_enable)
 		pdata->power_enable(1);
 
-	
+	/* Call out to platform specific setup */
 	if (pdata->board_specific_setup)
 		pdata->board_specific_setup(spi);
 
 	SET_NETDEV_DEV(net, &spi->dev);
 
-	
+	/* Configure the SPI bus */
 	spi->mode = SPI_MODE_0;
 	spi->bits_per_word = 8;
 	spi_setup(spi);
 
-	
+	/* Here is OK to not lock the MCP, no one knows about it yet */
 	if (!mcp251x_hw_probe(spi)) {
 		dev_info(&spi->dev, "Probe failed\n");
 		goto error_probe;
@@ -1091,6 +1124,10 @@ static int mcp251x_can_suspend(struct spi_device *spi, pm_message_t state)
 
 	priv->force_quit = 1;
 	disable_irq(spi->irq);
+	/*
+	 * Note: at this point neither IST nor workqueues are running.
+	 * open/stop cannot be called anyway so locking is not needed
+	 */
 	if (netif_running(net)) {
 		netif_device_detach(net);
 

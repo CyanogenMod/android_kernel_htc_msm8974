@@ -193,7 +193,7 @@ static ssize_t qeth_dev_portname_store(struct device *dev,
 	}
 
 	card->info.portname[0] = strlen(tmp);
-	
+	/* for beauty reasons */
 	for (i = 1; i < 9; i++)
 		card->info.portname[i] = ' ';
 	strcpy(card->info.portname + 1, tmp);
@@ -242,6 +242,9 @@ static ssize_t qeth_dev_prioqing_store(struct device *dev,
 		goto out;
 	}
 
+	/* check if 1920 devices are supported ,
+	 * if though we have to permit priority queueing
+	 */
 	if (card->qdio.no_out_queues == 1) {
 		card->qdio.do_prio_queueing = QETH_PRIOQ_DEFAULT;
 		rc = -EPERM;
@@ -487,7 +490,7 @@ static ssize_t qeth_dev_isolation_store(struct device *dev,
 		return -EINVAL;
 
 	mutex_lock(&card->conf_mutex);
-	
+	/* check for unknown, too, in case we do not yet know who we are */
 	if (card->info.type != QETH_CARD_TYPE_OSD &&
 	    card->info.type != QETH_CARD_TYPE_OSX &&
 	    card->info.type != QETH_CARD_TYPE_UNKNOWN) {
@@ -497,7 +500,7 @@ static ssize_t qeth_dev_isolation_store(struct device *dev,
 		goto out;
 	}
 
-	
+	/* parse input into isolation mode */
 	tmp = strsep(&curtoken, "\n");
 	if (!strcmp(tmp, ATTR_QETH_ISOLATION_NONE)) {
 		isolation = ISOLATION_MODE_NONE;
@@ -511,7 +514,7 @@ static ssize_t qeth_dev_isolation_store(struct device *dev,
 	}
 	rc = count;
 
-	
+	/* defer IP assist if device is offline (until discipline->set_online)*/
 	card->options.isolation = isolation;
 	if (card->state == CARD_STATE_SOFTSETUP ||
 	    card->state == CARD_STATE_UP) {

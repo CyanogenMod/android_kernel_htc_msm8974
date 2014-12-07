@@ -12,6 +12,24 @@
 #include <asm/asmmacro.h>
 #include <linux/stringify.h>
 
+/*
+ * Define cache functions as macros here so that they can be used
+ * by the kernel and boot loader. We should consider moving them to a
+ * library that can be linked by both.
+ *
+ * Locking
+ *
+ *   ___unlock_dcache_all
+ *   ___unlock_icache_all
+ *
+ * Flush and invaldating
+ *
+ *   ___flush_invalidate_dcache_{all|range|page}
+ *   ___flush_dcache_{all|range|page}
+ *   ___invalidate_dcache_{all|range|page}
+ *   ___invalidate_icache_{all|range|page}
+ *
+ */
 
 	.macro	__loop_cache_all ar at insn size line_width
 

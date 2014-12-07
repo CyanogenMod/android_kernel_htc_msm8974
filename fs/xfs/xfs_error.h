@@ -45,6 +45,9 @@ extern void xfs_corruption_error(const char *tag, int level,
 #define XFS_ERRLEVEL_LOW	1
 #define XFS_ERRLEVEL_HIGH	5
 
+/*
+ * Macros to set EFSCORRUPTED & return/branch.
+ */
 #define	XFS_WANT_CORRUPTED_GOTO(x,l)	\
 	{ \
 		int fs_is_ok = (x); \
@@ -68,6 +71,10 @@ extern void xfs_corruption_error(const char *tag, int level,
 		} \
 	}
 
+/*
+ * error injection tags - the labels can be anything you want
+ * but each tag should have its own unique number
+ */
 
 #define XFS_ERRTAG_NOERROR				0
 #define XFS_ERRTAG_IFLUSH_1				1
@@ -93,6 +100,9 @@ extern void xfs_corruption_error(const char *tag, int level,
 #define XFS_ERRTAG_BMAPIFORMAT				21
 #define XFS_ERRTAG_MAX					22
 
+/*
+ * Random factors for above tags, 1 means always, 2 means 1/2 time, etc.
+ */
 #define XFS_RANDOM_DEFAULT				100
 #define XFS_RANDOM_IFLUSH_1				XFS_RANDOM_DEFAULT
 #define XFS_RANDOM_IFLUSH_2				XFS_RANDOM_DEFAULT
@@ -132,8 +142,12 @@ extern int xfs_errortag_clearall(struct xfs_mount *mp, int loud);
 #define XFS_TEST_ERROR(expr, mp, tag, rf)	(expr)
 #define xfs_errortag_add(tag, mp)		(ENOSYS)
 #define xfs_errortag_clearall(mp, loud)		(ENOSYS)
-#endif 
+#endif /* DEBUG */
 
+/*
+ * XFS panic tags -- allow a call to xfs_alert_tag() be turned into
+ *			a panic by setting xfs_panic_mask in a sysctl.
+ */
 #define		XFS_NO_PTAG			0
 #define		XFS_PTAG_IFLUSH			0x00000001
 #define		XFS_PTAG_LOGRES			0x00000002
@@ -144,4 +158,4 @@ extern int xfs_errortag_clearall(struct xfs_mount *mp, int loud);
 #define		XFS_PTAG_SHUTDOWN_LOGERROR	0x00000040
 #define		XFS_PTAG_FSBLOCK_ZERO		0x00000080
 
-#endif	
+#endif	/* __XFS_ERROR_H__ */

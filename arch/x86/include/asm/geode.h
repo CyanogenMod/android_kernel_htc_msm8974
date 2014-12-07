@@ -33,4 +33,4 @@ static inline int is_geode(void)
 	return (is_geode_gx() || is_geode_lx());
 }
 
-#endif 
+#endif /* _ASM_X86_GEODE_H */

@@ -16,6 +16,10 @@
 
 #ifndef __ASSEMBLY__
 
+/*
+ * We use __raw_base variants here so that we give the compiler the
+ * chance to keep IOC_BASE in a register.
+ */
 #define iomd_readb(off)		__raw_readb(IOMD_BASE + (off))
 #define iomd_readl(off)		__raw_readl(IOMD_BASE + (off))
 #define iomd_writeb(val,off)	__raw_writeb(val, IOMD_BASE + (off))
@@ -156,6 +160,9 @@
 #define DMA_ST_INT	2
 #define DMA_ST_AB	1
 
+/*
+ * DMA (MEMC) compatibility
+ */
 #define HALF_SAM	vram_half_sam
 #define VDMA_ALIGNMENT	(HALF_SAM * 2)
 #define VDMA_XFERSIZE	(HALF_SAM)

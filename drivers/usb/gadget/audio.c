@@ -9,6 +9,7 @@
  * Licensed under the GPL-2 or later.
  */
 
+/* #define VERBOSE_DEBUG */
 
 #include <linux/kernel.h>
 #include <linux/utsname.h>
@@ -16,12 +17,21 @@
 #define DRIVER_DESC		"Linux USB Audio Gadget"
 #define DRIVER_VERSION		"Feb 2, 2012"
 
+/*-------------------------------------------------------------------------*/
 
+/*
+ * Kbuild is not very cooperative with respect to linking separately
+ * compiled library objects into one module.  So for now we won't use
+ * separate compilation ... ensuring init/exit sections work to shrink
+ * the runtime footprint, and giving us at least some parts of what
+ * a "gcc --combine ... part1.c part2.c part3.c ... " build would.
+ */
 #include "composite.c"
 #include "usbstring.c"
 #include "config.c"
 #include "epautoconf.c"
 
+/* string IDs are assigned dynamically */
 
 #define STRING_MANUFACTURER_IDX		0
 #define STRING_PRODUCT_IDX		1
@@ -31,11 +41,11 @@ static char manufacturer[50];
 static struct usb_string strings_dev[] = {
 	[STRING_MANUFACTURER_IDX].s = manufacturer,
 	[STRING_PRODUCT_IDX].s = DRIVER_DESC,
-	{  } 
+	{  } /* end of list */
 };
 
 static struct usb_gadget_strings stringtab_dev = {
-	.language = 0x0409,	
+	.language = 0x0409,	/* en-us */
 	.strings = strings_dev,
 };
 
@@ -52,11 +62,17 @@ static struct usb_gadget_strings *audio_strings[] = {
 #include "f_uac2.c"
 #endif
 
+/*-------------------------------------------------------------------------*/
 
+/* DO NOT REUSE THESE IDs with a protocol-incompatible driver!!  Ever!!
+ * Instead:  allocate your own, using normal USB-IF procedures.
+ */
 
-#define AUDIO_VENDOR_NUM		0x1d6b	
-#define AUDIO_PRODUCT_NUM		0x0101	
+/* Thanks to Linux Foundation for donating this product ID. */
+#define AUDIO_VENDOR_NUM		0x1d6b	/* Linux Foundation */
+#define AUDIO_PRODUCT_NUM		0x0101	/* Linux-USB Audio Gadget */
 
+/*-------------------------------------------------------------------------*/
 
 static struct usb_device_descriptor device_desc = {
 	.bLength =		sizeof device_desc,
@@ -73,14 +89,18 @@ static struct usb_device_descriptor device_desc = {
 	.bDeviceSubClass =	0x02,
 	.bDeviceProtocol =	0x01,
 #endif
-	
+	/* .bMaxPacketSize0 = f(hardware) */
 
+	/* Vendor and product id defaults change according to what configs
+	 * we support.  (As does bNumConfigurations.)  These values can
+	 * also be overridden by module parameters.
+	 */
 	.idVendor =		__constant_cpu_to_le16(AUDIO_VENDOR_NUM),
 	.idProduct =		__constant_cpu_to_le16(AUDIO_PRODUCT_NUM),
-	
-	
-	
-	
+	/* .bcdDevice = f(hardware) */
+	/* .iManufacturer = DYNAMIC */
+	/* .iProduct = DYNAMIC */
+	/* NO SERIAL NUMBER */
 	.bNumConfigurations =	1,
 };
 
@@ -88,6 +108,9 @@ static struct usb_otg_descriptor otg_descriptor = {
 	.bLength =		sizeof otg_descriptor,
 	.bDescriptorType =	USB_DT_OTG,
 
+	/* REVISIT SRP-only hardware is possible, although
+	 * it would not be called "OTG" ...
+	 */
 	.bmAttributes =		USB_OTG_SRP | USB_OTG_HNP,
 };
 
@@ -96,10 +119,11 @@ static const struct usb_descriptor_header *otg_desc[] = {
 	NULL,
 };
 
+/*-------------------------------------------------------------------------*/
 
 static int __init audio_do_config(struct usb_configuration *c)
 {
-	
+	/* FIXME alloc iConfiguration string, set it in c->strings */
 
 	if (gadget_is_otg(c->cdev->gadget)) {
 		c->descriptors = otg_desc;
@@ -114,13 +138,14 @@ static int __init audio_do_config(struct usb_configuration *c)
 static struct usb_configuration audio_config_driver = {
 	.label			= DRIVER_DESC,
 	.bConfigurationValue	= 1,
-	
+	/* .iConfiguration = DYNAMIC */
 	.bmAttributes		= USB_CONFIG_ATT_SELFPOWER,
 #ifndef CONFIG_GADGET_UAC1
 	.unbind			= uac2_unbind_config,
 #endif
 };
 
+/*-------------------------------------------------------------------------*/
 
 static int __init audio_bind(struct usb_composite_dev *cdev)
 {
@@ -138,7 +163,7 @@ static int __init audio_bind(struct usb_composite_dev *cdev)
 			__constant_cpu_to_le16(0x0300 | 0x0099);
 	}
 
-	
+	/* device descriptor strings: manufacturer, product */
 	snprintf(manufacturer, sizeof manufacturer, "%s %s with %s",
 		init_utsname()->sysname, init_utsname()->release,
 		cdev->gadget->name);

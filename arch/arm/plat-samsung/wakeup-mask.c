@@ -35,7 +35,7 @@ void samsung_sync_wakemask(void __iomem *reg,
 
 		data = irq_get_irq_data(mask->irq);
 
-		
+		/* bit of a liberty to read this directly from irq_data. */
 		if (irqd_is_wakeup_set(data))
 			val &= ~mask->bit;
 		else

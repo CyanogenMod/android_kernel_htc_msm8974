@@ -101,6 +101,7 @@ long clk_round_rate(struct clk *clk, unsigned long rate)
 }
 EXPORT_SYMBOL(clk_round_rate);
 
+/* Propagate rate to children */
 static void propagate_rate(struct clk *root)
 {
 	struct clk *clk;
@@ -142,7 +143,7 @@ int clk_set_parent(struct clk *clk, struct clk *parent)
 	if (clk == NULL || IS_ERR(clk))
 		return -EINVAL;
 
-	
+	/* Cannot change parent on enabled clock */
 	if (WARN_ON(clk->usecount))
 		return -EINVAL;
 
@@ -180,15 +181,15 @@ int clk_register(struct clk *clk)
 		list_add_tail(&clk->childnode, &clk->parent->children);
 	mutex_unlock(&clocks_mutex);
 
-	
+	/* If rate is already set, use it */
 	if (clk->rate)
 		return 0;
 
-	
+	/* Else, see if there is a way to calculate it */
 	if (clk->recalc)
 		clk->rate = clk->recalc(clk);
 
-	
+	/* Otherwise, default to parent rate */
 	else if (clk->parent)
 		clk->rate = clk->parent->rate;
 
@@ -209,6 +210,9 @@ void clk_unregister(struct clk *clk)
 EXPORT_SYMBOL(clk_unregister);
 
 #ifdef CONFIG_DAVINCI_RESET_CLOCKS
+/*
+ * Disable any unused clocks left on by the bootloader
+ */
 static int __init clk_disable_unused(void)
 {
 	struct clk *ck;
@@ -220,7 +224,7 @@ static int __init clk_disable_unused(void)
 		if (!(ck->flags & CLK_PSC))
 			continue;
 
-		
+		/* ignore if in Disabled or SwRstDisable states */
 		if (!davinci_psc_is_clk_active(ck->gpsc, ck->lpsc))
 			continue;
 
@@ -242,7 +246,7 @@ static unsigned long clk_sysclk_recalc(struct clk *clk)
 	struct pll_data *pll;
 	unsigned long rate = clk->rate;
 
-	
+	/* If this is the PLL base clock, no more calculations needed */
 	if (clk->pll_data)
 		return rate;
 
@@ -251,13 +255,13 @@ static unsigned long clk_sysclk_recalc(struct clk *clk)
 
 	rate = clk->parent->rate;
 
-	
+	/* Otherwise, the parent must be a PLL */
 	if (WARN_ON(!clk->parent->pll_data))
 		return rate;
 
 	pll = clk->parent->pll_data;
 
-	
+	/* If pre-PLL, source clock is before the multiplier and divider(s) */
 	if (clk->flags & PRE_PLL)
 		rate = pll->input_rate;
 
@@ -281,19 +285,19 @@ int davinci_set_sysclk_rate(struct clk *clk, unsigned long rate)
 	unsigned long input;
 	unsigned ratio = 0;
 
-	
+	/* If this is the PLL base clock, wrong function to call */
 	if (clk->pll_data)
 		return -EINVAL;
 
-	
+	/* There must be a parent... */
 	if (WARN_ON(!clk->parent))
 		return -EINVAL;
 
-	
+	/* ... the parent must be a PLL... */
 	if (WARN_ON(!clk->parent->pll_data))
 		return -EINVAL;
 
-	
+	/* ... and this clock must have a divider. */
 	if (WARN_ON(!clk->div_reg))
 		return -EINVAL;
 
@@ -301,11 +305,16 @@ int davinci_set_sysclk_rate(struct clk *clk, unsigned long rate)
 
 	input = clk->parent->rate;
 
-	
+	/* If pre-PLL, source clock is before the multiplier and divider(s) */
 	if (clk->flags & PRE_PLL)
 		input = pll->input_rate;
 
 	if (input > rate) {
+		/*
+		 * Can afford to provide an output little higher than requested
+		 * only if maximum rate supported by hardware on this sysclk
+		 * is known.
+		 */
 		if (clk->maxrate) {
 			ratio = DIV_ROUND_CLOSEST(input, rate);
 			if (input / ratio > clk->maxrate)
@@ -384,7 +393,7 @@ static unsigned long clk_pllclk_recalc(struct clk *clk)
 			prediv = 1;
 	}
 
-	
+	/* pre-divider is fixed, but (some?) chips won't report that */
 	if (cpu_is_davinci_dm355() && pll->num == 1)
 		prediv = 8;
 
@@ -417,6 +426,16 @@ static unsigned long clk_pllclk_recalc(struct clk *clk)
 	return rate;
 }
 
+/**
+ * davinci_set_pllrate - set the output rate of a given PLL.
+ *
+ * Note: Currently tested to work with OMAP-L138 only.
+ *
+ * @pll: pll whose rate needs to be changed.
+ * @prediv: The pre divider value. Passing 0 disables the pre-divider.
+ * @pllm: The multiplier value. Passing 0 leads to multiply-by-one.
+ * @postdiv: The post divider value. Passing 0 disables the post-divider.
+ */
 int davinci_set_pllrate(struct pll_data *pll, unsigned int prediv,
 					unsigned int mult, unsigned int postdiv)
 {
@@ -427,6 +446,11 @@ int davinci_set_pllrate(struct pll_data *pll, unsigned int prediv,
 	if (pll->base == NULL)
 		return -EINVAL;
 
+	/*
+	 *  PLL lock time required per OMAP-L138 datasheet is
+	 * (2000 * prediv)/sqrt(pllm) OSCIN cycles. We approximate sqrt(pllm)
+	 * as 4 and OSCIN cycle as 25 MHz.
+	 */
 	if (prediv) {
 		locktime = ((2000 * prediv) / 100);
 		prediv = (prediv - 1) | PLLDIV_EN;
@@ -438,18 +462,18 @@ int davinci_set_pllrate(struct pll_data *pll, unsigned int prediv,
 	if (mult)
 		mult = mult - 1;
 
-	
+	/* Protect against simultaneous calls to PLL setting seqeunce */
 	spin_lock_irqsave(&clockfw_lock, flags);
 
 	ctrl = __raw_readl(pll->base + PLLCTL);
 
-	
+	/* Switch the PLL to bypass mode */
 	ctrl &= ~(PLLCTL_PLLENSRC | PLLCTL_PLLEN);
 	__raw_writel(ctrl, pll->base + PLLCTL);
 
 	udelay(PLL_BYPASS_TIME);
 
-	
+	/* Reset and enable PLL */
 	ctrl &= ~(PLLCTL_PLLRST | PLLCTL_PLLDIS);
 	__raw_writel(ctrl, pll->base + PLLCTL);
 
@@ -463,13 +487,13 @@ int davinci_set_pllrate(struct pll_data *pll, unsigned int prediv,
 
 	udelay(PLL_RESET_TIME);
 
-	
+	/* Bring PLL out of reset */
 	ctrl |= PLLCTL_PLLRST;
 	__raw_writel(ctrl, pll->base + PLLCTL);
 
 	udelay(locktime);
 
-	
+	/* Remove PLL from bypass mode */
 	ctrl |= PLLCTL_PLLEN;
 	__raw_writel(ctrl, pll->base + PLLCTL);
 
@@ -479,6 +503,21 @@ int davinci_set_pllrate(struct pll_data *pll, unsigned int prediv,
 }
 EXPORT_SYMBOL(davinci_set_pllrate);
 
+/**
+ * davinci_set_refclk_rate() - Set the reference clock rate
+ * @rate:	The new rate.
+ *
+ * Sets the reference clock rate to a given value. This will most likely
+ * result in the entire clock tree getting updated.
+ *
+ * This is used to support boards which use a reference clock different
+ * than that used by default in <soc>.c file. The reference clock rate
+ * should be updated early in the boot process; ideally soon after the
+ * clock tree has been initialized once with the default reference clock
+ * rate (davinci_common_init()).
+ *
+ * Returns 0 on success, error otherwise.
+ */
 int davinci_set_refclk_rate(unsigned long rate)
 {
 	struct clk *refclk;
@@ -507,15 +546,15 @@ int __init davinci_clk_init(struct clk_lookup *clocks)
 
 		if (!clk->recalc) {
 
-			
+			/* Check if clock is a PLL */
 			if (clk->pll_data)
 				clk->recalc = clk_pllclk_recalc;
 
-			
+			/* Else, if it is a PLL-derived clock */
 			else if (clk->flags & CLK_PLL)
 				clk->recalc = clk_sysclk_recalc;
 
-			
+			/* Otherwise, it is a leaf clock (PSC clock) */
 			else if (clk->parent)
 				clk->recalc = clk_leafclk_recalc;
 		}
@@ -541,7 +580,7 @@ int __init davinci_clk_init(struct clk_lookup *clocks)
 		clk_register(clk);
 		num_clocks++;
 
-		
+		/* Turn on clocks that Linux doesn't otherwise manage */
 		if (clk->flags & ALWAYS_ENABLED)
 			clk_enable(clk);
 	}
@@ -556,7 +595,7 @@ int __init davinci_clk_init(struct clk_lookup *clocks)
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
 
-#define CLKNAME_MAX	10		
+#define CLKNAME_MAX	10		/* longest clock name */
 #define NEST_DELTA	2
 #define NEST_MAX	4
 
@@ -575,7 +614,7 @@ dump_clock(struct seq_file *s, unsigned nest, struct clk *parent)
 	else
 		state = "";
 
-	
+	/* <nest spaces> name <pad to end> */
 	memset(buf, ' ', sizeof(buf) - 1);
 	buf[sizeof(buf) - 1] = 0;
 	i = strlen(parent->name);
@@ -584,9 +623,9 @@ dump_clock(struct seq_file *s, unsigned nest, struct clk *parent)
 
 	seq_printf(s, "%s users=%2d %-3s %9ld Hz\n",
 		   buf, parent->usecount, state, clk_get_rate(parent));
-	
+	/* REVISIT show device associations too */
 
-	
+	/* cost is now small, but not linear... */
 	list_for_each_entry(clk, &parent->children, childnode) {
 		dump_clock(s, nest + NEST_DELTA, clk);
 	}
@@ -596,6 +635,9 @@ static int davinci_ck_show(struct seq_file *m, void *v)
 {
 	struct clk *clk;
 
+	/*
+	 * Show clock tree; We trust nonzero usecounts equate to PSC enables...
+	 */
 	mutex_lock(&clocks_mutex);
 	list_for_each_entry(clk, &clocks, node)
 		if (!clk->parent)
@@ -625,4 +667,4 @@ static int __init davinci_clk_debugfs_init(void)
 
 }
 device_initcall(davinci_clk_debugfs_init);
-#endif 
+#endif /* CONFIG_DEBUG_FS */

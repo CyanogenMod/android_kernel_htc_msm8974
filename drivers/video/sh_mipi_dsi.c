@@ -39,6 +39,7 @@
 #define DSIINTE		0x0060
 #define PHYCTRL		0x0070
 
+/* relative to linkbase */
 #define DTCTR		0x0000
 #define VMCTR1		0x0020
 #define VMCTR2		0x0024
@@ -47,6 +48,7 @@
 #define CMTSRTREQ	0x0070
 #define CMTSRTCTR	0x00d0
 
+/* E.g., sh7372 has 2 MIPI-DSIs - one for each LCDC */
 #define MAX_SH_MIPI_DSI 2
 
 struct sh_mipi {
@@ -62,6 +64,7 @@ struct sh_mipi {
 
 static struct sh_mipi *mipi_dsi[MAX_SH_MIPI_DSI];
 
+/* Protect the above array */
 static DEFINE_MUTEX(array_lock);
 
 static struct sh_mipi *sh_mipi_by_handle(int handle)
@@ -78,7 +81,7 @@ static int sh_mipi_send_short(struct sh_mipi *mipi, u8 dsi_cmd,
 	u32 data = (dsi_cmd << 24) | (cmd << 16) | (param << 8);
 	int cnt = 100;
 
-	
+	/* transmit a short packet to LCD panel */
 	iowrite32(1 | data, mipi->linkbase + CMTSRTCTR);
 	iowrite32(1, mipi->linkbase + CMTSRTREQ);
 
@@ -110,6 +113,10 @@ static int sh_mipi_dcs_param(int handle, u8 cmd, u8 param)
 
 static void sh_mipi_dsi_enable(struct sh_mipi *mipi, bool enable)
 {
+	/*
+	 * enable LCDC data tx, transition to LPS after completion of each HS
+	 * packet
+	 */
 	iowrite32(0x00000002 | enable, mipi->linkbase + DTCTR);
 }
 
@@ -130,6 +137,11 @@ static int __init sh_mipi_setup(struct sh_mipi *mipi,
 	bool yuv;
 	int bpp;
 
+	/*
+	 * Select data format. MIPI DSI is not hot-pluggable, so, we just use
+	 * the default videomode. If this ever becomes a problem, We'll have to
+	 * move this to mipi_display_on() above and use info->var.xres
+	 */
 	switch (pdata->data_format) {
 	case MIPI_RGB888:
 		pctype = 0;
@@ -212,7 +224,7 @@ static int __init sh_mipi_setup(struct sh_mipi *mipi,
 		pctype = 7;
 		datatype = MIPI_DSI_PACKED_PIXEL_STREAM_YCBCR12;
 		pixfmt = MIPI_DCS_PIXEL_FMT_12BIT;
-		
+		/* Length of U/V line */
 		linelength = (ch->lcd_modes[0].xres + 1) / 2;
 		yuv = true;
 		break;
@@ -227,47 +239,69 @@ static int __init sh_mipi_setup(struct sh_mipi *mipi,
 	if (!pdata->lane)
 		return -EINVAL;
 
-	
+	/* reset DSI link */
 	iowrite32(0x00000001, base + SYSCTRL);
-	
+	/* Hold reset for 100 cycles of the slowest of bus, HS byte and LP clock */
 	udelay(50);
 	iowrite32(0x00000000, base + SYSCTRL);
 
-	
+	/* setup DSI link */
 
+	/*
+	 * T_wakeup = 0x7000
+	 * T_hs-trail = 3
+	 * T_hs-prepare = 3
+	 * T_clk-trail = 3
+	 * T_clk-prepare = 2
+	 */
 	iowrite32(0x70003332, base + TIMSET);
-	
+	/* no responses requested */
 	iowrite32(0x00000000, base + RESREQSET0);
-	
+	/* request response to packets of type 0x28 */
 	iowrite32(0x00000100, base + RESREQSET1);
-	
+	/* High-speed transmission timeout, default 0xffffffff */
 	iowrite32(0x0fffffff, base + HSTTOVSET);
-	
+	/* LP reception timeout, default 0xffffffff */
 	iowrite32(0x0fffffff, base + LPRTOVSET);
-	
+	/* Turn-around timeout, default 0xffffffff */
 	iowrite32(0x0fffffff, base + TATOVSET);
-	
+	/* Peripheral reset timeout, default 0xffffffff */
 	iowrite32(0x0fffffff, base + PRTOVSET);
-	
+	/* Interrupts not used, disable all */
 	iowrite32(0, base + DSIINTE);
-	
+	/* DSI-Tx bias on */
 	iowrite32(0x00000001, base + PHYCTRL);
 	udelay(200);
-	
+	/* Deassert resets, power on */
 	iowrite32(0x03070001 | pdata->phyctrl, base + PHYCTRL);
 
+	/*
+	 * Default = ULPS enable |
+	 *	Contention detection enabled |
+	 *	EoT packet transmission enable |
+	 *	CRC check enable |
+	 *	ECC check enable
+	 */
 	bitmap_fill((unsigned long *)&tmp, pdata->lane);
 	tmp |= 0x00003700;
 	iowrite32(tmp, base + SYSCONF);
 
-	
+	/* setup l-bridge */
 
+	/*
+	 * Enable transmission of all packets,
+	 * transmit LPS after each HS packet completion
+	 */
 	iowrite32(0x00000006, mipi->linkbase + DTCTR);
-	
+	/* VSYNC width = 2 (<< 17) */
 	iowrite32((ch->lcd_modes[0].vsync_len << pdata->vsynw_offset) |
 		  (pdata->clksrc << 16) | (pctype << 12) | datatype,
 		  mipi->linkbase + VMCTR1);
 
+	/*
+	 * Non-burst mode with sync pulses: VSE and HSE are output,
+	 * HSA period allowed, no commands in LP
+	 */
 	vmctr2 = 0;
 	if (pdata->flags & SH_MIPI_DSI_VSEE)
 		vmctr2 |= 1 << 23;
@@ -285,33 +319,47 @@ static int __init sh_mipi_setup(struct sh_mipi *mipi,
 		vmctr2 |= 1 << 3;
 	iowrite32(vmctr2, mipi->linkbase + VMCTR2);
 
-	top = linelength << 16; 
+	/*
+	 * VMLEN1 = RGBLEN | HSALEN
+	 *
+	 * see
+	 *  Video mode - Blanking Packet setting
+	 */
+	top = linelength << 16; /* RGBLEN */
 	bottom = 0x00000001;
-	if (pdata->flags & SH_MIPI_DSI_HSABM) 
+	if (pdata->flags & SH_MIPI_DSI_HSABM) /* HSALEN */
 		bottom = (pdata->lane * ch->lcd_modes[0].hsync_len) - 10;
 	iowrite32(top | bottom , mipi->linkbase + VMLEN1);
 
+	/*
+	 * VMLEN2 = HBPLEN | HFPLEN
+	 *
+	 * see
+	 *  Video mode - Blanking Packet setting
+	 */
 	top	= 0x00010000;
 	bottom	= 0x00000001;
 	delay	= 0;
 
-	div = 1;	
+	div = 1;	/* HSbyteCLK is calculation base
+			 * HS4divCLK = HSbyteCLK/2
+			 * HS6divCLK is not supported for now */
 	if (pdata->flags & SH_MIPI_DSI_HS4divCLK)
 		div = 2;
 
-	if (pdata->flags & SH_MIPI_DSI_HFPBM) {	
+	if (pdata->flags & SH_MIPI_DSI_HFPBM) {	/* HBPLEN */
 		top = ch->lcd_modes[0].hsync_len + ch->lcd_modes[0].left_margin;
 		top = ((pdata->lane * top / div) - 10) << 16;
 	}
-	if (pdata->flags & SH_MIPI_DSI_HBPBM) { 
+	if (pdata->flags & SH_MIPI_DSI_HBPBM) { /* HFPLEN */
 		bottom = ch->lcd_modes[0].right_margin;
 		bottom = (pdata->lane * bottom / div) - 12;
 	}
 
-	bpp = linelength / ch->lcd_modes[0].xres; 
+	bpp = linelength / ch->lcd_modes[0].xres; /* byte / pixel */
 	if ((pdata->lane / div) > bpp) {
-		tmp = ch->lcd_modes[0].xres / bpp; 
-		tmp = ch->lcd_modes[0].xres - tmp; 
+		tmp = ch->lcd_modes[0].xres / bpp; /* output cycle */
+		tmp = ch->lcd_modes[0].xres - tmp; /* (input - output) cycle */
 		delay = (pdata->lane * tmp);
 	}
 
@@ -319,18 +367,28 @@ static int __init sh_mipi_setup(struct sh_mipi *mipi,
 
 	msleep(5);
 
-	
+	/* setup LCD panel */
 
-	
+	/* cf. drivers/video/omap/lcd_mipid.c */
 	sh_mipi_dcs(ch->chan, MIPI_DCS_EXIT_SLEEP_MODE);
 	msleep(120);
+	/*
+	 * [7] - Page Address Mode
+	 * [6] - Column Address Mode
+	 * [5] - Page / Column Address Mode
+	 * [4] - Display Device Line Refresh Order
+	 * [3] - RGB/BGR Order
+	 * [2] - Display Data Latch Data Order
+	 * [1] - Flip Horizontal
+	 * [0] - Flip Vertical
+	 */
 	sh_mipi_dcs_param(ch->chan, MIPI_DCS_SET_ADDRESS_MODE, 0x00);
-	
+	/* cf. set_data_lines() */
 	sh_mipi_dcs_param(ch->chan, MIPI_DCS_SET_PIXEL_FORMAT,
 			  pixfmt << 4);
 	sh_mipi_dcs(ch->chan, MIPI_DCS_SET_DISPLAY_ON);
 
-	
+	/* Enable timeout counters */
 	iowrite32(0x00000f00, base + DSICTRL);
 
 	return 0;
@@ -448,7 +506,7 @@ static int __init sh_mipi_probe(struct platform_device *pdev)
 	}
 
 	f_current = clk_get_rate(mipi->dsit_clk);
-	
+	/* 80MHz required by the datasheet */
 	rate = clk_round_rate(mipi->dsit_clk, 80000000);
 	if (rate > 0 && rate != f_current)
 		ret = clk_set_rate(mipi->dsit_clk, rate);

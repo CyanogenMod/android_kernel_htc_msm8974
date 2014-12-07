@@ -12,10 +12,14 @@
 #include <asm/oplib.h>
 #include <asm/io.h>
 #include <asm/auxio.h>
-#include <asm/string.h>		
+#include <asm/string.h>		/* memset(), Linux has no bzero() */
 #include <asm/cpu_type.h>
 
+/* Probe and map in the Auxiliary I/O register */
 
+/* auxio_register is not static because it is referenced 
+ * in entry.S::floppy_tdone
+ */
 void __iomem *auxio_register = NULL;
 static DEFINE_SPINLOCK(auxio_lock);
 
@@ -41,11 +45,11 @@ void __init auxio_probe(void)
 		auxio_nd = prom_searchsiblings(node, "auxio");
 		if(!auxio_nd) {
 #ifdef CONFIG_PCI
-			
+			/* There may be auxio on Ebus */
 			return;
 #else
 			if(prom_searchsiblings(node, "leds")) {
-				
+				/* VME chassis sun4m machine, no auxio exists. */
 				return;
 			}
 			prom_printf("Cannot find auxio node, cannot continue...\n");
@@ -56,12 +60,12 @@ void __init auxio_probe(void)
 	if(prom_getproperty(auxio_nd, "reg", (char *) auxregs, sizeof(auxregs)) <= 0)
 		return;
 	prom_apply_obio_ranges(auxregs, 0x1);
-	
+	/* Map the register both read and write */
 	r.flags = auxregs[0].which_io & 0xF;
 	r.start = auxregs[0].phys_addr;
 	r.end = auxregs[0].phys_addr + auxregs[0].reg_size - 1;
 	auxio_register = of_ioremap(&r, 0, auxregs[0].reg_size, "auxio");
-	
+	/* Fix the address on sun4m and sun4c. */
 	if((((unsigned long) auxregs[0].phys_addr) & 3) == 3 ||
 	   sparc_cpu_model == sun4c)
 		auxio_register += (3 - ((unsigned long)auxio_register & 3));
@@ -90,7 +94,7 @@ void set_auxio(unsigned char bits_on, unsigned char bits_off)
 		break;
 	case sun4m:
 		if(!auxio_register)
-			break;     
+			break;     /* VME chassis sun4m, no auxio. */
 		regval = sbus_readb(auxio_register);
 		sbus_writeb(((regval | bits_on) & ~bits_off) | AUXIO_ORMEIN4M,
 			auxio_register);
@@ -104,6 +108,7 @@ void set_auxio(unsigned char bits_on, unsigned char bits_off)
 }
 EXPORT_SYMBOL(set_auxio);
 
+/* sun4m power control register (AUXIO2) */
 
 volatile unsigned char * auxio_power_register = NULL;
 
@@ -113,7 +118,7 @@ void __init auxio_power_probe(void)
 	phandle node;
 	struct resource r;
 
-	
+	/* Attempt to find the sun4m power control node. */
 	node = prom_getchild(prom_root_node);
 	node = prom_searchsiblings(node, "obio");
 	node = prom_getchild(node);
@@ -121,7 +126,7 @@ void __init auxio_power_probe(void)
 	if (node == 0 || (s32)node == -1)
 		return;
 
-	
+	/* Map the power control register. */
 	if (prom_getproperty(node, "reg", (char *)&regs, sizeof(regs)) <= 0)
 		return;
 	prom_apply_obio_ranges(&regs, 1);
@@ -132,7 +137,7 @@ void __init auxio_power_probe(void)
 	auxio_power_register = (unsigned char *) of_ioremap(&r, 0,
 	    regs.reg_size, "auxpower");
 
-	
+	/* Display a quick message on the console. */
 	if (auxio_power_register)
 		printk(KERN_INFO "Power off control detected.\n");
 }

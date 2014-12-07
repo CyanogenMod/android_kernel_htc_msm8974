@@ -43,6 +43,7 @@
 
 #include <video/hecubafb.h>
 
+/* Display specific information */
 #define DPY_W 600
 #define DPY_H 800
 
@@ -66,34 +67,35 @@ static struct fb_var_screeninfo hecubafb_var __devinitdata = {
 	.nonstd		= 1,
 };
 
+/* main hecubafb functions */
 
 static void apollo_send_data(struct hecubafb_par *par, unsigned char data)
 {
-	
+	/* set data */
 	par->board->set_data(par, data);
 
-	
+	/* set DS low */
 	par->board->set_ctl(par, HCB_DS_BIT, 0);
 
-	
+	/* wait for ack */
 	par->board->wait_for_ack(par, 0);
 
-	
+	/* set DS hi */
 	par->board->set_ctl(par, HCB_DS_BIT, 1);
 
-	
+	/* wait for ack to clear */
 	par->board->wait_for_ack(par, 1);
 }
 
 static void apollo_send_command(struct hecubafb_par *par, unsigned char data)
 {
-	
+	/* command so set CD to high */
 	par->board->set_ctl(par, HCB_CD_BIT, 1);
 
-	
+	/* actually strobe with command */
 	apollo_send_data(par, data);
 
-	
+	/* clear CD back to low */
 	par->board->set_ctl(par, HCB_CD_BIT, 0);
 }
 
@@ -112,6 +114,7 @@ static void hecubafb_dpy_update(struct hecubafb_par *par)
 	apollo_send_command(par, APOLLO_DISPLAY_IMG);
 }
 
+/* this is called back from the deferred io workqueue */
 static void hecubafb_dpy_deferred_io(struct fb_info *info,
 				struct list_head *pagelist)
 {
@@ -148,6 +151,10 @@ static void hecubafb_imageblit(struct fb_info *info,
 	hecubafb_dpy_update(par);
 }
 
+/*
+ * this is the slow path from userspace. they can seek and write to
+ * the fb. it's inefficient to do anything less than a full screen draw
+ */
 static ssize_t hecubafb_write(struct fb_info *info, const char __user *buf,
 				size_t count, loff_t *ppos)
 {
@@ -213,12 +220,12 @@ static int __devinit hecubafb_probe(struct platform_device *dev)
 	unsigned char *videomemory;
 	struct hecubafb_par *par;
 
-	
+	/* pick up board specific routines */
 	board = dev->dev.platform_data;
 	if (!board)
 		return -EINVAL;
 
-	
+	/* try to count device specific driver, if can't, platform recalls */
 	if (!try_module_get(board->owner))
 		return -ENODEV;
 
@@ -258,7 +265,7 @@ static int __devinit hecubafb_probe(struct platform_device *dev)
 	       "fb%d: Hecuba frame buffer device, using %dK of video memory\n",
 	       info->node, videomemorysize >> 10);
 
-	
+	/* this inits the dpy */
 	retval = par->board->init(par);
 	if (retval < 0)
 		goto err_fbreg;

@@ -27,6 +27,39 @@
 #include <linux/bif/consumer.h>
 #include <linux/bif/driver.h>
 
+/**
+ * struct bif_ctrl_dev - holds controller device specific information
+ * @list:			Doubly-linked list parameter linking to other
+ *				BIF controllers registered in the system
+ * @desc:			Description structure for this BIF controller
+ * @mutex:			Mutex lock that is used to ensure mutual
+ *				exclusion between transactions performed on the
+ *				BIF bus for this controller
+ * @ctrl_dev:			Device pointer to the BIF controller device
+ * @driver_data:		Private data used by the BIF controller
+ * @selected_sdev:		Slave device that is currently selected on
+ *				the BIF bus of this controller
+ * @bus_change_notifier:	Head of a notifier list containing notifier
+ *				blocks that are notified when the battery
+ *				presence changes
+ * @enter_irq_mode_work:	Work task that is scheduled after a transaction
+ *				completes when there are consumers that are
+ *				actively monitoring BIF slave interrupts
+ * @irq_count:			This is a count of the total number of BIF slave
+ *				interrupts that are currently being monitored
+ *				for the BIF slaves connected to this BIF
+ *				controller
+ * @irq_mode_delay_jiffies:	Number of jiffies to wait before scheduling the
+ *				enter IRQ mode task.  Using a larger value
+ *				helps to improve the performance of BIF
+ *				consumers that perform many BIF transactions.
+ *				Using a smaller value reduces the latency of
+ *				BIF slave interrupts.
+ * @battery_present:		Cached value of the battery presence.  This is
+ *				used to filter out spurious presence update
+ *				calls when the battery presence state has not
+ *				changed.
+ */
 struct bif_ctrl_dev {
 	struct list_head		list;
 	struct bif_ctrl_desc		*desc;
@@ -41,11 +74,58 @@ struct bif_ctrl_dev {
 	bool				battery_present;
 };
 
+/**
+ * struct bif_ctrl - handle used by BIF consumers for bus oriented BIF
+ *			operations
+ * @bdev:		Pointer to BIF controller device
+ * @exclusive_lock:	Flag which indicates that the BIF consumer responsible
+ *			for this handle has locked the BIF bus of this
+ *			controller.  BIF transactions from other consumers are
+ *			blocked until the bus is unlocked.
+ */
 struct bif_ctrl {
 	struct bif_ctrl_dev	*bdev;
 	bool			exclusive_lock;
 };
 
+/**
+ * struct bif_slave_dev - holds BIF slave device information
+ * @list:			Doubly-linked list parameter linking to other
+ *				BIF slaves that have been enumerated
+ * @bdev:			Pointer to the BIF controller device that this
+ *				slave is physically connected to
+ * @slave_addr:			8-bit BIF DEV_ADR assigned to this slave
+ * @unique_id:			80-bit BIF unique ID of the slave
+ * @unique_id_bits_known:	Number of bits of the UID that are currently
+ *				known.  This number starts is incremented during
+ *				a UID search and must end at 80 if the slave
+ *				responds to the search properly.
+ * @present:			Boolean value showing if this slave is
+*				physically present in the system at a given
+*				point in time.  The value is set to false if the
+*				battery pack containing the slave is
+*				disconnected.
+ * @l1_data:			BIF DDB L1 data of the slave as read from the
+ *				slave's memory
+ * @function_directory:		Pointer to the BIF DDB L2 function directory
+ *				list as read from the slave's memory
+ * @protocol_function:		Pointer to constant protocol function data as
+ *				well as software state information if the slave
+ *				has a protocol function
+ * @slave_ctrl_function:	Pointer to constant slave control function data
+ *				as well as software state information if the
+ *				slave has a slave control function
+ * @nvm_function:		Pointer to constant non-volatile memory function
+ *				data as well as software state information if
+ *				the slave has a non-volatile memory function
+ *
+ * bif_slave_dev objects are stored indefinitely after enumeration in order to
+ * speed up battery reinsertion.  Only a UID check is needed after inserting a
+ * battery assuming it has been enumerated before.
+ *
+ * unique_id bytes are stored such that unique_id[0] = MSB and
+ * unique_id[BIF_UNIQUE_ID_BYTE_LENGTH - 1] = LSB
+ */
 struct bif_slave_dev {
 	struct list_head			list;
 	struct bif_ctrl_dev			*bdev;
@@ -60,11 +140,18 @@ struct bif_slave_dev {
 	struct bif_nvm_function			*nvm_function;
 };
 
+/**
+ * struct bif_slave - handle used by BIF consumers for slave oriented BIF
+ *			operations
+ * @ctrl:		Consumer BIF controller handle data
+ * @sdev:		Pointer to BIF slave device
+ */
 struct bif_slave {
 	struct bif_ctrl				ctrl;
 	struct bif_slave_dev			*sdev;
 };
 
+/* Number of times to retry a full BIF transaction before returning an error. */
 #define BIF_TRANSACTION_RETRY_COUNT	5
 
 static DEFINE_MUTEX(bif_ctrl_list_mutex);
@@ -155,7 +242,7 @@ static void bif_print_slaves(void)
 	mutex_lock(&bif_sdev_list_mutex);
 
 	list_for_each_entry(sdev, &bif_sdev_list, list) {
-		
+		/* Skip slaves without fully known UIDs. */
 		if (sdev->unique_id_bits_known != BIF_UNIQUE_ID_BIT_LENGTH)
 			continue;
 		bif_print_slave_data(sdev);
@@ -196,6 +283,7 @@ static void bif_remove_slave(struct bif_slave_dev *sdev)
 	kfree(sdev);
 }
 
+/* This function assumes that the uid array is all 0 to start with. */
 static void set_uid_bit(u8 uid[BIF_UNIQUE_ID_BYTE_LENGTH], unsigned int bit,
 			unsigned int value)
 {
@@ -235,7 +323,7 @@ static void bif_enter_irq_mode_work(struct work_struct *work)
 	}
 	mutex_unlock(&bdev->mutex);
 
-	
+	/* Reschedule the task if the transaction failed. */
 	if (rc) {
 		pr_err("Could not set BIF bus to interrupt mode, rc=%d\n", rc);
 		schedule_delayed_work(&bdev->enter_irq_mode_work,
@@ -262,18 +350,18 @@ static int _bif_select_slave_no_retry(struct bif_slave_dev *sdev)
 	int rc = 0;
 	int i;
 
-	
+	/* Check if the slave is already selected. */
 	if (sdev->bdev->selected_sdev == sdev)
 		return 0;
 
 	if (sdev->slave_addr) {
-		
+		/* Select using DEV_ADR. */
 		rc = bdev->desc->ops->bus_transaction(bdev, BIF_TRANS_SDA,
 							sdev->slave_addr);
 		if (!rc)
 			sdev->bdev->selected_sdev = sdev;
 	} else if (sdev->unique_id_bits_known == BIF_UNIQUE_ID_BIT_LENGTH) {
-		
+		/* Select using full UID. */
 		for (i = 0; i < BIF_UNIQUE_ID_BYTE_LENGTH - 1; i++) {
 			rc = bdev->desc->ops->bus_transaction(bdev,
 				BIF_TRANS_EDA, sdev->unique_id[i]);
@@ -307,20 +395,24 @@ static int bif_select_slave(struct bif_slave_dev *sdev)
 		rc = _bif_select_slave_no_retry(sdev);
 		if (rc == 0)
 			break;
-		
+		/* Force slave reselection. */
 		sdev->bdev->selected_sdev = NULL;
 	}
 
 	return rc;
 }
 
+/*
+ * Returns 1 if slave is selected, 0 if slave is not selected, or errno if
+ * error.
+ */
 static int bif_is_slave_selected(struct bif_ctrl_dev *bdev)
 {
 	int rc = -EPERM;
 	int tack, i;
 
 	for (i = 0; i < BIF_TRANSACTION_RETRY_COUNT; i++) {
-		
+		/* Attempt a transaction query. */
 		rc = bdev->desc->ops->bus_transaction_read(bdev, BIF_TRANS_BC,
 						BIF_CMD_TQ, &tack);
 		if (rc == 0 || rc == -ETIMEDOUT)
@@ -337,6 +429,7 @@ static int bif_is_slave_selected(struct bif_ctrl_dev *bdev)
 	return rc;
 }
 
+/* Read from a specified number of consecutive registers. */
 static int _bif_slave_read_no_retry(struct bif_slave_dev *sdev, u16 addr,
 			u8 *buf, int len)
 {
@@ -349,12 +442,20 @@ static int _bif_slave_read_no_retry(struct bif_slave_dev *sdev, u16 addr,
 		return rc;
 
 	if (bdev->desc->ops->read_slave_registers) {
+		/*
+		 * Use low level slave register read implementation in order to
+		 * receive the benefits of BIF burst reads.
+		 */
 		rc = bdev->desc->ops->read_slave_registers(bdev, addr, buf,
 							   len);
 		if (rc)
 			pr_debug("read_slave_registers failed, rc=%d\n", rc);
 		else
 			return rc;
+		/*
+		 * Fall back on individual transactions if high level register
+		 * read failed.
+		 */
 	}
 
 	for (i = 0; i < len; i++) {
@@ -385,6 +486,10 @@ static int _bif_slave_read_no_retry(struct bif_slave_dev *sdev, u16 addr,
 	return rc;
 }
 
+/*
+ * Read from a specified number of consecutive registers.  Retry the transaction
+ * several times in case of communcation failures.
+ */
 static int _bif_slave_read(struct bif_slave_dev *sdev, u16 addr, u8 *buf,
 			int len)
 {
@@ -395,13 +500,14 @@ static int _bif_slave_read(struct bif_slave_dev *sdev, u16 addr, u8 *buf,
 		rc = _bif_slave_read_no_retry(sdev, addr, buf, len);
 		if (rc == 0)
 			break;
-		
+		/* Force slave reselection. */
 		sdev->bdev->selected_sdev = NULL;
 	}
 
 	return rc;
 }
 
+/* Write to a specified number of consecutive registers. */
 static int _bif_slave_write_no_retry(struct bif_slave_dev *sdev, u16 addr,
 			u8 *buf, int len)
 {
@@ -414,12 +520,20 @@ static int _bif_slave_write_no_retry(struct bif_slave_dev *sdev, u16 addr,
 		return rc;
 
 	if (bdev->desc->ops->write_slave_registers) {
+		/*
+		 * Use low level slave register write implementation in order to
+		 * receive the benefits of BIF burst writes.
+		 */
 		rc = bdev->desc->ops->write_slave_registers(bdev, addr, buf,
 							    len);
 		if (rc)
 			pr_debug("write_slave_registers failed, rc=%d\n", rc);
 		else
 			return rc;
+		/*
+		 * Fall back on individual transactions if high level register
+		 * write failed.
+		 */
 	}
 
 	rc = bdev->desc->ops->bus_transaction(bdev, BIF_TRANS_ERA, addr >> 8);
@@ -443,6 +557,10 @@ out:
 	return rc;
 }
 
+/*
+ * Write to a specified number of consecutive registers.  Retry the transaction
+ * several times in case of communcation failures.
+ */
 static int _bif_slave_write(struct bif_slave_dev *sdev, u16 addr, u8 *buf,
 			int len)
 {
@@ -453,13 +571,14 @@ static int _bif_slave_write(struct bif_slave_dev *sdev, u16 addr, u8 *buf,
 		rc = _bif_slave_write_no_retry(sdev, addr, buf, len);
 		if (rc == 0)
 			break;
-		
+		/* Force slave reselection. */
 		sdev->bdev->selected_sdev = NULL;
 	}
 
 	return rc;
 }
 
+/* Perform a read-modify-write sequence on a single BIF slave register. */
 static int _bif_slave_masked_write(struct bif_slave_dev *sdev, u16 addr, u8 val,
 			u8 mask)
 {
@@ -508,7 +627,7 @@ static int _bif_task_is_busy(struct bif_slave_dev *sdev, unsigned int task)
 		return rc;
 	}
 
-	
+	/* Check the task busy state. */
 	addr = SLAVE_CTRL_FUNC_TASK_BUSY_ADDR(
 		sdev->slave_ctrl_function->slave_ctrl_pointer, task);
 	rc = _bif_slave_read(sdev, addr, &reg, 1);
@@ -532,12 +651,12 @@ static int _bif_enable_auto_task(struct bif_slave_dev *sdev, unsigned int task)
 		return rc;
 	}
 
-	
+	/* Enable the auto task within the slave */
 	mask = BIT(task % SLAVE_CTRL_TASKS_PER_SET);
 	addr = SLAVE_CTRL_FUNC_TASK_AUTO_TRIGGER_ADDR(
 		sdev->slave_ctrl_function->slave_ctrl_pointer, task);
 	if (task / SLAVE_CTRL_TASKS_PER_SET == 0) {
-		
+		/* Set global auto task enable. */
 		mask |= BIT(0);
 	}
 	rc = _bif_slave_masked_write(sdev, addr, 0xFF, mask);
@@ -546,7 +665,7 @@ static int _bif_enable_auto_task(struct bif_slave_dev *sdev, unsigned int task)
 		return rc;
 	}
 
-	
+	/* Set global auto task enable if task not in set 0. */
 	if (task / SLAVE_CTRL_TASKS_PER_SET != 0) {
 		addr = SLAVE_CTRL_FUNC_TASK_AUTO_TRIGGER_ADDR(
 		       sdev->slave_ctrl_function->slave_ctrl_pointer, 0);
@@ -573,7 +692,7 @@ static int _bif_disable_auto_task(struct bif_slave_dev *sdev, unsigned int task)
 		return rc;
 	}
 
-	
+	/* Disable the auto task within the slave */
 	mask = BIT(task % SLAVE_CTRL_TASKS_PER_SET);
 	addr = SLAVE_CTRL_FUNC_TASK_AUTO_TRIGGER_ADDR(
 		sdev->slave_ctrl_function->slave_ctrl_pointer, task);
@@ -586,6 +705,11 @@ static int _bif_disable_auto_task(struct bif_slave_dev *sdev, unsigned int task)
 	return rc;
 }
 
+/*
+ * The MIPI-BIF spec does not define a maximum time in which an NVM write must
+ * complete.  The following delay and recheck count therefore represent
+ * arbitrary but reasonable values.
+ */
 #define NVM_WRITE_POLL_DELAY_MS		20
 #define NVM_WRITE_MAX_POLL_COUNT	50
 
@@ -626,7 +750,7 @@ static int _bif_slave_nvm_raw_write(struct bif_slave_dev *sdev, u16 offset,
 		write_buf[1] = offset;
 		write_buf[2] = (write_len == 256) ? 0 : write_len;
 
-		
+		/* Write offset and size registers. */
 		rc = _bif_slave_write(sdev, sdev->nvm_function->nvm_pointer + 6,
 					write_buf, 3);
 		if (rc) {
@@ -634,7 +758,7 @@ static int _bif_slave_nvm_raw_write(struct bif_slave_dev *sdev, u16 offset,
 			goto done;
 		}
 
-		
+		/* Write to NVM write buffer registers. */
 		rc = _bif_slave_write(sdev, sdev->nvm_function->nvm_pointer + 9,
 					buf, write_len);
 		if (rc) {
@@ -642,6 +766,11 @@ static int _bif_slave_nvm_raw_write(struct bif_slave_dev *sdev, u16 offset,
 			goto done;
 		}
 
+		/*
+		 * Wait for completion of the NVM write which was auto-triggered
+		 * by the register write of the last byte in the NVM write
+		 * buffer.
+		 */
 		poll_count = NVM_WRITE_MAX_POLL_COUNT;
 		do {
 			msleep(NVM_WRITE_POLL_DELAY_MS);
@@ -676,6 +805,7 @@ done:
 	return rc;
 }
 
+/* Takes a mutex if this consumer is not an exclusive bus user. */
 static void bif_ctrl_lock(struct bif_ctrl *ctrl)
 {
 	if (!ctrl->exclusive_lock) {
@@ -684,6 +814,7 @@ static void bif_ctrl_lock(struct bif_ctrl *ctrl)
 	}
 }
 
+/* Releases a mutex if this consumer is not an exclusive bus user. */
 static void bif_ctrl_unlock(struct bif_ctrl *ctrl)
 {
 	if (!ctrl->exclusive_lock) {
@@ -702,6 +833,15 @@ static void bif_slave_ctrl_unlock(struct bif_slave *slave)
 	bif_ctrl_unlock(&slave->ctrl);
 }
 
+/**
+ * bif_crc_ccitt() - calculate the CRC-CCITT CRC value of the data specified
+ * @buffer:	Data to calculate the CRC of
+ * @len:	Length of the data buffer in bytes
+ *
+ * MIPI-BIF specifies the usage of CRC-CCITT for BIF data objects.  This
+ * function performs the CRC calculation while taking into account the bit
+ * ordering used by BIF.
+ */
 u16 bif_crc_ccitt(const u8 *buffer, unsigned int len)
 {
 	u16 crc = 0xFFFF;
@@ -742,6 +882,21 @@ static int bif_check_task(struct bif_slave *slave, unsigned int task)
 	return _bif_check_task(slave->sdev, task);
 }
 
+/**
+ * bif_request_irq() - request a BIF slave IRQ by slave task number
+ * @slave:	BIF slave handle
+ * @task:	BIF task number of the IRQ inside of the slave.  This
+ *		corresponds to the slave control channel specified for a given
+ *		BIF function inside of the slave.
+ * @nb:		Notifier block to call when the IRQ fires
+ *
+ * This function registers a notifier block to call when the BIF slave interrupt
+ * is triggered and also enables the interrupt.  The interrupt is enabled inside
+ * of the BIF slave's slave control function and also the BIF bus is put into
+ * interrupt mode.
+ *
+ * Returns 0 for success or errno if an error occurred.
+ */
 int bif_request_irq(struct bif_slave *slave, unsigned int task,
 			struct notifier_block *nb)
 {
@@ -764,12 +919,12 @@ int bif_request_irq(struct bif_slave *slave, unsigned int task,
 		goto done;
 	}
 
-	
+	/* Enable the interrupt within the slave */
 	mask = BIT(task % SLAVE_CTRL_TASKS_PER_SET);
 	addr = SLAVE_CTRL_FUNC_IRQ_EN_ADDR(
 		slave->sdev->slave_ctrl_function->slave_ctrl_pointer, task);
 	if (task / SLAVE_CTRL_TASKS_PER_SET == 0) {
-		
+		/* Set global interrupt enable. */
 		mask |= BIT(0);
 	}
 	rc = _bif_slave_read(slave->sdev, addr, &reg, 1);
@@ -784,7 +939,7 @@ int bif_request_irq(struct bif_slave *slave, unsigned int task,
 		goto notifier_unregister;
 	}
 
-	
+	/* Set global interrupt enable if task not in set 0. */
 	if (task / SLAVE_CTRL_TASKS_PER_SET != 0) {
 		mask = BIT(0);
 		addr = SLAVE_CTRL_FUNC_IRQ_EN_ADDR(
@@ -826,6 +981,19 @@ notifier_unregister:
 }
 EXPORT_SYMBOL(bif_request_irq);
 
+/**
+ * bif_free_irq() - free a BIF slave IRQ by slave task number
+ * @slave:	BIF slave handle
+ * @task:	BIF task number of the IRQ inside of the slave.  This
+ *		corresponds to the slave control channel specified for a given
+ *		BIF function inside of the slave.
+ * @nb:		Notifier block previously registered with this interrupt
+ *
+ * This function unregisters a notifier block that was previously registered
+ * with bif_request_irq().
+ *
+ * Returns 0 for success or errno if an error occurred.
+ */
 int bif_free_irq(struct bif_slave *slave, unsigned int task,
 			struct notifier_block *nb)
 {
@@ -841,7 +1009,7 @@ int bif_free_irq(struct bif_slave *slave, unsigned int task,
 
 	bif_slave_ctrl_lock(slave);
 
-	
+	/* Disable the interrupt within the slave */
 	reg = BIT(task % SLAVE_CTRL_TASKS_PER_SET);
 	addr = SLAVE_CTRL_FUNC_IRQ_CLEAR_ADDR(
 		slave->sdev->slave_ctrl_function->slave_ctrl_pointer, task);
@@ -874,6 +1042,15 @@ done:
 }
 EXPORT_SYMBOL(bif_free_irq);
 
+/**
+ * bif_trigger_task() - trigger a task within a BIF slave
+ * @slave:	BIF slave handle
+ * @task:	BIF task inside of the slave to trigger.  This corresponds to
+ *		the slave control channel specified for a given BIF function
+ *		inside of the slave.
+ *
+ * Returns 0 for success or errno if an error occurred.
+ */
 int bif_trigger_task(struct bif_slave *slave, unsigned int task)
 {
 	int rc;
@@ -888,7 +1065,7 @@ int bif_trigger_task(struct bif_slave *slave, unsigned int task)
 
 	bif_slave_ctrl_lock(slave);
 
-	
+	/* Trigger the task within the slave. */
 	reg = BIT(task % SLAVE_CTRL_TASKS_PER_SET);
 	addr = SLAVE_CTRL_FUNC_TASK_TRIGGER_ADDR(
 		slave->sdev->slave_ctrl_function->slave_ctrl_pointer, task);
@@ -905,6 +1082,15 @@ done:
 }
 EXPORT_SYMBOL(bif_trigger_task);
 
+/**
+ * bif_enable_auto_task() - enable task auto triggering for the specified task
+ * @slave:	BIF slave handle
+ * @task:	BIF task inside of the slave to configure for automatic
+ *		triggering.  This corresponds to the slave control channel
+ *		specified for a given BIF function inside of the slave.
+ *
+ * Returns 0 for success or errno if an error occurred.
+ */
 int bif_enable_auto_task(struct bif_slave *slave, unsigned int task)
 {
 	int rc;
@@ -922,6 +1108,18 @@ int bif_enable_auto_task(struct bif_slave *slave, unsigned int task)
 }
 EXPORT_SYMBOL(bif_enable_auto_task);
 
+/**
+ * bif_disable_auto_task() - disable task auto triggering for the specified task
+ * @slave:	BIF slave handle
+ * @task:	BIF task inside of the slave to stop automatic triggering on.
+ *		This corresponds to the slave control channel specified for a
+ *		given BIF function inside of the slave.
+ *
+ * This function should be called after bif_enable_auto_task() in a paired
+ * fashion.
+ *
+ * Returns 0 for success or errno if an error occurred.
+ */
 int bif_disable_auto_task(struct bif_slave *slave, unsigned int task)
 {
 	int rc;
@@ -939,6 +1137,15 @@ int bif_disable_auto_task(struct bif_slave *slave, unsigned int task)
 }
 EXPORT_SYMBOL(bif_disable_auto_task);
 
+/**
+ * bif_task_is_busy() - checks the state of a BIF slave task
+ * @slave:	BIF slave handle
+ * @task:	BIF task inside of the slave to trigger.  This corresponds to
+ *		the slave control channel specified for a given	BIF function
+ *		inside of the slave.
+ *
+ * Returns 1 if the task is busy, 0 if it is not busy, and errno on error.
+ */
 int bif_task_is_busy(struct bif_slave *slave, unsigned int task)
 {
 	int rc;
@@ -996,7 +1203,7 @@ static int bif_slave_handle_irq(struct bif_slave_dev *sdev)
 		goto done;
 	}
 
-	
+	/* Check overall slave interrupt status. */
 	rc = bdev->desc->ops->bus_transaction_query(bdev, BIF_TRANS_BC,
 						    BIF_CMD_ISTS, &resp);
 	if (rc) {
@@ -1016,8 +1223,12 @@ static int bif_slave_handle_irq(struct bif_slave_dev *sdev)
 				goto done;
 			}
 
-			
+			/* Ensure that interrupts are pending in the set. */
 			if (reg != 0x00) {
+				/*
+				 * Release mutex before notifying consumers so
+				 * that they can use the bus.
+				 */
 				mutex_unlock(&sdev->bdev->mutex);
 				rc = bif_slave_notify_irqs(sdev, i, reg);
 				if (rc) {
@@ -1034,7 +1245,7 @@ static int bif_slave_handle_irq(struct bif_slave_dev *sdev)
 					goto done;
 				}
 
-				
+				/* Clear all interrupts in this set. */
 				rc = _bif_slave_write(sdev, addr, &reg, 1);
 				if (rc) {
 					pr_err("BIF slave register write failed, rc=%d\n",
@@ -1054,6 +1265,15 @@ notification_failed:
 	return rc;
 }
 
+/**
+ * bif_ctrl_notify_slave_irq() - notify the BIF framework that a slave interrupt
+ *				was received by a BIF controller
+ * @bdev:	BIF controller device pointer
+ *
+ * This function should only be called from a BIF controller driver.
+ *
+ * Returns 0 for success or errno if an error occurred.
+ */
 int bif_ctrl_notify_slave_irq(struct bif_ctrl_dev *bdev)
 {
 	struct bif_slave_dev *sdev;
@@ -1088,6 +1308,15 @@ int bif_ctrl_notify_slave_irq(struct bif_ctrl_dev *bdev)
 }
 EXPORT_SYMBOL(bif_ctrl_notify_slave_irq);
 
+/**
+ * bif_ctrl_notify_battery_changed() - notify the BIF framework that a battery
+ *				pack has been inserted or removed
+ * @bdev:	BIF controller device pointer
+ *
+ * This function should only be called from a BIF controller driver.
+ *
+ * Returns 0 for success or errno if an error occurred.
+ */
 int bif_ctrl_notify_battery_changed(struct bif_ctrl_dev *bdev)
 {
 	int rc = 0;
@@ -1120,6 +1349,17 @@ int bif_ctrl_notify_battery_changed(struct bif_ctrl_dev *bdev)
 }
 EXPORT_SYMBOL(bif_ctrl_notify_battery_changed);
 
+/**
+ * bif_ctrl_signal_battery_changed() - notify the BIF framework that a battery
+ *				pack has been inserted or removed
+ * @ctrl:	BIF controller consumer handle
+ *
+ * This function should only be called by a BIF consumer driver on systems where
+ * the BIF controller driver is unable to determine when a battery is inserted
+ * or removed.
+ *
+ * Returns 0 for success or errno if an error occurred.
+ */
 int bif_ctrl_signal_battery_changed(struct bif_ctrl *ctrl)
 {
 	if (IS_ERR_OR_NULL(ctrl))
@@ -1129,6 +1369,16 @@ int bif_ctrl_signal_battery_changed(struct bif_ctrl *ctrl)
 }
 EXPORT_SYMBOL(bif_ctrl_signal_battery_changed);
 
+/**
+ * bif_ctrl_notifier_register() - register a notifier block to be called when
+ *				a battery pack is inserted or removed
+ * @ctrl:	BIF controller consumer handle
+ *
+ * The value passed into the notifier when it is called is one of
+ * enum bif_bus_event.
+ *
+ * Returns 0 for success or errno if an error occurred.
+ */
 int bif_ctrl_notifier_register(struct bif_ctrl *ctrl, struct notifier_block *nb)
 {
 	int rc;
@@ -1145,6 +1395,13 @@ int bif_ctrl_notifier_register(struct bif_ctrl *ctrl, struct notifier_block *nb)
 }
 EXPORT_SYMBOL(bif_ctrl_notifier_register);
 
+/**
+ * bif_ctrl_notifier_unregister() - unregister a battery status change notifier
+ *				block that was previously registered
+ * @ctrl:	BIF controller consumer handle
+ *
+ * Returns 0 for success or errno if an error occurred.
+ */
 int bif_ctrl_notifier_unregister(struct bif_ctrl *ctrl,
 				 struct notifier_block *nb)
 {
@@ -1163,6 +1420,14 @@ int bif_ctrl_notifier_unregister(struct bif_ctrl *ctrl,
 }
 EXPORT_SYMBOL(bif_ctrl_notifier_unregister);
 
+/**
+ * bif_get_bus_handle() - returns the BIF controller consumer handle associated
+ *			with a BIF slave handle
+ * @slave:	BIF slave handle
+ *
+ * Note, bif_ctrl_put() should never be called for the pointer output by
+ * bif_get_bus_handle().
+ */
 struct bif_ctrl *bif_get_bus_handle(struct bif_slave *slave)
 {
 	if (IS_ERR_OR_NULL(slave))
@@ -1172,6 +1437,9 @@ struct bif_ctrl *bif_get_bus_handle(struct bif_slave *slave)
 }
 EXPORT_SYMBOL(bif_get_bus_handle);
 
+/**
+ * bif_ctrl_count() - returns the number of registered BIF controllers
+ */
 int bif_ctrl_count(void)
 {
 	struct bif_ctrl_dev *bdev;
@@ -1188,6 +1456,17 @@ int bif_ctrl_count(void)
 }
 EXPORT_SYMBOL(bif_ctrl_count);
 
+/**
+ * bif_ctrl_get_by_id() - get a handle for the id'th BIF controller registered
+ *			in the system
+ * @id:	Arbitrary number associated with the BIF bus in the system
+ *
+ * id must be in the range [0, bif_ctrl_count() - 1].  This function should only
+ * need to be called by a BIF consumer that is unable to link to a given BIF
+ * controller via a device tree binding.
+ *
+ * Returns a BIF controller consumer handle if successful or an ERR_PTR if not.
+ */
 struct bif_ctrl *bif_ctrl_get_by_id(unsigned int id)
 {
 	struct bif_ctrl_dev *bdev;
@@ -1219,6 +1498,19 @@ struct bif_ctrl *bif_ctrl_get_by_id(unsigned int id)
 }
 EXPORT_SYMBOL(bif_ctrl_get_by_id);
 
+/**
+ * bif_ctrl_get() - get a handle for the BIF controller that is linked to the
+ *			consumer device in the device tree
+ * @consumer_dev:	Pointer to the consumer's device
+ *
+ * In order to use this function, the BIF consumer's device must specify the
+ * "qcom,bif-ctrl" property in its device tree node which points to a BIF
+ * controller device node.
+ *
+ * Returns a BIF controller consumer handle if successful or an ERR_PTR if not.
+ * If the BIF controller linked to the consumer device has not yet probed, then
+ * ERR_PTR(-EPROBE_DEFER) is returned.
+ */
 struct bif_ctrl *bif_ctrl_get(struct device *consumer_dev)
 {
 	struct device_node *ctrl_node = NULL;
@@ -1261,6 +1553,10 @@ struct bif_ctrl *bif_ctrl_get(struct device *consumer_dev)
 }
 EXPORT_SYMBOL(bif_ctrl_get);
 
+/**
+ * bif_ctrl_put() - frees a BIF controller handle
+ * @ctrl:	BIF controller consumer handle
+ */
 void bif_ctrl_put(struct bif_ctrl *ctrl)
 {
 	if (!IS_ERR_OR_NULL(ctrl) && ctrl->exclusive_lock)
@@ -1279,6 +1575,12 @@ static bool bif_slave_object_match(const struct bif_object *object,
 		    || !(criteria->match_mask & BIF_MATCH_OBJ_MANUFACTURER_ID));
 }
 
+/*
+ * Returns true if all parameters are matched, otherwise false.
+ * function_type and function_version mean that their exists some function in
+ * the slave which has the specified type and subtype.  ctrl == NULL is treated
+ * as a wildcard.
+ */
 static bool bif_slave_match(struct bif_ctrl *ctrl,
 	struct bif_slave_dev *sdev, const struct bif_match_criteria *criteria)
 {
@@ -1344,6 +1646,13 @@ static bool bif_slave_match(struct bif_ctrl *ctrl,
 	return true;
 }
 
+/**
+ * bif_slave_match_count() - returns the number of slaves associated with the
+ *			specified BIF controller which fit the matching
+ *			criteria
+ * @ctrl:		BIF controller consumer handle
+ * @match_criteria:	Matching criteria used to filter slaves
+ */
 int bif_slave_match_count(struct bif_ctrl *ctrl,
 			const struct bif_match_criteria *match_criteria)
 {
@@ -1363,6 +1672,18 @@ int bif_slave_match_count(struct bif_ctrl *ctrl,
 }
 EXPORT_SYMBOL(bif_slave_match_count);
 
+/**
+ * bif_slave_match_get() - get a slave handle for the id'th slave associated
+ *			with the specified BIF controller which fits the
+ *			matching criteria
+ * @ctrl:		BIF controller consumer handle
+ * @id:			Index into the set of matching slaves
+ * @match_criteria:	Matching criteria used to filter slaves
+ *
+ * id must be in the range [0, bif_slave_match_count(ctrl, match_criteria) - 1].
+ *
+ * Returns a BIF slave handle if successful or an ERR_PTR if not.
+ */
 struct bif_slave *bif_slave_match_get(struct bif_ctrl *ctrl,
 	unsigned int id, const struct bif_match_criteria *match_criteria)
 {
@@ -1399,6 +1720,10 @@ struct bif_slave *bif_slave_match_get(struct bif_ctrl *ctrl,
 }
 EXPORT_SYMBOL(bif_slave_match_get);
 
+/**
+ * bif_slave_put() - frees a BIF slave handle
+ * @slave:	BIF slave handle
+ */
 void bif_slave_put(struct bif_slave *slave)
 {
 	if (!IS_ERR_OR_NULL(slave) && slave->ctrl.exclusive_lock)
@@ -1407,6 +1732,19 @@ void bif_slave_put(struct bif_slave *slave)
 }
 EXPORT_SYMBOL(bif_slave_put);
 
+/**
+ * bif_slave_find_function() - get the function pointer and version of a
+ *			BIF function if it is present on the specified slave
+ * @slave:		BIF slave handle
+ * @function:		BIF function to search for inside of the slave
+ * @version:		If the function is found, then 'version' is set to the
+ *			version value of the function
+ * @function_pointer:	If the function is found, then 'function_pointer' is set
+ *			to the BIF slave address of the function
+ *
+ * Returns 0 for success or errno if an error occurred.  If the function is not
+ * found in the slave, then -ENODEV is returned.
+ */
 int bif_slave_find_function(struct bif_slave *slave, u8 function, u8 *version,
 				u16 *function_pointer)
 {
@@ -1446,6 +1784,12 @@ static bool bif_object_match(const struct bif_object *object,
 		    || !(criteria->match_mask & BIF_OBJ_MATCH_MANUFACTURER_ID));
 }
 
+/**
+ * bif_object_match_count() - returns the number of objects associated with the
+ *			specified BIF slave which fit the matching criteria
+ * @slave:		BIF slave handle
+ * @match_criteria:	Matching criteria used to filter objects
+ */
 int bif_object_match_count(struct bif_slave *slave,
 			const struct bif_obj_match_criteria *match_criteria)
 {
@@ -1472,6 +1816,19 @@ int bif_object_match_count(struct bif_slave *slave,
 }
 EXPORT_SYMBOL(bif_object_match_count);
 
+/**
+ * bif_object_match_get() - get a BIF object handle for the id'th object found
+ *			in the non-volatile memory of the specified BIF slave
+ *			which fits the matching criteria
+ * @slave:		BIF slave handle
+ * @id:			Index into the set of matching objects
+ * @match_criteria:	Matching criteria used to filter objects
+ *
+ * id must be in range [0, bif_object_match_count(slave, match_criteria) - 1].
+ *
+ * Returns a BIF object handle if successful or an ERR_PTR if not.  This handle
+ * must be freed using bif_object_put() when it is no longer needed.
+ */
 struct bif_object *bif_object_match_get(struct bif_slave *slave,
 	unsigned int id, const struct bif_obj_match_criteria *match_criteria)
 {
@@ -1517,6 +1874,10 @@ struct bif_object *bif_object_match_get(struct bif_slave *slave,
 			goto done;
 		}
 
+		/*
+		 * Use prev pointer in consumer struct to point to original
+		 * struct in the internal linked list.
+		 */
 		object_consumer->list.prev = &object_found->list;
 	}
 
@@ -1528,6 +1889,11 @@ done:
 }
 EXPORT_SYMBOL(bif_object_match_get);
 
+/**
+ * bif_object_put() - frees the memory allocated for a BIF object pointer
+ *			returned by bif_object_match_get()
+ * @object:		BIF object to free
+ */
 void bif_object_put(struct bif_object *object)
 {
 	if (object)
@@ -1536,6 +1902,7 @@ void bif_object_put(struct bif_object *object)
 }
 EXPORT_SYMBOL(bif_object_put);
 
+/* Copies the contents of object into buf following MIPI-BIF formatting. */
 static void bif_object_flatten(u8 *buf, const struct bif_object *object)
 {
 	buf[0]			= object->type;
@@ -1549,6 +1916,19 @@ static void bif_object_flatten(u8 *buf, const struct bif_object *object)
 	buf[object->length - 1]	= object->crc;
 }
 
+/**
+ * bif_object_write() - writes a new BIF object at the end of the object list in
+ *			the non-volatile memory of a slave
+ * @slave:		BIF slave handle
+ * @type:		Type of the object
+ * @version:		Version of the object
+ * @manufacturer_id:	Manufacturer ID number allocated by MIPI
+ * @data:		Data contained in the object
+ * @data_len:		Length of the data
+ *
+ * Returns 0 on success or errno on failure.  This function will fail if the NVM
+ * lock points to an offset after the BIF object list terminator (0x00).
+ */
 int bif_object_write(struct bif_slave *slave, u8 type, u8 version,
 			u16 manufacturer_id, const u8 *data, int data_len)
 {
@@ -1654,12 +2034,20 @@ error_unlock:
 }
 EXPORT_SYMBOL(bif_object_write);
 
+/*
+ * Returns a pointer to the internal object referenced by a consumer object
+ * if it exists.  Returns NULL if the internal object cannot be found.
+ */
 static struct bif_object *bif_object_consumer_search(
 	struct bif_nvm_function *nvm, const struct bif_object *consumer_object)
 {
 	struct bif_object *object = NULL;
 	struct bif_object *search_object;
 
+	/*
+	 * Internal struct in object linked list is pointed to by consumer
+	 * object list.prev.
+	 */
 	search_object = list_entry(consumer_object->list.prev,
 					struct bif_object, list);
 
@@ -1763,7 +2151,7 @@ int bif_object_overwrite(struct bif_slave *slave,
 	}
 	kfree(buf);
 
-	
+	/* Update internal object struct. */
 	edit_object->type		= type;
 	edit_object->version		= version;
 	edit_object->manufacturer_id	= manufacturer_id;
@@ -1771,7 +2159,7 @@ int bif_object_overwrite(struct bif_slave *slave,
 	memcpy(edit_object->data, data, data_len);
 	edit_object->crc		= crc;
 
-	
+	/* Update consumer object struct. */
 	object->type			= type;
 	object->version			= version;
 	object->manufacturer_id		= manufacturer_id;
@@ -1786,6 +2174,21 @@ error_unlock:
 }
 EXPORT_SYMBOL(bif_object_overwrite);
 
+/**
+ * bif_object_delete() - deletes an existing BIF object found in the
+ *			non-volatile memory of a slave.  Objects found in the
+ *			object list in the NVM of the slave are shifted forward
+ *			in order to fill the hole left by the deleted object
+ * @slave:		BIF slave handle
+ * @object:		Existing object in the slave to delete
+ *
+ * Returns 0 on success or errno on failure.  bif_object_put() must still be
+ * called after this function in order to free the memory in the consumer
+ * 'object' struct pointer.
+ *
+ * This function will fail if the NVM lock points to an offset after the
+ * beginning of the existing BIF object.
+ */
 int bif_object_delete(struct bif_slave *slave, const struct bif_object *object)
 {
 	struct bif_object *del_object = NULL;
@@ -1829,6 +2232,10 @@ int bif_object_delete(struct bif_slave *slave, const struct bif_object *object)
 		goto error_unlock;
 	}
 
+	/*
+	 * Copy the contents of objects after the one to be deleted into a flat
+	 * array.
+	 */
 	list_for_each_entry(tail_object, &nvm->object_list, list) {
 		if (found) {
 			bif_object_flatten(&buf[pos], tail_object);
@@ -1838,7 +2245,7 @@ int bif_object_delete(struct bif_slave *slave, const struct bif_object *object)
 		}
 	}
 
-	
+	/* Add the list terminator. */
 	buf[pos++] = BIF_OBJ_END_OF_LIST;
 
 	rc = _bif_slave_nvm_raw_write(slave->sdev,
@@ -1850,7 +2257,7 @@ int bif_object_delete(struct bif_slave *slave, const struct bif_object *object)
 	}
 	kfree(buf);
 
-	
+	/* Update the addresses of the objects after the one to be deleted. */
 	found = false;
 	list_for_each_entry(tail_object, &nvm->object_list, list) {
 		if (found)
@@ -1871,6 +2278,15 @@ error_unlock:
 }
 EXPORT_SYMBOL(bif_object_delete);
 
+/**
+ * bif_slave_read() - read contiguous memory values from a BIF slave
+ * @slave:	BIF slave handle
+ * @addr:	BIF slave address to begin reading at
+ * @buf:	Buffer to fill with memory values
+ * @len:	Number of byte to read
+ *
+ * Returns 0 for success or errno if an error occurred.
+ */
 int bif_slave_read(struct bif_slave *slave, u16 addr, u8 *buf, int len)
 {
 	int rc;
@@ -1892,6 +2308,15 @@ int bif_slave_read(struct bif_slave *slave, u16 addr, u8 *buf, int len)
 }
 EXPORT_SYMBOL(bif_slave_read);
 
+/**
+ * bif_slave_write() - write contiguous memory values to a BIF slave
+ * @slave:	BIF slave handle
+ * @addr:	BIF slave address to begin writing at
+ * @buf:	Buffer containing values to write
+ * @len:	Number of byte to write
+ *
+ * Returns 0 for success or errno if an error occurred.
+ */
 int bif_slave_write(struct bif_slave *slave, u16 addr, u8 *buf, int len)
 {
 	int rc;
@@ -1913,6 +2338,16 @@ int bif_slave_write(struct bif_slave *slave, u16 addr, u8 *buf, int len)
 }
 EXPORT_SYMBOL(bif_slave_write);
 
+/**
+ * bif_slave_nvm_raw_read() - read contiguous memory values from a BIF slave's
+ *		non-volatile memory (NVM)
+ * @slave:	BIF slave handle
+ * @offset:	Offset from the beginning of BIF slave NVM to begin reading at
+ * @buf:	Buffer to fill with memory values
+ * @len:	Number of byte to read
+ *
+ * Returns 0 for success or errno if an error occurred.
+ */
 int bif_slave_nvm_raw_read(struct bif_slave *slave, u16 offset, u8 *buf,
 				int len)
 {
@@ -1936,6 +2371,20 @@ int bif_slave_nvm_raw_read(struct bif_slave *slave, u16 offset, u8 *buf,
 }
 EXPORT_SYMBOL(bif_slave_nvm_raw_read);
 
+/**
+ * bif_slave_nvm_raw_write() - write contiguous memory values to a BIF slave's
+ *		non-volatile memory (NVM)
+ * @slave:	BIF slave handle
+ * @offset:	Offset from the beginning of BIF slave NVM to begin writing at
+ * @buf:	Buffer containing values to write
+ * @len:	Number of byte to write
+ *
+ * Note that this function does *not* respect the MIPI-BIF object data
+ * formatting specification.  It can cause corruption of the object data list
+ * stored in NVM if used improperly.
+ *
+ * Returns 0 for success or errno if an error occurred.
+ */
 int bif_slave_nvm_raw_write(struct bif_slave *slave, u16 offset, u8 *buf,
 				int len)
 {
@@ -1957,6 +2406,17 @@ int bif_slave_nvm_raw_write(struct bif_slave *slave, u16 offset, u8 *buf,
 }
 EXPORT_SYMBOL(bif_slave_nvm_raw_write);
 
+/**
+ * bif_slave_is_present() - check if a slave is currently physically present
+ *		in the system
+ * @slave:	BIF slave handle
+ *
+ * Returns 1 if the slave is present, 0 if the slave is not present, or errno
+ * if an error occurred.
+ *
+ * This function can be used by BIF consumer drivers to check if their slave
+ * handles are still meaningful after battery reinsertion.
+ */
 int bif_slave_is_present(struct bif_slave *slave)
 {
 	if (IS_ERR_OR_NULL(slave)) {
@@ -1968,6 +2428,19 @@ int bif_slave_is_present(struct bif_slave *slave)
 }
 EXPORT_SYMBOL(bif_slave_is_present);
 
+/**
+ * bif_slave_is_selected() - check if a slave is currently selected on the BIF
+ *		bus
+ * @slave:	BIF slave handle
+ *
+ * Returns 1 if the slave is selected, 0 if the slave is not selected, or errno
+ * if an error occurred.
+ *
+ * This function should not be required under normal circumstances since the
+ * bif-core framework ensures that slaves are always selected when needed.
+ * It would be most useful when used as a helper in conjunction with
+ * bif_ctrl_bus_lock() and the raw transaction functions.
+ */
 int bif_slave_is_selected(struct bif_slave *slave)
 {
 	int rc;
@@ -1988,6 +2461,17 @@ int bif_slave_is_selected(struct bif_slave *slave)
 }
 EXPORT_SYMBOL(bif_slave_is_selected);
 
+/**
+ * bif_slave_select() - select a slave on the BIF bus
+ * @slave:	BIF slave handle
+ *
+ * Returns 0 on success or errno if an error occurred.
+ *
+ * This function should not be required under normal circumstances since the
+ * bif-core framework ensures that slaves are always selected when needed.
+ * It would be most useful when used as a helper in conjunction with
+ * bif_ctrl_bus_lock() and the raw transaction functions.
+ */
 int bif_slave_select(struct bif_slave *slave)
 {
 	int rc;
@@ -2006,6 +2490,25 @@ int bif_slave_select(struct bif_slave *slave)
 }
 EXPORT_SYMBOL(bif_slave_select);
 
+/**
+ * bif_ctrl_raw_transaction() - perform a raw BIF transaction on the bus which
+ *			expects no slave response
+ * @ctrl:		BIF controller consumer handle
+ * @transaction:	BIF transaction to carry out.  This should be one of the
+ *			values in enum bif_transaction.
+ * @data:		8-bit data to use in the transaction.  The meaning of
+ *			this data depends upon the transaction that is to be
+ *			performed.
+ *
+ * When performing a bus command (BC) transaction, values in enum
+ * bif_bus_command may be used for the data parameter.  Additional manufacturer
+ * specific values may also be used in a BC transaction.
+ *
+ * Returns 0 on success or errno if an error occurred.
+ *
+ * This function should only need to be used when BIF transactions are required
+ * that are not handled by the bif-core directly.
+ */
 int bif_ctrl_raw_transaction(struct bif_ctrl *ctrl, int transaction, u8 data)
 {
 	int rc;
@@ -2028,6 +2531,28 @@ int bif_ctrl_raw_transaction(struct bif_ctrl *ctrl, int transaction, u8 data)
 }
 EXPORT_SYMBOL(bif_ctrl_raw_transaction);
 
+/**
+ * bif_ctrl_raw_transaction_read() - perform a raw BIF transaction on the bus
+ *			which expects an RD or TACK slave response word
+ * @ctrl:		BIF controller consumer handle
+ * @transaction:	BIF transaction to carry out.  This should be one of the
+ *			values in enum bif_transaction.
+ * @data:		8-bit data to use in the transaction.  The meaning of
+ *			this data depends upon the transaction that is to be
+ *			performed.
+ * @response:		Pointer to an integer which is filled with the 11-bit
+ *			slave response word upon success.  The 11-bit format is
+ *			(MSB to LSB) BCF, ACK, EOT, D7-D0.
+ *
+ * When performing a bus command (BC) transaction, values in enum
+ * bif_bus_command may be used for the data parameter.  Additional manufacturer
+ * specific values may also be used in a BC transaction.
+ *
+ * Returns 0 on success or errno if an error occurred.
+ *
+ * This function should only need to be used when BIF transactions are required
+ * that are not handled by the bif-core directly.
+ */
 int bif_ctrl_raw_transaction_read(struct bif_ctrl *ctrl, int transaction,
 					u8 data, int *response)
 {
@@ -2051,6 +2576,28 @@ int bif_ctrl_raw_transaction_read(struct bif_ctrl *ctrl, int transaction,
 }
 EXPORT_SYMBOL(bif_ctrl_raw_transaction_read);
 
+/**
+ * bif_ctrl_raw_transaction_query() - perform a raw BIF transaction on the bus
+ *			which expects a BQ slave response
+ * @ctrl:		BIF controller consumer handle
+ * @transaction:	BIF transaction to carry out.  This should be one of the
+ *			values in enum bif_transaction.
+ * @data:		8-bit data to use in the transaction.  The meaning of
+ *			this data depends upon the transaction that is to be
+ *			performed.
+ * @query_response:	Pointer to boolean which is set to true if a BQ pulse
+ *			is receieved, or false if no BQ pulse is received before
+ *			timing out.
+ *
+ * When performing a bus command (BC) transaction, values in enum
+ * bif_bus_command may be used for the data parameter.  Additional manufacturer
+ * specific values may also be used in a BC transaction.
+ *
+ * Returns 0 on success or errno if an error occurred.
+ *
+ * This function should only need to be used when BIF transactions are required
+ * that are not handled by the bif-core directly.
+ */
 int bif_ctrl_raw_transaction_query(struct bif_ctrl *ctrl, int transaction,
 		u8 data, bool *query_response)
 {
@@ -2074,6 +2621,14 @@ int bif_ctrl_raw_transaction_query(struct bif_ctrl *ctrl, int transaction,
 }
 EXPORT_SYMBOL(bif_ctrl_raw_transaction_query);
 
+/**
+ * bif_ctrl_bus_lock() - lock the BIF bus of a controller for exclusive access
+ * @ctrl:	BIF controller consumer handle
+ *
+ * This function should only need to be called in circumstances where a BIF
+ * consumer is issuing special BIF bus commands that have strict ordering
+ * requirements.
+ */
 void bif_ctrl_bus_lock(struct bif_ctrl *ctrl)
 {
 	if (IS_ERR_OR_NULL(ctrl)) {
@@ -2092,6 +2647,13 @@ void bif_ctrl_bus_lock(struct bif_ctrl *ctrl)
 }
 EXPORT_SYMBOL(bif_ctrl_bus_lock);
 
+/**
+ * bif_ctrl_bus_unlock() - lock the BIF bus of a controller that was previously
+ *		locked for exclusive access
+ * @ctrl:	BIF controller consumer handle
+ *
+ * This function must only be called after first calling bif_ctrl_bus_lock().
+ */
 void bif_ctrl_bus_unlock(struct bif_ctrl *ctrl)
 {
 	if (IS_ERR_OR_NULL(ctrl)) {
@@ -2110,6 +2672,14 @@ void bif_ctrl_bus_unlock(struct bif_ctrl *ctrl)
 }
 EXPORT_SYMBOL(bif_ctrl_bus_unlock);
 
+/**
+ * bif_ctrl_measure_rid() - measure the battery pack Rid pull-down resistance
+ *		in ohms
+ * @ctrl:	BIF controller consumer handle
+ *
+ * Returns the resistance of the Rid resistor in ohms if successful or errno
+ * if an error occurred.
+ */
 int bif_ctrl_measure_rid(struct bif_ctrl *ctrl)
 {
 	int rc;
@@ -2136,6 +2706,13 @@ int bif_ctrl_measure_rid(struct bif_ctrl *ctrl)
 }
 EXPORT_SYMBOL(bif_ctrl_measure_rid);
 
+/**
+ * bif_ctrl_get_bus_period() - get the BIF bus period (tau_bif) in nanoseconds
+ * @ctrl:	BIF controller consumer handle
+ *
+ * Returns the currently configured bus period in nanoseconds if successful or
+ * errno if an error occurred.
+ */
 int bif_ctrl_get_bus_period(struct bif_ctrl *ctrl)
 {
 	int rc;
@@ -2158,6 +2735,16 @@ int bif_ctrl_get_bus_period(struct bif_ctrl *ctrl)
 }
 EXPORT_SYMBOL(bif_ctrl_get_bus_period);
 
+/**
+ * bif_ctrl_set_bus_period() - set the BIF bus period (tau_bif) in nanoseconds
+ * @ctrl:	BIF controller consumer handle
+ * @period_ns:	BIF bus period in nanoseconds to use
+ *
+ * If the exact period is not supported by the BIF controller hardware, then the
+ * next larger supported period will be used.
+ *
+ * Returns 0 on success or errno if an error occurred.
+ */
 int bif_ctrl_set_bus_period(struct bif_ctrl *ctrl, int period_ns)
 {
 	int rc;
@@ -2182,6 +2769,13 @@ int bif_ctrl_set_bus_period(struct bif_ctrl *ctrl, int period_ns)
 }
 EXPORT_SYMBOL(bif_ctrl_set_bus_period);
 
+/**
+ * bif_ctrl_get_bus_state() - get the current state of the BIF bus
+ * @ctrl:	BIF controller consumer handle
+ *
+ * Returns a bus state from enum bif_bus_state if successful or errno if an
+ * error occurred.
+ */
 int bif_ctrl_get_bus_state(struct bif_ctrl *ctrl)
 {
 	int rc;
@@ -2199,6 +2793,13 @@ int bif_ctrl_get_bus_state(struct bif_ctrl *ctrl)
 }
 EXPORT_SYMBOL(bif_ctrl_get_bus_state);
 
+/**
+ * bif_ctrl_set_bus_state() - set the state of the BIF bus
+ * @ctrl:	BIF controller consumer handle
+ * @state:	State for the BIF bus to enter
+ *
+ * Returns 0 on success or errno if an error occurred.
+ */
 int bif_ctrl_set_bus_state(struct bif_ctrl *ctrl, enum bif_bus_state state)
 {
 	int rc;
@@ -2214,6 +2815,10 @@ int bif_ctrl_set_bus_state(struct bif_ctrl *ctrl, enum bif_bus_state state)
 	if (rc < 0)
 		pr_err("Error during bus state configuration, rc=%d\n", rc);
 
+	/*
+	 * Uncache the selected slave if the new bus state results in the slave
+	 * becoming unselected.
+	 */
 	if (state == BIF_BUS_STATE_MASTER_DISABLED
 	    || state == BIF_BUS_STATE_POWER_DOWN
 	    || state == BIF_BUS_STATE_STANDBY)
@@ -2225,13 +2830,17 @@ int bif_ctrl_set_bus_state(struct bif_ctrl *ctrl, enum bif_bus_state state)
 }
 EXPORT_SYMBOL(bif_ctrl_set_bus_state);
 
+/*
+ * Check if the specified function is a protocol function and if it is, then
+ * instantiate protocol function data for the slave.
+ */
 static int bif_initialize_protocol_function(struct bif_slave_dev *sdev,
 		struct bif_ddb_l2_data *func)
 {
 	int rc = 0;
 	u8 buf[4];
 
-	
+	/* Ensure that this is a protocol function. */
 	if (func->function_type != BIF_FUNC_PROTOCOL)
 		return 0;
 
@@ -2265,10 +2874,10 @@ static int bif_initialize_protocol_function(struct bif_slave_dev *sdev,
 		return rc;
 	}
 
-	
+	/* Check if this slave does not have a UID value stored. */
 	if (sdev->unique_id_bits_known == 0) {
 		sdev->unique_id_bits_known = BIF_UNIQUE_ID_BIT_LENGTH;
-		
+		/* Fill in UID using manufacturer ID and device ID. */
 		sdev->unique_id[0] = sdev->l1_data.manufacturer_id >> 8;
 		sdev->unique_id[1] = sdev->l1_data.manufacturer_id;
 		memcpy(&sdev->unique_id[2],
@@ -2279,6 +2888,10 @@ static int bif_initialize_protocol_function(struct bif_slave_dev *sdev,
 	return rc;
 }
 
+/*
+ * Check if the specified function is a slave control function and if it is,
+ * then instantiate slave control function data for the slave.
+ */
 static int bif_initialize_slave_control_function(struct bif_slave_dev *sdev,
 		struct bif_ddb_l2_data *func)
 {
@@ -2286,7 +2899,7 @@ static int bif_initialize_slave_control_function(struct bif_slave_dev *sdev,
 	int i;
 	u8 buf[3];
 
-	
+	/* Ensure that this is a slave control function. */
 	if (func->function_type != BIF_FUNC_SLAVE_CONTROL)
 		return 0;
 
@@ -2334,6 +2947,10 @@ static int bif_initialize_slave_control_function(struct bif_slave_dev *sdev,
 	return rc;
 }
 
+/*
+ * Check if the specified function is an NVM function and if it is, then
+ * instantiate NVM function data for the slave and read all objects.
+ */
 static int bif_initialize_nvm_function(struct bif_slave_dev *sdev,
 		struct bif_ddb_l2_data *func)
 {
@@ -2345,7 +2962,7 @@ static int bif_initialize_nvm_function(struct bif_slave_dev *sdev,
 	u16 addr;
 	u16 crc;
 
-	
+	/* Ensure that this is an NVM function. */
 	if (func->function_type != BIF_FUNC_NVM)
 		return 0;
 
@@ -2374,7 +2991,7 @@ static int bif_initialize_nvm_function(struct bif_slave_dev *sdev,
 	sdev->nvm_function->nvm_base_address		= buf[4] << 8 | buf[5];
 	sdev->nvm_function->nvm_size			= buf[6] << 8 | buf[7];
 
-	
+	/* Read NVM lock offset */
 	rc = _bif_slave_read(sdev, sdev->nvm_function->nvm_pointer, buf, 2);
 	if (rc) {
 		pr_err("Slave memory read failed, rc=%d\n", rc);
@@ -2385,7 +3002,7 @@ static int bif_initialize_nvm_function(struct bif_slave_dev *sdev,
 
 	INIT_LIST_HEAD(&sdev->nvm_function->object_list);
 
-	
+	/* Read object list */
 	addr = sdev->nvm_function->nvm_base_address;
 	rc = _bif_slave_read(sdev, addr, &object_type, 1);
 	if (rc) {
@@ -2423,13 +3040,13 @@ static int bif_initialize_nvm_function(struct bif_slave_dev *sdev,
 				sdev->nvm_function->nvm_size,
 				object->addr,
 				object->length);
-			
+			/* Limit object size to remaining NVM size. */
 			object->length = sdev->nvm_function->nvm_size
 				+ sdev->nvm_function->nvm_base_address
 				- object->addr;
 		}
 
-		
+		/* Object header + CRC takes up 8 bytes. */
 		data_len = object->length - 8;
 		object->data = kmalloc(data_len, GFP_KERNEL);
 		if (!object->data) {
@@ -2511,7 +3128,7 @@ static int bif_parse_slave_data(struct bif_slave_dev *sdev)
 		return -EPROTO;
 	}
 
-	
+	/* No DDB L2 function directory */
 	if (function_count == 0)
 		return 0;
 
@@ -2628,6 +3245,10 @@ free_slave:
 	return rc;
 }
 
+/*
+ * Performs UID search to identify all slaves attached to the bus. Assumes that
+ * all necessary locks are held.
+ */
 static int bif_perform_uid_search(struct bif_ctrl_dev *bdev)
 {
 	struct bif_slave_dev *sdev;
@@ -2638,13 +3259,17 @@ static int bif_perform_uid_search(struct bif_ctrl_dev *bdev)
 	u8 cmd_probe[2] = {BIF_CMD_DIP0, BIF_CMD_DIP1};
 	u8 cmd_enter[2] = {BIF_CMD_DIE0, BIF_CMD_DIE1};
 
+	/*
+	 * Iterate over all partially known UIDs adding new ones as they are
+	 * found.
+	 */
 	list_for_each_entry(sdev, &bif_sdev_list, list) {
-		
+		/* Skip slaves with fully known UIDs. */
 		if (sdev->unique_id_bits_known == BIF_UNIQUE_ID_BIT_LENGTH
 		    || sdev->bdev != bdev)
 			continue;
 
-		
+		/* Begin a new UID search. */
 		rc = bdev->desc->ops->bus_transaction(bdev, BIF_TRANS_BC,
 							BIF_CMD_DISS);
 		if (rc) {
@@ -2652,7 +3277,7 @@ static int bif_perform_uid_search(struct bif_ctrl_dev *bdev)
 			return rc;
 		}
 
-		
+		/* Step through all known UID bits (MSB to LSB). */
 		for (i = 0; i < sdev->unique_id_bits_known; i++) {
 			rc = bdev->desc->ops->bus_transaction(bdev,
 				BIF_TRANS_BC,
@@ -2663,7 +3288,7 @@ static int bif_perform_uid_search(struct bif_ctrl_dev *bdev)
 			}
 		}
 
-		
+		/* Step through unknown UID bits. */
 		for (i = sdev->unique_id_bits_known;
 				i < BIF_UNIQUE_ID_BIT_LENGTH; i++) {
 			rc = bdev->desc->ops->bus_transaction_query(bdev,
@@ -2681,7 +3306,7 @@ static int bif_perform_uid_search(struct bif_ctrl_dev *bdev)
 			}
 
 			if (resp[0] && resp[1]) {
-				
+				/* Create an entry for the new UID branch. */
 				new_slave = bif_add_slave(bdev);
 				if (IS_ERR(new_slave)) {
 					rc = PTR_ERR(sdev);
@@ -2745,6 +3370,10 @@ static int bif_perform_uid_search(struct bif_ctrl_dev *bdev)
 	return rc;
 }
 
+/*
+ * Removes slaves from the bif_sdev_list which have the same UID as previous
+ * slaves in the list.
+ */
 static int bif_remove_duplicate_slaves(struct bif_ctrl_dev *bdev)
 {
 	struct bif_slave_dev *sdev;
@@ -2785,7 +3414,7 @@ static int bif_add_all_slaves(struct bif_ctrl_dev *bdev)
 	}
 
 	if (!has_slave) {
-		
+		/* Create a single empty slave to start the search algorithm. */
 		sdev = bif_add_slave(bdev);
 		if (IS_ERR(sdev)) {
 			rc = PTR_ERR(sdev);
@@ -2794,7 +3423,7 @@ static int bif_add_all_slaves(struct bif_ctrl_dev *bdev)
 		}
 
 		for (i = 0; i < BIF_TRANSACTION_RETRY_COUNT; i++) {
-			
+			/* Attempt to select primary slave in battery pack. */
 			rc = bdev->desc->ops->bus_transaction(bdev,
 				BIF_TRANS_SDA, BIF_PRIMARY_SLAVE_DEV_ADR);
 			if (rc == 0)
@@ -2805,7 +3434,7 @@ static int bif_add_all_slaves(struct bif_ctrl_dev *bdev)
 			goto out;
 		}
 
-		
+		/* Check if a slave is selected. */
 		rc = bif_is_slave_selected(bdev);
 		if (rc < 0) {
 			pr_err("BIF bus_transaction failed, rc=%d\n", rc);
@@ -2866,7 +3495,7 @@ static int bif_add_known_slave(struct bif_ctrl_dev *bdev, u8 slave_addr)
 	int i;
 
 	for (i = 0; i < BIF_TRANSACTION_RETRY_COUNT; i++) {
-		
+		/* Attempt to select the slave. */
 		rc = bdev->desc->ops->bus_transaction(bdev, BIF_TRANS_SDA,
 							slave_addr);
 		if (rc == 0)
@@ -2877,7 +3506,7 @@ static int bif_add_known_slave(struct bif_ctrl_dev *bdev, u8 slave_addr)
 		return rc;
 	}
 
-	
+	/* Check if a slave is selected. */
 	rc = bif_is_slave_selected(bdev);
 	if (rc < 0) {
 		pr_err("BIF bus_transaction failed, rc=%d\n", rc);
@@ -2948,6 +3577,10 @@ out:
 	return rc;
 }
 
+/*
+ * Programs a device address for the specified slave in order to simplify
+ * slave selection in the future.
+ */
 static int bif_assign_slave_dev_addr(struct bif_slave_dev *sdev, u8 dev_addr)
 {
 	int rc;
@@ -2970,6 +3603,7 @@ static int bif_assign_slave_dev_addr(struct bif_slave_dev *sdev, u8 dev_addr)
 	return rc;
 }
 
+/* Assigns a unique device address to all slaves which do not have one. */
 static int bif_assign_all_slaves_dev_addr(struct bif_ctrl_dev *bdev)
 {
 	struct bif_slave_dev *sdev;
@@ -2982,7 +3616,15 @@ static int bif_assign_all_slaves_dev_addr(struct bif_ctrl_dev *bdev)
 	mutex_lock(&bdev->mutex);
 
 	first_dev_addr = next_dev_addr;
+	/*
+	 * Iterate over all partially known UIDs adding new ones as they are
+	 * found.
+	 */
 	list_for_each_entry(sdev, &bif_sdev_list, list) {
+		/*
+		 * Skip slaves without known UIDs, which already have a device
+		 * address or which aren't present.
+		 */
 		if (sdev->unique_id_bits_known != BIF_UNIQUE_ID_BIT_LENGTH
 		    || sdev->slave_addr != 0x00 || !sdev->present)
 			continue;
@@ -3025,6 +3667,10 @@ out:
 	return rc;
 }
 
+/**
+ * bdev_get_drvdata() - get the private BIF controller driver data
+ * @bdev:	BIF controller device pointer
+ */
 void *bdev_get_drvdata(struct bif_ctrl_dev *bdev)
 {
 	return bdev->driver_data;
@@ -3065,6 +3711,16 @@ static const char *bif_get_battery_pack_type(int rid_ohm)
 	return label;
 }
 
+/**
+ * bif_ctrl_register() - register a BIF controller with the BIF framework
+ * @bif_desc:		Pointer to BIF controller descriptor
+ * @dev:		Device pointer of the BIF controller
+ * @driver_data:	Private driver data to associate with the BIF controller
+ * @of_node		Pointer to the device tree node of the BIF controller
+ *
+ * Returns a BIF controller device pointer for the controller if registration
+ * is successful or an ERR_PTR if an error occurred.
+ */
 struct bif_ctrl_dev *bif_ctrl_register(struct bif_ctrl_desc *bif_desc,
 	struct device *dev, void *driver_data, struct device_node *of_node)
 {
@@ -3153,7 +3809,7 @@ struct bif_ctrl_dev *bif_ctrl_register(struct bif_ctrl_desc *bif_desc,
 
 	BLOCKING_INIT_NOTIFIER_HEAD(&bdev->bus_change_notifier);
 
-	
+	/* Disable the BIF bus master if no slaves are found. */
 	if (!slaves_present) {
 		rc = bdev->desc->ops->set_bus_state(bdev,
 			BIF_BUS_STATE_MASTER_DISABLED);
@@ -3173,6 +3829,10 @@ struct bif_ctrl_dev *bif_ctrl_register(struct bif_ctrl_desc *bif_desc,
 }
 EXPORT_SYMBOL(bif_ctrl_register);
 
+/**
+ * bif_ctrl_unregister() - unregisters a BIF controller
+ * @bdev:	BIF controller device pointer
+ */
 void bif_ctrl_unregister(struct bif_ctrl_dev *bdev)
 {
 	if (bdev) {

@@ -159,8 +159,9 @@
 
 #define NPHY_ADJUSTED_MINCRSPOWER 0x1e
 
-#define CCTRL5357_EXTPA            (1<<14) 
-#define CCTRL5357_ANT_MUX_2o3      (1<<15) 
+/* 5357 Chip specific ChipControl register bits */
+#define CCTRL5357_EXTPA            (1<<14) /* extPA in ChipControl 1, bit 14 */
+#define CCTRL5357_ANT_MUX_2o3      (1<<15) /* 2o3 in ChipControl 1, bit 15 */
 
 #define NPHY_CAL_TSSISAMPS      64
 #define NPHY_TEST_TONE_FREQ_40MHz 4000
@@ -17886,7 +17887,7 @@ static void wlc_phy_txpwrctrl_pwr_setup_nphy(struct brcms_phy *pi)
 		}
 	}
 
-	
+	/* use the provided transmit power */
 	target_pwr_qtrdbm[0] = (s8) pi->tx_power_max;
 	target_pwr_qtrdbm[1] = (s8) pi->tx_power_max;
 

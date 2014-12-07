@@ -36,7 +36,12 @@ static uint64_t	beatic_irq_mask_ack[(MAX_IRQS+255)/64];
 
 static struct irq_domain *beatic_host;
 
+/*
+ * In this implementation, "virq" == "IRQ plug number",
+ * "(irq_hw_number_t)hwirq" == "IRQ outlet number".
+ */
 
+/* assumption: locked */
 static inline void beatic_update_irq_mask(unsigned int irq_plug)
 {
 	int off;
@@ -93,7 +98,7 @@ static void beatic_end_irq(struct irq_data *d)
 
 	err = beat_downcount_of_interrupt(d->irq);
 	if (err != 0) {
-		if ((err & 0xFFFFFFFF) != 0xFFFFFFF5) 
+		if ((err & 0xFFFFFFFF) != 0xFFFFFFF5) /* -11: wrong state */
 			panic("Failed to downcount IRQ! Error = %16llx", err);
 
 		printk(KERN_ERR "IRQ over-downcounted, plug %d\n", d->irq);
@@ -111,11 +116,23 @@ static struct irq_chip beatic_pic = {
 	.irq_eoi = beatic_end_irq,
 };
 
+/*
+ * Dispose binding hardware IRQ number (hw) and Virtuql IRQ number (virq),
+ * update flags.
+ *
+ * Note that the number (virq) is already assigned at upper layer.
+ */
 static void beatic_pic_host_unmap(struct irq_domain *h, unsigned int virq)
 {
 	beat_destruct_irq_plug(virq);
 }
 
+/*
+ * Create or update binding hardware IRQ number (hw) and Virtuql
+ * IRQ number (virq). This is called only once for a given mapping.
+ *
+ * Note that the number (virq) is already assigned at upper layer.
+ */
 static int beatic_pic_host_map(struct irq_domain *h, unsigned int virq,
 			       irq_hw_number_t hw)
 {
@@ -130,6 +147,13 @@ static int beatic_pic_host_map(struct irq_domain *h, unsigned int virq,
 	return 0;
 }
 
+/*
+ * Translate device-tree interrupt spec to irq_hw_number_t style (ulong),
+ * to pass away to irq_create_mapping().
+ *
+ * Called from irq_create_of_mapping() only.
+ * Note: We have only 1 entry to translate.
+ */
 static int beatic_pic_host_xlate(struct irq_domain *h, struct device_node *ct,
 				 const u32 *intspec, unsigned int intsize,
 				 irq_hw_number_t *out_hwirq,
@@ -144,7 +168,7 @@ static int beatic_pic_host_xlate(struct irq_domain *h, struct device_node *ct,
 
 static int beatic_pic_host_match(struct irq_domain *h, struct device_node *np)
 {
-	
+	/* Match all */
 	return 1;
 }
 
@@ -155,6 +179,10 @@ static const struct irq_domain_ops beatic_pic_host_ops = {
 	.match = beatic_pic_host_match,
 };
 
+/*
+ * Get an IRQ number
+ * Note: returns VIRQ
+ */
 static inline unsigned int beatic_get_irq_plug(void)
 {
 	int i;
@@ -196,6 +224,8 @@ unsigned int beatic_get_irq(void)
 	return ret;
 }
 
+/*
+ */
 void __init beatic_init_IRQ(void)
 {
 	int	i;
@@ -205,10 +235,10 @@ void __init beatic_init_IRQ(void)
 	for (i = 0; i < MAX_IRQS; i += 256)
 		beat_set_interrupt_mask(i, 0L, 0L, 0L, 0L);
 
-	
+	/* Set out get_irq function */
 	ppc_md.get_irq = beatic_get_irq;
 
-	
+	/* Allocate an irq host */
 	beatic_host = irq_domain_add_nomap(NULL, 0, &beatic_pic_host_ops, NULL);
 	BUG_ON(beatic_host == NULL);
 	irq_set_default_host(beatic_host);

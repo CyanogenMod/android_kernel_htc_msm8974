@@ -1,5 +1,8 @@
 #ifndef __PERF_PARSE_EVENTS_H
 #define __PERF_PARSE_EVENTS_H
+/*
+ * Parse symbolic events/counts passed in as options:
+ */
 
 #include "../../../include/linux/perf_event.h"
 
@@ -91,4 +94,4 @@ extern int is_valid_tracepoint(const char *event_string);
 
 extern int valid_debugfs_mount(const char *debugfs);
 
-#endif 
+#endif /* __PERF_PARSE_EVENTS_H */

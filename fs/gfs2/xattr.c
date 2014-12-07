@@ -27,19 +27,28 @@
 #include "trans.h"
 #include "util.h"
 
+/**
+ * ea_calc_size - returns the acutal number of bytes the request will take up
+ *                (not counting any unstuffed data blocks)
+ * @sdp:
+ * @er:
+ * @size:
+ *
+ * Returns: 1 if the EA should be stuffed
+ */
 
 static int ea_calc_size(struct gfs2_sbd *sdp, unsigned int nsize, size_t dsize,
 			unsigned int *size)
 {
 	unsigned int jbsize = sdp->sd_jbsize;
 
-	
+	/* Stuffed */
 	*size = ALIGN(sizeof(struct gfs2_ea_header) + nsize + dsize, 8);
 
 	if (*size <= jbsize)
 		return 1;
 
-	
+	/* Unstuffed */
 	*size = ALIGN(sizeof(struct gfs2_ea_header) + nsize +
 		      (sizeof(__be64) * DIV_ROUND_UP(dsize, jbsize)), 8);
 
@@ -55,7 +64,7 @@ static int ea_check_size(struct gfs2_sbd *sdp, unsigned int nsize, size_t dsize)
 
 	ea_calc_size(sdp, nsize, dsize, &size);
 
-	
+	/* This can only happen with 512 byte blocks */
 	if (size > sdp->sd_jbsize)
 		return -ERANGE;
 
@@ -197,6 +206,20 @@ static int gfs2_ea_find(struct gfs2_inode *ip, int type, const char *name,
 	return error;
 }
 
+/**
+ * ea_dealloc_unstuffed -
+ * @ip:
+ * @bh:
+ * @ea:
+ * @prev:
+ * @private:
+ *
+ * Take advantage of the fact that all unstuffed blocks are
+ * allocated from the same RG.  But watch, this may not always
+ * be true.
+ *
+ * Returns: errno
+ */
 
 static int ea_dealloc_unstuffed(struct gfs2_inode *ip, struct buffer_head *bh,
 				struct gfs2_ea_header *ea,
@@ -387,6 +410,14 @@ static int ea_list_i(struct gfs2_inode *ip, struct buffer_head *bh,
 	return 0;
 }
 
+/**
+ * gfs2_listxattr - List gfs2 extended attributes
+ * @dentry: The dentry whose inode we are interested in
+ * @buffer: The buffer to write the results
+ * @size: The size of the buffer
+ *
+ * Returns: actual size of data on success, -errno on error
+ */
 
 ssize_t gfs2_listxattr(struct dentry *dentry, char *buffer, size_t size)
 {
@@ -418,6 +449,15 @@ ssize_t gfs2_listxattr(struct dentry *dentry, char *buffer, size_t size)
 	return error;
 }
 
+/**
+ * ea_get_unstuffed - actually copies the unstuffed data into the
+ *                    request buffer
+ * @ip: The GFS2 inode
+ * @ea: The extended attribute header structure
+ * @data: The data to be copied
+ *
+ * Returns: errno
+ */
 
 static int ea_get_unstuffed(struct gfs2_inode *ip, struct gfs2_ea_header *ea,
 			    char *data)
@@ -522,6 +562,16 @@ out:
 	return error;
 }
 
+/**
+ * gfs2_xattr_get - Get a GFS2 extended attribute
+ * @inode: The inode
+ * @name: The name of the extended attribute
+ * @buffer: The buffer to write the result into
+ * @size: The size of the buffer
+ * @type: The type of extended attribute
+ *
+ * Returns: actual size of data on success, -errno on error
+ */
 static int gfs2_xattr_get(struct dentry *dentry, const char *name,
 		void *buffer, size_t size, int type)
 {
@@ -548,6 +598,13 @@ static int gfs2_xattr_get(struct dentry *dentry, const char *name,
 	return error;
 }
 
+/**
+ * ea_alloc_blk - allocates a new block for extended attributes.
+ * @ip: A pointer to the inode that's getting extended attributes
+ * @bhp: Pointer to pointer to a struct buffer_head
+ *
+ * Returns: errno
+ */
 
 static int ea_alloc_blk(struct gfs2_inode *ip, struct buffer_head **bhp)
 {
@@ -577,6 +634,17 @@ static int ea_alloc_blk(struct gfs2_inode *ip, struct buffer_head **bhp)
 	return 0;
 }
 
+/**
+ * ea_write - writes the request info to an ea, creating new blocks if
+ *            necessary
+ * @ip: inode that is being modified
+ * @ea: the location of the new ea in a block
+ * @er: the write request
+ *
+ * Note: does not update ea_rec_len or the GFS2_EAFLAG_LAST bin of ea_flags
+ *
+ * returns : errno
+ */
 
 static int ea_write(struct gfs2_inode *ip, struct gfs2_ea_header *ea,
 		    struct gfs2_ea_request *er)
@@ -708,6 +776,13 @@ static int ea_init_i(struct gfs2_inode *ip, struct gfs2_ea_request *er,
 	return error;
 }
 
+/**
+ * ea_init - initializes a new eattr block
+ * @ip:
+ * @er:
+ *
+ * Returns: errno
+ */
 
 static int ea_init(struct gfs2_inode *ip, int type, const char *name,
 		   const void *data, size_t size)
@@ -1037,6 +1112,18 @@ static int ea_remove_stuffed(struct gfs2_inode *ip, struct gfs2_ea_location *el)
 	return error;
 }
 
+/**
+ * gfs2_xattr_remove - Remove a GFS2 extended attribute
+ * @ip: The inode
+ * @type: The type of the extended attribute
+ * @name: The name of the extended attribute
+ *
+ * This is not called directly by the VFS since we use the (common)
+ * scheme of making a "set with NULL data" mean a remove request. Note
+ * that this is different from a set with zero length data.
+ *
+ * Returns: 0, or errno on failure
+ */
 
 static int gfs2_xattr_remove(struct gfs2_inode *ip, int type, const char *name)
 {
@@ -1062,6 +1149,19 @@ static int gfs2_xattr_remove(struct gfs2_inode *ip, int type, const char *name)
 	return error;
 }
 
+/**
+ * __gfs2_xattr_set - Set (or remove) a GFS2 extended attribute
+ * @ip: The inode
+ * @name: The name of the extended attribute
+ * @value: The value of the extended attribute (NULL for remove)
+ * @size: The size of the @value argument
+ * @flags: Create or Replace
+ * @type: The type of the extended attribute
+ *
+ * See gfs2_xattr_remove() for details of the removal of xattrs.
+ *
+ * Returns: 0 or errno on failure
+ */
 
 int __gfs2_xattr_set(struct inode *inode, const char *name,
 		   const void *value, size_t size, int flags, int type)
@@ -1385,6 +1485,12 @@ out_gunlock:
 	return error;
 }
 
+/**
+ * gfs2_ea_dealloc - deallocate the extended attribute fork
+ * @ip: the inode
+ *
+ * Returns: errno
+ */
 
 int gfs2_ea_dealloc(struct gfs2_inode *ip)
 {

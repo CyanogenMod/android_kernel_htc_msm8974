@@ -38,7 +38,7 @@ static void __init show_mem_layout(void)
 	struct memdesc_struct * memdesc;
 	int i;
 
-	
+	/* Find free clusters, and init and free the bootmem accordingly.  */
 	memdesc = (struct memdesc_struct *)
 	  (hwrpb->mddt_offset + (unsigned long) hwrpb);
 
@@ -65,18 +65,21 @@ setup_memory_node(int nid, void *kernel_end)
 	unsigned long node_datasz = PFN_UP(sizeof(pg_data_t));
 	int show_init = 0;
 
-	
+	/* Find the bounds of current node */
 	node_pfn_start = (node_mem_start(nid)) >> PAGE_SHIFT;
 	node_pfn_end = node_pfn_start + (node_mem_size(nid) >> PAGE_SHIFT);
 	
-	
+	/* Find free clusters, and init and free the bootmem accordingly.  */
 	memdesc = (struct memdesc_struct *)
 	  (hwrpb->mddt_offset + (unsigned long) hwrpb);
 
-	
+	/* find the bounds of this node (node_min_pfn/node_max_pfn) */
 	node_min_pfn = ~0UL;
 	node_max_pfn = 0UL;
 	for_each_mem_cluster(memdesc, cluster, i) {
+		/* Bit 0 is console/PALcode reserved.  Bit 1 is
+		   non-volatile memory -- we might want to mark
+		   this for later.  */
 		if (cluster->usage & 3)
 			continue;
 
@@ -119,7 +122,7 @@ setup_memory_node(int nid, void *kernel_end)
 	if (node_min_pfn >= node_max_pfn)
 		return;
 
-	
+	/* Update global {min,max}_low_pfn from node information. */
 	if (node_min_pfn < min_low_pfn)
 		min_low_pfn = node_min_pfn;
 	if (node_max_pfn > max_low_pfn)
@@ -127,11 +130,11 @@ setup_memory_node(int nid, void *kernel_end)
 
 	num_physpages += node_max_pfn - node_min_pfn;
 
-#if 0 
-	
+#if 0 /* we'll try this one again in a little while */
+	/* Cute trick to make sure our local node data is on local memory */
 	node_data[nid] = (pg_data_t *)(__va(node_min_pfn << PAGE_SHIFT));
 #endif
-	
+	/* Quasi-mark the pg_data_t as in-use */
 	node_min_pfn += node_datasz;
 	if (node_min_pfn >= node_max_pfn) {
 		printk(" not enough mem to reserve NODE_DATA");
@@ -145,7 +148,7 @@ setup_memory_node(int nid, void *kernel_end)
 	DBGDCONT(" DISCONTIG: node_data[%d]   is at 0x%p\n", nid, NODE_DATA(nid));
 	DBGDCONT(" DISCONTIG: NODE_DATA(%d)->bdata is at 0x%p\n", nid, NODE_DATA(nid)->bdata);
 
-	
+	/* Find the bounds of kernel memory.  */
 	start_kernel_pfn = PFN_DOWN(KERNEL_START_PHYS);
 	end_kernel_pfn = PFN_UP(virt_to_phys(kernel_end));
 	bootmap_start = -1;
@@ -153,11 +156,16 @@ setup_memory_node(int nid, void *kernel_end)
 	if (!nid && (node_max_pfn < end_kernel_pfn || node_min_pfn > start_kernel_pfn))
 		panic("kernel loaded out of ram");
 
+	/* Zone start phys-addr must be 2^(MAX_ORDER-1) aligned.
+	   Note that we round this down, not up - node memory
+	   has much larger alignment than 8Mb, so it's safe. */
 	node_min_pfn &= ~((1UL << (MAX_ORDER-1))-1);
 
+	/* We need to know how many physically contiguous pages
+	   we'll need for the bootmap.  */
 	bootmap_pages = bootmem_bootmap_pages(node_max_pfn-node_min_pfn);
 
-	
+	/* Now find a good region where to allocate the bootmap.  */
 	for_each_mem_cluster(memdesc, cluster, i) {
 		if (cluster->usage & 3)
 			continue;
@@ -191,13 +199,13 @@ setup_memory_node(int nid, void *kernel_end)
 	if (bootmap_start == -1)
 		panic("couldn't find a contiguous place for the bootmap");
 
-	
+	/* Allocate the bootmap and mark the whole MM as reserved.  */
 	bootmap_size = init_bootmem_node(NODE_DATA(nid), bootmap_start,
 					 node_min_pfn, node_max_pfn);
 	DBGDCONT(" bootmap_start %lu, bootmap_size %lu, bootmap_pages %lu\n",
 		 bootmap_start, bootmap_size, bootmap_pages);
 
-	
+	/* Mark the free regions.  */
 	for_each_mem_cluster(memdesc, cluster, i) {
 		if (cluster->usage & 3)
 			continue;
@@ -232,7 +240,7 @@ setup_memory_node(int nid, void *kernel_end)
 		printk(" freeing pages %ld:%ld\n", start, end);
 	}
 
-	
+	/* Reserve the bootmap memory.  */
 	reserve_bootmem_node(NODE_DATA(nid), PFN_PHYS(bootmap_start),
 			bootmap_size, BOOTMEM_DEFAULT);
 	printk(" reserving pages %ld:%ld\n", bootmap_start, bootmap_start+PFN_UP(bootmap_size));
@@ -276,7 +284,7 @@ setup_memory(void *kernel_end)
 					     INITRD_SIZE, BOOTMEM_DEFAULT);
 		}
 	}
-#endif 
+#endif /* CONFIG_BLK_DEV_INITRD */
 }
 
 void __init paging_init(void)
@@ -285,6 +293,13 @@ void __init paging_init(void)
 	unsigned long   zones_size[MAX_NR_ZONES] = {0, };
 	unsigned long	dma_local_pfn;
 
+	/*
+	 * The old global MAX_DMA_ADDRESS per-arch API doesn't fit
+	 * in the NUMA model, for now we convert it to a pfn and
+	 * we interpret this pfn as a local per-node information.
+	 * This issue isn't very important since none of these machines
+	 * have legacy ISA slots anyways.
+	 */
 	dma_local_pfn = virt_to_phys((char *)MAX_DMA_ADDRESS) >> PAGE_SHIFT;
 
 	for_each_online_node(nid) {
@@ -302,7 +317,7 @@ void __init paging_init(void)
 		free_area_init_node(nid, zones_size, start_pfn, NULL);
 	}
 
-	
+	/* Initialize the kernel's ZERO_PGE. */
 	memset((void *)ZERO_PGE, 0, PAGE_SIZE);
 }
 
@@ -317,6 +332,9 @@ void __init mem_init(void)
 
 	reservedpages = 0;
 	for_each_online_node(nid) {
+		/*
+		 * This will free up the bootmem, ie, slot 0 memory
+		 */
 		totalram_pages += free_all_bootmem_node(NODE_DATA(nid));
 
 		pfn = NODE_DATA(nid)->node_start_pfn;

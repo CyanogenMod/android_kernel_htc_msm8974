@@ -332,11 +332,11 @@ static int parport_ax88796_probe(struct platform_device *pdev)
 	dd->spp_spr  = dd->base + (spacing * 1);
 	dd->spp_cpr  = dd->base + (spacing * 2);
 
-	
+	/* initialise the port controls */
 	writeb(AX_CPR_STRB, dd->spp_cpr);
 
 	if (irq >= 0) {
-		
+		/* request irq */
 		ret = request_irq(irq, parport_irq_handler,
 				  IRQF_TRIGGER_FALLING, pdev->name, pp);
 

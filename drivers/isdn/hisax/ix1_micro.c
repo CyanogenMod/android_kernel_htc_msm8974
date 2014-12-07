@@ -70,6 +70,7 @@ writefifo(unsigned int ale, unsigned int adr, u_char off, u_char *data, int size
 	outsb(adr, data, size);
 }
 
+/* Interface functions */
 
 static u_char
 ReadISAC(struct IsdnCardState *cs, u_char offset)
@@ -172,11 +173,11 @@ ix1_reset(struct IsdnCardState *cs)
 {
 	int cnt;
 
-	
+	/* reset isac */
 	cnt = 3 * (HZ / 10) + 1;
 	while (cnt--) {
 		byteout(cs->hw.ix1.cfg_reg + SPECIAL_PORT_OFFSET, 1);
-		HZDELAY(1);	
+		HZDELAY(1);	/* wait >=10 ms */
 	}
 	byteout(cs->hw.ix1.cfg_reg + SPECIAL_PORT_OFFSET, 0);
 }
@@ -276,7 +277,7 @@ setup_ix1micro(struct IsdnCard *card)
 		}
 	}
 #endif
-	
+	/* IO-Ports */
 	cs->hw.ix1.isac_ale = card->para[1] + ISAC_COMMAND_OFFSET;
 	cs->hw.ix1.hscx_ale = card->para[1] + HSCX_COMMAND_OFFSET;
 	cs->hw.ix1.isac = card->para[1] + ISAC_DATA_OFFSET;

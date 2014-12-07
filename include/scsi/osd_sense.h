@@ -18,6 +18,7 @@
 
 #include <scsi/osd_protocol.h>
 
+/* SPC3r23 4.5.6 Sense key and sense code definitions table 27 */
 enum scsi_sense_keys {
 	scsi_sk_no_sense        = 0x0,
 	scsi_sk_recovered_error = 0x1,
@@ -36,6 +37,10 @@ enum scsi_sense_keys {
 	scsi_sk_reserved        = 0xf,
 };
 
+/* SPC3r23 4.5.6 Sense key and sense code definitions table 28 */
+/* Note: only those which can be returned by an OSD target. Most of
+ *       these errors are taken care of by the generic scsi layer.
+ */
 enum osd_additional_sense_codes {
 	scsi_no_additional_sense_information			= 0x0000,
 	scsi_operation_in_progress				= 0x0016,
@@ -154,38 +159,52 @@ enum scsi_descriptor_types {
 	scsi_sense_Vendor_specific_last		= 0xFF,
 };
 
-struct scsi_sense_descriptor { 
-	u8	descriptor_type; 
-	u8	additional_length; 
+struct scsi_sense_descriptor { /* for picking into desc type */
+	u8	descriptor_type; /* one of enum scsi_descriptor_types */
+	u8	additional_length; /* n - 1 */
 	u8	data[];
 } __packed;
 
+/* OSD deploys only scsi descriptor_based sense buffers */
 struct scsi_sense_descriptor_based {
-	u8 	response_code; 
-	u8 	sense_key; 
-	__be16	additional_sense_code; 
-	u8	Reserved[3];
-	u8	additional_sense_length; 
-	struct	scsi_sense_descriptor ssd[0]; 
+/*0*/	u8 	response_code; /* 0x72 or 0x73 */
+/*1*/	u8 	sense_key; /* one of enum scsi_sense_keys (4 lower bits) */
+/*2*/	__be16	additional_sense_code; /* enum osd_additional_sense_codes */
+/*4*/	u8	Reserved[3];
+/*7*/	u8	additional_sense_length; /* n - 7 */
+/*8*/	struct	scsi_sense_descriptor ssd[0]; /* variable length, 1 or more */
 } __packed;
 
+/* some descriptors deployed by OSD */
 
+/* SPC3r23 4.5.2.3 Command-specific information sense data descriptor */
+/* Note: this is the same for descriptor_type=00 but with type=00 the
+ *        Reserved[0] == 0x80 (ie. bit-7 set)
+ */
 struct scsi_sense_command_specific_data_descriptor {
-	u8	descriptor_type; 
-	u8	additional_length; 
-	u8	Reserved[2];
-	__be64  information;
+/*0*/	u8	descriptor_type; /* (00h/01h) */
+/*1*/	u8	additional_length; /* (0Ah) */
+/*2*/	u8	Reserved[2];
+/*4*/	__be64  information;
 } __packed;
+/*12*/
 
 struct scsi_sense_key_specific_data_descriptor {
-	u8	descriptor_type; 
-	u8	additional_length; 
-	u8	Reserved[2];
-	u8	sksv_cd_bpv_bp;
-	__be16	value; 
-	u8	Reserved2;
+/*0*/	u8	descriptor_type; /* (02h) */
+/*1*/	u8	additional_length; /* (06h) */
+/*2*/	u8	Reserved[2];
+/* SKSV, C/D, Reserved (2), BPV, BIT POINTER (3) */
+/*4*/	u8	sksv_cd_bpv_bp;
+/*5*/	__be16	value; /* field-pointer/progress-value/retry-count/... */
+/*7*/	u8	Reserved2;
 } __packed;
+/*8*/
 
+/* 4.16.2.1 OSD error identification sense data descriptor - table 52 */
+/* Note: these bits are defined LE order for easy definition, this way the BIT()
+ * number is the same as in the documentation. Below members at
+ * osd_sense_identification_data_descriptor are therefore defined __le32.
+ */
 enum osd_command_functions_bits {
 	OSD_CFB_COMMAND		 = BIT(4),
 	OSD_CFB_CMD_CAP_VERIFIED = BIT(5),
@@ -198,32 +217,37 @@ enum osd_command_functions_bits {
 };
 
 struct osd_sense_identification_data_descriptor {
-	u8	descriptor_type; 
-	u8	additional_length; 
-	u8	Reserved[6];
-	__le32	not_initiated_functions; 
-	__le32	completed_functions; 
- 	__be64	partition_id;
-	__be64	object_id;
+/*0*/	u8	descriptor_type; /* (06h) */
+/*1*/	u8	additional_length; /* (1Eh) */
+/*2*/	u8	Reserved[6];
+/*8*/	__le32	not_initiated_functions; /*osd_command_functions_bits*/
+/*12*/	__le32	completed_functions; /*osd_command_functions_bits*/
+/*16*/ 	__be64	partition_id;
+/*24*/	__be64	object_id;
 } __packed;
+/*32*/
 
 struct osd_sense_response_integrity_check_descriptor {
-	u8	descriptor_type; 
-	u8	additional_length; 
-	u8	integrity_check_value[32]; 
+/*0*/	u8	descriptor_type; /* (07h) */
+/*1*/	u8	additional_length; /* (20h) */
+/*2*/	u8	integrity_check_value[32]; /*FIXME: OSDv2_CRYPTO_KEYID_SIZE*/
 } __packed;
+/*34*/
 
 struct osd_sense_attributes_data_descriptor {
-	u8	descriptor_type; 
-	u8	additional_length; 
-	u8	Reserved[6];
+/*0*/	u8	descriptor_type; /* (08h) */
+/*1*/	u8	additional_length; /* (n-2) */
+/*2*/	u8	Reserved[6];
 	struct osd_sense_attr {
-		__be32	attr_page;
-		__be32	attr_id;
-	} sense_attrs[0]; 
+/*8*/		__be32	attr_page;
+/*12*/		__be32	attr_id;
+/*16*/	} sense_attrs[0]; /* 1 or more */
 } __packed;
+/*variable*/
 
+/* Dig into scsi_sk_illegal_request/scsi_invalid_field_in_cdb errors */
 
+/*FIXME: Support also field in CAPS*/
 #define OSD_CDB_OFFSET(F) offsetof(struct osd_cdb_head, F)
 
 enum osdv2_cdb_field_offset {
@@ -236,4 +260,4 @@ enum osdv2_cdb_field_offset {
 						 permissions_bit_mask),
 };
 
-#endif 
+#endif /* ndef __OSD_SENSE_H__ */

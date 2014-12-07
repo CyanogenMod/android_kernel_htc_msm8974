@@ -136,4 +136,4 @@
 	LONG_L	ra, THREAD_REG31(\thread)
 	.endm
 
-#endif 
+#endif /* _ASM_ASMMACRO_64_H */

@@ -11,6 +11,9 @@
 #include <linux/module.h>
 #include <asm/bitops.h>
 
+/*
+ * try flipping a bit using BSET and BCLR
+ */
 void change_bit(unsigned long nr, volatile void *addr)
 {
 	if (test_bit(nr, addr))
@@ -27,6 +30,9 @@ try_clear_bit:
 	goto try_set_bit;
 }
 
+/*
+ * try flipping a bit using BSET and BCLR and returning the old value
+ */
 int test_and_change_bit(unsigned long nr, volatile void *addr)
 {
 	if (test_bit(nr, addr))

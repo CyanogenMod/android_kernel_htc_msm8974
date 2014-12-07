@@ -126,6 +126,12 @@ static int __init snirm_setup_devinit(void)
 
 device_initcall(snirm_setup_devinit);
 
+/*
+ * RM200 has an ISA and an EISA bus. The iSA bus is only used
+ * for onboard devices and also has twi i8259 PICs. Since these
+ * PICs are no accessible via inb/outb the following code uses
+ * readb/writeb to access them
+ */
 
 static DEFINE_RAW_SPINLOCK(sni_rm200_i8259A_lock);
 #define PIC_CMD    0x00
@@ -134,10 +140,14 @@ static DEFINE_RAW_SPINLOCK(sni_rm200_i8259A_lock);
 #define PIC_POLL   PIC_ISR
 #define PIC_OCW3   PIC_ISR
 
+/* i8259A PIC related value */
 #define PIC_CASCADE_IR		2
 #define MASTER_ICW4_DEFAULT	0x01
 #define SLAVE_ICW4_DEFAULT	0x01
 
+/*
+ * This contains the irq mask for both 8259A irq controllers,
+ */
 static unsigned int rm200_cached_irq_mask = 0xffff;
 static __iomem u8 *rm200_pic_master;
 static __iomem u8 *rm200_pic_slave;
@@ -186,12 +196,18 @@ static inline int sni_rm200_i8259A_irq_real(unsigned int irq)
 		writeb(0x0A, rm200_pic_master + PIC_CMD);
 		return value;
 	}
-	writeb(0x0B, rm200_pic_slave + PIC_CMD); 
+	writeb(0x0B, rm200_pic_slave + PIC_CMD); /* ISR register */
 	value = readb(rm200_pic_slave + PIC_CMD) & (irqmask >> 8);
 	writeb(0x0A, rm200_pic_slave + PIC_CMD);
 	return value;
 }
 
+/*
+ * Careful! The 8259A is a fragile beast, it pretty
+ * much _has_ to be done exactly like this (mask it
+ * first, _then_ send the EOI, and the order of EOI
+ * to the two 8259s is important!
+ */
 void sni_rm200_mask_and_ack_8259A(struct irq_data *d)
 {
 	unsigned int irqmask, irq = d->irq - RM200_I8259A_IRQ_BASE;
@@ -199,6 +215,21 @@ void sni_rm200_mask_and_ack_8259A(struct irq_data *d)
 
 	irqmask = 1 << irq;
 	raw_spin_lock_irqsave(&sni_rm200_i8259A_lock, flags);
+	/*
+	 * Lightweight spurious IRQ detection. We do not want
+	 * to overdo spurious IRQ handling - it's usually a sign
+	 * of hardware problems, so we only do the checks we can
+	 * do without slowing down good hardware unnecessarily.
+	 *
+	 * Note that IRQ7 and IRQ15 (the two spurious IRQs
+	 * usually resulting from the 8259A-1|2 PICs) occur
+	 * even if the IRQ is masked in the 8259A. Thus we
+	 * can check spurious 8259A IRQs without doing the
+	 * quite slow i8259A_irq_real() call for every IRQ.
+	 * This does not cover 100% of spurious interrupts,
+	 * but should be enough to warn the user that there
+	 * is something bad going on ...
+	 */
 	if (rm200_cached_irq_mask & irqmask)
 		goto spurious_8259A_irq;
 	rm200_cached_irq_mask |= irqmask;
@@ -218,17 +249,33 @@ handle_real_irq:
 	return;
 
 spurious_8259A_irq:
+	/*
+	 * this is the slow path - should happen rarely.
+	 */
 	if (sni_rm200_i8259A_irq_real(irq))
+		/*
+		 * oops, the IRQ _is_ in service according to the
+		 * 8259A - not spurious, go handle it.
+		 */
 		goto handle_real_irq;
 
 	{
 		static int spurious_irq_mask;
+		/*
+		 * At this point we can be sure the IRQ is spurious,
+		 * lets ACK and report it. [once per IRQ]
+		 */
 		if (!(spurious_irq_mask & irqmask)) {
 			printk(KERN_DEBUG
 			       "spurious RM200 8259A interrupt: IRQ%d.\n", irq);
 			spurious_irq_mask |= irqmask;
 		}
 		atomic_inc(&irq_err_count);
+		/*
+		 * Theoretically we do not have to handle this IRQ,
+		 * but in Linux this does not cause problems and is
+		 * simpler for us.
+		 */
 		goto handle_real_irq;
 	}
 }
@@ -240,22 +287,38 @@ static struct irq_chip sni_rm200_i8259A_chip = {
 	.irq_mask_ack	= sni_rm200_mask_and_ack_8259A,
 };
 
+/*
+ * Do the traditional i8259 interrupt polling thing.  This is for the few
+ * cases where no better interrupt acknowledge method is available and we
+ * absolutely must touch the i8259.
+ */
 static inline int sni_rm200_i8259_irq(void)
 {
 	int irq;
 
 	raw_spin_lock(&sni_rm200_i8259A_lock);
 
-	
-	writeb(0x0C, rm200_pic_master + PIC_CMD);	
+	/* Perform an interrupt acknowledge cycle on controller 1. */
+	writeb(0x0C, rm200_pic_master + PIC_CMD);	/* prepare for poll */
 	irq = readb(rm200_pic_master + PIC_CMD) & 7;
 	if (irq == PIC_CASCADE_IR) {
-		writeb(0x0C, rm200_pic_slave + PIC_CMD); 
+		/*
+		 * Interrupt is cascaded so perform interrupt
+		 * acknowledge on controller 2.
+		 */
+		writeb(0x0C, rm200_pic_slave + PIC_CMD); /* prepare for poll */
 		irq = (readb(rm200_pic_slave + PIC_CMD) & 7) + 8;
 	}
 
 	if (unlikely(irq == 7)) {
-		writeb(0x0B, rm200_pic_master + PIC_ISR); 
+		/*
+		 * This may be a spurious interrupt.
+		 *
+		 * Read the interrupt status register (ISR). If the most
+		 * significant bit is not set then there is no valid
+		 * interrupt.
+		 */
+		writeb(0x0B, rm200_pic_master + PIC_ISR); /* ISR register */
 		if (~readb(rm200_pic_master + PIC_ISR) & 0x80)
 			irq = -1;
 	}
@@ -282,7 +345,7 @@ void sni_rm200_init_8259A(void)
 	writeb(8, rm200_pic_slave + PIC_IMR);
 	writeb(PIC_CASCADE_IR, rm200_pic_slave + PIC_IMR);
 	writeb(SLAVE_ICW4_DEFAULT, rm200_pic_slave + PIC_IMR);
-	udelay(100);		
+	udelay(100);		/* wait for 8259A to initialize */
 
 	writeb(cached_master_mask, rm200_pic_master + PIC_IMR);
 	writeb(cached_slave_mask, rm200_pic_slave + PIC_IMR);
@@ -290,6 +353,9 @@ void sni_rm200_init_8259A(void)
 	raw_spin_unlock_irqrestore(&sni_rm200_i8259A_lock, flags);
 }
 
+/*
+ * IRQ2 is cascade interrupt to second interrupt controller
+ */
 static struct irqaction sni_rm200_irq2 = {
 	.handler = no_action,
 	.name = "cascade",
@@ -310,6 +376,7 @@ static struct resource sni_rm200_pic2_resource = {
 	.flags = IORESOURCE_BUSY
 };
 
+/* ISA irq handler */
 static irqreturn_t sni_rm200_i8259A_irq_handler(int dummy, void *p)
 {
 	int irq;
@@ -409,7 +476,7 @@ void __init sni_rm200_irq_init(void)
 
 	sni_rm200_i8259_irqs();
 	mips_cpu_irq_init();
-	
+	/* Actually we've got more interrupts to handle ...  */
 	for (i = SNI_RM200_INT_START; i <= SNI_RM200_INT_END; i++)
 		irq_set_chip_and_handler(i, &rm200_irq_type, handle_level_irq);
 	sni_hwint = sni_rm200_hwint;

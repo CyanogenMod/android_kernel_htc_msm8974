@@ -28,6 +28,27 @@
  *
  *****************************************************************************/
 
+/******************************************************************************
+ *
+ * Description of the device:
+ *
+ * Interface 0:	Contains the IP network interface on the bulk end points.
+ *		The multiplexed serial ports are using the interrupt and
+ *		control endpoints.
+ *		Interrupt contains a bitmap telling which multiplexed
+ *		serialport needs servicing.
+ *
+ * Interface 1:	Diagnostics port, uses bulk only, do not submit urbs until the
+ *		port is opened, as this have a huge impact on the network port
+ *		throughput.
+ *
+ * Interface 2:	Standard modem interface - circuit switched interface, this
+ *		can be used to make a standard ppp connection however it
+ *              should not be used in conjunction with the IP network interface
+ *              enabled for USB performance reasons i.e. if using this set
+ *              ideally disable_net=1.
+ *
+ *****************************************************************************/
 
 #include <linux/sched.h>
 #include <linux/slab.h>
@@ -72,12 +93,15 @@
 #define MUX_BULK_RX_BUF_COUNT		4
 #define USB_TYPE_OPTION_VENDOR		0x20
 
+/* These definitions are used with the struct hso_net flags element */
+/* - use *_bit operations on it. (bit indices not values.) */
 #define HSO_NET_RUNNING			0
 
 #define	HSO_NET_TX_TIMEOUT		(HZ*10)
 
 #define HSO_SERIAL_MAGIC		0x48534f31
 
+/* Number of ttys to handle */
 #define HSO_SERIAL_TTY_MINORS		256
 
 #define MAX_RX_URBS			2
@@ -89,6 +113,9 @@ static inline struct hso_serial *get_serial_by_tty(struct tty_struct *tty)
 	return NULL;
 }
 
+/*****************************************************************************/
+/* Debugging functions                                                       */
+/*****************************************************************************/
 #define D__(lvl_, fmt, arg...)				\
 	do {						\
 		printk(lvl_ "[%d:%s]: " fmt "\n",	\
@@ -107,12 +134,18 @@ static inline struct hso_serial *get_serial_by_tty(struct tty_struct *tty)
 #define D4(args...)	D_(0x08, ##args)
 #define D5(args...)	D_(0x10, ##args)
 
+/*****************************************************************************/
+/* Enumerators                                                               */
+/*****************************************************************************/
 enum pkt_parse_state {
 	WAIT_IP,
 	WAIT_DATA,
 	WAIT_SYNC
 };
 
+/*****************************************************************************/
+/* Structs                                                                   */
+/*****************************************************************************/
 
 struct hso_shared_int {
 	struct usb_endpoint_descriptor *intr_endp;
@@ -198,15 +231,17 @@ struct hso_serial {
 
 	struct hso_shared_int *shared_int;
 
+	/* rx/tx urb could be either a bulk urb or a control urb depending
+	   on which serial port it is used on. */
 	struct urb *rx_urb[MAX_RX_URBS];
 	u8 num_rx_urbs;
 	u8 *rx_data[MAX_RX_URBS];
-	u16 rx_data_length;	
+	u16 rx_data_length;	/* should contain allocated length */
 
 	struct urb *tx_urb;
 	u8 *tx_data;
 	u8 *tx_buffer;
-	u16 tx_data_length;	
+	u16 tx_data_length;	/* should contain allocated length */
 	u16 tx_data_count;
 	u16 tx_buffer_count;
 	struct usb_ctrlrequest ctrl_req_tx;
@@ -220,13 +255,17 @@ struct hso_serial {
 	u8 dtr_state;
 	unsigned tx_urb_used:1;
 
-	
+	/* from usb_serial_port */
 	struct tty_struct *tty;
 	int open_count;
 	spinlock_t serial_lock;
 
 	int (*write_data) (struct hso_serial *serial);
 	struct hso_tiocmget  *tiocmget;
+	/* Hacks required to get flow control
+	 * working on the serial receive buffers
+	 * so as not to drop characters on the floor.
+	 */
 	int  curr_rx_urb_idx;
 	u16  curr_rx_urb_offset;
 	u8   rx_urb_filled[MAX_RX_URBS];
@@ -256,10 +295,12 @@ struct hso_device {
 	struct mutex mutex;
 };
 
+/* Type of interface */
 #define HSO_INTF_MASK		0xFF00
 #define	HSO_INTF_MUX		0x0100
 #define	HSO_INTF_BULK   	0x0200
 
+/* Type of port */
 #define HSO_PORT_MASK		0xFF
 #define HSO_PORT_NO_PORT	0x0
 #define	HSO_PORT_CONTROL	0x1
@@ -275,14 +316,20 @@ struct hso_device {
 #define	HSO_PORT_MODEM		0x11
 #define	HSO_PORT_NETWORK	0x12
 
+/* Additional device info */
 #define HSO_INFO_MASK		0xFF000000
 #define HSO_INFO_CRC_BUG	0x01000000
 
+/*****************************************************************************/
+/* Prototypes                                                                */
+/*****************************************************************************/
+/* Serial driver functions */
 static int hso_serial_tiocmset(struct tty_struct *tty,
 			       unsigned int set, unsigned int clear);
 static void ctrl_callback(struct urb *urb);
 static int put_rxbuf_data(struct urb *urb, struct hso_serial *serial);
 static void hso_kick_transmit(struct hso_serial *serial);
+/* Helper functions */
 static int hso_mux_submit_intr_urb(struct hso_shared_int *mux_int,
 				   struct usb_device *usb, gfp_t gfp);
 static void handle_usb_error(int status, const char *function,
@@ -305,7 +352,11 @@ static int hso_put_activity(struct hso_device *hso_dev);
 static int hso_get_activity(struct hso_device *hso_dev);
 static void tiocmget_intr_callback(struct urb *urb);
 static void reset_device(struct work_struct *data);
+/*****************************************************************************/
+/* Helping functions                                                         */
+/*****************************************************************************/
 
+/* #define DEBUG */
 
 static inline struct hso_net *dev2net(struct hso_device *hso_dev)
 {
@@ -317,6 +368,7 @@ static inline struct hso_serial *dev2ser(struct hso_device *hso_dev)
 	return hso_dev->port_data.dev_serial;
 }
 
+/* Debugging functions */
 #ifdef DEBUG
 static void dbg_dump(int line_count, const char *func_name, unsigned char *buf,
 		     unsigned int len)
@@ -340,14 +392,18 @@ static void dbg_dump(int line_count, const char *func_name, unsigned char *buf,
 #define DUMP1(buf_, len_)
 #endif
 
+/* module parameters */
 static int debug;
 static int tty_major;
 static int disable_net;
 
+/* driver info */
 static const char driver_name[] = "hso";
 static const char tty_filename[] = "ttyHS";
 static const char *version = __FILE__ ": " MOD_AUTHOR;
+/* the usb driver itself (registered in hso_init) */
 static struct usb_driver hso_driver;
+/* serial structures */
 static struct tty_driver *tty_drv;
 static struct hso_device *serial_table[HSO_SERIAL_TTY_MINORS];
 static struct hso_device *network_table[HSO_MAX_NET_DEVICES];
@@ -376,6 +432,7 @@ static const s32 icon321_port_spec[] = {
 	USB_DEVICE(vendor, product),	\
 		.driver_info = (kernel_ulong_t)icon321_port_spec
 
+/* list of devices we support */
 static const struct usb_device_id hso_ids[] = {
 	{default_port_device(0x0af0, 0x6711)},
 	{default_port_device(0x0af0, 0x6731)},
@@ -395,16 +452,16 @@ static const struct usb_device_id hso_ids[] = {
 	{default_port_device(0x0af0, 0x7251)},
 	{default_port_device(0x0af0, 0x7271)},
 	{default_port_device(0x0af0, 0x7311)},
-	{default_port_device(0x0af0, 0xc031)},	
-	{icon321_port_device(0x0af0, 0xd013)},	
-	{icon321_port_device(0x0af0, 0xd031)},	
-	{icon321_port_device(0x0af0, 0xd033)},	
-	{USB_DEVICE(0x0af0, 0x7301)},		
-	{USB_DEVICE(0x0af0, 0x7361)},		
-	{USB_DEVICE(0x0af0, 0x7381)},		
-	{USB_DEVICE(0x0af0, 0x7401)},		
-	{USB_DEVICE(0x0af0, 0x7501)},		
-	{USB_DEVICE(0x0af0, 0x7601)},		
+	{default_port_device(0x0af0, 0xc031)},	/* Icon-Edge */
+	{icon321_port_device(0x0af0, 0xd013)},	/* Module HSxPA */
+	{icon321_port_device(0x0af0, 0xd031)},	/* Icon-321 */
+	{icon321_port_device(0x0af0, 0xd033)},	/* Icon-322 */
+	{USB_DEVICE(0x0af0, 0x7301)},		/* GE40x */
+	{USB_DEVICE(0x0af0, 0x7361)},		/* GE40x */
+	{USB_DEVICE(0x0af0, 0x7381)},		/* GE40x */
+	{USB_DEVICE(0x0af0, 0x7401)},		/* GI 0401 */
+	{USB_DEVICE(0x0af0, 0x7501)},		/* GTM 382 */
+	{USB_DEVICE(0x0af0, 0x7601)},		/* GE40x */
 	{USB_DEVICE(0x0af0, 0x7701)},
 	{USB_DEVICE(0x0af0, 0x7706)},
 	{USB_DEVICE(0x0af0, 0x7801)},
@@ -435,6 +492,7 @@ static const struct usb_device_id hso_ids[] = {
 };
 MODULE_DEVICE_TABLE(usb, hso_ids);
 
+/* Sysfs attribute */
 static ssize_t hso_sysfs_show_porttype(struct device *dev,
 				       struct device_attribute *attr,
 				       char *buf)
@@ -496,6 +554,7 @@ static int hso_urb_to_index(struct hso_serial *serial, struct urb *urb)
 	return -1;
 }
 
+/* converts mux value to a port spec value */
 static u32 hso_mux_to_port(int mux)
 {
 	u32 result;
@@ -522,6 +581,7 @@ static u32 hso_mux_to_port(int mux)
 	return result;
 }
 
+/* converts port spec value to a mux value */
 static u32 hso_port_to_mux(int port)
 {
 	u32 result;
@@ -653,11 +713,13 @@ static void handle_usb_error(int status, const char *function,
 		break;
 	}
 
-	
+	/* log a meaningful explanation of an USB status */
 	D1("%s: received USB status - %s (%d)", function, explanation, status);
 }
 
+/* Network interface functions */
 
+/* called when net interface is brought up by ifconfig */
 static int hso_net_open(struct net_device *net)
 {
 	struct hso_net *odev = netdev_priv(net);
@@ -670,85 +732,90 @@ static int hso_net_open(struct net_device *net)
 
 	odev->skb_tx_buf = NULL;
 
-	
+	/* setup environment */
 	spin_lock_irqsave(&odev->net_lock, flags);
 	odev->rx_parse_state = WAIT_IP;
 	odev->rx_buf_size = 0;
 	odev->rx_buf_missing = sizeof(struct iphdr);
 	spin_unlock_irqrestore(&odev->net_lock, flags);
 
-	
+	/* We are up and running. */
 	set_bit(HSO_NET_RUNNING, &odev->flags);
 	hso_start_net_device(odev->parent);
 
-	
+	/* Tell the kernel we are ready to start receiving from it */
 	netif_start_queue(net);
 
 	return 0;
 }
 
+/* called when interface is brought down by ifconfig */
 static int hso_net_close(struct net_device *net)
 {
 	struct hso_net *odev = netdev_priv(net);
 
-	
+	/* we don't need the queue anymore */
 	netif_stop_queue(net);
-	
+	/* no longer running */
 	clear_bit(HSO_NET_RUNNING, &odev->flags);
 
 	hso_stop_net_device(odev->parent);
 
-	
+	/* done */
 	return 0;
 }
 
+/* USB tells is xmit done, we should start the netqueue again */
 static void write_bulk_callback(struct urb *urb)
 {
 	struct hso_net *odev = urb->context;
 	int status = urb->status;
 
-	
+	/* Sanity check */
 	if (!odev || !test_bit(HSO_NET_RUNNING, &odev->flags)) {
 		dev_err(&urb->dev->dev, "%s: device not running\n", __func__);
 		return;
 	}
 
-	
+	/* Do we still have a valid kernel network device? */
 	if (!netif_device_present(odev->net)) {
 		dev_err(&urb->dev->dev, "%s: net device not present\n",
 			__func__);
 		return;
 	}
 
+	/* log status, but don't act on it, we don't need to resubmit anything
+	 * anyhow */
 	if (status)
 		handle_usb_error(status, __func__, odev->parent);
 
 	hso_put_activity(odev->parent);
 
-	
+	/* Tell the network interface we are ready for another frame */
 	netif_wake_queue(odev->net);
 }
 
+/* called by kernel when we need to transmit a packet */
 static netdev_tx_t hso_net_start_xmit(struct sk_buff *skb,
 					    struct net_device *net)
 {
 	struct hso_net *odev = netdev_priv(net);
 	int result;
 
-	
+	/* Tell the kernel, "No more frames 'til we are done with this one." */
 	netif_stop_queue(net);
 	if (hso_get_activity(odev->parent) == -EAGAIN) {
 		odev->skb_tx_buf = skb;
 		return NETDEV_TX_OK;
 	}
 
-	
+	/* log if asked */
 	DUMP1(skb->data, skb->len);
-	
+	/* Copy it from kernel memory to OUR memory */
 	memcpy(odev->mux_bulk_tx_buf, skb->data, skb->len);
 	D1("len: %d/%d", skb->len, MUX_BULK_TX_BUF_SIZE);
 
-	
+	/* Fill in the URB for shipping it out. */
 	usb_fill_bulk_urb(odev->mux_bulk_tx_urb,
 			  odev->parent->usb,
 			  usb_sndbulkpipe(odev->parent->usb,
@@ -757,10 +824,10 @@ static netdev_tx_t hso_net_start_xmit(struct sk_buff *skb,
 			  odev->mux_bulk_tx_buf, skb->len, write_bulk_callback,
 			  odev);
 
-	
+	/* Deal with the Zero Length packet problem, I hope */
 	odev->mux_bulk_tx_urb->transfer_flags |= URB_ZERO_PACKET;
 
-	
+	/* Send the URB on its merry way. */
 	result = usb_submit_urb(odev->mux_bulk_tx_urb, GFP_ATOMIC);
 	if (result) {
 		dev_warn(&odev->parent->interface->dev,
@@ -772,7 +839,7 @@ static netdev_tx_t hso_net_start_xmit(struct sk_buff *skb,
 		net->stats.tx_bytes += skb->len;
 	}
 	dev_kfree_skb(skb);
-	
+	/* we're done */
 	return NETDEV_TX_OK;
 }
 
@@ -780,6 +847,7 @@ static const struct ethtool_ops ops = {
 	.get_link = ethtool_op_get_link
 };
 
+/* called when a packet did not ack after watchdogtimeout */
 static void hso_net_tx_timeout(struct net_device *net)
 {
 	struct hso_net *odev = netdev_priv(net);
@@ -787,18 +855,19 @@ static void hso_net_tx_timeout(struct net_device *net)
 	if (!odev)
 		return;
 
-	
+	/* Tell syslog we are hosed. */
 	dev_warn(&net->dev, "Tx timed out.\n");
 
-	
+	/* Tear the waiting frame off the list */
 	if (odev->mux_bulk_tx_urb &&
 	    (odev->mux_bulk_tx_urb->status == -EINPROGRESS))
 		usb_unlink_urb(odev->mux_bulk_tx_urb);
 
-	
+	/* Update statistics */
 	net->stats.tx_errors++;
 }
 
+/* make a real packet from the received USB buffer */
 static void packetizeRx(struct hso_net *odev, unsigned char *ip_pkt,
 			unsigned int count, unsigned char is_eop)
 {
@@ -807,15 +876,15 @@ static void packetizeRx(struct hso_net *odev, unsigned char *ip_pkt,
 	unsigned short frame_len;
 	unsigned char *tmp_rx_buf;
 
-	
+	/* log if needed */
 	D1("Rx %d bytes", count);
 	DUMP(ip_pkt, min(128, (int)count));
 
 	while (count) {
 		switch (odev->rx_parse_state) {
 		case WAIT_IP:
-			
-			
+			/* waiting for IP header. */
+			/* wanted bytes - size of ip header */
 			temp_bytes =
 			    (count <
 			     odev->rx_buf_missing) ? count : odev->
@@ -831,6 +900,8 @@ static void packetizeRx(struct hso_net *odev, unsigned char *ip_pkt,
 			count -= temp_bytes;
 
 			if (!odev->rx_buf_missing) {
+				/* header is complete allocate an sk_buffer and
+				 * continue to WAIT_DATA */
 				frame_len = ntohs(odev->rx_ip_hdr.tot_len);
 
 				if ((frame_len > DEFAULT_MRU) ||
@@ -841,26 +912,28 @@ static void packetizeRx(struct hso_net *odev, unsigned char *ip_pkt,
 					odev->rx_parse_state = WAIT_SYNC;
 					continue;
 				}
-				
+				/* Allocate an sk_buff */
 				odev->skb_rx_buf = netdev_alloc_skb(odev->net,
 								    frame_len);
 				if (!odev->skb_rx_buf) {
-					
+					/* We got no receive buffer. */
 					D1("could not allocate memory");
 					odev->rx_parse_state = WAIT_SYNC;
 					return;
 				}
 
+				/* Copy what we got so far. make room for iphdr
+				 * after tail. */
 				tmp_rx_buf =
 				    skb_put(odev->skb_rx_buf,
 					    sizeof(struct iphdr));
 				memcpy(tmp_rx_buf, (char *)&(odev->rx_ip_hdr),
 				       sizeof(struct iphdr));
 
-				
+				/* ETH_HLEN */
 				odev->rx_buf_size = sizeof(struct iphdr);
 
-				
+				/* Filip actually use .tot_len */
 				odev->rx_buf_missing =
 				    frame_len - sizeof(struct iphdr);
 				odev->rx_parse_state = WAIT_DATA;
@@ -871,7 +944,9 @@ static void packetizeRx(struct hso_net *odev, unsigned char *ip_pkt,
 			temp_bytes = (count < odev->rx_buf_missing)
 					? count : odev->rx_buf_missing;
 
-			
+			/* Copy the rest of the bytes that are left in the
+			 * buffer into the waiting sk_buf. */
+			/* Make room for temp_bytes after tail. */
 			tmp_rx_buf = skb_put(odev->skb_rx_buf, temp_bytes);
 			memcpy(tmp_rx_buf, ip_pkt + buffer_offset, temp_bytes);
 
@@ -880,17 +955,17 @@ static void packetizeRx(struct hso_net *odev, unsigned char *ip_pkt,
 			buffer_offset += temp_bytes;
 			odev->rx_buf_size += temp_bytes;
 			if (!odev->rx_buf_missing) {
-				
-				
+				/* Packet is complete. Inject into stack. */
+				/* We have IP packet here */
 				odev->skb_rx_buf->protocol = cpu_to_be16(ETH_P_IP);
 				skb_reset_mac_header(odev->skb_rx_buf);
 
-				
+				/* Ship it off to the kernel */
 				netif_rx(odev->skb_rx_buf);
-				
+				/* No longer our buffer. */
 				odev->skb_rx_buf = NULL;
 
-				
+				/* update out statistics */
 				odev->net->stats.rx_packets++;
 
 				odev->net->stats.rx_bytes += odev->rx_buf_size;
@@ -912,7 +987,7 @@ static void packetizeRx(struct hso_net *odev, unsigned char *ip_pkt,
 		}
 	}
 
-	
+	/* Recovery mechanism for WAIT_SYNC state. */
 	if (is_eop) {
 		if (odev->rx_parse_state == WAIT_SYNC) {
 			odev->rx_parse_state = WAIT_IP;
@@ -934,6 +1009,7 @@ static void fix_crc_bug(struct urb *urb, __le16 max_packet_size)
 	}
 }
 
+/* Moving data from usb to kernel (in interrupt state) */
 static void read_bulk_callback(struct urb *urb)
 {
 	struct hso_net *odev = urb->context;
@@ -941,13 +1017,13 @@ static void read_bulk_callback(struct urb *urb)
 	int result;
 	int status = urb->status;
 
-	
+	/* is al ok?  (Filip: Who's Al ?) */
 	if (status) {
 		handle_usb_error(status, __func__, odev->parent);
 		return;
 	}
 
-	
+	/* Sanity check */
 	if (!odev || !test_bit(HSO_NET_RUNNING, &odev->flags)) {
 		D1("BULK IN callback but driver is not active!");
 		return;
@@ -957,15 +1033,17 @@ static void read_bulk_callback(struct urb *urb)
 	net = odev->net;
 
 	if (!netif_device_present(net)) {
-		
+		/* Somebody killed our network interface... */
 		return;
 	}
 
 	if (odev->parent->port_spec & HSO_INFO_CRC_BUG)
 		fix_crc_bug(urb, odev->in_endp->wMaxPacketSize);
 
-	
+	/* do we even have a packet? */
 	if (urb->actual_length) {
+		/* Handle the IP stream, add header and push it onto network
+		 * stack if the packet is complete. */
 		spin_lock(&odev->net_lock);
 		packetizeRx(odev, urb->transfer_buffer, urb->actual_length,
 			    (urb->transfer_buffer_length >
@@ -973,6 +1051,8 @@ static void read_bulk_callback(struct urb *urb)
 		spin_unlock(&odev->net_lock);
 	}
 
+	/* We are done with this URB, resubmit it. Prep the USB to wait for
+	 * another frame. Reuse same as received. */
 	usb_fill_bulk_urb(urb,
 			  odev->parent->usb,
 			  usb_rcvbulkpipe(odev->parent->usb,
@@ -981,6 +1061,8 @@ static void read_bulk_callback(struct urb *urb)
 			  urb->transfer_buffer, MUX_BULK_RX_BUF_SIZE,
 			  read_bulk_callback, odev);
 
+	/* Give this to the USB subsystem so it can tell us when more data
+	 * arrives. */
 	result = usb_submit_urb(urb, GFP_ATOMIC);
 	if (result)
 		dev_warn(&odev->parent->interface->dev,
@@ -988,38 +1070,44 @@ static void read_bulk_callback(struct urb *urb)
 			 result);
 }
 
+/* Serial driver functions */
 
 static void hso_init_termios(struct ktermios *termios)
 {
+	/*
+	 * The default requirements for this device are:
+	 */
 	termios->c_iflag &=
-		~(IGNBRK	
-		| BRKINT	
-		| PARMRK	
-		| ISTRIP	
-		| INLCR		
-		| IGNCR		
-		| ICRNL		
-		| IXON);	
+		~(IGNBRK	/* disable ignore break */
+		| BRKINT	/* disable break causes interrupt */
+		| PARMRK	/* disable mark parity errors */
+		| ISTRIP	/* disable clear high bit of input characters */
+		| INLCR		/* disable translate NL to CR */
+		| IGNCR		/* disable ignore CR */
+		| ICRNL		/* disable translate CR to NL */
+		| IXON);	/* disable enable XON/XOFF flow control */
 
-	
+	/* disable postprocess output characters */
 	termios->c_oflag &= ~OPOST;
 
 	termios->c_lflag &=
-		~(ECHO		
-		| ECHONL	
-		| ICANON	
-		| ISIG		
-		| IEXTEN);	
+		~(ECHO		/* disable echo input characters */
+		| ECHONL	/* disable echo new line */
+		| ICANON	/* disable erase, kill, werase, and rprnt
+				   special characters */
+		| ISIG		/* disable interrupt, quit, and suspend special
+				   characters */
+		| IEXTEN);	/* disable non-POSIX special characters */
 
 	termios->c_cflag &=
-		~(CSIZE		
-		| PARENB	
-		| CBAUD		
-		| CBAUDEX);	
+		~(CSIZE		/* no size */
+		| PARENB	/* disable parity bit */
+		| CBAUD		/* clear current baud rate */
+		| CBAUDEX);	/* clear current buad rate */
 
-	termios->c_cflag |= CS8;	
+	termios->c_cflag |= CS8;	/* character size 8 bits */
 
-	
+	/* baud rate 115200 */
 	tty_termios_encode_baud_rate(termios, 115200, 115200);
 }
 
@@ -1036,30 +1124,37 @@ static void _hso_serial_set_termios(struct tty_struct *tty,
 
 	D4("port %d", serial->minor);
 
+	/*
+	 *	Fix up unsupported bits
+	 */
 	termios = tty->termios;
-	termios->c_iflag &= ~IXON; 
+	termios->c_iflag &= ~IXON; /* disable enable XON/XOFF flow control */
 
 	termios->c_cflag &=
-		~(CSIZE		
-		| PARENB	
-		| CBAUD		
-		| CBAUDEX);	
+		~(CSIZE		/* no size */
+		| PARENB	/* disable parity bit */
+		| CBAUD		/* clear current baud rate */
+		| CBAUDEX);	/* clear current buad rate */
 
-	termios->c_cflag |= CS8;	
+	termios->c_cflag |= CS8;	/* character size 8 bits */
 
-	
+	/* baud rate 115200 */
 	tty_encode_baud_rate(tty, 115200, 115200);
 }
 
 static void hso_resubmit_rx_bulk_urb(struct hso_serial *serial, struct urb *urb)
 {
 	int result;
+	/* We are done with this URB, resubmit it. Prep the USB to wait for
+	 * another frame */
 	usb_fill_bulk_urb(urb, serial->parent->usb,
 			  usb_rcvbulkpipe(serial->parent->usb,
 					  serial->in_endp->
 					  bEndpointAddress & 0x7F),
 			  urb->transfer_buffer, serial->rx_data_length,
 			  hso_std_serial_read_bulk_callback, serial);
+	/* Give this to the USB subsystem so it can tell us when more data
+	 * arrives. */
 	result = usb_submit_urb(urb, GFP_ATOMIC);
 	if (result) {
 		dev_err(&urb->dev->dev, "%s failed submit serial rx_urb %d\n",
@@ -1100,7 +1195,7 @@ static void put_rxbuf_data_and_resubmit_ctrl_urb(struct hso_serial *serial)
 		if (count == -1)
 			return;
 	}
-	
+	/* Re issue a read as long as we receive data. */
 
 	if (count == 0 && ((urb->actual_length != 0) ||
 			   (serial->rx_state == RX_PENDING))) {
@@ -1111,12 +1206,13 @@ static void put_rxbuf_data_and_resubmit_ctrl_urb(struct hso_serial *serial)
 }
 
 
+/* read callback for Diag and CS port */
 static void hso_std_serial_read_bulk_callback(struct urb *urb)
 {
 	struct hso_serial *serial = urb->context;
 	int status = urb->status;
 
-	
+	/* sanity check */
 	if (!serial) {
 		D1("serial == NULL");
 		return;
@@ -1129,20 +1225,20 @@ static void hso_std_serial_read_bulk_callback(struct urb *urb)
 	D1("Actual length = %d\n", urb->actual_length);
 	DUMP1(urb->transfer_buffer, urb->actual_length);
 
-	
+	/* Anyone listening? */
 	if (serial->open_count == 0)
 		return;
 
 	if (status == 0) {
 		if (serial->parent->port_spec & HSO_INFO_CRC_BUG)
 			fix_crc_bug(urb, serial->in_endp->wMaxPacketSize);
-		
+		/* Valid data, handle RX data */
 		spin_lock(&serial->serial_lock);
 		serial->rx_urb_filled[hso_urb_to_index(serial, urb)] = 1;
 		put_rxbuf_data_and_resubmit_bulk_urb(serial);
 		spin_unlock(&serial->serial_lock);
 	} else if (status == -ENOENT || status == -ECONNRESET) {
-		
+		/* Unlinked - check for throttled port. */
 		D2("Port %d, successfully unlinked urb", serial->minor);
 		spin_lock(&serial->serial_lock);
 		serial->rx_urb_filled[hso_urb_to_index(serial, urb)] = 0;
@@ -1154,6 +1250,10 @@ static void hso_std_serial_read_bulk_callback(struct urb *urb)
 	}
 }
 
+/*
+ * This needs to be a tasklet otherwise we will
+ * end up recursively calling this function.
+ */
 static void hso_unthrottle_tasklet(struct hso_serial *serial)
 {
 	unsigned long flags;
@@ -1181,12 +1281,13 @@ static void hso_unthrottle_workfunc(struct work_struct *work)
 	hso_unthrottle_tasklet(serial);
 }
 
+/* open the requested serial port */
 static int hso_serial_open(struct tty_struct *tty, struct file *filp)
 {
 	struct hso_serial *serial = get_serial_by_index(tty->index);
 	int result;
 
-	
+	/* sanity check */
 	if (serial == NULL || serial->magic != HSO_SERIAL_MAGIC) {
 		WARN_ON(1);
 		tty->driver_data = NULL;
@@ -1202,18 +1303,18 @@ static int hso_serial_open(struct tty_struct *tty, struct file *filp)
 	D1("Opening %d", serial->minor);
 	kref_get(&serial->parent->ref);
 
-	
+	/* setup */
 	spin_lock_irq(&serial->serial_lock);
 	tty->driver_data = serial;
 	tty_kref_put(serial->tty);
 	serial->tty = tty_kref_get(tty);
 	spin_unlock_irq(&serial->serial_lock);
 
-	
+	/* check for port already opened, if not set the termios */
 	serial->open_count++;
 	if (serial->open_count == 1) {
 		serial->rx_state = RX_IDLE;
-		
+		/* Force default termio settings */
 		_hso_serial_set_termios(tty, NULL);
 		tasklet_init(&serial->unthrottle_tasklet,
 			     (void (*)(unsigned long))hso_unthrottle_tasklet,
@@ -1232,7 +1333,7 @@ static int hso_serial_open(struct tty_struct *tty, struct file *filp)
 
 	usb_autopm_put_interface(serial->parent->interface);
 
-	
+	/* done */
 	if (result)
 		hso_serial_tiocmset(tty, TIOCM_RTS | TIOCM_DTR, 0);
 err_out:
@@ -1240,6 +1341,7 @@ err_out:
 	return result;
 }
 
+/* close the requested serial port */
 static void hso_serial_close(struct tty_struct *tty, struct file *filp)
 {
 	struct hso_serial *serial = tty->driver_data;
@@ -1247,7 +1349,7 @@ static void hso_serial_close(struct tty_struct *tty, struct file *filp)
 
 	D1("Closing serial port");
 
-	
+	/* Open failed, no close cleanup required */
 	if (serial == NULL)
 		return;
 
@@ -1257,8 +1359,8 @@ static void hso_serial_close(struct tty_struct *tty, struct file *filp)
 	if (!usb_gone)
 		usb_autopm_get_interface(serial->parent->interface);
 
-	
-	
+	/* reset the rts and dtr */
+	/* do the actual close */
 	serial->open_count--;
 
 	if (serial->open_count <= 0) {
@@ -1284,6 +1386,7 @@ static void hso_serial_close(struct tty_struct *tty, struct file *filp)
 	kref_put(&serial->parent->ref, hso_serial_ref_free);
 }
 
+/* close the requested serial port */
 static int hso_serial_write(struct tty_struct *tty, const unsigned char *buf,
 			    int count)
 {
@@ -1291,7 +1394,7 @@ static int hso_serial_write(struct tty_struct *tty, const unsigned char *buf,
 	int space, tx_bytes;
 	unsigned long flags;
 
-	
+	/* sanity check */
 	if (serial == NULL) {
 		printk(KERN_ERR "%s: serial is NULL\n", __func__);
 		return -ENODEV;
@@ -1312,10 +1415,11 @@ out:
 	spin_unlock_irqrestore(&serial->serial_lock, flags);
 
 	hso_kick_transmit(serial);
-	
+	/* done */
 	return tx_bytes;
 }
 
+/* how much room is there for writing */
 static int hso_serial_write_room(struct tty_struct *tty)
 {
 	struct hso_serial *serial = get_serial_by_tty(tty);
@@ -1326,10 +1430,11 @@ static int hso_serial_write_room(struct tty_struct *tty)
 	room = serial->tx_data_length - serial->tx_buffer_count;
 	spin_unlock_irqrestore(&serial->serial_lock, flags);
 
-	
+	/* return free room */
 	return room;
 }
 
+/* setup the term */
 static void hso_serial_set_termios(struct tty_struct *tty, struct ktermios *old)
 {
 	struct hso_serial *serial = get_serial_by_tty(tty);
@@ -1339,7 +1444,7 @@ static void hso_serial_set_termios(struct tty_struct *tty, struct ktermios *old)
 		D5("Termios called with: cflags new[%d] - old[%d]",
 		   tty->termios->c_cflag, old->c_cflag);
 
-	
+	/* the actual setup */
 	spin_lock_irqsave(&serial->serial_lock, flags);
 	if (serial->open_count)
 		_hso_serial_set_termios(tty, old);
@@ -1347,16 +1452,17 @@ static void hso_serial_set_termios(struct tty_struct *tty, struct ktermios *old)
 		tty->termios = old;
 	spin_unlock_irqrestore(&serial->serial_lock, flags);
 
-	
+	/* done */
 }
 
+/* how many characters in the buffer */
 static int hso_serial_chars_in_buffer(struct tty_struct *tty)
 {
 	struct hso_serial *serial = get_serial_by_tty(tty);
 	int chars;
 	unsigned long flags;
 
-	
+	/* sanity check */
 	if (serial == NULL)
 		return 0;
 
@@ -1401,7 +1507,7 @@ static void tiocmget_intr_callback(struct urb *urb)
 	struct hso_serial_state_notification *serial_state_notification;
 	struct usb_device *usb;
 
-	
+	/* Sanity checks */
 	if (!serial)
 		return;
 	if (status) {
@@ -1462,6 +1568,14 @@ static void tiocmget_intr_callback(struct urb *urb)
 			    serial->parent->usb);
 }
 
+/*
+ * next few functions largely stolen from drivers/serial/serial_core.c
+ */
+/* Wait for any of the 4 modem inputs (DCD,RI,DSR,CTS) to change
+ * - mask passed in arg for lines of interest
+ *   (use |'ed TIOCM_RNG/DSR/CD/CTS for masking)
+ * Caller should use TIOCGICOUNT to see which one it was
+ */
 static int
 hso_wait_modem_status(struct hso_serial *serial, unsigned long arg)
 {
@@ -1473,6 +1587,9 @@ hso_wait_modem_status(struct hso_serial *serial, unsigned long arg)
 	tiocmget = serial->tiocmget;
 	if (!tiocmget)
 		return -ENOENT;
+	/*
+	 * note the counters on entry
+	 */
 	spin_lock_irq(&serial->serial_lock);
 	memcpy(&cprev, &tiocmget->icount, sizeof(struct uart_icount));
 	spin_unlock_irq(&serial->serial_lock);
@@ -1489,7 +1606,7 @@ hso_wait_modem_status(struct hso_serial *serial, unsigned long arg)
 			break;
 		}
 		schedule();
-		
+		/* see if a signal did it */
 		if (signal_pending(current)) {
 			ret = -ERESTARTSYS;
 			break;
@@ -1502,6 +1619,12 @@ hso_wait_modem_status(struct hso_serial *serial, unsigned long arg)
 	return ret;
 }
 
+/*
+ * Get counter of input serial line interrupts (DCD,RI,DSR,CTS)
+ * Return: write counters to the user passed counter struct
+ * NB: both 1->0 and 0->1 transitions are counted except for
+ *     RI where only 0->1 is counted.
+ */
 static int hso_get_count(struct tty_struct *tty,
 		  struct serial_icounter_struct *icount)
 {
@@ -1540,7 +1663,7 @@ static int hso_serial_tiocmget(struct tty_struct *tty)
 	struct hso_tiocmget  *tiocmget;
 	u16 UART_state_bitmap;
 
-	
+	/* sanity check */
 	if (!serial) {
 		D1("no tty structures");
 		return -EINVAL;
@@ -1572,7 +1695,7 @@ static int hso_serial_tiocmset(struct tty_struct *tty,
 	int if_num;
 	struct hso_serial *serial = get_serial_by_tty(tty);
 
-	
+	/* sanity check */
 	if (!serial) {
 		D1("no tty structures");
 		return -EINVAL;
@@ -1628,6 +1751,7 @@ static int hso_serial_ioctl(struct tty_struct *tty,
 }
 
 
+/* starts a transmit */
 static void hso_kick_transmit(struct hso_serial *serial)
 {
 	u8 *temp;
@@ -1641,18 +1765,18 @@ static void hso_kick_transmit(struct hso_serial *serial)
 	if (serial->tx_urb_used)
 		goto out;
 
-	
+	/* Wakeup USB interface if necessary */
 	if (hso_get_activity(serial->parent) == -EAGAIN)
 		goto out;
 
-	
+	/* Switch pointers around to avoid memcpy */
 	temp = serial->tx_buffer;
 	serial->tx_buffer = serial->tx_data;
 	serial->tx_data = temp;
 	serial->tx_data_count = serial->tx_buffer_count;
 	serial->tx_buffer_count = 0;
 
-	
+	/* If temp is set, it means we switched buffers */
 	if (temp && serial->write_data) {
 		res = serial->write_data(serial);
 		if (res >= 0)
@@ -1662,6 +1786,7 @@ out:
 	spin_unlock_irqrestore(&serial->serial_lock, flags);
 }
 
+/* make a request (for reading and writing data to muxed serial port) */
 static int mux_device_request(struct hso_serial *serial, u8 type, u16 port,
 			      struct urb *ctrl_urb,
 			      struct usb_ctrlrequest *ctrl_req,
@@ -1670,45 +1795,45 @@ static int mux_device_request(struct hso_serial *serial, u8 type, u16 port,
 	int result;
 	int pipe;
 
-	
+	/* Sanity check */
 	if (!serial || !ctrl_urb || !ctrl_req) {
 		printk(KERN_ERR "%s: Wrong arguments\n", __func__);
 		return -EINVAL;
 	}
 
-	
+	/* initialize */
 	ctrl_req->wValue = 0;
 	ctrl_req->wIndex = cpu_to_le16(hso_port_to_mux(port));
 	ctrl_req->wLength = cpu_to_le16(size);
 
 	if (type == USB_CDC_GET_ENCAPSULATED_RESPONSE) {
-		
+		/* Reading command */
 		ctrl_req->bRequestType = USB_DIR_IN |
 					 USB_TYPE_OPTION_VENDOR |
 					 USB_RECIP_INTERFACE;
 		ctrl_req->bRequest = USB_CDC_GET_ENCAPSULATED_RESPONSE;
 		pipe = usb_rcvctrlpipe(serial->parent->usb, 0);
 	} else {
-		
+		/* Writing command */
 		ctrl_req->bRequestType = USB_DIR_OUT |
 					 USB_TYPE_OPTION_VENDOR |
 					 USB_RECIP_INTERFACE;
 		ctrl_req->bRequest = USB_CDC_SEND_ENCAPSULATED_COMMAND;
 		pipe = usb_sndctrlpipe(serial->parent->usb, 0);
 	}
-	
+	/* syslog */
 	D2("%s command (%02x) len: %d, port: %d",
 	   type == USB_CDC_GET_ENCAPSULATED_RESPONSE ? "Read" : "Write",
 	   ctrl_req->bRequestType, ctrl_req->wLength, port);
 
-	
+	/* Load ctrl urb */
 	ctrl_urb->transfer_flags = 0;
 	usb_fill_control_urb(ctrl_urb,
 			     serial->parent->usb,
 			     pipe,
 			     (u8 *) ctrl_req,
 			     ctrl_urb_data, size, ctrl_callback, serial);
-	
+	/* Send it on merry way */
 	result = usb_submit_urb(ctrl_urb, GFP_ATOMIC);
 	if (result) {
 		dev_err(&ctrl_urb->dev->dev,
@@ -1717,18 +1842,19 @@ static int mux_device_request(struct hso_serial *serial, u8 type, u16 port,
 		return result;
 	}
 
-	
+	/* done */
 	return size;
 }
 
+/* called by intr_callback when read occurs */
 static int hso_mux_serial_read(struct hso_serial *serial)
 {
 	if (!serial)
 		return -EINVAL;
 
-	
+	/* clean data */
 	memset(serial->rx_data[0], 0, CTRL_URB_RX_SIZE);
-	
+	/* make the request */
 
 	if (serial->num_rx_urbs != 1) {
 		dev_err(&serial->parent->interface->dev,
@@ -1744,6 +1870,7 @@ static int hso_mux_serial_read(struct hso_serial *serial)
 				  serial->rx_data[0], serial->rx_data_length);
 }
 
+/* used for muxed serial port callback (muxed serial read) */
 static void intr_callback(struct urb *urb)
 {
 	struct hso_shared_int *shared_int = urb->context;
@@ -1754,23 +1881,23 @@ static void intr_callback(struct urb *urb)
 
 	usb_mark_last_busy(urb->dev);
 
-	
+	/* sanity check */
 	if (!shared_int)
 		return;
 
-	
+	/* status check */
 	if (status) {
 		handle_usb_error(status, __func__, NULL);
 		return;
 	}
 	D4("\n--- Got intr callback 0x%02X ---", status);
 
-	
+	/* what request? */
 	port_req = urb->transfer_buffer;
 	D4(" port_req = 0x%.2X\n", *port_req);
-	
+	/* loop over all muxed ports to find the one sending this */
 	for (i = 0; i < 8; i++) {
-		
+		/* max 8 channels on MUX */
 		if (*port_req & (1 << i)) {
 			serial = get_serial_by_shared_int_and_type(shared_int,
 								   (1 << i));
@@ -1779,6 +1906,8 @@ static void intr_callback(struct urb *urb)
 				spin_lock(&serial->serial_lock);
 				if (serial->rx_state == RX_IDLE &&
 					serial->open_count > 0) {
+					/* Setup and send a ctrl req read on
+					 * port i */
 					if (!serial->rx_urb_filled[0]) {
 						serial->rx_state = RX_SENT;
 						hso_mux_serial_read(serial);
@@ -1792,10 +1921,11 @@ static void intr_callback(struct urb *urb)
 			}
 		}
 	}
-	
+	/* Resubmit interrupt urb */
 	hso_mux_submit_intr_urb(shared_int, urb->dev, GFP_ATOMIC);
 }
 
+/* called for writing to muxed serial port */
 static int hso_mux_serial_write_data(struct hso_serial *serial)
 {
 	if (NULL == serial)
@@ -1809,13 +1939,14 @@ static int hso_mux_serial_write_data(struct hso_serial *serial)
 				  serial->tx_data, serial->tx_data_count);
 }
 
+/* write callback for Diag and CS port */
 static void hso_std_serial_write_bulk_callback(struct urb *urb)
 {
 	struct hso_serial *serial = urb->context;
 	int status = urb->status;
 	struct tty_struct *tty;
 
-	
+	/* sanity check */
 	if (!serial) {
 		D1("serial == NULL");
 		return;
@@ -1840,6 +1971,7 @@ static void hso_std_serial_write_bulk_callback(struct urb *urb)
 	D1(" ");
 }
 
+/* called for writing diag or CS serial port */
 static int hso_std_serial_write_data(struct hso_serial *serial)
 {
 	int count = serial->tx_data_count;
@@ -1863,6 +1995,7 @@ static int hso_std_serial_write_data(struct hso_serial *serial)
 	return count;
 }
 
+/* callback after read or write on muxed serial port */
 static void ctrl_callback(struct urb *urb)
 {
 	struct hso_serial *serial = urb->context;
@@ -1870,7 +2003,7 @@ static void ctrl_callback(struct urb *urb)
 	int status = urb->status;
 	struct tty_struct *tty;
 
-	
+	/* sanity check */
 	if (!serial)
 		return;
 
@@ -1884,7 +2017,7 @@ static void ctrl_callback(struct urb *urb)
 		return;
 	}
 
-	
+	/* what request? */
 	req = (struct usb_ctrlrequest *)(urb->setup_packet);
 	D4("\n--- Got muxed ctrl callback 0x%02X ---", status);
 	D4("Actual length of urb = %d\n", urb->actual_length);
@@ -1892,7 +2025,7 @@ static void ctrl_callback(struct urb *urb)
 
 	if (req->bRequestType ==
 	    (USB_DIR_IN | USB_TYPE_OPTION_VENDOR | USB_RECIP_INTERFACE)) {
-		
+		/* response to a read command */
 		serial->rx_urb_filled[0] = 1;
 		spin_lock(&serial->serial_lock);
 		put_rxbuf_data_and_resubmit_ctrl_urb(serial);
@@ -1901,28 +2034,29 @@ static void ctrl_callback(struct urb *urb)
 		hso_put_activity(serial->parent);
 		if (tty)
 			tty_wakeup(tty);
-		
+		/* response to a write command */
 		hso_kick_transmit(serial);
 	}
 	tty_kref_put(tty);
 }
 
+/* handle RX data for serial port */
 static int put_rxbuf_data(struct urb *urb, struct hso_serial *serial)
 {
 	struct tty_struct *tty;
 	int write_length_remaining = 0;
 	int curr_write_len;
 
-	
+	/* Sanity check */
 	if (urb == NULL || serial == NULL) {
 		D1("serial = NULL");
 		return -2;
 	}
 
-	
+	/* All callers to put_rxbuf_data hold serial_lock */
 	tty = tty_kref_get(serial->tty);
 
-	
+	/* Push data to tty */
 	if (tty) {
 		write_length_remaining = urb->actual_length -
 			serial->curr_rx_urb_offset;
@@ -1950,6 +2084,7 @@ static int put_rxbuf_data(struct urb *urb, struct hso_serial *serial)
 }
 
 
+/* Base driver functions */
 
 static void hso_log_port(struct hso_device *hso_dev)
 {
@@ -2009,10 +2144,10 @@ static int hso_start_net_device(struct hso_device *hso_dev)
 	if (!hso_net)
 		return -ENODEV;
 
-	
+	/* send URBs for all read buffers */
 	for (i = 0; i < MUX_BULK_RX_BUF_COUNT; i++) {
 
-		
+		/* Prep a receive URB */
 		usb_fill_bulk_urb(hso_net->mux_bulk_rx_urb_pool[i],
 				  hso_dev->usb,
 				  usb_rcvbulkpipe(hso_dev->usb,
@@ -2022,7 +2157,7 @@ static int hso_start_net_device(struct hso_device *hso_dev)
 				  MUX_BULK_RX_BUF_SIZE, read_bulk_callback,
 				  hso_net);
 
-		
+		/* Put it out there so the device can send us stuff */
 		result = usb_submit_urb(hso_net->mux_bulk_rx_urb_pool[i],
 					GFP_NOIO);
 		if (result)
@@ -2061,6 +2196,8 @@ static int hso_start_serial_device(struct hso_device *hso_dev, gfp_t flags)
 	if (!serial)
 		return -ENODEV;
 
+	/* If it is not the MUX port fill in and submit a bulk urb (already
+	 * allocated in hso_serial_start) */
 	if (!(serial->parent->port_spec & HSO_INTF_MUX)) {
 		for (i = 0; i < serial->num_rx_urbs; i++) {
 			usb_fill_bulk_urb(serial->rx_urb[i],
@@ -2150,13 +2287,13 @@ static void hso_serial_common_free(struct hso_serial *serial)
 	tty_unregister_device(tty_drv, serial->minor);
 
 	for (i = 0; i < serial->num_rx_urbs; i++) {
-		
+		/* unlink and free RX URB */
 		usb_free_urb(serial->rx_urb[i]);
-		
+		/* free the RX buffer */
 		kfree(serial->rx_data[i]);
 	}
 
-	
+	/* unlink and free TX URB */
 	usb_free_urb(serial->tx_urb);
 	kfree(serial->tx_data);
 }
@@ -2172,22 +2309,22 @@ static int hso_serial_common_create(struct hso_serial *serial, int num_urbs,
 	if (minor < 0)
 		goto exit;
 
-	
+	/* register our minor number */
 	serial->parent->dev = tty_register_device(tty_drv, minor,
 					&serial->parent->interface->dev);
 	dev = serial->parent->dev;
 	dev_set_drvdata(dev, serial->parent);
 	i = device_create_file(dev, &dev_attr_hsotype);
 
-	
+	/* fill in specific data for later use */
 	serial->minor = minor;
 	serial->magic = HSO_SERIAL_MAGIC;
 	spin_lock_init(&serial->serial_lock);
 	serial->num_rx_urbs = num_urbs;
 
-	
+	/* RX, allocate urb and initialize */
 
-	
+	/* prepare our RX buffer */
 	serial->rx_data_length = rx_size;
 	for (i = 0; i < serial->num_rx_urbs; i++) {
 		serial->rx_urb[i] = usb_alloc_urb(0, GFP_KERNEL);
@@ -2205,7 +2342,7 @@ static int hso_serial_common_create(struct hso_serial *serial, int num_urbs,
 		}
 	}
 
-	
+	/* TX, allocate urb and initialize */
 	serial->tx_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (!serial->tx_urb) {
 		dev_err(dev, "Could not allocate urb?\n");
@@ -2213,7 +2350,7 @@ static int hso_serial_common_create(struct hso_serial *serial, int num_urbs,
 	}
 	serial->tx_urb->transfer_buffer = NULL;
 	serial->tx_urb->transfer_buffer_length = 0;
-	
+	/* prepare our TX buffer */
 	serial->tx_data_count = 0;
 	serial->tx_buffer_count = 0;
 	serial->tx_data_length = tx_size;
@@ -2234,6 +2371,7 @@ exit:
 	return -1;
 }
 
+/* Creates a general hso device */
 static struct hso_device *hso_create_device(struct usb_interface *intf,
 					    int port_spec)
 {
@@ -2256,6 +2394,7 @@ static struct hso_device *hso_create_device(struct usb_interface *intf,
 	return hso_dev;
 }
 
+/* Removes a network device in the network device table */
 static int remove_net_device(struct hso_device *hso_dev)
 {
 	int i;
@@ -2271,6 +2410,7 @@ static int remove_net_device(struct hso_device *hso_dev)
 	return 0;
 }
 
+/* Frees our network device */
 static void hso_free_net_device(struct hso_device *hso_dev)
 {
 	int i;
@@ -2284,7 +2424,7 @@ static void hso_free_net_device(struct hso_device *hso_dev)
 	if (hso_net->net)
 		unregister_netdev(hso_net->net);
 
-	
+	/* start freeing */
 	for (i = 0; i < MUX_BULK_RX_BUF_COUNT; i++) {
 		usb_free_urb(hso_net->mux_bulk_rx_urb_pool[i]);
 		kfree(hso_net->mux_bulk_rx_buf_pool[i]);
@@ -2307,13 +2447,14 @@ static const struct net_device_ops hso_netdev_ops = {
 	.ndo_tx_timeout = hso_net_tx_timeout,
 };
 
+/* initialize the network interface */
 static void hso_net_init(struct net_device *net)
 {
 	struct hso_net *hso_net = netdev_priv(net);
 
 	D1("sizeof hso_net is %d", (int)sizeof(*hso_net));
 
-	
+	/* fill in the other fields */
 	net->netdev_ops = &hso_netdev_ops;
 	net->watchdog_timeo = HSO_NET_TX_TIMEOUT;
 	net->flags = IFF_POINTOPOINT | IFF_NOARP | IFF_MULTICAST;
@@ -2322,10 +2463,11 @@ static void hso_net_init(struct net_device *net)
 	net->tx_queue_len = 10;
 	SET_ETHTOOL_OPS(net, &ops);
 
-	
+	/* and initialize the semaphore */
 	spin_lock_init(&hso_net->net_lock);
 }
 
+/* Adds a network device in the network device table */
 static int add_net_device(struct hso_device *hso_dev)
 {
 	int i;
@@ -2362,6 +2504,7 @@ static const struct rfkill_ops hso_rfkill_ops = {
 	.set_block = hso_rfkill_set_block,
 };
 
+/* Creates and sets up everything for rfkill */
 static void hso_create_rfkill(struct hso_device *hso_dev,
 			     struct usb_interface *interface)
 {
@@ -2398,6 +2541,7 @@ static struct device_type hso_type = {
 	.name	= "wwan",
 };
 
+/* Creates our network device */
 static struct hso_device *hso_create_net_device(struct usb_interface *interface,
 						int port_spec)
 {
@@ -2410,8 +2554,8 @@ static struct hso_device *hso_create_net_device(struct usb_interface *interface,
 	if (!hso_dev)
 		return NULL;
 
-	
-	
+	/* allocate our network device, then we can put in our private data */
+	/* call hso_net_init to do the basic initialization */
 	net = alloc_netdev(sizeof(struct hso_net), "hso%d", hso_net_init);
 	if (!net) {
 		dev_err(&interface->dev, "Unable to create ethernet device\n");
@@ -2439,14 +2583,14 @@ static struct hso_device *hso_create_net_device(struct usb_interface *interface,
 	SET_NETDEV_DEV(net, &interface->dev);
 	SET_NETDEV_DEVTYPE(net, &hso_type);
 
-	
+	/* registering our net device */
 	result = register_netdev(net);
 	if (result) {
 		dev_err(&interface->dev, "Failed to register device\n");
 		goto exit;
 	}
 
-	
+	/* start allocating */
 	for (i = 0; i < MUX_BULK_RX_BUF_COUNT; i++) {
 		hso_net->mux_bulk_rx_urb_pool[i] = usb_alloc_urb(0, GFP_KERNEL);
 		if (!hso_net->mux_bulk_rx_urb_pool[i]) {
@@ -2497,6 +2641,7 @@ static void hso_free_tiomget(struct hso_serial *serial)
 	}
 }
 
+/* Frees an AT channel ( goes for both mux and non-mux ) */
 static void hso_free_serial_device(struct hso_device *hso_dev)
 {
 	struct hso_serial *serial = dev2ser(hso_dev);
@@ -2519,6 +2664,7 @@ static void hso_free_serial_device(struct hso_device *hso_dev)
 	kfree(hso_dev);
 }
 
+/* Creates a bulk AT channel */
 static struct hso_device *hso_create_bulk_serial_device(
 			struct usb_interface *interface, int port)
 {
@@ -2542,6 +2688,9 @@ static struct hso_device *hso_create_bulk_serial_device(
 		num_urbs = 2;
 		serial->tiocmget = kzalloc(sizeof(struct hso_tiocmget),
 					   GFP_KERNEL);
+		/* it isn't going to break our heart if serial->tiocmget
+		 *  allocation fails don't bother checking this.
+		 */
 		if (serial->tiocmget) {
 			tiocmget = serial->tiocmget;
 			tiocmget->urb = usb_alloc_urb(0, GFP_KERNEL);
@@ -2579,13 +2728,13 @@ static struct hso_device *hso_create_bulk_serial_device(
 
 	serial->write_data = hso_std_serial_write_data;
 
-	
+	/* and record this serial */
 	set_serial_by_index(serial->minor, serial);
 
-	
+	/* setup the proc dirs and files if needed */
 	hso_log_port(hso_dev);
 
-	
+	/* done, return it */
 	return hso_dev;
 
 exit2:
@@ -2597,6 +2746,7 @@ exit:
 	return NULL;
 }
 
+/* Creates a multiplexed AT channel */
 static
 struct hso_device *hso_create_mux_serial_device(struct usb_interface *interface,
 						int port,
@@ -2636,13 +2786,13 @@ struct hso_device *hso_create_mux_serial_device(struct usb_interface *interface,
 	serial->shared_int->ref_count++;
 	mutex_unlock(&serial->shared_int->shared_int_lock);
 
-	
+	/* and record this serial */
 	set_serial_by_index(serial->minor, serial);
 
-	
+	/* setup the proc dirs and files if needed */
 	hso_log_port(hso_dev);
 
-	
+	/* done, return it */
 	return hso_dev;
 
 exit:
@@ -2703,6 +2853,7 @@ exit:
 	return NULL;
 }
 
+/* Gets the port spec for a certain interface */
 static int hso_get_config_data(struct usb_interface *interface)
 {
 	struct usb_device *usbdev = interface_to_usbdev(interface);
@@ -2766,6 +2917,7 @@ static int hso_get_config_data(struct usb_interface *interface)
 	return result;
 }
 
+/* called once for each interface upon device insertion */
 static int hso_probe(struct usb_interface *interface,
 		     const struct usb_device_id *id)
 {
@@ -2777,6 +2929,8 @@ static int hso_probe(struct usb_interface *interface,
 
 	if_num = interface->altsetting->desc.bInterfaceNumber;
 
+	/* Get the interface/port specification from either driver_info or from
+	 * the device itself */
 	if (id->driver_info)
 		port_spec = ((u32 *)(id->driver_info))[if_num];
 	else
@@ -2786,15 +2940,17 @@ static int hso_probe(struct usb_interface *interface,
 		dev_err(&interface->dev, "Not our interface\n");
 		return -ENODEV;
 	}
+	/* Check if we need to switch to alt interfaces prior to port
+	 * configuration */
 	if (interface->num_altsetting > 1)
 		usb_set_interface(interface_to_usbdev(interface), if_num, 1);
 	interface->needs_remote_wakeup = 1;
 
-	
+	/* Allocate new hso device(s) */
 	switch (port_spec & HSO_INTF_MASK) {
 	case HSO_INTF_MUX:
 		if ((port_spec & HSO_PORT_MASK) == HSO_PORT_NETWORK) {
-			
+			/* Create the network device */
 			if (!disable_net) {
 				hso_dev = hso_create_net_device(interface,
 								port_spec);
@@ -2805,7 +2961,7 @@ static int hso_probe(struct usb_interface *interface,
 		}
 
 		if (hso_get_mux_ports(interface, &port_mask))
-			
+			/* TODO: de-allocate everything */
 			goto exit;
 
 		shared_int = hso_create_shared_int(interface);
@@ -2826,7 +2982,7 @@ static int hso_probe(struct usb_interface *interface,
 		break;
 
 	case HSO_INTF_BULK:
-		
+		/* It's a regular bulk interface */
 		if ((port_spec & HSO_PORT_MASK) == HSO_PORT_NETWORK) {
 			if (!disable_net)
 				hso_dev =
@@ -2842,21 +2998,22 @@ static int hso_probe(struct usb_interface *interface,
 		goto exit;
 	}
 
-	
+	/* save our data pointer in this device */
 	usb_set_intfdata(interface, hso_dev);
 
-	
+	/* done */
 	return 0;
 exit:
 	hso_free_interface(interface);
 	return -ENODEV;
 }
 
+/* device removed, cleaning up */
 static void hso_disconnect(struct usb_interface *interface)
 {
 	hso_free_interface(interface);
 
-	
+	/* remove reference of our private data */
 	usb_set_intfdata(interface, NULL);
 }
 
@@ -2904,11 +3061,12 @@ static int hso_put_activity(struct hso_device *hso_dev)
 	return 0;
 }
 
+/* called by kernel when we need to suspend device */
 static int hso_suspend(struct usb_interface *iface, pm_message_t message)
 {
 	int i, result;
 
-	
+	/* Stop all serial ports */
 	for (i = 0; i < HSO_SERIAL_TTY_MINORS; i++) {
 		if (serial_table[i] && (serial_table[i]->interface == iface)) {
 			result = hso_stop_serial_device(serial_table[i]);
@@ -2917,7 +3075,7 @@ static int hso_suspend(struct usb_interface *iface, pm_message_t message)
 		}
 	}
 
-	
+	/* Stop all network ports */
 	for (i = 0; i < HSO_MAX_NET_DEVICES; i++) {
 		if (network_table[i] &&
 		    (network_table[i]->interface == iface)) {
@@ -2931,12 +3089,13 @@ out:
 	return 0;
 }
 
+/* called by kernel when we need to resume device */
 static int hso_resume(struct usb_interface *iface)
 {
 	int i, result = 0;
 	struct hso_net *hso_net;
 
-	
+	/* Start all serial ports */
 	for (i = 0; i < HSO_SERIAL_TTY_MINORS; i++) {
 		if (serial_table[i] && (serial_table[i]->interface == iface)) {
 			if (dev2ser(serial_table[i])->open_count) {
@@ -2949,12 +3108,14 @@ static int hso_resume(struct usb_interface *iface)
 		}
 	}
 
-	
+	/* Start all network ports */
 	for (i = 0; i < HSO_MAX_NET_DEVICES; i++) {
 		if (network_table[i] &&
 		    (network_table[i]->interface == iface)) {
 			hso_net = dev2net(network_table[i]);
 			if (hso_net->flags & IFF_UP) {
+				/* First transmit any lingering data,
+				   then restart the device. */
 				if (hso_net->skb_tx_buf) {
 					dev_dbg(&iface->dev,
 						"Transmitting"
@@ -3028,6 +3189,8 @@ static void hso_free_interface(struct usb_interface *interface)
 		if (network_table[i] &&
 		    (network_table[i]->interface == interface)) {
 			struct rfkill *rfk = dev2net(network_table[i])->rfkill;
+			/* hso_stop_net_device doesn't stop the net queue since
+			 * traffic needs to start it again when suspended */
 			netif_stop_queue(dev2net(network_table[i])->net);
 			hso_stop_net_device(network_table[i]);
 			cancel_work_sync(&network_table[i]->async_put_intf);
@@ -3041,7 +3204,9 @@ static void hso_free_interface(struct usb_interface *interface)
 	}
 }
 
+/* Helper functions */
 
+/* Get the endpoint ! */
 static struct usb_endpoint_descriptor *hso_get_ep(struct usb_interface *intf,
 						  int type, int dir)
 {
@@ -3059,6 +3224,7 @@ static struct usb_endpoint_descriptor *hso_get_ep(struct usb_interface *intf,
 	return NULL;
 }
 
+/* Get the byte that describes which ports are enabled */
 static int hso_get_mux_ports(struct usb_interface *intf, unsigned char *ports)
 {
 	int i;
@@ -3079,6 +3245,7 @@ static int hso_get_mux_ports(struct usb_interface *intf, unsigned char *ports)
 	return -1;
 }
 
+/* interrupt urb needs to be submitted, used for serial read of muxed port */
 static int hso_mux_submit_intr_urb(struct hso_shared_int *shared_int,
 				   struct usb_device *usb, gfp_t gfp)
 {
@@ -3100,6 +3267,7 @@ static int hso_mux_submit_intr_urb(struct hso_shared_int *shared_int,
 	return result;
 }
 
+/* operations setup of the serial interface */
 static const struct tty_operations hso_serial_ops = {
 	.open = hso_serial_open,
 	.close = hso_serial_close,
@@ -3130,25 +3298,25 @@ static int __init hso_init(void)
 	int i;
 	int result;
 
-	
+	/* put it in the log */
 	printk(KERN_INFO "hso: %s\n", version);
 
-	
+	/* Initialise the serial table semaphore and table */
 	spin_lock_init(&serial_table_lock);
 	for (i = 0; i < HSO_SERIAL_TTY_MINORS; i++)
 		serial_table[i] = NULL;
 
-	
+	/* allocate our driver using the proper amount of supported minors */
 	tty_drv = alloc_tty_driver(HSO_SERIAL_TTY_MINORS);
 	if (!tty_drv)
 		return -ENOMEM;
 
-	
+	/* fill in all needed values */
 	tty_drv->magic = TTY_DRIVER_MAGIC;
 	tty_drv->driver_name = driver_name;
 	tty_drv->name = tty_filename;
 
-	
+	/* if major number is provided as parameter, use that one */
 	if (tty_major)
 		tty_drv->major = tty_major;
 
@@ -3160,7 +3328,7 @@ static int __init hso_init(void)
 	hso_init_termios(&tty_drv->init_termios);
 	tty_set_operations(tty_drv, &hso_serial_ops);
 
-	
+	/* register the tty driver */
 	result = tty_register_driver(tty_drv);
 	if (result) {
 		printk(KERN_ERR "%s - tty_register_driver failed(%d)\n",
@@ -3168,17 +3336,17 @@ static int __init hso_init(void)
 		return result;
 	}
 
-	
+	/* register this module as an usb driver */
 	result = usb_register(&hso_driver);
 	if (result) {
 		printk(KERN_ERR "Could not register hso driver? error: %d\n",
 			result);
-		
+		/* cleanup serial interface */
 		tty_unregister_driver(tty_drv);
 		return result;
 	}
 
-	
+	/* done */
 	return 0;
 }
 
@@ -3187,10 +3355,11 @@ static void __exit hso_exit(void)
 	printk(KERN_INFO "hso: unloaded\n");
 
 	tty_unregister_driver(tty_drv);
-	
+	/* deregister the usb driver */
 	usb_deregister(&hso_driver);
 }
 
+/* Module definitions */
 module_init(hso_init);
 module_exit(hso_exit);
 
@@ -3198,11 +3367,14 @@ MODULE_AUTHOR(MOD_AUTHOR);
 MODULE_DESCRIPTION(MOD_DESCRIPTION);
 MODULE_LICENSE(MOD_LICENSE);
 
+/* change the debug level (eg: insmod hso.ko debug=0x04) */
 MODULE_PARM_DESC(debug, "Level of debug [0x01 | 0x02 | 0x04 | 0x08 | 0x10]");
 module_param(debug, int, S_IRUGO | S_IWUSR);
 
+/* set the major tty number (eg: insmod hso.ko tty_major=245) */
 MODULE_PARM_DESC(tty_major, "Set the major tty number");
 module_param(tty_major, int, S_IRUGO | S_IWUSR);
 
+/* disable network interface (eg: insmod hso.ko disable_net=1) */
 MODULE_PARM_DESC(disable_net, "Disable the network interface");
 module_param(disable_net, int, S_IRUGO | S_IWUSR);

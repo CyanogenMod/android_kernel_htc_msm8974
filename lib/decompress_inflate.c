@@ -1,12 +1,16 @@
 #ifdef STATIC
+/* Pre-boot environment: included */
 
+/* prevent inclusion of _LINUX_KERNEL_H in pre-boot environment: lots
+ * errors about console_printk etc... on ARM */
 #define _LINUX_KERNEL_H
 
 #include "zlib_inflate/inftrees.c"
 #include "zlib_inflate/inffast.c"
 #include "zlib_inflate/inflate.c"
 
-#else 
+#else /* STATIC */
+/* initramfs et al: linked */
 
 #include <linux/zutil.h>
 
@@ -16,7 +20,7 @@
 
 #include "zlib_inflate/infutil.h"
 
-#endif 
+#endif /* STATIC */
 
 #include <linux/decompress/mm.h>
 
@@ -27,6 +31,7 @@ static int INIT nofill(void *buffer, unsigned int len)
 	return -1;
 }
 
+/* Included from initramfs et al code */
 STATIC int INIT gunzip(unsigned char *buf, int len,
 		       int(*fill)(void*, unsigned int),
 		       int(*flush)(void*, unsigned int),
@@ -40,10 +45,10 @@ STATIC int INIT gunzip(unsigned char *buf, int len,
 
 	rc = -1;
 	if (flush) {
-		out_len = 0x8000; 
+		out_len = 0x8000; /* 32 K */
 		out_buf = malloc(out_len);
 	} else {
-		out_len = 0x7fffffff; 
+		out_len = 0x7fffffff; /* no limit */
 	}
 	if (!out_buf) {
 		error("Out of memory while allocating output buffer");
@@ -80,7 +85,7 @@ STATIC int INIT gunzip(unsigned char *buf, int len,
 	if (len == 0)
 		len = fill(zbuf, GZIP_IOBUF_SIZE);
 
-	
+	/* verify the gzip header */
 	if (len < 10 ||
 	   zbuf[0] != 0x1f || zbuf[1] != 0x8b || zbuf[2] != 0x08) {
 		if (pos)
@@ -89,11 +94,19 @@ STATIC int INIT gunzip(unsigned char *buf, int len,
 		goto gunzip_5;
 	}
 
+	/* skip over gzip header (1f,8b,08... 10 bytes total +
+	 * possible asciz filename)
+	 */
 	strm->next_in = zbuf + 10;
 	strm->avail_in = len - 10;
-	
+	/* skip over asciz filename */
 	if (zbuf[3] & 0x8) {
 		do {
+			/*
+			 * If the filename doesn't fit into the buffer,
+			 * the file is very probably corrupt. Don't try
+			 * to read more data.
+			 */
 			if (strm->avail_in == 0) {
 				error("header error");
 				goto gunzip_5;
@@ -114,7 +127,7 @@ STATIC int INIT gunzip(unsigned char *buf, int len,
 
 	while (rc == Z_OK) {
 		if (strm->avail_in == 0) {
-			
+			/* TODO: handle case where both pos and fill are set */
 			len = fill(zbuf, GZIP_IOBUF_SIZE);
 			if (len < 0) {
 				rc = -1;
@@ -126,7 +139,7 @@ STATIC int INIT gunzip(unsigned char *buf, int len,
 		}
 		rc = zlib_inflate(strm, 0);
 
-		
+		/* Write any data generated */
 		if (flush && strm->next_out > out_buf) {
 			int l = strm->next_out - out_buf;
 			if (l != flush(out_buf, l)) {
@@ -138,7 +151,7 @@ STATIC int INIT gunzip(unsigned char *buf, int len,
 			strm->avail_out = out_len;
 		}
 
-		
+		/* after Z_FINISH, only Z_STREAM_END is "we unpacked it all" */
 		if (rc == Z_STREAM_END) {
 			rc = 0;
 			break;
@@ -150,7 +163,7 @@ STATIC int INIT gunzip(unsigned char *buf, int len,
 
 	zlib_inflateEnd(strm);
 	if (pos)
-		
+		/* add + 8 to skip over trailer */
 		*pos = strm->next_in - zbuf+8;
 
 gunzip_5:
@@ -164,7 +177,7 @@ gunzip_nomem2:
 	if (flush)
 		free(out_buf);
 gunzip_nomem1:
-	return rc; 
+	return rc; /* returns Z_OK (0) if successful */
 }
 
 #define decompress gunzip

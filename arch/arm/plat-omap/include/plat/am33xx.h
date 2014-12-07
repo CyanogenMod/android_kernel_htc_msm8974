@@ -22,4 +22,4 @@
 #define AM33XX_CTRL_BASE	AM33XX_SCM_BASE
 #define AM33XX_PRCM_BASE	0x44E00000
 
-#endif 
+#endif /* __ASM_ARCH_AM33XX_H */

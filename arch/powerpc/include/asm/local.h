@@ -72,6 +72,14 @@ static __inline__ long local_inc_return(local_t *l)
 	return t;
 }
 
+/*
+ * local_inc_and_test - increment and test
+ * @l: pointer of type local_t
+ *
+ * Atomically increments @l by 1
+ * and returns true if the result is zero, or false for all
+ * other cases.
+ */
 #define local_inc_and_test(l) (local_inc_return(l) == 0)
 
 static __inline__ long local_dec_return(local_t *l)
@@ -95,6 +103,15 @@ static __inline__ long local_dec_return(local_t *l)
 	(cmpxchg_local(&((l)->a.counter), (o), (n)))
 #define local_xchg(l, n) (xchg_local(&((l)->a.counter), (n)))
 
+/**
+ * local_add_unless - add unless the number is a given value
+ * @l: pointer of type local_t
+ * @a: the amount to add to v...
+ * @u: ...unless v is equal to u.
+ *
+ * Atomically adds @a to @l, so long as it was not @u.
+ * Returns non-zero if @l was not @u, and zero otherwise.
+ */
 static __inline__ int local_add_unless(local_t *l, long a, long u)
 {
 	long t;
@@ -121,6 +138,10 @@ static __inline__ int local_add_unless(local_t *l, long a, long u)
 #define local_sub_and_test(a, l)	(local_sub_return((a), (l)) == 0)
 #define local_dec_and_test(l)		(local_dec_return((l)) == 0)
 
+/*
+ * Atomically test *l and decrement if it is greater than 0.
+ * The function returns the old value of *l minus 1.
+ */
 static __inline__ long local_dec_if_positive(local_t *l)
 {
 	long t;
@@ -141,10 +162,14 @@ static __inline__ long local_dec_if_positive(local_t *l)
 	return t;
 }
 
+/* Use these for per-cpu local_t variables: on some archs they are
+ * much more efficient than these naive implementations.  Note they take
+ * a variable, not an address.
+ */
 
 #define __local_inc(l)		((l)->a.counter++)
 #define __local_dec(l)		((l)->a.counter++)
 #define __local_add(i,l)	((l)->a.counter+=(i))
 #define __local_sub(i,l)	((l)->a.counter-=(i))
 
-#endif 
+#endif /* _ARCH_POWERPC_LOCAL_H */

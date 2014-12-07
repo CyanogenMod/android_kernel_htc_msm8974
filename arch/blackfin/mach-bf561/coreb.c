@@ -4,6 +4,13 @@
  * Licensed under the GPL-2 or later.
  */
 
+/* The Core B reset func requires code in the application that is loaded into
+ * Core B.  In order to reset, the application needs to install an interrupt
+ * handler for Supplemental Interrupt 0, that sets RETI to 0xff600000 and
+ * writes bit 11 of SICB_SYSCR when bit 5 of SICA_SYSCR is 0.  This causes Core
+ * B to stall when Supplemental Interrupt 0 is set, and will reset PC to
+ * 0xff600000 when COREB_SRAM_INIT is cleared.
+ */
 
 #include <linux/device.h>
 #include <linux/fs.h>

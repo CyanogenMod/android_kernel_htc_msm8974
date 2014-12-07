@@ -232,7 +232,7 @@ static int bcma_get_next_core(struct bcma_bus *bus, u32 __iomem **eromptr,
 	s32 cia, cib;
 	u8 ports[2], wrappers[2];
 
-	
+	/* get CIs */
 	cia = bcma_erom_get_ci(bus, eromptr);
 	if (cia < 0) {
 		bcma_erom_push_ent(eromptr);
@@ -244,7 +244,7 @@ static int bcma_get_next_core(struct bcma_bus *bus, u32 __iomem **eromptr,
 	if (cib < 0)
 		return -EILSEQ;
 
-	
+	/* parse CIs */
 	core->id.class = (cia & SCAN_CIA_CLASS) >> SCAN_CIA_CLASS_SHIFT;
 	core->id.id = (cia & SCAN_CIA_ID) >> SCAN_CIA_ID_SHIFT;
 	core->id.manuf = (cia & SCAN_CIA_MANUF) >> SCAN_CIA_MANUF_SHIFT;
@@ -261,8 +261,11 @@ static int bcma_get_next_core(struct bcma_bus *bus, u32 __iomem **eromptr,
 		return -ENXIO;
 	}
 
-	
+	/* check if component is a core at all */
 	if (wrappers[0] + wrappers[1] == 0) {
+		/* we could save addrl of the router
+		if (cid == BCMA_CORE_OOB_ROUTER)
+		 */
 		bcma_erom_skip_component(bus, eromptr);
 		return -ENXIO;
 	}
@@ -287,20 +290,22 @@ static int bcma_get_next_core(struct bcma_bus *bus, u32 __iomem **eromptr,
 		return -ENODEV;
 	}
 
-	
+	/* get & parse master ports */
 	for (i = 0; i < ports[0]; i++) {
 		s32 mst_port_d = bcma_erom_get_mst_port(bus, eromptr);
 		if (mst_port_d < 0)
 			return -EILSEQ;
 	}
 
-	
+	/* get & parse slave ports */
 	for (i = 0; i < ports[1]; i++) {
 		for (j = 0; ; j++) {
 			tmp = bcma_erom_get_addr_desc(bus, eromptr,
 				SCAN_ADDR_TYPE_SLAVE, i);
 			if (tmp < 0) {
-				
+				/* no more entries for port _i_ */
+				/* pr_debug("erom: slave port %d "
+				 * "has %d descriptors\n", i, j); */
 				break;
 			} else {
 				if (i == 0 && j == 0)
@@ -309,13 +314,15 @@ static int bcma_get_next_core(struct bcma_bus *bus, u32 __iomem **eromptr,
 		}
 	}
 
-	
+	/* get & parse master wrappers */
 	for (i = 0; i < wrappers[0]; i++) {
 		for (j = 0; ; j++) {
 			tmp = bcma_erom_get_addr_desc(bus, eromptr,
 				SCAN_ADDR_TYPE_MWRAP, i);
 			if (tmp < 0) {
-				
+				/* no more entries for port _i_ */
+				/* pr_debug("erom: master wrapper %d "
+				 * "has %d descriptors\n", i, j); */
 				break;
 			} else {
 				if (i == 0 && j == 0)
@@ -324,14 +331,16 @@ static int bcma_get_next_core(struct bcma_bus *bus, u32 __iomem **eromptr,
 		}
 	}
 
-	
+	/* get & parse slave wrappers */
 	for (i = 0; i < wrappers[1]; i++) {
 		u8 hack = (ports[1] == 1) ? 0 : 1;
 		for (j = 0; ; j++) {
 			tmp = bcma_erom_get_addr_desc(bus, eromptr,
 				SCAN_ADDR_TYPE_SWRAP, i + hack);
 			if (tmp < 0) {
-				
+				/* no more entries for port _i_ */
+				/* pr_debug("erom: master wrapper %d "
+				 * has %d descriptors\n", i, j); */
 				break;
 			} else {
 				if (wrappers[0] == 0 && !i && !j)

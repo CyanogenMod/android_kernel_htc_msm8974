@@ -88,7 +88,7 @@ static ssize_t ad9834_write(struct device *dev,
 		break;
 	case AD9834_OPBITEN:
 		if (st->control & AD9834_MODE) {
-			ret = -EINVAL;  
+			ret = -EINVAL;  /* AD9843 reserved mode */
 			break;
 		}
 
@@ -164,7 +164,7 @@ static ssize_t ad9834_store_wavetype(struct device *dev,
 				st->control &= ~AD9834_OPBITEN;
 				st->control |= AD9834_MODE;
 			} else if (st->control & AD9834_OPBITEN) {
-				ret = -EINVAL;	
+				ret = -EINVAL;	/* AD9843 reserved mode */
 			} else {
 				st->control |= AD9834_MODE;
 			}
@@ -240,16 +240,19 @@ static ssize_t ad9834_show_out1_wavetype_available(struct device *dev,
 static IIO_DEVICE_ATTR(dds0_out1_wavetype_available, S_IRUGO,
 		       ad9834_show_out1_wavetype_available, NULL, 0);
 
+/**
+ * see dds.h for further information
+ */
 
 static IIO_DEV_ATTR_FREQ(0, 0, S_IWUSR, NULL, ad9834_write, AD9834_REG_FREQ0);
 static IIO_DEV_ATTR_FREQ(0, 1, S_IWUSR, NULL, ad9834_write, AD9834_REG_FREQ1);
 static IIO_DEV_ATTR_FREQSYMBOL(0, S_IWUSR, NULL, ad9834_write, AD9834_FSEL);
-static IIO_CONST_ATTR_FREQ_SCALE(0, "1"); 
+static IIO_CONST_ATTR_FREQ_SCALE(0, "1"); /* 1Hz */
 
 static IIO_DEV_ATTR_PHASE(0, 0, S_IWUSR, NULL, ad9834_write, AD9834_REG_PHASE0);
 static IIO_DEV_ATTR_PHASE(0, 1, S_IWUSR, NULL, ad9834_write, AD9834_REG_PHASE1);
 static IIO_DEV_ATTR_PHASESYMBOL(0, S_IWUSR, NULL, ad9834_write, AD9834_PSEL);
-static IIO_CONST_ATTR_PHASE_SCALE(0, "0.0015339808"); 
+static IIO_CONST_ATTR_PHASE_SCALE(0, "0.0015339808"); /* 2PI/2^12 rad*/
 
 static IIO_DEV_ATTR_PINCONTROL_EN(0, S_IWUSR, NULL,
 	ad9834_write, AD9834_PIN_SW);
@@ -355,7 +358,7 @@ static int __devinit ad9834_probe(struct spi_device *spi)
 	}
 	indio_dev->modes = INDIO_DIRECT_MODE;
 
-	
+	/* Setup default messages */
 
 	st->xfer.tx_buf = &st->data;
 	st->xfer.len = 2;

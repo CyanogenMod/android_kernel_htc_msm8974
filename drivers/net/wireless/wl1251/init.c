@@ -53,7 +53,7 @@ int wl1251_hw_init_templates_config(struct wl1251 *wl)
 	int ret;
 	u8 partial_vbm[PARTIAL_VBM_MAX];
 
-	
+	/* send empty templates for fw memory reservation */
 	ret = wl1251_cmd_template_set(wl, CMD_PROBE_REQ, NULL,
 				      sizeof(struct wl12xx_probe_req_template));
 	if (ret < 0)
@@ -87,7 +87,7 @@ int wl1251_hw_init_templates_config(struct wl1251 *wl)
 	if (ret < 0)
 		return ret;
 
-	
+	/* tim templates, first reserve space then allocate an empty one */
 	memset(partial_vbm, 0, PARTIAL_VBM_MAX);
 	ret = wl1251_cmd_vbm(wl, TIM_ELE_ID, partial_vbm, PARTIAL_VBM_MAX, 0);
 	if (ret < 0)
@@ -146,7 +146,7 @@ int wl1251_hw_init_beacon_filter(struct wl1251 *wl)
 {
 	int ret;
 
-	
+	/* disable beacon filtering at this stage */
 	ret = wl1251_acx_beacon_filter_opt(wl, false);
 	if (ret < 0)
 		return ret;
@@ -215,7 +215,7 @@ int wl1251_hw_init_mem_config(struct wl1251 *wl)
 		return -ENOMEM;
 	}
 
-	
+	/* we now ask for the firmware built memory map */
 	ret = wl1251_acx_mem_map(wl, wl->target_mem_map,
 				 sizeof(struct wl1251_acx_mem_map));
 	if (ret < 0) {
@@ -307,7 +307,7 @@ static int wl1251_hw_init_data_path_config(struct wl1251 *wl)
 {
 	int ret;
 
-	
+	/* asking for the data path parameters */
 	wl->data_path = kzalloc(sizeof(struct acx_data_path_params_resp),
 				GFP_KERNEL);
 	if (!wl->data_path) {
@@ -335,69 +335,71 @@ int wl1251_hw_init(struct wl1251 *wl)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Template settings */
 	ret = wl1251_hw_init_templates_config(wl);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Default memory configuration */
 	ret = wl1251_hw_init_mem_config(wl);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Default data path configuration  */
 	ret = wl1251_hw_init_data_path_config(wl);
 	if (ret < 0)
 		goto out_free_memmap;
 
-	
+	/* RX config */
 	ret = wl1251_hw_init_rx_config(wl,
 				       RX_CFG_PROMISCUOUS | RX_CFG_TSF,
 				       RX_FILTER_OPTION_DEF);
+	/* RX_CONFIG_OPTION_ANY_DST_ANY_BSS,
+	   RX_FILTER_OPTION_FILTER_ALL); */
 	if (ret < 0)
 		goto out_free_data_path;
 
-	
+	/* TX queues config */
 	ret = wl1251_hw_init_tx_queue_config(wl);
 	if (ret < 0)
 		goto out_free_data_path;
 
-	
+	/* PHY layer config */
 	ret = wl1251_hw_init_phy_config(wl);
 	if (ret < 0)
 		goto out_free_data_path;
 
-	
+	/* Initialize connection monitoring thresholds */
 	ret = wl1251_acx_conn_monit_params(wl);
 	if (ret < 0)
 		goto out_free_data_path;
 
-	
+	/* Beacon filtering */
 	ret = wl1251_hw_init_beacon_filter(wl);
 	if (ret < 0)
 		goto out_free_data_path;
 
-	
+	/* Bluetooth WLAN coexistence */
 	ret = wl1251_hw_init_pta(wl);
 	if (ret < 0)
 		goto out_free_data_path;
 
-	
+	/* Energy detection */
 	ret = wl1251_hw_init_energy_detection(wl);
 	if (ret < 0)
 		goto out_free_data_path;
 
-	
+	/* Beacons and boradcast settings */
 	ret = wl1251_hw_init_beacon_broadcast(wl);
 	if (ret < 0)
 		goto out_free_data_path;
 
-	
+	/* Enable data path */
 	ret = wl1251_cmd_data_path(wl, wl->channel, 1);
 	if (ret < 0)
 		goto out_free_data_path;
 
-	
+	/* Default power state */
 	ret = wl1251_hw_init_power_auth(wl);
 	if (ret < 0)
 		goto out_free_data_path;

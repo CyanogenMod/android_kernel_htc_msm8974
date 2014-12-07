@@ -35,24 +35,39 @@
 #define DMASOUND_PAULA_EDITION 4
 
 #define custom amiga_custom
+   /*
+    *	The minimum period for audio depends on htotal (for OCS/ECS/AGA)
+    *	(Imported from arch/m68k/amiga/amisound.c)
+    */
 
 extern volatile u_short amiga_audio_min_period;
 
 
+   /*
+    *	amiga_mksound() should be able to restore the period after beeping
+    *	(Imported from arch/m68k/amiga/amisound.c)
+    */
 
 extern u_short amiga_audio_period;
 
 
+   /*
+    *	Audio DMA masks
+    */
 
 #define AMI_AUDIO_OFF	(DMAF_AUD0 | DMAF_AUD1 | DMAF_AUD2 | DMAF_AUD3)
 #define AMI_AUDIO_8	(DMAF_SETCLR | DMAF_MASTER | DMAF_AUD0 | DMAF_AUD1)
 #define AMI_AUDIO_14	(AMI_AUDIO_8 | DMAF_AUD2 | DMAF_AUD3)
 
 
+    /*
+     *  Helper pointers for 16(14)-bit sound
+     */
 
 static int write_sq_block_size_half, write_sq_block_size_quarter;
 
 
+/*** Low level stuff *********************************************************/
 
 
 static void *AmiAlloc(unsigned int size, gfp_t flags);
@@ -72,6 +87,10 @@ static irqreturn_t AmiInterrupt(int irq, void *dummy);
 
 #ifdef CONFIG_HEARTBEAT
 
+    /*
+     *  Heartbeat interferes with sound since the 7 kHz low-pass filter and the
+     *  power LED are controlled by the same line.
+     */
 
 static void (*saved_heartbeat)(int) = NULL;
 
@@ -89,12 +108,13 @@ static inline void enable_heartbeat(void)
 	if (saved_heartbeat)
 	    mach_heartbeat = saved_heartbeat;
 }
-#else 
+#else /* !CONFIG_HEARTBEAT */
 #define disable_heartbeat()	do { } while (0)
 #define enable_heartbeat()	do { } while (0)
-#endif 
+#endif /* !CONFIG_HEARTBEAT */
 
 
+/*** Mid level stuff *********************************************************/
 
 static void AmiMixerInit(void);
 static int AmiMixerIoctl(u_int cmd, u_long arg);
@@ -102,9 +122,36 @@ static int AmiWriteSqSetup(void);
 static int AmiStateInfo(char *buffer, size_t space);
 
 
+/*** Translations ************************************************************/
+
+/* ++TeSche: radically changed for new expanding purposes...
+ *
+ * These two routines now deal with copying/expanding/translating the samples
+ * from user space into our buffer at the right frequency. They take care about
+ * how much data there's actually to read, how much buffer space there is and
+ * to convert samples into the right frequency/encoding. They will only work on
+ * complete samples so it may happen they leave some bytes in the input stream
+ * if the user didn't write a multiple of the current sample size. They both
+ * return the number of bytes they've used from both streams so you may detect
+ * such a situation. Luckily all programs should be able to cope with that.
+ *
+ * I think I've optimized anything as far as one can do in plain C, all
+ * variables should fit in registers and the loops are really short. There's
+ * one loop for every possible situation. Writing a more generalized and thus
+ * parameterized loop would only produce slower code. Feel free to optimize
+ * this in assembler if you like. :)
+ *
+ * I think these routines belong here because they're not yet really hardware
+ * independent, especially the fact that the Falcon can play 16bit samples
+ * only in stereo is hardcoded in both of them!
+ *
+ * ++geert: split in even more functions (one per format)
+ */
 
 
-
+    /*
+     *  Native format
+     */
 
 static ssize_t ami_ct_s8(const u_char __user *userPtr, size_t userCount,
 			 u_char frame[], ssize_t *frameUsed, ssize_t frameLeft)
@@ -134,6 +181,9 @@ static ssize_t ami_ct_s8(const u_char __user *userPtr, size_t userCount,
 }
 
 
+    /*
+     *  Copy and convert 8 bit data
+     */
 
 #define GENERATE_AMI_CT8(funcname, convsample)				\
 static ssize_t funcname(const u_char __user *userPtr, size_t userCount,	\
@@ -182,6 +232,9 @@ GENERATE_AMI_CT8(ami_ct_alaw, AMI_CT_ALAW)
 GENERATE_AMI_CT8(ami_ct_u8, AMI_CT_U8)
 
 
+    /*
+     *  Copy and convert 16 bit data
+     */
 
 #define GENERATE_AMI_CT_16(funcname, convsample)			\
 static ssize_t funcname(const u_char __user *userPtr, size_t userCount,	\
@@ -252,6 +305,7 @@ static TRANS transAmiga = {
 	.ct_u16le	= ami_ct_u16le,
 };
 
+/*** Low level stuff *********************************************************/
 
 static inline void StopDMA(void)
 {
@@ -273,10 +327,10 @@ static void AmiFree(void *obj, unsigned int size)
 
 static int __init AmiIrqInit(void)
 {
-	
+	/* turn off DMA for audio channels */
 	StopDMA();
 
-	
+	/* Register interrupt handler. */
 	if (request_irq(IRQ_AMIGA_AUD0, AmiInterrupt, 0, "DMA sound",
 			AmiInterrupt))
 		return 0;
@@ -286,16 +340,16 @@ static int __init AmiIrqInit(void)
 #ifdef MODULE
 static void AmiIrqCleanUp(void)
 {
-	
+	/* turn off DMA for audio channels */
 	StopDMA();
-	
+	/* release the interrupt */
 	free_irq(IRQ_AMIGA_AUD0, AmiInterrupt);
 }
-#endif 
+#endif /* MODULE */
 
 static void AmiSilence(void)
 {
-	
+	/* turn off DMA for audio channels */
 	StopDMA();
 }
 
@@ -314,7 +368,7 @@ static void AmiInit(void)
 	dmasound.trans_write = &transAmiga;
 
 	if (period < amiga_audio_min_period) {
-		
+		/* we would need to squeeze the sound, but we won't do that */
 		period = amiga_audio_min_period;
 	} else if (period > 65535) {
 		period = 65535;
@@ -331,7 +385,7 @@ static int AmiSetFormat(int format)
 {
 	int size;
 
-	
+	/* Amiga sound DMA supports 8bit and 16bit (pseudo 14 bit) modes */
 
 	switch (format) {
 	case AFMT_QUERY:
@@ -348,7 +402,7 @@ static int AmiSetFormat(int format)
 	case AFMT_U16_LE:
 		size = 16;
 		break;
-	default: 
+	default: /* :-) */
 		size = 8;
 		format = AFMT_S8;
 	}
@@ -409,6 +463,9 @@ static void AmiPlayNextFrame(int index)
 	u_char *start, *ch0, *ch1, *ch2, *ch3;
 	u_long size;
 
+	/* used by AmiPlay() if all doubts whether there really is something
+	 * to be played are already wiped out.
+	 */
 	start = write_sq.buffers[write_sq.front];
 	size = (write_sq.count == index ? write_sq.rear_size
 					: write_sq.block_size)>>1;
@@ -438,11 +495,11 @@ static void AmiPlayNextFrame(int index)
 		custom.aud[1].audlc = (u_short *)ZTWO_PADDR(ch1);
 		custom.aud[1].audlen = size;
 		if (dmasound.volume_left == 64 && dmasound.volume_right == 64) {
-			
+			/* We can play pseudo 14-bit only with the maximum volume */
 			ch3 = ch0+write_sq_block_size_quarter;
 			ch2 = ch1+write_sq_block_size_quarter;
-			custom.aud[2].audvol = 1;  
-			custom.aud[3].audvol = 1;  
+			custom.aud[2].audvol = 1;  /* we are being affected by the beeps */
+			custom.aud[3].audvol = 1;  /* restoring volume here helps a bit */
 			custom.aud[2].audlc = (u_short *)ZTWO_PADDR(ch2);
 			custom.aud[2].audlen = size;
 			custom.aud[3].audlc = (u_short *)ZTWO_PADDR(ch3);
@@ -466,23 +523,26 @@ static void AmiPlay(void)
 	custom.intena = IF_AUD0;
 
 	if (write_sq.active & AMI_PLAY_LOADED) {
-		
+		/* There's already a frame loaded */
 		custom.intena = IF_SETCLR | IF_AUD0;
 		return;
 	}
 
 	if (write_sq.active & AMI_PLAY_PLAYING)
-		
+		/* Increase threshold: frame 1 is already being played */
 		minframes = 2;
 
 	if (write_sq.count < minframes) {
-		
+		/* Nothing to do */
 		custom.intena = IF_SETCLR | IF_AUD0;
 		return;
 	}
 
 	if (write_sq.count <= minframes &&
 	    write_sq.rear_size < write_sq.block_size && !write_sq.syncing) {
+		/* hmmm, the only existing frame is not
+		 * yet filled and we're not syncing?
+		 */
 		custom.intena = IF_SETCLR | IF_AUD0;
 		return;
 	}
@@ -500,49 +560,58 @@ static irqreturn_t AmiInterrupt(int irq, void *dummy)
 	custom.intena = IF_AUD0;
 
 	if (!write_sq.active) {
+		/* Playing was interrupted and sq_reset() has already cleared
+		 * the sq variables, so better don't do anything here.
+		 */
 		WAKE_UP(write_sq.sync_queue);
 		return IRQ_HANDLED;
 	}
 
 	if (write_sq.active & AMI_PLAY_PLAYING) {
-		
+		/* We've just finished a frame */
 		write_sq.count--;
 		WAKE_UP(write_sq.action_queue);
 	}
 
 	if (write_sq.active & AMI_PLAY_LOADED)
-		
+		/* Increase threshold: frame 1 is already being played */
 		minframes = 2;
 
-	
+	/* Shift the flags */
 	write_sq.active = (write_sq.active<<1) & AMI_PLAY_MASK;
 
 	if (!write_sq.active)
-		
+		/* No frame is playing, disable audio DMA */
 		StopDMA();
 
 	custom.intena = IF_SETCLR | IF_AUD0;
 
 	if (write_sq.count >= minframes)
-		
+		/* Try to play the next frame */
 		AmiPlay();
 
 	if (!write_sq.active)
+		/* Nothing to play anymore.
+		   Wake up a process waiting for audio output to drain. */
 		WAKE_UP(write_sq.sync_queue);
 	return IRQ_HANDLED;
 }
 
+/*** Mid level stuff *********************************************************/
 
 
+/*
+ * /dev/mixer abstraction
+ */
 
 static void __init AmiMixerInit(void)
 {
 	dmasound.volume_left = 64;
 	dmasound.volume_right = 64;
 	custom.aud[0].audvol = dmasound.volume_left;
-	custom.aud[3].audvol = 1;	
+	custom.aud[3].audvol = 1;	/* For pseudo 14bit */
 	custom.aud[1].audvol = dmasound.volume_right;
-	custom.aud[2].audvol = 1;	
+	custom.aud[2].audvol = 1;	/* For pseudo 14bit */
 	dmasound.treble = 50;
 }
 
@@ -596,6 +665,7 @@ static int AmiStateInfo(char *buffer, size_t space)
 }
 
 
+/*** Machine definitions *****************************************************/
 
 static SETTINGS def_hard = {
 	.format	= AFMT_S8,
@@ -620,7 +690,7 @@ static MACHINE machAmiga = {
 	.irqinit	= AmiIrqInit,
 #ifdef MODULE
 	.irqcleanup	= AmiIrqCleanUp,
-#endif 
+#endif /* MODULE */
 	.init		= AmiInit,
 	.silence	= AmiSilence,
 	.setFormat	= AmiSetFormat,
@@ -633,11 +703,12 @@ static MACHINE machAmiga = {
 	.state_info	= AmiStateInfo,
 	.min_dsp_speed	= 8000,
 	.version	= ((DMASOUND_PAULA_REVISION<<8) | DMASOUND_PAULA_EDITION),
-	.hardware_afmts	= (AFMT_S8 | AFMT_S16_BE), 
-	.capabilities	= DSP_CAP_BATCH          
+	.hardware_afmts	= (AFMT_S8 | AFMT_S16_BE), /* h'ware-supported formats *only* here */
+	.capabilities	= DSP_CAP_BATCH          /* As per SNDCTL_DSP_GETCAPS */
 };
 
 
+/*** Config & Setup **********************************************************/
 
 
 static int __init amiga_audio_probe(struct platform_device *pdev)

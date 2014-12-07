@@ -22,6 +22,9 @@
 #ifndef __PLAT_OMAP_MULTI_H
 #define __PLAT_OMAP_MULTI_H
 
+/*
+ * Test if multicore OMAP support is needed
+ */
 #undef MULTI_OMAP1
 #undef MULTI_OMAP2
 #undef OMAP_NAME
@@ -96,4 +99,4 @@
 # endif
 #endif
 
-#endif	
+#endif	/* __PLAT_OMAP_MULTI_H */

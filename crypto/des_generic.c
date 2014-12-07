@@ -33,6 +33,7 @@ struct des3_ede_ctx {
 	u32 expkey[DES3_EDE_EXPKEY_WORDS];
 };
 
+/* Lookup tables for key expansion */
 
 static const u8 pc1[256] = {
 	0x00, 0x00, 0x40, 0x04, 0x10, 0x10, 0x50, 0x14,
@@ -364,6 +365,7 @@ static const u32 pc2[1024] = {
 	0x02024c00, 0x05018008, 0x281820c0, 0x10241034
 };
 
+/* S-box lookup tables */
 
 static const u32 S1[64] = {
 	0x01010400, 0x00000000, 0x00010000, 0x01010404,
@@ -517,6 +519,7 @@ static const u32 S8[64] = {
 	0x00001040, 0x00040040, 0x10000000, 0x10041000
 };
 
+/* Encryption components: IP, FP, and round function */
 
 #define IP(L, R, T)		\
 	ROL(R, 4);		\
@@ -597,6 +600,14 @@ static const u32 S8[64] = {
 	L ^= S3[0xff & A];					\
 	L ^= S1[0xff & (A >> 8)];
 
+/*
+ * PC2 lookup tables are organized as 2 consecutive sets of 4 interleaved
+ * tables of 128 elements.  One set is for C_i and the other for D_i, while
+ * the 4 interleaved tables correspond to four 7-bit subsets of C_i or D_i.
+ *
+ * After PC1 each of the variables a,b,c,d contains a 7 bit subset of C_i
+ * or D_i in bits 7-1 (bit 0 being the least significant).
+ */
 
 #define T1(x) pt[2 * (x) + 0]
 #define T2(x) pt[2 * (x) + 1]
@@ -605,9 +616,21 @@ static const u32 S8[64] = {
 
 #define DES_PC2(a, b, c, d) (T4(d) | T3(c) | T2(b) | T1(a))
 
+/*
+ * Encryption key expansion
+ *
+ * RFC2451: Weak key checks SHOULD be performed.
+ *
+ * FIPS 74:
+ *
+ *   Keys having duals are keys which produce all zeros, all ones, or
+ *   alternating zero-one patterns in the C and D registers after Permuted
+ *   Choice 1 has operated on the key.
+ *
+ */
 unsigned long des_ekey(u32 *pe, const u8 *k)
 {
-	
+	/* K&R: long is at least 32 bits */
 	unsigned long a, b, c, d, w;
 	const u32 *pt = pc2;
 
@@ -633,10 +656,10 @@ unsigned long des_ekey(u32 *pe, const u8 *k)
 	pe[ 1 * 2 + 0] = DES_PC2(c, d, a, b); b = rs[b];
 	pe[ 0 * 2 + 0] = DES_PC2(b, c, d, a);
 
-	
+	/* Check if first half is weak */
 	w  = (a ^ c) | (b ^ d) | (rs[a] ^ c) | (b ^ rs[d]);
 
-	
+	/* Skip to next table set */
 	pt += 512;
 
 	d = k[0]; d &= 0xe0; d >>= 4; d |= k[4] & 0xf0; d = pc1[d + 1];
@@ -644,7 +667,7 @@ unsigned long des_ekey(u32 *pe, const u8 *k)
 	b = k[2]; b &= 0xe0; b >>= 4; b |= k[6] & 0xf0; b = pc1[b + 1];
 	a = k[3]; a &= 0xe0; a >>= 4; a |= k[7] & 0xf0; a = pc1[a + 1];
 
-	
+	/* Check if second half is weak */
 	w |= (a ^ c) | (b ^ d) | (rs[a] ^ c) | (b ^ rs[d]);
 
 	pe[15 * 2 + 1] = DES_PC2(a, b, c, d); d = rs[d];
@@ -664,7 +687,7 @@ unsigned long des_ekey(u32 *pe, const u8 *k)
 	pe[ 1 * 2 + 1] = DES_PC2(c, d, a, b); b = rs[b];
 	pe[ 0 * 2 + 1] = DES_PC2(b, c, d, a);
 
-	
+	/* Fixup: 2413 5768 -> 1357 2468 */
 	for (d = 0; d < 16; ++d) {
 		a = pe[2 * d];
 		b = pe[2 * d + 1];
@@ -677,14 +700,20 @@ unsigned long des_ekey(u32 *pe, const u8 *k)
 		pe[2 * d + 1] = b;
 	}
 
-	
+	/* Zero if weak key */
 	return w;
 }
 EXPORT_SYMBOL_GPL(des_ekey);
 
+/*
+ * Decryption key expansion
+ *
+ * No weak key checking is performed, as this is only used by triple DES
+ *
+ */
 static void dkey(u32 *pe, const u8 *k)
 {
-	
+	/* K&R: long is at least 32 bits */
 	unsigned long a, b, c, d;
 	const u32 *pt = pc2;
 
@@ -710,7 +739,7 @@ static void dkey(u32 *pe, const u8 *k)
 	pe[14 * 2] = DES_PC2(c, d, a, b); b = rs[b];
 	pe[15 * 2] = DES_PC2(b, c, d, a);
 
-	
+	/* Skip to next table set */
 	pt += 512;
 
 	d = k[0]; d &= 0xe0; d >>= 4; d |= k[4] & 0xf0; d = pc1[d + 1];
@@ -735,7 +764,7 @@ static void dkey(u32 *pe, const u8 *k)
 	pe[14 * 2 + 1] = DES_PC2(c, d, a, b); b = rs[b];
 	pe[15 * 2 + 1] = DES_PC2(b, c, d, a);
 
-	
+	/* Fixup: 2413 5768 -> 1357 2468 */
 	for (d = 0; d < 16; ++d) {
 		a = pe[2 * d];
 		b = pe[2 * d + 1];
@@ -757,7 +786,7 @@ static int des_setkey(struct crypto_tfm *tfm, const u8 *key,
 	u32 tmp[DES_EXPKEY_WORDS];
 	int ret;
 
-	
+	/* Expand to tmp */
 	ret = des_ekey(tmp, key);
 
 	if (unlikely(ret == 0) && (*flags & CRYPTO_TFM_REQ_WEAK_KEY)) {
@@ -765,7 +794,7 @@ static int des_setkey(struct crypto_tfm *tfm, const u8 *key,
 		return -EINVAL;
 	}
 
-	
+	/* Copy to output */
 	memcpy(dctx->expkey, tmp, sizeof(dctx->expkey));
 
 	return 0;
@@ -817,6 +846,19 @@ static void des_decrypt(struct crypto_tfm *tfm, u8 *dst, const u8 *src)
 	d[1] = cpu_to_le32(L);
 }
 
+/*
+ * RFC2451:
+ *
+ *   For DES-EDE3, there is no known need to reject weak or
+ *   complementation keys.  Any weakness is obviated by the use of
+ *   multiple keys.
+ *
+ *   However, if the first two or last two independent 64-bit keys are
+ *   equal (k1 == k2 or k2 == k3), then the DES3 operation is simply the
+ *   same as DES.  Implementers MUST reject keys that exhibit this
+ *   property.
+ *
+ */
 static int des3_ede_setkey(struct crypto_tfm *tfm, const u8 *key,
 			   unsigned int keylen)
 {

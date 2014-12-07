@@ -47,9 +47,18 @@
 
 #include "ib_dm_mad.h"
 
+/*
+ * The prefix the ServiceName field must start with in the device management
+ * ServiceEntries attribute pair. See also the SRP specification.
+ */
 #define SRP_SERVICE_NAME_PREFIX		"SRP.T10:"
 
 enum {
+	/*
+	 * SRP IOControllerProfile attributes for SRP target ports that have
+	 * not been defined in <scsi/srp.h>. Source: section B.7, table B.7
+	 * in the SRP specification.
+	 */
 	SRP_PROTOCOL = 0x0108,
 	SRP_PROTOCOL_VERSION = 0x0001,
 	SRP_IO_SUBCLASS = 0x609e,
@@ -58,22 +67,34 @@ enum {
 	SRP_RDMA_READ_FROM_IOC = 0x08,
 	SRP_RDMA_WRITE_FROM_IOC = 0x20,
 
-	SRP_MTCH_ACTION = 0x03, 
-	SRP_LOSOLNT = 0x10, 
-	SRP_CRSOLNT = 0x20, 
-	SRP_AESOLNT = 0x40, 
+	/*
+	 * srp_login_cmd.req_flags bitmasks. See also table 9 in the SRP
+	 * specification.
+	 */
+	SRP_MTCH_ACTION = 0x03, /* MULTI-CHANNEL ACTION */
+	SRP_LOSOLNT = 0x10, /* logout solicited notification */
+	SRP_CRSOLNT = 0x20, /* credit request solicited notification */
+	SRP_AESOLNT = 0x40, /* asynchronous event solicited notification */
 
-	SRP_SCSOLNT = 0x02, 
-	SRP_UCSOLNT = 0x04, 
+	/*
+	 * srp_cmd.sol_nt / srp_tsk_mgmt.sol_not bitmasks. See also tables
+	 * 18 and 20 in the SRP specification.
+	 */
+	SRP_SCSOLNT = 0x02, /* SCSOLNT = successful solicited notification */
+	SRP_UCSOLNT = 0x04, /* UCSOLNT = unsuccessful solicited notification */
 
-	SRP_SOLNT = 0x01, 
+	/*
+	 * srp_rsp.sol_not / srp_t_logout.sol_not bitmasks. See also tables
+	 * 16 and 22 in the SRP specification.
+	 */
+	SRP_SOLNT = 0x01, /* SOLNT = solicited notification */
 
-	
+	/* See also table 24 in the SRP specification. */
 	SRP_TSK_MGMT_SUCCESS = 0x00,
 	SRP_TSK_MGMT_FUNC_NOT_SUPP = 0x04,
 	SRP_TSK_MGMT_FAILED = 0x05,
 
-	
+	/* See also table 21 in the SRP specification. */
 	SRP_CMD_SIMPLE_Q = 0x0,
 	SRP_CMD_HEAD_OF_Q = 0x1,
 	SRP_CMD_ORDERED_Q = 0x2,
@@ -97,12 +118,12 @@ enum {
 
 	MIN_MAX_REQ_SIZE = 996,
 	DEFAULT_MAX_REQ_SIZE
-		= sizeof(struct srp_cmd)
-		+ sizeof(struct srp_indirect_buf)
-		+ 128 * sizeof(struct srp_direct_buf),
+		= sizeof(struct srp_cmd)/*48*/
+		+ sizeof(struct srp_indirect_buf)/*20*/
+		+ 128 * sizeof(struct srp_direct_buf)/*16*/,
 
-	MIN_MAX_RSP_SIZE = sizeof(struct srp_rsp) + 4,
-	DEFAULT_MAX_RSP_SIZE = 256, 
+	MIN_MAX_RSP_SIZE = sizeof(struct srp_rsp)/*36*/ + 4,
+	DEFAULT_MAX_RSP_SIZE = 256, /* leaves 220 bytes for sense data */
 
 	DEFAULT_MAX_RDMA_SIZE = 65536,
 };
@@ -137,6 +158,20 @@ struct rdma_iu {
 	int		mem_id;
 };
 
+/**
+ * enum srpt_command_state - SCSI command state managed by SRPT.
+ * @SRPT_STATE_NEW:           New command arrived and is being processed.
+ * @SRPT_STATE_NEED_DATA:     Processing a write or bidir command and waiting
+ *                            for data arrival.
+ * @SRPT_STATE_DATA_IN:       Data for the write or bidir command arrived and is
+ *                            being processed.
+ * @SRPT_STATE_CMD_RSP_SENT:  SRP_RSP for SRP_CMD has been sent.
+ * @SRPT_STATE_MGMT:          Processing a SCSI task management command.
+ * @SRPT_STATE_MGMT_RSP_SENT: SRP_RSP for SRP_TSK_MGMT has been sent.
+ * @SRPT_STATE_DONE:          Command processing finished successfully, command
+ *                            processing has been aborted or command processing
+ *                            failed.
+ */
 enum srpt_command_state {
 	SRPT_STATE_NEW		 = 0,
 	SRPT_STATE_NEED_DATA	 = 1,
@@ -147,17 +182,49 @@ enum srpt_command_state {
 	SRPT_STATE_DONE		 = 6,
 };
 
+/**
+ * struct srpt_ioctx - Shared SRPT I/O context information.
+ * @buf:   Pointer to the buffer.
+ * @dma:   DMA address of the buffer.
+ * @index: Index of the I/O context in its ioctx_ring array.
+ */
 struct srpt_ioctx {
 	void			*buf;
 	dma_addr_t		dma;
 	uint32_t		index;
 };
 
+/**
+ * struct srpt_recv_ioctx - SRPT receive I/O context.
+ * @ioctx:     See above.
+ * @wait_list: Node for insertion in srpt_rdma_ch.cmd_wait_list.
+ */
 struct srpt_recv_ioctx {
 	struct srpt_ioctx	ioctx;
 	struct list_head	wait_list;
 };
 
+/**
+ * struct srpt_send_ioctx - SRPT send I/O context.
+ * @ioctx:       See above.
+ * @ch:          Channel pointer.
+ * @free_list:   Node in srpt_rdma_ch.free_list.
+ * @n_rbuf:      Number of data buffers in the received SRP command.
+ * @rbufs:       Pointer to SRP data buffer array.
+ * @single_rbuf: SRP data buffer if the command has only a single buffer.
+ * @sg:          Pointer to sg-list associated with this I/O context.
+ * @sg_cnt:      SG-list size.
+ * @mapped_sg_count: ib_dma_map_sg() return value.
+ * @n_rdma_ius:  Number of elements in the rdma_ius array.
+ * @rdma_ius:    Array with information about the RDMA mapping.
+ * @tag:         Tag of the received SRP information unit.
+ * @spinlock:    Protects 'state'.
+ * @state:       I/O context state.
+ * @rdma_aborted: If initiating a multipart RDMA transfer failed, whether
+ * 		 the already initiated transfers have finished.
+ * @cmd:         Target core command data structure.
+ * @sense_data:  SCSI sense data.
+ */
 struct srpt_send_ioctx {
 	struct srpt_ioctx	ioctx;
 	struct srpt_rdma_ch	*ch;
@@ -182,6 +249,16 @@ struct srpt_send_ioctx {
 	u8			sense_data[SCSI_SENSE_BUFFERSIZE];
 };
 
+/**
+ * enum rdma_ch_state - SRP channel state.
+ * @CH_CONNECTING:	 QP is in RTR state; waiting for RTU.
+ * @CH_LIVE:		 QP is in RTS state.
+ * @CH_DISCONNECTING:    DREQ has been received; waiting for DREP
+ *                       or DREQ has been send and waiting for DREP
+ *                       or .
+ * @CH_DRAINING:	 QP is in ERR state; waiting for last WQE event.
+ * @CH_RELEASING:	 Last WQE event has been received; releasing resources.
+ */
 enum rdma_ch_state {
 	CH_CONNECTING,
 	CH_LIVE,
@@ -190,6 +267,39 @@ enum rdma_ch_state {
 	CH_RELEASING
 };
 
+/**
+ * struct srpt_rdma_ch - RDMA channel.
+ * @wait_queue:    Allows the kernel thread to wait for more work.
+ * @thread:        Kernel thread that processes the IB queues associated with
+ *                 the channel.
+ * @cm_id:         IB CM ID associated with the channel.
+ * @qp:            IB queue pair used for communicating over this channel.
+ * @cq:            IB completion queue for this channel.
+ * @rq_size:       IB receive queue size.
+ * @rsp_size	   IB response message size in bytes.
+ * @sq_wr_avail:   number of work requests available in the send queue.
+ * @sport:         pointer to the information of the HCA port used by this
+ *                 channel.
+ * @i_port_id:     128-bit initiator port identifier copied from SRP_LOGIN_REQ.
+ * @t_port_id:     128-bit target port identifier copied from SRP_LOGIN_REQ.
+ * @max_ti_iu_len: maximum target-to-initiator information unit length.
+ * @req_lim:       request limit: maximum number of requests that may be sent
+ *                 by the initiator without having received a response.
+ * @req_lim_delta: Number of credits not yet sent back to the initiator.
+ * @spinlock:      Protects free_list and state.
+ * @free_list:     Head of list with free send I/O contexts.
+ * @state:         channel state. See also enum rdma_ch_state.
+ * @ioctx_ring:    Send ring.
+ * @wc:            IB work completion array for srpt_process_completion().
+ * @list:          Node for insertion in the srpt_device.rch_list list.
+ * @cmd_wait_list: List of SCSI commands that arrived before the RTU event. This
+ *                 list contains struct srpt_ioctx elements and is protected
+ *                 against concurrent modification by the cm_id spinlock.
+ * @sess:          Session information associated with this SRP channel.
+ * @sess_name:     Session name.
+ * @release_work:  Allows scheduling of srpt_release_channel().
+ * @release_done:  Enables waiting for srpt_release_channel() completion.
+ */
 struct srpt_rdma_ch {
 	wait_queue_head_t	wait_queue;
 	struct task_struct	*thread;
@@ -218,12 +328,34 @@ struct srpt_rdma_ch {
 	struct completion	*release_done;
 };
 
+/**
+ * struct srpt_port_attib - Attributes for SRPT port
+ * @srp_max_rdma_size: Maximum size of SRP RDMA transfers for new connections.
+ * @srp_max_rsp_size: Maximum size of SRP response messages in bytes.
+ * @srp_sq_size: Shared receive queue (SRQ) size.
+ */
 struct srpt_port_attrib {
 	u32			srp_max_rdma_size;
 	u32			srp_max_rsp_size;
 	u32			srp_sq_size;
 };
 
+/**
+ * struct srpt_port - Information associated by SRPT with a single IB port.
+ * @sdev:      backpointer to the HCA information.
+ * @mad_agent: per-port management datagram processing information.
+ * @enabled:   Whether or not this target port is enabled.
+ * @port_guid: ASCII representation of Port GUID
+ * @port:      one-based port number.
+ * @sm_lid:    cached value of the port's sm_lid.
+ * @lid:       cached value of the port's lid.
+ * @gid:       cached value of the port's gid.
+ * @port_acl_lock spinlock for port_acl_list:
+ * @work:      work structure for refreshing the aforementioned cached values.
+ * @port_tpg_1 Target portal group = 1 data.
+ * @port_wwn:  Target core WWN data.
+ * @port_acl_list: Head of the list with all node ACLs for this port.
+ */
 struct srpt_port {
 	struct srpt_device	*sdev;
 	struct ib_mad_agent	*mad_agent;
@@ -241,6 +373,24 @@ struct srpt_port {
 	struct srpt_port_attrib port_attrib;
 };
 
+/**
+ * struct srpt_device - Information associated by SRPT with a single HCA.
+ * @device:        Backpointer to the struct ib_device managed by the IB core.
+ * @pd:            IB protection domain.
+ * @mr:            L_Key (local key) with write access to all local memory.
+ * @srq:           Per-HCA SRQ (shared receive queue).
+ * @cm_id:         Connection identifier.
+ * @dev_attr:      Attributes of the InfiniBand device as obtained during the
+ *                 ib_client.add() callback.
+ * @srq_size:      SRQ size.
+ * @ioctx_ring:    Per-HCA SRQ.
+ * @rch_list:      Per-device channel list -- see also srpt_rdma_ch.list.
+ * @ch_releaseQ:   Enables waiting for removal from rch_list.
+ * @spinlock:      Protects rch_list and tpg.
+ * @port:          Information about the ports owned by this HCA.
+ * @event_handler: Per-HCA asynchronous IB event handler.
+ * @list:          Node in srpt_dev_list.
+ */
 struct srpt_device {
 	struct ib_device	*device;
 	struct ib_pd		*pd;
@@ -258,6 +408,13 @@ struct srpt_device {
 	struct list_head	list;
 };
 
+/**
+ * struct srpt_node_acl - Per-initiator ACL data (managed via configfs).
+ * @i_port_id: 128-bit SRP initiator port ID.
+ * @sport:     port information.
+ * @nacl:      Target core node ACL information.
+ * @list:      Element of the per-HCA ACL list.
+ */
 struct srpt_node_acl {
 	u8			i_port_id[16];
 	struct srpt_port	*sport;
@@ -265,6 +422,13 @@ struct srpt_node_acl {
 	struct list_head	list;
 };
 
+/*
+ * SRP-releated SCSI persistent reservation definitions.
+ *
+ * See also SPC4r28, section 7.6.1 (Protocol specific parameters introduction).
+ * See also SPC4r28, section 7.6.4.5 (TransportID for initiator ports using
+ * SCSI over an RDMA interface).
+ */
 
 enum {
 	SCSI_TRANSPORTID_PROTOCOLID_SRP	= 4,
@@ -276,4 +440,4 @@ struct spc_rdma_transport_id {
 	uint8_t i_port_id[16];
 };
 
-#endif				
+#endif				/* IB_SRPT_H */

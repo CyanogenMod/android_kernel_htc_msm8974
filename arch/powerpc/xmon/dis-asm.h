@@ -28,4 +28,4 @@ static inline int print_insn_spu(unsigned long insn, unsigned long memaddr)
 }
 #endif
 
-#endif 
+#endif /* _POWERPC_XMON_DIS_ASM_H */

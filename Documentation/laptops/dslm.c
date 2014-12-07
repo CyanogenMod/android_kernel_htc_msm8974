@@ -23,18 +23,21 @@
 
 int endit = 0;
 
+/* Check if the disk is in powersave-mode
+ * Most of the code is stolen from hdparm.
+ * 1 = active, 0 = standby/sleep, -1 = unknown */
 static int check_powermode(int fd)
 {
     unsigned char args[4] = {WIN_CHECKPOWERMODE1,0,0,0};
     int state;
 
     if (ioctl(fd, HDIO_DRIVE_CMD, &args)
-	&& (args[0] = WIN_CHECKPOWERMODE2) 
+	&& (args[0] = WIN_CHECKPOWERMODE2) /* try again with 0x98 */
 	&& ioctl(fd, HDIO_DRIVE_CMD, &args)) {
 	if (errno != EIO || args[0] != 0 || args[1] != 0) {
-	    state = -1; 
+	    state = -1; /* "unknown"; */
 	} else
-	    state = 0; 
+	    state = 0; /* "sleeping"; */
     } else {
 	state = (args[2] == 255) ? 1 : 0;
     }
@@ -101,7 +104,7 @@ static void measure(int fd)
 		   state_name(curr_state));
 	}
     }
-    changes--; 
+    changes--; /* Compensate for SIGINT */
 
     total_time = time(0) - start_time;
     printf("\nTotal running time:  %lus\n", curr_time - start_time);
@@ -132,7 +135,7 @@ int main(int argc, char **argv)
     char *disk = 0;
     int settle_time = 60;
 
-    
+    /* Parse the simple command-line */
     if (argc == 2)
 	disk = argv[1];
     else if (argc == 4) {

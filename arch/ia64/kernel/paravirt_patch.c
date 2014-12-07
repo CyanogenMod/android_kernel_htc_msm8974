@@ -36,6 +36,11 @@ typedef union ia64_inst {
         unsigned long long l;
 } ia64_inst_t;
 
+/*
+ * flush_icache_range() can't be used here.
+ * we are here before cpu_init() which initializes
+ * ia64_i_cache_stride_shift. flush_icache_range() uses it.
+ */
 void __init_or_module
 paravirt_flush_i_cache_range(const void *instr, unsigned long size)
 {
@@ -85,7 +90,7 @@ paravirt_get_next_tag(unsigned long tag)
 	default:
 		BUG();
 	}
-	
+	/* NOTREACHED */
 }
 
 ia64_inst_t __init_or_module
@@ -129,7 +134,7 @@ paravirt_read_inst(unsigned long tag)
 	default:
 		BUG();
 	}
-	
+	/* NOTREACHED */
 }
 
 void __init_or_module
@@ -174,6 +179,7 @@ paravirt_write_inst(unsigned long tag, ia64_inst_t inst)
 	paravirt_flush_i_cache_range(bundle, sizeof(*bundle));
 }
 
+/* for debug */
 void
 paravirt_print_bundle(const bundle_t *bundle)
 {
@@ -226,6 +232,7 @@ fill_nop_bundle(void *sbundle, void *ebundle)
 	}
 }
 
+/* helper function */
 unsigned long __init_or_module
 __paravirt_patch_apply_bundle(void *sbundle, void *ebundle, unsigned long type,
 			      const struct paravirt_patch_bundle_elem *elems,
@@ -249,7 +256,7 @@ __paravirt_patch_apply_bundle(void *sbundle, void *ebundle, unsigned long type,
 				*found = p;
 
 			if (room < need) {
-				
+				/* no room to replace. skip it */
 				printk(KERN_DEBUG
 				       "the space is too small to put "
 				       "bundles. type %ld need %ld room %ld\n",
@@ -293,6 +300,11 @@ paravirt_patch_apply_bundle(const struct paravirt_patch_site_bundle *start,
 	ia64_srlz_i();
 }
 
+/*
+ * nop.i, nop.m, nop.f instruction are same format.
+ * but nop.b has differennt format.
+ * This doesn't support nop.b for now.
+ */
 static void __init_or_module
 fill_nop_inst(unsigned long stag, unsigned long etag)
 {
@@ -334,8 +346,9 @@ paravirt_patch_apply_inst(const struct paravirt_patch_site_inst *start,
 	ia64_sync_i();
 	ia64_srlz_i();
 }
-#endif 
+#endif /* ASM_SUPPOTED */
 
+/* brl.cond.sptk.many <target64> X3 */
 typedef union inst_x3_op {
 	ia64_inst_t inst;
 	struct {
@@ -377,14 +390,14 @@ paravirt_patch_reloc_brl(unsigned long tag, const void *target)
 	unsigned long imm60 =
 		((unsigned long)target - (unsigned long)bundle) >> 4;
 
-	BUG_ON(paravirt_get_slot(tag) != 1); 
+	BUG_ON(paravirt_get_slot(tag) != 1); /* MLX */
 	BUG_ON(((unsigned long)target & (sizeof(bundle_t) - 1)) != 0);
 
-	
+	/* imm60[59] 1bit */
 	inst_x3_op.i = (imm60 >> 59) & 1;
-	
+	/* imm60[19:0] 20bit */
 	inst_x3_op.imm20b = imm60 & ((1UL << 20) - 1);
-	
+	/* imm60[58:20] 39bit */
 	inst_x3_imm.imm39 = (imm60 >> 20) & ((1UL << 39) - 1);
 
 	inst_op.l = inst_x3_op.l;
@@ -394,6 +407,7 @@ paravirt_patch_reloc_brl(unsigned long tag, const void *target)
 	paravirt_write_inst(tag_imm, inst_imm);
 }
 
+/* br.cond.sptk.many <target25>	B1 */
 typedef union inst_b1 {
 	ia64_inst_t inst;
 	struct {
@@ -489,3 +503,12 @@ paravirt_patch_apply(void)
 				    __stop_paravirt_branches);
 }
 
+/*
+ * Local variables:
+ * mode: C
+ * c-set-style: "linux"
+ * c-basic-offset: 8
+ * tab-width: 8
+ * indent-tabs-mode: t
+ * End:
+ */

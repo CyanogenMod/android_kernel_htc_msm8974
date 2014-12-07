@@ -111,6 +111,17 @@ static int enh_desc_coe_rdes0(int ipc_err, int type, int payload_err)
 	int ret = good_frame;
 	u32 status = (type << 2 | ipc_err << 1 | payload_err) & 0x7;
 
+	/* bits 5 7 0 | Frame status
+	 * ----------------------------------------------------------
+	 *      0 0 0 | IEEE 802.3 Type frame (length < 1536 octects)
+	 *      1 0 0 | IPv4/6 No CSUM errorS.
+	 *      1 0 1 | IPv4/6 CSUM PAYLOAD error
+	 *      1 1 0 | IPv4/6 CSUM IP HR error
+	 *      1 1 1 | IPv4/6 IP PAYLOAD AND HEADER errorS
+	 *      0 0 1 | IPv4/6 unsupported IP PAYLOAD
+	 *      0 1 1 | COE bypassed.. no IPv4/6 frame
+	 *      0 1 0 | Reserved.
+	 */
 	if (status == 0x0) {
 		CHIP_DBG(KERN_INFO "RX Des0 status: IEEE 802.3 Type frame.\n");
 		ret = llc_snap;
@@ -181,6 +192,10 @@ static int enh_desc_get_rx_status(void *data, struct stmmac_extra_stats *x,
 		ret = discard_frame;
 	}
 
+	/* After a payload csum error, the ES bit is set.
+	 * It doesn't match with the information reported into the databook.
+	 * At any rate, we need to understand if the CSUM hw computation is ok
+	 * and report this info to the upper layers. */
 	ret = enh_desc_coe_rdes0(p->des01.erx.ipc_csum_error,
 		p->des01.erx.frame_type, p->des01.erx.payload_csum_error);
 

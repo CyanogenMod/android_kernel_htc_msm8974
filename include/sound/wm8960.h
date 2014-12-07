@@ -16,9 +16,9 @@
 #define WM8960_DRES_MAX  3
 
 struct wm8960_data {
-	bool capless;  
+	bool capless;  /* Headphone outputs configured in capless mode */
 
-	int dres;  
+	int dres;  /* Discharge resistance for headphone outputs */
 };
 
 #endif

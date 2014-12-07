@@ -69,9 +69,10 @@
 			(AUDIO_MAX_COMMON_IOCTL_NUM+31), struct hw_delay)
 #define	AUDIO_MAX_ACDB_IOCTL	(AUDIO_MAX_COMMON_IOCTL_NUM+40)
 
+/* ACDB structures */
 struct cal_block {
-	uint32_t	cal_size;	
-	uint32_t	cal_offset;	
+	uint32_t	cal_size;	/* Size of Cal Data */
+	uint32_t	cal_offset;	/* offset pointer to Cal Data */
 };
 
 struct sidetone_cal {
@@ -89,7 +90,9 @@ enum msm_spkr_prot_states {
 struct msm_spk_prot_cfg {
 	int r0;
 	int t0;
-	uint32_t mode; 
+	uint32_t mode; /*0 - Start spk prot
+	1 - Start calib
+	2 - Disable spk prot*/
 };
 
 struct msm_spk_prot_status {
@@ -102,6 +105,7 @@ struct hw_delay {
 	void *delay_info;
 };
 
+/* For Real-Time Audio Calibration */
 #define AUDIO_GET_RTAC_ADM_INFO		_IOR(AUDIO_IOCTL_MAGIC, \
 			(AUDIO_MAX_ACDB_IOCTL+1), unsigned)
 #define AUDIO_GET_RTAC_VOICE_INFO	_IOR(AUDIO_IOCTL_MAGIC, \
@@ -127,4 +131,4 @@ struct hw_delay {
 
 #define	AUDIO_MAX_RTAC_IOCTL	(AUDIO_MAX_ACDB_IOCTL+20)
 
-#endif 
+#endif /* _LINUX_MSM_AUDIO_ACDB_H */

@@ -31,18 +31,37 @@
 
 extern void clps711x_map_io(void);
 
+/*
+ * The on-chip registers are given a size of 1MB so that a section can
+ * be used to map them; this saves a page table.  This is the place to
+ * add mappings for ROM, expansion memory, PCMCIA, etc.  (if static
+ * mappings are chosen for those areas).
+ *
+ * Here is a physical memory map (to be fleshed out later):
+ *
+ * Physical Address  Size  Description
+ * ----------------- ----- ---------------------------------
+ * c0000000-c001ffff 128KB reserved for video RAM [1]
+ * c0020000-c0023fff  16KB parameters (see Documentation/arm/Setup)
+ * c0024000-c0027fff  16KB swapper_pg_dir (task 0 page directory)
+ * c0028000-...            kernel image (TEXTADDR)
+ *
+ * [1] Unused pages should be given back to the VM; they are not yet.
+ *     The parameter block should also be released (not sure if this
+ *     happens).
+ */
 static struct map_desc edb7211_io_desc[] __initdata = {
- 	{	
+ 	{	/* memory-mapped extra keyboard row */
 	 	.virtual 	= EP7211_VIRT_EXTKBD,
 		.pfn		= __phys_to_pfn(EP7211_PHYS_EXTKBD),
 		.length		= SZ_1M,
 		.type		= MT_DEVICE,
-	}, {	
+	}, {	/* and CS8900A Ethernet chip */
 		.virtual	= EP7211_VIRT_CS8900A,
 		.pfn		= __phys_to_pfn(EP7211_PHYS_CS8900A),
 		.length		= SZ_1M,
 		.type		= MT_DEVICE,
-	}, { 	
+	}, { 	/* flash banks */
 		.virtual	= EP7211_VIRT_FLASH1,
 		.pfn		= __phys_to_pfn(EP7211_PHYS_FLASH1),
 		.length		= SZ_8M,

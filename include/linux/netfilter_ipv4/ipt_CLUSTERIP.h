@@ -21,7 +21,7 @@ struct ipt_clusterip_tgt_info {
 
 	__u32 flags;
 
-	
+	/* only relevant for new ones */
 	__u8 clustermac[6];
 	__u16 num_total_nodes;
 	__u16 num_local_nodes;
@@ -29,8 +29,8 @@ struct ipt_clusterip_tgt_info {
 	__u32 hash_mode;
 	__u32 hash_initval;
 
-	
+	/* Used internally by the kernel */
 	struct clusterip_config *config;
 };
 
-#endif 
+#endif /*_IPT_CLUSTERIP_H_target*/

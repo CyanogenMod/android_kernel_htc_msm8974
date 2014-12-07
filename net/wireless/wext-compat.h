@@ -54,4 +54,4 @@ int cfg80211_wext_freq(struct wiphy *wiphy, struct iw_freq *freq);
 
 
 extern const struct iw_handler_def cfg80211_wext_handler;
-#endif 
+#endif /* __WEXT_COMPAT */

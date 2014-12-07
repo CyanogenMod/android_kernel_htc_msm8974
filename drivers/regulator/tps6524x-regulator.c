@@ -23,7 +23,7 @@
 #include <linux/regulator/machine.h>
 
 #define REG_LDO_SET		0x0
-#define LDO_ILIM_MASK		1	
+#define LDO_ILIM_MASK		1	/* 0 = 400-800, 1 = 900-1500 */
 #define LDO_VSEL_MASK		0x0f
 #define LDO2_ILIM_SHIFT		12
 #define LDO2_VSEL_SHIFT		4

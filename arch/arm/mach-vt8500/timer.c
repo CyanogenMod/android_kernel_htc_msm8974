@@ -33,12 +33,12 @@
 #define TIMER_MATCH_VAL		0x0000
 #define TIMER_COUNT_VAL		0x0010
 #define TIMER_STATUS_VAL	0x0014
-#define TIMER_IER_VAL		0x001c		
+#define TIMER_IER_VAL		0x001c		/* interrupt enable */
 #define TIMER_CTRL_VAL		0x0020
-#define TIMER_AS_VAL		0x0024		
-#define TIMER_COUNT_R_ACTIVE	(1 << 5)	
-#define TIMER_COUNT_W_ACTIVE	(1 << 4)	
-#define TIMER_MATCH_W_ACTIVE	(1 << 0)	
+#define TIMER_AS_VAL		0x0024		/* access status */
+#define TIMER_COUNT_R_ACTIVE	(1 << 5)	/* not ready for read */
+#define TIMER_COUNT_W_ACTIVE	(1 << 4)	/* not ready for write */
+#define TIMER_MATCH_W_ACTIVE	(1 << 0)	/* not ready for write */
 #define VT8500_TIMER_HZ		3000000
 
 #define msecs_to_loops(t) (loops_per_jiffy / 1000 * HZ * t)
@@ -138,7 +138,7 @@ static void __init vt8500_timer_init(void)
 
 	clockevents_calc_mult_shift(&clockevent, VT8500_TIMER_HZ, 4);
 
-	
+	/* copy-pasted from mach-msm; no idea */
 	clockevent.max_delta_ns =
 		clockevent_delta2ns(0xf0000000, &clockevent);
 	clockevent.min_delta_ns = clockevent_delta2ns(4, &clockevent);

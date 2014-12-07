@@ -37,15 +37,27 @@
 
 struct nilfs_bmap;
 
+/**
+ * union nilfs_bmap_ptr_req - request for bmap ptr
+ * @bpr_ptr: bmap pointer
+ * @bpr_req: request for persistent allocator
+ */
 union nilfs_bmap_ptr_req {
 	__u64 bpr_ptr;
 	struct nilfs_palloc_req bpr_req;
 };
 
+/**
+ * struct nilfs_bmap_stats - bmap statistics
+ * @bs_nblocks: number of blocks created or deleted
+ */
 struct nilfs_bmap_stats {
 	unsigned int bs_nblocks;
 };
 
+/**
+ * struct nilfs_bmap_operations - bmap operation table
+ */
 struct nilfs_bmap_operations {
 	int (*bop_lookup)(const struct nilfs_bmap *, __u64, int, __u64 *);
 	int (*bop_lookup_contig)(const struct nilfs_bmap *, __u64, __u64 *,
@@ -64,7 +76,7 @@ struct nilfs_bmap_operations {
 			  union nilfs_binfo *);
 	int (*bop_mark)(struct nilfs_bmap *, __u64, int);
 
-	
+	/* The following functions are internal use only. */
 	int (*bop_last_key)(const struct nilfs_bmap *, __u64 *);
 	int (*bop_check_insert)(const struct nilfs_bmap *, __u64);
 	int (*bop_check_delete)(struct nilfs_bmap *, __u64);
@@ -73,9 +85,9 @@ struct nilfs_bmap_operations {
 
 
 #define NILFS_BMAP_SIZE		(NILFS_INODE_BMAP_SIZE * sizeof(__le64))
-#define NILFS_BMAP_KEY_BIT	(sizeof(unsigned long) * 8 )
+#define NILFS_BMAP_KEY_BIT	(sizeof(unsigned long) * 8 /* CHAR_BIT */)
 #define NILFS_BMAP_NEW_PTR_INIT	\
-	(1UL << (sizeof(unsigned long) * 8  - 1))
+	(1UL << (sizeof(unsigned long) * 8 /* CHAR_BIT */ - 1))
 
 static inline int nilfs_bmap_is_new_ptr(unsigned long ptr)
 {
@@ -83,6 +95,18 @@ static inline int nilfs_bmap_is_new_ptr(unsigned long ptr)
 }
 
 
+/**
+ * struct nilfs_bmap - bmap structure
+ * @b_u: raw data
+ * @b_sem: semaphore
+ * @b_inode: owner of bmap
+ * @b_ops: bmap operation table
+ * @b_last_allocated_key: last allocated key for data block
+ * @b_last_allocated_ptr: last allocated ptr for data block
+ * @b_ptr_type: pointer type
+ * @b_state: state
+ * @b_nchildren_per_block: maximum number of child nodes for non-root nodes
+ */
 struct nilfs_bmap {
 	union {
 		__u8 u_flags;
@@ -98,13 +122,17 @@ struct nilfs_bmap {
 	__u16 b_nchildren_per_block;
 };
 
-#define NILFS_BMAP_PTR_P	0	
-#define NILFS_BMAP_PTR_VS	1	
-#define NILFS_BMAP_PTR_VM	2	
-#define NILFS_BMAP_PTR_U	(-1)	
+/* pointer type */
+#define NILFS_BMAP_PTR_P	0	/* physical block number (i.e. LBN) */
+#define NILFS_BMAP_PTR_VS	1	/* virtual block number (single
+					   version) */
+#define NILFS_BMAP_PTR_VM	2	/* virtual block number (has multiple
+					   versions) */
+#define NILFS_BMAP_PTR_U	(-1)	/* never perform pointer operations */
 
 #define NILFS_BMAP_USE_VBN(bmap)	((bmap)->b_ptr_type > 0)
 
+/* state */
 #define NILFS_BMAP_DIRTY	0x00000001
 
 struct nilfs_bmap_store {
@@ -141,6 +169,9 @@ static inline int nilfs_bmap_lookup(struct nilfs_bmap *bmap, __u64 key,
 	return nilfs_bmap_lookup_at_level(bmap, key, 1, ptr);
 }
 
+/*
+ * Internal use only
+ */
 struct inode *nilfs_bmap_get_dat(const struct nilfs_bmap *);
 
 static inline int nilfs_bmap_prepare_alloc_ptr(struct nilfs_bmap *bmap,
@@ -149,7 +180,7 @@ static inline int nilfs_bmap_prepare_alloc_ptr(struct nilfs_bmap *bmap,
 {
 	if (dat)
 		return nilfs_dat_prepare_alloc(dat, &req->bpr_req);
-	
+	/* ignore target ptr */
 	req->bpr_ptr = bmap->b_last_allocated_ptr++;
 	return 0;
 }
@@ -210,16 +241,19 @@ __u64 nilfs_bmap_find_target_seq(const struct nilfs_bmap *, __u64);
 __u64 nilfs_bmap_find_target_in_group(const struct nilfs_bmap *);
 
 
+/* Assume that bmap semaphore is locked. */
 static inline int nilfs_bmap_dirty(const struct nilfs_bmap *bmap)
 {
 	return !!(bmap->b_state & NILFS_BMAP_DIRTY);
 }
 
+/* Assume that bmap semaphore is locked. */
 static inline void nilfs_bmap_set_dirty(struct nilfs_bmap *bmap)
 {
 	bmap->b_state |= NILFS_BMAP_DIRTY;
 }
 
+/* Assume that bmap semaphore is locked. */
 static inline void nilfs_bmap_clear_dirty(struct nilfs_bmap *bmap)
 {
 	bmap->b_state &= ~NILFS_BMAP_DIRTY;
@@ -233,4 +267,4 @@ static inline void nilfs_bmap_clear_dirty(struct nilfs_bmap *bmap)
 #define NILFS_BMAP_LARGE_LOW	NILFS_BTREE_ROOT_NCHILDREN_MAX
 #define NILFS_BMAP_LARGE_HIGH	NILFS_BTREE_KEY_MAX
 
-#endif	
+#endif	/* _NILFS_BMAP_H */

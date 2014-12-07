@@ -28,15 +28,21 @@
 
 #include "sdhci.h"
 
+/*
+ * PCI device IDs
+ */
 #define PCI_DEVICE_ID_INTEL_PCH_SDIO0	0x8809
 #define PCI_DEVICE_ID_INTEL_PCH_SDIO1	0x880a
 
+/*
+ * PCI registers
+ */
 
 #define PCI_SDHCI_IFPIO			0x00
 #define PCI_SDHCI_IFDMA			0x01
 #define PCI_SDHCI_IFVENDOR		0x02
 
-#define PCI_SLOT_INFO			0x40	
+#define PCI_SLOT_INFO			0x40	/* 8 bits */
 #define  PCI_SLOT_INFO_SLOTS(x)		((x >> 4) & 7)
 #define  PCI_SLOT_INFO_FIRST_BAR_MASK	0x07
 
@@ -78,11 +84,16 @@ struct sdhci_pci_chip {
 	bool			allow_runtime_pm;
 	const struct sdhci_pci_fixes *fixes;
 
-	int			num_slots;	
-	struct sdhci_pci_slot	*slots[MAX_SLOTS]; 
+	int			num_slots;	/* Slots on controller */
+	struct sdhci_pci_slot	*slots[MAX_SLOTS]; /* Pointers to host slots */
 };
 
 
+/*****************************************************************************\
+ *                                                                           *
+ * Hardware specific quirk handling                                          *
+ *                                                                           *
+\*****************************************************************************/
 
 static int ricoh_probe(struct sdhci_pci_chip *chip)
 {
@@ -109,7 +120,9 @@ static int ricoh_mmc_probe_slot(struct sdhci_pci_slot *slot)
 
 static int ricoh_mmc_resume(struct sdhci_pci_chip *chip)
 {
-	
+	/* Apply a delay to allow controller to settle */
+	/* Otherwise it becomes confused if card state changed
+		during suspend */
 	msleep(500);
 	return 0;
 }
@@ -153,8 +166,16 @@ static int mrst_hc_probe_slot(struct sdhci_pci_slot *slot)
 	return 0;
 }
 
+/*
+ * ADMA operation is disabled for Moorestown platform due to
+ * hardware bugs.
+ */
 static int mrst_hc_probe(struct sdhci_pci_chip *chip)
 {
+	/*
+	 * slots number is fixed here for MRST as SDIO3/5 are never used and
+	 * have hardware bugs.
+	 */
 	chip->num_slots = 1;
 	return 0;
 }
@@ -281,6 +302,7 @@ static const struct sdhci_pci_fixes sdhci_intel_pch_sdio = {
 	.probe_slot	= pch_hc_probe_slot,
 };
 
+/* O2Micro extra registers */
 #define O2_SD_LOCK_WP		0xD3
 #define O2_SD_MULTI_VCC3V	0xEE
 #define O2_SD_CLKREQ		0xEC
@@ -299,23 +321,26 @@ static int o2_probe(struct sdhci_pci_chip *chip)
 	case PCI_DEVICE_ID_O2_8221:
 	case PCI_DEVICE_ID_O2_8320:
 	case PCI_DEVICE_ID_O2_8321:
-		
+		/* This extra setup is required due to broken ADMA. */
 		ret = pci_read_config_byte(chip->pdev, O2_SD_LOCK_WP, &scratch);
 		if (ret)
 			return ret;
 		scratch &= 0x7f;
 		pci_write_config_byte(chip->pdev, O2_SD_LOCK_WP, scratch);
 
-		
+		/* Set Multi 3 to VCC3V# */
 		pci_write_config_byte(chip->pdev, O2_SD_MULTI_VCC3V, 0x08);
 
-		
+		/* Disable CLK_REQ# support after media DET */
 		ret = pci_read_config_byte(chip->pdev, O2_SD_CLKREQ, &scratch);
 		if (ret)
 			return ret;
 		scratch |= 0x20;
 		pci_write_config_byte(chip->pdev, O2_SD_CLKREQ, scratch);
 
+		/* Choose capabilities, enable SDMA.  We have to write 0x01
+		 * to the capabilities register first to unlock it.
+		 */
 		ret = pci_read_config_byte(chip->pdev, O2_SD_CAPS, &scratch);
 		if (ret)
 			return ret;
@@ -323,18 +348,18 @@ static int o2_probe(struct sdhci_pci_chip *chip)
 		pci_write_config_byte(chip->pdev, O2_SD_CAPS, scratch);
 		pci_write_config_byte(chip->pdev, O2_SD_CAPS, 0x73);
 
-		
+		/* Disable ADMA1/2 */
 		pci_write_config_byte(chip->pdev, O2_SD_ADMA1, 0x39);
 		pci_write_config_byte(chip->pdev, O2_SD_ADMA2, 0x08);
 
-		
+		/* Disable the infinite transfer mode */
 		ret = pci_read_config_byte(chip->pdev, O2_SD_INF_MOD, &scratch);
 		if (ret)
 			return ret;
 		scratch |= 0x08;
 		pci_write_config_byte(chip->pdev, O2_SD_INF_MOD, scratch);
 
-		
+		/* Lock WP */
 		ret = pci_read_config_byte(chip->pdev, O2_SD_LOCK_WP, &scratch);
 		if (ret)
 			return ret;
@@ -354,6 +379,10 @@ static int jmicron_pmos(struct sdhci_pci_chip *chip, int on)
 	if (ret)
 		return ret;
 
+	/*
+	 * Turn PMOS on [bit 0], set over current detection to 2.4 V
+	 * [bit 1:2] and enable over current debouncing [bit 6].
+	 */
 	if (on)
 		scratch |= 0x47;
 	else
@@ -379,6 +408,18 @@ static int jmicron_probe(struct sdhci_pci_chip *chip)
 			  SDHCI_QUIRK_BROKEN_SMALL_PIO;
 	}
 
+	/*
+	 * JMicron chips can have two interfaces to the same hardware
+	 * in order to work around limitations in Microsoft's driver.
+	 * We need to make sure we only bind to one of them.
+	 *
+	 * This code assumes two things:
+	 *
+	 * 1. The PCI code adds subfunctions in order.
+	 *
+	 * 2. The MMC interface has a lower subfunction number
+	 *    than the SD interface.
+	 */
 	if (chip->pdev->device == PCI_DEVICE_ID_JMICRON_JMB38X_SD)
 		mmcdev = PCI_DEVICE_ID_JMICRON_JMB38X_MMC;
 	else if (chip->pdev->device == PCI_DEVICE_ID_JMICRON_JMB388_SD)
@@ -404,13 +445,17 @@ static int jmicron_probe(struct sdhci_pci_chip *chip)
 		}
 	}
 
+	/*
+	 * JMicron chips need a bit of a nudge to enable the power
+	 * output pins.
+	 */
 	ret = jmicron_pmos(chip, 1);
 	if (ret) {
 		dev_err(&chip->pdev->dev, "Failure enabling card power\n");
 		return ret;
 	}
 
-	
+	/* quirk for unsable RO-detection on JM388 chips */
 	if (chip->pdev->device == PCI_DEVICE_ID_JMICRON_JMB388_SD ||
 	    chip->pdev->device == PCI_DEVICE_ID_JMICRON_JMB388_ESD)
 		chip->quirks |= SDHCI_QUIRK_UNSTABLE_RO_DETECT;
@@ -441,19 +486,28 @@ static int jmicron_probe_slot(struct sdhci_pci_slot *slot)
 		version = (version & SDHCI_VENDOR_VER_MASK) >>
 			SDHCI_VENDOR_VER_SHIFT;
 
+		/*
+		 * Older versions of the chip have lots of nasty glitches
+		 * in the ADMA engine. It's best just to avoid it
+		 * completely.
+		 */
 		if (version < 0xAC)
 			slot->host->quirks |= SDHCI_QUIRK_BROKEN_ADMA;
 	}
 
-	
+	/* JM388 MMC doesn't support 1.8V while SD supports it */
 	if (slot->chip->pdev->device == PCI_DEVICE_ID_JMICRON_JMB388_ESD) {
 		slot->host->ocr_avail_sd = MMC_VDD_32_33 | MMC_VDD_33_34 |
 			MMC_VDD_29_30 | MMC_VDD_30_31 |
-			MMC_VDD_165_195; 
+			MMC_VDD_165_195; /* allow 1.8V */
 		slot->host->ocr_avail_mmc = MMC_VDD_32_33 | MMC_VDD_33_34 |
-			MMC_VDD_29_30 | MMC_VDD_30_31; 
+			MMC_VDD_29_30 | MMC_VDD_30_31; /* no 1.8V for MMC */
 	}
 
+	/*
+	 * The secondary interface requires a bit set to get the
+	 * interrupts.
+	 */
 	if (slot->chip->pdev->device == PCI_DEVICE_ID_JMICRON_JMB38X_MMC ||
 	    slot->chip->pdev->device == PCI_DEVICE_ID_JMICRON_JMB388_ESD)
 		jmicron_enable_mmc(slot->host, 1);
@@ -519,6 +573,7 @@ static const struct sdhci_pci_fixes sdhci_jmicron = {
 	.resume		= jmicron_resume,
 };
 
+/* SysKonnect CardBus2SDIO extra registers */
 #define SYSKT_CTRL		0x200
 #define SYSKT_RDFIFO_STAT	0x204
 #define SYSKT_WRFIFO_STAT	0x208
@@ -562,7 +617,7 @@ static int syskt_probe_slot(struct sdhci_pci_slot *slot)
 	writeb(SYSKT_POWER_330, slot->host->ioaddr + SYSKT_POWER_DATA);
 	writeb(SYSKT_POWER_START, slot->host->ioaddr + SYSKT_POWER_CMD);
 	udelay(50);
-	tm = 10;  
+	tm = 10;  /* Wait max 1 ms */
 	do {
 		ps = readw(slot->host->ioaddr + SYSKT_POWER_STATUS);
 		if (ps & SYSKT_POWER_STATUS_OK)
@@ -838,15 +893,20 @@ static const struct pci_device_id pci_ids[] __devinitdata = {
 		.driver_data	= (kernel_ulong_t)&sdhci_o2,
 	},
 
-	{	
+	{	/* Generic SD host controller */
 		PCI_DEVICE_CLASS((PCI_CLASS_SYSTEM_SDHCI << 8), 0xFFFF00)
 	},
 
-	{  },
+	{ /* end: all zeroes */ },
 };
 
 MODULE_DEVICE_TABLE(pci, pci_ids);
 
+/*****************************************************************************\
+ *                                                                           *
+ * SDHCI core callbacks                                                      *
+ *                                                                           *
+\*****************************************************************************/
 
 static int sdhci_pci_enable_dma(struct sdhci_host *host)
 {
@@ -906,10 +966,10 @@ static void sdhci_pci_hw_reset(struct sdhci_host *host)
 	if (!gpio_is_valid(rst_n_gpio))
 		return;
 	gpio_set_value_cansleep(rst_n_gpio, 0);
-	
+	/* For eMMC, minimum is 1us but give it 10us for good measure */
 	udelay(10);
 	gpio_set_value_cansleep(rst_n_gpio, 1);
-	
+	/* For eMMC, minimum is 200us but give it 300us for good measure */
 	usleep_range(300, 1000);
 }
 
@@ -919,6 +979,11 @@ static struct sdhci_ops sdhci_pci_ops = {
 	.hw_reset		= sdhci_pci_hw_reset,
 };
 
+/*****************************************************************************\
+ *                                                                           *
+ * Suspend/resume                                                            *
+ *                                                                           *
+\*****************************************************************************/
 
 #ifdef CONFIG_PM
 
@@ -1015,12 +1080,12 @@ static int sdhci_pci_resume(struct device *dev)
 	return 0;
 }
 
-#else 
+#else /* CONFIG_PM */
 
 #define sdhci_pci_suspend NULL
 #define sdhci_pci_resume NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
 #ifdef CONFIG_PM_RUNTIME
 
@@ -1111,6 +1176,11 @@ static const struct dev_pm_ops sdhci_pci_pm_ops = {
 	.runtime_idle = sdhci_pci_runtime_idle,
 };
 
+/*****************************************************************************\
+ *                                                                           *
+ * Device probing/removal                                                    *
+ *                                                                           *
+\*****************************************************************************/
 
 static struct sdhci_pci_slot * __devinit sdhci_pci_probe_slot(
 	struct pci_dev *pdev, struct sdhci_pci_chip *chip, int first_bar,
@@ -1154,7 +1224,7 @@ static struct sdhci_pci_slot * __devinit sdhci_pci_probe_slot(
 	slot->rst_n_gpio = -EINVAL;
 	slot->cd_gpio = -EINVAL;
 
-	
+	/* Retrieve platform data if there is any */
 	if (*sdhci_pci_get_data)
 		slot->data = sdhci_pci_get_data(pdev, slotno);
 
@@ -1346,7 +1416,7 @@ static int __devinit sdhci_pci_probe(struct pci_dev *pdev,
 			goto free;
 	}
 
-	slots = chip->num_slots;	
+	slots = chip->num_slots;	/* Quirk may have changed this */
 
 	for (i = 0; i < slots; i++) {
 		slot = sdhci_pci_probe_slot(pdev, chip, first_bar, i);
@@ -1405,6 +1475,11 @@ static struct pci_driver sdhci_driver = {
 	},
 };
 
+/*****************************************************************************\
+ *                                                                           *
+ * Driver init/exit                                                          *
+ *                                                                           *
+\*****************************************************************************/
 
 static int __init sdhci_drv_init(void)
 {

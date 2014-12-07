@@ -88,7 +88,7 @@ struct mdump_hdr {
 struct top_msg {
 	struct msg_hdr hdr;
 	union {
-		
+		/* D2H messages */
 		struct {
 			struct log_hdr log_hdr;
 			u8 data[1];
@@ -100,7 +100,7 @@ struct top_msg {
 			u8 data[1];
 		} __attribute__((__packed__)) mdump;
 
-		
+		/* H2D messages */
 		struct {
 			u8 logsource;
 			u8 sevmask;
@@ -110,4 +110,4 @@ struct top_msg {
 } __attribute__((__packed__));
 
 
-#endif 
+#endif /* __FWMSG_H__ */

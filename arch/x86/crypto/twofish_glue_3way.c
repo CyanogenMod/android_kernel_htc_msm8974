@@ -36,11 +36,13 @@
 #include <crypto/lrw.h>
 #include <crypto/xts.h>
 
+/* regular block cipher functions from twofish_x86_64 module */
 asmlinkage void twofish_enc_blk(struct twofish_ctx *ctx, u8 *dst,
 				const u8 *src);
 asmlinkage void twofish_dec_blk(struct twofish_ctx *ctx, u8 *dst,
 				const u8 *src);
 
+/* 3-way parallel cipher functions */
 asmlinkage void __twofish_enc_blk_3way(struct twofish_ctx *ctx, u8 *dst,
 				       const u8 *src, bool xor);
 asmlinkage void twofish_dec_blk_3way(struct twofish_ctx *ctx, u8 *dst,
@@ -73,7 +75,7 @@ static int ecb_crypt(struct blkcipher_desc *desc, struct blkcipher_walk *walk,
 		u8 *wsrc = walk->src.virt.addr;
 		u8 *wdst = walk->dst.virt.addr;
 
-		
+		/* Process three block batch */
 		if (nbytes >= bsize * 3) {
 			do {
 				fn_3way(ctx, wdst, wsrc);
@@ -87,7 +89,7 @@ static int ecb_crypt(struct blkcipher_desc *desc, struct blkcipher_walk *walk,
 				goto done;
 		}
 
-		
+		/* Handle leftovers */
 		do {
 			fn(ctx, wdst, wsrc);
 
@@ -173,13 +175,13 @@ static unsigned int __cbc_decrypt(struct blkcipher_desc *desc,
 	u128 ivs[3 - 1];
 	u128 last_iv;
 
-	
+	/* Start of the last block. */
 	src += nbytes / bsize - 1;
 	dst += nbytes / bsize - 1;
 
 	last_iv = *src;
 
-	
+	/* Process three block batch */
 	if (nbytes >= bsize * 3) {
 		do {
 			nbytes -= bsize * (3 - 1);
@@ -207,7 +209,7 @@ static unsigned int __cbc_decrypt(struct blkcipher_desc *desc,
 			goto done;
 	}
 
-	
+	/* Handle leftovers */
 	for (;;) {
 		twofish_dec_blk(ctx, (u8 *)dst, (u8 *)src);
 
@@ -293,7 +295,7 @@ static unsigned int __ctr_crypt(struct blkcipher_desc *desc,
 
 	be128_to_u128(&ctrblk, (be128 *)walk->iv);
 
-	
+	/* Process three block batch */
 	if (nbytes >= bsize * 3) {
 		do {
 			if (dst != src) {
@@ -302,7 +304,7 @@ static unsigned int __ctr_crypt(struct blkcipher_desc *desc,
 				dst[2] = src[2];
 			}
 
-			
+			/* create ctrblks for parallel encrypt */
 			u128_to_be128(&ctrblocks[0], &ctrblk);
 			u128_inc(&ctrblk);
 			u128_to_be128(&ctrblocks[1], &ctrblk);
@@ -322,7 +324,7 @@ static unsigned int __ctr_crypt(struct blkcipher_desc *desc,
 			goto done;
 	}
 
-	
+	/* Handle leftovers */
 	do {
 		if (dst != src)
 			*dst = *src;
@@ -467,17 +469,20 @@ static int xts_twofish_setkey(struct crypto_tfm *tfm, const u8 *key,
 	u32 *flags = &tfm->crt_flags;
 	int err;
 
+	/* key consists of keys of equal size concatenated, therefore
+	 * the length must be even
+	 */
 	if (keylen % 2) {
 		*flags |= CRYPTO_TFM_RES_BAD_KEY_LEN;
 		return -EINVAL;
 	}
 
-	
+	/* first half of xts-key is for crypt */
 	err = __twofish_setkey(&ctx->crypt_ctx, key, keylen / 2, flags);
 	if (err)
 		return err;
 
-	
+	/* second half of xts-key is for tweak */
 	return __twofish_setkey(&ctx->tweak_ctx, key + keylen / 2, keylen / 2,
 				flags);
 }
@@ -634,10 +639,25 @@ static bool is_blacklisted_cpu(void)
 		(boot_cpu_data.x86_model == 0x1c ||
 		 boot_cpu_data.x86_model == 0x26 ||
 		 boot_cpu_data.x86_model == 0x36)) {
+		/*
+		 * On Atom, twofish-3way is slower than original assembler
+		 * implementation. Twofish-3way trades off some performance in
+		 * storing blocks in 64bit registers to allow three blocks to
+		 * be processed parallel. Parallel operation then allows gaining
+		 * more performance than was trade off, on out-of-order CPUs.
+		 * However Atom does not benefit from this parallellism and
+		 * should be blacklisted.
+		 */
 		return true;
 	}
 
 	if (boot_cpu_data.x86 == 0x0f) {
+		/*
+		 * On Pentium 4, twofish-3way is slower than original assembler
+		 * implementation because excessive uses of 64bit rotate and
+		 * left-shifts (which are really slow on P4) needed to store and
+		 * handle 128bit block in two 64bit registers.
+		 */
 		return true;
 	}
 

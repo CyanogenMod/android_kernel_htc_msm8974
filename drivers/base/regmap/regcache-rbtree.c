@@ -23,13 +23,13 @@ static int regcache_rbtree_write(struct regmap *map, unsigned int reg,
 static int regcache_rbtree_exit(struct regmap *map);
 
 struct regcache_rbtree_node {
-	
+	/* the actual rbtree node holding this block */
 	struct rb_node node;
-	
+	/* base register handled by this block */
 	unsigned int base_reg;
-	
+	/* block of adjacent registers */
 	void *block;
-	
+	/* number of registers available in the block */
 	unsigned int blklen;
 } __attribute__ ((packed));
 
@@ -105,13 +105,13 @@ static int regcache_rbtree_insert(struct rb_root *root,
 	while (*new) {
 		rbnode_tmp = container_of(*new, struct regcache_rbtree_node,
 					  node);
-		
+		/* base and top registers of the current rbnode */
 		regcache_rbtree_get_base_top_reg(rbnode_tmp, &base_reg_tmp,
 						 &top_reg_tmp);
-		
+		/* base register of the rbnode to be added */
 		base_reg = rbnode->base_reg;
 		parent = *new;
-		
+		/* if this register has already been inserted, just return */
 		if (base_reg >= base_reg_tmp &&
 		    base_reg <= top_reg_tmp)
 			return 0;
@@ -121,7 +121,7 @@ static int regcache_rbtree_insert(struct rb_root *root,
 			new = &((*new)->rb_left);
 	}
 
-	
+	/* insert the node into the rbtree */
 	rb_link_node(&rbnode->node, parent, new);
 	rb_insert_color(&rbnode->node, root);
 
@@ -225,12 +225,12 @@ static int regcache_rbtree_exit(struct regmap *map)
 	struct regcache_rbtree_ctx *rbtree_ctx;
 	struct regcache_rbtree_node *rbtree_node;
 
-	
+	/* if we've already been called then just return */
 	rbtree_ctx = map->cache;
 	if (!rbtree_ctx)
 		return 0;
 
-	
+	/* free up the rbtree */
 	next = rb_first(&rbtree_ctx->root);
 	while (next) {
 		rbtree_node = rb_entry(next, struct regcache_rbtree_node, node);
@@ -240,7 +240,7 @@ static int regcache_rbtree_exit(struct regmap *map)
 		kfree(rbtree_node);
 	}
 
-	
+	/* release the resources */
 	kfree(map->cache);
 	map->cache = NULL;
 
@@ -277,12 +277,12 @@ static int regcache_rbtree_insert_to_block(struct regcache_rbtree_node *rbnode,
 	if (!blk)
 		return -ENOMEM;
 
-	
+	/* insert the register value in the correct place in the rbnode block */
 	memmove(blk + (pos + 1) * word_size,
 		blk + pos * word_size,
 		(rbnode->blklen - pos) * word_size);
 
-	
+	/* update the rbnode block, its size and the base register */
 	rbnode->block = blk;
 	rbnode->blklen++;
 	if (!pos)
@@ -305,6 +305,9 @@ static int regcache_rbtree_write(struct regmap *map, unsigned int reg,
 	int ret;
 
 	rbtree_ctx = map->cache;
+	/* if we can't locate it in the cached rbnode we'll have
+	 * to traverse the rbtree looking for it.
+	 */
 	rbnode = regcache_rbtree_lookup(map, reg);
 	if (rbnode) {
 		reg_tmp = reg - rbnode->base_reg;
@@ -315,7 +318,7 @@ static int regcache_rbtree_write(struct regmap *map, unsigned int reg,
 		regcache_rbtree_set_register(rbnode, reg_tmp, value,
 					     map->cache_word_size);
 	} else {
-		
+		/* look for an adjacent register to the one we are about to add */
 		for (node = rb_first(&rbtree_ctx->root); node;
 		     node = rb_next(node)) {
 			rbnode_tmp = rb_entry(node, struct regcache_rbtree_node, node);
@@ -323,7 +326,7 @@ static int regcache_rbtree_write(struct regmap *map, unsigned int reg,
 				reg_tmp = rbnode_tmp->base_reg + i;
 				if (abs(reg_tmp - reg) != 1)
 					continue;
-				
+				/* decide where in the block to place our register */
 				if (reg_tmp + 1 == reg)
 					pos = i + 1;
 				else
@@ -337,6 +340,11 @@ static int regcache_rbtree_write(struct regmap *map, unsigned int reg,
 				return 0;
 			}
 		}
+		/* we did not manage to find a place to insert it in an existing
+		 * block so create a new rbnode with a single register in its block.
+		 * This block will get populated further if any other adjacent
+		 * registers get modified in the future.
+		 */
 		rbnode = kzalloc(sizeof *rbnode, GFP_KERNEL);
 		if (!rbnode)
 			return -ENOMEM;
@@ -393,7 +401,7 @@ static int regcache_rbtree_sync(struct regmap *map, unsigned int min,
 			val = regcache_rbtree_get_register(rbnode, i,
 							   map->cache_word_size);
 
-			
+			/* Is this the hardware default?  If so skip. */
 			ret = regcache_lookup_reg(map, regtmp);
 			if (ret >= 0 && val == map->reg_defaults[ret].def)
 				continue;

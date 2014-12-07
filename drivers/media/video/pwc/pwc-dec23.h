@@ -34,7 +34,7 @@ struct pwc_dec23_private
 	unsigned char last_cmd, last_cmd_valid;
 
   unsigned int scalebits;
-  unsigned int nbitsmask, nbits; 
+  unsigned int nbitsmask, nbits; /* Number of bits of a color in the compressed stream */
 
   unsigned int reservoir;
   unsigned int nbits_in_reservoir;

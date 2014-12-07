@@ -6,6 +6,7 @@
 #define CM9780_GPIO_SETUP	0x70
 #define CM9780_GPIO_STATUS	0x72
 
+/* jack control */
 #define CM9780_RSOE		0x0001
 #define CM9780_CBOE		0x0002
 #define CM9780_SSOE		0x0004
@@ -23,6 +24,7 @@
 #define CM9780_LO2LI		0x4000
 #define CM9780_LO2MIC		0x8000
 
+/* mixer control */
 #define CM9780_BSTSEL		0x0001
 #define CM9780_STRO_MIC		0x0002
 #define CM9780_SPDI_FREX	0x0004
@@ -40,6 +42,7 @@
 #define CM9780_P47_IO		0x4000
 #define CM9780_PCBSW		0x8000
 
+/* GPIO setup */
 #define CM9780_GPI0EN		0x0001
 #define CM9780_GPI1EN		0x0002
 #define CM9780_SENSE_P		0x0004
@@ -49,6 +52,7 @@
 #define CM9780_GPIO0IO		0x0100
 #define CM9780_GPIO1IO		0x0200
 
+/* GPIO status */
 #define CM9780_GPO0		0x0001
 #define CM9780_GPO1		0x0002
 #define CM9780_GPIO0S		0x0010

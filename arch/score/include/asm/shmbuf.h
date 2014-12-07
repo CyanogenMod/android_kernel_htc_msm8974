@@ -3,4 +3,4 @@
 
 #include <asm-generic/shmbuf.h>
 
-#endif 
+#endif /* _ASM_SCORE_SHMBUF_H */

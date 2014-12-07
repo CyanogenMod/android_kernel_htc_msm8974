@@ -18,7 +18,7 @@ extern const struct cpumask *uv_flush_tlb_others(const struct cpumask *cpumask,
 						 unsigned long va,
 						 unsigned int cpu);
 
-#else	
+#else	/* X86_UV */
 
 static inline enum uv_system_type get_uv_system_type(void) { return UV_NONE; }
 static inline int is_uv_system(void)	{ return 0; }
@@ -29,6 +29,6 @@ uv_flush_tlb_others(const struct cpumask *cpumask, struct mm_struct *mm,
 		    unsigned long va, unsigned int cpu)
 { return cpumask; }
 
-#endif	
+#endif	/* X86_UV */
 
-#endif	
+#endif	/* _ASM_X86_UV_UV_H */

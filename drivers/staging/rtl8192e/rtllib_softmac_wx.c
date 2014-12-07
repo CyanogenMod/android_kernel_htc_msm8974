@@ -16,6 +16,7 @@
 
 #include "rtllib.h"
 #include "dot11d.h"
+/* FIXME: add A freqs */
 
 const long rtllib_wlan_frequencies[] = {
 	2412, 2417, 2422, 2427,
@@ -39,7 +40,7 @@ int rtllib_wx_set_freq(struct rtllib_device *ieee, struct iw_request_info *a,
 		goto out;
 	}
 
-	
+	/* if setting by freq convert to channel */
 	if (fwrq->e == 1) {
 		if ((fwrq->m >= (int) 2.412e8 &&
 		     fwrq->m <= (int) 2.487e8)) {
@@ -49,7 +50,7 @@ int rtllib_wx_set_freq(struct rtllib_device *ieee, struct iw_request_info *a,
 			while ((c < 14) && (f != rtllib_wlan_frequencies[c]))
 				c++;
 
-			
+			/* hack to fall through */
 			fwrq->e = 0;
 			fwrq->m = c + 1;
 		}
@@ -59,7 +60,7 @@ int rtllib_wx_set_freq(struct rtllib_device *ieee, struct iw_request_info *a,
 		ret = -EOPNOTSUPP;
 		goto out;
 
-	} else { 
+	} else { /* Set the channel */
 
 		if (ieee->active_channel_map[fwrq->m] != 1) {
 			ret = -EINVAL;
@@ -110,7 +111,7 @@ int rtllib_wx_get_wap(struct rtllib_device *ieee,
 	if (ieee->iw_mode == IW_MODE_MONITOR)
 		return -1;
 
-	
+	/* We want avoid to give to the user inconsistent infos*/
 	spin_lock_irqsave(&ieee->lock, flags);
 
 	if (ieee->state != RTLLIB_LINKED &&
@@ -145,7 +146,7 @@ int rtllib_wx_set_wap(struct rtllib_device *ieee,
 	rtllib_stop_scan_syncro(ieee);
 
 	down(&ieee->wx_sem);
-	
+	/* use ifconfig hw ether */
 	if (ieee->iw_mode == IW_MODE_MASTER) {
 		ret = -1;
 		goto out;
@@ -169,6 +170,9 @@ int rtllib_wx_set_wap(struct rtllib_device *ieee,
 	if (ifup)
 		rtllib_stop_protocol(ieee, true);
 
+	/* just to avoid to give inconsistent infos in the
+	 * get wx method. not really needed otherwise
+	 */
 	spin_lock_irqsave(&ieee->lock, flags);
 
 	ieee->cannot_notify = false;
@@ -194,7 +198,7 @@ int rtllib_wx_get_essid(struct rtllib_device *ieee, struct iw_request_info *a,
 	if (ieee->iw_mode == IW_MODE_MONITOR)
 		return -1;
 
-	
+	/* We want avoid to give to the user inconsistent infos*/
 	spin_lock_irqsave(&ieee->lock, flags);
 
 	if (ieee->current_network.ssid[0] == '\0' ||
@@ -269,7 +273,7 @@ int rtllib_wx_get_rts(struct rtllib_device *ieee,
 			     union iwreq_data *wrqu, char *extra)
 {
 	wrqu->rts.value = ieee->rts;
-	wrqu->rts.fixed = 0;	
+	wrqu->rts.fixed = 0;	/* no auto select */
 	wrqu->rts.disabled = (wrqu->rts.value == DEFAULT_RTS_THRESHOLD);
 	return 0;
 }
@@ -340,7 +344,7 @@ void rtllib_wx_sync_scan_wq(void *data)
 
 	if (ieee->LeisurePSLeave)
 		ieee->LeisurePSLeave(ieee->dev);
-	
+	/* notify AP to be in PS mode */
 	rtllib_sta_ps_send_null_frame(ieee, 1);
 	rtllib_sta_ps_send_null_frame(ieee, 1);
 
@@ -351,7 +355,7 @@ void rtllib_wx_sync_scan_wq(void *data)
 	rtllib_stop_send_beacons(ieee);
 	ieee->state = RTLLIB_LINKED_SCANNING;
 	ieee->link_change(ieee->dev);
-	
+	/* wait for ps packet to be kicked out successfully */
 	msleep(50);
 
 	if (ieee->ScanOperationBackupHandler)
@@ -389,7 +393,7 @@ void rtllib_wx_sync_scan_wq(void *data)
 	ieee->state = RTLLIB_LINKED;
 	ieee->link_change(ieee->dev);
 
-	
+	/* Notify AP that I wake up again */
 	rtllib_sta_ps_send_null_frame(ieee, 0);
 
 	if (ieee->LinkDetectInfo.NumRecvBcnInPeriod == 0 ||
@@ -426,7 +430,7 @@ int rtllib_wx_set_scan(struct rtllib_device *ieee, struct iw_request_info *a,
 
 	if (ieee->state == RTLLIB_LINKED) {
 		queue_work_rsl(ieee->wq, &ieee->wx_sync_scan_wq);
-		
+		/* intentionally forget to up sem */
 		return 0;
 	}
 
@@ -474,6 +478,9 @@ int rtllib_wx_set_essid(struct rtllib_device *ieee,
 		rtllib_stop_protocol(ieee, true);
 
 
+	/* this is just to be sure that the GET wx callback
+	 * has consisten infos. not needed otherwise
+	 */
 	spin_lock_irqsave(&ieee->lock, flags);
 
 	if (wrqu->essid.flags && wrqu->essid.length) {
@@ -558,6 +565,7 @@ int rtllib_wx_get_name(struct rtllib_device *ieee,
 EXPORT_SYMBOL(rtllib_wx_get_name);
 
 
+/* this is mostly stolen from hostap */
 int rtllib_wx_set_power(struct rtllib_device *ieee,
 				 struct iw_request_info *info,
 				 union iwreq_data *wrqu, char *extra)
@@ -614,6 +622,7 @@ exit:
 }
 EXPORT_SYMBOL(rtllib_wx_set_power);
 
+/* this is stolen from hostap */
 int rtllib_wx_get_power(struct rtllib_device *ieee,
 				 struct iw_request_info *info,
 				 union iwreq_data *wrqu, char *extra)

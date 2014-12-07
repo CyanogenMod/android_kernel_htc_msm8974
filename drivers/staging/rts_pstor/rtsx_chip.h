@@ -32,15 +32,19 @@
 #define SUPPORT_MAGIC_GATE
 #define SUPPORT_MSXC
 #define SUPPORT_SD_LOCK
+/* Hardware switch bus_ctl and cd_ctl automatically */
 #define HW_AUTO_SWITCH_SD_BUS
+/* Enable hardware interrupt write clear */
 #define HW_INT_WRITE_CLR
+/* #define LED_AUTO_BLINK */
+/* #define DISABLE_CARD_INT */
 
 #ifdef SUPPORT_MAGIC_GATE
-	
+	/* Using NORMAL_WRITE instead of AUTO_WRITE to set ICV */
 	#define MG_SET_ICV_SLOW
-	
+	/* HW may miss ERR/CMDNK signal when sampling INT status. */
 	#define MS_SAMPLE_INT_ERR
-	
+	/* HW DO NOT support Wait_INT function during READ_BYTES transfer mode */
 	#define READ_BYTES_WAIT_INT
 #endif
 
@@ -87,18 +91,27 @@
 #define PM_S1			1
 #define PM_S3			3
 
+/*
+ * Transport return codes
+ */
 
-#define TRANSPORT_GOOD	   	0   
-#define TRANSPORT_FAILED  	1   
-#define TRANSPORT_NO_SENSE 	2  
-#define TRANSPORT_ERROR   	3   
+#define TRANSPORT_GOOD	   	0   /* Transport good, command good	   */
+#define TRANSPORT_FAILED  	1   /* Transport good, command failed   */
+#define TRANSPORT_NO_SENSE 	2  /* Command failed, no auto-sense    */
+#define TRANSPORT_ERROR   	3   /* Transport bad (i.e. device dead) */
 
 
-#define STOP_MEDIUM			0x00    
-#define MAKE_MEDIUM_READY		0x01    
-#define UNLOAD_MEDIUM			0x02    
-#define LOAD_MEDIUM			0x03    
+/*-----------------------------------
+    Start-Stop-Unit
+-----------------------------------*/
+#define STOP_MEDIUM			0x00    /* access disable         */
+#define MAKE_MEDIUM_READY		0x01    /* access enable          */
+#define UNLOAD_MEDIUM			0x02    /* unload                 */
+#define LOAD_MEDIUM			0x03    /* load                   */
 
+/*-----------------------------------
+    STANDARD_INQUIRY
+-----------------------------------*/
 #define QULIFIRE                0x00
 #define AENC_FNC                0x00
 #define TRML_IOP                0x00
@@ -110,43 +123,45 @@
 #define CMD_QUE                 0x00
 #define SFT_RE                  0x00
 
-#define VEN_ID_LEN              8               
-#define PRDCT_ID_LEN            16              
-#define PRDCT_REV_LEN           4               
+#define VEN_ID_LEN              8               /* Vendor ID Length         */
+#define PRDCT_ID_LEN            16              /* Product ID Length        */
+#define PRDCT_REV_LEN           4               /* Product LOT Length       */
 
-#define RTSX_FLIDX_TRANS_ACTIVE		18  
-#define RTSX_FLIDX_ABORTING		20  
-#define RTSX_FLIDX_DISCONNECTING	21  
+/* Dynamic flag definitions: used in set_bit() etc. */
+#define RTSX_FLIDX_TRANS_ACTIVE		18  /* 0x00040000  transfer is active */
+#define RTSX_FLIDX_ABORTING		20  /* 0x00100000  abort is in progress */
+#define RTSX_FLIDX_DISCONNECTING	21  /* 0x00200000  disconnect in progress */
 #define ABORTING_OR_DISCONNECTING	((1UL << US_FLIDX_ABORTING) | \
 					 (1UL << US_FLIDX_DISCONNECTING))
-#define RTSX_FLIDX_RESETTING		22  
-#define RTSX_FLIDX_TIMED_OUT		23  
+#define RTSX_FLIDX_RESETTING		22  /* 0x00400000  device reset in progress */
+#define RTSX_FLIDX_TIMED_OUT		23  /* 0x00800000  SCSI midlayer timed out  */
 
-#define DRCT_ACCESS_DEV         0x00    
-#define RMB_DISC                0x80    
-#define ANSI_SCSI2              0x02    
+#define DRCT_ACCESS_DEV         0x00    /* Direct Access Device      */
+#define RMB_DISC                0x80    /* The Device is Removable   */
+#define ANSI_SCSI2              0x02    /* Based on ANSI-SCSI2       */
 
-#define SCSI                    0x00    
+#define SCSI                    0x00    /* Interface ID              */
 
 #define	WRITE_PROTECTED_MEDIA 0x07
 
-#define ILI                     0x20    
+/*---- sense key ----*/
+#define ILI                     0x20    /* ILI bit is on                    */
 
-#define NO_SENSE                0x00    
-#define RECOVER_ERR             0x01    
-#define NOT_READY               0x02    
-#define MEDIA_ERR               0x03    
-#define HARDWARE_ERR            0x04    
-#define ILGAL_REQ               0x05    
-#define UNIT_ATTENTION          0x06    
-#define DAT_PRTCT               0x07    
-#define BLNC_CHK                0x08    
-					
-#define CPY_ABRT                0x0a    
-#define ABRT_CMD                0x0b    
-#define EQUAL                   0x0c    
-#define VLM_OVRFLW              0x0d    
-#define MISCMP                  0x0e    
+#define NO_SENSE                0x00    /* not exist sense key              */
+#define RECOVER_ERR             0x01    /* Target/Logical unit is recoverd  */
+#define NOT_READY               0x02    /* Logical unit is not ready        */
+#define MEDIA_ERR               0x03    /* medium/data error                */
+#define HARDWARE_ERR            0x04    /* hardware error                   */
+#define ILGAL_REQ               0x05    /* CDB/parameter/identify msg error */
+#define UNIT_ATTENTION          0x06    /* unit attention condition occur   */
+#define DAT_PRTCT               0x07    /* read/write is desable            */
+#define BLNC_CHK                0x08    /* find blank/DOF in read           */
+					/* write to unblank area            */
+#define CPY_ABRT                0x0a    /* Copy/Compare/Copy&Verify illgal  */
+#define ABRT_CMD                0x0b    /* Target make the command in error */
+#define EQUAL                   0x0c    /* Search Data end with Equal       */
+#define VLM_OVRFLW              0x0d    /* Some data are left in buffer     */
+#define MISCMP                  0x0e    /* find inequality                  */
 
 #define READ_ERR                -1
 #define WRITE_ERR               -2
@@ -154,27 +169,34 @@
 #define	FIRST_RESET		0x01
 #define	USED_EXIST		0x02
 
-#define SENSE_VALID             0x80    
-#define SENSE_INVALID           0x00    
+/*-----------------------------------
+    SENSE_DATA
+-----------------------------------*/
+/*---- valid ----*/
+#define SENSE_VALID             0x80    /* Sense data is valid as SCSI2     */
+#define SENSE_INVALID           0x00    /* Sense data is invalid as SCSI2   */
 
-#define CUR_ERR                 0x70    
-#define DEF_ERR                 0x71    
+/*---- error code ----*/
+#define CUR_ERR                 0x70    /* current error                    */
+#define DEF_ERR                 0x71    /* specific command error           */
 
-#define SNSKEYINFO_LEN          3       
+/*---- sense key Information ----*/
+#define SNSKEYINFO_LEN          3       /* length of sense key information   */
 
 #define SKSV                    0x80
 #define CDB_ILLEGAL             0x40
 #define DAT_ILLEGAL             0x00
 #define BPV                     0x08
-#define BIT_ILLEGAL0            0       
-#define BIT_ILLEGAL1            1       
-#define BIT_ILLEGAL2            2       
-#define BIT_ILLEGAL3            3       
-#define BIT_ILLEGAL4            4       
-#define BIT_ILLEGAL5            5       
-#define BIT_ILLEGAL6            6       
-#define BIT_ILLEGAL7            7       
+#define BIT_ILLEGAL0            0       /* bit0 is illegal                  */
+#define BIT_ILLEGAL1            1       /* bit1 is illegal                  */
+#define BIT_ILLEGAL2            2       /* bit2 is illegal                  */
+#define BIT_ILLEGAL3            3       /* bit3 is illegal                  */
+#define BIT_ILLEGAL4            4       /* bit4 is illegal                  */
+#define BIT_ILLEGAL5            5       /* bit5 is illegal                  */
+#define BIT_ILLEGAL6            6       /* bit6 is illegal                  */
+#define BIT_ILLEGAL7            7       /* bit7 is illegal                  */
 
+/*---- ASC ----*/
 #define ASC_NO_INFO             0x00
 #define ASC_MISCMP              0x1d
 #define ASC_INVLD_CDB           0x24
@@ -189,6 +211,7 @@
 #define	ASC_WRITE_PROTECT	0x27
 #define ASC_LUN_NOT_SUPPORTED	0x25
 
+/*---- ASQC ----*/
 #define ASCQ_NO_INFO            0x00
 #define	ASCQ_MEDIA_IN_PROCESS	0x01
 #define ASCQ_MISCMP             0x00
@@ -202,25 +225,26 @@
 
 
 struct sense_data_t {
-    unsigned char   err_code;		
-						
-						
-						
-						
-						
-						
-    unsigned char   seg_no;		
-    unsigned char   sense_key;		
-						
-    unsigned char   info[4];		
-    unsigned char   ad_sense_len;	
-    unsigned char   cmd_info[4];	
-    unsigned char   asc;		
-    unsigned char   ascq;		
-    unsigned char   rfu;		
-    unsigned char   sns_key_info[3];	
+    unsigned char   err_code;		/* error code */
+						/* bit7 : valid                    */
+						/*   (1 : SCSI2)                    */
+						/*   (0 : Vendor specific)          */
+						/* bit6-0 : error code             */
+						/*  (0x70 : current error)          */
+						/*  (0x71 : specific command error) */
+    unsigned char   seg_no;		/* segment No.                      */
+    unsigned char   sense_key;		/* byte5 : ILI                      */
+						/* bit3-0 : sense key              */
+    unsigned char   info[4];		/* information                       */
+    unsigned char   ad_sense_len;	/* additional sense data length     */
+    unsigned char   cmd_info[4];	/* command specific information      */
+    unsigned char   asc;		/* ASC                              */
+    unsigned char   ascq;		/* ASCQ                             */
+    unsigned char   rfu;		/* FRU                              */
+    unsigned char   sns_key_info[3];	/* sense key specific information    */
 };
 
+/* PCI Operation Register Address */
 #define RTSX_HCBAR		0x00
 #define RTSX_HCBCTLR		0x04
 #define RTSX_HDBAR		0x08
@@ -229,13 +253,16 @@ struct sense_data_t {
 #define RTSX_BIPR		0x14
 #define RTSX_BIER		0x18
 
+/* Host command buffer control register */
 #define STOP_CMD		(0x01 << 28)
 
+/* Host data buffer control register */
 #define SDMA_MODE		0x00
 #define ADMA_MODE		(0x02 << 26)
 #define STOP_DMA		(0x01 << 28)
 #define TRIG_DMA		(0x01 << 31)
 
+/* Bus interrupt pending register */
 #define CMD_DONE_INT		(1 << 31)
 #define DATA_DONE_INT		(1 << 30)
 #define TRANS_OK_INT		(1 << 29)
@@ -259,6 +286,7 @@ struct sense_data_t {
 
 #define CARD_EXIST		(XD_EXIST | MS_EXIST | SD_EXIST)
 
+/* Bus interrupt enable register */
 #define CMD_DONE_INT_EN		(1 << 31)
 #define DATA_DONE_INT_EN	(1 << 30)
 #define TRANS_OK_INT_EN		(1 << 29)
@@ -300,10 +328,12 @@ struct sense_data_t {
 #define MS_FREE_TABLE_CNT	512
 
 
+/* Bit Operation */
 #define SET_BIT(data, idx)	((data) |= 1 << (idx))
 #define CLR_BIT(data, idx)	((data) &= ~(1 << (idx)))
 #define CHK_BIT(data, idx)	((data) & (1 << (idx)))
 
+/* SG descriptor */
 #define SG_INT			0x04
 #define SG_END			0x02
 #define SG_VALID		0x01
@@ -316,6 +346,7 @@ struct rtsx_chip;
 
 typedef int (*card_rw_func)(struct scsi_cmnd *srb, struct rtsx_chip *chip, u32 sec_addr, u16 sec_cnt);
 
+/* Supported Clock */
 enum card_clock	{CLK_20 = 1, CLK_30, CLK_40, CLK_50, CLK_60, CLK_80, CLK_100, CLK_120, CLK_150, CLK_200};
 
 enum RTSX_STAT	{RTSX_STAT_INIT, RTSX_STAT_IDLE, RTSX_STAT_RUN, RTSX_STAT_SS,
@@ -324,29 +355,32 @@ enum IC_VER	{IC_VER_AB, IC_VER_C = 2, IC_VER_D = 3};
 
 #define MAX_RESET_CNT		3
 
+/* For MS Card */
 #define MAX_DEFECTIVE_BLOCK     10
 
 struct zone_entry {
 	u16 *l2p_table;
 	u16 *free_table;
-	u16 defect_list[MAX_DEFECTIVE_BLOCK];  
+	u16 defect_list[MAX_DEFECTIVE_BLOCK];  /* For MS card only */
 	int set_index;
 	int get_index;
 	int unused_blk_cnt;
 	int disable_count;
-	
+	/* To indicate whether the L2P table of this zone has been built. */
 	int build_flag;
 };
 
 #define TYPE_SD			0x0000
 #define TYPE_MMC		0x0001
 
+/* TYPE_SD */
 #define SD_HS			0x0100
 #define SD_SDR50		0x0200
 #define SD_DDR50		0x0400
 #define SD_SDR104		0x0800
 #define SD_HCXC			0x1000
 
+/* TYPE_MMC */
 #define MMC_26M			0x0100
 #define MMC_52M			0x0200
 #define MMC_4BIT		0x0400
@@ -354,6 +388,7 @@ struct zone_entry {
 #define MMC_SECTOR_MODE		0x1000
 #define MMC_DDR52		0x2000
 
+/* SD card */
 #define CHK_SD(sd_card)			(((sd_card)->sd_type & 0xFF) == TYPE_SD)
 #define CHK_SD_HS(sd_card)		(CHK_SD(sd_card) && ((sd_card)->sd_type & SD_HS))
 #define CHK_SD_SDR50(sd_card)		(CHK_SD(sd_card) && ((sd_card)->sd_type & SD_SDR50))
@@ -377,6 +412,7 @@ struct zone_entry {
 #define CLR_SD_SDR104(sd_card)		((sd_card)->sd_type &= ~SD_SDR104)
 #define CLR_SD_HCXC(sd_card)		((sd_card)->sd_type &= ~SD_HCXC)
 
+/* MMC card */
 #define CHK_MMC(sd_card)		(((sd_card)->sd_type & 0xFF) == TYPE_MMC)
 #define CHK_MMC_26M(sd_card)		(CHK_MMC(sd_card) && ((sd_card)->sd_type & MMC_26M))
 #define CHK_MMC_52M(sd_card)		(CHK_MMC(sd_card) && ((sd_card)->sd_type & MMC_52M))
@@ -428,7 +464,7 @@ struct sd_info {
 	u8 raw_csd[16];
 	u8 raw_scr[8];
 
-	
+	/* Sequential RW */
 	int seq_mode;
 	enum dma_data_direction pre_dir;
 	u32 pre_sec_addr;
@@ -545,7 +581,7 @@ struct ms_info {
 
 	u8 multi_flag;
 
-	
+	/* Sequential RW */
 	u8 seq_mode;
 	enum dma_data_direction pre_dir;
 	u32 pre_sec_addr;
@@ -561,7 +597,7 @@ struct ms_info {
 #ifdef SUPPORT_MAGIC_GATE
 	u8 magic_gate_id[16];
 	u8 mg_entry_num;
-	int mg_auth;    
+	int mg_auth;    /* flag to indicate authentication process */
 #endif
 };
 
@@ -588,28 +624,45 @@ struct trace_msg_t {
 };
 #endif
 
+/************/
+/* LUN mode */
+/************/
+/* Single LUN, support xD/SD/MS */
 #define DEFAULT_SINGLE		0
+/* 2 LUN mode, support SD/MS */
 #define SD_MS_2LUN		1
+/* Single LUN, but only support SD/MS, for Barossa LQFP */
 #define SD_MS_1LUN		2
 
 #define LAST_LUN_MODE		2
 
+/* Barossa package */
 #define QFN		0
 #define LQFP		1
 
+/******************/
+/* sd_ctl bit map */
+/******************/
+/* SD push point control, bit 0, 1 */
 #define SD_PUSH_POINT_CTL_MASK		0x03
 #define SD_PUSH_POINT_DELAY		0x01
 #define SD_PUSH_POINT_AUTO		0x02
+/* SD sample point control, bit 2, 3 */
 #define SD_SAMPLE_POINT_CTL_MASK	0x0C
 #define SD_SAMPLE_POINT_DELAY		0x04
 #define SD_SAMPLE_POINT_AUTO		0x08
+/* SD DDR Tx phase set by user, bit 4 */
 #define SD_DDR_TX_PHASE_SET_BY_USER	0x10
+/* MMC DDR Tx phase set by user, bit 5 */
 #define MMC_DDR_TX_PHASE_SET_BY_USER	0x20
+/* Support MMC DDR mode, bit 6 */
 #define SUPPORT_MMC_DDR_MODE		0x40
+/* Reset MMC at first */
 #define RESET_MMC_FIRST			0x80
 
 #define SEQ_START_CRITERIA		0x20
 
+/* MS Power Class En */
 #define POWER_CLASS_2_EN		0x02
 #define POWER_CLASS_1_EN		0x01
 
@@ -630,28 +683,31 @@ struct trace_msg_t {
 struct rtsx_chip {
 	rtsx_dev_t 		*rtsx;
 
-	u32 			int_reg;		
+	u32 			int_reg;		/* Bus interrupt pending register */
 	char 			max_lun;
 	void 			*context;
 
-	void 			*host_cmds_ptr;		
+	void 			*host_cmds_ptr;		/* host commands buffer pointer */
 	dma_addr_t		host_cmds_addr;
-	int 			ci;			
+	int 			ci;			/* Command Index */
 
-	void			*host_sg_tbl_ptr;	
+	void			*host_sg_tbl_ptr;	/* SG descriptor table */
 	dma_addr_t		host_sg_tbl_addr;
-	int			sgi;			
+	int			sgi;			/* SG entry index */
 
-	struct scsi_cmnd	*srb;		 	
+	struct scsi_cmnd	*srb;		 	/* current srb */
 	struct sense_data_t 	sense_buffer[MAX_ALLOWED_LUN_CNT];
 
-	int			cur_clk;		
+	int			cur_clk;		/* current card clock */
 
-	
+	/* Current accessed card */
 	int 			cur_card;
 
-	unsigned long 		need_release;		
-	unsigned long 		need_reset;		
+	unsigned long 		need_release;		/* need release bit map */
+	unsigned long 		need_reset;		/* need reset bit map */
+	/* Flag to indicate that this card is just resumed from SS state,
+	 * and need released before being resetted
+	 */
 	unsigned long 		need_reinit;
 
 	int 			rw_need_retry;
@@ -661,13 +717,13 @@ struct rtsx_chip {
 	u8 			ocp_stat;
 #endif
 
-	u8 			card_exist;		
-	u8 			card_ready;		
-	u8 			card_fail;		
-	u8 			card_ejected;		
-	u8 			card_wp;		
+	u8 			card_exist;		/* card exist bit map (physical exist) */
+	u8 			card_ready;		/* card ready bit map (reset successfully) */
+	u8 			card_fail;		/* card reset fail bit map */
+	u8 			card_ejected;		/* card ejected bit map */
+	u8 			card_wp;		/* card write protected bit map */
 
-	u8 			lun_mc;			
+	u8 			lun_mc;			/* flag to indicate whether to answer MediaChange */
 
 #ifndef LED_AUTO_BLINK
 	int 			led_toggle_counter;
@@ -677,17 +733,17 @@ struct rtsx_chip {
 	int 			xd_reset_counter;
 	int 			ms_reset_counter;
 
-	
+	/* card bus width */
 	u8			card_bus_width[MAX_ALLOWED_LUN_CNT];
-	
+	/* card capacity */
 	u32 			capacity[MAX_ALLOWED_LUN_CNT];
-	
+	/* read/write card function pointer */
 	card_rw_func 		rw_card[MAX_ALLOWED_LUN_CNT];
-	
+	/* read/write capacity, used for GPIO Toggle */
 	u32			rw_cap[MAX_ALLOWED_LUN_CNT];
-	
+	/* card to lun mapping table */
 	u8			card2lun[32];
-	
+	/* lun to card mapping table */
 	u8			lun2card[MAX_ALLOWED_LUN_CNT];
 
 	int 			rw_fail_cnt[MAX_ALLOWED_LUN_CNT];
@@ -696,7 +752,7 @@ struct rtsx_chip {
 	int 			xd_show_cnt;
 	int 			ms_show_cnt;
 
-	
+	/* card information */
 	struct sd_info		sd_card;
 	struct xd_info		xd_card;
 	struct ms_info		ms_card;
@@ -741,7 +797,7 @@ struct rtsx_chip {
 
 	int 			chip_insert_with_sdio;
 
-	
+	/* Options */
 
 	int adma_mode;
 
@@ -872,6 +928,7 @@ do {								\
 #define CHECK_BARO_PKG(chip, pkg)	((chip)->baro_pkg == (pkg))
 #define CHECK_LUN_MODE(chip, mode)	((chip)->lun_mode == (mode))
 
+/* Power down control */
 #define SSC_PDCTL		0x01
 #define OC_PDCTL		0x02
 
@@ -929,4 +986,4 @@ do {										\
 	}									\
 } while (0)
 
-#endif  
+#endif  /* __REALTEK_RTSX_CHIP_H */

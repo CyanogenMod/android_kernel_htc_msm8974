@@ -28,8 +28,14 @@
 #include <asm/dpmc.h>
 
 
+/*
+ * Name the Board for the /proc/cpuinfo
+ */
 const char bfin_board_name[] = "ADI BF527-AD7160EVAL";
 
+/*
+ *  Driver needs to know address, irq and flag pin.
+ */
 
 #if defined(CONFIG_USB_MUSB_HDRC) || defined(CONFIG_USB_MUSB_HDRC_MODULE)
 static struct resource musb_resources[] = {
@@ -38,12 +44,12 @@ static struct resource musb_resources[] = {
 		.end	= 0xffc03cff,
 		.flags	= IORESOURCE_MEM,
 	},
-	[1] = {	
+	[1] = {	/* general IRQ */
 		.start	= IRQ_USB_INT0,
 		.end	= IRQ_USB_INT0,
 		.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHLEVEL,
 	},
-	[2] = {	
+	[2] = {	/* DMA IRQ */
 		.start	= IRQ_USB_DMA,
 		.end	= IRQ_USB_DMA,
 		.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHLEVEL,
@@ -58,8 +64,11 @@ static struct musb_hdrc_config musb_config = {
 	.num_eps	= 8,
 	.dma_channels	= 8,
 	.gpio_vrsel	= GPIO_PG13,
+	/* Some custom boards need to be active low, just set it to "0"
+	 * if it is the case.
+	 */
 	.gpio_vrsel_active	= 1,
-	.clkin          = 24,           
+	.clkin          = 24,           /* musb CLKIN in MHZ */
 };
 
 static struct musb_hdrc_platform_data musb_plat = {
@@ -254,8 +263,9 @@ static struct flash_platform_data bfin_spi_flash_data = {
 	.type = "m25p16",
 };
 
+/* SPI flash chip (m25p64) */
 static struct bfin5xx_spi_chip spi_flash_chip_info = {
-	.enable_dma = 0,         
+	.enable_dma = 0,         /* use dma transfer with this chip*/
 };
 #endif
 
@@ -269,7 +279,7 @@ static struct bfin5xx_spi_chip  mmc_spi_chip_info = {
 static struct platform_device bfin_i2s = {
 	.name = "bfin-i2s",
 	.id = CONFIG_SND_BF5XX_SPORT_NUM,
-	
+	/* TODO: add platform data here */
 };
 #endif
 
@@ -277,7 +287,7 @@ static struct platform_device bfin_i2s = {
 static struct platform_device bfin_tdm = {
 	.name = "bfin-tdm",
 	.id = CONFIG_SND_BF5XX_SPORT_NUM,
-	
+	/* TODO: add platform data here */
 };
 #endif
 
@@ -285,11 +295,11 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 #if defined(CONFIG_MTD_M25P80) \
 	|| defined(CONFIG_MTD_M25P80_MODULE)
 	{
-		
-		.modalias = "m25p80", 
-		.max_speed_hz = 25000000,     
-		.bus_num = 0, 
-		.chip_select = 1, 
+		/* the modalias must be the same as spi device driver name */
+		.modalias = "m25p80", /* Name of spi_driver for this device */
+		.max_speed_hz = 25000000,     /* max spi clock (SCK) speed in HZ */
+		.bus_num = 0, /* Framework bus number */
+		.chip_select = 1, /* Framework chip select. On STAMP537 it is SPISSEL1*/
 		.platform_data = &bfin_spi_flash_data,
 		.controller_data = &spi_flash_chip_info,
 		.mode = SPI_MODE_3,
@@ -299,7 +309,7 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 	|| defined(CONFIG_SND_BF5XX_SOC_AD183X_MODULE)
 	{
 		.modalias = "ad183x",
-		.max_speed_hz = 3125000,     
+		.max_speed_hz = 3125000,     /* max spi clock (SCK) speed in HZ */
 		.bus_num = 0,
 		.chip_select = 4,
 	},
@@ -307,7 +317,7 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 #if defined(CONFIG_MMC_SPI) || defined(CONFIG_MMC_SPI_MODULE)
 	{
 		.modalias = "mmc_spi",
-		.max_speed_hz = 30000000,     
+		.max_speed_hz = 30000000,     /* max spi clock (SCK) speed in HZ */
 		.bus_num = 0,
 		.chip_select = GPIO_PH3 + MAX_CTRL_CS,
 		.controller_data = &mmc_spi_chip_info,
@@ -317,7 +327,7 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 #if defined(CONFIG_SPI_SPIDEV) || defined(CONFIG_SPI_SPIDEV_MODULE)
 	{
 		.modalias = "spidev",
-		.max_speed_hz = 3125000,     
+		.max_speed_hz = 3125000,     /* max spi clock (SCK) speed in HZ */
 		.bus_num = 0,
 		.chip_select = 1,
 	},
@@ -325,12 +335,14 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 };
 
 #if defined(CONFIG_SPI_BFIN5XX) || defined(CONFIG_SPI_BFIN5XX_MODULE)
+/* SPI controller data */
 static struct bfin5xx_spi_master bfin_spi0_info = {
 	.num_chipselect = MAX_CTRL_CS + MAX_BLACKFIN_GPIOS,
-	.enable_dma = 1,  
+	.enable_dma = 1,  /* master has the ability to do dma transfer */
 	.pin_req = {P_SPI0_SCK, P_SPI0_MISO, P_SPI0_MOSI, 0},
 };
 
+/* SPI (0) */
 static struct resource bfin_spi0_resource[] = {
 	[0] = {
 		.start = SPI0_REGBASE,
@@ -351,14 +363,14 @@ static struct resource bfin_spi0_resource[] = {
 
 static struct platform_device bfin_spi0_device = {
 	.name = "bfin-spi",
-	.id = 0, 
+	.id = 0, /* Bus number */
 	.num_resources = ARRAY_SIZE(bfin_spi0_resource),
 	.resource = bfin_spi0_resource,
 	.dev = {
-		.platform_data = &bfin_spi0_info, 
+		.platform_data = &bfin_spi0_info, /* Passed to driver */
 	},
 };
-#endif  
+#endif  /* spi master and devices */
 
 #if defined(CONFIG_SERIAL_BFIN) || defined(CONFIG_SERIAL_BFIN_MODULE)
 #ifdef CONFIG_SERIAL_BFIN_UART0
@@ -405,7 +417,7 @@ static struct platform_device bfin_uart0_device = {
 	.num_resources = ARRAY_SIZE(bfin_uart0_resources),
 	.resource = bfin_uart0_resources,
 	.dev = {
-		.platform_data = &bfin_uart0_peripherals, 
+		.platform_data = &bfin_uart0_peripherals, /* Passed to driver */
 	},
 };
 #endif
@@ -442,12 +454,12 @@ static struct resource bfin_uart1_resources[] = {
 		.flags = IORESOURCE_DMA,
 	},
 #ifdef CONFIG_BFIN_UART1_CTSRTS
-	{	
+	{	/* CTS pin */
 		.start = GPIO_PF9,
 		.end = GPIO_PF9,
 		.flags = IORESOURCE_IO,
 	},
-	{	
+	{	/* RTS pin */
 		.start = GPIO_PF10,
 		.end = GPIO_PF10,
 		.flags = IORESOURCE_IO,
@@ -465,7 +477,7 @@ static struct platform_device bfin_uart1_device = {
 	.num_resources = ARRAY_SIZE(bfin_uart1_resources),
 	.resource = bfin_uart1_resources,
 	.dev = {
-		.platform_data = &bfin_uart1_peripherals, 
+		.platform_data = &bfin_uart1_peripherals, /* Passed to driver */
 	},
 };
 #endif
@@ -619,7 +631,7 @@ static struct platform_device bfin_sport0_uart_device = {
 	.num_resources = ARRAY_SIZE(bfin_sport0_uart_resources),
 	.resource = bfin_sport0_uart_resources,
 	.dev = {
-		.platform_data = &bfin_sport0_peripherals, 
+		.platform_data = &bfin_sport0_peripherals, /* Passed to driver */
 	},
 };
 #endif
@@ -653,7 +665,7 @@ static struct platform_device bfin_sport1_uart_device = {
 	.num_resources = ARRAY_SIZE(bfin_sport1_uart_resources),
 	.resource = bfin_sport1_uart_resources,
 	.dev = {
-		.platform_data = &bfin_sport1_peripherals, 
+		.platform_data = &bfin_sport1_peripherals, /* Passed to driver */
 	},
 };
 #endif
@@ -663,11 +675,11 @@ static struct platform_device bfin_sport1_uart_device = {
 #include <asm/bfin_rotary.h>
 
 static struct bfin_rotary_platform_data bfin_rotary_data = {
-	
-	
+	/*.rotary_up_key     = KEY_UP,*/
+	/*.rotary_down_key   = KEY_DOWN,*/
 	.rotary_rel_code   = REL_WHEEL,
 	.rotary_button_key = KEY_ENTER,
-	.debounce	   = 10,	
+	.debounce	   = 10,	/* 0..17 */
 	.mode		   = ROT_QUAD_ENC | ROT_DEBE,
 };
 
@@ -701,7 +713,7 @@ static const unsigned int cclk_vlev_datasheet[] = {
 static struct bfin_dpmc_platform_data bfin_dmpc_vreg_data = {
 	.tuple_tab = cclk_vlev_datasheet,
 	.tabsize = ARRAY_SIZE(cclk_vlev_datasheet),
-	.vr_settling_time = 25 ,
+	.vr_settling_time = 25 /* us */,
 };
 
 static struct platform_device bfin_dpmc = {
@@ -829,14 +841,14 @@ void __init native_machine_early_platform_add_devices(void)
 
 void native_machine_restart(char *cmd)
 {
-	
+	/* workaround reboot hang when booting from SPI */
 	if ((bfin_read_SYSCR() & 0x7) == 0x3)
 		bfin_reset_boot_spi_cs(P_DEFAULT_BOOT_SPI_CS);
 }
 
 int bfin_get_ether_addr(char *addr)
 {
-	
+	/* the MAC is stored in OTP memory page 0xDF */
 	u32 ret;
 	u64 otp_mac;
 	u32 (*otp_read)(u32 page, u32 flags, u64 *page_content) = (void *)0xEF00001A;

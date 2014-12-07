@@ -28,32 +28,33 @@
 #define DUMMY_BD_BUFFER  0xdeadbeef
 #define DUMMY2_BD_BUFFER 0xbaadf00d
 
-#define TD_R		0x8000 
-#define TD_W		0x2000 
-#define TD_I		0x1000 
-#define TD_L		0x0800 
-#define TD_TC		0x0400 
-#define TD_CNF		0x0200 
-#define TD_LSP		0x0100 
-#define TD_PID		0x00c0 
-#define TD_RXER		0x0020 
+/* Transaction Descriptors bits */
+#define TD_R		0x8000 /* ready bit */
+#define TD_W		0x2000 /* wrap bit */
+#define TD_I		0x1000 /* interrupt on completion */
+#define TD_L		0x0800 /* last */
+#define TD_TC		0x0400 /* transmit CRC */
+#define TD_CNF		0x0200 /* CNF - Must be always 1 */
+#define TD_LSP		0x0100 /* Low-speed transaction */
+#define TD_PID		0x00c0 /* packet id */
+#define TD_RXER		0x0020 /* Rx error or not */
 
-#define TD_NAK		0x0010 
-#define TD_STAL		0x0008 
-#define TD_TO		0x0004 
-#define TD_UN		0x0002 
-#define TD_NO		0x0010 
-#define TD_AB		0x0008 
-#define TD_CR		0x0004 
-#define TD_OV		0x0002 
-#define TD_BOV		0x0001 
+#define TD_NAK		0x0010 /* No ack. */
+#define TD_STAL		0x0008 /* Stall received */
+#define TD_TO		0x0004 /* time out */
+#define TD_UN		0x0002 /* underrun */
+#define TD_NO		0x0010 /* Rx Non Octet Aligned Packet */
+#define TD_AB		0x0008 /* Frame Aborted */
+#define TD_CR		0x0004 /* CRC Error */
+#define TD_OV		0x0002 /* Overrun */
+#define TD_BOV		0x0001 /* Buffer Overrun */
 
 #define TD_ERRORS	(TD_NAK | TD_STAL | TD_TO | TD_UN | \
 			 TD_NO | TD_AB | TD_CR | TD_OV | TD_BOV)
 
-#define TD_PID_DATA0	0x0080 
-#define TD_PID_DATA1	0x00c0 
-#define TD_PID_TOGGLE	0x00c0 
+#define TD_PID_DATA0	0x0080 /* Data 0 toggle */
+#define TD_PID_DATA1	0x00c0 /* Data 1 toggle */
+#define TD_PID_TOGGLE	0x00c0 /* Data 0/1 toggle mask */
 
 #define TD_TOK_SETUP	0x0000
 #define TD_TOK_OUT	0x4000
@@ -88,12 +89,13 @@ void fhci_push_dummy_bd(struct endpoint *ep)
 		u16 td_status = in_be16(&ep->empty_td->status);
 
 		out_be32(&ep->empty_td->buf_ptr, DUMMY_BD_BUFFER);
-		
+		/* get the next TD in the ring */
 		ep->empty_td = next_bd(ep->td_base, ep->empty_td, td_status);
 		ep->already_pushed_dummy_bd = true;
 	}
 }
 
+/* destroy an USB endpoint */
 void fhci_ep0_free(struct fhci_usb *usb)
 {
 	struct endpoint *ep;
@@ -139,6 +141,14 @@ void fhci_ep0_free(struct fhci_usb *usb)
 	}
 }
 
+/*
+ * create the endpoint structure
+ *
+ * arguments:
+ * usb		A pointer to the data structure of the USB
+ * data_mem	The data memory partition(BUS)
+ * ring_len	TD ring length
+ */
 u32 fhci_create_ep(struct fhci_usb *usb, enum fhci_mem_alloc data_mem,
 			   u32 ring_len)
 {
@@ -149,7 +159,7 @@ u32 fhci_create_ep(struct fhci_usb *usb, enum fhci_mem_alloc data_mem,
 	int ep_mem_size;
 	u32 i;
 
-	
+	/* we need at least 3 TDs in the ring */
 	if (!(ring_len > 2)) {
 		fhci_err(usb->fhci, "illegal TD ring length parameters\n");
 		return -EINVAL;
@@ -165,7 +175,7 @@ u32 fhci_create_ep(struct fhci_usb *usb, enum fhci_mem_alloc data_mem,
 		goto err;
 	ep->td_base = cpm_muram_addr(ep_offset);
 
-	
+	/* zero all queue pointers */
 	if (cq_new(&ep->conf_frame_Q, ring_len + 2) ||
 	    cq_new(&ep->empty_frame_Q, ring_len + 2) ||
 	    cq_new(&ep->dummy_packets_Q, ring_len + 2)) {
@@ -193,7 +203,7 @@ u32 fhci_create_ep(struct fhci_usb *usb, enum fhci_mem_alloc data_mem,
 		cq_put(&ep->dummy_packets_Q, buff);
 	}
 
-	
+	/* we put the endpoint parameter RAM right behind the TD ring */
 	ep->ep_pram_ptr = (void __iomem *)ep->td_base + sizeof(*td) * ring_len;
 
 	ep->conf_td = ep->td_base;
@@ -201,7 +211,7 @@ u32 fhci_create_ep(struct fhci_usb *usb, enum fhci_mem_alloc data_mem,
 
 	ep->already_pushed_dummy_bd = false;
 
-	
+	/* initialize tds */
 	td = ep->td_base;
 	for (i = 0; i < ring_len; i++) {
 		out_be32(&td->buf_ptr, 0);
@@ -211,10 +221,10 @@ u32 fhci_create_ep(struct fhci_usb *usb, enum fhci_mem_alloc data_mem,
 		td++;
 	}
 	td--;
-	out_be16(&td->status, TD_W); 
+	out_be16(&td->status, TD_W); /* for last TD set Wrap bit */
 	out_be16(&td->length, 0);
 
-	
+	/* endpoint structure has been created */
 	usb->ep0 = ep;
 
 	return 0;
@@ -225,12 +235,20 @@ err:
 	return -ENOMEM;
 }
 
+/*
+ * initialize the endpoint register according to the given parameters
+ *
+ * artuments:
+ * usb		A pointer to the data strucutre of the USB
+ * ep		A pointer to the endpoint structre
+ * data_mem	The data memory partition(BUS)
+ */
 void fhci_init_ep_registers(struct fhci_usb *usb, struct endpoint *ep,
 			    enum fhci_mem_alloc data_mem)
 {
 	u8 rt;
 
-	
+	/* set the endpoint registers according to the endpoint */
 	out_be16(&usb->fhci->regs->usb_ep[0],
 		 USB_TRANS_CTR | USB_EP_MF | USB_EP_RTE);
 	out_be16(&usb->fhci->pram->ep_ptr[0],
@@ -251,6 +269,15 @@ void fhci_init_ep_registers(struct fhci_usb *usb, struct endpoint *ep,
 	out_be32(&ep->ep_pram_ptr->tx_state, 0);
 }
 
+/*
+ * Collect the submitted frames and inform the application about them
+ * It is also preparing the TDs for new frames. If the Tx interrupts
+ * are disabled, the application should call that routine to get
+ * confirmation about the submitted frames. Otherwise, the routine is
+ * called from the interrupt service routine during the Tx interrupt.
+ * In that case the application is informed by calling the application
+ * specific 'fhci_transaction_confirm' routine
+ */
 static void fhci_td_transaction_confirm(struct fhci_usb *usb)
 {
 	struct endpoint *ep = usb->ep0;
@@ -261,6 +288,11 @@ static void fhci_td_transaction_confirm(struct fhci_usb *usb)
 	u16 td_length;
 	u32 buf;
 
+	/*
+	 * collect transmitted BDs from the chip. The routine clears all BDs
+	 * with R bit = 0 and the pointer to data buffer is not NULL, that is
+	 * BDs which point to the transmitted data buffer
+	 */
 	while (1) {
 		td = ep->conf_td;
 		td_status = in_be16(&td->status);
@@ -268,22 +300,22 @@ static void fhci_td_transaction_confirm(struct fhci_usb *usb)
 		buf = in_be32(&td->buf_ptr);
 		extra_data = in_be16(&td->extra);
 
-		
+		/* check if the TD is empty */
 		if (!(!(td_status & TD_R) && ((td_status & ~TD_W) || buf)))
 			break;
-		
+		/* check if it is a dummy buffer */
 		else if ((buf == DUMMY_BD_BUFFER) && !(td_status & ~TD_W))
 			break;
 
-		
+		/* mark TD as empty */
 		clrbits16(&td->status, ~TD_W);
 		out_be16(&td->length, 0);
 		out_be32(&td->buf_ptr, 0);
 		out_be16(&td->extra, 0);
-		
+		/* advance the TD pointer */
 		ep->conf_td = next_bd(ep->td_base, ep->conf_td, td_status);
 
-		
+		/* check if it is a dummy buffer(type2) */
 		if ((buf == DUMMY2_BD_BUFFER) && !(td_status & ~TD_W))
 			continue;
 
@@ -332,6 +364,20 @@ static void fhci_td_transaction_confirm(struct fhci_usb *usb)
 	}
 }
 
+/*
+ * Submitting a data frame to a specified endpoint of a USB device
+ * The frame is put in the driver's transmit queue for this endpoint
+ *
+ * Arguments:
+ * usb          A pointer to the USB structure
+ * pkt          A pointer to the user frame structure
+ * trans_type   Transaction tyep - IN,OUT or SETUP
+ * dest_addr    Device address - 0~127
+ * dest_ep      Endpoint number of the device - 0~16
+ * trans_mode   Pipe type - ISO,Interrupt,bulk or control
+ * dest_speed   USB speed - Low speed or FULL speed
+ * data_toggle  Data sequence toggle - 0 or 1
+ */
 u32 fhci_host_transaction(struct fhci_usb *usb,
 			  struct packet *pkt,
 			  enum fhci_ta_type trans_type,
@@ -346,22 +392,22 @@ u32 fhci_host_transaction(struct fhci_usb *usb,
 	u16 td_status;
 
 	fhci_usb_disable_interrupt(usb);
-	
+	/* start from the next BD that should be filled */
 	td = ep->empty_td;
 	td_status = in_be16(&td->status);
 
 	if (td_status & TD_R && in_be16(&td->length)) {
-		
+		/* if the TD is not free */
 		fhci_usb_enable_interrupt(usb);
 		return -1;
 	}
 
-	
+	/* get the next TD in the ring */
 	ep->empty_td = next_bd(ep->td_base, ep->empty_td, td_status);
 	fhci_usb_enable_interrupt(usb);
 	pkt->priv_data = td;
 	out_be32(&td->buf_ptr, virt_to_phys(pkt->data));
-	
+	/* sets up transaction parameters - addr,endp,dir,and type */
 	extra_data = (dest_ep << TD_ENDP_SHIFT) | dest_addr;
 	switch (trans_type) {
 	case FHCI_TA_IN:
@@ -378,7 +424,7 @@ u32 fhci_host_transaction(struct fhci_usb *usb,
 		extra_data |= TD_ISO;
 	out_be16(&td->extra, extra_data);
 
-	
+	/* sets up the buffer descriptor */
 	td_status = ((td_status & TD_W) | TD_R | TD_L | TD_I | TD_CNF);
 	if (!(pkt->info & PKT_NO_CRC))
 		td_status |= TD_TC;
@@ -407,13 +453,13 @@ u32 fhci_host_transaction(struct fhci_usb *usb,
 
 	out_be16(&td->status, td_status);
 
-	
+	/* set up buffer length */
 	if (trans_type == FHCI_TA_IN)
 		out_be16(&td->length, pkt->len + CRC_SIZE);
 	else
 		out_be16(&td->length, pkt->len);
 
-	
+	/* put the frame to the confirmation queue */
 	cq_put(&ep->conf_frame_Q, pkt);
 
 	if (cq_howmany(&ep->conf_frame_Q) == 1)
@@ -422,6 +468,7 @@ u32 fhci_host_transaction(struct fhci_usb *usb,
 	return 0;
 }
 
+/* Reset the Tx BD ring */
 void fhci_flush_bds(struct fhci_usb *usb)
 {
 	u16 extra_data;
@@ -436,13 +483,13 @@ void fhci_flush_bds(struct fhci_usb *usb)
 		buf = in_be32(&td->buf_ptr);
 		extra_data = in_be16(&td->extra);
 
-		
+		/* if the TD is not empty - we'll confirm it as Timeout */
 		if (td_status & TD_R)
 			out_be16(&td->status, (td_status & ~TD_R) | TD_TO);
-		
+		/* if this TD is dummy - let's skip this TD */
 		else if (in_be32(&td->buf_ptr) == DUMMY_BD_BUFFER)
 			out_be32(&td->buf_ptr, DUMMY2_BD_BUFFER);
-		
+		/* if this is the last TD - break */
 		if (td_status & TD_W)
 			break;
 
@@ -459,7 +506,7 @@ void fhci_flush_bds(struct fhci_usb *usb)
 		out_be16(&td->extra, 0);
 		td++;
 	} while (!(in_be16(&td->status) & TD_W));
-	out_be16(&td->status, TD_W); 
+	out_be16(&td->status, TD_W); /* for last TD set Wrap bit */
 	out_be16(&td->length, 0);
 	out_be32(&td->buf_ptr, 0);
 	out_be16(&td->extra, 0);
@@ -472,6 +519,11 @@ void fhci_flush_bds(struct fhci_usb *usb)
 	ep->conf_td = ep->td_base;
 }
 
+/*
+ * Flush all transmitted packets from TDs in the actual frame.
+ * This routine is called when something wrong with the controller and
+ * we want to get rid of the actual frame and start again next frame
+ */
 void fhci_flush_actual_frame(struct fhci_usb *usb)
 {
 	u8 mode;
@@ -482,7 +534,7 @@ void fhci_flush_actual_frame(struct fhci_usb *usb)
 	struct usb_td __iomem *td;
 	struct endpoint *ep = usb->ep0;
 
-	
+	/* disable the USB controller */
 	mode = in_8(&usb->fhci->regs->usb_mod);
 	out_8(&usb->fhci->regs->usb_mod, mode & ~USB_MODE_EN);
 
@@ -500,7 +552,7 @@ void fhci_flush_actual_frame(struct fhci_usb *usb)
 			break;
 		}
 
-		
+		/* advance the TD pointer */
 		td = next_bd(ep->td_base, td, td_status);
 		td_status = in_be16(&td->status);
 		buf_ptr = in_be32(&td->buf_ptr);
@@ -518,16 +570,21 @@ void fhci_flush_actual_frame(struct fhci_usb *usb)
 
 	usb->actual_frame->frame_status = FRAME_TIMER_END_TRANSMISSION;
 
-	
+	/* reset the event register */
 	out_be16(&usb->fhci->regs->usb_event, 0xffff);
-	
+	/* enable the USB controller */
 	out_8(&usb->fhci->regs->usb_mod, mode | USB_MODE_EN);
 }
 
+/* handles Tx confirm and Tx error interrupt */
 void fhci_tx_conf_interrupt(struct fhci_usb *usb)
 {
 	fhci_td_transaction_confirm(usb);
 
+	/*
+	 * Schedule another transaction to this frame only if we have
+	 * already confirmed all transaction in the frame.
+	 */
 	if (((fhci_get_sof_timer_count(usb) < usb->max_frame_usage) ||
 	     (usb->actual_frame->frame_status & FRAME_END_TRANSMISSION)) &&
 	    (list_empty(&usb->actual_frame->tds_list)))
@@ -549,12 +606,12 @@ void fhci_host_transmit_actual_frame(struct fhci_usb *usb)
 
 		ep->already_pushed_dummy_bd = false;
 		td_status = in_be16(&td->status);
-		
+		/* gets the next TD in the ring */
 		td = next_bd(ep->td_base, td, td_status);
 		tb_ptr = cpm_muram_offset(td);
 		out_be16(&ep->ep_pram_ptr->tx_bd_ptr, tb_ptr);
 
-		
+		/* start transmit only if we have something in the TDs */
 		if (in_be16(&td->status) & TD_R)
 			out_8(&usb->fhci->regs->usb_comm, USB_CMD_STR_FIFO);
 

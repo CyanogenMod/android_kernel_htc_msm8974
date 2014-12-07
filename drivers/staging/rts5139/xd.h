@@ -27,6 +27,7 @@
 #ifndef __RTS51X_XD_H
 #define __RTS51X_XD_H
 
+/* Error Codes */
 #define	XD_NO_ERROR			0x00
 #define	XD_NO_MEMORY			0x80
 #define	XD_PRG_ERROR			0x40
@@ -37,6 +38,7 @@
 #define	XD_ECC_ERROR			0x02
 #define	XD_TO_ERROR			0x01
 
+/* XD Commands */
 #define	READ1_1				0x00
 #define	READ1_2				0x01
 #define	READ2				0x50
@@ -60,9 +62,11 @@
 #define	CHG_DAT_IN_1			0x85
 #define	CACHE_PRG			0x15
 
+/* Redundant Area Related */
 #define XD_EXTRA_SIZE			0x10
 #define XD_2K_EXTRA_SIZE		0x40
 
+/* Define for XD Status  */
 #define	NOT_WRITE_PROTECTED		0x80
 #define	READY_STATE			0x40
 #define	PROGRAM_ERROR			0x01
@@ -70,6 +74,7 @@
 #define	INTERNAL_READY			0x20
 #define	READY_FLAG			0x5F
 
+/* Define for device code */
 #define	XD_8M_X8_512			0xE6
 #define	XD_16M_X8_512			0x73
 #define	XD_32M_X8_512			0x75
@@ -106,9 +111,11 @@
 #define ZONE0_BAD_BLOCK			23
 #define NOT_ZONE0_BAD_BLOCK		24
 
+/* Assign address mode */
 #define	XD_RW_ADDR			0x01
 #define	XD_ERASE_ADDR			0x02
 
+/* Macro Definition */
 #define	XD_PAGE_512(xd_card)		\
 	do {	\
 		(xd_card)->block_shift = 5;	\
@@ -139,6 +146,7 @@
 #define	XD_CLR_ECC_ERR(xd_card)		((xd_card)->multi_flag &= ~0x40)
 #define	XD_CHK_ECC_ERR(xd_card)		((xd_card)->multi_flag & 0x40)
 
+/* Offset in xD redundant buffer */
 #define PAGE_STATUS		0
 #define BLOCK_STATUS		1
 #define BLOCK_ADDR1_L		2
@@ -151,6 +159,7 @@
 #define RESERVED3		9
 #define PARITY			10
 
+/* For CIS block */
 #define	CIS0_0			0
 #define	CIS0_1			1
 #define	CIS0_2			2
@@ -181,4 +190,4 @@ void xd_cleanup_work(struct rts51x_chip *chip);
 int xd_power_off_card3v3(struct rts51x_chip *chip);
 int release_xd_card(struct rts51x_chip *chip);
 
-#endif 
+#endif /* __RTS51X_XD_H */

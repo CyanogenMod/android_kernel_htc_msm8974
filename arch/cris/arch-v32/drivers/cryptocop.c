@@ -51,12 +51,12 @@
 #define DESCR_ALLOC_PAD  (31)
 
 struct cryptocop_dma_desc {
-	char *free_buf; 
+	char *free_buf; /* If non-null will be kfreed in free_cdesc() */
 	dma_descr_data *dma_descr;
 
 	unsigned char dma_descr_buf[sizeof(dma_descr_data) + DESCR_ALLOC_PAD];
 
-	unsigned int from_pool:1; 
+	unsigned int from_pool:1; /* If 1 'allocated' from the descriptor pool. */
 	struct cryptocop_dma_desc *next;
 };
 
@@ -68,15 +68,15 @@ struct cryptocop_int_operation{
 	dma_descr_context           ctx_out;
 	dma_descr_context           ctx_in;
 
-	
+	/* DMA descriptors allocated by driver. */
 	struct cryptocop_dma_desc   *cdesc_out;
 	struct cryptocop_dma_desc   *cdesc_in;
 
-	
+	/* Strcop config to use. */
 	cryptocop_3des_mode         tdes_mode;
 	cryptocop_csum_type         csum_mode;
 
-	
+	/* DMA descrs provided by consumer. */
 	dma_descr_data              *ddesc_out;
 	dma_descr_data              *ddesc_in;
 };
@@ -94,7 +94,7 @@ struct cryptocop_tfrm_ctx {
 	unsigned char previous_src;
 	unsigned char current_src;
 
-	
+	/* Values to use in metadata out. */
 	unsigned char hash_conf;
 	unsigned char hash_mode;
 	unsigned char ciph_conf;
@@ -108,12 +108,14 @@ struct cryptocop_tfrm_ctx {
 	size_t consumed;
 	size_t produced;
 
+	/* Pad (input) descriptors to put in the DMA out list when the transform
+	 * output is put on the DMA in list. */
 	struct cryptocop_dma_desc *pad_descs;
 
 	struct cryptocop_tfrm_ctx *prev_src;
 	struct cryptocop_tfrm_ctx *curr_src;
 
-	
+	/* Mapping to HW. */
 	unsigned char unit_no;
 };
 
@@ -123,6 +125,7 @@ struct cryptocop_private{
 	struct cryptocop_private *next;
 };
 
+/* Session list. */
 
 struct cryptocop_transform_ctx{
 	struct cryptocop_transform_init init;
@@ -141,6 +144,9 @@ struct cryptocop_session{
 	struct cryptocop_session *next;
 };
 
+/* Priority levels for jobs sent to the cryptocop.  Checksum operations from
+   kernel have highest priority since TCPIP stack processing must not
+   be a bottleneck. */
 typedef enum {
 	cryptocop_prio_kernel_csum = 0,
 	cryptocop_prio_kernel = 1,
@@ -169,19 +175,26 @@ struct ioctl_job_cb_ctx {
 static struct cryptocop_session *cryptocop_sessions = NULL;
 spinlock_t cryptocop_sessions_lock;
 
+/* Next Session ID to assign. */
 static cryptocop_session_id next_sid = 1;
 
+/* Pad for checksum. */
 static const char csum_zero_pad[1] = {0x00};
 
+/* Trash buffer for mem2mem operations. */
 #define MEM2MEM_DISCARD_BUF_LENGTH  (512)
 static unsigned char mem2mem_discard_buf[MEM2MEM_DISCARD_BUF_LENGTH];
 
+/* Descriptor pool. */
+/* FIXME Tweak this value. */
 #define CRYPTOCOP_DESCRIPTOR_POOL_SIZE   (100)
 static struct cryptocop_dma_desc descr_pool[CRYPTOCOP_DESCRIPTOR_POOL_SIZE];
 static struct cryptocop_dma_desc *descr_pool_free_list;
 static int descr_pool_no_free;
 static spinlock_t descr_pool_lock;
 
+/* Lock to stop cryptocop to start processing of a new operation. The holder
+   of this lock MUST call cryptocop_start_job() after it is unlocked. */
 spinlock_t cryptocop_process_lock;
 
 static struct cryptocop_prio_queue cryptocop_job_queues[cryptocop_prio_no_prios];
@@ -189,12 +202,15 @@ static spinlock_t cryptocop_job_queue_lock;
 static struct cryptocop_prio_job *cryptocop_running_job = NULL;
 static spinlock_t running_job_lock;
 
+/* The interrupt handler appends completed jobs to this list. The scehduled
+ * tasklet removes them upon sending the response to the crypto consumer. */
 static struct list_head cryptocop_completed_jobs;
 static spinlock_t cryptocop_completed_jobs_lock;
 
 DECLARE_WAIT_QUEUE_HEAD(cryptocop_ioc_process_wq);
 
 
+/** Local functions. **/
 
 static int cryptocop_open(struct inode *, struct file *);
 
@@ -229,6 +245,7 @@ static int init_stream_coprocessor(void);
 
 static void __exit exit_stream_coprocessor(void);
 
+/*#define LDEBUG*/
 #ifdef LDEBUG
 #define DEBUG(s) s
 #define DEBUG_API(s) s
@@ -245,6 +262,7 @@ static void print_user_dma_lists(struct cryptocop_dma_list_operation *dma_op);
 #endif
 
 
+/* Transform constants. */
 #define DES_BLOCK_LENGTH   (8)
 #define AES_BLOCK_LENGTH   (16)
 #define MD5_BLOCK_LENGTH   (64)
@@ -253,6 +271,7 @@ static void print_user_dma_lists(struct cryptocop_dma_list_operation *dma_op);
 #define MD5_STATE_LENGTH   (16)
 #define SHA1_STATE_LENGTH  (20)
 
+/* The device number. */
 #define CRYPTOCOP_MAJOR    (254)
 #define CRYPTOCOP_MINOR    (0)
 
@@ -344,6 +363,8 @@ static void setup_descr_chain(struct cryptocop_dma_desc *cd)
 }
 
 
+/* Create a pad descriptor for the transform.
+ * Return -1 for error, 0 if pad created. */
 static int create_pad_descriptor(struct cryptocop_tfrm_ctx *tc, struct cryptocop_dma_desc **pad_desc, int alloc_flag)
 {
 	struct cryptocop_dma_desc        *cdesc = NULL;
@@ -357,7 +378,7 @@ static int create_pad_descriptor(struct cryptocop_tfrm_ctx *tc, struct cryptocop
 	size_t                           plen;
 
 	DEBUG(printk("create_pad_descriptor: start.\n"));
-	
+	/* Setup pad descriptor. */
 
 	DEBUG(printk("create_pad_descriptor: setting up padding.\n"));
 	cdesc = alloc_cdesc(alloc_flag);
@@ -393,14 +414,14 @@ static int create_pad_descriptor(struct cryptocop_tfrm_ctx *tc, struct cryptocop
 			pad = (char*)csum_zero_pad;
 			plen = 1;
 		} else {
-			pad = (char*)cdesc; 
+			pad = (char*)cdesc; /* Use any pointer. */
 			plen = 0;
 		}
 		mo.csumsel = src_dma;
 		break;
 	}
 	cdesc->dma_descr->wait = 1;
-	cdesc->dma_descr->out_eop = 1; 
+	cdesc->dma_descr->out_eop = 1; /* Since this is a pad output is pushed.  EOP is ok here since the padded unit is the only one active. */
 	cdesc->dma_descr->buf = (char*)virt_to_phys((char*)pad);
 	cdesc->dma_descr->after = cdesc->dma_descr->buf + plen;
 
@@ -427,9 +448,9 @@ static int setup_key_dl_desc(struct cryptocop_tfrm_ctx *tc, struct cryptocop_dma
 		return -ENOMEM;
 	}
 
-	
+	/* Download key. */
 	if ((tc->tctx->init.alg == cryptocop_alg_aes) && (tc->tcfg->flags & CRYPTOCOP_DECRYPT)) {
-		
+		/* Precook the AES decrypt key. */
 		if (!tc->tctx->dec_key_set){
 			get_aes_decrypt_key(tc->tctx->dec_key, tc->tctx->init.key, tc->tctx->init.keylen);
 			tc->tctx->dec_key_set = 1;
@@ -440,7 +461,7 @@ static int setup_key_dl_desc(struct cryptocop_tfrm_ctx *tc, struct cryptocop_dma
 		key_desc->dma_descr->buf = (char*)virt_to_phys(tc->tctx->init.key);
 		key_desc->dma_descr->after = key_desc->dma_descr->buf + tc->tctx->init.keylen/8;
 	}
-	
+	/* Setup metadata. */
 	mo.dlkey = 1;
 	switch (tc->tctx->init.keylen) {
 	case 64:
@@ -484,11 +505,11 @@ static int setup_cipher_iv_desc(struct cryptocop_tfrm_ctx *tc, struct cryptocop_
 		DEBUG_API(printk("setup_cipher_iv_desc: failed CBC IV descriptor allocation.\n"));
 		return -ENOMEM;
 	}
-	
+	/* Download IV. */
 	iv_desc->dma_descr->buf = (char*)virt_to_phys(tc->tcfg->iv);
 	iv_desc->dma_descr->after = iv_desc->dma_descr->buf + tc->blocklength;
 
-	
+	/* Setup metadata. */
 	mo.hashsel = mo.csumsel = src_none;
 	mo.ciphsel = src_dma;
 	mo.ciphconf = tc->ciph_conf;
@@ -504,6 +525,7 @@ static int setup_cipher_iv_desc(struct cryptocop_tfrm_ctx *tc, struct cryptocop_
 	return 0;
 }
 
+/* Map the ouput length of the transform to operation output starting on the inject index. */
 static int create_input_descriptors(struct cryptocop_operation *operation, struct cryptocop_tfrm_ctx *tc, struct cryptocop_dma_desc **id, int alloc_flag)
 {
 	int                        err = 0;
@@ -523,7 +545,7 @@ static int create_input_descriptors(struct cryptocop_operation *operation, struc
 		DEBUG_API(printk("create_input_descriptors: operation outdata too small\n"));
 		return -EINVAL;
 	}
-	
+	/* Traverse the out iovec until the result inject index is reached. */
 	while ((outiov_ix < operation->tfrm_op.outcount) && ((out_ix + operation->tfrm_op.outdata[outiov_ix].iov_len) <= tc->tcfg->inject_ix)){
 		out_ix += operation->tfrm_op.outdata[outiov_ix].iov_len;
 		outiov_ix++;
@@ -535,7 +557,7 @@ static int create_input_descriptors(struct cryptocop_operation *operation, struc
 	iov_offset = tc->tcfg->inject_ix - out_ix;
 	mi.dmasel = tc->unit_no;
 
-	
+	/* Setup the output descriptors. */
 	while ((out_length > 0) && (outiov_ix < operation->tfrm_op.outcount)) {
 		outdesc->next = alloc_cdesc(alloc_flag);
 		if (!outdesc->next) {
@@ -569,7 +591,7 @@ static int create_input_descriptors(struct cryptocop_operation *operation, struc
 		err = -EINVAL;
 		goto error_cleanup;
 	}
-	
+	/* Set sync in last descriptor. */
 	mi.sync = 1;
 	outdesc->dma_descr->md = REG_TYPE_CONV(unsigned short int, struct strcop_meta_in, mi);
 
@@ -618,9 +640,9 @@ static int create_output_descriptors(struct cryptocop_operation *operation, int 
 			}
 		}
 		cdesc->dma_descr->md = REG_TYPE_CONV(unsigned short int, struct strcop_meta_out, (*meta_out));
-	} 
-	
-	(*current_out_cdesc)->dma_descr->wait = 1; 
+	} /* while (desc_len != 0) */
+	/* Last DMA descriptor gets a 'wait' bit to signal expected change in metadata. */
+	(*current_out_cdesc)->dma_descr->wait = 1; /* This will set extraneous WAIT in some situations, e.g. when padding hashes and checksums. */
 
 	return 0;
 }
@@ -643,9 +665,9 @@ static int append_input_descriptors(struct cryptocop_operation *operation, struc
 			}
 		}
 
-		
+		/* Setup and append output descriptors to DMA in list. */
 		if (tc->unit_no == src_dma){
-			
+			/* mem2mem.  Setup DMA in descriptors to discard all input prior to the requested mem2mem data. */
 			struct strcop_meta_in mi = {.sync = 0, .dmasel = src_dma};
 			unsigned int start_ix = tc->start_ix;
 			while (start_ix){
@@ -751,15 +773,15 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 
 	unsigned int indata_ix = 0;
 
-	
+	/* iovec accounting. */
 	int iniov_ix = 0;
 	int iniov_offset = 0;
 
-	
+	/* Operation descriptor cfg traversal pointer. */
 	struct cryptocop_desc *odsc;
 
 	int failed = 0;
-	
+	/* List heads for allocated descriptors. */
 	struct cryptocop_dma_desc out_cdesc_head = {0};
 	struct cryptocop_dma_desc in_cdesc_head = {0};
 
@@ -800,7 +822,7 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 	(*int_op)->ddesc_out = NULL;
 	(*int_op)->ddesc_in = NULL;
 
-	
+	/* Scan operation->tfrm_op.tfrm_cfg for bad configuration and set up the local contexts. */
 	if (!tcfg) {
 		DEBUG_API(printk("cryptocop_setup_dma_list: no configured transforms in operation.\n"));
 		failed = -EINVAL;
@@ -825,7 +847,7 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 				failed = -EINVAL;
 				goto error_cleanup;
 			}
-			
+			/* mem2mem is handled as a NULL cipher. */
 			cipher_ctx.cbcmode = 0;
 			cipher_ctx.decrypt = 0;
 			cipher_ctx.blocklength = 1;
@@ -837,7 +859,7 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 		case cryptocop_alg_des:
 		case cryptocop_alg_3des:
 		case cryptocop_alg_aes:
-			
+			/* cipher */
 			if (cipher_ctx.tcfg != NULL){
 				DEBUG_API(printk("cryptocop_setup_dma_list: multiple ciphers in operation.\n"));
 				failed = -EINVAL;
@@ -884,7 +906,7 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 			break;
 		case cryptocop_alg_md5:
 		case cryptocop_alg_sha1:
-			
+			/* digest */
 			if (digest_ctx.tcfg != NULL){
 				DEBUG_API(printk("cryptocop_setup_dma_list: multiple digests in operation.\n"));
 				failed = -EINVAL;
@@ -892,24 +914,24 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 			}
 			digest_ctx.tcfg = tcfg;
 			digest_ctx.tctx = tctx;
-			digest_ctx.hash_mode = 0; 
+			digest_ctx.hash_mode = 0; /* Don't use explicit IV in this API. */
 			switch (tctx->init.alg){
 			case cryptocop_alg_md5:
 				digest_ctx.blocklength = MD5_BLOCK_LENGTH;
 				digest_ctx.unit_no = src_md5;
-				digest_ctx.hash_conf = 1; 
+				digest_ctx.hash_conf = 1; /* 1 => MD-5 */
 				break;
 			case cryptocop_alg_sha1:
 				digest_ctx.blocklength = SHA1_BLOCK_LENGTH;
 				digest_ctx.unit_no = src_sha1;
-				digest_ctx.hash_conf = 0; 
+				digest_ctx.hash_conf = 0; /* 0 => SHA-1 */
 				break;
 			default:
 				panic("cryptocop_setup_dma_list: impossible digest algorithm\n");
 			}
 			break;
 		case cryptocop_alg_csum:
-			
+			/* digest */
 			if (csum_ctx.tcfg != NULL){
 				DEBUG_API(printk("cryptocop_setup_dma_list: multiple checksums in operation.\n"));
 				failed = -EINVAL;
@@ -920,14 +942,14 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 			csum_ctx.tctx = tctx;
 			break;
 		default:
-			
+			/* no algorithm. */
 			DEBUG_API(printk("cryptocop_setup_dma_list: invalid algorithm %d specified in tfrm %d.\n", tctx->init.alg, tcfg->tid));
 			failed = -EINVAL;
 			goto error_cleanup;
 		}
 		tcfg = tcfg->next;
 	}
-	
+	/* Download key if a cipher is used. */
 	if (cipher_ctx.tcfg && (cipher_ctx.tctx->init.alg != cryptocop_alg_mem2mem)){
 		struct cryptocop_dma_desc  *key_desc = NULL;
 
@@ -940,7 +962,7 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 		current_out_cdesc = key_desc;
 		indata_ix += (unsigned int)(key_desc->dma_descr->after - key_desc->dma_descr->buf);
 
-		
+		/* Download explicit IV if a cipher is used and CBC mode and explicit IV selected. */
 		if ((cipher_ctx.tctx->init.cipher_mode == cryptocop_cipher_mode_cbc) && (cipher_ctx.tcfg->flags & CRYPTOCOP_EXPLICIT_IV)) {
 			struct cryptocop_dma_desc  *iv_desc = NULL;
 
@@ -957,7 +979,7 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 		}
 	}
 
-	
+	/* Process descriptors. */
 	odsc = operation->tfrm_op.desc;
 	while (odsc) {
 		struct cryptocop_desc_cfg   *dcfg = odsc->cfg;
@@ -973,7 +995,7 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 			struct cryptocop_tfrm_ctx  *tc = NULL;
 
 			DEBUG(printk("cryptocop_setup_dma_list: parsing an operation descriptor configuration.\n"));
-			
+			/* Get the local context for the transform and mark it as the output unit if it produces output. */
 			if (digest_ctx.tcfg && (digest_ctx.tcfg->tid == dcfg->tid)){
 				tc = &digest_ctx;
 			} else if (cipher_ctx.tcfg && (cipher_ctx.tcfg->tid == dcfg->tid)){
@@ -998,7 +1020,7 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 
 			tc->previous_src = tc->current_src;
 			tc->prev_src = tc->curr_src;
-			
+			/* Map source unit id to DMA source config. */
 			switch (dcfg->src){
 			case cryptocop_source_dma:
 				tc->current_src = src_dma;
@@ -1017,12 +1039,14 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 			case cryptocop_source_csum:
 			case cryptocop_source_none:
 			default:
+				/* We do not allow using accumulating style units (SHA-1, MD5, checksum) as sources to other units.
+				 */
 				DEBUG_API(printk("cryptocop_setup_dma_list: bad unit source configured %d.\n", dcfg->src));
 				failed = -EINVAL;
 				goto error_cleanup;
 			}
 			if (tc->current_src != src_dma) {
-				
+				/* Find the unit we are sourcing from. */
 				if (digest_ctx.unit_no == tc->current_src){
 					tc->curr_src = &digest_ctx;
 				} else if (cipher_ctx.unit_no == tc->current_src){
@@ -1039,10 +1063,13 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 				tc->curr_src = NULL;
 			}
 
-			
+			/* Detect source switch. */
 			DEBUG(printk("cryptocop_setup_dma_list: tc->active=%d tc->unit_no=%d tc->current_src=%d tc->previous_src=%d, tc->curr_src=0x%p, tc->prev_srv=0x%p\n", tc->active, tc->unit_no, tc->current_src, tc->previous_src, tc->curr_src, tc->prev_src));
 			if (tc->active && (tc->current_src != tc->previous_src)) {
-				
+				/* Only allow source switch when both the old source unit and the new one have
+				 * no pending data to process (i.e. the consumed length must be a multiple of the
+				 * transform blocklength). */
+				/* Note: if the src == NULL we are actually sourcing from DMA out. */
 				if (((tc->prev_src != NULL) && (tc->prev_src->consumed % tc->prev_src->blocklength)) ||
 				    ((tc->curr_src != NULL) && (tc->curr_src->consumed % tc->curr_src->blocklength)))
 				{
@@ -1051,13 +1078,13 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 					goto error_cleanup;
 				}
 			}
-			
+			/* Detect unit deactivation. */
 			if (dcfg->last) {
-				
+				/* Length check of this is handled below. */
 				tc->done = 1;
 			}
 			dcfg = dcfg->next;
-		} 
+		} /* while (dcfg) */
 		DEBUG(printk("cryptocop_setup_dma_list: parsing operation descriptor configuration complete.\n"));
 
 		if (cipher_ctx.active && (cipher_ctx.curr_src != NULL) && !cipher_ctx.curr_src->active){
@@ -1076,6 +1103,15 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 			goto error_cleanup;
 		}
 
+		/* Update consumed and produced lengths.
+
+		   The consumed length accounting here is actually cheating.  If a unit source from DMA (or any
+		   other unit that process data in blocks of one octet) it is correct, but if it source from a
+		   block processing unit, i.e. a cipher, it will be temporarily incorrect at some times.  However
+		   since it is only allowed--by the HW--to change source to or from a block processing unit at times where that
+		   unit has processed an exact multiple of its block length the end result will be correct.
+		   Beware that if the source change restriction change this code will need to be (much) reworked.
+		*/
 		DEBUG(printk("cryptocop_setup_dma_list: desc->length=%d, desc_len=%d.\n", odsc->length, desc_len));
 
 		if (csum_ctx.active) {
@@ -1097,24 +1133,24 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 			DEBUG(printk("cryptocop_setup_dma_list: digest_ctx producing: consumed=%d, produced=%d, blocklength=%d.\n", digest_ctx.consumed, digest_ctx.produced, digest_ctx.blocklength));
 		}
 		if (cipher_ctx.active) {
-			
+			/* Ciphers are allowed only to source from DMA out.  That is filtered above. */
 			assert(cipher_ctx.current_src == src_dma);
 			cipher_ctx.consumed += desc_len;
 			cipher_ctx.produced = cipher_ctx.blocklength * (cipher_ctx.consumed / cipher_ctx.blocklength);
 			if (cipher_ctx.cbcmode && !(cipher_ctx.tcfg->flags & CRYPTOCOP_EXPLICIT_IV) && cipher_ctx.produced){
-				cipher_ctx.produced -= cipher_ctx.blocklength; 
+				cipher_ctx.produced -= cipher_ctx.blocklength; /* Compensate for CBC iv. */
 			}
 			DEBUG(printk("cryptocop_setup_dma_list: cipher_ctx producing: consumed=%d, produced=%d, blocklength=%d.\n", cipher_ctx.consumed, cipher_ctx.produced, cipher_ctx.blocklength));
 		}
 
-		
-		
+		/* Setup the DMA out descriptors. */
+		/* Configure the metadata. */
 		active_count = 0;
 		eop_needed_count = 0;
 		if (cipher_ctx.active) {
 			++active_count;
 			if (cipher_ctx.unit_no == src_dma){
-				
+				/* mem2mem */
 				meta_out.ciphsel = src_none;
 			} else {
 				meta_out.ciphsel = cipher_ctx.current_src;
@@ -1132,7 +1168,7 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 			++active_count;
 			meta_out.hashsel = digest_ctx.current_src;
 			meta_out.hashconf = digest_ctx.hash_conf;
-			meta_out.hashmode = 0; 
+			meta_out.hashmode = 0; /* Explicit mode is not used here. */
 			DEBUG(printk("set hashsel=%d hashconf=%d hashmode=%d\n", meta_out.hashsel, meta_out.hashconf, meta_out.hashmode));
 			if (digest_ctx.done) {
 				assert(digest_ctx.pad_descs == NULL);
@@ -1161,18 +1197,22 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 			meta_out.csumsel = src_none;
 		}
 		DEBUG(printk("cryptocop_setup_dma_list: %d eop needed, %d active units\n", eop_needed_count, active_count));
-		
+		/* Setup DMA out descriptors for the indata. */
 		failed = create_output_descriptors(operation, &iniov_ix, &iniov_offset, desc_len, &current_out_cdesc, &meta_out, alloc_flag);
 		if (failed) {
 			DEBUG_API(printk("cryptocop_setup_dma_list: create_output_descriptors %d\n", failed));
 			goto error_cleanup;
 		}
+		/* Setup out EOP.  If there are active units that are not done here they cannot get an EOP
+		 * so we ust setup a zero length descriptor to DMA to signal EOP only to done units.
+		 * If there is a pad descriptor EOP for the padded unit will be EOPed by it.
+		 */
 		assert(active_count >= eop_needed_count);
 		assert((eop_needed_count == 0) || (eop_needed_count == 1));
 		if (eop_needed_count) {
-			
+			/* This means that the bulk operation (cipeher/m2m) is terminated. */
 			if (active_count > 1) {
-				
+				/* Use zero length EOP descriptor. */
 				struct cryptocop_dma_desc *ed = alloc_cdesc(alloc_flag);
 				struct strcop_meta_out    ed_mo = {0};
 				if (!ed) {
@@ -1184,7 +1224,7 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 				assert(cipher_ctx.active && cipher_ctx.done);
 
 				if (cipher_ctx.unit_no == src_dma){
-					
+					/* mem2mem */
 					ed_mo.ciphsel = src_none;
 				} else {
 					ed_mo.ciphsel = cipher_ctx.current_src;
@@ -1197,12 +1237,14 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 				ed->dma_descr->wait = 1;
 				ed->dma_descr->out_eop = 1;
 
-				ed->dma_descr->buf = (char*)virt_to_phys(&ed); 
+				ed->dma_descr->buf = (char*)virt_to_phys(&ed); /* Use any valid physical address for zero length descriptor. */
 				ed->dma_descr->after = ed->dma_descr->buf;
 				ed->dma_descr->md = REG_TYPE_CONV(unsigned short int, struct strcop_meta_out, ed_mo);
 				current_out_cdesc->next = ed;
 				current_out_cdesc = ed;
 			} else {
+				/* Set EOP in the current out descriptor since the only active module is
+				 * the one needing the EOP. */
 
 				current_out_cdesc->dma_descr->out_eop = 1;
 			}
@@ -1213,7 +1255,7 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 		if (csum_ctx.done && csum_ctx.active) csum_ctx.active = 0;
 		indata_ix += odsc->length;
 		odsc = odsc->next;
-	}  
+	} /* while (odsc) */ /* Process descriptors. */
 	DEBUG(printk("cryptocop_setup_dma_list: done parsing operation descriptors\n"));
 	if (cipher_ctx.tcfg && (cipher_ctx.active || !cipher_ctx.done)){
 		DEBUG_API(printk("cryptocop_setup_dma_list: cipher operation not terminated.\n"));
@@ -1255,11 +1297,14 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 	setup_descr_chain(out_cdesc_head.next);
 	setup_descr_chain(in_cdesc_head.next);
 
+	/* Last but not least: mark the last DMA in descriptor for a INTR and EOL and the the
+	 * last DMA out descriptor for EOL.
+	 */
 	current_in_cdesc->dma_descr->intr = 1;
 	current_in_cdesc->dma_descr->eol = 1;
 	current_out_cdesc->dma_descr->eol = 1;
 
-	
+	/* Setup DMA contexts. */
 	(*int_op)->ctx_out.next = NULL;
 	(*int_op)->ctx_out.eol = 1;
 	(*int_op)->ctx_out.intr = 0;
@@ -1272,7 +1317,7 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 	(*int_op)->ctx_out.md3 = 0;
 	(*int_op)->ctx_out.md4 = 0;
 	(*int_op)->ctx_out.saved_data = (dma_descr_data*)virt_to_phys((*int_op)->cdesc_out->dma_descr);
-	(*int_op)->ctx_out.saved_data_buf = (*int_op)->cdesc_out->dma_descr->buf; 
+	(*int_op)->ctx_out.saved_data_buf = (*int_op)->cdesc_out->dma_descr->buf; /* Already physical address. */
 
 	(*int_op)->ctx_in.next = NULL;
 	(*int_op)->ctx_in.eol = 1;
@@ -1287,14 +1332,14 @@ static int cryptocop_setup_dma_list(struct cryptocop_operation *operation, struc
 	(*int_op)->ctx_in.md4 = 0;
 
 	(*int_op)->ctx_in.saved_data = (dma_descr_data*)virt_to_phys((*int_op)->cdesc_in->dma_descr);
-	(*int_op)->ctx_in.saved_data_buf = (*int_op)->cdesc_in->dma_descr->buf; 
+	(*int_op)->ctx_in.saved_data_buf = (*int_op)->cdesc_in->dma_descr->buf; /* Already physical address. */
 
 	DEBUG(printk("cryptocop_setup_dma_list: done\n"));
 	return 0;
 
 error_cleanup:
 	{
-		
+		/* Free all allocated resources. */
 		struct cryptocop_dma_desc *tmp_cdesc;
 		while (digest_ctx.pad_descs){
 			tmp_cdesc = digest_ctx.pad_descs->next;
@@ -1306,7 +1351,7 @@ error_cleanup:
 			free_cdesc(csum_ctx.pad_descs);
 			csum_ctx.pad_descs = tmp_cdesc;
 		}
-		assert(cipher_ctx.pad_descs == NULL); 
+		assert(cipher_ctx.pad_descs == NULL); /* The ciphers are never padded. */
 
 		if (*int_op != NULL) delete_internal_operation(*int_op);
 	}
@@ -1419,7 +1464,7 @@ static int transform_ok(struct cryptocop_transform_init *tinit)
 	case cryptocop_alg_sha1:
 		if (tinit->keylen != 0) {
 			DEBUG_API(printk("transform_ok: non-zero keylength, %d, for a digest/csum algorithm\n", tinit->keylen));
-			return -EINVAL; 
+			return -EINVAL; /* This check is a bit strict. */
 		}
 		break;
 	case cryptocop_alg_des:
@@ -1467,7 +1512,7 @@ int cryptocop_new_session(cryptocop_session_id *sid, struct cryptocop_transform_
 	int                              i;
 	unsigned long int                flags;
 
-	init_stream_coprocessor(); 
+	init_stream_coprocessor(); /* For safety if we are called early */
 
 	while (tfrm_in){
 		int err;
@@ -1519,9 +1564,11 @@ int cryptocop_new_session(cryptocop_session_id *sid, struct cryptocop_transform_
 	spin_lock_irqsave(&cryptocop_sessions_lock, flags);
 	sess->sid = next_sid;
 	next_sid++;
+	/* TODO If we are really paranoid we should do duplicate check to handle sid wraparound.
+	 *      OTOH 2^64 is a really large number of session. */
 	if (next_sid == 0) next_sid = 1;
 
-	
+	/* Prepend to session list. */
 	sess->next = cryptocop_sessions;
 	cryptocop_sessions = sess;
 	spin_unlock_irqrestore(&cryptocop_sessions_lock, flags);
@@ -1560,7 +1607,7 @@ int cryptocop_free_session(cryptocop_session_id sid)
 
 	if (!sess) return -EINVAL;
 
-	
+	/* Remove queued jobs. */
 	spin_lock_irqsave(&cryptocop_job_queue_lock, flags);
 
 	for (i = 0; i < cryptocop_prio_no_prios; i++){
@@ -1578,7 +1625,7 @@ int cryptocop_free_session(cryptocop_session_id sid)
 	list_for_each_safe(node, tmp, &remove_list) {
 		list_del(node);
 		pj = list_entry(node, struct cryptocop_prio_job, node);
-		pj->oper->operation_status = -EAGAIN;  
+		pj->oper->operation_status = -EAGAIN;  /* EAGAIN is not ideal for job/session terminated but it's the best choice I know of. */
 		DEBUG(printk("cryptocop_free_session: pj=0x%p, pj->oper=0x%p, pj->iop=0x%p\n", pj, pj->oper, pj->iop));
 		pj->oper->cb(pj->oper, pj->oper->cb_data);
 		delete_internal_operation(pj->iop);
@@ -1586,7 +1633,7 @@ int cryptocop_free_session(cryptocop_session_id sid)
 	}
 
 	tc = sess->tfrm_ctx;
-	
+	/* Erase keying data. */
 	while (tc){
 		DEBUG(printk("cryptocop_free_session: memset keys, tfrm id=%d\n", tc->init.tid));
 		memset(tc->init.key, 0xff, CRYPTOCOP_MAX_KEY_LENGTH);
@@ -1630,6 +1677,7 @@ static struct cryptocop_transform_ctx *get_transform_ctx(struct cryptocop_sessio
 
 
 
+/* The AES s-transform matrix (s-box). */
 static const u8 aes_sbox[256] = {
 	99,  124, 119, 123, 242, 107, 111, 197, 48,  1,   103, 43,  254, 215, 171, 118,
 	202, 130, 201, 125, 250, 89,  71,  240, 173, 212, 162, 175, 156, 164, 114, 192,
@@ -1649,12 +1697,16 @@ static const u8 aes_sbox[256] = {
 	140, 161, 137, 13,  191, 230, 66,  104, 65,  153, 45,  15,  176, 84,  187, 22
 };
 
+/* AES has a 32 bit word round constants for each round in the
+ * key schedule.  round_constant[i] is really Rcon[i+1] in FIPS187.
+ */
 static u32 round_constant[11] = {
 	0x01000000, 0x02000000, 0x04000000, 0x08000000,
 	0x10000000, 0x20000000, 0x40000000, 0x80000000,
 	0x1B000000, 0x36000000, 0x6C000000
 };
 
+/* Apply the s-box to each of the four occtets in w. */
 static u32 aes_ks_subword(const u32 w)
 {
 	u8 bytes[4];
@@ -1667,10 +1719,43 @@ static u32 aes_ks_subword(const u32 w)
 	return *(u32*)(&bytes[0]);
 }
 
+/* The encrypt (forward) Rijndael key schedule algorithm pseudo code:
+ * (Note that AES words are 32 bit long)
+ *
+ * KeyExpansion(byte key[4*Nk], word w[Nb*(Nr+1)], Nk){
+ * word temp
+ * i = 0
+ * while (i < Nk) {
+ *   w[i] = word(key[4*i, 4*i + 1, 4*i + 2, 4*i + 3])
+ *   i = i + 1
+ * }
+ * i = Nk
+ *
+ * while (i < (Nb * (Nr + 1))) {
+ *   temp = w[i - 1]
+ *   if ((i mod Nk) == 0) {
+ *     temp = SubWord(RotWord(temp)) xor Rcon[i/Nk]
+ *   }
+ *   else if ((Nk > 6) && ((i mod Nk) == 4)) {
+ *     temp = SubWord(temp)
+ *   }
+ *   w[i] = w[i - Nk] xor temp
+ * }
+ * RotWord(t) does a 8 bit cyclic shift left on a 32 bit word.
+ * SubWord(t) applies the AES s-box individually to each octet
+ * in a 32 bit word.
+ *
+ * For AES Nk can have the values 4, 6, and 8 (corresponding to
+ * values for Nr of 10, 12, and 14).  Nb is always 4.
+ *
+ * To construct w[i], w[i - 1] and w[i - Nk] must be
+ * available.  Consequently we must keep a state of the last Nk words
+ * to be able to create the last round keys.
+ */
 static void get_aes_decrypt_key(unsigned char *dec_key, const unsigned  char *key, unsigned int keylength)
 {
 	u32 temp;
-	u32 w_ring[8]; 
+	u32 w_ring[8]; /* nk is max 8, use elements 0..(nk - 1) as a ringbuffer */
 	u8  w_last_ix;
 	int i;
 	u8  nr, nk;
@@ -1692,6 +1777,8 @@ static void get_aes_decrypt_key(unsigned char *dec_key, const unsigned  char *ke
 		panic("stream co-processor: bad aes key length in get_aes_decrypt_key\n");
 	};
 
+	/* Need to do host byte order correction here since key is byte oriented and the
+	 * kx algorithm is word (u32) oriented. */
 	for (i = 0; i < nk; i+=1) {
 		w_ring[i] = be32_to_cpu(*(u32*)&key[4*i]);
 	}
@@ -1701,18 +1788,25 @@ static void get_aes_decrypt_key(unsigned char *dec_key, const unsigned  char *ke
 	while (i < (4 * (nr + 2))) {
 		temp = w_ring[w_last_ix];
 		if (!(i % nk)) {
-			
+			/* RotWord(temp) */
 			temp = (temp << 8) | (temp >> 24);
 			temp = aes_ks_subword(temp);
 			temp ^= round_constant[i/nk - 1];
 		} else if ((nk > 6) && ((i % nk) == 4)) {
 			temp = aes_ks_subword(temp);
 		}
-		w_last_ix = (w_last_ix + 1) % nk; 
+		w_last_ix = (w_last_ix + 1) % nk; /* This is the same as (i-Nk) mod Nk */
 		temp ^= w_ring[w_last_ix];
 		w_ring[w_last_ix] = temp;
 
+		/* We need the round keys for round Nr+1 and Nr+2 (round key
+		 * Nr+2 is the round key beyond the last one used when
+		 * encrypting).  Rounds are numbered starting from 0, Nr=10
+		 * implies 11 rounds are used in encryption/decryption.
+		 */
 		if (i >= (4 * nr)) {
+			/* Need to do host byte order correction here, the key
+			 * is byte oriented. */
 			*(u32*)dec_key = cpu_to_be32(temp);
 			dec_key += 4;
 		}
@@ -1721,6 +1815,7 @@ static void get_aes_decrypt_key(unsigned char *dec_key, const unsigned  char *ke
 }
 
 
+/**** Job/operation management. ****/
 
 int cryptocop_job_queue_insert_csum(struct cryptocop_operation *operation)
 {
@@ -1760,7 +1855,7 @@ static int cryptocop_job_queue_insert(cryptocop_queue_priority prio, struct cryp
 	list_add_tail(&pj->node, &cryptocop_job_queues[prio].jobs);
 	spin_unlock_irqrestore(&cryptocop_job_queue_lock, flags);
 
-	
+	/* Make sure a job is running */
 	cryptocop_start_job();
 	return 0;
 }
@@ -1789,10 +1884,10 @@ static void cryptocop_do_tasklet(unsigned long unused)
 		if (pj) {
 			assert(pj->oper != NULL);
 
-			
+			/* Notify consumer of operation completeness. */
 			DEBUG(printk("cryptocop_do_tasklet: callback 0x%p, data 0x%p\n", pj->oper->cb, pj->oper->cb_data));
 
-			pj->oper->operation_status = 0; 
+			pj->oper->operation_status = 0; /* Job is completed. */
 			pj->oper->cb(pj->oper, pj->oper->cb_data);
 			delete_internal_operation(pj->iop);
 			kfree(pj);
@@ -1824,7 +1919,7 @@ dma_done_interrupt(int irq, void *dev_id)
 	cryptocop_running_job = NULL;
 	spin_unlock(&running_job_lock);
 
-	
+	/* Start processing a job. */
 	if (!spin_trylock(&cryptocop_process_lock)){
 		DEBUG(printk("cryptocop irq handler, not starting a job\n"));
 	} else {
@@ -1832,9 +1927,9 @@ dma_done_interrupt(int irq, void *dev_id)
 		spin_unlock(&cryptocop_process_lock);
 	}
 
-	done_job->oper->operation_status = 0; 
+	done_job->oper->operation_status = 0; /* Job is completed. */
 	if (done_job->oper->fast_callback){
-		
+		/* This operation wants callback from interrupt. */
 		done_job->oper->cb(done_job->oper, done_job->oper->cb_data);
 		delete_internal_operation(done_job->iop);
 		kfree(done_job);
@@ -1850,11 +1945,12 @@ dma_done_interrupt(int irq, void *dev_id)
 }
 
 
+/* Setup interrupts and DMA channels. */
 static int init_cryptocop(void)
 {
 	unsigned long          flags;
 	reg_dma_rw_cfg         dma_cfg = {.en = 1};
-	reg_dma_rw_intr_mask   intr_mask_in = {.data = regk_dma_yes}; 
+	reg_dma_rw_intr_mask   intr_mask_in = {.data = regk_dma_yes}; /* Only want descriptor interrupts from the DMA in channel. */
 	reg_dma_rw_ack_intr    ack_intr = {.data = 1,.in_eop = 1 };
 	reg_strcop_rw_cfg      strcop_cfg = {
 		.ipend = regk_strcop_little,
@@ -1876,24 +1972,24 @@ static int init_cryptocop(void)
 
 	local_irq_save(flags);
 
-	
+	/* Reset and enable the cryptocop. */
 	strcop_cfg.en = 0;
 	REG_WR(strcop, regi_strcop, rw_cfg, strcop_cfg);
 	strcop_cfg.en = 1;
 	REG_WR(strcop, regi_strcop, rw_cfg, strcop_cfg);
 
-	
-	REG_WR(dma, IN_DMA_INST, rw_cfg, dma_cfg); 
-	REG_WR(dma, OUT_DMA_INST, rw_cfg, dma_cfg); 
+	/* Enable DMAs. */
+	REG_WR(dma, IN_DMA_INST, rw_cfg, dma_cfg); /* input DMA */
+	REG_WR(dma, OUT_DMA_INST, rw_cfg, dma_cfg); /* output DMA */
 
-	
+	/* Set up wordsize = 4 for DMAs. */
 	DMA_WR_CMD(OUT_DMA_INST, regk_dma_set_w_size4);
 	DMA_WR_CMD(IN_DMA_INST, regk_dma_set_w_size4);
 
-	
+	/* Enable interrupts. */
 	REG_WR(dma, IN_DMA_INST, rw_intr_mask, intr_mask_in);
 
-	
+	/* Clear intr ack. */
 	REG_WR(dma, IN_DMA_INST, rw_ack_intr, ack_intr);
 
 	local_irq_restore(flags);
@@ -1901,6 +1997,7 @@ static int init_cryptocop(void)
 	return 0;
 }
 
+/* Free used cryptocop hw resources (interrupt and DMA channels). */
 static void release_cryptocop(void)
 {
 	unsigned long          flags;
@@ -1910,14 +2007,14 @@ static void release_cryptocop(void)
 
 	local_irq_save(flags);
 
-	
+	/* Clear intr ack. */
 	REG_WR(dma, IN_DMA_INST, rw_ack_intr, ack_intr);
 
-	
-	REG_WR(dma, IN_DMA_INST, rw_cfg, dma_cfg); 
-	REG_WR(dma, OUT_DMA_INST, rw_cfg, dma_cfg); 
+	/* Disable DMAs. */
+	REG_WR(dma, IN_DMA_INST, rw_cfg, dma_cfg); /* input DMA */
+	REG_WR(dma, OUT_DMA_INST, rw_cfg, dma_cfg); /* output DMA */
 
-	
+	/* Disable interrupts. */
 	REG_WR(dma, IN_DMA_INST, rw_intr_mask, intr_mask_in);
 
 	local_irq_restore(flags);
@@ -1929,6 +2026,7 @@ static void release_cryptocop(void)
 }
 
 
+/* Init job queue. */
 static int cryptocop_job_queue_init(void)
 {
 	int i;
@@ -1950,20 +2048,22 @@ static void cryptocop_job_queue_close(void)
 	unsigned long int              process_flags, flags;
 	int                            i;
 
-	
+	/* FIXME: This is as yet untested code. */
 
+	/* Stop strcop from getting an operation to process while we are closing the
+	   module. */
 	spin_lock_irqsave(&cryptocop_process_lock, process_flags);
 
-	
+	/* Empty the job queue. */
 	for (i = 0; i < cryptocop_prio_no_prios; i++){
 		if (!list_empty(&(cryptocop_job_queues[i].jobs))){
 			list_for_each_safe(node, tmp, &(cryptocop_job_queues[i].jobs)) {
 				pj = list_entry(node, struct cryptocop_prio_job, node);
 				list_del(node);
 
-				
+				/* Call callback to notify consumer of job removal. */
 				DEBUG(printk("cryptocop_job_queue_close: callback 0x%p, data 0x%p\n", pj->oper->cb, pj->oper->cb_data));
-				pj->oper->operation_status = -EINTR; 
+				pj->oper->operation_status = -EINTR; /* Job is terminated without completion. */
 				pj->oper->cb(pj->oper, pj->oper->cb_data);
 
 				delete_internal_operation(pj->iop);
@@ -1973,13 +2073,13 @@ static void cryptocop_job_queue_close(void)
 	}
 	spin_unlock_irqrestore(&cryptocop_process_lock, process_flags);
 
-	
+	/* Remove the running job, if any. */
 	spin_lock_irqsave(&running_job_lock, flags);
 	if (cryptocop_running_job){
 		reg_strcop_rw_cfg rw_cfg;
 		reg_dma_rw_cfg    dma_out_cfg, dma_in_cfg;
 
-		
+		/* Stop DMA. */
 		dma_out_cfg = REG_RD(dma, OUT_DMA_INST, rw_cfg);
 		dma_out_cfg.en = regk_dma_no;
 		REG_WR(dma, OUT_DMA_INST, rw_cfg, dma_out_cfg);
@@ -1988,7 +2088,7 @@ static void cryptocop_job_queue_close(void)
 		dma_in_cfg.en = regk_dma_no;
 		REG_WR(dma, IN_DMA_INST, rw_cfg, dma_in_cfg);
 
-		
+		/* Disble the cryptocop. */
 		rw_cfg = REG_RD(strcop, regi_strcop, rw_cfg);
 		rw_cfg.en = 0;
 		REG_WR(strcop, regi_strcop, rw_cfg, rw_cfg);
@@ -1996,9 +2096,9 @@ static void cryptocop_job_queue_close(void)
 		pj = cryptocop_running_job;
 		cryptocop_running_job = NULL;
 
-		
+		/* Call callback to notify consumer of job removal. */
 		DEBUG(printk("cryptocop_job_queue_close: callback 0x%p, data 0x%p\n", pj->oper->cb, pj->oper->cb_data));
-		pj->oper->operation_status = -EINTR; 
+		pj->oper->operation_status = -EINTR; /* Job is terminated without completion. */
 		pj->oper->cb(pj->oper, pj->oper->cb_data);
 
 		delete_internal_operation(pj->iop);
@@ -2006,15 +2106,15 @@ static void cryptocop_job_queue_close(void)
 	}
 	spin_unlock_irqrestore(&running_job_lock, flags);
 
-	
+	/* Remove completed jobs, if any. */
 	spin_lock_irqsave(&cryptocop_completed_jobs_lock, flags);
 
 	list_for_each_safe(node, tmp, &cryptocop_completed_jobs) {
 		pj = list_entry(node, struct cryptocop_prio_job, node);
 		list_del(node);
-		
+		/* Call callback to notify consumer of job removal. */
 		DEBUG(printk("cryptocop_job_queue_close: callback 0x%p, data 0x%p\n", pj->oper->cb, pj->oper->cb_data));
-		pj->oper->operation_status = -EINTR; 
+		pj->oper->operation_status = -EINTR; /* Job is terminated without completion. */
 		pj->oper->cb(pj->oper, pj->oper->cb_data);
 
 		delete_internal_operation(pj->iop);
@@ -2036,31 +2136,36 @@ static void cryptocop_start_job(void)
 
 	spin_lock_irqsave(&running_job_lock, running_job_flags);
 	if (cryptocop_running_job != NULL){
-		
+		/* Already running. */
 		DEBUG(printk("cryptocop_start_job: already running, exit\n"));
 		spin_unlock_irqrestore(&running_job_lock, running_job_flags);
 		return;
 	}
 	spin_lock_irqsave(&cryptocop_job_queue_lock, flags);
 
-	
+	/* Check the queues in priority order. */
 	for (i = cryptocop_prio_kernel_csum; (i < cryptocop_prio_no_prios) && list_empty(&cryptocop_job_queues[i].jobs); i++);
 	if (i == cryptocop_prio_no_prios) {
 		spin_unlock_irqrestore(&cryptocop_job_queue_lock, flags);
 		spin_unlock_irqrestore(&running_job_lock, running_job_flags);
 		DEBUG(printk("cryptocop_start_job: no jobs to run\n"));
-		return; 
+		return; /* No jobs to run */
 	}
 	DEBUG(printk("starting job for prio %d\n", i));
 
+	/* TODO: Do not starve lower priority jobs.  Let in a lower
+	 * prio job for every N-th processed higher prio job or some
+	 * other scheduling policy.  This could reasonably be
+	 * tweakable since the optimal balance would depend on the
+	 * type of load on the system. */
 
-	
+	/* Pull the DMA lists from the job and start the DMA client. */
 	pj = list_entry(cryptocop_job_queues[i].jobs.next, struct cryptocop_prio_job, node);
 	list_del(&pj->node);
 	spin_unlock_irqrestore(&cryptocop_job_queue_lock, flags);
 	cryptocop_running_job = pj;
 
-	
+	/* Set config register (3DES and CSUM modes). */
 	switch (pj->iop->tdes_mode){
 	case cryptocop_3des_eee:
 		rw_cfg.td1 = regk_strcop_e;
@@ -2124,11 +2229,11 @@ static void cryptocop_start_job(void)
 		     &pj->iop->ctx_in, (char*)virt_to_phys(&pj->iop->ctx_in),
 		     &pj->iop->ctx_out, (char*)virt_to_phys(&pj->iop->ctx_out)));
 
-	
+	/* Start input DMA. */
 	flush_dma_context(&pj->iop->ctx_in);
 	DMA_START_CONTEXT(IN_DMA_INST, virt_to_phys(&pj->iop->ctx_in));
 
-	
+	/* Start output DMA. */
 	DMA_START_CONTEXT(OUT_DMA_INST, virt_to_phys(&pj->iop->ctx_out));
 
 	spin_unlock_irqrestore(&running_job_lock, running_job_flags);
@@ -2174,7 +2279,7 @@ static int cryptocop_job_setup(struct cryptocop_prio_job **pj, struct cryptocop_
 		(*pj)->iop->ddesc_out = operation->list_op.outlist;
 		(*pj)->iop->ddesc_in = operation->list_op.inlist;
 
-		
+		/* Setup DMA contexts. */
 		(*pj)->iop->ctx_out.next = NULL;
 		(*pj)->iop->ctx_out.eol = 1;
 		(*pj)->iop->ctx_out.saved_data = operation->list_op.outlist;
@@ -2325,6 +2430,8 @@ static size_t next_cfg_change_ix(struct strcop_crypto_op *crp_op, size_t ix)
 }
 
 
+/* Map map_length bytes from the pages starting on *pageix and *pageoffset to iovecs starting on *iovix.
+ * Return -1 for ok, 0 for fail. */
 static int map_pages_to_iovec(struct iovec *iov, int iovlen, int *iovix, struct page **pages, int nopages, int *pageix, int *pageoffset, int map_length )
 {
 	int tmplen;
@@ -2383,7 +2490,8 @@ static int cryptocop_ioctl_process(struct inode *inode, struct file *filp, unsig
 	int                             noinpages = 0;
 	int                             nooutpages = 0;
 
-	struct cryptocop_desc           descs[5]; 
+	struct cryptocop_desc           descs[5]; /* Max 5 descriptors are needed, there are three transforms that
+						   * can get connected/disconnected on different places in the indata. */
 	struct cryptocop_desc_cfg       dcfgs[5*3];
 	int                             desc_ix = 0;
 	int                             dcfg_ix = 0;
@@ -2429,7 +2537,7 @@ static int cryptocop_ioctl_process(struct inode *inode, struct file *filp, unsig
 		return -EINVAL;
 	}
 
-	
+	/* Check buffers. */
 	if (((oper.indata + oper.inlen) < oper.indata) || ((oper.cipher_outdata + oper.cipher_outlen) < oper.cipher_outdata)){
 		DEBUG_API(printk("cryptocop_ioctl_process: user buffers wrapped around, bad user!\n"));
 		return -EINVAL;
@@ -2588,7 +2696,7 @@ static int cryptocop_ioctl_process(struct inode *inode, struct file *filp, unsig
 	}
 	DEBUG(printk("cryptocop_ioctl_process: inlen=%d, cipher_outlen=%d\n", oper.inlen, oper.cipher_outlen));
 
-	
+	/* Map user pages for in and out data of the operation. */
 	noinpages = (((unsigned long int)(oper.indata + prev_ix) & ~PAGE_MASK) + oper.inlen - 1 - prev_ix + ~PAGE_MASK) >> PAGE_SHIFT;
 	DEBUG(printk("cryptocop_ioctl_process: noinpages=%d\n", noinpages));
 	inpages = kmalloc(noinpages * sizeof(struct page*), GFP_KERNEL);
@@ -2610,15 +2718,15 @@ static int cryptocop_ioctl_process(struct inode *inode, struct file *filp, unsig
 		}
 	}
 
-	
+	/* Acquire the mm page semaphore. */
 	down_read(&current->mm->mmap_sem);
 
 	err = get_user_pages(current,
 			     current->mm,
 			     (unsigned long int)(oper.indata + prev_ix),
 			     noinpages,
-			     0,  
-			     0, 
+			     0,  /* read access only for in data */
+			     0, /* no force */
 			     inpages,
 			     NULL);
 
@@ -2634,8 +2742,8 @@ static int cryptocop_ioctl_process(struct inode *inode, struct file *filp, unsig
 				     current->mm,
 				     (unsigned long int)oper.cipher_outdata,
 				     nooutpages,
-				     1, 
-				     0, 
+				     1, /* write access for out data */
+				     0, /* no force */
 				     outpages,
 				     NULL);
 		up_read(&current->mm->mmap_sem);
@@ -2649,6 +2757,8 @@ static int cryptocop_ioctl_process(struct inode *inode, struct file *filp, unsig
 		up_read(&current->mm->mmap_sem);
 	}
 
+	/* Add 6 to nooutpages to make room for possibly inserted buffers for storing digest and
+	 * csum output and splits when units are (dis-)connected. */
 	cop->tfrm_op.indata = kmalloc((noinpages) * sizeof(struct iovec), GFP_KERNEL);
 	cop->tfrm_op.outdata = kmalloc((6 + nooutpages) * sizeof(struct iovec), GFP_KERNEL);
 	if (!cop->tfrm_op.indata || !cop->tfrm_op.outdata) {
@@ -2663,7 +2773,7 @@ static int cryptocop_ioctl_process(struct inode *inode, struct file *filp, unsig
 	if (oper.do_digest) cop->tfrm_op.outlen += digest_length;
 	if (oper.do_csum) cop->tfrm_op.outlen += 2;
 
-	
+	/* Setup the in iovecs. */
 	cop->tfrm_op.incount = noinpages;
 	if (noinpages > 1){
 		size_t tmplen = cop->tfrm_op.inlen;
@@ -2687,7 +2797,7 @@ static int cryptocop_ioctl_process(struct inode *inode, struct file *filp, unsig
 	next_ix = next_cfg_change_ix(&oper, prev_ix);
 	if (prev_ix == next_ix){
 		DEBUG_API(printk("cryptocop_ioctl_process: length configuration broken.\n"));
-		err = -EINVAL;  
+		err = -EINVAL;  /* This should be impossible barring bugs. */
 		goto error_cleanup;
 	}
 	while (prev_ix != next_ix){
@@ -2756,15 +2866,15 @@ static int cryptocop_ioctl_process(struct inode *inode, struct file *filp, unsig
 	}
 	if (oper.do_digest) {
 		DEBUG(printk("cryptocop_ioctl_process: mapping %d byte digest output to iovec %d\n", digest_length, iovix));
-		
+		/* Add outdata iovec, length == <length of type of digest> */
 		cop->tfrm_op.outdata[iovix].iov_base = digest_result;
 		cop->tfrm_op.outdata[iovix].iov_len = digest_length;
 		++iovix;
 	}
 	if (oper.do_csum) {
-		
+		/* Add outdata iovec, length == 2, the length of csum. */
 		DEBUG(printk("cryptocop_ioctl_process: mapping 2 byte csum output to iovec %d\n", iovix));
-		
+		/* Add outdata iovec, length == <length of type of digest> */
 		cop->tfrm_op.outdata[iovix].iov_base = csum_result;
 		cop->tfrm_op.outdata[iovix].iov_len = 2;
 		++iovix;
@@ -2772,7 +2882,7 @@ static int cryptocop_ioctl_process(struct inode *inode, struct file *filp, unsig
 	if (oper.do_cipher) {
 		if (!map_pages_to_iovec(cop->tfrm_op.outdata, iovlen, &iovix, outpages, nooutpages, &pageix, &pageoffset, oper.cipher_outlen)){
 			DEBUG_API(printk("cryptocop_ioctl_process: failed to map pages to iovec.\n"));
-			err = -ENOSYS; 
+			err = -ENOSYS; /* This should be impossible barring bugs. */
 			goto error_cleanup;
 		}
 	}
@@ -2801,7 +2911,7 @@ static int cryptocop_ioctl_process(struct inode *inode, struct file *filp, unsig
 		goto error_cleanup;
 	}
 
-	
+	/* Job process done.  Cipher output should already be correct in job so no post processing of outdata. */
 	DEBUG(printk("cryptocop_ioctl_process: operation_status = %d\n", cop->operation_status));
 	if (cop->operation_status == 0){
 		if (oper.do_digest){
@@ -2829,13 +2939,13 @@ static int cryptocop_ioctl_process(struct inode *inode, struct file *filp, unsig
 	}
 
  error_cleanup:
-	
+	/* Release page caches. */
 	for (i = 0; i < noinpages; i++){
 		put_page(inpages[i]);
 	}
 	for (i = 0; i < nooutpages; i++){
 		int spdl_err;
-		
+		/* Mark output pages dirty. */
 		spdl_err = set_page_dirty_lock(outpages[i]);
 		DEBUG(if (spdl_err < 0)printk("cryptocop_ioctl_process: set_page_dirty_lock returned %d\n", spdl_err));
 	}
@@ -2890,7 +3000,7 @@ static int cryptocop_ioctl_create_session(struct inode *inode, struct file *filp
 		     (int)sop.csum));
 
 	if (sop.cipher != cryptocop_cipher_none){
-		
+		/* Init the cipher. */
 		switch (sop.cipher){
 		case cryptocop_cipher_des:
 			ti_cipher.alg = cryptocop_alg_des;
@@ -2936,7 +3046,7 @@ static int cryptocop_ioctl_create_session(struct inode *inode, struct file *filp
 		ti_cipher.tid = CRYPTOCOP_IOCTL_CIPHER_TID;
 		ti_cipher.next = tis;
 		tis = &ti_cipher;
-	} 
+	} /* if (sop.cipher != cryptocop_cipher_none) */
 	if (sop.digest != cryptocop_digest_none){
 		DEBUG(printk("setting digest transform\n"));
 		switch (sop.digest){
@@ -2953,7 +3063,7 @@ static int cryptocop_ioctl_create_session(struct inode *inode, struct file *filp
 		ti_digest.tid = CRYPTOCOP_IOCTL_DIGEST_TID;
 		ti_digest.next = tis;
 		tis = &ti_digest;
-	} 
+	} /* if (sop.digest != cryptocop_digest_none) */
 	if (sop.csum != cryptocop_csum_none){
 		DEBUG(printk("setting csum transform\n"));
 		switch (sop.csum){
@@ -2969,7 +3079,7 @@ static int cryptocop_ioctl_create_session(struct inode *inode, struct file *filp
 		ti_csum.tid = CRYPTOCOP_IOCTL_CSUM_TID;
 		ti_csum.next = tis;
 		tis = &ti_csum;
-	} 
+	} /* (sop.csum != cryptocop_csum_none) */
 	dev = kmalloc(sizeof(struct cryptocop_private), GFP_KERNEL);
 	if (!dev){
 		DEBUG_API(printk("create session, alloc dev\n"));
@@ -3002,6 +3112,8 @@ static long cryptocop_ioctl_unlocked(struct inode *inode,
 	if (_IOC_NR(cmd) > CRYPTOCOP_IO_MAXNR){
 		return -ENOTTY;
 	}
+	/* Access check of the argument.  Some commands, e.g. create session and process op,
+	   needs additional checks.  Those are handled in the command handling functions. */
 	if (_IOC_DIR(cmd) & _IOC_READ)
 		err = !access_ok(VERIFY_WRITE, (void *)arg, _IOC_SIZE(cmd));
 	else if (_IOC_DIR(cmd) & _IOC_WRITE)
@@ -3134,7 +3246,7 @@ static void print_strcop_crypto_op(struct strcop_crypto_op *cop)
 {
 	printk("print_strcop_crypto_op, 0x%p\n", cop);
 
-	
+	/* Indata. */
 	printk("indata=0x%p\n"
 	       "inlen=%d\n"
 	       "do_cipher=%d\n"
@@ -3355,7 +3467,7 @@ static void print_lock_status(void)
 	printk("running_job_lock %d\n", spin_is_locked(running_job_lock));
 	printk("cryptocop_process_lock %d\n", spin_is_locked(cryptocop_process_lock));
 }
-#endif 
+#endif /* LDEBUG */
 
 
 static const char cryptocop_name[] = "ETRAX FS stream co-processor";
@@ -3390,7 +3502,7 @@ static int init_stream_coprocessor(void)
 		(void)unregister_chrdev(CRYPTOCOP_MAJOR, cryptocop_name);
 		return err;
 	}
-	
+	/* Init the descriptor pool. */
 	for (i = 0; i < CRYPTOCOP_DESCRIPTOR_POOL_SIZE - 1; i++) {
 		descr_pool[i].from_pool = 1;
 		descr_pool[i].next = &descr_pool[i + 1];

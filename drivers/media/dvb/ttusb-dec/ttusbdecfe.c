@@ -28,7 +28,7 @@
 
 struct ttusbdecfe_state {
 
-	
+	/* configuration settings */
 	const struct ttusbdecfe_config* config;
 
 	struct dvb_frontend frontend;
@@ -68,10 +68,10 @@ static int ttusbdecfe_dvbt_read_status(struct dvb_frontend *fe,
 	}
 
 	switch(result[3]) {
-		case 1:  
-		case 2:  
+		case 1:  /* not tuned yet */
+		case 2:  /* no signal/no lock*/
 			break;
-		case 3:	 
+		case 3:	 /* signal found and locked*/
 			*status = FE_HAS_SIGNAL | FE_HAS_VITERBI |
 			FE_HAS_SYNC | FE_HAS_CARRIER | FE_HAS_LOCK;
 			break;
@@ -108,7 +108,7 @@ static int ttusbdecfe_dvbt_get_tune_settings(struct dvb_frontend* fe,
 					struct dvb_frontend_tune_settings* fesettings)
 {
 		fesettings->min_delay_ms = 1500;
-		
+		/* Drift compensation makes no sense for DVB-T */
 		fesettings->step_size = 0;
 		fesettings->max_drift = 0;
 		return 0;
@@ -206,15 +206,15 @@ struct dvb_frontend* ttusbdecfe_dvbt_attach(const struct ttusbdecfe_config* conf
 {
 	struct ttusbdecfe_state* state = NULL;
 
-	
+	/* allocate memory for the internal state */
 	state = kmalloc(sizeof(struct ttusbdecfe_state), GFP_KERNEL);
 	if (state == NULL)
 		return NULL;
 
-	
+	/* setup the state */
 	state->config = config;
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &ttusbdecfe_dvbt_ops, sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;
 	return &state->frontend;
@@ -226,17 +226,17 @@ struct dvb_frontend* ttusbdecfe_dvbs_attach(const struct ttusbdecfe_config* conf
 {
 	struct ttusbdecfe_state* state = NULL;
 
-	
+	/* allocate memory for the internal state */
 	state = kmalloc(sizeof(struct ttusbdecfe_state), GFP_KERNEL);
 	if (state == NULL)
 		return NULL;
 
-	
+	/* setup the state */
 	state->config = config;
 	state->voltage = 0;
 	state->hi_band = 0;
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &ttusbdecfe_dvbs_ops, sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;
 	return &state->frontend;
@@ -272,8 +272,8 @@ static struct dvb_frontend_ops ttusbdecfe_dvbs_ops = {
 		.frequency_min		= 950000,
 		.frequency_max		= 2150000,
 		.frequency_stepsize	= 125,
-		.symbol_rate_min        = 1000000,  
-		.symbol_rate_max        = 45000000, 
+		.symbol_rate_min        = 1000000,  /* guessed */
+		.symbol_rate_max        = 45000000, /* guessed */
 		.caps =	FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |
 			FE_CAN_FEC_5_6 | FE_CAN_FEC_7_8 | FE_CAN_FEC_AUTO |
 			FE_CAN_QPSK

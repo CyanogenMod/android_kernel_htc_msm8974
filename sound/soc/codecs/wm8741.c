@@ -38,6 +38,7 @@ static const char *wm8741_supply_names[WM8741_NUM_SUPPLIES] = {
 
 #define WM8741_NUM_RATES 6
 
+/* codec private data */
 struct wm8741_priv {
 	enum snd_soc_control_type control_type;
 	struct regulator_bulk_data supplies[WM8741_NUM_SUPPLIES];
@@ -46,17 +47,17 @@ struct wm8741_priv {
 };
 
 static const u16 wm8741_reg_defaults[WM8741_REGISTER_COUNT] = {
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x000A,     
-	0x0000,     
-	0x0000,     
-	0x0002,     
-	0x0000,	    
-	0x0002,     
+	0x0000,     /* R0  - DACLLSB Attenuation */
+	0x0000,     /* R1  - DACLMSB Attenuation */
+	0x0000,     /* R2  - DACRLSB Attenuation */
+	0x0000,     /* R3  - DACRMSB Attenuation */
+	0x0000,     /* R4  - Volume Control */
+	0x000A,     /* R5  - Format Control */
+	0x0000,     /* R6  - Filter Control */
+	0x0000,     /* R7  - Mode Control 1 */
+	0x0002,     /* R8  - Mode Control 2 */
+	0x0000,	    /* R9  - Reset */
+	0x0002,     /* R32 - ADDITONAL_CONTROL_1 */
 };
 
 
@@ -182,6 +183,9 @@ static int wm8741_startup(struct snd_pcm_substream *substream,
 	struct snd_soc_codec *codec = dai->codec;
 	struct wm8741_priv *wm8741 = snd_soc_codec_get_drvdata(codec);
 
+	/* The set of sample rates that can be supported depends on the
+	 * MCLK supplied to the CODEC - enforce this.
+	 */
 	if (!wm8741->sysclk) {
 		dev_err(codec->dev,
 			"No MCLK configured, call set_sysclk() on init\n");
@@ -205,21 +209,21 @@ static int wm8741_hw_params(struct snd_pcm_substream *substream,
 	u16 iface = snd_soc_read(codec, WM8741_FORMAT_CONTROL) & 0x1FC;
 	int i;
 
-	
+	/* Find a supported LRCLK ratio */
 	for (i = 0; i < ARRAY_SIZE(lrclk_ratios); i++) {
 		if (wm8741->sysclk / params_rate(params) ==
 		    lrclk_ratios[i].ratio)
 			break;
 	}
 
-	
+	/* Should never happen, should be handled by constraints */
 	if (i == ARRAY_SIZE(lrclk_ratios)) {
 		dev_err(codec->dev, "MCLK/fs ratio %d unsupported\n",
 			wm8741->sysclk / params_rate(params));
 		return -EINVAL;
 	}
 
-	
+	/* bit size */
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 		break;
@@ -304,7 +308,7 @@ static int wm8741_set_dai_fmt(struct snd_soc_dai *codec_dai,
 	struct snd_soc_codec *codec = codec_dai->codec;
 	u16 iface = snd_soc_read(codec, WM8741_FORMAT_CONTROL) & 0x1C3;
 
-	
+	/* check master/slave audio interface */
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBS_CFS:
 		break;
@@ -312,7 +316,7 @@ static int wm8741_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		return -EINVAL;
 	}
 
-	
+	/* interface format */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 		iface |= 0x0008;
@@ -332,7 +336,7 @@ static int wm8741_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		return -EINVAL;
 	}
 
-	
+	/* clock inversion */
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_NB_NF:
 		break;
@@ -377,7 +381,7 @@ static struct snd_soc_dai_driver wm8741_dai = {
 	.name = "wm8741",
 	.playback = {
 		.stream_name = "Playback",
-		.channels_min = 2,  
+		.channels_min = 2,  /* Mono modes not yet supported */
 		.channels_max = 2,
 		.rates = WM8741_RATES,
 		.formats = WM8741_FORMATS,
@@ -431,7 +435,7 @@ static int wm8741_probe(struct snd_soc_codec *codec)
 		goto err_enable;
 	}
 
-	
+	/* Change some default settings - latch VU */
 	snd_soc_update_bits(codec, WM8741_DACLLSB_ATTENUATION,
 			    WM8741_UPDATELL, WM8741_UPDATELL);
 	snd_soc_update_bits(codec, WM8741_DACLMSB_ATTENUATION,
@@ -563,7 +567,7 @@ static struct spi_driver wm8741_spi_driver = {
 	.probe		= wm8741_spi_probe,
 	.remove		= __devexit_p(wm8741_spi_remove),
 };
-#endif 
+#endif /* CONFIG_SPI_MASTER */
 
 static int __init wm8741_modinit(void)
 {

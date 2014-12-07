@@ -5,6 +5,9 @@ struct dsa_platform_data;
 struct mv643xx_eth_platform_data;
 struct mv_sata_platform_data;
 
+/*
+ * Basic Orion init functions used early by machine-setup.
+ */
 void orion5x_map_io(void);
 void orion5x_init_early(void);
 void orion5x_init_irq(void);
@@ -12,6 +15,11 @@ void orion5x_init(void);
 extern int orion5x_tclk;
 extern struct sys_timer orion5x_timer;
 
+/*
+ * Enumerations and functions for Orion windows mapping. Used by Orion core
+ * functions to map its interfaces and by the machine-setup to map its on-
+ * board devices. Details in /mach-orion/addr-map.c
+ */
 void orion5x_setup_cpu_mbus_bridge(void);
 void orion5x_setup_dev_boot_win(u32 base, u32 size);
 void orion5x_setup_dev0_win(u32 base, u32 size);
@@ -32,6 +40,9 @@ void orion5x_uart1_init(void);
 void orion5x_xor_init(void);
 void orion5x_restart(char, const char *);
 
+/*
+ * PCIe/PCI functions.
+ */
 struct pci_bus;
 struct pci_sys_data;
 
@@ -46,6 +57,13 @@ struct meminfo;
 struct tag;
 extern void __init tag_fixup_mem32(struct tag *, char **, struct meminfo *);
 
+/*****************************************************************************
+ * Helpers to access Orion registers
+ ****************************************************************************/
+/*
+ * These are not preempt-safe.  Locks, if needed, must be taken
+ * care of by the caller.
+ */
 #define orion5x_setbits(r, mask)	writel(readl(r) | (mask), (r))
 #define orion5x_clrbits(r, mask)	writel(readl(r) & ~(mask), (r))
 

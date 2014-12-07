@@ -13,11 +13,15 @@
 #ifndef SAMSUNG_REGS_HDMI_H
 #define SAMSUNG_REGS_HDMI_H
 
+/*
+ * Register part
+*/
 
 #define HDMI_CTRL_BASE(x)		((x) + 0x00000000)
 #define HDMI_CORE_BASE(x)		((x) + 0x00010000)
 #define HDMI_TG_BASE(x)			((x) + 0x00050000)
 
+/* Control registers */
 #define HDMI_INTC_CON			HDMI_CTRL_BASE(0x0000)
 #define HDMI_INTC_FLAG			HDMI_CTRL_BASE(0x0004)
 #define HDMI_HPD_STATUS			HDMI_CTRL_BASE(0x000C)
@@ -26,6 +30,7 @@
 #define HDMI_PHY_CMU			HDMI_CTRL_BASE(0x001C)
 #define HDMI_CORE_RSTOUT		HDMI_CTRL_BASE(0x0020)
 
+/* Core registers */
 #define HDMI_CON_0			HDMI_CORE_BASE(0x0000)
 #define HDMI_CON_1			HDMI_CORE_BASE(0x0004)
 #define HDMI_CON_2			HDMI_CORE_BASE(0x0008)
@@ -68,6 +73,7 @@
 #define HDMI_VIDEO_PATTERN_GEN		HDMI_CORE_BASE(0x05C4)
 #define HDMI_HPD_GEN			HDMI_CORE_BASE(0x05C8)
 
+/* Timing generator registers */
 #define HDMI_TG_CMD			HDMI_TG_BASE(0x0000)
 #define HDMI_TG_H_FSZ_L			HDMI_TG_BASE(0x0018)
 #define HDMI_TG_H_FSZ_H			HDMI_TG_BASE(0x001C)
@@ -98,30 +104,42 @@
 #define HDMI_TG_FIELD_BOT_HDMI_L	HDMI_TG_BASE(0x0090)
 #define HDMI_TG_FIELD_BOT_HDMI_H	HDMI_TG_BASE(0x0094)
 
+/*
+ * Bit definition part
+ */
 
+/* HDMI_INTC_CON */
 #define HDMI_INTC_EN_GLOBAL		(1 << 6)
 #define HDMI_INTC_EN_HPD_PLUG		(1 << 3)
 #define HDMI_INTC_EN_HPD_UNPLUG		(1 << 2)
 
+/* HDMI_INTC_FLAG */
 #define HDMI_INTC_FLAG_HPD_PLUG		(1 << 3)
 #define HDMI_INTC_FLAG_HPD_UNPLUG	(1 << 2)
 
+/* HDMI_PHY_RSTOUT */
 #define HDMI_PHY_SW_RSTOUT		(1 << 0)
 
+/* HDMI_CORE_RSTOUT */
 #define HDMI_CORE_SW_RSTOUT		(1 << 0)
 
+/* HDMI_CON_0 */
 #define HDMI_BLUE_SCR_EN		(1 << 5)
 #define HDMI_EN				(1 << 0)
 
+/* HDMI_CON_2 */
 #define HDMI_DVI_PERAMBLE_EN		(1 << 5)
 #define HDMI_DVI_BAND_EN		(1 << 1)
 
+/* HDMI_PHY_STATUS */
 #define HDMI_PHY_STATUS_READY		(1 << 0)
 
+/* HDMI_MODE_SEL */
 #define HDMI_MODE_HDMI_EN		(1 << 1)
 #define HDMI_MODE_DVI_EN		(1 << 0)
 #define HDMI_MODE_MASK			(3 << 0)
 
+/* HDMI_TG_CMD */
 #define HDMI_TG_EN			(1 << 0)
 
-#endif 
+#endif /* SAMSUNG_REGS_HDMI_H */

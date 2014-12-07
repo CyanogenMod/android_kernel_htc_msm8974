@@ -60,7 +60,7 @@ static unsigned int wdt_trgr_pattern = 0x1234;
 static DEFINE_SPINLOCK(wdt_lock);
 
 struct omap_wdt_dev {
-	void __iomem    *base;          
+	void __iomem    *base;          /* physical */
 	struct device   *dev;
 	int             omap_wdt_users;
 	struct resource *mem;
@@ -71,24 +71,24 @@ static void omap_wdt_ping(struct omap_wdt_dev *wdev)
 {
 	void __iomem    *base = wdev->base;
 
-	
+	/* wait for posted write to complete */
 	while ((__raw_readl(base + OMAP_WATCHDOG_WPS)) & 0x08)
 		cpu_relax();
 
 	wdt_trgr_pattern = ~wdt_trgr_pattern;
 	__raw_writel(wdt_trgr_pattern, (base + OMAP_WATCHDOG_TGR));
 
-	
+	/* wait for posted write to complete */
 	while ((__raw_readl(base + OMAP_WATCHDOG_WPS)) & 0x08)
 		cpu_relax();
-	
+	/* reloaded WCRR from WLDR */
 }
 
 static void omap_wdt_enable(struct omap_wdt_dev *wdev)
 {
 	void __iomem *base = wdev->base;
 
-	
+	/* Sequence to enable the watchdog */
 	__raw_writel(0xBBBB, base + OMAP_WATCHDOG_SPR);
 	while ((__raw_readl(base + OMAP_WATCHDOG_WPS)) & 0x10)
 		cpu_relax();
@@ -102,12 +102,12 @@ static void omap_wdt_disable(struct omap_wdt_dev *wdev)
 {
 	void __iomem *base = wdev->base;
 
-	
-	__raw_writel(0xAAAA, base + OMAP_WATCHDOG_SPR);	
+	/* sequence required to disable watchdog */
+	__raw_writel(0xAAAA, base + OMAP_WATCHDOG_SPR);	/* TIMER_MODE */
 	while (__raw_readl(base + OMAP_WATCHDOG_WPS) & 0x10)
 		cpu_relax();
 
-	__raw_writel(0x5555, base + OMAP_WATCHDOG_SPR);	
+	__raw_writel(0x5555, base + OMAP_WATCHDOG_SPR);	/* TIMER_MODE */
 	while (__raw_readl(base + OMAP_WATCHDOG_WPS) & 0x10)
 		cpu_relax();
 }
@@ -128,7 +128,7 @@ static void omap_wdt_set_timeout(struct omap_wdt_dev *wdev)
 
 	pm_runtime_get_sync(wdev->dev);
 
-	
+	/* just count up at 32 KHz */
 	while (__raw_readl(base + OMAP_WATCHDOG_WPS) & 0x04)
 		cpu_relax();
 
@@ -139,6 +139,9 @@ static void omap_wdt_set_timeout(struct omap_wdt_dev *wdev)
 	pm_runtime_put_sync(wdev->dev);
 }
 
+/*
+ *	Allow only one task to hold it open
+ */
 static int omap_wdt_open(struct inode *inode, struct file *file)
 {
 	struct omap_wdt_dev *wdev = platform_get_drvdata(omap_wdt_dev);
@@ -149,7 +152,7 @@ static int omap_wdt_open(struct inode *inode, struct file *file)
 
 	pm_runtime_get_sync(wdev->dev);
 
-	
+	/* initialize prescaler */
 	while (__raw_readl(base + OMAP_WATCHDOG_WPS) & 0x01)
 		cpu_relax();
 
@@ -160,7 +163,7 @@ static int omap_wdt_open(struct inode *inode, struct file *file)
 	file->private_data = (void *) wdev;
 
 	omap_wdt_set_timeout(wdev);
-	omap_wdt_ping(wdev); 
+	omap_wdt_ping(wdev); /* trigger loading of new timeout value */
 	omap_wdt_enable(wdev);
 
 	pm_runtime_put_sync(wdev->dev);
@@ -172,6 +175,9 @@ static int omap_wdt_release(struct inode *inode, struct file *file)
 {
 	struct omap_wdt_dev *wdev = file->private_data;
 
+	/*
+	 *      Shut off the timer unless NOWAYOUT is defined.
+	 */
 #ifndef CONFIG_WATCHDOG_NOWAYOUT
 	pm_runtime_get_sync(wdev->dev);
 
@@ -191,7 +197,7 @@ static ssize_t omap_wdt_write(struct file *file, const char __user *data,
 {
 	struct omap_wdt_dev *wdev = file->private_data;
 
-	
+	/* Refresh LOAD_TIME. */
 	if (len) {
 		pm_runtime_get_sync(wdev->dev);
 		spin_lock(&wdt_lock);
@@ -250,7 +256,7 @@ static long omap_wdt_ioctl(struct file *file, unsigned int cmd,
 		omap_wdt_ping(wdev);
 		spin_unlock(&wdt_lock);
 		pm_runtime_put_sync(wdev->dev);
-		
+		/* Fall */
 	case WDIOC_GETTIMEOUT:
 		return put_user(timer_margin, (int __user *)arg);
 	default:
@@ -273,7 +279,7 @@ static int __devinit omap_wdt_probe(struct platform_device *pdev)
 	struct omap_wdt_dev *wdev;
 	int ret;
 
-	
+	/* reserve static register mappings */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		ret = -ENOENT;
@@ -386,6 +392,11 @@ static int __devexit omap_wdt_remove(struct platform_device *pdev)
 
 #ifdef	CONFIG_PM
 
+/* REVISIT ... not clear this is the best way to handle system suspend; and
+ * it's very inappropriate for selective device suspend (e.g. suspending this
+ * through sysfs rather than by stopping the watchdog daemon).  Also, this
+ * may not play well enough with NOWAYOUT...
+ */
 
 static int omap_wdt_suspend(struct platform_device *pdev, pm_message_t state)
 {

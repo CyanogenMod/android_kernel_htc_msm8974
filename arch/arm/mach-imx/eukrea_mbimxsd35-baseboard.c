@@ -105,7 +105,7 @@ static struct mx3fb_platform_data mx3fb_pdata __initdata = {
 };
 
 static iomux_v3_cfg_t eukrea_mbimxsd_pads[] = {
-	
+	/* LCD */
 	MX35_PAD_LD0__IPU_DISPB_DAT_0,
 	MX35_PAD_LD1__IPU_DISPB_DAT_1,
 	MX35_PAD_LD2__IPU_DISPB_DAT_2,
@@ -128,35 +128,35 @@ static iomux_v3_cfg_t eukrea_mbimxsd_pads[] = {
 	MX35_PAD_D3_FPSHIFT__IPU_DISPB_D3_CLK,
 	MX35_PAD_D3_DRDY__IPU_DISPB_D3_DRDY,
 	MX35_PAD_D3_VSYNC__IPU_DISPB_D3_VSYNC,
-	
+	/* Backlight */
 	MX35_PAD_CONTRAST__IPU_DISPB_CONTR,
-	
+	/* LCD_PWR */
 	MX35_PAD_D3_CLS__GPIO1_4,
-	
+	/* LED */
 	MX35_PAD_LD23__GPIO3_29,
-	
+	/* SWITCH */
 	MX35_PAD_LD19__GPIO3_25,
-	
+	/* UART2 */
 	MX35_PAD_CTS2__UART2_CTS,
 	MX35_PAD_RTS2__UART2_RTS,
 	MX35_PAD_TXD2__UART2_TXD_MUX,
 	MX35_PAD_RXD2__UART2_RXD_MUX,
-	
+	/* I2S */
 	MX35_PAD_STXFS4__AUDMUX_AUD4_TXFS,
 	MX35_PAD_STXD4__AUDMUX_AUD4_TXD,
 	MX35_PAD_SRXD4__AUDMUX_AUD4_RXD,
 	MX35_PAD_SCK4__AUDMUX_AUD4_TXC,
-	
+	/* CAN2 */
 	MX35_PAD_TX5_RX0__CAN2_TXCAN,
 	MX35_PAD_TX4_RX1__CAN2_RXCAN,
-	
+	/* SDCARD */
 	MX35_PAD_SD1_CMD__ESDHC1_CMD,
 	MX35_PAD_SD1_CLK__ESDHC1_CLK,
 	MX35_PAD_SD1_DATA0__ESDHC1_DAT0,
 	MX35_PAD_SD1_DATA1__ESDHC1_DAT1,
 	MX35_PAD_SD1_DATA2__ESDHC1_DAT2,
 	MX35_PAD_SD1_DATA3__ESDHC1_DAT3,
-	
+	/* SD1 CD */
 	MX35_PAD_LD18__GPIO3_24,
 };
 
@@ -239,6 +239,12 @@ static struct esdhc_platform_data sd1_pdata = {
 	.wp_type = ESDHC_WP_NONE,
 };
 
+/*
+ * system init for baseboard usage. Will be called by cpuimx35 init.
+ *
+ * Add platform devices present on this baseboard and init
+ * them from CPU side as far as required to use them later on
+ */
 void __init eukrea_mbimxsd35_baseboard_init(void)
 {
 	if (mxc_iomux_v3_setup_multiple_pads(eukrea_mbimxsd_pads,

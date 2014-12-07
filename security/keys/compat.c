@@ -15,6 +15,15 @@
 #include <linux/slab.h>
 #include "internal.h"
 
+/*
+ * Instantiate a key with the specified compatibility multipart payload and
+ * link the key into the destination keyring if one is given.
+ *
+ * The caller must have the appropriate instantiation permit set for this to
+ * work (see keyctl_assume_authority).  No other permissions are required.
+ *
+ * If successful, 0 will be returned.
+ */
 long compat_keyctl_instantiate_key_iov(
 	key_serial_t id,
 	const struct compat_iovec __user *_payload_iov,
@@ -48,6 +57,14 @@ no_payload:
 	return keyctl_instantiate_key_common(id, NULL, 0, 0, ringid);
 }
 
+/*
+ * The key control system call, 32-bit compatibility version for 64-bit archs
+ *
+ * This should only be called if the 64-bit arch uses weird pointers in 32-bit
+ * mode or doesn't guarantee that the top 32-bits of the argument registers on
+ * taking a 32-bit syscall are zero.  If you can, you should call sys_keyctl()
+ * directly.
+ */
 asmlinkage long compat_sys_keyctl(u32 option,
 				  u32 arg2, u32 arg3, u32 arg4, u32 arg5)
 {

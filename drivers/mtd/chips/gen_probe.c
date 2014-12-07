@@ -23,18 +23,18 @@ struct mtd_info *mtd_do_chip_probe(struct map_info *map, struct chip_probe *cp)
 	struct mtd_info *mtd = NULL;
 	struct cfi_private *cfi;
 
-	
+	/* First probe the map to see if we have CFI stuff there. */
 	cfi = genprobe_ident_chips(map, cp);
 
 	if (!cfi)
 		return NULL;
 
 	map->fldrv_priv = cfi;
-	
+	/* OK we liked it. Now find a driver for the command set it talks */
 
-	mtd = check_cmd_set(map, 1); 
+	mtd = check_cmd_set(map, 1); /* First the primary cmdset */
 	if (!mtd)
-		mtd = check_cmd_set(map, 0); 
+		mtd = check_cmd_set(map, 0); /* Then the secondary */
 
 	if (mtd) {
 		if (mtd->size > map->size) {
@@ -66,14 +66,19 @@ static struct cfi_private *genprobe_ident_chips(struct map_info *map, struct chi
 
 	memset(&cfi, 0, sizeof(cfi));
 
+	/* Call the probetype-specific code with all permutations of
+	   interleave and device type, etc. */
 	if (!genprobe_new_chip(map, cp, &cfi)) {
-		
+		/* The probe didn't like it */
 		pr_debug("%s: Found no %s device at location zero\n",
 			 cp->name, map->name);
 		return NULL;
 	}
 
-#if 0 
+#if 0 /* Let the CFI probe routine do this sanity check. The Intel and AMD
+	 probe routines won't ever return a broken CFI structure anyway,
+	 because they make them up themselves.
+      */
 	if (cfi.cfiq->NumEraseRegions == 0) {
 		printk(KERN_WARNING "Number of erase regions is zero\n");
 		kfree(cfi.cfiq);
@@ -96,6 +101,10 @@ static struct cfi_private *genprobe_ident_chips(struct map_info *map, struct chi
 
 	cfi.numchips = 1;
 
+	/*
+	 * Allocate memory for bitmap of valid chips.
+	 * Align bitmap storage size to full byte.
+	 */
 	max_chips = map->size >> cfi.chipshift;
 	if (!max_chips) {
 		printk(KERN_WARNING "NOR chip too large to fit in mapping. Attempting to cope...\n");
@@ -110,13 +119,22 @@ static struct cfi_private *genprobe_ident_chips(struct map_info *map, struct chi
 		return NULL;
 	}
 
-	set_bit(0, chip_map); 
+	set_bit(0, chip_map); /* Mark first chip valid */
 
+	/*
+	 * Now probe for other chips, checking sensibly for aliases while
+	 * we're at it. The new_chip probe above should have let the first
+	 * chip in read mode.
+	 */
 
 	for (i = 1; i < max_chips; i++) {
 		cp->probe_chip(map, i << cfi.chipshift, chip_map, &cfi);
 	}
 
+	/*
+	 * Now allocate the space for the structures we need to return to
+	 * our caller, and copy the appropriate data into them.
+	 */
 
 	retcfi = kmalloc(sizeof(struct cfi_private) + cfi.numchips * sizeof(struct flchip), GFP_KERNEL);
 
@@ -149,8 +167,8 @@ static struct cfi_private *genprobe_ident_chips(struct map_info *map, struct chi
 static int genprobe_new_chip(struct map_info *map, struct chip_probe *cp,
 			     struct cfi_private *cfi)
 {
-	int min_chips = (map_bankwidth(map)/4?:1); 
-	int max_chips = map_bankwidth(map); 
+	int min_chips = (map_bankwidth(map)/4?:1); /* At most 4-bytes wide. */
+	int max_chips = map_bankwidth(map); /* And minimum 1 */
 	int nr_chips, type;
 
 	for (nr_chips = max_chips; nr_chips >= min_chips; nr_chips >>= 1) {
@@ -160,6 +178,8 @@ static int genprobe_new_chip(struct map_info *map, struct chip_probe *cp,
 
 		cfi->interleave = nr_chips;
 
+		/* Minimum device size. Don't look for one 8-bit device
+		   in a 16-bit bus, etc. */
 		type = map_bankwidth(map) / nr_chips;
 
 		for (; type <= CFI_DEVICETYPE_X32; type<<=1) {
@@ -199,7 +219,7 @@ static inline struct mtd_info *cfi_cmdset_unknown(struct map_info *map,
 		struct mtd_info *mtd;
 
 		mtd = (*probe_function)(map, primary);
-		
+		/* If it was happy, it'll have increased its own use count */
 		symbol_put_addr(probe_function);
 		return mtd;
 	}
@@ -218,6 +238,8 @@ static struct mtd_info *check_cmd_set(struct map_info *map, int primary)
 		return NULL;
 
 	switch(type){
+		/* We need these for the !CONFIG_MODULES case,
+		   because symbol_get() doesn't work there */
 #ifdef CONFIG_MTD_CFI_INTELEXT
 	case P_ID_INTEL_EXT:
 	case P_ID_INTEL_STD:

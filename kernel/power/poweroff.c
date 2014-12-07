@@ -12,6 +12,10 @@
 #include <linux/reboot.h>
 #include <linux/cpumask.h>
 
+/*
+ * When the user hits Sys-Rq o to power down the machine this is the
+ * callback we use.
+ */
 
 static void do_poweroff(struct work_struct *dummy)
 {
@@ -22,7 +26,7 @@ static DECLARE_WORK(poweroff_work, do_poweroff);
 
 static void handle_poweroff(int key)
 {
-	
+	/* run sysrq poweroff on boot cpu */
 	schedule_work_on(cpumask_first(cpu_online_mask), &poweroff_work);
 }
 

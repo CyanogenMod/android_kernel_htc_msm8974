@@ -37,7 +37,7 @@ static inline int frqcr3_lookup(struct clk *clk, unsigned long rate)
 		if (frqcr3_divisors[i] == divisor)
 			return frqcr3_values[i];
 
-	
+	/* Safe fallback */
 	return 5;
 }
 
@@ -69,6 +69,15 @@ static void shoc_clk_init(struct clk *clk)
 {
 	int i;
 
+	/*
+	 * For some reason, the shoc_clk seems to be set to some really
+	 * insane value at boot (values outside of the allowable frequency
+	 * range for instance). We deal with this by scaling it back down
+	 * to something sensible just in case.
+	 *
+	 * Start scaling from the high end down until we find something
+	 * that passes rate verification..
+	 */
 	for (i = 0; i < ARRAY_SIZE(frqcr3_divisors); i++) {
 		int divisor = frqcr3_divisors[i];
 
@@ -76,7 +85,7 @@ static void shoc_clk_init(struct clk *clk)
 			break;
 	}
 
-	WARN_ON(i == ARRAY_SIZE(frqcr3_divisors));	
+	WARN_ON(i == ARRAY_SIZE(frqcr3_divisors));	/* Undefined clock */
 }
 
 static unsigned long shoc_clk_recalc(struct clk *clk)
@@ -105,7 +114,7 @@ static int shoc_clk_set_rate(struct clk *clk, unsigned long rate)
 	unsigned long frqcr3;
 	unsigned int tmp;
 
-	
+	/* Make sure we have something sensible to switch to */
 	if (shoc_clk_verify_rate(clk, rate) != 0)
 		return -EINVAL;
 
@@ -139,7 +148,7 @@ static struct clk *sh4202_onchip_clocks[] = {
 };
 
 static struct clk_lookup lookups[] = {
-	
+	/* main clocks */
 	CLKDEV_CON_ID("emi_clk", &sh4202_emi_clk),
 	CLKDEV_CON_ID("femi_clk", &sh4202_femi_clk),
 	CLKDEV_CON_ID("shoc_clk", &sh4202_shoc_clk),

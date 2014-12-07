@@ -21,30 +21,45 @@
 #include "fscache.h"
 #include "cifs_debug.h"
 
+/*
+ * CIFS filesystem definition for FS-Cache
+ */
 struct fscache_netfs cifs_fscache_netfs = {
 	.name = "cifs",
 	.version = 0,
 };
 
+/*
+ * Register CIFS for caching with FS-Cache
+ */
 int cifs_fscache_register(void)
 {
 	return fscache_register_netfs(&cifs_fscache_netfs);
 }
 
+/*
+ * Unregister CIFS for caching
+ */
 void cifs_fscache_unregister(void)
 {
 	fscache_unregister_netfs(&cifs_fscache_netfs);
 }
 
+/*
+ * Key layout of CIFS server cache index object
+ */
 struct cifs_server_key {
-	uint16_t	family;		
-	__be16		port;		
+	uint16_t	family;		/* address family */
+	__be16		port;		/* IP port */
 	union {
 		struct in_addr	ipv4_addr;
 		struct in6_addr	ipv6_addr;
 	} addr[0];
 };
 
+/*
+ * Server object keyed by {IPaddress,port,family} tuple
+ */
 static uint16_t cifs_server_get_key(const void *cookie_netfs_data,
 				   void *buffer, uint16_t maxbuf)
 {
@@ -57,6 +72,10 @@ static uint16_t cifs_server_get_key(const void *cookie_netfs_data,
 
 	memset(key, 0, key_len);
 
+	/*
+	 * Should not be a problem as sin_family/sin6_family overlays
+	 * sa_family field
+	 */
 	switch (sa->sa_family) {
 	case AF_INET:
 		key->family = sa->sa_family;
@@ -81,14 +100,20 @@ static uint16_t cifs_server_get_key(const void *cookie_netfs_data,
 	return key_len;
 }
 
+/*
+ * Server object for FS-Cache
+ */
 const struct fscache_cookie_def cifs_fscache_server_index_def = {
 	.name = "CIFS.server",
 	.type = FSCACHE_COOKIE_TYPE_INDEX,
 	.get_key = cifs_server_get_key,
 };
 
+/*
+ * Auxiliary data attached to CIFS superblock within the cache
+ */
 struct cifs_fscache_super_auxdata {
-	u64	resource_id;		
+	u64	resource_id;		/* unique server resource id */
 };
 
 static char *extract_sharename(const char *treename)
@@ -97,17 +122,17 @@ static char *extract_sharename(const char *treename)
 	char *delim, *dst;
 	int len;
 
-	
+	/* skip double chars at the beginning */
 	src = treename + 2;
 
-	
+	/* share name is always preceded by '\\' now */
 	delim = strchr(src, '\\');
 	if (!delim)
 		return ERR_PTR(-EINVAL);
 	delim++;
 	len = strlen(delim);
 
-	
+	/* caller has to free the memory */
 	dst = kstrndup(delim, len, GFP_KERNEL);
 	if (!dst)
 		return ERR_PTR(-ENOMEM);
@@ -115,6 +140,9 @@ static char *extract_sharename(const char *treename)
 	return dst;
 }
 
+/*
+ * Superblock object currently keyed by share name
+ */
 static uint16_t cifs_super_get_key(const void *cookie_netfs_data, void *buffer,
 				   uint16_t maxbuf)
 {
@@ -178,6 +206,9 @@ fscache_checkaux cifs_fscache_super_check_aux(void *cookie_netfs_data,
 	return FSCACHE_CHECKAUX_OKAY;
 }
 
+/*
+ * Superblock object for FS-Cache
+ */
 const struct fscache_cookie_def cifs_fscache_super_index_def = {
 	.name = "CIFS.super",
 	.type = FSCACHE_COOKIE_TYPE_INDEX,
@@ -186,6 +217,9 @@ const struct fscache_cookie_def cifs_fscache_super_index_def = {
 	.check_aux = cifs_fscache_super_check_aux,
 };
 
+/*
+ * Auxiliary data attached to CIFS inode within the cache
+ */
 struct cifs_fscache_inode_auxdata {
 	struct timespec	last_write_time;
 	struct timespec	last_change_time;
@@ -198,7 +232,7 @@ static uint16_t cifs_fscache_inode_get_key(const void *cookie_netfs_data,
 	const struct cifsInodeInfo *cifsi = cookie_netfs_data;
 	uint16_t keylen;
 
-	
+	/* use the UniqueId as the key */
 	keylen = sizeof(cifsi->uniqueid);
 	if (keylen > maxbuf)
 		keylen = 0;

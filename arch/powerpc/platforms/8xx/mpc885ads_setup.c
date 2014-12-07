@@ -89,10 +89,10 @@ static int pcmcia_set_voltage(int slot, int vcc, int vpp)
 		return 1;
 	}
 
-	
+	/* first, turn off all power */
 	clrbits32(&bcsr[1], 0x00610000);
 
-	
+	/* enable new powersettings */
 	setbits32(&bcsr[1], reg);
 
 	return 0;
@@ -104,26 +104,26 @@ struct cpm_pin {
 };
 
 static struct cpm_pin mpc885ads_pins[] = {
-	
-	{CPM_PORTB, 24, CPM_PIN_INPUT}, 
-	{CPM_PORTB, 25, CPM_PIN_INPUT | CPM_PIN_SECONDARY}, 
+	/* SMC1 */
+	{CPM_PORTB, 24, CPM_PIN_INPUT}, /* RX */
+	{CPM_PORTB, 25, CPM_PIN_INPUT | CPM_PIN_SECONDARY}, /* TX */
 
-	
+	/* SMC2 */
 #ifndef CONFIG_MPC8xx_SECOND_ETH_FEC2
-	{CPM_PORTE, 21, CPM_PIN_INPUT}, 
-	{CPM_PORTE, 20, CPM_PIN_INPUT | CPM_PIN_SECONDARY}, 
+	{CPM_PORTE, 21, CPM_PIN_INPUT}, /* RX */
+	{CPM_PORTE, 20, CPM_PIN_INPUT | CPM_PIN_SECONDARY}, /* TX */
 #endif
 
-	
-	{CPM_PORTA, 9, CPM_PIN_INPUT}, 
-	{CPM_PORTA, 8, CPM_PIN_INPUT}, 
-	{CPM_PORTC, 4, CPM_PIN_INPUT | CPM_PIN_SECONDARY | CPM_PIN_GPIO}, 
-	{CPM_PORTC, 5, CPM_PIN_INPUT | CPM_PIN_SECONDARY | CPM_PIN_GPIO}, 
-	{CPM_PORTE, 27, CPM_PIN_INPUT | CPM_PIN_SECONDARY}, 
-	{CPM_PORTE, 17, CPM_PIN_INPUT}, 
-	{CPM_PORTE, 16, CPM_PIN_INPUT}, 
+	/* SCC3 */
+	{CPM_PORTA, 9, CPM_PIN_INPUT}, /* RX */
+	{CPM_PORTA, 8, CPM_PIN_INPUT}, /* TX */
+	{CPM_PORTC, 4, CPM_PIN_INPUT | CPM_PIN_SECONDARY | CPM_PIN_GPIO}, /* RENA */
+	{CPM_PORTC, 5, CPM_PIN_INPUT | CPM_PIN_SECONDARY | CPM_PIN_GPIO}, /* CLSN */
+	{CPM_PORTE, 27, CPM_PIN_INPUT | CPM_PIN_SECONDARY}, /* TENA */
+	{CPM_PORTE, 17, CPM_PIN_INPUT}, /* CLK5 */
+	{CPM_PORTE, 16, CPM_PIN_INPUT}, /* CLK6 */
 
-	
+	/* MII1 */
 	{CPM_PORTA, 0, CPM_PIN_INPUT},
 	{CPM_PORTA, 1, CPM_PIN_INPUT},
 	{CPM_PORTA, 2, CPM_PIN_INPUT},
@@ -138,7 +138,7 @@ static struct cpm_pin mpc885ads_pins[] = {
 	{CPM_PORTE, 30, CPM_PIN_OUTPUT},
 	{CPM_PORTE, 31, CPM_PIN_OUTPUT},
 
-	
+	/* MII2 */
 #ifdef CONFIG_MPC8xx_SECOND_ETH_FEC2
 	{CPM_PORTE, 14, CPM_PIN_OUTPUT | CPM_PIN_SECONDARY},
 	{CPM_PORTE, 15, CPM_PIN_OUTPUT | CPM_PIN_SECONDARY},
@@ -157,7 +157,7 @@ static struct cpm_pin mpc885ads_pins[] = {
 	{CPM_PORTE, 28, CPM_PIN_OUTPUT},
 	{CPM_PORTE, 29, CPM_PIN_OUTPUT},
 #endif
-	
+	/* I2C */
 	{CPM_PORTB, 26, CPM_PIN_INPUT | CPM_PIN_OPENDRAIN},
 	{CPM_PORTB, 27, CPM_PIN_INPUT | CPM_PIN_OPENDRAIN},
 };
@@ -176,7 +176,7 @@ static void __init init_ioports(void)
 	cpm1_clk_setup(CPM_CLK_SCC3, CPM_CLK5, CPM_CLK_TX);
 	cpm1_clk_setup(CPM_CLK_SCC3, CPM_CLK6, CPM_CLK_RX);
 
-	
+	/* Set FEC1 and FEC2 to MII mode */
 	clrbits32(&mpc8xx_immr->im_cpm.cp_cptr, 0x00000180);
 }
 
@@ -235,6 +235,9 @@ static void __init mpc885ads_setup_arch(void)
 	np = of_find_node_by_path("/soc@ff000000/cpm@9c0/ethernet@a40");
 #endif
 
+	/* The SCC3 enet registers overlap the SMC1 registers, so
+	 * one of the two must be removed from the device tree.
+	 */
 
 	if (np) {
 		of_detach_node(np);
@@ -242,7 +245,7 @@ static void __init mpc885ads_setup_arch(void)
 	}
 
 #ifdef CONFIG_PCMCIA_M8XX
-	
+	/* Set up board specific hook-ups.*/
 	m8xx_pcmcia_ops.hw_ctrl = pcmcia_hw_setup;
 	m8xx_pcmcia_ops.voltage_set = pcmcia_set_voltage;
 #endif
@@ -263,7 +266,7 @@ static struct of_device_id __initdata of_bus_ids[] = {
 
 static int __init declare_of_platform_devices(void)
 {
-	
+	/* Publish the QE devices */
 	of_platform_bus_probe(NULL, of_bus_ids, NULL);
 
 	return 0;

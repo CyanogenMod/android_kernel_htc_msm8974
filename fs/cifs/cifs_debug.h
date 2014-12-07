@@ -18,7 +18,7 @@
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  *
 */
-#define CIFS_DEBUG		
+#define CIFS_DEBUG		/* BB temporary */
 
 #ifndef _H_CIFS_DEBUG
 #define _H_CIFS_DEBUG
@@ -31,14 +31,19 @@ void cifs_dump_mids(struct TCP_Server_Info *);
 #else
 #define DBG2 0
 #endif
-extern int traceSMB;		
+extern int traceSMB;		/* flag which enables the function below */
 void dump_smb(void *, int);
 #define CIFS_INFO	0x01
 #define CIFS_RC		0x02
 #define CIFS_TIMER	0x04
 
+/*
+ *	debug ON
+ *	--------
+ */
 #ifdef CIFS_DEBUG
 
+/* information message: e.g., configuration, major event */
 extern int cifsFYI;
 #define cifsfyi(fmt, arg...)						\
 do {									\
@@ -55,6 +60,7 @@ do {						\
 #define cifswarn(fmt, arg...)			\
 	printk(KERN_WARNING fmt "\n", ##arg)
 
+/* debug event message: */
 extern int cifsERROR;
 
 #define cEVENT(fmt, arg...)						\
@@ -63,6 +69,7 @@ do {									\
 		printk(KERN_EVENT "%s: " fmt "\n", __FILE__, ##arg);	\
 } while (0)
 
+/* error event message: e.g., i/o error */
 #define cifserror(fmt, arg...)					\
 do {								\
 	if (cifsERROR)						\
@@ -75,11 +82,15 @@ do {						\
 		cifserror(fmt, ##arg);		\
 } while (0)
 
-#else		
+/*
+ *	debug OFF
+ *	---------
+ */
+#else		/* _CIFS_DEBUG */
 #define cERROR(set, fmt, arg...)
 #define cEVENT(fmt, arg...)
 #define cFYI(set, fmt, arg...)
 #define cifserror(fmt, arg...)
-#endif		
+#endif		/* _CIFS_DEBUG */
 
-#endif				
+#endif				/* _H_CIFS_DEBUG */

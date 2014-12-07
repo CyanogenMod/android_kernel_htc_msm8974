@@ -21,6 +21,10 @@
 
 #include <mach/platform.h>
 
+/* 
+ *  IRQ interrupts definitions are the same as the INT definitions
+ *  held within platform.h
+ */
 #define IRQ_VIC_START		0
 #define IRQ_WDOGINT		(IRQ_VIC_START + INT_WDOGINT)
 #define IRQ_SOFTINT		(IRQ_VIC_START + INT_SOFTINT)
@@ -56,6 +60,9 @@
 #define IRQ_VICSOURCE31		(IRQ_VIC_START + INT_VICSOURCE31)
 #define IRQ_VIC_END		(IRQ_VIC_START + 31)
 
+/* 
+ *  FIQ interrupts definitions are the same as the INT definitions.
+ */
 #define FIQ_WDOGINT		INT_WDOGINT
 #define FIQ_SOFTINT		INT_SOFTINT
 #define FIQ_COMMRx		INT_COMMRx
@@ -90,6 +97,9 @@
 #define FIQ_VICSOURCE31		INT_VICSOURCE31
 
 
+/*
+ * Secondary interrupt controller
+ */
 #define IRQ_SIC_START		32
 #define IRQ_SIC_MMCI0B 		(IRQ_SIC_START + SIC_INT_MMCI0B)
 #define IRQ_SIC_MMCI1B 		(IRQ_SIC_START + SIC_INT_MMCI1B)

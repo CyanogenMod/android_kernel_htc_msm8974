@@ -8,6 +8,7 @@
 
 #include <linux/types.h>
 
+/* store then OR system mask. */
 #define __arch_local_irq_stosm(__or)					\
 ({									\
 	unsigned long __mask;						\
@@ -17,6 +18,7 @@
 	__mask;								\
 })
 
+/* store then AND system mask. */
 #define __arch_local_irq_stnsm(__and)					\
 ({									\
 	unsigned long __mask;						\
@@ -26,6 +28,7 @@
 	__mask;								\
 })
 
+/* set system mask. */
 static inline notrace void __arch_local_irq_ssm(unsigned long flags)
 {
 	asm volatile("ssm   %0" : : "Q" (flags) : "memory");
@@ -66,4 +69,4 @@ static inline notrace bool arch_irqs_disabled(void)
 	return arch_irqs_disabled_flags(arch_local_save_flags());
 }
 
-#endif 
+#endif /* __ASM_IRQFLAGS_H */

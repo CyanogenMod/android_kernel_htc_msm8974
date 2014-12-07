@@ -18,7 +18,7 @@
 
 static void arch_detect_cpu(void)
 {
-	
+	/* we do not need to do any cpu detection here at the moment. */
 }
 
-#endif 
+#endif /* __ASM_ARCH_UNCOMPRESS_H */

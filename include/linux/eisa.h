@@ -9,6 +9,7 @@
 
 #define EISA_MAX_RESOURCES 4
 
+/* A few EISA constants/offsets... */
 
 #define EISA_DMA1_STATUS            8
 #define EISA_INT1_CTRL           0x20
@@ -26,6 +27,9 @@
 #define EISA_CONFIG_ENABLED         1
 #define EISA_CONFIG_FORCED          2
 
+/* There is not much we can say about an EISA device, apart from
+ * signature, slot number, and base address. dma_mask is set by
+ * default to parent device mask..*/
 
 struct eisa_device {
 	struct eisa_device_id id;
@@ -34,7 +38,7 @@ struct eisa_device {
 	unsigned long         base_addr;
 	struct resource       res[EISA_MAX_RESOURCES];
 	u64                   dma_mask;
-	struct device         dev; 
+	struct device         dev; /* generic device */
 #ifdef CONFIG_EISA_NAMES
 	char		      pretty_name[50];
 #endif
@@ -57,19 +61,21 @@ struct eisa_driver {
 
 #define to_eisa_driver(drv) container_of(drv,struct eisa_driver, driver)
 
+/* These external functions are only available when EISA support is enabled. */
 #ifdef CONFIG_EISA
 
 extern struct bus_type eisa_bus_type;
 int eisa_driver_register (struct eisa_driver *edrv);
 void eisa_driver_unregister (struct eisa_driver *edrv);
 
-#else 
+#else /* !CONFIG_EISA */
 
 static inline int eisa_driver_register (struct eisa_driver *edrv) { return 0; }
 static inline void eisa_driver_unregister (struct eisa_driver *edrv) { }
 
-#endif 
+#endif /* !CONFIG_EISA */
 
+/* Mimics pci.h... */
 static inline void *eisa_get_drvdata (struct eisa_device *edev)
 {
         return dev_get_drvdata(&edev->dev);
@@ -80,16 +86,18 @@ static inline void eisa_set_drvdata (struct eisa_device *edev, void *data)
         dev_set_drvdata(&edev->dev, data);
 }
 
+/* The EISA root device. There's rumours about machines with multiple
+ * busses (PA-RISC ?), so we try to handle that. */
 
 struct eisa_root_device {
-	struct device   *dev;	 
+	struct device   *dev;	 /* Pointer to bridge device */
 	struct resource *res;
 	unsigned long    bus_base_addr;
-	int		 slots;  
-	int		 force_probe; 
-	u64		 dma_mask; 
-	int              bus_nr; 
-	struct resource  eisa_root_res;	
+	int		 slots;  /* Max slot number */
+	int		 force_probe; /* Probe even when no slot 0 */
+	u64		 dma_mask; /* from bridge device */
+	int              bus_nr; /* Set by eisa_root_register */
+	struct resource  eisa_root_res;	/* ditto */
 };
 
 int eisa_root_register (struct eisa_root_device *root);

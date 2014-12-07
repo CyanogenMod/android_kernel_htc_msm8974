@@ -94,13 +94,13 @@ static int ti_ssp_spi_txrx(struct ti_ssp_spi *hw, struct spi_message *msg,
 		}
 	}
 
-	msg->actual_length += count; 
+	msg->actual_length += count; /* bytes transferred */
 
 	dev_dbg(&msg->spi->dev, "xfer %s%s, %d bytes, %d bpw, count %d%s\n",
 		t->tx_buf ? "tx" : "", t->rx_buf ? "rx" : "", t->len,
 		hw->bpw, count, (count < t->len) ? " (under)" : "");
 
-	return (count < t->len) ? -EIO : 0; 
+	return (count < t->len) ? -EIO : 0; /* left over data */
 }
 
 static void ti_ssp_spi_chip_select(struct ti_ssp_spi *hw, int cs_active)
@@ -132,30 +132,30 @@ static int ti_ssp_spi_setup_transfer(struct ti_ssp_spi *hw, u8 bpw, u8 mode)
 	cs_dis = (mode & SPI_CS_HIGH) ? SSP_CS_LOW  : SSP_CS_HIGH;
 	clk    = (mode & SPI_CPOL)    ? SSP_CLK_HIGH : SSP_CLK_LOW;
 
-	
+	/* Construct instructions */
 
-	
+	/* Disable Chip Select */
 	hw->pc_dis = idx;
 	seqram[idx++] = SSP_OPCODE_DIRECT | SSP_OUT_MODE | cs_dis | clk;
 	seqram[idx++] = SSP_OPCODE_STOP   | SSP_OUT_MODE | cs_dis | clk;
 
-	
+	/* Enable Chip Select */
 	hw->pc_en = idx;
 	seqram[idx++] = SSP_OPCODE_DIRECT | SSP_OUT_MODE | cs_en | clk;
 	seqram[idx++] = SSP_OPCODE_STOP   | SSP_OUT_MODE | cs_en | clk;
 
-	
+	/* Reads and writes need to be split for bpw > 16 */
 	topbits = (bpw > 16) ? 16 : bpw;
 	botbits = bpw - topbits;
 
-	
+	/* Write */
 	hw->pc_wr = idx;
 	seqram[idx++] = __SHIFT_OUT(topbits) | SSP_ADDR_REG;
 	if (botbits)
 		seqram[idx++] = __SHIFT_OUT(botbits)  | SSP_DATA_REG;
 	seqram[idx++] = SSP_OPCODE_STOP | SSP_OUT_MODE | cs_en | clk;
 
-	
+	/* Read */
 	hw->pc_rd = idx;
 	if (botbits)
 		seqram[idx++] = __SHIFT_IN(botbits) | SSP_ADDR_REG;

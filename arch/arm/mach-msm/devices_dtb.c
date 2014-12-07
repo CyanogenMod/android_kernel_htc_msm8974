@@ -1,7 +1,13 @@
 #include <mach/devices_dtb.h>
 #include <linux/of.h>
+#include <linux/string.h>
+#include <htc_offalarm.h>
+
+int rtc_alarm_trigger = 0;
+struct htc_off_alarm htc_offalarm;
 
 #define CONFIG_DATA_PATH "/chosen/config"
+#define HTC_OFF_ALARM "/offalarm"
 
 static unsigned int cfg_flag_index[NUM_FLAG_INDEX];
 
@@ -47,15 +53,40 @@ unsigned int get_radio_flag_ex2(void)
 {
 	if (!has_config_data)
 		config_data_init();
-        return cfg_flag_index[RADIO_FLAG_EX1_INDEX];
+        return cfg_flag_index[RADIO_FLAG_EX2_INDEX];
 }
 
+static int get_offmode_alarm_setting(void)
+{
+	struct device_node *offalarm = of_find_node_by_path(HTC_OFF_ALARM);
+	struct property *pp;
+	int ret = 1;
+
+	if (offalarm) {
+		rtc_alarm_trigger = 1;
+		pr_info("Offmode Alarm is trigger.\n");
+
+		for_each_property_of_node(offalarm, pp) {
+			if (pp) {
+				
+				if(strcmp(pp->name, "rtc_alarm") ==0)
+				{
+					memcpy(&htc_offalarm, pp->value, sizeof(struct htc_off_alarm));
+					pr_info("found \"rtc_alarm\": id = %d, time = %d\n", htc_offalarm.alarm_id, htc_offalarm.alarm_time);
+				}
+			}
+		}
+	}
+	return ret;
+}
 static int config_data_init(void)
 {
 	struct device_node *of_chosen = of_find_node_by_path(CONFIG_DATA_PATH);
 	struct property *pp;
 	const __be32 *val;
 	int ret = 1;
+
+	get_offmode_alarm_setting();
 
 	if (of_chosen) {
 		pr_info("CONFIG DATA:\n");

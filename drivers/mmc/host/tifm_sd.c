@@ -27,35 +27,36 @@ static bool fixed_timeout = 0;
 module_param(no_dma, bool, 0644);
 module_param(fixed_timeout, bool, 0644);
 
+/* Constants here are mostly from OMAP5912 datasheet */
 #define TIFM_MMCSD_RESET      0x0002
 #define TIFM_MMCSD_CLKMASK    0x03ff
 #define TIFM_MMCSD_POWER      0x0800
 #define TIFM_MMCSD_4BBUS      0x8000
-#define TIFM_MMCSD_RXDE       0x8000   
-#define TIFM_MMCSD_TXDE       0x0080   
-#define TIFM_MMCSD_BUFINT     0x0c00   
-#define TIFM_MMCSD_DPE        0x0020   
-#define TIFM_MMCSD_INAB       0x0080   
+#define TIFM_MMCSD_RXDE       0x8000   /* rx dma enable */
+#define TIFM_MMCSD_TXDE       0x0080   /* tx dma enable */
+#define TIFM_MMCSD_BUFINT     0x0c00   /* set bits: AE, AF */
+#define TIFM_MMCSD_DPE        0x0020   /* data timeout counted in kilocycles */
+#define TIFM_MMCSD_INAB       0x0080   /* abort / initialize command */
 #define TIFM_MMCSD_READ       0x8000
 
-#define TIFM_MMCSD_ERRMASK    0x01e0   
-#define TIFM_MMCSD_EOC        0x0001   
-#define TIFM_MMCSD_CD         0x0002   
-#define TIFM_MMCSD_CB         0x0004   
-#define TIFM_MMCSD_BRS        0x0008   
-#define TIFM_MMCSD_EOFB       0x0010   
-#define TIFM_MMCSD_DTO        0x0020   
-#define TIFM_MMCSD_DCRC       0x0040   
-#define TIFM_MMCSD_CTO        0x0080   
-#define TIFM_MMCSD_CCRC       0x0100   
-#define TIFM_MMCSD_AF         0x0400   
-#define TIFM_MMCSD_AE         0x0800   
-#define TIFM_MMCSD_OCRB       0x1000   
-#define TIFM_MMCSD_CIRQ       0x2000   
-#define TIFM_MMCSD_CERR       0x4000   
+#define TIFM_MMCSD_ERRMASK    0x01e0   /* set bits: CCRC, CTO, DCRC, DTO */
+#define TIFM_MMCSD_EOC        0x0001   /* end of command phase  */
+#define TIFM_MMCSD_CD         0x0002   /* card detect           */
+#define TIFM_MMCSD_CB         0x0004   /* card enter busy state */
+#define TIFM_MMCSD_BRS        0x0008   /* block received/sent   */
+#define TIFM_MMCSD_EOFB       0x0010   /* card exit busy state  */
+#define TIFM_MMCSD_DTO        0x0020   /* data time-out         */
+#define TIFM_MMCSD_DCRC       0x0040   /* data crc error        */
+#define TIFM_MMCSD_CTO        0x0080   /* command time-out      */
+#define TIFM_MMCSD_CCRC       0x0100   /* command crc error     */
+#define TIFM_MMCSD_AF         0x0400   /* fifo almost full      */
+#define TIFM_MMCSD_AE         0x0800   /* fifo almost empty     */
+#define TIFM_MMCSD_OCRB       0x1000   /* OCR busy              */
+#define TIFM_MMCSD_CIRQ       0x2000   /* card irq (cmd40/sdio) */
+#define TIFM_MMCSD_CERR       0x4000   /* card status error     */
 
-#define TIFM_MMCSD_ODTO       0x0040   
-#define TIFM_MMCSD_CARD_RO    0x0200   
+#define TIFM_MMCSD_ODTO       0x0040   /* open drain / extended timeout */
+#define TIFM_MMCSD_CARD_RO    0x0200   /* card is read-only     */
 
 #define TIFM_MMCSD_FIFO_SIZE  0x0020
 
@@ -109,6 +110,7 @@ struct tifm_sd {
 	unsigned char         bounce_buf_data[TIFM_MMCSD_MAX_BLOCK_SIZE];
 };
 
+/* for some reason, host won't respond correctly to readw/writew */
 static void tifm_sd_read_fifo(struct tifm_sd *host, struct page *pg,
 			      unsigned int off, unsigned int cnt)
 {
@@ -334,7 +336,7 @@ static unsigned int tifm_sd_op_flags(struct mmc_command *cmd)
 		rc |= TIFM_MMCSD_RSP_R0;
 		break;
 	case MMC_RSP_R1B:
-		rc |= TIFM_MMCSD_RSP_BUSY; 
+		rc |= TIFM_MMCSD_RSP_BUSY; // deliberate fall-through
 	case MMC_RSP_R1:
 		rc |= TIFM_MMCSD_RSP_R1;
 		break;
@@ -470,6 +472,7 @@ finish_request:
 	tasklet_schedule(&host->finish_tasklet);
 }
 
+/* Called from interrupt handler */
 static void tifm_sd_data_event(struct tifm_dev *sock)
 {
 	struct tifm_sd *host;
@@ -497,6 +500,7 @@ static void tifm_sd_data_event(struct tifm_dev *sock)
 	spin_unlock(&sock->lock);
 }
 
+/* Called from interrupt handler */
 static void tifm_sd_card_event(struct tifm_dev *sock)
 {
 	struct tifm_sd *host;
@@ -606,7 +610,7 @@ static void tifm_sd_set_data_timeout(struct tifm_sd *host,
 	} else {
 		data_timeout = (data_timeout >> 10) + 1;
 		if (data_timeout > 0xffff)
-			data_timeout = 0;	
+			data_timeout = 0;	/* set to unlimited */
 		writel(data_timeout, sock->addr + SOCK_MMCSD_DATA_TO);
 		writel(TIFM_MMCSD_DPE
 		       | readl(sock->addr + SOCK_MMCSD_SDIO_MODE_CONFIG),
@@ -850,9 +854,9 @@ static void tifm_sd_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 
 	host->open_drain = (ios->bus_mode == MMC_BUSMODE_OPENDRAIN);
 
-	
-	
-	
+	/* chip_select : maybe later */
+	//vdd
+	//power is set before probe / after remove
 
 	spin_unlock_irqrestore(&sock->lock, flags);
 }
@@ -891,7 +895,7 @@ static int tifm_sd_initialize_host(struct tifm_sd *host)
 	writel(host->clk_div | TIFM_MMCSD_POWER,
 	       sock->addr + SOCK_MMCSD_CONFIG);
 
-	
+	/* wait up to 0.51 sec for reset */
 	for (rc = 32; rc <= 256; rc <<= 1) {
 		if (1 & readl(sock->addr + SOCK_MMCSD_SYSTEM_STATUS)) {
 			rc = 0;
@@ -911,7 +915,7 @@ static int tifm_sd_initialize_host(struct tifm_sd *host)
 	       sock->addr + SOCK_MMCSD_CONFIG);
 	writel(TIFM_MMCSD_RXDE, sock->addr + SOCK_MMCSD_BUFFER_CONFIG);
 
-	
+	// command timeout fixed to 64 clocks for now
 	writel(64, sock->addr + SOCK_MMCSD_COMMAND_TO);
 	writel(TIFM_MMCSD_INAB, sock->addr + SOCK_MMCSD_COMMAND);
 
@@ -1051,7 +1055,7 @@ static int tifm_sd_resume(struct tifm_dev *sock)
 #define tifm_sd_suspend NULL
 #define tifm_sd_resume NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
 static struct tifm_device_id tifm_sd_id_tbl[] = {
 	{ TIFM_TYPE_SD }, { }

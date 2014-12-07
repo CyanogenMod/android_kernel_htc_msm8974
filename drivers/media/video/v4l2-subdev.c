@@ -35,7 +35,7 @@
 static int subdev_fh_init(struct v4l2_subdev_fh *fh, struct v4l2_subdev *sd)
 {
 #if defined(CONFIG_VIDEO_V4L2_SUBDEV_API)
-	
+	/* Allocate try format and crop in the same memory block */
 	fh->try_fmt = kzalloc((sizeof(*fh->try_fmt) + sizeof(*fh->try_crop))
 			      * sd->entity.num_pads, GFP_KERNEL);
 	if (fh->try_fmt == NULL)

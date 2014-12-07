@@ -33,6 +33,20 @@ enum {
 };
 #endif
 
+/**
+ * signal_generate - called when a signal is generated
+ * @sig: signal number
+ * @info: pointer to struct siginfo
+ * @task: pointer to struct task_struct
+ * @group: shared or private
+ * @result: TRACE_SIGNAL_*
+ *
+ * Current process sends a 'sig' signal to 'task' process with
+ * 'info' siginfo. If 'info' is SEND_SIG_NOINFO or SEND_SIG_PRIV,
+ * 'info' is not a pointer and you can't access its field. Instead,
+ * SEND_SIG_NOINFO means that si_code is SI_USER, and SEND_SIG_PRIV
+ * means that si_code is SI_KERNEL.
+ */
 TRACE_EVENT(signal_generate,
 
 	TP_PROTO(int sig, struct siginfo *info, struct task_struct *task,
@@ -65,6 +79,20 @@ TRACE_EVENT(signal_generate,
 		  __entry->result)
 );
 
+/**
+ * signal_deliver - called when a signal is delivered
+ * @sig: signal number
+ * @info: pointer to struct siginfo
+ * @ka: pointer to struct k_sigaction
+ *
+ * A 'sig' signal is delivered to current process with 'info' siginfo,
+ * and it will be handled by 'ka'. ka->sa.sa_handler can be SIG_IGN or
+ * SIG_DFL.
+ * Note that some signals reported by signal_generate tracepoint can be
+ * lost, ignored or modified (by debugger) before hitting this tracepoint.
+ * This means, this can show which signals are actually delivered, but
+ * matching generated signals and delivered signals may not be correct.
+ */
 TRACE_EVENT(signal_deliver,
 
 	TP_PROTO(int sig, struct siginfo *info, struct k_sigaction *ka),
@@ -91,6 +119,7 @@ TRACE_EVENT(signal_deliver,
 		  __entry->sa_handler, __entry->sa_flags)
 );
 
-#endif 
+#endif /* _TRACE_SIGNAL_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

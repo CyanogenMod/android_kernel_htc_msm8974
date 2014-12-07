@@ -43,24 +43,28 @@
 #error JMR3927_IRQ_END > NR_IRQS
 #endif
 
+/*
+ * CP0_STATUS is a thread's resource (saved/restored on context switch).
+ * So disable_irq/enable_irq MUST handle IOC/IRC registers.
+ */
 static void mask_irq_ioc(struct irq_data *d)
 {
-	
+	/* 0: mask */
 	unsigned int irq_nr = d->irq - JMR3927_IRQ_IOC;
 	unsigned char imask = jmr3927_ioc_reg_in(JMR3927_IOC_INTM_ADDR);
 	unsigned int bit = 1 << irq_nr;
 	jmr3927_ioc_reg_out(imask & ~bit, JMR3927_IOC_INTM_ADDR);
-	
+	/* flush write buffer */
 	(void)jmr3927_ioc_reg_in(JMR3927_IOC_REV_ADDR);
 }
 static void unmask_irq_ioc(struct irq_data *d)
 {
-	
+	/* 0: mask */
 	unsigned int irq_nr = d->irq - JMR3927_IRQ_IOC;
 	unsigned char imask = jmr3927_ioc_reg_in(JMR3927_IOC_INTM_ADDR);
 	unsigned int bit = 1 << irq_nr;
 	jmr3927_ioc_reg_out(imask | bit, JMR3927_IOC_INTM_ADDR);
-	
+	/* flush write buffer */
 	(void)jmr3927_ioc_reg_in(JMR3927_IOC_REV_ADDR);
 }
 
@@ -100,18 +104,18 @@ void __init jmr3927_irq_setup(void)
 	int i;
 
 	txx9_irq_dispatch = jmr3927_irq_dispatch;
-	
-	
-	
+	/* Now, interrupt control disabled, */
+	/* all IRC interrupts are masked, */
+	/* all IRC interrupt mode are Low Active. */
 
-	
+	/* mask all IOC interrupts */
 	jmr3927_ioc_reg_out(0, JMR3927_IOC_INTM_ADDR);
-	
+	/* setup IOC interrupt mode (SOFT:High Active, Others:Low Active) */
 	jmr3927_ioc_reg_out(JMR3927_IOC_INTF_SOFT, JMR3927_IOC_INTP_ADDR);
 
-	
+	/* clear PCI Soft interrupts */
 	jmr3927_ioc_reg_out(0, JMR3927_IOC_INTS1_ADDR);
-	
+	/* clear PCI Reset interrupts */
 	jmr3927_ioc_reg_out(0, JMR3927_IOC_RESET_ADDR);
 
 	tx3927_irq_init();
@@ -119,6 +123,6 @@ void __init jmr3927_irq_setup(void)
 		irq_set_chip_and_handler(i, &jmr3927_irq_ioc,
 					 handle_level_irq);
 
-	
+	/* setup IOC interrupt 1 (PCI, MODEM) */
 	irq_set_chained_handler(JMR3927_IRQ_IOCINT, handle_simple_irq);
 }

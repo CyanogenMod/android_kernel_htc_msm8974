@@ -35,6 +35,7 @@
 
 #define	WRT_PRTCT			0x01
 
+/* Error Code */
 #define	MS_NO_ERROR				0x00
 #define	MS_CRC16_ERROR				0x80
 #define	MS_TO_ERROR				0x40
@@ -46,6 +47,7 @@
 #define	MS_BREQ_ERROR				0x01
 #define	MS_NOT_FOUND				0x03
 
+/* Transfer Protocol Command */
 #define READ_PAGE_DATA				0x02
 #define READ_REG				0x04
 #define	GET_INT					0x07
@@ -82,16 +84,22 @@
 #define XC_CHG_POWER		0x16
 #endif
 
+/* ++ CMD over Memory Stick */
+/*  Flash CMD */
 #define BLOCK_READ		0xAA
 #define	BLOCK_WRITE		0x55
 #define BLOCK_END		0x33
 #define BLOCK_ERASE		0x99
 #define FLASH_STOP		0xCC
 
+/*  Function CMD */
 #define SLEEP			0x5A
 #define CLEAR_BUF		0xC3
 #define MS_RESET		0x3C
+/* -- CMD over Memory Stick */
 
+/* ++ CMD over Memory Stick Pro */
+/*  Flash CMD */
 #define PRO_READ_DATA		0x20
 #define	PRO_WRITE_DATA		0x21
 #define PRO_READ_ATRB		0x24
@@ -100,9 +108,12 @@
 #define	PRO_READ_2K_DATA	0x27
 #define	PRO_WRITE_2K_DATA	0x28
 
+/*  Function CMD */
 #define PRO_FORMAT		0x10
 #define PRO_SLEEP		0x11
+/* -- CMD over Memory Stick Pro */
 
+/*  register inside memory stick */
 #define	IntReg			0x01
 #define StatusReg0		0x02
 #define StatusReg1		0x03
@@ -117,6 +128,7 @@
 #define LogicalAdrs		0x18
 #define ReserveArea		0x1A
 
+/*  register inside memory pro */
 #define	Pro_IntReg		0x01
 #define Pro_StatusReg		0x02
 #define Pro_TypeReg		0x04
@@ -135,53 +147,67 @@
 #define Pro_TPCParm		0x17
 #define Pro_CMDParm		0x18
 
+/*  define for INT Register */
 #define	INT_REG_CED		0x80
 #define	INT_REG_ERR		0x40
 #define	INT_REG_BREQ		0x20
 #define	INT_REG_CMDNK		0x01
 
+/*  INT signal */
 #define	INT_CED			0x01
 #define	INT_ERR			0x02
 #define	INT_BREQ		0x04
 #define	INT_CMDNK		0x08
 
+/*  define for OverwriteFlag Register */
 #define	BLOCK_BOOT		0xC0
 #define	BLOCK_OK		0x80
 #define	PAGE_OK			0x60
 #define	DATA_COMPL		0x10
 
+/*  define for ManagemenFlag Register */
 #define	NOT_BOOT_BLOCK		0x4
 #define	NOT_TRANSLATION_TABLE	0x8
 
-#define	HEADER_ID0		(PPBUF_BASE2)			
-#define	HEADER_ID1		(PPBUF_BASE2 + 1)		
-#define	DISABLED_BLOCK0		(PPBUF_BASE2 + 0x170 + 4)	
-#define	DISABLED_BLOCK1		(PPBUF_BASE2 + 0x170 + 5)	
-#define	DISABLED_BLOCK2		(PPBUF_BASE2 + 0x170 + 6)	
-#define	DISABLED_BLOCK3		(PPBUF_BASE2 + 0x170 + 7)	
-#define	BLOCK_SIZE_0		(PPBUF_BASE2 + 0x1a0 + 2)	
-#define	BLOCK_SIZE_1		(PPBUF_BASE2 + 0x1a0 + 3)	
-#define	BLOCK_COUNT_0		(PPBUF_BASE2 + 0x1a0 + 4)	
-#define	BLOCK_COUNT_1		(PPBUF_BASE2 + 0x1a0 + 5)	
-#define	EBLOCK_COUNT_0		(PPBUF_BASE2 + 0x1a0 + 6)	
-#define	EBLOCK_COUNT_1		(PPBUF_BASE2 + 0x1a0 + 7)	
-#define	PAGE_SIZE_0		(PPBUF_BASE2 + 0x1a0 + 8)	
-#define	PAGE_SIZE_1		(PPBUF_BASE2 + 0x1a0 + 9)	
+/*  Header */
+#define	HEADER_ID0		(PPBUF_BASE2)			/* 0 */
+#define	HEADER_ID1		(PPBUF_BASE2 + 1)		/* 1 */
+/*  System Entry */
+#define	DISABLED_BLOCK0		(PPBUF_BASE2 + 0x170 + 4)	/* 2 */
+#define	DISABLED_BLOCK1		(PPBUF_BASE2 + 0x170 + 5)	/* 3 */
+#define	DISABLED_BLOCK2		(PPBUF_BASE2 + 0x170 + 6)	/* 4 */
+#define	DISABLED_BLOCK3		(PPBUF_BASE2 + 0x170 + 7)	/* 5 */
+/*  Boot & Attribute Information */
+#define	BLOCK_SIZE_0		(PPBUF_BASE2 + 0x1a0 + 2)	/* 6 */
+#define	BLOCK_SIZE_1		(PPBUF_BASE2 + 0x1a0 + 3)	/* 7 */
+#define	BLOCK_COUNT_0		(PPBUF_BASE2 + 0x1a0 + 4)	/* 8 */
+#define	BLOCK_COUNT_1		(PPBUF_BASE2 + 0x1a0 + 5)	/* 9 */
+#define	EBLOCK_COUNT_0		(PPBUF_BASE2 + 0x1a0 + 6)	/* 10 */
+#define	EBLOCK_COUNT_1		(PPBUF_BASE2 + 0x1a0 + 7)	/* 11 */
+#define	PAGE_SIZE_0		(PPBUF_BASE2 + 0x1a0 + 8)	/* 12 */
+#define	PAGE_SIZE_1		(PPBUF_BASE2 + 0x1a0 + 9)	/* 13 */
 
-#define MS_Device_Type	(PPBUF_BASE2 + 0x1D8)	
+/* joey 2004-08-07 for MS check Procedure */
+#define MS_Device_Type	(PPBUF_BASE2 + 0x1D8)	/* 14 */
+/* end */
 
-#define	MS_4bit_Support	(PPBUF_BASE2 + 0x1D3)	
+/* joey 2004-05-03 */
+#define	MS_4bit_Support	(PPBUF_BASE2 + 0x1D3)	/* 15 */
+/* end */
 
 #define setPS_NG	1
 #define setPS_Error	0
 
+/*  define for Pro_SystemParm Register */
 #define	PARALLEL_8BIT_IF	0x40
 #define	PARALLEL_4BIT_IF	0x00
 #define	SERIAL_IF		0x80
 
+/*  define for StatusReg0 Register */
 #define BUF_FULL	0x10
 #define BUF_EMPTY	0x20
 
+/*  define for StatusReg1 Register */
 #define	MEDIA_BUSY	0x80
 #define	FLASH_BUSY	0x40
 #define	DATA_ERROR	0x20
@@ -234,4 +260,4 @@ int ms_transfer_data(struct rts51x_chip *chip, u8 trans_mode, u8 tpc,
 		     int buf_len);
 #endif
 
-#endif 
+#endif /* __RTS51X_MS_H */

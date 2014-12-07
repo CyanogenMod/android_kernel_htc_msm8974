@@ -15,4 +15,4 @@
 #define S3C64XX_SPI_SRCCLK_SPIBUS	1
 #define S3C64XX_SPI_SRCCLK_48M		2
 
-#endif 
+#endif /* __S3C64XX_PLAT_SPI_CLKS_H */

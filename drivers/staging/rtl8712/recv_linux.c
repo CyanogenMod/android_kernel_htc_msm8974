@@ -39,6 +39,8 @@
 #include <linux/if_arp.h>
 #include "usb_ops.h"
 
+/*init os related resource in struct recv_priv*/
+/*alloc os related resource in union recv_frame*/
 int r8712_os_recv_resource_alloc(struct _adapter *padapter,
 				 union recv_frame *precvframe)
 {
@@ -46,6 +48,7 @@ int r8712_os_recv_resource_alloc(struct _adapter *padapter,
 	return _SUCCESS;
 }
 
+/*alloc os related resource in struct recv_buf*/
 int r8712_os_recvbuf_resource_alloc(struct _adapter *padapter,
 				    struct recv_buf *precvbuf)
 {
@@ -68,6 +71,7 @@ int r8712_os_recvbuf_resource_alloc(struct _adapter *padapter,
 	return res;
 }
 
+/*free os related resource in struct recv_buf*/
 int r8712_os_recvbuf_resource_free(struct _adapter *padapter,
 			     struct recv_buf *precvbuf)
 {
@@ -127,11 +131,12 @@ void r8712_recv_indicatepkt(struct _adapter *padapter,
 	skb->dev = padapter->pnetdev;
 	skb->protocol = eth_type_trans(skb, padapter->pnetdev);
 	netif_rx(skb);
-	precv_frame->u.hdr.pkt = NULL; 
+	precv_frame->u.hdr.pkt = NULL; /* pointers to NULL before
+					* r8712_free_recvframe() */
 	r8712_free_recvframe(precv_frame, pfree_recv_queue);
 	return;
 _recv_indicatepkt_drop:
-	 
+	 /*enqueue back to free_recv_queue*/
 	 if (precv_frame)
 		r8712_free_recvframe(precv_frame, pfree_recv_queue);
 	 precvpriv->rx_drop++;
@@ -142,7 +147,7 @@ void r8712_os_read_port(struct _adapter *padapter, struct recv_buf *precvbuf)
 	struct recv_priv *precvpriv = &padapter->recvpriv;
 
 	precvbuf->ref_cnt--;
-	
+	/*free skb in recv_buf*/
 	dev_kfree_skb_any(precvbuf->pskb);
 	precvbuf->pskb = NULL;
 	precvbuf->reuse = false;

@@ -30,6 +30,9 @@ static struct dentry *acpi_ec_debugfs_dir;
 static ssize_t acpi_ec_read_io(struct file *f, char __user *buf,
 			       size_t count, loff_t *off)
 {
+	/* Use this if support reading/writing multiple ECs exists in ec.c:
+	 * struct acpi_ec *ec = ((struct seq_file *)f->private_data)->private;
+	 */
 	unsigned int size = EC_SPACE_SIZE;
 	u8 *data = (u8 *) buf;
 	loff_t init_off = *off;
@@ -56,6 +59,9 @@ static ssize_t acpi_ec_read_io(struct file *f, char __user *buf,
 static ssize_t acpi_ec_write_io(struct file *f, const char __user *buf,
 				size_t count, loff_t *off)
 {
+	/* Use this if support reading/writing multiple ECs exists in ec.c:
+	 * struct acpi_ec *ec = ((struct seq_file *)f->private_data)->private;
+	 */
 
 	unsigned int size = count;
 	loff_t init_off = *off;

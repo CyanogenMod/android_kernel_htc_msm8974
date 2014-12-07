@@ -20,12 +20,18 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ******************************************************************************/
 
+/*
+ * Functions and macros used internally by RPC
+ */
 
 #ifndef _NET_SUNRPC_SUNRPC_H
 #define _NET_SUNRPC_SUNRPC_H
 
 #include <linux/net.h>
 
+/*
+ * Header for dynamically allocated rpc buffers.
+ */
 struct rpc_buffer {
 	size_t	len;
 	char	data[];
@@ -43,5 +49,5 @@ int svc_send_common(struct socket *sock, struct xdr_buf *xdr,
 
 int rpc_clients_notifier_register(void);
 void rpc_clients_notifier_unregister(void);
-#endif 
+#endif /* _NET_SUNRPC_SUNRPC_H */
 

@@ -1,3 +1,12 @@
+/*
+ * linux/arch/sh/kernel/sys_sh.c
+ *
+ * This file contains various random system calls that
+ * have a non-standard calling sequence on the Linux/SuperH
+ * platform.
+ *
+ * Taken from i386 version.
+ */
 #include <linux/errno.h>
 #include <linux/sched.h>
 #include <linux/mm.h>
@@ -32,6 +41,10 @@ asmlinkage long sys_mmap2(unsigned long addr, unsigned long len,
 	unsigned long prot, unsigned long flags,
 	unsigned long fd, unsigned long pgoff)
 {
+	/*
+	 * The shift for mmap2 is constant, regardless of PAGE_SIZE
+	 * setting.
+	 */
 	if (pgoff & ((1 << (PAGE_SHIFT - 12)) - 1))
 		return -EINVAL;
 
@@ -40,6 +53,7 @@ asmlinkage long sys_mmap2(unsigned long addr, unsigned long len,
 	return sys_mmap_pgoff(addr, len, prot, flags, fd, pgoff);
 }
 
+/* sys_cacheflush -- flush (part of) the processor cache.  */
 asmlinkage int sys_cacheflush(unsigned long addr, unsigned long len, int op)
 {
 	struct vm_area_struct *vma;
@@ -47,6 +61,10 @@ asmlinkage int sys_cacheflush(unsigned long addr, unsigned long len, int op)
 	if ((op <= 0) || (op > (CACHEFLUSH_D_PURGE|CACHEFLUSH_I)))
 		return -EINVAL;
 
+	/*
+	 * Verify that the specified address region actually belongs
+	 * to this process.
+	 */
 	if (addr + len < addr)
 		return -EFAULT;
 

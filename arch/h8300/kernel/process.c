@@ -18,6 +18,9 @@
  *  68060 fixes by Jesper Skov
  */
 
+/*
+ * This file handles the architecture-dependent parts of process handling..
+ */
 
 #include <linux/errno.h>
 #include <linux/module.h>
@@ -44,13 +47,16 @@ EXPORT_SYMBOL(pm_power_off);
 
 asmlinkage void ret_from_fork(void);
 
+/*
+ * The idle loop on an H8/300..
+ */
 #if !defined(CONFIG_H8300H_SIM) && !defined(CONFIG_H8S_SIM)
 static void default_idle(void)
 {
 	local_irq_disable();
 	if (!need_resched()) {
 		local_irq_enable();
-		
+		/* XXX: race here! What if need_resched() gets set now? */
 		__asm__("sleep");
 	} else
 		local_irq_enable();
@@ -63,6 +69,12 @@ static void default_idle(void)
 #endif
 void (*idle)(void) = default_idle;
 
+/*
+ * The idle thread. There's no useful work to be
+ * done, so just try to conserve power and have a
+ * low exit latency (ie sit in a loop waiting for
+ * somebody to say that they'd like to reschedule)
+ */
 void cpu_idle(void)
 {
 	while (1) {
@@ -107,6 +119,9 @@ void show_regs(struct pt_regs * regs)
 		printk("\n");
 }
 
+/*
+ * Create a kernel thread
+ */
 int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 {
 	long retval;
@@ -141,6 +156,12 @@ void flush_thread(void)
 {
 }
 
+/*
+ * "h8300_fork()".. By the time we get here, the
+ * non-volatile registers have also been saved on the
+ * stack. We do some ugly pointer stuff here.. (see
+ * also copy_thread)
+ */
 
 asmlinkage int h8300_fork(struct pt_regs *regs)
 {
@@ -157,7 +178,7 @@ asmlinkage int h8300_clone(struct pt_regs *regs)
 	unsigned long clone_flags;
 	unsigned long newsp;
 
-	
+	/* syscall2 puts clone_flags in er1 and usp in er2 */
 	clone_flags = regs->er1;
 	newsp = regs->er2;
 	if (!newsp)
@@ -184,6 +205,9 @@ int copy_thread(unsigned long clone_flags,
 	return 0;
 }
 
+/*
+ * sys_execve() executes a new program.
+ */
 asmlinkage int sys_execve(const char *name,
 			  const char *const *argv,
 			  const char *const *envp,

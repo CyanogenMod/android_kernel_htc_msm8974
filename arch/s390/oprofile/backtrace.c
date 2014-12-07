@@ -8,7 +8,7 @@
 
 #include <linux/oprofile.h>
 
-#include <asm/processor.h> 
+#include <asm/processor.h> /* for struct stack_frame */
 
 static unsigned long
 __show_trace(unsigned int *depth, unsigned long sp,
@@ -25,7 +25,7 @@ __show_trace(unsigned int *depth, unsigned long sp,
 		(*depth)--;
 		oprofile_add_trace(sf->gprs[8] & PSW_ADDR_INSN);
 
-		
+		/* Follow the backchain.  */
 		while (*depth) {
 			low = sp;
 			sp = sf->back_chain & PSW_ADDR_INSN;
@@ -42,7 +42,7 @@ __show_trace(unsigned int *depth, unsigned long sp,
 		if (*depth == 0)
 			break;
 
-		
+		/* Zero backchain detected, check for interrupt frame.  */
 		sp = (unsigned long) (sf + 1);
 		if (sp <= low || sp > high - sizeof(*regs))
 			return sp;

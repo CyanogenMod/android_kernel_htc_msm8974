@@ -19,15 +19,23 @@
 #include "mem_user.h"
 #include "os.h"
 
+/* allocated in paging_init, zeroed in mem_init, and unchanged thereafter */
 unsigned long *empty_zero_page = NULL;
 EXPORT_SYMBOL(empty_zero_page);
+/* allocated in paging_init and unchanged thereafter */
 static unsigned long *empty_bad_page = NULL;
 
+/*
+ * Initialized during boot, and readonly for initializing page tables
+ * afterwards
+ */
 pgd_t swapper_pg_dir[PTRS_PER_PGD];
 
+/* Initialized at boot time, and readonly after that */
 unsigned long long highmem;
 int kmalloc_ok = 0;
 
+/* Used during early boot */
 static unsigned long brk_end;
 
 #ifdef CONFIG_HIGHMEM
@@ -50,15 +58,18 @@ static void setup_highmem(unsigned long highmem_start,
 
 void __init mem_init(void)
 {
-	
+	/* clear the zero-page */
 	memset(empty_zero_page, 0, PAGE_SIZE);
 
+	/* Map in the area just after the brk now that kmalloc is about
+	 * to be turned on.
+	 */
 	brk_end = (unsigned long) UML_ROUND_UP(sbrk(0));
 	map_memory(brk_end, __pa(brk_end), uml_reserved - brk_end, 1, 1, 0);
 	free_bootmem(__pa(brk_end), uml_reserved - brk_end);
 	uml_reserved = brk_end;
 
-	
+	/* this will put all low memory onto the freelists */
 	totalram_pages = free_all_bootmem();
 	max_low_pfn = totalram_pages;
 #ifdef CONFIG_HIGHMEM
@@ -76,6 +87,10 @@ void __init mem_init(void)
 #endif
 }
 
+/*
+ * Create a page table and place a pointer to it in a middle page
+ * directory entry.
+ */
 static void __init one_page_table_init(pmd_t *pmd)
 {
 	if (pmd_none(*pmd)) {
@@ -136,7 +151,7 @@ static void __init kmap_init(void)
 {
 	unsigned long kmap_vstart;
 
-	
+	/* cache the first kmap pte */
 	kmap_vstart = __fix_to_virt(FIX_KMAP_BEGIN);
 	kmap_pte = kmap_get_fixmap_pte(kmap_vstart);
 
@@ -151,6 +166,9 @@ static void __init init_highmem(void)
 	pte_t *pte;
 	unsigned long vaddr;
 
+	/*
+	 * Permanent kmaps:
+	 */
 	vaddr = PKMAP_BASE;
 	fixrange_init(vaddr, vaddr + PAGE_SIZE*LAST_PKMAP, swapper_pg_dir);
 
@@ -162,7 +180,7 @@ static void __init init_highmem(void)
 
 	kmap_init();
 }
-#endif 
+#endif /* CONFIG_HIGHMEM */
 
 static void __init fixaddr_user_init( void)
 {
@@ -210,6 +228,10 @@ void __init paging_init(void)
 #endif
 	free_area_init(zones_size);
 
+	/*
+	 * Fixed mappings, only the page table structure has to be
+	 * created - mappings will be set by set_fixmap():
+	 */
 	vaddr = __fix_to_virt(__end_of_fixed_addresses - 1) & PMD_MASK;
 	fixrange_init(vaddr, FIXADDR_TOP, swapper_pg_dir);
 
@@ -220,6 +242,10 @@ void __init paging_init(void)
 #endif
 }
 
+/*
+ * This can't do anything because nothing in the kernel image can be freed
+ * since it's not in kernel physical memory.
+ */
 
 void free_initmem(void)
 {
@@ -240,6 +266,7 @@ void free_initrd_mem(unsigned long start, unsigned long end)
 }
 #endif
 
+/* Allocate and free page tables. */
 
 pgd_t *pgd_alloc(struct mm_struct *mm)
 {

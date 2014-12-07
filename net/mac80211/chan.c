@@ -1,3 +1,6 @@
+/*
+ * mac80211 - channel management
+ */
 
 #include <linux/nl80211.h>
 #include <net/cfg80211.h>
@@ -32,7 +35,7 @@ __ieee80211_get_channel_mode(struct ieee80211_local *local,
 				return CHAN_MODE_HOPPING;
 			break;
 		case NL80211_IFTYPE_AP_VLAN:
-			
+			/* will also have _AP interface */
 			continue;
 		case NL80211_IFTYPE_AP:
 			if (!sdata->u.ap.beacon)
@@ -100,13 +103,17 @@ bool ieee80211_set_channel_type(struct ieee80211_local *local,
 	switch (superchan) {
 	case NL80211_CHAN_NO_HT:
 	case NL80211_CHAN_HT20:
+		/*
+		 * allow any change that doesn't go to no-HT
+		 * (if it already is no-HT no change is needed)
+		 */
 		if (chantype == NL80211_CHAN_NO_HT)
 			break;
 		superchan = chantype;
 		break;
 	case NL80211_CHAN_HT40PLUS:
 	case NL80211_CHAN_HT40MINUS:
-		
+		/* allow smaller bandwidth and same */
 		if (chantype == NL80211_CHAN_NO_HT)
 			break;
 		if (chantype == NL80211_CHAN_HT20)
@@ -129,6 +136,11 @@ bool ieee80211_set_channel_type(struct ieee80211_local *local,
 	return result;
 }
 
+/*
+ * ieee80211_get_tx_channel_type returns the channel type we should
+ * use for packet transmission, given the channel capability and
+ * whatever regulatory flags we have been given.
+ */
 enum nl80211_channel_type ieee80211_get_tx_channel_type(
 				struct ieee80211_local *local,
 				enum nl80211_channel_type channel_type)

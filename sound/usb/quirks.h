@@ -20,4 +20,4 @@ void snd_usb_set_format_quirk(struct snd_usb_substream *subs,
 int snd_usb_is_big_endian_format(struct snd_usb_audio *chip,
 				 struct audioformat *fp);
 
-#endif 
+#endif /* __USBAUDIO_QUIRKS_H */

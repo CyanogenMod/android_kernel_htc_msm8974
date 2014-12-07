@@ -16,6 +16,7 @@
 
 #include <linux/io.h>
 
+/* sysctl registers offset */
 #define SCCTRL			0x000
 #define SCSYSSTAT		0x004
 #define SCIMCTRL		0x008
@@ -57,11 +58,11 @@
 
 static inline void sysctl_soft_reset(void __iomem *base)
 {
-	
+	/* switch to slow mode */
 	writel(0x2, base + SCCTRL);
 
-	
+	/* writing any value to SCSYSSTAT reg will reset system */
 	writel(0, base + SCSYSSTAT);
 }
 
-#endif	
+#endif	/* __ASM_ARM_SP810_H */

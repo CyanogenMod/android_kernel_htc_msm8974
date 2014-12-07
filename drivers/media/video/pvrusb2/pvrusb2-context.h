@@ -23,13 +23,13 @@
 #include <linux/usb.h>
 #include <linux/workqueue.h>
 
-struct pvr2_hdw;     
-struct pvr2_stream;  
+struct pvr2_hdw;     /* hardware interface - defined elsewhere */
+struct pvr2_stream;  /* stream interface - defined elsewhere */
 
-struct pvr2_context;        
-struct pvr2_channel;        
-struct pvr2_context_stream; 
-struct pvr2_ioread;         
+struct pvr2_context;        /* All central state */
+struct pvr2_channel;        /* One I/O pathway to a user */
+struct pvr2_context_stream; /* Wrapper for a stream */
+struct pvr2_ioread;         /* Low level stream structure */
 
 struct pvr2_context_stream {
 	struct pvr2_channel *user;
@@ -50,7 +50,7 @@ struct pvr2_context {
 	int initialized_flag;
 	int disconnect_flag;
 
-	
+	/* Called after pvr2_context initialization is complete */
 	void (*setup_func)(struct pvr2_context *);
 
 };
@@ -82,4 +82,13 @@ struct pvr2_ioread *pvr2_channel_create_mpeg_stream(
 int pvr2_context_global_init(void);
 void pvr2_context_global_done(void);
 
-#endif 
+#endif /* __PVRUSB2_CONTEXT_H */
+/*
+  Stuff for Emacs to see, in order to encourage consistent editing style:
+  *** Local Variables: ***
+  *** mode: c ***
+  *** fill-column: 75 ***
+  *** tab-width: 8 ***
+  *** c-basic-offset: 8 ***
+  *** End: ***
+  */

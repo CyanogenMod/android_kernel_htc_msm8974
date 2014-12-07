@@ -139,8 +139,8 @@ static int pmc551_point(struct mtd_info *mtd, loff_t from, size_t len,
 static int pmc551_erase(struct mtd_info *mtd, struct erase_info *instr)
 {
 	struct mypriv *priv = mtd->priv;
-	u32 soff_hi, soff_lo;	
-	u32 eoff_hi, eoff_lo;	
+	u32 soff_hi, soff_lo;	/* start address offset hi/lo */
+	u32 eoff_hi, eoff_lo;	/* end address offset hi/lo */
 	unsigned long end;
 	u_char *ptr;
 	size_t retlen;
@@ -160,6 +160,8 @@ static int pmc551_erase(struct mtd_info *mtd, struct erase_info *instr)
 		     (void **)&ptr, NULL);
 
 	if (soff_hi == eoff_hi || mtd->size == priv->asize) {
+		/* The whole thing fits within one access, so just one shot
+		   will do it. */
 		memset(ptr, 0xff, instr->len);
 	} else {
 		/* We have to do multiple writes to get all the data
@@ -205,7 +207,7 @@ static int pmc551_point(struct mtd_info *mtd, loff_t from, size_t len,
 	soff_hi = from & ~(priv->asize - 1);
 	soff_lo = from & (priv->asize - 1);
 
-	
+	/* Cheap hack optimization */
 	if (priv->curr_map0 != from) {
 		pci_write_config_dword(priv->dev, PMC551_PCI_MEM_MAP0,
 					(priv->base_map0 | soff_hi));
@@ -229,8 +231,8 @@ static int pmc551_read(struct mtd_info *mtd, loff_t from, size_t len,
 			size_t * retlen, u_char * buf)
 {
 	struct mypriv *priv = mtd->priv;
-	u32 soff_hi, soff_lo;	
-	u32 eoff_hi, eoff_lo;	
+	u32 soff_hi, soff_lo;	/* start address offset hi/lo */
+	u32 eoff_hi, eoff_lo;	/* end address offset hi/lo */
 	unsigned long end;
 	u_char *ptr;
 	u_char *copyto = buf;
@@ -249,6 +251,8 @@ static int pmc551_read(struct mtd_info *mtd, loff_t from, size_t len,
 	pmc551_point(mtd, from, len, retlen, (void **)&ptr, NULL);
 
 	if (soff_hi == eoff_hi) {
+		/* The whole thing fits within one access, so just one shot
+		   will do it. */
 		memcpy(copyto, ptr, len);
 		copyto += len;
 	} else {
@@ -284,8 +288,8 @@ static int pmc551_write(struct mtd_info *mtd, loff_t to, size_t len,
 			size_t * retlen, const u_char * buf)
 {
 	struct mypriv *priv = mtd->priv;
-	u32 soff_hi, soff_lo;	
-	u32 eoff_hi, eoff_lo;	
+	u32 soff_hi, soff_lo;	/* start address offset hi/lo */
+	u32 eoff_hi, eoff_lo;	/* end address offset hi/lo */
 	unsigned long end;
 	u_char *ptr;
 	const u_char *copyfrom = buf;
@@ -304,6 +308,8 @@ static int pmc551_write(struct mtd_info *mtd, loff_t to, size_t len,
 	pmc551_point(mtd, to, len, retlen, (void **)&ptr, NULL);
 
 	if (soff_hi == eoff_hi) {
+		/* The whole thing fits within one access, so just one shot
+		   will do it. */
 		memcpy(ptr, copyfrom, len);
 		copyfrom += len;
 	} else {
@@ -335,6 +341,18 @@ static int pmc551_write(struct mtd_info *mtd, loff_t to, size_t len,
 	return 0;
 }
 
+/*
+ * Fixup routines for the V370PDC
+ * PCI device ID 0x020011b0
+ *
+ * This function basically kick starts the DRAM oboard the card and gets it
+ * ready to be used.  Before this is done the device reads VERY erratic, so
+ * much that it can crash the Linux 2.2.x series kernels when a user cat's
+ * /proc/pci .. though that is mainly a kernel bug in handling the PCI DEVSEL
+ * register.  FIXME: stop spinning on registers .. must implement a timeout
+ * mechanism
+ * returns the size of the memory region found.
+ */
 static int fixup_pmc551(struct pci_dev *dev)
 {
 #ifdef CONFIG_MTD_PMC551_BUGFIX
@@ -344,17 +362,21 @@ static int fixup_pmc551(struct pci_dev *dev)
 	u16 cmd, tmp, i;
 	u8 bcmd, counter;
 
-	
+	/* Sanity Check */
 	if (!dev) {
 		return -ENODEV;
 	}
 
+	/*
+	 * Attempt to reset the card
+	 * FIXME: Stop Spinning registers
+	 */
 	counter = 0;
-	
+	/* unlock registers */
 	pci_write_config_byte(dev, PMC551_SYS_CTRL_REG, 0xA5);
-	
+	/* read in old data */
 	pci_read_config_byte(dev, PMC551_SYS_CTRL_REG, &bcmd);
-	
+	/* bang the reset line up and down for a few */
 	for (i = 0; i < 10; i++) {
 		counter = 0;
 		bcmd &= ~0x80;
@@ -370,13 +392,29 @@ static int fixup_pmc551(struct pci_dev *dev)
 	bcmd |= (0x40 | 0x20);
 	pci_write_config_byte(dev, PMC551_SYS_CTRL_REG, bcmd);
 
+	/*
+	 * Take care and turn off the memory on the device while we
+	 * tweak the configurations
+	 */
 	pci_read_config_word(dev, PCI_COMMAND, &cmd);
 	tmp = cmd & ~(PCI_COMMAND_IO | PCI_COMMAND_MEMORY);
 	pci_write_config_word(dev, PCI_COMMAND, tmp);
 
+	/*
+	 * Disable existing aperture before probing memory size
+	 */
 	pci_read_config_dword(dev, PMC551_PCI_MEM_MAP0, &dcmd);
 	dtmp = (dcmd | PMC551_PCI_MEM_MAP_ENABLE | PMC551_PCI_MEM_MAP_REG_EN);
 	pci_write_config_dword(dev, PMC551_PCI_MEM_MAP0, dtmp);
+	/*
+	 * Grab old BAR0 config so that we can figure out memory size
+	 * This is another bit of kludge going on.  The reason for the
+	 * redundancy is I am hoping to retain the original configuration
+	 * previously assigned to the card by the BIOS or some previous
+	 * fixup routine in the kernel.  So we read the old config into cfg,
+	 * then write all 1's to the memory space, read back the result into
+	 * "size", and then write back all the old config.
+	 */
 	pci_read_config_dword(dev, PCI_BASE_ADDRESS_0, &cfg);
 #ifndef CONFIG_MTD_PMC551_BUGFIX
 	pci_write_config_dword(dev, PCI_BASE_ADDRESS_0, ~0);
@@ -385,6 +423,14 @@ static int fixup_pmc551(struct pci_dev *dev)
 	size &= ~(size - 1);
 	pci_write_config_dword(dev, PCI_BASE_ADDRESS_0, cfg);
 #else
+	/*
+	 * Get the size of the memory by reading all the DRAM size values
+	 * and adding them up.
+	 *
+	 * KLUDGE ALERT: the boards we are using have invalid column and
+	 * row mux values.  We fix them here, but this will break other
+	 * memory configurations.
+	 */
 	pci_read_config_dword(dev, PMC551_DRAM_BLK0, &dram_data);
 	size = PMC551_DRAM_BLK_GET_SIZE(dram_data);
 	dram_data = PMC551_DRAM_BLK_SET_COL_MUX(dram_data, 0x5);
@@ -409,27 +455,47 @@ static int fixup_pmc551(struct pci_dev *dev)
 	dram_data = PMC551_DRAM_BLK_SET_ROW_MUX(dram_data, 0x9);
 	pci_write_config_dword(dev, PMC551_DRAM_BLK3, dram_data);
 
+	/*
+	 * Oops .. something went wrong
+	 */
 	if ((size &= PCI_BASE_ADDRESS_MEM_MASK) == 0) {
 		return -ENODEV;
 	}
-#endif				
+#endif				/* CONFIG_MTD_PMC551_BUGFIX */
 
 	if ((cfg & PCI_BASE_ADDRESS_SPACE) != PCI_BASE_ADDRESS_SPACE_MEMORY) {
 		return -ENODEV;
 	}
 
+	/*
+	 * Precharge Dram
+	 */
 	pci_write_config_word(dev, PMC551_SDRAM_MA, 0x0400);
 	pci_write_config_word(dev, PMC551_SDRAM_CMD, 0x00bf);
 
+	/*
+	 * Wait until command has gone through
+	 * FIXME: register spinning issue
+	 */
 	do {
 		pci_read_config_word(dev, PMC551_SDRAM_CMD, &cmd);
 		if (counter++ > 100)
 			break;
 	} while ((PCI_COMMAND_IO) & cmd);
 
+	/*
+	 * Turn on auto refresh
+	 * The loop is taken directly from Ramix's example code.  I assume that
+	 * this must be held high for some duration of time, but I can find no
+	 * documentation refrencing the reasons why.
+	 */
 	for (i = 1; i <= 8; i++) {
 		pci_write_config_word(dev, PMC551_SDRAM_CMD, 0x0df);
 
+		/*
+		 * Make certain command has gone through
+		 * FIXME: register spinning issue
+		 */
 		counter = 0;
 		do {
 			pci_read_config_word(dev, PMC551_SDRAM_CMD, &cmd);
@@ -441,6 +507,10 @@ static int fixup_pmc551(struct pci_dev *dev)
 	pci_write_config_word(dev, PMC551_SDRAM_MA, 0x0020);
 	pci_write_config_word(dev, PMC551_SDRAM_CMD, 0x0ff);
 
+	/*
+	 * Wait until command completes
+	 * FIXME: register spinning issue
+	 */
 	counter = 0;
 	do {
 		pci_read_config_word(dev, PMC551_SDRAM_CMD, &cmd);
@@ -452,20 +522,44 @@ static int fixup_pmc551(struct pci_dev *dev)
 	dcmd |= 0x02000000;
 	pci_write_config_dword(dev, PMC551_DRAM_CFG, dcmd);
 
+	/*
+	 * Check to make certain fast back-to-back, if not
+	 * then set it so
+	 */
 	pci_read_config_word(dev, PCI_STATUS, &cmd);
 	if ((cmd & PCI_COMMAND_FAST_BACK) == 0) {
 		cmd |= PCI_COMMAND_FAST_BACK;
 		pci_write_config_word(dev, PCI_STATUS, cmd);
 	}
 
+	/*
+	 * Check to make certain the DEVSEL is set correctly, this device
+	 * has a tendency to assert DEVSEL and TRDY when a write is performed
+	 * to the memory when memory is read-only
+	 */
 	if ((cmd & PCI_STATUS_DEVSEL_MASK) != 0x0) {
 		cmd &= ~PCI_STATUS_DEVSEL_MASK;
 		pci_write_config_word(dev, PCI_STATUS, cmd);
 	}
+	/*
+	 * Set to be prefetchable and put everything back based on old cfg.
+	 * it's possible that the reset of the V370PDC nuked the original
+	 * setup
+	 */
+	/*
+	   cfg |= PCI_BASE_ADDRESS_MEM_PREFETCH;
+	   pci_write_config_dword( dev, PCI_BASE_ADDRESS_0, cfg );
+	 */
 
+	/*
+	 * Turn PCI memory and I/O bus access back on
+	 */
 	pci_write_config_word(dev, PCI_COMMAND,
 			      PCI_COMMAND_MEMORY | PCI_COMMAND_IO);
 #ifdef CONFIG_MTD_PMC551_DEBUG
+	/*
+	 * Some screen fun
+	 */
 	printk(KERN_DEBUG "pmc551: %d%sB (0x%x) of %sprefetchable memory at "
 		"0x%llx\n", (size < 1024) ? size : (size < 1048576) ?
 		size >> 10 : size >> 20,
@@ -473,6 +567,9 @@ static int fixup_pmc551(struct pci_dev *dev)
 		((dcmd & (0x1 << 3)) == 0) ? "non-" : "",
 		(unsigned long long)pci_resource_start(dev, 0));
 
+	/*
+	 * Check to see the state of the memory
+	 */
 	pci_read_config_dword(dev, PMC551_DRAM_BLK0, &dcmd);
 	printk(KERN_DEBUG "pmc551: DRAM_BLK0 Flags: %s,%s\n"
 		"pmc551: DRAM_BLK0 Size: %d at %d\n"
@@ -538,11 +635,17 @@ static int fixup_pmc551(struct pci_dev *dev)
 	return size;
 }
 
+/*
+ * Kernel version specific module stuffages
+ */
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Mark Ferrell <mferrell@mvista.com>");
 MODULE_DESCRIPTION(PMC551_VERSION);
 
+/*
+ * Stuff these outside the ifdef so as to not bust compiled in driver support
+ */
 static int msize = 0;
 static int asize = 0;
 
@@ -551,6 +654,9 @@ MODULE_PARM_DESC(msize, "memory size in MiB [1 - 1024]");
 module_param(asize, int, 0);
 MODULE_PARM_DESC(asize, "aperture size, must be <= memsize [1-1024]");
 
+/*
+ * PMC551 Card Initialization
+ */
 static int __init init_pmc551(void)
 {
 	struct pci_dev *PCI_Device = NULL;
@@ -579,6 +685,9 @@ static int __init init_pmc551(void)
 
 	printk(KERN_INFO PMC551_VERSION);
 
+	/*
+	 * PCU-bus chipset probe.
+	 */
 	for (;;) {
 
 		if ((PCI_Device = pci_get_device(PCI_VENDOR_ID_V3_SEMI,
@@ -603,6 +712,10 @@ static int __init init_pmc551(void)
 			break;
 		}
 
+		/*
+		 * This is needed until the driver is capable of reading the
+		 * onboard I2C SROM to discover the "real" memory size.
+		 */
 		if (msize) {
 			length = msize;
 			printk(KERN_NOTICE "pmc551: Using specified memory "
@@ -687,7 +800,7 @@ static int __init init_pmc551(void)
 			break;
 		}
 
-		
+		/* Keep a reference as the mtd_device_register worked */
 		pci_dev_get(PCI_Device);
 
 		printk(KERN_NOTICE "Registered pmc551 memory device.\n");
@@ -703,7 +816,7 @@ static int __init init_pmc551(void)
 		found++;
 	}
 
-	
+	/* Exited early, reference left over */
 	if (PCI_Device)
 		pci_dev_put(PCI_Device);
 
@@ -716,6 +829,9 @@ static int __init init_pmc551(void)
 	}
 }
 
+/*
+ * PMC551 Card Cleanup
+ */
 static void __exit cleanup_pmc551(void)
 {
 	int found = 0;

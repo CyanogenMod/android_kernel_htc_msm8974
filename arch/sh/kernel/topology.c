@@ -23,6 +23,10 @@ EXPORT_SYMBOL(cpu_core_map);
 
 static cpumask_t cpu_coregroup_map(unsigned int cpu)
 {
+	/*
+	 * Presently all SH-X3 SMP cores are multi-cores, so just keep it
+	 * simple until we have a method for determining topology..
+	 */
 	return *cpu_possible_mask;
 }
 
@@ -62,6 +66,12 @@ static int __init topology_init(void)
 	}
 
 #if defined(CONFIG_NUMA) && !defined(CONFIG_SMP)
+	/*
+	 * In the UP case, make sure the CPU association is still
+	 * registered under each node. Without this, sysfs fails
+	 * to make the connection between nodes other than node0
+	 * and cpu0.
+	 */
 	for_each_online_node(i)
 		if (i != numa_node_id())
 			register_cpu_under_node(raw_smp_processor_id(), i);

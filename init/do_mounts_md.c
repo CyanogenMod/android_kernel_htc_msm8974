@@ -4,6 +4,14 @@
 
 #include "do_mounts.h"
 
+/*
+ * When md (and any require personalities) are compiled into the kernel
+ * (not a module), arrays can be assembles are boot time using with AUTODETECT
+ * where specially marked partitions are registered with md_autodetect_dev(),
+ * and with MD_BOOT where devices to be collected are given on the boot line
+ * with md=.....
+ * The code for that is here.
+ */
 
 #ifdef CONFIG_MD_AUTODETECT
 static int __initdata raid_noautodetect;
@@ -22,6 +30,26 @@ static struct {
 
 static int md_setup_ents __initdata;
 
+/*
+ * Parse the command-line parameters given our kernel, but do not
+ * actually try to invoke the MD device now; that is handled by
+ * md_setup_drive after the low-level disk drivers have initialised.
+ *
+ * 27/11/1999: Fixed to work correctly with the 2.3 kernel (which
+ *             assigns the task of parsing integer arguments to the
+ *             invoked program now).  Added ability to initialise all
+ *             the MD devices (by specifying multiple "md=" lines)
+ *             instead of just one.  -- KTK
+ * 18May2000: Added support for persistent-superblock arrays:
+ *             md=n,0,factor,fault,device-list   uses RAID0 for device n
+ *             md=n,-1,factor,fault,device-list  uses LINEAR for device n
+ *             md=n,device-list      reads a RAID superblock from the devices
+ *             elements in device-list are read by name_to_kdev_t so can be
+ *             a hex number or something like /dev/hda1 /dev/sdb
+ * 2001-06-03: Dave Cinege <dcinege@psychosis.com>
+ *		Shifted name_to_kdev_t() and related operations to md_set_drive()
+ *		for later execution. Rewrote section to make devfs compatible.
+ */
 static int __init md_setup(char *str)
 {
 	int minor, level, factor, fault, partitioned = 0;
@@ -33,7 +61,7 @@ static int __init md_setup(char *str)
 		partitioned = 1;
 		str++;
 	}
-	if (get_option(&str, &minor) != 2) {	
+	if (get_option(&str, &minor) != 2) {	/* MD Number */
 		printk(KERN_WARNING "md: Too few arguments supplied to md=.\n");
 		return 0;
 	}
@@ -51,10 +79,10 @@ static int __init md_setup(char *str)
 	}
 	if (ent >= md_setup_ents)
 		md_setup_ents++;
-	switch (get_option(&str, &level)) {	
-	case 2: 
+	switch (get_option(&str, &level)) {	/* RAID level */
+	case 2: /* could be 0 or -1.. */
 		if (level == 0 || level == LEVEL_LINEAR) {
-			if (get_option(&str, &factor) != 2 ||	
+			if (get_option(&str, &factor) != 2 ||	/* Chunk Size */
 					get_option(&str, &fault) != 2) {
 				printk(KERN_WARNING "md: Too few arguments supplied to md=.\n");
 				return 0;
@@ -67,10 +95,10 @@ static int __init md_setup(char *str)
 				pername = "raid0";
 			break;
 		}
-		
-	case 1: 
+		/* FALL THROUGH */
+	case 1: /* the first device is numeric */
 		str = str1;
-		
+		/* FALL THROUGH */
 	case 0:
 		md_setup_args[ent].level = LEVEL_NONE;
 		pername="super-block";
@@ -157,7 +185,7 @@ static void __init md_setup_drive(void)
 		}
 
 		if (md_setup_args[ent].level != LEVEL_NONE) {
-			
+			/* non-persistent */
 			mdu_array_info_t ainfo;
 			ainfo.level = md_setup_args[ent].level;
 			ainfo.size = 0;
@@ -184,7 +212,7 @@ static void __init md_setup_drive(void)
 				err = sys_ioctl(fd, ADD_NEW_DISK, (long)&dinfo);
 			}
 		} else {
-			
+			/* persistent */
 			for (i = 0; i <= MD_SB_DISKS; i++) {
 				dev = devices[i];
 				if (!dev)
@@ -199,6 +227,11 @@ static void __init md_setup_drive(void)
 		if (err)
 			printk(KERN_WARNING "md: starting md%d failed\n", minor);
 		else {
+			/* reread the partition table.
+			 * I (neilb) and not sure why this is needed, but I cannot
+			 * boot a kernel with devfs compiled in from partitioned md
+			 * array without it
+			 */
 			sys_close(fd);
 			fd = sys_open(name, 0, 0);
 			sys_ioctl(fd, BLKRRPART, 0);
@@ -241,6 +274,10 @@ static void __init autodetect_raid(void)
 {
 	int fd;
 
+	/*
+	 * Since we don't want to detect and use half a raid array, we need to
+	 * wait for the known devices to complete their probing
+	 */
 	printk(KERN_INFO "md: Waiting for all devices to be available before autodetect\n");
 	printk(KERN_INFO "md: If you don't use raid, use raid=noautodetect\n");
 

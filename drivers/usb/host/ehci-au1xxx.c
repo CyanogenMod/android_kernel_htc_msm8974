@@ -32,21 +32,39 @@ static const struct hc_driver ehci_au1xxx_hc_driver = {
 	.product_desc		= "Au1xxx EHCI",
 	.hcd_priv_size		= sizeof(struct ehci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq			= ehci_irq,
 	.flags			= HCD_MEMORY | HCD_USB2,
 
+	/*
+	 * basic lifecycle operations
+	 *
+	 * FIXME -- ehci_init() doesn't do enough here.
+	 * See ehci-ppc-soc for a complete implementation.
+	 */
 	.reset			= au1xxx_ehci_setup,
 	.start			= ehci_run,
 	.stop			= ehci_stop,
 	.shutdown		= ehci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue		= ehci_urb_enqueue,
 	.urb_dequeue		= ehci_urb_dequeue,
 	.endpoint_disable	= ehci_endpoint_disable,
 	.endpoint_reset		= ehci_endpoint_reset,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number	= ehci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data	= ehci_hub_status_data,
 	.hub_control		= ehci_hub_control,
 	.bus_suspend		= ehci_bus_suspend,
@@ -102,7 +120,7 @@ static int ehci_hcd_au1xxx_drv_probe(struct platform_device *pdev)
 	ehci->caps = hcd->regs;
 	ehci->regs = hcd->regs +
 		HC_LENGTH(ehci, readl(&ehci->caps->hc_capbase));
-	
+	/* cache this readonly data; minimize chip reads */
 	ehci->hcs_params = readl(&ehci->caps->hcs_params);
 
 	ret = usb_add_hcd(hcd, pdev->resource[1].start,
@@ -147,6 +165,10 @@ static int ehci_hcd_au1xxx_drv_suspend(struct device *dev)
 	if (time_before(jiffies, ehci->next_statechange))
 		msleep(10);
 
+	/* Root hub was already suspended. Disable irq emission and
+	 * mark HW unaccessible.  The PM and USB cores make sure that
+	 * the root hub is either suspended or stopped.
+	 */
 	ehci_prepare_ports_for_controller_suspend(ehci, device_may_wakeup(dev));
 	spin_lock_irqsave(&ehci->lock, flags);
 	ehci_writel(ehci, 0, &ehci->regs->intr_enable);
@@ -155,8 +177,8 @@ static int ehci_hcd_au1xxx_drv_suspend(struct device *dev)
 	clear_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 	spin_unlock_irqrestore(&ehci->lock, flags);
 
-	
-	
+	// could save FLADJ in case of Vaux power loss
+	// ... we'd only use it to handle clock skew
 
 	alchemy_usb_control(ALCHEMY_USB_EHCI0, 0);
 
@@ -170,14 +192,17 @@ static int ehci_hcd_au1xxx_drv_resume(struct device *dev)
 
 	alchemy_usb_control(ALCHEMY_USB_EHCI0, 1);
 
-	
+	// maybe restore FLADJ
 
 	if (time_before(jiffies, ehci->next_statechange))
 		msleep(100);
 
-	
+	/* Mark hardware accessible again as we are out of D3 state by now */
 	set_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 
+	/* If CF is still set, we maintained PCI Vaux power.
+	 * Just undo the effect of ehci_pci_suspend().
+	 */
 	if (ehci_readl(ehci, &ehci->regs->configured_flag) == FLAG_CF) {
 		int	mask = INTR_MASK;
 
@@ -192,10 +217,13 @@ static int ehci_hcd_au1xxx_drv_resume(struct device *dev)
 	ehci_dbg(ehci, "lost power, restarting\n");
 	usb_root_hub_lost_power(hcd->self.root_hub);
 
+	/* Else reset, to cope with power loss or flush-to-storage
+	 * style "resume" having let BIOS kick in during reboot.
+	 */
 	(void) ehci_halt(ehci);
 	(void) ehci_reset(ehci);
 
-	
+	/* emptying the schedule aborts any urbs */
 	spin_lock_irq(&ehci->lock);
 	if (ehci->reclaim)
 		end_unlink_async(ehci);
@@ -204,9 +232,9 @@ static int ehci_hcd_au1xxx_drv_resume(struct device *dev)
 
 	ehci_writel(ehci, ehci->command, &ehci->regs->command);
 	ehci_writel(ehci, FLAG_CF, &ehci->regs->configured_flag);
-	ehci_readl(ehci, &ehci->regs->command);	
+	ehci_readl(ehci, &ehci->regs->command);	/* unblock posted writes */
 
-	
+	/* here we "know" root ports should always stay powered */
 	ehci_port_power(ehci, 1);
 
 	ehci->rh_state = EHCI_RH_SUSPENDED;

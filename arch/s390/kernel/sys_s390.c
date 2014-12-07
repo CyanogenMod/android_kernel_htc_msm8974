@@ -32,6 +32,11 @@
 #include <asm/uaccess.h>
 #include "entry.h"
 
+/*
+ * Perform the mmap() system call. Linux for S/390 isn't able to handle more
+ * than 5 system call parameters, so this system call uses a memory block
+ * for parameter passing.
+ */
 
 struct s390_mmap_arg_struct {
 	unsigned long addr;
@@ -54,11 +59,22 @@ out:
 	return error;
 }
 
+/*
+ * sys_ipc() is the de-multiplexer for the SysV IPC calls.
+ */
 SYSCALL_DEFINE5(s390_ipc, uint, call, int, first, unsigned long, second,
 		unsigned long, third, void __user *, ptr)
 {
 	if (call >> 16)
 		return -EINVAL;
+	/* The s390 sys_ipc variant has only five parameters instead of six
+	 * like the generic variant. The only difference is the handling of
+	 * the SEMTIMEDOP subcall where on s390 the third parameter is used
+	 * as a pointer to a struct timespec where the generic variant uses
+	 * the fifth parameter.
+	 * Therefore we can call the generic variant by simply passing the
+	 * third parameter also as fifth parameter.
+	 */
 	return sys_ipc(call, first, second, third, ptr, third);
 }
 
@@ -75,8 +91,11 @@ SYSCALL_DEFINE1(s390_personality, unsigned int, personality)
 
 	return ret;
 }
-#endif 
+#endif /* CONFIG_64BIT */
 
+/*
+ * Wrapper function for sys_fadvise64/fadvise64_64
+ */
 #ifndef CONFIG_64BIT
 
 SYSCALL_DEFINE5(s390_fadvise64, int, fd, u32, offset_high, u32, offset_low,
@@ -102,6 +121,18 @@ SYSCALL_DEFINE1(s390_fadvise64_64, struct fadvise64_64_args __user *, args)
 	return sys_fadvise64_64(a.fd, a.offset, a.len, a.advice);
 }
 
+/*
+ * This is a wrapper to call sys_fallocate(). For 31 bit s390 the last
+ * 64 bit argument "len" is split into the upper and lower 32 bits. The
+ * system call wrapper in the user space loads the value to %r6/%r7.
+ * The code in entry.S keeps the values in %r2 - %r6 where they are and
+ * stores %r7 to 96(%r15). But the standard C linkage requires that
+ * the whole 64 bit value for len is stored on the stack and doesn't
+ * use %r6 at all. So s390_fallocate has to convert the arguments from
+ *   %r2: fd, %r3: mode, %r4/%r5: offset, %r6/96(%r15)-99(%r15): len
+ * to
+ *   %r2: fd, %r3: mode, %r4/%r5: offset, 96(%r15)-103(%r15): len
+ */
 SYSCALL_DEFINE(s390_fallocate)(int fd, int mode, loff_t offset,
 			       u32 len_high, u32 len_low)
 {

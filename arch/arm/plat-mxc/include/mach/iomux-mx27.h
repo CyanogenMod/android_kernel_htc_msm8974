@@ -22,6 +22,7 @@
 #include <mach/iomux-mx2x.h>
 #include <mach/iomux-v1.h>
 
+/* Primary GPIO pin functions */
 
 #define PA0_PF_USBH2_CLK	(GPIO_PORTA | GPIO_PF | 0)
 #define PA1_PF_USBH2_DIR	(GPIO_PORTA | GPIO_PF | 1)
@@ -82,6 +83,7 @@
 #define PF20_PF_PC_CD1		(GPIO_PORTF | GPIO_PF | 20)
 #define PF23_PF_ATA_DATA15	(GPIO_PORTF | GPIO_PF | 23)
 
+/* Alternate GPIO pin functions */
 
 #define PB4_AF_MSHC_DATA0	(GPIO_PORTB | GPIO_AF | GPIO_OUT | 4)
 #define PB5_AF_MSHC_DATA1	(GPIO_PORTB | GPIO_AF | GPIO_OUT | 5)
@@ -138,6 +140,7 @@
 #define PF22_AF_ETMTRACE_CLK	(GPIO_PORTF | GPIO_AF | 22)
 #define PF23_AF_ETMTRACE_PKT4	(GPIO_PORTF | GPIO_AF | 23)
 
+/* AIN GPIO pin functions */
 
 #define PC14_AIN_SSI1_MCLK	(GPIO_PORTC | GPIO_AIN | GPIO_OUT | 14)
 #define PC15_AIN_GPT6_TOUT	(GPIO_PORTC | GPIO_AIN | GPIO_OUT | 15)
@@ -150,9 +153,11 @@
 #define PD27_AIN_EXT_DMA_GRANT	(GPIO_PORTD | GPIO_AIN | GPIO_OUT | 27)
 #define PF23_AIN_FEC_TX_EN	(GPIO_PORTF | GPIO_AIN | GPIO_OUT | 23)
 
+/* BIN GPIO pin functions */
 
 #define PC14_BIN_SSI2_MCLK	(GPIO_PORTC | GPIO_BIN | GPIO_OUT | 14)
 
+/* CIN GPIO pin functions */
 
 #define PD2_CIN_SLCDC1_DAT0	(GPIO_PORTD | GPIO_CIN | GPIO_OUT | 2)
 #define PD3_CIN_SLCDC1_DAT1	(GPIO_PORTD | GPIO_CIN | GPIO_OUT | 3)
@@ -171,7 +176,9 @@
 #define PD16_CIN_SLCDC1_DAT14	(GPIO_PORTD | GPIO_CIN | GPIO_OUT | 16)
 #define PD23_CIN_SLCDC1_DAT15	(GPIO_PORTD | GPIO_CIN | GPIO_OUT | 23)
 #define PF27_CIN_EXT_DMA_GRANT	(GPIO_PORTF | GPIO_CIN | GPIO_OUT | 27)
+/* LCDC_TESTx on PBxx omitted, because it's not clear what they do */
 
+/* AOUT GPIO pin functions */
 
 #define PC14_AOUT_GPT6_TIN	(GPIO_PORTC | GPIO_AOUT | GPIO_IN | 14)
 #define PD4_AOUT_FEC_RX_ER	(GPIO_PORTD | GPIO_AOUT | GPIO_IN | 4)
@@ -185,6 +192,7 @@
 #define PD14_AOUT_FEC_RX_CLK	(GPIO_PORTD | GPIO_AOUT | GPIO_IN | 14)
 #define PD15_AOUT_FEC_COL	(GPIO_PORTD | GPIO_AOUT | GPIO_IN | 15)
 
+/* BOUT GPIO pin functions */
 
 #define PC17_BOUT_PC_IOIS16	(GPIO_PORTC | GPIO_BOUT | GPIO_IN | 17)
 #define PC18_BOUT_PC_BVD2	(GPIO_PORTC | GPIO_BOUT | GPIO_IN | 18)
@@ -194,4 +202,4 @@
 #define PC30_BOUT_PC_READY	(GPIO_PORTC | GPIO_BOUT | GPIO_IN | 30)
 #define PC31_BOUT_PC_WAIT	(GPIO_PORTC | GPIO_BOUT | GPIO_IN | 31)
 
-#endif 
+#endif /* __MACH_IOMUX_MX27_H__ */

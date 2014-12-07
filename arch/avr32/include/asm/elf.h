@@ -1,6 +1,7 @@
 #ifndef __ASM_AVR32_ELF_H
 #define __ASM_AVR32_ELF_H
 
+/* AVR32 relocation numbers */
 #define R_AVR32_NONE		0
 #define R_AVR32_32		1
 #define R_AVR32_16		2
@@ -46,6 +47,9 @@
 #define R_AVR32_JMP_SLOT	42
 #define R_AVR32_ALIGN		43
 
+/*
+ * ELF register definitions..
+ */
 
 #include <asm/ptrace.h>
 #include <asm/user.h>
@@ -57,8 +61,14 @@ typedef elf_greg_t elf_gregset_t[ELF_NGREG];
 
 typedef struct user_fpu_struct elf_fpregset_t;
 
+/*
+ * This is used to ensure we don't load something for the wrong architecture.
+ */
 #define elf_check_arch(x) ( (x)->e_machine == EM_AVR32 )
 
+/*
+ * These are used to set parameters in the core dumps.
+ */
 #define ELF_CLASS	ELFCLASS32
 #ifdef __LITTLE_ENDIAN__
 #define ELF_DATA	ELFDATA2LSB
@@ -69,16 +79,29 @@ typedef struct user_fpu_struct elf_fpregset_t;
 
 #define ELF_EXEC_PAGESIZE	4096
 
+/* This is the location that an ET_DYN program is loaded if exec'ed.  Typical
+   use of this is to invoke "./ld.so someprog" to test out a new version of
+   the loader.  We need to make sure that it is out of the way of the program
+   that it will "exec", and that there is sufficient room for the brk.  */
 
 #define ELF_ET_DYN_BASE         (2 * TASK_SIZE / 3)
 
 
+/* This yields a mask that user programs can use to figure out what
+   instruction set this CPU supports.  This could be done in user space,
+   but it's not easy, and we've already done it here.  */
 
 #define ELF_HWCAP	(0)
 
+/* This yields a string that ld.so will use to load implementation
+   specific libraries for optimization.  This is more specific in
+   intent than poking at uname or /proc/cpuinfo.
+
+   For the moment, we have only optimizations for the Intel generations,
+   but that could change... */
 
 #define ELF_PLATFORM  (NULL)
 
 #define SET_PERSONALITY(ex) set_personality(PER_LINUX_32BIT)
 
-#endif 
+#endif /* __ASM_AVR32_ELF_H */

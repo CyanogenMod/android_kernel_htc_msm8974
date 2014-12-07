@@ -26,6 +26,7 @@
 
 #if defined(CONFIG_HAS_EARLYSUSPEND)
 #include <linux/earlysuspend.h>
+/* Early-suspend level */
 #define TDISC_SUSPEND_LEVEL 1
 #endif
 
@@ -71,7 +72,7 @@ static void process_tdisc_data(struct tdisc_data *dd, u8 *data)
 	static bool button_press;
 	s8 x, y;
 
-	
+	/* Check if the user is actively navigating */
 	if (!(data[7] & TDISC_USER_ACTIVE_MASK)) {
 		pr_debug(" TDISC ! No Data to report ! False positive \n");
 		return;
@@ -80,7 +81,7 @@ static void process_tdisc_data(struct tdisc_data *dd, u8 *data)
 	for (i = 0; i < 8 ; i++)
 		pr_debug(" Data[%d] = %x\n", i, data[i]);
 
-	
+	/* Check if there is a button press */
 	if (dd->pdata->tdisc_report_keys)
 		if (data[7] & TDISC_BUTTON_PRESS_MASK || button_press == true) {
 			input_report_key(dd->tdisc_device, KEY_UP,
@@ -105,7 +106,7 @@ static void process_tdisc_data(struct tdisc_data *dd, u8 *data)
 		}
 
 	if (dd->pdata->tdisc_report_relative) {
-		
+		/* Report relative motion values */
 		x = (s8) data[0];
 		y = (s8) data[1];
 
@@ -137,6 +138,12 @@ static void tdisc_work_f(struct work_struct *work)
 	struct tdisc_data	*dd =
 		container_of(work, struct tdisc_data, tdisc_work.work);
 
+	/*
+	 * Read the value of the interrupt pin. If low, perform
+	 * an I2C read of 8 bytes to get the touch values and then
+	 * reschedule the work after 25ms. If pin is high, exit
+	 * and wait for next interrupt.
+	 */
 	rc = gpio_get_value_cansleep(dd->pdata->tdisc_gpio);
 	if (rc < 0) {
 		rc = pm_runtime_put_sync(&dd->clientp->dev);
@@ -149,7 +156,7 @@ static void tdisc_work_f(struct work_struct *work)
 
 	pr_debug("%s: TDISC gpio_get_value = %d\n", __func__, rc);
 	if (rc == 0) {
-		
+		/* We have data to read */
 		rc = i2c_smbus_read_i2c_block_data(dd->clientp,
 				TDSIC_BLK_READ_CMD, 8, data);
 		if (rc < 0) {
@@ -165,6 +172,10 @@ static void tdisc_work_f(struct work_struct *work)
 		pr_debug("%s: TDISC: I2C read success\n", __func__);
 		process_tdisc_data(dd, data);
 	} else {
+		/*
+		 * We have no data to read.
+		 * Enable the IRQ to receive further interrupts.
+		 */
 		enable_irq(dd->clientp->irq);
 
 		rc = pm_runtime_put_sync(&dd->clientp->dev);
@@ -180,6 +191,19 @@ fail_i2c_read:
 
 static irqreturn_t tdisc_interrupt(int irq, void *dev_id)
 {
+	/*
+	 * The touch disc intially generates an interrupt on any
+	 * touch. The interrupt line is pulled low and remains low
+	 * untill there are touch operations being performed. In case
+	 * there are no further touch operations, the line goes high. The
+	 * same process repeats again the next time,when the disc is touched.
+	 *
+	 * We do the following operations once we receive an interrupt.
+	 * 1. Disable the IRQ for any further interrutps.
+	 * 2. Schedule work every 25ms if the GPIO is still low.
+	 * 3. In the work queue do a I2C read to get the touch data.
+	 * 4. If the GPIO is pulled high, enable the IRQ and cancel the work.
+	 */
 	struct tdisc_data *dd = dev_id;
 	int rc;
 
@@ -189,7 +213,7 @@ static irqreturn_t tdisc_interrupt(int irq, void *dev_id)
 			" failed\n", __func__);
 	pr_debug("%s: TDISC IRQ ! :-)\n", __func__);
 
-	
+	/* Schedule the work immediately */
 	disable_irq_nosync(dd->clientp->irq);
 	schedule_delayed_work(&dd->tdisc_work, 0);
 	return IRQ_HANDLED;
@@ -201,12 +225,12 @@ static int tdisc_open(struct input_dev *dev)
 	struct tdisc_data *dd = input_get_drvdata(dev);
 
 	if (!dd->clientp) {
-		
+		/* Check if a valid i2c client is present */
 		pr_err("%s: no i2c adapter present \n", __func__);
 		return  -ENODEV;
 	}
 
-	
+	/* Enable the device */
 	if (dd->pdata->tdisc_enable != NULL) {
 		rc = dd->pdata->tdisc_enable();
 		if (rc)
@@ -345,12 +369,12 @@ static int __devinit tdisc_probe(struct i2c_client *client,
 	struct tdisc_platform_data  *pd;
 	struct tdisc_data           *dd;
 
-	
+	/* Check if the I2C adapter supports the BLOCK READ functionality */
 	if (!i2c_check_functionality(client->adapter,
 			I2C_FUNC_SMBUS_READ_I2C_BLOCK))
 		return -ENODEV;
 
-	
+	/* Enable runtime PM ops, start in ACTIVE mode */
 	rc = pm_runtime_set_active(&client->dev);
 	if (rc < 0)
 		dev_dbg(&client->dev, "unable to set runtime pm state\n");
@@ -403,12 +427,12 @@ static int __devinit tdisc_probe(struct i2c_client *client,
 		pressure_min = PRESSURE_MIN;
 	}
 
-	
+	/* Device capablities for relative motion */
 	input_set_capability(dd->tdisc_device, EV_REL, REL_X);
 	input_set_capability(dd->tdisc_device, EV_REL, REL_Y);
 	input_set_capability(dd->tdisc_device, EV_KEY, BTN_MOUSE);
 
-	
+	/* Device capablities for absolute motion */
 	input_set_capability(dd->tdisc_device, EV_ABS, ABS_X);
 	input_set_capability(dd->tdisc_device, EV_ABS, ABS_Y);
 	input_set_capability(dd->tdisc_device, EV_ABS, ABS_PRESSURE);
@@ -418,7 +442,7 @@ static int __devinit tdisc_probe(struct i2c_client *client,
 	input_set_abs_params(dd->tdisc_device, ABS_PRESSURE, pressure_min,
 							pressure_max, 0, 0);
 
-	
+	/* Device capabilities for scroll and buttons */
 	input_set_capability(dd->tdisc_device, EV_REL, REL_WHEEL);
 	input_set_capability(dd->tdisc_device, EV_KEY, KEY_LEFT);
 	input_set_capability(dd->tdisc_device, EV_KEY, KEY_RIGHT);
@@ -426,7 +450,7 @@ static int __devinit tdisc_probe(struct i2c_client *client,
 	input_set_capability(dd->tdisc_device, EV_KEY, KEY_DOWN);
 	input_set_capability(dd->tdisc_device, EV_KEY, KEY_ENTER);
 
-	
+	/* Setup the device for operation */
 	if (dd->pdata->tdisc_setup != NULL) {
 		rc = dd->pdata->tdisc_setup();
 		if (rc) {
@@ -435,7 +459,7 @@ static int __devinit tdisc_probe(struct i2c_client *client,
 		}
 	}
 
-	
+	/* Setup wakeup capability */
 	device_init_wakeup(&dd->clientp->dev, dd->pdata->tdisc_wakeup);
 
 	INIT_DELAYED_WORK(&dd->tdisc_work, tdisc_work_f);

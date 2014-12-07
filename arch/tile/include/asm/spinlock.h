@@ -21,4 +21,4 @@
 #include <asm/spinlock_32.h>
 #endif
 
-#endif 
+#endif /* _ASM_TILE_SPINLOCK_H */

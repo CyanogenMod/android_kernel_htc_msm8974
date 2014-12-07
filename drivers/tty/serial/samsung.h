@@ -24,11 +24,11 @@ struct s3c24xx_uart_info {
 	unsigned long		clksel_mask;
 	unsigned long		clksel_shift;
 
-	
+	/* uart port features */
 
 	unsigned int		has_divslot:1;
 
-	
+	/* uart controls */
 	int (*reset_port)(struct uart_port *, struct s3c2410_uartcfg *);
 };
 
@@ -53,7 +53,7 @@ struct s3c24xx_uart_port {
 	struct uart_port		port;
 	struct s3c24xx_serial_drv_data	*drv_data;
 
-	
+	/* reference to platform data */
 	struct s3c2410_uartcfg		*cfg;
 
 #ifdef CONFIG_CPU_FREQ
@@ -61,9 +61,11 @@ struct s3c24xx_uart_port {
 #endif
 };
 
+/* conversion functions */
 
 #define s3c24xx_dev_to_port(__dev) (struct uart_port *)dev_get_drvdata(__dev)
 
+/* register access controls */
 
 #define portaddr(port, reg) ((port)->membase + (reg))
 #define portaddrl(port, reg) ((unsigned long *)((port)->membase + (reg)))

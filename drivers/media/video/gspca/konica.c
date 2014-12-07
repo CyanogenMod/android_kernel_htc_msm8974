@@ -45,8 +45,9 @@ MODULE_LICENSE("GPL");
 #define CONTRAST_REG   0x04
 #define SATURATION_REG 0x05
 
+/* specific webcam descriptor */
 struct sd {
-	struct gspca_dev gspca_dev;	
+	struct gspca_dev gspca_dev;	/* !! must be the first item */
 	struct urb *last_data_urb;
 	u8 snapshot_pressed;
 	u8 brightness;
@@ -56,6 +57,7 @@ struct sd {
 	u8 sharpness;
 };
 
+/* V4L2 controls supported by the driver */
 static int sd_setbrightness(struct gspca_dev *gspca_dev, __s32 val);
 static int sd_getbrightness(struct gspca_dev *gspca_dev, __s32 *val);
 static int sd_setcontrast(struct gspca_dev *gspca_dev, __s32 val);
@@ -150,6 +152,20 @@ static const struct ctrl sd_ctrls[] = {
 	},
 };
 
+/* .priv is what goes to register 8 for this mode, known working values:
+   0x00 -> 176x144, cropped
+   0x01 -> 176x144, cropped
+   0x02 -> 176x144, cropped
+   0x03 -> 176x144, cropped
+   0x04 -> 176x144, binned
+   0x05 -> 320x240
+   0x06 -> 320x240
+   0x07 -> 160x120, cropped
+   0x08 -> 160x120, cropped
+   0x09 -> 160x120, binned (note has 136 lines)
+   0x0a -> 160x120, binned (note has 136 lines)
+   0x0b -> 160x120, cropped
+*/
 static const struct v4l2_pix_format vga_mode[] = {
 	{160, 120, V4L2_PIX_FMT_KONICA420, V4L2_FIELD_NONE,
 		.bytesperline = 160,
@@ -222,6 +238,7 @@ static void konica_stream_off(struct gspca_dev *gspca_dev)
 	reg_w(gspca_dev, 0, 0x0b);
 }
 
+/* this function is called at probe time */
 static int sd_config(struct gspca_dev *gspca_dev,
 			const struct usb_device_id *id)
 {
@@ -240,9 +257,10 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	return 0;
 }
 
+/* this function is called at probe and resume time */
 static int sd_init(struct gspca_dev *gspca_dev)
 {
-	
+	/* HDG not sure if these 2 reads are needed */
 	reg_r(gspca_dev, 0, 0x10);
 	PDEBUG(D_PROBE, "Reg 0x10 reads: %02x %02x",
 	       gspca_dev->usb_buf[0], gspca_dev->usb_buf[1]);
@@ -285,7 +303,7 @@ static int sd_start(struct gspca_dev *gspca_dev)
 	if (gspca_dev->usb_err)
 		return gspca_dev->usb_err;
 
-	
+	/* create 4 URBs - 2 on endpoint 0x83 and 2 on 0x082 */
 #if MAX_NURBS < 4
 #error "Not enough URBs in the gspca table"
 #endif
@@ -334,6 +352,8 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 
 	konica_stream_off(gspca_dev);
 #if defined(CONFIG_INPUT) || defined(CONFIG_INPUT_MODULE)
+	/* Don't keep the button in the pressed state "forever" if it was
+	   pressed when streaming is stopped */
 	if (sd->snapshot_pressed) {
 		input_report_key(gspca_dev->input_dev, KEY_CAMERA, 0);
 		input_sync(gspca_dev->input_dev);
@@ -342,6 +362,7 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 #endif
 }
 
+/* reception of an URB */
 static void sd_isoc_irq(struct urb *urb)
 {
 	struct gspca_dev *gspca_dev = (struct gspca_dev *) urb->context;
@@ -356,7 +377,7 @@ static void sd_isoc_irq(struct urb *urb)
 
 	if (urb->status != 0) {
 		if (urb->status == -ESHUTDOWN)
-			return;		
+			return;		/* disconnection */
 #ifdef CONFIG_PM
 		if (gspca_dev->frozen)
 			return;
@@ -368,7 +389,7 @@ static void sd_isoc_irq(struct urb *urb)
 		return;
 	}
 
-	
+	/* if this is a data URB (ep 0x82), wait */
 	if (urb->transfer_buffer_length > 32) {
 		sd->last_data_urb = urb;
 		return;
@@ -416,6 +437,15 @@ static void sd_isoc_irq(struct urb *urb)
 		data = (u8 *)data_urb->transfer_buffer
 				+ data_urb->iso_frame_desc[i].offset;
 
+		/* st: 0x80-0xff: frame start with frame number (ie 0-7f)
+		 * otherwise:
+		 * bit 0 0: keep packet
+		 *	 1: drop packet (padding data)
+		 *
+		 * bit 4 0 button not clicked
+		 *       1 button clicked
+		 * button is used to `take a picture' (in software)
+		 */
 		if (st & 0x80) {
 			gspca_frame_add(gspca_dev, LAST_PACKET, NULL, 0);
 			gspca_frame_add(gspca_dev, FIRST_PACKET, NULL, 0);
@@ -561,6 +591,7 @@ static int sd_getsharpness(struct gspca_dev *gspca_dev, __s32 *val)
 	return 0;
 }
 
+/* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name = MODULE_NAME,
 	.ctrls = sd_ctrls,
@@ -574,12 +605,14 @@ static const struct sd_desc sd_desc = {
 #endif
 };
 
+/* -- module initialisation -- */
 static const struct usb_device_id device_table[] = {
-	{USB_DEVICE(0x04c8, 0x0720)}, 
+	{USB_DEVICE(0x04c8, 0x0720)}, /* Intel YC 76 */
 	{}
 };
 MODULE_DEVICE_TABLE(usb, device_table);
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf,
 			const struct usb_device_id *id)
 {

@@ -41,6 +41,10 @@
 #define D_SUBMODULE rfkill
 #include "debug-levels.h"
 
+/*
+ * Return true if the i2400m radio is in the requested wimax_rf_state state
+ *
+ */
 static
 int i2400m_radio_is(struct i2400m *i2400m, enum wimax_rf_state state)
 {
@@ -48,16 +52,35 @@ int i2400m_radio_is(struct i2400m *i2400m, enum wimax_rf_state state)
 		return i2400m->state == I2400M_SS_RF_OFF
 			|| i2400m->state == I2400M_SS_RF_SHUTDOWN;
 	else if (state == WIMAX_RF_ON)
-		
+		/* state == WIMAX_RF_ON */
 		return i2400m->state != I2400M_SS_RF_OFF
 			&& i2400m->state != I2400M_SS_RF_SHUTDOWN;
 	else {
 		BUG();
-		return -EINVAL;	
+		return -EINVAL;	/* shut gcc warnings on certain arches */
 	}
 }
 
 
+/*
+ * WiMAX stack operation: implement SW RFKill toggling
+ *
+ * @wimax_dev: device descriptor
+ * @skb: skb where the message has been received; skb->data is
+ *       expected to point to the message payload.
+ * @genl_info: passed by the generic netlink layer
+ *
+ * Generic Netlink will call this function when a message is sent from
+ * userspace to change the software RF-Kill switch status.
+ *
+ * This function will set the device's software RF-Kill switch state to
+ * match what is requested.
+ *
+ * NOTE: the i2400m has a strict state machine; we can only set the
+ *       RF-Kill switch when it is on, the HW RF-Kill is on and the
+ *       device is initialized. So we ignore errors steaming from not
+ *       being in the right state (-EILSEQ).
+ */
 int i2400m_op_rfkill_sw_toggle(struct wimax_dev *wimax_dev,
 			       enum wimax_rf_state state)
 {
@@ -83,10 +106,10 @@ int i2400m_op_rfkill_sw_toggle(struct wimax_dev *wimax_dev,
 	cmd->sw_rf.hdr.type = cpu_to_le16(I2400M_TLV_RF_OPERATION);
 	cmd->sw_rf.hdr.length = cpu_to_le16(sizeof(cmd->sw_rf.status));
 	switch (state) {
-	case WIMAX_RF_OFF:	
+	case WIMAX_RF_OFF:	/* RFKILL ON, radio OFF */
 		cmd->sw_rf.status = cpu_to_le32(2);
 		break;
-	case WIMAX_RF_ON:	
+	case WIMAX_RF_ON:	/* RFKILL OFF, radio ON */
 		cmd->sw_rf.status = cpu_to_le32(1);
 		break;
 	default:
@@ -108,7 +131,7 @@ int i2400m_op_rfkill_sw_toggle(struct wimax_dev *wimax_dev,
 		goto error_cmd;
 	}
 
-	
+	/* Now we wait for the state to change to RADIO_OFF or RADIO_ON */
 	result = wait_event_timeout(
 		i2400m->state_wq, i2400m_radio_is(i2400m, state),
 		5 * HZ);
@@ -128,6 +151,17 @@ error_alloc:
 }
 
 
+/*
+ * Inform the WiMAX stack of changes in the RF Kill switches reported
+ * by the device
+ *
+ * @i2400m: device descriptor
+ * @rfss: TLV for RF Switches status; already validated
+ *
+ * NOTE: the reports on RF switch status cannot be trusted
+ *       or used until the device is in a state of RADIO_OFF
+ *       or greater.
+ */
 void i2400m_report_tlv_rf_switches_status(
 	struct i2400m *i2400m,
 	const struct i2400m_tlv_rf_switches_status *rfss)
@@ -141,6 +175,8 @@ void i2400m_report_tlv_rf_switches_status(
 
 	d_fnstart(3, dev, "(i2400m %p rfss %p [hw %u sw %u])\n",
 		  i2400m, rfss, hw, sw);
+	/* We only process rw switch evens when the device has been
+	 * fully initialized */
 	wimax_state = wimax_state_get(&i2400m->wimax_dev);
 	if (wimax_state < WIMAX_ST_RADIO_OFF) {
 		d_printf(3, dev, "ignoring RF switches report, state %u\n",
@@ -148,10 +184,10 @@ void i2400m_report_tlv_rf_switches_status(
 		goto out;
 	}
 	switch (sw) {
-	case I2400M_RF_SWITCH_ON:	
+	case I2400M_RF_SWITCH_ON:	/* RF Kill disabled (radio on) */
 		wimax_report_rfkill_sw(&i2400m->wimax_dev, WIMAX_RF_ON);
 		break;
-	case I2400M_RF_SWITCH_OFF:	
+	case I2400M_RF_SWITCH_OFF:	/* RF Kill enabled (radio off) */
 		wimax_report_rfkill_sw(&i2400m->wimax_dev, WIMAX_RF_OFF);
 		break;
 	default:
@@ -159,10 +195,10 @@ void i2400m_report_tlv_rf_switches_status(
 	}
 
 	switch (hw) {
-	case I2400M_RF_SWITCH_ON:	
+	case I2400M_RF_SWITCH_ON:	/* RF Kill disabled (radio on) */
 		wimax_report_rfkill_hw(&i2400m->wimax_dev, WIMAX_RF_ON);
 		break;
-	case I2400M_RF_SWITCH_OFF:	
+	case I2400M_RF_SWITCH_OFF:	/* RF Kill enabled (radio off) */
 		wimax_report_rfkill_hw(&i2400m->wimax_dev, WIMAX_RF_OFF);
 		break;
 	default:

@@ -22,31 +22,38 @@
 #include <asm/sibyte/sb1250_smbus.h>
 
 
+/* Xicor 1241 definitions */
 
+/*
+ * Register bits
+ */
 
-#define X1241REG_SR_BAT	0x80		
-#define X1241REG_SR_RWEL 0x04		
-#define X1241REG_SR_WEL 0x02		
-#define X1241REG_SR_RTCF 0x01		
-#define X1241REG_BL_BP2 0x80		
-#define X1241REG_BL_BP1 0x40		
-#define X1241REG_BL_BP0 0x20		
+#define X1241REG_SR_BAT	0x80		/* currently on battery power */
+#define X1241REG_SR_RWEL 0x04		/* r/w latch is enabled, can write RTC */
+#define X1241REG_SR_WEL 0x02		/* r/w latch is unlocked, can enable r/w now */
+#define X1241REG_SR_RTCF 0x01		/* clock failed */
+#define X1241REG_BL_BP2 0x80		/* block protect 2 */
+#define X1241REG_BL_BP1 0x40		/* block protect 1 */
+#define X1241REG_BL_BP0 0x20		/* block protect 0 */
 #define X1241REG_BL_WD1	0x10
 #define X1241REG_BL_WD0	0x08
-#define X1241REG_HR_MIL 0x80		
+#define X1241REG_HR_MIL 0x80		/* military time format */
 
+/*
+ * Register numbers
+ */
 
-#define X1241REG_BL	0x10		
-#define X1241REG_INT	0x11		
-#define X1241REG_SC	0x30		
-#define X1241REG_MN	0x31		
-#define X1241REG_HR	0x32		
-#define X1241REG_DT	0x33		
-#define X1241REG_MO	0x34		
-#define X1241REG_YR	0x35		
-#define X1241REG_DW	0x36		
-#define X1241REG_Y2K	0x37		
-#define X1241REG_SR	0x3F		
+#define X1241REG_BL	0x10		/* block protect bits */
+#define X1241REG_INT	0x11		/*  */
+#define X1241REG_SC	0x30		/* Seconds */
+#define X1241REG_MN	0x31		/* Minutes */
+#define X1241REG_HR	0x32		/* Hours */
+#define X1241REG_DT	0x33		/* Day of month */
+#define X1241REG_MO	0x34		/* Month */
+#define X1241REG_YR	0x35		/* Year */
+#define X1241REG_DW	0x36		/* Day of Week */
+#define X1241REG_Y2K	0x37		/* Year 2K */
+#define X1241REG_SR	0x3F		/* Status register */
 
 #define X1241_CCR_ADDRESS	0x6F
 
@@ -72,7 +79,7 @@ static int xicor_read(uint8_t addr)
                 ;
 
         if (__raw_readq(SMB_CSR(R_SMB_STATUS)) & M_SMB_ERROR) {
-                
+                /* Clear error bit by writing a 1 */
                 __raw_writeq(M_SMB_ERROR, SMB_CSR(R_SMB_STATUS));
                 return -1;
         }
@@ -94,7 +101,7 @@ static int xicor_write(uint8_t addr, int b)
                 ;
 
         if (__raw_readq(SMB_CSR(R_SMB_STATUS)) & M_SMB_ERROR) {
-                
+                /* Clear error bit by writing a 1 */
                 __raw_writeq(M_SMB_ERROR, SMB_CSR(R_SMB_STATUS));
                 return -1;
         } else {
@@ -112,11 +119,11 @@ int xicor_set_time(unsigned long t)
 	tm.tm_year += 1900;
 
 	spin_lock_irqsave(&rtc_lock, flags);
-	
+	/* unlock writes to the CCR */
 	xicor_write(X1241REG_SR, X1241REG_SR_WEL);
 	xicor_write(X1241REG_SR, X1241REG_SR_WEL | X1241REG_SR_RWEL);
 
-	
+	/* trivial ones */
 	tm.tm_sec = bin2bcd(tm.tm_sec);
 	xicor_write(X1241REG_SC, tm.tm_sec);
 
@@ -126,25 +133,25 @@ int xicor_set_time(unsigned long t)
 	tm.tm_mday = bin2bcd(tm.tm_mday);
 	xicor_write(X1241REG_DT, tm.tm_mday);
 
-	
+	/* tm_mon starts from 0, *ick* */
 	tm.tm_mon ++;
 	tm.tm_mon = bin2bcd(tm.tm_mon);
 	xicor_write(X1241REG_MO, tm.tm_mon);
 
-	
+	/* year is split */
 	tmp = tm.tm_year / 100;
 	tm.tm_year %= 100;
 	xicor_write(X1241REG_YR, tm.tm_year);
 	xicor_write(X1241REG_Y2K, tmp);
 
-	
+	/* hour is the most tricky one */
 	tmp = xicor_read(X1241REG_HR);
 	if (tmp & X1241REG_HR_MIL) {
-		
+		/* 24 hour format */
 		tm.tm_hour = bin2bcd(tm.tm_hour);
 		tmp = (tmp & ~0x3f) | (tm.tm_hour & 0x3f);
 	} else {
-		
+		/* 12 hour format, with 0x2 for pm */
 		tmp = tmp & ~0x3f;
 		if (tm.tm_hour >= 12) {
 			tmp |= 0x20;

@@ -186,7 +186,7 @@ struct fileIdentDesc *udf_get_fileident(void *buffer, int bufsize, int *offset)
 		lengthThisIdent = sizeof(struct fileIdentDesc) +
 			fi->lengthFileIdent + le16_to_cpu(fi->lengthOfImpUse);
 
-	
+	/* we need to figure padding, too! */
 	padlen = lengthThisIdent % UDF_NAME_PAD;
 	if (padlen)
 		lengthThisIdent += (UDF_NAME_PAD - padlen);

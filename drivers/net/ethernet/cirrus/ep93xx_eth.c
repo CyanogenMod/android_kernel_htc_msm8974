@@ -278,7 +278,7 @@ static int ep93xx_rx(struct net_device *dev, int processed, int budget)
 			goto err;
 		}
 
-		
+		/* Strip FCS.  */
 		if (rstat0 & RSTAT0_CRCI)
 			length -= 4;
 
@@ -569,29 +569,29 @@ static int ep93xx_start_hw(struct net_device *dev)
 
 	wrl(ep, REG_SELFCTL, ((ep->mdc_divisor - 1) << 9));
 
-	
+	/* Does the PHY support preamble suppress?  */
 	if ((ep93xx_mdio_read(dev, ep->mii.phy_id, MII_BMSR) & 0x0040) != 0)
 		wrl(ep, REG_SELFCTL, ((ep->mdc_divisor - 1) << 9) | (1 << 8));
 
-	
+	/* Receive descriptor ring.  */
 	addr = ep->descs_dma_addr + offsetof(struct ep93xx_descs, rdesc);
 	wrl(ep, REG_RXDQBADD, addr);
 	wrl(ep, REG_RXDCURADD, addr);
 	wrw(ep, REG_RXDQBLEN, RX_QUEUE_ENTRIES * sizeof(struct ep93xx_rdesc));
 
-	
+	/* Receive status ring.  */
 	addr = ep->descs_dma_addr + offsetof(struct ep93xx_descs, rstat);
 	wrl(ep, REG_RXSTSQBADD, addr);
 	wrl(ep, REG_RXSTSQCURADD, addr);
 	wrw(ep, REG_RXSTSQBLEN, RX_QUEUE_ENTRIES * sizeof(struct ep93xx_rstat));
 
-	
+	/* Transmit descriptor ring.  */
 	addr = ep->descs_dma_addr + offsetof(struct ep93xx_descs, tdesc);
 	wrl(ep, REG_TXDQBADD, addr);
 	wrl(ep, REG_TXDQCURADD, addr);
 	wrw(ep, REG_TXDQBLEN, TX_QUEUE_ENTRIES * sizeof(struct ep93xx_tdesc));
 
-	
+	/* Transmit status ring.  */
 	addr = ep->descs_dma_addr + offsetof(struct ep93xx_descs, tstat);
 	wrl(ep, REG_TXSTSQBADD, addr);
 	wrl(ep, REG_TXSTSQCURADD, addr);
@@ -787,7 +787,7 @@ static int ep93xx_eth_remove(struct platform_device *pdev)
 
 	ep = netdev_priv(dev);
 
-	
+	/* @@@ Force down.  */
 	unregister_netdev(dev);
 	ep93xx_free_buffers(ep);
 
@@ -856,7 +856,7 @@ static int ep93xx_eth_probe(struct platform_device *pdev)
 	ep->mii.dev = dev;
 	ep->mii.mdio_read = ep93xx_mdio_read;
 	ep->mii.mdio_write = ep93xx_mdio_write;
-	ep->mdc_divisor = 40;	
+	ep->mdc_divisor = 40;	/* Max HCLK 100 MHz, min MDIO clk 2.5 MHz.  */
 
 	if (is_zero_ether_addr(dev->dev_addr))
 		eth_hw_addr_random(dev);

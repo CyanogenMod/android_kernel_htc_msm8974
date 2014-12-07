@@ -18,10 +18,23 @@
 
 #include <asm/fpu-ucf64.h>
 
+/*
+ * A special flag to tell the normalisation code not to normalise.
+ */
 #define F64_NAN_FLAG	0x100
 
+/*
+ * A bit pattern used to indicate the initial (unset) value of the
+ * exception mask, in case nothing handles an instruction.  This
+ * doesn't include the NAN flag, which get masked out before
+ * we check for an error.
+ */
 #define F64_EXCEPTION_ERROR	((u32)-1 & ~F64_NAN_FLAG)
 
+/*
+ * Since we aren't building with -mfpu=f64, we need to code
+ * these instructions using their MRC/MCR equivalents.
+ */
 #define f64reg(_f64_) #_f64_
 
 #define cff(_f64_) ({			\
@@ -35,6 +48,10 @@
 	asm("ctf %0, " f64reg(_f64_) "@ fmxr	" #_f64_ ", %0"	\
 	   : : "r" (_var_) : "cc")
 
+/*
+ * Raise a SIGFPE for the current process.
+ * sicode describes the signal being raised.
+ */
 void ucf64_raise_sigfpe(unsigned int sicode, struct pt_regs *regs)
 {
 	siginfo_t info;
@@ -45,12 +62,19 @@ void ucf64_raise_sigfpe(unsigned int sicode, struct pt_regs *regs)
 	info.si_code = sicode;
 	info.si_addr = (void __user *)(instruction_pointer(regs) - 4);
 
+	/*
+	 * This is the same as NWFPE, because it's not clear what
+	 * this is used for
+	 */
 	current->thread.error_code = 0;
 	current->thread.trap_no = 6;
 
 	send_sig_info(SIGFPE, &info, current);
 }
 
+/*
+ * Handle exceptions of UniCore-F64.
+ */
 void ucf64_exchandler(u32 inst, u32 fpexc, struct pt_regs *regs)
 {
 	u32 tmp = fpexc;
@@ -74,6 +98,11 @@ void ucf64_exchandler(u32 inst, u32 fpexc, struct pt_regs *regs)
 		return;
 	}
 
+	/*
+	 * Update the FPSCR with the additional exception flags.
+	 * Comparison instructions always return at least one of
+	 * these flags set.
+	 */
 	tmp &= ~(FPSCR_TRAP | FPSCR_IOS | FPSCR_OFS | FPSCR_UFS |
 			FPSCR_IXS | FPSCR_HIS | FPSCR_IOC | FPSCR_OFC |
 			FPSCR_UFC | FPSCR_IXC | FPSCR_HIC);
@@ -82,9 +111,12 @@ void ucf64_exchandler(u32 inst, u32 fpexc, struct pt_regs *regs)
 	ctf(FPSCR, tmp);
 }
 
+/*
+ * F64 support code initialisation.
+ */
 static int __init ucf64_init(void)
 {
-	ctf(FPSCR, 0x0);     
+	ctf(FPSCR, 0x0);     /* FPSCR_UFE | FPSCR_NDE perhaps better */
 
 	printk(KERN_INFO "Enable UniCore-F64 support.\n");
 

@@ -1,3 +1,6 @@
+/*
+ * This file contains work-arounds for x86 and x86_64 platform bugs.
+ */
 #include <linux/pci.h>
 #include <linux/irq.h>
 
@@ -10,13 +13,22 @@ static void __devinit quirk_intel_irqbalance(struct pci_dev *dev)
 	u8 config;
 	u16 word;
 
+	/* BIOS may enable hardware IRQ balancing for
+	 * E7520/E7320/E7525(revision ID 0x9 and below)
+	 * based platforms.
+	 * Disable SW irqbalance/affinity on those platforms.
+	 */
 	if (dev->revision > 0x9)
 		return;
 
-	
+	/* enable access to config space*/
 	pci_read_config_byte(dev, 0xf4, &config);
 	pci_write_config_byte(dev, 0xf4, config|0x2);
 
+	/*
+	 * read xTPR register.  We may not have a pci_dev for device 8
+	 * because it might be hidden until the above write.
+	 */
 	pci_bus_read_config_word(dev->bus, PCI_DEVFN(8, 0), 0x4c, &word);
 
 	if (!(word & (1 << 13))) {
@@ -28,7 +40,7 @@ static void __devinit quirk_intel_irqbalance(struct pci_dev *dev)
 #endif
 	}
 
-	
+	/* put back the original value for config space*/
 	if (!(config & 0x2))
 		pci_write_config_byte(dev, 0xf4, config);
 }
@@ -63,10 +75,10 @@ static void ich_force_hpet_resume(void)
 
 	BUG_ON(rcba_base == NULL);
 
-	
+	/* read the Function Disable register, dword mode only */
 	val = readl(rcba_base + 0x3404);
 	if (!(val & 0x80)) {
-		
+		/* HPET disabled in HPTC. Trying to enable */
 		writel(val | 0x80, rcba_base + 0x3404);
 	}
 
@@ -96,7 +108,7 @@ static void ich_force_enable_hpet(struct pci_dev *dev)
 		return;
 	}
 
-	
+	/* use bits 31:14, 16 kB aligned */
 	rcba_base = ioremap_nocache(rcba, 0x4000);
 	if (rcba_base == NULL) {
 		dev_printk(KERN_DEBUG, &dev->dev, "ioremap failed; "
@@ -104,11 +116,11 @@ static void ich_force_enable_hpet(struct pci_dev *dev)
 		return;
 	}
 
-	
+	/* read the Function Disable register, dword mode only */
 	val = readl(rcba_base + 0x3404);
 
 	if (val & 0x80) {
-		
+		/* HPET is enabled in HPTC. Just not reported by BIOS */
 		val = val & 0x3;
 		force_hpet_address = 0xFED00000 | (val << 12);
 		dev_printk(KERN_DEBUG, &dev->dev, "Force enabled HPET at "
@@ -117,7 +129,7 @@ static void ich_force_enable_hpet(struct pci_dev *dev)
 		return;
 	}
 
-	
+	/* HPET disabled in HPTC. Trying to enable */
 	writel(val | 0x80, rcba_base + 0x3404);
 
 	val = readl(rcba_base + 0x3404);
@@ -158,7 +170,7 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_ICH8_4,
 			 ich_force_enable_hpet);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_ICH9_7,
 			 ich_force_enable_hpet);
-DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x3a16,	
+DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_INTEL, 0x3a16,	/* ICH10 */
 			 ich_force_enable_hpet);
 
 static struct pci_dev *cached_dev;
@@ -200,6 +212,10 @@ static void old_ich_force_enable_hpet(struct pci_dev *dev)
 		return;
 
 	pci_read_config_dword(dev, 0xD0, &gen_cntl);
+	/*
+	 * Bit 17 is HPET enable bit.
+	 * Bit 16:15 control the HPET base address.
+	 */
 	val = gen_cntl >> 15;
 	val &= 0x7;
 	if (val & 0x4) {
@@ -210,6 +226,10 @@ static void old_ich_force_enable_hpet(struct pci_dev *dev)
 		return;
 	}
 
+	/*
+	 * HPET is disabled. Trying enabling at FED00000 and check
+	 * whether it sticks
+	 */
 	gen_cntl &= (~(0x7 << 15));
 	gen_cntl |= (0x4 << 15);
 	pci_write_config_dword(dev, 0xD0, gen_cntl);
@@ -219,7 +239,7 @@ static void old_ich_force_enable_hpet(struct pci_dev *dev)
 	val = gen_cntl >> 15;
 	val &= 0x7;
 	if (val & 0x4) {
-		
+		/* HPET is enabled in HPTC. Just not reported by BIOS */
 		val &= 0x3;
 		force_hpet_address = 0xFED00000 | (val << 12);
 		dev_printk(KERN_DEBUG, &dev->dev, "Force enabled HPET at "
@@ -232,6 +252,10 @@ static void old_ich_force_enable_hpet(struct pci_dev *dev)
 	dev_printk(KERN_DEBUG, &dev->dev, "Failed to force enable HPET\n");
 }
 
+/*
+ * Undocumented chipset features. Make sure that the user enforced
+ * this.
+ */
 static void old_ich_force_enable_hpet_user(struct pci_dev *dev)
 {
 	if (hpet_force_user)
@@ -284,6 +308,10 @@ static void vt8237_force_enable_hpet(struct pci_dev *dev)
 	}
 
 	pci_read_config_dword(dev, 0x68, &val);
+	/*
+	 * Bit 7 is HPET enable bit.
+	 * Bit 31:10 is HPET base address (contrary to what datasheet claims)
+	 */
 	if (val & 0x80) {
 		force_hpet_address = (val & ~0x3ff);
 		dev_printk(KERN_DEBUG, &dev->dev, "HPET at 0x%lx\n",
@@ -291,6 +319,10 @@ static void vt8237_force_enable_hpet(struct pci_dev *dev)
 		return;
 	}
 
+	/*
+	 * HPET is disabled. Trying enabling at FED00000 and check
+	 * whether it sticks
+	 */
 	val = 0xfed00000 | 0x80;
 	pci_write_config_dword(dev, 0x68, val);
 
@@ -354,11 +386,11 @@ static void ati_force_enable_hpet(struct pci_dev *dev)
 	if (d  < 0x82)
 		return;
 
-	
+	/* base address */
 	pci_write_config_dword(dev, 0x14, 0xfed00000);
 	pci_read_config_dword(dev, 0x14, &val);
 
-	
+	/* enable interrupt */
 	outb(0x72, 0xcd6); b = inb(0xcd7);
 	b |= 0x1;
 	outb(0x72, 0xcd6); outb(b, 0xcd7);
@@ -381,6 +413,9 @@ static void ati_force_enable_hpet(struct pci_dev *dev)
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_ATI, PCI_DEVICE_ID_ATI_IXP400_SMBUS,
 			 ati_force_enable_hpet);
 
+/*
+ * Undocumented chipset feature taken from LinuxBIOS.
+ */
 static void nvidia_force_hpet_resume(void)
 {
 	pci_write_config_dword(cached_dev, 0x44, 0xfed00001);
@@ -409,11 +444,13 @@ static void nvidia_force_enable_hpet(struct pci_dev *dev)
 	return;
 }
 
+/* ISA Bridges */
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_NVIDIA, 0x0050,
 			nvidia_force_enable_hpet);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_NVIDIA, 0x0051,
 			nvidia_force_enable_hpet);
 
+/* LPC bridges */
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_NVIDIA, 0x0260,
 			nvidia_force_enable_hpet);
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_NVIDIA, 0x0360,
@@ -456,6 +493,13 @@ void force_hpet_resume(void)
 	}
 }
 
+/*
+ * HPET MSI on some boards (ATI SB700/SB800) has side effect on
+ * floppy DMA. Disable HPET MSI on such platforms.
+ * See erratum #27 (Misinterpreted MSI Requests May Result in
+ * Corrupted LPC DMA Data) in AMD Publication #46837,
+ * "SB700 Family Product Errata", Rev. 1.0, March 2010.
+ */
 static void force_disable_hpet_msi(struct pci_dev *unused)
 {
 	hpet_msi_disable = 1;
@@ -467,6 +511,7 @@ DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_ATI, PCI_DEVICE_ID_ATI_SBX00_SMBUS,
 #endif
 
 #if defined(CONFIG_PCI) && defined(CONFIG_NUMA)
+/* Set correct numa_node information for AMD NB functions */
 static void __init quirk_amd_nb_node(struct pci_dev *dev)
 {
 	struct pci_dev *nb_ht;
@@ -481,6 +526,10 @@ static void __init quirk_amd_nb_node(struct pci_dev *dev)
 
 	pci_read_config_dword(nb_ht, 0x60, &val);
 	node = val & 7;
+	/*
+	 * Some hardware may return an invalid node ID,
+	 * so check it first:
+	 */
 	if (node_online(node))
 		set_dev_node(&dev->dev, node);
 	pci_dev_put(nb_ht);

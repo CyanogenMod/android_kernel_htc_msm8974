@@ -43,6 +43,13 @@ struct s3c_hwmon_attr {
 	char				label_name[12];
 };
 
+/**
+ * struct s3c_hwmon - ADC hwmon client information
+ * @lock: Access lock to serialise the conversions.
+ * @client: The client we registered with the S3C ADC core.
+ * @hwmon_dev: The hwmon device we created.
+ * @attr: The holders for the channel attributes.
+*/
 struct s3c_hwmon {
 	struct mutex		lock;
 	struct s3c_adc_client	*client;
@@ -51,6 +58,16 @@ struct s3c_hwmon {
 	struct s3c_hwmon_attr	attrs[8];
 };
 
+/**
+ * s3c_hwmon_read_ch - read a value from a given adc channel.
+ * @dev: The device.
+ * @hwmon: Our state.
+ * @channel: The channel we're reading from.
+ *
+ * Read a value from the @channel with the proper locking and sleep until
+ * either the read completes or we timeout awaiting the ADC core to get
+ * back to us.
+ */
 static int s3c_hwmon_read_ch(struct device *dev,
 			     struct s3c_hwmon *hwmon, int channel)
 {
@@ -69,6 +86,16 @@ static int s3c_hwmon_read_ch(struct device *dev,
 }
 
 #ifdef CONFIG_SENSORS_S3C_RAW
+/**
+ * s3c_hwmon_show_raw - show a conversion from the raw channel number.
+ * @dev: The device that the attribute belongs to.
+ * @attr: The attribute being read.
+ * @buf: The result buffer.
+ *
+ * This show deals with the raw attribute, registered for each possible
+ * ADC channel. This does a conversion and returns the raw (un-scaled)
+ * value returned from the hardware.
+ */
 static ssize_t s3c_hwmon_show_raw(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
@@ -124,8 +151,18 @@ static inline void s3c_hwmon_remove_raw(struct device *dev)
 static inline int s3c_hwmon_add_raw(struct device *dev) { return 0; }
 static inline void s3c_hwmon_remove_raw(struct device *dev) { }
 
-#endif 
+#endif /* CONFIG_SENSORS_S3C_RAW */
 
+/**
+ * s3c_hwmon_ch_show - show value of a given channel
+ * @dev: The device that the attribute belongs to.
+ * @attr: The attribute being read.
+ * @buf: The result buffer.
+ *
+ * Read a value from the ADC and scale it before returning it to the
+ * caller. The scale factor is gained from the channel configuration
+ * passed via the platform data when the device was registered.
+ */
 static ssize_t s3c_hwmon_ch_show(struct device *dev,
 				 struct device_attribute *attr,
 				 char *buf)
@@ -148,6 +185,14 @@ static ssize_t s3c_hwmon_ch_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%d\n", ret);
 }
 
+/**
+ * s3c_hwmon_label_show - show label name of the given channel.
+ * @dev: The device that the attribute belongs to.
+ * @attr: The attribute being read.
+ * @buf: The result buffer.
+ *
+ * Return the label name of a given channel
+ */
 static ssize_t s3c_hwmon_label_show(struct device *dev,
 				    struct device_attribute *attr,
 				    char *buf)
@@ -161,6 +206,20 @@ static ssize_t s3c_hwmon_label_show(struct device *dev,
 	return snprintf(buf, PAGE_SIZE, "%s\n", cfg->name);
 }
 
+/**
+ * s3c_hwmon_create_attr - create hwmon attribute for given channel.
+ * @dev: The device to create the attribute on.
+ * @cfg: The channel configuration passed from the platform data.
+ * @channel: The ADC channel number to process.
+ *
+ * Create the scaled attribute for use with hwmon from the specified
+ * platform data in @pdata. The sysfs entry is handled by the routine
+ * s3c_hwmon_ch_show().
+ *
+ * The attribute name is taken from the configuration data if present
+ * otherwise the name is taken by concatenating in_ with the channel
+ * number.
+ */
 static int s3c_hwmon_create_attr(struct device *dev,
 				 struct s3c_hwmon_chcfg *cfg,
 				 struct s3c_hwmon_attr *attrs,
@@ -184,7 +243,7 @@ static int s3c_hwmon_create_attr(struct device *dev,
 		return ret;
 	}
 
-	
+	/* if this has a name, add a label */
 	if (cfg->name) {
 		snprintf(attrs->label_name, sizeof(attrs->label_name),
 			 "in%d_label", channel);
@@ -213,6 +272,10 @@ static void s3c_hwmon_remove_attr(struct device *dev,
 	device_remove_file(dev, &attrs->label.dev_attr);
 }
 
+/**
+ * s3c_hwmon_probe - device probe entry.
+ * @dev: The device being probed.
+*/
 static int __devinit s3c_hwmon_probe(struct platform_device *dev)
 {
 	struct s3c_hwmon_pdata *pdata = dev->dev.platform_data;
@@ -235,7 +298,7 @@ static int __devinit s3c_hwmon_probe(struct platform_device *dev)
 
 	mutex_init(&hwmon->lock);
 
-	
+	/* Register with the core ADC driver. */
 
 	hwmon->client = s3c_adc_register(dev, NULL, NULL, 0);
 	if (IS_ERR(hwmon->client)) {
@@ -244,13 +307,13 @@ static int __devinit s3c_hwmon_probe(struct platform_device *dev)
 		goto err_mem;
 	}
 
-	
+	/* add attributes for our adc devices. */
 
 	ret = s3c_hwmon_add_raw(&dev->dev);
 	if (ret)
 		goto err_registered;
 
-	
+	/* register with the hwmon core */
 
 	hwmon->hwmon_dev = hwmon_device_register(&dev->dev);
 	if (IS_ERR(hwmon->hwmon_dev)) {

@@ -39,10 +39,10 @@ int __init clk_init(void)
 		}
 	}
 
-	
+	/* Kick the child clocks.. */
 	recalculate_root_clocks();
 
-	
+	/* Enable the necessary init clocks */
 	clk_enable_init_clocks();
 
 	return ret;

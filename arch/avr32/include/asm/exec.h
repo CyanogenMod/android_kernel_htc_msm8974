@@ -10,4 +10,4 @@
 
 #define arch_align_stack(x)	(x)
 
-#endif 
+#endif /* __ASM_AVR32_EXEC_H */

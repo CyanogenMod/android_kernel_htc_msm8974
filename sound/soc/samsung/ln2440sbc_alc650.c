@@ -66,6 +66,7 @@ static void __exit ln2440sbc_exit(void)
 module_init(ln2440sbc_init);
 module_exit(ln2440sbc_exit);
 
+/* Module information */
 MODULE_AUTHOR("Ivan Kuten");
 MODULE_DESCRIPTION("ALSA SoC ALC650 LN2440SBC");
 MODULE_LICENSE("GPL");

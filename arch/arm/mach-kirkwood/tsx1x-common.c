@@ -9,7 +9,26 @@
 #include <mach/kirkwood.h>
 #include "common.h"
 
+/*
+ * QNAP TS-x1x Boards flash
+ */
 
+/****************************************************************************
+ * 16 MiB NOR flash. The struct mtd_partition is not in the same order as the
+ *     partitions on the device because we want to keep compatibility with
+ *     the QNAP firmware.
+ * Layout as used by QNAP:
+ *  0x00000000-0x00080000 : "U-Boot"
+ *  0x00200000-0x00400000 : "Kernel"
+ *  0x00400000-0x00d00000 : "RootFS"
+ *  0x00d00000-0x01000000 : "RootFS2"
+ *  0x00080000-0x000c0000 : "U-Boot Config"
+ *  0x000c0000-0x00200000 : "NAS Config"
+ *
+ * We'll use "RootFS1" instead of "RootFS" to stay compatible with the layout
+ * used by the QNAP TS-109/TS-209.
+ *
+ ***************************************************************************/
 
 struct mtd_partition qnap_tsx1x_partitions[] = {
 	{
@@ -66,17 +85,20 @@ void __init qnap_tsx1x_register_flash(void)
 }
 
 
+/*****************************************************************************
+ * QNAP TS-x1x specific power off method via UART1-attached PIC
+ ****************************************************************************/
 
 #define UART1_REG(x)	(UART1_VIRT_BASE + ((UART_##x) << 2))
 
 void qnap_tsx1x_power_off(void)
 {
-	
+	/* 19200 baud divisor */
 	const unsigned divisor = ((kirkwood_tclk + (8 * 19200)) / (16 * 19200));
 
 	pr_info("%s: triggering power-off...\n", __func__);
 
-	
+	/* hijack UART1 and reset into sane state (19200,8n1) */
 	writel(0x83, UART1_REG(LCR));
 	writel(divisor & 0xff, UART1_REG(DLL));
 	writel((divisor >> 8) & 0xff, UART1_REG(DLM));
@@ -85,7 +107,7 @@ void qnap_tsx1x_power_off(void)
 	writel(0x00, UART1_REG(FCR));
 	writel(0x00, UART1_REG(MCR));
 
-	
+	/* send the power-off command 'A' to PIC */
 	writel('A', UART1_REG(TX));
 }
 

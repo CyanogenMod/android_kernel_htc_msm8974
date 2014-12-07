@@ -34,12 +34,15 @@ static inline int ili9320_write_spi(struct ili9320 *ili,
 	unsigned char *addr = spi->buffer_addr;
 	unsigned char *data = spi->buffer_data;
 
+	/* spi message consits of:
+	 * first byte: ID and operation
+	 */
 
 	addr[0] = spi->id | ILI9320_SPI_INDEX | ILI9320_SPI_WRITE;
 	addr[1] = reg >> 8;
 	addr[2] = reg;
 
-	
+	/* second message is the data to transfer */
 
 	data[0] = spi->id | ILI9320_SPI_DATA  | ILI9320_SPI_WRITE;
  	data[1] = value >> 8;
@@ -176,6 +179,10 @@ static void __devinit ili9320_setup_spi(struct ili9320 *ili,
 	ili->write = ili9320_write_spi;
 	spi->dev = dev;
 
+	/* fill the two messages we are going to use to send the data
+	 * with, the first the address followed by the data. The datasheet
+	 * says they should be done as two distinct cycles of the SPI CS line.
+	 */
 
 	spi->xfer[0].tx_buf = spi->buffer_addr;
 	spi->xfer[1].tx_buf = spi->buffer_data;
@@ -199,7 +206,7 @@ int __devinit ili9320_probe_spi(struct spi_device *spi,
 	struct lcd_device *lcd;
 	int ret = 0;
 
-	
+	/* verify we where given some information */
 
 	if (cfg == NULL) {
 		dev_err(dev, "no platform data supplied\n");
@@ -211,7 +218,7 @@ int __devinit ili9320_probe_spi(struct spi_device *spi,
 		return -EINVAL;
 	}
 
-	
+	/* allocate and initialse our state */
 
 	ili = kzalloc(sizeof(struct ili9320), GFP_KERNEL);
 	if (ili == NULL) {
@@ -311,6 +318,7 @@ int ili9320_resume(struct ili9320 *lcd)
 EXPORT_SYMBOL_GPL(ili9320_resume);
 #endif
 
+/* Power down all displays on reboot, poweroff or halt */
 void ili9320_shutdown(struct ili9320 *lcd)
 {
 	ili9320_power(lcd, FB_BLANK_POWERDOWN);

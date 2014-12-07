@@ -24,5 +24,5 @@ extern char *_ebss;
 
 extern u32 _fdt_start[], _fdt_end[];
 
-# endif 
-#endif 
+# endif /* !__ASSEMBLY__ */
+#endif /* _ASM_MICROBLAZE_SECTIONS_H */

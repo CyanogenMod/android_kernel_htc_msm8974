@@ -34,6 +34,13 @@
 
 #define IWCH_UVERBS_ABI_VERSION	1
 
+/*
+ * Make sure that all structs defined in this file remain laid out so
+ * that they pack the same way on 32-bit and 64-bit architectures (to
+ * avoid incompatibility between 32-bit userspace and 64-bit kernels).
+ * In particular do not use pointer types -- pass pointers in __u64
+ * instead.
+ */
 struct iwch_create_cq_req {
 	__u64 user_rptr_addr;
 };

@@ -31,12 +31,15 @@
 
 #define RTABORT (0x1<<9)
 #define RMABORT (0x1<<10)
-#define EMMA2RH_PCI_SLOT_NUM 9	
+#define EMMA2RH_PCI_SLOT_NUM 9	/* 0000:09.0 is final PCI device */
 
+/*
+ * access config space
+ */
 
 static int check_args(struct pci_bus *bus, u32 devfn, u32 * bus_num)
 {
-	
+	/* check if the bus is top-level */
 	if (bus->parent != NULL) {
 		*bus_num = bus->number;
 		db_assert(bus_num != NULL);
@@ -44,11 +47,11 @@ static int check_args(struct pci_bus *bus, u32 devfn, u32 * bus_num)
 		*bus_num = 0;
 
 	if (*bus_num == 0) {
-		
+		/* Type 0 */
 		if (PCI_SLOT(devfn) >= 10)
 			return PCIBIOS_DEVICE_NOT_FOUND;
 	} else {
-		
+		/* Type 1 */
 		if ((*bus_num >= 64) || (PCI_SLOT(devfn) >= 16))
 			return PCIBIOS_DEVICE_NOT_FOUND;
 	}
@@ -62,8 +65,14 @@ static inline int set_pci_configuration_address(unsigned char bus_num,
 
 	emma2rh_out32(EMMA2RH_PCI_INT, ~RMABORT);
 	if (bus_num == 0)
+		/*
+		 * Type 0 configuration
+		 */
 		config_win0 = (1 << (22 + PCI_SLOT(devfn))) | (5 << 9);
 	else
+		/*
+		 * Type 1 configuration
+		 */
 		config_win0 = (bus_num << 26) | (PCI_SLOT(devfn) << 22) |
 		    (1 << 15) | (5 << 9);
 
@@ -134,7 +143,7 @@ static int pci_config_write(struct pci_bus *bus, unsigned int devfn, int where,
 	if (set_pci_configuration_address(bus_num, devfn, where) < 0)
 		return PCIBIOS_DEVICE_NOT_FOUND;
 
-	
+	/* read modify write */
 	data =
 	    *(volatile u32 *)(base + (PCI_FUNC(devfn) << 8) +
 			      (where & 0xfffffffc));

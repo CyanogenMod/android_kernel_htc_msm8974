@@ -11,29 +11,38 @@
 
 static char __percpu *perf_trace_buf[PERF_NR_CONTEXTS];
 
+/*
+ * Force it to be aligned to unsigned long to avoid misaligned accesses
+ * suprises
+ */
 typedef typeof(unsigned long [PERF_MAX_TRACE_SIZE / sizeof(unsigned long)])
 	perf_trace_t;
 
+/* Count the events in use (per event id, not per instance) */
 static int	total_ref_count;
 
 static int perf_trace_event_perm(struct ftrace_event_call *tp_event,
 				 struct perf_event *p_event)
 {
-	
+	/* The ftrace function trace is allowed only for root. */
 	if (ftrace_event_is_function(tp_event) &&
 	    perf_paranoid_kernel() && !capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
-	
+	/* No tracing, just counting, so no obvious leak */
 	if (!(p_event->attr.sample_type & PERF_SAMPLE_RAW))
 		return 0;
 
-	
+	/* Some events are ok to be traced by non-root users... */
 	if (p_event->attach_state == PERF_ATTACH_TASK) {
 		if (tp_event->flags & TRACE_EVENT_FL_CAP_ANY)
 			return 0;
 	}
 
+	/*
+	 * ...otherwise raw tracepoint data can be a severe data leak,
+	 * only allow root to have these.
+	 */
 	if (perf_paranoid_tracepoint_raw() && !capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
@@ -108,6 +117,10 @@ static void perf_trace_event_unreg(struct perf_event *p_event)
 
 	tp_event->class->reg(tp_event, TRACE_REG_PERF_UNREGISTER, NULL);
 
+	/*
+	 * Ensure our callback won't be called anymore. The buffers
+	 * will be freed after that.
+	 */
 	tracepoint_synchronize_unregister();
 
 	free_percpu(tp_event->perf_events);
@@ -231,7 +244,7 @@ __kprobes void *perf_trace_buf_prepare(int size, unsigned short type,
 
 	raw_data = this_cpu_ptr(perf_trace_buf[*rctxp]);
 
-	
+	/* zero the dead bytes from align to not leak stack to user */
 	memset(&raw_data[size - sizeof(u64)], 0, sizeof(u64));
 
 	entry = (struct trace_entry *)raw_data;
@@ -324,4 +337,4 @@ int perf_ftrace_event_register(struct ftrace_event_call *call,
 
 	return -EINVAL;
 }
-#endif 
+#endif /* CONFIG_FUNCTION_TRACER */

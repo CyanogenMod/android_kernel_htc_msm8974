@@ -1,6 +1,14 @@
+/*
+ *  linux/fs/hpfs/anode.c
+ *
+ *  Mikulas Patocka (mikulas@artax.karlin.mff.cuni.cz), 1998-1999
+ *
+ *  handling HPFS anode tree that contains file allocation info
+ */
 
 #include "hpfs_fn.h"
 
+/* Find a sector in allocation tree */
 
 secno hpfs_bplus_lookup(struct super_block *s, struct inode *inode,
 		   struct bplus_header *btree, unsigned sec,
@@ -47,6 +55,7 @@ secno hpfs_bplus_lookup(struct super_block *s, struct inode *inode,
 	return -1;
 }
 
+/* Add a sector to tree */
 
 secno hpfs_add_sector_to_btree(struct super_block *s, secno node, int fnod, unsigned fsecno)
 {
@@ -132,7 +141,7 @@ secno hpfs_add_sector_to_btree(struct super_block *s, secno node, int fnod, unsi
 			btree->u.internal[0].file_secno = cpu_to_le32(-1);
 			btree->u.internal[0].down = cpu_to_le32(na);
 			mark_buffer_dirty(bh);
-		} else if (!(ranode = hpfs_alloc_anode(s, 0, &ra, &bh2))) {
+		} else if (!(ranode = hpfs_alloc_anode(s, /*a*/0, &ra, &bh2))) {
 			brelse(bh);
 			brelse(bh1);
 			hpfs_free_sectors(s, se, 1);
@@ -182,13 +191,13 @@ secno hpfs_add_sector_to_btree(struct super_block *s, secno node, int fnod, unsi
 			return se;
 		}
 		up = up != node ? le32_to_cpu(anode->up) : -1;
-		btree->u.internal[btree->n_used_nodes - 1].file_secno = cpu_to_le32(-1);
+		btree->u.internal[btree->n_used_nodes - 1].file_secno = cpu_to_le32(/*fs*/-1);
 		mark_buffer_dirty(bh);
 		brelse(bh);
 		a = na;
 		if ((new_anode = hpfs_alloc_anode(s, a, &na, &bh))) {
 			anode = new_anode;
-			
+			/*anode->up = cpu_to_le32(up != -1 ? up : ra);*/
 			anode->btree.internal = 1;
 			anode->btree.n_used_nodes = 1;
 			anode->btree.n_free_nodes = 59;
@@ -251,6 +260,10 @@ secno hpfs_add_sector_to_btree(struct super_block *s, secno node, int fnod, unsi
 	return se;
 }
 
+/*
+ * Remove allocation tree. Recursion would look much nicer but
+ * I want to avoid it because it can cause stack overflow.
+ */
 
 void hpfs_remove_btree(struct super_block *s, struct bplus_header *btree)
 {
@@ -306,6 +319,7 @@ void hpfs_remove_btree(struct super_block *s, struct bplus_header *btree)
 		brelse(bh);
 }
 
+/* Just a wrapper around hpfs_bplus_lookup .. used for reading eas */
 
 static secno anode_lookup(struct super_block *s, anode_secno a, unsigned sec)
 {
@@ -374,6 +388,7 @@ void hpfs_ea_remove(struct super_block *s, secno a, int ano, unsigned len)
 	} else hpfs_free_sectors(s, a, (len + 511) >> 9);
 }
 
+/* Truncate allocation tree. Doesn't join anodes - I hope it doesn't matter */
 
 void hpfs_truncate_btree(struct super_block *s, secno f, int fno, unsigned secs)
 {
@@ -442,7 +457,7 @@ void hpfs_truncate_btree(struct super_block *s, secno f, int fno, unsigned secs)
 	else if (le32_to_cpu(btree->u.external[i].file_secno) + le32_to_cpu(btree->u.external[i].length) > secs) {
 		hpfs_free_sectors(s, le32_to_cpu(btree->u.external[i].disk_secno) + secs -
 			le32_to_cpu(btree->u.external[i].file_secno), le32_to_cpu(btree->u.external[i].length)
-			- secs + le32_to_cpu(btree->u.external[i].file_secno)); 
+			- secs + le32_to_cpu(btree->u.external[i].file_secno)); /* I hope gcc optimizes this :-) */
 		btree->u.external[i].length = cpu_to_le32(secs - le32_to_cpu(btree->u.external[i].file_secno));
 	}
 	for (j = i + 1; j < btree->n_used_nodes; j++)
@@ -454,6 +469,8 @@ void hpfs_truncate_btree(struct super_block *s, secno f, int fno, unsigned secs)
 	brelse(bh);
 }
 
+/* Remove file or directory and it's eas - note that directory must
+   be empty when this is called. */
 
 void hpfs_remove_fnode(struct super_block *s, fnode_secno fno)
 {

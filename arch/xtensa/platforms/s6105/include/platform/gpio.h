@@ -24,4 +24,4 @@
 #define GPIO_BP_RESET		22
 #define GPIO_ALARM_OUT		23
 
-#endif 
+#endif /* __ASM_XTENSA_S6105_GPIO_H */

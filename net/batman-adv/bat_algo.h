@@ -24,4 +24,4 @@
 
 int bat_iv_init(void);
 
-#endif 
+#endif /* _NET_BATMAN_ADV_BAT_ALGO_H_ */

@@ -450,7 +450,12 @@ static int32_t ov4688_platform_probe(struct platform_device *pdev)
 	int32_t rc = 0;
 	const struct of_device_id *match;
 	match = of_match_device(ov4688_dt_match, &pdev->dev);
-
+	
+	if (!match) {
+		pr_err("%s:%d\n", __func__, __LINE__);
+		return -EINVAL;
+	}
+	
 	rc = msm_sensor_platform_probe(pdev, match->data);
 	return rc;
 }
@@ -815,6 +820,14 @@ void ov4688_do_restart_stream(struct work_struct *ws)
 	}
 
 	mutex_lock(ov4688_s_ctrl.msm_sensor_mutex);
+
+	if (ov4688_s_ctrl.sensor_state != MSM_SENSOR_POWER_UP) {
+		atomic_set(&restart_is_running, 0);
+		mutex_unlock(ov4688_s_ctrl.msm_sensor_mutex);
+		pr_info("%s: quit in sensor_state %d\n", __func__, ov4688_s_ctrl.sensor_state);
+		return;
+	}
+
 	if(YushanII_Get_reloadInfo() == 0){
 		pr_info("%s: stop YushanII first", __func__);
 		Ilp0100_stop();
@@ -883,26 +896,40 @@ int32_t ov4688_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 		if (s_ctrl->sensordata->htc_image != 1) 
 			break;
 
+		mutex_lock(s_ctrl->msm_sensor_mutex);
 		if (copy_from_user(&cfg_data, (void *)cdata->cfg.setting,
 			sizeof(struct msm_rawchip2_cfg_data))) {
 			pr_err("%s:%d failed\n", __func__, __LINE__);
 			rc = -EFAULT;
+			mutex_unlock(s_ctrl->msm_sensor_mutex);
 			break;
+		}
+		if (atomic_read(&restart_is_running)){
+			complete(&raw2_stream_on_complete);
+			pr_info("%s: last restart is running %d, stop it\n", __func__, atomic_read(&restart_is_running));
 		}
 		init_completion(&raw2_stream_on_complete);
 
 		pr_info("%s: CFG_RAWCHIPII_SETTING", __func__);
 		YushanII_Init(s_ctrl,&cfg_data);
+		mutex_unlock(s_ctrl->msm_sensor_mutex);
 		break;
 
 	case CFG_RAWCHIPII_STOP:
 		if (s_ctrl->sensordata->htc_image != 1) 
 			break;
 
+		mutex_lock(s_ctrl->msm_sensor_mutex);
+		if (atomic_read(&restart_is_running)){
+			complete(&raw2_stream_on_complete);
+			pr_info("%s: last restart is running %d, stop it\n", __func__, atomic_read(&restart_is_running));
+		}
+
 		if(YushanII_Get_reloadInfo() == 0){
 			pr_info("%s: stop YushanII first", __func__);
 			Ilp0100_stop();
 		}
+		mutex_unlock(s_ctrl->msm_sensor_mutex);
 
 		break;
 #endif

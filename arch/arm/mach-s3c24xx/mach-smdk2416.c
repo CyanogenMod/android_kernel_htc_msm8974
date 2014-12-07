@@ -58,7 +58,7 @@
 #include <plat/common-smdk.h>
 
 static struct map_desc smdk2416_iodesc[] __initdata = {
-	
+	/* ISA IO Space map (memory space selected by A24) */
 
 	{
 		.virtual	= (u32)S3C24XX_VA_ISA_WORD,
@@ -108,7 +108,7 @@ static struct s3c2410_uartcfg smdk2416_uartcfgs[] __initdata = {
 		.ulcon	     = ULCON,
 		.ufcon	     = UFCON,
 	},
-	
+	/* IR port */
 	[2] = {
 		.hwport	     = 2,
 		.flags	     = 0,
@@ -148,7 +148,7 @@ static struct s3c24xx_hsudc_platdata smdk2416_hsudc_platdata = {
 
 static struct s3c_fb_pd_win smdk2416_fb_win[] = {
 	[0] = {
-		
+		/* think this is the same as the smdk6410 */
 		.win_mode	= {
 			.pixclock	= 41094,
 			.left_margin	= 8,
@@ -245,7 +245,7 @@ static void __init smdk2416_machine_init(void)
 }
 
 MACHINE_START(SMDK2416, "SMDK2416")
-	
+	/* Maintainer: Yauhen Kharuzhy <jekhor@gmail.com> */
 	.atag_offset	= 0x100,
 
 	.init_irq	= s3c24xx_init_irq,

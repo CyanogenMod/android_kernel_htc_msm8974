@@ -24,6 +24,9 @@
 #include <asm/reboot.h>
 #include <asm/portmux.h>
 
+/*
+ * Name the Board for the /proc/cpuinfo
+ */
 const char bfin_board_name[] = "HV Sistemas H8606";
 
 #if defined(CONFIG_RTC_DRV_BFIN) || defined(CONFIG_RTC_DRV_BFIN_MODULE)
@@ -33,6 +36,9 @@ static struct platform_device rtc_device = {
 };
 #endif
 
+/*
+*  Driver needs to know address, irq and flag pin.
+ */
  #if	defined(CONFIG_DM9000) || defined(CONFIG_DM9000_MODULE)
 static struct resource dm9000_resources[] = {
 	[0] = {
@@ -120,6 +126,7 @@ static struct platform_device net2272_bfin_device = {
 #endif
 
 #if defined(CONFIG_SPI_BFIN5XX) || defined(CONFIG_SPI_BFIN5XX_MODULE)
+/* all SPI peripherals info goes here */
 
 #if defined(CONFIG_MTD_M25P80) || defined(CONFIG_MTD_M25P80_MODULE)
 static struct mtd_partition bfin_spi_flash_partitions[] = {
@@ -150,20 +157,23 @@ static struct flash_platform_data bfin_spi_flash_data = {
 	.type = "m25p64",
 };
 
+/* SPI flash chip (m25p64) */
 static struct bfin5xx_spi_chip spi_flash_chip_info = {
-	.enable_dma = 0,         
+	.enable_dma = 0,         /* use dma transfer with this chip*/
 };
 #endif
 
+/* Notice: for blackfin, the speed_hz is the value of register
+ * SPI_BAUD, not the real baudrate */
 static struct spi_board_info bfin_spi_board_info[] __initdata = {
 #if defined(CONFIG_MTD_M25P80) || defined(CONFIG_MTD_M25P80_MODULE)
 	{
-		
-		.modalias = "m25p80", 
-		
-		.max_speed_hz = 50000000, 
-		.bus_num = 0, 
-		.chip_select = 2, 
+		/* the modalias must be the same as spi device driver name */
+		.modalias = "m25p80", /* Name of spi_driver for this device */
+		/* this value is the baudrate divisor */
+		.max_speed_hz = 50000000, /* actual baudrate is SCLK/(2xspeed_hz) */
+		.bus_num = 0, /* Framework bus number */
+		.chip_select = 2, /* Framework chip select. On STAMP537 it is SPISSEL2*/
 		.platform_data = &bfin_spi_flash_data,
 		.controller_data = &spi_flash_chip_info,
 		.mode = SPI_MODE_3,
@@ -181,6 +191,7 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 
 };
 
+/* SPI (0) */
 static struct resource bfin_spi0_resource[] = {
 	[0] = {
 		.start = SPI0_REGBASE,
@@ -200,22 +211,23 @@ static struct resource bfin_spi0_resource[] = {
 };
 
 
+/* SPI controller data */
 static struct bfin5xx_spi_master bfin_spi0_info = {
 	.num_chipselect = 8,
-	.enable_dma = 1,  
+	.enable_dma = 1,  /* master has the ability to do dma transfer */
 	.pin_req = {P_SPI0_SCK, P_SPI0_MISO, P_SPI0_MOSI, 0},
 };
 
 static struct platform_device bfin_spi0_device = {
 	.name = "bfin-spi",
-	.id = 0, 
+	.id = 0, /* Bus number */
 	.num_resources = ARRAY_SIZE(bfin_spi0_resource),
 	.resource = bfin_spi0_resource,
 	.dev = {
-		.platform_data = &bfin_spi0_info, 
+		.platform_data = &bfin_spi0_info, /* Passed to driver */
 	},
 };
-#endif  
+#endif  /* spi master and devices */
 
 #if defined(CONFIG_SERIAL_BFIN) || defined(CONFIG_SERIAL_BFIN_MODULE)
 #ifdef CONFIG_SERIAL_BFIN_UART0
@@ -262,7 +274,7 @@ static struct platform_device bfin_uart0_device = {
 	.num_resources = ARRAY_SIZE(bfin_uart0_resources),
 	.resource = bfin_uart0_resources,
 	.dev = {
-		.platform_data = &bfin_uart0_peripherals, 
+		.platform_data = &bfin_uart0_peripherals, /* Passed to driver */
 	},
 };
 #endif
@@ -302,6 +314,11 @@ static struct platform_device bfin_sir0_device = {
 #include <linux/serial_8250.h>
 #include <linux/serial.h>
 
+/*
+ * Configuration for two 16550 UARTS in FPGA at addresses 0x20200000 and 0x202000010.
+ * running at half system clock, both with interrupt output or-ed to PF8. Change to
+ * suit different FPGA configuration, or to suit real 16550 UARTS connected to the bus
+ */
 
 static struct plat_serial8250_port serial8250_platform_data [] = {
 	{
@@ -338,6 +355,10 @@ static struct platform_device serial8250_device = {
 
 #if defined(CONFIG_KEYBOARD_OPENCORES) || defined(CONFIG_KEYBOARD_OPENCORES_MODULE)
 
+/*
+ * Configuration for one OpenCores keyboard controller in FPGA at address 0x20200030,
+ * interrupt output wired to PF9. Change to suit different FPGA configuration
+ */
 
 static struct resource opencores_kbd_resources[] = {
 	[0] = {

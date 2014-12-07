@@ -25,6 +25,7 @@
 #define CAIAQ_USB_STR_LEN 0xff
 #define MAX_STREAMS 32
 
+//#define	SND_USB_CAIAQ_DEBUG
 
 #define MODNAME "snd-usb-caiaq"
 #define log(x...) snd_printk(KERN_WARNING MODNAME" log: " x)
@@ -101,20 +102,20 @@ struct snd_usb_caiaqdev {
 	struct snd_pcm_substream *sub_playback[MAX_STREAMS];
 	struct snd_pcm_substream *sub_capture[MAX_STREAMS];
 
-	
+	/* Controls */
 	unsigned char control_state[256];
 	unsigned char ep8_out_buf[2];
 
-	
+	/* Linux input */
 #ifdef CONFIG_SND_USB_CAIAQ_INPUT
 	struct input_dev *input_dev;
-	char phys[64];			
+	char phys[64];			/* physical device path */
 	unsigned short keycode[128];
 	struct urb *ep4_in_urb;
 	unsigned char ep4_in_buf[EP4_BUFSIZE];
 #endif
 
-	
+	/* ALSA */
 	struct snd_pcm *pcm;
 	struct snd_pcm_hardware pcm_info;
 	struct snd_rawmidi *rmidi;
@@ -136,4 +137,4 @@ int snd_usb_caiaq_send_command(struct snd_usb_caiaqdev *dev,
 			       const unsigned char *buffer,
 			       int len);
 
-#endif 
+#endif /* CAIAQ_DEVICE_H */

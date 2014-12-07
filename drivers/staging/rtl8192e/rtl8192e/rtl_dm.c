@@ -24,6 +24,7 @@
 #include "r8190P_rtl8256.h"
 #include "r8192E_cmdpkt.h"
 
+/*---------------------------Define Local Constant---------------------------*/
 static u32 edca_setting_DL[HT_IOT_PEER_MAX] = {
 	0x5e4322,
 	0x5e4322,
@@ -59,19 +60,25 @@ static u32 edca_setting_UL[HT_IOT_PEER_MAX] = {
 
 #define RTK_UL_EDCA 0xa44f
 #define RTK_DL_EDCA 0x5e4322
+/*---------------------------Define Local Constant---------------------------*/
 
 
+/*------------------------Define global variable-----------------------------*/
 struct dig_t dm_digtable;
 u8 dm_shadow[16][256] = {
 	{0}
 };
 
 struct drx_path_sel DM_RxPathSelTable;
+/*------------------------Define global variable-----------------------------*/
+
+
+/*------------------------Define local variable------------------------------*/
+/*------------------------Define local variable------------------------------*/
 
 
 
-
-
+/*---------------------Define local function prototype-----------------------*/
 static	void	dm_check_rate_adaptive(struct net_device *dev);
 
 static	void	dm_init_bandwidth_autoswitch(struct net_device *dev);
@@ -117,6 +124,7 @@ static void dm_deInit_fsync(struct net_device *dev);
 static	void dm_check_txrateandretrycount(struct net_device *dev);
 static  void dm_check_ac_dc_power(struct net_device *dev);
 
+/*---------------------Define local function prototype-----------------------*/
 
 static	void	dm_init_dynamic_txpower(struct net_device *dev);
 static	void	dm_dynamic_txpower(struct net_device *dev);
@@ -124,6 +132,7 @@ static	void	dm_dynamic_txpower(struct net_device *dev);
 
 static	void dm_send_rssi_tofw(struct net_device *dev);
 static	void	dm_ctstoself(struct net_device *dev);
+/*---------------------------Define function prototype------------------------*/
 
 void init_hal_dm(struct net_device *dev)
 {
@@ -1744,6 +1753,23 @@ static void dm_ctrl_initgain_byrssi(struct net_device *dev)
 		return;
 }
 
+/*-----------------------------------------------------------------------------
+ * Function:	dm_CtrlInitGainBeforeConnectByRssiAndFalseAlarm()
+ *
+ * Overview:	Driver monitor RSSI and False Alarm to change initial gain.
+			Only change initial gain during link in progress.
+ *
+ * Input:		IN	PADAPTER	pAdapter
+ *
+ * Output:		NONE
+ *
+ * Return:		NONE
+ *
+ * Revised History:
+ *	When		Who		Remark
+ *	03/04/2009	hpfan	Create Version 0.
+ *
+ *---------------------------------------------------------------------------*/
 
 static void dm_ctrl_initgain_byrssi_by_driverrssi(
 	struct net_device *dev)
@@ -2880,6 +2906,7 @@ void dm_shadow_init(struct net_device *dev)
 
 }
 
+/*---------------------------Define function prototype------------------------*/
 static void dm_init_dynamic_txpower(struct net_device *dev)
 {
 	struct r8192_priv *priv = rtllib_priv(dev);

@@ -47,4 +47,4 @@ int nmi625_i2c_write(void *hDevice, unsigned short addr, unsigned char *data, un
 }
 #endif
 
-#endif 
+#endif // __NM625_I2C__

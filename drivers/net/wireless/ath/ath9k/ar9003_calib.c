@@ -40,9 +40,13 @@ static void ar9003_hw_setup_calibration(struct ath_hw *ah,
 {
 	struct ath_common *common = ath9k_hw_common(ah);
 
-	
+	/* Select calibration to run */
 	switch (currCal->calData->calType) {
 	case IQ_MISMATCH_CAL:
+		/*
+		 * Start calibration with
+		 * 2^(INIT_IQCAL_LOG_COUNT_MAX+1) samples
+		 */
 		REG_RMW_FIELD(ah, AR_PHY_TIMING4,
 			      AR_PHY_TIMING4_IQCAL_LOG_COUNT_MAX,
 		currCal->calData->calCountMax);
@@ -51,7 +55,7 @@ static void ar9003_hw_setup_calibration(struct ath_hw *ah,
 		ath_dbg(common, CALIBRATE,
 			"starting IQ Mismatch Calibration\n");
 
-		
+		/* Kick-off cal */
 		REG_SET_BIT(ah, AR_PHY_TIMING4, AR_PHY_TIMING4_DO_CAL);
 		break;
 	case TEMP_COMP_CAL:
@@ -66,19 +70,27 @@ static void ar9003_hw_setup_calibration(struct ath_hw *ah,
 	}
 }
 
+/*
+ * Generic calibration routine.
+ * Recalibrate the lower PHY chips to account for temperature/environment
+ * changes.
+ */
 static bool ar9003_hw_per_calibration(struct ath_hw *ah,
 				      struct ath9k_channel *ichan,
 				      u8 rxchainmask,
 				      struct ath9k_cal_list *currCal)
 {
 	struct ath9k_hw_cal_data *caldata = ah->caldata;
-	
+	/* Cal is assumed not done until explicitly set below */
 	bool iscaldone = false;
 
-	
+	/* Calibration in progress. */
 	if (currCal->calState == CAL_RUNNING) {
-		
+		/* Check to see if it has finished. */
 		if (!(REG_READ(ah, AR_PHY_TIMING4) & AR_PHY_TIMING4_DO_CAL)) {
+			/*
+			* Accumulate cal measures for active chains
+			*/
 			currCal->calData->calCollect(ah);
 			ah->cal_samples++;
 
@@ -90,18 +102,25 @@ static bool ar9003_hw_per_calibration(struct ath_hw *ah,
 						numChains++;
 				}
 
+				/*
+				* Process accumulated data
+				*/
 				currCal->calData->calPostProc(ah, numChains);
 
-				
+				/* Calibration has finished. */
 				caldata->CalValid |= currCal->calData->calType;
 				currCal->calState = CAL_DONE;
 				iscaldone = true;
 			} else {
+			/*
+			 * Set-up collection of another sub-sample until we
+			 * get desired number
+			 */
 			ar9003_hw_setup_calibration(ah, currCal);
 			}
 		}
 	} else if (!(caldata->CalValid & currCal->calData->calType)) {
-		
+		/* If current cal is marked invalid in channel, kick it off */
 		ath9k_hw_reset_calibration(ah, currCal);
 	}
 
@@ -116,6 +135,15 @@ static bool ar9003_hw_calibrate(struct ath_hw *ah,
 	bool iscaldone = true;
 	struct ath9k_cal_list *currCal = ah->cal_list_curr;
 
+	/*
+	 * For given calibration:
+	 * 1. Call generic cal routine
+	 * 2. When this cal is done (isCalDone) if we have more cals waiting
+	 *    (eg after reset), mask this to upper layers by not propagating
+	 *    isCalDone if it is set to TRUE.
+	 *    Instead, change isCalDone to FALSE and setup the waiting cal(s)
+	 *    to be run.
+	 */
 	if (currCal &&
 	    (currCal->calState == CAL_RUNNING ||
 	     currCal->calState == CAL_WAITING)) {
@@ -131,13 +159,22 @@ static bool ar9003_hw_calibrate(struct ath_hw *ah,
 		}
 	}
 
-	
+	/* Do NF cal only at longer intervals */
 	if (longcal) {
+		/*
+		 * Get the value from the previous NF cal and update
+		 * history buffer.
+		 */
 		ath9k_hw_getnf(ah, chan);
 
+		/*
+		 * Load the NF from history buffer of the current channel.
+		 * NF is slow time-variant, so it is OK to use a historical
+		 * value.
+		 */
 		ath9k_hw_loadnf(ah, ah->curchan);
 
-		
+		/* start NF calibration, without updating BB NF register */
 		ath9k_hw_start_nfcal(ah, false);
 	}
 
@@ -148,7 +185,7 @@ static void ar9003_hw_iqcal_collect(struct ath_hw *ah)
 {
 	int i;
 
-	
+	/* Accumulate IQ cal measures for active chains */
 	for (i = 0; i < AR5416_MAX_CHAINS; i++) {
 		if (ah->txchainmask & BIT(i)) {
 			ah->totalPowerMeasI[i] +=
@@ -215,17 +252,17 @@ static void ar9003_hw_iqcalibrate(struct ath_hw *ah, u8 numChains)
 			ath_dbg(common, CALIBRATE, "Chn %d qCoff = 0x%08x\n",
 				i, qCoff);
 
-			
+			/* Force bounds on iCoff */
 			if (iCoff >= 63)
 				iCoff = 63;
 			else if (iCoff <= -63)
 				iCoff = -63;
 
-			
+			/* Negate iCoff if iqCorrNeg == 0 */
 			if (iqCorrNeg == 0x0)
 				iCoff = -iCoff;
 
-			
+			/* Force bounds on qCoff */
 			if (qCoff >= 63)
 				qCoff = 63;
 			else if (qCoff <= -63)
@@ -286,6 +323,9 @@ static void ar9003_hw_init_cal_settings(struct ath_hw *ah)
 	ah->iq_caldata.calData = &iq_cal_single_sample;
 }
 
+/*
+ * solve 4x4 linear equation used in loopback iq cal.
+ */
 static bool ar9003_hw_solve_iq_cal(struct ath_hw *ah,
 				   s32 sin_2phi_1,
 				   s32 cos_2phi_1,
@@ -311,18 +351,18 @@ static bool ar9003_hw_solve_iq_cal(struct ath_hw *ah,
 		return false;
 	}
 
-	
+	/* mag mismatch, tx */
 	mag_tx = f1 * (mag_a0_d0  - mag_a1_d0) + f3 * (phs_a0_d0 - phs_a1_d0);
-	
+	/* phs mismatch, tx */
 	phs_tx = f3 * (-mag_a0_d0 + mag_a1_d0) + f1 * (phs_a0_d0 - phs_a1_d0);
 
 	mag_tx = (mag_tx / f2);
 	phs_tx = (phs_tx / f2);
 
-	
+	/* mag mismatch, rx */
 	mag_rx = mag_a0_d0 - (cos_2phi_1 * mag_tx + sin_2phi_1 * phs_tx) /
 		 result_shift;
-	
+	/* phs mismatch, rx */
 	phs_rx = phs_a0_d0 + (sin_2phi_1 * mag_tx - cos_2phi_1 * phs_tx) /
 		 result_shift;
 
@@ -451,15 +491,19 @@ static bool ar9003_hw_calc_iq_corr(struct ath_hw *ah,
 	mag_a1_d1 = (i2_m_q2_a1_d1 * res_scale) / i2_p_q2_a1_d1;
 	phs_a1_d1 = (iq_corr_a1_d1 * res_scale) / i2_p_q2_a1_d1;
 
-	
+	/* w/o analog phase shift */
 	sin_2phi_1 = (((mag_a0_d0 - mag_a0_d1) * delpt_shift) / DELPT);
-	
+	/* w/o analog phase shift */
 	cos_2phi_1 = (((phs_a0_d1 - phs_a0_d0) * delpt_shift) / DELPT);
-	
+	/* w/  analog phase shift */
 	sin_2phi_2 = (((mag_a1_d0 - mag_a1_d1) * delpt_shift) / DELPT);
-	
+	/* w/  analog phase shift */
 	cos_2phi_2 = (((phs_a1_d1 - phs_a1_d0) * delpt_shift) / DELPT);
 
+	/*
+	 * force sin^2 + cos^2 = 1;
+	 * find magnitude by approximation
+	 */
 	mag1 = ar9003_hw_find_mag_approx(ah, cos_2phi_1, sin_2phi_1);
 	mag2 = ar9003_hw_find_mag_approx(ah, cos_2phi_2, sin_2phi_2);
 
@@ -469,13 +513,13 @@ static bool ar9003_hw_calc_iq_corr(struct ath_hw *ah,
 		return false;
 	}
 
-	
+	/* normalization sin and cos by mag */
 	sin_2phi_1 = (sin_2phi_1 * res_scale / mag1);
 	cos_2phi_1 = (cos_2phi_1 * res_scale / mag1);
 	sin_2phi_2 = (sin_2phi_2 * res_scale / mag2);
 	cos_2phi_2 = (cos_2phi_2 * res_scale / mag2);
 
-	
+	/* calculate IQ mismatch */
 	if (!ar9003_hw_solve_iq_cal(ah,
 			     sin_2phi_1, cos_2phi_1,
 			     sin_2phi_2, cos_2phi_2,
@@ -503,7 +547,7 @@ static bool ar9003_hw_calc_iq_corr(struct ath_hw *ah,
 		return false;
 	}
 
-	
+	/* calculate and quantize Tx IQ correction factor */
 	mag_corr_tx = (mag_tx * res_scale) / (res_scale - mag_tx);
 	phs_corr_tx = -phs_tx;
 
@@ -534,7 +578,7 @@ static bool ar9003_hw_calc_iq_corr(struct ath_hw *ah,
 		return false;
 	}
 
-	
+	/* calculate and quantize Rx IQ correction factors */
 	mag_corr_rx = (-mag_rx * res_scale) / (res_scale + mag_rx);
 	phs_corr_rx = -phs_rx;
 
@@ -568,7 +612,7 @@ static void ar9003_hw_detect_outlier(int *mp_coeff, int nmeasurement,
 	int mp_min = 63, min_idx = 0;
 	int mp_avg = 0, i, outlier_idx = 0, mp_count = 0;
 
-	
+	/* find min/max mismatch across all calibrated gains */
 	for (i = 0; i < nmeasurement; i++) {
 		if (mp_coeff[i] > mp_max) {
 			mp_max = mp_coeff[i];
@@ -579,7 +623,7 @@ static void ar9003_hw_detect_outlier(int *mp_coeff, int nmeasurement,
 		}
 	}
 
-	
+	/* find average (exclude max abs value) */
 	for (i = 0; i < nmeasurement; i++) {
 		if ((abs(mp_coeff[i]) < abs(mp_max)) ||
 		    (abs(mp_coeff[i]) < abs(mp_min))) {
@@ -588,12 +632,16 @@ static void ar9003_hw_detect_outlier(int *mp_coeff, int nmeasurement,
 		}
 	}
 
+	/*
+	 * finding mean magnitude/phase if possible, otherwise
+	 * just use the last value as the mean
+	 */
 	if (mp_count)
 		mp_avg /= mp_count;
 	else
 		mp_avg = mp_coeff[nmeasurement - 1];
 
-	
+	/* detect outlier */
 	if (abs(mp_max - mp_min) > max_delta) {
 		if (abs(mp_max - mp_avg) > abs(mp_min - mp_avg))
 			outlier_idx = max_idx;
@@ -628,7 +676,7 @@ static void ar9003_hw_tx_iqcal_load_avg_2_passes(struct ath_hw *ah,
 		}
 	}
 
-	
+	/* Load the average of 2 passes */
 	for (i = 0; i < num_chains; i++) {
 		nmeasurement = REG_READ_FIELD(ah,
 				AR_PHY_TX_IQCAL_STATUS_B0,
@@ -637,13 +685,13 @@ static void ar9003_hw_tx_iqcal_load_avg_2_passes(struct ath_hw *ah,
 		if (nmeasurement > MAX_MEASUREMENT)
 			nmeasurement = MAX_MEASUREMENT;
 
-		
+		/* detect outlier only if nmeasurement > 1 */
 		if (nmeasurement > 1) {
-			
+			/* Detect magnitude outlier */
 			ar9003_hw_detect_outlier(coeff->mag_coeff[i],
 					nmeasurement, MAX_MAG_DELTA);
 
-			
+			/* Detect phase outlier */
 			ar9003_hw_detect_outlier(coeff->phs_coeff[i],
 					nmeasurement, MAX_PHS_DELTA);
 		}
@@ -754,7 +802,7 @@ static void ar9003_hw_tx_iq_cal_post_proc(struct ath_hw *ah, bool is_reusable)
 						AR_PHY_CHAN_INFO_TAB_S2_READ,
 						0);
 
-				
+				/* 32 bits */
 				iq_res[idx] = REG_READ(ah,
 						chan_info_tab[i] +
 						offset);
@@ -764,7 +812,7 @@ static void ar9003_hw_tx_iq_cal_post_proc(struct ath_hw *ah, bool is_reusable)
 						AR_PHY_CHAN_INFO_TAB_S2_READ,
 						1);
 
-				
+				/* 16 bits */
 				iq_res[idx + 1] = 0xffff & REG_READ(ah,
 						chan_info_tab[i] + offset);
 
@@ -928,11 +976,15 @@ static bool ar9003_hw_init_cal(struct ath_hw *ah,
 	if (!(ah->enabled_cals & TX_IQ_CAL))
 		goto skip_tx_iqcal;
 
-	
+	/* Do Tx IQ Calibration */
 	REG_RMW_FIELD(ah, AR_PHY_TX_IQCAL_CONTROL_1,
 		      AR_PHY_TX_IQCAL_CONTROL_1_IQCORR_I_Q_COFF_DELPT,
 		      DELPT);
 
+	/*
+	 * For AR9485 or later chips, TxIQ cal runs as part of
+	 * AGC calibration
+	 */
 	if (ah->enabled_cals & TX_IQ_ON_AGC_CAL) {
 		if (caldata && !caldata->done_txiqcal_once)
 			REG_SET_BIT(ah, AR_PHY_TX_IQCAL_CONTROL_0,
@@ -955,12 +1007,12 @@ static bool ar9003_hw_init_cal(struct ath_hw *ah,
 
 skip_tx_iqcal:
 	if (run_agc_cal || !(ah->ah_flags & AH_FASTCC)) {
-		
+		/* Calibrate the AGC */
 		REG_WRITE(ah, AR_PHY_AGC_CONTROL,
 			  REG_READ(ah, AR_PHY_AGC_CONTROL) |
 			  AR_PHY_AGC_CONTROL_CAL);
 
-		
+		/* Poll for offset calibration complete */
 		status = ath9k_hw_wait(ah, AR_PHY_AGC_CONTROL,
 				       AR_PHY_AGC_CONTROL_CAL,
 				       0, AH_WAIT_TIMEOUT);
@@ -1031,7 +1083,7 @@ skip_tx_iqcal:
 		ar9003_hw_rtt_disable(ah);
 	}
 
-	
+	/* Initialize list pointers */
 	ah->cal_list = ah->cal_list_last = ah->cal_list_curr = NULL;
 	ah->supp_cals = IQ_MISMATCH_CAL;
 
@@ -1048,7 +1100,7 @@ skip_tx_iqcal:
 			"enabling Temperature Compensation Calibration\n");
 	}
 
-	
+	/* Initialize current pointer to first element in list */
 	ah->cal_list_curr = ah->cal_list;
 
 	if (ah->cal_list_curr)

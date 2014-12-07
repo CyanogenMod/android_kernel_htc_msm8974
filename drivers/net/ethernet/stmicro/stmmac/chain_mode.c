@@ -104,6 +104,10 @@ static void stmmac_clean_desc3(struct dma_desc *p)
 static void stmmac_init_dma_chain(struct dma_desc *des, dma_addr_t phy_addr,
 				  unsigned int size)
 {
+	/*
+	 * In chained mode the des3 points to the next element in the ring.
+	 * The latest element has to point to the head.
+	 */
 	int i;
 	struct dma_desc *p = des;
 	dma_addr_t dma_phy = phy_addr;
@@ -118,7 +122,7 @@ static void stmmac_init_dma_chain(struct dma_desc *des, dma_addr_t phy_addr,
 
 static int stmmac_set_16kib_bfsize(int mtu)
 {
-	
+	/* Not supported */
 	return 0;
 }
 

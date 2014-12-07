@@ -35,9 +35,12 @@
 #include <asm/page.h>
 #include <mach/time.h>
 
+/*
+ * GLAN Tank timer tick configuration.
+ */
 static void __init glantank_timer_init(void)
 {
-	
+	/* 33.333 MHz crystal.  */
 	iop_init_time(200000000);
 }
 
@@ -46,8 +49,11 @@ static struct sys_timer glantank_timer = {
 };
 
 
+/*
+ * GLAN Tank I/O.
+ */
 static struct map_desc glantank_io_desc[] __initdata = {
-	{	
+	{	/* on-board devices */
 		.virtual	= GLANTANK_UART,
 		.pfn		= __phys_to_pfn(GLANTANK_UART),
 		.length		= 0x00100000,
@@ -62,6 +68,9 @@ void __init glantank_map_io(void)
 }
 
 
+/*
+ * GLAN Tank PCI.
+ */
 #define INTA	IRQ_IOP32X_XINT0
 #define INTB	IRQ_IOP32X_XINT1
 #define INTC	IRQ_IOP32X_XINT2
@@ -71,10 +80,14 @@ static int __init
 glantank_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	static int pci_irq_table[][4] = {
-		{INTD, INTD, INTD, INTD}, 
-		{INTA, INTA, INTA, INTA}, 
-		{INTB, INTB, INTB, INTB}, 
-		{INTC, INTC, INTC, INTC}, 
+		/*
+		 * PCI IDSEL/INTPIN->INTLINE
+		 * A       B       C       D
+		 */
+		{INTD, INTD, INTD, INTD}, /* UART (8250) */
+		{INTA, INTA, INTA, INTA}, /* Ethernet (E1000) */
+		{INTB, INTB, INTB, INTB}, /* IDE (AEC6280R) */
+		{INTC, INTC, INTC, INTC}, /* USB (NEC) */
 	};
 
 	BUG_ON(pin < 1 || pin > 4);
@@ -102,6 +115,9 @@ static int __init glantank_pci_init(void)
 subsys_initcall(glantank_pci_init);
 
 
+/*
+ * GLAN Tank machine initialization.
+ */
 static struct physmap_flash_data glantank_flash_data = {
 	.width		= 2,
 };
@@ -190,7 +206,7 @@ static void __init glantank_init_machine(void)
 }
 
 MACHINE_START(GLANTANK, "GLAN Tank")
-	
+	/* Maintainer: Lennert Buytenhek <buytenh@wantstofly.org> */
 	.atag_offset	= 0x100,
 	.map_io		= glantank_map_io,
 	.init_irq	= iop32x_init_irq,

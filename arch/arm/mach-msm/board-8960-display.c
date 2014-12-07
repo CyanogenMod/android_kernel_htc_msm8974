@@ -31,13 +31,14 @@
 #ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
 #define MSM_FB_PRIM_BUF_SIZE \
 		(roundup((roundup(1920, 32) * roundup(1200, 32) * 4), 4096) * 3)
-			
+			/* 4 bpp x 3 pages */
 #else
 #define MSM_FB_PRIM_BUF_SIZE \
 		(roundup((roundup(1920, 32) * roundup(1200, 32) * 4), 4096) * 2)
-			
+			/* 4 bpp x 2 pages */
 #endif
 
+/* Note: must be multiple of 4096 */
 #define MSM_FB_SIZE roundup(MSM_FB_PRIM_BUF_SIZE, 4096)
 
 #ifdef CONFIG_FB_MSM_OVERLAY0_WRITEBACK
@@ -45,14 +46,14 @@
 		roundup((roundup(1920, 32) * roundup(1200, 32) * 3 * 2), 4096)
 #else
 #define MSM_FB_OVERLAY0_WRITEBACK_SIZE (0)
-#endif  
+#endif  /* CONFIG_FB_MSM_OVERLAY0_WRITEBACK */
 
 #ifdef CONFIG_FB_MSM_OVERLAY1_WRITEBACK
 #define MSM_FB_OVERLAY1_WRITEBACK_SIZE \
 		roundup((roundup(1920, 32) * roundup(1080, 32) * 3 * 2), 4096)
 #else
 #define MSM_FB_OVERLAY1_WRITEBACK_SIZE (0)
-#endif  
+#endif  /* CONFIG_FB_MSM_OVERLAY1_WRITEBACK */
 
 #define MDP_VSYNC_GPIO 0
 
@@ -209,13 +210,13 @@ static void mipi_dsi_panel_pwm_cfg(void)
 	};
 
 	if (mipi_dsi_panel_gpio_configured == 0) {
-		
+		/* pm8xxx: gpio-21, Backlight Enable */
 		rc = pm8xxx_gpio_config(PM8921_GPIO_PM_TO_SYS(21),
 					&pwm_enable);
 		if (rc != 0)
 			pr_err("%s: pwm_enabled failed\n", __func__);
 
-		
+		/* pm8xxx: gpio-24, Bl: Off, PWM mode */
 		rc = pm8xxx_gpio_config(PM8921_GPIO_PM_TO_SYS(24),
 					&pwm_mode);
 		if (rc != 0)
@@ -227,6 +228,13 @@ static void mipi_dsi_panel_pwm_cfg(void)
 
 static bool dsi_power_on;
 
+/**
+ * LiQUID panel on/off
+ *
+ * @param on
+ *
+ * @return int
+ */
 static int mipi_dsi_liquid_panel_power(int on)
 {
 	static struct regulator *reg_l2, *reg_ext_3p3v;
@@ -236,9 +244,9 @@ static int mipi_dsi_liquid_panel_power(int on)
 	mipi_dsi_panel_pwm_cfg();
 	pr_debug("%s: on=%d\n", __func__, on);
 
-	gpio21 = PM8921_GPIO_PM_TO_SYS(21); 
-	gpio43 = PM8921_GPIO_PM_TO_SYS(43); 
-	gpio24 = PM8921_GPIO_PM_TO_SYS(24); 
+	gpio21 = PM8921_GPIO_PM_TO_SYS(21); /* disp power enable_n */
+	gpio43 = PM8921_GPIO_PM_TO_SYS(43); /* Displays Enable (rst_n)*/
+	gpio24 = PM8921_GPIO_PM_TO_SYS(24); /* Backlight PWM */
 
 	if (!dsi_power_on) {
 
@@ -303,16 +311,16 @@ static int mipi_dsi_liquid_panel_power(int on)
 			return -ENODEV;
 		}
 
-		
-		gpio_set_value_cansleep(gpio43, 0); 
+		/* set reset pin before power enable */
+		gpio_set_value_cansleep(gpio43, 0); /* disp disable (resx=0) */
 
-		gpio_set_value_cansleep(gpio21, 0); 
+		gpio_set_value_cansleep(gpio21, 0); /* disp power enable_n */
 		msleep(20);
-		gpio_set_value_cansleep(gpio43, 1); 
+		gpio_set_value_cansleep(gpio43, 1); /* disp enable */
 		msleep(20);
-		gpio_set_value_cansleep(gpio43, 0); 
+		gpio_set_value_cansleep(gpio43, 0); /* disp enable */
 		msleep(20);
-		gpio_set_value_cansleep(gpio43, 1); 
+		gpio_set_value_cansleep(gpio43, 1); /* disp enable */
 		msleep(20);
 	} else {
 		gpio_set_value_cansleep(gpio43, 0);
@@ -501,7 +509,7 @@ static struct msm_bus_vectors mdp_ui_vectors[] = {
 };
 
 static struct msm_bus_vectors mdp_vga_vectors[] = {
-	
+	/* VGA and less video */
 	{
 		.src = MSM_BUS_MASTER_MDP_PORT0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
@@ -511,7 +519,7 @@ static struct msm_bus_vectors mdp_vga_vectors[] = {
 };
 
 static struct msm_bus_vectors mdp_720p_vectors[] = {
-	
+	/* 720p and less video */
 	{
 		.src = MSM_BUS_MASTER_MDP_PORT0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
@@ -521,7 +529,7 @@ static struct msm_bus_vectors mdp_720p_vectors[] = {
 };
 
 static struct msm_bus_vectors mdp_1080p_vectors[] = {
-	
+	/* 1080p and less video */
 	{
 		.src = MSM_BUS_MASTER_MDP_PORT0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
@@ -618,10 +626,10 @@ static struct platform_device mipi_dsi_toshiba_panel_device = {
 
 #define FPGA_3D_GPIO_CONFIG_ADDR	0xB5
 static int dsi2lvds_gpio[4] = {
-	0,
-	0x1F08, 
-	GPIO_LIQUID_EXPANDER_BASE+6,	
-	GPIO_LIQUID_EXPANDER_BASE+7,	
+	0,/* Backlight PWM-ID=0 for PMIC-GPIO#24 */
+	0x1F08, /* DSI2LVDS Bridge GPIO Output, mask=0x1f, out=0x08 */
+	GPIO_LIQUID_EXPANDER_BASE+6,	/* TN Enable */
+	GPIO_LIQUID_EXPANDER_BASE+7,	/* TN Mode */
 	};
 
 static struct msm_panel_common_pdata mipi_dsi2lvds_pdata = {
@@ -630,13 +638,14 @@ static struct msm_panel_common_pdata mipi_dsi2lvds_pdata = {
 
 static struct mipi_dsi_phy_ctrl dsi_novatek_cmd_mode_phy_db = {
 
-	{0x0F, 0x0a, 0x04, 0x00, 0x20},	
-	
+/* DSI_BIT_CLK at 500MHz, 2 lane, RGB888 */
+	{0x0F, 0x0a, 0x04, 0x00, 0x20},	/* regulator */
+	/* timing   */
 	{0xab, 0x8a, 0x18, 0x00, 0x92, 0x97, 0x1b, 0x8c,
 	0x0c, 0x03, 0x04, 0xa0},
-	{0x5f, 0x00, 0x00, 0x10},	
-	{0xff, 0x00, 0x06, 0x00},	
-	
+	{0x5f, 0x00, 0x00, 0x10},	/* phy ctrl */
+	{0xff, 0x00, 0x06, 0x00},	/* strength */
+	/* pll control */
 	{0x40, 0xf9, 0x30, 0xda, 0x00, 0x40, 0x03, 0x62,
 	0x40, 0x07, 0x03,
 	0x00, 0x1a, 0x00, 0x00, 0x02, 0x00, 0x20, 0x00, 0x01},
@@ -711,7 +720,7 @@ static struct platform_device hdmi_msm_device = {
 	.resource = hdmi_msm_resources,
 	.dev.platform_data = &hdmi_msm_data,
 };
-#endif 
+#endif /* CONFIG_FB_MSM_HDMI_MSM_PANEL */
 
 #ifdef CONFIG_FB_MSM_WRITEBACK_MSM_PANEL
 static struct platform_device wfd_panel_device = {
@@ -783,8 +792,8 @@ static int hdmi_panel_power(int on)
 #ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL
 static int hdmi_enable_5v(int on)
 {
-	
-	static struct regulator *reg_8921_hdmi_mvs;	
+	/* TBD: PM8921 regulator instead of 8901 */
+	static struct regulator *reg_8921_hdmi_mvs;	/* HDMI_5V */
 	static int prev_on;
 	int rc;
 
@@ -832,7 +841,7 @@ static int hdmi_core_power(int on, int show)
 	if (on == prev_on)
 		return 0;
 
-	
+	/* TBD: PM8921 regulator instead of 8901 */
 	if (!reg_8921_l23) {
 		reg_8921_l23 = regulator_get(&hdmi_msm_device.dev, "hdmi_avdd");
 		if (IS_ERR(reg_8921_l23)) {
@@ -975,7 +984,7 @@ static int hdmi_cec_power(int on)
 error:
 	return rc;
 }
-#endif 
+#endif /* CONFIG_FB_MSM_HDMI_MSM_PANEL */
 
 void __init msm8960_init_fb(void)
 {
@@ -1027,6 +1036,10 @@ void __init msm8960_allocate_fb_region(void)
 			size, addr, __pa(addr));
 }
 
+/**
+ * Set MDP clocks to high frequency to avoid DSI underflow
+ * when using high resolution 1200x1920 WUXGA panels
+ */
 static void set_mdp_clocks_for_wuxga(void)
 {
 	mdp_ui_vectors[0].ab = 2000000000;
@@ -1057,7 +1070,7 @@ void __init msm8960_set_display_params(char *prim_panel, char *ext_panel)
 			MIPI_VIDEO_TOSHIBA_WSVGA_PANEL_NAME,
 			strnlen(MIPI_VIDEO_TOSHIBA_WSVGA_PANEL_NAME,
 				PANEL_NAME_MAX_LEN))) {
-			
+			/* Disable splash for panels other than Toshiba WSVGA */
 			disable_splash = 1;
 		}
 

@@ -25,6 +25,11 @@
 #include "kmem.h"
 #include "xfs_message.h"
 
+/*
+ * Greedy allocation.  May fail and may return vmalloced memory.
+ *
+ * Must be freed using kmem_free_large.
+ */
 void *
 kmem_zalloc_greedy(size_t *size, size_t minsize, size_t maxsize)
 {

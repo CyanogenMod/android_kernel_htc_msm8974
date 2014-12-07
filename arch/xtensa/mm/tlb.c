@@ -54,6 +54,11 @@ void flush_tlb_all (void)
 	__flush_dtlb_all();
 }
 
+/* If mm is current, we simply assign the current task a new ASID, thus,
+ * invalidating all previous tlb entries. If mm is someone else's user mapping,
+ * wie invalidate the context, thus, when that user mapping is swapped in,
+ * a new context will be assigned to it.
+ */
 
 void flush_tlb_mm(struct mm_struct *mm)
 {

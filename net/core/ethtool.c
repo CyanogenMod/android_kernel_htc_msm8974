@@ -24,6 +24,11 @@
 #include <linux/rtnetlink.h>
 #include <linux/sched.h>
 
+/*
+ * Some useful ethtool_ops methods that're device independent.
+ * If we find that all drivers want to do the same thing here,
+ * we can turn these into dev_() function calls.
+ */
 
 u32 ethtool_op_get_link(struct net_device *dev)
 {
@@ -31,6 +36,7 @@ u32 ethtool_op_get_link(struct net_device *dev)
 }
 EXPORT_SYMBOL(ethtool_op_get_link);
 
+/* Handlers for each ethtool command */
 
 #define ETHTOOL_DEV_FEATURE_WORDS	((NETDEV_FEATURE_COUNT + 31) / 32)
 
@@ -82,7 +88,7 @@ static int ethtool_get_features(struct net_device *dev, void __user *useraddr)
 	u32 copy_size;
 	int i;
 
-	
+	/* in case feature bits run out again */
 	BUILD_BUG_ON(ETHTOOL_DEV_FEATURE_WORDS * sizeof(u32) > sizeof(netdev_features_t));
 
 	for (i = 0; i < ETHTOOL_DEV_FEATURE_WORDS; ++i) {
@@ -171,13 +177,13 @@ static void __ethtool_get_strings(struct net_device *dev,
 		memcpy(data, netdev_features_strings,
 			sizeof(netdev_features_strings));
 	else
-		
+		/* ops->get_strings is valid because checked earlier */
 		ops->get_strings(dev, stringset, data);
 }
 
 static netdev_features_t ethtool_get_feature_mask(u32 eth_cmd)
 {
-	
+	/* feature masks of legacy discrete ethtool ops */
 
 	switch (eth_cmd) {
 	case ETHTOOL_GTXCSUM:
@@ -275,7 +281,7 @@ static int __ethtool_set_flags(struct net_device *dev, u32 data)
 	if (data & ETH_FLAG_NTUPLE)	features |= NETIF_F_NTUPLE;
 	if (data & ETH_FLAG_RXHASH)	features |= NETIF_F_RXHASH;
 
-	
+	/* allow changing only bits set in hw_features */
 	changed = (features ^ dev->features) & ETH_ALL_FEATURES;
 	if (changed & ~dev->hw_features)
 		return (changed & dev->hw_features) ? -EINVAL : -EOPNOTSUPP;
@@ -347,6 +353,10 @@ static noinline_for_stack int ethtool_get_drvinfo(struct net_device *dev,
 		return -EOPNOTSUPP;
 	}
 
+	/*
+	 * this method of obtaining string set info is deprecated;
+	 * Use ETHTOOL_GSSET_INFO instead.
+	 */
 	if (ops && ops->get_sset_count) {
 		int rc;
 
@@ -381,12 +391,12 @@ static noinline_for_stack int ethtool_get_sset_info(struct net_device *dev,
 	if (copy_from_user(&info, useraddr, sizeof(info)))
 		return -EFAULT;
 
-	
+	/* store copy of mask, because we zero struct later on */
 	sset_mask = info.sset_mask;
 	if (!sset_mask)
 		return 0;
 
-	
+	/* calculate size of return buffer */
 	n_bits = hweight64(sset_mask);
 
 	memset(&info, 0, sizeof(info));
@@ -396,6 +406,10 @@ static noinline_for_stack int ethtool_get_sset_info(struct net_device *dev,
 	if (!info_buf)
 		return -ENOMEM;
 
+	/*
+	 * fill return buffer based on input bitmask and successful
+	 * get_sset_count return
+	 */
 	for (i = 0; i < 64; i++) {
 		if (!(sset_mask & (1ULL << i)))
 			continue;
@@ -432,6 +446,10 @@ static noinline_for_stack int ethtool_set_rxnfc(struct net_device *dev,
 	if (!dev->ethtool_ops->set_rxnfc)
 		return -EOPNOTSUPP;
 
+	/* struct ethtool_rxnfc was originally defined for
+	 * ETHTOOL_{G,S}RXFH with only the cmd, flow_type and data
+	 * members.  User-space might still be using that
+	 * definition. */
 	if (cmd == ETHTOOL_SRXFH)
 		info_size = (offsetof(struct ethtool_rxnfc, data) +
 			     sizeof(info.data));
@@ -462,6 +480,10 @@ static noinline_for_stack int ethtool_get_rxnfc(struct net_device *dev,
 	if (!ops->get_rxnfc)
 		return -EOPNOTSUPP;
 
+	/* struct ethtool_rxnfc was originally defined for
+	 * ETHTOOL_{G,S}RXFH with only the cmd, flow_type and data
+	 * members.  User-space might still be using that
+	 * definition. */
 	if (cmd == ETHTOOL_GRXFH)
 		info_size = (offsetof(struct ethtool_rxnfc, data) +
 			     sizeof(info.data));
@@ -524,6 +546,10 @@ static noinline_for_stack int ethtool_get_rxfh_indir(struct net_device *dev,
 			 &dev_size, sizeof(dev_size)))
 		return -EFAULT;
 
+	/* If the user buffer size is 0, this is just a query for the
+	 * device table size.  Otherwise, if it's smaller than the
+	 * device table size it's an error.
+	 */
 	if (user_size < dev_size)
 		return user_size == 0 ? 0 : -EINVAL;
 
@@ -591,7 +617,7 @@ static noinline_for_stack int ethtool_set_rxfh_indir(struct net_device *dev,
 			goto out;
 		}
 
-		
+		/* Validate ring indices */
 		for (i = 0; i < dev_size; i++) {
 			if (indir[i] >= rx_rings.data) {
 				ret = -EINVAL;
@@ -665,11 +691,13 @@ static int ethtool_reset(struct net_device *dev, char __user *useraddr)
 
 static int ethtool_get_wol(struct net_device *dev, char __user *useraddr)
 {
-	struct ethtool_wolinfo wol = { .cmd = ETHTOOL_GWOL };
+	struct ethtool_wolinfo wol;
 
 	if (!dev->ethtool_ops->get_wol)
 		return -EOPNOTSUPP;
 
+	memset(&wol, 0, sizeof(struct ethtool_wolinfo));
+	wol.cmd = ETHTOOL_GWOL;
 	dev->ethtool_ops->get_wol(dev, &wol);
 
 	if (copy_to_user(useraddr, &wol, sizeof(wol)))
@@ -727,11 +755,11 @@ static int ethtool_get_eeprom(struct net_device *dev, void __user *useraddr)
 	if (copy_from_user(&eeprom, useraddr, sizeof(eeprom)))
 		return -EFAULT;
 
-	
+	/* Check for wrap and zero */
 	if (eeprom.offset + eeprom.len <= eeprom.offset)
 		return -EINVAL;
 
-	
+	/* Check for exceeding total eeprom len */
 	if (eeprom.offset + eeprom.len > ops->get_eeprom_len(dev))
 		return -EINVAL;
 
@@ -779,11 +807,11 @@ static int ethtool_set_eeprom(struct net_device *dev, void __user *useraddr)
 	if (copy_from_user(&eeprom, useraddr, sizeof(eeprom)))
 		return -EFAULT;
 
-	
+	/* Check for wrap and zero */
 	if (eeprom.offset + eeprom.len <= eeprom.offset)
 		return -EINVAL;
 
-	
+	/* Check for exceeding total eeprom len */
 	if (eeprom.offset + eeprom.len > ops->get_eeprom_len(dev))
 		return -EINVAL;
 
@@ -1014,21 +1042,24 @@ static int ethtool_phys_id(struct net_device *dev, void __user *useraddr)
 	if (rc < 0)
 		return rc;
 
+	/* Drop the RTNL lock while waiting, but prevent reentry or
+	 * removal of the device.
+	 */
 	busy = true;
 	dev_hold(dev);
 	rtnl_unlock();
 
 	if (rc == 0) {
-		
+		/* Driver will handle this itself */
 		schedule_timeout_interruptible(
 			id.data ? (id.data * HZ) : MAX_SCHEDULE_TIMEOUT);
 	} else {
-		
+		/* Driver expects to be called at twice the frequency in rc */
 		int n = rc * 2, i, interval = HZ / n;
 
-		
+		/* Count down seconds */
 		do {
-			
+			/* Count down iterations per second */
 			i = n;
 			do {
 				rtnl_lock();
@@ -1249,6 +1280,7 @@ out:
 	return ret;
 }
 
+/* The main entry point in this file.  Called from net/core/dev.c */
 
 int dev_ethtool(struct net *net, struct ifreq *ifr)
 {
@@ -1265,13 +1297,16 @@ int dev_ethtool(struct net *net, struct ifreq *ifr)
 		return -EFAULT;
 
 	if (!dev->ethtool_ops) {
+		/* ETHTOOL_GDRVINFO does not require any driver support.
+		 * It is also unprivileged and does not change anything,
+		 * so we can take a shortcut to it. */
 		if (ethcmd == ETHTOOL_GDRVINFO)
 			return ethtool_get_drvinfo(dev, useraddr);
 		else
 			return -EOPNOTSUPP;
 	}
 
-	
+	/* Allow some commands to be done by anyone */
 	switch (ethcmd) {
 	case ETHTOOL_GSET:
 	case ETHTOOL_GDRVINFO:

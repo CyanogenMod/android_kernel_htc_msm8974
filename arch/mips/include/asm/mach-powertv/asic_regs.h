@@ -20,6 +20,7 @@
 #define __ASM_MACH_POWERTV_ASIC_H_
 #include <linux/io.h>
 
+/* ASIC types */
 enum asic_type {
 	ASIC_UNKNOWN,
 	ASIC_ZEUS,
@@ -27,9 +28,10 @@ enum asic_type {
 	ASIC_CRONUS,
 	ASIC_CRONUSLITE,
 	ASIC_GAIA,
-	ASICS			
+	ASICS			/* Number of supported ASICs */
 };
 
+/* hardcoded values read from Chip Version registers */
 #define CRONUS_10	0x0B4C1C20
 #define CRONUS_11	0x0B4C1C21
 #define CRONUSLITE_10	0x0B4C1C40
@@ -42,6 +44,7 @@ enum asic_type {
 
 #define ASIC_IO_SIZE		0x01000000
 
+/* Definitions for backward compatibility */
 #define UART1_INTSTAT	uart1_intstat
 #define UART1_INTEN	uart1_inten
 #define UART1_CONFIG1	uart1_config1
@@ -51,6 +54,7 @@ enum asic_type {
 #define UART1_DATA	uart1_data
 #define UART1_STATUS	uart1_status
 
+/* ASIC register enumeration */
 union register_map_entry {
 	unsigned long phys;
 	u32 *virt;
@@ -62,6 +66,13 @@ struct register_map {
 };
 #undef REGISTER_MAP_ELEMENT
 
+/**
+ * register_map_offset_phys - add an offset to the physical address
+ * @map:	Pointer to the &struct register_map
+ * @offset:	Value to add
+ *
+ * Only adds the base to non-zero physical addresses
+ */
 static inline void register_map_offset_phys(struct register_map *map,
 	unsigned long offset)
 {
@@ -74,6 +85,10 @@ static inline void register_map_offset_phys(struct register_map *map,
 #undef REGISTER_MAP_ELEMENT
 }
 
+/**
+ * register_map_virtualize - Convert &register_map to virtual addresses
+ * @map:	Pointer to &register_map to virtualize
+ */
 static inline void register_map_virtualize(struct register_map *map)
 {
 #define REGISTER_MAP_ELEMENT(x)		do {				\
@@ -88,10 +103,20 @@ static inline void register_map_virtualize(struct register_map *map)
 extern struct register_map _asic_register_map;
 extern unsigned long asic_phy_base;
 
+/*
+ * Macros to interface to registers through their ioremapped address
+ * asic_reg_phys_addr	Returns the physical address of the given register
+ * asic_reg_addr	Returns the iomapped virtual address of the given
+ *			register.
+ */
 #define asic_reg_addr(x)	(_asic_register_map.x.virt)
 #define asic_reg_phys_addr(x)	(virt_to_phys((void *) CAC_ADDR(	\
 					(unsigned long) asic_reg_addr(x))))
 
+/*
+ * The asic_reg macro is gone. It should be replaced by either asic_read or
+ * asic_write, as appropriate.
+ */
 
 #define asic_read(x)		readl(asic_reg_addr(x))
 #define asic_write(v, x)	writel(v, asic_reg_addr(x))

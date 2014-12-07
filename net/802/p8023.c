@@ -23,6 +23,10 @@
 #include <net/datalink.h>
 #include <net/p8022.h>
 
+/*
+ *	Place an 802.3 header on a packet. The driver will do the mac
+ *	addresses, we just need to give it the buffer length.
+ */
 static int p8023_request(struct datalink_proto *dl,
 			 struct sk_buff *skb, unsigned char *dest_node)
 {
@@ -32,6 +36,9 @@ static int p8023_request(struct datalink_proto *dl,
 	return dev_queue_xmit(skb);
 }
 
+/*
+ *	Create an 802.3 client. Note there can be only one 802.3 client
+ */
 struct datalink_proto *make_8023_client(void)
 {
 	struct datalink_proto *proto = kmalloc(sizeof(*proto), GFP_ATOMIC);
@@ -43,6 +50,9 @@ struct datalink_proto *make_8023_client(void)
 	return proto;
 }
 
+/*
+ *	Destroy the 802.3 client.
+ */
 void destroy_8023_client(struct datalink_proto *dl)
 {
 	kfree(dl);

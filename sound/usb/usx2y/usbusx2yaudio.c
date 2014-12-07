@@ -42,11 +42,24 @@
 #include "usx2y.h"
 #include "usbusx2y.h"
 
-#define USX2Y_NRPACKS 4			
-#define USX2Y_NRPACKS_VARIABLE y	
+#define USX2Y_NRPACKS 4			/* Default value used for nr of packs per urb.
+					  1 to 4 have been tested ok on uhci.
+					  To use 3 on ohci, you'd need a patch:
+					  look for "0000425-linux-2.6.9-rc4-mm1_ohci-hcd.patch.gz" on
+					  "https://bugtrack.alsa-project.org/alsa-bug/bug_view_page.php?bug_id=0000425"
+					  .
+					  1, 2 and 4 work out of the box on ohci, if I recall correctly.
+					  Bigger is safer operation,
+					  smaller gives lower latencies.
+					*/
+#define USX2Y_NRPACKS_VARIABLE y	/* If your system works ok with this module's parameter
+					   nrpacks set to 1, you might as well comment 
+					   this #define out, and thereby produce smaller, faster code.
+					   You'd also set USX2Y_NRPACKS to 1 then.
+					*/
 
 #ifdef USX2Y_NRPACKS_VARIABLE
- static int nrpacks = USX2Y_NRPACKS; 
+ static int nrpacks = USX2Y_NRPACKS; /* number of packets per urb */
  #define  nr_of_packs() nrpacks
  module_param(nrpacks, int, 0444);
  MODULE_PARM_DESC(nrpacks, "Number of packets per URB.");
@@ -65,7 +78,7 @@ static int usX2Y_urb_capt_retire(struct snd_usX2Y_substream *subs)
 
 	for (i = 0; i < nr_of_packs(); i++) {
 		cp = (unsigned char*)urb->transfer_buffer + urb->iso_frame_desc[i].offset;
-		if (urb->iso_frame_desc[i].status) { 
+		if (urb->iso_frame_desc[i].status) { /* active? hmm, skip this */
 			snd_printk(KERN_ERR "active frame status %i. "
 				   "Most probably some hardware problem.\n",
 				   urb->iso_frame_desc[i].status);
@@ -77,7 +90,7 @@ static int usX2Y_urb_capt_retire(struct snd_usX2Y_substream *subs)
 			continue;
 		}
 
-		
+		/* copy a data chunk */
 		if ((hwptr_done + len) > runtime->buffer_size) {
 			int cnt = runtime->buffer_size - hwptr_done;
 			int blen = cnt * usX2Y->stride;
@@ -94,13 +107,23 @@ static int usX2Y_urb_capt_retire(struct snd_usX2Y_substream *subs)
 
 	subs->hwptr_done = hwptr_done;
 	subs->transfer_done += lens;
-	
+	/* update the pointer, call callback if necessary */
 	if (subs->transfer_done >= runtime->period_size) {
 		subs->transfer_done -= runtime->period_size;
 		snd_pcm_period_elapsed(subs->pcm_substream);
 	}
 	return 0;
 }
+/*
+ * prepare urb for playback data pipe
+ *
+ * we copy the data directly from the pcm buffer.
+ * the current position to be copied is held in hwptr field.
+ * since a urb can handle only a single linear buffer, if the total
+ * transferred area overflows the buffer boundary, we cannot send
+ * it directly from the buffer.  thus the data is once copied to
+ * a temporary buffer and urb points to that.
+ */
 static int usX2Y_urb_play_prepare(struct snd_usX2Y_substream *subs,
 				  struct urb *cap_urb,
 				  struct urb *urb)
@@ -111,14 +134,14 @@ static int usX2Y_urb_play_prepare(struct snd_usX2Y_substream *subs,
 
 	count = 0;
 	for (pack = 0; pack <  nr_of_packs(); pack++) {
-		
+		/* calculate the size of a packet */
 		counts = cap_urb->iso_frame_desc[pack].actual_length / usX2Y->stride;
 		count += counts;
 		if (counts < 43 || counts > 50) {
 			snd_printk(KERN_ERR "should not be here with counts=%i\n", counts);
 			return -EPIPE;
 		}
-		
+		/* set up descriptor */
 		urb->iso_frame_desc[pack].offset = pack ?
 			urb->iso_frame_desc[pack - 1].offset +
 			urb->iso_frame_desc[pack - 1].length :
@@ -127,6 +150,9 @@ static int usX2Y_urb_play_prepare(struct snd_usX2Y_substream *subs,
 	}
 	if (atomic_read(&subs->state) >= state_PRERUNNING)
 		if (subs->hwptr + count > runtime->buffer_size) {
+			/* err, the transferred area goes over buffer boundary.
+			 * copy the data to the temp buffer.
+			 */
 			int len;
 			len = runtime->buffer_size - subs->hwptr;
 			urb->transfer_buffer = subs->tmpbuf;
@@ -137,7 +163,7 @@ static int usX2Y_urb_play_prepare(struct snd_usX2Y_substream *subs,
 			subs->hwptr += count;
 			subs->hwptr -= runtime->buffer_size;
 		} else {
-			
+			/* set the buffer pointer */
 			urb->transfer_buffer = runtime->dma_area + subs->hwptr * usX2Y->stride;
 			if ((subs->hwptr += count) >= runtime->buffer_size)
 			subs->hwptr -= runtime->buffer_size;			
@@ -148,6 +174,11 @@ static int usX2Y_urb_play_prepare(struct snd_usX2Y_substream *subs,
 	return 0;
 }
 
+/*
+ * process after playback data complete
+ *
+ * update the current position and call callback if a period is processed.
+ */
 static void usX2Y_urb_play_retire(struct snd_usX2Y_substream *subs, struct urb *urb)
 {
 	struct snd_pcm_runtime *runtime = subs->pcm_substream->runtime;
@@ -168,9 +199,9 @@ static int usX2Y_urb_submit(struct snd_usX2Y_substream *subs, struct urb *urb, i
 	int err;
 	if (!urb)
 		return -ENODEV;
-	urb->start_frame = (frame + NRURBS * nr_of_packs());  
+	urb->start_frame = (frame + NRURBS * nr_of_packs());  // let hcd do rollover sanity checks
 	urb->hcpriv = NULL;
-	urb->dev = subs->usX2Y->dev; 
+	urb->dev = subs->usX2Y->dev; /* we need to set this at each time */
 	if ((err = usb_submit_urb(urb, GFP_ATOMIC)) < 0) {
 		snd_printk(KERN_ERR "usb_submit_urb() returned %i\n", err);
 		return err;
@@ -356,7 +387,7 @@ static void usX2Y_subs_prepare(struct snd_usX2Y_substream *subs)
 {
 	snd_printdd("usX2Y_substream_prepare(%p) ep=%i urb0=%p urb1=%p\n",
 		    subs, subs->endpoint, subs->urb[0], subs->urb[1]);
-	
+	/* reset the pointer */
 	subs->hwptr = 0;
 	subs->hwptr_done = 0;
 	subs->transfer_done = 0;
@@ -373,6 +404,9 @@ static void usX2Y_urb_release(struct urb **urb, int free_tb)
 		*urb = NULL;
 	}
 }
+/*
+ * release a substreams urbs
+ */
 static void usX2Y_urbs_release(struct snd_usX2Y_substream *subs)
 {
 	int i;
@@ -384,6 +418,9 @@ static void usX2Y_urbs_release(struct snd_usX2Y_substream *subs)
 	kfree(subs->tmpbuf);
 	subs->tmpbuf = NULL;
 }
+/*
+ * initialize a substream's urbs
+ */
 static int usX2Y_urbs_allocate(struct snd_usX2Y_substream *subs)
 {
 	int i;
@@ -397,14 +434,14 @@ static int usX2Y_urbs_allocate(struct snd_usX2Y_substream *subs)
 	if (!subs->maxpacksize)
 		return -EINVAL;
 
-	if (is_playback && NULL == subs->tmpbuf) {	
+	if (is_playback && NULL == subs->tmpbuf) {	/* allocate a temporary buffer for playback */
 		subs->tmpbuf = kcalloc(nr_of_packs(), subs->maxpacksize, GFP_KERNEL);
 		if (NULL == subs->tmpbuf) {
 			snd_printk(KERN_ERR "cannot malloc tmpbuf\n");
 			return -ENOMEM;
 		}
 	}
-	
+	/* allocate and initialize data urbs */
 	for (i = 0; i < NRURBS; i++) {
 		struct urb **purb = subs->urb + i;
 		if (*purb) {
@@ -417,7 +454,7 @@ static int usX2Y_urbs_allocate(struct snd_usX2Y_substream *subs)
 			return -ENOMEM;
 		}
 		if (!is_playback && !(*purb)->transfer_buffer) {
-			
+			/* allocate a capture buffer per urb */
 			(*purb)->transfer_buffer = kmalloc(subs->maxpacksize * nr_of_packs(), GFP_KERNEL);
 			if (NULL == (*purb)->transfer_buffer) {
 				usX2Y_urbs_release(subs);
@@ -493,16 +530,22 @@ static int usX2Y_urbs_start(struct snd_usX2Y_substream *subs)
  cleanup:
 	if (err) {
 		usX2Y_subs_startup_finish(usX2Y);
-		usX2Y_clients_stop(usX2Y);		
+		usX2Y_clients_stop(usX2Y);		// something is completely wroong > stop evrything
 	}
 	return err;
 }
 
+/*
+ * return the current pcm pointer.  just return the hwptr_done value.
+ */
 static snd_pcm_uframes_t snd_usX2Y_pcm_pointer(struct snd_pcm_substream *substream)
 {
 	struct snd_usX2Y_substream *subs = substream->runtime->private_data;
 	return subs->hwptr_done;
 }
+/*
+ * start/stop substream
+ */
 static int snd_usX2Y_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 {
 	struct snd_usX2Y_substream *subs = substream->runtime->private_data;
@@ -530,14 +573,22 @@ static int snd_usX2Y_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 }
 
 
+/*
+ * allocate a buffer, setup samplerate
+ *
+ * so far we use a physically linear buffer although packetize transfer
+ * doesn't need a continuous area.
+ * if sg buffer is supported on the later version of alsa, we'll follow
+ * that.
+ */
 static struct s_c2
 {
 	char c1, c2;
 }
 	SetRate44100[] =
 {
-	{ 0x14, 0x08},	
-	{ 0x18, 0x40},	
+	{ 0x14, 0x08},	// this line sets 44100, well actually a little less
+	{ 0x18, 0x40},	// only tascam / frontier design knows the further lines .......
 	{ 0x18, 0x42},
 	{ 0x18, 0x45},
 	{ 0x18, 0x46},
@@ -572,8 +623,8 @@ static struct s_c2
 };
 static struct s_c2 SetRate48000[] =
 {
-	{ 0x14, 0x09},	
-	{ 0x18, 0x40},	
+	{ 0x14, 0x09},	// this line sets 48000, well actually a little less
+	{ 0x18, 0x40},	// only tascam / frontier design knows the further lines .......
 	{ 0x18, 0x42},
 	{ 0x18, 0x45},
 	{ 0x18, 0x46},
@@ -720,7 +771,7 @@ static int snd_usX2Y_pcm_hw_params(struct snd_pcm_substream *substream,
 	struct list_head *list;
 
 	snd_printdd("snd_usX2Y_hw_params(%p, %p)\n", substream, hw_params);
-	
+	// all pcm substreams off one usX2Y have to operate at the same rate & format
 	list_for_each(list, &card->devices) {
 		struct snd_device *dev;
 		struct snd_pcm *pcm;
@@ -749,6 +800,9 @@ static int snd_usX2Y_pcm_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/*
+ * free the buffer
+ */
 static int snd_usX2Y_pcm_hw_free(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
@@ -777,6 +831,11 @@ static int snd_usX2Y_pcm_hw_free(struct snd_pcm_substream *substream)
 	mutex_unlock(&subs->usX2Y->prepare_mutex);
 	return snd_pcm_lib_free_pages(substream);
 }
+/*
+ * prepare callback
+ *
+ * set format and initialize urbs
+ */
 static int snd_usX2Y_pcm_prepare(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
@@ -788,6 +847,8 @@ static int snd_usX2Y_pcm_prepare(struct snd_pcm_substream *substream)
 
 	mutex_lock(&usX2Y->prepare_mutex);
 	usX2Y_subs_prepare(subs);
+// Start hardware streams
+// SyncStream first....
 	if (atomic_read(&capsubs->state) < state_PREPARED) {
 		if (usX2Y->format != runtime->format)
 			if ((err = usX2Y_format_set(usX2Y, runtime->format)) < 0)
@@ -872,6 +933,9 @@ static struct snd_pcm_ops snd_usX2Y_pcm_ops =
 };
 
 
+/*
+ * free a usb stream instance
+ */
 static void usX2Y_audio_stream_free(struct snd_usX2Y_substream **usX2Y_substream)
 {
 	kfree(usX2Y_substream[SNDRV_PCM_STREAM_PLAYBACK]);
@@ -944,6 +1008,9 @@ static int usX2Y_audio_stream_new(struct snd_card *card, int playback_endpoint, 
 	return 0;
 }
 
+/*
+ * create a chip instance and set its names.
+ */
 int usX2Y_audio_create(struct snd_card *card)
 {
 	int err = 0;
@@ -956,6 +1023,6 @@ int usX2Y_audio_create(struct snd_card *card)
 	     if (0 > (err = usX2Y_audio_stream_new(card, 0, 0xA)))
 		     return err;
 	if (le16_to_cpu(usX2Y(card)->dev->descriptor.idProduct) != USB_ID_US122)
-		err = usX2Y_rate_set(usX2Y(card), 44100);	
+		err = usX2Y_rate_set(usX2Y(card), 44100);	// Lets us428 recognize output-volume settings, disturbs us122.
 	return err;
 }

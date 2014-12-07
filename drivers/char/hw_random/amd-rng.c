@@ -35,10 +35,18 @@
 #define PFX	KBUILD_MODNAME ": "
 
 
+/*
+ * Data for PCI driver interface
+ *
+ * This data only exists for exporting the supported
+ * PCI ids via MODULE_DEVICE_TABLE.  We do not actually
+ * register a pci_driver, because someone else might one day
+ * want to register another driver on the same PCI id.
+ */
 static const struct pci_device_id pci_tbl[] = {
 	{ PCI_VDEVICE(AMD, 0x7443), 0, },
 	{ PCI_VDEVICE(AMD, 0x746b), 0, },
-	{ 0, },	
+	{ 0, },	/* terminate list */
 };
 MODULE_DEVICE_TABLE(pci, pci_tbl);
 
@@ -73,11 +81,11 @@ static int amd_rng_init(struct hwrng *rng)
 	u8 rnen;
 
 	pci_read_config_byte(amd_pdev, 0x40, &rnen);
-	rnen |= (1 << 7);	
+	rnen |= (1 << 7);	/* RNG on */
 	pci_write_config_byte(amd_pdev, 0x40, rnen);
 
 	pci_read_config_byte(amd_pdev, 0x41, &rnen);
-	rnen |= (1 << 7);	
+	rnen |= (1 << 7);	/* PMIO enable */
 	pci_write_config_byte(amd_pdev, 0x41, rnen);
 
 	return 0;
@@ -88,7 +96,7 @@ static void amd_rng_cleanup(struct hwrng *rng)
 	u8 rnen;
 
 	pci_read_config_byte(amd_pdev, 0x40, &rnen);
-	rnen &= ~(1 << 7);	
+	rnen &= ~(1 << 7);	/* RNG off */
 	pci_write_config_byte(amd_pdev, 0x40, rnen);
 }
 
@@ -114,7 +122,7 @@ static int __init mod_init(void)
 		if (ent)
 			goto found;
 	}
-	
+	/* Device not found. */
 	goto out;
 
 found:

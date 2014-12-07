@@ -5,6 +5,14 @@
  *  Some code was moved here from ide.c, see it for original copyrights.
  */
 
+/*
+ * This is the /proc/ide/ filesystem implementation.
+ *
+ * Drive/Driver settings can be retrieved by reading the drive's
+ * "settings" files.  e.g.    "cat /proc/ide0/hda/settings"
+ * To write a new value "val" into a specific setting "name", use:
+ *   echo "name:val" >/proc/ide/ide0/hda/settings
+ */
 
 #include <linux/module.h>
 
@@ -146,6 +154,15 @@ static const struct file_operations ide_identify_proc_fops = {
 	.release	= single_release,
 };
 
+/**
+ *	ide_find_setting	-	find a specific setting
+ *	@st: setting table pointer
+ *	@name: setting name
+ *
+ *	Scan's the setting table for a matching entry and returns
+ *	this or NULL if no entry is found. The caller must hold the
+ *	setting semaphore
+ */
 
 static
 const struct ide_proc_devset *ide_find_setting(const struct ide_proc_devset *st,
@@ -159,6 +176,18 @@ const struct ide_proc_devset *ide_find_setting(const struct ide_proc_devset *st,
 	return st->name ? st : NULL;
 }
 
+/**
+ *	ide_read_setting	-	read an IDE setting
+ *	@drive: drive to read from
+ *	@setting: drive setting
+ *
+ *	Read a drive setting and return the value. The caller
+ *	must hold the ide_setting_mtx when making this call.
+ *
+ *	BUGS: the data return and error are the same return value
+ *	so an error -EINVAL and true return of the same value cannot
+ *	be told apart
+ */
 
 static int ide_read_setting(ide_drive_t *drive,
 			    const struct ide_proc_devset *setting)
@@ -172,6 +201,23 @@ static int ide_read_setting(ide_drive_t *drive,
 	return val;
 }
 
+/**
+ *	ide_write_setting	-	read an IDE setting
+ *	@drive: drive to read from
+ *	@setting: drive setting
+ *	@val: value
+ *
+ *	Write a drive setting if it is possible. The caller
+ *	must hold the ide_setting_mtx when making this call.
+ *
+ *	BUGS: the data return and error are the same return value
+ *	so an error -EINVAL and true return of the same value cannot
+ *	be told apart
+ *
+ *	FIXME:  This should be changed to enqueue a special request
+ *	to the driver to change settings, and then wait on a sema for completion.
+ *	The current scheme of polling is kludgy, though safe enough.
+ */
 
 static int ide_write_setting(ide_drive_t *drive,
 			     const struct ide_proc_devset *setting, int val)
@@ -247,7 +293,7 @@ static int ide_settings_proc_show(struct seq_file *m, void *v)
 	seq_printf(m, "name\t\t\tvalue\t\tmin\t\tmax\t\tmode\n");
 	seq_printf(m, "----\t\t\t-----\t\t---\t\t---\t\t----\n");
 	while (g->name || (d && d->name)) {
-		
+		/* read settings in the alphabetical order */
 		if (g->name && d && d->name) {
 			if (strcmp(d->name, g->name) < 0)
 				setting = d++;
@@ -314,10 +360,17 @@ static ssize_t ide_settings_proc_write(struct file *file, const char __user *buf
 
 	buf[count] = '\0';
 
+	/*
+	 * Skip over leading whitespace
+	 */
 	while (count && isspace(*s)) {
 		--count;
 		++s;
 	}
+	/*
+	 * Do one full pass to verify all parameters,
+	 * then do another to actually write the new settings.
+	 */
 	do {
 		char *p = s;
 		n = count;
@@ -353,7 +406,7 @@ static ssize_t ide_settings_proc_write(struct file *file, const char __user *buf
 			}
 
 			mutex_lock(&ide_setting_mtx);
-			
+			/* generic settings first, then driver specific ones */
 			setting = ide_find_setting(ide_generic_settings, name);
 			if (!setting) {
 				if (drive->settings)
@@ -482,7 +535,7 @@ static int ide_replace_subdriver(ide_drive_t *drive, const char *driver)
 	int err;
 
 	device_release_driver(dev);
-	
+	/* FIXME: device can still be in use by previous driver */
 	strlcpy(drive->driver_req, driver, sizeof(drive->driver_req));
 	err = device_attach(dev);
 	if (err < 0)
@@ -602,12 +655,26 @@ void ide_proc_register_driver(ide_drive_t *drive, struct ide_driver *driver)
 
 EXPORT_SYMBOL(ide_proc_register_driver);
 
+/**
+ *	ide_proc_unregister_driver	-	remove driver specific data
+ *	@drive: drive
+ *	@driver: driver
+ *
+ *	Clean up the driver specific /proc files and IDE settings
+ *	for a given drive.
+ *
+ *	Takes ide_setting_mtx.
+ */
 
 void ide_proc_unregister_driver(ide_drive_t *drive, struct ide_driver *driver)
 {
 	ide_remove_proc_entries(drive->proc, driver->proc_entries(drive));
 
 	mutex_lock(&ide_setting_mtx);
+	/*
+	 * ide_setting_mtx protects both the settings list and the use
+	 * of settings (we cannot take a setting out that is being used).
+	 */
 	drive->settings = NULL;
 	mutex_unlock(&ide_setting_mtx);
 }

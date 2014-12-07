@@ -120,7 +120,7 @@ ar9003_set_txdesc(struct ath_hw *ah, void *ds, struct ath_tx_info *i)
 	switch (i->aggr) {
 	case AGGR_BUF_FIRST:
 		ctl17 |= SM(i->aggr_len, AR_AggrLen);
-		
+		/* fall through */
 	case AGGR_BUF_MIDDLE:
 		ctl12 |= AR_IsAggr | AR_MoreAggr;
 		ctl17 |= SM(i->ndelim, AR_PadDelim);
@@ -451,7 +451,7 @@ int ath9k_hw_process_rxdesc_edma(struct ath_hw *ah, struct ath_rx_status *rxs,
 	rxs->rs_datalen = rxsp->status2 & AR_DataLen;
 	rxs->rs_tstamp =  rxsp->status3;
 
-	
+	/* XXX: Keycache */
 	rxs->rs_rssi = MS(rxsp->status5, AR_RxRSSICombined);
 	rxs->rs_rssi_ctl0 = MS(rxsp->status1, AR_RxRSSIAnt00);
 	rxs->rs_rssi_ctl1 = MS(rxsp->status1, AR_RxRSSIAnt01);
@@ -490,6 +490,14 @@ int ath9k_hw_process_rxdesc_edma(struct ath_hw *ah, struct ath_rx_status *rxs,
 		rxs->rs_flags |= ATH9K_RX_DECRYPT_BUSY;
 
 	if ((rxsp->status11 & AR_RxFrameOK) == 0) {
+		/*
+		 * AR_CRCErr will bet set to true if we're on the last
+		 * subframe and the AR_PostDelimCRCErr is caught.
+		 * In a way this also gives us a guarantee that when
+		 * (!(AR_CRCErr) && (AR_PostDelimCRCErr)) we cannot
+		 * possibly be reviewing the last subframe. AR_CRCErr
+		 * is the CRC of the actual data.
+		 */
 		if (rxsp->status11 & AR_CRCErr)
 			rxs->rs_status |= ATH9K_RXERR_CRC;
 		else if (rxsp->status11 & AR_DecryptCRCErr)
@@ -498,6 +506,19 @@ int ath9k_hw_process_rxdesc_edma(struct ath_hw *ah, struct ath_rx_status *rxs,
 			rxs->rs_status |= ATH9K_RXERR_MIC;
 		if (rxsp->status11 & AR_PHYErr) {
 			phyerr = MS(rxsp->status11, AR_PHYErrCode);
+			/*
+			 * If we reach a point here where AR_PostDelimCRCErr is
+			 * true it implies we're *not* on the last subframe. In
+			 * in that case that we know already that the CRC of
+			 * the frame was OK, and MAC would send an ACK for that
+			 * subframe, even if we did get a phy error of type
+			 * ATH9K_PHYERR_OFDM_RESTART. This is only applicable
+			 * to frame that are prior to the last subframe.
+			 * The AR_PostDelimCRCErr is the CRC for the MPDU
+			 * delimiter, which contains the 4 reserved bits,
+			 * the MPDU length (12 bits), and follows the MPDU
+			 * delimiter for an A-MPDU subframe (0x4E = 'N' ASCII).
+			 */
 			if ((phyerr == ATH9K_PHYERR_OFDM_RESTART) &&
 			    (rxsp->status11 & AR_PostDelimCRCErr)) {
 				rxs->rs_phyerr = 0;

@@ -27,9 +27,14 @@
 #include "common.h"
 #include "mci.h"
 
+/*
+ * Header for the ath9k.ko driver core *only* -- hw code nor any other driver
+ * should rely on this file or its contents.
+ */
 
 struct ath_node;
 
+/* Macro to expand scalars to 64-bit objects */
 
 #define	ito64(x) (sizeof(x) == 1) ?			\
 	(((unsigned long long int)(x)) & (0xff)) :	\
@@ -39,11 +44,13 @@ struct ath_node;
 	 (((unsigned long long int)(x)) & 0xffffffff) : \
 	 (unsigned long long int)(x))
 
+/* increment with wrap-around */
 #define INCR(_l, _sz)   do {			\
 		(_l)++;				\
 		(_l) &= ((_sz) - 1);		\
 	} while (0)
 
+/* decrement with wrap-around */
 #define DECR(_l,  _sz)  do {			\
 		(_l)--;				\
 		(_l) &= ((_sz) - 1);		\
@@ -59,6 +66,9 @@ struct ath_config {
 	u8 cabqReadytime;
 };
 
+/*************************/
+/* Descriptor Management */
+/*************************/
 
 #define ATH_TXBUF_RESET(_bf) do {				\
 		(_bf)->bf_stale = false;			\
@@ -72,6 +82,13 @@ struct ath_config {
 		(_bf)->bf_stale = false;	\
 	} while (0)
 
+/**
+ * enum buffer_type - Buffer type flags
+ *
+ * @BUF_AMPDU: This buffer is an ampdu, as part of an aggregate (during TX)
+ * @BUF_AGGR: Indicates whether the buffer can be aggregated
+ *	(used in aggregation scheduling)
+ */
 enum buffer_type {
 	BUF_AMPDU		= BIT(0),
 	BUF_AGGR		= BIT(1),
@@ -100,6 +117,9 @@ int ath_descdma_setup(struct ath_softc *sc, struct ath_descdma *dd,
 void ath_descdma_cleanup(struct ath_softc *sc, struct ath_descdma *dd,
 			 struct list_head *head);
 
+/***********/
+/* RX / TX */
+/***********/
 
 #define ATH_RXBUF               512
 #define ATH_TXBUF               512
@@ -114,8 +134,10 @@ void ath_descdma_cleanup(struct ath_softc *sc, struct ath_descdma *dd,
 	 WME_AC_VO)
 
 #define ATH_AGGR_DELIM_SZ          4
-#define ATH_AGGR_MINPLEN           256 
+#define ATH_AGGR_MINPLEN           256 /* in bytes, minimum packet length */
+/* number of delimiters for encryption padding */
 #define ATH_AGGR_ENCRYPTDELIM      10
+/* minimum h/w qdepth to be sustained to maximize aggregation */
 #define ATH_AGGR_MIN_QDEPTH        2
 #define ATH_AMPDU_SUBFRAME_DEFAULT 32
 
@@ -129,13 +151,18 @@ void ath_descdma_cleanup(struct ath_softc *sc, struct ath_descdma *dd,
 				     IEEE80211_WEP_KIDLEN +	\
 				     IEEE80211_WEP_CRCLEN))
 
+/* return whether a bit at index _n in bitmap _bm is set
+ * _sz is the size of the bitmap  */
 #define ATH_BA_ISSET(_bm, _n)  (((_n) < (WME_BA_BMP_SIZE)) &&		\
 				((_bm)[(_n) >> 5] & (1 << ((_n) & 31))))
 
+/* return block-ack bitmap index given sequence and starting sequence */
 #define ATH_BA_INDEX(_st, _seq) (((_seq) - (_st)) & (IEEE80211_SEQ_MAX - 1))
 
+/* return the seqno for _start + _offset */
 #define ATH_BA_INDEX2SEQ(_seq, _offset) (((_seq) + (_offset)) & (IEEE80211_SEQ_MAX - 1))
 
+/* returns delimiter padding required given the packet length */
 #define ATH_AGGR_GET_NDELIM(_len)					\
        (((_len) >= ATH_AGGR_MINPLEN) ? 0 :                             \
         DIV_ROUND_UP(ATH_AGGR_MINPLEN - (_len), ATH_AGGR_DELIM_SZ))
@@ -155,8 +182,8 @@ enum ATH_AGGR_STATUS {
 
 #define ATH_TXFIFO_DEPTH 8
 struct ath_txq {
-	int mac80211_qnum; 
-	u32 axq_qnum; 
+	int mac80211_qnum; /* mac80211 queue number, -1 means not mac80211 Q */
+	u32 axq_qnum; /* ath9k hardware queue number */
 	void *axq_link;
 	struct list_head axq_q;
 	spinlock_t axq_lock;
@@ -198,12 +225,13 @@ struct ath_buf_state {
 
 struct ath_buf {
 	struct list_head list;
-	struct ath_buf *bf_lastbf;	
-	struct ath_buf *bf_next;	
-	struct sk_buff *bf_mpdu;	
-	void *bf_desc;			
-	dma_addr_t bf_daddr;		
-	dma_addr_t bf_buf_addr;	
+	struct ath_buf *bf_lastbf;	/* last buf of this unit (a frame or
+					   an aggregate) */
+	struct ath_buf *bf_next;	/* next subframe in the aggregate */
+	struct sk_buff *bf_mpdu;	/* enclosing frame structure */
+	void *bf_desc;			/* virtual addr of desc */
+	dma_addr_t bf_daddr;		/* physical addr of desc */
+	dma_addr_t bf_buf_addr;	/* physical addr of data buffer, for DMA */
 	bool bf_stale;
 	struct ath_buf_state bf_state;
 };
@@ -219,8 +247,8 @@ struct ath_atx_tid {
 	u16 seq_next;
 	u16 baw_size;
 	int tidno;
-	int baw_head;   
-	int baw_tail;   
+	int baw_head;   /* first un-acked tx buffer */
+	int baw_tail;   /* next unused tx buffer slot */
 	int sched;
 	int paused;
 	u8 state;
@@ -228,10 +256,10 @@ struct ath_atx_tid {
 
 struct ath_node {
 #ifdef CONFIG_ATH9K_DEBUGFS
-	struct list_head list; 
+	struct list_head list; /* for sc->nodes */
 #endif
-	struct ieee80211_sta *sta; 
-	struct ieee80211_vif *vif; 
+	struct ieee80211_sta *sta; /* station struct we're part of */
+	struct ieee80211_vif *vif; /* interface with which we're associated */
 	struct ath_atx_tid tid[WME_NUM_TID];
 	struct ath_atx_ac ac[WME_NUM_AC];
 	int ps_key;
@@ -254,6 +282,11 @@ struct ath_tx_control {
 
 #define ATH_TX_ERROR        0x01
 
+/**
+ * @txq_map:  Index is mac80211 queue number.  This is
+ *  not necessarily the same as the hardware queue number
+ *  (axq_qnum).
+ */
 struct ath_tx {
 	u16 seq_no;
 	u32 txqsetup;
@@ -315,18 +348,29 @@ void ath_tx_aggr_wakeup(struct ath_softc *sc, struct ath_node *an);
 void ath_tx_aggr_sleep(struct ieee80211_sta *sta, struct ath_softc *sc,
 		       struct ath_node *an);
 
+/********/
+/* VIFs */
+/********/
 
 struct ath_vif {
 	int av_bslot;
 	bool is_bslot_active, primary_sta_vif;
-	__le64 tsf_adjust; 
+	__le64 tsf_adjust; /* TSF adjustment for staggered beacons */
 	struct ath_buf *av_bcbuf;
 };
 
+/*******************/
+/* Beacon Handling */
+/*******************/
 
+/*
+ * Regardless of the number of beacons we stagger, (i.e. regardless of the
+ * number of BSSIDs) if a given beacon does not go out even after waiting this
+ * number of beacon intervals, the game's up.
+ */
 #define BSTUCK_THRESH           	9
 #define	ATH_BCBUF               	4
-#define ATH_DEFAULT_BINTVAL     	100 
+#define ATH_DEFAULT_BINTVAL     	100 /* TU */
 #define ATH_DEFAULT_BMISS_LIMIT 	10
 #define IEEE80211_MS_TO_TU(x)           (((x) * 1000) / 1024)
 
@@ -340,10 +384,10 @@ struct ath_beacon_config {
 
 struct ath_beacon {
 	enum {
-		OK,		
-		UPDATE,		
-		COMMIT		
-	} updateslot;		
+		OK,		/* no change needed */
+		UPDATE,		/* update pending */
+		COMMIT		/* beacon sent, commit change */
+	} updateslot;		/* slot time update fsm */
 
 	u32 beaconq;
 	u32 bmisscnt;
@@ -369,16 +413,19 @@ int ath_beaconq_config(struct ath_softc *sc);
 void ath_set_beacon(struct ath_softc *sc);
 void ath9k_set_beaconing_status(struct ath_softc *sc, bool status);
 
+/*******/
+/* ANI */
+/*******/
 
-#define ATH_STA_SHORT_CALINTERVAL 1000    
-#define ATH_AP_SHORT_CALINTERVAL  100     
-#define ATH_ANI_POLLINTERVAL_OLD  100     
-#define ATH_ANI_POLLINTERVAL_NEW  1000    
-#define ATH_LONG_CALINTERVAL_INT  1000    
-#define ATH_LONG_CALINTERVAL      30000   
-#define ATH_RESTART_CALINTERVAL   1200000 
+#define ATH_STA_SHORT_CALINTERVAL 1000    /* 1 second */
+#define ATH_AP_SHORT_CALINTERVAL  100     /* 100 ms */
+#define ATH_ANI_POLLINTERVAL_OLD  100     /* 100 ms */
+#define ATH_ANI_POLLINTERVAL_NEW  1000    /* 1000 ms */
+#define ATH_LONG_CALINTERVAL_INT  1000    /* 1000 ms */
+#define ATH_LONG_CALINTERVAL      30000   /* 30 seconds */
+#define ATH_RESTART_CALINTERVAL   1200000 /* 20 minutes */
 
-#define ATH_PAPRD_TIMEOUT	100 
+#define ATH_PAPRD_TIMEOUT	100 /* msecs */
 
 void ath_reset_work(struct work_struct *work);
 void ath_hw_check(struct work_struct *work);
@@ -387,19 +434,22 @@ void ath_paprd_calibrate(struct work_struct *work);
 void ath_ani_calibrate(unsigned long data);
 void ath_start_ani(struct ath_common *common);
 
+/**********/
+/* BTCOEX */
+/**********/
 
 struct ath_btcoex {
 	bool hw_timer_enabled;
 	spinlock_t btcoex_lock;
-	struct timer_list period_timer; 
+	struct timer_list period_timer; /* Timer for BT period */
 	u32 bt_priority_cnt;
 	unsigned long bt_priority_time;
-	int bt_stomp_type; 
-	u32 btcoex_no_stomp; 
-	u32 btcoex_period; 
-	u32 btscan_no_stomp; 
+	int bt_stomp_type; /* Types of BT stomping */
+	u32 btcoex_no_stomp; /* in usec */
+	u32 btcoex_period; /* in usec */
+	u32 btscan_no_stomp; /* in usec */
 	u32 duty_cycle;
-	struct ath_gen_timer *no_stomp_timer; 
+	struct ath_gen_timer *no_stomp_timer; /* Timer for no BT stomping */
 	struct ath_mci_profile mci;
 };
 
@@ -435,8 +485,11 @@ static inline u16 ath9k_btcoex_aggr_limit(struct ath_softc *sc,
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_ATH9K_BTCOEX_SUPPORT */
 
+/********************/
+/*   LED Control    */
+/********************/
 
 #define ATH_LED_PIN_DEF 		1
 #define ATH_LED_PIN_9287		8
@@ -458,6 +511,7 @@ static inline void ath_deinit_leds(struct ath_softc *sc)
 #endif
 
 
+/* Antenna diversity/combining */
 #define ATH_ANT_RX_CURRENT_SHIFT 4
 #define ATH_ANT_RX_MAIN_SHIFT 2
 #define ATH_ANT_RX_MASK 0x3
@@ -510,14 +564,21 @@ struct ath_ant_comb {
 	unsigned long scan_start_time;
 };
 
+/********************/
+/* Main driver core */
+/********************/
 
+/*
+ * Default cache line size, in bytes.
+ * Used when PCI device not fully initialized by bootrom/BIOS
+*/
 #define DEFAULT_CACHELINE       32
 #define ATH_REGCLASSIDS_MAX     10
-#define ATH_CABQ_READY_TIME     80      
+#define ATH_CABQ_READY_TIME     80      /* % of beacon interval */
 #define ATH_MAX_SW_RETRIES      30
 #define ATH_CHAN_MAX            255
 
-#define ATH_TXPOWER_MAX         100     
+#define ATH_TXPOWER_MAX         100     /* .5 dBm units */
 #define ATH_RATE_DUMMY_MARKER   0
 
 #define SC_OP_INVALID                BIT(0)
@@ -530,6 +591,7 @@ struct ath_ant_comb {
 #define SC_OP_ANI_RUN                BIT(7)
 #define SC_OP_PRIM_STA_VIF           BIT(8)
 
+/* Powersave flags */
 #define PS_WAIT_FOR_BEACON        BIT(0)
 #define PS_WAIT_FOR_CAB           BIT(1)
 #define PS_WAIT_FOR_PSPOLL_DATA   BIT(2)
@@ -539,13 +601,16 @@ struct ath_ant_comb {
 struct ath_rate_table;
 
 struct ath9k_vif_iter_data {
-	const u8 *hw_macaddr; 
-	u8 mask[ETH_ALEN]; 
-	int naps;      
-	int nmeshes;   
-	int nstations; 
-	int nwds;      
-	int nadhocs;   
+	const u8 *hw_macaddr; /* phy's hardware address, set
+			       * before starting iteration for
+			       * valid bssid mask.
+			       */
+	u8 mask[ETH_ALEN]; /* bssid mask */
+	int naps;      /* number of AP vifs */
+	int nmeshes;   /* number of mesh vifs */
+	int nstations; /* number of station vifs */
+	int nwds;      /* number of WDS vifs */
+	int nadhocs;   /* number of adhoc vifs */
 };
 
 struct ath_softc {
@@ -572,8 +637,8 @@ struct ath_softc {
 	unsigned int hw_busy_count;
 
 	u32 intrstatus;
-	u32 sc_flags; 
-	u16 ps_flags; 
+	u32 sc_flags; /* SC_OP_* */
+	u16 ps_flags; /* PS_* */
 	u16 curtxpow;
 	bool ps_enabled;
 	bool ps_idle;
@@ -599,7 +664,7 @@ struct ath_softc {
 #ifdef CONFIG_ATH9K_DEBUGFS
 	struct ath9k_debug debug;
 	spinlock_t nodes_lock;
-	struct list_head nodes; 
+	struct list_head nodes; /* basically, stations */
 	unsigned int tx_complete_poll_work_seen;
 #endif
 	struct ath_beacon_config cur_beacon_conf;
@@ -667,4 +732,4 @@ void ath9k_calculate_iter_data(struct ieee80211_hw *hw,
 			       struct ath9k_vif_iter_data *iter_data);
 
 
-#endif 
+#endif /* ATH9K_H */

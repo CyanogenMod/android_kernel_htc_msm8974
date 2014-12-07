@@ -12,9 +12,11 @@
 
 #include <linux/types.h>
 
+/* Command Register Bit Masks */
 #define USBCMD_RUN_STOP			(0x00000001)
 #define USBCMD_CTRL_RESET		(0x00000002)
 
+/* otgsc Register Bit Masks */
 #define OTGSC_CTRL_VUSB_DISCHARGE		0x00000001
 #define OTGSC_CTRL_VUSB_CHARGE			0x00000002
 #define OTGSC_CTRL_OTG_TERM			0x00000008
@@ -43,6 +45,7 @@
 
 #define CAPLENGTH_MASK		(0xff)
 
+/* Timer's interval, unit 10ms */
 #define T_A_WAIT_VRISE		100
 #define T_A_WAIT_BCON		2000
 #define T_A_AIDL_BDIS		100
@@ -65,13 +68,14 @@ enum mv_otg_timer {
 	OTG_TIMER_NUM
 };
 
+/* PXA OTG state machine */
 struct mv_otg_ctrl {
-	
-	u8 a_set_b_hnp_en;	
+	/* internal variables */
+	u8 a_set_b_hnp_en;	/* A-Device set b_hnp_en */
 	u8 b_srp_done;
 	u8 b_hnp_en;
 
-	
+	/* OTG inputs */
 	u8 a_bus_drop;
 	u8 a_bus_req;
 	u8 a_clr_err;
@@ -81,7 +85,7 @@ struct mv_otg_ctrl {
 	u8 a_sess_vld;
 	u8 a_srp_det;
 	u8 a_vbus_vld;
-	u8 b_bus_req;		
+	u8 b_bus_req;		/* B-Device Require Bus */
 	u8 b_bus_resume;
 	u8 b_bus_suspend;
 	u8 b_conn;
@@ -91,7 +95,7 @@ struct mv_otg_ctrl {
 	u8 id;
 	u8 a_suspend_req;
 
-	
+	/*Timer event */
 	u8 a_aidl_bdis_timeout;
 	u8 b_ase0_brst_timeout;
 	u8 a_bidl_adis_timeout;
@@ -103,39 +107,39 @@ struct mv_otg_ctrl {
 #define VUSBHS_MAX_PORTS	8
 
 struct mv_otg_regs {
-	u32 usbcmd;		
-	u32 usbsts;		
-	u32 usbintr;		
-	u32 frindex;		
+	u32 usbcmd;		/* Command register */
+	u32 usbsts;		/* Status register */
+	u32 usbintr;		/* Interrupt enable */
+	u32 frindex;		/* Frame index */
 	u32 reserved1[1];
-	u32 deviceaddr;		
-	u32 eplistaddr;		
-	u32 ttctrl;		
-	u32 burstsize;		
-	u32 txfilltuning;	
+	u32 deviceaddr;		/* Device Address */
+	u32 eplistaddr;		/* Endpoint List Address */
+	u32 ttctrl;		/* HOST TT status and control */
+	u32 burstsize;		/* Programmable Burst Size */
+	u32 txfilltuning;	/* Host Transmit Pre-Buffer Packet Tuning */
 	u32 reserved[4];
-	u32 epnak;		
-	u32 epnaken;		
-	u32 configflag;		
-	u32 portsc[VUSBHS_MAX_PORTS];	
+	u32 epnak;		/* Endpoint NAK */
+	u32 epnaken;		/* Endpoint NAK Enable */
+	u32 configflag;		/* Configured Flag register */
+	u32 portsc[VUSBHS_MAX_PORTS];	/* Port Status/Control x, x = 1..8 */
 	u32 otgsc;
-	u32 usbmode;		
-	u32 epsetupstat;	
-	u32 epprime;		
-	u32 epflush;		
-	u32 epstatus;		
-	u32 epcomplete;		
-	u32 epctrlx[16];	
-	u32 mcr;		
-	u32 isr;		
-	u32 ier;		
+	u32 usbmode;		/* USB Host/Device mode */
+	u32 epsetupstat;	/* Endpoint Setup Status */
+	u32 epprime;		/* Endpoint Initialize */
+	u32 epflush;		/* Endpoint De-initialize */
+	u32 epstatus;		/* Endpoint Status */
+	u32 epcomplete;		/* Endpoint Interrupt On Complete */
+	u32 epctrlx[16];	/* Endpoint Control, where x = 0.. 15 */
+	u32 mcr;		/* Mux Control */
+	u32 isr;		/* Interrupt Status */
+	u32 ier;		/* Interrupt Enable */
 };
 
 struct mv_otg {
 	struct usb_phy phy;
 	struct mv_otg_ctrl otg_ctrl;
 
-	
+	/* base address */
 	void __iomem *phy_regs;
 	void __iomem *cap_regs;
 	struct mv_otg_regs __iomem *op_regs;

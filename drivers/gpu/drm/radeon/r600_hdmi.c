@@ -29,12 +29,18 @@
 #include "radeon_asic.h"
 #include "atom.h"
 
+/*
+ * HDMI color format
+ */
 enum r600_hdmi_color_format {
 	RGB = 0,
 	YCC_422 = 1,
 	YCC_444 = 2
 };
 
+/*
+ * IEC60958 status bits
+ */
 enum r600_hdmi_iec_status_bits {
 	AUDIO_STATUS_DIG_ENABLE   = 0x01,
 	AUDIO_STATUS_V            = 0x02,
@@ -59,21 +65,24 @@ struct {
 	int CTS_48kHz;
 
 } r600_hdmi_ACR[] = {
-    
-    
-    {  25174,  4576,  28125,  7007,  31250,  6864,  28125 }, 
-    {  25200,  4096,  25200,  6272,  28000,  6144,  25200 }, 
-    {  27000,  4096,  27000,  6272,  30000,  6144,  27000 }, 
-    {  27027,  4096,  27027,  6272,  30030,  6144,  27027 }, 
-    {  54000,  4096,  54000,  6272,  60000,  6144,  54000 }, 
-    {  54054,  4096,  54054,  6272,  60060,  6144,  54054 }, 
-    {  74175, 11648, 210937, 17836, 234375, 11648, 140625 }, 
-    {  74250,  4096,  74250,  6272,  82500,  6144,  74250 }, 
-    { 148351, 11648, 421875,  8918, 234375,  5824, 140625 }, 
-    { 148500,  4096, 148500,  6272, 165000,  6144, 148500 }, 
-    {      0,  4096,      0,  6272,      0,  6144,      0 }  
+    /*	     32kHz	  44.1kHz	48kHz    */
+    /* Clock      N     CTS      N     CTS      N     CTS */
+    {  25174,  4576,  28125,  7007,  31250,  6864,  28125 }, /*  25,20/1.001 MHz */
+    {  25200,  4096,  25200,  6272,  28000,  6144,  25200 }, /*  25.20       MHz */
+    {  27000,  4096,  27000,  6272,  30000,  6144,  27000 }, /*  27.00       MHz */
+    {  27027,  4096,  27027,  6272,  30030,  6144,  27027 }, /*  27.00*1.001 MHz */
+    {  54000,  4096,  54000,  6272,  60000,  6144,  54000 }, /*  54.00       MHz */
+    {  54054,  4096,  54054,  6272,  60060,  6144,  54054 }, /*  54.00*1.001 MHz */
+    {  74175, 11648, 210937, 17836, 234375, 11648, 140625 }, /*  74.25/1.001 MHz */
+    {  74250,  4096,  74250,  6272,  82500,  6144,  74250 }, /*  74.25       MHz */
+    { 148351, 11648, 421875,  8918, 234375,  5824, 140625 }, /* 148.50/1.001 MHz */
+    { 148500,  4096, 148500,  6272, 165000,  6144, 148500 }, /* 148.50       MHz */
+    {      0,  4096,      0,  6272,      0,  6144,      0 }  /* Other */
 };
 
+/*
+ * calculate CTS value if it's not found in the table
+ */
 static void r600_hdmi_calc_CTS(uint32_t clock, int *CTS, int N, int freq)
 {
 	if (*CTS == 0)
@@ -82,6 +91,9 @@ static void r600_hdmi_calc_CTS(uint32_t clock, int *CTS, int N, int freq)
 		  N, *CTS, freq);
 }
 
+/*
+ * update the N and CTS parameters for a given pixel clock rate
+ */
 static void r600_hdmi_update_ACR(struct drm_encoder *encoder, uint32_t clock)
 {
 	struct drm_device *dev = encoder->dev;
@@ -112,6 +124,9 @@ static void r600_hdmi_update_ACR(struct drm_encoder *encoder, uint32_t clock)
 	WREG32(offset+R600_HDMI_48kHz_N, N);
 }
 
+/*
+ * calculate the crc for a given info frame
+ */
 static void r600_hdmi_infoframe_checksum(uint8_t packetType,
 					 uint8_t versionNumber,
 					 uint8_t length,
@@ -124,6 +139,9 @@ static void r600_hdmi_infoframe_checksum(uint8_t packetType,
 	frame[0] = 0x100 - frame[0];
 }
 
+/*
+ * build a HDMI Video Info Frame
+ */
 static void r600_hdmi_videoinfoframe(
 	struct drm_encoder *encoder,
 	enum r600_hdmi_color_format color_format,
@@ -178,6 +196,12 @@ static void r600_hdmi_videoinfoframe(
 	frame[0xD] = (right_bar >> 8);
 
 	r600_hdmi_infoframe_checksum(0x82, 0x02, 0x0D, frame);
+	/* Our header values (type, version, length) should be alright, Intel
+	 * is using the same. Checksum function also seems to be OK, it works
+	 * fine for audio infoframe. However calculated value is always lower
+	 * by 2 in comparison to fglrx. It breaks displaying anything in case
+	 * of TVs that strictly check the checksum. Hack it manually here to
+	 * workaround this issue. */
 	frame[0x0] += 2;
 
 	WREG32(offset+R600_HDMI_VIDEOINFOFRAME_0,
@@ -190,6 +214,9 @@ static void r600_hdmi_videoinfoframe(
 		frame[0xC] | (frame[0xD] << 8));
 }
 
+/*
+ * build a Audio Info Frame
+ */
 static void r600_hdmi_audioinfoframe(
 	struct drm_encoder *encoder,
 	uint8_t channel_count,
@@ -228,6 +255,9 @@ static void r600_hdmi_audioinfoframe(
 		frame[0x4] | (frame[0x5] << 8) | (frame[0x6] << 16) | (frame[0x8] << 24));
 }
 
+/*
+ * test if audio buffer is filled enough to start playing
+ */
 static int r600_hdmi_is_audio_buffer_filled(struct drm_encoder *encoder)
 {
 	struct drm_device *dev = encoder->dev;
@@ -237,6 +267,9 @@ static int r600_hdmi_is_audio_buffer_filled(struct drm_encoder *encoder)
 	return (RREG32(offset+R600_HDMI_STATUS) & 0x10) != 0;
 }
 
+/*
+ * have buffer status changed since last call?
+ */
 int r600_hdmi_buffer_status_changed(struct drm_encoder *encoder)
 {
 	struct radeon_encoder *radeon_encoder = to_radeon_encoder(encoder);
@@ -252,6 +285,9 @@ int r600_hdmi_buffer_status_changed(struct drm_encoder *encoder)
 	return result;
 }
 
+/*
+ * write the audio workaround status to the hardware
+ */
 void r600_hdmi_audio_workaround(struct drm_encoder *encoder)
 {
 	struct drm_device *dev = encoder->dev;
@@ -265,16 +301,19 @@ void r600_hdmi_audio_workaround(struct drm_encoder *encoder)
 	if (!radeon_encoder->hdmi_audio_workaround ||
 		r600_hdmi_is_audio_buffer_filled(encoder)) {
 
-		
+		/* disable audio workaround */
 		WREG32_P(offset+R600_HDMI_CNTL, 0x00000001, ~0x00001001);
 
 	} else {
-		
+		/* enable audio workaround */
 		WREG32_P(offset+R600_HDMI_CNTL, 0x00001001, ~0x00001001);
 	}
 }
 
 
+/*
+ * update the info frames with the data from the current display mode
+ */
 void r600_hdmi_setmode(struct drm_encoder *encoder, struct drm_display_mode *mode)
 {
 	struct drm_device *dev = encoder->dev;
@@ -302,7 +341,7 @@ void r600_hdmi_setmode(struct drm_encoder *encoder, struct drm_display_mode *mod
 	r600_hdmi_videoinfoframe(encoder, RGB, 0, 0, 0, 0,
 		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
 
-	
+	/* it's unknown what these bits do excatly, but it's indeed quite useful for debugging */
 	WREG32(offset+R600_HDMI_AUDIO_DEBUG_0, 0x00FFFFFF);
 	WREG32(offset+R600_HDMI_AUDIO_DEBUG_1, 0x007FFFFF);
 	WREG32(offset+R600_HDMI_AUDIO_DEBUG_2, 0x00000001);
@@ -310,10 +349,13 @@ void r600_hdmi_setmode(struct drm_encoder *encoder, struct drm_display_mode *mod
 
 	r600_hdmi_audio_workaround(encoder);
 
-	
+	/* audio packets per line, does anyone know how to calc this ? */
 	WREG32_P(offset+R600_HDMI_CNTL, 0x00040000, ~0x001F0000);
 }
 
+/*
+ * update settings with current parameters from audio engine
+ */
 void r600_hdmi_update_audio_settings(struct drm_encoder *encoder)
 {
 	struct drm_device *dev = encoder->dev;
@@ -372,7 +414,7 @@ void r600_hdmi_update_audio_settings(struct drm_encoder *encoder)
 
 	WREG32_P(offset+R600_HDMI_IEC60958_2, iec, ~0x5000f);
 
-	
+	/* 0x021 or 0x031 sets the audio frame length */
 	WREG32(offset+R600_HDMI_AUDIOCNTL, 0x31);
 	r600_hdmi_audioinfoframe(encoder, channels-1, 0, 0, 0, 0, 0, 0, 0);
 
@@ -435,7 +477,7 @@ static void r600_hdmi_assign_block(struct drm_encoder *encoder)
 	}
 
 	if (ASIC_IS_DCE5(rdev)) {
-		
+		/* TODO */
 	} else if (ASIC_IS_DCE4(rdev)) {
 		if (dig->dig_encoder >= ARRAY_SIZE(eg_offsets)) {
 			dev_err(rdev->dev, "Enabling HDMI on unknown dig\n");
@@ -457,6 +499,9 @@ static void r600_hdmi_assign_block(struct drm_encoder *encoder)
 	}
 }
 
+/*
+ * enable the HDMI engine
+ */
 void r600_hdmi_enable(struct drm_encoder *encoder)
 {
 	struct drm_device *dev = encoder->dev;
@@ -478,13 +523,13 @@ void r600_hdmi_enable(struct drm_encoder *encoder)
 
 	offset = radeon_encoder->hdmi_offset;
 	if (ASIC_IS_DCE5(rdev)) {
-		
+		/* TODO */
 	} else if (ASIC_IS_DCE4(rdev)) {
 		WREG32_P(radeon_encoder->hdmi_config_offset + 0xc, 0x1, ~0x1);
 	} else if (ASIC_IS_DCE32(rdev)) {
 		WREG32_P(radeon_encoder->hdmi_config_offset + 0x4, 0x1, ~0x1);
 	} else if (ASIC_IS_DCE3(rdev)) {
-		
+		/* TODO */
 	} else if (rdev->family >= CHIP_R600) {
 		switch (radeon_encoder->encoder_id) {
 		case ENCODER_OBJECT_ID_INTERNAL_KLDSCP_TMDS1:
@@ -508,13 +553,13 @@ void r600_hdmi_enable(struct drm_encoder *encoder)
 	    && rdev->family != CHIP_RS690
 	    && rdev->family != CHIP_RS740
 	    && !ASIC_IS_DCE4(rdev)) {
-		
+		/* if irq is available use it */
 		rdev->irq.hdmi[offset == R600_HDMI_BLOCK1 ? 0 : 1] = true;
 		radeon_irq_set(rdev);
 
 		r600_audio_disable_polling(encoder);
 	} else {
-		
+		/* if not fallback to polling */
 		r600_audio_enable_polling(encoder);
 	}
 
@@ -522,6 +567,9 @@ void r600_hdmi_enable(struct drm_encoder *encoder)
 		radeon_encoder->hdmi_offset, radeon_encoder->encoder_id);
 }
 
+/*
+ * disable the HDMI engine
+ */
 void r600_hdmi_disable(struct drm_encoder *encoder)
 {
 	struct drm_device *dev = encoder->dev;
@@ -541,15 +589,15 @@ void r600_hdmi_disable(struct drm_encoder *encoder)
 	DRM_DEBUG("Disabling HDMI interface @ 0x%04X for encoder 0x%x\n",
 		offset, radeon_encoder->encoder_id);
 
-	
+	/* disable irq */
 	rdev->irq.hdmi[offset == R600_HDMI_BLOCK1 ? 0 : 1] = false;
 	radeon_irq_set(rdev);
 
-	
+	/* disable polling */
 	r600_audio_disable_polling(encoder);
 
 	if (ASIC_IS_DCE5(rdev)) {
-		
+		/* TODO */
 	} else if (ASIC_IS_DCE4(rdev)) {
 		WREG32_P(radeon_encoder->hdmi_config_offset + 0xc, 0, ~0x1);
 	} else if (ASIC_IS_DCE32(rdev)) {

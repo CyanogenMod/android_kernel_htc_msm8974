@@ -56,6 +56,8 @@
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,37)
 #include <linux/mutex.h>
 #endif
+
+
 #include <linux/of_gpio.h>
 #include <linux/delay.h>
 #include <linux/regulator/consumer.h>
@@ -80,6 +82,7 @@
 #define GPIO_SRIO_1V8_EN_XB 83
 #define GPIO_FULLSEG_1V1_EN_XB 84
 #define FM_FULLSEG_ANT_SW_XB 24
+
 
 #define DEV_NAME "TUNER" 
 int TUNER_CONFIG_DRV_MAJOR = 0; 
@@ -183,7 +186,6 @@ struct mn885521_gpios {
 };
 struct mn885521_gpios *gpios;
 
-
 #ifndef TUNER_CONFIG_IRQ_PC_LINUX
 irqreturn_t tuner_interrupt( int irq, void *dev_id );
 #else  
@@ -227,6 +229,47 @@ int board_gpio_init(void)
 	return ret;
 }
 
+int board_gpio_request(void)
+{
+	int ret =0;
+
+	ret = gpio_request(gpios->_1v8_en, "fullseg_1v8_en");
+	if (ret < 0) {
+		pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
+		return ret;
+	}
+
+	ret = gpio_request(gpios->npdreg, "fullseg_npd_reg");
+	if (ret < 0) {
+		pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
+		return ret;
+	}
+	ret = gpio_request(gpios->npdxtal, "fullseg_npd_xtal");
+	if (ret < 0) {
+		pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
+		return ret;
+	}
+
+	ret = gpio_request(gpios->nrst, "fullseg_nrst");
+	if (ret < 0) {
+		pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
+		return ret;
+	}
+
+
+	return ret;
+}
+
+void board_gpio_free(void)
+{
+        gpio_free(gpios->_1v8_en);
+        gpio_free(gpios->npdreg);
+        gpio_free(gpios->npdxtal);
+        gpio_free(gpios->nrst);
+
+        return;
+}
+
 int poweron_tuner_rework(int on)
 {
 	int ret =0;
@@ -234,7 +277,6 @@ int poweron_tuner_rework(int on)
 	if (on)
 	{
 		printk("[FULLSEG] %s, on\r\n", __func__); 
- 
 	        ret = gpio_request(gpios->npdreg, "fullseg_npd_reg");
 	        if (ret < 0) {
         	        pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
@@ -409,38 +451,16 @@ int poweron_tuner(int on)
 	if (on)
 	{
 		printk("[FULLSEG] %s, on\r\n", __func__); 
-                ret = gpio_request(gpios->_1v8_en, "fullseg_1v8_en");
-                if (ret < 0) {
-                        pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
-                        return ret;
-                }
                 ret = gpio_direction_output(gpios->_1v8_en, 1);
                 if (ret < 0) {
                         pr_err("[FULLSEG] %s: gpio_direction_output failed %d\n", __func__, ret);
                         gpio_free(gpios->_1v8_en);
                         return ret;
                 }
-#if 0
-                ret = gpio_request(gpios->_1v1_en, "fullseg_1v1_en");
-                if (ret < 0) {
-                        pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
-                        return ret;
-                }
-                ret = gpio_direction_output(gpios->_1v1_en, 1);
-                if (ret < 0) {
-                        pr_err("[FULLSEG] %s: gpio_direction_output failed %d\n", __func__, ret);
-                        gpio_free(gpios->_1v1_en);
-                        return ret;
-                }
-#endif
+
                 gpio_tlmm_config(GPIO_CFG(gpios->_1v1_en, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
                 gpio_set_value(gpios->_1v1_en, 1);
 
-	        ret = gpio_request(gpios->npdreg, "fullseg_npd_reg");
-	        if (ret < 0) {
-        	        pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
-                	return ret;
-	        }
         	ret = gpio_direction_output(gpios->npdreg, 1);
 	        if (ret < 0) {
         	        pr_err("[FULLSEG] %s: gpio_direction_output failed %d\n", __func__, ret);
@@ -449,11 +469,6 @@ int poweron_tuner(int on)
         	}
 		msleep(10); 
 
-                ret = gpio_request(gpios->npdxtal, "fullseg_npd_xtal");
-                if (ret < 0) {
-                        pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
-                        return ret;
-                }
                 ret = gpio_direction_output(gpios->npdxtal, 1);
                 if (ret < 0) {
                         pr_err("[FULLSEG] %s: gpio_direction_output failed %d\n", __func__, ret);
@@ -462,12 +477,6 @@ int poweron_tuner(int on)
                 }
                 msleep(10); 
 
-
-                ret = gpio_request(gpios->nrst, "fullseg_nrst");
-                if (ret < 0) {
-                        pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
-                        return ret;
-                }
                 ret = gpio_direction_output(gpios->nrst, 1);
                 if (ret < 0) {
                         pr_err("[FULLSEG] %s: gpio_direction_output failed %d\n", __func__, ret);
@@ -493,26 +502,15 @@ int poweron_tuner(int on)
                 }
 	}else{
 		printk("[FULLSEG] %s, off\r\n", __func__);
-		ret = gpio_request(gpios->fm_fullseg_ant_sw, "fm_fullseg_ant_sw");
-                if (ret < 0) {
-                        pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
-                        return ret;
-                }
                 ret = gpio_direction_output(gpios->fm_fullseg_ant_sw, 0);
                 if (ret < 0) {
                         pr_err("[FULLSEG] %s: gpio_direction_output failed %d\n", __func__, ret);
                         gpio_free(gpios->fm_fullseg_ant_sw);
                         return ret;
                 }
-
-	        
+		
 	        fm_fullseg_antenna_sw_power_disable(reg_8941_l17);
 
-                ret = gpio_request(gpios->nrst, "fullseg_nrst");
-                if (ret < 0) {
-                        pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
-                        return ret;
-                }
                 ret = gpio_direction_output(gpios->nrst, 0);
                 if (ret < 0) {
                         pr_err("[FULLSEG] %s: gpio_direction_output failed %d\n", __func__, ret);
@@ -521,22 +519,13 @@ int poweron_tuner(int on)
                 }
 		msleep(10); 
 
-                ret = gpio_request(gpios->npdxtal, "fullseg_npd_xtal");
-                if (ret < 0) {
-                        pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
-                        return ret;
-                }
                 ret = gpio_direction_output(gpios->npdxtal, 0);
                 if (ret < 0) {
                         pr_err("[FULLSEG] %s: gpio_direction_output failed %d\n", __func__, ret);
                         gpio_free(gpios->npdxtal);
                         return ret;
                 }
-                ret = gpio_request(gpios->npdreg, "fullseg_npd_reg");
-                if (ret < 0) {
-                        pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
-                        return ret;
-                }
+
                 ret = gpio_direction_output(gpios->npdreg, 0);
                 if (ret < 0) {
                         pr_err("[FULLSEG] %s: gpio_direction_output failed %d\n", __func__, ret);
@@ -545,23 +534,9 @@ int poweron_tuner(int on)
                 }
                 msleep(10); 
 
-                ret = gpio_request(gpios->_1v1_en, "fullseg_1v1_en");
-                if (ret < 0) {
-                        pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
-                        return ret;
-                }
-                ret = gpio_direction_output(gpios->_1v1_en, 0);
-                if (ret < 0) {
-                        pr_err("[FULLSEG] %s: gpio_direction_output failed %d\n", __func__, ret);
-                        gpio_free(gpios->_1v1_en);
-                        return ret;
-                }
+                gpio_tlmm_config(GPIO_CFG(gpios->_1v1_en, 0, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA), GPIO_CFG_ENABLE);
+                gpio_set_value(gpios->_1v1_en, 0);
 
-                ret = gpio_request(gpios->_1v8_en, "fullseg_1v8_en");
-                if (ret < 0) {
-                        pr_err("[FULLSEG] %s: gpio_request failed %d\n", __func__, ret);
-                        return ret;
-                }
                 ret = gpio_direction_output(gpios->_1v8_en, 0);
                 if (ret < 0) {
                         pr_err("[FULLSEG] %s: gpio_direction_output failed %d\n", __func__, ret);
@@ -573,7 +548,6 @@ int poweron_tuner(int on)
 	}
 	return ret;
 }
-
  
 static int mn885521_parse_dt(struct device *dev, struct mn885521_platform_data *pdata)
 {
@@ -706,7 +680,8 @@ static int __devinit tuner_probe(struct platform_device *pdev)
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,37)
     mutex_init(&g_tuner_mutex);
 #endif
-      board_gpio_init();
+    board_gpio_init();
+    board_gpio_request();
 
     INFO_PRINT("tuner_probe: END.\n");
     return 0;
@@ -883,6 +858,9 @@ static int __init tuner_drv_start(void)
 {
     int ret =0;
     struct device *dev = NULL;
+
+    
+    
     int count = 1;
     dev_t tuner_dev;
 
@@ -894,6 +872,7 @@ static int __init tuner_drv_start(void)
     
     TUNER_CONFIG_DRV_MAJOR = 255; 
     TUNER_CONFIG_DRV_MINOR = 0; 
+    
 
     INFO_PRINT("mmtuner_tuner_drv_start: Called\n");
 
@@ -973,6 +952,8 @@ static void __exit tuner_drv_end(void)
 {
     INFO_PRINT("mmtuner_tuner_drv_end: Called\n");
 
+    board_gpio_free();
+
     
     g_tuner_kthread_flag |= TUNER_KTH_END;
     if( waitqueue_active( &g_tuner_kthread_wait_queue ))
@@ -1030,7 +1011,11 @@ static int tuner_module_entry_close(struct inode* Inode, struct file* FIle)
 
     	INFO_PRINT("tuner_module_entry_close: Called\n");
 
+	
+	
 	poweron_tuner(0);
+	
+
 	
 	if( open_cnt <= 0 )
 	{
@@ -1046,8 +1031,8 @@ static int tuner_module_entry_close(struct inode* Inode, struct file* FIle)
 	if( open_cnt == 0 )
 	{
         
-        tuner_drv_release_interrupt();
-    
+	tuner_drv_release_interrupt();
+
         if( FIle == NULL )
         {
             return -1;
@@ -1124,8 +1109,8 @@ static ssize_t tuner_module_entry_write(struct file* FIle,
     	vfree(buf);
     	return -EINVAL;
     }
-    DEBUG_PRINT("write        slv:0x%02x adr:0x%02x len:%-4d 0x%02x ... 0x%02x ",
-    		buf[0], buf[1], Count-2, buf[2], buf[Count-1]);
+    
+    
 
     vfree(buf);
     return ret;

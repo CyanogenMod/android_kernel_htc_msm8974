@@ -49,7 +49,22 @@ ACPI_MODULE_NAME("processor_perflib");
 
 static DEFINE_MUTEX(performance_mutex);
 
+/*
+ * _PPC support is implemented as a CPUfreq policy notifier:
+ * This means each time a CPUfreq driver registered also with
+ * the ACPI core is asked to change the speed policy, the maximum
+ * value is adjusted so that it is within the platform limit.
+ *
+ * Also, when a new platform limit value is detected, the CPUfreq
+ * policy is adjusted accordingly.
+ */
 
+/* ignore_ppc:
+ * -1 -> cpufreq low level drivers not initialized -> _PSS, etc. not called yet
+ *       ignore _PPC
+ *  0 -> cpufreq low level drivers initialized -> consider _PPC values
+ *  1 -> ignore _PPC totally -> forced by user through boot param
+ */
 static int ignore_ppc = -1;
 module_param(ignore_ppc, int, 0644);
 MODULE_PARM_DESC(ignore_ppc, "If the frequency of your machine gets wrongly" \
@@ -112,6 +127,10 @@ static int acpi_processor_get_platform_limit(struct acpi_processor *pr)
 	if (!pr)
 		return -EINVAL;
 
+	/*
+	 * _PPC indicates the maximum state currently supported by the platform
+	 * (e.g. 0 = states 0..n; 1 = states 1..n; etc.
+	 */
 	status = acpi_evaluate_integer(pr->handle, "_PPC", NULL, &ppc);
 
 	if (status != AE_NOT_FOUND)
@@ -131,6 +150,13 @@ static int acpi_processor_get_platform_limit(struct acpi_processor *pr)
 }
 
 #define ACPI_PROCESSOR_NOTIFY_PERFORMANCE	0x80
+/*
+ * acpi_processor_ppc_ost: Notify firmware the _PPC evaluation status
+ * @handle: ACPI processor handle
+ * @status: the status code of _PPC evaluation
+ *	0: success. OSPM is now using the performance state specificed.
+ *	1: failure. OSPM has not changed the number of P-states in use
+ */
 static void acpi_processor_ppc_ost(acpi_handle handle, int status)
 {
 	union acpi_object params[2] = {
@@ -143,7 +169,7 @@ static void acpi_processor_ppc_ost(acpi_handle handle, int status)
 	params[0].integer.value = ACPI_PROCESSOR_NOTIFY_PERFORMANCE;
 	params[1].integer.value =  status;
 
-	
+	/* when there is no _OST , skip it */
 	if (ACPI_FAILURE(acpi_get_handle(handle, "_OST", &temp)))
 		return;
 
@@ -156,12 +182,20 @@ int acpi_processor_ppc_has_changed(struct acpi_processor *pr, int event_flag)
 	int ret;
 
 	if (ignore_ppc) {
+		/*
+		 * Only when it is notification event, the _OST object
+		 * will be evaluated. Otherwise it is skipped.
+		 */
 		if (event_flag)
 			acpi_processor_ppc_ost(pr->handle, 1);
 		return 0;
 	}
 
 	ret = acpi_processor_get_platform_limit(pr);
+	/*
+	 * Only when it is notification event, the _OST object
+	 * will be evaluated. Otherwise it is skipped.
+	 */
 	if (event_flag) {
 		if (ret < 0)
 			acpi_processor_ppc_ost(pr->handle, 1);
@@ -206,6 +240,11 @@ void acpi_processor_ppc_exit(void)
 	acpi_processor_ppc_status &= ~PPC_REGISTERED;
 }
 
+/*
+ * Do a quick check if the systems looks like it should use ACPI
+ * cpufreq. We look at a _PCT method being available, but don't
+ * do a whole lot of sanity checks.
+ */
 void acpi_processor_load_module(struct acpi_processor *pr)
 {
 	static int requested;
@@ -246,6 +285,9 @@ static int acpi_processor_get_performance_control(struct acpi_processor *pr)
 		goto end;
 	}
 
+	/*
+	 * control_register
+	 */
 
 	obj = pct->package.elements[0];
 
@@ -259,6 +301,9 @@ static int acpi_processor_get_performance_control(struct acpi_processor *pr)
 	memcpy(&pr->performance->control_register, obj.buffer.pointer,
 	       sizeof(struct acpi_pct_register));
 
+	/*
+	 * status_register
+	 */
 
 	obj = pct->package.elements[1];
 
@@ -342,6 +387,9 @@ static int acpi_processor_get_performance_states(struct acpi_processor *pr)
 				  (u32) px->bus_master_latency,
 				  (u32) px->control, (u32) px->status));
 
+		/*
+ 		 * Check that ACPI's u64 MHz will be valid as u32 KHz in cpufreq
+		 */
 		if (!px->core_frequency ||
 		    ((u32)(px->core_frequency * 1000) !=
 		     (px->core_frequency * 1000))) {
@@ -384,12 +432,16 @@ static int acpi_processor_get_performance_info(struct acpi_processor *pr)
 	if (result)
 		goto update_bios;
 
-	
+	/* We need to call _PPC once when cpufreq starts */
 	if (ignore_ppc != 1)
 		result = acpi_processor_get_platform_limit(pr);
 
 	return result;
 
+	/*
+	 * Having _PPC but missing frequencies (_PSS, _PCT) is a very good hint that
+	 * the BIOS is older than the CPU and does not know its frequencies
+	 */
  update_bios:
 #ifdef CONFIG_X86
 	if (ACPI_SUCCESS(acpi_get_handle(pr->handle, "_PPC", &handle))){
@@ -413,6 +465,11 @@ int acpi_processor_notify_smm(struct module *calling_module)
 	if (!try_module_get(calling_module))
 		return -EINVAL;
 
+	/* is_done is set to negative if an error occurred,
+	 * and to postitive if _no_ error occurred, but SMM
+	 * was already notified. This avoids double notification
+	 * which might lead to unexpected results...
+	 */
 	if (is_done > 0) {
 		module_put(calling_module);
 		return 0;
@@ -423,7 +480,7 @@ int acpi_processor_notify_smm(struct module *calling_module)
 
 	is_done = -EIO;
 
-	
+	/* Can't write pstate_control to smi_command if either value is zero */
 	if ((!acpi_gbl_FADT.smi_command) || (!acpi_gbl_FADT.pstate_control)) {
 		ACPI_DEBUG_PRINT((ACPI_DB_INFO, "No SMI port or pstate_control\n"));
 		module_put(calling_module);
@@ -445,6 +502,8 @@ int acpi_processor_notify_smm(struct module *calling_module)
 		return status;
 	}
 
+	/* Success. If there's no _PPC, we need to fear nothing, so
+	 * we can allow the cpufreq driver to be rmmod'ed. */
 	is_done = 1;
 
 	if (!(acpi_processor_ppc_status & PPC_IN_USE))
@@ -537,10 +596,14 @@ int acpi_processor_preregister_performance(
 
 	mutex_lock(&performance_mutex);
 
+	/*
+	 * Check if another driver has already registered, and abort before
+	 * changing pr->performance if it has. Check input data as well.
+	 */
 	for_each_possible_cpu(i) {
 		pr = per_cpu(processors, i);
 		if (!pr) {
-			
+			/* Look only at processors in ACPI namespace */
 			continue;
 		}
 
@@ -555,7 +618,7 @@ int acpi_processor_preregister_performance(
 		}
 	}
 
-	
+	/* Call _PSD for all CPUs */
 	for_each_possible_cpu(i) {
 		pr = per_cpu(processors, i);
 		if (!pr)
@@ -571,6 +634,10 @@ int acpi_processor_preregister_performance(
 	if (retval)
 		goto err_ret;
 
+	/*
+	 * Now that we have _PSD data from all CPUs, lets setup P-state 
+	 * domain info.
+	 */
 	for_each_possible_cpu(i) {
 		pr = per_cpu(processors, i);
 		if (!pr)
@@ -585,7 +652,7 @@ int acpi_processor_preregister_performance(
 		if (pdomain->num_processors <= 1)
 			continue;
 
-		
+		/* Validate the Domain info */
 		count_target = pdomain->num_processors;
 		count = 1;
 		if (pdomain->coord_type == DOMAIN_COORD_TYPE_SW_ALL)
@@ -607,7 +674,7 @@ int acpi_processor_preregister_performance(
 			if (match_pdomain->domain != pdomain->domain)
 				continue;
 
-			
+			/* Here i and j are in the same domain */
 
 			if (match_pdomain->num_processors != count_target) {
 				retval = -EINVAL;
@@ -649,13 +716,13 @@ err_ret:
 		if (!pr || !pr->performance)
 			continue;
 
-		
+		/* Assume no coordination on any error parsing domain info */
 		if (retval) {
 			cpumask_clear(pr->performance->shared_cpu_map);
 			cpumask_set_cpu(i, pr->performance->shared_cpu_map);
 			pr->performance->shared_type = CPUFREQ_SHARED_TYPE_ALL;
 		}
-		pr->performance = NULL; 
+		pr->performance = NULL; /* Will be set for real in register */
 	}
 
 err_out:

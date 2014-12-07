@@ -39,9 +39,15 @@
 #define SUPPORT_CPRM
 #define SUPPORT_MAGIC_GATE
 #define SUPPORT_MSXC
+/* #define LED_AUTO_BLINK */
 
+/* { wwang, 2010-07-26
+ * Add support for SD lock/unlock */
+/* #define SUPPORT_SD_LOCK */
+/* } wwang, 2010-07-26 */
 
 #ifdef SUPPORT_MAGIC_GA
+/* Using NORMAL_WRITE instead of AUTO_WRITE to set ICVTE */
 #define MG_SET_ICV_SLOW
 #endif
 
@@ -57,6 +63,7 @@
 #define SUPPORT_OCP
 
 #define MS_SPEEDUP
+/* #define XD_SPEEDUP */
 
 #define SD_XD_IO_FOLLOW_PWR
 
@@ -75,15 +82,17 @@
 #define MAX_ALLOWED_LUN_CNT	8
 #define CMD_BUF_LEN		1024
 #define RSP_BUF_LEN		1024
-#define POLLING_INTERVAL	50	
+#define POLLING_INTERVAL	50	/* 50ms */
 
 #define XD_FREE_TABLE_CNT	1200
 #define MS_FREE_TABLE_CNT	512
 
+/* Bit Operation */
 #define SET_BIT(data, idx)	((data) |= 1 << (idx))
 #define CLR_BIT(data, idx)	((data) &= ~(1 << (idx)))
 #define CHK_BIT(data, idx)	((data) & (1 << (idx)))
 
+/* Command type */
 #define READ_REG_CMD		0
 #define WRITE_REG_CMD		1
 #define CHECK_REG_CMD		2
@@ -94,20 +103,26 @@
 #define STAGE_FLAG		7
 #define CMD_OFFSET		8
 
+/* Packet type */
 #define BATCH_CMD		0
 #define SEQ_READ		1
 #define SEQ_WRITE		2
 
+/* Stage flag */
 #define STAGE_R			0x01
 #define STAGE_DI		0x02
 #define STAGE_DO		0x04
+/* Return MS_TRANS_CFG, GET_INT */
 #define STAGE_MS_STATUS		0x08
+/* Return XD_CFG, XD_CTL, XD_PAGE_STATUS */
 #define STAGE_XD_STATUS		0x10
+/* Command stage mode */
 #define MODE_C			0x00
 #define MODE_CR			(STAGE_R)
 #define MODE_CDIR		(STAGE_R | STAGE_DI)
 #define MODE_CDOR		(STAGE_R | STAGE_DO)
 
+/* Function return code */
 #ifndef STATUS_SUCCESS
 #define STATUS_SUCCESS		0
 #endif
@@ -128,17 +143,26 @@
 #define LED_TOGGLE_INTERVAL	6
 #define LED_GPIO		0
 
+/* package */
 #define QFN24			0
 #define LQFP48			1
 
 #define USB_11			0
 #define USB_20			1
 
+/*
+ * Transport return codes
+ */
+/* Transport good, command good */
 #define TRANSPORT_GOOD		0
+/* Transport good, command failed */
 #define TRANSPORT_FAILED	1
+/* Command failed, no auto-sense */
 #define TRANSPORT_NO_SENSE	2
+/* Transport bad (i.e. device dead) */
 #define TRANSPORT_ERROR		3
 
+/* Supported Clock */
 enum card_clock { CLK_20 = 1, CLK_30, CLK_40, CLK_50, CLK_60, CLK_80, CLK_100 };
 
 #ifdef _MSG_TRACE
@@ -156,10 +180,12 @@ struct trace_msg_t {
 	u8 valid;
 };
 
-#endif 
+#endif /* _MSG_TRACE */
 
+/* Size of the autosense data buffer */
 #define SENSE_SIZE		18
 
+/* Sense type */
 #define	SENSE_TYPE_NO_SENSE				0
 #define	SENSE_TYPE_MEDIA_CHANGE				1
 #define	SENSE_TYPE_MEDIA_NOT_PRESENT			2
@@ -172,54 +198,67 @@ struct trace_msg_t {
 #define SENSE_TYPE_FORMAT_IN_PROGRESS			9
 #define SENSE_TYPE_FORMAT_CMD_FAILED			10
 #ifdef SUPPORT_MAGIC_GATE
+/* COPY PROTECTION KEY EXCHANGE FAILURE - KEY NOT ESTABLISHED */
 #define SENSE_TYPE_MG_KEY_FAIL_NOT_ESTAB		0x0b
+/* COPY PROTECTION KEY EXCHANGE FAILURE - AUTHENTICATION FAILURE */
 #define SENSE_TYPE_MG_KEY_FAIL_NOT_AUTHEN		0x0c
+/* INCOMPATIBLE MEDIUM INSTALLED */
 #define SENSE_TYPE_MG_INCOMPATIBLE_MEDIUM		0x0d
+/* WRITE ERROR */
 #define SENSE_TYPE_MG_WRITE_ERR				0x0e
 #endif
 #ifdef SUPPORT_SD_LOCK
+/* FOR Locked SD card */
 #define SENSE_TYPE_MEDIA_READ_FORBIDDEN			0x10
 #endif
 
-#define ILI                     0x20	
+/*---- sense key ----*/
+#define ILI                     0x20	/* ILI bit is on                    */
 
-#define NO_SENSE                0x00	
-#define RECOVER_ERR             0x01	
-#define NOT_READY               0x02	
-#define MEDIA_ERR               0x03	
-#define HARDWARE_ERR            0x04	
-#define ILGAL_REQ               0x05	
-#define UNIT_ATTENTION          0x06	
-#define DAT_PRTCT               0x07	
-#define BLNC_CHK                0x08	
-					
-#define CPY_ABRT                0x0a	
-#define ABRT_CMD                0x0b	
-#define EQUAL                   0x0c	
-#define VLM_OVRFLW              0x0d	
-#define MISCMP                  0x0e	
+#define NO_SENSE                0x00	/* not exist sense key              */
+#define RECOVER_ERR             0x01	/* Target/Logical unit is recoverd  */
+#define NOT_READY               0x02	/* Logical unit is not ready        */
+#define MEDIA_ERR               0x03	/* medium/data error                */
+#define HARDWARE_ERR            0x04	/* hardware error                   */
+#define ILGAL_REQ               0x05	/* CDB/parameter/identify msg error */
+#define UNIT_ATTENTION          0x06	/* unit attention condition occur   */
+#define DAT_PRTCT               0x07	/* read/write is desable            */
+#define BLNC_CHK                0x08	/* find blank/DOF in read           */
+					/* write to unblank area            */
+#define CPY_ABRT                0x0a	/* Copy/Compare/Copy&Verify illgal  */
+#define ABRT_CMD                0x0b	/* Target make the command in error */
+#define EQUAL                   0x0c	/* Search Data end with Equal       */
+#define VLM_OVRFLW              0x0d	/* Some data are left in buffer     */
+#define MISCMP                  0x0e	/* find inequality                  */
 
-#define SENSE_VALID             0x80	
-#define SENSE_INVALID           0x00	
+/*-----------------------------------
+    SENSE_DATA
+-----------------------------------*/
+/*---- valid ----*/
+#define SENSE_VALID             0x80	/* Sense data is valid as SCSI2     */
+#define SENSE_INVALID           0x00	/* Sense data is invalid as SCSI2   */
 
-#define CUR_ERR                 0x70	
-#define DEF_ERR                 0x71	
+/*---- error code ----*/
+#define CUR_ERR                 0x70	/* current error                    */
+#define DEF_ERR                 0x71	/* specific command error           */
 
-#define SNSKEYINFO_LEN          3	
+/*---- sense key Infomation ----*/
+#define SNSKEYINFO_LEN          3	/* length of sense key infomation   */
 
 #define SKSV                    0x80
 #define CDB_ILLEGAL             0x40
 #define DAT_ILLEGAL             0x00
 #define BPV                     0x08
-#define BIT_ILLEGAL0            0	
-#define BIT_ILLEGAL1            1	
-#define BIT_ILLEGAL2            2	
-#define BIT_ILLEGAL3            3	
-#define BIT_ILLEGAL4            4	
-#define BIT_ILLEGAL5            5	
-#define BIT_ILLEGAL6            6	
-#define BIT_ILLEGAL7            7	
+#define BIT_ILLEGAL0            0	/* bit0 is illegal                  */
+#define BIT_ILLEGAL1            1	/* bit1 is illegal                  */
+#define BIT_ILLEGAL2            2	/* bit2 is illegal                  */
+#define BIT_ILLEGAL3            3	/* bit3 is illegal                  */
+#define BIT_ILLEGAL4            4	/* bit4 is illegal                  */
+#define BIT_ILLEGAL5            5	/* bit5 is illegal                  */
+#define BIT_ILLEGAL6            6	/* bit6 is illegal                  */
+#define BIT_ILLEGAL7            7	/* bit7 is illegal                  */
 
+/*---- ASC ----*/
 #define ASC_NO_INFO             0x00
 #define ASC_MISCMP              0x1d
 #define ASC_INVLD_CDB           0x24
@@ -234,6 +273,7 @@ struct trace_msg_t {
 #define	ASC_WRITE_PROTECT	0x27
 #define ASC_LUN_NOT_SUPPORTED	0x25
 
+/*---- ASQC ----*/
 #define ASCQ_NO_INFO            0x00
 #define	ASCQ_MEDIA_IN_PROCESS	0x01
 #define ASCQ_MISCMP             0x00
@@ -246,33 +286,40 @@ struct trace_msg_t {
 #define	ASCQ_WRITE_PROTECT	0x00
 
 struct sense_data_t {
-	unsigned char err_code;	
-	
-	
-	
-	
-	
-	
-	unsigned char seg_no;	
-	unsigned char sense_key;	
-	
-	unsigned char info[4];	
-	unsigned char ad_sense_len;	
-	unsigned char cmd_info[4];	
-	unsigned char asc;	
-	unsigned char ascq;	
-	unsigned char rfu;	
-	unsigned char sns_key_info[3];	
+	unsigned char err_code;	/* error code */
+	/* bit7 : valid                    */
+	/*   (1 : SCSI2)                    */
+	/*   (0 : Vendor specific)          */
+	/* bit6-0 : error code             */
+	/*  (0x70 : current error)          */
+	/*  (0x71 : specific command error) */
+	unsigned char seg_no;	/* segment No.                      */
+	unsigned char sense_key;	/* byte5 : ILI                      */
+	/* bit3-0 : sense key              */
+	unsigned char info[4];	/* infomation                       */
+	unsigned char ad_sense_len;	/* additional sense data length     */
+	unsigned char cmd_info[4];	/* command specific infomation      */
+	unsigned char asc;	/* ASC                              */
+	unsigned char ascq;	/* ASCQ                             */
+	unsigned char rfu;	/* FRU                              */
+	unsigned char sns_key_info[3];	/* sense key specific infomation    */
 };
 
+/* sd_ctl bit map */
+/* SD push point control, bit 0, 1 */
 #define SD_PUSH_POINT_CTL_MASK		0x03
 #define SD_PUSH_POINT_DELAY		0x01
 #define SD_PUSH_POINT_AUTO		0x02
+/* SD sample point control, bit 2, 3 */
 #define SD_SAMPLE_POINT_CTL_MASK	0x0C
 #define SD_SAMPLE_POINT_DELAY		0x04
 #define SD_SAMPLE_POINT_AUTO		0x08
+/* SD DDR Tx phase set by user, bit 4 */
 #define SD_DDR_TX_PHASE_SET_BY_USER	0x10
+/* MMC DDR Tx phase set by user, bit 5 */
 #define MMC_DDR_TX_PHASE_SET_BY_USER	0x20
+/* Support MMC DDR mode, bit 6 */
+/*#define SUPPORT_MMC_DDR_MODE          0x40 */
 #define SUPPORT_UHS50_MMC44		0x40
 
 struct rts51x_option {
@@ -280,7 +327,7 @@ struct rts51x_option {
 
 	int mspro_formatter_enable;
 
-	
+	/* card clock expected by user for fpga platform */
 	int fpga_sd_sdr104_clk;
 	int fpga_sd_ddr50_clk;
 	int fpga_sd_sdr50_clk;
@@ -289,7 +336,7 @@ struct rts51x_option {
 	int fpga_ms_hg_clk;
 	int fpga_ms_4bit_clk;
 
-	
+	/* card clock expected by user for asic platform */
 	int asic_sd_sdr104_clk;
 	int asic_sd_ddr50_clk;
 	int asic_sd_sdr50_clk;
@@ -298,69 +345,73 @@ struct rts51x_option {
 	int asic_ms_hg_clk;
 	int asic_ms_4bit_clk;
 
-	u8 ssc_depth_sd_sdr104;	
-	u8 ssc_depth_sd_ddr50;	
-	u8 ssc_depth_sd_sdr50;	
-	u8 ssc_depth_sd_hs;	
-	u8 ssc_depth_mmc_52m;	
-	u8 ssc_depth_ms_hg;	
-	u8 ssc_depth_ms_4bit;	
-	u8 ssc_depth_low_speed;	
+	u8 ssc_depth_sd_sdr104;	/* sw */
+	u8 ssc_depth_sd_ddr50;	/* sw */
+	u8 ssc_depth_sd_sdr50;	/* sw */
+	u8 ssc_depth_sd_hs;	/* sw */
+	u8 ssc_depth_mmc_52m;	/* sw */
+	u8 ssc_depth_ms_hg;	/* sw */
+	u8 ssc_depth_ms_4bit;	/* sw */
+	u8 ssc_depth_low_speed;	/* sw */
 
-	
-	int sd_ddr_tx_phase;	
-	int mmc_ddr_tx_phase;	
+	/* SD/MMC Tx phase */
+	int sd_ddr_tx_phase;	/* Enabled by bit 4 of sd_ctl */
+	int mmc_ddr_tx_phase;	/* Enabled by bit 5 of sd_ctl */
 
-	
+	/* priority of choosing sd speed funciton */
 	u32 sd_speed_prior;
 
-	
+	/* sd card control */
 	u32 sd_ctl;
 
-	
+	/* Enable Selective Suspend */
 	int ss_en;
-	
+	/* Interval to enter SS from IDLE state (second) */
 	int ss_delay;
 	int needs_remote_wakeup;
-	u8 ww_enable;	
+	u8 ww_enable;	/* sangdy2010-08-03:add for remote wakeup */
 
-	
+	/* Enable SSC clock */
 	int ssc_en;
 
 	int auto_delink_en;
 
-	
+	/* sangdy2010-07-13:add FT2 fast mode */
 	int FT2_fast_mode;
+	/* sangdy2010-07-15:
+	 * add for config delay between 1/4 PMOS and 3/4 PMOS */
 	int pwr_delay;
 
-	int xd_rw_step;		
-	int D3318_off_delay;	
-	int delink_delay;	
-	
+	int xd_rw_step;		/* add to tune xd tRP */
+	int D3318_off_delay;	/* add to tune D3318 off delay time */
+	int delink_delay;	/* add to tune delink delay time */
+	/* add for rts5129 to enable/disable D3318 off */
 	u8 rts5129_D3318_off_enable;
-	u8 sd20_pad_drive;	
-	u8 sd30_pad_drive;	
-	
+	u8 sd20_pad_drive;	/* add to config SD20 PAD drive */
+	u8 sd30_pad_drive;	/* add to config SD30 pad drive */
+	/*if reset or rw fail,then set SD20 pad drive again */
 	u8 reset_or_rw_fail_set_pad_drive;
 
-	u8 rcc_fail_flag;	
-	u8 rcc_bug_fix_en;	
-	u8 debounce_num;	
-	int polling_time;	
-	u8 led_toggle_interval;	
+	u8 rcc_fail_flag;	/* add to indicate whether rcc bug happen */
+	u8 rcc_bug_fix_en;	/* if set,then support fixing rcc bug */
+	u8 debounce_num;	/* debounce number */
+	int polling_time;	/* polling delay time */
+	u8 led_toggle_interval;	/* used to control led toggle speed */
 	int xd_rwn_step;
 	u8 sd_send_status_en;
+	/* used to store default phase which is
+	 * used when phase tune all pass. */
 	u8 ddr50_tx_phase;
 	u8 ddr50_rx_phase;
 	u8 sdr50_tx_phase;
 	u8 sdr50_rx_phase;
-	
+	/* used to enable select sdr50 tx phase according to  proportion. */
 	u8 sdr50_phase_sel;
 	u8 ms_errreg_fix;
 	u8 reset_mmc_first;
-	u8 speed_mmc;		
-	u8 led_always_on;	
-	u8 dv18_voltage;	
+	u8 speed_mmc;		/* when set, then try CMD55 only twice */
+	u8 led_always_on;	/* if set, then led always on when card exist */
+	u8 dv18_voltage;	/* add to tune dv18 voltage */
 };
 
 #define MS_FORMATTER_ENABLED(chip)	((chip)->option.mspro_formatter_enable)
@@ -370,17 +421,18 @@ struct rts51x_chip;
 typedef int (*card_rw_func) (struct scsi_cmnd *srb, struct rts51x_chip *chip,
 			     u32 sec_addr, u16 sec_cnt);
 
+/* For MS Card */
 #define    MAX_DEFECTIVE_BLOCK     10
 
 struct zone_entry {
 	u16 *l2p_table;
 	u16 *free_table;
-	u16 defect_list[MAX_DEFECTIVE_BLOCK];	
+	u16 defect_list[MAX_DEFECTIVE_BLOCK];	/* For MS card only */
 	int set_index;
 	int get_index;
 	int unused_blk_cnt;
 	int disable_count;
-	
+	/* To indicate whether the L2P table of this zone has been built. */
 	int build_flag;
 };
 
@@ -416,12 +468,14 @@ struct xd_info {
 #define TYPE_SD			0x0000
 #define TYPE_MMC		0x0001
 
+/* TYPE_SD */
 #define SD_HS			0x0100
 #define SD_SDR50		0x0200
 #define SD_DDR50		0x0400
 #define SD_SDR104		0x0800
 #define SD_HCXC			0x1000
 
+/* TYPE_MMC */
 #define MMC_26M			0x0100
 #define MMC_52M			0x0200
 #define MMC_4BIT		0x0400
@@ -429,6 +483,7 @@ struct xd_info {
 #define MMC_SECTOR_MODE		0x1000
 #define MMC_DDR52		0x2000
 
+/* SD card */
 #define CHK_SD(sd_card)			(((sd_card)->sd_type & 0xFF) == TYPE_SD)
 #define CHK_SD_HS(sd_card)	\
 	(CHK_SD(sd_card) && ((sd_card)->sd_type & SD_HS))
@@ -459,6 +514,7 @@ struct xd_info {
 #define CLR_SD30_SPEED(sd_card)	\
 	((sd_card)->sd_type &= ~(SD_SDR50|SD_DDR50|SD_SDR104))
 
+/* MMC card */
 #define CHK_MMC(sd_card)	\
 	(((sd_card)->sd_type & 0xFF) == TYPE_MMC)
 #define CHK_MMC_26M(sd_card)	\
@@ -530,7 +586,7 @@ struct sd_info {
 	u8 raw_csd[16];
 	u8 raw_scr[8];
 
-	
+	/* Sequential RW */
 	int seq_mode;
 	enum dma_data_direction pre_dir;
 	u32 pre_sec_addr;
@@ -554,8 +610,8 @@ struct sd_info {
 
 	u8 sd_switch_fail;
 	u8 sd_read_phase;
-	u8 retry_SD20_mode;	
-	u8 sd_reset_fail;	
+	u8 retry_SD20_mode;	/* sangdy2010-06-10 */
+	u8 sd_reset_fail;	/* sangdy2010-07-01 */
 	u8 sd_send_status_en;
 
 #ifdef SUPPORT_SD_LOCK
@@ -623,7 +679,7 @@ struct ms_info {
 
 	u8 multi_flag;
 
-	
+	/* Sequential RW */
 	u8 seq_mode;
 	enum dma_data_direction pre_dir;
 	u32 pre_sec_addr;
@@ -640,7 +696,7 @@ struct ms_info {
 #ifdef SUPPORT_MAGIC_GATE
 	u8 magic_gate_id[16];
 	u8 mg_entry_num;
-	int mg_auth;		
+	int mg_auth;		/* flag to indicate authentication process */
 #endif
 };
 
@@ -674,36 +730,36 @@ struct rts51x_chip {
 
 	int resume_from_scsi;
 
-	
+	/* Card information */
 	struct xd_info xd_card;
 	struct sd_info sd_card;
 	struct ms_info ms_card;
 
-	int cur_clk;		
-	int cur_card;		
+	int cur_clk;		/* current card clock */
+	int cur_card;		/* Current card module */
 
-	u8 card_exist;		
-	u8 card_ready;		
-	u8 card_fail;		
-	u8 card_ejected;	
-	u8 card_wp;		
+	u8 card_exist;		/* card exist bit map (physical exist) */
+	u8 card_ready;		/* card ready bit map (reset successfully) */
+	u8 card_fail;		/* card reset fail bit map */
+	u8 card_ejected;	/* card ejected bit map */
+	u8 card_wp;		/* card write protected bit map */
 
 	u8 fake_card_ready;
-	
+	/* flag to indicate whether to answer MediaChange */
 	unsigned long lun_mc;
 
-	
+	/* card bus width */
 	u8 card_bus_width[MAX_ALLOWED_LUN_CNT];
-	
+	/* card capacity */
 	u32 capacity[MAX_ALLOWED_LUN_CNT];
 
-	
+	/* read/write card function pointer */
 	card_rw_func rw_card[MAX_ALLOWED_LUN_CNT];
-	
+	/* read/write capacity, used for GPIO Toggle */
 	u32 rw_cap[MAX_ALLOWED_LUN_CNT];
-	
+	/* card to lun mapping table */
 	u8 card2lun[32];
-	
+	/* lun to card mapping table */
 	u8 lun2card[MAX_ALLOWED_LUN_CNT];
 
 #ifdef _MSG_TRACE
@@ -713,24 +769,24 @@ struct rts51x_chip {
 
 	int rw_need_retry;
 
-	
+	/* ASIC or FPGA */
 	int asic_code;
 
-	
+	/* QFN24 or LQFP48 */
 	int package;
 
-	
+	/* Full Speed or High Speed */
 	int usb_speed;
 
-	
+	/*sangdy:enable or disable UHS50 and MMC4.4 */
 	int uhs50_mmc44_en;
 
 	u8 ic_version;
 
-	
+	/* Command buffer */
 	u8 *cmd_buf;
 	unsigned int cmd_idx;
-	
+	/* Response buffer */
 	u8 *rsp_buf;
 
 	u16 card_status;
@@ -845,4 +901,4 @@ do {							\
 	}						\
 } while (0)
 
-#endif 
+#endif /* __RTS51X_CHIP_H */

@@ -70,8 +70,14 @@
 
 
 
-#endif	
+#endif	/* __ASSEMBLY__ */
 
+/*
+ * XTENSA_HAVE_COPROCESSOR(x) returns 1 if coprocessor x is configured.
+ *
+ * XTENSA_HAVE_IO_PORT(x) returns 1 if io-port x is configured.
+ *
+ */
 
 #define XTENSA_HAVE_COPROCESSOR(x)					\
 	((XCHAL_CP_MASK ^ XCHAL_CP_PORT_MASK) & (1 << (x)))
@@ -95,9 +101,17 @@
 	    		     :: "a" (x));				  \
 	} while(0);
 
-#endif 
+#endif /* XCHAL_HAVE_CP */
 
 
+/*
+ * Additional registers.
+ * We define three types of additional registers:
+ *  ext: extra registers that are used by the compiler
+ *  cpn: optional registers that can be used by a user application
+ *  cpX: coprocessor registers that can only be used if the corresponding
+ *       CPENABLE bit is set.
+ */
 
 #define XCHAL_SA_REG(list,cc,abi,type,y,name,z,align,size,...)	\
 	__REG ## list (cc, abi, type, name, size, align)
@@ -158,7 +172,7 @@ static inline void coprocessor_clear_cpenable(void)
 	WSR_CPENABLE(i);
 }
 
-#endif	
+#endif	/* XTENSA_HAVE_COPROCESSORS */
 
-#endif	
-#endif	
+#endif	/* !__ASSEMBLY__ */
+#endif	/* _XTENSA_COPROCESSOR_H */

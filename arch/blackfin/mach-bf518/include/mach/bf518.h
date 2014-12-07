@@ -9,6 +9,7 @@
 
 #define OFFSET_(x) ((x) & 0x0000FFFF)
 
+/*some misc defines*/
 #define IMASK_IVG15		0x8000
 #define IMASK_IVG14		0x4000
 #define IMASK_IVG13		0x2000
@@ -23,6 +24,7 @@
 #define IMASK_IVGTMR		0x0040
 #define IMASK_IVGHW		0x0020
 
+/***************************/
 
 #define BFIN_DSUBBANKS	4
 #define BFIN_DWAYS		2
@@ -49,8 +51,9 @@
 #define	WAY321_L		0xE
 #define	WAYALL_L		0xF
 
-#define DMC_ENABLE (2<<2)	
+#define DMC_ENABLE (2<<2)	/*yes, 2, not 1 */
 
+/********************************* EBIU Settings ************************************/
 #define AMBCTL0VAL	((CONFIG_BANK_1 << 16) | CONFIG_BANK_0)
 #define AMBCTL1VAL	((CONFIG_BANK_3 << 16) | CONFIG_BANK_2)
 
@@ -82,6 +85,7 @@
 
 #define AMGCTLVAL	(V_AMBEN | V_AMCKEN | V_CDPRIO)
 
+/**************************** Hysteresis Settings ****************************/
 
 #ifdef CONFIG_BFIN_HYSTERESIS_CONTROL
 #ifdef CONFIG_GPIO_HYST_PORTF_0_7
@@ -184,7 +188,7 @@
 
 #define HYST_NONEGPIO	(HYST_NMI_RST_BMODE | HYST_JTAG)
 #define HYST_NONEGPIO_MASK		(0x3C)
-#endif 
+#endif /* CONFIG_BFIN_HYSTERESIS_CONTROL */
 
 #ifdef CONFIG_BF518
 #define CPU "BF518"
@@ -207,4 +211,4 @@
 #error "Unknown CPU type - This kernel doesn't seem to be configured properly"
 #endif
 
-#endif				
+#endif				/* __MACH_BF518_H__  */

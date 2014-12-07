@@ -22,36 +22,99 @@
 #ifndef R2CLUSTER_MASKLOG_H
 #define R2CLUSTER_MASKLOG_H
 
+/*
+ * For now this is a trivial wrapper around printk() that gives the critical
+ * ability to enable sets of debugging output at run-time.  In the future this
+ * will almost certainly be redirected to relayfs so that it can pay a
+ * substantially lower heisenberg tax.
+ *
+ * Callers associate the message with a bitmask and a global bitmask is
+ * maintained with help from /proc.  If any of the bits match the message is
+ * output.
+ *
+ * We must have efficient bit tests on i386 and it seems gcc still emits crazy
+ * code for the 64bit compare.  It emits very good code for the dual unsigned
+ * long tests, though, completely avoiding tests that can never pass if the
+ * caller gives a constant bitmask that fills one of the longs with all 0s.  So
+ * the desire is to have almost all of the calls decided on by comparing just
+ * one of the longs.  This leads to having infrequently given bits that are
+ * frequently matched in the high bits.
+ *
+ * _ERROR and _NOTICE are used for messages that always go to the console and
+ * have appropriate KERN_ prefixes.  We wrap these in our function instead of
+ * just calling printk() so that this can eventually make its way through
+ * relayfs along with the debugging messages.  Everything else gets KERN_DEBUG.
+ * The inline tests and macro dance give GCC the opportunity to quite cleverly
+ * only emit the appropriage printk() when the caller passes in a constant
+ * mask, as is almost always the case.
+ *
+ * All this bitmask nonsense is managed from the files under
+ * /sys/fs/r2cb/logmask/.  Reading the files gives a straightforward
+ * indication of which bits are allowed (allow) or denied (off/deny).
+ *	ENTRY deny
+ *	EXIT deny
+ *	TCP off
+ *	MSG off
+ *	SOCKET off
+ *	ERROR allow
+ *	NOTICE allow
+ *
+ * Writing changes the state of a given bit and requires a strictly formatted
+ * single write() call:
+ *
+ *	write(fd, "allow", 5);
+ *
+ * Echoing allow/deny/off string into the logmask files can flip the bits
+ * on or off as expected; here is the bash script for example:
+ *
+ * log_mask="/sys/fs/r2cb/log_mask"
+ * for node in ENTRY EXIT TCP MSG SOCKET ERROR NOTICE; do
+ *	echo allow >"$log_mask"/"$node"
+ * done
+ *
+ * The debugfs.ramster tool can also flip the bits with the -l option:
+ *
+ * debugfs.ramster -l TCP allow
+ */
 
+/* for task_struct */
 #include <linux/sched.h>
 
-#define ML_TCP		0x0000000000000001ULL 
-#define ML_MSG		0x0000000000000002ULL 
-#define ML_SOCKET	0x0000000000000004ULL 
-#define ML_HEARTBEAT	0x0000000000000008ULL 
-#define ML_HB_BIO	0x0000000000000010ULL 
-#define ML_DLMFS	0x0000000000000020ULL 
-#define ML_DLM		0x0000000000000040ULL 
-#define ML_DLM_DOMAIN	0x0000000000000080ULL 
-#define ML_DLM_THREAD	0x0000000000000100ULL 
-#define ML_DLM_MASTER	0x0000000000000200ULL 
-#define ML_DLM_RECOVERY	0x0000000000000400ULL 
-#define ML_DLM_GLUE	0x0000000000000800ULL 
-#define ML_VOTE		0x0000000000001000ULL 
-#define ML_CONN		0x0000000000002000ULL 
-#define ML_QUORUM	0x0000000000004000ULL 
-#define ML_BASTS	0x0000000000008000ULL 
-#define ML_CLUSTER	0x0000000000010000ULL 
+/* bits that are frequently given and infrequently matched in the low word */
+/* NOTE: If you add a flag, you need to also update masklog.c! */
+#define ML_TCP		0x0000000000000001ULL /* net cluster/tcp.c */
+#define ML_MSG		0x0000000000000002ULL /* net network messages */
+#define ML_SOCKET	0x0000000000000004ULL /* net socket lifetime */
+#define ML_HEARTBEAT	0x0000000000000008ULL /* hb all heartbeat tracking */
+#define ML_HB_BIO	0x0000000000000010ULL /* hb io tracing */
+#define ML_DLMFS	0x0000000000000020ULL /* dlm user dlmfs */
+#define ML_DLM		0x0000000000000040ULL /* dlm general debugging */
+#define ML_DLM_DOMAIN	0x0000000000000080ULL /* dlm domain debugging */
+#define ML_DLM_THREAD	0x0000000000000100ULL /* dlm domain thread */
+#define ML_DLM_MASTER	0x0000000000000200ULL /* dlm master functions */
+#define ML_DLM_RECOVERY	0x0000000000000400ULL /* dlm master functions */
+#define ML_DLM_GLUE	0x0000000000000800ULL /* ramster dlm glue layer */
+#define ML_VOTE		0x0000000000001000ULL /* ramster node messaging  */
+#define ML_CONN		0x0000000000002000ULL /* net connection management */
+#define ML_QUORUM	0x0000000000004000ULL /* net connection quorum */
+#define ML_BASTS	0x0000000000008000ULL /* dlmglue asts and basts */
+#define ML_CLUSTER	0x0000000000010000ULL /* cluster stack */
 
-#define ML_ERROR	0x1000000000000000ULL 
-#define ML_NOTICE	0x2000000000000000ULL 
-#define ML_KTHREAD	0x4000000000000000ULL 
+/* bits that are infrequently given and frequently matched in the high word */
+#define ML_ERROR	0x1000000000000000ULL /* sent to KERN_ERR */
+#define ML_NOTICE	0x2000000000000000ULL /* setn to KERN_NOTICE */
+#define ML_KTHREAD	0x4000000000000000ULL /* kernel thread activity */
 
 #define MLOG_INITIAL_AND_MASK (ML_ERROR|ML_NOTICE)
 #ifndef MLOG_MASK_PREFIX
 #define MLOG_MASK_PREFIX 0
 #endif
 
+/*
+ * When logging is disabled, force the bit test to 0 for anything other
+ * than errors and notices, allowing gcc to remove the code completely.
+ * When enabled, allow all masks.
+ */
 #if defined(CONFIG_RAMSTER_DEBUG_MASKLOG)
 #define ML_ALLOWED_BITS (~0)
 #else
@@ -86,7 +149,7 @@ extern struct mlog_bits r2_mlog_and_bits, r2_mlog_not_bits;
 	}						\
 }
 
-#else 
+#else /* 32bit long above, 64bit long below */
 
 #define __mlog_test_u64(mask, bits)	((mask) & bits.words[0])
 #define __mlog_set_u64(mask, bits) do {		\
@@ -99,12 +162,22 @@ extern struct mlog_bits r2_mlog_and_bits, r2_mlog_not_bits;
 
 #endif
 
+/*
+ * smp_processor_id() "helpfully" screams when called outside preemptible
+ * regions in current kernels.  sles doesn't have the variants that don't
+ * scream.  just do this instead of trying to guess which we're building
+ * against.. *sigh*.
+ */
 #define __mlog_cpu_guess ({		\
 	unsigned long _cpu = get_cpu();	\
 	put_cpu();			\
 	_cpu;				\
 })
 
+/* In the following two macros, the whitespace after the ',' just
+ * before ##args is intentional. Otherwise, gcc 2.95 will eat the
+ * previous token if args expands to nothing.
+ */
 #define __mlog_printk(level, fmt, args...)				\
 	printk(level "(%s,%u,%lu):%s:%d " fmt, current->comm,		\
 	       task_pid_nr(current), __mlog_cpu_guess,			\
@@ -144,4 +217,4 @@ extern struct mlog_bits r2_mlog_and_bits, r2_mlog_not_bits;
 int r2_mlog_sys_init(struct kset *r2cb_subsys);
 void r2_mlog_sys_shutdown(void);
 
-#endif 
+#endif /* R2CLUSTER_MASKLOG_H */

@@ -30,6 +30,7 @@
 #include "msm-pcm-routing.h"
 #include "../codecs/wcd9310.h"
 
+/* 8064 machine driver */
 
 #define PM8921_GPIO_BASE		NR_GPIO_IRQS
 #define PM8921_GPIO_PM_TO_SYS(pm_gpio)  (pm_gpio - 1 + PM8921_GPIO_BASE)
@@ -62,20 +63,24 @@
 
 #define JACK_DETECT_GPIO 38
 
+/* MCLK selection GPIOs from PMIC */
 #define PM_GPIO_MCLK_MDM	27
 #define PM_GPIO_MCLK_APQ	41
 
+/* SPKR I2S Configuration */
 #define GPIO_SPKR_I2S_MCLK  39
 #define GPIO_SPKR_I2S_SCK   40
 #define GPIO_SPKR_I2S_DOUT  41
 #define GPIO_SPKR_I2S_WS    42
 
+/* MIC I2S Configuration */
 #define GPIO_MIC_I2S_MCLK	34
 #define GPIO_MIC_I2S_SCK	35
 #define GPIO_MIC_I2S_WS		36
 #define GPIO_MIC_I2S_DIN0	37
 #define GPIO_MIC_I2S_DIN1   38
 
+/* MI2S Configuration */
 #define GPIO_MI2S_WS    27
 #define GPIO_MI2S_SCK   28
 #define GPIO_MI2S_SD3   29
@@ -88,6 +93,7 @@ struct request_gpio {
 	unsigned gpio_no;
 	char *gpio_name;
 };
+/* SD0 as RX and SD3 as TX. SD1 and SD2 are unused */
 static struct request_gpio mi2s_gpio[] = {
 	{
 		.gpio_no = GPIO_MI2S_WS,
@@ -111,6 +117,7 @@ static struct request_gpio mi2s_gpio[] = {
 	},
 };
 
+/* I2S RX is slave so MCLK is not needed */
 static struct request_gpio spkr_i2s_gpio[] = {
 	{
 		.gpio_no = GPIO_SPKR_I2S_WS,
@@ -127,6 +134,7 @@ static struct request_gpio spkr_i2s_gpio[] = {
 };
 
 
+/* I2S TX is slave so MCLK is not needed. DIN1 is not used */
 static struct request_gpio mic_i2s_gpio[] = {
 	{
 		.gpio_no = GPIO_MIC_I2S_WS,
@@ -142,16 +150,17 @@ static struct request_gpio mic_i2s_gpio[] = {
 	},
 };
 
+/* Shared channel numbers for Slimbus ports that connect APQ to MDM. */
 enum {
-	SLIM_1_RX_1 = 145, 
-	SLIM_1_TX_1 = 146, 
-	SLIM_3_RX_1 = 151, 
-	SLIM_3_RX_2 = 152, 
-	SLIM_3_TX_1 = 153, 
-	SLIM_3_TX_2 = 154, 
-	SLIM_4_TX_1 = 148, 
-	SLIM_4_TX_2 = 149, 
-	SLIM_4_RX_1 = 150, 
+	SLIM_1_RX_1 = 145, /* BT-SCO and USB TX */
+	SLIM_1_TX_1 = 146, /* BT-SCO and USB RX */
+	SLIM_3_RX_1 = 151, /* External echo-cancellation ref */
+	SLIM_3_RX_2 = 152, /* External echo-cancellation ref */
+	SLIM_3_TX_1 = 153, /* HDMI RX */
+	SLIM_3_TX_2 = 154, /* HDMI RX */
+	SLIM_4_TX_1 = 148, /* In-call recording RX */
+	SLIM_4_TX_2 = 149, /* In-call recording RX */
+	SLIM_4_RX_1 = 150, /* In-call music delivery TX */
 };
 
 enum {
@@ -180,6 +189,7 @@ static int msm_i2s_rx_ch = 1;
 static int msm_i2s_tx_ch = 1;
 static int msm_mi2s_rx_ch = 1;
 static int msm_mi2s_tx_ch = 1;
+/* MI2S TX and RX share the same control block*/
 static atomic_t mi2s_rsc_ref;
 
 static int msm_btsco_rate = BTSCO_RATE_8KHZ;
@@ -477,6 +487,10 @@ static int msm_enable_codec_ext_clk(struct snd_soc_codec *codec, int enable,
 		pr_debug("%s: clk_users = %d\n", __func__, clk_users);
 		if (clk_users == 1) {
 			if (codec_clk) {
+				/*
+				* For MBHC calc, the MCLK is from APQ side
+				* so APQ has control of the MCLK at this point
+				*/
 				clk_set_rate(codec_clk, TABLA_EXT_CLK_RATE);
 				clk_prepare_enable(codec_clk);
 				tabla_mclk_enable(codec, 1, dapm);
@@ -495,6 +509,10 @@ static int msm_enable_codec_ext_clk(struct snd_soc_codec *codec, int enable,
 				pr_debug("%s: disabling MCLK. clk_users = %d\n",
 					 __func__, clk_users);
 				tabla_mclk_enable(codec, 0, dapm);
+				/*
+				* For MBHC calc, the MCLK is from APQ side
+				* so APQ has control of the MCLK at this point
+				*/
 				clk_disable_unprepare(codec_clk);
 			}
 		} else {
@@ -521,6 +539,12 @@ static int msm_mclk_event(struct snd_soc_dapm_widget *w,
 			return 0;
 
 		if (codec_clk) {
+			/*
+			* Since the MCLK is from MDM side so APQ side
+			* has no control of the MCLK at this point
+			*/
+			/*clk_set_rate(codec_clk, TABLA_EXT_CLK_RATE);
+			clk_prepare_enable(codec_clk); */
 			tabla_mclk_enable(w->codec, 1, true);
 
 		} else {
@@ -543,7 +567,11 @@ static int msm_mclk_event(struct snd_soc_dapm_widget *w,
 					__func__, clk_users);
 
 			tabla_mclk_enable(w->codec, 0, true);
-			
+			/*
+			* Since the MCLK is from MDM side so APQ side
+			* has no control of the MCLK at this point
+			*/
+			/* clk_disable_unprepare(codec_clk); */
 		}
 		break;
 	}
@@ -562,14 +590,18 @@ static const struct snd_soc_dapm_widget apq8064_dapm_widgets[] = {
 	SND_SOC_DAPM_SPK("Ext Spk Top Neg", msm_spkramp_event),
 	SND_SOC_DAPM_SPK("Ext Spk Top", msm_spkramp_event),
 
-	
+	/************ Analog MICs ************/
+	/**
+	 * Analog mic7 (Front Top) on Liquid.
+	 * Used as Handset mic on CDP.
+	 */
 	SND_SOC_DAPM_MIC("Analog mic7", NULL),
 
 	SND_SOC_DAPM_MIC("Headset Mic", NULL),
 	SND_SOC_DAPM_MIC("ANCRight Headset Mic", NULL),
 	SND_SOC_DAPM_MIC("ANCLeft Headset Mic", NULL),
 
-	
+	/*********** Digital Mics ***************/
 	SND_SOC_DAPM_MIC("Digital Mic1", NULL),
 	SND_SOC_DAPM_MIC("Digital Mic2", NULL),
 	SND_SOC_DAPM_MIC("Digital Mic3", NULL),
@@ -585,7 +617,7 @@ static const struct snd_soc_dapm_route apq8064_common_audio_map[] = {
 
 	{"HEADPHONE", NULL, "LDO_H"},
 
-	
+	/* Speaker path */
 	{"Ext Spk Bottom Pos", NULL, "LINEOUT1"},
 	{"Ext Spk Bottom Neg", NULL, "LINEOUT3"},
 
@@ -593,13 +625,13 @@ static const struct snd_soc_dapm_route apq8064_common_audio_map[] = {
 	{"Ext Spk Top Neg", NULL, "LINEOUT4"},
 	{"Ext Spk Top", NULL, "LINEOUT5"},
 
-	
+	/************   Analog MIC Paths  ************/
 
-	
+	/* Headset Mic */
 	{"AMIC2", NULL, "MIC BIAS2 External"},
 	{"MIC BIAS2 External", NULL, "Headset Mic"},
 
-	
+	/* Headset ANC microphones */
 	{"AMIC3", NULL, "MIC BIAS3 Internal1"},
 	{"MIC BIAS3 Internal1", NULL, "ANCRight Headset Mic"},
 
@@ -609,20 +641,40 @@ static const struct snd_soc_dapm_route apq8064_common_audio_map[] = {
 
 static const struct snd_soc_dapm_route apq8064_mtp_audio_map[] = {
 
-	
+	/************   Digital MIC Paths  ************/
 
+	/*
+	 * Digital Mic1 (Front bottom Left) on MTP.
+	 * Conncted to DMIC1 Input on Tabla codec.
+	 */
 	{"DMIC1", NULL, "MIC BIAS1 External"},
 	{"MIC BIAS1 External", NULL, "Digital Mic1"},
 
+	/**
+	 * Digital Mic2 (Front bottom right) on MTP.
+	 * Conncted to DMIC2 Input on Tabla codec.
+	 */
 	{"DMIC2", NULL, "MIC BIAS1 External"},
 	{"MIC BIAS1 External", NULL, "Digital Mic2"},
 
+	/**
+	 * Digital Mic3 (Back bottom) on MTP.
+	 * Conncted to DMIC3 Input on Tabla codec.
+	 */
 	{"DMIC3", NULL, "MIC BIAS3 External"},
 	{"MIC BIAS3 External", NULL, "Digital Mic3"},
 
+	/**
+	 * Digital Mic4 (Back top) on MTP.
+	 * Conncted to DMIC4 Input on Tabla codec.
+	 */
 	{"DMIC4", NULL, "MIC BIAS3 External"},
 	{"MIC BIAS3 External", NULL, "Digital Mic4"},
 
+	/**
+	 * Digital Mic5 (Top front Mic) on MTP.
+	 * Conncted to DMIC6 Input on Tabla codec.
+	 */
 	{"DMIC6", NULL, "MIC BIAS4 External"},
 	{"MIC BIAS4 External", NULL, "Digital Mic5"},
 
@@ -630,28 +682,72 @@ static const struct snd_soc_dapm_route apq8064_mtp_audio_map[] = {
 
 static const struct snd_soc_dapm_route apq8064_liquid_cdp_audio_map[] = {
 
-	
+	/************   Analog MIC Paths  ************/
+	/**
+	 * Analog mic7 (Front Top Mic) on Liquid.
+	 * Used as Handset mic on CDP.
+	 * Not there on MTP.
+	 */
 	{"AMIC1", NULL, "MIC BIAS1 External"},
 	{"MIC BIAS1 External", NULL, "Analog mic7"},
 
 
-	
+	/************   Digital MIC Paths  ************/
+	/**
+	 * The digital Mic routes are setup considering
+	 * Liquid as default device.
+	 */
 
+	/**
+	 * Digital Mic1 (Front bottom left corner) on Liquid.
+	 * Digital Mic2 (Front bottom right) on MTP.
+	 * Digital Mic GM1 on CDP mainboard.
+	 * Conncted to DMIC2 Input on Tabla codec.
+	 */
 	{"DMIC2", NULL, "MIC BIAS1 External"},
 	{"MIC BIAS1 External", NULL, "Digital Mic1"},
 
+	/**
+	 * Digital Mic2 (Front left side) on Liquid.
+	 * Digital Mic GM2 on CDP mainboard.
+	 * Not there on MTP.
+	 * Conncted to DMIC3 Input on Tabla codec.
+	 */
 	{"DMIC3", NULL, "MIC BIAS3 External"},
 	{"MIC BIAS3 External", NULL, "Digital Mic2"},
 
+	/**
+	 * Digital Mic3. Front bottom left of middle on Liquid.
+	 * Digital Mic5 (Top front Mic) on MTP.
+	 * Digital Mic GM5 on CDP mainboard.
+	 * Conncted to DMIC6 Input on Tabla codec.
+	 */
 	{"DMIC6", NULL, "MIC BIAS4 External"},
 	{"MIC BIAS4 External", NULL, "Digital Mic3"},
 
+	/**
+	 * Digital Mic4. Back bottom on Liquid.
+	 * Digital Mic GM3 on CDP mainboard.
+	 * Top Front Mic on MTP.
+	 * Conncted to DMIC5 Input on Tabla codec.
+	 */
 	{"DMIC5", NULL, "MIC BIAS4 External"},
 	{"MIC BIAS4 External", NULL, "Digital Mic4"},
 
+	/**
+	 * Digital Mic5. Front bottom right of middle on Liquid.
+	 * Digital Mic GM6 on CDP mainboard.
+	 * Not there on MTP.
+	 * Conncted to DMIC4 Input on Tabla codec.
+	 */
 	{"DMIC4", NULL, "MIC BIAS3 External"},
 	{"MIC BIAS3 External", NULL, "Digital Mic5"},
 
+	/* Digital Mic6 (Front bottom right corner) on Liquid.
+	 * Digital Mic1 (Front bottom Left) on MTP.
+	 * Digital Mic GM4 on CDP.
+	 * Conncted to DMIC1 Input on Tabla codec.
+	 */
 	{"DMIC1", NULL, "MIC BIAS1 External"},
 	{"MIC BIAS1 External", NULL, "Digital Mic6"},
 };
@@ -934,7 +1030,7 @@ static int msm_mi2s_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		pr_err("%s: Failed to request gpio %d\n", __func__,
 			   GPIO_MI2S_MCLK);
 
-	
+	/* APQ provides the mclk to codec */
 	ret = gpio_request(mdm_mclk_gpio, "MDM_MCLK_SWITCH");
 	if (ret) {
 		pr_err("%s: Failed to request gpio %d\n", __func__,
@@ -1000,11 +1096,11 @@ static int msm_mi2s_audrx_init(struct snd_soc_pcm_runtime *rtd)
 		pr_err("failed to create new jack\n");
 		return ret;
 	}
-	
+	/* Get the MCLK from MI2S block for MBHC calibration */
 	codec_clk = clk_get(cpu_dai->dev, "osr_clk");
 	pr_debug("%s: Device name is %s\n", __func__, dev_name(cpu_dai->dev));
 
-	
+	/* APQ8064 Rev 1.1 CDP and Liquid have mechanical switch */
 	revision = socinfo_get_version();
 	if (apq8064_i2s_hs_detect_use_gpio != -1) {
 		if (apq8064_i2s_hs_detect_use_gpio == 1)
@@ -1048,11 +1144,11 @@ static int msm_mi2s_audrx_init(struct snd_soc_pcm_runtime *rtd)
 
 	ret = tabla_hs_detect(codec, &mbhc_cfg);
 
-	
+	/* MDM provides the mclk to codec */
 	gpio_direction_output(apq_mclk_gpio, 0);
 	gpio_direction_output(mdm_mclk_gpio, 1);
 	pr_debug("%s: Clock switch to MDM\n", __func__);
-	
+	/* Should we add code to put back codec clock?*/
 	gpio_free(GPIO_MI2S_MCLK);
 	pr_debug("%s: Free MCLK GPIO\n", __func__);
 	return ret;
@@ -1392,6 +1488,10 @@ static int msm_hw_params(struct snd_pcm_substream *substream,
 		if (codec_dai->id  == 2)
 			num_tx_ch =  msm_slim_0_tx_ch;
 		else if (codec_dai->id == 5) {
+			/* DAI 5 is used for external EC reference from codec.
+			 * Since Rx is fed as reference for EC, the config of
+			 * this DAI is based on that of the Rx path.
+			 */
 			num_tx_ch =  msm_slim_0_rx_ch;
 		}
 
@@ -1630,6 +1730,10 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 
 	pr_debug("%s(), dev_name(%s)\n", __func__, dev_name(cpu_dai->dev));
 
+	/*if (machine_is_msm_liquid()) {
+		top_spk_pamp_gpio = (PM8921_GPIO_PM_TO_SYS(19));
+		bottom_spk_pamp_gpio = (PM8921_GPIO_PM_TO_SYS(18));
+	}*/
 
 	snd_soc_dapm_new_controls(dapm, apq8064_dapm_widgets,
 				ARRAY_SIZE(apq8064_dapm_widgets));
@@ -1670,7 +1774,7 @@ static int msm_audrx_init(struct snd_soc_pcm_runtime *rtd)
 
 	codec_clk = clk_get(cpu_dai->dev, "osr_clk");
 
-	
+	/* APQ8064 Rev 1.1 CDP and Liquid have mechanical switch */
 	revision = socinfo_get_version();
 	if (apq8064_i2s_hs_detect_use_gpio != -1) {
 		if (apq8064_i2s_hs_detect_use_gpio == 1)
@@ -1833,7 +1937,7 @@ static int msm_auxpcm_be_params_fixup(struct snd_soc_pcm_runtime *rtd,
 	struct snd_interval *channels = hw_param_interval(params,
 					SNDRV_PCM_HW_PARAM_CHANNELS);
 
-	
+	/* PCM only supports mono output with 8khz sample rate */
 	rate->min = rate->max = 8000;
 	channels->min = channels->max = 1;
 
@@ -1977,7 +2081,7 @@ static struct snd_soc_ops msm_i2s_be_ops = {
 };
 
 static struct snd_soc_dai_link msm_dai_delta_mi2s[] = {
-	
+	/* Backend DAI Links */
 	{
 		.name = LPASS_BE_MI2S_RX,
 		.stream_name = "MI2S Playback",
@@ -1990,7 +2094,7 @@ static struct snd_soc_dai_link msm_dai_delta_mi2s[] = {
 		.init = &msm_mi2s_audrx_init,
 		.be_hw_params_fixup = msm_mi2s_rx_be_hw_params_fixup,
 		.ops = &msm_mi2s_be_ops,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 	},
 	{
 		.name = LPASS_BE_MI2S_TX,
@@ -2032,7 +2136,7 @@ static struct snd_soc_dai_link msm_dai_delta_mi2s[] = {
 
 
 static struct snd_soc_dai_link msm_dai_delta_slim[] = {
-	
+	/* Hostless PMC purpose */
 	{
 		.name = "SLIMBUS_0 Hostless",
 		.stream_name = "SLIMBUS_0 Hostless",
@@ -2043,12 +2147,12 @@ static struct snd_soc_dai_link msm_dai_delta_slim[] = {
 		SND_SOC_DPCM_TRIGGER_POST},
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
-		
+		/* .be_id = do not care */
 	},
-	
+	/* Backend DAI Links */
 	{
 		.name = LPASS_BE_SLIMBUS_0_RX,
 		.stream_name = "Slimbus Playback",
@@ -2061,7 +2165,7 @@ static struct snd_soc_dai_link msm_dai_delta_slim[] = {
 		.init = &msm_audrx_init,
 		.be_hw_params_fixup = msm_slim_0_rx_be_hw_params_fixup,
 		.ops = &msm_be_ops,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 	},
 	{
 		.name = LPASS_BE_SLIMBUS_0_TX,
@@ -2087,7 +2191,7 @@ static struct snd_soc_dai_link msm_dai_delta_slim[] = {
 		.be_hw_params_fixup = msm_slim_0_rx_be_hw_params_fixup,
 		.init = &msm_stubrx_init,
 		.ops = &msm_be_ops,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 	},
 	{
 		.name = LPASS_BE_STUB_TX,
@@ -2112,7 +2216,7 @@ static struct snd_soc_dai_link msm_dai_delta_slim[] = {
 		.be_id = MSM_BACKEND_DAI_SLIMBUS_1_RX,
 		.be_hw_params_fixup = msm_btsco_be_hw_params_fixup,
 		.ops = &msm_slimbus_1_be_ops,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 
 	},
 	{
@@ -2127,7 +2231,7 @@ static struct snd_soc_dai_link msm_dai_delta_slim[] = {
 		.be_hw_params_fixup =  msm_btsco_be_hw_params_fixup,
 		.ops = &msm_slimbus_1_be_ops,
 	},
-	
+	/* Ultrasound TX Back End DAI Link */
 	{
 		.name = "SLIMBUS_2 Hostless Capture",
 		.stream_name = "SLIMBUS_2 Hostless Capture",
@@ -2139,7 +2243,7 @@ static struct snd_soc_dai_link msm_dai_delta_slim[] = {
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ops = &msm_slimbus_2_be_ops,
 	},
-	
+	/* Ultrasound RX Back End DAI Link */
 	{
 		.name = "SLIMBUS_2 Hostless Playback",
 		.stream_name = "SLIMBUS_2 Hostless Playback",
@@ -2151,7 +2255,7 @@ static struct snd_soc_dai_link msm_dai_delta_slim[] = {
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ops = &msm_slimbus_2_be_ops,
 	},
-	
+	/* Incall Music Back End DAI Link */
 	{
 		.name = LPASS_BE_SLIMBUS_4_RX,
 		.stream_name = "Slimbus4 Playback",
@@ -2163,9 +2267,9 @@ static struct snd_soc_dai_link msm_dai_delta_slim[] = {
 		.be_id = MSM_BACKEND_DAI_SLIMBUS_4_RX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
 		.ops = &msm_slimbus_4_be_ops,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 	},
-	
+	/* Incall Record Back End DAI Link */
 	{
 		.name = LPASS_BE_SLIMBUS_4_TX,
 		.stream_name = "Slimbus4 Capture",
@@ -2187,6 +2291,10 @@ static struct snd_soc_dai_link msm_dai_delta_slim[] = {
 		.codec_dai_name	= "tabla_tx3",
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_EXTPROC_EC_TX,
+		/* This BE is used for external EC reference from codec. Since
+		 * Rx is fed as reference for EC, the config of this DAI is
+		 * based on that of the Rx path.
+		 */
 		.be_hw_params_fixup = msm_slim_0_rx_be_hw_params_fixup,
 		.ops = &msm_be_ops,
 	},
@@ -2201,7 +2309,7 @@ static struct snd_soc_dai_link msm_dai_delta_slim[] = {
 		.be_id = MSM_BACKEND_DAI_SLIMBUS_3_RX,
 		.be_hw_params_fixup = msm_slim_3_rx_be_hw_params_fixup,
 		.ops = &msm_slimbus_3_be_ops,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 	},
 	{
 		.name = LPASS_BE_SLIMBUS_3_TX,
@@ -2217,9 +2325,18 @@ static struct snd_soc_dai_link msm_dai_delta_slim[] = {
 	},
 };
 
+/* Digital audio interface glue - connects codec <---> CPU */
 static struct snd_soc_dai_link msm_dai[] = {
-	
+	/* FrontEnd DAI Links */
 	{
+		/*
+		 * In APQ8064 I2S platform, there is no playback support
+		 * only voice call is supported so there is no even system
+		 * tone or dialing tone which is by design because I2S clock
+		 * is provided by MDM which matches voice call sample rate
+		 * 8kHz or 16kHz while system tone is 48kHz. We disable the
+		 * playback by feeding the audio to AUX PCM port.
+		 */
 		.name = "MSM8960 Media1",
 		.stream_name = "MultiMedia1",
 		.cpu_dai_name	= "MultiMedia1",
@@ -2230,7 +2347,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 		.ignore_suspend = 1,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA1
 	},
 	{
@@ -2244,7 +2361,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 		.ignore_suspend = 1,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA2,
 	},
 	{
@@ -2260,7 +2377,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 		.ignore_suspend = 1,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 		.be_id = MSM_FRONTEND_DAI_CS_VOICE,
 	},
 	{
@@ -2274,7 +2391,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 		.ignore_suspend = 1,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 		.be_id = MSM_FRONTEND_DAI_VOIP,
 	},
 	{
@@ -2288,7 +2405,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 		.ignore_suspend = 1,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA3,
 	},
 	{
@@ -2301,10 +2418,10 @@ static struct snd_soc_dai_link msm_dai[] = {
 		SND_SOC_DPCM_TRIGGER_POST},
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
-		
+		/* .be_id = do not care */
 	},
 	{
 		.name = "MSM AFE-PCM RX",
@@ -2314,7 +2431,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.codec_dai_name = "msm-stub-rx",
 		.platform_name  = "msm-pcm-afe",
 		.ignore_suspend = 1,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 	},
 	{
 		.name = "MSM AFE-PCM TX",
@@ -2336,7 +2453,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 		.ignore_suspend = 1,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA4,
 	},
 	{
@@ -2349,11 +2466,11 @@ static struct snd_soc_dai_link msm_dai[] = {
 		SND_SOC_DPCM_TRIGGER_POST},
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 	},
-	
+	/* HDMI Hostless */
 	{
 		.name = "HDMI_RX_HOSTLESS",
 		.stream_name = "HDMI_RX_HOSTLESS",
@@ -2366,7 +2483,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 		.ignore_suspend = 1,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 	},
 	{
 		.name = "Voice Stub",
@@ -2378,11 +2495,11 @@ static struct snd_soc_dai_link msm_dai[] = {
 		SND_SOC_DPCM_TRIGGER_POST},
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 	},
-	
+	/* Backend BT/FM DAI Links */
 	{
 		.name = LPASS_BE_INT_BT_SCO_RX,
 		.stream_name = "Internal BT-SCO Playback",
@@ -2393,7 +2510,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_INT_BT_SCO_RX,
 		.be_hw_params_fixup = msm_btsco_be_hw_params_fixup,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 	},
 	{
 		.name = LPASS_BE_INT_BT_SCO_TX,
@@ -2416,7 +2533,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_INT_FM_RX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 	},
 	{
 		.name = LPASS_BE_INT_FM_TX,
@@ -2429,7 +2546,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.be_id = MSM_BACKEND_DAI_INT_FM_TX,
 		.be_hw_params_fixup = msm_be_hw_params_fixup,
 	},
-	
+	/* HDMI BACK END DAI Link */
 	{
 		.name = LPASS_BE_HDMI,
 		.stream_name = "HDMI Playback",
@@ -2441,7 +2558,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.be_id = MSM_BACKEND_DAI_HDMI_RX,
 		.be_hw_params_fixup = msm_hdmi_be_hw_params_fixup,
 	},
-	
+	/* Backend AFE DAI Links */
 	{
 		.name = LPASS_BE_AFE_PCM_RX,
 		.stream_name = "AFE Playback",
@@ -2452,7 +2569,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.no_pcm = 1,
 		.be_id = MSM_BACKEND_DAI_AFE_PCM_RX,
 		.be_hw_params_fixup = msm_proxy_be_hw_params_fixup,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 	},
 	{
 		.name = LPASS_BE_AFE_PCM_TX,
@@ -2465,7 +2582,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.be_id = MSM_BACKEND_DAI_AFE_PCM_TX,
 		.be_hw_params_fixup = msm_proxy_be_hw_params_fixup,
 	},
-	
+	/* AUX PCM Backend DAI Links */
 	{
 		.name = LPASS_BE_AUXPCM_RX,
 		.stream_name = "AUX PCM Playback",
@@ -2477,7 +2594,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 		.be_id = MSM_BACKEND_DAI_AUXPCM_RX,
 		.be_hw_params_fixup = msm_auxpcm_be_params_fixup,
 		.ops = &msm_auxpcm_be_ops,
-		.ignore_pmdown_time = 1, 
+		.ignore_pmdown_time = 1, /* Playback support */
 	},
 	{
 		.name = LPASS_BE_AUXPCM_TX,
@@ -2494,6 +2611,7 @@ static struct snd_soc_dai_link msm_dai[] = {
 };
 
 
+/* Digital audio interface glue - connects codec <---> CPU */
 static struct snd_soc_dai_link msm_mi2s_dai[
 					 ARRAY_SIZE(msm_dai) +
 					 ARRAY_SIZE(msm_dai_delta_mi2s)];

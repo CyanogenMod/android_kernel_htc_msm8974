@@ -1,3 +1,15 @@
+/*
+ * File...........: linux/drivers/s390/block/dasd_proc.c
+ * Author(s)......: Holger Smolinski <Holger.Smolinski@de.ibm.com>
+ *		    Horst Hummel <Horst.Hummel@de.ibm.com>
+ *		    Carsten Otte <Cotte@de.ibm.com>
+ *		    Martin Schwidefsky <schwidefsky@de.ibm.com>
+ * Bugreports.to..: <Linux390@de.ibm.com>
+ * (C) IBM Corporation, IBM Deutschland Entwicklung GmbH, 1999-2002
+ *
+ * /proc interface for the dasd driver.
+ *
+ */
 
 #define KMSG_COMPONENT "dasd"
 
@@ -11,6 +23,7 @@
 #include <asm/debug.h>
 #include <asm/uaccess.h>
 
+/* This is ugly... */
 #define PRINTK_HEADER "dasd_proc:"
 
 #include "dasd_int.h"
@@ -35,29 +48,29 @@ dasd_devices_show(struct seq_file *m, void *v)
 		dasd_put_device(device);
 		return 0;
 	}
-	
+	/* Print device number. */
 	seq_printf(m, "%s", dev_name(&device->cdev->dev));
-	
+	/* Print discipline string. */
 	if (device->discipline != NULL)
 		seq_printf(m, "(%s)", device->discipline->name);
 	else
 		seq_printf(m, "(none)");
-	
+	/* Print kdev. */
 	if (block->gdp)
 		seq_printf(m, " at (%3d:%6d)",
 			   MAJOR(disk_devt(block->gdp)),
 			   MINOR(disk_devt(block->gdp)));
 	else
 		seq_printf(m, "  at (???:??????)");
-	
+	/* Print device name. */
 	if (block->gdp)
 		seq_printf(m, " is %-8s", block->gdp->disk_name);
 	else
 		seq_printf(m, " is ????????");
-	
+	/* Print devices features. */
 	substr = (device->features & DASD_FEATURE_READONLY) ? "(ro)" : " ";
 	seq_printf(m, "%4s: ", substr);
-	
+	/* Print device status information. */
 	switch (device->state) {
 	case DASD_STATE_NEW:
 		seq_printf(m, "new");
@@ -192,7 +205,7 @@ static void dasd_statistics_array(struct seq_file *m, unsigned int *array, int f
 	}
 	seq_putc(m, '\n');
 }
-#endif 
+#endif /* CONFIG_DASD_PROFILE */
 
 static int dasd_stats_proc_show(struct seq_file *m, void *v)
 {
@@ -200,7 +213,7 @@ static int dasd_stats_proc_show(struct seq_file *m, void *v)
 	struct dasd_profile_info *prof;
 	int factor;
 
-	
+	/* check for active profiling */
 	if (!dasd_global_profile_level) {
 		seq_printf(m, "Statistics are off - they might be "
 				    "switched on using 'echo set on > "
@@ -209,7 +222,7 @@ static int dasd_stats_proc_show(struct seq_file *m, void *v)
 	}
 	prof = &dasd_global_profile_data;
 
-	
+	/* prevent counter 'overflow' on output */
 	for (factor = 1; (prof->dasd_io_reqs / factor) > 9999999;
 	     factor *= 10);
 
@@ -267,13 +280,13 @@ static ssize_t dasd_stats_proc_write(struct file *file,
 	if (IS_ERR(buffer))
 		return PTR_ERR(buffer);
 
-	
+	/* check for valid verbs */
 	str = skip_spaces(buffer);
 	if (strncmp(str, "set", 3) == 0 && isspace(str[3])) {
-		
+		/* 'set xxx' was given */
 		str = skip_spaces(str + 4);
 		if (strcmp(str, "on") == 0) {
-			
+			/* switch on statistics profiling */
 			rc = dasd_stats_all_block_on();
 			if (rc) {
 				dasd_stats_all_block_off();
@@ -284,7 +297,7 @@ static ssize_t dasd_stats_proc_write(struct file *file,
 			pr_info("The statistics feature has been switched "
 				"on\n");
 		} else if (strcmp(str, "off") == 0) {
-			
+			/* switch off and reset statistics profiling */
 			dasd_global_profile_level = DASD_PROFILE_OFF;
 			dasd_global_profile_reset();
 			dasd_stats_all_block_off();
@@ -293,7 +306,7 @@ static ssize_t dasd_stats_proc_write(struct file *file,
 		} else
 			goto out_parse_error;
 	} else if (strncmp(str, "reset", 5) == 0) {
-		
+		/* reset the statistics */
 		dasd_global_profile_reset();
 		dasd_stats_all_block_reset();
 		pr_info("The statistics have been reset\n");
@@ -311,7 +324,7 @@ out_error:
 #else
 	pr_warning("/proc/dasd/statistics: is not activated in this kernel\n");
 	return user_len;
-#endif				
+#endif				/* CONFIG_DASD_PROFILE */
 }
 
 static const struct file_operations dasd_stats_proc_fops = {
@@ -323,6 +336,10 @@ static const struct file_operations dasd_stats_proc_fops = {
 	.write		= dasd_stats_proc_write,
 };
 
+/*
+ * Create dasd proc-fs entries.
+ * In case creation failed, cleanup and return -ENOENT.
+ */
 int
 dasd_proc_init(void)
 {

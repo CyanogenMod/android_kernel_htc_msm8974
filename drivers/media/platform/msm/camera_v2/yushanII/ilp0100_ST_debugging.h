@@ -19,6 +19,11 @@
 #                             Imaging Division
 ################################################################################
 ********************************************************************************/
+/*!
+ * \file 	ilp0100_ST_debugging.h
+ * \brief	Internal Ilp0100 functions for device debugging
+ * \author	sheena jain
+ */
 
 #ifndef ILP0100_ST_DEBUGGING_H_
 #define ILP0100_ST_DEBUGGING_H_
@@ -32,9 +37,12 @@
 #define ILP0100_DEBUG_LEVEL		1
 #define ILP0100_VERBOSE_LEVEL	2
 
-#define ILP0100_MAX_DEBUG_BUFFER_SIZE  4194304   
+#define ILP0100_MAX_DEBUG_BUFFER_SIZE  4194304 /*4MB*/  //67108864 /* 64MB */
 #define ILP0100_DEBUG_BUFFER_MARGIN  128
 
+/* require that ILP0100_CUSTOMER_DEBUG_LOG and ILP0100_CUSTOMER_ERROR_LOG
+ * to be defined in ilp0100_customer_platform.h file.
+ */
 
 
 #ifdef ILP0100_DEBUG
@@ -43,6 +51,7 @@ extern uint8_t*	pIlp0100DebugBuffer;
 extern uint32_t Ilp0100DebugLogSize;
 extern bool_t	Ilp0100DebugStarted;
 
+/* Defines for external use */
 #define ILP0100_LOG_FUNCTION_START(...)	void* _pLogAllARgs_[]={ __VA_ARGS__ }; Ilp0100_loggingFunctionStart(__func__, _pLogAllARgs_);
 #define ILP0100_LOG_FUNCTION_END(returned)	Ilp0100_loggingFunctionEnd(__func__, returned, _pLogAllARgs_)
 
@@ -55,39 +64,149 @@ extern bool_t	Ilp0100DebugStarted;
 #define ILP0100_DEBUG_LOG(...)	ILP0100_INTERNAL_DEBUG_LOG(__VA_ARGS__);ILP0100_CUSTOMER_DEBUG_LOG(__VA_ARGS__)
 #define ILP0100_ERROR_LOG(...)  ILP0100_INTERNAL_ERROR_LOG(__VA_ARGS__);ILP0100_CUSTOMER_ERROR_LOG(__VA_ARGS__)
 
+/*  Help compiling in C++  */
 #ifdef __cplusplus
 extern "C"{
-#endif   
+#endif   /*__cplusplus*/
 
+/*!
+ * \fn			Ilp0100_loggingOpen()
+ * \brief		Initialize debug sequence
+ * \ingroup		Debugging_Functions
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingOpen(void);
 
+/*!
+ * \fn			Ilp0100_loggingClose()
+ * \brief		Initialize debug sequence
+ * \ingroup		Debugging_Functions
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingClose(void);
 
+/*!
+ * \fn			Ilp0100_loggingStart(uint8_t DebugLevel)
+ * \brief		Start logging all ILP activities
+ * \ingroup		Debugging_Functions
+ * \param[in]	DebugLevel
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingStart(uint8_t DebugLevel);
 
+/*!
+ * \fn			Ilp0100_loggingStop()
+ * \brief		Stop logging all ILP activities
+ * \ingroup		Debugging_Functions
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingStop(void);
 
+/*!
+ * \fn			Ilp0100_logDebugMessageStar(const char* pFunctionName)
+ * \brief		Write start section to log debug message
+ * \ingroup		Debugging_Functions
+ * \param[in]	pFunctionName
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_logDebugMessageStart(const char* pFunctionName);
 
+/*!
+ * \fn			Ilp0100_logDebugMessageEnd(
+ * \brief		Write end section to log debug message
+ * \ingroup		Debugging_Functions
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_logDebugMessageEnd(void);
 
+/*!
+ * \fn			Ilp0100_logErrorMessageStart(const char* pFunctionName)
+ * \brief		Write start section to log error message
+ * \ingroup		Debugging_Functions
+ * \param[in]	pFunctionName
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_logErrorMessageStart(const char* pFunctionName);
 
+/*!
+ * \fn			Ilp0100_logErrorMessageEnd()
+ * \brief		Write end section to log error message
+ * \ingroup		Debugging_Functions
+ * \param[in]	pMessage
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_logErrorMessageEnd(void);
 
+/*!
+ * \fn			Ilp0100_loggingGetSize(uint32_t* pLogSize)
+ * \brief		return current size of the log sequence
+ * \ingroup		Debugging_Functions
+ * \param[in]	pLogSize
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingGetSize(uint32_t* pLogSize);
 
+/*!
+ * \fn			Ilp0100_loggingReadBack(uint8_t* pDebugLog, uint32_t* pLogSize)
+ * \brief		return a copy of the buffer
+ * \ingroup		Debugging_Functions
+ * \param[in]	pDebugLog
+ * \param[in]	pLogSize
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingReadBack(uint8_t* pDebugLog, uint32_t* pLogSize);
 
+/*!
+ * \fn			Ilp0100_loggingFunctionStart(char* FunctionName, void *pFuncArguments)
+ * \brief		log start of an API function
+ * \ingroup		Debugging_Functions
+ * \param[in]	FunctionName
+ * \param[in]	pFuncArguments
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingFunctionStart(const char* pFunctionName, void **pFuncArguments);
 
+/*!
+ * \fn			Ilp0100_loggingFunctionEnd(char* FunctionName, void *pFuncArguments)
+ * \brief		log end of an API function
+ * \ingroup		Debugging_Functions
+ * \param[in]	FunctionName
+ * \param[in]	ReturnedValue
+ * \param[in]	pFuncArguments
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingFunctionEnd(const char* FunctionName, ilp0100_error ReturnedValue, void **pFuncArguments);
 
+/*!
+ * \fn			Ilp0100_loggingFunctionIlpAccess(const char* pFunctionName, uint16_t RegisterName, uint16_t Count, uint8_t *pData)
+ * \brief		log an SPI access (Read or Write) of the ILP
+ * \ingroup		Debugging_Functions
+ * \param[in]	FunctionName
+ * \param[in]	RegisterName
+ * \param[in]	Count
+ * \param[in]	pData
+ * \param[in]	ReturnedValue
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_loggingFunctionIlpAccess(const char* pFunctionName, uint16_t RegisterName, uint16_t Count, uint8_t *pData, ilp0100_error ReturnedValue);
 
+/* help compiling in C++  */
 #ifdef __cplusplus
 }
-#endif   
+#endif   /*__cplusplus*/
 
 
 #else
@@ -111,4 +230,4 @@ ilp0100_error Ilp0100_loggingFunctionIlpAccess(const char* pFunctionName, uint16
 
 
 
-#endif 
+#endif /* ILP0100_ST_DEBUGGING_H_ */

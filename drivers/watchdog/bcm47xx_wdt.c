@@ -31,8 +31,8 @@
 
 #define DRV_NAME		"bcm47xx_wdt"
 
-#define WDT_DEFAULT_TIME	30	
-#define WDT_MAX_TIME		255	
+#define WDT_DEFAULT_TIME	30	/* seconds */
+#define WDT_MAX_TIME		255	/* seconds */
 
 static int wdt_time = WDT_DEFAULT_TIME;
 static bool nowayout = WATCHDOG_NOWAYOUT;
@@ -55,7 +55,7 @@ static atomic_t ticks;
 
 static inline void bcm47xx_wdt_hw_start(void)
 {
-	
+	/* this is 2,5s on 100Mhz clock  and 2s on 133 Mhz */
 	switch (bcm47xx_bus_type) {
 #ifdef CONFIG_BCM47XX_SSB
 	case BCM47XX_BUS_TYPE_SSB:

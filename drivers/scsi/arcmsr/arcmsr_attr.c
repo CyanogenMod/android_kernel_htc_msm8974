@@ -74,7 +74,7 @@ static ssize_t arcmsr_sysfs_iop_message_read(struct file *filp,
 	if (!capable(CAP_SYS_ADMIN))
 		return -EACCES;
 
-	
+	/* do message unit read. */
 	ptmpQbuffer = (uint8_t *)buf;
 	while ((acb->rqbuf_firstindex != acb->rqbuf_lastindex)
 		&& (allxfer_len < 1031)) {
@@ -122,14 +122,14 @@ static ssize_t arcmsr_sysfs_iop_message_write(struct file *filp,
 		return -EACCES;
 	if (count > 1032)
 		return -EINVAL;
-	
+	/* do message unit write. */
 	ptmpuserbuffer = (uint8_t *)buf;
 	user_len = (int32_t)count;
 	wqbuf_lastindex = acb->wqbuf_lastindex;
 	wqbuf_firstindex = acb->wqbuf_firstindex;
 	if (wqbuf_lastindex != wqbuf_firstindex) {
 		arcmsr_post_ioctldata2iop(acb);
-		return 0;	
+		return 0;	/*need retry*/
 	} else {
 		my_empty_len = (wqbuf_firstindex-wqbuf_lastindex - 1)
 				&(ARCMSR_MAX_QBUFFER - 1);
@@ -150,7 +150,7 @@ static ssize_t arcmsr_sysfs_iop_message_write(struct file *filp,
 			}
 			return count;
 		} else {
-			return 0;	
+			return 0;	/*need retry*/
 		}
 	}
 }

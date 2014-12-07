@@ -18,14 +18,15 @@
 #include <linux/crypto.h>
 #include <crypto/sha.h>
 
+/* must be big enough for the largest SHA variant */
 #define SHA_MAX_STATE_SIZE	16
 #define SHA_MAX_BLOCK_SIZE      SHA512_BLOCK_SIZE
 
 struct s390_sha_ctx {
-	u64 count;              
+	u64 count;              /* message length in bytes */
 	u32 state[SHA_MAX_STATE_SIZE];
 	u8 buf[2 * SHA_MAX_BLOCK_SIZE];
-	int func;		
+	int func;		/* KIMD function to use */
 };
 
 struct shash_desc;

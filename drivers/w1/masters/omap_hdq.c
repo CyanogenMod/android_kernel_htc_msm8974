@@ -58,14 +58,19 @@ static int w1_id;
 struct hdq_data {
 	struct device		*dev;
 	void __iomem		*hdq_base;
-	
+	/* lock status update */
 	struct  mutex		hdq_mutex;
 	int			hdq_usecount;
 	struct	clk		*hdq_ick;
 	struct	clk		*hdq_fck;
 	u8			hdq_irqstatus;
-	
+	/* device lock */
 	spinlock_t		hdq_spinlock;
+	/*
+	 * Used to control the call to omap_hdq_get and omap_hdq_put.
+	 * HDQ Protocol: Write the CMD|REG_address first, followed by
+	 * the data wrire or read.
+	 */
 	int			init_trans;
 };
 
@@ -94,6 +99,7 @@ static struct w1_bus_master omap_w1_master = {
 	.search		= omap_w1_search_bus,
 };
 
+/* HDQ register I/O routines */
 static inline u8 hdq_reg_in(struct hdq_data *hdq_data, u32 offset)
 {
 	return __raw_readb(hdq_data->hdq_base + offset);
@@ -114,6 +120,12 @@ static inline u8 hdq_reg_merge(struct hdq_data *hdq_data, u32 offset,
 	return new_val;
 }
 
+/*
+ * Wait for one or more bits in flag change.
+ * HDQ_FLAG_SET: wait until any bit in the flag is set.
+ * HDQ_FLAG_CLEAR: wait until all bits in the flag are cleared.
+ * return 0 on success and -ETIMEDOUT in the case of timeout.
+ */
 static int hdq_wait_for_flag(struct hdq_data *hdq_data, u32 offset,
 		u8 flag, u8 flag_set, u8 *status)
 {
@@ -121,7 +133,7 @@ static int hdq_wait_for_flag(struct hdq_data *hdq_data, u32 offset,
 	unsigned long timeout = jiffies + OMAP_HDQ_TIMEOUT;
 
 	if (flag_set == OMAP_HDQ_FLAG_CLEAR) {
-		
+		/* wait for the flag clear */
 		while (((*status = hdq_reg_in(hdq_data, offset)) & flag)
 			&& time_before(jiffies, timeout)) {
 			schedule_timeout_uninterruptible(1);
@@ -129,7 +141,7 @@ static int hdq_wait_for_flag(struct hdq_data *hdq_data, u32 offset,
 		if (*status & flag)
 			ret = -ETIMEDOUT;
 	} else if (flag_set == OMAP_HDQ_FLAG_SET) {
-		
+		/* wait for the flag set */
 		while (!((*status = hdq_reg_in(hdq_data, offset)) & flag)
 			&& time_before(jiffies, timeout)) {
 			schedule_timeout_uninterruptible(1);
@@ -142,6 +154,7 @@ static int hdq_wait_for_flag(struct hdq_data *hdq_data, u32 offset,
 	return ret;
 }
 
+/* write out a byte and fill *status with HDQ_INT_STATUS */
 static int hdq_write_byte(struct hdq_data *hdq_data, u8 val, u8 *status)
 {
 	int ret;
@@ -151,18 +164,18 @@ static int hdq_write_byte(struct hdq_data *hdq_data, u8 val, u8 *status)
 	*status = 0;
 
 	spin_lock_irqsave(&hdq_data->hdq_spinlock, irqflags);
-	
+	/* clear interrupt flags via a dummy read */
 	hdq_reg_in(hdq_data, OMAP_HDQ_INT_STATUS);
-	
+	/* ISR loads it with new INT_STATUS */
 	hdq_data->hdq_irqstatus = 0;
 	spin_unlock_irqrestore(&hdq_data->hdq_spinlock, irqflags);
 
 	hdq_reg_out(hdq_data, OMAP_HDQ_TX_DATA, val);
 
-	
+	/* set the GO bit */
 	hdq_reg_merge(hdq_data, OMAP_HDQ_CTRL_STATUS, OMAP_HDQ_CTRL_STATUS_GO,
 		OMAP_HDQ_CTRL_STATUS_DIR | OMAP_HDQ_CTRL_STATUS_GO);
-	
+	/* wait for the TXCOMPLETE bit */
 	ret = wait_event_timeout(hdq_wait_queue,
 		hdq_data->hdq_irqstatus, OMAP_HDQ_TIMEOUT);
 	if (ret == 0) {
@@ -171,7 +184,7 @@ static int hdq_write_byte(struct hdq_data *hdq_data, u8 val, u8 *status)
 	}
 
 	*status = hdq_data->hdq_irqstatus;
-	
+	/* check irqstatus */
 	if (!(*status & OMAP_HDQ_INT_STATUS_TXCOMPLETE)) {
 		dev_dbg(hdq_data->dev, "timeout waiting for"
 			"TXCOMPLETE/RXCOMPLETE, %x", *status);
@@ -179,7 +192,7 @@ static int hdq_write_byte(struct hdq_data *hdq_data, u8 val, u8 *status)
 		goto out;
 	}
 
-	
+	/* wait for the GO bit return to zero */
 	ret = hdq_wait_for_flag(hdq_data, OMAP_HDQ_CTRL_STATUS,
 			OMAP_HDQ_CTRL_STATUS_GO,
 			OMAP_HDQ_FLAG_CLEAR, &tmp_status);
@@ -192,6 +205,7 @@ out:
 	return ret;
 }
 
+/* HDQ Interrupt service routine */
 static irqreturn_t hdq_isr(int irq, void *_hdq)
 {
 	struct hdq_data *hdq_data = _hdq;
@@ -205,18 +219,20 @@ static irqreturn_t hdq_isr(int irq, void *_hdq)
 	if (hdq_data->hdq_irqstatus &
 		(OMAP_HDQ_INT_STATUS_TXCOMPLETE | OMAP_HDQ_INT_STATUS_RXCOMPLETE
 		| OMAP_HDQ_INT_STATUS_TIMEOUT)) {
-		
+		/* wake up sleeping process */
 		wake_up(&hdq_wait_queue);
 	}
 
 	return IRQ_HANDLED;
 }
 
+/* HDQ Mode: always return success */
 static u8 omap_w1_reset_bus(void *_hdq)
 {
 	return 0;
 }
 
+/* W1 search callback function */
 static void omap_w1_search_bus(void *_hdq, struct w1_master *master_dev,
 		u8 search_type, w1_slave_found_callback slave_found)
 {
@@ -228,6 +244,10 @@ static void omap_w1_search_bus(void *_hdq, struct w1_master *master_dev,
 		module_id = 0x1;
 
 	rn_le = cpu_to_le64(module_id);
+	/*
+	 * HDQ might not obey truly the 1-wire spec.
+	 * So calculate CRC based on module parameter.
+	 */
 	cs = w1_calc_crc8((u8 *)&rn_le, 7);
 	id = (cs << 56) | module_id;
 
@@ -240,11 +260,17 @@ static int _omap_hdq_reset(struct hdq_data *hdq_data)
 	u8 tmp_status;
 
 	hdq_reg_out(hdq_data, OMAP_HDQ_SYSCONFIG, OMAP_HDQ_SYSCONFIG_SOFTRESET);
+	/*
+	 * Select HDQ mode & enable clocks.
+	 * It is observed that INT flags can't be cleared via a read and GO/INIT
+	 * won't return to zero if interrupt is disabled. So we always enable
+	 * interrupt.
+	 */
 	hdq_reg_out(hdq_data, OMAP_HDQ_CTRL_STATUS,
 		OMAP_HDQ_CTRL_STATUS_CLOCKENABLE |
 		OMAP_HDQ_CTRL_STATUS_INTERRUPTMASK);
 
-	
+	/* wait for reset to complete */
 	ret = hdq_wait_for_flag(hdq_data, OMAP_HDQ_SYSSTATUS,
 		OMAP_HDQ_SYSSTATUS_RESETDONE, OMAP_HDQ_FLAG_SET, &tmp_status);
 	if (ret)
@@ -261,6 +287,7 @@ static int _omap_hdq_reset(struct hdq_data *hdq_data)
 	return ret;
 }
 
+/* Issue break pulse to the device */
 static int omap_hdq_break(struct hdq_data *hdq_data)
 {
 	int ret = 0;
@@ -275,19 +302,19 @@ static int omap_hdq_break(struct hdq_data *hdq_data)
 	}
 
 	spin_lock_irqsave(&hdq_data->hdq_spinlock, irqflags);
-	
+	/* clear interrupt flags via a dummy read */
 	hdq_reg_in(hdq_data, OMAP_HDQ_INT_STATUS);
-	
+	/* ISR loads it with new INT_STATUS */
 	hdq_data->hdq_irqstatus = 0;
 	spin_unlock_irqrestore(&hdq_data->hdq_spinlock, irqflags);
 
-	
+	/* set the INIT and GO bit */
 	hdq_reg_merge(hdq_data, OMAP_HDQ_CTRL_STATUS,
 		OMAP_HDQ_CTRL_STATUS_INITIALIZATION | OMAP_HDQ_CTRL_STATUS_GO,
 		OMAP_HDQ_CTRL_STATUS_DIR | OMAP_HDQ_CTRL_STATUS_INITIALIZATION |
 		OMAP_HDQ_CTRL_STATUS_GO);
 
-	
+	/* wait for the TIMEOUT bit */
 	ret = wait_event_timeout(hdq_wait_queue,
 		hdq_data->hdq_irqstatus, OMAP_HDQ_TIMEOUT);
 	if (ret == 0) {
@@ -297,13 +324,17 @@ static int omap_hdq_break(struct hdq_data *hdq_data)
 	}
 
 	tmp_status = hdq_data->hdq_irqstatus;
-	
+	/* check irqstatus */
 	if (!(tmp_status & OMAP_HDQ_INT_STATUS_TIMEOUT)) {
 		dev_dbg(hdq_data->dev, "timeout waiting for TIMEOUT, %x",
 				tmp_status);
 		ret = -ETIMEDOUT;
 		goto out;
 	}
+	/*
+	 * wait for both INIT and GO bits rerurn to zero.
+	 * zero wait time expected for interrupt mode.
+	 */
 	ret = hdq_wait_for_flag(hdq_data, OMAP_HDQ_CTRL_STATUS,
 			OMAP_HDQ_CTRL_STATUS_INITIALIZATION |
 			OMAP_HDQ_CTRL_STATUS_GO, OMAP_HDQ_FLAG_CLEAR,
@@ -339,6 +370,11 @@ static int hdq_read_byte(struct hdq_data *hdq_data, u8 *val)
 		hdq_reg_merge(hdq_data, OMAP_HDQ_CTRL_STATUS,
 			OMAP_HDQ_CTRL_STATUS_DIR | OMAP_HDQ_CTRL_STATUS_GO,
 			OMAP_HDQ_CTRL_STATUS_DIR | OMAP_HDQ_CTRL_STATUS_GO);
+		/*
+		 * The RX comes immediately after TX. It
+		 * triggers another interrupt before we
+		 * sleep. So we have to wait for RXCOMPLETE bit.
+		 */
 		while (!(hdq_data->hdq_irqstatus
 			& OMAP_HDQ_INT_STATUS_RXCOMPLETE)
 			&& time_before(jiffies, timeout)) {
@@ -347,7 +383,7 @@ static int hdq_read_byte(struct hdq_data *hdq_data, u8 *val)
 		hdq_reg_merge(hdq_data, OMAP_HDQ_CTRL_STATUS, 0,
 			OMAP_HDQ_CTRL_STATUS_DIR);
 		status = hdq_data->hdq_irqstatus;
-		
+		/* check irqstatus */
 		if (!(status & OMAP_HDQ_INT_STATUS_RXCOMPLETE)) {
 			dev_dbg(hdq_data->dev, "timeout waiting for"
 				"RXCOMPLETE, %x", status);
@@ -355,7 +391,7 @@ static int hdq_read_byte(struct hdq_data *hdq_data, u8 *val)
 			goto out;
 		}
 	}
-	
+	/* the data is ready. Read it in! */
 	*val = hdq_reg_in(hdq_data, OMAP_HDQ_RX_DATA);
 out:
 	mutex_unlock(&hdq_data->hdq_mutex);
@@ -364,6 +400,7 @@ rtn:
 
 }
 
+/* Enable clocks and set the controller to HDQ mode */
 static int omap_hdq_get(struct hdq_data *hdq_data)
 {
 	int ret = 0;
@@ -394,15 +431,15 @@ static int omap_hdq_get(struct hdq_data *hdq_data)
 				goto clk_err;
 			}
 
-			
+			/* make sure HDQ is out of reset */
 			if (!(hdq_reg_in(hdq_data, OMAP_HDQ_SYSSTATUS) &
 				OMAP_HDQ_SYSSTATUS_RESETDONE)) {
 				ret = _omap_hdq_reset(hdq_data);
 				if (ret)
-					
+					/* back up the count */
 					hdq_data->hdq_usecount--;
 			} else {
-				
+				/* select HDQ mode & enable clocks */
 				hdq_reg_out(hdq_data, OMAP_HDQ_CTRL_STATUS,
 					OMAP_HDQ_CTRL_STATUS_CLOCKENABLE |
 					OMAP_HDQ_CTRL_STATUS_INTERRUPTMASK);
@@ -422,6 +459,7 @@ rtn:
 	return ret;
 }
 
+/* Disable clocks to the module */
 static int omap_hdq_put(struct hdq_data *hdq_data)
 {
 	int ret = 0;
@@ -447,6 +485,7 @@ static int omap_hdq_put(struct hdq_data *hdq_data)
 	return ret;
 }
 
+/* Read a byte of data from the device */
 static u8 omap_w1_read_byte(void *_hdq)
 {
 	struct hdq_data *hdq_data = _hdq;
@@ -466,7 +505,7 @@ static u8 omap_w1_read_byte(void *_hdq)
 		return -1;
 	}
 
-	
+	/* Write followed by a read, release the module */
 	if (hdq_data->init_trans) {
 		ret = mutex_lock_interruptible(&hdq_data->hdq_mutex);
 		if (ret < 0) {
@@ -481,13 +520,14 @@ static u8 omap_w1_read_byte(void *_hdq)
 	return val;
 }
 
+/* Write a byte of data to the device */
 static void omap_w1_write_byte(void *_hdq, u8 byte)
 {
 	struct hdq_data *hdq_data = _hdq;
 	int ret;
 	u8 status;
 
-	
+	/* First write to initialize the transfer */
 	if (hdq_data->init_trans == 0)
 		omap_hdq_get(hdq_data);
 
@@ -505,7 +545,7 @@ static void omap_w1_write_byte(void *_hdq, u8 byte)
 		return;
 	}
 
-	
+	/* Second write, data transferred. Release the module */
 	if (hdq_data->init_trans > 1) {
 		omap_hdq_put(hdq_data);
 		ret = mutex_lock_interruptible(&hdq_data->hdq_mutex);
@@ -551,7 +591,7 @@ static int __devinit omap_hdq_probe(struct platform_device *pdev)
 		goto err_ioremap;
 	}
 
-	
+	/* get interface & functional clock objects */
 	hdq_data->hdq_ick = clk_get(&pdev->dev, "ick");
 	if (IS_ERR(hdq_data->hdq_ick)) {
 		dev_dbg(&pdev->dev, "Can't get HDQ ick clock object\n");
@@ -601,7 +641,7 @@ static int __devinit omap_hdq_probe(struct platform_device *pdev)
 
 	omap_hdq_break(hdq_data);
 
-	
+	/* don't clock the HDQ until it is needed */
 	clk_disable(hdq_data->hdq_ick);
 	clk_disable(hdq_data->hdq_fck);
 
@@ -655,7 +695,7 @@ static int omap_hdq_remove(struct platform_device *pdev)
 
 	mutex_unlock(&hdq_data->hdq_mutex);
 
-	
+	/* remove module dependency */
 	clk_put(hdq_data->hdq_ick);
 	clk_put(hdq_data->hdq_fck);
 	free_irq(INT_24XX_HDQ_IRQ, hdq_data);

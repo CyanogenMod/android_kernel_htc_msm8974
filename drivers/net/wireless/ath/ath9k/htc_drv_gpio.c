@@ -16,11 +16,17 @@
 
 #include "htc.h"
 
+/******************/
+/*     BTCOEX     */
+/******************/
 
 #define ATH_HTC_BTCOEX_PRODUCT_ID "wb193"
 
 #ifdef CONFIG_ATH9K_BTCOEX_SUPPORT
 
+/*
+ * Detects if there is any priority bt traffic
+ */
 static void ath_detect_bt_priority(struct ath9k_htc_priv *priv)
 {
 	struct ath_btcoex *btcoex = &priv->btcoex;
@@ -32,7 +38,7 @@ static void ath_detect_bt_priority(struct ath9k_htc_priv *priv)
 	if (time_after(jiffies, btcoex->bt_priority_time +
 			msecs_to_jiffies(ATH_BT_PRIORITY_TIME_THRESHOLD))) {
 		priv->op_flags &= ~(OP_BT_PRIORITY_DETECTED | OP_BT_SCAN);
-		
+		/* Detect if colocated bt started scanning */
 		if (btcoex->bt_priority_cnt >= ATH_BT_CNT_SCAN_THRESHOLD) {
 			ath_dbg(ath9k_hw_common(ah), BTCOEX,
 				"BT scan detected\n");
@@ -49,6 +55,11 @@ static void ath_detect_bt_priority(struct ath9k_htc_priv *priv)
 	}
 }
 
+/*
+ * This is the master bt coex work which runs for every
+ * 45ms, bt traffic will be given priority during 55% of this
+ * period while wlan gets remaining 45%
+ */
 static void ath_btcoex_period_work(struct work_struct *work)
 {
 	struct ath9k_htc_priv *priv = container_of(work, struct ath9k_htc_priv,
@@ -82,6 +93,10 @@ static void ath_btcoex_period_work(struct work_struct *work)
 				     msecs_to_jiffies(btcoex->btcoex_period));
 }
 
+/*
+ * Work to time slice between wlan and bt traffic and
+ * configure weight registers
+ */
 static void ath_btcoex_duty_cycle_work(struct work_struct *work)
 {
 	struct ath9k_htc_priv *priv = container_of(work, struct ath9k_htc_priv,
@@ -113,6 +128,9 @@ static void ath_htc_init_btcoex_work(struct ath9k_htc_priv *priv)
 	INIT_DELAYED_WORK(&priv->duty_cycle_work, ath_btcoex_duty_cycle_work);
 }
 
+/*
+ * (Re)start btcoex work
+ */
 
 static void ath_htc_resume_btcoex_work(struct ath9k_htc_priv *priv)
 {
@@ -128,6 +146,9 @@ static void ath_htc_resume_btcoex_work(struct ath9k_htc_priv *priv)
 }
 
 
+/*
+ * Cancel btcoex and bt duty cycle work.
+ */
 static void ath_htc_cancel_btcoex_work(struct ath9k_htc_priv *priv)
 {
 	cancel_delayed_work_sync(&priv->coex_period_work);
@@ -186,8 +207,11 @@ void ath9k_htc_init_btcoex(struct ath9k_htc_priv *priv, char *product)
 	}
 }
 
-#endif 
+#endif /* CONFIG_ATH9K_BTCOEX_SUPPORT */
 
+/*******/
+/* LED */
+/*******/
 
 #ifdef CONFIG_MAC80211_LEDS
 void ath9k_led_work(struct work_struct *work)
@@ -207,7 +231,7 @@ static void ath9k_led_brightness(struct led_classdev *led_cdev,
 						   struct ath9k_htc_priv,
 						   led_cdev);
 
-	
+	/* Not locked, but it's just a tiny green light..*/
 	priv->brightness = brightness;
 	ieee80211_queue_work(priv->hw, &priv->led_work);
 }
@@ -235,10 +259,10 @@ void ath9k_init_leds(struct ath9k_htc_priv *priv)
 	else
 		priv->ah->led_pin = ATH_LED_PIN_DEF;
 
-	
+	/* Configure gpio 1 for output */
 	ath9k_hw_cfg_output(priv->ah, priv->ah->led_pin,
 			    AR_GPIO_OUTPUT_MUX_AS_OUTPUT);
-	
+	/* LED off, active low */
 	ath9k_hw_set_gpio(priv->ah, priv->ah->led_pin, 1);
 
 	snprintf(priv->led_name, sizeof(priv->led_name),
@@ -257,6 +281,9 @@ void ath9k_init_leds(struct ath9k_htc_priv *priv)
 }
 #endif
 
+/*******************/
+/*	Rfkill	   */
+/*******************/
 
 static bool ath_is_rfkill_set(struct ath9k_htc_priv *priv)
 {
@@ -295,7 +322,7 @@ void ath9k_htc_radio_enable(struct ieee80211_hw *hw)
 	if (!ah->curchan)
 		ah->curchan = ath9k_cmn_get_curchannel(hw, ah);
 
-	
+	/* Reset the HW */
 	ret = ath9k_hw_reset(ah, ah->curchan, ah->caldata, false);
 	if (ret) {
 		ath_err(common,
@@ -306,11 +333,11 @@ void ath9k_htc_radio_enable(struct ieee80211_hw *hw)
 	ath9k_cmn_update_txpow(ah, priv->curtxpow, priv->txpowlimit,
 			       &priv->curtxpow);
 
-	
+	/* Start RX */
 	WMI_CMD(WMI_START_RECV_CMDID);
 	ath9k_host_rx_init(priv);
 
-	
+	/* Start TX */
 	htc_start(priv->htc);
 	spin_lock_bh(&priv->tx.tx_lock);
 	priv->tx.flags &= ~ATH9K_HTC_OP_TX_QUEUES_STOP;
@@ -319,7 +346,7 @@ void ath9k_htc_radio_enable(struct ieee80211_hw *hw)
 
 	WMI_CMD(WMI_ENABLE_INTR_CMDID);
 
-	
+	/* Enable LED */
 	ath9k_hw_cfg_output(ah, ah->led_pin,
 			    AR_GPIO_OUTPUT_MUX_AS_OUTPUT);
 	ath9k_hw_set_gpio(ah, ah->led_pin, 0);
@@ -335,29 +362,33 @@ void ath9k_htc_radio_disable(struct ieee80211_hw *hw)
 
 	ath9k_htc_ps_wakeup(priv);
 
-	
+	/* Disable LED */
 	ath9k_hw_set_gpio(ah, ah->led_pin, 1);
 	ath9k_hw_cfg_gpio_input(ah, ah->led_pin);
 
 	WMI_CMD(WMI_DISABLE_INTR_CMDID);
 
-	
+	/* Stop TX */
 	ieee80211_stop_queues(hw);
 	ath9k_htc_tx_drain(priv);
 	WMI_CMD(WMI_DRAIN_TXQ_ALL_CMDID);
 
-	
+	/* Stop RX */
 	WMI_CMD(WMI_STOP_RECV_CMDID);
 
-	
+	/* Clear the WMI event queue */
 	ath9k_wmi_event_drain(priv);
 
+	/*
+	 * The MIB counters have to be disabled here,
+	 * since the target doesn't do it.
+	 */
 	ath9k_hw_disable_mib_counters(ah);
 
 	if (!ah->curchan)
 		ah->curchan = ath9k_cmn_get_curchannel(hw, ah);
 
-	
+	/* Reset the HW */
 	ret = ath9k_hw_reset(ah, ah->curchan, ah->caldata, false);
 	if (ret) {
 		ath_err(common,
@@ -365,7 +396,7 @@ void ath9k_htc_radio_disable(struct ieee80211_hw *hw)
 			ret, ah->curchan->channel);
 	}
 
-	
+	/* Disable the PHY */
 	ath9k_hw_phy_disable(ah);
 
 	ath9k_htc_ps_restore(priv);

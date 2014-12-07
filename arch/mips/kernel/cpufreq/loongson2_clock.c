@@ -19,6 +19,7 @@ static LIST_HEAD(clock_list);
 static DEFINE_SPINLOCK(clock_lock);
 static DEFINE_MUTEX(clock_list_sem);
 
+/* Minimum CLK support */
 enum {
 	DC_ZERO, DC_25PT = 2, DC_37PT, DC_50PT, DC_62PT, DC_75PT,
 	DC_87PT, DC_DISABLE, DC_RESV
@@ -146,6 +147,10 @@ long clk_round_rate(struct clk *clk, unsigned long rate)
 }
 EXPORT_SYMBOL_GPL(clk_round_rate);
 
+/*
+ * This is the simple version of Loongson-2 wait, Maybe we need do this in
+ * interrupt disabled content
+ */
 
 DEFINE_SPINLOCK(loongson2_wait_lock);
 void loongson2_cpu_wait(void)
@@ -155,8 +160,8 @@ void loongson2_cpu_wait(void)
 
 	spin_lock_irqsave(&loongson2_wait_lock, flags);
 	cpu_freq = LOONGSON_CHIPCFG0;
-	LOONGSON_CHIPCFG0 &= ~0x7;	
-	LOONGSON_CHIPCFG0 = cpu_freq;	
+	LOONGSON_CHIPCFG0 &= ~0x7;	/* Put CPU into wait mode */
+	LOONGSON_CHIPCFG0 = cpu_freq;	/* Restore CPU state */
 	spin_unlock_irqrestore(&loongson2_wait_lock, flags);
 }
 EXPORT_SYMBOL_GPL(loongson2_cpu_wait);

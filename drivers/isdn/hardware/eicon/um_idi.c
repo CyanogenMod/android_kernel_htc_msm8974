@@ -1,3 +1,4 @@
+/* $Id: um_idi.c,v 1.14 2004/03/21 17:54:37 armin Exp $ */
 
 #include "platform.h"
 #include "di_defs.h"
@@ -12,8 +13,14 @@
 
 #define DIVAS_MAX_XDI_ADAPTERS	64
 
+/* --------------------------------------------------------------------------
+   IMPORTS
+   -------------------------------------------------------------------------- */
 extern void diva_os_wakeup_read(void *os_context);
 extern void diva_os_wakeup_close(void *os_context);
+/* --------------------------------------------------------------------------
+   LOCALS
+   -------------------------------------------------------------------------- */
 static LIST_HEAD(adapter_q);
 static diva_os_spin_lock_t adapter_lock;
 
@@ -29,12 +36,18 @@ static int process_idi_rc(divas_um_idi_entity_t *e, byte rc);
 static int process_idi_ind(divas_um_idi_entity_t *e, byte ind);
 static int write_return_code(divas_um_idi_entity_t *e, byte rc);
 
+/* --------------------------------------------------------------------------
+   MAIN
+   -------------------------------------------------------------------------- */
 int diva_user_mode_idi_init(void)
 {
 	diva_os_initialize_spin_lock(&adapter_lock, "adapter");
 	return (0);
 }
 
+/* --------------------------------------------------------------------------
+   Copy adapter features to user supplied buffer
+   -------------------------------------------------------------------------- */
 static int
 diva_user_mode_idi_adapter_features(diva_um_idi_adapter_t *a,
 				    diva_um_idi_adapter_features_t *
@@ -64,6 +77,9 @@ diva_user_mode_idi_adapter_features(diva_um_idi_adapter_t *a,
 	return ((a) ? 0 : -1);
 }
 
+/* --------------------------------------------------------------------------
+   REMOVE ADAPTER
+   -------------------------------------------------------------------------- */
 void diva_user_mode_idi_remove_adapter(int adapter_nr)
 {
 	struct list_head *tmp;
@@ -81,6 +97,9 @@ void diva_user_mode_idi_remove_adapter(int adapter_nr)
 	}
 }
 
+/* --------------------------------------------------------------------------
+   CALLED ON DRIVER EXIT (UNLOAD)
+   -------------------------------------------------------------------------- */
 void diva_user_mode_idi_finit(void)
 {
 	struct list_head *tmp, *safe;
@@ -96,6 +115,9 @@ void diva_user_mode_idi_finit(void)
 	diva_os_destroy_spin_lock(&adapter_lock, "adapter");
 }
 
+/* -------------------------------------------------------------------------
+   CREATE AND INIT IDI ADAPTER
+   ------------------------------------------------------------------------- */
 int diva_user_mode_idi_create_adapter(const DESCRIPTOR *d, int adapter_nr)
 {
 	diva_os_spin_lock_magic_t old_irql;
@@ -122,6 +144,9 @@ int diva_user_mode_idi_create_adapter(const DESCRIPTOR *d, int adapter_nr)
 	return (0);
 }
 
+/* ------------------------------------------------------------------------
+   Find adapter by Adapter number
+   ------------------------------------------------------------------------ */
 static diva_um_idi_adapter_t *diva_um_idi_find_adapter(dword nr)
 {
 	diva_um_idi_adapter_t *a = NULL;
@@ -137,6 +162,10 @@ static diva_um_idi_adapter_t *diva_um_idi_find_adapter(dword nr)
 	return (a);
 }
 
+/* ------------------------------------------------------------------------
+   Cleanup this adapter and cleanup/delete all entities assigned
+   to this adapter
+   ------------------------------------------------------------------------ */
 static void cleanup_adapter(diva_um_idi_adapter_t *a)
 {
 	struct list_head *tmp, *safe;
@@ -154,6 +183,9 @@ static void cleanup_adapter(diva_um_idi_adapter_t *a)
 	memset(&a->d, 0x00, sizeof(DESCRIPTOR));
 }
 
+/* ------------------------------------------------------------------------
+   Cleanup, but NOT delete this entity
+   ------------------------------------------------------------------------ */
 static void cleanup_entity(divas_um_idi_entity_t *e)
 {
 	e->os_ref = NULL;
@@ -170,6 +202,9 @@ static void cleanup_entity(divas_um_idi_entity_t *e)
 }
 
 
+/* ------------------------------------------------------------------------
+   Create ENTITY, link it to the adapter and remove pointer to entity
+   ------------------------------------------------------------------------ */
 void *divas_um_idi_create_entity(dword adapter_nr, void *file)
 {
 	divas_um_idi_entity_t *e;
@@ -200,7 +235,13 @@ void *divas_um_idi_create_entity(dword adapter_nr, void *file)
 		}
 
 		diva_os_enter_spin_lock(&adapter_lock, &old_irql, "create_entity");
+		/*
+		  Look for Adapter requested
+		*/
 		if (!(a = diva_um_idi_find_adapter(adapter_nr))) {
+			/*
+			  No adapter was found, or this adapter was removed
+			*/
 			diva_os_leave_spin_lock(&adapter_lock, &old_irql, "create_entity");
 
 			DBG_LOG(("A: no adapter(%ld)", adapter_nr));
@@ -212,10 +253,10 @@ void *divas_um_idi_create_entity(dword adapter_nr, void *file)
 			return NULL;
 		}
 
-		e->os_ref = file;	
-		e->adapter = a;	
+		e->os_ref = file;	/* link to os handle */
+		e->adapter = a;	/* link to adapter   */
 
-		list_add_tail(&e->link, &a->entity_q);	
+		list_add_tail(&e->link, &a->entity_q);	/* link from adapter */
 
 		diva_os_leave_spin_lock(&adapter_lock, &old_irql, "create_entity");
 
@@ -225,6 +266,9 @@ void *divas_um_idi_create_entity(dword adapter_nr, void *file)
 	return (e);
 }
 
+/* ------------------------------------------------------------------------
+   Unlink entity and free memory
+   ------------------------------------------------------------------------ */
 int divas_um_idi_delete_entity(int adapter_nr, void *entity)
 {
 	divas_um_idi_entity_t *e;
@@ -251,6 +295,9 @@ int divas_um_idi_delete_entity(int adapter_nr, void *entity)
 	return (0);
 }
 
+/* --------------------------------------------------------------------------
+   Called by application to read data from IDI
+   -------------------------------------------------------------------------- */
 int diva_um_idi_read(void *entity,
 		     void *os_handle,
 		     void *dst,
@@ -277,9 +324,15 @@ int diva_um_idi_read(void *entity,
 
 	DBG_TRC(("A(%d) E(%08x) read(%d)", a->adapter_nr, e, max_length));
 
+	/*
+	  Try to read return code first
+	*/
 	data = diva_data_q_get_segment4read(&e->rc);
 	q = &e->rc;
 
+	/*
+	  No return codes available, read indications now
+	*/
 	if (!data) {
 		if (!(e->status & DIVA_UM_IDI_RC_PENDING)) {
 			DBG_TRC(("A(%d) E(%08x) read data", a->adapter_nr, e));
@@ -294,14 +347,24 @@ int diva_um_idi_read(void *entity,
 	if (data) {
 		if ((length = diva_data_q_get_segment_length(q)) >
 		    max_length) {
+			/*
+			  Not enough space to read message
+			*/
 			DBG_ERR(("A: A(%d) E(%08x) read small buffer",
 				 a->adapter_nr, e, ret));
 			diva_os_leave_spin_lock(&adapter_lock, &old_irql,
 						"read");
 			return (-2);
 		}
+		/*
+		  Copy it to user, this function does access ONLY locked an verified
+		  memory, also we can access it witch spin lock held
+		*/
 
 		if ((ret = (*cp_fn) (os_handle, dst, data, length)) >= 0) {
+			/*
+			  Acknowledge only if read was successful
+			*/
 			diva_data_q_ack_segment4read(q);
 		}
 	}
@@ -349,9 +412,13 @@ int diva_um_idi_write(void *entity,
 	if (e->status & DIVA_UM_IDI_RC_PENDING) {
 		DBG_ERR(("A: A(%d) E(%08x) rc pending", a->adapter_nr, e));
 		diva_os_leave_spin_lock(&adapter_lock, &old_irql, "write");
-		return (-1);	
+		return (-1);	/* should wait for RC code first */
 	}
 
+	/*
+	  Copy function does access only locked verified memory,
+	  also it can be called with spin lock held
+	*/
 	if ((ret = (*cp_fn) (os_handle, e->buffer, src, length)) < 0) {
 		DBG_TRC(("A: A(%d) E(%08x) write error=%d", a->adapter_nr,
 			 e, ret));
@@ -418,6 +485,9 @@ int diva_um_idi_write(void *entity,
 	return (ret);
 }
 
+/* --------------------------------------------------------------------------
+   CALLBACK FROM XDI
+   -------------------------------------------------------------------------- */
 static void diva_um_idi_xdi_callback(ENTITY *entity)
 {
 	divas_um_idi_entity_t *e = DIVAS_CONTAINING_RECORD(entity,
@@ -466,11 +536,11 @@ static int process_idi_request(divas_um_idi_entity_t *e,
 	byte Req = (byte) req->Req;
 	dword type = req->type & DIVA_UM_IDI_REQ_TYPE_MASK;
 
-	if (!e->e.Id || !e->e.callback) {	
+	if (!e->e.Id || !e->e.callback) {	/* not assigned */
 		if (Req != ASSIGN) {
 			DBG_ERR(("A: A(%d) E(%08x) not assigned",
 				 e->adapter->adapter_nr, e));
-			return (-1);	
+			return (-1);	/* NOT ASSIGNED */
 		} else {
 			switch (type) {
 			case DIVA_UM_IDI_REQ_TYPE_MAN:
@@ -509,7 +579,7 @@ static int process_idi_request(divas_um_idi_entity_t *e,
 	e->e.Req = Req;
 	e->e.ReqCh = (byte) req->ReqCh;
 	e->e.X->PLength = (word) req->data_length;
-	e->e.X->P = (byte *)&req[1];	
+	e->e.X->P = (byte *)&req[1];	/* Our buffer is safe */
 
 	DBG_TRC(("A(%d) E(%08x) request(%02x-%02x-%02x (%d))",
 		 e->adapter->adapter_nr, e, e->e.Id, e->e.Req,
@@ -524,6 +594,10 @@ static int process_idi_request(divas_um_idi_entity_t *e,
 
 	if (assign) {
 		if (e->e.Rc == OUT_OF_RESOURCES) {
+			/*
+			  XDI has no entities more, call was not forwarded to the card,
+			  no callback will be scheduled
+			*/
 			DBG_ERR(("A: A(%d) E(%08x) XDI out of entities",
 				 e->adapter->adapter_nr, e));
 
@@ -574,9 +648,9 @@ static int process_idi_rc(divas_um_idi_entity_t *e, byte rc)
 	if ((e->e.Req == REMOVE) && e->e.Id && (rc == 0xff)) {
 		DBG_ERR(("A: A(%d) E(%08x)  discard OK in REMOVE",
 			 e->adapter->adapter_nr, e));
-		return (0);	
+		return (0);	/* let us do it in the driver */
 	}
-	if ((e->e.Req == REMOVE) && (!e->e.Id)) {	
+	if ((e->e.Req == REMOVE) && (!e->e.Id)) {	/* REMOVE COMPLETE */
 		e->e.callback = NULL;
 		e->e.Id = 0;
 		e->e.Req = 0;
@@ -591,7 +665,7 @@ static int process_idi_rc(divas_um_idi_entity_t *e, byte rc)
 		e->e.RNum = 0;
 		e->rc_count = 0;
 	}
-	if ((e->e.Req == REMOVE) && (rc != 0xff)) {	
+	if ((e->e.Req == REMOVE) && (rc != 0xff)) {	/* REMOVE FAILED */
 		DBG_ERR(("A: A(%d) E(%08x)  REMOVE FAILED",
 			 e->adapter->adapter_nr, e));
 	}
@@ -653,6 +727,9 @@ static int process_idi_ind(divas_um_idi_entity_t *e, byte ind)
 	return (do_wakeup);
 }
 
+/* --------------------------------------------------------------------------
+   Write return code to the return code queue of entity
+   -------------------------------------------------------------------------- */
 static int write_return_code(divas_um_idi_entity_t *e, byte rc)
 {
 	diva_um_idi_ind_hdr_t *prc;
@@ -675,6 +752,10 @@ static int write_return_code(divas_um_idi_entity_t *e, byte rc)
 	return (0);
 }
 
+/* --------------------------------------------------------------------------
+   Return amount of entries that can be bead from this entity or
+   -1 if adapter was removed
+   -------------------------------------------------------------------------- */
 int diva_user_mode_idi_ind_ready(void *entity, void *os_handle)
 {
 	divas_um_idi_entity_t *e;
@@ -689,10 +770,17 @@ int diva_user_mode_idi_ind_ready(void *entity, void *os_handle)
 	a = e->adapter;
 
 	if ((!a) || (a->status & DIVA_UM_IDI_ADAPTER_REMOVED)) {
+		/*
+		  Adapter was unloaded
+		*/
 		diva_os_leave_spin_lock(&adapter_lock, &old_irql, "ind_ready");
-		return (-1);	
+		return (-1);	/* adapter was removed */
 	}
 	if (e->status & DIVA_UM_IDI_REMOVED) {
+		/*
+		  entity was removed as result of adapter removal
+		  user should assign this entity again
+		*/
 		diva_os_leave_spin_lock(&adapter_lock, &old_irql, "ind_ready");
 		return (-1);
 	}
@@ -761,15 +849,24 @@ int divas_um_idi_entity_start_remove(void *entity)
 	}
 
 	if (e->rc_count) {
+		/*
+		  Entity BUSY
+		*/
 		diva_os_leave_spin_lock(&adapter_lock, &old_irql, "start_remove");
 		return (1);
 	}
 
 	if (!e->e.Id) {
+		/*
+		  Remove request was already pending, and arrived now
+		*/
 		diva_os_leave_spin_lock(&adapter_lock, &old_irql, "start_remove");
-		return (0);	
+		return (0);	/* REMOVE was pending */
 	}
 
+	/*
+	  Now send remove request
+	*/
 	e->e.Req = REMOVE;
 	e->e.ReqCh = 0;
 

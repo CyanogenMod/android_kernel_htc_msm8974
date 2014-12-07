@@ -50,10 +50,13 @@ static unsigned int ixp4xx_mmio_data_xfer(struct ata_device *dev,
 	void __iomem *mmio = ap->ioaddr.data_addr;
 	struct ixp4xx_pata_data *data = ap->host->dev->platform_data;
 
+	/* set the expansion bus in 16bit mode and restore
+	 * 8 bit mode after the transaction.
+	 */
 	*data->cs0_cfg &= ~(0x01);
 	udelay(100);
 
-	
+	/* Transfer multiple of 2 bytes */
 	if (rw == READ)
 		for (i = 0; i < words; i++)
 			buf16[i] = readw(mmio);
@@ -61,7 +64,7 @@ static unsigned int ixp4xx_mmio_data_xfer(struct ata_device *dev,
 		for (i = 0; i < words; i++)
 			writew(buf16[i], mmio);
 
-	
+	/* Transfer trailing 1 byte, if any. */
 	if (unlikely(buflen & 0x01)) {
 		u16 align_buf[1] = { 0 };
 		unsigned char *trailing_buf = buf + buflen - 1;
@@ -109,6 +112,9 @@ static void ixp4xx_setup_port(struct ata_port *ap,
 
 #ifndef __ARMEB__
 
+	/* adjust the addresses to handle the address swizzling of the
+	 * ixp4xx in little endian mode.
+	 */
 
 	*(unsigned long *)&ioaddr->data_addr		^= 0x02;
 	*(unsigned long *)&ioaddr->cmd_addr		^= 0x03;
@@ -145,12 +151,12 @@ static __devinit int ixp4xx_pata_probe(struct platform_device *pdev)
 	if (!cs0 || !cs1)
 		return -EINVAL;
 
-	
+	/* allocate host */
 	host = ata_host_alloc(&pdev->dev, 1);
 	if (!host)
 		return -ENOMEM;
 
-	
+	/* acquire resources and fill host */
 	pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
 
 	data->cs0 = devm_ioremap(&pdev->dev, cs0->start, 0x1000);
@@ -163,7 +169,7 @@ static __devinit int ixp4xx_pata_probe(struct platform_device *pdev)
 	if (irq)
 		irq_set_irq_type(irq, IRQ_TYPE_EDGE_RISING);
 
-	
+	/* Setup expansion bus chip selects */
 	*data->cs0_cfg = data->cs0_bits;
 	*data->cs1_cfg = data->cs1_bits;
 
@@ -177,7 +183,7 @@ static __devinit int ixp4xx_pata_probe(struct platform_device *pdev)
 
 	ata_print_version_once(&pdev->dev, DRV_VERSION);
 
-	
+	/* activate host */
 	return ata_host_activate(host, irq, ata_sff_interrupt, 0, &ixp4xx_sht);
 }
 

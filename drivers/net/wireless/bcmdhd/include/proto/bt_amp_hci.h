@@ -27,9 +27,11 @@
 #ifndef _bt_amp_hci_h
 #define _bt_amp_hci_h
 
+/* This marks the start of a packed structure section. */
 #include <packed_section_start.h>
 
 
+/* AMP HCI CMD packet format */
 typedef BWL_PRE_PACKED_STRUCT struct amp_hci_cmd {
 	uint16 opcode;
 	uint8 plen;
@@ -39,10 +41,12 @@ typedef BWL_PRE_PACKED_STRUCT struct amp_hci_cmd {
 #define HCI_CMD_PREAMBLE_SIZE		OFFSETOF(amp_hci_cmd_t, parms)
 #define HCI_CMD_DATA_SIZE		255
 
+/* AMP HCI CMD opcode layout */
 #define HCI_CMD_OPCODE(ogf, ocf)	((((ogf) & 0x3F) << 10) | ((ocf) & 0x03FF))
 #define HCI_CMD_OGF(opcode)		((uint8)(((opcode) >> 10) & 0x3F))
 #define HCI_CMD_OCF(opcode)		((opcode) & 0x03FF)
 
+/* AMP HCI command opcodes */
 #define HCI_Read_Failed_Contact_Counter		HCI_CMD_OPCODE(0x05, 0x0001)
 #define HCI_Reset_Failed_Contact_Counter	HCI_CMD_OPCODE(0x05, 0x0002)
 #define HCI_Read_Link_Quality			HCI_CMD_OPCODE(0x05, 0x0003)
@@ -77,9 +81,10 @@ typedef BWL_PRE_PACKED_STRUCT struct amp_hci_cmd {
 #define HCI_Read_Buffer_Size			HCI_CMD_OPCODE(0x04, 0x0005)
 #define HCI_Read_Data_Block_Size		HCI_CMD_OPCODE(0x04, 0x000A)
 
+/* AMP HCI command parameters */
 typedef BWL_PRE_PACKED_STRUCT struct read_local_cmd_parms {
 	uint8 plh;
-	uint8 offset[2];			
+	uint8 offset[2];			/* length so far */
 	uint8 max_remote[2];
 } BWL_POST_PACKED_STRUCT read_local_cmd_parms_t;
 
@@ -165,10 +170,12 @@ typedef BWL_PRE_PACKED_STRUCT struct eflush_cmd_parms {
 	uint8 packet_type;
 } BWL_POST_PACKED_STRUCT eflush_cmd_parms_t;
 
+/* Generic AMP extended flow spec service types */
 #define EFS_SVCTYPE_NO_TRAFFIC		0
 #define EFS_SVCTYPE_BEST_EFFORT		1
 #define EFS_SVCTYPE_GUARANTEED		2
 
+/* AMP HCI event packet format */
 typedef BWL_PRE_PACKED_STRUCT struct amp_hci_event {
 	uint8 ecode;
 	uint8 plen;
@@ -177,6 +184,7 @@ typedef BWL_PRE_PACKED_STRUCT struct amp_hci_event {
 
 #define HCI_EVT_PREAMBLE_SIZE			OFFSETOF(amp_hci_event_t, parms)
 
+/* AMP HCI event codes */
 #define HCI_Command_Complete			0x0E
 #define HCI_Command_Status			0x0F
 #define HCI_Flush_Occurred			0x11
@@ -192,6 +200,7 @@ typedef BWL_PRE_PACKED_STRUCT struct amp_hci_event {
 #define HCI_Status_Change_Event			0x4D
 #define HCI_Vendor_Specific			0xFF
 
+/* AMP HCI event mask bit positions */
 #define HCI_Physical_Link_Complete_Event_Mask			0x0001
 #define HCI_Channel_Select_Event_Mask				0x0002
 #define HCI_Disconnect_Physical_Link_Complete_Event_Mask	0x0004
@@ -202,6 +211,7 @@ typedef BWL_PRE_PACKED_STRUCT struct amp_hci_event {
 #define HCI_Short_Range_Mode_Change_Complete_Event_Mask		0x1000
 #define HCI_Status_Change_Event_Mask				0x2000
 #define HCI_All_Event_Mask					0x31e7
+/* AMP HCI event parameters */
 typedef BWL_PRE_PACKED_STRUCT struct cmd_status_parms {
 	uint8 status;
 	uint8 cmdpkts;
@@ -374,6 +384,7 @@ typedef BWL_PRE_PACKED_STRUCT struct status_change_evt_parms {
 	uint8 amp_status;
 } BWL_POST_PACKED_STRUCT status_change_evt_parms_t;
 
+/* AMP HCI error codes */
 #define HCI_SUCCESS				0x00
 #define HCI_ERR_ILLEGAL_COMMAND			0x01
 #define HCI_ERR_NO_CONNECTION			0x02
@@ -393,9 +404,10 @@ typedef BWL_PRE_PACKED_STRUCT struct status_change_evt_parms {
 #define HCI_ERR_NO_SUITABLE_CHANNEL		0x39
 #define HCI_ERR_CHANNEL_MOVE			0xFF
 
+/* AMP HCI ACL Data packet format */
 typedef BWL_PRE_PACKED_STRUCT struct amp_hci_ACL_data {
-	uint16	handle;			
-	uint16	dlen;			
+	uint16	handle;			/* 12-bit connection handle + 2-bit PB and 2-bit BC flags */
+	uint16	dlen;			/* data total length */
 	uint8 data[1];
 } BWL_POST_PACKED_STRUCT amp_hci_ACL_data_t;
 
@@ -407,6 +419,7 @@ typedef BWL_PRE_PACKED_STRUCT struct amp_hci_ACL_data {
 #define HCI_ACL_DATA_HANDLE(handle)	((handle) & 0x0fff)
 #define HCI_ACL_DATA_FLAGS(handle)	((handle) >> 12)
 
+/* AMP Activity Report packet formats */
 typedef BWL_PRE_PACKED_STRUCT struct amp_hci_activity_report {
 	uint8	ScheduleKnown;
 	uint8	NumReports;
@@ -422,6 +435,7 @@ typedef BWL_PRE_PACKED_STRUCT struct amp_hci_activity_report_triple {
 #define HCI_AR_SCHEDULE_KNOWN		0x01
 
 
+/* This marks the end of a packed structure section. */
 #include <packed_section_end.h>
 
-#endif 
+#endif /* _bt_amp_hci_h_ */

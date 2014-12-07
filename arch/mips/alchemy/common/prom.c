@@ -56,6 +56,10 @@ void __init prom_init_cmdline(void)
 
 char *prom_getenv(char *envname)
 {
+	/*
+	 * Return a pointer to the given environment variable.
+	 * YAMON uses "name", "value" pairs, while U-Boot uses "name=value".
+	 */
 
 	char **env = prom_envp;
 	int i = strlen(envname);
@@ -82,7 +86,7 @@ static inline unsigned char str2hexnum(unsigned char c)
 	if (c >= 'A' && c <= 'F')
 		return c - 'A' + 10;
 
-	return 0; 
+	return 0; /* foo */
 }
 
 static inline void str2eaddr(unsigned char *ea, unsigned char *str)
@@ -104,10 +108,10 @@ int __init prom_get_ethernet_addr(char *ethernet_addr)
 {
 	char *ethaddr_str;
 
-	
+	/* Check the environment variables first */
 	ethaddr_str = prom_getenv("ethaddr");
 	if (!ethaddr_str) {
-		
+		/* Check command line */
 		ethaddr_str = strstr(arcs_cmdline, "ethaddr=");
 		if (!ethaddr_str)
 			return -1;

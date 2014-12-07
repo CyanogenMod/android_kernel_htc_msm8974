@@ -1,4 +1,16 @@
+/*******************************************************************************
+ *  OisDef.h - Header file for LC898111 CBL,CB,BG
+ *
+ *  SANYO Semiconductor
+ *
+ *  REVISION:
+ *      2011/04/08 - First Edition, d.yamagata
+ ******************************************************************************/
 
+//==============================================================================
+//Hall Register
+//==============================================================================
+//#define                                       0x0000
 #define         LCXFC                   0x0001
 #define         LCX1INADD               0x0002
 #define         LCX1OUTADD              0x0003
@@ -20,6 +32,80 @@
 #define         LXEQFC3                 0x0013
 #define         LYEQFC3                 0x0014
 #define         AJTA2                   0x0015
+//#define                                       0x0016
+//#define                                       0x0017
+//#define                                       0x0018
+//#define                                       0x0019
+//#define                                       0x001A
+//#define                                       0x001B
+//#define                                       0x001C
+//#define                                       0x001D
+//#define                                       0x001E
+//#define                                       0x001F
+//#define                                       0x0020
+//#define                                       0x0021
+//#define                                       0x0022
+//#define                                       0x0023
+//#define                                       0x0024
+//#define                                       0x0025
+//#define                                       0x0026
+//#define                                       0x0027
+//#define                                       0x0028
+//#define                                       0x0029
+//#define                                       0x002A
+//#define                                       0x002B
+//#define                                       0x002C
+//#define                                       0x002D
+//#define                                       0x002E
+//#define                                       0x002F
+//#define                                       0x0030
+//#define                                       0x0031
+//#define                                       0x0032
+//#define                                       0x0033
+//#define                                       0x0034
+//#define                                       0x0035
+//#define                                       0x0036
+//#define                                       0x0037
+//#define                                       0x0038
+//#define                                       0x0039
+//#define                                       0x003A
+//#define                                       0x003B
+//#define                                       0x003C
+//#define                                       0x003D
+//#define                                       0x003E
+//#define                                       0x003F
+//#define                                       0x0040
+//#define                                       0x0041
+//#define                                       0x0042
+//#define                                       0x0043
+//#define                                       0x0044
+//#define                                       0x0045
+//#define                                       0x0046
+//#define                                       0x0047
+//#define                                       0x0048
+//#define                                       0x0049
+//#define                                       0x004A
+//#define                                       0x004B
+//#define                                       0x004C
+//#define                                       0x004D
+//#define                                       0x004E
+//#define                                       0x004F
+//#define                                       0x0050
+//#define                                       0x0051
+//#define                                       0x0052
+//#define                                       0x0053
+//#define                                       0x0054
+//#define                                       0x0055
+//#define                                       0x0056
+//#define                                       0x0057
+//#define                                       0x0058
+//#define                                       0x0059
+//#define                                       0x005A
+//#define                                       0x005B
+//#define                                       0x005C
+//#define                                       0x005D
+//#define                                       0x005E
+//#define                                       0x005F
 #define         PWMFRQSPX               0x0060
 #define         PWMFRQSPY               0x0061
 #define         PWMPERIODX              0x0062
@@ -30,11 +116,16 @@
 #define         STROBEDLYY              0x0067
 #define         DRVFC2                  0x0068
 #define         LNFC2                   0x0069
+//#define                                       0x006A
+//#define                                       0x006B
+//#define                                       0x006C
+//#define                                       0x006D
 #define         DRIFFC                  0x006E
 #define         DRIFTIME                0x006F
 #define 	    DRVFC                   0x0070
 #define 	    DRVSELX                 0x0071
 #define 	    DRVSELY                 0x0072
+//#define                                       0x0073
 #define 	    PWMA                    0x0074
 #define 	    PWMFC                   0x0075
 #define 	    PWMDLY1                 0x0076
@@ -171,11 +262,14 @@
 #define         FLGIST                  0x00F9
 #define         FLGIM2                  0x00FA
 #define         FLGIST2                 0x00FB
-#define         SVMONA                  0x00FC		
-#define         SVMONB                  0x00FD		
-#define         SVMONC                  0x00FE		
-#define         SVMOND                  0x00FF		
+#define         SVMONA                  0x00FC		// MON[0]
+#define         SVMONB                  0x00FD		// MON[1]
+#define         SVMONC                  0x00FE		// MON[2]
+#define         SVMOND                  0x00FF		// MON[3]
 
+//==============================================================================
+//Gyro Register
+//==============================================================================
 #define         GEQON                   0x0100
 #define         GEQSW                   0x0101
 #define         GSHAKEON                0x0102
@@ -297,8 +391,13 @@
 #define         GDPO2ADD0               0x0176
 #define         GDPO2ADD1               0x0177
 #define         GPOSCOEF                0x0178
+//#define                                       0x0179
 #define         WG_HCHR                 0x017A
 #define         WG_LSEL                 0x017B
+//#define                                       0x017C
+//#define                                       0x017D
+//#define                                       0x017E
+//#define                                       0x017F
 #define         GPINMON1                0x0180
 #define         GPINMON2                0x0181
 #define         GPINMON3                0x0182
@@ -313,17 +412,104 @@
 #define         GDLYMON41               0x018B
 #define         GINTMSK                 0x018C
 #define         GCPUINTMOD              0x018D
+//#define                                       0x018E
 #define         GSINTST                 0x018F
 #define         GFRCAD                  0x0190
 #define         GFRCADEN                0x0191
 #define         GADRES                  0x0192
 #define         GTSTGMON                0x0193
+//#define                                       0x0194
+//#define                                       0x0195
+//#define                                       0x0196
+//#define                                       0x0197
+//#define                                       0x0198
+//#define                                       0x0199
 #define         GFRAC                   0x019A
 #define         GFL2FXLMT               0x019B
 #define         GEXPLMTH                0x019C
 #define         GEXPLMTL                0x019D
 #define         GRAMACCTM0              0x019E
 #define         GRAMACCTM1              0x019F
+//#define                                       0x01A0
+//#define                                       0x01A1
+//#define                                       0x01A2
+//#define                                       0x01A3
+//#define                                       0x01A4
+//#define                                       0x01A5
+//#define                                       0x01A6
+//#define                                       0x01A7
+//#define                                       0x01A8
+//#define                                       0x01A9
+//#define                                       0x01AA
+//#define                                       0x01AB
+//#define                                       0x01AC
+//#define                                       0x01AD
+//#define                                       0x01AE
+//#define                                       0x01AF
+//#define                                       0x01B0
+//#define                                       0x01B1
+//#define                                       0x01B2
+//#define                                       0x01B3
+//#define                                       0x01B4
+//#define                                       0x01B5
+//#define                                       0x01B6
+//#define                                       0x01B7
+//#define                                       0x01B8
+//#define                                       0x01B9
+//#define                                       0x01BA
+//#define                                       0x01BB
+//#define                                       0x01BC
+//#define                                       0x01BD
+//#define                                       0x01BE
+//#define                                       0x01BF
+//#define                                       0x01C0
+//#define                                       0x01C1
+//#define                                       0x01C2
+//#define                                       0x01C3
+//#define                                       0x01C4
+//#define                                       0x01C5
+//#define                                       0x01C6
+//#define                                       0x01C7
+//#define                                       0x01C8
+//#define                                       0x01C9
+//#define                                       0x01CA
+//#define                                       0x01CB
+//#define                                       0x01CC
+//#define                                       0x01CD
+//#define                                       0x01CE
+//#define                                       0x01CF
+//#define                                       0x01D0
+//#define                                       0x01D1
+//#define                                       0x01D2
+//#define                                       0x01D3
+//#define                                       0x01D4
+//#define                                       0x01D5
+//#define                                       0x01D6
+//#define                                       0x01D7
+//#define                                       0x01D8
+//#define                                       0x01D9
+//#define                                       0x01DA
+//#define                                       0x01DB
+//#define                                       0x01DC
+//#define                                       0x01DD
+//#define                                       0x01DE
+//#define                                       0x01DF
+//#define                                       0x01E0
+//#define                                       0x01E1
+//#define                                       0x01E2
+//#define                                       0x01E3
+//#define                                       0x01E4
+//#define                                       0x01E5
+//#define                                       0x01E6
+//#define                                       0x01E7
+//#define                                       0x01E8
+//#define                                       0x01E9
+//#define                                       0x01EA
+//#define                                       0x01EB
+//#define                                       0x01EC
+//#define                                       0x01ED
+//#define                                       0x01EE
+//#define                                       0x01EF
 #define         GXPANFIL                0x01F0
 #define         GYPANFIL                0x01F1
 #define         GXPANRAW                0x01F2
@@ -341,14 +527,41 @@
 #define         GFLG                    0x01FE
 #define         GINT                    0x01FF
 
+//==============================================================================
+//System Register
+//==============================================================================
+//#define                                       0x0200
+//#define                                       0x0201
+//#define                                       0x0202
+//#define                                       0x0203
+//#define                                       0x0204
+//#define                                       0x0205
+//#define                                       0x0206
+//#define                                       0x0207
+//#define                                       0x0208
+//#define                                       0x0209
 #define         CLKTST                  0x020A
 #define         CLKON                   0x020B
+//#define                                       0x020C
+//#define                                       0x020D
+//#define                                       0x020E
+//#define                                       0x020F
 #define         EEPDIV                  0x0210
 #define         SRVDIV                  0x0211
 #define         PWMDIV                  0x0212
 #define         TSTDIV                  0x0213
 #define         GIFDIV                  0x0214
 #define         CALDIV                  0x0215
+//#define                                       0x0216
+//#define                                       0x0217
+//#define                                       0x0218
+//#define                                       0x0219
+//#define                                       0x021A
+//#define                                       0x021B
+//#define                                       0x021C
+//#define                                       0x021D
+//#define                                       0x021E
+//#define                                       0x021F
 #define         P0LEV0                  0x0220
 
 #define         P0LEV1                  0x0221
@@ -361,6 +574,14 @@
 #define         P0PON1                  0x0225
 #define         P0PUD0                  0x0226
 #define         P0PUD1                  0x0227
+//#define                                       0x0228
+//#define                                       0x0229
+//#define                                       0x022A
+//#define                                       0x022B
+//#define                                       0x022C
+//#define                                       0x022D
+//#define                                       0x022E
+//#define                                       0x022F
 #define         IOP0SEL                 0x0230
 #define         IOP1SEL                 0x0231
 #define         IOP2SEL                 0x0232
@@ -374,8 +595,28 @@
 
 #define         IOP8SEL                 0x0238
 
+//#define                                       0x0239
+//#define                                       0x023A
+//#define                                       0x023B
+//#define                                       0x023C
+//#define                                       0x023D
+//#define                                       0x023E
+//#define                                       0x023F
 #define         BSYSEL                  0x0240
+//#define                                       0x0241
+//#define                                       0x0242
+//#define                                       0x0243
+//#define                                       0x0244
+//#define                                       0x0245
+//#define                                       0x0246
+//#define                                       0x0247
 #define         SPIMD3                  0x0248
+//#define                                       0x0249
+//#define                                       0x024A
+//#define                                       0x024B
+//#define                                       0x024C
+//#define                                       0x024D
+//#define                                       0x024E
 #define         TSTREG                  0x024F
 #define         I2CSEL                  0x0250
 #define         SRMODE                  0x0251
@@ -388,6 +629,11 @@
 #define         AFSTENB                 0x0258
 #define         AFSTDAT                 0x0259
 #define         AFSTREV                 0x025A
+//#define                                       0x025B
+//#define                                       0x025C
+//#define                                       0x025D
+//#define                                       0x025E
+//#define                                       0x025F
 #define         STBB                    0x0260
 #define         CMSDAC                  0x0261
 #define         OPGSEL                  0x0262
@@ -402,17 +648,27 @@
 #define         OSCCK_CNTR0             0x026B
 #define         OSCCK_CNTR1             0x026C
 #define         EXTCNTEN                0x026D
+//#define                                       0x026E
+//#define                                       0x026F
 #define         MONSELA                 0x0270
 #define         MONSELB                 0x0271
 #define         MONSELC                 0x0272
 #define         MONSELD                 0x0273
 #define         CmMonTst                0x0274
+//#define                                       0x0275
+//#define                                       0x0276
+//#define                                       0x0277
 #define         SOFRES1                 0x0278
 #define         SOFRES2                 0x0279
+//#define                                       0x027A
+//#define                                       0x027B
+//#define                                       0x027C
+//#define                                       0x027D
 #define         CVER                    0x027E
 #define         TESTRD                  0x027F
 
 #ifdef		I2CE2PROM
+/* I2C EEPROM Address */
  #define         E2ACC					0x0280
  #define         E2L					0x0281
  #define         E2H					0x0282
@@ -421,10 +677,131 @@
  #define         E2DAT2					0x0285
  #define         E2DAT3					0x0286
 
+//#define                                       0x0287
+//#define                                       0x0288
+//#define                                       0x0289
+//#define                                       0x028A
+//#define                                       0x028B
+//#define                                       0x028C
+//#define                                       0x028D
+//#define                                       0x028E
+//#define                                       0x028F
+// #define			ESLVA					0x0290			/* for Eeprom  change from SLVA to ESLVA */
  #define			E2SRT					0x0291
+//#define		TEST0					0x0292
+//#define		TEST1					0x0293
 #endif
+//#define                                       0x0294
+//#define                                       0x0295
+//#define                                       0x0296
+//#define                                       0x0297
+//#define                                       0x0298
+//#define                                       0x0299
+//#define                                       0x029A
+//#define                                       0x029B
+//#define                                       0x029C
+//#define                                       0x029D
+//#define                                       0x029E
+//#define                                       0x029F
+//#define                                       0x02A0
+//#define                                       0x02A1
+//#define                                       0x02A2
+//#define                                       0x02A3
+//#define                                       0x02A4
+//#define                                       0x02A5
+//#define                                       0x02A6
+//#define                                       0x02A7
+//#define                                       0x02A8
+//#define                                       0x02A9
+//#define                                       0x02AA
+//#define                                       0x02AB
+//#define                                       0x02AC
+//#define                                       0x02AD
+//#define                                       0x02AE
+//#define                                       0x02AF
+//#define                                       0x02B0
+//#define                                       0x02B1
+//#define                                       0x02B2
+//#define                                       0x02B3
+//#define                                       0x02B4
+//#define                                       0x02B5
+//#define                                       0x02B6
+//#define                                       0x02B7
+//#define                                       0x02B8
+//#define                                       0x02B9
+//#define                                       0x02BA
+//#define                                       0x02BB
+//#define                                       0x02BC
+//#define                                       0x02BD
+//#define                                       0x02BE
+//#define                                       0x02BF
+//#define                                       0x02C0
+//#define                                       0x02C1
+//#define                                       0x02C2
+//#define                                       0x02C3
+//#define                                       0x02C4
+//#define                                       0x02C5
+//#define                                       0x02C6
+//#define                                       0x02C7
+//#define                                       0x02C8
+//#define                                       0x02C9
+//#define                                       0x02CA
+//#define                                       0x02CB
+//#define                                       0x02CC
+//#define                                       0x02CD
+//#define                                       0x02CE
+//#define                                       0x02CF
+//#define                                       0x02D0
+//#define                                       0x02D1
+//#define                                       0x02D2
+//#define                                       0x02D3
+//#define                                       0x02D4
+//#define                                       0x02D5
+//#define                                       0x02D6
+//#define                                       0x02D7
+//#define                                       0x02D8
+//#define                                       0x02D9
+//#define                                       0x02DA
+//#define                                       0x02DB
+//#define                                       0x02DC
+//#define                                       0x02DD
+//#define                                       0x02DE
+//#define                                       0x02DF
+//#define                                       0x02E0
+//#define                                       0x02E1
+//#define                                       0x02E2
+//#define                                       0x02E3
+//#define                                       0x02E4
+//#define                                       0x02E5
+//#define                                       0x02E6
+//#define                                       0x02E7
+//#define                                       0x02E8
+//#define                                       0x02E9
+//#define                                       0x02EA
+//#define                                       0x02EB
+//#define                                       0x02EC
+//#define                                       0x02ED
+//#define                                       0x02EE
+//#define                                       0x02EF
+//#define                                       0x02F0
+//#define                                       0x02F1
+//#define                                       0x02F2
+//#define                                       0x02F3
+//#define                                       0x02F4
+//#define                                       0x02F5
+//#define                                       0x02F6
+//#define                                       0x02F7
+//#define                                       0x02F8
+//#define                                       0x02F9
+//#define                                       0x02FA
+//#define                                       0x02FB
+//#define                                       0x02FC
+//#define                                       0x02FD
+//#define                                       0x02FE
+//#define                                       0x02FF
 
 #ifdef		SPIE2PROM
+/* SPI EEPROM Address Sequential Command */
  #define			E2ACCR				0x0300
  #define			E2ACCW				0x0301
  #define			E2L					0x0302
@@ -436,7 +813,129 @@
  #define			E2DATS				0x0308
 #endif
 
+//#define                                       0x0309
+//#define                                       0x030A
+//#define                                       0x030B
+//#define                                       0x030C
+//#define                                       0x030D
+//#define                                       0x030E
+//#define                                       0x030F
+//#define                                       0x0310
+//#define                                       0x0311
+//#define                                       0x0312
+//#define                                       0x0313
+//#define                                       0x0314
+//#define                                       0x0315
+//#define                                       0x0316
+//#define                                       0x0317
+//#define                                       0x0318
+//#define                                       0x0319
+//#define                                       0x031A
+//#define                                       0x031B
+//#define                                       0x031C
+//#define                                       0x031D
+//#define                                       0x031E
+//#define                                       0x031F
+//#define                                       0x0320
+//#define                                       0x0321
+//#define                                       0x0322
+//#define                                       0x0323
+//#define                                       0x0324
+//#define                                       0x0325
+//#define                                       0x0326
+//#define                                       0x0327
+//#define                                       0x0328
+//#define                                       0x0329
+//#define                                       0x032A
+//#define                                       0x032B
+//#define                                       0x032C
+//#define                                       0x032D
+//#define                                       0x032E
+//#define                                       0x032F
+//#define                                       0x0330
+//#define                                       0x0331
+//#define                                       0x0332
+//#define                                       0x0333
+//#define                                       0x0334
+//#define                                       0x0335
+//#define                                       0x0336
+//#define                                       0x0337
+//#define                                       0x0338
+//#define                                       0x0339
+//#define                                       0x033A
+//#define                                       0x033B
+//#define                                       0x033C
+//#define                                       0x033D
+//#define                                       0x033E
+//#define                                       0x033F
+//#define                                       0x0340
+//#define                                       0x0341
+//#define                                       0x0342
+//#define                                       0x0343
+//#define                                       0x0344
+//#define                                       0x0345
+//#define                                       0x0346
+//#define                                       0x0347
+//#define                                       0x0348
+//#define                                       0x0349
+//#define                                       0x034A
+//#define                                       0x034B
+//#define                                       0x034C
+//#define                                       0x034D
+//#define                                       0x034E
+//#define                                       0x034F
+//#define                                       0x0350
+//#define                                       0x0351
+//#define                                       0x0352
+//#define                                       0x0353
+//#define                                       0x0354
+//#define                                       0x0355
+//#define                                       0x0356
+//#define                                       0x0357
+//#define                                       0x0358
+//#define                                       0x0359
+//#define                                       0x035A
+//#define                                       0x035B
+//#define                                       0x035C
+//#define                                       0x035D
+//#define                                       0x035E
+//#define                                       0x035F
+//#define                                       0x0360
+//#define                                       0x0361
+//#define                                       0x0362
+//#define                                       0x0363
+//#define                                       0x0364
+//#define                                       0x0365
+//#define                                       0x0366
+//#define                                       0x0367
+//#define                                       0x0368
+//#define                                       0x0369
+//#define                                       0x036A
+//#define                                       0x036B
+//#define                                       0x036C
+//#define                                       0x036D
+//#define                                       0x036E
+//#define                                       0x036F
+//#define                                       0x0370
+//#define                                       0x0371
+//#define                                       0x0372
+//#define                                       0x0373
+//#define                                       0x0374
+//#define                                       0x0375
+//#define                                       0x0376
+//#define                                       0x0377
+//#define                                       0x0378
+//#define                                       0x0379
+//#define                                       0x037A
+//#define                                       0x037B
+//#define                                       0x037C
+//#define                                       0x037D
+//#define                                       0x037E
+//#define                                       0x037F
 
+//==============================================================================
+//Digital Gyro I/F Register
+//==============================================================================
 #define         GRSEL                   0x0380
 #define         GRINI                   0x0381
 	#define			SLOWMODE					0x04
@@ -468,10 +967,24 @@
 #define         GRADT5L                 0x039B
 #define         GRADT6H                 0x039C
 #define         GRADT6L                 0x039D
+//#define                                       0x039E
+//#define                                       0x039F
 #define         IZAH                    0x03A0
 #define         IZAL                    0x03A1
 #define         IZBH                    0x03A2
 #define         IZBL                    0x03A3
+//#define                                       0x03A4
+//#define                                       0x03A5
+//#define                                       0x03A6
+//#define                                       0x03A7
+//#define                                       0x03A8
+//#define                                       0x03A9
+//#define                                       0x03AA
+//#define                                       0x03AB
+//#define                                       0x03AC
+//#define                                       0x03AD
+//#define                                       0x03AE
+//#define                                       0x03AF
 #define         GRINT                   0x03B0
 #define         HPS0AD                  0x03B1
 #define         HPS0DAT                 0x03B2
@@ -479,14 +992,83 @@
 #define         HPS1DAT                 0x03B4
 #define         HPS2AD                  0x03B5
 #define         HPS2DAT                 0x03B6
+//#define                                       0x03B7
 #define         GRFLG0                  0x03B8
 #define         GRFLG1                  0x03B9
 #define         HPSWAIT                 0x03BA
+//#define                                       0x03BB
+//#define                                       0x03BC
+//#define                                       0x03BD
+//#define                                       0x03BE
+//#define                                       0x03BF
 #define         SLVA                    0x03C0
 #define         DGSTAT0                 0x03C1
 #define         DGSTAT1                 0x03C2
+//#define                                       0x03C3
+//#define                                       0x03C4
+//#define                                       0x03C5
+//#define                                       0x03C6
+//#define                                       0x03C7
+//#define                                       0x03C8
+//#define                                       0x03C9
+//#define                                       0x03CA
+//#define                                       0x03CB
+//#define                                       0x03CC
+//#define                                       0x03CD
+//#define                                       0x03CE
+//#define                                       0x03CF
 #define         BURST                   0x03D0
+//#define                                       0x03D1
+//#define                                       0x03D2
+//#define                                       0x03D3
+//#define                                       0x03D4
+//#define                                       0x03D5
+//#define                                       0x03D6
+//#define                                       0x03D7
+//#define                                       0x03D8
+//#define                                       0x03D9
+//#define                                       0x03DA
+//#define                                       0x03DB
+//#define                                       0x03DC
+//#define                                       0x03DD
+//#define                                       0x03DE
+//#define                                       0x03DF
+//#define                                       0x03E0
+//#define                                       0x03E1
+//#define                                       0x03E2
+//#define                                       0x03E3
+//#define                                       0x03E4
+//#define                                       0x03E5
+//#define                                       0x03E6
+//#define                                       0x03E7
+//#define                                       0x03E8
+//#define                                       0x03E9
+//#define                                       0x03EA
+//#define                                       0x03EB
+//#define                                       0x03EC
+//#define                                       0x03ED
+//#define                                       0x03EE
+//#define                                       0x03EF
+//#define                                       0x03F0
+//#define                                       0x03F1
+//#define                                       0x03F2
+//#define                                       0x03F3
+//#define                                       0x03F4
+//#define                                       0x03F5
+//#define                                       0x03F6
+//#define                                       0x03F7
+//#define                                       0x03F8
+//#define                                       0x03F9
+//#define                                       0x03FA
+//#define                                       0x03FB
+//#define                                       0x03FC
+//#define                                       0x03FD
+//#define                                       0x03FE
+//#define                                       0x03FF
 
+//==============================================================================
+//Hall RAM
+//==============================================================================
 #define         SVTR_100                0x1100
 #define         HXIDAT                  0x1101
 #define         ADHXOFF                 0x1102
@@ -507,10 +1089,10 @@
 #define         GYRMON2                 0x1111
 #define         GYRMON3                 0x1112
 #define         GYRMON4                 0x1113
-#define         DAHLXO                  0x1114      
-#define         DAHLXB                  0x1115      
-#define         DAHLYO                  0x1116      
-#define         DAHLYB                  0x1117      
+#define         DAHLXO                  0x1114      // Hall X Op-Amp Offset
+#define         DAHLXB                  0x1115      // Hall X Op-Amp Bias
+#define         DAHLYO                  0x1116      // Hall Y Op-Amp Offset
+#define         DAHLYB                  0x1117      // Hall Y Op-Amp Bias
 #define         HLXBINI                 0x1118
 #define         HLYBINI                 0x1119
 #define         HLXBOG                  0x111A
@@ -909,6 +1491,7 @@
 #define         MSCAP2                  0x12AC
 #define         XAP                     0x12AD
 #define         YAP                     0x12AE
+//#define                                       0x12AF
 #define         IOROCX00                0x12B0
 #define         IOROCX01                0x12B1
 #define         IOROCX02                0x12B2
@@ -957,6 +1540,22 @@
 #define         LCX2A4                  0x12DD
 #define         LCX2A5                  0x12DE
 #define         LCX2A6                  0x12DF
+//#define                                       0x12E0
+//#define                                       0x12E1
+//#define                                       0x12E2
+//#define                                       0x12E3
+//#define                                       0x12E4
+//#define                                       0x12E5
+//#define                                       0x12E6
+//#define                                       0x12E7
+//#define                                       0x12E8
+//#define                                       0x12E9
+//#define                                       0x12EA
+//#define                                       0x12EB
+//#define                                       0x12EC
+//#define                                       0x12ED
+//#define                                       0x12EE
+//#define                                       0x12EF
 #define         PZXPCNTD                0x12F0
 #define         PZYPCNTD                0x12F1
 #define         LCY1A0                  0x12F2
@@ -1015,7 +1614,7 @@
 #define         lxjd                    0x1327
 #define         lxje                    0x1328
 #define         lxigo                   0x1329
-#define         lxgain                  0x132A  
+#define         lxgain                  0x132A  // Loop Gain X
 #define         lxxg                    0x132B
 #define         lxggb                   0x132C
 #define         lxdobg                  0x132D
@@ -1079,7 +1678,7 @@
 #define         lyjd                    0x1367
 #define         lyje                    0x1368
 #define         lyigo                   0x1369
-#define         lygain                  0x136A  
+#define         lygain                  0x136A  // Loop Gain Y
 #define         lyxg                    0x136B
 #define         lyggb                   0x136C
 #define         lydobg                  0x136D
@@ -1230,6 +1829,9 @@
 #define         lygain2                 0x13FE
 #define         lyggb2                  0x13FF
 
+//==============================================================================
+//Gyro RAM
+//==============================================================================
 #define         gxgyro                  0x1800
 #define         gxgma                   0x1801
 #define         gxgmc                   0x1802
@@ -1390,15 +1992,15 @@
 #define         gxgain_c                0x189D
 #define         gxistp_c                0x189E
 #define         Sttx34aH                0x189F
-#define         gxh1a_2                 0x18A0   
-#define         gxh1b_2                 0x18A1   
-#define         gxh1c_2                 0x18A2   
-#define         gxh2a_2                 0x18A3   
-#define         gxh2b_2                 0x18A4   
+#define         gxh1a_2                 0x18A0   // Egxslwganmin
+#define         gxh1b_2                 0x18A1   // Egxslwgantyp
+#define         gxh1c_2                 0x18A2   // Egxslwganmax
+#define         gxh2a_2                 0x18A3   // Egxslwganstp1
+#define         gxh2b_2                 0x18A4   // Eglslwganstp2
 #define         gxh2c_2                 0x18A5
-#define         gxl1a_2                 0x18A6   
-#define         gxl1b_2                 0x18A7   
-#define         gxl1c_2                 0x18A8   
+#define         gxl1a_2                 0x18A6   // Egxslwfcmin
+#define         gxl1b_2                 0x18A7   // Egxslwfcmax
+#define         gxl1c_2                 0x18A8   // Egxslwfcstp
 #define         gxgma_2                 0x18A9
 #define         gxzoom_2                0x18AA
 #define         gxlens_2                0x18AB
@@ -1470,6 +2072,7 @@
 #define         GY45Z                   0x18EC
 #define         SttxHtmp                0x18ED
 #define         GYLMT3Z                 0x18EE
+//#define       (BF80_0000h)                    0x18EF
 #define         GYREFZ                  0x18F0
 #define         GYTZ1                   0x18F1
 #define         GYTZ2                   0x18F2
@@ -1485,6 +2088,7 @@
 #define         PYBMZ                   0x18FC
 #define         PYMBZ1                  0x18FD
 #define         PYMBZ2                  0x18FE
+//#define       (3F80_0000h)                    0x18FF
 
 #define         gygyro                  0x1900
 #define         gygma                   0x1901
@@ -1646,15 +2250,15 @@
 #define         gygain_c                0x199D
 #define         gyistp_c                0x199E
 #define         Stty34aH                0x199F
-#define         gyh1a_2                 0x19A0  
-#define         gyh1b_2                 0x19A1  
-#define         gyh1c_2                 0x19A2  
-#define         gyh2a_2                 0x19A3  
-#define         gyh2b_2                 0x19A4  
+#define         gyh1a_2                 0x19A0  // Egyslwganmin
+#define         gyh1b_2                 0x19A1  // Egyslwgantyp
+#define         gyh1c_2                 0x19A2  // Egyslwganmax
+#define         gyh2a_2                 0x19A3  // Egyslwganstp1
+#define         gyh2b_2                 0x19A4  // Eglslwganstp2
 #define         gyh2c_2                 0x19A5
-#define         gyl1a_2                 0x19A6  
-#define         gyl1b_2                 0x19A7  
-#define         gyl1c_2                 0x19A8  
+#define         gyl1a_2                 0x19A6  // Egyslwfcmin
+#define         gyl1b_2                 0x19A7  // Egyslwfcmax
+#define         gyl1c_2                 0x19A8  // Egyslwfcstp
 #define         gygma_2                 0x19A9
 #define         gyzoom_2                0x19AA
 #define         gylens_2                0x19AB
@@ -1726,6 +2330,7 @@
 #define         GX45Z                   0x19EC
 #define         SttyHtmp                0x19ED
 #define         GXLMT3Z                 0x19EE
+//#define       (BF80_0000h)                    0x19EF
 #define         GXREFZ                  0x19F0
 #define         GXTZ1                   0x19F1
 #define         GXTZ2                   0x19F2
@@ -1741,3 +2346,4 @@
 #define         PXBMZ                   0x19FC
 #define         PXMBZ1                  0x19FD
 #define         PXMBZ2                  0x19FE
+//#define       (3F80_0000h)                    0x19FF

@@ -76,4 +76,4 @@ static inline void soc_camera_platform_del(const struct soc_camera_device *icd,
 	platform_device_unregister(pdev);
 }
 
-#endif 
+#endif /* __SOC_CAMERA_H__ */

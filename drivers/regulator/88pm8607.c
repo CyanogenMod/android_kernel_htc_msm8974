@@ -421,11 +421,11 @@ static int __devinit pm8607_regulator_probe(struct platform_device *pdev)
 	info->i2c = (chip->id == CHIP_PM8607) ? chip->client : chip->companion;
 	info->chip = chip;
 
-	
+	/* check DVC ramp slope double */
 	if ((i == PM8607_ID_BUCK3) && info->chip->buck3_double)
 		info->slope_double = 1;
 
-	
+	/* replace driver_data with info */
 	info->regulator = regulator_register(&info->desc, &pdev->dev,
 					     pdata, info, NULL);
 	if (IS_ERR(info->regulator)) {

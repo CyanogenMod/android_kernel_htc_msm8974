@@ -21,4 +21,4 @@
 #include <linux/types.h>
 typedef u32 rms_word;
 
-#endif 
+#endif /* RMSTYPES_ */

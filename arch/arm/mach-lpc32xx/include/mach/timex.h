@@ -19,6 +19,10 @@
 #ifndef __ASM_ARCH_TIMEX_H
 #define __ASM_ARCH_TIMEX_H
 
+/*
+ * Rate in Hz of the main system oscillator. This value should match
+ * the value 'MAIN_OSC_FREQ' in platform.h
+ */
 #define CLOCK_TICK_RATE	13000000
 
 #endif

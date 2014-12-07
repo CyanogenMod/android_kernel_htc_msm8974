@@ -22,8 +22,10 @@
 #include <linux/mfd/wm831x/core.h>
 #include <linux/mfd/wm831x/otp.h>
 
+/* In bytes */
 #define WM831X_UNIQUE_ID_LEN 16
 
+/* Read the unique ID from the chip into id */
 static int wm831x_unique_id_read(struct wm831x *wm831x, char *id)
 {
 	int i, val;

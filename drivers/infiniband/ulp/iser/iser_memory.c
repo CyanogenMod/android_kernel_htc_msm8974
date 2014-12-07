@@ -38,8 +38,11 @@
 
 #include "iscsi_iser.h"
 
-#define ISER_KMALLOC_THRESHOLD 0x20000 
+#define ISER_KMALLOC_THRESHOLD 0x20000 /* 128K - kmalloc limit */
 
+/**
+ * iser_start_rdma_unaligned_sg
+ */
 static int iser_start_rdma_unaligned_sg(struct iscsi_iser_task *iser_task,
 					enum iser_data_dir cmd_dir)
 {
@@ -62,7 +65,7 @@ static int iser_start_rdma_unaligned_sg(struct iscsi_iser_task *iser_task,
 	}
 
 	if (cmd_dir == ISER_DIR_OUT) {
-		
+		/* copy the unaligned sg the buffer which is used for RDMA */
 		struct scatterlist *sgl = (struct scatterlist *)data->buf;
 		struct scatterlist *sg;
 		int i;
@@ -98,6 +101,9 @@ static int iser_start_rdma_unaligned_sg(struct iscsi_iser_task *iser_task,
 	return 0;
 }
 
+/**
+ * iser_finalize_rdma_unaligned_sg
+ */
 void iser_finalize_rdma_unaligned_sg(struct iscsi_iser_task *iser_task,
 				     enum iser_data_dir         cmd_dir)
 {
@@ -119,7 +125,7 @@ void iser_finalize_rdma_unaligned_sg(struct iscsi_iser_task *iser_task,
 		unsigned int sg_size;
 		int i;
 
-		
+		/* copy back read RDMA to unaligned sg */
 		mem	= mem_copy->copy_buf;
 
 		sgl	= (struct scatterlist *)iser_task->data[ISER_DIR_IN].buf;
@@ -149,6 +155,18 @@ void iser_finalize_rdma_unaligned_sg(struct iscsi_iser_task *iser_task,
 
 #define IS_4K_ALIGNED(addr)	((((unsigned long)addr) & ~MASK_4K) == 0)
 
+/**
+ * iser_sg_to_page_vec - Translates scatterlist entries to physical addresses
+ * and returns the length of resulting physical address array (may be less than
+ * the original due to possible compaction).
+ *
+ * we build a "page vec" under the assumption that the SG meets the RDMA
+ * alignment requirements. Other then the first and last SG elements, all
+ * the "internal" elements can be compacted into a list whose elements are
+ * dma addresses of physical pages. The code supports also the weird case
+ * where --few fragments of the same page-- are present in the SG as
+ * consecutive elements. Also, it handles one entry SG.
+ */
 
 static int iser_sg_to_page_vec(struct iser_data_buf *data,
 			       struct iser_page_vec *page_vec,
@@ -160,7 +178,7 @@ static int iser_sg_to_page_vec(struct iser_data_buf *data,
 	unsigned int dma_len;
 	int i, new_chunk, cur_page, last_ent = data->dma_nents - 1;
 
-	
+	/* compute the offset of first element */
 	page_vec->offset = (u64) sgl[0].offset & ~MASK_4K;
 
 	new_chunk = 1;
@@ -173,13 +191,16 @@ static int iser_sg_to_page_vec(struct iser_data_buf *data,
 		end_addr = start_addr + dma_len;
 		total_sz += dma_len;
 
-		
+		/* collect page fragments until aligned or end of SG list */
 		if (!IS_4K_ALIGNED(end_addr) && i < last_ent) {
 			new_chunk = 0;
 			continue;
 		}
 		new_chunk = 1;
 
+		/* address of the first page in the contiguous chunk;
+		   masking relevant for the very first SG entry,
+		   which might be unaligned */
 		page = chunk_start & MASK_4K;
 		do {
 			page_vec->pages[cur_page++] = page;
@@ -193,6 +214,12 @@ static int iser_sg_to_page_vec(struct iser_data_buf *data,
 }
 
 
+/**
+ * iser_data_buf_aligned_len - Tries to determine the maximal correctly aligned
+ * for RDMA sub-list of a scatter-gather list of memory buffers, and  returns
+ * the number of entries which are aligned correctly. Supports the case where
+ * consecutive SG elements are actually fragments of the same physcial page.
+ */
 static int iser_data_buf_aligned_len(struct iser_data_buf *data,
 				      struct ib_device *ibdev)
 {
@@ -319,6 +346,12 @@ void iser_dma_unmap_task_data(struct iscsi_iser_task *iser_task)
 	}
 }
 
+/**
+ * iser_reg_rdma_mem - Registers memory intended for RDMA,
+ * obtaining rkey and va
+ *
+ * returns 0 on success, errno code on failure
+ */
 int iser_reg_rdma_mem(struct iscsi_iser_task *iser_task,
 		      enum   iser_data_dir        cmd_dir)
 {
@@ -342,17 +375,17 @@ int iser_reg_rdma_mem(struct iscsi_iser_task *iser_task,
 			 aligned_len, mem->size);
 		iser_data_buf_dump(mem, ibdev);
 
-		
+		/* unmap the command data before accessing it */
 		iser_dma_unmap_task_data(iser_task);
 
-		
-		
+		/* allocate copy buf, if we are writing, copy the */
+		/* unaligned scatterlist, dma map the copy        */
 		if (iser_start_rdma_unaligned_sg(iser_task, cmd_dir) != 0)
 				return -ENOMEM;
 		mem = &iser_task->data_copy[cmd_dir];
 	}
 
-	
+	/* if there a single dma entry, FMR is not needed */
 	if (mem->dma_nents == 1) {
 		sg = (struct scatterlist *)mem->buf;
 
@@ -368,7 +401,7 @@ int iser_reg_rdma_mem(struct iscsi_iser_task *iser_task,
 			 (unsigned int)regd_buf->reg.rkey,
 			 (unsigned long)regd_buf->reg.va,
 			 (unsigned long)regd_buf->reg.len);
-	} else { 
+	} else { /* use FMR for multiple dma entries */
 		iser_page_vec_build(mem, ib_conn->page_vec, ibdev);
 		err = iser_reg_page_vec(ib_conn, ib_conn->page_vec, &regd_buf->reg);
 		if (err) {

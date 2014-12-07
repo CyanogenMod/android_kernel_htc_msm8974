@@ -16,4 +16,4 @@
 #define P3SEG		0xc0000000
 #define P4SEG		0xe0000000
 
-#endif 
+#endif /* __ASM_CPU_SH2_ADDRSPACE_H */

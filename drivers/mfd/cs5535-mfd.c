@@ -135,7 +135,7 @@ static int __devinit cs5535_mfd_probe(struct pci_dev *pdev,
 	if (err)
 		return err;
 
-	
+	/* fill in IO range for each cell; subdrivers handle the region */
 	for (i = 0; i < ARRAY_SIZE(cs5535_mfd_cells); i++) {
 		int bar = cs5535_mfd_cells[i].id;
 		struct resource *r = &cs5535_mfd_resources[bar];
@@ -144,7 +144,7 @@ static int __devinit cs5535_mfd_probe(struct pci_dev *pdev,
 		r->start = pci_resource_start(pdev, bar);
 		r->end = pci_resource_end(pdev, bar);
 
-		
+		/* id is used for temporarily storing BAR; unset it now */
 		cs5535_mfd_cells[i].id = 0;
 	}
 

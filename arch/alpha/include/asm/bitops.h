@@ -12,6 +12,17 @@
  * Copyright 1994, Linus Torvalds.
  */
 
+/*
+ * These have to be done with inline assembly: that way the bit-setting
+ * is guaranteed to be atomic. All bit operations return 0 if the bit
+ * was cleared before the operation and != 0 if it was not.
+ *
+ * To get proper branch prediction for the main line, we must branch
+ * forward to code at the end of this object's .text section, then
+ * branch back to restart the operation.
+ *
+ * bit 0 is the LSB of addr; bit 64 is the LSB of (addr+1).
+ */
 
 static inline void
 set_bit(unsigned long nr, volatile void * addr)
@@ -31,6 +42,9 @@ set_bit(unsigned long nr, volatile void * addr)
 	:"Ir" (1UL << (nr & 31)), "m" (*m));
 }
 
+/*
+ * WARNING: non atomic version.
+ */
 static inline void
 __set_bit(unsigned long nr, volatile void * addr)
 {
@@ -67,6 +81,9 @@ clear_bit_unlock(unsigned long nr, volatile void * addr)
 	clear_bit(nr, addr);
 }
 
+/*
+ * WARNING: non atomic version.
+ */
 static __inline__ void
 __clear_bit(unsigned long nr, volatile void * addr)
 {
@@ -100,6 +117,9 @@ change_bit(unsigned long nr, volatile void * addr)
 	:"Ir" (1UL << (nr & 31)), "m" (*m));
 }
 
+/*
+ * WARNING: non atomic version.
+ */
 static __inline__ void
 __change_bit(unsigned long nr, volatile void * addr)
 {
@@ -165,6 +185,9 @@ test_and_set_bit_lock(unsigned long nr, volatile void *addr)
 	return oldbit != 0;
 }
 
+/*
+ * WARNING: non atomic version.
+ */
 static inline int
 __test_and_set_bit(unsigned long nr, volatile void * addr)
 {
@@ -206,6 +229,9 @@ test_and_clear_bit(unsigned long nr, volatile void * addr)
 	return oldbit != 0;
 }
 
+/*
+ * WARNING: non atomic version.
+ */
 static inline int
 __test_and_clear_bit(unsigned long nr, volatile void * addr)
 {
@@ -245,6 +271,9 @@ test_and_change_bit(unsigned long nr, volatile void * addr)
 	return oldbit != 0;
 }
 
+/*
+ * WARNING: non atomic version.
+ */
 static __inline__ int
 __test_and_change_bit(unsigned long nr, volatile void * addr)
 {
@@ -262,11 +291,18 @@ test_bit(int nr, const volatile void * addr)
 	return (1UL & (((const int *) addr)[nr >> 5] >> (nr & 31))) != 0UL;
 }
 
+/*
+ * ffz = Find First Zero in word. Undefined if no zero exists,
+ * so code should check against ~0UL first..
+ *
+ * Do a binary search on the bits.  Due to the nature of large
+ * constants on the alpha, it is worthwhile to split the search.
+ */
 static inline unsigned long ffz_b(unsigned long x)
 {
 	unsigned long sum, x1, x2, x4;
 
-	x = ~x & -~x;		
+	x = ~x & -~x;		/* set first 0 bit, clear others */
 	x1 = x & 0xAA;
 	x2 = x & 0xCC;
 	x4 = x & 0xF0;
@@ -280,7 +316,7 @@ static inline unsigned long ffz_b(unsigned long x)
 static inline unsigned long ffz(unsigned long word)
 {
 #if defined(CONFIG_ALPHA_EV6) && defined(CONFIG_ALPHA_EV67)
-	
+	/* Whee.  EV67 can calculate it directly.  */
 	return __kernel_cttz(~word);
 #else
 	unsigned long bits, qofs, bofs;
@@ -294,10 +330,13 @@ static inline unsigned long ffz(unsigned long word)
 #endif
 }
 
+/*
+ * __ffs = Find First set bit in word.  Undefined if no set bit exists.
+ */
 static inline unsigned long __ffs(unsigned long word)
 {
 #if defined(CONFIG_ALPHA_EV6) && defined(CONFIG_ALPHA_EV67)
-	
+	/* Whee.  EV67 can calculate it directly.  */
 	return __kernel_cttz(word);
 #else
 	unsigned long bits, qofs, bofs;
@@ -313,6 +352,11 @@ static inline unsigned long __ffs(unsigned long word)
 
 #ifdef __KERNEL__
 
+/*
+ * ffs: find first bit set. This is defined the same way as
+ * the libc and compiler builtin ffs routines, therefore
+ * differs in spirit from the above __ffs.
+ */
 
 static inline int ffs(int word)
 {
@@ -320,6 +364,9 @@ static inline int ffs(int word)
 	return word ? result : 0;
 }
 
+/*
+ * fls: find last bit set.
+ */
 #if defined(CONFIG_ALPHA_EV6) && defined(CONFIG_ALPHA_EV67)
 static inline int fls64(unsigned long word)
 {
@@ -351,8 +398,13 @@ static inline int fls(int x)
 	return fls64((unsigned int) x);
 }
 
+/*
+ * hweightN: returns the hamming weight (i.e. the number
+ * of bits set) of a N-bit word
+ */
 
 #if defined(CONFIG_ALPHA_EV6) && defined(CONFIG_ALPHA_EV67)
+/* Whee.  EV67 can calculate it directly.  */
 static inline unsigned long __arch_hweight64(unsigned long w)
 {
 	return __kernel_ctpop(w);
@@ -378,12 +430,17 @@ static inline unsigned int __arch_hweight8(unsigned int w)
 
 #include <asm-generic/bitops/const_hweight.h>
 
-#endif 
+#endif /* __KERNEL__ */
 
 #include <asm-generic/bitops/find.h>
 
 #ifdef __KERNEL__
 
+/*
+ * Every architecture must define this function. It's the fastest
+ * way of searching a 100-bit bitmap.  It's guaranteed that at least
+ * one of the 100 bits is cleared.
+ */
 static inline unsigned long
 sched_find_first_bit(const unsigned long b[2])
 {
@@ -401,6 +458,6 @@ sched_find_first_bit(const unsigned long b[2])
 
 #include <asm-generic/bitops/ext2-atomic-setbit.h>
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ALPHA_BITOPS_H */

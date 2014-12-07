@@ -39,15 +39,28 @@
 #ifndef __IWM_FW_H__
 #define __IWM_FW_H__
 
+/**
+ * struct iwm_fw_hdr_rec - An iwm firmware image is a
+ * concatenation of various records. Each of them is
+ * defined by an ID (aka op code), a length, and the
+ * actual data.
+ * @op_code: The record ID, see IWM_HDR_REC_OP_*
+ *
+ * @len: The record payload length
+ *
+ * @buf: The record payload
+ */
 struct iwm_fw_hdr_rec {
 	u16 op_code;
 	u16 len;
 	u8 buf[0];
 };
 
+/* Header's definitions */
 #define IWM_HDR_LEN                          (512)
 #define IWM_HDR_BARKER_LEN                   (16)
 
+/* Header's opcodes */
 #define IWM_HDR_REC_OP_INVALID             (0x00)
 #define IWM_HDR_REC_OP_BUILD_DATE          (0x01)
 #define IWM_HDR_REC_OP_BUILD_TAG           (0x02)
@@ -57,6 +70,7 @@ struct iwm_fw_hdr_rec {
 #define IWM_HDR_REC_OP_MEM_DESC            (0x06)
 #define IWM_HDR_REC_USERDEFS               (0x07)
 
+/* Header's records length (in bytes) */
 #define IWM_HDR_REC_LEN_BUILD_DATE           (4)
 #define IWM_HDR_REC_LEN_BUILD_TAG            (64)
 #define IWM_HDR_REC_LEN_SW_VER               (4)

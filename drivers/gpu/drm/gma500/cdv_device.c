@@ -54,6 +54,8 @@ static int cdv_output_init(struct drm_device *dev)
 	cdv_intel_crt_init(dev, &dev_priv->mode_dev);
 	cdv_intel_lvds_init(dev, &dev_priv->mode_dev);
 
+	/* These bits indicate HDMI not SDVO on CDV, but we don't yet support
+	   the HDMI interface */
 	if (REG_READ(SDVOB) & SDVO_DETECTED)
 		cdv_hdmi_init(dev, &dev_priv->mode_dev, SDVOB);
 	if (REG_READ(SDVOC) & SDVO_DETECTED)
@@ -63,8 +65,11 @@ static int cdv_output_init(struct drm_device *dev)
 
 #ifdef CONFIG_BACKLIGHT_CLASS_DEVICE
 
+/*
+ *	Poulsbo Backlight Interfaces
+ */
 
-#define BLC_PWM_PRECISION_FACTOR 100	
+#define BLC_PWM_PRECISION_FACTOR 100	/* 10000000 */
 #define BLC_PWM_FREQ_CALC_CONSTANT 32
 #define MHz 1000000
 
@@ -80,7 +85,9 @@ static struct backlight_device *cdv_backlight_device;
 
 static int cdv_get_brightness(struct backlight_device *bd)
 {
-	
+	/* return locally cached var instead of HW read (due to DPST etc.) */
+	/* FIXME: ideally return actual value in case firmware fiddled with
+	   it */
 	return cdv_brightness;
 }
 
@@ -89,13 +96,13 @@ static int cdv_backlight_setup(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
 	unsigned long core_clock;
-	
-	
+	/* u32 bl_max_freq; */
+	/* unsigned long value; */
 	u16 bl_max_freq;
 	uint32_t value;
 	uint32_t blc_pwm_precision_factor;
 
-	
+	/* get bl_max_freq and pol from dev_priv*/
 	if (!dev_priv->lvds_bl) {
 		dev_err(dev->dev, "Has no valid LVDS backlight info\n");
 		return -ENOENT;
@@ -114,7 +121,7 @@ static int cdv_backlight_setup(struct drm_device *dev)
 		 value < (unsigned long long)PSB_BLC_MIN_PWM_REG_FREQ)
 				return -ERANGE;
 	else {
-		
+		/* FIXME */
 	}
 	return 0;
 }
@@ -123,11 +130,11 @@ static int cdv_set_brightness(struct backlight_device *bd)
 {
 	int level = bd->props.brightness;
 
-	
+	/* Percentage 1-100% being valid */
 	if (level < 1)
 		level = 1;
 
-	
+	/*cdv_intel_lvds_set_brightness(dev, level); FIXME */
 	cdv_brightness = level;
 	return 0;
 }
@@ -167,6 +174,13 @@ static int cdv_backlight_init(struct drm_device *dev)
 
 #endif
 
+/*
+ *	Provide the Cedarview specific chip logic and low level methods
+ *	for power management
+ *
+ *	FIXME: we need to implement the apm/ospm base management bits
+ *	for this and the MID devices.
+ */
 
 static inline u32 CDV_MSG_READ32(uint port, uint offset)
 {
@@ -206,15 +220,15 @@ static void cdv_init_pm(struct drm_device *dev)
 	dev_priv->ospm_base = CDV_MSG_READ32(PSB_PUNIT_PORT,
 							PSB_OSPMBA) & 0xFFFF;
 
-	
+	/* Power status */
 	pwr_cnt = inl(dev_priv->apm_base + PSB_APM_CMD);
 
-	
+	/* Enable the GPU */
 	pwr_cnt &= ~PSB_PWRGT_GFX_MASK;
 	pwr_cnt |= PSB_PWRGT_GFX_ON;
 	outl(pwr_cnt, dev_priv->apm_base + PSB_APM_CMD);
 
-	
+	/* Wait for the GPU power */
 	for (i = 0; i < 5; i++) {
 		u32 pwr_sts = inl(dev_priv->apm_base + PSB_APM_STS);
 		if ((pwr_sts & PSB_PWRGT_GFX_MASK) == 0)
@@ -224,6 +238,13 @@ static void cdv_init_pm(struct drm_device *dev)
 	dev_err(dev->dev, "GPU: power management timed out.\n");
 }
 
+/**
+ *	cdv_save_display_registers	-	save registers lost on suspend
+ *	@dev: our DRM device
+ *
+ *	Save the state we need in order to be able to restore the interface
+ *	upon resume from suspend
+ */
 static int cdv_save_display_registers(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -270,6 +291,14 @@ static int cdv_save_display_registers(struct drm_device *dev)
 	return 0;
 }
 
+/**
+ *	cdv_restore_display_registers	-	restore lost register state
+ *	@dev: our DRM device
+ *
+ *	Restore register state that was lost during suspend and resume.
+ *
+ *	FIXME: review
+ */
 static int cdv_restore_display_registers(struct drm_device *dev)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -282,7 +311,7 @@ static int cdv_restore_display_registers(struct drm_device *dev)
 	REG_WRITE(DSPCLK_GATE_D, regs->cdv.saveDSPCLK_GATE_D);
 	REG_WRITE(RAMCLK_GATE_D, regs->cdv.saveRAMCLK_GATE_D);
 
-	
+	/* BIOS does below anyway */
 	REG_WRITE(DPIO_CFG, 0);
 	REG_WRITE(DPIO_CFG, DPIO_MODE_SELECT_0 | DPIO_CMN_RESET_N);
 
@@ -325,7 +354,7 @@ static int cdv_restore_display_registers(struct drm_device *dev)
 	REG_WRITE(PSB_INT_ENABLE_R, regs->cdv.saveIER);
 	REG_WRITE(PSB_INT_MASK_R, regs->cdv.saveIMR);
 
-	
+	/* Fix arbitration bug */
 	CDV_MSG_WRITE32(3, 0x30, 0x08027108);
 
 	drm_mode_config_reset(dev);
@@ -333,7 +362,7 @@ static int cdv_restore_display_registers(struct drm_device *dev)
 	list_for_each_entry(connector, &dev->mode_config.connector_list, head)
 		connector->funcs->dpms(connector, DRM_MODE_DPMS_ON);
 
-	
+	/* Resume the modeset for every activated CRTC */
 	drm_helper_resume_force_mode(dev);
 	return 0;
 }
@@ -382,6 +411,7 @@ static int cdv_power_up(struct drm_device *dev)
 	return 0;
 }
 
+/* FIXME ? - shared with Poulsbo */
 static void cdv_get_core_freq(struct drm_device *dev)
 {
 	uint32_t clock;
@@ -427,6 +457,7 @@ static int cdv_chip_setup(struct drm_device *dev)
 	return 0;
 }
 
+/* CDV is much like Poulsbo but has MID like SGX offsets and PM */
 
 const struct psb_ops cdv_chip_ops = {
 	.name = "GMA3600/3650",

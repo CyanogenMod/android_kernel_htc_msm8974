@@ -18,4 +18,4 @@ void cffrml_put(struct cflayer *layr);
 void cffrml_hold(struct cflayer *layr);
 int cffrml_refcnt_read(struct cflayer *layr);
 
-#endif 
+#endif /* CFFRML_H_ */

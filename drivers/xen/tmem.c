@@ -11,6 +11,7 @@
 #include <linux/pagemap.h>
 #include <linux/cleancache.h>
 
+/* temporary ifdef until include/linux/frontswap.h is upstream */
 #ifdef CONFIG_FRONTSWAP
 #include <linux/frontswap.h>
 #endif
@@ -33,6 +34,7 @@
 #define TMEM_WRITE                 9
 #define TMEM_XCHG                 10
 
+/* Bits for HYPERVISOR_tmem_op(TMEM_NEW_POOL) */
 #define TMEM_POOL_PERSIST          1
 #define TMEM_POOL_SHARED           2
 #define TMEM_POOL_PAGESIZE_SHIFT   4
@@ -50,9 +52,11 @@ struct tmem_oid {
 
 #define TMEM_POOL_PRIVATE_UUID	{ 0, 0 }
 
+/* flags for tmem_ops.new_pool */
 #define TMEM_POOL_PERSIST          1
 #define TMEM_POOL_SHARED           2
 
+/* xen tmem foundation ops/hypercalls */
 
 static inline int xen_tmem_op(u32 tmem_cmd, u32 tmem_pool, struct tmem_oid oid,
 	u32 index, unsigned long gmfn, u32 tmem_offset, u32 pfn_offset, u32 len)
@@ -92,6 +96,7 @@ static int xen_tmem_new_pool(struct tmem_pool_uuid uuid,
 	return rc;
 }
 
+/* xen generic tmem ops */
 
 static int xen_tmem_put_page(u32 pool_id, struct tmem_oid oid,
 			     u32 index, unsigned long pfn)
@@ -139,6 +144,7 @@ static int xen_tmem_destroy_pool(u32 pool_id)
 	return xen_tmem_op(TMEM_DESTROY_POOL, pool_id, oid, 0, 0, 0, 0, 0);
 }
 
+/* cleancache ops */
 
 static void tmem_cleancache_put_page(int pool, struct cleancache_filekey key,
 				     pgoff_t index, struct page *page)
@@ -151,7 +157,7 @@ static void tmem_cleancache_put_page(int pool, struct cleancache_filekey key,
 		return;
 	if (ind != index)
 		return;
-	mb(); 
+	mb(); /* ensure page is quiescent; tmem may address it with an alias */
 	(void)xen_tmem_put_page((u32)pool, oid, ind, pfn);
 }
 
@@ -163,7 +169,7 @@ static int tmem_cleancache_get_page(int pool, struct cleancache_filekey key,
 	unsigned long pfn = page_to_pfn(page);
 	int ret;
 
-	
+	/* translate return values to linux semantics */
 	if (pool < 0)
 		return -1;
 	if (ind != index)
@@ -241,9 +247,15 @@ static struct cleancache_ops __initdata tmem_cleancache_ops = {
 #endif
 
 #ifdef CONFIG_FRONTSWAP
+/* frontswap tmem operations */
 
+/* a single tmem poolid is used for all frontswap "types" (swapfiles) */
 static int tmem_frontswap_poolid;
 
+/*
+ * Swizzling increases objects per swaptype, increasing tmem concurrency
+ * for heavy swaploads.  Later, larger nr_cpus -> larger SWIZ_BITS
+ */
 #define SWIZ_BITS		4
 #define SWIZ_MASK		((1 << SWIZ_BITS) - 1)
 #define _oswiz(_type, _ind)	((_type << SWIZ_BITS) | (_ind & SWIZ_MASK))
@@ -256,6 +268,7 @@ static inline struct tmem_oid oswiz(unsigned type, u32 ind)
 	return oid;
 }
 
+/* returns 0 if the page was successfully put into frontswap, -1 if not */
 static int tmem_frontswap_put_page(unsigned type, pgoff_t offset,
 				   struct page *page)
 {
@@ -269,15 +282,19 @@ static int tmem_frontswap_put_page(unsigned type, pgoff_t offset,
 		return -1;
 	if (ind64 != ind)
 		return -1;
-	mb(); 
+	mb(); /* ensure page is quiescent; tmem may address it with an alias */
 	ret = xen_tmem_put_page(pool, oswiz(type, ind), iswiz(ind), pfn);
-	
+	/* translate Xen tmem return values to linux semantics */
 	if (ret == 1)
 		return 0;
 	else
 		return -1;
 }
 
+/*
+ * returns 0 if the page was successfully gotten from frontswap, -1 if
+ * was not present (should never happen!)
+ */
 static int tmem_frontswap_get_page(unsigned type, pgoff_t offset,
 				   struct page *page)
 {
@@ -292,13 +309,14 @@ static int tmem_frontswap_get_page(unsigned type, pgoff_t offset,
 	if (ind64 != ind)
 		return -1;
 	ret = xen_tmem_get_page(pool, oswiz(type, ind), iswiz(ind), pfn);
-	
+	/* translate Xen tmem return values to linux semantics */
 	if (ret == 1)
 		return 0;
 	else
 		return -1;
 }
 
+/* flush a single page from frontswap */
 static void tmem_frontswap_flush_page(unsigned type, pgoff_t offset)
 {
 	u64 ind64 = (u64)offset;
@@ -312,6 +330,7 @@ static void tmem_frontswap_flush_page(unsigned type, pgoff_t offset)
 	(void) xen_tmem_flush_page(pool, oswiz(type, ind), iswiz(ind));
 }
 
+/* flush all pages from the passed swaptype */
 static void tmem_frontswap_flush_area(unsigned type)
 {
 	int pool = tmem_frontswap_poolid;
@@ -327,7 +346,7 @@ static void tmem_frontswap_init(unsigned ignored)
 {
 	struct tmem_pool_uuid private = TMEM_POOL_PRIVATE_UUID;
 
-	
+	/* a single tmem poolid is used for all frontswap "types" (swapfiles) */
 	if (tmem_frontswap_poolid < 0)
 		tmem_frontswap_poolid =
 		    xen_tmem_new_pool(private, TMEM_POOL_PERSIST, PAGE_SIZE);

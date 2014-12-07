@@ -141,8 +141,14 @@ static inline u64 vfp_estimate_div128to64(u64 nh, u64 nl, u64 m)
 	return z;
 }
 
+/*
+ * Operations on unpacked elements
+ */
 #define vfp_sign_negate(sign)	(sign ^ 0x8000)
 
+/*
+ * Single-precision
+ */
 struct vfp_single {
 	s16	exponent;
 	u16	sign;
@@ -152,19 +158,36 @@ struct vfp_single {
 extern s32 vfp_get_float(unsigned int reg);
 extern void vfp_put_float(s32 val, unsigned int reg);
 
+/*
+ * VFP_SINGLE_MANTISSA_BITS - number of bits in the mantissa
+ * VFP_SINGLE_EXPONENT_BITS - number of bits in the exponent
+ * VFP_SINGLE_LOW_BITS - number of low bits in the unpacked significand
+ *  which are not propagated to the float upon packing.
+ */
 #define VFP_SINGLE_MANTISSA_BITS	(23)
 #define VFP_SINGLE_EXPONENT_BITS	(8)
 #define VFP_SINGLE_LOW_BITS		(32 - VFP_SINGLE_MANTISSA_BITS - 2)
 #define VFP_SINGLE_LOW_BITS_MASK	((1 << VFP_SINGLE_LOW_BITS) - 1)
 
+/*
+ * The bit in an unpacked float which indicates that it is a quiet NaN
+ */
 #define VFP_SINGLE_SIGNIFICAND_QNAN	(1 << (VFP_SINGLE_MANTISSA_BITS - 1 + VFP_SINGLE_LOW_BITS))
 
+/*
+ * Operations on packed single-precision numbers
+ */
 #define vfp_single_packed_sign(v)	((v) & 0x80000000)
 #define vfp_single_packed_negate(v)	((v) ^ 0x80000000)
 #define vfp_single_packed_abs(v)	((v) & ~0x80000000)
 #define vfp_single_packed_exponent(v)	(((v) >> VFP_SINGLE_MANTISSA_BITS) & ((1 << VFP_SINGLE_EXPONENT_BITS) - 1))
 #define vfp_single_packed_mantissa(v)	((v) & ((1 << VFP_SINGLE_MANTISSA_BITS) - 1))
 
+/*
+ * Unpack a single-precision float.  Note that this returns the magnitude
+ * of the single-precision float mantissa with the 1. if necessary,
+ * aligned to bit 30.
+ */
 static inline void vfp_single_unpack(struct vfp_single *s, s32 val)
 {
 	u32 significand;
@@ -179,6 +202,10 @@ static inline void vfp_single_unpack(struct vfp_single *s, s32 val)
 	s->significand = significand;
 }
 
+/*
+ * Re-pack a single-precision float.  This assumes that the float is
+ * already normalised such that the MSB is bit 30, _not_ bit 31.
+ */
 static inline s32 vfp_single_pack(struct vfp_single *s)
 {
 	u32 val;
@@ -224,12 +251,20 @@ u32 __vfp_single_normaliseround(int sd, struct vfp_single *vs, u32 fpscr, u32 ex
 u32 vfp_single_normaliseround(int sd, struct vfp_single *vs, u32 fpscr, u32 exceptions, const char *func);
 #endif
 
+/*
+ * Double-precision
+ */
 struct vfp_double {
 	s16	exponent;
 	u16	sign;
 	u64	significand;
 };
 
+/*
+ * VFP_REG_ZERO is a special register number for vfp_get_double
+ * which returns (double)0.0.  This is useful for the compare with
+ * zero instructions.
+ */
 #ifdef CONFIG_VFPv3
 #define VFP_REG_ZERO	32
 #else
@@ -243,14 +278,25 @@ extern void vfp_put_double(u64 val, unsigned int reg);
 #define VFP_DOUBLE_LOW_BITS		(64 - VFP_DOUBLE_MANTISSA_BITS - 2)
 #define VFP_DOUBLE_LOW_BITS_MASK	((1 << VFP_DOUBLE_LOW_BITS) - 1)
 
+/*
+ * The bit in an unpacked double which indicates that it is a quiet NaN
+ */
 #define VFP_DOUBLE_SIGNIFICAND_QNAN	(1ULL << (VFP_DOUBLE_MANTISSA_BITS - 1 + VFP_DOUBLE_LOW_BITS))
 
+/*
+ * Operations on packed single-precision numbers
+ */
 #define vfp_double_packed_sign(v)	((v) & (1ULL << 63))
 #define vfp_double_packed_negate(v)	((v) ^ (1ULL << 63))
 #define vfp_double_packed_abs(v)	((v) & ~(1ULL << 63))
 #define vfp_double_packed_exponent(v)	(((v) >> VFP_DOUBLE_MANTISSA_BITS) & ((1 << VFP_DOUBLE_EXPONENT_BITS) - 1))
 #define vfp_double_packed_mantissa(v)	((v) & ((1ULL << VFP_DOUBLE_MANTISSA_BITS) - 1))
 
+/*
+ * Unpack a double-precision float.  Note that this returns the magnitude
+ * of the double-precision float mantissa with the 1. if necessary,
+ * aligned to bit 62.
+ */
 static inline void vfp_double_unpack(struct vfp_double *s, s64 val)
 {
 	u64 significand;
@@ -265,6 +311,10 @@ static inline void vfp_double_unpack(struct vfp_double *s, s64 val)
 	s->significand = significand;
 }
 
+/*
+ * Re-pack a double-precision float.  This assumes that the float is
+ * already normalised such that the MSB is bit 30, _not_ bit 31.
+ */
 static inline s64 vfp_double_pack(struct vfp_double *s)
 {
 	u64 val;
@@ -297,10 +347,26 @@ u32 vfp_double_normaliseround(int dd, struct vfp_double *vd, u32 fpscr, u32 exce
 
 u32 vfp_estimate_sqrt_significand(u32 exponent, u32 significand);
 
+/*
+ * A special flag to tell the normalisation code not to normalise.
+ */
 #define VFP_NAN_FLAG	0x100
 
+/*
+ * A bit pattern used to indicate the initial (unset) value of the
+ * exception mask, in case nothing handles an instruction.  This
+ * doesn't include the NAN flag, which get masked out before
+ * we check for an error.
+ */
 #define VFP_EXCEPTION_ERROR	((u32)-1 & ~VFP_NAN_FLAG)
 
+/*
+ * A flag to tell vfp instruction type.
+ *  OP_SCALAR - this operation always operates in scalar mode
+ *  OP_SD - the instruction exceptionally writes to a single precision result.
+ *  OP_DD - the instruction exceptionally writes to a double precision result.
+ *  OP_SM - the instruction exceptionally reads from a single precision operand.
+ */
 #define OP_SCALAR	(1 << 0)
 #define OP_SD		(1 << 1)
 #define OP_DD		(1 << 1)

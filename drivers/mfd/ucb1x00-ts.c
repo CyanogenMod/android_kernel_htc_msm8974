@@ -74,6 +74,9 @@ static inline void ucb1x00_ts_event_release(struct ucb1x00_ts *ts)
 	input_sync(idev);
 }
 
+/*
+ * Switch to interrupt mode.
+ */
 static inline void ucb1x00_ts_mode_int(struct ucb1x00_ts *ts)
 {
 	ucb1x00_reg_write(ts->ucb, UCB_TS_CR,
@@ -82,6 +85,10 @@ static inline void ucb1x00_ts_mode_int(struct ucb1x00_ts *ts)
 			UCB_TS_CR_MODE_INT);
 }
 
+/*
+ * Switch to pressure mode, and read pressure.  We don't need to wait
+ * here, since both plates are being driven.
+ */
 static inline unsigned int ucb1x00_ts_read_pressure(struct ucb1x00_ts *ts)
 {
 	if (machine_is_collie()) {
@@ -103,6 +110,12 @@ static inline unsigned int ucb1x00_ts_read_pressure(struct ucb1x00_ts *ts)
 	}
 }
 
+/*
+ * Switch to X position mode and measure Y plate.  We switch the plate
+ * configuration in pressure mode, then switch to position mode.  This
+ * gives a faster response time.  Even so, we need to wait about 55us
+ * for things to stabilise.
+ */
 static inline unsigned int ucb1x00_ts_read_xpos(struct ucb1x00_ts *ts)
 {
 	if (machine_is_collie())
@@ -124,6 +137,12 @@ static inline unsigned int ucb1x00_ts_read_xpos(struct ucb1x00_ts *ts)
 	return ucb1x00_adc_read(ts->ucb, UCB_ADC_INP_TSPY, ts->adcsync);
 }
 
+/*
+ * Switch to Y position mode and measure X plate.  We switch the plate
+ * configuration in pressure mode, then switch to position mode.  This
+ * gives a faster response time.  Even so, we need to wait about 55us
+ * for things to stabilise.
+ */
 static inline unsigned int ucb1x00_ts_read_ypos(struct ucb1x00_ts *ts)
 {
 	if (machine_is_collie())
@@ -146,6 +165,10 @@ static inline unsigned int ucb1x00_ts_read_ypos(struct ucb1x00_ts *ts)
 	return ucb1x00_adc_read(ts->ucb, UCB_ADC_INP_TSPX, ts->adcsync);
 }
 
+/*
+ * Switch to X plate resistance mode.  Set MX to ground, PX to
+ * supply.  Measure current.
+ */
 static inline unsigned int ucb1x00_ts_read_xres(struct ucb1x00_ts *ts)
 {
 	ucb1x00_reg_write(ts->ucb, UCB_TS_CR,
@@ -154,6 +177,10 @@ static inline unsigned int ucb1x00_ts_read_xres(struct ucb1x00_ts *ts)
 	return ucb1x00_adc_read(ts->ucb, 0, ts->adcsync);
 }
 
+/*
+ * Switch to Y plate resistance mode.  Set MY to ground, PY to
+ * supply.  Measure current.
+ */
 static inline unsigned int ucb1x00_ts_read_yres(struct ucb1x00_ts *ts)
 {
 	ucb1x00_reg_write(ts->ucb, UCB_TS_CR,
@@ -172,6 +199,11 @@ static inline int ucb1x00_ts_pen_down(struct ucb1x00_ts *ts)
 		return (val & (UCB_TS_CR_TSPX_LOW | UCB_TS_CR_TSMX_LOW));
 }
 
+/*
+ * This is a RT kernel thread that handles the ADC accesses
+ * (mainly so we can use semaphores in the UCB1200 core code
+ * to serialise accesses to the ADC).
+ */
 static int ucb1x00_thread(void *_ts)
 {
 	struct ucb1x00_ts *ts = _ts;
@@ -194,6 +226,9 @@ static int ucb1x00_thread(void *_ts)
 		y = ucb1x00_ts_read_ypos(ts);
 		p = ucb1x00_ts_read_pressure(ts);
 
+		/*
+		 * Switch back to interrupt mode.
+		 */
 		ucb1x00_ts_mode_int(ts);
 		ucb1x00_adc_disable(ts->ucb);
 
@@ -213,6 +248,10 @@ static int ucb1x00_thread(void *_ts)
 			spin_unlock_irq(&ts->irq_lock);
 			ucb1x00_disable(ts->ucb);
 
+			/*
+			 * If we spat out a valid sample set last time,
+			 * spit out a "pen off" sample here.
+			 */
 			if (valid) {
 				ucb1x00_ts_event_release(ts);
 				valid = 0;
@@ -222,6 +261,11 @@ static int ucb1x00_thread(void *_ts)
 		} else {
 			ucb1x00_disable(ts->ucb);
 
+			/*
+			 * Filtering is policy.  Policy belongs in user
+			 * space.  We therefore leave it to user space
+			 * to do any filtering they please.
+			 */
 			if (!ignore) {
 				ucb1x00_ts_evt_add(ts, p, x, y);
 				valid = 1;
@@ -240,6 +284,10 @@ static int ucb1x00_thread(void *_ts)
 	return 0;
 }
 
+/*
+ * We only detect touch screen _touches_ with this interrupt
+ * handler, and even then we just schedule our task.
+ */
 static irqreturn_t ucb1x00_ts_irq(int irq, void *id)
 {
 	struct ucb1x00_ts *ts = id;
@@ -274,6 +322,10 @@ static int ucb1x00_ts_open(struct input_dev *idev)
 	if (ret < 0)
 		goto out;
 
+	/*
+	 * If we do this at all, we should allow the user to
+	 * measure and read the X and Y resistance at any time.
+	 */
 	ucb1x00_adc_enable(ts->ucb);
 	ts->x_res = ucb1x00_ts_read_xres(ts);
 	ts->y_res = ucb1x00_ts_read_yres(ts);
@@ -292,6 +344,9 @@ static int ucb1x00_ts_open(struct input_dev *idev)
 	return ret;
 }
 
+/*
+ * Release touchscreen resources.  Disable IRQs.
+ */
 static void ucb1x00_ts_close(struct input_dev *idev)
 {
 	struct ucb1x00_ts *ts = input_get_drvdata(idev);
@@ -306,6 +361,9 @@ static void ucb1x00_ts_close(struct input_dev *idev)
 }
 
 
+/*
+ * Initialisation.
+ */
 static int ucb1x00_ts_add(struct ucb1x00_dev *dev)
 {
 	struct ucb1x00_ts *ts;

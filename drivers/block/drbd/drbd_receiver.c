@@ -63,7 +63,15 @@ static int e_end_block(struct drbd_conf *, struct drbd_work *, int);
 
 #define GFP_TRY	(__GFP_HIGHMEM | __GFP_NOWARN)
 
+/*
+ * some helper functions to deal with single linked page lists,
+ * page->private being our "next" pointer.
+ */
 
+/* If at least n pages are linked at head, get n pages off.
+ * Otherwise, don't modify head, and return NULL.
+ * Locking is the responsibility of the caller.
+ */
 static struct page *page_chain_del(struct page **head, int n)
 {
 	struct page *page;
@@ -80,21 +88,24 @@ static struct page *page_chain_del(struct page **head, int n)
 	while (page) {
 		tmp = page_chain_next(page);
 		if (--n == 0)
-			break; 
+			break; /* found sufficient pages */
 		if (tmp == NULL)
-			
+			/* insufficient pages, don't use any of them. */
 			return NULL;
 		page = tmp;
 	}
 
-	
+	/* add end of list marker for the returned list */
 	set_page_private(page, 0);
-	
+	/* actual return value, and adjustment of head */
 	page = *head;
 	*head = tmp;
 	return page;
 }
 
+/* may be used outside of locks to find the tail of a (usually short)
+ * "private" page chain, before adding it back to a global chain head
+ * with page_chain_add() under a spinlock. */
 static struct page *page_chain_tail(struct page *page, int *len)
 {
 	struct page *tmp;
@@ -126,7 +137,7 @@ static void page_chain_add(struct page **head,
 	BUG_ON(tmp != chain_last);
 #endif
 
-	
+	/* add chain to head */
 	set_page_private(chain_last, (unsigned long)*head);
 	*head = chain_first;
 }
@@ -137,6 +148,8 @@ static struct page *drbd_pp_first_pages_or_try_alloc(struct drbd_conf *mdev, int
 	struct page *tmp = NULL;
 	int i = 0;
 
+	/* Yes, testing drbd_pp_vacant outside the lock is racy.
+	 * So what. It saves a spin_lock. */
 	if (drbd_pp_vacant >= number) {
 		spin_lock(&drbd_pp_lock);
 		page = page_chain_del(&drbd_pp_pool, number);
@@ -147,6 +160,9 @@ static struct page *drbd_pp_first_pages_or_try_alloc(struct drbd_conf *mdev, int
 			return page;
 	}
 
+	/* GFP_TRY, because we must not cause arbitrary write-out: in a DRBD
+	 * "criss-cross" setup, that might cause write-out on some other DRBD,
+	 * which in turn might block on the other node at this very place.  */
 	for (i = 0; i < number; i++) {
 		tmp = alloc_page(GFP_TRY);
 		if (!tmp)
@@ -158,6 +174,9 @@ static struct page *drbd_pp_first_pages_or_try_alloc(struct drbd_conf *mdev, int
 	if (i == number)
 		return page;
 
+	/* Not enough pages immediately available this time.
+	 * No need to jump around here, drbd_pp_alloc will retry this
+	 * function "soon". */
 	if (page) {
 		tmp = page_chain_tail(page, NULL);
 		spin_lock(&drbd_pp_lock);
@@ -173,6 +192,10 @@ static void reclaim_net_ee(struct drbd_conf *mdev, struct list_head *to_be_freed
 	struct drbd_epoch_entry *e;
 	struct list_head *le, *tle;
 
+	/* The EEs are always appended to the end of the list. Since
+	   they are sent in order over the wire, they have to finish
+	   in order. As soon as we see the first not finished we can
+	   stop to examine the list... */
 
 	list_for_each_safe(le, tle, &mdev->net_ee) {
 		e = list_entry(le, struct drbd_epoch_entry, w.list);
@@ -195,11 +218,25 @@ static void drbd_kick_lo_and_reclaim_net(struct drbd_conf *mdev)
 		drbd_free_net_ee(mdev, e);
 }
 
+/**
+ * drbd_pp_alloc() - Returns @number pages, retries forever (or until signalled)
+ * @mdev:	DRBD device.
+ * @number:	number of pages requested
+ * @retry:	whether to retry, if not enough pages are available right now
+ *
+ * Tries to allocate number pages, first from our own page pool, then from
+ * the kernel, unless this allocation would exceed the max_buffers setting.
+ * Possibly retry until DRBD frees sufficient pages somewhere else.
+ *
+ * Returns a page chain linked via page->private.
+ */
 static struct page *drbd_pp_alloc(struct drbd_conf *mdev, unsigned number, bool retry)
 {
 	struct page *page = NULL;
 	DEFINE_WAIT(wait);
 
+	/* Yes, we may run up to @number over max_buffers. If we
+	 * follow it strictly, the admin will get it wrong anyways. */
 	if (atomic_read(&mdev->pp_in_use) < mdev->net_conf->max_buffers)
 		page = drbd_pp_first_pages_or_try_alloc(mdev, number);
 
@@ -231,6 +268,10 @@ static struct page *drbd_pp_alloc(struct drbd_conf *mdev, unsigned number, bool 
 	return page;
 }
 
+/* Must not be used from irq, as that may deadlock: see drbd_pp_alloc.
+ * Is also used from inside an other spin_lock_irq(&mdev->req_lock);
+ * Either links the page chain back to the global pool,
+ * or returns all pages to the system. */
 static void drbd_pp_free(struct drbd_conf *mdev, struct page *page, int is_net)
 {
 	atomic_t *a = is_net ? &mdev->pp_in_use_by_net : &mdev->pp_in_use;
@@ -253,6 +294,20 @@ static void drbd_pp_free(struct drbd_conf *mdev, struct page *page, int is_net)
 	wake_up(&drbd_pp_wait);
 }
 
+/*
+You need to hold the req_lock:
+ _drbd_wait_ee_list_empty()
+
+You must not have the req_lock:
+ drbd_free_ee()
+ drbd_alloc_ee()
+ drbd_init_ee()
+ drbd_release_ee()
+ drbd_ee_fix_bhs()
+ drbd_process_done_ee()
+ drbd_clear_done_ee()
+ drbd_wait_ee_list_empty()
+*/
 
 struct drbd_epoch_entry *drbd_alloc_ee(struct drbd_conf *mdev,
 				     u64 id,
@@ -324,6 +379,15 @@ int drbd_release_ee(struct drbd_conf *mdev, struct list_head *list)
 }
 
 
+/*
+ * This function is called from _asender only_
+ * but see also comments in _req_mod(,barrier_acked)
+ * and receive_Barrier.
+ *
+ * Move entries from net_ee to done_ee, if ready.
+ * Grab done_ee, call all callbacks, free the entries.
+ * The callbacks typically send out ACKs.
+ */
 static int drbd_process_done_ee(struct drbd_conf *mdev)
 {
 	LIST_HEAD(work_list);
@@ -339,8 +403,12 @@ static int drbd_process_done_ee(struct drbd_conf *mdev)
 	list_for_each_entry_safe(e, t, &reclaimed, w.list)
 		drbd_free_net_ee(mdev, e);
 
+	/* possible callbacks here:
+	 * e_end_block, and e_end_resync_block, e_send_discard_ack.
+	 * all ignore the last argument.
+	 */
 	list_for_each_entry_safe(e, t, &work_list, w.list) {
-		
+		/* list_del not necessary, next/prev members not touched */
 		ok = e->w.cb(mdev, &e->w, !ok) && ok;
 		drbd_free_ee(mdev, e);
 	}
@@ -353,6 +421,8 @@ void _drbd_wait_ee_list_empty(struct drbd_conf *mdev, struct list_head *head)
 {
 	DEFINE_WAIT(wait);
 
+	/* avoids spin_lock/unlock
+	 * and calling prepare_to_wait in the fast path */
 	while (!list_empty(head)) {
 		prepare_to_wait(&mdev->ee_wait, &wait, TASK_UNINTERRUPTIBLE);
 		spin_unlock_irq(&mdev->req_lock);
@@ -369,6 +439,8 @@ void drbd_wait_ee_list_empty(struct drbd_conf *mdev, struct list_head *head)
 	spin_unlock_irq(&mdev->req_lock);
 }
 
+/* see also kernel_accept; which is only present since 2.6.18.
+ * also we want to log which part of it failed, exactly */
 static int drbd_accept(struct drbd_conf *mdev, const char **what,
 		struct socket *sock, struct socket **newsock)
 {
@@ -444,6 +516,10 @@ static int drbd_recv(struct drbd_conf *mdev, void *buf, size_t size)
 		if (rv == size)
 			break;
 
+		/* Note:
+		 * ECONNRESET	other side closed the connection
+		 * ERESTARTSYS	(on  sock) we got a signal
+		 */
 
 		if (rv < 0) {
 			if (rv == -ECONNRESET)
@@ -455,7 +531,10 @@ static int drbd_recv(struct drbd_conf *mdev, void *buf, size_t size)
 			dev_info(DEV, "sock was shut down by peer\n");
 			break;
 		} else	{
-			
+			/* signal came in, or peer/link went down,
+			 * after we read a partial message
+			 */
+			/* D_ASSERT(signal_pending(current)); */
 			break;
 		}
 	};
@@ -468,10 +547,15 @@ static int drbd_recv(struct drbd_conf *mdev, void *buf, size_t size)
 	return rv;
 }
 
+/* quoting tcp(7):
+ *   On individual connections, the socket buffer size must be set prior to the
+ *   listen(2) or connect(2) calls in order to have it take effect.
+ * This is our wrapper to do so.
+ */
 static void drbd_setbufsize(struct socket *sock, unsigned int snd,
 		unsigned int rcv)
 {
-	
+	/* open coded SO_SNDBUF, SO_RCVBUF */
 	if (snd) {
 		sock->sk->sk_sndbuf = snd;
 		sock->sk->sk_userlocks |= SOCK_SNDBUF_LOCK;
@@ -506,12 +590,19 @@ static struct socket *drbd_try_connect(struct drbd_conf *mdev)
 	drbd_setbufsize(sock, mdev->net_conf->sndbuf_size,
 			mdev->net_conf->rcvbuf_size);
 
+       /* explicitly bind to the configured IP as source IP
+	*  for the outgoing connections.
+	*  This is needed for multihomed hosts and to be
+	*  able to use lo: interfaces for drbd.
+	* Make sure to use 0 as port number, so linux selects
+	*  a free one dynamically.
+	*/
 	memcpy(&src_in6, mdev->net_conf->my_addr,
 	       min_t(int, mdev->net_conf->my_addr_len, sizeof(src_in6)));
 	if (((struct sockaddr *)mdev->net_conf->my_addr)->sa_family == AF_INET6)
 		src_in6.sin6_port = 0;
 	else
-		((struct sockaddr_in *)&src_in6)->sin_port = 0; 
+		((struct sockaddr_in *)&src_in6)->sin_port = 0; /* AF_INET & AF_SCI */
 
 	what = "bind before connect";
 	err = sock->ops->bind(sock,
@@ -520,6 +611,8 @@ static struct socket *drbd_try_connect(struct drbd_conf *mdev)
 	if (err < 0)
 		goto out;
 
+	/* connect may fail, peer not yet available.
+	 * stay C_WF_CONNECTION, don't go Disconnecting! */
 	disconnect_on_error = 0;
 	what = "connect";
 	err = sock->ops->connect(sock,
@@ -533,10 +626,10 @@ out:
 			sock = NULL;
 		}
 		switch (-err) {
-			
+			/* timeout, busy, signal pending */
 		case ETIMEDOUT: case EAGAIN: case EINPROGRESS:
 		case EINTR: case ERESTARTSYS:
-			
+			/* peer not (yet) available, network problem */
 		case ECONNREFUSED: case ENETUNREACH:
 		case EHOSTDOWN:    case EHOSTUNREACH:
 			disconnect_on_error = 0;
@@ -569,9 +662,9 @@ static struct socket *drbd_wait_for_connect(struct drbd_conf *mdev)
 	}
 
 	timeo = mdev->net_conf->try_connect_int * HZ;
-	timeo += (random32() & 1) ? timeo / 7 : -timeo / 7; 
+	timeo += (random32() & 1) ? timeo / 7 : -timeo / 7; /* 28.5% random jitter */
 
-	s_listen->sk->sk_reuse    = 1; 
+	s_listen->sk->sk_reuse    = 1; /* SO_REUSEADDR */
 	s_listen->sk->sk_rcvtimeo = timeo;
 	s_listen->sk->sk_sndtimeo = timeo;
 	drbd_setbufsize(s_listen, mdev->net_conf->sndbuf_size,
@@ -621,6 +714,11 @@ static enum drbd_packets drbd_recv_fp(struct drbd_conf *mdev, struct socket *soc
 	return 0xffff;
 }
 
+/**
+ * drbd_socket_okay() - Free the socket if its connection is not okay
+ * @mdev:	DRBD device.
+ * @sock:	pointer to the pointer to the socket.
+ */
 static int drbd_socket_okay(struct drbd_conf *mdev, struct socket **sock)
 {
 	int rr;
@@ -640,6 +738,14 @@ static int drbd_socket_okay(struct drbd_conf *mdev, struct socket **sock)
 	}
 }
 
+/*
+ * return values:
+ *   1 yes, we have a valid connection
+ *   0 oops, did not work out, please try again
+ *  -1 peer talks different language,
+ *     no point in trying again, please go standalone.
+ *  -2 We do not have a network config...
+ */
 static int drbd_connect(struct drbd_conf *mdev)
 {
 	struct socket *s, *sock, *msock;
@@ -657,11 +763,11 @@ static int drbd_connect(struct drbd_conf *mdev)
 
 	do {
 		for (try = 0;;) {
-			
+			/* 3 tries, this should take less than a second! */
 			s = drbd_try_connect(mdev);
 			if (s || ++try >= 3)
 				break;
-			
+			/* give the other side time to call bind() & listen() */
 			schedule_timeout_interruptible(HZ / 10);
 		}
 
@@ -735,8 +841,8 @@ retry:
 		}
 	} while (1);
 
-	msock->sk->sk_reuse = 1; 
-	sock->sk->sk_reuse = 1; 
+	msock->sk->sk_reuse = 1; /* SO_REUSEADDR */
+	sock->sk->sk_reuse = 1; /* SO_REUSEADDR */
 
 	sock->sk->sk_allocation = GFP_NOIO;
 	msock->sk->sk_allocation = GFP_NOIO;
@@ -744,12 +850,19 @@ retry:
 	sock->sk->sk_priority = TC_PRIO_INTERACTIVE_BULK;
 	msock->sk->sk_priority = TC_PRIO_INTERACTIVE;
 
+	/* NOT YET ...
+	 * sock->sk->sk_sndtimeo = mdev->net_conf->timeout*HZ/10;
+	 * sock->sk->sk_rcvtimeo = MAX_SCHEDULE_TIMEOUT;
+	 * first set it to the P_HAND_SHAKE timeout,
+	 * which we set to 4x the configured ping_timeout. */
 	sock->sk->sk_sndtimeo =
 	sock->sk->sk_rcvtimeo = mdev->net_conf->ping_timeo*4*HZ/10;
 
 	msock->sk->sk_sndtimeo = mdev->net_conf->timeout*HZ/10;
 	msock->sk->sk_rcvtimeo = mdev->net_conf->ping_int*HZ;
 
+	/* we don't want delays.
+	 * we use TCP_CORK where appropriate, though */
 	drbd_tcp_nodelay(sock);
 	drbd_tcp_nodelay(msock);
 
@@ -764,7 +877,7 @@ retry:
 		return h;
 
 	if (mdev->cram_hmac_tfm) {
-		
+		/* drbd_request_state(mdev, NS(conn, WFAuth)); */
 		switch (drbd_do_auth(mdev)) {
 		case -1:
 			dev_err(DEV, "Authentication of peer failed\n");
@@ -794,7 +907,7 @@ retry:
 	drbd_send_state(mdev);
 	clear_bit(USE_DEGR_WFC_T, &mdev->flags);
 	clear_bit(RESIZE_PENDING, &mdev->flags);
-	mod_timer(&mdev->request_timer, jiffies + HZ); 
+	mod_timer(&mdev->request_timer, jiffies + HZ); /* just start it here. */
 
 	return 1;
 
@@ -845,12 +958,21 @@ static void drbd_flush(struct drbd_conf *mdev)
 					NULL);
 		if (rv) {
 			dev_err(DEV, "local disk flush failed with status %d\n", rv);
+			/* would rather check on EOPNOTSUPP, but that is not reliable.
+			 * don't try again for ANY return value != 0
+			 * if (rv == -EOPNOTSUPP) */
 			drbd_bump_write_ordering(mdev, WO_drain_io);
 		}
 		put_ldev(mdev);
 	}
 }
 
+/**
+ * drbd_may_finish_epoch() - Applies an epoch_event to the epoch's state, eventually finishes it.
+ * @mdev:	DRBD device.
+ * @epoch:	Epoch object.
+ * @ev:		Epoch event.
+ */
 static enum finish_epoch drbd_may_finish_epoch(struct drbd_conf *mdev,
 					       struct drbd_epoch *epoch,
 					       enum epoch_event ev)
@@ -873,7 +995,7 @@ static enum finish_epoch drbd_may_finish_epoch(struct drbd_conf *mdev,
 			set_bit(DE_HAVE_BARRIER_NUMBER, &epoch->flags);
 			break;
 		case EV_BECAME_LAST:
-			
+			/* nothing to do*/
 			break;
 		}
 
@@ -899,7 +1021,7 @@ static enum finish_epoch drbd_may_finish_epoch(struct drbd_conf *mdev,
 			} else {
 				epoch->flags = 0;
 				atomic_set(&epoch->epoch_size, 0);
-				
+				/* atomic_set(&epoch->active, 0); is already zero */
 				if (rv == FE_STILL_LIVE)
 					rv = FE_RECYCLED;
 				wake_up(&mdev->ee_wait);
@@ -917,6 +1039,11 @@ static enum finish_epoch drbd_may_finish_epoch(struct drbd_conf *mdev,
 	return rv;
 }
 
+/**
+ * drbd_bump_write_ordering() - Fall back to an other write ordering method
+ * @mdev:	DRBD device.
+ * @wo:		Write ordering method to try.
+ */
 void drbd_bump_write_ordering(struct drbd_conf *mdev, enum write_ordering_e wo) __must_hold(local)
 {
 	enum write_ordering_e pwo;
@@ -937,6 +1064,23 @@ void drbd_bump_write_ordering(struct drbd_conf *mdev, enum write_ordering_e wo) 
 		dev_info(DEV, "Method to ensure write ordering: %s\n", write_ordering_str[mdev->write_ordering]);
 }
 
+/**
+ * drbd_submit_ee()
+ * @mdev:	DRBD device.
+ * @e:		epoch entry
+ * @rw:		flag field, see bio->bi_rw
+ *
+ * May spread the pages to multiple bios,
+ * depending on bio_add_page restrictions.
+ *
+ * Returns 0 if all bios have been submitted,
+ * -ENOMEM if we could not allocate enough bios,
+ * -ENOSPC (any better suggestion?) if we have not been able to bio_add_page a
+ *  single page to an empty bio (which should never happen and likely indicates
+ *  that the lower level IO stack is in some way broken). This has been observed
+ *  on certain Xen deployments.
+ */
+/* TODO allocate from our own bio_set. */
 int drbd_submit_ee(struct drbd_conf *mdev, struct drbd_epoch_entry *e,
 		const unsigned rw, const int fault_type)
 {
@@ -949,13 +1093,17 @@ int drbd_submit_ee(struct drbd_conf *mdev, struct drbd_epoch_entry *e,
 	unsigned nr_pages = (ds + PAGE_SIZE -1) >> PAGE_SHIFT;
 	int err = -ENOMEM;
 
+	/* In most cases, we will only need one bio.  But in case the lower
+	 * level restrictions happen to be different at this offset on this
+	 * side than those of the sending peer, we may need to submit the
+	 * request in more than one bio. */
 next_bio:
 	bio = bio_alloc(GFP_NOIO, nr_pages);
 	if (!bio) {
 		dev_err(DEV, "submit_ee: Allocation of a bio failed\n");
 		goto fail;
 	}
-	
+	/* > e->sector, unless this is the first bio */
 	bio->bi_sector = sector;
 	bio->bi_bdev = mdev->ldev->backing_bdev;
 	bio->bi_rw = rw;
@@ -969,6 +1117,9 @@ next_bio:
 	page_chain_for_each(page) {
 		unsigned len = min_t(unsigned, ds, PAGE_SIZE);
 		if (!bio_add_page(bio, page, len, 0)) {
+			/* A single page must always be possible!
+			 * But in case it fails anyways,
+			 * we deal with it, and complain (below). */
 			if (bio->bi_vcnt == 0) {
 				dev_err(DEV,
 					"bio_add_page failed for len=%u, "
@@ -1016,17 +1167,24 @@ static int receive_Barrier(struct drbd_conf *mdev, enum drbd_packets cmd, unsign
 	mdev->current_epoch->barrier_nr = p->barrier;
 	rv = drbd_may_finish_epoch(mdev, mdev->current_epoch, EV_GOT_BARRIER_NR);
 
+	/* P_BARRIER_ACK may imply that the corresponding extent is dropped from
+	 * the activity log, which means it would not be resynced in case the
+	 * R_PRIMARY crashes now.
+	 * Therefore we must send the barrier_ack after the barrier request was
+	 * completed. */
 	switch (mdev->write_ordering) {
 	case WO_none:
 		if (rv == FE_RECYCLED)
 			return true;
 
+		/* receiver context, in the writeout path of the other node.
+		 * avoid potential distributed deadlock */
 		epoch = kmalloc(sizeof(struct drbd_epoch), GFP_NOIO);
 		if (epoch)
 			break;
 		else
 			dev_warn(DEV, "Allocation of an epoch failed, slowing down\n");
-			
+			/* Fall through */
 
 	case WO_bdev_flush:
 	case WO_drain_io:
@@ -1061,7 +1219,7 @@ static int receive_Barrier(struct drbd_conf *mdev, enum drbd_packets cmd, unsign
 		mdev->current_epoch = epoch;
 		mdev->epochs++;
 	} else {
-		
+		/* The current_epoch got recycled while we allocated this one... */
 		kfree(epoch);
 	}
 	spin_unlock(&mdev->epoch_lock);
@@ -1069,6 +1227,8 @@ static int receive_Barrier(struct drbd_conf *mdev, enum drbd_packets cmd, unsign
 	return true;
 }
 
+/* used from receive_RSDataReply (recv_resync_read)
+ * and from receive_Data */
 static struct drbd_epoch_entry *
 read_in_block(struct drbd_conf *mdev, u64 id, sector_t sector, int data_size) __must_hold(local)
 {
@@ -1100,6 +1260,8 @@ read_in_block(struct drbd_conf *mdev, u64 id, sector_t sector, int data_size) __
 	ERR_IF(data_size &  0x1ff) return NULL;
 	ERR_IF(data_size >  DRBD_MAX_BIO_SIZE) return NULL;
 
+	/* even though we trust out peer,
+	 * we sometimes have to double check. */
 	if (sector + (data_size>>9) > capacity) {
 		dev_err(DEV, "request from peer beyond end of local disk: "
 			"capacity: %llus < sector: %llus + size: %u\n",
@@ -1108,6 +1270,9 @@ read_in_block(struct drbd_conf *mdev, u64 id, sector_t sector, int data_size) __
 		return NULL;
 	}
 
+	/* GFP_NOIO, because we must not cause arbitrary write-out: in a DRBD
+	 * "criss-cross" setup, that might cause write-out on some other DRBD,
+	 * which in turn might block on the other node at this very place.  */
 	e = drbd_alloc_ee(mdev, id, sector, data_size, GFP_NOIO);
 	if (!e)
 		return NULL;
@@ -1148,6 +1313,9 @@ read_in_block(struct drbd_conf *mdev, u64 id, sector_t sector, int data_size) __
 	return e;
 }
 
+/* drbd_drain_block() just takes a data block
+ * out of the socket input buffer, and discards it.
+ */
 static int drbd_drain_block(struct drbd_conf *mdev, int data_size)
 {
 	struct page *page;
@@ -1202,6 +1370,8 @@ static int recv_dless_read(struct drbd_conf *mdev, struct drbd_request *req,
 
 	data_size -= dgs;
 
+	/* optimistically update recv_cnt.  if receiving fails below,
+	 * we disconnect anyways, and counters will be reset. */
 	mdev->recv_cnt += data_size>>9;
 
 	bio = req->master_bio;
@@ -1235,6 +1405,8 @@ static int recv_dless_read(struct drbd_conf *mdev, struct drbd_request *req,
 	return 1;
 }
 
+/* e_end_resync_block() is called via
+ * drbd_process_done_ee() by asender only */
 static int e_end_resync_block(struct drbd_conf *mdev, struct drbd_work *w, int unused)
 {
 	struct drbd_epoch_entry *e = (struct drbd_epoch_entry *)w;
@@ -1247,7 +1419,7 @@ static int e_end_resync_block(struct drbd_conf *mdev, struct drbd_work *w, int u
 		drbd_set_in_sync(mdev, sector, e->size);
 		ok = drbd_send_ack(mdev, P_RS_WRITE_ACK, e);
 	} else {
-		
+		/* Record failure to sync */
 		drbd_rs_failed_io(mdev, sector, e->size);
 
 		ok  = drbd_send_ack(mdev, P_NEG_ACK, e);
@@ -1268,6 +1440,8 @@ static int recv_resync_read(struct drbd_conf *mdev, sector_t sector, int data_si
 	dec_rs_pending(mdev);
 
 	inc_unacked(mdev);
+	/* corresponding dec_unacked() in e_end_resync_block()
+	 * respective _drbd_clear_done_ee */
 
 	e->w.cb = e_end_resync_block;
 
@@ -1279,7 +1453,7 @@ static int recv_resync_read(struct drbd_conf *mdev, sector_t sector, int data_si
 	if (drbd_submit_ee(mdev, e, WRITE, DRBD_FAULT_RS_WR) == 0)
 		return true;
 
-	
+	/* don't care for the reason here */
 	dev_err(DEV, "submit failed, triggering re-connect\n");
 	spin_lock_irq(&mdev->req_lock);
 	list_del(&e->w.list);
@@ -1308,10 +1482,16 @@ static int receive_DataReply(struct drbd_conf *mdev, enum drbd_packets cmd, unsi
 		return false;
 	}
 
+	/* hlist_del(&req->collision) is done in _req_may_be_done, to avoid
+	 * special casing it there for the various failure cases.
+	 * still no race with drbd_fail_pending_reads */
 	ok = recv_dless_read(mdev, req, sector, data_size);
 
 	if (ok)
 		req_mod(req, data_received);
+	/* else: nothing. handled from drbd_disconnect...
+	 * I don't think we may complete this just yet
+	 * in case we are "on-disconnect: freeze" */
 
 	return ok;
 }
@@ -1326,6 +1506,9 @@ static int receive_RSDataReply(struct drbd_conf *mdev, enum drbd_packets cmd, un
 	D_ASSERT(p->block_id == ID_SYNCER);
 
 	if (get_ldev(mdev)) {
+		/* data is submitted to disk within recv_resync_read.
+		 * corresponding put_ldev done below on error,
+		 * or in drbd_endio_write_sec. */
 		ok = recv_resync_read(mdev, sector, data_size);
 	} else {
 		if (__ratelimit(&drbd_ratelimit_state))
@@ -1341,6 +1524,9 @@ static int receive_RSDataReply(struct drbd_conf *mdev, enum drbd_packets cmd, un
 	return ok;
 }
 
+/* e_end_block() is called via drbd_process_done_ee().
+ * this means this function only runs in the asender thread
+ */
 static int e_end_block(struct drbd_conf *mdev, struct drbd_work *w, int cancel)
 {
 	struct drbd_epoch_entry *e = (struct drbd_epoch_entry *)w;
@@ -1358,9 +1544,13 @@ static int e_end_block(struct drbd_conf *mdev, struct drbd_work *w, int cancel)
 				drbd_set_in_sync(mdev, sector, e->size);
 		} else {
 			ok  = drbd_send_ack(mdev, P_NEG_ACK, e);
+			/* we expect it to be marked out of sync anyways...
+			 * maybe assert this?  */
 		}
 		dec_unacked(mdev);
 	}
+	/* we delete from the conflict detection hash _after_ we sent out the
+	 * P_WRITE_ACK / P_NEG_ACK, to get the sequence number right.  */
 	if (mdev->net_conf->two_primaries) {
 		spin_lock_irq(&mdev->req_lock);
 		D_ASSERT(!hlist_unhashed(&e->collision));
@@ -1393,6 +1583,27 @@ static int e_send_discard_ack(struct drbd_conf *mdev, struct drbd_work *w, int u
 	return ok;
 }
 
+/* Called from receive_Data.
+ * Synchronize packets on sock with packets on msock.
+ *
+ * This is here so even when a P_DATA packet traveling via sock overtook an Ack
+ * packet traveling on msock, they are still processed in the order they have
+ * been sent.
+ *
+ * Note: we don't care for Ack packets overtaking P_DATA packets.
+ *
+ * In case packet_seq is larger than mdev->peer_seq number, there are
+ * outstanding packets on the msock. We wait for them to arrive.
+ * In case we are the logically next packet, we update mdev->peer_seq
+ * ourselves. Correctly handles 32bit wrap around.
+ *
+ * Assume we have a 10 GBit connection, that is about 1<<30 byte per second,
+ * about 1<<21 sectors per second. So "worst" case, we have 1<<3 == 8 seconds
+ * for the 24bit wrap (historical atomic_t guarantee on some archs), and we have
+ * 1<<9 == 512 seconds aka ages for the 32bit wrap around...
+ *
+ * returns 0 if we may process the packet,
+ * -ERESTARTSYS if we were interrupted (by disconnect signal). */
 static int drbd_wait_peer_seq(struct drbd_conf *mdev, const u32 packet_seq)
 {
 	DEFINE_WAIT(wait);
@@ -1425,6 +1636,9 @@ static int drbd_wait_peer_seq(struct drbd_conf *mdev, const u32 packet_seq)
 	return ret;
 }
 
+/* see also bio_flags_to_wire()
+ * DRBD_REQ_*, because we need to semantically map the flags to data packet
+ * flags and back. We may replicate to other kernel versions. */
 static unsigned long wire_flags_to_bio(struct drbd_conf *mdev, u32 dpf)
 {
 	return  (dpf & DP_RW_SYNC ? REQ_SYNC : 0) |
@@ -1433,6 +1647,7 @@ static unsigned long wire_flags_to_bio(struct drbd_conf *mdev, u32 dpf)
 		(dpf & DP_DISCARD ? REQ_DISCARD : 0);
 }
 
+/* mirrored write */
 static int receive_Data(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned int data_size)
 {
 	sector_t sector;
@@ -1452,6 +1667,10 @@ static int receive_Data(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned 
 		return drbd_drain_block(mdev, data_size);
 	}
 
+	/* get_ldev(mdev) successful.
+	 * Corresponding put_ldev done either below (on various errors),
+	 * or in drbd_endio_write_sec, if we successfully submit the data at
+	 * the end of this function. */
 
 	sector = be64_to_cpu(p->sector);
 	e = read_in_block(mdev, p->block_id, sector, data_size);
@@ -1474,10 +1693,12 @@ static int receive_Data(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned 
 	atomic_inc(&e->epoch->active);
 	spin_unlock(&mdev->epoch_lock);
 
-	
+	/* I'm the receiver, I do hold a net_cnt reference. */
 	if (!mdev->net_conf->two_primaries) {
 		spin_lock_irq(&mdev->req_lock);
 	} else {
+		/* don't get the req_lock yet,
+		 * we may sleep in drbd_wait_peer_seq */
 		const int size = e->size;
 		const int discard = test_bit(DISCARD_CONCURRENT, &mdev->flags);
 		DEFINE_WAIT(wait);
@@ -1490,6 +1711,40 @@ static int receive_Data(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned 
 		BUG_ON(mdev->ee_hash == NULL);
 		BUG_ON(mdev->tl_hash == NULL);
 
+		/* conflict detection and handling:
+		 * 1. wait on the sequence number,
+		 *    in case this data packet overtook ACK packets.
+		 * 2. check our hash tables for conflicting requests.
+		 *    we only need to walk the tl_hash, since an ee can not
+		 *    have a conflict with an other ee: on the submitting
+		 *    node, the corresponding req had already been conflicting,
+		 *    and a conflicting req is never sent.
+		 *
+		 * Note: for two_primaries, we are protocol C,
+		 * so there cannot be any request that is DONE
+		 * but still on the transfer log.
+		 *
+		 * unconditionally add to the ee_hash.
+		 *
+		 * if no conflicting request is found:
+		 *    submit.
+		 *
+		 * if any conflicting request is found
+		 * that has not yet been acked,
+		 * AND I have the "discard concurrent writes" flag:
+		 *	 queue (via done_ee) the P_DISCARD_ACK; OUT.
+		 *
+		 * if any conflicting request is found:
+		 *	 block the receiver, waiting on misc_wait
+		 *	 until no more conflicting requests are there,
+		 *	 or we get interrupted (disconnect).
+		 *
+		 *	 we do not just write after local io completion of those
+		 *	 requests, but only after req is done completely, i.e.
+		 *	 we wait for the P_DISCARD_ACK to arrive!
+		 *
+		 *	 then proceed normally, i.e. submit.
+		 */
 		if (drbd_wait_peer_seq(mdev, be32_to_cpu(p->seq_num)))
 			goto out_interrupted;
 
@@ -1507,6 +1762,8 @@ static int receive_Data(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned 
 				TASK_INTERRUPTIBLE);
 			hlist_for_each_entry(i, n, slot, collision) {
 				if (OVERLAPS) {
+					/* only ALERT on first iteration,
+					 * we may be woken up early... */
 					if (first)
 						dev_alert(DEV, "%s[%u] Concurrent local write detected!"
 						      "	new: %llus +%u; pending: %llus +%u\n",
@@ -1522,7 +1779,7 @@ static int receive_Data(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned 
 			if (!have_conflict)
 				break;
 
-			
+			/* Discard Ack only for the _first_ iteration */
 			if (first && discard && have_unacked) {
 				dev_alert(DEV, "Concurrent write! [DISCARD BY FLAG] sec=%llus\n",
 				     (unsigned long long)sector);
@@ -1532,6 +1789,8 @@ static int receive_Data(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned 
 
 				spin_unlock_irq(&mdev->req_lock);
 
+				/* we could probably send that P_DISCARD_ACK ourselves,
+				 * but I don't like the receiver using the msock */
 
 				put_ldev(mdev);
 				wake_asender(mdev);
@@ -1554,6 +1813,8 @@ static int receive_Data(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned 
 				dev_alert(DEV, "Concurrent write! [W AFTERWARDS] "
 				     "sec=%llus\n", (unsigned long long)sector);
 			} else if (discard) {
+				/* we had none on the first iteration.
+				 * there must be none now. */
 				D_ASSERT(have_unacked == 0);
 			}
 			schedule();
@@ -1568,17 +1829,21 @@ static int receive_Data(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned 
 	switch (mdev->net_conf->wire_protocol) {
 	case DRBD_PROT_C:
 		inc_unacked(mdev);
+		/* corresponding dec_unacked() in e_end_block()
+		 * respective _drbd_clear_done_ee */
 		break;
 	case DRBD_PROT_B:
+		/* I really don't like it that the receiver thread
+		 * sends on the msock, but anyways */
 		drbd_send_ack(mdev, P_RECV_ACK, e);
 		break;
 	case DRBD_PROT_A:
-		
+		/* nothing to do */
 		break;
 	}
 
 	if (mdev->state.pdsk < D_INCONSISTENT) {
-		
+		/* In case we have the only disk of the cluster, */
 		drbd_set_out_of_sync(mdev, e->sector, e->size);
 		e->flags |= EE_CALL_AL_COMPLETE_IO;
 		e->flags &= ~EE_MAY_SET_IN_SYNC;
@@ -1588,7 +1853,7 @@ static int receive_Data(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned 
 	if (drbd_submit_ee(mdev, e, rw, DRBD_FAULT_DT_WR) == 0)
 		return true;
 
-	
+	/* don't care for the reason here */
 	dev_err(DEV, "submit failed, triggering re-connect\n");
 	spin_lock_irq(&mdev->req_lock);
 	list_del(&e->w.list);
@@ -1604,6 +1869,17 @@ out_interrupted:
 	return false;
 }
 
+/* We may throttle resync, if the lower device seems to be busy,
+ * and current sync rate is above c_min_rate.
+ *
+ * To decide whether or not the lower device is busy, we use a scheme similar
+ * to MD RAID is_mddev_idle(): if the partition stats reveal "significant"
+ * (more than 64 sectors) of activity we cannot account for with our own resync
+ * activity, it obviously is "busy".
+ *
+ * The current sync rate used here uses only the most recent two step marks,
+ * to have a short time average so we can react faster.
+ */
 int drbd_rs_should_slow_down(struct drbd_conf *mdev, sector_t sector)
 {
 	struct gendisk *disk = mdev->ldev->backing_bdev->bd_contains->bd_disk;
@@ -1612,7 +1888,7 @@ int drbd_rs_should_slow_down(struct drbd_conf *mdev, sector_t sector)
 	int curr_events;
 	int throttle = 0;
 
-	
+	/* feature disabled? */
 	if (mdev->sync_conf.c_min_rate == 0)
 		return 0;
 
@@ -1624,7 +1900,7 @@ int drbd_rs_should_slow_down(struct drbd_conf *mdev, sector_t sector)
 			spin_unlock_irq(&mdev->al_lock);
 			return 0;
 		}
-		
+		/* Do not slow down if app IO is already waiting for this extent */
 	}
 	spin_unlock_irq(&mdev->al_lock);
 
@@ -1638,6 +1914,8 @@ int drbd_rs_should_slow_down(struct drbd_conf *mdev, sector_t sector)
 
 		mdev->rs_last_events = curr_events;
 
+		/* sync speed average over the last 2*DRBD_SYNC_MARK_STEP,
+		 * approx. */
 		i = (mdev->rs_last_mark + DRBD_SYNC_MARKS-1) % DRBD_SYNC_MARKS;
 
 		if (mdev->state.conn == C_VERIFY_S || mdev->state.conn == C_VERIFY_T)
@@ -1706,10 +1984,13 @@ static int receive_DataRequest(struct drbd_conf *mdev, enum drbd_packets cmd, un
 			dev_err(DEV, "Can not satisfy peer's read request, "
 			    "no local data.\n");
 
-		
+		/* drain possibly payload */
 		return drbd_drain_block(mdev, digest_size);
 	}
 
+	/* GFP_NOIO, because we must not cause arbitrary write-out: in a DRBD
+	 * "criss-cross" setup, that might cause write-out on some other DRBD,
+	 * which in turn might block on the other node at this very place.  */
 	e = drbd_alloc_ee(mdev, p->block_id, sector, size, GFP_NOIO);
 	if (!e) {
 		put_ldev(mdev);
@@ -1720,13 +2001,13 @@ static int receive_DataRequest(struct drbd_conf *mdev, enum drbd_packets cmd, un
 	case P_DATA_REQUEST:
 		e->w.cb = w_e_end_data_req;
 		fault_type = DRBD_FAULT_DT_RD;
-		
+		/* application IO, don't drbd_rs_begin_io */
 		goto submit;
 
 	case P_RS_DATA_REQUEST:
 		e->w.cb = w_e_end_rsdata_req;
 		fault_type = DRBD_FAULT_RS_RD;
-		
+		/* used in the sector offset progress display */
 		mdev->bm_resync_fo = BM_SECT_TO_BIT(sector);
 		break;
 
@@ -1749,13 +2030,15 @@ static int receive_DataRequest(struct drbd_conf *mdev, enum drbd_packets cmd, un
 		if (cmd == P_CSUM_RS_REQUEST) {
 			D_ASSERT(mdev->agreed_pro_version >= 89);
 			e->w.cb = w_e_end_csum_rs_req;
-			
+			/* used in the sector offset progress display */
 			mdev->bm_resync_fo = BM_SECT_TO_BIT(sector);
 		} else if (cmd == P_OV_REPLY) {
-			
+			/* track progress, we may need to throttle */
 			atomic_add(size >> 9, &mdev->rs_sect_in);
 			e->w.cb = w_e_end_ov_reply;
 			dec_rs_pending(mdev);
+			/* drbd_rs_begin_io done when we sent this request,
+			 * but accounting still needs to be done. */
 			goto submit_for_resync;
 		}
 		break;
@@ -1787,7 +2070,28 @@ static int receive_DataRequest(struct drbd_conf *mdev, enum drbd_packets cmd, un
 		goto out_free_e;
 	}
 
+	/* Throttle, drbd_rs_begin_io and submit should become asynchronous
+	 * wrt the receiver, but it is not as straightforward as it may seem.
+	 * Various places in the resync start and stop logic assume resync
+	 * requests are processed in order, requeuing this on the worker thread
+	 * introduces a bunch of new code for synchronization between threads.
+	 *
+	 * Unlimited throttling before drbd_rs_begin_io may stall the resync
+	 * "forever", throttling after drbd_rs_begin_io will lock that extent
+	 * for application writes for the same time.  For now, just throttle
+	 * here, where the rest of the code expects the receiver to sleep for
+	 * a while, anyways.
+	 */
 
+	/* Throttle before drbd_rs_begin_io, as that locks out application IO;
+	 * this defers syncer requests for some time, before letting at least
+	 * on request through.  The resync controller on the receiving side
+	 * will adapt to the incoming rate accordingly.
+	 *
+	 * We cannot throttle here if remote is Primary/SyncTarget:
+	 * we would also throttle its application reads.
+	 * In that case, throttling is done on the SyncTarget only.
+	 */
 	if (mdev->state.peer != R_PRIMARY && drbd_rs_should_slow_down(mdev, sector))
 		schedule_timeout_uninterruptible(HZ/10);
 	if (drbd_rs_begin_io(mdev, sector))
@@ -1805,12 +2109,12 @@ submit:
 	if (drbd_submit_ee(mdev, e, READ, fault_type) == 0)
 		return true;
 
-	
+	/* don't care for the reason here */
 	dev_err(DEV, "submit failed, triggering re-connect\n");
 	spin_lock_irq(&mdev->req_lock);
 	list_del(&e->w.list);
 	spin_unlock_irq(&mdev->req_lock);
-	
+	/* no drbd_rs_complete_io(), we are dropping the connection anyways */
 
 out_free_e:
 	put_ldev(mdev);
@@ -1846,7 +2150,7 @@ static int drbd_asb_recover_0p(struct drbd_conf *mdev) __must_hold(local)
 			rv =  1;
 			break;
 		}
-		
+		/* Else fall through to one of the other strategies... */
 	case ASB_DISCARD_OLDER_PRI:
 		if (self == 0 && peer == 1) {
 			rv = 1;
@@ -1856,7 +2160,7 @@ static int drbd_asb_recover_0p(struct drbd_conf *mdev) __must_hold(local)
 			rv = -1;
 			break;
 		}
-		
+		/* Else fall through to one of the other strategies... */
 		dev_warn(DEV, "Discard younger/older primary did not find a decision\n"
 		     "Using discard-least-changes instead\n");
 	case ASB_DISCARD_ZERO_CHG:
@@ -1875,8 +2179,8 @@ static int drbd_asb_recover_0p(struct drbd_conf *mdev) __must_hold(local)
 			rv = -1;
 		else if (ch_self > ch_peer)
 			rv =  1;
-		else 
-		     
+		else /* ( ch_self == ch_peer ) */
+		     /* Well, then use something else. */
 			rv = test_bit(DISCARD_CONCURRENT, &mdev->flags)
 				? -1 : 1;
 		break;
@@ -1922,6 +2226,9 @@ static int drbd_asb_recover_1p(struct drbd_conf *mdev) __must_hold(local)
 			enum drbd_state_rv rv2;
 
 			drbd_set_role(mdev, R_SECONDARY, 0);
+			 /* drbd_change_state() does not sleep while in SS_IN_TRANSIENT_STATE,
+			  * we might be here in C_WF_REPORT_PARAMS which is transient.
+			  * we do not need to wait for the after state change work either. */
 			rv2 = drbd_change_state(mdev, CS_VERBOSE, NS(role, R_SECONDARY));
 			if (rv2 != SS_SUCCESS) {
 				drbd_khelper(mdev, "pri-lost-after-sb");
@@ -1960,6 +2267,9 @@ static int drbd_asb_recover_2p(struct drbd_conf *mdev) __must_hold(local)
 		if (hg == -1) {
 			enum drbd_state_rv rv2;
 
+			 /* drbd_change_state() does not sleep while in SS_IN_TRANSIENT_STATE,
+			  * we might be here in C_WF_REPORT_PARAMS which is transient.
+			  * we do not need to wait for the after state change work either. */
 			rv2 = drbd_change_state(mdev, CS_VERBOSE, NS(role, R_SECONDARY));
 			if (rv2 != SS_SUCCESS) {
 				drbd_khelper(mdev, "pri-lost-after-sb");
@@ -1991,6 +2301,18 @@ static void drbd_uuid_dump(struct drbd_conf *mdev, char *text, u64 *uuid,
 	     (unsigned long long)flags);
 }
 
+/*
+  100	after split brain try auto recover
+    2	C_SYNC_SOURCE set BitMap
+    1	C_SYNC_SOURCE use BitMap
+    0	no Sync
+   -1	C_SYNC_TARGET use BitMap
+   -2	C_SYNC_TARGET set BitMap
+ -100	after split brain, disconnect
+-1000	unrelated data
+-1091   requires proto 91
+-1096   requires proto 96
+ */
 static int drbd_uuid_compare(struct drbd_conf *mdev, int *rule_nr) __must_hold(local)
 {
 	u64 self, peer;
@@ -2014,7 +2336,7 @@ static int drbd_uuid_compare(struct drbd_conf *mdev, int *rule_nr) __must_hold(l
 		return 2;
 
 	if (self == peer) {
-		int rct, dc; 
+		int rct, dc; /* roles at crash time */
 
 		if (mdev->p_uuid[UI_BITMAP] == (u64)0 && mdev->ldev->md.uuid[UI_BITMAP] != (u64)0) {
 
@@ -2060,16 +2382,18 @@ static int drbd_uuid_compare(struct drbd_conf *mdev, int *rule_nr) __must_hold(l
 			return -1;
 		}
 
-		
+		/* Common power [off|failure] */
 		rct = (test_bit(CRASHED_PRIMARY, &mdev->flags) ? 1 : 0) +
 			(mdev->p_uuid[UI_FLAGS] & 2);
+		/* lowest bit is set when we were primary,
+		 * next bit (weight 2) is set when peer was primary */
 		*rule_nr = 40;
 
 		switch (rct) {
-		case 0:  return 0;
-		case 1:  return 1;
-		case 2:  return -1;
-		case 3: 
+		case 0: /* !self_pri && !peer_pri */ return 0;
+		case 1: /*  self_pri && !peer_pri */ return 1;
+		case 2: /* !self_pri &&  peer_pri */ return -1;
+		case 3: /*  self_pri &&  peer_pri */
 			dc = test_bit(DISCARD_CONCURRENT, &mdev->flags);
 			return dc ? -1 : 1;
 		}
@@ -2087,6 +2411,8 @@ static int drbd_uuid_compare(struct drbd_conf *mdev, int *rule_nr) __must_hold(l
 		    (mdev->ldev->md.uuid[UI_HISTORY_START] & ~((u64)1)) ==
 		    (mdev->p_uuid[UI_HISTORY_START + 1] & ~((u64)1)) :
 		    peer + UUID_NEW_BM_OFFSET == (mdev->p_uuid[UI_BITMAP] & ~((u64)1))) {
+			/* The last P_SYNC_UUID did not get though. Undo the last start of
+			   resync as sync source modifications of the peer's UUIDs. */
 
 			if (mdev->agreed_pro_version < 91)
 				return -1091;
@@ -2122,6 +2448,8 @@ static int drbd_uuid_compare(struct drbd_conf *mdev, int *rule_nr) __must_hold(l
 		    (mdev->ldev->md.uuid[UI_HISTORY_START + 1] & ~((u64)1)) ==
 		    (mdev->p_uuid[UI_HISTORY_START] & ~((u64)1)) :
 		    self + UUID_NEW_BM_OFFSET == (mdev->ldev->md.uuid[UI_BITMAP] & ~((u64)1))) {
+			/* The last P_SYNC_UUID did not get though. Undo the last start of
+			   resync as sync source modifications of our UUIDs. */
 
 			if (mdev->agreed_pro_version < 91)
 				return -1091;
@@ -2165,6 +2493,9 @@ static int drbd_uuid_compare(struct drbd_conf *mdev, int *rule_nr) __must_hold(l
 	return -1000;
 }
 
+/* drbd_sync_handshake() returns the new conn state on success, or
+   CONN_MASK (-1) on failure.
+ */
 static enum drbd_conns drbd_sync_handshake(struct drbd_conf *mdev, enum drbd_role peer_role,
 					   enum drbd_disk_state peer_disk) __must_hold(local)
 {
@@ -2248,6 +2579,10 @@ static enum drbd_conns drbd_sync_handshake(struct drbd_conf *mdev, enum drbd_rol
 	}
 
 	if (hg == -100) {
+		/* FIXME this log message is not correct if we end up here
+		 * after an attempted attach on a diskless node.
+		 * We just refuse to attach -- well, we drop the "connection"
+		 * to that disk, in a way... */
 		dev_alert(DEV, "Split-Brain detected but unresolved, dropping connection!\n");
 		drbd_khelper(mdev, "split-brain");
 		return C_MASK;
@@ -2258,12 +2593,12 @@ static enum drbd_conns drbd_sync_handshake(struct drbd_conf *mdev, enum drbd_rol
 		return C_MASK;
 	}
 
-	if (hg < 0 && 
+	if (hg < 0 && /* by intention we do not use mydisk here. */
 	    mdev->state.role == R_PRIMARY && mdev->state.disk >= D_CONSISTENT) {
 		switch (mdev->net_conf->rr_conflict) {
 		case ASB_CALL_HELPER:
 			drbd_khelper(mdev, "pri-lost");
-			
+			/* fall through */
 		case ASB_DISCONNECT:
 			dev_err(DEV, "I shall become SyncTarget, but I am primary!\n");
 			return C_MASK;
@@ -2290,9 +2625,9 @@ static enum drbd_conns drbd_sync_handshake(struct drbd_conf *mdev, enum drbd_rol
 			return C_MASK;
 	}
 
-	if (hg > 0) { 
+	if (hg > 0) { /* become sync source. */
 		rv = C_WF_BITMAP_S;
-	} else if (hg < 0) { 
+	} else if (hg < 0) { /* become sync target */
 		rv = C_WF_BITMAP_T;
 	} else {
 		rv = C_CONNECTED;
@@ -2305,23 +2640,24 @@ static enum drbd_conns drbd_sync_handshake(struct drbd_conf *mdev, enum drbd_rol
 	return rv;
 }
 
+/* returns 1 if invalid */
 static int cmp_after_sb(enum drbd_after_sb_p peer, enum drbd_after_sb_p self)
 {
-	
+	/* ASB_DISCARD_REMOTE - ASB_DISCARD_LOCAL is valid */
 	if ((peer == ASB_DISCARD_REMOTE && self == ASB_DISCARD_LOCAL) ||
 	    (self == ASB_DISCARD_REMOTE && peer == ASB_DISCARD_LOCAL))
 		return 0;
 
-	
+	/* any other things with ASB_DISCARD_REMOTE or ASB_DISCARD_LOCAL are invalid */
 	if (peer == ASB_DISCARD_REMOTE || peer == ASB_DISCARD_LOCAL ||
 	    self == ASB_DISCARD_REMOTE || self == ASB_DISCARD_LOCAL)
 		return 1;
 
-	
+	/* everything else is valid if they are equal on both sides. */
 	if (peer == self)
 		return 0;
 
-	
+	/* everything es is invalid. */
 	return 1;
 }
 
@@ -2397,6 +2733,11 @@ disconnect:
 	return false;
 }
 
+/* helper function
+ * input: alg name, feature name
+ * return: NULL (alg name was "")
+ *         ERR_PTR(error) if something goes wrong
+ *         or the crypto hash ptr, if it worked out ok. */
 struct crypto_hash *drbd_crypto_alloc_digest_safe(const struct drbd_conf *mdev,
 		const char *alg, const char *name)
 {
@@ -2434,7 +2775,7 @@ static int receive_SyncParam(struct drbd_conf *mdev, enum drbd_packets cmd, unsi
 		    : apv == 88 ? sizeof(struct p_rs_param)
 					+ SHARED_SECRET_MAX
 		    : apv <= 94 ? sizeof(struct p_rs_param_89)
-		    :  sizeof(struct p_rs_param_95);
+		    : /* apv >= 95 */ sizeof(struct p_rs_param_95);
 
 	if (packet_size > exp_max_sz) {
 		dev_err(DEV, "SyncParam packet too long: received %u, expected <= %u bytes\n",
@@ -2455,7 +2796,7 @@ static int receive_SyncParam(struct drbd_conf *mdev, enum drbd_packets cmd, unsi
 		D_ASSERT(data_size == 0);
 	}
 
-	
+	/* initialize verify_alg and csums_alg */
 	memset(p->verify_alg, 0, 2 * SHARED_SECRET_MAX);
 
 	if (drbd_recv(mdev, &p->head.payload, header_size) != header_size)
@@ -2475,14 +2816,14 @@ static int receive_SyncParam(struct drbd_conf *mdev, enum drbd_packets cmd, unsi
 			if (drbd_recv(mdev, p->verify_alg, data_size) != data_size)
 				return false;
 
-			
-			
+			/* we expect NUL terminated string */
+			/* but just in case someone tries to be evil */
 			D_ASSERT(p->verify_alg[data_size-1] == 0);
 			p->verify_alg[data_size-1] = 0;
 
-		} else  {
-			
-			
+		} else /* apv >= 89 */ {
+			/* we still expect NUL terminated strings */
+			/* but just in case someone tries to be evil */
 			D_ASSERT(p->verify_alg[SHARED_SECRET_MAX-1] == 0);
 			D_ASSERT(p->csums_alg[SHARED_SECRET_MAX-1] == 0);
 			p->verify_alg[SHARED_SECRET_MAX-1] = 0;
@@ -2535,7 +2876,7 @@ static int receive_SyncParam(struct drbd_conf *mdev, enum drbd_packets cmd, unsi
 		}
 
 		spin_lock(&mdev->peer_seq_lock);
-		
+		/* lock against drbd_nl_syncer_conf() */
 		if (verify_tfm) {
 			strcpy(mdev->sync_conf.verify_alg, p->verify_alg);
 			mdev->sync_conf.verify_alg_len = strlen(p->verify_alg) + 1;
@@ -2561,13 +2902,16 @@ static int receive_SyncParam(struct drbd_conf *mdev, enum drbd_packets cmd, unsi
 
 	return ok;
 disconnect:
+	/* just for completeness: actually not needed,
+	 * as this is not reached if csums_tfm was ok. */
 	crypto_free_hash(csums_tfm);
-	
+	/* but free the verify_tfm again, if csums_tfm did not work out */
 	crypto_free_hash(verify_tfm);
 	drbd_force_state(mdev, NS(conn, C_DISCONNECTING));
 	return false;
 }
 
+/* warn if the arguments differ by more than 12.5% */
 static void warn_if_differ_considerably(struct drbd_conf *mdev,
 	const char *s, sector_t a, sector_t b)
 {
@@ -2585,7 +2929,7 @@ static int receive_sizes(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 	struct p_sizes *p = &mdev->data.rbuf.sizes;
 	enum determine_dev_size dd = unchanged;
 	sector_t p_size, p_usize, my_usize;
-	int ldsc = 0; 
+	int ldsc = 0; /* local disk size changed */
 	enum dds_flags ddsf;
 
 	p_size = be64_to_cpu(p->d_size);
@@ -2597,6 +2941,8 @@ static int receive_sizes(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 		return false;
 	}
 
+	/* just store the peer's disk size for now.
+	 * we still need to figure out whether we accept that. */
 	mdev->p_size = p_size;
 
 	if (get_ldev(mdev)) {
@@ -2605,6 +2951,8 @@ static int receive_sizes(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 		warn_if_differ_considerably(mdev, "user requested size",
 					    p_usize, mdev->ldev->dc.disk_size);
 
+		/* if this is the first connect, or an otherwise expected
+		 * param exchange, choose the minimum */
 		if (mdev->state.conn == C_WF_REPORT_PARAMS)
 			p_usize = min_not_zero((sector_t)mdev->ldev->dc.disk_size,
 					     p_usize);
@@ -2617,6 +2965,8 @@ static int receive_sizes(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 			     (unsigned long)mdev->ldev->dc.disk_size);
 		}
 
+		/* Never shrink a device with usable data during connect.
+		   But allow online shrinking if we are connected. */
 		if (drbd_new_dev_size(mdev, mdev->ldev, 0) <
 		   drbd_get_capacity(mdev->this_bdev) &&
 		   mdev->state.disk >= D_OUTDATED &&
@@ -2638,7 +2988,7 @@ static int receive_sizes(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 			return false;
 		drbd_md_sync(mdev);
 	} else {
-		
+		/* I am diskless, need to accept the peer's size. */
 		drbd_set_my_capacity(mdev, p_size);
 	}
 
@@ -2657,6 +3007,8 @@ static int receive_sizes(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 	if (mdev->state.conn > C_WF_REPORT_PARAMS) {
 		if (be64_to_cpu(p->c_size) !=
 		    drbd_get_capacity(mdev->this_bdev) || ldsc) {
+			/* we have different sizes, probably peer
+			 * needs to know my new size... */
 			drbd_send_sizes(mdev, 0, ddsf);
 		}
 		if (test_and_clear_bit(RESIZE_PENDING, &mdev->flags) ||
@@ -2720,9 +3072,15 @@ static int receive_uuids(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 		put_ldev(mdev);
 	} else if (mdev->state.disk < D_INCONSISTENT &&
 		   mdev->state.role == R_PRIMARY) {
+		/* I am a diskless primary, the peer just created a new current UUID
+		   for me. */
 		updated_uuids = drbd_set_ed_uuid(mdev, p_uuid[UI_CURRENT]);
 	}
 
+	/* Before we test for the disk state, we should wait until an eventually
+	   ongoing cluster wide state change is finished. That is important if
+	   we are primary and are detaching from our disk. We need to see the
+	   new disk state... */
 	wait_event(mdev->misc_wait, !test_bit(CLUSTER_ST_CHANGE, &mdev->flags));
 	if (mdev->state.conn >= C_CONNECTED && mdev->state.disk < D_INCONSISTENT)
 		updated_uuids |= drbd_set_ed_uuid(mdev, p_uuid[UI_CURRENT]);
@@ -2733,6 +3091,10 @@ static int receive_uuids(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 	return true;
 }
 
+/**
+ * convert_state() - Converts the peer's view of the cluster state to our point of view
+ * @ps:		The state as seen by the peer.
+ */
 static union drbd_state convert_state(union drbd_state ps)
 {
 	union drbd_state ms;
@@ -2742,7 +3104,7 @@ static union drbd_state convert_state(union drbd_state ps)
 
 		[C_STARTING_SYNC_S] = C_STARTING_SYNC_T,
 		[C_STARTING_SYNC_T] = C_STARTING_SYNC_S,
-		[C_DISCONNECTING] = C_TEAR_DOWN, 
+		[C_DISCONNECTING] = C_TEAR_DOWN, /* C_NETWORK_FAILURE, */
 		[C_VERIFY_S]       = C_VERIFY_T,
 		[C_MASK]   = C_MASK,
 	};
@@ -2806,12 +3168,23 @@ static int receive_state(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 	os = ns = mdev->state;
 	spin_unlock_irq(&mdev->req_lock);
 
+	/* peer says his disk is uptodate, while we think it is inconsistent,
+	 * and this happens while we think we have a sync going on. */
 	if (os.pdsk == D_INCONSISTENT && real_peer_disk == D_UP_TO_DATE &&
 	    os.conn > C_CONNECTED && os.disk == D_UP_TO_DATE) {
+		/* If we are (becoming) SyncSource, but peer is still in sync
+		 * preparation, ignore its uptodate-ness to avoid flapping, it
+		 * will change to inconsistent once the peer reaches active
+		 * syncing states.
+		 * It may have changed syncer-paused flags, however, so we
+		 * cannot ignore this completely. */
 		if (peer_state.conn > C_CONNECTED &&
 		    peer_state.conn < C_SYNC_SOURCE)
 			real_peer_disk = D_INCONSISTENT;
 
+		/* if peer_state changes to connected at the same time,
+		 * it explicitly notifies us that it finished resync.
+		 * Maybe we should finish it up, too? */
 		else if (os.conn >= C_SYNC_SOURCE &&
 			 peer_state.conn == C_CONNECTED) {
 			if (drbd_bm_total_weight(mdev) <= mdev->rs_failed)
@@ -2820,6 +3193,11 @@ static int receive_state(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 		}
 	}
 
+	/* peer says his disk is inconsistent, while we think it is uptodate,
+	 * and this happens while the peer still thinks we have a sync going on,
+	 * but we think we are already done with the sync.
+	 * We ignore this to avoid flapping pdsk.
+	 * This should not happen, if the peer is a recent version of drbd. */
 	if (os.pdsk == D_UP_TO_DATE && real_peer_disk == D_INCONSISTENT &&
 	    os.conn == C_CONNECTED && peer_state.conn > C_SYNC_SOURCE)
 		real_peer_disk = D_UP_TO_DATE;
@@ -2832,14 +3210,20 @@ static int receive_state(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 
 	if (mdev->p_uuid && peer_state.disk >= D_NEGOTIATING &&
 	    get_ldev_if_state(mdev, D_NEGOTIATING)) {
-		int cr; 
+		int cr; /* consider resync */
 
-		
+		/* if we established a new connection */
 		cr  = (os.conn < C_CONNECTED);
+		/* if we had an established connection
+		 * and one of the nodes newly attaches a disk */
 		cr |= (os.conn == C_CONNECTED &&
 		       (peer_state.disk == D_NEGOTIATING ||
 			os.disk == D_NEGOTIATING));
+		/* if we have both been inconsistent, and the peer has been
+		 * forced to be UpToDate with --overwrite-data */
 		cr |= test_bit(CONSIDER_RESYNC, &mdev->flags);
+		/* if we had been plain connected, and the admin requested to
+		 * start a sync by "invalidate" or "invalidate-remote" */
 		cr |= (os.conn == C_CONNECTED &&
 				(peer_state.conn >= C_STARTING_SYNC_S &&
 				 peer_state.conn <= C_WF_BITMAP_T));
@@ -2878,6 +3262,8 @@ static int receive_state(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 	cs_flags = CS_VERBOSE + (os.conn < C_CONNECTED && ns.conn >= C_CONNECTED ? 0 : CS_HARD);
 	if (ns.pdsk == D_CONSISTENT && is_susp(ns) && ns.conn == C_CONNECTED && os.conn < C_CONNECTED &&
 	    test_bit(NEW_CUR_UUID, &mdev->flags)) {
+		/* Do not allow tl_restart(resend) for a rebooted peer. We can only allow this
+		   for temporal network outages! */
 		spin_unlock_irq(&mdev->req_lock);
 		dev_err(DEV, "Aborting Connect, can not thaw IO with an only Consistent peer\n");
 		tl_clear(mdev);
@@ -2898,7 +3284,9 @@ static int receive_state(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 	if (os.conn > C_WF_REPORT_PARAMS) {
 		if (ns.conn > C_CONNECTED && peer_state.conn <= C_CONNECTED &&
 		    peer_state.disk != D_NEGOTIATING ) {
-			
+			/* we want resync, peer has not yet decided to sync... */
+			/* Nowadays only used when forcing a node into primary role and
+			   setting its disk to UpToDate with that */
 			drbd_send_uuids(mdev);
 			drbd_send_state(mdev);
 		}
@@ -2906,7 +3294,7 @@ static int receive_state(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned
 
 	mdev->net_conf->want_lose = 0;
 
-	drbd_md_sync(mdev); 
+	drbd_md_sync(mdev); /* update connected indicator, la_size, ... */
 
 	return true;
 }
@@ -2921,8 +3309,10 @@ static int receive_sync_uuid(struct drbd_conf *mdev, enum drbd_packets cmd, unsi
 		   mdev->state.conn < C_CONNECTED ||
 		   mdev->state.disk < D_NEGOTIATING);
 
-	
+	/* D_ASSERT( mdev->state.conn == C_WF_SYNC_UUID ); */
 
+	/* Here the _drbd_uuid_ functions are right, current should
+	   _not_ be rotated into the history */
 	if (get_ldev_if_state(mdev, D_NEGOTIATING)) {
 		_drbd_uuid_set(mdev, UI_CURRENT, be64_to_cpu(p->uuid));
 		_drbd_uuid_set(mdev, UI_BITMAP, 0UL);
@@ -2937,6 +3327,12 @@ static int receive_sync_uuid(struct drbd_conf *mdev, enum drbd_packets cmd, unsi
 	return true;
 }
 
+/**
+ * receive_bitmap_plain
+ *
+ * Return 0 when done, 1 when another iteration is needed, and a negative error
+ * code upon failure.
+ */
 static int
 receive_bitmap_plain(struct drbd_conf *mdev, unsigned int data_size,
 		     unsigned long *buffer, struct bm_xfer_ctx *c)
@@ -2968,6 +3364,12 @@ receive_bitmap_plain(struct drbd_conf *mdev, unsigned int data_size,
 	return 1;
 }
 
+/**
+ * recv_bm_rle_bits
+ *
+ * Return 0 when done, 1 when another iteration is needed, and a negative error
+ * code upon failure.
+ */
 static int
 recv_bm_rle_bits(struct drbd_conf *mdev,
 		struct p_compressed_bm *p,
@@ -3027,6 +3429,12 @@ recv_bm_rle_bits(struct drbd_conf *mdev,
 	return (s != c->bm_bits);
 }
 
+/**
+ * decode_bitmap_c
+ *
+ * Return 0 when done, 1 when another iteration is needed, and a negative error
+ * code upon failure.
+ */
 static int
 decode_bitmap_c(struct drbd_conf *mdev,
 		struct p_compressed_bm *p,
@@ -3035,6 +3443,9 @@ decode_bitmap_c(struct drbd_conf *mdev,
 	if (DCBP_get_code(p) == RLE_VLI_Bits)
 		return recv_bm_rle_bits(mdev, p, c);
 
+	/* other variants had been implemented for evaluation,
+	 * but have been dropped as this one turned out to be "best"
+	 * during all our tests. */
 
 	dev_err(DEV, "receive_bitmap_c: unknown encoding %u\n", p->encoding);
 	drbd_force_state(mdev, NS(conn, C_PROTOCOL_ERROR));
@@ -3044,22 +3455,22 @@ decode_bitmap_c(struct drbd_conf *mdev,
 void INFO_bm_xfer_stats(struct drbd_conf *mdev,
 		const char *direction, struct bm_xfer_ctx *c)
 {
-	
+	/* what would it take to transfer it "plaintext" */
 	unsigned plain = sizeof(struct p_header80) *
 		((c->bm_words+BM_PACKET_WORDS-1)/BM_PACKET_WORDS+1)
 		+ c->bm_words * sizeof(long);
 	unsigned total = c->bytes[0] + c->bytes[1];
 	unsigned r;
 
-	
+	/* total can not be zero. but just in case: */
 	if (total == 0)
 		return;
 
-	
+	/* don't report if not compressed */
 	if (total >= plain)
 		return;
 
-	
+	/* total < plain. check for overflow, still */
 	r = (total > UINT_MAX/1000) ? (total / (plain/1000))
 		                    : (1000 * total / plain);
 
@@ -3075,6 +3486,14 @@ void INFO_bm_xfer_stats(struct drbd_conf *mdev,
 			total, r/10, r % 10);
 }
 
+/* Since we are processing the bitfield from lower addresses to higher,
+   it does not matter if the process it in 32 bit chunks or 64 bit
+   chunks as long as it is little endian. (Understand it as byte stream,
+   beginning with the lowest byte...) If we would use big endian
+   we would need to process it from the highest address to the lowest,
+   in order to be agnostic to the 32 vs 64 bits issue.
+
+   returns 0 on failure, 1 if we successfully received it. */
 static int receive_bitmap(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned int data_size)
 {
 	struct bm_xfer_ctx c;
@@ -3084,7 +3503,11 @@ static int receive_bitmap(struct drbd_conf *mdev, enum drbd_packets cmd, unsigne
 	struct p_header80 *h = &mdev->data.rbuf.header.h80;
 
 	drbd_bm_lock(mdev, "receive bitmap", BM_LOCKED_SET_ALLOWED);
+	/* you are supposed to send additional out-of-sync information
+	 * if you actually set bits during this phase */
 
+	/* maybe we should use some per thread scratch page,
+	 * and allocate that during initial device creation? */
 	buffer	 = (unsigned long *) __get_free_page(GFP_NOIO);
 	if (!buffer) {
 		dev_err(DEV, "failed to allocate one page buffer in %s\n", __func__);
@@ -3100,13 +3523,15 @@ static int receive_bitmap(struct drbd_conf *mdev, enum drbd_packets cmd, unsigne
 		if (cmd == P_BITMAP) {
 			err = receive_bitmap_plain(mdev, data_size, buffer, &c);
 		} else if (cmd == P_COMPRESSED_BITMAP) {
+			/* MAYBE: sanity check that we speak proto >= 90,
+			 * and the feature is enabled! */
 			struct p_compressed_bm *p;
 
 			if (data_size > BM_PACKET_PAYLOAD_BYTES) {
 				dev_err(DEV, "ReportCBitmap packet too large\n");
 				goto out;
 			}
-			
+			/* use the page buff */
 			p = buffer;
 			memcpy(p, h, sizeof(*h));
 			if (drbd_recv(mdev, p->head.payload, data_size) != data_size)
@@ -3141,10 +3566,12 @@ static int receive_bitmap(struct drbd_conf *mdev, enum drbd_packets cmd, unsigne
 		ok = !drbd_send_bitmap(mdev);
 		if (!ok)
 			goto out;
-		
+		/* Omit CS_ORDERED with this state transition to avoid deadlocks. */
 		rv = _drbd_request_state(mdev, NS(conn, C_WF_SYNC_UUID), CS_VERBOSE);
 		D_ASSERT(rv == SS_SUCCESS);
 	} else if (mdev->state.conn != C_WF_BITMAP_S) {
+		/* admin may have requested C_DISCONNECTING,
+		 * other threads may have noticed network errors */
 		dev_info(DEV, "unexpected cstate (%s) in receive_bitmap\n",
 		    drbd_conn_str(mdev->state.conn));
 	}
@@ -3160,7 +3587,7 @@ static int receive_bitmap(struct drbd_conf *mdev, enum drbd_packets cmd, unsigne
 
 static int receive_skip(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned int data_size)
 {
-	
+	/* TODO zero copy sink :) */
 	static char sink[128];
 	int size, want, r;
 
@@ -3179,6 +3606,8 @@ static int receive_skip(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned 
 
 static int receive_UnplugRemote(struct drbd_conf *mdev, enum drbd_packets cmd, unsigned int data_size)
 {
+	/* Make sure we've acked all the TCP data associated
+	 * with the data requests being unplugged */
 	drbd_tcp_quickack(mdev->data.socket);
 
 	return true;
@@ -3234,16 +3663,24 @@ static struct data_cmd drbd_cmd_handler[] = {
 	[P_CSUM_RS_REQUEST] = { 1, sizeof(struct p_block_req), receive_DataRequest },
 	[P_DELAY_PROBE]     = { 0, sizeof(struct p_delay_probe93), receive_skip },
 	[P_OUT_OF_SYNC]     = { 0, sizeof(struct p_block_desc), receive_out_of_sync },
+	/* anything missing from this table is in
+	 * the asender_tbl, see get_asender_cmd */
 	[P_MAX_CMD]	    = { 0, 0, NULL },
 };
 
+/* All handler functions that expect a sub-header get that sub-heder in
+   mdev->data.rbuf.header.head.payload.
+
+   Usually in mdev->data.rbuf.header.head the callback can find the usual
+   p_header, but they may not rely on that. Since there is also p_header95 !
+ */
 
 static void drbdd(struct drbd_conf *mdev)
 {
 	union p_header *header = &mdev->data.rbuf.header;
 	unsigned int packet_size;
 	enum drbd_packets cmd;
-	size_t shs; 
+	size_t shs; /* sub header size */
 	int rv;
 
 	while (get_t_state(&mdev->receiver) == Running) {
@@ -3284,6 +3721,8 @@ static void drbdd(struct drbd_conf *mdev)
 	err_out:
 		drbd_force_state(mdev, NS(conn, C_PROTOCOL_ERROR));
 	}
+	/* If we leave here, we probably want to update at least the
+	 * "Connected" indicator on stable storage. Do so explicitly here. */
 	drbd_md_sync(mdev);
 }
 
@@ -3307,7 +3746,7 @@ void drbd_free_tl_hash(struct drbd_conf *mdev)
 		spin_unlock_irq(&mdev->req_lock);
 		return;
 	}
-	
+	/* paranoia code */
 	for (h = mdev->ee_hash; h < mdev->ee_hash + mdev->ee_hash_s; h++)
 		if (h->first)
 			dev_err(DEV, "ASSERT FAILED ee_hash[%u].first == %p, expected NULL\n",
@@ -3316,7 +3755,7 @@ void drbd_free_tl_hash(struct drbd_conf *mdev)
 	mdev->ee_hash = NULL;
 	mdev->ee_hash_s = 0;
 
-	
+	/* paranoia code */
 	for (h = mdev->tl_hash; h < mdev->tl_hash + mdev->tl_hash_s; h++)
 		if (h->first)
 			dev_err(DEV, "ASSERT FAILED tl_hash[%u] == %p, expected NULL\n",
@@ -3337,17 +3776,27 @@ static void drbd_disconnect(struct drbd_conf *mdev)
 	if (mdev->state.conn == C_STANDALONE)
 		return;
 
-	
+	/* asender does not clean up anything. it must not interfere, either */
 	drbd_thread_stop(&mdev->asender);
 	drbd_free_sock(mdev);
 
-	
+	/* wait for current activity to cease. */
 	spin_lock_irq(&mdev->req_lock);
 	_drbd_wait_ee_list_empty(mdev, &mdev->active_ee);
 	_drbd_wait_ee_list_empty(mdev, &mdev->sync_ee);
 	_drbd_wait_ee_list_empty(mdev, &mdev->read_ee);
 	spin_unlock_irq(&mdev->req_lock);
 
+	/* We do not have data structures that would allow us to
+	 * get the rs_pending_cnt down to 0 again.
+	 *  * On C_SYNC_TARGET we do not have any data structures describing
+	 *    the pending RSDataRequest's we have sent.
+	 *  * On C_SYNC_SOURCE there is no data structure that tracks
+	 *    the P_RS_DATA_REPLY blocks that we sent to the SyncTarget.
+	 *  And no, it is not the sum of the reference counts in the
+	 *  resync_LRU. The resync_LRU tracks the whole operation including
+	 *  the disk-IO, while the rs_pending_cnt only tracks the blocks
+	 *  on the fly. */
 	drbd_rs_cancel_all(mdev);
 	mdev->rs_total = 0;
 	mdev->rs_failed = 0;
@@ -3356,12 +3805,17 @@ static void drbd_disconnect(struct drbd_conf *mdev)
 
 	del_timer(&mdev->request_timer);
 
-	
+	/* make sure syncer is stopped and w_resume_next_sg queued */
 	del_timer_sync(&mdev->resync_timer);
 	resync_timer_fn((unsigned long)mdev);
 
+	/* wait for all w_e_end_data_req, w_e_end_rsdata_req, w_send_barrier,
+	 * w_make_resync_request etc. which may still be on the worker queue
+	 * to be "canceled" */
 	drbd_flush_workqueue(mdev);
 
+	/* This also does reclaim_net_ee().  If we do this too early, we might
+	 * miss some resync ee and pages.*/
 	drbd_process_done_ee(mdev);
 
 	kfree(mdev->p_uuid);
@@ -3386,7 +3840,7 @@ static void drbd_disconnect(struct drbd_conf *mdev)
 	spin_lock_irq(&mdev->req_lock);
 	os = mdev->state;
 	if (os.conn >= C_UNCONNECTED) {
-		
+		/* Do not restart in case we are C_DISCONNECTING */
 		ns = os;
 		ns.conn = C_UNCONNECTED;
 		rv = _drbd_set_state(mdev, ns, CS_VERBOSE, NULL);
@@ -3404,8 +3858,17 @@ static void drbd_disconnect(struct drbd_conf *mdev)
 		drbd_request_state(mdev, NS(conn, C_STANDALONE));
 	}
 
+	/* serialize with bitmap writeout triggered by the state change,
+	 * if any. */
 	wait_event(mdev->misc_wait, !test_bit(BITMAP_IO, &mdev->flags));
 
+	/* tcp_close and release of sendpage pages can be deferred.  I don't
+	 * want to use SO_LINGER, because apparently it can be deferred for
+	 * more than 20 seconds (longest time I checked).
+	 *
+	 * Actually we don't care for exactly when the network stack does its
+	 * put_page(), but release our reference on these pages right here.
+	 */
 	i = drbd_release_ee(mdev, &mdev->net_ee);
 	if (i)
 		dev_info(DEV, "net_ee not empty, killed %u entries\n", i);
@@ -3421,20 +3884,29 @@ static void drbd_disconnect(struct drbd_conf *mdev)
 	D_ASSERT(list_empty(&mdev->sync_ee));
 	D_ASSERT(list_empty(&mdev->done_ee));
 
-	
+	/* ok, no more ee's on the fly, it is safe to reset the epoch_size */
 	atomic_set(&mdev->current_epoch->epoch_size, 0);
 	D_ASSERT(list_empty(&mdev->current_epoch->list));
 }
 
+/*
+ * We support PRO_VERSION_MIN to PRO_VERSION_MAX. The protocol version
+ * we can agree on is stored in agreed_pro_version.
+ *
+ * feature flags and the reserved array should be enough room for future
+ * enhancements of the handshake protocol, and possible plugins...
+ *
+ * for now, they are expected to be zero, but ignored.
+ */
 static int drbd_send_handshake(struct drbd_conf *mdev)
 {
-	
+	/* ASSERT current == mdev->receiver ... */
 	struct p_handshake *p = &mdev->data.sbuf.handshake;
 	int ok;
 
 	if (mutex_lock_interruptible(&mdev->data.mutex)) {
 		dev_err(DEV, "interrupted during initial handshake\n");
-		return 0; 
+		return 0; /* interrupted. not ok. */
 	}
 
 	if (mdev->data.socket == NULL) {
@@ -3451,9 +3923,16 @@ static int drbd_send_handshake(struct drbd_conf *mdev)
 	return ok;
 }
 
+/*
+ * return values:
+ *   1 yes, we have a valid connection
+ *   0 oops, did not work out, please try again
+ *  -1 peer talks different language,
+ *     no point in trying again, please go standalone.
+ */
 static int drbd_do_handshake(struct drbd_conf *mdev)
 {
-	
+	/* ASSERT current == mdev->receiver ... */
 	struct p_handshake *p = &mdev->data.rbuf.handshake;
 	const int expect = sizeof(struct p_handshake) - sizeof(struct p_header80);
 	unsigned int length;
@@ -3522,10 +4001,15 @@ static int drbd_do_auth(struct drbd_conf *mdev)
 #else
 #define CHALLENGE_LEN 64
 
+/* Return value:
+	1 - auth succeeded,
+	0 - failed, try again (network error),
+	-1 - auth failed, don't try again.
+*/
 
 static int drbd_do_auth(struct drbd_conf *mdev)
 {
-	char my_challenge[CHALLENGE_LEN];  
+	char my_challenge[CHALLENGE_LEN];  /* 64 Bytes... */
 	struct scatterlist sg;
 	char *response = NULL;
 	char *right_response = NULL;
@@ -3703,6 +4187,7 @@ int drbdd_init(struct drbd_thread *thi)
 	return 0;
 }
 
+/* ********* acknowledge sender ******** */
 
 static int got_RqSReply(struct drbd_conf *mdev, struct p_header80 *h)
 {
@@ -3730,7 +4215,7 @@ static int got_Ping(struct drbd_conf *mdev, struct p_header80 *h)
 
 static int got_PingAck(struct drbd_conf *mdev, struct p_header80 *h)
 {
-	
+	/* restore idle timeout */
 	mdev->meta.socket->sk->sk_rcvtimeo = mdev->net_conf->ping_int*HZ;
 	if (!test_and_set_bit(GOT_PING_ACK, &mdev->flags))
 		wake_up(&mdev->misc_wait);
@@ -3751,7 +4236,7 @@ static int got_IsInSync(struct drbd_conf *mdev, struct p_header80 *h)
 	if (get_ldev(mdev)) {
 		drbd_rs_complete_io(mdev, sector);
 		drbd_set_in_sync(mdev, sector, blksize);
-		
+		/* rs_same_csums is supposed to count in units of BM_BLOCK_SIZE */
 		mdev->rs_same_csum += (blksize >> BM_BLOCK_SHIFT);
 		put_ldev(mdev);
 	}
@@ -3761,6 +4246,8 @@ static int got_IsInSync(struct drbd_conf *mdev, struct p_header80 *h)
 	return true;
 }
 
+/* when we receive the ACK for a write request,
+ * verify that we actually know about it */
 static struct drbd_request *_ack_id_to_req(struct drbd_conf *mdev,
 	u64 id, sector_t sector)
 {
@@ -3872,6 +4359,12 @@ static int got_NegAck(struct drbd_conf *mdev, struct p_header80 *h)
 		spin_unlock_irq(&mdev->req_lock);
 		if (mdev->net_conf->wire_protocol == DRBD_PROT_A ||
 		    mdev->net_conf->wire_protocol == DRBD_PROT_B) {
+			/* Protocol A has no P_WRITE_ACKs, but has P_NEG_ACKs.
+			   The master bio might already be completed, therefore the
+			   request is no longer in the collision hash.
+			   => Do not try to validate block_id as request. */
+			/* In Protocol B we might already have got a P_RECV_ACK
+			   but then get a P_NEG_ACK after wards. */
 			drbd_set_out_of_sync(mdev, sector, size);
 			return true;
 		} else {
@@ -3973,7 +4466,7 @@ static int got_OVResult(struct drbd_conf *mdev, struct p_header80 *h)
 
 	--mdev->ov_left;
 
-	
+	/* let's advance progress step marks only for every other megabyte */
 	if ((mdev->ov_left & 0x200) == 0x200)
 		drbd_advance_rs_marks(mdev, mdev->ov_left);
 
@@ -4005,6 +4498,9 @@ struct asender_cmd {
 static struct asender_cmd *get_asender_cmd(int cmd)
 {
 	static struct asender_cmd asender_tbl[] = {
+		/* anything missing from this table is in
+		 * the drbd_cmd_handler (drbd_default_handler) table,
+		 * see the beginning of drbdd() */
 	[P_PING]	    = { sizeof(struct p_header80), got_Ping },
 	[P_PING_ACK]	    = { sizeof(struct p_header80), got_PingAck },
 	[P_RECV_ACK]	    = { sizeof(struct p_block_ack), got_BlockAck },
@@ -4042,8 +4538,8 @@ int drbd_asender(struct drbd_thread *thi)
 
 	sprintf(current->comm, "drbd%d_asender", mdev_to_minor(mdev));
 
-	current->policy = SCHED_RR;  
-	current->rt_priority = 2;    
+	current->policy = SCHED_RR;  /* Make this a realtime task! */
+	current->rt_priority = 2;    /* more important than all other tasks */
 
 	while (get_t_state(thi) == Running) {
 		drbd_thread_current_set_cpu(mdev);
@@ -4054,6 +4550,8 @@ int drbd_asender(struct drbd_thread *thi)
 			ping_timeout_active = 1;
 		}
 
+		/* conditionally cork;
+		 * it may hurt latency if we cork without much to send */
 		if (!mdev->net_conf->no_cork &&
 			3 < atomic_read(&mdev->unacked_cnt))
 			drbd_tcp_cork(mdev->meta.socket);
@@ -4062,19 +4560,22 @@ int drbd_asender(struct drbd_thread *thi)
 			flush_signals(current);
 			if (!drbd_process_done_ee(mdev))
 				goto reconnect;
-			
+			/* to avoid race with newly queued ACKs */
 			set_bit(SIGNAL_ASENDER, &mdev->flags);
 			spin_lock_irq(&mdev->req_lock);
 			empty = list_empty(&mdev->done_ee);
 			spin_unlock_irq(&mdev->req_lock);
+			/* new ack may have been queued right here,
+			 * but then there is also a signal pending,
+			 * and we start over... */
 			if (empty)
 				break;
 		}
-		
+		/* but unconditionally uncork unless disabled */
 		if (!mdev->net_conf->no_cork)
 			drbd_tcp_uncork(mdev->meta.socket);
 
-		
+		/* short circuit, recv_msg would return EINTR anyways. */
 		if (signal_pending(current))
 			continue;
 
@@ -4084,6 +4585,16 @@ int drbd_asender(struct drbd_thread *thi)
 
 		flush_signals(current);
 
+		/* Note:
+		 * -EINTR	 (on meta) we got a signal
+		 * -EAGAIN	 (on meta) rcvtimeo expired
+		 * -ECONNRESET	 other side closed the connection
+		 * -ERESTARTSYS  (on data) we got a signal
+		 * rv <  0	 other than above: unexpected error!
+		 * rv == expected: full header or command
+		 * rv <  expected: "woken" by signal during receive
+		 * rv == 0	 : "connection shut down by peer"
+		 */
 		if (likely(rv > 0)) {
 			received += rv;
 			buf	 += rv;
@@ -4091,6 +4602,8 @@ int drbd_asender(struct drbd_thread *thi)
 			dev_err(DEV, "meta connection shut down by peer.\n");
 			goto reconnect;
 		} else if (rv == -EAGAIN) {
+			/* If the data socket received something meanwhile,
+			 * that is good enough: peer is still alive. */
 			if (time_after(mdev->last_received,
 				jiffies - mdev->meta.socket->sk->sk_rcvtimeo))
 				continue;
@@ -4134,6 +4647,8 @@ int drbd_asender(struct drbd_thread *thi)
 			if (!cmd->process(mdev, h))
 				goto reconnect;
 
+			/* the idle_timeout (ping-int)
+			 * has been restored in got_PingAck() */
 			if (cmd == get_asender_cmd(P_PING_ACK))
 				ping_timeout_active = 0;
 

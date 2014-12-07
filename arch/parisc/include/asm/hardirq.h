@@ -8,4 +8,4 @@
 
 #include <asm-generic/hardirq.h>
 
-#endif 
+#endif /* _PARISC_HARDIRQ_H */

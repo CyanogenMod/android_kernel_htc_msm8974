@@ -12,6 +12,16 @@
 
 #include "s3c24xx_simtec.h"
 
+/* supported machines:
+ *
+ * Machine	Connections		AMP
+ * -------	-----------		---
+ * BAST		MIC, HPOUT, LOUT, LIN	TPA2001D1 (HPOUTL,R) (gain hardwired)
+ * VR1000	HPOUT, LIN		None
+ * VR2000	LIN, LOUT, MIC, HP	LM4871 (HPOUTL,R)
+ * DePicture	LIN, LOUT, MIC, HP	LM4871 (HPOUTL,R)
+ * Anubis	LIN, LOUT, MIC, HP	TPA2001D1 (HPOUTL,R)
+ */
 
 static const struct snd_soc_dapm_widget dapm_widgets[] = {
 	SND_SOC_DAPM_HP("Headphone Jack", NULL),
@@ -33,6 +43,13 @@ static const struct snd_soc_dapm_route base_map[] = {
 	{ "MICIN", NULL, "Mic Jack"},
 };
 
+/**
+ * simtec_tlv320aic23_init - initialise and add controls
+ * @codec; The codec instance to attach to.
+ *
+ * Attach our controls and configure the necessary codec
+ * mappings for our sound card instance.
+*/
 static int simtec_tlv320aic23_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_codec *codec = rtd->codec;
@@ -58,6 +75,7 @@ static struct snd_soc_dai_link simtec_dai_aic23 = {
 	.init		= simtec_tlv320aic23_init,
 };
 
+/* simtec audio machine driver */
 static struct snd_soc_card snd_soc_machine_simtec_aic23 = {
 	.name		= "Simtec",
 	.owner		= THIS_MODULE,

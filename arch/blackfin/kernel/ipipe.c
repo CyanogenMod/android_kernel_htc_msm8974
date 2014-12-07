@@ -59,11 +59,15 @@ static void __ipipe_ack_irq(unsigned irq, struct irq_desc *desc)
 	desc->ipipe_ack(irq, desc);
 }
 
+/*
+ * __ipipe_enable_pipeline() -- We are running on the boot CPU, hw
+ * interrupts are off, and secondary CPUs are still lost in space.
+ */
 void __ipipe_enable_pipeline(void)
 {
 	unsigned irq;
 
-	__ipipe_core_clock = get_cclk(); 
+	__ipipe_core_clock = get_cclk(); /* Fetch this once. */
 	__ipipe_freq_scale = 1000000000UL / __ipipe_core_clock;
 
 	for (irq = 0; irq < NR_IRQS; ++irq)
@@ -75,6 +79,11 @@ void __ipipe_enable_pipeline(void)
 				     IPIPE_HANDLE_MASK | IPIPE_PASS_MASK);
 }
 
+/*
+ * __ipipe_handle_irq() -- IPIPE's generic IRQ handler. An optimistic
+ * interrupt protection log is maintained here for each domain. Hw
+ * interrupts are masked on entry.
+ */
 void __ipipe_handle_irq(unsigned irq, struct pt_regs *regs)
 {
 	struct ipipe_percpu_domain_data *p = ipipe_root_cpudom_ptr();
@@ -83,6 +92,12 @@ void __ipipe_handle_irq(unsigned irq, struct pt_regs *regs)
 	struct ipipe_irqdesc *idesc;
 	int m_ack, s = -1;
 
+	/*
+	 * Software-triggered IRQs do not need any ack.  The contents
+	 * of the register frame should only be used when processing
+	 * the timer interrupt, but not for handling any other
+	 * interrupt.
+	 */
 	m_ack = (regs == NULL || irq == IRQ_SYSTMR || irq == IRQ_CORETMR);
 	this_domain = __ipipe_current_domain;
 	idesc = &this_domain->irqs[irq];
@@ -104,7 +119,7 @@ void __ipipe_handle_irq(unsigned irq, struct pt_regs *regs)
 		}
 	}
 
-	
+	/* Ack the interrupt. */
 
 	pos = head;
 	while (pos != &__ipipe_pipeline) {
@@ -122,9 +137,22 @@ void __ipipe_handle_irq(unsigned irq, struct pt_regs *regs)
 		pos = next_domain->p_link.next;
 	}
 
+	/*
+	 * Now walk the pipeline, yielding control to the highest
+	 * priority domain that has pending interrupt(s) or
+	 * immediately to the current domain if the interrupt has been
+	 * marked as 'sticky'. This search does not go beyond the
+	 * current domain in the pipeline. We also enforce the
+	 * additional root stage lock (blackfin-specific).
+	 */
 	if (test_bit(IPIPE_SYNCDEFER_FLAG, &p->status))
 		s = __test_and_set_bit(IPIPE_STALL_FLAG, &p->status);
 
+	/*
+	 * If the interrupt preempted the head domain, then do not
+	 * even try to walk the pipeline, unless an interrupt is
+	 * pending for it.
+	 */
 	if (test_bit(IPIPE_AHEAD_FLAG, &this_domain->flags) &&
 	    !__ipipe_ipending_p(ipipe_head_cpudom_ptr()))
 		goto out;
@@ -165,9 +193,22 @@ asmlinkage int __ipipe_syscall_root(struct pt_regs *regs)
 
 	WARN_ON_ONCE(irqs_disabled_hw());
 
+	/*
+	 * We need to run the IRQ tail hook each time we intercept a
+	 * syscall, because we know that important operations might be
+	 * pending there (e.g. Xenomai deferred rescheduling).
+	 */
 	hook = (__typeof__(hook))__ipipe_irq_tail_hook;
 	hook();
 
+	/*
+	 * This routine either returns:
+	 * 0 -- if the syscall is to be passed to Linux;
+	 * >0 -- if the syscall should not be passed to Linux, and no
+	 * tail work should be performed;
+	 * <0 -- if the syscall should not be passed to Linux but the
+	 * tail work has to be performed (for handling signals etc).
+	 */
 
 	if (!__ipipe_syscall_watched_p(current, regs->orig_p0) ||
 	    !__ipipe_event_monitored_p(IPIPE_EVENT_SYSCALL))
@@ -177,6 +218,10 @@ asmlinkage int __ipipe_syscall_root(struct pt_regs *regs)
 
 	hard_local_irq_disable();
 
+	/*
+	 * This is the end of the syscall path, so we may
+	 * safely assume a valid Linux task stack here.
+	 */
 	if (current->ipipe_flags & PF_EVTRET) {
 		current->ipipe_flags &= ~PF_EVTRET;
 		__ipipe_dispatch_event(IPIPE_EVENT_RETURN, regs);
@@ -210,6 +255,11 @@ int ipipe_get_sysinfo(struct ipipe_sysinfo *info)
 	return 0;
 }
 
+/*
+ * ipipe_trigger_irq() -- Push the interrupt at front of the pipeline
+ * just like if it has been actually received from a hw source. Also
+ * works for virtual interrupts.
+ */
 int ipipe_trigger_irq(unsigned irq)
 {
 	unsigned long flags;
@@ -261,6 +311,14 @@ void ___ipipe_sync_pipeline(void)
 
 void __ipipe_disable_root_irqs_hw(void)
 {
+	/*
+	 * This code is called by the ins{bwl} routines (see
+	 * arch/blackfin/lib/ins.S), which are heavily used by the
+	 * network stack. It masks all interrupts but those handled by
+	 * non-root domains, so that we keep decent network transfer
+	 * rates for Linux without inducing pathological jitter for
+	 * the real-time domain.
+	 */
 	bfin_sti(__ipipe_irq_lvmask);
 	__set_bit(IPIPE_STALL_FLAG, &ipipe_root_cpudom_var(status));
 }
@@ -271,6 +329,11 @@ void __ipipe_enable_root_irqs_hw(void)
 	bfin_sti(bfin_irq_flags);
 }
 
+/*
+ * We could use standard atomic bitops in the following root status
+ * manipulation routines, but let's prepare for SMP support in the
+ * same move, preventing CPU migration as required.
+ */
 void __ipipe_stall_root(void)
 {
 	unsigned long *p, flags;

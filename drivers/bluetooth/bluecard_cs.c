@@ -49,6 +49,7 @@
 
 
 
+/* ======================== Module parameters ======================== */
 
 
 MODULE_AUTHOR("Marcel Holtmann <marcel@holtmann.org>");
@@ -57,6 +58,7 @@ MODULE_LICENSE("GPL");
 
 
 
+/* ======================== Local structures ======================== */
 
 
 typedef struct bluecard_info_t {
@@ -64,8 +66,8 @@ typedef struct bluecard_info_t {
 
 	struct hci_dev *hdev;
 
-	spinlock_t lock;		
-	struct timer_list timer;	
+	spinlock_t lock;		/* For serializing operations */
+	struct timer_list timer;	/* For LED control */
 
 	struct sk_buff_head txq;
 	unsigned long tx_state;
@@ -75,7 +77,7 @@ typedef struct bluecard_info_t {
 	struct sk_buff *rx_skb;
 
 	unsigned char ctrl_reg;
-	unsigned long hw_state;		
+	unsigned long hw_state;		/* Status of the hardware and LED control */
 } bluecard_info_t;
 
 
@@ -85,33 +87,39 @@ static void bluecard_release(struct pcmcia_device *link);
 static void bluecard_detach(struct pcmcia_device *p_dev);
 
 
+/* Default baud rate: 57600, 115200, 230400 or 460800 */
 #define DEFAULT_BAUD_RATE  230400
 
 
+/* Hardware states */
 #define CARD_READY             1
 #define CARD_HAS_PCCARD_ID     4
 #define CARD_HAS_POWER_LED     5
 #define CARD_HAS_ACTIVITY_LED  6
 
+/* Transmit states  */
 #define XMIT_SENDING         1
 #define XMIT_WAKEUP          2
-#define XMIT_BUFFER_NUMBER   5	
+#define XMIT_BUFFER_NUMBER   5	/* unset = buffer one, set = buffer two */
 #define XMIT_BUF_ONE_READY   6
 #define XMIT_BUF_TWO_READY   7
 #define XMIT_SENDING_READY   8
 
+/* Receiver states */
 #define RECV_WAIT_PACKET_TYPE   0
 #define RECV_WAIT_EVENT_HEADER  1
 #define RECV_WAIT_ACL_HEADER    2
 #define RECV_WAIT_SCO_HEADER    3
 #define RECV_WAIT_DATA          4
 
+/* Special packet types */
 #define PKT_BAUD_RATE_57600   0x80
 #define PKT_BAUD_RATE_115200  0x81
 #define PKT_BAUD_RATE_230400  0x82
 #define PKT_BAUD_RATE_460800  0x83
 
 
+/* These are the register offsets */
 #define REG_COMMAND     0x20
 #define REG_INTERRUPT   0x21
 #define REG_CONTROL     0x22
@@ -119,6 +127,7 @@ static void bluecard_detach(struct pcmcia_device *p_dev);
 #define REG_CARD_RESET  0x30
 #define REG_LED_CTRL    0x30
 
+/* REG_COMMAND */
 #define REG_COMMAND_TX_BUF_ONE  0x01
 #define REG_COMMAND_TX_BUF_TWO  0x02
 #define REG_COMMAND_RX_BUF_ONE  0x04
@@ -126,6 +135,7 @@ static void bluecard_detach(struct pcmcia_device *p_dev);
 #define REG_COMMAND_RX_WIN_ONE  0x00
 #define REG_COMMAND_RX_WIN_TWO  0x10
 
+/* REG_CONTROL */
 #define REG_CONTROL_BAUD_RATE_57600   0x00
 #define REG_CONTROL_BAUD_RATE_115200  0x01
 #define REG_CONTROL_BAUD_RATE_230400  0x02
@@ -137,10 +147,12 @@ static void bluecard_detach(struct pcmcia_device *p_dev);
 #define REG_CONTROL_INTERRUPT         0x40
 #define REG_CONTROL_CARD_RESET        0x80
 
+/* REG_RX_CONTROL */
 #define RTS_LEVEL_SHIFT_BITS  0x02
 
 
 
+/* ======================== LED handling routines ======================== */
 
 
 static void bluecard_activity_led_timeout(u_long arg)
@@ -152,10 +164,10 @@ static void bluecard_activity_led_timeout(u_long arg)
 		return;
 
 	if (test_bit(CARD_HAS_ACTIVITY_LED, &(info->hw_state))) {
-		
+		/* Disable activity LED */
 		outb(0x08 | 0x20, iobase + 0x30);
 	} else {
-		
+		/* Disable power LED */
 		outb(0x00, iobase + 0x30);
 	}
 }
@@ -169,22 +181,23 @@ static void bluecard_enable_activity_led(bluecard_info_t *info)
 		return;
 
 	if (test_bit(CARD_HAS_ACTIVITY_LED, &(info->hw_state))) {
-		
+		/* Enable activity LED */
 		outb(0x10 | 0x40, iobase + 0x30);
 
-		
+		/* Stop the LED after HZ/4 */
 		mod_timer(&(info->timer), jiffies + HZ / 4);
 	} else {
-		
+		/* Enable power LED */
 		outb(0x08 | 0x20, iobase + 0x30);
 
-		
+		/* Stop the LED after HZ/2 */
 		mod_timer(&(info->timer), jiffies + HZ / 2);
 	}
 }
 
 
 
+/* ======================== Interrupt handling ======================== */
 
 
 static int bluecard_write(unsigned int iobase, unsigned int offset, __u8 *buf, int len)
@@ -248,21 +261,21 @@ static void bluecard_write_wakeup(bluecard_info_t *info)
 			break;
 
 		if (bt_cb(skb)->pkt_type & 0x80) {
-			
+			/* Disable RTS */
 			info->ctrl_reg |= REG_CONTROL_RTS;
 			outb(info->ctrl_reg, iobase + REG_CONTROL);
 		}
 
-		
+		/* Activate LED */
 		bluecard_enable_activity_led(info);
 
-		
+		/* Send frame */
 		len = bluecard_write(iobase, offset, skb->data, skb->len);
 
-		
+		/* Tell the FPGA to send the data */
 		outb_p(command, iobase + REG_COMMAND);
 
-		
+		/* Mark the buffer as dirty */
 		clear_bit(ready_bit, &(info->tx_state));
 
 		if (bt_cb(skb)->pkt_type & 0x80) {
@@ -282,27 +295,27 @@ static void bluecard_write_wakeup(bluecard_info_t *info)
 				baud_reg = REG_CONTROL_BAUD_RATE_115200;
 				break;
 			case PKT_BAUD_RATE_57600:
-				
+				/* Fall through... */
 			default:
 				baud_reg = REG_CONTROL_BAUD_RATE_57600;
 				break;
 			}
 
-			
+			/* Wait until the command reaches the baseband */
 			prepare_to_wait(&wq, &wait, TASK_INTERRUPTIBLE);
 			schedule_timeout(HZ/10);
 			finish_wait(&wq, &wait);
 
-			
+			/* Set baud on baseband */
 			info->ctrl_reg &= ~0x03;
 			info->ctrl_reg |= baud_reg;
 			outb(info->ctrl_reg, iobase + REG_CONTROL);
 
-			
+			/* Enable RTS */
 			info->ctrl_reg &= ~REG_CONTROL_RTS;
 			outb(info->ctrl_reg, iobase + REG_CONTROL);
 
-			
+			/* Wait before the next HCI packet can be send */
 			prepare_to_wait(&wq, &wait, TASK_INTERRUPTIBLE);
 			schedule_timeout(HZ);
 			finish_wait(&wq, &wait);
@@ -317,7 +330,7 @@ static void bluecard_write_wakeup(bluecard_info_t *info)
 
 		info->hdev->stat.byte_tx += len;
 
-		
+		/* Change buffer */
 		change_bit(XMIT_BUFFER_NUMBER, &(info->tx_state));
 
 	} while (test_bit(XMIT_WAKEUP, &(info->tx_state)));
@@ -374,7 +387,7 @@ static void bluecard_receive(bluecard_info_t *info, unsigned int offset)
 
 	for (i = 0; i < len; i++) {
 
-		
+		/* Allocate packet */
 		if (info->rx_skb == NULL) {
 			info->rx_state = RECV_WAIT_PACKET_TYPE;
 			info->rx_count = 0;
@@ -392,7 +405,7 @@ static void bluecard_receive(bluecard_info_t *info, unsigned int offset)
 			switch (bt_cb(info->rx_skb)->pkt_type) {
 
 			case 0x00:
-				
+				/* init packet */
 				if (offset != 0x00) {
 					set_bit(XMIT_BUF_ONE_READY, &(info->tx_state));
 					set_bit(XMIT_BUF_TWO_READY, &(info->tx_state));
@@ -420,7 +433,7 @@ static void bluecard_receive(bluecard_info_t *info, unsigned int offset)
 				break;
 
 			default:
-				
+				/* unknown packet */
 				BT_ERR("Unknown HCI packet with type 0x%02x received", bt_cb(info->rx_skb)->pkt_type);
 				info->hdev->stat.err_rx++;
 
@@ -488,7 +501,7 @@ static irqreturn_t bluecard_interrupt(int irq, void *dev_inst)
 	unsigned char reg;
 
 	if (!info || !info->hdev)
-		
+		/* our irq handler is shared */
 		return IRQ_NONE;
 
 	if (!test_bit(CARD_READY, &(info->hw_state)))
@@ -498,7 +511,7 @@ static irqreturn_t bluecard_interrupt(int irq, void *dev_inst)
 
 	spin_lock(&(info->lock));
 
-	
+	/* Disable interrupt */
 	info->ctrl_reg &= ~REG_CONTROL_INTERRUPT;
 	outb(info->ctrl_reg, iobase + REG_CONTROL);
 
@@ -532,7 +545,7 @@ static irqreturn_t bluecard_interrupt(int irq, void *dev_inst)
 
 	}
 
-	
+	/* Enable interrupt */
 	info->ctrl_reg |= REG_CONTROL_INTERRUPT;
 	outb(info->ctrl_reg, iobase + REG_CONTROL);
 
@@ -543,6 +556,7 @@ static irqreturn_t bluecard_interrupt(int irq, void *dev_inst)
 
 
 
+/* ======================== Device specific HCI commands ======================== */
 
 
 static int bluecard_hci_set_baud_rate(struct hci_dev *hdev, int baud)
@@ -550,7 +564,7 @@ static int bluecard_hci_set_baud_rate(struct hci_dev *hdev, int baud)
 	bluecard_info_t *info = (bluecard_info_t *)(hdev->driver_data);
 	struct sk_buff *skb;
 
-	
+	/* Ericsson baud rate command */
 	unsigned char cmd[] = { HCI_COMMAND_PKT, 0x09, 0xfc, 0x01, 0x03 };
 
 	if (!(skb = bt_skb_alloc(HCI_MAX_FRAME_SIZE, GFP_ATOMIC))) {
@@ -572,7 +586,7 @@ static int bluecard_hci_set_baud_rate(struct hci_dev *hdev, int baud)
 		bt_cb(skb)->pkt_type = PKT_BAUD_RATE_115200;
 		break;
 	case 57600:
-		
+		/* Fall through... */
 	default:
 		cmd[4] = 0x03;
 		bt_cb(skb)->pkt_type = PKT_BAUD_RATE_57600;
@@ -590,13 +604,14 @@ static int bluecard_hci_set_baud_rate(struct hci_dev *hdev, int baud)
 
 
 
+/* ======================== HCI interface ======================== */
 
 
 static int bluecard_hci_flush(struct hci_dev *hdev)
 {
 	bluecard_info_t *info = (bluecard_info_t *)(hdev->driver_data);
 
-	
+	/* Drop TX queue */
 	skb_queue_purge(&(info->txq));
 
 	return 0;
@@ -615,7 +630,7 @@ static int bluecard_hci_open(struct hci_dev *hdev)
 		return 0;
 
 	if (test_bit(CARD_HAS_PCCARD_ID, &(info->hw_state))) {
-		
+		/* Enable LED */
 		outb(0x08 | 0x20, iobase + 0x30);
 	}
 
@@ -634,7 +649,7 @@ static int bluecard_hci_close(struct hci_dev *hdev)
 	bluecard_hci_flush(hdev);
 
 	if (test_bit(CARD_HAS_PCCARD_ID, &(info->hw_state))) {
-		
+		/* Disable LED */
 		outb(0x00, iobase + 0x30);
 	}
 
@@ -666,7 +681,7 @@ static int bluecard_hci_send_frame(struct sk_buff *skb)
 		break;
 	};
 
-	
+	/* Prepend skb with frame type */
 	memcpy(skb_push(skb, 1), &bt_cb(skb)->pkt_type, 1);
 	skb_queue_tail(&(info->txq), skb);
 
@@ -688,6 +703,7 @@ static int bluecard_hci_ioctl(struct hci_dev *hdev, unsigned int cmd, unsigned l
 
 
 
+/* ======================== Card services HCI interaction ======================== */
 
 
 static int bluecard_open(bluecard_info_t *info)
@@ -708,7 +724,7 @@ static int bluecard_open(bluecard_info_t *info)
 	info->rx_count = 0;
 	info->rx_skb = NULL;
 
-	
+	/* Initialize HCI device */
 	hdev = hci_alloc_dev();
 	if (!hdev) {
 		BT_ERR("Can't allocate HCI device");
@@ -741,38 +757,38 @@ static int bluecard_open(bluecard_info_t *info)
 	if (id & 0x20)
 		set_bit(CARD_HAS_ACTIVITY_LED, &(info->hw_state));
 
-	
+	/* Reset card */
 	info->ctrl_reg = REG_CONTROL_BT_RESET | REG_CONTROL_CARD_RESET;
 	outb(info->ctrl_reg, iobase + REG_CONTROL);
 
-	
+	/* Turn FPGA off */
 	outb(0x80, iobase + 0x30);
 
-	
+	/* Wait some time */
 	msleep(10);
 
-	
+	/* Turn FPGA on */
 	outb(0x00, iobase + 0x30);
 
-	
+	/* Activate card */
 	info->ctrl_reg = REG_CONTROL_BT_ON | REG_CONTROL_BT_RES_PU;
 	outb(info->ctrl_reg, iobase + REG_CONTROL);
 
-	
+	/* Enable interrupt */
 	outb(0xff, iobase + REG_INTERRUPT);
 	info->ctrl_reg |= REG_CONTROL_INTERRUPT;
 	outb(info->ctrl_reg, iobase + REG_CONTROL);
 
 	if ((id & 0x0f) == 0x03) {
-		
+		/* Disable RTS */
 		info->ctrl_reg |= REG_CONTROL_RTS;
 		outb(info->ctrl_reg, iobase + REG_CONTROL);
 
-		
+		/* Set baud rate */
 		info->ctrl_reg |= 0x03;
 		outb(info->ctrl_reg, iobase + REG_CONTROL);
 
-		
+		/* Enable RTS */
 		info->ctrl_reg &= ~REG_CONTROL_RTS;
 		outb(info->ctrl_reg, iobase + REG_CONTROL);
 
@@ -781,23 +797,23 @@ static int bluecard_open(bluecard_info_t *info)
 		set_bit(XMIT_SENDING_READY, &(info->tx_state));
 	}
 
-	
+	/* Start the RX buffers */
 	outb(REG_COMMAND_RX_BUF_ONE, iobase + REG_COMMAND);
 	outb(REG_COMMAND_RX_BUF_TWO, iobase + REG_COMMAND);
 
-	
+	/* Signal that the hardware is ready */
 	set_bit(CARD_READY, &(info->hw_state));
 
-	
+	/* Drop TX queue */
 	skb_queue_purge(&(info->txq));
 
-	
+	/* Control the point at which RTS is enabled */
 	outb((0x0f << RTS_LEVEL_SHIFT_BITS) | 1, iobase + REG_RX_CONTROL);
 
-	
+	/* Timeout before it is safe to send the first HCI packet */
 	msleep(1250);
 
-	
+	/* Register HCI device */
 	if (hci_register_dev(hdev) < 0) {
 		BT_ERR("Can't register HCI device");
 		info->hdev = NULL;
@@ -821,11 +837,11 @@ static int bluecard_close(bluecard_info_t *info)
 
 	clear_bit(CARD_READY, &(info->hw_state));
 
-	
+	/* Reset card */
 	info->ctrl_reg = REG_CONTROL_BT_RESET | REG_CONTROL_CARD_RESET;
 	outb(info->ctrl_reg, iobase + REG_CONTROL);
 
-	
+	/* Turn FPGA off */
 	outb(0x80, iobase + 0x30);
 
 	if (hci_unregister_dev(hdev) < 0)
@@ -840,7 +856,7 @@ static int bluecard_probe(struct pcmcia_device *link)
 {
 	bluecard_info_t *info;
 
-	
+	/* Create new info device */
 	info = kzalloc(sizeof(*info), GFP_KERNEL);
 	if (!info)
 		return -ENOMEM;

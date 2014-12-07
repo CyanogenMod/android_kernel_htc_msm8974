@@ -30,6 +30,9 @@
 #include "mpi-internal.h"
 #include "longlong.h"
 
+/****************
+ * RES = BASE ^ EXP mod MOD
+ */
 int mpi_powm(MPI res, MPI base, MPI exp, MPI mod)
 {
 	mpi_ptr_t mp_marker = NULL, bp_marker = NULL, ep_marker = NULL;
@@ -42,8 +45,8 @@ int mpi_powm(MPI res, MPI base, MPI exp, MPI mod)
 	int mod_shift_cnt;
 	int negative_result;
 	int assign_rp = 0;
-	mpi_size_t tsize = 0;	
-	
+	mpi_size_t tsize = 0;	/* to avoid compiler warning */
+	/* fixme: we should check that the warning is void */
 	int rc = -ENOMEM;
 
 	esize = exp->nlimbs;
@@ -59,12 +62,18 @@ int mpi_powm(MPI res, MPI base, MPI exp, MPI mod)
 		return -EINVAL;
 
 	if (!esize) {
+		/* Exponent is zero, result is 1 mod MOD, i.e., 1 or 0
+		 * depending on if MOD equals 1.  */
 		rp[0] = 1;
 		res->nlimbs = (msize == 1 && mod->d[0] == 1) ? 0 : 1;
 		res->sign = 0;
 		goto leave;
 	}
 
+	/* Normalize MOD (i.e. make its most significant bit set) as required by
+	 * mpn_divrem.  This will make the intermediate values in the calculation
+	 * slightly larger, but the correct result is obtained after a final
+	 * reduction using the original MOD value.  */
 	mp = mp_marker = mpi_alloc_limb_space(msize);
 	if (!mp)
 		goto enomem;
@@ -76,13 +85,19 @@ int mpi_powm(MPI res, MPI base, MPI exp, MPI mod)
 
 	bsize = base->nlimbs;
 	bsign = base->sign;
-	if (bsize > msize) {	
+	if (bsize > msize) {	/* The base is larger than the module. Reduce it. */
+		/* Allocate (BSIZE + 1) with space for remainder and quotient.
+		 * (The quotient is (bsize - msize + 1) limbs.)  */
 		bp = bp_marker = mpi_alloc_limb_space(bsize + 1);
 		if (!bp)
 			goto enomem;
 		MPN_COPY(bp, base->d, bsize);
+		/* We don't care about the quotient, store it above the remainder,
+		 * at BP + MSIZE.  */
 		mpihelp_divrem(bp + msize, 0, bp, bsize, mp, msize);
 		bsize = msize;
+		/* Canonicalize the base, since we are going to multiply with it
+		 * quite a few times.  */
 		MPN_NORMALIZE(bp, bsize);
 	} else
 		bp = base->d;
@@ -94,6 +109,9 @@ int mpi_powm(MPI res, MPI base, MPI exp, MPI mod)
 	}
 
 	if (res->alloced < size) {
+		/* We have to allocate more space for RES.  If any of the input
+		 * parameters are identical to RES, defer deallocation of the old
+		 * space.  */
 		if (rp == ep || rp == mp || rp == bp) {
 			rp = mpi_alloc_limb_space(size);
 			if (!rp)
@@ -104,9 +122,9 @@ int mpi_powm(MPI res, MPI base, MPI exp, MPI mod)
 				goto enomem;
 			rp = res->d;
 		}
-	} else {		
+	} else {		/* Make BASE, EXP and MOD not overlap with RES.  */
 		if (rp == bp) {
-			
+			/* RES and BASE are identical.  Allocate temp. space for BASE.  */
 			BUG_ON(bp_marker);
 			bp = bp_marker = mpi_alloc_limb_space(bsize);
 			if (!bp)
@@ -114,14 +132,14 @@ int mpi_powm(MPI res, MPI base, MPI exp, MPI mod)
 			MPN_COPY(bp, rp, bsize);
 		}
 		if (rp == ep) {
-			
+			/* RES and EXP are identical.  Allocate temp. space for EXP.  */
 			ep = ep_marker = mpi_alloc_limb_space(esize);
 			if (!ep)
 				goto enomem;
 			MPN_COPY(ep, rp, esize);
 		}
 		if (rp == mp) {
-			
+			/* RES and MOD are identical.  Allocate temporary space for MOD. */
 			BUG_ON(mp_marker);
 			mp = mp_marker = mpi_alloc_limb_space(msize);
 			if (!mp)
@@ -152,16 +170,25 @@ int mpi_powm(MPI res, MPI base, MPI exp, MPI mod)
 		i = esize - 1;
 		e = ep[i];
 		count_leading_zeros(c, e);
-		e = (e << c) << 1;	
+		e = (e << c) << 1;	/* shift the exp bits to the left, lose msb */
 		c = BITS_PER_MPI_LIMB - 1 - c;
 
+		/* Main loop.
+		 *
+		 * Make the result be pointed to alternately by XP and RP.  This
+		 * helps us avoid block copying, which would otherwise be necessary
+		 * with the overlap restrictions of mpihelp_divmod. With 50% probability
+		 * the result after this loop will be in the area originally pointed
+		 * by RP (==RES->d), and with 50% probability in the area originally
+		 * pointed to by XP.
+		 */
 
 		for (;;) {
 			while (c) {
 				mpi_ptr_t tp;
 				mpi_size_t xsize;
 
-				
+				/*if (mpihelp_mul_n(xp, rp, rp, rsize) < 0) goto enomem */
 				if (rsize < KARATSUBA_THRESHOLD)
 					mpih_sqr_n_basecase(xp, rp, rsize);
 				else {
@@ -195,7 +222,7 @@ int mpi_powm(MPI res, MPI base, MPI exp, MPI mod)
 				rsize = xsize;
 
 				if ((mpi_limb_signed_t) e < 0) {
-					
+					/*mpihelp_mul( xp, rp, rsize, bp, bsize ); */
 					if (bsize < KARATSUBA_THRESHOLD) {
 						mpi_limb_t tmp;
 						if (mpihelp_mul
@@ -233,6 +260,12 @@ int mpi_powm(MPI res, MPI base, MPI exp, MPI mod)
 			c = BITS_PER_MPI_LIMB;
 		}
 
+		/* We shifted MOD, the modulo reduction argument, left MOD_SHIFT_CNT
+		 * steps.  Adjust the result by reducing it with the original MOD.
+		 *
+		 * Also make sure the result is put in RES->d (where it already
+		 * might be, see above).
+		 */
 		if (mod_shift_cnt) {
 			carry_limb =
 			    mpihelp_lshift(res->d, rp, rsize, mod_shift_cnt);
@@ -251,7 +284,7 @@ int mpi_powm(MPI res, MPI base, MPI exp, MPI mod)
 			rsize = msize;
 		}
 
-		
+		/* Remove any leading zero words from the result.  */
 		if (mod_shift_cnt)
 			mpihelp_rshift(rp, rp, rsize, mod_shift_cnt);
 		MPN_NORMALIZE(rp, rsize);

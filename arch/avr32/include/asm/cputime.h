@@ -3,4 +3,4 @@
 
 #include <asm-generic/cputime.h>
 
-#endif 
+#endif /* __ASM_AVR32_CPUTIME_H */

@@ -1,3 +1,4 @@
+/* -*- mode: c; c-basic-offset: 8 -*- */
 
 /* Driver for 53c700 and 53c700-66 chips from NCR and Symbios
  *
@@ -13,7 +14,10 @@
 #include <scsi/scsi_device.h>
 #include <scsi/scsi_cmnd.h>
 
+/* Turn on for general debugging---too verbose for normal use */
 #undef	NCR_700_DEBUG
+/* Debug the tag queues, checking hash queue allocation and deallocation
+ * and search for duplicate tags */
 #undef NCR_700_TAG_DEBUG
 
 #ifdef NCR_700_DEBUG
@@ -28,17 +32,28 @@
 #define CDEBUG(prefix, scmd, fmt, a...) do {} while (0)
 #endif
 
+/* The number of available command slots */
 #define NCR_700_COMMAND_SLOTS_PER_HOST	64
+/* The maximum number of Scatter Gathers we allow */
 #define NCR_700_SG_SEGMENTS		32
+/* The maximum number of luns (make this of the form 2^n) */
 #define NCR_700_MAX_LUNS		32
 #define NCR_700_LUN_MASK		(NCR_700_MAX_LUNS - 1)
+/* Maximum number of tags the driver ever allows per device */
 #define NCR_700_MAX_TAGS		16
+/* Tag depth the driver starts out with (can be altered in sysfs) */
 #define NCR_700_DEFAULT_TAGS		4
+/* This is the default number of commands per LUN in the untagged case.
+ * two is a good value because it means we can have one command active and
+ * one command fully prepared and waiting
+ */
 #define NCR_700_CMD_PER_LUN		2
+/* magic byte identifying an internally generated REQUEST_SENSE command */
 #define NCR_700_INTERNAL_SENSE_MAGIC	0x42
 
 struct NCR_700_Host_Parameters;
 
+/* These are the externally used routines */
 struct Scsi_Host *NCR_700_detect(struct scsi_host_template *,
 		struct NCR_700_Host_Parameters *, struct device *);
 int NCR_700_release(struct Scsi_Host *host);
@@ -51,6 +66,8 @@ enum NCR_700_Host_State {
 };
 
 struct NCR_700_SG_List {
+	/* The following is a script fragment to move the buffer onto the
+	 * bus and then link the next fragment or return */
 	#define	SCRIPT_MOVE_DATA_IN		0x09000000
 	#define	SCRIPT_MOVE_DATA_OUT		0x08000000
 	__u32	ins;
@@ -60,11 +77,28 @@ struct NCR_700_SG_List {
 };
 
 struct NCR_700_Device_Parameters {
+	/* space for creating a request sense command. Really, except
+	 * for the annoying SCSI-2 requirement for LUN information in
+	 * cmnd[1], this could be in static storage */
 	unsigned char cmnd[MAX_COMMAND_SIZE];
 	__u8	depth;
 };
 
 
+/* The SYNC negotiation sequence looks like:
+ * 
+ * If DEV_NEGOTIATED_SYNC not set, tack and SDTR message on to the
+ * initial identify for the device and set DEV_BEGIN_SYNC_NEGOTATION
+ * If we get an SDTR reply, work out the SXFER parameters, squirrel
+ * them away here, clear DEV_BEGIN_SYNC_NEGOTIATION and set
+ * DEV_NEGOTIATED_SYNC.  If we get a REJECT msg, squirrel
+ *
+ *
+ * 0:7	SXFER_REG negotiated value for this device
+ * 8:15 Current queue depth
+ * 16	negotiated SYNC flag
+ * 17 begin SYNC negotiation flag 
+ * 18 device supports tag queueing */
 #define NCR_700_DEV_NEGOTIATED_SYNC	(1<<16)
 #define NCR_700_DEV_BEGIN_SYNC_NEGOTIATION	(1<<17)
 #define NCR_700_DEV_PRINT_SYNC_NEGOTIATION (1<<19)
@@ -127,7 +161,7 @@ static inline void
 NCR_700_set_tag_neg_state(struct scsi_device *SDp,
 			  enum NCR_700_tag_neg_state state)
 {
-	
+	/* clear the slot */
 	spi_flags(SDp->sdev_target) &= ~(0x3 << 20);
 	spi_flags(SDp->sdev_target) |= ((__u32)state) << 20;
 }
@@ -137,48 +171,57 @@ struct NCR_700_command_slot {
 	struct NCR_700_SG_List	*pSG;
 	#define NCR_700_SLOT_MASK 0xFC
 	#define NCR_700_SLOT_MAGIC 0xb8
-	#define	NCR_700_SLOT_FREE (0|NCR_700_SLOT_MAGIC) 
-	#define NCR_700_SLOT_BUSY (1|NCR_700_SLOT_MAGIC) 
-	#define NCR_700_SLOT_QUEUED (2|NCR_700_SLOT_MAGIC) 
+	#define	NCR_700_SLOT_FREE (0|NCR_700_SLOT_MAGIC) /* slot may be used */
+	#define NCR_700_SLOT_BUSY (1|NCR_700_SLOT_MAGIC) /* slot has command active on HA */
+	#define NCR_700_SLOT_QUEUED (2|NCR_700_SLOT_MAGIC) /* slot has command to be made active on HA */
 	__u8	state;
 	#define NCR_700_FLAG_AUTOSENSE	0x01
 	__u8	flags;
-	__u8	pad1[2];	
+	__u8	pad1[2];	/* Needed for m68k where min alignment is 2 bytes */
 	int	tag;
 	__u32	resume_offset;
 	struct scsi_cmnd *cmnd;
-	
+	/* The pci_mapped address of the actual command in cmnd */
 	dma_addr_t	pCmd;
 	__u32		temp;
+	/* if this command is a pci_single mapping, holds the dma address
+	 * for later unmapping in the done routine */
 	dma_addr_t	dma_handle;
-	
+	/* historical remnant, now used to link free commands */
 	struct NCR_700_command_slot *ITL_forw;
 };
 
 struct NCR_700_Host_Parameters {
-	
-	int	clock;			
-	void __iomem	*base;		
+	/* These must be filled in by the calling driver */
+	int	clock;			/* board clock speed in MHz */
+	void __iomem	*base;		/* the base for the port (copied to host) */
 	struct device	*dev;
-	__u32	dmode_extra;	
-	__u32	dcntl_extra;	
-	__u32	ctest7_extra;	
-	__u32	differential:1;	
+	__u32	dmode_extra;	/* adjustable bus settings */
+	__u32	dcntl_extra;	/* adjustable bus settings */
+	__u32	ctest7_extra;	/* adjustable bus settings */
+	__u32	differential:1;	/* if we are differential */
 #ifdef CONFIG_53C700_LE_ON_BE
+	/* This option is for HP only.  Set it if your chip is wired for
+	 * little endian on this platform (which is big endian) */
 	__u32	force_le_on_be:1;
 #endif
-	__u32	chip710:1;	
-	__u32	burst_length:4;	
+	__u32	chip710:1;	/* set if really a 710 not 700 */
+	__u32	burst_length:4;	/* set to 0 to disable 710 bursting */
 
-	
-	__u32	fast:1;		
-	int	sync_clock;	
+	/* NOTHING BELOW HERE NEEDS ALTERING */
+	__u32	fast:1;		/* if we can alter the SCSI bus clock
+                                   speed (so can negiotiate sync) */
+	int	sync_clock;	/* The speed of the SYNC core */
 
-	__u32	*script;		
-	__u32	pScript;		
+	__u32	*script;		/* pointer to script location */
+	__u32	pScript;		/* physical mem addr of script */
 
-	enum NCR_700_Host_State state; 
+	enum NCR_700_Host_State state; /* protected by state lock */
 	struct scsi_cmnd *cmd;
+	/* Note: pScript contains the single consistent block of
+	 * memory.  All the msgin, msgout and status are allocated in
+	 * this memory too (at separate cache lines).  TOTAL_MEM_SIZE
+	 * represents the total size of this area */
 #define	MSG_ARRAY_SIZE	8
 #define	MSGOUT_OFFSET	(L1_CACHE_ALIGN(sizeof(SCRIPT)))
 	__u8	*msgout;
@@ -190,17 +233,25 @@ struct NCR_700_Host_Parameters {
 	struct NCR_700_command_slot	*slots;
 #define	TOTAL_MEM_SIZE	(SLOTS_OFFSET + L1_CACHE_ALIGN(sizeof(struct NCR_700_command_slot) * NCR_700_COMMAND_SLOTS_PER_HOST))
 	int	saved_slot_position;
-	int	command_slot_count; 
+	int	command_slot_count; /* protected by state lock */
 	__u8	tag_negotiated;
 	__u8	rev;
 	__u8	reselection_id;
 	__u8	min_period;
 
-	
+	/* Free list, singly linked by ITL_forw elements */
 	struct NCR_700_command_slot *free_list;
+	/* Completion for waited for ops, like reset, abort or
+	 * device reset.
+	 *
+	 * NOTE: relies on single threading in the error handler to
+	 * have only one outstanding at once */
 	struct completion *eh_complete;
 };
 
+/*
+ *	53C700 Register Interface - the offset from the Selected base
+ *	I/O address */
 #ifdef CONFIG_53C700_LE_ON_BE
 #define bE	(hostdata->force_le_on_be ? 0 : 3)
 #define	bSWAP	(hostdata->force_le_on_be)
@@ -224,6 +275,8 @@ struct NCR_700_Host_Parameters {
 #define bS_to_cpu(x)	(bSWAP ? le32_to_cpu(x) : (x))
 #define bS_to_host(x)	(bSWAP ? cpu_to_le32(x) : (x))
 
+/* NOTE: These registers are in the LE register space only, the required byte
+ * swapping is done by the NCR_700_{read|write}[b] functions */
 #define	SCNTL0_REG			0x00
 #define		FULL_ARBITRATION	0xc0
 #define 	PARITY			0x08
@@ -253,7 +306,9 @@ struct NCR_700_Host_Parameters {
 #define	SIDL_REG			0x09
 #define	SBDL_REG			0x0A
 #define	SBCL_REG			0x0B
+/* read bits */
 #define		SBCL_IO			0x01
+/*write bits */
 #define		SYNC_DIV_AS_ASYNC	0x00
 #define		SYNC_DIV_1_0		0x01
 #define		SYNC_DIV_1_5		0x02
@@ -296,8 +351,8 @@ struct NCR_700_Host_Parameters {
 #define         MASTER_CONTROL          0x10
 #define         DMA_DIRECTION           0x08
 #define CTEST7_REG                      0x1B
-#define		BURST_DISABLE		0x80 
-#define		SEL_TIMEOUT_DISABLE	0x10 
+#define		BURST_DISABLE		0x80 /* 710 only */
+#define		SEL_TIMEOUT_DISABLE	0x10 /* 710 only */
 #define         DFP                     0x08
 #define         EVP                     0x04
 #define         CTEST7_TT1              0x02
@@ -355,11 +410,15 @@ struct NCR_700_Host_Parameters {
 #define DSP_REG                         0x2C
 #define DSPS_REG                        0x30
 
+/* Parameters to begin SDTR negotiations.  Empirically, I find that
+ * the 53c700-66 cannot handle an offset >8, so don't change this  */
 #define NCR_700_MAX_OFFSET	8
+/* Was hoping the max offset would be greater for the 710, but
+ * empirically it seems to be 8 also */
 #define NCR_710_MAX_OFFSET	8
 #define NCR_700_MIN_XFERP	1
 #define NCR_710_MIN_XFERP	0
-#define NCR_700_MIN_PERIOD	25 
+#define NCR_700_MIN_PERIOD	25 /* for SDTR message, 100ns */
 
 #define script_patch_32(dev, script, symbol, value) \
 { \
@@ -384,6 +443,7 @@ struct NCR_700_Host_Parameters {
 	} \
 }
 
+/* Used for patching the SCSI ID in the SELECT instruction */
 #define script_patch_ID(dev, script, symbol, value) \
 { \
 	int i; \
@@ -430,7 +490,7 @@ NCR_700_readl(struct Scsi_Host *host, __u32 reg)
 	__u32 value = bEBus ? ioread32be(hostdata->base + reg) :
 		ioread32(hostdata->base + reg);
 #if 1
-	
+	/* sanity check the register */
 	BUG_ON((reg & 0x3) != 0);
 #endif
 
@@ -453,7 +513,7 @@ NCR_700_writel(__u32 value, struct Scsi_Host *host, __u32 reg)
 		= (struct NCR_700_Host_Parameters *)host->hostdata[0];
 
 #if 1
-	
+	/* sanity check the register */
 	BUG_ON((reg & 0x3) != 0);
 #endif
 

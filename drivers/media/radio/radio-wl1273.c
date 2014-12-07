@@ -43,6 +43,11 @@
 #define WL1273_FREQ(x)		(x * 10000 / 625)
 #define WL1273_INV_FREQ(x)	(x * 625 / 10000)
 
+/*
+ * static int radio_nr - The number of the radio device
+ *
+ * The default is 0.
+ */
 static int radio_nr;
 module_param(radio_nr, int, 0);
 MODULE_PARM_DESC(radio_nr, "The number of the radio device. Default = 0");
@@ -61,11 +66,11 @@ struct wl1273_device {
 	unsigned int band;
 	bool stereo;
 
-	
+	/* RDS */
 	unsigned int rds_on;
 
 	wait_queue_head_t read_queue;
-	struct mutex lock; 
+	struct mutex lock; /* for serializing fm radio operations */
 	struct completion busy;
 
 	unsigned char *buffer;
@@ -73,7 +78,7 @@ struct wl1273_device {
 	unsigned int rd_index;
 	unsigned int wr_index;
 
-	
+	/* Selected interrupts */
 	u16 irq_flags;
 	u16 irq_received;
 
@@ -90,6 +95,11 @@ struct wl1273_device {
 #define WL1273_IRQ_MASK	 (WL1273_FR_EVENT		|	\
 			  WL1273_POW_ENB_EVENT)
 
+/*
+ * static unsigned int rds_buf - the number of RDS buffer blocks used.
+ *
+ * The default number is 100.
+ */
 static unsigned int rds_buf = 100;
 module_param(rds_buf, uint, 0);
 MODULE_PARM_DESC(rds_buf, "Number of RDS buffer entries. Default = 100");
@@ -119,7 +129,7 @@ static int wl1273_fm_write_fw(struct wl1273_core *core,
 	dev_dbg(&client->dev, "%s: i: %d\n", __func__, i);
 	dev_dbg(&client->dev, "%s: len + 1: %d\n", __func__, len + 1);
 
-	
+	/* Last transfer always fails. */
 	if (i == len || r == 1)
 		r = 0;
 
@@ -161,11 +171,11 @@ static int wl1273_fm_rds(struct wl1273_device *radio)
 		return r;
 
 	if ((val & 0x01) == 0) {
-		
+		/* RDS decoder not synchronized */
 		return -EAGAIN;
 	}
 
-	
+	/* copy all four RDS blocks to internal buffer */
 	do {
 		r = i2c_transfer(client->adapter, msg, ARRAY_SIZE(msg));
 		if (r != ARRAY_SIZE(msg)) {
@@ -179,11 +189,11 @@ static int wl1273_fm_rds(struct wl1273_device *radio)
 		if (!WL1273_FIFO_HAS_DATA(status))
 			break;
 
-		
+		/* copy bits 0-2 (the block ID) to bits 3-5 */
 		rds.block = V4L2_RDS_BLOCK_MSK & status;
 		rds.block |= rds.block << 3;
 
-		
+		/* copy the error bits to standard positions */
 		if (WL1273_RDS_UNCORRECTABLE_ERROR & status) {
 			rds.block |= V4L2_RDS_BLOCK_ERROR;
 			rds.block &= ~V4L2_RDS_BLOCK_CORRECTED;
@@ -192,15 +202,15 @@ static int wl1273_fm_rds(struct wl1273_device *radio)
 			rds.block |= V4L2_RDS_BLOCK_CORRECTED;
 		}
 
-		
+		/* copy RDS block to internal buffer */
 		memcpy(&radio->buffer[radio->wr_index], &rds, RDS_BLOCK_SIZE);
 		radio->wr_index += 3;
 
-		
+		/* wrap write pointer */
 		if (radio->wr_index >= radio->buf_size)
 			radio->wr_index = 0;
 
-		
+		/* check for overflow & start over */
 		if (radio->wr_index == radio->rd_index) {
 			dev_dbg(radio->dev, "RDS OVERFLOW");
 
@@ -210,7 +220,7 @@ static int wl1273_fm_rds(struct wl1273_device *radio)
 		}
 	} while (WL1273_FIFO_HAS_DATA(status));
 
-	
+	/* wake up read queue */
 	if (radio->wr_index != radio->rd_index)
 		wake_up_interruptible(&radio->read_queue);
 
@@ -308,6 +318,10 @@ static irqreturn_t wl1273_fm_irq_thread_handler(int irq, void *dev_id)
 			else
 				radio->rx_frequency = WL1273_BAND_OTHER_LOW +
 					freq * 50;
+			/*
+			 *  The driver works better with this msleep,
+			 *  the documentation doesn't mention it.
+			 */
 			usleep_range(10000, 15000);
 
 			dev_dbg(radio->dev, "%dkHz\n", radio->rx_frequency);
@@ -348,32 +362,36 @@ static int wl1273_fm_set_tx_freq(struct wl1273_device *radio, unsigned int freq)
 		return -ERANGE;
 	}
 
+	/*
+	 *  The driver works better with this sleep,
+	 *  the documentation doesn't mention it.
+	 */
 	usleep_range(5000, 10000);
 
 	dev_dbg(radio->dev, "%s: freq: %d kHz\n", __func__, freq);
 
-	
+	/* Set the current tx channel */
 	r = core->write(core, WL1273_CHANL_SET, freq / 10);
 	if (r)
 		return r;
 
 	INIT_COMPLETION(radio->busy);
 
-	
+	/* wait for the FR IRQ */
 	r = wait_for_completion_timeout(&radio->busy, msecs_to_jiffies(2000));
 	if (!r)
 		return -ETIMEDOUT;
 
 	dev_dbg(radio->dev, "WL1273_CHANL_SET: %d\n", r);
 
-	
+	/* Enable the output power */
 	r = core->write(core, WL1273_POWER_ENB_SET, 1);
 	if (r)
 		return r;
 
 	INIT_COMPLETION(radio->busy);
 
-	
+	/* wait for the POWER_ENB IRQ */
 	r = wait_for_completion_timeout(&radio->busy, msecs_to_jiffies(1000));
 	if (!r)
 		return -ETIMEDOUT;
@@ -470,6 +488,14 @@ static int wl1273_fm_get_freq(struct wl1273_device *radio)
 	return freq;
 }
 
+/**
+ * wl1273_fm_upload_firmware_patch() -	Upload the firmware.
+ * @radio:				A pointer to the device struct.
+ *
+ * The firmware file consists of arrays of bytes where the first byte
+ * gives the array length. The first byte in the file gives the
+ * number of these arrays.
+ */
 static int wl1273_fm_upload_firmware_patch(struct wl1273_device *radio)
 {
 	struct wl1273_core *core = radio->core;
@@ -482,6 +508,10 @@ static int wl1273_fm_upload_firmware_patch(struct wl1273_device *radio)
 
 	dev_dbg(dev, "%s:\n", __func__);
 
+	/*
+	 * Uploading the firmware patch is not always necessary,
+	 * so we only print an info message.
+	 */
 	if (request_firmware(&fw_p, fw_name, dev)) {
 		dev_info(dev, "%s - %s not found\n", __func__, fw_name);
 
@@ -498,7 +528,7 @@ static int wl1273_fm_upload_firmware_patch(struct wl1273_device *radio)
 		goto out;
 	}
 
-	
+	/* ignore possible error here */
 	core->write(core, WL1273_RESET, 0);
 
 	dev_dbg(dev, "%s - download OK, r: %d\n", __func__, r);
@@ -553,7 +583,7 @@ static int wl1273_fm_start(struct wl1273_device *radio, int new_mode)
 		if (radio->rds_on)
 			val |= WL1273_POWER_SET_RDS;
 
-		
+		/* If this fails try again */
 		r = core->write(core, WL1273_POWER_SET, val);
 		if (r) {
 			msleep(100);
@@ -565,12 +595,12 @@ static int wl1273_fm_start(struct wl1273_device *radio, int new_mode)
 			}
 		}
 
-		
+		/* rds buffer configuration */
 		radio->wr_index = 0;
 		radio->rd_index = 0;
 
 	} else if (new_mode == WL1273_MODE_TX) {
-		
+		/* If this fails try again once */
 		r = core->write(core, WL1273_PUPD_SET, WL1273_PUPD_SET_ON);
 		if (r) {
 			msleep(100);
@@ -595,6 +625,10 @@ static int wl1273_fm_start(struct wl1273_device *radio, int new_mode)
 		if (r)
 			dev_warn(dev, "Firmware upload failed.\n");
 
+		/*
+		 * Sometimes the chip is in a wrong power state at this point.
+		 * So we set the power once again.
+		 */
 		if (new_mode == WL1273_MODE_RX) {
 			u16 val = WL1273_POWER_SET_FM;
 
@@ -630,7 +664,7 @@ static int wl1273_fm_suspend(struct wl1273_device *radio)
 	struct wl1273_core *core = radio->core;
 	int r = 0;
 
-	
+	/* Cannot go from OFF to SUSPENDED */
 	if (core->mode == WL1273_MODE_RX)
 		r = core->write(core, WL1273_POWER_SET,
 				WL1273_POWER_SET_RETENTION);
@@ -682,7 +716,7 @@ static int wl1273_fm_set_mode(struct wl1273_device *radio, int mode)
 			goto out;
 		}
 
-		
+		/* remember previous settings */
 		if (mode == WL1273_MODE_RX) {
 			r = wl1273_fm_set_rx_freq(radio, radio->rx_frequency);
 			if (r) {
@@ -801,7 +835,7 @@ static int wl1273_fm_set_seek(struct wl1273_device *radio,
 	if (!wrap_around)
 		goto out;
 
-	
+	/* Wrap around */
 	dev_dbg(radio->dev, "Wrap around in HW seek.\n");
 
 	if (seek_upward)
@@ -826,6 +860,10 @@ out:
 	return r;
 }
 
+/**
+ * wl1273_fm_get_tx_ctune() -	Get the TX tuning capacitor value.
+ * @radio:			A pointer to the device struct.
+ */
 static unsigned int wl1273_fm_get_tx_ctune(struct wl1273_device *radio)
 {
 	struct wl1273_core *core = radio->core;
@@ -847,6 +885,14 @@ out:
 	return val;
 }
 
+/**
+ * wl1273_fm_set_preemphasis() - Set the TX pre-emphasis value.
+ * @radio:			 A pointer to the device struct.
+ * @preemphasis:		 The new pre-amphasis value.
+ *
+ * Possible pre-emphasis values are: V4L2_PREEMPHASIS_DISABLED,
+ * V4L2_PREEMPHASIS_50_uS and V4L2_PREEMPHASIS_75_uS.
+ */
 static int wl1273_fm_set_preemphasis(struct wl1273_device *radio,
 				     unsigned int preemphasis)
 {
@@ -921,7 +967,7 @@ static int wl1273_fm_rds_off(struct wl1273_device *radio)
 	if (r)
 		goto out;
 
-	
+	/* Service pending read */
 	wake_up_interruptible(&radio->read_queue);
 
 	dev_dbg(radio->dev, "%s\n", __func__);
@@ -993,13 +1039,17 @@ static ssize_t wl1273_fm_fops_write(struct file *file, const char __user *buf,
 
 	if (mutex_lock_interruptible(&core->lock))
 		return -EINTR;
+	/*
+	 * Multiple processes can open the device, but only
+	 * one gets to write to it.
+	 */
 	if (radio->owner && radio->owner != file) {
 		r = -EBUSY;
 		goto out;
 	}
 	radio->owner = file;
 
-	
+	/* Manual Mode */
 	if (count > 255)
 		val = 255;
 	else
@@ -1138,6 +1188,10 @@ static ssize_t wl1273_fm_fops_read(struct file *file, char __user *buf,
 	if (mutex_lock_interruptible(&core->lock))
 		return -EINTR;
 
+	/*
+	 * Multiple processes can open the device, but only
+	 * one at a time gets read access.
+	 */
 	if (radio->owner && radio->owner != file) {
 		r = -EBUSY;
 		goto out;
@@ -1154,7 +1208,7 @@ static ssize_t wl1273_fm_fops_read(struct file *file, char __user *buf,
 		goto out;
 	}
 
-	
+	/* block if no new data available */
 	while (radio->wr_index == radio->rd_index) {
 		if (file->f_flags & O_NONBLOCK) {
 			r = -EWOULDBLOCK;
@@ -1170,25 +1224,25 @@ static ssize_t wl1273_fm_fops_read(struct file *file, char __user *buf,
 		}
 	}
 
-	
+	/* calculate block count from byte count */
 	count /= RDS_BLOCK_SIZE;
 
-	
+	/* copy RDS blocks from the internal buffer and to user buffer */
 	while (block_count < count) {
 		if (radio->rd_index == radio->wr_index)
 			break;
 
-		
+		/* always transfer complete RDS blocks */
 		if (copy_to_user(buf, &radio->buffer[radio->rd_index],
 				 RDS_BLOCK_SIZE))
 			break;
 
-		
+		/* increment and wrap the read pointer */
 		radio->rd_index += RDS_BLOCK_SIZE;
 		if (radio->rd_index >= radio->buf_size)
 			radio->rd_index = 0;
 
-		
+		/* increment counters */
 		block_count++;
 		buf += RDS_BLOCK_SIZE;
 		r += RDS_BLOCK_SIZE;
@@ -1258,6 +1312,11 @@ static int wl1273_fm_vidioc_s_input(struct file *file, void *priv,
 	return 0;
 }
 
+/**
+ * wl1273_fm_set_tx_power() -	Set the transmission power value.
+ * @core:			A pointer to the device struct.
+ * @power:			The new power value.
+ */
 static int wl1273_fm_set_tx_power(struct wl1273_device *radio, u16 power)
 {
 	struct wl1273_core *core = radio->core;
@@ -1269,7 +1328,7 @@ static int wl1273_fm_set_tx_power(struct wl1273_device *radio, u16 power)
 
 	mutex_lock(&core->lock);
 
-	
+	/* Convert the dBuV value to chip presentation */
 	r = core->write(core, WL1273_POWER_LEV_SET, 122 - power);
 	if (r)
 		goto out;
@@ -1951,7 +2010,7 @@ static int __devinit wl1273_fm_radio_probe(struct platform_device *pdev)
 		goto pdata_err;
 	}
 
-	
+	/* RDS buffer allocation */
 	radio->buf_size = rds_buf * RDS_BLOCK_SIZE;
 	radio->buffer = kmalloc(radio->buf_size, GFP_KERNEL);
 	if (!radio->buffer) {
@@ -2023,7 +2082,7 @@ static int __devinit wl1273_fm_radio_probe(struct platform_device *pdev)
 		goto device_register_err;
 	}
 
-	
+	/* V4L2 configuration */
 	memcpy(&radio->videodev, &wl1273_viddev_template,
 	       sizeof(wl1273_viddev_template));
 
@@ -2031,7 +2090,7 @@ static int __devinit wl1273_fm_radio_probe(struct platform_device *pdev)
 
 	v4l2_ctrl_handler_init(&radio->ctrl_handler, 6);
 
-	
+	/* add in ascending ID order */
 	v4l2_ctrl_new_std(&radio->ctrl_handler, &wl1273_ctrl_ops,
 			  V4L2_CID_AUDIO_VOLUME, 0, WL1273_MAX_VOLUME, 1,
 			  WL1273_DEFAULT_VOLUME);
@@ -2062,7 +2121,7 @@ static int __devinit wl1273_fm_radio_probe(struct platform_device *pdev)
 	video_set_drvdata(&radio->videodev, radio);
 	platform_set_drvdata(pdev, radio);
 
-	
+	/* register video device */
 	r = video_register_device(&radio->videodev, VFL_TYPE_RADIO, radio_nr);
 	if (r) {
 		dev_err(&pdev->dev, WL1273_FM_DRIVER_NAME

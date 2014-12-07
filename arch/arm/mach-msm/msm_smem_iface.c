@@ -12,6 +12,14 @@
 
 #include "msm_smem_iface.h"
 
+/**
+ * mem_get_cpr_info() - Copy Core Power Reduction (CPR) driver specific
+ *			data from Shared memory (SMEM).
+ * @cpr_info - Pointer to CPR data. Memory to be allocated and freed by
+ *             calling function.
+ *
+ * Copy CPR specific data from SMEM to cpr_info.
+ */
 
 void msm_smem_get_cpr_info(struct cpr_info_type *cpr_info)
 {

@@ -36,6 +36,7 @@
 #define PCI_ACCESS_READ  0
 #define PCI_ACCESS_WRITE 1
 
+/* define an unsigned array for the PCI registers */
 static unsigned int korina_cnfg_regs[25] = {
 	KORINA_CNFG1, KORINA_CNFG2, KORINA_CNFG3, KORINA_CNFG4,
 	KORINA_CNFG5, KORINA_CNFG6, KORINA_CNFG7, KORINA_CNFG8,
@@ -118,13 +119,13 @@ static int __init rc32434_pcibridge_init(void)
 	      (pcicvalue == PCIM_H_IA_FIX) ||
 	      (pcicvalue == PCIM_H_IA_RR))) {
 		pr_err("PCI init error!!!\n");
-		
+		/* Not in Host Mode, return ERROR */
 		return -1;
 	}
-	
+	/* Enables the Idle Grant mode, Arbiter Parking */
 	pcicdata |= (PCI_CTL_IGM | PCI_CTL_EAP | PCI_CTL_EN);
-	rc32434_pci->pcic = pcicdata;	
-	
+	rc32434_pci->pcic = pcicdata;	/* Enable the PCI bus Interface */
+	/* Zero out the PCI status & PCI Status Mask */
 	for (;;) {
 		pcicdata = rc32434_pci->pcis;
 		if (!(pcicdata & PCI_STAT_RIP))
@@ -133,51 +134,54 @@ static int __init rc32434_pcibridge_init(void)
 
 	rc32434_pci->pcis = 0;
 	rc32434_pci->pcism = 0xFFFFFFFF;
-	
-	rc32434_pci->pcidac = 0;	
-	rc32434_pci->pcidas = 0;	
-	rc32434_pci->pcidasm = 0x0000007F;	
-	
+	/* Zero out the PCI decoupled registers */
+	rc32434_pci->pcidac = 0;	/*
+					 * disable PCI decoupled accesses at
+					 * initialization
+					 */
+	rc32434_pci->pcidas = 0;	/* clear the status */
+	rc32434_pci->pcidasm = 0x0000007F;	/* Mask all the interrupts */
+	/* Mask PCI Messaging Interrupts */
 	rc32434_pci_msg->pciiic = 0;
 	rc32434_pci_msg->pciiim = 0xFFFFFFFF;
 	rc32434_pci_msg->pciioic = 0;
 	rc32434_pci_msg->pciioim = 0;
 
 
-	
+	/* Setup PCILB0 as Memory Window */
 	rc32434_pci->pcilba[0].address = (unsigned int) (PCI_ADDR_START);
 
-	
+	/* setup the PCI map address as same as the local address */
 
 	rc32434_pci->pcilba[0].mapping = (unsigned int) (PCI_ADDR_START);
 
 
-	
+	/* Setup PCILBA1 as MEM */
 	rc32434_pci->pcilba[0].control =
 	    (((SIZE_256MB & 0x1f) << PCI_LBAC_SIZE_BIT) | PCI_ENDIAN_FLAG);
-	dummyread = rc32434_pci->pcilba[0].control;	
+	dummyread = rc32434_pci->pcilba[0].control;	/* flush the CPU write Buffers */
 	rc32434_pci->pcilba[1].address = 0x60000000;
 	rc32434_pci->pcilba[1].mapping = 0x60000000;
 
-	
+	/* setup PCILBA2 as IO Window */
 	rc32434_pci->pcilba[1].control =
 	    (((SIZE_256MB & 0x1f) << PCI_LBAC_SIZE_BIT) | PCI_ENDIAN_FLAG);
-	dummyread = rc32434_pci->pcilba[1].control;	
+	dummyread = rc32434_pci->pcilba[1].control;	/* flush the CPU write Buffers */
 	rc32434_pci->pcilba[2].address = 0x18C00000;
 	rc32434_pci->pcilba[2].mapping = 0x18FFFFFF;
 
-	
+	/* setup PCILBA2 as IO Window */
 	rc32434_pci->pcilba[2].control =
 	    (((SIZE_4MB & 0x1f) << PCI_LBAC_SIZE_BIT) | PCI_ENDIAN_FLAG);
-	dummyread = rc32434_pci->pcilba[2].control;	
+	dummyread = rc32434_pci->pcilba[2].control;	/* flush the CPU write Buffers */
 
-	
+	/* Setup PCILBA3 as IO Window */
 	rc32434_pci->pcilba[3].address = 0x18800000;
 	rc32434_pci->pcilba[3].mapping = 0x18800000;
 	rc32434_pci->pcilba[3].control =
 	    ((((SIZE_1MB & 0x1ff) << PCI_LBAC_SIZE_BIT) | PCI_LBAC_MSI) |
 	     PCI_ENDIAN_FLAG);
-	dummyread = rc32434_pci->pcilba[3].control;	
+	dummyread = rc32434_pci->pcilba[3].control;	/* flush the CPU write Buffers */
 
 	pci_config_addr = (unsigned int) (0x80000004);
 	for (loopCount = 0; loopCount < 24; loopCount++) {

@@ -483,4 +483,4 @@
 #define BF_CLKCTRL_VERSION_STEP(v)  \
 		(((v) << 0) & BM_CLKCTRL_VERSION_STEP)
 
-#endif 
+#endif /* __REGS_CLKCTRL_MX28_H__ */

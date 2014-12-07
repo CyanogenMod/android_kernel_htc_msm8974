@@ -32,6 +32,10 @@
 
 static int mst_pcmcia_hw_init(struct soc_pcmcia_socket *skt)
 {
+	/*
+	 * Setup default state of GPIO outputs
+	 * before we enable them as outputs.
+	 */
 	if (skt->nr == 0) {
 		skt->socket.pci_irq = MAINSTONE_S0_IRQ;
 		skt->stat[SOC_STAT_CD].irq = MAINSTONE_S0_CD_IRQ;
@@ -58,6 +62,11 @@ static void mst_pcmcia_socket_state(struct soc_pcmcia_socket *skt,
 	status = (skt->nr == 0) ? MST_PCMCIA0 : MST_PCMCIA1;
 	flip = (status ^ mst_pcmcia_status[skt->nr]) & MST_PCMCIA_nSTSCHG_BVD1;
 
+	/*
+	 * Workaround for STSCHG which can't be deasserted:
+	 * We therefore disable/enable corresponding IRQs
+	 * as needed to avoid IRQ locks.
+	 */
 	if (flip) {
 		mst_pcmcia_status[skt->nr] = status;
 		if (status & MST_PCMCIA_nSTSCHG_BVD1)

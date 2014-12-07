@@ -127,7 +127,7 @@ void vnic_rq_init(struct vnic_rq *rq, unsigned int cq_index,
 	iowrite32(0, &rq->ctrl->dropped_packet_count);
 	iowrite32(0, &rq->ctrl->error_status);
 
-	
+	/* Use current fetch_index as the ring starting point */
 	fetch_index = ioread32(&rq->ctrl->fetch_index);
 	rq->to_use = rq->to_clean =
 		&rq->bufs[fetch_index / VNIC_RQ_BUF_BLK_ENTRIES]
@@ -153,7 +153,7 @@ int vnic_rq_disable(struct vnic_rq *rq)
 
 	iowrite32(0, &rq->ctrl->enable);
 
-	
+	/* Wait for HW to ACK disable request */
 	for (wait = 0; wait < 100; wait++) {
 		if (!(ioread32(&rq->ctrl->running)))
 			return 0;
@@ -183,7 +183,7 @@ void vnic_rq_clean(struct vnic_rq *rq,
 		rq->ring.desc_avail++;
 	}
 
-	
+	/* Use current fetch_index as the ring starting point */
 	fetch_index = ioread32(&rq->ctrl->fetch_index);
 	rq->to_use = rq->to_clean =
 		&rq->bufs[fetch_index / VNIC_RQ_BUF_BLK_ENTRIES]

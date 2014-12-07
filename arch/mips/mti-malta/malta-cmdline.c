@@ -25,6 +25,10 @@
 extern int prom_argc;
 extern int *_prom_argv;
 
+/*
+ * YAMON (32-bit PROM) pass arguments and environment as 32-bit pointer.
+ * This macro take care of sign extension.
+ */
 #define prom_argv(index) ((char *)(long)_prom_argv[(index)])
 
 char * __init prom_getcmdline(void)
@@ -38,7 +42,7 @@ void  __init prom_init_cmdline(void)
 	char *cp;
 	int actr;
 
-	actr = 1; 
+	actr = 1; /* Always ignore argv[0] */
 
 	cp = &(arcs_cmdline[0]);
 	while(actr < prom_argc) {
@@ -48,7 +52,7 @@ void  __init prom_init_cmdline(void)
 		actr++;
 	}
 	if (cp != &(arcs_cmdline[0])) {
-		
+		/* get rid of trailing space */
 		--cp;
 		*cp = '\0';
 	}

@@ -97,10 +97,10 @@ int emac_mii_reset_gpcs(struct mii_phy *phy)
 		gpcs_phy_write(phy, MII_BMCR, val & ~BMCR_ISOLATE);
 
 	if (limit > 0 && phy->mode == PHY_MODE_SGMII) {
-		
-		gpcs_phy_write(phy, 0x04, 0x8120); 
-		gpcs_phy_write(phy, 0x07, 0x2801); 
-		gpcs_phy_write(phy, 0x00, 0x0140); 
+		/* Configure GPCS interface to recommended setting for SGMII */
+		gpcs_phy_write(phy, 0x04, 0x8120); /* AsymPause, FDX */
+		gpcs_phy_write(phy, 0x07, 0x2801); /* msg_pg, toggle */
+		gpcs_phy_write(phy, 0x00, 0x0140); /* 1Gbps, FDX     */
 	}
 
 	return limit <= 0;
@@ -121,10 +121,10 @@ static int genmii_setup_aneg(struct mii_phy *phy, u32 advertise)
 		return ctl;
 	ctl &= ~(BMCR_FULLDPLX | BMCR_SPEED100 | BMCR_SPEED1000 | BMCR_ANENABLE);
 
-	
+	/* First clear the PHY */
 	phy_write(phy, MII_BMCR, ctl);
 
-	
+	/* Setup standard advertise */
 	adv = phy_read(phy, MII_ADVERTISE);
 	if (adv < 0)
 		return adv;
@@ -157,7 +157,7 @@ static int genmii_setup_aneg(struct mii_phy *phy, u32 advertise)
 		phy_write(phy, MII_CTRL1000, adv);
 	}
 
-	
+	/* Start/Restart aneg */
 	ctl = phy_read(phy, MII_BMCR);
 	ctl |= (BMCR_ANENABLE | BMCR_ANRESTART);
 	phy_write(phy, MII_BMCR, ctl);
@@ -179,10 +179,10 @@ static int genmii_setup_forced(struct mii_phy *phy, int speed, int fd)
 		return ctl;
 	ctl &= ~(BMCR_FULLDPLX | BMCR_SPEED100 | BMCR_SPEED1000 | BMCR_ANENABLE);
 
-	
+	/* First clear the PHY */
 	phy_write(phy, MII_BMCR, ctl | BMCR_RESET);
 
-	
+	/* Select speed & duplex */
 	switch (speed) {
 	case SPEED_10:
 		break;
@@ -206,7 +206,7 @@ static int genmii_poll_link(struct mii_phy *phy)
 {
 	int status;
 
-	
+	/* Clear latched value with dummy read */
 	phy_read(phy, MII_BMSR);
 	status = phy_read(phy, MII_BMSR);
 	if (status < 0 || (status & BMSR_LSTATUS) == 0)
@@ -275,6 +275,7 @@ static int genmii_read_link(struct mii_phy *phy)
 	return 0;
 }
 
+/* Generic implementation for most 10/100/1000 PHYs */
 static struct mii_phy_ops generic_phy_ops = {
 	.setup_aneg	= genmii_setup_aneg,
 	.setup_forced	= genmii_setup_forced,
@@ -289,6 +290,7 @@ static struct mii_phy_def genmii_phy_def = {
 	.ops		= &generic_phy_ops
 };
 
+/* CIS8201 */
 #define MII_CIS8201_10BTCSR	0x16
 #define  TENBTCSR_ECHO_DISABLE	0x2000
 #define MII_CIS8201_EPCR	0x17
@@ -327,11 +329,11 @@ static int cis8201_init(struct mii_phy *phy)
 
 	phy_write(phy, MII_CIS8201_EPCR, epcr);
 
-	
+	/* MII regs override strap pins */
 	phy_write(phy, MII_CIS8201_ACSR,
 		  phy_read(phy, MII_CIS8201_ACSR) | ACSR_PIN_PRIO_SELECT);
 
-	
+	/* Disable TX_EN -> CRS echo mode, otherwise 10/HDX doesn't work */
 	phy_write(phy, MII_CIS8201_10BTCSR,
 		  phy_read(phy, MII_CIS8201_10BTCSR) | TENBTCSR_ECHO_DISABLE);
 
@@ -376,21 +378,26 @@ static int m88e1111_init(struct mii_phy *phy)
 
 static int m88e1112_init(struct mii_phy *phy)
 {
+	/*
+	 * Marvell 88E1112 PHY needs to have the SGMII MAC
+	 * interace (page 2) properly configured to
+	 * communicate with the 460EX/GT GPCS interface.
+	 */
 
 	u16 reg_short;
 
 	pr_debug("%s: Marvell 88E1112 Ethernet\n", __func__);
 
-	
+	/* Set access to Page 2 */
 	phy_write(phy, 0x16, 0x0002);
 
-	phy_write(phy, 0x00, 0x0040); 
+	phy_write(phy, 0x00, 0x0040); /* 1Gbps */
 	reg_short = (u16)(phy_read(phy, 0x1a));
-	reg_short |= 0x8000; 
+	reg_short |= 0x8000; /* bypass Auto-Negotiation */
 	phy_write(phy, 0x1a, reg_short);
-	emac_mii_reset_phy(phy); 
+	emac_mii_reset_phy(phy); /* reset MAC interface */
 
-	
+	/* Reset access to Page 0 */
 	phy_write(phy, 0x16, 0x0000);
 
 	return  0;
@@ -402,7 +409,7 @@ static int et1011c_init(struct mii_phy *phy)
 
 	reg_short = (u16)(phy_read(phy, 0x16));
 	reg_short &= ~(0x7);
-	reg_short |= 0x6;	
+	reg_short |= 0x6;	/* RGMII Trace Delay*/
 	phy_write(phy, 0x16, reg_short);
 
 	reg_short = (u16)(phy_read(phy, 0x17));
@@ -486,22 +493,22 @@ int emac_mii_phy_probe(struct mii_phy *phy, int address)
 	phy->duplex = DUPLEX_HALF;
 	phy->pause = phy->asym_pause = 0;
 
-	
+	/* Take PHY out of isolate mode and reset it. */
 	if (emac_mii_reset_phy(phy))
 		return -ENODEV;
 
-	
+	/* Read ID and find matching entry */
 	id = (phy_read(phy, MII_PHYSID1) << 16) | phy_read(phy, MII_PHYSID2);
 	for (i = 0; (def = mii_phy_table[i]) != NULL; i++)
 		if ((id & def->phy_id_mask) == def->phy_id)
 			break;
-	
+	/* Should never be NULL (we have a generic entry), but... */
 	if (!def)
 		return -ENODEV;
 
 	phy->def = def;
 
-	
+	/* Determine PHY features if needed */
 	phy->features = def->features;
 	if (!phy->features) {
 		u16 bmsr = phy_read(phy, MII_BMSR);
@@ -525,7 +532,7 @@ int emac_mii_phy_probe(struct mii_phy *phy, int address)
 		phy->features |= SUPPORTED_MII;
 	}
 
-	
+	/* Setup default advertising */
 	phy->advertising = phy->features;
 
 	return 0;

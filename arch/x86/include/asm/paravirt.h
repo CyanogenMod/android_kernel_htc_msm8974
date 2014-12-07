@@ -1,5 +1,7 @@
 #ifndef _ASM_X86_PARAVIRT_H
 #define _ASM_X86_PARAVIRT_H
+/* Various instructions on x86 need to be replaced for
+ * para-virtualization: those hooks are defined here. */
 
 #ifdef CONFIG_PARAVIRT
 #include <asm/pgtable_types.h>
@@ -23,12 +25,16 @@ static inline void load_sp0(struct tss_struct *tss,
 	PVOP_VCALL2(pv_cpu_ops.load_sp0, tss, thread);
 }
 
+/* The paravirtualized CPUID instruction. */
 static inline void __cpuid(unsigned int *eax, unsigned int *ebx,
 			   unsigned int *ecx, unsigned int *edx)
 {
 	PVOP_VCALL4(pv_cpu_ops.cpuid, eax, ebx, ecx, edx);
 }
 
+/*
+ * These special macros can be used to get or set a debugging register
+ */
 static inline unsigned long paravirt_get_debugreg(int reg)
 {
 	return PVOP_CALL1(unsigned long, pv_cpu_ops.get_debugreg, reg);
@@ -137,6 +143,7 @@ static inline int paravirt_wrmsr_regs(u32 *regs)
 	return PVOP_CALL1(int, pv_cpu_ops.wrmsr_regs, regs);
 }
 
+/* These should all do BUG_ON(_err), but our headers are too tangled. */
 #define rdmsr(msr, val1, val2)			\
 do {						\
 	int _err;				\
@@ -159,6 +166,7 @@ do {						\
 #define wrmsrl(msr, val)	wrmsr(msr, (u32)((u64)(val)), ((u64)(val))>>32)
 #define wrmsr_safe(msr, a, b)	paravirt_write_msr(msr, a, b)
 
+/* rdmsr with exception handling */
 #define rdmsr_safe(msr, a, b)			\
 ({						\
 	int _err;				\
@@ -337,6 +345,7 @@ static inline void set_iopl_mask(unsigned mask)
 	PVOP_VCALL1(pv_cpu_ops.set_iopl_mask, mask);
 }
 
+/* The paravirtualized I/O functions */
 static inline void slow_down_io(void)
 {
 	pv_cpu_ops.io_delay();
@@ -528,7 +537,7 @@ static inline void ptep_modify_prot_commit(struct mm_struct *mm, unsigned long a
 					   pte_t *ptep, pte_t pte)
 {
 	if (sizeof(pteval_t) > sizeof(long))
-		
+		/* 5 arg words */
 		pv_mmu_ops.ptep_modify_prot_commit(mm, addr, ptep, pte);
 	else
 		PVOP_VCALL4(pv_mmu_ops.ptep_modify_prot_commit,
@@ -549,7 +558,7 @@ static inline void set_pte_at(struct mm_struct *mm, unsigned long addr,
 			      pte_t *ptep, pte_t pte)
 {
 	if (sizeof(pteval_t) > sizeof(long))
-		
+		/* 5 arg words */
 		pv_mmu_ops.set_pte_at(mm, addr, ptep, pte);
 	else
 		PVOP_VCALL4(pv_mmu_ops.set_pte_at, mm, addr, ptep, pte.pte);
@@ -560,7 +569,7 @@ static inline void set_pmd_at(struct mm_struct *mm, unsigned long addr,
 			      pmd_t *pmdp, pmd_t pmd)
 {
 	if (sizeof(pmdval_t) > sizeof(long))
-		
+		/* 5 arg words */
 		pv_mmu_ops.set_pmd_at(mm, addr, pmdp, pmd);
 	else
 		PVOP_VCALL4(pv_mmu_ops.set_pmd_at, mm, addr, pmdp,
@@ -669,11 +678,13 @@ static inline void pud_clear(pud_t *pudp)
 	set_pud(pudp, __pud(0));
 }
 
-#endif	
+#endif	/* PAGETABLE_LEVELS == 4 */
 
-#endif	
+#endif	/* PAGETABLE_LEVELS >= 3 */
 
 #ifdef CONFIG_X86_PAE
+/* Special-case pte-setting operations for PAE, which can't update a
+   64-bit pte atomically */
 static inline void set_pte_atomic(pte_t *ptep, pte_t pte)
 {
 	PVOP_VCALL3(pv_mmu_ops.set_pte_atomic, ptep,
@@ -690,7 +701,7 @@ static inline void pmd_clear(pmd_t *pmdp)
 {
 	PVOP_VCALL1(pv_mmu_ops.pmd_clear, pmdp);
 }
-#else  
+#else  /* !CONFIG_X86_PAE */
 static inline void set_pte_atomic(pte_t *ptep, pte_t pte)
 {
 	set_pte(ptep, pte);
@@ -706,7 +717,7 @@ static inline void pmd_clear(pmd_t *pmdp)
 {
 	set_pmd(pmdp, __pmd(0));
 }
-#endif	
+#endif	/* CONFIG_X86_PAE */
 
 #define  __HAVE_ARCH_START_CONTEXT_SWITCH
 static inline void arch_start_context_switch(struct task_struct *prev)
@@ -732,7 +743,7 @@ static inline void arch_leave_lazy_mmu_mode(void)
 
 void arch_flush_lazy_mmu_mode(void);
 
-static inline void __set_fixmap(unsigned  idx,
+static inline void __set_fixmap(unsigned /* enum fixed_addresses */ idx,
 				phys_addr_t phys, pgprot_t flags)
 {
 	pv_mmu_ops.set_fixmap(idx, phys, flags);
@@ -778,6 +789,7 @@ static __always_inline void arch_spin_unlock(struct arch_spinlock *lock)
 #define PV_SAVE_REGS "pushl %ecx; pushl %edx;"
 #define PV_RESTORE_REGS "popl %edx; popl %ecx;"
 
+/* save and restore all caller-save registers, except return value */
 #define PV_SAVE_ALL_CALLER_REGS		"pushl %ecx;"
 #define PV_RESTORE_ALL_CALLER_REGS	"popl  %ecx;"
 
@@ -785,6 +797,7 @@ static __always_inline void arch_spin_unlock(struct arch_spinlock *lock)
 #define PV_EXTRA_CLOBBERS
 #define PV_VEXTRA_CLOBBERS
 #else
+/* save and restore all caller-save registers, except return value */
 #define PV_SAVE_ALL_CALLER_REGS						\
 	"push %rcx;"							\
 	"push %rdx;"							\
@@ -804,6 +817,8 @@ static __always_inline void arch_spin_unlock(struct arch_spinlock *lock)
 	"pop %rdx;"							\
 	"pop %rcx;"
 
+/* We save some registers, but all of them, that's too much. We clobber all
+ * caller saved registers but the argument parameter */
 #define PV_SAVE_REGS "pushq %%rdi;"
 #define PV_RESTORE_REGS "popq %%rdi;"
 #define PV_EXTRA_CLOBBERS EXTRA_CLOBBERS, "rcx" , "rdx", "rsi"
@@ -811,6 +826,18 @@ static __always_inline void arch_spin_unlock(struct arch_spinlock *lock)
 #define PV_FLAGS_ARG "D"
 #endif
 
+/*
+ * Generate a thunk around a function which saves all caller-save
+ * registers except for the return value.  This allows C functions to
+ * be called from assembler code where fewer than normal registers are
+ * available.  It may also help code generation around calls from C
+ * code if the common case doesn't use many registers.
+ *
+ * When a callee is wrapped in a thunk, the caller can assume that all
+ * arg regs and all scratch registers are preserved across the
+ * call. The return value in rax/eax will not be saved, even for void
+ * functions.
+ */
 #define PV_CALLEE_SAVE_REGS_THUNK(func)					\
 	extern typeof(func) __raw_callee_save_##func;			\
 	static void *__##func##__ __used = func;			\
@@ -823,9 +850,11 @@ static __always_inline void arch_spin_unlock(struct arch_spinlock *lock)
 	    "ret;"							\
 	    ".popsection")
 
+/* Get a reference to a callee-save function */
 #define PV_CALLEE_SAVE(func)						\
 	((struct paravirt_callee_save) { __raw_callee_save_##func })
 
+/* Promise that "func" already uses the right calling convention */
 #define __PV_IS_CALLEE_SAVE(func)			\
 	((struct paravirt_callee_save) { func })
 
@@ -859,6 +888,7 @@ static inline notrace unsigned long arch_local_irq_save(void)
 }
 
 
+/* Make sure as little as possible of this mess escapes. */
 #undef PARAVIRT_CALL
 #undef __PVOP_CALL
 #undef __PVOP_VCALL
@@ -875,7 +905,7 @@ static inline notrace unsigned long arch_local_irq_save(void)
 
 extern void default_banner(void);
 
-#else  
+#else  /* __ASSEMBLY__ */
 
 #define _PVSITE(ptype, clobbers, ops, word, algn)	\
 771:;						\
@@ -971,12 +1001,23 @@ extern void default_banner(void);
 		  jmp PARA_INDIRECT(pv_cpu_ops+PV_CPU_irq_enable_sysexit))
 
 
-#else	
+#else	/* !CONFIG_X86_32 */
 
+/*
+ * If swapgs is used while the userspace stack is still current,
+ * there's no way to call a pvop.  The PV replacement *must* be
+ * inlined, or the swapgs instruction must be trapped and emulated.
+ */
 #define SWAPGS_UNSAFE_STACK						\
 	PARA_SITE(PARA_PATCH(pv_cpu_ops, PV_CPU_swapgs), CLBR_NONE,	\
 		  swapgs)
 
+/*
+ * Note: swapgs is very special, and in practise is either going to be
+ * implemented with a single "swapgs" instruction or something very
+ * special.  Either way, we don't need to save any registers for
+ * it.
+ */
 #define SWAPGS								\
 	PARA_SITE(PARA_PATCH(pv_cpu_ops, PV_CPU_swapgs), CLBR_NONE,	\
 		  call PARA_INDIRECT(pv_cpu_ops+PV_CPU_swapgs)		\
@@ -1001,10 +1042,10 @@ extern void default_banner(void);
 	PARA_SITE(PARA_PATCH(pv_cpu_ops, PV_CPU_irq_enable_sysexit),	\
 		  CLBR_NONE,						\
 		  jmp PARA_INDIRECT(pv_cpu_ops+PV_CPU_irq_enable_sysexit))
-#endif	
+#endif	/* CONFIG_X86_32 */
 
-#endif 
-#else  
+#endif /* __ASSEMBLY__ */
+#else  /* CONFIG_PARAVIRT */
 # define default_banner x86_init_noop
-#endif 
-#endif 
+#endif /* !CONFIG_PARAVIRT */
+#endif /* _ASM_X86_PARAVIRT_H */

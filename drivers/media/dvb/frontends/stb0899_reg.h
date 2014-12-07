@@ -22,6 +22,7 @@
 #ifndef __STB0899_REG_H
 #define __STB0899_REG_H
 
+/*	S1	*/
 #define STB0899_DEV_ID				0xf000
 #define STB0899_CHIP_ID				(0x0f << 4)
 #define STB0899_OFFST_CHIP_ID			4
@@ -176,6 +177,7 @@
 #define STB0899_OFFST_DS2_FECON			1
 #define STB0899_WIDTH_DS2_FECON			1
 
+/*	S1 FEC	*/
 #define STB0899_VSTATUS				0xf50d
 #define STB0899_VSTATUS_VITERBI_ON		(0x01 << 7)
 #define STB0899_OFFST_VSTATUS_VITERBI_ON	7
@@ -351,6 +353,7 @@
 #define STB0899_VITCURPUN_6_7			(0x19 << 0)
 #define STB0899_VITCURPUN_7_8			(0x1a << 0)
 
+/*	S2 DEMOD	*/
 #define STB0899_OFF0_DMD_STATUS			0xf300
 #define STB0899_BASE_DMD_STATUS			0x00000000
 #define STB0899_IF_AGC_LOCK			(0x01 << 8)
@@ -1164,6 +1167,7 @@
 #define STB0899_OFFST_EQ_Q_OUT_COEFF_N		0
 #define STB0899_WIDTH_EQ_Q_OUT_COEFF_N		12
 
+/*	S2 FEC	*/
 #define STB0899_OFF0_BLOCK_LNGTH		0xfa04
 #define STB0899_BASE_BLOCK_LNGTH		0x00000000
 #define STB0899_BLOCK_LENGTH			(0xff << 0)
@@ -1365,6 +1369,7 @@
 #define STB0899_OFFST_CSM_LOCKCOUNT_THRESH	0
 #define STB0899_WIDTH_CSM_LOCKCOUNT_THRESH	8
 
+/*	Check on chapter 8 page 42	*/
 #define STB0899_ERRCTRL1			0xf574
 #define STB0899_ERRCTRL2			0xf575
 #define STB0899_ERRCTRL3			0xf576
@@ -1692,8 +1697,10 @@
 #define STB0899_PCKLENLL			0xf55f
 #define STB0899_RSPCKLEN			0xf560
 
+/*	2 registers	*/
 #define STB0899_SYNCDCST			0xf60c
 
+/*	DiSEqC	*/
 #define STB0899_DISCNTRL1			0xf0a0
 #define STB0899_TIMOFF				(0x01 << 7)
 #define STB0899_OFFST_TIMOFF			7
@@ -1795,6 +1802,7 @@
 
 #define STB0899_DISF22RX			0xf0aa
 
+/*	General Purpose	*/
 #define STB0899_SYSREG				0xf101
 #define STB0899_ACRPRESC			0xf110
 #define STB0899_OFFST_RSVD2			7
@@ -1980,8 +1988,8 @@
 #define STB0899_SDATCFG				0xf155
 #define STB0899_SCLTCFG				0xf156
 #define STB0899_AGCRFCFG			0xf157
-#define STB0899_GPIO22				0xf158	
-#define STB0899_GPIO21				0xf159  
+#define STB0899_GPIO22				0xf158	/* AGCBB2CFG	*/
+#define STB0899_GPIO21				0xf159  /* AGCBB1CFG	*/
 #define STB0899_DIRCLKCFG			0xf15a
 #define STB0899_CLKOUT27CFG			0xf15b
 #define STB0899_STDBYCFG			0xf15c

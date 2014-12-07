@@ -17,6 +17,15 @@
 #include <linux/io.h>
 #include <linux/err.h>
 
+/*
+ * DOC: basic adjustable multiplexer clock that cannot gate
+ *
+ * Traits of this clock:
+ * prepare - clk_prepare only ensures that parents are prepared
+ * enable - clk_enable only ensures that parents are enabled
+ * rate - rate is only affected by parent switching.  No clk_set_rate support
+ * parent - parent is adjustable through clk_set_parent
+ */
 
 #define to_clk_mux(_hw) container_of(_hw, struct clk_mux, hw)
 
@@ -25,6 +34,13 @@ static u8 clk_mux_get_parent(struct clk_hw *hw)
 	struct clk_mux *mux = to_clk_mux(hw);
 	u32 val;
 
+	/*
+	 * FIXME need a mux-specific flag to determine if val is bitwise or numeric
+	 * e.g. sys_clkin_ck's clksel field is 3 bits wide, but ranges from 0x1
+	 * to 0x7 (index starts at one)
+	 * OTOH, pmd_trace_clk_mux_ck uses a separate bit for each clock, so
+	 * val = 0x4 really means "bit 2, index starts at bit 0"
+	 */
 	val = readl(mux->reg) >> mux->shift;
 	val &= (1 << mux->width) - 1;
 
@@ -88,7 +104,7 @@ struct clk *clk_register_mux(struct device *dev, const char *name,
 		return ERR_PTR(-ENOMEM);
 	}
 
-	
+	/* struct clk_mux assignments */
 	mux->reg = reg;
 	mux->shift = shift;
 	mux->width = width;

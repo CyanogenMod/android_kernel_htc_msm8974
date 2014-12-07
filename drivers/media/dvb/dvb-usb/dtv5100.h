@@ -45,7 +45,7 @@ static struct {
 } dtv5100_init[] = {
 	{ 0x000000c5, 0x00000000, 0x00000001 },
 	{ 0x000000c5, 0x00000001, 0x00000001 },
-	{ }		
+	{ }		/* Terminating entry */
 };
 
 #endif

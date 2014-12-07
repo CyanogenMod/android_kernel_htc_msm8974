@@ -29,11 +29,11 @@ MODULE_AUTHOR("Christer Weinigel <wingel@nano-system.com>");
 MODULE_DESCRIPTION("NatSemi/AMD SCx200 GPIO Pin Driver");
 MODULE_LICENSE("GPL");
 
-static int major = 0;		
+static int major = 0;		/* default to dynamic major */
 module_param(major, int, 0);
 MODULE_PARM_DESC(major, "Major device number");
 
-#define MAX_PINS 32		
+#define MAX_PINS 32		/* 64 later, when known ok */
 
 struct nsc_gpio_ops scx200_gpio_ops = {
 	.owner		= THIS_MODULE,
@@ -70,7 +70,7 @@ static const struct file_operations scx200_gpio_fileops = {
 	.llseek  = no_llseek,
 };
 
-static struct cdev scx200_gpio_cdev;  
+static struct cdev scx200_gpio_cdev;  /* use 1 cdev for all pins */
 
 static int __init scx200_gpio_init(void)
 {
@@ -82,7 +82,7 @@ static int __init scx200_gpio_init(void)
 		return -ENODEV;
 	}
 
-	
+	/* support dev_dbg() with pdev->dev */
 	pdev = platform_device_alloc(DRVNAME, 0);
 	if (!pdev)
 		return -ENOMEM;
@@ -91,7 +91,7 @@ static int __init scx200_gpio_init(void)
 	if (rc)
 		goto undo_malloc;
 
-	
+	/* nsc_gpio uses dev_dbg(), so needs this */
 	scx200_gpio_ops.dev = &pdev->dev;
 
 	if (major) {
@@ -109,7 +109,7 @@ static int __init scx200_gpio_init(void)
 	cdev_init(&scx200_gpio_cdev, &scx200_gpio_fileops);
 	cdev_add(&scx200_gpio_cdev, devid, MAX_PINS);
 
-	return 0; 
+	return 0; /* succeed */
 
 undo_platform_device_add:
 	platform_device_del(pdev);
@@ -122,7 +122,7 @@ undo_malloc:
 static void __exit scx200_gpio_cleanup(void)
 {
 	cdev_del(&scx200_gpio_cdev);
-	
+	/* cdev_put(&scx200_gpio_cdev); */
 
 	unregister_chrdev_region(MKDEV(major, 0), MAX_PINS);
 	platform_device_unregister(pdev);

@@ -23,12 +23,16 @@
 #include <dspbridge/devdefs.h>
 #include <dspbridge/dspdefs.h>
 
+/*
+ *  This struct is the first field in a io_mgr struct. Other, implementation
+ *  specific fields follow this structure in memory.
+ */
 struct io_mgr_ {
-	
-	struct bridge_dev_context *bridge_context;	
-	
+	/* These must be the first fields in a io_mgr struct: */
+	struct bridge_dev_context *bridge_context;	/* Bridge context. */
+	/* Function interface to Bridge driver. */
 	struct bridge_drv_interface *intf_fxns;
-	struct dev_object *dev_obj;	
+	struct dev_object *dev_obj;	/* Device this board represents. */
 };
 
-#endif 
+#endif /* IOOBJ_ */

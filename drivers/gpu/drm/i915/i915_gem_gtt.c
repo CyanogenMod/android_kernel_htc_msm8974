@@ -29,6 +29,7 @@
 #include "i915_trace.h"
 #include "intel_drv.h"
 
+/* PPGTT support for Sandybdrige/Gen6 and later */
 static void i915_ppgtt_clear_range(struct i915_hw_ppgtt *ppgtt,
 				   unsigned first_entry,
 				   unsigned num_entries)
@@ -68,6 +69,9 @@ int i915_gem_init_aliasing_ppgtt(struct drm_device *dev)
 	int i;
 	int ret = -ENOMEM;
 
+	/* ppgtt PDEs reside in the global gtt pagetable, which has 512*1024
+	 * entries. For aliasing ppgtt support we just steal them at the end for
+	 * now. */
 	first_pd_entry_in_global_pt = 512*1024 - I915_PPGTT_PD_ENTRIES;
 
 	ppgtt = kzalloc(sizeof(*ppgtt), GFP_KERNEL);
@@ -177,7 +181,7 @@ static void i915_ppgtt_insert_sg_entries(struct i915_hw_ppgtt *ppgtt,
 	dma_addr_t page_addr;
 	struct scatterlist *sg;
 
-	
+	/* init sg walking */
 	sg = sg_list;
 	i = 0;
 	segment_len = sg_dma_len(sg) >> PAGE_SHIFT;
@@ -191,7 +195,7 @@ static void i915_ppgtt_insert_sg_entries(struct i915_hw_ppgtt *ppgtt,
 			pte = GEN6_PTE_ADDR_ENCODE(page_addr);
 			pt_vaddr[j] = pte | pte_flags;
 
-			
+			/* grab the next page */
 			m++;
 			if (m == segment_len) {
 				sg = sg_next(sg);
@@ -289,6 +293,7 @@ void i915_ppgtt_unbind_object(struct i915_hw_ppgtt *ppgtt,
 			       obj->base.size >> PAGE_SHIFT);
 }
 
+/* XXX kill agp_type! */
 static unsigned int cache_level_to_agp_type(struct drm_device *dev,
 					    enum i915_cache_level cache_level)
 {
@@ -296,6 +301,10 @@ static unsigned int cache_level_to_agp_type(struct drm_device *dev,
 	case I915_CACHE_LLC_MLC:
 		if (INTEL_INFO(dev)->gen >= 6)
 			return AGP_USER_CACHED_MEMORY_LLC_MLC;
+		/* Older chipsets do not have this extra level of CPU
+		 * cacheing, so fallthrough and request the PTE simply
+		 * as cached.
+		 */
 	case I915_CACHE_LLC:
 		return AGP_USER_CACHED_MEMORY;
 	default:
@@ -312,7 +321,7 @@ static bool do_idling(struct drm_i915_private *dev_priv)
 		dev_priv->mm.interruptible = false;
 		if (i915_gpu_idle(dev_priv->dev, false)) {
 			DRM_ERROR("Couldn't idle GPU\n");
-			
+			/* Wait a bit, in hopes it avoids the hang */
 			udelay(10);
 		}
 	}
@@ -331,7 +340,7 @@ void i915_gem_restore_gtt_mappings(struct drm_device *dev)
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct drm_i915_gem_object *obj;
 
-	
+	/* First fill our portion of the GTT with scratch pages */
 	intel_gtt_clear_range(dev_priv->mm.gtt_start / PAGE_SIZE,
 			      (dev_priv->mm.gtt_end - dev_priv->mm.gtt_start) / PAGE_SIZE);
 

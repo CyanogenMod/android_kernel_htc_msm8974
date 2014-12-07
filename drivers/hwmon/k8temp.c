@@ -42,13 +42,13 @@ struct k8temp_data {
 	struct device *hwmon_dev;
 	struct mutex update_lock;
 	const char *name;
-	char valid;		
-	unsigned long last_updated;	
+	char valid;		/* zero until following fields are valid */
+	unsigned long last_updated;	/* in jiffies */
 
-	
-	u8 sensorsp;		
-	u32 temp[2][2];		
-	u8 swap_core_select;    
+	/* registers values */
+	u8 sensorsp;		/* sensor presence bits - SEL_CORE, SEL_PLACE */
+	u32 temp[2][2];		/* core, place */
+	u8 swap_core_select;    /* meaning of SEL_CORE is inverted */
 	u32 temp_offset;
 };
 
@@ -63,26 +63,26 @@ static struct k8temp_data *k8temp_update_device(struct device *dev)
 	if (!data->valid
 	    || time_after(jiffies, data->last_updated + HZ)) {
 		pci_read_config_byte(pdev, REG_TEMP, &tmp);
-		tmp &= ~(SEL_PLACE | SEL_CORE);	
+		tmp &= ~(SEL_PLACE | SEL_CORE);	/* Select sensor 0, core0 */
 		pci_write_config_byte(pdev, REG_TEMP, tmp);
 		pci_read_config_dword(pdev, REG_TEMP, &data->temp[0][0]);
 
 		if (data->sensorsp & SEL_PLACE) {
-			tmp |= SEL_PLACE;	
+			tmp |= SEL_PLACE;	/* Select sensor 1, core0 */
 			pci_write_config_byte(pdev, REG_TEMP, tmp);
 			pci_read_config_dword(pdev, REG_TEMP,
 					      &data->temp[0][1]);
 		}
 
 		if (data->sensorsp & SEL_CORE) {
-			tmp &= ~SEL_PLACE;	
+			tmp &= ~SEL_PLACE;	/* Select sensor 0, core1 */
 			tmp |= SEL_CORE;
 			pci_write_config_byte(pdev, REG_TEMP, tmp);
 			pci_read_config_dword(pdev, REG_TEMP,
 					      &data->temp[1][0]);
 
 			if (data->sensorsp & SEL_PLACE) {
-				tmp |= SEL_PLACE; 
+				tmp |= SEL_PLACE; /* Select sensor 1, core1 */
 				pci_write_config_byte(pdev, REG_TEMP, tmp);
 				pci_read_config_dword(pdev, REG_TEMP,
 						      &data->temp[1][1]);
@@ -97,6 +97,9 @@ static struct k8temp_data *k8temp_update_device(struct device *dev)
 	return data;
 }
 
+/*
+ * Sysfs stuff
+ */
 
 static ssize_t show_name(struct device *dev, struct device_attribute
 			 *devattr, char *buf)
@@ -125,6 +128,7 @@ static ssize_t show_temp(struct device *dev,
 	return sprintf(buf, "%d\n", temp);
 }
 
+/* core, place */
 
 static SENSOR_DEVICE_ATTR_2(temp1_input, S_IRUGO, show_temp, NULL, 0, 0);
 static SENSOR_DEVICE_ATTR_2(temp2_input, S_IRUGO, show_temp, NULL, 0, 1);
@@ -149,15 +153,20 @@ static int __devinit is_rev_g_desktop(u8 model)
 	if (model == 0xc1 || model == 0x6c || model == 0x7c)
 		return 0;
 
+	/*
+	 * Differentiate between AM2 and ASB1.
+	 * See "Constructing the processor Name String" in "Revision
+	 * Guide for AMD NPT Family 0Fh Processors" (33610).
+	 */
 	brandidx = cpuid_ebx(0x80000001);
 	brandidx = (brandidx >> 9) & 0x1f;
 
-	
+	/* Single core */
 	if ((model == 0x6f || model == 0x7f) &&
 	    (brandidx == 0x7 || brandidx == 0x9 || brandidx == 0xc))
 		return 0;
 
-	
+	/* Dual core */
 	if (model == 0x6b &&
 	    (brandidx == 0xb || brandidx == 0xc))
 		return 0;
@@ -183,24 +192,33 @@ static int __devinit k8temp_probe(struct pci_dev *pdev,
 	model = boot_cpu_data.x86_model;
 	stepping = boot_cpu_data.x86_mask;
 
-	
+	/* feature available since SH-C0, exclude older revisions */
 	if (((model == 4) && (stepping == 0)) ||
 	    ((model == 5) && (stepping <= 1))) {
 		err = -ENODEV;
 		goto exit_free;
 	}
 
+	/*
+	 * AMD NPT family 0fh, i.e. RevF and RevG:
+	 * meaning of SEL_CORE bit is inverted
+	 */
 	if (model >= 0x40) {
 		data->swap_core_select = 1;
 		dev_warn(&pdev->dev, "Temperature readouts might be wrong - "
 			 "check erratum #141\n");
 	}
 
+	/*
+	 * RevG desktop CPUs (i.e. no socket S1G1 or ASB1 parts) need
+	 * additional offset, otherwise reported temperature is below
+	 * ambient temperature
+	 */
 	if (is_rev_g_desktop(model))
 		data->temp_offset = 21000;
 
 	pci_read_config_byte(pdev, REG_TEMP, &scfg);
-	scfg &= ~(SEL_PLACE | SEL_CORE);	
+	scfg &= ~(SEL_PLACE | SEL_CORE);	/* Select sensor 0, core0 */
 	pci_write_config_byte(pdev, REG_TEMP, scfg);
 	pci_read_config_byte(pdev, REG_TEMP, &scfg);
 
@@ -213,23 +231,23 @@ static int __devinit k8temp_probe(struct pci_dev *pdev,
 	scfg |= (SEL_PLACE | SEL_CORE);
 	pci_write_config_byte(pdev, REG_TEMP, scfg);
 
-	
+	/* now we know if we can change core and/or sensor */
 	pci_read_config_byte(pdev, REG_TEMP, &data->sensorsp);
 
 	if (data->sensorsp & SEL_PLACE) {
-		scfg &= ~SEL_CORE;	
+		scfg &= ~SEL_CORE;	/* Select sensor 1, core0 */
 		pci_write_config_byte(pdev, REG_TEMP, scfg);
 		pci_read_config_dword(pdev, REG_TEMP, &temp);
-		scfg |= SEL_CORE;	
-		if (!((temp >> 16) & 0xff)) 
+		scfg |= SEL_CORE;	/* prepare for next selection */
+		if (!((temp >> 16) & 0xff)) /* if temp is 0 -49C is unlikely */
 			data->sensorsp &= ~SEL_PLACE;
 	}
 
 	if (data->sensorsp & SEL_CORE) {
-		scfg &= ~SEL_PLACE;	
+		scfg &= ~SEL_PLACE;	/* Select sensor 0, core1 */
 		pci_write_config_byte(pdev, REG_TEMP, scfg);
 		pci_read_config_dword(pdev, REG_TEMP, &temp);
-		if (!((temp >> 16) & 0xff)) 
+		if (!((temp >> 16) & 0xff)) /* if temp is 0 -49C is unlikely */
 			data->sensorsp &= ~SEL_CORE;
 	}
 
@@ -237,13 +255,13 @@ static int __devinit k8temp_probe(struct pci_dev *pdev,
 	mutex_init(&data->update_lock);
 	pci_set_drvdata(pdev, data);
 
-	
+	/* Register sysfs hooks */
 	err = device_create_file(&pdev->dev,
 			   &sensor_dev_attr_temp1_input.dev_attr);
 	if (err)
 		goto exit_remove;
 
-	
+	/* sensor can be changed and reports something */
 	if (data->sensorsp & SEL_PLACE) {
 		err = device_create_file(&pdev->dev,
 				   &sensor_dev_attr_temp2_input.dev_attr);
@@ -251,7 +269,7 @@ static int __devinit k8temp_probe(struct pci_dev *pdev,
 			goto exit_remove;
 	}
 
-	
+	/* core can be changed and reports something */
 	if (data->sensorsp & SEL_CORE) {
 		err = device_create_file(&pdev->dev,
 				   &sensor_dev_attr_temp3_input.dev_attr);

@@ -148,7 +148,7 @@ static int fsg_led_probe(struct platform_device *pdev)
 {
 	int ret;
 
-	
+	/* Map the LED chip select address space */
 	latch_address = (unsigned short *) ioremap(IXP4XX_EXP_BUS_BASE(2), 512);
 	if (!latch_address) {
 		ret = -ENOMEM;

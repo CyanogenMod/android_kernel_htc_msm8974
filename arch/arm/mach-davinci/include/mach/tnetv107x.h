@@ -19,6 +19,12 @@
 
 #define TNETV107X_DDR_BASE	0x80000000
 
+/*
+ * Fixed mapping for early init starts here. If low-level debug is enabled,
+ * this area also gets mapped via io_pg_offset and io_phys by the boot code.
+ * To fit in with the io_pg_offset calculation, the io base address selected
+ * here _must_ be a multiple of 2^20.
+ */
 #define TNETV107X_IO_BASE	0x08000000
 #define TNETV107X_IO_VIRT	(IO_VIRT + SZ_1M)
 
@@ -36,8 +42,8 @@
 
 struct tnetv107x_device_info {
 	struct davinci_uart_config	*serial_config;
-	struct davinci_mmc_config	*mmc_config[2];  
-	struct davinci_nand_pdata	*nand_config[4]; 
+	struct davinci_mmc_config	*mmc_config[2];  /* 2 controllers */
+	struct davinci_nand_pdata	*nand_config[4]; /* 4 chipsels */
 	struct matrix_keypad_platform_data *keypad_config;
 	struct ti_ssp_data		*ssp_config;
 };
@@ -52,4 +58,4 @@ void tnetv107x_restart(char mode, const char *cmd);
 
 #endif
 
-#endif 
+#endif /* __ASM_ARCH_DAVINCI_TNETV107X_H */

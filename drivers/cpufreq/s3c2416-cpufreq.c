@@ -47,14 +47,24 @@ struct s3c2416_dvfs {
 	unsigned int vddarm_max;
 };
 
+/* pseudo-frequency for dvs mode */
 #define FREQ_DVS	132333
 
+/* frequency to sleep and reboot in
+ * it's essential to leave dvs, as some boards do not reconfigure the
+ * regulator on reboot
+ */
 #define FREQ_SLEEP	133333
 
+/* Sources for the ARMCLK */
 #define SOURCE_HCLK	0
 #define SOURCE_ARMDIV	1
 
 #ifdef CONFIG_ARM_S3C2416_CPUFREQ_VCORESCALE
+/* S3C2416 only supports changing the voltage in the dvs-mode.
+ * Voltages down to 1.0V seem to work, so we take what the regulator
+ * can get us.
+ */
 static struct s3c2416_dvfs s3c2416_dvfs_table[] = {
 	[SOURCE_HCLK] = {  950000, 1250000 },
 	[SOURCE_ARMDIV] = { 1250000, 1350000 },
@@ -94,7 +104,7 @@ static unsigned int s3c2416_cpufreq_get_speed(unsigned int cpu)
 	if (cpu != 0)
 		return 0;
 
-	
+	/* return our pseudo-frequency when in dvs mode */
 	if (s3c_freq->is_dvs)
 		return FREQ_DVS;
 
@@ -139,7 +149,7 @@ static int s3c2416_cpufreq_enter_dvs(struct s3c2416_data *s3c_freq, int idx)
 	}
 
 #ifdef CONFIG_ARM_S3C2416_CPUFREQ_VCORESCALE
-	
+	/* changing the core voltage is only allowed when in dvs mode */
 	if (s3c_freq->vddarm) {
 		dvfs = &s3c2416_dvfs_table[idx];
 
@@ -149,7 +159,7 @@ static int s3c2416_cpufreq_enter_dvs(struct s3c2416_data *s3c_freq, int idx)
 					    dvfs->vddarm_min,
 					    dvfs->vddarm_max);
 
-		
+		/* when lowering the voltage failed, there is nothing to do */
 		if (ret != 0)
 			pr_err("cpufreq: Failed to set VDDARM: %d\n", ret);
 	}
@@ -188,7 +198,7 @@ static int s3c2416_cpufreq_leave_dvs(struct s3c2416_data *s3c_freq, int idx)
 	}
 #endif
 
-	
+	/* force armdiv to hclk frequency for transition from dvs*/
 	if (clk_get_rate(s3c_freq->armdiv) > clk_get_rate(s3c_freq->hclk)) {
 		pr_debug("cpufreq: force armdiv to hclk frequency (%lukHz)\n",
 			 clk_get_rate(s3c_freq->hclk) / 1000);
@@ -239,7 +249,7 @@ static int s3c2416_cpufreq_set_target(struct cpufreq_policy *policy,
 	if (idx == SOURCE_HCLK)
 		to_dvs = 1;
 
-	
+	/* switching to dvs when it's not allowed */
 	if (to_dvs && s3c_freq->disable_dvs) {
 		pr_debug("cpufreq: entering dvs mode not allowed\n");
 		ret = -EINVAL;
@@ -251,6 +261,10 @@ static int s3c2416_cpufreq_set_target(struct cpufreq_policy *policy,
 	freqs.old = s3c_freq->is_dvs ? FREQ_DVS
 				     : clk_get_rate(s3c_freq->armclk) / 1000;
 
+	/* When leavin dvs mode, always switch the armdiv to the hclk rate
+	 * The S3C2416 has stability issues when switching directly to
+	 * higher frequencies.
+	 */
 	freqs.new = (s3c_freq->is_dvs && !to_dvs)
 				? clk_get_rate(s3c_freq->hclk) / 1000
 				: s3c_freq->freq_table[i].frequency;
@@ -302,7 +316,7 @@ static void __init s3c2416_cpufreq_cfg_regulator(struct s3c2416_data *s3c_freq)
 		dvfs = &s3c2416_dvfs_table[freq->index];
 		found = 0;
 
-		
+		/* Check only the min-voltage, more is always ok on S3C2416 */
 		for (i = 0; i < count; i++) {
 			v = regulator_list_voltage(s3c_freq->vddarm, i);
 			if (v >= dvfs->vddarm_min)
@@ -318,7 +332,7 @@ static void __init s3c2416_cpufreq_cfg_regulator(struct s3c2416_data *s3c_freq)
 		freq++;
 	}
 
-	
+	/* Guessed */
 	s3c_freq->regulator_latency = 1 * 1000 * 1000;
 }
 #endif
@@ -331,11 +345,15 @@ static int s3c2416_cpufreq_reboot_notifier_evt(struct notifier_block *this,
 
 	mutex_lock(&cpufreq_lock);
 
-	
+	/* disable further changes */
 	s3c_freq->disable_dvs = 1;
 
 	mutex_unlock(&cpufreq_lock);
 
+	/* some boards don't reconfigure the regulator on reboot, which
+	 * could lead to undervolting the cpu when the clock is reset.
+	 * Therefore we always leave the DVS mode on reboot.
+	 */
 	if (s3c_freq->is_dvs) {
 		pr_debug("cpufreq: leave dvs on reboot\n");
 		ret = cpufreq_driver_target(cpufreq_cpu_get(0), FREQ_SLEEP, 0);
@@ -368,6 +386,11 @@ static int __init s3c2416_cpufreq_driver_init(struct cpufreq_policy *policy)
 		return ret;
 	}
 
+	/*
+	 * S3C2416 and S3C2450 share the same processor-ID and also provide no
+	 * other means to distinguish them other than through the rate of
+	 * msysclk. On S3C2416 msysclk runs at 800MHz and on S3C2450 at 533MHz.
+	 */
 	rate = clk_get_rate(msysclk);
 	if (rate == 800 * 1000 * 1000) {
 		pr_info("cpufreq: msysclk running at %lukHz, using S3C2416 frequency table\n",
@@ -381,7 +404,7 @@ static int __init s3c2416_cpufreq_driver_init(struct cpufreq_policy *policy)
 		policy->cpuinfo.max_freq = 534000;
 	}
 
-	
+	/* not needed anymore */
 	clk_put(msysclk);
 
 	if (s3c_freq->freq_table == NULL) {
@@ -406,6 +429,9 @@ static int __init s3c2416_cpufreq_driver_init(struct cpufreq_policy *policy)
 		goto err_hclk;
 	}
 
+	/* chech hclk rate, we only support the common 133MHz for now
+	 * hclk could also run at 66MHz, but this not often used
+	 */
 	rate = clk_get_rate(s3c_freq->hclk);
 	if (rate < 133 * 1000 * 1000) {
 		pr_err("cpufreq: HCLK not at 133MHz\n");
@@ -436,7 +462,7 @@ static int __init s3c2416_cpufreq_driver_init(struct cpufreq_policy *policy)
 
 	freq = s3c_freq->freq_table;
 	while (freq->frequency != CPUFREQ_TABLE_END) {
-		
+		/* special handling for dvs mode */
 		if (freq->index == 0) {
 			if (!s3c_freq->hclk) {
 				pr_debug("cpufreq: %dkHz unsupported as it would need unavailable dvs mode\n",
@@ -448,7 +474,7 @@ static int __init s3c2416_cpufreq_driver_init(struct cpufreq_policy *policy)
 			}
 		}
 
-		
+		/* Check for frequencies we can generate */
 		rate = clk_round_rate(s3c_freq->armdiv,
 				      freq->frequency * 1000);
 		rate /= 1000;
@@ -463,6 +489,9 @@ static int __init s3c2416_cpufreq_driver_init(struct cpufreq_policy *policy)
 
 	policy->cur = clk_get_rate(s3c_freq->armclk) / 1000;
 
+	/* Datasheet says PLL stabalisation time must be at least 300us,
+	 * so but add some fudge. (reference in LOCKCON0 register description)
+	 */
 	policy->cpuinfo.transition_latency = (500 * 1000) +
 					     s3c_freq->regulator_latency;
 

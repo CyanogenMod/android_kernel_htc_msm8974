@@ -18,6 +18,7 @@
 #include <mach/msm_memory_dump.h>
 
 
+/*TODO: Needs to be set to correct value */
 #define DUMP_TABLE_OFFSET	0x14
 #define MSM_DUMP_TABLE_VERSION	MK_TABLE(1, 0)
 
@@ -35,7 +36,7 @@ int msm_dump_table_register(struct msm_client_dump *client_entry)
 	entry->start_addr = client_entry->start_addr;
 	entry->end_addr = client_entry->end_addr;
 	table->num_entries++;
-	
+	/* flush cache */
 	dmac_flush_range(table, table + sizeof(struct msm_dump_table));
 	return 0;
 }

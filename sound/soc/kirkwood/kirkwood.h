@@ -111,6 +111,8 @@
 
 #define KIRKWOOD_AUDIO_BUF_MAX			(16*1024*1024)
 
+/* Theses values come from the marvell alsa driver */
+/* need to find where they come from               */
 #define KIRKWOOD_SND_MIN_PERIODS		8
 #define KIRKWOOD_SND_MAX_PERIODS		16
 #define KIRKWOOD_SND_MIN_PERIOD_BYTES		0x4000

@@ -68,7 +68,7 @@ struct saa711x_state {
 	struct v4l2_ctrl_handler hdl;
 
 	struct {
-		
+		/* chroma gain control cluster */
 		struct v4l2_ctrl *agc;
 		struct v4l2_ctrl *gain;
 	};
@@ -98,6 +98,7 @@ static inline struct v4l2_subdev *to_sd(struct v4l2_ctrl *ctrl)
 	return &container_of(ctrl->handler, struct saa711x_state, hdl)->sd;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static inline int saa711x_write(struct v4l2_subdev *sd, u8 reg, u8 value)
 {
@@ -106,6 +107,7 @@ static inline int saa711x_write(struct v4l2_subdev *sd, u8 reg, u8 value)
 	return i2c_smbus_write_byte_data(client, reg, value);
 }
 
+/* Sanity routine to check if a register is present */
 static int saa711x_has_reg(const int id, const u8 reg)
 {
 	if (id == V4L2_IDENT_SAA7111)
@@ -116,7 +118,7 @@ static int saa711x_has_reg(const int id, const u8 reg)
 		       reg != 0x14 && reg != 0x18 && reg != 0x19 &&
 		       reg != 0x1d && reg != 0x1e;
 
-	
+	/* common for saa7113/4/5/8 */
 	if (unlikely((reg >= 0x3b && reg <= 0x3f) || reg == 0x5c || reg == 0x5f ||
 	    reg == 0xa3 || reg == 0xa7 || reg == 0xab || reg == 0xaf || (reg >= 0xb5 && reg <= 0xb7) ||
 	    reg == 0xd3 || reg == 0xd7 || reg == 0xdb || reg == 0xdf || (reg >= 0xe5 && reg <= 0xe7) ||
@@ -150,6 +152,8 @@ static int saa711x_writeregs(struct v4l2_subdev *sd, const unsigned char *regs)
 		reg = *(regs++);
 		data = *(regs++);
 
+		/* According with datasheets, reserved regs should be
+		   filled with 0 - seems better not to touch on they */
 		if (saa711x_has_reg(state->ident, reg)) {
 			if (saa711x_write(sd, reg, data) < 0)
 				return -1;
@@ -167,31 +171,40 @@ static inline int saa711x_read(struct v4l2_subdev *sd, u8 reg)
 	return i2c_smbus_read_byte_data(client, reg);
 }
 
+/* ----------------------------------------------------------------------- */
 
+/* SAA7111 initialization table */
 static const unsigned char saa7111_init[] = {
-	R_01_INC_DELAY, 0x00,		
+	R_01_INC_DELAY, 0x00,		/* reserved */
 
-	
-	R_02_INPUT_CNTL_1, 0xd0,	
-	R_03_INPUT_CNTL_2, 0x23,	
-	R_04_INPUT_CNTL_3, 0x00,	
-	R_05_INPUT_CNTL_4, 0x00,	
+	/*front end */
+	R_02_INPUT_CNTL_1, 0xd0,	/* FUSE=3, GUDL=2, MODE=0 */
+	R_03_INPUT_CNTL_2, 0x23,	/* HLNRS=0, VBSL=1, WPOFF=0, HOLDG=0,
+					 * GAFIX=0, GAI1=256, GAI2=256 */
+	R_04_INPUT_CNTL_3, 0x00,	/* GAI1=256 */
+	R_05_INPUT_CNTL_4, 0x00,	/* GAI2=256 */
 
-	
-	R_06_H_SYNC_START, 0xf3,	
-	R_07_H_SYNC_STOP, 0xe8,		
-	R_08_SYNC_CNTL, 0xc8,		
-	R_09_LUMA_CNTL, 0x01,		
+	/* decoder */
+	R_06_H_SYNC_START, 0xf3,	/* HSB at  13(50Hz) /  17(60Hz)
+					 * pixels after end of last line */
+	R_07_H_SYNC_STOP, 0xe8,		/* HSS seems to be needed to
+					 * work with NTSC, too */
+	R_08_SYNC_CNTL, 0xc8,		/* AUFD=1, FSEL=1, EXFIL=0,
+					 * VTRC=1, HPLL=0, VNOI=0 */
+	R_09_LUMA_CNTL, 0x01,		/* BYPS=0, PREF=0, BPSS=0,
+					 * VBLB=0, UPTCV=0, APER=1 */
 	R_0A_LUMA_BRIGHT_CNTL, 0x80,
-	R_0B_LUMA_CONTRAST_CNTL, 0x47,	
+	R_0B_LUMA_CONTRAST_CNTL, 0x47,	/* 0b - CONT=1.109 */
 	R_0C_CHROMA_SAT_CNTL, 0x40,
 	R_0D_CHROMA_HUE_CNTL, 0x00,
-	R_0E_CHROMA_CNTL_1, 0x01,	
-	R_0F_CHROMA_GAIN_CNTL, 0x00,	
-	R_10_CHROMA_CNTL_2, 0x48,	
-	R_11_MODE_DELAY_CNTL, 0x1c,	
-	R_12_RT_SIGNAL_CNTL, 0x00,	
-	R_13_RT_X_PORT_OUT_CNTL, 0x00,	
+	R_0E_CHROMA_CNTL_1, 0x01,	/* 0e - CDTO=0, CSTD=0, DCCF=0,
+					 * FCTC=0, CHBW=1 */
+	R_0F_CHROMA_GAIN_CNTL, 0x00,	/* reserved */
+	R_10_CHROMA_CNTL_2, 0x48,	/* 10 - OFTS=1, HDEL=0, VRLN=1, YDEL=0 */
+	R_11_MODE_DELAY_CNTL, 0x1c,	/* 11 - GPSW=0, CM99=0, FECO=0, COMPO=1,
+					 * OEYC=1, OEHV=1, VIPB=0, COLO=0 */
+	R_12_RT_SIGNAL_CNTL, 0x00,	/* 12 - output control 2 */
+	R_13_RT_X_PORT_OUT_CNTL, 0x00,	/* 13 - output control 3 */
 	R_14_ANAL_ADC_COMPAT_CNTL, 0x00,
 	R_15_VGATE_START_FID_CHG, 0x00,
 	R_16_VGATE_STOP, 0x00,
@@ -200,6 +213,7 @@ static const unsigned char saa7111_init[] = {
 	0x00, 0x00
 };
 
+/* SAA7113 init codes */
 static const unsigned char saa7113_init[] = {
 	R_01_INC_DELAY, 0x08,
 	R_02_INPUT_CNTL_1, 0xc2,
@@ -228,76 +242,82 @@ static const unsigned char saa7113_init[] = {
 	0x00, 0x00
 };
 
+/* If a value differs from the Hauppauge driver values, then the comment starts with
+   'was 0xXX' to denote the Hauppauge value. Otherwise the value is identical to what the
+   Hauppauge driver sets. */
 
+/* SAA7114 and SAA7115 initialization table */
 static const unsigned char saa7115_init_auto_input[] = {
-		
-	R_01_INC_DELAY, 0x48,			
-	R_03_INPUT_CNTL_2, 0x20,		
-	R_04_INPUT_CNTL_3, 0x90,		
-	R_05_INPUT_CNTL_4, 0x90,		
-		
-	R_06_H_SYNC_START, 0xeb,		
-	R_07_H_SYNC_STOP, 0xe0,			
-	R_09_LUMA_CNTL, 0x53,			
-	R_0A_LUMA_BRIGHT_CNTL, 0x80,		
-	R_0B_LUMA_CONTRAST_CNTL, 0x44,		
-	R_0C_CHROMA_SAT_CNTL, 0x40,		
+		/* Front-End Part */
+	R_01_INC_DELAY, 0x48,			/* white peak control disabled */
+	R_03_INPUT_CNTL_2, 0x20,		/* was 0x30. 0x20: long vertical blanking */
+	R_04_INPUT_CNTL_3, 0x90,		/* analog gain set to 0 */
+	R_05_INPUT_CNTL_4, 0x90,		/* analog gain set to 0 */
+		/* Decoder Part */
+	R_06_H_SYNC_START, 0xeb,		/* horiz sync begin = -21 */
+	R_07_H_SYNC_STOP, 0xe0,			/* horiz sync stop = -17 */
+	R_09_LUMA_CNTL, 0x53,			/* 0x53, was 0x56 for 60hz. luminance control */
+	R_0A_LUMA_BRIGHT_CNTL, 0x80,		/* was 0x88. decoder brightness, 0x80 is itu standard */
+	R_0B_LUMA_CONTRAST_CNTL, 0x44,		/* was 0x48. decoder contrast, 0x44 is itu standard */
+	R_0C_CHROMA_SAT_CNTL, 0x40,		/* was 0x47. decoder saturation, 0x40 is itu standard */
 	R_0D_CHROMA_HUE_CNTL, 0x00,
-	R_0F_CHROMA_GAIN_CNTL, 0x00,		
-	R_10_CHROMA_CNTL_2, 0x06,		
+	R_0F_CHROMA_GAIN_CNTL, 0x00,		/* use automatic gain  */
+	R_10_CHROMA_CNTL_2, 0x06,		/* chroma: active adaptive combfilter */
 	R_11_MODE_DELAY_CNTL, 0x00,
-	R_12_RT_SIGNAL_CNTL, 0x9d,		
-	R_13_RT_X_PORT_OUT_CNTL, 0x80,		
+	R_12_RT_SIGNAL_CNTL, 0x9d,		/* RTS0 output control: VGATE */
+	R_13_RT_X_PORT_OUT_CNTL, 0x80,		/* ITU656 standard mode, RTCO output enable RTCE */
 	R_14_ANAL_ADC_COMPAT_CNTL, 0x00,
-	R_18_RAW_DATA_GAIN_CNTL, 0x40,		
+	R_18_RAW_DATA_GAIN_CNTL, 0x40,		/* gain 0x00 = nominal */
 	R_19_RAW_DATA_OFF_CNTL, 0x80,
-	R_1A_COLOR_KILL_LVL_CNTL, 0x77,		
-	R_1B_MISC_TVVCRDET, 0x42,		
-	R_1C_ENHAN_COMB_CTRL1, 0xa9,		
-	R_1D_ENHAN_COMB_CTRL2, 0x01,		
+	R_1A_COLOR_KILL_LVL_CNTL, 0x77,		/* recommended value */
+	R_1B_MISC_TVVCRDET, 0x42,		/* recommended value */
+	R_1C_ENHAN_COMB_CTRL1, 0xa9,		/* recommended value */
+	R_1D_ENHAN_COMB_CTRL2, 0x01,		/* recommended value */
 
 
-	R_80_GLOBAL_CNTL_1, 0x0,		
+	R_80_GLOBAL_CNTL_1, 0x0,		/* No tasks enabled at init */
 
-		
-	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xd0,	
-	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xf0,	
+		/* Power Device Control */
+	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xd0,	/* reset device */
+	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xf0,	/* set device programmed, all in operational mode */
 	0x00, 0x00
 };
 
+/* Used to reset saa7113, saa7114 and saa7115 */
 static const unsigned char saa7115_cfg_reset_scaler[] = {
-	R_87_I_PORT_I_O_ENA_OUT_CLK_AND_GATED, 0x00,	
-	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xd0,		
-	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xf0,		
-	R_87_I_PORT_I_O_ENA_OUT_CLK_AND_GATED, 0x01,	
+	R_87_I_PORT_I_O_ENA_OUT_CLK_AND_GATED, 0x00,	/* disable I-port output */
+	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xd0,		/* reset scaler */
+	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xf0,		/* activate scaler */
+	R_87_I_PORT_I_O_ENA_OUT_CLK_AND_GATED, 0x01,	/* enable I-port output */
 	0x00, 0x00
 };
 
+/* ============== SAA7715 VIDEO templates =============  */
 
 static const unsigned char saa7115_cfg_60hz_video[] = {
-	R_80_GLOBAL_CNTL_1, 0x00,			
-	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xd0,		
+	R_80_GLOBAL_CNTL_1, 0x00,			/* reset tasks */
+	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xd0,		/* reset scaler */
 
 	R_15_VGATE_START_FID_CHG, 0x03,
 	R_16_VGATE_STOP, 0x11,
 	R_17_MISC_VGATE_CONF_AND_MSB, 0x9c,
 
-	R_08_SYNC_CNTL, 0x68,			
-	R_0E_CHROMA_CNTL_1, 0x07,		
+	R_08_SYNC_CNTL, 0x68,			/* 0xBO: auto detection, 0x68 = NTSC */
+	R_0E_CHROMA_CNTL_1, 0x07,		/* video autodetection is on */
 
-	R_5A_V_OFF_FOR_SLICER, 0x06,		
+	R_5A_V_OFF_FOR_SLICER, 0x06,		/* standard 60hz value for ITU656 line counting */
 
-	
+	/* Task A */
 	R_90_A_TASK_HANDLING_CNTL, 0x80,
 	R_91_A_X_PORT_FORMATS_AND_CONF, 0x48,
 	R_92_A_X_PORT_INPUT_REFERENCE_SIGNAL, 0x40,
 	R_93_A_I_PORT_OUTPUT_FORMATS_AND_CONF, 0x84,
 
-	
+	/* hoffset low (input), 0x0002 is minimum */
 	R_94_A_HORIZ_INPUT_WINDOW_START, 0x01,
 	R_95_A_HORIZ_INPUT_WINDOW_START_MSB, 0x00,
 
-	
+	/* hsize low (input), 0x02d0 = 720 */
 	R_96_A_HORIZ_INPUT_WINDOW_LENGTH, 0xd0,
 	R_97_A_HORIZ_INPUT_WINDOW_LENGTH_MSB, 0x02,
 
@@ -313,34 +333,34 @@ static const unsigned char saa7115_cfg_60hz_video[] = {
 	R_9E_A_VERT_OUTPUT_WINDOW_LENGTH, 0x0c,
 	R_9F_A_VERT_OUTPUT_WINDOW_LENGTH_MSB, 0x00,
 
-	
+	/* Task B */
 	R_C0_B_TASK_HANDLING_CNTL, 0x00,
 	R_C1_B_X_PORT_FORMATS_AND_CONF, 0x08,
 	R_C2_B_INPUT_REFERENCE_SIGNAL_DEFINITION, 0x00,
 	R_C3_B_I_PORT_FORMATS_AND_CONF, 0x80,
 
-	
+	/* 0x0002 is minimum */
 	R_C4_B_HORIZ_INPUT_WINDOW_START, 0x02,
 	R_C5_B_HORIZ_INPUT_WINDOW_START_MSB, 0x00,
 
-	
+	/* 0x02d0 = 720 */
 	R_C6_B_HORIZ_INPUT_WINDOW_LENGTH, 0xd0,
 	R_C7_B_HORIZ_INPUT_WINDOW_LENGTH_MSB, 0x02,
 
-	
+	/* vwindow start 0x12 = 18 */
 	R_C8_B_VERT_INPUT_WINDOW_START, 0x12,
 	R_C9_B_VERT_INPUT_WINDOW_START_MSB, 0x00,
 
-	
+	/* vwindow length 0xf8 = 248 */
 	R_CA_B_VERT_INPUT_WINDOW_LENGTH, VRES_60HZ>>1,
 	R_CB_B_VERT_INPUT_WINDOW_LENGTH_MSB, VRES_60HZ>>9,
 
-	
+	/* hwindow 0x02d0 = 720 */
 	R_CC_B_HORIZ_OUTPUT_WINDOW_LENGTH, 0xd0,
 	R_CD_B_HORIZ_OUTPUT_WINDOW_LENGTH_MSB, 0x02,
 
-	R_F0_LFCO_PER_LINE, 0xad,		
-	R_F1_P_I_PARAM_SELECT, 0x05,		
+	R_F0_LFCO_PER_LINE, 0xad,		/* Set PLL Register. 60hz 525 lines per frame, 27 MHz */
+	R_F1_P_I_PARAM_SELECT, 0x05,		/* low bit with 0xF0 */
 	R_F5_PULSGEN_LINE_LENGTH, 0xad,
 	R_F6_PULSE_A_POS_LSB_AND_PULSEGEN_CONFIG, 0x01,
 
@@ -349,99 +369,100 @@ static const unsigned char saa7115_cfg_60hz_video[] = {
 
 static const unsigned char saa7115_cfg_50hz_video[] = {
 	R_80_GLOBAL_CNTL_1, 0x00,
-	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xd0,	
+	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xd0,	/* reset scaler */
 
-	R_15_VGATE_START_FID_CHG, 0x37,		
+	R_15_VGATE_START_FID_CHG, 0x37,		/* VGATE start */
 	R_16_VGATE_STOP, 0x16,
 	R_17_MISC_VGATE_CONF_AND_MSB, 0x99,
 
-	R_08_SYNC_CNTL, 0x28,			
+	R_08_SYNC_CNTL, 0x28,			/* 0x28 = PAL */
 	R_0E_CHROMA_CNTL_1, 0x07,
 
-	R_5A_V_OFF_FOR_SLICER, 0x03,		
+	R_5A_V_OFF_FOR_SLICER, 0x03,		/* standard 50hz value */
 
-	
+	/* Task A */
 	R_90_A_TASK_HANDLING_CNTL, 0x81,
 	R_91_A_X_PORT_FORMATS_AND_CONF, 0x48,
 	R_92_A_X_PORT_INPUT_REFERENCE_SIGNAL, 0x40,
 	R_93_A_I_PORT_OUTPUT_FORMATS_AND_CONF, 0x84,
 
-	
-	
-	
+	/* This is weird: the datasheet says that you should use 2 as the minimum value, */
+	/* but Hauppauge uses 0, and changing that to 2 causes indeed problems (for 50hz) */
+	/* hoffset low (input), 0x0002 is minimum */
 	R_94_A_HORIZ_INPUT_WINDOW_START, 0x00,
 	R_95_A_HORIZ_INPUT_WINDOW_START_MSB, 0x00,
 
-	
+	/* hsize low (input), 0x02d0 = 720 */
 	R_96_A_HORIZ_INPUT_WINDOW_LENGTH, 0xd0,
 	R_97_A_HORIZ_INPUT_WINDOW_LENGTH_MSB, 0x02,
 
 	R_98_A_VERT_INPUT_WINDOW_START, 0x03,
 	R_99_A_VERT_INPUT_WINDOW_START_MSB, 0x00,
 
-	
+	/* vsize 0x12 = 18 */
 	R_9A_A_VERT_INPUT_WINDOW_LENGTH, 0x12,
 	R_9B_A_VERT_INPUT_WINDOW_LENGTH_MSB, 0x00,
 
-	
+	/* hsize 0x05a0 = 1440 */
 	R_9C_A_HORIZ_OUTPUT_WINDOW_LENGTH, 0xa0,
-	R_9D_A_HORIZ_OUTPUT_WINDOW_LENGTH_MSB, 0x05,	
-	R_9E_A_VERT_OUTPUT_WINDOW_LENGTH, 0x12,		
-	R_9F_A_VERT_OUTPUT_WINDOW_LENGTH_MSB, 0x00,	
+	R_9D_A_HORIZ_OUTPUT_WINDOW_LENGTH_MSB, 0x05,	/* hsize hi (output) */
+	R_9E_A_VERT_OUTPUT_WINDOW_LENGTH, 0x12,		/* vsize low (output), 0x12 = 18 */
+	R_9F_A_VERT_OUTPUT_WINDOW_LENGTH_MSB, 0x00,	/* vsize hi (output) */
 
-	
+	/* Task B */
 	R_C0_B_TASK_HANDLING_CNTL, 0x00,
 	R_C1_B_X_PORT_FORMATS_AND_CONF, 0x08,
 	R_C2_B_INPUT_REFERENCE_SIGNAL_DEFINITION, 0x00,
 	R_C3_B_I_PORT_FORMATS_AND_CONF, 0x80,
 
-	
-	
-	
+	/* This is weird: the datasheet says that you should use 2 as the minimum value, */
+	/* but Hauppauge uses 0, and changing that to 2 causes indeed problems (for 50hz) */
+	/* hoffset low (input), 0x0002 is minimum. See comment above. */
 	R_C4_B_HORIZ_INPUT_WINDOW_START, 0x00,
 	R_C5_B_HORIZ_INPUT_WINDOW_START_MSB, 0x00,
 
-	
+	/* hsize 0x02d0 = 720 */
 	R_C6_B_HORIZ_INPUT_WINDOW_LENGTH, 0xd0,
 	R_C7_B_HORIZ_INPUT_WINDOW_LENGTH_MSB, 0x02,
 
-	
+	/* voffset 0x16 = 22 */
 	R_C8_B_VERT_INPUT_WINDOW_START, 0x16,
 	R_C9_B_VERT_INPUT_WINDOW_START_MSB, 0x00,
 
-	
+	/* vsize 0x0120 = 288 */
 	R_CA_B_VERT_INPUT_WINDOW_LENGTH, 0x20,
 	R_CB_B_VERT_INPUT_WINDOW_LENGTH_MSB, 0x01,
 
-	
+	/* hsize 0x02d0 = 720 */
 	R_CC_B_HORIZ_OUTPUT_WINDOW_LENGTH, 0xd0,
 	R_CD_B_HORIZ_OUTPUT_WINDOW_LENGTH_MSB, 0x02,
 
-	R_F0_LFCO_PER_LINE, 0xb0,		
-	R_F1_P_I_PARAM_SELECT, 0x05,		
+	R_F0_LFCO_PER_LINE, 0xb0,		/* Set PLL Register. 50hz 625 lines per frame, 27 MHz */
+	R_F1_P_I_PARAM_SELECT, 0x05,		/* low bit with 0xF0, (was 0x05) */
 	R_F5_PULSGEN_LINE_LENGTH, 0xb0,
 	R_F6_PULSE_A_POS_LSB_AND_PULSEGEN_CONFIG, 0x01,
 
 	0x00, 0x00
 };
 
+/* ============== SAA7715 VIDEO templates (end) =======  */
 
 static const unsigned char saa7115_cfg_vbi_on[] = {
-	R_80_GLOBAL_CNTL_1, 0x00,			
-	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xd0,		
-	R_80_GLOBAL_CNTL_1, 0x30,			
-	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xf0,		
-	R_87_I_PORT_I_O_ENA_OUT_CLK_AND_GATED, 0x01,	
+	R_80_GLOBAL_CNTL_1, 0x00,			/* reset tasks */
+	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xd0,		/* reset scaler */
+	R_80_GLOBAL_CNTL_1, 0x30,			/* Activate both tasks */
+	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xf0,		/* activate scaler */
+	R_87_I_PORT_I_O_ENA_OUT_CLK_AND_GATED, 0x01,	/* Enable I-port output */
 
 	0x00, 0x00
 };
 
 static const unsigned char saa7115_cfg_vbi_off[] = {
-	R_80_GLOBAL_CNTL_1, 0x00,			
-	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xd0,		
-	R_80_GLOBAL_CNTL_1, 0x20,			
-	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xf0,		
-	R_87_I_PORT_I_O_ENA_OUT_CLK_AND_GATED, 0x01,	
+	R_80_GLOBAL_CNTL_1, 0x00,			/* reset tasks */
+	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xd0,		/* reset scaler */
+	R_80_GLOBAL_CNTL_1, 0x20,			/* Activate only task "B" */
+	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xf0,		/* activate scaler */
+	R_87_I_PORT_I_O_ENA_OUT_CLK_AND_GATED, 0x01,	/* Enable I-port output */
 
 	0x00, 0x00
 };
@@ -455,27 +476,27 @@ static const unsigned char saa7115_init_misc[] = {
 	R_86_I_PORT_FIFO_FLAG_CNTL_AND_ARBIT, 0xc5,
 	R_87_I_PORT_I_O_ENA_OUT_CLK_AND_GATED, 0x01,
 
-	
+	/* Task A */
 	R_A0_A_HORIZ_PRESCALING, 0x01,
 	R_A1_A_ACCUMULATION_LENGTH, 0x00,
 	R_A2_A_PRESCALER_DC_GAIN_AND_FIR_PREFILTER, 0x00,
 
-	
+	/* Configure controls at nominal value*/
 	R_A4_A_LUMA_BRIGHTNESS_CNTL, 0x80,
 	R_A5_A_LUMA_CONTRAST_CNTL, 0x40,
 	R_A6_A_CHROMA_SATURATION_CNTL, 0x40,
 
-	
+	/* note: 2 x zoom ensures that VBI lines have same length as video lines. */
 	R_A8_A_HORIZ_LUMA_SCALING_INC, 0x00,
 	R_A9_A_HORIZ_LUMA_SCALING_INC_MSB, 0x02,
 
 	R_AA_A_HORIZ_LUMA_PHASE_OFF, 0x00,
 
-	
+	/* must be horiz lum scaling / 2 */
 	R_AC_A_HORIZ_CHROMA_SCALING_INC, 0x00,
 	R_AD_A_HORIZ_CHROMA_SCALING_INC_MSB, 0x01,
 
-	
+	/* must be offset luma / 2 */
 	R_AE_A_HORIZ_CHROMA_PHASE_OFF, 0x00,
 
 	R_B0_A_VERT_LUMA_SCALING_INC, 0x00,
@@ -496,27 +517,27 @@ static const unsigned char saa7115_init_misc[] = {
 	R_BE_A_VERT_LUMA_PHASE_OFF_10, 0x00,
 	R_BF_A_VERT_LUMA_PHASE_OFF_11, 0x00,
 
-	
+	/* Task B */
 	R_D0_B_HORIZ_PRESCALING, 0x01,
 	R_D1_B_ACCUMULATION_LENGTH, 0x00,
 	R_D2_B_PRESCALER_DC_GAIN_AND_FIR_PREFILTER, 0x00,
 
-	
+	/* Configure controls at nominal value*/
 	R_D4_B_LUMA_BRIGHTNESS_CNTL, 0x80,
 	R_D5_B_LUMA_CONTRAST_CNTL, 0x40,
 	R_D6_B_CHROMA_SATURATION_CNTL, 0x40,
 
-	
+	/* hor lum scaling 0x0400 = 1 */
 	R_D8_B_HORIZ_LUMA_SCALING_INC, 0x00,
 	R_D9_B_HORIZ_LUMA_SCALING_INC_MSB, 0x04,
 
 	R_DA_B_HORIZ_LUMA_PHASE_OFF, 0x00,
 
-	
+	/* must be hor lum scaling / 2 */
 	R_DC_B_HORIZ_CHROMA_SCALING, 0x00,
 	R_DD_B_HORIZ_CHROMA_SCALING_MSB, 0x02,
 
-	
+	/* must be offset luma / 2 */
 	R_DE_B_HORIZ_PHASE_OFFSET_CRHOMA, 0x00,
 
 	R_E0_B_VERT_LUMA_SCALING_INC, 0x00,
@@ -537,20 +558,20 @@ static const unsigned char saa7115_init_misc[] = {
 	R_EE_B_VERT_LUMA_PHASE_OFF_10, 0x00,
 	R_EF_B_VERT_LUMA_PHASE_OFF_11, 0x00,
 
-	R_F2_NOMINAL_PLL2_DTO, 0x50,		
+	R_F2_NOMINAL_PLL2_DTO, 0x50,		/* crystal clock = 24.576 MHz, target = 27MHz */
 	R_F3_PLL_INCREMENT, 0x46,
 	R_F4_PLL2_STATUS, 0x00,
-	R_F7_PULSE_A_POS_MSB, 0x4b,		
+	R_F7_PULSE_A_POS_MSB, 0x4b,		/* not the recommended settings! */
 	R_F8_PULSE_B_POS, 0x00,
 	R_F9_PULSE_B_POS_MSB, 0x4b,
 	R_FA_PULSE_C_POS, 0x00,
 	R_FB_PULSE_C_POS_MSB, 0x4b,
 
-	
+	/* PLL2 lock detection settings: 71 lines 50% phase error */
 	R_FF_S_PLL_MAX_PHASE_ERR_THRESH_NUM_LINES, 0x88,
 
-	
-	R_40_SLICER_CNTL_1, 0x20,             
+	/* Turn off VBI */
+	R_40_SLICER_CNTL_1, 0x20,             /* No framing code errors allowed. */
 	R_41_LCR_BASE, 0xff,
 	R_41_LCR_BASE+1, 0xff,
 	R_41_LCR_BASE+2, 0xff,
@@ -580,9 +601,9 @@ static const unsigned char saa7115_init_misc[] = {
 	R_5D_DID, 0xbd,
 	R_5E_SDID, 0x35,
 
-	R_02_INPUT_CNTL_1, 0xc4, 
+	R_02_INPUT_CNTL_1, 0xc4, /* input tuner -> input 4, amplifier active */
 
-	R_80_GLOBAL_CNTL_1, 0x20,		
+	R_80_GLOBAL_CNTL_1, 0x20,		/* enable task B */
 	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xd0,
 	R_88_POWER_SAVE_ADC_PORT_CNTL, 0xf0,
 	0x00, 0x00
@@ -678,22 +699,25 @@ static int saa711x_s_clock_freq(struct v4l2_subdev *sd, u32 freq)
 	u32 acni;
 	u32 hz;
 	u64 f;
-	u8 acc = 0; 	
+	u8 acc = 0; 	/* reg 0x3a, audio clock control */
 
-	
+	/* Checks for chips that don't have audio clock (saa7111, saa7113) */
 	if (!saa711x_has_reg(state->ident, R_30_AUD_MAST_CLK_CYCLES_PER_FIELD))
 		return 0;
 
 	v4l2_dbg(1, debug, sd, "set audio clock freq: %d\n", freq);
 
-	
+	/* sanity check */
 	if (freq < 32000 || freq > 48000)
 		return -EINVAL;
 
-	
+	/* hz is the refresh rate times 100 */
 	hz = (state->std & V4L2_STD_525_60) ? 5994 : 5000;
-	
+	/* acpf = (256 * freq) / field_frequency == (256 * 100 * freq) / hz */
 	acpf = (25600 * freq) / hz;
+	/* acni = (256 * freq * 2^23) / crystal_frequency =
+		  (freq * 2^(8+23)) / crystal_frequency =
+		  (freq << 31) / crystal_frequency */
 	f = freq;
 	f = f << 31;
 	do_div(f, state->crystal_freq);
@@ -732,7 +756,7 @@ static int saa711x_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 
 	switch (ctrl->id) {
 	case V4L2_CID_CHROMA_AGC:
-		
+		/* chroma gain cluster */
 		if (state->agc->val)
 			state->gain->val =
 				saa711x_read(sd, R_0F_CHROMA_GAIN_CNTL) & 0x7f;
@@ -764,7 +788,7 @@ static int saa711x_s_ctrl(struct v4l2_ctrl *ctrl)
 		break;
 
 	case V4L2_CID_CHROMA_AGC:
-		
+		/* chroma gain cluster */
 		if (state->agc->val)
 			saa711x_write(sd, R_0F_CHROMA_GAIN_CNTL, state->gain->val);
 		else
@@ -789,14 +813,14 @@ static int saa711x_set_size(struct v4l2_subdev *sd, int width, int height)
 
 	v4l2_dbg(1, debug, sd, "decoder set size to %ix%i\n", width, height);
 
-	
+	/* FIXME need better bounds checking here */
 	if ((width < 1) || (width > 1440))
 		return -EINVAL;
 	if ((height < 1) || (height > Vsrc))
 		return -EINVAL;
 
 	if (!saa711x_has_reg(state->ident, R_D0_B_HORIZ_PRESCALING)) {
-		
+		/* Decoder only supports 720 columns and 480 or 576 lines */
 		if (width != 720)
 			return -EINVAL;
 		if (height != Vsrc)
@@ -809,43 +833,47 @@ static int saa711x_set_size(struct v4l2_subdev *sd, int width, int height)
 	if (!saa711x_has_reg(state->ident, R_CC_B_HORIZ_OUTPUT_WINDOW_LENGTH))
 		return 0;
 
-	
-	
-	
+	/* probably have a valid size, let's set it */
+	/* Set output width/height */
+	/* width */
 
 	saa711x_write(sd, R_CC_B_HORIZ_OUTPUT_WINDOW_LENGTH,
 					(u8) (width & 0xff));
 	saa711x_write(sd, R_CD_B_HORIZ_OUTPUT_WINDOW_LENGTH_MSB,
 					(u8) ((width >> 8) & 0xff));
 
-	
+	/* Vertical Scaling uses height/2 */
 	res = height / 2;
 
-	
+	/* On 60Hz, it is using a higher Vertical Output Size */
 	if (!is_50hz)
 		res += (VRES_60HZ - 480) >> 1;
 
-		
+		/* height */
 	saa711x_write(sd, R_CE_B_VERT_OUTPUT_WINDOW_LENGTH,
 					(u8) (res & 0xff));
 	saa711x_write(sd, R_CF_B_VERT_OUTPUT_WINDOW_LENGTH_MSB,
 					(u8) ((res >> 8) & 0xff));
 
-	
-	
+	/* Scaling settings */
+	/* Hprescaler is floor(inres/outres) */
 	HPSC = (int)(720 / width);
-	
+	/* 0 is not allowed (div. by zero) */
 	HPSC = HPSC ? HPSC : 1;
 	HFSC = (int)((1024 * 720) / (HPSC * width));
+	/* FIXME hardcodes to "Task B"
+	 * write H prescaler integer */
 	saa711x_write(sd, R_D0_B_HORIZ_PRESCALING,
 				(u8) (HPSC & 0x3f));
 
 	v4l2_dbg(1, debug, sd, "Hpsc: 0x%05x, Hfsc: 0x%05x\n", HPSC, HFSC);
-	
+	/* write H fine-scaling (luminance) */
 	saa711x_write(sd, R_D8_B_HORIZ_LUMA_SCALING_INC,
 				(u8) (HFSC & 0xff));
 	saa711x_write(sd, R_D9_B_HORIZ_LUMA_SCALING_INC_MSB,
 				(u8) ((HFSC >> 8) & 0xff));
+	/* write H fine-scaling (chrominance)
+	 * must be lum/2, so i'll just bitshift :) */
 	saa711x_write(sd, R_DC_B_HORIZ_CHROMA_SCALING,
 				(u8) ((HFSC >> 1) & 0xff));
 	saa711x_write(sd, R_DD_B_HORIZ_CHROMA_SCALING_MSB,
@@ -854,18 +882,18 @@ static int saa711x_set_size(struct v4l2_subdev *sd, int width, int height)
 	VSCY = (int)((1024 * Vsrc) / height);
 	v4l2_dbg(1, debug, sd, "Vsrc: %d, Vscy: 0x%05x\n", Vsrc, VSCY);
 
-	
+	/* Correct Contrast and Luminance */
 	saa711x_write(sd, R_D5_B_LUMA_CONTRAST_CNTL,
 					(u8) (64 * 1024 / VSCY));
 	saa711x_write(sd, R_D6_B_CHROMA_SATURATION_CNTL,
 					(u8) (64 * 1024 / VSCY));
 
-		
+		/* write V fine-scaling (luminance) */
 	saa711x_write(sd, R_E0_B_VERT_LUMA_SCALING_INC,
 					(u8) (VSCY & 0xff));
 	saa711x_write(sd, R_E1_B_VERT_LUMA_SCALING_INC_MSB,
 					(u8) ((VSCY >> 8) & 0xff));
-		
+		/* write V fine-scaling (chrominance) */
 	saa711x_write(sd, R_E2_B_VERT_CHROMA_SCALING_INC,
 					(u8) (VSCY & 0xff));
 	saa711x_write(sd, R_E3_B_VERT_CHROMA_SCALING_INC_MSB,
@@ -873,7 +901,7 @@ static int saa711x_set_size(struct v4l2_subdev *sd, int width, int height)
 
 	saa711x_writeregs(sd, saa7115_cfg_reset_scaler);
 
-	
+	/* Activates task "B" */
 	saa711x_write(sd, R_80_GLOBAL_CNTL_1,
 				saa711x_read(sd, R_80_GLOBAL_CNTL_1) | 0x20);
 
@@ -884,12 +912,19 @@ static void saa711x_set_v4lstd(struct v4l2_subdev *sd, v4l2_std_id std)
 {
 	struct saa711x_state *state = to_state(sd);
 
+	/* Prevent unnecessary standard changes. During a standard
+	   change the I-Port is temporarily disabled. Any devices
+	   reading from that port can get confused.
+	   Note that s_std is also used to switch from
+	   radio to TV mode, so if a s_std is broadcast to
+	   all I2C devices then you do not want to have an unwanted
+	   side-effect here. */
 	if (std == state->std)
 		return;
 
 	state->std = std;
 
-	
+	// This works for NTSC-M, SECAM-L and the 50Hz PAL variants.
 	if (std & V4L2_STD_525_60) {
 		v4l2_dbg(1, debug, sd, "decoder set standard 60 Hz\n");
 		saa711x_writeregs(sd, saa7115_cfg_60hz_video);
@@ -900,6 +935,15 @@ static void saa711x_set_v4lstd(struct v4l2_subdev *sd, v4l2_std_id std)
 		saa711x_set_size(sd, 720, 576);
 	}
 
+	/* Register 0E - Bits D6-D4 on NO-AUTO mode
+		(SAA7111 and SAA7113 doesn't have auto mode)
+	    50 Hz / 625 lines           60 Hz / 525 lines
+	000 PAL BGDHI (4.43Mhz)         NTSC M (3.58MHz)
+	001 NTSC 4.43 (50 Hz)           PAL 4.43 (60 Hz)
+	010 Combination-PAL N (3.58MHz) NTSC 4.43 (60 Hz)
+	011 NTSC N (3.58MHz)            PAL M (3.58MHz)
+	100 reserved                    NTSC-Japan (3.58MHz)
+	*/
 	if (state->ident <= V4L2_IDENT_SAA7113) {
 		u8 reg = saa711x_read(sd, R_0E_CHROMA_CNTL_1) & 0x8f;
 
@@ -916,18 +960,19 @@ static void saa711x_set_v4lstd(struct v4l2_subdev *sd, v4l2_std_id std)
 		}
 		saa711x_write(sd, R_0E_CHROMA_CNTL_1, reg);
 	} else {
-		
+		/* restart task B if needed */
 		int taskb = saa711x_read(sd, R_80_GLOBAL_CNTL_1) & 0x10;
 
 		if (taskb && state->ident == V4L2_IDENT_SAA7114) {
 			saa711x_writeregs(sd, saa7115_cfg_vbi_on);
 		}
 
-		
+		/* switch audio mode too! */
 		saa711x_s_clock_freq(sd, state->audclk_freq);
 	}
 }
 
+/* setup the sliced VBI lcr registers according to the sliced VBI format */
 static void saa711x_set_lcr(struct v4l2_subdev *sd, struct v4l2_sliced_vbi_format *fmt)
 {
 	struct saa711x_state *state = to_state(sd);
@@ -936,12 +981,12 @@ static void saa711x_set_lcr(struct v4l2_subdev *sd, struct v4l2_sliced_vbi_forma
 	int i, x;
 
 #if 1
-	
+	/* saa7113/7114/7118 VBI support are experimental */
 	if (!saa711x_has_reg(state->ident, R_41_LCR_BASE))
 		return;
 
 #else
-	
+	/* SAA7113 and SAA7118 also should support VBI - Need testing */
 	if (state->ident != V4L2_IDENT_SAA7115)
 		return;
 #endif
@@ -950,7 +995,7 @@ static void saa711x_set_lcr(struct v4l2_subdev *sd, struct v4l2_sliced_vbi_forma
 		lcr[i] = 0xff;
 
 	if (fmt == NULL) {
-		
+		/* raw VBI */
 		if (is_50hz)
 			for (i = 6; i <= 23; i++)
 				lcr[i] = 0xdd;
@@ -958,8 +1003,8 @@ static void saa711x_set_lcr(struct v4l2_subdev *sd, struct v4l2_sliced_vbi_forma
 			for (i = 10; i <= 21; i++)
 				lcr[i] = 0xdd;
 	} else {
-		
-		
+		/* sliced VBI */
+		/* first clear lines that cannot be captured */
 		if (is_50hz) {
 			for (i = 0; i <= 5; i++)
 				fmt->service_lines[0][i] =
@@ -974,7 +1019,7 @@ static void saa711x_set_lcr(struct v4l2_subdev *sd, struct v4l2_sliced_vbi_forma
 					fmt->service_lines[1][i] = 0;
 		}
 
-		
+		/* Now set the lcr values according to the specified service */
 		for (i = 6; i <= 23; i++) {
 			lcr[i] = 0;
 			for (x = 0; x <= 1; x++) {
@@ -999,12 +1044,12 @@ static void saa711x_set_lcr(struct v4l2_subdev *sd, struct v4l2_sliced_vbi_forma
 		}
 	}
 
-	
+	/* write the lcr registers */
 	for (i = 2; i <= 23; i++) {
 		saa711x_write(sd, i - 2 + R_41_LCR_BASE, lcr[i]);
 	}
 
-	
+	/* enable/disable raw VBI capturing */
 	saa711x_writeregs(sd, fmt == NULL ?
 				saa7115_cfg_vbi_on :
 				saa7115_cfg_vbi_off);
@@ -1013,16 +1058,16 @@ static void saa711x_set_lcr(struct v4l2_subdev *sd, struct v4l2_sliced_vbi_forma
 static int saa711x_g_sliced_fmt(struct v4l2_subdev *sd, struct v4l2_sliced_vbi_format *sliced)
 {
 	static u16 lcr2vbi[] = {
-		0, V4L2_SLICED_TELETEXT_B, 0,	
-		0, V4L2_SLICED_CAPTION_525,	
-		V4L2_SLICED_WSS_625, 0,		
-		V4L2_SLICED_VPS, 0, 0, 0, 0,	
+		0, V4L2_SLICED_TELETEXT_B, 0,	/* 1 */
+		0, V4L2_SLICED_CAPTION_525,	/* 4 */
+		V4L2_SLICED_WSS_625, 0,		/* 5 */
+		V4L2_SLICED_VPS, 0, 0, 0, 0,	/* 7 */
 		0, 0, 0, 0
 	};
 	int i;
 
 	memset(sliced, 0, sizeof(*sliced));
-	
+	/* done if using raw VBI */
 	if (saa711x_read(sd, R_80_GLOBAL_CNTL_1) & 0x10)
 		return 0;
 	for (i = 2; i <= 23; i++) {
@@ -1057,6 +1102,12 @@ static int saa711x_s_mbus_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt 
 	return saa711x_set_size(sd, fmt->width, fmt->height);
 }
 
+/* Decode the sliced VBI data stream as created by the saa7115.
+   The format is described in the saa7115 datasheet in Tables 25 and 26
+   and in Figure 33.
+   The current implementation uses SAV/EAV codes and not the ancillary data
+   headers. The vbi->p pointer points to the R_5E_SDID byte right after the SAV
+   code. */
 static int saa711x_decode_vbi_line(struct v4l2_subdev *sd, struct v4l2_decode_vbi_line *vbi)
 {
 	struct saa711x_state *state = to_state(sd);
@@ -1065,31 +1116,33 @@ static int saa711x_decode_vbi_line(struct v4l2_subdev *sd, struct v4l2_decode_vb
 	};
 	u8 *p = vbi->p;
 	u32 wss;
-	int id1, id2;   
+	int id1, id2;   /* the ID1 and ID2 bytes from the internal header */
 
-	vbi->type = 0;  
+	vbi->type = 0;  /* mark result as a failure */
 	id1 = p[2];
 	id2 = p[3];
-	
+	/* Note: the field bit is inverted for 60 Hz video */
 	if (state->std & V4L2_STD_525_60)
 		id1 ^= 0x40;
 
-	
+	/* Skip internal header, p now points to the start of the payload */
 	p += 4;
 	vbi->p = p;
 
-	
+	/* calculate field and line number of the VBI packet (1-23) */
 	vbi->is_second_field = ((id1 & 0x40) != 0);
 	vbi->line = (id1 & 0x3f) << 3;
 	vbi->line |= (id2 & 0x70) >> 4;
 
-	
+	/* Obtain data type */
 	id2 &= 0xf;
 
+	/* If the VBI slicer does not detect any signal it will fill up
+	   the payload buffer with 0xa0 bytes. */
 	if (!memcmp(p, vbi_no_data_pattern, sizeof(vbi_no_data_pattern)))
 		return 0;
 
-	
+	/* decode payloads */
 	switch (id2) {
 	case 1:
 		vbi->type = V4L2_SLICED_TELETEXT_B;
@@ -1118,6 +1171,7 @@ static int saa711x_decode_vbi_line(struct v4l2_subdev *sd, struct v4l2_decode_vb
 	return 0;
 }
 
+/* ============ SAA7115 AUDIO settings (end) ============= */
 
 static int saa711x_g_tuner(struct v4l2_subdev *sd, struct v4l2_tuner *vt)
 {
@@ -1159,7 +1213,7 @@ static int saa711x_s_routing(struct v4l2_subdev *sd,
 	v4l2_dbg(1, debug, sd, "decoder set input %d output %d\n",
 		input, output);
 
-	
+	/* saa7111/3 does not have these inputs */
 	if (state->ident <= V4L2_IDENT_SAA7113 &&
 	    (input == SAA7115_COMPOSITE4 ||
 	     input == SAA7115_COMPOSITE5)) {
@@ -1174,11 +1228,11 @@ static int saa711x_s_routing(struct v4l2_subdev *sd,
 		(output == SAA7115_IPORT_ON) ? "iport on" : "iport off");
 	state->input = input;
 
-	
+	/* saa7111 has slightly different input numbering */
 	if (state->ident <= V4L2_IDENT_SAA7111A) {
 		if (input >= SAA7115_COMPOSITE4)
 			input -= 2;
-		
+		/* saa7111 specific */
 		saa711x_write(sd, R_10_CHROMA_CNTL_2,
 				(saa711x_read(sd, R_10_CHROMA_CNTL_2) & 0x3f) |
 				((output & 0xc0) ^ 0x40));
@@ -1187,12 +1241,12 @@ static int saa711x_s_routing(struct v4l2_subdev *sd,
 				((output & 2) ? 0x0a : 0));
 	}
 
-	
+	/* select mode */
 	saa711x_write(sd, R_02_INPUT_CNTL_1,
 		      (saa711x_read(sd, R_02_INPUT_CNTL_1) & mask) |
 		       input);
 
-	
+	/* bypass chrominance trap for S-Video modes */
 	saa711x_write(sd, R_09_LUMA_CNTL,
 			(saa711x_read(sd, R_09_LUMA_CNTL) & 0x7f) |
 			(state->input >= SAA7115_SVIDEO0 ? 0x80 : 0x0));
@@ -1257,6 +1311,9 @@ static int saa711x_reset(struct v4l2_subdev *sd, u32 val)
 
 static int saa711x_g_vbi_data(struct v4l2_subdev *sd, struct v4l2_sliced_vbi_data *data)
 {
+	/* Note: the internal field ID is inverted for NTSC,
+	   so data->field 0 maps to the saa7115 even field,
+	   whereas for PAL it maps to the saa7115 odd field. */
 	switch (data->id) {
 	case V4L2_SLICED_WSS_625:
 		if (saa711x_read(sd, 0x6b) & 0xc0)
@@ -1266,14 +1323,14 @@ static int saa711x_g_vbi_data(struct v4l2_subdev *sd, struct v4l2_sliced_vbi_dat
 		return 0;
 	case V4L2_SLICED_CAPTION_525:
 		if (data->field == 0) {
-			
+			/* CC */
 			if (saa711x_read(sd, 0x66) & 0x30)
 				return -EIO;
 			data->data[0] = saa711x_read(sd, 0x69);
 			data->data[1] = saa711x_read(sd, 0x6a);
 			return 0;
 		}
-		
+		/* XDS */
 		if (saa711x_read(sd, 0x66) & 0xc0)
 			return -EIO;
 		data->data[0] = saa711x_read(sd, 0x67);
@@ -1289,11 +1346,16 @@ static int saa711x_querystd(struct v4l2_subdev *sd, v4l2_std_id *std)
 	struct saa711x_state *state = to_state(sd);
 	int reg1f, reg1e;
 
+	/*
+	 * The V4L2 core already initializes std with all supported
+	 * Standards. All driver needs to do is to mask it, to remove
+	 * standards that don't apply from the mask
+	 */
 
 	reg1f = saa711x_read(sd, R_1F_STATUS_BYTE_2_VD_DEC);
 	v4l2_dbg(1, debug, sd, "Status byte 2 (0x1f)=0x%02x\n", reg1f);
 
-	
+	/* horizontal/vertical not locked */
 	if (reg1f & 0x40)
 		goto ret;
 
@@ -1312,6 +1374,11 @@ static int saa711x_querystd(struct v4l2_subdev *sd, v4l2_std_id *std)
 		*std &= V4L2_STD_NTSC;
 		break;
 	case 2:
+		/*
+		 * V4L2_STD_PAL just cover the european PAL standards.
+		 * This is wrong, as the device could also be using an
+		 * other PAL standard.
+		 */
 		*std &= V4L2_STD_PAL   | V4L2_STD_PAL_N  | V4L2_STD_PAL_Nc |
 			V4L2_STD_PAL_M | V4L2_STD_PAL_60;
 		break;
@@ -1319,7 +1386,7 @@ static int saa711x_querystd(struct v4l2_subdev *sd, v4l2_std_id *std)
 		*std &= V4L2_STD_SECAM;
 		break;
 	default:
-		
+		/* Can't detect anything */
 		break;
 	}
 
@@ -1390,7 +1457,7 @@ static int saa711x_log_status(struct v4l2_subdev *sd)
 
 	v4l2_info(sd, "Audio frequency: %d Hz\n", state->audclk_freq);
 	if (state->ident != V4L2_IDENT_SAA7115) {
-		
+		/* status for the saa7114 */
 		reg1f = saa711x_read(sd, R_1F_STATUS_BYTE_2_VD_DEC);
 		signalOk = (reg1f & 0xc1) == 0x81;
 		v4l2_info(sd, "Video signal:    %s\n", signalOk ? "ok" : "bad");
@@ -1398,7 +1465,7 @@ static int saa711x_log_status(struct v4l2_subdev *sd)
 		return 0;
 	}
 
-	
+	/* status for the saa7115 */
 	reg1e = saa711x_read(sd, R_1E_STATUS_BYTE_1_VD_DEC);
 	reg1f = saa711x_read(sd, R_1F_STATUS_BYTE_2_VD_DEC);
 
@@ -1431,6 +1498,7 @@ static int saa711x_log_status(struct v4l2_subdev *sd)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct v4l2_ctrl_ops saa711x_ctrl_ops = {
 	.s_ctrl = saa711x_s_ctrl,
@@ -1490,6 +1558,7 @@ static const struct v4l2_subdev_ops saa711x_ops = {
 	.vbi = &saa711x_vbi_ops,
 };
 
+/* ----------------------------------------------------------------------- */
 
 static int saa711x_probe(struct i2c_client *client,
 			 const struct i2c_device_id *id)
@@ -1502,7 +1571,7 @@ static int saa711x_probe(struct i2c_client *client,
 	char chip_id;
 	int autodetect = !id || id->driver_data == 1;
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -EIO;
 
@@ -1516,14 +1585,14 @@ static int saa711x_probe(struct i2c_client *client,
 
 	chip_id = name[5];
 
-	
+	/* Check whether this chip is part of the saa711x series */
 	if (memcmp(name + 1, "f711", 4)) {
 		v4l_dbg(1, debug, client, "chip found @ 0x%x (ID %s) does not match a known saa711x chip.\n",
 			client->addr << 1, name);
 		return -ENODEV;
 	}
 
-	
+	/* Safety check */
 	if (!autodetect && id->name[6] != chip_id) {
 		v4l_warn(client, "found saa711%c while %s was expected\n",
 			 chip_id, id->name);
@@ -1540,7 +1609,7 @@ static int saa711x_probe(struct i2c_client *client,
 
 	hdl = &state->hdl;
 	v4l2_ctrl_handler_init(hdl, 6);
-	
+	/* add in ascending ID order */
 	v4l2_ctrl_new_std(hdl, &saa711x_ctrl_ops,
 			V4L2_CID_BRIGHTNESS, 0, 255, 1, 128);
 	v4l2_ctrl_new_std(hdl, &saa711x_ctrl_ops,
@@ -1597,7 +1666,7 @@ static int saa711x_probe(struct i2c_client *client,
 
 	v4l2_dbg(1, debug, sd, "writing init values\n");
 
-	
+	/* init to 60hz/48khz */
 	state->crystal_freq = SAA7115_FREQ_24_576_MHZ;
 	switch (state->ident) {
 	case V4L2_IDENT_SAA7111:
@@ -1622,6 +1691,7 @@ static int saa711x_probe(struct i2c_client *client,
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static int saa711x_remove(struct i2c_client *client)
 {
@@ -1634,7 +1704,7 @@ static int saa711x_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id saa711x_id[] = {
-	{ "saa7115_auto", 1 }, 
+	{ "saa7115_auto", 1 }, /* autodetect */
 	{ "saa7111", 0 },
 	{ "saa7113", 0 },
 	{ "saa7114", 0 },

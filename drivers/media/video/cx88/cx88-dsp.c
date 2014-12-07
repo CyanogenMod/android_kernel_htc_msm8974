@@ -36,26 +36,34 @@
 #define baseband_freq(carrier, srate, tone) ((s32)( \
 	 (compat_remainder(carrier + tone, srate)) / srate * 2 * INT_PI))
 
+/* We calculate the baseband frequencies of the carrier and the pilot tones
+ * based on the the sampling rate of the audio rds fifo. */
 
 #define FREQ_A2_CARRIER         baseband_freq(54687.5, 2689.36, 0.0)
 #define FREQ_A2_DUAL            baseband_freq(54687.5, 2689.36, 274.1)
 #define FREQ_A2_STEREO          baseband_freq(54687.5, 2689.36, 117.5)
 
+/* The frequencies below are from the reference driver. They probably need
+ * further adjustments, because they are not tested at all. You may even need
+ * to play a bit with the registers of the chip to select the proper signal
+ * for the input of the audio rds fifo, and measure it's sampling rate to
+ * calculate the proper baseband frequencies... */
 
 #define FREQ_A2M_CARRIER	((s32)(2.114516 * 32768.0))
 #define FREQ_A2M_DUAL		((s32)(2.754916 * 32768.0))
 #define FREQ_A2M_STEREO		((s32)(2.462326 * 32768.0))
 
-#define FREQ_EIAJ_CARRIER	((s32)(1.963495 * 32768.0)) 
+#define FREQ_EIAJ_CARRIER	((s32)(1.963495 * 32768.0)) /* 5pi/8  */
 #define FREQ_EIAJ_DUAL		((s32)(2.562118 * 32768.0))
 #define FREQ_EIAJ_STEREO	((s32)(2.601053 * 32768.0))
 
-#define FREQ_BTSC_DUAL		((s32)(1.963495 * 32768.0)) 
-#define FREQ_BTSC_DUAL_REF	((s32)(1.374446 * 32768.0)) 
+#define FREQ_BTSC_DUAL		((s32)(1.963495 * 32768.0)) /* 5pi/8  */
+#define FREQ_BTSC_DUAL_REF	((s32)(1.374446 * 32768.0)) /* 7pi/16 */
 
 #define FREQ_BTSC_SAP		((s32)(2.471532 * 32768.0))
 #define FREQ_BTSC_SAP_REF	((s32)(1.730072 * 32768.0))
 
+/* The spectrum of the signal should be empty between these frequencies. */
 #define FREQ_NOISE_START	((s32)(0.100000 * 32768.0))
 #define FREQ_NOISE_END		((s32)(1.200000 * 32768.0))
 
@@ -76,6 +84,8 @@ static s32 int_cos(u32 x)
 	x = x % INT_PI;
 	if (x > INT_PI/2)
 		return -int_cos(INT_PI/2 - (x % (INT_PI/2)));
+	/* Now x is between 0 and INT_PI/2.
+	 * To calculate cos(x) we use it's Taylor polinom. */
 	t2 = x*x/32768/2;
 	t4 = t2*x/32768*x/32768/3/4;
 	t6 = t4*x/32768*x/32768/5/6;
@@ -86,6 +96,8 @@ static s32 int_cos(u32 x)
 
 static u32 int_goertzel(s16 x[], u32 N, u32 freq)
 {
+	/* We use the Goertzel algorithm to determine the power of the
+	 * given frequency in the signal */
 	s32 s_prev = 0;
 	s32 s_prev2 = 0;
 	s32 coeff = 2*int_cos(freq);
@@ -103,6 +115,8 @@ static u32 int_goertzel(s16 x[], u32 N, u32 freq)
 	tmp = (s64)s_prev2 * s_prev2 + (s64)s_prev * s_prev -
 		      (s64)coeff * s_prev2 * s_prev / 32768;
 
+	/* XXX: N must be low enough so that N*N fits in s32.
+	 * Else we need two divisions. */
 	divisor = N * N;
 	do_div(tmp, divisor);
 
@@ -123,7 +137,7 @@ static u32 noise_magnitude(s16 x[], u32 N, u32 freq_start, u32 freq_end)
 	int samples = 5;
 
 	if (N > 192) {
-		
+		/* The last 192 samples are enough for noise detection */
 		x += (N-192);
 		N = 192;
 	}
@@ -181,11 +195,13 @@ static s32 detect_a2_a2m_eiaj(struct cx88_core *core, s16 x[], u32 N)
 		ret = V4L2_TUNER_SUB_LANG1 | V4L2_TUNER_SUB_LANG2;
 
 	if (core->tvaudio == WW_EIAJ) {
-		
+		/* EIAJ checks may need adjustments */
 		if ((carrier > max(stereo, dual)*2) &&
 		    (carrier < max(stereo, dual)*6) &&
 		    (carrier > 20 && carrier < 200) &&
 		    (max(stereo, dual) > min(stereo, dual))) {
+			/* For EIAJ the carrier is always present,
+			   so we probably don't need noise detection */
 			return ret;
 		}
 	} else {
@@ -208,7 +224,7 @@ static s32 detect_btsc(struct cx88_core *core, s16 x[], u32 N)
 	s32 dual = freq_magnitude(x, N, FREQ_BTSC_DUAL);
 	dprintk(1, "detect btsc: dual_ref=%d, dual=%d, sap_ref=%d, sap=%d"
 		   "\n", dual_ref, dual, sap_ref, sap);
-	
+	/* FIXME: Currently not supported */
 	return UNSET;
 }
 
@@ -258,13 +274,13 @@ s32 cx88_dsp_detect_stereo_sap(struct cx88_core *core)
 	u32 N = 0;
 	s32 ret = UNSET;
 
-	
+	/* If audio RDS fifo is disabled, we can't read the samples */
 	if (!(cx_read(MO_AUD_DMACNTRL) & 0x04))
 		return ret;
 	if (!(cx_read(AUD_CTL) & EN_FMRADIO_EN_RDS))
 		return ret;
 
-	
+	/* Wait at least 500 ms after an audio standard change */
 	if (time_before(jiffies, core->last_change + msecs_to_jiffies(500)))
 		return ret;
 

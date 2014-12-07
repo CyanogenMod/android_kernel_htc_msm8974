@@ -39,8 +39,9 @@
 #include "go7007-priv.h"
 #include "wis-i2c.h"
 
+/* Temporary defines until accepted in v4l-dvb */
 #ifndef V4L2_MPEG_STREAM_TYPE_MPEG_ELEM
-#define	V4L2_MPEG_STREAM_TYPE_MPEG_ELEM   6 
+#define	V4L2_MPEG_STREAM_TYPE_MPEG_ELEM   6 /* MPEG elementary stream */
 #endif
 #ifndef V4L2_MPEG_VIDEO_ENCODING_MPEG_4
 #define	V4L2_MPEG_VIDEO_ENCODING_MPEG_4   3
@@ -234,7 +235,7 @@ static int set_capture_size(struct go7007 *go, struct v4l2_format *fmt, int try)
 		fmt->fmt.pix.field = V4L2_FIELD_NONE;
 		fmt->fmt.pix.bytesperline = 0;
 		fmt->fmt.pix.sizeimage = GO7007_BUF_SIZE;
-		fmt->fmt.pix.colorspace = V4L2_COLORSPACE_SMPTE170M; 
+		fmt->fmt.pix.colorspace = V4L2_COLORSPACE_SMPTE170M; /* ?? */
 	}
 
 	if (try)
@@ -302,7 +303,7 @@ static int set_capture_size(struct go7007 *go, struct v4l2_format *fmt, int try)
 		go->gop_header_enable = 1;
 		go->dvd_mode = 0;
 		break;
-	
+	/* Backwards compatibility only! */
 	case V4L2_PIX_FMT_MPEG4:
 		if (go->format == GO7007_FORMAT_MPEG4)
 			break;
@@ -340,6 +341,8 @@ static int clip_to_modet_map(struct go7007 *go, int region,
 	struct v4l2_clip clip, *clip_ptr;
 	int x, y, mbnum;
 
+	/* Check if coordinates are OK and if any macroblocks are already
+	 * used by other regions (besides 0) */
 	clip_ptr = clip_list;
 	while (clip_ptr) {
 		if (copy_from_user(&clip, clip_ptr, sizeof(clip)))
@@ -366,12 +369,12 @@ static int clip_to_modet_map(struct go7007 *go, int region,
 		clip_ptr = clip.next;
 	}
 
-	
+	/* Clear old region macroblocks */
 	for (mbnum = 0; mbnum < 1624; ++mbnum)
 		if (go->modet_map[mbnum] == region)
 			go->modet_map[mbnum] = 0;
 
-	
+	/* Claim macroblocks in this list */
 	clip_ptr = clip_list;
 	while (clip_ptr) {
 		if (copy_from_user(&clip, clip_ptr, sizeof(clip)))
@@ -443,7 +446,7 @@ static int mpeg_query_ctrl(struct v4l2_queryctrl *ctrl)
 
 static int mpeg_s_ctrl(struct v4l2_control *ctrl, struct go7007 *go)
 {
-	
+	/* pretty sure we can't change any of these while streaming */
 	if (go->streaming)
 		return -EBUSY;
 
@@ -462,7 +465,7 @@ static int mpeg_s_ctrl(struct v4l2_control *ctrl, struct go7007 *go)
 			go->dvd_mode = 1;
 			break;
 		case V4L2_MPEG_STREAM_TYPE_MPEG_ELEM:
-			
+			/* todo: */
 			break;
 		default:
 			return -EINVAL;
@@ -476,17 +479,27 @@ static int mpeg_s_ctrl(struct v4l2_control *ctrl, struct go7007 *go)
 			break;
 		case V4L2_MPEG_VIDEO_ENCODING_MPEG_2:
 			go->format = GO7007_FORMAT_MPEG2;
+			/*if (mpeg->pali >> 24 == 2)
+				go->pali = mpeg->pali & 0xff;
+			else*/
 				go->pali = 0x48;
 			break;
 		case V4L2_MPEG_VIDEO_ENCODING_MPEG_4:
 			go->format = GO7007_FORMAT_MPEG4;
+			/*if (mpeg->pali >> 24 == 4)
+				go->pali = mpeg->pali & 0xff;
+			else*/
 				go->pali = 0xf5;
 			break;
 		default:
 			return -EINVAL;
 		}
 		go->gop_header_enable =
- 1;
+			/*mpeg->flags & GO7007_MPEG_OMIT_GOP_HEADER
+			? 0 :*/ 1;
+		/*if (mpeg->flags & GO7007_MPEG_REPEAT_SEQHEADER)
+			go->repeat_seqhead = 1;
+		else*/
 			go->repeat_seqhead = 0;
 		go->dvd_mode = 0;
 		break;
@@ -519,7 +532,7 @@ static int mpeg_s_ctrl(struct v4l2_control *ctrl, struct go7007 *go)
 		go->closed_gop = ctrl->value;
 		break;
 	case V4L2_CID_MPEG_VIDEO_BITRATE:
-		
+		/* Upper bound is kind of arbitrary here */
 		if (ctrl->value < 64000 || ctrl->value > 10000000)
 			return -EINVAL;
 		go->bitrate = ctrl->value;
@@ -598,7 +611,7 @@ static int vidioc_querycap(struct file *file, void  *priv,
 	cap->version = KERNEL_VERSION(0, 9, 8);
 
 	cap->capabilities = V4L2_CAP_VIDEO_CAPTURE |
-			    V4L2_CAP_STREAMING; 
+			    V4L2_CAP_STREAMING; /* | V4L2_CAP_AUDIO; */
 
 	if (go->board_info->flags & GO7007_BOARD_HAS_TUNER)
 		cap->capabilities |= V4L2_CAP_TUNER;
@@ -812,7 +825,7 @@ static int vidioc_qbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 	if (gobuf->state != BUF_STATE_IDLE)
 		goto unlock_and_return;
 
-	
+	/* offset will be 0 until we really support USERPTR streaming */
 	gobuf->offset = gobuf->user_addr & ~PAGE_MASK;
 	gobuf->bytesused = 0;
 	gobuf->frame_offset = 0;
@@ -1051,7 +1064,7 @@ static int vidioc_enum_framesizes(struct file *filp, void *priv,
 {
 	struct go7007 *go = ((struct go7007_file *) priv)->go;
 
-	
+	/* Return -EINVAL, if it is a TV board */
 	if ((go->board_info->flags & GO7007_BOARD_HAS_TUNER) ||
 	    (go->board_info->sensor_flags & GO7007_SENSOR_TV))
 		return -EINVAL;
@@ -1071,7 +1084,7 @@ static int vidioc_enum_frameintervals(struct file *filp, void *priv,
 {
 	struct go7007 *go = ((struct go7007_file *) priv)->go;
 
-	
+	/* Return -EINVAL, if it is a TV board */
 	if ((go->board_info->flags & GO7007_BOARD_HAS_TUNER) ||
 	    (go->board_info->sensor_flags & GO7007_SENSOR_TV))
 		return -EINVAL;
@@ -1171,7 +1184,7 @@ static int vidioc_enum_input(struct file *file, void *priv,
 	strncpy(inp->name, go->board_info->inputs[inp->index].name,
 			sizeof(inp->name));
 
-	
+	/* If this board has a tuner, it will be the last input */
 	if ((go->board_info->flags & GO7007_BOARD_HAS_TUNER) &&
 			inp->index == go->board_info->num_inputs - 1)
 		inp->type = V4L2_INPUT_TYPE_TUNER;
@@ -1243,7 +1256,7 @@ static int vidioc_s_tuner(struct file *file, void *priv,
 	switch (go->board_id) {
 	case GO7007_BOARDID_PX_TV402U_NA:
 	case GO7007_BOARDID_PX_TV402U_JP:
-		
+		/* No selectable options currently */
 		if (t->audmode != V4L2_TUNER_MODE_STEREO)
 			return -EINVAL;
 		break;
@@ -1288,7 +1301,7 @@ static int vidioc_cropcap(struct file *file, void *priv,
 	if (cropcap->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
 		return -EINVAL;
 
-	
+	/* These specify the raw input of the sensor */
 	switch (go->standard) {
 	case GO7007_STD_NTSC:
 		cropcap->bounds.top = 0;
@@ -1334,7 +1347,7 @@ static int vidioc_g_crop(struct file *file, void *priv, struct v4l2_crop *crop)
 
 	crop->type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 
-	
+	/* These specify the raw input of the sensor */
 	switch (go->standard) {
 	case GO7007_STD_NTSC:
 		crop->c.top = 0;
@@ -1359,6 +1372,8 @@ static int vidioc_g_crop(struct file *file, void *priv, struct v4l2_crop *crop)
 	return 0;
 }
 
+/* FIXME: vidioc_s_crop is not really implemented!!!
+ */
 static int vidioc_s_crop(struct file *file, void *priv, struct v4l2_crop *crop)
 {
 	if (crop->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
@@ -1371,7 +1386,7 @@ static int vidioc_g_jpegcomp(struct file *file, void *priv,
 			 struct v4l2_jpegcompression *params)
 {
 	memset(params, 0, sizeof(*params));
-	params->quality = 50; 
+	params->quality = 50; /* ?? */
 	params->jpeg_markers = V4L2_JPEG_MARKER_DHT |
 				V4L2_JPEG_MARKER_DQT;
 
@@ -1389,16 +1404,22 @@ static int vidioc_s_jpegcomp(struct file *file, void *priv,
 	return 0;
 }
 
+/* FIXME:
+	Those ioctls are private, and not needed, since several standard
+	extended controls already provide streaming control.
+	So, those ioctls should be converted into vidioc_g_ext_ctrls()
+	and vidioc_s_ext_ctrls()
+ */
 
 #if 0
-	
+	/* Temporary ioctls for controlling compression characteristics */
 	case GO7007IOC_S_BITRATE:
 	{
 		int *bitrate = arg;
 
 		if (go->streaming)
 			return -EINVAL;
-		
+		/* Upper bound is kind of arbitrary here */
 		if (*bitrate < 64000 || *bitrate > 10000000)
 			return -EINVAL;
 		go->bitrate = *bitrate;
@@ -1423,7 +1444,7 @@ static int vidioc_s_jpegcomp(struct file *file, void *priv,
 			go->gop_size = go->sensor_framerate / 1000;
 		if (go->gop_size != 15)
 			go->dvd_mode = 0;
-		 
+		/*go->ipb = comp->max_b_frames > 0;*/ /* completely untested */
 		if (go->board_info->sensor_flags & GO7007_SENSOR_TV) {
 			switch (comp->aspect_ratio) {
 			case GO7007_ASPECT_RATIO_4_3_NTSC:
@@ -1445,7 +1466,7 @@ static int vidioc_s_jpegcomp(struct file *file, void *priv,
 		} else {
 			go->seq_header_enable = 1;
 		}
-		
+		/* fall-through */
 	}
 	case GO7007IOC_G_COMP_PARAMS:
 	{
@@ -1534,7 +1555,7 @@ static int vidioc_s_jpegcomp(struct file *file, void *priv,
 				go->repeat_seqhead = 0;
 			go->dvd_mode = 0;
 		}
-		
+		/* fall-through */
 	}
 	case GO7007IOC_G_MPEG_PARAMS:
 	{
@@ -1581,7 +1602,7 @@ static int vidioc_s_jpegcomp(struct file *file, void *priv,
 			go->modet[mdp->region].enable = 1;
 		} else
 			go->modet[mdp->region].enable = 0;
-		
+		/* fall-through */
 	}
 	case GO7007IOC_G_MD_PARAMS:
 	{
@@ -1637,6 +1658,7 @@ static void go7007_vm_close(struct vm_area_struct *vma)
 	}
 }
 
+/* Copied from videobuf-dma-sg.c */
 static int go7007_vm_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
 	struct page *page;
@@ -1663,18 +1685,18 @@ static int go7007_mmap(struct file *file, struct vm_area_struct *vma)
 	if (gofh->go->status != STATUS_ONLINE)
 		return -EIO;
 	if (!(vma->vm_flags & VM_SHARED))
-		return -EINVAL; 
+		return -EINVAL; /* only support VM_SHARED mapping */
 	if (vma->vm_end - vma->vm_start != GO7007_BUF_SIZE)
-		return -EINVAL; 
+		return -EINVAL; /* must map exactly one full buffer */
 	mutex_lock(&gofh->lock);
 	index = vma->vm_pgoff / GO7007_BUF_PAGES;
 	if (index >= gofh->buf_count) {
 		mutex_unlock(&gofh->lock);
-		return -EINVAL; 
+		return -EINVAL; /* trying to map beyond requested buffers */
 	}
 	if (index * GO7007_BUF_PAGES != vma->vm_pgoff) {
 		mutex_unlock(&gofh->lock);
-		return -EINVAL; 
+		return -EINVAL; /* offset is not aligned on buffer boundary */
 	}
 	if (gofh->bufs[index].mapped > 0) {
 		mutex_unlock(&gofh->lock);

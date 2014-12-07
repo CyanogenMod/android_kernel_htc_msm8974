@@ -81,6 +81,9 @@ void __init mpc85xx_rdb_pic_init(void)
 
 }
 
+/*
+ * Setup the architecture
+ */
 static void __init mpc85xx_rdb_setup_arch(void)
 {
 #if defined(CONFIG_PCI) || defined(CONFIG_QUICC_ENGINE)
@@ -134,6 +137,12 @@ static void __init mpc85xx_rdb_setup_arch(void)
 				pr_err("mpc85xx-rdb: could not map global utilities register\n");
 
 			} else {
+			/* P1025 has pins muxed for QE and other functions. To
+			* enable QE UEC mode, we need to set bit QE0 for UCC1
+			* in Eth mode, QE0 and QE3 for UCC5 in Eth mode, QE9
+			* and QE12 for QE MII management singals in PMUXCR
+			* register.
+			*/
 				setbits32(&guts->pmuxcr, MPC85xx_PMUXCR_QE(0) |
 						MPC85xx_PMUXCR_QE(3) |
 						MPC85xx_PMUXCR_QE(9) |
@@ -147,7 +156,7 @@ static void __init mpc85xx_rdb_setup_arch(void)
 #endif
 
 qe_fail:
-#endif	
+#endif	/* CONFIG_QUICC_ENGINE */
 
 	printk(KERN_INFO "MPC85xx RDB board from Freescale Semiconductor\n");
 }
@@ -161,6 +170,9 @@ machine_device_initcall(p1020_utm_pc, mpc85xx_common_publish_devices);
 machine_device_initcall(p1021_rdb_pc, mpc85xx_common_publish_devices);
 machine_device_initcall(p1025_rdb, mpc85xx_common_publish_devices);
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init p2020_rdb_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();

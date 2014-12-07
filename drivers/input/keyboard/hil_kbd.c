@@ -46,8 +46,8 @@
 MODULE_AUTHOR("Brian S. Julin <bri@calyx.com>");
 MODULE_DESCRIPTION("HIL keyboard/mouse driver");
 MODULE_LICENSE("Dual BSD/GPL");
-MODULE_ALIAS("serio:ty03pr25id00ex*"); 
-MODULE_ALIAS("serio:ty03pr25id0Fex*"); 
+MODULE_ALIAS("serio:ty03pr25id00ex*"); /* HIL keyboard */
+MODULE_ALIAS("serio:ty03pr25id0Fex*"); /* HIL mouse */
 
 #define HIL_PACKET_MAX_LENGTH 16
 
@@ -58,6 +58,7 @@ static unsigned int hil_kbd_set1[HIL_KEYCODES_SET1_TBLSIZE] __read_mostly =
 
 #define HIL_KBD_SET2_UPBIT 0x01
 #define HIL_KBD_SET2_SHIFT 1
+/* Set2 is user defined */
 
 #define HIL_KBD_SET3_UPBIT 0x80
 #define HIL_KBD_SET3_SHIFT 0
@@ -70,20 +71,20 @@ struct hil_dev {
 	struct input_dev *dev;
 	struct serio *serio;
 
-	
+	/* Input buffer and index for packets from HIL bus. */
 	hil_packet data[HIL_PACKET_MAX_LENGTH];
-	int idx4; 
+	int idx4; /* four counts per packet */
 
-	
-	char	idd[HIL_PACKET_MAX_LENGTH];	
-	char	rsc[HIL_PACKET_MAX_LENGTH];	
-	char	exd[HIL_PACKET_MAX_LENGTH];	
-	char	rnm[HIL_PACKET_MAX_LENGTH + 1];	
+	/* Raw device info records from HIL bus, see hil.h for fields. */
+	char	idd[HIL_PACKET_MAX_LENGTH];	/* DID byte and IDD record */
+	char	rsc[HIL_PACKET_MAX_LENGTH];	/* RSC record */
+	char	exd[HIL_PACKET_MAX_LENGTH];	/* EXD record */
+	char	rnm[HIL_PACKET_MAX_LENGTH + 1];	/* RNM record + NULL term. */
 
 	struct completion cmd_done;
 
 	bool is_pointer;
-	
+	/* Extra device details needed for pointing devices. */
 	unsigned int nbtn, naxes;
 	unsigned int btnmap[7];
 };
@@ -127,9 +128,9 @@ static void hil_dev_handle_command_response(struct hil_dev *dev)
 		break;
 
 	default:
-		
+		/* These occur when device isn't present */
 		if (p != (HIL_ERR_INT | HIL_PKT_CMD)) {
-			
+			/* Anything else we'd like to know about. */
 			printk(KERN_WARNING PREFIX "Device sent unknown record %x\n", p);
 		}
 		goto out;
@@ -219,7 +220,7 @@ static void hil_dev_handle_ptr_events(struct hil_dev *ptr)
 	i = (p & HIL_POL_AXIS_ALT) ? 3 : 0;
 	laxis = (p & HIL_POL_NUM_AXES_MASK) + i;
 
-	ax16 = ptr->idd[1] & HIL_IDD_HEADER_16BIT; 
+	ax16 = ptr->idd[1] & HIL_IDD_HEADER_16BIT; /* 8 or 16bit resolution */
 	absdev = ptr->idd[1] & HIL_IDD_HEADER_ABS;
 
 	for (cnt = 1; i < laxis; i++) {
@@ -253,7 +254,7 @@ static void hil_dev_handle_ptr_events(struct hil_dev *ptr)
 
 		btn &= 0xfe;
 		if (btn == 0x8e)
-			continue; 
+			continue; /* TODO: proximity == touch? */
 		if (btn > 0x8c || btn < 0x80)
 			continue;
 		btn = (btn - 0x80) >> 1;
@@ -268,7 +269,7 @@ static void hil_dev_process_err(struct hil_dev *dev)
 {
 	printk(KERN_WARNING PREFIX "errored HIL packet\n");
 	dev->idx4 = 0;
-	complete(&dev->cmd_done); 
+	complete(&dev->cmd_done); /* just in case somebody is waiting */
 }
 
 static irqreturn_t hil_dev_interrupt(struct serio *serio,
@@ -293,7 +294,7 @@ static irqreturn_t hil_dev_interrupt(struct serio *serio,
 	packet |= ((hil_packet)data) << ((3 - (dev->idx4 % 4)) * 8);
 	dev->data[idx] = packet;
 
-	
+	/* Records of N 4-byte hil_packets must terminate with a command. */
 	if ((++dev->idx4 % 4) == 0) {
 		if ((packet & 0xffff0000) != HIL_ERR_INT) {
 			hil_dev_process_err(dev);
@@ -425,7 +426,7 @@ static void hil_dev_pointer_setup(struct hil_dev *ptr)
 	}
 
 	if (btntype == BTN_MOUSE) {
-		
+		/* Swap buttons 2 and 3 */
 		ptr->btnmap[1] = BTN_MIDDLE;
 		ptr->btnmap[2] = BTN_RIGHT;
 	}
@@ -463,7 +464,7 @@ static int hil_dev_connect(struct serio *serio, struct serio_driver *drv)
 
 	serio_set_drvdata(serio, dev);
 
-	
+	/* Get device info.  MLC driver supplies devid/status/etc. */
 	init_completion(&dev->cmd_done);
 	serio_write(serio, 0);
 	serio_write(serio, 0);
@@ -531,17 +532,17 @@ static int hil_dev_connect(struct serio *serio, struct serio_driver *drv)
 
 	input_dev->id.bustype	= BUS_HIL;
 	input_dev->id.vendor	= PCI_VENDOR_ID_HP;
-	input_dev->id.product	= 0x0001; 
-	input_dev->id.version	= 0x0100; 
+	input_dev->id.product	= 0x0001; /* TODO: get from kbd->rsc */
+	input_dev->id.version	= 0x0100; /* TODO: get from kbd->rsc */
 	input_dev->dev.parent	= &serio->dev;
 
 	if (!dev->is_pointer) {
 		serio_write(serio, 0);
 		serio_write(serio, 0);
 		serio_write(serio, HIL_PKT_CMD >> 8);
-		
+		/* Enable Keyswitch Autorepeat 1 */
 		serio_write(serio, HIL_CMD_EK1);
-		
+		/* No need to wait for completion */
 	}
 
 	error = input_register_device(input_dev);

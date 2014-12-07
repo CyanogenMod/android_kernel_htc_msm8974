@@ -39,7 +39,7 @@
 
 static int i2c_debug;
 
-module_param(i2c_debug, int, 0644);			
+module_param(i2c_debug, int, 0644);			/* debug_i2c_usb mode of the device driver */
 MODULE_PARM_DESC(i2c_debug, "enable debug messages [i2c]");
 
 #define PDEBUG(level, fmt, args...) { \
@@ -65,9 +65,9 @@ static inline int try_write_address(struct i2c_adapter *i2c_adap,
 	for (i = 0; i <= retries; i++) {
 		ret = (usbvision_i2c_write(usbvision, addr, buf, 1));
 		if (ret == 1)
-			break;	
+			break;	/* success! */
 		udelay(5);
-		if (i == retries)	
+		if (i == retries)	/* no success */
 			break;
 		udelay(10);
 	}
@@ -89,9 +89,9 @@ static inline int try_read_address(struct i2c_adapter *i2c_adap,
 	for (i = 0; i <= retries; i++) {
 		ret = (usbvision_i2c_read(usbvision, addr, buf, 1));
 		if (ret == 1)
-			break;	
+			break;	/* success! */
 		udelay(5);
-		if (i == retries)	
+		if (i == retries)	/* no success */
 			break;
 		udelay(10);
 	}
@@ -146,12 +146,12 @@ usbvision_i2c_xfer(struct i2c_adapter *i2c_adap, struct i2c_msg msgs[], int num)
 		}
 
 		if (pmsg->flags & I2C_M_RD) {
-			
+			/* read bytes into buffer */
 			ret = (usbvision_i2c_read(usbvision, addr, pmsg->buf, pmsg->len));
 			if (ret < pmsg->len)
 				return (ret < 0) ? ret : -EREMOTEIO;
 		} else {
-			
+			/* write bytes from buffer */
 			ret = (usbvision_i2c_write(usbvision, addr, pmsg->buf, pmsg->len));
 			if (ret < pmsg->len)
 				return (ret < 0) ? ret : -EREMOTEIO;
@@ -165,6 +165,7 @@ static u32 functionality(struct i2c_adapter *adap)
 	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL;
 }
 
+/* -----exported algorithm data: -------------------------------------	*/
 
 static struct i2c_algorithm usbvision_algo = {
 	.master_xfer   = usbvision_i2c_xfer,
@@ -173,13 +174,16 @@ static struct i2c_algorithm usbvision_algo = {
 };
 
 
+/* ----------------------------------------------------------------------- */
+/* usbvision specific I2C functions                                        */
+/* ----------------------------------------------------------------------- */
 static struct i2c_adapter i2c_adap_template;
 
 int usbvision_i2c_register(struct usb_usbvision *usbvision)
 {
 	static unsigned short saa711x_addrs[] = {
-		0x4a >> 1, 0x48 >> 1,	
-		0x42 >> 1, 0x40 >> 1,	
+		0x4a >> 1, 0x48 >> 1,	/* SAA7111, SAA7111A and SAA7113 */
+		0x42 >> 1, 0x40 >> 1,	/* SAA7114, SAA7115 and SAA7118 */
 		I2C_CLIENT_END };
 
 	if (usbvision->registered_i2c)
@@ -203,21 +207,23 @@ int usbvision_i2c_register(struct usb_usbvision *usbvision)
 	PDEBUG(DBG_I2C, "I2C   debugging is enabled [i2c]");
 	PDEBUG(DBG_I2C, "ALGO   debugging is enabled [i2c]");
 
-	
+	/* register new adapter to i2c module... */
 
 	usbvision->i2c_adap.algo = &usbvision_algo;
 
-	usbvision->i2c_adap.timeout = 100;	
-	usbvision->i2c_adap.retries = 3;	
+	usbvision->i2c_adap.timeout = 100;	/* default values, should       */
+	usbvision->i2c_adap.retries = 3;	/* be replaced by defines       */
 
 	i2c_add_adapter(&usbvision->i2c_adap);
 
 	PDEBUG(DBG_I2C, "i2c bus for %s registered", usbvision->i2c_adap.name);
 
-	
+	/* Request the load of the i2c modules we need */
 	switch (usbvision_device_data[usbvision->dev_model].codec) {
 	case CODEC_SAA7113:
 	case CODEC_SAA7111:
+		/* Without this delay the detection of the saa711x is
+		   hit-and-miss. */
 		mdelay(10);
 		v4l2_i2c_new_subdev(&usbvision->v4l2_dev,
 				&usbvision->i2c_adap,
@@ -232,6 +238,8 @@ int usbvision_i2c_register(struct usb_usbvision *usbvision)
 		sd = v4l2_i2c_new_subdev(&usbvision->v4l2_dev,
 				&usbvision->i2c_adap,
 				"tuner", 0, v4l2_i2c_tuner_addrs(ADDRS_DEMOD));
+		/* depending on whether we found a demod or not, select
+		   the tuner type. */
 		type = sd ? ADDRS_TV_WITH_DEMOD : ADDRS_TV;
 
 		sd = v4l2_i2c_new_subdev(&usbvision->v4l2_dev,
@@ -276,27 +284,27 @@ usbvision_i2c_read_max4(struct usb_usbvision *usbvision, unsigned char addr,
 		if (rc < 0)
 			return rc;
 
-		
-		
-		
+		/* Initiate byte read cycle                    */
+		/* USBVISION_SER_CONT <- d0-d2 n. of bytes to r/w */
+		/*                    d3 0=Wr 1=Rd             */
 		rc = usbvision_write_reg(usbvision, USBVISION_SER_CONT,
 				      (len & 0x07) | 0x18);
 		if (rc < 0)
 			return rc;
 
-		
+		/* Test for Busy and ACK */
 		do {
-			
+			/* USBVISION_SER_CONT -> d4 == 0 busy */
 			rc = usbvision_read_reg(usbvision, USBVISION_SER_CONT);
-		} while (rc > 0 && ((rc & 0x10) != 0));	
+		} while (rc > 0 && ((rc & 0x10) != 0));	/* Retry while busy */
 		if (rc < 0)
 			return rc;
 
-		
-		if ((rc & 0x20) == 0)	
+		/* USBVISION_SER_CONT -> d5 == 1 Not ack */
+		if ((rc & 0x20) == 0)	/* Ack? */
 			break;
 
-		
+		/* I2C abort */
 		rc = usbvision_write_reg(usbvision, USBVISION_SER_CONT, 0x00);
 		if (rc < 0)
 			return rc;
@@ -363,17 +371,17 @@ static int usbvision_i2c_write_max4(struct usb_usbvision *usbvision,
 		if (rc < 0)
 			return rc;
 
-		
+		/* Test for Busy and ACK */
 		do {
 			rc = usbvision_read_reg(usbvision, USBVISION_SER_CONT);
-		} while (rc > 0 && ((rc & 0x10) != 0));	
+		} while (rc > 0 && ((rc & 0x10) != 0));	/* Retry while busy */
 		if (rc < 0)
 			return rc;
 
-		if ((rc & 0x20) == 0)	
+		if ((rc & 0x20) == 0)	/* Ack? */
 			break;
 
-		
+		/* I2C abort */
 		usbvision_write_reg(usbvision, USBVISION_SER_CONT, 0x00);
 
 		if (--retries < 0)
@@ -439,3 +447,10 @@ static struct i2c_adapter i2c_adap_template = {
 	.name              = "usbvision",
 };
 
+/*
+ * Overrides for Emacs so that we follow Linus's tabbing style.
+ * ---------------------------------------------------------------------------
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

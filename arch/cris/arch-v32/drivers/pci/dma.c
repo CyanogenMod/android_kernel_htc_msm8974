@@ -1,3 +1,13 @@
+/*
+ * Dynamic DMA mapping support.
+ *
+ * On cris there is no hardware dynamic DMA address translation,
+ * so consistent alloc/free are merely page allocation/freeing.
+ * The rest of the dynamic DMA mapping interface is implemented
+ * in asm/pci.h.
+ *
+ * Borrowed from i386.
+ */
 
 #include <linux/types.h>
 #include <linux/mm.h>
@@ -11,7 +21,7 @@ void *dma_alloc_coherent(struct device *dev, size_t size,
 {
 	void *ret;
 	int order = get_order(size);
-	
+	/* ignore region specifiers */
 	gfp &= ~(__GFP_DMA | __GFP_HIGHMEM);
 
 	if (dma_alloc_from_coherent(dev, size, dma_handle, &ret))

@@ -32,11 +32,11 @@ static void disable_se7206_irq(struct irq_data *data)
 	unsigned short mask = 0xffff ^ (0x0f << 4 * (3 - (IRQ0_IRQ - irq)));
 	unsigned short msk0,msk1;
 
-	
+	/* Set the priority in IPR to 0 */
 	val = __raw_readw(INTC_IPR01);
 	val &= mask;
 	__raw_writew(val, INTC_IPR01);
-	
+	/* FPGA mask set */
 	msk0 = __raw_readw(INTMSK0);
 	msk1 = __raw_readw(INTMSK1);
 
@@ -63,12 +63,12 @@ static void enable_se7206_irq(struct irq_data *data)
 	unsigned short value = (0x0001 << 4 * (3 - (IRQ0_IRQ - irq)));
 	unsigned short msk0,msk1;
 
-	
+	/* Set priority in IPR back to original value */
 	val = __raw_readw(INTC_IPR01);
 	val |= value;
 	__raw_writew(val, INTC_IPR01);
 
-	
+	/* FPGA mask reset */
 	msk0 = __raw_readw(INTMSK0);
 	msk1 = __raw_readw(INTMSK1);
 
@@ -95,7 +95,7 @@ static void eoi_se7206_irq(struct irq_data *data)
 
 	if (!irqd_irq_disabled(data) && !irqd_irq_inprogress(data))
 		enable_se7206_irq(data);
-	
+	/* FPGA isr clear */
 	sts0 = __raw_readw(INTSTS0);
 	sts1 = __raw_readw(INTSTS1);
 
@@ -130,18 +130,21 @@ static void make_se7206_irq(unsigned int irq)
 	disable_se7206_irq(irq_get_irq_data(irq));
 }
 
+/*
+ * Initialize IRQ setting
+ */
 void __init init_se7206_IRQ(void)
 {
-	make_se7206_irq(IRQ0_IRQ); 
-	make_se7206_irq(IRQ1_IRQ); 
-	make_se7206_irq(IRQ3_IRQ); 
+	make_se7206_irq(IRQ0_IRQ); /* SMC91C111 */
+	make_se7206_irq(IRQ1_IRQ); /* ATA */
+	make_se7206_irq(IRQ3_IRQ); /* SLOT / PCM */
 
-	__raw_writew(__raw_readw(INTC_ICR1) | 0x000b, INTC_ICR1); 
+	__raw_writew(__raw_readw(INTC_ICR1) | 0x000b, INTC_ICR1); /* ICR1 */
 
-	
-	__raw_writew(0x0000,INTSTS0); 
-	__raw_writew(0x0000,INTSTS1); 
+	/* FPGA System register setup*/
+	__raw_writew(0x0000,INTSTS0); /* Clear INTSTS0 */
+	__raw_writew(0x0000,INTSTS1); /* Clear INTSTS1 */
 
-	
+	/* IRQ0=LAN, IRQ1=ATA, IRQ3=SLT,PCM */
 	__raw_writew(0x0001,INTSEL);
 }

@@ -72,42 +72,42 @@ void __init init_IRQ(void)
 		once++;
 
 #ifdef CONFIG_NE2000
-	
+	/* INT3 : LAN controller (RTL8019AS) */
 	irq_set_chip_and_handler(M32R_IRQ_INT3, &oaks32r_irq_type,
 				 handle_level_irq);
 	icu_data[M32R_IRQ_INT3].icucr = M32R_ICUCR_IEN|M32R_ICUCR_ISMOD10;
 	disable_oaks32r_irq(M32R_IRQ_INT3);
-#endif 
+#endif /* CONFIG_M32R_NE2000 */
 
-	
+	/* MFT2 : system timer */
 	irq_set_chip_and_handler(M32R_IRQ_MFT2, &oaks32r_irq_type,
 				 handle_level_irq);
 	icu_data[M32R_IRQ_MFT2].icucr = M32R_ICUCR_IEN;
 	disable_oaks32r_irq(M32R_IRQ_MFT2);
 
 #ifdef CONFIG_SERIAL_M32R_SIO
-	
+	/* SIO0_R : uart receive data */
 	irq_set_chip_and_handler(M32R_IRQ_SIO0_R, &oaks32r_irq_type,
 				 handle_level_irq);
 	icu_data[M32R_IRQ_SIO0_R].icucr = 0;
 	disable_oaks32r_irq(M32R_IRQ_SIO0_R);
 
-	
+	/* SIO0_S : uart send data */
 	irq_set_chip_and_handler(M32R_IRQ_SIO0_S, &oaks32r_irq_type,
 				 handle_level_irq);
 	icu_data[M32R_IRQ_SIO0_S].icucr = 0;
 	disable_oaks32r_irq(M32R_IRQ_SIO0_S);
 
-	
+	/* SIO1_R : uart receive data */
 	irq_set_chip_and_handler(M32R_IRQ_SIO1_R, &oaks32r_irq_type,
 				 handle_level_irq);
 	icu_data[M32R_IRQ_SIO1_R].icucr = 0;
 	disable_oaks32r_irq(M32R_IRQ_SIO1_R);
 
-	
+	/* SIO1_S : uart send data */
 	irq_set_chip_and_handler(M32R_IRQ_SIO1_S, &oaks32r_irq_type,
 				 handle_level_irq);
 	icu_data[M32R_IRQ_SIO1_S].icucr = 0;
 	disable_oaks32r_irq(M32R_IRQ_SIO1_S);
-#endif 
+#endif /* CONFIG_SERIAL_M32R_SIO */
 }

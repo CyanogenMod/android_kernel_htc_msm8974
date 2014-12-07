@@ -26,6 +26,7 @@
 #include <asm/MC68VZ328.h>
 #endif
 
+/* assembler routines */
 asmlinkage void system_call(void);
 asmlinkage void buserr(void);
 asmlinkage void trap(void);
@@ -67,6 +68,12 @@ asmlinkage irqreturn_t inthandler5(void);
 asmlinkage irqreturn_t inthandler6(void);
 asmlinkage irqreturn_t inthandler7(void);
 
+/* The 68k family did not have a good way to determine the source
+ * of interrupts until later in the family.  The EC000 core does
+ * not provide the vector number on the stack, we vector everything
+ * into one vector and look in the blasted mask register...
+ * This code is designed to be fast, almost constant time, not clean!
+ */
 void process_int(int vec, struct pt_regs *fp)
 {
 	int irq;
@@ -139,11 +146,15 @@ static struct irq_chip intc_irq_chip = {
 	.irq_unmask	= intc_irq_unmask,
 };
 
+/*
+ * This function should be called during kernel startup to initialize
+ * the machine vector table.
+ */
 void __init trap_init(void)
 {
 	int i;
 
-	
+	/* set up the vectors */
 	for (i = 72; i < 256; ++i)
 		_ramvec[i] = (e_vector) bad_interrupt;
 
@@ -162,9 +173,9 @@ void __init init_IRQ(void)
 {
 	int i;
 
-	IVR = 0x40; 
+	IVR = 0x40; /* Set DragonBall IVR (interrupt base) to 64 */
 
-	
+	/* turn off all interrupts */
 	IMR = ~0;
 
 	for (i = 0; (i < NR_IRQS); i++) {

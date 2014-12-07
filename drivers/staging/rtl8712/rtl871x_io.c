@@ -25,6 +25,19 @@
  * Larry Finger <Larry.Finger@lwfinger.net>
  *
  ******************************************************************************/
+/*
+ *
+ * The purpose of rtl871x_io.c
+ *
+ * a. provides the API
+ * b. provides the protocol engine
+ * c. provides the software interface between caller and the hardware interface
+ *
+ * For r8712u, both sync/async operations are provided.
+ *
+ * Only sync read/write_mem operations are provided.
+ *
+ */
 
 #define _RTL871X_IO_C_
 

@@ -79,7 +79,7 @@ static void shirq_handler(unsigned irq, struct irq_desc *desc)
 
 			generic_handle_irq(shirq->dev_config[i].virq);
 
-			
+			/* clear interrupt */
 			val &= ~shirq->dev_config[i].status_mask;
 			if ((shirq->regs.clear_reg == -1) ||
 					shirq->dev_config[i].clear_mask == -1)

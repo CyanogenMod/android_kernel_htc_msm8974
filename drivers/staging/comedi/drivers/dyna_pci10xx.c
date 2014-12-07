@@ -17,6 +17,25 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*
+ Driver: dyna_pci10xx
+ Devices: Dynalog India PCI DAQ Cards, http://www.dynalogindia.com/
+ Author: Prashant Shah <pshah.mumbai@gmail.com>
+ Developed at Automation Labs, Chemical Dept., IIT Bombay, India.
+ Prof. Kannan Moudgalya <kannan@iitb.ac.in>
+ http://www.iitb.ac.in
+ Status: Stable
+ Version: 1.0
+ Device Supported :
+ - Dynalog PCI 1050
+
+ Notes :
+ - Dynalog India Pvt. Ltd. does not have a registered PCI Vendor ID and
+ they are using the PLX Technlogies Vendor ID since that is the PCI Chip used
+ in the card.
+ - Dynalog India Pvt. Ltd. has provided the internal register specification for
+ their cards in their manuals.
+*/
 
 #include "../comedidev.h"
 #include "comedi_pci.h"
@@ -90,7 +109,7 @@ static const struct boardtype boardtypes[] = {
 	.range_ao = &range_pci1050_ao,
 	.range_codes_ao = range_codes_pci1050_ao,
 	},
-	
+	/*  dummy entry corresponding to driver name */
 	{.name = DRV_NAME},
 };
 
@@ -105,18 +124,22 @@ static struct comedi_driver driver_dyna_pci10xx = {
 };
 
 struct dyna_pci10xx_private {
-	struct pci_dev *pci_dev;	
-	char valid;			
+	struct pci_dev *pci_dev;	/*  ptr to PCI device */
+	char valid;			/*  card is usable */
 	struct mutex mutex;
 
-	
+	/* device base address registers */
 	unsigned long BADR0, BADR1, BADR2, BADR3, BADR4, BADR5;
 };
 
 #define thisboard ((const struct boardtype *)dev->board_ptr)
 #define devpriv ((struct dyna_pci10xx_private *)dev->private)
 
+/******************************************************************************/
+/************************** READ WRITE FUNCTIONS ******************************/
+/******************************************************************************/
 
+/* analog input callback */
 static int dyna_pci10xx_insn_read_ai(struct comedi_device *dev,
 			struct comedi_subdevice *s,
 			struct comedi_insn *insn, unsigned int *data)
@@ -125,22 +148,22 @@ static int dyna_pci10xx_insn_read_ai(struct comedi_device *dev,
 	u16 d = 0;
 	unsigned int chan, range;
 
-	
+	/* get the channel number and range */
 	chan = CR_CHAN(insn->chanspec);
 	range = thisboard->range_codes_ai[CR_RANGE((insn->chanspec))];
 
 	mutex_lock(&devpriv->mutex);
-	
+	/* convert n samples */
 	for (n = 0; n < insn->n; n++) {
-		
+		/* trigger conversion */
 		smp_mb();
 		outw_p(0x0000 + range + chan, devpriv->BADR2 + 2);
 		udelay(10);
-		
+		/* read data */
 		for (counter = 0; counter < READ_TIMEOUT; counter++) {
 			d = inw_p(devpriv->BADR2);
 
-			
+			/* check if read is successfull if the EOC bit is set */
 			if (d & (1 << 15))
 				goto conv_finish;
 		}
@@ -149,7 +172,7 @@ static int dyna_pci10xx_insn_read_ai(struct comedi_device *dev,
 			"timeout reading analog input\n");
 		continue;
 conv_finish:
-		
+		/* mask the first 4 bits - EOC bits */
 		d &= 0x0FFF;
 		data[n] = d;
 	}
@@ -159,6 +182,7 @@ conv_finish:
 	return n;
 }
 
+/* analog output callback */
 static int dyna_pci10xx_insn_write_ao(struct comedi_device *dev,
 				 struct comedi_subdevice *s,
 				 struct comedi_insn *insn, unsigned int *data)
@@ -172,7 +196,7 @@ static int dyna_pci10xx_insn_write_ao(struct comedi_device *dev,
 	mutex_lock(&devpriv->mutex);
 	for (n = 0; n < insn->n; n++) {
 		smp_mb();
-		
+		/* trigger conversion and write data */
 		outw_p(data[n], devpriv->BADR2);
 		udelay(10);
 	}
@@ -180,6 +204,7 @@ static int dyna_pci10xx_insn_write_ao(struct comedi_device *dev,
 	return n;
 }
 
+/* digital input bit interface */
 static int dyna_pci10xx_di_insn_bits(struct comedi_device *dev,
 			      struct comedi_subdevice *s,
 			      struct comedi_insn *insn, unsigned int *data)
@@ -194,13 +219,14 @@ static int dyna_pci10xx_di_insn_bits(struct comedi_device *dev,
 	d = inw_p(devpriv->BADR3);
 	udelay(10);
 
-	
+	/* on return the data[0] contains output and data[1] contains input */
 	data[1] = d;
 	data[0] = s->state;
 	mutex_unlock(&devpriv->mutex);
 	return 2;
 }
 
+/* digital output bit interface */
 static int dyna_pci10xx_do_insn_bits(struct comedi_device *dev,
 			      struct comedi_subdevice *s,
 			      struct comedi_insn *insn, unsigned int *data)
@@ -208,6 +234,10 @@ static int dyna_pci10xx_do_insn_bits(struct comedi_device *dev,
 	if (insn->n != 2)
 		return -EINVAL;
 
+	/* The insn data is a mask in data[0] and the new data
+	 * in data[1], each channel cooresponding to a bit.
+	 * s->state contains the previous write data
+	 */
 	mutex_lock(&devpriv->mutex);
 	if (data[0]) {
 		s->state &= ~data[0];
@@ -217,11 +247,19 @@ static int dyna_pci10xx_do_insn_bits(struct comedi_device *dev,
 		udelay(10);
 	}
 
+	/*
+	 * On return, data[1] contains the value of the digital
+	 * input and output lines. We just return the software copy of the
+	 * output values if it was a purely digital output subdevice.
+	 */
 	data[1] = s->state;
 	mutex_unlock(&devpriv->mutex);
 	return 2;
 }
 
+/******************************************************************************/
+/*********************** INITIALIZATION FUNCTIONS *****************************/
+/******************************************************************************/
 
 static int dyna_pci10xx_attach(struct comedi_device *dev,
 			  struct comedi_devconfig *it)
@@ -245,6 +283,9 @@ static int dyna_pci10xx_attach(struct comedi_device *dev,
 	dev->board_name = thisboard->name;
 	dev->irq = 0;
 
+	/*
+	 * Probe the PCI bus and located the matching device
+	 */
 	for (pcidev = pci_get_device(PCI_ANY_ID, PCI_ANY_ID, NULL);
 		pcidev != NULL;
 		pcidev = pci_get_device(PCI_ANY_ID, PCI_ANY_ID, pcidev)) {
@@ -260,12 +301,12 @@ static int dyna_pci10xx_attach(struct comedi_device *dev,
 		if (board_index < 0)
 			continue;
 
-		
+		/* Found matching vendor/device. */
 		if (opt_bus || opt_slot) {
-			
+			/* Check bus/slot. */
 			if (opt_bus != pcidev->bus->number
 			    || opt_slot != PCI_SLOT(pcidev->devfn))
-				continue;	
+				continue;	/* no match */
 		}
 
 		goto found;
@@ -302,7 +343,7 @@ found:
 
 	printk(KERN_INFO "comedi: dyna_pci10xx: device found!\n");
 
-	
+	/* initialize device base address registers */
 	devpriv->BADR0 = pci_resource_start(pcidev, 0);
 	devpriv->BADR1 = pci_resource_start(pcidev, 1);
 	devpriv->BADR2 = pci_resource_start(pcidev, 2);
@@ -317,7 +358,7 @@ found:
 		return -ENOMEM;
 	}
 
-	
+	/* analog input */
 	s = dev->subdevices + 0;
 	s->type = COMEDI_SUBD_AI;
 	s->subdev_flags = SDF_READABLE | SDF_GROUND | SDF_DIFF;
@@ -327,7 +368,7 @@ found:
 	s->len_chanlist = 16;
 	s->insn_read = dyna_pci10xx_insn_read_ai;
 
-	
+	/* analog output */
 	s = dev->subdevices + 1;
 	s->type = COMEDI_SUBD_AO;
 	s->subdev_flags = SDF_WRITABLE;
@@ -337,7 +378,7 @@ found:
 	s->len_chanlist = 16;
 	s->insn_write = dyna_pci10xx_insn_write_ao;
 
-	
+	/* digital input */
 	s = dev->subdevices + 2;
 	s->type = COMEDI_SUBD_DI;
 	s->subdev_flags = SDF_READABLE | SDF_GROUND;
@@ -347,7 +388,7 @@ found:
 	s->len_chanlist = thisboard->di_chans;
 	s->insn_bits = dyna_pci10xx_di_insn_bits;
 
-	
+	/* digital output */
 	s = dev->subdevices + 3;
 	s->type = COMEDI_SUBD_DO;
 	s->subdev_flags = SDF_WRITABLE | SDF_GROUND;

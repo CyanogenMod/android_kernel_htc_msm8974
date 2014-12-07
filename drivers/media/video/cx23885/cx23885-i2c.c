@@ -92,7 +92,7 @@ static int i2c_sendbytes(struct i2c_adapter *i2c_adap,
 	else
 		dprintk(1, "%s(msg->len=%d)\n", __func__, msg->len);
 
-	
+	/* Deal with i2c probe functions with zero payload */
 	if (msg->len == 0) {
 		cx_write(bus->reg_addr, msg->addr << 25);
 		cx_write(bus->reg_ctrl, bus->i2c_period | (1 << 2));
@@ -106,7 +106,7 @@ static int i2c_sendbytes(struct i2c_adapter *i2c_adap,
 	}
 
 
-	
+	/* dev, reg + first byte */
 	addr = (msg->addr << 25) | msg->buf[0];
 	wdata = msg->buf[0];
 	ctrl = bus->i2c_period | (1 << 12) | (1 << 2);
@@ -129,7 +129,7 @@ static int i2c_sendbytes(struct i2c_adapter *i2c_adap,
 	}
 
 	for (cnt = 1; cnt < msg->len; cnt++) {
-		
+		/* following bytes */
 		wdata = msg->buf[cnt];
 		ctrl = bus->i2c_period | (1 << 12) | (1 << 2);
 
@@ -171,7 +171,7 @@ static int i2c_readbytes(struct i2c_adapter *i2c_adap,
 	if (i2c_debug && !joined)
 		dprintk(1, "%s(msg->len=%d)\n", __func__, msg->len);
 
-	
+	/* Deal with i2c probe functions with zero payload */
 	if (msg->len == 0) {
 		cx_write(bus->reg_addr, msg->addr << 25);
 		cx_write(bus->reg_ctrl, bus->i2c_period | (1 << 2) | 1);
@@ -233,11 +233,11 @@ static int i2c_xfer(struct i2c_adapter *i2c_adap,
 		dprintk(1, "%s(num = %d) addr = 0x%02x  len = 0x%x\n",
 			__func__, num, msgs[i].addr, msgs[i].len);
 		if (msgs[i].flags & I2C_M_RD) {
-			
+			/* read */
 			retval = i2c_readbytes(i2c_adap, &msgs[i], 0);
 		} else if (i + 1 < num && (msgs[i + 1].flags & I2C_M_RD) &&
 			   msgs[i].addr == msgs[i + 1].addr) {
-			
+			/* write then read from same address */
 			retval = i2c_sendbytes(i2c_adap, &msgs[i],
 					       msgs[i + 1].len);
 			if (retval < 0)
@@ -245,7 +245,7 @@ static int i2c_xfer(struct i2c_adapter *i2c_adap,
 			i++;
 			retval = i2c_readbytes(i2c_adap, &msgs[i], 1);
 		} else {
-			
+			/* write */
 			retval = i2c_sendbytes(i2c_adap, &msgs[i], 0);
 		}
 		if (retval < 0)
@@ -267,6 +267,7 @@ static struct i2c_algorithm cx23885_i2c_algo_template = {
 	.functionality	= cx23885_functionality,
 };
 
+/* ----------------------------------------------------------------------- */
 
 static struct i2c_adapter cx23885_i2c_adap_template = {
 	.name              = "cx23885",
@@ -308,6 +309,7 @@ static void do_i2c_scan(char *name, struct i2c_client *c)
 	}
 }
 
+/* init + register i2c adapter */
 int cx23885_i2c_register(struct cx23885_i2c *bus)
 {
 	struct cx23885_dev *dev = bus->dev;
@@ -344,7 +346,7 @@ int cx23885_i2c_register(struct cx23885_i2c *bus)
 		printk(KERN_WARNING "%s: i2c bus %d register FAILED\n",
 			dev->name, bus->nr);
 
-	
+	/* Instantiate the IR receiver device, if present */
 	if (0 == bus->i2c_rc) {
 		struct i2c_board_info info;
 		const unsigned short addr_list[] = {
@@ -353,6 +355,8 @@ int cx23885_i2c_register(struct cx23885_i2c *bus)
 
 		memset(&info, 0, sizeof(struct i2c_board_info));
 		strlcpy(info.type, "ir_video", I2C_NAME_SIZE);
+		/* Use quick read command for probe, some IR chips don't
+		 * support writes */
 		i2c_new_probed_device(&bus->i2c_adap, &info, addr_list,
 				      i2c_probe_func_quick_read);
 	}
@@ -368,12 +372,12 @@ int cx23885_i2c_unregister(struct cx23885_i2c *bus)
 
 void cx23885_av_clk(struct cx23885_dev *dev, int enable)
 {
-	
+	/* write 0 to bus 2 addr 0x144 via i2x_xfer() */
 	char buffer[3];
 	struct i2c_msg msg;
 	dprintk(1, "%s(enabled = %d)\n", __func__, enable);
 
-	
+	/* Register 0x144 */
 	buffer[0] = 0x01;
 	buffer[1] = 0x44;
 	if (enable == 1)
@@ -389,4 +393,10 @@ void cx23885_av_clk(struct cx23885_dev *dev, int enable)
 	i2c_xfer(&dev->i2c_bus[2].i2c_adap, &msg, 1);
 }
 
+/* ----------------------------------------------------------------------- */
 
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

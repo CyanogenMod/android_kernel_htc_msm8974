@@ -10,6 +10,9 @@ enum isofs_file_format {
 	isofs_file_compressed = 2,
 };
 	
+/*
+ * iso fs inode data in memory
+ */
 struct iso_inode_info {
 	unsigned long i_iget5_block;
 	unsigned long i_iget5_offset;
@@ -22,6 +25,9 @@ struct iso_inode_info {
 	struct inode vfs_inode;
 };
 
+/*
+ * iso9660 super-block data in memory
+ */
 struct isofs_sb_info {
 	unsigned long s_ninodes;
 	unsigned long s_nzones;
@@ -29,13 +35,14 @@ struct isofs_sb_info {
 	unsigned long s_log_zone_size;
 	unsigned long s_max_size;
 	
-	int           s_rock_offset; 
+	int           s_rock_offset; /* offset of SUSP fields within SU area */
 	unsigned char s_joliet_level;
 	unsigned char s_mapping;
 	unsigned int  s_high_sierra:1;
 	unsigned int  s_rock:2;
 	unsigned int  s_utf8:1;
-	unsigned int  s_cruft:1; 
+	unsigned int  s_cruft:1; /* Broken disks with high byte of length
+				  * containing junk */
 	unsigned int  s_nocompress:1;
 	unsigned int  s_hide:1;
 	unsigned int  s_showassoc:1;
@@ -47,7 +54,7 @@ struct isofs_sb_info {
 	umode_t s_dmode;
 	gid_t s_gid;
 	uid_t s_uid;
-	struct nls_table *s_nls_iocharset; 
+	struct nls_table *s_nls_iocharset; /* Native language support table */
 };
 
 #define ISOFS_INVALID_MODE ((umode_t) -1)
@@ -80,7 +87,7 @@ static inline unsigned int isonum_722(char *p)
 }
 static inline unsigned int isonum_723(char *p)
 {
-	
+	/* Ignore bigendian datum due to broken mastering programs */
 	return get_unaligned_le16(p);
 }
 static inline unsigned int isonum_731(char *p)
@@ -93,12 +100,12 @@ static inline unsigned int isonum_732(char *p)
 }
 static inline unsigned int isonum_733(char *p)
 {
-	
+	/* Ignore bigendian datum due to broken mastering programs */
 	return get_unaligned_le32(p);
 }
 extern int iso_date(char *, int);
 
-struct inode;		
+struct inode;		/* To make gcc happy */
 
 extern int parse_rock_ridge_inode(struct iso_directory_record *, struct inode *);
 extern int get_rock_ridge_filename(struct iso_directory_record *, char *, struct inode *);
@@ -115,6 +122,10 @@ extern struct inode *isofs_iget(struct super_block *sb,
                                 unsigned long block,
                                 unsigned long offset);
 
+/* Because the inode number is no longer relevant to finding the
+ * underlying meta-data for an inode, we are free to choose a more
+ * convenient 32-bit number as the inode number.  The inode numbering
+ * scheme was recommended by Sergey Vlasov and Eric Lammerts. */
 static inline unsigned long isofs_get_ino(unsigned long block,
 					  unsigned long offset,
 					  unsigned long bufbits)
@@ -122,12 +133,43 @@ static inline unsigned long isofs_get_ino(unsigned long block,
 	return (block << (bufbits - 5)) | (offset >> 5);
 }
 
+/* Every directory can have many redundant directory entries scattered
+ * throughout the directory tree.  First there is the directory entry
+ * with the name of the directory stored in the parent directory.
+ * Then, there is the "." directory entry stored in the directory
+ * itself.  Finally, there are possibly many ".." directory entries
+ * stored in all the subdirectories.
+ *
+ * In order for the NFS get_parent() method to work and for the
+ * general consistency of the dcache, we need to make sure the
+ * "i_iget5_block" and "i_iget5_offset" all point to exactly one of
+ * the many redundant entries for each directory.  We normalize the
+ * block and offset by always making them point to the "."  directory.
+ *
+ * Notice that we do not use the entry for the directory with the name
+ * that is located in the parent directory.  Even though choosing this
+ * first directory is more natural, it is much easier to find the "."
+ * entry in the NFS get_parent() method because it is implicitly
+ * encoded in the "extent + ext_attr_length" fields of _all_ the
+ * redundant entries for the directory.  Thus, it can always be
+ * reached regardless of which directory entry you have in hand.
+ *
+ * This works because the "." entry is simply the first directory
+ * record when you start reading the file that holds all the directory
+ * records, and this file starts at "extent + ext_attr_length" blocks.
+ * Because the "." entry is always the first entry listed in the
+ * directories file, the normalized "offset" value is always 0.
+ *
+ * You should pass the directory entry in "de".  On return, "block"
+ * and "offset" will hold normalized values.  Only directories are
+ * affected making it safe to call even for non-directory file
+ * types. */
 static inline void
 isofs_normalize_block_and_offset(struct iso_directory_record* de,
 				 unsigned long *block,
 				 unsigned long *offset)
 {
-	
+	/* Only directories are normalized. */
 	if (de->flags[0] & 2) {
 		*offset = 0;
 		*block = (unsigned long)isonum_733(de->extent)

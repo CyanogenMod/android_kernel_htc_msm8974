@@ -50,10 +50,13 @@ static int __init powersave_off(char *arg)
 }
 __setup("powersave=off", powersave_off);
 
+/*
+ * The body of the idle task.
+ */
 void cpu_idle(void)
 {
 	if (ppc_md.idle_loop)
-		ppc_md.idle_loop();	
+		ppc_md.idle_loop();	/* doesn't return */
 
 	set_thread_flag(TIF_POLLING_NRFLAG);
 	while (1) {
@@ -65,23 +68,34 @@ void cpu_idle(void)
 
 			if (ppc_md.power_save) {
 				clear_thread_flag(TIF_POLLING_NRFLAG);
+				/*
+				 * smp_mb is so clearing of TIF_POLLING_NRFLAG
+				 * is ordered w.r.t. need_resched() test.
+				 */
 				smp_mb();
 				local_irq_disable();
 
-				
+				/* Don't trace irqs off for idle */
 				stop_critical_timings();
 
-				
+				/* check again after disabling irqs */
 				if (!need_resched() && !cpu_should_die())
 					ppc_md.power_save();
 
 				start_critical_timings();
 
+				/* Some power_save functions return with
+				 * interrupts enabled, some don't.
+				 */
 				if (irqs_disabled())
 					local_irq_enable();
 				set_thread_flag(TIF_POLLING_NRFLAG);
 
 			} else {
+				/*
+				 * Go into low thread priority and possibly
+				 * low power mode.
+				 */
 				HMT_low();
 				HMT_very_low();
 			}
@@ -100,12 +114,19 @@ void cpu_idle(void)
 }
 
 
+/*
+ * cpu_idle_wait - Used to ensure that all the CPUs come out of the old
+ * idle loop and start using the new idle loop.
+ * Required while changing idle handler on SMP systems.
+ * Caller must have changed idle handler to the new value before the call.
+ * This window may be larger on shared systems.
+ */
 void cpu_idle_wait(void)
 {
 	int cpu;
 	smp_mb();
 
-	
+	/* kick all the CPUs so that they exit out of old idle routine */
 	get_online_cpus();
 	for_each_online_cpu(cpu) {
 		if (cpu != smp_processor_id())
@@ -118,6 +139,9 @@ EXPORT_SYMBOL_GPL(cpu_idle_wait);
 int powersave_nap;
 
 #ifdef CONFIG_SYSCTL
+/*
+ * Register the sysctl to set/clear powersave_nap.
+ */
 static ctl_table powersave_nap_ctl_table[]={
 	{
 		.procname	= "powersave-nap",

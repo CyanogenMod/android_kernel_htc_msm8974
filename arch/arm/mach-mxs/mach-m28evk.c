@@ -44,22 +44,22 @@
 #define MX28EVK_MMC1_WRITE_PROTECT	MXS_GPIO_NR(0, 28)
 
 static const iomux_cfg_t m28evk_pads[] __initconst = {
-	
+	/* duart */
 	MX28_PAD_AUART0_CTS__DUART_RX | MXS_PAD_CTRL,
 	MX28_PAD_AUART0_RTS__DUART_TX | MXS_PAD_CTRL,
 
-	
+	/* auart0 */
 	MX28_PAD_AUART0_RX__AUART0_RX | MXS_PAD_CTRL,
 	MX28_PAD_AUART0_TX__AUART0_TX | MXS_PAD_CTRL,
 
-	
+	/* auart3 */
 	MX28_PAD_AUART3_RX__AUART3_RX | MXS_PAD_CTRL,
 	MX28_PAD_AUART3_TX__AUART3_TX | MXS_PAD_CTRL,
 	MX28_PAD_AUART3_CTS__AUART3_CTS | MXS_PAD_CTRL,
 	MX28_PAD_AUART3_RTS__AUART3_RTS | MXS_PAD_CTRL,
 
 #define MXS_PAD_FEC	(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_PULLUP)
-	
+	/* fec0 */
 	MX28_PAD_ENET0_MDC__ENET0_MDC | MXS_PAD_FEC,
 	MX28_PAD_ENET0_MDIO__ENET0_MDIO | MXS_PAD_FEC,
 	MX28_PAD_ENET0_RX_EN__ENET0_RX_EN | MXS_PAD_FEC,
@@ -69,7 +69,7 @@ static const iomux_cfg_t m28evk_pads[] __initconst = {
 	MX28_PAD_ENET0_TXD0__ENET0_TXD0 | MXS_PAD_FEC,
 	MX28_PAD_ENET0_TXD1__ENET0_TXD1 | MXS_PAD_FEC,
 	MX28_PAD_ENET_CLK__CLKCTRL_ENET | MXS_PAD_FEC,
-	
+	/* fec1 */
 	MX28_PAD_ENET0_CRS__ENET1_RX_EN | MXS_PAD_FEC,
 	MX28_PAD_ENET0_RXD2__ENET1_RXD0 | MXS_PAD_FEC,
 	MX28_PAD_ENET0_RXD3__ENET1_RXD1 | MXS_PAD_FEC,
@@ -77,19 +77,19 @@ static const iomux_cfg_t m28evk_pads[] __initconst = {
 	MX28_PAD_ENET0_TXD2__ENET1_TXD0 | MXS_PAD_FEC,
 	MX28_PAD_ENET0_TXD3__ENET1_TXD1 | MXS_PAD_FEC,
 
-	
+	/* flexcan0 */
 	MX28_PAD_GPMI_RDY2__CAN0_TX,
 	MX28_PAD_GPMI_RDY3__CAN0_RX,
 
-	
+	/* flexcan1 */
 	MX28_PAD_GPMI_CE2N__CAN1_TX,
 	MX28_PAD_GPMI_CE3N__CAN1_RX,
 
-	
+	/* I2C */
 	MX28_PAD_I2C0_SCL__I2C0_SCL,
 	MX28_PAD_I2C0_SDA__I2C0_SDA,
 
-	
+	/* mxsfb (lcdif) */
 	MX28_PAD_LCD_D00__LCD_D0 | MXS_PAD_CTRL,
 	MX28_PAD_LCD_D01__LCD_D1 | MXS_PAD_CTRL,
 	MX28_PAD_LCD_D02__LCD_D2 | MXS_PAD_CTRL,
@@ -118,7 +118,7 @@ static const iomux_cfg_t m28evk_pads[] __initconst = {
 	MX28_PAD_LCD_ENABLE__LCD_ENABLE	| MXS_PAD_CTRL,
 	MX28_PAD_LCD_DOTCLK__LCD_DOTCLK | MXS_PAD_CTRL,
 
-	
+	/* mmc0 */
 	MX28_PAD_SSP0_DATA0__SSP0_D0 |
 		(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_PULLUP),
 	MX28_PAD_SSP0_DATA1__SSP0_D1 |
@@ -142,7 +142,7 @@ static const iomux_cfg_t m28evk_pads[] __initconst = {
 	MX28_PAD_SSP0_SCK__SSP0_SCK |
 		(MXS_PAD_12MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
 
-	
+	/* mmc1 */
 	MX28_PAD_GPMI_D00__SSP1_D0 |
 		(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_PULLUP),
 	MX28_PAD_GPMI_D01__SSP1_D1 |
@@ -165,18 +165,18 @@ static const iomux_cfg_t m28evk_pads[] __initconst = {
 		(MXS_PAD_8MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
 	MX28_PAD_GPMI_WRN__SSP1_SCK |
 		(MXS_PAD_12MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
-	
+	/* write protect */
 	MX28_PAD_GPMI_RESETN__GPIO_0_28 |
 		(MXS_PAD_4MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
-	
+	/* slot power enable */
 	MX28_PAD_PWM4__GPIO_3_29 |
 		(MXS_PAD_4MA | MXS_PAD_3V3 | MXS_PAD_NOPULL),
 
-	
+	/* led */
 	MX28_PAD_PWM0__GPIO_3_16 | MXS_PAD_CTRL,
 	MX28_PAD_PWM1__GPIO_3_17 | MXS_PAD_CTRL,
 
-	
+	/* nand */
 	MX28_PAD_GPMI_D00__GPMI_D0 |
 		(MXS_PAD_4MA | MXS_PAD_1V8 | MXS_PAD_NOPULL),
 	MX28_PAD_GPMI_D01__GPMI_D1 |
@@ -208,10 +208,11 @@ static const iomux_cfg_t m28evk_pads[] __initconst = {
 	MX28_PAD_GPMI_RESETN__GPMI_RESETN |
 		(MXS_PAD_12MA | MXS_PAD_1V8 | MXS_PAD_PULLUP),
 
-	
+	/* Backlight */
 	MX28_PAD_PWM3__GPIO_3_28 | MXS_PAD_CTRL,
 };
 
+/* led */
 static const struct gpio_led m28evk_leds[] __initconst = {
 	{
 		.name = "user-led1",
@@ -232,10 +233,10 @@ static const struct gpio_led_platform_data m28evk_led_data __initconst = {
 
 static struct fec_platform_data mx28_fec_pdata[] __initdata = {
 	{
-		
+		/* fec0 */
 		.phy = PHY_INTERFACE_MODE_RMII,
 	}, {
-		
+		/* fec1 */
 		.phy = PHY_INTERFACE_MODE_RMII,
 	},
 };
@@ -249,6 +250,10 @@ static int __init m28evk_fec_get_mac(void)
 	if (!ocotp)
 		return -ETIMEDOUT;
 
+	/*
+	 * OCOTP only stores the last 4 octets for each mac address,
+	 * so hard-code DENX OUI (C0:E5:4E) here.
+	 */
 	for (i = 0; i < 2; i++) {
 		val = ocotp[i];
 		mx28_fec_pdata[i].mac[0] = 0xC0;
@@ -262,13 +267,14 @@ static int __init m28evk_fec_get_mac(void)
 	return 0;
 }
 
+/* mxsfb (lcdif) */
 static struct fb_videomode m28evk_video_modes[] = {
 	{
 		.name		= "Ampire AM-800480R2TMQW-T01H",
 		.refresh	= 60,
 		.xres		= 800,
 		.yres		= 480,
-		.pixclock	= 30066, 
+		.pixclock	= 30066, /* picosecond (33.26 MHz) */
 		.left_margin	= 0,
 		.right_margin	= 256,
 		.upper_margin	= 0,
@@ -294,18 +300,18 @@ static struct at24_platform_data m28evk_eeprom = {
 
 static struct i2c_board_info m28_stk5v3_i2c_boardinfo[] __initdata = {
 	{
-		I2C_BOARD_INFO("at24", 0x51),	
+		I2C_BOARD_INFO("at24", 0x51),	/* E0=1, E1=0, E2=0 */
 		.platform_data = &m28evk_eeprom,
 	},
 };
 
 static struct mxs_mmc_platform_data m28evk_mmc_pdata[] __initdata = {
 	{
-		
+		/* mmc0 */
 		.wp_gpio = MX28EVK_MMC0_WRITE_PROTECT,
 		.flags = SLOTF_8_BIT_CAPABLE,
 	}, {
-		
+		/* mmc1 */
 		.wp_gpio = MX28EVK_MMC1_WRITE_PROTECT,
 		.flags = SLOTF_8_BIT_CAPABLE,
 	},
@@ -334,7 +340,7 @@ static void __init m28evk_init(void)
 
 	gpio_led_register_device(0, &m28evk_led_data);
 
-	
+	/* I2C */
 	mx28_add_mxs_i2c(0);
 	i2c_register_board_info(0, m28_stk5v3_i2c_boardinfo,
 			ARRAY_SIZE(m28_stk5v3_i2c_boardinfo));

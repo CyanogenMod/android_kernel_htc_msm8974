@@ -30,13 +30,24 @@
 #include <media/v4l2-chip-ident.h>
 #include <media/v4l2-common.h>
 
+/* you can check PLL/clock info */
+/* #define EXT_CLOCK 24000000 */
 
+/************************************************************************
+			macro
+************************************************************************/
+/*
+ * frame size
+ */
 #define MAX_WIDTH   2048
 #define MAX_HEIGHT  1536
 
 #define VGA_WIDTH   640
 #define VGA_HEIGHT  480
 
+/*
+ * macro of read/write
+ */
 #define ECHECKER(ret, x)		\
 	do {				\
 		(ret) = (x);		\
@@ -57,10 +68,16 @@
 #define mt9t112_reg_read(ret, client, a) \
 	ECHECKER(ret, __mt9t112_reg_read(client, a))
 
+/*
+ * Logical address
+ */
 #define _VAR(id, offset, base)	(base | (id & 0x1f) << 10 | (offset & 0x3ff))
 #define VAR(id, offset)  _VAR(id, offset, 0x0000)
 #define VAR8(id, offset) _VAR(id, offset, 0x8000)
 
+/************************************************************************
+			struct
+************************************************************************/
 struct mt9t112_format {
 	enum v4l2_mbus_pixelcode code;
 	enum v4l2_colorspace colorspace;
@@ -76,10 +93,14 @@ struct mt9t112_priv {
 	const struct mt9t112_format	*format;
 	int				 model;
 	u32				 flags;
+/* for flags */
 #define INIT_DONE	(1 << 0)
 #define PCLK_RISING	(1 << 1)
 };
 
+/************************************************************************
+			supported format
+************************************************************************/
 
 static const struct mt9t112_format mt9t112_cfmts[] = {
 	{
@@ -115,6 +136,9 @@ static const struct mt9t112_format mt9t112_cfmts[] = {
 	},
 };
 
+/************************************************************************
+			general function
+************************************************************************/
 static struct mt9t112_priv *to_mt9t112(const struct i2c_client *client)
 {
 	return container_of(i2c_get_clientdata(client),
@@ -140,6 +164,11 @@ static int __mt9t112_reg_read(const struct i2c_client *client, u16 command)
 	msg[1].len   = 2;
 	msg[1].buf   = buf;
 
+	/*
+	 * if return value of this function is < 0,
+	 * it mean error.
+	 * else, under 16bit is valid data.
+	 */
 	ret = i2c_transfer(client->adapter, msg, 2);
 	if (ret < 0)
 		return ret;
@@ -166,6 +195,10 @@ static int __mt9t112_reg_write(const struct i2c_client *client,
 	msg.len   = 4;
 	msg.buf   = buf;
 
+	/*
+	 * i2c_transfer return message length,
+	 * but this function should return 0 if correct case
+	 */
 	ret = i2c_transfer(client->adapter, &msg, 1);
 	if (ret >= 0)
 		ret = 0;
@@ -188,6 +221,7 @@ static int __mt9t112_reg_mask_set(const struct i2c_client *client,
 	return __mt9t112_reg_write(client, command, val);
 }
 
+/* mcu access */
 static int __mt9t112_mcu_read(const struct i2c_client *client, u16 command)
 {
 	int ret;
@@ -247,7 +281,7 @@ static int mt9t112_clock_info(const struct i2c_client *client, u32 ext)
 	u32 vco, clk;
 	char *enable;
 
-	ext /= 1000; 
+	ext /= 1000; /* kbyte order */
 
 	mt9t112_reg_read(n, client, 0x0012);
 	p1 = n & 0x000f;
@@ -322,19 +356,19 @@ static int mt9t112_set_a_frame_size(const struct i2c_client *client,
 	u16 wstart = (MAX_WIDTH - width) / 2;
 	u16 hstart = (MAX_HEIGHT - height) / 2;
 
-	
+	/* (Context A) Image Width/Height */
 	mt9t112_mcu_write(ret, client, VAR(26, 0), width);
 	mt9t112_mcu_write(ret, client, VAR(26, 2), height);
 
-	
+	/* (Context A) Output Width/Height */
 	mt9t112_mcu_write(ret, client, VAR(18, 43), 8 + width);
 	mt9t112_mcu_write(ret, client, VAR(18, 45), 8 + height);
 
-	
+	/* (Context A) Start Row/Column */
 	mt9t112_mcu_write(ret, client, VAR(18, 2), 4 + hstart);
 	mt9t112_mcu_write(ret, client, VAR(18, 4), 4 + wstart);
 
-	
+	/* (Context A) End Row/Column */
 	mt9t112_mcu_write(ret, client, VAR(18, 6), 11 + height + hstart);
 	mt9t112_mcu_write(ret, client, VAR(18, 8), 11 + width  + wstart);
 
@@ -352,25 +386,25 @@ static int mt9t112_set_pll_dividers(const struct i2c_client *client,
 	int ret;
 	u16 val;
 
-	
+	/* N/M */
 	val = (n << 8) |
 	      (m << 0);
 	mt9t112_reg_mask_set(ret, client, 0x0010, 0x3fff, val);
 
-	
+	/* P1/P2/P3 */
 	val = ((p3 & 0x0F) << 8) |
 	      ((p2 & 0x0F) << 4) |
 	      ((p1 & 0x0F) << 0);
 	mt9t112_reg_mask_set(ret, client, 0x0012, 0x0fff, val);
 
-	
+	/* P4/P5/P6 */
 	val = (0x7         << 12) |
 	      ((p6 & 0x0F) <<  8) |
 	      ((p5 & 0x0F) <<  4) |
 	      ((p4 & 0x0F) <<  0);
 	mt9t112_reg_mask_set(ret, client, 0x002A, 0x7fff, val);
 
-	
+	/* P7 */
 	val = (0x1         << 12) |
 	      ((p7 & 0x0F) <<  0);
 	mt9t112_reg_mask_set(ret, client, 0x002C, 0x100f, val);
@@ -385,10 +419,10 @@ static int mt9t112_init_pll(const struct i2c_client *client)
 
 	mt9t112_reg_mask_set(ret, client, 0x0014, 0x003, 0x0001);
 
-	
+	/* PLL control: BYPASS PLL = 8517 */
 	mt9t112_reg_write(ret, client, 0x0014, 0x2145);
 
-	
+	/* Replace these registers when new timing parameters are generated */
 	mt9t112_set_pll_dividers(client,
 				 priv->info->divider.m,
 				 priv->info->divider.n,
@@ -400,6 +434,12 @@ static int mt9t112_init_pll(const struct i2c_client *client)
 				 priv->info->divider.p6,
 				 priv->info->divider.p7);
 
+	/*
+	 * TEST_BYPASS  on
+	 * PLL_ENABLE   on
+	 * SEL_LOCK_DET on
+	 * TEST_BYPASS  off
+	 */
 	mt9t112_reg_write(ret, client, 0x0014, 0x2525);
 	mt9t112_reg_write(ret, client, 0x0014, 0x2527);
 	mt9t112_reg_write(ret, client, 0x0014, 0x3427);
@@ -407,24 +447,33 @@ static int mt9t112_init_pll(const struct i2c_client *client)
 
 	mdelay(10);
 
+	/*
+	 * PLL_BYPASS off
+	 * Reference clock count
+	 * I2C Master Clock Divider
+	 */
 	mt9t112_reg_write(ret, client, 0x0014, 0x3046);
 	mt9t112_reg_write(ret, client, 0x0022, 0x0190);
 	mt9t112_reg_write(ret, client, 0x3B84, 0x0212);
 
-	
+	/* External sensor clock is PLL bypass */
 	mt9t112_reg_write(ret, client, 0x002E, 0x0500);
 
 	mt9t112_reg_mask_set(ret, client, 0x0018, 0x0002, 0x0002);
 	mt9t112_reg_mask_set(ret, client, 0x3B82, 0x0004, 0x0004);
 
-	
+	/* MCU disabled */
 	mt9t112_reg_mask_set(ret, client, 0x0018, 0x0004, 0x0004);
 
-	
+	/* out of standby */
 	mt9t112_reg_mask_set(ret, client, 0x0018, 0x0001, 0);
 
 	mdelay(50);
 
+	/*
+	 * Standby Workaround
+	 * Disable Secondary I2C Pads
+	 */
 	mt9t112_reg_write(ret, client, 0x0614, 0x0001);
 	mdelay(1);
 	mt9t112_reg_write(ret, client, 0x0614, 0x0001);
@@ -438,7 +487,7 @@ static int mt9t112_init_pll(const struct i2c_client *client)
 	mt9t112_reg_write(ret, client, 0x0614, 0x0001);
 	mdelay(1);
 
-	
+	/* poll to verify out of standby. Must Poll this bit */
 	for (i = 0; i < 100; i++) {
 		mt9t112_reg_read(data, client, 0x0018);
 		if (!(0x4000 & data))
@@ -455,132 +504,146 @@ static int mt9t112_init_setting(const struct i2c_client *client)
 
 	int ret;
 
-	
+	/* Adaptive Output Clock (A) */
 	mt9t112_mcu_mask_set(ret, client, VAR(26, 160), 0x0040, 0x0000);
 
-	
+	/* Read Mode (A) */
 	mt9t112_mcu_write(ret, client, VAR(18, 12), 0x0024);
 
-	
+	/* Fine Correction (A) */
 	mt9t112_mcu_write(ret, client, VAR(18, 15), 0x00CC);
 
-	
+	/* Fine IT Min (A) */
 	mt9t112_mcu_write(ret, client, VAR(18, 17), 0x01f1);
 
-	
+	/* Fine IT Max Margin (A) */
 	mt9t112_mcu_write(ret, client, VAR(18, 19), 0x00fF);
 
-	
+	/* Base Frame Lines (A) */
 	mt9t112_mcu_write(ret, client, VAR(18, 29), 0x032D);
 
-	
+	/* Min Line Length (A) */
 	mt9t112_mcu_write(ret, client, VAR(18, 31), 0x073a);
 
-	
+	/* Line Length (A) */
 	mt9t112_mcu_write(ret, client, VAR(18, 37), 0x07d0);
 
-	
+	/* Adaptive Output Clock (B) */
 	mt9t112_mcu_mask_set(ret, client, VAR(27, 160), 0x0040, 0x0000);
 
-	
+	/* Row Start (B) */
 	mt9t112_mcu_write(ret, client, VAR(18, 74), 0x004);
 
-	
+	/* Column Start (B) */
 	mt9t112_mcu_write(ret, client, VAR(18, 76), 0x004);
 
-	
+	/* Row End (B) */
 	mt9t112_mcu_write(ret, client, VAR(18, 78), 0x60B);
 
-	
+	/* Column End (B) */
 	mt9t112_mcu_write(ret, client, VAR(18, 80), 0x80B);
 
-	
+	/* Fine Correction (B) */
 	mt9t112_mcu_write(ret, client, VAR(18, 87), 0x008C);
 
-	
+	/* Fine IT Min (B) */
 	mt9t112_mcu_write(ret, client, VAR(18, 89), 0x01F1);
 
-	
+	/* Fine IT Max Margin (B) */
 	mt9t112_mcu_write(ret, client, VAR(18, 91), 0x00FF);
 
-	
+	/* Base Frame Lines (B) */
 	mt9t112_mcu_write(ret, client, VAR(18, 101), 0x0668);
 
-	
+	/* Min Line Length (B) */
 	mt9t112_mcu_write(ret, client, VAR(18, 103), 0x0AF0);
 
-	
+	/* Line Length (B) */
 	mt9t112_mcu_write(ret, client, VAR(18, 109), 0x0AF0);
 
+	/*
+	 * Flicker Dectection registers
+	 * This section should be replaced whenever new Timing file is generated
+	 * All the following registers need to be replaced
+	 * Following registers are generated from Register Wizard but user can
+	 * modify them. For detail see auto flicker detection tuning
+	 */
 
-	
+	/* FD_FDPERIOD_SELECT */
 	mt9t112_mcu_write(ret, client, VAR8(8, 5), 0x01);
 
-	
+	/* PRI_B_CONFIG_FD_ALGO_RUN */
 	mt9t112_mcu_write(ret, client, VAR(27, 17), 0x0003);
 
-	
+	/* PRI_A_CONFIG_FD_ALGO_RUN */
 	mt9t112_mcu_write(ret, client, VAR(26, 17), 0x0003);
 
+	/*
+	 * AFD range detection tuning registers
+	 */
 
-	
+	/* search_f1_50 */
 	mt9t112_mcu_write(ret, client, VAR8(18, 165), 0x25);
 
-	
+	/* search_f2_50 */
 	mt9t112_mcu_write(ret, client, VAR8(18, 166), 0x28);
 
-	
+	/* search_f1_60 */
 	mt9t112_mcu_write(ret, client, VAR8(18, 167), 0x2C);
 
-	
+	/* search_f2_60 */
 	mt9t112_mcu_write(ret, client, VAR8(18, 168), 0x2F);
 
-	
+	/* period_50Hz (A) */
 	mt9t112_mcu_write(ret, client, VAR8(18, 68), 0xBA);
 
-	
-	
+	/* secret register by aptina */
+	/* period_50Hz (A MSB) */
 	mt9t112_mcu_write(ret, client, VAR8(18, 303), 0x00);
 
-	
+	/* period_60Hz (A) */
 	mt9t112_mcu_write(ret, client, VAR8(18, 69), 0x9B);
 
-	
-	
+	/* secret register by aptina */
+	/* period_60Hz (A MSB) */
 	mt9t112_mcu_write(ret, client, VAR8(18, 301), 0x00);
 
-	
+	/* period_50Hz (B) */
 	mt9t112_mcu_write(ret, client, VAR8(18, 140), 0x82);
 
-	
-	
+	/* secret register by aptina */
+	/* period_50Hz (B) MSB */
 	mt9t112_mcu_write(ret, client, VAR8(18, 304), 0x00);
 
-	
+	/* period_60Hz (B) */
 	mt9t112_mcu_write(ret, client, VAR8(18, 141), 0x6D);
 
-	
-	
+	/* secret register by aptina */
+	/* period_60Hz (B) MSB */
 	mt9t112_mcu_write(ret, client, VAR8(18, 302), 0x00);
 
-	
+	/* FD Mode */
 	mt9t112_mcu_write(ret, client, VAR8(8, 2), 0x10);
 
-	
+	/* Stat_min */
 	mt9t112_mcu_write(ret, client, VAR8(8, 9), 0x02);
 
-	
+	/* Stat_max */
 	mt9t112_mcu_write(ret, client, VAR8(8, 10), 0x03);
 
-	
+	/* Min_amplitude */
 	mt9t112_mcu_write(ret, client, VAR8(8, 12), 0x0A);
 
-	
+	/* RX FIFO Watermark (A) */
 	mt9t112_mcu_write(ret, client, VAR(18, 70), 0x0014);
 
-	
+	/* RX FIFO Watermark (B) */
 	mt9t112_mcu_write(ret, client, VAR(18, 142), 0x0014);
 
+	/* MCLK: 16MHz
+	 * PCLK: 73MHz
+	 * CorePixCLK: 36.5 MHz
+	 */
 	mt9t112_mcu_write(ret, client, VAR8(18, 0x0044), 133);
 	mt9t112_mcu_write(ret, client, VAR8(18, 0x0045), 110);
 	mt9t112_mcu_write(ret, client, VAR8(18, 0x008c), 130);
@@ -639,32 +702,40 @@ static int mt9t112_init_camera(const struct i2c_client *client)
 
 	mt9t112_reg_mask_set(ret, client, 0x0018, 0x0004, 0);
 
-	
+	/* Analog setting B */
 	mt9t112_reg_write(ret, client, 0x3084, 0x2409);
 	mt9t112_reg_write(ret, client, 0x3092, 0x0A49);
 	mt9t112_reg_write(ret, client, 0x3094, 0x4949);
 	mt9t112_reg_write(ret, client, 0x3096, 0x4950);
 
+	/*
+	 * Disable adaptive clock
+	 * PRI_A_CONFIG_JPEG_OB_TX_CONTROL_VAR
+	 * PRI_B_CONFIG_JPEG_OB_TX_CONTROL_VAR
+	 */
 	mt9t112_mcu_write(ret, client, VAR(26, 160), 0x0A2E);
 	mt9t112_mcu_write(ret, client, VAR(27, 160), 0x0A2E);
 
-	
-	
+	/* Configure STatus in Status_before_length Format and enable header */
+	/* PRI_B_CONFIG_JPEG_OB_TX_CONTROL_VAR */
 	mt9t112_mcu_write(ret, client, VAR(27, 144), 0x0CB4);
 
-	
-	
+	/* Enable JPEG in context B */
+	/* PRI_B_CONFIG_JPEG_OB_TX_CONTROL_VAR */
 	mt9t112_mcu_write(ret, client, VAR8(27, 142), 0x01);
 
-	
+	/* Disable Dac_TXLO */
 	mt9t112_reg_write(ret, client, 0x316C, 0x350F);
 
-	
+	/* Set max slew rates */
 	mt9t112_reg_write(ret, client, 0x1E, 0x777);
 
 	return ret;
 }
 
+/************************************************************************
+			v4l2_subdev_core_ops
+************************************************************************/
 static int mt9t112_g_chip_ident(struct v4l2_subdev *sd,
 				struct v4l2_dbg_chip_ident *id)
 {
@@ -713,6 +784,9 @@ static struct v4l2_subdev_core_ops mt9t112_subdev_core_ops = {
 };
 
 
+/************************************************************************
+			v4l2_subdev_video_ops
+************************************************************************/
 static int mt9t112_s_stream(struct v4l2_subdev *sd, int enable)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
@@ -720,6 +794,15 @@ static int mt9t112_s_stream(struct v4l2_subdev *sd, int enable)
 	int ret = 0;
 
 	if (!enable) {
+		/* FIXME
+		 *
+		 * If user selected large output size,
+		 * and used it long time,
+		 * mt9t112 camera will be very warm.
+		 *
+		 * But current driver can not stop mt9t112 camera.
+		 * So, set small size here to solve this problem.
+		 */
 		mt9t112_set_a_frame_size(client, VGA_WIDTH, VGA_HEIGHT);
 		return ret;
 	}
@@ -729,7 +812,7 @@ static int mt9t112_s_stream(struct v4l2_subdev *sd, int enable)
 
 		ECHECKER(ret, mt9t112_init_camera(client));
 
-		
+		/* Invert PCLK (Data sampled on falling edge of pixclk) */
 		mt9t112_reg_write(ret, client, 0x3C20, param);
 
 		mdelay(5);
@@ -763,6 +846,9 @@ static int mt9t112_set_params(struct mt9t112_priv *priv,
 {
 	int i;
 
+	/*
+	 * get color format
+	 */
 	for (i = 0; i < ARRAY_SIZE(mt9t112_cfmts); i++)
 		if (mt9t112_cfmts[i].code == code)
 			break;
@@ -772,6 +858,9 @@ static int mt9t112_set_params(struct mt9t112_priv *priv,
 
 	priv->frame  = *rect;
 
+	/*
+	 * frame size check
+	 */
 	mt9t112_frame_check(&priv->frame.width, &priv->frame.height,
 			    &priv->frame.left, &priv->frame.top);
 
@@ -929,6 +1018,9 @@ static struct v4l2_subdev_video_ops mt9t112_subdev_video_ops = {
 	.s_mbus_config	= mt9t112_s_mbus_config,
 };
 
+/************************************************************************
+			i2c driver
+************************************************************************/
 static struct v4l2_subdev_ops mt9t112_subdev_ops = {
 	.core	= &mt9t112_subdev_core_ops,
 	.video	= &mt9t112_subdev_video_ops,
@@ -940,6 +1032,9 @@ static int mt9t112_camera_probe(struct i2c_client *client)
 	const char          *devname;
 	int                  chipid;
 
+	/*
+	 * check and show chip ID
+	 */
 	mt9t112_reg_read(chipid, client, 0x0000);
 
 	switch (chipid) {
@@ -993,7 +1088,7 @@ static int mt9t112_probe(struct i2c_client *client,
 		return ret;
 	}
 
-	
+	/* Cannot fail: using the default supported pixel code */
 	mt9t112_set_params(priv, &rect, V4L2_MBUS_FMT_UYVY8_2X8);
 
 	return ret;

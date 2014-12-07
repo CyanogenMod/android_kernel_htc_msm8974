@@ -1,6 +1,9 @@
 #ifndef __reg_h__
 #define __reg_h__
 
+/*
+ * Exception frame offsets.
+ */
 #define EF_V0		0
 #define EF_T0		1
 #define EF_T1		2
@@ -36,11 +39,14 @@
 #define EF_A2		32
 
 #define EF_SIZE		(33*8)
-#define HWEF_SIZE	(6*8)		
+#define HWEF_SIZE	(6*8)		/* size of PAL frame (PS-A2) */
 
 #define EF_SSIZE	(EF_SIZE - HWEF_SIZE)
 
+/*
+ * Map register number into core file offset.
+ */
 #define CORE_REG(reg, ubase) \
 	(((unsigned long *)((unsigned long)(ubase)))[reg])
 
-#endif 
+#endif /* __reg_h__ */

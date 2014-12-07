@@ -259,18 +259,18 @@ struct tegra_pingroup_desc {
 	int func_safe;
 	int vddio;
 	enum tegra_pin_io io_default;
-	s16 tri_bank;	
-	s16 mux_bank;	
-	s16 pupd_bank;	
-	s16 tri_reg; 	
-	s16 mux_reg;	
-	s16 pupd_reg;	
-	s8 tri_bit; 	
-	s8 mux_bit;	
-	s8 pupd_bit;	
-	s8 lock_bit;	
-	s8 od_bit;	
-	s8 ioreset_bit;	
+	s16 tri_bank;	/* Register bank the tri_reg exists within */
+	s16 mux_bank;	/* Register bank the mux_reg exists within */
+	s16 pupd_bank;	/* Register bank the pupd_reg exists within */
+	s16 tri_reg; 	/* offset into the TRISTATE_REG_* register bank */
+	s16 mux_reg;	/* offset into the PIN_MUX_CTL_* register bank */
+	s16 pupd_reg;	/* offset into the PULL_UPDOWN_REG_* register bank */
+	s8 tri_bit; 	/* offset into the TRISTATE_REG_* register bit */
+	s8 mux_bit;	/* offset into the PIN_MUX_CTL_* register bit */
+	s8 pupd_bit;	/* offset into the PULL_UPDOWN_REG_* register bit */
+	s8 lock_bit;	/* offset of the LOCK bit into mux register bit */
+	s8 od_bit;	/* offset of the OD bit into mux register bit */
+	s8 ioreset_bit;	/* offset of the IO_RESET bit into mux register bit */
 };
 
 typedef void (*pinmux_init) (const struct tegra_pingroup_desc **pg,

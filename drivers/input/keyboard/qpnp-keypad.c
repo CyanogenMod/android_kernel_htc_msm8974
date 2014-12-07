@@ -29,17 +29,21 @@
 #define QPNP_ROW_SHIFT			3
 #define QPNP_MATRIX_MAX_SIZE		(QPNP_MAX_ROWS * QPNP_MAX_COLS)
 
+/* in ms */
 #define MAX_SCAN_DELAY			128
 #define MIN_SCAN_DELAY			1
 #define KEYP_DEFAULT_SCAN_DELAY		32
 
+/* in ns */
 #define MAX_ROW_HOLD_DELAY		250000
 #define MIN_ROW_HOLD_DELAY		31250
 
+/* in ms */
 #define MAX_DEBOUNCE_TIME		20
 #define MIN_DEBOUNCE_TIME		5
 #define KEYP_DEFAULT_DEBOUNCE		15
 
+/* register offsets */
 #define KEYP_STATUS(base)		(base + 0x08)
 #define KEYP_SIZE_CTRL(base)		(base + 0x40)
 #define KEYP_SCAN_CTRL(base)		(base + 0x42)
@@ -68,6 +72,10 @@
 
 #define KEYP_FSM_READ_EN		BIT(0)
 
+/* bits of these registers represent
+ * '0' for key press
+ * '1' for key release
+ */
 #define KEYP_RECENT_DATA(base)		(base + 0x7C)
 #define KEYP_OLD_DATA(base)		(base + 0x5C)
 
@@ -136,13 +144,25 @@ static int qpnp_kp_read_u8(struct qpnp_kp *kp, u8 *data, u16 reg)
 
 static u8 qpnp_col_state(struct qpnp_kp *kp, u8 col)
 {
-	
+	/* all keys pressed on that particular row? */
 	if (col == 0x00)
 		return 1 << kp->num_cols;
 	else
 		return col & ((1 << kp->num_cols) - 1);
 }
 
+/*
+ * Synchronous read protocol
+ *
+ * 1. Write '1' to ReadState bit in KEYP_FSM_CNTL register
+ * 2. Wait 2*32KHz clocks, so that HW can successfully enter read mode
+ *    synchronously
+ * 3. Read rows in old array first if events are more than one
+ * 4. Read rows in recent array
+ * 5. Wait 4*32KHz clocks
+ * 6. Write '0' to ReadState bit of KEYP_FSM_CNTL register so that hw can
+ *    synchronously exit read mode.
+ */
 static int qpnp_sync_read(struct qpnp_kp *kp, bool enable)
 {
 	int rc;
@@ -167,7 +187,7 @@ static int qpnp_sync_read(struct qpnp_kp *kp, bool enable)
 		return rc;
 	}
 
-	
+	/* 2 * 32KHz clocks */
 	udelay((2 * DIV_ROUND_UP(USEC_PER_SEC, KEYP_CLOCK_FREQ)) + 1);
 
 	return rc;
@@ -179,6 +199,10 @@ static int qpnp_kp_read_data(struct qpnp_kp *kp, u16 *state,
 	int rc, row;
 	u8 new_data[QPNP_MAX_ROWS];
 
+	/*
+	 * Check if last row will be scanned. If not, scan to clear key event
+	 * counter
+	 */
 	if (kp->num_rows < QPNP_MAX_ROWS) {
 		rc = qpnp_kp_read_u8(kp, &new_data[QPNP_MAX_ROWS - 1],
 					data_reg + (QPNP_MAX_ROWS - 1) * 2);
@@ -231,7 +255,7 @@ static int qpnp_kp_read_matrix(struct qpnp_kp *kp, u16 *new_state,
 		return rc;
 	}
 
-	
+	/* 4 * 32KHz clocks */
 	udelay((4 * DIV_ROUND_UP(USEC_PER_SEC, KEYP_CLOCK_FREQ)) + 1);
 
 	rc = qpnp_sync_read(kp, false);
@@ -308,13 +332,13 @@ static int qpnp_kp_scan_matrix(struct qpnp_kp *kp, unsigned int events)
 		if (rc < 0)
 			return rc;
 
-		
+		/* detecting ghost key is not an error */
 		if (qpnp_detect_ghost_keys(kp, new_state))
 			return 0;
 		__qpnp_kp_scan_matrix(kp, new_state, kp->keystate);
 		memcpy(kp->keystate, new_state, sizeof(new_state));
 	break;
-	case 0x3: 
+	case 0x3: /* two events - eventcounter is gray-coded */
 		rc = qpnp_kp_read_matrix(kp, new_state, old_state);
 		if (rc < 0)
 			return rc;
@@ -338,6 +362,17 @@ static int qpnp_kp_scan_matrix(struct qpnp_kp *kp, unsigned int events)
 	return rc;
 }
 
+/*
+ * NOTE: We are reading recent and old data registers blindly
+ * whenever key-stuck interrupt happens, because events counter doesn't
+ * get updated when this interrupt happens due to key stuck doesn't get
+ * considered as key state change.
+ *
+ * We are not using old data register contents after they are being read
+ * because it might report the key which was pressed before the key being stuck
+ * as stuck key because it's pressed status is stored in the old data
+ * register.
+ */
 static irqreturn_t qpnp_kp_stuck_irq(int irq, void *data)
 {
 	u16 new_state[QPNP_MAX_ROWS];
@@ -383,7 +418,7 @@ static int __devinit qpnp_kpd_init(struct qpnp_kp *kp)
 	int bits, rc, cycles;
 	u8 kpd_scan_cntl, kpd_size_cntl;
 
-	
+	/* Configure the SIZE register, #rows and #columns */
 	rc = qpnp_kp_read_u8(kp, &kpd_size_cntl, KEYP_SIZE_CTRL(kp->base));
 	if (rc < 0) {
 		dev_err(&kp->spmi->dev,
@@ -403,7 +438,7 @@ static int __devinit qpnp_kpd_init(struct qpnp_kp *kp)
 		return rc;
 	}
 
-	
+	/* Configure the SCAN CTL register, debounce, row pause, scan delay */
 	rc = qpnp_kp_read_u8(kp, &kpd_scan_cntl, KEYP_SCAN_CTRL(kp->base));
 	if (rc < 0) {
 		dev_err(&kp->spmi->dev,
@@ -418,7 +453,7 @@ static int __devinit qpnp_kpd_init(struct qpnp_kp *kp)
 	bits = fls(kp->scan_delay_ms) - 1;
 	kpd_scan_cntl |= ((bits << KEYP_SCAN_SCNP_SHIFT) & KEYP_SCAN_SCNP_MASK);
 
-	
+	/* Row hold time is a multiple of 32KHz cycles. */
 	cycles = (kp->row_hold_ns * KEYP_CLOCK_FREQ) / NSEC_PER_SEC;
 	if (cycles)
 		cycles = ilog2(cycles);
@@ -598,7 +633,7 @@ static int __devinit qpnp_kp_probe(struct spmi_device *spmi)
 		return rc;
 	}
 
-	
+	/* the #rows and #columns are compulsary */
 	if (!kp->num_cols || !kp->num_rows ||
 		kp->num_cols > QPNP_MAX_COLS ||
 		kp->num_rows > QPNP_MAX_ROWS ||
@@ -613,7 +648,7 @@ static int __devinit qpnp_kp_probe(struct spmi_device *spmi)
 		return -EINVAL;
 	}
 
-	
+	/* the below parameters are optional*/
 	if (!kp->scan_delay_ms) {
 		kp->scan_delay_ms = KEYP_DEFAULT_SCAN_DELAY;
 	} else {
@@ -696,7 +731,7 @@ static int __devinit qpnp_kp_probe(struct spmi_device *spmi)
 	input_set_capability(kp->input, EV_MSC, MSC_SCAN);
 	input_set_drvdata(kp->input, kp);
 
-	
+	/* initialize keypad state */
 	memset(kp->keystate, 0xff, sizeof(kp->keystate));
 	memset(kp->stuckstate, 0xff, sizeof(kp->stuckstate));
 

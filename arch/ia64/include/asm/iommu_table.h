@@ -3,4 +3,4 @@
 
 #define IOMMU_INIT_POST(_detect)
 
-#endif 
+#endif /* _ASM_IA64_IOMMU_TABLE_H */

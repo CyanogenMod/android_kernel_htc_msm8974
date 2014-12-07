@@ -46,6 +46,7 @@
 #include "mux.h"
 #include "control.h"
 
+/* LED & Switch macros */
 #define LED0_GPIO13		13
 #define LED1_GPIO14		14
 #define LED2_GPIO15		15
@@ -198,7 +199,7 @@ static inline void __init apollon_init_smc91x(void)
 	int eth_cs;
 	int err;
 
-	gpmc_fck = clk_get(NULL, "gpmc_fck");	
+	gpmc_fck = clk_get(NULL, "gpmc_fck");	/* Always on ENABLE_ON_INIT */
 	if (IS_ERR(gpmc_fck)) {
 		WARN_ON(1);
 		return;
@@ -209,7 +210,7 @@ static inline void __init apollon_init_smc91x(void)
 
 	eth_cs = APOLLON_ETH_CS;
 
-	
+	/* Make sure CS1 timings are correct */
 	gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG1, 0x00011200);
 
 	if (rate >= 160000000) {
@@ -224,7 +225,7 @@ static inline void __init apollon_init_smc91x(void)
 		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG4, 0x1C091C09);
 		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG5, 0x041f1F1F);
 		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG6, 0x000004C4);
-	} else {
+	} else {/* rate = 100000000 */
 		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG2, 0x001f1f00);
 		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG3, 0x00080802);
 		gpmc_cs_write_reg(eth_cs, GPMC_CS_CONFIG4, 0x1C091C09);
@@ -254,7 +255,7 @@ out:
 
 static struct omap_usb_config apollon_usb_config __initdata = {
 	.register_dev	= 1,
-	.hmc_mode	= 0x14,	
+	.hmc_mode	= 0x14,	/* 0:dev 1:host1 2:disable */
 
 	.pins[0]	= 6,
 };
@@ -282,9 +283,9 @@ static struct omap_dss_board_info apollon_dss_data = {
 };
 
 static struct gpio apollon_gpio_leds[] __initdata = {
-	{ LED0_GPIO13, GPIOF_OUT_INIT_LOW, "LED0" }, 
-	{ LED1_GPIO14, GPIOF_OUT_INIT_LOW, "LED1" }, 
-	{ LED2_GPIO15, GPIOF_OUT_INIT_LOW, "LED2" }, 
+	{ LED0_GPIO13, GPIOF_OUT_INIT_LOW, "LED0" }, /* LED0 - AA10 */
+	{ LED1_GPIO14, GPIOF_OUT_INIT_LOW, "LED1" }, /* LED1 - AA6  */
+	{ LED2_GPIO15, GPIOF_OUT_INIT_LOW, "LED2" }, /* LED2 - AA4  */
 };
 
 static void __init apollon_led_init(void)
@@ -298,8 +299,8 @@ static void __init apollon_led_init(void)
 
 static void __init apollon_usb_init(void)
 {
-	
-	
+	/* USB device */
+	/* DEVICE_SUSPEND */
 	omap_mux_init_signal("mcbsp2_clkx.gpio_12", 0);
 	gpio_request_one(12, GPIOF_OUT_INIT_LOW, "USB suspend");
 	omap2_usbfs_init(&apollon_usb_config);
@@ -322,17 +323,22 @@ static void __init omap_apollon_init(void)
 	apollon_flash_init();
 	apollon_usb_init();
 
-	
+	/* REVISIT: where's the correct place */
 	omap_mux_init_signal("sys_nirq", OMAP_PULL_ENA | OMAP_PULL_UP);
 
-	
+	/* LCD PWR_EN */
 	omap_mux_init_signal("mcbsp2_dr.gpio_11", OMAP_PULL_ENA | OMAP_PULL_UP);
 
-	
+	/* Use Interal loop-back in MMC/SDIO Module Input Clock selection */
 	v = omap_ctrl_readl(OMAP2_CONTROL_DEVCONF0);
 	v |= (1 << 24);
 	omap_ctrl_writel(v, OMAP2_CONTROL_DEVCONF0);
 
+	/*
+ 	 * Make sure the serial ports are muxed on at this point.
+	 * You have to mux them off in device drivers later on
+	 * if not needed.
+	 */
 	apollon_smc91x_resources[1].start = gpio_to_irq(APOLLON_ETHR_GPIO_IRQ);
 	apollon_smc91x_resources[1].end = gpio_to_irq(APOLLON_ETHR_GPIO_IRQ);
 	platform_add_devices(apollon_devices, ARRAY_SIZE(apollon_devices));
@@ -342,7 +348,7 @@ static void __init omap_apollon_init(void)
 }
 
 MACHINE_START(OMAP_APOLLON, "OMAP24xx Apollon")
-	
+	/* Maintainer: Kyungmin Park <kyungmin.park@samsung.com> */
 	.atag_offset	= 0x100,
 	.reserve	= omap_reserve,
 	.map_io		= omap242x_map_io,

@@ -86,7 +86,7 @@ nv50_dac_detect(struct drm_encoder *encoder, struct drm_connector *connector)
 		return status;
 	}
 
-	
+	/* Use bios provided value if possible. */
 	if (dev_priv->vbios.dactestval) {
 		load_pattern = dev_priv->vbios.dactestval;
 		NV_DEBUG_KMS(dev, "Using bios provided load_pattern of %d\n",
@@ -99,7 +99,7 @@ nv50_dac_detect(struct drm_encoder *encoder, struct drm_connector *connector)
 
 	nv_wr32(dev, NV50_PDISPLAY_DAC_LOAD_CTRL(or),
 		NV50_PDISPLAY_DAC_LOAD_CTRL_ACTIVE | load_pattern);
-	mdelay(45); 
+	mdelay(45); /* give it some time to process */
 	load_state = nv_rd32(dev, NV50_PDISPLAY_DAC_LOAD_CTRL(or));
 
 	nv_wr32(dev, NV50_PDISPLAY_DAC_LOAD_CTRL(or), 0);
@@ -128,7 +128,7 @@ nv50_dac_dpms(struct drm_encoder *encoder, int mode)
 
 	NV_DEBUG_KMS(dev, "or %d mode %d\n", or, mode);
 
-	
+	/* wait for it to be done */
 	if (!nv_wait(dev, NV50_PDISPLAY_DAC_DPMS_CTRL(or),
 		     NV50_PDISPLAY_DAC_DPMS_CTRL_PENDING, 0)) {
 		NV_ERROR(dev, "timeout: DAC_DPMS_CTRL_PENDING(%d) == 0\n", or);
@@ -222,7 +222,7 @@ nv50_dac_mode_set(struct drm_encoder *encoder, struct drm_display_mode *mode,
 	else
 		mode_ctl |= NV50_EVO_DAC_MODE_CTRL_CRTC0;
 
-	
+	/* Lacking a working tv-out, this is not a 100% sure. */
 	if (nv_encoder->dcb->type == OUTPUT_ANALOG)
 		mode_ctl |= 0x40;
 	else

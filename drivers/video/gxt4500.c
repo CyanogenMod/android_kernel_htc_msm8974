@@ -16,9 +16,12 @@
 #define PCI_DEVICE_ID_IBM_GXT4500P	0x21c
 #define PCI_DEVICE_ID_IBM_GXT6000P	0x170
 
+/* GXT4500P registers */
 
+/* Registers in PCI config space */
 #define CFG_ENDIAN0		0x40
 
+/* Misc control/status registers */
 #define STATUS			0x1000
 #define CTRL_REG0		0x1004
 #define   CR0_HALT_DMA			0x4
@@ -26,6 +29,7 @@
 #define   CR0_GEOM_RESET		0x10
 #define   CR0_MEM_CTRLER_RESET		0x20
 
+/* Framebuffer control registers */
 #define FB_AB_CTRL		0x1100
 #define FB_CD_CTRL		0x1104
 #define FB_WID_CTRL		0x1108
@@ -42,6 +46,7 @@
 #define REFRESH_START		0x1098
 #define REFRESH_SIZE		0x109c
 
+/* "Direct" framebuffer access registers */
 #define DFA_FB_A		0x11e0
 #define DFA_FB_B		0x11e4
 #define DFA_FB_C		0x11e8
@@ -57,10 +62,12 @@
 #define   DFA_PIX_24BIT			0x00000004
 #define   DFA_PIX_32BIT			0x00000005
 
+/* maps DFA_PIX_* to pixel size in bytes */
 static const unsigned char pixsize[] = {
 	1, 2, 2, 2, 4, 4
 };
 
+/* Display timing generator registers */
 #define DTG_CONTROL		0x1900
 #define   DTG_CTL_SCREEN_REFRESH	2
 #define   DTG_CTL_ENABLE		1
@@ -75,6 +82,7 @@ static const unsigned char pixsize[] = {
 #define DTG_VSYNC_END		0x1924
 #define DTG_VERT_SHORT		0x1928
 
+/* PLL/RAMDAC registers */
 #define DISP_CTL		0x402c
 #define   DISP_CTL_OFF			2
 #define SYNC_CTL		0x4034
@@ -90,6 +98,7 @@ static const unsigned char pixsize[] = {
 #define PLL_POSTDIV		0x4048
 #define PLL_C			0x404c
 
+/* Hardware cursor */
 #define CURSOR_X		0x4078
 #define CURSOR_Y		0x407c
 #define CURSOR_HOTSPOT		0x4080
@@ -99,27 +108,30 @@ static const unsigned char pixsize[] = {
 #define CURSOR_PIXMAP		0x5000
 #define CURSOR_CMAP		0x7400
 
+/* Window attribute table */
 #define WAT_FMT			0x4100
 #define   WAT_FMT_24BIT			0
 #define   WAT_FMT_16BIT_565		1
 #define   WAT_FMT_16BIT_1555		2
-#define   WAT_FMT_32BIT			3	
+#define   WAT_FMT_32BIT			3	/* 0 vs. 3 is a guess */
 #define   WAT_FMT_8BIT_332		9
 #define   WAT_FMT_8BIT			0xa
-#define   WAT_FMT_NO_CMAP		4	
-#define WAT_CMAP_OFFSET		0x4104		
+#define   WAT_FMT_NO_CMAP		4	/* ORd in to other values */
+#define WAT_CMAP_OFFSET		0x4104		/* 4-bit value gets << 6 */
 #define WAT_CTRL		0x4108
-#define   WAT_CTRL_SEL_B		1	
+#define   WAT_CTRL_SEL_B		1	/* select B buffer if 1 */
 #define   WAT_CTRL_NO_INC		2
 #define WAT_GAMMA_CTRL		0x410c
-#define   WAT_GAMMA_DISABLE		1	
-#define WAT_OVL_CTRL		0x430c		
+#define   WAT_GAMMA_DISABLE		1	/* disables gamma cmap */
+#define WAT_OVL_CTRL		0x430c		/* controls overlay */
 
+/* Indexed by DFA_PIX_* values */
 static const unsigned char watfmt[] = {
 	WAT_FMT_8BIT, WAT_FMT_16BIT_565, WAT_FMT_16BIT_1555, 0,
 	WAT_FMT_24BIT, WAT_FMT_32BIT
 };
 
+/* Colormap array; 1k entries of 4 bytes each */
 #define CMAP			0x6000
 
 #define readreg(par, reg)	readl((par)->regs + (reg))
@@ -128,20 +140,22 @@ static const unsigned char watfmt[] = {
 struct gxt4500_par {
 	void __iomem *regs;
 
-	int pixfmt;		
+	int pixfmt;		/* pixel format, see DFA_PIX_* values */
 
-	
-	int refclk_ps;		
-	int pll_m;		
-	int pll_n;		
-	int pll_pd1;		
-	int pll_pd2;		
+	/* PLL parameters */
+	int refclk_ps;		/* ref clock period in picoseconds */
+	int pll_m;		/* ref clock divisor */
+	int pll_n;		/* VCO divisor */
+	int pll_pd1;		/* first post-divisor */
+	int pll_pd2;		/* second post-divisor */
 
-	u32 pseudo_palette[16];	
+	u32 pseudo_palette[16];	/* used in color blits */
 };
 
+/* mode requested by user */
 static char *mode_option;
 
+/* default mode: 1280x1024 @ 60 Hz, 8 bpp */
 static const struct fb_videomode defaultmode __devinitdata = {
 	.refresh = 60,
 	.xres = 1280,
@@ -156,48 +170,59 @@ static const struct fb_videomode defaultmode __devinitdata = {
 	.vmode = FB_VMODE_NONINTERLACED
 };
 
+/* List of supported cards */
 enum gxt_cards {
 	GXT4500P,
 	GXT6000P
 };
 
+/* Card-specific information */
 static const struct cardinfo {
-	int	refclk_ps;	
+	int	refclk_ps;	/* period of PLL reference clock in ps */
 	const char *cardname;
 } cardinfo[] = {
 	[GXT4500P] = { .refclk_ps = 9259, .cardname = "IBM GXT4500P" },
 	[GXT6000P] = { .refclk_ps = 40000, .cardname = "IBM GXT6000P" },
 };
 
+/*
+ * The refclk and VCO dividers appear to use a linear feedback shift
+ * register, which gets reloaded when it reaches a terminal value, at
+ * which point the divider output is toggled.  Thus one can obtain
+ * whatever divisor is required by putting the appropriate value into
+ * the reload register.  For a divisor of N, one puts the value from
+ * the LFSR sequence that comes N-1 places before the terminal value
+ * into the reload register.
+ */
 
 static const unsigned char mdivtab[] = {
-		      0x3f, 0x00, 0x20, 0x10, 0x28, 0x14, 0x2a, 0x15, 0x0a,
-	0x25, 0x32, 0x19, 0x0c, 0x26, 0x13, 0x09, 0x04, 0x22, 0x11,
-	0x08, 0x24, 0x12, 0x29, 0x34, 0x1a, 0x2d, 0x36, 0x1b, 0x0d,
-	0x06, 0x23, 0x31, 0x38, 0x1c, 0x2e, 0x17, 0x0b, 0x05, 0x02,
-	0x21, 0x30, 0x18, 0x2c, 0x16, 0x2b, 0x35, 0x3a, 0x1d, 0x0e,
-	0x27, 0x33, 0x39, 0x3c, 0x1e, 0x2f, 0x37, 0x3b, 0x3d, 0x3e,
-	0x1f, 0x0f, 0x07, 0x03, 0x01,
+/* 1 */		      0x3f, 0x00, 0x20, 0x10, 0x28, 0x14, 0x2a, 0x15, 0x0a,
+/* 10 */	0x25, 0x32, 0x19, 0x0c, 0x26, 0x13, 0x09, 0x04, 0x22, 0x11,
+/* 20 */	0x08, 0x24, 0x12, 0x29, 0x34, 0x1a, 0x2d, 0x36, 0x1b, 0x0d,
+/* 30 */	0x06, 0x23, 0x31, 0x38, 0x1c, 0x2e, 0x17, 0x0b, 0x05, 0x02,
+/* 40 */	0x21, 0x30, 0x18, 0x2c, 0x16, 0x2b, 0x35, 0x3a, 0x1d, 0x0e,
+/* 50 */	0x27, 0x33, 0x39, 0x3c, 0x1e, 0x2f, 0x37, 0x3b, 0x3d, 0x3e,
+/* 60 */	0x1f, 0x0f, 0x07, 0x03, 0x01,
 };
 
 static const unsigned char ndivtab[] = {
-		            0x00, 0x80, 0xc0, 0xe0, 0xf0, 0x78, 0xbc, 0x5e,
-	0x2f, 0x17, 0x0b, 0x85, 0xc2, 0xe1, 0x70, 0x38, 0x9c, 0x4e,
-	0xa7, 0xd3, 0xe9, 0xf4, 0xfa, 0xfd, 0xfe, 0x7f, 0xbf, 0xdf,
-	0xef, 0x77, 0x3b, 0x1d, 0x8e, 0xc7, 0xe3, 0x71, 0xb8, 0xdc,
-	0x6e, 0xb7, 0x5b, 0x2d, 0x16, 0x8b, 0xc5, 0xe2, 0xf1, 0xf8,
-	0xfc, 0x7e, 0x3f, 0x9f, 0xcf, 0x67, 0xb3, 0xd9, 0x6c, 0xb6,
-	0xdb, 0x6d, 0x36, 0x9b, 0x4d, 0x26, 0x13, 0x89, 0xc4, 0x62,
-	0xb1, 0xd8, 0xec, 0xf6, 0xfb, 0x7d, 0xbe, 0x5f, 0xaf, 0x57,
-	0x2b, 0x95, 0x4a, 0x25, 0x92, 0x49, 0xa4, 0x52, 0x29, 0x94,
-	0xca, 0x65, 0xb2, 0x59, 0x2c, 0x96, 0xcb, 0xe5, 0xf2, 0x79,
-	0x3c, 0x1e, 0x0f, 0x07, 0x83, 0x41, 0x20, 0x90, 0x48, 0x24,
-	0x12, 0x09, 0x84, 0x42, 0xa1, 0x50, 0x28, 0x14, 0x8a, 0x45,
-	0xa2, 0xd1, 0xe8, 0x74, 0xba, 0xdd, 0xee, 0xf7, 0x7b, 0x3d,
-	0x9e, 0x4f, 0x27, 0x93, 0xc9, 0xe4, 0x72, 0x39, 0x1c, 0x0e,
-	0x87, 0xc3, 0x61, 0x30, 0x18, 0x8c, 0xc6, 0x63, 0x31, 0x98,
-	0xcc, 0xe6, 0x73, 0xb9, 0x5c, 0x2e, 0x97, 0x4b, 0xa5, 0xd2,
-	0x69,
+/* 2 */		            0x00, 0x80, 0xc0, 0xe0, 0xf0, 0x78, 0xbc, 0x5e,
+/* 10 */	0x2f, 0x17, 0x0b, 0x85, 0xc2, 0xe1, 0x70, 0x38, 0x9c, 0x4e,
+/* 20 */	0xa7, 0xd3, 0xe9, 0xf4, 0xfa, 0xfd, 0xfe, 0x7f, 0xbf, 0xdf,
+/* 30 */	0xef, 0x77, 0x3b, 0x1d, 0x8e, 0xc7, 0xe3, 0x71, 0xb8, 0xdc,
+/* 40 */	0x6e, 0xb7, 0x5b, 0x2d, 0x16, 0x8b, 0xc5, 0xe2, 0xf1, 0xf8,
+/* 50 */	0xfc, 0x7e, 0x3f, 0x9f, 0xcf, 0x67, 0xb3, 0xd9, 0x6c, 0xb6,
+/* 60 */	0xdb, 0x6d, 0x36, 0x9b, 0x4d, 0x26, 0x13, 0x89, 0xc4, 0x62,
+/* 70 */	0xb1, 0xd8, 0xec, 0xf6, 0xfb, 0x7d, 0xbe, 0x5f, 0xaf, 0x57,
+/* 80 */	0x2b, 0x95, 0x4a, 0x25, 0x92, 0x49, 0xa4, 0x52, 0x29, 0x94,
+/* 90 */	0xca, 0x65, 0xb2, 0x59, 0x2c, 0x96, 0xcb, 0xe5, 0xf2, 0x79,
+/* 100 */	0x3c, 0x1e, 0x0f, 0x07, 0x83, 0x41, 0x20, 0x90, 0x48, 0x24,
+/* 110 */	0x12, 0x09, 0x84, 0x42, 0xa1, 0x50, 0x28, 0x14, 0x8a, 0x45,
+/* 120 */	0xa2, 0xd1, 0xe8, 0x74, 0xba, 0xdd, 0xee, 0xf7, 0x7b, 0x3d,
+/* 130 */	0x9e, 0x4f, 0x27, 0x93, 0xc9, 0xe4, 0x72, 0x39, 0x1c, 0x0e,
+/* 140 */	0x87, 0xc3, 0x61, 0x30, 0x18, 0x8c, 0xc6, 0x63, 0x31, 0x98,
+/* 150 */	0xcc, 0xe6, 0x73, 0xb9, 0x5c, 0x2e, 0x97, 0x4b, 0xa5, 0xd2,
+/* 160 */	0x69,
 };
 
 static int calc_pll(int period_ps, struct gxt4500_par *par)
@@ -205,7 +230,7 @@ static int calc_pll(int period_ps, struct gxt4500_par *par)
 	int m, n, pdiv1, pdiv2, postdiv;
 	int pll_period, best_error, t, intf;
 
-	
+	/* only deal with range 5MHz - 300MHz */
 	if (period_ps < 3333 || period_ps > 200000)
 		return -1;
 
@@ -214,7 +239,7 @@ static int calc_pll(int period_ps, struct gxt4500_par *par)
 		for (pdiv2 = 1; pdiv2 <= pdiv1; ++pdiv2) {
 			postdiv = pdiv1 * pdiv2;
 			pll_period = DIV_ROUND_UP(period_ps, postdiv);
-			
+			/* keep pll in range 350..600 MHz */
 			if (pll_period < 1666 || pll_period > 2857)
 				continue;
 			for (m = 1; m <= 64; ++m) {
@@ -356,12 +381,12 @@ static int gxt4500_set_par(struct fb_info *info)
 		return err;
 	}
 
-	
+	/* turn off DTG for now */
 	ctrlreg = readreg(par, DTG_CONTROL);
 	ctrlreg &= ~(DTG_CTL_ENABLE | DTG_CTL_SCREEN_REFRESH);
 	writereg(par, DTG_CONTROL, ctrlreg);
 
-	
+	/* set PLL registers */
 	tmp = readreg(par, PLL_C) & ~0x7f;
 	if (par->pll_n < 38)
 		tmp |= 0x29;
@@ -376,22 +401,22 @@ static int gxt4500_set_par(struct fb_info *info)
 	writereg(par, PLL_N, ndivtab[par->pll_n - 2]);
 	tmp = ((8 - par->pll_pd2) << 3) | (8 - par->pll_pd1);
 	if (par->pll_pd1 == 8 || par->pll_pd2 == 8) {
-		
+		/* work around erratum */
 		writereg(par, PLL_POSTDIV, tmp | 0x9);
 		udelay(1);
 	}
 	writereg(par, PLL_POSTDIV, tmp);
 	msleep(20);
 
-	
+	/* turn off hardware cursor */
 	writereg(par, CURSOR_MODE, CURSOR_MODE_OFF);
 
-	
+	/* reset raster engine */
 	writereg(par, CTRL_REG0, CR0_RASTER_RESET | (CR0_RASTER_RESET << 16));
 	udelay(10);
 	writereg(par, CTRL_REG0, CR0_RASTER_RESET << 16);
 
-	
+	/* set display timing generator registers */
 	htot = var->xres + var->left_margin + var->right_margin +
 		var->hsync_len;
 	writereg(par, DTG_HORIZ_EXTENT, htot - 1);
@@ -415,7 +440,7 @@ static int gxt4500_set_par(struct fb_info *info)
 	ctrlreg |= DTG_CTL_ENABLE | DTG_CTL_SCREEN_REFRESH;
 	writereg(par, DTG_CONTROL, ctrlreg);
 
-	
+	/* calculate stride in DFA aperture */
 	if (var->xres_virtual > 2048) {
 		stride = 4096;
 		dfa_ctl = DFA_FB_STRIDE_4k;
@@ -427,10 +452,10 @@ static int gxt4500_set_par(struct fb_info *info)
 		dfa_ctl = DFA_FB_STRIDE_1k;
 	}
 
-	
+	/* Set up framebuffer definition */
 	wid_tiles = (var->xres_virtual + 63) >> 6;
 
-	
+	/* XXX add proper FB allocation here someday */
 	writereg(par, FB_AB_CTRL, FB_CTRL_TYPE | (wid_tiles << 16) | 0);
 	writereg(par, REFRESH_AB_CTRL, FB_CTRL_TYPE | (wid_tiles << 16) | 0);
 	writereg(par, FB_CD_CTRL, FB_CTRL_TYPE | (wid_tiles << 16) | 0);
@@ -438,12 +463,17 @@ static int gxt4500_set_par(struct fb_info *info)
 	writereg(par, REFRESH_START, (var->xoffset << 16) | var->yoffset);
 	writereg(par, REFRESH_SIZE, (var->xres << 16) | var->yres);
 
-	
+	/* Set up framebuffer access by CPU */
 
 	pixfmt = par->pixfmt;
 	dfa_ctl |= DFA_FB_ENABLE | pixfmt;
 	writereg(par, DFA_FB_A, dfa_ctl);
 
+	/*
+	 * Set up window attribute table.
+	 * We set all WAT entries the same so it doesn't matter what the
+	 * window ID (WID) plane contains.
+	 */
 	for (i = 0; i < 32; ++i) {
 		writereg(par, WAT_FMT + (i << 4), watfmt[pixfmt]);
 		writereg(par, WAT_CMAP_OFFSET + (i << 4), 0);
@@ -451,7 +481,7 @@ static int gxt4500_set_par(struct fb_info *info)
 		writereg(par, WAT_GAMMA_CTRL + (i << 4), WAT_GAMMA_DISABLE);
 	}
 
-	
+	/* Set sync polarity etc. */
 	ctrlreg = readreg(par, SYNC_CTL) &
 		~(SYNC_CTL_SYNC_ON_RGB | SYNC_CTL_HSYNC_INV |
 		  SYNC_CTL_VSYNC_INV);
@@ -495,7 +525,7 @@ static int gxt4500_setcolreg(unsigned int reg, unsigned int red,
 			break;
 		case DFA_PIX_32BIT:
 			val |= (reg << 24);
-			
+			/* fall through */
 		case DFA_PIX_24BIT:
 			val |= (reg << 16) | (reg << 8);
 			break;
@@ -572,6 +602,7 @@ static struct fb_ops gxt4500_ops = {
 	.fb_imageblit = cfb_imageblit,
 };
 
+/* PCI functions */
 static int __devinit gxt4500_probe(struct pci_dev *pdev,
 				   const struct pci_device_id *ent)
 {
@@ -633,7 +664,7 @@ static int __devinit gxt4500_probe(struct pci_dev *pdev,
 
 	pci_set_drvdata(pdev, info);
 
-	
+	/* Set byte-swapping for DFA aperture for all pixel sizes */
 	pci_write_config_dword(pdev, CFG_ENDIAN0, 0x333300);
 
 	info->fbops = &gxt4500_ops;
@@ -701,6 +732,7 @@ static void __devexit gxt4500_remove(struct pci_dev *pdev)
 	framebuffer_release(info);
 }
 
+/* supported chipsets */
 static const struct pci_device_id gxt4500_pci_tbl[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_IBM, PCI_DEVICE_ID_IBM_GXT4500P),
 	  .driver_data = GXT4500P },

@@ -25,43 +25,46 @@
 
 typedef unsigned long long tilepro_bundle_bits;
 
+/* This is the bit that determines if a bundle is in the Y encoding. */
 #define TILEPRO_BUNDLE_Y_ENCODING_MASK ((tilepro_bundle_bits)1 << 63)
 
 enum
 {
-  
+  /* Maximum number of instructions in a bundle (2 for X, 3 for Y). */
   TILEPRO_MAX_INSTRUCTIONS_PER_BUNDLE = 3,
 
-  
+  /* How many different pipeline encodings are there? X0, X1, Y0, Y1, Y2. */
   TILEPRO_NUM_PIPELINE_ENCODINGS = 5,
 
-  
+  /* Log base 2 of TILEPRO_BUNDLE_SIZE_IN_BYTES. */
   TILEPRO_LOG2_BUNDLE_SIZE_IN_BYTES = 3,
 
-  
+  /* Instructions take this many bytes. */
   TILEPRO_BUNDLE_SIZE_IN_BYTES = 1 << TILEPRO_LOG2_BUNDLE_SIZE_IN_BYTES,
 
-  
+  /* Log base 2 of TILEPRO_BUNDLE_ALIGNMENT_IN_BYTES. */
   TILEPRO_LOG2_BUNDLE_ALIGNMENT_IN_BYTES = 3,
 
-  
+  /* Bundles should be aligned modulo this number of bytes. */
   TILEPRO_BUNDLE_ALIGNMENT_IN_BYTES =
     (1 << TILEPRO_LOG2_BUNDLE_ALIGNMENT_IN_BYTES),
 
-  
+  /* Log base 2 of TILEPRO_SN_INSTRUCTION_SIZE_IN_BYTES. */
   TILEPRO_LOG2_SN_INSTRUCTION_SIZE_IN_BYTES = 1,
 
-  
+  /* Static network instructions take this many bytes. */
   TILEPRO_SN_INSTRUCTION_SIZE_IN_BYTES =
     (1 << TILEPRO_LOG2_SN_INSTRUCTION_SIZE_IN_BYTES),
 
-  
+  /* Number of registers (some are magic, such as network I/O). */
   TILEPRO_NUM_REGISTERS = 64,
 
-  
+  /* Number of static network registers. */
   TILEPRO_NUM_SN_REGISTERS = 4
 };
 
+/* Make a few "tile_" variables to simplify common code between
+   architectures.  */
 
 typedef tilepro_bundle_bits tile_bundle_bits;
 #define TILE_BUNDLE_SIZE_IN_BYTES TILEPRO_BUNDLE_SIZE_IN_BYTES
@@ -69,6 +72,7 @@ typedef tilepro_bundle_bits tile_bundle_bits;
 #define TILE_LOG2_BUNDLE_ALIGNMENT_IN_BYTES \
   TILEPRO_LOG2_BUNDLE_ALIGNMENT_IN_BYTES
 
+/* 64-bit pattern for a { bpt ; nop } bundle. */
 #define TILEPRO_BPT_BUNDLE 0x400b3cae70166000ULL
 
 static __inline unsigned int
@@ -1462,6 +1466,6 @@ enum
 };
 
 
-#endif 
+#endif /* __ASSEMBLER__ */
 
-#endif 
+#endif /* __ARCH_OPCODE_H__ */

@@ -30,12 +30,13 @@
  (AUDIO_MAX_COMMON_IOCTL_NUM + 2), unsigned)
 #define AUDIO_SET_DTX_CONFIG _IOR(AUDIO_IOCTL_MAGIC, \
  (AUDIO_MAX_COMMON_IOCTL_NUM + 3), unsigned)
+/* MVS modes */
 #define MVS_MODE_LINEAR_PCM 9
 
 #define MVS_PROG 0x30000014
 #define MVS_VERS 0x00030001
 
-#define MVS_CLIENT_ID_VOIP 0x00000003	
+#define MVS_CLIENT_ID_VOIP 0x00000003	/* MVS_CLIENT_VOIP */
 
 #define MVS_ACQUIRE_PROC 4
 #define MVS_ENABLE_PROC 5
@@ -50,12 +51,15 @@
 #define MVS_UL_CB_FUNC_ID 0xBBBBCCCC
 #define MVS_DL_CB_FUNC_ID 0xCCCCDDDD
 
+/* MVS frame modes */
 
 #define MVS_FRAME_MODE_PCM_UL 13
 #define MVS_FRAME_MODE_PCM_DL 14
 
+/* MVS context */
 #define MVS_PKT_CONTEXT_ISR 0x00000001
 
+/* Max voc packet size */
 #define MVS_MAX_VOC_PKT_SIZE 320
 
 #define VOIP_MAX_Q_LEN 20
@@ -246,13 +250,13 @@ struct audio_mvs_info_type {
 
 	unsigned int pcm_size;
 	unsigned int pcm_count;
-	unsigned int pcm_playback_irq_pos;	
-	unsigned int pcm_playback_buf_pos;	
+	unsigned int pcm_playback_irq_pos;	/* IRQ position */
+	unsigned int pcm_playback_buf_pos;	/* position in buffer */
 
 	unsigned int pcm_capture_size;
 	unsigned int pcm_capture_count;
-	unsigned int pcm_capture_irq_pos;	
-	unsigned int pcm_capture_buf_pos;	
+	unsigned int pcm_capture_irq_pos;	/* IRQ position */
+	unsigned int pcm_capture_buf_pos;	/* position in buffer */
 
 	uint32_t samp_rate;
 	uint32_t channel_mode;
@@ -306,13 +310,13 @@ struct audio_voip_info_type {
 
 	unsigned int pcm_playback_size;
 	unsigned int pcm_count;
-	unsigned int pcm_playback_irq_pos;	
-	unsigned int pcm_playback_buf_pos;	
+	unsigned int pcm_playback_irq_pos;	/* IRQ position */
+	unsigned int pcm_playback_buf_pos;	/* position in buffer */
 
 	unsigned int pcm_capture_size;
 	unsigned int pcm_capture_count;
-	unsigned int pcm_capture_irq_pos;	
-	unsigned int pcm_capture_buf_pos;	
+	unsigned int pcm_capture_irq_pos;	/* IRQ position */
+	unsigned int pcm_capture_buf_pos;	/* position in buffer */
 
 	struct snd_pcm_substream *playback_substream;
 	struct snd_pcm_substream *capture_substream;
@@ -339,15 +343,15 @@ struct audio_voip_info_type {
 };
 
 enum msm_audio_pcm_frame_type {
-	MVS_AMR_SPEECH_GOOD,	
-	MVS_AMR_SPEECH_DEGRADED,	
-	MVS_AMR_ONSET,		
-	MVS_AMR_SPEECH_BAD,	
-	MVS_AMR_SID_FIRST,	
-	MVS_AMR_SID_UPDATE,	
-	MVS_AMR_SID_BAD,	
-	MVS_AMR_NO_DATA,	
-	MVS_AMR_SPEECH_LOST,	
+	MVS_AMR_SPEECH_GOOD,	/* Good speech frame              */
+	MVS_AMR_SPEECH_DEGRADED,	/* Speech degraded                */
+	MVS_AMR_ONSET,		/* onset                          */
+	MVS_AMR_SPEECH_BAD,	/* Corrupt speech frame (bad CRC) */
+	MVS_AMR_SID_FIRST,	/* First silence descriptor       */
+	MVS_AMR_SID_UPDATE,	/* Comfort noise frame            */
+	MVS_AMR_SID_BAD,	/* Corrupt SID frame (bad CRC)    */
+	MVS_AMR_NO_DATA,	/* Nothing to transmit            */
+	MVS_AMR_SPEECH_LOST,	/* downlink speech lost           */
 };
 
 enum msm_audio_dtx_mode_type { MVS_DTX_OFF, MVS_DTX_ON
@@ -362,4 +366,4 @@ extern struct snd_soc_dai_driver msm_mvs_dais[2];
 extern struct snd_soc_codec_device soc_codec_dev_msm_mvs;
 extern struct snd_soc_platform_driver msm_mvs_soc_platform;
 extern struct snd_soc_platform_driver msm_voip_soc_platform;
-#endif 
+#endif /* __MSM_AUDIO_MVS_H */

@@ -20,6 +20,6 @@ static inline int touchkit_ps2_detect(struct psmouse *psmouse,
 {
 	return -ENOSYS;
 }
-#endif 
+#endif /* CONFIG_MOUSE_PS2_TOUCHKIT */
 
 #endif

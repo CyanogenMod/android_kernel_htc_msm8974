@@ -20,24 +20,31 @@
  * published by the Free Software Foundation.
 */
 
+/* include the core definitions here, in case we really do need to
+ * override them at a later date.
+*/
 
 #include <plat/regs-fb.h>
 
-#define S3C_FB_MAX_WIN (5)  
+#define S3C_FB_MAX_WIN (5)  /* number of hardware windows available. */
 #define VIDCON1_FSTATUS_EVEN	(1 << 15)
 
+/* Video timing controls */
 #define VIDTCON0				(0x10)
 #define VIDTCON1				(0x14)
 #define VIDTCON2				(0x18)
 
+/* Window position controls */
 
 #define WINCON(_win)				(0x20 + ((_win) * 4))
 
+/* OSD1 and OSD4 do not have register D */
 
 #define VIDOSD_BASE				(0x40)
 
 #define VIDINTCON0				(0x130)
 
+/* WINCONx */
 
 #define WINCONx_CSCWIDTH_MASK			(0x3 << 26)
 #define WINCONx_CSCWIDTH_SHIFT			(26)
@@ -122,8 +129,31 @@
 
 #define WPALCON					(0x1A0)
 
+/* Palette control */
+/* Note for S5PC100: you can still use those macros on WPALCON (aka WPALCON_L),
+ * but make sure that WPALCON_H W2PAL-W4PAL entries are zeroed out */
 #define WPALCON_W4PAL_16BPP_A555		(1 << 8)
 #define WPALCON_W3PAL_16BPP_A555		(1 << 7)
 #define WPALCON_W2PAL_16BPP_A555		(1 << 6)
 
 
+/* Notes on per-window bpp settings
+ *
+ * Value	Win0	 Win1	  Win2	   Win3	    Win 4
+ * 0000		1(P)	 1(P)	  1(P)	   1(P)	    1(P)
+ * 0001		2(P)	 2(P)     2(P)	   2(P)	    2(P)
+ * 0010		4(P)	 4(P)     4(P)	   4(P)     -none-
+ * 0011		8(P)	 8(P)     -none-   -none-   -none-
+ * 0100		-none-	 8(A232)  8(A232)  -none-   -none-
+ * 0101		16(565)	 16(565)  16(565)  16(565)   16(565)
+ * 0110		-none-	 16(A555) 16(A555) 16(A555)  16(A555)
+ * 0111		16(I555) 16(I565) 16(I555) 16(I555)  16(I555)
+ * 1000		18(666)	 18(666)  18(666)  18(666)   18(666)
+ * 1001		-none-	 18(A665) 18(A665) 18(A665)  16(A665)
+ * 1010		-none-	 19(A666) 19(A666) 19(A666)  19(A666)
+ * 1011		24(888)	 24(888)  24(888)  24(888)   24(888)
+ * 1100		-none-	 24(A887) 24(A887) 24(A887)  24(A887)
+ * 1101		-none-	 25(A888) 25(A888) 25(A888)  25(A888)
+ * 1110		-none-	 -none-	  -none-   -none-    -none-
+ * 1111		-none-	 -none-   -none-   -none-    -none-
+*/

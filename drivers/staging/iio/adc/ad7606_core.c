@@ -28,7 +28,7 @@ int ad7606_reset(struct ad7606_state *st)
 {
 	if (gpio_is_valid(st->pdata->gpio_reset)) {
 		gpio_set_value(st->pdata->gpio_reset, 1);
-		ndelay(100); 
+		ndelay(100); /* t_reset >= 100ns */
 		gpio_set_value(st->pdata->gpio_reset, 0);
 		return 0;
 	}
@@ -53,7 +53,7 @@ static int ad7606_scan_direct(struct iio_dev *indio_dev, unsigned ch)
 		if (ret)
 			goto error_ret;
 		if (!gpio_get_value(st->pdata->gpio_frstdata)) {
-			
+			/* This should never happen */
 			ad7606_reset(st);
 			ret = -EIO;
 			goto error_ret;
@@ -270,6 +270,9 @@ static struct iio_chan_spec ad7606_4_channels[] = {
 };
 
 static const struct ad7606_chip_info ad7606_chip_info_tbl[] = {
+	/*
+	 * More devices added in future
+	 */
 	[ID_AD7606_8] = {
 		.name = "ad7606",
 		.int_vref_mv = 2500,
@@ -407,6 +410,9 @@ static void ad7606_free_gpios(struct ad7606_state *st)
 	gpio_free(st->pdata->gpio_convst);
 }
 
+/**
+ *  Interrupt handler
+ */
 static irqreturn_t ad7606_interrupt(int irq, void *dev_id)
 {
 	struct iio_dev *indio_dev = dev_id;

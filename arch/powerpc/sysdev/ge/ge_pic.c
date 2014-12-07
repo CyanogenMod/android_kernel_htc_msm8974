@@ -35,6 +35,7 @@
 
 #define GEF_PIC_NUM_IRQS	32
 
+/* Interrupt Controller Interface Registers */
 #define GEF_PIC_INTR_STATUS	0x0000
 
 #define GEF_PIC_INTR_MASK(cpu)	(0x0010 + (0x4 * cpu))
@@ -52,12 +53,53 @@ static void __iomem *gef_pic_irq_reg_base;
 static struct irq_domain *gef_pic_irq_host;
 static int gef_pic_cascade_irq;
 
+/*
+ * Interrupt Controller Handling
+ *
+ * The interrupt controller handles interrupts for most on board interrupts,
+ * apart from PCI interrupts. For example on SBC610:
+ *
+ * 17:31 RO Reserved
+ * 16    RO PCI Express Doorbell 3 Status
+ * 15    RO PCI Express Doorbell 2 Status
+ * 14    RO PCI Express Doorbell 1 Status
+ * 13    RO PCI Express Doorbell 0 Status
+ * 12    RO Real Time Clock Interrupt Status
+ * 11    RO Temperature Interrupt Status
+ * 10    RO Temperature Critical Interrupt Status
+ * 9     RO Ethernet PHY1 Interrupt Status
+ * 8     RO Ethernet PHY3 Interrupt Status
+ * 7     RO PEX8548 Interrupt Status
+ * 6     RO Reserved
+ * 5     RO Watchdog 0 Interrupt Status
+ * 4     RO Watchdog 1 Interrupt Status
+ * 3     RO AXIS Message FIFO A Interrupt Status
+ * 2     RO AXIS Message FIFO B Interrupt Status
+ * 1     RO AXIS Message FIFO C Interrupt Status
+ * 0     RO AXIS Message FIFO D Interrupt Status
+ *
+ * Interrupts can be forwarded to one of two output lines. Nothing
+ * clever is done, so if the masks are incorrectly set, a single input
+ * interrupt could generate interrupts on both output lines!
+ *
+ * The dual lines are there to allow the chained interrupts to be easily
+ * passed into two different cores. We currently do not use this functionality
+ * in this driver.
+ *
+ * Controller can also be configured to generate Machine checks (MCP), again on
+ * two lines, to be attached to two different cores. It is suggested that these
+ * should be masked out.
+ */
 
 void gef_pic_cascade(unsigned int irq, struct irq_desc *desc)
 {
 	struct irq_chip *chip = irq_desc_get_chip(desc);
 	unsigned int cascade_irq;
 
+	/*
+	 * See if we actually have an interrupt, call generic handling code if
+	 * we do.
+	 */
 	cascade_irq = gef_pic_get_irq();
 
 	if (cascade_irq != NO_IRQ)
@@ -81,6 +123,9 @@ static void gef_pic_mask(struct irq_data *d)
 
 static void gef_pic_mask_ack(struct irq_data *d)
 {
+	/* Don't think we actually have to do anything to ack an interrupt,
+	 * we just need to clear down the devices interrupt and it will go away
+	 */
 	gef_pic_mask(d);
 }
 
@@ -105,10 +150,13 @@ static struct irq_chip gef_pic_chip = {
 };
 
 
+/* When an interrupt is being configured, this call allows some flexibilty
+ * in deciding which irq_chip structure is used
+ */
 static int gef_pic_host_map(struct irq_domain *h, unsigned int virq,
 			  irq_hw_number_t hwirq)
 {
-	
+	/* All interrupts are LEVEL sensitive */
 	irq_set_status_flags(virq, IRQ_LEVEL);
 	irq_set_chip_and_handler(virq, &gef_pic_chip, handle_level_irq);
 
@@ -135,16 +183,19 @@ static const struct irq_domain_ops gef_pic_host_ops = {
 };
 
 
+/*
+ * Initialisation of PIC, this should be called in BSP
+ */
 void __init gef_pic_init(struct device_node *np)
 {
 	unsigned long flags;
 
-	
+	/* Map the devices registers into memory */
 	gef_pic_irq_reg_base = of_iomap(np, 0);
 
 	raw_spin_lock_irqsave(&gef_pic_lock, flags);
 
-	
+	/* Initialise everything as masked. */
 	out_be32(gef_pic_irq_reg_base + GEF_PIC_CPU0_INTR_MASK, 0);
 	out_be32(gef_pic_irq_reg_base + GEF_PIC_CPU1_INTR_MASK, 0);
 
@@ -153,23 +204,27 @@ void __init gef_pic_init(struct device_node *np)
 
 	raw_spin_unlock_irqrestore(&gef_pic_lock, flags);
 
-	
+	/* Map controller */
 	gef_pic_cascade_irq = irq_of_parse_and_map(np, 0);
 	if (gef_pic_cascade_irq == NO_IRQ) {
 		printk(KERN_ERR "SBC610: failed to map cascade interrupt");
 		return;
 	}
 
-	
+	/* Setup an irq_domain structure */
 	gef_pic_irq_host = irq_domain_add_linear(np, GEF_PIC_NUM_IRQS,
 					  &gef_pic_host_ops, NULL);
 	if (gef_pic_irq_host == NULL)
 		return;
 
-	
+	/* Chain with parent controller */
 	irq_set_chained_handler(gef_pic_cascade_irq, gef_pic_cascade);
 }
 
+/*
+ * This is called when we receive an interrupt with apparently comes from this
+ * chip - check, returning the highest interrupt generated or return NO_IRQ
+ */
 unsigned int gef_pic_get_irq(void)
 {
 	u32 cause, mask, active;

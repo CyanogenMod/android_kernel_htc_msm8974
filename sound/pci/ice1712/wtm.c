@@ -37,6 +37,9 @@
 #include "stac946x.h"
 
 
+/*
+ *	2*ADC 6*DAC no1 ringbuffer r/w on i2c bus
+ */
 static inline void stac9460_put(struct snd_ice1712 *ice, int reg,
 						unsigned char val)
 {
@@ -48,6 +51,9 @@ static inline unsigned char stac9460_get(struct snd_ice1712 *ice, int reg)
 	return snd_vt1724_read_i2c(ice, STAC9460_I2C_ADDR, reg);
 }
 
+/*
+ *	2*ADC 2*DAC no2 ringbuffer r/w on i2c bus
+ */
 static inline void stac9460_2_put(struct snd_ice1712 *ice, int reg,
 						unsigned char val)
 {
@@ -60,6 +66,9 @@ static inline unsigned char stac9460_2_get(struct snd_ice1712 *ice, int reg)
 }
 
 
+/*
+ *	DAC mute control
+ */
 #define stac9460_dac_mute_info		snd_ctl_boolean_mono_info
 
 static int stac9460_dac_mute_get(struct snd_kcontrol *kcontrol,
@@ -122,13 +131,16 @@ static int stac9460_dac_mute_put(struct snd_kcontrol *kcontrol,
 	return change;
 }
 
+/*
+ * 	DAC volume attenuation mixer control
+ */
 static int stac9460_dac_vol_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
 	uinfo->count = 1;
-	uinfo->value.integer.min = 0;			
-	uinfo->value.integer.max = 0x7f;		
+	uinfo->value.integer.min = 0;			/* mute */
+	uinfo->value.integer.max = 0x7f;		/* 0dB */
 	return 0;
 }
 
@@ -194,6 +206,9 @@ static int stac9460_dac_vol_put(struct snd_kcontrol *kcontrol,
 	return change;
 }
 
+/*
+ * ADC mute control
+ */
 #define stac9460_adc_mute_info		snd_ctl_boolean_stereo_info
 
 static int stac9460_adc_mute_get(struct snd_kcontrol *kcontrol,
@@ -251,13 +266,16 @@ static int stac9460_adc_mute_put(struct snd_kcontrol *kcontrol,
 	return change;
 }
 
+/*
+ *ADC gain mixer control
+ */
 static int stac9460_adc_vol_info(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
 	uinfo->count = 2;
-	uinfo->value.integer.min = 0;		
-	uinfo->value.integer.max = 0x0f;	
+	uinfo->value.integer.min = 0;		/* 0dB */
+	uinfo->value.integer.max = 0x0f;	/* 22.5dB */
 	return 0;
 }
 
@@ -318,6 +336,9 @@ static int stac9460_adc_vol_put(struct snd_kcontrol *kcontrol,
 	return change;
 }
 
+/*
+ * MIC / LINE switch fonction
+ */
 
 #define stac9460_mic_sw_info		snd_ctl_boolean_mono_info
 
@@ -360,6 +381,9 @@ static int stac9460_mic_sw_put(struct snd_kcontrol *kcontrol,
 	return change;
 }
 
+/*
+ * Control tabs
+ */
 static struct snd_kcontrol_new stac9640_controls[] __devinitdata = {
 	{
 		.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
@@ -423,6 +447,7 @@ static struct snd_kcontrol_new stac9640_controls[] __devinitdata = {
 
 
 
+/*INIT*/
 static int __devinit wtm_add_controls(struct snd_ice1712 *ice)
 {
 	unsigned int i;
@@ -445,12 +470,12 @@ static int __devinit wtm_init(struct snd_ice1712 *ice)
 	};
 	unsigned short *p;
 
-	
+	/*WTM 192M*/
 	ice->num_total_dacs = 8;
 	ice->num_total_adcs = 4;
 	ice->force_rdma1 = 1;
 
-	
+	/*initialize codec*/
 	p = stac_inits_prodigy;
 	for (; *p != (unsigned short)-1; p += 2) {
 		stac9460_put(ice, p[0], p[1]);
@@ -461,22 +486,23 @@ static int __devinit wtm_init(struct snd_ice1712 *ice)
 
 
 static unsigned char wtm_eeprom[] __devinitdata = {
-	0x47,	
-	0x80,	
-	0xf8,	
-	0xc1	,
-	0x9f,	
-	0xff,	
-	0x7f,	
-	0x9f,	
-	0xff,	
-	0x7f,	
-	0x16,	
-	0x80,	
-	0x00,	
+	0x47,	/*SYSCONF: clock 192KHz, 4ADC, 8DAC */
+	0x80,	/* ACLINK : I2S */
+	0xf8,	/* I2S: vol; 96k, 24bit, 192k */
+	0xc1	/*SPDIF: out-en, spidf ext out*/,
+	0x9f,	/* GPIO_DIR */
+	0xff,	/* GPIO_DIR1 */
+	0x7f,	/* GPIO_DIR2 */
+	0x9f,	/* GPIO_MASK */
+	0xff,	/* GPIO_MASK1 */
+	0x7f,	/* GPIO_MASK2 */
+	0x16,	/* GPIO_STATE */
+	0x80,	/* GPIO_STATE1 */
+	0x00,	/* GPIO_STATE2 */
 };
 
 
+/*entry point*/
 struct snd_ice1712_card_info snd_vt1724_wtm_cards[] __devinitdata = {
 	{
 		.subvendor = VT1724_SUBDEVICE_WTM,
@@ -487,5 +513,5 @@ struct snd_ice1712_card_info snd_vt1724_wtm_cards[] __devinitdata = {
 		.eeprom_size = sizeof(wtm_eeprom),
 		.eeprom_data = wtm_eeprom,
 	},
-	{} 
+	{} /*terminator*/
 };

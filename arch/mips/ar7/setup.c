@@ -81,6 +81,10 @@ static int __init ar7_init_console(void)
 }
 console_initcall(ar7_init_console);
 
+/*
+ * Initializes basic routines and structures pointers, memory size (as
+ * given by the bios and saves the command line.
+ */
 void __init plat_mem_setup(void)
 {
 	unsigned long io_base;

@@ -5,8 +5,11 @@
  * Copyright 2000 Jakub Jelinek (jakub@redhat.com)
  */
 
+/*
+ * I hate traps on the sparc, grrr...
+ */
 
-#include <linux/sched.h>  
+#include <linux/sched.h>  /* for jiffies */
 #include <linux/kernel.h>
 #include <linux/signal.h>
 #include <linux/smp.h>
@@ -24,6 +27,7 @@
 #include "entry.h"
 #include "kernel.h"
 
+/* #define TRAP_DEBUG */
 
 static void instruction_dump(unsigned long *pc)
 {
@@ -45,7 +49,7 @@ void die_if_kernel(char *str, struct pt_regs *regs)
 	static int die_counter;
 	int count = 0;
 
-	
+	/* Amuse the user. */
 	printk(
 "              \\|/ ____ \\|/\n"
 "              \"@'/ ,. \\`@\"\n"
@@ -64,6 +68,10 @@ void die_if_kernel(char *str, struct pt_regs *regs)
 	{
 		struct reg_window32 *rw = (struct reg_window32 *)regs->u_regs[UREG_FP];
 
+		/* Stop the back trace when we hit userland or we
+		 * find some badly aligned kernel stack. Set an upper
+		 * bound in case our stack is trashed and we loop.
+		 */
 		while(rw					&&
 		      count++ < 30				&&
                       (((unsigned long) rw) >= PAGE_OFFSET)	&&
@@ -85,7 +93,7 @@ void do_hw_interrupt(struct pt_regs *regs, unsigned long type)
 	siginfo_t info;
 
 	if(type < 0x80) {
-		
+		/* Sun OS's puke from bad traps, Linux survives! */
 		printk("Unimplemented Sparc TRAP, type = %02lx\n", type);
 		die_if_kernel("Whee... Hello Mr. Penguin", regs);
 	}	
@@ -138,6 +146,7 @@ void do_priv_instruction(struct pt_regs *regs, unsigned long pc, unsigned long n
 	send_sig_info(SIGILL, &info, current);
 }
 
+/* XXX User may want to be allowed to do this. XXX */
 
 void do_memaccess_unaligned(struct pt_regs *regs, unsigned long pc, unsigned long npc,
 			    unsigned long psr)
@@ -148,7 +157,7 @@ void do_memaccess_unaligned(struct pt_regs *regs, unsigned long pc, unsigned lon
 		printk("KERNEL MNA at pc %08lx npc %08lx called by %08lx\n", pc, npc,
 		       regs->u_regs[UREG_RETPC]);
 		die_if_kernel("BOGUS", regs);
-		
+		/* die_if_kernel("Kernel MNA access", regs); */
 	}
 #if 0
 	show_regs (regs);
@@ -158,7 +167,7 @@ void do_memaccess_unaligned(struct pt_regs *regs, unsigned long pc, unsigned lon
 	info.si_signo = SIGBUS;
 	info.si_errno = 0;
 	info.si_code = BUS_ADRALN;
-	info.si_addr =  (void *)0;
+	info.si_addr = /* FIXME: Should dig out mna address */ (void *)0;
 	info.si_trapno = 0;
 	send_sig_info(SIGBUS, &info, current);
 }
@@ -173,17 +182,17 @@ static unsigned long init_fregs[32] __attribute__ ((aligned (8))) =
 void do_fpd_trap(struct pt_regs *regs, unsigned long pc, unsigned long npc,
 		 unsigned long psr)
 {
-	
+	/* Sanity check... */
 	if(psr & PSR_PS)
 		die_if_kernel("Kernel gets FloatingPenguinUnit disabled trap", regs);
 
-	put_psr(get_psr() | PSR_EF);    
+	put_psr(get_psr() | PSR_EF);    /* Allow FPU ops. */
 	regs->psr |= PSR_EF;
 #ifndef CONFIG_SMP
 	if(last_task_used_math == current)
 		return;
 	if(last_task_used_math) {
-		
+		/* Other processes fpu state, save away */
 		struct task_struct *fptask = last_task_used_math;
 		fpsave(&fptask->thread.float_regs[0], &fptask->thread.fsr,
 		       &fptask->thread.fpqueue[0], &fptask->thread.fpqdepth);
@@ -192,7 +201,7 @@ void do_fpd_trap(struct pt_regs *regs, unsigned long pc, unsigned long npc,
 	if(used_math()) {
 		fpload(&current->thread.float_regs[0], &current->thread.fsr);
 	} else {
-		
+		/* Set initial sane state. */
 		fpload(&init_fregs[0], &init_fsr);
 		set_used_math();
 	}
@@ -227,6 +236,10 @@ void do_fpe_trap(struct pt_regs *regs, unsigned long pc, unsigned long npc,
 	struct task_struct *fpt = current;
 #endif
 	put_psr(get_psr() | PSR_EF);
+	/* If nobody owns the fpu right now, just clear the
+	 * error into our fake static buffer and hope it don't
+	 * happen again.  Thank you crashme...
+	 */
 #ifndef CONFIG_SMP
 	if(!fpt) {
 #else
@@ -243,14 +256,14 @@ void do_fpe_trap(struct pt_regs *regs, unsigned long pc, unsigned long npc,
 #endif
 
 	switch ((fpt->thread.fsr & 0x1c000)) {
-	
+	/* switch on the contents of the ftt [floating point trap type] field */
 #ifdef DEBUG_FPU
 	case (1 << 14):
 		printk("IEEE_754_exception\n");
 		break;
 #endif
-	case (2 << 14):  
-	case (3 << 14):  
+	case (2 << 14):  /* unfinished_FPop (underflow & co) */
+	case (3 << 14):  /* unimplemented_FPop (quad stuff, maybe sqrt) */
 		ret = do_mathemu(regs, fpt);
 		break;
 #ifdef DEBUG_FPU
@@ -263,19 +276,22 @@ void do_fpe_trap(struct pt_regs *regs, unsigned long pc, unsigned long npc,
 	case (6 << 14):
 		printk("invalid_fp_register (user error)\n");
 		break;
-#endif 
+#endif /* DEBUG_FPU */
 	}
-	
+	/* If we successfully emulated the FPop, we pretend the trap never happened :-> */
 	if (ret) {
 		fpload(&current->thread.float_regs[0], &current->thread.fsr);
 		return;
 	}
-	
+	/* nope, better SIGFPE the offending process... */
 	       
 #ifdef CONFIG_SMP
 	clear_tsk_thread_flag(fpt, TIF_USEDFPU);
 #endif
 	if(psr & PSR_PS) {
+		/* The first fsr store/load we tried trapped,
+		 * the second one will not (we hope).
+		 */
 		printk("WARNING: FPU exception from kernel mode. at pc=%08lx\n",
 		       regs->pc);
 		regs->pc = regs->npc;
@@ -404,18 +420,21 @@ void handle_hw_divzero(struct pt_regs *regs, unsigned long pc, unsigned long npc
 #ifdef CONFIG_DEBUG_BUGVERBOSE
 void do_BUG(const char *file, int line)
 {
-        
+        // bust_spinlocks(1);   XXX Not in our original BUG()
         printk("kernel BUG at %s:%d!\n", file, line);
 }
 EXPORT_SYMBOL(do_BUG);
 #endif
 
+/* Since we have our mappings set up, on multiprocessors we can spin them
+ * up here so that timer interrupts work during initialization.
+ */
 
 void trap_init(void)
 {
 	extern void thread_info_offsets_are_bolixed_pete(void);
 
-	
+	/* Force linker to barf if mismatched */
 	if (TI_UWINMASK    != offsetof(struct thread_info, uwinmask) ||
 	    TI_TASK        != offsetof(struct thread_info, task) ||
 	    TI_EXECDOMAIN  != offsetof(struct thread_info, exec_domain) ||
@@ -433,8 +452,11 @@ void trap_init(void)
 	    TI_W_SAVED     != offsetof(struct thread_info, w_saved))
 		thread_info_offsets_are_bolixed_pete();
 
-	
+	/* Attach to the address space of init_task. */
 	atomic_inc(&init_mm.mm_count);
 	current->active_mm = &init_mm;
 
+	/* NOTE: Other cpus have this done as they are started
+	 *       up on SMP.
+	 */
 }

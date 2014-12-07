@@ -35,9 +35,9 @@
 #define ALT_CS		0x00000100
 
 struct altera_ci_config {
-	void *dev;
-	void *adapter;
-	struct dvb_demux *demux;
+	void *dev;/* main dev, for example cx23885_dev */
+	void *adapter;/* for CI to connect to */
+	struct dvb_demux *demux;/* for hardware PID filter to connect to */
 	int (*fpga_rw) (void *dev, int ad_rg, int val, int rw);
 };
 
@@ -95,6 +95,6 @@ static inline int altera_pid_feed_control(void *dev, int filt_nr,
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_MEDIA_ALTERA_CI */
 
-#endif 
+#endif /* __ALTERA_CI_H */

@@ -1,3 +1,6 @@
+/*
+ * CHRP pci routines.
+ */
 
 #include <linux/kernel.h>
 #include <linux/pci.h>
@@ -19,8 +22,13 @@
 #include "chrp.h"
 #include "gg2.h"
 
+/* LongTrail */
 void __iomem *gg2_pci_config_base;
 
+/*
+ * The VLSI Golden Gate II has only 512K of PCI configuration space, so we
+ * limit the bus number to 3 bits
+ */
 
 int gg2_read_config(struct pci_bus *bus, unsigned int devfn, int off,
 			   int len, u32 *val)
@@ -30,6 +38,10 @@ int gg2_read_config(struct pci_bus *bus, unsigned int devfn, int off,
 
 	if (bus->number > 7)
 		return PCIBIOS_DEVICE_NOT_FOUND;
+	/*
+	 * Note: the caller has already checked that off is
+	 * suitably aligned and that len is 1, 2 or 4.
+	 */
 	cfg_data = hose->cfg_data + ((bus->number<<16) | (devfn<<8) | off);
 	switch (len) {
 	case 1:
@@ -53,6 +65,10 @@ int gg2_write_config(struct pci_bus *bus, unsigned int devfn, int off,
 
 	if (bus->number > 7)
 		return PCIBIOS_DEVICE_NOT_FOUND;
+	/*
+	 * Note: the caller has already checked that off is
+	 * suitably aligned and that len is 1, 2 or 4.
+	 */
 	cfg_data = hose->cfg_data + ((bus->number<<16) | (devfn<<8) | off);
 	switch (len) {
 	case 1:
@@ -74,6 +90,9 @@ static struct pci_ops gg2_pci_ops =
 	.write = gg2_write_config,
 };
 
+/*
+ * Access functions for PCI config space using RTAS calls.
+ */
 int rtas_read_config(struct pci_bus *bus, unsigned int devfn, int offset,
 		     int len, u32 *val)
 {
@@ -153,7 +172,7 @@ setup_python(struct pci_controller *hose, struct device_node *dev)
 		return;
 	}
 
-	
+	/* Clear the magic go-slow bit */
 	reg = ioremap(r.start + 0xf6000, 0x40);
 	BUG_ON(!reg); 
 	val = in_be32(&reg[12]);
@@ -166,6 +185,7 @@ setup_python(struct pci_controller *hose, struct device_node *dev)
 	setup_indirect_pci(hose, r.start + 0xf8000, r.start + 0xf8010, 0);
 }
 
+/* Marvell Discovery II based Pegasos 2 */
 static void __init setup_peg2(struct pci_controller *hose, struct device_node *dev)
 {
 	struct device_node *root = of_find_node_by_path("/");
@@ -180,7 +200,7 @@ static void __init setup_peg2(struct pci_controller *hose, struct device_node *d
 			" your firmware\n");
 	}
 	pci_add_flags(PCI_REASSIGN_ALL_BUS);
-	
+	/* keep the reference to the root node */
 }
 
 void __init
@@ -195,6 +215,11 @@ chrp_find_bridges(void)
 	int is_longtrail = 0, is_mot = 0, is_pegasos = 0;
 	struct device_node *root = of_find_node_by_path("/");
 	struct resource r;
+	/*
+	 * The PCI host bridge nodes on some machines don't have
+	 * properties to adequately identify them, so we have to
+	 * look at what sort of machine this is as well.
+	 */
 	machine = of_get_property(root, "model", NULL);
 	if (machine != NULL) {
 		is_longtrail = strncmp(machine, "IBM,LongTrail", 13) == 0;
@@ -208,7 +233,7 @@ chrp_find_bridges(void)
 		if (dev->type == NULL || strcmp(dev->type, "pci") != 0)
 			continue;
 		++index;
-		
+		/* The GG2 bridge on the LongTrail doesn't have an address */
 		if (of_address_to_resource(dev, 0, &r) && !is_longtrail) {
 			printk(KERN_WARNING "Can't use %s: no address\n",
 			       dev->full_name);
@@ -279,6 +304,8 @@ chrp_find_bridges(void)
 
 		pci_process_bridge_OF_ranges(hose, dev, index == 0);
 
+		/* check the first bridge for a property that we can
+		   use to set pci_dram_offset */
 		dma = of_get_property(dev, "ibm,dma-ranges", &len);
 		if (index == 0 && dma != NULL && len >= 6 * sizeof(*dma)) {
 			pci_dram_offset = dma[2] - dma[3];
@@ -288,25 +315,31 @@ chrp_find_bridges(void)
 	of_node_put(root);
 }
 
+/* SL82C105 IDE Control/Status Register */
 #define SL82C105_IDECSR                0x40
 
+/* Fixup for Winbond ATA quirk, required for briq mostly because the
+ * 8259 is configured for level sensitive IRQ 14 and so wants the
+ * ATA controller to be set to fully native mode or bad things
+ * will happen.
+ */
 static void __devinit chrp_pci_fixup_winbond_ata(struct pci_dev *sl82c105)
 {
 	u8 progif;
 
-	
+	/* If non-briq machines need that fixup too, please speak up */
 	if (!machine_is(chrp) || _chrp_type != _CHRP_briq)
 		return;
 
 	if ((sl82c105->class & 5) != 5) {
 		printk("W83C553: Switching SL82C105 IDE to PCI native mode\n");
-		
+		/* Enable SL82C105 PCI native IDE mode */
 		pci_read_config_byte(sl82c105, PCI_CLASS_PROG, &progif);
 		pci_write_config_byte(sl82c105, PCI_CLASS_PROG, progif | 0x05);
 		sl82c105->class |= 0x05;
-		
+		/* Disable SL82C105 second port */
 		pci_write_config_word(sl82c105, SL82C105_IDECSR, 0x0003);
-		
+		/* Clear IO BARs, they will be reassigned */
 		pci_write_config_dword(sl82c105, PCI_BASE_ADDRESS_0, 0);
 		pci_write_config_dword(sl82c105, PCI_BASE_ADDRESS_1, 0);
 		pci_write_config_dword(sl82c105, PCI_BASE_ADDRESS_2, 0);
@@ -316,6 +349,12 @@ static void __devinit chrp_pci_fixup_winbond_ata(struct pci_dev *sl82c105)
 DECLARE_PCI_FIXUP_EARLY(PCI_VENDOR_ID_WINBOND, PCI_DEVICE_ID_WINBOND_82C105,
 			chrp_pci_fixup_winbond_ata);
 
+/* Pegasos2 firmware version 20040810 configures the built-in IDE controller
+ * in legacy mode, but sets the PCI registers to PCI native mode.
+ * The chip can only operate in legacy mode, so force the PCI class into legacy
+ * mode as well. The same fixup must be done to the class-code property in
+ * the IDE node /pci@80000000/ide@C,1
+ */
 static void chrp_pci_fixup_vt8231_ata(struct pci_dev *viaide)
 {
 	u8 progif;

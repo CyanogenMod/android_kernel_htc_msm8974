@@ -11,6 +11,18 @@
 *******************************************************************************
 ******************************************************************************/
 
+/*
+ * midcomms.c
+ *
+ * This is the appallingly named "mid-level" comms layer.
+ *
+ * Its purpose is to take packets from the "real" comms layer,
+ * split them up into packets and pass them to the interested
+ * part of the locking mechanism.
+ *
+ * It also takes messages from the locking layer, formats them
+ * into packets and sends them to the comms layer.
+ */
 
 #include "dlm_internal.h"
 #include "lowcomms.h"
@@ -32,13 +44,23 @@ static void copy_from_cb(void *dst, const void *base, unsigned offset,
 		memcpy(dst + copy, base, len);
 }
 
+/*
+ * Called from the low-level comms layer to process a buffer of
+ * commands.
+ *
+ * Only complete messages are processed here, any "spare" bytes from
+ * the end of a buffer are saved and tacked onto the front of the next
+ * message that comes in. I doubt this will happen very often but we
+ * need to be able to cope with it and I don't want the task to be waiting
+ * for packets to come in when there is useful work to be done.
+ */
 
 int dlm_process_incoming_buffer(int nodeid, const void *base,
 				unsigned offset, unsigned len, unsigned limit)
 {
 	union {
 		unsigned char __buf[DLM_INBUF_LEN];
-		
+		/* this is to force proper alignment on some arches */
 		union dlm_packet p;
 	} __tmp;
 	union dlm_packet *p = &__tmp.p;
@@ -49,6 +71,9 @@ int dlm_process_incoming_buffer(int nodeid, const void *base,
 
 	while (len > sizeof(struct dlm_header)) {
 
+		/* Copy just the header to check the total length.  The
+		   message may wrap around the end of the buffer back to the
+		   start, so we need to use a temp buffer and copy_from_cb. */
 
 		copy_from_cb(p, base, offset, sizeof(struct dlm_header),
 			     limit);
@@ -74,10 +99,17 @@ int dlm_process_incoming_buffer(int nodeid, const void *base,
 		}
 		err = 0;
 
+		/* If only part of the full message is contained in this
+		   buffer, then do nothing and wait for lowcomms to call
+		   us again later with more data.  We return 0 meaning
+		   we've consumed none of the input buffer. */
 
 		if (msglen > len)
 			break;
 
+		/* Allocate a larger temp buffer if the full message won't fit
+		   in the buffer on the stack (which should work for most
+		   ordinary messages). */
 
 		if (msglen > sizeof(__tmp) && p == &__tmp.p) {
 			p = kmalloc(dlm_config.ci_buffer_size, GFP_NOFS);

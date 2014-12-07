@@ -20,6 +20,7 @@ struct dove_mpp_grp {
 	int end;
 };
 
+/* Map a group to a range of GPIO pins in that group */
 static const struct dove_mpp_grp dove_mpp_grp[] = {
 	[MPP_24_39] = {
 		.start	= 24,
@@ -43,6 +44,8 @@ static const struct dove_mpp_grp dove_mpp_grp[] = {
 	},
 };
 
+/* Enable gpio for a range of pins. mode should be a combination of
+   GPIO_OUTPUT_OK | GPIO_INPUT_OK */
 static void dove_mpp_gpio_mode(int start, int end, int gpio_mode)
 {
 	int i;
@@ -51,6 +54,8 @@ static void dove_mpp_gpio_mode(int start, int end, int gpio_mode)
 		orion_gpio_set_valid(i, gpio_mode);
 }
 
+/* Dump all the extra MPP registers. The platform code will dump the
+   registers for pins 0-23. */
 static void dove_mpp_dump_regs(void)
 {
 	pr_debug("PMU_CTRL4_CTRL: %08x\n",
@@ -111,6 +116,8 @@ static void dove_mpp_cfg_au1(int sel)
 	writel(global_cfg_2, DOVE_GLOBAL_CONFIG_2);
 }
 
+/* Configure the group registers, enabling GPIO if sel indicates the
+   pin is to be used for GPIO */
 static void dove_mpp_conf_grp(unsigned int *mpp_grp_list)
 {
 	u32 mpp_ctrl4 = readl(DOVE_MPP_CTRL4_VIRT_BASE);
@@ -135,6 +142,7 @@ static void dove_mpp_conf_grp(unsigned int *mpp_grp_list)
 	writel(mpp_ctrl4, DOVE_MPP_CTRL4_VIRT_BASE);
 }
 
+/* Configure the various MPP pins on Dove */
 void __init dove_mpp_conf(unsigned int *mpp_list,
 			  unsigned int *mpp_grp_list,
 			  unsigned int grp_au1_52_57,
@@ -142,7 +150,7 @@ void __init dove_mpp_conf(unsigned int *mpp_list,
 {
 	dove_mpp_dump_regs();
 
-	
+	/* Use platform code for pins 0-23 */
 	orion_mpp_conf(mpp_list, 0, MPP_MAX, DOVE_MPP_VIRT_BASE);
 
 	dove_mpp_conf_grp(mpp_grp_list);

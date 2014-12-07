@@ -35,6 +35,9 @@
 
 #include "core.h"
 
+/*
+ * Isochronous DMA context management
+ */
 
 int fw_iso_buffer_init(struct fw_iso_buffer *buffer, struct fw_card *card,
 		       int page_count, enum dma_data_direction direction)
@@ -116,6 +119,7 @@ void fw_iso_buffer_destroy(struct fw_iso_buffer *buffer,
 }
 EXPORT_SYMBOL(fw_iso_buffer_destroy);
 
+/* Convert DMA address to offset into virtually contiguous buffer. */
 size_t fw_iso_buffer_lookup(struct fw_iso_buffer *buffer, dma_addr_t completed)
 {
 	int i;
@@ -200,6 +204,9 @@ int fw_iso_context_stop(struct fw_iso_context *ctx)
 }
 EXPORT_SYMBOL(fw_iso_context_stop);
 
+/*
+ * Isochronous bus resource management (channels, bandwidth), client side
+ */
 
 static int manage_bandwidth(struct fw_card *card, int irm_id, int generation,
 			    int bandwidth, bool allocate)
@@ -207,6 +214,11 @@ static int manage_bandwidth(struct fw_card *card, int irm_id, int generation,
 	int try, new, old = allocate ? BANDWIDTH_AVAILABLE_INITIAL : 0;
 	__be32 data[2];
 
+	/*
+	 * On a 1394a IRM with low contention, try < 1 is enough.
+	 * On a 1394-1995 IRM, we need at least try < 2.
+	 * Let's just do try < 5.
+	 */
 	for (try = 0; try < 5; try++) {
 		new = allocate ? old - bandwidth : old + bandwidth;
 		if (new < 0 || new > BANDWIDTH_AVAILABLE_INITIAL)
@@ -219,7 +231,7 @@ static int manage_bandwidth(struct fw_card *card, int irm_id, int generation,
 				CSR_REGISTER_BASE + CSR_BANDWIDTH_AVAILABLE,
 				data, 8)) {
 		case RCODE_GENERATION:
-			
+			/* A generation change frees all bandwidth. */
 			return allocate ? -EAGAIN : bandwidth;
 
 		case RCODE_COMPLETE:
@@ -227,7 +239,7 @@ static int manage_bandwidth(struct fw_card *card, int irm_id, int generation,
 				return bandwidth;
 
 			old = be32_to_cpup(data);
-			
+			/* Fall through. */
 		}
 	}
 
@@ -259,7 +271,7 @@ static int manage_channel(struct fw_card *card, int irm_id, int generation,
 					   irm_id, generation, SCODE_100,
 					   offset, data, 8)) {
 		case RCODE_GENERATION:
-			
+			/* A generation change frees all channels. */
 			return allocate ? -EAGAIN : channel;
 
 		case RCODE_COMPLETE:
@@ -268,11 +280,11 @@ static int manage_channel(struct fw_card *card, int irm_id, int generation,
 
 			old = data[0];
 
-			
+			/* Is the IRM 1394a-2000 compliant? */
 			if ((data[0] & bit) == (data[1] & bit))
 				continue;
 
-			
+			/* 1394-1995 IRM, fall through to retry. */
 		default:
 			if (retry) {
 				retry--;
@@ -299,12 +311,36 @@ static void deallocate_channel(struct fw_card *card, int irm_id,
 	manage_channel(card, irm_id, generation, mask, offset, false);
 }
 
+/**
+ * fw_iso_resource_manage() - Allocate or deallocate a channel and/or bandwidth
+ *
+ * In parameters: card, generation, channels_mask, bandwidth, allocate
+ * Out parameters: channel, bandwidth
+ * This function blocks (sleeps) during communication with the IRM.
+ *
+ * Allocates or deallocates at most one channel out of channels_mask.
+ * channels_mask is a bitfield with MSB for channel 63 and LSB for channel 0.
+ * (Note, the IRM's CHANNELS_AVAILABLE is a big-endian bitfield with MSB for
+ * channel 0 and LSB for channel 63.)
+ * Allocates or deallocates as many bandwidth allocation units as specified.
+ *
+ * Returns channel < 0 if no channel was allocated or deallocated.
+ * Returns bandwidth = 0 if no bandwidth was allocated or deallocated.
+ *
+ * If generation is stale, deallocations succeed but allocations fail with
+ * channel = -EAGAIN.
+ *
+ * If channel allocation fails, no bandwidth will be allocated either.
+ * If bandwidth allocation fails, no channel will be allocated either.
+ * But deallocations of channel and bandwidth are tried independently
+ * of each other's success.
+ */
 void fw_iso_resource_manage(struct fw_card *card, int generation,
 			    u64 channels_mask, int *channel, int *bandwidth,
 			    bool allocate)
 {
-	u32 channels_hi = channels_mask;	
-	u32 channels_lo = channels_mask >> 32;	
+	u32 channels_hi = channels_mask;	/* channels 31...0 */
+	u32 channels_lo = channels_mask >> 32;	/* channels 63...32 */
 	int irm_id, ret, c = -EINVAL;
 
 	spin_lock_irq(&card->lock);

@@ -1,5 +1,6 @@
 #include <linux/kernel.h>
 #include <linux/stat.h>
+/* FIX UP */
 #include "soundbus.h"
 
 #define soundbus_config_of_attr(field, format_string)			\

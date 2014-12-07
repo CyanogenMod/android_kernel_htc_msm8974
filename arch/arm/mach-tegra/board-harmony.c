@@ -137,7 +137,7 @@ static void __init tegra_harmony_fixup(struct tag *tags, char **cmdline,
 }
 
 static __initdata struct tegra_clk_init_table harmony_clk_init_table[] = {
-	
+	/* name		parent		rate		enabled */
 	{ "uartd",	"pll_p",	216000000,	true },
 	{ "pll_a",	"pll_p_out1",	56448000,	true },
 	{ "pll_a_out0",	"pll_a",	11289600,	true },

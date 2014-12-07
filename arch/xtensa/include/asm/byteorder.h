@@ -9,4 +9,4 @@
 # error processor byte order undefined!
 #endif
 
-#endif 
+#endif /* _XTENSA_BYTEORDER_H */

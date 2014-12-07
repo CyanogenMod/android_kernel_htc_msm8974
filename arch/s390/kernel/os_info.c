@@ -14,14 +14,23 @@
 #include <asm/lowcore.h>
 #include <asm/os_info.h>
 
+/*
+ * OS info structure has to be page aligned
+ */
 static struct os_info os_info __page_aligned_data;
 
+/*
+ * Compute checksum over OS info structure
+ */
 u32 os_info_csum(struct os_info *os_info)
 {
 	int size = sizeof(*os_info) - offsetof(struct os_info, version_major);
 	return csum_partial(&os_info->version_major, size, 0);
 }
 
+/*
+ * Add crashkernel info to OS info and update checksum
+ */
 void os_info_crashkernel_add(unsigned long base, unsigned long size)
 {
 	os_info.crashkernel_addr = (u64)(unsigned long)base;
@@ -29,6 +38,9 @@ void os_info_crashkernel_add(unsigned long base, unsigned long size)
 	os_info.csum = os_info_csum(&os_info);
 }
 
+/*
+ * Add OS info entry and update checksum
+ */
 void os_info_entry_add(int nr, void *ptr, u64 size)
 {
 	os_info.entry[nr].addr = (u64)(unsigned long)ptr;
@@ -37,6 +49,9 @@ void os_info_entry_add(int nr, void *ptr, u64 size)
 	os_info.csum = os_info_csum(&os_info);
 }
 
+/*
+ * Initialize OS info struture and set lowcore pointer
+ */
 void __init os_info_init(void)
 {
 	void *ptr = &os_info;
@@ -52,6 +67,9 @@ void __init os_info_init(void)
 
 static struct os_info *os_info_old;
 
+/*
+ * Allocate and copy OS info entry from oldmem
+ */
 static void os_info_old_alloc(int nr, int align)
 {
 	unsigned long addr, size = 0;
@@ -91,6 +109,9 @@ out:
 		nr, msg, addr, size);
 }
 
+/*
+ * Initialize os info and os info entries from oldmem
+ */
 static void os_info_old_init(void)
 {
 	static int os_info_init;
@@ -130,6 +151,9 @@ fail:
 	os_info_old = NULL;
 }
 
+/*
+ * Return pointer to os infor entry and its size
+ */
 void *os_info_old_entry(int nr, unsigned long *size)
 {
 	os_info_old_init();

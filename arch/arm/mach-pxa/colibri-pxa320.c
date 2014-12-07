@@ -36,16 +36,16 @@
 
 #ifdef	CONFIG_MACH_COLIBRI_EVALBOARD
 static mfp_cfg_t colibri_pxa320_evalboard_pin_config[] __initdata = {
-	
+	/* MMC */
 	GPIO22_MMC1_CLK,
 	GPIO23_MMC1_CMD,
 	GPIO18_MMC1_DAT0,
 	GPIO19_MMC1_DAT1,
 	GPIO20_MMC1_DAT2,
 	GPIO21_MMC1_DAT3,
-	GPIO28_GPIO,	
+	GPIO28_GPIO,	/* SD detect */
 
-	
+	/* UART 1 configuration (may be set by bootloader) */
 	GPIO99_UART1_CTS,
 	GPIO104_UART1_RTS,
 	GPIO97_UART1_RXD,
@@ -55,44 +55,44 @@ static mfp_cfg_t colibri_pxa320_evalboard_pin_config[] __initdata = {
 	GPIO100_UART1_DCD,
 	GPIO102_UART1_RI,
 
-	
+	/* UART 2 configuration */
 	GPIO109_UART2_CTS,
 	GPIO112_UART2_RTS,
 	GPIO110_UART2_RXD,
 	GPIO111_UART2_TXD,
 
-	
+	/* UART 3 configuration */
 	GPIO30_UART3_RXD,
 	GPIO31_UART3_TXD,
 
-	
+	/* UHC */
 	GPIO2_2_USBH_PEN,
 	GPIO3_2_USBH_PWR,
 
-	
+	/* I2C */
 	GPIO32_I2C_SCL,
 	GPIO33_I2C_SDA,
 
-	
-	MFP_CFG(GPIO59, AF7),	
-	MFP_CFG(GPIO61, AF7),	
-	MFP_CFG(GPIO60, AF7),	
-	MFP_CFG(GPIO62, AF7),	
-	MFP_CFG(GPIO56, AF7),	
-	GPIO27_GPIO,		
-	GPIO50_GPIO,		
+	/* PCMCIA */
+	MFP_CFG(GPIO59, AF7),	/* PRST ; AF7 to tristate */
+	MFP_CFG(GPIO61, AF7),	/* PCE1 ; AF7 to tristate */
+	MFP_CFG(GPIO60, AF7),	/* PCE2 ; AF7 to tristate */
+	MFP_CFG(GPIO62, AF7),	/* PCD ; AF7 to tristate */
+	MFP_CFG(GPIO56, AF7),	/* PSKTSEL ; AF7 to tristate */
+	GPIO27_GPIO,		/* RDnWR ; input/tristate */
+	GPIO50_GPIO,		/* PREG ; input/tristate */
 	GPIO2_RDY,
 	GPIO5_NPIOR,
 	GPIO6_NPIOW,
 	GPIO7_NPIOS16,
 	GPIO8_NPWAIT,
-	GPIO29_GPIO,		
-	GPIO57_GPIO,		
-	GPIO81_GPIO,		
-	GPIO77_GPIO,		
-	GPIO53_GPIO,		
-	GPIO79_GPIO,		
-	GPIO54_GPIO,		
+	GPIO29_GPIO,		/* PRDY (READY GPIO) */
+	GPIO57_GPIO,		/* PPEN (POWER GPIO) */
+	GPIO81_GPIO,		/* PCD (DETECT GPIO) */
+	GPIO77_GPIO,		/* PRST (RESET GPIO) */
+	GPIO53_GPIO,		/* PBVD1 */
+	GPIO79_GPIO,		/* PBVD2 */
+	GPIO54_GPIO,		/* POE */
 };
 #else
 static mfp_cfg_t colibri_pxa320_evalboard_pin_config[] __initdata = {};
@@ -100,8 +100,11 @@ static mfp_cfg_t colibri_pxa320_evalboard_pin_config[] __initdata = {};
 
 #if defined(CONFIG_AX88796)
 #define COLIBRI_ETH_IRQ_GPIO	mfp_to_gpio(GPIO36_GPIO)
+/*
+ * Asix AX88796 Ethernet
+ */
 static struct ax_plat_data colibri_asix_platdata = {
-	.flags		= 0, 
+	.flags		= 0, /* defined later */
 	.wordlength	= 2,
 };
 
@@ -129,8 +132,8 @@ static struct platform_device asix_device = {
 };
 
 static mfp_cfg_t colibri_pxa320_eth_pin_config[] __initdata = {
-	GPIO3_nCS2,			
-	GPIO36_GPIO | MFP_PULL_HIGH	
+	GPIO3_nCS2,			/* AX88796 chip select */
+	GPIO36_GPIO | MFP_PULL_HIGH	/* AX88796 IRQ */
 };
 
 static void __init colibri_pxa320_init_eth(void)
@@ -141,7 +144,7 @@ static void __init colibri_pxa320_init_eth(void)
 }
 #else
 static inline void __init colibri_pxa320_init_eth(void) {}
-#endif 
+#endif /* CONFIG_AX88796 */
 
 #if defined(CONFIG_USB_PXA27X)||defined(CONFIG_USB_PXA27X_MODULE)
 static struct gpio_vbus_mach_info colibri_pxa320_gpio_vbus_info = {
@@ -244,7 +247,7 @@ void __init colibri_pxa320_init(void)
 	colibri_pxa320_init_ac97();
 	colibri_pxa320_init_udc();
 
-	
+	/* Evalboard init */
 	pxa3xx_mfp_config(ARRAY_AND_SIZE(colibri_pxa320_evalboard_pin_config));
 	colibri_evalboard_init();
 }

@@ -29,8 +29,11 @@
 
 #include "../rtl8192ce/def.h"
 
-#define CHIP_8723			BIT(2) 
-#define CHIP_8723_DRV_REV		BIT(3) 
+/*-------------------------------------------------------------------------
+ *	Chip specific
+ *-------------------------------------------------------------------------*/
+#define CHIP_8723			BIT(2) /* RTL8723 With BT feature */
+#define CHIP_8723_DRV_REV		BIT(3) /* RTL8723 Driver Revised */
 #define NORMAL_CHIP			BIT(4)
 #define CHIP_VENDOR_UMC			BIT(5)
 #define CHIP_VENDOR_UMC_B_CUT		BIT(6)

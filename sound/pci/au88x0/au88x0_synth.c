@@ -14,6 +14,10 @@
  *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+/*
+ * Someday its supposed to make use of the WT DMA engine
+ * for a Wavetable synthesizer.
+ */
 
 #include "au88x0.h"
 #include "au88x0_wt.h"
@@ -30,23 +34,26 @@ static void vortex_fifo_wtinitialize(vortex_t * vortex, int fifo, int j);
 static int vortex_wt_SetReg(vortex_t * vortex, unsigned char reg, int wt,
 			    u32 val);
 
+/* WT */
 
+/* Put 2 WT channels together for one stereo interlaced channel. */
 static void vortex_wt_setstereo(vortex_t * vortex, u32 wt, u32 stereo)
 {
 	int temp;
 
-	
+	//temp = hwread(vortex->mmio, 0x80 + ((wt >> 0x5)<< 0xf) + (((wt & 0x1f) >> 1) << 2));
 	temp = hwread(vortex->mmio, WT_STEREO(wt));
 	temp = (temp & 0xfe) | (stereo & 1);
-	
+	//hwwrite(vortex->mmio, 0x80 + ((wt >> 0x5)<< 0xf) + (((wt & 0x1f) >> 1) << 2), temp);
 	hwwrite(vortex->mmio, WT_STEREO(wt), temp);
 }
 
+/* Join to mixdown route. */
 static void vortex_wt_setdsout(vortex_t * vortex, u32 wt, int en)
 {
 	int temp;
 
-	
+	/* There is one DSREG register for each bank (32 voices each). */
 	temp = hwread(vortex->mmio, WT_DSREG((wt >= 0x20) ? 1 : 0));
 	if (en)
 		temp |= (1 << (wt & 0x1f));
@@ -55,12 +62,13 @@ static void vortex_wt_setdsout(vortex_t * vortex, u32 wt, int en)
 	hwwrite(vortex->mmio, WT_DSREG((wt >= 0x20) ? 1 : 0), temp);
 }
 
+/* Setup WT route. */
 static int vortex_wt_allocroute(vortex_t * vortex, int wt, int nr_ch)
 {
 	wt_voice_t *voice = &(vortex->wt_voice[wt]);
 	int temp;
 
-	
+	//FIXME: WT audio routing.
 	if (nr_ch) {
 		vortex_fifo_wtinitialize(vortex, wt, 1);
 		vortex_fifo_setwtvalid(vortex, wt, 1);
@@ -68,14 +76,14 @@ static int vortex_wt_allocroute(vortex_t * vortex, int wt, int nr_ch)
 	} else
 		vortex_fifo_setwtvalid(vortex, wt, 0);
 	
-	
+	/* Set mixdown mode. */
 	vortex_wt_setdsout(vortex, wt, 1);
-	
+	/* Set other parameter registers. */
 	hwwrite(vortex->mmio, WT_SRAMP(0), 0x880000);
-	
+	//hwwrite(vortex->mmio, WT_GMODE(0), 0xffffffff);
 #ifdef CHIP_AU8830
 	hwwrite(vortex->mmio, WT_SRAMP(1), 0x880000);
-	
+	//hwwrite(vortex->mmio, WT_GMODE(1), 0xffffffff);
 #endif
 	hwwrite(vortex->mmio, WT_PARM(wt, 0), 0);
 	hwwrite(vortex->mmio, WT_PARM(wt, 1), 0);
@@ -83,7 +91,7 @@ static int vortex_wt_allocroute(vortex_t * vortex, int wt, int nr_ch)
 
 	temp = hwread(vortex->mmio, WT_PARM(wt, 3));
 	printk(KERN_DEBUG "vortex: WT PARM3: %x\n", temp);
-	
+	//hwwrite(vortex->mmio, WT_PARM(wt, 3), temp);
 
 	hwwrite(vortex->mmio, WT_DELAY(wt, 0), 0);
 	hwwrite(vortex->mmio, WT_DELAY(wt, 1), 0);
@@ -139,10 +147,11 @@ static void vortex_wt_connect(vortex_t * vortex, int en)
 	}
 }
 
+/* Read WT Register */
 #if 0
 static int vortex_wt_GetReg(vortex_t * vortex, char reg, int wt)
 {
-	
+	//int eax, esi;
 
 	if (reg == 4) {
 		return hwread(vortex->mmio, WT_PARM(wt, 3));
@@ -154,13 +163,30 @@ static int vortex_wt_GetReg(vortex_t * vortex, char reg, int wt)
 	return 0;
 }
 
+/* WT hardware abstraction layer generic register interface. */
 static int
 vortex_wt_SetReg2(vortex_t * vortex, unsigned char reg, int wt,
 		  u16 val)
 {
+	/*
+	   int eax, edx;
+
+	   if (wt >= NR_WT)  // 0x40 -> NR_WT
+	   return 0;
+
+	   if ((reg - 0x20) > 0) {
+	   if ((reg - 0x21) != 0) 
+	   return 0;
+	   eax = ((((b & 0xff) << 0xb) + (edx & 0xff)) << 4) + 0x208; // param 2
+	   } else {
+	   eax = ((((b & 0xff) << 0xb) + (edx & 0xff)) << 4) + 0x20a; // param 3
+	   }
+	   hwwrite(vortex->mmio, eax, c);
+	 */
 	return 1;
 }
 
+/*public: static void __thiscall CWTHal::SetReg(unsigned char,int,unsigned long) */
 #endif
 static int
 vortex_wt_SetReg(vortex_t * vortex, unsigned char reg, int wt,
@@ -185,33 +211,61 @@ vortex_wt_SetReg(vortex_t * vortex, unsigned char reg, int wt,
 		return 0;
 
 	switch (reg) {
-		
-	case 0:		
+		/* Voice specific parameters */
+	case 0:		/* running */
+		/*
+		printk(KERN_DEBUG "vortex: WT SetReg(0x%x) = 0x%08x\n",
+		       WT_RUN(wt), (int)val);
+		*/
 		hwwrite(vortex->mmio, WT_RUN(wt), val);
 		return 0xc;
 		break;
-	case 1:		
+	case 1:		/* param 0 */
+		/*
+		printk(KERN_DEBUG "vortex: WT SetReg(0x%x) = 0x%08x\n",
+		       WT_PARM(wt,0), (int)val);
+		*/
 		hwwrite(vortex->mmio, WT_PARM(wt, 0), val);
 		return 0xc;
 		break;
-	case 2:		
+	case 2:		/* param 1 */
+		/*
+		printk(KERN_DEBUG "vortex: WT SetReg(0x%x) = 0x%08x\n",
+		       WT_PARM(wt,1), (int)val);
+		*/
 		hwwrite(vortex->mmio, WT_PARM(wt, 1), val);
 		return 0xc;
 		break;
-	case 3:		
+	case 3:		/* param 2 */
+		/*
+		printk(KERN_DEBUG "vortex: WT SetReg(0x%x) = 0x%08x\n",
+		       WT_PARM(wt,2), (int)val);
+		*/
 		hwwrite(vortex->mmio, WT_PARM(wt, 2), val);
 		return 0xc;
 		break;
-	case 4:		
+	case 4:		/* param 3 */
+		/*
+		printk(KERN_DEBUG "vortex: WT SetReg(0x%x) = 0x%08x\n",
+		       WT_PARM(wt,3), (int)val);
+		*/
 		hwwrite(vortex->mmio, WT_PARM(wt, 3), val);
 		return 0xc;
 		break;
-	case 6:		
+	case 6:		/* mute */
+		/*
+		printk(KERN_DEBUG "vortex: WT SetReg(0x%x) = 0x%08x\n",
+		       WT_MUTE(wt), (int)val);
+		*/
 		hwwrite(vortex->mmio, WT_MUTE(wt), val);
 		return 0xc;
 		break;
 	case 0xb:
-		{		
+		{		/* delay */
+			/*
+			printk(KERN_DEBUG "vortex: WT SetReg(0x%x) = 0x%08x\n",
+			       WT_DELAY(wt,0), (int)val);
+			*/
 			hwwrite(vortex->mmio, WT_DELAY(wt, 3), val);
 			hwwrite(vortex->mmio, WT_DELAY(wt, 2), val);
 			hwwrite(vortex->mmio, WT_DELAY(wt, 1), val);
@@ -219,26 +273,29 @@ vortex_wt_SetReg(vortex_t * vortex, unsigned char reg, int wt,
 			return 0xc;
 		}
 		break;
-		
-	case 5:		
+		/* Global WT block parameters */
+	case 5:		/* sramp */
 		ecx = WT_SRAMP(wt);
 		break;
-	case 8:		
+	case 8:		/* aramp */
 		ecx = WT_ARAMP(wt);
 		break;
-	case 9:		
+	case 9:		/* mramp */
 		ecx = WT_MRAMP(wt);
 		break;
-	case 0xa:		
+	case 0xa:		/* ctrl */
 		ecx = WT_CTRL(wt);
 		break;
-	case 0xc:		
+	case 0xc:		/* ds_reg */
 		ecx = WT_DSREG(wt);
 		break;
 	default:
 		return 0;
 		break;
 	}
+	/*
+	printk(KERN_DEBUG "vortex: WT SetReg(0x%x) = 0x%08x\n", ecx, (int)val);
+	*/
 	hwwrite(vortex->mmio, ecx, val);
 	return 1;
 }
@@ -255,45 +312,46 @@ static void vortex_wt_init(vortex_t * vortex)
 	var10 &= 0xfffffffe;
 	var10 &= 0xfffffbff;
 	var10 |= 0x1800;
-	
+	// var10 = 0x1AA2
 	var4 = 0x10000000;
 	varc = 0x00830000;
 	var8 = 0x00830000;
 
-	
+	/* Init Bank registers. */
 	for (edi = 0; edi < (NR_WT / NR_WT_PB); edi++) {
-		vortex_wt_SetReg(vortex, 0xc, edi, 0);	
-		vortex_wt_SetReg(vortex, 0xa, edi, var10);	
-		vortex_wt_SetReg(vortex, 0x9, edi, var4);	
-		vortex_wt_SetReg(vortex, 0x8, edi, varc);	
-		vortex_wt_SetReg(vortex, 0x5, edi, var8);	
+		vortex_wt_SetReg(vortex, 0xc, edi, 0);	/* ds_reg */
+		vortex_wt_SetReg(vortex, 0xa, edi, var10);	/* ctrl  */
+		vortex_wt_SetReg(vortex, 0x9, edi, var4);	/* mramp */
+		vortex_wt_SetReg(vortex, 0x8, edi, varc);	/* aramp */
+		vortex_wt_SetReg(vortex, 0x5, edi, var8);	/* sramp */
 	}
-	
+	/* Init Voice registers. */
 	for (edi = 0; edi < NR_WT; edi++) {
-		vortex_wt_SetReg(vortex, 0x4, edi, 0);	
-		vortex_wt_SetReg(vortex, 0x3, edi, 0);	
-		vortex_wt_SetReg(vortex, 0x2, edi, 0);	
-		vortex_wt_SetReg(vortex, 0x1, edi, 0);	
-		vortex_wt_SetReg(vortex, 0xb, edi, 0);	
+		vortex_wt_SetReg(vortex, 0x4, edi, 0);	/* param 3 0x20c */
+		vortex_wt_SetReg(vortex, 0x3, edi, 0);	/* param 2 0x208 */
+		vortex_wt_SetReg(vortex, 0x2, edi, 0);	/* param 1 0x204 */
+		vortex_wt_SetReg(vortex, 0x1, edi, 0);	/* param 0 0x200 */
+		vortex_wt_SetReg(vortex, 0xb, edi, 0);	/* delay 0x400 - 0x40c */
 	}
 	var10 |= 1;
 	for (edi = 0; edi < (NR_WT / NR_WT_PB); edi++)
-		vortex_wt_SetReg(vortex, 0xa, edi, var10);	
+		vortex_wt_SetReg(vortex, 0xa, edi, var10);	/* ctrl */
 }
 
+/* Extract of CAdbTopology::SetVolume(struct _ASPVOLUME *) */
 #if 0
 static void vortex_wt_SetVolume(vortex_t * vortex, int wt, int vol[])
 {
 	wt_voice_t *voice = &(vortex->wt_voice[wt]);
 	int ecx = vol[1], eax = vol[0];
 
-	
+	/* This is pure guess */
 	voice->parm0 &= 0xff00ffff;
 	voice->parm0 |= (vol[0] & 0xff) << 0x10;
 	voice->parm1 &= 0xff00ffff;
 	voice->parm1 |= (vol[1] & 0xff) << 0x10;
 
-	
+	/* This is real */
 	hwwrite(vortex, WT_PARM(wt, 0), voice->parm0);
 	hwwrite(vortex, WT_PARM(wt, 1), voice->parm0);
 
@@ -314,12 +372,13 @@ static void vortex_wt_SetVolume(vortex_t * vortex, int wt, int vol[])
 	hwwrite(vortex, WT_PARM(wt, 3), voice->parm3);
 }
 
+/* Extract of CAdbTopology::SetFrequency(unsigned long arg_0) */
 static void vortex_wt_SetFrequency(vortex_t * vortex, int wt, unsigned int sr)
 {
 	wt_voice_t *voice = &(vortex->wt_voice[wt]);
 	u32 eax, edx;
 
-	
+	//FIXME: 64 bit operation.
 	eax = ((sr << 0xf) * 0x57619F1) & 0xffffffff;
 	edx = (((sr << 0xf) * 0x57619F1)) >> 0x20;
 
@@ -348,11 +407,12 @@ static void vortex_wt_SetFrequency(vortex_t * vortex, int wt, unsigned int sr)
 	voice->parm0 &= 0xffff0001;
 	voice->parm0 |= (eax & 0x7fff) << 1;
 	voice->parm1 = voice->parm0 | 1;
-	
-	
-	
+	// Wt: this_1D4
+	//AuWt::WriteReg((ulong)(this_1DC<<4)+0x200, (ulong)this_1E4);
+	//AuWt::WriteReg((ulong)(this_1DC<<4)+0x204, (ulong)this_1E8);
 	hwwrite(vortex->mmio, WT_PARM(wt, 0), voice->parm0);
 	hwwrite(vortex->mmio, WT_PARM(wt, 1), voice->parm1);
 }
 #endif
 
+/* End of File */

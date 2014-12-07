@@ -27,6 +27,7 @@
 
 struct mem_pool mpools[MAX_MEMPOOLS];
 
+/* The tree contains all allocations over all memory pools */
 static struct rb_root alloc_root;
 static struct mutex alloc_mutex;
 
@@ -193,6 +194,11 @@ static void *__alloc(struct mem_pool *mpool, unsigned long size,
 	if (!vaddr)
 		goto out_kfree;
 
+	/*
+	 * Just cast to an unsigned long to avoid warnings about casting from a
+	 * pointer to an integer of different size. The pointer is only 32-bits
+	 * so we lose no data.
+	 */
 	node->vaddr = (unsigned long)vaddr;
 	node->paddr = paddr;
 	node->len = aligned_size;
@@ -221,6 +227,12 @@ static void __free(void *vaddr, bool unmap)
 		return;
 
 	if (unmap)
+		/*
+		 * We need the double cast because otherwise gcc complains about
+		 * cast to pointer of different size. This is technically a down
+		 * cast but if unmap is being called, this had better be an
+		 * actual 32-bit pointer anyway.
+		 */
 		iounmap((void *)(unsigned long)node->vaddr);
 
 	gen_pool_free(node->mpool->gpool, node->paddr, node->len);
@@ -309,6 +321,13 @@ phys_addr_t _allocate_contiguous_memory_nomap(unsigned long size,
 
 	node->paddr = paddr;
 
+	/* We search the tree using node->vaddr, so set
+	 * it to something unique even though we don't
+	 * use it for physical allocation nodes.
+	 * The virtual and physical address ranges
+	 * are disjoint, so there won't be any chance of
+	 * a duplicate node->vaddr value.
+	 */
 	node->vaddr = paddr;
 	node->len = aligned_size;
 	node->mpool = mpool;

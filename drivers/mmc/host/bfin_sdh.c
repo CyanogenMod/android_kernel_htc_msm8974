@@ -131,13 +131,13 @@ static int sdh_setup_data(struct sdh_host *host, struct mmc_data *data)
 
 	if (data->flags & MMC_DATA_READ)
 		data_ctl |= DTX_DIR;
-	
+	/* Only supports power-of-2 block size */
 	if (data->blksz & (data->blksz - 1))
 		return -EINVAL;
 	data_ctl |= ((ffs(data->blksz) - 1) << 4);
 
 	bfin_write_SDH_DATA_CTL(data_ctl);
-	
+	/* the time of a host clock period in ns */
 	cycle_ns = 1000000000 / (get_sclk() / (2 * (host->clk_div + 1)));
 	timeout = data->timeout_ns / cycle_ns;
 	timeout += data->timeout_clks;
@@ -172,7 +172,7 @@ static int sdh_setup_data(struct sdh_host *host, struct mmc_data *data)
 	flush_dcache_range((unsigned int)host->sg_cpu,
 		(unsigned int)host->sg_cpu +
 			host->dma_len * sizeof(struct dma_desc_array));
-	
+	/* Set the last descriptor to stop mode */
 	host->sg_cpu[host->dma_len - 1].cfg &= ~(DMAFLOW | NDSIZE);
 	host->sg_cpu[host->dma_len - 1].cfg |= DI_EN;
 
@@ -181,7 +181,7 @@ static int sdh_setup_data(struct sdh_host *host, struct mmc_data *data)
 	set_dma_x_modify(host->dma_ch, 0);
 	set_dma_config(host->dma_ch, dma_cfg);
 #elif defined(CONFIG_BF51x)
-	
+	/* RSI DMA doesn't work in array mode */
 	dma_cfg |= WDSIZE_32 | DMAEN;
 	set_dma_start_addr(host->dma_ch, sg_dma_address(&data->sg[0]));
 	set_dma_x_count(host->dma_ch, length / 4);
@@ -376,7 +376,7 @@ static void sdh_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		cfg = bfin_read_SDH_CFG();
 		cfg &= ~PD_SDDAT3;
 		cfg |= PUP_SDDAT3;
-		
+		/* Enable 4 bit SDIO */
 		cfg |= (SD4E | MWE);
 		bfin_write_SDH_CFG(cfg);
 		clk_ctl |= WIDE_BUS;
@@ -518,13 +518,16 @@ static int __devinit sdh_probe(struct platform_device *pdev)
 		goto out4;
 	}
 #if defined(CONFIG_BF54x)
-	
+	/* Secure Digital Host shares DMA with Nand controller */
 	bfin_write_DMAC1_PERIMUX(bfin_read_DMAC1_PERIMUX() | 0x1);
 #endif
 
 	bfin_write_SDH_CFG(bfin_read_SDH_CFG() | CLKS_EN);
 	SSYNC();
 
+	/* Disable card inserting detection pin. set MMC_CAP_NEES_POLL, and
+	 * mmc stack will do the detection.
+	 */
 	bfin_write_SDH_CFG((bfin_read_SDH_CFG() & 0x1F) | (PUP_SDDAT | PUP_SDDAT3));
 	SSYNC();
 
@@ -595,7 +598,7 @@ static int sdh_resume(struct platform_device *dev)
 
 	bfin_write_SDH_PWR_CTL(bfin_read_SDH_PWR_CTL() | PWR_ON);
 #if defined(CONFIG_BF54x)
-	
+	/* Secure Digital Host shares DMA with Nand controller */
 	bfin_write_DMAC1_PERIMUX(bfin_read_DMAC1_PERIMUX() | 0x1);
 #endif
 	bfin_write_SDH_CFG(bfin_read_SDH_CFG() | CLKS_EN);

@@ -62,6 +62,9 @@
 #define __WL_WEXT_H__
 
 
+/*******************************************************************************
+ *  function protoypes
+ ******************************************************************************/
 
 struct iw_statistics *wl_wireless_stats( struct net_device *dev );
 
@@ -82,4 +85,4 @@ void wl_wext_event_assoc_ie( struct net_device *dev );
 
 extern const struct iw_handler_def wl_iw_handler_def;
 
-#endif  
+#endif  // __WL_WEXT_H__

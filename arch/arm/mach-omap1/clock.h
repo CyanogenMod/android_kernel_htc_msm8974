@@ -50,44 +50,54 @@ struct uart_clk {
 	unsigned long	sysc_addr;
 };
 
+/* Provide a method for preventing idling some ARM IDLECT clocks */
 struct arm_idlect1_clk {
 	struct clk	clk;
 	unsigned long	no_idle_count;
 	__u8		idlect_shift;
 };
 
+/* ARM_CKCTL bit shifts */
 #define CKCTL_PERDIV_OFFSET	0
 #define CKCTL_LCDDIV_OFFSET	2
 #define CKCTL_ARMDIV_OFFSET	4
 #define CKCTL_DSPDIV_OFFSET	6
 #define CKCTL_TCDIV_OFFSET	8
 #define CKCTL_DSPMMUDIV_OFFSET	10
+/*#define ARM_TIMXO		12*/
 #define EN_DSPCK		13
- 
+/*#define ARM_INTHCK_SEL	14*/ /* Divide-by-2 for mpu inth_ck */
+/* DSP_CKCTL bit shifts */
 #define CKCTL_DSPPERDIV_OFFSET	0
 
+/* ARM_IDLECT2 bit shifts */
 #define EN_WDTCK	0
 #define EN_XORPCK	1
 #define EN_PERCK	2
 #define EN_LCDCK	3
-#define EN_LBCK		4 
+#define EN_LBCK		4 /* Not on 1610/1710 */
+/*#define EN_HSABCK	5*/
 #define EN_APICK	6
 #define EN_TIMCK	7
 #define DMACK_REQ	8
-#define EN_GPIOCK	9 
+#define EN_GPIOCK	9 /* Not on 1610/1710 */
+/*#define EN_LBFREECK	10*/
 #define EN_CKOUT_ARM	11
 
+/* ARM_IDLECT3 bit shifts */
 #define EN_OCPI_CK	0
 #define EN_TC1_CK	2
 #define EN_TC2_CK	4
 
+/* DSP_IDLECT2 bit shifts (0,1,2 are same as for ARM_IDLECT2) */
 #define EN_DSPTIMCK	5
 
-#define SDW_MCLK_INV_BIT	2	
-#define USB_MCLK_EN_BIT		4	
-#define USB_HOST_HHC_UHOST_EN	9	
-#define SWD_ULPD_PLL_CLK_REQ	1	
-#define COM_ULPD_PLL_CLK_REQ	1	
+/* Various register defines for clock controls scattered around OMAP chip */
+#define SDW_MCLK_INV_BIT	2	/* In ULPD_CLKC_CTRL */
+#define USB_MCLK_EN_BIT		4	/* In ULPD_CLKC_CTRL */
+#define USB_HOST_HHC_UHOST_EN	9	/* In MOD_CONF_CTRL_0 */
+#define SWD_ULPD_PLL_CLK_REQ	1	/* In SWD_CLK_DIV_CTRL_SEL */
+#define COM_ULPD_PLL_CLK_REQ	1	/* In COM_CLK_DIV_CTRL_SEL */
 #define SWD_CLK_DIV_CTRL_SEL	0xfffe0874
 #define COM_CLK_DIV_CTRL_SEL	0xfffe0878
 #define SOFT_REQ_REG		0xfffe0834
@@ -101,6 +111,7 @@ extern const struct clkops clkops_dummy;
 extern const struct clkops clkops_uart_16xx;
 extern const struct clkops clkops_generic;
 
+/* used for passing SoC type to omap1_{select,round_to}_table_rate() */
 extern u32 cpu_mask;
 
 #endif

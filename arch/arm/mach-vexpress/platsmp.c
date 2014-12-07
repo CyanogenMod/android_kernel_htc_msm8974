@@ -33,7 +33,7 @@ static enum {
 
 static struct map_desc vexpress_dt_cortex_a9_scu_map __initdata = {
 	.virtual	= V2T_PERIPH,
-	
+	/* .pfn	set in vexpress_dt_init_cortex_a9_scu() */
 	.length		= SZ_128,
 	.type		= MT_DEVICE,
 };
@@ -163,6 +163,10 @@ void __init vexpress_dt_smp_prepare_cpus(unsigned int max_cpus)
 
 #endif
 
+/*
+ * Initialise the CPU possible map early - this describes the CPUs
+ * which may be present or become present in the system.
+ */
 void __init smp_init_cpus(void)
 {
 	if (ct_desc)
@@ -174,10 +178,20 @@ void __init smp_init_cpus(void)
 
 void __init platform_smp_prepare_cpus(unsigned int max_cpus)
 {
+	/*
+	 * Initialise the present map, which describes the set of CPUs
+	 * actually populated at the present time.
+	 */
 	if (ct_desc)
 		ct_desc->smp_enable(max_cpus);
 	else
 		vexpress_dt_smp_prepare_cpus(max_cpus);
 
+	/*
+	 * Write the address of secondary startup into the
+	 * system-wide flags register. The boot monitor waits
+	 * until it receives a soft interrupt, and then the
+	 * secondary CPU branches to this address.
+	 */
 	v2m_flags_set(virt_to_phys(versatile_secondary_startup));
 }

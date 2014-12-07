@@ -25,6 +25,7 @@
 #include "m5602_s5k83a.h"
 #include "m5602_s5k4aa.h"
 
+/* Kernel module parameters */
 int force_sensor;
 static bool dump_bridge;
 bool dump_sensor;
@@ -36,6 +37,7 @@ static const struct usb_device_id m5602_table[] = {
 
 MODULE_DEVICE_TABLE(usb, m5602_table);
 
+/* Reads a byte from the m5602 */
 int m5602_read_bridge(struct sd *sd, const u8 address, u8 *i2c_data)
 {
 	int err;
@@ -51,9 +53,12 @@ int m5602_read_bridge(struct sd *sd, const u8 address, u8 *i2c_data)
 	PDEBUG(D_CONF, "Reading bridge register 0x%x containing 0x%x",
 	       address, *i2c_data);
 
+	/* usb_control_msg(...) returns the number of bytes sent upon success,
+	mask that and return zero instead*/
 	return (err < 0) ? err : 0;
 }
 
+/* Writes a byte to the m5602 */
 int m5602_write_bridge(struct sd *sd, const u8 address, const u8 i2c_data)
 {
 	int err;
@@ -73,6 +78,8 @@ int m5602_write_bridge(struct sd *sd, const u8 address, const u8 i2c_data)
 				0x0000, buf,
 				4, M5602_URB_MSG_TIMEOUT);
 
+	/* usb_control_msg(...) returns the number of bytes sent upon success,
+	   mask that and return zero instead */
 	return (err < 0) ? err : 0;
 }
 
@@ -108,8 +115,10 @@ int m5602_read_sensor(struct sd *sd, const u8 address,
 	if (err < 0)
 		return err;
 
+	/* Sensors with registers that are of only
+	   one byte width are differently read */
 
-	
+	/* FIXME: This works with the ov9650, but has issues with the po1030 */
 	if (sd->sensor->i2c_regW == 1) {
 		err = m5602_write_bridge(sd, M5602_XB_I2C_CTRL, 1);
 		if (err < 0)
@@ -141,7 +150,7 @@ int m5602_write_sensor(struct sd *sd, const u8 address,
 	struct usb_device *udev = sd->gspca_dev.dev;
 	__u8 *buf = sd->gspca_dev.usb_buf;
 
-	
+	/* No sensor with a data width larger than 16 bits has yet been seen */
 	if (len > sd->sensor->i2c_regW || !len)
 		return -EINVAL;
 
@@ -151,7 +160,7 @@ int m5602_write_sensor(struct sd *sd, const u8 address,
 	buf[11] = sd->sensor->i2c_slave_id;
 	buf[15] = address;
 
-	
+	/* Special case larger sensor writes */
 	p = buf + 16;
 
 	/* Copy a four byte write sequence for each byte to be written to */
@@ -163,10 +172,10 @@ int m5602_write_sensor(struct sd *sd, const u8 address,
 		       address, i2c_data[i]);
 	}
 
-	
+	/* Copy the tailer */
 	memcpy(p, sensor_urb_skeleton + 20, 4);
 
-	
+	/* Set the total length */
 	p[3] = 0x10 + len;
 
 	err = usb_control_msg(udev, usb_sndctrlpipe(udev, 0),
@@ -177,6 +186,8 @@ int m5602_write_sensor(struct sd *sd, const u8 address,
 	return (err < 0) ? err : 0;
 }
 
+/* Dump all the registers of the m5602 bridge,
+   unfortunately this breaks the camera until it's power cycled */
 static void m5602_dump_bridge(struct sd *sd)
 {
 	int i;
@@ -190,37 +201,37 @@ static void m5602_dump_bridge(struct sd *sd)
 
 static int m5602_probe_sensor(struct sd *sd)
 {
-	
+	/* Try the po1030 */
 	sd->sensor = &po1030;
 	if (!sd->sensor->probe(sd))
 		return 0;
 
-	
+	/* Try the mt9m111 sensor */
 	sd->sensor = &mt9m111;
 	if (!sd->sensor->probe(sd))
 		return 0;
 
-	
+	/* Try the s5k4aa */
 	sd->sensor = &s5k4aa;
 	if (!sd->sensor->probe(sd))
 		return 0;
 
-	
+	/* Try the ov9650 */
 	sd->sensor = &ov9650;
 	if (!sd->sensor->probe(sd))
 		return 0;
 
-	
+	/* Try the ov7660 */
 	sd->sensor = &ov7660;
 	if (!sd->sensor->probe(sd))
 		return 0;
 
-	
+	/* Try the s5k83a */
 	sd->sensor = &s5k83a;
 	if (!sd->sensor->probe(sd))
 		return 0;
 
-	
+	/* More sensor probe function goes here */
 	pr_info("Failed to find a sensor\n");
 	sd->sensor = NULL;
 	return -ENODEV;
@@ -235,7 +246,7 @@ static int m5602_init(struct gspca_dev *gspca_dev)
 	int err;
 
 	PDEBUG(D_CONF, "Initializing ALi m5602 webcam");
-	
+	/* Run the init sequence */
 	err = sd->sensor->init(sd);
 
 	return err;
@@ -247,7 +258,7 @@ static int m5602_start_transfer(struct gspca_dev *gspca_dev)
 	__u8 *buf = sd->gspca_dev.usb_buf;
 	int err;
 
-	
+	/* Send start command to the camera */
 	const u8 buffer[4] = {0x13, 0xf9, 0x0f, 0x01};
 
 	if (sd->sensor->start)
@@ -273,22 +284,22 @@ static void m5602_urb_complete(struct gspca_dev *gspca_dev,
 		return;
 	}
 
-	
+	/* Frame delimiter: ff xx xx xx ff ff */
 	if (data[0] == 0xff && data[4] == 0xff && data[5] == 0xff &&
 	    data[2] != sd->frame_id) {
 		PDEBUG(D_FRAM, "Frame delimiter detected");
 		sd->frame_id = data[2];
 
-		
+		/* Remove the extra fluff appended on each header */
 		data += 6;
 		len -= 6;
 
-		
+		/* Complete the last frame (if any) */
 		gspca_frame_add(gspca_dev, LAST_PACKET,
 				NULL, 0);
 		sd->frame_count++;
 
-		
+		/* Create a new frame */
 		gspca_frame_add(gspca_dev, FIRST_PACKET, data, len);
 
 		PDEBUG(D_FRAM, "Starting new frame %d",
@@ -298,7 +309,7 @@ static void m5602_urb_complete(struct gspca_dev *gspca_dev,
 		int cur_frame_len;
 
 		cur_frame_len = gspca_dev->image_len;
-		
+		/* Remove urb header */
 		data += 4;
 		len -= 4;
 
@@ -309,7 +320,7 @@ static void m5602_urb_complete(struct gspca_dev *gspca_dev,
 			gspca_frame_add(gspca_dev, INTER_PACKET,
 					data, len);
 		} else {
-			
+			/* Add the remaining data up to frame size */
 			gspca_frame_add(gspca_dev, INTER_PACKET, data,
 				    gspca_dev->frsz - cur_frame_len);
 		}
@@ -320,11 +331,12 @@ static void m5602_stop_transfer(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 
-	
+	/* Run the sensor specific end transfer sequence */
 	if (sd->sensor->stop)
 		sd->sensor->stop(sd);
 }
 
+/* sub-driver description, the ctrl and nctrl is filled at probe time */
 static struct sd_desc sd_desc = {
 	.name		= MODULE_NAME,
 	.config		= m5602_configure,
@@ -334,6 +346,7 @@ static struct sd_desc sd_desc = {
 	.pkt_scan	= m5602_urb_complete
 };
 
+/* this function is called at probe time */
 static int m5602_configure(struct gspca_dev *gspca_dev,
 			   const struct usb_device_id *id)
 {
@@ -347,7 +360,7 @@ static int m5602_configure(struct gspca_dev *gspca_dev,
 	if (dump_bridge)
 		m5602_dump_bridge(sd);
 
-	
+	/* Probe sensor */
 	err = m5602_probe_sensor(sd);
 	if (err)
 		goto fail;

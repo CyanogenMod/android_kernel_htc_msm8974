@@ -109,29 +109,34 @@
 
 #define cas_skb_release(x)  netif_rx(x)
 
+/* select which firmware to use */
 #define USE_HP_WORKAROUND
-#define HP_WORKAROUND_DEFAULT 
-#define CAS_HP_ALT_FIRMWARE   cas_prog_null 
+#define HP_WORKAROUND_DEFAULT /* select which firmware to use as default */
+#define CAS_HP_ALT_FIRMWARE   cas_prog_null /* alternate firmware */
 
 #include "cassini.h"
 
-#define USE_TX_COMPWB      
-#define USE_CSMA_CD_PROTO  
-#define USE_RX_BLANK       
-#undef USE_ENTROPY_DEV     
+#define USE_TX_COMPWB      /* use completion writeback registers */
+#define USE_CSMA_CD_PROTO  /* standard CSMA/CD */
+#define USE_RX_BLANK       /* hw interrupt mitigation */
+#undef USE_ENTROPY_DEV     /* don't test for entropy device */
 
+/* NOTE: these aren't useable unless PCI interrupts can be assigned.
+ * also, we need to make cp->lock finer-grained.
+ */
 #undef  USE_PCI_INTB
 #undef  USE_PCI_INTC
 #undef  USE_PCI_INTD
 #undef  USE_QOS
 
-#undef  USE_VPD_DEBUG       
+#undef  USE_VPD_DEBUG       /* debug vpd information if defined */
 
-#define USE_PAGE_ORDER      
-#define RX_DONT_BATCH  0    
-#define RX_COPY_ALWAYS 0    
-#define RX_COPY_MIN    64   
-#undef  RX_COUNT_BUFFERS    
+/* rx processing options */
+#define USE_PAGE_ORDER      /* specify to allocate large rx pages */
+#define RX_DONT_BATCH  0    /* if 1, don't batch flows */
+#define RX_COPY_ALWAYS 0    /* if 0, use frags */
+#define RX_COPY_MIN    64   /* copy a little to make upper layers happy */
+#undef  RX_COUNT_BUFFERS    /* define to calculate RX buffer stats */
 
 #define DRV_MODULE_NAME		"cassini"
 #define DRV_MODULE_VERSION	"1.6"
@@ -147,19 +152,33 @@
 	 NETIF_MSG_RX_ERR	| \
 	 NETIF_MSG_TX_ERR)
 
+/* length of time before we decide the hardware is borked,
+ * and dev->tx_timeout() should be called to fix the problem
+ */
 #define CAS_TX_TIMEOUT			(HZ)
 #define CAS_LINK_TIMEOUT                (22*HZ/10)
 #define CAS_LINK_FAST_TIMEOUT           (1)
 
+/* timeout values for state changing. these specify the number
+ * of 10us delays to be used before giving up.
+ */
 #define STOP_TRIES_PHY 1000
 #define STOP_TRIES     5000
 
+/* specify a minimum frame size to deal with some fifo issues
+ * max mtu == 2 * page size - ethernet header - 64 - swivel =
+ *            2 * page_size - 0x50
+ */
 #define CAS_MIN_FRAME			97
 #define CAS_1000MB_MIN_FRAME            255
 #define CAS_MIN_MTU                     60
 #define CAS_MAX_MTU                     min(((cp->page_size << 1) - 0x50), 9000)
 
 #if 1
+/*
+ * Eliminate these and use separate atomic counters for each, to
+ * avoid a race condition.
+ */
 #else
 #define CAS_RESET_MTU                   1
 #define CAS_RESET_ALL                   2
@@ -169,7 +188,7 @@
 static char version[] __devinitdata =
 	DRV_MODULE_NAME ".c:v" DRV_MODULE_VERSION " (" DRV_MODULE_RELDATE ")\n";
 
-static int cassini_debug = -1;	
+static int cassini_debug = -1;	/* -1 == use CAS_DEF_MSG_ENABLE as value */
 static int link_mode;
 
 MODULE_AUTHOR("Adrian Sun (asun@darksunrising.com)");
@@ -181,23 +200,35 @@ MODULE_PARM_DESC(cassini_debug, "Cassini bitmapped debugging message enable valu
 module_param(link_mode, int, 0);
 MODULE_PARM_DESC(link_mode, "default link mode");
 
+/*
+ * Work around for a PCS bug in which the link goes down due to the chip
+ * being confused and never showing a link status of "up."
+ */
 #define DEFAULT_LINKDOWN_TIMEOUT 5
+/*
+ * Value in seconds, for user input.
+ */
 static int linkdown_timeout = DEFAULT_LINKDOWN_TIMEOUT;
 module_param(linkdown_timeout, int, 0);
 MODULE_PARM_DESC(linkdown_timeout,
 "min reset interval in sec. for PCS linkdown issue; disabled if not positive");
 
+/*
+ * value in 'ticks' (units used by jiffies). Set when we init the
+ * module because 'HZ' in actually a function call on some flavors of
+ * Linux.  This will default to DEFAULT_LINKDOWN_TIMEOUT * HZ.
+ */
 static int link_transition_timeout;
 
 
 
 static u16 link_modes[] __devinitdata = {
-	BMCR_ANENABLE,			 
-	0,				 
-	BMCR_SPEED100,			 
-	BMCR_FULLDPLX,			 
-	BMCR_SPEED100|BMCR_FULLDPLX,	 
-	CAS_BMCR_SPEED1000|BMCR_FULLDPLX 
+	BMCR_ANENABLE,			 /* 0 : autoneg */
+	0,				 /* 1 : 10bt half duplex */
+	BMCR_SPEED100,			 /* 2 : 100bt half duplex */
+	BMCR_FULLDPLX,			 /* 3 : 10bt full duplex */
+	BMCR_SPEED100|BMCR_FULLDPLX,	 /* 4 : 100bt full duplex */
+	CAS_BMCR_SPEED1000|BMCR_FULLDPLX /* 5 : 1000bt full duplex */
 };
 
 static DEFINE_PCI_DEVICE_TABLE(cas_pci_tbl) = {
@@ -226,6 +257,14 @@ static inline void cas_lock_all(struct cas *cp)
 	cas_lock_tx(cp);
 }
 
+/* WTZ: QA was finding deadlock problems with the previous
+ * versions after long test runs with multiple cards per machine.
+ * See if replacing cas_lock_all with safer versions helps. The
+ * symptoms QA is reporting match those we'd expect if interrupts
+ * aren't being properly restored, and we fixed a previous deadlock
+ * with similar symptoms by using save/restore versions in other
+ * places.
+ */
 #define cas_lock_all_save(cp, flags) \
 do { \
 	struct cas *xxxcp = (cp); \
@@ -256,13 +295,13 @@ do { \
 
 static void cas_disable_irq(struct cas *cp, const int ring)
 {
-	
+	/* Make sure we won't get any more interrupts */
 	if (ring == 0) {
 		writel(0xFFFFFFFF, cp->regs + REG_INTR_MASK);
 		return;
 	}
 
-	
+	/* disable completion interrupts and selectively mask */
 	if (cp->cas_flags & CAS_FLAG_REG_PLUS) {
 		switch (ring) {
 #if defined (USE_PCI_INTB) || defined(USE_PCI_INTC) || defined(USE_PCI_INTD)
@@ -297,7 +336,7 @@ static inline void cas_mask_intr(struct cas *cp)
 
 static void cas_enable_irq(struct cas *cp, const int ring)
 {
-	if (ring == 0) { 
+	if (ring == 0) { /* all but TX_DONE */
 		writel(INTR_TX_DONE, cp->regs + REG_INTR_MASK);
 		return;
 	}
@@ -355,12 +394,15 @@ static inline void cas_entropy_reset(struct cas *cp)
 	writeb(ENTROPY_RESET_STC_MODE, cp->regs + REG_ENTROPY_RESET);
 	writeb(0x55, cp->regs + REG_ENTROPY_RAND_REG);
 
-	
+	/* if we read back 0x0, we don't have an entropy device */
 	if (readb(cp->regs + REG_ENTROPY_RAND_REG) == 0)
 		cp->cas_flags &= ~CAS_FLAG_ENTROPY_DEV;
 #endif
 }
 
+/* access to the phy. the following assumes that we've initialized the MIF to
+ * be in frame rather than bit-bang mode
+ */
 static u16 cas_phy_read(struct cas *cp, int reg)
 {
 	u32 cmd;
@@ -372,14 +414,14 @@ static u16 cas_phy_read(struct cas *cp, int reg)
 	cmd |= MIF_FRAME_TURN_AROUND_MSB;
 	writel(cmd, cp->regs + REG_MIF_FRAME);
 
-	
+	/* poll for completion */
 	while (limit-- > 0) {
 		udelay(10);
 		cmd = readl(cp->regs + REG_MIF_FRAME);
 		if (cmd & MIF_FRAME_TURN_AROUND_LSB)
 			return cmd & MIF_FRAME_DATA_MASK;
 	}
-	return 0xFFFF; 
+	return 0xFFFF; /* -1 */
 }
 
 static int cas_phy_write(struct cas *cp, int reg, u16 val)
@@ -394,7 +436,7 @@ static int cas_phy_write(struct cas *cp, int reg, u16 val)
 	cmd |= val & MIF_FRAME_DATA_MASK;
 	writel(cmd, cp->regs + REG_MIF_FRAME);
 
-	
+	/* poll for completion */
 	while (limit-- > 0) {
 		udelay(10);
 		cmd = readl(cp->regs + REG_MIF_FRAME);
@@ -424,6 +466,7 @@ static void cas_phy_powerdown(struct cas *cp)
 	cas_phy_write(cp, MII_BMCR, ctl);
 }
 
+/* cp->lock held. note: the last put_page will free the buffer */
 static int cas_page_free(struct cas *cp, cas_page_t *page)
 {
 	pci_unmap_page(cp->pdev, page->dma_addr, cp->page_size,
@@ -441,6 +484,9 @@ static int cas_page_free(struct cas *cp, cas_page_t *page)
 #define RX_USED_SET(x, y)
 #endif
 
+/* local page allocation routines for the receive buffers. jumbo pages
+ * require at least 8K contiguous and 8K aligned buffers.
+ */
 static cas_page_t *cas_page_alloc(struct cas *cp, const gfp_t flags)
 {
 	cas_page_t *page;
@@ -463,6 +509,7 @@ page_err:
 	return NULL;
 }
 
+/* initialize spare pool of rx buffers, but allocate during the open */
 static void cas_spare_init(struct cas *cp)
 {
   	spin_lock(&cp->rx_inuse_lock);
@@ -475,11 +522,12 @@ static void cas_spare_init(struct cas *cp)
 	spin_unlock(&cp->rx_spare_lock);
 }
 
+/* used on close. free all the spare buffers. */
 static void cas_spare_free(struct cas *cp)
 {
 	struct list_head list, *elem, *tmp;
 
-	
+	/* free spare buffers */
 	INIT_LIST_HEAD(&list);
 	spin_lock(&cp->rx_spare_lock);
 	list_splice_init(&cp->rx_spare_list, &list);
@@ -490,6 +538,10 @@ static void cas_spare_free(struct cas *cp)
 
 	INIT_LIST_HEAD(&list);
 #if 1
+	/*
+	 * Looks like Adrian had protected this with a different
+	 * lock than used everywhere else to manipulate this list.
+	 */
 	spin_lock(&cp->rx_inuse_lock);
 	list_splice_init(&cp->rx_inuse_list, &list);
 	spin_unlock(&cp->rx_inuse_lock);
@@ -503,13 +555,17 @@ static void cas_spare_free(struct cas *cp)
 	}
 }
 
+/* replenish spares if needed */
 static void cas_spare_recover(struct cas *cp, const gfp_t flags)
 {
 	struct list_head list, *elem, *tmp;
 	int needed, i;
 
+	/* check inuse list. if we don't need any more free buffers,
+	 * just free it
+	 */
 
-	
+	/* make a local copy of the list */
 	INIT_LIST_HEAD(&list);
 	spin_lock(&cp->rx_inuse_lock);
 	list_splice_init(&cp->rx_inuse_list, &list);
@@ -518,6 +574,18 @@ static void cas_spare_recover(struct cas *cp, const gfp_t flags)
 	list_for_each_safe(elem, tmp, &list) {
 		cas_page_t *page = list_entry(elem, cas_page_t, list);
 
+		/*
+		 * With the lockless pagecache, cassini buffering scheme gets
+		 * slightly less accurate: we might find that a page has an
+		 * elevated reference count here, due to a speculative ref,
+		 * and skip it as in-use. Ideally we would be able to reclaim
+		 * it. However this would be such a rare case, it doesn't
+		 * matter too much as we should pick it up the next time round.
+		 *
+		 * Importantly, if we find that the page has a refcount of 1
+		 * here (our refcount), then we know it is definitely not inuse
+		 * so we can reuse it.
+		 */
 		if (page_count(page->buffer) > 1)
 			continue;
 
@@ -533,7 +601,7 @@ static void cas_spare_recover(struct cas *cp, const gfp_t flags)
 		}
 	}
 
-	
+	/* put any inuse buffers back on the list */
 	if (!list_empty(&list)) {
 		spin_lock(&cp->rx_inuse_lock);
 		list_splice(&list, &cp->rx_inuse_list);
@@ -546,7 +614,7 @@ static void cas_spare_recover(struct cas *cp, const gfp_t flags)
 	if (!needed)
 		return;
 
-	
+	/* we still need spares, so try to allocate some */
 	INIT_LIST_HEAD(&list);
 	i = 0;
 	while (i < needed) {
@@ -563,6 +631,7 @@ static void cas_spare_recover(struct cas *cp, const gfp_t flags)
 	spin_unlock(&cp->rx_spare_lock);
 }
 
+/* pull a page from the list. */
 static cas_page_t *cas_page_dequeue(struct cas *cp)
 {
 	struct list_head *entry;
@@ -570,7 +639,7 @@ static cas_page_t *cas_page_dequeue(struct cas *cp)
 
 	spin_lock(&cp->rx_spare_lock);
 	if (list_empty(&cp->rx_spare_list)) {
-		
+		/* try to do a quick recovery */
 		spin_unlock(&cp->rx_spare_lock);
 		cas_spare_recover(cp, GFP_ATOMIC);
 		spin_lock(&cp->rx_spare_lock);
@@ -587,7 +656,7 @@ static cas_page_t *cas_page_dequeue(struct cas *cp)
 	recover = ++cp->rx_spares_needed;
 	spin_unlock(&cp->rx_spare_lock);
 
-	
+	/* trigger the timer to do the recovery */
 	if ((recover & (RX_SPARE_RECOVER_VAL - 1)) == 0) {
 #if 1
 		atomic_inc(&cp->reset_task_pending);
@@ -612,7 +681,7 @@ static void cas_mif_poll(struct cas *cp, const int enable)
 	if (cp->phy_type & CAS_PHY_MII_MDIO1)
 		cfg |= MIF_CFG_PHY_SELECT;
 
-	
+	/* poll and interrupt on link status change. */
 	if (enable) {
 		cfg |= MIF_CFG_POLL_EN;
 		cfg |= CAS_BASE(MIF_CFG_POLL_REG, MII_BMSR);
@@ -623,6 +692,7 @@ static void cas_mif_poll(struct cas *cp, const int enable)
 	writel(cfg, cp->regs + REG_MIF_CFG);
 }
 
+/* Must be invoked under cp->lock */
 static void cas_begin_auto_negotiation(struct cas *cp, struct ethtool_cmd *ep)
 {
 	u16 ctl;
@@ -632,7 +702,7 @@ static void cas_begin_auto_negotiation(struct cas *cp, struct ethtool_cmd *ep)
 	int oldstate = cp->lstate;
 	int link_was_not_down = !(oldstate == link_down);
 #endif
-	
+	/* Setup link parameters */
 	if (!ep)
 		goto start_aneg;
 	lcntl = cp->link_cntl;
@@ -664,9 +734,19 @@ start_aneg:
 	if (!cp->hw_running)
 		return;
 #if 1
+	/*
+	 * WTZ: If the old state was link_up, we turn off the carrier
+	 * to replicate everything we do elsewhere on a link-down
+	 * event when we were already in a link-up state..
+	 */
 	if (oldstate == link_up)
 		netif_carrier_off(cp->dev);
 	if (changed  && link_was_not_down) {
+		/*
+		 * WTZ: This branch will simply schedule a full reset after
+		 * we explicitly changed link modes in an ioctl. See if this
+		 * fixes the link-problems we were having for forced mode.
+		 */
 		atomic_inc(&cp->reset_task_pending);
 		atomic_inc(&cp->reset_task_pending_all);
 		schedule_work(&cp->reset_task);
@@ -711,6 +791,7 @@ start_aneg:
 	mod_timer(&cp->link_timer, jiffies + CAS_LINK_TIMEOUT);
 }
 
+/* Must be invoked under cp->lock. */
 static int cas_reset_mii_phy(struct cas *cp)
 {
 	int limit = STOP_TRIES_PHY;
@@ -767,10 +848,10 @@ static void cas_saturn_firmware_load(struct cas *cp)
 
 	cas_phy_powerdown(cp);
 
-	
+	/* expanded memory access mode */
 	cas_phy_write(cp, DP83065_MII_MEM, 0x0);
 
-	
+	/* pointer configuration for new firmware */
 	cas_phy_write(cp, DP83065_MII_REGE, 0x8ff9);
 	cas_phy_write(cp, DP83065_MII_REGD, 0xbd);
 	cas_phy_write(cp, DP83065_MII_REGE, 0x8ffa);
@@ -780,38 +861,39 @@ static void cas_saturn_firmware_load(struct cas *cp)
 	cas_phy_write(cp, DP83065_MII_REGE, 0x8ffc);
 	cas_phy_write(cp, DP83065_MII_REGD, 0x39);
 
-	
+	/* download new firmware */
 	cas_phy_write(cp, DP83065_MII_MEM, 0x1);
 	cas_phy_write(cp, DP83065_MII_REGE, cp->fw_load_addr);
 	for (i = 0; i < cp->fw_size; i++)
 		cas_phy_write(cp, DP83065_MII_REGD, cp->fw_data[i]);
 
-	
+	/* enable firmware */
 	cas_phy_write(cp, DP83065_MII_REGE, 0x8ff8);
 	cas_phy_write(cp, DP83065_MII_REGD, 0x1);
 }
 
 
+/* phy initialization */
 static void cas_phy_init(struct cas *cp)
 {
 	u16 val;
 
-	
+	/* if we're in MII/GMII mode, set up phy */
 	if (CAS_PHY_MII(cp->phy_type)) {
 		writel(PCS_DATAPATH_MODE_MII,
 		       cp->regs + REG_PCS_DATAPATH_MODE);
 
 		cas_mif_poll(cp, 0);
-		cas_reset_mii_phy(cp); 
+		cas_reset_mii_phy(cp); /* take out of isolate mode */
 
 		if (PHY_LUCENT_B0 == cp->phy_id) {
-			
+			/* workaround link up/down issue with lucent */
 			cas_phy_write(cp, LUCENT_MII_REG, 0x8000);
 			cas_phy_write(cp, MII_BMCR, 0x00f1);
 			cas_phy_write(cp, LUCENT_MII_REG, 0x0);
 
 		} else if (PHY_BROADCOM_B0 == (cp->phy_id & 0xFFFFFFFC)) {
-			
+			/* workarounds for broadcom phy */
 			cas_phy_write(cp, BROADCOM_MII_REG8, 0x0C20);
 			cas_phy_write(cp, BROADCOM_MII_REG7, 0x0012);
 			cas_phy_write(cp, BROADCOM_MII_REG5, 0x1804);
@@ -828,7 +910,7 @@ static void cas_phy_init(struct cas *cp)
 			val = cas_phy_read(cp, BROADCOM_MII_REG4);
 			val = cas_phy_read(cp, BROADCOM_MII_REG4);
 			if (val & 0x0080) {
-				
+				/* link workaround */
 				cas_phy_write(cp, BROADCOM_MII_REG4,
 					      val & ~0x0080);
 			}
@@ -838,13 +920,17 @@ static void cas_phy_init(struct cas *cp)
 			       SATURN_PCFG_FSI : 0x0,
 			       cp->regs + REG_SATURN_PCFG);
 
+			/* load firmware to address 10Mbps auto-negotiation
+			 * issue. NOTE: this will need to be changed if the
+			 * default firmware gets fixed.
+			 */
 			if (PHY_NS_DP83065 == cp->phy_id) {
 				cas_saturn_firmware_load(cp);
 			}
 			cas_phy_powerup(cp);
 		}
 
-		
+		/* advertise capabilities */
 		val = cas_phy_read(cp, MII_BMCR);
 		val &= ~BMCR_ANENABLE;
 		cas_phy_write(cp, MII_BMCR, val);
@@ -858,6 +944,9 @@ static void cas_phy_init(struct cas *cp)
 			       CAS_ADVERTISE_ASYM_PAUSE));
 
 		if (cp->cas_flags & CAS_FLAG_1000MB_CAP) {
+			/* make sure that we don't advertise half
+			 * duplex to avoid a chip issue
+			 */
 			val  = cas_phy_read(cp, CAS_MII_1000_CTRL);
 			val &= ~CAS_ADVERTISE_1000HALF;
 			val |= CAS_ADVERTISE_1000FULL;
@@ -865,18 +954,18 @@ static void cas_phy_init(struct cas *cp)
 		}
 
 	} else {
-		
+		/* reset pcs for serdes */
 		u32 val;
 		int limit;
 
 		writel(PCS_DATAPATH_MODE_SERDES,
 		       cp->regs + REG_PCS_DATAPATH_MODE);
 
-		
+		/* enable serdes pins on saturn */
 		if (cp->cas_flags & CAS_FLAG_SATURN)
 			writel(0, cp->regs + REG_SATURN_PCFG);
 
-		
+		/* Reset PCS unit. */
 		val = readl(cp->regs + REG_PCS_MII_CTRL);
 		val |= PCS_MII_RESET;
 		writel(val, cp->regs + REG_PCS_MII_CTRL);
@@ -892,19 +981,22 @@ static void cas_phy_init(struct cas *cp)
 			netdev_warn(cp->dev, "PCS reset bit would not clear [%08x]\n",
 				    readl(cp->regs + REG_PCS_STATE_MACHINE));
 
+		/* Make sure PCS is disabled while changing advertisement
+		 * configuration.
+		 */
 		writel(0x0, cp->regs + REG_PCS_CFG);
 
-		
+		/* Advertise all capabilities except half-duplex. */
 		val  = readl(cp->regs + REG_PCS_MII_ADVERT);
 		val &= ~PCS_MII_ADVERT_HD;
 		val |= (PCS_MII_ADVERT_FD | PCS_MII_ADVERT_SYM_PAUSE |
 			PCS_MII_ADVERT_ASYM_PAUSE);
 		writel(val, cp->regs + REG_PCS_MII_ADVERT);
 
-		
+		/* enable PCS */
 		writel(PCS_CFG_EN, cp->regs + REG_PCS_CFG);
 
-		
+		/* pcs workaround: enable sync detect */
 		writel(PCS_SERDES_CTRL_SYNCD_EN,
 		       cp->regs + REG_PCS_SERDES_CTRL);
 	}
@@ -916,15 +1008,25 @@ static int cas_pcs_link_check(struct cas *cp)
 	u32 stat, state_machine;
 	int retval = 0;
 
+	/* The link status bit latches on zero, so you must
+	 * read it twice in such a case to see a transition
+	 * to the link being up.
+	 */
 	stat = readl(cp->regs + REG_PCS_MII_STATUS);
 	if ((stat & PCS_MII_STATUS_LINK_STATUS) == 0)
 		stat = readl(cp->regs + REG_PCS_MII_STATUS);
 
+	/* The remote-fault indication is only valid
+	 * when autoneg has completed.
+	 */
 	if ((stat & (PCS_MII_STATUS_AUTONEG_COMP |
 		     PCS_MII_STATUS_REMOTE_FAULT)) ==
 	    (PCS_MII_STATUS_AUTONEG_COMP | PCS_MII_STATUS_REMOTE_FAULT))
 		netif_info(cp, link, cp->dev, "PCS RemoteFault\n");
 
+	/* work around link detection issue by querying the PCS state
+	 * machine directly.
+	 */
 	state_machine = readl(cp->regs + REG_PCS_STATE_MACHINE);
 	if ((state_machine & PCS_SM_LINK_STATE_MASK) != SM_LINK_STATE_UP) {
 		stat &= ~PCS_MII_STATUS_LINK_STATUS;
@@ -947,6 +1049,18 @@ static int cas_pcs_link_check(struct cas *cp)
 		if (link_transition_timeout != 0 &&
 		    cp->link_transition != LINK_TRANSITION_REQUESTED_RESET &&
 		    !cp->link_transition_jiffies_valid) {
+			/*
+			 * force a reset, as a workaround for the
+			 * link-failure problem. May want to move this to a
+			 * point a bit earlier in the sequence. If we had
+			 * generated a reset a short time ago, we'll wait for
+			 * the link timer to check the status until a
+			 * timer expires (link_transistion_jiffies_valid is
+			 * true when the timer is running.)  Instead of using
+			 * a system timer, we just do a check whenever the
+			 * link timer is running - this clears the flag after
+			 * a suitable delay.
+			 */
 			retval = 1;
 			cp->link_transition = LINK_TRANSITION_REQUESTED_RESET;
 			cp->link_transition_jiffies = jiffies;
@@ -958,8 +1072,16 @@ static int cas_pcs_link_check(struct cas *cp)
 		if (cp->opened)
 			netif_info(cp, link, cp->dev, "PCS link down\n");
 
+		/* Cassini only: if you force a mode, there can be
+		 * sync problems on link down. to fix that, the following
+		 * things need to be checked:
+		 * 1) read serialink state register
+		 * 2) read pcs status register to verify link down.
+		 * 3) if link down and serial link == 0x03, then you need
+		 *    to global reset the chip.
+		 */
 		if ((cp->cas_flags & CAS_FLAG_REG_PLUS) == 0) {
-			
+			/* should check to see if we're in a forced mode */
 			stat = readl(cp->regs + REG_PCS_SERDES_STATE);
 			if (stat == 0x03)
 				return 1;
@@ -968,6 +1090,11 @@ static int cas_pcs_link_check(struct cas *cp)
 		if (link_transition_timeout != 0 &&
 		    cp->link_transition != LINK_TRANSITION_REQUESTED_RESET &&
 		    !cp->link_transition_jiffies_valid) {
+			/* force a reset, as a workaround for the
+			 * link-failure problem.  May want to move
+			 * this to a point a bit earlier in the
+			 * sequence.
+			 */
 			retval = 1;
 			cp->link_transition = LINK_TRANSITION_REQUESTED_RESET;
 			cp->link_transition_jiffies = jiffies;
@@ -1001,6 +1128,9 @@ static int cas_txmac_interrupt(struct net_device *dev,
 	netif_printk(cp, intr, KERN_DEBUG, cp->dev,
 		     "txmac interrupt, txmac_stat: 0x%x\n", txmac_stat);
 
+	/* Defer timer expiration is quite normal,
+	 * don't even log the event.
+	 */
 	if ((txmac_stat & MAC_TX_DEFER_TIMER) &&
 	    !(txmac_stat & ~MAC_TX_DEFER_TIMER))
 		return 0;
@@ -1016,6 +1146,9 @@ static int cas_txmac_interrupt(struct net_device *dev,
 		cp->net_stats[0].tx_errors++;
 	}
 
+	/* The rest are all cases of one of the 16-bit TX
+	 * counters expiring.
+	 */
 	if (txmac_stat & MAC_TX_COLL_NORMAL)
 		cp->net_stats[0].collisions += 0x10000;
 
@@ -1030,6 +1163,9 @@ static int cas_txmac_interrupt(struct net_device *dev,
 	}
 	spin_unlock(&cp->stat_lock[0]);
 
+	/* We do not keep track of MAC_TX_COLL_FIRST and
+	 * MAC_TX_PEAK_ATTEMPTS events.
+	 */
 	return 0;
 }
 
@@ -1072,12 +1208,12 @@ static void cas_init_rx_dma(struct cas *cp)
 	u32 val;
 	int i, size;
 
-	
+	/* rx free descriptors */
 	val = CAS_BASE(RX_CFG_SWIVEL, RX_SWIVEL_OFF_VAL);
 	val |= CAS_BASE(RX_CFG_DESC_RING, RX_DESC_RINGN_INDEX(0));
 	val |= CAS_BASE(RX_CFG_COMP_RING, RX_COMP_RINGN_INDEX(0));
 	if ((N_RX_DESC_RINGS > 1) &&
-	    (cp->cas_flags & CAS_FLAG_REG_PLUS))  
+	    (cp->cas_flags & CAS_FLAG_REG_PLUS))  /* do desc 2 */
 		val |= CAS_BASE(RX_CFG_DESC_RING1, RX_DESC_RINGN_INDEX(1));
 	writel(val, cp->regs + REG_RX_CFG);
 
@@ -1088,6 +1224,9 @@ static void cas_init_rx_dma(struct cas *cp)
 	writel(RX_DESC_RINGN_SIZE(0) - 4, cp->regs + REG_RX_KICK);
 
 	if (cp->cas_flags & CAS_FLAG_REG_PLUS) {
+		/* rx desc 2 is for IPSEC packets. however,
+		 * we don't it that for that purpose.
+		 */
 		val = (unsigned long) cp->init_rxds[1] -
 			(unsigned long) cp->init_block;
 		writel((desc_dma + val) >> 32, cp->regs + REG_PLUS_RX_DB1_HI);
@@ -1097,14 +1236,14 @@ static void cas_init_rx_dma(struct cas *cp)
 		       REG_PLUS_RX_KICK1);
 	}
 
-	
+	/* rx completion registers */
 	val = (unsigned long) cp->init_rxcs[0] -
 		(unsigned long) cp->init_block;
 	writel((desc_dma + val) >> 32, cp->regs + REG_RX_CB_HI);
 	writel((desc_dma + val) & 0xffffffff, cp->regs + REG_RX_CB_LOW);
 
 	if (cp->cas_flags & CAS_FLAG_REG_PLUS) {
-		
+		/* rx comp 2-4 */
 		for (i = 1; i < MAX_RX_COMP_RINGS; i++) {
 			val = (unsigned long) cp->init_rxcs[i] -
 				(unsigned long) cp->init_block;
@@ -1115,13 +1254,17 @@ static void cas_init_rx_dma(struct cas *cp)
 		}
 	}
 
+	/* read selective clear regs to prevent spurious interrupts
+	 * on reset because complete == kick.
+	 * selective clear set up to prevent interrupts on resets
+	 */
 	readl(cp->regs + REG_INTR_STATUS_ALIAS);
 	writel(INTR_RX_DONE | INTR_RX_BUF_UNAVAIL, cp->regs + REG_ALIAS_CLEAR);
 	if (cp->cas_flags & CAS_FLAG_REG_PLUS) {
 		for (i = 1; i < N_RX_COMP_RINGS; i++)
 			readl(cp->regs + REG_PLUS_INTRN_STATUS_ALIAS(i));
 
-		
+		/* 2 is different from 3 and 4 */
 		if (N_RX_COMP_RINGS > 1)
 			writel(INTR_RX_DONE_ALT | INTR_RX_BUF_UNAVAIL_1,
 			       cp->regs + REG_PLUS_ALIASN_CLEAR(1));
@@ -1131,14 +1274,14 @@ static void cas_init_rx_dma(struct cas *cp)
 			       cp->regs + REG_PLUS_ALIASN_CLEAR(i));
 	}
 
-	
+	/* set up pause thresholds */
 	val  = CAS_BASE(RX_PAUSE_THRESH_OFF,
 			cp->rx_pause_off / RX_PAUSE_THRESH_QUANTUM);
 	val |= CAS_BASE(RX_PAUSE_THRESH_ON,
 			cp->rx_pause_on / RX_PAUSE_THRESH_QUANTUM);
 	writel(val, cp->regs + REG_RX_PAUSE_THRESH);
 
-	
+	/* zero out dma reassembly buffers */
 	for (i = 0; i < 64; i++) {
 		writel(i, cp->regs + REG_RX_TABLE_ADDR);
 		writel(0x0, cp->regs + REG_RX_TABLE_DATA_LOW);
@@ -1146,11 +1289,11 @@ static void cas_init_rx_dma(struct cas *cp)
 		writel(0x0, cp->regs + REG_RX_TABLE_DATA_HI);
 	}
 
-	
+	/* make sure address register is 0 for normal operation */
 	writel(0x0, cp->regs + REG_RX_CTRL_FIFO_ADDR);
 	writel(0x0, cp->regs + REG_RX_IPP_FIFO_ADDR);
 
-	
+	/* interrupt mitigation */
 #ifdef USE_RX_BLANK
 	val = CAS_BASE(RX_BLANK_INTR_TIME, RX_BLANK_INTR_TIME_VAL);
 	val |= CAS_BASE(RX_BLANK_INTR_PKT, RX_BLANK_INTR_PKT_VAL);
@@ -1159,7 +1302,12 @@ static void cas_init_rx_dma(struct cas *cp)
 	writel(0x0, cp->regs + REG_RX_BLANK);
 #endif
 
-	
+	/* interrupt generation as a function of low water marks for
+	 * free desc and completion entries. these are used to trigger
+	 * housekeeping for rx descs. we don't use the free interrupt
+	 * as it's not very useful
+	 */
+	/* val = CAS_BASE(RX_AE_THRESH_FREE, RX_AE_FREEN_VAL(0)); */
 	val = CAS_BASE(RX_AE_THRESH_COMP, RX_AE_COMP_VAL);
 	writel(val, cp->regs + REG_RX_AE_THRESH);
 	if (cp->cas_flags & CAS_FLAG_REG_PLUS) {
@@ -1167,9 +1315,12 @@ static void cas_init_rx_dma(struct cas *cp)
 		writel(val, cp->regs + REG_PLUS_RX_AE1_THRESH);
 	}
 
+	/* Random early detect registers. useful for congestion avoidance.
+	 * this should be tunable.
+	 */
 	writel(0x0, cp->regs + REG_RX_RED);
 
-	
+	/* receive page sizes. default == 2K (0x800) */
 	val = 0;
 	if (cp->page_size == 0x1000)
 		val = 0x1;
@@ -1178,7 +1329,7 @@ static void cas_init_rx_dma(struct cas *cp)
 	else if (cp->page_size == 0x4000)
 		val = 0x3;
 
-	
+	/* round mtu + offset. constrain to page size. */
 	size = cp->dev->mtu + 64;
 	if (size > cp->page_size)
 		size = cp->page_size;
@@ -1199,7 +1350,7 @@ static void cas_init_rx_dma(struct cas *cp)
 	val |= CAS_BASE(RX_PAGE_SIZE_MTU_OFF, 0x1);
 	writel(val, cp->regs + REG_RX_PAGE_SIZE);
 
-	
+	/* enable the header parser if desired */
 	if (CAS_HP_FIRMWARE == cas_prog_null)
 		return;
 
@@ -1215,6 +1366,10 @@ static inline void cas_rxc_init(struct cas_rx_comp *rxc)
 	rxc->word4 = cpu_to_le64(RX_COMP4_ZERO);
 }
 
+/* NOTE: we use the ENC RX DESC ring for spares. the rx_page[0,1]
+ * flipping is protected by the fact that the chip will not
+ * hand back the same page index while it's being processed.
+ */
 static inline cas_page_t *cas_page_spare(struct cas *cp, const int index)
 {
 	cas_page_t *page = cp->rx_pages[1][index];
@@ -1232,13 +1387,14 @@ static inline cas_page_t *cas_page_spare(struct cas *cp, const int index)
 	return new;
 }
 
+/* this needs to be changed if we actually use the ENC RX DESC ring */
 static cas_page_t *cas_page_swap(struct cas *cp, const int ring,
 				 const int index)
 {
 	cas_page_t **page0 = cp->rx_pages[0];
 	cas_page_t **page1 = cp->rx_pages[1];
 
-	
+	/* swap if buffer is in use */
 	if (page_count(page0[index]->buffer) > 1) {
 		cas_page_t *new = cas_page_spare(cp, index);
 		if (new) {
@@ -1252,11 +1408,11 @@ static cas_page_t *cas_page_swap(struct cas *cp, const int ring,
 
 static void cas_clean_rxds(struct cas *cp)
 {
-	
+	/* only clean ring 0 as ring 1 is used for spare buffers */
         struct cas_rx_desc *rxd = cp->init_rxds[0];
 	int i, size;
 
-	
+	/* release all rx flows */
 	for (i = 0; i < N_RX_FLOWS; i++) {
 		struct sk_buff *skb;
 		while ((skb = __skb_dequeue(&cp->rx_flows[i]))) {
@@ -1264,7 +1420,7 @@ static void cas_clean_rxds(struct cas *cp)
 		}
 	}
 
-	
+	/* initialize descriptors */
 	size = RX_DESC_RINGN_SIZE(0);
 	for (i = 0; i < size; i++) {
 		cas_page_t *page = cas_page_swap(cp, 0, i);
@@ -1282,7 +1438,7 @@ static void cas_clean_rxcs(struct cas *cp)
 {
 	int i, j;
 
-	
+	/* take ownership of rx comp descriptors */
 	memset(cp->rx_cur, 0, sizeof(*cp->rx_cur)*N_RX_COMP_RINGS);
 	memset(cp->rx_new, 0, sizeof(*cp->rx_new)*N_RX_COMP_RINGS);
 	for (i = 0; i < N_RX_COMP_RINGS; i++) {
@@ -1294,13 +1450,19 @@ static void cas_clean_rxcs(struct cas *cp)
 }
 
 #if 0
+/* When we get a RX fifo overflow, the RX unit is probably hung
+ * so we do the following.
+ *
+ * If any part of the reset goes wrong, we return 1 and that causes the
+ * whole chip to be reset.
+ */
 static int cas_rxmac_reset(struct cas *cp)
 {
 	struct net_device *dev = cp->dev;
 	int limit;
 	u32 val;
 
-	
+	/* First, reset MAC RX. */
 	writel(cp->mac_rx_cfg & ~MAC_RX_CFG_EN, cp->regs + REG_MAC_RX_CFG);
 	for (limit = 0; limit < STOP_TRIES; limit++) {
 		if (!(readl(cp->regs + REG_MAC_RX_CFG) & MAC_RX_CFG_EN))
@@ -1312,7 +1474,7 @@ static int cas_rxmac_reset(struct cas *cp)
 		return 1;
 	}
 
-	
+	/* Second, disable RX DMA. */
 	writel(0, cp->regs + REG_RX_CFG);
 	for (limit = 0; limit < STOP_TRIES; limit++) {
 		if (!(readl(cp->regs + REG_RX_CFG) & RX_CFG_DMA_EN))
@@ -1326,7 +1488,7 @@ static int cas_rxmac_reset(struct cas *cp)
 
 	mdelay(5);
 
-	
+	/* Execute RX reset command. */
 	writel(SW_RESET_RX, cp->regs + REG_SW_RESET);
 	for (limit = 0; limit < STOP_TRIES; limit++) {
 		if (!(readl(cp->regs + REG_SW_RESET) & SW_RESET_RX))
@@ -1338,14 +1500,14 @@ static int cas_rxmac_reset(struct cas *cp)
 		return 1;
 	}
 
-	
+	/* reset driver rx state */
 	cas_clean_rxds(cp);
 	cas_clean_rxcs(cp);
 
-	
+	/* Now, reprogram the rest of RX unit. */
 	cas_init_rx_dma(cp);
 
-	
+	/* re-enable */
 	val = readl(cp->regs + REG_RX_CFG);
 	writel(val | RX_CFG_DMA_EN, cp->regs + REG_RX_CFG);
 	writel(MAC_RX_FRAME_RECV, cp->regs + REG_MAC_RX_MASK);
@@ -1365,7 +1527,7 @@ static int cas_rxmac_interrupt(struct net_device *dev, struct cas *cp,
 
 	netif_dbg(cp, intr, cp->dev, "rxmac interrupt, stat: 0x%x\n", stat);
 
-	
+	/* these are all rollovers */
 	spin_lock(&cp->stat_lock[0]);
 	if (stat & MAC_RX_ALIGN_ERR)
 		cp->net_stats[0].rx_frame_errors += 0x10000;
@@ -1381,6 +1543,9 @@ static int cas_rxmac_interrupt(struct net_device *dev, struct cas *cp,
 		cp->net_stats[0].rx_fifo_errors++;
 	}
 
+	/* We do not track MAC_RX_FRAME_COUNT and MAC_RX_VIOL_ERR
+	 * events.
+	 */
 	spin_unlock(&cp->stat_lock[0]);
 	return 0;
 }
@@ -1396,6 +1561,10 @@ static int cas_mac_interrupt(struct net_device *dev, struct cas *cp,
 	netif_printk(cp, intr, KERN_DEBUG, cp->dev,
 		     "mac interrupt, stat: 0x%x\n", stat);
 
+	/* This interrupt is just for pause frame and pause
+	 * tracking.  It is useful for diagnostics and debug
+	 * but probably by default we will mask these events.
+	 */
 	if (stat & MAC_CTRL_PAUSE_STATE)
 		cp->pause_entered++;
 
@@ -1406,6 +1575,7 @@ static int cas_mac_interrupt(struct net_device *dev, struct cas *cp,
 }
 
 
+/* Must be invoked under cp->lock. */
 static inline int cas_mdio_link_not_up(struct cas *cp)
 {
 	u16 val;
@@ -1422,6 +1592,9 @@ static inline int cas_mdio_link_not_up(struct cas *cp)
 	case link_aneg:
 		val = cas_phy_read(cp, MII_BMCR);
 
+		/* Try forced modes. we try things in the following order:
+		 * 1000 full -> 100 full/half -> 10 half
+		 */
 		val &= ~(BMCR_ANRESTART | BMCR_ANENABLE);
 		val |= BMCR_FULLDPLX;
 		val |= (cp->cas_flags & CAS_FLAG_1000MB_CAP) ?
@@ -1433,10 +1606,10 @@ static inline int cas_mdio_link_not_up(struct cas *cp)
 		break;
 
 	case link_force_try:
-		
+		/* Downgrade from 1000 to 100 to 10 Mbps if necessary. */
 		val = cas_phy_read(cp, MII_BMCR);
 		cp->timer_ticks = 5;
-		if (val & CAS_BMCR_SPEED1000) { 
+		if (val & CAS_BMCR_SPEED1000) { /* gigabit */
 			val &= ~CAS_BMCR_SPEED1000;
 			val |= (BMCR_SPEED100 | BMCR_FULLDPLX);
 			cas_phy_write(cp, MII_BMCR, val);
@@ -1444,9 +1617,9 @@ static inline int cas_mdio_link_not_up(struct cas *cp)
 		}
 
 		if (val & BMCR_SPEED100) {
-			if (val & BMCR_FULLDPLX) 
+			if (val & BMCR_FULLDPLX) /* fd failed */
 				val &= ~BMCR_FULLDPLX;
-			else { 
+			else { /* 100Mbps failed */
 				val &= ~BMCR_SPEED100;
 			}
 			cas_phy_write(cp, MII_BMCR, val);
@@ -1459,11 +1632,17 @@ static inline int cas_mdio_link_not_up(struct cas *cp)
 }
 
 
+/* must be invoked with cp->lock held */
 static int cas_mii_link_check(struct cas *cp, const u16 bmsr)
 {
 	int restart;
 
 	if (bmsr & BMSR_LSTATUS) {
+		/* Ok, here we got a link. If we had it due to a forced
+		 * fallback, and we were configured for autoneg, we
+		 * retry a short autoneg pass. If you know your hub is
+		 * broken, use ethtool ;)
+		 */
 		if ((cp->lstate == link_force_try) &&
 		    (cp->link_cntl & BMCR_ANENABLE)) {
 			cp->lstate = link_force_ret;
@@ -1491,6 +1670,9 @@ static int cas_mii_link_check(struct cas *cp, const u16 bmsr)
 		return 0;
 	}
 
+	/* link not up. if the link was previously up, we restart the
+	 * whole process
+	 */
 	restart = 0;
 	if (cp->lstate == link_up) {
 		cp->lstate = link_down;
@@ -1513,7 +1695,7 @@ static int cas_mif_interrupt(struct net_device *dev, struct cas *cp,
 	u32 stat = readl(cp->regs + REG_MIF_STATUS);
 	u16 bmsr;
 
-	
+	/* check for a link change */
 	if (CAS_VAL(MIF_STATUS_POLL_STATUS, stat) == 0)
 		return 0;
 
@@ -1532,7 +1714,7 @@ static int cas_pci_interrupt(struct net_device *dev, struct cas *cp,
 	netdev_err(dev, "PCI error [%04x:%04x]",
 		   stat, readl(cp->regs + REG_BIM_DIAG));
 
-	
+	/* cassini+ has this reserved */
 	if ((stat & PCI_ERR_BADACK) &&
 	    ((cp->cas_flags & CAS_FLAG_REG_PLUS) == 0))
 		pr_cont(" <No ACK64# during ABS64 cycle>");
@@ -1550,6 +1732,9 @@ static int cas_pci_interrupt(struct net_device *dev, struct cas *cp,
 	if (stat & PCI_ERR_OTHER) {
 		u16 cfg;
 
+		/* Interrogate PCI config space for the
+		 * true cause.
+		 */
 		pci_read_config_word(cp->pdev, PCI_STATUS, &cfg);
 		netdev_err(dev, "Read PCI cfg space status [%04x]\n", cfg);
 		if (cfg & PCI_STATUS_PARITY)
@@ -1565,7 +1750,7 @@ static int cas_pci_interrupt(struct net_device *dev, struct cas *cp,
 		if (cfg & PCI_STATUS_DETECTED_PARITY)
 			netdev_err(dev, "PCI parity error\n");
 
-		
+		/* Write the error bits back to clear them. */
 		cfg &= (PCI_STATUS_PARITY |
 			PCI_STATUS_SIG_TARGET_ABORT |
 			PCI_STATUS_REC_TARGET_ABORT |
@@ -1575,15 +1760,20 @@ static int cas_pci_interrupt(struct net_device *dev, struct cas *cp,
 		pci_write_config_word(cp->pdev, PCI_STATUS, cfg);
 	}
 
-	
+	/* For all PCI errors, we should reset the chip. */
 	return 1;
 }
 
+/* All non-normal interrupt conditions get serviced here.
+ * Returns non-zero if we should just exit the interrupt
+ * handler right now (ie. if we reset the card which invalidates
+ * all of the other original irq status bits).
+ */
 static int cas_abnormal_irq(struct net_device *dev, struct cas *cp,
 			    u32 status)
 {
 	if (status & INTR_RX_TAG_ERROR) {
-		
+		/* corrupt RX tag framing */
 		netif_printk(cp, rx_err, KERN_DEBUG, cp->dev,
 			     "corrupt rx tag framing\n");
 		spin_lock(&cp->stat_lock[0]);
@@ -1593,7 +1783,7 @@ static int cas_abnormal_irq(struct net_device *dev, struct cas *cp,
 	}
 
 	if (status & INTR_RX_LEN_MISMATCH) {
-		
+		/* length mismatch. */
 		netif_printk(cp, rx_err, KERN_DEBUG, cp->dev,
 			     "length mismatch for rx frame\n");
 		spin_lock(&cp->stat_lock[0]);
@@ -1647,6 +1837,9 @@ do_reset:
 	return 1;
 }
 
+/* NOTE: CAS_TABORT returns 1 or 2 so that it can be used when
+ *       determining whether to do a netif_stop/wakeup
+ */
 #define CAS_TABORT(x)      (((x)->cas_flags & CAS_FLAG_TARGET_ABORT) ? 2 : 1)
 #define CAS_ROUND_PAGE(x)  (((x) + PAGE_SIZE - 1) & PAGE_MASK)
 static inline int cas_calc_tabort(struct cas *cp, const unsigned long addr,
@@ -1681,12 +1874,12 @@ static inline void cas_tx_ringN(struct cas *cp, int ring, int limit)
 		int frag;
 
 		if (!skb) {
-			
+			/* this should never occur */
 			entry = TX_DESC_NEXT(ring, entry);
 			continue;
 		}
 
-		
+		/* however, we might get only a partial skb release. */
 		count -= skb_shinfo(skb)->nr_frags +
 			+ cp->tx_tiny_use[ring][entry].nbufs + 1;
 		if (count < 0)
@@ -1708,7 +1901,7 @@ static inline void cas_tx_ringN(struct cas *cp, int ring, int limit)
 				       PCI_DMA_TODEVICE);
 			entry = TX_DESC_NEXT(ring, entry);
 
-			
+			/* tiny buffer may follow */
 			if (cp->tx_tiny_use[ring][entry].used) {
 				cp->tx_tiny_use[ring][entry].used = 0;
 				entry = TX_DESC_NEXT(ring, entry);
@@ -1723,6 +1916,10 @@ static inline void cas_tx_ringN(struct cas *cp, int ring, int limit)
 	}
 	cp->tx_old[ring] = entry;
 
+	/* this is wrong for multiple tx rings. the net device needs
+	 * multiple queues for this to do the right thing.  we wait
+	 * for 2*packets to be available when using tiny buffers
+	 */
 	if (netif_queue_stopped(dev) &&
 	    (TX_BUFFS_AVAIL(cp, ring) > CAS_TABORT(cp)*(MAX_SKB_FRAGS + 1)))
 		netif_wake_queue(dev);
@@ -1739,10 +1936,10 @@ static void cas_tx(struct net_device *dev, struct cas *cp,
 	netif_printk(cp, intr, KERN_DEBUG, cp->dev,
 		     "tx interrupt, status: 0x%x, %llx\n",
 		     status, (unsigned long long)compwb);
-	
+	/* process all the rings */
 	for (ring = 0; ring < N_TX_RINGS; ring++) {
 #ifdef USE_TX_COMPWB
-		
+		/* use the completion writeback registers */
 		limit = (CAS_VAL(TX_COMPWB_MSB, compwb) << 8) |
 			CAS_VAL(TX_COMPWB_LSB, compwb);
 		compwb = TX_COMPWB_NEXT(compwb);
@@ -1785,14 +1982,14 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 
 	p = skb->data;
 	addr = crcaddr = NULL;
-	if (hlen) { 
+	if (hlen) { /* always copy header pages */
 		i = CAS_VAL(RX_COMP2_HDR_INDEX, words[1]);
 		page = cp->rx_pages[CAS_VAL(RX_INDEX_RING, i)][CAS_VAL(RX_INDEX_NUM, i)];
 		off = CAS_VAL(RX_COMP2_HDR_OFF, words[1]) * 0x100 +
 			swivel;
 
 		i = hlen;
-		if (!dlen) 
+		if (!dlen) /* attach FCS */
 			i += cp->crc_size;
 		pci_dma_sync_single_for_cpu(cp->pdev, page->dma_addr + off, i,
 				    PCI_DMA_FROMDEVICE);
@@ -1810,7 +2007,7 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 	if (alloclen < (hlen + dlen)) {
 		skb_frag_t *frag = skb_shinfo(skb)->frags;
 
-		
+		/* normal or jumbo packets. we use frags */
 		i = CAS_VAL(RX_COMP1_DATA_INDEX, words[0]);
 		page = cp->rx_pages[CAS_VAL(RX_INDEX_RING, i)][CAS_VAL(RX_INDEX_NUM, i)];
 		off = CAS_VAL(RX_COMP1_DATA_OFF, words[0]) + swivel;
@@ -1823,14 +2020,14 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 			return -1;
 		}
 		i = hlen;
-		if (i == dlen)  
+		if (i == dlen)  /* attach FCS */
 			i += cp->crc_size;
 		pci_dma_sync_single_for_cpu(cp->pdev, page->dma_addr + off, i,
 				    PCI_DMA_FROMDEVICE);
 
-		
+		/* make sure we always copy a header */
 		swivel = 0;
-		if (p == (char *) skb->data) { 
+		if (p == (char *) skb->data) { /* not split */
 			addr = cas_page_map(page->buffer);
 			memcpy(p, addr + off, RX_COPY_MIN);
 			pci_dma_sync_single_for_device(cp->pdev, page->dma_addr + off, i,
@@ -1854,7 +2051,7 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 		frag->page_offset = off;
 		skb_frag_size_set(frag, hlen - swivel);
 
-		
+		/* any more data? */
 		if ((words[0] & RX_COMP1_SPLIT_PKT) && ((dlen -= hlen) > 0)) {
 			hlen = dlen;
 			off = 0;
@@ -1886,7 +2083,7 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 		}
 
 	} else {
-		
+		/* copying packet */
 		if (!dlen)
 			goto end_copy_pkt;
 
@@ -1901,7 +2098,7 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 			return -1;
 		}
 		i = hlen;
-		if (i == dlen) 
+		if (i == dlen) /* attach FCS */
 			i += cp->crc_size;
 		pci_dma_sync_single_for_cpu(cp->pdev, page->dma_addr + off, i,
 				    PCI_DMA_FROMDEVICE);
@@ -1910,12 +2107,12 @@ static int cas_rx_process_pkt(struct cas *cp, struct cas_rx_comp *rxc,
 		pci_dma_sync_single_for_device(cp->pdev, page->dma_addr + off, i,
 				    PCI_DMA_FROMDEVICE);
 		cas_page_unmap(addr);
-		if (p == (char *) skb->data) 
+		if (p == (char *) skb->data) /* not split */
 			RX_USED_ADD(page, cp->mtu_stride);
 		else
 			RX_USED_ADD(page, i);
 
-		
+		/* any more data? */
 		if ((words[0] & RX_COMP1_SPLIT_PKT) && ((dlen -= hlen) > 0)) {
 			p += hlen;
 			i = CAS_VAL(RX_COMP2_NEXT_INDEX, words[1]);
@@ -1941,7 +2138,7 @@ end_copy_pkt:
 
 	csum = (__force __sum16)htons(CAS_VAL(RX_COMP4_TCP_CSUM, words[3]));
 	if (cp->crc_size) {
-		
+		/* checksum includes FCS. strip it out. */
 		csum = csum_fold(csum_partial(crcaddr, cp->crc_size,
 					      csum_unfold(csum)));
 		if (addr)
@@ -1957,12 +2154,30 @@ end_copy_pkt:
 }
 
 
+/* we can handle up to 64 rx flows at a time. we do the same thing
+ * as nonreassm except that we batch up the buffers.
+ * NOTE: we currently just treat each flow as a bunch of packets that
+ *       we pass up. a better way would be to coalesce the packets
+ *       into a jumbo packet. to do that, we need to do the following:
+ *       1) the first packet will have a clean split between header and
+ *          data. save both.
+ *       2) each time the next flow packet comes in, extend the
+ *          data length and merge the checksums.
+ *       3) on flow release, fix up the header.
+ *       4) make sure the higher layer doesn't care.
+ * because packets get coalesced, we shouldn't run into fragment count
+ * issues.
+ */
 static inline void cas_rx_flow_pkt(struct cas *cp, const u64 *words,
 				   struct sk_buff *skb)
 {
 	int flowid = CAS_VAL(RX_COMP3_FLOWID, words[2]) & (N_RX_FLOWS - 1);
 	struct sk_buff_head *flow = &cp->rx_flows[flowid];
 
+	/* this is protected at a higher layer, so no need to
+	 * do any additional locking here. stick the buffer
+	 * at the end.
+	 */
 	__skb_queue_tail(flow, skb);
 	if (words[0] & RX_COMP1_RELEASE_FLOW) {
 		while ((skb = __skb_dequeue(flow))) {
@@ -1971,6 +2186,9 @@ static inline void cas_rx_flow_pkt(struct cas *cp, const u64 *words,
 	}
 }
 
+/* put rx descriptor back on ring. if a buffer is in use by a higher
+ * layer, this will need to put in a replacement.
+ */
 static void cas_post_page(struct cas *cp, const int ring, const int index)
 {
 	cas_page_t *new;
@@ -1998,6 +2216,7 @@ static void cas_post_page(struct cas *cp, const int ring, const int index)
 }
 
 
+/* only when things are bad */
 static int cas_post_rxds_ringN(struct cas *cp, int ring, int num)
 {
 	unsigned int entry, last, count, released;
@@ -2014,10 +2233,13 @@ static int cas_post_rxds_ringN(struct cas *cp, int ring, int num)
 	last = RX_DESC_ENTRY(ring, num ? entry + num - 4: entry - 4);
 	released = 0;
 	while (entry != last) {
-		
+		/* make a new buffer if it's still in use */
 		if (page_count(page[entry]->buffer) > 1) {
 			cas_page_t *new = cas_page_dequeue(cp);
 			if (!new) {
+				/* let the timer know that we need to
+				 * do this again
+				 */
 				cp->cas_flags |= CAS_FLAG_RXD_POST(ring);
 				if (!timer_pending(&cp->link_timer))
 					mod_timer(&cp->link_timer, jiffies +
@@ -2056,6 +2278,18 @@ static int cas_post_rxds_ringN(struct cas *cp, int ring, int num)
 }
 
 
+/* process a completion ring. packets are set up in three basic ways:
+ * small packets: should be copied header + data in single buffer.
+ * large packets: header and data in a single buffer.
+ * split packets: header in a separate buffer from data.
+ *                data may be in multiple pages. data may be > 256
+ *                bytes but in a single page.
+ *
+ * NOTE: RX page posting is done in this routine as well. while there's
+ *       the capability of using multiple RX completion rings, it isn't
+ *       really worthwhile due to the fact that the page posting will
+ *       force serialization on the single descriptor ring.
+ */
 static int cas_rx_ringN(struct cas *cp, int ring, int budget)
 {
 	struct cas_rx_comp *rxcs = cp->init_rxcs[ring];
@@ -2081,17 +2315,17 @@ static int cas_rx_ringN(struct cas *cp, int ring, int budget)
 		words[2] = le64_to_cpu(rxc->word3);
 		words[3] = le64_to_cpu(rxc->word4);
 
-		
+		/* don't touch if still owned by hw */
 		type = CAS_VAL(RX_COMP1_TYPE, words[0]);
 		if (type == 0)
 			break;
 
-		
+		/* hw hasn't cleared the zero bit yet */
 		if (words[3] & RX_COMP4_ZERO) {
 			break;
 		}
 
-		
+		/* get info on the packet */
 		if (words[3] & (RX_COMP4_LEN_MISMATCH | RX_COMP4_BAD)) {
 			spin_lock(&cp->stat_lock[ring]);
 			cp->net_stats[ring].rx_errors++;
@@ -2101,7 +2335,7 @@ static int cas_rx_ringN(struct cas *cp, int ring, int budget)
 				cp->net_stats[ring].rx_crc_errors++;
 			spin_unlock(&cp->stat_lock[ring]);
 
-			
+			/* We'll just return it to Cassini. */
 		drop_it:
 			spin_lock(&cp->stat_lock[ring]);
 			++cp->net_stats[ring].rx_dropped;
@@ -2115,8 +2349,11 @@ static int cas_rx_ringN(struct cas *cp, int ring, int budget)
 			goto drop_it;
 		}
 
+		/* see if it's a flow re-assembly or not. the driver
+		 * itself handles release back up.
+		 */
 		if (RX_DONT_BATCH || (type == 0x2)) {
-			
+			/* non-reassm: these always get released */
 			cas_skb_release(skb);
 		} else {
 			cas_rx_flow_pkt(cp, words, skb);
@@ -2130,7 +2367,7 @@ static int cas_rx_ringN(struct cas *cp, int ring, int budget)
 	next:
 		npackets++;
 
-		
+		/* should it be released? */
 		if (words[0] & RX_COMP1_RELEASE_HDR) {
 			i = CAS_VAL(RX_COMP2_HDR_INDEX, words[1]);
 			dring = CAS_VAL(RX_INDEX_RING, i);
@@ -2152,7 +2389,7 @@ static int cas_rx_ringN(struct cas *cp, int ring, int budget)
 			cas_post_page(cp, dring, i);
 		}
 
-		
+		/* skip to the next entry */
 		entry = RX_COMP_ENTRY(ring, entry + 1 +
 				      CAS_VAL(RX_COMP1_SKIP, words[0]));
 #ifdef USE_NAPI
@@ -2168,6 +2405,7 @@ static int cas_rx_ringN(struct cas *cp, int ring, int budget)
 }
 
 
+/* put completion entries back on the ring */
 static void cas_post_rxcs_ringN(struct net_device *dev,
 				struct cas *cp, int ring)
 {
@@ -2180,7 +2418,7 @@ static void cas_post_rxcs_ringN(struct net_device *dev,
 		     "rxc[%d] interrupt, done: %d/%d\n",
 		     ring, readl(cp->regs + REG_RX_COMP_HEAD), entry);
 
-	
+	/* zero and re-mark descriptors */
 	while (last != entry) {
 		cas_rxc_init(rxc + last);
 		last = RX_COMP_ENTRY(ring, last + 1);
@@ -2195,6 +2433,9 @@ static void cas_post_rxcs_ringN(struct net_device *dev,
 
 
 
+/* cassini can use all four PCI interrupts for the completion ring.
+ * rings 3 and 4 are identical
+ */
 #if defined(USE_PCI_INTC) || defined(USE_PCI_INTD)
 static inline void cas_handle_irqN(struct net_device *dev,
 				   struct cas *cp, const u32 status,
@@ -2212,12 +2453,12 @@ static irqreturn_t cas_interruptN(int irq, void *dev_id)
 	int ring = (irq == cp->pci_irq_INTC) ? 2 : 3;
 	u32 status = readl(cp->regs + REG_PLUS_INTRN_STATUS(ring));
 
-	
+	/* check for shared irq */
 	if (status == 0)
 		return IRQ_NONE;
 
 	spin_lock_irqsave(&cp->lock, flags);
-	if (status & INTR_RX_DONE_ALT) { 
+	if (status & INTR_RX_DONE_ALT) { /* handle rx separately */
 #ifdef USE_NAPI
 		cas_mask_intr(cp);
 		napi_schedule(&cp->napi);
@@ -2235,9 +2476,12 @@ static irqreturn_t cas_interruptN(int irq, void *dev_id)
 #endif
 
 #ifdef USE_PCI_INTB
+/* everything but rx packets */
 static inline void cas_handle_irq1(struct cas *cp, const u32 status)
 {
 	if (status & INTR_RX_BUF_UNAVAIL_1) {
+		/* Frame arrived, no free RX buffers available.
+		 * NOTE: we can get this on a link transition. */
 		cas_post_rxds_ringN(cp, 1, 0);
 		spin_lock(&cp->stat_lock[1]);
 		cp->net_stats[1].rx_dropped++;
@@ -2252,6 +2496,7 @@ static inline void cas_handle_irq1(struct cas *cp, const u32 status)
 		cas_post_rxcs_ringN(cp, 1);
 }
 
+/* ring 2 handles a few more events than 3 and 4 */
 static irqreturn_t cas_interrupt1(int irq, void *dev_id)
 {
 	struct net_device *dev = dev_id;
@@ -2259,12 +2504,12 @@ static irqreturn_t cas_interrupt1(int irq, void *dev_id)
 	unsigned long flags;
 	u32 status = readl(cp->regs + REG_PLUS_INTRN_STATUS(1));
 
-	
+	/* check for shared interrupt */
 	if (status == 0)
 		return IRQ_NONE;
 
 	spin_lock_irqsave(&cp->lock, flags);
-	if (status & INTR_RX_DONE_ALT) { 
+	if (status & INTR_RX_DONE_ALT) { /* handle rx separately */
 #ifdef USE_NAPI
 		cas_mask_intr(cp);
 		napi_schedule(&cp->napi);
@@ -2283,11 +2528,14 @@ static irqreturn_t cas_interrupt1(int irq, void *dev_id)
 static inline void cas_handle_irq(struct net_device *dev,
 				  struct cas *cp, const u32 status)
 {
-	
+	/* housekeeping interrupts */
 	if (status & INTR_ERROR_MASK)
 		cas_abnormal_irq(dev, cp, status);
 
 	if (status & INTR_RX_BUF_UNAVAIL) {
+		/* Frame arrived, no free RX buffers available.
+		 * NOTE: we can get this on a link transition.
+		 */
 		cas_post_rxds_ringN(cp, 0, 0);
 		spin_lock(&cp->stat_lock[0]);
 		cp->net_stats[0].rx_dropped++;
@@ -2347,6 +2595,13 @@ static int cas_poll(struct napi_struct *napi, int budget)
 	cas_tx(dev, cp, status);
 	spin_unlock_irqrestore(&cp->lock, flags);
 
+	/* NAPI rx packets. we spread the credits across all of the
+	 * rxc rings
+	 *
+	 * to make sure we're fair with the work we loop through each
+	 * ring N_RX_COMP_RING times with a request of
+	 * budget / N_RX_COMP_RINGS
+	 */
 	enable_intr = 1;
 	credits = 0;
 	for (i = 0; i < N_RX_COMP_RINGS; i++) {
@@ -2361,7 +2616,7 @@ static int cas_poll(struct napi_struct *napi, int budget)
 	}
 
 rx_comp:
-	
+	/* final rx completion */
 	spin_lock_irqsave(&cp->lock, flags);
 	if (status)
 		cas_handle_irq(dev, cp, status);
@@ -2409,17 +2664,17 @@ static void cas_netpoll(struct net_device *dev)
 
 #ifdef USE_PCI_INTB
 	if (N_RX_COMP_RINGS > 1) {
-		
+		/* cas_interrupt1(); */
 	}
 #endif
 #ifdef USE_PCI_INTC
 	if (N_RX_COMP_RINGS > 2) {
-		
+		/* cas_interruptN(); */
 	}
 #endif
 #ifdef USE_PCI_INTD
 	if (N_RX_COMP_RINGS > 3) {
-		
+		/* cas_interruptN(); */
 	}
 #endif
 }
@@ -2474,7 +2729,7 @@ static void cas_tx_timeout(struct net_device *dev)
 
 static inline int cas_intme(int ring, int entry)
 {
-	
+	/* Algorithm: IRQ every 1/2 of descriptors. */
 	if (!(entry & ((TX_DESC_RINGN_SIZE(ring) >> 1) - 1)))
 		return 1;
 	return 0;
@@ -2521,7 +2776,7 @@ static inline int cas_xmit_tx_ringN(struct cas *cp, int ring,
 
 	spin_lock_irqsave(&cp->tx_lock[ring], flags);
 
-	
+	/* This is a hard error, log it. */
 	if (TX_BUFFS_AVAIL(cp, ring) <=
 	    CAS_TABORT(cp)*(skb_shinfo(skb)->nr_frags + 1)) {
 		netif_stop_queue(dev);
@@ -2552,7 +2807,7 @@ static inline int cas_xmit_tx_ringN(struct cas *cp, int ring,
 	tentry = entry;
 	tabort = cas_calc_tabort(cp, (unsigned long) skb->data, len);
 	if (unlikely(tabort)) {
-		
+		/* NOTE: len is always >  tabort */
 		cas_write_txd(cp, ring, entry, mapping, len - tabort,
 			      ctrl | TX_DESC_SOF, 0);
 		entry = TX_DESC_NEXT(ring, entry);
@@ -2579,7 +2834,7 @@ static inline int cas_xmit_tx_ringN(struct cas *cp, int ring,
 		if (unlikely(tabort)) {
 			void *addr;
 
-			
+			/* NOTE: len is always > tabort */
 			cas_write_txd(cp, ring, entry, mapping, len - tabort,
 				      ctrl, 0);
 			entry = TX_DESC_NEXT(ring, entry);
@@ -2614,11 +2869,17 @@ static netdev_tx_t cas_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	struct cas *cp = netdev_priv(dev);
 
+	/* this is only used as a load-balancing hint, so it doesn't
+	 * need to be SMP safe
+	 */
 	static int ring;
 
 	if (skb_padto(skb, cp->min_frame_size))
 		return NETDEV_TX_OK;
 
+	/* XXX: we need some higher-level QoS hooks to steer packets to
+	 *      individual queues.
+	 */
 	if (cas_xmit_tx_ringN(cp, ring++ & N_TX_RINGS_MASK, skb))
 		return NETDEV_TX_BUSY;
 	return NETDEV_TX_OK;
@@ -2631,19 +2892,22 @@ static void cas_init_tx_dma(struct cas *cp)
 	u32 val;
 	int i;
 
-	
+	/* set up tx completion writeback registers. must be 8-byte aligned */
 #ifdef USE_TX_COMPWB
 	off = offsetof(struct cas_init_block, tx_compwb);
 	writel((desc_dma + off) >> 32, cp->regs + REG_TX_COMPWB_DB_HI);
 	writel((desc_dma + off) & 0xffffffff, cp->regs + REG_TX_COMPWB_DB_LOW);
 #endif
 
+	/* enable completion writebacks, enable paced mode,
+	 * disable read pipe, and disable pre-interrupt compwbs
+	 */
 	val =   TX_CFG_COMPWB_Q1 | TX_CFG_COMPWB_Q2 |
 		TX_CFG_COMPWB_Q3 | TX_CFG_COMPWB_Q4 |
 		TX_CFG_DMA_RDPIPE_DIS | TX_CFG_PACED_MODE |
 		TX_CFG_INTR_COMPWB_DIS;
 
-	
+	/* write out tx ring info and tx desc bases */
 	for (i = 0; i < MAX_TX_RINGS; i++) {
 		off = (unsigned long) cp->init_txds[i] -
 			(unsigned long) cp->init_block;
@@ -2652,9 +2916,15 @@ static void cas_init_tx_dma(struct cas *cp)
 		writel((desc_dma + off) >> 32, cp->regs + REG_TX_DBN_HI(i));
 		writel((desc_dma + off) & 0xffffffff, cp->regs +
 		       REG_TX_DBN_LOW(i));
+		/* don't zero out the kick register here as the system
+		 * will wedge
+		 */
 	}
 	writel(val, cp->regs + REG_TX_CFG);
 
+	/* program max burst sizes. these numbers should be different
+	 * if doing QoS.
+	 */
 #ifdef USE_QOS
 	writel(0x800, cp->regs + REG_TX_MAXBURST_0);
 	writel(0x1600, cp->regs + REG_TX_MAXBURST_1);
@@ -2668,6 +2938,7 @@ static void cas_init_tx_dma(struct cas *cp)
 #endif
 }
 
+/* Must be invoked under cp->lock. */
 static inline void cas_init_dma(struct cas *cp)
 {
 	cas_init_tx_dma(cp);
@@ -2684,6 +2955,9 @@ static void cas_process_mc_list(struct cas *cp)
 	memset(hash_table, 0, sizeof(hash_table));
 	netdev_for_each_mc_addr(ha, cp->dev) {
 		if (i <= CAS_MC_EXACT_MATCH_SIZE) {
+			/* use the alternate mac address registers for the
+			 * first 15 multicast addresses
+			 */
 			writel((ha->addr[4] << 8) | ha->addr[5],
 			       cp->regs + REG_MAC_ADDRN(i*3 + 0));
 			writel((ha->addr[2] << 8) | ha->addr[3],
@@ -2693,6 +2967,9 @@ static void cas_process_mc_list(struct cas *cp)
 			i++;
 		}
 		else {
+			/* use hw hash table for the next series of
+			 * multicast addresses
+			 */
 			crc = ether_crc_le(ETH_ALEN, ha->addr);
 			crc >>= 24;
 			hash_table[crc >> 4] |= 1 << (15 - (crc & 0xf));
@@ -2702,6 +2979,7 @@ static void cas_process_mc_list(struct cas *cp)
 		writel(hash_table[i], cp->regs + REG_MAC_HASH_TABLEN(i));
 }
 
+/* Must be invoked under cp->lock. */
 static u32 cas_setup_multicast(struct cas *cp)
 {
 	u32 rxcfg = 0;
@@ -2723,6 +3001,7 @@ static u32 cas_setup_multicast(struct cas *cp)
 	return rxcfg;
 }
 
+/* must be invoked under cp->stat_lock[N_TX_RINGS] */
 static void cas_clear_mac_err(struct cas *cp)
 {
 	writel(0, cp->regs + REG_MAC_COLL_NORMAL);
@@ -2743,11 +3022,11 @@ static void cas_mac_reset(struct cas *cp)
 {
 	int i;
 
-	
+	/* do both TX and RX reset */
 	writel(0x1, cp->regs + REG_MAC_TX_RESET);
 	writel(0x1, cp->regs + REG_MAC_RX_RESET);
 
-	
+	/* wait for TX */
 	i = STOP_TRIES;
 	while (i-- > 0) {
 		if (readl(cp->regs + REG_MAC_TX_RESET) == 0)
@@ -2755,7 +3034,7 @@ static void cas_mac_reset(struct cas *cp)
 		udelay(10);
 	}
 
-	
+	/* wait for RX */
 	i = STOP_TRIES;
 	while (i-- > 0) {
 		if (readl(cp->regs + REG_MAC_RX_RESET) == 0)
@@ -2772,17 +3051,21 @@ static void cas_mac_reset(struct cas *cp)
 }
 
 
+/* Must be invoked under cp->lock. */
 static void cas_init_mac(struct cas *cp)
 {
 	unsigned char *e = &cp->dev->dev_addr[0];
 	int i;
 	cas_mac_reset(cp);
 
-	
+	/* setup core arbitration weight register */
 	writel(CAWR_RR_DIS, cp->regs + REG_CAWR);
 
-	
+	/* XXX Use pci_dma_burst_advice() */
 #if !defined(CONFIG_SPARC64) && !defined(CONFIG_ALPHA)
+	/* set the infinite burst register for chips that don't have
+	 * pci issues.
+	 */
 	if ((cp->cas_flags & CAS_FLAG_TARGET_ABORT) == 0)
 		writel(INF_BURST_EN, cp->regs + REG_INF_BURST);
 #endif
@@ -2793,17 +3076,25 @@ static void cas_init_mac(struct cas *cp)
 	writel(0x08, cp->regs + REG_MAC_IPG1);
 	writel(0x04, cp->regs + REG_MAC_IPG2);
 
-	
+	/* change later for 802.3z */
 	writel(0x40, cp->regs + REG_MAC_SLOT_TIME);
 
-	
+	/* min frame + FCS */
 	writel(ETH_ZLEN + 4, cp->regs + REG_MAC_FRAMESIZE_MIN);
 
+	/* Ethernet payload + header + FCS + optional VLAN tag. NOTE: we
+	 * specify the maximum frame size to prevent RX tag errors on
+	 * oversized frames.
+	 */
 	writel(CAS_BASE(MAC_FRAMESIZE_MAX_BURST, 0x2000) |
 	       CAS_BASE(MAC_FRAMESIZE_MAX_FRAME,
 			(CAS_MAX_MTU + ETH_HLEN + 4 + 4)),
 	       cp->regs + REG_MAC_FRAMESIZE_MAX);
 
+	/* NOTE: crc_size is used as a surrogate for half-duplex.
+	 * workaround saturn half-duplex issue by increasing preamble
+	 * size to 65 bytes.
+	 */
 	if ((cp->cas_flags & CAS_FLAG_SATURN) && cp->crc_size)
 		writel(0x41, cp->regs + REG_MAC_PA_SIZE);
 	else
@@ -2820,7 +3111,7 @@ static void cas_init_mac(struct cas *cp)
 	writel(0, cp->regs + REG_MAC_ADDR_FILTER2_1_MASK);
 	writel(0, cp->regs + REG_MAC_ADDR_FILTER0_MASK);
 
-	
+	/* setup mac address in perfect filter array */
 	for (i = 0; i < 45; i++)
 		writel(0x0, cp->regs + REG_MAC_ADDRN(i));
 
@@ -2838,14 +3129,25 @@ static void cas_init_mac(struct cas *cp)
 	cas_clear_mac_err(cp);
 	spin_unlock(&cp->stat_lock[N_TX_RINGS]);
 
+	/* Setup MAC interrupts.  We want to get all of the interesting
+	 * counter expiration events, but we do not want to hear about
+	 * normal rx/tx as the DMA engine tells us that.
+	 */
 	writel(MAC_TX_FRAME_XMIT, cp->regs + REG_MAC_TX_MASK);
 	writel(MAC_RX_FRAME_RECV, cp->regs + REG_MAC_RX_MASK);
 
+	/* Don't enable even the PAUSE interrupts for now, we
+	 * make no use of those events other than to record them.
+	 */
 	writel(0xffffffff, cp->regs + REG_MAC_CTRL_MASK);
 }
 
+/* Must be invoked under cp->lock. */
 static void cas_init_pause_thresholds(struct cas *cp)
 {
+	/* Calculate pause thresholds.  Setting the OFF threshold to the
+	 * full RX fifo size effectively disables PAUSE generation
+	 */
 	if (cp->rx_fifo_size <= (2 * 1024)) {
 		cp->rx_pause_off = cp->rx_pause_on = cp->rx_fifo_size;
 	} else {
@@ -2875,6 +3177,17 @@ static int cas_vpd_match(const void __iomem *p, const char *str)
 }
 
 
+/* get the mac address by reading the vpd information in the rom.
+ * also get the phy type and determine if there's an entropy generator.
+ * NOTE: this is a bit convoluted for the following reasons:
+ *  1) vpd info has order-dependent mac addresses for multinic cards
+ *  2) the only way to determine the nic order is to use the slot
+ *     number.
+ *  3) fiber cards don't have bridges, so their slot numbers don't
+ *     mean anything.
+ *  4) we don't actually know we have a fiber card until after
+ *     the mac addresses are parsed.
+ */
 static int cas_get_vpd_info(struct cas *cp, unsigned char *dev_addr,
 			    const int offset)
 {
@@ -2885,25 +3198,25 @@ static int cas_get_vpd_info(struct cas *cp, unsigned char *dev_addr,
 #define VPD_FOUND_MAC        0x01
 #define VPD_FOUND_PHY        0x02
 
-	int phy_type = CAS_PHY_MII_MDIO0; 
+	int phy_type = CAS_PHY_MII_MDIO0; /* default phy type */
 	int mac_off  = 0;
 
 #if defined(CONFIG_SPARC)
 	const unsigned char *addr;
 #endif
 
-	
+	/* give us access to the PROM */
 	writel(BIM_LOCAL_DEV_PROM | BIM_LOCAL_DEV_PAD,
 	       cp->regs + REG_BIM_LOCAL_DEV_EN);
 
-	
+	/* check for an expansion rom */
 	if (readb(p) != 0x55 || readb(p + 1) != 0xaa)
 		goto use_random_mac_addr;
 
-	
+	/* search for beginning of vpd */
 	base = NULL;
 	for (i = 2; i < EXPANSION_ROM_SIZE; i++) {
-		
+		/* check for PCIR */
 		if ((readb(p + i + 0) == 0x50) &&
 		    (readb(p + i + 1) == 0x43) &&
 		    (readb(p + i + 2) == 0x49) &&
@@ -2919,13 +3232,13 @@ static int cas_get_vpd_info(struct cas *cp, unsigned char *dev_addr,
 
 	i = (readb(base + 1) | (readb(base + 2) << 8)) + 3;
 	while (i < EXPANSION_ROM_SIZE) {
-		if (readb(base + i) != 0x90) 
+		if (readb(base + i) != 0x90) /* no vpd found */
 			goto use_random_mac_addr;
 
-		
+		/* found a vpd field */
 		len = readb(base + i + 1) | (readb(base + i + 2) << 8);
 
-		
+		/* extract keywords */
 		kstart = base + i + 3;
 		p = kstart;
 		while ((p - kstart) < len) {
@@ -2935,10 +3248,47 @@ static int cas_get_vpd_info(struct cas *cp, unsigned char *dev_addr,
 
 			p += 3;
 
+			/* look for the following things:
+			 * -- correct length == 29
+			 * 3 (type) + 2 (size) +
+			 * 18 (strlen("local-mac-address") + 1) +
+			 * 6 (mac addr)
+			 * -- VPD Instance 'I'
+			 * -- VPD Type Bytes 'B'
+			 * -- VPD data length == 6
+			 * -- property string == local-mac-address
+			 *
+			 * -- correct length == 24
+			 * 3 (type) + 2 (size) +
+			 * 12 (strlen("entropy-dev") + 1) +
+			 * 7 (strlen("vms110") + 1)
+			 * -- VPD Instance 'I'
+			 * -- VPD Type String 'B'
+			 * -- VPD data length == 7
+			 * -- property string == entropy-dev
+			 *
+			 * -- correct length == 18
+			 * 3 (type) + 2 (size) +
+			 * 9 (strlen("phy-type") + 1) +
+			 * 4 (strlen("pcs") + 1)
+			 * -- VPD Instance 'I'
+			 * -- VPD Type String 'S'
+			 * -- VPD data length == 4
+			 * -- property string == phy-type
+			 *
+			 * -- correct length == 23
+			 * 3 (type) + 2 (size) +
+			 * 14 (strlen("phy-interface") + 1) +
+			 * 4 (strlen("pcs") + 1)
+			 * -- VPD Instance 'I'
+			 * -- VPD Type String 'S'
+			 * -- VPD data length == 4
+			 * -- property string == phy-interface
+			 */
 			if (readb(p) != 'I')
 				goto next;
 
-			
+			/* finally, check string and length */
 			type = readb(p + 3);
 			if (type == 'B') {
 				if ((klen == 29) && readb(p + 4) == 6 &&
@@ -2947,7 +3297,7 @@ static int cas_get_vpd_info(struct cas *cp, unsigned char *dev_addr,
 					if (mac_off++ > offset)
 						goto next;
 
-					
+					/* set mac address */
 					for (j = 0; j < 6; j++)
 						dev_addr[j] =
 							readb(p + 23 + j);
@@ -3010,7 +3360,7 @@ use_random_mac_addr:
 	}
 #endif
 
-	
+	/* Sun MAC prefix then 3 random bytes. */
 	pr_info("MAC address not found in ROM VPD\n");
 	dev_addr[0] = 0x08;
 	dev_addr[1] = 0x00;
@@ -3022,6 +3372,7 @@ done:
 	return phy_type;
 }
 
+/* check pci invariants */
 static void cas_check_pci_invariants(struct cas *cp)
 {
 	struct pci_dev *pdev = cp->pdev;
@@ -3034,12 +3385,18 @@ static void cas_check_pci_invariants(struct cas *cp)
 		if (pdev->revision < CAS_ID_REVPLUS02u)
 			cp->cas_flags |= CAS_FLAG_TARGET_ABORT;
 
+		/* Original Cassini supports HW CSUM, but it's not
+		 * enabled by default as it can trigger TX hangs.
+		 */
 		if (pdev->revision < CAS_ID_REV2)
 			cp->cas_flags |= CAS_FLAG_NO_HW_CSUM;
 	} else {
-		
+		/* Only sun has original cassini chips.  */
 		cp->cas_flags |= CAS_FLAG_REG_PLUS;
 
+		/* We use a flag because the same phy might be externally
+		 * connected.
+		 */
 		if ((pdev->vendor == PCI_VENDOR_ID_NS) &&
 		    (pdev->device == PCI_DEVICE_ID_NS_SATURN))
 			cp->cas_flags |= CAS_FLAG_SATURN;
@@ -3053,11 +3410,11 @@ static int cas_check_invariants(struct cas *cp)
 	u32 cfg;
 	int i;
 
-	
+	/* get page size for rx buffers. */
 	cp->page_order = 0;
 #ifdef USE_PAGE_ORDER
 	if (PAGE_SHIFT < CAS_JUMBO_PAGE_SHIFT) {
-		
+		/* see if we can allocate larger pages */
 		struct page *page = alloc_pages(GFP_ATOMIC,
 						CAS_JUMBO_PAGE_SHIFT -
 						PAGE_SHIFT);
@@ -3071,18 +3428,21 @@ static int cas_check_invariants(struct cas *cp)
 #endif
 	cp->page_size = (PAGE_SIZE << cp->page_order);
 
-	
+	/* Fetch the FIFO configurations. */
 	cp->tx_fifo_size = readl(cp->regs + REG_TX_FIFO_SIZE) * 64;
 	cp->rx_fifo_size = RX_FIFO_SIZE;
 
+	/* finish phy determination. MDIO1 takes precedence over MDIO0 if
+	 * they're both connected.
+	 */
 	cp->phy_type = cas_get_vpd_info(cp, cp->dev->dev_addr,
 					PCI_SLOT(pdev->devfn));
 	if (cp->phy_type & CAS_PHY_SERDES) {
 		cp->cas_flags |= CAS_FLAG_1000MB_CAP;
-		return 0; 
+		return 0; /* no more checking needed */
 	}
 
-	
+	/* MII */
 	cfg = readl(cp->regs + REG_MIF_CFG);
 	if (cfg & MIF_CFG_MDIO_1) {
 		cp->phy_type = CAS_PHY_MII_MDIO1;
@@ -3112,7 +3472,7 @@ static int cas_check_invariants(struct cas *cp)
 	return -1;
 
 done:
-	
+	/* see if we can do gigabit */
 	cfg = cas_phy_read(cp, MII_BMSR);
 	if ((cfg & CAS_BMSR_1000_EXTEND) &&
 	    cas_phy_read(cp, CAS_MII_1000_EXTEND))
@@ -3120,19 +3480,20 @@ done:
 	return 0;
 }
 
+/* Must be invoked under cp->lock. */
 static inline void cas_start_dma(struct cas *cp)
 {
 	int i;
 	u32 val;
 	int txfailed = 0;
 
-	
+	/* enable dma */
 	val = readl(cp->regs + REG_TX_CFG) | TX_CFG_DMA_EN;
 	writel(val, cp->regs + REG_TX_CFG);
 	val = readl(cp->regs + REG_RX_CFG) | RX_CFG_DMA_EN;
 	writel(val, cp->regs + REG_RX_CFG);
 
-	
+	/* enable the mac */
 	val = readl(cp->regs + REG_MAC_TX_CFG) | MAC_TX_CFG_EN;
 	writel(val, cp->regs + REG_MAC_TX_CFG);
 	val = readl(cp->regs + REG_MAC_RX_CFG) | MAC_RX_CFG_EN;
@@ -3166,7 +3527,7 @@ static inline void cas_start_dma(struct cas *cp)
 		   readl(cp->regs + REG_MAC_STATE_MACHINE));
 
 enable_rx_done:
-	cas_unmask_intr(cp); 
+	cas_unmask_intr(cp); /* enable interrupts */
 	writel(RX_DESC_RINGN_SIZE(0) - 4, cp->regs + REG_RX_KICK);
 	writel(0, cp->regs + REG_RX_COMP_TAIL);
 
@@ -3180,6 +3541,7 @@ enable_rx_done:
 	}
 }
 
+/* Must be invoked under cp->lock. */
 static void cas_read_pcs_link_mode(struct cas *cp, int *fd, int *spd,
 				   int *pause)
 {
@@ -3191,6 +3553,7 @@ static void cas_read_pcs_link_mode(struct cas *cp, int *fd, int *spd,
 	*spd = 1000;
 }
 
+/* Must be invoked under cp->lock. */
 static void cas_read_mii_link_mode(struct cas *cp, int *fd, int *spd,
 				   int *pause)
 {
@@ -3200,7 +3563,7 @@ static void cas_read_mii_link_mode(struct cas *cp, int *fd, int *spd,
 	*spd = 10;
 	*pause = 0;
 
-	
+	/* use GMII registers */
 	val = cas_phy_read(cp, MII_LPA);
 	if (val & CAS_LPA_PAUSE)
 		*pause = 0x01;
@@ -3222,6 +3585,11 @@ static void cas_read_mii_link_mode(struct cas *cp, int *fd, int *spd,
 	}
 }
 
+/* A link-up condition has occurred, initialize and enable the
+ * rest of the chip.
+ *
+ * Must be invoked under cp->lock.
+ */
 static void cas_set_link_modes(struct cas *cp)
 {
 	u32 val;
@@ -3273,7 +3641,7 @@ static void cas_set_link_modes(struct cas *cp)
 		val |= MAC_XIF_GMII_MODE;
 	writel(val, cp->regs + REG_MAC_XIF_CFG);
 
-	
+	/* deal with carrier and collision detect. */
 	val = MAC_TX_CFG_IPG_EN;
 	if (full_duplex) {
 		val |= MAC_TX_CFG_IGNORE_CARRIER;
@@ -3284,26 +3652,34 @@ static void cas_set_link_modes(struct cas *cp)
 		val |= MAC_TX_CFG_NEVER_GIVE_UP_LIM;
 #endif
 	}
-	
+	/* val now set up for REG_MAC_TX_CFG */
 
+	/* If gigabit and half-duplex, enable carrier extension
+	 * mode.  increase slot time to 512 bytes as well.
+	 * else, disable it and make sure slot time is 64 bytes.
+	 * also activate checksum bug workaround
+	 */
 	if ((speed == 1000) && !full_duplex) {
 		writel(val | MAC_TX_CFG_CARRIER_EXTEND,
 		       cp->regs + REG_MAC_TX_CFG);
 
 		val = readl(cp->regs + REG_MAC_RX_CFG);
-		val &= ~MAC_RX_CFG_STRIP_FCS; 
+		val &= ~MAC_RX_CFG_STRIP_FCS; /* checksum workaround */
 		writel(val | MAC_RX_CFG_CARRIER_EXTEND,
 		       cp->regs + REG_MAC_RX_CFG);
 
 		writel(0x200, cp->regs + REG_MAC_SLOT_TIME);
 
 		cp->crc_size = 4;
-		
+		/* minimum size gigabit frame at half duplex */
 		cp->min_frame_size = CAS_1000MB_MIN_FRAME;
 
 	} else {
 		writel(val, cp->regs + REG_MAC_TX_CFG);
 
+		/* checksum bug workaround. don't strip FCS when in
+		 * half-duplex mode
+		 */
 		val = readl(cp->regs + REG_MAC_RX_CFG);
 		if (full_duplex) {
 			val |= MAC_RX_CFG_STRIP_FCS;
@@ -3334,9 +3710,9 @@ static void cas_set_link_modes(struct cas *cp)
 
 	val = readl(cp->regs + REG_MAC_CTRL_CFG);
 	val &= ~(MAC_CTRL_CFG_SEND_PAUSE_EN | MAC_CTRL_CFG_RECV_PAUSE_EN);
-	if (pause) { 
+	if (pause) { /* symmetric or asymmetric pause */
 		val |= MAC_CTRL_CFG_SEND_PAUSE_EN;
-		if (pause & 0x01) { 
+		if (pause & 0x01) { /* symmetric pause */
 			val |= MAC_CTRL_CFG_RECV_PAUSE_EN;
 		}
 	}
@@ -3344,6 +3720,7 @@ static void cas_set_link_modes(struct cas *cp)
 	cas_start_dma(cp);
 }
 
+/* Must be invoked under cp->lock. */
 static void cas_init_hw(struct cas *cp, int restart_link)
 {
 	if (restart_link)
@@ -3354,7 +3731,7 @@ static void cas_init_hw(struct cas *cp, int restart_link)
 	cas_init_dma(cp);
 
 	if (restart_link) {
-		
+		/* Default aneg parameters */
 		cp->timer_ticks = 0;
 		cas_begin_auto_negotiation(cp, NULL);
 	} else if (cp->lstate == link_up) {
@@ -3363,6 +3740,10 @@ static void cas_init_hw(struct cas *cp, int restart_link)
 	}
 }
 
+/* Must be invoked under cp->lock. on earlier cassini boards,
+ * SOFT_0 is tied to PCI reset. we use this to force a pci reset,
+ * let it settle out, and then restore pci state.
+ */
 static void cas_hard_reset(struct cas *cp)
 {
 	writel(BIM_LOCAL_DEV_SOFT_0, cp->regs + REG_BIM_LOCAL_DEV_EN);
@@ -3375,15 +3756,21 @@ static void cas_global_reset(struct cas *cp, int blkflag)
 {
 	int limit;
 
-	
+	/* issue a global reset. don't use RSTOUT. */
 	if (blkflag && !CAS_PHY_MII(cp->phy_type)) {
+		/* For PCS, when the blkflag is set, we should set the
+		 * SW_REST_BLOCK_PCS_SLINK bit to prevent the results of
+		 * the last autonegotiation from being cleared.  We'll
+		 * need some special handling if the chip is set into a
+		 * loopback mode.
+		 */
 		writel((SW_RESET_TX | SW_RESET_RX | SW_RESET_BLOCK_PCS_SLINK),
 		       cp->regs + REG_SW_RESET);
 	} else {
 		writel(SW_RESET_TX | SW_RESET_RX, cp->regs + REG_SW_RESET);
 	}
 
-	
+	/* need to wait at least 3ms before polling register */
 	mdelay(3);
 
 	limit = STOP_TRIES;
@@ -3396,15 +3783,22 @@ static void cas_global_reset(struct cas *cp, int blkflag)
 	netdev_err(cp->dev, "sw reset failed\n");
 
 done:
-	
+	/* enable various BIM interrupts */
 	writel(BIM_CFG_DPAR_INTR_ENABLE | BIM_CFG_RMA_INTR_ENABLE |
 	       BIM_CFG_RTA_INTR_ENABLE, cp->regs + REG_BIM_CFG);
 
+	/* clear out pci error status mask for handled errors.
+	 * we don't deal with DMA counter overflows as they happen
+	 * all the time.
+	 */
 	writel(0xFFFFFFFFU & ~(PCI_ERR_BADACK | PCI_ERR_DTRTO |
 			       PCI_ERR_OTHER | PCI_ERR_BIM_DMA_WRITE |
 			       PCI_ERR_BIM_DMA_READ), cp->regs +
 	       REG_PCI_ERR_STATUS_MASK);
 
+	/* set up for MII by default to address mac rx reset timeout
+	 * issue
+	 */
 	writel(PCS_DATAPATH_MODE_MII, cp->regs + REG_PCS_DATAPATH_MODE);
 }
 
@@ -3417,7 +3811,7 @@ static void cas_reset(struct cas *cp, int blkflag)
 	cas_mac_reset(cp);
 	cas_entropy_reset(cp);
 
-	
+	/* disable dma engines. */
 	val = readl(cp->regs + REG_TX_CFG);
 	val &= ~TX_CFG_DMA_EN;
 	writel(val, cp->regs + REG_TX_CFG);
@@ -3426,7 +3820,7 @@ static void cas_reset(struct cas *cp, int blkflag)
 	val &= ~RX_CFG_DMA_EN;
 	writel(val, cp->regs + REG_RX_CFG);
 
-	
+	/* program header parser */
 	if ((cp->cas_flags & CAS_FLAG_TARGET_ABORT) ||
 	    (CAS_HP_ALT_FIRMWARE == cas_prog_null)) {
 		cas_load_firmware(cp, CAS_HP_FIRMWARE);
@@ -3434,22 +3828,23 @@ static void cas_reset(struct cas *cp, int blkflag)
 		cas_load_firmware(cp, CAS_HP_ALT_FIRMWARE);
 	}
 
-	
+	/* clear out error registers */
 	spin_lock(&cp->stat_lock[N_TX_RINGS]);
 	cas_clear_mac_err(cp);
 	spin_unlock(&cp->stat_lock[N_TX_RINGS]);
 }
 
+/* Shut down the chip, must be called with pm_mutex held.  */
 static void cas_shutdown(struct cas *cp)
 {
 	unsigned long flags;
 
-	
+	/* Make us not-running to avoid timers respawning */
 	cp->hw_running = 0;
 
 	del_timer_sync(&cp->link_timer);
 
-	
+	/* Stop the reset task */
 #if 0
 	while (atomic_read(&cp->reset_task_pending_mtu) ||
 	       atomic_read(&cp->reset_task_pending_spare) ||
@@ -3460,7 +3855,7 @@ static void cas_shutdown(struct cas *cp)
 	while (atomic_read(&cp->reset_task_pending))
 		schedule();
 #endif
-	
+	/* Actually stop the chip */
 	cas_lock_all_save(cp, flags);
 	cas_reset(cp, 0);
 	if (cp->cas_flags & CAS_FLAG_SATURN)
@@ -3479,7 +3874,7 @@ static int cas_change_mtu(struct net_device *dev, int new_mtu)
 	if (!netif_running(dev) || !netif_device_present(dev))
 		return 0;
 
-	
+	/* let the reset task handle it */
 #if 1
 	atomic_inc(&cp->reset_task_pending);
 	if ((cp->phy_type & CAS_PHY_SERDES)) {
@@ -3519,6 +3914,9 @@ static void cas_clean_txd(struct cas *cp, int ring)
 		for (frag = 0; frag <= skb_shinfo(skb)->nr_frags;  frag++) {
 			int ent = i & (size - 1);
 
+			/* first buffer is never a tiny buffer and so
+			 * needs to be unmapped.
+			 */
 			daddr = le64_to_cpu(txd[ent].buffer);
 			dlen  =  CAS_VAL(TX_DESC_BUFLEN,
 					 le64_to_cpu(txd[ent].control));
@@ -3528,6 +3926,9 @@ static void cas_clean_txd(struct cas *cp, int ring)
 			if (frag != skb_shinfo(skb)->nr_frags) {
 				i++;
 
+				/* next buffer might by a tiny buffer.
+				 * skip past it.
+				 */
 				ent = i & (size - 1);
 				if (cp->tx_tiny_use[ring][ent].used)
 					i++;
@@ -3536,10 +3937,11 @@ static void cas_clean_txd(struct cas *cp, int ring)
 		dev_kfree_skb_any(skb);
 	}
 
-	
+	/* zero out tiny buf usage */
 	memset(cp->tx_tiny_use[ring], 0, size*sizeof(*cp->tx_tiny_use[ring]));
 }
 
+/* freed on close */
 static inline void cas_free_rx_desc(struct cas *cp, int ring)
 {
 	cas_page_t **page = cp->rx_pages[ring];
@@ -3562,22 +3964,24 @@ static void cas_free_rxds(struct cas *cp)
 		cas_free_rx_desc(cp, i);
 }
 
+/* Must be invoked under cp->lock. */
 static void cas_clean_rings(struct cas *cp)
 {
 	int i;
 
-	
+	/* need to clean all tx rings */
 	memset(cp->tx_old, 0, sizeof(*cp->tx_old)*N_TX_RINGS);
 	memset(cp->tx_new, 0, sizeof(*cp->tx_new)*N_TX_RINGS);
 	for (i = 0; i < N_TX_RINGS; i++)
 		cas_clean_txd(cp, i);
 
-	
+	/* zero out init block */
 	memset(cp->init_block, 0, sizeof(struct cas_init_block));
 	cas_clean_rxds(cp);
 	cas_clean_rxcs(cp);
 }
 
+/* allocated on open */
 static inline int cas_alloc_rx_desc(struct cas *cp, int ring)
 {
 	cas_page_t **page = cp->rx_pages[ring];
@@ -3615,28 +4019,46 @@ static void cas_reset_task(struct work_struct *work)
 	int pending_mtu = atomic_read(&cp->reset_task_pending_mtu);
 
 	if (pending_all == 0 && pending_spare == 0 && pending_mtu == 0) {
+		/* We can have more tasks scheduled than actually
+		 * needed.
+		 */
 		atomic_dec(&cp->reset_task_pending);
 		return;
 	}
 #endif
+	/* The link went down, we reset the ring, but keep
+	 * DMA stopped. Use this function for reset
+	 * on error as well.
+	 */
 	if (cp->hw_running) {
 		unsigned long flags;
 
-		
+		/* Make sure we don't get interrupts or tx packets */
 		netif_device_detach(cp->dev);
 		cas_lock_all_save(cp, flags);
 
 		if (cp->opened) {
+			/* We call cas_spare_recover when we call cas_open.
+			 * but we do not initialize the lists cas_spare_recover
+			 * uses until cas_open is called.
+			 */
 			cas_spare_recover(cp, GFP_ATOMIC);
 		}
 #if 1
-		
+		/* test => only pending_spare set */
 		if (!pending_all && !pending_mtu)
 			goto done;
 #else
 		if (pending == CAS_RESET_SPARE)
 			goto done;
 #endif
+		/* when pending == CAS_RESET_ALL, the following
+		 * call to cas_init_hw will restart auto negotiation.
+		 * Setting the second argument of cas_reset to
+		 * !(pending == CAS_RESET_ALL) will set this argument
+		 * to 1 (avoiding reinitializing the PHY for the normal
+		 * PCS case) when auto negotiation is not restarted.
+		 */
 #if 1
 		cas_reset(cp, !(pending_all > 0));
 		if (cp->opened)
@@ -3673,6 +4095,10 @@ static void cas_link_timer(unsigned long data)
 	    cp->link_transition_jiffies_valid &&
 	    ((jiffies - cp->link_transition_jiffies) >
 	      (link_transition_timeout))) {
+		/* One-second counter so link-down workaround doesn't
+		 * cause resets to occur so fast as to fool the switch
+		 * into thinking the link is down.
+		 */
 		cp->link_transition_jiffies_valid = 0;
 	}
 
@@ -3683,6 +4109,9 @@ static void cas_link_timer(unsigned long data)
 	cas_lock_tx(cp);
 	cas_entropy_gather(cp);
 
+	/* If the link task is still pending, we just
+	 * reschedule the link timer
+	 */
 #if 1
 	if (atomic_read(&cp->reset_task_pending_all) ||
 	    atomic_read(&cp->reset_task_pending_spare) ||
@@ -3693,7 +4122,7 @@ static void cas_link_timer(unsigned long data)
 		goto done;
 #endif
 
-	
+	/* check for rx cleaning */
 	if ((mask = (cp->cas_flags & CAS_FLAG_RXD_POST_MASK))) {
 		int i, rmask;
 
@@ -3702,7 +4131,7 @@ static void cas_link_timer(unsigned long data)
 			if ((mask & rmask) == 0)
 				continue;
 
-			
+			/* post_rxds will do a mod_timer */
 			if (cas_post_rxds_ringN(cp, i, cp->rx_last[i]) < 0) {
 				pending = 1;
 				continue;
@@ -3715,9 +4144,14 @@ static void cas_link_timer(unsigned long data)
 		u16 bmsr;
 		cas_mif_poll(cp, 0);
 		bmsr = cas_phy_read(cp, MII_BMSR);
+		/* WTZ: Solaris driver reads this twice, but that
+		 * may be due to the PCS case and the use of a
+		 * common implementation. Read it twice here to be
+		 * safe.
+		 */
 		bmsr = cas_phy_read(cp, MII_BMSR);
 		cas_mif_poll(cp, 1);
-		readl(cp->regs + REG_MIF_STATUS); 
+		readl(cp->regs + REG_MIF_STATUS); /* avoid dups */
 		reset = cas_mii_link_check(cp, bmsr);
 	} else {
 		reset = cas_pcs_link_check(cp);
@@ -3726,7 +4160,7 @@ static void cas_link_timer(unsigned long data)
 	if (reset)
 		goto done;
 
-	
+	/* check for tx state machine confusion */
 	if ((readl(cp->regs + REG_MAC_TX_STATUS) & MAC_TX_FRAME_XMIT) == 0) {
 		u32 val = readl(cp->regs + REG_MAC_STATE_MACHINE);
 		u32 wptr, rptr;
@@ -3773,6 +4207,9 @@ done:
 	spin_unlock_irqrestore(&cp->lock, flags);
 }
 
+/* tiny buffers are used to avoid target abort issues with
+ * older cassini's
+ */
 static void cas_tx_tiny_free(struct cas *cp)
 {
 	struct pci_dev *pdev = cp->pdev;
@@ -3817,9 +4254,17 @@ static int cas_open(struct net_device *dev)
 
 	hw_was_up = cp->hw_running;
 
+	/* The power-management mutex protects the hw_running
+	 * etc. state so it is safe to do this bit without cp->lock
+	 */
 	if (!cp->hw_running) {
-		
+		/* Reset the chip */
 		cas_lock_all_save(cp, flags);
+		/* We set the second arg to cas_reset to zero
+		 * because cas_init_hw below will have its second
+		 * argument set to non-zero, which will force
+		 * autonegotiation to start.
+		 */
 		cas_reset(cp, 0);
 		cp->hw_running = 1;
 		cas_unlock_all_restore(cp, flags);
@@ -3829,14 +4274,19 @@ static int cas_open(struct net_device *dev)
 	if (cas_tx_tiny_alloc(cp) < 0)
 		goto err_unlock;
 
-	
+	/* alloc rx descriptors */
 	if (cas_alloc_rxds(cp) < 0)
 		goto err_tx_tiny;
 
-	
+	/* allocate spares */
 	cas_spare_init(cp);
 	cas_spare_recover(cp, GFP_KERNEL);
 
+	/* We can now request the interrupt as we know it's masked
+	 * on the controller. cassini+ has up to 4 interrupts
+	 * that can be used, but you need to do explicit pci interrupt
+	 * mapping to expose them
+	 */
 	if (request_irq(cp->pdev->irq, cas_interrupt,
 			IRQF_SHARED, dev->name, (void *) dev)) {
 		netdev_err(cp->dev, "failed to request irq !\n");
@@ -3847,7 +4297,7 @@ static int cas_open(struct net_device *dev)
 #ifdef USE_NAPI
 	napi_enable(&cp->napi);
 #endif
-	
+	/* init hw */
 	cas_lock_all_save(cp, flags);
 	cas_clean_rings(cp);
 	cas_init_hw(cp, !hw_was_up);
@@ -3876,12 +4326,12 @@ static int cas_close(struct net_device *dev)
 #ifdef USE_NAPI
 	napi_disable(&cp->napi);
 #endif
-	
+	/* Make sure we don't get distracted by suspend/resume */
 	mutex_lock(&cp->pm_mutex);
 
 	netif_stop_queue(dev);
 
-	
+	/* Stop traffic, mark us closed */
 	cas_lock_all_save(cp, flags);
 	cp->opened = 0;
 	cas_reset(cp, 0);
@@ -3921,7 +4371,7 @@ static struct {
 #define CAS_NUM_STAT_KEYS ARRAY_SIZE(ethtool_cassini_statnames)
 
 static struct {
-	const int offsets;	
+	const int offsets;	/* neg. values for 2nd arg to cas_read_phy */
 } ethtool_register_table[] = {
 	{-MII_BMSR},
 	{-MII_BMCR},
@@ -3975,11 +4425,18 @@ static struct net_device_stats *cas_get_stats(struct net_device *dev)
 	int i;
 	unsigned long tmp;
 
-	
+	/* we collate all of the stats into net_stats[N_TX_RING] */
 	if (!cp->hw_running)
 		return stats + N_TX_RINGS;
 
-	
+	/* collect outstanding stats */
+	/* WTZ: the Cassini spec gives these as 16 bit counters but
+	 * stored in 32-bit words.  Added a mask of 0xffff to be safe,
+	 * in case the chip somehow puts any garbage in the other bits.
+	 * Also, counter usage didn't seem to mach what Adrian did
+	 * in the parts of the code that set these quantities. Made
+	 * that consistent.
+	 */
 	spin_lock_irqsave(&cp->stat_lock[N_TX_RINGS], flags);
 	stats[N_TX_RINGS].rx_crc_errors +=
 	  readl(cp->regs + REG_MAC_FCS_ERR) & 0xffff;
@@ -4001,7 +4458,7 @@ static struct net_device_stats *cas_get_stats(struct net_device *dev)
 #endif
 	cas_clear_mac_err(cp);
 
-	
+	/* saved bits that are unique to ring 0 */
 	spin_lock(&cp->stat_lock[0]);
 	stats[N_TX_RINGS].collisions        += stats[0].collisions;
 	stats[N_TX_RINGS].rx_over_errors    += stats[0].rx_over_errors;
@@ -4045,7 +4502,7 @@ static void cas_set_multicast(struct net_device *dev)
 	spin_lock_irqsave(&cp->lock, flags);
 	rxcfg = readl(cp->regs + REG_MAC_RX_CFG);
 
-	
+	/* disable RX MAC and wait for completion */
 	writel(rxcfg & ~MAC_RX_CFG_EN, cp->regs + REG_MAC_RX_CFG);
 	while (readl(cp->regs + REG_MAC_RX_CFG) & MAC_RX_CFG_EN) {
 		if (!limit--)
@@ -4053,7 +4510,7 @@ static void cas_set_multicast(struct net_device *dev)
 		udelay(10);
 	}
 
-	
+	/* disable hash filter and wait for completion */
 	limit = STOP_TRIES;
 	rxcfg &= ~(MAC_RX_CFG_PROMISC_EN | MAC_RX_CFG_HASH_FILTER_EN);
 	writel(rxcfg & ~MAC_RX_CFG_EN, cp->regs + REG_MAC_RX_CFG);
@@ -4063,7 +4520,7 @@ static void cas_set_multicast(struct net_device *dev)
 		udelay(10);
 	}
 
-	
+	/* program hash filters */
 	cp->mac_rx_cfg = rxcfg_new = cas_setup_multicast(cp);
 	rxcfg |= rxcfg_new;
 	writel(rxcfg, cp->regs + REG_MAC_RX_CFG);
@@ -4096,7 +4553,7 @@ static int cas_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 		cmd->advertising |= ADVERTISED_1000baseT_Full;
 	}
 
-	
+	/* Record PHY settings if HW is on. */
 	spin_lock_irqsave(&cp->lock, flags);
 	bmcr = 0;
 	linkstate = cp->lstate;
@@ -4134,7 +4591,7 @@ static int cas_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 		cmd->advertising |= ADVERTISED_FIBRE;
 
 		if (cp->hw_running) {
-			
+			/* pcs uses the same bits as mii */
 			bmcr = readl(cp->regs + REG_PCS_MII_CTRL);
 			cas_read_pcs_link_mode(cp, &full_duplex,
 					       &speed, &pause);
@@ -4161,6 +4618,16 @@ static int cas_get_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 			DUPLEX_FULL : DUPLEX_HALF;
 	}
 	if (linkstate != link_up) {
+		/* Force these to "unknown" if the link is not up and
+		 * autonogotiation in enabled. We can set the link
+		 * speed to 0, but not cmd->duplex,
+		 * because its legal values are 0 and 1.  Ethtool will
+		 * print the value reported in parentheses after the
+		 * word "Unknown" for unrecognized values.
+		 *
+		 * If in forced mode, we report the speed and duplex
+		 * settings that we configured.
+		 */
 		if (cp->link_cntl & BMCR_ANENABLE) {
 			ethtool_cmd_speed_set(cmd, 0);
 			cmd->duplex = 0xff;
@@ -4184,7 +4651,7 @@ static int cas_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	unsigned long flags;
 	u32 speed = ethtool_cmd_speed(cmd);
 
-	
+	/* Verify the settings we care about. */
 	if (cmd->autoneg != AUTONEG_ENABLE &&
 	    cmd->autoneg != AUTONEG_DISABLE)
 		return -EINVAL;
@@ -4197,7 +4664,7 @@ static int cas_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	      cmd->duplex != DUPLEX_FULL)))
 		return -EINVAL;
 
-	
+	/* Apply settings and restart link process. */
 	spin_lock_irqsave(&cp->lock, flags);
 	cas_begin_auto_negotiation(cp, cmd);
 	spin_unlock_irqrestore(&cp->lock, flags);
@@ -4212,7 +4679,7 @@ static int cas_nway_reset(struct net_device *dev)
 	if ((cp->link_cntl & BMCR_ANENABLE) == 0)
 		return -EINVAL;
 
-	
+	/* Restart link process. */
 	spin_lock_irqsave(&cp->lock, flags);
 	cas_begin_auto_negotiation(cp, NULL);
 	spin_unlock_irqrestore(&cp->lock, flags);
@@ -4249,7 +4716,7 @@ static void cas_get_regs(struct net_device *dev, struct ethtool_regs *regs,
 {
 	struct cas *cp = netdev_priv(dev);
 	regs->version = 0;
-	
+	/* cas_read_regs handles locks (cp->lock).  */
 	cas_read_regs(cp, p, regs->len / sizeof(u32));
 }
 
@@ -4316,13 +4783,16 @@ static int cas_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	unsigned long flags;
 	int rc = -EOPNOTSUPP;
 
+	/* Hold the PM mutex while doing ioctl's or we may collide
+	 * with open/close and power management and oops.
+	 */
 	mutex_lock(&cp->pm_mutex);
 	switch (cmd) {
-	case SIOCGMIIPHY:		
+	case SIOCGMIIPHY:		/* Get address of MII PHY in use. */
 		data->phy_id = cp->phy_addr;
-		
+		/* Fallthrough... */
 
-	case SIOCGMIIREG:		
+	case SIOCGMIIREG:		/* Read MII PHY register. */
 		spin_lock_irqsave(&cp->lock, flags);
 		cas_mif_poll(cp, 0);
 		data->val_out = cas_phy_read(cp, data->reg_num & 0x1f);
@@ -4331,7 +4801,7 @@ static int cas_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		rc = 0;
 		break;
 
-	case SIOCSMIIREG:		
+	case SIOCSMIIREG:		/* Write MII PHY register. */
 		spin_lock_irqsave(&cp->lock, flags);
 		cas_mif_poll(cp, 0);
 		rc = cas_phy_write(cp, data->reg_num & 0x1f, data->val_in);
@@ -4346,6 +4816,10 @@ static int cas_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	return rc;
 }
 
+/* When this chip sits underneath an Intel 31154 bridge, it is the
+ * only subordinate device and we can tweak the bridge settings to
+ * reflect that fact.
+ */
 static void __devinit cas_program_bridge(struct pci_dev *cas_pdev)
 {
 	struct pci_dev *pdev = cas_pdev->bus->self;
@@ -4357,12 +4831,59 @@ static void __devinit cas_program_bridge(struct pci_dev *cas_pdev)
 	if (pdev->vendor != 0x8086 || pdev->device != 0x537c)
 		return;
 
+	/* Clear bit 10 (Bus Parking Control) in the Secondary
+	 * Arbiter Control/Status Register which lives at offset
+	 * 0x41.  Using a 32-bit word read/modify/write at 0x40
+	 * is much simpler so that's how we do this.
+	 */
 	pci_read_config_dword(pdev, 0x40, &val);
 	val &= ~0x00040000;
 	pci_write_config_dword(pdev, 0x40, val);
 
+	/* Max out the Multi-Transaction Timer settings since
+	 * Cassini is the only device present.
+	 *
+	 * The register is 16-bit and lives at 0x50.  When the
+	 * settings are enabled, it extends the GRANT# signal
+	 * for a requestor after a transaction is complete.  This
+	 * allows the next request to run without first needing
+	 * to negotiate the GRANT# signal back.
+	 *
+	 * Bits 12:10 define the grant duration:
+	 *
+	 *	1	--	16 clocks
+	 *	2	--	32 clocks
+	 *	3	--	64 clocks
+	 *	4	--	128 clocks
+	 *	5	--	256 clocks
+	 *
+	 * All other values are illegal.
+	 *
+	 * Bits 09:00 define which REQ/GNT signal pairs get the
+	 * GRANT# signal treatment.  We set them all.
+	 */
 	pci_write_config_word(pdev, 0x50, (5 << 10) | 0x3ff);
 
+	/* The Read Prefecth Policy register is 16-bit and sits at
+	 * offset 0x52.  It enables a "smart" pre-fetch policy.  We
+	 * enable it and max out all of the settings since only one
+	 * device is sitting underneath and thus bandwidth sharing is
+	 * not an issue.
+	 *
+	 * The register has several 3 bit fields, which indicates a
+	 * multiplier applied to the base amount of prefetching the
+	 * chip would do.  These fields are at:
+	 *
+	 *	15:13	---	ReRead Primary Bus
+	 *	12:10	---	FirstRead Primary Bus
+	 *	09:07	---	ReRead Secondary Bus
+	 *	06:04	---	FirstRead Secondary Bus
+	 *
+	 * Bits 03:00 control which REQ/GNT pairs the prefetch settings
+	 * get enabled on.  Bit 3 is a grouped enabler which controls
+	 * all of the REQ/GNT pairs from [8:3].  Bits 2 to 0 control
+	 * the individual REQ/GNT pairs [2:0].
+	 */
 	pci_write_config_word(pdev, 0x52,
 			      (0x7 << 13) |
 			      (0x7 << 10) |
@@ -4370,9 +4891,12 @@ static void __devinit cas_program_bridge(struct pci_dev *cas_pdev)
 			      (0x7 <<  4) |
 			      (0xf <<  0));
 
-	
+	/* Force cacheline size to 0x8 */
 	pci_write_config_byte(pdev, PCI_CACHE_LINE_SIZE, 0x08);
 
+	/* Force latency timer to maximum setting so Cassini can
+	 * sit on the bus as long as it likes.
+	 */
 	pci_write_config_byte(pdev, PCI_LATENCY_TIMER, 0xff);
 }
 
@@ -4433,6 +4957,10 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 	}
 	pci_set_master(pdev);
 
+	/* we must always turn on parity response or else parity
+	 * doesn't get generated properly. disable SERR/PERR as well.
+	 * in addition, we want to turn MWI on.
+	 */
 	pci_read_config_word(pdev, PCI_COMMAND, &pci_cmd);
 	pci_cmd &= ~PCI_COMMAND_SERR;
 	pci_cmd |= PCI_COMMAND_PARITY;
@@ -4442,6 +4970,12 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 
 	cas_program_bridge(pdev);
 
+	/*
+	 * On some architectures, the default cache line size set
+	 * by pci_try_set_mwi reduces perforamnce.  We have to increase
+	 * it for this case.  To start, we'll print some configuration
+	 * data.
+	 */
 #if 1
 	pci_read_config_byte(pdev, PCI_CACHE_LINE_SIZE,
 			     &orig_cacheline_size);
@@ -4460,7 +4994,7 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 #endif
 
 
-	
+	/* Configure DMA attributes. */
 	if (!pci_set_dma_mask(pdev, DMA_BIT_MASK(64))) {
 		pci_using_dac = 1;
 		err = pci_set_consistent_dma_mask(pdev,
@@ -4486,7 +5020,7 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 	cp = netdev_priv(dev);
 	cp->pdev = pdev;
 #if 1
-	
+	/* A value of 0 indicates we never explicitly set it */
 	cp->orig_cacheline_size = cas_cacheline_size ? orig_cacheline_size: 0;
 #endif
 	cp->dev = dev;
@@ -4515,6 +5049,9 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 	cp->link_timer.data = (unsigned long) cp;
 
 #if 1
+	/* Just in case the implementation of atomic operations
+	 * change so that an explicit initialization is necessary.
+	 */
 	atomic_set(&cp->reset_task_pending, 0);
 	atomic_set(&cp->reset_task_pending_all, 0);
 	atomic_set(&cp->reset_task_pending_spare, 0);
@@ -4522,7 +5059,7 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 #endif
 	INIT_WORK(&cp->reset_task, cas_reset_task);
 
-	
+	/* Default link parameters */
 	if (link_mode >= 0 && link_mode < 6)
 		cp->link_cntl = link_modes[link_mode];
 	else
@@ -4532,7 +5069,7 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 	netif_carrier_off(cp->dev);
 	cp->timer_ticks = 0;
 
-	
+	/* give us access to cassini registers */
 	cp->regs = pci_iomap(pdev, 0, casreg_len);
 	if (!cp->regs) {
 		dev_err(&pdev->dev, "Cannot map device registers, aborting\n");
@@ -4580,7 +5117,7 @@ static int __devinit cas_init_one(struct pci_dev *pdev,
 	dev->irq = pdev->irq;
 	dev->dma = 0;
 
-	
+	/* Cassini features. */
 	if ((cp->cas_flags & CAS_FLAG_NO_HW_CSUM) == 0)
 		dev->features |= NETIF_F_HW_CSUM | NETIF_F_SG;
 
@@ -4624,6 +5161,9 @@ err_out_free_res:
 	pci_release_regions(pdev);
 
 err_write_cacheline:
+	/* Try to restore it in case the error occurred after we
+	 * set it.
+	 */
 	pci_write_config_byte(pdev, PCI_CACHE_LINE_SIZE, orig_cacheline_size);
 
 err_out_free_netdev:
@@ -4656,6 +5196,9 @@ static void __devexit cas_remove_one(struct pci_dev *pdev)
 
 #if 1
 	if (cp->orig_cacheline_size) {
+		/* Restore the cache line size if we had modified
+		 * it.
+		 */
 		pci_write_config_byte(pdev, PCI_CACHE_LINE_SIZE,
 				      cp->orig_cacheline_size);
 	}
@@ -4678,12 +5221,17 @@ static int cas_suspend(struct pci_dev *pdev, pm_message_t state)
 
 	mutex_lock(&cp->pm_mutex);
 
-	
+	/* If the driver is opened, we stop the DMA */
 	if (cp->opened) {
 		netif_device_detach(dev);
 
 		cas_lock_all_save(cp, flags);
 
+		/* We can set the second arg of cas_reset to 0
+		 * because on resume, we'll call cas_init_hw with
+		 * its second arg set so that autonegotiation is
+		 * restarted.
+		 */
 		cas_reset(cp, 0);
 		cas_clean_rings(cp);
 		cas_unlock_all_restore(cp, flags);
@@ -4719,7 +5267,7 @@ static int cas_resume(struct pci_dev *pdev)
 	mutex_unlock(&cp->pm_mutex);
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 static struct pci_driver cas_driver = {
 	.name		= DRV_MODULE_NAME,

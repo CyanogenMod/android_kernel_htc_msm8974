@@ -1,4 +1,4 @@
-#include <linux/of.h>	
+#include <linux/of.h>	/* linux/of.h gets to determine #include ordering */
 #ifndef _SPARC_PROM_H
 #define _SPARC_PROM_H
 #ifdef __KERNEL__
@@ -63,5 +63,5 @@ extern char *of_console_options;
 extern void irq_trans_init(struct device_node *dp);
 extern char *build_path_component(struct device_node *dp);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _SPARC_PROM_H */

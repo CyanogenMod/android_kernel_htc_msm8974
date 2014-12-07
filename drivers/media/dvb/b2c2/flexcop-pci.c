@@ -50,13 +50,15 @@ struct flexcop_pci {
 
 	void __iomem *io_mem;
 	u32 irq;
+	/* buffersize (at least for DMA1, need to be % 188 == 0,
+	 * this logic is required */
 #define FC_DEFAULT_DMA1_BUFSIZE (1280 * 188)
 #define FC_DEFAULT_DMA2_BUFSIZE (10 * 188)
 	struct flexcop_dma dma[2];
 
-	int active_dma1_addr; 
+	int active_dma1_addr; /* 0 = addr0 of dma1; 1 = addr1 of dma1 */
 	u32 last_dma1_cur_pos;
-	
+	/* position of the pointer last time the timer/packet irq occurred */
 	int count;
 	int count_prev;
 	int stream_problem;
@@ -137,6 +139,9 @@ static void flexcop_pci_irq_check_work(struct work_struct *work)
 			msecs_to_jiffies(irq_chk_intv < 100 ? 100 : irq_chk_intv));
 }
 
+/* When PID filtering is turned on, we use the timer IRQ, because small amounts
+ * of data need to be passed to the user space instantly as well. When PID
+ * filtering is turned off, we use the page-change-IRQ */
 static irqreturn_t flexcop_pci_isr(int irq, void *dev_id)
 {
 	struct flexcop_pci *fc_pci = dev_id;
@@ -148,7 +153,7 @@ static irqreturn_t flexcop_pci_isr(int irq, void *dev_id)
 	spin_lock_irqsave(&fc_pci->irq_lock, flags);
 	v = fc->read_ibi_reg(fc, irq_20c);
 
-	
+	/* errors */
 	if (v.irq_20c.Data_receiver_error)
 		deb_chk("data receiver error\n");
 	if (v.irq_20c.Continuity_error_flag)
@@ -173,6 +178,8 @@ static irqreturn_t flexcop_pci_isr(int irq, void *dev_id)
 
 		deb_irq("page change to page: %d\n",!fc_pci->active_dma1_addr);
 		fc_pci->active_dma1_addr = !fc_pci->active_dma1_addr;
+		/* for the timer IRQ we only can use buffer dmx feeding, because we don't have
+		 * complete TS packets when reading from the DMA memory */
 	} else if (v.irq_20c.DMA1_Timer_Status == 1) {
 		dma_addr_t cur_addr =
 			fc->read_ibi_reg(fc,dma1_008).dma_0x8.dma_cur_addr << 2;
@@ -185,6 +192,9 @@ static irqreturn_t flexcop_pci_isr(int irq, void *dev_id)
 				fc_pci->last_dma1_cur_pos);
 		fc_pci->last_irq = jiffies;
 
+		/* buffer end was reached, restarted from the beginning
+		 * pass the data from last_cur_pos to the buffer end to the demux
+		 */
 		if (cur_pos < fc_pci->last_dma1_cur_pos) {
 			deb_irq(" end was reached: passing %d bytes ",
 				(fc_pci->dma[0].size*2 - 1) -
@@ -341,7 +351,7 @@ static int flexcop_pci_probe(struct pci_dev *pdev,
 		return -ENOMEM;
 	}
 
-	
+	/* general flexcop init */
 	fc_pci = fc->bus_specific;
 	fc_pci->fc_dev = fc;
 
@@ -361,16 +371,16 @@ static int flexcop_pci_probe(struct pci_dev *pdev,
 	fc->dev = &pdev->dev;
 	fc->owner = THIS_MODULE;
 
-	
+	/* bus specific part */
 	fc_pci->pdev = pdev;
 	if ((ret = flexcop_pci_init(fc_pci)) != 0)
 		goto err_kfree;
 
-	
+	/* init flexcop */
 	if ((ret = flexcop_device_initialize(fc)) != 0)
 		goto err_pci_exit;
 
-	
+	/* init dma */
 	if ((ret = flexcop_pci_dma_init(fc_pci)) != 0)
 		goto err_fc_exit;
 
@@ -392,6 +402,9 @@ err_kfree:
 	return ret;
 }
 
+/* in theory every _exit function should be called exactly two times,
+ * here and in the bail-out-part of the _init-function
+ */
 static void flexcop_pci_remove(struct pci_dev *pdev)
 {
 	struct flexcop_pci *fc_pci = pci_get_drvdata(pdev);

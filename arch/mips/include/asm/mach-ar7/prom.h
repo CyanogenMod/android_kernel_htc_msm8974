@@ -22,4 +22,4 @@
 extern char *prom_getenv(const char *name);
 extern void prom_meminit(void);
 
-#endif 
+#endif /* __PROM_H__ */

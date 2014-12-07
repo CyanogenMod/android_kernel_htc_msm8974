@@ -27,7 +27,7 @@
 #include <net/sock.h>
 #include <asm/uaccess.h>
 #include <linux/fcntl.h>
-#include <linux/termios.h>	
+#include <linux/termios.h>	/* For TIOCINQ/OUTQ */
 #include <linux/mm.h>
 #include <linux/interrupt.h>
 #include <linux/notifier.h>
@@ -83,6 +83,10 @@ static struct nr_neigh *nr_neigh_get_dev(ax25_address *callsign,
 
 static void nr_remove_neigh(struct nr_neigh *);
 
+/*
+ *	Add a new route to a node, and in the process add the node and the
+ *	neighbour if it is new.
+ */
 static int __must_check nr_add_node(ax25_address *nr, const char *mnemonic,
 	ax25_address *ax25, ax25_digi *ax25_digi, struct net_device *dev,
 	int quality, int obs_count)
@@ -93,7 +97,7 @@ static int __must_check nr_add_node(ax25_address *nr, const char *mnemonic,
 	int i, found;
 	struct net_device *odev;
 
-	if ((odev=nr_dev_get(nr)) != NULL) {	
+	if ((odev=nr_dev_get(nr)) != NULL) {	/* Can't add routes to ourself */
 		dev_put(odev);
 		return -EINVAL;
 	}
@@ -102,6 +106,12 @@ static int __must_check nr_add_node(ax25_address *nr, const char *mnemonic,
 
 	nr_neigh = nr_neigh_get_dev(ax25, dev);
 
+	/*
+	 * The L2 link to a neighbour has failed in the past
+	 * and now a frame comes from this neighbour. We assume
+	 * it was a temporary trouble with the link and reset the
+	 * routes now (and not wait for a node broadcast).
+	 */
 	if (nr_neigh != NULL && nr_neigh->failed != 0 && quality == 0) {
 		struct nr_node *nr_nodet;
 		struct hlist_node *node;
@@ -190,7 +200,7 @@ static int __must_check nr_add_node(ax25_address *nr, const char *mnemonic,
 
 		spin_lock_bh(&nr_node_list_lock);
 		hlist_add_head(&nr_node->node_node, &nr_node_list);
-		
+		/* refcount initialized at 1 */
 		spin_unlock_bh(&nr_node_list_lock);
 
 		return 0;
@@ -210,7 +220,7 @@ static int __must_check nr_add_node(ax25_address *nr, const char *mnemonic,
 	}
 
 	if (!found) {
-		
+		/* We have space at the bottom, slot it in */
 		if (nr_node->count < 3) {
 			nr_node->routes[2] = nr_node->routes[1];
 			nr_node->routes[1] = nr_node->routes[0];
@@ -224,7 +234,7 @@ static int __must_check nr_add_node(ax25_address *nr, const char *mnemonic,
 			nr_neigh_hold(nr_neigh);
 			nr_neigh->count++;
 		} else {
-			
+			/* It must be better than the worst */
 			if (quality > nr_node->routes[2].quality) {
 				nr_node->routes[2].neighbour->count--;
 				nr_neigh_put(nr_node->routes[2].neighbour);
@@ -242,7 +252,7 @@ static int __must_check nr_add_node(ax25_address *nr, const char *mnemonic,
 		}
 	}
 
-	
+	/* Now re-sort the routes in quality order */
 	switch (nr_node->count) {
 	case 3:
 		if (nr_node->routes[1].quality > nr_node->routes[0].quality) {
@@ -338,6 +348,10 @@ static void nr_remove_neigh(struct nr_neigh *nr_neigh)
 	spin_unlock_bh(&nr_neigh_list_lock);
 }
 
+/*
+ *	"Delete" a node. Strictly speaking remove a route to a node. The node
+ *	is only deleted if no routes are left to it.
+ */
 static int nr_del_node(ax25_address *callsign, ax25_address *neighbour, struct net_device *dev)
 {
 	struct nr_node  *nr_node;
@@ -393,6 +407,9 @@ static int nr_del_node(ax25_address *callsign, ax25_address *neighbour, struct n
 	return -EINVAL;
 }
 
+/*
+ *	Lock a neighbour with a quality.
+ */
 static int __must_check nr_add_neigh(ax25_address *callsign,
 	ax25_digi *ax25_digi, struct net_device *dev, unsigned int quality)
 {
@@ -431,12 +448,16 @@ static int __must_check nr_add_neigh(ax25_address *callsign,
 
 	spin_lock_bh(&nr_neigh_list_lock);
 	hlist_add_head(&nr_neigh->neigh_node, &nr_neigh_list);
-	
+	/* refcount is initialized at 1 */
 	spin_unlock_bh(&nr_neigh_list_lock);
 
 	return 0;
 }
 
+/*
+ *	"Delete" a neighbour. The neighbour is only removed if the number
+ *	of nodes that may use it is zero.
+ */
 static int nr_del_neigh(ax25_address *callsign, struct net_device *dev, unsigned int quality)
 {
 	struct nr_neigh *nr_neigh;
@@ -455,6 +476,11 @@ static int nr_del_neigh(ax25_address *callsign, struct net_device *dev, unsigned
 	return 0;
 }
 
+/*
+ *	Decrement the obsolescence count by one. If a route is reduced to a
+ *	count of zero, remove it. Also remove any unlocked neighbours with
+ *	zero nodes routing via it.
+ */
 static int nr_dec_obs(void)
 {
 	struct nr_neigh *nr_neigh;
@@ -467,10 +493,10 @@ static int nr_dec_obs(void)
 		nr_node_lock(s);
 		for (i = 0; i < s->count; i++) {
 			switch (s->routes[i].obs_count) {
-			case 0:		
+			case 0:		/* A locked entry */
 				break;
 
-			case 1:		
+			case 1:		/* From 1 -> 0 */
 				nr_neigh = s->routes[i].neighbour;
 
 				nr_neigh->count--;
@@ -484,7 +510,7 @@ static int nr_dec_obs(void)
 				switch (i) {
 				case 0:
 					s->routes[0] = s->routes[1];
-					
+					/* Fallthrough */
 				case 1:
 					s->routes[1] = s->routes[2];
 				case 2:
@@ -508,6 +534,9 @@ static int nr_dec_obs(void)
 	return 0;
 }
 
+/*
+ *	A device has been removed. Remove its routes and neighbours.
+ */
 void nr_rt_device_down(struct net_device *dev)
 {
 	struct nr_neigh *s;
@@ -548,6 +577,10 @@ void nr_rt_device_down(struct net_device *dev)
 	spin_unlock_bh(&nr_neigh_list_lock);
 }
 
+/*
+ *	Check that the device given is a valid AX.25 interface that is "up".
+ *	Or a valid ethernet interface with an AX.25 callsign binding.
+ */
 static struct net_device *nr_ax25_dev_get(char *devname)
 {
 	struct net_device *dev;
@@ -562,6 +595,9 @@ static struct net_device *nr_ax25_dev_get(char *devname)
 	return NULL;
 }
 
+/*
+ *	Find the first active NET/ROM device, usually "nr0".
+ */
 struct net_device *nr_dev_first(void)
 {
 	struct net_device *dev, *first = NULL;
@@ -579,6 +615,9 @@ struct net_device *nr_dev_first(void)
 	return first;
 }
 
+/*
+ *	Find the NET/ROM device for the given callsign.
+ */
 struct net_device *nr_dev_get(ax25_address *addr)
 {
 	struct net_device *dev;
@@ -616,6 +655,9 @@ static ax25_digi *nr_call_to_digi(ax25_digi *digi, int ndigis,
 	return digi;
 }
 
+/*
+ *	Handle the ioctls that control the routing functions.
+ */
 int nr_rt_ioctl(unsigned int cmd, void __user *arg)
 {
 	struct nr_route_struct nr_route;
@@ -688,6 +730,10 @@ int nr_rt_ioctl(unsigned int cmd, void __user *arg)
 	return 0;
 }
 
+/*
+ * 	A level 2 link has timed out, therefore it appears to be a poor link,
+ *	then don't use that neighbour until it is reset.
+ */
 void nr_link_failed(ax25_cb *ax25, int reason)
 {
 	struct nr_neigh *s, *nr_neigh = NULL;
@@ -726,6 +772,10 @@ void nr_link_failed(ax25_cb *ax25, int reason)
 	nr_neigh_put(nr_neigh);
 }
 
+/*
+ *	Route a frame to an appropriate AX.25 connection. A NULL ax25_cb
+ *	indicates an internally generated frame.
+ */
 int nr_route_frame(struct sk_buff *skb, ax25_cb *ax25)
 {
 	ax25_address *nr_src, *nr_dest;
@@ -749,8 +799,8 @@ int nr_route_frame(struct sk_buff *skb, ax25_cb *ax25)
 			return ret;
 	}
 
-	if ((dev = nr_dev_get(nr_dest)) != NULL) {	
-		if (ax25 == NULL)			
+	if ((dev = nr_dev_get(nr_dest)) != NULL) {	/* Its for me */
+		if (ax25 == NULL)			/* Its from me */
 			ret = nr_loopback_queue(skb);
 		else
 			ret = nr_rx_frame(skb, dev);
@@ -761,7 +811,7 @@ int nr_route_frame(struct sk_buff *skb, ax25_cb *ax25)
 	if (!sysctl_netrom_routing_control && ax25 != NULL)
 		return 0;
 
-	
+	/* Its Time-To-Live has expired */
 	if (skb->data[14] == 1) {
 		return 0;
 	}
@@ -785,6 +835,9 @@ int nr_route_frame(struct sk_buff *skb, ax25_cb *ax25)
 		return 0;
 	}
 
+	/* We are going to change the netrom headers so we should get our
+	   own skb, we also did not know until now how much header space
+	   we had to reserve... - RXQ */
 	if ((skbn=skb_copy_expand(skb, dev->hard_header_len, 0, GFP_ATOMIC)) == NULL) {
 		nr_node_unlock(nr_node);
 		nr_node_put(nr_node);
@@ -953,6 +1006,9 @@ const struct file_operations nr_neigh_fops = {
 
 #endif
 
+/*
+ *	Free all memory associated with the nodes and routes lists.
+ */
 void __exit nr_rt_free(void)
 {
 	struct nr_neigh *s = NULL;

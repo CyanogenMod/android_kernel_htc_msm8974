@@ -19,11 +19,32 @@
 #include <linux/list.h>
 #include <linux/module.h>
 
+/* maximum value for a CCID (RFC 4340, 19.5) */
 #define CCID_MAX		255
 #define CCID_SLAB_NAME_LENGTH	32
 
 struct tcp_info;
 
+/**
+ *  struct ccid_operations  -  Interface to Congestion-Control Infrastructure
+ *
+ *  @ccid_id: numerical CCID ID (up to %CCID_MAX, cf. table 5 in RFC 4340, 10.)
+ *  @ccid_ccmps: the CCMPS including network/transport headers (0 when disabled)
+ *  @ccid_name: alphabetical identifier string for @ccid_id
+ *  @ccid_hc_{r,t}x_slab: memory pool for the receiver/sender half-connection
+ *  @ccid_hc_{r,t}x_obj_size: size of the receiver/sender half-connection socket
+ *
+ *  @ccid_hc_{r,t}x_init: CCID-specific initialisation routine (before startup)
+ *  @ccid_hc_{r,t}x_exit: CCID-specific cleanup routine (before destruction)
+ *  @ccid_hc_rx_packet_recv: implements the HC-receiver side
+ *  @ccid_hc_{r,t}x_parse_options: parsing routine for CCID/HC-specific options
+ *  @ccid_hc_{r,t}x_insert_options: insert routine for CCID/HC-specific options
+ *  @ccid_hc_tx_packet_recv: implements feedback processing for the HC-sender
+ *  @ccid_hc_tx_send_packet: implements the sending part of the HC-sender
+ *  @ccid_hc_tx_packet_sent: does accounting for packets in flight by HC-sender
+ *  @ccid_hc_{r,t}x_get_info: INET_DIAG information for HC-receiver/sender
+ *  @ccid_hc_{r,t}x_getsockopt: socket options specific to HC-receiver/sender
+ */
 struct ccid_operations {
 	unsigned char		ccid_id;
 	__u32			ccid_ccmps;
@@ -34,7 +55,7 @@ struct ccid_operations {
 	char			ccid_hc_tx_slab_name[CCID_SLAB_NAME_LENGTH];
 	__u32			ccid_hc_rx_obj_size,
 				ccid_hc_tx_obj_size;
-	
+	/* Interface Routines */
 	int		(*ccid_hc_rx_init)(struct ccid *ccid, struct sock *sk);
 	int		(*ccid_hc_tx_init)(struct ccid *ccid, struct sock *sk);
 	void		(*ccid_hc_rx_exit)(struct sock *sk);
@@ -113,13 +134,22 @@ static inline int ccid_get_current_tx_ccid(struct dccp_sock *dp)
 extern void ccid_hc_rx_delete(struct ccid *ccid, struct sock *sk);
 extern void ccid_hc_tx_delete(struct ccid *ccid, struct sock *sk);
 
+/*
+ * Congestion control of queued data packets via CCID decision.
+ *
+ * The TX CCID performs its congestion-control by indicating whether and when a
+ * queued packet may be sent, using the return code of ccid_hc_tx_send_packet().
+ * The following modes are supported via the symbolic constants below:
+ * - timer-based pacing    (CCID returns a delay value in milliseconds);
+ * - autonomous dequeueing (CCID internally schedules dccps_xmitlet).
+ */
 
 enum ccid_dequeueing_decision {
-	CCID_PACKET_SEND_AT_ONCE =	 0x00000,  
-	CCID_PACKET_DELAY_MAX =		 0x0FFFF,  
-	CCID_PACKET_DELAY =		 0x10000,  
-	CCID_PACKET_WILL_DEQUEUE_LATER = 0x20000,  
-	CCID_PACKET_ERR =		 0xF0000,  
+	CCID_PACKET_SEND_AT_ONCE =	 0x00000,  /* "green light": no delay */
+	CCID_PACKET_DELAY_MAX =		 0x0FFFF,  /* maximum delay in msecs  */
+	CCID_PACKET_DELAY =		 0x10000,  /* CCID msec-delay mode */
+	CCID_PACKET_WILL_DEQUEUE_LATER = 0x20000,  /* CCID autonomous mode */
+	CCID_PACKET_ERR =		 0xF0000,  /* error condition */
 };
 
 static inline int ccid_packet_dequeue_eval(const int return_code)
@@ -162,6 +192,13 @@ static inline void ccid_hc_tx_packet_recv(struct ccid *ccid, struct sock *sk,
 		ccid->ccid_ops->ccid_hc_tx_packet_recv(sk, skb);
 }
 
+/**
+ * ccid_hc_tx_parse_options  -  Parse CCID-specific options sent by the receiver
+ * @pkt: type of packet that @opt appears on (RFC 4340, 5.1)
+ * @opt: the CCID-specific option type (RFC 4340, 5.8 and 10.3)
+ * @val: value of @opt
+ * @len: length of @val in bytes
+ */
 static inline int ccid_hc_tx_parse_options(struct ccid *ccid, struct sock *sk,
 					   u8 pkt, u8 opt, u8 *val, u8 len)
 {
@@ -170,6 +207,10 @@ static inline int ccid_hc_tx_parse_options(struct ccid *ccid, struct sock *sk,
 	return ccid->ccid_ops->ccid_hc_tx_parse_options(sk, pkt, opt, val, len);
 }
 
+/**
+ * ccid_hc_rx_parse_options  -  Parse CCID-specific options sent by the sender
+ * Arguments are analogous to ccid_hc_tx_parse_options()
+ */
 static inline int ccid_hc_rx_parse_options(struct ccid *ccid, struct sock *sk,
 					   u8 pkt, u8 opt, u8 *val, u8 len)
 {
@@ -221,4 +262,4 @@ static inline int ccid_hc_tx_getsockopt(struct ccid *ccid, struct sock *sk,
 						 optval, optlen);
 	return rc;
 }
-#endif 
+#endif /* _CCID_H */

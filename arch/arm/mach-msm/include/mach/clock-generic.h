@@ -16,6 +16,7 @@
 
 #include <mach/clk-provider.h>
 
+/* ==================== Mux clock ==================== */
 
 struct clk_src {
 	struct clk *src;
@@ -28,7 +29,7 @@ struct clk_mux_ops {
 	int (*set_mux_sel)(struct mux_clk *clk, int sel);
 	int (*get_mux_sel)(struct mux_clk *clk);
 
-	
+	/* Optional */
 	bool (*is_enabled)(struct mux_clk *clk);
 	int (*enable)(struct mux_clk *clk);
 	void (*disable)(struct mux_clk *clk);
@@ -39,16 +40,16 @@ struct clk_mux_ops {
 	.num_parents = ARRAY_SIZE(((struct clk_src[]){__VA_ARGS__}))
 
 struct mux_clk {
-	
+	/* Parents in decreasing order of preference for obtaining rates. */
 	struct clk_src	*parents;
 	int		num_parents;
 	struct clk	*safe_parent;
 	int		safe_sel;
 	struct clk_mux_ops *ops;
-	
+	/* Recursively search for the requested parent. */
 	bool		rec_set_par;
 
-	
+	/* Fields not used by helper function. */
 	void *const __iomem *base;
 	u32		offset;
 	u32		en_offset;
@@ -70,6 +71,7 @@ int parent_to_src_sel(struct clk_src *parents, int num_parents, struct clk *p);
 
 extern struct clk_ops clk_ops_gen_mux;
 
+/* ==================== Divider clock ==================== */
 
 struct div_clk;
 
@@ -91,10 +93,10 @@ struct div_data {
 struct div_clk {
 	struct div_data data;
 
-	
+	/* Optional */
 	struct clk_div_ops *ops;
 
-	
+	/* Fields not used by helper function. */
 	void *const __iomem *base;
 	u32		offset;
 	u32		mask;
@@ -154,9 +156,14 @@ static struct ext_clk clk_name = {		\
 	}					\
 }
 
+/* ==================== Mux Div clock ==================== */
 
 struct mux_div_clk;
 
+/*
+ * struct mux_div_ops
+ * the enable and disable ops are optional.
+ */
 
 struct mux_div_ops {
 	int (*set_src_div)(struct mux_div_clk *, u32 src_sel, u32 div);
@@ -166,9 +173,31 @@ struct mux_div_ops {
 	bool (*is_enabled)(struct mux_div_clk *);
 };
 
+/*
+ * struct mux_div_clk - combined mux/divider clock
+ * @priv
+		parameters needed by ops
+ * @safe_freq
+		when switching rates from A to B, the mux div clock will
+		instead switch from A -> safe_freq -> B. This allows the
+		mux_div clock to change rates while enabled, even if this
+		behavior is not supported by the parent clocks.
+
+		If changing the rate of parent A also causes the rate of
+		parent B to change, then safe_freq must be defined.
+
+		safe_freq is expected to have a source clock which is always
+		on and runs at only one rate.
+ * @parents
+		list of parents and mux indicies
+ * @ops
+		function pointers for hw specific operations
+ * @src_sel
+		the mux index which will be used if the clock is enabled.
+ */
 
 struct mux_div_clk {
-	
+	/* Required parameters */
 	struct mux_div_ops		*ops;
 	struct div_data			data;
 	struct clk_src			*parents;
@@ -176,10 +205,10 @@ struct mux_div_clk {
 
 	struct clk			c;
 
-	
+	/* Internal */
 	u32				src_sel;
 
-	
+	/* Optional parameters */
 	void				*priv;
 	void __iomem			*base;
 	u32				div_mask;

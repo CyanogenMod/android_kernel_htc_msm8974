@@ -181,6 +181,8 @@ static void __init s3c64xx_cpufreq_config_regulator(void)
 		freq++;
 	}
 
+	/* Guess based on having to do an I2C/SPI write; in future we
+	 * will be able to query the regulator performance here. */
 	regulator_latency = 1 * 1000 * 1000;
 }
 #endif
@@ -221,7 +223,7 @@ static int s3c64xx_cpufreq_driver_init(struct cpufreq_policy *policy)
 	while (freq->frequency != CPUFREQ_TABLE_END) {
 		unsigned long r;
 
-		
+		/* Check for frequencies we can generate */
 		r = clk_round_rate(armclk, freq->frequency * 1000);
 		r /= 1000;
 		if (r != freq->frequency) {
@@ -230,6 +232,8 @@ static int s3c64xx_cpufreq_driver_init(struct cpufreq_policy *policy)
 			freq->frequency = CPUFREQ_ENTRY_INVALID;
 		}
 
+		/* If we have no regulator then assume startup
+		 * frequency is the maximum we can support. */
 		if (!vddarm && freq->frequency > s3c64xx_cpufreq_get_speed(0))
 			freq->frequency = CPUFREQ_ENTRY_INVALID;
 
@@ -238,6 +242,10 @@ static int s3c64xx_cpufreq_driver_init(struct cpufreq_policy *policy)
 
 	policy->cur = clk_get_rate(armclk) / 1000;
 
+	/* Datasheet says PLL stabalisation time (if we were to use
+	 * the PLLs, which we don't currently) is ~300us worst case,
+	 * but add some fudge.
+	 */
 	policy->cpuinfo.transition_latency = (500 * 1000) + regulator_latency;
 
 	ret = cpufreq_frequency_table_cpuinfo(policy, s3c64xx_freq_table);

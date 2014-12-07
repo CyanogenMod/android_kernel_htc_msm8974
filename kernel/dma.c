@@ -21,14 +21,35 @@
 
 
 
+/* A note on resource allocation:
+ *
+ * All drivers needing DMA channels, should allocate and release them
+ * through the public routines `request_dma()' and `free_dma()'.
+ *
+ * In order to avoid problems, all processes should allocate resources in
+ * the same sequence and release them in the reverse order.
+ *
+ * So, when allocating DMAs and IRQs, first allocate the IRQ, then the DMA.
+ * When releasing them, first release the DMA, then release the IRQ.
+ * If you don't, you may cause allocation requests to fail unnecessarily.
+ * This doesn't really matter now, but it will once we get real semaphores
+ * in the kernel.
+ */
 
 
 DEFINE_SPINLOCK(dma_spin_lock);
 
+/*
+ *	If our port doesn't define this it has no PC like DMA
+ */
 
 #ifdef MAX_DMA_CHANNELS
 
 
+/* Channel n is busy iff dma_chan_busy[n].lock != 0.
+ * DMA0 used to be reserved for DRAM refresh, but apparently not any more...
+ * DMA4 is reserved for cascading.
+ */
 
 struct dma_chan {
 	int  lock;
@@ -40,6 +61,11 @@ static struct dma_chan dma_chan_busy[MAX_DMA_CHANNELS] = {
 };
 
 
+/**
+ * request_dma - request and reserve a system DMA channel
+ * @dmanr: DMA channel number
+ * @device_id: reserving device ID string, used in /proc/dma
+ */
 int request_dma(unsigned int dmanr, const char * device_id)
 {
 	if (dmanr >= MAX_DMA_CHANNELS)
@@ -50,10 +76,14 @@ int request_dma(unsigned int dmanr, const char * device_id)
 
 	dma_chan_busy[dmanr].device_id = device_id;
 
-	
+	/* old flag was 0, now contains 1 to indicate busy */
 	return 0;
-} 
+} /* request_dma */
 
+/**
+ * free_dma - free a reserved system DMA channel
+ * @dmanr: DMA channel number
+ */
 void free_dma(unsigned int dmanr)
 {
 	if (dmanr >= MAX_DMA_CHANNELS) {
@@ -66,7 +96,7 @@ void free_dma(unsigned int dmanr)
 		return;
 	}
 
-} 
+} /* free_dma */
 
 #else
 
@@ -102,7 +132,7 @@ static int proc_dma_show(struct seq_file *m, void *v)
 	seq_puts(m, "No DMA\n");
 	return 0;
 }
-#endif 
+#endif /* MAX_DMA_CHANNELS */
 
 static int proc_dma_open(struct inode *inode, struct file *file)
 {

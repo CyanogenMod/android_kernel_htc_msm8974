@@ -20,6 +20,7 @@
 #include <media/davinci/ccdc_types.h>
 #include <media/davinci/vpfe_types.h>
 
+/* enum for No of pixel per line to be avg. in Black Clamping */
 enum ccdc_sample_length {
 	CCDC_SAMPLE_1PIXELS,
 	CCDC_SAMPLE_2PIXELS,
@@ -28,6 +29,7 @@ enum ccdc_sample_length {
 	CCDC_SAMPLE_16PIXELS
 };
 
+/* enum for No of lines in Black Clamping */
 enum ccdc_sample_line {
 	CCDC_SAMPLE_1LINES,
 	CCDC_SAMPLE_2LINES,
@@ -36,6 +38,7 @@ enum ccdc_sample_line {
 	CCDC_SAMPLE_16LINES
 };
 
+/* enum for Alaw gama width */
 enum ccdc_gamma_width {
 	CCDC_GAMMA_BITS_13_4,
 	CCDC_GAMMA_BITS_12_3,
@@ -90,35 +93,38 @@ enum ccdc_mfilt2 {
 	CCDC_MEDIAN_FILTER2
 };
 
+/* structure for ALaw */
 struct ccdc_a_law {
-	
+	/* Enable/disable A-Law */
 	unsigned char enable;
-	
+	/* Gama Width Input */
 	enum ccdc_gamma_width gama_wd;
 };
 
+/* structure for Black Clamping */
 struct ccdc_black_clamp {
-	
+	/* only if bClampEnable is TRUE */
 	unsigned char b_clamp_enable;
-	
+	/* only if bClampEnable is TRUE */
 	enum ccdc_sample_length sample_pixel;
-	
+	/* only if bClampEnable is TRUE */
 	enum ccdc_sample_line sample_ln;
-	
+	/* only if bClampEnable is TRUE */
 	unsigned short start_pixel;
-	
+	/* only if bClampEnable is FALSE */
 	unsigned short sgain;
 	unsigned short dc_sub;
 };
 
+/* structure for Black Level Compensation */
 struct ccdc_black_compensation {
-	
+	/* Constant value to subtract from Red component */
 	unsigned char r;
-	
+	/* Constant value to subtract from Gr component */
 	unsigned char gr;
-	
+	/* Constant value to subtract from Blue component */
 	unsigned char b;
-	
+	/* Constant value to subtract from Gb component */
 	unsigned char gb;
 };
 
@@ -128,11 +134,18 @@ struct ccdc_float {
 };
 
 #define CCDC_CSC_COEFF_TABLE_SIZE	16
+/* structure for color space converter */
 struct ccdc_csc {
 	unsigned char enable;
+	/*
+	 * S8Q5. Use 2 decimal precision, user values range from -3.00 to 3.99.
+	 * example - to use 1.03, set integer part as 1, and decimal part as 3
+	 * to use -1.03, set integer part as -1 and decimal part as 3
+	 */
 	struct ccdc_float coeff[CCDC_CSC_COEFF_TABLE_SIZE];
 };
 
+/* Structures for Vertical Defect Correction*/
 enum ccdc_vdf_csl {
 	CCDC_VDF_NORMAL,
 	CCDC_VDF_HORZ_INTERPOL_SAT,
@@ -178,6 +191,11 @@ struct ccdc_dft_corr_mem_ctl {
 };
 
 #define CCDC_DFT_TABLE_SIZE	16
+/*
+ * Main Structure for vertical defect correction. Vertical defect
+ * correction can correct up to 16 defects if defects less than 16
+ * then pad the rest with 0
+ */
 struct ccdc_vertical_dft {
 	unsigned char ver_dft_en;
 	unsigned char gen_dft_en;
@@ -197,30 +215,38 @@ struct ccdc_data_offset {
 	unsigned char vert_offset;
 };
 
+/*
+ * Structure for CCDC configuration parameters for raw capture mode passed
+ * by application
+ */
 struct ccdc_config_params_raw {
-	
+	/* data shift to be applied before storing */
 	enum ccdc_datasft datasft;
-	
+	/* data size value from 8 to 16 bits */
 	enum ccdc_data_size data_sz;
-	
+	/* median filter for sdram */
 	enum ccdc_mfilt1 mfilt1;
 	enum ccdc_mfilt2 mfilt2;
-	
+	/* low pass filter enable/disable */
 	unsigned char lpf_enable;
-	
+	/* Threshold of median filter */
 	int med_filt_thres;
+	/*
+	 * horz and vertical data offset. Appliable for defect correction
+	 * and lsc
+	 */
 	struct ccdc_data_offset data_offset;
-	
+	/* Structure for Optional A-Law */
 	struct ccdc_a_law alaw;
-	
+	/* Structure for Optical Black Clamp */
 	struct ccdc_black_clamp blk_clamp;
-	
+	/* Structure for Black Compensation */
 	struct ccdc_black_compensation blk_comp;
-	
+	/* struture for vertical Defect Correction Module Configuration */
 	struct ccdc_vertical_dft vertical_dft;
-	
+	/* structure for color space converter Module Configuration */
 	struct ccdc_csc csc;
-	
+	/* color patters for bayer capture */
 	struct ccdc_col_pat col_pat_field0;
 	struct ccdc_col_pat col_pat_field1;
 };
@@ -232,26 +258,27 @@ struct ccdc_config_params_raw {
 #define CCDC_WIN_VGA	{0, 0, 640, 480}
 
 struct ccdc_params_ycbcr {
-	
+	/* pixel format */
 	enum ccdc_pixfmt pix_fmt;
-	
+	/* progressive or interlaced frame */
 	enum ccdc_frmfmt frm_fmt;
-	
+	/* video window */
 	struct v4l2_rect win;
-	
+	/* field id polarity */
 	enum vpfe_pin_pol fid_pol;
-	
+	/* vertical sync polarity */
 	enum vpfe_pin_pol vd_pol;
-	
+	/* horizontal sync polarity */
 	enum vpfe_pin_pol hd_pol;
-	
+	/* enable BT.656 embedded sync mode */
 	int bt656_enable;
-	
+	/* cb:y:cr:y or y:cb:y:cr in memory */
 	enum ccdc_pixorder pix_order;
-	
+	/* interleaved or separated fields  */
 	enum ccdc_buftype buf_type;
 };
 
+/* Gain applied to Raw Bayer data */
 struct ccdc_gain {
 	unsigned short r_ye;
 	unsigned short gr_cy;
@@ -259,31 +286,36 @@ struct ccdc_gain {
 	unsigned short b_mg;
 };
 
+/* Structure for CCDC configuration parameters for raw capture mode */
 struct ccdc_params_raw {
-	
+	/* pixel format */
 	enum ccdc_pixfmt pix_fmt;
-	
+	/* progressive or interlaced frame */
 	enum ccdc_frmfmt frm_fmt;
-	
+	/* video window */
 	struct v4l2_rect win;
-	
+	/* field id polarity */
 	enum vpfe_pin_pol fid_pol;
-	
+	/* vertical sync polarity */
 	enum vpfe_pin_pol vd_pol;
-	
+	/* horizontal sync polarity */
 	enum vpfe_pin_pol hd_pol;
-	
+	/* interleaved or separated fields */
 	enum ccdc_buftype buf_type;
-	
+	/* Gain values */
 	struct ccdc_gain gain;
-	
+	/* offset */
 	unsigned int ccdc_offset;
-	
+	/* horizontal flip enable */
 	unsigned char horz_flip_enable;
+	/*
+	 * enable to store the image in inverse order in memory
+	 * (bottom to top)
+	 */
 	unsigned char image_invert_enable;
-	
+	/* Configurable part of raw data */
 	struct ccdc_config_params_raw config_params;
 };
 
 #endif
-#endif				
+#endif				/* DM355_CCDC_H */

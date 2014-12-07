@@ -34,12 +34,21 @@
 #include <linux/time.h>
 #include <linux/dvb/dmx.h>
 
+/*--------------------------------------------------------------------------*/
+/* Common definitions */
+/*--------------------------------------------------------------------------*/
 
+/*
+ * DMX_MAX_FILTER_SIZE: Maximum length (in bytes) of a section/PES filter.
+ */
 
 #ifndef DMX_MAX_FILTER_SIZE
 #define DMX_MAX_FILTER_SIZE 18
 #endif
 
+/*
+ * DMX_MAX_SECFEED_SIZE: Maximum length (in bytes) of a private section feed filter.
+ */
 
 #ifndef DMX_MAX_SECTION_SIZE
 #define DMX_MAX_SECTION_SIZE 4096
@@ -49,22 +58,25 @@
 #endif
 
 
+/*
+ * enum dmx_success: Success codes for the Demux Callback API.
+ */
 
 enum dmx_success {
-	DMX_OK = 0, 
-	DMX_OK_PES_END, 
-	DMX_OK_PCR, 
-	DMX_OK_EOS, 
-	DMX_OK_MARKER, 
-	DMX_LENGTH_ERROR, 
-	DMX_OVERRUN_ERROR, 
-	DMX_CRC_ERROR, 
-	DMX_FRAME_ERROR, 
-	DMX_FIFO_ERROR, 
-	DMX_MISSED_ERROR, 
-	DMX_OK_DECODER_BUF, 
-	DMX_OK_IDX, 
-	DMX_OK_SCRAMBLING_STATUS, 
+	DMX_OK = 0, /* Received Ok */
+	DMX_OK_PES_END, /* Received OK, data reached end of PES packet */
+	DMX_OK_PCR, /* Received OK, data with new PCR/STC pair */
+	DMX_OK_EOS, /* Received OK, reached End-of-Stream (EOS) */
+	DMX_OK_MARKER, /* Received OK, reached a data Marker */
+	DMX_LENGTH_ERROR, /* Incorrect length */
+	DMX_OVERRUN_ERROR, /* Receiver ring buffer overrun */
+	DMX_CRC_ERROR, /* Incorrect CRC */
+	DMX_FRAME_ERROR, /* Frame alignment error */
+	DMX_FIFO_ERROR, /* Receiver FIFO overrun */
+	DMX_MISSED_ERROR, /* Receiver missed packet */
+	DMX_OK_DECODER_BUF, /* Received OK, new ES data in decoder buffer */
+	DMX_OK_IDX, /* Received OK, new index event */
+	DMX_OK_SCRAMBLING_STATUS, /* Received OK, new scrambling status */
 } ;
 
 
@@ -78,6 +90,11 @@ enum dmx_success {
 struct dmx_data_ready {
 	enum dmx_success status;
 
+	/*
+	 * data_length may be 0 in case of DMX_OK_PES_END or DMX_OK_EOS
+	 * and in non-DMX_OK_XXX events. In DMX_OK_PES_END,
+	 * data_length is for data comming after the end of PES.
+	 */
 	int data_length;
 
 	union {
@@ -123,24 +140,42 @@ struct dmx_data_ready {
 	};
 };
 
+/*
+ * struct data_buffer: Parameters of buffer allocated by
+ * demux device for input/output. Can be used to directly map the
+ * demux-device buffer to HW output if HW supports it.
+ */
 struct data_buffer {
-	
+	/* dvb_ringbuffer managed by demux-device */
 	const struct dvb_ringbuffer *ringbuff;
 
 
+	/*
+	 * Private handle returned by kernel demux when
+	 * map_buffer is called in case external buffer
+	 * is used. NULL if buffer is allocated internally.
+	 */
 	void *priv_handle;
 };
 
+/*--------------------------------------------------------------------------*/
+/* TS packet reception */
+/*--------------------------------------------------------------------------*/
 
+/* TS filter type for set() */
 
-#define TS_PACKET       1   
-#define	TS_PAYLOAD_ONLY 2   
-#define TS_DECODER      4   
-#define TS_DEMUX        8   
+#define TS_PACKET       1   /* send TS packets (188 bytes) to callback (default) */
+#define	TS_PAYLOAD_ONLY 2   /* in case TS_PACKET is set, only send the TS
+			       payload (<=184 bytes per packet) to callback */
+#define TS_DECODER      4   /* send stream to built-in decoder (if present) */
+#define TS_DEMUX        8   /* in case TS_PACKET is set, send the TS to
+			       the demux device, not to the dvr device */
 
+/* PES type for filters which write to built-in decoder */
+/* these should be kept identical to the types in dmx.h */
 
 enum dmx_ts_pes
-{  
+{  /* also send packets to decoder (if it exists) */
 	DMX_TS_PES_AUDIO0,
 	DMX_TS_PES_VIDEO0,
 	DMX_TS_PES_TELETEXT0,
@@ -180,10 +215,10 @@ typedef int (*dmx_ts_data_ready_cb)(
 		struct dmx_data_ready *dmx_data_ready);
 
 struct dmx_ts_feed {
-	int is_filtering; 
-	struct dmx_demux *parent; 
+	int is_filtering; /* Set to non-zero when filtering in progress */
+	struct dmx_demux *parent; /* Back-pointer */
 	struct data_buffer buffer;
-	void *priv; 
+	void *priv; /* Pointer to private data of the API client */
 	struct dmx_decoder_buffers *decoder_buffers;
 	int (*set) (struct dmx_ts_feed *feed,
 		    u16 pid,
@@ -222,14 +257,17 @@ struct dmx_ts_feed {
 	int (*get_scrambling_bits)(struct dmx_ts_feed *feed, u8 *value);
 };
 
+/*--------------------------------------------------------------------------*/
+/* Section reception */
+/*--------------------------------------------------------------------------*/
 
 struct dmx_section_filter {
 	u8 filter_value [DMX_MAX_FILTER_SIZE];
 	u8 filter_mask [DMX_MAX_FILTER_SIZE];
 	u8 filter_mode [DMX_MAX_FILTER_SIZE];
-	struct dmx_section_feed* parent; 
+	struct dmx_section_feed* parent; /* Back-pointer */
 	struct data_buffer buffer;
-	void* priv; 
+	void* priv; /* Pointer to private data of the API client */
 };
 
 struct dmx_section_feed;
@@ -238,9 +276,9 @@ typedef int (*dmx_section_data_ready_cb)(
 		struct dmx_data_ready *dmx_data_ready);
 
 struct dmx_section_feed {
-	int is_filtering; 
-	struct dmx_demux* parent; 
-	void* priv; 
+	int is_filtering; /* Set to non-zero when filtering in progress */
+	struct dmx_demux* parent; /* Back-pointer */
+	void* priv; /* Pointer to private data of the API client */
 
 	int check_crc;
 	u32 crc_val;
@@ -272,6 +310,9 @@ struct dmx_section_feed {
 	int (*get_scrambling_bits)(struct dmx_section_feed *feed, u8 *value);
 };
 
+/*--------------------------------------------------------------------------*/
+/* Callback functions */
+/*--------------------------------------------------------------------------*/
 
 typedef int (*dmx_ts_cb) ( const u8 * buffer1,
 			   size_t buffer1_length,
@@ -295,6 +336,9 @@ typedef int (*dmx_section_fullness) (
 				struct dmx_section_filter *source,
 				int required_space);
 
+/*--------------------------------------------------------------------------*/
+/* DVB Front-End */
+/*--------------------------------------------------------------------------*/
 
 enum dmx_frontend_source {
 	DMX_MEMORY_FE,
@@ -302,37 +346,54 @@ enum dmx_frontend_source {
 	DMX_FRONTEND_1,
 	DMX_FRONTEND_2,
 	DMX_FRONTEND_3,
-	DMX_STREAM_0,    
+	DMX_STREAM_0,    /* external stream input, e.g. LVDS */
 	DMX_STREAM_1,
 	DMX_STREAM_2,
 	DMX_STREAM_3
 };
 
 struct dmx_frontend {
-	struct list_head connectivity_list; 
+	struct list_head connectivity_list; /* List of front-ends that can
+					       be connected to a particular
+					       demux */
 	enum dmx_frontend_source source;
 };
 
+/*--------------------------------------------------------------------------*/
+/* MPEG-2 TS Demux */
+/*--------------------------------------------------------------------------*/
 
+/*
+ * Flags OR'ed in the capabilities field of struct dmx_demux.
+ */
 
 #define DMX_TS_FILTERING                        1
 #define DMX_PES_FILTERING                       2
 #define DMX_SECTION_FILTERING                   4
-#define DMX_MEMORY_BASED_FILTERING              8    
+#define DMX_MEMORY_BASED_FILTERING              8    /* write() available */
 #define DMX_CRC_CHECKING                        16
 #define DMX_TS_DESCRAMBLING                     32
 
+/*
+ * Demux resource type identifier.
+*/
 
+/*
+ * DMX_FE_ENTRY(): Casts elements in the list of registered
+ * front-ends from the generic type struct list_head
+ * to the type * struct dmx_frontend
+ *.
+*/
 
 #define DMX_FE_ENTRY(list) list_entry(list, struct dmx_frontend, connectivity_list)
 
 struct dmx_demux {
-	u32 capabilities;            
-	struct dmx_frontend* frontend;    
-	void* priv;                  
-	struct data_buffer dvr_input; 
+	u32 capabilities;            /* Bitfield of capability flags */
+	struct dmx_frontend* frontend;    /* Front-end connected to the demux */
+	void* priv;                  /* Pointer to private data of the API client */
+	struct data_buffer dvr_input; /* DVR input buffer */
 	int dvr_input_protected;
-	struct dentry *debugfs_demux_dir; 
+	struct dentry *debugfs_demux_dir; /* debugfs dir */
 
 	int (*open) (struct dmx_demux* demux);
 	int (*close) (struct dmx_demux* demux);
@@ -385,4 +446,4 @@ struct dmx_demux {
 	int (*get_tsp_size) (struct dmx_demux *demux);
 };
 
-#endif 
+#endif /* #ifndef __DEMUX_H */

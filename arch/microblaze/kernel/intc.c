@@ -26,14 +26,15 @@ static unsigned int intc_baseaddr;
 #define INTC_BASE	intc_baseaddr
 #endif
 
-#define ISR 0x00			
-#define IPR 0x04			
-#define IER 0x08			
-#define IAR 0x0c			
-#define SIE 0x10			
-#define CIE 0x14			
-#define IVR 0x18			
-#define MER 0x1c			
+/* No one else should require these constants, so define them locally here. */
+#define ISR 0x00			/* Interrupt Status Register */
+#define IPR 0x04			/* Interrupt Pending Register */
+#define IER 0x08			/* Interrupt Enable Register */
+#define IAR 0x0c			/* Interrupt Acknowledge Register */
+#define SIE 0x10			/* Set Interrupt Enable bits */
+#define CIE 0x14			/* Clear Interrupt Enable bits */
+#define IVR 0x18			/* Interrupt Vector Register */
+#define MER 0x1c			/* Master Enable Register */
 
 #define MER_ME (1<<0)
 #define MER_HIE (1<<1)
@@ -45,6 +46,10 @@ static void intc_enable_or_unmask(struct irq_data *d)
 	pr_debug("enable_or_unmask: %ld\n", d->hwirq);
 	out_be32(INTC_BASE + SIE, mask);
 
+	/* ack level irqs because they can't be acked during
+	 * ack function since the handle_level_irq function
+	 * acks the irq before calling the interrupt handler
+	 */
 	if (irqd_is_level_type(d))
 		out_be32(INTC_BASE + IAR, mask);
 }
@@ -149,14 +154,21 @@ void __init init_IRQ(void)
 	printk(KERN_INFO "%s #0 at 0x%08x, num_irq=%d, edge=0x%x\n",
 		intc->name, intc_baseaddr, nr_irq, intr_mask);
 
+	/*
+	 * Disable all external interrupts until they are
+	 * explicity requested.
+	 */
 	out_be32(intc_baseaddr + IER, 0);
 
-	
+	/* Acknowledge any pending interrupts just in case. */
 	out_be32(intc_baseaddr + IAR, 0xffffffff);
 
-	
+	/* Turn on the Master Enable. */
 	out_be32(intc_baseaddr + MER, MER_HIE | MER_ME);
 
+	/* Yeah, okay, casting the intr_mask to a void* is butt-ugly, but I'm
+	 * lazy and Michal can clean it up to something nicer when he tests
+	 * and commits this patch.  ~~gcl */
 	root_domain = irq_domain_add_linear(intc, nr_irq, &xintc_irq_domain_ops,
 							(void *)intr_mask);
 }

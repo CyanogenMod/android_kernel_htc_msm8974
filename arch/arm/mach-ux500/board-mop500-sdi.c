@@ -21,9 +21,17 @@
 #include "board-mop500.h"
 #include "ste-dma40-db8500.h"
 
+/*
+ * v2 has a new version of this block that need to be forced, the number found
+ * in hardware is incorrect
+ */
 #define U8500_SDI_V2_PERIPHID 0x10480180
 
+/*
+ * SDI 0 (MicroSD slot)
+ */
 
+/* GPIO pins used by the sdi0 level shifter */
 static int sdi0_en = -1;
 static int sdi0_vsel = -1;
 
@@ -32,6 +40,14 @@ static int mop500_sdi0_ios_handler(struct device *dev, struct mmc_ios *ios)
 	switch (ios->power_mode) {
 	case MMC_POWER_UP:
 	case MMC_POWER_ON:
+		/*
+		 * Level shifter voltage should depend on vdd to when deciding
+		 * on either 1.8V or 2.9V. Once the decision has been made the
+		 * level shifter must be disabled and re-enabled with a changed
+		 * select signal in order to switch the voltage. Since there is
+		 * no framework support yet for indicating 1.8V in vdd, use the
+		 * default 2.9V.
+		 */
 		gpio_direction_output(sdi0_vsel, 0);
 		gpio_direction_output(sdi0_en, 1);
 		break;
@@ -97,11 +113,11 @@ static void sdi0_configure(struct device *parent)
 		return;
 	}
 
-	
+	/* Select the default 2.9V and enable level shifter */
 	gpio_direction_output(sdi0_vsel, 0);
 	gpio_direction_output(sdi0_en, 1);
 
-	
+	/* Add the device, force v2 to subrevision 1 */
 	db8500_add_sdi0(parent, &mop500_sdi0_data, U8500_SDI_V2_PERIPHID);
 }
 
@@ -113,6 +129,9 @@ void mop500_sdi_tc35892_init(struct device *parent)
 	sdi0_configure(parent);
 }
 
+/*
+ * SDI1 (SDIO WLAN)
+ */
 #ifdef CONFIG_STE_DMA40
 static struct stedma40_chan_cfg sdi1_dma_cfg_rx = {
 	.mode = STEDMA40_MODE_LOGICAL,
@@ -146,6 +165,9 @@ static struct mmci_platform_data mop500_sdi1_data = {
 #endif
 };
 
+/*
+ * SDI 2 (POP eMMC, not on DB8500ed)
+ */
 
 #ifdef CONFIG_STE_DMA40
 struct stedma40_chan_cfg mop500_sdi2_dma_cfg_rx = {
@@ -181,6 +203,9 @@ static struct mmci_platform_data mop500_sdi2_data = {
 #endif
 };
 
+/*
+ * SDI 4 (on-board eMMC)
+ */
 
 #ifdef CONFIG_STE_DMA40
 struct stedma40_chan_cfg mop500_sdi4_dma_cfg_rx = {
@@ -218,20 +243,25 @@ static struct mmci_platform_data mop500_sdi4_data = {
 
 void __init mop500_sdi_init(struct device *parent)
 {
-	
+	/* PoP:ed eMMC */
 	db8500_add_sdi2(parent, &mop500_sdi2_data, U8500_SDI_V2_PERIPHID);
-	
+	/* On-board eMMC */
 	db8500_add_sdi4(parent, &mop500_sdi4_data, U8500_SDI_V2_PERIPHID);
 
+	/*
+	 * On boards with the TC35892 GPIO expander, sdi0 will finally
+	 * be added when the TC35892 initializes and calls
+	 * mop500_sdi_tc35892_init() above.
+	 */
 }
 
 void __init snowball_sdi_init(struct device *parent)
 {
-	
+	/* On Snowball MMC_CAP_SD_HIGHSPEED isn't supported (Hardware issue?) */
 	mop500_sdi0_data.capabilities &= ~MMC_CAP_SD_HIGHSPEED;
-	
+	/* On-board eMMC */
 	db8500_add_sdi4(parent, &mop500_sdi4_data, U8500_SDI_V2_PERIPHID);
-	
+	/* External Micro SD slot */
 	mop500_sdi0_data.gpio_cd = SNOWBALL_SDMMC_CD_GPIO;
 	mop500_sdi0_data.cd_invert = true;
 	sdi0_en = SNOWBALL_SDMMC_EN_GPIO;
@@ -241,15 +271,15 @@ void __init snowball_sdi_init(struct device *parent)
 
 void __init hrefv60_sdi_init(struct device *parent)
 {
-	
+	/* PoP:ed eMMC */
 	db8500_add_sdi2(parent, &mop500_sdi2_data, U8500_SDI_V2_PERIPHID);
-	
+	/* On-board eMMC */
 	db8500_add_sdi4(parent, &mop500_sdi4_data, U8500_SDI_V2_PERIPHID);
-	
+	/* External Micro SD slot */
 	mop500_sdi0_data.gpio_cd = HREFV60_SDMMC_CD_GPIO;
 	sdi0_en = HREFV60_SDMMC_EN_GPIO;
 	sdi0_vsel = HREFV60_SDMMC_1V8_3V_GPIO;
 	sdi0_configure(parent);
-	
+	/* WLAN SDIO channel */
 	db8500_add_sdi1(parent, &mop500_sdi1_data, U8500_SDI_V2_PERIPHID);
 }

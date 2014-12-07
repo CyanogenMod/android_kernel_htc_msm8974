@@ -47,6 +47,26 @@
 #include <rdma/ib_umem.h>
 #include <rdma/ib_user_verbs.h>
 
+/*
+ * Our lifetime rules for these structs are the following:
+ *
+ * struct ib_uverbs_device: One reference is held by the module and
+ * released in ib_uverbs_remove_one().  Another reference is taken by
+ * ib_uverbs_open() each time the character special file is opened,
+ * and released in ib_uverbs_release_file() when the file is released.
+ *
+ * struct ib_uverbs_file: One reference is held by the VFS and
+ * released when the file is closed.  Another reference is taken when
+ * an asynchronous event queue file is created and released when the
+ * event file is closed.
+ *
+ * struct ib_uverbs_event_file: One reference is held by the VFS and
+ * released when the file is closed.  For asynchronous event files,
+ * another reference is held by the corresponding main context file
+ * and released when that file is closed.  For completion event files,
+ * a reference is taken when a CQ is created that uses the file, and
+ * released when the CQ is destroyed.
+ */
 
 struct ib_uverbs_device {
 	struct kref				ref;
@@ -194,4 +214,4 @@ IB_UVERBS_DECLARE_CMD(create_xsrq);
 IB_UVERBS_DECLARE_CMD(open_xrcd);
 IB_UVERBS_DECLARE_CMD(close_xrcd);
 
-#endif 
+#endif /* UVERBS_H */

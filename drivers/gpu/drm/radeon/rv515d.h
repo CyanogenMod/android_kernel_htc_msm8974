@@ -28,6 +28,9 @@
 #ifndef __RV515D_H__
 #define __RV515D_H__
 
+/*
+ * RV515 registers
+ */
 #define PCIE_INDEX			0x0030
 #define PCIE_DATA			0x0034
 #define	MC_IND_INDEX			0x0070
@@ -135,6 +138,7 @@
 #define D2MODE_PRIORITY_A_CNT		0x6D48
 #define D2MODE_PRIORITY_B_CNT		0x6D4C
 
+/* ix[MC] registers */
 #define MC_FB_LOCATION			0x01
 #define		MC_FB_START_MASK			0x0000FFFF
 #define		MC_FB_START_SHIFT			0
@@ -164,6 +168,9 @@
 #define		MC_GLOBW_INIT_LAT_MASK			0xF0000000
 
 
+/*
+ * PM4 packet
+ */
 #define CP_PACKET0			0x00000000
 #define		PACKET0_BASE_INDEX_SHIFT	0
 #define		PACKET0_BASE_INDEX_MASK		(0x1ffff << 0)
@@ -178,6 +185,7 @@
 #define		PACKET3_IT_OPCODE_MASK		(0xff << 8)
 #define		PACKET3_COUNT_SHIFT		16
 #define		PACKET3_COUNT_MASK		(0x3fff << 16)
+/* PACKET3 op code */
 #define		PACKET3_NOP			0x10
 #define		PACKET3_3D_DRAW_VBUF		0x28
 #define		PACKET3_3D_DRAW_IMMD		0x29
@@ -208,6 +216,7 @@
 #define CP_PACKET0_GET_ONE_REG_WR(h) (((h) >> 15) & 1)
 #define CP_PACKET3_GET_OPCODE(h) (((h) >> 8) & 0xFF)
 
+/* Registers */
 #define R_0000F0_RBBM_SOFT_RESET                     0x0000F0
 #define   S_0000F0_SOFT_RESET_CP(x)                    (((x) & 0x1) << 0)
 #define   G_0000F0_SOFT_RESET_CP(x)                    (((x) >> 0) & 0x1)

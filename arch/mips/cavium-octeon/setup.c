@@ -14,7 +14,7 @@
 #include <linux/serial.h>
 #include <linux/smp.h>
 #include <linux/types.h>
-#include <linux/string.h>	
+#include <linux/string.h>	/* for memset */
 #include <linux/tty.h>
 #include <linux/time.h>
 #include <linux/platform_device.h>
@@ -63,12 +63,23 @@ static int octeon_uart;
 extern asmlinkage void handle_int(void);
 extern asmlinkage void plat_irq_dispatch(void);
 
+/**
+ * Return non zero if we are currently running in the Octeon simulator
+ *
+ * Returns
+ */
 int octeon_is_simulation(void)
 {
 	return octeon_bootinfo->board_type == CVMX_BOARD_TYPE_SIM;
 }
 EXPORT_SYMBOL(octeon_is_simulation);
 
+/**
+ * Return true if Octeon is in PCI Host mode. This means
+ * Linux can control the PCI bus.
+ *
+ * Returns Non zero if Octeon in host mode.
+ */
 int octeon_is_pci_host(void)
 {
 #ifdef CONFIG_PCI
@@ -78,6 +89,11 @@ int octeon_is_pci_host(void)
 #endif
 }
 
+/**
+ * Get the clock rate of Octeon
+ *
+ * Returns Clock rate in HZ
+ */
 uint64_t octeon_get_clock_rate(void)
 {
 	struct cvmx_sysinfo *sysinfo = cvmx_sysinfo_get();
@@ -95,6 +111,13 @@ u64 octeon_get_io_clock_rate(void)
 EXPORT_SYMBOL(octeon_get_io_clock_rate);
 
 
+/**
+ * Write to the LCD display connected to the bootbus. This display
+ * exists on most Cavium evaluation boards. If it doesn't exist, then
+ * this function doesn't do anything.
+ *
+ * @s:      String to write
+ */
 void octeon_write_lcd(const char *s)
 {
 	if (octeon_bootinfo->led_display_base_addr) {
@@ -112,6 +135,11 @@ void octeon_write_lcd(const char *s)
 	}
 }
 
+/**
+ * Return the console uart passed by the bootloader
+ *
+ * Returns uart   (0 or 1)
+ */
 int octeon_get_boot_uart(void)
 {
 	int uart;
@@ -124,18 +152,26 @@ int octeon_get_boot_uart(void)
 	return uart;
 }
 
+/**
+ * Get the coremask Linux was booted on.
+ *
+ * Returns Core mask
+ */
 int octeon_get_boot_coremask(void)
 {
 	return octeon_boot_desc_ptr->core_mask;
 }
 
+/**
+ * Check the hardware BIST results for a CPU
+ */
 void octeon_check_cpu_bist(void)
 {
 	const int coreid = cvmx_get_core_num();
 	unsigned long long mask;
 	unsigned long long bist_val;
 
-	
+	/* Check BIST results for COP0 registers */
 	mask = 0x1f00000000ull;
 	bist_val = read_octeon_c0_icacheerr();
 	if (bist_val & mask)
@@ -157,9 +193,14 @@ void octeon_check_cpu_bist(void)
 	write_octeon_c0_dcacheerr(0);
 }
 
+/**
+ * Reboot Octeon
+ *
+ * @command: Command to pass to the bootloader. Currently ignored.
+ */
 static void octeon_restart(char *command)
 {
-	
+	/* Disable all watchdogs before soft reset. They don't get cleared */
 #ifdef CONFIG_SMP
 	int cpu;
 	for_each_online_cpu(cpu)
@@ -174,25 +215,33 @@ static void octeon_restart(char *command)
 }
 
 
+/**
+ * Permanently stop a core.
+ *
+ * @arg: Ignored.
+ */
 static void octeon_kill_core(void *arg)
 {
 	mb();
 	if (octeon_is_simulation()) {
-		
+		/* The simulator needs the watchdog to stop for dead cores */
 		cvmx_write_csr(CVMX_CIU_WDOGX(cvmx_get_core_num()), 0);
-		
+		/* A break instruction causes the simulator stop a core */
 		asm volatile ("sync\nbreak");
 	}
 }
 
 
+/**
+ * Halt the system
+ */
 static void octeon_halt(void)
 {
 	smp_call_function(octeon_kill_core, NULL, 0);
 
 	switch (octeon_bootinfo->board_type) {
 	case CVMX_BOARD_TYPE_NAO38:
-		
+		/* Driving a 1 to GPIO 12 shuts off this board */
 		cvmx_write_csr(CVMX_GPIO_BIT_CFGX(12), 1);
 		cvmx_write_csr(CVMX_GPIO_TX_SET, 0x1000);
 		break;
@@ -204,6 +253,10 @@ static void octeon_halt(void)
 	octeon_kill_core(NULL);
 }
 
+/**
+ * Handle all the error condition interrupts that might occur.
+ *
+ */
 #ifdef CONFIG_CAVIUM_DECODE_RSL
 static irqreturn_t octeon_rlm_interrupt(int cpl, void *dev_id)
 {
@@ -212,6 +265,11 @@ static irqreturn_t octeon_rlm_interrupt(int cpl, void *dev_id)
 }
 #endif
 
+/**
+ * Return a string representing the system type
+ *
+ * Returns
+ */
 const char *octeon_board_type_string(void)
 {
 	static char name[80];
@@ -230,51 +288,99 @@ void octeon_user_io_init(void)
 	union cvmx_iob_fau_timeout fau_timeout;
 	union cvmx_pow_nw_tim nm_tim;
 
-	
+	/* Get the current settings for CP0_CVMMEMCTL_REG */
 	cvmmemctl.u64 = read_c0_cvmmemctl();
+	/* R/W If set, marked write-buffer entries time out the same
+	 * as as other entries; if clear, marked write-buffer entries
+	 * use the maximum timeout. */
 	cvmmemctl.s.dismarkwblongto = 1;
+	/* R/W If set, a merged store does not clear the write-buffer
+	 * entry timeout state. */
 	cvmmemctl.s.dismrgclrwbto = 0;
+	/* R/W Two bits that are the MSBs of the resultant CVMSEG LM
+	 * word location for an IOBDMA. The other 8 bits come from the
+	 * SCRADDR field of the IOBDMA. */
 	cvmmemctl.s.iobdmascrmsb = 0;
+	/* R/W If set, SYNCWS and SYNCS only order marked stores; if
+	 * clear, SYNCWS and SYNCS only order unmarked
+	 * stores. SYNCWSMARKED has no effect when DISSYNCWS is
+	 * set. */
 	cvmmemctl.s.syncwsmarked = 0;
-	
+	/* R/W If set, SYNCWS acts as SYNCW and SYNCS acts as SYNC. */
 	cvmmemctl.s.dissyncws = 0;
-	
+	/* R/W If set, no stall happens on write buffer full. */
 	if (OCTEON_IS_MODEL(OCTEON_CN38XX_PASS2))
 		cvmmemctl.s.diswbfst = 1;
 	else
 		cvmmemctl.s.diswbfst = 0;
+	/* R/W If set (and SX set), supervisor-level loads/stores can
+	 * use XKPHYS addresses with <48>==0 */
 	cvmmemctl.s.xkmemenas = 0;
 
+	/* R/W If set (and UX set), user-level loads/stores can use
+	 * XKPHYS addresses with VA<48>==0 */
 	cvmmemctl.s.xkmemenau = 0;
 
+	/* R/W If set (and SX set), supervisor-level loads/stores can
+	 * use XKPHYS addresses with VA<48>==1 */
 	cvmmemctl.s.xkioenas = 0;
 
+	/* R/W If set (and UX set), user-level loads/stores can use
+	 * XKPHYS addresses with VA<48>==1 */
 	cvmmemctl.s.xkioenau = 0;
 
+	/* R/W If set, all stores act as SYNCW (NOMERGE must be set
+	 * when this is set) RW, reset to 0. */
 	cvmmemctl.s.allsyncw = 0;
 
+	/* R/W If set, no stores merge, and all stores reach the
+	 * coherent bus in order. */
 	cvmmemctl.s.nomerge = 0;
+	/* R/W Selects the bit in the counter used for DID time-outs 0
+	 * = 231, 1 = 230, 2 = 229, 3 = 214. Actual time-out is
+	 * between 1x and 2x this interval. For example, with
+	 * DIDTTO=3, expiration interval is between 16K and 32K. */
 	cvmmemctl.s.didtto = 0;
-	
+	/* R/W If set, the (mem) CSR clock never turns off. */
 	cvmmemctl.s.csrckalwys = 0;
-	
+	/* R/W If set, mclk never turns off. */
 	cvmmemctl.s.mclkalwys = 0;
+	/* R/W Selects the bit in the counter used for write buffer
+	 * flush time-outs (WBFLT+11) is the bit position in an
+	 * internal counter used to determine expiration. The write
+	 * buffer expires between 1x and 2x this interval. For
+	 * example, with WBFLT = 0, a write buffer expires between 2K
+	 * and 4K cycles after the write buffer entry is allocated. */
 	cvmmemctl.s.wbfltime = 0;
-	
+	/* R/W If set, do not put Istream in the L2 cache. */
 	cvmmemctl.s.istrnol2 = 0;
 
+	/*
+	 * R/W The write buffer threshold. As per erratum Core-14752
+	 * for CN63XX, a sc/scd might fail if the write buffer is
+	 * full.  Lowering WBTHRESH greatly lowers the chances of the
+	 * write buffer ever being full and triggering the erratum.
+	 */
 	if (OCTEON_IS_MODEL(OCTEON_CN63XX_PASS1_X))
 		cvmmemctl.s.wbthresh = 4;
 	else
 		cvmmemctl.s.wbthresh = 10;
 
+	/* R/W If set, CVMSEG is available for loads/stores in
+	 * kernel/debug mode. */
 #if CONFIG_CAVIUM_OCTEON_CVMSEG_SIZE > 0
 	cvmmemctl.s.cvmsegenak = 1;
 #else
 	cvmmemctl.s.cvmsegenak = 0;
 #endif
+	/* R/W If set, CVMSEG is available for loads/stores in
+	 * supervisor mode. */
 	cvmmemctl.s.cvmsegenas = 0;
+	/* R/W If set, CVMSEG is available for loads/stores in user
+	 * mode. */
 	cvmmemctl.s.cvmsegenau = 0;
+	/* R/W Size of local memory in cache blocks, 54 (6912 bytes)
+	 * is max legal value. */
 	cvmmemctl.s.lmemsz = CONFIG_CAVIUM_OCTEON_CVMSEG_SIZE;
 
 	write_c0_cvmmemctl(cvmmemctl.u64);
@@ -284,15 +390,15 @@ void octeon_user_io_init(void)
 			  CONFIG_CAVIUM_OCTEON_CVMSEG_SIZE,
 			  CONFIG_CAVIUM_OCTEON_CVMSEG_SIZE * 128);
 
-	
+	/* Set a default for the hardware timeouts */
 	fau_timeout.u64 = 0;
 	fau_timeout.s.tout_val = 0xfff;
-	
+	/* Disable tagwait FAU timeout */
 	fau_timeout.s.tout_enb = 0;
 	cvmx_write_csr(CVMX_IOB_FAU_TIMEOUT, fau_timeout.u64);
 
 	nm_tim.u64 = 0;
-	
+	/* 4096 cycles */
 	nm_tim.s.nw_tim = 3;
 	cvmx_write_csr(CVMX_POW_NW_TIM, nm_tim.u64);
 
@@ -300,6 +406,9 @@ void octeon_user_io_init(void)
 	write_c0_derraddr1(0);
 }
 
+/**
+ * Early entry point for arch setup
+ */
 void __init prom_init(void)
 {
 	struct cvmx_sysinfo *sysinfo;
@@ -308,6 +417,10 @@ void __init prom_init(void)
 #ifdef CONFIG_CAVIUM_RESERVE32
 	int64_t addr = -1;
 #endif
+	/*
+	 * The bootloader passes a pointer to the boot descriptor in
+	 * $a3, this is available as fw_arg3.
+	 */
 	octeon_boot_desc_ptr = (struct octeon_boot_descriptor *)fw_arg3;
 	octeon_bootinfo =
 		cvmx_phys_to_ptr(octeon_boot_desc_ptr->cvmx_desc_vaddr);
@@ -340,7 +453,7 @@ void __init prom_init(void)
 	sysinfo->bootloader_config_flags = octeon_bootinfo->config_flags;
 
 	if (OCTEON_IS_MODEL(OCTEON_CN6XXX)) {
-		
+		/* I/O clock runs at a different rate than the CPU. */
 		union cvmx_mio_rst_boot rst_boot;
 		rst_boot.u64 = cvmx_read_csr(CVMX_MIO_RST_BOOT);
 		octeon_io_clock_rate = 50000000 * rst_boot.s.pnr_mul;
@@ -348,6 +461,10 @@ void __init prom_init(void)
 		octeon_io_clock_rate = sysinfo->cpu_clock_hz;
 	}
 
+	/*
+	 * Only enable the LED controller if we're running on a CN38XX, CN58XX,
+	 * or CN56XX. The CN30XX and CN31XX don't have an LED controller.
+	 */
 	if (!octeon_is_simulation() &&
 	    octeon_has_feature(OCTEON_FEATURE_LED_CONTROLLER)) {
 		cvmx_write_csr(CVMX_LED_EN, 0);
@@ -361,6 +478,16 @@ void __init prom_init(void)
 		cvmx_write_csr(CVMX_LED_EN, 1);
 	}
 #ifdef CONFIG_CAVIUM_RESERVE32
+	/*
+	 * We need to temporarily allocate all memory in the reserve32
+	 * region. This makes sure the kernel doesn't allocate this
+	 * memory when it is getting memory from the
+	 * bootloader. Later, after the memory allocations are
+	 * complete, the reserve32 will be freed.
+	 *
+	 * Allocate memory for RESERVED32 aligned on 2MB boundary. This
+	 * is in case we later use hugetlb entries with it.
+	 */
 	addr = cvmx_bootmem_phy_named_block_alloc(CONFIG_CAVIUM_RESERVE32 << 20,
 						0, 0, 2 << 20,
 						"CAVIUM_RESERVE32", 0);
@@ -376,15 +503,15 @@ void __init prom_init(void)
 	} else {
 		uint32_t ebase = read_c0_ebase() & 0x3ffff000;
 #ifdef CONFIG_CAVIUM_OCTEON_LOCK_L2_TLB
-		
+		/* TLB refill */
 		cvmx_l2c_lock_mem_region(ebase, 0x100);
 #endif
 #ifdef CONFIG_CAVIUM_OCTEON_LOCK_L2_EXCEPTION
-		
+		/* General exception */
 		cvmx_l2c_lock_mem_region(ebase + 0x180, 0x80);
 #endif
 #ifdef CONFIG_CAVIUM_OCTEON_LOCK_L2_LOW_LEVEL_INTERRUPT
-		
+		/* Interrupt handler */
 		cvmx_l2c_lock_mem_region(ebase + 0x200, 0x80);
 #endif
 #ifdef CONFIG_CAVIUM_OCTEON_LOCK_L2_INTERRUPT
@@ -408,19 +535,29 @@ void __init prom_init(void)
 #endif
 
 #ifdef CONFIG_CAVIUM_GDB
+	/*
+	 * When debugging the linux kernel, force the cores to enter
+	 * the debug exception handler to break in.
+	 */
 	if (octeon_get_boot_debug_flag()) {
 		cvmx_write_csr(CVMX_CIU_DINT, 1 << cvmx_get_core_num());
 		cvmx_read_csr(CVMX_CIU_DINT);
 	}
 #endif
 
+	/*
+	 * BIST should always be enabled when doing a soft reset. L2
+	 * Cache locking for instance is not cleared unless BIST is
+	 * enabled.  Unfortunately due to a chip errata G-200 for
+	 * Cn38XX and CN31XX, BIST msut be disabled on these parts.
+	 */
 	if (OCTEON_IS_MODEL(OCTEON_CN38XX_PASS2) ||
 	    OCTEON_IS_MODEL(OCTEON_CN31XX))
 		cvmx_write_csr(CVMX_CIU_SOFT_BIST, 0);
 	else
 		cvmx_write_csr(CVMX_CIU_SOFT_BIST, 1);
 
-	
+	/* Default to 64MB in the simulator to speed things up */
 	if (octeon_is_simulation())
 		MAX_MEMORY = 64ull << 20;
 
@@ -460,6 +597,11 @@ void __init prom_init(void)
 	}
 
 	if (octeon_is_simulation()) {
+		/*
+		 * The simulator uses a mtdram device pre filled with
+		 * the filesystem. Also specify the calibration delay
+		 * to avoid calculating it every time.
+		 */
 		strcat(arcs_cmdline, " rw root=1f00 slram=root,0x40000000,+1073741824");
 	}
 
@@ -475,6 +617,7 @@ void __init prom_init(void)
 	register_smp_ops(&octeon_smp_ops);
 }
 
+/* Exclude a single page from the regions obtained in plat_mem_setup. */
 static __init void memory_exclude_page(u64 addr, u64 *mem, u64 *size)
 {
 	if (addr > *mem && addr < *mem + *size) {
@@ -498,10 +641,22 @@ void __init plat_mem_setup(void)
 
 	total = 0;
 
+	/*
+	 * The Mips memory init uses the first memory location for
+	 * some memory vectors. When SPARSEMEM is in use, it doesn't
+	 * verify that the size is big enough for the final
+	 * vectors. Making the smallest chuck 4MB seems to be enough
+	 * to consistently work.
+	 */
 	mem_alloc_size = 4 << 20;
 	if (mem_alloc_size > MAX_MEMORY)
 		mem_alloc_size = MAX_MEMORY;
 
+	/*
+	 * When allocating memory, we want incrementing addresses from
+	 * bootmem_alloc so the code in add_memory_region can merge
+	 * regions next to each other.
+	 */
 	cvmx_bootmem_lock();
 	while ((boot_mem_map.nr_map < BOOT_MEM_MAP_MAX)
 		&& (total < MAX_MEMORY)) {
@@ -522,12 +677,23 @@ void __init plat_mem_setup(void)
 		if (memory >= 0) {
 			u64 size = mem_alloc_size;
 
+			/*
+			 * exclude a page at the beginning and end of
+			 * the 256MB PCIe 'hole' so the kernel will not
+			 * try to allocate multi-page buffers that
+			 * span the discontinuity.
+			 */
 			memory_exclude_page(CVMX_PCIE_BAR1_PHYS_BASE,
 					    &memory, &size);
 			memory_exclude_page(CVMX_PCIE_BAR1_PHYS_BASE +
 					    CVMX_PCIE_BAR1_PHYS_SIZE,
 					    &memory, &size);
 
+			/*
+			 * This function automatically merges address
+			 * regions next to each other if they are
+			 * received in incrementing order.
+			 */
 			if (size)
 				add_memory_region(memory, size, BOOT_MEM_RAM);
 			total += mem_alloc_size;
@@ -538,25 +704,34 @@ void __init plat_mem_setup(void)
 	cvmx_bootmem_unlock();
 
 #ifdef CONFIG_CAVIUM_RESERVE32
+	/*
+	 * Now that we've allocated the kernel memory it is safe to
+	 * free the reserved region. We free it here so that builtin
+	 * drivers can use the memory.
+	 */
 	if (octeon_reserve32_memory)
 		cvmx_bootmem_free_named("CAVIUM_RESERVE32");
-#endif 
+#endif /* CONFIG_CAVIUM_RESERVE32 */
 
 	if (total == 0)
 		panic("Unable to allocate memory from "
 		      "cvmx_bootmem_phy_alloc\n");
 }
 
+/*
+ * Emit one character to the boot UART.  Exported for use by the
+ * watchdog timer.
+ */
 int prom_putchar(char c)
 {
 	uint64_t lsrval;
 
-	
+	/* Spin until there is room */
 	do {
 		lsrval = cvmx_read_csr(CVMX_MIO_UARTX_LSR(octeon_uart));
 	} while ((lsrval & 0x20) == 0);
 
-	
+	/* Write the byte */
 	cvmx_write_csr(CVMX_MIO_UARTX_THR(octeon_uart), c & 0xffull);
 	return 1;
 }
@@ -565,7 +740,7 @@ EXPORT_SYMBOL(prom_putchar);
 void prom_free_prom_memory(void)
 {
 	if (OCTEON_IS_MODEL(OCTEON_CN63XX_PASS1_X)) {
-		
+		/* Check for presence of Core-14449 fix.  */
 		u32 insn;
 		u32 *foo;
 
@@ -592,7 +767,7 @@ void prom_free_prom_memory(void)
 #ifdef CONFIG_CAVIUM_DECODE_RSL
 	cvmx_interrupt_rsl_enable();
 
-	
+	/* Add an interrupt handler for general failures. */
 	if (request_irq(OCTEON_IRQ_RML, octeon_rlm_interrupt, IRQF_SHARED,
 			"RML/RSL", octeon_rlm_interrupt)) {
 		panic("Unable to request_irq(OCTEON_IRQ_RML)");

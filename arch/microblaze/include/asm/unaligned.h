@@ -26,5 +26,5 @@
 
 # include <linux/unaligned/generic.h>
 
-# endif	
-#endif 
+# endif	/* __KERNEL__ */
+#endif /* _ASM_MICROBLAZE_UNALIGNED_H */

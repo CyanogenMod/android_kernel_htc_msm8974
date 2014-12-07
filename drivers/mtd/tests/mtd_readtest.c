@@ -218,7 +218,7 @@ static int __init mtd_readtest_init(void)
 	if (err)
 		goto out;
 
-	
+	/* Read all eraseblocks 1 page at a time */
 	printk(PRINT_PREF "testing page read\n");
 	for (i = 0; i < ebcnt; ++i) {
 		int ret;

@@ -16,12 +16,22 @@ extern struct pglist_data *node_data[];
 #define node_localnr(pfn, nid)	((pfn) - NODE_DATA(nid)->node_start_pfn)
 
 #define pmd_page(pmd)		(pfn_to_page(pmd_val(pmd) >> PAGE_SHIFT))
-#if 1	
+/*
+ * pfn_valid should be made as fast as possible, and the current definition
+ * is valid for machines that are NUMA, but still contiguous, which is what
+ * is currently supported. A more generalised, but slower definition would
+ * be something like this - mbligh:
+ * ( pfn_to_pgdat(pfn) && ((pfn) < node_end_pfn(pfn_to_nid(pfn))) )
+ */
+#if 1	/* M32R_FIXME */
 #define pfn_valid(pfn)	(1)
 #else
 #define pfn_valid(pfn)	((pfn) < num_physpages)
 #endif
 
+/*
+ * generic node memory support, the following assumptions apply:
+ */
 
 static __inline__ int pfn_to_nid(unsigned long pfn)
 {
@@ -39,5 +49,5 @@ static __inline__ struct pglist_data *pfn_to_pgdat(unsigned long pfn)
 	return(NODE_DATA(pfn_to_nid(pfn)));
 }
 
-#endif 
-#endif 
+#endif /* CONFIG_DISCONTIGMEM */
+#endif /* _ASM_MMZONE_H_ */

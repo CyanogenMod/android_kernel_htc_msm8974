@@ -16,7 +16,7 @@
 # ifndef __ASSEMBLY__
 
 #  ifdef __KERNEL__
-extern unsigned int boot_cpuid; 
+extern unsigned int boot_cpuid; /* move to smp.h */
 
 extern char cmd_line[COMMAND_LINE_SIZE];
 
@@ -34,7 +34,7 @@ void setup_heartbeat(void);
 #   ifdef CONFIG_MMU
 extern void mmu_reset(void);
 extern void early_console_reg_tlb_alloc(unsigned int addr);
-#   endif 
+#   endif /* CONFIG_MMU */
 
 extern void of_platform_reset_gpio_probe(void);
 
@@ -53,6 +53,6 @@ void free_init_pages(char *what, unsigned long begin, unsigned long end);
 extern void *alloc_maybe_bootmem(size_t size, gfp_t mask);
 extern void *zalloc_maybe_bootmem(size_t size, gfp_t mask);
 
-#  endif
-# endif 
-#endif 
+#  endif/* __KERNEL__ */
+# endif /* __ASSEMBLY__ */
+#endif /* _ASM_MICROBLAZE_SETUP_H */

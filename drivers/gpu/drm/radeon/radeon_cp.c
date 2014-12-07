@@ -1,3 +1,4 @@
+/* radeon_cp.c -- CP support for Radeon -*- linux-c -*- */
 /*
  * Copyright 2000 Precision Insight, Inc., Cedar Park, Texas.
  * Copyright 2000 VA Linux Systems, Inc., Fremont, California.
@@ -39,6 +40,7 @@
 
 #define RADEON_FIFO_DEBUG	0
 
+/* Firmware Names */
 #define FIRMWARE_R100		"radeon/R100_cp.bin"
 #define FIRMWARE_R200		"radeon/R200_cp.bin"
 #define FIRMWARE_R300		"radeon/R300_cp.bin"
@@ -218,12 +220,12 @@ static void radeon_write_fb_location(drm_radeon_private_t *dev_priv, u32 fb_loc)
 
 void radeon_write_agp_location(drm_radeon_private_t *dev_priv, u32 agp_loc)
 {
-	
+	/*R6xx/R7xx: AGP_TOP and BOT are actually 18 bits each */
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_RV770) {
-		RADEON_WRITE(R700_MC_VM_AGP_BOT, agp_loc & 0xffff); 
+		RADEON_WRITE(R700_MC_VM_AGP_BOT, agp_loc & 0xffff); /* FIX ME */
 		RADEON_WRITE(R700_MC_VM_AGP_TOP, (agp_loc >> 16) & 0xffff);
 	} else if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_R600) {
-		RADEON_WRITE(R600_MC_VM_AGP_BOT, agp_loc & 0xffff); 
+		RADEON_WRITE(R600_MC_VM_AGP_BOT, agp_loc & 0xffff); /* FIX ME */
 		RADEON_WRITE(R600_MC_VM_AGP_TOP, (agp_loc >> 16) & 0xffff);
 	} else if ((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_RV515)
 		R500_WRITE_MCIND(RV515_MC_AGP_LOCATION, agp_loc);
@@ -244,7 +246,7 @@ void radeon_write_agp_base(drm_radeon_private_t *dev_priv, u64 agp_base)
 	u32 agp_base_lo = agp_base & 0xffffffff;
 	u32 r6xx_agp_base = (agp_base >> 22) & 0x3ffff;
 
-	
+	/* R6xx/R7xx must be aligned to a 4MB boundary */
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_RV770)
 		RADEON_WRITE(R700_MC_VM_AGP_BASE, r6xx_agp_base);
 	else if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_R600)
@@ -276,20 +278,20 @@ void radeon_write_agp_base(drm_radeon_private_t *dev_priv, u64 agp_base)
 void radeon_enable_bm(struct drm_radeon_private *dev_priv)
 {
 	u32 tmp;
-	
+	/* Turn on bus mastering */
 	if (((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_RS690) ||
 	    ((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_RS740)) {
-		
+		/* rs600/rs690/rs740 */
 		tmp = RADEON_READ(RADEON_BUS_CNTL) & ~RS600_BUS_MASTER_DIS;
 		RADEON_WRITE(RADEON_BUS_CNTL, tmp);
 	} else if (((dev_priv->flags & RADEON_FAMILY_MASK) <= CHIP_RV350) ||
 		   ((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_R420) ||
 		   ((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_RS400) ||
 		   ((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_RS480)) {
-		
+		/* r1xx, r2xx, r300, r(v)350, r420/r481, rs400/rs480 */
 		tmp = RADEON_READ(RADEON_BUS_CNTL) & ~RADEON_BUS_MASTER_DIS;
 		RADEON_WRITE(RADEON_BUS_CNTL, tmp);
-	} 
+	} /* PCIE cards appears to not need this */
 }
 
 static int RADEON_READ_PLL(struct drm_device * dev, int addr)
@@ -329,6 +331,9 @@ static void radeon_status(drm_radeon_private_t * dev_priv)
 }
 #endif
 
+/* ================================================================
+ * Engine, FIFO control
+ */
 
 static int radeon_do_pixcache_flush(drm_radeon_private_t * dev_priv)
 {
@@ -350,7 +355,7 @@ static int radeon_do_pixcache_flush(drm_radeon_private_t * dev_priv)
 			DRM_UDELAY(1);
 		}
 	} else {
-		
+		/* don't flush or purge cache here or lockup */
 		return 0;
 	}
 
@@ -428,29 +433,29 @@ static void radeon_init_pipes(struct drm_device *dev)
 	} else
 		dev_priv->num_z_pipes = 1;
 
-	
+	/* RS4xx/RS6xx/R4xx/R5xx */
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_R420) {
 		gb_pipe_sel = RADEON_READ(R400_GB_PIPE_SELECT);
 		dev_priv->num_gb_pipes = ((gb_pipe_sel >> 12) & 0x3) + 1;
-		
+		/* SE cards have 1 pipe */
 		if ((dev->pdev->device == 0x5e4c) ||
 		    (dev->pdev->device == 0x5e4f))
 			dev_priv->num_gb_pipes = 1;
 	} else {
-		
+		/* R3xx */
 		if (((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_R300 &&
 		     dev->pdev->device != 0x4144) ||
 		    ((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_R350 &&
 		     dev->pdev->device != 0x4148)) {
 			dev_priv->num_gb_pipes = 2;
 		} else {
-			
+			/* RV3xx/R300 AD/R350 AH */
 			dev_priv->num_gb_pipes = 1;
 		}
 	}
 	DRM_INFO("Num pipes: %d\n", dev_priv->num_gb_pipes);
 
-	gb_tile_config = (R300_ENABLE_TILING | R300_TILE_SIZE_16 );
+	gb_tile_config = (R300_ENABLE_TILING | R300_TILE_SIZE_16 /*| R300_SUBPIXEL_1_16*/);
 
 	switch (dev_priv->num_gb_pipes) {
 	case 2: gb_tile_config |= R300_PIPE_COUNT_R300; break;
@@ -474,7 +479,11 @@ static void radeon_init_pipes(struct drm_device *dev)
 
 }
 
+/* ================================================================
+ * CP control, initialization
+ */
 
+/* Load the microcode for the CP */
 static int radeon_cp_init_microcode(drm_radeon_private_t *dev_priv)
 {
 	struct platform_device *pdev;
@@ -569,6 +578,10 @@ static void radeon_cp_load_microcode(drm_radeon_private_t *dev_priv)
 	}
 }
 
+/* Flush any pending commands to the CP.  This should only be used just
+ * prior to a wait for idle, as it informs the engine that the command
+ * stream is ending.
+ */
 static void radeon_do_cp_flush(drm_radeon_private_t * dev_priv)
 {
 	DRM_DEBUG("\n");
@@ -580,6 +593,8 @@ static void radeon_do_cp_flush(drm_radeon_private_t * dev_priv)
 #endif
 }
 
+/* Wait for the CP to go idle.
+ */
 int radeon_do_cp_idle(drm_radeon_private_t * dev_priv)
 {
 	RING_LOCALS;
@@ -597,6 +612,8 @@ int radeon_do_cp_idle(drm_radeon_private_t * dev_priv)
 	return radeon_do_wait_for_idle(dev_priv);
 }
 
+/* Start the Command Processor.
+ */
 static void radeon_do_cp_start(drm_radeon_private_t * dev_priv)
 {
 	RING_LOCALS;
@@ -608,10 +625,13 @@ static void radeon_do_cp_start(drm_radeon_private_t * dev_priv)
 
 	dev_priv->cp_running = 1;
 
+	/* on r420, any DMA from CP to system memory while 2D is active
+	 * can cause a hang.  workaround is to queue a CP RESYNC token
+	 */
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_R420) {
 		BEGIN_RING(3);
 		OUT_RING(CP_PACKET0(R300_CP_RESYNC_ADDR, 1));
-		OUT_RING(5); 
+		OUT_RING(5); /* scratch reg 5 */
 		OUT_RING(0xdeadbeef);
 		ADVANCE_RING();
 		COMMIT_RING();
@@ -633,6 +653,10 @@ static void radeon_do_cp_start(drm_radeon_private_t * dev_priv)
 	dev_priv->track_flush |= RADEON_FLUSH_EMITED | RADEON_PURGE_EMITED;
 }
 
+/* Reset the Command Processor.  This will not flush any pending
+ * commands, so you must wait for the CP command stream to complete
+ * before calling this routine.
+ */
 static void radeon_do_cp_reset(drm_radeon_private_t * dev_priv)
 {
 	u32 cur_read_ptr;
@@ -644,12 +668,16 @@ static void radeon_do_cp_reset(drm_radeon_private_t * dev_priv)
 	dev_priv->ring.tail = cur_read_ptr;
 }
 
+/* Stop the Command Processor.  This will not flush any pending
+ * commands, so you must flush the command stream and wait for the CP
+ * to go idle before calling this routine.
+ */
 static void radeon_do_cp_stop(drm_radeon_private_t * dev_priv)
 {
 	RING_LOCALS;
 	DRM_DEBUG("\n");
 
-	
+	/* finish the pending CP_RESYNC token */
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_R420) {
 		BEGIN_RING(2);
 		OUT_RING(CP_PACKET0(R300_RB3D_DSTCACHE_CTLSTAT, 0));
@@ -664,6 +692,8 @@ static void radeon_do_cp_stop(drm_radeon_private_t * dev_priv)
 	dev_priv->cp_running = 0;
 }
 
+/* Reset the engine.  This will stop the CP if it is running.
+ */
 static int radeon_do_engine_reset(struct drm_device * dev)
 {
 	drm_radeon_private_t *dev_priv = dev->dev_private;
@@ -673,7 +703,7 @@ static int radeon_do_engine_reset(struct drm_device * dev)
 	radeon_do_pixcache_flush(dev_priv);
 
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) <= CHIP_RV410) {
-		
+		/* may need something similar for newer chips */
 		clock_cntl_index = RADEON_READ(RADEON_CLOCK_CNTL_INDEX);
 		mclk_cntl = RADEON_READ_PLL(dev, RADEON_MCLK_CNTL);
 
@@ -713,17 +743,17 @@ static int radeon_do_engine_reset(struct drm_device * dev)
 		RADEON_WRITE(RADEON_RBBM_SOFT_RESET, rbbm_soft_reset);
 	}
 
-	
+	/* setup the raster pipes */
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_R300)
 	    radeon_init_pipes(dev);
 
-	
+	/* Reset the CP ring */
 	radeon_do_cp_reset(dev_priv);
 
-	
+	/* The CP is no longer running after an engine reset */
 	dev_priv->cp_running = 0;
 
-	
+	/* Reset any pending vertex, indirect buffers */
 	radeon_freelist_reset(dev);
 
 	return 0;
@@ -736,6 +766,11 @@ static void radeon_cp_init_ring_buffer(struct drm_device * dev,
 	struct drm_radeon_master_private *master_priv;
 	u32 ring_start, cur_read_ptr;
 
+	/* Initialize the memory controller. With new memory map, the fb location
+	 * is not changed, it should have been properly initialized already. Part
+	 * of the problem is that the code below is bogus, assuming the GART is
+	 * always appended to the fb which is not necessarily the case
+	 */
 	if (!dev_priv->new_memmap)
 		radeon_write_fb_location(dev_priv,
 			     ((dev_priv->gart_vm_start - 1) & 0xffff0000)
@@ -761,10 +796,10 @@ static void radeon_cp_init_ring_buffer(struct drm_device * dev,
 
 	RADEON_WRITE(RADEON_CP_RB_BASE, ring_start);
 
-	
+	/* Set the write pointer delay */
 	RADEON_WRITE(RADEON_CP_RB_WPTR_DELAY, 0);
 
-	
+	/* Initialize the ring buffer's read and write pointers */
 	cur_read_ptr = RADEON_READ(RADEON_CP_RB_RPTR);
 	RADEON_WRITE(RADEON_CP_RB_WPTR, cur_read_ptr);
 	SET_RING_HEAD(dev_priv, cur_read_ptr);
@@ -784,7 +819,7 @@ static void radeon_cp_init_ring_buffer(struct drm_device * dev,
 			     + dev_priv->gart_vm_start);
 	}
 
-	
+	/* Set ring buffer size */
 #ifdef __BIG_ENDIAN
 	RADEON_WRITE(RADEON_CP_RB_CNTL,
 		     RADEON_BUF_SWAP_32BIT |
@@ -822,7 +857,7 @@ static void radeon_cp_init_ring_buffer(struct drm_device * dev,
 	radeon_write_ring_rptr(dev_priv, RADEON_SCRATCHOFF(2), 0);
 	RADEON_WRITE(RADEON_LAST_CLEAR_REG, 0);
 
-	
+	/* reset sarea copies of these */
 	master_priv = file_priv->master->driver_priv;
 	if (master_priv->sarea_priv) {
 		master_priv->sarea_priv->last_frame = 0;
@@ -832,7 +867,7 @@ static void radeon_cp_init_ring_buffer(struct drm_device * dev,
 
 	radeon_do_wait_for_idle(dev_priv);
 
-	
+	/* Sync everything up */
 	RADEON_WRITE(RADEON_ISYNC_CNTL,
 		     (RADEON_ISYNC_ANY2D_IDLE3D |
 		      RADEON_ISYNC_ANY3D_IDLE2D |
@@ -845,9 +880,12 @@ static void radeon_test_writeback(drm_radeon_private_t * dev_priv)
 {
 	u32 tmp;
 
-	
+	/* Start with assuming that writeback doesn't work */
 	dev_priv->writeback_works = 0;
 
+	/* Writeback doesn't seem to work everywhere, test it here and possibly
+	 * enable it if it appears to work
+	 */
 	radeon_write_ring_rptr(dev_priv, RADEON_SCRATCHOFF(1), 0);
 
 	RADEON_WRITE(RADEON_SCRATCH_REG1, 0xdeadbeef);
@@ -874,13 +912,14 @@ static void radeon_test_writeback(drm_radeon_private_t * dev_priv)
 	}
 
 	if (!dev_priv->writeback_works) {
-		
+		/* Disable writeback to avoid unnecessary bus master transfer */
 		RADEON_WRITE(RADEON_CP_RB_CNTL, RADEON_READ(RADEON_CP_RB_CNTL) |
 			     RADEON_RB_NO_UPDATE);
 		RADEON_WRITE(RADEON_SCRATCH_UMSK, 0);
 	}
 }
 
+/* Enable or disable IGP GART on the chip */
 static void radeon_set_igpgart(drm_radeon_private_t * dev_priv, int on)
 {
 	u32 temp;
@@ -951,6 +990,7 @@ static void radeon_set_igpgart(drm_radeon_private_t * dev_priv, int on)
 	}
 }
 
+/* Enable or disable IGP GART on the chip */
 static void rs600_set_igpgart(drm_radeon_private_t *dev_priv, int on)
 {
 	u32 temp;
@@ -977,11 +1017,11 @@ static void rs600_set_igpgart(drm_radeon_private_t *dev_priv, int on)
 		IGP_WRITE_MCIND(RS600_MC_PT0_CONTEXT0_CNTL, (RS600_ENABLE_PAGE_TABLE |
 							     RS600_PAGE_TABLE_TYPE_FLAT));
 
-		
+		/* disable all other contexts */
 		for (i = 1; i < 8; i++)
 			IGP_WRITE_MCIND(RS600_MC_PT0_CONTEXT0_CNTL + i, 0);
 
-		
+		/* setup the page table aperture */
 		IGP_WRITE_MCIND(RS600_MC_PT0_CONTEXT0_FLAT_BASE_ADDR,
 				dev_priv->gart_info.bus_addr);
 		IGP_WRITE_MCIND(RS600_MC_PT0_CONTEXT0_FLAT_START_ADDR,
@@ -990,20 +1030,20 @@ static void rs600_set_igpgart(drm_radeon_private_t *dev_priv, int on)
 				(dev_priv->gart_vm_start + dev_priv->gart_size - 1));
 		IGP_WRITE_MCIND(RS600_MC_PT0_CONTEXT0_DEFAULT_READ_ADDR, 0);
 
-		
+		/* setup the system aperture */
 		IGP_WRITE_MCIND(RS600_MC_PT0_SYSTEM_APERTURE_LOW_ADDR,
 				dev_priv->gart_vm_start);
 		IGP_WRITE_MCIND(RS600_MC_PT0_SYSTEM_APERTURE_HIGH_ADDR,
 				(dev_priv->gart_vm_start + dev_priv->gart_size - 1));
 
-		
+		/* enable page tables */
 		temp = IGP_READ_MCIND(dev_priv, RS600_MC_PT0_CNTL);
 		IGP_WRITE_MCIND(RS600_MC_PT0_CNTL, (temp | RS600_ENABLE_PT));
 
 		temp = IGP_READ_MCIND(dev_priv, RS600_MC_CNTL1);
 		IGP_WRITE_MCIND(RS600_MC_CNTL1, (temp | RS600_ENABLE_PAGE_TABLES));
 
-		
+		/* invalidate the cache */
 		temp = IGP_READ_MCIND(dev_priv, RS600_MC_PT0_CNTL);
 
 		temp &= ~(RS600_INVALIDATE_ALL_L1_TLBS | RS600_INVALIDATE_L2_CACHE);
@@ -1045,7 +1085,7 @@ static void radeon_set_pciegart(drm_radeon_private_t * dev_priv, int on)
 				  dev_priv->gart_vm_start +
 				  dev_priv->gart_size - 1);
 
-		radeon_write_agp_location(dev_priv, 0xffffffc0); 
+		radeon_write_agp_location(dev_priv, 0xffffffc0); /* ?? */
 
 		RADEON_WRITE_PCIE(RADEON_PCIE_TX_GART_CNTL,
 				  RADEON_PCIE_TX_GART_EN);
@@ -1055,6 +1095,7 @@ static void radeon_set_pciegart(drm_radeon_private_t * dev_priv, int on)
 	}
 }
 
+/* Enable or disable PCI GART on the chip */
 static void radeon_set_pcigart(drm_radeon_private_t * dev_priv, int on)
 {
 	u32 tmp;
@@ -1082,14 +1123,20 @@ static void radeon_set_pcigart(drm_radeon_private_t * dev_priv, int on)
 		RADEON_WRITE(RADEON_AIC_CNTL,
 			     tmp | RADEON_PCIGART_TRANSLATE_EN);
 
+		/* set PCI GART page-table base address
+		 */
 		RADEON_WRITE(RADEON_AIC_PT_BASE, dev_priv->gart_info.bus_addr);
 
+		/* set address range for PCI address translate
+		 */
 		RADEON_WRITE(RADEON_AIC_LO_ADDR, dev_priv->gart_vm_start);
 		RADEON_WRITE(RADEON_AIC_HI_ADDR, dev_priv->gart_vm_start
 			     + dev_priv->gart_size - 1);
 
+		/* Turn off AGP aperture -- is this required for PCI GART?
+		 */
 		radeon_write_agp_location(dev_priv, 0xffffffc0);
-		RADEON_WRITE(RADEON_AGP_COMMAND, 0);	
+		RADEON_WRITE(RADEON_AGP_COMMAND, 0);	/* clear AGP_COMMAND */
 	} else {
 		RADEON_WRITE(RADEON_AIC_CNTL,
 			     tmp & ~RADEON_PCIGART_TRANSLATE_EN);
@@ -1144,7 +1191,7 @@ static int radeon_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 
 	DRM_DEBUG("\n");
 
-	
+	/* if we require new memory map but we don't have it fail */
 	if ((dev_priv->flags & RADEON_NEW_MEMMAP) && !dev_priv->new_memmap) {
 		DRM_ERROR("Cannot initialise DRM on this card\nThis card requires a new X.org DDX for 3D\n");
 		radeon_do_cleanup_cp(dev);
@@ -1174,6 +1221,8 @@ static int radeon_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 		return -EINVAL;
 	}
 
+	/* Enable vblank on CRTC1 for older X servers
+	 */
 	dev_priv->vblank_crtc = DRM_RADEON_VBLANK_CRTC1;
 
 	switch(init->func) {
@@ -1190,6 +1239,10 @@ static int radeon_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 	dev_priv->do_boxes = 0;
 	dev_priv->cp_mode = init->cp_mode;
 
+	/* We don't support anything other than bus-mastering ring mode,
+	 * but the ring can be in either AGP or PCI space for the ring
+	 * read pointer.
+	 */
 	if ((init->cp_mode != RADEON_CSQ_PRIBM_INDDIS) &&
 	    (init->cp_mode != RADEON_CSQ_PRIBM_INDBM)) {
 		DRM_DEBUG("BAD cp_mode (%x)!\n", init->cp_mode);
@@ -1223,6 +1276,11 @@ static int radeon_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 	dev_priv->depth_offset = init->depth_offset;
 	dev_priv->depth_pitch = init->depth_pitch;
 
+	/* Hardware state for depth clears.  Remove this if/when we no
+	 * longer clear the depth buffer with a 3D rectangle.  Hard-code
+	 * all values to prevent unwanted 3D state from slipping through
+	 * and screwing with the clear operation.
+	 */
 	dev_priv->depth_clear.rb3d_cntl = (RADEON_PLANE_MASK_ENABLE |
 					   (dev_priv->color_fmt << 10) |
 					   (dev_priv->microcode_version ==
@@ -1340,16 +1398,20 @@ static int radeon_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 
 	dev_priv->gart_size = init->gart_size;
 
-	
+	/* New let's set the memory map ... */
 	if (dev_priv->new_memmap) {
 		u32 base = 0;
 
 		DRM_INFO("Setting GART location based on new memory map\n");
 
+		/* If using AGP, try to locate the AGP aperture at the same
+		 * location in the card and on the bus, though we have to
+		 * align it down.
+		 */
 #if __OS_HAS_AGP
 		if (dev_priv->flags & RADEON_IS_AGP) {
 			base = dev->agp->base;
-			
+			/* Check if valid */
 			if ((base + dev_priv->gart_size - 1) >= dev_priv->fb_location &&
 			    base < (dev_priv->fb_location + dev_priv->fb_size - 1)) {
 				DRM_INFO("Can't use AGP base @0x%08lx, won't fit\n",
@@ -1358,7 +1420,7 @@ static int radeon_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 			}
 		}
 #endif
-		
+		/* If not or if AGP is at 0 (Macs), try to put it elsewhere */
 		if (base == 0) {
 			base = dev_priv->fb_location + dev_priv->fb_size;
 			if (base < dev_priv->fb_location ||
@@ -1398,18 +1460,18 @@ static int radeon_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 	dev_priv->ring.size = init->ring_size;
 	dev_priv->ring.size_l2qw = drm_order(init->ring_size / 8);
 
-	dev_priv->ring.rptr_update =  4096;
-	dev_priv->ring.rptr_update_l2qw = drm_order(  4096 / 8);
+	dev_priv->ring.rptr_update = /* init->rptr_update */ 4096;
+	dev_priv->ring.rptr_update_l2qw = drm_order( /* init->rptr_update */ 4096 / 8);
 
-	dev_priv->ring.fetch_size =  32;
-	dev_priv->ring.fetch_size_l2ow = drm_order(  32 / 16);
+	dev_priv->ring.fetch_size = /* init->fetch_size */ 32;
+	dev_priv->ring.fetch_size_l2ow = drm_order( /* init->fetch_size */ 32 / 16);
 	dev_priv->ring.tail_mask = (dev_priv->ring.size / sizeof(u32)) - 1;
 
 	dev_priv->ring.high_mark = RADEON_RING_HIGH_MARK;
 
 #if __OS_HAS_AGP
 	if (dev_priv->flags & RADEON_IS_AGP) {
-		
+		/* Turn off PCI GART */
 		radeon_set_pcigart(dev_priv, 0);
 	} else
 #endif
@@ -1418,7 +1480,7 @@ static int radeon_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 		int ret;
 
 		dev_priv->gart_info.table_mask = DMA_BIT_MASK(32);
-		
+		/* if we have an offset set from userspace */
 		if (dev_priv->pcigart_offset_set) {
 			dev_priv->gart_info.bus_addr =
 				(resource_size_t)dev_priv->pcigart_offset + dev_priv->fb_location;
@@ -1483,7 +1545,7 @@ static int radeon_do_init_cp(struct drm_device *dev, drm_radeon_init_t *init,
 			return ret;
 		}
 
-		
+		/* Turn on PCI GART */
 		radeon_set_pcigart(dev_priv, 1);
 	}
 
@@ -1511,6 +1573,10 @@ static int radeon_do_cleanup_cp(struct drm_device * dev)
 	drm_radeon_private_t *dev_priv = dev->dev_private;
 	DRM_DEBUG("\n");
 
+	/* Make sure interrupts are disabled here because the uninstall ioctl
+	 * may not have been called from userspace and after dev_private
+	 * is freed, it's too late.
+	 */
 	if (dev->irq_enabled)
 		drm_irq_uninstall(dev);
 
@@ -1533,7 +1599,7 @@ static int radeon_do_cleanup_cp(struct drm_device * dev)
 	{
 
 		if (dev_priv->gart_info.bus_addr) {
-			
+			/* Turn off PCI GART */
 			radeon_set_pcigart(dev_priv, 0);
 			if ((dev_priv->flags & RADEON_FAMILY_MASK) == CHIP_RS600)
 				r600_page_table_cleanup(dev, &dev_priv->gart_info);
@@ -1549,12 +1615,19 @@ static int radeon_do_cleanup_cp(struct drm_device * dev)
 			dev_priv->gart_info.addr = NULL;
 		}
 	}
-	
+	/* only clear to the start of flags */
 	memset(dev_priv, 0, offsetof(drm_radeon_private_t, flags));
 
 	return 0;
 }
 
+/* This code will reinit the Radeon CP hardware after a resume from disc.
+ * AFAIK, it would be very difficult to pickle the state at suspend time, so
+ * here we make sure that all Radeon hardware initialisation is re-done without
+ * affecting running applications.
+ *
+ * Charl P. Botha <http://cpbotha.net>
+ */
 static int radeon_do_resume_cp(struct drm_device *dev, struct drm_file *file_priv)
 {
 	drm_radeon_private_t *dev_priv = dev->dev_private;
@@ -1568,12 +1641,12 @@ static int radeon_do_resume_cp(struct drm_device *dev, struct drm_file *file_pri
 
 #if __OS_HAS_AGP
 	if (dev_priv->flags & RADEON_IS_AGP) {
-		
+		/* Turn off PCI GART */
 		radeon_set_pcigart(dev_priv, 0);
 	} else
 #endif
 	{
-		
+		/* Turn on PCI GART */
 		radeon_set_pcigart(dev_priv, 1);
 	}
 
@@ -1641,6 +1714,9 @@ int radeon_cp_start(struct drm_device *dev, void *data, struct drm_file *file_pr
 	return 0;
 }
 
+/* Stop the CP.  The engine must have been idled before calling this
+ * routine.
+ */
 int radeon_cp_stop(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
 	drm_radeon_private_t *dev_priv = dev->dev_private;
@@ -1653,10 +1729,16 @@ int radeon_cp_stop(struct drm_device *dev, void *data, struct drm_file *file_pri
 	if (!dev_priv->cp_running)
 		return 0;
 
+	/* Flush any pending CP commands.  This ensures any outstanding
+	 * commands are exectuted by the engine before we turn it off.
+	 */
 	if (stop->flush) {
 		radeon_do_cp_flush(dev_priv);
 	}
 
+	/* If we fail to make the engine go idle, we return an error
+	 * code so that the DRM ioctl wrapper can try again.
+	 */
 	if (stop->idle) {
 		if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_R600)
 			ret = r600_do_cp_idle(dev_priv);
@@ -1666,12 +1748,16 @@ int radeon_cp_stop(struct drm_device *dev, void *data, struct drm_file *file_pri
 			return ret;
 	}
 
+	/* Finally, we can turn off the CP.  If the engine isn't idle,
+	 * we will get some dropped triangles as they won't be fully
+	 * rendered before the CP is shut down.
+	 */
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_R600)
 		r600_do_cp_stop(dev_priv);
 	else
 		radeon_do_cp_stop(dev_priv);
 
-	
+	/* Reset the engine */
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_R600)
 		r600_do_engine_reset(dev);
 	else
@@ -1687,7 +1773,7 @@ void radeon_do_release(struct drm_device * dev)
 
 	if (dev_priv) {
 		if (dev_priv->cp_running) {
-			
+			/* Stop the cp */
 			if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_R600) {
 				while ((ret = r600_do_cp_idle(dev_priv)) != 0) {
 					DRM_DEBUG("radeon_do_cp_idle %d\n", ret);
@@ -1717,11 +1803,11 @@ void radeon_do_release(struct drm_device * dev)
 		}
 
 		if ((dev_priv->flags & RADEON_FAMILY_MASK) < CHIP_R600) {
-			
-			if (dev_priv->mmio)	
+			/* Disable *all* interrupts */
+			if (dev_priv->mmio)	/* remove this after permanent addmaps */
 				RADEON_WRITE(RADEON_GEN_INT_CNTL, 0);
 
-			if (dev_priv->mmio) {	
+			if (dev_priv->mmio) {	/* remove all surfaces */
 				for (i = 0; i < RADEON_MAX_SURFACES; i++) {
 					RADEON_WRITE(RADEON_SURFACE0_INFO + 16 * i, 0);
 					RADEON_WRITE(RADEON_SURFACE0_LOWER_BOUND +
@@ -1732,11 +1818,11 @@ void radeon_do_release(struct drm_device * dev)
 			}
 		}
 
-		
+		/* Free memory heap structures */
 		radeon_mem_takedown(&(dev_priv->gart_heap));
 		radeon_mem_takedown(&(dev_priv->fb_heap));
 
-		
+		/* deallocate kernel resources */
 		if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_R600)
 			r600_do_cleanup_cp(dev);
 		else
@@ -1752,6 +1838,8 @@ void radeon_do_release(struct drm_device * dev)
 	}
 }
 
+/* Just reset the CP ring.  Called as part of an X Server engine reset.
+ */
 int radeon_cp_reset(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
 	drm_radeon_private_t *dev_priv = dev->dev_private;
@@ -1769,7 +1857,7 @@ int radeon_cp_reset(struct drm_device *dev, void *data, struct drm_file *file_pr
 	else
 		radeon_do_cp_reset(dev_priv);
 
-	
+	/* The CP is no longer running after an engine reset */
 	dev_priv->cp_running = 0;
 
 	return 0;
@@ -1788,6 +1876,8 @@ int radeon_cp_idle(struct drm_device *dev, void *data, struct drm_file *file_pri
 		return radeon_do_cp_idle(dev_priv);
 }
 
+/* Added by Charl P. Botha to call radeon_do_resume_cp().
+ */
 int radeon_cp_resume(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
 	drm_radeon_private_t *dev_priv = dev->dev_private;
@@ -1812,12 +1902,20 @@ int radeon_engine_reset(struct drm_device *dev, void *data, struct drm_file *fil
 		return radeon_do_engine_reset(dev);
 }
 
+/* ================================================================
+ * Fullscreen mode
+ */
 
+/* KW: Deprecated to say the least:
+ */
 int radeon_fullscreen(struct drm_device *dev, void *data, struct drm_file *file_priv)
 {
 	return 0;
 }
 
+/* ================================================================
+ * Freelist management
+ */
 
 /* Original comment: FIXME: ROTATE_BUFS is a hack to cycle through
  *   bufs until freelist code is used.  Note this hides a problem with
@@ -1890,6 +1988,9 @@ void radeon_freelist_reset(struct drm_device * dev)
 	}
 }
 
+/* ================================================================
+ * CP command submission
+ */
 
 int radeon_wait_ring(drm_radeon_private_t * dev_priv, int n)
 {
@@ -1915,7 +2016,7 @@ int radeon_wait_ring(drm_radeon_private_t * dev_priv, int n)
 		DRM_UDELAY(1);
 	}
 
-	
+	/* FIXME: This return value is ignored in the BEGIN_RING macro! */
 #if RADEON_FIFO_DEBUG
 	radeon_status(dev_priv);
 	DRM_ERROR("failed!\n");
@@ -1933,7 +2034,7 @@ static int radeon_cp_get_buffers(struct drm_device *dev,
 	for (i = d->granted_count; i < d->request_count; i++) {
 		buf = radeon_freelist_get(dev);
 		if (!buf)
-			return -EBUSY;	
+			return -EBUSY;	/* NOTE: broken client */
 
 		buf->file_priv = file_priv;
 
@@ -1957,12 +2058,16 @@ int radeon_cp_buffers(struct drm_device *dev, void *data, struct drm_file *file_
 
 	LOCK_TEST_WITH_RETURN(dev, file_priv);
 
+	/* Please don't send us buffers.
+	 */
 	if (d->send_count != 0) {
 		DRM_ERROR("Process %d trying to send %d buffers via drmDMA\n",
 			  DRM_CURRENTPID, d->send_count);
 		return -EINVAL;
 	}
 
+	/* We'll send you buffers.
+	 */
 	if (d->request_count < 0 || d->request_count > dma->buf_count) {
 		DRM_ERROR("Process %d trying to get %d buffers (of %d max)\n",
 			  DRM_CURRENTPID, d->request_count, dma->buf_count);
@@ -2006,7 +2111,7 @@ int radeon_driver_load(struct drm_device *dev, unsigned long flags)
 		dev_priv->flags |= RADEON_HAS_HIERZ;
 		break;
 	default:
-		
+		/* all other chips have no hierarchical z buffer */
 		break;
 	}
 
@@ -2046,7 +2151,7 @@ int radeon_master_create(struct drm_device *dev, struct drm_master *master)
 	if (!master_priv)
 		return -ENOMEM;
 
-	
+	/* prebuild the SAREA */
 	sareapage = max_t(unsigned long, SAREA_MAX, PAGE_SIZE);
 	ret = drm_addmap(dev, 0, sareapage, _DRM_SHM, _DRM_CONTAINS_LOCK,
 			 &master_priv->sarea);
@@ -2082,6 +2187,9 @@ void radeon_master_destroy(struct drm_device *dev, struct drm_master *master)
 	master->driver_priv = NULL;
 }
 
+/* Create mappings for registers and framebuffer so userland doesn't necessarily
+ * have to find them.
+ */
 int radeon_driver_firstopen(struct drm_device *dev)
 {
 	int ret;
@@ -2120,14 +2228,14 @@ void radeon_commit_ring(drm_radeon_private_t *dev_priv)
 	u32 *ring;
 	int tail_aligned;
 
-	
+	/* check if the ring is padded out to 16-dword alignment */
 
 	tail_aligned = dev_priv->ring.tail & (RADEON_RING_ALIGN-1);
 	if (tail_aligned) {
 		int num_p2 = RADEON_RING_ALIGN - tail_aligned;
 
 		ring = dev_priv->ring.start;
-		
+		/* pad with some CP_PACKET2 */
 		for (i = 0; i < num_p2; i++)
 			ring[dev_priv->ring.tail + i] = CP_PACKET2();
 
@@ -2143,11 +2251,11 @@ void radeon_commit_ring(drm_radeon_private_t *dev_priv)
 
 	if ((dev_priv->flags & RADEON_FAMILY_MASK) >= CHIP_R600) {
 		RADEON_WRITE(R600_CP_RB_WPTR, dev_priv->ring.tail);
-		
+		/* read from PCI bus to ensure correct posting */
 		RADEON_READ(R600_CP_RB_RPTR);
 	} else {
 		RADEON_WRITE(RADEON_CP_RB_WPTR, dev_priv->ring.tail);
-		
+		/* read from PCI bus to ensure correct posting */
 		RADEON_READ(RADEON_CP_RB_RPTR);
 	}
 }

@@ -22,12 +22,27 @@
 #include "atafb_utils.h"
 
 
+/* Copies a 8 plane column from 's', height 'h', to 'd'. */
 
+/* This expands a 8 bit color into two longs for two movepl (8 plane)
+ * operations.
+ */
 
 void atafb_iplan2p8_copyarea(struct fb_info *info, u_long next_line,
 			     int sy, int sx, int dy, int dx,
 			     int height, int width)
 {
+	/*  bmove() has to distinguish two major cases: If both, source and
+	 *  destination, start at even addresses or both are at odd
+	 *  addresses, just the first odd and last even column (if present)
+	 *  require special treatment (memmove_col()). The rest between
+	 *  then can be copied by normal operations, because all adjacent
+	 *  bytes are affected and are to be stored in the same order.
+	 *    The pathological case is when the move should go from an odd
+	 *  address to an even or vice versa. Since the bytes in the plane
+	 *  words must be assembled in new order, it seems wisest to make
+	 *  all movements by memmove_col().
+	 */
 
 	u8 *src, *dst;
 	u32 *s, *d;
@@ -37,7 +52,7 @@ void atafb_iplan2p8_copyarea(struct fb_info *info, u_long next_line,
 
 	colsize = height;
 	if (!((sx ^ dx) & 15)) {
-		
+		/* odd->odd or even->even */
 
 		if (upwards) {
 			src = (u8 *)info->screen_base + sy * next_line + (sx & ~15) / (8 / BPL);
@@ -93,7 +108,7 @@ void atafb_iplan2p8_copyarea(struct fb_info *info, u_long next_line,
 					      0xff00ff, colsize, -next_line - BPL * 2);
 		}
 	} else {
-		
+		/* odd->even or even->odd */
 		if (upwards) {
 			u32 *src32, *dst32;
 			u32 pval[4], v, v1, mask;
@@ -318,9 +333,12 @@ int init_module(void)
 void cleanup_module(void)
 {
 }
-#endif 
+#endif /* MODULE */
 
 
+    /*
+     *  Visible symbols for modules
+     */
 
 EXPORT_SYMBOL(atafb_iplan2p8_copyarea);
 EXPORT_SYMBOL(atafb_iplan2p8_fillrect);

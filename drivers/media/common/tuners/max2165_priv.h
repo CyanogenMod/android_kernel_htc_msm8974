@@ -37,6 +37,7 @@
 #define REG_DC_OFFSET_DAC 0x0C
 #define REG_ROM_TABLE_ADDR 0x0D
 
+/* Read Only Registers */
 #define REG_ROM_TABLE_DATA 0x10
 #define REG_STATUS 0x11
 #define REG_AUTOTUNE 0x12

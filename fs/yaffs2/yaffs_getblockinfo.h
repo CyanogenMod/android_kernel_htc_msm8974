@@ -19,6 +19,7 @@
 #include "yaffs_guts.h"
 #include "yaffs_trace.h"
 
+/* Function to manipulate block info */
 static inline struct yaffs_block_info *yaffs_get_block_info(struct yaffs_dev
 							      *dev, int blk)
 {

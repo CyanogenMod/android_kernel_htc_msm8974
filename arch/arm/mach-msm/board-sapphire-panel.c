@@ -58,10 +58,11 @@ static int sapphire_backlight_brightness =
 static uint8_t sapphire_backlight_last_level = 33;
 static DEFINE_MUTEX(sapphire_backlight_lock);
 
+/* Divide dimming level into 12 sections, and restrict maximum level to 27 */
 #define DIMMING_STEPS       12
 static unsigned dimming_levels[NUM_OF_SAPPHIRE_PANELS][DIMMING_STEPS] = {
-	{0, 1, 2, 3, 6, 9, 11, 13, 16, 19, 22, 25},         
-	{0, 1, 2, 4, 7, 10, 13, 15, 18, 21, 24, 27},        
+	{0, 1, 2, 3, 6, 9, 11, 13, 16, 19, 22, 25},         /* Sharp */
+	{0, 1, 2, 4, 7, 10, 13, 15, 18, 21, 24, 27},        /* Toppolly */
 };
 static unsigned pwrsink_percents[] = {0, 6, 8, 15, 26, 34, 46, 54, 65, 77, 87,
 				      100};
@@ -74,6 +75,9 @@ static void sapphire_set_backlight_level(uint8_t level)
 	unsigned long flags;
 	int i = 0;
 
+	/* Non-linear transform for the difference between two 
+         * kind of default backlight settings. 
+	 */
 	new_level = level<=GDBB ? 
 		level*SDBB/GDBB : (SDBB + (level-GDBB)*(255-SDBB) / (255-GDBB)) ;
 	index = new_level/dimming_factor ;
@@ -234,99 +238,99 @@ static struct mddi_table mddi_toshiba_init_table[] = {
 	{ DPSET1,       0x00000118 },
 	{ DPSUS,        0x00000000 },
 	{ DPRUN,        0x00000001 },
-	{ 1,            14         }, 
+	{ 1,            14         }, /* msleep 14 */
 	{ SYSCKENA,     0x00000001 },
-	
-	{ CLKENB,       0x0000A1EF },  
-	
+	/*{ CLKENB,       0x000000EF } */
+	{ CLKENB,       0x0000A1EF },  /*    # SYS.CLKENB  # Enable clocks for each module (without DCLK , i2cCLK) */
+	/*{ CLKENB,       0x000025CB },  Clock enable register */
 
-	{ GPIODATA,     0x02000200 },  
-	{ GPIODIR,      0x000030D  },  
-	{ GPIOSEL,      0},  
-	{ GPIOPC,       0x03C300C0 },  
-	{ WKREQ,        0x00000000 },  
+	{ GPIODATA,     0x02000200 },  /*   # GPI .GPIODATA  # GPIO2(RESET_LCD_N) set to 0 , GPIO3(eDRAM_Power) set to 0 */
+	{ GPIODIR,      0x000030D  },  /* 24D   # GPI .GPIODIR  # Select direction of GPIO port (0,2,3,6,9 output) */
+	{ GPIOSEL,      0/*0x00000173*/},  /*   # SYS.GPIOSEL  # GPIO port multiplexing control */
+	{ GPIOPC,       0x03C300C0 },  /*   # GPI .GPIOPC  # GPIO2,3 PD cut */
+	{ WKREQ,        0x00000000 },  /*   # SYS.WKREQ  # Wake-up request event is VSYNC alignment */
 
 	{ GPIOIBE,      0x000003FF },
 	{ GPIOIS,       0x00000000 },
 	{ GPIOIC,       0x000003FF },
 	{ GPIOIE,       0x00000000 },
 
-	{ GPIODATA,     0x00040004 },  
-	{ 1,            1          }, 
-	{ GPIODATA,     0x02040004 },  
-	{ DRAMPWR,      0x00000001 }, 
+	{ GPIODATA,     0x00040004 },  /*   # GPI .GPIODATA  # eDRAM VD supply */
+	{ 1,            1          }, /* msleep 1 */
+	{ GPIODATA,     0x02040004 },  /*   # GPI .GPIODATA  # eDRAM VD supply */
+	{ DRAMPWR,      0x00000001 }, /* eDRAM power */
 };
 
 static struct mddi_table mddi_toshiba_panel_init_table[] = {
-	{ SRST,         0x00000003 }, 
-	{ PORT_ENB,     0x00000001 }, 
-	{ START,        0x00000000 }, 
-	
-	{ PORT,         0x00000004 }, 
+	{ SRST,         0x00000003 }, /* FIFO/LCDC not reset */
+	{ PORT_ENB,     0x00000001 }, /* Enable sync. Port */
+	{ START,        0x00000000 }, /* To stop operation */
+	/*{ START,        0x00000001 }, To start operation */
+	{ PORT,         0x00000004 }, /* Polarity of VS/HS/DE. */
 	{ CMN,          0x00000000 },
-	{ GAMMA,        0x00000000 }, 
-	{ INTFLG,       0x00000000 }, 
-	{ INTMSK,       0x00000000 }, 
-	{ MPLFBUF,      0x00000000 }, 
-	{ HDE_LEFT,     0x00000000 }, 
-	{ VDE_TOP,      0x00000000 }, 
-	{ PXL,          0x00000001 }, 
-				      
-	{ HDE_START,    0x00000006 }, 
-	{ HDE_SIZE,     0x0000009F }, 
-	{ HSW,          0x00000004 }, 
-	{ VSW,          0x00000001 }, 
-	{ VDE_START,    0x00000003 }, 
-	{ VDE_SIZE,     0x000001DF }, 
-	{ WAKEUP,       0x000001e2 }, 
-	{ WSYN_DLY,     0x00000000 }, 
-	{ REGENB,       0x00000001 }, 
-	{ CLKENB,       0x000025CB }, 
+	{ GAMMA,        0x00000000 }, /* No Gamma correction */
+	{ INTFLG,       0x00000000 }, /* VSYNC interrupt flag clear/status */
+	{ INTMSK,       0x00000000 }, /* VSYNC interrupt mask is off. */
+	{ MPLFBUF,      0x00000000 }, /* Select frame buffer's base address. */
+	{ HDE_LEFT,     0x00000000 }, /* The value of HDE_LEFT. */
+	{ VDE_TOP,      0x00000000 }, /* The value of VDE_TPO. */
+	{ PXL,          0x00000001 }, /* 1. RGB666 */
+				      /* 2. Data is valid from 1st frame of beginning. */
+	{ HDE_START,    0x00000006 }, /* HDE_START= 14 PCLK */
+	{ HDE_SIZE,     0x0000009F }, /* HDE_SIZE=320 PCLK */
+	{ HSW,          0x00000004 }, /* HSW= 10 PCLK */
+	{ VSW,          0x00000001 }, /* VSW=2 HCYCLE */
+	{ VDE_START,    0x00000003 }, /* VDE_START=4 HCYCLE */
+	{ VDE_SIZE,     0x000001DF }, /* VDE_SIZE=480 HCYCLE */
+	{ WAKEUP,       0x000001e2 }, /* Wakeup position in VSYNC mode. */
+	{ WSYN_DLY,     0x00000000 }, /* Wakeup position in VSIN mode. */
+	{ REGENB,       0x00000001 }, /* Set 1 to enable to change the value of registers. */
+	{ CLKENB,       0x000025CB }, /* Clock enable register */
 
-	{ SSICTL,       0x00000170 }, 
-	{ SSITIME,      0x00000250 }, 
-	{ SSICTL,       0x00000172 }, 
+	{ SSICTL,       0x00000170 }, /* SSI control register */
+	{ SSITIME,      0x00000250 }, /* SSI timing control register */
+	{ SSICTL,       0x00000172 }, /* SSI control register */
 };
 
 
 static struct mddi_table mddi_sharp_init_table[] = {
 	{ VCYCLE,       0x000001eb },
 	{ HCYCLE,       0x000000ae },
-	{ REGENB,       0x00000001 }, 
-	{ GPIODATA,     0x00040000 }, 
-	{ GPIODIR,      0x00000004 }, 
-	{ 1,            1          }, 
-	{ GPIODATA,     0x00040004 }, 
-	{ 1,            10         }, 
+	{ REGENB,       0x00000001 }, /* Set 1 to enable to change the value of registers. */
+	{ GPIODATA,     0x00040000 }, /* GPIO2 low */
+	{ GPIODIR,      0x00000004 }, /* GPIO2 out */
+	{ 1,            1          }, /* msleep 1 */
+	{ GPIODATA,     0x00040004 }, /* GPIO2 high */
+	{ 1,            10         }, /* msleep 10 */
 	SPI_WRITE(0x5f, 0x01)
 	SPI_WRITE1(0x11)
-	{ 1,            200        }, 
+	{ 1,            200        }, /* msleep 200 */
 	SPI_WRITE1(0x29)
 	SPI_WRITE1(0xde)
-	{ START,        0x00000001 }, 
+	{ START,        0x00000001 }, /* To start operation */
 };
 
 static struct mddi_table mddi_sharp_deinit_table[] = {
-	{ 1,            200        }, 
+	{ 1,            200        }, /* msleep 200 */
 	SPI_WRITE(0x10, 0x1)
-	{ 1,            100        }, 
-	{ GPIODATA,     0x00040004 }, 
-	{ GPIODIR,      0x00000004 }, 
-	{ GPIODATA,     0x00040000 }, 
-	{ 1,            10         }, 
+	{ 1,            100        }, /* msleep 100 */
+	{ GPIODATA,     0x00040004 }, /* GPIO2 high */
+	{ GPIODIR,      0x00000004 }, /* GPIO2 out */
+	{ GPIODATA,     0x00040000 }, /* GPIO2 low */
+	{ 1,            10         }, /* msleep 10 */
 };
 
 static struct mddi_table mddi_tpo_init_table[] = {
 	{ VCYCLE,       0x000001e5 },
 	{ HCYCLE,       0x000000ac },
-	{ REGENB,       0x00000001 }, 
-	{ 0,            20         }, 
-	{ GPIODATA,     0x00000004 }, 
-	{ GPIODIR,      0x00000004 }, 
-	{ 0,            20         }, 
+	{ REGENB,       0x00000001 }, /* Set 1 to enable to change the value of registers. */
+	{ 0,            20         }, /* udelay 20 */
+	{ GPIODATA,     0x00000004 }, /* GPIO2 high */
+	{ GPIODIR,      0x00000004 }, /* GPIO2 out */
+	{ 0,            20         }, /* udelay 20 */
 
 	SPI_WRITE(0x08, 0x01)
-	{ 0,            500        }, 
+	{ 0,            500        }, /* udelay 500 */
 	SPI_WRITE(0x08, 0x00)
 	SPI_WRITE(0x02, 0x00)
 	SPI_WRITE(0x03, 0x04)
@@ -365,17 +369,17 @@ static struct mddi_table mddi_tpo_init_table[] = {
 	SPI_WRITE(0x3a, 0xae)
 	SPI_WRITE(0x3b, 0xff)
 	SPI_WRITE(0x07, 0x09)
-	{ 0,            10         }, 
-	{ START,        0x00000001 }, 
+	{ 0,            10         }, /* udelay 10 */
+	{ START,        0x00000001 }, /* To start operation */
 };
 
 static struct mddi_table mddi_tpo_deinit_table[] = {
 	SPI_WRITE(0x07, 0x19)
-	{ START,        0x00000000 }, 
-	{ GPIODATA,     0x00040004 }, 
-	{ GPIODIR,      0x00000004 }, 
-	{ GPIODATA,     0x00040000 }, 
-	{ 0,            5        }, 
+	{ START,        0x00000000 }, /* To stop operation */
+	{ GPIODATA,     0x00040004 }, /* GPIO2 high */
+	{ GPIODIR,      0x00000004 }, /* GPIO2 out */
+	{ GPIODATA,     0x00040000 }, /* GPIO2 low */
+	{ 0,            5        }, /* usleep 5 */
 };
 
 
@@ -416,7 +420,7 @@ static void sapphire_mddi_power_client(struct msm_mddi_client_data *client_data,
 		msm_proc_comm(PCOM_VREG_PULLDOWN, &on_off, &id);
 
 		gpio_set_value(SAPPHIRE_MDDI_1V5_EN, 1);
-		mdelay(5); 
+		mdelay(5); /* delay time >5ms and <10ms */
 
 		if  (is_12pin_camera())
 			gpio_set_value(V_VDDE2E_VDD2_GPIO_5M, 1);
@@ -456,6 +460,9 @@ static int sapphire_mddi_toshiba_client_init(
 {
 	int panel_id;
 
+	/* Set the MDDI_RST_N accroding to MDDI client repectively(
+	 * been set in sapphire_mddi_power_client() originally)
+	 */
 	gpio_set_value(MDDI_RST_N, 1);
 	msleep(10);
 
@@ -522,7 +529,7 @@ static int sapphire_mddi_panel_unblank(
 	sapphire_backlight_off = 0;
 	mutex_unlock(&sapphire_backlight_lock);
 	client_data->auto_hibernate(client_data, 1);
-	
+	/* reenable vsync */
 	client_data->remote_write(client_data, GPIOSEL_VWAKEINT,
 				  GPIOSEL);
 	client_data->remote_write(client_data, INTMASK_VWAKEOUT,
@@ -568,6 +575,7 @@ static int sapphire_mddi_panel_blank(
 }
 
 
+/* Initial sequence of sharp panel with Novatek NT35399 MDDI client */
 static const struct mddi_table sharp2_init_table[] = {
 	{ 0x02A0, 0x00 },
 	{ 0x02A1, 0x00 },
@@ -581,7 +589,7 @@ static const struct mddi_table sharp2_init_table[] = {
 	{ 0x02D1, 0x00 },
 	{ 0x02D2, 0x00 },
 	{ 0x02D3, 0x00 },
-	{ 0x0350, 0x80 },	
+	{ 0x0350, 0x80 },	/* Set frame tearing effect(FTE) position */
 	{ 0x0351, 0x00 },
 	{ 0x0360, 0x30 },
 	{ 0x0361, 0xC1 },
@@ -726,9 +734,10 @@ static const struct mddi_table sharp2_init_table[] = {
 };
 
 #undef TPO2_ONE_GAMMA
+/* Initial sequence of TPO panel with Novatek NT35399 MDDI client */
 
 static const struct mddi_table tpo2_init_table[] = {
-	
+	/* Panel interface control */
 	{ 0xB30, 0x44 },
 	{ 0xB40, 0x00 },
 	{ 0xB41, 0x87 },
@@ -738,42 +747,43 @@ static const struct mddi_table tpo2_init_table[] = {
 	{ 0xB70, 0x0F },
 	{ 0xB80, 0x03 },
 	{ 0xB90, 0x00 },
-	{ 0x350, 0x70 },        
+	{ 0x350, 0x70 },        /* FTE is at line 0x70 */
 
-	
+	/* Entry Mode */
 	{ 0x360, 0x30 },
 	{ 0x361, 0xC1 },
 	{ 0x362, 0x04 },
 
+/* 0x2 for gray scale gamma correction, 0x12 for RGB gamma correction  */
 #ifdef TPO2_ONE_GAMMA
 	{ 0xB00, 0x02 },
 #else
 	{ 0xB00, 0x12 },
 #endif
-	
+	/* Driver output control */
 	{ 0x371, 0xEF },
 	{ 0x372, 0x03 },
 
-	
+	/* DCDC on glass control */
 	{ 0xC31, 0x10 },
 	{ 0xBA0, 0x00 },
 	{ 0xBA1, 0x86 },
 
-	
+	/* VCOMH voltage control */
 	{ 0xC50, 0x3b },
 
-	
+	/* Special function control */
 	{ 0xC10, 0x82 },
 
-	
+	/* Power control */
 	{ 0xC40, 0x44 },
 	{ 0xC41, 0x02 },
 
-	
+	/* Source output control */
 	{ 0xBE0, 0x01 },
 	{ 0xBE1, 0x00 },
 
-	
+	/* Windows address setting */
 	{ 0x2A0, 0x00 },
 	{ 0x2A1, 0x00 },
 	{ 0x2A2, 0x3F },
@@ -783,7 +793,7 @@ static const struct mddi_table tpo2_init_table[] = {
 	{ 0x2B2, 0xDF },
 	{ 0x2B3, 0x01 },
 
-	
+	/* RAM address setting */
 	{ 0x2D0, 0x00 },
 	{ 0x2D1, 0x00 },
 	{ 0x2D2, 0x00 },
@@ -794,8 +804,12 @@ static const struct mddi_table tpo2_init_table[] = {
 	{ 0xF22, 0x66 },
 	{ 0xF57, 0x45 },
 
+/*
+ * The NT35399 provides gray or RGB gamma correction table,
+ * which determinated by register-0xb00, and following table
+ */
 #ifdef TPO2_ONE_GAMMA
-	
+	/* Positive Gamma setting */
 	{ 0xE00, 0x04 },
 	{ 0xE01, 0x12 },
 	{ 0xE02, 0x18 },
@@ -813,7 +827,7 @@ static const struct mddi_table tpo2_init_table[] = {
 	{ 0xE0E, 0x6f },
 	{ 0xE0F, 0x5E },
 
-	
+	/* Negative Gamma setting */
 	{ 0xE10, 0x0B },
 	{ 0xE11, 0x00 },
 	{ 0xE12, 0x00 },
@@ -831,7 +845,7 @@ static const struct mddi_table tpo2_init_table[] = {
 	{ 0xE1E, 0x46 },
 	{ 0xE1F, 0x55 },
 #else
-	
+	/* Red Positive Gamma  */
 	{ 0xE00, 0x0f },
 	{ 0xE01, 0x19 },
 	{ 0xE02, 0x22 },
@@ -849,7 +863,7 @@ static const struct mddi_table tpo2_init_table[] = {
 	{ 0xE0E, 0x2a },
 	{ 0xE0F, 0x5c },
 
-	
+	/* Red Negative Gamma   */
 	{ 0xE10, 0x0d },
 	{ 0xE11, 0x45 },
 	{ 0xE12, 0x4c },
@@ -867,7 +881,7 @@ static const struct mddi_table tpo2_init_table[] = {
 	{ 0xE1E, 0x38 },
 	{ 0xE1F, 0x3b },
 
-	
+	/* Green Positive Gamma */
 	{ 0xE20, 0x00 },
 	{ 0xE21, 0x09 },
 	{ 0xE22, 0x10 },
@@ -885,7 +899,7 @@ static const struct mddi_table tpo2_init_table[] = {
 	{ 0xE2E, 0x52 },
 	{ 0xE2F, 0x61 },
 
-	
+	/* Green Negative Gamma */
 	{ 0xE30, 0x08 },
 	{ 0xE31, 0x1d },
 	{ 0xE32, 0x3f },
@@ -903,7 +917,7 @@ static const struct mddi_table tpo2_init_table[] = {
 	{ 0xE3E, 0x43 },
 	{ 0xE3F, 0x45 },
 
-	
+	/* Blue Positive Gamma */
 	{ 0xE40, 0x32 },
 	{ 0xE41, 0x32 },
 	{ 0xE42, 0x31 },
@@ -921,7 +935,7 @@ static const struct mddi_table tpo2_init_table[] = {
 	{ 0xE4E, 0x43 },
 	{ 0xE4F, 0x61 },
 
-	
+	/* Blue Negative Gamma */
 	{ 0xE50, 0x08 },
 	{ 0xE51, 0x2c },
 	{ 0xE52, 0x4e },
@@ -940,16 +954,16 @@ static const struct mddi_table tpo2_init_table[] = {
 	{ 0xE5F, 0x27 },
 
 #endif
-	
+	/* Sleep in mode 		*/
 	{ 0x110, 0x00 },
 	{ 0x1,   0x23 },
-	
+	/* Display on mode 		*/
 	{ 0x290, 0x00 },
 	{ 0x1,   0x27 },
-	
+	/* Driver output control	*/
 	{ 0x372, 0x01 },
 	{ 0x1,   0x40 },
-	
+	/* Display on mode		*/
 	{ 0x290, 0x01 },
 };
 
@@ -971,6 +985,9 @@ static int nt35399_detect_panel(struct msm_mddi_client_data *client_data)
 {
 	int id = -1, i ;
 
+	/* If the MDDI client is failed to report the panel ID,
+	 * perform retrial 5 times.
+	 */
 	for( i=0; i < 5; i++ ) {
 		client_data->remote_write(client_data, 0, 0x110);
 		msleep(5);
@@ -1213,12 +1230,12 @@ static struct platform_device sapphire_backlight = {
 int __init sapphire_init_panel(void)
 {
 	int rc = -1;
-	uint32_t config = PCOM_GPIO_CFG(27, 0, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA); 
+	uint32_t config = PCOM_GPIO_CFG(27, 0, GPIO_OUTPUT, GPIO_NO_PULL, GPIO_8MA); /* GPIO27 */
 
 	if (!machine_is_sapphire())
 		return 0;
 
-	
+	/* checking board as soon as possible */
 	printk("sapphire_init_panel:machine_is_sapphire=%d, machine_arch_type=%d, MACH_TYPE_SAPPHIRE=%d\r\n", machine_is_sapphire(), machine_arch_type, MACH_TYPE_SAPPHIRE);
 	if (!machine_is_sapphire())
 		return 0;
@@ -1229,7 +1246,7 @@ int __init sapphire_init_panel(void)
 
 		msm_proc_comm(PCOM_RPC_GPIO_TLMM_CONFIG_EX, &config, 0);
 
-	
+	/* setup FB by SMI size */
 	if (sapphire_get_smi_size() == 32) {
 		resources_msm_fb[0].start = SMI32_MSM_FB_BASE;
 		resources_msm_fb[0].end = SMI32_MSM_FB_BASE + SMI32_MSM_FB_SIZE - 1;

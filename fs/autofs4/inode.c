@@ -50,10 +50,16 @@ void autofs4_kill_sb(struct super_block *sb)
 {
 	struct autofs_sb_info *sbi = autofs4_sbi(sb);
 
+	/*
+	 * In the event of a failure in get_sb_nodev the superblock
+	 * info is not present so nothing else has been setup, so
+	 * just call kill_anon_super when we are called from
+	 * deactivate_super.
+	 */
 	if (!sbi)
 		goto out_kill_sb;
 
-	
+	/* Free wait queues, close pipe */
 	autofs4_catatonic_mode(sbi);
 
 	sb->s_fs_info = NULL;
@@ -232,6 +238,9 @@ int autofs4_fill_super(struct super_block *s, void *data, int silent)
 	s->s_d_op = &autofs4_dentry_operations;
 	s->s_time_gran = 1;
 
+	/*
+	 * Get the root inode and dentry, but defer checking for errors.
+	 */
 	ino = autofs4_new_ino(sbi);
 	if (!ino)
 		goto fail_free;
@@ -243,7 +252,7 @@ int autofs4_fill_super(struct super_block *s, void *data, int silent)
 
 	root->d_fsdata = ino;
 
-	
+	/* Can this call block? */
 	if (parse_options(data, &pipefd, &root_inode->i_uid, &root_inode->i_gid,
 				&sbi->oz_pgrp, &sbi->type, &sbi->min_proto,
 				&sbi->max_proto)) {
@@ -257,7 +266,7 @@ int autofs4_fill_super(struct super_block *s, void *data, int silent)
 	root_inode->i_fop = &autofs4_root_operations;
 	root_inode->i_op = &autofs4_dir_inode_operations;
 
-	
+	/* Couldn't this be tested earlier? */
 	if (sbi->max_proto < AUTOFS_MIN_PROTO_VERSION ||
 	    sbi->min_proto > AUTOFS_MAX_PROTO_VERSION) {
 		printk("autofs: kernel does not match daemon version "
@@ -267,7 +276,7 @@ int autofs4_fill_super(struct super_block *s, void *data, int silent)
 		goto fail_dput;
 	}
 
-	
+	/* Establish highest kernel protocol version */
 	if (sbi->max_proto > AUTOFS_MAX_PROTO_VERSION)
 		sbi->version = AUTOFS_MAX_PROTO_VERSION;
 	else
@@ -287,13 +296,19 @@ int autofs4_fill_super(struct super_block *s, void *data, int silent)
 	sbi->pipefd = pipefd;
 	sbi->catatonic = 0;
 
+	/*
+	 * Success! Install the root dentry now to indicate completion.
+	 */
 	s->s_root = root;
 	return 0;
 	
+	/*
+	 * Failure ... clean up.
+	 */
 fail_fput:
 	printk("autofs: pipe file descriptor does not contain proper ops\n");
 	fput(pipe);
-	
+	/* fall through */
 fail_dput:
 	dput(root);
 	goto fail_free;

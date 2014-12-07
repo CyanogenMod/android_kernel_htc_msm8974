@@ -17,6 +17,17 @@
 
 #include "mce-internal.h"
 
+/*
+ * Grade an mce by severity. In general the most severe ones are processed
+ * first. Since there are quite a lot of combinations test the bits in a
+ * table-driven way. The rules are simply processed in order, first
+ * match wins.
+ *
+ * Note this is only used for machine check exceptions, the corrected
+ * errors use much simpler rules. The exceptions still check for the corrected
+ * errors, but only to leave them alone for the CMCI handler (except for
+ * panic situations)
+ */
 
 enum context { IN_KERNEL = 1, IN_USER = 2 };
 enum ser { SER_REQUIRED = 1, NO_SER = 2 };
@@ -45,11 +56,12 @@ static struct severity {
 #define MCI_UC_SAR (MCI_STATUS_UC|MCI_STATUS_S|MCI_STATUS_AR)
 #define	MCI_ADDR (MCI_STATUS_ADDRV|MCI_STATUS_MISCV)
 #define MCACOD 0xffff
-#define MCACOD_SCRUB	0x00C0	
+/* Architecturally defined codes from SDM Vol. 3B Chapter 15 */
+#define MCACOD_SCRUB	0x00C0	/* 0xC0-0xCF Memory Scrubbing */
 #define MCACOD_SCRUBMSK	0xfff0
-#define MCACOD_L3WB	0x017A	
-#define MCACOD_DATA	0x0134	
-#define MCACOD_INSTR	0x0150	
+#define MCACOD_L3WB	0x017A	/* L3 Explicit Writeback */
+#define MCACOD_DATA	0x0134	/* Data Load */
+#define MCACOD_INSTR	0x0150	/* Instruction Fetch */
 
 	MCESEV(
 		NO, "Invalid",
@@ -63,12 +75,12 @@ static struct severity {
 		PANIC, "Processor context corrupt",
 		BITSET(MCI_STATUS_PCC)
 		),
-	
+	/* When MCIP is not set something is very confused */
 	MCESEV(
 		PANIC, "MCIP not set in MCA handler",
 		MCGMASK(MCG_STATUS_MCIP, 0)
 		),
-	
+	/* Neither return not error IP -- no chance to recover -> PANIC */
 	MCESEV(
 		PANIC, "Neither restart nor error IP",
 		MCGMASK(MCG_STATUS_RIPV|MCG_STATUS_EIPV, 0)
@@ -82,7 +94,7 @@ static struct severity {
 		NOSER, BITCLR(MCI_STATUS_UC)
 		),
 
-	
+	/* ignore OVER for UCNA */
 	MCESEV(
 		KEEP, "Uncorrected no action required",
 		SER, MASK(MCI_UC_SAR, MCI_STATUS_UC)
@@ -102,7 +114,7 @@ static struct severity {
 		SER, BITSET(MCI_STATUS_OVER|MCI_UC_SAR)
 		),
 
-	
+	/* known AR MCACODs: */
 #ifdef	CONFIG_MEMORY_FAILURE
 	MCESEV(
 		KEEP, "HT thread notices Action required: data load error",
@@ -120,7 +132,7 @@ static struct severity {
 		SER, MASK(MCI_STATUS_OVER|MCI_UC_SAR, MCI_UC_SAR)
 		),
 
-	
+	/* known AO MCACODs: */
 	MCESEV(
 		AO, "Action optional: memory scrubbing error",
 		SER, MASK(MCI_STATUS_OVER|MCI_UC_SAR|MCACOD_SCRUBMSK, MCI_UC_S|MCACOD_SCRUB)
@@ -149,14 +161,18 @@ static struct severity {
 	MCESEV(
 		SOME, "No match",
 		BITSET(0)
-		)	
+		)	/* always matches. keep at end */
 };
 
+/*
+ * If the EIPV bit is set, it means the saved IP is the
+ * instruction which caused the MCE.
+ */
 static int error_context(struct mce *m)
 {
 	if (m->mcgstatus & MCG_STATUS_EIPV)
 		return (m->ip && (m->cs & 3) == 3) ? IN_USER : IN_KERNEL;
-	
+	/* Unknown, assume kernel */
 	return IN_KERNEL;
 }
 
@@ -262,4 +278,4 @@ err_out:
 	return -ENOMEM;
 }
 late_initcall(severities_debugfs_init);
-#endif 
+#endif /* CONFIG_DEBUG_FS */

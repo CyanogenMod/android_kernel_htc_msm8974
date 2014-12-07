@@ -32,6 +32,10 @@
 #include <asm/page.h>
 #include <asm/parisc-device.h>
 
+/*
+** Debug options
+** DEBUG_PAT Dump details which PDC PAT provides about ranges/devices.
+*/
 #undef DEBUG_PAT
 
 int pdc_type __read_mostly = PDC_TYPE_ILLEGAL;
@@ -47,7 +51,7 @@ void __init setup_pdc(void)
 	struct pdc_pat_cell_num cell_info;
 #endif
 
-	
+	/* Determine the pdc "type" used on this machine */
 
 	printk(KERN_INFO "Determining PDC firmware type: ");
 
@@ -58,7 +62,16 @@ void __init setup_pdc(void)
 		return;
 	}
 
+	/*
+	 * If the machine doesn't support PDC_SYSTEM_MAP then either it
+	 * is a pdc pat box, or it is an older box. All 64 bit capable
+	 * machines are either pdc pat boxes or they support PDC_SYSTEM_MAP.
+	 */
 
+	/*
+	 * TODO: We should test for 64 bit capability and give a
+	 * clearer message.
+	 */
 
 #ifdef CONFIG_64BIT
 	status = pdc_pat_cell_get_number(&cell_info);
@@ -69,37 +82,43 @@ void __init setup_pdc(void)
 	}
 #endif
 
-	
+	/* Check the CPU's bus ID.  There's probably a better test.  */
 
 	status = pdc_model_info(&model);
 
 	bus_id = (model.hversion >> (4 + 7)) & 0x1f;
 
 	switch (bus_id) {
-	case 0x4:		
-	case 0x6:		
-	case 0x7:		
-	case 0x8:		
-	case 0xA:		
-	case 0xC:		
+	case 0x4:		/* 720, 730, 750, 735, 755 */
+	case 0x6:		/* 705, 710 */
+	case 0x7:		/* 715, 725 */
+	case 0x8:		/* 745, 747, 742 */
+	case 0xA:		/* 712 and similar */
+	case 0xC:		/* 715/64, at least */
 
 		pdc_type = PDC_TYPE_SNAKE;
 		printk("Snake.\n");
 		return;
 
-	default:		
+	default:		/* Everything else */
 
 		printk("Unsupported.\n");
 		panic("If this is a 64-bit machine, please try a 64-bit kernel.\n");
 	}
 }
 
-#define PDC_PAGE_ADJ_SHIFT (PAGE_SHIFT - 12) 
+#define PDC_PAGE_ADJ_SHIFT (PAGE_SHIFT - 12) /* pdc pages are always 4k */
 
 static void __init
 set_pmem_entry(physmem_range_t *pmem_ptr, unsigned long start,
 	       unsigned long pages4k)
 {
+	/* Rather than aligning and potentially throwing away
+	 * memory, we'll assume that any ranges are already
+	 * nicely aligned with any reasonable page size, and
+	 * panic if they are not (it's more likely that the
+	 * pdc info is bad in this case).
+	 */
 
 	if (unlikely( ((start & (PAGE_SIZE - 1)) != 0)
 	    || ((pages4k & ((1UL << PDC_PAGE_ADJ_SHIFT) - 1)) != 0) )) {
@@ -115,6 +134,18 @@ static void __init pagezero_memconfig(void)
 {
 	unsigned long npages;
 
+	/* Use the 32 bit information from page zero to create a single
+	 * entry in the pmem_ranges[] table.
+	 *
+	 * We currently don't support machines with contiguous memory
+	 * >= 4 Gb, who report that memory using 64 bit only fields
+	 * on page zero. It's not worth doing until it can be tested,
+	 * and it is not clear we can support those machines for other
+	 * reasons.
+	 *
+	 * If that support is done in the future, this is where it
+	 * should be done.
+	 */
 
 	npages = (PAGE_ALIGN(PAGE0->imm_max_mem) >> PAGE_SHIFT);
 	set_pmem_entry(pmem_ranges,0UL,npages);
@@ -123,27 +154,38 @@ static void __init pagezero_memconfig(void)
 
 #ifdef CONFIG_64BIT
 
+/* All of the PDC PAT specific code is 64-bit only */
 
+/*
+**  The module object is filled via PDC_PAT_CELL[Return Cell Module].
+**  If a module is found, register module will get the IODC bytes via
+**  pdc_iodc_read() using the PA view of conf_base_addr for the hpa parameter.
+**
+**  The IO view can be used by PDC_PAT_CELL[Return Cell Module]
+**  only for SBAs and LBAs.  This view will cause an invalid
+**  argument error for all other cell module types.
+**
+*/
 
 static int __init 
 pat_query_module(ulong pcell_loc, ulong mod_index)
 {
 	pdc_pat_cell_mod_maddr_block_t *pa_pdc_cell;
 	unsigned long bytecnt;
-	unsigned long temp;	
-	long status;		
+	unsigned long temp;	/* 64-bit scratch value */
+	long status;		/* PDC return value status */
 	struct parisc_device *dev;
 
 	pa_pdc_cell = kmalloc(sizeof (*pa_pdc_cell), GFP_KERNEL);
 	if (!pa_pdc_cell)
 		panic("couldn't allocate memory for PDC_PAT_CELL!");
 
-	
+	/* return cell module (PA or Processor view) */
 	status = pdc_pat_cell_module(&bytecnt, pcell_loc, mod_index,
 				     PA_VIEW, pa_pdc_cell);
 
 	if (status != PDC_OK) {
-		
+		/* no more cell modules or error */
 		return status;
 	}
 
@@ -153,21 +195,26 @@ pat_query_module(ulong pcell_loc, ulong mod_index)
 		return PDC_OK;
 	}
 
-	
+	/* alloc_pa_dev sets dev->hpa */
 
+	/*
+	** save parameters in the parisc_device
+	** (The idea being the device driver will call pdc_pat_cell_module()
+	** and store the results in its own data structure.)
+	*/
 	dev->pcell_loc = pcell_loc;
 	dev->mod_index = mod_index;
 
-	
-	
-	dev->mod_info = pa_pdc_cell->mod_info;	
+	/* save generic info returned from the call */
+	/* REVISIT: who is the consumer of this? not sure yet... */
+	dev->mod_info = pa_pdc_cell->mod_info;	/* pass to PAT_GET_ENTITY() */
 	dev->pmod_loc = pa_pdc_cell->mod_location;
 
-	register_parisc_device(dev);	
+	register_parisc_device(dev);	/* advertise device */
 
 #ifdef DEBUG_PAT
 	pdc_pat_cell_mod_maddr_block_t io_pdc_cell;
-	
+	/* dump what we see so far... */
 	switch (PAT_GET_ENTITY(dev->mod_info)) {
 		unsigned long i;
 
@@ -204,19 +251,19 @@ pat_query_module(ulong pcell_loc, ulong mod_index)
 		for (i = 0; i < pa_pdc_cell->mod[1]; i++) {
 			printk(KERN_DEBUG 
 				"  PA_VIEW %ld: 0x%016lx 0x%016lx 0x%016lx\n", 
-				i, pa_pdc_cell->mod[2 + i * 3],	
-				pa_pdc_cell->mod[3 + i * 3],	
-				pa_pdc_cell->mod[4 + i * 3]);	
+				i, pa_pdc_cell->mod[2 + i * 3],	/* type */
+				pa_pdc_cell->mod[3 + i * 3],	/* start */
+				pa_pdc_cell->mod[4 + i * 3]);	/* finish (ie end) */
 			printk(KERN_DEBUG 
 				"  IO_VIEW %ld: 0x%016lx 0x%016lx 0x%016lx\n", 
-				i, io_pdc_cell->mod[2 + i * 3],	
-				io_pdc_cell->mod[3 + i * 3],	
-				io_pdc_cell->mod[4 + i * 3]);	
+				i, io_pdc_cell->mod[2 + i * 3],	/* type */
+				io_pdc_cell->mod[3 + i * 3],	/* start */
+				io_pdc_cell->mod[4 + i * 3]);	/* finish (ie end) */
 		}
 		printk(KERN_DEBUG "\n");
 		break;
 	}
-#endif 
+#endif /* DEBUG_PAT */
 
 	kfree(pa_pdc_cell);
 
@@ -224,6 +271,12 @@ pat_query_module(ulong pcell_loc, ulong mod_index)
 }
 
 
+/* pat pdc can return information about a variety of different
+ * types of memory (e.g. firmware,i/o, etc) but we only care about
+ * the usable physical ram right now. Since the firmware specific
+ * information is allocated on the stack, we'll be generous, in
+ * case there is a lot of other information we don't care about.
+ */
 
 #define PAT_MAX_RANGES (4 * MAX_PHYSMEM_RANGES)
 
@@ -245,6 +298,9 @@ static void __init pat_memconfig(void)
 	if ((status != PDC_OK)
 	    || ((actual_len % sizeof(struct pdc_pat_pd_addr_map_entry)) != 0)) {
 
+		/* The above pdc call shouldn't fail, but, just in
+		 * case, just use the PAGE0 info.
+		 */
 
 		printk("\n\n\n");
 		printk(KERN_WARNING "WARNING! Could not get full memory configuration. "
@@ -260,10 +316,14 @@ static void __init pat_memconfig(void)
 		printk(KERN_WARNING "Some memory may not be used!\n");
 	}
 
+	/* Copy information into the firmware independent pmem_ranges
+	 * array, skipping types we don't care about. Notice we said
+	 * "may" above. We'll use all the entries that were returned.
+	 */
 
 	npmem_ranges = 0;
 	mtbl_ptr = mem_table;
-	pmem_ptr = pmem_ranges; 
+	pmem_ptr = pmem_ranges; /* Global firmware independent table */
 	for (i = 0; i < entries; i++,mtbl_ptr++) {
 		if (   (mtbl_ptr->entry_type != PAT_MEMORY_DESCRIPTOR)
 		    || (mtbl_ptr->memory_type != PAT_MEMTYPE_MEMORY)
@@ -292,6 +352,10 @@ static int __init pat_inventory(void)
 	ulong mod_index = 0;
 	struct pdc_pat_cell_num cell_info;
 
+	/*
+	** Note:  Prelude (and it's successors: Lclass, A400/500) only
+	**        implement PDC_PAT_CELL sub-options 0 and 2.
+	*/
 	status = pdc_pat_cell_get_number(&cell_info);
 	if (status != PDC_OK) {
 		return 0;
@@ -309,6 +373,7 @@ static int __init pat_inventory(void)
 	return mod_index;
 }
 
+/* We only look for extended memory ranges on a 64 bit capable box */
 static void __init sprockets_memconfig(void)
 {
 	struct pdc_memory_table_raddr r_addr;
@@ -324,6 +389,11 @@ static void __init sprockets_memconfig(void)
 
 	if (status != PDC_OK) {
 
+		/* The above pdc call only works on boxes with sprockets
+		 * firmware (newer B,C,J class). Other non PAT PDC machines
+		 * do support more than 3.75 Gb of memory, but we don't
+		 * support them yet.
+		 */
 
 		pagezero_memconfig();
 		return;
@@ -338,24 +408,25 @@ static void __init sprockets_memconfig(void)
 
 	npmem_ranges = 0;
 	mtbl_ptr = mem_table;
-	pmem_ptr = pmem_ranges; 
+	pmem_ptr = pmem_ranges; /* Global firmware independent table */
 	for (i = 0; i < entries; i++,mtbl_ptr++) {
 		set_pmem_entry(pmem_ptr++,mtbl_ptr->paddr,mtbl_ptr->pages);
 		npmem_ranges++;
 	}
 }
 
-#else   
+#else   /* !CONFIG_64BIT */
 
 #define pat_inventory() do { } while (0)
 #define pat_memconfig() do { } while (0)
 #define sprockets_memconfig() pagezero_memconfig()
 
-#endif	
+#endif	/* !CONFIG_64BIT */
 
 
 #ifndef CONFIG_PA20
 
+/* Code to support Snake machines (7[2350], 7[235]5, 715/Scorpio) */
 
 static struct parisc_device * __init
 legacy_create_device(struct pdc_memory_map *r_addr,
@@ -374,6 +445,15 @@ legacy_create_device(struct pdc_memory_map *r_addr,
 	return dev;
 }
 
+/**
+ * snake_inventory
+ *
+ * Before PDC_SYSTEM_MAP was invented, the PDC_MEM_MAP call was used.
+ * To use it, we initialise the mod_path.bc to 0xff and try all values of
+ * mod to get the HPA for the top-level devices.  Bus adapters may have
+ * sub-devices which are discovered by setting bc[5] to 0 and bc[4] to the
+ * module, then trying all possible functions.
+ */
 static void __init snake_inventory(void)
 {
 	int mod;
@@ -400,11 +480,21 @@ static void __init snake_inventory(void)
 	}
 }
 
-#else 
+#else /* CONFIG_PA20 */
 #define snake_inventory() do { } while (0)
-#endif  
+#endif  /* CONFIG_PA20 */
 
+/* Common 32/64 bit based code goes here */
 
+/**
+ * add_system_map_addresses - Add additional addresses to the parisc device.
+ * @dev: The parisc device.
+ * @num_addrs: Then number of addresses to add;
+ * @module_instance: The system_map module instance.
+ *
+ * This function adds any additional addresses reported by the system_map
+ * firmware to the parisc device.
+ */
 static void __init
 add_system_map_addresses(struct parisc_device *dev, int num_addrs, 
 			 int module_instance)
@@ -434,6 +524,12 @@ add_system_map_addresses(struct parisc_device *dev, int num_addrs,
 	}
 }
 
+/**
+ * system_map_inventory - Retrieve firmware devices via SYSTEM_MAP.
+ *
+ * This function attempts to retrieve and register all the devices firmware
+ * knows about via the SYSTEM_MAP PDC call.
+ */
 static void __init system_map_inventory(void)
 {
 	int i;
@@ -457,7 +553,7 @@ static void __init system_map_inventory(void)
 		
 		register_parisc_device(dev);
 
-		
+		/* if available, get the additional addresses for a module */
 		if (!module_result.add_addrs)
 			continue;
 

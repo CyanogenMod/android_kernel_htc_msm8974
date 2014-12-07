@@ -15,7 +15,7 @@
 #include <linux/kernel.h>
 #include <linux/types.h>
 
-struct platform_device; 
+struct platform_device; /* don't need the contents */
 
 #include <linux/gpio.h>
 #include <plat/iic.h>

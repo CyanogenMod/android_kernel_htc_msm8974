@@ -16,6 +16,7 @@
 #include <linux/seq_file.h>
 #include <linux/device.h>
 
+/* May be overridden by platform code */
 int __weak nmi_enable(void)
 {
 	return -ENOSYS;

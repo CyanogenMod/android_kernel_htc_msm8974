@@ -37,4 +37,4 @@
 
 #include_next <irq.h>
 
-#endif 
+#endif /* __ASM_MACH_ATH79_IRQ_H */

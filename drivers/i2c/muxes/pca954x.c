@@ -61,18 +61,19 @@ struct pca954x {
 	enum pca_type type;
 	struct i2c_adapter *virt_adaps[PCA954X_MAX_NCHANS];
 
-	u8 last_chan;		
+	u8 last_chan;		/* last register value */
 };
 
 struct chip_desc {
 	u8 nchans;
-	u8 enable;	
+	u8 enable;	/* used for muxes only */
 	enum muxtype {
 		pca954x_ismux = 0,
 		pca954x_isswi
 	} muxtype;
 };
 
+/* Provide specs for the PCA954x types we know about */
 static const struct chip_desc chips[] = {
 	[pca_9540] = {
 		.nchans = 2,
@@ -116,6 +117,8 @@ static const struct i2c_device_id pca954x_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, pca954x_id);
 
+/* Write to mux register. Don't use i2c_transfer()/i2c_smbus_xfer()
+   for this as they will try to lock adapter a second time */
 static int pca954x_reg_write(struct i2c_adapter *adap,
 			     struct i2c_client *client, u8 val)
 {
@@ -150,13 +153,13 @@ static int pca954x_select_chan(struct i2c_adapter *adap,
 	u8 regval;
 	int ret = 0;
 
-	
+	/* we make switches look like muxes, not sure how to be smarter */
 	if (chip->muxtype == pca954x_ismux)
 		regval = chan | chip->enable;
 	else
 		regval = 1 << chan;
 
-	
+	/* Only select the channel if its different from the last channel */
 	if (data->last_chan != regval) {
 		ret = pca954x_reg_write(adap, client, regval);
 		data->last_chan = regval;
@@ -170,11 +173,14 @@ static int pca954x_deselect_mux(struct i2c_adapter *adap,
 {
 	struct pca954x *data = i2c_get_clientdata(client);
 
-	
+	/* Deselect active channel */
 	data->last_chan = 0;
 	return pca954x_reg_write(adap, client, data->last_chan);
 }
 
+/*
+ * I2C init/probing/exit functions
+ */
 static int pca954x_probe(struct i2c_client *client,
 			 const struct i2c_device_id *id)
 {
@@ -195,23 +201,27 @@ static int pca954x_probe(struct i2c_client *client,
 
 	i2c_set_clientdata(client, data);
 
+	/* Write the mux register at addr to verify
+	 * that the mux is in fact present. This also
+	 * initializes the mux to disconnected state.
+	 */
 	if (i2c_smbus_write_byte(client, 0) < 0) {
 		dev_warn(&client->dev, "probe failed\n");
 		goto exit_free;
 	}
 
 	data->type = id->driver_data;
-	data->last_chan = 0;		   
+	data->last_chan = 0;		   /* force the first selection */
 
-	
+	/* Now create an adapter for each channel */
 	for (num = 0; num < chips[data->type].nchans; num++) {
-		force = 0;			  
+		force = 0;			  /* dynamic adap number */
 		if (pdata) {
 			if (num < pdata->num_modes)
-				
+				/* force static number */
 				force = pdata->modes[num].adap_id;
 			else
-				
+				/* discard unconfigured channels */
 				break;
 		}
 

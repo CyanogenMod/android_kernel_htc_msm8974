@@ -40,7 +40,9 @@ void tulip_media_task(struct work_struct *work)
 	default: {
 		struct medialeaf *mleaf;
 		unsigned char *p;
-		if (tp->mtable == NULL) {	
+		if (tp->mtable == NULL) {	/* No EEPROM info, use generic code. */
+			/* Not much that can be done.
+			   Assume this a generic MII or SYM transceiver. */
 			next_tick = 60*HZ;
 			if (tulip_debug > 2)
 				netdev_dbg(dev, "network media monitor CSR6 %08x CSR12 0x%02x\n",
@@ -52,7 +54,7 @@ void tulip_media_task(struct work_struct *work)
 		p = mleaf->leafdata;
 		switch (mleaf->type) {
 		case 0: case 4: {
-			
+			/* Type 0 serial or 4 SYM transceiver.  Check the link beat bit. */
 			int offset = mleaf->type == 4 ? 5 : 2;
 			s8 bitnum = p[offset];
 			if (p[offset+1] & 0x80) {
@@ -70,13 +72,13 @@ void tulip_media_task(struct work_struct *work)
 					   csr12, (bitnum >> 1) & 7,
 					   (csr12 & (1 << ((bitnum >> 1) & 7))) != 0,
 					   (bitnum >= 0));
-			
+			/* Check that the specified bit has the proper value. */
 			if ((bitnum < 0) !=
 				((csr12 & (1 << ((bitnum >> 1) & 7))) != 0)) {
 				if (tulip_debug > 2)
 					netdev_dbg(dev, "Link beat detected for %s\n",
 						   medianame[mleaf->media & MEDIA_MASK]);
-				if ((p[2] & 0x61) == 0x01)	
+				if ((p[2] & 0x61) == 0x01)	/* Bogus Znyx board. */
 					goto actually_mii;
 				netif_carrier_on(dev);
 				break;
@@ -86,23 +88,23 @@ void tulip_media_task(struct work_struct *work)
 				break;
 	  select_next_media:
 			if (--tp->cur_index < 0) {
-				
+				/* We start again, but should instead look for default. */
 				tp->cur_index = tp->mtable->leafcount - 1;
 			}
 			dev->if_port = tp->mtable->mleaf[tp->cur_index].media;
 			if (tulip_media_cap[dev->if_port] & MediaIsFD)
-				goto select_next_media; 
+				goto select_next_media; /* Skip FD entries. */
 			if (tulip_debug > 1)
 				netdev_dbg(dev, "No link beat on media %s, trying transceiver type %s\n",
 					   medianame[mleaf->media & MEDIA_MASK],
 					   medianame[tp->mtable->mleaf[tp->cur_index].media]);
 			tulip_select_media(dev, 0);
-			
+			/* Restart the transmit process. */
 			tulip_restart_rxtx(tp);
 			next_tick = (24*HZ)/10;
 			break;
 		}
-		case 1:  case 3:		
+		case 1:  case 3:		/* 21140, 21142 MII */
 		actually_mii:
 			if (tulip_check_duplex(dev) < 0) {
 				netif_carrier_off(dev);
@@ -112,7 +114,7 @@ void tulip_media_task(struct work_struct *work)
 				next_tick = 60*HZ;
 			}
 			break;
-		case 2:					
+		case 2:					/* 21142 serial block has no link beat. */
 		default:
 			break;
 		}
@@ -128,6 +130,9 @@ void tulip_media_task(struct work_struct *work)
 	}
 	spin_unlock_irqrestore(&tp->lock, flags);
 
+	/* mod_timer synchronizes us with potential add_timer calls
+	 * from interrupts.
+	 */
 	mod_timer(&tp->timer, RUN_AT(next_tick));
 }
 
@@ -159,6 +164,9 @@ void comet_timer(unsigned long data)
 		netdev_dbg(dev, "Comet link status %04x partner capability %04x\n",
 			   tulip_mdio_read(dev, tp->phys[0], 1),
 			   tulip_mdio_read(dev, tp->phys[0], 5));
+	/* mod_timer synchronizes us with potential add_timer calls
+	 * from interrupts.
+	 */
 	if (tulip_check_duplex(dev) < 0)
 		{ netif_carrier_off(dev); }
 	else

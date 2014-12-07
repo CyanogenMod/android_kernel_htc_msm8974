@@ -303,7 +303,7 @@ unw_decode_p7_p10 (unsigned char *dp, unsigned char code, void *arg)
     {
       switch (code & 0xf)
 	{
-	case 0x0: 
+	case 0x0: /* p8 */
 	  {
 	    r = *dp++;
 	    t = unw_decode_uleb128 (&dp);
@@ -338,7 +338,7 @@ unw_decode_p7_p10 (unsigned char *dp, unsigned char code, void *arg)
 	  UNW_DEC_GR_GR(P9, (byte1 & 0xf), (byte2 & 0x7f), arg);
 	  break;
 
-	case 0xf: 
+	case 0xf: /* p10 */
 	  byte1 = *dp++; byte2 = *dp++;
 	  UNW_DEC_ABI(P10, byte1, byte2, arg);
 	  break;
@@ -420,29 +420,32 @@ typedef unsigned char *(*unw_decoder) (unsigned char *, unsigned char, void *);
 
 static unw_decoder unw_decode_table[2][8] =
 {
-  
+  /* prologue table: */
   {
-    unw_decode_r1,	
+    unw_decode_r1,	/* 0 */
     unw_decode_r1,
     unw_decode_r2,
     unw_decode_r3,
-    unw_decode_p1,	
+    unw_decode_p1,	/* 4 */
     unw_decode_p2_p5,
     unw_decode_p6,
     unw_decode_p7_p10
   },
   {
-    unw_decode_r1,	
+    unw_decode_r1,	/* 0 */
     unw_decode_r1,
     unw_decode_r2,
     unw_decode_r3,
-    unw_decode_b1,	
+    unw_decode_b1,	/* 4 */
     unw_decode_b1,
     unw_decode_b2,
     unw_decode_b3_x4
   }
 };
 
+/*
+ * Decode one descriptor and return address of next descriptor.
+ */
 static inline unsigned char *
 unw_decode (unsigned char *dp, int inside_body, void *arg)
 {

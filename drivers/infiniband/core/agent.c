@@ -148,7 +148,7 @@ int ib_agent_port_open(struct ib_device *device, int port_num)
 	unsigned long flags;
 	int ret;
 
-	
+	/* Create new device info */
 	port_priv = kzalloc(sizeof *port_priv, GFP_KERNEL);
 	if (!port_priv) {
 		printk(KERN_ERR SPFX "No memory for ib_agent_port_private\n");
@@ -157,7 +157,7 @@ int ib_agent_port_open(struct ib_device *device, int port_num)
 	}
 
 	if (rdma_port_get_link_layer(device, port_num) == IB_LINK_LAYER_INFINIBAND) {
-		
+		/* Obtain send only MAD agent for SMI QP */
 		port_priv->agent[0] = ib_register_mad_agent(device, port_num,
 							    IB_QPT_SMI, NULL, 0,
 							    &agent_send_handler,
@@ -168,7 +168,7 @@ int ib_agent_port_open(struct ib_device *device, int port_num)
 		}
 	}
 
-	
+	/* Obtain send only MAD agent for GSI QP */
 	port_priv->agent[1] = ib_register_mad_agent(device, port_num,
 						    IB_QPT_GSI, NULL, 0,
 						    &agent_send_handler,

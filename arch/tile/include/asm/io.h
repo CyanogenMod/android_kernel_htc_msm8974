@@ -21,12 +21,26 @@
 
 #define IO_SPACE_LIMIT 0xfffffffful
 
+/*
+ * Convert a physical pointer to a virtual kernel pointer for /dev/mem
+ * access.
+ */
 #define xlate_dev_mem_ptr(p)	__va(p)
 
+/*
+ * Convert a virtual cached pointer to an uncached pointer.
+ */
 #define xlate_dev_kmem_ptr(p)	p
 
+/*
+ * Change "struct page" to physical address.
+ */
 #define page_to_phys(page)    ((dma_addr_t)page_to_pfn(page) << PAGE_SHIFT)
 
+/*
+ * Some places try to pass in an loff_t for PHYSADDR (?!), so we cast it to
+ * long before casting it to a pointer to avoid compiler warnings.
+ */
 #if CHIP_HAS_MMIO()
 extern void __iomem *ioremap(resource_size_t offset, unsigned long size);
 extern void __iomem *ioremap_prot(resource_size_t offset, unsigned long size,
@@ -44,6 +58,7 @@ extern void iounmap(volatile void __iomem *addr);
 
 #define mmiowb()
 
+/* Conversion between virtual and physical mappings.  */
 #define mm_ptov(addr)		((void *)phys_to_virt(addr))
 #define mm_vtop(addr)		((unsigned long)virt_to_phys(addr))
 
@@ -60,6 +75,12 @@ extern void _tile_writeq(u64 val, unsigned long addr);
 
 #else
 
+/*
+ * The Tile architecture does not support IOMEM unless PCI is enabled.
+ * Unfortunately we can't yet simply not declare these methods,
+ * since some generic code that compiles into the kernel, but
+ * we never run, uses them unconditionally.
+ */
 
 static inline int iomem_panic(void)
 {
@@ -168,6 +189,12 @@ static inline void memcpy_toio(volatile void __iomem *dst, const void *src,
 		writel(*(u32 *)(src + x), dst + x);
 }
 
+/*
+ * The Tile architecture does not support IOPORT, even with PCI.
+ * Unfortunately we can't yet simply not declare these methods,
+ * since some generic code that compiles into the kernel, but
+ * we never run, uses them unconditionally.
+ */
 
 static inline long ioport_panic(void)
 {
@@ -275,4 +302,4 @@ static inline void outsl(unsigned long addr, const void *buffer, int count)
 #define virt_to_bus     virt_to_phys
 #define bus_to_virt     phys_to_virt
 
-#endif 
+#endif /* _ASM_TILE_IO_H */

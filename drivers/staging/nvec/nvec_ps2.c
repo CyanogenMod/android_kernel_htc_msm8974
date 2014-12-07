@@ -85,7 +85,7 @@ static int nvec_ps2_notifier(struct notifier_block *nb,
 			NVEC_PHD("ps/2 mouse reply: ", &msg[4], msg[1] - 2);
 		}
 
-		else if (msg[1] != 2) 
+		else if (msg[1] != 2) /* !ack */
 			NVEC_PHD("unhandled mouse event: ", msg, msg[1] + 2);
 		return NOTIFY_STOP;
 	}
@@ -113,7 +113,7 @@ static int __devinit nvec_mouse_probe(struct platform_device *pdev)
 
 	serio_register_port(ser_dev);
 
-	
+	/* mouse reset */
 	nvec_write_async(nvec, MOUSE_RESET, 4);
 
 	return 0;
@@ -123,10 +123,10 @@ static int nvec_mouse_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	struct nvec_chip *nvec = dev_get_drvdata(pdev->dev.parent);
 
-	
+	/* disable mouse */
 	nvec_write_async(nvec, "\x06\xf4", 2);
 
-	
+	/* send cancel autoreceive */
 	nvec_write_async(nvec, "\x06\x04", 2);
 
 	return 0;
@@ -138,7 +138,7 @@ static int nvec_mouse_resume(struct platform_device *pdev)
 
 	ps2_startstreaming(ps2_dev.ser_dev);
 
-	
+	/* enable mouse */
 	nvec_write_async(nvec, "\x06\xf5", 2);
 
 	return 0;

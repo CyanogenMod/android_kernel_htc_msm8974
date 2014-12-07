@@ -34,13 +34,17 @@
 #include <linux/gpio.h>
 #include <linux/list.h>
 
+/* Info for each registered platform device */
 struct pps_gpio_device_data {
-	int irq;			
-	struct pps_device *pps;		
-	struct pps_source_info info;	
+	int irq;			/* IRQ used as PPS source */
+	struct pps_device *pps;		/* PPS source device */
+	struct pps_source_info info;	/* PPS source information */
 	const struct pps_gpio_platform_data *pdata;
 };
 
+/*
+ * Report the PPS event
+ */
 
 static irqreturn_t pps_gpio_irq_handler(int irq, void *data)
 {
@@ -48,7 +52,7 @@ static irqreturn_t pps_gpio_irq_handler(int irq, void *data)
 	struct pps_event_time ts;
 	int rising_edge;
 
-	
+	/* Get the time stamp first */
 	pps_get_ts(&ts);
 
 	info = data;
@@ -110,12 +114,12 @@ static int pps_gpio_probe(struct platform_device *pdev)
 	const struct pps_gpio_platform_data *pdata = pdev->dev.platform_data;
 
 
-	
+	/* GPIO setup */
 	ret = pps_gpio_setup(pdev);
 	if (ret)
 		return -EINVAL;
 
-	
+	/* IRQ setup */
 	irq = gpio_to_irq(pdata->gpio_pin);
 	if (irq < 0) {
 		pr_err("failed to map GPIO to IRQ: %d\n", irq);
@@ -123,14 +127,14 @@ static int pps_gpio_probe(struct platform_device *pdev)
 		goto return_error;
 	}
 
-	
+	/* allocate space for device info */
 	data = kzalloc(sizeof(struct pps_gpio_device_data), GFP_KERNEL);
 	if (data == NULL) {
 		err = -ENOMEM;
 		goto return_error;
 	}
 
-	
+	/* initialize PPS specific parts of the bookkeeping data structure. */
 	data->info.mode = PPS_CAPTUREASSERT | PPS_OFFSETASSERT |
 		PPS_ECHOASSERT | PPS_CANWAIT | PPS_TSFMT_TSPEC;
 	if (pdata->capture_clear)
@@ -140,7 +144,7 @@ static int pps_gpio_probe(struct platform_device *pdev)
 	snprintf(data->info.name, PPS_MAX_NAME_LEN - 1, "%s.%d",
 		 pdev->name, pdev->id);
 
-	
+	/* register PPS source */
 	pps_default_params = PPS_CAPTUREASSERT | PPS_OFFSETASSERT;
 	if (pdata->capture_clear)
 		pps_default_params |= PPS_CAPTURECLEAR | PPS_OFFSETCLEAR;
@@ -155,7 +159,7 @@ static int pps_gpio_probe(struct platform_device *pdev)
 	data->irq = irq;
 	data->pdata = pdata;
 
-	
+	/* register IRQ interrupt handler */
 	ret = request_irq(irq, pps_gpio_irq_handler,
 			get_irqf_trigger_flags(pdata), data->info.name, data);
 	if (ret) {

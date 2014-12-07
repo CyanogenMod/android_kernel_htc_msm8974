@@ -19,6 +19,9 @@
  * Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
+/*
+ * clock and PLL management functions
+ */
 
 #ifndef __VIA_CLOCK_H__
 #define __VIA_CLOCK_H__
@@ -70,4 +73,4 @@ static inline u32 get_pll_output_frequency(u32 ref_freq,
 
 void via_clock_init(struct via_clock *clock, int gfx_chip);
 
-#endif 
+#endif /* __VIA_CLOCK_H__ */

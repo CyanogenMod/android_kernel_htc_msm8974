@@ -19,9 +19,63 @@
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  *
  */
+/* GENERAL NOTES:
+ *
+ * BUGS:
+ * - There are pops (we can't delay in trigger function, cause midlevel 
+ *   often need to trigger down and then up very quickly).
+ *   Any ideas?
+ * - Support for 16 bit DMA seems to be broken. I've no hardware to tune it.
+ */
 
+/*
+ * ES1868  NOTES:
+ * - The chip has one half duplex pcm (with very limited full duplex support).
+ *
+ * - Duplex stereophonic sound is impossible.
+ * - Record and playback must share the same frequency rate.
+ *
+ * - The driver use dma2 for playback and dma1 for capture.
+ */
 
+/*
+ * ES1869 NOTES:
+ *
+ * - there are a first full duplex pcm and a second playback only pcm
+ *   (incompatible with first pcm capture)
+ * 
+ * - there is support for the capture volume and ESS Spatializer 3D effect.
+ *
+ * - contrarily to some pages in DS_1869.PDF the rates can be set
+ *   independently.
+ *
+ * - Zoom Video is implemented by sharing the FM DAC, thus the user can
+ *   have either FM playback or Video playback but not both simultaneously.
+ *   The Video Playback Switch mixer control toggles this choice.
+ *
+ * BUGS:
+ *
+ * - There is a major trouble I noted:
+ *
+ *   using both channel for playback stereo 16 bit samples at 44100 Hz
+ *   the second pcm (Audio1) DMA slows down irregularly and sound is garbled.
+ *   
+ *   The same happens using Audio1 for captureing.
+ *
+ *   The Windows driver does not suffer of this (although it use Audio1
+ *   only for captureing). I'm unable to discover why.
+ *
+ */
 
+/*
+ * ES1879 NOTES:
+ * - When Zoom Video is enabled (reg 0x71 bit 6 toggled on) the PCM playback
+ *   seems to be effected (speaker_test plays a lower frequency). Can't find
+ *   anything in the datasheet to account for this, so a Video Playback Switch
+ *   control has been included to allow ZV to be enabled only when necessary.
+ *   Then again on at least one test system the 0x71 bit 6 enable bit is not 
+ *   needed for ZV, so maybe the datasheet is entirely wrong here.
+ */
  
 #include <linux/init.h>
 #include <linux/err.h>
@@ -46,19 +100,19 @@
 #define PFX "es18xx: "
 
 struct snd_es18xx {
-	unsigned long port;		
-	unsigned long ctrl_port;	
+	unsigned long port;		/* port of ESS chip */
+	unsigned long ctrl_port;	/* Control port of ESS chip */
 	struct resource *res_port;
 	struct resource *res_mpu_port;
 	struct resource *res_ctrl_port;
-	int irq;			
-	int dma1;			
-	int dma2;			
-	unsigned short version;		
-	int caps;			
-	unsigned short audio2_vol;	
+	int irq;			/* IRQ number of ESS chip */
+	int dma1;			/* DMA1 */
+	int dma2;			/* DMA2 */
+	unsigned short version;		/* version of ESS chip */
+	int caps;			/* Chip capabilities */
+	unsigned short audio2_vol;	/* volume level of audio2 */
 
-	unsigned short active;		
+	unsigned short active;		/* active channel mask */
 	unsigned int dma1_shift;
 	unsigned int dma2_shift;
 
@@ -90,19 +144,20 @@ struct snd_es18xx {
 #define HWV_IRQ		0x04
 #define MPU_IRQ		0x08
 
-#define ES18XX_PCM2	0x0001	
-#define ES18XX_SPATIALIZER 0x0002	
-#define ES18XX_RECMIX	0x0004	
-#define ES18XX_DUPLEX_MONO 0x0008	
-#define ES18XX_DUPLEX_SAME 0x0010	
-#define ES18XX_NEW_RATE	0x0020	
-#define ES18XX_AUXB	0x0040	
-#define ES18XX_HWV	0x0080	
-#define ES18XX_MONO	0x0100	
-#define ES18XX_I2S	0x0200	
-#define ES18XX_MUTEREC	0x0400	
-#define ES18XX_CONTROL	0x0800	
+#define ES18XX_PCM2	0x0001	/* Has two useable PCM */
+#define ES18XX_SPATIALIZER 0x0002	/* Has 3D Spatializer */
+#define ES18XX_RECMIX	0x0004	/* Has record mixer */
+#define ES18XX_DUPLEX_MONO 0x0008	/* Has mono duplex only */
+#define ES18XX_DUPLEX_SAME 0x0010	/* Playback and record must share the same rate */
+#define ES18XX_NEW_RATE	0x0020	/* More precise rate setting */
+#define ES18XX_AUXB	0x0040	/* AuxB mixer control */
+#define ES18XX_HWV	0x0080	/* Has separate hardware volume mixer controls*/
+#define ES18XX_MONO	0x0100	/* Mono_in mixer control */
+#define ES18XX_I2S	0x0200	/* I2S mixer control */
+#define ES18XX_MUTEREC	0x0400	/* Record source can be muted */
+#define ES18XX_CONTROL	0x0800	/* Has control ports */
 
+/* Power Management */
 #define ES18XX_PM	0x07
 #define ES18XX_PM_GPO0	0x01
 #define ES18XX_PM_GPO1	0x02
@@ -111,6 +166,7 @@ struct snd_es18xx {
 #define ES18XX_PM_FM	0x020
 #define ES18XX_PM_SUS	0x080
 
+/* Lowlevel */
 
 #define DAC1 0x01
 #define ADC1 0x02
@@ -184,6 +240,7 @@ static int snd_es18xx_read(struct snd_es18xx *chip, unsigned char reg)
 	return ret;
 }
 
+/* Return old value */
 static int snd_es18xx_bits(struct snd_es18xx *chip, unsigned char reg,
 			   unsigned char mask, unsigned char val)
 {
@@ -249,6 +306,7 @@ static inline int snd_es18xx_mixer_read(struct snd_es18xx *chip, unsigned char r
         return data;
 }
 
+/* Return old value */
 static inline int snd_es18xx_mixer_bits(struct snd_es18xx *chip, unsigned char reg,
 					unsigned char mask, unsigned char val)
 {
@@ -369,11 +427,15 @@ static void snd_es18xx_rate_set(struct snd_es18xx *chip,
 			bits = 128 - runtime->rate_den;
 	}
 
-	
+	/* set filter register */
 	div0 = 256 - 7160000*20/(8*82*runtime->rate);
 		
 	if ((chip->caps & ES18XX_PCM2) && mode == DAC2) {
 		snd_es18xx_mixer_write(chip, 0x70, bits);
+		/*
+		 * Comment from kernel oss driver:
+		 * FKS: fascinating: 0x72 doesn't seem to work.
+		 */
 		snd_es18xx_write(chip, 0xA2, div0);
 		snd_es18xx_mixer_write(chip, 0x72, div0);
 	} else {
@@ -424,18 +486,18 @@ static int snd_es18xx_playback1_prepare(struct snd_es18xx *chip,
 
         snd_es18xx_rate_set(chip, substream, DAC2);
 
-        
+        /* Transfer Count Reload */
         count = 0x10000 - count;
         snd_es18xx_mixer_write(chip, 0x74, count & 0xff);
         snd_es18xx_mixer_write(chip, 0x76, count >> 8);
 
-	
+	/* Set format */
         snd_es18xx_mixer_bits(chip, 0x7A, 0x07,
 			      ((runtime->channels == 1) ? 0x00 : 0x02) |
 			      (snd_pcm_format_width(runtime->format) == 16 ? 0x01 : 0x00) |
 			      (snd_pcm_format_unsigned(runtime->format) ? 0x00 : 0x04));
 
-        
+        /* Set DMA controller */
         snd_dma_program(chip->dma2, runtime->dma_addr, size, DMA_MODE_WRITE | DMA_AUTOINIT);
 
 	return 0;
@@ -451,19 +513,19 @@ static int snd_es18xx_playback1_trigger(struct snd_es18xx *chip,
 		if (chip->active & DAC2)
 			return 0;
 		chip->active |= DAC2;
-                
+                /* Start DMA */
 		if (chip->dma2 >= 4)
 			snd_es18xx_mixer_write(chip, 0x78, 0xb3);
 		else
 			snd_es18xx_mixer_write(chip, 0x78, 0x93);
 #ifdef AVOID_POPS
-		
+		/* Avoid pops */
                 udelay(100000);
 		if (chip->caps & ES18XX_PCM2)
-			
+			/* Restore Audio 2 volume */
 			snd_es18xx_mixer_write(chip, 0x7C, chip->audio2_vol);
 		else
-			
+			/* Enable PCM output */
 			snd_es18xx_dsp_command(chip, 0xD1);
 #endif
 		break;
@@ -472,15 +534,15 @@ static int snd_es18xx_playback1_trigger(struct snd_es18xx *chip,
 		if (!(chip->active & DAC2))
 			return 0;
 		chip->active &= ~DAC2;
-                
+                /* Stop DMA */
                 snd_es18xx_mixer_write(chip, 0x78, 0x00);
 #ifdef AVOID_POPS
                 udelay(25000);
 		if (chip->caps & ES18XX_PCM2)
-			
+			/* Set Audio 2 volume to 0 */
 			snd_es18xx_mixer_write(chip, 0x7C, 0);
 		else
-			
+			/* Disable PCM output */
 			snd_es18xx_dsp_command(chip, 0xD3);
 #endif
 		break;
@@ -523,12 +585,12 @@ static int snd_es18xx_capture_prepare(struct snd_pcm_substream *substream)
 
 	snd_es18xx_reset_fifo(chip);
 
-        
+        /* Set stereo/mono */
         snd_es18xx_bits(chip, 0xA8, 0x03, runtime->channels == 1 ? 0x02 : 0x01);
 
         snd_es18xx_rate_set(chip, substream, ADC1);
 
-        
+        /* Transfer Count Reload */
 	count = 0x10000 - count;
 	snd_es18xx_write(chip, 0xA4, count & 0xff);
 	snd_es18xx_write(chip, 0xA5, count >> 8);
@@ -537,7 +599,7 @@ static int snd_es18xx_capture_prepare(struct snd_pcm_substream *substream)
 	udelay(100000);
 #endif
 
-        
+        /* Set format */
         snd_es18xx_write(chip, 0xB7, 
                          snd_pcm_format_unsigned(runtime->format) ? 0x51 : 0x71);
         snd_es18xx_write(chip, 0xB7, 0x90 |
@@ -545,7 +607,7 @@ static int snd_es18xx_capture_prepare(struct snd_pcm_substream *substream)
                          (snd_pcm_format_width(runtime->format) == 16 ? 0x04 : 0x00) |
                          (snd_pcm_format_unsigned(runtime->format) ? 0x00 : 0x20));
 
-        
+        /* Set DMA controller */
         snd_dma_program(chip->dma1, runtime->dma_addr, size, DMA_MODE_READ | DMA_AUTOINIT);
 
 	return 0;
@@ -562,7 +624,7 @@ static int snd_es18xx_capture_trigger(struct snd_pcm_substream *substream,
 		if (chip->active & ADC1)
 			return 0;
 		chip->active |= ADC1;
-                
+                /* Start DMA */
                 snd_es18xx_write(chip, 0xB8, 0x0f);
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
@@ -570,7 +632,7 @@ static int snd_es18xx_capture_trigger(struct snd_pcm_substream *substream,
 		if (!(chip->active & ADC1))
 			return 0;
 		chip->active &= ~ADC1;
-                
+                /* Stop DMA */
                 snd_es18xx_write(chip, 0xB8, 0x00);
 		break;
 	default:
@@ -589,17 +651,17 @@ static int snd_es18xx_playback2_prepare(struct snd_es18xx *chip,
 
 	snd_es18xx_reset_fifo(chip);
 
-        
+        /* Set stereo/mono */
         snd_es18xx_bits(chip, 0xA8, 0x03, runtime->channels == 1 ? 0x02 : 0x01);
 
         snd_es18xx_rate_set(chip, substream, DAC1);
 
-        
+        /* Transfer Count Reload */
 	count = 0x10000 - count;
 	snd_es18xx_write(chip, 0xA4, count & 0xff);
 	snd_es18xx_write(chip, 0xA5, count >> 8);
 
-        
+        /* Set format */
         snd_es18xx_write(chip, 0xB6,
                          snd_pcm_format_unsigned(runtime->format) ? 0x80 : 0x00);
         snd_es18xx_write(chip, 0xB7, 
@@ -609,7 +671,7 @@ static int snd_es18xx_playback2_prepare(struct snd_es18xx *chip,
                          (snd_pcm_format_width(runtime->format) == 16 ? 0x04 : 0x00) |
                          (snd_pcm_format_unsigned(runtime->format) ? 0x00 : 0x20));
 
-        
+        /* Set DMA controller */
         snd_dma_program(chip->dma1, runtime->dma_addr, size, DMA_MODE_WRITE | DMA_AUTOINIT);
 
 	return 0;
@@ -625,12 +687,12 @@ static int snd_es18xx_playback2_trigger(struct snd_es18xx *chip,
 		if (chip->active & DAC1)
 			return 0;
 		chip->active |= DAC1;
-                
+                /* Start DMA */
                 snd_es18xx_write(chip, 0xB8, 0x05);
 #ifdef AVOID_POPS
-		
+		/* Avoid pops */
                 udelay(100000);
-                
+                /* Enable Audio 1 */
                 snd_es18xx_dsp_command(chip, 0xD1);
 #endif
 		break;
@@ -639,12 +701,12 @@ static int snd_es18xx_playback2_trigger(struct snd_es18xx *chip,
 		if (!(chip->active & DAC1))
 			return 0;
 		chip->active &= ~DAC1;
-                
+                /* Stop DMA */
                 snd_es18xx_write(chip, 0xB8, 0x00);
 #ifdef AVOID_POPS
-		
+		/* Avoid pops */
                 udelay(25000);
-                
+                /* Disable Audio 1 */
                 snd_es18xx_dsp_command(chip, 0xD3);
 #endif
 		break;
@@ -681,10 +743,10 @@ static irqreturn_t snd_es18xx_interrupt(int irq, void *dev_id)
 	unsigned char status;
 
 	if (chip->caps & ES18XX_CONTROL) {
-		
+		/* Read Interrupt status */
 		status = inb(chip->ctrl_port + 6);
 	} else {
-		
+		/* Read Interrupt status */
 		status = snd_es18xx_mixer_read(chip, 0x7f) >> 4;
 	}
 #if 0
@@ -700,29 +762,29 @@ static irqreturn_t snd_es18xx_interrupt(int irq, void *dev_id)
 	}
 #endif
 
-	
+	/* Audio 1 & Audio 2 */
         if (status & AUDIO2_IRQ) {
                 if (chip->active & DAC2)
                 	snd_pcm_period_elapsed(chip->playback_a_substream);
-		
+		/* ack interrupt */
                 snd_es18xx_mixer_bits(chip, 0x7A, 0x80, 0x00);
         }
         if (status & AUDIO1_IRQ) {
-                
+                /* ok.. capture is active */
                 if (chip->active & ADC1)
                 	snd_pcm_period_elapsed(chip->capture_a_substream);
-                
+                /* ok.. playback2 is active */
                 else if (chip->active & DAC1)
                 	snd_pcm_period_elapsed(chip->playback_b_substream);
-		
+		/* ack interrupt */
 		inb(chip->port + 0x0E);
         }
 
-	
+	/* MPU */
 	if ((status & MPU_IRQ) && chip->rmidi)
 		snd_mpu401_uart_interrupt(irq, chip->rmidi->private_data);
 
-	
+	/* Hardware volume */
 	if (status & HWV_IRQ) {
 		int split = 0;
 		if (chip->caps & ES18XX_HWV) {
@@ -738,7 +800,7 @@ static irqreturn_t snd_es18xx_interrupt(int irq, void *dev_id)
 			snd_ctl_notify(card, SNDRV_CTL_EVENT_MASK_VALUE,
 					&chip->master_volume->id);
 		}
-		
+		/* ack interrupt */
 		snd_es18xx_mixer_write(chip, 0x66, 0x00);
 	}
 	return IRQ_HANDLED;
@@ -880,7 +942,25 @@ static int snd_es18xx_capture_close(struct snd_pcm_substream *substream)
         return 0;
 }
 
+/*
+ *  MIXER part
+ */
 
+/* Record source mux routines:
+ * Depending on the chipset this mux switches between 4, 5, or 8 possible inputs.
+ * bit table for the 4/5 source mux:
+ * reg 1C:
+ *  b2 b1 b0   muxSource
+ *   x  0  x   microphone
+ *   0  1  x   CD
+ *   1  1  0   line
+ *   1  1  1   mixer
+ * if it's "mixer" and it's a 5 source mux chipset then reg 7A bit 3 determines
+ * either the play mixer or the capture mixer.
+ *
+ * "map4Source" translates from source number to reg bit pattern
+ * "invMap4Source" translates from reg bit pattern to source number
+ */
 
 static int snd_es18xx_info_mux(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
 {
@@ -911,7 +991,7 @@ static int snd_es18xx_info_mux(struct snd_kcontrol *kcontrol, struct snd_ctl_ele
 			uinfo->value.enumerated.item = 4;
 		strcpy(uinfo->value.enumerated.name, texts5Source[uinfo->value.enumerated.item]);
 		break;
-	case 0x1869: 
+	case 0x1869: /* DS somewhat contradictory for 1869: could be be 5 or 8 */
 	case 0x1879:
 		uinfo->value.enumerated.items = 8;
 		if (uinfo->value.enumerated.item > 7)
@@ -949,7 +1029,7 @@ static int snd_es18xx_put_mux(struct snd_kcontrol *kcontrol, struct snd_ctl_elem
 	unsigned char retVal = 0;
 
 	switch (chip->version) {
- 
+ /* 5 source chips */
 	case 0x1887:
 	case 0x1888:
 		if (val > 4)
@@ -959,14 +1039,14 @@ static int snd_es18xx_put_mux(struct snd_kcontrol *kcontrol, struct snd_ctl_elem
 			val = 3;
 		} else
 			retVal = snd_es18xx_mixer_bits(chip, 0x7a, 0x08, 0x00) != 0x00;
- 
+ /* 4 source chips */
 	case 0x1868:
 	case 0x1878:
 		if (val > 3)
 			return -EINVAL;
 		val = map4Source[val];
 		break;
- 
+ /* 8 source chips */
 	case 0x1869:
 	case 0x1879:
 		if (val > 7)
@@ -1183,6 +1263,12 @@ static int snd_es18xx_put_double(struct snd_kcontrol *kcontrol, struct snd_ctl_e
 	return change;
 }
 
+/* Mixer controls
+ * These arrays contain setup data for mixer controls.
+ * 
+ * The controls that are universal to all chipsets are fully initialized
+ * here.
+ */
 static struct snd_kcontrol_new snd_es18xx_base_controls[] = {
 ES18XX_DOUBLE("Master Playback Volume", 0, 0x60, 0x62, 0, 0, 63, 0),
 ES18XX_DOUBLE("Master Playback Switch", 0, 0x60, 0x62, 6, 6, 1, 1),
@@ -1211,6 +1297,9 @@ ES18XX_DOUBLE("CD Capture Volume", 0, 0x6a, 0x6a, 4, 0, 15, 0),
 ES18XX_DOUBLE("Aux Capture Volume", 0, 0x6c, 0x6c, 4, 0, 15, 0)
 };
 
+/*
+ * The chipset specific mixer controls
+ */
 static struct snd_kcontrol_new snd_es18xx_opt_speaker =
 	ES18XX_SINGLE("Beep Playback Volume", 0, 0x3c, 0, 7, 0);
 
@@ -1286,6 +1375,8 @@ static int __devinit snd_es18xx_config_read(struct snd_es18xx *chip, unsigned ch
 static void __devinit snd_es18xx_config_write(struct snd_es18xx *chip, 
 					      unsigned char reg, unsigned char data)
 {
+	/* No need for spinlocks, this function is used only in
+	   otherwise protected init code */
 	outb(reg, chip->ctrl_port);
 	outb(data, chip->ctrl_port + 1);
 #ifdef REG_DEBUG
@@ -1299,46 +1390,46 @@ static int __devinit snd_es18xx_initialize(struct snd_es18xx *chip,
 {
 	int mask = 0;
 
-        
+        /* enable extended mode */
         snd_es18xx_dsp_command(chip, 0xC6);
-	
+	/* Reset mixer registers */
 	snd_es18xx_mixer_write(chip, 0x00, 0x00);
 
-        
+        /* Audio 1 DMA demand mode (4 bytes/request) */
         snd_es18xx_write(chip, 0xB9, 2);
 	if (chip->caps & ES18XX_CONTROL) {
-		
+		/* Hardware volume IRQ */
 		snd_es18xx_config_write(chip, 0x27, chip->irq);
 		if (fm_port > 0 && fm_port != SNDRV_AUTO_PORT) {
-			
+			/* FM I/O */
 			snd_es18xx_config_write(chip, 0x62, fm_port >> 8);
 			snd_es18xx_config_write(chip, 0x63, fm_port & 0xff);
 		}
 		if (mpu_port > 0 && mpu_port != SNDRV_AUTO_PORT) {
-			
+			/* MPU-401 I/O */
 			snd_es18xx_config_write(chip, 0x64, mpu_port >> 8);
 			snd_es18xx_config_write(chip, 0x65, mpu_port & 0xff);
-			
+			/* MPU-401 IRQ */
 			snd_es18xx_config_write(chip, 0x28, chip->irq);
 		}
-		
+		/* Audio1 IRQ */
 		snd_es18xx_config_write(chip, 0x70, chip->irq);
-		
+		/* Audio2 IRQ */
 		snd_es18xx_config_write(chip, 0x72, chip->irq);
-		
+		/* Audio1 DMA */
 		snd_es18xx_config_write(chip, 0x74, chip->dma1);
-		
+		/* Audio2 DMA */
 		snd_es18xx_config_write(chip, 0x75, chip->dma2);
 
-		
+		/* Enable Audio 1 IRQ */
 		snd_es18xx_write(chip, 0xB1, 0x50);
-		
+		/* Enable Audio 2 IRQ */
 		snd_es18xx_mixer_write(chip, 0x7A, 0x40);
-		
+		/* Enable Audio 1 DMA */
 		snd_es18xx_write(chip, 0xB2, 0x50);
-		
+		/* Enable MPU and hardware volume interrupt */
 		snd_es18xx_mixer_write(chip, 0x64, 0x42);
-		
+		/* Enable ESS wavetable input */
 		snd_es18xx_mixer_bits(chip, 0x48, 0x10, 0x10);
 	}
 	else {
@@ -1393,47 +1484,55 @@ static int __devinit snd_es18xx_initialize(struct snd_es18xx *chip,
 			return -ENODEV;
 		}
 
-		
+		/* Enable and set Audio 1 IRQ */
 		snd_es18xx_write(chip, 0xB1, 0x50 | (irqmask << 2));
-		
+		/* Enable and set Audio 1 DMA */
 		snd_es18xx_write(chip, 0xB2, 0x50 | (dma1mask << 2));
-		
+		/* Set Audio 2 DMA */
 		snd_es18xx_mixer_bits(chip, 0x7d, 0x07, 0x04 | dma2mask);
+		/* Enable Audio 2 IRQ and DMA
+		   Set capture mixer input */
 		snd_es18xx_mixer_write(chip, 0x7A, 0x68);
-		
+		/* Enable and set hardware volume interrupt */
 		snd_es18xx_mixer_write(chip, 0x64, 0x06);
 		if (mpu_port > 0 && mpu_port != SNDRV_AUTO_PORT) {
+			/* MPU401 share irq with audio
+			   Joystick enabled
+			   FM enabled */
 			snd_es18xx_mixer_write(chip, 0x40,
 					       0x43 | (mpu_port & 0xf0) >> 1);
 		}
 		snd_es18xx_mixer_write(chip, 0x7f, ((irqmask + 1) << 1) | 0x01);
 	}
 	if (chip->caps & ES18XX_NEW_RATE) {
+		/* Change behaviour of register A1
+		   4x oversampling
+		   2nd channel DAC asynchronous */
 		snd_es18xx_mixer_write(chip, 0x71, 0x32);
 	}
 	if (!(chip->caps & ES18XX_PCM2)) {
-		
+		/* Enable DMA FIFO */
 		snd_es18xx_write(chip, 0xB7, 0x80);
 	}
 	if (chip->caps & ES18XX_SPATIALIZER) {
-		
+		/* Set spatializer parameters to recommended values */
 		snd_es18xx_mixer_write(chip, 0x54, 0x8f);
 		snd_es18xx_mixer_write(chip, 0x56, 0x95);
 		snd_es18xx_mixer_write(chip, 0x58, 0x94);
 		snd_es18xx_mixer_write(chip, 0x5a, 0x80);
 	}
-	
+	/* Flip the "enable I2S" bits for those chipsets that need it */
 	switch (chip->version) {
 	case 0x1879:
-		
-		
-		
-		
+		//Leaving I2S enabled on the 1879 screws up the PCM playback (rate effected somehow)
+		//so a Switch control has been added to toggle this 0x71 bit on/off:
+		//snd_es18xx_mixer_bits(chip, 0x71, 0x40, 0x40);
+		/* Note: we fall through on purpose here. */
 	case 0x1878:
 		snd_es18xx_config_write(chip, 0x29, snd_es18xx_config_read(chip, 0x29) | 0x40);
 		break;
 	}
-	
+	/* Mute input source */
 	if (chip->caps & ES18XX_MUTEREC)
 		mask = 0x10;
 	if (chip->caps & ES18XX_RECMIX)
@@ -1443,7 +1542,7 @@ static int __devinit snd_es18xx_initialize(struct snd_es18xx *chip,
 		snd_es18xx_write(chip, 0xb4, 0x00);
 	}
 #ifndef AVOID_POPS
-	
+	/* Enable PCM output */
 	snd_es18xx_dsp_command(chip, 0xD1);
 #endif
 
@@ -1454,7 +1553,7 @@ static int __devinit snd_es18xx_identify(struct snd_es18xx *chip)
 {
 	int hi,lo;
 
-	
+	/* reset */
 	if (snd_es18xx_reset(chip) < 0) {
 		snd_printk(KERN_ERR "reset at 0x%lx failed!!!\n", chip->port);
 		return -ENODEV;
@@ -1500,11 +1599,11 @@ static int __devinit snd_es18xx_identify(struct snd_es18xx *chip)
 		return 0;
 	}
 
-	
+	/* If has Hardware volume */
 	if (snd_es18xx_mixer_writable(chip, 0x64, 0x04)) {
-		
+		/* If has Audio2 */
 		if (snd_es18xx_mixer_writable(chip, 0x70, 0x7f)) {
-			
+			/* If has volume count */
 			if (snd_es18xx_mixer_writable(chip, 0x64, 0x20)) {
 				chip->version = 0x1887;
 			} else {
@@ -1602,7 +1701,7 @@ static int __devinit snd_es18xx_pcm(struct snd_card *card, int device,
 	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK, &snd_es18xx_playback_ops);
 	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE, &snd_es18xx_capture_ops);
 
-	
+	/* global setup */
         pcm->private_data = chip;
         pcm->info_flags = 0;
 	if (chip->caps & ES18XX_DUPLEX_SAME)
@@ -1622,6 +1721,7 @@ static int __devinit snd_es18xx_pcm(struct snd_card *card, int device,
 	return 0;
 }
 
+/* Power Management support functions */
 #ifdef CONFIG_PM
 static int snd_es18xx_suspend(struct snd_card *card, pm_message_t state)
 {
@@ -1631,7 +1731,7 @@ static int snd_es18xx_suspend(struct snd_card *card, pm_message_t state)
 
 	snd_pcm_suspend_all(chip->pcm);
 
-	
+	/* power down */
 	chip->pm_reg = (unsigned char)snd_es18xx_read(chip, ES18XX_PM);
 	chip->pm_reg |= (ES18XX_PM_FM | ES18XX_PM_SUS);
 	snd_es18xx_write(chip, ES18XX_PM, chip->pm_reg);
@@ -1644,13 +1744,13 @@ static int snd_es18xx_resume(struct snd_card *card)
 {
 	struct snd_es18xx *chip = card->private_data;
 
-	
+	/* restore PM register, we won't wake till (not 0x07) i/o activity though */
 	snd_es18xx_write(chip, ES18XX_PM, chip->pm_reg ^= ES18XX_PM_FM);
 
 	snd_power_change_state(card, SNDRV_CTL_POWER_D0);
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 static int snd_es18xx_free(struct snd_card *card)
 {
@@ -1814,6 +1914,8 @@ static int __devinit snd_es18xx_mixer(struct snd_card *card)
 			
 		}
 	}
+	/* finish initializing other chipset specific controls
+	 */
 	if (chip->version != 0x1868) {
 		err = snd_ctl_add(card, snd_ctl_new1(&snd_es18xx_opt_speaker,
 						     chip));
@@ -1846,6 +1948,7 @@ static int __devinit snd_es18xx_mixer(struct snd_card *card)
 }
        
 
+/* Card level */
 
 MODULE_AUTHOR("Christian Fischbach <fishbach@pool.informatik.rwth-aachen.de>, Abramo Bagnara <abramo@alsa-project.org>");  
 MODULE_DESCRIPTION("ESS ES18xx AudioDrive");
@@ -1859,22 +1962,22 @@ MODULE_SUPPORTED_DEVICE("{{ESS,ES1868 PnP AudioDrive},"
 		"{ESS,ES1887 AudioDrive},"
 		"{ESS,ES1888 AudioDrive}}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_ISAPNP; 
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_ISAPNP; /* Enable this card */
 #ifdef CONFIG_PNP
 static bool isapnp[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_ISAPNP;
 #endif
-static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
+static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* 0x220,0x240,0x260,0x280 */
 #ifndef CONFIG_PNP
 static long mpu_port[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = -1};
 #else
 static long mpu_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
 #endif
 static long fm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
-static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
-static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
+static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* 5,7,9,10 */
+static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* 0,1,3 */
+static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* 0,1,3 */
 
 module_param_array(index, int, NULL, 0444);
 MODULE_PARM_DESC(index, "Index value for ES18xx soundcard.");
@@ -1907,25 +2010,26 @@ static int pnpc_registered;
 static struct pnp_device_id snd_audiodrive_pnpbiosids[] = {
 	{ .id = "ESS1869" },
 	{ .id = "ESS1879" },
-	{ .id = "" }		
+	{ .id = "" }		/* end */
 };
 
 MODULE_DEVICE_TABLE(pnp, snd_audiodrive_pnpbiosids);
 
+/* PnP main device initialization */
 static int __devinit snd_audiodrive_pnp_init_main(int dev, struct pnp_dev *pdev)
 {
 	if (pnp_activate_dev(pdev) < 0) {
 		snd_printk(KERN_ERR PFX "PnP configure failure (out of resources?)\n");
 		return -EBUSY;
 	}
-	
-	
+	/* ok. hack using Vendor-Defined Card-Level registers */
+	/* skip csn and logdev initialization - already done in isapnp_configure */
 	if (pnp_device_is_isapnp(pdev)) {
 		isapnp_cfg_begin(isapnp_card_number(pdev), isapnp_csn_number(pdev));
-		isapnp_write_byte(0x27, pnp_irq(pdev, 0));	
+		isapnp_write_byte(0x27, pnp_irq(pdev, 0));	/* Hardware Volume IRQ Number */
 		if (mpu_port[dev] != SNDRV_AUTO_PORT)
-			isapnp_write_byte(0x28, pnp_irq(pdev, 0)); 
-		isapnp_write_byte(0x72, pnp_irq(pdev, 0));	
+			isapnp_write_byte(0x28, pnp_irq(pdev, 0)); /* MPU-401 IRQ Number */
+		isapnp_write_byte(0x72, pnp_irq(pdev, 0));	/* second IRQ */
 		isapnp_cfg_end();
 	}
 	port[dev] = pnp_port_start(pdev, 0);
@@ -1949,22 +2053,22 @@ static int __devinit snd_audiodrive_pnp(int dev, struct snd_es18xx *chip,
 }
 
 static struct pnp_card_device_id snd_audiodrive_pnpids[] = {
-	
+	/* ESS 1868 (integrated on Compaq dual P-Pro motherboard and Genius 18PnP 3D) */
 	{ .id = "ESS1868", .devs = { { "ESS1868" }, { "ESS0000" } } },
-	
+	/* ESS 1868 (integrated on Maxisound Cards) */
 	{ .id = "ESS1868", .devs = { { "ESS8601" }, { "ESS8600" } } },
-	
+	/* ESS 1868 (integrated on Maxisound Cards) */
 	{ .id = "ESS1868", .devs = { { "ESS8611" }, { "ESS8610" } } },
-	
+	/* ESS ES1869 Plug and Play AudioDrive */
 	{ .id = "ESS0003", .devs = { { "ESS1869" }, { "ESS0006" } } },
-	
+	/* ESS 1869 */
 	{ .id = "ESS1869", .devs = { { "ESS1869" }, { "ESS0006" } } },
-	
+	/* ESS 1878 */
 	{ .id = "ESS1878", .devs = { { "ESS1878" }, { "ESS0004" } } },
-	
+	/* ESS 1879 */
 	{ .id = "ESS1879", .devs = { { "ESS1879" }, { "ESS0009" } } },
-	
-	{ .id = "" } 
+	/* --- */
+	{ .id = "" } /* end */
 };
 
 MODULE_DEVICE_TABLE(pnp_card, snd_audiodrive_pnpids);
@@ -1981,7 +2085,7 @@ static int __devinit snd_audiodrive_pnpc(int dev, struct snd_es18xx *chip,
 	if (chip->devc == NULL)
 		return -EBUSY;
 
-	
+	/* Control port initialization */
 	if (pnp_activate_dev(chip->devc) < 0) {
 		snd_printk(KERN_ERR PFX "PnP control configure failure (out of resources?)\n");
 		return -EAGAIN;
@@ -1993,7 +2097,7 @@ static int __devinit snd_audiodrive_pnpc(int dev, struct snd_es18xx *chip,
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PNP */
 
 #ifdef CONFIG_PNP
 #define is_isapnp_selected(dev)		isapnp[dev]
@@ -2173,7 +2277,7 @@ static int __devinit snd_audiodrive_pnp_detect(struct pnp_dev *pdev,
 	struct snd_card *card;
 
 	if (pnp_device_is_isapnp(pdev))
-		return -ENOENT;	
+		return -ENOENT;	/* we have another procedure - card */
 	for (; dev < SNDRV_CARDS; dev++) {
 		if (enable[dev] && isapnp[dev])
 			break;
@@ -2289,7 +2393,7 @@ static struct pnp_card_driver es18xx_pnpc_driver = {
 	.resume		= snd_audiodrive_pnpc_resume,
 #endif
 };
-#endif 
+#endif /* CONFIG_PNP */
 
 static int __init alsa_card_es18xx_init(void)
 {

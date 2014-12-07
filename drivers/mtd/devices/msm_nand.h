@@ -84,6 +84,7 @@ extern unsigned long ebi2_register_base;
 #define MSM_NAND_HW_INFO	      MSM_NAND_REG(0x00FC)
 #define MSM_NAND_FLASH_BUFFER         MSM_NAND_REG(0x0100)
 
+/* device commands */
 
 #define MSM_NAND_CMD_SOFT_RESET         0x01
 #define MSM_NAND_CMD_PAGE_READ          0x32
@@ -98,6 +99,7 @@ extern unsigned long ebi2_register_base;
 #define MSM_NAND_CMD_STATUS             0x0C
 #define MSM_NAND_CMD_RESET              0x0D
 
+/* Sflash Commands */
 
 #define MSM_NAND_SFCMD_DATXS            0x0
 #define MSM_NAND_SFCMD_CMDXS            0x1
@@ -116,6 +118,7 @@ extern unsigned long ebi2_register_base;
 
 #define SFLASH_BCFG			0x20100327
 
+/* Onenand addresses */
 
 #define ONENAND_MANUFACTURER_ID		0xF000
 #define ONENAND_DEVICE_ID		0xF001
@@ -150,6 +153,7 @@ extern unsigned long ebi2_register_base;
 #define ONENAND_ECC_ERRPOS_MAIN3	0xFF07
 #define ONENAND_ECC_ERRPOS_SPARE3	0xFF08
 
+/* Onenand commands */
 #define ONENAND_WP_US                   (1 << 2)
 #define ONENAND_WP_LS                   (1 << 1)
 

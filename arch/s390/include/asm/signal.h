@@ -1,3 +1,10 @@
+/*
+ *  include/asm-s390/signal.h
+ *
+ *  S390 version
+ *
+ *  Derived from "include/asm-i386/signal.h"
+ */
 
 #ifndef _ASMS390_SIGNAL_H
 #define _ASMS390_SIGNAL_H
@@ -5,27 +12,31 @@
 #include <linux/types.h>
 #include <linux/time.h>
 
+/* Avoid too many header ordering problems.  */
 struct siginfo;
 struct pt_regs;
 
 #ifdef __KERNEL__
+/* Most things should be clean enough to redefine this at will, if care
+   is taken to make libc match.  */
 #include <asm/sigcontext.h>
 #define _NSIG           _SIGCONTEXT_NSIG
 #define _NSIG_BPW       _SIGCONTEXT_NSIG_BPW
 #define _NSIG_WORDS     _SIGCONTEXT_NSIG_WORDS
 
-typedef unsigned long old_sigset_t;             
+typedef unsigned long old_sigset_t;             /* at least 32 bits */
 
 typedef struct {
         unsigned long sig[_NSIG_WORDS];
 } sigset_t;
 
 #else
+/* Here we must cater to libcs that poke about in kernel headers.  */
 
 #define NSIG            32
 typedef unsigned long sigset_t;
 
-#endif 
+#endif /* __KERNEL__ */
 
 #define SIGHUP           1
 #define SIGINT           2
@@ -58,13 +69,30 @@ typedef unsigned long sigset_t;
 #define SIGWINCH        28
 #define SIGIO           29
 #define SIGPOLL         SIGIO
+/*
+#define SIGLOST         29
+*/
 #define SIGPWR          30
 #define SIGSYS		31
 #define SIGUNUSED       31
 
+/* These should not be considered constants from userland.  */
 #define SIGRTMIN        32
 #define SIGRTMAX        _NSIG
 
+/*
+ * SA_FLAGS values:
+ *
+ * SA_ONSTACK indicates that a registered stack_t will be used.
+ * SA_RESTART flag to get restarting signals (which were the default long ago)
+ * SA_NOCLDSTOP flag to turn off SIGCHLD when children stop.
+ * SA_RESETHAND clears the handler when the signal is delivered.
+ * SA_NOCLDWAIT flag on SIGCHLD to inhibit zombies.
+ * SA_NODEFER prevents the current signal from being masked in the handler.
+ *
+ * SA_ONESHOT and SA_NOMASK are the historical Linux names for the Single
+ * Unix names RESETHAND and NODEFER respectively.
+ */
 #define SA_NOCLDSTOP    0x00000001
 #define SA_NOCLDWAIT    0x00000002
 #define SA_SIGINFO      0x00000004
@@ -78,6 +106,9 @@ typedef unsigned long sigset_t;
 
 #define SA_RESTORER     0x04000000
 
+/*
+ * sigaltstack controls
+ */
 #define SS_ONSTACK      1
 #define SS_DISABLE      2
 
@@ -98,7 +129,7 @@ struct sigaction {
         __sighandler_t sa_handler;
         unsigned long sa_flags;
         void (*sa_restorer)(void);
-        sigset_t sa_mask;               
+        sigset_t sa_mask;               /* mask last for extensibility */
 };
 
 struct k_sigaction {
@@ -108,27 +139,28 @@ struct k_sigaction {
 #define ptrace_signal_deliver(regs, cookie) do { } while (0)
 
 #else
+/* Here we must cater to libcs that poke about in kernel headers.  */
 
 struct sigaction {
         union {
           __sighandler_t _sa_handler;
           void (*_sa_sigaction)(int, struct siginfo *, void *);
         } _u;
-#ifndef __s390x__ 
+#ifndef __s390x__ /* lovely */
         sigset_t sa_mask;
         unsigned long sa_flags;
         void (*sa_restorer)(void);
-#else  
+#else  /* __s390x__ */
         unsigned long sa_flags;
         void (*sa_restorer)(void);
 	sigset_t sa_mask;
-#endif 
+#endif /* __s390x__ */
 };
 
 #define sa_handler      _u._sa_handler
 #define sa_sigaction    _u._sa_sigaction
 
-#endif 
+#endif /* __KERNEL__ */
 
 typedef struct sigaltstack {
         void __user *ss_sp;

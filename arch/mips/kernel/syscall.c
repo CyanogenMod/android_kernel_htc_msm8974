@@ -39,6 +39,13 @@
 #include <asm/uaccess.h>
 #include <asm/switch_to.h>
 
+/*
+ * For historic reasons the pipe(2) syscall on MIPS has an unusual calling
+ * convention.  It returns results in registers $v0 / $v1 which means there
+ * is no need for it to do verify the validity of a userspace pointer
+ * argument.  Historically that used to be expensive in Linux.  These days
+ * the performance advantage is negligible.
+ */
 asmlinkage int sysm_pipe(nabi_no_regargs volatile struct pt_regs regs)
 {
 	int fd[2];
@@ -102,7 +109,7 @@ _sys_clone(nabi_no_regargs struct pt_regs regs)
 		newsp = regs.regs[29];
 	parent_tidptr = (int __user *) regs.regs[6];
 #ifdef CONFIG_32BIT
-	
+	/* We need to fetch the fifth argument off the stack.  */
 	child_tidptr = NULL;
 	if (clone_flags & (CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID)) {
 		int __user *__user *usp = (int __user *__user *) regs.regs[29];
@@ -120,6 +127,9 @@ _sys_clone(nabi_no_regargs struct pt_regs regs)
 	               parent_tidptr, child_tidptr);
 }
 
+/*
+ * sys_execve() executes a new program.
+ */
 asmlinkage int sys_execve(nabi_no_regargs struct pt_regs regs)
 {
 	int error;
@@ -235,15 +245,18 @@ static inline int mips_atomic_set(struct pt_regs *regs,
 		return err;
 
 	regs->regs[2] = old;
-	regs->regs[7] = 0;	
+	regs->regs[7] = 0;	/* No error */
 
+	/*
+	 * Don't let your children do this ...
+	 */
 	__asm__ __volatile__(
 	"	move	$29, %0						\n"
 	"	j	syscall_exit					\n"
-	: 
+	: /* no outputs */
 	: "r" (regs));
 
-	
+	/* unreached.  Honestly.  */
 	while (1);
 }
 
@@ -284,16 +297,27 @@ _sys_sysmips(nabi_no_regargs struct pt_regs regs)
 	return -EINVAL;
 }
 
+/*
+ * No implemented yet ...
+ */
 SYSCALL_DEFINE3(cachectl, char *, addr, int, nbytes, int, op)
 {
 	return -ENOSYS;
 }
 
+/*
+ * If we ever come here the user sp is bad.  Zap the process right away.
+ * Due to the bad stack signaling wouldn't work.
+ */
 asmlinkage void bad_stack(void)
 {
 	do_exit(SIGSEGV);
 }
 
+/*
+ * Do a system call from kernel instead of calling sys_execve so we
+ * end up with proper pt_regs.
+ */
 int kernel_execve(const char *filename,
 		  const char *const argv[],
 		  const char *const envp[])

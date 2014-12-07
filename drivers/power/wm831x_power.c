@@ -60,6 +60,9 @@ static int wm831x_power_read_voltage(struct wm831x *wm831x,
 	return ret;
 }
 
+/*********************************************************************
+ *		WALL Power
+ *********************************************************************/
 static int wm831x_wall_get_prop(struct power_supply *psy,
 				enum power_supply_property psp,
 				union power_supply_propval *val)
@@ -88,6 +91,9 @@ static enum power_supply_property wm831x_wall_props[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 };
 
+/*********************************************************************
+ *		USB Power
+ *********************************************************************/
 static int wm831x_usb_get_prop(struct power_supply *psy,
 			       enum power_supply_property psp,
 			       union power_supply_propval *val)
@@ -116,6 +122,9 @@ static enum power_supply_property wm831x_usb_props[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 };
 
+/*********************************************************************
+ *		Battery properties
+ *********************************************************************/
 
 struct chg_map {
 	int val;
@@ -439,6 +448,8 @@ static irqreturn_t wm831x_bat_irq(int irq, void *data)
 
 	dev_dbg(wm831x->dev, "Battery status changed: %d\n", irq);
 
+	/* The battery charger is autonomous so we don't need to do
+	 * anything except kick user space */
 	if (wm831x_power->have_battery)
 		power_supply_changed(&wm831x_power->battery);
 
@@ -446,12 +457,17 @@ static irqreturn_t wm831x_bat_irq(int irq, void *data)
 }
 
 
+/*********************************************************************
+ *		Initialisation
+ *********************************************************************/
 
 static irqreturn_t wm831x_syslo_irq(int irq, void *data)
 {
 	struct wm831x_power *wm831x_power = data;
 	struct wm831x *wm831x = wm831x_power->wm831x;
 
+	/* Not much we can actually *do* but tell people for
+	 * posterity, we're probably about to run out of power. */
 	dev_crit(wm831x->dev, "SYSVDD under voltage\n");
 
 	return IRQ_HANDLED;
@@ -464,7 +480,7 @@ static irqreturn_t wm831x_pwr_src_irq(int irq, void *data)
 
 	dev_dbg(wm831x->dev, "Power source changed\n");
 
-	
+	/* Just notify for everything - little harm in overnotifying. */
 	if (wm831x_power->have_battery)
 		power_supply_changed(&wm831x_power->battery);
 	power_supply_changed(&wm831x_power->usb);
@@ -510,6 +526,9 @@ static __devinit int wm831x_power_probe(struct platform_device *pdev)
 			 "wm831x-usb");
 	}
 
+	/* We ignore configuration failures since we can still read back
+	 * the status without enabling the charger.
+	 */
 	wm831x_config_battery(wm831x);
 
 	wall->name = power->wall_name;

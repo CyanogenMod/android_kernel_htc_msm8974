@@ -29,6 +29,7 @@
 
 #include "simtec.h"
 
+/* platform ops for audio */
 
 static void simtec_audio_startup_lrroute(void)
 {
@@ -65,7 +66,7 @@ int __init simtec_audio_add(const char *name, bool has_lr_routing,
 
 	snprintf(our_name, sizeof(our_name)-1, "s3c24xx-simtec-%s", name);
 
-	
+	/* copy platform data so the source can be __initdata */
 	if (spd)
 		simtec_audio_platdata = *spd;
 

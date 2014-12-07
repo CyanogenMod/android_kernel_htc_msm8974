@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -50,13 +50,16 @@ struct scrpd_struct {
 	u8 data[MHL_SCRATCHPAD_SIZE];
 };
 
+/* MHL 8334 supports a max HD pixel clk of 75 MHz */
 #define MAX_MHL_PCLK 75000
 
+/* USB driver interface  */
 
 #if defined(CONFIG_FB_MSM_HDMI_MHL_8334)
- 
+ /*  mhl_device_discovery */
 extern int mhl_device_discovery(const char *name, int *result);
 
+/* - register|unregister MHL cable plug callback. */
 extern int mhl_register_callback
 	(const char *name, void (*callback)(int online));
 extern int mhl_unregister_callback(const char *name);
@@ -79,6 +82,9 @@ static inline int mhl_unregister_callback(const char *name)
 #endif
 
 struct msc_cmd_envelope {
+	/*
+	 * this list head is for list APIs
+	 */
 	struct list_head msc_queue_envelope;
 	struct msc_command_struct msc_cmd_msg;
 };
@@ -89,7 +95,7 @@ struct mhl_msm_state_t {
 	uint8_t      cur_state;
 	uint8_t chip_rev_id;
 	struct msm_mhl_platform_data *mhl_data;
-	
+	/* Device Discovery stuff */
 	int mhl_mode;
 	struct completion rgnd_done;
 	struct completion msc_cmd_done;
@@ -116,7 +122,7 @@ enum mhl_vreg_type {
 
 
 struct mhl_tx_platform_data {
-	
+	/* Data filled from device tree nodes */
 	struct dss_gpio *gpios[MHL_TX_MAX_GPIO];
 	struct dss_vreg *vregs[MHL_TX_MAX_VREG];
 	int irq;
@@ -149,6 +155,8 @@ struct mhl_tx_ctrl {
 	struct list_head list_cmd;
 	struct input_dev *input;
 	struct workqueue_struct *msc_send_workqueue;
+	struct workqueue_struct *mhl_workq;
+	struct work_struct mhl_intr_work;
 	u16 *rcp_key_code_tbl;
 	size_t rcp_key_code_tbl_len;
 	struct scrpd_struct scrpd;
@@ -171,7 +179,7 @@ void mhl_i2c_reg_modify(struct i2c_client *client,
 			uint8_t slave_addr_index, uint8_t reg_offset,
 			uint8_t mask, uint8_t val);
 
-#endif 
+#endif /* CONFIG_FB_MSM_MDSS_HDMI_MHL_SII8334 */
 
 enum {
 	TX_PAGE_TPI          = 0x00,
@@ -365,4 +373,4 @@ enum {
 #define MHL_SII_REG_NAME_MOD(arg, mask, val)\
 	mhl_i2c_reg_modify(client, GET_PAGE(arg), GET_OFF(arg), mask, val)
 
-#endif 
+#endif /* __MHL_MSM_H__ */

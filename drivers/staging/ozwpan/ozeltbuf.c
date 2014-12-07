@@ -11,8 +11,13 @@
 #include "ozeltbuf.h"
 #include "ozpd.h"
 #include "oztrace.h"
+/*------------------------------------------------------------------------------
+ */
 #define OZ_ELT_INFO_MAGIC_USED	0x35791057
 #define OZ_ELT_INFO_MAGIC_FREE	0x78940102
+/*------------------------------------------------------------------------------
+ * Context: softirq-serialized
+ */
 int oz_elt_buf_init(struct oz_elt_buf *buf)
 {
 	memset(buf, 0, sizeof(struct oz_elt_buf));
@@ -23,11 +28,14 @@ int oz_elt_buf_init(struct oz_elt_buf *buf)
 	spin_lock_init(&buf->lock);
 	return 0;
 }
+/*------------------------------------------------------------------------------
+ * Context: softirq or process
+ */
 void oz_elt_buf_term(struct oz_elt_buf *buf)
 {
 	struct list_head *e;
 	int i;
-	
+	/* Free any elements in the order or isoc lists. */
 	for (i = 0; i < 2; i++) {
 		struct list_head *list;
 		if (i)
@@ -42,7 +50,7 @@ void oz_elt_buf_term(struct oz_elt_buf *buf)
 			kfree(ei);
 		}
 	}
-	
+	/* Free any elelment in the pool. */
 	while (buf->elt_pool) {
 		struct oz_elt_info *ei =
 			container_of(buf->elt_pool, struct oz_elt_info, link);
@@ -51,6 +59,9 @@ void oz_elt_buf_term(struct oz_elt_buf *buf)
 	}
 	buf->free_elts = 0;
 }
+/*------------------------------------------------------------------------------
+ * Context: softirq or process
+ */
 struct oz_elt_info *oz_elt_info_alloc(struct oz_elt_buf *buf)
 {
 	struct oz_elt_info *ei = 0;
@@ -80,6 +91,10 @@ struct oz_elt_info *oz_elt_info_alloc(struct oz_elt_buf *buf)
 	}
 	return ei;
 }
+/*------------------------------------------------------------------------------
+ * Precondition: oz_elt_buf.lock must be held.
+ * Context: softirq or process
+ */
 void oz_elt_info_free(struct oz_elt_buf *buf, struct oz_elt_info *ei)
 {
 	if (ei) {
@@ -95,6 +110,9 @@ void oz_elt_info_free(struct oz_elt_buf *buf, struct oz_elt_info *ei)
 		}
 	}
 }
+/*------------------------------------------------------------------------------
+ * Context: softirq
+ */
 void oz_elt_info_free_chain(struct oz_elt_buf *buf, struct list_head *list)
 {
 	struct list_head *e;
@@ -108,6 +126,8 @@ void oz_elt_info_free_chain(struct oz_elt_buf *buf, struct list_head *list)
 	}
 	spin_unlock_bh(&buf->lock);
 }
+/*------------------------------------------------------------------------------
+ */
 int oz_elt_stream_create(struct oz_elt_buf *buf, u8 id, int max_buf_count)
 {
 	struct oz_elt_stream *st;
@@ -126,6 +146,8 @@ int oz_elt_stream_create(struct oz_elt_buf *buf, u8 id, int max_buf_count)
 	spin_unlock_bh(&buf->lock);
 	return 0;
 }
+/*------------------------------------------------------------------------------
+ */
 int oz_elt_stream_delete(struct oz_elt_buf *buf, u8 id)
 {
 	struct list_head *e;
@@ -163,10 +185,14 @@ int oz_elt_stream_delete(struct oz_elt_buf *buf, u8 id)
 	oz_elt_stream_put(st);
 	return 0;
 }
+/*------------------------------------------------------------------------------
+ */
 void oz_elt_stream_get(struct oz_elt_stream *st)
 {
 	atomic_inc(&st->ref_count);
 }
+/*------------------------------------------------------------------------------
+ */
 void oz_elt_stream_put(struct oz_elt_stream *st)
 {
 	if (atomic_dec_and_test(&st->ref_count)) {
@@ -174,6 +200,11 @@ void oz_elt_stream_put(struct oz_elt_stream *st)
 		kfree(st);
 	}
 }
+/*------------------------------------------------------------------------------
+ * Precondition: Element buffer lock must be held.
+ * If this function fails the caller is responsible for deallocating the elt
+ * info structure.
+ */
 int oz_queue_elt_info(struct oz_elt_buf *buf, u8 isoc, u8 id,
 	struct oz_elt_info *ei)
 {
@@ -186,10 +217,16 @@ int oz_queue_elt_info(struct oz_elt_buf *buf, u8 isoc, u8 id,
 				break;
 		}
 		if (e == &buf->stream_list) {
+			/* Stream specified but stream not known so fail.
+			 * Caller deallocates element info. */
 			return -1;
 		}
 	}
 	if (st) {
+		/* If this is an ISOC fixed element that needs a frame number
+		 * then insert that now. Earlier we stored the unit count in
+		 * this field.
+		 */
 		struct oz_isoc_fixed *body = (struct oz_isoc_fixed *)
 			&ei->data[sizeof(struct oz_elt)];
 		if ((body->app_id == OZ_APPID_USB) && (body->type
@@ -199,14 +236,17 @@ int oz_queue_elt_info(struct oz_elt_buf *buf, u8 isoc, u8 id,
 			body->frame_number = st->frame_number;
 			st->frame_number += unit_count;
 		}
-		
+		/* Claim stream and update accounts */
 		oz_elt_stream_get(st);
 		ei->stream = st;
 		st->buf_count += ei->length;
-		
+		/* Add to list in stream. */
 		list_add_tail(&ei->link, &st->elt_list);
 		oz_trace2(OZ_TRACE_STREAM, "Stream up: %d  %d\n",
 			st->buf_count, ei->length);
+		/* Check if we have too much buffered for this stream. If so
+		 * start dropping elements until we are back in bounds.
+		 */
 		while ((st->buf_count > st->max_buf_count) &&
 			!list_empty(&st->elt_list)) {
 			struct oz_elt_info *ei2 =
@@ -223,6 +263,8 @@ int oz_queue_elt_info(struct oz_elt_buf *buf, u8 isoc, u8 id,
 		&buf->isoc_list : &buf->order_list);
 	return 0;
 }
+/*------------------------------------------------------------------------------
+ */
 int oz_select_elts_for_tx(struct oz_elt_buf *buf, u8 isoc, unsigned *len,
 		unsigned max_len, struct list_head *list)
 {
@@ -267,10 +309,14 @@ int oz_select_elts_for_tx(struct oz_elt_buf *buf, u8 isoc, unsigned *len,
 	spin_unlock_bh(&buf->lock);
 	return count;
 }
+/*------------------------------------------------------------------------------
+ */
 int oz_are_elts_available(struct oz_elt_buf *buf)
 {
 	return buf->order_list.next != &buf->order_list;
 }
+/*------------------------------------------------------------------------------
+ */
 void oz_trim_elt_pool(struct oz_elt_buf *buf)
 {
 	struct list_head *free = 0;

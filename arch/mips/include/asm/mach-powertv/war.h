@@ -25,4 +25,4 @@
 #define R10000_LLSC_WAR			0
 #define MIPS34K_MISSED_ITLB_WAR		0
 
-#endif 
+#endif /* __ASM_MACH_POWERTV_WAR_H */

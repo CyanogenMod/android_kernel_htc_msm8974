@@ -74,7 +74,7 @@ void ieee80211_configure_filter(struct ieee80211_local *local)
 	mc = drv_prepare_multicast(local, &local->mc_list);
 	spin_unlock_bh(&local->filter_lock);
 
-	
+	/* be a bit nasty */
 	new_flags |= (1<<31);
 
 	drv_configure_filter(local, changed_flags, &new_flags, mc);
@@ -105,6 +105,9 @@ int ieee80211_hw_config(struct ieee80211_local *local, u32 changed)
 	offchannel_flag = local->hw.conf.flags & IEEE80211_CONF_OFFCHANNEL;
 	if (local->scan_channel) {
 		chan = local->scan_channel;
+		/* If scanning on oper channel, use whatever channel-type
+		 * is currently in use.
+		 */
 		if (chan == local->oper_channel)
 			channel_type = local->_oper_channel_type;
 		else
@@ -133,6 +136,11 @@ int ieee80211_hw_config(struct ieee80211_local *local, u32 changed)
 	}
 
 	if (!conf_is_ht(&local->hw.conf)) {
+		/*
+		 * mac80211.h documents that this is only valid
+		 * when the channel is set to an HT type, and
+		 * that otherwise STATIC is used.
+		 */
 		local->hw.conf.smps_mode = IEEE80211_SMPS_STATIC;
 	} else if (local->hw.conf.smps_mode != local->smps_mode) {
 		local->hw.conf.smps_mode = local->smps_mode;
@@ -158,7 +166,21 @@ int ieee80211_hw_config(struct ieee80211_local *local, u32 changed)
 
 	if (changed && local->open_count) {
 		ret = drv_config(local, changed);
-		
+		/*
+		 * Goal:
+		 * HW reconfiguration should never fail, the driver has told
+		 * us what it can support so it should live up to that promise.
+		 *
+		 * Current status:
+		 * rfkill is not integrated with mac80211 and a
+		 * configuration command can thus fail if hardware rfkill
+		 * is enabled
+		 *
+		 * FIXME: integrate rfkill with mac80211 and then add this
+		 * WARN_ON() back
+		 *
+		 */
+		/* WARN_ON(ret); */
 	}
 
 	return ret;
@@ -195,7 +217,7 @@ void ieee80211_bss_info_change_notify(struct ieee80211_sub_if_data *sdata,
 	case NL80211_IFTYPE_MESH_POINT:
 		break;
 	default:
-		
+		/* do not warn to simplify caller in scan.c */
 		changed &= ~BSS_CHANGED_BEACON_ENABLED;
 		if (WARN_ON(changed & BSS_CHANGED_BEACON))
 			return;
@@ -207,6 +229,10 @@ void ieee80211_bss_info_change_notify(struct ieee80211_sub_if_data *sdata,
 		    test_bit(SDATA_STATE_OFFCHANNEL, &sdata->state)) {
 			sdata->vif.bss_conf.enable_beacon = false;
 		} else {
+			/*
+			 * Beacon should be enabled, but AP mode must
+			 * check whether there is a beacon configured.
+			 */
 			switch (sdata->vif.type) {
 			case NL80211_IFTYPE_AP:
 				sdata->vif.bss_conf.enable_beacon =
@@ -223,7 +249,7 @@ void ieee80211_bss_info_change_notify(struct ieee80211_sub_if_data *sdata,
 				break;
 #endif
 			default:
-				
+				/* not reached */
 				WARN_ON(1);
 				break;
 			}
@@ -254,6 +280,8 @@ static void ieee80211_tasklet_handler(unsigned long data)
 	       (skb = skb_dequeue(&local->skb_queue_unreliable))) {
 		switch (skb->pkt_type) {
 		case IEEE80211_RX_MSG:
+			/* Clear skb->pkt_type in order to not confuse kernel
+			 * netstack. */
 			skb->pkt_type = 0;
 			ieee80211_rx(&local->hw, skb);
 			break;
@@ -264,7 +292,7 @@ static void ieee80211_tasklet_handler(unsigned long data)
 		case IEEE80211_EOSP_MSG:
 			eosp_data = (void *)skb->cb;
 			for_each_sta_info(local, eosp_data->sta, sta, tmp) {
-				
+				/* skip wrong virtual interface */
 				if (memcmp(eosp_data->iface,
 					   sta->sdata->vif.addr, ETH_ALEN))
 					continue;
@@ -287,7 +315,7 @@ static void ieee80211_restart_work(struct work_struct *work)
 	struct ieee80211_local *local =
 		container_of(work, struct ieee80211_local, restart_work);
 
-	
+	/* wait for scan work complete */
 	flush_workqueue(local->workqueue);
 
 	mutex_lock(&local->mtx);
@@ -311,7 +339,7 @@ void ieee80211_restart_hw(struct ieee80211_hw *hw)
 	wiphy_info(hw->wiphy,
 		   "Hardware restart was requested\n");
 
-	
+	/* use this reason, ieee80211_reconfig will unblock it */
 	ieee80211_stop_queues_by_reason(hw,
 		IEEE80211_QUEUE_STOP_REASON_SUSPEND);
 
@@ -345,7 +373,7 @@ static int ieee80211_ifa_changed(struct notifier_block *nb,
 	struct ieee80211_if_managed *ifmgd;
 	int c = 0;
 
-	
+	/* Make sure it's our interface that got changed */
 	if (!wdev)
 		return NOTIFY_DONE;
 
@@ -355,7 +383,7 @@ static int ieee80211_ifa_changed(struct notifier_block *nb,
 	sdata = IEEE80211_DEV_TO_SUB_IF(ndev);
 	bss_conf = &sdata->vif.bss_conf;
 
-	
+	/* ARP filtering is only supported in managed mode */
 	if (sdata->vif.type != NL80211_IFTYPE_STATION)
 		return NOTIFY_DONE;
 
@@ -366,7 +394,7 @@ static int ieee80211_ifa_changed(struct notifier_block *nb,
 	ifmgd = &sdata->u.mgd;
 	mutex_lock(&ifmgd->mtx);
 
-	
+	/* Copy the addresses to the bss_conf list */
 	ifa = idev->ifa_list;
 	while (c < IEEE80211_BSS_ARP_ADDR_LIST_LEN && ifa) {
 		bss_conf->arp_addr_list[c] = ifa->ifa_address;
@@ -374,7 +402,7 @@ static int ieee80211_ifa_changed(struct notifier_block *nb,
 		c++;
 	}
 
-	
+	/* If not all addresses fit the list, disable filtering */
 	if (ifa) {
 		sdata->arp_filter_state = false;
 		c = 0;
@@ -383,7 +411,7 @@ static int ieee80211_ifa_changed(struct notifier_block *nb,
 	}
 	bss_conf->arp_addr_cnt = c;
 
-	
+	/* Configure driver only if associated (which also implies it is up) */
 	if (ifmgd->associated) {
 		bss_conf->arp_filter_enabled = sdata->arp_filter_state;
 		ieee80211_bss_info_change_notify(sdata,
@@ -420,6 +448,7 @@ void ieee80211_napi_complete(struct ieee80211_hw *hw)
 }
 EXPORT_SYMBOL(ieee80211_napi_complete);
 
+/* There isn't a lot of sense in it, but you can transmit anything you like */
 static const struct ieee80211_txrx_stypes
 ieee80211_default_mgmt_stypes[NUM_NL80211_IFTYPES] = {
 	[NL80211_IFTYPE_ADHOC] = {
@@ -442,7 +471,7 @@ ieee80211_default_mgmt_stypes[NUM_NL80211_IFTYPES] = {
 			BIT(IEEE80211_STYPE_ACTION >> 4),
 	},
 	[NL80211_IFTYPE_AP_VLAN] = {
-		
+		/* copy AP */
 		.tx = 0xffff,
 		.rx = BIT(IEEE80211_STYPE_ASSOC_REQ >> 4) |
 			BIT(IEEE80211_STYPE_REASSOC_REQ >> 4) |
@@ -498,6 +527,21 @@ struct ieee80211_hw *ieee80211_alloc_hw(size_t priv_data_len,
 	if (WARN_ON(ops->sta_state && (ops->sta_add || ops->sta_remove)))
 		return NULL;
 
+	/* Ensure 32-byte alignment of our private data and hw private data.
+	 * We use the wiphy priv data for both our ieee80211_local and for
+	 * the driver's private data
+	 *
+	 * In memory it'll be like this:
+	 *
+	 * +-------------------------+
+	 * | struct wiphy	    |
+	 * +-------------------------+
+	 * | struct ieee80211_local  |
+	 * +-------------------------+
+	 * | driver's private data   |
+	 * +-------------------------+
+	 *
+	 */
 	priv_size = ALIGN(sizeof(*local), NETDEV_ALIGN) + priv_data_len;
 
 	wiphy = wiphy_new(&mac80211_config_ops, priv_size);
@@ -539,7 +583,7 @@ struct ieee80211_hw *ieee80211_alloc_hw(size_t priv_data_len,
 	BUG_ON(!ops->configure_filter);
 	local->ops = ops;
 
-	
+	/* set up some defaults */
 	local->hw.queues = 1;
 	local->hw.max_rates = 1;
 	local->hw.max_report_rates = 0;
@@ -561,6 +605,13 @@ struct ieee80211_hw *ieee80211_alloc_hw(size_t priv_data_len,
 	spin_lock_init(&local->filter_lock);
 	spin_lock_init(&local->queue_stop_reason_lock);
 
+	/*
+	 * The rx_skb_queue is only accessed from tasklets,
+	 * but other SKB queues are used from within IRQ
+	 * context. Therefore, this one needs a different
+	 * locking class so our direct, non-irq-safe use of
+	 * the queue's lock doesn't throw lockdep warnings.
+	 */
 	skb_queue_head_init_class(&local->rx_skb_queue,
 				  &ieee80211_rx_skb_queue_class);
 
@@ -586,7 +637,7 @@ struct ieee80211_hw *ieee80211_alloc_hw(size_t priv_data_len,
 
 	spin_lock_init(&local->ack_status_lock);
 	idr_init(&local->ack_status_frames);
-	
+	/* preallocate at least one entry */
 	idr_pre_get(&local->ack_status_frames, GFP_KERNEL);
 
 	sta_info_init(local);
@@ -605,7 +656,7 @@ struct ieee80211_hw *ieee80211_alloc_hw(size_t priv_data_len,
 	skb_queue_head_init(&local->skb_queue);
 	skb_queue_head_init(&local->skb_queue_unreliable);
 
-	
+	/* init dummy netdev for use w/ NAPI */
 	init_dummy_netdev(&local->napi_dev);
 
 	ieee80211_led_names(local);
@@ -624,13 +675,13 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 	int channels, max_bitrates;
 	bool supp_ht, supp_vht;
 	static const u32 cipher_suites[] = {
-		
+		/* keep WEP first, it may be removed below */
 		WLAN_CIPHER_SUITE_WEP40,
 		WLAN_CIPHER_SUITE_WEP104,
 		WLAN_CIPHER_SUITE_TKIP,
 		WLAN_CIPHER_SUITE_CCMP,
 
-		
+		/* keep last -- depends on hw flags! */
 		WLAN_CIPHER_SUITE_AES_CMAC
 	};
 
@@ -647,6 +698,11 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 	if (hw->max_report_rates == 0)
 		hw->max_report_rates = hw->max_rates;
 
+	/*
+	 * generic code guarantees at least one band,
+	 * set this very early because much code assumes
+	 * that hw.conf.channel is assigned
+	 */
 	channels = 0;
 	max_bitrates = 0;
 	supp_ht = false;
@@ -658,7 +714,7 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 		if (!sband)
 			continue;
 		if (!local->oper_channel) {
-			
+			/* init channel we're on */
 			local->hw.conf.channel =
 			local->oper_channel = &sband->channels[0];
 			local->hw.conf.channel_type = NL80211_CHAN_NO_HT;
@@ -682,16 +738,20 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 		local->int_scan_req->rates[band] = (u32) -1;
 	}
 
-	
+	/* if low-level driver supports AP, we also support VLAN */
 	if (local->hw.wiphy->interface_modes & BIT(NL80211_IFTYPE_AP)) {
 		hw->wiphy->interface_modes |= BIT(NL80211_IFTYPE_AP_VLAN);
 		hw->wiphy->software_iftypes |= BIT(NL80211_IFTYPE_AP_VLAN);
 	}
 
-	
+	/* mac80211 always supports monitor */
 	hw->wiphy->interface_modes |= BIT(NL80211_IFTYPE_MONITOR);
 	hw->wiphy->software_iftypes |= BIT(NL80211_IFTYPE_MONITOR);
 
+	/*
+	 * mac80211 doesn't support more than 1 channel, and also not more
+	 * than one IBSS interface
+	 */
 	for (i = 0; i < hw->wiphy->n_iface_combinations; i++) {
 		const struct ieee80211_iface_combination *c;
 		int j;
@@ -708,14 +768,16 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 	}
 
 #ifndef CONFIG_MAC80211_MESH
-	
+	/* mesh depends on Kconfig, but drivers should set it if they want */
 	local->hw.wiphy->interface_modes &= ~BIT(NL80211_IFTYPE_MESH_POINT);
 #endif
 
+	/* if the underlying driver supports mesh, mac80211 will (at least)
+	 * provide routing of mesh authentication frames to userspace */
 	if (local->hw.wiphy->interface_modes & BIT(NL80211_IFTYPE_MESH_POINT))
 		local->hw.wiphy->flags |= WIPHY_FLAG_MESH_AUTH;
 
-	
+	/* mac80211 supports control port protocol changing */
 	local->hw.wiphy->flags |= WIPHY_FLAG_CONTROL_PORT_PROTOCOL;
 
 	if (local->hw.flags & IEEE80211_HW_SIGNAL_DBM)
@@ -727,8 +789,14 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 	     && (local->hw.flags & IEEE80211_HW_PS_NULLFUNC_STACK),
 	     "U-APSD not supported with HW_PS_NULLFUNC_STACK\n");
 
-	local->scan_ies_len = 4 + max_bitrates  +
-		3 ;
+	/*
+	 * Calculate scan IE length -- we need this to alloc
+	 * memory and to subtract from the driver limit. It
+	 * includes the DS Params, (extended) supported rates, and HT
+	 * information -- SSID is the driver's responsibility.
+	 */
+	local->scan_ies_len = 4 + max_bitrates /* (ext) supp rates */ +
+		3 /* DS Params */;
 	if (supp_ht)
 		local->scan_ies_len += 2 + sizeof(struct ieee80211_ht_cap);
 
@@ -737,15 +805,22 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 			2 + sizeof(struct ieee80211_vht_cap);
 
 	if (!local->ops->hw_scan) {
-		
+		/* For hw_scan, driver needs to set these up. */
 		local->hw.wiphy->max_scan_ssids = 4;
 		local->hw.wiphy->max_scan_ie_len = IEEE80211_MAX_DATA_LEN;
 	}
 
+	/*
+	 * If the driver supports any scan IEs, then assume the
+	 * limit includes the IEs mac80211 will add, otherwise
+	 * leave it at zero and let the driver sort it out; we
+	 * still pass our IEs to the driver but userspace will
+	 * not be allowed to in that case.
+	 */
 	if (local->hw.wiphy->max_scan_ie_len)
 		local->hw.wiphy->max_scan_ie_len -= local->scan_ies_len;
 
-	
+	/* Set up cipher suites unless driver already did */
 	if (!local->hw.wiphy->cipher_suites) {
 		local->hw.wiphy->cipher_suites = cipher_suites;
 		local->hw.wiphy->n_cipher_suites = ARRAY_SIZE(cipher_suites);
@@ -760,7 +835,7 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 			u32 *suites;
 			int r, w = 0;
 
-			
+			/* Filter out WEP */
 
 			suites = kmemdup(
 				local->hw.wiphy->cipher_suites,
@@ -787,7 +862,7 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 	if (local->ops->sched_scan_start)
 		local->hw.wiphy->flags |= WIPHY_FLAG_SUPPORTS_SCHED_SCAN;
 
-	
+	/* mac80211 based drivers don't support internal TDLS setup */
 	if (local->hw.wiphy->flags & WIPHY_FLAG_SUPPORTS_TDLS)
 		local->hw.wiphy->flags |= WIPHY_FLAG_TDLS_EXTERNAL_SETUP;
 
@@ -795,6 +870,10 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 	if (result < 0)
 		goto fail_wiphy_register;
 
+	/*
+	 * We use the number of queues for feature tests (QoS, HT) internally
+	 * so restrict them appropriately.
+	 */
 	if (hw->queues > IEEE80211_MAX_QUEUES)
 		hw->queues = IEEE80211_MAX_QUEUES;
 
@@ -805,11 +884,20 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 		goto fail_workqueue;
 	}
 
+	/*
+	 * The hardware needs headroom for sending the frame,
+	 * and we need some headroom for passing the frame to monitor
+	 * interfaces, but never both at the same time.
+	 */
 	local->tx_headroom = max_t(unsigned int , local->hw.extra_tx_headroom,
 				   IEEE80211_TX_STATUS_HEADROOM);
 
 	debugfs_hw_add(local);
 
+	/*
+	 * if the driver doesn't specify a max listen interval we
+	 * use 5 which should be a safe default
+	 */
 	if (local->hw.max_listen_interval == 0)
 		local->hw.max_listen_interval = 5;
 
@@ -834,7 +922,7 @@ int ieee80211_register_hw(struct ieee80211_hw *hw)
 		goto fail_rate;
 	}
 
-	
+	/* add one default STA interface if supported */
 	if (local->hw.wiphy->interface_modes & BIT(NL80211_IFTYPE_STATION)) {
 		result = ieee80211_if_add(local, "wlan%d", NULL,
 					  NL80211_IFTYPE_STATION, NULL);
@@ -905,10 +993,19 @@ void ieee80211_unregister_hw(struct ieee80211_hw *hw)
 
 	rtnl_lock();
 
+	/*
+	 * At this point, interface list manipulations are fine
+	 * because the driver cannot be handing us frames any
+	 * more and the tasklet is killed.
+	 */
 	ieee80211_remove_interfaces(local);
 
 	rtnl_unlock();
 
+	/*
+	 * Now all work items will be gone, but the
+	 * timer might still be armed, so delete it
+	 */
 	del_timer_sync(&local->work_timer);
 
 	cancel_work_sync(&local->restart_work);

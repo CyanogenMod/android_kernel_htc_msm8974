@@ -11,6 +11,12 @@
  * published by the Free Software Foundation.
  */
 
+/*
+ * XXX The function pointers to the PRM/CM functions are incorrect and
+ * should be removed.  No device driver should be changing PRM/CM bits
+ * directly; that's a layering violation -- those bits are the responsibility
+ * of the OMAP PM core code.
+ */
 
 #include <linux/module.h>
 #include <linux/platform_device.h>

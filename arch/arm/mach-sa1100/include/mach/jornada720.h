@@ -12,7 +12,7 @@
  *
  */
 
- 
+ /* HP Jornada 7xx microprocessor commands */
 #define GETBATTERYDATA		0xc0
 #define GETSCANKEYCODE		0x90
 #define GETTOUCHSAMPLES		0xa0

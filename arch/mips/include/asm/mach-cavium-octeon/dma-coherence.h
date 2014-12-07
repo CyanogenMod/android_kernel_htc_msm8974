@@ -69,4 +69,4 @@ struct dma_map_ops;
 extern struct dma_map_ops *octeon_pci_dma_map_ops;
 extern char *octeon_swiotlb;
 
-#endif 
+#endif /* __ASM_MACH_CAVIUM_OCTEON_DMA_COHERENCE_H */

@@ -33,6 +33,7 @@ static void stdio_announce(char *dev_name, int dev)
 	       dev_name);
 }
 
+/* Almost const, except that xterm_title may be changed in an initcall */
 static struct chan_opts opts = {
 	.announce 	= stdio_announce,
 	.xterm_title	= "Virtual Console #%d",
@@ -44,6 +45,7 @@ static int con_get_config(char *dev, char *str, int size, char **error_out);
 static int con_remove(int n, char **con_remove);
 
 
+/* Const, except for .mc.list */
 static struct line_driver driver = {
 	.name 			= "UML console",
 	.device_name 		= "tty",
@@ -65,6 +67,9 @@ static struct line_driver driver = {
 	},
 };
 
+/* The array is initialized by line_init, at initcall time.  The
+ * elements are locked individually as needed.
+ */
 static char *vt_conf[MAX_TTYS];
 static char *def_conf;
 static struct line vts[MAX_TTYS];
@@ -94,6 +99,7 @@ static int con_open(struct tty_struct *tty, struct file *filp)
 	return err;
 }
 
+/* Set in an initcall, checked in an exitcall */
 static int con_init_done = 0;
 
 static const struct tty_operations console_ops = {
@@ -135,6 +141,7 @@ static int uml_console_setup(struct console *co, char *options)
 	return console_open_chan(line, co);
 }
 
+/* No locking for register_console call - relies on single-threaded initcalls */
 static struct console stdiocons = {
 	.name		= "tty",
 	.write		= uml_console_write,

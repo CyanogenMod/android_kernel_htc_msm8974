@@ -35,4 +35,4 @@ void tegra_clk_resume(void);
 void tegra_dma_resume(void);
 void tegra_timer_resume(void);
 
-#endif 
+#endif /* _MACH_TEGRA_SUSPEND_H_ */

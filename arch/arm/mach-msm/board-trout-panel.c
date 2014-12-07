@@ -1,3 +1,6 @@
+/* linux/arch/arm/mach-msm/board-trout-mddi.c
+** Author: Brian Swetland <swetland@google.com>
+*/
 #include <linux/gpio.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -142,25 +145,25 @@ static struct mddi_table mddi_toshiba_init_table[] = {
 	{ DPSET1,       0x00000118 },
 	{ DPSUS,        0x00000000 },
 	{ DPRUN,        0x00000001 },
-	{ 1,            14         }, 
+	{ 1,            14         }, /* msleep 14 */
 	{ SYSCKENA,     0x00000001 },
-	{ CLKENB,       0x0000A1EF },  
+	{ CLKENB,       0x0000A1EF },  /*    # SYS.CLKENB  # Enable clocks for each module (without DCLK , i2cCLK) */
 
-	{ GPIODATA,     0x02000200 },  
-	{ GPIODIR,      0x000030D  },  
-	{ GPIOSEL,      0},  
-	{ GPIOPC,       0x03C300C0 },  
-	{ WKREQ,        0x00000000 },  
+	{ GPIODATA,     0x02000200 },  /*   # GPI .GPIODATA  # GPIO2(RESET_LCD_N) set to 0 , GPIO3(eDRAM_Power) set to 0 */
+	{ GPIODIR,      0x000030D  },  /* 24D   # GPI .GPIODIR  # Select direction of GPIO port (0,2,3,6,9 output) */
+	{ GPIOSEL,      0/*0x00000173*/},  /*   # SYS.GPIOSEL  # GPIO port multiplexing control */
+	{ GPIOPC,       0x03C300C0 },  /*   # GPI .GPIOPC  # GPIO2,3 PD cut */
+	{ WKREQ,        0x00000000 },  /*   # SYS.WKREQ  # Wake-up request event is VSYNC alignment */
 
 	{ GPIOIBE,      0x000003FF },
 	{ GPIOIS,       0x00000000 },
 	{ GPIOIC,       0x000003FF },
 	{ GPIOIE,       0x00000000 },
 
-	{ GPIODATA,     0x00040004 },  
-	{ 1,            1          }, 
-	{ GPIODATA,     0x02040004 },  
-	{ DRAMPWR,      0x00000001 }, 
+	{ GPIODATA,     0x00040004 },  /*   # GPI .GPIODATA  # eDRAM VD supply */
+	{ 1,            1          }, /* msleep 1 */
+	{ GPIODATA,     0x02040004 },  /*   # GPI .GPIODATA  # eDRAM VD supply */
+	{ DRAMPWR,      0x00000001 }, /* eDRAM power */
 };
 
 #define GPIOSEL_VWAKEINT (1U << 0)

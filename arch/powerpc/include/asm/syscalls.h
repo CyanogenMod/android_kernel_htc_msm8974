@@ -44,5 +44,5 @@ asmlinkage long sys_sigaltstack(const stack_t __user *uss,
 		stack_t __user *uoss, unsigned long r5, unsigned long r6,
 		unsigned long r7, unsigned long r8, struct pt_regs *regs);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASM_POWERPC_SYSCALLS_H */

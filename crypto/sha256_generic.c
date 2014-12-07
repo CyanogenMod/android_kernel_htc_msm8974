@@ -56,19 +56,19 @@ static void sha256_transform(u32 *state, const u8 *input)
 	u32 W[64];
 	int i;
 
-	
+	/* load the input */
 	for (i = 0; i < 16; i++)
 		LOAD_OP(i, W, input);
 
-	
+	/* now blend */
 	for (i = 16; i < 64; i++)
 		BLEND_OP(i, W);
 
-	
+	/* load the state into our registers */
 	a=state[0];  b=state[1];  c=state[2];  d=state[3];
 	e=state[4];  f=state[5];  g=state[6];  h=state[7];
 
-	
+	/* now iterate */
 	t1 = h + e1(e) + Ch(e,f,g) + 0x428a2f98 + W[ 0];
 	t2 = e0(a) + Maj(a,b,c);    d+=t1;    h=t1+t2;
 	t1 = g + e1(d) + Ch(d,e,f) + 0x71374491 + W[ 1];
@@ -208,7 +208,7 @@ static void sha256_transform(u32 *state, const u8 *input)
 	state[0] += a; state[1] += b; state[2] += c; state[3] += d;
 	state[4] += e; state[5] += f; state[6] += g; state[7] += h;
 
-	
+	/* clear any sensitive info... */
 	a = b = c = d = e = f = g = h = t1 = t2 = 0;
 	memset(W, 0, 64 * sizeof(u32));
 }
@@ -287,22 +287,22 @@ static int sha256_final(struct shash_desc *desc, u8 *out)
 	int i;
 	static const u8 padding[64] = { 0x80, };
 
-	
+	/* Save number of bits */
 	bits = cpu_to_be64(sctx->count << 3);
 
-	
+	/* Pad out to 56 mod 64. */
 	index = sctx->count & 0x3f;
 	pad_len = (index < 56) ? (56 - index) : ((64+56) - index);
 	sha256_update(desc, padding, pad_len);
 
-	
+	/* Append length (before padding) */
 	sha256_update(desc, (const u8 *)&bits, sizeof(bits));
 
-	
+	/* Store state in digest */
 	for (i = 0; i < 8; i++)
 		dst[i] = cpu_to_be32(sctx->state[i]);
 
-	
+	/* Zeroize sensitive information. */
 	memset(sctx, 0, sizeof(*sctx));
 
 	return 0;

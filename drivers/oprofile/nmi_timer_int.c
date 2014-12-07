@@ -29,7 +29,7 @@ static void nmi_timer_callback(struct perf_event *event,
 			       struct perf_sample_data *data,
 			       struct pt_regs *regs)
 {
-	event->hw.interrupts = 0;       
+	event->hw.interrupts = 0;       /* don't throttle interrupts */
 	oprofile_add_sample(regs, 0);
 }
 
@@ -127,7 +127,7 @@ static int nmi_timer_setup(void)
 	int cpu, err;
 	u64 period;
 
-	
+	/* clock cycles per tick: */
 	period = (u64)cpu_khz * 1000;
 	do_div(period, HZ);
 	nmi_timer_attr.sample_period = period;
@@ -136,7 +136,7 @@ static int nmi_timer_setup(void)
 	err = register_cpu_notifier(&nmi_timer_cpu_nb);
 	if (err)
 		goto out;
-	
+	/* can't attach events to offline cpus: */
 	for_each_online_cpu(cpu) {
 		err = nmi_timer_start_cpu(cpu);
 		if (err)
@@ -156,7 +156,7 @@ int __init op_nmi_timer_init(struct oprofile_operations *ops)
 	err = nmi_timer_setup();
 	if (err)
 		return err;
-	nmi_timer_shutdown();		
+	nmi_timer_shutdown();		/* only check, don't alloc */
 
 	ops->create_files	= NULL;
 	ops->setup		= nmi_timer_setup;

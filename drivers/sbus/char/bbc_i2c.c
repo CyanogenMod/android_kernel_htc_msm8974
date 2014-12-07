@@ -20,6 +20,7 @@
 
 #include "bbc_i2c.h"
 
+/* Convert this driver to use i2c bus layer someday... */
 #define I2C_PCF_PIN	0x80
 #define I2C_PCF_ESO	0x40
 #define I2C_PCF_ES1	0x20
@@ -34,7 +35,7 @@
 #define I2C_PCF_REPSTART (              I2C_PCF_ESO | I2C_PCF_STA | I2C_PCF_ACK)
 #define I2C_PCF_IDLE     (I2C_PCF_PIN | I2C_PCF_ESO               | I2C_PCF_ACK)
 
-#define I2C_PCF_INI 0x40   
+#define I2C_PCF_INI 0x40   /* 1 if not initialized */
 #define I2C_PCF_STS 0x20
 #define I2C_PCF_BER 0x10
 #define I2C_PCF_AD0 0x08
@@ -43,6 +44,12 @@
 #define I2C_PCF_LAB 0x02
 #define I2C_PCF_BB  0x01
 
+/* The BBC devices have two I2C controllers.  The first I2C controller
+ * connects mainly to configuration proms (NVRAM, cpu configuration,
+ * dimm types, etc.).  Whereas the second I2C controller connects to
+ * environmental control devices such as fans and temperature sensors.
+ * The second controller also connects to the smartcard reader, if present.
+ */
 
 static void set_device_claimage(struct bbc_i2c_bus *bp, struct platform_device *op, int val)
 {
@@ -192,13 +199,16 @@ int bbc_i2c_readb(struct bbc_i2c_client *client, unsigned char *byte, int off)
 
 	writeb(I2C_PCF_STOP, bp->i2c_control_regs + 0x0);
 
-	address |= 0x1; 
+	address |= 0x1; /* READ */
 
 	writeb(address, bp->i2c_control_regs + 0x1);
 	writeb(I2C_PCF_START, bp->i2c_control_regs + 0x0);
 	if (wait_for_pin(bp, &status))
 		goto out;
 
+	/* Set PIN back to one so the device sends the first
+	 * byte.
+	 */
 	(void) readb(bp->i2c_control_regs + 0x1);
 	if (wait_for_pin(bp, &status))
 		goto out;
@@ -262,6 +272,9 @@ static irqreturn_t bbc_i2c_interrupt(int irq, void *dev_id)
 {
 	struct bbc_i2c_bus *bp = dev_id;
 
+	/* PIN going from set to clear is the only event which
+	 * makes the i2c assert an interrupt.
+	 */
 	if (bp->waiting &&
 	    !(readb(bp->i2c_control_regs + 0x0) & I2C_PCF_PIN))
 		wake_up_interruptible(&bp->wq);

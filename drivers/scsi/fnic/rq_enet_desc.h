@@ -18,6 +18,7 @@
 #ifndef _RQ_ENET_DESC_H_
 #define _RQ_ENET_DESC_H_
 
+/* Ethernet receive queue descriptor: 16B */
 struct rq_enet_desc {
 	__le64 address;
 	__le16 length_type;
@@ -54,4 +55,4 @@ static inline void rq_enet_desc_dec(struct rq_enet_desc *desc,
 		RQ_ENET_TYPE_MASK);
 }
 
-#endif 
+#endif /* _RQ_ENET_DESC_H_ */

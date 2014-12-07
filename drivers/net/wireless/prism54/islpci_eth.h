@@ -23,9 +23,9 @@
 #include "islpci_dev.h"
 
 struct rfmon_header {
-	__le16 unk0;		
-	__le16 length;		
-	__le32 clock;		
+	__le16 unk0;		/* = 0x0000 */
+	__le16 length;		/* = 0x1400 */
+	__le32 clock;		/* 1MHz clock */
 	u8 flags;
 	u8 unk1;
 	u8 rate;
@@ -42,6 +42,8 @@ struct rx_annex_header {
 	struct rfmon_header rfmon;
 } __packed;
 
+/* wlan-ng (and hopefully others) AVS header, version one.  Fields in
+ * network byte order. */
 #define P80211CAPTURE_VERSION 0x80211001
 
 struct avs_80211_1_header {
@@ -67,4 +69,4 @@ int islpci_eth_receive(islpci_private *);
 void islpci_eth_tx_timeout(struct net_device *);
 void islpci_do_reset_and_wake(struct work_struct *);
 
-#endif				
+#endif				/* _ISL_GEN_H */

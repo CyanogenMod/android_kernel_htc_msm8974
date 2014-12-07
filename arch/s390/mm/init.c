@@ -54,17 +54,17 @@ static unsigned long setup_zero_pages(void)
 
 	get_cpu_id(&cpu_id);
 	switch (cpu_id.machine) {
-	case 0x9672:	
-	case 0x2064:	
-	case 0x2066:	
-	case 0x2084:	
-	case 0x2086:	
-	case 0x2094:	
-	case 0x2096:	
+	case 0x9672:	/* g5 */
+	case 0x2064:	/* z900 */
+	case 0x2066:	/* z900 */
+	case 0x2084:	/* z990 */
+	case 0x2086:	/* z990 */
+	case 0x2094:	/* z9-109 */
+	case 0x2096:	/* z9-109 */
 		order = 0;
 		break;
-	case 0x2097:	
-	case 0x2098:	
+	case 0x2097:	/* z10 */
+	case 0x2098:	/* z10 */
 	default:
 		order = 2;
 		break;
@@ -87,6 +87,9 @@ static unsigned long setup_zero_pages(void)
 	return 1UL << order;
 }
 
+/*
+ * paging_init() sets up the page tables
+ */
 void __init paging_init(void)
 {
 	unsigned long max_zone_pfns[MAX_NR_ZONES];
@@ -110,7 +113,7 @@ void __init paging_init(void)
 		    sizeof(unsigned long)*2048);
 	vmem_map_init();
 
-        
+        /* enable virtual mapping in kernel mode */
 	__ctl_load(S390_lowcore.kernel_asce, 1, 1);
 	__ctl_load(S390_lowcore.kernel_asce, 7, 7);
 	__ctl_load(S390_lowcore.kernel_asce, 13, 13);
@@ -134,12 +137,12 @@ void __init mem_init(void)
         max_mapnr = num_physpages = max_low_pfn;
         high_memory = (void *) __va(max_low_pfn * PAGE_SIZE);
 
-	
+	/* Setup guest page hinting */
 	cmma_init();
 
-	
+	/* this will put all low memory onto the freelists */
 	totalram_pages += free_all_bootmem();
-	totalram_pages -= setup_zero_pages();	
+	totalram_pages -= setup_zero_pages();	/* Setup zeroed pages. */
 
 	reservedpages = 0;
 
@@ -180,7 +183,7 @@ void kernel_map_pages(struct page *page, int numpages, int enable)
 			continue;
 		}
 		*pte = mk_pte_phys(address, __pgprot(_PAGE_TYPE_RW));
-		
+		/* Flush cpu write queue. */
 		mb();
 	}
 }
@@ -231,12 +234,12 @@ int arch_add_memory(int nid, u64 start, u64 size)
 		return rc;
 	for_each_zone(zone) {
 		if (zone_idx(zone) != ZONE_MOVABLE) {
-			
+			/* Add range within existing zone limits */
 			zone_start_pfn = zone->zone_start_pfn;
 			zone_end_pfn = zone->zone_start_pfn +
 				       zone->spanned_pages;
 		} else {
-			
+			/* Add remaining range to ZONE_MOVABLE */
 			zone_start_pfn = start_pfn;
 			zone_end_pfn = start_pfn + size_pages;
 		}
@@ -256,4 +259,4 @@ int arch_add_memory(int nid, u64 start, u64 size)
 		vmem_remove_mapping(start, size);
 	return rc;
 }
-#endif 
+#endif /* CONFIG_MEMORY_HOTPLUG */

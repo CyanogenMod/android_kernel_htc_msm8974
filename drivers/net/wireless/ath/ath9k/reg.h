@@ -473,7 +473,9 @@
 #define AR_Q_RDYTIMESHDN    0x0a40
 #define AR_Q_RDYTIMESHDN_M  0x000003FF
 
+/* MAC Descriptor CRC check */
 #define AR_Q_DESC_CRCCHK    0xa44
+/* Enable CRC check on the descriptor fetched from host */
 #define AR_Q_DESC_CRCCHK_EN 1
 
 #define AR_NUM_DCU      10
@@ -696,9 +698,9 @@
 #define AR_WA_D3_L1_DISABLE		(1 << 14)
 #define AR_WA_D3_TO_L1_DISABLE_REAL     (1 << 16)
 #define AR_WA_ASPM_TIMER_BASED_DISABLE  (1 << 17)
-#define AR_WA_RESET_EN                  (1 << 18) 
+#define AR_WA_RESET_EN                  (1 << 18) /* Sw Control to enable PCI-Reset to POR (bit 15) */
 #define AR_WA_ANALOG_SHIFT              (1 << 20)
-#define AR_WA_POR_SHORT                 (1 << 21) 
+#define AR_WA_POR_SHORT                 (1 << 21) /* PCI-E Phy reset control */
 #define AR_WA_BIT22			(1 << 22)
 #define AR9285_WA_DEFAULT		0x004a050b
 #define AR9280_WA_DEFAULT           	0x0040073b
@@ -783,7 +785,7 @@
 #define AR_SREV_REVISION_9271_10	0
 #define AR_SREV_REVISION_9271_11	1
 #define AR_SREV_VERSION_9300		0x1c0
-#define AR_SREV_REVISION_9300_20	2 
+#define AR_SREV_REVISION_9300_20	2 /* 2.0 and 2.1 */
 #define AR_SREV_VERSION_9330		0x200
 #define AR_SREV_REVISION_9330_10	0
 #define AR_SREV_REVISION_9330_11	1
@@ -793,7 +795,7 @@
 #define AR_SREV_REVISION_9485_11        1
 #define AR_SREV_VERSION_9340		0x300
 #define AR_SREV_VERSION_9580		0x1C0
-#define AR_SREV_REVISION_9580_10	4 
+#define AR_SREV_REVISION_9580_10	4 /* AR9580 1.0 */
 #define AR_SREV_VERSION_9462		0x280
 #define AR_SREV_REVISION_9462_20	2
 
@@ -911,12 +913,13 @@
 	(((_ah)->hw_version.macVersion == AR_SREV_VERSION_9580) && \
 	((_ah)->hw_version.macRev == AR_SREV_REVISION_9580_10))
 
+/* NOTE: When adding chips newer than Peacock, add chip check here */
 #define AR_SREV_9580_10_OR_LATER(_ah) \
 	(AR_SREV_9580(_ah))
 
 enum ath_usb_dev {
-	AR9280_USB = 1, 
-	AR9287_USB = 2, 
+	AR9280_USB = 1, /* AR7010 + AR9280, UB94 */
+	AR9287_USB = 2, /* AR7010 + AR9287, UB95 */
 	STORAGE_DEVICE = 3,
 };
 
@@ -1011,6 +1014,7 @@ enum {
 #define AR_INTR_ASYNC_USED			 (AR_INTR_MAC_IRQ | \
 						  AR_INTR_ASYNC_CAUSE_MCI)
 
+/* Asynchronous Interrupt Enable Register */
 #define AR_INTR_ASYNC_ENABLE_MCI         0x00000080
 #define AR_INTR_ASYNC_ENABLE_MCI_S       7
 
@@ -1205,10 +1209,13 @@ enum {
 #define AR_RTC_RC_COLD_RESET    0x00000004
 #define AR_RTC_RC_WARM_RESET    0x00000008
 
+/* Crystal Control */
 #define AR_RTC_XTAL_CONTROL     0x7004
 
+/* Reg Control 0 */
 #define AR_RTC_REG_CONTROL0     0x7008
 
+/* Reg Control 1 */
 #define AR_RTC_REG_CONTROL1     0x700c
 #define AR_RTC_REG_CONTROL1_SWREG_PROGRAM       0x00000001
 
@@ -1270,6 +1277,7 @@ enum {
 
 #define AR_RTC_KEEP_AWAKE	0x7034
 
+/* RTC_DERIVED_* - only for AR9100 */
 
 #define AR_RTC_DERIVED_CLK \
 	(AR_SREV_9100(ah) ? (AR_RTC_BASE + 0x0038) : 0x7038)
@@ -1377,6 +1385,7 @@ enum {
 #define AR9285_RF2G5_IC50TX_CLEAR	0x00000700
 #define AR9285_RF2G5_IC50TX_CLEAR_S	8
 
+/* AR9271 : 0x7828, 0x782c different setting from AR9285 */
 #define AR9271_AN_RF2G3_OB_cck		0x001C0000
 #define AR9271_AN_RF2G3_OB_cck_S	18
 #define AR9271_AN_RF2G3_OB_psk		0x00038000
@@ -1462,6 +1471,7 @@ enum {
 #define AR9287_AN_TOP2_XPABIAS_LVL      0xC0000000
 #define AR9287_AN_TOP2_XPABIAS_LVL_S    30
 
+/* AR9271 specific stuff */
 #define AR9271_RESET_POWER_DOWN_CONTROL		0x50044
 #define AR9271_RADIO_RF_RST			0x20
 #define AR9271_GATE_MAC_CTL			0x4000
@@ -1529,13 +1539,22 @@ enum {
 #define AR_MCAST_FIL0       0x8040
 #define AR_MCAST_FIL1       0x8044
 
+/*
+ * AR_DIAG_SW - Register which can be used for diagnostics and testing purposes.
+ *
+ * The force RX abort (AR_DIAG_RX_ABORT, bit 25) can be used in conjunction with
+ * RX block (AR_DIAG_RX_DIS, bit 5) to help fast channel change to shut down
+ * receive. The force RX abort bit will kill any frame which is currently being
+ * transferred between the MAC and baseband. The RX block bit (AR_DIAG_RX_DIS)
+ * will prevent any new frames from getting started.
+ */
 #define AR_DIAG_SW                  0x8048
 #define AR_DIAG_CACHE_ACK           0x00000001
 #define AR_DIAG_ACK_DIS             0x00000002
 #define AR_DIAG_CTS_DIS             0x00000004
 #define AR_DIAG_ENCRYPT_DIS         0x00000008
 #define AR_DIAG_DECRYPT_DIS         0x00000010
-#define AR_DIAG_RX_DIS              0x00000020 
+#define AR_DIAG_RX_DIS              0x00000020 /* RX block */
 #define AR_DIAG_LOOP_BACK           0x00000040
 #define AR_DIAG_CORR_FCS            0x00000080
 #define AR_DIAG_CHAN_INFO           0x00000100
@@ -1546,12 +1565,12 @@ enum {
 #define AR_DIAG_OBS_PT_SEL1_S       18
 #define AR_DIAG_OBS_PT_SEL2         0x08000000
 #define AR_DIAG_OBS_PT_SEL2_S       27
-#define AR_DIAG_FORCE_RX_CLEAR      0x00100000 
+#define AR_DIAG_FORCE_RX_CLEAR      0x00100000 /* force rx_clear high */
 #define AR_DIAG_IGNORE_VIRT_CS      0x00200000
 #define AR_DIAG_FORCE_CH_IDLE_HIGH  0x00400000
 #define AR_DIAG_EIFS_CTRL_ENA       0x00800000
 #define AR_DIAG_DUAL_CHAIN_INFO     0x01000000
-#define AR_DIAG_RX_ABORT            0x02000000 
+#define AR_DIAG_RX_ABORT            0x02000000 /* Force RX abort */
 #define AR_DIAG_SATURATE_CYCLE_CNT  0x04000000
 #define AR_DIAG_OBS_PT_SEL2         0x08000000
 #define AR_DIAG_RX_CLEAR_CTL_LOW    0x10000000
@@ -1887,29 +1906,39 @@ enum {
 #define AR_RATE_DURATION(_n)    (AR_RATE_DURATION_0 + ((_n)<<2))
 
 
-#define AR9271_CORE_CLOCK	117   
-#define AR9271_TARGET_BAUD_RATE	19200 
+#define AR9271_CORE_CLOCK	117   /* clock to 117Mhz */
+#define AR9271_TARGET_BAUD_RATE	19200 /* 115200 */
 
-#define AR_AGG_WEP_ENABLE_FIX		0x00000008  
-#define AR_ADHOC_MCAST_KEYID_ENABLE     0x00000040  
-#define AR_AGG_WEP_ENABLE               0x00020000  
+#define AR_AGG_WEP_ENABLE_FIX		0x00000008  /* This allows the use of AR_AGG_WEP_ENABLE */
+#define AR_ADHOC_MCAST_KEYID_ENABLE     0x00000040  /* This bit enables the Multicast search
+						     * based on both MAC Address and Key ID.
+						     * If bit is 0, then Multicast search is
+						     * based on MAC address only.
+						     * For Merlin and above only.
+						     */
+#define AR_AGG_WEP_ENABLE               0x00020000  /* This field enables AGG_WEP feature,
+						     * when it is enable, AGG_WEP would takes
+						     * charge of the encryption interface of
+						     * pcu_txsm.
+						     */
 
 #define AR9300_SM_BASE				0xa200
 #define AR9002_PHY_AGC_CONTROL			0x9860
 #define AR9003_PHY_AGC_CONTROL			AR9300_SM_BASE + 0xc4
 #define AR_PHY_AGC_CONTROL			(AR_SREV_9300_20_OR_LATER(ah) ? AR9003_PHY_AGC_CONTROL : AR9002_PHY_AGC_CONTROL)
-#define AR_PHY_AGC_CONTROL_CAL			0x00000001  
-#define AR_PHY_AGC_CONTROL_NF			0x00000002  
-#define AR_PHY_AGC_CONTROL_OFFSET_CAL		0x00000800  
-#define AR_PHY_AGC_CONTROL_ENABLE_NF		0x00008000  
-#define AR_PHY_AGC_CONTROL_FLTR_CAL		0x00010000  
-#define AR_PHY_AGC_CONTROL_NO_UPDATE_NF		0x00020000  
-#define AR_PHY_AGC_CONTROL_EXT_NF_PWR_MEAS	0x00040000  
-#define AR_PHY_AGC_CONTROL_CLC_SUCCESS		0x00080000  
+#define AR_PHY_AGC_CONTROL_CAL			0x00000001  /* do internal calibration */
+#define AR_PHY_AGC_CONTROL_NF			0x00000002  /* do noise-floor calibration */
+#define AR_PHY_AGC_CONTROL_OFFSET_CAL		0x00000800  /* allow offset calibration */
+#define AR_PHY_AGC_CONTROL_ENABLE_NF		0x00008000  /* enable noise floor calibration to happen */
+#define AR_PHY_AGC_CONTROL_FLTR_CAL		0x00010000  /* allow tx filter calibration */
+#define AR_PHY_AGC_CONTROL_NO_UPDATE_NF		0x00020000  /* don't update noise floor automatically */
+#define AR_PHY_AGC_CONTROL_EXT_NF_PWR_MEAS	0x00040000  /* extend noise floor power measurement */
+#define AR_PHY_AGC_CONTROL_CLC_SUCCESS		0x00080000  /* carrier leak calibration done */
 #define AR_PHY_AGC_CONTROL_PKDET_CAL		0x00100000
 #define AR_PHY_AGC_CONTROL_YCOK_MAX		0x000003c0
 #define AR_PHY_AGC_CONTROL_YCOK_MAX_S		6
 
+/* MCI Registers */
 
 #define AR_MCI_COMMAND0				0x1800
 #define AR_MCI_COMMAND0_HEADER			0xFF
@@ -1934,6 +1963,7 @@ enum {
 #define AR_MCI_RX_CTRL				0x180c
 
 #define AR_MCI_TX_CTRL				0x1810
+/* 0 = no division, 1 = divide by 2, 2 = divide by 4, 3 = divide by 8 */
 #define AR_MCI_TX_CTRL_CLK_DIV			0x03
 #define AR_MCI_TX_CTRL_CLK_DIV_S		0
 #define AR_MCI_TX_CTRL_DISABLE_LNA_UPDATE	0x04

@@ -64,6 +64,9 @@
 
 
 
+/*******************************************************************************
+ *  function protoypes
+ ******************************************************************************/
 
 void wl_adapter_insert(struct pcmcia_device *link);
 
@@ -83,4 +86,4 @@ const char *DbgEvent( int mask );
 
 
 
-#endif  
+#endif  // __WL_CS_H__

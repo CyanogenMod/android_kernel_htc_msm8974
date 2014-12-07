@@ -37,4 +37,4 @@ struct isp_device;
 int omap3isp_hist_init(struct isp_device *isp);
 void omap3isp_hist_cleanup(struct isp_device *isp);
 
-#endif 
+#endif /* OMAP3_ISP_HIST */

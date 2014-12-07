@@ -31,6 +31,14 @@
 #include "check.h"
 #include "msdos.h"
 
+/**
+ * ldm_debug/info/error/crit - Output an error message
+ * @f:    A printf format string containing the message
+ * @...:  Variables to substitute into @f
+ *
+ * ldm_debug() writes a DEBUG level message to the syslog but only if the
+ * driver was compiled with debug enabled. Otherwise, the call turns into a NOP.
+ */
 #ifndef CONFIG_LDM_DEBUG
 #define ldm_debug(...)	do {} while (0)
 #else
@@ -57,17 +65,26 @@ void _ldm_printk(const char *level, const char *function, const char *fmt, ...)
 	va_end(args);
 }
 
+/**
+ * ldm_parse_hexbyte - Convert a ASCII hex number to a byte
+ * @src:  Pointer to at least 2 characters to convert.
+ *
+ * Convert a two character ASCII hex string to a number.
+ *
+ * Return:  0-255  Success, the byte was parsed correctly
+ *          -1     Error, an invalid character was supplied
+ */
 static int ldm_parse_hexbyte (const u8 *src)
 {
-	unsigned int x;		
+	unsigned int x;		/* For correct wrapping */
 	int h;
 
-	
+	/* high part */
 	x = h = hex_to_bin(src[0]);
 	if (h < 0)
 		return -1;
 
-	
+	/* low part */
 	h = hex_to_bin(src[1]);
 	if (h < 0)
 		return -1;
@@ -75,6 +92,16 @@ static int ldm_parse_hexbyte (const u8 *src)
 	return (x << 4) + h;
 }
 
+/**
+ * ldm_parse_guid - Convert GUID from ASCII to binary
+ * @src:   36 char string of the form fa50ff2b-f2e8-45de-83fa-65417f2f49ba
+ * @dest:  Memory block to hold binary GUID (16 bytes)
+ *
+ * N.B. The GUID need not be NULL terminated.
+ *
+ * Return:  'true'   @dest contains binary GUID
+ *          'false'  @dest contents are undefined
+ */
 static bool ldm_parse_guid (const u8 *src, u8 *dest)
 {
 	static const int size[] = { 4, 2, 2, 2, 6 };
@@ -92,6 +119,17 @@ static bool ldm_parse_guid (const u8 *src, u8 *dest)
 	return true;
 }
 
+/**
+ * ldm_parse_privhead - Read the LDM Database PRIVHEAD structure
+ * @data:  Raw database PRIVHEAD structure loaded from the device
+ * @ph:    In-memory privhead structure in which to return parsed information
+ *
+ * This parses the LDM database PRIVHEAD structure supplied in @data and
+ * sets up the in-memory privhead structure @ph with the obtained information.
+ *
+ * Return:  'true'   @ph contains the PRIVHEAD data
+ *          'false'  @ph contents are undefined
+ */
 static bool ldm_parse_privhead(const u8 *data, struct privhead *ph)
 {
 	bool is_vista = false;
@@ -108,7 +146,7 @@ static bool ldm_parse_privhead(const u8 *data, struct privhead *ph)
 	ph->logical_disk_size = get_unaligned_be64(data + 0x0123);
 	ph->config_start = get_unaligned_be64(data + 0x012B);
 	ph->config_size = get_unaligned_be64(data + 0x0133);
-	
+	/* Version 2.11 is Win2k/XP and version 2.12 is Vista. */
 	if (ph->ver_major == 2 && ph->ver_minor == 12)
 		is_vista = true;
 	if (!is_vista && (ph->ver_major != 2 || ph->ver_minor != 11)) {
@@ -118,8 +156,8 @@ static bool ldm_parse_privhead(const u8 *data, struct privhead *ph)
 	}
 	ldm_debug("PRIVHEAD version %d.%d (Windows %s).", ph->ver_major,
 			ph->ver_minor, is_vista ? "Vista" : "2000/XP");
-	if (ph->config_size != LDM_DB_SIZE) {	
-		
+	if (ph->config_size != LDM_DB_SIZE) {	/* 1 MiB in sectors. */
+		/* Warn the user and continue, carefully. */
 		ldm_info("Database is normally %u bytes, it claims to "
 			"be %llu bytes.", LDM_DB_SIZE,
 			(unsigned long long)ph->config_size);
@@ -137,6 +175,20 @@ static bool ldm_parse_privhead(const u8 *data, struct privhead *ph)
 	return true;
 }
 
+/**
+ * ldm_parse_tocblock - Read the LDM Database TOCBLOCK structure
+ * @data:  Raw database TOCBLOCK structure loaded from the device
+ * @toc:   In-memory toc structure in which to return parsed information
+ *
+ * This parses the LDM Database TOCBLOCK (table of contents) structure supplied
+ * in @data and sets up the in-memory tocblock structure @toc with the obtained
+ * information.
+ *
+ * N.B.  The *_start and *_size values returned in @toc are not range-checked.
+ *
+ * Return:  'true'   @toc contains the TOCBLOCK data
+ *          'false'  @toc contents are undefined
+ */
 static bool ldm_parse_tocblock (const u8 *data, struct tocblock *toc)
 {
 	BUG_ON (!data || !toc);
@@ -170,6 +222,19 @@ static bool ldm_parse_tocblock (const u8 *data, struct tocblock *toc)
 	return true;
 }
 
+/**
+ * ldm_parse_vmdb - Read the LDM Database VMDB structure
+ * @data:  Raw database VMDB structure loaded from the device
+ * @vm:    In-memory vmdb structure in which to return parsed information
+ *
+ * This parses the LDM Database VMDB structure supplied in @data and sets up
+ * the in-memory vmdb structure @vm with the obtained information.
+ *
+ * N.B.  The *_start, *_size and *_seq values will be range-checked later.
+ *
+ * Return:  'true'   @vm contains VMDB info
+ *          'false'  @vm contents are undefined
+ */
 static bool ldm_parse_vmdb (const u8 *data, struct vmdb *vm)
 {
 	BUG_ON (!data || !vm);
@@ -200,6 +265,16 @@ static bool ldm_parse_vmdb (const u8 *data, struct vmdb *vm)
 	return true;
 }
 
+/**
+ * ldm_compare_privheads - Compare two privhead objects
+ * @ph1:  First privhead
+ * @ph2:  Second privhead
+ *
+ * This compares the two privhead structures @ph1 and @ph2.
+ *
+ * Return:  'true'   Identical
+ *          'false'  Different
+ */
 static bool ldm_compare_privheads (const struct privhead *ph1,
 				   const struct privhead *ph2)
 {
@@ -214,6 +289,16 @@ static bool ldm_compare_privheads (const struct privhead *ph1,
 		!memcmp (ph1->disk_id, ph2->disk_id, GUID_SIZE));
 }
 
+/**
+ * ldm_compare_tocblocks - Compare two tocblock objects
+ * @toc1:  First toc
+ * @toc2:  Second toc
+ *
+ * This compares the two tocblock structures @toc1 and @toc2.
+ *
+ * Return:  'true'   Identical
+ *          'false'  Different
+ */
 static bool ldm_compare_tocblocks (const struct tocblock *toc1,
 				   const struct tocblock *toc2)
 {
@@ -229,6 +314,20 @@ static bool ldm_compare_tocblocks (const struct tocblock *toc1,
 			sizeof (toc1->bitmap2_name)));
 }
 
+/**
+ * ldm_validate_privheads - Compare the primary privhead with its backups
+ * @state: Partition check state including device holding the LDM Database
+ * @ph1:   Memory struct to fill with ph contents
+ *
+ * Read and compare all three privheads from disk.
+ *
+ * The privheads on disk show the size and location of the main disk area and
+ * the configuration area (the database).  The values are range-checked against
+ * @hd, which contains the real size of the disk.
+ *
+ * Return:  'true'   Success
+ *          'false'  Error
+ */
 static bool ldm_validate_privheads(struct parsed_partitions *state,
 				   struct privhead *ph1)
 {
@@ -249,10 +348,10 @@ static bool ldm_validate_privheads(struct parsed_partitions *state,
 		goto out;
 	}
 
-	
+	/* off[1 & 2] are relative to ph[0]->config_start */
 	ph[0]->config_start = 0;
 
-	
+	/* Read and parse privheads */
 	for (i = 0; i < 3; i++) {
 		data = read_part_sector(state, ph[0]->config_start + off[i],
 					&sect);
@@ -263,11 +362,11 @@ static bool ldm_validate_privheads(struct parsed_partitions *state,
 		result = ldm_parse_privhead (data, ph[i]);
 		put_dev_sector (sect);
 		if (!result) {
-			ldm_error ("Cannot find PRIVHEAD %d.", i+1); 
+			ldm_error ("Cannot find PRIVHEAD %d.", i+1); /* Log again */
 			if (i < 2)
-				goto out;	
+				goto out;	/* Already logged */
 			else
-				break;	
+				break;	/* FIXME ignore for now, 3rd PH can fail on odd-sized disks */
 		}
 	}
 
@@ -290,6 +389,11 @@ static bool ldm_validate_privheads(struct parsed_partitions *state,
 		ldm_crit ("Primary and backup PRIVHEADs don't match.");
 		goto out;
 	}
+	/* FIXME ignore this for now
+	if (!ldm_compare_privheads (ph[0], ph[2])) {
+		ldm_crit ("Primary and backup PRIVHEADs don't match.");
+		goto out;
+	}*/
 	ldm_debug ("Validated PRIVHEADs successfully.");
 	result = true;
 out:
@@ -298,6 +402,20 @@ out:
 	return result;
 }
 
+/**
+ * ldm_validate_tocblocks - Validate the table of contents and its backups
+ * @state: Partition check state including device holding the LDM Database
+ * @base:  Offset, into @state->bdev, of the database
+ * @ldb:   Cache of the database structures
+ *
+ * Find and compare the four tables of contents of the LDM Database stored on
+ * @state->bdev and return the parsed information into @toc1.
+ *
+ * The offsets and sizes of the configs are range-checked against a privhead.
+ *
+ * Return:  'true'   @toc1 contains validated TOCBLOCK info
+ *          'false'  @toc1 contents are undefined
+ */
 static bool ldm_validate_tocblocks(struct parsed_partitions *state,
 				   unsigned long base, struct ldmdb *ldb)
 {
@@ -319,6 +437,12 @@ static bool ldm_validate_tocblocks(struct parsed_partitions *state,
 	}
 	tb[2] = (struct tocblock*)((u8*)tb[1] + sizeof(*tb[1]));
 	tb[3] = (struct tocblock*)((u8*)tb[2] + sizeof(*tb[2]));
+	/*
+	 * Try to read and parse all four TOCBLOCKs.
+	 *
+	 * Windows Vista LDM v2.12 does not always have all four TOCBLOCKs so
+	 * skip any that fail as long as we get at least one valid TOCBLOCK.
+	 */
 	for (nr_tbs = i = 0; i < 4; i++) {
 		data = read_part_sector(state, base + off[i], &sect);
 		if (!data) {
@@ -333,14 +457,14 @@ static bool ldm_validate_tocblocks(struct parsed_partitions *state,
 		ldm_crit("Failed to find a valid TOCBLOCK.");
 		goto err;
 	}
-	
+	/* Range check the TOCBLOCK against a privhead. */
 	if (((tb[0]->bitmap1_start + tb[0]->bitmap1_size) > ph->config_size) ||
 			((tb[0]->bitmap2_start + tb[0]->bitmap2_size) >
 			ph->config_size)) {
 		ldm_crit("The bitmaps are out of range.  Giving up.");
 		goto err;
 	}
-	
+	/* Compare all loaded TOCBLOCKs. */
 	for (i = 1; i < nr_tbs; i++) {
 		if (!ldm_compare_tocblocks(tb[0], tb[i])) {
 			ldm_crit("TOCBLOCKs 0 and %d do not match.", i);
@@ -354,6 +478,18 @@ err:
 	return result;
 }
 
+/**
+ * ldm_validate_vmdb - Read the VMDB and validate it
+ * @state: Partition check state including device holding the LDM Database
+ * @base:  Offset, into @bdev, of the database
+ * @ldb:   Cache of the database structures
+ *
+ * Find the vmdb of the LDM Database stored on @bdev and return the parsed
+ * information in @ldb.
+ *
+ * Return:  'true'   @ldb contains validated VBDB info
+ *          'false'  @ldb contents are undefined
+ */
 static bool ldm_validate_vmdb(struct parsed_partitions *state,
 			      unsigned long base, struct ldmdb *ldb)
 {
@@ -375,9 +511,9 @@ static bool ldm_validate_vmdb(struct parsed_partitions *state,
 	}
 
 	if (!ldm_parse_vmdb (data, vm))
-		goto out;				
+		goto out;				/* Already logged */
 
-	
+	/* Are there uncommitted transactions? */
 	if (get_unaligned_be16(data + 0x10) != 0x01) {
 		ldm_crit ("Database is not in a consistent state.  Aborting.");
 		goto out;
@@ -386,6 +522,10 @@ static bool ldm_validate_vmdb(struct parsed_partitions *state,
 	if (vm->vblk_offset != 512)
 		ldm_info ("VBLKs start at offset 0x%04x.", vm->vblk_offset);
 
+	/*
+	 * The last_vblkd_seq can be before the end of the vmdb, just make sure
+	 * it is not out of bounds.
+	 */
 	if ((vm->vblk_size * vm->last_vblk_seq) > (toc->bitmap1_size << 9)) {
 		ldm_crit ("VMDB exceeds allowed size specified by TOCBLOCK.  "
 				"Database is corrupt.  Aborting.");
@@ -399,6 +539,22 @@ out:
 }
 
 
+/**
+ * ldm_validate_partition_table - Determine whether bdev might be a dynamic disk
+ * @state: Partition check state including device holding the LDM Database
+ *
+ * This function provides a weak test to decide whether the device is a dynamic
+ * disk or not.  It looks for an MS-DOS-style partition table containing at
+ * least one partition of type 0x42 (formerly SFS, now used by Windows for
+ * dynamic disks).
+ *
+ * N.B.  The only possible error can come from the read_part_sector and that is
+ *       only likely to happen if the underlying device is strange.  If that IS
+ *       the case we should return zero to let someone else try.
+ *
+ * Return:  'true'   @state->bdev is a dynamic disk
+ *          'false'  @state->bdev is not a dynamic disk, or an error occurred
+ */
 static bool ldm_validate_partition_table(struct parsed_partitions *state)
 {
 	Sector sect;
@@ -433,6 +589,18 @@ out:
 	return result;
 }
 
+/**
+ * ldm_get_disk_objid - Search a linked list of vblk's for a given Disk Id
+ * @ldb:  Cache of the database structures
+ *
+ * The LDM Database contains a list of all partitions on all dynamic disks.
+ * The primary PRIVHEAD, at the beginning of the physical disk, tells us
+ * the GUID of this disk.  This function searches for the GUID in a linked
+ * list of vblk's.
+ *
+ * Return:  Pointer, A matching vblk was found
+ *          NULL,    No match, or an error
+ */
 static struct vblk * ldm_get_disk_objid (const struct ldmdb *ldb)
 {
 	struct list_head *item;
@@ -448,6 +616,23 @@ static struct vblk * ldm_get_disk_objid (const struct ldmdb *ldb)
 	return NULL;
 }
 
+/**
+ * ldm_create_data_partitions - Create data partitions for this device
+ * @pp:   List of the partitions parsed so far
+ * @ldb:  Cache of the database structures
+ *
+ * The database contains ALL the partitions for ALL disk groups, so we need to
+ * filter out this specific disk. Using the disk's object id, we can find all
+ * the partitions in the database that belong to this disk.
+ *
+ * Add each partition in our database, to the parsed_partitions structure.
+ *
+ * N.B.  This function creates the partitions in the order it finds partition
+ *       objects in the linked list.
+ *
+ * Return:  'true'   Partition created
+ *          'false'  Error, probably a range checking problem
+ */
 static bool ldm_create_data_partitions (struct parsed_partitions *pp,
 					const struct ldmdb *ldb)
 {
@@ -467,7 +652,7 @@ static bool ldm_create_data_partitions (struct parsed_partitions *pp,
 
 	strlcat(pp->pp_buf, " [LDM]", PAGE_SIZE);
 
-	
+	/* Create the data partitions */
 	list_for_each (item, &ldb->v_part) {
 		vb = list_entry (item, struct vblk, list);
 		part = &vb->vblk.part;
@@ -485,6 +670,20 @@ static bool ldm_create_data_partitions (struct parsed_partitions *pp,
 }
 
 
+/**
+ * ldm_relative - Calculate the next relative offset
+ * @buffer:  Block of data being worked on
+ * @buflen:  Size of the block of data
+ * @base:    Size of the previous fixed width fields
+ * @offset:  Cumulative size of the previous variable-width fields
+ *
+ * Because many of the VBLK fields are variable-width, it's necessary
+ * to calculate each offset based on the previous one and the length
+ * of the field it pointed to.
+ *
+ * Return:  -1 Error, the calculated offset exceeded the size of the buffer
+ *           n OK, a range-checked offset into buffer
+ */
 static int ldm_relative(const u8 *buffer, int buflen, int base, int offset)
 {
 
@@ -506,6 +705,21 @@ static int ldm_relative(const u8 *buffer, int buflen, int base, int offset)
 	return buffer[base] + offset + 1;
 }
 
+/**
+ * ldm_get_vnum - Convert a variable-width, big endian number, into cpu order
+ * @block:  Pointer to the variable-width number to convert
+ *
+ * Large numbers in the LDM Database are often stored in a packed format.  Each
+ * number is prefixed by a one byte width marker.  All numbers in the database
+ * are stored in big-endian byte order.  This function reads one of these
+ * numbers and returns the result
+ *
+ * N.B.  This function DOES NOT perform any range checking, though the most
+ *       it will read is eight bytes.
+ *
+ * Return:  n A number
+ *          0 Zero, or an error occurred
+ */
 static u64 ldm_get_vnum (const u8 *block)
 {
 	u64 tmp = 0;
@@ -524,6 +738,23 @@ static u64 ldm_get_vnum (const u8 *block)
 	return tmp;
 }
 
+/**
+ * ldm_get_vstr - Read a length-prefixed string into a buffer
+ * @block:   Pointer to the length marker
+ * @buffer:  Location to copy string to
+ * @buflen:  Size of the output buffer
+ *
+ * Many of the strings in the LDM Database are not NULL terminated.  Instead
+ * they are prefixed by a one byte length marker.  This function copies one of
+ * these strings into a buffer.
+ *
+ * N.B.  This function DOES NOT perform any range checking on the input.
+ *       If the buffer is too small, the output will be truncated.
+ *
+ * Return:  0, Error and @buffer contents are undefined
+ *          n, String length in characters (excluding NULL)
+ *          buflen-1, String was truncated.
+ */
 static int ldm_get_vstr (const u8 *block, u8 *buffer, int buflen)
 {
 	int length;
@@ -541,6 +772,17 @@ static int ldm_get_vstr (const u8 *block, u8 *buffer, int buflen)
 }
 
 
+/**
+ * ldm_parse_cmp3 - Read a raw VBLK Component object into a vblk structure
+ * @buffer:  Block of data being worked on
+ * @buflen:  Size of the block of data
+ * @vb:      In-memory vblk in which to return information
+ *
+ * Read a raw VBLK Component object (version 3) into a vblk structure.
+ *
+ * Return:  'true'   @vb contains a Component VBLK
+ *          'false'  @vb contents are not defined
+ */
 static bool ldm_parse_cmp3 (const u8 *buffer, int buflen, struct vblk *vb)
 {
 	int r_objid, r_name, r_vstate, r_child, r_parent, r_stripe, r_cols, len;
@@ -581,6 +823,17 @@ static bool ldm_parse_cmp3 (const u8 *buffer, int buflen, struct vblk *vb)
 	return true;
 }
 
+/**
+ * ldm_parse_dgr3 - Read a raw VBLK Disk Group object into a vblk structure
+ * @buffer:  Block of data being worked on
+ * @buflen:  Size of the block of data
+ * @vb:      In-memory vblk in which to return information
+ *
+ * Read a raw VBLK Disk Group object (version 3) into a vblk structure.
+ *
+ * Return:  'true'   @vb contains a Disk Group VBLK
+ *          'false'  @vb contents are not defined
+ */
 static int ldm_parse_dgr3 (const u8 *buffer, int buflen, struct vblk *vb)
 {
 	int r_objid, r_name, r_diskid, r_id1, r_id2, len;
@@ -614,6 +867,17 @@ static int ldm_parse_dgr3 (const u8 *buffer, int buflen, struct vblk *vb)
 	return true;
 }
 
+/**
+ * ldm_parse_dgr4 - Read a raw VBLK Disk Group object into a vblk structure
+ * @buffer:  Block of data being worked on
+ * @buflen:  Size of the block of data
+ * @vb:      In-memory vblk in which to return information
+ *
+ * Read a raw VBLK Disk Group object (version 4) into a vblk structure.
+ *
+ * Return:  'true'   @vb contains a Disk Group VBLK
+ *          'false'  @vb contents are not defined
+ */
 static bool ldm_parse_dgr4 (const u8 *buffer, int buflen, struct vblk *vb)
 {
 	char buf[64];
@@ -647,6 +911,17 @@ static bool ldm_parse_dgr4 (const u8 *buffer, int buflen, struct vblk *vb)
 	return true;
 }
 
+/**
+ * ldm_parse_dsk3 - Read a raw VBLK Disk object into a vblk structure
+ * @buffer:  Block of data being worked on
+ * @buflen:  Size of the block of data
+ * @vb:      In-memory vblk in which to return information
+ *
+ * Read a raw VBLK Disk object (version 3) into a vblk structure.
+ *
+ * Return:  'true'   @vb contains a Disk VBLK
+ *          'false'  @vb contents are not defined
+ */
 static bool ldm_parse_dsk3 (const u8 *buffer, int buflen, struct vblk *vb)
 {
 	int r_objid, r_name, r_diskid, r_altname, len;
@@ -675,6 +950,17 @@ static bool ldm_parse_dsk3 (const u8 *buffer, int buflen, struct vblk *vb)
 	return true;
 }
 
+/**
+ * ldm_parse_dsk4 - Read a raw VBLK Disk object into a vblk structure
+ * @buffer:  Block of data being worked on
+ * @buflen:  Size of the block of data
+ * @vb:      In-memory vblk in which to return information
+ *
+ * Read a raw VBLK Disk object (version 4) into a vblk structure.
+ *
+ * Return:  'true'   @vb contains a Disk VBLK
+ *          'false'  @vb contents are not defined
+ */
 static bool ldm_parse_dsk4 (const u8 *buffer, int buflen, struct vblk *vb)
 {
 	int r_objid, r_name, len;
@@ -697,6 +983,17 @@ static bool ldm_parse_dsk4 (const u8 *buffer, int buflen, struct vblk *vb)
 	return true;
 }
 
+/**
+ * ldm_parse_prt3 - Read a raw VBLK Partition object into a vblk structure
+ * @buffer:  Block of data being worked on
+ * @buflen:  Size of the block of data
+ * @vb:      In-memory vblk in which to return information
+ *
+ * Read a raw VBLK Partition object (version 3) into a vblk structure.
+ *
+ * Return:  'true'   @vb contains a Partition VBLK
+ *          'false'  @vb contents are not defined
+ */
 static bool ldm_parse_prt3(const u8 *buffer, int buflen, struct vblk *vb)
 {
 	int r_objid, r_name, r_size, r_parent, r_diskid, r_index, len;
@@ -762,6 +1059,17 @@ static bool ldm_parse_prt3(const u8 *buffer, int buflen, struct vblk *vb)
 	return true;
 }
 
+/**
+ * ldm_parse_vol5 - Read a raw VBLK Volume object into a vblk structure
+ * @buffer:  Block of data being worked on
+ * @buflen:  Size of the block of data
+ * @vb:      In-memory vblk in which to return information
+ *
+ * Read a raw VBLK Volume object (version 5) into a vblk structure.
+ *
+ * Return:  'true'   @vb contains a Volume VBLK
+ *          'false'  @vb contents are not defined
+ */
 static bool ldm_parse_vol5(const u8 *buffer, int buflen, struct vblk *vb)
 {
 	int r_objid, r_name, r_vtype, r_disable_drive_letter, r_child, r_size;
@@ -858,6 +1166,19 @@ static bool ldm_parse_vol5(const u8 *buffer, int buflen, struct vblk *vb)
 	return true;
 }
 
+/**
+ * ldm_parse_vblk - Read a raw VBLK object into a vblk structure
+ * @buf:  Block of data being worked on
+ * @len:  Size of the block of data
+ * @vb:   In-memory vblk in which to return information
+ *
+ * Read a raw VBLK object into a vblk structure.  This function just reads the
+ * information common to all VBLK types, then delegates the rest of the work to
+ * helper functions: ldm_parse_*.
+ *
+ * Return:  'true'   @vb contains a VBLK
+ *          'false'  @vb contents are not defined
+ */
 static bool ldm_parse_vblk (const u8 *buf, int len, struct vblk *vb)
 {
 	bool result = false;
@@ -897,6 +1218,19 @@ static bool ldm_parse_vblk (const u8 *buf, int len, struct vblk *vb)
 }
 
 
+/**
+ * ldm_ldmdb_add - Adds a raw VBLK entry to the ldmdb database
+ * @data:  Raw VBLK to add to the database
+ * @len:   Size of the raw VBLK
+ * @ldb:   Cache of the database structures
+ *
+ * The VBLKs are sorted into categories.  Partitions are also sorted by offset.
+ *
+ * N.B.  This function does not check the validity of the VBLKs.
+ *
+ * Return:  'true'   The VBLK was added
+ *          'false'  An error occurred
+ */
 static bool ldm_ldmdb_add (u8 *data, int len, struct ldmdb *ldb)
 {
 	struct vblk *vb;
@@ -912,10 +1246,10 @@ static bool ldm_ldmdb_add (u8 *data, int len, struct ldmdb *ldb)
 
 	if (!ldm_parse_vblk (data, len, vb)) {
 		kfree(vb);
-		return false;			
+		return false;			/* Already logged */
 	}
 
-	
+	/* Put vblk into the correct list. */
 	switch (vb->type) {
 	case VBLK_DGR3:
 	case VBLK_DGR4:
@@ -932,7 +1266,7 @@ static bool ldm_ldmdb_add (u8 *data, int len, struct ldmdb *ldb)
 		list_add (&vb->list, &ldb->v_comp);
 		break;
 	case VBLK_PRT3:
-		
+		/* Sort by the partition's start sector. */
 		list_for_each (item, &ldb->v_part) {
 			struct vblk *v = list_entry (item, struct vblk, list);
 			if ((v->vblk.part.disk_id == vb->vblk.part.disk_id) &&
@@ -947,6 +1281,18 @@ static bool ldm_ldmdb_add (u8 *data, int len, struct ldmdb *ldb)
 	return true;
 }
 
+/**
+ * ldm_frag_add - Add a VBLK fragment to a list
+ * @data:   Raw fragment to be added to the list
+ * @size:   Size of the raw fragment
+ * @frags:  Linked list of VBLK fragments
+ *
+ * Fragmented VBLKs may not be consecutive in the database, so they are placed
+ * in a list so they can be pieced together later.
+ *
+ * Return:  'true'   Success, the VBLK was added to the list
+ *          'false'  Error, a problem occurred
+ */
 static bool ldm_frag_add (const u8 *data, int size, struct list_head *frags)
 {
 	struct frag *f;
@@ -997,7 +1343,7 @@ found:
 	}
 	if (f->map & (1 << rec)) {
 		ldm_error ("Duplicate VBLK, part %d.", rec);
-		f->map &= 0x7F;			
+		f->map &= 0x7F;			/* Mark the group as broken */
 		return false;
 	}
 	f->map |= (1 << rec);
@@ -1009,6 +1355,14 @@ found:
 	return true;
 }
 
+/**
+ * ldm_frag_free - Free a linked list of VBLK fragments
+ * @list:  Linked list of fragments
+ *
+ * Free a linked list of VBLK fragments
+ *
+ * Return:  none
+ */
 static void ldm_frag_free (struct list_head *list)
 {
 	struct list_head *item, *tmp;
@@ -1019,6 +1373,17 @@ static void ldm_frag_free (struct list_head *list)
 		kfree (list_entry (item, struct frag, list));
 }
 
+/**
+ * ldm_frag_commit - Validate fragmented VBLKs and add them to the database
+ * @frags:  Linked list of VBLK fragments
+ * @ldb:    Cache of the database structures
+ *
+ * Now that all the fragmented VBLKs have been collected, they must be added to
+ * the database for later use.
+ *
+ * Return:  'true'   All the fragments we added successfully
+ *          'false'  One or more of the fragments we invalid
+ */
 static bool ldm_frag_commit (struct list_head *frags, struct ldmdb *ldb)
 {
 	struct frag *f;
@@ -1036,11 +1401,23 @@ static bool ldm_frag_commit (struct list_head *frags, struct ldmdb *ldb)
 		}
 
 		if (!ldm_ldmdb_add (f->data, f->num*ldb->vm.vblk_size, ldb))
-			return false;		
+			return false;		/* Already logged */
 	}
 	return true;
 }
 
+/**
+ * ldm_get_vblks - Read the on-disk database of VBLKs into memory
+ * @state: Partition check state including device holding the LDM Database
+ * @base:  Offset, into @state->bdev, of the database
+ * @ldb:   Cache of the database structures
+ *
+ * To use the information from the VBLKs, they need to be read from the disk,
+ * unpacked and validated.  We cache them in @ldb according to their type.
+ *
+ * Return:  'true'   All the VBLKs were read successfully
+ *          'false'  An error occurred
+ */
 static bool ldm_get_vblks(struct parsed_partitions *state, unsigned long base,
 			  struct ldmdb *ldb)
 {
@@ -1054,37 +1431,37 @@ static bool ldm_get_vblks(struct parsed_partitions *state, unsigned long base,
 
 	size   = ldb->vm.vblk_size;
 	perbuf = 512 / size;
-	skip   = ldb->vm.vblk_offset >> 9;		
+	skip   = ldb->vm.vblk_offset >> 9;		/* Bytes to sectors */
 	finish = (size * ldb->vm.last_vblk_seq) >> 9;
 
-	for (s = skip; s < finish; s++) {		
+	for (s = skip; s < finish; s++) {		/* For each sector */
 		data = read_part_sector(state, base + OFF_VMDB + s, &sect);
 		if (!data) {
 			ldm_crit ("Disk read failed.");
 			goto out;
 		}
 
-		for (v = 0; v < perbuf; v++, data+=size) {  
+		for (v = 0; v < perbuf; v++, data+=size) {  /* For each vblk */
 			if (MAGIC_VBLK != get_unaligned_be32(data)) {
 				ldm_error ("Expected to find a VBLK.");
 				goto out;
 			}
 
-			recs = get_unaligned_be16(data + 0x0E);	
+			recs = get_unaligned_be16(data + 0x0E);	/* Number of records */
 			if (recs == 1) {
 				if (!ldm_ldmdb_add (data, size, ldb))
-					goto out;	
+					goto out;	/* Already logged */
 			} else if (recs > 1) {
 				if (!ldm_frag_add (data, size, &frags))
-					goto out;	
+					goto out;	/* Already logged */
 			}
-			
+			/* else Record is not in use, ignore it. */
 		}
 		put_dev_sector (sect);
 		data = NULL;
 	}
 
-	result = ldm_frag_commit (&frags, ldb);	
+	result = ldm_frag_commit (&frags, ldb);	/* Failures, already logged */
 out:
 	if (data)
 		put_dev_sector (sect);
@@ -1093,6 +1470,14 @@ out:
 	return result;
 }
 
+/**
+ * ldm_free_vblks - Free a linked list of vblk's
+ * @lh:  Head of a linked list of struct vblk
+ *
+ * Free a list of vblk's and free the memory used to maintain the list.
+ *
+ * Return:  none
+ */
 static void ldm_free_vblks (struct list_head *lh)
 {
 	struct list_head *item, *tmp;
@@ -1104,6 +1489,23 @@ static void ldm_free_vblks (struct list_head *lh)
 }
 
 
+/**
+ * ldm_partition - Find out whether a device is a dynamic disk and handle it
+ * @state: Partition check state including device holding the LDM Database
+ *
+ * This determines whether the device @bdev is a dynamic disk and if so creates
+ * the partitions necessary in the gendisk structure pointed to by @hd.
+ *
+ * We create a dummy device 1, which contains the LDM database, and then create
+ * each partition described by the LDM database in sequence as devices 2+. For
+ * example, if the device is hda, we would have: hda1: LDM database, hda2, hda3,
+ * and so on: the actual data containing partitions.
+ *
+ * Return:  1 Success, @state->bdev is a dynamic disk and we handled it
+ *          0 Success, @state->bdev is not a dynamic disk
+ *         -1 An error occurred before enough information had been read
+ *            Or @state->bdev is a dynamic disk, but it may be corrupted
+ */
 int ldm_partition(struct parsed_partitions *state)
 {
 	struct ldmdb  *ldb;
@@ -1112,7 +1514,7 @@ int ldm_partition(struct parsed_partitions *state)
 
 	BUG_ON(!state);
 
-	
+	/* Look for signs of a Dynamic Disk */
 	if (!ldm_validate_partition_table(state))
 		return 0;
 
@@ -1122,19 +1524,19 @@ int ldm_partition(struct parsed_partitions *state)
 		goto out;
 	}
 
-	
+	/* Parse and check privheads. */
 	if (!ldm_validate_privheads(state, &ldb->ph))
-		goto out;		
+		goto out;		/* Already logged */
 
-	
+	/* All further references are relative to base (database start). */
 	base = ldb->ph.config_start;
 
-	
+	/* Parse and check tocs and vmdb. */
 	if (!ldm_validate_tocblocks(state, base, ldb) ||
 	    !ldm_validate_vmdb(state, base, ldb))
-	    	goto out;		
+	    	goto out;		/* Already logged */
 
-	
+	/* Initialize vblk lists in ldmdb struct */
 	INIT_LIST_HEAD (&ldb->v_dgrp);
 	INIT_LIST_HEAD (&ldb->v_disk);
 	INIT_LIST_HEAD (&ldb->v_volu);
@@ -1146,12 +1548,12 @@ int ldm_partition(struct parsed_partitions *state)
 		goto cleanup;
 	}
 
-	
+	/* Finally, create the data partition devices. */
 	if (ldm_create_data_partitions(state, ldb)) {
 		ldm_debug ("Parsed LDM database successfully.");
 		result = 1;
 	}
-	
+	/* else Already logged */
 
 cleanup:
 	ldm_free_vblks (&ldb->v_dgrp);

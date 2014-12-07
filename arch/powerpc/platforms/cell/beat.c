@@ -240,8 +240,8 @@ static int __init beat_register_event(void)
 			return rc;
 		}
 
-		path[0] = 0x1000000065780000ul;	
-		path[1] = 0x627574746f6e0000ul;	
+		path[0] = 0x1000000065780000ul;	/* 1,ex */
+		path[1] = 0x627574746f6e0000ul;	/* button */
 		path[2] = 0;
 		strncpy((char *)&path[2], ev->typecode, 8);
 		path[3] = 0;

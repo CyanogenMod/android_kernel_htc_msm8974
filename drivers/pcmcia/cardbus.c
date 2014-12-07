@@ -34,12 +34,22 @@ static void cardbus_config_irq_and_cls(struct pci_bus *bus, int irq)
 	list_for_each_entry(dev, &bus->devices, bus_list) {
 		u8 irq_pin;
 
+		/*
+		 * Since there is only one interrupt available to
+		 * CardBus devices, all devices downstream of this
+		 * device must be using this IRQ.
+		 */
 		pci_read_config_byte(dev, PCI_INTERRUPT_PIN, &irq_pin);
 		if (irq_pin) {
 			dev->irq = irq;
 			pci_write_config_byte(dev, PCI_INTERRUPT_LINE, dev->irq);
 		}
 
+		/*
+		 * Some controllers transfer very slowly with 0 CLS.
+		 * Configure it.  This may fail as CLS configuration
+		 * is mandatory only for MWI.
+		 */
 		pci_set_cacheline_size(dev);
 
 		if (dev->subordinate)
@@ -47,6 +57,13 @@ static void cardbus_config_irq_and_cls(struct pci_bus *bus, int irq)
 	}
 }
 
+/**
+ * cb_alloc() - add CardBus device
+ * @s:		the pcmcia_socket where the CardBus device is located
+ *
+ * cb_alloc() allocates the kernel data structures for a Cardbus device
+ * and handles the lowest level PCI device setup issues.
+ */
 int __ref cb_alloc(struct pcmcia_socket *s)
 {
 	struct pci_bus *bus = s->cb_dev->subordinate;
@@ -63,11 +80,14 @@ int __ref cb_alloc(struct pcmcia_socket *s)
 			    dev->hdr_type == PCI_HEADER_TYPE_CARDBUS)
 				max = pci_scan_bridge(bus, dev, max, pass);
 
+	/*
+	 * Size all resources below the CardBus controller.
+	 */
 	pci_bus_size_bridges(bus);
 	pci_bus_assign_resources(bus);
 	cardbus_config_irq_and_cls(bus, s->pci_irq);
 
-	
+	/* socket specific tune function */
 	if (s->tune_bridge)
 		s->tune_bridge(s, bus);
 
@@ -77,6 +97,12 @@ int __ref cb_alloc(struct pcmcia_socket *s)
 	return 0;
 }
 
+/**
+ * cb_free() - remove CardBus device
+ * @s:		the pcmcia_socket where the CardBus device was located
+ *
+ * cb_free() handles the lowest level PCI device cleanup.
+ */
 void cb_free(struct pcmcia_socket *s)
 {
 	struct pci_dev *bridge = s->cb_dev;

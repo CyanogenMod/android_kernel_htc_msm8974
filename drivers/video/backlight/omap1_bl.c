@@ -162,7 +162,7 @@ static int omapbl_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, dev);
 
-	omap_cfg_reg(PWL);	
+	omap_cfg_reg(PWL);	/* Conflicts with UART3 */
 
 	dev->props.fb_blank = FB_BLANK_UNBLANK;
 	dev->props.brightness = pdata->default_intensity;

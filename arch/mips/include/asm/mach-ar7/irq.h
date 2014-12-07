@@ -13,4 +13,4 @@
 
 #include_next <irq.h>
 
-#endif 
+#endif /* __ASM_AR7_IRQ_H */

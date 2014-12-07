@@ -31,6 +31,10 @@
 #include "clock-voter.h"
 #include "clock.h"
 
+/*
+ * Drivers need to fill in the clock names and device names for the clocks
+ * they need to control.
+ */
 static struct clk_lookup msm_clocks_8092[] = {
 	CLK_DUMMY("core_clk",   BLSP1_UART_CLK, "msm_serial_hsl.0", OFF),
 	CLK_DUMMY("iface_clk",  BLSP1_UART_CLK, "msm_serial_hsl.0", OFF),
@@ -180,7 +184,7 @@ static struct clk_lookup msm_clocks_8092[] = {
 	CLK_DUMMY("",	gcc_usb_hsic_clk.c,	"", OFF),
 	CLK_DUMMY("",	gcc_usb_hsic_io_cal_clk.c,	"", OFF),
 	CLK_DUMMY("",	gcc_usb_hsic_system_clk.c,	"", OFF),
-	
+	/* MMSS Clock Dummy */
 	CLK_DUMMY("",	axi_clk_src.c,	"", OFF),
 	CLK_DUMMY("",	mmpll0_pll_clk_src.c,	"", OFF),
 	CLK_DUMMY("",	mmpll1_pll_clk_src.c,	"", OFF),
@@ -303,7 +307,7 @@ static struct clk_lookup msm_clocks_8092[] = {
 	CLK_DUMMY("iface_clk", NULL, "fdfb6000.qcom,iommu", OFF),
 	CLK_DUMMY("core_clk", NULL, "fdfb6000.qcom,iommu", OFF),
 	CLK_DUMMY("alt_core_clk", NULL, "fdfb6000.qcom,iommu", OFF),
-	
+	/* BCSS broadcast */
 	CLK_DUMMY("",	bcc_dem_core_b_clk_src.c,	"", OFF),
 	CLK_DUMMY("",	adc_01_clk_src.c,	"", OFF),
 	CLK_DUMMY("",	bcc_adc_0_in_clk.c,	"", OFF),
@@ -333,7 +337,7 @@ static struct clk_lookup msm_clocks_8092[] = {
 	CLK_DUMMY("",	gcc_bcss_axi_clk.c,	"", OFF),
 	CLK_DUMMY("",	bcc_lnb_core_clk.c,	"", OFF),
 
-	
+	/* USB */
 	CLK_DUMMY("core_clk", NULL, "msm_otg", OFF),
 	CLK_DUMMY("iface_clk", NULL, "msm_otg", OFF),
 	CLK_DUMMY("xo", NULL, "msm_otg", OFF),

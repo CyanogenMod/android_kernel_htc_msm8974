@@ -27,10 +27,16 @@
 #include <mach/gpio-u300.h>
 #include "pinctrl-coh901.h"
 
+/*
+ * Register definitions for COH 901 335 variant
+ */
 #define U300_335_PORT_STRIDE				(0x1C)
+/* Port X Pin Data Register 32bit, this is both input and output (R/W) */
 #define U300_335_PXPDIR					(0x00)
 #define U300_335_PXPDOR					(0x00)
+/* Port X Pin Config Register 32bit (R/W) */
 #define U300_335_PXPCR					(0x04)
+/* This register layout is the same in both blocks */
 #define U300_GPIO_PXPCR_ALL_PINS_MODE_MASK		(0x0000FFFFUL)
 #define U300_GPIO_PXPCR_PIN_MODE_MASK			(0x00000003UL)
 #define U300_GPIO_PXPCR_PIN_MODE_SHIFT			(0x00000002UL)
@@ -38,24 +44,45 @@
 #define U300_GPIO_PXPCR_PIN_MODE_OUTPUT_PUSH_PULL	(0x00000001UL)
 #define U300_GPIO_PXPCR_PIN_MODE_OUTPUT_OPEN_DRAIN	(0x00000002UL)
 #define U300_GPIO_PXPCR_PIN_MODE_OUTPUT_OPEN_SOURCE	(0x00000003UL)
+/* Port X Interrupt Event Register 32bit (R/W) */
 #define U300_335_PXIEV					(0x08)
+/* Port X Interrupt Enable Register 32bit (R/W) */
 #define U300_335_PXIEN					(0x0C)
+/* Port X Interrupt Force Register 32bit (R/W) */
 #define U300_335_PXIFR					(0x10)
+/* Port X Interrupt Config Register 32bit (R/W) */
 #define U300_335_PXICR					(0x14)
+/* This register layout is the same in both blocks */
 #define U300_GPIO_PXICR_ALL_IRQ_CONFIG_MASK		(0x000000FFUL)
 #define U300_GPIO_PXICR_IRQ_CONFIG_MASK			(0x00000001UL)
 #define U300_GPIO_PXICR_IRQ_CONFIG_FALLING_EDGE		(0x00000000UL)
 #define U300_GPIO_PXICR_IRQ_CONFIG_RISING_EDGE		(0x00000001UL)
+/* Port X Pull-up Enable Register 32bit (R/W) */
 #define U300_335_PXPER					(0x18)
+/* This register layout is the same in both blocks */
 #define U300_GPIO_PXPER_ALL_PULL_UP_DISABLE_MASK	(0x000000FFUL)
 #define U300_GPIO_PXPER_PULL_UP_DISABLE			(0x00000001UL)
+/* Control Register 32bit (R/W) */
 #define U300_335_CR					(0x54)
 #define U300_335_CR_BLOCK_CLOCK_ENABLE			(0x00000001UL)
 
+/*
+ * Register definitions for COH 901 571 / 3 variant
+ */
 #define U300_571_PORT_STRIDE				(0x30)
+/*
+ * Control Register 32bit (R/W)
+ * bit 15-9 (mask 0x0000FE00) contains the number of cores. 8*cores
+ * gives the number of GPIO pins.
+ * bit 8-2  (mask 0x000001FC) contains the core version ID.
+ */
 #define U300_571_CR					(0x00)
 #define U300_571_CR_SYNC_SEL_ENABLE			(0x00000002UL)
 #define U300_571_CR_BLOCK_CLKRQ_ENABLE			(0x00000001UL)
+/*
+ * These registers have the same layout and function as the corresponding
+ * COH 901 335 registers, just at different offset.
+ */
 #define U300_571_PXPDIR					(0x04)
 #define U300_571_PXPDOR					(0x08)
 #define U300_571_PXPCR					(0x0C)
@@ -65,6 +92,7 @@
 #define U300_571_PXIFR					(0x1C)
 #define U300_571_PXICR					(0x20)
 
+/* 8 bits per port, no version has more than 7 ports */
 #define U300_GPIO_PINS_PER_PORT 8
 #define U300_GPIO_MAX (U300_GPIO_PINS_PER_PORT * 7)
 
@@ -77,7 +105,7 @@ struct u300_gpio {
 	struct device *dev;
 	int irq_base;
 	u32 stride;
-	
+	/* Register offsets */
 	u32 pcr;
 	u32 dor;
 	u32 dir;
@@ -96,9 +124,20 @@ struct u300_gpio_port {
 	u8 toggle_edge_mode;
 };
 
+/*
+ * Macro to expand to read a specific register found in the "gpio"
+ * struct. It requires the struct u300_gpio *gpio variable to exist in
+ * its context. It calculates the port offset from the given pin
+ * offset, muliplies by the port stride and adds the register offset
+ * so it provides a pointer to the desired register.
+ */
 #define U300_PIN_REG(pin, reg) \
 	(gpio->base + (pin >> 3) * gpio->stride + gpio->reg)
 
+/*
+ * Provides a bitmask for a specific gpio pin inside an 8-bit GPIO
+ * register.
+ */
 #define U300_PIN_BIT(pin) \
 	(1 << (pin & 0x07))
 
@@ -108,7 +147,9 @@ struct u300_gpio_confdata {
 	int outval;
 };
 
+/* BS335 has seven ports of 8 bits each = GPIO pins 0..55 */
 #define BS335_GPIO_NUM_PORTS 7
+/* BS365 has five ports of 8 bits each = GPIO pins 0..39 */
 #define BS365_GPIO_NUM_PORTS 5
 
 #define U300_FLOATING_INPUT { \
@@ -132,9 +173,10 @@ struct u300_gpio_confdata {
 }
 
 
+/* Initial configuration */
 static const struct __initdata u300_gpio_confdata
 bs335_gpio_config[BS335_GPIO_NUM_PORTS][U300_GPIO_PINS_PER_PORT] = {
-	
+	/* Port 0, pins 0-7 */
 	{
 		U300_FLOATING_INPUT,
 		U300_OUTPUT_HIGH,
@@ -145,7 +187,7 @@ bs335_gpio_config[BS335_GPIO_NUM_PORTS][U300_GPIO_PINS_PER_PORT] = {
 		U300_OUTPUT_LOW,
 		U300_OUTPUT_LOW,
 	},
-	
+	/* Port 1, pins 0-7 */
 	{
 		U300_OUTPUT_LOW,
 		U300_OUTPUT_LOW,
@@ -156,7 +198,7 @@ bs335_gpio_config[BS335_GPIO_NUM_PORTS][U300_GPIO_PINS_PER_PORT] = {
 		U300_OUTPUT_LOW,
 		U300_OUTPUT_LOW,
 	},
-	
+	/* Port 2, pins 0-7 */
 	{
 		U300_FLOATING_INPUT,
 		U300_FLOATING_INPUT,
@@ -167,7 +209,7 @@ bs335_gpio_config[BS335_GPIO_NUM_PORTS][U300_GPIO_PINS_PER_PORT] = {
 		U300_OUTPUT_LOW,
 		U300_PULL_UP_INPUT,
 	},
-	
+	/* Port 3, pins 0-7 */
 	{
 		U300_PULL_UP_INPUT,
 		U300_OUTPUT_LOW,
@@ -178,7 +220,7 @@ bs335_gpio_config[BS335_GPIO_NUM_PORTS][U300_GPIO_PINS_PER_PORT] = {
 		U300_FLOATING_INPUT,
 		U300_FLOATING_INPUT,
 	},
-	
+	/* Port 4, pins 0-7 */
 	{
 		U300_FLOATING_INPUT,
 		U300_FLOATING_INPUT,
@@ -189,7 +231,7 @@ bs335_gpio_config[BS335_GPIO_NUM_PORTS][U300_GPIO_PINS_PER_PORT] = {
 		U300_FLOATING_INPUT,
 		U300_FLOATING_INPUT,
 	},
-	
+	/* Port 5, pins 0-7 */
 	{
 		U300_FLOATING_INPUT,
 		U300_FLOATING_INPUT,
@@ -200,7 +242,7 @@ bs335_gpio_config[BS335_GPIO_NUM_PORTS][U300_GPIO_PINS_PER_PORT] = {
 		U300_FLOATING_INPUT,
 		U300_FLOATING_INPUT,
 	},
-	
+	/* Port 6, pind 0-7 */
 	{
 		U300_FLOATING_INPUT,
 		U300_FLOATING_INPUT,
@@ -215,7 +257,7 @@ bs335_gpio_config[BS335_GPIO_NUM_PORTS][U300_GPIO_PINS_PER_PORT] = {
 
 static const struct __initdata u300_gpio_confdata
 bs365_gpio_config[BS365_GPIO_NUM_PORTS][U300_GPIO_PINS_PER_PORT] = {
-	
+	/* Port 0, pins 0-7 */
 	{
 		U300_FLOATING_INPUT,
 		U300_OUTPUT_LOW,
@@ -226,7 +268,7 @@ bs365_gpio_config[BS365_GPIO_NUM_PORTS][U300_GPIO_PINS_PER_PORT] = {
 		U300_PULL_UP_INPUT,
 		U300_FLOATING_INPUT,
 	},
-	
+	/* Port 1, pins 0-7 */
 	{
 		U300_OUTPUT_LOW,
 		U300_FLOATING_INPUT,
@@ -237,7 +279,7 @@ bs365_gpio_config[BS365_GPIO_NUM_PORTS][U300_GPIO_PINS_PER_PORT] = {
 		U300_OUTPUT_LOW,
 		U300_OUTPUT_LOW,
 	},
-	
+	/* Port 2, pins 0-7 */
 	{
 		U300_FLOATING_INPUT,
 		U300_PULL_UP_INPUT,
@@ -248,7 +290,7 @@ bs365_gpio_config[BS365_GPIO_NUM_PORTS][U300_GPIO_PINS_PER_PORT] = {
 		U300_PULL_UP_INPUT,
 		U300_PULL_UP_INPUT,
 	},
-	
+	/* Port 3, pins 0-7 */
 	{
 		U300_PULL_UP_INPUT,
 		U300_PULL_UP_INPUT,
@@ -259,13 +301,13 @@ bs365_gpio_config[BS365_GPIO_NUM_PORTS][U300_GPIO_PINS_PER_PORT] = {
 		U300_PULL_UP_INPUT,
 		U300_PULL_UP_INPUT,
 	},
-	
+	/* Port 4, pins 0-7 */
 	{
 		U300_PULL_UP_INPUT,
 		U300_PULL_UP_INPUT,
 		U300_PULL_UP_INPUT,
 		U300_PULL_UP_INPUT,
-		
+		/* These 4 pins doesn't exist on DB3210 */
 		U300_OUTPUT_LOW,
 		U300_OUTPUT_LOW,
 		U300_OUTPUT_LOW,
@@ -273,6 +315,10 @@ bs365_gpio_config[BS365_GPIO_NUM_PORTS][U300_GPIO_PINS_PER_PORT] = {
 	}
 };
 
+/**
+ * to_u300_gpio() - get the pointer to u300_gpio
+ * @chip: the gpio chip member of the structure u300_gpio
+ */
 static inline struct u300_gpio *to_u300_gpio(struct gpio_chip *chip)
 {
 	return container_of(chip, struct u300_gpio, chip);
@@ -280,6 +326,10 @@ static inline struct u300_gpio *to_u300_gpio(struct gpio_chip *chip)
 
 static int u300_gpio_request(struct gpio_chip *chip, unsigned offset)
 {
+	/*
+	 * Map back to global GPIO space and request muxing, the direction
+	 * parameter does not matter for this controller.
+	 */
 	int gpio = chip->base + offset;
 
 	return pinctrl_request_gpio(gpio);
@@ -324,7 +374,7 @@ static int u300_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
 
 	local_irq_save(flags);
 	val = readl(U300_PIN_REG(offset, pcr));
-	
+	/* Mask out this pin, note 2 bits per setting */
 	val &= ~(U300_GPIO_PXPCR_PIN_MODE_MASK << ((offset & 0x07) << 1));
 	writel(val, U300_PIN_REG(offset, pcr));
 	local_irq_restore(flags);
@@ -341,9 +391,13 @@ static int u300_gpio_direction_output(struct gpio_chip *chip, unsigned offset,
 
 	local_irq_save(flags);
 	val = readl(U300_PIN_REG(offset, pcr));
+	/*
+	 * Drive mode must be set by the special mode set function, set
+	 * push/pull mode by default if no mode has been selected.
+	 */
 	oldmode = val & (U300_GPIO_PXPCR_PIN_MODE_MASK <<
 			 ((offset & 0x07) << 1));
-	
+	/* mode = 0 means input, else some mode is already set */
 	if (oldmode == 0) {
 		val &= ~(U300_GPIO_PXPCR_PIN_MODE_MASK <<
 			 ((offset & 0x07) << 1));
@@ -366,6 +420,7 @@ static int u300_gpio_to_irq(struct gpio_chip *chip, unsigned offset)
 	return retirq;
 }
 
+/* Returning -EINVAL means "supported but not available" */
 int u300_gpio_config_get(struct gpio_chip *chip,
 			 unsigned offset,
 			 unsigned long *config)
@@ -375,10 +430,10 @@ int u300_gpio_config_get(struct gpio_chip *chip,
 	bool biasmode;
 	u32 drmode;
 
-	
+	/* One bit per pin, clamp to bool range */
 	biasmode = !!(readl(U300_PIN_REG(offset, per)) & U300_PIN_BIT(offset));
 
-	
+	/* Mask out the two bits for this pin and shift to bits 0,1 */
 	drmode = readl(U300_PIN_REG(offset, pcr));
 	drmode &= (U300_GPIO_PXPCR_PIN_MODE_MASK << ((offset & 0x07) << 1));
 	drmode >>= ((offset & 0x07) << 1);
@@ -493,14 +548,14 @@ static void u300_toggle_trigger(struct u300_gpio *gpio, unsigned offset)
 	u32 val;
 
 	val = readl(U300_PIN_REG(offset, icr));
-	
+	/* Set mode depending on state */
 	if (u300_gpio_get(&gpio->chip, offset)) {
-		
+		/* High now, let's trigger on falling edge next then */
 		writel(val & ~U300_PIN_BIT(offset), U300_PIN_REG(offset, icr));
 		dev_dbg(gpio->dev, "next IRQ on falling edge on pin %d\n",
 			offset);
 	} else {
-		
+		/* Low now, let's trigger on rising edge next then */
 		writel(val | U300_PIN_BIT(offset), U300_PIN_REG(offset, icr));
 		dev_dbg(gpio->dev, "next IRQ on rising edge on pin %d\n",
 			offset);
@@ -516,6 +571,11 @@ static int u300_gpio_irq_type(struct irq_data *d, unsigned trigger)
 
 	if ((trigger & IRQF_TRIGGER_RISING) &&
 	    (trigger & IRQF_TRIGGER_FALLING)) {
+		/*
+		 * The GPIO block can only trigger on falling OR rising edges,
+		 * not both. So we need to toggle the mode whenever the pin
+		 * goes from one state to the other with a special state flag
+		 */
 		dev_dbg(gpio->dev,
 			"trigger on both rising and falling edge on pin %d\n",
 			offset);
@@ -578,18 +638,18 @@ static void u300_gpio_irq_handler(unsigned irq, struct irq_desc *desc)
 {
 	struct u300_gpio_port *port = irq_get_handler_data(irq);
 	struct u300_gpio *gpio = port->gpio;
-	int pinoffset = port->number << 3; 
+	int pinoffset = port->number << 3; /* get the right stride */
 	unsigned long val;
 
 	desc->irq_data.chip->irq_ack(&desc->irq_data);
-	
+	/* Read event register */
 	val = readl(U300_PIN_REG(pinoffset, iev));
-	
-	val &= 0xFFU; 
-	
+	/* Mask relevant bits */
+	val &= 0xFFU; /* 8 bits per port */
+	/* ACK IRQ (clear event) */
 	writel(val, U300_PIN_REG(pinoffset, iev));
 
-	
+	/* Call IRQ handler */
 	if (val != 0) {
 		int irqoffset;
 
@@ -601,6 +661,10 @@ static void u300_gpio_irq_handler(unsigned irq, struct irq_desc *desc)
 			dev_dbg(gpio->dev, "GPIO IRQ %d on pin %d\n",
 				pin_irq, offset);
 			generic_handle_irq(pin_irq);
+			/*
+			 * Triggering IRQ on both rising and falling edge
+			 * needs mockery
+			 */
 			if (port->toggle_edge_mode & U300_PIN_BIT(offset))
 				u300_toggle_trigger(gpio, offset);
 		}
@@ -613,15 +677,15 @@ static void __init u300_gpio_init_pin(struct u300_gpio *gpio,
 				      int offset,
 				      const struct u300_gpio_confdata *conf)
 {
-	
+	/* Set mode: input or output */
 	if (conf->output) {
 		u300_gpio_direction_output(&gpio->chip, offset, conf->outval);
 
-		
+		/* Deactivate bias mode for output */
 		u300_gpio_config_set(&gpio->chip, offset,
 				     PIN_CONFIG_BIAS_HIGH_IMPEDANCE);
 
-		
+		/* Set drive mode for output */
 		u300_gpio_config_set(&gpio->chip, offset,
 				     PIN_CONFIG_DRIVE_PUSH_PULL);
 
@@ -630,10 +694,10 @@ static void __init u300_gpio_init_pin(struct u300_gpio *gpio,
 	} else {
 		u300_gpio_direction_input(&gpio->chip, offset);
 
-		
+		/* Always set output low on input pins */
 		u300_gpio_set(&gpio->chip, offset, 0);
 
-		
+		/* Set bias mode for input */
 		u300_gpio_config_set(&gpio->chip, offset, conf->bias_mode);
 
 		dev_dbg(gpio->dev, "set up pin %d as input, bias: %04x\n",
@@ -646,7 +710,7 @@ static void __init u300_gpio_init_coh901571(struct u300_gpio *gpio,
 {
 	int i, j;
 
-	
+	/* Write default config and values to all pins */
 	for (i = 0; i < plat->ports; i++) {
 		for (j = 0; j < 8; j++) {
 			const struct u300_gpio_confdata *conf;
@@ -699,7 +763,7 @@ static int __init u300_gpio_probe(struct platform_device *pdev)
 	gpio->chip.base = plat->gpio_base;
 	gpio->dev = &pdev->dev;
 
-	
+	/* Get GPIO clock */
 	gpio->clk = clk_get(gpio->dev, NULL);
 	if (IS_ERR(gpio->clk)) {
 		err = PTR_ERR(gpio->clk);
@@ -745,7 +809,7 @@ static int __init u300_gpio_probe(struct platform_device *pdev)
 		gpio->iev = U300_335_PXIEV;
 		ifr = U300_335_PXIFR;
 
-		
+		/* Turn on the GPIO block */
 		writel(U300_335_CR_BLOCK_CLOCK_ENABLE,
 		       gpio->base + U300_335_CR);
 	} else if (plat->variant == U300_GPIO_COH901571_3_BS335 ||
@@ -777,7 +841,7 @@ static int __init u300_gpio_probe(struct platform_device *pdev)
 		goto err_unknown_variant;
 	}
 
-	
+	/* Add each port with its IRQ separately */
 	INIT_LIST_HEAD(&gpio->port_list);
 	for (portno = 0 ; portno < plat->ports; portno++) {
 		struct u300_gpio_port *port =
@@ -802,7 +866,7 @@ static int __init u300_gpio_probe(struct platform_device *pdev)
 		irq_set_chained_handler(port->irq, u300_gpio_irq_handler);
 		irq_set_handler_data(port->irq, port);
 
-		
+		/* For each GPIO pin set the unique IRQ handler */
 		for (i = 0; i < U300_GPIO_PINS_PER_PORT; i++) {
 			int irqno = gpio->irq_base + (portno << 3) + i;
 
@@ -814,7 +878,7 @@ static int __init u300_gpio_probe(struct platform_device *pdev)
 			irq_set_chip_data(irqno, port);
 		}
 
-		
+		/* Turns off irq force (test register) for this port */
 		writel(0x0, gpio->base + portno * gpio->stride + ifr);
 
 		list_add_tail(&port->node, &gpio->port_list);
@@ -827,7 +891,7 @@ static int __init u300_gpio_probe(struct platform_device *pdev)
 		goto err_no_chip;
 	}
 
-	
+	/* Spawn pin controller device as child of the GPIO, pass gpio chip */
 	plat->pinctrl_device->dev.platform_data = &gpio->chip;
 	err = platform_device_register(plat->pinctrl_device);
 	if (err)
@@ -863,7 +927,7 @@ static int __exit u300_gpio_remove(struct platform_device *pdev)
 	struct u300_gpio *gpio = platform_get_drvdata(pdev);
 	int err;
 
-	
+	/* Turn off the GPIO block */
 	if (plat->variant == U300_GPIO_COH901335)
 		writel(0x00000000U, gpio->base + U300_335_CR);
 	if (plat->variant == U300_GPIO_COH901571_3_BS335 ||

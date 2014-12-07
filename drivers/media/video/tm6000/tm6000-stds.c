@@ -335,10 +335,10 @@ static struct tm6000_std_settings svideo_stds[] = {
 
 static int tm6000_set_audio_std(struct tm6000_core *dev)
 {
-	uint8_t areg_02 = 0x04; 
-	uint8_t areg_05 = 0x01; 
-	uint8_t areg_06 = 0x02; 
-	uint8_t nicam_flag = 0; 
+	uint8_t areg_02 = 0x04; /* GC1 Fixed gain 0dB */
+	uint8_t areg_05 = 0x01; /* Auto 4.5 = M Japan, Auto 6.5 = DK */
+	uint8_t areg_06 = 0x02; /* Auto de-emphasis, mannual channel mode */
+	uint8_t nicam_flag = 0; /* No NICAM */
 
 	if (dev->radio) {
 		tm6000_set_reg(dev, TM6010_REQ08_R01_A_INIT, 0x00);
@@ -346,7 +346,7 @@ static int tm6000_set_audio_std(struct tm6000_core *dev)
 		tm6000_set_reg(dev, TM6010_REQ08_R03_A_AUTO_GAIN_CTRL, 0x00);
 		tm6000_set_reg(dev, TM6010_REQ08_R04_A_SIF_AMP_CTRL, 0x80);
 		tm6000_set_reg(dev, TM6010_REQ08_R05_A_STANDARD_MOD, 0x0c);
-		
+		/* set mono or stereo */
 		if (dev->amode == V4L2_TUNER_MODE_MONO)
 			tm6000_set_reg(dev, TM6010_REQ08_R06_A_SOUND_MOD, 0x00);
 		else if (dev->amode == V4L2_TUNER_MODE_STEREO)
@@ -361,6 +361,10 @@ static int tm6000_set_audio_std(struct tm6000_core *dev)
 		return 0;
 	}
 
+	/*
+	 * STD/MN shouldn't be affected by tm6010_a_mode, as there's just one
+	 * audio standard for each V4L2_STD type.
+	 */
 	if ((dev->norm & V4L2_STD_NTSC) == V4L2_STD_NTSC_M_KR) {
 		areg_05 |= 0x04;
 	} else if ((dev->norm & V4L2_STD_NTSC) == V4L2_STD_NTSC_M_JP) {
@@ -368,21 +372,21 @@ static int tm6000_set_audio_std(struct tm6000_core *dev)
 	} else if (dev->norm & V4L2_STD_MN) {
 		areg_05 |= 0x22;
 	} else switch (tm6010_a_mode) {
-	
+	/* auto */
 	case 0:
 		if ((dev->norm & V4L2_STD_SECAM) == V4L2_STD_SECAM_L)
 			areg_05 |= 0x00;
-		else	
+		else	/* Other PAL/SECAM standards */
 			areg_05 |= 0x10;
 		break;
-	
+	/* A2 */
 	case 1:
 		if (dev->norm & V4L2_STD_DK)
 			areg_05 = 0x09;
 		else
 			areg_05 = 0x05;
 		break;
-	
+	/* NICAM */
 	case 2:
 		if (dev->norm & V4L2_STD_DK) {
 			areg_05 = 0x06;
@@ -396,7 +400,7 @@ static int tm6000_set_audio_std(struct tm6000_core *dev)
 		}
 		nicam_flag = 1;
 		break;
-	
+	/* other */
 	case 3:
 		if (dev->norm & V4L2_STD_DK) {
 			areg_05 = 0x0b;
@@ -445,7 +449,7 @@ static int tm6000_set_audio_std(struct tm6000_core *dev)
 
 void tm6000_get_std_res(struct tm6000_core *dev)
 {
-	
+	/* Currently, those are the only supported resoltions */
 	if (dev->norm & V4L2_STD_525_60)
 		dev->height = 480;
 	else
@@ -458,7 +462,7 @@ static int tm6000_load_std(struct tm6000_core *dev, struct tm6000_reg_settings *
 {
 	int i, rc;
 
-	
+	/* Load board's initialization table */
 	for (i = 0; set[i].req; i++) {
 		rc = tm6000_set_reg(dev, set[i].req, set[i].reg, set[i].value);
 		if (rc < 0) {
@@ -522,14 +526,14 @@ int tm6000_set_standard(struct tm6000_core *dev)
 		case TM6000_AMUX_ADC1:
 			tm6000_set_reg_mask(dev, TM6010_REQ08_RF0_DAUDIO_INPUT_CONFIG,
 				0x00, 0x0f);
-			
+			/* Mux overflow workaround */
 			tm6000_set_reg_mask(dev, TM6010_REQ07_R07_OUTPUT_CONTROL,
 				0x10, 0xf0);
 			break;
 		case TM6000_AMUX_ADC2:
 			tm6000_set_reg_mask(dev, TM6010_REQ08_RF0_DAUDIO_INPUT_CONFIG,
 				0x08, 0x0f);
-			
+			/* Mux overflow workaround */
 			tm6000_set_reg_mask(dev, TM6010_REQ07_R07_OUTPUT_CONTROL,
 				0x10, 0xf0);
 			break;
@@ -541,7 +545,7 @@ int tm6000_set_standard(struct tm6000_core *dev)
 			tm6000_set_reg(dev, TM6010_REQ08_RE4_ADC_IN2_SEL, 0xf3);
 			tm6000_set_reg_mask(dev, TM6010_REQ08_RF0_DAUDIO_INPUT_CONFIG,
 				0x02, 0x0f);
-			
+			/* Mux overflow workaround */
 			tm6000_set_reg_mask(dev, TM6010_REQ07_R07_OUTPUT_CONTROL,
 				0x30, 0xf0);
 			break;
@@ -553,7 +557,7 @@ int tm6000_set_standard(struct tm6000_core *dev)
 			tm6000_set_reg(dev, TM6010_REQ08_RE4_ADC_IN2_SEL, 0xf7);
 			tm6000_set_reg_mask(dev, TM6010_REQ08_RF0_DAUDIO_INPUT_CONFIG,
 				0x02, 0x0f);
-			
+			/* Mux overflow workaround */
 			tm6000_set_reg_mask(dev, TM6010_REQ07_R07_OUTPUT_CONTROL,
 				0x30, 0xf0);
 			break;

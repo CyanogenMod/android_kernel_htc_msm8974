@@ -30,7 +30,7 @@ void __noreturn dec_machine_halt(void)
 
 void __noreturn dec_machine_power_off(void)
 {
-    
+    /* DECstations don't have a software power switch */
 	back_to_prom();
 }
 

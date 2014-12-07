@@ -65,7 +65,7 @@ struct cpm_idle_mode {
 };
 
 static struct cpm_idle_mode idle_mode[] = {
-	[CPM_IDLE_WAIT] = { 1, "wait" }, 
+	[CPM_IDLE_WAIT] = { 1, "wait" }, /* default */
 	[CPM_IDLE_DOZE] = { 0, "doze" },
 };
 
@@ -73,10 +73,17 @@ static unsigned int cpm_set(unsigned int cpm_reg, unsigned int mask)
 {
 	unsigned int value;
 
+	/* CPM controller supports 3 different types of sleep interface
+	 * known as class 1, 2 and 3. For class 1 units, they are
+	 * unconditionally put to sleep when the corresponding CPM bit is
+	 * set. For class 2 and 3 units this is not case; if they can be
+	 * put to to sleep, they will. Here we do not verify, we just
+	 * set them and expect them to eventually go off when they can.
+	 */
 	value = dcr_read(cpm.dcr_host, cpm.dcr_offset[cpm_reg]);
 	dcr_write(cpm.dcr_host, cpm.dcr_offset[cpm_reg], value | mask);
 
-	
+	/* return old state, to restore later if needed */
 	return value;
 }
 
@@ -84,14 +91,14 @@ static void cpm_idle_wait(void)
 {
 	unsigned long msr_save;
 
-	
+	/* save off initial state */
 	msr_save = mfmsr();
-	
+	/* sync required when CPM0_ER[CPU] is set */
 	mb();
-	
+	/* set wait state MSR */
 	mtmsr(msr_save|MSR_WE|MSR_EE|MSR_CE|MSR_DE);
 	isync();
-	
+	/* return to initial state */
 	mtmsr(msr_save);
 	isync();
 }
@@ -100,13 +107,13 @@ static void cpm_idle_sleep(unsigned int mask)
 {
 	unsigned int er_save;
 
-	
+	/* update CPM_ER state */
 	er_save = cpm_set(CPM_ER, mask);
 
-	
+	/* go to wait state so that CPM0_ER[CPU] can take effect */
 	cpm_idle_wait();
 
-	
+	/* restore CPM_ER state */
 	dcr_write(cpm.dcr_host, cpm.dcr_offset[CPM_ER], er_save);
 }
 
@@ -141,7 +148,7 @@ static ssize_t cpm_idle_show(struct kobject *kobj,
 			s += sprintf(s, "%s ", idle_mode[i].name);
 	}
 
-	*(s-1) = '\n'; 
+	*(s-1) = '\n'; /* convert the last space to a newline */
 
 	return s - buf;
 }
@@ -208,14 +215,14 @@ static void cpm_suspend_standby(unsigned int mask)
 {
 	unsigned long tcr_save;
 
-	
+	/* disable decrement interrupt */
 	tcr_save = mfspr(SPRN_TCR);
 	mtspr(SPRN_TCR, tcr_save & ~TCR_DIE);
 
-	
+	/* go to sleep state */
 	cpm_idle_sleep(mask);
 
-	
+	/* restore decrement interrupt */
 	mtspr(SPRN_TCR, tcr_save);
 }
 
@@ -286,6 +293,11 @@ static int __init cpm_init(void)
 		goto out;
 	}
 
+	/* All 4xx SoCs with a CPM controller have one of two
+	 * different order for the CPM registers. Some have the
+	 * CPM registers in the following order (ER,FR,SR). The
+	 * others have them in the following order (SR,ER,FR).
+	 */
 
 	if (cpm_get_uint_property(np, "er-offset") == 0) {
 		cpm.dcr_offset[CPM_ER] = 0;
@@ -297,21 +309,21 @@ static int __init cpm_init(void)
 		cpm.dcr_offset[CPM_SR] = 0;
 	}
 
-	
+	/* Now let's see what IPs to turn off for the following modes */
 
 	cpm.unused = cpm_get_uint_property(np, "unused-units");
 	cpm.idle_doze = cpm_get_uint_property(np, "idle-doze");
 	cpm.standby = cpm_get_uint_property(np, "standby");
 	cpm.suspend = cpm_get_uint_property(np, "suspend");
 
-	
+	/* If some IPs are unused let's turn them off now */
 
 	if (cpm.unused) {
 		cpm_set(CPM_ER, cpm.unused);
 		cpm_set(CPM_FR, cpm.unused);
 	}
 
-	
+	/* Now let's export interfaces */
 
 	if (!cpm.powersave_off && cpm.idle_doze)
 		cpm_idle_config_sysfs();

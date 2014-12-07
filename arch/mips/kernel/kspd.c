@@ -60,6 +60,7 @@ struct mtsp_syscall_generic {
 static struct list_head kspd_notifylist;
 static int sp_stopping;
 
+/* these should match with those in the SDE kit */
 #define MTSP_SYSCALL_BASE	0
 #define MTSP_SYSCALL_EXIT	(MTSP_SYSCALL_BASE + 0)
 #define MTSP_SYSCALL_OPEN	(MTSP_SYSCALL_BASE + 1)
@@ -81,6 +82,7 @@ static int sp_stopping;
 #define MTSP_O_SHLOCK		0x0010
 #define MTSP_O_EXLOCK		0x0020
 #define MTSP_O_ASYNC		0x0040
+/* XXX: check which of these is actually O_SYNC vs O_DSYNC */
 #define MTSP_O_FSYNC		O_SYNC
 #define MTSP_O_NOFOLLOW		0x0100
 #define MTSP_O_SYNC		0x0080
@@ -96,6 +98,7 @@ struct apsp_table  {
 	int ap;
 };
 
+/* we might want to do the mode flags too */
 struct apsp_table open_flags_table[] = {
 	{ MTSP_O_RDWR, O_RDWR },
 	{ MTSP_O_WRONLY, O_WRONLY },
@@ -135,7 +138,7 @@ static int sp_syscall(int num, int arg0, int arg1, int arg2, int arg3)
 
 	set_fs(old_fs);
 
-	
+	/* $a3 is error flag */
 	if (_arg3)
 		return -_num;
 
@@ -186,6 +189,11 @@ static int sp_setfsuidgid(uid_t uid, gid_t gid)
 	return 0;
 }
 
+/*
+ * Expects a request to be on the sysio channel. Reads it.  Decides whether
+ * its a linux syscall and runs it, or whatever.  Puts the return code back
+ * into the request and sends the whole thing back.
+ */
 void sp_work_handle_request(void)
 {
 	struct mtsp_syscall sc;
@@ -222,6 +230,8 @@ void sp_work_handle_request(void)
 		}
 	}
 
+	/* Run the syscall at the privilege of the user who loaded the
+	   SP program */
 
 	if (vpe_getuid(tclimit)) {
 		err = sp_setfsuidgid(vpe_getuid(tclimit), vpe_getgid(tclimit));
@@ -230,6 +240,8 @@ void sp_work_handle_request(void)
 	}
 
 	switch (sc.cmd) {
+	/* needs the flags argument translating from SDE kit to
+	   linux */
  	case MTSP_SYSCALL_PIPEFREQ:
  		ret.retval = cpu_khz * 1000;
  		ret.errno = 0;
@@ -256,7 +268,7 @@ void sp_work_handle_request(void)
 
 		vcwd = vpe_getcwd(tclimit);
 
-		
+		/* change to cwd of the process that loaded the SP program */
 		old_fs = get_fs();
 		set_fs(KERNEL_DS);
 		sys_chdir(vcwd);
@@ -264,7 +276,7 @@ void sp_work_handle_request(void)
 
  		sc.cmd = __NR_open;
 
-		
+		/* fall through */
 
   	default:
  		if ((sc.cmd >= __NR_Linux) &&
@@ -280,7 +292,7 @@ void sp_work_handle_request(void)
  			printk(KERN_WARNING
 			       "KSPD: Unknown SP syscall number %d\n", sc.cmd);
 		break;
- 	} 
+ 	} /* switch */
 
 	if (vpe_getuid(tclimit)) {
 		err = sp_setfsuidgid(0, 0);
@@ -304,6 +316,10 @@ static void sp_cleanup(void)
 
 	j = 0;
 
+	/*
+	 * It is safe to dereference the fd table without RCU or
+	 * ->file_lock
+	 */
 	fdt = files_fdtable(files);
 	for (;;) {
 		unsigned long set;
@@ -322,12 +338,13 @@ static void sp_cleanup(void)
 		}
 	}
 
-	
+	/* Put daemon cwd back to root to avoid umount problems */
 	sys_chdir("/");
 }
 
 static int channel_open;
 
+/* the work handler */
 static void sp_work(struct work_struct *unused)
 {
 	if (!channel_open) {
@@ -339,10 +356,10 @@ static void sp_work(struct work_struct *unused)
 			printk(KERN_DEBUG "KSPD: SP channel opened\n");
 		}
 	} else {
-		
+		/* wait for some data, allow it to sleep */
 		rtlx_read_poll(RTLX_CHANNEL_SYSIO, 1);
 
-		
+		/* Check we haven't been woken because we are stopping */
 		if (!sp_stopping)
 			sp_work_handle_request();
 	}

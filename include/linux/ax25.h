@@ -1,3 +1,7 @@
+/*
+ * These are the public elements of the Linux kernel AX.25 code. A similar
+ * file netrom.h exists for the NET/ROM protocol.
+ */
 
 #ifndef	AX25_KERNEL_H
 #define	AX25_KERNEL_H
@@ -39,14 +43,14 @@
 #define AX25_NOUID_BLOCK	1
 
 typedef struct {
-	char		ax25_call[7];	
+	char		ax25_call[7];	/* 6 call + SSID (shifted ascii!) */
 } ax25_address;
 
 struct sockaddr_ax25 {
 	__kernel_sa_family_t sax25_family;
 	ax25_address	sax25_call;
 	int		sax25_ndigis;
-	
+	/* Digipeater ax25_address sets follow */
 };
 
 #define sax25_uid	sax25_ndigis
@@ -80,6 +84,7 @@ struct ax25_ctl_struct {
         ax25_address            digi_addr[AX25_MAX_DIGIS];
 };
 
+/* this will go away. Please do not export to user land */
 struct ax25_info_struct_deprecated {
 	unsigned int	n2, n2count;
 	unsigned int	t1, t1timer;

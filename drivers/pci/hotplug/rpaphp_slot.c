@@ -32,6 +32,7 @@
 #include <asm/rtas.h>
 #include "rpaphp.h"
 
+/* free up the memory used by a slot */
 static void rpaphp_release_slot(struct hotplug_slot *hotplug_slot)
 {
 	struct slot *slot = (struct slot *) hotplug_slot->private;
@@ -123,7 +124,7 @@ int rpaphp_register_slot(struct slot *slot)
 		__func__, slot->dn->full_name, slot->index, slot->name,
 		slot->power_domain, slot->type);
 
-	
+	/* should not try to register the same slot twice */
 	if (is_registered(slot)) {
 		err("rpaphp_register_slot: slot[%s] is already registered\n", slot->name);
 		return -EAGAIN;
@@ -139,7 +140,7 @@ int rpaphp_register_slot(struct slot *slot)
 		return retval;
 	}
 
-	
+	/* add slot to our internal list */
 	list_add(&slot->rpaphp_slot_list, &rpaphp_slot_head);
 	info("Slot [%s] registered\n", slot->name);
 	return 0;

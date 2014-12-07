@@ -24,4 +24,4 @@ void perf_read_values_add_value(struct perf_read_values *values,
 void perf_read_values_display(FILE *fp, struct perf_read_values *values,
 			      int raw);
 
-#endif 
+#endif /* __PERF_VALUES_H */

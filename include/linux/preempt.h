@@ -1,6 +1,10 @@
 #ifndef __LINUX_PREEMPT_H
 #define __LINUX_PREEMPT_H
 
+/*
+ * include/linux/preempt.h - macros for accessing and manipulating
+ * preempt_count (used for kernel preemption, interrupt count, etc.)
+ */
 
 #include <linux/thread_info.h>
 #include <linux/linkage.h>
@@ -29,11 +33,11 @@ do { \
 		preempt_schedule(); \
 } while (0)
 
-#else 
+#else /* !CONFIG_PREEMPT */
 
 #define preempt_check_resched()		do { } while (0)
 
-#endif 
+#endif /* CONFIG_PREEMPT */
 
 
 #ifdef CONFIG_PREEMPT_COUNT
@@ -59,6 +63,7 @@ do { \
 	preempt_check_resched(); \
 } while (0)
 
+/* For debugging and tracer internals only! */
 #define add_preempt_count_notrace(val)			\
 	do { preempt_count() += (val); } while (0)
 #define sub_preempt_count_notrace(val)			\
@@ -78,6 +83,7 @@ do { \
 	dec_preempt_count_notrace(); \
 } while (0)
 
+/* preempt_check_resched is OK to trace */
 #define preempt_enable_notrace() \
 do { \
 	preempt_enable_no_resched_notrace(); \
@@ -85,7 +91,7 @@ do { \
 	preempt_check_resched(); \
 } while (0)
 
-#else 
+#else /* !CONFIG_PREEMPT_COUNT */
 
 #define preempt_disable()		do { } while (0)
 #define sched_preempt_enable_no_resched()	do { } while (0)
@@ -96,18 +102,39 @@ do { \
 #define preempt_enable_no_resched_notrace()	do { } while (0)
 #define preempt_enable_notrace()		do { } while (0)
 
-#endif 
+#endif /* CONFIG_PREEMPT_COUNT */
 
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 
 struct preempt_notifier;
 
+/**
+ * preempt_ops - notifiers called when a task is preempted and rescheduled
+ * @sched_in: we're about to be rescheduled:
+ *    notifier: struct preempt_notifier for the task being scheduled
+ *    cpu:  cpu we're scheduled on
+ * @sched_out: we've just been preempted
+ *    notifier: struct preempt_notifier for the task being preempted
+ *    next: the task that's kicking us out
+ *
+ * Please note that sched_in and out are called under different
+ * contexts.  sched_out is called with rq lock held and irq disabled
+ * while sched_in is called without rq lock and irq enabled.  This
+ * difference is intentional and depended upon by its users.
+ */
 struct preempt_ops {
 	void (*sched_in)(struct preempt_notifier *notifier, int cpu);
 	void (*sched_out)(struct preempt_notifier *notifier,
 			  struct task_struct *next);
 };
 
+/**
+ * preempt_notifier - key for installing preemption notifiers
+ * @link: internal use
+ * @ops: defines the notifier functions to be called
+ *
+ * Usually used in conjunction with container_of().
+ */
 struct preempt_notifier {
 	struct hlist_node link;
 	struct preempt_ops *ops;
@@ -125,4 +152,4 @@ static inline void preempt_notifier_init(struct preempt_notifier *notifier,
 
 #endif
 
-#endif 
+#endif /* __LINUX_PREEMPT_H */

@@ -58,6 +58,7 @@ struct omap_sr {
 	void __iomem			*base;
 };
 
+/* sr_list contains all the instances of smartreflex module */
 static LIST_HEAD(sr_list);
 
 static struct omap_sr_class_data *sr_class;
@@ -127,17 +128,17 @@ static irqreturn_t sr_interrupt(int irq, void *data)
 
 	switch (sr_info->ip_type) {
 	case SR_TYPE_V1:
-		
+		/* Read the status bits */
 		status = sr_read_reg(sr_info, ERRCONFIG_V1);
 
-		
+		/* Clear them by writing back */
 		sr_write_reg(sr_info, ERRCONFIG_V1, status);
 		break;
 	case SR_TYPE_V2:
-		
+		/* Read the status bits */
 		status = sr_read_reg(sr_info, IRQSTATUS);
 
-		
+		/* Clear them by writing back */
 		sr_write_reg(sr_info, IRQSTATUS, status);
 		break;
 	default:
@@ -196,6 +197,12 @@ static void sr_set_clk_length(struct omap_sr *sr)
 
 static void sr_set_regfields(struct omap_sr *sr)
 {
+	/*
+	 * For time being these values are defined in smartreflex.h
+	 * and populated during init. May be they can be moved to board
+	 * file or pmic specific data structure. In that case these structure
+	 * fields will have to be populated using the pdata or pmic structure.
+	 */
 	if (cpu_is_omap34xx() || cpu_is_omap44xx()) {
 		sr->err_weight = OMAP3430_SR_ERRWEIGHT;
 		sr->err_maxlimit = OMAP3430_SR_ERRMAXLIMIT;
@@ -238,6 +245,17 @@ static void sr_stop_vddautocomp(struct omap_sr *sr)
 	}
 }
 
+/*
+ * This function handles the intializations which have to be done
+ * only when both sr device and class driver regiter has
+ * completed. This will be attempted to be called from both sr class
+ * driver register and sr device intializtion API's. Only one call
+ * will ultimately succeed.
+ *
+ * Currently this function registers interrupt handler for a particular SR
+ * if smartreflex class driver is already registered and has
+ * requested for interrupts and the SR interrupt line in present.
+ */
 static int sr_late_init(struct omap_sr *sr_info)
 {
 	char *name;
@@ -283,14 +301,14 @@ static void sr_v1_disable(struct omap_sr *sr)
 	int errconf_val = ERRCONFIG_MCUACCUMINTST | ERRCONFIG_MCUVALIDINTST |
 			ERRCONFIG_MCUBOUNDINTST;
 
-	
+	/* Enable MCUDisableAcknowledge interrupt */
 	sr_modify_reg(sr, ERRCONFIG_V1,
 			ERRCONFIG_MCUDISACKINTEN, ERRCONFIG_MCUDISACKINTEN);
 
-	
+	/* SRCONFIG - disable SR */
 	sr_modify_reg(sr, SRCONFIG, SRCONFIG_SRENABLE, 0x0);
 
-	
+	/* Disable all other SR interrupts and clear the status as needed */
 	if (sr_read_reg(sr, ERRCONFIG_V1) & ERRCONFIG_VPBOUNDINTST_V1)
 		errconf_val |= ERRCONFIG_VPBOUNDINTST_V1;
 	sr_modify_reg(sr, ERRCONFIG_V1,
@@ -298,6 +316,10 @@ static void sr_v1_disable(struct omap_sr *sr)
 			ERRCONFIG_MCUBOUNDINTEN | ERRCONFIG_VPBOUNDINTEN_V1),
 			errconf_val);
 
+	/*
+	 * Wait for SR to be disabled.
+	 * wait until ERRCONFIG.MCUDISACKINTST = 1. Typical latency is 1us.
+	 */
 	omap_test_timeout((sr_read_reg(sr, ERRCONFIG_V1) &
 			ERRCONFIG_MCUDISACKINTST), SR_DISABLE_TIMEOUT,
 			timeout);
@@ -306,7 +328,7 @@ static void sr_v1_disable(struct omap_sr *sr)
 		dev_warn(&sr->pdev->dev, "%s: Smartreflex disable timedout\n",
 			__func__);
 
-	
+	/* Disable MCUDisableAcknowledge interrupt & clear pending interrupt */
 	sr_modify_reg(sr, ERRCONFIG_V1, ERRCONFIG_MCUDISACKINTEN,
 			ERRCONFIG_MCUDISACKINTST);
 }
@@ -315,12 +337,17 @@ static void sr_v2_disable(struct omap_sr *sr)
 {
 	int timeout = 0;
 
-	
+	/* Enable MCUDisableAcknowledge interrupt */
 	sr_write_reg(sr, IRQENABLE_SET, IRQENABLE_MCUDISABLEACKINT);
 
-	
+	/* SRCONFIG - disable SR */
 	sr_modify_reg(sr, SRCONFIG, SRCONFIG_SRENABLE, 0x0);
 
+	/*
+	 * Disable all other SR interrupts and clear the status
+	 * write to status register ONLY on need basis - only if status
+	 * is set.
+	 */
 	if (sr_read_reg(sr, ERRCONFIG_V2) & ERRCONFIG_VPBOUNDINTST_V2)
 		sr_modify_reg(sr, ERRCONFIG_V2, ERRCONFIG_VPBOUNDINTEN_V2,
 			ERRCONFIG_VPBOUNDINTST_V2);
@@ -334,6 +361,10 @@ static void sr_v2_disable(struct omap_sr *sr)
 			IRQSTATUS_MCVALIDINT |
 			IRQSTATUS_MCBOUNDSINT));
 
+	/*
+	 * Wait for SR to be disabled.
+	 * wait until IRQSTATUS.MCUDISACKINTST = 1. Typical latency is 1us.
+	 */
 	omap_test_timeout((sr_read_reg(sr, IRQSTATUS) &
 			IRQSTATUS_MCUDISABLEACKINT), SR_DISABLE_TIMEOUT,
 			timeout);
@@ -342,7 +373,7 @@ static void sr_v2_disable(struct omap_sr *sr)
 		dev_warn(&sr->pdev->dev, "%s: Smartreflex disable timedout\n",
 			__func__);
 
-	
+	/* Disable MCUDisableAcknowledge interrupt & clear pending interrupt */
 	sr_write_reg(sr, IRQENABLE_CLR, IRQENABLE_MCUDISABLEACKINT);
 	sr_write_reg(sr, IRQSTATUS, IRQSTATUS_MCUDISABLEACKINT);
 }
@@ -365,7 +396,20 @@ static u32 sr_retrieve_nvalue(struct omap_sr *sr, u32 efuse_offs)
 	return 0;
 }
 
+/* Public Functions */
 
+/**
+ * sr_configure_errgen() - Configures the smrtreflex to perform AVS using the
+ *			 error generator module.
+ * @voltdm:	VDD pointer to which the SR module to be configured belongs to.
+ *
+ * This API is to be called from the smartreflex class driver to
+ * configure the error generator module inside the smartreflex module.
+ * SR settings if using the ERROR module inside Smartreflex.
+ * SR CLASS 3 by default uses only the ERROR module where as
+ * SR CLASS 2 can choose between ERROR module and MINMAXAVG
+ * module. Returns 0 on success and error value in case of failure.
+ */
 int sr_configure_errgen(struct voltagedomain *voltdm)
 {
 	u32 sr_config, sr_errconfig, errconfig_offs;
@@ -420,13 +464,22 @@ int sr_configure_errgen(struct voltagedomain *voltdm)
 		SR_ERRMAXLIMIT_MASK | SR_ERRMINLIMIT_MASK),
 		sr_errconfig);
 
-	
+	/* Enabling the interrupts if the ERROR module is used */
 	sr_modify_reg(sr, errconfig_offs, (vpboundint_en | vpboundint_st),
 		      vpboundint_en);
 
 	return 0;
 }
 
+/**
+ * sr_disable_errgen() - Disables SmartReflex AVS module's errgen component
+ * @voltdm:	VDD pointer to which the SR module to be configured belongs to.
+ *
+ * This API is to be called from the smartreflex class driver to
+ * disable the error generator module inside the smartreflex module.
+ *
+ * Returns 0 on success and error value in case of failure.
+ */
 int sr_disable_errgen(struct voltagedomain *voltdm)
 {
 	u32 errconfig_offs;
@@ -456,15 +509,27 @@ int sr_disable_errgen(struct voltagedomain *voltdm)
 		return -EINVAL;
 	}
 
-	
+	/* Disable the interrupts of ERROR module */
 	sr_modify_reg(sr, errconfig_offs, vpboundint_en | vpboundint_st, 0);
 
-	
+	/* Disable the Sensor and errorgen */
 	sr_modify_reg(sr, SRCONFIG, SRCONFIG_SENENABLE | SRCONFIG_ERRGEN_EN, 0);
 
 	return 0;
 }
 
+/**
+ * sr_configure_minmax() - Configures the smrtreflex to perform AVS using the
+ *			 minmaxavg module.
+ * @voltdm:	VDD pointer to which the SR module to be configured belongs to.
+ *
+ * This API is to be called from the smartreflex class driver to
+ * configure the minmaxavg module inside the smartreflex module.
+ * SR settings if using the ERROR module inside Smartreflex.
+ * SR CLASS 3 by default uses only the ERROR module where as
+ * SR CLASS 2 can choose between ERROR module and MINMAXAVG
+ * module. Returns 0 on success and error value in case of failure.
+ */
 int sr_configure_minmax(struct voltagedomain *voltdm)
 {
 	u32 sr_config, sr_avgwt;
@@ -510,6 +575,10 @@ int sr_configure_minmax(struct voltagedomain *voltdm)
 		(sr->senn_avgweight << AVGWEIGHT_SENNAVGWEIGHT_SHIFT);
 	sr_write_reg(sr, AVGWEIGHT, sr_avgwt);
 
+	/*
+	 * Enabling the interrupts if MINMAXAVG module is used.
+	 * TODO: check if all the interrupts are mandatory
+	 */
 	switch (sr->ip_type) {
 	case SR_TYPE_V1:
 		sr_modify_reg(sr, ERRCONFIG_V1,
@@ -536,6 +605,17 @@ int sr_configure_minmax(struct voltagedomain *voltdm)
 	return 0;
 }
 
+/**
+ * sr_enable() - Enables the smartreflex module.
+ * @voltdm:	VDD pointer to which the SR module to be configured belongs to.
+ * @volt:	The voltage at which the Voltage domain associated with
+ *		the smartreflex module is operating at.
+ *		This is required only to program the correct Ntarget value.
+ *
+ * This API is to be called from the smartreflex class driver to
+ * enable a smartreflex module. Returns 0 on success. Returns error
+ * value if the voltage passed is wrong or if ntarget value is wrong.
+ */
 int sr_enable(struct voltagedomain *voltdm, unsigned long volt)
 {
 	struct omap_volt_data *volt_data;
@@ -565,27 +645,34 @@ int sr_enable(struct voltagedomain *voltdm, unsigned long volt)
 		return -ENODATA;
 	}
 
-	
+	/* errminlimit is opp dependent and hence linked to voltage */
 	sr->err_minlimit = volt_data->sr_errminlimit;
 
 	pm_runtime_get_sync(&sr->pdev->dev);
 
-	
+	/* Check if SR is already enabled. If yes do nothing */
 	if (sr_read_reg(sr, SRCONFIG) & SRCONFIG_SRENABLE)
 		return 0;
 
-	
+	/* Configure SR */
 	ret = sr_class->configure(voltdm);
 	if (ret)
 		return ret;
 
 	sr_write_reg(sr, NVALUERECIPROCAL, nvalue_reciprocal);
 
-	
+	/* SRCONFIG - enable SR */
 	sr_modify_reg(sr, SRCONFIG, SRCONFIG_SRENABLE, SRCONFIG_SRENABLE);
 	return 0;
 }
 
+/**
+ * sr_disable() - Disables the smartreflex module.
+ * @voltdm:	VDD pointer to which the SR module to be configured belongs to.
+ *
+ * This API is to be called from the smartreflex class driver to
+ * disable a smartreflex module.
+ */
 void sr_disable(struct voltagedomain *voltdm)
 {
 	struct omap_sr *sr = _sr_lookup(voltdm);
@@ -596,10 +683,14 @@ void sr_disable(struct voltagedomain *voltdm)
 		return;
 	}
 
-	
+	/* Check if SR clocks are already disabled. If yes do nothing */
 	if (pm_runtime_suspended(&sr->pdev->dev))
 		return;
 
+	/*
+	 * Disable SR if only it is indeed enabled. Else just
+	 * disable the clocks.
+	 */
 	if (sr_read_reg(sr, SRCONFIG) & SRCONFIG_SRENABLE) {
 		switch (sr->ip_type) {
 		case SR_TYPE_V1:
@@ -617,6 +708,14 @@ void sr_disable(struct voltagedomain *voltdm)
 	pm_runtime_put_sync_suspend(&sr->pdev->dev);
 }
 
+/**
+ * sr_register_class() - API to register a smartreflex class parameters.
+ * @class_data:	The structure containing various sr class specific data.
+ *
+ * This API is to be called by the smartreflex class driver to register itself
+ * with the smartreflex driver during init. Returns 0 on success else the
+ * error value.
+ */
 int sr_register_class(struct omap_sr_class_data *class_data)
 {
 	struct omap_sr *sr_info;
@@ -635,12 +734,26 @@ int sr_register_class(struct omap_sr_class_data *class_data)
 
 	sr_class = class_data;
 
+	/*
+	 * Call into late init to do intializations that require
+	 * both sr driver and sr class driver to be initiallized.
+	 */
 	list_for_each_entry(sr_info, &sr_list, node)
 		sr_late_init(sr_info);
 
 	return 0;
 }
 
+/**
+ * omap_sr_enable() -  API to enable SR clocks and to call into the
+ *			registered smartreflex class enable API.
+ * @voltdm:	VDD pointer to which the SR module to be configured belongs to.
+ *
+ * This API is to be called from the kernel in order to enable
+ * a particular smartreflex module. This API will do the initial
+ * configurations to turn on the smartreflex module and in turn call
+ * into the registered smartreflex class enable API.
+ */
 void omap_sr_enable(struct voltagedomain *voltdm)
 {
 	struct omap_sr *sr = _sr_lookup(voltdm);
@@ -663,6 +776,17 @@ void omap_sr_enable(struct voltagedomain *voltdm)
 	sr_class->enable(voltdm);
 }
 
+/**
+ * omap_sr_disable() - API to disable SR without resetting the voltage
+ *			processor voltage
+ * @voltdm:	VDD pointer to which the SR module to be configured belongs to.
+ *
+ * This API is to be called from the kernel in order to disable
+ * a particular smartreflex module. This API will in turn call
+ * into the registered smartreflex class disable API. This API will tell
+ * the smartreflex class disable not to reset the VP voltage after
+ * disabling smartreflex.
+ */
 void omap_sr_disable(struct voltagedomain *voltdm)
 {
 	struct omap_sr *sr = _sr_lookup(voltdm);
@@ -685,6 +809,17 @@ void omap_sr_disable(struct voltagedomain *voltdm)
 	sr_class->disable(voltdm, 0);
 }
 
+/**
+ * omap_sr_disable_reset_volt() - API to disable SR and reset the
+ *				voltage processor voltage
+ * @voltdm:	VDD pointer to which the SR module to be configured belongs to.
+ *
+ * This API is to be called from the kernel in order to disable
+ * a particular smartreflex module. This API will in turn call
+ * into the registered smartreflex class disable API. This API will tell
+ * the smartreflex class disable to reset the VP voltage after
+ * disabling smartreflex.
+ */
 void omap_sr_disable_reset_volt(struct voltagedomain *voltdm)
 {
 	struct omap_sr *sr = _sr_lookup(voltdm);
@@ -707,6 +842,14 @@ void omap_sr_disable_reset_volt(struct voltagedomain *voltdm)
 	sr_class->disable(voltdm, 1);
 }
 
+/**
+ * omap_sr_register_pmic() - API to register pmic specific info.
+ * @pmic_data:	The structure containing pmic specific data.
+ *
+ * This API is to be called from the PMIC specific code to register with
+ * smartreflex driver pmic specific info. Currently the only info required
+ * is the smartreflex init on the PMIC side.
+ */
 void omap_sr_register_pmic(struct omap_sr_pmic_data *pmic_data)
 {
 	if (!pmic_data) {
@@ -718,6 +861,7 @@ void omap_sr_register_pmic(struct omap_sr_pmic_data *pmic_data)
 	sr_pmic_data = pmic_data;
 }
 
+/* PM Debug FS entries to enable and disable smartreflex. */
 static int omap_sr_autocomp_show(void *data, u64 *val)
 {
 	struct omap_sr *sr_info = data;
@@ -741,13 +885,13 @@ static int omap_sr_autocomp_store(void *data, u64 val)
 		return -EINVAL;
 	}
 
-	
+	/* Sanity check */
 	if (val > 1) {
 		pr_warning("%s: Invalid argument %lld\n", __func__, val);
 		return -EINVAL;
 	}
 
-	
+	/* control enable/disable only if there is a delta in value */
 	if (sr_info->autocomp_active != val) {
 		if (!val)
 			sr_stop_vddautocomp(sr_info);
@@ -830,6 +974,10 @@ static int __init omap_sr_probe(struct platform_device *pdev)
 
 	list_add(&sr_info->node, &sr_list);
 
+	/*
+	 * Call into late init to do intializations that require
+	 * both sr driver and sr class driver to be initiallized.
+	 */
 	if (sr_class) {
 		ret = sr_late_init(sr_info);
 		if (ret) {
@@ -983,6 +1131,12 @@ static int __init sr_init(void)
 {
 	int ret = 0;
 
+	/*
+	 * sr_init is a late init. If by then a pmic specific API is not
+	 * registered either there is no need for anything to be done on
+	 * the PMIC side or somebody has forgotten to register a PMIC
+	 * handler. Warn for the second condition.
+	 */
 	if (sr_pmic_data && sr_pmic_data->sr_pmic_init)
 		sr_pmic_data->sr_pmic_init();
 	else

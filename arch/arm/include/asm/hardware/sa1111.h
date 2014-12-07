@@ -14,9 +14,14 @@
 
 #include <mach/bitfield.h>
 
+/*
+ * The SA1111 is always located at virtual 0xf4000000, and is always
+ * "native" endian.
+ */
 
 #define SA1111_VBASE		0xf4000000
 
+/* Don't use these! */
 #define SA1111_p2v( x )         ((x) - SA1111_BASE + SA1111_VBASE)
 #define SA1111_v2p( x )         ((x) - SA1111_VBASE + SA1111_BASE)
 
@@ -27,14 +32,29 @@
 #define sa1111_writel(val,addr)	__raw_writel(val, addr)
 #define sa1111_readl(addr)	__raw_readl(addr)
 
+/*
+ * 26 bits of the SA-1110 address bus are available to the SA-1111.
+ * Use these when feeding target addresses to the DMA engines.
+ */
 
 #define SA1111_ADDR_WIDTH	(26)
 #define SA1111_ADDR_MASK	((1<<SA1111_ADDR_WIDTH)-1)
 #define SA1111_DMA_ADDR(x)	((x)&SA1111_ADDR_MASK)
 
+/*
+ * Don't ask the (SAC) DMA engines to move less than this amount.
+ */
 
 #define SA1111_SAC_DMA_MIN_XFER	(0x800)
 
+/*
+ * System Bus Interface (SBI)
+ *
+ * Registers
+ *    SKCR	Control Register
+ *    SMCR	Shared Memory Controller Register
+ *    SKID	ID Register
+ */
 #define SA1111_SKCR	0x0000
 #define SA1111_SMCR	0x0004
 #define SA1111_SKID	0x0008
@@ -51,6 +71,18 @@
 #define SKCR_OPPC	(1<<9)
 #define SKCR_PLLTSTEN	(1<<10)
 #define SKCR_USBIOTSTEN	(1<<11)
+/*
+ * Don't believe the specs!  Take them, throw them outside.  Leave them
+ * there for a week.  Spit on them.  Walk on them.  Stamp on them.
+ * Pour gasoline over them and finally burn them.  Now think about coding.
+ *  - The October 1999 errata (278260-007) says its bit 13, 1 to enable.
+ *  - The Feb 2001 errata (278260-010) says that the previous errata
+ *    (278260-009) is wrong, and its bit actually 12, fixed in spec
+ *    278242-003.
+ *  - The SA1111 manual (278242) says bit 12, but 0 to enable.
+ *  - Reality is bit 13, 1 to enable.
+ *      -- rmk
+ */
 #define SKCR_OE_EN	(1<<13)
 
 #define SMCR_DTIM	(1<<0)
@@ -66,6 +98,20 @@
 #define SKID_ID_MASK	(0xffffff00)
 #define SKID_SA1111_ID	(0x690cc200)
 
+/*
+ * System Controller
+ *
+ * Registers
+ *    SKPCR	Power Control Register
+ *    SKCDR	Clock Divider Register
+ *    SKAUD	Audio Clock Divider Register
+ *    SKPMC	PS/2 Mouse Clock Divider Register
+ *    SKPTC	PS/2 Track Pad Clock Divider Register
+ *    SKPEN0	PWM0 Enable Register
+ *    SKPWM0	PWM0 Clock Register
+ *    SKPEN1	PWM1 Enable Register
+ *    SKPWM1	PWM1 Clock Register
+ */
 #define SA1111_SKPCR	0x0200
 #define SA1111_SKCDR	0x0204
 #define SA1111_SKAUD	0x0208
@@ -86,11 +132,44 @@
 #define SKPCR_DCLKEN	(1<<7)
 #define SKPCR_PWMCLKEN	(1<<8)
 
+/* USB Host controller */
 #define SA1111_USB		0x0400
 
+/*
+ * Serial Audio Controller
+ *
+ * Registers
+ *    SACR0             Serial Audio Common Control Register
+ *    SACR1             Serial Audio Alternate Mode (I2C/MSB) Control Register
+ *    SACR2             Serial Audio AC-link Control Register
+ *    SASR0             Serial Audio I2S/MSB Interface & FIFO Status Register
+ *    SASR1             Serial Audio AC-link Interface & FIFO Status Register
+ *    SASCR             Serial Audio Status Clear Register
+ *    L3_CAR            L3 Control Bus Address Register
+ *    L3_CDR            L3 Control Bus Data Register
+ *    ACCAR             AC-link Command Address Register
+ *    ACCDR             AC-link Command Data Register
+ *    ACSAR             AC-link Status Address Register
+ *    ACSDR             AC-link Status Data Register
+ *    SADTCS            Serial Audio DMA Transmit Control/Status Register
+ *    SADTSA            Serial Audio DMA Transmit Buffer Start Address A
+ *    SADTCA            Serial Audio DMA Transmit Buffer Count Register A
+ *    SADTSB            Serial Audio DMA Transmit Buffer Start Address B
+ *    SADTCB            Serial Audio DMA Transmit Buffer Count Register B
+ *    SADRCS            Serial Audio DMA Receive Control/Status Register
+ *    SADRSA            Serial Audio DMA Receive Buffer Start Address A
+ *    SADRCA            Serial Audio DMA Receive Buffer Count Register A
+ *    SADRSB            Serial Audio DMA Receive Buffer Start Address B
+ *    SADRCB            Serial Audio DMA Receive Buffer Count Register B
+ *    SAITR             Serial Audio Interrupt Test Register
+ *    SADR              Serial Audio Data Register (16 x 32-bit)
+ */
 
 #define SA1111_SERAUDIO		0x0600
 
+/*
+ * These are offsets from the above base.
+ */
 #define SA1111_SACR0		0x00
 #define SA1111_SACR1		0x04
 #define SA1111_SACR2		0x08
@@ -185,12 +264,12 @@
 #define SADRCS_RBIU	(1<<7)
 
 #define SAD_CS_DEN	(1<<0)
-#define SAD_CS_DIE	(1<<1)	
-#define SAD_CS_DBDA	(1<<3)	
+#define SAD_CS_DIE	(1<<1)	/* Not functional on metal 1 */
+#define SAD_CS_DBDA	(1<<3)	/* Not functional on metal 1 */
 #define SAD_CS_DSTA	(1<<4)
-#define SAD_CS_DBDB	(1<<5)	
+#define SAD_CS_DBDB	(1<<5)	/* Not functional on metal 1 */
 #define SAD_CS_DSTB	(1<<6)
-#define SAD_CS_BIU	(1<<7)	
+#define SAD_CS_BIU	(1<<7)	/* Not functional on metal 1 */
 
 #define SAITR_TFS	(1<<0)
 #define SAITR_RFS	(1<<1)
@@ -204,8 +283,25 @@
 #define SAITR_RDBDA	(1<<10)
 #define SAITR_RDBDB	(1<<11)
 
-#endif  
+#endif  /* !CONFIG_ARCH_PXA */
 
+/*
+ * General-Purpose I/O Interface
+ *
+ * Registers
+ *    PA_DDR		GPIO Block A Data Direction
+ *    PA_DRR/PA_DWR	GPIO Block A Data Value Register (read/write)
+ *    PA_SDR		GPIO Block A Sleep Direction
+ *    PA_SSR		GPIO Block A Sleep State
+ *    PB_DDR		GPIO Block B Data Direction
+ *    PB_DRR/PB_DWR	GPIO Block B Data Value Register (read/write)
+ *    PB_SDR		GPIO Block B Sleep Direction
+ *    PB_SSR		GPIO Block B Sleep State
+ *    PC_DDR		GPIO Block C Data Direction
+ *    PC_DRR/PC_DWR	GPIO Block C Data Value Register (read/write)
+ *    PC_SDR		GPIO Block C Sleep Direction
+ *    PC_SSR		GPIO Block C Sleep State
+ */
 
 #define SA1111_GPIO	0x1000
 
@@ -248,8 +344,31 @@
 #define GPIO_C6		(1 << 22)
 #define GPIO_C7		(1 << 23)
 
+/*
+ * Interrupt Controller
+ *
+ * Registers
+ *    INTTEST0		Test register 0
+ *    INTTEST1		Test register 1
+ *    INTEN0		Interrupt Enable register 0
+ *    INTEN1		Interrupt Enable register 1
+ *    INTPOL0		Interrupt Polarity selection 0
+ *    INTPOL1		Interrupt Polarity selection 1
+ *    INTTSTSEL		Interrupt source selection
+ *    INTSTATCLR0	Interrupt Status/Clear 0
+ *    INTSTATCLR1	Interrupt Status/Clear 1
+ *    INTSET0		Interrupt source set 0
+ *    INTSET1		Interrupt source set 1
+ *    WAKE_EN0		Wake-up source enable 0
+ *    WAKE_EN1		Wake-up source enable 1
+ *    WAKE_POL0		Wake-up polarity selection 0
+ *    WAKE_POL1		Wake-up polarity selection 1
+ */
 #define SA1111_INTC		0x1600
 
+/*
+ * These are offsets from the above base.
+ */
 #define SA1111_INTTEST0		0x0000
 #define SA1111_INTTEST1		0x0004
 #define SA1111_INTEN0		0x0008
@@ -266,9 +385,11 @@
 #define SA1111_WAKEPOL0		0x0034
 #define SA1111_WAKEPOL1		0x0038
 
+/* PS/2 Trackpad and Mouse Interfaces */
 #define SA1111_KBD		0x0a00
 #define SA1111_MSE		0x0c00
 
+/* PCMCIA Interface */
 #define SA1111_PCMCIA		0x1600
 
 
@@ -318,6 +439,10 @@ struct sa1111_driver {
 
 #define SA1111_DRIVER_NAME(_sadev) ((_sadev)->dev.driver->name)
 
+/*
+ * These frob the SKPCR register, and call platform specific
+ * enable/disable functions.
+ */
 int sa1111_enable_device(struct sa1111_dev *);
 void sa1111_disable_device(struct sa1111_dev *);
 
@@ -340,11 +465,11 @@ void sa1111_set_io(struct sa1111_dev *sadev, unsigned int bits, unsigned int v);
 void sa1111_set_sleep_io(struct sa1111_dev *sadev, unsigned int bits, unsigned int v);
 
 struct sa1111_platform_data {
-	int	irq_base;	
+	int	irq_base;	/* base for cascaded on-chip IRQs */
 	unsigned disable_devs;
 	void	*data;
 	int	(*enable)(void *, unsigned);
 	void	(*disable)(void *, unsigned);
 };
 
-#endif  
+#endif  /* _ASM_ARCH_SA1111 */

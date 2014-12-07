@@ -80,7 +80,7 @@ nvd0_gpio_drive(struct drm_device *dev, int line, int dir, int out)
 {
 	u32 data = ((dir ^ 1) << 13) | (out << 12);
 	nv_mask(dev, 0x00d610 + (line * 4), 0x00003000, data);
-	nv_mask(dev, 0x00d604, 0x00000001, 0x00000001); 
+	nv_mask(dev, 0x00d604, 0x00000001, 0x00000001); /* update? */
 	return 0;
 }
 
@@ -115,7 +115,7 @@ nv50_gpio_init(struct drm_device *dev)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 
-	
+	/* disable, and ack any pending gpio interrupts */
 	nv_wr32(dev, 0xe050, 0x00000000);
 	nv_wr32(dev, 0xe054, 0xffffffff);
 	if (dev_priv->chipset >= 0x90) {

@@ -42,22 +42,22 @@
 
 static void __init kafa_init_early(void)
 {
-	
+	/* Set cpu type: PQFP */
 	at91rm9200_set_type(ARCH_REVISON_9200_PQFP);
 
-	
+	/* Initialize processor: 18.432 MHz crystal */
 	at91_initialize(18432000);
 
-	
+	/* Set up the LEDs */
 	at91_init_leds(AT91_PIN_PB4, AT91_PIN_PB4);
 
-	
+	/* DBGU on ttyS0. (Rx & Tx only) */
 	at91_register_uart(0, 0, 0);
 
-	
+	/* USART0 on ttyS1 (Rx, Tx, CTS, RTS) */
 	at91_register_uart(AT91RM9200_ID_US0, 1, ATMEL_UART_CTS | ATMEL_UART_RTS);
 
-	
+	/* set serial console to ttyS0 (ie, DBGU) */
 	at91_set_serial_console(0);
 }
 
@@ -79,22 +79,22 @@ static struct at91_udc_data __initdata kafa_udc_data = {
 
 static void __init kafa_board_init(void)
 {
-	
+	/* Serial */
 	at91_add_device_serial();
-	
+	/* Ethernet */
 	at91_add_device_eth(&kafa_eth_data);
-	
+	/* USB Host */
 	at91_add_device_usbh(&kafa_usbh_data);
-	
+	/* USB Device */
 	at91_add_device_udc(&kafa_udc_data);
-	
+	/* I2C */
 	at91_add_device_i2c(NULL, 0);
-	
+	/* SPI */
 	at91_add_device_spi(NULL, 0);
 }
 
 MACHINE_START(KAFA, "Sperry-Sun KAFA")
-	
+	/* Maintainer: Sergei Sharonov */
 	.timer		= &at91rm9200_timer,
 	.map_io		= at91_map_io,
 	.init_early	= kafa_init_early,

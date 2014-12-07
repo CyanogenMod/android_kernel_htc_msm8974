@@ -1,4 +1,9 @@
 
+/******************************************************************************
+ *
+ * Name: hwtimer.c - ACPI Power Management Timer Interface
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -44,7 +49,18 @@
 #define _COMPONENT          ACPI_HARDWARE
 ACPI_MODULE_NAME("hwtimer")
 
-#if (!ACPI_REDUCED_HARDWARE)	
+#if (!ACPI_REDUCED_HARDWARE)	/* Entire module */
+/******************************************************************************
+ *
+ * FUNCTION:    acpi_get_timer_resolution
+ *
+ * PARAMETERS:  Resolution          - Where the resolution is returned
+ *
+ * RETURN:      Status and timer resolution
+ *
+ * DESCRIPTION: Obtains resolution of the ACPI PM Timer (24 or 32 bits).
+ *
+ ******************************************************************************/
 acpi_status acpi_get_timer_resolution(u32 * resolution)
 {
 	ACPI_FUNCTION_TRACE(acpi_get_timer_resolution);
@@ -64,6 +80,17 @@ acpi_status acpi_get_timer_resolution(u32 * resolution)
 
 ACPI_EXPORT_SYMBOL(acpi_get_timer_resolution)
 
+/******************************************************************************
+ *
+ * FUNCTION:    acpi_get_timer
+ *
+ * PARAMETERS:  Ticks               - Where the timer value is returned
+ *
+ * RETURN:      Status and current timer value (ticks)
+ *
+ * DESCRIPTION: Obtains current value of ACPI PM Timer (in ticks).
+ *
+ ******************************************************************************/
 acpi_status acpi_get_timer(u32 * ticks)
 {
 	acpi_status status;
@@ -82,6 +109,34 @@ acpi_status acpi_get_timer(u32 * ticks)
 
 ACPI_EXPORT_SYMBOL(acpi_get_timer)
 
+/******************************************************************************
+ *
+ * FUNCTION:    acpi_get_timer_duration
+ *
+ * PARAMETERS:  start_ticks         - Starting timestamp
+ *              end_ticks           - End timestamp
+ *              time_elapsed        - Where the elapsed time is returned
+ *
+ * RETURN:      Status and time_elapsed
+ *
+ * DESCRIPTION: Computes the time elapsed (in microseconds) between two
+ *              PM Timer time stamps, taking into account the possibility of
+ *              rollovers, the timer resolution, and timer frequency.
+ *
+ *              The PM Timer's clock ticks at roughly 3.6 times per
+ *              _microsecond_, and its clock continues through Cx state
+ *              transitions (unlike many CPU timestamp counters) -- making it
+ *              a versatile and accurate timer.
+ *
+ *              Note that this function accommodates only a single timer
+ *              rollover.  Thus for 24-bit timers, this function should only
+ *              be used for calculating durations less than ~4.6 seconds
+ *              (~20 minutes for 32-bit timers) -- calculations below:
+ *
+ *              2**24 Ticks / 3,600,000 Ticks/Sec = 4.66 sec
+ *              2**32 Ticks / 3,600,000 Ticks/Sec = 1193 sec or 19.88 minutes
+ *
+ ******************************************************************************/
 acpi_status
 acpi_get_timer_duration(u32 start_ticks, u32 end_ticks, u32 * time_elapsed)
 {
@@ -95,27 +150,36 @@ acpi_get_timer_duration(u32 start_ticks, u32 end_ticks, u32 * time_elapsed)
 		return_ACPI_STATUS(AE_BAD_PARAMETER);
 	}
 
+	/*
+	 * Compute Tick Delta:
+	 * Handle (max one) timer rollovers on 24-bit versus 32-bit timers.
+	 */
 	if (start_ticks < end_ticks) {
 		delta_ticks = end_ticks - start_ticks;
 	} else if (start_ticks > end_ticks) {
 		if ((acpi_gbl_FADT.flags & ACPI_FADT_32BIT_TIMER) == 0) {
 
-			
+			/* 24-bit Timer */
 
 			delta_ticks =
 			    (((0x00FFFFFF - start_ticks) +
 			      end_ticks) & 0x00FFFFFF);
 		} else {
-			
+			/* 32-bit Timer */
 
 			delta_ticks = (0xFFFFFFFF - start_ticks) + end_ticks;
 		}
-	} else {		
+	} else {		/* start_ticks == end_ticks */
 
 		*time_elapsed = 0;
 		return_ACPI_STATUS(AE_OK);
 	}
 
+	/*
+	 * Compute Duration (Requires a 64-bit multiply and divide):
+	 *
+	 * time_elapsed = (delta_ticks * 1000000) / PM_TIMER_FREQUENCY;
+	 */
 	status = acpi_ut_short_divide(((u64) delta_ticks) * 1000000,
 				      PM_TIMER_FREQUENCY, &quotient, NULL);
 
@@ -124,4 +188,4 @@ acpi_get_timer_duration(u32 start_ticks, u32 end_ticks, u32 * time_elapsed)
 }
 
 ACPI_EXPORT_SYMBOL(acpi_get_timer_duration)
-#endif				
+#endif				/* !ACPI_REDUCED_HARDWARE */

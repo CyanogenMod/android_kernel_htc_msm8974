@@ -33,6 +33,9 @@
 #include <plat/clock-clksrc.h>
 #include <plat/pll.h>
 
+/* fin_apll, fin_mpll and fin_epll are all the same clock, which we call
+ * ext_xtal_mux for want of an actual name from the manual.
+*/
 
 static struct clk clk_ext_xtal_mux = {
 	.name		= "ext_xtal",
@@ -60,7 +63,7 @@ static int clk_48m_ctrl(struct clk *clk, int enable)
 	unsigned long flags;
 	u32 val;
 
-	
+	/* can't rely on clock lock, this register has other usages */
 	local_irq_save(flags);
 
 	val = __raw_readl(S3C64XX_OTHERS);
@@ -488,7 +491,7 @@ static unsigned long s3c64xx_clk_arm_get_rate(struct clk *clk)
 	unsigned long rate = clk_get_rate(clk->parent);
 	u32 clkdiv;
 
-	
+	/* divisor mask starts at bit0, so no need to shift */
 	clkdiv = __raw_readl(S3C_CLK_DIV0) & armclk_mask;
 
 	return rate / (clkdiv + 1);
@@ -611,7 +614,17 @@ static struct clksrc_sources clkset_uhost = {
 	.nr_sources	= ARRAY_SIZE(clkset_uhost_list),
 };
 
+/* The peripheral clocks are all controlled via clocksource followed
+ * by an optional divider and gate stage. We currently roll this into
+ * one clock which hides the intermediate clock from the mux.
+ *
+ * Note, the JPEG clock can only be an even divider...
+ *
+ * The scaler and LCD clocks depend on the S3C64XX version, and also
+ * have a common parent divisor so are not included here.
+ */
 
+/* clocks that feed other parts of the clock source tree */
 
 static struct clk clk_iis_cd0 = {
 	.name		= "iis_cdclk0",
@@ -738,6 +751,7 @@ static struct clksrc_clk clksrcs[] = {
 	},
 };
 
+/* Where does UCLK0 come from? */
 static struct clksrc_clk clk_sclk_uclk = {
 	.clk	= {
 		.name		= "uclk1",
@@ -809,6 +823,7 @@ static struct clksrc_clk clk_sclk_spi1 = {
 	.sources = &clkset_spi_mmc,
 };
 
+/* Clock initialisation code */
 
 static struct clksrc_clk *init_parents[] = {
 	&clk_mout_apll,
@@ -878,7 +893,7 @@ void __init_or_cpufreq s3c64xx_setup_clocks(void)
 
 	printk(KERN_DEBUG "%s: xtal is %ld\n", __func__, xtal);
 
-	
+	/* For now assume the mux always selects the crystal */
 	clk_ext_xtal_mux.parent = xtal_clk;
 
 	epll = s3c_get_pll6553x(xtal, __raw_readl(S3C_EPLL_CON0),
@@ -892,10 +907,10 @@ void __init_or_cpufreq s3c64xx_setup_clocks(void)
 	       apll, mpll, epll);
 
 	if(__raw_readl(S3C64XX_OTHERS) & S3C64XX_OTHERS_SYNCMUXSEL)
-		
+		/* Synchronous mode */
 		hclk2 = apll / GET_DIV(clkdiv0, S3C6400_CLKDIV0_HCLK2);
 	else
-		
+		/* Asynchronous mode */
 		hclk2 = mpll / GET_DIV(clkdiv0, S3C6400_CLKDIV0_HCLK2);
 
 	hclk = hclk2 / GET_DIV(clkdiv0, S3C6400_CLKDIV0_HCLK);
@@ -941,6 +956,19 @@ static struct clk *clks[] __initdata = {
 	&clk_xusbxti,
 };
 
+/**
+ * s3c64xx_register_clocks - register clocks for s3c6400 and s3c6410
+ * @xtal: The rate for the clock crystal feeding the PLLs.
+ * @armclk_divlimit: Divisor mask for ARMCLK.
+ *
+ * Register the clocks for the S3C6400 and S3C6410 SoC range, such
+ * as ARMCLK as well as the necessary parent clocks.
+ *
+ * This call does not setup the clocks, which is left to the
+ * s3c64xx_setup_clocks() call which may be needed by the cpufreq
+ * or resume code to re-set the clocks if the bootloader has changed
+ * them.
+ */
 void __init s3c64xx_register_clocks(unsigned long xtal, 
 				    unsigned armclk_divlimit)
 {

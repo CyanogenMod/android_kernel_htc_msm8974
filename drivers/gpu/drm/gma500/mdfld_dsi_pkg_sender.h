@@ -42,7 +42,7 @@ struct mdfld_dsi_pkg_sender {
 
 	u32 pkg_num;
 
-	
+	/* Registers */
 	u32 dpll_reg;
 	u32 dspcntr_reg;
 	u32 pipeconf_reg;
@@ -62,6 +62,7 @@ struct mdfld_dsi_pkg_sender {
 	u32 mipi_cmd_len_reg;
 };
 
+/* DCS definitions */
 #define DCS_SOFT_RESET			0x01
 #define DCS_ENTER_SLEEP_MODE		0x10
 #define DCS_EXIT_SLEEP_MODE		0x11
@@ -84,6 +85,7 @@ int mdfld_dsi_send_gen_short(struct mdfld_dsi_pkg_sender *sender, u8 param0,
 					u8 param1, u8 param_num, bool hs);
 int mdfld_dsi_send_gen_long(struct mdfld_dsi_pkg_sender *sender, u8 *data,
 					u32 len, bool hs);
+/* Read interfaces */
 int mdfld_dsi_read_mcs(struct mdfld_dsi_pkg_sender *sender, u8 cmd,
 		u32 *data, u16 len, bool hs);
 

@@ -335,22 +335,22 @@ static int tegra_pinconf_group_set(struct pinctrl_dev *pctldev,
 
 	val = pmx_readl(pmx, bank, reg);
 
-	
+	/* LOCK can't be cleared */
 	if (param == TEGRA_PINCONF_PARAM_LOCK) {
 		if ((val & BIT(bit)) && !arg)
 			return -EINVAL;
 	}
 
-	
+	/* Special-case Boolean values; allow any non-zero as true */
 	if (width == 1)
 		arg = !!arg;
 
-	
+	/* Range-check user-supplied value */
 	mask = (1 << width) - 1;
 	if (arg & ~mask)
 		return -EINVAL;
 
-	
+	/* Update register */
 	val &= ~(mask << bit);
 	val |= arg << bit;
 	pmx_writel(pmx, val, bank, reg);

@@ -27,6 +27,9 @@
  * SUCH DAMAGE.
  */
 
+/*
+ * Veritas filesystem driver - filesystem to disk block mapping.
+ */
 #include <linux/fs.h>
 #include <linux/buffer_head.h>
 #include <linux/kernel.h>
@@ -47,6 +50,19 @@ vxfs_typdump(struct vxfs_typed *typ)
 }
 #endif
 
+/**
+ * vxfs_bmap_ext4 - do bmap for ext4 extents
+ * @ip:		pointer to the inode we do bmap for
+ * @iblock:	logical block.
+ *
+ * Description:
+ *   vxfs_bmap_ext4 performs the bmap operation for inodes with
+ *   ext4-style extents (which are much like the traditional UNIX
+ *   inode organisation).
+ *
+ * Returns:
+ *   The physical block number on success, else Zero.
+ */
 static daddr_t
 vxfs_bmap_ext4(struct inode *ip, long bn)
 {
@@ -91,6 +107,23 @@ fail_buf:
 	return 0;
 }
 
+/**
+ * vxfs_bmap_indir - recursion for vxfs_bmap_typed
+ * @ip:		pointer to the inode we do bmap for
+ * @indir:	indirect block we start reading at
+ * @size:	size of the typed area to search
+ * @block:	partially result from further searches
+ *
+ * Description:
+ *   vxfs_bmap_indir reads a &struct vxfs_typed at @indir
+ *   and performs the type-defined action.
+ *
+ * Return Value:
+ *   The physical block number on success, else Zero.
+ *
+ * Note:
+ *   Kernelstack is rare.  Unrecurse?
+ */
 static daddr_t
 vxfs_bmap_indir(struct inode *ip, long indir, int size, long block)
 {
@@ -153,6 +186,17 @@ out:
 	return (pblock);
 }
 
+/**
+ * vxfs_bmap_typed - bmap for typed extents
+ * @ip:		pointer to the inode we do bmap for
+ * @iblock:	logical block
+ *
+ * Description:
+ *   Performs the bmap operation for typed extents.
+ *
+ * Return Value:
+ *   The physical block number on success, else Zero.
+ */
 static daddr_t
 vxfs_bmap_typed(struct inode *ip, long iblock)
 {
@@ -200,6 +244,18 @@ vxfs_bmap_typed(struct inode *ip, long iblock)
 	return 0;
 }
 
+/**
+ * vxfs_bmap1 - vxfs-internal bmap operation
+ * @ip:			pointer to the inode we do bmap for
+ * @iblock:		logical block
+ *
+ * Description:
+ *   vxfs_bmap1 perfoms a logical to physical block mapping
+ *   for vxfs-internal purposes.
+ *
+ * Return Value:
+ *   The physical block number on success, else Zero.
+ */
 daddr_t
 vxfs_bmap1(struct inode *ip, long iblock)
 {

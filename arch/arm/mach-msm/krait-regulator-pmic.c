@@ -1,4 +1,4 @@
-/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -59,7 +59,8 @@
 #define REG_GANG_CTL2		0xC1
 #define GANG_EN_BIT		BIT(7)
 
-#define REG_PWM_CL			0x60
+#define REG_PWM_CL		0x60
+#define REG_SEC_ACCESS		0xD0
 
 struct krait_vreg_pmic_chip {
 	struct spmi_device	*spmi;
@@ -106,11 +107,21 @@ static int read_byte(struct spmi_device *spmi, u16 addr, u8 *val)
 	return 0;
 }
 
-static int write_byte(struct spmi_device *spmi, u16 addr, u8 *val)
+static int write_secure_byte(struct spmi_device *spmi, u16 base,
+							u16 addr, u8 *val)
 {
 	int rc;
+	u8 sec_val = 0xA5;
 
-	rc = spmi_ext_register_writel(spmi->ctrl, spmi->sid, addr, val, 1);
+	rc = spmi_ext_register_writel(spmi->ctrl, spmi->sid,
+					base + REG_SEC_ACCESS, &sec_val, 1);
+	if (rc) {
+		pr_err("SPMI write failed [%d,0x%04x] val = 0x%02x rc=%d\n",
+				spmi->sid, base + REG_SEC_ACCESS, sec_val, rc);
+		return rc;
+	}
+	rc = spmi_ext_register_writel(spmi->ctrl, spmi->sid,
+					base + addr, val, 1);
 	if (rc) {
 		pr_err("SPMI write failed [%d,0x%04x] val = 0x%02x rc=%d\n",
 						spmi->sid, addr, *val, rc);
@@ -134,10 +145,17 @@ static bool v_overshoot_fixed(void)
 	return false;
 }
 
+/**
+ * krait_pmic_is_ready - function to check if the driver is initialized
+ *
+ * CONTEXT: Can be called in atomic context
+ *
+ * RETURNS: true if this driver has initialized, false otherwise
+ */
 bool krait_pmic_is_ready(void)
 {
 	if (the_chip == NULL) {
-		pr_debug("kait_regulator_pmic not ready yet\n");
+		pr_debug("krait_regulator_pmic not ready yet\n");
 		return false;
 	}
 	return true;
@@ -146,13 +164,20 @@ EXPORT_SYMBOL(krait_pmic_is_ready);
 
 #define I_PFM_MA		2000
 
+/**
+ * krait_pmic_post_pfm_entry - workarounds after entering pfm mode
+ *
+ * CONTEXT: Can be called in atomic context
+ *
+ * RETURNS: 0 on success, error code on failure
+ */
 int krait_pmic_post_pfm_entry(void)
 {
 	u8 setpoint;
 	int rc;
 
 	if (the_chip == NULL) {
-		pr_debug("kait_regulator_pmic not ready yet\n");
+		pr_debug("krait_regulator_pmic not ready yet\n");
 		return -ENXIO;
 	}
 
@@ -160,8 +185,8 @@ int krait_pmic_post_pfm_entry(void)
 		return 0;
 
 	setpoint = (I_PFM_MA - IOFFSET_MA) / ISTEP_MA;
-	rc = write_byte(the_chip->spmi,
-			the_chip->ps_base + REG_PWM_CL, &setpoint);
+	rc = write_secure_byte(the_chip->spmi,
+			the_chip->ps_base, REG_PWM_CL, &setpoint);
 	pr_debug("wrote 0x%02x->[%d 0x%04x] rc = %d\n", setpoint,
 			the_chip->spmi->sid,
 			the_chip->ps_base + REG_PWM_CL, rc);
@@ -170,13 +195,20 @@ int krait_pmic_post_pfm_entry(void)
 EXPORT_SYMBOL(krait_pmic_post_pfm_entry);
 
 #define I_PWM_MA		3500
+/**
+ * krait_pmic_post_pwm_entry - workarounds after entering pwm mode
+ *
+ * CONTEXT: Can be called in atomic context
+ *
+ * RETURNS: 0 on success, error code on failure
+ */
 int krait_pmic_post_pwm_entry(void)
 {
 	u8 setpoint;
 	int rc;
 
 	if (the_chip == NULL) {
-		pr_debug("kait_regulator_pmic not ready yet\n");
+		pr_debug("krait_regulator_pmic not ready yet\n");
 		return -ENXIO;
 	}
 
@@ -186,8 +218,8 @@ int krait_pmic_post_pwm_entry(void)
 	udelay(50);
 	setpoint = (I_PWM_MA - IOFFSET_MA) / ISTEP_MA;
 
-	rc = write_byte(the_chip->spmi,
-			the_chip->ps_base + REG_PWM_CL, &setpoint);
+	rc = write_secure_byte(the_chip->spmi,
+			the_chip->ps_base, REG_PWM_CL, &setpoint);
 	pr_debug("wrote 0x%02x->[%d 0x%04x] rc = %d\n", setpoint,
 			the_chip->spmi->sid,
 			the_chip->ps_base + REG_PWM_CL, rc);
@@ -221,14 +253,14 @@ static int gang_configuration_check(struct krait_vreg_pmic_chip *chip)
 	READ_BYTE(chip, chip->ctrl_base + REG_MODE_CTL, val, rc);
 	if (rc)
 		return rc;
-	
+	/* The Auto mode should be off */
 	if (val & AUTO_MODE_BIT) {
 		pr_err("mode addr = 0x%05x val = 0x%x expect bit 0x%x to be not set\n",
 				chip->ctrl_base + REG_MODE_CTL, val,
 				(u32)AUTO_MODE_BIT);
 		chip->unexpected_config |= BAD_AUTO_BIT;
 	}
-	
+	/* The NPM mode should be on */
 	if (!(val & NPM_MODE_BIT)) {
 		pr_err("mode ctl addr = 0x%05x val = 0x%x expect bit 0x%x to be set\n",
 				chip->ctrl_base + REG_MODE_CTL, val,
@@ -239,7 +271,7 @@ static int gang_configuration_check(struct krait_vreg_pmic_chip *chip)
 	READ_BYTE(chip, chip->ctrl_base + REG_EN_CTL, val, rc);
 	if (rc)
 		return rc;
-	
+	/* The en bit should be set */
 	if (!(val & EN_BIT)) {
 		pr_err("en ctl addr = 0x%05x val = 0x%x expect bit 0x%x to be set\n",
 				chip->ctrl_base + REG_EN_CTL, val,

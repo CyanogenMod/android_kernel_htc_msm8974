@@ -67,11 +67,15 @@ static int exynos_drm_load(struct drm_device *dev, unsigned long flags)
 
 	drm_mode_config_init(dev);
 
-	
+	/* init kms poll for handling hpd */
 	drm_kms_helper_poll_init(dev);
 
 	exynos_drm_mode_config_init(dev);
 
+	/*
+	 * EXYNOS4 is enough to have two CRTCs and each crtc would be used
+	 * without dependency of hardware.
+	 */
 	for (nr = 0; nr < MAX_CRTC; nr++) {
 		ret = exynos_drm_crtc_create(dev, nr);
 		if (ret)
@@ -88,13 +92,22 @@ static int exynos_drm_load(struct drm_device *dev, unsigned long flags)
 	if (ret)
 		goto err_crtc;
 
+	/*
+	 * probe sub drivers such as display controller and hdmi driver,
+	 * that were registered at probe() of platform driver
+	 * to the sub driver and create encoder and connector for them.
+	 */
 	ret = exynos_drm_device_register(dev);
 	if (ret)
 		goto err_vblank;
 
-	
+	/* setup possible_clones. */
 	exynos_drm_encoder_setup(dev);
 
+	/*
+	 * create and configure fb helper and also exynos specific
+	 * fbdev object.
+	 */
 	ret = exynos_drm_fbdev_init(dev);
 	if (ret) {
 		DRM_ERROR("failed to initialize drm fbdev\n");
@@ -148,7 +161,7 @@ static void exynos_drm_preclose(struct drm_device *dev,
 
 	DRM_DEBUG_DRIVER("%s\n", __FILE__);
 
-	
+	/* release events of current file */
 	spin_lock_irqsave(&dev->event_lock, flags);
 	list_for_each_entry_safe(e, t, &private->pageflip_event_list,
 			base.link) {

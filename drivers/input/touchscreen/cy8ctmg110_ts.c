@@ -31,12 +31,14 @@
 
 #define CY8CTMG110_DRIVER_NAME      "cy8ctmg110"
 
+/* Touch coordinates */
 #define CY8CTMG110_X_MIN		0
 #define CY8CTMG110_Y_MIN		0
 #define CY8CTMG110_X_MAX		759
 #define CY8CTMG110_Y_MAX		465
 
 
+/* cy8ctmg110 register definitions */
 #define CY8CTMG110_TOUCH_WAKEUP_TIME	0
 #define CY8CTMG110_TOUCH_SLEEP_TIME	2
 #define CY8CTMG110_TOUCH_X1		3
@@ -48,6 +50,9 @@
 #define CY8CTMG110_REG_MAX		13
 
 
+/*
+ * The touch driver structure.
+ */
 struct cy8ctmg110 {
 	struct input_dev *input;
 	char phys[32];
@@ -56,6 +61,10 @@ struct cy8ctmg110 {
 	int irq_pin;
 };
 
+/*
+ * cy8ctmg110_power is the routine that is called when touch hardware
+ * will powered off or on.
+ */
 static void cy8ctmg110_power(struct cy8ctmg110 *ts, bool poweron)
 {
 	if (ts->reset_pin)
@@ -89,9 +98,9 @@ static int cy8ctmg110_read_regs(struct cy8ctmg110 *tsc,
 	struct i2c_client *client = tsc->client;
 	int ret;
 	struct i2c_msg msg[2] = {
-		
+		/* first write slave position to i2c devices */
 		{ client->addr, 0, 1, &cmd },
-		
+		/* Second read data from position */
 		{ client->addr, I2C_M_RD, len, data }
 	};
 
@@ -110,14 +119,14 @@ static int cy8ctmg110_touch_pos(struct cy8ctmg110 *tsc)
 
 	memset(reg_p, 0, CY8CTMG110_REG_MAX);
 
-	
+	/* Reading coordinates */
 	if (cy8ctmg110_read_regs(tsc, reg_p, 9, CY8CTMG110_TOUCH_X1) != 0)
 		return -EIO;
 
 	y = reg_p[2] << 8 | reg_p[3];
 	x = reg_p[0] << 8 | reg_p[1];
 
-	
+	/* Number of touch */
 	if (reg_p[8] == 0) {
 		input_report_key(input, BTN_TOUCH, 0);
 	} else  {
@@ -165,7 +174,7 @@ static int __devinit cy8ctmg110_probe(struct i2c_client *client,
 	struct input_dev *input_dev;
 	int err;
 
-	
+	/* No pdata no way forward */
 	if (pdata == NULL) {
 		dev_err(&client->dev, "no pdata\n");
 		return -ENODEV;

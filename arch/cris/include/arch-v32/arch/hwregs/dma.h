@@ -1,12 +1,18 @@
+/*
+ * DMA C definitions and help macros
+ *
+ */
 
 #ifndef dma_h
 #define dma_h
 
- 
+/* registers */ /* Really needed, since both are listed in sw.list? */
 #include "dma_defs.h"
 
 
+/* descriptors */
 
+// ------------------------------------------------------------ dma_descr_group
 typedef struct dma_descr_group {
   struct dma_descr_group       *next;
   unsigned                      eol        : 1;
@@ -26,6 +32,7 @@ typedef struct dma_descr_group {
   }                             down;
 } dma_descr_group;
 
+// ---------------------------------------------------------- dma_descr_context
 typedef struct dma_descr_context {
   struct dma_descr_context     *next;
   unsigned                      eol        : 1;
@@ -45,6 +52,7 @@ typedef struct dma_descr_context {
   char                         *saved_data_buf;
 } dma_descr_context;
 
+// ------------------------------------------------------------- dma_descr_data
 typedef struct dma_descr_data {
   struct dma_descr_data        *next;
   char                         *buf;
@@ -61,27 +69,33 @@ typedef struct dma_descr_data {
   char                         *after;
 } dma_descr_data;
 
+// --------------------------------------------------------------------- macros
 
+// enable DMA channel
 #define DMA_ENABLE( inst ) \
    do { reg_dma_rw_cfg e = REG_RD( dma, inst, rw_cfg );\
         e.en = regk_dma_yes; \
         REG_WR( dma, inst, rw_cfg, e); } while( 0 )
 
+// reset DMA channel
 #define DMA_RESET( inst ) \
    do { reg_dma_rw_cfg r = REG_RD( dma, inst, rw_cfg );\
         r.en = regk_dma_no; \
         REG_WR( dma, inst, rw_cfg, r); } while( 0 )
 
+// stop DMA channel
 #define DMA_STOP( inst ) \
    do { reg_dma_rw_cfg s = REG_RD( dma, inst, rw_cfg );\
         s.stop = regk_dma_yes; \
         REG_WR( dma, inst, rw_cfg, s); } while( 0 )
 
+// continue DMA channel operation
 #define DMA_CONTINUE( inst ) \
    do { reg_dma_rw_cfg c = REG_RD( dma, inst, rw_cfg );\
         c.stop = regk_dma_no; \
         REG_WR( dma, inst, rw_cfg, c); } while( 0 )
 
+// give stream command
 #define DMA_WR_CMD( inst, cmd_par ) \
    do { reg_dma_rw_stream_cmd __x = {0}; \
 	do { __x = REG_RD(dma, inst, rw_stream_cmd); } while (__x.busy); \
@@ -89,6 +103,7 @@ typedef struct dma_descr_data {
 	REG_WR(dma, inst, rw_stream_cmd, __x); \
    } while (0)
 
+// load: g,c,d:burst
 #define DMA_START_GROUP( inst, group_descr ) \
    do { REG_WR_INT( dma, inst, rw_group, (int) group_descr ); \
         DMA_WR_CMD( inst, regk_dma_load_g ); \
@@ -96,12 +111,14 @@ typedef struct dma_descr_data {
         DMA_WR_CMD( inst, regk_dma_load_d | regk_dma_burst ); \
       } while( 0 )
 
+// load: c,d:burst
 #define DMA_START_CONTEXT( inst, ctx_descr ) \
    do { REG_WR_INT( dma, inst, rw_group_down, (int) ctx_descr ); \
         DMA_WR_CMD( inst, regk_dma_load_c ); \
         DMA_WR_CMD( inst, regk_dma_load_d | regk_dma_burst ); \
       } while( 0 )
 
+// if the DMA is at the end of the data list, the last data descr is reloaded
 #define DMA_CONTINUE_DATA( inst ) \
 do { reg_dma_rw_cmd c = {0}; \
      c.cont_data = regk_dma_yes;\

@@ -86,7 +86,7 @@
 
 #define LPAIF_DMIC_VOL_CTL(x)		(0x001c + (0x4 * x))
 	#define UPDATE_STATUS_COMP	(0 << 20)
-	#define UPDATE_STATUS_PEND	(1 << 20) 
+	#define UPDATE_STATUS_PEND	(1 << 20) /* Timeout or Zero Crossing */
 	#define UPDATE_GAIN_NO		(0 << 19)
 	#define UPDATE_GAIN_YES		(1 << 19)
 	#define TX_HPF_BP_DC_BLOCK	(0 << 18)
@@ -153,6 +153,7 @@
 #define DMA_IRQ_ADDR(irq, addr)		(DMA_IRQ_BASE  \
 					+ DMA_IRQ_INDEX(irq) + addr)
 
+/* Audio Interrupt registers for DMA channel confuguration */
 #define LPAIF_IRQ_EN(x)			DMA_IRQ_ADDR(x, 0x00)
 #define LPAIF_IRQ_STAT(x)		DMA_IRQ_ADDR(x, 0x04)
 #define	LPAIF_IRQ_RAW_STAT(x)		DMA_IRQ_ADDR(x, 0x08)
@@ -162,6 +163,7 @@
 	#define UNDER_CH(x)		(2 << (3 * x))
 	#define ERR_CH(x)		(4 << (3 * x))
 
+/* Audio DMA registers for DMA channel confuguration */
 #define DMA_CH_CTL_BASE			0x6000
 #define DMA_CH_INDEX(ch)		(BANK_OFFSET * ch)
 
@@ -205,6 +207,7 @@
 #define LPAIF_DMA_PER_CNT_FIFO_WORDCNT_MASK	0x00F00000
 #define LPAIF_DMA_PER_CNT_FIFO_WORDCNT_SHIFT	20
 
+/* channel assignments */
 
 #define DMA_CH_0		0
 #define DMA_CH_1		1

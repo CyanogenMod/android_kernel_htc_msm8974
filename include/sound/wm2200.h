@@ -26,8 +26,8 @@ enum wm2200_dmic_sup {
 };
 
 struct wm2200_pdata {
-	int reset;      
-	int ldo_ena;    
+	int reset;      /** GPIO controlling /RESET, if any */
+	int ldo_ena;    /** GPIO controlling LODENA, if any */
 	int irq_flags;
 
 	int gpio_defaults[4];
@@ -35,7 +35,7 @@ struct wm2200_pdata {
 	enum wm2200_in_mode in_mode[3];
 	enum wm2200_dmic_sup dmic_sup[3];
 
-	int micbias_cfg[2];  
+	int micbias_cfg[2];  /** Register value to configure MICBIAS */
 };
 
 #endif

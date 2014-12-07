@@ -27,6 +27,7 @@
 #include <linux/err.h>
 #include <linux/mutex.h>
 
+/* Addresses to scan */
 static const unsigned short normal_i2c[] = {
 	0x2c, 0x2d, 0x2e, I2C_CLIENT_END
 };
@@ -75,21 +76,44 @@ static struct asc7621_chip asc7621_chips[] = {
 	 },
 };
 
+/*
+ * Defines the highest register to be used, not the count.
+ * The actual count will probably be smaller because of gaps
+ * in the implementation (unused register locations).
+ * This define will safely set the array size of both the parameter
+ * and data arrays.
+ * This comes from the data sheet register description table.
+ */
 #define LAST_REGISTER 0xff
 
 struct asc7621_data {
 	struct i2c_client client;
 	struct device *class_dev;
 	struct mutex update_lock;
-	int valid;		
-	unsigned long last_high_reading;	
-	unsigned long last_low_reading;		
+	int valid;		/* !=0 if following fields are valid */
+	unsigned long last_high_reading;	/* In jiffies */
+	unsigned long last_low_reading;		/* In jiffies */
+	/*
+	 * Registers we care about occupy the corresponding index
+	 * in the array.  Registers we don't care about are left
+	 * at 0.
+	 */
 	u8 reg[LAST_REGISTER + 1];
 };
 
+/*
+ * Macro to get the parent asc7621_param structure
+ * from a sensor_device_attribute passed into the
+ * show/store functions.
+ */
 #define to_asc7621_param(_sda) \
 	container_of(_sda, struct asc7621_param, sda)
 
+/*
+ * Each parameter to be retrieved needs an asc7621_param structure
+ * allocated.  It contains the sensor_device_attribute structure
+ * and the control info needed to retrieve the value from the register map.
+ */
 struct asc7621_param {
 	struct sensor_device_attribute sda;
 	u8 priority;
@@ -99,6 +123,10 @@ struct asc7621_param {
 	u8 shift[3];
 };
 
+/*
+ * This is the map that ultimately indicates whether we'll be
+ * retrieving a register value or not, and at what frequency.
+ */
 static u8 asc7621_register_priorities[255];
 
 static struct asc7621_data *asc7621_update_device(struct device *dev);
@@ -125,6 +153,11 @@ static inline int write_byte(struct i2c_client *client, u8 reg, u8 data)
 	return res;
 }
 
+/*
+ * Data Handlers
+ * Each function handles the formatting, storage
+ * and retrieval of like parameters.
+ */
 
 #define SETUP_SHOW_data_param(d, a) \
 	struct sensor_device_attribute *sda = to_sensor_dev_attr(a); \
@@ -137,6 +170,10 @@ static inline int write_byte(struct i2c_client *client, u8 reg, u8 data)
 	struct asc7621_data *data = i2c_get_clientdata(client); \
 	struct asc7621_param *param = to_asc7621_param(sda)
 
+/*
+ * u8 is just what it sounds like...an unsigned byte with no
+ * special formatting.
+ */
 static ssize_t show_u8(struct device *dev, struct device_attribute *attr,
 		       char *buf)
 {
@@ -163,6 +200,9 @@ static ssize_t store_u8(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
+/*
+ * Many of the config values occupy only a few bits of a register.
+ */
 static ssize_t show_bitmask(struct device *dev,
 			    struct device_attribute *attr, char *buf)
 {
@@ -197,6 +237,12 @@ static ssize_t store_bitmask(struct device *dev,
 	return count;
 }
 
+/*
+ * 16 bit fan rpm values
+ * reported by the device as the number of 11.111us periods (90khz)
+ * between full fan rotations.  Therefore...
+ * RPM = (90000 * 60) / register value
+ */
 static ssize_t show_fan16(struct device *dev,
 			  struct device_attribute *attr, char *buf)
 {
@@ -222,6 +268,11 @@ static ssize_t store_fan16(struct device *dev,
 	if (kstrtol(buf, 10, &reqval))
 		return -EINVAL;
 
+	/*
+	 * If a minimum RPM of zero is requested, then we set the register to
+	 * 0xffff. This value allows the fan to be stopped completely without
+	 * generating an alarm.
+	 */
 	reqval =
 	    (reqval <= 0 ? 0xffff : SENSORS_LIMIT(5400000 / reqval, 0, 0xfffe));
 
@@ -235,6 +286,19 @@ static ssize_t store_fan16(struct device *dev,
 	return count;
 }
 
+/*
+ * Voltages are scaled in the device so that the nominal voltage
+ * is 3/4ths of the 0-255 range (i.e. 192).
+ * If all voltages are 'normal' then all voltage registers will
+ * read 0xC0.
+ *
+ * The data sheet provides us with the 3/4 scale value for each voltage
+ * which is stored in in_scaling.  The sda->index parameter value provides
+ * the index into in_scaling.
+ *
+ * NOTE: The chip expects the first 2 inputs be 2.5 and 2.25 volts
+ * respectively. That doesn't mean that's what the motherboard provides. :)
+ */
 
 static int asc7621_in_scaling[] = {
 	2500, 2250, 3300, 5000, 12000
@@ -251,12 +315,13 @@ static ssize_t show_in10(struct device *dev, struct device_attribute *attr,
 	regval = (data->reg[param->msb[0]] << 8) | (data->reg[param->lsb[0]]);
 	mutex_unlock(&data->update_lock);
 
-	
+	/* The LSB value is a 2-bit scaling of the MSB's LSbit value. */
 	regval = (regval >> 6) * asc7621_in_scaling[nr] / (0xc0 << 2);
 
 	return sprintf(buf, "%u\n", regval);
 }
 
+/* 8 bit voltage values (the mins and maxs) */
 static ssize_t show_in8(struct device *dev, struct device_attribute *attr,
 			char *buf)
 {
@@ -322,7 +387,13 @@ static ssize_t store_temp8(struct device *dev,
 	return count;
 }
 
+/*
+ * Temperatures that occupy 2 bytes always have the whole
+ * number of degrees in the MSB with some part of the LSB
+ * indicating fractional degrees.
+ */
 
+/*   mmmmmmmm.llxxxxxx */
 static ssize_t show_temp10(struct device *dev,
 			   struct device_attribute *attr, char *buf)
 {
@@ -339,6 +410,7 @@ static ssize_t show_temp10(struct device *dev,
 	return sprintf(buf, "%d\n", temp);
 }
 
+/*   mmmmmm.ll */
 static ssize_t show_temp62(struct device *dev,
 			   struct device_attribute *attr, char *buf)
 {
@@ -373,6 +445,11 @@ static ssize_t store_temp62(struct device *dev,
 	return count;
 }
 
+/*
+ * The aSC7621 doesn't provide an "auto_point2".  Instead, you
+ * specify the auto_point1 and a range.  To keep with the sysfs
+ * hwmon specs, we synthesize the auto_point_2 from them.
+ */
 
 static u32 asc7621_range_map[] = {
 	2000, 2500, 3330, 4000, 5000, 6670, 8000, 10000,
@@ -720,7 +797,17 @@ static ssize_t store_temp_st(struct device *dev,
 	return count;
 }
 
+/*
+ * End of data handlers
+ *
+ * These defines do nothing more than make the table easier
+ * to read when wrapped at column 80.
+ */
 
+/*
+ * Creates a variable length array inititalizer.
+ * VAA(1,3,5,7) would produce {1,3,5,7}
+ */
 #define VAA(args...) {args}
 
 #define PREAD(name, n, pri, rm, rl, m, s, r) \
@@ -733,6 +820,10 @@ static ssize_t store_temp_st(struct device *dev,
 	  .priority = pri, .msb[0] = rm, .lsb[0] = rl, .mask[0] = m, \
 	  .shift[0] = s,}
 
+/*
+ * PWRITEM assumes that the initializers for the .msb, .lsb, .mask and .shift
+ * were created using the VAA macro.
+ */
 #define PWRITEM(name, n, pri, rm, rl, m, s, r) \
 	{.sda = SENSOR_ATTR(name, S_IRUGO | S_IWUSR, show_##r, store_##r, n), \
 	  .priority = pri, .msb = rm, .lsb = rl, .mask = m, .shift = s,}
@@ -918,10 +1009,16 @@ static struct asc7621_data *asc7621_update_device(struct device *dev)
 	struct asc7621_data *data = i2c_get_clientdata(client);
 	int i;
 
+/*
+ * The asc7621 chips guarantee consistent reads of multi-byte values
+ * regardless of the order of the reads.  No special logic is needed
+ * so we can just read the registers in whatever  order they appear
+ * in the asc7621_params array.
+ */
 
 	mutex_lock(&data->update_lock);
 
-	
+	/* Read all the high priority registers */
 
 	if (!data->valid ||
 	    time_after(jiffies, data->last_high_reading + INTERVAL_HIGH)) {
@@ -933,9 +1030,9 @@ static struct asc7621_data *asc7621_update_device(struct device *dev)
 			}
 		}
 		data->last_high_reading = jiffies;
-	};			
+	};			/* last_reading */
 
-	
+	/* Read all the low priority registers. */
 
 	if (!data->valid ||
 	    time_after(jiffies, data->last_low_reading + INTERVAL_LOW)) {
@@ -947,7 +1044,7 @@ static struct asc7621_data *asc7621_update_device(struct device *dev)
 			}
 		}
 		data->last_low_reading = jiffies;
-	};			
+	};			/* last_reading */
 
 	data->valid = 1;
 
@@ -956,6 +1053,12 @@ static struct asc7621_data *asc7621_update_device(struct device *dev)
 	return data;
 }
 
+/*
+ * Standard detection and initialization below
+ *
+ * Helper function that checks if an address is valid
+ * for a particular chip.
+ */
 
 static inline int valid_address_for_chip(int chip_type, int address)
 {
@@ -973,7 +1076,7 @@ static void asc7621_init_client(struct i2c_client *client)
 {
 	int value;
 
-	
+	/* Warn if part was not "READY" */
 
 	value = read_byte(client, 0x40);
 
@@ -987,6 +1090,11 @@ static void asc7621_init_client(struct i2c_client *client)
 			i2c_adapter_id(client->adapter), client->addr);
 	};
 
+/*
+ * Start monitoring
+ *
+ * Try to clear LOCK, Set START, save everything else
+ */
 	value = (value & ~0x02) | 0x01;
 	write_byte(client, 0x40, value & 0xff);
 
@@ -1009,10 +1117,10 @@ asc7621_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	data->valid = 0;
 	mutex_init(&data->update_lock);
 
-	
+	/* Initialize the asc7621 chip */
 	asc7621_init_client(client);
 
-	
+	/* Create the sysfs entries */
 	for (i = 0; i < ARRAY_SIZE(asc7621_params); i++) {
 		err =
 		    device_create_file(&client->dev,
@@ -1111,6 +1219,11 @@ static struct i2c_driver asc7621_driver = {
 static int __init sm_asc7621_init(void)
 {
 	int i, j;
+/*
+ * Collect all the registers needed into a single array.
+ * This way, if a register isn't actually used for anything,
+ * we don't retrieve it.
+ */
 
 	for (i = 0; i < ARRAY_SIZE(asc7621_params); i++) {
 		for (j = 0; j < ARRAY_SIZE(asc7621_params[i].msb); j++)

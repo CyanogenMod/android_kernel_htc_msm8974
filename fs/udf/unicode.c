@@ -21,7 +21,7 @@
 #include "udfdecl.h"
 
 #include <linux/kernel.h>
-#include <linux/string.h>	
+#include <linux/string.h>	/* for memset */
 #include <linux/nls.h>
 #include <linux/crc-itu-t.h>
 #include <linux/slab.h>
@@ -43,6 +43,9 @@ static int udf_char_to_ustr(struct ustr *dest, const uint8_t *src, int strlen)
 	return strlen;
 }
 
+/*
+ * udf_build_ustr
+ */
 int udf_build_ustr(struct ustr *dest, dstring *ptr, int size)
 {
 	int usesize;
@@ -61,6 +64,9 @@ int udf_build_ustr(struct ustr *dest, dstring *ptr, int size)
 	return 0;
 }
 
+/*
+ * udf_build_ustr_exact
+ */
 static int udf_build_ustr_exact(struct ustr *dest, dstring *ptr, int exactsize)
 {
 	if ((!dest) || (!ptr) || (!exactsize))
@@ -117,12 +123,12 @@ int udf_CS0toUTF8(struct ustr *utf_o, const struct ustr *ocu_i)
 	utf_o->u_len = 0;
 	for (i = 0; (i < ocu_len) && (utf_o->u_len <= (UDF_NAME_LEN - 3));) {
 
-		
+		/* Expand OSTA compressed Unicode to Unicode */
 		uint32_t c = ocu[i++];
 		if (cmp_id == 16)
 			c = (c << 8) | ocu[i++];
 
-		
+		/* Compress Unicode to UTF-8 */
 		if (c < 0x80U)
 			utf_o->u_name[utf_o->u_len++] = (uint8_t)c;
 		else if (c < 0x800U) {
@@ -184,15 +190,15 @@ try_again:
 	for (i = 0U; i < utf->u_len; i++) {
 		c = (uint8_t)utf->u_name[i];
 
-		
+		/* Complete a multi-byte UTF-8 character */
 		if (utf_cnt) {
 			utf_char = (utf_char << 6) | (c & 0x3fU);
 			if (--utf_cnt)
 				continue;
 		} else {
-			
+			/* Check for a multi-byte UTF-8 character */
 			if (c & 0x80U) {
-				
+				/* Start a multi-byte UTF-8 character */
 				if ((c & 0xe0U) == 0xc0U) {
 					utf_char = c & 0x1fU;
 					utf_cnt = 1;
@@ -213,12 +219,12 @@ try_again:
 				}
 				continue;
 			} else {
-				
+				/* Single byte UTF-8 character (most common) */
 				utf_char = c;
 			}
 		}
 
-		
+		/* Choose no compression if necessary */
 		if (utf_char > max_val) {
 			if (max_val == 0xffU) {
 				max_val = 0xffffU;
@@ -269,14 +275,14 @@ static int udf_CS0toNLS(struct nls_table *nls, struct ustr *utf_o,
 	ocu = ocu_i->u_name;
 	utf_o->u_len = 0;
 	for (i = 0; (i < ocu_len) && (utf_o->u_len <= (UDF_NAME_LEN - 3));) {
-		
+		/* Expand OSTA compressed Unicode to Unicode */
 		uint32_t c = ocu[i++];
 		if (cmp_id == 16)
 			c = (c << 8) | ocu[i++];
 
 		len = nls->uni2char(c, &utf_o->u_name[utf_o->u_len],
 				    UDF_NAME_LEN - utf_o->u_len);
-		
+		/* Valid character? */
 		if (len >= 0)
 			utf_o->u_len += len;
 		else
@@ -305,7 +311,7 @@ try_again:
 		len = nls->char2uni(&uni->u_name[i], uni->u_len - i, &uni_char);
 		if (!len)
 			continue;
-		
+		/* Invalid character, deal with it */
 		if (len < 0) {
 			len = 1;
 			uni_char = '?';

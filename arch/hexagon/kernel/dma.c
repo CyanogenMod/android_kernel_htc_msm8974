@@ -27,7 +27,7 @@
 struct dma_map_ops *dma_ops;
 EXPORT_SYMBOL(dma_ops);
 
-int bad_dma_address;  
+int bad_dma_address;  /*  globals are automatically initialized to zero  */
 
 int dma_supported(struct device *dev, u64 mask)
 {
@@ -52,6 +52,7 @@ EXPORT_SYMBOL(dma_set_mask);
 static struct gen_pool *coherent_pool;
 
 
+/* Allocates from a pool of uncached memory that was reserved at boot time */
 
 void *hexagon_dma_alloc_coherent(struct device *dev, size_t size,
 				 dma_addr_t *dma_addr, gfp_t flag,
@@ -124,6 +125,9 @@ static int hexagon_map_sg(struct device *hwdev, struct scatterlist *sg,
 	return nents;
 }
 
+/*
+ * address is virtual
+ */
 static inline void dma_sync(void *addr, size_t size,
 			    enum dma_data_direction dir)
 {
@@ -150,6 +154,25 @@ static inline void *dma_addr_to_virt(dma_addr_t dma_addr)
 	return phys_to_virt((unsigned long) dma_addr);
 }
 
+/**
+ * hexagon_map_page() - maps an address for device DMA
+ * @dev:	pointer to DMA device
+ * @page:	pointer to page struct of DMA memory
+ * @offset:	offset within page
+ * @size:	size of memory to map
+ * @dir:	transfer direction
+ * @attrs:	pointer to DMA attrs (not used)
+ *
+ * Called to map a memory address to a DMA address prior
+ * to accesses to/from device.
+ *
+ * We don't particularly have many hoops to jump through
+ * so far.  Straight translation between phys and virtual.
+ *
+ * DMA is not cache coherent so sync is necessary; this
+ * seems to be a convenient place to do it.
+ *
+ */
 static dma_addr_t hexagon_map_page(struct device *dev, struct page *page,
 				   unsigned long offset, size_t size,
 				   enum dma_data_direction dir,

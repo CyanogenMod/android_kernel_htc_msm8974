@@ -50,12 +50,12 @@ MODULE_SUPPORTED_DEVICE("{{S3,SonicVibes PCI}}");
 #define SUPPORT_JOYSTICK 1
 #endif
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	/* Enable this card */
 static bool reverb[SNDRV_CARDS];
 static bool mge[SNDRV_CARDS];
-static unsigned int dmaio = 0x7a00;	
+static unsigned int dmaio = 0x7a00;	/* DDMA i/o address */
 
 module_param_array(index, int, NULL, 0444);
 MODULE_PARM_DESC(index, "Index value for S3 SonicVibes soundcard.");
@@ -70,82 +70,91 @@ MODULE_PARM_DESC(mge, "MIC Gain Enable for S3 SonicVibes soundcard.");
 module_param(dmaio, uint, 0444);
 MODULE_PARM_DESC(dmaio, "DDMA i/o base address for S3 SonicVibes soundcard.");
 
+/*
+ * Enhanced port direct registers
+ */
 
 #define SV_REG(sonic, x) ((sonic)->enh_port + SV_REG_##x)
 
-#define SV_REG_CONTROL	0x00	
-#define   SV_ENHANCED	  0x01	
-#define   SV_TEST	  0x02	
-#define   SV_REVERB	  0x04	
-#define   SV_WAVETABLE	  0x08	
-#define   SV_INTA	  0x20	
-#define   SV_RESET	  0x80	
-#define SV_REG_IRQMASK	0x01	
-#define   SV_DMAA_MASK	  0x01	
-#define   SV_DMAC_MASK	  0x04	
-#define   SV_SPEC_MASK	  0x08	
-#define   SV_UD_MASK	  0x40	
-#define   SV_MIDI_MASK	  0x80	
-#define SV_REG_STATUS	0x02	
-#define   SV_DMAA_IRQ	  0x01	
-#define   SV_DMAC_IRQ	  0x04	
-#define   SV_SPEC_IRQ	  0x08	
-#define   SV_UD_IRQ	  0x40	
-#define   SV_MIDI_IRQ	  0x80	
-#define SV_REG_INDEX	0x04	
-#define   SV_MCE          0x40	
-#define   SV_TRD	  0x80	
-#define SV_REG_DATA	0x05	
+#define SV_REG_CONTROL	0x00	/* R/W: CODEC/Mixer control register */
+#define   SV_ENHANCED	  0x01	/* audio mode select - enhanced mode */
+#define   SV_TEST	  0x02	/* test bit */
+#define   SV_REVERB	  0x04	/* reverb enable */
+#define   SV_WAVETABLE	  0x08	/* wavetable active / FM active if not set */
+#define   SV_INTA	  0x20	/* INTA driving - should be always 1 */
+#define   SV_RESET	  0x80	/* reset chip */
+#define SV_REG_IRQMASK	0x01	/* R/W: CODEC/Mixer interrupt mask register */
+#define   SV_DMAA_MASK	  0x01	/* mask DMA-A interrupt */
+#define   SV_DMAC_MASK	  0x04	/* mask DMA-C interrupt */
+#define   SV_SPEC_MASK	  0x08	/* special interrupt mask - should be always masked */
+#define   SV_UD_MASK	  0x40	/* Up/Down button interrupt mask */
+#define   SV_MIDI_MASK	  0x80	/* mask MIDI interrupt */
+#define SV_REG_STATUS	0x02	/* R/O: CODEC/Mixer status register */
+#define   SV_DMAA_IRQ	  0x01	/* DMA-A interrupt */
+#define   SV_DMAC_IRQ	  0x04	/* DMA-C interrupt */
+#define   SV_SPEC_IRQ	  0x08	/* special interrupt */
+#define   SV_UD_IRQ	  0x40	/* Up/Down interrupt */
+#define   SV_MIDI_IRQ	  0x80	/* MIDI interrupt */
+#define SV_REG_INDEX	0x04	/* R/W: CODEC/Mixer index address register */
+#define   SV_MCE          0x40	/* mode change enable */
+#define   SV_TRD	  0x80	/* DMA transfer request disabled */
+#define SV_REG_DATA	0x05	/* R/W: CODEC/Mixer index data register */
 
+/*
+ * Enhanced port indirect registers
+ */
 
-#define SV_IREG_LEFT_ADC	0x00	
-#define SV_IREG_RIGHT_ADC	0x01	
-#define SV_IREG_LEFT_AUX1	0x02	
-#define SV_IREG_RIGHT_AUX1	0x03	
-#define SV_IREG_LEFT_CD		0x04	
-#define SV_IREG_RIGHT_CD	0x05	
-#define SV_IREG_LEFT_LINE	0x06	
-#define SV_IREG_RIGHT_LINE	0x07	
-#define SV_IREG_MIC		0x08	
-#define SV_IREG_GAME_PORT	0x09	
-#define SV_IREG_LEFT_SYNTH	0x0a	
-#define SV_IREG_RIGHT_SYNTH	0x0b	
-#define SV_IREG_LEFT_AUX2	0x0c	
-#define SV_IREG_RIGHT_AUX2	0x0d	
-#define SV_IREG_LEFT_ANALOG	0x0e	
-#define SV_IREG_RIGHT_ANALOG	0x0f	
-#define SV_IREG_LEFT_PCM	0x10	
-#define SV_IREG_RIGHT_PCM	0x11	
-#define SV_IREG_DMA_DATA_FMT	0x12	
-#define SV_IREG_PC_ENABLE	0x13	
-#define SV_IREG_UD_BUTTON	0x14	
-#define SV_IREG_REVISION	0x15	
-#define SV_IREG_ADC_OUTPUT_CTRL	0x16	
-#define SV_IREG_DMA_A_UPPER	0x18	
-#define SV_IREG_DMA_A_LOWER	0x19	
-#define SV_IREG_DMA_C_UPPER	0x1c	
-#define SV_IREG_DMA_C_LOWER	0x1d	
-#define SV_IREG_PCM_RATE_LOW	0x1e	
-#define SV_IREG_PCM_RATE_HIGH	0x1f	
-#define SV_IREG_SYNTH_RATE_LOW	0x20	
-#define SV_IREG_SYNTH_RATE_HIGH 0x21	
-#define SV_IREG_ADC_CLOCK	0x22	
-#define SV_IREG_ADC_ALT_RATE	0x23	
-#define SV_IREG_ADC_PLL_M	0x24	
-#define SV_IREG_ADC_PLL_N	0x25	
-#define SV_IREG_SYNTH_PLL_M	0x26	
-#define SV_IREG_SYNTH_PLL_N	0x27	
-#define SV_IREG_MPU401		0x2a	
-#define SV_IREG_DRIVE_CTRL	0x2b	
-#define SV_IREG_SRS_SPACE	0x2c	
-#define SV_IREG_SRS_CENTER	0x2d	
-#define SV_IREG_WAVE_SOURCE	0x2e	
-#define SV_IREG_ANALOG_POWER	0x30	
-#define SV_IREG_DIGITAL_POWER	0x31	
+#define SV_IREG_LEFT_ADC	0x00	/* Left ADC Input Control */
+#define SV_IREG_RIGHT_ADC	0x01	/* Right ADC Input Control */
+#define SV_IREG_LEFT_AUX1	0x02	/* Left AUX1 Input Control */
+#define SV_IREG_RIGHT_AUX1	0x03	/* Right AUX1 Input Control */
+#define SV_IREG_LEFT_CD		0x04	/* Left CD Input Control */
+#define SV_IREG_RIGHT_CD	0x05	/* Right CD Input Control */
+#define SV_IREG_LEFT_LINE	0x06	/* Left Line Input Control */
+#define SV_IREG_RIGHT_LINE	0x07	/* Right Line Input Control */
+#define SV_IREG_MIC		0x08	/* MIC Input Control */
+#define SV_IREG_GAME_PORT	0x09	/* Game Port Control */
+#define SV_IREG_LEFT_SYNTH	0x0a	/* Left Synth Input Control */
+#define SV_IREG_RIGHT_SYNTH	0x0b	/* Right Synth Input Control */
+#define SV_IREG_LEFT_AUX2	0x0c	/* Left AUX2 Input Control */
+#define SV_IREG_RIGHT_AUX2	0x0d	/* Right AUX2 Input Control */
+#define SV_IREG_LEFT_ANALOG	0x0e	/* Left Analog Mixer Output Control */
+#define SV_IREG_RIGHT_ANALOG	0x0f	/* Right Analog Mixer Output Control */
+#define SV_IREG_LEFT_PCM	0x10	/* Left PCM Input Control */
+#define SV_IREG_RIGHT_PCM	0x11	/* Right PCM Input Control */
+#define SV_IREG_DMA_DATA_FMT	0x12	/* DMA Data Format */
+#define SV_IREG_PC_ENABLE	0x13	/* Playback/Capture Enable Register */
+#define SV_IREG_UD_BUTTON	0x14	/* Up/Down Button Register */
+#define SV_IREG_REVISION	0x15	/* Revision */
+#define SV_IREG_ADC_OUTPUT_CTRL	0x16	/* ADC Output Control */
+#define SV_IREG_DMA_A_UPPER	0x18	/* DMA A Upper Base Count */
+#define SV_IREG_DMA_A_LOWER	0x19	/* DMA A Lower Base Count */
+#define SV_IREG_DMA_C_UPPER	0x1c	/* DMA C Upper Base Count */
+#define SV_IREG_DMA_C_LOWER	0x1d	/* DMA C Lower Base Count */
+#define SV_IREG_PCM_RATE_LOW	0x1e	/* PCM Sampling Rate Low Byte */
+#define SV_IREG_PCM_RATE_HIGH	0x1f	/* PCM Sampling Rate High Byte */
+#define SV_IREG_SYNTH_RATE_LOW	0x20	/* Synthesizer Sampling Rate Low Byte */
+#define SV_IREG_SYNTH_RATE_HIGH 0x21	/* Synthesizer Sampling Rate High Byte */
+#define SV_IREG_ADC_CLOCK	0x22	/* ADC Clock Source Selection */
+#define SV_IREG_ADC_ALT_RATE	0x23	/* ADC Alternative Sampling Rate Selection */
+#define SV_IREG_ADC_PLL_M	0x24	/* ADC PLL M Register */
+#define SV_IREG_ADC_PLL_N	0x25	/* ADC PLL N Register */
+#define SV_IREG_SYNTH_PLL_M	0x26	/* Synthesizer PLL M Register */
+#define SV_IREG_SYNTH_PLL_N	0x27	/* Synthesizer PLL N Register */
+#define SV_IREG_MPU401		0x2a	/* MPU-401 UART Operation */
+#define SV_IREG_DRIVE_CTRL	0x2b	/* Drive Control */
+#define SV_IREG_SRS_SPACE	0x2c	/* SRS Space Control */
+#define SV_IREG_SRS_CENTER	0x2d	/* SRS Center Control */
+#define SV_IREG_WAVE_SOURCE	0x2e	/* Wavetable Sample Source Select */
+#define SV_IREG_ANALOG_POWER	0x30	/* Analog Power Down Control */
+#define SV_IREG_DIGITAL_POWER	0x31	/* Digital Power Down Control */
 
 #define SV_IREG_ADC_PLL		SV_IREG_ADC_PLL_M
 #define SV_IREG_SYNTH_PLL	SV_IREG_SYNTH_PLL_M
 
+/*
+ *  DMA registers
+ */
 
 #define SV_DMA_ADDR0		0x00
 #define SV_DMA_ADDR1		0x01
@@ -158,6 +167,9 @@ MODULE_PARM_DESC(dmaio, "DDMA i/o base address for S3 SonicVibes soundcard.");
 #define SV_DMA_RESET		0x0d
 #define SV_DMA_MASK		0x0f
 
+/*
+ *  Record sources
+ */
 
 #define SV_RECSRC_RESERVED	(0x00<<5)
 #define SV_RECSRC_CD		(0x01<<5)
@@ -168,6 +180,9 @@ MODULE_PARM_DESC(dmaio, "DDMA i/o base address for S3 SonicVibes soundcard.");
 #define SV_RECSRC_MIC		(0x06<<5)
 #define SV_RECSRC_OUT		(0x07<<5)
 
+/*
+ *  constants
+ */
 
 #define SV_FULLRATE		48000
 #define SV_REFFREQUENCY		24576000
@@ -176,6 +191,9 @@ MODULE_PARM_DESC(dmaio, "DDMA i/o base address for S3 SonicVibes soundcard.");
 #define SV_MODE_PLAY		1
 #define SV_MODE_CAPTURE		2
 
+/*
+
+ */
 
 struct sonicvibes {
 	unsigned long dma1size;
@@ -209,7 +227,7 @@ struct sonicvibes {
 	struct snd_pcm_substream *playback_substream;
 	struct snd_pcm_substream *capture_substream;
 	struct snd_rawmidi *rmidi;
-	struct snd_hwdep *fmsynth;	
+	struct snd_hwdep *fmsynth;	/* S3FM */
 
 	spinlock_t reg_lock;
 
@@ -242,6 +260,9 @@ static struct snd_pcm_hw_constraint_ratdens snd_sonicvibes_hw_constraints_adc_cl
 	.rats = &sonicvibes_adc_clock,
 };
 
+/*
+ *  common I/O routines
+ */
 
 static inline void snd_sonicvibes_setdmaa(struct sonicvibes * sonic,
 					  unsigned int addr,
@@ -261,7 +282,7 @@ static inline void snd_sonicvibes_setdmac(struct sonicvibes * sonic,
 					  unsigned int addr,
 					  unsigned int count)
 {
-	
+	/* note: dmac is working in word mode!!! */
 	count >>= 1;
 	count--;
 	outl(addr, sonic->dmac_port + SV_DMA_ADDR0);
@@ -280,7 +301,7 @@ static inline unsigned int snd_sonicvibes_getdmaa(struct sonicvibes * sonic)
 
 static inline unsigned int snd_sonicvibes_getdmac(struct sonicvibes * sonic)
 {
-	
+	/* note: dmac is working in word mode!!! */
 	return ((inl(sonic->dmac_port + SV_DMA_COUNT0) & 0xffffff) + 1) << 1;
 }
 
@@ -471,9 +492,9 @@ static void snd_sonicvibes_pll(unsigned int rate,
 		rate = 625000 / SV_ADCMULT;
 	if (rate > 150000000 / SV_ADCMULT)
 		rate = 150000000 / SV_ADCMULT;
-	
+	/* slight violation of specs, needed for continuous sampling rates */
 	for (r = 0; rate < 75000000 / SV_ADCMULT; r += 0x20, rate <<= 1);
-	for (xn = 3; xn < 33; xn++)	
+	for (xn = 3; xn < 33; xn++)	/* 35 */
 		for (xm = 3; xm < 257; xm++) {
 			xr = ((SV_REFFREQUENCY / SV_ADCMULT) * xm) / xn;
 			if (xr >= rate)
@@ -520,9 +541,9 @@ static void snd_sonicvibes_set_adc_rate(struct sonicvibes * sonic, unsigned int 
 	div = 48000 / rate;
 	if (div > 8)
 		div = 8;
-	if ((48000 / div) == rate) {	
+	if ((48000 / div) == rate) {	/* use the alternate clock */
 		clock = 0x10;
-	} else {			
+	} else {			/* use the PLL source */
 		clock = 0x00;
 		snd_sonicvibes_setpll(sonic, SV_IREG_ADC_PLL, rate);
 	}
@@ -601,7 +622,7 @@ static irqreturn_t snd_sonicvibes_interrupt(int irq, void *dev_id)
 	status = inb(SV_REG(sonic, STATUS));
 	if (!(status & (SV_DMAA_IRQ | SV_DMAC_IRQ | SV_MIDI_IRQ)))
 		return IRQ_NONE;
-	if (status == 0xff) {	
+	if (status == 0xff) {	/* failure */
 		outb(sonic->irqmask = ~0, SV_REG(sonic, IRQMASK));
 		snd_printk(KERN_ERR "IRQ failure - interrupts disabled!!\n");
 		return IRQ_HANDLED;
@@ -654,6 +675,9 @@ static irqreturn_t snd_sonicvibes_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ *  PCM part
+ */
 
 static int snd_sonicvibes_playback_trigger(struct snd_pcm_substream *substream,
 					   int cmd)
@@ -879,6 +903,9 @@ static int __devinit snd_sonicvibes_pcm(struct sonicvibes * sonic, int device, s
 	return 0;
 }
 
+/*
+ *  Mixer part
+ */
 
 #define SONICVIBES_MUX(xname, xindex) \
 { .iface = SNDRV_CTL_ELEM_IFACE_MIXER, .name = xname, .index = xindex, \
@@ -1114,6 +1141,9 @@ static int __devinit snd_sonicvibes_mixer(struct sonicvibes * sonic)
 	return 0;
 }
 
+/*
+
+ */
 
 static void snd_sonicvibes_proc_read(struct snd_info_entry *entry, 
 				     struct snd_info_buffer *buffer)
@@ -1153,6 +1183,9 @@ static void __devinit snd_sonicvibes_proc_init(struct sonicvibes * sonic)
 		snd_info_set_text_ops(entry, sonic, snd_sonicvibes_proc_read);
 }
 
+/*
+
+ */
 
 #ifdef SUPPORT_JOYSTICK
 static struct snd_kcontrol_new snd_sonicvibes_game_control __devinitdata =
@@ -1227,10 +1260,10 @@ static int __devinit snd_sonicvibes_create(struct snd_card *card,
 	};
 
 	*rsonic = NULL;
-	
+	/* enable PCI device */
 	if ((err = pci_enable_device(pci)) < 0)
 		return err;
-	
+	/* check, if we can restrict PCI DMA transfers to 24 bits */
         if (pci_set_dma_mask(pci, DMA_BIT_MASK(24)) < 0 ||
 	    pci_set_consistent_dma_mask(pci, DMA_BIT_MASK(24)) < 0) {
 		snd_printk(KERN_ERR "architecture does not support 24bit PCI busmaster DMA\n");
@@ -1301,31 +1334,31 @@ static int __devinit snd_sonicvibes_create(struct snd_card *card,
 	pci_read_config_dword(pci, 0x48, &sonic->dmac_port);
 	sonic->dmaa_port &= ~0x0f;
 	sonic->dmac_port &= ~0x0f;
-	pci_write_config_dword(pci, 0x40, sonic->dmaa_port | 9);	
-	pci_write_config_dword(pci, 0x48, sonic->dmac_port | 9);	
-	
-	outb(SV_RESET, SV_REG(sonic, CONTROL));		
+	pci_write_config_dword(pci, 0x40, sonic->dmaa_port | 9);	/* enable + enhanced */
+	pci_write_config_dword(pci, 0x48, sonic->dmac_port | 9);	/* enable */
+	/* ok.. initialize S3 SonicVibes chip */
+	outb(SV_RESET, SV_REG(sonic, CONTROL));		/* reset chip */
 	udelay(100);
-	outb(0, SV_REG(sonic, CONTROL));	
+	outb(0, SV_REG(sonic, CONTROL));	/* release reset */
 	udelay(100);
 	outb(SV_ENHANCED | SV_INTA | (reverb ? SV_REVERB : 0), SV_REG(sonic, CONTROL));
-	inb(SV_REG(sonic, STATUS));	
+	inb(SV_REG(sonic, STATUS));	/* clear IRQs */
 #if 1
-	snd_sonicvibes_out(sonic, SV_IREG_DRIVE_CTRL, 0);	
+	snd_sonicvibes_out(sonic, SV_IREG_DRIVE_CTRL, 0);	/* drive current 16mA */
 #else
-	snd_sonicvibes_out(sonic, SV_IREG_DRIVE_CTRL, 0x40);	
+	snd_sonicvibes_out(sonic, SV_IREG_DRIVE_CTRL, 0x40);	/* drive current 8mA */
 #endif
-	snd_sonicvibes_out(sonic, SV_IREG_PC_ENABLE, sonic->enable = 0);	
+	snd_sonicvibes_out(sonic, SV_IREG_PC_ENABLE, sonic->enable = 0);	/* disable playback & capture */
 	outb(sonic->irqmask = ~(SV_DMAA_MASK | SV_DMAC_MASK | SV_UD_MASK), SV_REG(sonic, IRQMASK));
-	inb(SV_REG(sonic, STATUS));	
-	snd_sonicvibes_out(sonic, SV_IREG_ADC_CLOCK, 0);	
-	snd_sonicvibes_out(sonic, SV_IREG_ANALOG_POWER, 0);	
-	snd_sonicvibes_out(sonic, SV_IREG_DIGITAL_POWER, 0);	
+	inb(SV_REG(sonic, STATUS));	/* clear IRQs */
+	snd_sonicvibes_out(sonic, SV_IREG_ADC_CLOCK, 0);	/* use PLL as clock source */
+	snd_sonicvibes_out(sonic, SV_IREG_ANALOG_POWER, 0);	/* power up analog parts */
+	snd_sonicvibes_out(sonic, SV_IREG_DIGITAL_POWER, 0);	/* power up digital parts */
 	snd_sonicvibes_setpll(sonic, SV_IREG_ADC_PLL, 8000);
-	snd_sonicvibes_out(sonic, SV_IREG_SRS_SPACE, sonic->srs_space = 0x80);	
-	snd_sonicvibes_out(sonic, SV_IREG_SRS_CENTER, sonic->srs_center = 0x00);
-	snd_sonicvibes_out(sonic, SV_IREG_MPU401, sonic->mpu_switch = 0x05);	
-	snd_sonicvibes_out(sonic, SV_IREG_WAVE_SOURCE, sonic->wave_source = 0x00);	
+	snd_sonicvibes_out(sonic, SV_IREG_SRS_SPACE, sonic->srs_space = 0x80);	/* SRS space off */
+	snd_sonicvibes_out(sonic, SV_IREG_SRS_CENTER, sonic->srs_center = 0x00);/* SRS center off */
+	snd_sonicvibes_out(sonic, SV_IREG_MPU401, sonic->mpu_switch = 0x05);	/* MPU-401 switch */
+	snd_sonicvibes_out(sonic, SV_IREG_WAVE_SOURCE, sonic->wave_source = 0x00);	/* onboard ROM */
 	snd_sonicvibes_out(sonic, SV_IREG_PCM_RATE_LOW, (8000 * 65536 / SV_FULLRATE) & 0xff);
 	snd_sonicvibes_out(sonic, SV_IREG_PCM_RATE_HIGH, ((8000 * 65536 / SV_FULLRATE) >> 8) & 0xff);
 	snd_sonicvibes_out(sonic, SV_IREG_LEFT_ADC, mge ? 0xd0 : 0xc0);
@@ -1364,6 +1397,9 @@ static int __devinit snd_sonicvibes_create(struct snd_card *card,
 	return 0;
 }
 
+/*
+ *  MIDI section
+ */
 
 static struct snd_kcontrol_new snd_sonicvibes_midi_controls[] __devinitdata = {
 SONICVIBES_SINGLE("SonicVibes Wave Source RAM", 0, SV_IREG_WAVE_SOURCE, 0, 1, 0),

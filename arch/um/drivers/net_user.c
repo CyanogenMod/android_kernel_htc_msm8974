@@ -46,6 +46,7 @@ void tap_check_ips(char *gate_addr, unsigned char *eth_addr)
 	}
 }
 
+/* Do reliable error handling as this fails frequently enough. */
 void read_output(int fd, char *output, int len)
 {
 	int remain, ret, expected;
@@ -191,7 +192,7 @@ static int change_tramp(char **argv, char *output, int output_len)
 	pe_data.stdout = fds[1];
 	pid = run_helper(change_pre_exec, &pe_data, argv);
 
-	if (pid > 0)	
+	if (pid > 0)	/* Avoid hang as we won't get data in failure case. */
 		read_output(fds[0], output, output_len);
 
 	close(fds[0]);

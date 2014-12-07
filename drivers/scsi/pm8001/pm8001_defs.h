@@ -53,10 +53,10 @@ enum phy_speed {
 };
 
 enum data_direction {
-	DATA_DIR_NONE = 0x0,	
-	DATA_DIR_IN = 0x01,	
-	DATA_DIR_OUT = 0x02,	
-	DATA_DIR_BYRECIPIENT = 0x04, 
+	DATA_DIR_NONE = 0x0,	/* NO TRANSFER */
+	DATA_DIR_IN = 0x01,	/* INBOUND */
+	DATA_DIR_OUT = 0x02,	/* OUTBOUND */
+	DATA_DIR_BYRECIPIENT = 0x04, /* UNSPECIFIED */
 };
 
 enum port_type {
@@ -64,34 +64,40 @@ enum port_type {
 	PORT_TYPE_SATA = (1L << 0),
 };
 
-#define	PM8001_MAX_CCB		 512	
+/* driver compile-time configuration */
+#define	PM8001_MAX_CCB		 512	/* max ccbs supported */
 #define	PM8001_MAX_INB_NUM	 1
 #define	PM8001_MAX_OUTB_NUM	 1
-#define	PM8001_CAN_QUEUE	 128	
+#define	PM8001_CAN_QUEUE	 128	/* SCSI Queue depth */
 
-#define	PM8001_MAX_PHYS		 8	
-#define	PM8001_MAX_PORTS	 8	
-#define	PM8001_MAX_DEVICES	 1024	
+/* unchangeable hardware details */
+#define	PM8001_MAX_PHYS		 8	/* max. possible phys */
+#define	PM8001_MAX_PORTS	 8	/* max. possible ports */
+#define	PM8001_MAX_DEVICES	 1024	/* max supported device */
 
 enum memory_region_num {
-	AAP1 = 0x0, 
-	IOP,	    
-	CI,	    
-	PI,	    
-	IB,	    
-	OB,	    
-	NVMD,	    
-	DEV_MEM,    
-	CCB_MEM,    
+	AAP1 = 0x0, /* application acceleration processor */
+	IOP,	    /* IO processor */
+	CI,	    /* consumer index */
+	PI,	    /* producer index */
+	IB,	    /* inbound queue */
+	OB,	    /* outbound queue */
+	NVMD,	    /* NVM device */
+	DEV_MEM,    /* memory for devices */
+	CCB_MEM,    /* memory for command control block */
 };
 #define	PM8001_EVENT_LOG_SIZE	 (128 * 1024)
 
+/*error code*/
 enum mpi_err {
 	MPI_IO_STATUS_SUCCESS = 0x0,
 	MPI_IO_STATUS_BUSY = 0x01,
 	MPI_IO_STATUS_FAIL = 0x02,
 };
 
+/**
+ * Phy Control constants
+ */
 enum phy_control_type {
 	PHY_LINK_RESET = 0x01,
 	PHY_HARD_RESET = 0x02,

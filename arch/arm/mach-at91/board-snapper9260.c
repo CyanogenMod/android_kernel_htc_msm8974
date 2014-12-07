@@ -44,7 +44,7 @@ static void __init snapper9260_init_early(void)
 {
 	at91_initialize(18432000);
 
-	
+	/* Debug on ttyS0 */
 	at91_register_uart(0, 0, 0);
 	at91_set_serial_console(0);
 
@@ -138,18 +138,18 @@ static struct pca953x_platform_data snapper9260_io_expander_data = {
 
 static struct i2c_board_info __initdata snapper9260_i2c_devices[] = {
 	{
-		
+		/* IO expander */
 		I2C_BOARD_INFO("max7312", 0x28),
 		.platform_data = &snapper9260_io_expander_data,
 	},
 	{
-		
+		/* Audio codec */
 		I2C_BOARD_INFO("tlv320aic23", 0x1a),
 	},
 };
 
 static struct i2c_board_info __initdata snapper9260_i2c_isl1208 = {
-		
+		/* RTC */
 		I2C_BOARD_INFO("isl1208", 0x6f),
 };
 

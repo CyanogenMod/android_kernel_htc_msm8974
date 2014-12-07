@@ -26,213 +26,240 @@
 #ifndef __HD64572_H
 #define __HD64572_H
 
+/* Illegal Access Register */
 #define	ILAR	0x00
 
-#define PABR0L	0x20	
-#define PABR0H	0x21	
-#define PABR1L	0x22	
-#define PABR1H	0x23	
-#define WCRL	0x24	
-#define WCRM	0x25	
-#define WCRH	0x26	
+/* Wait Controller Registers */
+#define PABR0L	0x20	/* Physical Addr Boundary Register 0 L */
+#define PABR0H	0x21	/* Physical Addr Boundary Register 0 H */
+#define PABR1L	0x22	/* Physical Addr Boundary Register 1 L */
+#define PABR1H	0x23	/* Physical Addr Boundary Register 1 H */
+#define WCRL	0x24	/* Wait Control Register L */
+#define WCRM	0x25	/* Wait Control Register M */
+#define WCRH	0x26	/* Wait Control Register H */
 
-#define IVR	0x60	
-#define IMVR	0x64	
-#define ITCR	0x68	
-#define ISR0	0x6c	
-#define ISR1	0x70	
-#define IER0	0x74	
-#define IER1	0x78	
+/* Interrupt Registers */
+#define IVR	0x60	/* Interrupt Vector Register */
+#define IMVR	0x64	/* Interrupt Modified Vector Register */
+#define ITCR	0x68	/* Interrupt Control Register */
+#define ISR0	0x6c	/* Interrupt Status Register 0 */
+#define ISR1	0x70	/* Interrupt Status Register 1 */
+#define IER0	0x74	/* Interrupt Enable Register 0 */
+#define IER1	0x78	/* Interrupt Enable Register 1 */
 
-#define	M_REG(reg, chan)	(reg + 0x80*chan)		
-#define	DRX_REG(reg, chan)	(reg + 0x40*chan)		
-#define	DTX_REG(reg, chan)	(reg + 0x20*(2*chan + 1))	
-#define	TRX_REG(reg, chan)	(reg + 0x20*chan)		
-#define	TTX_REG(reg, chan)	(reg + 0x10*(2*chan + 1))	
-#define	ST_REG(reg, chan)	(reg + 0x80*chan)		
-#define IR0_DRX(val, chan)	((val)<<(8*(chan)))		
-#define IR0_DTX(val, chan)	((val)<<(4*(2*chan + 1)))	
-#define IR0_M(val, chan)	((val)<<(8*(chan)))		
+/* Register Access Macros (chan is 0 or 1 in _any_ case) */
+#define	M_REG(reg, chan)	(reg + 0x80*chan)		/* MSCI */
+#define	DRX_REG(reg, chan)	(reg + 0x40*chan)		/* DMA Rx */
+#define	DTX_REG(reg, chan)	(reg + 0x20*(2*chan + 1))	/* DMA Tx */
+#define	TRX_REG(reg, chan)	(reg + 0x20*chan)		/* Timer Rx */
+#define	TTX_REG(reg, chan)	(reg + 0x10*(2*chan + 1))	/* Timer Tx */
+#define	ST_REG(reg, chan)	(reg + 0x80*chan)		/* Status Cnt */
+#define IR0_DRX(val, chan)	((val)<<(8*(chan)))		/* Int DMA Rx */
+#define IR0_DTX(val, chan)	((val)<<(4*(2*chan + 1)))	/* Int DMA Tx */
+#define IR0_M(val, chan)	((val)<<(8*(chan)))		/* Int MSCI */
 
+/* MSCI Channel Registers */
 #define MSCI0_OFFSET 0x00
 #define MSCI1_OFFSET 0x80
 
-#define MD0	0x138	
-#define MD1	0x139	
-#define MD2	0x13a	
-#define MD3	0x13b	
-#define CTL	0x130	
-#define RXS	0x13c	
-#define TXS	0x13d	
-#define EXS	0x13e	
-#define TMCT	0x144	
-#define TMCR	0x145	
-#define CMD	0x128	
-#define ST0	0x118	
-#define ST1	0x119	
-#define ST2	0x11a	
-#define ST3	0x11b	
-#define ST4	0x11c	
-#define FST	0x11d	
-#define IE0	0x120	
-#define IE1	0x121	
-#define IE2	0x122	
-#define IE4	0x124	
-#define FIE	0x125	
-#define SA0	0x140	
-#define SA1	0x141	
-#define IDL	0x142	
-#define TRBL	0x100	 
-#define TRBK	0x101	 
-#define TRBJ	0x102	 
-#define TRBH	0x103	 
-#define TRC0	0x148	 
-#define TRC1	0x149	 
-#define RRC	0x14a	 
-#define CST0	0x108	 
-#define CST1	0x109	 
-#define CST2	0x10a	 
-#define CST3	0x10b	 
-#define GPO	0x131	
-#define TFS	0x14b	
-#define TFN	0x143	
-#define TBN	0x110	
-#define RBN	0x111	
-#define TNR0	0x150	
-#define TNR1	0x151	
-#define TCR	0x152	
-#define RNR	0x154	
-#define RCR	0x156	
+#define MD0	0x138	/* Mode reg 0 */
+#define MD1	0x139	/* Mode reg 1 */
+#define MD2	0x13a	/* Mode reg 2 */
+#define MD3	0x13b	/* Mode reg 3 */
+#define CTL	0x130	/* Control reg */
+#define RXS	0x13c	/* RX clock source */
+#define TXS	0x13d	/* TX clock source */
+#define EXS	0x13e	/* External clock input selection */
+#define TMCT	0x144	/* Time constant (Tx) */
+#define TMCR	0x145	/* Time constant (Rx) */
+#define CMD	0x128	/* Command reg */
+#define ST0	0x118	/* Status reg 0 */
+#define ST1	0x119	/* Status reg 1 */
+#define ST2	0x11a	/* Status reg 2 */
+#define ST3	0x11b	/* Status reg 3 */
+#define ST4	0x11c	/* Status reg 4 */
+#define FST	0x11d	/* frame Status reg  */
+#define IE0	0x120	/* Interrupt enable reg 0 */
+#define IE1	0x121	/* Interrupt enable reg 1 */
+#define IE2	0x122	/* Interrupt enable reg 2 */
+#define IE4	0x124	/* Interrupt enable reg 4 */
+#define FIE	0x125	/* Frame Interrupt enable reg  */
+#define SA0	0x140	/* Syn Address reg 0 */
+#define SA1	0x141	/* Syn Address reg 1 */
+#define IDL	0x142	/* Idle register */
+#define TRBL	0x100	/* TX/RX buffer reg L */ 
+#define TRBK	0x101	/* TX/RX buffer reg K */ 
+#define TRBJ	0x102	/* TX/RX buffer reg J */ 
+#define TRBH	0x103	/* TX/RX buffer reg H */ 
+#define TRC0	0x148	/* TX Ready control reg 0 */ 
+#define TRC1	0x149	/* TX Ready control reg 1 */ 
+#define RRC	0x14a	/* RX Ready control reg */ 
+#define CST0	0x108	/* Current Status Register 0 */ 
+#define CST1	0x109	/* Current Status Register 1 */ 
+#define CST2	0x10a	/* Current Status Register 2 */ 
+#define CST3	0x10b	/* Current Status Register 3 */ 
+#define GPO	0x131	/* General Purpose Output Pin Ctl Reg */
+#define TFS	0x14b	/* Tx Start Threshold Ctl Reg */
+#define TFN	0x143	/* Inter-transmit-frame Time Fill Ctl Reg */
+#define TBN	0x110	/* Tx Buffer Number Reg */
+#define RBN	0x111	/* Rx Buffer Number Reg */
+#define TNR0	0x150	/* Tx DMA Request Ctl Reg 0 */
+#define TNR1	0x151	/* Tx DMA Request Ctl Reg 1 */
+#define TCR	0x152	/* Tx DMA Critical Request Reg */
+#define RNR	0x154	/* Rx DMA Request Ctl Reg */
+#define RCR	0x156	/* Rx DMA Critical Request Reg */
 
+/* Timer Registers */
 #define TIMER0RX_OFFSET 0x00
 #define TIMER0TX_OFFSET 0x10
 #define TIMER1RX_OFFSET 0x20
 #define TIMER1TX_OFFSET 0x30
 
-#define TCNTL	0x200	
-#define TCNTH	0x201	
-#define TCONRL	0x204	
-#define TCONRH	0x205	
-#define TCSR	0x206	
-#define TEPR	0x207	
+#define TCNTL	0x200	/* Timer Upcounter L */
+#define TCNTH	0x201	/* Timer Upcounter H */
+#define TCONRL	0x204	/* Timer Constant Register L */
+#define TCONRH	0x205	/* Timer Constant Register H */
+#define TCSR	0x206	/* Timer Control/Status Register */
+#define TEPR	0x207	/* Timer Expand Prescale Register */
 
-#define PCR		0x40		
-#define DRR		0x44		
-#define DMER		0x07		
-#define BTCR		0x08		
-#define BOLR		0x0c		
-#define DSR_RX(chan)	(0x48 + 2*chan)	
-#define DSR_TX(chan)	(0x49 + 2*chan)	
-#define DIR_RX(chan)	(0x4c + 2*chan)	
-#define DIR_TX(chan)	(0x4d + 2*chan)	
-#define FCT_RX(chan)	(0x50 + 2*chan)	
-#define FCT_TX(chan)	(0x51 + 2*chan)	
-#define DMR_RX(chan)	(0x54 + 2*chan)	
-#define DMR_TX(chan)	(0x55 + 2*chan)	
-#define DCR_RX(chan)	(0x58 + 2*chan)	
-#define DCR_TX(chan)	(0x59 + 2*chan)	
+/* DMA registers */
+#define PCR		0x40		/* DMA priority control reg */
+#define DRR		0x44		/* DMA reset reg */
+#define DMER		0x07		/* DMA Master Enable reg */
+#define BTCR		0x08		/* Burst Tx Ctl Reg */
+#define BOLR		0x0c		/* Back-off Length Reg */
+#define DSR_RX(chan)	(0x48 + 2*chan)	/* DMA Status Reg (Rx) */
+#define DSR_TX(chan)	(0x49 + 2*chan)	/* DMA Status Reg (Tx) */
+#define DIR_RX(chan)	(0x4c + 2*chan)	/* DMA Interrupt Enable Reg (Rx) */
+#define DIR_TX(chan)	(0x4d + 2*chan)	/* DMA Interrupt Enable Reg (Tx) */
+#define FCT_RX(chan)	(0x50 + 2*chan)	/* Frame End Interrupt Counter (Rx) */
+#define FCT_TX(chan)	(0x51 + 2*chan)	/* Frame End Interrupt Counter (Tx) */
+#define DMR_RX(chan)	(0x54 + 2*chan)	/* DMA Mode Reg (Rx) */
+#define DMR_TX(chan)	(0x55 + 2*chan)	/* DMA Mode Reg (Tx) */
+#define DCR_RX(chan)	(0x58 + 2*chan)	/* DMA Command Reg (Rx) */
+#define DCR_TX(chan)	(0x59 + 2*chan)	/* DMA Command Reg (Tx) */
 
+/* DMA Channel Registers */
 #define DMAC0RX_OFFSET 0x00
 #define DMAC0TX_OFFSET 0x20
 #define DMAC1RX_OFFSET 0x40
 #define DMAC1TX_OFFSET 0x60
 
-#define DARL	0x80	
-#define DARH	0x81	
-#define DARB	0x82	
-#define DARBH	0x83	
-#define SARL	0x80	
-#define SARH	0x81	
-#define SARB	0x82	
-#define DARBH	0x83	
-#define BARL	0x80	
-#define BARH	0x81	
-#define BARB	0x82	
-#define BARBH	0x83	
-#define CDAL	0x84	
-#define CDAH	0x85	
-#define CDAB	0x86	
-#define CDABH	0x87	
-#define EDAL	0x88	
-#define EDAH	0x89	
-#define EDAB	0x8a	
-#define EDABH	0x8b	
-#define BFLL	0x90	
-#define BFLH	0x91	
-#define BCRL	0x8c	
-#define BCRH	0x8d	
+#define DARL	0x80	/* Dest Addr Register L (single-block, RX only) */
+#define DARH	0x81	/* Dest Addr Register H (single-block, RX only) */
+#define DARB	0x82	/* Dest Addr Register B (single-block, RX only) */
+#define DARBH	0x83	/* Dest Addr Register BH (single-block, RX only) */
+#define SARL	0x80	/* Source Addr Register L (single-block, TX only) */
+#define SARH	0x81	/* Source Addr Register H (single-block, TX only) */
+#define SARB	0x82	/* Source Addr Register B (single-block, TX only) */
+#define DARBH	0x83	/* Source Addr Register BH (single-block, TX only) */
+#define BARL	0x80	/* Buffer Addr Register L (chained-block) */
+#define BARH	0x81	/* Buffer Addr Register H (chained-block) */
+#define BARB	0x82	/* Buffer Addr Register B (chained-block) */
+#define BARBH	0x83	/* Buffer Addr Register BH (chained-block) */
+#define CDAL	0x84	/* Current Descriptor Addr Register L */
+#define CDAH	0x85	/* Current Descriptor Addr Register H */
+#define CDAB	0x86	/* Current Descriptor Addr Register B */
+#define CDABH	0x87	/* Current Descriptor Addr Register BH */
+#define EDAL	0x88	/* Error Descriptor Addr Register L */
+#define EDAH	0x89	/* Error Descriptor Addr Register H */
+#define EDAB	0x8a	/* Error Descriptor Addr Register B */
+#define EDABH	0x8b	/* Error Descriptor Addr Register BH */
+#define BFLL	0x90	/* RX Buffer Length L (only RX) */
+#define BFLH	0x91	/* RX Buffer Length H (only RX) */
+#define BCRL	0x8c	/* Byte Count Register L */
+#define BCRH	0x8d	/* Byte Count Register H */
 
+/* Block Descriptor Structure */
 typedef struct {
-	unsigned long	next;		
-	unsigned long	ptbuf;		
-	unsigned short	len;		
-	unsigned char	status;		
-	unsigned char	filler[5];	 
+	unsigned long	next;		/* pointer to next block descriptor */
+	unsigned long	ptbuf;		/* buffer pointer */
+	unsigned short	len;		/* data length */
+	unsigned char	status;		/* status */
+	unsigned char	filler[5];	/* alignment filler (16 bytes) */ 
 } pcsca_bd_t;
 
+/* Block Descriptor Structure */
 typedef struct {
-	u32 cp;			
-	u32 bp;			
-	u16 len;		
-	u8 stat;		
-	u8 unused;		
+	u32 cp;			/* pointer to next block descriptor */
+	u32 bp;			/* buffer pointer */
+	u16 len;		/* data length */
+	u8 stat;		/* status */
+	u8 unused;		/* pads to 4-byte boundary */
 }pkt_desc;
 
 
-#define DST_EOT		0x01	
-#define DST_OSB		0x02	
-#define DST_CRC		0x04	
-#define DST_OVR		0x08	
-#define DST_UDR		0x08	
-#define DST_RBIT	0x10	
-#define DST_ABT		0x20	
-#define DST_SHRT	0x40	
-#define DST_EOM		0x80	
+/*
+	Descriptor Status definitions:
 
+	Bit	Transmission	Reception
 
-#define ST_TX_EOM     0x80	
+	7	EOM		EOM
+	6	-		Short Frame
+	5	-		Abort
+	4	-		Residual bit
+	3	Underrun	Overrun	
+	2	-		CRC
+	1	Ownership	Ownership
+	0	EOT		-
+*/
+#define DST_EOT		0x01	/* End of transmit command */
+#define DST_OSB		0x02	/* Ownership bit */
+#define DST_CRC		0x04	/* CRC Error */
+#define DST_OVR		0x08	/* Overrun */
+#define DST_UDR		0x08	/* Underrun */
+#define DST_RBIT	0x10	/* Residual bit */
+#define DST_ABT		0x20	/* Abort */
+#define DST_SHRT	0x40	/* Short Frame  */
+#define DST_EOM		0x80	/* End of Message  */
+
+/* Packet Descriptor Status bits */
+
+#define ST_TX_EOM     0x80	/* End of frame */
 #define ST_TX_UNDRRUN 0x08
 #define ST_TX_OWNRSHP 0x02
-#define ST_TX_EOT     0x01	
+#define ST_TX_EOT     0x01	/* End of transmition */
 
-#define ST_RX_EOM     0x80	
-#define ST_RX_SHORT   0x40	
-#define ST_RX_ABORT   0x20	
-#define ST_RX_RESBIT  0x10	
-#define ST_RX_OVERRUN 0x08	
-#define ST_RX_CRC     0x04	
+#define ST_RX_EOM     0x80	/* End of frame */
+#define ST_RX_SHORT   0x40	/* Short frame */
+#define ST_RX_ABORT   0x20	/* Abort */
+#define ST_RX_RESBIT  0x10	/* Residual bit */
+#define ST_RX_OVERRUN 0x08	/* Overrun */
+#define ST_RX_CRC     0x04	/* CRC */
 #define ST_RX_OWNRSHP 0x02
 
 #define ST_ERROR_MASK 0x7C
 
-#define CMCR	0x158	
-#define TECNTL	0x160	
-#define TECNTM	0x161	
-#define TECNTH	0x162	
-#define TECCR	0x163	
-#define URCNTL	0x164	
-#define URCNTH	0x165	
-#define URCCR	0x167	
-#define RECNTL	0x168	
-#define RECNTM	0x169	
-#define RECNTH	0x16a	
-#define RECCR	0x16b	
-#define ORCNTL	0x16c	
-#define ORCNTH	0x16d	
-#define ORCCR	0x16f	
-#define CECNTL	0x170	
-#define CECNTH	0x171	
-#define CECCR	0x173	
-#define ABCNTL	0x174	
-#define ABCNTH	0x175	
-#define ABCCR	0x177	
-#define SHCNTL	0x178	
-#define SHCNTH	0x179	
-#define SHCCR	0x17b	
-#define RSCNTL	0x17c	
-#define RSCNTH	0x17d	
-#define RSCCR	0x17f	
+/* Status Counter Registers */
+#define CMCR	0x158	/* Counter Master Ctl Reg */
+#define TECNTL	0x160	/* Tx EOM Counter L */
+#define TECNTM	0x161	/* Tx EOM Counter M */
+#define TECNTH	0x162	/* Tx EOM Counter H */
+#define TECCR	0x163	/* Tx EOM Counter Ctl Reg */
+#define URCNTL	0x164	/* Underrun Counter L */
+#define URCNTH	0x165	/* Underrun Counter H */
+#define URCCR	0x167	/* Underrun Counter Ctl Reg */
+#define RECNTL	0x168	/* Rx EOM Counter L */
+#define RECNTM	0x169	/* Rx EOM Counter M */
+#define RECNTH	0x16a	/* Rx EOM Counter H */
+#define RECCR	0x16b	/* Rx EOM Counter Ctl Reg */
+#define ORCNTL	0x16c	/* Overrun Counter L */
+#define ORCNTH	0x16d	/* Overrun Counter H */
+#define ORCCR	0x16f	/* Overrun Counter Ctl Reg */
+#define CECNTL	0x170	/* CRC Counter L */
+#define CECNTH	0x171	/* CRC Counter H */
+#define CECCR	0x173	/* CRC Counter Ctl Reg */
+#define ABCNTL	0x174	/* Abort frame Counter L */
+#define ABCNTH	0x175	/* Abort frame Counter H */
+#define ABCCR	0x177	/* Abort frame Counter Ctl Reg */
+#define SHCNTL	0x178	/* Short frame Counter L */
+#define SHCNTH	0x179	/* Short frame Counter H */
+#define SHCCR	0x17b	/* Short frame Counter Ctl Reg */
+#define RSCNTL	0x17c	/* Residual bit Counter L */
+#define RSCNTH	0x17d	/* Residual bit Counter H */
+#define RSCCR	0x17f	/* Residual bit Counter Ctl Reg */
 
+/* Register Programming Constants */
 
 #define IR0_DMIC	0x00000001
 #define IR0_DMIB	0x00000002
@@ -259,7 +286,7 @@ typedef struct {
 #define MD0_BIT_SYNC	0x80
 #define MD0_TRANSP	0xc0
 
-#define MD0_HDLC        0x80	
+#define MD0_HDLC        0x80	/* Bit-sync HDLC mode */
 
 #define MD0_CRC_NONE	0x00
 #define MD0_CRC_16_0	0x04
@@ -276,7 +303,7 @@ typedef struct {
 #define MD2_MANCHESTER	0x80
 #define MD2_FM_MARK	0xA0
 #define MD2_FM_SPACE	0xC0
-#define MD2_LOOPBACK	0x03	
+#define MD2_LOOPBACK	0x03	/* Local data Loopback */
 
 #define MD2_F_DUPLEX	0x00
 #define MD2_AUTO_ECHO	0x01
@@ -335,9 +362,9 @@ typedef struct {
 
 #define CLK_BRG_MASK	0x0F
 #define CLK_PIN_OUT	0x80
-#define CLK_LINE    	0x00	
-#define CLK_BRG     	0x40	
-#define CLK_TX_RXCLK	0x60	
+#define CLK_LINE    	0x00	/* clock line input */
+#define CLK_BRG     	0x40	/* internal baud rate generator */
+#define CLK_TX_RXCLK	0x60	/* TX clock from RX clock */
 
 #define CMD_RX_RST	0x11
 #define CMD_RX_ENA	0x12
@@ -415,8 +442,8 @@ typedef struct {
 #define IE0_RXINTB	0x20
 #define IE0_RXINTA	0x40
 #define IE0_TXINT	0x80
-#define IE0_UDRN	0x00008000 
-#define IE0_CDCD	0x00000400 
+#define IE0_UDRN	0x00008000 /* TX underrun MSCI interrupt enable */
+#define IE0_CDCD	0x00000400 /* CD level change interrupt enable */
 
 #define IE1_IDLD	0x01
 #define IE1_ABTD	0x02
@@ -480,7 +507,7 @@ typedef struct {
 #define DMR_SEOME	0x08
 #define DMR_TMOD	0x10
 
-#define DMER_DME        0x80	
+#define DMER_DME        0x80	/* DMA Master Enable */
 
 #define DCR_SW_ABT	0x01
 #define DCR_FCT_CLR	0x02
@@ -497,4 +524,4 @@ typedef struct {
 #define PCR_OSB		0x40
 #define PCR_BURST	0x80
 
-#endif 
+#endif /* (__HD64572_H) */

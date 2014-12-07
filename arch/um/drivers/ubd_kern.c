@@ -3,6 +3,19 @@
  * Licensed under the GPL
  */
 
+/* 2001-09-28...2002-04-17
+ * Partition stuff by James_McMechan@hotmail.com
+ * old style ubd by setting UBD_SHIFT to 0
+ * 2002-09-27...2002-10-18 massive tinkering for 2.5
+ * partitions have changed in 2.5
+ * 2003-01-29 more tinkering for 2.5.59-1
+ * This should now address the sysfs problems and has
+ * the symlink for devfs to allow for booting with
+ * the common /dev/ubd/discX/... names rather than
+ * only /dev/ubdN/discN this version also has lots of
+ * clean ups preparing for ubd-many.
+ * James McMechan
+ */
 
 #define UBD_SHIFT 4
 
@@ -66,11 +79,12 @@ static inline void ubd_set_bit(__u64 bit, unsigned char *data)
 	off = bit % bits;
 	data[n] |= (1 << off);
 }
+/*End stuff from ubd_user.h*/
 
 #define DRIVER_NAME "uml-blkdev"
 
 static DEFINE_MUTEX(ubd_lock);
-static DEFINE_MUTEX(ubd_mutex); 
+static DEFINE_MUTEX(ubd_mutex); /* replaces BKL, might not be needed */
 
 static int ubd_open(struct block_device *bdev, fmode_t mode);
 static int ubd_release(struct gendisk *disk, fmode_t mode);
@@ -88,6 +102,7 @@ static const struct block_device_operations ubd_blops = {
 	.getgeo		= ubd_getgeo,
 };
 
+/* Protected by ubd_lock */
 static int fake_major = UBD_MAJOR;
 static struct gendisk *ubd_gendisk[MAX_DEV];
 static struct gendisk *fake_gendisk[MAX_DEV];
@@ -102,9 +117,9 @@ static struct gendisk *fake_gendisk[MAX_DEV];
 static struct openflags global_openflags = OPEN_FLAGS;
 
 struct cow {
-	
+	/* backing file name */
 	char *file;
-	
+	/* backing file fd */
 	int fd;
 	unsigned long *bitmap;
 	unsigned long bitmap_len;
@@ -116,6 +131,8 @@ struct cow {
 
 struct ubd {
 	struct list_head restart;
+	/* name (and fd, below) of the file opened for writing, either the
+	 * backing or the cow file. */
 	char *file;
 	int count;
 	int fd;
@@ -159,8 +176,10 @@ struct ubd {
 	.rq_pos =		0, \
 }
 
+/* Protected by ubd_lock */
 static struct ubd ubd_devs[MAX_DEV] = { [0 ... MAX_DEV - 1] = DEFAULT_UBD };
 
+/* Only changed by fake_ide_setup which is a setup */
 static int fake_ide = 0;
 static struct proc_dir_entry *proc_ide_root = NULL;
 static struct proc_dir_entry *proc_ide = NULL;
@@ -238,6 +257,10 @@ static int parse_unit(char **ptr)
 	return n;
 }
 
+/* If *index_out == -1 at exit, the passed option was a general one;
+ * otherwise, the str pointer is used (and owned) inside ubd_devs array, so it
+ * should not be freed on exit.
+ */
 static int ubd_setup_common(char *str, int *index_out, char **error_out)
 {
 	struct ubd *ubd_dev;
@@ -415,9 +438,12 @@ __uml_help(udb_setup,
 
 static void do_ubd_request(struct request_queue * q);
 
+/* Only changed by ubd_init, which is an initcall. */
 static int thread_fd = -1;
 static LIST_HEAD(restart);
 
+/* XXX - move this inside ubd_intr. */
+/* Called without dev->lock held, and only in interrupt context. */
 static void ubd_handler(void)
 {
 	struct io_thread_req *req;
@@ -457,6 +483,7 @@ static irqreturn_t ubd_intr(int irq, void *dev)
 	return IRQ_HANDLED;
 }
 
+/* Only changed by ubd_init, which is an initcall. */
 static int io_pid = -1;
 
 static void kill_io_thread(void)
@@ -540,6 +567,8 @@ static int backing_file_mismatch(char *file, __u64 size, time_t mtime)
 	}
 
 	if (actual != size) {
+		/*__u64 can be a long on AMD64 and with %lu GCC complains; so
+		 * the typecast.*/
 		printk(KERN_ERR "Size mismatch (%llu vs %llu) of COW header "
 		       "vs backing file\n", (unsigned long long) size, actual);
 		return -EINVAL;
@@ -618,7 +647,7 @@ static int open_ubd_file(char *file, struct openflags *openflags, int shared,
 		}
 	}
 
-	
+	/* Successful return case! */
 	if (backing_file_out == NULL)
 		return fd;
 
@@ -635,7 +664,7 @@ static int open_ubd_file(char *file, struct openflags *openflags, int shared,
 	asked_switch = path_requires_switch(*backing_file_out, backing_file,
 					    file);
 
-	
+	/* Allow switching only if no mismatch. */
 	if (asked_switch && !backing_file_mismatch(*backing_file_out, size,
 						   mtime)) {
 		printk(KERN_ERR "Switching backing file to '%s'\n",
@@ -791,7 +820,7 @@ static int ubd_disk_register(int major, u64 size, int unit,
 	else
 		sprintf(disk->disk_name, "ubd_fake%d", unit);
 
-	
+	/* sysfs register (not for ide fake devices) */
 	if (major == UBD_MAJOR) {
 		ubd_devs[unit].pdev.id   = unit;
 		ubd_devs[unit].pdev.name = DRIVER_NAME;
@@ -849,6 +878,10 @@ static int ubd_add(int n, char **error_out)
 		ubd_disk_register(fake_major, ubd_dev->size, n,
 				  &fake_gendisk[n]);
 
+	/*
+	 * Perhaps this should also be under the "if (fake_major)" above
+	 * using the fake_disk->disk_name
+	 */
 	if (fake_ide)
 		make_ide_entries(ubd_gendisk[n]->disk_name);
 
@@ -865,6 +898,10 @@ static int ubd_config(char *str, char **error_out)
 {
 	int n, ret;
 
+	/* This string is possibly broken up and stored, so it's only
+	 * freed if ubd_setup_common fails, or if only general options
+	 * were set.
+	 */
 	str = kstrdup(str, GFP_KERNEL);
 	if (str == NULL) {
 		*error_out = "Failed to allocate memory";
@@ -949,7 +986,7 @@ static int ubd_remove(int n, char **error_out)
 	if(ubd_dev->file == NULL)
 		goto out;
 
-	
+	/* you cannot remove a open disk */
 	err = -EBUSY;
 	if(ubd_dev->count > 0)
 		goto out;
@@ -973,6 +1010,9 @@ out:
 	return err;
 }
 
+/* All these are called by mconsole in process context and without
+ * ubd-specific locks.  The structure itself is const except for .list.
+ */
 static struct mc_device ubd_mc = {
 	.list		= LIST_HEAD_INIT(ubd_mc.list),
 	.name		= "ubd",
@@ -1004,6 +1044,7 @@ static int __init ubd0_init(void)
 
 __initcall(ubd0_init);
 
+/* Used in ubd_init, which is an initcall */
 static struct platform_driver ubd_driver = {
 	.driver = {
 		.name  = DRIVER_NAME,
@@ -1043,9 +1084,11 @@ static int __init ubd_driver_init(void){
 	unsigned long stack;
 	int err;
 
-	
+	/* Set by CONFIG_BLK_DEV_UBD_SYNC or ubd=sync.*/
 	if(global_openflags.s){
 		printk(KERN_INFO "ubd: Synchronous mode\n");
+		/* Letting ubd=sync be like using ubd#s= instead of ubd#= is
+		 * enough. So use anyway the io thread. */
 	}
 	stack = alloc_stack(0, 0);
 	io_pid = start_io_thread(stack + PAGE_SIZE - sizeof(void *),
@@ -1084,6 +1127,12 @@ static int ubd_open(struct block_device *bdev, fmode_t mode)
 	ubd_dev->count++;
 	set_disk_ro(disk, !ubd_dev->openflags.w);
 
+	/* This should no more be needed. And it didn't work anyway to exclude
+	 * read-write remounting of filesystems.*/
+	/*if((mode & FMODE_WRITE) && !ubd_dev->openflags.w){
+	        if(--ubd_dev->count == 0) ubd_close_dev(ubd_dev);
+	        err = -EROFS;
+	}*/
 out:
 	mutex_unlock(&ubd_mutex);
 	return err;
@@ -1123,6 +1172,11 @@ static void cowify_bitmap(__u64 io_offset, int length, unsigned long *cow_mask,
 
 	*cow_offset = sector / (sizeof(unsigned long) * 8);
 
+	/* This takes care of the case where we're exactly at the end of the
+	 * device, and *cow_offset + 1 is off the end.  So, just back it up
+	 * by one word.  Thanks to Lynn Kerby for the fix and James McMechan
+	 * for the original diagnosis.
+	 */
 	if (*cow_offset == (DIV_ROUND_UP(bitmap_len,
 					 sizeof(unsigned long)) - 1))
 		(*cow_offset)--;
@@ -1155,6 +1209,7 @@ static void cowify_req(struct io_thread_req *req, unsigned long *bitmap,
 			   req->bitmap_words, bitmap_len);
 }
 
+/* Called with dev->lock held */
 static void prepare_request(struct request *req, struct io_thread_req *io_req,
 			    unsigned long long offset, int page_offset,
 			    int len, struct page *page)
@@ -1184,6 +1239,7 @@ static void prepare_request(struct request *req, struct io_thread_req *io_req,
 
 }
 
+/* Called with dev->lock held */
 static void do_ubd_request(struct request_queue *q)
 {
 	struct io_thread_req *io_req;
@@ -1363,8 +1419,12 @@ static void do_io(struct io_thread_req *req)
 	req->error = update_bitmap(req);
 }
 
+/* Changed in start_io_thread, which is serialized by being called only
+ * from ubd_init, which is an initcall.
+ */
 int kernel_fd = -1;
 
+/* Only changed by the io thread. XXX: currently unused. */
 static int io_count = 0;
 
 int io_thread(void *arg)

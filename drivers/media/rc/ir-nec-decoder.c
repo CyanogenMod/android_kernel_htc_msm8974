@@ -17,16 +17,16 @@
 #include "rc-core-priv.h"
 
 #define NEC_NBITS		32
-#define NEC_UNIT		562500  
+#define NEC_UNIT		562500  /* ns */
 #define NEC_HEADER_PULSE	(16 * NEC_UNIT)
-#define NECX_HEADER_PULSE	(8  * NEC_UNIT) 
+#define NECX_HEADER_PULSE	(8  * NEC_UNIT) /* Less common NEC variant */
 #define NEC_HEADER_SPACE	(8  * NEC_UNIT)
 #define NEC_REPEAT_SPACE	(4  * NEC_UNIT)
 #define NEC_BIT_PULSE		(1  * NEC_UNIT)
 #define NEC_BIT_0_SPACE		(1  * NEC_UNIT)
 #define NEC_BIT_1_SPACE		(3  * NEC_UNIT)
 #define	NEC_TRAILER_PULSE	(1  * NEC_UNIT)
-#define	NEC_TRAILER_SPACE	(10 * NEC_UNIT) 
+#define	NEC_TRAILER_SPACE	(10 * NEC_UNIT) /* even longer in reality */
 #define NECX_REPEAT_BITS	1
 
 enum nec_state {
@@ -38,6 +38,13 @@ enum nec_state {
 	STATE_TRAILER_SPACE,
 };
 
+/**
+ * ir_nec_decode() - Decode one NEC pulse or space
+ * @dev:	the struct rc_dev descriptor of the device
+ * @duration:	the struct ir_raw_event descriptor of the pulse/space
+ *
+ * This function returns -EINVAL if the pulse violates the state machine
+ */
 static int ir_nec_decode(struct rc_dev *dev, struct ir_raw_event ev)
 {
 	struct nec_dec *data = &dev->raw->nec;
@@ -167,16 +174,18 @@ rc_data:
 		}
 
 		if (send_32bits) {
+			/* NEC transport, but modified protocol, used by at
+			 * least Apple and TiVo remotes */
 			scancode = data->bits;
 			IR_dprintk(1, "NEC (modified) scancode 0x%08x\n", scancode);
 		} else if ((address ^ not_address) != 0xff) {
-			
+			/* Extended NEC */
 			scancode = address     << 16 |
 				   not_address <<  8 |
 				   command;
 			IR_dprintk(1, "NEC (Ext) scancode 0x%06x\n", scancode);
 		} else {
-			
+			/* Normal NEC */
 			scancode = address << 8 | command;
 			IR_dprintk(1, "NEC scancode 0x%04x\n", scancode);
 		}

@@ -10,6 +10,9 @@
 #define _ASM_BCACHE_H
 
 
+/* Some R4000 / R4400 / R4600 / R5000 machines may have a non-dma-coherent,
+   chipset implemented caches.  On machines with other CPUs the CPU does the
+   cache thing itself. */
 struct bcache_ops {
 	void (*bc_enable)(void);
 	void (*bc_disable)(void);
@@ -43,14 +46,15 @@ static inline void bc_inv(unsigned long page, unsigned long size)
 	bcops->bc_inv(page, size);
 }
 
-#else 
+#else /* !defined(CONFIG_BOARD_SCACHE) */
 
+/* Not R4000 / R4400 / R4600 / R5000.  */
 
 #define bc_enable() do { } while (0)
 #define bc_disable() do { } while (0)
 #define bc_wback_inv(page, size) do { } while (0)
 #define bc_inv(page, size) do { } while (0)
 
-#endif 
+#endif /* !defined(CONFIG_BOARD_SCACHE) */
 
-#endif 
+#endif /* _ASM_BCACHE_H */

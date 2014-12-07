@@ -63,7 +63,7 @@ struct posix_acl *btrfs_get_acl(struct inode *inode, int type)
 	if (size > 0) {
 		acl = posix_acl_from_xattr(value, size);
 	} else if (size == -ENOENT || size == -ENODATA || size == 0) {
-		
+		/* FIXME, who returns -ENOENT?  I think nobody */
 		acl = NULL;
 	} else {
 		acl = ERR_PTR(-EIO);
@@ -97,6 +97,9 @@ static int btrfs_xattr_acl_get(struct dentry *dentry, const char *name,
 	return ret;
 }
 
+/*
+ * Needs to be called with fs_mutex held
+ */
 static int btrfs_set_acl(struct btrfs_trans_handle *trans,
 			 struct inode *inode, struct posix_acl *acl, int type)
 {
@@ -184,13 +187,18 @@ out:
 	return ret;
 }
 
+/*
+ * btrfs_init_acl is already generally called under fs_mutex, so the locking
+ * stuff has been fixed to work with that.  If the locking stuff changes, we
+ * need to re-evaluate the acl locking stuff.
+ */
 int btrfs_init_acl(struct btrfs_trans_handle *trans,
 		   struct inode *inode, struct inode *dir)
 {
 	struct posix_acl *acl = NULL;
 	int ret = 0;
 
-	
+	/* this happens with subvols */
 	if (!dir)
 		return 0;
 
@@ -217,7 +225,7 @@ int btrfs_init_acl(struct btrfs_trans_handle *trans,
 			return ret;
 
 		if (ret > 0) {
-			
+			/* we need an acl */
 			ret = btrfs_set_acl(trans, inode, acl, ACL_TYPE_ACCESS);
 		}
 	}

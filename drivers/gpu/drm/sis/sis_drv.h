@@ -1,3 +1,4 @@
+/* sis_drv.h -- Private header for sis driver -*- linux-c -*- */
 /*
  * Copyright 1999 Precision Insight, Inc., Cedar Park, Texas.
  * Copyright 2000 VA Linux Systems, Inc., Sunnyvale, California.
@@ -27,6 +28,8 @@
 #ifndef _SIS_DRV_H_
 #define _SIS_DRV_H_
 
+/* General customization:
+ */
 
 #define DRIVER_AUTHOR		"SIS, Tungsten Graphics"
 #define DRIVER_NAME		"sis"
@@ -58,7 +61,7 @@ typedef struct drm_sis_private {
 	unsigned long agp_offset;
 	struct drm_mm vram_mm;
 	struct drm_mm agp_mm;
-	
+	/** Mapping of userspace keys to mm objects */
 	struct idr object_idr;
 } drm_sis_private_t;
 

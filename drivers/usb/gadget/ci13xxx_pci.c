@@ -15,8 +15,20 @@
 
 #include "ci13xxx_udc.c"
 
+/* driver name */
 #define UDC_DRIVER_NAME   "ci13xxx_pci"
 
+/******************************************************************************
+ * PCI block
+ *****************************************************************************/
+/**
+ * ci13xxx_pci_irq: interrut handler
+ * @irq:  irq number
+ * @pdev: USB Device Controller interrupt source
+ *
+ * This function returns IRQ_HANDLED if the IRQ has been handled
+ * This is an ISR don't trace, use attribute interface instead
+ */
 static irqreturn_t ci13xxx_pci_irq(int irq, void *pdev)
 {
 	if (irq == 0) {
@@ -30,6 +42,15 @@ static struct ci13xxx_udc_driver ci13xxx_pci_udc_driver = {
 	.name		= UDC_DRIVER_NAME,
 };
 
+/**
+ * ci13xxx_pci_probe: PCI probe
+ * @pdev: USB device controller being probed
+ * @id:   PCI hotplug ID connecting controller to UDC framework
+ *
+ * This function returns an error code
+ * Allocates basic PCI resources for this USB device controller, and then
+ * invokes the udc_probe() method to start the UDC associated with it
+ */
 static int __devinit ci13xxx_pci_probe(struct pci_dev *pdev,
 				       const struct pci_device_id *id)
 {
@@ -53,7 +74,7 @@ static int __devinit ci13xxx_pci_probe(struct pci_dev *pdev,
 	if (retval)
 		goto disable_device;
 
-	
+	/* BAR 0 holds all the registers */
 	regs = pci_iomap(pdev, 0, 0);
 	if (!regs) {
 		dev_err(&pdev->dev, "Error mapping memory!");
@@ -69,7 +90,7 @@ static int __devinit ci13xxx_pci_probe(struct pci_dev *pdev,
 	if (retval)
 		goto iounmap;
 
-	
+	/* our device does not have MSI capability */
 
 	retval = request_irq(pdev->irq, ci13xxx_pci_irq, IRQF_SHARED,
 			     UDC_DRIVER_NAME, pdev);
@@ -90,6 +111,14 @@ static int __devinit ci13xxx_pci_probe(struct pci_dev *pdev,
 	return retval;
 }
 
+/**
+ * ci13xxx_pci_remove: PCI remove
+ * @pdev: USB Device Controller being removed
+ *
+ * Reverses the effect of ci13xxx_pci_probe(),
+ * first invoking the udc_remove() and then releases
+ * all PCI resources allocated for this USB device controller
+ */
 static void __devexit ci13xxx_pci_remove(struct pci_dev *pdev)
 {
 	free_irq(pdev->irq, pdev);
@@ -99,10 +128,16 @@ static void __devexit ci13xxx_pci_remove(struct pci_dev *pdev)
 	pci_disable_device(pdev);
 }
 
+/**
+ * PCI device table
+ * PCI device structure
+ *
+ * Check "pci.h" for details
+ */
 static DEFINE_PCI_DEVICE_TABLE(ci13xxx_pci_id_table) = {
 	{ PCI_DEVICE(0x153F, 0x1004) },
 	{ PCI_DEVICE(0x153F, 0x1006) },
-	{ 0, 0, 0, 0, 0, 0, 0  }
+	{ 0, 0, 0, 0, 0, 0, 0 /* end: all zeroes */ }
 };
 MODULE_DEVICE_TABLE(pci, ci13xxx_pci_id_table);
 
@@ -113,12 +148,22 @@ static struct pci_driver ci13xxx_pci_driver = {
 	.remove       =	__devexit_p(ci13xxx_pci_remove),
 };
 
+/**
+ * ci13xxx_pci_init: module init
+ *
+ * Driver load
+ */
 static int __init ci13xxx_pci_init(void)
 {
 	return pci_register_driver(&ci13xxx_pci_driver);
 }
 module_init(ci13xxx_pci_init);
 
+/**
+ * ci13xxx_pci_exit: module exit
+ *
+ * Driver unload
+ */
 static void __exit ci13xxx_pci_exit(void)
 {
 	pci_unregister_driver(&ci13xxx_pci_driver);

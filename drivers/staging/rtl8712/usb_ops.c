@@ -46,7 +46,7 @@ static u8 usb_read8(struct intf_hdl *pintfhdl, u32 addr)
 	struct intf_priv *pintfpriv = pintfhdl->pintfpriv;
 
 	request = 0x05;
-	requesttype = 0x01; 
+	requesttype = 0x01; /* read_in */
 	index = 0;
 	wvalue = (u16)(addr&0x0000ffff);
 	len = 1;
@@ -66,7 +66,7 @@ static u16 usb_read16(struct intf_hdl *pintfhdl, u32 addr)
 	struct intf_priv *pintfpriv = pintfhdl->pintfpriv;
 
 	request = 0x05;
-	requesttype = 0x01; 
+	requesttype = 0x01; /* read_in */
 	index = 0;
 	wvalue = (u16)(addr&0x0000ffff);
 	len = 2;
@@ -86,7 +86,7 @@ static u32 usb_read32(struct intf_hdl *pintfhdl, u32 addr)
 	struct intf_priv *pintfpriv = pintfhdl->pintfpriv;
 
 	request = 0x05;
-	requesttype = 0x01; 
+	requesttype = 0x01; /* read_in */
 	index = 0;
 	wvalue = (u16)(addr&0x0000ffff);
 	len = 4;
@@ -106,7 +106,7 @@ static void usb_write8(struct intf_hdl *pintfhdl, u32 addr, u8 val)
 	struct intf_priv *pintfpriv = pintfhdl->pintfpriv;
 
 	request = 0x05;
-	requesttype = 0x00; 
+	requesttype = 0x00; /* write_out */
 	index = 0;
 	wvalue = (u16)(addr&0x0000ffff);
 	len = 1;
@@ -127,7 +127,7 @@ static void usb_write16(struct intf_hdl *pintfhdl, u32 addr, u16 val)
 	struct intf_priv *pintfpriv = pintfhdl->pintfpriv;
 
 	request = 0x05;
-	requesttype = 0x00; 
+	requesttype = 0x00; /* write_out */
 	index = 0;
 	wvalue = (u16)(addr&0x0000ffff);
 	len = 2;
@@ -148,7 +148,7 @@ static void usb_write32(struct intf_hdl *pintfhdl, u32 addr, u32 val)
 	struct intf_priv *pintfpriv = pintfhdl->pintfpriv;
 
 	request = 0x05;
-	requesttype = 0x00; 
+	requesttype = 0x00; /* write_out */
 	index = 0;
 	wvalue = (u16)(addr&0x0000ffff);
 	len = 4;

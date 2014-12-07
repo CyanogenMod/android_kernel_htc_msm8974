@@ -50,22 +50,27 @@ static void ne3210_get_8390_hdr(struct net_device *dev, struct e8390_pkt_hdr *hd
 static void ne3210_block_input(struct net_device *dev, int count, struct sk_buff *skb, int ring_offset);
 static void ne3210_block_output(struct net_device *dev, int count, const unsigned char *buf, const int start_page);
 
-#define NE3210_START_PG		0x00    
-#define NE3210_STOP_PG		0x80    
+#define NE3210_START_PG		0x00    /* First page of TX buffer	*/
+#define NE3210_STOP_PG		0x80    /* Last page +1 of RX ring	*/
 
 #define NE3210_IO_EXTENT	0x20
-#define NE3210_SA_PROM		0x16	
+#define NE3210_SA_PROM		0x16	/* Start of e'net addr.		*/
 #define NE3210_RESET_PORT	0xc84
-#define NE3210_NIC_OFFSET	0x00	
+#define NE3210_NIC_OFFSET	0x00	/* Hello, the 8390 is *here*	*/
 
-#define NE3210_ADDR0		0x00	
+#define NE3210_ADDR0		0x00	/* 3 byte vendor prefix		*/
 #define NE3210_ADDR1		0x00
 #define NE3210_ADDR2		0x1b
 
-#define NE3210_CFG1		0xc84	
+#define NE3210_CFG1		0xc84	/* NB: 0xc84 is also "reset" port. */
 #define NE3210_CFG2		0xc90
 #define NE3210_CFG_EXTENT       (NE3210_CFG2 - NE3210_CFG1 + 1)
 
+/*
+ *	You can OR any of the following bits together and assign it
+ *	to NE3210_DEBUG to get verbose driver info during operation.
+ *	Currently only the probe one is implemented.
+ */
 
 #define NE3210_D_PROBE	0x01
 #define NE3210_D_RX_PKT	0x02
@@ -91,7 +96,7 @@ static int __init ne3210_eisa_probe (struct device *device)
 	struct eisa_device *edev = to_eisa_device (device);
 	struct net_device *dev;
 
-	
+	/* Allocate dev->priv and fill in 8390 specific dev fields. */
 	if (!(dev = alloc_ei_netdev ())) {
 		printk ("ne3210.c: unable to allocate memory for dev!\n");
 		return -ENOMEM;
@@ -124,7 +129,7 @@ static int __init ne3210_eisa_probe (struct device *device)
 	printk("ne3210.c: NE3210 in EISA slot %d, media: %s, addr: %pM.\n",
 		edev->slot, ifmap[port_index], dev->dev_addr);
 
-	
+	/* Snarf the interrupt now. CFG file has them all listed as `edge' with share=NO */
 	dev->irq = irq_map[(inb(ioaddr + NE3210_CFG2) >> 3) & 0x07];
 	printk("ne3210.c: using IRQ %d, ", dev->irq);
 
@@ -136,7 +141,11 @@ static int __init ne3210_eisa_probe (struct device *device)
 
 	phys_mem = shmem_map[inb(ioaddr + NE3210_CFG2) & 0x07] * 0x1000;
 
-	if (phys_mem > 1024*1024) {	
+	/*
+	   BEWARE!! Some dain-bramaged EISA SCUs will allow you to put
+	   the card mem within the region covered by `normal' RAM  !!!
+	*/
+	if (phys_mem > 1024*1024) {	/* phys addr > 1MB */
 		if (phys_mem < virt_to_phys(high_memory)) {
 			printk(KERN_CRIT "ne3210.c: Card RAM overlaps with normal memory!!!\n");
 			printk(KERN_CRIT "ne3210.c: Use EISA SCU to set card memory below 1MB,\n");
@@ -169,7 +178,7 @@ static int __init ne3210_eisa_probe (struct device *device)
 	dev->mem_start = (unsigned long)ei_status.mem;
 	dev->mem_end = dev->mem_start + (NE3210_STOP_PG - NE3210_START_PG)*256;
 
-	
+	/* The 8390 offset is zero for the NE3210 */
 	dev->base_addr = ioaddr;
 
 	ei_status.name = "NE3210";
@@ -229,6 +238,9 @@ static int __devexit ne3210_eisa_remove (struct device *device)
 	return 0;
 }
 
+/*
+ *	Reset by toggling the "Board Enable" bits (bit 2 and 0).
+ */
 
 static void ne3210_reset_8390(struct net_device *dev)
 {
@@ -244,16 +256,34 @@ static void ne3210_reset_8390(struct net_device *dev)
 	if (ei_debug > 1) printk("reset done\n");
 }
 
+/*
+ *	Note: In the following three functions is the implicit assumption
+ *	that the associated memcpy will only use "rep; movsl" as long as
+ *	we keep the counts as some multiple of doublewords. This is a
+ *	requirement of the hardware, and also prevents us from using
+ *	eth_io_copy_and_sum() since we can't guarantee it will limit
+ *	itself to doubleword access.
+ */
 
+/*
+ *	Grab the 8390 specific header. Similar to the block_input routine, but
+ *	we don't need to be concerned with ring wrap as the header will be at
+ *	the start of a page, so we optimize accordingly. (A single doubleword.)
+ */
 
 static void
 ne3210_get_8390_hdr(struct net_device *dev, struct e8390_pkt_hdr *hdr, int ring_page)
 {
 	void __iomem *hdr_start = ei_status.mem + ((ring_page - NE3210_START_PG)<<8);
 	memcpy_fromio(hdr, hdr_start, sizeof(struct e8390_pkt_hdr));
-	hdr->count = (hdr->count + 3) & ~3;     
+	hdr->count = (hdr->count + 3) & ~3;     /* Round up allocation. */
 }
 
+/*
+ *	Block input and output are easy on shared memory ethercards, the only
+ *	complication is when the ring buffer wraps. The count will already
+ *	be rounded up to a doubleword value via ne3210_get_8390_hdr() above.
+ */
 
 static void ne3210_block_input(struct net_device *dev, int count, struct sk_buff *skb,
 						  int ring_offset)
@@ -261,14 +291,14 @@ static void ne3210_block_input(struct net_device *dev, int count, struct sk_buff
 	void __iomem *start = ei_status.mem + ring_offset - NE3210_START_PG*256;
 
 	if (ring_offset + count > NE3210_STOP_PG*256) {
-		
+		/* Packet wraps over end of ring buffer. */
 		int semi_count = NE3210_STOP_PG*256 - ring_offset;
 		memcpy_fromio(skb->data, start, semi_count);
 		count -= semi_count;
 		memcpy_fromio(skb->data + semi_count,
 				ei_status.mem + TX_PAGES*256, count);
 	} else {
-		
+		/* Packet is in one chunk. */
 		memcpy_fromio(skb->data, start, count);
 	}
 }
@@ -278,7 +308,7 @@ static void ne3210_block_output(struct net_device *dev, int count,
 {
 	void __iomem *shmem = ei_status.mem + ((start_page - NE3210_START_PG)<<8);
 
-	count = (count + 3) & ~3;     
+	count = (count + 3) & ~3;     /* Round up to doubleword */
 	memcpy_toio(shmem, buf, count);
 }
 

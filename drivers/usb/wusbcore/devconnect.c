@@ -141,6 +141,16 @@ err:
 }
 
 
+/*
+ * Using the Connect-Ack list, fill out the @wusbhc Connect-Ack WUSB IE
+ * properly so that it can be added to the MMC.
+ *
+ * We just get the @wusbhc->ca_list and fill out the first four ones or
+ * less (per-spec WUSB1.0[7.5, before T7-38). If the ConnectAck WUSB
+ * IE is not allocated, we alloc it.
+ *
+ * @wusbhc->mutex must be taken
+ */
 static void wusbhc_fill_cack_ie(struct wusbhc *wusbhc)
 {
 	unsigned cnt;
@@ -159,6 +169,18 @@ static void wusbhc_fill_cack_ie(struct wusbhc *wusbhc)
 		+ cnt * sizeof(cack_ie->blk[0]);
 }
 
+/*
+ * Register a new device that wants to connect
+ *
+ * A new device wants to connect, so we add it to the Connect-Ack
+ * list. We give it an address in the unauthorized range (bit 8 set);
+ * user space will have to drive authorization further on.
+ *
+ * @dev_addr: address to use for the device (which is also the port
+ *            number).
+ *
+ * @wusbhc->mutex must be taken
+ */
 static struct wusb_dev *wusbhc_cack_add(struct wusbhc *wusbhc,
 					struct wusb_dn_connect *dnc,
 					const char *pr_cdid, u8 port_idx)
@@ -169,12 +191,12 @@ static struct wusb_dev *wusbhc_cack_add(struct wusbhc *wusbhc,
 	u8 dev_addr;
 	int result;
 
-	
+	/* Is it registered already? */
 	list_for_each_entry(wusb_dev, &wusbhc->cack_list, cack_node)
 		if (!memcmp(&wusb_dev->cdid, &dnc->CDID,
 			    sizeof(wusb_dev->cdid)))
 			return wusb_dev;
-	
+	/* We don't have it, create an entry, register it */
 	wusb_dev = wusb_dev_alloc(wusbhc);
 	if (wusb_dev == NULL)
 		return NULL;
@@ -182,8 +204,17 @@ static struct wusb_dev *wusbhc_cack_add(struct wusbhc *wusbhc,
 	wusb_dev->cdid = dnc->CDID;
 	wusb_dev->port_idx = port_idx;
 
+	/*
+	 * Devices are always available within the cluster reservation
+	 * and since the hardware will take the intersection of the
+	 * per-device availability and the cluster reservation, the
+	 * per-device availability can simply be set to always
+	 * available.
+	 */
 	bitmap_fill(wusb_dev->availability.bm, UWB_NUM_MAS);
 
+	/* FIXME: handle reconnects instead of assuming connects are
+	   always new. */
 	if (1 && new_connection == 0)
 		new_connection = 1;
 	if (new_connection) {
@@ -204,6 +235,11 @@ static struct wusb_dev *wusbhc_cack_add(struct wusbhc *wusbhc,
 	return wusb_dev;
 }
 
+/*
+ * Remove a Connect-Ack context entry from the HCs view
+ *
+ * @wusbhc->mutex must be taken
+ */
 static void wusbhc_cack_rm(struct wusbhc *wusbhc, struct wusb_dev *wusb_dev)
 {
 	list_del_init(&wusb_dev->cack_node);
@@ -211,6 +247,8 @@ static void wusbhc_cack_rm(struct wusbhc *wusbhc, struct wusb_dev *wusb_dev)
 	wusbhc_fill_cack_ie(wusbhc);
 }
 
+/*
+ * @wusbhc->mutex must be taken */
 static
 void wusbhc_devconnect_acked(struct wusbhc *wusbhc, struct wusb_dev *wusb_dev)
 {
@@ -234,6 +272,32 @@ static void wusbhc_devconnect_acked_work(struct work_struct *work)
 	wusb_dev_put(wusb_dev);
 }
 
+/*
+ * Ack a device for connection
+ *
+ * FIXME: docs
+ *
+ * @pr_cdid:	Printable CDID...hex Use @dnc->cdid for the real deal.
+ *
+ * So we get the connect ack IE (may have been allocated already),
+ * find an empty connect block, an empty virtual port, create an
+ * address with it (see below), make it an unauth addr [bit 7 set] and
+ * set the MMC.
+ *
+ * Addresses: because WUSB hosts have no downstream hubs, we can do a
+ *            1:1 mapping between 'port number' and device
+ *            address. This simplifies many things, as during this
+ *            initial connect phase the USB stack has no knoledge of
+ *            the device and hasn't assigned an address yet--we know
+ *            USB's choose_address() will use the same euristics we
+ *            use here, so we can assume which address will be assigned.
+ *
+ *            USB stack always assigns address 1 to the root hub, so
+ *            to the port number we add 2 (thus virtual port #0 is
+ *            addr #2).
+ *
+ * @wusbhc shall be referenced
+ */
 static
 void wusbhc_devconnect_ack(struct wusbhc *wusbhc, struct wusb_dn_connect *dnc,
 			   const char *pr_cdid)
@@ -246,14 +310,14 @@ void wusbhc_devconnect_ack(struct wusbhc *wusbhc, struct wusb_dn_connect *dnc,
 
 	mutex_lock(&wusbhc->mutex);
 
-	
+	/* Check we are not handling it already */
 	for (idx = 0; idx < wusbhc->ports_max; idx++) {
 		port = wusb_port_by_idx(wusbhc, idx);
 		if (port->wusb_dev
 		    && memcmp(&dnc->CDID, &port->wusb_dev->cdid, sizeof(dnc->CDID)) == 0)
 			goto error_unlock;
 	}
-	
+	/* Look up those fake ports we have for a free one */
 	for (idx = 0; idx < wusbhc->ports_max; idx++) {
 		port = wusb_port_by_idx(wusbhc, idx);
 		if ((port->status & USB_PORT_STAT_POWER)
@@ -264,30 +328,57 @@ void wusbhc_devconnect_ack(struct wusbhc *wusbhc, struct wusb_dn_connect *dnc,
 		dev_err(dev, "Host controller can't connect more devices "
 			"(%u already connected); device %s rejected\n",
 			wusbhc->ports_max, pr_cdid);
+		/* NOTE: we could send a WUIE_Disconnect here, but we haven't
+		 *       event acked, so the device will eventually timeout the
+		 *       connection, right? */
 		goto error_unlock;
 	}
 
 	devnum = idx + 2;
 
-	
+	/* Make sure we are using no crypto on that "virtual port" */
 	wusbhc->set_ptk(wusbhc, idx, 0, NULL, 0);
 
+	/* Grab a filled in Connect-Ack context, fill out the
+	 * Connect-Ack Wireless USB IE, set the MMC */
 	wusb_dev = wusbhc_cack_add(wusbhc, dnc, pr_cdid, idx);
 	if (wusb_dev == NULL)
 		goto error_unlock;
 	result = wusbhc_mmcie_set(wusbhc, 0, 0, &wusbhc->cack_ie.hdr);
 	if (result < 0)
 		goto error_unlock;
+	/* Give the device at least 2ms (WUSB1.0[7.5.1p3]), let's do
+	 * three for a good measure */
 	msleep(3);
 	port->wusb_dev = wusb_dev;
 	port->status |= USB_PORT_STAT_CONNECTION;
 	port->change |= USB_PORT_STAT_C_CONNECTION;
+	/* Now the port status changed to connected; khubd will
+	 * pick the change up and try to reset the port to bring it to
+	 * the enabled state--so this process returns up to the stack
+	 * and it calls back into wusbhc_rh_port_reset().
+	 */
 error_unlock:
 	mutex_unlock(&wusbhc->mutex);
 	return;
 
 }
 
+/*
+ * Disconnect a Wireless USB device from its fake port
+ *
+ * Marks the port as disconnected so that khubd can pick up the change
+ * and drops our knowledge about the device.
+ *
+ * Assumes there is a device connected
+ *
+ * @port_index: zero based port number
+ *
+ * NOTE: @wusbhc->mutex is locked
+ *
+ * WARNING: From here it is not very safe to access anything hanging off
+ *	    wusb_dev
+ */
 static void __wusbhc_dev_disconnect(struct wusbhc *wusbhc,
 				    struct wusb_port *port)
 {
@@ -301,16 +392,41 @@ static void __wusbhc_dev_disconnect(struct wusbhc *wusbhc,
 		dev_dbg(wusbhc->dev, "disconnecting device from port %d\n", wusb_dev->port_idx);
 		if (!list_empty(&wusb_dev->cack_node))
 			list_del_init(&wusb_dev->cack_node);
-		
+		/* For the one in cack_add() */
 		wusb_dev_put(wusb_dev);
 	}
 	port->wusb_dev = NULL;
 
+	/* After a device disconnects, change the GTK (see [WUSB]
+	 * section 6.2.11.2). */
 	if (wusbhc->active)
 		wusbhc_gtk_rekey(wusbhc);
 
+	/* The Wireless USB part has forgotten about the device already; now
+	 * khubd's timer will pick up the disconnection and remove the USB
+	 * device from the system
+	 */
 }
 
+/*
+ * Refresh the list of keep alives to emit in the MMC
+ *
+ * Some devices don't respond to keep alives unless they've been
+ * authenticated, so skip unauthenticated devices.
+ *
+ * We only publish the first four devices that have a coming timeout
+ * condition. Then when we are done processing those, we go for the
+ * next ones. We ignore the ones that have timed out already (they'll
+ * be purged).
+ *
+ * This might cause the first devices to timeout the last devices in
+ * the port array...FIXME: come up with a better algorithm?
+ *
+ * Note we can't do much about MMC's ops errors; we hope next refresh
+ * will kind of handle it.
+ *
+ * NOTE: @wusbhc->mutex is locked
+ */
 static void __wusbhc_keep_alive(struct wusbhc *wusbhc)
 {
 	struct device *dev = wusbhc->dev;
@@ -340,11 +456,11 @@ static void __wusbhc_keep_alive(struct wusbhc *wusbhc)
 				wusb_dev->addr);
 			__wusbhc_dev_disconnect(wusbhc, wusb_port);
 		} else if (time_after(jiffies, wusb_dev->entry_ts + tt/2)) {
-			
+			/* Approaching timeout cut out, need to refresh */
 			ie->bDeviceAddress[keep_alives++] = wusb_dev->addr;
 		}
 	}
-	if (keep_alives & 0x1)	
+	if (keep_alives & 0x1)	/* pad to even number ([WUSB] section 7.5.9) */
 		ie->bDeviceAddress[keep_alives++] = 0x7f;
 	ie->hdr.bLength = sizeof(ie->hdr) +
 		keep_alives*sizeof(ie->bDeviceAddress[0]);
@@ -354,6 +470,9 @@ static void __wusbhc_keep_alive(struct wusbhc *wusbhc)
 		wusbhc_mmcie_rm(wusbhc, &ie->hdr);
 }
 
+/*
+ * Do a run through all devices checking for timeouts
+ */
 static void wusbhc_keep_alive_run(struct work_struct *ws)
 {
 	struct delayed_work *dw = to_delayed_work(ws);
@@ -367,11 +486,18 @@ static void wusbhc_keep_alive_run(struct work_struct *ws)
 			   msecs_to_jiffies(wusbhc->trust_timeout / 2));
 }
 
+/*
+ * Find the wusb_dev from its device address.
+ *
+ * The device can be found directly from the address (see
+ * wusb_cack_add() for where the device address is set to port_idx
+ * +2), except when the address is zero.
+ */
 static struct wusb_dev *wusbhc_find_dev_by_addr(struct wusbhc *wusbhc, u8 addr)
 {
 	int p;
 
-	if (addr == 0xff) 
+	if (addr == 0xff) /* unconnected */
 		return NULL;
 
 	if (addr > 0) {
@@ -381,7 +507,7 @@ static struct wusb_dev *wusbhc_find_dev_by_addr(struct wusbhc *wusbhc, u8 addr)
 		return wusb_port_by_idx(wusbhc, port)->wusb_dev;
 	}
 
-	
+	/* Look for the device with address 0. */
 	for (p = 0; p < wusbhc->ports_max; p++) {
 		struct wusb_dev *wusb_dev = wusb_port_by_idx(wusbhc, p)->wusb_dev;
 		if (wusb_dev && wusb_dev->addr == addr)
@@ -390,6 +516,14 @@ static struct wusb_dev *wusbhc_find_dev_by_addr(struct wusbhc *wusbhc, u8 addr)
 	return NULL;
 }
 
+/*
+ * Handle a DN_Alive notification (WUSB1.0[7.6.1])
+ *
+ * This just updates the device activity timestamp and then refreshes
+ * the keep alive IE.
+ *
+ * @wusbhc shall be referenced and unlocked
+ */
 static void wusbhc_handle_dn_alive(struct wusbhc *wusbhc, struct wusb_dev *wusb_dev)
 {
 	mutex_lock(&wusbhc->mutex);
@@ -398,6 +532,18 @@ static void wusbhc_handle_dn_alive(struct wusbhc *wusbhc, struct wusb_dev *wusb_
 	mutex_unlock(&wusbhc->mutex);
 }
 
+/*
+ * Handle a DN_Connect notification (WUSB1.0[7.6.1])
+ *
+ * @wusbhc
+ * @pkt_hdr
+ * @size:    Size of the buffer where the notification resides; if the
+ *           notification data suggests there should be more data than
+ *           available, an error will be signaled and the whole buffer
+ *           consumed.
+ *
+ * @wusbhc->mutex shall be held
+ */
 static void wusbhc_handle_dn_connect(struct wusbhc *wusbhc,
 				     struct wusb_dn_hdr *dn_hdr,
 				     size_t size)
@@ -425,10 +571,17 @@ static void wusbhc_handle_dn_connect(struct wusbhc *wusbhc,
 		 wusb_dn_connect_prev_dev_addr(dnc),
 		 beacon_behaviour[wusb_dn_connect_beacon_behavior(dnc)],
 		 wusb_dn_connect_new_connection(dnc) ? "connect" : "reconnect");
-	
+	/* ACK the connect */
 	wusbhc_devconnect_ack(wusbhc, dnc, pr_cdid);
 }
 
+/*
+ * Handle a DN_Disconnect notification (WUSB1.0[7.6.1])
+ *
+ * Device is going down -- do the disconnect.
+ *
+ * @wusbhc shall be referenced and unlocked
+ */
 static void wusbhc_handle_dn_disconnect(struct wusbhc *wusbhc, struct wusb_dev *wusb_dev)
 {
 	struct device *dev = wusbhc->dev;
@@ -440,6 +593,20 @@ static void wusbhc_handle_dn_disconnect(struct wusbhc *wusbhc, struct wusb_dev *
 	mutex_unlock(&wusbhc->mutex);
 }
 
+/*
+ * Handle a Device Notification coming a host
+ *
+ * The Device Notification comes from a host (HWA, DWA or WHCI)
+ * wrapped in a set of headers. Somebody else has peeled off those
+ * headers for us and we just get one Device Notifications.
+ *
+ * Invalid DNs (e.g., too short) are discarded.
+ *
+ * @wusbhc shall be referenced
+ *
+ * FIXMES:
+ *  - implement priorities as in WUSB1.0[Table 7-55]?
+ */
 void wusbhc_handle_dn(struct wusbhc *wusbhc, u8 srcaddr,
 		      struct wusb_dn_hdr *dn_hdr, size_t size)
 {
@@ -472,10 +639,10 @@ void wusbhc_handle_dn(struct wusbhc *wusbhc, u8 srcaddr,
 	case WUSB_DN_MASAVAILCHANGED:
 	case WUSB_DN_RWAKE:
 	case WUSB_DN_SLEEP:
-		
+		/* FIXME: handle these DNs. */
 		break;
 	case WUSB_DN_EPRDY:
-		
+		/* The hardware handles these. */
 		break;
 	default:
 		dev_warn(dev, "unknown DN %u (%d octets) from %u\n",
@@ -484,6 +651,25 @@ void wusbhc_handle_dn(struct wusbhc *wusbhc, u8 srcaddr,
 }
 EXPORT_SYMBOL_GPL(wusbhc_handle_dn);
 
+/*
+ * Disconnect a WUSB device from a the cluster
+ *
+ * @wusbhc
+ * @port     Fake port where the device is (wusbhc index, not USB port number).
+ *
+ * In Wireless USB, a disconnect is basically telling the device he is
+ * being disconnected and forgetting about him.
+ *
+ * We send the device a Device Disconnect IE (WUSB1.0[7.5.11]) for 100
+ * ms and then keep going.
+ *
+ * We don't do much in case of error; we always pretend we disabled
+ * the port and disconnected the device. If physically the request
+ * didn't get there (many things can fail in the way there), the stack
+ * will reject the device's communication attempts.
+ *
+ * @wusbhc should be refcounted and locked
+ */
 void __wusbhc_dev_disable(struct wusbhc *wusbhc, u8 port_idx)
 {
 	int result;
@@ -493,7 +679,7 @@ void __wusbhc_dev_disable(struct wusbhc *wusbhc, u8 port_idx)
 
 	wusb_dev = wusb_port_by_idx(wusbhc, port_idx)->wusb_dev;
 	if (wusb_dev == NULL) {
-		
+		/* reset no device? ignore */
 		dev_dbg(dev, "DISCONNECT: no device at port %u, ignoring\n",
 			port_idx);
 		return;
@@ -510,13 +696,29 @@ void __wusbhc_dev_disable(struct wusbhc *wusbhc, u8 port_idx)
 	if (result < 0)
 		dev_err(dev, "DISCONNECT: can't set MMC: %d\n", result);
 	else {
-		
+		/* At least 6 MMCs, assuming at least 1 MMC per zone. */
 		msleep(7*4);
 		wusbhc_mmcie_rm(wusbhc, &ie->hdr);
 	}
 	kfree(ie);
 }
 
+/*
+ * Walk over the BOS descriptor, verify and grok it
+ *
+ * @usb_dev: referenced
+ * @wusb_dev: referenced and unlocked
+ *
+ * The BOS descriptor is defined at WUSB1.0[7.4.1], and it defines a
+ * "flexible" way to wrap all kinds of descriptors inside an standard
+ * descriptor (wonder why they didn't use normal descriptors,
+ * btw). Not like they lack code.
+ *
+ * At the end we go to look for the WUSB Device Capabilities
+ * (WUSB1.0[7.4.1.1]) that is wrapped in a device capability descriptor
+ * that is part of the BOS descriptor set. That tells us what does the
+ * device support (dual role, beacon type, UWB PHY rates).
+ */
 static int wusb_dev_bos_grok(struct usb_device *usb_dev,
 			     struct wusb_dev *wusb_dev,
 			     struct usb_bos_descriptor *bos, size_t desc_size)
@@ -525,7 +727,7 @@ static int wusb_dev_bos_grok(struct usb_device *usb_dev,
 	struct device *dev = &usb_dev->dev;
 	void *itr, *top;
 
-	
+	/* Walk over BOS capabilities, verify them */
 	itr = (void *)bos + sizeof(*bos);
 	top = itr + desc_size - sizeof(*bos);
 	while (itr < top) {
@@ -574,6 +776,20 @@ error_bad_cap:
 	return result;
 }
 
+/*
+ * Add information from the BOS descriptors to the device
+ *
+ * @usb_dev: referenced
+ * @wusb_dev: referenced and unlocked
+ *
+ * So what we do is we alloc a space for the BOS descriptor of 64
+ * bytes; read the first four bytes which include the wTotalLength
+ * field (WUSB1.0[T7-26]) and if it fits in those 64 bytes, read the
+ * whole thing. If not we realloc to that size.
+ *
+ * Then we call the groking function, that will fill up
+ * wusb_dev->wusb_cap_descr, which is what we'll need later on.
+ */
 static int wusb_dev_bos_add(struct usb_device *usb_dev,
 			    struct wusb_dev *wusb_dev)
 {
@@ -640,10 +856,32 @@ static struct usb_wireless_cap_descriptor wusb_cap_descr_default = {
 	.wPHYRates = cpu_to_le16(USB_WIRELESS_PHY_53),
 	.bmTFITXPowerInfo = 0,
 	.bmFFITXPowerInfo = 0,
-	.bmBandGroup = cpu_to_le16(0x0001),	
+	.bmBandGroup = cpu_to_le16(0x0001),	/* WUSB1.0[7.4.1] bottom */
 	.bReserved = 0
 };
 
+/*
+ * USB stack's device addition Notifier Callback
+ *
+ * Called from drivers/usb/core/hub.c when a new device is added; we
+ * use this hook to perform certain WUSB specific setup work on the
+ * new device. As well, it is the first time we can connect the
+ * wusb_dev and the usb_dev. So we note it down in wusb_dev and take a
+ * reference that we'll drop.
+ *
+ * First we need to determine if the device is a WUSB device (else we
+ * ignore it). For that we use the speed setting (USB_SPEED_WIRELESS)
+ * [FIXME: maybe we'd need something more definitive]. If so, we track
+ * it's usb_busd and from there, the WUSB HC.
+ *
+ * Because all WUSB HCs are contained in a 'struct wusbhc', voila, we
+ * get the wusbhc for the device.
+ *
+ * We have a reference on @usb_dev (as we are called at the end of its
+ * enumeration).
+ *
+ * NOTE: @usb_dev locked
+ */
 static void wusb_dev_add_ncb(struct usb_device *usb_dev)
 {
 	int result = 0;
@@ -653,7 +891,7 @@ static void wusb_dev_add_ncb(struct usb_device *usb_dev)
 	u8 port_idx;
 
 	if (usb_dev->wusb == 0 || usb_dev->devnum == 1)
-		return;		
+		return;		/* skip non wusb and wusb RHs */
 
 	usb_set_device_state(usb_dev, USB_STATE_UNAUTHENTICATED);
 
@@ -673,7 +911,7 @@ static void wusb_dev_add_ncb(struct usb_device *usb_dev)
 		dev_err(dev, "Cannot enable security: %d\n", result);
 		goto error_sec_add;
 	}
-	
+	/* Now query the device for it's BOS and attach it to wusb_dev */
 	result = wusb_dev_bos_add(usb_dev, wusb_dev);
 	if (result < 0) {
 		dev_err(dev, "Cannot get BOS descriptors: %d\n", result);
@@ -700,12 +938,17 @@ error_sec_add:
 	goto out;
 }
 
+/*
+ * Undo all the steps done at connection by the notifier callback
+ *
+ * NOTE: @usb_dev locked
+ */
 static void wusb_dev_rm_ncb(struct usb_device *usb_dev)
 {
 	struct wusb_dev *wusb_dev = usb_dev->wusb_dev;
 
 	if (usb_dev->wusb == 0 || usb_dev->devnum == 1)
-		return;		
+		return;		/* skip non wusb and wusb RHs */
 
 	wusb_dev_sysfs_rm(wusb_dev);
 	wusb_dev_bos_rm(wusb_dev);
@@ -716,6 +959,14 @@ static void wusb_dev_rm_ncb(struct usb_device *usb_dev)
 	usb_put_dev(usb_dev);
 }
 
+/*
+ * Handle notifications from the USB stack (notifier call back)
+ *
+ * This is called when the USB stack does a
+ * usb_{bus,device}_{add,remove}() so we can do WUSB specific
+ * handling. It is called with [for the case of
+ * USB_DEVICE_{ADD,REMOVE} with the usb_dev locked.
+ */
 int wusb_usb_ncb(struct notifier_block *nb, unsigned long val,
 		 void *priv)
 {
@@ -729,7 +980,7 @@ int wusb_usb_ncb(struct notifier_block *nb, unsigned long val,
 		wusb_dev_rm_ncb(priv);
 		break;
 	case USB_BUS_ADD:
-		
+		/* ignore (for now) */
 	case USB_BUS_REMOVE:
 		break;
 	default:
@@ -739,6 +990,9 @@ int wusb_usb_ncb(struct notifier_block *nb, unsigned long val,
 	return result;
 }
 
+/*
+ * Return a referenced wusb_dev given a @wusbhc and @usb_dev
+ */
 struct wusb_dev *__wusb_dev_get_by_usb_dev(struct wusbhc *wusbhc,
 					   struct usb_device *usb_dev)
 {
@@ -748,7 +1002,7 @@ struct wusb_dev *__wusb_dev_get_by_usb_dev(struct wusbhc *wusbhc,
 	port_idx = wusb_port_no_to_idx(usb_dev->portnum);
 	BUG_ON(port_idx > wusbhc->ports_max);
 	wusb_dev = wusb_port_by_idx(wusbhc, port_idx)->wusb_dev;
-	if (wusb_dev != NULL)		
+	if (wusb_dev != NULL)		/* ops, device is gone */
 		wusb_dev_get(wusb_dev);
 	return wusb_dev;
 }
@@ -763,6 +1017,12 @@ void wusb_dev_destroy(struct kref *_wusb_dev)
 }
 EXPORT_SYMBOL_GPL(wusb_dev_destroy);
 
+/*
+ * Create all the device connect handling infrastructure
+ *
+ * This is basically the device info array, Connect Acknowledgement
+ * (cack) lists, keep-alive timers (and delayed work thread).
+ */
 int wusbhc_devconnect_create(struct wusbhc *wusbhc)
 {
 	wusbhc->keep_alive_ie.hdr.bIEIdentifier = WUIE_ID_KEEP_ALIVE;
@@ -776,11 +1036,23 @@ int wusbhc_devconnect_create(struct wusbhc *wusbhc)
 	return 0;
 }
 
+/*
+ * Release all resources taken by the devconnect stuff
+ */
 void wusbhc_devconnect_destroy(struct wusbhc *wusbhc)
 {
-	
+	/* no op */
 }
 
+/*
+ * wusbhc_devconnect_start - start accepting device connections
+ * @wusbhc: the WUSB HC
+ *
+ * Sets the Host Info IE to accept all new connections.
+ *
+ * FIXME: This also enables the keep alives but this is not necessary
+ * until there are connected and authenticated devices.
+ */
 int wusbhc_devconnect_start(struct wusbhc *wusbhc)
 {
 	struct device *dev = wusbhc->dev;
@@ -812,6 +1084,13 @@ error_mmcie_set:
 	return result;
 }
 
+/*
+ * wusbhc_devconnect_stop - stop managing connected devices
+ * @wusbhc: the WUSB HC
+ *
+ * Disconnects any devices still connected, stops the keep alives and
+ * removes the Host Info IE.
+ */
 void wusbhc_devconnect_stop(struct wusbhc *wusbhc)
 {
 	int i;
@@ -829,6 +1108,12 @@ void wusbhc_devconnect_stop(struct wusbhc *wusbhc)
 	wusbhc->wuie_host_info = NULL;
 }
 
+/*
+ * wusb_set_dev_addr - set the WUSB device address used by the host
+ * @wusbhc: the WUSB HC the device is connect to
+ * @wusb_dev: the WUSB device
+ * @addr: new device address
+ */
 int wusb_set_dev_addr(struct wusbhc *wusbhc, struct wusb_dev *wusb_dev, u8 addr)
 {
 	int result;

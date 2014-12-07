@@ -86,7 +86,7 @@ static void __init smdk6400_machine_init(void)
 }
 
 MACHINE_START(SMDK6400, "SMDK6400")
-	
+	/* Maintainer: Ben Dooks <ben-linux@fluff.org> */
 	.atag_offset	= 0x100,
 
 	.init_irq	= s3c6400_init_irq,

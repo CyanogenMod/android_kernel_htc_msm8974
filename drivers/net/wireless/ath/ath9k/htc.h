@@ -31,11 +31,11 @@
 #include "hif_usb.h"
 #include "wmi.h"
 
-#define ATH_STA_SHORT_CALINTERVAL 1000    
-#define ATH_AP_SHORT_CALINTERVAL  100     
-#define ATH_ANI_POLLINTERVAL      100     
-#define ATH_LONG_CALINTERVAL      30000   
-#define ATH_RESTART_CALINTERVAL   1200000 
+#define ATH_STA_SHORT_CALINTERVAL 1000    /* 1 second */
+#define ATH_AP_SHORT_CALINTERVAL  100     /* 100 ms */
+#define ATH_ANI_POLLINTERVAL      100     /* 100 ms */
+#define ATH_LONG_CALINTERVAL      30000   /* 30 seconds */
+#define ATH_RESTART_CALINTERVAL   1200000 /* 20 minutes */
 
 #define ATH_DEFAULT_BMISS_LIMIT 10
 #define IEEE80211_MS_TO_TU(x)   (((x) * 1000) / 1024)
@@ -72,7 +72,7 @@ struct tx_frame_hdr {
 	u8 node_idx;
 	u8 vif_idx;
 	u8 tidno;
-	__be32 flags; 
+	__be32 flags; /* ATH9K_HTC_TX_* */
 	u8 key_type;
 	u8 keyix;
 	u8 cookie;
@@ -267,13 +267,13 @@ struct ath9k_htc_rxbuf {
 };
 
 struct ath9k_htc_rx {
-	int last_rssi; 
+	int last_rssi; /* FIXME: per-STA */
 	struct list_head rxbuf;
 	spinlock_t rxbuflock;
 };
 
-#define ATH9K_HTC_TX_CLEANUP_INTERVAL 50 
-#define ATH9K_HTC_TX_TIMEOUT_INTERVAL 3000 
+#define ATH9K_HTC_TX_CLEANUP_INTERVAL 50 /* ms */
+#define ATH9K_HTC_TX_TIMEOUT_INTERVAL 3000 /* ms */
 #define ATH9K_HTC_TX_RESERVE 10
 #define ATH9K_HTC_TX_TIMEOUT_COUNT 40
 #define ATH9K_HTC_TX_THRESHOLD (MAX_TX_BUF_NUM - ATH9K_HTC_TX_RESERVE)
@@ -297,7 +297,7 @@ struct ath9k_htc_tx {
 };
 
 struct ath9k_htc_tx_ctl {
-	u8 type; 
+	u8 type; /* ATH9K_HTC_* */
 	u8 epid;
 	u8 txok;
 	u8 sta_idx;
@@ -367,7 +367,7 @@ static inline void ath9k_htc_err_stat_rx(struct ath9k_htc_priv *priv,
 {
 }
 
-#endif 
+#endif /* CONFIG_ATH9K_HTC_DEBUGFS */
 
 #define ATH_LED_PIN_DEF             1
 #define ATH_LED_PIN_9287            10
@@ -376,8 +376,12 @@ static inline void ath9k_htc_err_stat_rx(struct ath9k_htc_priv *priv,
 
 #define BSTUCK_THRESHOLD 10
 
-#define DEFAULT_SWBA_RESPONSE 40 
-#define MIN_SWBA_RESPONSE     10 
+/*
+ * Adjust these when the max. no of beaconing interfaces is
+ * increased.
+ */
+#define DEFAULT_SWBA_RESPONSE 40 /* in TUs */
+#define MIN_SWBA_RESPONSE     10 /* in TUs */
 
 struct htc_beacon_config {
 	struct ieee80211_vif *bslot[ATH9K_HTC_MAX_BCN_VIF];
@@ -390,7 +394,7 @@ struct htc_beacon_config {
 struct ath_btcoex {
 	u32 bt_priority_cnt;
 	unsigned long bt_priority_time;
-	int bt_stomp_type; 
+	int bt_stomp_type; /* Types of BT stomping */
 	u32 btcoex_no_stomp;
 	u32 btcoex_period;
 	u32 btscan_no_stomp;
@@ -410,7 +414,7 @@ static inline void ath9k_htc_start_btcoex(struct ath9k_htc_priv *priv)
 static inline void ath9k_htc_stop_btcoex(struct ath9k_htc_priv *priv)
 {
 }
-#endif 
+#endif /* CONFIG_ATH9K_BTCOEX_SUPPORT */
 
 #define OP_INVALID		   BIT(0)
 #define OP_SCANNING		   BIT(1)
@@ -600,6 +604,6 @@ int ath9k_htc_resume(struct htc_target *htc_handle);
 int ath9k_htc_init_debug(struct ath_hw *ah);
 #else
 static inline int ath9k_htc_init_debug(struct ath_hw *ah) { return 0; };
-#endif 
+#endif /* CONFIG_ATH9K_HTC_DEBUGFS */
 
-#endif 
+#endif /* HTC_H */

@@ -32,14 +32,23 @@
 #include <linux/if_ether.h>
 #include "ttype.h"
 
+/*---------------------  Export Definitions -------------------------*/
+//
+// constants
+//
 #define U_ETHER_ADDR_STR_LEN (ETH_ALEN * 2 + 1)
-                                        
-#define U_MULTI_ADDR_LEN    8           
+                                        // Ethernet address string length
+#define U_MULTI_ADDR_LEN    8           // multicast address length
 
 #ifdef __BIG_ENDIAN
 
 #define TYPE_MGMT_PROBE_RSP 0x5000
 
+//
+// wFrameCtl field in the S802_11Header
+//
+// NOTE....
+//   in network byte order, high byte is going first
 #define FC_TODS             0x0001
 #define FC_FROMDS           0x0002
 #define FC_MOREFRAG         0x0004
@@ -63,11 +72,22 @@
 #define TYPE_CTL_ACK        0xd400
 
 
+//#define WEP_IV_MASK         0xFFFFFF00
 
-#else 
+#else //if LITTLE_ENDIAN
+//
+// wType field in the SEthernetHeader
+//
+// NOTE....
+//   in network byte order, high byte is going first
 
 #define TYPE_MGMT_PROBE_RSP 0x0050
 
+//
+// wFrameCtl field in the S802_11Header
+//
+// NOTE....
+//   in network byte order, high byte is going first
 #define FC_TODS             0x0100
 #define FC_FROMDS           0x0200
 #define FC_MOREFRAG         0x0400
@@ -91,11 +111,16 @@
 #define TYPE_CTL_ACK        0x00d4
 
 
+//#define WEP_IV_MASK         0x00FFFFFF
 
-#endif 
+#endif //#ifdef __BIG_ENDIAN
 
 #define WEP_IV_MASK         0x00FFFFFF
 
+/*---------------------  Export Types  ------------------------------*/
+//
+// Ethernet packet
+//
 typedef struct tagSEthernetHeader {
     BYTE    abyDstAddr[ETH_ALEN];
     BYTE    abySrcAddr[ETH_ALEN];
@@ -104,6 +129,9 @@ typedef struct tagSEthernetHeader {
 SEthernetHeader, *PSEthernetHeader;
 
 
+//
+// 802_3 packet
+//
 typedef struct tagS802_3Header {
     BYTE    abyDstAddr[ETH_ALEN];
     BYTE    abySrcAddr[ETH_ALEN];
@@ -111,6 +139,9 @@ typedef struct tagS802_3Header {
 } __attribute__ ((__packed__))
 S802_3Header, *PS802_3Header;
 
+//
+// 802_11 packet
+//
 typedef struct tagS802_11Header {
     WORD    wFrameCtl;
     WORD    wDurationID;
@@ -122,11 +153,16 @@ typedef struct tagS802_11Header {
 } __attribute__ ((__packed__))
 S802_11Header, *PS802_11Header;
 
+/*---------------------  Export Macros ------------------------------*/
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 BYTE ETHbyGetHashIndexByCrc32(PBYTE pbyMultiAddr);
+//BYTE ETHbyGetHashIndexByCrc(PBYTE pbyMultiAddr);
 BOOL ETHbIsBufferCrc32Ok(PBYTE pbyBuffer, unsigned int cbFrameLength);
 
-#endif 
+#endif /* __TETHER_H__ */

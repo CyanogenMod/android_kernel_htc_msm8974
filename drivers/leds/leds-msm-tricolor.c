@@ -50,30 +50,30 @@ enum tricolor_led_status {
 };
 
 struct led_cmd_data_type {
-	u32 cmd_data_type_ptr; 
-	u32 ver; 
-	u32 id; 
-	u32 handle; 
-	u32 disc_id1; 
-	u32 input_ptr; 
-	u32 input_val; 
-	u32 input_len; 
-	u32 disc_id2; 
-	u32 output_len; 
-	u32 delayed; 
+	u32 cmd_data_type_ptr; /* cmd_data_type ptr */
+	u32 ver; /* version */
+	u32 id; /* command id */
+	u32 handle; /* handle returned from subscribe proc */
+	u32 disc_id1; /* discriminator id */
+	u32 input_ptr; /* input ptr length */
+	u32 input_val; /* command specific data */
+	u32 input_len; /* length of command input */
+	u32 disc_id2; /* discriminator id */
+	u32 output_len; /* length of output data */
+	u32 delayed; /* execution context for modem */
 };
 
 struct led_subscribe_req {
-	u32 subs_ptr; 
-	u32 ver; 
-	u32 srvc; 
-	u32 req; 
-	u32 host_os; 
-	u32 disc_id; 
-	u32 event; 
-	u32 cb_id; 
-	u32 handle_ptr; 
-	u32 handle_data; 
+	u32 subs_ptr; /* subscribe ptr */
+	u32 ver; /* version */
+	u32 srvc; /* command or event */
+	u32 req; /* subscribe or unsubscribe */
+	u32 host_os; /* host operating system */
+	u32 disc_id; /* discriminator id */
+	u32 event; /* event */
+	u32 cb_id; /* callback id */
+	u32 handle_ptr; /* handle ptr */
+	u32 handle_data; /* handle data */
 };
 
 struct tricolor_led_data {
@@ -180,7 +180,7 @@ static ssize_t led_blink_store(struct device *dev,
 	led->blink_status = !!value;
 	led->cdev.brightness = 0;
 
-	
+	/* program the led blink */
 	led_rpc_set_status(led->rpc_client, status);
 	mutex_unlock(&led->lock);
 
@@ -221,7 +221,7 @@ static void tricolor_led_set(struct led_classdev *led_cdev,
 	led->blink_status = 0;
 	led->cdev.brightness = value;
 
-	
+	/* program the led brightness */
 	led_rpc_set_status(led->rpc_client, status);
 	mutex_unlock(&led->lock);
 }
@@ -288,7 +288,7 @@ static int __devinit tricolor_led_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	
+	/* initialize rpc client */
 	rpc_client = msm_rpc_register_client("led", LED_RPC_PROG,
 					LED_RPC_VER, 0, led_cb_func);
 	rc = IS_ERR(rpc_client);
@@ -297,7 +297,7 @@ static int __devinit tricolor_led_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	
+	/* subscribe */
 	rc = msm_rpc_client_req(rpc_client, LED_SUBSCRIBE_PROC,
 				led_rpc_register_subs_arg, NULL,
 				led_rpc_res, NULL, -1);
@@ -338,7 +338,7 @@ static int __devinit tricolor_led_probe(struct platform_device *pdev)
 			goto fail_led_reg;
 		}
 
-		
+		/* Add blink attributes */
 		rc = device_create_file(tmp_led->cdev.dev, &dev_attr_blink);
 		if (rc) {
 			dev_err(&pdev->dev, "failed to create blink attr\n");

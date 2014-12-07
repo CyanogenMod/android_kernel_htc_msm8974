@@ -11,6 +11,31 @@
  * Copyright (C) 2004 David Brownell
  */
 
+/*
+ * The ISP1362 chip requires a large delay (300ns and 462ns) between
+ * accesses to the address and data register.
+ * The following timing options exist:
+ *
+ * 1. Configure your memory controller to add such delays if it can (the best)
+ * 2. Implement platform-specific delay function possibly
+ *    combined with configuring the memory controller; see
+ *    include/linux/usb_isp1362.h for more info.
+ * 3. Use ndelay (easiest, poorest).
+ *
+ * Use the corresponding macros USE_PLATFORM_DELAY and USE_NDELAY in the
+ * platform specific section of isp1362.h to select the appropriate variant.
+ *
+ * Also note that according to the Philips "ISP1362 Errata" document
+ * Rev 1.00 from 27 May data corruption may occur when the #WR signal
+ * is reasserted (even with #CS deasserted) within 132ns after a
+ * write cycle to any controller register. If the hardware doesn't
+ * implement the recommended fix (gating the #WR with #CS) software
+ * must ensure that no further write cycle (not necessarily to the chip!)
+ * is issued by the CPU within this interval.
+
+ * For PXA25x this can be ensured by using VLIO with the maximum
+ * recovery time (MSCx = 0x7f8c) with a memory clock of 99.53 MHz.
+ */
 
 #ifdef CONFIG_USB_DEBUG
 # define ISP1362_DEBUG
@@ -18,6 +43,14 @@
 # undef ISP1362_DEBUG
 #endif
 
+/*
+ * The PXA255 UDC apparently doesn't handle GET_STATUS, GET_CONFIG and
+ * GET_INTERFACE requests correctly when the SETUP and DATA stages of the
+ * requests are carried out in separate frames. This will delay any SETUP
+ * packets until the start of the next frame so that this situation is
+ * unlikely to occur (and makes usbtest happy running with a PXA255 target
+ * device).
+ */
 #undef BUGGY_PXA2XX_UDC_USBTEST
 
 #undef PTD_TRACE
@@ -25,6 +58,9 @@
 #undef VERBOSE
 #undef REGISTERS
 
+/* This enables a memory test on the ISP1362 chip memory to make sure the
+ * chip access timing is correct.
+ */
 #undef CHIP_BUFFER_TEST
 
 #include <linux/module.h>
@@ -74,7 +110,15 @@ static const char hcd_name[] = "isp1362-hcd";
 static void isp1362_hc_stop(struct usb_hcd *hcd);
 static int isp1362_hc_start(struct usb_hcd *hcd);
 
+/*-------------------------------------------------------------------------*/
 
+/*
+ * When called from the interrupthandler only isp1362_hcd->irqenb is modified,
+ * since the interrupt handler will write isp1362_hcd->irqenb to HCuPINT upon
+ * completion.
+ * We don't need a 'disable' counterpart, since interrupts will be disabled
+ * only by the interrupt handler.
+ */
 static inline void isp1362_enable_int(struct isp1362_hcd *isp1362_hcd, u16 mask)
 {
 	if ((isp1362_hcd->irqenb | mask) == isp1362_hcd->irqenb)
@@ -87,6 +131,7 @@ static inline void isp1362_enable_int(struct isp1362_hcd *isp1362_hcd, u16 mask)
 	isp1362_write_reg16(isp1362_hcd, HCuPINTENB, isp1362_hcd->irqenb);
 }
 
+/*-------------------------------------------------------------------------*/
 
 static inline struct isp1362_ep_queue *get_ptd_queue(struct isp1362_hcd *isp1362_hcd,
 						     u16 offset)
@@ -126,6 +171,7 @@ static inline int get_ptd_offset(struct isp1362_ep_queue *epq, u8 index)
 	return offset;
 }
 
+/*-------------------------------------------------------------------------*/
 
 static inline u16 max_transfer_size(struct isp1362_ep_queue *epq, size_t size,
 				    int mps)
@@ -208,7 +254,11 @@ static inline void release_ptd_buffers(struct isp1362_ep_queue *epq, struct isp1
 	ep->ptd_index = -EINVAL;
 }
 
+/*-------------------------------------------------------------------------*/
 
+/*
+  Set up PTD's.
+*/
 static void prepare_ptd(struct isp1362_hcd *isp1362_hcd, struct urb *urb,
 			struct isp1362_ep *ep, struct isp1362_ep_queue *epq,
 			u16 fno)
@@ -344,6 +394,11 @@ static void isp1362_read_ptd(struct isp1362_hcd *isp1362_hcd, struct isp1362_ep 
 	dump_ptd_in_data(ptd, ep->data);
 }
 
+/*
+ * INT PTDs will stay in the chip until data is available.
+ * This function will remove a PTD from the chip when the URB is dequeued.
+ * Must be called with the spinlock held and IRQs disabled
+ */
 static void remove_ptd(struct isp1362_hcd *isp1362_hcd, struct isp1362_ep *ep)
 
 {
@@ -356,21 +411,21 @@ static void remove_ptd(struct isp1362_hcd *isp1362_hcd, struct isp1362_ep *ep)
 	epq = get_ptd_queue(isp1362_hcd, ep->ptd_offset);
 	BUG_ON(!epq);
 
-	
+	/* put ep in remove_list for cleanup */
 	WARN_ON(!list_empty(&ep->remove_list));
 	list_add_tail(&ep->remove_list, &isp1362_hcd->remove_list);
-	
+	/* let SOF interrupt handle the cleanup */
 	isp1362_enable_int(isp1362_hcd, HCuPINT_SOF);
 
 	index = ep->ptd_index;
 	if (index < 0)
-		
+		/* ISO queues don't have SKIP registers */
 		return;
 
 	DBG(1, "%s: Disabling PTD[%02x] $%04x %08lx|%08x\n", __func__,
 	    index, ep->ptd_offset, epq->skip_map, 1 << index);
 
-	
+	/* prevent further processing of PTD (will be effective after next SOF) */
 	epq->skip_map |= 1 << index;
 	if (epq == &isp1362_hcd->atl_queue) {
 		DBG(2, "%s: ATLSKIP = %08x -> %08lx\n", __func__,
@@ -387,6 +442,10 @@ static void remove_ptd(struct isp1362_hcd *isp1362_hcd, struct isp1362_ep *ep)
 	}
 }
 
+/*
+  Take done or failed requests out of schedule. Give back
+  processed urbs.
+*/
 static void finish_request(struct isp1362_hcd *isp1362_hcd, struct isp1362_ep *ep,
 			   struct urb *urb, int status)
      __releases(isp1362_hcd->lock)
@@ -416,11 +475,11 @@ static void finish_request(struct isp1362_hcd *isp1362_hcd, struct isp1362_ep *e
 	usb_hcd_giveback_urb(isp1362_hcd_to_hcd(isp1362_hcd), urb, status);
 	spin_lock(&isp1362_hcd->lock);
 
-	
+	/* take idle endpoints out of the schedule right away */
 	if (!list_empty(&ep->hep->urb_list))
 		return;
 
-	
+	/* async deschedule */
 	if (!list_empty(&ep->schedule)) {
 		list_del_init(&ep->schedule);
 		return;
@@ -428,7 +487,7 @@ static void finish_request(struct isp1362_hcd *isp1362_hcd, struct isp1362_ep *e
 
 
 	if (ep->interval) {
-		
+		/* periodic deschedule */
 		DBG(1, "deschedule qh%d/%p branch %d load %d bandwidth %d -> %d\n", ep->interval,
 		    ep, ep->branch, ep->load,
 		    isp1362_hcd->load[ep->branch],
@@ -438,6 +497,9 @@ static void finish_request(struct isp1362_hcd *isp1362_hcd, struct isp1362_ep *e
 	}
 }
 
+/*
+ * Analyze transfer results, handle partial transfers and errors
+*/
 static void postproc_ep(struct isp1362_hcd *isp1362_hcd, struct isp1362_ep *ep)
 {
 	struct urb *urb = get_urb(ep);
@@ -462,6 +524,12 @@ static void postproc_ep(struct isp1362_hcd *isp1362_hcd, struct isp1362_ep *ep)
 	short_ok = !(urb->transfer_flags & URB_SHORT_NOT_OK);
 	len = urb->transfer_buffer_length - urb->actual_length;
 
+	/* Data underrun is special. For allowed underrun
+	   we clear the error and continue as normal. For
+	   forbidden underrun we finish the DATA stage
+	   immediately while for control transfer,
+	   we do a STATUS stage.
+	*/
 	if (cc == PTD_DATAUNDERRUN) {
 		if (short_ok) {
 			DBG(1, "%s: req %d Allowed data underrun short_%sok %d/%d/%d byte\n",
@@ -477,6 +545,9 @@ static void postproc_ep(struct isp1362_hcd *isp1362_hcd, struct isp1362_ep *ep)
 			    PTD_GET_COUNT(ptd), ep->maxpacket, len);
 			if (usb_pipecontrol(urb->pipe)) {
 				ep->nextpid = USB_PID_ACK;
+				/* save the data underrun error code for later and
+				 * proceed with the status stage
+				 */
 				urb->actual_length += PTD_GET_COUNT(ptd);
 				BUG_ON(urb->actual_length > urb->transfer_buffer_length);
 
@@ -535,7 +606,7 @@ static void postproc_ep(struct isp1362_hcd *isp1362_hcd, struct isp1362_ep *ep)
 		urb->actual_length += len;
 		BUG_ON(urb->actual_length > urb->transfer_buffer_length);
 		usb_settoggle(udev, ep->epnum, 0, PTD_GET_TOGGLE(ptd));
-		
+		/* if transfer completed or (allowed) data underrun */
 		if ((urb->transfer_buffer_length == urb->actual_length) ||
 		    len % ep->maxpacket) {
 			DBG(3, "%s: req %d xfer complete %d/%d status %d -> 0\n", __func__,
@@ -710,7 +781,7 @@ static void start_atl_transfers(struct isp1362_hcd *isp1362_hcd)
 		ptd_count++;
 	}
 
-	
+	/* Avoid starving of endpoints */
 	if (isp1362_hcd->async.next != isp1362_hcd->async.prev) {
 		DBG(2, "%s: Cycling ASYNC schedule %d\n", __func__, ptd_count);
 		list_move(&isp1362_hcd->async, isp1362_hcd->async.next);
@@ -814,12 +885,17 @@ static void start_iso_transfers(struct isp1362_hcd *isp1362_hcd)
 		DBG(1, "%s: Processing %s ep %p\n", __func__, epq->name, ep);
 
 		if (diff > urb->number_of_packets) {
-			
+			/* time frame for this URB has elapsed */
 			finish_request(isp1362_hcd, ep, urb, -EOVERFLOW);
 			continue;
 		} else if (diff < -1) {
+			/* URB is not due in this frame or the next one.
+			 * Comparing with '-1' instead of '0' accounts for double
+			 * buffering in the ISP1362 which enables us to queue the PTD
+			 * one frame ahead of time
+			 */
 		} else if (diff == -1) {
-			
+			/* submit PTD's that are due in the next frame */
 			prepare_ptd(isp1362_hcd, urb, ep, epq, fno);
 			if (ptd_offset + PTD_HEADER_SIZE + ep->length >
 			    epq->buf_start + epq->buf_size) {
@@ -852,7 +928,7 @@ static void start_iso_transfers(struct isp1362_hcd *isp1362_hcd)
 	if (epq->ptd_count > epq->stat_maxptds)
 		epq->stat_maxptds = epq->ptd_count;
 
-	
+	/* check, whether the second ISTL buffer may also be filled */
 	if (!(isp1362_read_reg16(isp1362_hcd, HCBUFSTAT) &
 	      (flip ? HCBUFSTAT_ISTL0_FULL : HCBUFSTAT_ISTL1_FULL))) {
 		fno++;
@@ -948,7 +1024,7 @@ static irqreturn_t isp1362_irq(struct usb_hcd *hcd)
 	irqstat = isp1362_read_reg16(isp1362_hcd, HCuPINT);
 	DBG(3, "%s: got IRQ %04x:%04x\n", __func__, irqstat, isp1362_hcd->irqenb);
 
-	
+	/* only handle interrupts that are currently enabled */
 	irqstat &= isp1362_hcd->irqenb;
 	isp1362_write_reg16(isp1362_hcd, HCuPINT, irqstat);
 	svc_mask = irqstat;
@@ -1022,7 +1098,7 @@ static irqreturn_t isp1362_irq(struct usb_hcd *hcd)
 
 		isp1362_write_reg32(isp1362_hcd, HCINTLSKIP, skip_map | done_map);
 		if (~(done_map | skip_map) == 0)
-			
+			/* All PTDs are finished, disable INTL processing entirely */
 			isp1362_clr_mask16(isp1362_hcd, HCBUFSTAT, HCBUFSTAT_INTL_ACTIVE);
 
 		handled = 1;
@@ -1063,7 +1139,7 @@ static irqreturn_t isp1362_irq(struct usb_hcd *hcd)
 		intstat &= isp1362_hcd->intenb;
 		if (intstat & OHCI_INTR_UE) {
 			pr_err("Unrecoverable error\n");
-			
+			/* FIXME: do here reset or cleanup or whatever */
 		}
 		if (intstat & OHCI_INTR_RHSC) {
 			isp1362_hcd->rhstatus = isp1362_read_reg32(isp1362_hcd, HCRHSTATUS);
@@ -1106,12 +1182,16 @@ static irqreturn_t isp1362_irq(struct usb_hcd *hcd)
 	return IRQ_RETVAL(handled);
 }
 
+/*-------------------------------------------------------------------------*/
 
-#define	MAX_PERIODIC_LOAD	900	
+#define	MAX_PERIODIC_LOAD	900	/* out of 1000 usec */
 static int balance(struct isp1362_hcd *isp1362_hcd, u16 interval, u16 load)
 {
 	int i, branch = -ENOSPC;
 
+	/* search for the least loaded schedule branch of that interval
+	 * which has enough bandwidth left unreserved.
+	 */
 	for (i = 0; i < interval; i++) {
 		if (branch < 0 || isp1362_hcd->load[branch] > isp1362_hcd->load[i]) {
 			int j;
@@ -1131,7 +1211,11 @@ static int balance(struct isp1362_hcd *isp1362_hcd, u16 interval, u16 load)
 	return branch;
 }
 
+/* NB! ALL the code above this point runs with isp1362_hcd->lock
+   held, irqs off
+*/
 
+/*-------------------------------------------------------------------------*/
 
 static int isp1362_urb_enqueue(struct usb_hcd *hcd,
 			       struct urb *urb,
@@ -1167,7 +1251,7 @@ static int isp1362_urb_enqueue(struct usb_hcd *hcd,
 		!(urb->transfer_flags & URB_SHORT_NOT_OK) ?
 		"short_ok" : "");
 
-	
+	/* avoid all allocations within spinlocks: request or endpoint */
 	if (!hep->hcpriv) {
 		ep = kzalloc(sizeof *ep, mem_flags);
 		if (!ep)
@@ -1175,7 +1259,7 @@ static int isp1362_urb_enqueue(struct usb_hcd *hcd,
 	}
 	spin_lock_irqsave(&isp1362_hcd->lock, flags);
 
-	
+	/* don't submit to a dead or disabled port */
 	if (!((isp1362_hcd->rhport[0] | isp1362_hcd->rhport[1]) &
 	      USB_PORT_STAT_ENABLE) ||
 	    !HC_IS_RUNNING(hcd->state)) {
@@ -1227,7 +1311,7 @@ static int isp1362_urb_enqueue(struct usb_hcd *hcd,
 	}
 	ep->num_req = isp1362_hcd->req_serial++;
 
-	
+	/* maybe put endpoint into schedule */
 	switch (type) {
 	case PIPE_CONTROL:
 	case PIPE_BULK:
@@ -1241,7 +1325,7 @@ static int isp1362_urb_enqueue(struct usb_hcd *hcd,
 	case PIPE_INTERRUPT:
 		urb->interval = ep->interval;
 
-		
+		/* urb submitted for already existing EP */
 		if (ep->branch < PERIODIC_SIZE)
 			break;
 
@@ -1338,12 +1422,12 @@ static int isp1362_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status)
 
 	ep = hep->hcpriv;
 	if (ep) {
-		
+		/* In front of queue? */
 		if (ep->hep->urb_list.next == &urb->urb_list) {
 			if (!list_empty(&ep->active)) {
 				DBG(1, "%s: urb %p ep %p req %d active PTD[%d] $%04x\n", __func__,
 				    urb, ep, ep->num_req, ep->ptd_index, ep->ptd_offset);
-				
+				/* disable processing and queue PTD for removal */
 				remove_ptd(isp1362_hcd, ep);
 				urb = NULL;
 			}
@@ -1385,7 +1469,7 @@ static void isp1362_endpoint_disable(struct usb_hcd *hcd, struct usb_host_endpoi
 		}
 	}
 	spin_unlock_irqrestore(&isp1362_hcd->lock, flags);
-	
+	/* Wait for interrupt to clear out active list */
 	while (!list_empty(&ep->active))
 		msleep(1);
 
@@ -1409,7 +1493,9 @@ static int isp1362_get_frame(struct usb_hcd *hcd)
 	return (int)fmnum;
 }
 
+/*-------------------------------------------------------------------------*/
 
+/* Adapted from ohci-hub.c */
 static int isp1362_hub_status_data(struct usb_hcd *hcd, char *buf)
 {
 	struct isp1362_hcd *isp1362_hcd = hcd_to_isp1362_hcd(hcd);
@@ -1419,6 +1505,8 @@ static int isp1362_hub_status_data(struct usb_hcd *hcd, char *buf)
 	if (!HC_IS_RUNNING(hcd->state))
 		return -ESHUTDOWN;
 
+	/* Report no status change now, if we are scheduled to be
+	   called later */
 	if (timer_pending(&hcd->rh_timer))
 		return 0;
 
@@ -1426,7 +1514,7 @@ static int isp1362_hub_status_data(struct usb_hcd *hcd, char *buf)
 	BUG_ON(ports > 2);
 
 	spin_lock_irqsave(&isp1362_hcd->lock, flags);
-	
+	/* init status */
 	if (isp1362_hcd->rhstatus & (RH_HS_LPSC | RH_HS_OCIC))
 		buf[0] = changed = 1;
 	else
@@ -1460,17 +1548,18 @@ static void isp1362_hub_descriptor(struct isp1362_hcd *isp1362_hcd,
 	desc->bDescLength = 9;
 	desc->bHubContrCurrent = 0;
 	desc->bNbrPorts = reg & 0x3;
-	
+	/* Power switching, device type, overcurrent. */
 	desc->wHubCharacteristics = cpu_to_le16((reg >> 8) & 0x1f);
 	DBG(0, "%s: hubcharacteristics = %02x\n", __func__, cpu_to_le16((reg >> 8) & 0x1f));
 	desc->bPwrOn2PwrGood = (reg >> 24) & 0xff;
-	
+	/* ports removable, and legacy PortPwrCtrlMask */
 	desc->u.hs.DeviceRemovable[0] = desc->bNbrPorts == 1 ? 1 << 1 : 3 << 1;
 	desc->u.hs.DeviceRemovable[1] = ~0;
 
 	DBG(3, "%s: exit\n", __func__);
 }
 
+/* Adapted from ohci-hub.c */
 static int isp1362_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			       u16 wIndex, char *buf, u16 wLength)
 {
@@ -1603,7 +1692,7 @@ static int isp1362_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 
 			t1 = jiffies + msecs_to_jiffies(USB_RESET_WIDTH);
 			while (time_before(jiffies, t1)) {
-				
+				/* spin until any current reset finishes */
 				for (;;) {
 					tmp = isp1362_read_reg32(isp1362_hcd, HCRHPORT1 + wIndex);
 					if (!(tmp & RH_PS_PRS))
@@ -1612,7 +1701,7 @@ static int isp1362_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 				}
 				if (!(tmp & RH_PS_CCS))
 					break;
-				
+				/* Reset lasts 10ms (claims datasheet) */
 				isp1362_write_reg32(isp1362_hcd, HCRHPORT1 + wIndex, (RH_PS_PRS));
 
 				spin_unlock_irqrestore(&isp1362_hcd->lock, flags);
@@ -1631,7 +1720,7 @@ static int isp1362_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 
 	default:
  error:
-		
+		/* "protocol stall" on error */
 		_DBG(0, "PROTOCOL STALL\n");
 		retval = -EPIPE;
 	}
@@ -1658,7 +1747,7 @@ static int isp1362_bus_suspend(struct usb_hcd *hcd)
 		isp1362_hcd->hc_control &= ~OHCI_CTRL_HCFS;
 		isp1362_hcd->hc_control |= OHCI_USB_RESET;
 		isp1362_write_reg32(isp1362_hcd, HCCONTROL, isp1362_hcd->hc_control);
-		
+		/* FALL THROUGH */
 	case OHCI_USB_RESET:
 		status = -EBUSY;
 		pr_warning("%s: needs reinit!\n", __func__);
@@ -1669,7 +1758,7 @@ static int isp1362_bus_suspend(struct usb_hcd *hcd)
 	}
 	DBG(0, "%s: suspend root hub\n", __func__);
 
-	
+	/* First stop any processing */
 	hcd->state = HC_STATE_QUIESCING;
 	if (!list_empty(&isp1362_hcd->atl_queue.active) ||
 	    !list_empty(&isp1362_hcd->intl_queue.active) ||
@@ -1710,7 +1799,7 @@ static int isp1362_bus_suspend(struct usb_hcd *hcd)
 	isp1362_write_reg32(isp1362_hcd, HCINTSTAT,
 			    isp1362_read_reg32(isp1362_hcd, HCINTSTAT));
 
-	
+	/* Suspend hub */
 	isp1362_hcd->hc_control = OHCI_USB_SUSPEND;
 	isp1362_show_reg(isp1362_hcd, HCCONTROL);
 	isp1362_write_reg32(isp1362_hcd, HCCONTROL, isp1362_hcd->hc_control);
@@ -1725,7 +1814,7 @@ static int isp1362_bus_suspend(struct usb_hcd *hcd)
 	} else
 #endif
 	{
-		
+		/* no resumes until devices finish suspending */
 		isp1362_hcd->next_statechange = jiffies + msecs_to_jiffies(5);
 	}
 done:
@@ -1763,7 +1852,7 @@ static int isp1362_bus_resume(struct usb_hcd *hcd)
 			isp1362_write_reg32(isp1362_hcd, HCCONTROL, isp1362_hcd->hc_control);
 			break;
 		case OHCI_USB_RESUME:
-			
+			/* HCFS changes sometime after INTR_RD */
 			DBG(0, "%s: remote wakeup\n", __func__);
 			break;
 		case OHCI_USB_OPER:
@@ -1771,7 +1860,7 @@ static int isp1362_bus_resume(struct usb_hcd *hcd)
 			status = 0;
 			hcd->self.root_hub->dev.power.power_state = PMSG_ON;
 			break;
-		default:		
+		default:		/* RESET, we lost power */
 			DBG(0, "%s: root hub hardware reset\n", __func__);
 			status = -EBUSY;
 		}
@@ -1788,7 +1877,7 @@ static int isp1362_bus_resume(struct usb_hcd *hcd)
 	while (port--) {
 		u32 stat = isp1362_read_reg32(isp1362_hcd, HCRHPORT1 + port);
 
-		
+		/* force global, not selective, resume */
 		if (!(stat & RH_PS_PSS)) {
 			DBG(0, "%s: Not Resuming RH port %d\n", __func__, port);
 			continue;
@@ -1798,19 +1887,19 @@ static int isp1362_bus_resume(struct usb_hcd *hcd)
 	}
 	spin_unlock_irqrestore(&isp1362_hcd->lock, flags);
 
-	
+	/* Some controllers (lucent) need extra-long delays */
 	hcd->state = HC_STATE_RESUMING;
-	mdelay(20  + 15);
+	mdelay(20 /* usb 11.5.1.10 */ + 15);
 
 	isp1362_hcd->hc_control = OHCI_USB_OPER;
 	spin_lock_irqsave(&isp1362_hcd->lock, flags);
 	isp1362_show_reg(isp1362_hcd, HCCONTROL);
 	isp1362_write_reg32(isp1362_hcd, HCCONTROL, isp1362_hcd->hc_control);
 	spin_unlock_irqrestore(&isp1362_hcd->lock, flags);
-	
+	/* TRSMRCY */
 	msleep(10);
 
-	
+	/* keep it alive for ~5x suspend + resume costs */
 	isp1362_hcd->next_statechange = jiffies + msecs_to_jiffies(250);
 
 	hcd->self.root_hub->dev.power.power_state = PMSG_ON;
@@ -1822,6 +1911,7 @@ static int isp1362_bus_resume(struct usb_hcd *hcd)
 #define	isp1362_bus_resume	NULL
 #endif
 
+/*-------------------------------------------------------------------------*/
 
 #ifdef STUB_DEBUG_FILE
 
@@ -1988,6 +2078,9 @@ static int proc_isp1362_show(struct seq_file *s, void *unused)
 	seq_printf(s, "%s\n%s version %s\n",
 		   isp1362_hcd_to_hcd(isp1362_hcd)->product_desc, hcd_name, DRIVER_VERSION);
 
+	/* collect statistics to help estimate potential win for
+	 * DMA engines that care about alignment (PXA)
+	 */
 	seq_printf(s, "alignment:  16b/%ld 8b/%ld 4b/%ld 2b/%ld 1b/%ld\n",
 		   isp1362_hcd->stat16, isp1362_hcd->stat8, isp1362_hcd->stat4,
 		   isp1362_hcd->stat2, isp1362_hcd->stat1);
@@ -1997,7 +2090,7 @@ static int proc_isp1362_show(struct seq_file *s, void *unused)
 		   max(isp1362_hcd->istl_queue[0] .stat_maxptds,
 		       isp1362_hcd->istl_queue[1] .stat_maxptds));
 
-	
+	/* FIXME: don't show the following in suspended state */
 	spin_lock_irq(&isp1362_hcd->lock);
 
 	dump_irq(s, "hc_irq_enable", isp1362_read_reg16(isp1362_hcd, HCuPINTENB));
@@ -2092,6 +2185,7 @@ static const struct file_operations proc_ops = {
 	.release = single_release,
 };
 
+/* expect just one isp1362_hcd per system */
 static const char proc_filename[] = "driver/isp1362";
 
 static void create_debug_file(struct isp1362_hcd *isp1362_hcd)
@@ -2117,6 +2211,7 @@ static void remove_debug_file(struct isp1362_hcd *isp1362_hcd)
 
 #endif
 
+/*-------------------------------------------------------------------------*/
 
 static void __isp1362_sw_reset(struct isp1362_hcd *isp1362_hcd)
 {
@@ -2273,7 +2368,7 @@ static int isp1362_hc_reset(struct usb_hcd *hcd)
 	} else
 		isp1362_sw_reset(isp1362_hcd);
 
-	
+	/* chip has been reset. First we need to see a clock */
 	t = jiffies + msecs_to_jiffies(timeout);
 	while (!clkrdy && time_before_eq(jiffies, t)) {
 		spin_lock_irqsave(&isp1362_hcd->lock, flags);
@@ -2307,13 +2402,13 @@ static void isp1362_hc_stop(struct usb_hcd *hcd)
 
 	isp1362_write_reg16(isp1362_hcd, HCuPINTENB, 0);
 
-	
+	/* Switch off power for all ports */
 	tmp = isp1362_read_reg32(isp1362_hcd, HCRHDESCA);
 	tmp &= ~(RH_A_NPS | RH_A_PSM);
 	isp1362_write_reg32(isp1362_hcd, HCRHDESCA, tmp);
 	isp1362_write_reg32(isp1362_hcd, HCRHSTATUS, RH_HS_LPS);
 
-	
+	/* Reset the chip */
 	if (isp1362_hcd->board && isp1362_hcd->board->reset)
 		isp1362_hcd->board->reset(hcd->self.controller, 1);
 	else
@@ -2444,11 +2539,11 @@ static int isp1362_hc_start(struct usb_hcd *hcd)
 		return -ENODEV;
 #endif
 	spin_lock_irqsave(&isp1362_hcd->lock, flags);
-	
+	/* clear interrupt status and disable all interrupt sources */
 	isp1362_write_reg16(isp1362_hcd, HCuPINT, 0xff);
 	isp1362_write_reg16(isp1362_hcd, HCuPINTENB, 0);
 
-	
+	/* HW conf */
 	hwcfg = HCHWCFG_INT_ENABLE | HCHWCFG_DBWIDTH(1);
 	if (board->sel15Kres)
 		hwcfg |= HCHWCFG_PULLDOWN_DS2 |
@@ -2476,7 +2571,7 @@ static int isp1362_hc_start(struct usb_hcd *hcd)
 
 	spin_lock_irqsave(&isp1362_hcd->lock, flags);
 
-	
+	/* Root hub conf */
 	isp1362_hcd->rhdesca = 0;
 	if (board->no_power_switching)
 		isp1362_hcd->rhdesca |= RH_A_NPS;
@@ -2505,16 +2600,16 @@ static int isp1362_hc_start(struct usb_hcd *hcd)
 	hcd->state = HC_STATE_RUNNING;
 
 	spin_lock_irqsave(&isp1362_hcd->lock, flags);
-	
+	/* Set up interrupts */
 	isp1362_hcd->intenb = OHCI_INTR_MIE | OHCI_INTR_RHSC | OHCI_INTR_UE;
 	isp1362_hcd->intenb |= OHCI_INTR_RD;
 	isp1362_hcd->irqenb = HCuPINT_OPR | HCuPINT_SUSP;
 	isp1362_write_reg32(isp1362_hcd, HCINTENB, isp1362_hcd->intenb);
 	isp1362_write_reg16(isp1362_hcd, HCuPINTENB, isp1362_hcd->irqenb);
 
-	
+	/* Go operational */
 	isp1362_write_reg32(isp1362_hcd, HCCONTROL, isp1362_hcd->hc_control);
-	
+	/* enable global power */
 	isp1362_write_reg32(isp1362_hcd, HCRHSTATUS, RH_HS_LPSC | RH_HS_DRWE);
 
 	spin_unlock_irqrestore(&isp1362_hcd->lock, flags);
@@ -2522,6 +2617,7 @@ static int isp1362_hc_start(struct usb_hcd *hcd)
 	return 0;
 }
 
+/*-------------------------------------------------------------------------*/
 
 static struct hc_driver isp1362_hc_driver = {
 	.description =		hcd_name,
@@ -2547,6 +2643,7 @@ static struct hc_driver isp1362_hc_driver = {
 	.bus_resume =		isp1362_bus_resume,
 };
 
+/*-------------------------------------------------------------------------*/
 
 static int __devexit isp1362_remove(struct platform_device *pdev)
 {
@@ -2598,6 +2695,11 @@ static int __devinit isp1362_probe(struct platform_device *pdev)
 	if (usb_disabled())
 		return -ENODEV;
 
+	/* basic sanity checks first.  board-specific init logic should
+	 * have initialized this the three resources and probably board
+	 * specific platform_data.  we don't probe for IRQs, and do only
+	 * minimal sanity checking.
+	 */
 	if (pdev->num_resources < 3) {
 		retval = -ENODEV;
 		goto err1;
@@ -2638,7 +2740,7 @@ static int __devinit isp1362_probe(struct platform_device *pdev)
 		goto err4;
 	}
 
-	
+	/* allocate and initialize hcd */
 	hcd = usb_create_hcd(&isp1362_hc_driver, &pdev->dev, dev_name(&pdev->dev));
 	if (!hcd) {
 		retval = -ENOMEM;

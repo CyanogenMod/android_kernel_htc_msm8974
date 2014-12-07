@@ -150,6 +150,11 @@
 #define CS42L51_CHARGE_FREQ		0x21
 
 #define CS42L51_FIRSTREG	0x01
+/*
+ * Hack: with register 0x21, it makes 33 registers. Looks like someone in the
+ * i2c layer doesn't like i2c smbus block read of 33 regs. Workaround by using
+ * 32 regs
+ */
 #define CS42L51_LASTREG		0x20
 #define CS42L51_NUMREGS		(CS42L51_LASTREG - CS42L51_FIRSTREG + 1)
 

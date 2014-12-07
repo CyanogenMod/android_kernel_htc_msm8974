@@ -31,6 +31,11 @@ static int __init serial_init_chip(struct parisc_device *dev)
 	int err;
 
 	if (!dev->irq) {
+		/* We find some unattached serial ports by walking native
+		 * busses.  These should be silently ignored.  Otherwise,
+		 * what we have here is a missing parent device, so tell
+		 * the user what they're missing.
+		 */
 		if (parisc_parent(dev)->id.hw_type != HPHW_IOA)
 			printk(KERN_INFO
 				"Serial: device 0x%llx not configured.\n"
@@ -45,7 +50,7 @@ static int __init serial_init_chip(struct parisc_device *dev)
 
 	memset(&port, 0, sizeof(port));
 	port.iotype	= UPIO_MEM;
-	
+	/* 7.272727MHz on Lasi.  Assumed the same for Dino, Wax and Timi. */
 	port.uartclk	= 7272727;
 	port.mapbase	= address;
 	port.membase	= ioremap_nocache(address, 16);
@@ -71,16 +76,22 @@ static struct parisc_device_id serial_tbl[] = {
 	{ 0 }
 };
 
+/* Hack.  Some machines have SERIAL_0 attached to Lasi and SERIAL_1
+ * attached to Dino.  Unfortunately, Dino appears before Lasi in the device
+ * tree.  To ensure that ttyS0 == SERIAL_0, we register two drivers; one
+ * which only knows about Lasi and then a second which will find all the
+ * other serial ports.  HPUX ignores this problem.
+ */
 static struct parisc_device_id lasi_tbl[] = {
-	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x03B, 0x0008C }, 
-	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x03C, 0x0008C }, 
-	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x03D, 0x0008C }, 
-	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x03E, 0x0008C }, 
-	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x03F, 0x0008C }, 
-	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x046, 0x0008C }, 
-	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x047, 0x0008C }, 
-	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x04E, 0x0008C }, 
-	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x056, 0x0008C }, 
+	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x03B, 0x0008C }, /* C1xx/C1xxL */
+	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x03C, 0x0008C }, /* B132L */
+	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x03D, 0x0008C }, /* B160L */
+	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x03E, 0x0008C }, /* B132L+ */
+	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x03F, 0x0008C }, /* B180L+ */
+	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x046, 0x0008C }, /* Rocky2 120 */
+	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x047, 0x0008C }, /* Rocky2 150 */
+	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x04E, 0x0008C }, /* Kiji L2 132 */
+	{ HPHW_FIO, HVERSION_REV_ANY_ID, 0x056, 0x0008C }, /* Raven+ */
 	{ 0 }
 };
 

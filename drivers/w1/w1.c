@@ -118,6 +118,7 @@ static struct device_attribute w1_slave_attr_name =
 static struct device_attribute w1_slave_attr_id =
 	__ATTR(id, S_IRUGO, w1_slave_read_id, NULL);
 
+/* Default family */
 
 static ssize_t w1_default_write(struct file *filp, struct kobject *kobj,
 				struct bin_attribute *bin_attr,
@@ -214,7 +215,7 @@ struct device w1_slave_device = {
 	.driver = &w1_slave_driver,
 	.release = &w1_slave_release
 };
-#endif  
+#endif  /*  0  */
 
 static ssize_t w1_master_attribute_show_name(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -386,6 +387,11 @@ static int w1_atoreg_num(struct device *dev, const char *buf, size_t count,
 	int i;
 	u64 rn64_le;
 
+	/* The CRC value isn't read from the user because the sysfs directory
+	 * doesn't include it and most messages from the bus search don't
+	 * print it either.  It would be unreasonable for the user to then
+	 * provide it.
+	 */
 	const char *error_msg = "bad slave string format, expecting "
 		"ff-dddddddddddd\n";
 
@@ -412,6 +418,9 @@ static int w1_atoreg_num(struct device *dev, const char *buf, size_t count,
 	return 0;
 }
 
+/* Searches the slaves in the w1_master and returns a pointer or NULL.
+ * Note: must hold the mutex
+ */
 static struct w1_slave *w1_slave_search_device(struct w1_master *dev,
 	struct w1_reg_num *rn)
 {
@@ -440,6 +449,10 @@ static ssize_t w1_master_attribute_store_add(struct device *dev,
 
 	mutex_lock(&md->mutex);
 	sl = w1_slave_search_device(md, &rn);
+	/* It would be nice to do a targeted search one the one-wire bus
+	 * for the new device to see if it is out there or not.  But the
+	 * current search doesn't support that.
+	 */
 	if (sl) {
 		dev_info(dev, "Device %s already exists\n", sl->name);
 		result = -EINVAL;
@@ -611,7 +624,7 @@ static int __w1_attach_slave_device(struct w1_slave *sl)
 		return err;
 	}
 
-	
+	/* Create "name" entry */
 	err = device_create_file(&sl->dev, &w1_slave_attr_name);
 	if (err < 0) {
 		dev_err(&sl->dev,
@@ -620,7 +633,7 @@ static int __w1_attach_slave_device(struct w1_slave *sl)
 		goto out_unreg;
 	}
 
-	
+	/* Create "id" entry */
 	err = device_create_file(&sl->dev, &w1_slave_attr_id);
 	if (err < 0) {
 		dev_err(&sl->dev,
@@ -629,7 +642,7 @@ static int __w1_attach_slave_device(struct w1_slave *sl)
 		goto out_rem1;
 	}
 
-	
+	/* if the family driver needs to initialize something... */
 	if (sl->family->fops && sl->family->fops->add_slave &&
 	    ((err = sl->family->fops->add_slave(sl)) < 0)) {
 		dev_err(&sl->dev,
@@ -791,6 +804,11 @@ void w1_reconnect_slaves(struct w1_family *f, int attach)
 			"for family %02x.\n", dev->name, f->fid);
 		mutex_lock(&dev->mutex);
 		list_for_each_entry_safe(sl, sln, &dev->slist, w1_slave_entry) {
+			/* If it is a new family, slaves with the default
+			 * family driver and are that family will be
+			 * connected.  If the family is going away, devices
+			 * matching that family are reconneced.
+			 */
 			if ((attach && sl->family->fid == W1_FAMILY_DEFAULT
 				&& sl->reg_num.family == f->fid) ||
 				(!attach && sl->family->fid == f->fid)) {
@@ -863,12 +881,18 @@ void w1_search(struct w1_master *dev, u8 search_type, w1_slave_found_callback cb
 		last_rn = rn;
 		rn = 0;
 
+		/*
+		 * Reset bus and all 1-wire device state machines
+		 * so they can respond to our requests.
+		 *
+		 * Return 0 - device(s) present, 1 - no devices present.
+		 */
 		if (w1_reset_bus(dev)) {
 			dev_dbg(&dev->dev, "No devices present on the wire.\n");
 			break;
 		}
 
-		
+		/* Do fast search on single slave bus */
 		if (dev->max_slave_count == 1) {
 			w1_write_8(dev, W1_READ_ROM);
 
@@ -878,29 +902,29 @@ void w1_search(struct w1_master *dev, u8 search_type, w1_slave_found_callback cb
 			break;
 		}
 
-		
+		/* Start the search */
 		w1_write_8(dev, search_type);
 		for (i = 0; i < 64; ++i) {
-			
+			/* Determine the direction/search bit */
 			if (i == desc_bit)
-				search_bit = 1;	  
+				search_bit = 1;	  /* took the 0 path last time, so take the 1 path */
 			else if (i > desc_bit)
-				search_bit = 0;	  
+				search_bit = 0;	  /* take the 0 path on the next branch */
 			else
 				search_bit = ((last_rn >> i) & 0x1);
 
-			
+			/** Read two bits and write one bit */
 			triplet_ret = w1_triplet(dev, search_bit);
 
-			
+			/* quit if no device responded */
 			if ( (triplet_ret & 0x03) == 0x03 )
 				break;
 
-			
+			/* If both directions were valid, and we took the 0 path... */
 			if (triplet_ret == 0)
 				last_zero = i;
 
-			
+			/* extract the direction taken & update the device number */
 			tmp64 = (triplet_ret >> 2);
 			rn |= (tmp64 << i);
 
@@ -948,6 +972,9 @@ static void w1_search_process(struct w1_master *dev, u8 search_type)
 int w1_process(void *data)
 {
 	struct w1_master *dev = (struct w1_master *) data;
+	/* As long as w1_timeout is only set by a module parameter the sleep
+	 * time can be calculated in jiffies once.
+	 */
 	const unsigned long jtime = msecs_to_jiffies(w1_timeout * 1000);
 
 	while (!kthread_should_stop()) {
@@ -963,7 +990,7 @@ int w1_process(void *data)
 		if (kthread_should_stop())
 			break;
 
-		
+		/* Only sleep when the search is active. */
 		if (dev->search_count)
 			schedule_timeout(jtime);
 		else
@@ -1008,6 +1035,7 @@ static int __init w1_init(void)
 	return 0;
 
 #if 0
+/* For undoing the slave register if there was a step after it. */
 err_out_slave_unregister:
 	driver_unregister(&w1_slave_driver);
 #endif
@@ -1026,7 +1054,7 @@ static void __exit w1_fini(void)
 {
 	struct w1_master *dev;
 
-	
+	/* Set netlink removal messages and some cleanup */
 	list_for_each_entry(dev, &w1_masters, w1_master_entry)
 		__w1_remove_master_device(dev);
 

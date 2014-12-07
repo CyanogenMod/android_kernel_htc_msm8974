@@ -43,7 +43,7 @@ static inline void __tlbie(unsigned long va, int psize, int ssize)
 {
 	unsigned int penc;
 
-	
+	/* clear top 16 bits, non SLS segment */
 	va &= ~(0xffffULL << 48);
 
 	switch (psize) {
@@ -59,7 +59,7 @@ static inline void __tlbie(unsigned long va, int psize, int ssize)
 		va &= ~((1ul << mmu_psize_defs[psize].shift) - 1);
 		va |= penc << 12;
 		va |= ssize << 8;
-		va |= 1; 
+		va |= 1; /* L */
 		asm volatile(ASM_FTR_IFCLR("tlbie %0,1", PPC_TLBIE(%1,%0), %2)
 			     : : "r" (va), "r"(0), "i" (CPU_FTR_ARCH_206)
 			     : "memory");
@@ -71,7 +71,7 @@ static inline void __tlbiel(unsigned long va, int psize, int ssize)
 {
 	unsigned int penc;
 
-	
+	/* clear top 16 bits, non SLS segment */
 	va &= ~(0xffffULL << 48);
 
 	switch (psize) {
@@ -86,7 +86,7 @@ static inline void __tlbiel(unsigned long va, int psize, int ssize)
 		va &= ~((1ul << mmu_psize_defs[psize].shift) - 1);
 		va |= penc << 12;
 		va |= ssize << 8;
-		va |= 1; 
+		va |= 1; /* L */
 		asm volatile(".long 0x7c000224 | (%0 << 11) | (1 << 21)"
 			     : : "r"(va) : "memory");
 		break;
@@ -150,7 +150,7 @@ static long native_hpte_insert(unsigned long hpte_group, unsigned long va,
 
 	for (i = 0; i < HPTES_PER_GROUP; i++) {
 		if (! (hptep->v & HPTE_V_VALID)) {
-			
+			/* retry with lock held */
 			native_lock_hpte(hptep);
 			if (! (hptep->v & HPTE_V_VALID))
 				break;
@@ -172,8 +172,12 @@ static long native_hpte_insert(unsigned long hpte_group, unsigned long va,
 	}
 
 	hptep->r = hpte_r;
-	
+	/* Guarantee the second dword is visible before the valid bit */
 	eieio();
+	/*
+	 * Now set the first dword including the valid bit
+	 * NOTE: this also unlocks the hpte
+	 */
 	hptep->v = hpte_v;
 
 	__asm__ __volatile__ ("ptesync" : : : "memory");
@@ -190,7 +194,7 @@ static long native_hpte_remove(unsigned long hpte_group)
 
 	DBG_LOW("    remove(group=%lx)\n", hpte_group);
 
-	
+	/* pick a random entry to start at */
 	slot_offset = mftb() & 0x7;
 
 	for (i = 0; i < HPTES_PER_GROUP; i++) {
@@ -198,7 +202,7 @@ static long native_hpte_remove(unsigned long hpte_group)
 		hpte_v = hptep->v;
 
 		if ((hpte_v & HPTE_V_VALID) && !(hpte_v & HPTE_V_BOLTED)) {
-			
+			/* retry with lock held */
 			native_lock_hpte(hptep);
 			hpte_v = hptep->v;
 			if ((hpte_v & HPTE_V_VALID)
@@ -214,7 +218,7 @@ static long native_hpte_remove(unsigned long hpte_group)
 	if (i == HPTES_PER_GROUP)
 		return -1;
 
-	
+	/* Invalidate the hpte. NOTE: this also unlocks it */
 	hptep->v = 0;
 
 	return i;
@@ -237,19 +241,19 @@ static long native_hpte_updatepp(unsigned long slot, unsigned long newpp,
 
 	hpte_v = hptep->v;
 
-	
+	/* Even if we miss, we need to invalidate the TLB */
 	if (!HPTE_V_COMPARE(hpte_v, want_v) || !(hpte_v & HPTE_V_VALID)) {
 		DBG_LOW(" -> miss\n");
 		ret = -1;
 	} else {
 		DBG_LOW(" -> hit\n");
-		
+		/* Update the HPTE */
 		hptep->r = (hptep->r & ~(HPTE_R_PP | HPTE_R_N)) |
 			(newpp & (HPTE_R_PP | HPTE_R_N | HPTE_R_C));
 	}
 	native_unlock_hpte(hptep);
 
-	
+	/* Ensure it is out of the tlb too. */
 	tlbie(va, psize, ssize, local);
 
 	return ret;
@@ -266,14 +270,14 @@ static long native_hpte_find(unsigned long va, int psize, int ssize)
 	hash = hpt_hash(va, mmu_psize_defs[psize].shift, ssize);
 	want_v = hpte_encode_v(va, psize, ssize);
 
-	
+	/* Bolted mappings are only ever in the primary group */
 	slot = (hash & htab_hash_mask) * HPTES_PER_GROUP;
 	for (i = 0; i < HPTES_PER_GROUP; i++) {
 		hptep = htab_address + slot;
 		hpte_v = hptep->v;
 
 		if (HPTE_V_COMPARE(hpte_v, want_v) && (hpte_v & HPTE_V_VALID))
-			
+			/* HPTE matches */
 			return slot;
 		++slot;
 	}
@@ -281,6 +285,13 @@ static long native_hpte_find(unsigned long va, int psize, int ssize)
 	return -1;
 }
 
+/*
+ * Update the page protection bits. Intended to be used to create
+ * guard pages for kernel data structures on pages which are bolted
+ * in the HPT. Assumes pages being operated on will not be stolen.
+ *
+ * No need to lock here because we should be the only user.
+ */
 static void native_hpte_updateboltedpp(unsigned long newpp, unsigned long ea,
 				       int psize, int ssize)
 {
@@ -296,11 +307,11 @@ static void native_hpte_updateboltedpp(unsigned long newpp, unsigned long ea,
 		panic("could not find page to bolt\n");
 	hptep = htab_address + slot;
 
-	
+	/* Update the HPTE */
 	hptep->r = (hptep->r & ~(HPTE_R_PP | HPTE_R_N)) |
 		(newpp & (HPTE_R_PP | HPTE_R_N));
 
-	
+	/* Ensure it is out of the tlb too. */
 	tlbie(va, psize, ssize, 0);
 }
 
@@ -320,14 +331,14 @@ static void native_hpte_invalidate(unsigned long slot, unsigned long va,
 	native_lock_hpte(hptep);
 	hpte_v = hptep->v;
 
-	
+	/* Even if we miss, we need to invalidate the TLB */
 	if (!HPTE_V_COMPARE(hpte_v, want_v) || !(hpte_v & HPTE_V_VALID))
 		native_unlock_hpte(hptep);
 	else
-		
+		/* Invalidate the hpte. NOTE: this also unlocks it */
 		hptep->v = 0;
 
-	
+	/* Invalidate the TLB */
 	tlbie(va, psize, ssize, local);
 
 	local_irq_restore(flags);
@@ -355,11 +366,11 @@ static void hpte_decode(struct hash_pte *hpte, unsigned long slot,
 		penc = LP_MASK(i+1) >> LP_SHIFT;
 		for (size = 0; size < MMU_PAGE_COUNT; size++) {
 
-			
+			/* 4K pages are not represented by LP */
 			if (size == MMU_PAGE_4K)
 				continue;
 
-			
+			/* valid entries have a shift value */
 			if (!mmu_psize_defs[size].shift)
 				continue;
 
@@ -368,7 +379,7 @@ static void hpte_decode(struct hash_pte *hpte, unsigned long slot,
 		}
 	}
 
-	
+	/* This works for all page sizes, and for 256M and 1T segments */
 	shift = mmu_psize_defs[size].shift;
 	avpn = (HPTE_V_AVPN_VAL(hpte_v) & ~mmu_psize_defs[size].avpnm) << 23;
 
@@ -397,6 +408,14 @@ static void hpte_decode(struct hash_pte *hpte, unsigned long slot,
 	*ssize = hpte_v >> HPTE_V_SSIZE_SHIFT;
 }
 
+/*
+ * clear all mappings on kexec.  All cpus are in real mode (or they will
+ * be when they isi), and we are the only one left.  We rely on our kernel
+ * mapping being 0xC0's and the hardware ignoring those two real bits.
+ *
+ * TODO: add batching support when enabled.  remember, no dynamic memory here,
+ * athough there is the control page available...
+ */
 static void native_hpte_clear(void)
 {
 	unsigned long slot, slots, flags;
@@ -409,13 +428,25 @@ static void native_hpte_clear(void)
 
 	local_irq_save(flags);
 
+	/* we take the tlbie lock and hold it.  Some hardware will
+	 * deadlock if we try to tlbie from two processors at once.
+	 */
 	raw_spin_lock(&native_tlbie_lock);
 
 	slots = pteg_count * HPTES_PER_GROUP;
 
 	for (slot = 0; slot < slots; slot++, hptep++) {
+		/*
+		 * we could lock the pte here, but we are the only cpu
+		 * running,  right?  and for crash dump, we probably
+		 * don't want to wait for a maybe bad cpu.
+		 */
 		hpte_v = hptep->v;
 
+		/*
+		 * Call __tlbie() here rather than tlbie() since we
+		 * already hold the native_tlbie_lock.
+		 */
 		if (hpte_v & HPTE_V_VALID) {
 			hpte_decode(hptep, slot, &psize, &ssize, &va);
 			hptep->v = 0;
@@ -428,6 +459,10 @@ static void native_hpte_clear(void)
 	local_irq_restore(flags);
 }
 
+/*
+ * Batched hash table flush, we batch the tlbie's to avoid taking/releasing
+ * the lock all the time
+ */
 static void native_flush_hash_range(unsigned long number, int local)
 {
 	unsigned long va, hash, index, hidx, shift, slot;
@@ -505,6 +540,7 @@ static void native_flush_hash_range(unsigned long number, int local)
 }
 
 #ifdef CONFIG_PPC_PSERIES
+/* Disable TLB batching on nighthawk */
 static inline int tlb_batching_enabled(void)
 {
 	struct device_node *root = of_find_node_by_path("/");

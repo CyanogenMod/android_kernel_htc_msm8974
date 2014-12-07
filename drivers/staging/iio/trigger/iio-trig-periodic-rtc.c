@@ -92,7 +92,7 @@ static const struct attribute_group *iio_trig_prtc_attr_groups[] = {
 
 static void iio_prtc_trigger_poll(void *private_data)
 {
-	
+	/* Timestamp is not provided currently */
 	iio_trigger_poll(private_data, 0);
 }
 
@@ -126,7 +126,7 @@ static int iio_trig_periodic_rtc_probe(struct platform_device *dev)
 		}
 		trig->private_data = trig_info;
 		trig->ops = &iio_prtc_trigger_ops;
-		
+		/* RTC access */
 		trig_info->rtc
 			= rtc_class_open(pdata[i]);
 		if (trig_info->rtc == NULL) {

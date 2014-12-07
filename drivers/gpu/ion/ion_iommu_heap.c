@@ -35,6 +35,13 @@ struct ion_iommu_heap {
 	struct ion_page_pool **uncached_pools;
 };
 
+/*
+ * We will attempt to allocate high-order pages and store those in an
+ * sg_list. However, some APIs expect an array of struct page * where
+ * each page is of size PAGE_SIZE. We use this extra structure to
+ * carry around an array of such pages (derived from the high-order
+ * pages with nth_page).
+ */
 struct ion_iommu_priv_data {
 	struct page **pages;
 	unsigned int pages_uses_vmalloc;
@@ -138,8 +145,22 @@ static int ion_iommu_buffer_zero(struct ion_iommu_priv_data *data,
 	unsigned int npages_to_vmap;
 	unsigned int total_pages;
 	void *ptr = NULL;
+	/*
+	 * It's cheaper just to use writecombine memory and skip the
+	 * cache vs. using a cache memory and trying to flush it afterwards
+	 */
 	pgprot_t pgprot = pgprot_writecombine(pgprot_kernel);
 
+	/*
+	 * As an optimization, we manually zero out all of the
+	 * pages in one fell swoop here. To safeguard against
+	 * insufficient vmalloc space, we only vmap
+	 * `npages_to_vmap' at a time, starting with a
+	 * conservative estimate of 1/8 of the total number of
+	 * vmalloc pages available. Note that the `pages'
+	 * array is composed of all 4K pages, irrespective of
+	 * the size of the pages on the sg list.
+	 */
 	npages_to_vmap = ((VMALLOC_END - VMALLOC_START)/8)
 			>> PAGE_SHIFT;
 	total_pages = data->nrpages;
@@ -159,6 +180,9 @@ static int ion_iommu_buffer_zero(struct ion_iommu_priv_data *data,
 
 		memset(ptr, 0, npages_to_vmap * PAGE_SIZE);
 		if (is_cached) {
+			/*
+			 * invalidate the cache to pick up the zeroing
+			 */
 			for (k = 0; k < npages_to_vmap; k++) {
 				void *p = kmap_atomic(data->pages[i + k]);
 				phys_addr_t phys = page_to_phys(
@@ -222,6 +246,10 @@ static int ion_iommu_heap_allocate(struct ion_heap *heap,
 		page_tbl_size = sizeof(struct page *) * data->nrpages;
 
 		if (page_tbl_size > SZ_8K) {
+			/*
+			 * Do fallback to ensure we have a balance between
+			 * performance and availability.
+			 */
 			data->pages = kmalloc(page_tbl_size,
 					      __GFP_COMP | __GFP_NORETRY |
 					      __GFP_NO_KSWAPD | __GFP_NOWARN);

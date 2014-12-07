@@ -7,15 +7,24 @@
 struct scsi_device;
 struct Scsi_Host;
 
-struct scsi_sense_hdr {		
-	u8 response_code;	
+/*
+ * This is a slightly modified SCSI sense "descriptor" format header.
+ * The addition is to allow the 0x70 and 0x71 response codes. The idea
+ * is to place the salient data from either "fixed" or "descriptor" sense
+ * format into one structure to ease application processing.
+ *
+ * The original sense buffer should be kept around for those cases
+ * in which more information is required (e.g. the LBA of a MEDIUM ERROR).
+ */
+struct scsi_sense_hdr {		/* See SPC-3 section 4.5 */
+	u8 response_code;	/* permit: 0x0, 0x70, 0x71, 0x72, 0x73 */
 	u8 sense_key;
 	u8 asc;
 	u8 ascq;
 	u8 byte4;
 	u8 byte5;
 	u8 byte6;
-	u8 additional_length;	
+	u8 additional_length;	/* always 0 for fixed sense format */
 };
 
 static inline int scsi_sense_valid(struct scsi_sense_hdr *sshdr)
@@ -51,6 +60,9 @@ extern int scsi_get_sense_info_fld(const u8 * sense_buffer, int sb_len,
 
 extern void scsi_build_sense_buffer(int desc, u8 *buf, u8 key, u8 asc, u8 ascq);
 
+/*
+ * Reset request from external source
+ */
 #define SCSI_TRY_RESET_DEVICE	1
 #define SCSI_TRY_RESET_BUS	2
 #define SCSI_TRY_RESET_HOST	3
@@ -59,7 +71,7 @@ extern void scsi_build_sense_buffer(int desc, u8 *buf, u8 key, u8 asc, u8 ascq);
 extern int scsi_reset_provider(struct scsi_device *, int);
 
 struct scsi_eh_save {
-	
+	/* saved state */
 	int result;
 	enum dma_data_direction data_direction;
 	unsigned underflow;
@@ -68,7 +80,7 @@ struct scsi_eh_save {
 	unsigned char *cmnd;
 	struct scsi_data_buffer sdb;
 	struct request *next_rq;
-	
+	/* new command support */
 	unsigned char eh_cmnd[BLK_MAX_CDB];
 	struct scatterlist sense_sgl;
 };
@@ -80,4 +92,4 @@ extern void scsi_eh_prep_cmnd(struct scsi_cmnd *scmd,
 extern void scsi_eh_restore_cmnd(struct scsi_cmnd* scmd,
 		struct scsi_eh_save *ses);
 
-#endif 
+#endif /* _SCSI_SCSI_EH_H */

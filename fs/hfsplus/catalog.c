@@ -110,7 +110,7 @@ static int hfsplus_cat_build_record(hfsplus_cat_entry *entry,
 			folder->access_date = hfsp_now2mt();
 		hfsplus_cat_set_perms(inode, &folder->permissions);
 		if (inode == sbi->hidden_dir)
-			
+			/* invisible and namelocked */
 			folder->user_info.frFlags = cpu_to_be16(0x5000);
 		return sizeof(*folder);
 	} else {
@@ -171,6 +171,7 @@ static int hfsplus_fill_cat_thread(struct super_block *sb,
 	return 10 + be16_to_cpu(entry->thread.nodeName.length) * 2;
 }
 
+/* Try to get a catalog entry for given catalog id */
 int hfsplus_find_cat(struct super_block *sb, u32 cnid,
 		     struct hfs_find_data *fd)
 {
@@ -234,7 +235,7 @@ int hfsplus_create_cat(u32 cnid, struct inode *dir,
 	entry_size = hfsplus_cat_build_record(&entry, cnid, inode);
 	err = hfs_brec_find(&fd);
 	if (err != -ENOENT) {
-		
+		/* panic? */
 		if (!err)
 			err = -EEXIST;
 		goto err1;
@@ -360,7 +361,7 @@ int hfsplus_rename_cat(u32 cnid,
 		return err;
 	dst_fd = src_fd;
 
-	
+	/* find the old dir entry and read the data */
 	hfsplus_cat_build_key(sb, src_fd.search_key, src_dir->i_ino, src_name);
 	err = hfs_brec_find(&src_fd);
 	if (err)
@@ -373,7 +374,7 @@ int hfsplus_rename_cat(u32 cnid,
 	hfs_bnode_read(src_fd.bnode, &entry, src_fd.entryoffset,
 				src_fd.entrylength);
 
-	
+	/* create new dir entry with the data from the old entry */
 	hfsplus_cat_build_key(sb, dst_fd.search_key, dst_dir->i_ino, dst_name);
 	err = hfs_brec_find(&dst_fd);
 	if (err != -ENOENT) {
@@ -388,7 +389,7 @@ int hfsplus_rename_cat(u32 cnid,
 	dst_dir->i_size++;
 	dst_dir->i_mtime = dst_dir->i_ctime = CURRENT_TIME_SEC;
 
-	
+	/* finally remove the old entry */
 	hfsplus_cat_build_key(sb, src_fd.search_key, src_dir->i_ino, src_name);
 	err = hfs_brec_find(&src_fd);
 	if (err)
@@ -399,7 +400,7 @@ int hfsplus_rename_cat(u32 cnid,
 	src_dir->i_size--;
 	src_dir->i_mtime = src_dir->i_ctime = CURRENT_TIME_SEC;
 
-	
+	/* remove old thread entry */
 	hfsplus_cat_build_key(sb, src_fd.search_key, cnid, NULL);
 	err = hfs_brec_find(&src_fd);
 	if (err)
@@ -409,7 +410,7 @@ int hfsplus_rename_cat(u32 cnid,
 	if (err)
 		goto out;
 
-	
+	/* create new thread entry */
 	hfsplus_cat_build_key(sb, dst_fd.search_key, cnid, NULL);
 	entry_size = hfsplus_fill_cat_thread(sb, &entry, type,
 		dst_dir->i_ino, dst_name);

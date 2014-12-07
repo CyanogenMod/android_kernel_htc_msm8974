@@ -49,6 +49,10 @@ void *kmap_atomic(struct page *page)
 		return page_address(page);
 
 #ifdef CONFIG_DEBUG_HIGHMEM
+	/*
+	 * There is no cache coherency issue when non VIVT, so force the
+	 * dedicated kmap usage for better debugging purposes in that case.
+	 */
 	if (!cache_is_vivt())
 		kmap = NULL;
 	else
@@ -62,8 +66,17 @@ void *kmap_atomic(struct page *page)
 	idx = type + KM_TYPE_NR * smp_processor_id();
 	vaddr = __fix_to_virt(FIX_KMAP_BEGIN + idx);
 #ifdef CONFIG_DEBUG_HIGHMEM
+	/*
+	 * With debugging enabled, kunmap_atomic forces that entry to 0.
+	 * Make sure it was indeed properly unmapped.
+	 */
 	BUG_ON(!pte_none(get_top_pte(vaddr)));
 #endif
+	/*
+	 * When debugging is off, kunmap_atomic leaves the previous mapping
+	 * in place, so the contained TLB flush ensures the TLB is updated
+	 * with the new mapping.
+	 */
 	set_top_pte(vaddr, mk_pte(page, kmap_prot));
 
 	return (void *)vaddr;
@@ -85,11 +98,11 @@ void __kunmap_atomic(void *kvaddr)
 		BUG_ON(vaddr != __fix_to_virt(FIX_KMAP_BEGIN + idx));
 		set_top_pte(vaddr, __pte(0));
 #else
-		(void) idx;  
+		(void) idx;  /* to kill a warning */
 #endif
 		kmap_atomic_idx_pop();
 	} else if (vaddr >= PKMAP_ADDR(0) && vaddr < PKMAP_ADDR(LAST_PKMAP)) {
-		
+		/* this address was obtained through kmap_high_get() */
 		kunmap_high(pte_page(pkmap_page_table[PKMAP_NR(vaddr)]));
 	}
 	pagefault_enable();

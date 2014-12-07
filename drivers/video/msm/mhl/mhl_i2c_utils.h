@@ -18,6 +18,10 @@
 #include <linux/types.h>
 #include <linux/mhl_defs.h>
 
+/*
+ * I2C command to the adapter to append
+ * the buffer from next msg to this one.
+ */
 #define I2C_M_APPND_NXT_WR          0x0002
 
 extern uint8_t slave_addrs[MAX_PAGES];
@@ -31,4 +35,4 @@ int mhl_i2c_reg_write_cmds(uint8_t slave_addr_index, uint8_t reg_offset,
 void mhl_i2c_reg_modify(uint8_t slave_addr_index, uint8_t reg_offset,
 	uint8_t mask, uint8_t val);
 
-#endif 
+#endif /* __MHL_I2C_UTILS_H__ */

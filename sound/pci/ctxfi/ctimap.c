@@ -37,7 +37,7 @@ int input_mapper_add(struct list_head *mappers, struct imapper *entry,
 	list_for_each(pos, head) {
 		pos_ent = list_entry(pos, struct imapper, list);
 		if (pos_ent->slot > entry->slot) {
-			
+			/* found a position in list */
 			break;
 		}
 	}
@@ -80,7 +80,7 @@ int input_mapper_delete(struct list_head *mappers, struct imapper *entry,
 	next = (entry->list.next == head) ? head->next : entry->list.next;
 
 	if (pre == &entry->list) {
-		
+		/* entry is the only one node in mappers list */
 		entry->next = entry->addr = entry->user = entry->slot = 0;
 		map_op(data, entry);
 		list_del(&entry->list);

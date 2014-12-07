@@ -21,6 +21,7 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 
+/* RTC registers */
 #define TIME_REG		0x00
 #define DATE_REG		0x04
 #define ALARM_TIME_REG		0x08
@@ -28,28 +29,31 @@
 #define CTRL_REG		0x10
 #define STATUS_REG		0x14
 
-#define SECONDS_UNITS		(0xf<<0)	
-#define SECONDS_TENS		(0x7<<4)	
-#define MINUTES_UNITS		(0xf<<8)	
-#define MINUTES_TENS		(0x7<<12)	
-#define HOURS_UNITS		(0xf<<16)	
-#define HOURS_TENS		(0x3<<20)	
+/* TIME_REG & ALARM_TIME_REG */
+#define SECONDS_UNITS		(0xf<<0)	/* seconds units position */
+#define SECONDS_TENS		(0x7<<4)	/* seconds tens position */
+#define MINUTES_UNITS		(0xf<<8)	/* minutes units position */
+#define MINUTES_TENS		(0x7<<12)	/* minutes tens position */
+#define HOURS_UNITS		(0xf<<16)	/* hours units position */
+#define HOURS_TENS		(0x3<<20)	/* hours tens position */
 
-#define DAYS_UNITS		(0xf<<0)	
-#define DAYS_TENS		(0x3<<4)	
-#define MONTHS_UNITS		(0xf<<8)	
-#define MONTHS_TENS		(0x1<<12)	
-#define YEARS_UNITS		(0xf<<16)	
-#define YEARS_TENS		(0xf<<20)	
-#define YEARS_HUNDREDS		(0xf<<24)	
-#define YEARS_MILLENIUMS	(0xf<<28)	
+/* DATE_REG & ALARM_DATE_REG */
+#define DAYS_UNITS		(0xf<<0)	/* days units position */
+#define DAYS_TENS		(0x3<<4)	/* days tens position */
+#define MONTHS_UNITS		(0xf<<8)	/* months units position */
+#define MONTHS_TENS		(0x1<<12)	/* months tens position */
+#define YEARS_UNITS		(0xf<<16)	/* years units position */
+#define YEARS_TENS		(0xf<<20)	/* years tens position */
+#define YEARS_HUNDREDS		(0xf<<24)	/* years hundereds position */
+#define YEARS_MILLENIUMS	(0xf<<28)	/* years millenium position */
 
-#define SECOND_SHIFT		0x00		
-#define MINUTE_SHIFT		0x08		
-#define HOUR_SHIFT		0x10		
-#define MDAY_SHIFT		0x00		
-#define MONTH_SHIFT		0x08		
-#define YEAR_SHIFT		0x10		
+/* MASK SHIFT TIME_REG & ALARM_TIME_REG*/
+#define SECOND_SHIFT		0x00		/* seconds units */
+#define MINUTE_SHIFT		0x08		/* minutes units position */
+#define HOUR_SHIFT		0x10		/* hours units position */
+#define MDAY_SHIFT		0x00		/* Month day shift */
+#define MONTH_SHIFT		0x08		/* Month shift */
+#define YEAR_SHIFT		0x10		/* Year shift */
 
 #define SECOND_MASK		0x7F
 #define MIN_MASK		0x7F
@@ -58,9 +62,11 @@
 #define MONTH_MASK		0x7F
 #define YEAR_MASK		0xFFFF
 
+/* date reg equal to time reg, for debug only */
 #define TIME_BYP		(1<<9)
-#define INT_ENABLE		(1<<31)		
+#define INT_ENABLE		(1<<31)		/* interrupt enable */
 
+/* STATUS_REG */
 #define CLK_UNCONNECTED		(1<<0)
 #define PEND_WR_TIME		(1<<2)
 #define PEND_WR_DATE		(1<<3)
@@ -131,14 +137,14 @@ static void rtc_wait_not_busy(struct spear_rtc_config *config)
 	int status, count = 0;
 	unsigned long flags;
 
-	
+	/* Assuming BUSY may stay active for 80 msec) */
 	for (count = 0; count < 80; count++) {
 		spin_lock_irqsave(&config->lock, flags);
 		status = readl(config->ioaddr + STATUS_REG);
 		spin_unlock_irqrestore(&config->lock, flags);
 		if ((status & STATUS_BUSY) == 0)
 			break;
-		
+		/* check status busy, after each msec */
 		msleep(1);
 	}
 }
@@ -184,16 +190,24 @@ static void bcd2tm(struct rtc_time *tm)
 	tm->tm_hour = bcd2bin(tm->tm_hour);
 	tm->tm_mday = bcd2bin(tm->tm_mday);
 	tm->tm_mon = bcd2bin(tm->tm_mon) - 1;
-	
+	/* epoch == 1900 */
 	tm->tm_year = bcd2bin(tm->tm_year);
 }
 
+/*
+ * spear_rtc_read_time - set the time
+ * @dev: rtc device in use
+ * @tm: holds date and time
+ *
+ * This function read time and date. On success it will return 0
+ * otherwise -ve error is returned.
+ */
 static int spear_rtc_read_time(struct device *dev, struct rtc_time *tm)
 {
 	struct spear_rtc_config *config = dev_get_drvdata(dev);
 	unsigned int time, date;
 
-	
+	/* we don't report wday/yday/isdst ... */
 	rtc_wait_not_busy(config);
 
 	time = readl(config->ioaddr + TIME_REG);
@@ -209,6 +223,14 @@ static int spear_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	return 0;
 }
 
+/*
+ * spear_rtc_set_time - set the time
+ * @dev: rtc device in use
+ * @tm: holds date and time
+ *
+ * This function set time and date. On success it will return 0
+ * otherwise -ve error is returned.
+ */
 static int spear_rtc_set_time(struct device *dev, struct rtc_time *tm)
 {
 	struct spear_rtc_config *config = dev_get_drvdata(dev);
@@ -231,6 +253,14 @@ static int spear_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	return 0;
 }
 
+/*
+ * spear_rtc_read_alarm - read the alarm time
+ * @dev: rtc device in use
+ * @alm: holds alarm date and time
+ *
+ * This function read alarm time and date. On success it will return 0
+ * otherwise -ve error is returned.
+ */
 static int spear_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alm)
 {
 	struct spear_rtc_config *config = dev_get_drvdata(dev);
@@ -253,6 +283,14 @@ static int spear_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alm)
 	return 0;
 }
 
+/*
+ * spear_rtc_set_alarm - set the alarm time
+ * @dev: rtc device in use
+ * @alm: holds alarm date and time
+ *
+ * This function set alarm time and date. On success it will return 0
+ * otherwise -ve error is returned.
+ */
 static int spear_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alm)
 {
 	struct spear_rtc_config *config = dev_get_drvdata(dev);
@@ -291,11 +329,11 @@ static int spear_alarm_irq_enable(struct device *dev, unsigned int enabled)
 
 	switch (enabled) {
 	case 0:
-		
+		/* alarm off */
 		spear_rtc_disable_interrupt(config);
 		break;
 	case 1:
-		
+		/* alarm on */
 		spear_rtc_enable_interrupt(config);
 		break;
 	default:
@@ -367,7 +405,7 @@ static int __devinit spear_rtc_probe(struct platform_device *pdev)
 		goto err_iounmap;
 	}
 
-	
+	/* alarm irqs */
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0) {
 		dev_err(&pdev->dev, "no update irq?\n");
@@ -410,7 +448,7 @@ static int __devexit spear_rtc_remove(struct platform_device *pdev)
 	int irq;
 	struct resource *res;
 
-	
+	/* leave rtc running, but disable irqs */
 	spear_rtc_disable_interrupt(config);
 	device_init_wakeup(&pdev->dev, 0);
 	irq = platform_get_irq(pdev, 0);

@@ -37,7 +37,17 @@ static int num_crtc = CONFIG_DRM_OMAP_NUM_CRTCS;
 MODULE_PARM_DESC(num_crtc, "Number of overlays to use as CRTCs");
 module_param(num_crtc, int, 0600);
 
+/*
+ * mode config funcs
+ */
 
+/* Notes about mapping DSS and DRM entities:
+ *    CRTC:        overlay
+ *    encoder:     manager.. with some extension to allow one primary CRTC
+ *                 and zero or more video CRTC's to be mapped to one encoder?
+ *    connector:   dssdev.. manager can be attached/detached from different
+ *                 devices
+ */
 
 static void omap_fb_output_poll_changed(struct drm_device *dev)
 {
@@ -61,13 +71,13 @@ static int get_connector_type(struct omap_dss_device *dssdev)
 	case OMAP_DISPLAY_TYPE_DPI:
 		if (!strcmp(dssdev->name, "dvi"))
 			return DRM_MODE_CONNECTOR_DVID;
-		
+		/* fallthrough */
 	default:
 		return DRM_MODE_CONNECTOR_Unknown;
 	}
 }
 
-#if 0 
+#if 0 /* enable when dss2 supports hotplug */
 static int omap_drm_notifier(struct notifier_block *nb,
 		unsigned long evt, void *arg)
 {
@@ -82,7 +92,7 @@ static int omap_drm_notifier(struct notifier_block *nb,
 		}
 		return NOTIFY_OK;
 	}
-	default:  
+	default:  /* don't care about other events for now */
 		return NOTIFY_DONE;
 	}
 }
@@ -108,6 +118,7 @@ static void dump_video_chains(void)
 	}
 }
 
+/* create encoders for each manager */
 static int create_encoder(struct drm_device *dev,
 		struct omap_overlay_manager *mgr)
 {
@@ -127,6 +138,7 @@ static int create_encoder(struct drm_device *dev,
 	return 0;
 }
 
+/* create connectors for each display device */
 static int create_connector(struct drm_device *dev,
 		struct omap_dss_device *dssdev)
 {
@@ -162,7 +174,7 @@ static int create_connector(struct drm_device *dev,
 
 	priv->connectors[priv->num_connectors++] = connector;
 
-#if 0 
+#if 0 /* enable when dss2 supports hotplug */
 	notifier = kzalloc(sizeof(struct notifier_block), GFP_KERNEL);
 	notifier->notifier_call = omap_drm_notifier;
 	omap_dss_add_notify(dssdev, notifier);
@@ -182,6 +194,10 @@ static int create_connector(struct drm_device *dev,
 	return 0;
 }
 
+/* create up to max_overlays CRTCs mapping to overlays.. by default,
+ * connect the overlays to different managers/encoders, giving priority
+ * to encoders connected to connectors with a detected connection
+ */
 static int create_crtc(struct drm_device *dev, struct omap_overlay *ovl,
 		int *j, unsigned int connected_connectors)
 {
@@ -189,6 +205,8 @@ static int create_crtc(struct drm_device *dev, struct omap_overlay *ovl,
 	struct omap_overlay_manager *mgr = NULL;
 	struct drm_crtc *crtc;
 
+	/* find next best connector, ones with detected connection first
+	 */
 	while (*j < priv->num_connectors && !mgr) {
 		if (connected_connectors & (1 << *j)) {
 			struct drm_encoder *encoder =
@@ -201,6 +219,14 @@ static int create_crtc(struct drm_device *dev, struct omap_overlay *ovl,
 		(*j)++;
 	}
 
+	/* if we couldn't find another connected connector, lets start
+	 * looking at the unconnected connectors:
+	 *
+	 * note: it might not be immediately apparent, but thanks to
+	 * the !mgr check in both this loop and the one above, the only
+	 * way to enter this loop is with *j == priv->num_connectors,
+	 * so idx can never go negative.
+	 */
 	while (*j < 2 * priv->num_connectors && !mgr) {
 		int idx = *j - priv->num_connectors;
 		if (!(connected_connectors & (1 << idx))) {
@@ -285,6 +311,9 @@ static int omap_modeset_init(struct drm_device *dev)
 	if (pdata && pdata->kms_pdata) {
 		kms_pdata = pdata->kms_pdata;
 
+		/* if platform data is provided by the board file, use it to
+		 * control which overlays, managers, and devices we own.
+		 */
 		for (i = 0; i < kms_pdata->mgr_cnt; i++) {
 			struct omap_overlay_manager *mgr =
 				omap_dss_get_overlay_manager(
@@ -320,6 +349,9 @@ static int omap_modeset_init(struct drm_device *dev)
 			create_plane(dev, ovl, (1 << priv->num_crtcs) - 1);
 		}
 	} else {
+		/* otherwise just grab up to CONFIG_DRM_OMAP_NUM_CRTCS and try
+		 * to make educated guesses about everything else
+		 */
 		int max_overlays = min(omap_dss_get_num_overlays(), num_crtc);
 
 		for (i = 0; i < omap_dss_get_num_overlay_managers(); i++) {
@@ -338,14 +370,14 @@ static int omap_modeset_init(struct drm_device *dev)
 					&j, connected_connectors);
 		}
 
-		
+		/* use any remaining overlays as drm planes */
 		for (; i < omap_dss_get_num_overlays(); i++) {
 			struct omap_overlay *ovl = omap_dss_get_overlay(i);
 			create_plane(dev, ovl, (1 << priv->num_crtcs) - 1);
 		}
 	}
 
-	
+	/* for now keep the mapping of CRTCs and encoders static.. */
 	for (i = 0; i < priv->num_encoders; i++) {
 		struct drm_encoder *encoder = priv->encoders[i];
 		struct omap_overlay_manager *mgr =
@@ -362,6 +394,9 @@ static int omap_modeset_init(struct drm_device *dev)
 	dev->mode_config.min_width = 32;
 	dev->mode_config.min_height = 32;
 
+	/* note: eventually will need some cpu_is_omapXYZ() type stuff here
+	 * to fill in these limits properly on different OMAP generations..
+	 */
 	dev->mode_config.max_width = 2048;
 	dev->mode_config.max_height = 2048;
 
@@ -375,6 +410,9 @@ static void omap_modeset_free(struct drm_device *dev)
 	drm_mode_config_cleanup(dev);
 }
 
+/*
+ * drm ioctl funcs
+ */
 
 
 static int ioctl_get_param(struct drm_device *dev, void *data,
@@ -459,7 +497,7 @@ static int ioctl_gem_cpu_fini(struct drm_device *dev, void *data,
 		return -ENOENT;
 	}
 
-	
+	/* XXX flushy, flushy */
 	ret = 0;
 
 	if (!ret) {
@@ -502,7 +540,20 @@ struct drm_ioctl_desc ioctls[DRM_COMMAND_END - DRM_COMMAND_BASE] = {
 	DRM_IOCTL_DEF_DRV(OMAP_GEM_INFO, ioctl_gem_info, DRM_UNLOCKED|DRM_AUTH),
 };
 
+/*
+ * drm driver funcs
+ */
 
+/**
+ * load - setup chip and create an initial config
+ * @dev: DRM device
+ * @flags: startup flags
+ *
+ * The driver load routine has to do several things:
+ *   - initialize the memory manager
+ *   - allocate initial config memory
+ *   - setup the DRM framebuffer with the allocated memory
+ */
 static int dev_load(struct drm_device *dev, unsigned long flags)
 {
 	struct omap_drm_private *priv;
@@ -538,7 +589,7 @@ static int dev_load(struct drm_device *dev, unsigned long flags)
 	priv->fbdev = omap_fbdev_init(dev);
 	if (!priv->fbdev) {
 		dev_warn(dev->dev, "omap_fbdev_init failed\n");
-		
+		/* well, limp along without an fbdev.. maybe X11 will work? */
 	}
 
 	drm_kms_helper_poll_init(dev);
@@ -588,8 +639,19 @@ static int dev_firstopen(struct drm_device *dev)
 	return 0;
 }
 
+/**
+ * lastclose - clean up after all DRM clients have exited
+ * @dev: DRM device
+ *
+ * Take care of cleaning up after all DRM clients have exited.  In the
+ * mode setting case, we want to restore the kernel's initial mode (just
+ * in case the last client left us in a bad state).
+ */
 static void dev_lastclose(struct drm_device *dev)
 {
+	/* we don't support vga-switcheroo.. so just make sure the fbdev
+	 * mode is active
+	 */
 	struct omap_drm_private *priv = dev->dev_private;
 	int ret;
 
@@ -610,12 +672,34 @@ static void dev_postclose(struct drm_device *dev, struct drm_file *file)
 	DBG("postclose: dev=%p, file=%p", dev, file);
 }
 
+/**
+ * enable_vblank - enable vblank interrupt events
+ * @dev: DRM device
+ * @crtc: which irq to enable
+ *
+ * Enable vblank interrupts for @crtc.  If the device doesn't have
+ * a hardware vblank counter, this routine should be a no-op, since
+ * interrupts will have to stay on to keep the count accurate.
+ *
+ * RETURNS
+ * Zero on success, appropriate errno if the given @crtc's vblank
+ * interrupt cannot be enabled.
+ */
 static int dev_enable_vblank(struct drm_device *dev, int crtc)
 {
 	DBG("enable_vblank: dev=%p, crtc=%d", dev, crtc);
 	return 0;
 }
 
+/**
+ * disable_vblank - disable vblank interrupt events
+ * @dev: DRM device
+ * @crtc: which irq to enable
+ *
+ * Disable vblank interrupts for @crtc.  If the device doesn't have
+ * a hardware vblank counter, this routine should be a no-op, since
+ * interrupts will have to stay on to keep the count accurate.
+ */
 static void dev_disable_vblank(struct drm_device *dev, int crtc)
 {
 	DBG("disable_vblank: dev=%p, crtc=%d", dev, crtc);
@@ -747,7 +831,7 @@ static int __init omap_drm_init(void)
 {
 	DBG("init");
 	if (platform_driver_register(&omap_dmm_driver)) {
-		
+		/* we can continue on without DMM.. so not fatal */
 		dev_err(NULL, "DMM registration failed\n");
 	}
 	return platform_driver_register(&pdev);
@@ -759,6 +843,7 @@ static void __exit omap_drm_fini(void)
 	platform_driver_unregister(&pdev);
 }
 
+/* need late_initcall() so we load after dss_driver's are loaded */
 late_initcall(omap_drm_init);
 module_exit(omap_drm_fini);
 

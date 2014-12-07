@@ -10,15 +10,19 @@
 #ifndef __XEN_PUBLIC_VERSION_H__
 #define __XEN_PUBLIC_VERSION_H__
 
+/* NB. All ops return zero on success, except XENVER_version. */
 
+/* arg == NULL; returns major:minor (16:16). */
 #define XENVER_version      0
 
+/* arg == xen_extraversion_t. */
 #define XENVER_extraversion 1
 struct xen_extraversion {
     char extraversion[16];
 };
 #define XEN_EXTRAVERSION_LEN (sizeof(struct xen_extraversion))
 
+/* arg == xen_compile_info_t. */
 #define XENVER_compile_info 2
 struct xen_compile_info {
     char compiler[64];
@@ -46,12 +50,14 @@ struct xen_platform_parameters {
 
 #define XENVER_get_features 6
 struct xen_feature_info {
-    unsigned int submap_idx;    
-    uint32_t     submap;        
+    unsigned int submap_idx;    /* IN: which 32-bit submap to return */
+    uint32_t     submap;        /* OUT: 32-bit submap */
 };
 
+/* Declares the features reported by XENVER_get_features. */
 #include "features.h"
 
+/* arg == NULL; returns host memory page size. */
 #define XENVER_pagesize 7
 
-#endif 
+#endif /* __XEN_PUBLIC_VERSION_H__ */

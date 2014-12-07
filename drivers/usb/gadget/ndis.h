@@ -35,6 +35,7 @@ struct NDIS_PM_WAKE_UP_CAPABILITIES {
 	enum NDIS_DEVICE_POWER_STATE  MinLinkChangeWakeUp;
 };
 
+/* NDIS_PNP_CAPABILITIES.Flags constants */
 #define NDIS_DEVICE_WAKE_UP_ENABLE                0x00000001
 #define NDIS_DEVICE_WAKE_ON_PATTERN_MATCH_ENABLE  0x00000002
 #define NDIS_DEVICE_WAKE_ON_MAGIC_PACKET_ENABLE   0x00000004
@@ -54,6 +55,7 @@ struct NDIS_PM_PACKET_PATTERN {
 };
 
 
+/* Required Object IDs (OIDs) */
 #define OID_GEN_SUPPORTED_LIST            0x00010101
 #define OID_GEN_HARDWARE_STATUS           0x00010102
 #define OID_GEN_MEDIA_SUPPORTED           0x00010103
@@ -83,15 +85,18 @@ struct NDIS_PM_PACKET_PATTERN {
 #define OID_GEN_RNDIS_CONFIG_PARAMETER    0x0001021B
 #define OID_GEN_VLAN_ID                   0x0001021C
 
+/* Optional OIDs */
 #define OID_GEN_MEDIA_CAPABILITIES        0x00010201
 #define OID_GEN_PHYSICAL_MEDIUM           0x00010202
 
+/* Required statistics OIDs */
 #define OID_GEN_XMIT_OK                   0x00020101
 #define OID_GEN_RCV_OK                    0x00020102
 #define OID_GEN_XMIT_ERROR                0x00020103
 #define OID_GEN_RCV_ERROR                 0x00020104
 #define OID_GEN_RCV_NO_BUFFER             0x00020105
 
+/* Optional statistics OIDs */
 #define OID_GEN_DIRECTED_BYTES_XMIT       0x00020201
 #define OID_GEN_DIRECTED_FRAMES_XMIT      0x00020202
 #define OID_GEN_MULTICAST_BYTES_XMIT      0x00020203
@@ -117,6 +122,7 @@ struct NDIS_PM_PACKET_PATTERN {
 #define OID_GEN_MINIPORT_INFO             0x00020217
 #define OID_GEN_RESET_VERIFY_PARAMETERS   0x00020218
 
+/* IEEE 802.3 (Ethernet) OIDs */
 #define NDIS_802_3_MAC_OPTION_PRIORITY    0x00000001
 
 #define OID_802_3_PERMANENT_ADDRESS       0x01010101
@@ -135,6 +141,7 @@ struct NDIS_PM_PACKET_PATTERN {
 #define OID_802_3_XMIT_TIMES_CRS_LOST     0x01020206
 #define OID_802_3_XMIT_LATE_COLLISIONS    0x01020207
 
+/* OID_GEN_MINIPORT_INFO constants */
 #define NDIS_MINIPORT_BUS_MASTER                      0x00000001
 #define NDIS_MINIPORT_WDM_DRIVER                      0x00000002
 #define NDIS_MINIPORT_SG_LIST                         0x00000004
@@ -201,4 +208,4 @@ struct NDIS_PM_PACKET_PATTERN {
 #define NDIS_MAC_OPTION_8021P_PRIORITY          0x00000040
 #define NDIS_MAC_OPTION_RESERVED                0x80000000
 
-#endif 
+#endif /* _LINUX_NDIS_H */

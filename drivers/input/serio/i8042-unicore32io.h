@@ -13,13 +13,22 @@
 
 #include <mach/hardware.h>
 
+/*
+ * Names.
+ */
 #define I8042_KBD_PHYS_DESC "isa0060/serio0"
 #define I8042_AUX_PHYS_DESC "isa0060/serio1"
 #define I8042_MUX_PHYS_DESC "isa0060/serio%d"
 
+/*
+ * IRQs.
+ */
 #define I8042_KBD_IRQ           IRQ_PS2_KBD
 #define I8042_AUX_IRQ           IRQ_PS2_AUX
 
+/*
+ * Register numbers.
+ */
 #define I8042_COMMAND_REG	PS2_COMMAND
 #define I8042_STATUS_REG	PS2_STATUS
 #define I8042_DATA_REG		PS2_DATA
@@ -61,4 +70,4 @@ static inline void i8042_platform_exit(void)
 	release_mem_region(I8042_REGION_START, I8042_REGION_SIZE);
 }
 
-#endif 
+#endif /* _I8042_UNICORE32_H */

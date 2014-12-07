@@ -18,7 +18,12 @@
 
 #include <asm/stacktrace.h>
 
+/* Callchain handling code. */
 
+/*
+ * Leave userspace callchain empty for now. When we find a way to trace
+ * the user stack callchains, we will add it here.
+ */
 
 static void save_raw_perf_callchain(struct perf_callchain_entry *entry,
 	unsigned long reg29)

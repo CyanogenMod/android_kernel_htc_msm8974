@@ -17,6 +17,7 @@ struct beacon_rx {
                   + sizeof(struct tim_element)];
 };
 
+/* Return values for get_free{,_tx}_ccs */
 #define ECCSFULL  (-1)
 #define ECCSBUSY  (-2)
 #define ECARDGONE (-3)
@@ -24,10 +25,10 @@ struct beacon_rx {
 typedef struct ray_dev_t {
     int card_status;
     int authentication_state;
-    void __iomem *sram;            
-    void __iomem *amem;            
-    void __iomem *rmem;            
-    struct pcmcia_device *finder;            
+    void __iomem *sram;            /* pointer to beginning of shared RAM     */
+    void __iomem *amem;            /* pointer to attribute mem window        */
+    void __iomem *rmem;            /* pointer to receive buffer window       */
+    struct pcmcia_device *finder;            /* pointer back to struct pcmcia_device for card    */
     struct timer_list timer;
     unsigned long tx_ccs_lock;
     unsigned long ccs_lock;
@@ -41,7 +42,7 @@ typedef struct ray_dev_t {
     UCHAR japan_call_sign[12];
     struct startup_res_6 startup_res;
     int num_multi;
-    
+    /* Network parameters from start/join */
     UCHAR bss_id[6];
     UCHAR auth_id[6];
     UCHAR net_default_tx_rate;
@@ -59,12 +60,13 @@ typedef struct ray_dev_t {
     UCHAR last_rsl;
     int beacon_rxed;
     struct beacon_rx last_bcn;
-    iw_stats	wstats;		
+    iw_stats	wstats;		/* Wireless specific stats */
 #ifdef WIRELESS_SPY
     struct iw_spy_data		spy_data;
     struct iw_public_data	wireless_data;
-#endif	
+#endif	/* WIRELESS_SPY */
 
 } ray_dev_t;
+/*****************************************************************************/
 
-#endif 
+#endif /* RAYLINK_H */

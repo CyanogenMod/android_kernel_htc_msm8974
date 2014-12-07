@@ -38,4 +38,4 @@ extern int hippi_neigh_setup_dev(struct net_device *dev, struct neigh_parms *p);
 extern struct net_device *alloc_hippi_dev(int sizeof_priv);
 #endif
 
-#endif	
+#endif	/* _LINUX_HIPPIDEVICE_H */

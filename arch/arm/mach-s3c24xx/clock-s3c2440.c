@@ -45,6 +45,7 @@
 #include <plat/cpu.h>
 #include <plat/regs-serial.h>
 
+/* S3C2440 extended clock support */
 
 static unsigned long s3c2440_camif_upll_round(struct clk *clk,
 					      unsigned long rate)
@@ -55,7 +56,7 @@ static unsigned long s3c2440_camif_upll_round(struct clk *clk,
 	if (rate > parent_rate)
 		return parent_rate;
 
-	
+	/* note, we remove the +/- 1 calculations for the divisor */
 
 	div = (parent_rate / rate) / 2;
 
@@ -86,6 +87,7 @@ static int s3c2440_camif_upll_setrate(struct clk *clk, unsigned long rate)
 	return 0;
 }
 
+/* Extra S3C2440 clocks */
 
 static struct clk s3c2440_clk_cam = {
 	.name		= "camif",
@@ -111,7 +113,7 @@ static unsigned long  s3c2440_fclk_n_getrate(struct clk *clk)
 {
 	unsigned long ucon0, ucon1, ucon2, divisor;
 
-	
+	/* the fun of calculating the uart divisors on the s3c2440 */
 	ucon0 = __raw_readl(S3C24XX_VA_UART0 + S3C2410_UCON);
 	ucon1 = __raw_readl(S3C24XX_VA_UART1 + S3C2410_UCON);
 	ucon2 = __raw_readl(S3C24XX_VA_UART2 + S3C2410_UCON);
@@ -127,7 +129,7 @@ static unsigned long  s3c2440_fclk_n_getrate(struct clk *clk)
 	else if (ucon2 != 0)
 		divisor = (ucon2 >> S3C2440_UCON_DIVSHIFT) + 36;
 	else
-		
+		/* manual calims 44, seems to be 9 */
 		divisor = 9;
 
 	return clk_get_rate(clk->parent) / divisor;

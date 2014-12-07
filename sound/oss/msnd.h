@@ -159,12 +159,14 @@
 #define msnd_inb			inb
 #endif
 
+/* JobQueueStruct */
 #define JQS_wStart		0x00
 #define JQS_wSize		0x02
 #define JQS_wHead		0x04
 #define JQS_wTail		0x06
 #define JQS__size		0x08
 
+/* DAQueueDataStruct */
 #define DAQDS_wStart		0x00
 #define DAQDS_wSize		0x02
 #define DAQDS_wFormat		0x04
@@ -181,6 +183,7 @@ typedef u16			WORD;
 typedef u32			DWORD;
 typedef void __iomem *		LPDAQD;
 
+/* Generic FIFO */
 typedef struct {
 	size_t n, len;
 	char *data;
@@ -188,25 +191,25 @@ typedef struct {
 } msnd_fifo;
 
 typedef struct multisound_dev {
-	
+	/* Linux device info */
 	char *name;
 	int dsp_minor, mixer_minor;
 	int ext_midi_dev, hdr_midi_dev;
 
-	
+	/* Hardware resources */
 	int io, numio;
 	int memid, irqid;
 	int irq, irq_ref;
 	unsigned char info;
 	void __iomem *base;
 
-	
+	/* Motorola 56k DSP SMA */
 	void __iomem *SMA;
 	void __iomem *DAPQ, *DARQ, *MODQ, *MIDQ, *DSPQ;
 	void __iomem *pwDSPQData, *pwMIDQData, *pwMODQData;
 	int dspq_data_buff, dspq_buff_size;
 
-	
+	/* State variables */
 	enum { msndClassic, msndPinnacle } type;
 	fmode_t mode;
 	unsigned long flags;
@@ -238,12 +241,12 @@ typedef struct multisound_dev {
 	int rec_ndelay;
 	BYTE bCurrentMidiPatch;
 
-	
+	/* Digital audio FIFOs */
 	msnd_fifo DAPF, DARF;
 	int fifosize;
 	int last_playbank, last_recbank;
 
-	
+	/* MIDI in callback */
 	void (*midi_in_interrupt)(struct multisound_dev *);
 } multisound_dev_t;
 
@@ -272,4 +275,4 @@ int				msnd_upload_host(multisound_dev_t *dev, char *bin, int len);
 int				msnd_enable_irq(multisound_dev_t *dev);
 int				msnd_disable_irq(multisound_dev_t *dev);
 
-#endif 
+#endif /* __MSND_H */

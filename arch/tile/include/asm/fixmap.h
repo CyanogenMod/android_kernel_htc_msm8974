@@ -28,13 +28,38 @@
 #define __fix_to_virt(x)	(FIXADDR_TOP - ((x) << PAGE_SHIFT))
 #define __virt_to_fix(x)	((FIXADDR_TOP - ((x)&PAGE_MASK)) >> PAGE_SHIFT)
 
+/*
+ * Here we define all the compile-time 'special' virtual
+ * addresses. The point is to have a constant address at
+ * compile time, but to set the physical address only
+ * in the boot process. We allocate these special addresses
+ * from the end of supervisor virtual memory backwards.
+ * Also this lets us do fail-safe vmalloc(), we
+ * can guarantee that these special addresses and
+ * vmalloc()-ed addresses never overlap.
+ *
+ * these 'compile-time allocated' memory buffers are
+ * fixed-size 4k pages. (or larger if used with an increment
+ * higher than 1) use fixmap_set(idx,phys) to associate
+ * physical memory with fixmap indices.
+ *
+ * TLB entries of such buffers will not be flushed across
+ * task switches.
+ *
+ * We don't bother with a FIX_HOLE since above the fixmaps
+ * is unmapped memory in any case.
+ */
 enum fixed_addresses {
 #ifdef CONFIG_HIGHMEM
-	FIX_KMAP_BEGIN,	
+	FIX_KMAP_BEGIN,	/* reserved pte's for temporary kernel mappings */
 	FIX_KMAP_END = FIX_KMAP_BEGIN+(KM_TYPE_NR*NR_CPUS)-1,
 #endif
 	__end_of_permanent_fixed_addresses,
 
+	/*
+	 * Temporary boot-time mappings, used before ioremap() is functional.
+	 * Not currently needed by the Tile architecture.
+	 */
 #define NR_FIX_BTMAPS	0
 #if NR_FIX_BTMAPS
 	FIX_BTMAP_END = __end_of_permanent_fixed_addresses,
@@ -60,8 +85,22 @@ extern void __set_fixmap(enum fixed_addresses idx,
 
 extern void __this_fixmap_does_not_exist(void);
 
+/*
+ * 'index to address' translation. If anyone tries to use the idx
+ * directly without tranlation, we catch the bug with a NULL-deference
+ * kernel oops. Illegal ranges of incoming indices are caught too.
+ */
 static __always_inline unsigned long fix_to_virt(const unsigned int idx)
 {
+	/*
+	 * this branch gets completely eliminated after inlining,
+	 * except when someone tries to use fixaddr indices in an
+	 * illegal way. (such as mixing up address types or using
+	 * out-of-range indices).
+	 *
+	 * If it doesn't get removed, the linker will complain
+	 * loudly with a reasonably clear error message..
+	 */
 	if (idx >= __end_of_fixed_addresses)
 		__this_fixmap_does_not_exist();
 
@@ -74,6 +113,6 @@ static inline unsigned long virt_to_fix(const unsigned long vaddr)
 	return __virt_to_fix(vaddr);
 }
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_TILE_FIXMAP_H */

@@ -27,6 +27,7 @@
 #include <plat/board.h>
 #include "common.h"
 
+/* assume no Mini-AB port */
 
 #ifdef CONFIG_ARCH_OMAP15XX
 static struct omap_usb_config generic1510_usb_config __initdata = {
@@ -56,7 +57,7 @@ static void __init omap_generic_init(void)
 {
 #ifdef CONFIG_ARCH_OMAP15XX
 	if (cpu_is_omap15xx()) {
-		
+		/* mux pins for uarts */
 		omap_cfg_reg(UART1_TX);
 		omap_cfg_reg(UART1_RTS);
 		omap_cfg_reg(UART2_TX);
@@ -80,7 +81,7 @@ static void __init omap_generic_init(void)
 }
 
 MACHINE_START(OMAP_GENERIC, "Generic OMAP1510/1610/1710")
-	
+	/* Maintainer: Tony Lindgren <tony@atomide.com> */
 	.atag_offset	= 0x100,
 	.map_io		= omap16xx_map_io,
 	.init_early	= omap1_init_early,

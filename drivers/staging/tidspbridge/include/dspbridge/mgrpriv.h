@@ -19,19 +19,27 @@
 #ifndef MGRPRIV_
 #define MGRPRIV_
 
+/*
+ * OMAP1510 specific
+ */
 #define MGR_MAXTLBENTRIES  32
 
+/* RM MGR Object */
 struct mgr_object;
 
 struct mgr_tlbentry {
-	u32 dsp_virt;	
-	u32 gpp_phys;	
+	u32 dsp_virt;	/* DSP virtual address */
+	u32 gpp_phys;	/* GPP physical address */
 };
 
+/*
+ *  The DSP_PROCESSOREXTINFO structure describes additional extended
+ *  capabilities of a DSP processor not exposed to user.
+ */
 struct mgr_processorextinfo {
-	struct dsp_processorinfo ty_basic;	
-	
+	struct dsp_processorinfo ty_basic;	/* user processor info */
+	/* private dsp mmu entries */
 	struct mgr_tlbentry ty_tlb[MGR_MAXTLBENTRIES];
 };
 
-#endif 
+#endif /* MGRPRIV_ */

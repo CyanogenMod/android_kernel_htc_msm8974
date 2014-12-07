@@ -79,6 +79,7 @@
 #define DMM_PATSTATUS_ERR_UPD_DATA	(1<<14)
 #define DMM_PATSTATUS_ERR_ACCESS	(1<<15)
 
+/* note: don't treat DMM_PATSTATUS_ERR_ACCESS as an error */
 #define DMM_PATSTATUS_ERR	(DMM_PATSTATUS_ERR_INV_DESCR | \
 				DMM_PATSTATUS_ERR_INV_DATA | \
 				DMM_PATSTATUS_ERR_UPD_AREA | \
@@ -109,6 +110,11 @@ struct pat {
 
 #define DMM_FIXED_RETRY_COUNT 1000
 
+/* create refill buffer big enough to refill all slots, plus 3 descriptors..
+ * 3 descriptors is probably the worst-case for # of 2d-slices in a 1d area,
+ * but I guess you don't hit that worst case at the same time as full area
+ * refill
+ */
 #define DESCR_SIZE 128
 #define REFILL_BUFFER_SIZE ((4 * 128 * 256) + (3 * DESCR_SIZE))
 
@@ -132,10 +138,10 @@ struct refill_engine {
 	uint8_t *refill_va;
 	dma_addr_t refill_pa;
 
-	
+	/* only one trans per engine for now */
 	struct dmm_txn txn;
 
-	
+	/* offset to lut associated with container */
 	u32 *lut_offset;
 
 	wait_queue_head_t wait_for_refill;
@@ -154,26 +160,26 @@ struct dmm {
 	void *refill_va;
 	dma_addr_t refill_pa;
 
-	
+	/* refill engines */
 	struct semaphore engine_sem;
 	struct list_head idle_head;
 	struct refill_engine *engines;
 	int num_engines;
 
-	
+	/* container information */
 	int container_width;
 	int container_height;
 	int lut_width;
 	int lut_height;
 	int num_lut;
 
-	
+	/* array of LUT - TCM containers */
 	struct tcm **tcm;
 
-	
+	/* LUT table storage */
 	u32 *lut;
 
-	
+	/* allocation list and lock */
 	struct list_head alloc_head;
 	spinlock_t list_lock;
 };

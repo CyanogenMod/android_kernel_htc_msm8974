@@ -7,6 +7,7 @@
 #error only <linux/bitops.h> can be included directly
 #endif
 
+/* For __swab32 */
 #include <asm/byteorder.h>
 
 #ifdef CONFIG_GUSA_RB
@@ -21,6 +22,9 @@
 #include <asm-generic/bitops/non-atomic.h>
 #endif
 
+/*
+ * clear_bit() doesn't provide any barrier for the compiler.
+ */
 #define smp_mb__before_clear_bit()	smp_mb()
 #define smp_mb__after_clear_bit()	smp_mb()
 
@@ -39,6 +43,12 @@ static inline unsigned long ffz(unsigned long word)
 	return result;
 }
 
+/**
+ * __ffs - find first bit in word.
+ * @word: The word to search
+ *
+ * Undefined if no bit exists, so code should check against 0 first.
+ */
 static inline unsigned long __ffs(unsigned long word)
 {
 	unsigned long result;
@@ -89,6 +99,6 @@ static inline unsigned long ffz(unsigned long word)
 #include <asm-generic/bitops/__fls.h>
 #include <asm-generic/bitops/fls64.h>
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ASM_SH_BITOPS_H */

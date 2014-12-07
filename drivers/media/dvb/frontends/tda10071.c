@@ -26,6 +26,7 @@ MODULE_PARM_DESC(debug, "Turn on/off frontend debugging (default:off).");
 
 static struct dvb_frontend_ops tda10071_ops;
 
+/* write multiple registers */
 static int tda10071_wr_regs(struct tda10071_priv *priv, u8 reg, u8 *val,
 	int len)
 {
@@ -53,6 +54,7 @@ static int tda10071_wr_regs(struct tda10071_priv *priv, u8 reg, u8 *val,
 	return ret;
 }
 
+/* read multiple registers */
 static int tda10071_rd_regs(struct tda10071_priv *priv, u8 reg, u8 *val,
 	int len)
 {
@@ -83,16 +85,19 @@ static int tda10071_rd_regs(struct tda10071_priv *priv, u8 reg, u8 *val,
 	return ret;
 }
 
+/* write single register */
 static int tda10071_wr_reg(struct tda10071_priv *priv, u8 reg, u8 val)
 {
 	return tda10071_wr_regs(priv, reg, &val, 1);
 }
 
+/* read single register */
 static int tda10071_rd_reg(struct tda10071_priv *priv, u8 reg, u8 *val)
 {
 	return tda10071_rd_regs(priv, reg, val, 1);
 }
 
+/* write single register with mask */
 int tda10071_wr_reg_mask(struct tda10071_priv *priv, u8 reg, u8 val, u8 mask)
 {
 	int ret;
@@ -112,6 +117,7 @@ int tda10071_wr_reg_mask(struct tda10071_priv *priv, u8 reg, u8 val, u8 mask)
 	return tda10071_wr_regs(priv, reg, &val, 1);
 }
 
+/* read single register with mask */
 int tda10071_rd_reg_mask(struct tda10071_priv *priv, u8 reg, u8 *val, u8 mask)
 {
 	int ret, i;
@@ -123,7 +129,7 @@ int tda10071_rd_reg_mask(struct tda10071_priv *priv, u8 reg, u8 *val, u8 mask)
 
 	tmp &= mask;
 
-	
+	/* find position of the first bit */
 	for (i = 0; i < 8; i++) {
 		if ((mask >> i) & 0x01)
 			break;
@@ -133,6 +139,7 @@ int tda10071_rd_reg_mask(struct tda10071_priv *priv, u8 reg, u8 *val, u8 mask)
 	return 0;
 }
 
+/* execute firmware command */
 static int tda10071_cmd_execute(struct tda10071_priv *priv,
 	struct tda10071_cmd *cmd)
 {
@@ -144,17 +151,17 @@ static int tda10071_cmd_execute(struct tda10071_priv *priv,
 		goto error;
 	}
 
-	
+	/* write cmd and args for firmware */
 	ret = tda10071_wr_regs(priv, 0x00, cmd->args, cmd->len);
 	if (ret)
 		goto error;
 
-	
+	/* start cmd execution */
 	ret = tda10071_wr_reg(priv, 0x1f, 1);
 	if (ret)
 		goto error;
 
-	
+	/* wait cmd execution terminate */
 	for (i = 1000, tmp = 1; i && tmp; i--) {
 		ret = tda10071_rd_reg(priv, 0x1f, &tmp);
 		if (ret)
@@ -285,7 +292,7 @@ static int tda10071_diseqc_send_master_cmd(struct dvb_frontend *fe,
 		goto error;
 	}
 
-	
+	/* wait LNB TX */
 	for (i = 500, tmp = 0; i && !tmp; i--) {
 		ret = tda10071_rd_reg_mask(priv, 0x47, &tmp, 0x01);
 		if (ret)
@@ -339,7 +346,7 @@ static int tda10071_diseqc_recv_slave_reply(struct dvb_frontend *fe,
 
 	dbg("%s:", __func__);
 
-	
+	/* wait LNB RX */
 	for (i = 500, tmp = 0; i && !tmp; i--) {
 		ret = tda10071_rd_reg_mask(priv, 0x47, &tmp, 0x02);
 		if (ret)
@@ -355,16 +362,16 @@ static int tda10071_diseqc_recv_slave_reply(struct dvb_frontend *fe,
 		goto error;
 	}
 
-	
+	/* reply len */
 	ret = tda10071_rd_reg(priv, 0x46, &tmp);
 	if (ret)
 		goto error;
 
-	reply->msg_len = tmp & 0x1f; ;
+	reply->msg_len = tmp & 0x1f; /* [4:0] */;
 	if (reply->msg_len > sizeof(reply->msg))
-		reply->msg_len = sizeof(reply->msg); 
+		reply->msg_len = sizeof(reply->msg); /* truncate API max */
 
-	
+	/* read reply */
 	cmd.args[0x00] = CMD_LNB_UPDATE_REPLY;
 	cmd.args[0x01] = 0;
 	cmd.len = 0x02;
@@ -410,7 +417,7 @@ static int tda10071_diseqc_send_burst(struct dvb_frontend *fe,
 		goto error;
 	}
 
-	
+	/* wait LNB TX */
 	for (i = 500, tmp = 0; i && !tmp; i--) {
 		ret = tda10071_rd_reg_mask(priv, 0x47, &tmp, 0x01);
 		if (ret)
@@ -461,13 +468,13 @@ static int tda10071_read_status(struct dvb_frontend *fe, fe_status_t *status)
 	if (ret)
 		goto error;
 
-	if (tmp & 0x01) 
+	if (tmp & 0x01) /* tuner PLL */
 		*status |= FE_HAS_SIGNAL;
-	if (tmp & 0x02) 
+	if (tmp & 0x02) /* demod PLL */
 		*status |= FE_HAS_CARRIER;
-	if (tmp & 0x04) 
+	if (tmp & 0x04) /* viterbi or LDPC*/
 		*status |= FE_HAS_VITERBI;
-	if (tmp & 0x08) 
+	if (tmp & 0x08) /* RS or BCH */
 		*status |= FE_HAS_SYNC | FE_HAS_LOCK;
 
 	priv->fe_status = *status;
@@ -494,7 +501,7 @@ static int tda10071_read_snr(struct dvb_frontend *fe, u16 *snr)
 	if (ret)
 		goto error;
 
-	
+	/* Es/No dBx10 */
 	*snr = buf[0] << 8 | buf[1];
 
 	return ret;
@@ -523,17 +530,17 @@ static int tda10071_read_signal_strength(struct dvb_frontend *fe, u16 *strength)
 	if (ret)
 		goto error;
 
-	
+	/* input power estimate dBm */
 	ret = tda10071_rd_reg(priv, 0x50, &tmp);
 	if (ret)
 		goto error;
 
 	if (tmp < 181)
-		tmp = 181; 
+		tmp = 181; /* -75 dBm */
 	else if (tmp > 236)
-		tmp = 236; 
+		tmp = 236; /* -20 dBm */
 
-	
+	/* scale value to 0x0000-0xffff */
 	*strength = (tmp-181) * 0xffff / (236-181);
 
 	return ret;
@@ -619,7 +626,7 @@ static int tda10071_read_ucblocks(struct dvb_frontend *fe, u32 *ucblocks)
 		goto error;
 	}
 
-	
+	/* UCB is updated when BER is read. Assume BER is read anyway. */
 
 	*ucblocks = priv->ucb;
 
@@ -657,6 +664,8 @@ static int tda10071_set_frontend(struct dvb_frontend *fe)
 		inversion = 0;
 		break;
 	case INVERSION_AUTO:
+		/* 2 = auto; try first on then off
+		 * 3 = auto; try first off then on */
 		inversion = 3;
 		break;
 	default:
@@ -890,13 +899,13 @@ static int tda10071_init(struct dvb_frontend *fe)
 		{ 0xd5, 0x03, 0x03 },
 	};
 
-	
+	/* firmware status */
 	ret = tda10071_rd_reg(priv, 0x51, &tmp);
 	if (ret)
 		goto error;
 
 	if (!tmp) {
-		
+		/* warm state - wake up device from sleep */
 		priv->warm = 1;
 
 		for (i = 0; i < ARRAY_SIZE(tab); i++) {
@@ -914,10 +923,10 @@ static int tda10071_init(struct dvb_frontend *fe)
 		if (ret)
 			goto error;
 	} else {
-		
+		/* cold state - try to download firmware */
 		priv->warm = 0;
 
-		
+		/* request the firmware, this will block and timeout */
 		ret = request_firmware(&fw, fw_file, priv->i2c->dev.parent);
 		if (ret) {
 			err("did not find the firmware file. (%s) "
@@ -927,7 +936,7 @@ static int tda10071_init(struct dvb_frontend *fe)
 			goto error;
 		}
 
-		
+		/* init */
 		for (i = 0; i < ARRAY_SIZE(tab2); i++) {
 			ret = tda10071_wr_reg_mask(priv, tab2[i].reg,
 				tab2[i].val, tab2[i].mask);
@@ -935,7 +944,7 @@ static int tda10071_init(struct dvb_frontend *fe)
 				goto error_release_firmware;
 		}
 
-		
+		/*  download firmware */
 		ret = tda10071_wr_reg(priv, 0xe0, 0x7f);
 		if (ret)
 			goto error_release_firmware;
@@ -957,7 +966,7 @@ static int tda10071_init(struct dvb_frontend *fe)
 
 		info("downloading firmware from file '%s'", fw_file);
 
-		
+		/* do not download last byte */
 		fw_size = fw->size - 1;
 
 		for (remaining = fw_size; remaining > 0;
@@ -984,10 +993,10 @@ static int tda10071_init(struct dvb_frontend *fe)
 		if (ret)
 			goto error;
 
-		
+		/* wait firmware start */
 		msleep(250);
 
-		
+		/* firmware status */
 		ret = tda10071_rd_reg(priv, 0x51, &tmp);
 		if (ret)
 			goto error;
@@ -1167,33 +1176,33 @@ struct dvb_frontend *tda10071_attach(const struct tda10071_config *config,
 	struct tda10071_priv *priv = NULL;
 	u8 tmp;
 
-	
+	/* allocate memory for the internal priv */
 	priv = kzalloc(sizeof(struct tda10071_priv), GFP_KERNEL);
 	if (priv == NULL) {
 		ret = -ENOMEM;
 		goto error;
 	}
 
-	
+	/* setup the priv */
 	priv->i2c = i2c;
 	memcpy(&priv->cfg, config, sizeof(struct tda10071_config));
 
-	
+	/* chip ID */
 	ret = tda10071_rd_reg(priv, 0xff, &tmp);
 	if (ret || tmp != 0x0f)
 		goto error;
 
-	
+	/* chip type */
 	ret = tda10071_rd_reg(priv, 0xdd, &tmp);
 	if (ret || tmp != 0x00)
 		goto error;
 
-	
+	/* chip version */
 	ret = tda10071_rd_reg(priv, 0xfe, &tmp);
 	if (ret || tmp != 0x01)
 		goto error;
 
-	
+	/* create dvb_frontend */
 	memcpy(&priv->fe.ops, &tda10071_ops, sizeof(struct dvb_frontend_ops));
 	priv->fe.demodulator_priv = priv;
 

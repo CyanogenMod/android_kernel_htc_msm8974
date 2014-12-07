@@ -57,8 +57,12 @@
 #define DBG(args...)	do { } while(0)
 #endif
 
+/* define this to force CPU overtemp to 74 degree, useful for testing
+ * the overtemp code
+ */
 #undef HACKED_OVERTEMP
 
+/* Controls & sensors */
 static struct wf_sensor	*sensor_cpu_power;
 static struct wf_sensor	*sensor_cpu_temp;
 static struct wf_sensor	*sensor_hd_temp;
@@ -70,8 +74,10 @@ static struct wf_control *fan_hd;
 static struct wf_control *fan_slots;
 static struct wf_control *cpufreq_clamp;
 
+/* Set to kick the control loop into life */
 static int wf_smu_all_controls_ok, wf_smu_all_sensors_ok, wf_smu_started;
 
+/* Failure handling.. could be nicer */
 #define FAILURE_FAN		0x01
 #define FAILURE_SENSOR		0x02
 #define FAILURE_OVERTEMP	0x04
@@ -79,11 +85,17 @@ static int wf_smu_all_controls_ok, wf_smu_all_sensors_ok, wf_smu_started;
 static unsigned int wf_smu_failure_state;
 static int wf_smu_readjust, wf_smu_skipping;
 
+/*
+ * ****** CPU Fans Control Loop ******
+ *
+ */
 
 
 #define WF_SMU_CPU_FANS_INTERVAL	1
 #define WF_SMU_CPU_FANS_MAX_HISTORY	16
 
+/* State data used by the cpu fans control loop
+ */
 struct wf_smu_cpu_fans_state {
 	int			ticks;
 	s32			cpu_setpoint;
@@ -94,6 +106,10 @@ static struct wf_smu_cpu_fans_state *wf_smu_cpu_fans;
 
 
 
+/*
+ * ****** Drive Fan Control Loop ******
+ *
+ */
 
 struct wf_smu_drive_fans_state {
 	int			ticks;
@@ -103,6 +119,10 @@ struct wf_smu_drive_fans_state {
 
 static struct wf_smu_drive_fans_state *wf_smu_drive_fans;
 
+/*
+ * ****** Slots Fan Control Loop ******
+ *
+ */
 
 struct wf_smu_slots_fans_state {
 	int			ticks;
@@ -112,6 +132,10 @@ struct wf_smu_slots_fans_state {
 
 static struct wf_smu_slots_fans_state *wf_smu_slots_fans;
 
+/*
+ * ***** Implementation *****
+ *
+ */
 
 
 static void wf_smu_create_cpu_fans(void)
@@ -122,7 +146,7 @@ static void wf_smu_create_cpu_fans(void)
 	struct smu_sdbp_fvt *fvt;
 	s32 tmax, tdelta, maxpow, powadj;
 
-	
+	/* First, locate the PID params in SMU SBD */
 	hdr = smu_get_sdb_partition(SMU_SDB_CPUPIDDATA_ID, NULL);
 	if (hdr == 0) {
 		printk(KERN_WARNING "windfarm: CPU PID fan config not found "
@@ -131,21 +155,24 @@ static void wf_smu_create_cpu_fans(void)
 	}
 	piddata = (struct smu_sdbp_cpupiddata *)&hdr[1];
 
+	/* Get the FVT params for operating point 0 (the only supported one
+	 * for now) in order to get tmax
+	 */
 	hdr = smu_get_sdb_partition(SMU_SDB_FVT_ID, NULL);
 	if (hdr) {
 		fvt = (struct smu_sdbp_fvt *)&hdr[1];
 		tmax = ((s32)fvt->maxtemp) << 16;
 	} else
-		tmax = 0x5e0000; 
+		tmax = 0x5e0000; /* 94 degree default */
 
-	
+	/* Alloc & initialize state */
 	wf_smu_cpu_fans = kmalloc(sizeof(struct wf_smu_cpu_fans_state),
 				  GFP_KERNEL);
 	if (wf_smu_cpu_fans == NULL)
 		goto fail;
        	wf_smu_cpu_fans->ticks = 1;
 
-	
+	/* Fill PID params */
 	pid_param.interval = WF_SMU_CPU_FANS_INTERVAL;
 	pid_param.history_len = piddata->history_len;
 	if (pid_param.history_len > WF_CPU_PID_MAX_HISTORY) {
@@ -273,7 +300,7 @@ static void wf_smu_create_drive_fans(void)
 		.itarget	= 0x00200000,
 	};
 
-	
+	/* Alloc & initialize state */
 	wf_smu_drive_fans = kmalloc(sizeof(struct wf_smu_drive_fans_state),
 					GFP_KERNEL);
 	if (wf_smu_drive_fans == NULL) {
@@ -283,7 +310,7 @@ static void wf_smu_create_drive_fans(void)
 	}
        	wf_smu_drive_fans->ticks = 1;
 
-	
+	/* Fill PID params */
 	param.additive = (fan_hd->type == WF_CONTROL_RPM_FAN);
 	param.min = fan_hd->ops->get_min(fan_hd);
 	param.max = fan_hd->ops->get_max(fan_hd);
@@ -354,7 +381,7 @@ static void wf_smu_create_slots_fans(void)
 		.itarget	= 0x00000000
 	};
 
-	
+	/* Alloc & initialize state */
 	wf_smu_slots_fans = kmalloc(sizeof(struct wf_smu_slots_fans_state),
 					GFP_KERNEL);
 	if (wf_smu_slots_fans == NULL) {
@@ -364,7 +391,7 @@ static void wf_smu_create_slots_fans(void)
 	}
        	wf_smu_slots_fans->ticks = 1;
 
-	
+	/* Fill PID params */
 	param.additive = (fan_slots->type == WF_CONTROL_RPM_FAN);
 	param.min = fan_slots->ops->get_min(fan_slots);
 	param.max = fan_slots->ops->get_max(fan_slots);
@@ -403,7 +430,7 @@ static void wf_smu_slots_fans_tick(struct wf_smu_slots_fans_state *st)
 	DBG("wf_smu: Slots Fans tick ! Slots power: %d.%03d\n",
 	    FIX32TOPRINT(power));
 
-#if 0 
+#if 0 /* Check what makes a good overtemp condition */
 	if (power > (st->pid.param.itarget + 0x50000))
 		wf_smu_failure_state |= FAILURE_OVERTEMP;
 #endif
@@ -427,6 +454,10 @@ static void wf_smu_slots_fans_tick(struct wf_smu_slots_fans_state *st)
 }
 
 
+/*
+ * ****** Setup / Init / Misc ... ******
+ *
+ */
 
 static void wf_smu_tick(void)
 {
@@ -441,7 +472,7 @@ static void wf_smu_tick(void)
 		wf_smu_started = 1;
 	}
 
-	
+	/* Skipping ticks */
 	if (wf_smu_skipping && --wf_smu_skipping)
 		return;
 
@@ -456,6 +487,9 @@ static void wf_smu_tick(void)
 	wf_smu_readjust = 0;
 	new_failure = wf_smu_failure_state & ~last_failure;
 
+	/* If entering failure mode, clamp cpufreq and ramp all
+	 * fans to full speed.
+	 */
 	if (wf_smu_failure_state && !last_failure) {
 		if (cpufreq_clamp)
 			wf_control_set_max(cpufreq_clamp);
@@ -471,17 +505,29 @@ static void wf_smu_tick(void)
 			wf_control_set_max(fan_slots);
 	}
 
+	/* If leaving failure mode, unclamp cpufreq and readjust
+	 * all fans on next iteration
+	 */
 	if (!wf_smu_failure_state && last_failure) {
 		if (cpufreq_clamp)
 			wf_control_set_min(cpufreq_clamp);
 		wf_smu_readjust = 1;
 	}
 
+	/* Overtemp condition detected, notify and start skipping a couple
+	 * ticks to let the temperature go down
+	 */
 	if (new_failure & FAILURE_OVERTEMP) {
 		wf_set_overtemp();
 		wf_smu_skipping = 2;
 	}
 
+	/* We only clear the overtemp condition if overtemp is cleared
+	 * _and_ no other failure is present. Since a sensor error will
+	 * clear the overtemp condition (can't measure temperature) at
+	 * the control loop levels, but we don't want to keep it clear
+	 * here in this case
+	 */
 	if (new_failure == 0 && last_failure & FAILURE_OVERTEMP)
 		wf_clear_overtemp();
 }
@@ -603,9 +649,19 @@ static int __devexit wf_smu_remove(struct platform_device *ddev)
 {
 	wf_unregister_client(&wf_smu_events);
 
+	/* XXX We don't have yet a guarantee that our callback isn't
+	 * in progress when returning from wf_unregister_client, so
+	 * we add an arbitrary delay. I'll have to fix that in the core
+	 */
 	msleep(1000);
 
-	
+	/* Release all sensors */
+	/* One more crappy race: I don't think we have any guarantee here
+	 * that the attribute callback won't race with the sensor beeing
+	 * disposed of, and I'm not 100% certain what best way to deal
+	 * with that except by adding locks all over... I'll do that
+	 * eventually but heh, who ever rmmod this module anyway ?
+	 */
 	if (sensor_cpu_power)
 		wf_put_sensor(sensor_cpu_power);
 	if (sensor_cpu_temp)
@@ -615,7 +671,7 @@ static int __devexit wf_smu_remove(struct platform_device *ddev)
 	if (sensor_slots_power)
 		wf_put_sensor(sensor_slots_power);
 
-	
+	/* Release all controls */
 	if (fan_cpu_main)
 		wf_put_control(fan_cpu_main);
 	if (fan_cpu_second)
@@ -629,7 +685,7 @@ static int __devexit wf_smu_remove(struct platform_device *ddev)
 	if (cpufreq_clamp)
 		wf_put_control(cpufreq_clamp);
 
-	
+	/* Destroy control loops state structures */
 	kfree(wf_smu_slots_fans);
 	kfree(wf_smu_drive_fans);
 	kfree(wf_smu_cpu_fans);
@@ -661,7 +717,7 @@ static int __init wf_smu_init(void)
 		request_module("windfarm_lm75_sensor");
 		request_module("windfarm_cpufreq_clamp");
 
-#endif 
+#endif /* MODULE */
 		platform_driver_register(&wf_smu_driver);
 	}
 

@@ -21,10 +21,17 @@
 #include "fsl_dma.h"
 #include "fsl_ssi.h"
 
+/* There's only one global utilities register */
 static phys_addr_t guts_phys;
 
 #define DAI_NAME_SIZE	32
 
+/**
+ * mpc8610_hpcd_data: machine-specific ASoC device data
+ *
+ * This structure contains data for a single sound platform device on an
+ * MPC8610 HPCD.  Some of the data is taken from the device tree.
+ */
 struct mpc8610_hpcd_data {
 	struct snd_soc_dai_link dai[2];
 	struct snd_soc_card card;
@@ -32,14 +39,21 @@ struct mpc8610_hpcd_data {
 	unsigned int codec_clk_direction;
 	unsigned int cpu_clk_direction;
 	unsigned int clk_frequency;
-	unsigned int ssi_id;		
-	unsigned int dma_id[2];		
-	unsigned int dma_channel_id[2]; 
+	unsigned int ssi_id;		/* 0 = SSI1, 1 = SSI2, etc */
+	unsigned int dma_id[2];		/* 0 = DMA1, 1 = DMA2, etc */
+	unsigned int dma_channel_id[2]; /* 0 = ch 0, 1 = ch 1, etc*/
 	char codec_dai_name[DAI_NAME_SIZE];
 	char codec_name[DAI_NAME_SIZE];
-	char platform_name[2][DAI_NAME_SIZE]; 
+	char platform_name[2][DAI_NAME_SIZE]; /* One for each DMA channel */
 };
 
+/**
+ * mpc8610_hpcd_machine_probe: initialize the board
+ *
+ * This function is used to initialize the board-specific hardware.
+ *
+ * Here we program the DMACR and PMUXCR registers.
+ */
 static int mpc8610_hpcd_machine_probe(struct snd_soc_card *card)
 {
 	struct mpc8610_hpcd_data *machine_data =
@@ -52,7 +66,7 @@ static int mpc8610_hpcd_machine_probe(struct snd_soc_card *card)
 		return -ENOMEM;
 	}
 
-	
+	/* Program the signal routing between the SSI and the DMA */
 	guts_set_dmacr(guts, machine_data->dma_id[0],
 		       machine_data->dma_channel_id[0],
 		       CCSR_GUTS_DMACR_DEV_SSI);
@@ -81,6 +95,13 @@ static int mpc8610_hpcd_machine_probe(struct snd_soc_card *card)
 	return 0;
 }
 
+/**
+ * mpc8610_hpcd_startup: program the board with various hardware parameters
+ *
+ * This function takes board-specific information, like clock frequencies
+ * and serial data formats, and passes that information to the codec and
+ * transport drivers.
+ */
 static int mpc8610_hpcd_startup(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
@@ -89,13 +110,17 @@ static int mpc8610_hpcd_startup(struct snd_pcm_substream *substream)
 	struct device *dev = rtd->card->dev;
 	int ret = 0;
 
-	
+	/* Tell the codec driver what the serial protocol is. */
 	ret = snd_soc_dai_set_fmt(rtd->codec_dai, machine_data->dai_format);
 	if (ret < 0) {
 		dev_err(dev, "could not set codec driver audio format\n");
 		return ret;
 	}
 
+	/*
+	 * Tell the codec driver what the MCLK frequency is, and whether it's
+	 * a slave or master.
+	 */
 	ret = snd_soc_dai_set_sysclk(rtd->codec_dai, 0,
 				     machine_data->clk_frequency,
 				     machine_data->codec_clk_direction);
@@ -107,6 +132,12 @@ static int mpc8610_hpcd_startup(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+/**
+ * mpc8610_hpcd_machine_remove: Remove the sound device
+ *
+ * This function is called to remove the sound device for one SSI.  We
+ * de-program the DMACR and PMUXCR register.
+ */
 static int mpc8610_hpcd_machine_remove(struct snd_soc_card *card)
 {
 	struct mpc8610_hpcd_data *machine_data =
@@ -119,7 +150,7 @@ static int mpc8610_hpcd_machine_remove(struct snd_soc_card *card)
 		return -ENOMEM;
 	}
 
-	
+	/* Restore the signal routing */
 
 	guts_set_dmacr(guts, machine_data->dma_id[0],
 		       machine_data->dma_channel_id[0], 0);
@@ -142,10 +173,23 @@ static int mpc8610_hpcd_machine_remove(struct snd_soc_card *card)
 	return 0;
 }
 
+/**
+ * mpc8610_hpcd_ops: ASoC machine driver operations
+ */
 static struct snd_soc_ops mpc8610_hpcd_ops = {
 	.startup = mpc8610_hpcd_startup,
 };
 
+/**
+ * get_node_by_phandle_name - get a node by its phandle name
+ *
+ * This function takes a node, the name of a property in that node, and a
+ * compatible string.  Assuming the property is a phandle to another node,
+ * it returns that node, (optionally) if that node is compatible.
+ *
+ * If the property is not a phandle, or the node it points to is not compatible
+ * with the specific string, then NULL is returned.
+ */
 static struct device_node *get_node_by_phandle_name(struct device_node *np,
 					       const char *name,
 					       const char *compatible)
@@ -169,6 +213,13 @@ static struct device_node *get_node_by_phandle_name(struct device_node *np,
 	return np;
 }
 
+/**
+ * get_parent_cell_index -- return the cell-index of the parent of a node
+ *
+ * Return the value of the cell-index property of the parent of the given
+ * node.  This is used for DMA channel nodes that need to know the DMA ID
+ * of the controller they are on.
+ */
 static int get_parent_cell_index(struct device_node *np)
 {
 	struct device_node *parent = of_get_parent(np);
@@ -186,6 +237,16 @@ static int get_parent_cell_index(struct device_node *np)
 	return be32_to_cpup(iprop);
 }
 
+/**
+ * codec_node_dev_name - determine the dev_name for a codec node
+ *
+ * This function determines the dev_name for an I2C node.  This is the name
+ * that would be returned by dev_name() if this device_node were part of a
+ * 'struct device'  It's ugly and hackish, but it works.
+ *
+ * The dev_name for such devices include the bus number and I2C address. For
+ * example, "cs4270.0-004f".
+ */
 static int codec_node_dev_name(struct device_node *np, char *buf, size_t len)
 {
 	const u32 *iprop;
@@ -201,7 +262,7 @@ static int codec_node_dev_name(struct device_node *np, char *buf, size_t len)
 
 	addr = be32_to_cpup(iprop);
 
-	
+	/* We need the adapter number */
 	i2c = of_find_i2c_device_by_node(np);
 	if (!i2c)
 		return -ENODEV;
@@ -227,6 +288,14 @@ static int get_dma_channel(struct device_node *ssi_np,
 	if (!dma_channel_np)
 		return -EINVAL;
 
+	/* Determine the dev_name for the device_node.  This code mimics the
+	 * behavior of of_device_make_bus_id(). We need this because ASoC uses
+	 * the dev_name() of the device to match the platform (DMA) device with
+	 * the CPU (SSI) device.  It's all ugly and hackish, but it works (for
+	 * now).
+	 *
+	 * dai->platform name should already point to an allocated buffer.
+	 */
 	ret = of_address_to_resource(dma_channel_np, 0, &res);
 	if (ret)
 		return ret;
@@ -246,10 +315,17 @@ static int get_dma_channel(struct device_node *ssi_np,
 	return 0;
 }
 
+/**
+ * mpc8610_hpcd_probe: platform probe function for the machine driver
+ *
+ * Although this is a machine driver, the SSI node is the "master" node with
+ * respect to audio hardware connections.  Therefore, we create a new ASoC
+ * device for each new SSI node that has a codec attached.
+ */
 static int mpc8610_hpcd_probe(struct platform_device *pdev)
 {
 	struct device *dev = pdev->dev.parent;
-	
+	/* ssi_pdev is the platform device for the SSI node that probed us */
 	struct platform_device *ssi_pdev =
 		container_of(dev, struct platform_device, dev);
 	struct device_node *np = ssi_pdev->dev.of_node;
@@ -260,7 +336,7 @@ static int mpc8610_hpcd_probe(struct platform_device *pdev)
 	const char *sprop;
 	const u32 *iprop;
 
-	
+	/* Find the codec node for this SSI. */
 	codec_np = of_parse_phandle(np, "codec-handle", 0);
 	if (!codec_np) {
 		dev_err(dev, "invalid codec node\n");
@@ -276,7 +352,7 @@ static int mpc8610_hpcd_probe(struct platform_device *pdev)
 	machine_data->dai[0].cpu_dai_name = dev_name(&ssi_pdev->dev);
 	machine_data->dai[0].ops = &mpc8610_hpcd_ops;
 
-	
+	/* Determine the codec name, it will be used as the codec DAI name */
 	ret = codec_node_dev_name(codec_np, machine_data->codec_name,
 				  DAI_NAME_SIZE);
 	if (ret) {
@@ -287,13 +363,17 @@ static int mpc8610_hpcd_probe(struct platform_device *pdev)
 	}
 	machine_data->dai[0].codec_name = machine_data->codec_name;
 
-	
+	/* The DAI name from the codec (snd_soc_dai_driver.name) */
 	machine_data->dai[0].codec_dai_name = "cs4270-hifi";
 
+	/* We register two DAIs per SSI, one for playback and the other for
+	 * capture.  Currently, we only support codecs that have one DAI for
+	 * both playback and capture.
+	 */
 	memcpy(&machine_data->dai[1], &machine_data->dai[0],
 	       sizeof(struct snd_soc_dai_link));
 
-	
+	/* Get the device ID */
 	iprop = of_get_property(np, "cell-index", NULL);
 	if (!iprop) {
 		dev_err(&pdev->dev, "cell-index property not found\n");
@@ -302,7 +382,7 @@ static int mpc8610_hpcd_probe(struct platform_device *pdev)
 	}
 	machine_data->ssi_id = be32_to_cpup(iprop);
 
-	
+	/* Get the serial format and clock direction. */
 	sprop = of_get_property(np, "fsl,mode", NULL);
 	if (!sprop) {
 		dev_err(&pdev->dev, "fsl,mode property not found\n");
@@ -316,6 +396,10 @@ static int mpc8610_hpcd_probe(struct platform_device *pdev)
 		machine_data->codec_clk_direction = SND_SOC_CLOCK_OUT;
 		machine_data->cpu_clk_direction = SND_SOC_CLOCK_IN;
 
+		/* In i2s-slave mode, the codec has its own clock source, so we
+		 * need to get the frequency from the device tree and pass it to
+		 * the codec driver.
+		 */
 		iprop = of_get_property(codec_np, "clock-frequency", NULL);
 		if (!iprop || !*iprop) {
 			dev_err(&pdev->dev, "codec bus-frequency "
@@ -372,7 +456,7 @@ static int mpc8610_hpcd_probe(struct platform_device *pdev)
 		goto error;
 	}
 
-	
+	/* Find the playback DMA channel to use. */
 	machine_data->dai[0].platform_name = machine_data->platform_name[0];
 	ret = get_dma_channel(np, "fsl,playback-dma", &machine_data->dai[0],
 			      &machine_data->dma_channel_id[0],
@@ -382,7 +466,7 @@ static int mpc8610_hpcd_probe(struct platform_device *pdev)
 		goto error;
 	}
 
-	
+	/* Find the capture DMA channel to use. */
 	machine_data->dai[1].platform_name = machine_data->platform_name[1];
 	ret = get_dma_channel(np, "fsl,capture-dma", &machine_data->dai[1],
 			      &machine_data->dma_channel_id[1],
@@ -392,7 +476,7 @@ static int mpc8610_hpcd_probe(struct platform_device *pdev)
 		goto error;
 	}
 
-	
+	/* Initialize our DAI data structure.  */
 	machine_data->dai[0].stream_name = "playback";
 	machine_data->dai[1].stream_name = "capture";
 	machine_data->dai[0].name = machine_data->dai[0].stream_name;
@@ -400,11 +484,11 @@ static int mpc8610_hpcd_probe(struct platform_device *pdev)
 
 	machine_data->card.probe = mpc8610_hpcd_machine_probe;
 	machine_data->card.remove = mpc8610_hpcd_machine_remove;
-	machine_data->card.name = pdev->name; 
+	machine_data->card.name = pdev->name; /* The platform driver name */
 	machine_data->card.num_links = 2;
 	machine_data->card.dai_link = machine_data->dai;
 
-	
+	/* Allocate a new audio platform device structure */
 	sound_device = platform_device_alloc("soc-audio", -1);
 	if (!sound_device) {
 		dev_err(&pdev->dev, "platform device alloc failed\n");
@@ -412,10 +496,10 @@ static int mpc8610_hpcd_probe(struct platform_device *pdev)
 		goto error;
 	}
 
-	
+	/* Associate the card data with the sound device */
 	platform_set_drvdata(sound_device, &machine_data->card);
 
-	
+	/* Register with ASoC */
 	ret = platform_device_add(sound_device);
 	if (ret) {
 		dev_err(&pdev->dev, "platform device add failed\n");
@@ -436,6 +520,11 @@ error_alloc:
 	return ret;
 }
 
+/**
+ * mpc8610_hpcd_remove: remove the platform device
+ *
+ * This function is called when the platform device is removed.
+ */
 static int __devexit mpc8610_hpcd_remove(struct platform_device *pdev)
 {
 	struct platform_device *sound_device = dev_get_drvdata(&pdev->dev);
@@ -457,11 +546,19 @@ static struct platform_driver mpc8610_hpcd_driver = {
 	.probe = mpc8610_hpcd_probe,
 	.remove = __devexit_p(mpc8610_hpcd_remove),
 	.driver = {
+		/* The name must match 'compatible' property in the device tree,
+		 * in lowercase letters.
+		 */
 		.name = "snd-soc-mpc8610hpcd",
 		.owner = THIS_MODULE,
 	},
 };
 
+/**
+ * mpc8610_hpcd_init: machine driver initialization.
+ *
+ * This function is called when this module is loaded.
+ */
 static int __init mpc8610_hpcd_init(void)
 {
 	struct device_node *guts_np;
@@ -469,7 +566,7 @@ static int __init mpc8610_hpcd_init(void)
 
 	pr_info("Freescale MPC8610 HPCD ALSA SoC machine driver\n");
 
-	
+	/* Get the physical address of the global utilities registers */
 	guts_np = of_find_compatible_node(NULL, NULL, "fsl,mpc8610-guts");
 	if (of_address_to_resource(guts_np, 0, &res)) {
 		pr_err("mpc8610-hpcd: missing/invalid global utilities node\n");
@@ -480,6 +577,11 @@ static int __init mpc8610_hpcd_init(void)
 	return platform_driver_register(&mpc8610_hpcd_driver);
 }
 
+/**
+ * mpc8610_hpcd_exit: machine driver exit
+ *
+ * This function is called when this driver is unloaded.
+ */
 static void __exit mpc8610_hpcd_exit(void)
 {
 	platform_driver_unregister(&mpc8610_hpcd_driver);

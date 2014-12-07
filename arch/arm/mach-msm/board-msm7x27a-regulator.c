@@ -16,6 +16,7 @@
 
 #define VOLTAGE_RANGE(min_uV, max_uV, step_uV)	((max_uV - min_uV) / step_uV)
 
+/* Physically available PMIC regulator voltage setpoint ranges */
 #define p_ranges VOLTAGE_RANGE(1500000, 3300000, 25000)
 
 #define n_ranges VOLTAGE_RANGE(750000, 1525000, 12500)
@@ -204,6 +205,15 @@ PCOM_VREG_CONSUMERS(ncp)   = {
 };
 
 static struct proccomm_regulator_info msm7x27a_pcom_vreg_info[] = {
+	/* Standard regulators (SMPS and LDO)
+	 * R = rise time (us)
+	 * P = pulldown (1 = pull down, 0 = float, -1 = don't care)
+	 * A = always on
+	 * B = boot on
+	 * V = automatic voltage set (meaningful for single-voltage regs only)
+	 * S = supply voltage (uV)
+	 * T = type of regulator (smps, pldo, nldo)
+	 *            name   id  supp  min uV    max uV  R   P  A  B  V  S  T*/
 	PCOM_VREG_SMP(smps1,  3, NULL, 1100000, 1100000, 0, -1, 0, 0, 0, 0, s),
 	PCOM_VREG_SMP(smps2,  4, NULL, 1100000, 1100000, 0, -1, 0, 0, 0, 0, s),
 	PCOM_VREG_SMP(smps3,  2, NULL, 1800000, 1800000, 0, -1, 0, 0, 0, 0, s),

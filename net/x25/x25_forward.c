@@ -31,13 +31,22 @@ int x25_forward_call(struct x25_address *dest_addr, struct x25_neigh *from,
 		goto out_no_route;
 
 	if ((neigh_new = x25_get_neigh(rt->dev)) == NULL) {
+		/* This shouldn't happen, if it occurs somehow
+		 * do something sensible
+		 */
 		goto out_put_route;
 	}
 
+	/* Avoid a loop. This is the normal exit path for a
+	 * system with only one x.25 iface and default route
+	 */
 	if (rt->dev == from->dev) {
 		goto out_put_nb;
 	}
 
+	/* Remote end sending a call request on an already
+	 * established LCI? It shouldn't happen, just in case..
+	 */
 	read_lock_bh(&x25_forward_list_lock);
 	list_for_each(entry, &x25_forward_list) {
 		x25_frwd = list_entry(entry, struct x25_forward, node);
@@ -48,7 +57,7 @@ int x25_forward_call(struct x25_address *dest_addr, struct x25_neigh *from,
 	}
 	read_unlock_bh(&x25_forward_list_lock);
 
-	
+	/* Save the forwarding details for future traffic */
 	if (!same_lci){
 		if ((new_frwd = kmalloc(sizeof(struct x25_forward),
 						GFP_ATOMIC)) == NULL){
@@ -63,7 +72,7 @@ int x25_forward_call(struct x25_address *dest_addr, struct x25_neigh *from,
 		write_unlock_bh(&x25_forward_list_lock);
 	}
 
-	
+	/* Forward the call request */
 	if ( (skbn = skb_clone(skb, GFP_ATOMIC)) == NULL){
 		goto out_put_nb;
 	}
@@ -95,7 +104,7 @@ int x25_forward_data(int lci, struct x25_neigh *from, struct sk_buff *skb) {
 	list_for_each(entry, &x25_forward_list) {
 		frwd = list_entry(entry, struct x25_forward, node);
 		if (frwd->lci == lci) {
-			
+			/* The call is established, either side can send */
 			if (from->dev == frwd->dev1) {
 				peer = frwd->dev2;
 			} else {

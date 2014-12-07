@@ -24,7 +24,7 @@
 static struct {
 	struct pci_controller *channel;
 	struct tx4927_pcic_reg __iomem *pcicptr;
-} pcicptrs[2];	
+} pcicptrs[2];	/* TX4938 has 2 pcic */
 
 static void __init set_tx4927_pcicptr(struct pci_controller *channel,
 				      struct tx4927_pcic_reg __iomem *pcicptr)
@@ -69,7 +69,7 @@ static int mkaddr(struct pci_bus *bus, unsigned int devfn, int where,
 		     | ((devfn & 0xff) << 0x08) | (where & 0xfc)
 		     | (bus->parent ? 1 : 0),
 		     &pcicptr->g2pcfgadrs);
-	
+	/* clear M_ABORT and Disable M_ABORT Int. */
 	__raw_writel((__raw_readl(&pcicptr->pcistatus) & 0x0000ffff)
 		     | (PCI_STATUS_REC_MASTER_ABORT << 16),
 		     &pcicptr->pcistatus);
@@ -80,7 +80,7 @@ static int check_abort(struct tx4927_pcic_reg __iomem *pcicptr)
 {
 	int code = PCIBIOS_SUCCESSFUL;
 
-	
+	/* wait write cycle completion before checking error status */
 	while (__raw_readl(&pcicptr->pcicstatus) & TX4927_PCIC_PCICSTATUS_IWB)
 		;
 	if (__raw_readl(&pcicptr->pcistatus)
@@ -88,7 +88,7 @@ static int check_abort(struct tx4927_pcic_reg __iomem *pcicptr)
 		__raw_writel((__raw_readl(&pcicptr->pcistatus) & 0x0000ffff)
 			     | (PCI_STATUS_REC_MASTER_ABORT << 16),
 			     &pcicptr->pcistatus);
-		
+		/* flush write buffer */
 		iob();
 		code = PCIBIOS_DEVICE_NOT_FOUND;
 	}
@@ -194,7 +194,7 @@ static struct {
 } tx4927_pci_opts __devinitdata = {
 	.trdyto = 0,
 	.retryto = 0,
-	.gbwc = 0xfe0,	
+	.gbwc = 0xfe0,	/* 4064 GBUSCLK for CCFG.GTOT=0b11 */
 };
 
 char *__devinit tx4927_pcibios_setup(char *str)
@@ -238,7 +238,7 @@ void __init tx4927_pcic_setup(struct tx4927_pcic_reg __iomem *pcicptr,
 
 	local_irq_save(flags);
 
-	
+	/* Disable All Initiator Space */
 	__raw_writel(__raw_readl(&pcicptr->pciccfg)
 		     & ~(TX4927_PCIC_PCICCFG_G2PMEN(0)
 			 | TX4927_PCIC_PCICCFG_G2PMEN(1)
@@ -246,7 +246,7 @@ void __init tx4927_pcic_setup(struct tx4927_pcic_reg __iomem *pcicptr,
 			 | TX4927_PCIC_PCICCFG_G2PIOEN),
 		     &pcicptr->pciccfg);
 
-	
+	/* GB->PCI mappings */
 	__raw_writel((channel->io_resource->end - channel->io_resource->start)
 		     >> 4,
 		     &pcicptr->g2piomask);
@@ -280,10 +280,10 @@ void __init tx4927_pcic_setup(struct tx4927_pcic_reg __iomem *pcicptr,
 			       channel->mem_offset,
 			       &pcicptr->g2pmpbase[0]);
 	}
-	
-	__raw_writel(0, &pcicptr->p2giopbase); 
+	/* PCI->GB mappings (I/O 256B) */
+	__raw_writel(0, &pcicptr->p2giopbase); /* 256B */
 	____raw_writeq(0, &pcicptr->p2giogbase);
-	
+	/* PCI->GB mappings (MEM 512MB (64MB on R1.x)) */
 	__raw_writel(0, &pcicptr->p2gm0plbase);
 	__raw_writel(0, &pcicptr->p2gm0pubase);
 	____raw_writeq(TX4927_PCIC_P2GMnGBASE_TMEMEN |
@@ -293,34 +293,34 @@ void __init tx4927_pcic_setup(struct tx4927_pcic_reg __iomem *pcicptr,
 		       TX4927_PCIC_P2GMnGBASE_TBSDIS
 #endif
 		       , &pcicptr->p2gmgbase[0]);
-	
+	/* PCI->GB mappings (MEM 16MB) */
 	__raw_writel(0xffffffff, &pcicptr->p2gm1plbase);
 	__raw_writel(0xffffffff, &pcicptr->p2gm1pubase);
 	____raw_writeq(0, &pcicptr->p2gmgbase[1]);
-	
-	__raw_writel(0xffffffff, &pcicptr->p2gm2pbase); 
+	/* PCI->GB mappings (MEM 1MB) */
+	__raw_writel(0xffffffff, &pcicptr->p2gm2pbase); /* 1MB */
 	____raw_writeq(0, &pcicptr->p2gmgbase[2]);
 
-	
+	/* Clear all (including IRBER) except for GBWC */
 	__raw_writel((tx4927_pci_opts.gbwc << 16)
 		     & TX4927_PCIC_PCICCFG_GBWC_MASK,
 		     &pcicptr->pciccfg);
-	
+	/* Enable Initiator Memory Space */
 	if (channel->mem_resource->end)
 		__raw_writel(__raw_readl(&pcicptr->pciccfg)
 			     | TX4927_PCIC_PCICCFG_G2PMEN(0),
 			     &pcicptr->pciccfg);
-	
+	/* Enable Initiator I/O Space */
 	if (channel->io_resource->end)
 		__raw_writel(__raw_readl(&pcicptr->pciccfg)
 			     | TX4927_PCIC_PCICCFG_G2PIOEN,
 			     &pcicptr->pciccfg);
-	
+	/* Enable Initiator Config */
 	__raw_writel(__raw_readl(&pcicptr->pciccfg)
 		     | TX4927_PCIC_PCICCFG_ICAEN | TX4927_PCIC_PCICCFG_TCAR,
 		     &pcicptr->pciccfg);
 
-	
+	/* Do not use MEMMUL, MEMINF: YMFPCI card causes M_ABORT. */
 	__raw_writel(0, &pcicptr->pcicfg1);
 
 	__raw_writel((__raw_readl(&pcicptr->g2ptocnt) & ~0xffff)
@@ -328,26 +328,26 @@ void __init tx4927_pcic_setup(struct tx4927_pcic_reg __iomem *pcicptr,
 		     | ((tx4927_pci_opts.retryto & 0xff) << 8),
 		     &pcicptr->g2ptocnt);
 
-	
+	/* Clear All Local Bus Status */
 	__raw_writel(TX4927_PCIC_PCICSTATUS_ALL, &pcicptr->pcicstatus);
-	
+	/* Enable All Local Bus Interrupts */
 	__raw_writel(TX4927_PCIC_PCICSTATUS_ALL, &pcicptr->pcicmask);
-	
+	/* Clear All Initiator Status */
 	__raw_writel(TX4927_PCIC_G2PSTATUS_ALL, &pcicptr->g2pstatus);
-	
+	/* Enable All Initiator Interrupts */
 	__raw_writel(TX4927_PCIC_G2PSTATUS_ALL, &pcicptr->g2pmask);
-	
+	/* Clear All PCI Status Error */
 	__raw_writel((__raw_readl(&pcicptr->pcistatus) & 0x0000ffff)
 		     | (TX4927_PCIC_PCISTATUS_ALL << 16),
 		     &pcicptr->pcistatus);
-	
+	/* Enable All PCI Status Error Interrupts */
 	__raw_writel(TX4927_PCIC_PCISTATUS_ALL, &pcicptr->pcimask);
 
 	if (!extarb) {
-		
+		/* Reset Bus Arbiter */
 		__raw_writel(TX4927_PCIC_PBACFG_RPBA, &pcicptr->pbacfg);
 		__raw_writel(0, &pcicptr->pbabm);
-		
+		/* Enable Bus Arbiter */
 		__raw_writel(TX4927_PCIC_PBACFG_PBAEN, &pcicptr->pbacfg);
 	}
 
@@ -445,7 +445,7 @@ static void tx4927_dump_pcic_settings1(struct tx4927_pcic_reg __iomem *pcicptr)
 			printk(KERN_CONT "\n");
 			printk(KERN_INFO "%04x:", i);
 		}
-		
+		/* skip registers with side-effects */
 		if (i == offsetof(struct tx4927_pcic_reg, g2pintack)
 		    || i == offsetof(struct tx4927_pcic_reg, g2pspc)
 		    || i == offsetof(struct tx4927_pcic_reg, g2pcfgadrs)
@@ -480,7 +480,7 @@ irqreturn_t tx4927_pcierr_interrupt(int irq, void *dev_id)
 		tx4927_report_pcic_status1(pcicptr);
 	}
 	if (txx9_pci_err_action != TXX9_PCI_ERR_PANIC) {
-		
+		/* clear all pci errors */
 		__raw_writel((__raw_readl(&pcicptr->pcistatus) & 0x0000ffff)
 			     | (TX4927_PCIC_PCISTATUS_ALL << 16),
 			     &pcicptr->pcistatus);
@@ -502,13 +502,18 @@ static void __init tx4927_quirk_slc90e66_bridge(struct pci_dev *dev)
 	if (!pcicptr)
 		return;
 	if (__raw_readl(&pcicptr->pbacfg) & TX4927_PCIC_PBACFG_PBAEN) {
-		
+		/* Reset Bus Arbiter */
 		__raw_writel(TX4927_PCIC_PBACFG_RPBA, &pcicptr->pbacfg);
+		/*
+		 * swap reqBP and reqXP (raise priority of SLC90E66).
+		 * SLC90E66(PCI-ISA bridge) is connected to REQ2 on
+		 * PCI Backplane board.
+		 */
 		__raw_writel(0x72543610, &pcicptr->pbareqport);
 		__raw_writel(0, &pcicptr->pbabm);
-		
+		/* Use Fixed ParkMaster (required by SLC90E66) */
 		__raw_writel(TX4927_PCIC_PBACFG_FIXPA, &pcicptr->pbacfg);
-		
+		/* Enable Bus Arbiter */
 		__raw_writel(TX4927_PCIC_PBACFG_FIXPA |
 			     TX4927_PCIC_PBACFG_PBAEN,
 			     &pcicptr->pbacfg);

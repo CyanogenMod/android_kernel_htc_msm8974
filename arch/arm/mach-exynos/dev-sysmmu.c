@@ -19,6 +19,7 @@
 #include <mach/sysmmu.h>
 #include <plat/s5p-clock.h>
 
+/* These names must be equal to the clock names in mach-exynos4/clock.c */
 const char *sysmmu_ips_name[EXYNOS4_SYSMMU_TOTAL_IPNUM] = {
 	"SYSMMU_MDMA"	,
 	"SYSMMU_SSS"	,

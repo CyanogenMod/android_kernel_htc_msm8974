@@ -71,9 +71,9 @@ struct hpcm_buf_node {
 };
 
 struct vocpcm_ion_buffer {
-	
+	/* Physical address */
 	uint32_t paddr;
-	
+	/* Kernel virtual address */
 	uint32_t kvaddr;
 };
 
@@ -86,9 +86,9 @@ struct dai_data {
 	spinlock_t dsp_lock;
 	uint32_t pcm_size;
 	uint32_t pcm_count;
-	
+	/* IRQ position */
 	uint32_t pcm_irq_pos;
-	
+	/* Position in buffer */
 	uint32_t pcm_buf_pos;
 	struct vocpcm_ion_buffer vocpcm_ion_buffer;
 };
@@ -111,6 +111,7 @@ struct tappnt_mxr_data {
 	uint16_t sample_rate;
 };
 
+/* Values from mixer ctl are cached in this structure */
 struct mixer_conf {
 	uint8_t sess_indx;
 	struct tappnt_mxr_data rx;
@@ -178,6 +179,7 @@ static void hpcm_reset_mixer_config(struct hpcm_drv *prtd)
 	prtd->mixer_conf.tx.sample_rate = 0;
 }
 
+/* Check for valid mixer control values */
 static bool hpcm_is_valid_config(int sess_indx, int tap_point,
 				 uint16_t direction, uint16_t samplerate)
 {
@@ -218,7 +220,7 @@ static struct dai_data *hpcm_get_dai_data(char *pcm_id, struct hpcm_drv *prtd)
 
 	if (pcm_id) {
 		size = strlen(pcm_id);
-		
+		/* Check for Voice DAI */
 		if (strnstr(pcm_id, VOICE_TX_CAPTURE_DAI_ID, size)) {
 			dai_data =
 		&prtd->session[VOICE_INDEX].tx_tap_point.capture_dai_data;
@@ -231,7 +233,7 @@ static struct dai_data *hpcm_get_dai_data(char *pcm_id, struct hpcm_drv *prtd)
 		} else if (strnstr(pcm_id, VOICE_RX_PLAYBACK_DAI_ID, size)) {
 			dai_data =
 		&prtd->session[VOICE_INDEX].rx_tap_point.playback_dai_data;
-		
+		/* Check for VoLTE DAI */
 		} else if (strnstr(pcm_id, VOLTE_TX_CAPTURE_DAI_ID, size)) {
 			dai_data =
 		&prtd->session[VOLTE_INDEX].tx_tap_point.capture_dai_data;
@@ -259,7 +261,7 @@ static struct tap_point *hpcm_get_tappoint_data(char *pcm_id,
 	size_t size = strlen(pcm_id);
 
 	if (pcm_id) {
-		
+		/* Check for Voice DAI */
 		if (strnstr(pcm_id, VOICE_TX_CAPTURE_DAI_ID, size)) {
 			tp = &prtd->session[VOICE_INDEX].tx_tap_point;
 		} else if (strnstr(pcm_id, VOICE_TX_PLAYBACK_DAI_ID, size)) {
@@ -268,7 +270,7 @@ static struct tap_point *hpcm_get_tappoint_data(char *pcm_id,
 			tp = &prtd->session[VOICE_INDEX].rx_tap_point;
 		} else if (strnstr(pcm_id, VOICE_RX_PLAYBACK_DAI_ID, size)) {
 			tp = &prtd->session[VOICE_INDEX].rx_tap_point;
-		
+		/* Check for VoLTE DAI */
 		} else if (strnstr(pcm_id, VOLTE_TX_CAPTURE_DAI_ID, size)) {
 			tp = &prtd->session[VOLTE_INDEX].tx_tap_point;
 		} else if (strnstr(pcm_id, VOLTE_TX_PLAYBACK_DAI_ID, size)) {
@@ -317,6 +319,11 @@ static bool hpcm_all_dais_are_ready(uint16_t direction, struct tap_point *tp,
 {
 	bool dais_started = false;
 
+	/*
+	 * Based on the direction set per tap point in the mixer control,
+	 * all the dais per tap point should meet the required state for the
+	 * commands such as vpcm_map_memory/vpcm_start to be executed.
+	 */
 	switch (direction) {
 	case VSS_IVPCM_TAP_POINT_DIR_OUT_IN:
 		if ((tp->playback_dai_data.state >= state) &&
@@ -400,6 +407,10 @@ static int hpcm_map_vocpcm_memory(struct hpcm_drv *prtd,
 	int ret = 0;
 	char *sess = hpcm_get_sess_name(prtd->mixer_conf.sess_indx);
 
+	/*
+	 * only one memory map command is sent per tap point, ensure all dais
+	 * for a tap point are in HPCM_PREPARED state.
+	 */
 	send_cmd = hpcm_all_dais_are_ready(tmd->direction, tp, HPCM_PREPARED);
 
 	if (send_cmd == true) {
@@ -567,6 +578,7 @@ static int hpcm_start_vocpcm(char *pcm_id, struct hpcm_drv *prtd,
 	return 0;
 }
 
+/* Playback path*/
 static void hpcm_copy_playback_data_from_queue(struct dai_data *dai_data,
 					       uint32_t *len)
 {
@@ -600,6 +612,7 @@ static void hpcm_copy_playback_data_from_queue(struct dai_data *dai_data,
 	wake_up(&dai_data->queue_wait);
 }
 
+/* Capture path*/
 static void hpcm_copy_capture_data_to_queue(struct dai_data *dai_data,
 					    uint32_t len)
 {
@@ -609,7 +622,7 @@ static void hpcm_copy_capture_data_to_queue(struct dai_data *dai_data,
 	if (dai_data->substream == NULL)
 		return;
 
-	
+	/* Copy out buffer packet into free_queue */
 	spin_lock_irqsave(&dai_data->dsp_lock, dsp_flags);
 
 	if (!list_empty(&dai_data->free_queue)) {
@@ -644,7 +657,7 @@ void hpcm_notify_evt_processing(uint8_t *data, char *session,
 	struct tappnt_mxr_data *tmd = NULL;
 	char *sess = hpcm_get_sess_name(prtd->mixer_conf.sess_indx);
 
-	
+	/* If it's not a timetick, it's a error notification, drop the event */
 	if ((notify_evt->notify_mask & VSS_IVPCM_NOTIFY_MASK_TIMETICK) == 0) {
 		pr_err("%s: Error notification. mask=%d\n", __func__,
 			notify_evt->notify_mask);
@@ -670,6 +683,14 @@ void hpcm_notify_evt_processing(uint8_t *data, char *session,
 	 }
 
 	switch (tmd->direction) {
+	/*
+	 * When the dir is OUT_IN, for the first notify mask, pushbuf mask
+	 * should be set to VSS_IVPCM_PUSH_BUFFER_MASK_OUTPUT_BUFFER since we
+	 * atleast need one buffer's worth data before we can send IN buffer.
+	 * For the consecutive notify evts, the push buf mask will set for both
+	 * VSS_IVPCM_PUSH_BUFFER_MASK_OUTPUT_BUFFER and
+	 * VSS_IVPCM_PUSH_BUFFER_MASK_IN_BUFFER.
+	 */
 	case VSS_IVPCM_TAP_POINT_DIR_OUT_IN:
 		if (notify_evt->notify_mask ==
 		    VSS_IVPCM_NOTIFY_MASK_TIMETICK) {
@@ -805,6 +826,7 @@ static struct snd_kcontrol_new msm_hpcm_controls[] = {
 			     msm_hpcm_configure_volte_put),
 };
 
+/* Sample rates supported */
 static unsigned int supported_sample_rates[] = {8000, 16000};
 
 static struct snd_pcm_hw_constraint_list constraints_sample_rates = {
@@ -845,13 +867,13 @@ static int msm_pcm_close(struct snd_pcm_substream *substream)
 	tmd = hpcm_get_tappnt_mixer_data(substream->pcm->id, prtd);
 
 	tp = hpcm_get_tappoint_data(substream->pcm->id, prtd);
-	
+	/* Send stop command */
 	voc_send_cvp_stop_vocpcm(voc_get_session_id(sess));
-	
+	/* Unmap will be called twice once for RX and TX each */
 	hpcm_unmap_and_free_shared_memory(prtd, tp, tmd->direction);
-	
+	/* Reset the cached start cmd */
 	memset(&prtd->start_cmd, 0, sizeof(struct start_cmd));
-	
+	/* Release all buffer */
 	pr_debug("%s: Release all buffer\n", __func__);
 	substream = dai_data->substream;
 	if (substream == NULL) {
@@ -1166,7 +1188,7 @@ static int msm_pcm_open(struct snd_pcm_substream *substream)
 	tp_val = get_tappnt_value(substream->pcm->id);
 	tmd = hpcm_get_tappnt_mixer_data(substream->pcm->id, prtd);
 
-	
+	/*Check whehter the kcontrol values set are valid*/
 	if (!tmd ||
 	    !(tmd->enable) ||
 	    !hpcm_is_valid_config(prtd->mixer_conf.sess_indx,

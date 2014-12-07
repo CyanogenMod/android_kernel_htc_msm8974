@@ -22,9 +22,57 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 */
+/*
+Driver: ni_pcidio
+Description: National Instruments PCI-DIO32HS, PCI-DIO96, PCI-6533, PCI-6503
+Author: ds
+Status: works
+Devices: [National Instruments] PCI-DIO-32HS (ni_pcidio), PXI-6533,
+  PCI-DIO-96, PCI-DIO-96B, PXI-6508, PCI-6503, PCI-6503B, PCI-6503X,
+  PXI-6503, PCI-6533, PCI-6534
+Updated: Mon, 09 Jan 2012 14:27:23 +0000
 
+The DIO-96 appears as four 8255 subdevices.  See the 8255
+driver notes for details.
+
+The DIO32HS board appears as one subdevice, with 32 channels.
+Each channel is individually I/O configurable.  The channel order
+is 0=A0, 1=A1, 2=A2, ... 8=B0, 16=C0, 24=D0.  The driver only
+supports simple digital I/O; no handshaking is supported.
+
+DMA mostly works for the PCI-DIO32HS, but only in timed input mode.
+
+The PCI-DIO-32HS/PCI-6533 has a configurable external trigger. Setting
+scan_begin_arg to 0 or CR_EDGE triggers on the leading edge. Setting
+scan_begin_arg to CR_INVERT or (CR_EDGE | CR_INVERT) triggers on the
+trailing edge.
+
+This driver could be easily modified to support AT-MIO32HS and
+AT-MIO96.
+
+The PCI-6534 requires a firmware upload after power-up to work, the
+firmware data and instructions for loading it with comedi_config
+it are contained in the
+comedi_nonfree_firmware tarball available from http://www.comedi.org
+*/
+
+/*
+   This driver is for both the NI PCI-DIO-32HS and the PCI-DIO-96,
+   which have very different architectures.  But, since the '96 is
+   so simple, it is included here.
+
+   Manuals (available from ftp://ftp.natinst.com/support/manuals)
+
+	320938c.pdf	PCI-DIO-96/PXI-6508/PCI-6503 User Manual
+	321464b.pdf	AT/PCI-DIO-32HS User Manual
+	341329A.pdf	PCI-6533 Register-Level Programmer Manual
+	341330A.pdf	DAQ-DIO Technical Reference Manual
+
+ */
 
 #define USE_DMA
+/* #define DEBUG 1 */
+/* #define DEBUG_FLAGS */
 
 #include <linux/interrupt.h>
 #include <linux/sched.h>
@@ -43,6 +91,7 @@
 #define PCI_DIO_SIZE 4096
 #define PCI_MITE_SIZE 4096
 
+/* defines for the PCI-DIO-96 */
 
 #define NIDIO_8255_BASE(x)	((x)*4)
 #define NIDIO_A 0
@@ -50,34 +99,35 @@
 #define NIDIO_C 8
 #define NIDIO_D 12
 
+/* defines for the PCI-DIO-32HS */
 
-#define Window_Address			4	
-#define Interrupt_And_Window_Status	4	
+#define Window_Address			4	/* W */
+#define Interrupt_And_Window_Status	4	/* R */
 #define IntStatus1				(1<<0)
 #define IntStatus2				(1<<1)
 #define WindowAddressStatus_mask		0x7c
 
-#define Master_DMA_And_Interrupt_Control 5	
+#define Master_DMA_And_Interrupt_Control 5	/* W */
 #define InterruptLine(x)			((x)&3)
 #define OpenInt				(1<<2)
-#define Group_Status			5	
+#define Group_Status			5	/* R */
 #define DataLeft				(1<<0)
 #define Req					(1<<2)
 #define StopTrig				(1<<3)
 
-#define Group_1_Flags			6	
-#define Group_2_Flags			7	
+#define Group_1_Flags			6	/* R */
+#define Group_2_Flags			7	/* R */
 #define TransferReady				(1<<0)
 #define CountExpired				(1<<1)
 #define Waited				(1<<5)
 #define PrimaryTC				(1<<6)
 #define SecondaryTC				(1<<7)
-  
-  
-  
+  /* #define SerialRose */
+  /* #define ReqRose */
+  /* #define Paused */
 
-#define Group_1_First_Clear		6	
-#define Group_2_First_Clear		7	
+#define Group_1_First_Clear		6	/* W */
+#define Group_2_First_Clear		7	/* W */
 #define ClearWaited				(1<<3)
 #define ClearPrimaryTC			(1<<4)
 #define ClearSecondaryTC			(1<<5)
@@ -85,8 +135,8 @@
 #define FIFOReset				(1<<7)
 #define ClearAll				0xf8
 
-#define Group_1_FIFO			8	
-#define Group_2_FIFO			12	
+#define Group_1_FIFO			8	/* W */
+#define Group_2_FIFO			12	/* W */
 
 #define Transfer_Count			20
 #define Chip_ID_D			24
@@ -101,8 +151,8 @@
 #define Master_Clock_Routing		45
 #define RTSIClocking(x)			(((x)&3)<<4)
 
-#define Group_1_Second_Clear		46	
-#define Group_2_Second_Clear		47	
+#define Group_1_Second_Clear		46	/* W */
+#define Group_2_Second_Clear		47	/* W */
 #define ClearExpired				(1<<0)
 
 #define Port_Pattern(x)			(48+(x))
@@ -129,7 +179,7 @@
 #define Protocol_Register_3		67
 #define Sequence			Protocol_Register_3
 
-#define Protocol_Register_14		68	
+#define Protocol_Register_14		68	/* 16 bit */
 #define ClockSpeed			Protocol_Register_14
 
 #define Protocol_Register_4		70
@@ -157,10 +207,11 @@
 #define ExchangePins		(1<<7)
 
 #define Interrupt_Control		75
-  
+  /* bits same as flags */
 
 #define DMA_Line_Control_Group1		76
 #define DMA_Line_Control_Group2		108
+/* channel zero is none */
 static inline unsigned primary_DMAChannel_bits(unsigned channel)
 {
 	return channel & 0x3;
@@ -204,26 +255,27 @@ static inline unsigned secondary_DMAChannel_bits(unsigned channel)
 #define Protocol_Register_13		86
 #define Data1Delay			Protocol_Register_13
 
-#define Protocol_Register_8		88	
+#define Protocol_Register_8		88	/* 32 bit */
 #define StartDelay			Protocol_Register_8
 
-enum pci_6534_firmware_registers {	
+enum pci_6534_firmware_registers {	/* 16 bit */
 	Firmware_Control_Register = 0x100,
 	Firmware_Status_Register = 0x104,
 	Firmware_Data_Register = 0x108,
 	Firmware_Mask_Register = 0x10c,
 	Firmware_Debug_Register = 0x110,
 };
+/* main fpga registers (32 bit)*/
 enum pci_6534_fpga_registers {
 	FPGA_Control1_Register = 0x200,
 	FPGA_Control2_Register = 0x204,
 	FPGA_Irq_Mask_Register = 0x208,
 	FPGA_Status_Register = 0x20c,
 	FPGA_Signature_Register = 0x210,
-	FPGA_SCALS_Counter_Register = 0x280,	
-	FPGA_SCAMS_Counter_Register = 0x284,	
-	FPGA_SCBLS_Counter_Register = 0x288,	
-	FPGA_SCBMS_Counter_Register = 0x28c,	
+	FPGA_SCALS_Counter_Register = 0x280,	/*write-clear */
+	FPGA_SCAMS_Counter_Register = 0x284,	/*write-clear */
+	FPGA_SCBLS_Counter_Register = 0x288,	/*write-clear */
+	FPGA_SCBMS_Counter_Register = 0x28c,	/*write-clear */
 	FPGA_Temp_Control_Register = 0x2a0,
 	FPGA_DAR_Register = 0x2a8,
 	FPGA_ELC_Read_Register = 0x2b8,
@@ -233,7 +285,7 @@ enum FPGA_Control_Bits {
 	FPGA_Enable_Bit = 0x8000,
 };
 
-#define TIMER_BASE 50		
+#define TIMER_BASE 50		/* nanoseconds */
 
 #ifdef USE_DMA
 #define IntEn (CountExpired|Waited|PrimaryTC|SecondaryTC)
@@ -458,7 +510,7 @@ static irqreturn_t nidio_interrupt(int irq, void *d)
 	struct comedi_async *async = s->async;
 	struct mite_struct *mite = devpriv->mite;
 
-	
+	/* int i, j; */
 	long int AuxData = 0;
 	short data1 = 0;
 	short data2 = 0;
@@ -467,13 +519,13 @@ static irqreturn_t nidio_interrupt(int irq, void *d)
 	int work = 0;
 	unsigned int m_status = 0;
 
-	
+	/* interrupcions parasites */
 	if (dev->attached == 0) {
-		
+		/* assume it's from another card */
 		return IRQ_NONE;
 	}
 
-	
+	/* Lock to avoid race with comedi_poll */
 	spin_lock(&dev->spinlock);
 
 	status = readb(devpriv->mite->daq_io_addr +
@@ -485,7 +537,9 @@ static irqreturn_t nidio_interrupt(int irq, void *d)
 	ni_pcidio_print_flags(flags);
 	ni_pcidio_print_status(status);
 
-	
+	/* printk("buf[0]=%08x\n",*(unsigned int *)async->prealloc_buf); */
+	/* printk("buf[4096]=%08x\n",
+	       *(unsigned int *)(async->prealloc_buf+4096)); */
 
 	spin_lock(&devpriv->mite_channel_lock);
 	if (devpriv->di_mite_chan)
@@ -493,15 +547,17 @@ static irqreturn_t nidio_interrupt(int irq, void *d)
 #ifdef MITE_DEBUG
 	mite_print_chsr(m_status);
 #endif
+	/* printk("mite_bytes_transferred: %d\n",
+	       mite_bytes_transferred(mite,DI_DMA_CHAN)); */
 
-	
+	/* mite_dump_regs(mite); */
 	if (m_status & CHSR_INT) {
 		if (m_status & CHSR_LINKC) {
 			writel(CHOR_CLRLC,
 			       mite->mite_io_addr +
 			       MITE_CHOR(devpriv->di_mite_chan->channel));
 			mite_sync_input_dma(devpriv->di_mite_chan, s->async);
-			
+			/* XXX need to byteswap */
 		}
 		if (m_status & ~(CHSR_INT | CHSR_LINKC | CHSR_DONE | CHSR_DRDY |
 				 CHSR_DRQ1 | CHSR_MRDY)) {
@@ -525,7 +581,7 @@ static irqreturn_t nidio_interrupt(int irq, void *d)
 		flags &= IntEn;
 
 		if (flags & TransferReady) {
-			
+			/* DPRINTK("TransferReady\n"); */
 			while (flags & TransferReady) {
 				work++;
 				if (work > 100) {
@@ -543,12 +599,16 @@ static irqreturn_t nidio_interrupt(int irq, void *d)
 				data2 = (AuxData & 0xffff0000) >> 16;
 				comedi_buf_put(async, data1);
 				comedi_buf_put(async, data2);
-				
+				/* DPRINTK("read:%d, %d\n",data1,data2); */
 				flags = readb(devpriv->mite->daq_io_addr +
 					      Group_1_Flags);
 			}
-			
-			
+			/* DPRINTK("buf_int_count: %d\n",
+				async->buf_int_count); */
+			/* DPRINTK("1) IntEn=%d,flags=%d,status=%d\n",
+				IntEn,flags,status); */
+			/* ni_pcidio_print_flags(flags); */
+			/* ni_pcidio_print_status(status); */
 			async->events |= COMEDI_CB_BLOCK;
 		}
 
@@ -593,8 +653,10 @@ static irqreturn_t nidio_interrupt(int irq, void *d)
 		flags = readb(devpriv->mite->daq_io_addr + Group_1_Flags);
 		status = readb(devpriv->mite->daq_io_addr +
 			       Interrupt_And_Window_Status);
-		
-		
+		/* DPRINTK("loop end: IntEn=0x%02x,flags=0x%02x,"
+			"status=0x%02x\n", IntEn, flags, status); */
+		/* ni_pcidio_print_flags(flags); */
+		/* ni_pcidio_print_status(status); */
 	}
 
 out:
@@ -727,7 +789,7 @@ static int ni_pcidio_cmdtest(struct comedi_device *dev,
 	int err = 0;
 	int tmp;
 
-	
+	/* step 1: make sure trigger sources are trivially valid */
 
 	tmp = cmd->start_src;
 	cmd->start_src &= TRIG_NOW | TRIG_INT;
@@ -757,8 +819,10 @@ static int ni_pcidio_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 1;
 
+	/* step 2: make sure trigger sources are unique and mutually
+	compatible */
 
-	
+	/* note that mutual compatibility is not an issue here */
 	if (cmd->start_src != TRIG_NOW && cmd->start_src != TRIG_INT)
 		err++;
 	if (cmd->scan_begin_src != TRIG_TIMER &&
@@ -768,24 +832,24 @@ static int ni_pcidio_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 2;
 
-	
+	/* step 3: make sure arguments are trivially compatible */
 
 	if (cmd->start_arg != 0) {
-		
+		/* same for both TRIG_INT and TRIG_NOW */
 		cmd->start_arg = 0;
 		err++;
 	}
-#define MAX_SPEED	(TIMER_BASE)	
+#define MAX_SPEED	(TIMER_BASE)	/* in nanoseconds */
 
 	if (cmd->scan_begin_src == TRIG_TIMER) {
 		if (cmd->scan_begin_arg < MAX_SPEED) {
 			cmd->scan_begin_arg = MAX_SPEED;
 			err++;
 		}
-		
+		/* no minimum speed */
 	} else {
-		
-		
+		/* TRIG_EXT */
+		/* should be level/edge, hi/lo specification here */
 		if ((cmd->scan_begin_arg & ~(CR_EDGE | CR_INVERT)) != 0) {
 			cmd->scan_begin_arg &= (CR_EDGE | CR_INVERT);
 			err++;
@@ -801,9 +865,9 @@ static int ni_pcidio_cmdtest(struct comedi_device *dev,
 		err++;
 	}
 	if (cmd->stop_src == TRIG_COUNT) {
-		
+		/* no limit */
 	} else {
-		
+		/* TRIG_NONE */
 		if (cmd->stop_arg != 0) {
 			cmd->stop_arg = 0;
 			err++;
@@ -813,7 +877,7 @@ static int ni_pcidio_cmdtest(struct comedi_device *dev,
 	if (err)
 		return 3;
 
-	
+	/* step 4: fix up any arguments */
 
 	if (cmd->scan_begin_src == TRIG_TIMER) {
 		tmp = cmd->scan_begin_arg;
@@ -856,14 +920,14 @@ static int ni_pcidio_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 {
 	struct comedi_cmd *cmd = &s->async->cmd;
 
-	
+	/* XXX configure ports for input */
 	writel(0x0000, devpriv->mite->daq_io_addr + Port_Pin_Directions(0));
 
 	if (1) {
-		
+		/* enable fifos A B C D */
 		writeb(0x0f, devpriv->mite->daq_io_addr + Data_Path);
 
-		
+		/* set transfer width a 32 bits */
 		writeb(TransferWidth(0) | TransferLength(0),
 		       devpriv->mite->daq_io_addr + Transfer_Size_Control);
 	} else {
@@ -872,9 +936,9 @@ static int ni_pcidio_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 		       devpriv->mite->daq_io_addr + Transfer_Size_Control);
 	}
 
-	
+	/* protocol configuration */
 	if (cmd->scan_begin_src == TRIG_TIMER) {
-		
+		/* page 4-5, "input with internal REQs" */
 		writeb(0, devpriv->mite->daq_io_addr + OpMode);
 		writeb(0x00, devpriv->mite->daq_io_addr + ClockReg);
 		writeb(1, devpriv->mite->daq_io_addr + Sequence);
@@ -890,21 +954,23 @@ static int ni_pcidio_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 		writeb(1, devpriv->mite->daq_io_addr + AckDelay);
 		writeb(0x0b, devpriv->mite->daq_io_addr + AckNotDelay);
 		writeb(0x01, devpriv->mite->daq_io_addr + Data1Delay);
+		/* manual, page 4-5: ClockSpeed comment is incorrectly listed
+		 * on DAQOptions */
 		writew(0, devpriv->mite->daq_io_addr + ClockSpeed);
 		writeb(0, devpriv->mite->daq_io_addr + DAQOptions);
 	} else {
-		
-		
+		/* TRIG_EXT */
+		/* page 4-5, "input with external REQs" */
 		writeb(0, devpriv->mite->daq_io_addr + OpMode);
 		writeb(0x00, devpriv->mite->daq_io_addr + ClockReg);
 		writeb(0, devpriv->mite->daq_io_addr + Sequence);
 		writeb(0x00, devpriv->mite->daq_io_addr + ReqReg);
 		writeb(4, devpriv->mite->daq_io_addr + BlockMode);
 		if (!(cmd->scan_begin_arg & CR_INVERT)) {
-			
+			/* Leading Edge pulse mode */
 			writeb(0, devpriv->mite->daq_io_addr + LinePolarities);
 		} else {
-			
+			/* Trailing Edge pulse mode */
 			writeb(2, devpriv->mite->daq_io_addr + LinePolarities);
 		}
 		writeb(0x00, devpriv->mite->daq_io_addr + AckSer);
@@ -922,7 +988,7 @@ static int ni_pcidio_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 		writel(cmd->stop_arg,
 		       devpriv->mite->daq_io_addr + Transfer_Count);
 	} else {
-		
+		/* XXX */
 	}
 
 #ifdef USE_DMA
@@ -939,8 +1005,10 @@ static int ni_pcidio_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 #endif
 	writeb(0x00, devpriv->mite->daq_io_addr + DMA_Line_Control_Group2);
 
-	
+	/* clear and enable interrupts */
 	writeb(0xff, devpriv->mite->daq_io_addr + Group_1_First_Clear);
+	/* writeb(ClearExpired,
+	       devpriv->mite->daq_io_addr+Group_1_Second_Clear); */
 
 	writeb(IntEn, devpriv->mite->daq_io_addr + Interrupt_Control);
 	writeb(0x03,
@@ -948,16 +1016,16 @@ static int ni_pcidio_cmd(struct comedi_device *dev, struct comedi_subdevice *s)
 
 	if (cmd->stop_src == TRIG_NONE) {
 		devpriv->OpModeBits = DataLatching(0) | RunMode(7);
-	} else {		
+	} else {		/* TRIG_TIMER */
 		devpriv->OpModeBits = Numbered | RunMode(7);
 	}
 	if (cmd->start_src == TRIG_NOW) {
-		
+		/* start */
 		writeb(devpriv->OpModeBits,
 		       devpriv->mite->daq_io_addr + OpMode);
 		s->async->inttrig = NULL;
 	} else {
-		
+		/* TRIG_INT */
 		s->async->inttrig = ni_pcidio_inttrig;
 	}
 
@@ -974,7 +1042,7 @@ static int setup_mite_dma(struct comedi_device *dev, struct comedi_subdevice *s)
 	if (retval)
 		return retval;
 
-	
+	/* write alloc the entire buffer */
 	comedi_buf_write_alloc(s->async, s->async->prealloc_bufsz);
 
 	spin_lock_irqsave(&devpriv->mite_channel_lock, flags);
@@ -1211,7 +1279,7 @@ static int nidio_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		s->do_cmd = &ni_pcidio_cmd;
 		s->do_cmdtest = &ni_pcidio_cmdtest;
 		s->cancel = &ni_pcidio_cancel;
-		s->len_chanlist = 32;	
+		s->len_chanlist = 32;	/* XXX */
 		s->buf_change = &ni_pcidio_change;
 		s->async_dma_dir = DMA_BIDIRECTIONAL;
 		s->poll = &ni_pcidio_poll;
@@ -1220,7 +1288,7 @@ static int nidio_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		writel(0, devpriv->mite->daq_io_addr + Port_Pin_Directions(0));
 		writel(0, devpriv->mite->daq_io_addr + Port_Pin_Mask(0));
 
-		
+		/* disable interrupts on board */
 		writeb(0x00,
 		       devpriv->mite->daq_io_addr +
 		       Master_DMA_And_Interrupt_Control);

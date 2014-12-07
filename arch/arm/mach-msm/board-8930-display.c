@@ -30,24 +30,25 @@
 
 #ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
 #define MSM_FB_PRIM_BUF_SIZE \
-		(roundup((1920 * 1088 * 4), 4096) * 3) 
+		(roundup((1920 * 1088 * 4), 4096) * 3) /* 4 bpp x 3 pages */
 #else
 #define MSM_FB_PRIM_BUF_SIZE \
-		(roundup((1920 * 1088 * 4), 4096) * 2) 
+		(roundup((1920 * 1088 * 4), 4096) * 2) /* 4 bpp x 2 pages */
 #endif
+/* Note: must be multiple of 4096 */
 #define MSM_FB_SIZE roundup(MSM_FB_PRIM_BUF_SIZE, 4096)
 
 #ifdef CONFIG_FB_MSM_OVERLAY0_WRITEBACK
 #define MSM_FB_OVERLAY0_WRITEBACK_SIZE roundup((1376 * 768 * 3 * 2), 4096)
 #else
 #define MSM_FB_OVERLAY0_WRITEBACK_SIZE (0)
-#endif  
+#endif  /* CONFIG_FB_MSM_OVERLAY0_WRITEBACK */
 
 #ifdef CONFIG_FB_MSM_OVERLAY1_WRITEBACK
 #define MSM_FB_OVERLAY1_WRITEBACK_SIZE roundup((1920 * 1088 * 3 * 2), 4096)
 #else
 #define MSM_FB_OVERLAY1_WRITEBACK_SIZE (0)
-#endif  
+#endif  /* CONFIG_FB_MSM_OVERLAY1_WRITEBACK */
 
 #define MDP_VSYNC_GPIO 0
 
@@ -141,12 +142,17 @@ static void pm8917_gpio_set_backlight(int bl_level)
 		gpio_set_value_cansleep(gpio24, 0);
 }
 
+/*
+ * TODO: When physical 8930/PM8038 hardware becomes
+ * available, replace mipi_dsi_cdp_panel_power with
+ * appropriate function.
+ */
 #define DISP_RST_GPIO 58
 #define DISP_3D_2D_MODE 1
 static int mipi_dsi_cdp_panel_power(int on)
 {
 	static struct regulator *reg_l8, *reg_l23, *reg_l2;
-	
+	/* Control backlight GPIO (24) directly when using PM8917 */
 	int gpio24 = PM8917_GPIO_PM_TO_SYS(24);
 	int rc;
 
@@ -328,7 +334,7 @@ static struct msm_bus_vectors mdp_init_vectors[] = {
 
 #ifdef CONFIG_FB_MSM_HDMI_AS_PRIMARY
 static struct msm_bus_vectors hdmi_as_primary_vectors[] = {
-	
+	/* If HDMI is used as primary */
 	{
 		.src = MSM_BUS_MASTER_MDP_PORT0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
@@ -373,7 +379,7 @@ static struct msm_bus_vectors mdp_ui_vectors[] = {
 };
 
 static struct msm_bus_vectors mdp_vga_vectors[] = {
-	
+	/* VGA and less video */
 	{
 		.src = MSM_BUS_MASTER_MDP_PORT0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
@@ -383,7 +389,7 @@ static struct msm_bus_vectors mdp_vga_vectors[] = {
 };
 
 static struct msm_bus_vectors mdp_720p_vectors[] = {
-	
+	/* 720p and less video */
 	{
 		.src = MSM_BUS_MASTER_MDP_PORT0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
@@ -393,7 +399,7 @@ static struct msm_bus_vectors mdp_720p_vectors[] = {
 };
 
 static struct msm_bus_vectors mdp_1080p_vectors[] = {
-	
+	/* 1080p and less video */
 	{
 		.src = MSM_BUS_MASTER_MDP_PORT0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
@@ -484,13 +490,14 @@ static struct platform_device mipi_dsi_toshiba_panel_device = {
 
 static struct mipi_dsi_phy_ctrl dsi_novatek_cmd_mode_phy_db = {
 
-	{0x09, 0x08, 0x05, 0x00, 0x20},	
-	
+/* DSI_BIT_CLK at 500MHz, 2 lane, RGB888 */
+	{0x09, 0x08, 0x05, 0x00, 0x20},	/* regulator */
+	/* timing   */
 	{0xab, 0x8a, 0x18, 0x00, 0x92, 0x97, 0x1b, 0x8c,
 	0x0c, 0x03, 0x04, 0xa0},
-	{0x5f, 0x00, 0x00, 0x10},	
-	{0xff, 0x00, 0x06, 0x00},	
-	
+	{0x5f, 0x00, 0x00, 0x10},	/* phy ctrl */
+	{0xff, 0x00, 0x06, 0x00},	/* strength */
+	/* pll control */
 	{0x0, 0xe, 0x30, 0xda, 0x00, 0x10, 0x0f, 0x61,
 	0x40, 0x07, 0x03,
 	0x00, 0x1a, 0x00, 0x00, 0x02, 0x00, 0x20, 0x00, 0x02},
@@ -556,7 +563,7 @@ static struct platform_device hdmi_msm_device = {
 	.resource = hdmi_msm_resources,
 	.dev.platform_data = &hdmi_msm_data,
 };
-#endif 
+#endif /* CONFIG_FB_MSM_HDMI_MSM_PANEL */
 
 #ifdef CONFIG_FB_MSM_WRITEBACK_MSM_PANEL
 static struct platform_device wfd_panel_device = {
@@ -639,7 +646,7 @@ static int hdmi_panel_power(int on)
 #ifdef CONFIG_FB_MSM_HDMI_MSM_PANEL
 static int hdmi_enable_5v(int on)
 {
-	static struct regulator *reg_ext_5v;	
+	static struct regulator *reg_ext_5v;	/* HDMI_5V */
 	static int prev_on;
 	int rc;
 
@@ -679,7 +686,7 @@ static int hdmi_enable_5v(int on)
 
 static int hdmi_core_power(int on, int show)
 {
-	
+	/* Both HDMI "avdd" and "vcc" are powered by 8038_l23 regulator */
 	static struct regulator *reg_8038_l23;
 	static int prev_on;
 	int rc;
@@ -828,7 +835,7 @@ static int hdmi_cec_power(int on)
 error:
 	return rc;
 }
-#endif 
+#endif /* CONFIG_FB_MSM_HDMI_MSM_PANEL */
 
 void __init msm8930_init_fb(void)
 {

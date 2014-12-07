@@ -47,16 +47,21 @@ static const char version[] = "skisa.c: v1.03 09/12/2002 by Jochen Friedrich\n";
 
 #define SK_ISA_IO_EXTENT 32
 
+/* A zero-terminated list of I/O addresses to be probed. */
 static unsigned int portlist[] __initdata = {
-	0x0A20, 0x1A20, 0x0B20, 0x1B20, 0x0980, 0x1980, 0x0900, 0x1900,
+	0x0A20, 0x1A20, 0x0B20, 0x1B20, 0x0980, 0x1980, 0x0900, 0x1900,// SK
 	0
 };
 
+/* A zero-terminated list of IRQs to be probed. 
+ * Used again after initial probe for sktr_chipset_init, called from sktr_open.
+ */
 static const unsigned short irqlist[] = {
 	3, 5, 9, 10, 11, 12, 15,
 	0
 };
 
+/* A zero-terminated list of DMAs to be probed. */
 static int dmalist[] __initdata = {
 	5, 6, 7,
 	0
@@ -96,19 +101,19 @@ static int __init sk_isa_probe1(struct net_device *dev, int ioaddr)
 	if (!request_region(ioaddr, SK_ISA_IO_EXTENT, isa_cardname))
 		return -ENODEV;
 
-	old = inb(ioaddr + SIFADR);	
+	old = inb(ioaddr + SIFADR);	/* Get the old SIFADR value */
 
-	chk1 = 0;	
+	chk1 = 0;	/* Begin with check value 0 */
 	do {
-		
+		/* Write new SIFADR value */
 		outb(chk1, ioaddr + SIFADR);
 
-		
+		/* Read, invert and write */
 		chk2 = inb(ioaddr + SIFADD);
 		chk2 ^= 0x0FE;
 		outb(chk2, ioaddr + SIFADR);
 
-		
+		/* Read, invert and compare */
 		chk2 = inb(ioaddr + SIFADD);
 		chk2 ^= 0x0FE;
 
@@ -118,9 +123,9 @@ static int __init sk_isa_probe1(struct net_device *dev, int ioaddr)
 		}
 
 		chk1 -= 2;
-	} while(chk1 != 0);	
+	} while(chk1 != 0);	/* Repeat 128 times (all byte values) */
 
-    	
+    	/* Restore the SIFADR value */
 	outb(old, ioaddr + SIFADR);
 
 	dev->base_addr = ioaddr;
@@ -139,7 +144,7 @@ static int __init setup_card(struct net_device *dev, struct device *pdev)
 	if (!dev)
 		return -ENOMEM;
 
-	if (dev->base_addr)	
+	if (dev->base_addr)	/* probe specific location */
 		err = sk_isa_probe1(dev, dev->base_addr);
 	else {
 		for (port = portlist; *port; port++) {
@@ -151,7 +156,7 @@ static int __init setup_card(struct net_device *dev, struct device *pdev)
 	if (err)
 		goto out5;
 
-	
+	/* At this point we have found a valid card. */
 
 	if (versionprinted++ == 0)
 		printk(KERN_DEBUG "%s", version);
@@ -272,15 +277,24 @@ out5:
 	return err;
 }
 
+/*
+ * Reads MAC address from adapter RAM, which should've read it from
+ * the onboard ROM.  
+ *
+ * Calling this on a board that does not support it can be a very
+ * dangerous thing.  The Madge board, for instance, will lock your
+ * machine hard when this is called.  Luckily, its supported in a
+ * separate driver.  --ASF
+ */
 static void sk_isa_read_eeprom(struct net_device *dev)
 {
 	int i;
 	
-	
+	/* Address: 0000:0000 */
 	sk_isa_sifwritew(dev, 0, SIFADX);
 	sk_isa_sifwritew(dev, 0, SIFADR);	
 	
-	
+	/* Read six byte MAC address data */
 	dev->addr_len = 6;
 	for(i = 0; i < 6; i++)
 		dev->dev_addr[i] = sk_isa_sifreadw(dev, SIFINC) >> 8;
@@ -314,7 +328,7 @@ static int sk_isa_open(struct net_device *dev)
 	else
 		val &= ~LINE_SPEED_BIT;
 	oldval = sk_isa_sifreadb(dev, POSREG);
-	
+	/* Leave cycle bits alone */
 	oldval |= 0xf3;
 	val &= oldval;
 	sk_isa_sifwriteb(dev, val, POSREG);
@@ -382,7 +396,7 @@ static int __init sk_isa_init(void)
 	}
 
 	printk(KERN_NOTICE "skisa.c: %d cards found.\n", num);
-	
+	/* Probe for cards. */
 	if (num == 0) {
 		printk(KERN_NOTICE "skisa.c: No cards found.\n");
 		platform_driver_unregister(&sk_isa_driver);

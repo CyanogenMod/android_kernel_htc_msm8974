@@ -39,6 +39,9 @@
 #include <asm/hardware/clps7111.h>
 #include <asm/system_misc.h>
 
+/*
+ * This maps the generic CLPS711x registers
+ */
 static struct map_desc clps711x_io_desc[] __initdata = {
 	{
 		.virtual	= CLPS7111_VIRT_BASE,
@@ -149,9 +152,15 @@ void __init clps711x_init_irq(void)
 		}
 	}
 
+	/*
+	 * Disable interrupts
+	 */
 	clps_writel(0, INTMR1);
 	clps_writel(0, INTMR2);
 
+	/*
+	 * Clear down any pending interrupts
+	 */
 	clps_writel(0, COEOI);
 	clps_writel(0, TC1EOI);
 	clps_writel(0, TC2EOI);
@@ -162,13 +171,22 @@ void __init clps711x_init_irq(void)
 	clps_writel(0, KBDEOI);
 }
 
+/*
+ * gettimeoffset() returns time since last timer tick, in usecs.
+ *
+ * 'LATCH' is hwclock ticks (see CLOCK_TICK_RATE in timex.h) per jiffy.
+ * 'tick' is usecs per jiffy.
+ */
 static unsigned long clps711x_gettimeoffset(void)
 {
 	unsigned long hwticks;
-	hwticks = LATCH - (clps_readl(TC2D) & 0xffff);	
+	hwticks = LATCH - (clps_readl(TC2D) & 0xffff);	/* since last underflow */
 	return (hwticks * (tick_nsec / 1000)) / LATCH;
 }
 
+/*
+ * IRQ handler for the timer
+ */
 static irqreturn_t p720t_timer_interrupt(int irq, void *dev_id)
 {
 	timer_tick();
@@ -190,7 +208,7 @@ static void __init clps711x_timer_init(void)
 	syscon |= SYSCON1_TC2S | SYSCON1_TC2M;
 	clps_writel(syscon, SYSCON1);
 
-	clps_writel(LATCH-1, TC2D); 
+	clps_writel(LATCH-1, TC2D); /* 512kHz / 100Hz - 1 */
 
 	setup_irq(IRQ_TC2OI, &clps711x_timer_irq);
 

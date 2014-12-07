@@ -16,7 +16,7 @@ typedef struct _BULK_ENDP_OUT
     size_t          bulk_out_size;
     UCHAR			bulk_out_endpointAddr;
     UINT bulk_out_pipe;
-    
+    //this is used when int out endpoint is used as bulk out end point
 	UCHAR			int_out_interval;
 }BULK_ENDP_OUT, *PBULK_ENDP_OUT;
 
@@ -54,18 +54,22 @@ typedef struct _USB_RCB
 	BOOLEAN bUsed;
 }USB_RCB, *PUSB_RCB;
 
+/*
+//This is the interface specific Sub-Adapter
+//Structure.
+*/
 typedef struct _S_INTERFACE_ADAPTER
 {
     struct usb_device * udev;
     struct usb_interface *  interface;
 
-	
+	/* Bulk endpoint in info */
 	BULK_ENDP_IN	sBulkIn;
-	
+	/* Bulk endpoint out info */
 	BULK_ENDP_OUT	sBulkOut;
-	
+	/* Interrupt endpoint in info */
 	INTR_ENDP_IN	sIntrIn;
-	
+	/* Interrupt endpoint out info */
 	INTR_ENDP_OUT	sIntrOut;
 
 

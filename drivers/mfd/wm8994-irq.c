@@ -162,7 +162,7 @@ int wm8994_irq_init(struct wm8994 *wm8994)
 		return ret;
 	}
 
-	
+	/* Enable top level interrupt if it was masked */
 	wm8994_reg_write(wm8994, WM8994_INTERRUPT_CONTROL, 0);
 
 	return 0;

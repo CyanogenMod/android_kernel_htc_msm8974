@@ -31,7 +31,25 @@
 #include <linux/usb/hcd.h>
 #include "c67x00.h"
 
+/*
+ * The following parameters depend on the CPU speed, bus speed, ...
+ * These can be tuned for specific use cases, e.g. if isochronous transfers
+ * are very important, bandwidth can be sacrificed to guarantee that the
+ * 1ms deadline will be met.
+ * If bulk transfers are important, the MAX_FRAME_BW can be increased,
+ * but some (or many) isochronous deadlines might not be met.
+ *
+ * The values are specified in bittime.
+ */
 
+/*
+ * The current implementation switches between _STD (default) and _ISO (when
+ * isochronous transfers are scheduled), in order to optimize the throughput
+ * in normal cicrumstances, but also provide good isochronous behaviour.
+ *
+ * Bandwidth is described in bit time so with a 12MHz USB clock and 1ms
+ * frames; there are 12000 bit times per frame.
+ */
 
 #define TOTAL_FRAME_BW		12000
 #define DEFAULT_EOT		2250
@@ -39,24 +57,30 @@
 #define MAX_FRAME_BW_STD	(TOTAL_FRAME_BW - DEFAULT_EOT)
 #define MAX_FRAME_BW_ISO	2400
 
+/*
+ * Periodic transfers may only use 90% of the full frame, but as
+ * we currently don't even use 90% of the full frame, we may
+ * use the full usable time for periodic transfers.
+ */
 #define MAX_PERIODIC_BW(full_bw)	full_bw
 
+/* -------------------------------------------------------------------------- */
 
 struct c67x00_hcd {
 	spinlock_t lock;
 	struct c67x00_sie *sie;
-	unsigned int low_speed_ports;	
+	unsigned int low_speed_ports;	/* bitmask of low speed ports */
 	unsigned int urb_count;
 	unsigned int urb_iso_count;
 
-	struct list_head list[4];	
+	struct list_head list[4];	/* iso, int, ctrl, bulk */
 #if PIPE_BULK != 3
 #error "Sanity check failed, this code presumes PIPE_... to range from 0 to 3"
 #endif
 
-	
+	/* USB bandwidth allocated to td_list */
 	int bandwidth_allocated;
-	
+	/* USB bandwidth allocated for isoc/int transfer */
 	int periodic_bw_allocated;
 	struct list_head td_list;
 	int max_frame_bw;
@@ -84,10 +108,16 @@ static inline struct usb_hcd *c67x00_hcd_to_hcd(struct c67x00_hcd *c67x00)
 	return container_of((void *)c67x00, struct usb_hcd, hcd_priv);
 }
 
+/* ---------------------------------------------------------------------
+ * Functions used by c67x00-drv
+ */
 
 int c67x00_hcd_probe(struct c67x00_sie *sie);
 void c67x00_hcd_remove(struct c67x00_sie *sie);
 
+/* ---------------------------------------------------------------------
+ * Transfer Descriptor scheduling functions
+ */
 int c67x00_urb_enqueue(struct usb_hcd *hcd, struct urb *urb, gfp_t mem_flags);
 int c67x00_urb_dequeue(struct usb_hcd *hcd, struct urb *urb, int status);
 void c67x00_endpoint_disable(struct usb_hcd *hcd,
@@ -100,4 +130,4 @@ void c67x00_sched_stop_scheduler(struct c67x00_hcd *c67x00);
 
 #define c67x00_hcd_dev(x)	(c67x00_hcd_to_hcd(x)->self.controller)
 
-#endif				
+#endif				/* _USB_C67X00_HCD_H */

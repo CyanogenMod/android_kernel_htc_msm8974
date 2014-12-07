@@ -17,9 +17,9 @@
 #include <linux/perf_event.h>
 
 enum direction {
-	load,    
-	store,   
-	both,    
+	load,    /* ld, ldd, ldh, ldsh */
+	store,   /* st, std, sth, stsh */
+	both,    /* Swap, ldstub, etc. */
 	fpload,
 	fpstore,
 	invalid,
@@ -39,6 +39,7 @@ static inline enum direction decode_direction(unsigned int insn)
 	}
 }
 
+/* 8 = double-word, 4 = word, 2 = half-word */
 static inline int decode_access_size(unsigned int insn)
 {
 	insn = (insn >> 19) & 3;
@@ -52,10 +53,11 @@ static inline int decode_access_size(unsigned int insn)
 	else {
 		printk("Impossible unaligned trap. insn=%08x\n", insn);
 		die_if_kernel("Byte sized unaligned access?!?!", current->thread.kregs);
-		return 4; 
+		return 4; /* just to keep gcc happy. */
 	}
 }
 
+/* 0x400000 = signed, 0 = unsigned */
 static inline int decode_signedness(unsigned int insn)
 {
 	return (insn & 0x400000);
@@ -65,7 +67,7 @@ static inline void maybe_flush_windows(unsigned int rs1, unsigned int rs2,
 				       unsigned int rd)
 {
 	if(rs2 >= 16 || rs1 >= 16 || rd >= 16) {
-		
+		/* Wheee... */
 		__asm__ __volatile__("save %sp, -0x40, %sp\n\t"
 				     "save %sp, -0x40, %sp\n\t"
 				     "save %sp, -0x40, %sp\n\t"
@@ -90,9 +92,9 @@ static inline unsigned long fetch_reg(unsigned int reg, struct pt_regs *regs)
 	if(reg < 16)
 		return (!reg ? 0 : regs->u_regs[reg]);
 
-	
+	/* Ho hum, the slightly complicated case. */
 	win = (struct reg_window32 *) regs->u_regs[UREG_FP];
-	return win->locals[reg - 16]; 
+	return win->locals[reg - 16]; /* yes, I know what this does... */
 }
 
 static inline unsigned long safe_fetch_reg(unsigned int reg, struct pt_regs *regs)
@@ -103,7 +105,7 @@ static inline unsigned long safe_fetch_reg(unsigned int reg, struct pt_regs *reg
 	if (reg < 16)
 		return (!reg ? 0 : regs->u_regs[reg]);
 
-	
+	/* Ho hum, the slightly complicated case. */
 	win = (struct reg_window32 __user *) regs->u_regs[UREG_FP];
 
 	if ((unsigned long)win & 3)
@@ -157,11 +159,13 @@ unsigned long safe_compute_effective_address(struct pt_regs *regs,
 	}
 }
 
+/* This is just to make gcc think panic does return... */
 static void unaligned_panic(char *str)
 {
 	panic(str);
 }
 
+/* una_asm.S */
 extern int do_int_load(unsigned long *dest_reg, int size,
 		       unsigned long *saddr, int is_signed);
 extern int __do_int_store(unsigned long *dst_addr, int size,
@@ -221,7 +225,7 @@ static void kernel_mna_trap_fault(struct pt_regs *regs, unsigned int insn)
 			(current->mm ? (unsigned long) current->mm->pgd :
 			(unsigned long) current->active_mm->pgd));
 	        die_if_kernel("Oops", regs);
-		
+		/* Not reached */
 	}
 	regs->pc = fixup;
 	regs->npc = regs->pc + 4;
@@ -256,7 +260,7 @@ asmlinkage void kernel_unaligned_trap(struct pt_regs *regs, unsigned int insn)
 			break;
 		default:
 			panic("Impossible kernel unaligned trap.");
-			
+			/* Not reached... */
 		}
 		if (err)
 			kernel_mna_trap_fault(regs, insn);
@@ -275,7 +279,7 @@ static inline int ok_for_user(struct pt_regs *regs, unsigned int insn,
 	if ((regs->pc | regs->npc) & 3)
 		return 0;
 
-	
+	/* Must access_ok() in all the necessary places. */
 #define WINREG_ADDR(regnum) \
 	((void __user *)(((unsigned long *)regs->u_regs[UREG_FP])+(regnum)))
 
@@ -347,6 +351,10 @@ asmlinkage void user_unaligned_trap(struct pt_regs *regs, unsigned int insn)
 			break;
 
 		case both:
+			/*
+			 * This was supported in 2.4. However, we question
+			 * the value of SWAP instruction across word boundaries.
+			 */
 			printk("Unaligned SWAP unsupported.\n");
 			err = -EFAULT;
 			break;

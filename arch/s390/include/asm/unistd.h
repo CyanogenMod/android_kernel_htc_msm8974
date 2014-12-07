@@ -1,7 +1,17 @@
+/*
+ *  include/asm-s390/unistd.h
+ *
+ *  S390 version
+ *
+ *  Derived from "include/asm-i386/unistd.h"
+ */
 
 #ifndef _ASM_S390_UNISTD_H_
 #define _ASM_S390_UNISTD_H_
 
+/*
+ * This file contains the system call numbers.
+ */
 
 #define __NR_exit                 1
 #define __NR_fork                 2
@@ -104,7 +114,7 @@
 #define __NR_bdflush            134
 #define __NR_sysfs              135
 #define __NR_personality        136
-#define __NR_afs_syscall        137 
+#define __NR_afs_syscall        137 /* Syscall for Andrew File System */
 #define __NR_getdents           141
 #define __NR_flock              143
 #define __NR_msync              144
@@ -171,6 +181,7 @@
 #define __NR_sched_setaffinity	239
 #define __NR_sched_getaffinity	240
 #define __NR_tgkill		241
+/* Number 242 is reserved for tux */
 #define __NR_io_setup		243
 #define __NR_io_destroy		244
 #define __NR_io_getevents	245
@@ -191,9 +202,13 @@
 #define __NR_clock_gettime	(__NR_timer_create+6)
 #define __NR_clock_getres	(__NR_timer_create+7)
 #define __NR_clock_nanosleep	(__NR_timer_create+8)
+/* Number 263 is reserved for vserver */
 #define __NR_statfs64		265
 #define __NR_fstatfs64		266
 #define __NR_remap_file_pages	267
+/* Number 268 is reserved for new sys_mbind */
+/* Number 269 is reserved for new sys_get_mempolicy */
+/* Number 270 is reserved for new sys_set_mempolicy */
 #define __NR_mq_open		271
 #define __NR_mq_unlink		272
 #define __NR_mq_timedsend	273
@@ -210,6 +225,7 @@
 #define __NR_inotify_init	284
 #define __NR_inotify_add_watch	285
 #define __NR_inotify_rm_watch	286
+/* Number 287 is reserved for new sys_migrate_pages */
 #define __NR_openat		288
 #define __NR_mkdirat		289
 #define __NR_mknodat		290
@@ -231,6 +247,7 @@
 #define __NR_sync_file_range	307
 #define __NR_tee		308
 #define __NR_vmsplice		309
+/* Number 310 is reserved for new sys_move_pages */
 #define __NR_getcpu		311
 #define __NR_epoll_pwait	312
 #define __NR_utimes		313
@@ -264,6 +281,11 @@
 #define __NR_process_vm_writev	341
 #define NR_syscalls 342
 
+/* 
+ * There are some system calls that are not present on 64 bit, some
+ * have a different name although they do the same (e.g. __NR_chown32
+ * is __NR_chown on 64 bit).
+ */
 #ifndef __s390x__
 
 #define __NR_time		 13
@@ -291,7 +313,7 @@
 #define __NR_setresgid		170
 #define __NR_getresgid		171
 #define __NR_chown		182
-#define __NR_ugetrlimit		191	
+#define __NR_ugetrlimit		191	/* SuS compliant getrlimit */
 #define __NR_mmap2		192
 #define __NR_truncate64		193
 #define __NR_ftruncate64	194
@@ -325,7 +347,7 @@
 #else
 
 #define __NR_select		142
-#define __NR_getrlimit		191	
+#define __NR_getrlimit		191	/* SuS compliant getrlimit */
 #define __NR_lchown  		198
 #define __NR_getuid  		199
 #define __NR_getgid  		200
@@ -357,12 +379,14 @@
 #define __IGNORE_time
 #endif
 
+/* Ignore NUMA system calls. Not wired up on s390. */
 #define __IGNORE_mbind
 #define __IGNORE_get_mempolicy
 #define __IGNORE_set_mempolicy
 #define __IGNORE_migrate_pages
 #define __IGNORE_move_pages
 
+/* Ignore system calls that are also reachable via sys_socket */
 #define __IGNORE_recvmmsg
 #define __IGNORE_sendmmsg
 
@@ -395,7 +419,13 @@
 #   define __ARCH_WANT_COMPAT_SYS_RT_SIGSUSPEND
 # endif
 
+/*
+ * "Conditional" syscalls
+ *
+ * What we want is __attribute__((weak,alias("sys_ni_syscall"))),
+ * but it doesn't work on all toolchains, so we just do it by hand
+ */
 #define cond_syscall(x) asm(".weak\t" #x "\n\t.set\t" #x ",sys_ni_syscall")
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_S390_UNISTD_H_ */

@@ -35,7 +35,7 @@
 #warning Your compiler is too buggy; it is known to not compile ARM unwind support.
 #warning    Change compiler or disable ARM_UNWIND option.
 #endif
-#endif 
+#endif /* __CHECKER__ */
 
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -49,6 +49,7 @@
 #include <asm/traps.h>
 #include <asm/unwind.h>
 
+/* Dummy functions to avoid linker complaints */
 void __aeabi_unwind_cpp_pr0(void)
 {
 };
@@ -65,10 +66,10 @@ void __aeabi_unwind_cpp_pr2(void)
 EXPORT_SYMBOL(__aeabi_unwind_cpp_pr2);
 
 struct unwind_ctrl_block {
-	unsigned long vrs[16];		
-	const unsigned long *insn;	
-	int entries;			
-	int byte;			
+	unsigned long vrs[16];		/* virtual register set */
+	const unsigned long *insn;	/* pointer to the current instructions word */
+	int entries;			/* number of entries left to interpret */
+	int byte;			/* current byte number in the instructions word */
 };
 
 enum regs {
@@ -89,13 +90,22 @@ extern const struct unwind_idx __stop_unwind_idx[];
 static DEFINE_SPINLOCK(unwind_lock);
 static LIST_HEAD(unwind_tables);
 
+/* Convert a prel31 symbol to an absolute address */
 #define prel31_to_addr(ptr)				\
 ({							\
-				\
+	/* sign-extend to 32 bits */			\
 	long offset = (((long)*(ptr)) << 1) >> 1;	\
 	(unsigned long)(ptr) + offset;			\
 })
 
+/*
+ * Binary search in the unwind index. The entries are
+ * guaranteed to be sorted in ascending order by the linker.
+ *
+ * start = first entry
+ * origin = first entry with positive offset (or stop if there is no such entry)
+ * stop - 1 = last entry
+ */
 static const struct unwind_idx *search_index(unsigned long addr,
 				       const struct unwind_idx *start,
 				       const struct unwind_idx *origin,
@@ -106,24 +116,32 @@ static const struct unwind_idx *search_index(unsigned long addr,
 	pr_debug("%s(%08lx, %p, %p, %p)\n",
 			__func__, addr, start, origin, stop);
 
+	/*
+	 * only search in the section with the matching sign. This way the
+	 * prel31 numbers can be compared as unsigned longs.
+	 */
 	if (addr < (unsigned long)start)
-		
+		/* negative offsets: [start; origin) */
 		stop = origin;
 	else
-		
+		/* positive offsets: [origin; stop) */
 		start = origin;
 
-	
+	/* prel31 for address relavive to start */
 	addr_prel31 = (addr - (unsigned long)start) & 0x7fffffff;
 
 	while (start < stop - 1) {
 		const struct unwind_idx *mid = start + ((stop - start) >> 1);
 
+		/*
+		 * As addr_prel31 is relative to start an offset is needed to
+		 * make it relative to mid.
+		 */
 		if (addr_prel31 - ((unsigned long)mid - (unsigned long)start) <
 				mid->addr_offset)
 			stop = mid;
 		else {
-			
+			/* keep addr_prel31 relative to start */
 			addr_prel31 -= ((unsigned long)mid -
 					(unsigned long)start);
 			start = mid;
@@ -146,10 +164,10 @@ static const struct unwind_idx *unwind_find_origin(
 		const struct unwind_idx *mid = start + ((stop - start) >> 1);
 
 		if (mid->addr_offset >= 0x40000000)
-			
+			/* negative offset */
 			start = mid + 1;
 		else
-			
+			/* positive offset */
 			stop = mid;
 	}
 	pr_debug("%s -> %p\n", __func__, stop);
@@ -169,12 +187,12 @@ static const struct unwind_idx *unwind_find_idx(unsigned long addr)
 				unwind_find_origin(__start_unwind_idx,
 						__stop_unwind_idx);
 
-		
+		/* main unwind table */
 		idx = search_index(addr, __start_unwind_idx,
 				   __origin_unwind_idx,
 				   __stop_unwind_idx);
 	} else {
-		
+		/* module unwind tables */
 		struct unwind_table *table;
 
 		spin_lock_irqsave(&unwind_lock, flags);
@@ -184,7 +202,7 @@ static const struct unwind_idx *unwind_find_idx(unsigned long addr)
 				idx = search_index(addr, table->start,
 						   table->origin,
 						   table->stop);
-				
+				/* Move-to-front to exploit common traces */
 				list_move(&table->list, &unwind_tables);
 				break;
 			}
@@ -217,6 +235,9 @@ static unsigned long unwind_get_byte(struct unwind_ctrl_block *ctrl)
 	return ret;
 }
 
+/*
+ * Execute the current unwind instruction.
+ */
 static int unwind_exec_insn(struct unwind_ctrl_block *ctrl)
 {
 	unsigned long insn = unwind_get_byte(ctrl);
@@ -240,7 +261,7 @@ static int unwind_exec_insn(struct unwind_ctrl_block *ctrl)
 			return -URC_FAILURE;
 		}
 
-		
+		/* pop R4-R15 according to mask */
 		load_sp = mask & (1 << (13 - 4));
 		while (mask) {
 			if (mask & 1)
@@ -257,7 +278,7 @@ static int unwind_exec_insn(struct unwind_ctrl_block *ctrl)
 		unsigned long *vsp = (unsigned long *)ctrl->vrs[SP];
 		int reg;
 
-		
+		/* pop R4-R[4+bbb] */
 		for (reg = 4; reg <= 4 + (insn & 7); reg++)
 			ctrl->vrs[reg] = *vsp++;
 		if (insn & 0x80)
@@ -266,7 +287,7 @@ static int unwind_exec_insn(struct unwind_ctrl_block *ctrl)
 	} else if (insn == 0xb0) {
 		if (ctrl->vrs[PC] == 0)
 			ctrl->vrs[PC] = ctrl->vrs[LR];
-		
+		/* no further processing */
 		ctrl->entries = 0;
 	} else if (insn == 0xb1) {
 		unsigned long mask = unwind_get_byte(ctrl);
@@ -279,7 +300,7 @@ static int unwind_exec_insn(struct unwind_ctrl_block *ctrl)
 			return -URC_FAILURE;
 		}
 
-		
+		/* pop R0-R3 according to mask */
 		while (mask) {
 			if (mask & 1)
 				ctrl->vrs[reg] = *vsp++;
@@ -302,13 +323,17 @@ static int unwind_exec_insn(struct unwind_ctrl_block *ctrl)
 	return URC_OK;
 }
 
+/*
+ * Unwind a single frame starting with *sp for the symbol at *pc. It
+ * updates the *pc and *sp with the new values.
+ */
 int unwind_frame(struct stackframe *frame)
 {
 	unsigned long high, low;
 	const struct unwind_idx *idx;
 	struct unwind_ctrl_block ctrl;
 
-	
+	/* only go to a higher address on the stack */
 	low = frame->sp;
 	high = ALIGN(low, THREAD_SIZE);
 
@@ -330,13 +355,13 @@ int unwind_frame(struct stackframe *frame)
 	ctrl.vrs[PC] = 0;
 
 	if (idx->insn == 1)
-		
+		/* can't unwind */
 		return -URC_FAILURE;
 	else if ((idx->insn & 0x80000000) == 0)
-		
+		/* prel31 to the unwind table */
 		ctrl.insn = (unsigned long *)prel31_to_addr(&idx->insn);
 	else if ((idx->insn & 0xff000000) == 0x80000000)
-		
+		/* only personality routine 0 supported in the index */
 		ctrl.insn = &idx->insn;
 	else {
 		pr_warning("unwind: Unsupported personality routine %08lx in the index at %p\n",
@@ -344,7 +369,7 @@ int unwind_frame(struct stackframe *frame)
 		return -URC_FAILURE;
 	}
 
-	
+	/* check the personality routine */
 	if ((*ctrl.insn & 0xff000000) == 0x80000000) {
 		ctrl.byte = 2;
 		ctrl.entries = 1;
@@ -368,7 +393,7 @@ int unwind_frame(struct stackframe *frame)
 	if (ctrl.vrs[PC] == 0)
 		ctrl.vrs[PC] = ctrl.vrs[LR];
 
-	
+	/* check for infinite loop */
 	if (frame->pc == ctrl.vrs[PC])
 		return -URC_FAILURE;
 
@@ -394,7 +419,7 @@ void unwind_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 		frame.fp = regs->ARM_fp;
 		frame.sp = regs->ARM_sp;
 		frame.lr = regs->ARM_lr;
-		
+		/* PC might be corrupted, use LR in that case. */
 		frame.pc = kernel_text_address(regs->ARM_pc)
 			 ? regs->ARM_pc : regs->ARM_lr;
 	} else if (tsk == current) {
@@ -403,9 +428,13 @@ void unwind_backtrace(struct pt_regs *regs, struct task_struct *tsk)
 		frame.lr = (unsigned long)__builtin_return_address(0);
 		frame.pc = (unsigned long)unwind_backtrace;
 	} else {
-		
+		/* task blocked in __switch_to */
 		frame.fp = thread_saved_fp(tsk);
 		frame.sp = thread_saved_sp(tsk);
+		/*
+		 * The function calling __switch_to cannot be a leaf function
+		 * so LR is recovered from the stack.
+		 */
 		frame.lr = 0;
 		frame.pc = thread_saved_pc(tsk);
 	}

@@ -16,6 +16,6 @@ struct timeriomem_rng_data {
 
 	void __iomem		*address;
 
-	
+	/* measures in usecs */
 	unsigned int		period;
 };

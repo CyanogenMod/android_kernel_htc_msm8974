@@ -736,6 +736,7 @@ struct bma250_platform_data {
 	int chip_layout;
 	int calibration_mode;
 	int gs_kvalue;
+	int SR_3v_used;
 	unsigned int (*G_Sensor_Compass_POR)(void);
 
         

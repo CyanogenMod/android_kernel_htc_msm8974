@@ -64,7 +64,7 @@ static inline unsigned long pgd_entry_type(struct mm_struct *mm)
 #define pgd_populate(mm, pgd, pud)		BUG()
 #define pud_populate(mm, pud, pmd)		BUG()
 
-#else 
+#else /* __s390x__ */
 
 static inline unsigned long pgd_entry_type(struct mm_struct *mm)
 {
@@ -106,7 +106,7 @@ static inline void pud_populate(struct mm_struct *mm, pud_t *pud, pmd_t *pmd)
 	pud_val(*pud) = _REGION3_ENTRY | __pa(pmd);
 }
 
-#endif 
+#endif /* __s390x__ */
 
 static inline pgd_t *pgd_alloc(struct mm_struct *mm)
 {
@@ -128,6 +128,9 @@ static inline void pmd_populate(struct mm_struct *mm,
 #define pmd_pgtable(pmd) \
 	(pgtable_t)(pmd_val(pmd) & -sizeof(pte_t)*PTRS_PER_PTE)
 
+/*
+ * page table entry allocation/free routines.
+ */
 #define pte_alloc_one_kernel(mm, vmaddr) ((pte_t *) page_table_alloc(mm, vmaddr))
 #define pte_alloc_one(mm, vmaddr) ((pte_t *) page_table_alloc(mm, vmaddr))
 
@@ -136,4 +139,4 @@ static inline void pmd_populate(struct mm_struct *mm,
 
 extern void rcu_table_freelist_finish(void);
 
-#endif 
+#endif /* _S390_PGALLOC_H */

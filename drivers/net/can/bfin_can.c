@@ -28,8 +28,11 @@
 #define BFIN_CAN_TIMEOUT 100
 #define TX_ECHO_SKB_MAX  1
 
+/*
+ * bfin can private data
+ */
 struct bfin_can_priv {
-	struct can_priv can;	
+	struct can_priv can;	/* must be the first member */
 	struct net_device *dev;
 	void __iomem *membase;
 	int rx_irq;
@@ -38,6 +41,9 @@ struct bfin_can_priv {
 	unsigned short *pin_list;
 };
 
+/*
+ * bfin can timing parameters
+ */
 static struct can_bittiming_const bfin_can_bittiming_const = {
 	.name = DRV_NAME,
 	.tseg1_min = 1,
@@ -45,6 +51,11 @@ static struct can_bittiming_const bfin_can_bittiming_const = {
 	.tseg2_min = 1,
 	.tseg2_max = 8,
 	.sjw_max = 4,
+	/*
+	 * Although the BRP field can be set to any value, it is recommended
+	 * that the value be greater than or equal to 4, as restrictions
+	 * apply to the bit timing configuration when BRP is less than 4.
+	 */
 	.brp_min = 4,
 	.brp_max = 1024,
 	.brp_inc = 1,
@@ -61,6 +72,10 @@ static int bfin_can_set_bittiming(struct net_device *dev)
 	timing = ((bt->sjw - 1) << 8) | (bt->prop_seg + bt->phase_seg1 - 1) |
 		((bt->phase_seg2 - 1) << 4);
 
+	/*
+	 * If the SAM bit is set, the input signal is oversampled three times
+	 * at the SCLK rate.
+	 */
 	if (priv->can.ctrlmode & CAN_CTRLMODE_3_SAMPLES)
 		timing |= SAM;
 
@@ -79,12 +94,12 @@ static void bfin_can_set_reset_mode(struct net_device *dev)
 	int timeout = BFIN_CAN_TIMEOUT;
 	int i;
 
-	
+	/* disable interrupts */
 	bfin_write(&reg->mbim1, 0);
 	bfin_write(&reg->mbim2, 0);
 	bfin_write(&reg->gim, 0);
 
-	
+	/* reset can and enter configuration mode */
 	bfin_write(&reg->control, SRS | CCR);
 	SSYNC();
 	bfin_write(&reg->control, CCR);
@@ -97,14 +112,19 @@ static void bfin_can_set_reset_mode(struct net_device *dev)
 		}
 	}
 
+	/*
+	 * All mailbox configurations are marked as inactive
+	 * by writing to CAN Mailbox Configuration Registers 1 and 2
+	 * For all bits: 0 - Mailbox disabled, 1 - Mailbox enabled
+	 */
 	bfin_write(&reg->mc1, 0);
 	bfin_write(&reg->mc2, 0);
 
-	
-	bfin_write(&reg->md1, 0xFFFF);   
-	bfin_write(&reg->md2, 0);   
+	/* Set Mailbox Direction */
+	bfin_write(&reg->md1, 0xFFFF);   /* mailbox 1-16 are RX */
+	bfin_write(&reg->md2, 0);   /* mailbox 17-32 are TX */
 
-	
+	/* RECEIVE_STD_CHL */
 	for (i = 0; i < 2; i++) {
 		bfin_write(&reg->chl[RECEIVE_STD_CHL + i].id0, 0);
 		bfin_write(&reg->chl[RECEIVE_STD_CHL + i].id1, AME);
@@ -113,7 +133,7 @@ static void bfin_can_set_reset_mode(struct net_device *dev)
 		bfin_write(&reg->msk[RECEIVE_STD_CHL + i].aml, 0xFFFF);
 	}
 
-	
+	/* RECEIVE_EXT_CHL */
 	for (i = 0; i < 2; i++) {
 		bfin_write(&reg->chl[RECEIVE_EXT_CHL + i].id0, 0);
 		bfin_write(&reg->chl[RECEIVE_EXT_CHL + i].id1, AME | IDE);
@@ -135,6 +155,9 @@ static void bfin_can_set_normal_mode(struct net_device *dev)
 	struct bfin_can_regs __iomem *reg = priv->membase;
 	int timeout = BFIN_CAN_TIMEOUT;
 
+	/*
+	 * leave configuration mode
+	 */
 	bfin_write(&reg->control, bfin_read(&reg->control) & ~CCR);
 
 	while (bfin_read(&reg->status) & CCA) {
@@ -145,13 +168,24 @@ static void bfin_can_set_normal_mode(struct net_device *dev)
 		}
 	}
 
+	/*
+	 * clear _All_  tx and rx interrupts
+	 */
 	bfin_write(&reg->mbtif1, 0xFFFF);
 	bfin_write(&reg->mbtif2, 0xFFFF);
 	bfin_write(&reg->mbrif1, 0xFFFF);
 	bfin_write(&reg->mbrif2, 0xFFFF);
 
-	bfin_write(&reg->gis, 0x7FF); 
+	/*
+	 * clear global interrupt status register
+	 */
+	bfin_write(&reg->gis, 0x7FF); /* overwrites with '1' */
 
+	/*
+	 * Initialize Interrupts
+	 * - set bits in the mailbox interrupt mask register
+	 * - global interrupt mask
+	 */
 	bfin_write(&reg->mbim1, BIT(RECEIVE_STD_CHL) + BIT(RECEIVE_EXT_CHL));
 	bfin_write(&reg->mbim2, BIT(TRANSMIT_CHL - 16));
 
@@ -163,11 +197,11 @@ static void bfin_can_start(struct net_device *dev)
 {
 	struct bfin_can_priv *priv = netdev_priv(dev);
 
-	
+	/* enter reset mode */
 	if (priv->can.state != CAN_STATE_STOPPED)
 		bfin_can_set_reset_mode(dev);
 
-	
+	/* leave reset mode */
 	bfin_can_set_normal_mode(dev);
 }
 
@@ -217,7 +251,7 @@ static int bfin_can_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	netif_stop_queue(dev);
 
-	
+	/* fill id */
 	if (id & CAN_EFF_FLAG) {
 		bfin_write(&reg->chl[TRANSMIT_CHL].id0, id);
 		val = ((id & 0x1FFF0000) >> 16) | IDE;
@@ -227,19 +261,19 @@ static int bfin_can_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		val |= RTR;
 	bfin_write(&reg->chl[TRANSMIT_CHL].id1, val | AME);
 
-	
+	/* fill payload */
 	for (i = 0; i < 8; i += 2) {
 		val = ((7 - i) < dlc ? (data[7 - i]) : 0) +
 			((6 - i) < dlc ? (data[6 - i] << 8) : 0);
 		bfin_write(&reg->chl[TRANSMIT_CHL].data[i], val);
 	}
 
-	
+	/* fill data length code */
 	bfin_write(&reg->chl[TRANSMIT_CHL].dlc, dlc);
 
 	can_put_echo_skb(skb, dev, 0);
 
-	
+	/* set transmit request */
 	bfin_write(&reg->trs2, BIT(TRANSMIT_CHL - 16));
 
 	return 0;
@@ -260,16 +294,16 @@ static void bfin_can_rx(struct net_device *dev, u16 isrc)
 	if (skb == NULL)
 		return;
 
-	
+	/* get id */
 	if (isrc & BIT(RECEIVE_EXT_CHL)) {
-		
+		/* extended frame format (EFF) */
 		cf->can_id = ((bfin_read(&reg->chl[RECEIVE_EXT_CHL].id1)
 			     & 0x1FFF) << 16)
 			     + bfin_read(&reg->chl[RECEIVE_EXT_CHL].id0);
 		cf->can_id |= CAN_EFF_FLAG;
 		obj = RECEIVE_EXT_CHL;
 	} else {
-		
+		/* standard frame format (SFF) */
 		cf->can_id = (bfin_read(&reg->chl[RECEIVE_STD_CHL].id1)
 			     & 0x1ffc) >> 2;
 		obj = RECEIVE_STD_CHL;
@@ -277,10 +311,10 @@ static void bfin_can_rx(struct net_device *dev, u16 isrc)
 	if (bfin_read(&reg->chl[obj].id1) & RTR)
 		cf->can_id |= CAN_RTR_FLAG;
 
-	
+	/* get data length code */
 	cf->can_dlc = get_can_dlc(bfin_read(&reg->chl[obj].dlc) & 0xF);
 
-	
+	/* get payload */
 	for (i = 0; i < 8; i += 2) {
 		val = bfin_read(&reg->chl[obj].data[i]);
 		cf->data[7 - i] = (7 - i) < cf->can_dlc ? val : 0;
@@ -307,7 +341,7 @@ static int bfin_can_err(struct net_device *dev, u16 isrc, u16 status)
 		return -ENOMEM;
 
 	if (isrc & RMLIS) {
-		
+		/* data overrun interrupt */
 		netdev_dbg(dev, "data overrun interrupt\n");
 		cf->can_id |= CAN_ERR_CRTL;
 		cf->data[1] = CAN_ERR_CRTL_RX_OVERFLOW;
@@ -323,7 +357,7 @@ static int bfin_can_err(struct net_device *dev, u16 isrc, u16 status)
 	}
 
 	if (isrc & EPIS) {
-		
+		/* error passive interrupt */
 		netdev_dbg(dev, "error passive interrupt\n");
 		state = CAN_STATE_ERROR_PASSIVE;
 	}
@@ -387,19 +421,19 @@ irqreturn_t bfin_can_interrupt(int irq, void *dev_id)
 	u16 status, isrc;
 
 	if ((irq == priv->tx_irq) && bfin_read(&reg->mbtif2)) {
-		
+		/* transmission complete interrupt */
 		bfin_write(&reg->mbtif2, 0xFFFF);
 		stats->tx_packets++;
 		stats->tx_bytes += bfin_read(&reg->chl[TRANSMIT_CHL].dlc);
 		can_get_echo_skb(dev, 0);
 		netif_wake_queue(dev);
 	} else if ((irq == priv->rx_irq) && bfin_read(&reg->mbrif1)) {
-		
+		/* receive interrupt */
 		isrc = bfin_read(&reg->mbrif1);
 		bfin_write(&reg->mbrif1, 0xFFFF);
 		bfin_can_rx(dev, isrc);
 	} else if ((irq == priv->err_irq) && bfin_read(&reg->gis)) {
-		
+		/* error interrupt */
 		isrc = bfin_read(&reg->gis);
 		status = bfin_read(&reg->esr);
 		bfin_write(&reg->gis, 0x7FF);
@@ -416,15 +450,15 @@ static int bfin_can_open(struct net_device *dev)
 	struct bfin_can_priv *priv = netdev_priv(dev);
 	int err;
 
-	
+	/* set chip into reset mode */
 	bfin_can_set_reset_mode(dev);
 
-	
+	/* common open */
 	err = open_candev(dev);
 	if (err)
 		goto exit_open;
 
-	
+	/* register interrupt handler */
 	err = request_irq(priv->rx_irq, &bfin_can_interrupt, 0,
 			"bfin-can-rx", dev);
 	if (err)
@@ -527,7 +561,7 @@ static int __devinit bfin_can_probe(struct platform_device *pdev)
 		goto exit;
 	}
 
-	
+	/* request peripheral pins */
 	err = peripheral_request_list(pdata, dev_name(&pdev->dev));
 	if (err)
 		goto exit_mem_release;
@@ -549,7 +583,7 @@ static int __devinit bfin_can_probe(struct platform_device *pdev)
 	dev_set_drvdata(&pdev->dev, dev);
 	SET_NETDEV_DEV(dev, &pdev->dev);
 
-	dev->flags |= IFF_ECHO;	
+	dev->flags |= IFF_ECHO;	/* we support local echo */
 	dev->netdev_ops = &bfin_can_netdev_ops;
 
 	bfin_can_set_reset_mode(dev);
@@ -607,7 +641,7 @@ static int bfin_can_suspend(struct platform_device *pdev, pm_message_t mesg)
 	int timeout = BFIN_CAN_TIMEOUT;
 
 	if (netif_running(dev)) {
-		
+		/* enter sleep mode */
 		bfin_write(&reg->control, bfin_read(&reg->control) | SMR);
 		SSYNC();
 		while (!(bfin_read(&reg->intr) & SMACK)) {
@@ -629,7 +663,7 @@ static int bfin_can_resume(struct platform_device *pdev)
 	struct bfin_can_regs __iomem *reg = priv->membase;
 
 	if (netif_running(dev)) {
-		
+		/* leave sleep mode */
 		bfin_write(&reg->intr, 0);
 		SSYNC();
 	}
@@ -639,7 +673,7 @@ static int bfin_can_resume(struct platform_device *pdev)
 #else
 #define bfin_can_suspend NULL
 #define bfin_can_resume NULL
-#endif	
+#endif	/* CONFIG_PM */
 
 static struct platform_driver bfin_can_driver = {
 	.probe = bfin_can_probe,

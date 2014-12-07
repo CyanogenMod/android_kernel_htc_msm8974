@@ -27,16 +27,20 @@
 #include <linux/device.h>
 #include <linux/time.h>
 
+/*
+ * Global defines
+ */
 
 struct pps_device;
 
+/* The specific PPS source info */
 struct pps_source_info {
-	char name[PPS_MAX_NAME_LEN];		
-	char path[PPS_MAX_NAME_LEN];		
-	int mode;				
+	char name[PPS_MAX_NAME_LEN];		/* simbolic name */
+	char path[PPS_MAX_NAME_LEN];		/* path of connected device */
+	int mode;				/* PPS's allowed mode */
 
 	void (*echo)(struct pps_device *pps,
-			int event, void *data);	
+			int event, void *data);	/* PPS echo function */
 
 	struct module *owner;
 	struct device *dev;
@@ -45,34 +49,41 @@ struct pps_source_info {
 struct pps_event_time {
 #ifdef CONFIG_NTP_PPS
 	struct timespec ts_raw;
-#endif 
+#endif /* CONFIG_NTP_PPS */
 	struct timespec ts_real;
 };
 
+/* The main struct */
 struct pps_device {
-	struct pps_source_info info;		
+	struct pps_source_info info;		/* PSS source info */
 
-	struct pps_kparams params;		
+	struct pps_kparams params;		/* PPS's current params */
 
-	__u32 assert_sequence;			
-	__u32 clear_sequence;			
+	__u32 assert_sequence;			/* PPS' assert event seq # */
+	__u32 clear_sequence;			/* PPS' clear event seq # */
 	struct pps_ktime assert_tu;
 	struct pps_ktime clear_tu;
-	int current_mode;			
+	int current_mode;			/* PPS mode at event time */
 
-	unsigned int last_ev;			
-	wait_queue_head_t queue;		
+	unsigned int last_ev;			/* last PPS event id */
+	wait_queue_head_t queue;		/* PPS event queue */
 
-	unsigned int id;			
+	unsigned int id;			/* PPS source unique ID */
 	struct cdev cdev;
 	struct device *dev;
-	struct fasync_struct *async_queue;	
+	struct fasync_struct *async_queue;	/* fasync method */
 	spinlock_t lock;
 };
 
+/*
+ * Global variables
+ */
 
 extern struct device_attribute pps_attrs[];
 
+/*
+ * Exported functions
+ */
 
 extern struct pps_device *pps_register_source(
 		struct pps_source_info *info, int default_params);
@@ -96,14 +107,14 @@ static inline void pps_get_ts(struct pps_event_time *ts)
 	getnstime_raw_and_real(&ts->ts_raw, &ts->ts_real);
 }
 
-#else 
+#else /* CONFIG_NTP_PPS */
 
 static inline void pps_get_ts(struct pps_event_time *ts)
 {
 	getnstimeofday(&ts->ts_real);
 }
 
-#endif 
+#endif /* CONFIG_NTP_PPS */
 
-#endif 
+#endif /* LINUX_PPS_KERNEL_H */
 

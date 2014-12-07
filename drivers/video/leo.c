@@ -22,6 +22,9 @@
 
 #include "sbuslib.h"
 
+/*
+ * Local functions.
+ */
 
 static int leo_setcolreg(unsigned, unsigned, unsigned, unsigned,
 			 unsigned, struct fb_info *);
@@ -31,6 +34,9 @@ static int leo_mmap(struct fb_info *, struct vm_area_struct *);
 static int leo_ioctl(struct fb_info *, unsigned int, unsigned long);
 static int leo_pan_display(struct fb_var_screeninfo *, struct fb_info *);
 
+/*
+ *  Frame buffer operations
+ */
 
 static struct fb_ops leo_ops = {
 	.owner			= THIS_MODULE,
@@ -130,34 +136,34 @@ struct leo_ld_ss0 {
 	u32	widclip;
 	u32	vclipmin;
 	u32	vclipmax;
-	u32	pickmin;	
-	u32	pickmax;	
+	u32	pickmin;	/* SS1 only */
+	u32	pickmax;	/* SS1 only */
 	u32	fg;
 	u32	bg;
-	u32	src;		
-	u32	dst;		
-	u32	extent;		
+	u32	src;		/* Copy/Scroll (SS0 only) */
+	u32	dst;		/* Copy/Scroll/Fill (SS0 only) */
+	u32	extent;		/* Copy/Scroll/Fill size (SS0 only) */
 	u32	xxx1[3];
-	u32	setsem;		
-	u32	clrsem;		
-	u32	clrpick;	
-	u32	clrdat;		
-	u32	alpha;		
+	u32	setsem;		/* SS1 only */
+	u32	clrsem;		/* SS1 only */
+	u32	clrpick;	/* SS1 only */
+	u32	clrdat;		/* SS1 only */
+	u32	alpha;		/* SS1 only */
 	u8	xxx2[0x2c];
 	u32	winbg;
 	u32	planemask;
 	u32	rop;
 	u32	z;
-	u32	dczf;		
-	u32	dczb;		
-	u32	dcs;		
-	u32	dczs;		
-	u32	pickfb;		
-	u32	pickbb;		
-	u32	dcfc;		
-	u32	forcecol;	
-	u32	door[8];	
-	u32	pick[5];	
+	u32	dczf;		/* SS1 only */
+	u32	dczb;		/* SS1 only */
+	u32	dcs;		/* SS1 only */
+	u32	dczs;		/* SS1 only */
+	u32	pickfb;		/* SS1 only */
+	u32	pickbb;		/* SS1 only */
+	u32	dcfc;		/* SS1 only */
+	u32	forcecol;	/* SS1 only */
+	u32	door[8];	/* SS1 only */
+	u32	pick[5];	/* SS1 only */
 };
 
 #define LEO_SS1_MISC_ENABLE	0x00000001
@@ -195,7 +201,7 @@ static void leo_wait(struct leo_lx_krn __iomem *lx_krn)
 	     (sbus_readl(&lx_krn->krn_csr) & LEO_KRN_CSR_PROGRESS) &&
 	     i < 300000;
 	     i++)
-		udelay(1); 
+		udelay(1); /* Busy wait at most 0.3 sec */
 	return;
 }
 
@@ -229,13 +235,13 @@ static void leo_switch_from_graph(struct fb_info *info)
 		val = sbus_readl(&par->lc_ss0_usr->csr);
 	} while (val & 0x20000000);
 
-	
+	/* setup screen buffer for cfb_* functions */
 	sbus_writel(1, &ss->wid);
 	sbus_writel(0x00ffffff, &ss->planemask);
 	sbus_writel(0x310b90, &ss->rop);
 	sbus_writel(0, &par->lc_ss0_usr->addrspace);
 
-	
+	/* hide cursor */
 	sbus_writel(sbus_readl(&cursor->cur_misc) & ~LEO_CUR_ENABLE, &cursor->cur_misc);
 
 	spin_unlock_irqrestore(&par->lock, flags);
@@ -243,6 +249,9 @@ static void leo_switch_from_graph(struct fb_info *info)
 
 static int leo_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 {
+	/* We just use this to catch switches out of
+	 * graphics mode.
+	 */
 	leo_switch_from_graph(info);
 
 	if (var->xoffset || var->yoffset || var->vmode)
@@ -250,6 +259,15 @@ static int leo_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 	return 0;
 }
 
+/**
+ *      leo_setcolreg - Optional function. Sets a color register.
+ *      @regno: boolean, 0 copy local, 1 get_user() function
+ *      @red: frame buffer colormap structure
+ *      @green: The green value which can be up to 16 bits wide
+ *      @blue:  The blue value which can be up to 16 bits wide.
+ *      @transp: If supported the alpha value which can be up to 16 bits wide.
+ *      @info: frame buffer info structure
+ */
 static int leo_setcolreg(unsigned regno,
 			 unsigned red, unsigned green, unsigned blue,
 			 unsigned transp, struct fb_info *info)
@@ -287,6 +305,11 @@ static int leo_setcolreg(unsigned regno,
 	return 0;
 }
 
+/**
+ *      leo_blank - Optional function.  Blanks the display.
+ *      @blank_mode: the blank mode we want.
+ *      @info: frame buffer structure that represents a single frame buffer
+ */
 static int leo_blank(int blank, struct fb_info *info)
 {
 	struct leo_par *par = (struct leo_par *) info->par;
@@ -297,17 +320,17 @@ static int leo_blank(int blank, struct fb_info *info)
 	spin_lock_irqsave(&par->lock, flags);
 
 	switch (blank) {
-	case FB_BLANK_UNBLANK: 
+	case FB_BLANK_UNBLANK: /* Unblanking */
 		val = sbus_readl(&lx_krn->krn_csr);
 		val |= LEO_KRN_CSR_ENABLE;
 		sbus_writel(val, &lx_krn->krn_csr);
 		par->flags &= ~LEO_FLAG_BLANKED;
 		break;
 
-	case FB_BLANK_NORMAL: 
-	case FB_BLANK_VSYNC_SUSPEND: 
-	case FB_BLANK_HSYNC_SUSPEND: 
-	case FB_BLANK_POWERDOWN: 
+	case FB_BLANK_NORMAL: /* Normal blanking */
+	case FB_BLANK_VSYNC_SUSPEND: /* VESA blank (vsync off) */
+	case FB_BLANK_HSYNC_SUSPEND: /* VESA blank (hsync off) */
+	case FB_BLANK_POWERDOWN: /* Poweroff */
 		val = sbus_readl(&lx_krn->krn_csr);
 		val &= ~LEO_KRN_CSR_ENABLE;
 		sbus_writel(val, &lx_krn->krn_csr);
@@ -404,6 +427,9 @@ static int leo_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg)
 				   FBTYPE_SUNLEO, 32, info->fix.smem_len);
 }
 
+/*
+ *  Initialisation
+ */
 
 static void
 leo_init_fix(struct fb_info *info, struct device_node *dp)

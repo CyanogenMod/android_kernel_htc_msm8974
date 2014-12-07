@@ -3,9 +3,9 @@
 
 #include <stdarg.h>
 
-#define	ENOMEM		12	
-#define	EINVAL		22	
-#define ENOSPC		28	
+#define	ENOMEM		12	/* Out of Memory */
+#define	EINVAL		22	/* Invalid argument */
+#define ENOSPC		28	/* No space left on device */
 
 extern int printf(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
@@ -16,4 +16,4 @@ extern int sprintf(char *buf, const char *fmt, ...)
 
 extern int vsprintf(char *buf, const char *fmt, va_list args);
 
-#endif				
+#endif				/* _PPC_BOOT_STDIO_H_ */

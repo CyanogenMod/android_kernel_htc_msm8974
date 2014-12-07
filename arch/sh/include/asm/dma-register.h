@@ -13,16 +13,19 @@
 #ifndef DMA_REGISTER_H
 #define DMA_REGISTER_H
 
+/* DMA register */
 #define SAR	0x00
 #define DAR	0x04
 #define TCR	0x08
 #define CHCR	0x0C
 #define DMAOR	0x40
 
+/* DMAOR definitions */
 #define DMAOR_AE	0x00000004
 #define DMAOR_NMIF	0x00000002
 #define DMAOR_DME	0x00000001
 
+/* Definitions for the SuperH DMAC */
 #define REQ_L	0x00000000
 #define REQ_E	0x00080000
 #define RACK_H	0x00000000

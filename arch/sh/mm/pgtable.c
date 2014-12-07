@@ -54,4 +54,4 @@ void pmd_free(struct mm_struct *mm, pmd_t *pmd)
 {
 	kmem_cache_free(pmd_cachep, pmd);
 }
-#endif 
+#endif /* PAGETABLE_LEVELS > 2 */

@@ -73,7 +73,7 @@ static unsigned long maple_find_nvram_base(void)
 	struct device_node *rtcs;
 	unsigned long result = 0;
 
-	
+	/* find NVRAM device */
 	rtcs = of_find_compatible_node(NULL, "nvram", "AMD8111");
 	if (rtcs) {
 		struct resource r;
@@ -104,7 +104,7 @@ static void maple_restart(char *cmd)
 	if (maple_nvram_base == 0)
 		goto fail;
 
-	
+	/* find service processor device */
 	sp = of_find_node_by_name(NULL, "service-processor");
 	if (!sp) {
 		printk(KERN_EMERG "Maple: Unable to find Service Processor\n");
@@ -114,7 +114,7 @@ static void maple_restart(char *cmd)
 	maple_nvram_command = of_get_property(sp, "restart-value", NULL);
 	of_node_put(sp);
 
-	
+	/* send command */
 	outb_p(*maple_nvram_command, maple_nvram_base + *maple_nvram_offset);
 	for (;;) ;
  fail:
@@ -131,7 +131,7 @@ static void maple_power_off(void)
 	if (maple_nvram_base == 0)
 		goto fail;
 
-	
+	/* find service processor device */
 	sp = of_find_node_by_name(NULL, "service-processor");
 	if (!sp) {
 		printk(KERN_EMERG "Maple: Unable to find Service Processor\n");
@@ -141,7 +141,7 @@ static void maple_power_off(void)
 	maple_nvram_command = of_get_property(sp, "power-off-value", NULL);
 	of_node_put(sp);
 
-	
+	/* send command */
 	outb_p(*maple_nvram_command, maple_nvram_base + *maple_nvram_offset);
 	for (;;) ;
  fail:
@@ -162,7 +162,7 @@ struct smp_ops_t maple_smp_ops = {
 	.give_timebase	= smp_generic_give_timebase,
 	.take_timebase	= smp_generic_take_timebase,
 };
-#endif 
+#endif /* CONFIG_SMP */
 
 static void __init maple_use_rtas_reboot_and_halt_if_present(void)
 {
@@ -176,14 +176,14 @@ static void __init maple_use_rtas_reboot_and_halt_if_present(void)
 
 void __init maple_setup_arch(void)
 {
-	
+	/* init to some ~sane value until calibrate_delay() runs */
 	loops_per_jiffy = 50000000;
 
-	
+	/* Setup SMP callback */
 #ifdef CONFIG_SMP
 	smp_ops = &maple_smp_ops;
 #endif
-	
+	/* Lookup PCI hosts */
        	maple_pci_init();
 
 #ifdef CONFIG_DUMMY_CONSOLE
@@ -196,6 +196,9 @@ void __init maple_setup_arch(void)
 	mmio_nvram_init();
 }
 
+/* 
+ * Early initialization.
+ */
 static void __init maple_init_early(void)
 {
 	DBG(" -> maple_init_early\n");
@@ -205,6 +208,11 @@ static void __init maple_init_early(void)
 	DBG(" <- maple_init_early\n");
 }
 
+/*
+ * This is almost identical to pSeries and CHRP. We need to make that
+ * code generic at one point, with appropriate bits in the device-tree to
+ * identify the presence of an HT APIC
+ */
 static void __init maple_init_IRQ(void)
 {
 	struct device_node *root, *np, *mpic_node = NULL;
@@ -214,6 +222,10 @@ static void __init maple_init_IRQ(void)
 	struct mpic *mpic;
 	unsigned int flags = 0;
 
+	/* Locate MPIC in the device-tree. Note that there is a bug
+	 * in Maple device-tree where the type of the controller is
+	 * open-pic and not interrupt-controller
+	 */
 
 	for_each_node_by_type(np, "interrupt-controller")
 		if (of_device_is_compatible(np, "open-pic")) {
@@ -231,7 +243,7 @@ static void __init maple_init_IRQ(void)
 		return;
 	}
 
-	
+	/* Find address list in /platform-open-pic */
 	root = of_find_node_by_path("/");
 	naddr = of_n_addr_cells(root);
 	opprop = of_get_property(root, "platform-open-pic", &opplen);
@@ -244,27 +256,31 @@ static void __init maple_init_IRQ(void)
 
 	BUG_ON(openpic_addr == 0);
 
-	
+	/* Check for a big endian MPIC */
 	if (of_get_property(np, "big-endian", NULL) != NULL)
 		flags |= MPIC_BIG_ENDIAN;
 
-	
+	/* XXX Maple specific bits */
 	flags |= MPIC_U3_HT_IRQS;
-	
+	/* All U3/U4 are big-endian, older SLOF firmware doesn't encode this */
 	flags |= MPIC_BIG_ENDIAN;
 
+	/* Setup the openpic driver. More device-tree junks, we hard code no
+	 * ISUs for now. I'll have to revisit some stuffs with the folks doing
+	 * the firmware for those
+	 */
 	mpic = mpic_alloc(mpic_node, openpic_addr, flags,
-			   0, 0, " MPIC     ");
+			  /*has_isus ? 16 :*/ 0, 0, " MPIC     ");
 	BUG_ON(mpic == NULL);
 
-	
+	/* Add ISUs */
 	opplen /= sizeof(u32);
 	for (n = 0, i = naddr; i < opplen; i += naddr, n++) {
 		unsigned long isuaddr = of_read_number(opprop + i, naddr);
 		mpic_assign_isu(mpic, n, isuaddr);
 	}
 
-	
+	/* All ISUs are setup, complete initialization */
 	mpic_init(mpic);
 	ppc_md.get_irq = mpic_get_irq;
 	of_node_put(mpic_node);
@@ -277,6 +293,9 @@ static void __init maple_progress(char *s, unsigned short hex)
 }
 
 
+/*
+ * Called very early, MMU is off, device-tree isn't unflattened
+ */
 static int __init maple_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();
@@ -284,6 +303,12 @@ static int __init maple_probe(void)
 	if (!of_flat_dt_is_compatible(root, "Momentum,Maple") &&
 	    !of_flat_dt_is_compatible(root, "Momentum,Apache"))
 		return 0;
+	/*
+	 * On U3, the DART (iommu) must be allocated now since it
+	 * has an impact on htab_initialize (due to the large page it
+	 * occupies having to be broken up so the DART itself is not
+	 * part of the cacheable linar mapping
+	 */
 	alloc_dart_table();
 
 	hpte_init_native();
@@ -311,6 +336,10 @@ define_machine(maple) {
 };
 
 #ifdef CONFIG_EDAC
+/*
+ * Register a platform device for CPC925 memory controller on
+ * all boards with U3H (CPC925) bridge.
+ */
 static int __init maple_cpc925_edac_setup(void)
 {
 	struct platform_device *pdev;
@@ -346,7 +375,7 @@ static int __init maple_cpc925_edac_setup(void)
 	rev = __raw_readl(mem);
 	iounmap(mem);
 
-	if (rev < 0x34 || rev > 0x3f) { 
+	if (rev < 0x34 || rev > 0x3f) { /* U3H */
 		printk(KERN_ERR "%s: Non-CPC925(U3H) bridge revision: %02x\n",
 			__func__, rev);
 		return 0;

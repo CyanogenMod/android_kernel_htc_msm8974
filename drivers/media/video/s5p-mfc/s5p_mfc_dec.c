@@ -107,6 +107,7 @@ static struct s5p_mfc_fmt formats[] = {
 
 #define NUM_FORMATS ARRAY_SIZE(formats)
 
+/* Find selected format description */
 static struct s5p_mfc_fmt *find_format(struct v4l2_format *f, unsigned int t)
 {
 	unsigned int i;
@@ -170,26 +171,27 @@ static struct mfc_control controls[] = {
 
 #define NUM_CTRLS ARRAY_SIZE(controls)
 
+/* Check whether a context should be run on hardware */
 static int s5p_mfc_ctx_ready(struct s5p_mfc_ctx *ctx)
 {
-	
+	/* Context is to parse header */
 	if (ctx->src_queue_cnt >= 1 && ctx->state == MFCINST_GOT_INST)
 		return 1;
-	
+	/* Context is to decode a frame */
 	if (ctx->src_queue_cnt >= 1 &&
 	    ctx->state == MFCINST_RUNNING &&
 	    ctx->dst_queue_cnt >= ctx->dpb_count)
 		return 1;
-	
+	/* Context is to return last frame */
 	if (ctx->state == MFCINST_FINISHING &&
 	    ctx->dst_queue_cnt >= ctx->dpb_count)
 		return 1;
-	
+	/* Context is to set buffers */
 	if (ctx->src_queue_cnt >= 1 &&
 	    ctx->state == MFCINST_HEAD_PARSED &&
 	    ctx->capture_state == QUEUE_BUFS_MMAPED)
 		return 1;
-	
+	/* Resolution change */
 	if ((ctx->state == MFCINST_RES_CHANGE_INIT ||
 		ctx->state == MFCINST_RES_CHANGE_FLUSH) &&
 		ctx->dst_queue_cnt >= ctx->dpb_count)
@@ -208,6 +210,7 @@ static struct s5p_mfc_codec_ops decoder_codec_ops = {
 	.post_frame_start	= NULL,
 };
 
+/* Query capabilities of the device */
 static int vidioc_querycap(struct file *file, void *priv,
 			   struct v4l2_capability *cap)
 {
@@ -222,6 +225,7 @@ static int vidioc_querycap(struct file *file, void *priv,
 	return 0;
 }
 
+/* Enumerate format */
 static int vidioc_enum_fmt(struct v4l2_fmtdesc *f, bool mplane, bool out)
 {
 	struct s5p_mfc_fmt *fmt;
@@ -273,6 +277,7 @@ static int vidioc_enum_fmt_vid_out_mplane(struct file *file, void *prov,
 	return vidioc_enum_fmt(f, true, true);
 }
 
+/* Get format */
 static int vidioc_g_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
 	struct s5p_mfc_ctx *ctx = fh_to_ctx(priv);
@@ -283,6 +288,8 @@ static int vidioc_g_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	if (f->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE &&
 	    (ctx->state == MFCINST_GOT_INST || ctx->state ==
 						MFCINST_RES_CHANGE_END)) {
+		/* If the MFC is parsing the header,
+		 * so wait until it is finished */
 		s5p_mfc_clean_ctx_int_flags(ctx);
 		s5p_mfc_wait_for_done_ctx(ctx, S5P_FIMV_R2H_CMD_SEQ_DONE_RET,
 									0);
@@ -290,17 +297,26 @@ static int vidioc_g_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	if (f->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE &&
 	    ctx->state >= MFCINST_HEAD_PARSED &&
 	    ctx->state < MFCINST_ABORT) {
-		
+		/* This is run on CAPTURE (decode output) */
+		/* Width and height are set to the dimensions
+		   of the movie, the buffer is bigger and
+		   further processing stages should crop to this
+		   rectangle. */
 		pix_mp->width = ctx->buf_width;
 		pix_mp->height = ctx->buf_height;
 		pix_mp->field = V4L2_FIELD_NONE;
 		pix_mp->num_planes = 2;
+		/* Set pixelformat to the format in which MFC
+		   outputs the decoded frame */
 		pix_mp->pixelformat = V4L2_PIX_FMT_NV12MT;
 		pix_mp->plane_fmt[0].bytesperline = ctx->buf_width;
 		pix_mp->plane_fmt[0].sizeimage = ctx->luma_size;
 		pix_mp->plane_fmt[1].bytesperline = ctx->buf_width;
 		pix_mp->plane_fmt[1].sizeimage = ctx->chroma_size;
 	} else if (f->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
+		/* This is run on OUTPUT
+		   The buffer contains compressed image
+		   so width and height have no meaning */
 		pix_mp->width = 0;
 		pix_mp->height = 0;
 		pix_mp->field = V4L2_FIELD_NONE;
@@ -317,6 +333,7 @@ static int vidioc_g_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	return 0;
 }
 
+/* Try format */
 static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
 	struct s5p_mfc_fmt *fmt;
@@ -337,6 +354,7 @@ static int vidioc_try_fmt(struct file *file, void *priv, struct v4l2_format *f)
 	return 0;
 }
 
+/* Set format */
 static int vidioc_s_fmt(struct file *file, void *priv, struct v4l2_format *f)
 {
 	struct s5p_mfc_dev *dev = video_drvdata(file);
@@ -384,6 +402,7 @@ out:
 	return ret;
 }
 
+/* Reqeust buffers */
 static int vidioc_reqbufs(struct file *file, void *priv,
 					  struct v4l2_requestbuffers *reqbufs)
 {
@@ -397,7 +416,7 @@ static int vidioc_reqbufs(struct file *file, void *priv,
 		return -EINVAL;
 	}
 	if (reqbufs->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
-		
+		/* Can only request buffers after an instance has been opened.*/
 		if (ctx->state == MFCINST_INIT) {
 			ctx->src_bufs_cnt = 0;
 			if (reqbufs->count == 0) {
@@ -407,7 +426,7 @@ static int vidioc_reqbufs(struct file *file, void *priv,
 				s5p_mfc_clock_off();
 				return ret;
 			}
-			
+			/* Decoding */
 			if (ctx->output_state != QUEUE_FREE) {
 				mfc_err("Bufs have already been requested\n");
 				return -EINVAL;
@@ -484,6 +503,7 @@ static int vidioc_reqbufs(struct file *file, void *priv,
 	return ret;
 }
 
+/* Query buffer */
 static int vidioc_querybuf(struct file *file, void *priv,
 						   struct v4l2_buffer *buf)
 {
@@ -512,6 +532,7 @@ static int vidioc_querybuf(struct file *file, void *priv,
 	return ret;
 }
 
+/* Queue a buffer */
 static int vidioc_qbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 {
 	struct s5p_mfc_ctx *ctx = fh_to_ctx(priv);
@@ -527,6 +548,7 @@ static int vidioc_qbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 	return -EINVAL;
 }
 
+/* Dequeue a buffer */
 static int vidioc_dqbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 {
 	struct s5p_mfc_ctx *ctx = fh_to_ctx(priv);
@@ -542,6 +564,7 @@ static int vidioc_dqbuf(struct file *file, void *priv, struct v4l2_buffer *buf)
 	return -EINVAL;
 }
 
+/* Stream on */
 static int vidioc_streamon(struct file *file, void *priv,
 			   enum v4l2_buf_type type)
 {
@@ -568,7 +591,7 @@ static int vidioc_streamon(struct file *file, void *priv,
 
 			if (s5p_mfc_wait_for_done_ctx(ctx,
 				S5P_FIMV_R2H_CMD_OPEN_INSTANCE_RET, 0)) {
-				
+				/* Error or timeout */
 				mfc_err("Error getting instance from hardware\n");
 				s5p_mfc_release_instance_buffer(ctx);
 				s5p_mfc_release_dec_desc_buffer(ctx);
@@ -584,6 +607,7 @@ static int vidioc_streamon(struct file *file, void *priv,
 	return ret;
 }
 
+/* Stream off, which equals to a pause */
 static int vidioc_streamoff(struct file *file, void *priv,
 			    enum v4l2_buf_type type)
 {
@@ -596,6 +620,7 @@ static int vidioc_streamoff(struct file *file, void *priv,
 	return -EINVAL;
 }
 
+/* Set controls - v4l2 control framework */
 static int s5p_mfc_dec_s_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct s5p_mfc_ctx *ctx = ctrl_to_ctx(ctrl);
@@ -635,7 +660,7 @@ static int s5p_mfc_dec_g_v_ctrl(struct v4l2_ctrl *ctrl)
 			v4l2_err(&dev->v4l2_dev, "Decoding not initialised\n");
 			return -EINVAL;
 		}
-		
+		/* Should wait for the header to be parsed */
 		s5p_mfc_clean_ctx_int_flags(ctx);
 		s5p_mfc_wait_for_done_ctx(ctx,
 				S5P_FIMV_R2H_CMD_SEQ_DONE_RET, 0);
@@ -657,6 +682,7 @@ static const struct v4l2_ctrl_ops s5p_mfc_dec_ctrl_ops = {
 	.g_volatile_ctrl = s5p_mfc_dec_g_v_ctrl,
 };
 
+/* Get cropping information */
 static int vidioc_g_crop(struct file *file, void *priv,
 		struct v4l2_crop *cr)
 {
@@ -696,6 +722,7 @@ static int vidioc_g_crop(struct file *file, void *priv,
 	return 0;
 }
 
+/* v4l2_ioctl_ops */
 static const struct v4l2_ioctl_ops s5p_mfc_dec_ioctl_ops = {
 	.vidioc_querycap = vidioc_querycap,
 	.vidioc_enum_fmt_vid_cap = vidioc_enum_fmt_vid_cap,
@@ -724,19 +751,23 @@ static int s5p_mfc_queue_setup(struct vb2_queue *vq,
 {
 	struct s5p_mfc_ctx *ctx = fh_to_ctx(vq->drv_priv);
 
+	/* Video output for decoding (source)
+	 * this can be set after getting an instance */
 	if (ctx->state == MFCINST_INIT &&
 	    vq->type == V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE) {
-		
+		/* A single plane is required for input */
 		*plane_count = 1;
 		if (*buf_count < 1)
 			*buf_count = 1;
 		if (*buf_count > MFC_MAX_BUFFERS)
 			*buf_count = MFC_MAX_BUFFERS;
+	/* Video capture for decoding (destination)
+	 * this can be set after the header was parsed */
 	} else if (ctx->state == MFCINST_HEAD_PARSED &&
 		   vq->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
-		
+		/* Output plane count is 2 - one for Y and one for CbCr */
 		*plane_count = 2;
-		
+		/* Setup buffer count */
 		if (*buf_count < ctx->dpb_count)
 			*buf_count = ctx->dpb_count;
 		if (*buf_count > ctx->dpb_count + MFC_MAX_EXTRA_DPB)
@@ -844,7 +875,7 @@ static int s5p_mfc_start_streaming(struct vb2_queue *q, unsigned int count)
 	if (ctx->state == MFCINST_FINISHING ||
 		ctx->state == MFCINST_FINISHED)
 		ctx->state = MFCINST_RUNNING;
-	
+	/* If context is ready then dev = work->data;schedule it to run */
 	if (s5p_mfc_ctx_ready(ctx)) {
 		spin_lock_irqsave(&dev->condlock, flags);
 		set_bit(ctx->num, &dev->ctx_work_bits);
@@ -907,7 +938,7 @@ static void s5p_mfc_buf_queue(struct vb2_buffer *vb)
 	} else if (vq->type == V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE) {
 		mfc_buf = &ctx->dst_bufs[vb->v4l2_buf.index];
 		mfc_buf->used = 0;
-		
+		/* Mark destination as available for use by MFC */
 		spin_lock_irqsave(&dev->irqlock, flags);
 		set_bit(vb->v4l2_buf.index, &ctx->dec_dst_flag);
 		list_add_tail(&mfc_buf->list, &ctx->dst_queue);

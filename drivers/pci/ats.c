@@ -47,6 +47,13 @@ static void ats_free_one(struct pci_dev *dev)
 	dev->ats = NULL;
 }
 
+/**
+ * pci_enable_ats - enable the ATS capability
+ * @dev: the PCI device
+ * @ps: the IOMMU page shift
+ *
+ * Returns 0 on success, or negative on failure.
+ */
 int pci_enable_ats(struct pci_dev *dev, int ps)
 {
 	int rc;
@@ -90,6 +97,10 @@ int pci_enable_ats(struct pci_dev *dev, int ps)
 }
 EXPORT_SYMBOL_GPL(pci_enable_ats);
 
+/**
+ * pci_disable_ats - disable the ATS capability
+ * @dev: the PCI device
+ */
 void pci_disable_ats(struct pci_dev *dev)
 {
 	u16 ctrl;
@@ -134,6 +145,18 @@ void pci_restore_ats_state(struct pci_dev *dev)
 }
 EXPORT_SYMBOL_GPL(pci_restore_ats_state);
 
+/**
+ * pci_ats_queue_depth - query the ATS Invalidate Queue Depth
+ * @dev: the PCI device
+ *
+ * Returns the queue depth on success, or negative on failure.
+ *
+ * The ATS spec uses 0 in the Invalidate Queue Depth field to
+ * indicate that the function can accept 32 Invalidate Request.
+ * But here we use the `real' values (i.e. 1~32) for the Queue
+ * Depth; and 0 indicates the function shares the Queue with
+ * other functions (doesn't exclusively own a Queue).
+ */
 int pci_ats_queue_depth(struct pci_dev *dev)
 {
 	int pos;
@@ -157,6 +180,12 @@ int pci_ats_queue_depth(struct pci_dev *dev)
 EXPORT_SYMBOL_GPL(pci_ats_queue_depth);
 
 #ifdef CONFIG_PCI_PRI
+/**
+ * pci_enable_pri - Enable PRI capability
+ * @ pdev: PCI device structure
+ *
+ * Returns 0 on success, negative value on error
+ */
 int pci_enable_pri(struct pci_dev *pdev, u32 reqs)
 {
 	u16 control, status;
@@ -184,6 +213,12 @@ int pci_enable_pri(struct pci_dev *pdev, u32 reqs)
 }
 EXPORT_SYMBOL_GPL(pci_enable_pri);
 
+/**
+ * pci_disable_pri - Disable PRI capability
+ * @pdev: PCI device structure
+ *
+ * Only clears the enabled-bit, regardless of its former value
+ */
 void pci_disable_pri(struct pci_dev *pdev)
 {
 	u16 control;
@@ -199,6 +234,12 @@ void pci_disable_pri(struct pci_dev *pdev)
 }
 EXPORT_SYMBOL_GPL(pci_disable_pri);
 
+/**
+ * pci_pri_enabled - Checks if PRI capability is enabled
+ * @pdev: PCI device structure
+ *
+ * Returns true if PRI is enabled on the device, false otherwise
+ */
 bool pci_pri_enabled(struct pci_dev *pdev)
 {
 	u16 control;
@@ -214,6 +255,13 @@ bool pci_pri_enabled(struct pci_dev *pdev)
 }
 EXPORT_SYMBOL_GPL(pci_pri_enabled);
 
+/**
+ * pci_reset_pri - Resets device's PRI state
+ * @pdev: PCI device structure
+ *
+ * The PRI capability must be disabled before this function is called.
+ * Returns 0 on success, negative value on error.
+ */
 int pci_reset_pri(struct pci_dev *pdev)
 {
 	u16 control;
@@ -235,6 +283,18 @@ int pci_reset_pri(struct pci_dev *pdev)
 }
 EXPORT_SYMBOL_GPL(pci_reset_pri);
 
+/**
+ * pci_pri_stopped - Checks whether the PRI capability is stopped
+ * @pdev: PCI device structure
+ *
+ * Returns true if the PRI capability on the device is disabled and the
+ * device has no outstanding PRI requests, false otherwise. The device
+ * indicates this via the STOPPED bit in the status register of the
+ * capability.
+ * The device internal state can be cleared by resetting the PRI state
+ * with pci_reset_pri(). This can force the capability into the STOPPED
+ * state.
+ */
 bool pci_pri_stopped(struct pci_dev *pdev)
 {
 	u16 control, status;
@@ -254,6 +314,16 @@ bool pci_pri_stopped(struct pci_dev *pdev)
 }
 EXPORT_SYMBOL_GPL(pci_pri_stopped);
 
+/**
+ * pci_pri_status - Request PRI status of a device
+ * @pdev: PCI device structure
+ *
+ * Returns negative value on failure, status on success. The status can
+ * be checked against status-bits. Supported bits are currently:
+ * PCI_PRI_STATUS_RF:      Response failure
+ * PCI_PRI_STATUS_UPRGI:   Unexpected Page Request Group Index
+ * PCI_PRI_STATUS_STOPPED: PRI has stopped
+ */
 int pci_pri_status(struct pci_dev *pdev)
 {
 	u16 status, control;
@@ -266,16 +336,25 @@ int pci_pri_status(struct pci_dev *pdev)
 	pci_read_config_word(pdev, pos + PCI_PRI_CTRL, &control);
 	pci_read_config_word(pdev, pos + PCI_PRI_STATUS, &status);
 
-	
+	/* Stopped bit is undefined when enable == 1, so clear it */
 	if (control & PCI_PRI_CTRL_ENABLE)
 		status &= ~PCI_PRI_STATUS_STOPPED;
 
 	return status;
 }
 EXPORT_SYMBOL_GPL(pci_pri_status);
-#endif 
+#endif /* CONFIG_PCI_PRI */
 
 #ifdef CONFIG_PCI_PASID
+/**
+ * pci_enable_pasid - Enable the PASID capability
+ * @pdev: PCI device structure
+ * @features: Features to enable
+ *
+ * Returns 0 on success, negative value on error. This function checks
+ * whether the features are actually supported by the device and returns
+ * an error if not.
+ */
 int pci_enable_pasid(struct pci_dev *pdev, int features)
 {
 	u16 control, supported;
@@ -293,7 +372,7 @@ int pci_enable_pasid(struct pci_dev *pdev, int features)
 
 	supported &= PCI_PASID_CAP_EXEC | PCI_PASID_CAP_PRIV;
 
-	
+	/* User wants to enable anything unsupported? */
 	if ((supported & features) != features)
 		return -EINVAL;
 
@@ -305,6 +384,11 @@ int pci_enable_pasid(struct pci_dev *pdev, int features)
 }
 EXPORT_SYMBOL_GPL(pci_enable_pasid);
 
+/**
+ * pci_disable_pasid - Disable the PASID capability
+ * @pdev: PCI device structure
+ *
+ */
 void pci_disable_pasid(struct pci_dev *pdev)
 {
 	u16 control = 0;
@@ -318,6 +402,16 @@ void pci_disable_pasid(struct pci_dev *pdev)
 }
 EXPORT_SYMBOL_GPL(pci_disable_pasid);
 
+/**
+ * pci_pasid_features - Check which PASID features are supported
+ * @pdev: PCI device structure
+ *
+ * Returns a negative value when no PASI capability is present.
+ * Otherwise is returns a bitmask with supported features. Current
+ * features reported are:
+ * PCI_PASID_CAP_EXEC - Execute permission supported
+ * PCI_PASID_CAP_PRIV - Priviledged mode supported
+ */
 int pci_pasid_features(struct pci_dev *pdev)
 {
 	u16 supported;
@@ -337,6 +431,13 @@ EXPORT_SYMBOL_GPL(pci_pasid_features);
 
 #define PASID_NUMBER_SHIFT	8
 #define PASID_NUMBER_MASK	(0x1f << PASID_NUMBER_SHIFT)
+/**
+ * pci_max_pasid - Get maximum number of PASIDs supported by device
+ * @pdev: PCI device structure
+ *
+ * Returns negative value when PASID capability is not present.
+ * Otherwise it returns the numer of supported PASIDs.
+ */
 int pci_max_pasids(struct pci_dev *pdev)
 {
 	u16 supported;
@@ -353,4 +454,4 @@ int pci_max_pasids(struct pci_dev *pdev)
 	return (1 << supported);
 }
 EXPORT_SYMBOL_GPL(pci_max_pasids);
-#endif 
+#endif /* CONFIG_PCI_PASID */

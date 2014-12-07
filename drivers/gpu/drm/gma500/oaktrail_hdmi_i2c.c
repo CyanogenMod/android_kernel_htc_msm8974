@@ -101,7 +101,7 @@ static int xfer_read(struct i2c_adapter *adap, struct i2c_msg *pmsg)
 	i2c_dev->buf_offset = 0;
 	INIT_COMPLETION(i2c_dev->complete);
 
-	
+	/* Enable I2C transaction */
 	temp = ((pmsg->len) << 20) | HI2C_EDID_READ | HI2C_ENABLE_TRANSACTION;
 	HDMI_WRITE(HDMI_HI2CHCR, temp);
 	HDMI_READ(HDMI_HI2CHCR);
@@ -115,6 +115,9 @@ static int xfer_read(struct i2c_adapter *adap, struct i2c_msg *pmsg)
 
 static int xfer_write(struct i2c_adapter *adap, struct i2c_msg *pmsg)
 {
+	/*
+	 * XXX: i2c write seems isn't useful for EDID probe, don't do anything
+	 */
 	return 0;
 }
 
@@ -128,10 +131,10 @@ static int oaktrail_hdmi_i2c_access(struct i2c_adapter *adap,
 
 	mutex_lock(&i2c_dev->i2c_lock);
 
-	
+	/* Enable i2c unit */
 	HDMI_WRITE(HDMI_ICRH, 0x00008760);
 
-	
+	/* Enable irq */
 	hdmi_i2c_irq_enable(hdmi_dev);
 	for (i = 0; i < num; i++) {
 		if (pmsg->len && pmsg->buf) {
@@ -140,10 +143,10 @@ static int oaktrail_hdmi_i2c_access(struct i2c_adapter *adap,
 			else
 				xfer_write(adap, pmsg);
 		}
-		pmsg++;         
+		pmsg++;         /* next message */
 	}
 
-	
+	/* Disable irq */
 	hdmi_i2c_irq_disable(hdmi_dev);
 
 	mutex_unlock(&i2c_dev->i2c_lock);
@@ -184,12 +187,12 @@ static void hdmi_i2c_read(struct oaktrail_hdmi_dev *hdmi_dev)
 	}
 	i2c_dev->buf_offset += (0x10 * 4);
 
-	
+	/* clearing read buffer full intr */
 	temp = HDMI_READ(HDMI_HISR);
 	HDMI_WRITE(HDMI_HISR, temp | HDMI_INTR_I2C_FULL);
 	HDMI_READ(HDMI_HISR);
 
-	
+	/* continue read transaction */
 	temp = HDMI_READ(HDMI_HI2CHCR);
 	HDMI_WRITE(HDMI_HI2CHCR, temp | HI2C_READ_CONTINUE);
 	HDMI_READ(HDMI_HI2CHCR);
@@ -203,7 +206,7 @@ static void hdmi_i2c_transaction_done(struct oaktrail_hdmi_dev *hdmi_dev)
 	struct hdmi_i2c_dev *i2c_dev = hdmi_dev->i2c_dev;
 	u32 temp;
 
-	
+	/* clear transaction done intr */
 	temp = HDMI_READ(HDMI_HISR);
 	HDMI_WRITE(HDMI_HISR, temp | HDMI_INTR_I2C_DONE);
 	HDMI_READ(HDMI_HISR);
@@ -241,6 +244,10 @@ static irqreturn_t oaktrail_hdmi_i2c_handler(int this_irq, void *dev)
 	return IRQ_HANDLED;
 }
 
+/*
+ * choose alternate function 2 of GPIO pin 52, 53,
+ * which is used by HDMI I2C logic
+ */
 static void oaktrail_hdmi_i2c_gpio_fix(void)
 {
 	void *base;
@@ -285,10 +292,10 @@ int oaktrail_hdmi_i2c_init(struct pci_dev *dev)
 	i2c_set_adapdata(&oaktrail_hdmi_i2c_adapter, hdmi_dev);
 	hdmi_dev->i2c_dev = i2c_dev;
 
-	
+	/* Enable HDMI I2C function on gpio */
 	oaktrail_hdmi_i2c_gpio_fix();
 
-	
+	/* request irq */
 	ret = request_irq(dev->irq, oaktrail_hdmi_i2c_handler, IRQF_SHARED,
 			  oaktrail_hdmi_i2c_adapter.name, hdmi_dev);
 	if (ret) {
@@ -296,7 +303,7 @@ int oaktrail_hdmi_i2c_init(struct pci_dev *dev)
 		goto err;
 	}
 
-	
+	/* Adapter registration */
 	ret = i2c_add_numbered_adapter(&oaktrail_hdmi_i2c_adapter);
 	return ret;
 

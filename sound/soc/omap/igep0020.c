@@ -41,7 +41,7 @@ static int igep2_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
 	int ret;
 
-	
+	/* Set the codec system clock for DAC and ADC */
 	ret = snd_soc_dai_set_sysclk(codec_dai, 0, 26000000,
 					    SND_SOC_CLOCK_IN);
 	if (ret < 0) {
@@ -56,6 +56,7 @@ static struct snd_soc_ops igep2_ops = {
 	.hw_params = igep2_hw_params,
 };
 
+/* Digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link igep2_dai = {
 	.name = "TWL4030",
 	.stream_name = "TWL4030",
@@ -68,6 +69,7 @@ static struct snd_soc_dai_link igep2_dai = {
 	.ops = &igep2_ops,
 };
 
+/* Audio machine driver */
 static struct snd_soc_card snd_soc_card_igep2 = {
 	.name = "igep2",
 	.owner = THIS_MODULE,

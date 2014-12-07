@@ -46,18 +46,24 @@
 			log_bug("failed assertion\n"); \
 	} while (0);
 
+/* If KARATSUBA_THRESHOLD is not already defined, define it to a
+ * value which is good on most machines.  */
 
+/* tested 4, 16, 32 and 64, where 16 gave the best performance when
+ * checking a 768 and a 1024 bit ElGamal signature.
+ * (wk 22.12.97) */
 #ifndef KARATSUBA_THRESHOLD
 #define KARATSUBA_THRESHOLD 16
 #endif
 
+/* The code can't handle KARATSUBA_THRESHOLD smaller than 2.  */
 #if KARATSUBA_THRESHOLD < 2
 #undef KARATSUBA_THRESHOLD
 #define KARATSUBA_THRESHOLD 2
 #endif
 
-typedef mpi_limb_t *mpi_ptr_t;	
-typedef int mpi_size_t;		
+typedef mpi_limb_t *mpi_ptr_t;	/* pointer to a limb */
+typedef int mpi_size_t;		/* (must be a signed type) */
 
 #define ABS(x) (x >= 0 ? x : -x)
 #define MIN(l, o) ((l) < (o) ? (l) : (o))
@@ -70,6 +76,7 @@ static inline int RESIZE_IF_NEEDED(MPI a, unsigned b)
 	return 0;
 }
 
+/* Copy N limbs from S to D.  */
 #define MPN_COPY(d, s, n) \
 	do {					\
 		mpi_size_t _i;			\
@@ -91,6 +98,7 @@ static inline int RESIZE_IF_NEEDED(MPI a, unsigned b)
 			(d)[_i] = (s)[_i];	\
 	} while (0)
 
+/* Zero N limbs at D */
 #define MPN_ZERO(d, n) \
 	do {					\
 		int  _i;			\
@@ -124,12 +132,18 @@ static inline int RESIZE_IF_NEEDED(MPI a, unsigned b)
 			mul_n(prodp, up, vp, size, tspace);	\
 	} while (0);
 
+/* Divide the two-limb number in (NH,,NL) by D, with DI being the largest
+ * limb not larger than (2**(2*BITS_PER_MP_LIMB))/D - (2**BITS_PER_MP_LIMB).
+ * If this would yield overflow, DI should be the largest possible number
+ * (i.e., only ones).  For correct operation, the most significant bit of D
+ * has to be set.  Put the quotient in Q and the remainder in R.
+ */
 #define UDIV_QRNND_PREINV(q, r, nh, nl, d, di) \
 	do {								\
 		mpi_limb_t _q, _ql, _r;					\
 		mpi_limb_t _xh, _xl;					\
 		umul_ppmm(_q, _ql, (nh), (di));				\
-		_q += (nh);	 \
+		_q += (nh);	/* DI is 2**BITS_PER_MPI_LIMB too small */ \
 		umul_ppmm(_xh, _xl, _q, (d));				\
 		sub_ddmmss(_xh, _r, (nh), (nl), _xh, _xl);		\
 		if (_xh) {						\
@@ -148,13 +162,16 @@ static inline int RESIZE_IF_NEEDED(MPI a, unsigned b)
 		(q) = _q;						\
 	} while (0)
 
+/*-- mpiutil.c --*/
 mpi_ptr_t mpi_alloc_limb_space(unsigned nlimbs);
 void mpi_free_limb_space(mpi_ptr_t a);
 void mpi_assign_limb_space(MPI a, mpi_ptr_t ap, unsigned nlimbs);
 
+/*-- mpi-bit.c --*/
 void mpi_rshift_limbs(MPI a, unsigned int count);
 int mpi_lshift_limbs(MPI a, unsigned int count);
 
+/*-- mpihelp-add.c --*/
 mpi_limb_t mpihelp_add_1(mpi_ptr_t res_ptr, mpi_ptr_t s1_ptr,
 			 mpi_size_t s1_size, mpi_limb_t s2_limb);
 mpi_limb_t mpihelp_add_n(mpi_ptr_t res_ptr, mpi_ptr_t s1_ptr,
@@ -162,6 +179,7 @@ mpi_limb_t mpihelp_add_n(mpi_ptr_t res_ptr, mpi_ptr_t s1_ptr,
 mpi_limb_t mpihelp_add(mpi_ptr_t res_ptr, mpi_ptr_t s1_ptr, mpi_size_t s1_size,
 		       mpi_ptr_t s2_ptr, mpi_size_t s2_size);
 
+/*-- mpihelp-sub.c --*/
 mpi_limb_t mpihelp_sub_1(mpi_ptr_t res_ptr, mpi_ptr_t s1_ptr,
 			 mpi_size_t s1_size, mpi_limb_t s2_limb);
 mpi_limb_t mpihelp_sub_n(mpi_ptr_t res_ptr, mpi_ptr_t s1_ptr,
@@ -169,8 +187,10 @@ mpi_limb_t mpihelp_sub_n(mpi_ptr_t res_ptr, mpi_ptr_t s1_ptr,
 mpi_limb_t mpihelp_sub(mpi_ptr_t res_ptr, mpi_ptr_t s1_ptr, mpi_size_t s1_size,
 		       mpi_ptr_t s2_ptr, mpi_size_t s2_size);
 
+/*-- mpihelp-cmp.c --*/
 int mpihelp_cmp(mpi_ptr_t op1_ptr, mpi_ptr_t op2_ptr, mpi_size_t size);
 
+/*-- mpihelp-mul.c --*/
 
 struct karatsuba_ctx {
 	struct karatsuba_ctx *next;
@@ -198,9 +218,11 @@ int mpihelp_mul_karatsuba_case(mpi_ptr_t prodp,
 			       mpi_ptr_t vp, mpi_size_t vsize,
 			       struct karatsuba_ctx *ctx);
 
+/*-- mpihelp-mul_1.c (or xxx/cpu/ *.S) --*/
 mpi_limb_t mpihelp_mul_1(mpi_ptr_t res_ptr, mpi_ptr_t s1_ptr,
 			 mpi_size_t s1_size, mpi_limb_t s2_limb);
 
+/*-- mpihelp-div.c --*/
 mpi_limb_t mpihelp_mod_1(mpi_ptr_t dividend_ptr, mpi_size_t dividend_size,
 			 mpi_limb_t divisor_limb);
 mpi_limb_t mpihelp_divrem(mpi_ptr_t qp, mpi_size_t qextra_limbs,
@@ -210,11 +232,13 @@ mpi_limb_t mpihelp_divmod_1(mpi_ptr_t quot_ptr,
 			    mpi_ptr_t dividend_ptr, mpi_size_t dividend_size,
 			    mpi_limb_t divisor_limb);
 
+/*-- mpihelp-shift.c --*/
 mpi_limb_t mpihelp_lshift(mpi_ptr_t wp, mpi_ptr_t up, mpi_size_t usize,
 			  unsigned cnt);
 mpi_limb_t mpihelp_rshift(mpi_ptr_t wp, mpi_ptr_t up, mpi_size_t usize,
 			  unsigned cnt);
 
+/* Define stuff for longlong.h.  */
 #define W_TYPE_SIZE BITS_PER_MPI_LIMB
 typedef mpi_limb_t UWtype;
 typedef unsigned int UHWtype;
@@ -234,4 +258,4 @@ typedef unsigned long USItype;
 #include "mpi-inline.h"
 #endif
 
-#endif 
+#endif /*G10_MPI_INTERNAL_H */

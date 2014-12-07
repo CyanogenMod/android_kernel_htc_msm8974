@@ -19,6 +19,10 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*
+ * Driver for the Texas Instruments TMP421 SMBus temperature sensor IC.
+ * Supported models: TMP421, TMP422, TMP423
+ */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -31,11 +35,13 @@
 #include <linux/mutex.h>
 #include <linux/sysfs.h>
 
+/* Addresses to scan */
 static const unsigned short normal_i2c[] = { 0x2a, 0x4c, 0x4d, 0x4e, 0x4f,
 					     I2C_CLIENT_END };
 
 enum chips { tmp421, tmp422, tmp423 };
 
+/* The TMP421 registers */
 #define TMP421_CONFIG_REG_1			0x09
 #define TMP421_CONVERSION_RATE_REG		0x0B
 #define TMP421_MANUFACTURER_ID_REG		0xFE
@@ -44,9 +50,11 @@ enum chips { tmp421, tmp422, tmp423 };
 static const u8 TMP421_TEMP_MSB[4]		= { 0x00, 0x01, 0x02, 0x03 };
 static const u8 TMP421_TEMP_LSB[4]		= { 0x10, 0x11, 0x12, 0x13 };
 
+/* Flags */
 #define TMP421_CONFIG_SHUTDOWN			0x40
 #define TMP421_CONFIG_RANGE			0x04
 
+/* Manufacturer / Device ID's */
 #define TMP421_MANUFACTURER_ID			0x55
 #define TMP421_DEVICE_ID			0x21
 #define TMP422_DEVICE_ID			0x22
@@ -72,7 +80,7 @@ struct tmp421_data {
 
 static int temp_from_s16(s16 reg)
 {
-	
+	/* Mask out status bits */
 	int temp = reg & ~0xf;
 
 	return (temp * 1000 + 128) / 256;
@@ -80,10 +88,10 @@ static int temp_from_s16(s16 reg)
 
 static int temp_from_u16(u16 reg)
 {
-	
+	/* Mask out status bits */
 	int temp = reg & ~0xf;
 
-	
+	/* Add offset for extended temperature range. */
 	temp -= 64 * 256;
 
 	return (temp * 1000 + 128) / 256;
@@ -139,6 +147,10 @@ static ssize_t show_fault(struct device *dev,
 	int index = to_sensor_dev_attr(devattr)->index;
 	struct tmp421_data *data = tmp421_update_device(dev);
 
+	/*
+	 * The OPEN bit signals a fault. This is bit 0 of the temperature
+	 * register (low byte).
+	 */
 	if (data->temp[index] & 0x01)
 		return sprintf(buf, "1\n");
 	else
@@ -190,10 +202,10 @@ static int tmp421_init_client(struct i2c_client *client)
 {
 	int config, config_orig;
 
-	
+	/* Set the conversion rate to 2 Hz */
 	i2c_smbus_write_byte_data(client, TMP421_CONVERSION_RATE_REG, 0x05);
 
-	
+	/* Start conversions (disable shutdown if necessary) */
 	config = i2c_smbus_read_byte_data(client, TMP421_CONFIG_REG_1);
 	if (config < 0) {
 		dev_err(&client->dev, "Could not read configuration"

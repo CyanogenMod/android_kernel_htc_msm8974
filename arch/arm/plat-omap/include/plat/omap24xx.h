@@ -26,11 +26,17 @@
 #ifndef __ASM_ARCH_OMAP2_H
 #define __ASM_ARCH_OMAP2_H
 
+/*
+ * Please place only base defines here and put the rest in device
+ * specific headers. Note also that some of these defines are needed
+ * for omap1 to compile without adding ifdefs.
+ */
 
 #define L4_24XX_BASE		0x48000000
 #define L4_WK_243X_BASE		0x49000000
 #define L3_24XX_BASE		0x68000000
 
+/* interrupt controller */
 #define OMAP24XX_IC_BASE	(L4_24XX_BASE + 0xfe000)
 #define OMAP24XX_IVA_INTC_BASE	0x40000000
 
@@ -55,6 +61,7 @@
 #define OMAP243X_CTRL_BASE	OMAP243X_SCM_BASE
 #define OMAP243X_HS_BASE	(L4_24XX_BASE + 0x000ac000)
 
+/* DSP SS */
 #define OMAP2420_DSP_BASE	0x58000000
 #define OMAP2420_DSP_MEM_BASE	(OMAP2420_DSP_BASE + 0x0)
 #define OMAP2420_DSP_IPI_BASE	(OMAP2420_DSP_BASE + 0x1000000)
@@ -64,10 +71,13 @@
 #define OMAP243X_DSP_MEM_BASE	(OMAP243X_DSP_BASE + 0x0)
 #define OMAP243X_DSP_MMU_BASE	(OMAP243X_DSP_BASE + 0x1000000)
 
+/* Mailbox */
 #define OMAP24XX_MAILBOX_BASE	(L4_24XX_BASE + 0x94000)
 
+/* Camera */
 #define OMAP24XX_CAMERA_BASE	(L4_24XX_BASE + 0x52000)
 
+/* Security */
 #define OMAP24XX_SEC_BASE	(L4_24XX_BASE + 0xA0000)
 #define OMAP24XX_SEC_RNG_BASE	(OMAP24XX_SEC_BASE + 0x0000)
 #define OMAP24XX_SEC_DES_BASE	(OMAP24XX_SEC_BASE + 0x2000)
@@ -75,5 +85,5 @@
 #define OMAP24XX_SEC_AES_BASE	(OMAP24XX_SEC_BASE + 0x6000)
 #define OMAP24XX_SEC_PKA_BASE	(OMAP24XX_SEC_BASE + 0x8000)
 
-#endif 
+#endif /* __ASM_ARCH_OMAP2_H */
 

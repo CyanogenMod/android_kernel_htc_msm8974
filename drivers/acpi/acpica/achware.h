@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Name: achware.h -- hardware specific interfaces
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -39,6 +44,7 @@
 #ifndef __ACHWARE_H__
 #define __ACHWARE_H__
 
+/* Values for the _SST predefined method */
 
 #define ACPI_SST_INDICATOR_OFF  0
 #define ACPI_SST_WORKING        1
@@ -46,10 +52,16 @@
 #define ACPI_SST_SLEEPING       3
 #define ACPI_SST_SLEEP_CONTEXT  4
 
+/*
+ * hwacpi - high level functions
+ */
 acpi_status acpi_hw_set_mode(u32 mode);
 
 u32 acpi_hw_get_mode(void);
 
+/*
+ * hwregs - ACPI Register I/O
+ */
 acpi_status
 acpi_hw_validate_register(struct acpi_generic_address *reg,
 			  u8 max_bit_width, u64 *address);
@@ -68,12 +80,18 @@ acpi_status acpi_hw_register_write(u32 register_id, u32 value);
 
 acpi_status acpi_hw_clear_acpi_status(void);
 
+/*
+ * hwsleep - sleep/wake support (Legacy sleep registers)
+ */
 acpi_status acpi_hw_legacy_sleep(u8 sleep_state, u8 flags);
 
 acpi_status acpi_hw_legacy_wake_prep(u8 sleep_state, u8 flags);
 
 acpi_status acpi_hw_legacy_wake(u8 sleep_state, u8 flags);
 
+/*
+ * hwesleep - sleep/wake support (Extended FADT-V5 sleep registers)
+ */
 void acpi_hw_execute_sleep_method(char *method_name, u32 integer_argument);
 
 acpi_status acpi_hw_extended_sleep(u8 sleep_state, u8 flags);
@@ -82,10 +100,16 @@ acpi_status acpi_hw_extended_wake_prep(u8 sleep_state, u8 flags);
 
 acpi_status acpi_hw_extended_wake(u8 sleep_state, u8 flags);
 
+/*
+ * hwvalid - Port I/O with validation
+ */
 acpi_status acpi_hw_read_port(acpi_io_address address, u32 *value, u32 width);
 
 acpi_status acpi_hw_write_port(acpi_io_address address, u32 value, u32 width);
 
+/*
+ * hwgpe - GPE support
+ */
 u32 acpi_hw_get_gpe_register_bit(struct acpi_gpe_event_info *gpe_event_info,
 			     struct acpi_gpe_register_info *gpe_register_info);
 
@@ -117,8 +141,11 @@ acpi_hw_enable_runtime_gpe_block(struct acpi_gpe_xrupt_info *gpe_xrupt_info,
 				 struct acpi_gpe_block_info *gpe_block,
 				 void *context);
 
+/*
+ * hwpci - PCI configuration support
+ */
 acpi_status
 acpi_hw_derive_pci_id(struct acpi_pci_id *pci_id,
 		      acpi_handle root_pci_device, acpi_handle pci_region);
 
-#endif				
+#endif				/* __ACHWARE_H__ */

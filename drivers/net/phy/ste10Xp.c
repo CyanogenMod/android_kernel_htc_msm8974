@@ -25,9 +25,9 @@
 #include <linux/mii.h>
 #include <linux/phy.h>
 
-#define MII_XCIIS   	0x11	
-#define MII_XIE     	0x12	
-#define MII_XIE_DEFAULT_MASK 0x0070 
+#define MII_XCIIS   	0x11	/* Configuration Info IRQ & Status Reg */
+#define MII_XIE     	0x12	/* Interrupt Enable Register */
+#define MII_XIE_DEFAULT_MASK 0x0070 /* ANE complete, Remote Fault, Link Down */
 
 #define STE101P_PHY_ID		0x00061c50
 #define STE100P_PHY_ID       	0x1c040011
@@ -36,7 +36,7 @@ static int ste10Xp_config_init(struct phy_device *phydev)
 {
 	int value, err;
 
-	
+	/* Software Reset PHY */
 	value = phy_read(phydev, MII_BMCR);
 	if (value < 0)
 		return value;
@@ -58,9 +58,9 @@ static int ste10Xp_config_intr(struct phy_device *phydev)
 	int err, value;
 
 	if (phydev->interrupts == PHY_INTERRUPT_ENABLED) {
-		
+		/* Enable all STe101P interrupts (PR12) */
 		err = phy_write(phydev, MII_XIE, MII_XIE_DEFAULT_MASK);
-		
+		/* clear any pending interrupts */
 		if (err == 0) {
 			value = phy_read(phydev, MII_XCIIS);
 			if (value < 0)

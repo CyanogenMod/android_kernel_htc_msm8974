@@ -37,31 +37,46 @@
 
 #define PMEM_DEBUG 1
 
+/* indicates that a refernce to this file has been taken via get_ediagpmem_file,
+ * the file should not be released until put_pmem_file is called */
 #define PMEM_FLAGS_BUSY 0x1
+/* indicates that this is a suballocation of a larger master range */
 #define PMEM_FLAGS_CONNECTED 0x1 << 1
+/* indicates this is a master and not a sub allocation and that it is mmaped */
 #define PMEM_FLAGS_MASTERMAP 0x1 << 2
+/* submap and unsubmap flags indicate:
+ * 00: subregion has never been mmaped
+ * 10: subregion has been mmaped, reference to the mm was taken
+ * 11: subretion has ben released, refernece to the mm still held
+ * 01: subretion has been released, reference to the mm has been released
+ */
 #define PMEM_FLAGS_SUBMAP 0x1 << 3
 #define PMEM_FLAGS_UNSUBMAP 0x1 << 4
 
 
 struct pmem_data {
+	/* in alloc mode: an index into the bitmap
+	 * in no_alloc mode: the size of the allocation */
 	int index;
-	
+	/* see flags above for descriptions */
 	unsigned int flags;
+	/* protects this data field, if the mm_mmap sem will be held at the
+	 * same time as this sem, the mm sem must be taken first (as this is
+	 * the order for vma_open and vma_close ops */
 	struct rw_semaphore sem;
-	
+	/* info about the mmaping process */
 	struct vm_area_struct *vma;
-	
+	/* task struct of the mapping process */
 	struct task_struct *task;
-	
+	/* process id of teh mapping process */
 	pid_t pid;
-	
+	/* file descriptor of the master */
 	int master_fd;
-	
+	/* file struct of the master */
 	struct file *master_file;
-	
+	/* a list of currently available regions if this is a suballocation */
 	struct list_head region_list;
-	
+	/* a linked list of data so we can access them for debugging */
 	struct list_head list;
 #if PMEM_DEBUG
 	int ref;
@@ -69,8 +84,8 @@ struct pmem_data {
 };
 
 struct pmem_bits {
-	unsigned allocated:1;		
-	unsigned order:7;		
+	unsigned allocated:1;		/* 1 if allocated, 0 if free */
+	unsigned order:7;		/* size of the region in pmem space */
 };
 
 struct pmem_region_node {
@@ -90,26 +105,48 @@ struct pmem_region_node {
 
 struct pmem_info {
 	struct miscdevice dev;
-	
+	/* physical start address of the remaped pmem space */
 	unsigned long base;
-	
+	/* vitual start address of the remaped pmem space */
 	unsigned char __iomem *vbase;
-	
+	/* total size of the pmem space */
 	unsigned long size;
-	
+	/* number of entries in the pmem space */
 	unsigned long num_entries;
-	
+	/* pfn of the garbage page in memory */
 	unsigned long garbage_pfn;
-	
+	/* index of the garbage page in the pmem space */
 	int garbage_index;
+	/* the bitmap for the region indicating which entries are allocated
+	 * and which are free */
 	struct pmem_bits *bitmap;
-	
+	/* indicates the region should not be managed with an allocator */
 	unsigned no_allocator;
+	/* indicates maps of this region should be cached, if a mix of
+	 * cached and uncached is desired, set this and open the device with
+	 * O_SYNC to get an uncached region */
 	unsigned cached;
 	unsigned buffered;
+	/* in no_allocator mode the first mapper gets the whole space and sets
+	 * this flag */
 	unsigned allocated;
+	/* for debugging, creates a list of pmem file structs, the
+	 * data_list_sem should be taken before pmem_data->sem if both are
+	 * needed */
 	struct mutex data_list_mutex;
 	struct list_head data_list;
+	/* pmem_sem protects the bitmap array
+	 * a write lock should be held when modifying entries in bitmap
+	 * a read lock should be held when reading data from bits or
+	 * dereferencing a pointer into bitmap
+	 *
+	 * pmem_data->sem protects the pmem data of a particular file
+	 * Many of the function that require the pmem_data->sem have a non-
+	 * locking version for when the caller is already holding that sem.
+	 *
+	 * IF YOU TAKE BOTH LOCKS TAKE THEM IN THIS ORDER:
+	 * down(pmem_data->sem) => down(bitmap_sem)
+	 */
 	struct rw_semaphore bitmap_sem;
 
 	long (*ioctl)(struct file *, unsigned int, unsigned long);
@@ -171,7 +208,7 @@ int is_pmem_file(struct file *file)
 static int has_allocation(struct file *file)
 {
 	struct pmem_data *data;
-	
+	/* check is_pmem_file first if not accessed via pmem_file_ops */
 
 	if (unlikely(!file->private_data))
 		return 0;
@@ -203,7 +240,7 @@ static int is_master_owner(struct file *file)
 
 static int pmem_free(int id, int index)
 {
-	
+	/* caller should hold the write lock on pmem_sem! */
 	int buddy, curr = index;
 	DLOG("index %d\n", index);
 
@@ -211,8 +248,12 @@ static int pmem_free(int id, int index)
 		pmem[id].allocated = 0;
 		return 0;
 	}
-	
+	/* clean up the bitmap, merging any buddies */
 	pmem[id].bitmap[curr].allocated = 0;
+	/* find a slots buddy Buddy# = Slot# ^ (1 << order)
+	 * if the buddy is also free merge them
+	 * repeat until the buddy is not free or end of the bitmap is reached
+	 */
 	do {
 		buddy = PMEM_BUDDY_INDEX(id, curr);
 		if (PMEM_IS_FREE(id, buddy) &&
@@ -245,6 +286,8 @@ static int ediagpmem_release(struct inode *inode, struct file *file)
     }
 
 	mutex_lock(&pmem[id].data_list_mutex);
+	/* if this file is a master, revoke all the memory in the connected
+	 *  files */
 	if (PMEM_FLAGS_MASTERMAP & data->flags) {
 		struct pmem_data *sub_data;
 		list_for_each(elt, &pmem[id].data_list) {
@@ -264,13 +307,15 @@ static int ediagpmem_release(struct inode *inode, struct file *file)
 
 	down_write(&data->sem);
 
-	
+	/* if its not a conencted file and it has an allocation, free it */
 	if (!(PMEM_FLAGS_CONNECTED & data->flags) && has_allocation(file)) {
 		down_write(&pmem[id].bitmap_sem);
 		ret = pmem_free(id, data->index);
 		up_write(&pmem[id].bitmap_sem);
 	}
 
+	/* if this file is a submap (mapped, connected file), downref the
+	 * task struct */
 	if (PMEM_FLAGS_SUBMAP & data->flags)
 		if (data->task) {
 			put_task_struct(data->task);
@@ -309,8 +354,8 @@ static int ediagpmem_open(struct inode *inode, struct file *file)
 
 	printk("func %s start \n",__func__);
 	DLOG("current %u file %p(%d)\n", current->pid, file, file_count(file));
-	
-	
+	/* setup file->private_data to indicate its unmapped */
+	/*  you can only open a pmem device one time */
 	data = (struct pmem_data *)file->private_data;
 
 	data = kmalloc(sizeof(struct pmem_data), GFP_KERNEL);
@@ -354,8 +399,8 @@ static unsigned long pmem_order(unsigned long len)
 
 static int pmem_allocate(int id, unsigned long len)
 {
-	
-	
+	/* caller should hold the write lock on pmem_sem! */
+	/* return the corresponding pdata[] entry */
 	int curr = 0;
 	int end = pmem[id].num_entries;
 	int best_fit = -1;
@@ -373,10 +418,14 @@ static int pmem_allocate(int id, unsigned long len)
 		return -1;
 	DLOG("order %lx\n", order);
 
+	/* look through the bitmap:
+	 * 	if you find a free slot of the correct order use it
+	 * 	otherwise, use the best fit (smallest with size > order) slot
+	 */
 	while (curr < end) {
 		if (PMEM_IS_FREE(id, curr)) {
 			if (PMEM_ORDER(id, curr) == (unsigned char)order) {
-				
+				/* set the not free bit and clear others */
 				best_fit = curr;
 				break;
 			}
@@ -388,11 +437,18 @@ static int pmem_allocate(int id, unsigned long len)
 		curr = PMEM_NEXT_INDEX(id, curr);
 	}
 
+	/* if best_fit < 0, there are no suitable slots,
+	 * return an error
+	 */
 	if (best_fit < 0) {
 		printk("pmem: no space left to allocate!\n");
 		return -1;
 	}
 
+	/* now partition the best fit:
+	 * 	split the slot into 2 buddies of order - 1
+	 * 	repeat until the slot is of the correct order
+	 */
 	while (PMEM_ORDER(id, best_fit) > (unsigned char)order) {
 		int buddy;
 		PMEM_ORDER(id, best_fit) -= 1;
@@ -499,7 +555,7 @@ static int pmem_remap_pfn_range(int id, struct vm_area_struct *vma,
 			      struct pmem_data *data, unsigned long offset,
 			      unsigned long len)
 {
-	
+	/* hold the mm semp for the vma you are modifying when you call this */
 	BUG_ON(!vma);
 	zap_page_range(vma, vma->vm_start + offset, len, NULL);
 	return pmem_map_pfn_range(id, vma, data, offset, len);
@@ -510,10 +566,12 @@ static void ediagpmem_vma_open(struct vm_area_struct *vma)
 	struct file *file = vma->vm_file;
 	struct pmem_data *data = file->private_data;
 	int id = get_id(file);
+	/* this should never be called as we don't support copying pmem
+	 * ranges via fork */
 	BUG_ON(!has_allocation(file));
     BUG_ON(id >= PMEM_MAX_DEVICES);
 	down_write(&data->sem);
-	
+	/* remap the garbage pages, forkers don't get access to the data */
 	pmem_unmap_pfn_range(id, vma, data, 0, vma->vm_start - vma->vm_end);
 	up_write(&data->sem);
 }
@@ -538,7 +596,7 @@ static void ediagpmem_vma_close(struct vm_area_struct *vma)
 		    (data->flags & PMEM_FLAGS_SUBMAP))
 			data->flags |= PMEM_FLAGS_UNSUBMAP;
 	}
-	
+	/* the kernel is going to free this vma now anyway */
 	up_write(&data->sem);
 }
 
@@ -578,6 +636,8 @@ static int ediagpmem_mmap(struct file *file, struct vm_area_struct *vma)
     }
 
 	down_write(&data->sem);
+	/* check this file isn't already mmaped, for submaps check this file
+	 * has never been mmaped */
 	if ((data->flags & PMEM_FLAGS_SUBMAP) ||
 	    (data->flags & PMEM_FLAGS_UNSUBMAP)) {
 #if PMEM_DEBUG
@@ -587,14 +647,14 @@ static int ediagpmem_mmap(struct file *file, struct vm_area_struct *vma)
 		ret = -EINVAL;
 		goto error;
 	}
-	
+	/* if file->private_data == unalloced, alloc*/
 	if (data && data->index == -1) {
 		down_write(&pmem[id].bitmap_sem);
 		index = pmem_allocate(id, vma->vm_end - vma->vm_start);
 		up_write(&pmem[id].bitmap_sem);
 		data->index = index;
 	}
-	
+	/* either no space was available or an error occured */
 	if (!has_allocation(file)) {
 		ret = -EINVAL;
 		printk("pmem: could not find allocation for map.\n");
@@ -659,6 +719,8 @@ error:
 	return ret;
 }
 
+/* the following are the api for accessing pmem regions by other drivers
+ * from inside the kernel */
 int get_ediagpmem_user_addr(struct file *file, unsigned long *start,
 		   unsigned long *len)
 {
@@ -793,12 +855,12 @@ void flush_ediagpmem_file(struct file *file, unsigned long offset, unsigned long
 
 	down_read(&data->sem);
 	vaddr = pmem_start_vaddr(id, data);
-	
+	/* if this isn't a submmapped file, flush the whole thing */
 	if (unlikely(!(data->flags & PMEM_FLAGS_CONNECTED))) {
 		dmac_flush_range(vaddr, vaddr + pmem_len(id, data));
 		goto end;
 	}
-	
+	/* otherwise, flush the region of the file we are drawing */
 	list_for_each(elt, &data->region_list) {
 		region_node = list_entry(elt, struct pmem_region_node, list);
 		if ((offset >= region_node->region.offset) &&
@@ -822,7 +884,7 @@ static int pmem_connect(unsigned long connect, struct file *file)
 	int ret = 0, put_needed;
 
 	down_write(&data->sem);
-	
+	/* retrieve the src file and check it is a pmem file with an alloc */
 	src_file = fget_light(connect, &put_needed);
 	DLOG("connect %p to %p\n", file, src_file);
 	if (!src_file) {
@@ -890,16 +952,21 @@ lock_mm:
 		down_write(&mm->mmap_sem);
 
 	down_write(&data->sem);
+	/* check that the file didn't get mmaped before we could take the
+	 * data sem, this should be safe b/c you can only submap each file
+	 * once */
 	if (PMEM_IS_SUBMAP(data) && !mm) {
 		pmem_unlock_data_and_mm(data, mm);
 		goto lock_mm;
 	}
+	/* now check that vma.mm is still there, it could have been
+	 * deleted by vma_close before we could get the data->sem */
 	if ((data->flags & PMEM_FLAGS_UNSUBMAP) && (mm != NULL)) {
-		
+		/* might as well release this */
 		if (data->flags & PMEM_FLAGS_SUBMAP) {
 			put_task_struct(data->task);
 			data->task = NULL;
-			
+			/* lower the submap flag to show the mm is gone */
 			data->flags &= ~(PMEM_FLAGS_SUBMAP);
 		}
 		pmem_unlock_data_and_mm(data, mm);
@@ -926,7 +993,7 @@ int ediagpmem_remap(struct pmem_region *region, struct file *file,
         return -EINVAL;
     }
 
-	
+	/* pmem region must be aligned on a page boundry */
 	if (unlikely(!PMEM_IS_PAGE_ALIGNED(region->offset) ||
 		 !PMEM_IS_PAGE_ALIGNED(region->len))) {
 #if PMEM_DEBUG
@@ -936,15 +1003,17 @@ int ediagpmem_remap(struct pmem_region *region, struct file *file,
 		return -EINVAL;
 	}
 
-	
+	/* if userspace requests a region of len 0, there's nothing to do */
 	if (region->len == 0)
 		return 0;
 
-	
+	/* lock the mm and data */
 	ret = pmem_lock_data_and_mm(file, data, &mm);
 	if (ret)
 		return 0;
 
+	/* only the owner of the master file can remap the client fds
+	 * that back in it */
 	if (!is_master_owner(file)) {
 #if PMEM_DEBUG
 		printk("pmem: remap requested from non-master process\n");
@@ -953,7 +1022,7 @@ int ediagpmem_remap(struct pmem_region *region, struct file *file,
 		goto err;
 	}
 
-	
+	/* check that the requested range is within the src allocation */
 	if (unlikely((region->offset > pmem_len(id, data)) ||
 		     (region->len > pmem_len(id, data)) ||
 		     (region->offset + region->len > pmem_len(id, data)))) {
@@ -1023,10 +1092,13 @@ static void pmem_revoke(struct file *file, struct pmem_data *data)
 
 	data->master_file = NULL;
 	ret = pmem_lock_data_and_mm(file, data, &mm);
+	/* if lock_data_and_mm fails either the task that mapped the fd, or
+	 * the vma that mapped it have already gone away, nothing more
+	 * needs to be done */
 	if (ret)
 		return;
-	
-	
+	/* unmap everything */
+	/* delete the regions and region list nothing is mapped any more */
 	if (data->vma)
 		list_for_each_safe(elt, elt2, &data->region_list) {
 			region_node = list_entry(elt, struct pmem_region_node,
@@ -1037,7 +1109,7 @@ static void pmem_revoke(struct file *file, struct pmem_data *data)
 			list_del(elt);
 			kfree(region_node);
 	}
-	
+	/* delete the master file */
 	pmem_unlock_data_and_mm(data, mm);
 }
 

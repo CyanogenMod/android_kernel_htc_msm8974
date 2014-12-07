@@ -254,7 +254,7 @@ static long acoustic_ioctl(struct file *file, unsigned int cmd,
 
 		D("ioctl: ACOUSTIC_UPDATE_ADIE called %d.\n", current->pid);
 
-		adie_req.id = cpu_to_be32(-1); 
+		adie_req.id = cpu_to_be32(-1); /* update all codecs */
 		rc = msm_rpc_call_reply(endpoint,
 					ONCRPC_UPDATE_ADIE_PROC, &adie_req,
 					sizeof(adie_req), &adie_rep,

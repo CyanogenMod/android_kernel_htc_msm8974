@@ -218,7 +218,7 @@ struct titan_gpio_cfg {
 };
 
 static const struct titan_gpio_cfg titan_gpio_table[] = {
-	
+	/* reg, start bit, mux value */
 	{4, 24, 1},
 	{4, 26, 1},
 	{4, 28, 1},
@@ -287,11 +287,11 @@ static int titan_gpio_pinsel(unsigned gpio)
 
 	mux_status = (readl(pin_sel + pin_sel_reg) >> gpio_cfg.shift) & 0x3;
 
-	
+	/* Check the mux status */
 	if (!((mux_status == 0) || (mux_status == gpio_cfg.func)))
 		return 0;
 
-	
+	/* Set the pin sel value */
 	tmp = readl(pin_sel + pin_sel_reg);
 	tmp |= ((gpio_cfg.func & 0x3) << gpio_cfg.shift);
 	writel(tmp, pin_sel + pin_sel_reg);
@@ -299,6 +299,7 @@ static int titan_gpio_pinsel(unsigned gpio)
 	return 0;
 }
 
+/* Perform minimal Titan GPIO configuration */
 static void titan_gpio_init(void)
 {
 	unsigned i;

@@ -15,6 +15,7 @@
 static const char cprt[] = "EFS: "EFS_VERSION" - (c) 1999 Al Smith <Al.Smith@aeschi.ch.eu.org>";
 
 
+/* 1 block is 512 bytes */
 #define	EFS_BLOCKSIZE_BITS	9
 #define	EFS_BLOCKSIZE		(1 << EFS_BLOCKSIZE_BITS)
 
@@ -23,13 +24,16 @@ typedef uint32_t	efs_ino_t;
 
 #define	EFS_DIRECTEXTENTS	12
 
+/*
+ * layout of an extent, in memory and on disk. 8 bytes exactly.
+ */
 typedef union extent_u {
 	unsigned char raw[8];
 	struct extent_s {
-		unsigned int	ex_magic:8;	
-		unsigned int	ex_bn:24;	
-		unsigned int	ex_length:8;	
-		unsigned int	ex_offset:24;	
+		unsigned int	ex_magic:8;	/* magic # (zero) */
+		unsigned int	ex_bn:24;	/* basic block */
+		unsigned int	ex_length:8;	/* numblocks in this extent */
+		unsigned int	ex_offset:24;	/* logical offset into file */
 	} cooked;
 } efs_extent;
 
@@ -38,25 +42,30 @@ typedef struct edevs {
 	__be32		ndev;
 } efs_devs;
 
+/*
+ * extent based filesystem inode as it appears on disk.  The efs inode
+ * is exactly 128 bytes long.
+ */
 struct	efs_dinode {
-	__be16		di_mode;	
-	__be16		di_nlink;	
-	__be16		di_uid;		
-	__be16		di_gid;		
-	__be32		di_size;	
-	__be32		di_atime;	
-	__be32		di_mtime;	
-	__be32		di_ctime;	
-	__be32		di_gen;		
-	__be16		di_numextents;	
-	u_char		di_version;	
-	u_char		di_spare;	
+	__be16		di_mode;	/* mode and type of file */
+	__be16		di_nlink;	/* number of links to file */
+	__be16		di_uid;		/* owner's user id */
+	__be16		di_gid;		/* owner's group id */
+	__be32		di_size;	/* number of bytes in file */
+	__be32		di_atime;	/* time last accessed */
+	__be32		di_mtime;	/* time last modified */
+	__be32		di_ctime;	/* time created */
+	__be32		di_gen;		/* generation number */
+	__be16		di_numextents;	/* # of extents */
+	u_char		di_version;	/* version of inode */
+	u_char		di_spare;	/* spare - used by AFS */
 	union di_addr {
 		efs_extent	di_extents[EFS_DIRECTEXTENTS];
-		efs_devs	di_dev;	
+		efs_devs	di_dev;	/* device for IFCHR/IFBLK */
 	} di_u;
 };
 
+/* efs inode storage in memory */
 struct efs_inode_info {
 	int		numextents;
 	int		lastextent;
@@ -80,7 +89,7 @@ struct efs_dentry {
 #define EFS_MAXNAMELEN  ((1 << (sizeof(char) * 8)) - 1)
 
 #define EFS_DIRBLK_HEADERSIZE	4
-#define EFS_DIRBLK_MAGIC	0xbeef	
+#define EFS_DIRBLK_MAGIC	0xbeef	/* moo */
 
 struct efs_dir {
 	__be16	magic;
@@ -128,4 +137,4 @@ extern struct dentry *efs_fh_to_parent(struct super_block *sb, struct fid *fid,
 extern struct dentry *efs_get_parent(struct dentry *);
 extern int efs_bmap(struct inode *, int);
 
-#endif 
+#endif /* _EFS_EFS_H_ */

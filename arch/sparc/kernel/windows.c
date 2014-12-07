@@ -12,6 +12,7 @@
 
 #include <asm/uaccess.h>
 
+/* Do save's until all user register windows are out of the cpu. */
 void flush_user_windows(void)
 {
 	register int ctr asm("g5");
@@ -44,6 +45,15 @@ static inline void shift_window_buffer(int first_win, int last_win, struct threa
 	}
 }
 
+/* Place as many of the user's current register windows 
+ * on the stack that we can.  Even if the %sp is unaligned
+ * we still copy the window there, the only case that we don't
+ * succeed is if the %sp points to a bum mapping altogether.
+ * setup_frame() and do_sigreturn() use this before shifting
+ * the user stack around.  Future instruction and hardware
+ * bug workaround routines will need this functionality as
+ * well.
+ */
 void synchronize_user_stack(void)
 {
 	struct thread_info *tp = current_thread_info();
@@ -53,11 +63,11 @@ void synchronize_user_stack(void)
 	if(!tp->w_saved)
 		return;
 
-	
+	/* Ok, there is some dirty work to do. */
 	for(window = tp->w_saved - 1; window >= 0; window--) {
 		unsigned long sp = tp->rwbuf_stkptrs[window];
 
-		
+		/* Ok, let it rip. */
 		if (copy_to_user((char __user *) sp, &tp->reg_window[window],
 				 sizeof(struct reg_window32)))
 			continue;
@@ -68,6 +78,7 @@ void synchronize_user_stack(void)
 }
 
 #if 0
+/* An optimization. */
 static inline void copy_aligned_window(void *dest, const void *src)
 {
 	__asm__ __volatile__("ldd [%1], %%g2\n\t"
@@ -91,6 +102,9 @@ static inline void copy_aligned_window(void *dest, const void *src)
 }
 #endif
 
+/* Try to push the windows in a threads window buffer to the
+ * user stack.  Unaligned %sp's are not allowed here.
+ */
 
 void try_to_clear_window_buffer(struct pt_regs *regs, int who)
 {

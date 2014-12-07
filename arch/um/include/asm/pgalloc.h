@@ -19,6 +19,9 @@
 			(unsigned long long) PAGE_SHIFT)))
 #define pmd_pgtable(pmd) pmd_page(pmd)
 
+/*
+ * Allocate and free page tables.
+ */
 extern pgd_t *pgd_alloc(struct mm_struct *);
 extern void pgd_free(struct mm_struct *mm, pgd_t *pgd);
 

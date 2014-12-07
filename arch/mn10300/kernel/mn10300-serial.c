@@ -46,7 +46,7 @@ static const char serial_revdate[] = "2007-11-06";
 #ifdef CONFIG_SMP
 #undef  GxICR
 #define GxICR(X) CROSS_GxICR(X, 0)
-#endif 
+#endif /* CONFIG_SMP */
 
 #define kenter(FMT, ...) \
 	printk(KERN_DEBUG "-->%s(" FMT ")\n", __func__, ##__VA_ARGS__)
@@ -62,7 +62,8 @@ static const char serial_revdate[] = "2007-11-06";
 	no_printk(KERN_DEBUG "### MNSERIAL " FMT " ###\n", ##__VA_ARGS__)
 
 #ifndef CODMSB
-#define CODMSB	004000000000	
+/* c_cflag bit meaning */
+#define CODMSB	004000000000	/* change Transfer bit-order */
 #endif
 
 #define NR_UARTS 3
@@ -148,6 +149,9 @@ static const struct uart_ops mn10300_serial_ops = {
 
 static irqreturn_t mn10300_serial_interrupt(int irq, void *dev_id);
 
+/*
+ * the first on-chip serial port: ttySM0 (aka SIF0)
+ */
 #ifdef CONFIG_MN10300_TTYSM0
 struct mn10300_serial_port mn10300_serial_port_sif0 = {
 	.uart.ops	= &mn10300_serial_ops,
@@ -155,7 +159,7 @@ struct mn10300_serial_port mn10300_serial_port_sif0 = {
 	.uart.mapbase	= (unsigned long) &SC0CTR,
 	.uart.iotype	= UPIO_MEM,
 	.uart.irq	= 0,
-	.uart.uartclk	= 0, 
+	.uart.uartclk	= 0, /* MN10300_IOCLK, */
 	.uart.fifosize	= 1,
 	.uart.flags	= UPF_BOOT_AUTOCONF,
 	.uart.line	= 0,
@@ -205,8 +209,11 @@ struct mn10300_serial_port mn10300_serial_port_sif0 = {
 	.gdbstub	= 1,
 #endif
 };
-#endif 
+#endif /* CONFIG_MN10300_TTYSM0 */
 
+/*
+ * the second on-chip serial port: ttySM1 (aka SIF1)
+ */
 #ifdef CONFIG_MN10300_TTYSM1
 struct mn10300_serial_port mn10300_serial_port_sif1 = {
 	.uart.ops	= &mn10300_serial_ops,
@@ -214,7 +221,7 @@ struct mn10300_serial_port mn10300_serial_port_sif1 = {
 	.uart.mapbase	= (unsigned long) &SC1CTR,
 	.uart.iotype	= UPIO_MEM,
 	.uart.irq	= 0,
-	.uart.uartclk	= 0, 
+	.uart.uartclk	= 0, /* MN10300_IOCLK, */
 	.uart.fifosize	= 1,
 	.uart.flags	= UPF_BOOT_AUTOCONF,
 	.uart.line	= 1,
@@ -264,8 +271,11 @@ struct mn10300_serial_port mn10300_serial_port_sif1 = {
 	.gdbstub	= 1,
 #endif
 };
-#endif 
+#endif /* CONFIG_MN10300_TTYSM1 */
 
+/*
+ * the third on-chip serial port: ttySM2 (aka SIF2)
+ */
 #ifdef CONFIG_MN10300_TTYSM2
 struct mn10300_serial_port mn10300_serial_port_sif2 = {
 	.uart.ops	= &mn10300_serial_ops,
@@ -273,7 +283,7 @@ struct mn10300_serial_port mn10300_serial_port_sif2 = {
 	.uart.mapbase	= (unsigned long) &SC2CTR,
 	.uart.iotype	= UPIO_MEM,
 	.uart.irq	= 0,
-	.uart.uartclk	= 0, 
+	.uart.uartclk	= 0, /* MN10300_IOCLK, */
 	.uart.fifosize	= 1,
 	.uart.flags	= UPF_BOOT_AUTOCONF,
 	.uart.line	= 2,
@@ -338,9 +348,12 @@ struct mn10300_serial_port mn10300_serial_port_sif2 = {
 	.gdbstub	= 1,
 #endif
 };
-#endif 
+#endif /* CONFIG_MN10300_TTYSM2 */
 
 
+/*
+ * list of available serial ports
+ */
 struct mn10300_serial_port *mn10300_serial_ports[NR_UARTS + 1] = {
 #ifdef CONFIG_MN10300_TTYSM0
 	[0]	= &mn10300_serial_port_sif0,
@@ -355,6 +368,18 @@ struct mn10300_serial_port *mn10300_serial_ports[NR_UARTS + 1] = {
 };
 
 
+/*
+ * we abuse the serial ports' baud timers' interrupt lines to get the ability
+ * to deliver interrupts to userspace as we use the ports' interrupt lines to
+ * do virtual DMA on account of the ports having no hardware FIFOs
+ *
+ * we can generate an interrupt manually in the assembly stubs by writing to
+ * the enable and detect bits in the interrupt control register, so all we need
+ * to do here is disable the interrupt line
+ *
+ * note that we can't just leave the line enabled as the baud rate timer *also*
+ * generates interrupts
+ */
 static void mn10300_serial_mask_ack(unsigned int irq)
 {
 	unsigned long flags;
@@ -362,7 +387,7 @@ static void mn10300_serial_mask_ack(unsigned int irq)
 
 	flags = arch_local_cli_save();
 	GxICR(irq) = GxICR_LEVEL_6;
-	tmp = GxICR(irq); 
+	tmp = GxICR(irq); /* flush write buffer */
 	arch_local_irq_restore(flags);
 }
 
@@ -384,6 +409,9 @@ static struct irq_chip mn10300_serial_pic = {
 };
 
 
+/*
+ * serial virtual DMA interrupt jump table
+ */
 struct mn10300_serial_int mn10300_serial_int_tbl[NR_IRQS];
 
 static void mn10300_serial_dis_tx_intr(struct mn10300_serial_port *port)
@@ -420,6 +448,9 @@ static void mn10300_serial_dis_rx_intr(struct mn10300_serial_port *port)
 	arch_local_irq_restore(flags);
 }
 
+/*
+ * multi-bit equivalent of test_and_clear_bit()
+ */
 static int mask_test_and_clear(volatile u8 *ptr, u8 mask)
 {
 	u32 epsw;
@@ -430,6 +461,10 @@ static int mask_test_and_clear(volatile u8 *ptr, u8 mask)
 	return !(epsw & EPSW_FLAG_Z);
 }
 
+/*
+ * receive chars from the ring buffer for this serial port
+ * - must do break detection here (not done in the UART)
+ */
 static void mn10300_serial_receive_interrupt(struct mn10300_serial_port *port)
 {
 	struct uart_icount *icount = &port->uart.icount;
@@ -451,7 +486,7 @@ static void mn10300_serial_receive_interrupt(struct mn10300_serial_port *port)
 	}
 
 try_again:
-	
+	/* pull chars out of the hat */
 	ix = port->rx_outp;
 	if (ix == port->rx_inp) {
 		if (push && !tty->low_latency)
@@ -469,9 +504,15 @@ try_again:
 	status = 0;
 	overrun = 0;
 
+	/* the UART doesn't detect BREAK, so we have to do that ourselves
+	 * - it starts as a framing error on a NUL character
+	 * - then we count another two NUL characters before issuing TTY_BREAK
+	 * - then we end on a normal char or one that has all the bottom bits
+	 *   zero and the top bits set
+	 */
 	switch (port->rx_brk) {
 	case 0:
-		
+		/* not breaking at the moment */
 		break;
 
 	case 1:
@@ -495,9 +536,9 @@ try_again:
 
 	default:
 		if (st & (SC01STR_FEF | SC01STR_PEF | SC01STR_OEF))
-			goto try_again; 
+			goto try_again; /* still breaking */
 
-		port->rx_brk = 0; 
+		port->rx_brk = 0; /* end of the break */
 
 		switch (ch) {
 		case 0xFF:
@@ -509,17 +550,17 @@ try_again:
 		case 0xC0:
 		case 0x80:
 		case 0x00:
-			
+			/* discard char at probable break end */
 			goto try_again;
 		}
 		break;
 	}
 
 process_errors:
-	
+	/* handle framing error */
 	if (st & SC01STR_FEF) {
 		if (ch == 0) {
-			
+			/* framing error with NUL char is probably a BREAK */
 			port->rx_brk = 1;
 			goto try_again;
 		}
@@ -529,21 +570,21 @@ process_errors:
 		status |= 1 << TTY_FRAME;
 	}
 
-	
+	/* handle parity error */
 	if (st & SC01STR_PEF) {
 		_proto("Rx Parity Error");
 		icount->parity++;
 		status = TTY_PARITY;
 	}
 
-	
+	/* handle normal char */
 	if (status == 0) {
 		if (uart_handle_sysrq_char(&port->uart, ch))
 			goto ignore_char;
 		status = (1 << TTY_NORMAL);
 	}
 
-	
+	/* handle overrun error */
 	if (st & SC01STR_OEF) {
 		if (port->rx_brk)
 			goto try_again;
@@ -571,6 +612,9 @@ insert:
 		tty_insert_flip_char(tty, ch, flag);
 	}
 
+	/* overrun is special, since it's reported immediately, and doesn't
+	 * affect the current character
+	 */
 	if (overrun)
 		tty_insert_flip_char(tty, 0, TTY_OVERRUN);
 
@@ -590,6 +634,11 @@ not_break:
 	goto process_errors;
 }
 
+/*
+ * handle an interrupt from the serial transmission "virtual DMA" driver
+ * - note: the interrupt routine will disable its own interrupts when the Tx
+ *   buffer is empty
+ */
 static void mn10300_serial_transmit_interrupt(struct mn10300_serial_port *port)
 {
 	_enter("%s", port->name);
@@ -607,6 +656,9 @@ static void mn10300_serial_transmit_interrupt(struct mn10300_serial_port *port)
 		uart_write_wakeup(&port->uart);
 }
 
+/*
+ * deal with a change in the status of the CTS line
+ */
 static void mn10300_serial_cts_changed(struct mn10300_serial_port *port, u8 st)
 {
 	u16 ctr;
@@ -614,6 +666,8 @@ static void mn10300_serial_cts_changed(struct mn10300_serial_port *port, u8 st)
 	port->tx_cts = st;
 	port->uart.icount.cts++;
 
+	/* flip the CTS state selector flag to interrupt when it changes
+	 * back */
 	ctr = *port->_control;
 	ctr ^= SC2CTR_TWS;
 	*port->_control = ctr;
@@ -622,6 +676,10 @@ static void mn10300_serial_cts_changed(struct mn10300_serial_port *port, u8 st)
 	wake_up_interruptible(&port->uart.state->port.delta_msr_wait);
 }
 
+/*
+ * handle a virtual interrupt generated by the lower level "virtual DMA"
+ * routines (irq is the baud timer interrupt)
+ */
 static irqreturn_t mn10300_serial_interrupt(int irq, void *dev_id)
 {
 	struct mn10300_serial_port *port = dev_id;
@@ -640,6 +698,8 @@ static irqreturn_t mn10300_serial_interrupt(int irq, void *dev_id)
 			mn10300_serial_transmit_interrupt(port);
 	}
 
+	/* the only modem control line amongst the whole lot is CTS on
+	 * serial port 2 */
 	if (port->type == PORT_MN10300_CTS) {
 		st = *port->_status;
 		if ((port->tx_cts ^ st) & SC2STR_CTS)
@@ -651,6 +711,9 @@ static irqreturn_t mn10300_serial_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * return indication of whether the hardware transmit buffer is empty
+ */
 static unsigned int mn10300_serial_tx_empty(struct uart_port *_port)
 {
 	struct mn10300_serial_port *port =
@@ -662,6 +725,9 @@ static unsigned int mn10300_serial_tx_empty(struct uart_port *_port)
 		0 : TIOCSER_TEMT;
 }
 
+/*
+ * set the modem control lines (we don't have any)
+ */
 static void mn10300_serial_set_mctrl(struct uart_port *_port,
 				     unsigned int mctrl)
 {
@@ -671,6 +737,9 @@ static void mn10300_serial_set_mctrl(struct uart_port *_port,
 	_enter("%s,%x", port->name, mctrl);
 }
 
+/*
+ * get the modem control line statuses
+ */
 static unsigned int mn10300_serial_get_mctrl(struct uart_port *_port)
 {
 	struct mn10300_serial_port *port =
@@ -684,6 +753,9 @@ static unsigned int mn10300_serial_get_mctrl(struct uart_port *_port)
 	return TIOCM_CAR | TIOCM_CTS | TIOCM_DSR;
 }
 
+/*
+ * stop transmitting characters
+ */
 static void mn10300_serial_stop_tx(struct uart_port *_port)
 {
 	struct mn10300_serial_port *port =
@@ -691,10 +763,16 @@ static void mn10300_serial_stop_tx(struct uart_port *_port)
 
 	_enter("%s", port->name);
 
-	
+	/* disable the virtual DMA */
 	mn10300_serial_dis_tx_intr(port);
 }
 
+/*
+ * start transmitting characters
+ * - jump-start transmission if it has stalled
+ *   - enable the serial Tx interrupt (used by the virtual DMA controller)
+ *   - force an interrupt to happen if necessary
+ */
 static void mn10300_serial_start_tx(struct uart_port *_port)
 {
 	struct mn10300_serial_port *port =
@@ -708,7 +786,7 @@ static void mn10300_serial_start_tx(struct uart_port *_port)
 			&port->uart.state->xmit.tail,
 			UART_XMIT_SIZE));
 
-	
+	/* kick the virtual DMA controller */
 	arch_local_cli();
 	x = *port->tx_icr;
 	x |= GxICR_ENABLE;
@@ -730,6 +808,9 @@ static void mn10300_serial_start_tx(struct uart_port *_port)
 	arch_local_sti();
 }
 
+/*
+ * transmit a high-priority XON/XOFF character
+ */
 static void mn10300_serial_send_xchar(struct uart_port *_port, char ch)
 {
 	struct mn10300_serial_port *port =
@@ -744,6 +825,10 @@ static void mn10300_serial_send_xchar(struct uart_port *_port, char ch)
 	}
 }
 
+/*
+ * stop receiving characters
+ * - called whilst the port is being closed
+ */
 static void mn10300_serial_stop_rx(struct uart_port *_port)
 {
 	struct mn10300_serial_port *port =
@@ -760,6 +845,9 @@ static void mn10300_serial_stop_rx(struct uart_port *_port)
 	mn10300_serial_dis_rx_intr(port);
 }
 
+/*
+ * enable modem status interrupts
+ */
 static void mn10300_serial_enable_ms(struct uart_port *_port)
 {
 	struct mn10300_serial_port *port =
@@ -770,6 +858,9 @@ static void mn10300_serial_enable_ms(struct uart_port *_port)
 	_enter("%s", port->name);
 
 	if (port->type == PORT_MN10300_CTS) {
+		/* want to interrupt when CTS goes low if CTS is now high and
+		 * vice versa
+		 */
 		port->tx_cts = *port->_status;
 
 		cts = (port->tx_cts & SC2STR_CTS) ?
@@ -784,6 +875,9 @@ static void mn10300_serial_enable_ms(struct uart_port *_port)
 	}
 }
 
+/*
+ * transmit or cease transmitting a break signal
+ */
 static void mn10300_serial_break_ctl(struct uart_port *_port, int ctl)
 {
 	struct mn10300_serial_port *port =
@@ -792,7 +886,7 @@ static void mn10300_serial_break_ctl(struct uart_port *_port, int ctl)
 	_enter("%s,%d", port->name, ctl);
 
 	if (ctl) {
-		
+		/* tell the virtual DMA handler to assert BREAK */
 		port->tx_break = 1;
 		mn10300_serial_en_tx_intr(port);
 	} else {
@@ -802,6 +896,9 @@ static void mn10300_serial_break_ctl(struct uart_port *_port, int ctl)
 	}
 }
 
+/*
+ * grab the interrupts and enable the port for reception
+ */
 static int mn10300_serial_startup(struct uart_port *_port)
 {
 	struct mn10300_serial_port *port =
@@ -813,14 +910,14 @@ static int mn10300_serial_startup(struct uart_port *_port)
 	if (unlikely(port->gdbstub))
 		return -EBUSY;
 
-	
+	/* allocate an Rx buffer for the virtual DMA handler */
 	port->rx_buffer = kmalloc(MNSC_BUFFER_SIZE, GFP_KERNEL);
 	if (!port->rx_buffer)
 		return -ENOMEM;
 
 	port->rx_inp = port->rx_outp = 0;
 
-	
+	/* finally, enable the device */
 	*port->_intr = SC01ICR_TI;
 	*port->_control |= SC01CTR_TXE | SC01CTR_RXE;
 
@@ -862,6 +959,9 @@ error:
 	return -EBUSY;
 }
 
+/*
+ * shutdown the port and release interrupts
+ */
 static void mn10300_serial_shutdown(struct uart_port *_port)
 {
 	u16 x;
@@ -870,7 +970,7 @@ static void mn10300_serial_shutdown(struct uart_port *_port)
 
 	_enter("%s", port->name);
 
-	
+	/* disable the serial port and its baud rate timer */
 	port->tx_break = 0;
 	*port->_control &= ~(SC01CTR_TXE | SC01CTR_RXE | SC01CTR_BKE);
 	*port->_tmxmd = 0;
@@ -881,7 +981,7 @@ static void mn10300_serial_shutdown(struct uart_port *_port)
 		kfree(buf);
 	}
 
-	
+	/* disable all intrs */
 	free_irq(port->tm_irq, port);
 	free_irq(port->rx_irq, port);
 	free_irq(port->tx_irq, port);
@@ -894,6 +994,10 @@ static void mn10300_serial_shutdown(struct uart_port *_port)
 	arch_local_sti();
 }
 
+/*
+ * this routine is called to set the UART divisor registers to match the
+ * specified baud rate for a serial port.
+ */
 static void mn10300_serial_change_speed(struct mn10300_serial_port *port,
 					  struct ktermios *new,
 					  struct ktermios *old)
@@ -908,7 +1012,7 @@ static void mn10300_serial_change_speed(struct mn10300_serial_port *port,
 
 	_enter("%s{%lu}", port->name, ioclk);
 
-	
+	/* byte size and parity */
 	cflag = new->c_cflag;
 	switch (cflag & CSIZE) {
 	case CS7: scxctr = SC01CTR_CLN_7BIT; bits = 9;  break;
@@ -933,12 +1037,12 @@ static void mn10300_serial_change_speed(struct mn10300_serial_port *port,
 			scxctr |= SC01CTR_PB_EVEN;
 	}
 
-	
+	/* Determine divisor based on baud rate */
 	battempt = 0;
 
 	switch (port->uart.line) {
 #ifdef CONFIG_MN10300_TTYSM0
-	case 0: 
+	case 0: /* ttySM0 */
 #if   defined(CONFIG_MN10300_TTYSM0_TIMER8)
 		scxctr |= SC0CTR_CK_TM8UFLOW_8;
 #elif defined(CONFIG_MN10300_TTYSM0_TIMER0)
@@ -949,10 +1053,10 @@ static void mn10300_serial_change_speed(struct mn10300_serial_port *port,
 #error "Unknown config for ttySM0"
 #endif
 		break;
-#endif 
+#endif /* CONFIG_MN10300_TTYSM0 */
 
 #ifdef CONFIG_MN10300_TTYSM1
-	case 1: 
+	case 1: /* ttySM1 */
 #if defined(CONFIG_AM33_2) || defined(CONFIG_AM33_3)
 #if   defined(CONFIG_MN10300_TTYSM1_TIMER9)
 		scxctr |= SC1CTR_CK_TM9UFLOW_8;
@@ -961,25 +1065,25 @@ static void mn10300_serial_change_speed(struct mn10300_serial_port *port,
 #else
 #error "Unknown config for ttySM1"
 #endif
-#else 
+#else /* CONFIG_AM33_2 || CONFIG_AM33_3 */
 #if defined(CONFIG_MN10300_TTYSM1_TIMER12)
 		scxctr |= SC1CTR_CK_TM12UFLOW_8;
 #else
 #error "Unknown config for ttySM1"
 #endif
-#endif 
+#endif /* CONFIG_AM33_2 || CONFIG_AM33_3 */
 		break;
-#endif 
+#endif /* CONFIG_MN10300_TTYSM1 */
 
 #ifdef CONFIG_MN10300_TTYSM2
-	case 2: 
+	case 2: /* ttySM2 */
 #if defined(CONFIG_AM33_2)
 #if   defined(CONFIG_MN10300_TTYSM2_TIMER10)
 		scxctr |= SC2CTR_CK_TM10UFLOW;
 #else
 #error "Unknown config for ttySM2"
 #endif
-#else 
+#else /* CONFIG_AM33_2 */
 #if   defined(CONFIG_MN10300_TTYSM2_TIMER9)
 		scxctr |= SC2CTR_CK_TM9UFLOW_8;
 #elif defined(CONFIG_MN10300_TTYSM2_TIMER1)
@@ -989,9 +1093,9 @@ static void mn10300_serial_change_speed(struct mn10300_serial_port *port,
 #else
 #error "Unknown config for ttySM2"
 #endif
-#endif 
+#endif /* CONFIG_AM33_2 */
 		break;
-#endif 
+#endif /* CONFIG_MN10300_TTYSM2 */
 
 	default:
 		break;
@@ -1004,10 +1108,10 @@ try_alternative:
 	_debug("ALT %d [baud %d]", battempt, baud);
 
 	if (!baud)
-		baud = 9600;	
+		baud = 9600;	/* B0 transition handled in rs_set_termios */
 	xdiv = 1;
 	if (baud == 134) {
-		baud = 269;	
+		baud = 269;	/* 134 is really 134.5 */
 		xdiv = 2;
 	}
 
@@ -1108,7 +1212,7 @@ try_alternative:
 		return;
 	}
 
-	
+	/* refuse to change to a baud rate we can't support */
 	_debug("CAN'T SUPPORT");
 
 	switch (battempt) {
@@ -1121,12 +1225,18 @@ try_alternative:
 		}
 
 	case 1:
+		/* as a last resort, if the quotient is zero, default to 9600
+		 * bps */
 		new->c_cflag &= ~CBAUD;
 		new->c_cflag |= B9600;
 		battempt = 2;
 		goto try_alternative;
 
 	default:
+		/* hmmm... can't seem to support 9600 either
+		 * - we could try iterating through the speeds we know about to
+		 *   find the lowest
+		 */
 		new->c_cflag &= ~CBAUD;
 		new->c_cflag |= B0;
 
@@ -1143,12 +1253,12 @@ timer_okay:
 
 	_debug("UARTCLK: %u / %hu", port->uart.uartclk, tmxbr);
 
-	
+	/* make the changes */
 	spin_lock_irqsave(&port->uart.lock, flags);
 
 	uart_update_timeout(&port->uart, new->c_cflag, baud);
 
-	
+	/* set the timer to produce the required baud rate */
 	switch (div_timer) {
 	case MNSCx_DIV_TIMER_16BIT:
 		*port->_tmxmd = 0;
@@ -1165,10 +1275,13 @@ timer_okay:
 		break;
 	}
 
-	
+	/* CTS flow control flag and modem status interrupts */
 	scxctr &= ~(SC2CTR_TWE | SC2CTR_TWS);
 
 	if (port->type == PORT_MN10300_CTS && cflag & CRTSCTS) {
+		/* want to interrupt when CTS goes low if CTS is now
+		 * high and vice versa
+		 */
 		port->tx_cts = *port->_status;
 
 		if (port->tx_cts & SC2STR_CTS)
@@ -1177,7 +1290,7 @@ timer_okay:
 			scxctr |= SC2CTR_TWE | SC2CTR_TWS;
 	}
 
-	
+	/* set up parity check flag */
 	port->uart.read_status_mask = (1 << TTY_NORMAL) | (1 << TTY_OVERRUN);
 	if (new->c_iflag & INPCK)
 		port->uart.read_status_mask |=
@@ -1185,18 +1298,22 @@ timer_okay:
 	if (new->c_iflag & (BRKINT | PARMRK))
 		port->uart.read_status_mask |= (1 << TTY_BREAK);
 
-	
+	/* characters to ignore */
 	port->uart.ignore_status_mask = 0;
 	if (new->c_iflag & IGNPAR)
 		port->uart.ignore_status_mask |=
 			(1 << TTY_PARITY) | (1 << TTY_FRAME);
 	if (new->c_iflag & IGNBRK) {
 		port->uart.ignore_status_mask |= (1 << TTY_BREAK);
+		/*
+		 * If we're ignoring parity and break indicators,
+		 * ignore overruns to (for real raw support).
+		 */
 		if (new->c_iflag & IGNPAR)
 			port->uart.ignore_status_mask |= (1 << TTY_OVERRUN);
 	}
 
-	
+	/* Ignore all characters if CREAD is not set */
 	if ((new->c_cflag & CREAD) == 0)
 		port->uart.ignore_status_mask |= (1 << TTY_NORMAL);
 
@@ -1206,6 +1323,9 @@ timer_okay:
 	spin_unlock_irqrestore(&port->uart.lock, flags);
 }
 
+/*
+ * set the terminal I/O parameters
+ */
 static void mn10300_serial_set_termios(struct uart_port *_port,
 					 struct ktermios *new,
 					 struct ktermios *old)
@@ -1217,20 +1337,23 @@ static void mn10300_serial_set_termios(struct uart_port *_port,
 
 	mn10300_serial_change_speed(port, new, old);
 
-	
+	/* handle turning off CRTSCTS */
 	if (!(new->c_cflag & CRTSCTS)) {
 		u16 ctr = *port->_control;
 		ctr &= ~SC2CTR_TWE;
 		*port->_control = ctr;
 	}
 
-	
+	/* change Transfer bit-order (LSB/MSB) */
 	if (new->c_cflag & CODMSB)
-		*port->_control |= SC01CTR_OD_MSBFIRST; 
+		*port->_control |= SC01CTR_OD_MSBFIRST; /* MSB MODE */
 	else
-		*port->_control &= ~SC01CTR_OD_MSBFIRST; 
+		*port->_control &= ~SC01CTR_OD_MSBFIRST; /* LSB MODE */
 }
 
+/*
+ * return description of port type
+ */
 static const char *mn10300_serial_type(struct uart_port *_port)
 {
 	struct mn10300_serial_port *port =
@@ -1242,6 +1365,9 @@ static const char *mn10300_serial_type(struct uart_port *_port)
 	return "MN10300 SIF";
 }
 
+/*
+ * release I/O and memory regions in use by port
+ */
 static void mn10300_serial_release_port(struct uart_port *_port)
 {
 	struct mn10300_serial_port *port =
@@ -1252,6 +1378,9 @@ static void mn10300_serial_release_port(struct uart_port *_port)
 	release_mem_region((unsigned long) port->_iobase, 16);
 }
 
+/*
+ * request I/O and memory regions for port
+ */
 static int mn10300_serial_request_port(struct uart_port *_port)
 {
 	struct mn10300_serial_port *port =
@@ -1263,6 +1392,9 @@ static int mn10300_serial_request_port(struct uart_port *_port)
 	return 0;
 }
 
+/*
+ * configure the type and reserve the ports
+ */
 static void mn10300_serial_config_port(struct uart_port *_port, int type)
 {
 	struct mn10300_serial_port *port =
@@ -1278,6 +1410,9 @@ static void mn10300_serial_config_port(struct uart_port *_port, int type)
 	mn10300_serial_request_port(_port);
 }
 
+/*
+ * verify serial parameters are suitable for this port type
+ */
 static int mn10300_serial_verify_port(struct uart_port *_port,
 					struct serial_struct *ss)
 {
@@ -1287,7 +1422,7 @@ static int mn10300_serial_verify_port(struct uart_port *_port,
 
 	_enter("%s", port->name);
 
-	
+	/* these things may not be changed */
 	if (ss->irq		!= port->uart.irq	||
 	    ss->port		!= port->uart.iobase	||
 	    ss->io_type		!= port->uart.iotype	||
@@ -1297,7 +1432,7 @@ static int mn10300_serial_verify_port(struct uart_port *_port,
 	    ss->xmit_fifo_size	!= port->uart.fifosize)
 		return -EINVAL;
 
-	
+	/* type may be changed on a port that supports CTS */
 	if (ss->type != port->uart.type) {
 		if (!(port->options & MNSCx_OPT_CTS))
 			return -EINVAL;
@@ -1310,6 +1445,9 @@ static int mn10300_serial_verify_port(struct uart_port *_port,
 	return 0;
 }
 
+/*
+ * initialise the MN10300 on-chip UARTs
+ */
 static int __init mn10300_serial_init(void)
 {
 	struct mn10300_serial_port *port;
@@ -1321,7 +1459,7 @@ static int __init mn10300_serial_init(void)
 #if defined(CONFIG_MN10300_TTYSM2) && defined(CONFIG_AM33_2)
 	{
 		int tmp;
-		SC2TIM = 8; 
+		SC2TIM = 8; /* make the baud base of timer 2 IOCLK/8 */
 		tmp = SC2TIM;
 	}
 #endif
@@ -1371,6 +1509,11 @@ __initcall(mn10300_serial_init);
 
 #ifdef CONFIG_MN10300_TTYSM_CONSOLE
 
+/*
+ * print a string to the serial port without disturbing the real user of the
+ * port too much
+ * - the console must be locked by the caller
+ */
 static void mn10300_serial_console_write(struct console *co,
 					   const char *s, unsigned count)
 {
@@ -1381,17 +1524,17 @@ static void mn10300_serial_console_write(struct console *co,
 
 	port = mn10300_serial_ports[co->index];
 
-	
+	/* firstly hijack the serial port from the "virtual DMA" controller */
 	arch_local_cli();
 	txicr = *port->tx_icr;
 	*port->tx_icr = NUM2GxICR_LEVEL(CONFIG_MN10300_SERIAL_IRQ_LEVEL);
 	tmp = *port->tx_icr;
 	arch_local_sti();
 
-	
+	/* the transmitter may be disabled */
 	scxctr = *port->_control;
 	if (!(scxctr & SC01CTR_TXE)) {
-		
+		/* restart the UART clock */
 		tmxmd = *port->_tmxmd;
 
 		switch (port->div_timer) {
@@ -1408,15 +1551,15 @@ static void mn10300_serial_console_write(struct console *co,
 			break;
 		}
 
-		
+		/* enable the transmitter */
 		*port->_control = (scxctr & ~SC01CTR_BKE) | SC01CTR_TXE;
 
 	} else if (scxctr & SC01CTR_BKE) {
-		
+		/* stop transmitting BREAK */
 		*port->_control = (scxctr & ~SC01CTR_BKE);
 	}
 
-	
+	/* send the chars into the serial port (with LF -> LFCR conversion) */
 	for (i = 0; i < count; i++) {
 		char ch = *s++;
 
@@ -1431,10 +1574,12 @@ static void mn10300_serial_console_write(struct console *co,
 		}
 	}
 
+	/* can't let the transmitter be turned off if it's actually
+	 * transmitting */
 	while (*port->_status & (SC01STR_TXF | SC01STR_TBF))
 		continue;
 
-	
+	/* disable the transmitter if we re-enabled it */
 	if (!(scxctr & SC01CTR_TXE))
 		*port->_control = scxctr;
 
@@ -1444,6 +1589,12 @@ static void mn10300_serial_console_write(struct console *co,
 	arch_local_sti();
 }
 
+/*
+ * set up a serial port as a console
+ * - construct a cflag setting for the first rs_open()
+ * - initialize the serial port
+ * - return non-zero if we didn't find a serial port.
+ */
 static int __init mn10300_serial_console_setup(struct console *co,
 						 char *options)
 {
@@ -1479,6 +1630,9 @@ found_device:
 	return uart_set_options(&port->uart, co, baud, parity, bits, flow);
 }
 
+/*
+ * register console
+ */
 static int __init mn10300_serial_console_init(void)
 {
 	register_console(&mn10300_serial_console);
@@ -1489,6 +1643,9 @@ console_initcall(mn10300_serial_console_init);
 #endif
 
 #ifdef CONFIG_CONSOLE_POLL
+/*
+ * Polled character reception for the kernel debugger
+ */
 static int mn10300_serial_poll_get_char(struct uart_port *_port)
 {
 	struct mn10300_serial_port *port =
@@ -1499,7 +1656,7 @@ static int mn10300_serial_poll_get_char(struct uart_port *_port)
 	_enter("%s", port->name);
 
 	do {
-		
+		/* pull chars out of the hat */
 		ix = port->rx_outp;
 		if (ix == port->rx_inp)
 			return NO_POLL_CHAR;
@@ -1515,6 +1672,9 @@ static int mn10300_serial_poll_get_char(struct uart_port *_port)
 }
 
 
+/*
+ * Polled character transmission for the kernel debugger
+ */
 static void mn10300_serial_poll_put_char(struct uart_port *_port,
 					 unsigned char ch)
 {
@@ -1522,10 +1682,12 @@ static void mn10300_serial_poll_put_char(struct uart_port *_port,
 		container_of(_port, struct mn10300_serial_port, uart);
 	u8 intr, tmp;
 
+	/* wait for the transmitter to finish anything it might be doing (and
+	 * this includes the virtual DMA handler, so it might take a while) */
 	while (*port->_status & (SC01STR_TBF | SC01STR_TXF))
 		continue;
 
-	
+	/* disable the Tx ready interrupt */
 	intr = *port->_intr;
 	*port->_intr = intr & ~SC01ICR_TI;
 	tmp = *port->_intr;
@@ -1540,9 +1702,9 @@ static void mn10300_serial_poll_put_char(struct uart_port *_port,
 	while (*port->_status & SC01STR_TBF)
 		continue;
 
-	
+	/* restore the Tx interrupt flag */
 	*port->_intr = intr;
 	tmp = *port->_intr;
 }
 
-#endif 
+#endif /* CONFIG_CONSOLE_POLL */

@@ -45,8 +45,8 @@ enum stv090x_tsmode {
 };
 
 enum stv090x_clkmode {
-	STV090x_CLK_INT = 0, 
-	STV090x_CLK_EXT = 2 
+	STV090x_CLK_INT = 0, /* Clk i/p = CLKI */
+	STV090x_CLK_EXT = 2 /* Clk i/p = XTALI */
 };
 
 enum stv090x_i2crpt {
@@ -70,8 +70,8 @@ struct stv090x_config {
 	enum stv090x_mode	demod_mode;
 	enum stv090x_clkmode	clk_mode;
 
-	u32 xtal; 
-	u8 address; 
+	u32 xtal; /* default: 8000000 */
+	u8 address; /* default: 0x68 */
 
 	u8 ts1_mode;
 	u8 ts2_mode;
@@ -83,9 +83,9 @@ struct stv090x_config {
 
 	enum stv090x_i2crpt	repeater_level;
 
-	u8			tuner_bbgain; 
-	enum stv090x_adc_range	adc1_range; 
-	enum stv090x_adc_range	adc2_range; 
+	u8			tuner_bbgain; /* default: 10db */
+	enum stv090x_adc_range	adc1_range; /* default: 2Vpp */
+	enum stv090x_adc_range	adc2_range; /* default: 2Vpp */
 
 	bool diseqc_envelope_mode;
 
@@ -109,6 +109,7 @@ extern struct dvb_frontend *stv090x_attach(const struct stv090x_config *config,
 					   struct i2c_adapter *i2c,
 					   enum stv090x_demodulator demod);
 
+/* dir = 0 -> output, dir = 1 -> input/open-drain */
 extern int stv090x_set_gpio(struct dvb_frontend *fe, u8 gpio,
 		u8 dir, u8 value, u8 xor_value);
 
@@ -128,6 +129,6 @@ static inline int stv090x_set_gpio(struct dvb_frontend *fe, u8 gpio,
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return -ENODEV;
 }
-#endif 
+#endif /* CONFIG_DVB_STV090x */
 
-#endif 
+#endif /* __STV090x_H */

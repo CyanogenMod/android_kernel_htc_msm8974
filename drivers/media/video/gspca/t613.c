@@ -41,7 +41,7 @@ MODULE_DESCRIPTION("GSPCA/T613 (JPEG Compliance) USB Camera Driver");
 MODULE_LICENSE("GPL");
 
 struct sd {
-	struct gspca_dev gspca_dev;	
+	struct gspca_dev gspca_dev;	/* !! must be the first item */
 
 	u8 brightness;
 	u8 contrast;
@@ -53,7 +53,7 @@ struct sd {
 	u8 red_gain;
 	u8 blue_gain;
 	u8 green_gain;
-	u8 awb; 
+	u8 awb; /* set default r/g/b and activate */
 	u8 mirror;
 	u8 effect;
 
@@ -64,9 +64,10 @@ enum sensors {
 	SENSOR_OM6802,
 	SENSOR_OTHER,
 	SENSOR_TAS5130A,
-	SENSOR_LT168G,		
+	SENSOR_LT168G,		/* must verify if this is the actual model */
 };
 
+/* V4L2 controls supported by the driver */
 static int sd_setbrightness(struct gspca_dev *gspca_dev, __s32 val);
 static int sd_getbrightness(struct gspca_dev *gspca_dev, __s32 *val);
 static int sd_setcontrast(struct gspca_dev *gspca_dev, __s32 val);
@@ -143,7 +144,7 @@ static const struct ctrl sd_ctrls[] = {
 #define GAMMA_DEF 10
 	{
 	 {
-	  .id = V4L2_CID_GAMMA,	
+	  .id = V4L2_CID_GAMMA,	/* (gamma on win) */
 	  .type = V4L2_CTRL_TYPE_INTEGER,
 	  .name = "Gamma",
 	  .minimum = 0,
@@ -156,7 +157,9 @@ static const struct ctrl sd_ctrls[] = {
 	 },
 	{
 	 {
-	  .id = V4L2_CID_BACKLIGHT_COMPENSATION, 
+	  .id = V4L2_CID_BACKLIGHT_COMPENSATION, /* Activa lowlight,
+				 * some apps dont bring up the
+				 * backligth_compensation control) */
 	  .type = V4L2_CTRL_TYPE_INTEGER,
 	  .name = "Low Light",
 	  .minimum = 0,
@@ -187,7 +190,7 @@ static const struct ctrl sd_ctrls[] = {
 	  .id = V4L2_CID_POWER_LINE_FREQUENCY,
 	  .type = V4L2_CTRL_TYPE_MENU,
 	  .name = "Light Frequency Filter",
-	  .minimum = 1,		
+	  .minimum = 1,		/* 1 -> 0x50, 2->0x60 */
 	  .maximum = 2,
 	  .step = 1,
 #define FREQ_DEF 1
@@ -310,6 +313,7 @@ static const struct v4l2_pix_format vga_mode_t16[] = {
 		.priv = 0},
 };
 
+/* sensor specific data */
 struct additional_sensor_data {
 	const u8 n3[6];
 	const u8 *n4, n4sz;
@@ -382,7 +386,7 @@ static const struct additional_sensor_data sensor_data[] = {
 	.data3 =
 		{0x80, 0xff, 0xff, 0x80, 0xff, 0xff, 0x80, 0xff,
 		 0xff},
-	.data5 =	
+	.data5 =	/* this could be removed later */
 		{0x0c, 0x03, 0xab, 0x13, 0x81, 0x23},
 	.stream =
 		{0x0b, 0x04, 0x0a, 0x78},
@@ -450,72 +454,75 @@ static const struct additional_sensor_data sensor_data[] = {
 };
 
 #define MAX_EFFECTS 7
+/* easily done by soft, this table could be removed,
+ * i keep it here just in case */
 static char *effects_control[MAX_EFFECTS] = {
 	"Normal",
-	"Emboss",		
+	"Emboss",		/* disabled */
 	"Monochrome",
 	"Sepia",
 	"Sketch",
-	"Sun Effect",		
+	"Sun Effect",		/* disabled */
 	"Negative",
 };
 static const u8 effects_table[MAX_EFFECTS][6] = {
-	{0xa8, 0xe8, 0xc6, 0xd2, 0xc0, 0x00},	
-	{0xa8, 0xc8, 0xc6, 0x52, 0xc0, 0x04},	
-	{0xa8, 0xe8, 0xc6, 0xd2, 0xc0, 0x20},	
-	{0xa8, 0xe8, 0xc6, 0xd2, 0xc0, 0x80},	
-	{0xa8, 0xc8, 0xc6, 0x52, 0xc0, 0x02},	
-	{0xa8, 0xc8, 0xc6, 0xd2, 0xc0, 0x10},	
-	{0xa8, 0xc8, 0xc6, 0xd2, 0xc0, 0x40},	
+	{0xa8, 0xe8, 0xc6, 0xd2, 0xc0, 0x00},	/* Normal */
+	{0xa8, 0xc8, 0xc6, 0x52, 0xc0, 0x04},	/* Repujar */
+	{0xa8, 0xe8, 0xc6, 0xd2, 0xc0, 0x20},	/* Monochrome */
+	{0xa8, 0xe8, 0xc6, 0xd2, 0xc0, 0x80},	/* Sepia */
+	{0xa8, 0xc8, 0xc6, 0x52, 0xc0, 0x02},	/* Croquis */
+	{0xa8, 0xc8, 0xc6, 0xd2, 0xc0, 0x10},	/* Sun Effect */
+	{0xa8, 0xc8, 0xc6, 0xd2, 0xc0, 0x40},	/* Negative */
 };
 
 static const u8 gamma_table[GAMMA_MAX][17] = {
-	{0x00, 0x00, 0x01, 0x04, 0x08, 0x0e, 0x16, 0x21,	
+/* gamma table from cam1690.ini */
+	{0x00, 0x00, 0x01, 0x04, 0x08, 0x0e, 0x16, 0x21,	/* 0 */
 	 0x2e, 0x3d, 0x50, 0x65, 0x7d, 0x99, 0xb8, 0xdb,
 	 0xff},
-	{0x00, 0x01, 0x03, 0x08, 0x0e, 0x16, 0x21, 0x2d,	
+	{0x00, 0x01, 0x03, 0x08, 0x0e, 0x16, 0x21, 0x2d,	/* 1 */
 	 0x3c, 0x4d, 0x60, 0x75, 0x8d, 0xa6, 0xc2, 0xe1,
 	 0xff},
-	{0x00, 0x01, 0x05, 0x0b, 0x12, 0x1c, 0x28, 0x35,	
+	{0x00, 0x01, 0x05, 0x0b, 0x12, 0x1c, 0x28, 0x35,	/* 2 */
 	 0x45, 0x56, 0x69, 0x7e, 0x95, 0xad, 0xc7, 0xe3,
 	 0xff},
-	{0x00, 0x02, 0x07, 0x0f, 0x18, 0x24, 0x30, 0x3f,	
+	{0x00, 0x02, 0x07, 0x0f, 0x18, 0x24, 0x30, 0x3f,	/* 3 */
 	 0x4f, 0x61, 0x73, 0x88, 0x9d, 0xb4, 0xcd, 0xe6,
 	 0xff},
-	{0x00, 0x04, 0x0b, 0x15, 0x20, 0x2d, 0x3b, 0x4a,	
+	{0x00, 0x04, 0x0b, 0x15, 0x20, 0x2d, 0x3b, 0x4a,	/* 4 */
 	 0x5b, 0x6c, 0x7f, 0x92, 0xa7, 0xbc, 0xd2, 0xe9,
 	 0xff},
-	{0x00, 0x07, 0x11, 0x15, 0x20, 0x2d, 0x48, 0x58,	
+	{0x00, 0x07, 0x11, 0x15, 0x20, 0x2d, 0x48, 0x58,	/* 5 */
 	 0x68, 0x79, 0x8b, 0x9d, 0xb0, 0xc4, 0xd7, 0xec,
 	 0xff},
-	{0x00, 0x0c, 0x1a, 0x29, 0x38, 0x47, 0x57, 0x67,	
+	{0x00, 0x0c, 0x1a, 0x29, 0x38, 0x47, 0x57, 0x67,	/* 6 */
 	 0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee,
 	 0xff},
-	{0x00, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70,	
+	{0x00, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70,	/* 7 */
 	 0x80, 0x90, 0xa0, 0xb0, 0xc0, 0xd0, 0xe0, 0xf0,
 	 0xff},
-	{0x00, 0x15, 0x27, 0x38, 0x49, 0x59, 0x69, 0x79,	
+	{0x00, 0x15, 0x27, 0x38, 0x49, 0x59, 0x69, 0x79,	/* 8 */
 	 0x88, 0x97, 0xa7, 0xb6, 0xc4, 0xd3, 0xe2, 0xf0,
 	 0xff},
-	{0x00, 0x1c, 0x30, 0x43, 0x54, 0x65, 0x75, 0x84,	
+	{0x00, 0x1c, 0x30, 0x43, 0x54, 0x65, 0x75, 0x84,	/* 9 */
 	 0x93, 0xa1, 0xb0, 0xbd, 0xca, 0xd8, 0xe5, 0xf2,
 	 0xff},
-	{0x00, 0x24, 0x3b, 0x4f, 0x60, 0x70, 0x80, 0x8e,	
+	{0x00, 0x24, 0x3b, 0x4f, 0x60, 0x70, 0x80, 0x8e,	/* 10 */
 	 0x9c, 0xaa, 0xb7, 0xc4, 0xd0, 0xdc, 0xe8, 0xf3,
 	 0xff},
-	{0x00, 0x2a, 0x3c, 0x5d, 0x6e, 0x7e, 0x8d, 0x9b,	
+	{0x00, 0x2a, 0x3c, 0x5d, 0x6e, 0x7e, 0x8d, 0x9b,	/* 11 */
 	 0xa8, 0xb4, 0xc0, 0xcb, 0xd6, 0xe1, 0xeb, 0xf5,
 	 0xff},
-	{0x00, 0x3f, 0x5a, 0x6e, 0x7f, 0x8e, 0x9c, 0xa8,	
+	{0x00, 0x3f, 0x5a, 0x6e, 0x7f, 0x8e, 0x9c, 0xa8,	/* 12 */
 	 0xb4, 0xbf, 0xc9, 0xd3, 0xdc, 0xe5, 0xee, 0xf6,
 	 0xff},
-	{0x00, 0x54, 0x6f, 0x83, 0x93, 0xa0, 0xad, 0xb7,	
+	{0x00, 0x54, 0x6f, 0x83, 0x93, 0xa0, 0xad, 0xb7,	/* 13 */
 	 0xc2, 0xcb, 0xd4, 0xdc, 0xe4, 0xeb, 0xf2, 0xf9,
 	 0xff},
-	{0x00, 0x6e, 0x88, 0x9a, 0xa8, 0xb3, 0xbd, 0xc6,	
+	{0x00, 0x6e, 0x88, 0x9a, 0xa8, 0xb3, 0xbd, 0xc6,	/* 14 */
 	 0xcf, 0xd6, 0xdd, 0xe3, 0xe9, 0xef, 0xf4, 0xfa,
 	 0xff},
-	{0x00, 0x93, 0xa8, 0xb7, 0xc1, 0xca, 0xd2, 0xd8,	
+	{0x00, 0x93, 0xa8, 0xb7, 0xc1, 0xca, 0xd2, 0xd8,	/* 15 */
 	 0xde, 0xe3, 0xe8, 0xed, 0xf1, 0xf5, 0xf8, 0xfc,
 	 0xff}
 };
@@ -528,14 +535,15 @@ static const u8 tas5130a_sensor_init[][8] = {
 
 static u8 sensor_reset[] = {0x61, 0x68, 0x62, 0xff, 0x60, 0x07};
 
+/* read 1 byte */
 static u8 reg_r(struct gspca_dev *gspca_dev,
 		   u16 index)
 {
 	usb_control_msg(gspca_dev->dev,
 			usb_rcvctrlpipe(gspca_dev->dev, 0),
-			0,		
+			0,		/* request */
 			USB_DIR_IN | USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-			0,		
+			0,		/* value */
 			index,
 			gspca_dev->usb_buf, 1, 500);
 	return gspca_dev->usb_buf[0];
@@ -581,6 +589,7 @@ static void reg_w_buf(struct gspca_dev *gspca_dev,
 	}
 }
 
+/* write values to consecutive registers */
 static void reg_w_ixbuf(struct gspca_dev *gspca_dev,
 			u8 reg,
 			const u8 *buffer, u16 len)
@@ -633,7 +642,7 @@ static void om6802_sensor_init(struct gspca_dev *gspca_dev)
 		0x91, 0xb2,
 		0x82, 0x32,
 		0xfd, 0x41,
-		0x00			
+		0x00			/* table end */
 	};
 
 	reg_w_buf(gspca_dev, sensor_reset, sizeof sensor_reset);
@@ -648,7 +657,7 @@ static void om6802_sensor_init(struct gspca_dev *gspca_dev)
 	byte = reg_r(gspca_dev, 0x0063);
 	if (byte != 0x17) {
 		pr_err("Bad sensor reset %02x\n", byte);
-		
+		/* continue? */
 	}
 
 	p = sensor_init;
@@ -670,6 +679,7 @@ static void om6802_sensor_init(struct gspca_dev *gspca_dev)
 	reg_w(gspca_dev, 0x3c80);
 }
 
+/* this function is called at probe time */
 static int sd_config(struct gspca_dev *gspca_dev,
 		     const struct usb_device_id *id)
 {
@@ -734,7 +744,7 @@ static void setcolors(struct gspca_dev *gspca_dev)
 	struct sd *sd = (struct sd *) gspca_dev;
 	u16 reg_to_write;
 
-	reg_to_write = 0x80bb + sd->colors * 0x100;	
+	reg_to_write = 0x80bb + sd->colors * 0x100;	/* was 0xc0 */
 	reg_w(gspca_dev, reg_to_write);
 }
 
@@ -759,6 +769,7 @@ static void setRGB(struct gspca_dev *gspca_dev)
 	reg_w_buf(gspca_dev, all_gain_reg, sizeof all_gain_reg);
 }
 
+/* Generic fnc for r/b balance, exposure and awb */
 static void setawb(struct gspca_dev *gspca_dev)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
@@ -766,14 +777,14 @@ static void setawb(struct gspca_dev *gspca_dev)
 
 	reg80 = (sensor_data[sd->sensor].reg80 << 8) | 0x80;
 
-	
+	/* on awb leave defaults values */
 	if (!sd->awb) {
-		
-		
+		/* shoud we wait here.. */
+		/* update and reset RGB gains with webcam values */
 		sd->red_gain = reg_r(gspca_dev, 0x0087);
 		sd->blue_gain = reg_r(gspca_dev, 0x0088);
 		sd->green_gain = reg_r(gspca_dev, 0x0089);
-		reg80 &= ~0x0400;		
+		reg80 &= ~0x0400;		/* AWB off */
 	}
 	reg_w(gspca_dev, reg80);
 	reg_w(gspca_dev, reg80);
@@ -830,10 +841,10 @@ static void setfreq(struct gspca_dev *gspca_dev)
 		break;
 	}
 	switch (sd->freq) {
-	case 0:				
+	case 0:				/* no flicker */
 		freq[3] = 0xf0;
 		break;
-	case 2:				
+	case 2:				/* 60Hz */
 		reg66 &= ~0x40;
 		break;
 	}
@@ -842,8 +853,13 @@ static void setfreq(struct gspca_dev *gspca_dev)
 	reg_w_buf(gspca_dev, freq, sizeof freq);
 }
 
+/* this function is called at probe and resume time */
 static int sd_init(struct gspca_dev *gspca_dev)
 {
+	/* some of this registers are not really neded, because
+	 * they are overriden by setbrigthness, setcontrast, etc,
+	 * but wont hurt anyway, and can help someone with similar webcam
+	 * to see the initial parameters.*/
 	struct sd *sd = (struct sd *) gspca_dev;
 	const struct additional_sensor_data *sensor;
 	int i;
@@ -890,7 +906,7 @@ static int sd_init(struct gspca_dev *gspca_dev)
 			test_byte = reg_r(gspca_dev, 0x0063);
 			msleep(100);
 			if (test_byte == 0x17)
-				break;		
+				break;		/* OK */
 		}
 		if (i < 0) {
 			pr_err("Bad sensor reset %02x\n", test_byte);
@@ -982,6 +998,8 @@ static void seteffect(struct gspca_dev *gspca_dev)
 		reg_w(gspca_dev, 0xfaa6);
 }
 
+/* Is this really needed?
+ * i added some module parameters for test with some users */
 static void poll_sensor(struct gspca_dev *gspca_dev)
 {
 	static const u8 poll1[] =
@@ -992,7 +1010,7 @@ static void poll_sensor(struct gspca_dev *gspca_dev)
 	static const u8 poll2[] =
 		{0x67, 0x02, 0x68, 0x71, 0x69, 0x72, 0x72, 0xa9,
 		 0x73, 0x02, 0x73, 0x02, 0x60, 0x14};
-	static const u8 noise03[] =	
+	static const u8 noise03[] =	/* (some differences / ms-drv) */
 		{0xa6, 0x0a, 0xea, 0xcf, 0xbe, 0x26, 0xb1, 0x5f,
 		 0xa1, 0xb1, 0xda, 0x6b, 0xdb, 0x98, 0xdf, 0x0c,
 		 0xc2, 0x80, 0xc3, 0x10};
@@ -1014,18 +1032,19 @@ static int sd_start(struct gspca_dev *gspca_dev)
 
 	mode = gspca_dev->cam.cam_mode[gspca_dev->curr_mode].priv;
 	switch (mode) {
-	case 0:		
+	case 0:		/* 640x480 (0x00) */
 		break;
-	case 1:		
+	case 1:		/* 352x288 */
 		t2[1] = 0x40;
 		break;
-	case 2:		
+	case 2:		/* 320x240 */
 		t2[1] = 0x10;
 		break;
-	case 3:		
+	case 3:		/* 176x144 */
 		t2[1] = 0x50;
 		break;
 	default:
+/*	case 4:		 * 160x120 */
 		t2[1] = 0x20;
 		break;
 	}
@@ -1044,7 +1063,7 @@ static int sd_start(struct gspca_dev *gspca_dev)
 			i++;
 		}
 		reg_w(gspca_dev, 0x3c80);
-		
+		/* just in case and to keep sync with logs (for mine) */
 		reg_w_buf(gspca_dev, tas5130a_sensor_init[i],
 				 sizeof tas5130a_sensor_init[0]);
 		reg_w(gspca_dev, 0x3c80);
@@ -1079,7 +1098,7 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 		reg_w(gspca_dev, 0x0309);
 	}
 #if defined(CONFIG_INPUT) || defined(CONFIG_INPUT_MODULE)
-	
+	/* If the last button state is pressed, release it now! */
 	if (sd->button_pressed) {
 		input_report_key(gspca_dev->input_dev, KEY_CAMERA, 0);
 		input_sync(gspca_dev->input_dev);
@@ -1089,8 +1108,8 @@ static void sd_stopN(struct gspca_dev *gspca_dev)
 }
 
 static void sd_pkt_scan(struct gspca_dev *gspca_dev,
-			u8 *data,			
-			int len)			
+			u8 *data,			/* isoc packet */
+			int len)			/* iso packet length */
 {
 	struct sd *sd = (struct sd *) gspca_dev;
 	int pkt_type;
@@ -1107,6 +1126,9 @@ static void sd_pkt_scan(struct gspca_dev *gspca_dev,
 			}
 		}
 #endif
+		/* Control Packet, after this came the header again,
+		 * but extra bytes came in the packet before this,
+		 * sometimes an EOF arrives, sometimes not... */
 		return;
 	}
 	data += 2;
@@ -1355,6 +1377,7 @@ static int sd_getsharpness(struct gspca_dev *gspca_dev, __s32 *val)
 	return 0;
 }
 
+/* Low Light set  here......*/
 static int sd_setlowlight(struct gspca_dev *gspca_dev, __s32 val)
 {
 	struct sd *sd = (struct sd *) gspca_dev;
@@ -1398,6 +1421,7 @@ static int sd_querymenu(struct gspca_dev *gspca_dev,
 	return -EINVAL;
 }
 
+/* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name = MODULE_NAME,
 	.ctrls = sd_ctrls,
@@ -1413,12 +1437,14 @@ static const struct sd_desc sd_desc = {
 #endif
 };
 
+/* -- module initialisation -- */
 static const struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x17a1, 0x0128)},
 	{}
 };
 MODULE_DEVICE_TABLE(usb, device_table);
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf,
 		    const struct usb_device_id *id)
 {

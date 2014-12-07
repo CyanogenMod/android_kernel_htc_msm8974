@@ -22,51 +22,52 @@
 #define ADP8860_EXT_FEATURES
 #define ADP8860_USE_LEDS
 
-#define ADP8860_MFDVID 0x00 
-#define ADP8860_MDCR 0x01 
-#define ADP8860_MDCR2 0x02 
-#define ADP8860_INTR_EN 0x03 
-#define ADP8860_CFGR 0x04 
-#define ADP8860_BLSEN 0x05 
-#define ADP8860_BLOFF 0x06 
-#define ADP8860_BLDIM 0x07 
-#define ADP8860_BLFR 0x08 
-#define ADP8860_BLMX1 0x09 
-#define ADP8860_BLDM1 0x0A 
-#define ADP8860_BLMX2 0x0B 
-#define ADP8860_BLDM2 0x0C 
-#define ADP8860_BLMX3 0x0D 
-#define ADP8860_BLDM3 0x0E 
-#define ADP8860_ISCFR 0x0F 
-#define ADP8860_ISCC 0x10 
-#define ADP8860_ISCT1 0x11 
-#define ADP8860_ISCT2 0x12 
-#define ADP8860_ISCF 0x13 
-#define ADP8860_ISC7 0x14 
-#define ADP8860_ISC6 0x15 
-#define ADP8860_ISC5 0x16 
-#define ADP8860_ISC4 0x17 
-#define ADP8860_ISC3 0x18 
-#define ADP8860_ISC2 0x19 
-#define ADP8860_ISC1 0x1A 
-#define ADP8860_CCFG 0x1B 
-#define ADP8860_CCFG2 0x1C 
-#define ADP8860_L2_TRP 0x1D 
-#define ADP8860_L2_HYS 0x1E 
-#define ADP8860_L3_TRP 0x1F 
-#define ADP8860_L3_HYS 0x20 
-#define ADP8860_PH1LEVL 0x21 
-#define ADP8860_PH1LEVH 0x22 
-#define ADP8860_PH2LEVL 0x23 
-#define ADP8860_PH2LEVH 0x24 
+#define ADP8860_MFDVID 0x00 /* Manufacturer and device ID */
+#define ADP8860_MDCR 0x01 /* Device mode and status */
+#define ADP8860_MDCR2 0x02 /* Device mode and Status Register 2 */
+#define ADP8860_INTR_EN 0x03 /* Interrupts enable */
+#define ADP8860_CFGR 0x04 /* Configuration register */
+#define ADP8860_BLSEN 0x05 /* Sink enable backlight or independent */
+#define ADP8860_BLOFF 0x06 /* Backlight off timeout */
+#define ADP8860_BLDIM 0x07 /* Backlight dim timeout */
+#define ADP8860_BLFR 0x08 /* Backlight fade in and out rates */
+#define ADP8860_BLMX1 0x09 /* Backlight (Brightness Level 1-daylight) maximum current */
+#define ADP8860_BLDM1 0x0A /* Backlight (Brightness Level 1-daylight) dim current */
+#define ADP8860_BLMX2 0x0B /* Backlight (Brightness Level 2-office) maximum current */
+#define ADP8860_BLDM2 0x0C /* Backlight (Brightness Level 2-office) dim current */
+#define ADP8860_BLMX3 0x0D /* Backlight (Brightness Level 3-dark) maximum current */
+#define ADP8860_BLDM3 0x0E /* Backlight (Brightness Level 3-dark) dim current */
+#define ADP8860_ISCFR 0x0F /* Independent sink current fade control register */
+#define ADP8860_ISCC 0x10 /* Independent sink current control register */
+#define ADP8860_ISCT1 0x11 /* Independent Sink Current Timer Register LED[7:5] */
+#define ADP8860_ISCT2 0x12 /* Independent Sink Current Timer Register LED[4:1] */
+#define ADP8860_ISCF 0x13 /* Independent sink current fade register */
+#define ADP8860_ISC7 0x14 /* Independent Sink Current LED7 */
+#define ADP8860_ISC6 0x15 /* Independent Sink Current LED6 */
+#define ADP8860_ISC5 0x16 /* Independent Sink Current LED5 */
+#define ADP8860_ISC4 0x17 /* Independent Sink Current LED4 */
+#define ADP8860_ISC3 0x18 /* Independent Sink Current LED3 */
+#define ADP8860_ISC2 0x19 /* Independent Sink Current LED2 */
+#define ADP8860_ISC1 0x1A /* Independent Sink Current LED1 */
+#define ADP8860_CCFG 0x1B /* Comparator configuration */
+#define ADP8860_CCFG2 0x1C /* Second comparator configuration */
+#define ADP8860_L2_TRP 0x1D /* L2 comparator reference */
+#define ADP8860_L2_HYS 0x1E /* L2 hysteresis */
+#define ADP8860_L3_TRP 0x1F /* L3 comparator reference */
+#define ADP8860_L3_HYS 0x20 /* L3 hysteresis */
+#define ADP8860_PH1LEVL 0x21 /* First phototransistor ambient light level-low byte register */
+#define ADP8860_PH1LEVH 0x22 /* First phototransistor ambient light level-high byte register */
+#define ADP8860_PH2LEVL 0x23 /* Second phototransistor ambient light level-low byte register */
+#define ADP8860_PH2LEVH 0x24 /* Second phototransistor ambient light level-high byte register */
 
-#define ADP8860_MANUFID		0x0  
-#define ADP8861_MANUFID		0x4  
-#define ADP8863_MANUFID		0x2  
+#define ADP8860_MANUFID		0x0  /* Analog Devices ADP8860 Manufacturer ID */
+#define ADP8861_MANUFID		0x4  /* Analog Devices ADP8861 Manufacturer ID */
+#define ADP8863_MANUFID		0x2  /* Analog Devices ADP8863 Manufacturer ID */
 
 #define ADP8860_DEVID(x)	((x) & 0xF)
 #define ADP8860_MANID(x)	((x) >> 4)
 
+/* MDCR Device mode and status */
 #define INT_CFG			(1 << 6)
 #define NSTBY			(1 << 5)
 #define DIM_EN			(1 << 4)
@@ -75,6 +76,7 @@
 #define CMP_AUTOEN		(1 << 1)
 #define BLEN			(1 << 0)
 
+/* ADP8860_CCFG Main ALS comparator level enable */
 #define L3_EN			(1 << 1)
 #define L2_EN			(1 << 0)
 
@@ -172,6 +174,9 @@ static int adp8860_clr_bits(struct i2c_client *client, int reg, uint8_t bit_mask
 	return ret;
 }
 
+/*
+ * Independent sink / LED
+ */
 #if defined(ADP8860_USE_LEDS)
 static void adp8860_led_work(struct work_struct *work)
 {
@@ -327,11 +332,15 @@ static int adp8860_bl_set(struct backlight_device *bl, int brightness)
 
 	if (data->en_ambl_sens) {
 		if ((brightness > 0) && (brightness < ADP8860_MAX_BRIGHTNESS)) {
-			
+			/* Disable Ambient Light auto adjust */
 			ret |= adp8860_clr_bits(client, ADP8860_MDCR,
 					CMP_AUTOEN);
 			ret |= adp8860_write(client, ADP8860_BLMX1, brightness);
 		} else {
+			/*
+			 * MAX_BRIGHTNESS -> Enable Ambient Light auto adjust
+			 * restore daylight l1 sysfs brightness
+			 */
 			ret |= adp8860_write(client, ADP8860_BLMX1,
 					 data->cached_daylight_max);
 			ret |= adp8860_set_bits(client, ADP8860_MDCR,
@@ -564,7 +573,7 @@ static ssize_t adp8860_bl_ambient_light_level_show(struct device *dev,
 	if (error < 0)
 		return error;
 
-	
+	/* Return 13-bit conversion value for the first light sensor */
 	ret_val += (reg_val & 0x1F) << 8;
 
 	return sprintf(buf, "%u\n", ret_val);
@@ -604,13 +613,13 @@ static ssize_t adp8860_bl_ambient_light_zone_store(struct device *dev,
 		return ret;
 
 	if (val == 0) {
-		
+		/* Enable automatic ambient light sensing */
 		adp8860_set_bits(data->client, ADP8860_MDCR, CMP_AUTOEN);
 	} else if ((val > 0) && (val <= 3)) {
-		
+		/* Disable automatic ambient light sensing */
 		adp8860_clr_bits(data->client, ADP8860_MDCR, CMP_AUTOEN);
 
-		
+		/* Set user supplied ambient light zone */
 		mutex_lock(&data->lock);
 		adp8860_read(data->client, ADP8860_CFGR, &reg_val);
 		reg_val &= ~(CFGR_BLV_MASK << CFGR_BLV_SHIFT);
@@ -689,7 +698,7 @@ static int __devinit adp8860_probe(struct i2c_client *client,
 		goto out2;
 	}
 
-	
+	/* It's confirmed that the DEVID field is actually a REVID */
 
 	data->revid = ADP8860_DEVID(reg_val);
 	data->client = client;

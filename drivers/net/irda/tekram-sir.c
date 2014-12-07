@@ -32,7 +32,7 @@
 
 #include "sir-dev.h"
 
-static int tekram_delay = 150;		
+static int tekram_delay = 150;		/* default is 150 ms */
 module_param(tekram_delay, int, 0);
 MODULE_PARM_DESC(tekram_delay, "tekram dongle write complete delay");
 
@@ -47,7 +47,7 @@ static int tekram_reset(struct sir_dev *);
 #define TEKRAM_19200  0x03
 #define TEKRAM_9600   0x04
 
-#define TEKRAM_PW     0x10 
+#define TEKRAM_PW     0x10 /* Pulse select bit */
 
 static struct dongle_driver tekram = {
 	.owner		= THIS_MODULE,
@@ -82,10 +82,10 @@ static int tekram_open(struct sir_dev *dev)
 	sirdev_set_dtr_rts(dev, TRUE, TRUE);
 
 	qos->baud_rate.bits &= IR_9600|IR_19200|IR_38400|IR_57600|IR_115200;
-	qos->min_turn_time.bits = 0x01; 	
+	qos->min_turn_time.bits = 0x01; /* Needs at least 10 ms */	
 	irda_qos_bits_to_value(qos);
 
-	
+	/* irda thread waits 50 msec for power settling */
 
 	return 0;
 }
@@ -94,12 +94,32 @@ static int tekram_close(struct sir_dev *dev)
 {
 	IRDA_DEBUG(2, "%s()\n", __func__);
 
-	
+	/* Power off dongle */
 	sirdev_set_dtr_rts(dev, FALSE, FALSE);
 
 	return 0;
 }
 
+/*
+ * Function tekram_change_speed (dev, state, speed)
+ *
+ *    Set the speed for the Tekram IRMate 210 type dongle. Warning, this 
+ *    function must be called with a process context!
+ *
+ *    Algorithm
+ *    1. clear DTR 
+ *    2. set RTS, and wait at least 7 us
+ *    3. send Control Byte to the IR-210 through TXD to set new baud rate
+ *       wait until the stop bit of Control Byte is sent (for 9600 baud rate, 
+ *       it takes about 100 msec)
+ *
+ *	[oops, why 100 msec? sending 1 byte (10 bits) takes 1.05 msec
+ *	 - is this probably to compensate for delays in tty layer?]
+ *
+ *    5. clear RTS (return to NORMAL Operation)
+ *    6. wait at least 50 us, new setting (baud rate, etc) takes effect here 
+ *       after
+ */
 
 #define TEKRAM_STATE_WAIT_SPEED	(SIRDEV_STATE_DONGLE_SPEED + 1)
 
@@ -119,7 +139,7 @@ static int tekram_change_speed(struct sir_dev *dev, unsigned speed)
 		default:
 			speed = 9600;
 			ret = -EINVAL;
-			
+			/* fall thru */
 		case 9600:
 			byte = TEKRAM_PW|TEKRAM_9600;
 			break;
@@ -137,13 +157,13 @@ static int tekram_change_speed(struct sir_dev *dev, unsigned speed)
 			break;
 		}
 
-		
+		/* Set DTR, Clear RTS */
 		sirdev_set_dtr_rts(dev, TRUE, FALSE);
 	
-		
+		/* Wait at least 7us */
 		udelay(14);
 
-		
+		/* Write control byte */
 		sirdev_raw_write(dev, &byte, 1);
 		
 		dev->speed = speed;
@@ -153,7 +173,7 @@ static int tekram_change_speed(struct sir_dev *dev, unsigned speed)
 		break;
 
 	case TEKRAM_STATE_WAIT_SPEED:
-		
+		/* Set DTR, Set RTS */
 		sirdev_set_dtr_rts(dev, TRUE, TRUE);
 		udelay(50);
 		break;
@@ -168,21 +188,34 @@ static int tekram_change_speed(struct sir_dev *dev, unsigned speed)
 	return (delay > 0) ? delay : ret;
 }
 
+/*
+ * Function tekram_reset (driver)
+ *
+ *      This function resets the tekram dongle. Warning, this function 
+ *      must be called with a process context!! 
+ *
+ *      Algorithm:
+ *    	  0. Clear RTS and DTR, and wait 50 ms (power off the IR-210 )
+ *        1. clear RTS 
+ *        2. set DTR, and wait at least 1 ms 
+ *        3. clear DTR to SPACE state, wait at least 50 us for further 
+ *         operation
+ */
 
 static int tekram_reset(struct sir_dev *dev)
 {
 	IRDA_DEBUG(2, "%s()\n", __func__);
 
-	
+	/* Clear DTR, Set RTS */
 	sirdev_set_dtr_rts(dev, FALSE, TRUE); 
 
-	
+	/* Should sleep 1 ms */
 	msleep(1);
 
-	
+	/* Set DTR, Set RTS */
 	sirdev_set_dtr_rts(dev, TRUE, TRUE);
 	
-	
+	/* Wait at least 50 us */
 	udelay(75);
 
 	dev->speed = 9600;
@@ -193,7 +226,7 @@ static int tekram_reset(struct sir_dev *dev)
 MODULE_AUTHOR("Dag Brattli <dagb@cs.uit.no>");
 MODULE_DESCRIPTION("Tekram IrMate IR-210B dongle driver");
 MODULE_LICENSE("GPL");
-MODULE_ALIAS("irda-dongle-0"); 
+MODULE_ALIAS("irda-dongle-0"); /* IRDA_TEKRAM_DONGLE */
 		
 module_init(tekram_sir_init);
 module_exit(tekram_sir_cleanup);

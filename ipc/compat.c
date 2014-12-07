@@ -121,6 +121,9 @@ static inline int compat_ipc_parse_version(int *cmd)
 #ifdef CONFIG_ARCH_WANT_OLD_COMPAT_IPC
 	int version = *cmd & IPC_64;
 
+	/* this is tricky: architectures that have support for the old
+	 * ipc structures in 64 bit binaries need to have IPC_64 set
+	 * in cmd, the others need to have it cleared */
 #ifndef ipc_parse_version
 	*cmd |= IPC_64;
 #else
@@ -128,7 +131,7 @@ static inline int compat_ipc_parse_version(int *cmd)
 #endif
 	return version;
 #else
-	
+	/* With the asm-generic APIs, we always use the 64-bit versions. */
 	return IPC_64;
 #endif
 }

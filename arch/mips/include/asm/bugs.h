@@ -51,4 +51,4 @@ static inline int r4k_daddiu_bug(void)
 #endif
 }
 
-#endif 
+#endif /* _ASM_BUGS_H */

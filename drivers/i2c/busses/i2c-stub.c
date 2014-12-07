@@ -44,11 +44,13 @@ MODULE_PARM_DESC(functionality, "Override functionality bitfield");
 
 struct stub_chip {
 	u8 pointer;
-	u16 words[256];		
+	u16 words[256];		/* Byte operations use the LSB as per SMBus
+				   specification */
 };
 
 static struct stub_chip *stub_chips;
 
+/* Return negative errno on error. */
 static s32 stub_xfer(struct i2c_adapter * adap, u16 addr, unsigned short flags,
 	char read_write, u8 command, int size, union i2c_smbus_data * data)
 {
@@ -56,7 +58,7 @@ static s32 stub_xfer(struct i2c_adapter * adap, u16 addr, unsigned short flags,
 	int i, len;
 	struct stub_chip *chip = NULL;
 
-	
+	/* Search for the right chip */
 	for (i = 0; i < MAX_CHIPS && chip_addr[i]; i++) {
 		if (addr == chip_addr[i]) {
 			chip = stub_chips + i;
@@ -150,7 +152,7 @@ static s32 stub_xfer(struct i2c_adapter * adap, u16 addr, unsigned short flags,
 		dev_dbg(&adap->dev, "Unsupported I2C/SMBus command\n");
 		ret = -EOPNOTSUPP;
 		break;
-	} 
+	} /* switch (size) */
 
 	return ret;
 }
@@ -192,7 +194,7 @@ static int __init i2c_stub_init(void)
 		       chip_addr[i]);
 	}
 
-	
+	/* Allocate memory for all chips at once */
 	stub_chips = kzalloc(i * sizeof(struct stub_chip), GFP_KERNEL);
 	if (!stub_chips) {
 		printk(KERN_ERR "i2c-stub: Out of memory\n");

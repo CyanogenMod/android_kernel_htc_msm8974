@@ -26,6 +26,7 @@
 #include <asm/clock.h>
 #include <cpu/sh7722.h>
 
+/* SH7722 registers */
 #define FRQCR		0xa4150000
 #define VCLKCR		0xa4150004
 #define SCLKACR		0xa4150008
@@ -37,14 +38,20 @@
 #define MSTPCR2		0xa4150038
 #define DLLFRQ		0xa4150050
 
+/* Fixed 32 KHz root clock for RTC and Power Management purposes */
 static struct clk r_clk = {
 	.rate           = 32768,
 };
 
+/*
+ * Default rate for the root input clock, reset this with clk_set_rate()
+ * from the platform code.
+ */
 struct clk extal_clk = {
 	.rate		= 33333333,
 };
 
+/* The dll block multiplies the 32khz r_clk, may be used instead of extal */
 static unsigned long dll_recalc(struct clk *clk)
 {
 	unsigned long mult;
@@ -172,13 +179,13 @@ static struct clk mstp_clks[HWBLK_NR] = {
 };
 
 static struct clk_lookup lookups[] = {
-	
+	/* main clocks */
 	CLKDEV_CON_ID("rclk", &r_clk),
 	CLKDEV_CON_ID("extal", &extal_clk),
 	CLKDEV_CON_ID("dll_clk", &dll_clk),
 	CLKDEV_CON_ID("pll_clk", &pll_clk),
 
-	
+	/* DIV4 clocks */
 	CLKDEV_CON_ID("cpu_clk", &div4_clks[DIV4_I]),
 	CLKDEV_CON_ID("umem_clk", &div4_clks[DIV4_U]),
 	CLKDEV_CON_ID("shyway_clk", &div4_clks[DIV4_SH]),
@@ -189,10 +196,10 @@ static struct clk_lookup lookups[] = {
 	CLKDEV_CON_ID("siua_clk", &div4_reparent_clks[DIV4_SIUA]),
 	CLKDEV_CON_ID("siub_clk", &div4_reparent_clks[DIV4_SIUB]),
 
-	
+	/* DIV6 clocks */
 	CLKDEV_CON_ID("video_clk", &div6_clks[DIV6_V]),
 
-	
+	/* MSTP clocks */
 	CLKDEV_CON_ID("uram0", &mstp_clks[HWBLK_URAM]),
 	CLKDEV_CON_ID("xymem0", &mstp_clks[HWBLK_XYMEM]),
 
@@ -228,7 +235,7 @@ int __init arch_clk_init(void)
 {
 	int k, ret = 0;
 
-	
+	/* autodetect extal or dll configuration */
 	if (__raw_readl(PLLCR) & 0x1000)
 		pll_clk.parent = &dll_clk;
 	else

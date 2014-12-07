@@ -16,6 +16,7 @@
 #include <linux/tty_flip.h>
 #include <linux/module.h>
 
+/*** our ioctls ***/
 
 static int if_lock(struct cardstate *cs, int *arg)
 {
@@ -110,6 +111,8 @@ static int if_config(struct cardstate *cs, int *arg)
 	return gigaset_enterconfigmode(cs);
 }
 
+/*** the terminal driver ***/
+/* stolen from usbserial and some other tty drivers */
 
 static int  if_open(struct tty_struct *tty, struct file *filp);
 static void if_close(struct tty_struct *tty, struct file *filp);
@@ -172,7 +175,7 @@ static void if_close(struct tty_struct *tty, struct file *filp)
 {
 	struct cardstate *cs = tty->driver_data;
 
-	if (!cs) { 
+	if (!cs) { /* happens if we didn't find cs in open */
 		gig_dbg(DEBUG_IF, "%s: no cardstate", __func__);
 		return;
 	}
@@ -182,7 +185,7 @@ static void if_close(struct tty_struct *tty, struct file *filp)
 	mutex_lock(&cs->mutex);
 
 	if (!cs->connected)
-		gig_dbg(DEBUG_IF, "not connected");	
+		gig_dbg(DEBUG_IF, "not connected");	/* nothing to do */
 	else if (!cs->port.count)
 		dev_warn(cs->dev, "%s: device not opened\n", __func__);
 	else if (!--cs->port.count)
@@ -326,7 +329,7 @@ static int if_write(struct tty_struct *tty, const unsigned char *buf, int count)
 		goto done;
 	}
 	if (count <= 0) {
-		
+		/* nothing to do */
 		retval = 0;
 		goto done;
 	}
@@ -403,7 +406,7 @@ static void if_throttle(struct tty_struct *tty)
 	mutex_lock(&cs->mutex);
 
 	if (!cs->connected)
-		gig_dbg(DEBUG_IF, "not connected");	
+		gig_dbg(DEBUG_IF, "not connected");	/* nothing to do */
 	else
 		gig_dbg(DEBUG_IF, "%s: not implemented\n", __func__);
 
@@ -419,7 +422,7 @@ static void if_unthrottle(struct tty_struct *tty)
 	mutex_lock(&cs->mutex);
 
 	if (!cs->connected)
-		gig_dbg(DEBUG_IF, "not connected");	
+		gig_dbg(DEBUG_IF, "not connected");	/* nothing to do */
 	else
 		gig_dbg(DEBUG_IF, "%s: not implemented\n", __func__);
 
@@ -449,14 +452,20 @@ static void if_set_termios(struct tty_struct *tty, struct ktermios *old)
 	gig_dbg(DEBUG_IF, "%u: iflag %x cflag %x old %x",
 		cs->minor_index, iflag, cflag, old_cflag);
 
-	
+	/* get a local copy of the current port settings */
 	control_state = cs->control_state;
 
+	/*
+	 * Update baud rate.
+	 * Do not attempt to cache old rates and skip settings,
+	 * disconnects screw such tricks up completely.
+	 * Premature optimization is the root of all evil.
+	 */
 
-	
+	/* reassert DTR and (maybe) RTS on transition from B0 */
 	if ((old_cflag & CBAUD) == B0) {
 		new_state = control_state | TIOCM_DTR;
-		
+		/* don't set RTS if using hardware flow control */
 		if (!(old_cflag & CRTSCTS))
 			new_state |= TIOCM_RTS;
 		gig_dbg(DEBUG_IF, "%u: from B0 - set DTR%s",
@@ -469,17 +478,20 @@ static void if_set_termios(struct tty_struct *tty, struct ktermios *old)
 	cs->ops->baud_rate(cs, cflag & CBAUD);
 
 	if ((cflag & CBAUD) == B0) {
-		
+		/* Drop RTS and DTR */
 		gig_dbg(DEBUG_IF, "%u: to B0 - drop DTR/RTS", cs->minor_index);
 		new_state = control_state & ~(TIOCM_DTR | TIOCM_RTS);
 		cs->ops->set_modem_ctrl(cs, control_state, new_state);
 		control_state = new_state;
 	}
 
+	/*
+	 * Update line control register (LCR)
+	 */
 
 	cs->ops->set_line_ctrl(cs, cflag);
 
-	
+	/* save off the modified port settings */
 	cs->control_state = control_state;
 
 out:
@@ -487,6 +499,7 @@ out:
 }
 
 
+/* wakeup tasklet for the write operation */
 static void if_wake(unsigned long data)
 {
 	struct cardstate *cs = (struct cardstate *)data;
@@ -498,6 +511,7 @@ static void if_wake(unsigned long data)
 	}
 }
 
+/*** interface to common ***/
 
 void gigaset_if_init(struct cardstate *cs)
 {
@@ -535,6 +549,15 @@ void gigaset_if_free(struct cardstate *cs)
 	tty_unregister_device(drv->tty, cs->minor_index);
 }
 
+/**
+ * gigaset_if_receive() - pass a received block of data to the tty device
+ * @cs:		device descriptor structure.
+ * @buffer:	received data.
+ * @len:	number of bytes received.
+ *
+ * Called by asyncdata/isocdata if a block of data received from the
+ * device must be sent to userspace through the ttyG* device.
+ */
 void gigaset_if_receive(struct cardstate *cs,
 			unsigned char *buffer, size_t len)
 {
@@ -551,6 +574,13 @@ void gigaset_if_receive(struct cardstate *cs,
 }
 EXPORT_SYMBOL_GPL(gigaset_if_receive);
 
+/* gigaset_if_initdriver
+ * Initialize tty interface.
+ * parameters:
+ *	drv		Driver
+ *	procname	Name of the driver (e.g. for /proc/tty/drivers)
+ *	devname		Name of the device files (prefix without minor number)
+ */
 void gigaset_if_initdriver(struct gigaset_driver *drv, const char *procname,
 			   const char *devname)
 {

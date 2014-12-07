@@ -67,32 +67,61 @@ struct ibs_state {
 static struct ibs_config ibs_config;
 static struct ibs_state ibs_state;
 
+/*
+ * IBS randomization macros
+ */
 #define IBS_RANDOM_BITS			12
 #define IBS_RANDOM_MASK			((1ULL << IBS_RANDOM_BITS) - 1)
 #define IBS_RANDOM_MAXCNT_OFFSET	(1ULL << (IBS_RANDOM_BITS - 5))
 
+/*
+ * 16-bit Linear Feedback Shift Register (LFSR)
+ *
+ *                       16   14   13    11
+ * Feedback polynomial = X  + X  + X  +  X  + 1
+ */
 static unsigned int lfsr_random(void)
 {
 	static unsigned int lfsr_value = 0xF00D;
 	unsigned int bit;
 
-	
+	/* Compute next bit to shift in */
 	bit = ((lfsr_value >> 0) ^
 	       (lfsr_value >> 2) ^
 	       (lfsr_value >> 3) ^
 	       (lfsr_value >> 5)) & 0x0001;
 
-	
+	/* Advance to next register value */
 	lfsr_value = (lfsr_value >> 1) | (bit << 15);
 
 	return lfsr_value;
 }
 
+/*
+ * IBS software randomization
+ *
+ * The IBS periodic op counter is randomized in software. The lower 12
+ * bits of the 20 bit counter are randomized. IbsOpCurCnt is
+ * initialized with a 12 bit random value.
+ */
 static inline u64 op_amd_randomize_ibs_op(u64 val)
 {
 	unsigned int random = lfsr_random();
 
 	if (!(ibs_caps & IBS_CAPS_RDWROPCNT))
+		/*
+		 * Work around if the hw can not write to IbsOpCurCnt
+		 *
+		 * Randomize the lower 8 bits of the 16 bit
+		 * IbsOpMaxCnt [15:0] value in the range of -128 to
+		 * +127 by adding/subtracting an offset to the
+		 * maximum count (IbsOpMaxCnt).
+		 *
+		 * To avoid over or underflows and protect upper bits
+		 * starting at bit 16, the initial value for
+		 * IbsOpMaxCnt must fit in the range from 0x0081 to
+		 * 0xff80.
+		 */
 		val += (s8)(random >> 4);
 	else
 		val |= (u64)(random & IBS_RANDOM_MASK) << 32;
@@ -122,7 +151,7 @@ op_amd_handle_ibs(struct pt_regs * const regs,
 			oprofile_add_data64(&entry, val);
 			oprofile_write_commit(&entry);
 
-			
+			/* reenable the IRQ */
 			ctl &= ~(IBS_FETCH_VAL | IBS_FETCH_CNT);
 			ctl |= IBS_FETCH_ENABLE;
 			wrmsrl(MSR_AMD64_IBSFETCHCTL, ctl);
@@ -152,7 +181,7 @@ op_amd_handle_ibs(struct pt_regs * const regs,
 			}
 			oprofile_write_commit(&entry);
 
-			
+			/* reenable the IRQ */
 			ctl = op_amd_randomize_ibs_op(ibs_state.ibs_op_ctl);
 			wrmsrl(MSR_AMD64_IBSOPCTL, ctl);
 		}
@@ -168,6 +197,11 @@ static inline void op_amd_start_ibs(void)
 
 	memset(&ibs_state, 0, sizeof(ibs_state));
 
+	/*
+	 * Note: Since the max count settings may out of range we
+	 * write back the actual used values so that userland can read
+	 * it.
+	 */
 
 	if (ibs_config.fetch_enabled) {
 		val = ibs_config.max_cnt_fetch >> 4;
@@ -181,9 +215,19 @@ static inline void op_amd_start_ibs(void)
 	if (ibs_config.op_enabled) {
 		val = ibs_config.max_cnt_op >> 4;
 		if (!(ibs_caps & IBS_CAPS_RDWROPCNT)) {
+			/*
+			 * IbsOpCurCnt not supported.  See
+			 * op_amd_randomize_ibs_op() for details.
+			 */
 			val = clamp(val, 0x0081ULL, 0xFF80ULL);
 			ibs_config.max_cnt_op = val << 4;
 		} else {
+			/*
+			 * The start value is randomized with a
+			 * positive offset, we need to compensate it
+			 * with the half of the randomized range. Also
+			 * avoid underflows.
+			 */
 			val += IBS_RANDOM_MAXCNT_OFFSET;
 			if (ibs_caps & IBS_CAPS_OPCNTEXT)
 				val = min(val, IBS_OP_MAX_CNT_EXT);
@@ -212,11 +256,11 @@ static void op_amd_stop_ibs(void)
 		return;
 
 	if (ibs_config.fetch_enabled)
-		
+		/* clear max count and enable */
 		wrmsrl(MSR_AMD64_IBSFETCHCTL, 0);
 
 	if (ibs_config.op_enabled)
-		
+		/* clear max count and enable */
 		wrmsrl(MSR_AMD64_IBSOPCTL, 0);
 }
 
@@ -228,7 +272,7 @@ static void op_mux_switch_ctrl(struct op_x86_model_spec const *model,
 	u64 val;
 	int i;
 
-	
+	/* enable active counters */
 	for (i = 0; i < num_counters; ++i) {
 		int virt = op_x86_phys_to_virt(i);
 		if (!reset_value[virt])
@@ -242,6 +286,7 @@ static void op_mux_switch_ctrl(struct op_x86_model_spec const *model,
 
 #endif
 
+/* functions for op_amd_spec */
 
 static void op_amd_shutdown(struct op_msrs const * const msrs)
 {
@@ -266,7 +311,7 @@ static int op_amd_fill_in_addresses(struct op_msrs * const msrs)
 			release_perfctr_nmi(MSR_K7_PERFCTR0 + i);
 			goto fail;
 		}
-		
+		/* both registers must be reserved */
 		if (num_counters == AMD64_NUM_COUNTERS_F15H) {
 			msrs->counters[i].addr = MSR_F15H_PERF_CTR + (i << 1);
 			msrs->controls[i].addr = MSR_F15H_PERF_CTL + (i << 1);
@@ -292,7 +337,7 @@ static void op_amd_setup_ctrs(struct op_x86_model_spec const *model,
 	u64 val;
 	int i;
 
-	
+	/* setup reset_value */
 	for (i = 0; i < OP_MAX_COUNTER; ++i) {
 		if (counter_config[i].enabled
 		    && msrs->counters[op_x86_virt_to_phys(i)].addr)
@@ -301,7 +346,7 @@ static void op_amd_setup_ctrs(struct op_x86_model_spec const *model,
 			reset_value[i] = 0;
 	}
 
-	
+	/* clear all counters */
 	for (i = 0; i < num_counters; ++i) {
 		if (!msrs->controls[i].addr)
 			continue;
@@ -310,19 +355,23 @@ static void op_amd_setup_ctrs(struct op_x86_model_spec const *model,
 			op_x86_warn_in_use(i);
 		val &= model->reserved;
 		wrmsrl(msrs->controls[i].addr, val);
+		/*
+		 * avoid a false detection of ctr overflows in NMI
+		 * handler
+		 */
 		wrmsrl(msrs->counters[i].addr, -1LL);
 	}
 
-	
+	/* enable active counters */
 	for (i = 0; i < num_counters; ++i) {
 		int virt = op_x86_phys_to_virt(i);
 		if (!reset_value[virt])
 			continue;
 
-		
+		/* setup counter registers */
 		wrmsrl(msrs->counters[i].addr, -(u64)reset_value[virt]);
 
-		
+		/* setup control registers */
 		rdmsrl(msrs->controls[i].addr, val);
 		val &= model->reserved;
 		val |= op_x86_get_ctrl(model, &counter_config[virt]);
@@ -341,7 +390,7 @@ static int op_amd_check_ctrs(struct pt_regs * const regs,
 		if (!reset_value[virt])
 			continue;
 		rdmsrl(msrs->counters[i].addr, val);
-		
+		/* bit is clear if overflowed: */
 		if (val & OP_CTR_OVERFLOW)
 			continue;
 		oprofile_add_sample(regs, virt);
@@ -350,7 +399,7 @@ static int op_amd_check_ctrs(struct pt_regs * const regs,
 
 	op_amd_handle_ibs(regs, msrs);
 
-	
+	/* See op_model_ppro.c */
 	return 1;
 }
 
@@ -375,6 +424,10 @@ static void op_amd_stop(struct op_msrs const * const msrs)
 	u64 val;
 	int i;
 
+	/*
+	 * Subtle: stop on all counters to avoid race with setting our
+	 * pm callback
+	 */
 	for (i = 0; i < num_counters; ++i) {
 		if (!reset_value[op_x86_phys_to_virt(i)])
 			continue;
@@ -386,6 +439,10 @@ static void op_amd_stop(struct op_msrs const * const msrs)
 	op_amd_stop_ibs();
 }
 
+/*
+ * check and reserve APIC extended interrupt LVT offset for IBS if
+ * available
+ */
 
 static void init_ibs(void)
 {
@@ -404,7 +461,7 @@ static int setup_ibs_files(struct super_block *sb, struct dentry *root)
 	struct dentry *dir;
 	int ret = 0;
 
-	
+	/* architecture specific files */
 	if (create_arch_files)
 		ret = create_arch_files(sb, root);
 
@@ -414,9 +471,9 @@ static int setup_ibs_files(struct super_block *sb, struct dentry *root)
 	if (!ibs_caps)
 		return ret;
 
-	
+	/* model specific files */
 
-	
+	/* setup some reasonable defaults */
 	memset(&ibs_config, 0, sizeof(ibs_config));
 	ibs_config.max_cnt_fetch = 250000;
 	ibs_config.max_cnt_op = 250000;
@@ -470,7 +527,7 @@ static int op_amd_init(struct oprofile_operations *ops)
 }
 
 struct op_x86_model_spec op_amd_spec = {
-	
+	/* num_counters/num_controls filled in at runtime */
 	.reserved		= MSR_AMD_EVENTSEL_RESERVED,
 	.event_mask		= OP_EVENT_MASK,
 	.init			= op_amd_init,

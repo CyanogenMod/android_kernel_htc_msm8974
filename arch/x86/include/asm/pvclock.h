@@ -4,6 +4,7 @@
 #include <linux/clocksource.h>
 #include <asm/pvclock-abi.h>
 
+/* some helper functions for xen and kvm pv clock sources */
 cycle_t pvclock_clocksource_read(struct pvclock_vcpu_time_info *src);
 void pvclock_set_flags(u8 flags);
 unsigned long pvclock_tsc_khz(struct pvclock_vcpu_time_info *src);
@@ -12,6 +13,10 @@ void pvclock_read_wallclock(struct pvclock_wall_clock *wall,
 			    struct timespec *ts);
 void pvclock_resume(void);
 
+/*
+ * Scale a 64-bit delta by scaling and multiplying by a 32-bit fraction,
+ * yielding a 64-bit result.
+ */
 static inline u64 pvclock_scale_delta(u64 delta, u32 mul_frac, int shift)
 {
 	u64 product;
@@ -51,4 +56,4 @@ static inline u64 pvclock_scale_delta(u64 delta, u32 mul_frac, int shift)
 	return product;
 }
 
-#endif 
+#endif /* _ASM_X86_PVCLOCK_H */

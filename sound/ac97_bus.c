@@ -17,6 +17,11 @@
 #include <linux/string.h>
 #include <sound/ac97_codec.h>
 
+/*
+ * Let drivers decide whether they want to support given codec from their
+ * probe method. Drivers have direct access to the struct snd_ac97
+ * structure and may  decide based on the id field amongst other things.
+ */
 static int ac97_bus_match(struct device *dev, struct device_driver *drv)
 {
 	return 1;
@@ -42,7 +47,7 @@ static int ac97_bus_resume(struct device *dev)
 
 	return ret;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 struct bus_type ac97_bus_type = {
 	.name		= "ac97",
@@ -50,7 +55,7 @@ struct bus_type ac97_bus_type = {
 #ifdef CONFIG_PM
 	.suspend	= ac97_bus_suspend,
 	.resume		= ac97_bus_resume,
-#endif 
+#endif /* CONFIG_PM */
 };
 
 static int __init ac97_bus_init(void)

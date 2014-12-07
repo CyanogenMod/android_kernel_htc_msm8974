@@ -189,6 +189,7 @@ DEFINE_EQUALITY_PRED(32);
 DEFINE_EQUALITY_PRED(16);
 DEFINE_EQUALITY_PRED(8);
 
+/* Filter predicate for fixed sized arrays of characters */
 static int filter_pred_string(struct filter_pred *pred, void *event)
 {
 	char *addr = (char *)(event + pred->offset);
@@ -201,11 +202,12 @@ static int filter_pred_string(struct filter_pred *pred, void *event)
 	return match;
 }
 
+/* Filter predicate for char * pointers */
 static int filter_pred_pchar(struct filter_pred *pred, void *event)
 {
 	char **addr = (char **)(event + pred->offset);
 	int cmp, match;
-	int len = strlen(*addr) + 1;	
+	int len = strlen(*addr) + 1;	/* including tailing '\0' */
 
 	cmp = pred->regex.match(*addr, &pred->regex, len);
 
@@ -214,6 +216,16 @@ static int filter_pred_pchar(struct filter_pred *pred, void *event)
 	return match;
 }
 
+/*
+ * Filter predicate for dynamic sized arrays of characters.
+ * These are implemented through a list of strings at the end
+ * of the entry.
+ * Also each of these strings have a field in the entry which
+ * contains its offset from the beginning of the entry.
+ * We have then first to get this field, dereference it
+ * and add it to the address of the entry, and at last we have
+ * the address of the string.
+ */
 static int filter_pred_strloc(struct filter_pred *pred, void *event)
 {
 	u32 str_item = *(u32 *)(event + pred->offset);
@@ -234,6 +246,17 @@ static int filter_pred_none(struct filter_pred *pred, void *event)
 	return 0;
 }
 
+/*
+ * regex_match_foo - Basic regex callbacks
+ *
+ * @str: the string to be searched
+ * @r:   the regex structure containing the pattern string
+ * @len: the length of the string to be searched (including '\0')
+ *
+ * Note:
+ * - @str might not be NULL-terminated if it's of type DYN_STRING
+ *   or STATIC_STRING
+ */
 
 static int regex_match_full(char *str, struct regex *r, int len)
 {
@@ -266,6 +289,23 @@ static int regex_match_end(char *str, struct regex *r, int len)
 	return 0;
 }
 
+/**
+ * filter_parse_regex - parse a basic regex
+ * @buff:   the raw regex
+ * @len:    length of the regex
+ * @search: will point to the beginning of the string to compare
+ * @not:    tell whether the match will have to be inverted
+ *
+ * This passes in a buffer containing a regex and this function will
+ * set search to point to the search part of the buffer and
+ * return the type of search it is (see enum above).
+ * This does modify buff.
+ *
+ * Returns enum type.
+ *  search returns the pointer to use for comparison.
+ *  not returns 1 if buff started with a '!'
+ *     0 otherwise.
+ */
 enum regex_type filter_parse_regex(char *buff, int len, char **search, int *not)
 {
 	int type = MATCH_FULL;
@@ -402,10 +442,16 @@ static int walk_pred_tree(struct filter_pred *preds,
 		done = 1;
 	} while (!done);
 
-	
+	/* We are fine. */
 	return 0;
 }
 
+/*
+ * A series of AND or ORs where found together. Instead of
+ * climbing up and down the tree branches, an array of the
+ * ops were made in order of checks. We can just move across
+ * the array and short circuit if needed.
+ */
 static int process_ops(struct filter_pred *preds,
 		       struct filter_pred *op, void *rec)
 {
@@ -414,6 +460,17 @@ static int process_ops(struct filter_pred *preds,
 	int type;
 	int i;
 
+	/*
+	 * Micro-optimization: We set type to true if op
+	 * is an OR and false otherwise (AND). Then we
+	 * just need to test if the match is equal to
+	 * the type, and if it is, we can short circuit the
+	 * rest of the checks:
+	 *
+	 * if ((match && op->op == OP_OR) ||
+	 *     (!match && op->op == OP_AND))
+	 *	  return match;
+	 */
 	type = op->op == OP_OR;
 
 	for (i = 0; i < op->val; i++) {
@@ -440,12 +497,12 @@ static int filter_match_preds_cb(enum move_type move, struct filter_pred *pred,
 	*err = 0;
 	switch (move) {
 	case MOVE_DOWN:
-		
+		/* only AND and OR have children */
 		if (pred->left != FILTER_PRED_INVALID) {
-			
+			/* If ops is set, then it was folded. */
 			if (!pred->ops)
 				return WALK_PRED_DEFAULT;
-			
+			/* We can treat folded ops as a leaf node */
 			d->match = process_ops(d->preds, pred, d->rec);
 		} else {
 			if (!WARN_ON_ONCE(!pred->fn))
@@ -454,6 +511,14 @@ static int filter_match_preds_cb(enum move_type move, struct filter_pred *pred,
 
 		return WALK_PRED_PARENT;
 	case MOVE_UP_FROM_LEFT:
+		/*
+		 * Check for short circuits.
+		 *
+		 * Optimization: !!match == (pred->op == OP_OR)
+		 *   is the same as:
+		 * if ((match && pred->op == OP_OR) ||
+		 *     (!match && pred->op == OP_AND))
+		 */
 		if (!!d->match == (pred->op == OP_OR))
 			return WALK_PRED_PARENT;
 		break;
@@ -464,18 +529,19 @@ static int filter_match_preds_cb(enum move_type move, struct filter_pred *pred,
 	return WALK_PRED_DEFAULT;
 }
 
+/* return 1 if event matches, 0 otherwise (discard) */
 int filter_match_preds(struct event_filter *filter, void *rec)
 {
 	struct filter_pred *preds;
 	struct filter_pred *root;
 	struct filter_match_preds_data data = {
-		
+		/* match is currently meaningless */
 		.match = -1,
 		.rec   = rec,
 	};
 	int n_preds, ret;
 
-	
+	/* no filter is considered a match */
 	if (!filter)
 		return 1;
 
@@ -483,6 +549,9 @@ int filter_match_preds(struct event_filter *filter, void *rec)
 	if (!n_preds)
 		return 1;
 
+	/*
+	 * n_preds, root and filter->preds are protect with preemption disabled.
+	 */
 	root = rcu_dereference_sched(filter->root);
 	if (!root)
 		return 1;
@@ -675,6 +744,11 @@ static int filter_set_pred(struct event_filter *filter,
 		left = __pop_pred_stack(stack);
 		if (!left || !right)
 			return -EINVAL;
+		/*
+		 * If both children can be folded
+		 * and they are the same op as this op or a leaf,
+		 * then this op can be folded.
+		 */
 		if (left->index & FILTER_PRED_FOLD &&
 		    (left->op == dest->op ||
 		     left->left == FILTER_PRED_INVALID) &&
@@ -688,9 +762,13 @@ static int filter_set_pred(struct event_filter *filter,
 		left->parent = dest->index & ~FILTER_PRED_FOLD;
 		right->parent = dest->index | FILTER_PRED_IS_RIGHT;
 	} else {
+		/*
+		 * Make dest->left invalid to be used as a quick
+		 * way to know this is a leaf node.
+		 */
 		dest->left = FILTER_PRED_INVALID;
 
-		
+		/* All leafs allow folding the parent ops. */
 		dest->index |= FILTER_PRED_FOLD;
 	}
 
@@ -722,6 +800,12 @@ static void __free_filter(struct event_filter *filter)
 	kfree(filter);
 }
 
+/*
+ * Called when destroying the ftrace_event_call.
+ * The call is being freed, so we do not need to worry about
+ * the call being currently used. This is for module code removing
+ * the tracepoints from within it.
+ */
 void destroy_preds(struct ftrace_event_call *call)
 {
 	__free_filter(call->filter);
@@ -1319,10 +1403,21 @@ static int check_pred_tree_cb(enum move_type move, struct filter_pred *pred,
 	return WALK_PRED_DEFAULT;
 }
 
+/*
+ * The tree is walked at filtering of an event. If the tree is not correctly
+ * built, it may cause an infinite loop. Check here that the tree does
+ * indeed terminate.
+ */
 static int check_pred_tree(struct event_filter *filter,
 			   struct filter_pred *root)
 {
 	struct check_pred_data data = {
+		/*
+		 * The max that we can hit a node is three times.
+		 * Once going down, once coming up from left, and
+		 * once coming up from right. This is more than enough
+		 * since leafs are only hit a single time.
+		 */
 		.max   = 3 * filter->n_preds,
 		.count = 0,
 	};
@@ -1387,14 +1482,14 @@ static int fold_pred(struct filter_pred *preds, struct filter_pred *root)
 	};
 	int children;
 
-	
+	/* No need to keep the fold flag */
 	root->index &= ~FILTER_PRED_FOLD;
 
-	
+	/* If the root is a leaf then do nothing */
 	if (root->left == FILTER_PRED_INVALID)
 		return 0;
 
-	
+	/* count the children */
 	children = count_leafs(preds, &preds[root->left]);
 	children += count_leafs(preds, &preds[root->right]);
 
@@ -1421,10 +1516,15 @@ static int fold_pred_tree_cb(enum move_type move, struct filter_pred *pred,
 	if (*err)
 		return WALK_PRED_ABORT;
 
-	
+	/* eveyrhing below is folded, continue with parent */
 	return WALK_PRED_PARENT;
 }
 
+/*
+ * To optimize the processing of the ops, if we have several "ors" or
+ * "ands" together, we can put them in an array and process them all
+ * together speeding up the filter logic.
+ */
 static int fold_pred_tree(struct event_filter *filter,
 			   struct filter_pred *root)
 {
@@ -1442,7 +1542,7 @@ static int replace_preds(struct ftrace_event_call *call,
 	struct filter_pred *pred;
 	struct filter_pred *root;
 	struct postfix_elt *elt;
-	struct pred_stack stack = { }; 
+	struct pred_stack stack = { }; /* init to NULL */
 	int err;
 	int n_preds = 0;
 
@@ -1502,13 +1602,13 @@ static int replace_preds(struct ftrace_event_call *call,
 	}
 
 	if (!dry_run) {
-		
+		/* We should have one item left on the stack */
 		pred = __pop_pred_stack(&stack);
 		if (!pred)
 			return -EINVAL;
-		
+		/* This item is where we start from in matching */
 		root = pred;
-		
+		/* Make sure the stack is empty */
 		pred = __pop_pred_stack(&stack);
 		if (WARN_ON(pred)) {
 			err = -EINVAL;
@@ -1519,12 +1619,12 @@ static int replace_preds(struct ftrace_event_call *call,
 		if (err)
 			goto fail;
 
-		
+		/* Optimize the tree */
 		err = fold_pred_tree(filter, root);
 		if (err)
 			goto fail;
 
-		
+		/* We don't set root until we know it works */
 		barrier();
 		filter->root = root;
 	}
@@ -1556,6 +1656,10 @@ static int replace_system_preds(struct event_subsystem *system,
 		if (strcmp(call->class->system, system->name) != 0)
 			continue;
 
+		/*
+		 * Try to see if the filter can be applied
+		 *  (filter arg is ignored on dry_run)
+		 */
 		err = replace_preds(call, NULL, ps, filter_string, true);
 		if (err)
 			call->flags |= TRACE_EVENT_FL_NO_SET_FILTER;
@@ -1583,7 +1687,7 @@ static int replace_system_preds(struct event_subsystem *system,
 			goto fail_mem;
 		filter = filter_item->filter;
 
-		
+		/* Can only fail on no memory */
 		err = replace_filter_string(filter, filter_string);
 		if (err)
 			goto fail_mem;
@@ -1595,6 +1699,10 @@ static int replace_system_preds(struct event_subsystem *system,
 			append_filter_err(ps, filter);
 		} else
 			call->flags |= TRACE_EVENT_FL_FILTERED;
+		/*
+		 * Regardless of if this returned an error, we still
+		 * replace the filter for the call.
+		 */
 		filter = call->filter;
 		rcu_assign_pointer(call->filter, filter_item->filter);
 		filter_item->filter = filter;
@@ -1605,6 +1713,11 @@ static int replace_system_preds(struct event_subsystem *system,
 	if (fail)
 		goto fail;
 
+	/*
+	 * The calls can still be using the old filters.
+	 * Do a synchronize_sched() to ensure all calls are
+	 * done with them before we free them.
+	 */
 	synchronize_sched();
 	list_for_each_entry_safe(filter_item, tmp, &filter_list, list) {
 		__free_filter(filter_item->filter);
@@ -1613,7 +1726,7 @@ static int replace_system_preds(struct event_subsystem *system,
 	}
 	return 0;
  fail:
-	
+	/* No call succeeded */
 	list_for_each_entry_safe(filter_item, tmp, &filter_list, list) {
 		list_del(&filter_item->list);
 		kfree(filter_item);
@@ -1621,7 +1734,7 @@ static int replace_system_preds(struct event_subsystem *system,
 	parse_error(ps, FILT_ERR_BAD_SUBSYS_FILTER, 0);
 	return -EINVAL;
  fail_mem:
-	
+	/* If any call succeeded, we still need to sync */
 	if (!fail)
 		synchronize_sched();
 	list_for_each_entry_safe(filter_item, tmp, &filter_list, list) {
@@ -1642,7 +1755,7 @@ static int create_filter_start(char *filter_str, bool set_str,
 
 	WARN_ON_ONCE(*psp || *filterp);
 
-	
+	/* allocate everything, and if any fails, free all and fail */
 	filter = __alloc_filter();
 	if (filter && set_str)
 		err = replace_filter_string(filter, filter_str);
@@ -1655,7 +1768,7 @@ static int create_filter_start(char *filter_str, bool set_str,
 		return -ENOMEM;
 	}
 
-	
+	/* we're committed to creating a new filter */
 	*filterp = filter;
 	*psp = ps;
 
@@ -1675,6 +1788,22 @@ static void create_filter_finish(struct filter_parse_state *ps)
 	}
 }
 
+/**
+ * create_filter - create a filter for a ftrace_event_call
+ * @call: ftrace_event_call to create a filter for
+ * @filter_str: filter string
+ * @set_str: remember @filter_str and enable detailed error in filter
+ * @filterp: out param for created filter (always updated on return)
+ *
+ * Creates a filter for @call with @filter_str.  If @set_str is %true,
+ * @filter_str is copied and recorded in the new filter.
+ *
+ * On success, returns 0 and *@filterp points to the new filter.  On
+ * failure, returns -errno and *@filterp may point to %NULL or to a new
+ * filter.  In the latter case, the returned filter contains error
+ * information if @set_str is %true and the caller is responsible for
+ * freeing it.
+ */
 static int create_filter(struct ftrace_event_call *call,
 			 char *filter_str, bool set_str,
 			 struct event_filter **filterp)
@@ -1695,6 +1824,15 @@ static int create_filter(struct ftrace_event_call *call,
 	return err;
 }
 
+/**
+ * create_system_filter - create a filter for an event_subsystem
+ * @system: event_subsystem to create a filter for
+ * @filter_str: filter string
+ * @filterp: out param for created filter (always updated on return)
+ *
+ * Identical to create_filter() except that it creates a subsystem filter
+ * and always remembers @filter_str.
+ */
 static int create_system_filter(struct event_subsystem *system,
 				char *filter_str, struct event_filter **filterp)
 {
@@ -1706,7 +1844,7 @@ static int create_system_filter(struct event_subsystem *system,
 	if (!err) {
 		err = replace_system_preds(system, ps, filter_str);
 		if (!err) {
-			
+			/* System filters just show a default message */
 			kfree(filter->filter_string);
 			filter->filter_string = NULL;
 		} else {
@@ -1732,7 +1870,7 @@ int apply_event_filter(struct ftrace_event_call *call, char *filter_string)
 		if (!filter)
 			goto out_unlock;
 		RCU_INIT_POINTER(call->filter, NULL);
-		
+		/* Make sure the filter is not being used */
 		synchronize_sched();
 		__free_filter(filter);
 		goto out_unlock;
@@ -1740,6 +1878,12 @@ int apply_event_filter(struct ftrace_event_call *call, char *filter_string)
 
 	err = create_filter(call, filter_string, true, &filter);
 
+	/*
+	 * Always swap the call filter with the new filter
+	 * even if there was an error. If there was an error
+	 * in the filter, we disable the filter and show the error
+	 * string
+	 */
 	if (filter) {
 		struct event_filter *tmp = call->filter;
 
@@ -1751,7 +1895,7 @@ int apply_event_filter(struct ftrace_event_call *call, char *filter_string)
 		rcu_assign_pointer(call->filter, filter);
 
 		if (tmp) {
-			
+			/* Make sure the call is done with the filter */
 			synchronize_sched();
 			__free_filter(tmp);
 		}
@@ -1770,7 +1914,7 @@ int apply_subsystem_event_filter(struct event_subsystem *system,
 
 	mutex_lock(&event_mutex);
 
-	
+	/* Make sure the system still has events */
 	if (!system->nr_events) {
 		err = -ENODEV;
 		goto out_unlock;
@@ -1781,7 +1925,7 @@ int apply_subsystem_event_filter(struct event_subsystem *system,
 		remove_filter_string(system->filter);
 		filter = system->filter;
 		system->filter = NULL;
-		
+		/* Ensure all filters are no longer used */
 		synchronize_sched();
 		filter_free_subsystem_filters(system);
 		__free_filter(filter);
@@ -1790,6 +1934,10 @@ int apply_subsystem_event_filter(struct event_subsystem *system,
 
 	err = create_system_filter(system, filter_string, &filter);
 	if (filter) {
+		/*
+		 * No event actually uses the system filter
+		 * we can free it without synchronize_sched().
+		 */
 		__free_filter(system->filter);
 		system->filter = filter;
 	}
@@ -1825,6 +1973,10 @@ ftrace_function_filter_re(char *buf, int len, int *count)
 	if (!str)
 		return NULL;
 
+	/*
+	 * The argv_split function takes white space
+	 * as a separator, so convert ',' into spaces.
+	 */
 	while ((sep = strchr(str, ',')))
 		*sep = ' ';
 
@@ -1855,6 +2007,11 @@ static int __ftrace_function_set_filter(int filter, char *buf, int len,
 
 	reset = filter ? &data->first_filter : &data->first_notrace;
 
+	/*
+	 * The 'ip' field could have multiple filters set, separated
+	 * either by space or comma. We first cut the filter and apply
+	 * all pieces separatelly.
+	 */
 	re = ftrace_function_filter_re(buf, len, &re_cnt);
 	if (!re)
 		return -EINVAL;
@@ -1878,12 +2035,21 @@ static int ftrace_function_check_pred(struct filter_pred *pred, int leaf)
 	struct ftrace_event_field *field = pred->field;
 
 	if (leaf) {
+		/*
+		 * Check the leaf predicate for function trace, verify:
+		 *  - only '==' and '!=' is used
+		 *  - the 'ip' field is used
+		 */
 		if ((pred->op != OP_EQ) && (pred->op != OP_NE))
 			return -EINVAL;
 
 		if (strcmp(field->name, "ip"))
 			return -EINVAL;
 	} else {
+		/*
+		 * Check the non leaf predicate for function trace, verify:
+		 *  - only '||' is used
+		*/
 		if (pred->op != OP_OR)
 			return -EINVAL;
 	}
@@ -1895,7 +2061,7 @@ static int ftrace_function_set_filter_cb(enum move_type move,
 					 struct filter_pred *pred,
 					 int *err, void *data)
 {
-	
+	/* Checking the node is valid for function trace. */
 	if ((move != MOVE_DOWN) ||
 	    (pred->left != FILTER_PRED_INVALID)) {
 		*err = ftrace_function_check_pred(pred, 0);
@@ -1931,7 +2097,7 @@ static int ftrace_function_set_filter(struct perf_event *event,
 {
 	return -ENODEV;
 }
-#endif 
+#endif /* CONFIG_FUNCTION_TRACER */
 
 int ftrace_profile_set_filter(struct perf_event *event, int event_id,
 			      char *filter_str)
@@ -1971,7 +2137,7 @@ out_unlock:
 	return err;
 }
 
-#endif 
+#endif /* CONFIG_PERF_EVENTS */
 
 #ifdef CONFIG_FTRACE_STARTUP_TEST
 
@@ -2109,6 +2275,10 @@ static __init int ftrace_test_event_filter(void)
 			break;
 		}
 
+		/*
+		 * The preemption disabling is not really needed for self
+		 * tests, but the rcu dereference will complain without it.
+		 */
 		preempt_disable();
 		if (*d->not_visited)
 			walk_pred_tree(filter->preds, filter->root,
@@ -2144,4 +2314,4 @@ static __init int ftrace_test_event_filter(void)
 
 late_initcall(ftrace_test_event_filter);
 
-#endif 
+#endif /* CONFIG_FTRACE_STARTUP_TEST */

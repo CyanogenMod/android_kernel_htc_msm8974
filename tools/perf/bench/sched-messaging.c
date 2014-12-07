@@ -1,3 +1,13 @@
+/*
+ *
+ * sched-messaging.c
+ *
+ * messaging: Benchmark for scheduler and IPC mechanisms
+ *
+ * Based on hackbench by Rusty Russell <rusty@rustcorp.com.au>
+ * Ported to perf by Hitoshi Mitake <mitake@dcl.info.waseda.ac.jp>
+ *
+ */
 
 #include "../perf.h"
 #include "../util/util.h"
@@ -5,6 +15,7 @@
 #include "../builtin.h"
 #include "bench.h"
 
+/* Test groups of 20 processes spraying to 20 receivers */
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,20 +69,22 @@ static void fdpair(int fds[2])
 	barf(use_pipes ? "pipe()" : "socketpair()");
 }
 
+/* Block until we're ready to go */
 static void ready(int ready_out, int wakefd)
 {
 	char dummy;
 	struct pollfd pollfd = { .fd = wakefd, .events = POLLIN };
 
-	
+	/* Tell them we're ready. */
 	if (write(ready_out, &dummy, 1) != 1)
 		barf("CLIENT: ready write");
 
-	
+	/* Wait for "GO" signal */
 	if (poll(&pollfd, 1, -1) != 1)
 		barf("poll");
 }
 
+/* Sender sprays loops messages down each file descriptor */
 static void *sender(struct sender_context *ctx)
 {
 	char data[DATASIZE];
@@ -79,7 +92,7 @@ static void *sender(struct sender_context *ctx)
 
 	ready(ctx->ready_out, ctx->wakefd);
 
-	
+	/* Now pump to every receiver. */
 	for (i = 0; i < loops; i++) {
 		for (j = 0; j < ctx->num_fds; j++) {
 			int ret, done = 0;
@@ -99,6 +112,7 @@ again:
 }
 
 
+/* One receiver per fd */
 static void *receiver(struct receiver_context* ctx)
 {
 	unsigned int i;
@@ -106,10 +120,10 @@ static void *receiver(struct receiver_context* ctx)
 	if (!thread_mode)
 		close(ctx->in_fds[1]);
 
-	
+	/* Wait for start... */
 	ready(ctx->ready_out, ctx->wakefd);
 
-	
+	/* Receive them all */
 	for (i = 0; i < ctx->num_packets; i++) {
 		char data[DATASIZE];
 		int ret, done = 0;
@@ -133,8 +147,8 @@ static pthread_t create_worker(void *ctx, void *(*func)(void *))
 	int err;
 
 	if (!thread_mode) {
-		
-		
+		/* process mode */
+		/* Fork the receiver. */
 		switch (fork()) {
 		case -1:
 			barf("fork()");
@@ -173,7 +187,7 @@ static void reap_worker(pthread_t id)
 	void *thread_status;
 
 	if (!thread_mode) {
-		
+		/* process mode */
 		wait(&proc_status);
 		if (!WIFEXITED(proc_status))
 			exit(1);
@@ -182,6 +196,7 @@ static void reap_worker(pthread_t id)
 	}
 }
 
+/* One group of senders and receivers */
 static unsigned int group(pthread_t *pth,
 		unsigned int num_fds,
 		int ready_out,
@@ -202,7 +217,7 @@ static unsigned int group(pthread_t *pth,
 			barf("malloc()");
 
 
-		
+		/* Create the pipe between client and server */
 		fdpair(fds);
 
 		ctx->num_packets = num_fds * loops;
@@ -218,7 +233,7 @@ static unsigned int group(pthread_t *pth,
 			close(fds[0]);
 	}
 
-	
+	/* Now we have all the fds, fork the senders */
 	for (i = 0; i < num_fds; i++) {
 		snd_ctx->ready_out = ready_out;
 		snd_ctx->wakefd = wakefd;
@@ -227,12 +242,12 @@ static unsigned int group(pthread_t *pth,
 		pth[num_fds+i] = create_worker(snd_ctx, (void *)sender);
 	}
 
-	
+	/* Close the fds we have left */
 	if (!thread_mode)
 		for (i = 0; i < num_fds; i++)
 			close(snd_ctx->out_fds[i]);
 
-	
+	/* Return number of children to reap */
 	return num_fds * 2;
 }
 
@@ -276,18 +291,18 @@ int bench_sched_messaging(int argc, const char **argv,
 		total_children += group(pth_tab+total_children, num_fds,
 					readyfds[1], wakefds[0]);
 
-	
+	/* Wait for everyone to be ready */
 	for (i = 0; i < total_children; i++)
 		if (read(readyfds[0], &dummy, 1) != 1)
 			barf("Reading for readyfds");
 
 	gettimeofday(&start, NULL);
 
-	
+	/* Kick them off */
 	if (write(wakefds[1], &dummy, 1) != 1)
 		barf("Writing to start them");
 
-	
+	/* Reap them all */
 	for (i = 0; i < total_children; i++)
 		reap_worker(pth_tab[i]);
 
@@ -311,7 +326,7 @@ int bench_sched_messaging(int argc, const char **argv,
 		       (unsigned long) (diff.tv_usec/1000));
 		break;
 	default:
-		
+		/* reaching here is something disaster */
 		fprintf(stderr, "Unknown format:%d\n", bench_format);
 		exit(1);
 		break;

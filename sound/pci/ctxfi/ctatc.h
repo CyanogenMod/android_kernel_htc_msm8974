@@ -28,14 +28,14 @@
 #include "cthardware.h"
 #include "ctresource.h"
 
-enum CTALSADEVS {		
+enum CTALSADEVS {		/* Types of alsa devices */
 	FRONT,
 	SURROUND,
 	CLFE,
 	SIDE,
 	IEC958,
 	MIXER,
-	NUM_CTALSADEVS		
+	NUM_CTALSADEVS		/* This should always be the last */
 };
 
 struct ct_atc_chip_sub_details {
@@ -54,37 +54,39 @@ struct ct_atc;
 struct ct_timer;
 struct ct_timer_instance;
 
+/* alsa pcm stream descriptor */
 struct ct_atc_pcm {
 	struct snd_pcm_substream *substream;
 	void (*interrupt)(struct ct_atc_pcm *apcm);
 	struct ct_timer_instance *timer;
 	unsigned int started:1;
 
-	
+	/* Only mono and interleaved modes are supported now. */
 	struct ct_vm_block *vm_block;
-	void *src;		
-	void **srccs;		
-	void **srcimps;		
-	void **amixers;		
-	void *mono;		
-	unsigned char n_srcc;	
-	unsigned char n_srcimp;	
-	unsigned char n_amixer;	
+	void *src;		/* SRC for interacting with host memory */
+	void **srccs;		/* SRCs for sample rate conversion */
+	void **srcimps;		/* SRC Input Mappers */
+	void **amixers;		/* AMIXERs for routing converted data */
+	void *mono;		/* A SUM resource for mixing chs to one */
+	unsigned char n_srcc;	/* Number of converting SRCs */
+	unsigned char n_srcimp;	/* Number of SRC Input Mappers */
+	unsigned char n_amixer;	/* Number of AMIXERs */
 };
 
+/* Chip resource management object */
 struct ct_atc {
 	struct pci_dev *pci;
 	struct snd_card *card;
-	unsigned int rsr; 
-	unsigned int msr; 
-	unsigned int pll_rate; 
+	unsigned int rsr; /* reference sample rate in Hz */
+	unsigned int msr; /* master sample rate in rsr */
+	unsigned int pll_rate; /* current rate of Phase Lock Loop */
 
 	int chip_type;
 	int model;
 	const char *chip_name;
 	const char *model_name;
 
-	struct ct_vm *vm; 
+	struct ct_vm *vm; /* device virtual memory manager for this card */
 	int (*map_audio_buffer)(struct ct_atc *atc, struct ct_atc_pcm *apcm);
 	void (*unmap_audio_buffer)(struct ct_atc *atc, struct ct_atc_pcm *apcm);
 	unsigned long (*get_ptp_phys)(struct ct_atc *atc, int index);
@@ -126,14 +128,14 @@ struct ct_atc {
 	int (*mic_source_switch_get)(struct ct_atc *atc);
 	int (*mic_source_switch_put)(struct ct_atc *atc, int position);
 
-	
-	void *rsc_mgrs[NUM_RSCTYP]; 
-	void *mixer;		
-	void *hw;		
-	void **daios;		
-	void **pcm;		
-	void **srcs;		
-	void **srcimps;		
+	/* Don't touch! Used for internal object. */
+	void *rsc_mgrs[NUM_RSCTYP]; /* chip resource managers */
+	void *mixer;		/* internal mixer object */
+	void *hw;		/* chip specific hardware access object */
+	void **daios;		/* digital audio io resources */
+	void **pcm;		/* SUMs for collecting all pcm stream */
+	void **srcs;		/* Sample Rate Converters for input signal */
+	void **srcimps;		/* input mappers for SRCs */
 	unsigned char n_daio;
 	unsigned char n_src;
 	unsigned char n_srcimp;
@@ -155,4 +157,4 @@ int __devinit ct_atc_create(struct snd_card *card, struct pci_dev *pci,
 			    unsigned int subsysid, struct ct_atc **ratc);
 int __devinit ct_atc_create_alsa_devs(struct ct_atc *atc);
 
-#endif 
+#endif /* CTATC_H */

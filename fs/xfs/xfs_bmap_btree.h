@@ -18,7 +18,7 @@
 #ifndef __XFS_BMAP_BTREE_H__
 #define __XFS_BMAP_BTREE_H__
 
-#define XFS_BMAP_MAGIC	0x424d4150	
+#define XFS_BMAP_MAGIC	0x424d4150	/* 'BMAP' */
 
 struct xfs_btree_cur;
 struct xfs_btree_block;
@@ -26,11 +26,21 @@ struct xfs_mount;
 struct xfs_inode;
 struct xfs_trans;
 
+/*
+ * Bmap root header, on-disk form only.
+ */
 typedef struct xfs_bmdr_block {
-	__be16		bb_level;	
-	__be16		bb_numrecs;	
+	__be16		bb_level;	/* 0 is a leaf */
+	__be16		bb_numrecs;	/* current # of data records */
 } xfs_bmdr_block_t;
 
+/*
+ * Bmap btree record and extent descriptor.
+ *  l0:63 is an extent flag (value 1 indicates non-normal).
+ *  l0:9-62 are startoff.
+ *  l0:0-8 and l1:21-63 are startblock.
+ *  l1:0-20 are blockcount.
+ */
 #define BMBT_EXNTFLAG_BITLEN	1
 #define BMBT_STARTOFF_BITLEN	54
 #define BMBT_STARTBLOCK_BITLEN	52
@@ -40,13 +50,16 @@ typedef struct xfs_bmbt_rec {
 	__be64			l0, l1;
 } xfs_bmbt_rec_t;
 
-typedef __uint64_t	xfs_bmbt_rec_base_t;	
+typedef __uint64_t	xfs_bmbt_rec_base_t;	/* use this for casts */
 typedef xfs_bmbt_rec_t xfs_bmdr_rec_t;
 
 typedef struct xfs_bmbt_rec_host {
 	__uint64_t		l0, l1;
 } xfs_bmbt_rec_host_t;
 
+/*
+ * Values and macros for delayed-allocation startblock fields.
+ */
 #define STARTBLOCKVALBITS	17
 #define STARTBLOCKMASKBITS	(15 + XFS_BIG_BLKNOS * 20)
 #define DSTARTBLOCKMASKBITS	(15 + 20)
@@ -76,35 +89,56 @@ static inline xfs_filblks_t startblockval(xfs_fsblock_t x)
 	return (xfs_filblks_t)((x) & ~STARTBLOCKMASK);
 }
 
+/*
+ * Possible extent formats.
+ */
 typedef enum {
 	XFS_EXTFMT_NOSTATE = 0,
 	XFS_EXTFMT_HASSTATE
 } xfs_exntfmt_t;
 
+/*
+ * Possible extent states.
+ */
 typedef enum {
 	XFS_EXT_NORM, XFS_EXT_UNWRITTEN,
 	XFS_EXT_DMAPI_OFFLINE, XFS_EXT_INVALID
 } xfs_exntst_t;
 
+/*
+ * Extent state and extent format macros.
+ */
 #define XFS_EXTFMT_INODE(x)	\
 	(xfs_sb_version_hasextflgbit(&((x)->i_mount->m_sb)) ? \
 		XFS_EXTFMT_HASSTATE : XFS_EXTFMT_NOSTATE)
 #define ISUNWRITTEN(x)	((x)->br_state == XFS_EXT_UNWRITTEN)
 
+/*
+ * Incore version of above.
+ */
 typedef struct xfs_bmbt_irec
 {
-	xfs_fileoff_t	br_startoff;	
-	xfs_fsblock_t	br_startblock;	
-	xfs_filblks_t	br_blockcount;	
-	xfs_exntst_t	br_state;	
+	xfs_fileoff_t	br_startoff;	/* starting file offset */
+	xfs_fsblock_t	br_startblock;	/* starting block number */
+	xfs_filblks_t	br_blockcount;	/* number of blocks */
+	xfs_exntst_t	br_state;	/* extent state */
 } xfs_bmbt_irec_t;
 
+/*
+ * Key structure for non-leaf levels of the tree.
+ */
 typedef struct xfs_bmbt_key {
-	__be64		br_startoff;	
+	__be64		br_startoff;	/* starting file offset */
 } xfs_bmbt_key_t, xfs_bmdr_key_t;
 
+/* btree pointer type */
 typedef __be64 xfs_bmbt_ptr_t, xfs_bmdr_ptr_t;
 
+/*
+ * Btree block header size depends on a superblock flag.
+ *
+ * (not quite yet, but soon)
+ */
 #define XFS_BMBT_BLOCK_LEN(mp)	XFS_BTREE_LBLOCK_LEN
 
 #define XFS_BMBT_REC_ADDR(mp, block, index) \
@@ -145,6 +179,10 @@ typedef __be64 xfs_bmbt_ptr_t, xfs_bmdr_ptr_t;
 		 (maxrecs) * sizeof(xfs_bmdr_key_t) + \
 		 ((index) - 1) * sizeof(xfs_bmdr_ptr_t)))
 
+/*
+ * These are to be used when we know the size of the block and
+ * we don't have a cursor.
+ */
 #define XFS_BMAP_BROOT_PTR_ADDR(mp, bb, i, sz) \
 	XFS_BMBT_PTR_ADDR(mp, bb, i, xfs_bmbt_maxrecs(mp, sz, 0))
 
@@ -158,8 +196,14 @@ typedef __be64 xfs_bmbt_ptr_t, xfs_bmdr_ptr_t;
 	(int)(sizeof(xfs_bmdr_block_t) + \
 	       ((nrecs) * (sizeof(xfs_bmbt_key_t) + sizeof(xfs_bmbt_ptr_t))))
 
+/*
+ * Maximum number of bmap btree levels.
+ */
 #define XFS_BM_MAXLEVELS(mp,w)		((mp)->m_bm_maxlevels[(w)])
 
+/*
+ * Prototypes for xfs_bmap.c to call.
+ */
 extern void xfs_bmdr_to_bmbt(struct xfs_mount *, xfs_bmdr_block_t *, int,
 			struct xfs_btree_block *, int);
 extern void xfs_bmbt_get_all(xfs_bmbt_rec_host_t *r, xfs_bmbt_irec_t *s);
@@ -193,4 +237,4 @@ extern struct xfs_btree_cur *xfs_bmbt_init_cursor(struct xfs_mount *,
 		struct xfs_trans *, struct xfs_inode *, int);
 
 
-#endif	
+#endif	/* __XFS_BMAP_BTREE_H__ */

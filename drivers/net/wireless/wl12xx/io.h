@@ -53,6 +53,7 @@ void wl1271_enable_interrupts(struct wl1271 *wl);
 void wl1271_io_reset(struct wl1271 *wl);
 void wl1271_io_init(struct wl1271 *wl);
 
+/* Raw target IO, address is not translated */
 static inline void wl1271_raw_write(struct wl1271 *wl, int addr, void *buf,
 				    size_t len, bool fixed)
 {
@@ -80,8 +81,23 @@ static inline void wl1271_raw_write32(struct wl1271 *wl, int addr, u32 val)
 			     sizeof(wl->buffer_32), false);
 }
 
+/* Translated target IO */
 static inline int wl1271_translate_addr(struct wl1271 *wl, int addr)
 {
+	/*
+	 * To translate, first check to which window of addresses the
+	 * particular address belongs. Then subtract the starting address
+	 * of that window from the address. Then, add offset of the
+	 * translated region.
+	 *
+	 * The translated regions occur next to each other in physical device
+	 * memory, so just add the sizes of the preceding address regions to
+	 * get the offset to the new region.
+	 *
+	 * Currently, only the two first regions are addressed, and the
+	 * assumption is that all addresses will fall into either of those
+	 * two.
+	 */
 	if ((addr >= wl->part.reg.start) &&
 	    (addr < wl->part.reg.start + wl->part.reg.size))
 		return addr - wl->part.reg.start + wl->part.mem.size;
@@ -115,7 +131,7 @@ static inline void wl1271_read_hwaddr(struct wl1271 *wl, int hwaddr,
 	int physical;
 	int addr;
 
-	
+	/* Addresses are stored internally as addresses to 32 bytes blocks */
 	addr = hwaddr << 5;
 
 	physical = wl1271_translate_addr(wl, addr);
@@ -149,6 +165,7 @@ static inline int wl1271_power_on(struct wl1271 *wl)
 }
 
 
+/* Top Register IO */
 void wl1271_top_reg_write(struct wl1271 *wl, int addr, u16 val);
 u16 wl1271_top_reg_read(struct wl1271 *wl, int addr);
 
@@ -157,6 +174,7 @@ int wl1271_set_partition(struct wl1271 *wl,
 
 bool wl1271_set_block_size(struct wl1271 *wl);
 
+/* Functions from wl1271_main.c */
 
 int wl1271_tx_dummy_packet(struct wl1271 *wl);
 

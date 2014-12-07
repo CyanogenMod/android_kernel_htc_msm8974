@@ -31,6 +31,6 @@ static inline int irq_to_gpio(unsigned int irq)
 	return -EINVAL;
 }
 
-#endif 
+#endif /* CONFIG_GPIOLIB */
 
-#endif 
+#endif /* __ASM_SPARC_GPIO_H */

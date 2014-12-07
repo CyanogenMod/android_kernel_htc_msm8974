@@ -23,6 +23,15 @@
  *  675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*
+ * Description:
+ *
+ * This code reads the ATMEL 24CXX EEPROM. The PMC-Sierra Yosemite board uses the ATMEL
+ * 24C32/24C64 which uses two byte addressing as compared to 24C16. Note that this program
+ * uses the serial port like /dev/ttyS0, to communicate with the EEPROM. Hence, you are
+ * expected to have a connectivity from the EEPROM to the serial port. This program does
+ * __not__ communicate using the I2C protocol
+ */
 
 #include "atmel_read_eeprom.h"
 
@@ -125,6 +134,10 @@ static int recv_ack(void)
 	return ack;
 }
 
+/*
+ * This function does the actual read of the EEPROM. It needs the buffer into which the
+ * read data is copied, the size of the EEPROM being read and the buffer size
+ */
 int read_eeprom(char *buffer, int eeprom_size, int size)
 {
 	int	i = 0, err;
@@ -133,7 +146,7 @@ int read_eeprom(char *buffer, int eeprom_size, int size)
 	send_byte(W_HEADER);
 	recv_ack();
 
-	
+	/* EEPROM with size of more than 2K need two byte addressing */
 	if (eeprom_size > 2048) {
 		send_byte(0x00);
 		recv_ack();
@@ -150,7 +163,7 @@ int read_eeprom(char *buffer, int eeprom_size, int size)
 		send_ack();
 	}
 
-	
+	/* Note : We should do some check if the buffer contains correct information */
 
 	send_stop();
 }

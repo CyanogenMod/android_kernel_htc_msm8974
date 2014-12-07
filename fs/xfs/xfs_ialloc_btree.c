@@ -56,7 +56,7 @@ STATIC void
 xfs_inobt_set_root(
 	struct xfs_btree_cur	*cur,
 	union xfs_btree_ptr	*nptr,
-	int			inc)	
+	int			inc)	/* level change */
 {
 	struct xfs_buf		*agbp = cur->bc_private.a.agbp;
 	struct xfs_agi		*agi = XFS_BUF_TO_AGI(agbp);
@@ -74,8 +74,8 @@ xfs_inobt_alloc_block(
 	int			length,
 	int			*stat)
 {
-	xfs_alloc_arg_t		args;		
-	int			error;		
+	xfs_alloc_arg_t		args;		/* block allocation args */
+	int			error;		/* error return value */
 	xfs_agblock_t		sbno = be32_to_cpu(start->s);
 
 	XFS_BTREE_TRACE_CURSOR(cur, XBT_ENTRY);
@@ -158,6 +158,9 @@ xfs_inobt_init_rec_from_cur(
 	rec->inobt.ir_free = cpu_to_be64(cur->bc_rec.i.ir_free);
 }
 
+/*
+ * initial value of ptr for lookup
+ */
 STATIC void
 xfs_inobt_init_ptr_from_cur(
 	struct xfs_btree_cur	*cur,
@@ -199,7 +202,7 @@ xfs_inobt_recs_inorder(
 	return be32_to_cpu(r1->inobt.ir_startino) + XFS_INODES_PER_CHUNK <=
 		be32_to_cpu(r2->inobt.ir_startino);
 }
-#endif	
+#endif	/* DEBUG */
 
 static const struct xfs_btree_ops xfs_inobt_ops = {
 	.rec_len		= sizeof(xfs_inobt_rec_t),
@@ -222,12 +225,15 @@ static const struct xfs_btree_ops xfs_inobt_ops = {
 #endif
 };
 
-struct xfs_btree_cur *				
+/*
+ * Allocate a new inode btree cursor.
+ */
+struct xfs_btree_cur *				/* new inode btree cursor */
 xfs_inobt_init_cursor(
-	struct xfs_mount	*mp,		
-	struct xfs_trans	*tp,		
-	struct xfs_buf		*agbp,		
-	xfs_agnumber_t		agno)		
+	struct xfs_mount	*mp,		/* file system mount point */
+	struct xfs_trans	*tp,		/* transaction pointer */
+	struct xfs_buf		*agbp,		/* buffer for agi structure */
+	xfs_agnumber_t		agno)		/* allocation group number */
 {
 	struct xfs_agi		*agi = XFS_BUF_TO_AGI(agbp);
 	struct xfs_btree_cur	*cur;
@@ -248,6 +254,9 @@ xfs_inobt_init_cursor(
 	return cur;
 }
 
+/*
+ * Calculate number of records in an inobt btree block.
+ */
 int
 xfs_inobt_maxrecs(
 	struct xfs_mount	*mp,

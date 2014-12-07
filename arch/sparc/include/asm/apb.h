@@ -33,4 +33,4 @@
 #define APB_PIO_AFAR				0xf0
 #define APB_DIAG_REGISTER			0xf8
 
-#endif 
+#endif /* !(_SPARC64_APB_H) */

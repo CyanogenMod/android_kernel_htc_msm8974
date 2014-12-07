@@ -17,11 +17,12 @@
 #include <sound/core.h>
 #include <sound/pcm.h>
 #include <sound/soc.h>
+#include <linux/wakelock.h>
 #include <mach/msm_hdmi_audio_codec.h>
 
 #define MSM_HDMI_PCM_RATES	SNDRV_PCM_RATE_48000
 
-static int msm_hdmi_audio_codec_return_value;
+static struct wake_lock hdmi_active_wakelock;
 
 struct msm_hdmi_audio_codec_rx_data {
 	struct platform_device *hdmi_core_pdev;
@@ -86,20 +87,32 @@ static int msm_hdmi_audio_codec_rx_dai_startup(
 		struct snd_pcm_substream *substream,
 		struct snd_soc_dai *dai)
 {
+	int rv = 0;
 	struct msm_hdmi_audio_codec_rx_data *codec_data =
 			dev_get_drvdata(dai->codec->dev);
-
-	msm_hdmi_audio_codec_return_value =
-		codec_data->hdmi_ops.hdmi_cable_status(
+	
+	wake_lock(&hdmi_active_wakelock);
+	
+	rv = codec_data->hdmi_ops.hdmi_cable_status(
 		codec_data->hdmi_core_pdev, 1);
-	pr_info("%s: hdmi status %d\n",__func__,msm_hdmi_audio_codec_return_value);
-	if (IS_ERR_VALUE(msm_hdmi_audio_codec_return_value) || msm_hdmi_audio_codec_return_value == 0) {
+	if (IS_ERR_VALUE(rv)) {
 		dev_err(dai->dev,
-			"%s() HDMI core is not ready\n", __func__);
-		msm_hdmi_audio_codec_return_value = -EINVAL;
+			"%s() HDMI core is not ready (rv = %d)\n",
+			__func__, rv);
+		
+		wake_unlock(&hdmi_active_wakelock);
+		
+	} else if (!rv) {
+		dev_err(dai->dev,
+			"%s() HDMI cable is not connected (ret val = %d)\n",
+			__func__, rv);
+		rv = -EAGAIN;
+		
+		wake_unlock(&hdmi_active_wakelock);
+		
 	}
 
-	return msm_hdmi_audio_codec_return_value;
+	return rv;
 }
 
 static int msm_hdmi_audio_codec_rx_dai_hw_params(
@@ -111,26 +124,23 @@ static int msm_hdmi_audio_codec_rx_dai_hw_params(
 	u32 level_shift  = 0; 
 	bool down_mix = 0;
 	u32 num_channels = params_channels(params);
-	int rc = 0;
+	int rv = 0;
 
 	struct msm_hdmi_audio_codec_rx_data *codec_data =
 			dev_get_drvdata(dai->codec->dev);
 
-	rc = codec_data->hdmi_ops.hdmi_cable_status(
+	rv = codec_data->hdmi_ops.hdmi_cable_status(
 		codec_data->hdmi_core_pdev, 1);
-	pr_info("%s: hdmi status %d\n",__func__,rc);
-	if (IS_ERR_VALUE(rc) || rc == 0) {
-		rc = -EINVAL;
+	if (IS_ERR_VALUE(rv)) {
 		dev_err(dai->dev,
-			"%s() HDMI core is not ready 1\n", __func__);
-		return rc;
-	}
-
-	
-	if (IS_ERR_VALUE(msm_hdmi_audio_codec_return_value)) {
+			"%s() HDMI core is not ready (rv = %d)\n",
+			__func__, rv);
+		return rv;
+	} else if (!rv) {
 		dev_err(dai->dev,
-			"%s() HDMI core is not ready 2\n", __func__);
-		return msm_hdmi_audio_codec_return_value;
+			"%s() HDMI cable is not connected (rv = %d)\n",
+			__func__, rv);
+		return -EAGAIN;
 	}
 
 	switch (num_channels) {
@@ -165,16 +175,16 @@ static int msm_hdmi_audio_codec_rx_dai_hw_params(
 		__func__, num_channels, params_rate(params),
 		channel_allocation);
 
-	rc = codec_data->hdmi_ops.audio_info_setup(
+	rv = codec_data->hdmi_ops.audio_info_setup(
 			codec_data->hdmi_core_pdev,
 			params_rate(params), num_channels,
 			channel_allocation, level_shift, down_mix);
-	if (IS_ERR_VALUE(rc)) {
+	if (IS_ERR_VALUE(rv)) {
 		dev_err(dai->dev,
 			"%s() HDMI core is not ready 3\n", __func__);
 	}
 
-	return rc;
+	return rv;
 }
 
 static void msm_hdmi_audio_codec_rx_dai_shutdown(
@@ -194,7 +204,9 @@ static void msm_hdmi_audio_codec_rx_dai_shutdown(
 			"%s() HDMI core had problems releasing HDMI audio flag\n",
 			__func__);
 	}
-
+	
+	wake_unlock(&hdmi_active_wakelock);
+	
 	return;
 }
 
@@ -304,6 +316,10 @@ static int __devinit msm_hdmi_audio_codec_rx_plat_probe(
 
 	dev_dbg(&pdev->dev, "%s(): new dev name %s\n", __func__,
 		dev_name(&pdev->dev));
+
+	
+	wake_lock_init(&hdmi_active_wakelock, WAKE_LOCK_SUSPEND, "hdmi_active");
+	
 
 	return snd_soc_register_codec(&pdev->dev,
 		&msm_hdmi_audio_codec_rx_soc_driver,

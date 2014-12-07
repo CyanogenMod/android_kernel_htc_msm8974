@@ -27,11 +27,11 @@ struct cpm_pin {
 };
 
 static __initdata struct cpm_pin adder875_pins[] = {
-	
-	{CPM_PORTB, 24, CPM_PIN_INPUT}, 
-	{CPM_PORTB, 25, CPM_PIN_INPUT | CPM_PIN_SECONDARY}, 
+	/* SMC1 */
+	{CPM_PORTB, 24, CPM_PIN_INPUT}, /* RX */
+	{CPM_PORTB, 25, CPM_PIN_INPUT | CPM_PIN_SECONDARY}, /* TX */
 
-	
+	/* MII1 */
 	{CPM_PORTA, 0, CPM_PIN_INPUT},
 	{CPM_PORTA, 1, CPM_PIN_INPUT},
 	{CPM_PORTA, 2, CPM_PIN_INPUT},
@@ -46,7 +46,7 @@ static __initdata struct cpm_pin adder875_pins[] = {
 	{CPM_PORTE, 30, CPM_PIN_OUTPUT},
 	{CPM_PORTE, 31, CPM_PIN_OUTPUT},
 
-	
+	/* MII2 */
 	{CPM_PORTE, 14, CPM_PIN_OUTPUT | CPM_PIN_SECONDARY},
 	{CPM_PORTE, 15, CPM_PIN_OUTPUT | CPM_PIN_SECONDARY},
 	{CPM_PORTE, 16, CPM_PIN_OUTPUT},
@@ -76,7 +76,7 @@ static void __init init_ioports(void)
 
 	cpm1_clk_setup(CPM_CLK_SMC1, CPM_BRG1, CPM_CLK_RTX);
 
-	
+	/* Set FEC1 and FEC2 to MII mode */
 	clrbits32(&mpc8xx_immr->im_cpm.cp_cptr, 0x00000180);
 }
 

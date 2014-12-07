@@ -31,14 +31,14 @@ void __init sdk7786_init_irq(void)
 {
 	unsigned int tmp;
 
-	
+	/* Enable priority encoding for all IRLs */
 	fpga_write_reg(fpga_read_reg(INTMSR) | 0x0303, INTMSR);
 
-	
+	/* Clear FPGA interrupt status registers */
 	fpga_write_reg(0x0000, INTASR);
 	fpga_write_reg(0x0000, INTBSR);
 
-	
+	/* Unmask FPGA interrupts */
 	tmp = fpga_read_reg(INTAMR);
 	tmp &= ~(1 << ETH_IRQ_BIT);
 	fpga_write_reg(tmp, INTAMR);

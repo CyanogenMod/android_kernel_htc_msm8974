@@ -93,6 +93,10 @@ struct dmatest_chan {
 	struct list_head	threads;
 };
 
+/*
+ * These are protected by dma_list_mutex since they're only used by
+ * the DMA filter function callback
+ */
 static LIST_HEAD(dmatest_channels);
 static unsigned int nr_channels;
 
@@ -210,6 +214,7 @@ static unsigned int dmatest_verify(u8 **bufs, unsigned int start,
 	return error_count;
 }
 
+/* poor man's completion - we want to use wait_event_freezable() on it */
 struct dmatest_done {
 	bool			done;
 	wait_queue_head_t	*wait;
@@ -267,10 +272,10 @@ static int dmatest_func(void *data)
 	if (thread->type == DMA_MEMCPY)
 		src_cnt = dst_cnt = 1;
 	else if (thread->type == DMA_XOR) {
-		src_cnt = xor_sources | 1; 
+		src_cnt = xor_sources | 1; /* force odd to ensure dst = src */
 		dst_cnt = 1;
 	} else if (thread->type == DMA_PQ) {
-		src_cnt = pq_sources | 1; 
+		src_cnt = pq_sources | 1; /* force odd to ensure dst = src */
 		dst_cnt = 2;
 		for (i = 0; i < src_cnt; i++)
 			pq_coefs[i] = 1;
@@ -299,6 +304,10 @@ static int dmatest_func(void *data)
 
 	set_user_nice(current, 10);
 
+	/*
+	 * src buffers are freed by the DMAEngine code with dma_unmap_single()
+	 * dst buffers are freed by ourselves below
+	 */
 	flags = DMA_CTRL_ACK | DMA_PREP_INTERRUPT
 	      | DMA_COMPL_SKIP_DEST_UNMAP | DMA_COMPL_SRC_UNMAP_SINGLE;
 
@@ -312,7 +321,7 @@ static int dmatest_func(void *data)
 
 		total_tests++;
 
-		
+		/* honor alignment restrictions */
 		if (thread->type == DMA_MEMCPY)
 			align = dev->copy_align;
 		else if (thread->type == DMA_XOR)
@@ -345,7 +354,7 @@ static int dmatest_func(void *data)
 			dma_srcs[i] = dma_map_single(dev->dev, buf, len,
 						     DMA_TO_DEVICE);
 		}
-		
+		/* map with DMA_BIDIRECTIONAL to force writeback/invalidate */
 		for (i = 0; i < dst_cnt; i++) {
 			dma_dsts[i] = dma_map_single(dev->dev, thread->dsts[i],
 						     test_buf_size,
@@ -412,6 +421,14 @@ static int dmatest_func(void *data)
 		status = dma_async_is_tx_complete(chan, cookie, NULL, NULL);
 
 		if (!done.done) {
+			/*
+			 * We're leaving the timed out dma operation with
+			 * dangling pointer to done_wait.  To make this
+			 * correct, we'll need to allocate wait_done for
+			 * each test iteration and perform "who's gonna
+			 * free it this time?" dancing.  For now, just
+			 * leave it dangling.
+			 */
 			pr_warning("%s: #%u: test timed out\n",
 				   thread_name, total_tests - 1);
 			failed_tests++;
@@ -425,7 +442,7 @@ static int dmatest_func(void *data)
 			continue;
 		}
 
-		
+		/* Unmap by myself (see DMA_COMPL_SKIP_DEST_UNMAP above) */
 		for (i = 0; i < dst_cnt; i++)
 			dma_unmap_single(dev->dev, dma_dsts[i], test_buf_size,
 					 DMA_BIDIRECTIONAL);
@@ -481,7 +498,7 @@ err_srcs:
 	pr_notice("%s: terminating after %u tests, %u failures (status %d)\n",
 			thread_name, total_tests, failed_tests, ret);
 
-	
+	/* terminate all transfers on specified channels */
 	chan->device->device_control(chan, DMA_TERMINATE_ALL, 0);
 	if (iterations > 0)
 		while (!kthread_should_stop()) {
@@ -506,7 +523,7 @@ static void dmatest_cleanup_channel(struct dmatest_chan *dtc)
 		kfree(thread);
 	}
 
-	
+	/* terminate all transfers on specified channels */
 	dtc->chan->device->device_control(dtc->chan, DMA_TERMINATE_ALL, 0);
 
 	kfree(dtc);
@@ -548,7 +565,7 @@ static int dmatest_add_threads(struct dmatest_chan *dtc, enum dma_transaction_ty
 			break;
 		}
 
-		
+		/* srcbuf and dstbuf are allocated by the thread itself */
 
 		list_add_tail(&thread->node, &dtc->threads);
 	}
@@ -616,16 +633,17 @@ static int __init dmatest_init(void)
 			err = dmatest_add_channel(chan);
 			if (err) {
 				dma_release_channel(chan);
-				break; 
+				break; /* add_channel failed, punt */
 			}
 		} else
-			break; 
+			break; /* no more channels available */
 		if (max_channels && nr_channels >= max_channels)
-			break; 
+			break; /* we have all we need */
 	}
 
 	return err;
 }
+/* when compiled-in wait for drivers to load first */
 late_initcall(dmatest_init);
 
 static void __exit dmatest_exit(void)

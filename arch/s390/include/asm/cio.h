@@ -1,3 +1,9 @@
+/*
+ *  include/asm-s390/cio.h
+ *  include/asm-s390x/cio.h
+ *
+ * Common interface for I/O on S/390
+ */
 #ifndef _ASM_S390_CIO_H_
 #define _ASM_S390_CIO_H_
 
@@ -11,6 +17,17 @@
 
 #include <asm/scsw.h>
 
+/**
+ * struct ccw1 - channel command word
+ * @cmd_code: command code
+ * @flags: flags, like IDA addressing, etc.
+ * @count: byte count
+ * @cda: data address
+ *
+ * The ccw is the basic structure to build channel programs that perform
+ * operations with the device or the control unit. Only Format-1 channel
+ * command words are supported.
+ */
 struct ccw1 {
 	__u8  cmd_code;
 	__u8  flags;
@@ -41,6 +58,19 @@ struct ccw1 {
 
 #define SENSE_MAX_COUNT		0x20
 
+/**
+ * struct erw - extended report word
+ * @res0: reserved
+ * @auth: authorization check
+ * @pvrf: path-verification-required flag
+ * @cpt: channel-path timeout
+ * @fsavf: failing storage address validity flag
+ * @cons: concurrent sense
+ * @scavf: secondary ccw address validity flag
+ * @fsaf: failing storage address format
+ * @scnt: sense count, if @cons == %1
+ * @res16: reserved
+ */
 struct erw {
 	__u32 res0  : 3;
 	__u32 auth  : 1;
@@ -54,6 +84,20 @@ struct erw {
 	__u32 res16 : 16;
 } __attribute__ ((packed));
 
+/**
+ * struct sublog - subchannel logout area
+ * @res0: reserved
+ * @esf: extended status flags
+ * @lpum: last path used mask
+ * @arep: ancillary report
+ * @fvf: field-validity flags
+ * @sacc: storage access code
+ * @termc: termination code
+ * @devsc: device-status check
+ * @serr: secondary error
+ * @ioerr: i/o-error alert
+ * @seqc: sequence code
+ */
 struct sublog {
 	__u32 res0  : 1;
 	__u32 esf   : 7;
@@ -68,6 +112,13 @@ struct sublog {
 	__u32 seqc  : 3;
 } __attribute__ ((packed));
 
+/**
+ * struct esw0 - Format 0 Extended Status Word (ESW)
+ * @sublog: subchannel logout
+ * @erw: extended report word
+ * @faddr: failing storage address
+ * @saddr: secondary ccw address
+ */
 struct esw0 {
 	struct sublog sublog;
 	struct erw erw;
@@ -75,6 +126,14 @@ struct esw0 {
 	__u32  saddr;
 } __attribute__ ((packed));
 
+/**
+ * struct esw1 - Format 1 Extended Status Word (ESW)
+ * @zero0: reserved zeros
+ * @lpum: last path used mask
+ * @zero16: reserved zeros
+ * @erw: extended report word
+ * @zeros: three fullwords of zeros
+ */
 struct esw1 {
 	__u8  zero0;
 	__u8  lpum;
@@ -83,6 +142,14 @@ struct esw1 {
 	__u32 zeros[3];
 } __attribute__ ((packed));
 
+/**
+ * struct esw2 - Format 2 Extended Status Word (ESW)
+ * @zero0: reserved zeros
+ * @lpum: last path used mask
+ * @dcti: device-connect-time interval
+ * @erw: extended report word
+ * @zeros: three fullwords of zeros
+ */
 struct esw2 {
 	__u8  zero0;
 	__u8  lpum;
@@ -91,6 +158,14 @@ struct esw2 {
 	__u32 zeros[3];
 } __attribute__ ((packed));
 
+/**
+ * struct esw3 - Format 3 Extended Status Word (ESW)
+ * @zero0: reserved zeros
+ * @lpum: last path used mask
+ * @res: reserved
+ * @erw: extended report word
+ * @zeros: three fullwords of zeros
+ */
 struct esw3 {
 	__u8  zero0;
 	__u8  lpum;
@@ -99,6 +174,21 @@ struct esw3 {
 	__u32 zeros[3];
 } __attribute__ ((packed));
 
+/**
+ * struct irb - interruption response block
+ * @scsw: subchannel status word
+ * @esw: extened status word, 4 formats
+ * @ecw: extended control word
+ *
+ * The irb that is handed to the device driver when an interrupt occurs. For
+ * solicited interrupts, the common I/O layer already performs checks whether
+ * a field is valid; a field not being valid is always passed as %0.
+ * If a unit check occurred, @ecw may contain sense data; this is retrieved
+ * by the common I/O layer itself if the device doesn't support concurrent
+ * sense (so that the device driver never needs to perform basic sene itself).
+ * For unsolicited interrupts, the irb is passed as-is (expect for sense data,
+ * if applicable).
+ */
 struct irb {
 	union scsw scsw;
 	union {
@@ -110,6 +200,14 @@ struct irb {
 	__u8   ecw[32];
 } __attribute__ ((packed,aligned(4)));
 
+/**
+ * struct ciw - command information word  (CIW) layout
+ * @et: entry type
+ * @reserved: reserved bits
+ * @ct: command type
+ * @cmd: command code
+ * @count: command count
+ */
 struct ciw {
 	__u32 et       :  2;
 	__u32 reserved :  2;
@@ -118,25 +216,54 @@ struct ciw {
 	__u32 count    : 16;
 } __attribute__ ((packed));
 
-#define CIW_TYPE_RCD	0x0    	
-#define CIW_TYPE_SII	0x1    	
-#define CIW_TYPE_RNI	0x2    	
+#define CIW_TYPE_RCD	0x0    	/* read configuration data */
+#define CIW_TYPE_SII	0x1    	/* set interface identifier */
+#define CIW_TYPE_RNI	0x2    	/* read node identifier */
 
-#define DOIO_ALLOW_SUSPEND	 0x0001 
-#define DOIO_DENY_PREFETCH	 0x0002 
-#define DOIO_SUPPRESS_INTER	 0x0004 
-					
+/*
+ * Flags used as input parameters for do_IO()
+ */
+#define DOIO_ALLOW_SUSPEND	 0x0001 /* allow for channel prog. suspend */
+#define DOIO_DENY_PREFETCH	 0x0002 /* don't allow for CCW prefetch */
+#define DOIO_SUPPRESS_INTER	 0x0004 /* suppress intermediate inter. */
+					/* ... for suspended CCWs */
+/* Device or subchannel gone. */
 #define CIO_GONE       0x0001
+/* No path to device. */
 #define CIO_NO_PATH    0x0002
+/* Device has appeared. */
 #define CIO_OPER       0x0004
+/* Sick revalidation of device. */
 #define CIO_REVALIDATE 0x0008
+/* Device did not respond in time. */
 #define CIO_BOXED      0x0010
 
+/**
+ * struct ccw_dev_id - unique identifier for ccw devices
+ * @ssid: subchannel set id
+ * @devno: device number
+ *
+ * This structure is not directly based on any hardware structure. The
+ * hardware identifies a device by its device number and its subchannel,
+ * which is in turn identified by its id. In order to get a unique identifier
+ * for ccw devices across subchannel sets, @struct ccw_dev_id has been
+ * introduced.
+ */
 struct ccw_dev_id {
 	u8 ssid;
 	u16 devno;
 };
 
+/**
+ * ccw_device_id_is_equal() - compare two ccw_dev_ids
+ * @dev_id1: a ccw_dev_id
+ * @dev_id2: another ccw_dev_id
+ * Returns:
+ *  %1 if the two structures are equal field-by-field,
+ *  %0 if not.
+ * Context:
+ *  any
+ */
 static inline int ccw_dev_id_is_equal(struct ccw_dev_id *dev_id1,
 				      struct ccw_dev_id *dev_id2)
 {
@@ -159,6 +286,7 @@ struct cio_iplinfo {
 
 extern int cio_get_iplinfo(struct cio_iplinfo *iplinfo);
 
+/* Function from drivers/s390/cio/chsc.c */
 int chsc_sstpc(void *page, unsigned int op, u16 ctrl);
 int chsc_sstpi(void *page, void *result, size_t size);
 

@@ -105,7 +105,7 @@ static int print_format1(struct dlm_rsb *res, struct seq_file *s)
 	if (rv)
 		goto out;
 
-	
+	/* Print the LVB: */
 	if (res->res_lvbptr) {
 		seq_printf(s, "LVB: ");
 		for (i = 0; i < lvblen; i++) {
@@ -132,7 +132,7 @@ static int print_format1(struct dlm_rsb *res, struct seq_file *s)
 			goto out;
 	}
 
-	
+	/* Print the locks attached to this resource */
 	seq_printf(s, "Granted Queue\n");
 	list_for_each_entry(lkb, &res->res_grantqueue, lkb_statequeue) {
 		rv = print_format1_lock(s, lkb, res);
@@ -182,9 +182,11 @@ static int print_format2_lock(struct seq_file *s, struct dlm_lkb *lkb,
 			xid = lkb->lkb_ua->xid;
 	}
 
-	
+	/* microseconds since lkb was added to current queue */
 	us = ktime_to_us(ktime_sub(ktime_get(), lkb->lkb_timestamp));
 
+	/* id nodeid remid pid xid exflags flags sts grmode rqmode time_us
+	   r_nodeid r_len r_name */
 
 	rv = seq_printf(s, "%x %d %x %u %llu %x %x %d %d %d %llu %u %d \"%s\"\n",
 			lkb->lkb_id,
@@ -349,6 +351,11 @@ struct rsbtbl_iter {
 	int header;
 };
 
+/* seq_printf returns -1 if the buffer is full, and 0 otherwise.
+   If the buffer is full, seq_printf can be called again, but it
+   does nothing and just returns -1.  So, the these printing routines
+   periodically check the return value to avoid wasting too much time
+   trying to print to a full buffer. */
 
 static int table_seq_show(struct seq_file *seq, void *iter_ptr)
 {
@@ -427,8 +434,11 @@ static void *table_seq_start(struct seq_file *seq, loff_t *pos)
 	}
 	spin_unlock(&ls->ls_rsbtbl[bucket].lock);
 
+	/*
+	 * move to the first rsb in the next non-empty bucket
+	 */
 
-	
+	/* zero the entry */
 	n &= ~((1LL << 32) - 1);
 
 	while (1) {
@@ -466,6 +476,9 @@ static void *table_seq_next(struct seq_file *seq, void *iter_ptr, loff_t *pos)
 
 	bucket = n >> 32;
 
+	/*
+	 * move to the next rsb in the same bucket
+	 */
 
 	spin_lock(&ls->ls_rsbtbl[bucket].lock);
 	rp = ri->rsb;
@@ -483,8 +496,11 @@ static void *table_seq_next(struct seq_file *seq, void *iter_ptr, loff_t *pos)
 	spin_unlock(&ls->ls_rsbtbl[bucket].lock);
 	dlm_put_rsb(rp);
 
+	/*
+	 * move to the first rsb in the next non-empty bucket
+	 */
 
-	
+	/* zero the entry */
 	n &= ~((1LL << 32) - 1);
 
 	while (1) {
@@ -562,7 +578,7 @@ static int table_open(struct inode *inode, struct file *file)
 		return ret;
 
 	seq = file->private_data;
-	seq->private = inode->i_private; 
+	seq->private = inode->i_private; /* the dlm_ls */
 	return 0;
 }
 
@@ -590,6 +606,9 @@ static const struct file_operations format3_fops = {
 	.release = seq_release
 };
 
+/*
+ * dump lkb's on the ls_waiters list
+ */
 static ssize_t waiters_read(struct file *file, char __user *userbuf,
 			    size_t count, loff_t *ppos)
 {
@@ -639,7 +658,7 @@ int dlm_create_debug_file(struct dlm_ls *ls)
 {
 	char name[DLM_LOCKSPACE_LEN+8];
 
-	
+	/* format 1 */
 
 	ls->ls_debug_rsb_dentry = debugfs_create_file(ls->ls_name,
 						      S_IFREG | S_IRUGO,
@@ -649,7 +668,7 @@ int dlm_create_debug_file(struct dlm_ls *ls)
 	if (!ls->ls_debug_rsb_dentry)
 		goto fail;
 
-	
+	/* format 2 */
 
 	memset(name, 0, sizeof(name));
 	snprintf(name, DLM_LOCKSPACE_LEN+8, "%s_locks", ls->ls_name);
@@ -662,7 +681,7 @@ int dlm_create_debug_file(struct dlm_ls *ls)
 	if (!ls->ls_debug_locks_dentry)
 		goto fail;
 
-	
+	/* format 3 */
 
 	memset(name, 0, sizeof(name));
 	snprintf(name, DLM_LOCKSPACE_LEN+8, "%s_all", ls->ls_name);

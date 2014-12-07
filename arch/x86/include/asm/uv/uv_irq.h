@@ -11,6 +11,7 @@
 #ifndef _ASM_X86_UV_UV_IRQ_H
 #define _ASM_X86_UV_UV_IRQ_H
 
+/* If a generic version of this structure gets defined, eliminate this one. */
 struct uv_IO_APIC_route_entry {
 	__u64	vector		:  8,
 		delivery_mode	:  3,
@@ -34,4 +35,4 @@ extern int uv_irq_2_mmr_info(int, unsigned long *, int *);
 extern int uv_setup_irq(char *, int, int, unsigned long, int);
 extern void uv_teardown_irq(unsigned int);
 
-#endif 
+#endif /* _ASM_X86_UV_UV_IRQ_H */

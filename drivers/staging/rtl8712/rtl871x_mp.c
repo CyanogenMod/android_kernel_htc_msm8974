@@ -100,6 +100,9 @@ void mp871xdeinit(struct _adapter *padapter)
 	free_mp_priv(pmppriv);
 }
 
+/*
+ * Special for bb and rf reg read/write
+ */
 static u32 fw_iocmd_read(struct _adapter *pAdapter, struct IOCMD_STRUCT iocmd)
 {
 	u32 cmd32 = 0, val32 = 0;
@@ -129,10 +132,11 @@ static u8 fw_iocmd_write(struct _adapter *pAdapter,
 	return r8712_fw_cmd(pAdapter, cmd32);
 }
 
+/* offset : 0X800~0XFFF */
 u32 r8712_bb_reg_read(struct _adapter *pAdapter, u16 offset)
 {
-	u8 shift = offset & 0x0003;	
-	u16 bb_addr = offset & 0x0FFC;	
+	u8 shift = offset & 0x0003;	/* 4 byte access */
+	u16 bb_addr = offset & 0x0FFC;	/* 4 byte access */
 	u32 bb_val = 0;
 	struct IOCMD_STRUCT iocmd;
 
@@ -151,10 +155,11 @@ u32 r8712_bb_reg_read(struct _adapter *pAdapter, u16 offset)
 	return bb_val;
 }
 
+/* offset : 0X800~0XFFF */
 u8 r8712_bb_reg_write(struct _adapter *pAdapter, u16 offset, u32 value)
 {
-	u8 shift = offset & 0x0003;	
-	u16 bb_addr = offset & 0x0FFC;	
+	u8 shift = offset & 0x0003;	/* 4 byte access */
+	u16 bb_addr = offset & 0x0FFC;	/* 4 byte access */
 	struct IOCMD_STRUCT iocmd;
 
 	iocmd.cmdclass	= IOCMD_CLASS_BB_RF;
@@ -177,6 +182,7 @@ u8 r8712_bb_reg_write(struct _adapter *pAdapter, u16 offset, u32 value)
 	return fw_iocmd_write(pAdapter, iocmd, value);
 }
 
+/* offset : 0x00 ~ 0xFF */
 u32 r8712_rf_reg_read(struct _adapter *pAdapter, u8 path, u8 offset)
 {
 	u16 rf_addr = (path << 8) | offset;
@@ -262,6 +268,12 @@ static u8 set_rf_reg(struct _adapter *pAdapter, u8 path, u8 offset, u32 bitmask,
 	return r8712_rf_reg_write(pAdapter, path, offset, new_value);
 }
 
+/*
+ * SetChannel
+ * Description
+ *	Use H2C command to change channel,
+ *	not only modify rf register, but also other setting need to be done.
+ */
 void r8712_SetChannel(struct _adapter *pAdapter)
 {
 	struct cmd_priv *pcmdpriv = &pAdapter->cmdpriv;
@@ -335,7 +347,7 @@ void r8712_SetDataRate(struct _adapter *pAdapter)
 
 void r8712_SwitchBandwidth(struct _adapter *pAdapter)
 {
-	
+	/* 3 1.Set MAC register : BWOPMODE  bit2:1 20MhzBW */
 	u8 regBwOpMode = 0;
 	u8 Bandwidth = pAdapter->mppriv.curr_bandwidth;
 
@@ -345,18 +357,26 @@ void r8712_SwitchBandwidth(struct _adapter *pAdapter)
 	else
 		regBwOpMode &= ~(BIT(2));
 	r8712_write8(pAdapter, 0x10250203, regBwOpMode);
-	
+	/* 3 2.Set PHY related register */
 	switch (Bandwidth) {
-	
+	/* 20 MHz channel*/
 	case HT_CHANNEL_WIDTH_20:
 		set_bb_reg(pAdapter, rFPGA0_RFMOD, bRFMOD, 0x0);
 		set_bb_reg(pAdapter, rFPGA1_RFMOD, bRFMOD, 0x0);
+		/* Use PHY_REG.txt default value. Do not need to change.
+		 * Correct the tx power for CCK rate in 40M.
+		 * It is set in Tx descriptor for 8192x series
+		 */
 		set_bb_reg(pAdapter, rFPGA0_AnalogParameter2, bMaskDWord, 0x58);
 		break;
-	
+	/* 40 MHz channel*/
 	case HT_CHANNEL_WIDTH_40:
 		set_bb_reg(pAdapter, rFPGA0_RFMOD, bRFMOD, 0x1);
 		set_bb_reg(pAdapter, rFPGA1_RFMOD, bRFMOD, 0x1);
+		/* Use PHY_REG.txt default value. Do not need to change.
+		 * Correct the tx power for CCK rate in 40M.
+		 * Set Control channel to upper or lower. These settings are
+		 * required only for 40MHz */
 		set_bb_reg(pAdapter, rCCK0_System, bCCKSideBand,
 			   (HAL_PRIME_CHNL_OFFSET_DONT_CARE>>1));
 		set_bb_reg(pAdapter, rOFDM1_LSTF, 0xC00,
@@ -367,7 +387,7 @@ void r8712_SwitchBandwidth(struct _adapter *pAdapter)
 		break;
 	}
 
-	
+	/* 3 3.Set RF related register */
 	switch (Bandwidth) {
 	case HT_CHANNEL_WIDTH_20:
 		set_rf_reg(pAdapter, RF_PATH_A, RF_CHNLBW,
@@ -381,6 +401,7 @@ void r8712_SwitchBandwidth(struct _adapter *pAdapter)
 		break;
 	}
 }
+/*------------------------------Define structure----------------------------*/
 struct R_ANTENNA_SELECT_OFDM {
 	u32	r_tx_antenna:4;
 	u32	r_ant_l:4;
@@ -411,62 +432,62 @@ void r8712_SwitchAntenna(struct _adapter *pAdapter)
 
 	switch (pAdapter->mppriv.antenna_tx) {
 	case ANTENNA_A:
-		
+		/* From SD3 Willis suggestion !!! Set RF A=TX and B as standby*/
 		set_bb_reg(pAdapter, rFPGA0_XA_HSSIParameter2, 0xe, 2);
 		set_bb_reg(pAdapter, rFPGA0_XB_HSSIParameter2, 0xe, 1);
 		ofdm_tx_en_val = 0x3;
-		ofdm_tx_ant_sel_val = 0x11111111;
+		ofdm_tx_ant_sel_val = 0x11111111;/* Power save */
 		p_cck_txrx->r_ccktx_enable = 0x8;
 		break;
 	case ANTENNA_B:
 		set_bb_reg(pAdapter, rFPGA0_XA_HSSIParameter2, 0xe, 1);
 		set_bb_reg(pAdapter, rFPGA0_XB_HSSIParameter2, 0xe, 2);
 		ofdm_tx_en_val = 0x3;
-		ofdm_tx_ant_sel_val = 0x22222222;
+		ofdm_tx_ant_sel_val = 0x22222222;/* Power save */
 		p_cck_txrx->r_ccktx_enable = 0x4;
 		break;
-	case ANTENNA_AB:	
+	case ANTENNA_AB:	/* For 8192S */
 		set_bb_reg(pAdapter, rFPGA0_XA_HSSIParameter2, 0xe, 2);
 		set_bb_reg(pAdapter, rFPGA0_XB_HSSIParameter2, 0xe, 2);
 		ofdm_tx_en_val = 0x3;
-		ofdm_tx_ant_sel_val = 0x3321333; 
+		ofdm_tx_ant_sel_val = 0x3321333; /* Disable Power save */
 		p_cck_txrx->r_ccktx_enable = 0xC;
 		break;
 	default:
 		break;
 	}
-	
+	/*OFDM Tx*/
 	set_bb_reg(pAdapter, rFPGA1_TxInfo, 0xffffffff, ofdm_tx_ant_sel_val);
-	
+	/*OFDM Tx*/
 	set_bb_reg(pAdapter, rFPGA0_TxInfo, 0x0000000f, ofdm_tx_en_val);
 	switch (pAdapter->mppriv.antenna_rx) {
 	case ANTENNA_A:
-		ofdm_rx_ant_sel_val = 0x1;	
-		p_cck_txrx->r_cckrx_enable = 0x0; 
-		p_cck_txrx->r_cckrx_enable_2 = 0x0; 
+		ofdm_rx_ant_sel_val = 0x1;	/* A */
+		p_cck_txrx->r_cckrx_enable = 0x0; /* default: A */
+		p_cck_txrx->r_cckrx_enable_2 = 0x0; /* option: A */
 		break;
 	case ANTENNA_B:
-		ofdm_rx_ant_sel_val = 0x2;	
-		p_cck_txrx->r_cckrx_enable = 0x1; 
-		p_cck_txrx->r_cckrx_enable_2 = 0x1; 
+		ofdm_rx_ant_sel_val = 0x2;	/* B */
+		p_cck_txrx->r_cckrx_enable = 0x1; /* default: B */
+		p_cck_txrx->r_cckrx_enable_2 = 0x1; /* option: B */
 		break;
 	case ANTENNA_AB:
-		ofdm_rx_ant_sel_val = 0x3; 
-		p_cck_txrx->r_cckrx_enable = 0x0; 
-		p_cck_txrx->r_cckrx_enable_2 = 0x1; 
+		ofdm_rx_ant_sel_val = 0x3; /* AB */
+		p_cck_txrx->r_cckrx_enable = 0x0; /* default:A */
+		p_cck_txrx->r_cckrx_enable_2 = 0x1; /* option:B */
 		break;
 	default:
 		break;
 	}
-	
+	/*OFDM Rx*/
 	set_bb_reg(pAdapter, rOFDM0_TRxPathEnable, 0x0000000f,
 		   ofdm_rx_ant_sel_val);
-	
+	/*OFDM Rx*/
 	set_bb_reg(pAdapter, rOFDM1_TRxPathEnable, 0x0000000f,
 		   ofdm_rx_ant_sel_val);
 
 	cck_ant_sel_val = cck_ant_select_val;
-	
+	/*CCK TxRx*/
 	set_bb_reg(pAdapter, rCCK0_AFESetting, bMaskByte3, cck_ant_sel_val);
 }
 
@@ -478,7 +499,7 @@ void r8712_SetCrystalCap(struct _adapter *pAdapter)
 
 static void TriggerRFThermalMeter(struct _adapter *pAdapter)
 {
-	
+	/* 0x24: RF Reg[6:5] */
 	set_rf_reg(pAdapter, RF_PATH_A, RF_T_METER, bRFRegOffsetMask, 0x60);
 }
 
@@ -486,7 +507,7 @@ static u32 ReadRFThermalMeter(struct _adapter *pAdapter)
 {
 	u32 ThermalValue = 0;
 
-	
+	/* 0x24: RF Reg[4:0] */
 	ThermalValue = get_rf_reg(pAdapter, RF_PATH_A, RF_T_METER, 0x1F);
 	return ThermalValue;
 }
@@ -500,27 +521,27 @@ void r8712_GetThermalMeter(struct _adapter *pAdapter, u32 *value)
 
 void r8712_SetSingleCarrierTx(struct _adapter *pAdapter, u8 bStart)
 {
-	if (bStart) { 
-		
+	if (bStart) { /* Start Single Carrier. */
+		/* 1. if OFDM block on? */
 		if (!get_bb_reg(pAdapter, rFPGA0_RFMOD, bOFDMEn))
-			
+			/*set OFDM block on*/
 			set_bb_reg(pAdapter, rFPGA0_RFMOD, bOFDMEn, bEnable);
-		
+		/* 2. set CCK test mode off, set to CCK normal mode */
 		set_bb_reg(pAdapter, rCCK0_System, bCCKBBMode, bDisable);
-		
+		/* 3. turn on scramble setting */
 		set_bb_reg(pAdapter, rCCK0_System, bCCKScramble, bEnable);
-		
+		/* 4. Turn On Single Carrier Tx and off the other test modes. */
 		set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMContinueTx, bDisable);
 		set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMSingleCarrier, bEnable);
 		set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMSingleTone, bDisable);
-	} else { 
-		
+	} else { /* Stop Single Carrier.*/
+		/* Turn off all test modes.*/
 		set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMContinueTx, bDisable);
 		set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMSingleCarrier,
 			   bDisable);
 		set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMSingleTone, bDisable);
 		msleep(20);
-		
+		/*BB Reset*/
 		set_bb_reg(pAdapter, rPMAC_Reset, bBBResetB, 0x0);
 		set_bb_reg(pAdapter, rPMAC_Reset, bBBResetB, 0x1);
 	}
@@ -538,22 +559,22 @@ void r8712_SetSingleToneTx(struct _adapter *pAdapter, u8 bStart)
 		rfPath = RF_PATH_A;
 		break;
 	}
-	if (bStart) { 
+	if (bStart) { /* Start Single Tone.*/
 		set_bb_reg(pAdapter, rFPGA0_RFMOD, bCCKEn, bDisable);
 		set_bb_reg(pAdapter, rFPGA0_RFMOD, bOFDMEn, bDisable);
 		set_rf_reg(pAdapter, rfPath, RF_TX_G2, bRFRegOffsetMask,
 			   0xd4000);
 		msleep(100);
-		
+		/* PAD all on.*/
 		set_rf_reg(pAdapter, rfPath, RF_AC, bRFRegOffsetMask, 0x2001f);
 		msleep(100);
-	} else { 
+	} else { /* Stop Single Tone.*/
 		set_bb_reg(pAdapter, rFPGA0_RFMOD, bCCKEn, bEnable);
 		set_bb_reg(pAdapter, rFPGA0_RFMOD, bOFDMEn, bEnable);
 		set_rf_reg(pAdapter, rfPath, RF_TX_G2, bRFRegOffsetMask,
 			   0x54000);
 		msleep(100);
-		
+		/* PAD all on.*/
 		set_rf_reg(pAdapter, rfPath, RF_AC, bRFRegOffsetMask, 0x30000);
 		msleep(100);
 	}
@@ -561,38 +582,38 @@ void r8712_SetSingleToneTx(struct _adapter *pAdapter, u8 bStart)
 
 void r8712_SetCarrierSuppressionTx(struct _adapter *pAdapter, u8 bStart)
 {
-	if (bStart) { 
+	if (bStart) { /* Start Carrier Suppression.*/
 		if (pAdapter->mppriv.curr_rateidx <= MPT_RATE_11M) {
-			
+			/* 1. if CCK block on? */
 			if (!get_bb_reg(pAdapter, rFPGA0_RFMOD, bCCKEn)) {
-				
+				/*set CCK block on*/
 				set_bb_reg(pAdapter, rFPGA0_RFMOD, bCCKEn,
 					   bEnable);
 			}
-			
+			/* Turn Off All Test Mode */
 			set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMContinueTx,
 				   bDisable);
 			set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMSingleCarrier,
 				   bDisable);
 			set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMSingleTone,
 				   bDisable);
-			
+			/*transmit mode*/
 			set_bb_reg(pAdapter, rCCK0_System, bCCKBBMode, 0x2);
-			
+			/*turn off scramble setting*/
 			set_bb_reg(pAdapter, rCCK0_System, bCCKScramble,
 				   bDisable);
-			
-			
+			/*Set CCK Tx Test Rate*/
+			/*Set FTxRate to 1Mbps*/
 			set_bb_reg(pAdapter, rCCK0_System, bCCKTxRate, 0x0);
 		}
-	} else { 
+	} else { /* Stop Carrier Suppression. */
 		if (pAdapter->mppriv.curr_rateidx <= MPT_RATE_11M) {
-			
+			/*normal mode*/
 			set_bb_reg(pAdapter, rCCK0_System, bCCKBBMode, 0x0);
-			
+			/*turn on scramble setting*/
 			set_bb_reg(pAdapter, rCCK0_System, bCCKScramble,
 				   bEnable);
-			
+			/*BB Reset*/
 			set_bb_reg(pAdapter, rPMAC_Reset, bBBResetB, 0x0);
 			set_bb_reg(pAdapter, rPMAC_Reset, bBBResetB, 0x1);
 		}
@@ -604,46 +625,46 @@ static void SetCCKContinuousTx(struct _adapter *pAdapter, u8 bStart)
 	u32 cckrate;
 
 	if (bStart) {
-		
+		/* 1. if CCK block on? */
 		if (!get_bb_reg(pAdapter, rFPGA0_RFMOD, bCCKEn)) {
-			
+			/*set CCK block on*/
 			set_bb_reg(pAdapter, rFPGA0_RFMOD, bCCKEn, bEnable);
 		}
-		
+		/* Turn Off All Test Mode */
 		set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMContinueTx, bDisable);
 		set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMSingleCarrier, bDisable);
 		set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMSingleTone, bDisable);
-		
+		/*Set CCK Tx Test Rate*/
 		cckrate  = pAdapter->mppriv.curr_rateidx;
 		set_bb_reg(pAdapter, rCCK0_System, bCCKTxRate, cckrate);
-		
+		/*transmit mode*/
 		set_bb_reg(pAdapter, rCCK0_System, bCCKBBMode, 0x2);
-		
+		/*turn on scramble setting*/
 		set_bb_reg(pAdapter, rCCK0_System, bCCKScramble, bEnable);
 	} else {
-		
+		/*normal mode*/
 		set_bb_reg(pAdapter, rCCK0_System, bCCKBBMode, 0x0);
-		
+		/*turn on scramble setting*/
 		set_bb_reg(pAdapter, rCCK0_System, bCCKScramble, bEnable);
-		
+		/*BB Reset*/
 		set_bb_reg(pAdapter, rPMAC_Reset, bBBResetB, 0x0);
 		set_bb_reg(pAdapter, rPMAC_Reset, bBBResetB, 0x1);
 	}
-} 
+} /* mpt_StartCckContTx */
 
 static void SetOFDMContinuousTx(struct _adapter *pAdapter, u8 bStart)
 {
 	if (bStart) {
-		
+		/* 1. if OFDM block on? */
 		if (!get_bb_reg(pAdapter, rFPGA0_RFMOD, bOFDMEn)) {
-			
+			/*set OFDM block on*/
 			set_bb_reg(pAdapter, rFPGA0_RFMOD, bOFDMEn, bEnable);
 		}
-		
+		/* 2. set CCK test mode off, set to CCK normal mode*/
 		set_bb_reg(pAdapter, rCCK0_System, bCCKBBMode, bDisable);
-		
+		/* 3. turn on scramble setting */
 		set_bb_reg(pAdapter, rCCK0_System, bCCKScramble, bEnable);
-		
+		/* 4. Turn On Continue Tx and turn off the other test modes.*/
 		set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMContinueTx, bEnable);
 		set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMSingleCarrier, bDisable);
 		set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMSingleTone, bDisable);
@@ -653,15 +674,15 @@ static void SetOFDMContinuousTx(struct _adapter *pAdapter, u8 bStart)
 			   bDisable);
 		set_bb_reg(pAdapter, rOFDM1_LSTF, bOFDMSingleTone, bDisable);
 		msleep(20);
-		
+		/*BB Reset*/
 		set_bb_reg(pAdapter, rPMAC_Reset, bBBResetB, 0x0);
 		set_bb_reg(pAdapter, rPMAC_Reset, bBBResetB, 0x1);
 	}
-} 
+} /* mpt_StartOfdmContTx */
 
 void r8712_SetContinuousTx(struct _adapter *pAdapter, u8 bStart)
 {
-	
+	/* ADC turn off [bit24-21] adc port0 ~ port1 */
 	if (bStart) {
 		r8712_bb_reg_write(pAdapter, rRx_Wait_CCCA,
 				   r8712_bb_reg_read(pAdapter,
@@ -673,7 +694,7 @@ void r8712_SetContinuousTx(struct _adapter *pAdapter, u8 bStart)
 	else if ((pAdapter->mppriv.curr_rateidx >= MPT_RATE_6M) &&
 		 (pAdapter->mppriv.curr_rateidx <= MPT_RATE_MCS15))
 		SetOFDMContinuousTx(pAdapter, bStart);
-	
+	/* ADC turn on [bit24-21] adc port0 ~ port1 */
 	if (!bStart)
 		r8712_bb_reg_write(pAdapter, rRx_Wait_CCCA,
 				   r8712_bb_reg_read(pAdapter,
@@ -686,22 +707,22 @@ void r8712_ResetPhyRxPktCount(struct _adapter *pAdapter)
 
 	for (i = OFDM_PPDU_BIT; i <= HT_MPDU_FAIL_BIT; i++) {
 		phyrx_set = 0;
-		phyrx_set |= (i << 28);		
-		phyrx_set |= 0x08000000;	
+		phyrx_set |= (i << 28);		/*select*/
+		phyrx_set |= 0x08000000;	/* set counter to zero*/
 		r8712_write32(pAdapter, RXERR_RPT, phyrx_set);
 	}
 }
 
 static u32 GetPhyRxPktCounts(struct _adapter *pAdapter, u32 selbit)
 {
-	
+	/*selection*/
 	u32 phyrx_set = 0, count = 0;
 	u32 SelectBit;
 
 	SelectBit = selbit << 28;
 	phyrx_set |= (SelectBit & 0xF0000000);
 	r8712_write32(pAdapter, RXERR_RPT, phyrx_set);
-	
+	/*Read packet count*/
 	count = r8712_read32(pAdapter, RXERR_RPT) & RPTMaxCount;
 	return count;
 }

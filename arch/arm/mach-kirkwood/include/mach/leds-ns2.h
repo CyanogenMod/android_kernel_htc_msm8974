@@ -23,4 +23,4 @@ struct ns2_led_platform_data {
 	struct ns2_led	*leds;
 };
 
-#endif 
+#endif /* __MACH_LEDS_NS2_H */

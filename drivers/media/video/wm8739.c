@@ -43,6 +43,7 @@ module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Debug level (0-1)");
 
 
+/* ------------------------------------------------------------------------ */
 
 enum {
 	R0 = 0, R1,
@@ -54,7 +55,7 @@ struct wm8739_state {
 	struct v4l2_subdev sd;
 	struct v4l2_ctrl_handler hdl;
 	struct {
-		
+		/* audio cluster */
 		struct v4l2_ctrl *volume;
 		struct v4l2_ctrl *mute;
 		struct v4l2_ctrl *balance;
@@ -72,6 +73,7 @@ static inline struct v4l2_subdev *to_sd(struct v4l2_ctrl *ctrl)
 	return &container_of(ctrl->handler, struct wm8739_state, hdl)->sd;
 }
 
+/* ------------------------------------------------------------------------ */
 
 static int wm8739_write(struct v4l2_subdev *sd, int reg, u16 val)
 {
@@ -98,8 +100,8 @@ static int wm8739_s_ctrl(struct v4l2_ctrl *ctrl)
 	struct v4l2_subdev *sd = to_sd(ctrl);
 	struct wm8739_state *state = to_state(sd);
 	unsigned int work_l, work_r;
-	u8 vol_l;	
-	u8 vol_r;	
+	u8 vol_l;	/* +12dB to -34.5dB 1.5dB step (5bit) def:0dB */
+	u8 vol_r;	/* +12dB to -34.5dB 1.5dB step (5bit) def:0dB */
 	u16 mute;
 
 	switch (ctrl->id) {
@@ -110,46 +112,50 @@ static int wm8739_s_ctrl(struct v4l2_ctrl *ctrl)
 		return -EINVAL;
 	}
 
-	
+	/* normalize ( 65535 to 0 -> 31 to 0 (12dB to -34.5dB) ) */
 	work_l = (min(65536 - state->balance->val, 32768) * state->volume->val) / 32768;
 	work_r = (min(state->balance->val, 32768) * state->volume->val) / 32768;
 
 	vol_l = (long)work_l * 31 / 65535;
 	vol_r = (long)work_r * 31 / 65535;
 
-	
+	/* set audio volume etc. */
 	mute = state->mute->val ? 0x80 : 0;
 
+	/* Volume setting: bits 0-4, 0x1f = 12 dB, 0x00 = -34.5 dB
+	 * Default setting: 0x17 = 0 dB
+	 */
 	wm8739_write(sd, R0, (vol_l & 0x1f) | mute);
 	wm8739_write(sd, R1, (vol_r & 0x1f) | mute);
 	return 0;
 }
 
+/* ------------------------------------------------------------------------ */
 
 static int wm8739_s_clock_freq(struct v4l2_subdev *sd, u32 audiofreq)
 {
 	struct wm8739_state *state = to_state(sd);
 
 	state->clock_freq = audiofreq;
-	
+	/* de-activate */
 	wm8739_write(sd, R9, 0x000);
 	switch (audiofreq) {
 	case 44100:
-		
+		/* 256fps, fs=44.1k */
 		wm8739_write(sd, R8, 0x020);
 		break;
 	case 48000:
-		
+		/* 256fps, fs=48k */
 		wm8739_write(sd, R8, 0x000);
 		break;
 	case 32000:
-		
+		/* 256fps, fs=32k */
 		wm8739_write(sd, R8, 0x018);
 		break;
 	default:
 		break;
 	}
-	
+	/* activate */
 	wm8739_write(sd, R9, 0x001);
 	return 0;
 }
@@ -170,6 +176,7 @@ static int wm8739_log_status(struct v4l2_subdev *sd)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct v4l2_ctrl_ops wm8739_ctrl_ops = {
 	.s_ctrl = wm8739_s_ctrl,
@@ -196,7 +203,9 @@ static const struct v4l2_subdev_ops wm8739_ops = {
 	.audio = &wm8739_audio_ops,
 };
 
+/* ------------------------------------------------------------------------ */
 
+/* i2c implementation */
 
 static int wm8739_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
@@ -204,7 +213,7 @@ static int wm8739_probe(struct i2c_client *client,
 	struct wm8739_state *state;
 	struct v4l2_subdev *sd;
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -EIO;
 
@@ -235,20 +244,22 @@ static int wm8739_probe(struct i2c_client *client,
 
 	state->clock_freq = 48000;
 
-	
+	/* Initialize wm8739 */
 
-	
+	/* reset */
 	wm8739_write(sd, R15, 0x00);
-	
+	/* filter setting, high path, offet clear */
 	wm8739_write(sd, R5, 0x000);
-	
+	/* ADC, OSC, Power Off mode Disable */
 	wm8739_write(sd, R6, 0x000);
+	/* Digital Audio interface format:
+	   Enable Master mode, 24 bit, MSB first/left justified */
 	wm8739_write(sd, R7, 0x049);
-	
+	/* sampling control: normal, 256fs, 48KHz sampling rate */
 	wm8739_write(sd, R8, 0x000);
-	
+	/* activate */
 	wm8739_write(sd, R9, 0x001);
-	
+	/* set volume/mute */
 	v4l2_ctrl_handler_setup(&state->hdl);
 	return 0;
 }

@@ -28,18 +28,21 @@ module_param(emu8000_reset_addr, int, 0444);
 MODULE_PARM_DESC(emu8000_reset_addr, "reset write address at each time (makes slowdown)");
 
 
+/*
+ * Open up channels.
+ */
 static int
 snd_emu8000_open_dma(struct snd_emu8000 *emu, int write)
 {
 	int i;
 
-	
+	/* reserve all 30 voices for loading */
 	for (i = 0; i < EMU8000_DRAM_VOICES; i++) {
 		snd_emux_lock_voice(emu->emu, i);
 		snd_emu8000_dma_chan(emu, i, write);
 	}
 
-	
+	/* assign voice 31 and 32 to ROM */
 	EMU8000_VTFT_WRITE(emu, 30, 0);
 	EMU8000_PSST_WRITE(emu, 30, 0x1d8);
 	EMU8000_CSL_WRITE(emu, 30, 0x1e0);
@@ -52,6 +55,9 @@ snd_emu8000_open_dma(struct snd_emu8000 *emu, int write)
 	return 0;
 }
 
+/*
+ * Close all dram channels.
+ */
 static void
 snd_emu8000_close_dma(struct snd_emu8000 *emu)
 {
@@ -63,12 +69,18 @@ snd_emu8000_close_dma(struct snd_emu8000 *emu)
 	}
 }
 
+/*
+ */
 
 #define BLANK_LOOP_START	4
 #define BLANK_LOOP_END		8
 #define BLANK_LOOP_SIZE		12
 #define BLANK_HEAD_SIZE		48
 
+/*
+ * Read a word from userland, taking care of conversions from
+ * 8bit samples etc.
+ */
 static unsigned short
 read_word(const void __user *buf, int offset, int mode)
 {
@@ -76,7 +88,7 @@ read_word(const void __user *buf, int offset, int mode)
 	if (mode & SNDRV_SFNT_SAMPLE_8BITS) {
 		unsigned char cc;
 		get_user(cc, (unsigned char __user *)buf + offset);
-		c = cc << 8; 
+		c = cc << 8; /* convert 8bit -> 16bit */
 	} else {
 #ifdef SNDRV_LITTLE_ENDIAN
 		get_user(c, (unsigned short __user *)buf + offset);
@@ -87,10 +99,12 @@ read_word(const void __user *buf, int offset, int mode)
 #endif
 	}
 	if (mode & SNDRV_SFNT_SAMPLE_UNSIGNED)
-		c ^= 0x8000; 
+		c ^= 0x8000; /* unsigned -> signed */
 	return c;
 }
 
+/*
+ */
 static void
 snd_emu8000_write_wait(struct snd_emu8000 *emu)
 {
@@ -101,6 +115,18 @@ snd_emu8000_write_wait(struct snd_emu8000 *emu)
 	}
 }
 
+/*
+ * write sample word data
+ *
+ * You should not have to keep resetting the address each time
+ * as the chip is supposed to step on the next address automatically.
+ * It mostly does, but during writes of some samples at random it
+ * completely loses words (every one in 16 roughly but with no
+ * obvious pattern).
+ *
+ * This is therefore much slower than need be, but is at least
+ * working.
+ */
 static inline void
 write_word(struct snd_emu8000 *emu, int *offset, unsigned short data)
 {
@@ -113,6 +139,10 @@ write_word(struct snd_emu8000 *emu, int *offset, unsigned short data)
 	*offset += 1;
 }
 
+/*
+ * Write the sample to EMU800 memory.  This routine is invoked out of
+ * the generic soundfont routines as a callback.
+ */
 int
 snd_emu8000_sample_new(struct snd_emux *rec, struct snd_sf_sample *sp,
 		       struct snd_util_memhdr *hdr,
@@ -132,14 +162,14 @@ snd_emu8000_sample_new(struct snd_emux *rec, struct snd_sf_sample *sp,
 	if (sp->v.size == 0)
 		return 0;
 
-	
+	/* be sure loop points start < end */
 	if (sp->v.loopstart > sp->v.loopend) {
 		int tmp = sp->v.loopstart;
 		sp->v.loopstart = sp->v.loopend;
 		sp->v.loopend = tmp;
 	}
 
-	
+	/* compute true data size to be loaded */
 	truesize = sp->v.size;
 	if (sp->v.mode_flags & (SNDRV_SFNT_SAMPLE_BIDIR_LOOP|SNDRV_SFNT_SAMPLE_REVERSE_LOOP))
 		truesize += sp->v.loopend - sp->v.loopstart;
@@ -148,8 +178,8 @@ snd_emu8000_sample_new(struct snd_emux *rec, struct snd_sf_sample *sp,
 
 	sp->block = snd_util_mem_alloc(hdr, truesize * 2);
 	if (sp->block == NULL) {
-		
-		
+		/*snd_printd("EMU8000: out of memory\n");*/
+		/* not ENOMEM (for compatibility) */
 		return -ENOSPC;
 	}
 
@@ -161,31 +191,31 @@ snd_emu8000_sample_new(struct snd_emux *rec, struct snd_sf_sample *sp,
 			return -EFAULT;
 	}
 
-	
+	/* recalculate address offset */
 	sp->v.end -= sp->v.start;
 	sp->v.loopstart -= sp->v.start;
 	sp->v.loopend -= sp->v.start;
 	sp->v.start = 0;
 
-	
+	/* dram position (in word) -- mem_offset is byte */
 	dram_offset = EMU8000_DRAM_OFFSET + (sp->block->offset >> 1);
 	dram_start = dram_offset;
 
-	
-	sp->v.truesize = truesize * 2; 
+	/* set the total size (store onto obsolete checksum value) */
+	sp->v.truesize = truesize * 2; /* in bytes */
 
 	snd_emux_terminate_all(emu->emu);
 	if ((rc = snd_emu8000_open_dma(emu, EMU8000_RAM_WRITE)) != 0)
 		return rc;
 
-	
+	/* Set the address to start writing at */
 	snd_emu8000_write_wait(emu);
 	EMU8000_SMALW_WRITE(emu, dram_offset);
 
-	
+	/*snd_emu8000_init_fm(emu);*/
 
 #if 0
-	
+	/* first block - write 48 samples for silence */
 	if (! sp->block->offset) {
 		for (i = 0; i < BLANK_HEAD_SIZE; i++) {
 			write_word(emu, &dram_offset, 0);
@@ -201,6 +231,9 @@ snd_emu8000_sample_new(struct snd_emux *rec, struct snd_sf_sample *sp,
 		offset++;
 		write_word(emu, &dram_offset, s);
 
+		/* we may take too long time in this loop.
+		 * so give controls back to kernel if needed.
+		 */
 		cond_resched();
 
 		if (i == sp->v.loopend &&
@@ -209,7 +242,7 @@ snd_emu8000_sample_new(struct snd_emux *rec, struct snd_sf_sample *sp,
 			int looplen = sp->v.loopend - sp->v.loopstart;
 			int k;
 
-			
+			/* copy reverse loop */
 			for (k = 1; k <= looplen; k++) {
 				s = read_word(data, offset - k, sp->v.mode_flags);
 				write_word(emu, &dram_offset, s);
@@ -224,7 +257,7 @@ snd_emu8000_sample_new(struct snd_emux *rec, struct snd_sf_sample *sp,
 		}
 	}
 
-	
+	/* if no blank loop is attached in the sample, add it */
 	if (sp->v.mode_flags & SNDRV_SFNT_SAMPLE_NO_BLANK) {
 		for (i = 0; i < BLANK_LOOP_SIZE; i++) {
 			write_word(emu, &dram_offset, 0);
@@ -235,7 +268,7 @@ snd_emu8000_sample_new(struct snd_emux *rec, struct snd_sf_sample *sp,
 		}
 	}
 
-	
+	/* add dram offset */
 	sp->v.start += dram_start;
 	sp->v.end += dram_start;
 	sp->v.loopstart += dram_start;
@@ -247,6 +280,9 @@ snd_emu8000_sample_new(struct snd_emux *rec, struct snd_sf_sample *sp,
 	return 0;
 }
 
+/*
+ * free a sample block
+ */
 int
 snd_emu8000_sample_free(struct snd_emux *rec, struct snd_sf_sample *sp,
 			struct snd_util_memhdr *hdr)
@@ -259,6 +295,9 @@ snd_emu8000_sample_free(struct snd_emux *rec, struct snd_sf_sample *sp,
 }
 
 
+/*
+ * sample_reset callback - terminate voices
+ */
 void
 snd_emu8000_sample_reset(struct snd_emux *rec)
 {

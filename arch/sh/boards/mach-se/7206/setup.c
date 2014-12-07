@@ -84,6 +84,9 @@ static int se7206_mode_pins(void)
 	return MODE_PIN1 | MODE_PIN2;
 }
 
+/*
+ * The Machine Vector
+ */
 
 static struct sh_machine_vector mv_se __initmv = {
 	.mv_name		= "SolutionEngine",

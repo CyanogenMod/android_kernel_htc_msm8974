@@ -142,7 +142,7 @@ static int snd_opl4_seq_new_device(struct snd_seq_device *dev)
 		return -ENOMEM;
 	opl4->chset->private_data = opl4;
 
-	
+	/* allocate new client */
 	client = snd_seq_create_kernel_client(opl4->card, opl4->seq_dev_num,
 					      "OPL4 Wavetable");
 	if (client < 0) {
@@ -152,7 +152,7 @@ static int snd_opl4_seq_new_device(struct snd_seq_device *dev)
 	opl4->seq_client = client;
 	opl4->chset->client = client;
 
-	
+	/* create new port */
 	memset(&pcallbacks, 0, sizeof(pcallbacks));
 	pcallbacks.owner = THIS_MODULE;
 	pcallbacks.use = snd_opl4_seq_use;

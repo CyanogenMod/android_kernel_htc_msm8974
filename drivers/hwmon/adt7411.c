@@ -48,13 +48,19 @@
 static const unsigned short normal_i2c[] = { 0x48, 0x4a, 0x4b, I2C_CLIENT_END };
 
 struct adt7411_data {
-	struct mutex device_lock;	
+	struct mutex device_lock;	/* for "atomic" device accesses */
 	struct mutex update_lock;
 	unsigned long next_update;
 	int vref_cached;
 	struct device *hwmon_dev;
 };
 
+/*
+ * When reading a register containing (up to 4) lsb, all associated
+ * msb-registers get locked by the hardware. After _one_ of those msb is read,
+ * _all_ are unlocked. In order to use this locking correctly, reading lsb/msb
+ * is protected here with a mutex, too.
+ */
 static int adt7411_read_10_bit(struct i2c_client *client, u8 lsb_reg,
 				u8 msb_reg, u8 lsb_shift)
 {
@@ -123,7 +129,7 @@ static ssize_t adt7411_show_temp(struct device *dev,
 	if (val < 0)
 		return val;
 
-	val = val & 0x200 ? val - 0x400 : val; 
+	val = val & 0x200 ? val - 0x400 : val; /* 10 bit signed */
 
 	return sprintf(buf, "%d\n", val * 250);
 }
@@ -197,7 +203,7 @@ static ssize_t adt7411_set_bit(struct device *dev,
 
 	ret = adt7411_modify_bit(client, s_attr2->index, s_attr2->nr, flag);
 
-	
+	/* force update */
 	mutex_lock(&data->update_lock);
 	data->next_update = jiffies;
 	mutex_unlock(&data->update_lock);
@@ -290,7 +296,7 @@ static int __devinit adt7411_probe(struct i2c_client *client,
 	if (ret < 0)
 		goto exit_free;
 
-	
+	/* force update on first occasion */
 	data->next_update = jiffies;
 
 	ret = sysfs_create_group(&client->dev.kobj, &adt7411_attr_grp);

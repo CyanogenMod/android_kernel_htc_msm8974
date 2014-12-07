@@ -401,7 +401,7 @@ static void ddl_encoder_frame_run_callback(struct ddl_context
 	if (vidc_msg_timing)
 		ddl_calc_core_proc_time(__func__, ENC_OP_TIME);
 
-	
+	/* check the presence of EOS */
    eos_present =
 	((VCD_FRAME_FLAG_EOS & ddl->input_frame.vcd_frm.flags));
 
@@ -484,18 +484,18 @@ static u32 ddl_decoder_frame_run_callback(struct ddl_context
 
 	if (dec_disp_info->disp_status ==  VIDC_720P_DISPLAY_ONLY ||
 		dec_disp_info->disp_status ==  VIDC_720P_EMPTY_BUFFER) {
-		
+		/* send the same input once again for decoding */
 		ddl_decode_frame_run(ddl);
-		
+		/* client need to ignore the interrupt */
 		status = false;
 	} else if (eos_present) {
-		
+		/* send EOS command to HW */
 		ddl_decode_eos_run(ddl);
-		
+		/* client need to ignore the interrupt */
 		status = false;
 	} else {
 		ddl_move_client_state(ddl, DDL_CLIENT_WAIT_FOR_FRAME);
-		
+		/* move to Idle */
 		DDL_IDLE(ddl_context);
 	}
 	return status;

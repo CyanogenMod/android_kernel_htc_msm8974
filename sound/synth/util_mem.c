@@ -31,6 +31,9 @@ MODULE_LICENSE("GPL");
 
 #define get_memblk(p)	list_entry(p, struct snd_util_memblk, list)
 
+/*
+ * create a new memory manager
+ */
 struct snd_util_memhdr *
 snd_util_memhdr_new(int memsize)
 {
@@ -46,13 +49,16 @@ snd_util_memhdr_new(int memsize)
 	return hdr;
 }
 
+/*
+ * free a memory manager
+ */
 void snd_util_memhdr_free(struct snd_util_memhdr *hdr)
 {
 	struct list_head *p;
 
 	if (!hdr)
 		return;
-	
+	/* release all blocks */
 	while ((p = hdr->block.next) != &hdr->block) {
 		list_del(p);
 		kfree(get_memblk(p));
@@ -60,6 +66,9 @@ void snd_util_memhdr_free(struct snd_util_memhdr *hdr)
 	kfree(hdr);
 }
 
+/*
+ * allocate a memory block (without mutex)
+ */
 struct snd_util_memblk *
 __snd_util_mem_alloc(struct snd_util_memhdr *hdr, int size)
 {
@@ -70,14 +79,14 @@ __snd_util_mem_alloc(struct snd_util_memhdr *hdr, int size)
 	if (snd_BUG_ON(!hdr || size <= 0))
 		return NULL;
 
-	
+	/* word alignment */
 	units = size;
 	if (units & 1)
 		units++;
 	if (units > hdr->size)
 		return NULL;
 
-	
+	/* look for empty block */
 	prev_offset = 0;
 	list_for_each(p, &hdr->block) {
 		blk = get_memblk(p);
@@ -93,6 +102,10 @@ __found:
 }
 
 
+/*
+ * create a new memory block with the given size
+ * the block is linked next to prev
+ */
 struct snd_util_memblk *
 __snd_util_memblk_new(struct snd_util_memhdr *hdr, unsigned int units,
 		      struct list_head *prev)
@@ -118,6 +131,9 @@ __snd_util_memblk_new(struct snd_util_memhdr *hdr, unsigned int units,
 }
 
 
+/*
+ * allocate a memory block (with mutex)
+ */
 struct snd_util_memblk *
 snd_util_mem_alloc(struct snd_util_memhdr *hdr, int size)
 {
@@ -129,6 +145,10 @@ snd_util_mem_alloc(struct snd_util_memhdr *hdr, int size)
 }
 
 
+/*
+ * remove the block from linked-list and free resource
+ * (without mutex)
+ */
 void
 __snd_util_mem_free(struct snd_util_memhdr *hdr, struct snd_util_memblk *blk)
 {
@@ -138,6 +158,9 @@ __snd_util_mem_free(struct snd_util_memhdr *hdr, struct snd_util_memblk *blk)
 	kfree(blk);
 }
 
+/*
+ * free a memory block (with mutex)
+ */
 int snd_util_mem_free(struct snd_util_memhdr *hdr, struct snd_util_memblk *blk)
 {
 	if (snd_BUG_ON(!hdr || !blk))
@@ -149,6 +172,9 @@ int snd_util_mem_free(struct snd_util_memhdr *hdr, struct snd_util_memblk *blk)
 	return 0;
 }
 
+/*
+ * return available memory size
+ */
 int snd_util_mem_avail(struct snd_util_memhdr *hdr)
 {
 	unsigned int size;
@@ -168,6 +194,9 @@ EXPORT_SYMBOL(__snd_util_mem_alloc);
 EXPORT_SYMBOL(__snd_util_mem_free);
 EXPORT_SYMBOL(__snd_util_memblk_new);
 
+/*
+ *  INIT part
+ */
 
 static int __init alsa_util_mem_init(void)
 {

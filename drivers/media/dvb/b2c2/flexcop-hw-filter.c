@@ -45,7 +45,7 @@ void flexcop_mac_filter_ctrl(struct flexcop_device *fc, int onoff)
 static void flexcop_pid_group_filter(struct flexcop_device *fc,
 		u16 pid, u16 mask)
 {
-	
+	/* index_reg_310.extra_index_reg need to 0 or 7 to work */
 	flexcop_ibi_value v30c;
 	v30c.pid_filter_30c_ext_ind_0_7.Group_PID = pid;
 	v30c.pid_filter_30c_ext_ind_0_7.Group_mask = mask;
@@ -57,6 +57,9 @@ static void flexcop_pid_group_filter_ctrl(struct flexcop_device *fc, int onoff)
 	flexcop_set_ibi_value(ctrl_208, Mask_filter_sig, onoff);
 }
 
+/* this fancy define reduces the code size of the quite similar PID controlling of
+ * the first 6 PIDs
+ */
 
 #define pid_ctrl(vregname,field,enablefield,trans_field,transval) \
 	flexcop_ibi_value vpid = fc->read_ibi_reg(fc, vregname), \
@@ -114,6 +117,8 @@ static void flexcop_pid_control(struct flexcop_device *fc,
 	deb_ts("setting pid: %5d %04x at index %d '%s'\n",
 			pid, pid, index, onoff ? "on" : "off");
 
+	/* We could use bit magic here to reduce source code size.
+	 * I decided against it, but to use the real register names */
 	switch (index) {
 	case 0:
 		flexcop_pid_Stream1_PID_ctrl(fc, pid, onoff);
@@ -137,7 +142,7 @@ static void flexcop_pid_control(struct flexcop_device *fc,
 		if (fc->has_32_hw_pid_filter && index < 38) {
 			flexcop_ibi_value vpid, vid;
 
-			
+			/* set the index */
 			vid = fc->read_ibi_reg(fc, index_reg_310);
 			vid.index_reg_310.index_reg = index - 6;
 			fc->write_ibi_reg(fc, index_reg_310, vid);
@@ -167,10 +172,15 @@ int flexcop_pid_feed_control(struct flexcop_device *fc,
 {
 	int max_pid_filter = 6 + fc->has_32_hw_pid_filter*32;
 
-	fc->feedcount += onoff ? 1 : -1; 
+	fc->feedcount += onoff ? 1 : -1; /* the number of PIDs/Feed currently requested */
 	if (dvbdmxfeed->index >= max_pid_filter)
 		fc->extra_feedcount += onoff ? 1 : -1;
 
+	/* toggle complete-TS-streaming when:
+	 * - pid_filtering is not enabled and it is the first or last feed requested
+	 * - pid_filtering is enabled,
+	 *   - but the number of requested feeds is exceeded
+	 *   - or the requested pid is 0x2000 */
 
 	if (!fc->pid_filtering && fc->feedcount == onoff)
 		flexcop_toggle_fullts_streaming(fc, onoff);
@@ -187,13 +197,13 @@ int flexcop_pid_feed_control(struct flexcop_device *fc,
 			flexcop_toggle_fullts_streaming(fc, 0);
 	}
 
-	
+	/* if it was the first or last feed request change the stream-status */
 	if (fc->feedcount == onoff) {
 		flexcop_rcv_data_ctrl(fc, onoff);
-		if (fc->stream_control) 
+		if (fc->stream_control) /* device specific stream control */
 			fc->stream_control(fc, onoff);
 
-		
+		/* feeding stopped -> reset the flexcop filter*/
 		if (onoff == 0) {
 			flexcop_reset_block_300(fc);
 			flexcop_hw_filter_init(fc);

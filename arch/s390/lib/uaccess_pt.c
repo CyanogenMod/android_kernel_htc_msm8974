@@ -82,6 +82,10 @@ fault:
 	goto retry;
 }
 
+/*
+ * Do DAT for user address by page table walk, return kernel address.
+ * This function needs to be called with current->mm->page_table_lock held.
+ */
 static __always_inline unsigned long __dat_user_addr(unsigned long uaddr)
 {
 	struct mm_struct *mm = current->mm;

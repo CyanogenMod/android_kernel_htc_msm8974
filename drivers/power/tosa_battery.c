@@ -21,7 +21,7 @@
 #include <asm/mach-types.h>
 #include <mach/tosa.h>
 
-static DEFINE_MUTEX(bat_lock); 
+static DEFINE_MUTEX(bat_lock); /* protects gpio pins */
 static struct work_struct bat_work;
 
 struct tosa_bat {
@@ -29,7 +29,7 @@ struct tosa_bat {
 	struct power_supply psy;
 	int full_chrg;
 
-	struct mutex work_lock; 
+	struct mutex work_lock; /* protects data */
 
 	bool (*is_present)(struct tosa_bat *bat);
 	int gpio_full;
@@ -326,14 +326,14 @@ static struct gpio tosa_bat_gpios[] = {
 #ifdef CONFIG_PM
 static int tosa_bat_suspend(struct platform_device *dev, pm_message_t state)
 {
-	
+	/* flush all pending status updates */
 	flush_work_sync(&bat_work);
 	return 0;
 }
 
 static int tosa_bat_resume(struct platform_device *dev)
 {
-	
+	/* things may have changed while we were away */
 	schedule_work(&bat_work);
 	return 0;
 }
@@ -402,7 +402,7 @@ err_psy_reg_jacket:
 	power_supply_unregister(&tosa_bat_main.psy);
 err_psy_reg_main:
 
-	
+	/* see comment in tosa_bat_remove */
 	cancel_work_sync(&bat_work);
 
 	gpio_free_array(tosa_bat_gpios, ARRAY_SIZE(tosa_bat_gpios));
@@ -419,6 +419,11 @@ static int __devexit tosa_bat_remove(struct platform_device *dev)
 	power_supply_unregister(&tosa_bat_jacket.psy);
 	power_supply_unregister(&tosa_bat_main.psy);
 
+	/*
+	 * Now cancel the bat_work.  We won't get any more schedules,
+	 * since all sources (isr and external_power_changed) are
+	 * unregistered now.
+	 */
 	cancel_work_sync(&bat_work);
 	gpio_free_array(tosa_bat_gpios, ARRAY_SIZE(tosa_bat_gpios));
 	return 0;

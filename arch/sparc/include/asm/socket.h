@@ -3,6 +3,7 @@
 
 #include <asm/sockios.h>
 
+/* For setsockopt(2) */
 #define SOL_SOCKET	0xffff
 
 #define SO_DEBUG	0x0001
@@ -14,6 +15,7 @@
 #define SO_PEERCRED	0x0040
 #define SO_LINGER	0x0080
 #define SO_OOBINLINE	0x0100
+/* To add :#define SO_REUSEPORT 0x0200 */
 #define SO_BSDCOMPAT    0x0400
 #define SO_RCVLOWAT     0x0800
 #define SO_SNDLOWAT     0x1000
@@ -31,6 +33,7 @@
 #define SO_DOMAIN	0x1029
 
 
+/* Linux specific, keep the same. */
 #define SO_NO_CHECK	0x000b
 #define SO_PRIORITY	0x000c
 
@@ -59,11 +62,13 @@
 #define SCM_WIFI_STATUS		SO_WIFI_STATUS
 #define SO_PEEK_OFF		0x0026
 
+/* Instruct lower device to use last 4-bytes of skb data as FCS */
 #define SO_NOFCS		0x0027
 
 
+/* Security levels - as per NRL IPv6 - don't actually do anything */
 #define SO_SECURITY_AUTHENTICATION		0x5001
 #define SO_SECURITY_ENCRYPTION_TRANSPORT	0x5002
 #define SO_SECURITY_ENCRYPTION_NETWORK		0x5004
 
-#endif 
+#endif /* _ASM_SOCKET_H */

@@ -54,12 +54,12 @@ struct xs_stored_msg {
 	struct xsd_sockmsg hdr;
 
 	union {
-		
+		/* Queued replies. */
 		struct {
 			char *body;
 		} reply;
 
-		
+		/* Queued watch events. */
 		struct {
 			struct xenbus_watch *handle;
 			char **vec;
@@ -69,35 +69,55 @@ struct xs_stored_msg {
 };
 
 struct xs_handle {
-	
+	/* A list of replies. Currently only one will ever be outstanding. */
 	struct list_head reply_list;
 	spinlock_t reply_lock;
 	wait_queue_head_t reply_waitq;
 
+	/*
+	 * Mutex ordering: transaction_mutex -> watch_mutex -> request_mutex.
+	 * response_mutex is never taken simultaneously with the other three.
+	 *
+	 * transaction_mutex must be held before incrementing
+	 * transaction_count. The mutex is held when a suspend is in
+	 * progress to prevent new transactions starting.
+	 *
+	 * When decrementing transaction_count to zero the wait queue
+	 * should be woken up, the suspend code waits for count to
+	 * reach zero.
+	 */
 
-	
+	/* One request at a time. */
 	struct mutex request_mutex;
 
-	
+	/* Protect xenbus reader thread against save/restore. */
 	struct mutex response_mutex;
 
-	
+	/* Protect transactions against save/restore. */
 	struct mutex transaction_mutex;
 	atomic_t transaction_count;
 	wait_queue_head_t transaction_wq;
 
-	
+	/* Protect watch (de)register against save/restore. */
 	struct rw_semaphore watch_mutex;
 };
 
 static struct xs_handle xs_state;
 
+/* List of registered watches, and a lock to protect it. */
 static LIST_HEAD(watches);
 static DEFINE_SPINLOCK(watches_lock);
 
+/* List of pending watch callback events, and a lock to protect it. */
 static LIST_HEAD(watch_events);
 static DEFINE_SPINLOCK(watch_events_lock);
 
+/*
+ * Details of the xenwatch callback kernel thread. The thread waits on the
+ * watch_events_waitq for work to do (queued on watch_events list). When it
+ * wakes up it acquires the xenwatch_mutex before reading the list and
+ * carrying out work.
+ */
 static pid_t xenwatch_pid;
 static DEFINE_MUTEX(xenwatch_mutex);
 static DECLARE_WAIT_QUEUE_HEAD(watch_events_waitq);
@@ -126,7 +146,7 @@ static void *read_reply(enum xsd_sockmsg_type *type, unsigned int *len)
 
 	while (list_empty(&xs_state.reply_list)) {
 		spin_unlock(&xs_state.reply_lock);
-		
+		/* XXX FIXME: Avoid synchronous wait for response here. */
 		wait_event(xs_state.reply_waitq,
 			   !list_empty(&xs_state.reply_list));
 		spin_lock(&xs_state.reply_lock);
@@ -202,6 +222,7 @@ void *xenbus_dev_request_and_reply(struct xsd_sockmsg *msg)
 }
 EXPORT_SYMBOL(xenbus_dev_request_and_reply);
 
+/* Send message to xs, get kmalloc'ed reply.  ERR_PTR() on error. */
 static void *xs_talkv(struct xenbus_transaction t,
 		      enum xsd_sockmsg_type type,
 		      const struct kvec *iovec,
@@ -260,6 +281,7 @@ static void *xs_talkv(struct xenbus_transaction t,
 	return ret;
 }
 
+/* Simplified version of xs_talkv: single message. */
 static void *xs_single(struct xenbus_transaction t,
 		       enum xsd_sockmsg_type type,
 		       const char *string,
@@ -272,6 +294,7 @@ static void *xs_single(struct xenbus_transaction t,
 	return xs_talkv(t, type, &iovec, 1, len);
 }
 
+/* Many commands only need an ack, don't care what it says. */
 static int xs_error(char *reply)
 {
 	if (IS_ERR(reply))
@@ -291,6 +314,7 @@ static unsigned int count_strings(const char *strings, unsigned int len)
 	return num;
 }
 
+/* Return the path to dir with /name appended. Buffer must be kfree()'ed. */
 static char *join(const char *dir, const char *name)
 {
 	char *buffer;
@@ -306,10 +330,10 @@ static char **split(char *strings, unsigned int len, unsigned int *num)
 {
 	char *p, **ret;
 
-	
+	/* Count the strings. */
 	*num = count_strings(strings, len);
 
-	
+	/* Transfer to one big alloc for easy freeing. */
 	ret = kmalloc(*num * sizeof(char *) + len, GFP_NOIO | __GFP_HIGH);
 	if (!ret) {
 		kfree(strings);
@@ -344,6 +368,7 @@ char **xenbus_directory(struct xenbus_transaction t,
 }
 EXPORT_SYMBOL_GPL(xenbus_directory);
 
+/* Check if a path exists. Return 1 if it does. */
 int xenbus_exists(struct xenbus_transaction t,
 		  const char *dir, const char *node)
 {
@@ -358,6 +383,10 @@ int xenbus_exists(struct xenbus_transaction t,
 }
 EXPORT_SYMBOL_GPL(xenbus_exists);
 
+/* Get the value of a single file.
+ * Returns a kmalloced value: call free() on it after use.
+ * len indicates length in bytes.
+ */
 void *xenbus_read(struct xenbus_transaction t,
 		  const char *dir, const char *node, unsigned int *len)
 {
@@ -374,6 +403,9 @@ void *xenbus_read(struct xenbus_transaction t,
 }
 EXPORT_SYMBOL_GPL(xenbus_read);
 
+/* Write the value of a single file.
+ * Returns -err on failure.
+ */
 int xenbus_write(struct xenbus_transaction t,
 		 const char *dir, const char *node, const char *string)
 {
@@ -396,6 +428,7 @@ int xenbus_write(struct xenbus_transaction t,
 }
 EXPORT_SYMBOL_GPL(xenbus_write);
 
+/* Create a new directory. */
 int xenbus_mkdir(struct xenbus_transaction t,
 		 const char *dir, const char *node)
 {
@@ -412,6 +445,7 @@ int xenbus_mkdir(struct xenbus_transaction t,
 }
 EXPORT_SYMBOL_GPL(xenbus_mkdir);
 
+/* Destroy a file or directory (directories must be empty). */
 int xenbus_rm(struct xenbus_transaction t, const char *dir, const char *node)
 {
 	char *path;
@@ -427,6 +461,9 @@ int xenbus_rm(struct xenbus_transaction t, const char *dir, const char *node)
 }
 EXPORT_SYMBOL_GPL(xenbus_rm);
 
+/* Start a transaction: changes by others will not be seen during this
+ * transaction, and changes will not be visible to others until end.
+ */
 int xenbus_transaction_start(struct xenbus_transaction *t)
 {
 	char *id_str;
@@ -445,6 +482,9 @@ int xenbus_transaction_start(struct xenbus_transaction *t)
 }
 EXPORT_SYMBOL_GPL(xenbus_transaction_start);
 
+/* End a transaction.
+ * If abandon is true, transaction is discarded instead of committed.
+ */
 int xenbus_transaction_end(struct xenbus_transaction t, int abort)
 {
 	char abortstr[2];
@@ -463,6 +503,7 @@ int xenbus_transaction_end(struct xenbus_transaction t, int abort)
 }
 EXPORT_SYMBOL_GPL(xenbus_transaction_end);
 
+/* Single read and scanf: returns -errno or num scanned. */
 int xenbus_scanf(struct xenbus_transaction t,
 		 const char *dir, const char *node, const char *fmt, ...)
 {
@@ -478,13 +519,14 @@ int xenbus_scanf(struct xenbus_transaction t,
 	ret = vsscanf(val, fmt, ap);
 	va_end(ap);
 	kfree(val);
-	
+	/* Distinctive errno. */
 	if (ret == 0)
 		return -ERANGE;
 	return ret;
 }
 EXPORT_SYMBOL_GPL(xenbus_scanf);
 
+/* Single printf and write: returns -errno or 0. */
 int xenbus_printf(struct xenbus_transaction t,
 		  const char *dir, const char *node, const char *fmt, ...)
 {
@@ -507,6 +549,7 @@ int xenbus_printf(struct xenbus_transaction t,
 }
 EXPORT_SYMBOL_GPL(xenbus_printf);
 
+/* Takes tuples of names, scanf-style args, and void **, NULL terminated. */
 int xenbus_gather(struct xenbus_transaction t, const char *dir, ...)
 {
 	va_list ap;
@@ -575,9 +618,10 @@ static struct xenbus_watch *find_watch(const char *token)
 	return NULL;
 }
 
+/* Register callback to watch this node. */
 int register_xenbus_watch(struct xenbus_watch *watch)
 {
-	
+	/* Pointer in ascii is the token. */
 	char token[sizeof(watch) * 2 + 1];
 	int err;
 
@@ -627,10 +671,12 @@ void unregister_xenbus_watch(struct xenbus_watch *watch)
 
 	up_read(&xs_state.watch_mutex);
 
+	/* Make sure there are no callbacks running currently (unless
+	   its us) */
 	if (current->pid != xenwatch_pid)
 		mutex_lock(&xenwatch_mutex);
 
-	
+	/* Cancel pending watch events. */
 	spin_lock(&watch_events_lock);
 	list_for_each_entry_safe(msg, tmp, &watch_events, list) {
 		if (msg->u.watch.handle != watch)
@@ -665,7 +711,7 @@ void xs_resume(void)
 	mutex_unlock(&xs_state.request_mutex);
 	transaction_resume();
 
-	
+	/* No need for watches_lock: the watch_mutex is sufficient. */
 	list_for_each_entry(watch, &watches, list) {
 		sprintf(token, "%lX", (long)watch);
 		xs_watch(watch->node, token);
@@ -724,6 +770,10 @@ static int process_msg(void)
 	char *body;
 	int err;
 
+	/*
+	 * We must disallow save/restore while reading a xenstore message.
+	 * A partial read across s/r leaves us out of sync with xenstored.
+	 */
 	for (;;) {
 		err = xb_wait_for_data_to_read();
 		if (err)
@@ -731,7 +781,7 @@ static int process_msg(void)
 		mutex_lock(&xs_state.response_mutex);
 		if (xb_data_to_read())
 			break;
-		
+		/* We raced with save/restore: pending data 'disappeared'. */
 		mutex_unlock(&xs_state.response_mutex);
 	}
 
@@ -836,7 +886,7 @@ int xs_init(void)
 	atomic_set(&xs_state.transaction_count, 0);
 	init_waitqueue_head(&xs_state.transaction_wq);
 
-	
+	/* Initialize the shared memory rings to talk to xenstored */
 	err = xb_init_comms();
 	if (err)
 		return err;

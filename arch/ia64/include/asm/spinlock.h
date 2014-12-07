@@ -18,6 +18,20 @@
 
 #define arch_spin_lock_init(x)			((x)->lock = 0)
 
+/*
+ * Ticket locks are conceptually two parts, one indicating the current head of
+ * the queue, and the other indicating the current tail. The lock is acquired
+ * by atomically noting the tail and incrementing it by one (thus adding
+ * ourself to the queue and noting our position), then waiting until the head
+ * becomes equal to the the initial value of the tail.
+ * The pad bits in the middle are used to prevent the next_ticket number
+ * overflowing into the now_serving number.
+ *
+ *   31             17  16    15  14                    0
+ *  +----------------------------------------------------+
+ *  |  now_serving     | padding |   next_ticket         |
+ *  +----------------------------------------------------+
+ */
 
 #define TICKET_SHIFT	17
 #define TICKET_BITS	15
@@ -156,7 +170,7 @@ arch_read_lock_flags(arch_rwlock_t *lock, unsigned long flags)
 
 #define arch_read_lock(lock) arch_read_lock_flags(lock, 0)
 
-#else 
+#else /* !ASM_SUPPORTED */
 
 #define arch_read_lock_flags(rw, flags) arch_read_lock(rw)
 
@@ -171,7 +185,7 @@ do {											\
 	}										\
 } while (0)
 
-#endif 
+#endif /* !ASM_SUPPORTED */
 
 #define arch_read_unlock(rw)					\
 do {								\
@@ -227,7 +241,7 @@ static inline void arch_write_unlock(arch_rwlock_t *x)
 	asm volatile ("st1.rel.nta [%0] = r0\n\t" :: "r"(y+3) : "memory" );
 }
 
-#else 
+#else /* !ASM_SUPPORTED */
 
 #define arch_write_lock_flags(l, flags) arch_write_lock(l)
 
@@ -256,7 +270,7 @@ static inline void arch_write_unlock(arch_rwlock_t *x)
 	x->write_lock = 0;
 }
 
-#endif 
+#endif /* !ASM_SUPPORTED */
 
 static inline int arch_read_trylock(arch_rwlock_t *x)
 {
@@ -274,4 +288,4 @@ static inline int arch_read_trylock(arch_rwlock_t *x)
 #define arch_read_relax(lock)	cpu_relax()
 #define arch_write_relax(lock)	cpu_relax()
 
-#endif 
+#endif /*  _ASM_IA64_SPINLOCK_H */

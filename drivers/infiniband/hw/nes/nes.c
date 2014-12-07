@@ -69,10 +69,12 @@ int max_mtu = 9000;
 int interrupt_mod_interval = 0;
 
 
+/* Interoperability */
 int mpa_version = 1;
 module_param(mpa_version, int, 0644);
 MODULE_PARM_DESC(mpa_version, "MPA version to be used int MPA Req/Resp (0 or 1)");
 
+/* Interoperability */
 int disable_mpa_crc = 0;
 module_param(disable_mpa_crc, int, 0644);
 MODULE_PARM_DESC(disable_mpa_crc, "Disable checking of MPA CRC");
@@ -128,6 +130,9 @@ static struct notifier_block nes_net_notifier = {
 	.notifier_call = nes_net_event
 };
 
+/**
+ * nes_inetaddr_event
+ */
 static int nes_inetaddr_event(struct notifier_block *notifier,
 		unsigned long event, void *ptr)
 {
@@ -154,7 +159,7 @@ static int nes_inetaddr_event(struct notifier_block *notifier,
 						netdev->name);
 				return NOTIFY_OK;
 			}
-			
+			/* we have ifa->ifa_address/mask here if we need it */
 			switch (event) {
 				case NETDEV_DOWN:
 					nes_debug(NES_DBG_NETDEV, "event:DOWN\n");
@@ -176,9 +181,9 @@ static int nes_inetaddr_event(struct notifier_block *notifier,
 						nes_debug(NES_DBG_NETDEV, "Interface already has local_ipaddr\n");
 						return NOTIFY_OK;
 					}
-					
+					/* fall through */
 				case NETDEV_CHANGEADDR:
-					
+					/* Add the address to the IP table */
 					if (netdev->master)
 						nesvnic->local_ipaddr =
 							((struct in_device *)netdev->master->ip_ptr)->ifa_list->ifa_address;
@@ -205,6 +210,9 @@ static int nes_inetaddr_event(struct notifier_block *notifier,
 }
 
 
+/**
+ * nes_net_event
+ */
 static int nes_net_event(struct notifier_block *notifier,
 		unsigned long event, void *ptr)
 {
@@ -216,7 +224,7 @@ static int nes_net_event(struct notifier_block *notifier,
 	switch (event) {
 		case NETEVENT_NEIGH_UPDATE:
 			list_for_each_entry(nesdev, &nes_dev_list, list) {
-				
+				/* nes_debug(NES_DBG_NETDEV, "Nesdev list entry = 0x%p.\n", nesdev); */
 				netdev = nesdev->netdev[0];
 				nesvnic = netdev_priv(netdev);
 				if (netdev == neigh->dev) {
@@ -245,6 +253,9 @@ static int nes_net_event(struct notifier_block *notifier,
 }
 
 
+/**
+ * nes_add_ref
+ */
 void nes_add_ref(struct ib_qp *ibqp)
 {
 	struct nes_qp *nesqp;
@@ -263,7 +274,7 @@ static void nes_cqp_rem_ref_callback(struct nes_device *nesdev, struct nes_cqp_r
 
 	atomic_inc(&qps_destroyed);
 
-	
+	/* Free the control structures */
 
 	if (nesqp->pbl_vbase) {
 		pci_free_consistent(nesdev->pcidev, nesqp->qp_mem_size,
@@ -285,6 +296,9 @@ static void nes_cqp_rem_ref_callback(struct nes_device *nesdev, struct nes_cqp_r
 
 }
 
+/**
+ * nes_rem_ref
+ */
 void nes_rem_ref(struct ib_qp *ibqp)
 {
 	u64 u64temp;
@@ -307,7 +321,7 @@ void nes_rem_ref(struct ib_qp *ibqp)
 		if (nesqp->pau_mode)
 			nes_destroy_pau_qp(nesdev, nesqp);
 
-		
+		/* Destroy the QP */
 		cqp_request = nes_get_cqp_request(nesdev);
 		if (cqp_request == NULL) {
 			nes_debug(NES_DBG_QP, "Failed to get a cqp_request.\n");
@@ -335,6 +349,9 @@ void nes_rem_ref(struct ib_qp *ibqp)
 }
 
 
+/**
+ * nes_get_qp
+ */
 struct ib_qp *nes_get_qp(struct ib_device *device, int qpn)
 {
 	struct nes_vnic *nesvnic = to_nesvnic(device);
@@ -348,12 +365,18 @@ struct ib_qp *nes_get_qp(struct ib_device *device, int qpn)
 }
 
 
+/**
+ * nes_print_macaddr
+ */
 static void nes_print_macaddr(struct net_device *netdev)
 {
 	nes_debug(NES_DBG_INIT, "%s: %pM, IRQ %u\n",
 		  netdev->name, netdev->dev_addr, netdev->irq);
 }
 
+/**
+ * nes_interrupt - handle interrupts
+ */
 static irqreturn_t nes_interrupt(int irq, void *dev_id)
 {
 	struct nes_device *nesdev = (struct nes_device *)dev_id;
@@ -365,22 +388,24 @@ static irqreturn_t nes_interrupt(int irq, void *dev_id)
 	u32 timer_stat;
 
 	if (nesdev->msi_enabled) {
-		
+		/* No need to read the interrupt pending register if msi is enabled */
 		handled = 1;
 	} else {
 		if (unlikely(nesdev->nesadapter->hw_rev == NE020_REV)) {
+			/* Master interrupt enable provides synchronization for kicking off bottom half
+			  when interrupt sharing is going on */
 			int_mask = nes_read32(nesdev->regs + NES_INT_MASK);
 			if (int_mask & 0x80000000) {
-				
+				/* Check interrupt status to see if this might be ours */
 				int_stat = nes_read32(nesdev->regs + NES_INT_STAT);
 				int_req = nesdev->int_req;
 				if (int_stat&int_req) {
-					
+					/* if interesting CEQ or AEQ is pending, claim the interrupt */
 					if ((int_stat&int_req) & (~(NES_INT_TIMER|NES_INT_INTF))) {
 						handled = 1;
 					} else {
 						if (((int_stat & int_req) & NES_INT_TIMER) == NES_INT_TIMER) {
-							
+							/* Timer might be running but might be for another function */
 							timer_stat = nes_read32(nesdev->regs + NES_TIMER_STAT);
 							if ((timer_stat & nesdev->timer_int_req) != 0) {
 								handled = 1;
@@ -397,7 +422,7 @@ static irqreturn_t nes_interrupt(int irq, void *dev_id)
 					if (handled) {
 						nes_write32(nesdev->regs+NES_INT_MASK, int_mask & (~0x80000000));
 						int_mask = nes_read32(nesdev->regs+NES_INT_MASK);
-						
+						/* Save off the status to save an additional read */
 						nesdev->int_stat = int_stat;
 						nesdev->napi_isr_ran = 1;
 					}
@@ -421,6 +446,9 @@ static irqreturn_t nes_interrupt(int irq, void *dev_id)
 }
 
 
+/**
+ * nes_probe - Device initialization
+ */
 static int __devinit nes_probe(struct pci_dev *pcidev, const struct pci_device_id *ent)
 {
 	struct net_device *netdev = NULL;
@@ -448,7 +476,7 @@ static int __devinit nes_probe(struct pci_dev *pcidev, const struct pci_device_i
 			(long unsigned int)pci_resource_start(pcidev, BAR_1),
 			(long unsigned int)pci_resource_len(pcidev, BAR_1));
 
-	
+	/* Make sure PCI base addr are MMIO */
 	if (!(pci_resource_flags(pcidev, BAR_0) & IORESOURCE_MEM) ||
 			!(pci_resource_flags(pcidev, BAR_1) & IORESOURCE_MEM)) {
 		printk(KERN_ERR PFX "PCI regions not an MMIO resource\n");
@@ -456,7 +484,7 @@ static int __devinit nes_probe(struct pci_dev *pcidev, const struct pci_device_i
 		goto bail1;
 	}
 
-	
+	/* Reserve PCI I/O and memory resources */
 	ret = pci_request_regions(pcidev, DRV_NAME);
 	if (ret) {
 		printk(KERN_ERR PFX "Unable to request regions. (%s)\n", pci_name(pcidev));
@@ -489,7 +517,7 @@ static int __devinit nes_probe(struct pci_dev *pcidev, const struct pci_device_i
 
 	pci_set_master(pcidev);
 
-	
+	/* Allocate hardware structure */
 	nesdev = kzalloc(sizeof(struct nes_device), GFP_KERNEL);
 	if (!nesdev) {
 		printk(KERN_ERR PFX "%s: Unable to alloc hardware struct\n", pci_name(pcidev));
@@ -506,7 +534,7 @@ static int __devinit nes_probe(struct pci_dev *pcidev, const struct pci_device_i
 
 	spin_lock_init(&nesdev->indexed_regs_lock);
 
-	
+	/* Remap the PCI registers in adapter BAR0 to kernel VA space */
 	mmio_regs = ioremap_nocache(pci_resource_start(pcidev, BAR_0),
 				    pci_resource_len(pcidev, BAR_0));
 	if (mmio_regs == NULL) {
@@ -517,7 +545,7 @@ static int __devinit nes_probe(struct pci_dev *pcidev, const struct pci_device_i
 	nesdev->regs = mmio_regs;
 	nesdev->index_reg = 0x50 + (PCI_FUNC(pcidev->devfn)*8) + mmio_regs;
 
-	
+	/* Ensure interrupts are disabled */
 	nes_write32(nesdev->regs+NES_INT_MASK, 0x7fffffff);
 
 	if (nes_drv_opt & NES_DRV_OPT_ENABLE_MSI) {
@@ -537,7 +565,7 @@ static int __devinit nes_probe(struct pci_dev *pcidev, const struct pci_device_i
 	nesdev->csr_start = pci_resource_start(nesdev->pcidev, BAR_0);
 	nesdev->doorbell_region = pci_resource_start(nesdev->pcidev, BAR_1);
 
-	
+	/* Init the adapter */
 	nesdev->nesadapter = nes_init_adapter(nesdev, hw_rev);
 	if (!nesdev->nesadapter) {
 		printk(KERN_ERR PFX "Unable to initialize adapter.\n");
@@ -547,6 +575,8 @@ static int __devinit nes_probe(struct pci_dev *pcidev, const struct pci_device_i
 	nesdev->nesadapter->et_rx_coalesce_usecs_irq = interrupt_mod_interval;
 	nesdev->nesadapter->wqm_quanta = wqm_quanta;
 
+	/* nesdev->base_doorbell_index =
+			nesdev->nesadapter->pd_config_base[PCI_FUNC(nesdev->pcidev->devfn)]; */
 	nesdev->base_doorbell_index = 1;
 	nesdev->doorbell_start = nesdev->nesadapter->doorbell_start;
 	if (nesdev->nesadapter->phy_type[0] == NES_PHY_TYPE_PUMA_1G) {
@@ -584,27 +614,27 @@ static int __devinit nes_probe(struct pci_dev *pcidev, const struct pci_device_i
 
 	tasklet_init(&nesdev->dpc_tasklet, nes_dpc, (unsigned long)nesdev);
 
-	
+	/* bring up the Control QP */
 	if (nes_init_cqp(nesdev)) {
 		ret = -ENODEV;
 		goto bail6;
 	}
 
-	
+	/* Arm the CCQ */
 	nes_write32(nesdev->regs+NES_CQE_ALLOC, NES_CQE_ALLOC_NOTIFY_NEXT |
 			PCI_FUNC(nesdev->pcidev->devfn));
 	nes_read32(nesdev->regs+NES_CQE_ALLOC);
 
-	
+	/* Enable the interrupts */
 	nesdev->int_req = (0x101 << PCI_FUNC(nesdev->pcidev->devfn)) |
 			(1 << (PCI_FUNC(nesdev->pcidev->devfn)+16));
 	if (PCI_FUNC(nesdev->pcidev->devfn) < 4) {
 		nesdev->int_req |= (1 << (PCI_FUNC(nesdev->mac_index)+24));
 	}
 
-	
+	/* TODO: This really should be the first driver to load, not function 0 */
 	if (PCI_FUNC(nesdev->pcidev->devfn) == 0) {
-		
+		/* pick up PCI and critical errors if the first driver to load */
 		nesdev->intf_int_req = NES_INTF_INT_PCIERR | NES_INTF_INT_CRITERR;
 		nesdev->int_req |= NES_INT_INTF;
 	} else {
@@ -618,7 +648,7 @@ static int __devinit nes_probe(struct pci_dev *pcidev, const struct pci_device_i
 
 	nes_write_indexed(nesdev, NES_IDX_DEBUG_ERROR_MASKS3, 0x17801790);
 
-	
+	/* deal with both periodic and one_shot */
 	nesdev->timer_int_req = 0x101 << PCI_FUNC(nesdev->pcidev->devfn);
 	nesdev->nesadapter->timer_int_req |= nesdev->timer_int_req;
 	nes_debug(NES_DBG_INIT, "setting int_req for function %u, nesdev = 0x%04X, adapter = 0x%04X\n",
@@ -629,7 +659,7 @@ static int __devinit nes_probe(struct pci_dev *pcidev, const struct pci_device_i
 
 	list_add_tail(&nesdev->list, &nes_dev_list);
 
-	
+	/* Request an interrupt line for the driver */
 	ret = request_irq(pcidev->irq, nes_interrupt, IRQF_SHARED, DRV_NAME, nesdev);
 	if (ret) {
 		printk(KERN_ERR PFX "%s: requested IRQ %u is busy\n",
@@ -647,11 +677,11 @@ static int __devinit nes_probe(struct pci_dev *pcidev, const struct pci_device_i
 
 	INIT_DELAYED_WORK(&nesdev->work, nes_recheck_link_status);
 
-	
+	/* Initialize network devices */
 	if ((netdev = nes_netdev_init(nesdev, mmio_regs)) == NULL)
 		goto bail7;
 
-	
+	/* Register network device */
 	ret = register_netdev(netdev);
 	if (ret) {
 		printk(KERN_ERR PFX "Unable to register netdev, ret = %d\n", ret);
@@ -699,7 +729,7 @@ static int __devinit nes_probe(struct pci_dev *pcidev, const struct pci_device_i
 	bail6:
 	printk(KERN_ERR PFX "bail6\n");
 	tasklet_kill(&nesdev->dpc_tasklet);
-	
+	/* Deallocate the Adapter Structure */
 	nes_destroy_adapter(nesdev->nesadapter);
 
 	bail5:
@@ -721,6 +751,9 @@ static int __devinit nes_probe(struct pci_dev *pcidev, const struct pci_device_i
 }
 
 
+/**
+ * nes_remove - unload from kernel
+ */
 static void __devexit nes_remove(struct pci_dev *pcidev)
 {
 	struct nes_device *nesdev = pci_get_drvdata(pcidev);
@@ -761,7 +794,7 @@ static void __devexit nes_remove(struct pci_dev *pcidev)
 		spin_unlock_irqrestore(&nesdev->nesadapter->phy_lock, flags);
 	}
 
-	
+	/* Deallocate the Adapter Structure */
 	nes_destroy_adapter(nesdev->nesadapter);
 
 	if (nesdev->msi_enabled) {
@@ -771,7 +804,7 @@ static void __devexit nes_remove(struct pci_dev *pcidev)
 	iounmap(nesdev->regs);
 	kfree(nesdev);
 
-	
+	/* nes_debug(NES_DBG_SHUTDOWN, "calling pci_release_regions.\n"); */
 	pci_release_regions(pcidev);
 	pci_disable_device(pcidev);
 	pci_set_drvdata(pcidev, NULL);
@@ -1073,6 +1106,9 @@ static ssize_t nes_store_idx_data(struct device_driver *ddp,
 }
 
 
+/**
+ * nes_show_wqm_quanta
+ */
 static ssize_t nes_show_wqm_quanta(struct device_driver *ddp, char *buf)
 {
 	u32 wqm_quanta_value = 0xdead;
@@ -1091,6 +1127,9 @@ static ssize_t nes_show_wqm_quanta(struct device_driver *ddp, char *buf)
 }
 
 
+/**
+ * nes_store_wqm_quanta
+ */
 static ssize_t nes_store_wqm_quanta(struct device_driver *ddp,
 					const char *buf, size_t count)
 {
@@ -1168,6 +1207,9 @@ static void nes_remove_driver_sysfs(struct pci_driver *drv)
 	driver_remove_file(&drv->driver, &driver_attr_wqm_quanta);
 }
 
+/**
+ * nes_init_module - module initialization entry point
+ */
 static int __init nes_init_module(void)
 {
 	int retval;
@@ -1188,6 +1230,9 @@ static int __init nes_init_module(void)
 }
 
 
+/**
+ * nes_exit_module - module unload entry point
+ */
 static void __exit nes_exit_module(void)
 {
 	nes_cm_stop();

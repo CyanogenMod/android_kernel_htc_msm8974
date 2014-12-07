@@ -10,6 +10,9 @@
  * Integraphics Cyber2000 frame buffer device
  */
 
+/*
+ * Internal CyberPro sizes and offsets.
+ */
 #define MMIO_OFFSET	0x00800000
 #define MMIO_SIZE	0x000c0000
 
@@ -64,7 +67,7 @@ static void debug_printf(char *fmt, ...)
 #define EXT_BUS_CTL_LIN_4MB		0x02
 #define EXT_BUS_CTL_ZEROWAIT		0x04
 #define EXT_BUS_CTL_PCIBURST_WRITE	0x20
-#define EXT_BUS_CTL_PCIBURST_READ	0x80	
+#define EXT_BUS_CTL_PCIBURST_READ	0x80	/* CyberPro 5000 only */
 
 #define EXT_SEG_WRITE_PTR	0x31
 #define EXT_SEG_READ_PTR	0x32
@@ -74,13 +77,13 @@ static void debug_printf(char *fmt, ...)
 #define EXT_BIU_MISC_COP_BFC		0x08
 
 #define EXT_FUNC_CTL		0x3c
-#define EXT_FUNC_CTL_EXTREGENBL		0x80	
+#define EXT_FUNC_CTL_EXTREGENBL		0x80	/* enable access to 0xbcxxx		*/
 
 #define PCI_BM_CTL		0x3e
-#define PCI_BM_CTL_ENABLE		0x01	
-#define PCI_BM_CTL_BURST		0x02	
-#define PCI_BM_CTL_BACK2BACK		0x04	
-#define PCI_BM_CTL_DUMMY		0x08	
+#define PCI_BM_CTL_ENABLE		0x01	/* enable bus-master			*/
+#define PCI_BM_CTL_BURST		0x02	/* enable burst				*/
+#define PCI_BM_CTL_BACK2BACK		0x04	/* enable back to back			*/
+#define PCI_BM_CTL_DUMMY		0x08	/* insert dummy cycle			*/
 
 #define X_V2_VID_MEM_START	0x40
 #define X_V2_VID_SRC_WIDTH	0x43
@@ -179,7 +182,7 @@ static void debug_printf(char *fmt, ...)
 
 #define EXT_HIDDEN_CTL4		0x7a
 
-#define CURS_MEM_START		0x7e		
+#define CURS_MEM_START		0x7e		/* bits 23..12 */
 
 #define CAP_PIP_X_START		0x80
 #define CAP_PIP_X_END		0x82
@@ -196,13 +199,13 @@ static void debug_printf(char *fmt, ...)
 #define BM_CTRL1		0x9d
 
 #define EXT_CAP_MODE1		0xa4
-#define EXT_CAP_MODE1_8BIT		0x01	
-#define EXT_CAP_MODE1_CCIR656		0x02	
-#define EXT_CAP_MODE1_IGNOREVGT		0x04	
-#define EXT_CAP_MODE1_ALTFIFO		0x10	
-#define EXT_CAP_MODE1_SWAPUV		0x20	
-#define EXT_CAP_MODE1_MIRRORY		0x40	
-#define EXT_CAP_MODE1_MIRRORX		0x80	
+#define EXT_CAP_MODE1_8BIT		0x01	/* enable 8bit capture mode		*/
+#define EXT_CAP_MODE1_CCIR656		0x02	/* CCIR656 mode				*/
+#define EXT_CAP_MODE1_IGNOREVGT		0x04	/* ignore VGT				*/
+#define EXT_CAP_MODE1_ALTFIFO		0x10	/* use alternate FIFO for capture	*/
+#define EXT_CAP_MODE1_SWAPUV		0x20	/* swap UV bytes			*/
+#define EXT_CAP_MODE1_MIRRORY		0x40	/* mirror vertically			*/
+#define EXT_CAP_MODE1_MIRRORX		0x80	/* mirror horizontally			*/
 
 #define EXT_CAP_MODE2		0xa5
 #define EXT_CAP_MODE2_CCIRINVOE		0x01
@@ -223,14 +226,14 @@ static void debug_printf(char *fmt, ...)
 #define EXT_MCLK_DIV		0xb3
 
 #define EXT_LATCH1		0xb5
-#define EXT_LATCH1_VAFC_EN		0x01	
+#define EXT_LATCH1_VAFC_EN		0x01	/* enable VAFC				*/
 
 #define EXT_FEATURE		0xb7
-#define EXT_FEATURE_BUS_MASK		0x07	
+#define EXT_FEATURE_BUS_MASK		0x07	/* host bus mask			*/
 #define EXT_FEATURE_BUS_PCI		0x00
 #define EXT_FEATURE_BUS_VL_STD		0x04
 #define EXT_FEATURE_BUS_VL_LINEAR	0x05
-#define EXT_FEATURE_1682		0x20	
+#define EXT_FEATURE_1682		0x20	/* IGS 1682 compatibility		*/
 
 #define EXT_LATCH2		0xb6
 #define EXT_LATCH2_I2C_CLKEN		0x10
@@ -243,25 +246,25 @@ static void debug_printf(char *fmt, ...)
 #define EXT_XT_LINEARFB			0x08
 #define EXT_XT_PAL			0x10
 
-#define EXT_MEM_START		0xc0		
-#define HOR_PHASE_SHIFT		0xc2		
-#define EXT_SRC_WIDTH		0xc3		
-#define EXT_SRC_HEIGHT		0xc4		
-#define EXT_X_START		0xc5		
-#define EXT_X_END		0xc7		
-#define EXT_Y_START		0xc9		
-#define EXT_Y_END		0xcb		
-#define EXT_SRC_WIN_WIDTH	0xcd		
-#define EXT_COLOUR_COMPARE	0xce		
-#define EXT_DDA_X_INIT		0xd1		
-#define EXT_DDA_X_INC		0xd3		
-#define EXT_DDA_Y_INIT		0xd5		
-#define EXT_DDA_Y_INC		0xd7		
+#define EXT_MEM_START		0xc0		/* ext start address 21 bits		*/
+#define HOR_PHASE_SHIFT		0xc2		/* high 3 bits				*/
+#define EXT_SRC_WIDTH		0xc3		/* ext offset phase  10 bits		*/
+#define EXT_SRC_HEIGHT		0xc4		/* high 6 bits				*/
+#define EXT_X_START		0xc5		/* ext->screen, 16 bits			*/
+#define EXT_X_END		0xc7		/* ext->screen, 16 bits			*/
+#define EXT_Y_START		0xc9		/* ext->screen, 16 bits			*/
+#define EXT_Y_END		0xcb		/* ext->screen, 16 bits			*/
+#define EXT_SRC_WIN_WIDTH	0xcd		/* 8 bits				*/
+#define EXT_COLOUR_COMPARE	0xce		/* 24 bits				*/
+#define EXT_DDA_X_INIT		0xd1		/* ext->screen 16 bits			*/
+#define EXT_DDA_X_INC		0xd3		/* ext->screen 16 bits			*/
+#define EXT_DDA_Y_INIT		0xd5		/* ext->screen 16 bits			*/
+#define EXT_DDA_Y_INC		0xd7		/* ext->screen 16 bits			*/
 
 #define EXT_VID_FIFO_CTL	0xd9
 
 #define EXT_VID_FMT		0xdb
-#define EXT_VID_FMT_YUV422		0x00	
+#define EXT_VID_FMT_YUV422		0x00	/* formats - does this cause conversion? */
 #define EXT_VID_FMT_RGB555		0x01
 #define EXT_VID_FMT_RGB565		0x02
 #define EXT_VID_FMT_RGB888_24		0x03
@@ -269,64 +272,64 @@ static void debug_printf(char *fmt, ...)
 #define EXT_VID_FMT_RGB8		0x05
 #define EXT_VID_FMT_RGB4444		0x06
 #define EXT_VID_FMT_RGB8T		0x07
-#define EXT_VID_FMT_DUP_PIX_ZOON	0x08	
-#define EXT_VID_FMT_MOD_3RD_PIX		0x20	
-#define EXT_VID_FMT_DBL_H_PIX		0x40	
-#define EXT_VID_FMT_YUV128		0x80	
+#define EXT_VID_FMT_DUP_PIX_ZOON	0x08	/* duplicate pixel zoom			*/
+#define EXT_VID_FMT_MOD_3RD_PIX		0x20	/* modify 3rd duplicated pixel		*/
+#define EXT_VID_FMT_DBL_H_PIX		0x40	/* double horiz pixels			*/
+#define EXT_VID_FMT_YUV128		0x80	/* YUV data offset by 128		*/
 
 #define EXT_VID_DISP_CTL1	0xdc
-#define EXT_VID_DISP_CTL1_INTRAM	0x01	
-#define EXT_VID_DISP_CTL1_IGNORE_CCOMP	0x02	
-#define EXT_VID_DISP_CTL1_NOCLIP	0x04	
-#define EXT_VID_DISP_CTL1_UV_AVG	0x08	
-#define EXT_VID_DISP_CTL1_Y128		0x10	
-#define EXT_VID_DISP_CTL1_VINTERPOL_OFF	0x20	
-#define EXT_VID_DISP_CTL1_FULL_WIN	0x40	
-#define EXT_VID_DISP_CTL1_ENABLE_WINDOW	0x80	
+#define EXT_VID_DISP_CTL1_INTRAM	0x01	/* video pixels go to internal RAM	*/
+#define EXT_VID_DISP_CTL1_IGNORE_CCOMP	0x02	/* ignore colour compare registers	*/
+#define EXT_VID_DISP_CTL1_NOCLIP	0x04	/* do not clip to 16235,16240		*/
+#define EXT_VID_DISP_CTL1_UV_AVG	0x08	/* U/V data is averaged			*/
+#define EXT_VID_DISP_CTL1_Y128		0x10	/* Y data offset by 128 (if YUV128 set)	*/
+#define EXT_VID_DISP_CTL1_VINTERPOL_OFF	0x20	/* disable vertical interpolation	*/
+#define EXT_VID_DISP_CTL1_FULL_WIN	0x40	/* video out window full		*/
+#define EXT_VID_DISP_CTL1_ENABLE_WINDOW	0x80	/* enable video window			*/
 
 #define EXT_VID_FIFO_CTL1	0xdd
 #define EXT_VID_FIFO_CTL1_OE_HIGH	0x02
-#define EXT_VID_FIFO_CTL1_INTERLEAVE	0x04	
+#define EXT_VID_FIFO_CTL1_INTERLEAVE	0x04	/* enable interleaved memory read	*/
 
 #define EXT_ROM_UCB4GH		0xe5
-#define EXT_ROM_UCB4GH_FREEZE		0x02	
-#define EXT_ROM_UCB4GH_ODDFRAME		0x04	
-#define EXT_ROM_UCB4GH_1HL		0x08	
-#define EXT_ROM_UCB4GH_ODD		0x10	
-#define EXT_ROM_UCB4GH_INTSTAT		0x20	
+#define EXT_ROM_UCB4GH_FREEZE		0x02	/* capture frozen			*/
+#define EXT_ROM_UCB4GH_ODDFRAME		0x04	/* 1 = odd frame captured		*/
+#define EXT_ROM_UCB4GH_1HL		0x08	/* first horizonal line after VGT falling edge */
+#define EXT_ROM_UCB4GH_ODD		0x10	/* odd frame indicator			*/
+#define EXT_ROM_UCB4GH_INTSTAT		0x20	/* video interrupt			*/
 
 #define VFAC_CTL1		0xe8
-#define VFAC_CTL1_CAPTURE		0x01	
-#define VFAC_CTL1_VFAC_ENABLE		0x02	
-#define VFAC_CTL1_FREEZE_CAPTURE	0x04	
-#define VFAC_CTL1_FREEZE_CAPTURE_SYNC	0x08	
-#define VFAC_CTL1_VALIDFRAME_SRC	0x10	
-#define VFAC_CTL1_PHILIPS		0x40	
-#define VFAC_CTL1_MODVINTERPOLCLK	0x80	
+#define VFAC_CTL1_CAPTURE		0x01	/* capture enable (only when VSYNC high)*/
+#define VFAC_CTL1_VFAC_ENABLE		0x02	/* vfac enable				*/
+#define VFAC_CTL1_FREEZE_CAPTURE	0x04	/* freeze capture			*/
+#define VFAC_CTL1_FREEZE_CAPTURE_SYNC	0x08	/* sync freeze capture			*/
+#define VFAC_CTL1_VALIDFRAME_SRC	0x10	/* select valid frame source		*/
+#define VFAC_CTL1_PHILIPS		0x40	/* select Philips mode			*/
+#define VFAC_CTL1_MODVINTERPOLCLK	0x80	/* modify vertical interpolation clocl	*/
 
 #define VFAC_CTL2		0xe9
-#define VFAC_CTL2_INVERT_VIDDATAVALID	0x01	
-#define VFAC_CTL2_INVERT_GRAPHREADY	0x02	
-#define VFAC_CTL2_INVERT_DATACLK	0x04	
-#define VFAC_CTL2_INVERT_HSYNC		0x08	
-#define VFAC_CTL2_INVERT_VSYNC		0x10	
-#define VFAC_CTL2_INVERT_FRAME		0x20	
-#define VFAC_CTL2_INVERT_BLANK		0x40	
-#define VFAC_CTL2_INVERT_OVSYNC		0x80	
+#define VFAC_CTL2_INVERT_VIDDATAVALID	0x01	/* invert video data valid		*/
+#define VFAC_CTL2_INVERT_GRAPHREADY	0x02	/* invert graphic ready output sig	*/
+#define VFAC_CTL2_INVERT_DATACLK	0x04	/* invert data clock signal		*/
+#define VFAC_CTL2_INVERT_HSYNC		0x08	/* invert hsync input			*/
+#define VFAC_CTL2_INVERT_VSYNC		0x10	/* invert vsync input			*/
+#define VFAC_CTL2_INVERT_FRAME		0x20	/* invert frame odd/even input		*/
+#define VFAC_CTL2_INVERT_BLANK		0x40	/* invert blank output			*/
+#define VFAC_CTL2_INVERT_OVSYNC		0x80	/* invert other vsync input		*/
 
 #define VFAC_CTL3		0xea
-#define VFAC_CTL3_CAP_LARGE_FIFO	0x01	
-#define VFAC_CTL3_CAP_INTERLACE		0x02	
-#define VFAC_CTL3_CAP_HOLD_4NS		0x00	
-#define VFAC_CTL3_CAP_HOLD_2NS		0x04	
-#define VFAC_CTL3_CAP_HOLD_6NS		0x08	
-#define VFAC_CTL3_CAP_HOLD_0NS		0x0c	
-#define VFAC_CTL3_CHROMAKEY		0x20	
-#define VFAC_CTL3_CAP_IRQ		0x40	
+#define VFAC_CTL3_CAP_LARGE_FIFO	0x01	/* large capture fifo			*/
+#define VFAC_CTL3_CAP_INTERLACE		0x02	/* capture odd and even fields		*/
+#define VFAC_CTL3_CAP_HOLD_4NS		0x00	/* hold capture data for 4ns		*/
+#define VFAC_CTL3_CAP_HOLD_2NS		0x04	/* hold capture data for 2ns		*/
+#define VFAC_CTL3_CAP_HOLD_6NS		0x08	/* hold capture data for 6ns		*/
+#define VFAC_CTL3_CAP_HOLD_0NS		0x0c	/* hold capture data for 0ns		*/
+#define VFAC_CTL3_CHROMAKEY		0x20	/* capture data will be chromakeyed	*/
+#define VFAC_CTL3_CAP_IRQ		0x40	/* enable capture interrupt		*/
 
-#define CAP_MEM_START		0xeb		
-#define CAP_MAP_WIDTH		0xed		
-#define CAP_PITCH		0xee		
+#define CAP_MEM_START		0xeb		/* 18 bits				*/
+#define CAP_MAP_WIDTH		0xed		/* high 6 bits				*/
+#define CAP_PITCH		0xee		/* 8 bits				*/
 
 #define CAP_CTL_MISC		0xef
 #define CAP_CTL_MISC_HDIV		0x01
@@ -345,17 +348,23 @@ static void debug_printf(char *fmt, ...)
 #define REG_BANK_J			0x04
 #define REG_BANK_K			0x05
 
+/*
+ * Bus-master
+ */
 #define BM_VID_ADDR_LOW		0xbc040
 #define BM_VID_ADDR_HIGH	0xbc044
 #define BM_ADDRESS_LOW		0xbc080
 #define BM_ADDRESS_HIGH		0xbc084
 #define BM_LENGTH		0xbc088
 #define BM_CONTROL		0xbc08c
-#define BM_CONTROL_ENABLE		0x01	
-#define BM_CONTROL_IRQEN		0x02	
-#define BM_CONTROL_INIT			0x04	
-#define BM_COUNT		0xbc090		
+#define BM_CONTROL_ENABLE		0x01	/* enable transfer			*/
+#define BM_CONTROL_IRQEN		0x02	/* enable IRQ at end of transfer	*/
+#define BM_CONTROL_INIT			0x04	/* initialise status & count		*/
+#define BM_COUNT		0xbc090		/* read-only				*/
 
+/*
+ * TV registers
+ */
 #define TV_VBLANK_EVEN_START	0xbe43c
 #define TV_VBLANK_EVEN_END	0xbe440
 #define TV_VBLANK_ODD_START	0xbe444
@@ -388,13 +397,16 @@ static void debug_printf(char *fmt, ...)
 #define TV_EQL_END		0xbe4bc
 #define TV_SERR_START		0xbe4c0
 #define TV_SERR_END		0xbe4c4
-#define TV_CTL			0xbe4dc	
+#define TV_CTL			0xbe4dc	/* reflects a previous register- MVFCLR, MVPCLR etc P241*/
 #define TV_VSYNC_VGA_HS		0xbe4e8
 #define TV_FLICK_XMIN		0xbe514
 #define TV_FLICK_XMAX		0xbe518
 #define TV_FLICK_YMIN		0xbe51c
 #define TV_FLICK_YMAX		0xbe520
 
+/*
+ * Graphics Co-processor
+ */
 #define CO_REG_CONTROL		0xbf011
 #define CO_CTRL_BUSY			0x80
 #define CO_CTRL_CMDFULL			0x04
@@ -437,8 +449,8 @@ static void debug_printf(char *fmt, ...)
 #define CO_CMD_L_INC_UP			0x0002
 
 #define CO_REG_CMD_H		0xbf07e
-#define CO_CMD_H_BGSRCMAP		0x8000	
-#define CO_CMD_H_FGSRCMAP		0x2000	
+#define CO_CMD_H_BGSRCMAP		0x8000	/* otherwise bg colour */
+#define CO_CMD_H_FGSRCMAP		0x2000	/* otherwise fg colour */
 #define CO_CMD_H_BLITTER		0x0800
 
 #define CO_REG_SRC1_PTR		0xbf170
@@ -446,6 +458,9 @@ static void debug_printf(char *fmt, ...)
 #define CO_REG_DEST_PTR		0xbf178
 #define CO_REG_DEST_WIDTH	0xbf218
 
+/*
+ * Private structure
+ */
 struct cfb_info;
 
 struct cyberpro_info {
@@ -458,6 +473,12 @@ struct cyberpro_info {
 	unsigned int	chip_id;
 	unsigned int	irq;
 
+	/*
+	 * The following is a pointer to be passed into the
+	 * functions below.  The modules outside the main
+	 * cyber2000fb.c driver have no knowledge as to what
+	 * is within this structure.
+	 */
 	struct cfb_info *info;
 };
 
@@ -466,6 +487,10 @@ struct cyberpro_info {
 #define ID_CYBERPRO_2010	2
 #define ID_CYBERPRO_5000	3
 
+/*
+ * Note! Writing to the Cyber20x0 registers from an interrupt
+ * routine is definitely a bad idea atm.
+ */
 int cyber2000fb_attach(struct cyberpro_info *info, int idx);
 void cyber2000fb_detach(int idx);
 void cyber2000fb_enable_extregs(struct cfb_info *cfb);

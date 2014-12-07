@@ -56,6 +56,13 @@ static inline struct hp_sw_dh_data *get_hp_sw_data(struct scsi_device *sdev)
 	return ((struct hp_sw_dh_data *) scsi_dh_data->buf);
 }
 
+/*
+ * tur_done - Handle TEST UNIT READY return status
+ * @sdev: sdev the command has been sent to
+ * @errors: blk error code
+ *
+ * Returns SCSI_DH_DEV_OFFLINED if the sdev is on the passive path
+ */
 static int tur_done(struct scsi_device *sdev, unsigned char *sense)
 {
 	struct scsi_sense_hdr sshdr;
@@ -75,10 +82,15 @@ static int tur_done(struct scsi_device *sdev, unsigned char *sense)
 		break;
 	case NOT_READY:
 		if ((sshdr.asc == 0x04) && (sshdr.ascq == 2)) {
+			/*
+			 * LUN not ready - Initialization command required
+			 *
+			 * This is the passive path
+			 */
 			ret = SCSI_DH_DEV_OFFLINED;
 			break;
 		}
-		
+		/* Fallthrough */
 	default:
 		sdev_printk(KERN_WARNING, sdev,
 			   "%s: sending tur failed, sense %x/%x/%x\n",
@@ -91,6 +103,13 @@ done:
 	return ret;
 }
 
+/*
+ * hp_sw_tur - Send TEST UNIT READY
+ * @sdev: sdev command should be sent to
+ *
+ * Use the TEST UNIT READY command to determine
+ * the path state.
+ */
 static int hp_sw_tur(struct scsi_device *sdev, struct hp_sw_dh_data *h)
 {
 	struct request *req;
@@ -139,6 +158,11 @@ retry:
 	return ret;
 }
 
+/*
+ * start_done - Handle START STOP UNIT return status
+ * @sdev: sdev the command has been sent to
+ * @errors: blk error code
+ */
 static int start_done(struct scsi_device *sdev, unsigned char *sense)
 {
 	struct scsi_sense_hdr sshdr;
@@ -155,10 +179,15 @@ static int start_done(struct scsi_device *sdev, unsigned char *sense)
 	switch (sshdr.sense_key) {
 	case NOT_READY:
 		if ((sshdr.asc == 0x04) && (sshdr.ascq == 3)) {
+			/*
+			 * LUN not ready - manual intervention required
+			 *
+			 * Switch-over in progress, retry.
+			 */
 			rc = SCSI_DH_RETRY;
 			break;
 		}
-		
+		/* fall through */
 	default:
 		sdev_printk(KERN_WARNING, sdev,
 			   "%s: sending start_stop_unit failed, sense %x/%x/%x\n",
@@ -207,6 +236,12 @@ done:
 
 }
 
+/*
+ * hp_sw_start_stop - Send START STOP UNIT command
+ * @sdev: sdev command should be sent to
+ *
+ * Sending START STOP UNIT activates the SP.
+ */
 static int hp_sw_start_stop(struct hp_sw_dh_data *h)
 {
 	struct request *req;
@@ -220,7 +255,7 @@ static int hp_sw_start_stop(struct hp_sw_dh_data *h)
 			  REQ_FAILFAST_DRIVER;
 	req->cmd_len = COMMAND_SIZE(START_STOP);
 	req->cmd[0] = START_STOP;
-	req->cmd[4] = 1;	
+	req->cmd[4] = 1;	/* Start spin cycle */
 	req->timeout = HP_SW_TIMEOUT;
 	req->sense = h->sense;
 	memset(req->sense, 0, SCSI_SENSE_BUFFERSIZE);
@@ -244,6 +279,16 @@ static int hp_sw_prep_fn(struct scsi_device *sdev, struct request *req)
 
 }
 
+/*
+ * hp_sw_activate - Activate a path
+ * @sdev: sdev on the path to be activated
+ *
+ * The HP Active/Passive firmware is pretty simple;
+ * the passive path reports NOT READY with sense codes
+ * 0x04/0x02; a START STOP UNIT command will then
+ * activate the passive path (and deactivate the
+ * previously active one).
+ */
 static int hp_sw_activate(struct scsi_device *sdev,
 				activate_complete fn, void *data)
 {

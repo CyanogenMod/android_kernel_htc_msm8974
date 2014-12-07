@@ -66,12 +66,15 @@ void __init pagetable_init(void)
 	unsigned long vaddr;
 	pgd_t *pgd_base;
 
-	
+	/* Initialize the entire pgd.  */
 	pgd_init((unsigned long)swapper_pg_dir);
 #ifndef __PAGETABLE_PMD_FOLDED
 	pmd_init((unsigned long)invalid_pmd_table, (unsigned long)invalid_pte_table);
 #endif
 	pgd_base = swapper_pg_dir;
+	/*
+	 * Fixed mappings:
+	 */
 	vaddr = __fix_to_virt(__end_of_fixed_addresses - 1) & PMD_MASK;
 	fixrange_init(vaddr, vaddr + FIXADDR_SIZE, pgd_base);
 }

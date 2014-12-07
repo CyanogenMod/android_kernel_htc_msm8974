@@ -1,3 +1,4 @@
+/* 82596.c: A generic 82596 ethernet driver for linux. */
 /*
    Based on Apricot.c
    Written 1994 by Mark Evans.
@@ -63,6 +64,8 @@ static char version[] __initdata =
 
 #define DRV_NAME	"82596"
 
+/* DEBUG flags
+ */
 
 #define DEB_INIT	0x0001
 #define DEB_PROBE	0x0002
@@ -103,6 +106,10 @@ static char version[] __initdata =
 #include <asm/bvme6000hw.h>
 #endif
 
+/*
+ * Define various macros for Channel Attention, word swapping etc., dependent
+ * on architecture.  MVME and BVME are 680x0 based, otherwise it is Intel.
+ */
 
 #ifdef __mc68000__
 #define WSWAPrfd(x)  ((struct i596_rfd *) (((u32)(x)<<16) | ((((u32)(x)))>>16)))
@@ -132,10 +139,10 @@ static char version[] __initdata =
  * must be word-swapped with the most significant word written first.
  * This only applies to VME boards.
  */
-#define PORT_RESET		0x00	
-#define PORT_SELFTEST		0x01	
-#define PORT_ALTSCP		0x02	
-#define PORT_ALTDUMP		0x03	
+#define PORT_RESET		0x00	/* reset 82596 */
+#define PORT_SELFTEST		0x01	/* selftest */
+#define PORT_ALTSCP		0x02	/* alternate SCB address */
+#define PORT_ALTDUMP		0x03	/* Alternate DUMP address */
 
 static int i596_debug = (DEB_SERIOUS|DEB_PROBE);
 
@@ -147,6 +154,9 @@ module_param(i596_debug, int, 0);
 MODULE_PARM_DESC(i596_debug, "i82596 debug mask");
 
 
+/* Copy frames shorter than rx_copybreak, otherwise pass on up in
+ * a full sized sk_buff.  Value of 100 stolen from tulip.c (!alpha).
+ */
 static int rx_copybreak = 100;
 
 #define PKT_BUF_SZ	1536
@@ -156,21 +166,21 @@ static int rx_copybreak = 100;
 
 #define I596_NULL ((void *)0xffffffff)
 
-#define CMD_EOL		0x8000	
-#define CMD_SUSP	0x4000	
-#define CMD_INTR	0x2000	
+#define CMD_EOL		0x8000	/* The last command of the list, stop. */
+#define CMD_SUSP	0x4000	/* Suspend after doing cmd. */
+#define CMD_INTR	0x2000	/* Interrupt after doing cmd. */
 
-#define CMD_FLEX	0x0008	
+#define CMD_FLEX	0x0008	/* Enable flexible memory model */
 
 enum commands {
 	CmdNOp = 0, CmdSASetup = 1, CmdConfigure = 2, CmdMulticastList = 3,
 	CmdTx = 4, CmdTDR = 5, CmdDump = 6, CmdDiagnose = 7
 };
 
-#define STAT_C		0x8000	
-#define STAT_B		0x4000	
-#define STAT_OK		0x2000	
-#define STAT_A		0x1000	
+#define STAT_C		0x8000	/* Set to 0 after execution */
+#define STAT_B		0x4000	/* Command being executed */
+#define STAT_OK		0x2000	/* Command executed ok */
+#define STAT_A		0x1000	/* Command aborted */
 
 #define	 CUC_START	0x0100
 #define	 CUC_RESUME	0x0200
@@ -200,12 +210,21 @@ struct i596_tbd {
 	char *data;
 };
 
+/* The command structure has two 'next' pointers; v_next is the address of
+ * the next command as seen by the CPU, b_next is the address of the next
+ * command as seen by the 82596.  The b_next pointer, as used by the 82596
+ * always references the status field of the next command, rather than the
+ * v_next field, because the 82596 is unaware of v_next.  It may seem more
+ * logical to put v_next at the end of the structure, but we cannot do that
+ * because the 82596 expects other fields to be there, depending on command
+ * type.
+ */
 
 struct i596_cmd {
-	struct i596_cmd *v_next;	
+	struct i596_cmd *v_next;	/* Address from CPUs viewpoint */
 	unsigned short status;
 	unsigned short command;
-	struct i596_cmd *b_next;	
+	struct i596_cmd *b_next;	/* Address from i596 viewpoint */
 };
 
 struct tx_cmd {
@@ -213,7 +232,7 @@ struct tx_cmd {
 	struct i596_tbd *tbd;
 	unsigned short size;
 	unsigned short pad;
-	struct sk_buff *skb;	
+	struct sk_buff *skb;	/* So we can free it after tx */
 };
 
 struct tdr_cmd {
@@ -241,11 +260,11 @@ struct cf_cmd {
 struct i596_rfd {
 	unsigned short stat;
 	unsigned short cmd;
-	struct i596_rfd *b_next;	
+	struct i596_rfd *b_next;	/* Address from i596 viewpoint */
 	struct i596_rbd *rbd;
 	unsigned short count;
 	unsigned short size;
-	struct i596_rfd *v_next;	
+	struct i596_rfd *v_next;	/* Address from CPUs viewpoint */
 	struct i596_rfd *v_prev;
 };
 
@@ -253,13 +272,13 @@ struct i596_rbd {
     unsigned short count;
     unsigned short zero1;
     struct i596_rbd *b_next;
-    unsigned char *b_data;		
+    unsigned char *b_data;		/* Address from i596 viewpoint */
     unsigned short size;
     unsigned short zero2;
     struct sk_buff *skb;
     struct i596_rbd *v_next;
-    struct i596_rbd *b_addr;		
-    unsigned char *v_data;		
+    struct i596_rbd *b_addr;		/* This rbd addr from i596 view */
+    unsigned char *v_data;		/* Address from CPUs viewpoint */
 };
 
 #define TX_RING_SIZE 64
@@ -317,24 +336,24 @@ struct i596_private {
 
 static char init_setup[] =
 {
-	0x8E,			
-	0xC8,			
+	0x8E,			/* length, prefetch on */
+	0xC8,			/* fifo to 8, monitor off */
 #ifdef CONFIG_VME
-	0xc0,			
+	0xc0,			/* don't save bad frames */
 #else
-	0x80,			
+	0x80,			/* don't save bad frames */
 #endif
-	0x2E,			
-	0x00,			
-	0x60,			
-	0x00,			
-	0xf2,			
-	0x00,			
-	0x00,			
-	0x40,			
+	0x2E,			/* No source address insertion, 8 byte preamble */
+	0x00,			/* priority and backoff defaults */
+	0x60,			/* interframe spacing */
+	0x00,			/* slot time LSB */
+	0xf2,			/* slot time and retries */
+	0x00,			/* promiscuous mode */
+	0x00,			/* collision detect */
+	0x40,			/* minimum frame length */
 	0xff,
 	0x00,
-	0x7f  };
+	0x7f /*  *multi IA */ };
 
 static int i596_open(struct net_device *dev);
 static netdev_tx_t i596_start_xmit(struct sk_buff *skb, struct net_device *dev);
@@ -527,7 +546,7 @@ static inline int init_rx_bufs(struct net_device *dev)
 	struct i596_rfd *rfd;
 	struct i596_rbd *rbd;
 
-	
+	/* First build the Receive Buffer Descriptor List */
 
 	for (i = 0, rbd = lp->rbds; i < rx_ring_size; i++, rbd++) {
 		struct sk_buff *skb = netdev_alloc_skb(dev, PKT_BUF_SZ);
@@ -553,7 +572,7 @@ static inline int init_rx_bufs(struct net_device *dev)
 	rbd->v_next = lp->rbds;
 	rbd->b_next = WSWAPrbd(virt_to_bus(lp->rbds));
 
-	
+	/* Now build the Receive Frame Descriptor List */
 
 	for (i = 0, rfd = lp->rfds; i < rx_ring_size; i++, rfd++) {
 		rfd->rbd = I596_NULL;
@@ -581,7 +600,7 @@ static void rebuild_rx_bufs(struct net_device *dev)
 	struct i596_private *lp = dev->ml_priv;
 	int i;
 
-	
+	/* Ensure rx frame/buffer descriptors are tidy */
 
 	for (i = 0; i < rx_ring_size; i++) {
 		lp->rfds[i].rbd = I596_NULL;
@@ -605,16 +624,20 @@ static int init_i596_mem(struct net_device *dev)
 
 	MPU_PORT(dev, PORT_RESET, NULL);
 
-	udelay(100);		
+	udelay(100);		/* Wait 100us - seems to help */
 
 #if defined(ENABLE_MVME16x_NET) || defined(ENABLE_BVME6000_NET)
 #ifdef ENABLE_MVME16x_NET
 	if (MACH_IS_MVME16x) {
 		volatile unsigned char *pcc2 = (unsigned char *) 0xfff42000;
 
-		
+		/* Disable all ints for now */
 		pcc2[0x28] = 1;
 		pcc2[0x2a] = 0x48;
+		/* Following disables snooping.  Snooping is not required
+		 * as we make appropriate use of non-cached pages for
+		 * shared data, and cache_push/cache_clear.
+		 */
 		pcc2[0x2b] = 0x08;
 	}
 #endif
@@ -626,7 +649,7 @@ static int init_i596_mem(struct net_device *dev)
 	}
 #endif
 
-	
+	/* change the scp address */
 
 	MPU_PORT(dev, PORT_ALTSCP, (void *)virt_to_bus((void *)&lp->scp));
 
@@ -635,7 +658,7 @@ static int init_i596_mem(struct net_device *dev)
 	{
 		u32 scp = virt_to_bus(&lp->scp);
 
-		
+		/* change the scp address */
 		outw(0, ioaddr);
 		outw(0, ioaddr);
 		outb(4, ioaddr + 0xf);
@@ -685,7 +708,7 @@ static int init_i596_mem(struct net_device *dev)
 		goto failed;
 	DEB(DEB_INIT,printk(KERN_DEBUG "%s: i82596 initialization successful\n", dev->name));
 
-	
+	/* Ensure rx frame/buffer descriptors are tidy */
 	rebuild_rx_bufs(dev);
 	lp->scb.command = 0;
 
@@ -693,8 +716,8 @@ static int init_i596_mem(struct net_device *dev)
 	if (MACH_IS_MVME16x) {
 		volatile unsigned char *pcc2 = (unsigned char *) 0xfff42000;
 
-		
-		pcc2[0x2a] = 0x55;	
+		/* Enable ints, etc. now */
+		pcc2[0x2a] = 0x55;	/* Edge sensitive */
 		pcc2[0x2b] = 0x15;
 	}
 #endif
@@ -754,23 +777,23 @@ static inline int i596_rx(struct net_device *dev)
 	DEB(DEB_RXFRAME,printk(KERN_DEBUG "i596_rx(), rfd_head %p, rbd_head %p\n",
 			lp->rfd_head, lp->rbd_head));
 
-	rfd = lp->rfd_head;		
+	rfd = lp->rfd_head;		/* Ref next frame to check */
 
-	while ((rfd->stat) & STAT_C) {	
+	while ((rfd->stat) & STAT_C) {	/* Loop while complete frames */
 		if (rfd->rbd == I596_NULL)
 			rbd = I596_NULL;
 		else if (rfd->rbd == lp->rbd_head->b_addr)
 			rbd = lp->rbd_head;
 		else {
 			printk(KERN_CRIT "%s: rbd chain broken!\n", dev->name);
-			
+			/* XXX Now what? */
 			rbd = I596_NULL;
 		}
 		DEB(DEB_RXFRAME, printk(KERN_DEBUG "  rfd %p, rfd.rbd %p, rfd.stat %04x\n",
 			rfd, rfd->rbd, rfd->stat));
 
 		if (rbd != I596_NULL && ((rfd->stat) & STAT_OK)) {
-			
+			/* a good frame */
 			int pkt_len = rbd->count & 0x3fff;
 			struct sk_buff *skb = rbd->skb;
 			int rx_in_place = 0;
@@ -778,17 +801,20 @@ static inline int i596_rx(struct net_device *dev)
 			DEB(DEB_RXADDR,print_eth(rbd->v_data, "received"));
 			frames++;
 
+			/* Check if the packet is long enough to just accept
+			 * without copying to a properly sized skbuff.
+			 */
 
 			if (pkt_len > rx_copybreak) {
 				struct sk_buff *newskb;
 
-				
+				/* Get fresh skbuff to replace filled one. */
 				newskb = netdev_alloc_skb(dev, PKT_BUF_SZ);
 				if (newskb == NULL) {
-					skb = NULL;	
+					skb = NULL;	/* drop pkt */
 					goto memory_squeeze;
 				}
-				
+				/* Pass up the skb already on the Rx ring. */
 				skb_put(skb, pkt_len);
 				rx_in_place = 1;
 				rbd->skb = newskb;
@@ -802,13 +828,13 @@ static inline int i596_rx(struct net_device *dev)
 				skb = netdev_alloc_skb(dev, pkt_len + 2);
 memory_squeeze:
 			if (skb == NULL) {
-				
+				/* XXX tulip.c can defer packets here!! */
 				printk(KERN_WARNING "%s: i596_rx Memory squeeze, dropping packet.\n", dev->name);
 				dev->stats.rx_dropped++;
 			}
 			else {
 				if (!rx_in_place) {
-					
+					/* 16 byte align the data fields */
 					skb_reserve(skb, 2);
 					memcpy(skb_put(skb,pkt_len), rbd->v_data, pkt_len);
 				}
@@ -843,25 +869,25 @@ memory_squeeze:
 				dev->stats.rx_length_errors++;
 		}
 
-		
+		/* Clear the buffer descriptor count and EOF + F flags */
 
 		if (rbd != I596_NULL && (rbd->count & 0x4000)) {
 			rbd->count = 0;
 			lp->rbd_head = rbd->v_next;
 		}
 
-		
+		/* Tidy the frame descriptor, marking it as end of list */
 
 		rfd->rbd = I596_NULL;
 		rfd->stat = 0;
 		rfd->cmd = CMD_EOL|CMD_FLEX;
 		rfd->count = 0;
 
-		
+		/* Remove end-of-list from old end descriptor */
 
 		rfd->v_prev->cmd = CMD_FLEX;
 
-		
+		/* Update record of next frame descriptor to process */
 
 		lp->scb.rfd = rfd->b_next;
 		lp->rfd_head = rfd->v_next;
@@ -895,7 +921,7 @@ static void i596_cleanup_cmd(struct net_device *dev, struct i596_private *lp)
 				dev->stats.tx_aborted_errors++;
 
 				ptr->v_next = ptr->b_next = I596_NULL;
-				tx_cmd->cmd.command = 0;  
+				tx_cmd->cmd.command = 0;  /* Mark as free */
 				break;
 			}
 		default:
@@ -923,7 +949,7 @@ static void i596_reset(struct net_device *dev, struct i596_private *lp,
 	lp->scb.command = CUC_ABORT | RX_ABORT;
 	CA(dev);
 
-	
+	/* wait for shutdown */
 	wait_cmd(dev,lp,1000,"i596_reset 2 timed out");
 	spin_unlock_irqrestore (&lp->lock, flags);
 
@@ -1024,26 +1050,26 @@ static void i596_tx_timeout (struct net_device *dev)
 	struct i596_private *lp = dev->ml_priv;
 	int ioaddr = dev->base_addr;
 
-	
+	/* Transmitter timeout, serious problems. */
 	DEB(DEB_ERRORS,printk(KERN_ERR "%s: transmit timed out, status resetting.\n",
 			dev->name));
 
 	dev->stats.tx_errors++;
 
-	
+	/* Try to restart the adaptor */
 	if (lp->last_restart == dev->stats.tx_packets) {
 		DEB(DEB_ERRORS,printk(KERN_ERR "Resetting board.\n"));
-		
+		/* Shutdown and restart */
 		i596_reset (dev, lp, ioaddr);
 	} else {
-		
+		/* Issue a channel attention signal */
 		DEB(DEB_ERRORS,printk(KERN_ERR "Kicking board.\n"));
 		lp->scb.command = CUC_START | RX_START;
 		CA (dev);
 		lp->last_restart = dev->stats.tx_packets;
 	}
 
-	dev->trans_start = jiffies; 
+	dev->trans_start = jiffies; /* prevent tx timeout */
 	netif_wake_queue (dev);
 }
 
@@ -1156,7 +1182,7 @@ struct net_device * __init i82596_probe(int unit)
 			err = -ENODEV;
 			goto out;
 		}
-		memcpy(eth_addr, (void *) 0xfffc1f2c, 6);	
+		memcpy(eth_addr, (void *) 0xfffc1f2c, 6);	/* YUCK! Get addr from NOVRAM */
 		dev->base_addr = MVME_I596_BASE;
 		dev->irq = (unsigned) MVME16x_IRQ_I596;
 		goto found;
@@ -1170,7 +1196,7 @@ struct net_device * __init i82596_probe(int unit)
 
 		rtc[3] |= 0x80;
 		for (i = 0; i < 6; i++)
-			eth_addr[i] = rtc[i * 4 + 7];	
+			eth_addr[i] = rtc[i * 4 + 7];	/* Stored in RTC RAM at offset 1 */
 		rtc[3] = msr;
 		dev->base_addr = BVME_I596_BASE;
 		dev->irq = (unsigned) BVME_IRQ_I596;
@@ -1182,8 +1208,8 @@ struct net_device * __init i82596_probe(int unit)
 		int checksum = 0;
 		int ioaddr = 0x300;
 
-		
-		
+		/* this is easy the ethernet interface can only be at 0x300 */
+		/* first check nothing is already registered here */
 
 		if (!request_region(ioaddr, I596_TOTAL_SIZE, DRV_NAME)) {
 			printk(KERN_ERR "82596: IO address 0x%04x in use\n", ioaddr);
@@ -1198,6 +1224,11 @@ struct net_device * __init i82596_probe(int unit)
 			checksum += eth_addr[i];
 		}
 
+		/* checksum is a multiple of 0x100, got this wrong first time
+		   some machines have 0x100, some 0x200. The DOS driver doesn't
+		   even bother with the checksum.
+		   Some other boards trip the checksum.. but then appear as
+		   ether address 0. Trap these - AC */
 
 		if ((checksum % 0x100) ||
 		    (memcmp(eth_addr, "\x00\x00\x49", 3) != 0)) {
@@ -1228,7 +1259,7 @@ found:
 
 	DEB(DEB_PROBE,printk(KERN_INFO "%s", version));
 
-	
+	/* The 82596-specific entries in the device structure. */
 	dev->netdev_ops = &i596_netdev_ops;
 	dev->watchdog_timeo = TX_TIMEOUT;
 
@@ -1257,6 +1288,9 @@ found:
 	return dev;
 out2:
 #ifdef __mc68000__
+	/* XXX This assumes default cache mode to be IOMAP_FULL_CACHING,
+	 * XXX which may be invalid (CONFIG_060_WRITETHROUGH)
+	 */
 	kernel_set_cachemode((void *)(dev->mem_start), 4096,
 			IOMAP_FULL_CACHING);
 #endif
@@ -1345,7 +1379,7 @@ static irqreturn_t i596_interrupt(int irq, void *dev_id)
 
 				dev_kfree_skb_irq(skb);
 
-				tx_cmd->cmd.command = 0; 
+				tx_cmd->cmd.command = 0; /* Mark free */
 				break;
 			    }
 			case CmdTDR:
@@ -1368,7 +1402,7 @@ static irqreturn_t i596_interrupt(int irq, void *dev_id)
 			    }
 			case CmdConfigure:
 			case CmdMulticastList:
-				
+				/* Zap command so set_multicast_list() knows it is free */
 				ptr->command = 0;
 				break;
 			}
@@ -1390,7 +1424,7 @@ static irqreturn_t i596_interrupt(int irq, void *dev_id)
 		if ((status & 0x4000))
 			DEB(DEB_INTS,printk(KERN_DEBUG "%s: i596 interrupt received a frame.\n", dev->name));
 		i596_rx(dev);
-		
+		/* Only RX_START if stopped - RGH 07-07-96 */
 		if (status & 0x1000) {
 			if (netif_running(dev)) {
 				DEB(DEB_ERRORS,printk(KERN_ERR "%s: i596 interrupt receive unit inactive, status 0x%x\n", dev->name, status));
@@ -1406,7 +1440,7 @@ static irqreturn_t i596_interrupt(int irq, void *dev_id)
 
 #ifdef ENABLE_MVME16x_NET
 	if (MACH_IS_MVME16x) {
-		
+		/* Ack the interrupt */
 
 		volatile unsigned char *pcc2 = (unsigned char *) 0xfff42000;
 
@@ -1459,10 +1493,10 @@ static int i596_close(struct net_device *dev)
 	if (MACH_IS_MVME16x) {
 		volatile unsigned char *pcc2 = (unsigned char *) 0xfff42000;
 
-		
+		/* Disable all ints */
 		pcc2[0x28] = 1;
 		pcc2[0x2a] = 0x40;
-		pcc2[0x2b] = 0x40;	
+		pcc2[0x2b] = 0x40;	/* Set snooping bits now! */
 	}
 #endif
 #ifdef ENABLE_BVME6000_NET
@@ -1482,6 +1516,9 @@ static int i596_close(struct net_device *dev)
 	return 0;
 }
 
+/*
+ *    Set or clear the multicast filter for this adaptor.
+ */
 
 static void set_multicast_list(struct net_device *dev)
 {
@@ -1575,16 +1612,19 @@ void __exit cleanup_module(void)
 {
 	unregister_netdev(dev_82596);
 #ifdef __mc68000__
+	/* XXX This assumes default cache mode to be IOMAP_FULL_CACHING,
+	 * XXX which may be invalid (CONFIG_060_WRITETHROUGH)
+	 */
 
 	kernel_set_cachemode((void *)(dev_82596->mem_start), 4096,
 			IOMAP_FULL_CACHING);
 #endif
 	free_page ((u32)(dev_82596->mem_start));
 #ifdef ENABLE_APRICOT
-	
+	/* If we don't do this, we can't re-insmod it later. */
 	release_region(dev_82596->base_addr, I596_TOTAL_SIZE);
 #endif
 	free_netdev(dev_82596);
 }
 
-#endif				
+#endif				/* MODULE */

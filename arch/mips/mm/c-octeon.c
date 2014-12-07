@@ -28,9 +28,15 @@
 
 unsigned long long cache_err_dcache[NR_CPUS];
 
+/**
+ * Octeon automatically flushes the dcache on tlb changes, so
+ * from Linux's viewpoint it acts much like a physically
+ * tagged cache. No flushing is needed
+ *
+ */
 static void octeon_flush_data_cache_page(unsigned long addr)
 {
-    
+    /* Nothing to do */
 }
 
 static inline void octeon_local_flush_icache(void)
@@ -38,12 +44,21 @@ static inline void octeon_local_flush_icache(void)
 	asm volatile ("synci 0($0)");
 }
 
+/*
+ * Flush local I-cache for the specified range.
+ */
 static void local_octeon_flush_icache_range(unsigned long start,
 					    unsigned long end)
 {
 	octeon_local_flush_icache();
 }
 
+/**
+ * Flush caches as necessary for all cores affected by a
+ * vma. If no vma is supplied, all cores are flushed.
+ *
+ * @vma:    VMA to flush or NULL to flush all icaches.
+ */
 static void octeon_flush_icache_all_cores(struct vm_area_struct *vma)
 {
 	extern void octeon_send_ipi_single(int cpu, unsigned int action);
@@ -58,6 +73,10 @@ static void octeon_flush_icache_all_cores(struct vm_area_struct *vma)
 	preempt_disable();
 	cpu = smp_processor_id();
 
+	/*
+	 * If we have a vma structure, we only need to worry about
+	 * cores it has been used on
+	 */
 	if (vma)
 		mask = *mm_cpumask(vma->vm_mm);
 	else
@@ -71,23 +90,46 @@ static void octeon_flush_icache_all_cores(struct vm_area_struct *vma)
 }
 
 
+/**
+ * Called to flush the icache on all cores
+ */
 static void octeon_flush_icache_all(void)
 {
 	octeon_flush_icache_all_cores(NULL);
 }
 
 
+/**
+ * Called to flush all memory associated with a memory
+ * context.
+ *
+ * @mm:     Memory context to flush
+ */
 static void octeon_flush_cache_mm(struct mm_struct *mm)
 {
+	/*
+	 * According to the R4K version of this file, CPUs without
+	 * dcache aliases don't need to do anything here
+	 */
 }
 
 
+/**
+ * Flush a range of kernel addresses out of the icache
+ *
+ */
 static void octeon_flush_icache_range(unsigned long start, unsigned long end)
 {
 	octeon_flush_icache_all_cores(NULL);
 }
 
 
+/**
+ * Flush the icache for a trampoline. These are used for interrupt
+ * and exception hooking.
+ *
+ * @addr:   Address to flush
+ */
 static void octeon_flush_cache_sigtramp(unsigned long addr)
 {
 	struct vm_area_struct *vma;
@@ -97,6 +139,13 @@ static void octeon_flush_cache_sigtramp(unsigned long addr)
 }
 
 
+/**
+ * Flush a range out of a vma
+ *
+ * @vma:    VMA to flush
+ * @start:
+ * @end:
+ */
 static void octeon_flush_cache_range(struct vm_area_struct *vma,
 				     unsigned long start, unsigned long end)
 {
@@ -105,6 +154,13 @@ static void octeon_flush_cache_range(struct vm_area_struct *vma,
 }
 
 
+/**
+ * Flush a specific page of a vma
+ *
+ * @vma:    VMA to flush page for
+ * @page:   Page to flush
+ * @pfn:
+ */
 static void octeon_flush_cache_page(struct vm_area_struct *vma,
 				    unsigned long page, unsigned long pfn)
 {
@@ -117,6 +173,10 @@ static void octeon_flush_kernel_vmap_range(unsigned long vaddr, int size)
 	BUG();
 }
 
+/**
+ * Probe Octeon's caches
+ *
+ */
 static void __cpuinit probe_octeon(void)
 {
 	unsigned long icache_size;
@@ -137,9 +197,9 @@ static void __cpuinit probe_octeon(void)
 		c->icache.waybit = ffs(icache_size / c->icache.ways) - 1;
 		c->dcache.linesz = 128;
 		if (c->cputype == CPU_CAVIUM_OCTEON_PLUS)
-			c->dcache.sets = 2; 
+			c->dcache.sets = 2; /* CN5XXX has two Dcache sets */
 		else
-			c->dcache.sets = 1; 
+			c->dcache.sets = 1; /* CN3XXX has one Dcache set */
 		c->dcache.ways = 64;
 		dcache_size =
 			c->dcache.sets * c->dcache.ways * c->dcache.linesz;
@@ -166,7 +226,7 @@ static void __cpuinit probe_octeon(void)
 		break;
 	}
 
-	
+	/* compute a couple of other cache variables */
 	c->icache.waysize = icache_size / c->icache.ways;
 	c->dcache.waysize = dcache_size / c->dcache.ways;
 
@@ -189,6 +249,10 @@ static void __cpuinit probe_octeon(void)
 }
 
 
+/**
+ * Setup the Octeon cache flush routines
+ *
+ */
 void __cpuinit octeon_cache_init(void)
 {
 	extern unsigned long ebase;
@@ -218,6 +282,9 @@ void __cpuinit octeon_cache_init(void)
 	build_copy_page();
 }
 
+/**
+ * Handle a cache error exception
+ */
 
 static void  cache_parity_error_octeon(int non_recoverable)
 {
@@ -241,12 +308,18 @@ static void  cache_parity_error_octeon(int non_recoverable)
 		panic("Can't handle cache error: nested exception");
 }
 
+/**
+ * Called when the the exception is recoverable
+ */
 
 asmlinkage void cache_parity_error_octeon_recoverable(void)
 {
 	cache_parity_error_octeon(0);
 }
 
+/**
+ * Called when the the exception is not recoverable
+ */
 
 asmlinkage void cache_parity_error_octeon_non_recoverable(void)
 {

@@ -1,9 +1,9 @@
 #include <linux/buffer_head.h>
 #include "minix.h"
 
-enum {DIRECT = 7, DEPTH = 4};	
+enum {DIRECT = 7, DEPTH = 4};	/* Have triple indirect */
 
-typedef u32 block_t;	
+typedef u32 block_t;	/* 32 bit, host order */
 
 static inline unsigned long block_to_cpu(block_t n)
 {

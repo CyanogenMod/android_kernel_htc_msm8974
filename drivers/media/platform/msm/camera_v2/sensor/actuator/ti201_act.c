@@ -16,6 +16,7 @@
 #include "msm_actuator.h"
 #include "msm_cci.h"
 
+/*#define MSM_ACUTUATOR_DEBUG*/
 #undef CDBG
 #ifdef MSM_ACUTUATOR_DEBUG
 #define CDBG(fmt, args...) pr_info(fmt, ##args)
@@ -31,6 +32,7 @@ static struct msm_actuator *actuators[] = {
 	&msm_piezo_actuator_table,
 };
 
+/*HTC_START, Get step position table from user space for actuator modulation*/
 #if 0
 static int ti201_sharp_kernel_step_table[] = {
 	304, 309, 314, 319, 324, 329, 333, 339, 344, 350,
@@ -44,6 +46,7 @@ static int ti201_liteon_kernel_step_table[] = {
 	324, 333, 341, 351, 360, 371, 381, 393, 404, 417, 429
 };
 #endif
+/*HTC_END*/
 
 struct msm_actuator_ext ti201_act_ext = {
 	.is_ois_supported = 1,
@@ -58,6 +61,7 @@ struct msm_actuator_ext ti201_act_ext = {
 static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 	struct msm_actuator_set_info_t *set_info)
 {
+/*HTC_START, Get step position table from user space for actuator modulation*/
 #if 1
     int i = 0;
     CDBG("Enter\n");
@@ -66,7 +70,7 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
       kfree(a_ctrl->step_position_table);
     a_ctrl->step_position_table = NULL;
 
-    
+    /* Fill step position table */
     a_ctrl->step_position_table =
     kmalloc(sizeof(uint16_t) *(set_info->af_tuning_params.total_steps + 1), GFP_KERNEL);
 
@@ -103,7 +107,7 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 	kfree(a_ctrl->step_position_table);
 	a_ctrl->step_position_table = NULL;
 
-	
+	/* Fill step position table */
 	a_ctrl->step_position_table =
 		kmalloc(sizeof(uint16_t) *
 		(set_info->af_tuning_params.total_steps + 1), GFP_KERNEL);
@@ -138,6 +142,7 @@ static int32_t msm_actuator_init_step_table(struct msm_actuator_ctrl_t *a_ctrl,
 		pr_err("%s: Setp table size is unmatched!!", __func__);
 	}
 #endif
+/*HTC_END*/
 	CDBG("Exit\n");
 	return 0;
 }
@@ -276,7 +281,7 @@ static void msm_actuator_write_focus(
 	damping_code_step = damping_params->damping_step;
 	wait_time = damping_params->damping_delay;
 
-	
+	/* Write code based on damping_code_step in a loop */
 
 	if(tmp_curr_step_pos > 0 && tmp_curr_step_pos < a_ctrl->total_steps) {
 		tmp_curr_step_pos += (sign_direction * step_pos_step);
@@ -365,6 +370,7 @@ static void msm_actuator_parse_i2c_params(struct msm_actuator_ctrl_t *a_ctrl,
 	CDBG("Exit\n");
 }
 
+/*HTC_START Harvey 20130701 - Set otp af value*/
 int32_t ti201_act_set_af_value(struct msm_actuator_ctrl_t *a_ctrl, af_value_t af_value)
 {
 	int32_t rc = 0;
@@ -380,12 +386,12 @@ int32_t ti201_act_set_af_value(struct msm_actuator_ctrl_t *a_ctrl, af_value_t af
 	OTP_data[3] = af_value.AF_INF_LSB;
 	OTP_data[4] = af_value.AF_MACRO_MSB;
 	OTP_data[5] = af_value.AF_MACRO_LSB;
-	
+	/*opt diviation depends on different trace wide*/
 
 	if (OTP_data[2] || OTP_data[3] || OTP_data[4] || OTP_data[5]) {
 		a_ctrl->af_OTP_info.VCM_OTP_Read = true;
 		a_ctrl->af_OTP_info.VCM_Vendor = af_value.VCM_VENDOR;
-		otp_deviation = (a_ctrl->af_OTP_info.VCM_Vendor == 0x1) ? 160 : 60;
+		otp_deviation = (a_ctrl->af_OTP_info.VCM_Vendor == 0x1/*sharp*/) ? 160 : 60;
 		a_ctrl->af_OTP_info.VCM_Start = 0;
 		pr_info("");
 		VCM_Infinity = (int16_t)(OTP_data[2]<<8 | OTP_data[3]) - otp_deviation;
@@ -404,6 +410,7 @@ int32_t ti201_act_set_af_value(struct msm_actuator_ctrl_t *a_ctrl, af_value_t af
 	pr_info("VCM Module vendor =  = %d\n", a_ctrl->af_OTP_info.VCM_Vendor);
 	return rc;
 }
+/*HTC_END*/
 
 int32_t ti201_act_set_ois_mode(struct msm_actuator_ctrl_t *a_ctrl, int ois_mode)
 {
@@ -441,8 +448,10 @@ static struct msm_actuator msm_vcm_actuator_table = {
 		.actuator_set_default_focus = msm_actuator_set_default_focus,
 		.actuator_init_focus = msm_actuator_init_focus,
 		.actuator_parse_i2c_params = msm_actuator_parse_i2c_params,
+/*HTC_START Harvey 20130628 - Porting OIS*/
 		.actuator_set_ois_mode = msm_actuator_set_ois_mode,
 		.actuator_update_ois_tbl = msm_actuator_update_ois_tbl,
+/*HTC_END*/
 	},
 };
 
@@ -456,8 +465,10 @@ static struct msm_actuator msm_piezo_actuator_table = {
 			msm_actuator_piezo_set_default_focus,
 		.actuator_init_focus = msm_actuator_init_focus,
 		.actuator_parse_i2c_params = msm_actuator_parse_i2c_params,
+/*HTC_START Harvey 20130628 - Porting OIS*/
 		.actuator_set_ois_mode = msm_actuator_set_ois_mode,
 		.actuator_update_ois_tbl = msm_actuator_update_ois_tbl,
+/*HTC_END*/
 	},
 };
 

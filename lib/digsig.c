@@ -40,11 +40,11 @@ static int pkcs_1_v1_5_decode_emsa(const unsigned char *msg,
 
 	modulus_len = (modulus_bitlen >> 3) + (modulus_bitlen & 7 ? 1 : 0);
 
-	
+	/* test message size */
 	if ((msglen > modulus_len) || (modulus_len < 11))
 		return -EINVAL;
 
-	
+	/* separate encoded message */
 	if ((msg[0] != 0x00) || (msg[1] != (unsigned char)1))
 		return -EINVAL;
 
@@ -52,8 +52,10 @@ static int pkcs_1_v1_5_decode_emsa(const unsigned char *msg,
 		if (msg[i] != 0xFF)
 			break;
 
-	
+	/* separator check */
 	if (msg[i] != 0)
+		/* There was no octet with hexadecimal value 0x00
+		to separate ps from m. */
 		return -EINVAL;
 
 	ps_len = i - 2;
@@ -69,6 +71,9 @@ static int pkcs_1_v1_5_decode_emsa(const unsigned char *msg,
 	return 0;
 }
 
+/*
+ * RSA Signature verification with public key
+ */
 static int digsig_verify_rsa(struct key *key,
 		    const char *sig, int siglen,
 		       const char *h, int hlen)
@@ -175,6 +180,20 @@ err1:
 	return err;
 }
 
+/**
+ * digsig_verify() - digital signature verification with public key
+ * @keyring:	keyring to search key in
+ * @sig:	digital signature
+ * @sigen:	length of the signature
+ * @data:	data
+ * @datalen:	length of the data
+ * @return:	0 on success, -EINVAL otherwise
+ *
+ * Verifies data integrity against digital signature.
+ * Currently only RSA is supported.
+ * Normally hash of the content is used as a data for this function.
+ *
+ */
 int digsig_verify(struct key *keyring, const char *sig, int siglen,
 						const char *data, int datalen)
 {
@@ -194,7 +213,7 @@ int digsig_verify(struct key *keyring, const char *sig, int siglen,
 	sprintf(name, "%llX", __be64_to_cpup((uint64_t *)sh->keyid));
 
 	if (keyring) {
-		
+		/* search in specific keyring */
 		key_ref_t kref;
 		kref = keyring_search(make_key_ref(keyring, 1UL),
 						&key_type_user, name);
@@ -225,7 +244,7 @@ int digsig_verify(struct key *keyring, const char *sig, int siglen,
 
 	kfree(desc);
 
-	
+	/* pass signature mpis address */
 	err = digsig_verify_rsa(key, sig + sizeof(*sh), siglen - sizeof(*sh),
 			     hash, sizeof(hash));
 

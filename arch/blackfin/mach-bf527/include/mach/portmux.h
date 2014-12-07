@@ -93,6 +93,7 @@
 #define P_TMR4		(P_DEFINED | P_IDENT(GPIO_PG8) | P_FUNCT(0))
 #define P_TMR5		(P_DEFINED | P_IDENT(GPIO_PG9) | P_FUNCT(0))
 #define P_TMR6		(P_DEFINED | P_IDENT(GPIO_PG10) | P_FUNCT(0))
+/* #define P_TMR7		(P_DEFINED | P_IDENT(GPIO_PG11) | P_FUNCT(0)) */
 #define P_DMAR1		(P_DEFINED | P_IDENT(GPIO_PG12) | P_FUNCT(0))
 #define P_DMAR0		(P_DEFINED | P_IDENT(GPIO_PG13) | P_FUNCT(0))
 #define P_TMR2		(P_DEFINED | P_IDENT(GPIO_PG6) | P_FUNCT(1))
@@ -216,4 +217,4 @@
 	P_MDC, \
 	P_MDIO, 0}
 
-#endif				
+#endif				/* _MACH_PORTMUX_H_ */

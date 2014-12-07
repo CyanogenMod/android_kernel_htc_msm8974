@@ -59,6 +59,17 @@ void nilfs_inode_sub_blocks(struct inode *inode, int n)
 		atomic_sub(n, &root->blocks_count);
 }
 
+/**
+ * nilfs_get_block() - get a file block on the filesystem (callback function)
+ * @inode - inode struct of the target file
+ * @blkoff - file block number
+ * @bh_result - buffer head to be mapped on
+ * @create - indicate whether allocating the block or not when it has not
+ *      been allocated yet.
+ *
+ * This function does not issue actual read request of the specified data
+ * block. It is done by VFS.
+ */
 int nilfs_get_block(struct inode *inode, sector_t blkoff,
 		    struct buffer_head *bh_result, int create)
 {
@@ -71,13 +82,13 @@ int nilfs_get_block(struct inode *inode, sector_t blkoff,
 	down_read(&NILFS_MDT(nilfs->ns_dat)->mi_sem);
 	ret = nilfs_bmap_lookup_contig(ii->i_bmap, blkoff, &blknum, maxblocks);
 	up_read(&NILFS_MDT(nilfs->ns_dat)->mi_sem);
-	if (ret >= 0) {	
+	if (ret >= 0) {	/* found */
 		map_bh(bh_result, inode->i_sb, blknum);
 		if (ret > 0)
 			bh_result->b_size = (ret << inode->i_blkbits);
 		goto out;
 	}
-	
+	/* data block was not found */
 	if (ret == -ENOENT && create) {
 		struct nilfs_transaction_info ti;
 
@@ -89,6 +100,12 @@ int nilfs_get_block(struct inode *inode, sector_t blkoff,
 					(unsigned long)bh_result);
 		if (unlikely(err != 0)) {
 			if (err == -EEXIST) {
+				/*
+				 * The get_block() function could be called
+				 * from multiple callers for an inode.
+				 * However, the page having this block must
+				 * be locked in this case.
+				 */
 				printk(KERN_WARNING
 				       "nilfs_get_block: a race condition "
 				       "while inserting a data block. "
@@ -102,12 +119,15 @@ int nilfs_get_block(struct inode *inode, sector_t blkoff,
 			goto out;
 		}
 		nilfs_mark_inode_dirty(inode);
-		nilfs_transaction_commit(inode->i_sb); 
-		
+		nilfs_transaction_commit(inode->i_sb); /* never fails */
+		/* Error handling should be detailed */
 		set_buffer_new(bh_result);
 		set_buffer_delay(bh_result);
-		map_bh(bh_result, inode->i_sb, 0); 
+		map_bh(bh_result, inode->i_sb, 0); /* dbn must be changed
+						      to proper value */
 	} else if (ret == -ENOENT) {
+		/* not found is not error (e.g. hole); must return without
+		   the mapped state flag. */
 		;
 	} else {
 		err = ret;
@@ -117,11 +137,25 @@ int nilfs_get_block(struct inode *inode, sector_t blkoff,
 	return err;
 }
 
+/**
+ * nilfs_readpage() - implement readpage() method of nilfs_aops {}
+ * address_space_operations.
+ * @file - file struct of the file to be read
+ * @page - the page to be read
+ */
 static int nilfs_readpage(struct file *file, struct page *page)
 {
 	return mpage_readpage(page, nilfs_get_block);
 }
 
+/**
+ * nilfs_readpages() - implement readpages() method of nilfs_aops {}
+ * address_space_operations.
+ * @file - file struct of the file to be read
+ * @mapping - address_space struct used for reading multiple pages
+ * @pages - the pages to be read
+ * @nr_pages - number of pages to be read
+ */
 static int nilfs_readpages(struct file *file, struct address_space *mapping,
 			   struct list_head *pages, unsigned nr_pages)
 {
@@ -224,10 +258,14 @@ nilfs_direct_IO(int rw, struct kiocb *iocb, const struct iovec *iov,
 	if (rw == WRITE)
 		return 0;
 
-	
+	/* Needs synchronization with the cleaner */
 	size = blockdev_direct_IO(rw, iocb, inode, iov, offset, nr_segs,
 				  nilfs_get_block);
 
+	/*
+	 * In case of error extending write may have instantiated a few
+	 * blocks outside i_size. Trim these off again.
+	 */
 	if (unlikely((rw & WRITE) && size < 0)) {
 		loff_t isize = i_size_read(inode);
 		loff_t end = offset + iov_length(iov, nr_segs);
@@ -247,7 +285,7 @@ const struct address_space_operations nilfs_aops = {
 	.readpages		= nilfs_readpages,
 	.write_begin		= nilfs_write_begin,
 	.write_end		= nilfs_write_end,
-	
+	/* .releasepage		= nilfs_releasepage, */
 	.invalidatepage		= block_invalidatepage,
 	.direct_IO		= nilfs_direct_IO,
 	.is_partially_uptodate  = block_is_partially_uptodate,
@@ -278,7 +316,7 @@ struct inode *nilfs_new_inode(struct inode *dir, umode_t mode)
 	err = nilfs_ifile_create_inode(root->ifile, &ino, &ii->i_bh);
 	if (unlikely(err))
 		goto failed_ifile_create_inode;
-	
+	/* reference count of i_bh inherits from nilfs_mdt_read_block() */
 
 	atomic_inc(&root->inodes_count);
 	inode_init_owner(inode, dir, mode);
@@ -291,14 +329,14 @@ struct inode *nilfs_new_inode(struct inode *dir, umode_t mode)
 			goto failed_bmap;
 
 		set_bit(NILFS_I_BMAP, &ii->i_state);
-		
+		/* No lock is needed; iget() ensures it. */
 	}
 
 	ii->i_flags = nilfs_mask_flags(
 		mode, NILFS_I(dir)->i_flags & NILFS_FL_INHERITED);
 
-	
-	
+	/* ii->i_file_acl = 0; */
+	/* ii->i_dir_acl = 0; */
 	ii->i_dir_start_lookup = 0;
 	nilfs_set_inode_flags(inode);
 	spin_lock(&nilfs->ns_next_gen_lock);
@@ -308,19 +346,23 @@ struct inode *nilfs_new_inode(struct inode *dir, umode_t mode)
 
 	err = nilfs_init_acl(inode, dir);
 	if (unlikely(err))
-		goto failed_acl; 
+		goto failed_acl; /* never occur. When supporting
+				    nilfs_init_acl(), proper cancellation of
+				    above jobs should be considered */
 
 	return inode;
 
  failed_acl:
  failed_bmap:
 	clear_nlink(inode);
-	iput(inode);  
+	iput(inode);  /* raw_inode will be deleted through
+			 generic_delete_inode() */
 	goto failed;
 
  failed_ifile_create_inode:
 	make_bad_inode(inode);
-	iput(inode);  
+	iput(inode);  /* if i_nlink == 1, generic_forget_inode() will be
+			 called */
  failed:
 	return ERR_PTR(err);
 }
@@ -363,7 +405,7 @@ int nilfs_read_inode_common(struct inode *inode,
 	inode->i_ctime.tv_nsec = le32_to_cpu(raw_inode->i_ctime_nsec);
 	inode->i_mtime.tv_nsec = le32_to_cpu(raw_inode->i_mtime_nsec);
 	if (inode->i_nlink == 0 && inode->i_mode == 0)
-		return -EINVAL; 
+		return -EINVAL; /* this inode is deleted */
 
 	inode->i_blocks = le64_to_cpu(raw_inode->i_blocks);
 	ii->i_flags = le32_to_cpu(raw_inode->i_flags);
@@ -381,7 +423,7 @@ int nilfs_read_inode_common(struct inode *inode,
 		if (err < 0)
 			return err;
 		set_bit(NILFS_I_BMAP, &ii->i_state);
-		
+		/* No lock is needed; iget() ensures it. */
 	}
 	return 0;
 }
@@ -557,7 +599,7 @@ void nilfs_write_inode_common(struct inode *inode,
 	if (NILFS_ROOT_METADATA_FILE(inode->i_ino)) {
 		struct the_nilfs *nilfs = inode->i_sb->s_fs_info;
 
-		
+		/* zero-fill unused portion in the case of super root block */
 		raw_inode->i_xattr = 0;
 		raw_inode->i_pad = 0;
 		memset((void *)raw_inode + sizeof(*raw_inode), 0,
@@ -569,6 +611,8 @@ void nilfs_write_inode_common(struct inode *inode,
 	else if (S_ISCHR(inode->i_mode) || S_ISBLK(inode->i_mode))
 		raw_inode->i_device_code =
 			cpu_to_le64(huge_encode_dev(inode->i_rdev));
+	/* When extending inode, nilfs->ns_inode_size should be checked
+	   for substitutions of appended fields */
 }
 
 void nilfs_update_inode(struct inode *inode, struct buffer_head *ibh)
@@ -585,10 +629,13 @@ void nilfs_update_inode(struct inode *inode, struct buffer_head *ibh)
 	set_bit(NILFS_I_INODE_DIRTY, &ii->i_state);
 
 	nilfs_write_inode_common(inode, raw_inode, 0);
+		/* XXX: call with has_bmap = 0 is a workaround to avoid
+		   deadlock of bmap. This delays update of i_bmap to just
+		   before writing */
 	nilfs_ifile_unmap_inode(ifile, ino, ibh);
 }
 
-#define NILFS_MAX_TRUNCATE_BLOCKS	16384  
+#define NILFS_MAX_TRUNCATE_BLOCKS	16384  /* 64MB for 4KB block */
 
 static void nilfs_truncate_bmap(struct nilfs_inode_info *ii,
 				unsigned long from)
@@ -636,7 +683,7 @@ void nilfs_truncate(struct inode *inode)
 
 	blocksize = sb->s_blocksize;
 	blkoff = (inode->i_size + blocksize - 1) >> sb->s_blocksize_bits;
-	nilfs_transaction_begin(sb, &ti, 0); 
+	nilfs_transaction_begin(sb, &ti, 0); /* never fails */
 
 	block_truncate_page(inode->i_mapping, inode->i_size, nilfs_get_block);
 
@@ -649,6 +696,8 @@ void nilfs_truncate(struct inode *inode)
 	nilfs_mark_inode_dirty(inode);
 	nilfs_set_file_dirty(inode, 0);
 	nilfs_transaction_commit(sb);
+	/* May construct a logical segment and may fail in sync mode.
+	   But truncate has no return value. */
 }
 
 static void nilfs_clear_inode(struct inode *inode)
@@ -656,6 +705,9 @@ static void nilfs_clear_inode(struct inode *inode)
 	struct nilfs_inode_info *ii = NILFS_I(inode);
 	struct nilfs_mdt_info *mdi = NILFS_MDT(inode);
 
+	/*
+	 * Free resources allocated in nilfs_read_inode(), here.
+	 */
 	BUG_ON(!list_empty(&ii->i_dirty));
 	brelse(ii->i_bh);
 	ii->i_bh = NULL;
@@ -686,12 +738,12 @@ void nilfs_evict_inode(struct inode *inode)
 		nilfs_clear_inode(inode);
 		return;
 	}
-	nilfs_transaction_begin(sb, &ti, 0); 
+	nilfs_transaction_begin(sb, &ti, 0); /* never fails */
 
 	if (inode->i_data.nrpages)
 		truncate_inode_pages(&inode->i_data, 0);
 
-	
+	/* TODO: some of the following operations may fail.  */
 	nilfs_truncate_bmap(ii, 0);
 	nilfs_mark_inode_dirty(inode);
 	end_writeback(inode);
@@ -705,6 +757,8 @@ void nilfs_evict_inode(struct inode *inode)
 	if (IS_SYNC(inode))
 		nilfs_set_transaction_flag(NILFS_TI_SYNC);
 	nilfs_transaction_commit(sb);
+	/* May construct a logical segment and may fail in sync mode.
+	   But delete_inode has no return value. */
 }
 
 int nilfs_setattr(struct dentry *dentry, struct iattr *iattr)
@@ -752,7 +806,7 @@ int nilfs_permission(struct inode *inode, int mask)
 	struct nilfs_root *root = NILFS_I(inode)->i_root;
 	if ((mask & MAY_WRITE) && root &&
 	    root->cno != NILFS_CPTREE_CURRENT_CNO)
-		return -EROFS; 
+		return -EROFS; /* snapshot is not writable */
 
 	return generic_permission(inode, mask);
 }
@@ -813,12 +867,17 @@ int nilfs_set_file_dirty(struct inode *inode, unsigned nr_dirty)
 	spin_lock(&nilfs->ns_inode_lock);
 	if (!test_bit(NILFS_I_QUEUED, &ii->i_state) &&
 	    !test_bit(NILFS_I_BUSY, &ii->i_state)) {
+		/* Because this routine may race with nilfs_dispose_list(),
+		   we have to check NILFS_I_QUEUED here, too. */
 		if (list_empty(&ii->i_dirty) && igrab(inode) == NULL) {
+			/* This will happen when somebody is freeing
+			   this inode. */
 			nilfs_warning(inode->i_sb, __func__,
 				      "cannot get inode (ino=%lu)\n",
 				      inode->i_ino);
 			spin_unlock(&nilfs->ns_inode_lock);
-			return -EINVAL; 
+			return -EINVAL; /* NILFS_I_DIRTY may remain for
+					   freeing inode */
 		}
 		list_move_tail(&ii->i_dirty, &nilfs->ns_dirty_files);
 		set_bit(NILFS_I_QUEUED, &ii->i_state);
@@ -845,6 +904,16 @@ int nilfs_mark_inode_dirty(struct inode *inode)
 	return 0;
 }
 
+/**
+ * nilfs_dirty_inode - reflect changes on given inode to an inode block.
+ * @inode: inode of the file to be registered.
+ *
+ * nilfs_dirty_inode() loads a inode block containing the specified
+ * @inode and copies data from a nilfs_inode to a corresponding inode
+ * entry in the inode block. This operation is excluded from the segment
+ * construction. This function can be called both as a single operation
+ * and as a part of indivisible file operations.
+ */
 void nilfs_dirty_inode(struct inode *inode, int flags)
 {
 	struct nilfs_transaction_info ti;
@@ -862,7 +931,7 @@ void nilfs_dirty_inode(struct inode *inode, int flags)
 	}
 	nilfs_transaction_begin(inode->i_sb, &ti, 0);
 	nilfs_mark_inode_dirty(inode);
-	nilfs_transaction_commit(inode->i_sb); 
+	nilfs_transaction_commit(inode->i_sb); /* never fails */
 }
 
 int nilfs_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
@@ -898,7 +967,7 @@ int nilfs_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 
 		if (delalloc_blklen && blkoff == delalloc_blkoff) {
 			if (size) {
-				
+				/* End of the current extent */
 				ret = fiemap_fill_next_extent(
 					fieinfo, logical, phys, size, flags);
 				if (ret)
@@ -918,6 +987,10 @@ int nilfs_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 			continue;
 		}
 
+		/*
+		 * Limit the number of blocks that we look up so as
+		 * not to get into the next delayed allocation extent.
+		 */
 		maxblocks = INT_MAX;
 		if (delalloc_blklen)
 			maxblocks = min_t(sector_t, delalloc_blkoff - blkoff,
@@ -933,14 +1006,14 @@ int nilfs_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 			int past_eof;
 
 			if (unlikely(n != -ENOENT))
-				break; 
+				break; /* error */
 
-			
+			/* HOLE */
 			blkoff++;
 			past_eof = ((blkoff << blkbits) >= isize);
 
 			if (size) {
-				
+				/* End of the current extent */
 
 				if (past_eof)
 					flags |= FIEMAP_EXTENT_LAST;
@@ -956,24 +1029,24 @@ int nilfs_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 		} else {
 			if (size) {
 				if (phys && blkphy << blkbits == phys + size) {
-					
+					/* The current extent goes on */
 					size += n << blkbits;
 				} else {
-					
+					/* Terminate the current extent */
 					ret = fiemap_fill_next_extent(
 						fieinfo, logical, phys, size,
 						flags);
 					if (ret || blkoff > end_blkoff)
 						break;
 
-					
+					/* Start another extent */
 					flags = FIEMAP_EXTENT_MERGED;
 					logical = blkoff << blkbits;
 					phys = blkphy << blkbits;
 					size = n << blkbits;
 				}
 			} else {
-				
+				/* Start a new extent */
 				flags = FIEMAP_EXTENT_MERGED;
 				logical = blkoff << blkbits;
 				phys = blkphy << blkbits;
@@ -984,7 +1057,7 @@ int nilfs_fiemap(struct inode *inode, struct fiemap_extent_info *fieinfo,
 		cond_resched();
 	} while (true);
 
-	
+	/* If ret is 1 then we just hit the end of the extent array */
 	if (ret == 1)
 		ret = 0;
 

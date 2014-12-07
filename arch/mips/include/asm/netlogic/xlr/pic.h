@@ -36,6 +36,7 @@
 #define _ASM_NLM_XLR_PIC_H
 
 #define PIC_CLKS_PER_SEC		66666666ULL
+/* PIC hardware interrupt numbers */
 #define PIC_IRT_WD_INDEX		0
 #define PIC_IRT_TIMER_0_INDEX		1
 #define PIC_IRT_TIMER_1_INDEX		2
@@ -54,8 +55,10 @@
 #define PIC_IRT_GPIO_INDEX		14
 #define PIC_IRT_HYPER_INDEX		15
 #define PIC_IRT_PCIX_INDEX		16
+/* XLS */
 #define PIC_IRT_CDE_INDEX		15
 #define PIC_IRT_BRIDGE_TB_XLS_INDEX	16
+/* XLS */
 #define PIC_IRT_GMAC0_INDEX		17
 #define PIC_IRT_GMAC1_INDEX		18
 #define PIC_IRT_GMAC2_INDEX		19
@@ -68,6 +71,7 @@
 #define PIC_IRT_BRIDGE_BERR_INDEX	26
 #define PIC_IRT_BRIDGE_TB_XLR_INDEX	27
 #define PIC_IRT_BRIDGE_AERR_NMI_INDEX	28
+/* XLS */
 #define PIC_IRT_GMAC4_INDEX		21
 #define PIC_IRT_GMAC5_INDEX		22
 #define PIC_IRT_GMAC6_INDEX		23
@@ -87,11 +91,13 @@
 #define PIC_IRT_PCIE_FATAL_INDEX	29
 #define PIC_IRT_GPIO_B_INDEX		30
 #define PIC_IRT_USB_INDEX		31
+/* XLS */
 #define PIC_NUM_IRTS			32
 
 
 #define PIC_CLOCK_TIMER			7
 
+/* PIC Registers */
 #define PIC_CTRL			0x00
 #define PIC_IPI				0x04
 #define PIC_INT_ACK			0x06
@@ -118,6 +124,12 @@
 #define PIC_TIMER_COUNT_0(i)	(PIC_TIMER_COUNT_0_BASE + (i))
 #define PIC_TIMER_COUNT_1(i)	(PIC_TIMER_COUNT_0_BASE + (i))
 
+/*
+ * Mapping between hardware interrupt numbers and IRQs on CPU
+ * we use a simple scheme to map PIC interrupts 0-31 to IRQs
+ * 8-39. This leaves the IRQ 0-7 for cpu interrupts like
+ * count/compare and FMN
+ */
 #define PIC_IRQ_BASE            8
 #define PIC_INTR_TO_IRQ(i)      (PIC_IRQ_BASE + (i))
 #define PIC_IRQ_TO_INTR(i)      ((i) - PIC_IRQ_BASE)
@@ -141,8 +153,10 @@
 #define PIC_GPIO_IRQ		PIC_INTR_TO_IRQ(PIC_IRT_GPIO_INDEX)
 #define PIC_HYPER_IRQ		PIC_INTR_TO_IRQ(PIC_IRT_HYPER_INDEX)
 #define PIC_PCIX_IRQ		PIC_INTR_TO_IRQ(PIC_IRT_PCIX_INDEX)
+/* XLS */
 #define PIC_CDE_IRQ		PIC_INTR_TO_IRQ(PIC_IRT_CDE_INDEX)
 #define PIC_BRIDGE_TB_XLS_IRQ	PIC_INTR_TO_IRQ(PIC_IRT_BRIDGE_TB_XLS_INDEX)
+/* end XLS */
 #define PIC_GMAC_0_IRQ		PIC_INTR_TO_IRQ(PIC_IRT_GMAC0_INDEX)
 #define PIC_GMAC_1_IRQ		PIC_INTR_TO_IRQ(PIC_IRT_GMAC1_INDEX)
 #define PIC_GMAC_2_IRQ		PIC_INTR_TO_IRQ(PIC_IRT_GMAC2_INDEX)
@@ -155,6 +169,7 @@
 #define PIC_BRIDGE_BERR_IRQ	PIC_INTR_TO_IRQ(PIC_IRT_BRIDGE_BERR_INDEX)
 #define PIC_BRIDGE_TB_XLR_IRQ	PIC_INTR_TO_IRQ(PIC_IRT_BRIDGE_TB_XLR_INDEX)
 #define PIC_BRIDGE_AERR_NMI_IRQ	PIC_INTR_TO_IRQ(PIC_IRT_BRIDGE_AERR_NMI_INDEX)
+/* XLS defines */
 #define PIC_GMAC_4_IRQ		PIC_INTR_TO_IRQ(PIC_IRT_GMAC4_INDEX)
 #define PIC_GMAC_5_IRQ		PIC_INTR_TO_IRQ(PIC_IRT_GMAC5_INDEX)
 #define PIC_GMAC_6_IRQ		PIC_INTR_TO_IRQ(PIC_IRT_GMAC6_INDEX)
@@ -175,6 +190,7 @@
 #define PIC_GPIO_B_IRQ		PIC_INTR_TO_IRQ(PIC_IRT_GPIO_B_INDEX)
 #define PIC_USB_IRQ		PIC_INTR_TO_IRQ(PIC_IRT_USB_INDEX)
 #define PIC_IRT_LAST_IRQ	PIC_USB_IRQ
+/* end XLS */
 
 #ifndef __ASSEMBLY__
 
@@ -238,11 +254,11 @@ static inline void
 nlm_pic_init_irt(uint64_t base, int irt, int irq, int hwt)
 {
 	nlm_write_reg(base, PIC_IRT_0(irt), (1u << hwt));
-	
+	/* local scheduling, invalid, level by default */
 	nlm_write_reg(base, PIC_IRT_1(irt),
 		(1 << 30) | (1 << 6) | irq);
 }
 
 extern uint64_t nlm_pic_base;
 #endif
-#endif 
+#endif /* _ASM_NLM_XLR_PIC_H */

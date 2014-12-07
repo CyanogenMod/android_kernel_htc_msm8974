@@ -33,6 +33,9 @@
 #include <linux/bitops.h>
 #include <plat/multi.h>
 
+/*
+ * Omap device type i.e. EMU/HS/TST/GP/BAD
+ */
 #define OMAP2_DEVICE_TYPE_TEST		0
 #define OMAP2_DEVICE_TYPE_EMU		1
 #define OMAP2_DEVICE_TYPE_SEC		2
@@ -41,10 +44,33 @@
 
 int omap_type(void);
 
+/*
+ * omap_rev bits:
+ * CPU id bits	(0730, 1510, 1710, 2422...)	[31:16]
+ * CPU revision	(See _REV_ defined in cpu.h)	[15:08]
+ * CPU class bits (15xx, 16xx, 24xx, 34xx...)	[07:00]
+ */
 unsigned int omap_rev(void);
 
+/*
+ * Get the CPU revision for OMAP devices
+ */
 #define GET_OMAP_REVISION()	((omap_rev() >> 8) & 0xff)
 
+/*
+ * Macros to group OMAP into cpu classes.
+ * These can be used in most places.
+ * cpu_is_omap7xx():	True for OMAP730, OMAP850
+ * cpu_is_omap15xx():	True for OMAP1510, OMAP5910 and OMAP310
+ * cpu_is_omap16xx():	True for OMAP1610, OMAP5912 and OMAP1710
+ * cpu_is_omap24xx():	True for OMAP2420, OMAP2422, OMAP2423, OMAP2430
+ * cpu_is_omap242x():	True for OMAP2420, OMAP2422, OMAP2423
+ * cpu_is_omap243x():	True for OMAP2430
+ * cpu_is_omap343x():	True for OMAP3430
+ * cpu_is_omap443x():	True for OMAP4430
+ * cpu_is_omap446x():	True for OMAP4460
+ * cpu_is_omap447x():	True for OMAP4470
+ */
 #define GET_OMAP_CLASS	(omap_rev() & 0xff)
 
 #define IS_OMAP_CLASS(class, id)			\
@@ -207,6 +233,26 @@ IS_AM_SUBCLASS(335x, 0x335)
 # endif
 #endif
 
+/*
+ * Macros to detect individual cpu types.
+ * These are only rarely needed.
+ * cpu_is_omap330():	True for OMAP330
+ * cpu_is_omap730():	True for OMAP730
+ * cpu_is_omap850():	True for OMAP850
+ * cpu_is_omap1510():	True for OMAP1510
+ * cpu_is_omap1610():	True for OMAP1610
+ * cpu_is_omap1611():	True for OMAP1611
+ * cpu_is_omap5912():	True for OMAP5912
+ * cpu_is_omap1621():	True for OMAP1621
+ * cpu_is_omap1710():	True for OMAP1710
+ * cpu_is_omap2420():	True for OMAP2420
+ * cpu_is_omap2422():	True for OMAP2422
+ * cpu_is_omap2423():	True for OMAP2423
+ * cpu_is_omap2430():	True for OMAP2430
+ * cpu_is_omap3430():	True for OMAP3430
+ * cpu_is_omap3505():	True for OMAP3505
+ * cpu_is_omap3517():	True for OMAP3517
+ */
 #define GET_OMAP_TYPE	((omap_rev() >> 16) & 0xffff)
 
 #define IS_OMAP_TYPE(type, id)				\
@@ -254,6 +300,10 @@ IS_OMAP_TYPE(3517, 0x3517)
 #define cpu_is_omap3430()		0
 #define cpu_is_omap3630()		0
 
+/*
+ * Whether we have MULTI_OMAP1 or not, we still need to distinguish
+ * between 730 vs 850, 330 vs. 1510 and 1611B/5912 vs. 1710.
+ */
 
 #if defined(CONFIG_ARCH_OMAP730)
 # undef  cpu_is_omap730
@@ -343,11 +393,13 @@ IS_OMAP_TYPE(3517, 0x3517)
 # define cpu_is_omap447x()		is_omap447x()
 # endif
 
+/* Macros to detect if we have OMAP1 or OMAP2 */
 #define cpu_class_is_omap1()	(cpu_is_omap7xx() || cpu_is_omap15xx() || \
 				cpu_is_omap16xx())
 #define cpu_class_is_omap2()	(cpu_is_omap24xx() || cpu_is_omap34xx() || \
 				cpu_is_omap44xx())
 
+/* Various silicon revisions for omap2 */
 #define OMAP242X_CLASS		0x24200024
 #define OMAP2420_REV_ES1_0	OMAP242X_CLASS
 #define OMAP2420_REV_ES2_0	(OMAP242X_CLASS | (0x1 << 8))
@@ -404,6 +456,16 @@ void omap3xxx_check_features(void);
 void ti81xx_check_features(void);
 void omap4xxx_check_features(void);
 
+/*
+ * Runtime detection of OMAP3 features
+ *
+ * OMAP3_HAS_IO_CHAIN_CTRL: Some later members of the OMAP3 chip
+ *    family have OS-level control over the I/O chain clock.  This is
+ *    to avoid a window during which wakeups could potentially be lost
+ *    during powerdomain transitions.  If this bit is set, it
+ *    indicates that the chip does support OS-level control of this
+ *    feature.
+ */
 extern u32 omap_features;
 
 #define OMAP3_HAS_L2CACHE		BIT(0)
@@ -436,6 +498,9 @@ OMAP3_HAS_FEATURE(io_wakeup, IO_WAKEUP)
 OMAP3_HAS_FEATURE(sdrc, SDRC)
 OMAP3_HAS_FEATURE(io_chain_ctrl, IO_CHAIN_CTRL)
 
+/*
+ * Runtime detection of OMAP4 features
+ */
 #define OMAP4_HAS_FEATURE(feat, flag)			\
 static inline unsigned int omap4_has_ ##feat(void)	\
 {							\

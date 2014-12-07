@@ -9,4 +9,4 @@
 
 #undef __WITH_KM_FENCE
 
-#endif 
+#endif /* _ASM_X86_KMAP_TYPES_H */

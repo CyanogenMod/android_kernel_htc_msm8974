@@ -17,6 +17,7 @@ static const struct xt_table packet_raw = {
 	.priority = NF_IP6_PRI_RAW,
 };
 
+/* The work comes in here from netfilter.c. */
 static unsigned int
 ip6table_raw_hook(unsigned int hook, struct sk_buff *skb,
 		  const struct net_device *in, const struct net_device *out,
@@ -62,7 +63,7 @@ static int __init ip6table_raw_init(void)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Register hooks */
 	rawtable_ops = xt_hook_link(&packet_raw, ip6table_raw_hook);
 	if (IS_ERR(rawtable_ops)) {
 		ret = PTR_ERR(rawtable_ops);

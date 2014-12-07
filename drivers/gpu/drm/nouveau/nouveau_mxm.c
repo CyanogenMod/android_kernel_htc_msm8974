@@ -111,26 +111,26 @@ mxms_foreach(struct drm_device *dev, u8 types,
 		u8 entries = 0;
 
 		switch (type) {
-		case 0: 
+		case 0: /* Output Device Structure */
 			if (mxms_version(dev) >= 0x0300)
 				headerlen = 8;
 			else
 				headerlen = 6;
 			break;
-		case 1: 
-		case 2: 
-		case 3: 
+		case 1: /* System Cooling Capability Structure */
+		case 2: /* Thermal Structure */
+		case 3: /* Input Power Structure */
 			headerlen = 4;
 			break;
-		case 4: 
+		case 4: /* GPIO Device Structure */
 			headerlen = 4;
 			recordlen = 2;
 			entries   = (ROM32(desc[0]) & 0x01f00000) >> 20;
 			break;
-		case 5: 
+		case 5: /* Vendor Specific Structure */
 			headerlen = 8;
 			break;
-		case 6: 
+		case 6: /* Backlight Control Structure */
 			if (mxms_version(dev) >= 0x0300) {
 				headerlen = 4;
 				recordlen = 8;
@@ -139,7 +139,7 @@ mxms_foreach(struct drm_device *dev, u8 types,
 				headerlen = 8;
 			}
 			break;
-		case 7: 
+		case 7: /* Fan Control Structure */
 			headerlen = 8;
 			recordlen = 4;
 			entries   = desc[1] & 0x07;
@@ -202,6 +202,11 @@ mxm_table(struct drm_device *dev, u8 *size)
 	return x.data;
 }
 
+/* These map MXM v2.x digital connection values to the appropriate SOR/link,
+ * hopefully they're correct for all boards within the same chipset...
+ *
+ * MXM v3.x VBIOS are nicer and provide pointers to these tables.
+ */
 static u8 nv84_sor_map[16] = {
 	0x00, 0x12, 0x22, 0x11, 0x32, 0x31, 0x11, 0x31,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
@@ -277,7 +282,7 @@ mxm_ddc_map(struct drm_device *dev, u8 port)
 		}
 	}
 
-	
+	/* v2.x: directly write port as dcb i2cidx */
 	return (port << 4) | port;
 }
 
@@ -327,26 +332,35 @@ mxm_match_dcb(struct drm_device *dev, u8 *data, void *info)
 
 	mxms_output_device(dev, data, &ctx->desc);
 
-	
+	/* match dcb encoder type to mxm-ods device type */
 	if ((ctx->outp[0] & 0x0000000f) != ctx->desc.outp_type)
 		return true;
 
+	/* digital output, have some extra stuff to match here, there's a
+	 * table in the vbios that provides a mapping from the mxm digital
+	 * connection enum values to SOR/link
+	 */
 	if ((desc & 0x00000000000000f0) >= 0x20) {
-		
+		/* check against sor index */
 		u8 link = mxm_sor_map(dev, ctx->desc.dig_conn);
 		if ((ctx->outp[0] & 0x0f000000) != (link & 0x0f) << 24)
 			return true;
 
-		
+		/* check dcb entry has a compatible link field */
 		link = (link & 0x30) >> 4;
 		if ((link & ((ctx->outp[1] & 0x00000030) >> 4)) != link)
 			return true;
 	}
 
+	/* mark this descriptor accounted for by setting invalid device type,
+	 * except of course some manufactures don't follow specs properly and
+	 * we need to avoid killing off the TMDS function on DP connectors
+	 * if MXM-SIS is missing an entry for it.
+	 */
 	data[0] &= ~0xf0;
 	if (ctx->desc.outp_type == 6 && ctx->desc.conn_type == 6 &&
 	    mxms_foreach(dev, 0x01, mxm_match_tmds_partner, ctx)) {
-		data[0] |= 0x20; 
+		data[0] |= 0x20; /* modify descriptor to match TMDS now */
 	} else {
 		data[0] |= 0xf0;
 	}
@@ -361,6 +375,9 @@ mxm_dcb_sanitise_entry(struct drm_device *dev, void *data, int idx, u8 *dcbe)
 	u8 type, i2cidx, link;
 	u8 *conn;
 
+	/* look for an output device structure that matches this dcb entry.
+	 * if one isn't found, disable it.
+	 */
 	if (mxms_foreach(dev, 0x01, mxm_match_dcb, &ctx)) {
 		MXM_DBG(dev, "disable %d: 0x%08x 0x%08x\n",
 			idx, ctx.outp[0], ctx.outp[1]);
@@ -368,6 +385,10 @@ mxm_dcb_sanitise_entry(struct drm_device *dev, void *data, int idx, u8 *dcbe)
 		return 0;
 	}
 
+	/* modify the output's ddc/aux port, there's a pointer to a table
+	 * with the mapping from mxm ddc/aux port to dcb i2c_index in the
+	 * vbios mxm table
+	 */
 	i2cidx = mxm_ddc_map(dev, ctx.desc.ddc_port);
 	if ((ctx.outp[0] & 0x0000000f) != OUTPUT_DP)
 		i2cidx = (i2cidx & 0x0f) << 4;
@@ -379,10 +400,10 @@ mxm_dcb_sanitise_entry(struct drm_device *dev, void *data, int idx, u8 *dcbe)
 		ctx.outp[0] |= i2cidx;
 	}
 
-	
+	/* override dcb sorconf.link, based on what mxm data says */
 	switch (ctx.desc.outp_type) {
-	case 0x00: 
-	case 0x01: 
+	case 0x00: /* Analog CRT */
+	case 0x01: /* Analog TV/HDTV */
 		break;
 	default:
 		link = mxm_sor_map(dev, ctx.desc.dig_conn) & 0x30;
@@ -391,23 +412,30 @@ mxm_dcb_sanitise_entry(struct drm_device *dev, void *data, int idx, u8 *dcbe)
 		break;
 	}
 
+	/* we may need to fixup various other vbios tables based on what
+	 * the descriptor says the connector type should be.
+	 *
+	 * in a lot of cases, the vbios tables will claim DVI-I is possible,
+	 * and the mxm data says the connector is really HDMI.  another
+	 * common example is DP->eDP.
+	 */
 	conn = dcb_conn(dev, (ctx.outp[0] & 0x0000f000) >> 12);
 	type = conn[0];
 	switch (ctx.desc.conn_type) {
-	case 0x01: 
-		ctx.outp[1] |= 0x00000004; 
-		
+	case 0x01: /* LVDS */
+		ctx.outp[1] |= 0x00000004; /* use_power_scripts */
+		/* XXX: modify default link width in LVDS table */
 		break;
-	case 0x02: 
+	case 0x02: /* HDMI */
 		type = DCB_CONNECTOR_HDMI_1;
 		break;
-	case 0x03: 
+	case 0x03: /* DVI-D */
 		type = DCB_CONNECTOR_DVI_D;
 		break;
-	case 0x0e: 
+	case 0x0e: /* eDP, falls through to DPint */
 		ctx.outp[1] |= 0x00010000;
-	case 0x07: 
-		ctx.outp[1] |= 0x00000004; 
+	case 0x07: /* DP internal, wtf is this?? HP8670w */
+		ctx.outp[1] |= 0x00000004; /* use_power_scripts? */
 		type = DCB_CONNECTOR_eDP;
 		break;
 	default:
@@ -461,7 +489,7 @@ mxm_shadow_rom(struct drm_device *dev, u8 version)
 	struct nouveau_i2c_chan *i2c = NULL;
 	u8 i2cidx, mxms[6], addr, size;
 
-	i2cidx = mxm_ddc_map(dev, 1 ) & 0x0f;
+	i2cidx = mxm_ddc_map(dev, 1 /* LVDS_DDC */) & 0x0f;
 	if (i2cidx < 0x0f)
 		i2c = nouveau_i2c_find(dev, i2cidx);
 	if (!i2c)
@@ -498,19 +526,23 @@ mxm_shadow_dsm(struct drm_device *dev, u8 version)
 	};
 	u32 mxms_args[] = { 0x00000000 };
 	union acpi_object args[4] = {
-		
+		/* _DSM MUID */
 		{ .buffer.type = 3,
 		  .buffer.length = sizeof(muid),
 		  .buffer.pointer = muid,
 		},
+		/* spec says this can be zero to mean "highest revision", but
+		 * of course there's at least one bios out there which fails
+		 * unless you pass in exactly the version it supports..
+		 */
 		{ .integer.type = ACPI_TYPE_INTEGER,
 		  .integer.value = (version & 0xf0) << 4 | (version & 0x0f),
 		},
-		
+		/* MXMS function */
 		{ .integer.type = ACPI_TYPE_INTEGER,
 		  .integer.value = 0x00000010,
 		},
-		
+		/* Pointer to MXMS arguments */
 		{ .buffer.type = ACPI_TYPE_BUFFER,
 		  .buffer.length = sizeof(mxms_args),
 		  .buffer.pointer = (char *)mxms_args,
@@ -553,7 +585,7 @@ mxm_shadow_dsm(struct drm_device *dev, u8 version)
 static u8
 wmi_wmmx_mxmi(struct drm_device *dev, u8 version)
 {
-	u32 mxmi_args[] = { 0x494D584D , version, 0 };
+	u32 mxmi_args[] = { 0x494D584D /* MXMI */, version, 0 };
 	struct acpi_buffer args = { sizeof(mxmi_args), mxmi_args };
 	struct acpi_buffer retn = { ACPI_ALLOCATE_BUFFER, NULL };
 	union acpi_object *obj;
@@ -583,7 +615,7 @@ static bool
 mxm_shadow_wmi(struct drm_device *dev, u8 version)
 {
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
-	u32 mxms_args[] = { 0x534D584D , version, 0 };
+	u32 mxms_args[] = { 0x534D584D /* MXMS */, version, 0 };
 	struct acpi_buffer args = { sizeof(mxms_args), mxms_args };
 	struct acpi_buffer retn = { ACPI_ALLOCATE_BUFFER, NULL };
 	union acpi_object *obj;
@@ -662,6 +694,11 @@ nouveau_mxm_init(struct drm_device *dev)
 	if (mxm_shadow(dev, mxm[0])) {
 		MXM_MSG(dev, "failed to locate valid SIS\n");
 #if 0
+		/* we should, perhaps, fall back to some kind of limited
+		 * mode here if the x86 vbios hasn't already done the
+		 * work for us (so we prevent loading with completely
+		 * whacked vbios tables).
+		 */
 		return -EINVAL;
 #else
 		return 0;

@@ -38,6 +38,7 @@
 #define REG_LPA(off)	(MSM_LPASS_CLK_CTL_BASE + (off))
 #define REG_GCC(off)	(MSM_APCS_GCC_BASE + (off))
 
+/* Peripheral clock registers. */
 #define CE1_HCLK_CTL_REG			REG(0x2720)
 #define CE1_CORE_CLK_CTL_REG			REG(0x2724)
 #define DMA_BAM_HCLK_CTL			REG(0x25C0)
@@ -119,6 +120,7 @@
 #define USB_HSIC_SYSTEM_CLK_NS_REG		REG(0x2B58)
 #define SLIMBUS_XO_SRC_CLK_CTL_REG		REG(0x2628)
 
+/* Low-power Audio clock registers. */
 #define LCC_CLK_HS_DEBUG_CFG_REG		REG_LPA(0x00A4)
 #define LCC_CLK_LS_DEBUG_CFG_REG		REG_LPA(0x00A8)
 #define LCC_CODEC_I2S_MIC_MD_REG		REG_LPA(0x0064)
@@ -151,6 +153,7 @@
 
 #define GCC_APCS_CLK_DIAG			REG_GCC(0x001C)
 
+/* MUX source input identifiers. */
 #define cxo_to_bb_mux		  0
 #define pll8_to_bb_mux		  3
 #define pll8_activeonly_to_bb_mux 3
@@ -162,6 +165,7 @@
 #define pll4_to_lpa_mux		  2
 #define gnd_to_lpa_mux		  6
 
+/* Test Vector Macros */
 #define TEST_TYPE_PER_LS	1
 #define TEST_TYPE_PER_HS	2
 #define TEST_TYPE_LPA		5
@@ -211,6 +215,9 @@ static DEFINE_VDD_CLASS(vdd_dig, set_vdd_dig, VDD_DIG_NUM);
 	},					\
 	.num_fmax = VDD_DIG_NUM
 
+/*
+ * Clock Descriptions
+ */
 
 DEFINE_CLK_RPM_BRANCH(cxo_clk, cxo_a_clk, CXO, 19200000);
 
@@ -318,6 +325,9 @@ static struct pll_vote_clk pll14_clk = {
 	},
 };
 
+/*
+ * Peripheral Clocks
+ */
 #define CLK_GP(i, n, h_r, h_b) \
 	struct rcg_clk i##_clk = { \
 		.b = { \
@@ -765,6 +775,7 @@ static struct branch_clk usb_hsic_hsio_cal_clk = {
 	},
 };
 
+/* Fast Peripheral Bus Clocks */
 static struct branch_clk ce1_core_clk = {
 	.b = {
 		.ctl_reg = CE1_CORE_CLK_CTL_REG,
@@ -942,6 +953,7 @@ static struct branch_clk sdc2_p_clk = {
 	},
 };
 
+/* HW-Voteable Clocks */
 static struct branch_clk adm0_clk = {
 	.b = {
 		.ctl_reg = SC0_U_CLK_BRANCH_ENA_VOTE_REG,
@@ -1032,6 +1044,9 @@ static struct branch_clk rpm_msg_ram_p_clk = {
 	},
 };
 
+/*
+ * Low Power Audio Clocks
+ */
 #define F_AIF_OSR(f, s, d, m, n) \
 	{ \
 		.freq_hz = f, \
@@ -1178,7 +1193,7 @@ static CLK_AIF_BIT_DIV(spare_i2s_spkr_bit, LCC_SPARE_I2S_SPKR_NS_REG,
 		.ns_val = NS(31, 16, n, m, 5, 4, 3, d, 2, 0, s##_to_lpa_mux), \
 	}
 static struct clk_freq_tbl clk_tbl_pcm[] = {
-	{ .ns_val = BIT(10)  },
+	{ .ns_val = BIT(10) /* external input */ },
 	F_PCM(  512000, pll4, 4, 1, 192),
 	F_PCM(  768000, pll4, 4, 1, 128),
 	F_PCM( 1024000, pll4, 4, 1,  96),
@@ -1424,6 +1439,10 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 
 	spin_lock_irqsave(&local_clock_reg_lock, flags);
 
+	/*
+	 * Program the test vector, measurement period (sample_ticks)
+	 * and scaling multiplier.
+	 */
 	measure->sample_ticks = 0x10000;
 	clk_sel = p->test_vector & TEST_CLK_SEL_MASK;
 	measure->multiplier = 1;
@@ -1447,7 +1466,7 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 	default:
 		ret = -EPERM;
 	}
-	
+	/* Make sure test vector is set before starting measurements. */
 	mb();
 
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
@@ -1455,28 +1474,31 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 	return ret;
 }
 
+/* Sample clock for 'ticks' reference clock ticks. */
 static unsigned long run_measurement(unsigned ticks)
 {
-	
+	/* Stop counters and set the XO4 counter start value. */
 	writel_relaxed(ticks, RINGOSC_TCXO_CTL_REG);
 
-	
+	/* Wait for timer to become ready. */
 	while ((readl_relaxed(RINGOSC_STATUS_REG) & BIT(25)) != 0)
 		cpu_relax();
 
-	
+	/* Run measurement and wait for completion. */
 	writel_relaxed(BIT(28)|ticks, RINGOSC_TCXO_CTL_REG);
 	while ((readl_relaxed(RINGOSC_STATUS_REG) & BIT(25)) == 0)
 		cpu_relax();
 
-	
+	/* Stop counters. */
 	writel_relaxed(0x0, RINGOSC_TCXO_CTL_REG);
 
-	
+	/* Return measured ticks. */
 	return readl_relaxed(RINGOSC_STATUS_REG) & BM(24, 0);
 }
 
 
+/* Perform a hardware rate measurement for a given clock.
+   FOR DEBUG USE ONLY: Measurements take ~15 ms! */
 static unsigned long measure_clk_get_rate(struct clk *c)
 {
 	unsigned long flags;
@@ -1487,38 +1509,44 @@ static unsigned long measure_clk_get_rate(struct clk *c)
 
 	spin_lock_irqsave(&local_clock_reg_lock, flags);
 
-	
+	/* Enable CXO/4 and RINGOSC branch and root. */
 	pdm_reg_backup = readl_relaxed(PDM_CLK_NS_REG);
 	ringosc_reg_backup = readl_relaxed(RINGOSC_NS_REG);
 	writel_relaxed(0x2898, PDM_CLK_NS_REG);
 	writel_relaxed(0xA00, RINGOSC_NS_REG);
 
+	/*
+	 * The ring oscillator counter will not reset if the measured clock
+	 * is not running.  To detect this, run a short measurement before
+	 * the full measurement.  If the raw results of the two are the same
+	 * then the clock must be off.
+	 */
 
-	
+	/* Run a short measurement. (~1 ms) */
 	raw_count_short = run_measurement(0x1000);
-	
+	/* Run a full measurement. (~14 ms) */
 	raw_count_full = run_measurement(measure->sample_ticks);
 
 	writel_relaxed(ringosc_reg_backup, RINGOSC_NS_REG);
 	writel_relaxed(pdm_reg_backup, PDM_CLK_NS_REG);
 
-	
+	/* Return 0 if the clock is off. */
 	if (raw_count_full == raw_count_short)
 		ret = 0;
 	else {
-		
+		/* Compute rate in Hz. */
 		raw_count_full = ((raw_count_full * 10) + 15) * 4800000;
 		do_div(raw_count_full, ((measure->sample_ticks * 10) + 35));
 		ret = (raw_count_full * measure->multiplier);
 	}
 
-	
+	/* Route dbg_hs_clk to PLLTEST.  300mV single-ended amplitude. */
 	writel_relaxed(0x38F8, PLLTEST_PAD_CFG_REG);
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
 
 	return ret;
 }
-#else 
+#else /* !CONFIG_DEBUG_FS */
 static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 {
 	return -EINVAL;
@@ -1528,7 +1556,7 @@ static unsigned long measure_clk_get_rate(struct clk *c)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 
 static struct clk_ops clk_ops_measure = {
 	.set_parent = measure_clk_set_parent,
@@ -1719,21 +1747,24 @@ static struct pll_config pll14_config __initdata = {
 	.main_output_mask = BIT(23),
 };
 
+/*
+ * Miscellaneous clock register initializations
+ */
 static void __init msm9615_clock_pre_init(void)
 {
 	u32 regval, is_pll_enabled, pll9_lval;
 
 	clk_ops_local_pll.enable = sr_pll_clk_enable;
 
-	
+	/* Enable PDM CXO source. */
 	regval = readl_relaxed(PDM_CLK_NS_REG);
 	writel_relaxed(BIT(13) | regval, PDM_CLK_NS_REG);
 
-	
+	/* Check if PLL0 is active */
 	is_pll_enabled = readl_relaxed(BB_PLL0_STATUS_REG) & BIT(16);
 
 	if (!is_pll_enabled) {
-		
+		/* Enable AUX output */
 		regval = readl_relaxed(BB_PLL0_TEST_CTL_REG);
 		regval |= BIT(12);
 		writel_relaxed(regval, BB_PLL0_TEST_CTL_REG);
@@ -1741,7 +1772,7 @@ static void __init msm9615_clock_pre_init(void)
 		configure_sr_pll(&pll0_config, &pll0_regs, 1);
 	}
 
-	
+	/* Check if PLL14 is enabled in FSM mode */
 	is_pll_enabled  = readl_relaxed(BB_PLL14_STATUS_REG) & BIT(16);
 
 	if (!is_pll_enabled)
@@ -1749,20 +1780,28 @@ static void __init msm9615_clock_pre_init(void)
 	else if (!(readl_relaxed(BB_PLL14_MODE_REG) & BIT(20)))
 		WARN(1, "PLL14 enabled in non-FSM mode!\n");
 
-	
+	/* Detect PLL9 rate and fixup structure accordingly */
 	pll9_lval = readl_relaxed(SC_PLL0_L_VAL_REG);
 
 	if (pll9_lval == 0x1C)
 		pll9_activeonly_clk.c.rate = 550000000;
 
-	
+	/* Enable PLL4 source on the LPASS Primary PLL Mux */
 	regval = readl_relaxed(LCC_PRI_PLL_CLK_CTL_REG);
 	writel_relaxed(regval | BIT(0), LCC_PRI_PLL_CLK_CTL_REG);
 
+	/*
+	 * Disable hardware clock gating for pmem_clk. Leaving it enabled
+	 * results in the clock staying on.
+	 */
 	regval = readl_relaxed(PMEM_ACLK_CTL_REG);
 	regval &= ~BIT(6);
 	writel_relaxed(regval, PMEM_ACLK_CTL_REG);
 
+	/*
+	 * Disable hardware clock gating for dma_bam_p_clk, which does
+	 * not have working support for the feature.
+	 */
 	regval = readl_relaxed(DMA_BAM_HCLK_CTL);
 	regval &= ~BIT(6);
 	writel_relaxed(regval, DMA_BAM_HCLK_CTL);
@@ -1770,10 +1809,10 @@ static void __init msm9615_clock_pre_init(void)
 
 static void __init msm9615_clock_post_init(void)
 {
-	
+	/* Keep CXO on whenever APPS cpu is active */
 	clk_prepare_enable(&cxo_a_clk.c);
 
-	
+	/* Initialize rates for clocks that only support one. */
 	clk_set_rate(&pdm_clk.c, 19200000);
 	clk_set_rate(&prng_clk.c, 32000000);
 	clk_set_rate(&usb_hs1_xcvr_clk.c, 60000000);
@@ -1782,6 +1821,10 @@ static void __init msm9615_clock_post_init(void)
 	clk_set_rate(&usb_hsic_sys_clk.c, 64000000);
 	clk_set_rate(&usb_hsic_clk.c, 480000000);
 
+	/*
+	 * The halt status bits for PDM may be incorrect at boot.
+	 * Toggle these clocks on and off to refresh them.
+	*/
 	clk_prepare_enable(&pdm_clk.c);
 	clk_disable_unprepare(&pdm_clk.c);
 }

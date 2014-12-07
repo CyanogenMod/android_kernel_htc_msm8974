@@ -1,6 +1,9 @@
 #ifndef _ASM_POWERPC_ATOMIC_H_
 #define _ASM_POWERPC_ATOMIC_H_
 
+/*
+ * PowerPC atomic operations
+ */
 
 #ifdef __KERNEL__
 #include <linux/types.h>
@@ -126,6 +129,14 @@ static __inline__ int atomic_inc_return(atomic_t *v)
 	return t;
 }
 
+/*
+ * atomic_inc_and_test - increment and test
+ * @v: pointer of type atomic_t
+ *
+ * Atomically increments @v by 1
+ * and returns true if the result is zero, or false for all
+ * other cases.
+ */
 #define atomic_inc_and_test(v) (atomic_inc_return(v) == 0)
 
 static __inline__ void atomic_dec(atomic_t *v)
@@ -165,6 +176,15 @@ static __inline__ int atomic_dec_return(atomic_t *v)
 #define atomic_cmpxchg(v, o, n) (cmpxchg(&((v)->counter), (o), (n)))
 #define atomic_xchg(v, new) (xchg(&((v)->counter), new))
 
+/**
+ * __atomic_add_unless - add unless the number is a given value
+ * @v: pointer of type atomic_t
+ * @a: the amount to add to v...
+ * @u: ...unless v is equal to u.
+ *
+ * Atomically adds @a to @v, so long as it was not @u.
+ * Returns the old value of @v.
+ */
 static __inline__ int __atomic_add_unless(atomic_t *v, int a, int u)
 {
 	int t;
@@ -188,6 +208,13 @@ static __inline__ int __atomic_add_unless(atomic_t *v, int a, int u)
 	return t;
 }
 
+/**
+ * atomic_inc_not_zero - increment unless the number is zero
+ * @v: pointer of type atomic_t
+ *
+ * Atomically increments @v by 1, so long as @v is non-zero.
+ * Returns non-zero if @v was non-zero, and zero otherwise.
+ */
 static __inline__ int atomic_inc_not_zero(atomic_t *v)
 {
 	int t1, t2;
@@ -215,6 +242,11 @@ static __inline__ int atomic_inc_not_zero(atomic_t *v)
 #define atomic_sub_and_test(a, v)	(atomic_sub_return((a), (v)) == 0)
 #define atomic_dec_and_test(v)		(atomic_dec_return((v)) == 0)
 
+/*
+ * Atomically test *v and decrement if it is greater than 0.
+ * The function returns the old value of *v minus 1, even if
+ * the atomic variable, v, was not decremented.
+ */
 static __inline__ int atomic_dec_if_positive(atomic_t *v)
 {
 	int t;
@@ -358,6 +390,14 @@ static __inline__ long atomic64_inc_return(atomic64_t *v)
 	return t;
 }
 
+/*
+ * atomic64_inc_and_test - increment and test
+ * @v: pointer of type atomic64_t
+ *
+ * Atomically increments @v by 1
+ * and returns true if the result is zero, or false for all
+ * other cases.
+ */
 #define atomic64_inc_and_test(v) (atomic64_inc_return(v) == 0)
 
 static __inline__ void atomic64_dec(atomic64_t *v)
@@ -395,6 +435,10 @@ static __inline__ long atomic64_dec_return(atomic64_t *v)
 #define atomic64_sub_and_test(a, v)	(atomic64_sub_return((a), (v)) == 0)
 #define atomic64_dec_and_test(v)	(atomic64_dec_return((v)) == 0)
 
+/*
+ * Atomically test *v and decrement if it is greater than 0.
+ * The function returns the old value of *v minus 1.
+ */
 static __inline__ long atomic64_dec_if_positive(atomic64_t *v)
 {
 	long t;
@@ -418,6 +462,15 @@ static __inline__ long atomic64_dec_if_positive(atomic64_t *v)
 #define atomic64_cmpxchg(v, o, n) (cmpxchg(&((v)->counter), (o), (n)))
 #define atomic64_xchg(v, new) (xchg(&((v)->counter), new))
 
+/**
+ * atomic64_add_unless - add unless the number is a given value
+ * @v: pointer of type atomic64_t
+ * @a: the amount to add to v...
+ * @u: ...unless v is equal to u.
+ *
+ * Atomically adds @a to @v, so long as it was not @u.
+ * Returns the old value of @v.
+ */
 static __inline__ int atomic64_add_unless(atomic64_t *v, long a, long u)
 {
 	long t;
@@ -440,6 +493,13 @@ static __inline__ int atomic64_add_unless(atomic64_t *v, long a, long u)
 	return t != u;
 }
 
+/**
+ * atomic_inc64_not_zero - increment unless the number is zero
+ * @v: pointer of type atomic64_t
+ *
+ * Atomically increments @v by 1, so long as @v is non-zero.
+ * Returns non-zero if @v was non-zero, and zero otherwise.
+ */
 static __inline__ long atomic64_inc_not_zero(atomic64_t *v)
 {
 	long t1, t2;
@@ -462,7 +522,7 @@ static __inline__ long atomic64_inc_not_zero(atomic64_t *v)
 	return t1;
 }
 
-#endif 
+#endif /* __powerpc64__ */
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_POWERPC_ATOMIC_H_ */

@@ -15,6 +15,10 @@
 #include <linux/interrupt.h>
 #include <linux/mfd/tc3589x.h>
 
+/*
+ * These registers are modified under the irq bus lock and cached to avoid
+ * unnecessary writes in bus_sync_unlock.
+ */
 enum { REG_IBE, REG_IEV, REG_IS, REG_IE };
 
 #define CACHE_NR_REGS	4
@@ -28,7 +32,7 @@ struct tc3589x_gpio {
 
 	int irq_base;
 
-	
+	/* Caches of interrupt control registers for bus_lock */
 	u8 regs[CACHE_NR_REGS][CACHE_NR_BANKS];
 	u8 oldregs[CACHE_NR_REGS][CACHE_NR_BANKS];
 };
@@ -295,7 +299,7 @@ static int __devinit tc3589x_gpio_probe(struct platform_device *pdev)
 
 	tc3589x_gpio->irq_base = tc3589x->irq_base + TC3589x_INT_GPIO(0);
 
-	
+	/* Bring the GPIO module out of reset */
 	ret = tc3589x_set_bits(tc3589x, TC3589x_RSTCTRL,
 			       TC3589x_RSTCTRL_GPIRST, 0);
 	if (ret < 0)

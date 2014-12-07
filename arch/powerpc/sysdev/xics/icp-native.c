@@ -93,12 +93,19 @@ static void icp_native_teardown_cpu(void)
 {
 	int cpu = smp_processor_id();
 
-	
+	/* Clear any pending IPI */
 	icp_native_set_qirr(cpu, 0xff);
 }
 
 static void icp_native_flush_ipi(void)
 {
+	/* We take the ipi irq but and never return so we
+	 * need to EOI the IPI, but want to leave our priority 0
+	 *
+	 * should we check all the other interrupts too?
+	 * should we be flagging idle loop instead?
+	 * or creating some task to be scheduled?
+	 */
 
 	icp_native_set_xirr((0x00 << 24) | XICS_IPI);
 }
@@ -118,10 +125,10 @@ static unsigned int icp_native_get_irq(void)
 		return irq;
 	}
 
-	
+	/* We don't have a linux mapping, so have rtas mask it. */
 	xics_mask_unknown_vec(vec);
 
-	
+	/* We might learn about it later, so EOI it */
 	icp_native_set_xirr(xirr);
 
 	return NO_IRQ;
@@ -149,7 +156,7 @@ static irqreturn_t icp_native_ipi_action(int irq, void *dev_id)
 	return smp_ipi_demux();
 }
 
-#endif 
+#endif /* CONFIG_SMP */
 
 static int __init icp_native_map_one_cpu(int hw_id, unsigned long addr,
 					 unsigned long size)
@@ -157,6 +164,9 @@ static int __init icp_native_map_one_cpu(int hw_id, unsigned long addr,
 	char *rname;
 	int i, cpu = -1;
 
+	/* This may look gross but it's good enough for now, we don't quite
+	 * have a hard -> linux processor id matching.
+	 */
 	for_each_possible_cpu(i) {
 		if (!cpu_present(i))
 			continue;
@@ -166,6 +176,9 @@ static int __init icp_native_map_one_cpu(int hw_id, unsigned long addr,
 		}
 	}
 
+	/* Fail, skip that CPU. Don't print, it's normal, some XICS come up
+	 * with way more entries in there than you have CPUs
+	 */
 	if (cpu == -1)
 		return 0;
 
@@ -200,8 +213,16 @@ static int __init icp_native_init_one_node(struct device_node *np,
 	int reg_tuple_size;
 	int num_servers = 0;
 
+	/* This code does the theorically broken assumption that the interrupt
+	 * server numbers are the same as the hard CPU numbers.
+	 * This happens to be the case so far but we are playing with fire...
+	 * should be fixed one of these days. -BenH.
+	 */
 	ireg = of_get_property(np, "ibm,interrupt-server-ranges", &ilen);
 
+	/* Do that ever happen ? we'll know soon enough... but even good'old
+	 * f80 does have that property ..
+	 */
 	WARN_ON((ireg == NULL) || (ilen != 2*sizeof(u32)));
 
 	if (ireg) {

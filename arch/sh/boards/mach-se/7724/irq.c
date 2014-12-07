@@ -106,17 +106,20 @@ static void se7724_irq_demux(unsigned int irq, struct irq_desc *desc)
 	}
 }
 
+/*
+ * Initialize IRQ setting
+ */
 void __init init_se7724_IRQ(void)
 {
 	int i, nid = cpu_to_node(boot_cpu_data);
 
-	__raw_writew(0xffff, IRQ0_MR);  
-	__raw_writew(0xffff, IRQ1_MR);  
-	__raw_writew(0xffff, IRQ2_MR);  
-	__raw_writew(0x0000, IRQ0_SR);  
-	__raw_writew(0x0000, IRQ1_SR);  
-	__raw_writew(0x0000, IRQ2_SR);  
-	__raw_writew(0x002a, IRQ_MODE); 
+	__raw_writew(0xffff, IRQ0_MR);  /* mask all */
+	__raw_writew(0xffff, IRQ1_MR);  /* mask all */
+	__raw_writew(0xffff, IRQ2_MR);  /* mask all */
+	__raw_writew(0x0000, IRQ0_SR);  /* clear irq */
+	__raw_writew(0x0000, IRQ1_SR);  /* clear irq */
+	__raw_writew(0x0000, IRQ2_SR);  /* clear irq */
+	__raw_writew(0x002a, IRQ_MODE); /* set irq type */
 
 	for (i = 0; i < SE7724_FPGA_IRQ_NR; i++) {
 		int irq, wanted;

@@ -1,3 +1,10 @@
+/*
+ * linux/arch/h8300/kernel/sys_h8300.c
+ *
+ * This file contains various random system calls that
+ * have a non-standard calling sequence on the H8/300
+ * platform.
+ */
 
 #include <linux/errno.h>
 #include <linux/sched.h>
@@ -19,6 +26,7 @@
 #include <asm/traps.h>
 #include <asm/unistd.h>
 
+/* sys_cacheflush -- no support.  */
 asmlinkage int
 sys_cacheflush (unsigned long addr, int scope, int cache, unsigned long len)
 {
@@ -39,6 +47,10 @@ asmlinkage void syscall_print(void *dummy,...)
 }
 #endif
 
+/*
+ * Do a system call from kernel instead of calling sys_execve so we
+ * end up with proper pt_regs.
+ */
 int kernel_execve(const char *filename,
 		  const char *const argv[],
 		  const char *const envp[])

@@ -41,4 +41,4 @@ void thread__find_addr_location(struct thread *thread, struct machine *machine,
 				u8 cpumode, enum map_type type, u64 addr,
 				struct addr_location *al,
 				symbol_filter_t filter);
-#endif	
+#endif	/* __PERF_THREAD_H */

@@ -40,14 +40,14 @@ struct srcu_struct {
 	struct mutex mutex;
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 	struct lockdep_map dep_map;
-#endif 
+#endif /* #ifdef CONFIG_DEBUG_LOCK_ALLOC */
 };
 
 #ifndef CONFIG_PREEMPT
 #define srcu_barrier() barrier()
-#else 
+#else /* #ifndef CONFIG_PREEMPT */
 #define srcu_barrier()
-#endif 
+#endif /* #else #ifndef CONFIG_PREEMPT */
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 
@@ -61,11 +61,11 @@ int __init_srcu_struct(struct srcu_struct *sp, const char *name,
 	__init_srcu_struct((sp), #sp, &__srcu_key); \
 })
 
-#else 
+#else /* #ifdef CONFIG_DEBUG_LOCK_ALLOC */
 
 int init_srcu_struct(struct srcu_struct *sp);
 
-#endif 
+#endif /* #else #ifdef CONFIG_DEBUG_LOCK_ALLOC */
 
 void cleanup_srcu_struct(struct srcu_struct *sp);
 int __srcu_read_lock(struct srcu_struct *sp) __acquires(sp);
@@ -76,6 +76,33 @@ long srcu_batches_completed(struct srcu_struct *sp);
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 
+/**
+ * srcu_read_lock_held - might we be in SRCU read-side critical section?
+ *
+ * If CONFIG_DEBUG_LOCK_ALLOC is selected, returns nonzero iff in an SRCU
+ * read-side critical section.  In absence of CONFIG_DEBUG_LOCK_ALLOC,
+ * this assumes we are in an SRCU read-side critical section unless it can
+ * prove otherwise.
+ *
+ * Checks debug_lockdep_rcu_enabled() to prevent false positives during boot
+ * and while lockdep is disabled.
+ *
+ * Note that if the CPU is in the idle loop from an RCU point of view
+ * (ie: that we are in the section between rcu_idle_enter() and
+ * rcu_idle_exit()) then srcu_read_lock_held() returns false even if
+ * the CPU did an srcu_read_lock().  The reason for this is that RCU
+ * ignores CPUs that are in such a section, considering these as in
+ * extended quiescent state, so such a CPU is effectively never in an
+ * RCU read-side critical section regardless of what RCU primitives it
+ * invokes.  This state of affairs is required --- we need to keep an
+ * RCU-free window in idle where the CPU may possibly enter into low
+ * power mode. This way we can notice an extended quiescent state to
+ * other CPUs that started a grace period. Otherwise we would delay any
+ * grace period as long as we run in the idle task.
+ *
+ * Similarly, we avoid claiming an SRCU read lock held if the current
+ * CPU is offline.
+ */
 static inline int srcu_read_lock_held(struct srcu_struct *sp)
 {
 	if (!debug_lockdep_rcu_enabled())
@@ -87,20 +114,59 @@ static inline int srcu_read_lock_held(struct srcu_struct *sp)
 	return lock_is_held(&sp->dep_map);
 }
 
-#else 
+#else /* #ifdef CONFIG_DEBUG_LOCK_ALLOC */
 
 static inline int srcu_read_lock_held(struct srcu_struct *sp)
 {
 	return 1;
 }
 
-#endif 
+#endif /* #else #ifdef CONFIG_DEBUG_LOCK_ALLOC */
 
+/**
+ * srcu_dereference_check - fetch SRCU-protected pointer for later dereferencing
+ * @p: the pointer to fetch and protect for later dereferencing
+ * @sp: pointer to the srcu_struct, which is used to check that we
+ *	really are in an SRCU read-side critical section.
+ * @c: condition to check for update-side use
+ *
+ * If PROVE_RCU is enabled, invoking this outside of an RCU read-side
+ * critical section will result in an RCU-lockdep splat, unless @c evaluates
+ * to 1.  The @c argument will normally be a logical expression containing
+ * lockdep_is_held() calls.
+ */
 #define srcu_dereference_check(p, sp, c) \
 	__rcu_dereference_check((p), srcu_read_lock_held(sp) || (c), __rcu)
 
+/**
+ * srcu_dereference - fetch SRCU-protected pointer for later dereferencing
+ * @p: the pointer to fetch and protect for later dereferencing
+ * @sp: pointer to the srcu_struct, which is used to check that we
+ *	really are in an SRCU read-side critical section.
+ *
+ * Makes rcu_dereference_check() do the dirty work.  If PROVE_RCU
+ * is enabled, invoking this outside of an RCU read-side critical
+ * section will result in an RCU-lockdep splat.
+ */
 #define srcu_dereference(p, sp) srcu_dereference_check((p), (sp), 0)
 
+/**
+ * srcu_read_lock - register a new reader for an SRCU-protected structure.
+ * @sp: srcu_struct in which to register the new reader.
+ *
+ * Enter an SRCU read-side critical section.  Note that SRCU read-side
+ * critical sections may be nested.  However, it is illegal to
+ * call anything that waits on an SRCU grace period for the same
+ * srcu_struct, whether directly or indirectly.  Please note that
+ * one way to indirectly wait on an SRCU grace period is to acquire
+ * a mutex that is held elsewhere while calling synchronize_srcu() or
+ * synchronize_srcu_expedited().
+ *
+ * Note that srcu_read_lock() and the matching srcu_read_unlock() must
+ * occur in the same context, for example, it is illegal to invoke
+ * srcu_read_unlock() in an irq handler if the matching srcu_read_lock()
+ * was invoked in process context.
+ */
 static inline int srcu_read_lock(struct srcu_struct *sp) __acquires(sp)
 {
 	int retval = __srcu_read_lock(sp);
@@ -111,6 +177,13 @@ static inline int srcu_read_lock(struct srcu_struct *sp) __acquires(sp)
 	return retval;
 }
 
+/**
+ * srcu_read_unlock - unregister a old reader from an SRCU-protected structure.
+ * @sp: srcu_struct in which to unregister the old reader.
+ * @idx: return value from corresponding srcu_read_lock().
+ *
+ * Exit an SRCU read-side critical section.
+ */
 static inline void srcu_read_unlock(struct srcu_struct *sp, int idx)
 	__releases(sp)
 {
@@ -120,6 +193,21 @@ static inline void srcu_read_unlock(struct srcu_struct *sp, int idx)
 	__srcu_read_unlock(sp, idx);
 }
 
+/**
+ * srcu_read_lock_raw - register a new reader for an SRCU-protected structure.
+ * @sp: srcu_struct in which to register the new reader.
+ *
+ * Enter an SRCU read-side critical section.  Similar to srcu_read_lock(),
+ * but avoids the RCU-lockdep checking.  This means that it is legal to
+ * use srcu_read_lock_raw() in one context, for example, in an exception
+ * handler, and then have the matching srcu_read_unlock_raw() in another
+ * context, for example in the task that took the exception.
+ *
+ * However, the entire SRCU read-side critical section must reside within a
+ * single task.  For example, beware of using srcu_read_lock_raw() in
+ * a device interrupt handler and srcu_read_unlock() in the interrupted
+ * task:  This will not work if interrupts are threaded.
+ */
 static inline int srcu_read_lock_raw(struct srcu_struct *sp)
 {
 	unsigned long flags;
@@ -131,6 +219,14 @@ static inline int srcu_read_lock_raw(struct srcu_struct *sp)
 	return ret;
 }
 
+/**
+ * srcu_read_unlock_raw - unregister reader from an SRCU-protected structure.
+ * @sp: srcu_struct in which to unregister the old reader.
+ * @idx: return value from corresponding srcu_read_lock_raw().
+ *
+ * Exit an SRCU read-side critical section without lockdep-RCU checking.
+ * See srcu_read_lock_raw() for more details.
+ */
 static inline void srcu_read_unlock_raw(struct srcu_struct *sp, int idx)
 {
 	unsigned long flags;

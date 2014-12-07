@@ -54,6 +54,9 @@ static const struct icst_params cclk_params = {
 	.idx2s		= icst525_idx2s,
 };
 
+/*
+ * Validate the speed policy.
+ */
 static int integrator_verify_policy(struct cpufreq_policy *policy)
 {
 	struct icst_vco vco;
@@ -86,12 +89,19 @@ static int integrator_set_target(struct cpufreq_policy *policy,
 	struct cpufreq_freqs freqs;
 	u_int cm_osc;
 
+	/*
+	 * Save this threads cpus_allowed mask.
+	 */
 	cpus_allowed = current->cpus_allowed;
 
+	/*
+	 * Bind to the specified CPU.  When this call returns,
+	 * we should be running on the right CPU.
+	 */
 	set_cpus_allowed(current, cpumask_of_cpu(cpu));
 	BUG_ON(cpu != smp_processor_id());
 
-	
+	/* get current setting */
 	cm_osc = __raw_readl(CM_OSC);
 
 	if (machine_is_integrator()) {
@@ -103,6 +113,9 @@ static int integrator_set_target(struct cpufreq_policy *policy,
 	vco.r = 22;
 	freqs.old = icst_hz(&cclk_params, vco) / 1000;
 
+	/* icst_hz_to_vco rounds down -- so we need the next
+	 * larger freq in case of CPUFREQ_RELATION_L.
+	 */
 	if (relation == CPUFREQ_RELATION_L)
 		target_freq += 999;
 	if (target_freq > policy->max)
@@ -133,6 +146,9 @@ static int integrator_set_target(struct cpufreq_policy *policy,
 	__raw_writel(cm_osc, CM_OSC);
 	__raw_writel(0, CM_LOCK);
 
+	/*
+	 * Restore the CPUs allowed mask.
+	 */
 	set_cpus_allowed(current, cpus_allowed);
 
 	cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
@@ -152,7 +168,7 @@ static unsigned int integrator_get(unsigned int cpu)
 	set_cpus_allowed(current, cpumask_of_cpu(cpu));
 	BUG_ON(cpu != smp_processor_id());
 
-	
+	/* detect memory etc. */
 	cm_osc = __raw_readl(CM_OSC);
 
 	if (machine_is_integrator()) {
@@ -163,7 +179,7 @@ static unsigned int integrator_get(unsigned int cpu)
 	vco.v = cm_osc & 255;
 	vco.r = 22;
 
-	current_freq = icst_hz(&cclk_params, vco) / 1000; 
+	current_freq = icst_hz(&cclk_params, vco) / 1000; /* current freq */
 
 	set_cpus_allowed(current, cpus_allowed);
 
@@ -173,10 +189,10 @@ static unsigned int integrator_get(unsigned int cpu)
 static int integrator_cpufreq_init(struct cpufreq_policy *policy)
 {
 
-	
+	/* set default policy and cpuinfo */
 	policy->cpuinfo.max_freq = 160000;
 	policy->cpuinfo.min_freq = 12000;
-	policy->cpuinfo.transition_latency = 1000000; 
+	policy->cpuinfo.transition_latency = 1000000; /* 1 ms, assumed */
 	policy->cur = policy->min = policy->max = integrator_get(policy->cpu);
 
 	return 0;

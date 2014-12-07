@@ -8,4 +8,4 @@ extern const struct file_operations comedi_fops;
 extern bool comedi_autoconfig;
 extern struct comedi_driver *comedi_drivers;
 
-#endif 
+#endif /* _COMEDI_FOPS_H */

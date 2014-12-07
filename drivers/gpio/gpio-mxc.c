@@ -36,11 +36,12 @@
 #define irq_to_gpio(irq)	((irq) - MXC_GPIO_IRQ_START)
 
 enum mxc_gpio_hwtype {
-	IMX1_GPIO,	
-	IMX21_GPIO,	
-	IMX31_GPIO,	
+	IMX1_GPIO,	/* runs on i.mx1 */
+	IMX21_GPIO,	/* runs on i.mx21 and i.mx27 */
+	IMX31_GPIO,	/* runs on all other i.mx */
 };
 
+/* device type dependent stuff */
 struct mxc_gpio_hwdata {
 	unsigned dr_reg;
 	unsigned gdir_reg;
@@ -121,7 +122,7 @@ static struct platform_device_id mxc_gpio_devtype[] = {
 		.name = "imx31-gpio",
 		.driver_data = IMX31_GPIO,
 	}, {
-		
+		/* sentinel */
 	}
 };
 
@@ -129,11 +130,17 @@ static const struct of_device_id mxc_gpio_dt_ids[] = {
 	{ .compatible = "fsl,imx1-gpio", .data = &mxc_gpio_devtype[IMX1_GPIO], },
 	{ .compatible = "fsl,imx21-gpio", .data = &mxc_gpio_devtype[IMX21_GPIO], },
 	{ .compatible = "fsl,imx31-gpio", .data = &mxc_gpio_devtype[IMX31_GPIO], },
-	{  }
+	{ /* sentinel */ }
 };
 
+/*
+ * MX2 has one interrupt *for all* gpio ports. The list is used
+ * to save the references to all ports, so that mx2_gpio_irq_handler
+ * can walk through all interrupt status registers.
+ */
 static LIST_HEAD(mxc_gpio_ports);
 
+/* Note: This driver assumes 32 GPIOs are handled in one register */
 
 static int gpio_set_irq_type(struct irq_data *d, u32 type)
 {
@@ -173,7 +180,7 @@ static int gpio_set_irq_type(struct irq_data *d, u32 type)
 		return -EINVAL;
 	}
 
-	reg += GPIO_ICR1 + ((gpio & 0x10) >> 2); 
+	reg += GPIO_ICR1 + ((gpio & 0x10) >> 2); /* lower or upper register */
 	bit = gpio & 0xf;
 	val = readl(reg) & ~(0x3 << (bit << 1));
 	writel(val | (edge << (bit << 1)), reg);
@@ -188,7 +195,7 @@ static void mxc_flip_edge(struct mxc_gpio_port *port, u32 gpio)
 	u32 bit, val;
 	int edge;
 
-	reg += GPIO_ICR1 + ((gpio & 0x10) >> 2); 
+	reg += GPIO_ICR1 + ((gpio & 0x10) >> 2); /* lower or upper register */
 	bit = gpio & 0xf;
 	val = readl(reg);
 	edge = (val >> (bit << 1)) & 3;
@@ -207,6 +214,7 @@ static void mxc_flip_edge(struct mxc_gpio_port *port, u32 gpio)
 	writel(val | (edge << (bit << 1)), reg);
 }
 
+/* handle 32 interrupts in one status register */
 static void mxc_gpio_irq_handler(struct mxc_gpio_port *port, u32 irq_stat)
 {
 	u32 gpio_irq_no_base = port->virtual_irq_start;
@@ -223,6 +231,7 @@ static void mxc_gpio_irq_handler(struct mxc_gpio_port *port, u32 irq_stat)
 	}
 }
 
+/* MX1 and MX3 has one interrupt *per* gpio port */
 static void mx3_gpio_irq_handler(u32 irq, struct irq_desc *desc)
 {
 	u32 irq_stat;
@@ -238,12 +247,13 @@ static void mx3_gpio_irq_handler(u32 irq, struct irq_desc *desc)
 	chained_irq_exit(chip, desc);
 }
 
+/* MX2 has one interrupt *for all* gpio ports */
 static void mx2_gpio_irq_handler(u32 irq, struct irq_desc *desc)
 {
 	u32 irq_msk, irq_stat;
 	struct mxc_gpio_port *port;
 
-	
+	/* walk through all interrupt status registers */
 	list_for_each_entry(port, &mxc_gpio_ports, node) {
 		irq_msk = readl(port->base + GPIO_IMR);
 		if (!irq_msk)
@@ -255,6 +265,15 @@ static void mx2_gpio_irq_handler(u32 irq, struct irq_desc *desc)
 	}
 }
 
+/*
+ * Set interrupt number "irq" in the GPIO as a wake-up source.
+ * While system is running, all registered GPIO interrupts need to have
+ * wake-up enabled. When system is suspended, only selected GPIO interrupts
+ * need to have wake-up enabled.
+ * @param  irq          interrupt source number
+ * @param  enable       enable as wake-up if equal to non-zero
+ * @return       This function returns 0 on success.
+ */
 static int gpio_set_wake_irq(struct irq_data *d, u32 enable)
 {
 	u32 gpio = irq_to_gpio(d->irq);
@@ -310,6 +329,11 @@ static void __devinit mxc_gpio_get_hw(struct platform_device *pdev)
 	hwtype = pdev->id_entry->driver_data;
 
 	if (mxc_gpio_hwtype) {
+		/*
+		 * The driver works with a reasonable presupposition,
+		 * that is all gpio ports must be the same type when
+		 * running on one soc.
+		 */
 		BUG_ON(mxc_gpio_hwtype != hwtype);
 		return;
 	}
@@ -369,21 +393,21 @@ static int __devinit mxc_gpio_probe(struct platform_device *pdev)
 		goto out_iounmap;
 	}
 
-	
+	/* disable the interrupt and clear the status */
 	writel(0, port->base + GPIO_IMR);
 	writel(~0, port->base + GPIO_ISR);
 
 	if (mxc_gpio_hwtype == IMX21_GPIO) {
-		
+		/* setup one handler for all GPIO interrupts */
 		if (pdev->id == 0)
 			irq_set_chained_handler(port->irq,
 						mx2_gpio_irq_handler);
 	} else {
-		
+		/* setup one handler for each entry */
 		irq_set_chained_handler(port->irq, mx3_gpio_irq_handler);
 		irq_set_handler_data(port->irq, port);
 		if (port->irq_high > 0) {
-			
+			/* setup handler for GPIO 16 to 31 */
 			irq_set_chained_handler(port->irq_high,
 						mx3_gpio_irq_handler);
 			irq_set_handler_data(port->irq_high, port);
@@ -406,10 +430,14 @@ static int __devinit mxc_gpio_probe(struct platform_device *pdev)
 	if (err)
 		goto out_bgpio_remove;
 
+	/*
+	 * In dt case, we use gpio number range dynamically
+	 * allocated by gpio core.
+	 */
 	port->virtual_irq_start = MXC_GPIO_IRQ_START + (np ? port->bgc.gc.base :
 							     pdev->id * 32);
 
-	
+	/* gpio-mxc can be a generic irq chip */
 	mxc_gpio_init_gc(port);
 
 	list_add_tail(&port->node, &mxc_gpio_ports);

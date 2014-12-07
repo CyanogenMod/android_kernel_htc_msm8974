@@ -163,7 +163,7 @@ recv_Dchannel(struct dchannel *dch)
 {
 	struct mISDNhead *hh;
 
-	if (dch->rx_skb->len < 2) { 
+	if (dch->rx_skb->len < 2) { /* at least 2 for sapi / tei */
 		dev_kfree_skb(dch->rx_skb);
 		dch->rx_skb = NULL;
 		return;
@@ -182,7 +182,7 @@ recv_Echannel(struct dchannel *ech, struct dchannel *dch)
 {
 	struct mISDNhead *hh;
 
-	if (ech->rx_skb->len < 2) { 
+	if (ech->rx_skb->len < 2) { /* at least 2 for sapi / tei */
 		dev_kfree_skb(ech->rx_skb);
 		ech->rx_skb = NULL;
 		return;
@@ -306,7 +306,7 @@ get_next_bframe(struct bchannel *bch)
 			bch->next_skb = NULL;
 			test_and_clear_bit(FLG_TX_NEXT, &bch->Flags);
 			if (!test_bit(FLG_TRANSPARENT, &bch->Flags))
-				confirm_Bsend(bch); 
+				confirm_Bsend(bch); /* not for transparent */
 			return 1;
 		} else {
 			test_and_clear_bit(FLG_TX_NEXT, &bch->Flags);
@@ -342,7 +342,7 @@ EXPORT_SYMBOL(queue_ch_frame);
 int
 dchannel_senddata(struct dchannel *ch, struct sk_buff *skb)
 {
-	
+	/* check oversize */
 	if (skb->len <= 0) {
 		printk(KERN_WARNING "%s: skb too small\n", __func__);
 		return -EINVAL;
@@ -352,12 +352,12 @@ dchannel_senddata(struct dchannel *ch, struct sk_buff *skb)
 		       __func__, skb->len, ch->maxlen);
 		return -EINVAL;
 	}
-	
+	/* HW lock must be obtained */
 	if (test_and_set_bit(FLG_TX_BUSY, &ch->Flags)) {
 		skb_queue_tail(&ch->squeue, skb);
 		return 0;
 	} else {
-		
+		/* write to fifo */
 		ch->tx_skb = skb;
 		ch->tx_idx = 0;
 		return 1;
@@ -369,7 +369,7 @@ int
 bchannel_senddata(struct bchannel *ch, struct sk_buff *skb)
 {
 
-	
+	/* check oversize */
 	if (skb->len <= 0) {
 		printk(KERN_WARNING "%s: skb too small\n", __func__);
 		return -EINVAL;
@@ -379,8 +379,8 @@ bchannel_senddata(struct bchannel *ch, struct sk_buff *skb)
 		       __func__, skb->len, ch->maxlen);
 		return -EINVAL;
 	}
-	
-	
+	/* HW lock must be obtained */
+	/* check for pending next_skb */
 	if (ch->next_skb) {
 		printk(KERN_WARNING
 		       "%s: next_skb exist ERROR (skb->len=%d next_skb->len=%d)\n",
@@ -392,7 +392,7 @@ bchannel_senddata(struct bchannel *ch, struct sk_buff *skb)
 		ch->next_skb = skb;
 		return 0;
 	} else {
-		
+		/* write to fifo */
 		ch->tx_skb = skb;
 		ch->tx_idx = 0;
 		return 1;

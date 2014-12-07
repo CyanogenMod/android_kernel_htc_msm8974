@@ -23,6 +23,13 @@
 
 #include "adxrs450.h"
 
+/**
+ * adxrs450_spi_read_reg_16() - read 2 bytes from a register pair
+ * @dev: device associated with child of actual iio_dev
+ * @reg_address: the address of the lower of the two registers,which should be an even address,
+ * Second register's address is reg_address + 1.
+ * @val: somewhere to pass back the value read
+ **/
 static int adxrs450_spi_read_reg_16(struct iio_dev *indio_dev,
 				    u8 reg_address,
 				    u16 *val)
@@ -86,11 +93,16 @@ static int adxrs450_spi_write_reg_16(struct iio_dev *indio_dev,
 	if (ret)
 		dev_err(&st->us->dev, "problem while writing 16 bit register 0x%02x\n",
 			reg_address);
-	msleep(1); 
+	msleep(1); /* enforce sequential transfer delay 0.1ms */
 	mutex_unlock(&st->buf_lock);
 	return ret;
 }
 
+/**
+ * adxrs450_spi_sensor_data() - read 2 bytes sensor data
+ * @dev: device associated with child of actual iio_dev
+ * @val: somewhere to pass back the value read
+ **/
 static int adxrs450_spi_sensor_data(struct iio_dev *indio_dev, s16 *val)
 {
 	struct adxrs450_state *st = iio_priv(indio_dev);
@@ -121,6 +133,11 @@ error_ret:
 	return ret;
 }
 
+/**
+ * adxrs450_spi_initial() - use for initializing procedure.
+ * @st: device instance specific data
+ * @val: somewhere to pass back the value read
+ **/
 static int adxrs450_spi_initial(struct adxrs450_state *st,
 		u32 *val, char chk)
 {
@@ -155,6 +172,7 @@ error_ret:
 	return ret;
 }
 
+/* Recommended Startup Sequence by spec */
 static int adxrs450_initial_setup(struct iio_dev *indio_dev)
 {
 	u32 t;
@@ -349,7 +367,7 @@ static int __devinit adxrs450_probe(struct spi_device *spi)
 	struct adxrs450_state *st;
 	struct iio_dev *indio_dev;
 
-	
+	/* setup the industrialio driver allocated elements */
 	indio_dev = iio_allocate_device(sizeof(*st));
 	if (indio_dev == NULL) {
 		ret = -ENOMEM;
@@ -358,7 +376,7 @@ static int __devinit adxrs450_probe(struct spi_device *spi)
 	st = iio_priv(indio_dev);
 	st->us = spi;
 	mutex_init(&st->buf_lock);
-	
+	/* This is only used for removal purposes */
 	spi_set_drvdata(spi, indio_dev);
 
 	indio_dev->dev.parent = &spi->dev;
@@ -373,7 +391,7 @@ static int __devinit adxrs450_probe(struct spi_device *spi)
 	if (ret)
 		goto error_free_dev;
 
-	
+	/* Get the device into a sane initial state */
 	ret = adxrs450_initial_setup(indio_dev);
 	if (ret)
 		goto error_initial;

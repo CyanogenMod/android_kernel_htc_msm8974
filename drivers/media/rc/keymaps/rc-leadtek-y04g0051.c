@@ -39,10 +39,10 @@ static struct rc_map_table leadtek_y04g0051[] = {
 	{ 0x0310, KEY_DOWN },
 	{ 0x0311, KEY_AGAIN },
 	{ 0x0312, KEY_0 },
-	{ 0x0313, KEY_OK },              
+	{ 0x0313, KEY_OK },              /* 1st ok */
 	{ 0x0314, KEY_MUTE },
-	{ 0x0316, KEY_OK },              
-	{ 0x031e, KEY_VIDEO },           
+	{ 0x0316, KEY_OK },              /* 2nd ok */
+	{ 0x031e, KEY_VIDEO },           /* 2nd video */
 	{ 0x031b, KEY_AUDIO },
 	{ 0x031f, KEY_TEXT },
 	{ 0x0340, KEY_SLEEP },
@@ -51,7 +51,7 @@ static struct rc_map_table leadtek_y04g0051[] = {
 	{ 0x0343, KEY_PLAY },
 	{ 0x0344, KEY_FASTFORWARD },
 	{ 0x0345, KEY_TIME },
-	{ 0x0346, KEY_STOP },            
+	{ 0x0346, KEY_STOP },            /* 2nd stop */
 	{ 0x0347, KEY_RECORD },
 	{ 0x0348, KEY_CAMERA },
 	{ 0x0349, KEY_ESC },
@@ -61,9 +61,9 @@ static struct rc_map_table leadtek_y04g0051[] = {
 	{ 0x034d, KEY_YELLOW },
 	{ 0x034e, KEY_BLUE },
 	{ 0x034f, KEY_MENU },
-	{ 0x0350, KEY_STOP },            
+	{ 0x0350, KEY_STOP },            /* 1st stop */
 	{ 0x0351, KEY_CHANNEL },
-	{ 0x0352, KEY_VIDEO },           
+	{ 0x0352, KEY_VIDEO },           /* 1st video */
 	{ 0x0353, KEY_EPG },
 	{ 0x0354, KEY_PREVIOUS },
 	{ 0x0355, KEY_NEXT },

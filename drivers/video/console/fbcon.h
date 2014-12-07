@@ -20,15 +20,19 @@
 #define FBCON_FLAGS_INIT         1
 #define FBCON_FLAGS_CURSOR_TIMER 2
 
+   /*
+    *    This is the interface between the low-level console driver and the
+    *    low-level frame buffer device
+    */
 
 struct display {
-    
+    /* Filled in by the low-level console driver */
     const u_char *fontdata;
-    int userfont;                   
-    u_short scrollmode;             
-    u_short inverse;                
-    short yscroll;                  
-    int vrows;                      
+    int userfont;                   /* != 0 if fontdata kmalloc()ed */
+    u_short scrollmode;             /* Scroll Method */
+    u_short inverse;                /* != 0 text black on white as default */
+    short yscroll;                  /* Hardware scrolling */
+    int vrows;                      /* number of virtual rows */
     int cursor_shape;
     int con_rotate;
     u32 xres_virtual;
@@ -61,16 +65,16 @@ struct fbcon_ops {
 		       int softback_lines, int fg, int bg);
 	int  (*update_start)(struct fb_info *info);
 	int  (*rotate_font)(struct fb_info *info, struct vc_data *vc);
-	struct fb_var_screeninfo var;  
-	struct timer_list cursor_timer; 
+	struct fb_var_screeninfo var;  /* copy of the current fb_var_screeninfo */
+	struct timer_list cursor_timer; /* Cursor timer */
 	struct fb_cursor cursor_state;
 	struct display *p;
-        int    currcon;	                
+        int    currcon;	                /* Current VC. */
 	int    cursor_flash;
 	int    cursor_reset;
 	int    blank_state;
 	int    graphics;
-	int    save_graphics; 
+	int    save_graphics; /* for debug enter/leave */
 	int    flags;
 	int    rotate;
 	int    cur_rotate;
@@ -81,12 +85,17 @@ struct fbcon_ops {
 	u32    cursor_size;
 	u32    fd_size;
 };
+    /*
+     *  Attribute Decoding
+     */
 
+/* Color */
 #define attr_fgcol(fgshift,s)    \
 	(((s) >> (fgshift)) & 0x0f)
 #define attr_bgcol(bgshift,s)    \
 	(((s) >> (bgshift)) & 0x0f)
 
+/* Monochrome */
 #define attr_bold(s) \
 	((s) & 0x200)
 #define attr_reverse(s) \
@@ -141,13 +150,62 @@ static inline int attr_col_ec(int shift, struct vc_data *vc,
 #define attr_bgcol_ec(bgshift, vc, info) attr_col_ec(bgshift, vc, info, 0)
 #define attr_fgcol_ec(fgshift, vc, info) attr_col_ec(fgshift, vc, info, 1)
 
+/* Font */
 #define REFCOUNT(fd)	(((int *)(fd))[-1])
 #define FNTSIZE(fd)	(((int *)(fd))[-2])
 #define FNTCHARCNT(fd)	(((int *)(fd))[-3])
 #define FNTSUM(fd)	(((int *)(fd))[-4])
 #define FONT_EXTRA_WORDS 4
 
+    /*
+     *  Scroll Method
+     */
      
+/* There are several methods fbcon can use to move text around the screen:
+ *
+ *                     Operation   Pan    Wrap
+ *---------------------------------------------
+ * SCROLL_MOVE         copyarea    No     No
+ * SCROLL_PAN_MOVE     copyarea    Yes    No
+ * SCROLL_WRAP_MOVE    copyarea    No     Yes
+ * SCROLL_REDRAW       imageblit   No     No
+ * SCROLL_PAN_REDRAW   imageblit   Yes    No
+ * SCROLL_WRAP_REDRAW  imageblit   No     Yes
+ *
+ * (SCROLL_WRAP_REDRAW is not implemented yet)
+ *
+ * In general, fbcon will choose the best scrolling
+ * method based on the rule below:
+ *
+ * Pan/Wrap > accel imageblit > accel copyarea >
+ * soft imageblit > (soft copyarea)
+ *
+ * Exception to the rule: Pan + accel copyarea is
+ * preferred over Pan + accel imageblit.
+ *
+ * The above is typical for PCI/AGP cards. Unless
+ * overridden, fbcon will never use soft copyarea.
+ *
+ * If you need to override the above rule, set the
+ * appropriate flags in fb_info->flags.  For example,
+ * to prefer copyarea over imageblit, set
+ * FBINFO_READS_FAST.
+ *
+ * Other notes:
+ * + use the hardware engine to move the text
+ *    (hw-accelerated copyarea() and fillrect())
+ * + use hardware-supported panning on a large virtual screen
+ * + amifb can not only pan, but also wrap the display by N lines
+ *    (i.e. visible line i = physical line (i+N) % yres).
+ * + read what's already rendered on the screen and
+ *     write it in a different place (this is cfb_copyarea())
+ * + re-render the text to the screen
+ *
+ * Whether to use wrapping or panning can only be figured out at
+ * runtime (when we know whether our font height is a multiple
+ * of the pan/wrap step)
+ *
+ */
 
 #define SCROLL_MOVE	   0x001
 #define SCROLL_PAN_MOVE	   0x002
@@ -200,7 +258,7 @@ static inline int get_attribute(struct fb_info *info, u16 c)
 extern void fbcon_set_rotate(struct fbcon_ops *ops);
 #else
 #define fbcon_set_rotate(x) do {} while(0)
-#endif 
+#endif /* CONFIG_FRAMEBUFFER_CONSOLE_ROTATION */
 
-#endif 
+#endif /* _VIDEO_FBCON_H */
 

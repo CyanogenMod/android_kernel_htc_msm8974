@@ -18,6 +18,7 @@
 #include <sys/wait.h>
 
 
+/* Breakpoint access modes */
 enum {
 	BP_X = 1,
 	BP_RW = 2,
@@ -26,6 +27,11 @@ enum {
 
 static pid_t child_pid;
 
+/*
+ * Ensures the child and parent are always "talking" about
+ * the same test sequence. (ie: that we haven't forgotten
+ * to call check_trapped() somewhere).
+ */
 static int nr_tests;
 
 static void set_breakpoint_addr(void *addr, int n)
@@ -103,8 +109,10 @@ static void toggle_breakpoint(int n, int type, int len,
 	}
 }
 
+/* Dummy variables to test read/write accesses */
 static unsigned long long dummy_var[4];
 
+/* Dummy functions to test execution accesses */
 static void dummy_func(void) { }
 static void dummy_func1(void) { }
 static void dummy_func2(void) { }
@@ -121,6 +129,10 @@ static int trapped;
 
 static void check_trapped(void)
 {
+	/*
+	 * If we haven't trapped, wake up the parent
+	 * so that it notices the failure.
+	 */
 	if (!trapped)
 		kill(getpid(), SIGUSR1);
 	trapped = 0;
@@ -180,6 +192,10 @@ static void read_var(int len)
 	}
 }
 
+/*
+ * Do the r/w/x accesses to trigger the breakpoints. And run
+ * the usual traps.
+ */
 static void trigger_tests(void)
 {
 	int len, local, global, i;
@@ -192,10 +208,10 @@ static void trigger_tests(void)
 		return;
 	}
 
-	
+	/* Wake up father so that it sets up the first test */
 	kill(getpid(), SIGUSR1);
 
-	
+	/* Test instruction breakpoints */
 	for (local = 0; local < 2; local++) {
 		for (global = 0; global < 2; global++) {
 			if (!local && !global)
@@ -208,7 +224,7 @@ static void trigger_tests(void)
 		}
 	}
 
-	
+	/* Test write watchpoints */
 	for (len = 1; len <= sizeof(long); len <<= 1) {
 		for (local = 0; local < 2; local++) {
 			for (global = 0; global < 2; global++) {
@@ -219,7 +235,7 @@ static void trigger_tests(void)
 		}
 	}
 
-	
+	/* Test read/write watchpoints (on read accesses) */
 	for (len = 1; len <= sizeof(long); len <<= 1) {
 		for (local = 0; local < 2; local++) {
 			for (global = 0; global < 2; global++) {
@@ -230,11 +246,11 @@ static void trigger_tests(void)
 		}
 	}
 
-	
+	/* Icebp trap */
 	asm(".byte 0xf1\n");
 	check_trapped();
 
-	
+	/* Int 3 trap */
 	asm("int $3\n");
 	check_trapped();
 
@@ -247,7 +263,7 @@ static void check_success(const char *msg)
 	int child_nr_tests;
 	int status;
 
-	
+	/* Wait for the child to SIGTRAP */
 	wait(&status);
 
 	msg2 = "Failed";
@@ -305,12 +321,13 @@ static void launch_watchpoints(char *buf, int mode, int len,
 	}
 }
 
+/* Set the breakpoints and check the child successfully trigger them */
 static void launch_tests(void)
 {
 	char buf[1024];
 	int len, local, global, i;
 
-	
+	/* Instruction breakpoints */
 	for (local = 0; local < 2; local++) {
 		for (global = 0; global < 2; global++) {
 			if (!local && !global)
@@ -319,7 +336,7 @@ static void launch_tests(void)
 		}
 	}
 
-	
+	/* Write watchpoint */
 	for (len = 1; len <= sizeof(long); len <<= 1) {
 		for (local = 0; local < 2; local++) {
 			for (global = 0; global < 2; global++) {
@@ -331,7 +348,7 @@ static void launch_tests(void)
 		}
 	}
 
-	
+	/* Read-Write watchpoint */
 	for (len = 1; len <= sizeof(long); len <<= 1) {
 		for (local = 0; local < 2; local++) {
 			for (global = 0; global < 2; global++) {
@@ -343,11 +360,11 @@ static void launch_tests(void)
 		}
 	}
 
-	
+	/* Icebp traps */
 	ptrace(PTRACE_CONT, child_pid, NULL, 0);
 	check_success("Test icebp");
 
-	
+	/* Int 3 traps */
 	ptrace(PTRACE_CONT, child_pid, NULL, 0);
 	check_success("Test int 3 trap");
 

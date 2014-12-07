@@ -60,6 +60,9 @@
 #define SCSI_LU_INDEX			1
 #define LU_COUNT			1
 
+/*
+ * SCSI Device Table
+ */
 
 CONFIGFS_EATTR_STRUCT(target_stat_scsi_dev, se_dev_stat_grps);
 #define DEV_STAT_SCSI_DEV_ATTR(_name, _mode)				\
@@ -153,6 +156,9 @@ static struct config_item_type target_stat_scsi_dev_cit = {
 	.ct_owner		= THIS_MODULE,
 };
 
+/*
+ * SCSI Target Device Table
+ */
 
 CONFIGFS_EATTR_STRUCT(target_stat_scsi_tgt_dev, se_dev_stat_grps);
 #define DEV_STAT_SCSI_TGT_DEV_ATTR(_name, _mode)			\
@@ -311,6 +317,9 @@ static struct config_item_type target_stat_scsi_tgt_dev_cit = {
 	.ct_owner		= THIS_MODULE,
 };
 
+/*
+ * SCSI Logical Unit Table
+ */
 
 CONFIGFS_EATTR_STRUCT(target_stat_scsi_lu, se_dev_stat_grps);
 #define DEV_STAT_SCSI_LU_ATTR(_name, _mode)				\
@@ -376,7 +385,7 @@ static ssize_t target_stat_scsi_lu_show_attr_lun(
 
 	if (!dev)
 		return -ENODEV;
-	
+	/* FIXME: scsiLuDefaultLun */
 	return snprintf(page, PAGE_SIZE, "%llu\n", (unsigned long long)0);
 }
 DEV_STAT_SCSI_LU_ATTR_RO(lun);
@@ -390,7 +399,7 @@ static ssize_t target_stat_scsi_lu_show_attr_lu_name(
 
 	if (!dev)
 		return -ENODEV;
-	
+	/* scsiLuWwnName */
 	return snprintf(page, PAGE_SIZE, "%s\n",
 			(strlen(dev->se_sub_dev->t10_wwn.unit_serial)) ?
 			dev->se_sub_dev->t10_wwn.unit_serial : "None");
@@ -409,7 +418,7 @@ static ssize_t target_stat_scsi_lu_show_attr_vend(
 	if (!dev)
 		return -ENODEV;
 
-	
+	/* scsiLuVendorId */
 	for (i = 0; i < sizeof(dev->se_sub_dev->t10_wwn.vendor); i++)
 		str[i] = ISPRINT(dev->se_sub_dev->t10_wwn.vendor[i]) ?
 			dev->se_sub_dev->t10_wwn.vendor[i] : ' ';
@@ -430,7 +439,7 @@ static ssize_t target_stat_scsi_lu_show_attr_prod(
 	if (!dev)
 		return -ENODEV;
 
-	
+	/* scsiLuProductId */
 	for (i = 0; i < sizeof(dev->se_sub_dev->t10_wwn.vendor); i++)
 		str[i] = ISPRINT(dev->se_sub_dev->t10_wwn.model[i]) ?
 			dev->se_sub_dev->t10_wwn.model[i] : ' ';
@@ -451,7 +460,7 @@ static ssize_t target_stat_scsi_lu_show_attr_rev(
 	if (!dev)
 		return -ENODEV;
 
-	
+	/* scsiLuRevisionId */
 	for (i = 0; i < sizeof(dev->se_sub_dev->t10_wwn.revision); i++)
 		str[i] = ISPRINT(dev->se_sub_dev->t10_wwn.revision[i]) ?
 			dev->se_sub_dev->t10_wwn.revision[i] : ' ';
@@ -470,7 +479,7 @@ static ssize_t target_stat_scsi_lu_show_attr_dev_type(
 	if (!dev)
 		return -ENODEV;
 
-	
+	/* scsiLuPeripheralType */
 	return snprintf(page, PAGE_SIZE, "%u\n",
 			dev->transport->get_device_type(dev));
 }
@@ -486,7 +495,7 @@ static ssize_t target_stat_scsi_lu_show_attr_status(
 	if (!dev)
 		return -ENODEV;
 
-	
+	/* scsiLuStatus */
 	return snprintf(page, PAGE_SIZE, "%s\n",
 		(dev->dev_status == TRANSPORT_DEVICE_ACTIVATED) ?
 		"available" : "notavailable");
@@ -503,7 +512,7 @@ static ssize_t target_stat_scsi_lu_show_attr_state_bit(
 	if (!dev)
 		return -ENODEV;
 
-	
+	/* scsiLuState */
 	return snprintf(page, PAGE_SIZE, "exposed\n");
 }
 DEV_STAT_SCSI_LU_ATTR_RO(state_bit);
@@ -518,7 +527,7 @@ static ssize_t target_stat_scsi_lu_show_attr_num_cmds(
 	if (!dev)
 		return -ENODEV;
 
-	
+	/* scsiLuNumCommands */
 	return snprintf(page, PAGE_SIZE, "%llu\n",
 			(unsigned long long)dev->num_cmds);
 }
@@ -534,7 +543,7 @@ static ssize_t target_stat_scsi_lu_show_attr_read_mbytes(
 	if (!dev)
 		return -ENODEV;
 
-	
+	/* scsiLuReadMegaBytes */
 	return snprintf(page, PAGE_SIZE, "%u\n", (u32)(dev->read_bytes >> 20));
 }
 DEV_STAT_SCSI_LU_ATTR_RO(read_mbytes);
@@ -564,7 +573,7 @@ static ssize_t target_stat_scsi_lu_show_attr_resets(
 	if (!dev)
 		return -ENODEV;
 
-	
+	/* scsiLuInResets */
 	return snprintf(page, PAGE_SIZE, "%u\n", dev->num_resets);
 }
 DEV_STAT_SCSI_LU_ATTR_RO(resets);
@@ -579,7 +588,7 @@ static ssize_t target_stat_scsi_lu_show_attr_full_stat(
 	if (!dev)
 		return -ENODEV;
 
-	
+	/* FIXME: scsiLuOutTaskSetFullStatus */
 	return snprintf(page, PAGE_SIZE, "%u\n", 0);
 }
 DEV_STAT_SCSI_LU_ATTR_RO(full_stat);
@@ -594,7 +603,7 @@ static ssize_t target_stat_scsi_lu_show_attr_hs_num_cmds(
 	if (!dev)
 		return -ENODEV;
 
-	
+	/* FIXME: scsiLuHSInCommands */
 	return snprintf(page, PAGE_SIZE, "%u\n", 0);
 }
 DEV_STAT_SCSI_LU_ATTR_RO(hs_num_cmds);
@@ -609,7 +618,7 @@ static ssize_t target_stat_scsi_lu_show_attr_creation_time(
 	if (!dev)
 		return -ENODEV;
 
-	
+	/* scsiLuCreationTime */
 	return snprintf(page, PAGE_SIZE, "%u\n", (u32)(((u32)dev->creation_time -
 				INITIAL_JIFFIES) * 100 / HZ));
 }
@@ -650,6 +659,10 @@ static struct config_item_type target_stat_scsi_lu_cit = {
 	.ct_owner		= THIS_MODULE,
 };
 
+/*
+ * Called from target_core_configfs.c:target_core_make_subdev() to setup
+ * the target statistics groups + configfs CITs located in target_core_stat.c
+ */
 void target_stat_setup_dev_default_groups(struct se_subsystem_dev *se_subdev)
 {
 	struct config_group *dev_stat_grp = &se_subdev->dev_stat_grps.stat_group;
@@ -667,6 +680,9 @@ void target_stat_setup_dev_default_groups(struct se_subsystem_dev *se_subdev)
 	dev_stat_grp->default_groups[3] = NULL;
 }
 
+/*
+ * SCSI Port Table
+ */
 
 CONFIGFS_EATTR_STRUCT(target_stat_scsi_port, se_port_stat_grps);
 #define DEV_STAT_SCSI_PORT_ATTR(_name, _mode)				\
@@ -779,7 +795,7 @@ static ssize_t target_stat_scsi_port_show_attr_busy_count(
 		spin_unlock(&lun->lun_sep_lock);
 		return -ENODEV;
 	}
-	
+	/* FIXME: scsiPortBusyStatuses  */
 	ret = snprintf(page, PAGE_SIZE, "%u\n", 0);
 	spin_unlock(&lun->lun_sep_lock);
 	return ret;
@@ -808,6 +824,9 @@ static struct config_item_type target_stat_scsi_port_cit = {
 	.ct_owner		= THIS_MODULE,
 };
 
+/*
+ * SCSI Target Port Table
+ */
 CONFIGFS_EATTR_STRUCT(target_stat_scsi_tgt_port, se_port_stat_grps);
 #define DEV_STAT_SCSI_TGT_PORT_ATTR(_name, _mode)			\
 static struct target_stat_scsi_tgt_port_attribute			\
@@ -1006,7 +1025,7 @@ static ssize_t target_stat_scsi_tgt_port_show_attr_hs_in_cmds(
 		return -ENODEV;
 	}
 
-	
+	/* FIXME: scsiTgtPortHsInCommands */
 	ret = snprintf(page, PAGE_SIZE, "%u\n", 0);
 	spin_unlock(&lun->lun_sep_lock);
 	return ret;
@@ -1040,6 +1059,9 @@ static struct config_item_type target_stat_scsi_tgt_port_cit = {
 	.ct_owner		= THIS_MODULE,
 };
 
+/*
+ * SCSI Transport Table
+o */
 
 CONFIGFS_EATTR_STRUCT(target_stat_scsi_transport, se_port_stat_grps);
 #define DEV_STAT_SCSI_TRANSPORT_ATTR(_name, _mode)			\
@@ -1093,7 +1115,7 @@ static ssize_t target_stat_scsi_transport_show_attr_device(
 		return -ENODEV;
 	}
 	tpg = sep->sep_tpg;
-	
+	/* scsiTransportType */
 	ret = snprintf(page, PAGE_SIZE, "scsiTransport%s\n",
 			tpg->se_tpg_tfo->get_fabric_name());
 	spin_unlock(&lun->lun_sep_lock);
@@ -1141,7 +1163,7 @@ static ssize_t target_stat_scsi_transport_show_attr_dev_name(
 	}
 	tpg = sep->sep_tpg;
 	wwn = &dev->se_sub_dev->t10_wwn;
-	
+	/* scsiTransportDevName */
 	ret = snprintf(page, PAGE_SIZE, "%s+%s\n",
 			tpg->se_tpg_tfo->tpg_get_wwn(tpg),
 			(strlen(wwn->unit_serial)) ? wwn->unit_serial :
@@ -1173,6 +1195,10 @@ static struct config_item_type target_stat_scsi_transport_cit = {
 	.ct_owner		= THIS_MODULE,
 };
 
+/*
+ * Called from target_core_fabric_configfs.c:target_fabric_make_lun() to setup
+ * the target port statistics groups + configfs CITs located in target_core_stat.c
+ */
 void target_stat_setup_port_default_groups(struct se_lun *lun)
 {
 	struct config_group *port_stat_grp = &lun->port_stat_grps.stat_group;
@@ -1190,6 +1216,9 @@ void target_stat_setup_port_default_groups(struct se_lun *lun)
 	port_stat_grp->default_groups[3] = NULL;
 }
 
+/*
+ * SCSI Authorized Initiator Table
+ */
 
 CONFIGFS_EATTR_STRUCT(target_stat_scsi_auth_intr, se_ml_stat_grps);
 #define DEV_STAT_SCSI_AUTH_INTR_ATTR(_name, _mode)			\
@@ -1222,7 +1251,7 @@ static ssize_t target_stat_scsi_auth_intr_show_attr_inst(
 		return -ENODEV;
 	}
 	tpg = nacl->se_tpg;
-	
+	/* scsiInstIndex */
 	ret = snprintf(page, PAGE_SIZE, "%u\n",
 			tpg->se_tpg_tfo->tpg_get_inst_index(tpg));
 	spin_unlock_irq(&nacl->device_list_lock);
@@ -1247,7 +1276,7 @@ static ssize_t target_stat_scsi_auth_intr_show_attr_dev(
 		return -ENODEV;
 	}
 	lun = deve->se_lun;
-	
+	/* scsiDeviceIndex */
 	ret = snprintf(page, PAGE_SIZE, "%u\n", lun->lun_se_dev->dev_index);
 	spin_unlock_irq(&nacl->device_list_lock);
 	return ret;
@@ -1271,7 +1300,7 @@ static ssize_t target_stat_scsi_auth_intr_show_attr_port(
 		return -ENODEV;
 	}
 	tpg = nacl->se_tpg;
-	
+	/* scsiAuthIntrTgtPortIndex */
 	ret = snprintf(page, PAGE_SIZE, "%u\n", tpg->se_tpg_tfo->tpg_get_tag(tpg));
 	spin_unlock_irq(&nacl->device_list_lock);
 	return ret;
@@ -1293,7 +1322,7 @@ static ssize_t target_stat_scsi_auth_intr_show_attr_indx(
 		spin_unlock_irq(&nacl->device_list_lock);
 		return -ENODEV;
 	}
-	
+	/* scsiAuthIntrIndex */
 	ret = snprintf(page, PAGE_SIZE, "%u\n", nacl->acl_index);
 	spin_unlock_irq(&nacl->device_list_lock);
 	return ret;
@@ -1315,7 +1344,7 @@ static ssize_t target_stat_scsi_auth_intr_show_attr_dev_or_port(
 		spin_unlock_irq(&nacl->device_list_lock);
 		return -ENODEV;
 	}
-	
+	/* scsiAuthIntrDevOrPort */
 	ret = snprintf(page, PAGE_SIZE, "%u\n", 1);
 	spin_unlock_irq(&nacl->device_list_lock);
 	return ret;
@@ -1337,7 +1366,7 @@ static ssize_t target_stat_scsi_auth_intr_show_attr_intr_name(
 		spin_unlock_irq(&nacl->device_list_lock);
 		return -ENODEV;
 	}
-	
+	/* scsiAuthIntrName */
 	ret = snprintf(page, PAGE_SIZE, "%s\n", nacl->initiatorname);
 	spin_unlock_irq(&nacl->device_list_lock);
 	return ret;
@@ -1359,7 +1388,7 @@ static ssize_t target_stat_scsi_auth_intr_show_attr_map_indx(
 		spin_unlock_irq(&nacl->device_list_lock);
 		return -ENODEV;
 	}
-	
+	/* FIXME: scsiAuthIntrLunMapIndex */
 	ret = snprintf(page, PAGE_SIZE, "%u\n", 0);
 	spin_unlock_irq(&nacl->device_list_lock);
 	return ret;
@@ -1381,7 +1410,7 @@ static ssize_t target_stat_scsi_auth_intr_show_attr_att_count(
 		spin_unlock_irq(&nacl->device_list_lock);
 		return -ENODEV;
 	}
-	
+	/* scsiAuthIntrAttachedTimes */
 	ret = snprintf(page, PAGE_SIZE, "%u\n", deve->attach_count);
 	spin_unlock_irq(&nacl->device_list_lock);
 	return ret;
@@ -1403,7 +1432,7 @@ static ssize_t target_stat_scsi_auth_intr_show_attr_num_cmds(
 		spin_unlock_irq(&nacl->device_list_lock);
 		return -ENODEV;
 	}
-	
+	/* scsiAuthIntrOutCommands */
 	ret = snprintf(page, PAGE_SIZE, "%u\n", deve->total_cmds);
 	spin_unlock_irq(&nacl->device_list_lock);
 	return ret;
@@ -1425,7 +1454,7 @@ static ssize_t target_stat_scsi_auth_intr_show_attr_read_mbytes(
 		spin_unlock_irq(&nacl->device_list_lock);
 		return -ENODEV;
 	}
-	
+	/* scsiAuthIntrReadMegaBytes */
 	ret = snprintf(page, PAGE_SIZE, "%u\n", (u32)(deve->read_bytes >> 20));
 	spin_unlock_irq(&nacl->device_list_lock);
 	return ret;
@@ -1469,7 +1498,7 @@ static ssize_t target_stat_scsi_auth_intr_show_attr_hs_num_cmds(
 		spin_unlock_irq(&nacl->device_list_lock);
 		return -ENODEV;
 	}
-	
+	/* FIXME: scsiAuthIntrHSOutCommands */
 	ret = snprintf(page, PAGE_SIZE, "%u\n", 0);
 	spin_unlock_irq(&nacl->device_list_lock);
 	return ret;
@@ -1491,7 +1520,7 @@ static ssize_t target_stat_scsi_auth_intr_show_attr_creation_time(
 		spin_unlock_irq(&nacl->device_list_lock);
 		return -ENODEV;
 	}
-	
+	/* scsiAuthIntrLastCreation */
 	ret = snprintf(page, PAGE_SIZE, "%u\n", (u32)(((u32)deve->creation_time -
 				INITIAL_JIFFIES) * 100 / HZ));
 	spin_unlock_irq(&nacl->device_list_lock);
@@ -1514,7 +1543,7 @@ static ssize_t target_stat_scsi_auth_intr_show_attr_row_status(
 		spin_unlock_irq(&nacl->device_list_lock);
 		return -ENODEV;
 	}
-	
+	/* FIXME: scsiAuthIntrRowStatus */
 	ret = snprintf(page, PAGE_SIZE, "Ready\n");
 	spin_unlock_irq(&nacl->device_list_lock);
 	return ret;
@@ -1553,6 +1582,9 @@ static struct config_item_type target_stat_scsi_auth_intr_cit = {
 	.ct_owner		= THIS_MODULE,
 };
 
+/*
+ * SCSI Attached Initiator Port Table
+ */
 
 CONFIGFS_EATTR_STRUCT(target_stat_scsi_att_intr_port, se_ml_stat_grps);
 #define DEV_STAT_SCSI_ATTR_INTR_PORT_ATTR(_name, _mode)			\
@@ -1585,7 +1617,7 @@ static ssize_t target_stat_scsi_att_intr_port_show_attr_inst(
 		return -ENODEV;
 	}
 	tpg = nacl->se_tpg;
-	
+	/* scsiInstIndex */
 	ret = snprintf(page, PAGE_SIZE, "%u\n",
 			tpg->se_tpg_tfo->tpg_get_inst_index(tpg));
 	spin_unlock_irq(&nacl->device_list_lock);
@@ -1610,7 +1642,7 @@ static ssize_t target_stat_scsi_att_intr_port_show_attr_dev(
 		return -ENODEV;
 	}
 	lun = deve->se_lun;
-	
+	/* scsiDeviceIndex */
 	ret = snprintf(page, PAGE_SIZE, "%u\n", lun->lun_se_dev->dev_index);
 	spin_unlock_irq(&nacl->device_list_lock);
 	return ret;
@@ -1634,7 +1666,7 @@ static ssize_t target_stat_scsi_att_intr_port_show_attr_port(
 		return -ENODEV;
 	}
 	tpg = nacl->se_tpg;
-	
+	/* scsiPortIndex */
 	ret = snprintf(page, PAGE_SIZE, "%u\n", tpg->se_tpg_tfo->tpg_get_tag(tpg));
 	spin_unlock_irq(&nacl->device_list_lock);
 	return ret;
@@ -1659,7 +1691,7 @@ static ssize_t target_stat_scsi_att_intr_port_show_attr_indx(
 	}
 
 	tpg = nacl->se_tpg;
-	
+	/* scsiAttIntrPortIndex */
 	ret = snprintf(page, PAGE_SIZE, "%u\n",
 			tpg->se_tpg_tfo->sess_get_index(se_sess));
 	spin_unlock_irq(&nacl->nacl_sess_lock);
@@ -1682,7 +1714,7 @@ static ssize_t target_stat_scsi_att_intr_port_show_attr_port_auth_indx(
 		spin_unlock_irq(&nacl->device_list_lock);
 		return -ENODEV;
 	}
-	
+	/* scsiAttIntrPortAuthIntrIdx */
 	ret = snprintf(page, PAGE_SIZE, "%u\n", nacl->acl_index);
 	spin_unlock_irq(&nacl->device_list_lock);
 	return ret;
@@ -1708,7 +1740,7 @@ static ssize_t target_stat_scsi_att_intr_port_show_attr_port_ident(
 	}
 
 	tpg = nacl->se_tpg;
-	
+	/* scsiAttIntrPortName+scsiAttIntrPortIdentifier */
 	memset(buf, 0, 64);
 	if (tpg->se_tpg_tfo->sess_get_initiator_sid != NULL)
 		tpg->se_tpg_tfo->sess_get_initiator_sid(se_sess, buf, 64);
@@ -1743,6 +1775,10 @@ static struct config_item_type target_stat_scsi_att_intr_port_cit = {
 	.ct_owner		= THIS_MODULE,
 };
 
+/*
+ * Called from target_core_fabric_configfs.c:target_fabric_make_mappedlun() to setup
+ * the target MappedLUN statistics groups + configfs CITs located in target_core_stat.c
+ */
 void target_stat_setup_mappedlun_default_groups(struct se_lun_acl *lacl)
 {
 	struct config_group *ml_stat_grp = &lacl->ml_stat_grps.stat_group;

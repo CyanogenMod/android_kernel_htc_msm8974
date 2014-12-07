@@ -69,4 +69,4 @@ extern int bridge_chnl_register_notify(struct chnl_object *chnl_obj,
 					   struct dsp_notification
 					   *hnotification);
 
-#endif 
+#endif /* DSPCHNL_ */

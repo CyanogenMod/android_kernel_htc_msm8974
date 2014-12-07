@@ -15,6 +15,12 @@
  *
  */
 
+  /*
+ *
+ *  The Driver with I/O communications via the I2C Interface for ON2 of AP BU.
+ *  And it is only working on the nuvoTon WPCE775x Embedded Controller.
+ *
+ */
 
 #include <linux/kernel.h>
 #include <linux/init.h>
@@ -39,6 +45,7 @@ static int __devinit qcitp_probe(struct i2c_client *client,
 	const struct i2c_device_id *id);
 static int __devexit qcitp_remove(struct i2c_client *kbd);
 
+/* General structure to hold the driver data */
 struct i2ctpad_drv_data {
 	struct i2c_client *ti2c_client;
 	struct work_struct work;
@@ -84,6 +91,9 @@ static struct attribute_group attr_group = {
 	.attrs = g_tp,
 };
 
+/*-----------------------------------------------------------------------------
+ * Driver functions
+ *---------------------------------------------------------------------------*/
 
 #ifdef CONFIG_PM
 static int qcitp_suspend(struct device *dev)
@@ -190,11 +200,11 @@ static int __devinit qcitp_probe(struct i2c_client *client,
 	context->ti2c_client = client;
 	context->qcitp_gpio = client->irq;
 
-	
+	/* Enable mouse */
 	i2c_smbus_write_byte(client, TOUCHPAD_CMD_ENABLE);
 	msleep(TOUCHPAD_INIT_DELAY_MS);
 	i2c_smbus_read_byte(client);
-	
+	/*allocate and register input device*/
 	context->qcitp_dev = input_allocate_device();
 	if (!context->qcitp_dev) {
 		pr_err("[TouchPad] allocting memory fail\n");
@@ -222,7 +232,7 @@ static int __devinit qcitp_probe(struct i2c_client *client,
 		goto register_fail;
 	}
 
-	
+	/*request intterrupt*/
 	INIT_WORK(&context->work, qcitp_work_handler);
 
 	err = gpio_request(context->qcitp_gpio, "qci-pad");
@@ -241,7 +251,7 @@ static int __devinit qcitp_probe(struct i2c_client *client,
 		pr_err("[TouchPad] unable to get IRQ\n");
 		goto request_irq_fail;
 	}
-	
+	/*create touchpad kobject*/
 	context->tp_kobj = kobject_create_and_add("touchpad", NULL);
 
 	err = sysfs_create_group(context->tp_kobj, &attr_group);

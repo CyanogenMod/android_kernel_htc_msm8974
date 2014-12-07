@@ -27,6 +27,14 @@
 #ifndef __DRM_I2C_SIL164_H__
 #define __DRM_I2C_SIL164_H__
 
+/**
+ * struct sil164_encoder_params
+ *
+ * Describes how the sil164 is connected to the GPU. It should be used
+ * as the @params parameter of its @set_config method.
+ *
+ * See "http://www.siliconimage.com/docs/SiI-DS-0021-E-164.pdf".
+ */
 struct sil164_encoder_params {
 	enum {
 		SIL164_INPUT_EDGE_FALLING = 0,
@@ -48,8 +56,8 @@ struct sil164_encoder_params {
 		SIL164_PLL_FILTER_OFF,
 	} pll_filter;
 
-	int input_skew; 
-	int duallink_skew; 
+	int input_skew; /** < Allowed range [-4, 3], use 0 for no de-skew. */
+	int duallink_skew; /** < Allowed range [-4, 3]. */
 };
 
 #endif

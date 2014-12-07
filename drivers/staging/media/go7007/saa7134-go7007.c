@@ -46,14 +46,14 @@ enum hpi_address {
 };
 
 enum gpio_command {
-	GPIO_COMMAND_RESET = 0x00, 
-	GPIO_COMMAND_REQ1  = 0x04, 
-	GPIO_COMMAND_WRITE = 0x20, 
-	GPIO_COMMAND_REQ2  = 0x24, 
-	GPIO_COMMAND_READ  = 0x80, 
-	GPIO_COMMAND_VIDEO = 0x84, 
-	GPIO_COMMAND_IDLE  = 0xA0, 
-	GPIO_COMMAND_ADDR  = 0xA4, 
+	GPIO_COMMAND_RESET = 0x00, /* 000b */
+	GPIO_COMMAND_REQ1  = 0x04, /* 001b */
+	GPIO_COMMAND_WRITE = 0x20, /* 010b */
+	GPIO_COMMAND_REQ2  = 0x24, /* 011b */
+	GPIO_COMMAND_READ  = 0x80, /* 100b */
+	GPIO_COMMAND_VIDEO = 0x84, /* 101b */
+	GPIO_COMMAND_IDLE  = 0xA0, /* 110b */
+	GPIO_COMMAND_ADDR  = 0xA4, /* 111b */
 };
 
 struct saa7134_go7007 {
@@ -86,22 +86,23 @@ static struct go7007_board_info board_voyager = {
 };
 MODULE_FIRMWARE("go7007tv.bin");
 
+/********************* Driver for GPIO HPI interface *********************/
 
 static int gpio_write(struct saa7134_dev *dev, u8 addr, u16 data)
 {
 	saa_writeb(SAA7134_GPIO_GPMODE0, 0xff);
 
-	
+	/* Write HPI address */
 	saa_writeb(SAA7134_GPIO_GPSTATUS0, addr);
 	saa_writeb(SAA7134_GPIO_GPSTATUS2, GPIO_COMMAND_ADDR);
 	saa_writeb(SAA7134_GPIO_GPSTATUS2, GPIO_COMMAND_IDLE);
 
-	
+	/* Write low byte */
 	saa_writeb(SAA7134_GPIO_GPSTATUS0, data & 0xff);
 	saa_writeb(SAA7134_GPIO_GPSTATUS2, GPIO_COMMAND_WRITE);
 	saa_writeb(SAA7134_GPIO_GPSTATUS2, GPIO_COMMAND_IDLE);
 
-	
+	/* Write high byte */
 	saa_writeb(SAA7134_GPIO_GPSTATUS0, data >> 8);
 	saa_writeb(SAA7134_GPIO_GPSTATUS2, GPIO_COMMAND_WRITE);
 	saa_writeb(SAA7134_GPIO_GPSTATUS2, GPIO_COMMAND_IDLE);
@@ -113,21 +114,21 @@ static int gpio_read(struct saa7134_dev *dev, u8 addr, u16 *data)
 {
 	saa_writeb(SAA7134_GPIO_GPMODE0, 0xff);
 
-	
+	/* Write HPI address */
 	saa_writeb(SAA7134_GPIO_GPSTATUS0, addr);
 	saa_writeb(SAA7134_GPIO_GPSTATUS2, GPIO_COMMAND_ADDR);
 	saa_writeb(SAA7134_GPIO_GPSTATUS2, GPIO_COMMAND_IDLE);
 
 	saa_writeb(SAA7134_GPIO_GPMODE0, 0x00);
 
-	
+	/* Read low byte */
 	saa_writeb(SAA7134_GPIO_GPSTATUS2, GPIO_COMMAND_READ);
 	saa_clearb(SAA7134_GPIO_GPMODE3, SAA7134_GPIO_GPRESCAN);
 	saa_setb(SAA7134_GPIO_GPMODE3, SAA7134_GPIO_GPRESCAN);
 	*data = saa_readb(SAA7134_GPIO_GPSTATUS0);
 	saa_writeb(SAA7134_GPIO_GPSTATUS2, GPIO_COMMAND_IDLE);
 
-	
+	/* Read high byte */
 	saa_writeb(SAA7134_GPIO_GPSTATUS2, GPIO_COMMAND_READ);
 	saa_clearb(SAA7134_GPIO_GPMODE3, SAA7134_GPIO_GPRESCAN);
 	saa_setb(SAA7134_GPIO_GPMODE3, SAA7134_GPIO_GPRESCAN);
@@ -145,7 +146,7 @@ static int saa7134_go7007_interface_reset(struct go7007 *go)
 	u16 intr_val, intr_data;
 	int count = 20;
 
-	saa_clearb(SAA7134_TS_PARALLEL, 0x80); 
+	saa_clearb(SAA7134_TS_PARALLEL, 0x80); /* Disable TS interface */
 	saa_writeb(SAA7134_GPIO_GPMODE2, 0xa4);
 	saa_writeb(SAA7134_GPIO_GPMODE0, 0xff);
 
@@ -160,9 +161,9 @@ static int saa7134_go7007_interface_reset(struct go7007 *go)
 	saa_setb(SAA7134_GPIO_GPMODE3, SAA7134_GPIO_GPRESCAN);
 
 	status = saa_readb(SAA7134_GPIO_GPSTATUS2);
-	
+	/*printk(KERN_DEBUG "status is %s\n", status & 0x40 ? "OK" : "not OK"); */
 
-	
+	/* enter command mode...(?) */
 	saa_writeb(SAA7134_GPIO_GPSTATUS2, GPIO_COMMAND_REQ1);
 	saa_writeb(SAA7134_GPIO_GPSTATUS2, GPIO_COMMAND_REQ2);
 
@@ -170,10 +171,10 @@ static int saa7134_go7007_interface_reset(struct go7007 *go)
 		saa_clearb(SAA7134_GPIO_GPMODE3, SAA7134_GPIO_GPRESCAN);
 		saa_setb(SAA7134_GPIO_GPMODE3, SAA7134_GPIO_GPRESCAN);
 		status = saa_readb(SAA7134_GPIO_GPSTATUS2);
-		
+		/*printk(KERN_INFO "gpio is %08x\n", saa_readl(SAA7134_GPIO_GPSTATUS0 >> 2)); */
 	} while (--count > 0);
 
-	
+	/* Wait for an interrupt to indicate successful hardware reset */
 	if (go7007_read_interrupt(go, &intr_val, &intr_data) < 0 ||
 			(intr_val & ~0x1) != 0x55aa) {
 		printk(KERN_ERR
@@ -218,7 +219,7 @@ static int saa7134_go7007_read_interrupt(struct go7007 *go)
 	struct saa7134_go7007 *saa = go->hpi_context;
 	struct saa7134_dev *dev = saa->dev;
 
-	
+	/* XXX we need to wait if there is no interrupt available */
 	go->interrupt_available = 1;
 	gpio_read(dev, HPI_ADDR_INTR_RET_VALUE, &go->interrupt_value);
 	gpio_read(dev, HPI_ADDR_INTR_RET_DATA, &go->interrupt_data);
@@ -274,26 +275,26 @@ static int saa7134_go7007_stream_start(struct go7007 *go)
 	saa_writel(SAA7134_VIDEO_PORT_CTRL0 >> 2, 0xA300B000);
 	saa_writel(SAA7134_VIDEO_PORT_CTRL4 >> 2, 0x40000200);
 
-	
+	/* Set HPI interface for video */
 	saa_writeb(SAA7134_GPIO_GPMODE0, 0xff);
 	saa_writeb(SAA7134_GPIO_GPSTATUS0, HPI_ADDR_VIDEO_BUFFER);
 	saa_writeb(SAA7134_GPIO_GPSTATUS2, GPIO_COMMAND_ADDR);
 	saa_writeb(SAA7134_GPIO_GPMODE0, 0x00);
 
-	
+	/* Enable TS interface */
 	saa_writeb(SAA7134_TS_PARALLEL, 0xe6);
 
-	
+	/* Reset TS interface */
 	saa_setb(SAA7134_TS_SERIAL1, 0x01);
 	saa_clearb(SAA7134_TS_SERIAL1, 0x01);
 
-	
+	/* Set up transfer block size */
 	saa_writeb(SAA7134_TS_PARALLEL_SERIAL, 128 - 1);
 	saa_writeb(SAA7134_TS_DMA0, (PAGE_SIZE >> 7) - 1);
 	saa_writeb(SAA7134_TS_DMA1, 0);
 	saa_writeb(SAA7134_TS_DMA2, 0);
 
-	
+	/* Enable video streaming mode */
 	saa_writeb(SAA7134_GPIO_GPSTATUS2, GPIO_COMMAND_VIDEO);
 
 	saa_writel(SAA7134_RS_BA1(5), cpu_to_le32(saa->top_dma));
@@ -301,10 +302,10 @@ static int saa7134_go7007_stream_start(struct go7007 *go)
 	saa_writel(SAA7134_RS_PITCH(5), 128);
 	saa_writel(SAA7134_RS_CONTROL(5), SAA7134_RS_CONTROL_BURST_MAX);
 
-	
+	/* Enable TS FIFO */
 	saa_setl(SAA7134_MAIN_CTRL, SAA7134_MAIN_CTRL_TE5);
 
-	
+	/* Enable DMA IRQ */
 	saa_setl(SAA7134_IRQ1,
 			SAA7134_IRQ1_INTE_RA2_1 | SAA7134_IRQ1_INTE_RA2_0);
 
@@ -322,14 +323,14 @@ static int saa7134_go7007_stream_stop(struct go7007 *go)
 	if (!dev)
 		return -EINVAL;
 
-	
+	/* Shut down TS FIFO */
 	saa_clearl(SAA7134_MAIN_CTRL, SAA7134_MAIN_CTRL_TE5);
 
-	
+	/* Disable DMA IRQ */
 	saa_clearl(SAA7134_IRQ1,
 			SAA7134_IRQ1_INTE_RA2_1 | SAA7134_IRQ1_INTE_RA2_0);
 
-	
+	/* Disable TS interface */
 	saa_clearb(SAA7134_TS_PARALLEL, 0x80);
 
 	dma_unmap_page(&dev->pci->dev, saa->top_dma, PAGE_SIZE,
@@ -430,6 +431,7 @@ static struct go7007_hpi_ops saa7134_go7007_hpi_ops = {
 	.send_command		= saa7134_go7007_send_command,
 };
 
+/********************* Add/remove functions *********************/
 
 static int saa7134_go7007_init(struct saa7134_dev *dev)
 {
@@ -442,7 +444,7 @@ static int saa7134_go7007_init(struct saa7134_dev *dev)
 	if (saa == NULL)
 		return -ENOMEM;
 
-	
+	/* Allocate a couple pages for receiving the compressed stream */
 	saa->top = (u8 *)get_zeroed_page(GFP_KERNEL);
 	if (!saa->top)
 		goto allocfail;
@@ -459,11 +461,13 @@ static int saa7134_go7007_init(struct saa7134_dev *dev)
 	go->hpi_context = saa;
 	saa->dev = dev;
 
-	
+	/* Boot the GO7007 */
 	if (go7007_boot_encoder(go, go->board_info->flags &
 					GO7007_BOARD_USE_ONBOARD_I2C) < 0)
 		goto initfail;
 
+	/* Do any final GO7007 initialization, then register the
+	 * V4L2 and ALSA interfaces */
 	if (go7007_register_encoder(go) < 0)
 		goto initfail;
 	dev->empress_dev = go->video_dev;

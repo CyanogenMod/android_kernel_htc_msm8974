@@ -14,6 +14,12 @@
 
 void wrppmc_machine_restart(char *command)
 {
+	/*
+	 * Ouch, we're still alive ... This time we take the silver bullet ...
+	 * ... and find that we leave the hardware in a state in which the
+	 * kernel in the flush locks up somewhen during of after the PCI
+	 * detection stuff.
+	 */
 	local_irq_disable();
 	set_c0_status(ST0_BEV | ST0_ERL);
 	change_c0_config(CONF_CM_CMASK, CONF_CM_UNCACHED);

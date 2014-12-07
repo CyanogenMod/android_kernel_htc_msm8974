@@ -16,6 +16,14 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/*
+ * The Bus Watcher monitors internal bus transactions and maintains
+ * counts of transactions with error status, logging details and
+ * causing one of several interrupts.  This driver provides a handler
+ * for those interrupts which aggregates the counts (to avoid
+ * saturating the 8-bit counters) and provides a presence in
+ * /proc/bus_watcher if PROC_FS is on.
+ */
 
 #include <linux/init.h>
 #include <linux/kernel.h>
@@ -57,15 +65,23 @@ static void print_summary(uint32_t status, uint32_t l2_err,
 	       (int)G_SCD_BERR_DCODE(status));
 }
 
+/*
+ * check_bus_watcher is exported for use in situations where we want
+ * to see the most recent status of the bus watcher, which might have
+ * already been destructively read out of the registers.
+ *
+ * notes: this is currently used by the cache error handler
+ *        should provide locking against the interrupt handler
+ */
 void check_bus_watcher(void)
 {
 	u32 status, l2_err, memio_err;
 
 #ifdef CONFIG_SB1_PASS_1_WORKAROUNDS
-	
+	/* Destructive read, clears register and interrupt */
 	status = csr_in32(IOADDR(A_SCD_BUS_ERR_STATUS));
 #else
-	
+	/* Use non-destructive register */
 	status = csr_in32(IOADDR(A_SCD_BUS_ERR_STATUS_DEBUG));
 #endif
 	if (!(status & 0x7fffffff)) {
@@ -102,6 +118,8 @@ static int bw_print_buffer(char *page, struct bw_stats_struct *stats)
 		       (int)(G_SCD_BERR_TID(stats->status) >> 6),
 		       (int)G_SCD_BERR_RID(stats->status),
 		       (int)G_SCD_BERR_DCODE(stats->status));
+	/* XXXKW indicate multiple errors between printings, or stats
+           collection (or both)? */
 	if (stats->status & M_SCD_BERR_MULTERRS)
 		len += sprintf(page+len, "Multiple errors observed since last check.\n");
 	if (stats->status_printed) {
@@ -115,6 +133,8 @@ static int bw_print_buffer(char *page, struct bw_stats_struct *stats)
 
 #ifdef CONFIG_PROC_FS
 
+/* For simplicity, I want to assume a single read is required each
+   time */
 static int bw_read_proc(char *page, char **start, off_t off,
 			int count, int *eof, void *data)
 {
@@ -142,8 +162,14 @@ static void create_proc_decoder(struct bw_stats_struct *stats)
 	}
 }
 
-#endif 
+#endif /* CONFIG_PROC_FS */
 
+/*
+ * sibyte_bw_int - handle bus watcher interrupts and accumulate counts
+ *
+ * notes: possible re-entry due to multiple sources
+ *        should check/indicate saturation
+ */
 static irqreturn_t sibyte_bw_int(int irq, void *data)
 {
 	struct bw_stats_struct *stats = data;
@@ -167,7 +193,7 @@ static irqreturn_t sibyte_bw_int(int irq, void *data)
 	csr_out32(M_SCD_TRACE_CFG_START, IOADDR(A_SCD_TRACE_CFG));
 #endif
 
-	
+	/* Destructive read, clears register and interrupt */
 	stats->status = csr_in32(IOADDR(A_SCD_BUS_ERR_STATUS));
 	stats->status_printed = 0;
 

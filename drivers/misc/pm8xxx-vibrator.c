@@ -78,6 +78,7 @@ int pm8xxx_vibrator_config(struct pm8xxx_vib_config *vib_config)
 }
 EXPORT_SYMBOL(pm8xxx_vibrator_config);
 
+/* REVISIT: just for debugging, will be removed in final working version */
 static void __dump_vib_regs(struct pm8xxx_vib *vib, char *msg)
 {
 	u8 temp;
@@ -204,7 +205,7 @@ static int pm8xxx_vib_suspend(struct device *dev)
 
 	hrtimer_cancel(&vib->vib_timer);
 	cancel_work_sync(&vib->work);
-	
+	/* turn-off vibrator */
 	pm8xxx_vib_set(vib, 0);
 
 	return 0;
@@ -251,6 +252,10 @@ static int __devinit pm8xxx_vib_probe(struct platform_device *pdev)
 
 	__dump_vib_regs(vib, "boot_vib_default");
 
+	/*
+	 * Configure the vibrator, it operates in manual mode
+	 * for timed_output framework.
+	 */
 	rc = pm8xxx_vib_read_u8(vib, &val, VIB_DRV);
 	if (rc < 0)
 		goto err_read_vib;

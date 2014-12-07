@@ -43,4 +43,4 @@ ssize_t nilfs_cpfile_get_cpinfo(struct inode *, __u64 *, int, void *, unsigned,
 int nilfs_cpfile_read(struct super_block *sb, size_t cpsize,
 		      struct nilfs_inode *raw_inode, struct inode **inodep);
 
-#endif	
+#endif	/* _NILFS_CPFILE_H */

@@ -39,7 +39,7 @@
 #include <mach/platform.h>
 #include <asm/hardware/arm_timer.h>
 #include <asm/setup.h>
-#include <asm/param.h>		
+#include <asm/param.h>		/* HZ */
 #include <asm/mach-types.h>
 #include <asm/sched_clock.h>
 
@@ -55,11 +55,35 @@
 
 #include "common.h"
 
+/* 
+ * All IO addresses are mapped onto VA 0xFFFx.xxxx, where x.xxxx
+ * is the (PA >> 12).
+ *
+ * Setup a VA for the Integrator interrupt controller (for header #0,
+ * just for now).
+ */
 #define VA_IC_BASE	__io_address(INTEGRATOR_IC_BASE)
 #define VA_SC_BASE	__io_address(INTEGRATOR_SC_BASE)
 #define VA_EBI_BASE	__io_address(INTEGRATOR_EBI_BASE)
 #define VA_CMIC_BASE	__io_address(INTEGRATOR_HDR_IC)
 
+/*
+ * Logical      Physical
+ * e8000000	40000000	PCI memory		PHYS_PCI_MEM_BASE	(max 512M)
+ * ec000000	61000000	PCI config space	PHYS_PCI_CONFIG_BASE	(max 16M)
+ * ed000000	62000000	PCI V3 regs		PHYS_PCI_V3_BASE	(max 64k)
+ * ee000000	60000000	PCI IO			PHYS_PCI_IO_BASE	(max 16M)
+ * ef000000			Cache flush
+ * f1000000	10000000	Core module registers
+ * f1100000	11000000	System controller registers
+ * f1200000	12000000	EBI registers
+ * f1300000	13000000	Counter/Timer
+ * f1400000	14000000	Interrupt controller
+ * f1600000	16000000	UART 0
+ * f1700000	17000000	UART 1
+ * f1a00000	1a000000	Debug LEDs
+ * f1b00000	1b000000	GPIO
+ */
 
 static struct map_desc ap_io_desc[] __initdata = {
 	{
@@ -146,11 +170,11 @@ static struct fpga_irq_data sc_irq_data = {
 
 static void __init ap_init_irq(void)
 {
-	
-	
+	/* Disable all interrupts initially. */
+	/* Do the core module ones */
 	writel(-1, VA_CMIC_BASE + IRQ_ENABLE_CLEAR);
 
-	
+	/* do the header card stuff next */
 	writel(-1, VA_IC_BASE + IRQ_ENABLE_CLEAR);
 	writel(-1, VA_IC_BASE + FIQ_ENABLE_CLEAR);
 
@@ -168,7 +192,7 @@ static int irq_suspend(void)
 
 static void irq_resume(void)
 {
-	
+	/* disable all irq sources */
 	writel(-1, VA_CMIC_BASE + IRQ_ENABLE_CLEAR);
 	writel(-1, VA_IC_BASE + IRQ_ENABLE_CLEAR);
 	writel(-1, VA_IC_BASE + FIQ_ENABLE_CLEAR);
@@ -194,6 +218,9 @@ static int __init irq_syscore_init(void)
 
 device_initcall(irq_syscore_init);
 
+/*
+ * Flash handling.
+ */
 #define SC_CTRLC (VA_SC_BASE + INTEGRATOR_SC_CTRLC_OFFSET)
 #define SC_CTRLS (VA_SC_BASE + INTEGRATOR_SC_CTRLS_OFFSET)
 #define EBI_CSR1 (VA_EBI_BASE + INTEGRATOR_EBI_CSR1_OFFSET)
@@ -290,6 +317,9 @@ static void __init ap_init(void)
 	}
 }
 
+/*
+ * Where is the timer (VA)?
+ */
 #define TIMER0_VA_BASE IO_ADDRESS(INTEGRATOR_TIMER0_BASE)
 #define TIMER1_VA_BASE IO_ADDRESS(INTEGRATOR_TIMER1_BASE)
 #define TIMER2_VA_BASE IO_ADDRESS(INTEGRATOR_TIMER2_BASE)
@@ -322,11 +352,14 @@ static void integrator_clocksource_init(unsigned long inrate)
 
 static void __iomem * const clkevt_base = (void __iomem *)TIMER1_VA_BASE;
 
+/*
+ * IRQ handler for the timer
+ */
 static irqreturn_t integrator_timer_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *evt = dev_id;
 
-	
+	/* clear the interrupt */
 	writel(1, clkevt_base + TIMER_INTCLR);
 
 	evt->event_handler(evt);
@@ -338,18 +371,18 @@ static void clkevt_set_mode(enum clock_event_mode mode, struct clock_event_devic
 {
 	u32 ctrl = readl(clkevt_base + TIMER_CTRL) & ~TIMER_CTRL_ENABLE;
 
-	
+	/* Disable timer */
 	writel(ctrl, clkevt_base + TIMER_CTRL);
 
 	switch (mode) {
 	case CLOCK_EVT_MODE_PERIODIC:
-		
+		/* Enable the timer and start the periodic tick */
 		writel(timer_reload, clkevt_base + TIMER_LOAD);
 		ctrl |= TIMER_CTRL_PERIODIC | TIMER_CTRL_ENABLE;
 		writel(ctrl, clkevt_base + TIMER_CTRL);
 		break;
 	case CLOCK_EVT_MODE_ONESHOT:
-		
+		/* Leave the timer disabled, .set_next_event will enable it */
 		ctrl &= ~TIMER_CTRL_PERIODIC;
 		writel(ctrl, clkevt_base + TIMER_CTRL);
 		break;
@@ -357,7 +390,7 @@ static void clkevt_set_mode(enum clock_event_mode mode, struct clock_event_devic
 	case CLOCK_EVT_MODE_SHUTDOWN:
 	case CLOCK_EVT_MODE_RESUME:
 	default:
-		
+		/* Just leave in disabled state */
 		break;
 	}
 
@@ -394,7 +427,7 @@ static void integrator_clockevent_init(unsigned long inrate)
 	unsigned long rate = inrate;
 	unsigned int ctrl = 0;
 
-	
+	/* Calculate and program a divisor */
 	if (rate > 0x100000 * HZ) {
 		rate /= 256;
 		ctrl |= TIMER_CTRL_DIV256;
@@ -412,6 +445,9 @@ static void integrator_clockevent_init(unsigned long inrate)
 					0xffffU);
 }
 
+/*
+ * Set up timer(s).
+ */
 static void __init ap_init_timer(void)
 {
 	struct clk *clk;
@@ -435,7 +471,7 @@ static struct sys_timer ap_timer = {
 };
 
 MACHINE_START(INTEGRATOR, "ARM-Integrator")
-	
+	/* Maintainer: ARM Ltd/Deep Blue Solutions Ltd */
 	.atag_offset	= 0x100,
 	.reserve	= integrator_reserve,
 	.map_io		= ap_map_io,

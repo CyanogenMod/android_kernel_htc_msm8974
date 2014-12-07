@@ -10,11 +10,14 @@
 #ifndef _FPU_SYSTEM_H
 #define _FPU_SYSTEM_H
 
+/* system dependent definitions */
 
 #include <linux/sched.h>
 #include <linux/kernel.h>
 #include <linux/mm.h>
 
+/* s is always from a cpu register, and the cpu does bounds checking
+ * during register load --> no further bounds checks needed */
 #define LDT_DESCRIPTOR(s)	(((struct desc_struct *)current->mm->context.ldt)[(s) >> 3])
 #define SEG_D_SIZE(x)		((x).b & (3 << 21))
 #define SEG_G_BIT(x)		((x).b & (1 << 23))
@@ -41,9 +44,13 @@
 
 #define FPU_lookahead           (I387->soft.lookahead)
 
+/* nz if ip_offset and cs_selector are not to be set for the current
+   instruction. */
 #define no_ip_update		(*(u_char *)&(I387->soft.no_update))
 #define FPU_rm			(*(u_char *)&(I387->soft.rm))
 
+/* Number of bytes of data which can be legally accessed by the current
+   instruction. This only needs to hold a number <= 108, so a byte will do. */
 #define access_limit		(*(u_char *)&(I387->soft.alimit))
 
 #define partial_status		(I387->soft.swd)
@@ -61,8 +68,15 @@
 
 #undef FPU_IGNORE_CODE_SEGV
 #ifdef FPU_IGNORE_CODE_SEGV
+/* access_ok() is very expensive, and causes the emulator to run
+   about 20% slower if applied to the code. Anyway, errors due to bad
+   code addresses should be much rarer than errors due to bad data
+   addresses. */
 #define	FPU_code_access_ok(z)
 #else
+/* A simpler test than access_ok() can probably be done for
+   FPU_code_access_ok() because the only possible error is to step
+   past the upper boundary of a legal code area. */
 #define	FPU_code_access_ok(z) FPU_access_ok(VERIFY_READ,(void __user *)FPU_EIP,z)
 #endif
 

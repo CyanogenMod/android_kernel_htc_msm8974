@@ -22,6 +22,7 @@
    SOFTWARE IS DISCLAIMED.
 */
 
+/* Bluetooth HCI sockets. */
 
 #include <linux/module.h>
 
@@ -50,29 +51,31 @@
 
 static bool enable_mgmt = 1;
 
+/* ----- HCI socket interface ----- */
 
 static inline int hci_test_bit(int nr, void *addr)
 {
 	return *((__u32 *) addr + (nr >> 5)) & ((__u32) 1 << (nr & 31));
 }
 
+/* Security filter */
 static struct hci_sec_filter hci_sec_filter = {
-	
+	/* Packet types */
 	0x10,
-	
+	/* Events */
 	{ 0x1000d9fe, 0x0000b00c },
-	
+	/* Commands */
 	{
 		{ 0x0 },
-		
+		/* OGF_LINK_CTL */
 		{ 0xbe000006, 0x00000001, 0x00000000, 0x00 },
-		
+		/* OGF_LINK_POLICY */
 		{ 0x00005200, 0x00000000, 0x00000000, 0x00 },
-		
+		/* OGF_HOST_CTL */
 		{ 0xaab00200, 0x2b402aaa, 0x05220154, 0x00 },
-		
+		/* OGF_INFO_PARAM */
 		{ 0x000002be, 0x00000000, 0x00000000, 0x00 },
-		
+		/* OGF_STATUS_PARAM */
 		{ 0x000000ea, 0x00000000, 0x00000000, 0x00 }
 	}
 };
@@ -81,6 +84,7 @@ static struct bt_sock_list hci_sk_list = {
 	.lock = __RW_LOCK_UNLOCKED(hci_sk_list.lock)
 };
 
+/* Send frame to RAW socket */
 void hci_send_to_sock(struct hci_dev *hdev, struct sk_buff *skb,
 							struct sock *skip_sk)
 {
@@ -100,7 +104,7 @@ void hci_send_to_sock(struct hci_dev *hdev, struct sk_buff *skb,
 		if (sk->sk_state != BT_BOUND || hci_pi(sk)->hdev != hdev)
 			continue;
 
-		
+		/* Don't send frame to the socket it came from */
 		if (skb->sk == sk)
 			continue;
 
@@ -110,7 +114,7 @@ void hci_send_to_sock(struct hci_dev *hdev, struct sk_buff *skb,
 		if (bt_cb(skb)->channel == HCI_CHANNEL_CONTROL)
 			goto clone;
 
-		
+		/* Apply filter */
 		flt = &hci_pi(sk)->filter;
 
 		if (!test_bit((bt_cb(skb)->pkt_type == HCI_VENDOR_PKT) ?
@@ -138,7 +142,7 @@ clone:
 		if (!nskb)
 			continue;
 
-		
+		/* Put type byte before the data */
 		if (bt_cb(skb)->channel == HCI_CHANNEL_RAW)
 			memcpy(skb_push(nskb, 1), &bt_cb(nskb)->pkt_type, 1);
 
@@ -254,6 +258,7 @@ static int hci_blacklist_del(struct hci_dev *hdev, void __user *arg)
 	return 0;
 }
 
+/* Ioctls that require bound socket */
 static inline int hci_sock_bound_ioctl(struct sock *sk, unsigned int cmd, unsigned long arg)
 {
 	struct hci_dev *hdev = hci_pi(sk)->hdev;
@@ -556,7 +561,7 @@ static int hci_sock_sendmsg(struct kiocb *iocb, struct socket *sock,
 		goto done;
 	}
 
-	
+	/* Allocate extra headroom for Qualcomm PAL */
 	if (hdev->dev_type == HCI_AMP && hdev->manufacturer == 0x001d)
 		reserve = BT_SKB_RESERVE_80211;
 
@@ -808,7 +813,7 @@ static int hci_sock_dev_event(struct notifier_block *this, unsigned long event, 
 
 	BT_DBG("hdev %s event %ld", hdev->name, event);
 
-	
+	/* Send event to sockets */
 	ev.event  = event;
 	ev.dev_id = hdev->id;
 	hci_si_event(NULL, HCI_EV_SI_DEVICE, sizeof(ev), &ev);
@@ -817,7 +822,7 @@ static int hci_sock_dev_event(struct notifier_block *this, unsigned long event, 
 		struct sock *sk;
 		struct hlist_node *node;
 
-		
+		/* Detach sockets from device */
 		read_lock(&hci_sk_list.lock);
 		sk_for_each(sk, node, &hci_sk_list.head) {
 			local_bh_disable();

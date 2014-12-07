@@ -23,6 +23,10 @@
 
 #include <sound/l3.h>
 
+/*
+ * Send one byte of data to the chip.  Data is latched into the chip on
+ * the rising edge of the clock.
+ */
 static void sendbyte(struct l3_pins *adap, unsigned int byte)
 {
 	int i;
@@ -38,6 +42,11 @@ static void sendbyte(struct l3_pins *adap, unsigned int byte)
 	}
 }
 
+/*
+ * Send a set of bytes to the chip.  We need to pulse the MODE line
+ * between each byte, but never at the start nor at the end of the
+ * transfer.
+ */
 static void sendbytes(struct l3_pins *adap, const u8 *buf,
 		      int len)
 {

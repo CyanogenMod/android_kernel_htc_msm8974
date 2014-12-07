@@ -28,7 +28,7 @@
 #define _UPT1_DEFS_H
 
 struct UPT1_TxStats {
-	u64			TSOPktsTxOK;  
+	u64			TSOPktsTxOK;  /* TSO pkts post-segmentation */
 	u64			TSOBytesTxOK;
 	u64			ucastPktsTxOK;
 	u64			ucastBytesTxOK;
@@ -41,9 +41,9 @@ struct UPT1_TxStats {
 };
 
 struct UPT1_RxStats {
-	u64			LROPktsRxOK;    
-	u64			LROBytesRxOK;   
-	
+	u64			LROPktsRxOK;    /* LRO pkts */
+	u64			LROBytesRxOK;   /* bytes from LRO pkts */
+	/* the following counters are for pkts from the wire, i.e., pre-LRO */
 	u64			ucastPktsRxOK;
 	u64			ucastBytesRxOK;
 	u64			mcastPktsRxOK;
@@ -54,11 +54,13 @@ struct UPT1_RxStats {
 	u64			pktsRxError;
 };
 
+/* interrupt moderation level */
 enum {
-	UPT1_IML_NONE		= 0, 
-	UPT1_IML_HIGHEST	= 7, 
-	UPT1_IML_ADAPTIVE	= 8, 
+	UPT1_IML_NONE		= 0, /* no interrupt moderation */
+	UPT1_IML_HIGHEST	= 7, /* least intr generated */
+	UPT1_IML_ADAPTIVE	= 8, /* adpative intr moderation */
 };
+/* values for UPT1_RSSConf.hashFunc */
 enum {
 	UPT1_RSS_HASH_TYPE_NONE      = 0x0,
 	UPT1_RSS_HASH_TYPE_IPV4      = 0x01,
@@ -84,10 +86,11 @@ struct UPT1_RSSConf {
 	u8			indTable[UPT1_RSS_MAX_IND_TABLE_SIZE];
 };
 
+/* features */
 enum {
-	UPT1_F_RXCSUM		= cpu_to_le64(0x0001),   
+	UPT1_F_RXCSUM		= cpu_to_le64(0x0001),   /* rx csum verification */
 	UPT1_F_RSS		= cpu_to_le64(0x0002),
-	UPT1_F_RXVLAN		= cpu_to_le64(0x0004),   
+	UPT1_F_RXVLAN		= cpu_to_le64(0x0004),   /* VLAN tag stripping */
 	UPT1_F_LRO		= cpu_to_le64(0x0008),
 };
 #endif

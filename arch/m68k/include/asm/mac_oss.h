@@ -1,6 +1,14 @@
+/*
+ *	OSS
+ *
+ *	This is used in place of VIA2 on the IIfx.
+ */
 
 #define OSS_BASE	(0x50f1a000)
 
+/*
+ * Interrupt level offsets for mac_oss->irq_level
+ */
 
 #define OSS_NUBUS0	0
 #define OSS_NUBUS1	1
@@ -21,6 +29,9 @@
 
 #define OSS_NUM_SOURCES	16
 
+/*
+ * Pending interrupt bits in mac_oss->irq_pending
+ */
 
 #define OSS_IP_NUBUS0	0x0001
 #define OSS_IP_NUBUS1	0x0002
@@ -41,18 +52,21 @@
 
 #define OSS_IP_NUBUS (OSS_IP_NUBUS0|OSS_IP_NUBUS1|OSS_IP_NUBUS2|OSS_IP_NUBUS3|OSS_IP_NUBUS4|OSS_IP_NUBUS5)
 
+/*
+ * Rom Control Register
+ */
 
 #define OSS_POWEROFF	0x80
 
 #ifndef __ASSEMBLY__
 
 struct mac_oss {
-    __u8  irq_level[0x10];	
-    __u8  padding0[0x1F2];	
-    __u16 irq_pending;		
-    __u8  rom_ctrl;		
-    __u8  padding1[0x2];	
-    __u8  ack_60hz;		
+    __u8  irq_level[0x10];	/* [0x000-0x00f] Interrupt levels */
+    __u8  padding0[0x1F2];	/* [0x010-0x201] IO space filler */
+    __u16 irq_pending;		/* [0x202-0x203] pending interrupts bits */
+    __u8  rom_ctrl;		/* [0x204-0x204] ROM cntl reg (for poweroff) */
+    __u8  padding1[0x2];	/* [0x205-0x206] currently unused by A/UX */
+    __u8  ack_60hz;		/* [0x207-0x207] 60 Hz ack. */
 };
 
 extern volatile struct mac_oss *oss;
@@ -62,4 +76,4 @@ extern void oss_register_interrupts(void);
 extern void oss_irq_enable(int);
 extern void oss_irq_disable(int);
 
-#endif 
+#endif /* __ASSEMBLY__ */

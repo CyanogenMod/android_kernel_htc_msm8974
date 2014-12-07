@@ -22,6 +22,7 @@
  *
  */
 
+/*** Includes ***/
 
 #include <linux/module.h>
 #include <linux/sched.h>
@@ -60,6 +61,7 @@
 #define LIRC_TIMER 65536
 #endif
 
+/*** Global Variables ***/
 
 static bool debug;
 static bool check_pselecd;
@@ -71,7 +73,7 @@ unsigned int timer;
 unsigned int default_timer = LIRC_TIMER;
 #endif
 
-#define RBUF_SIZE (256) 
+#define RBUF_SIZE (256) /* this must be a power of 2 larger than 1 */
 
 static int rbuf[RBUF_SIZE];
 
@@ -88,6 +90,7 @@ int is_claimed;
 
 unsigned int tx_mask = 1;
 
+/*** Internal Functions ***/
 
 static unsigned int in(int offset)
 {
@@ -99,7 +102,7 @@ static unsigned int in(int offset)
 	case LIRC_LP_CONTROL:
 		return parport_read_control(pport);
 	}
-	return 0; 
+	return 0; /* make compiler happy */
 }
 
 static void out(int offset, int value)
@@ -145,7 +148,7 @@ static unsigned int init_lirc_timer(void)
 	int count = 0;
 
 	do_gettimeofday(&tv);
-	tv.tv_sec++;                     
+	tv.tv_sec++;                     /* wait max. 1 sec. */
 	level = lirc_get_timer();
 	do {
 		newlevel = lirc_get_timer();
@@ -161,7 +164,7 @@ static unsigned int init_lirc_timer(void)
 		     + (now.tv_usec - tv.tv_usec));
 	if (count >= 1000 && timeelapsed > 0) {
 		if (default_timer == 0) {
-			
+			/* autodetect timer */
 			newtimer = (1000000*count)/timeelapsed;
 			printk(KERN_INFO "%s: %u Hz timer detected\n",
 			       LIRC_DRIVER_NAME, newtimer);
@@ -169,7 +172,7 @@ static unsigned int init_lirc_timer(void)
 		}  else {
 			newtimer = (1000000*count)/timeelapsed;
 			if (abs(newtimer - default_timer) > default_timer/10) {
-				
+				/* bad timer */
 				printk(KERN_NOTICE "%s: bad timer: %u Hz\n",
 				       LIRC_DRIVER_NAME, newtimer);
 				printk(KERN_NOTICE "%s: using default timer: "
@@ -179,7 +182,7 @@ static unsigned int init_lirc_timer(void)
 			} else {
 				printk(KERN_INFO "%s: %u Hz timer detected\n",
 				       LIRC_DRIVER_NAME, newtimer);
-				return newtimer; 
+				return newtimer; /* use detected value */
 			}
 		}
 	} else {
@@ -206,6 +209,7 @@ static int lirc_claim(void)
 	return 1;
 }
 
+/*** interrupt handler ***/
 
 static void rbuf_write(int signal)
 {
@@ -213,7 +217,7 @@ static void rbuf_write(int signal)
 
 	nwptr = (wptr + 1) & (RBUF_SIZE - 1);
 	if (nwptr == rptr) {
-		
+		/* no new signals will be accepted */
 		lost_irqs++;
 		printk(KERN_NOTICE "%s: buffer overrun\n", LIRC_DRIVER_NAME);
 		return;
@@ -239,7 +243,7 @@ static void irq_handler(void *blah)
 		return;
 
 #if 0
-	
+	/* disable interrupt */
 	  disable_irq(irq);
 	  out(LIRC_PORT_IRQ, in(LIRC_PORT_IRQ) & (~LP_PINTEN));
 #endif
@@ -252,24 +256,28 @@ static void irq_handler(void *blah)
 
 		signal = tv.tv_sec - lasttv.tv_sec;
 		if (signal > 15)
-			
+			/* really long time */
 			data = PULSE_MASK;
 		else
 			data = (int) (signal*1000000 +
 					 tv.tv_usec - lasttv.tv_usec +
 					 LIRC_SFH506_DELAY);
 
-		rbuf_write(data); 
+		rbuf_write(data); /* space */
 	} else {
 		if (timer == 0) {
+			/*
+			 * wake up; we'll lose this signal, but it will be
+			 * garbage if the device is turned on anyway
+			 */
 			timer = init_lirc_timer();
-			
+			/* enable_irq(irq); */
 			return;
 		}
 		init = 1;
 	}
 
-	timeout = timer/10;	
+	timeout = timer/10;	/* timeout after 1/10 sec. */
 	signal = 1;
 	level = lirc_get_timer();
 	do {
@@ -278,7 +286,7 @@ static void irq_handler(void *blah)
 			signal++;
 		level = newlevel;
 
-		
+		/* giving up */
 		if (signal > timeout
 		    || (check_pselecd && (in(1) & LP_PSELECD))) {
 			signal = 0;
@@ -288,7 +296,7 @@ static void irq_handler(void *blah)
 	} while (lirc_get_signal());
 
 	if (signal != 0) {
-		
+		/* adjust value to usecs */
 		__u64 helper;
 
 		helper = ((__u64) signal)*1000000;
@@ -299,18 +307,23 @@ static void irq_handler(void *blah)
 			data = signal - LIRC_SFH506_DELAY;
 		else
 			data = 1;
-		rbuf_write(PULSE_BIT|data); 
+		rbuf_write(PULSE_BIT|data); /* pulse */
 	}
 	do_gettimeofday(&lasttv);
 #else
-	
+	/* add your code here */
 #endif
 
 	wake_up_interruptible(&lirc_wait);
 
-	
+	/* enable interrupt */
+	/*
+	  enable_irq(irq);
+	  out(LIRC_PORT_IRQ, in(LIRC_PORT_IRQ)|LP_PINTEN);
+	*/
 }
 
+/*** file operations ***/
 
 static loff_t lirc_lseek(struct file *filep, loff_t offset, int orig)
 {
@@ -380,7 +393,7 @@ static ssize_t lirc_write(struct file *filep, const char *buf, size_t n,
 
 #ifdef LIRC_TIMER
 	if (timer == 0) {
-		
+		/* try again if device is ready */
 		timer = init_lirc_timer();
 		if (timer == 0) {
 			ret = -EIO;
@@ -388,7 +401,7 @@ static ssize_t lirc_write(struct file *filep, const char *buf, size_t n,
 		}
 	}
 
-	
+	/* adjust values from usecs */
 	for (i = 0; i < count; i++) {
 		__u64 helper;
 
@@ -436,7 +449,7 @@ static ssize_t lirc_write(struct file *filep, const char *buf, size_t n,
 	}
 	local_irq_restore(flags);
 #else
-	
+	/* place code that handles write without external timer here */
 #endif
 	ret = n;
 out:
@@ -512,7 +525,7 @@ static int lirc_open(struct inode *node, struct file *filep)
 
 	parport_enable_irq(pport);
 
-	
+	/* init read ptr */
 	rptr = 0;
 	wptr = 0;
 	lost_irqs = 0;
@@ -617,9 +630,13 @@ static void kf(void *handle)
 		return;
 	parport_enable_irq(pport);
 	lirc_off();
-	
+	/* this is a bit annoying when you actually print...*/
+	/*
+	printk(KERN_INFO "%s: reclaimed port\n", LIRC_DRIVER_NAME);
+	*/
 }
 
+/*** module initialization and cleanup ***/
 
 static int __init lirc_parallel_init(void)
 {
@@ -669,7 +686,7 @@ static int __init lirc_parallel_init(void)
 
 	timer = init_lirc_timer();
 
-#if 0	
+#if 0	/* continue even if device is offline */
 	if (timer == 0) {
 		is_claimed = 0;
 		parport_release(pport);

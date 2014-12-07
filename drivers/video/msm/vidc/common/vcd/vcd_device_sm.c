@@ -1068,7 +1068,7 @@ static void  vcd_hw_timeout_cmn(struct vcd_drv_ctxt *drv_ctxt,
 
 	vcd_handle_device_err_fatal(dev_ctxt, NULL);
 
-	
+	/* Reset HW. */
 	(void) vcd_reset_device_context(drv_ctxt,
 		DEVICE_STATE_EVENT_NUMBER(timeout));
 }

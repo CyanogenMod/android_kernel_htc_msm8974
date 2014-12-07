@@ -13,81 +13,120 @@
 #include <asm/uaccess.h>
 #include <asm/cacheflush.h>
 
+/* OPF field of various VIS instructions.  */
 
+/* 000111011 - four 16-bit packs  */
 #define FPACK16_OPF	0x03b
 
+/* 000111010 - two 32-bit packs  */
 #define FPACK32_OPF	0x03a
 
+/* 000111101 - four 16-bit packs  */
 #define FPACKFIX_OPF	0x03d
 
+/* 001001101 - four 16-bit expands  */
 #define FEXPAND_OPF	0x04d
 
+/* 001001011 - two 32-bit merges */
 #define FPMERGE_OPF	0x04b
 
+/* 000110001 - 8-by-16-bit partitoned product  */
 #define FMUL8x16_OPF	0x031
 
+/* 000110011 - 8-by-16-bit upper alpha partitioned product  */
 #define FMUL8x16AU_OPF	0x033
 
+/* 000110101 - 8-by-16-bit lower alpha partitioned product  */
 #define FMUL8x16AL_OPF	0x035
 
+/* 000110110 - upper 8-by-16-bit partitioned product  */
 #define FMUL8SUx16_OPF	0x036
 
+/* 000110111 - lower 8-by-16-bit partitioned product  */
 #define FMUL8ULx16_OPF	0x037
 
+/* 000111000 - upper 8-by-16-bit partitioned product  */
 #define FMULD8SUx16_OPF	0x038
 
+/* 000111001 - lower unsigned 8-by-16-bit partitioned product  */
 #define FMULD8ULx16_OPF	0x039
 
+/* 000101000 - four 16-bit compare; set rd if src1 > src2  */
 #define FCMPGT16_OPF	0x028
 
+/* 000101100 - two 32-bit compare; set rd if src1 > src2  */
 #define FCMPGT32_OPF	0x02c
 
+/* 000100000 - four 16-bit compare; set rd if src1 <= src2  */
 #define FCMPLE16_OPF	0x020
 
+/* 000100100 - two 32-bit compare; set rd if src1 <= src2  */
 #define FCMPLE32_OPF	0x024
 
+/* 000100010 - four 16-bit compare; set rd if src1 != src2  */
 #define FCMPNE16_OPF	0x022
 
+/* 000100110 - two 32-bit compare; set rd if src1 != src2  */
 #define FCMPNE32_OPF	0x026
 
+/* 000101010 - four 16-bit compare; set rd if src1 == src2  */
 #define FCMPEQ16_OPF	0x02a
 
+/* 000101110 - two 32-bit compare; set rd if src1 == src2  */
 #define FCMPEQ32_OPF	0x02e
 
+/* 000000000 - Eight 8-bit edge boundary processing  */
 #define EDGE8_OPF	0x000
 
+/* 000000001 - Eight 8-bit edge boundary processing, no CC */
 #define EDGE8N_OPF	0x001
 
+/* 000000010 - Eight 8-bit edge boundary processing, little-endian  */
 #define EDGE8L_OPF	0x002
 
+/* 000000011 - Eight 8-bit edge boundary processing, little-endian, no CC  */
 #define EDGE8LN_OPF	0x003
 
+/* 000000100 - Four 16-bit edge boundary processing  */
 #define EDGE16_OPF	0x004
 
+/* 000000101 - Four 16-bit edge boundary processing, no CC  */
 #define EDGE16N_OPF	0x005
 
+/* 000000110 - Four 16-bit edge boundary processing, little-endian  */
 #define EDGE16L_OPF	0x006
 
+/* 000000111 - Four 16-bit edge boundary processing, little-endian, no CC  */
 #define EDGE16LN_OPF	0x007
 
+/* 000001000 - Two 32-bit edge boundary processing  */
 #define EDGE32_OPF	0x008
 
+/* 000001001 - Two 32-bit edge boundary processing, no CC  */
 #define EDGE32N_OPF	0x009
 
+/* 000001010 - Two 32-bit edge boundary processing, little-endian  */
 #define EDGE32L_OPF	0x00a
 
+/* 000001011 - Two 32-bit edge boundary processing, little-endian, no CC  */
 #define EDGE32LN_OPF	0x00b
 
+/* 000111110 - distance between 8 8-bit components  */
 #define PDIST_OPF	0x03e
 
+/* 000010000 - convert 8-bit 3-D address to blocked byte address  */
 #define ARRAY8_OPF	0x010
 
+/* 000010010 - convert 16-bit 3-D address to blocked byte address  */
 #define ARRAY16_OPF	0x012
 
+/* 000010100 - convert 32-bit 3-D address to blocked byte address  */
 #define ARRAY32_OPF	0x014
 
+/* 000011001 - Set the GSR.MASK field in preparation for a BSHUFFLE  */
 #define BMASK_OPF	0x019
 
+/* 001001100 - Permute bytes as specified by GSR.MASK  */
 #define BSHUFFLE_OPF	0x04c
 
 #define VIS_OPF_SHIFT	5
@@ -418,7 +457,7 @@ static void pdist(struct pt_regs *regs, unsigned int insn)
 		s1 = (rs1 >> (56 - (i * 8))) & 0xff;
 		s2 = (rs2 >> (56 - (i * 8))) & 0xff;
 
-		
+		/* Absolute value of difference. */
 		s1 -= s2;
 		if (s1 < 0)
 			s1 = ~s1 + 1;
@@ -560,7 +599,7 @@ static void pmul(struct pt_regs *regs, unsigned int insn, unsigned int opf)
 			u32 prod = src1 * src2;
 			u16 scaled = ((prod & 0x00ffff00) >> 8);
 
-			
+			/* Round up.  */
 			if (prod & 0x80)
 				scaled++;
 			rd_val |= ((scaled & 0xffffUL) << (byte * 16UL));
@@ -585,7 +624,7 @@ static void pmul(struct pt_regs *regs, unsigned int insn, unsigned int opf)
 			u32 prod = src1 * src2;
 			u16 scaled = ((prod & 0x00ffff00) >> 8);
 
-			
+			/* Round up.  */
 			if (prod & 0x80)
 				scaled++;
 			rd_val |= ((scaled & 0xffffUL) << (byte * 16UL));
@@ -615,7 +654,7 @@ static void pmul(struct pt_regs *regs, unsigned int insn, unsigned int opf)
 			prod = src1 * src2;
 			scaled = ((prod & 0x00ffff00) >> 8);
 
-			
+			/* Round up.  */
 			if (prod & 0x80)
 				scaled++;
 			rd_val |= ((scaled & 0xffffUL) << (byte * 16UL));
@@ -645,7 +684,7 @@ static void pmul(struct pt_regs *regs, unsigned int insn, unsigned int opf)
 			prod = src1 * src2;
 			scaled = ((prod & 0x00ffff00) >> 8);
 
-			
+			/* Round up.  */
 			if (prod & 0x80)
 				scaled++;
 			rd_val |= ((scaled & 0xffffUL) <<
@@ -753,6 +792,9 @@ static void pcmp(struct pt_regs *regs, unsigned int insn, unsigned int opf)
 	store_reg(regs, rd_val, RD(insn));
 }
 
+/* Emulate the VIS instructions which are not implemented in
+ * hardware on Niagara.
+ */
 int vis_emul(struct pt_regs *regs, unsigned int insn)
 {
 	unsigned long pc = regs->tpc;
@@ -775,7 +817,7 @@ int vis_emul(struct pt_regs *regs, unsigned int insn)
 	default:
 		return -EINVAL;
 
-	
+	/* Pixel Formatting Instructions.  */
 	case FPACK16_OPF:
 	case FPACK32_OPF:
 	case FPACKFIX_OPF:
@@ -784,7 +826,7 @@ int vis_emul(struct pt_regs *regs, unsigned int insn)
 		pformat(regs, insn, opf);
 		break;
 
-	
+	/* Partitioned Multiply Instructions  */
 	case FMUL8x16_OPF:
 	case FMUL8x16AU_OPF:
 	case FMUL8x16AL_OPF:
@@ -795,7 +837,7 @@ int vis_emul(struct pt_regs *regs, unsigned int insn)
 		pmul(regs, insn, opf);
 		break;
 
-	
+	/* Pixel Compare Instructions  */
 	case FCMPGT16_OPF:
 	case FCMPGT32_OPF:
 	case FCMPLE16_OPF:
@@ -807,7 +849,7 @@ int vis_emul(struct pt_regs *regs, unsigned int insn)
 		pcmp(regs, insn, opf);
 		break;
 
-	
+	/* Edge Handling Instructions  */
 	case EDGE8_OPF:
 	case EDGE8N_OPF:
 	case EDGE8L_OPF:
@@ -823,19 +865,19 @@ int vis_emul(struct pt_regs *regs, unsigned int insn)
 		edge(regs, insn, opf);
 		break;
 
-	
+	/* Pixel Component Distance  */
 	case PDIST_OPF:
 		pdist(regs, insn);
 		break;
 
-	
+	/* Three-Dimensional Array Addressing Instructions  */
 	case ARRAY8_OPF:
 	case ARRAY16_OPF:
 	case ARRAY32_OPF:
 		array(regs, insn, opf);
 		break;
 
-	
+	/* Byte Mask and Shuffle Instructions  */
 	case BMASK_OPF:
 		bmask(regs, insn);
 		break;

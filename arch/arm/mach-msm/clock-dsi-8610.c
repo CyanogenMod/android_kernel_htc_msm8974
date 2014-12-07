@@ -138,6 +138,7 @@ static int dsi_pll_vco_set_rate(struct clk *c, unsigned long rate)
 	return 0;
 }
 
+/* rate is the bit clk rate */
 static long dsi_pll_vco_round_rate(struct clk *c, unsigned long rate)
 {
 	long vco_rate;
@@ -241,12 +242,12 @@ static int dsi_byteclk_set_rate(struct clk *c, unsigned long rate)
 		return ret;
 	}
 
-	
+	/* set the bit clk divider */
 	temp =  readl_relaxed(dsi_base + DSI_DSIPHY_PLL_CTRL_8);
 	val = (temp & 0xFFFFFFF0) | (div - 1);
 	writel_relaxed(val, dsi_base + DSI_DSIPHY_PLL_CTRL_8);
 
-	
+	/* set the byte clk divider */
 	temp = readl_relaxed(dsi_base + DSI_DSIPHY_PLL_CTRL_9);
 	val = (temp & 0xFFFFFF00) | (vco_rate / rate - 1);
 	writel_relaxed(val, dsi_base + DSI_DSIPHY_PLL_CTRL_9);
@@ -332,7 +333,7 @@ static int dsi_dsiclk_set_rate(struct clk *c, unsigned long rate)
 
 static long dsi_dsiclk_round_rate(struct clk *c, unsigned long rate)
 {
-	
+	/* rate is the pixel clk rate, translate into dsi clk rate*/
 	struct clk *parent = clk_get_parent(c);
 	unsigned long vco_rate = clk_get_rate(parent);
 

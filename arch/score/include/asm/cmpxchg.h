@@ -46,4 +46,4 @@ static inline unsigned long __cmpxchg(volatile unsigned long *m,
 
 #include <asm-generic/cmpxchg-local.h>
 
-#endif 
+#endif /* _ASM_SCORE_CMPXCHG_H */

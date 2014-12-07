@@ -7,4 +7,4 @@
 #  define __SWAB_64_THRU_32__
 #endif
 
-#endif 
+#endif /* _ASM_M32R_SWAB_H */

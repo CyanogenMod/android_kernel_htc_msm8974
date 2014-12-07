@@ -23,13 +23,19 @@
 
 #include <linux/i2c/adp5588.h>
 
+/* Key Event Register xy */
 #define KEY_EV_PRESSED		(1 << 7)
 #define KEY_EV_MASK		(0x7F)
 
-#define KP_SEL(x)		(0xFFFF >> (16 - x))	
+#define KP_SEL(x)		(0xFFFF >> (16 - x))	/* 2^x-1 */
 
 #define KEYP_MAX_EVENT		10
 
+/*
+ * Early pre 4.0 Silicon required to delay readout by at least 25ms,
+ * since the Event Counter Register updated 25ms after the interrupt
+ * asserted.
+ */
 #define WA_DELAYED_READOUT_REVID(rev)		((rev) < 4)
 
 struct adp5588_kpad {
@@ -44,7 +50,7 @@ struct adp5588_kpad {
 	unsigned char gpiomap[ADP5588_MAXGPIO];
 	bool export_gpio;
 	struct gpio_chip gc;
-	struct mutex gpio_lock;	
+	struct mutex gpio_lock;	/* Protect cached dir, dat_out */
 	u8 dat_out[3];
 	u8 dir[3];
 #endif
@@ -284,7 +290,7 @@ static void adp5588_work(struct work_struct *work)
 
 	status = adp5588_read(client, INT_STAT);
 
-	if (status & ADP5588_OVR_FLOW_INT)	
+	if (status & ADP5588_OVR_FLOW_INT)	/* Unlikely and should never happen */
 		dev_err(&client->dev, "Event Overflow Error\n");
 
 	if (status & ADP5588_KE_INT) {
@@ -294,13 +300,18 @@ static void adp5588_work(struct work_struct *work)
 			input_sync(kpad->input);
 		}
 	}
-	adp5588_write(client, INT_STAT, status); 
+	adp5588_write(client, INT_STAT, status); /* Status is W1C */
 }
 
 static irqreturn_t adp5588_irq(int irq, void *handle)
 {
 	struct adp5588_kpad *kpad = handle;
 
+	/*
+	 * use keventd context to read the event fifo registers
+	 * Schedule readout at least 25ms after notification for
+	 * REVID < 4
+	 */
 
 	schedule_delayed_work(&kpad->work, kpad->delay);
 
@@ -356,7 +367,7 @@ static int __devinit adp5588_setup(struct i2c_client *client)
 	ret |= adp5588_write(client, INT_STAT,
 				ADP5588_CMP2_INT | ADP5588_CMP1_INT |
 				ADP5588_OVR_FLOW_INT | ADP5588_K_LCK_INT |
-				ADP5588_GPI_INT | ADP5588_KE_INT); 
+				ADP5588_GPI_INT | ADP5588_KE_INT); /* Status is W1C */
 
 	ret |= adp5588_write(client, CFG, ADP5588_INT_CFG |
 					  ADP5588_OVR_FLOW_IEN |
@@ -517,7 +528,7 @@ static int __devinit adp5588_probe(struct i2c_client *client,
 	kpad->gpimap = pdata->gpimap;
 	kpad->gpimapsize = pdata->gpimapsize;
 
-	
+	/* setup input device */
 	__set_bit(EV_KEY, input->evbit);
 
 	if (pdata->repeat)

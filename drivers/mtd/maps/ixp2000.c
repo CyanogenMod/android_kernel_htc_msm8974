@@ -50,6 +50,11 @@ static inline unsigned long flash_bank_setup(struct map_info *map, unsigned long
 }
 
 #ifdef __ARMEB__
+/*
+ * Rev A0 and A1 of IXP2400 silicon have a broken addressing unit which
+ * causes the lower address bits to be XORed with 0x11 on 8 bit accesses
+ * and XORed with 0x10 on 16 bit accesses. See the spec update, erratum 44.
+ */
 static int erratum44_workaround = 0;
 
 static inline unsigned long address_fix8_write(unsigned long addr)
@@ -72,6 +77,11 @@ static map_word ixp2000_flash_read8(struct map_info *map, unsigned long ofs)
 	return val;
 }
 
+/*
+ * We can't use the standard memcpy due to the broken SlowPort
+ * address translation on rev A0 and A1 silicon and the fact that
+ * we have banked flash.
+ */
 static void ixp2000_flash_copy_from(struct map_info *map, void *to,
 			      unsigned long from, ssize_t len)
 {
@@ -160,11 +170,18 @@ static int ixp2000_flash_probe(struct platform_device *dev)
 
 	platform_set_drvdata(dev, info);
 
+	/*
+	 * Tell the MTD layer we're not 1:1 mapped so that it does
+	 * not attempt to do a direct access on us.
+	 */
 	info->map.phys = NO_XIP;
 
 	info->map.size = ixp_data->nr_banks * window_size;
 	info->map.bankwidth = 1;
 
+	/*
+ 	 * map_priv_2 is used to store a ptr to the bank_setup routine
+ 	 */
 	info->map.map_priv_2 = (unsigned long) ixp_data->bank_setup;
 
 	info->map.name = dev_name(&dev->dev);
@@ -192,6 +209,9 @@ static int ixp2000_flash_probe(struct platform_device *dev)
 	}
 
 #if defined(__ARMEB__)
+	/*
+	 * Enable erratum 44 workaround for NPUs with broken slowport
+	 */
 
 	erratum44_workaround = ixp2000_has_broken_slowport();
 	dev_info(&dev->dev, "Erratum 44 workaround %s\n",

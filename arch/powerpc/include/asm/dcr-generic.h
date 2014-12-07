@@ -42,8 +42,8 @@ extern u32 dcr_read_generic(dcr_host_t host, unsigned int dcr_n);
 
 extern void dcr_write_generic(dcr_host_t host, unsigned int dcr_n, u32 value);
 
-#endif 
-#endif 
-#endif 
+#endif /* __ASSEMBLY__ */
+#endif /* __KERNEL__ */
+#endif /* _ASM_POWERPC_DCR_GENERIC_H */
 
 

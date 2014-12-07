@@ -15,8 +15,8 @@
 #include <media/rc-map.h>
 
 static struct rc_map_table samsung_necx[] = {
-	{ 0x70702, KEY_POWER},		
-	{ 0x7070f, KEY_MUTE},		
+	{ 0x70702, KEY_POWER},		/* power */
+	{ 0x7070f, KEY_MUTE},		/* mute */
 	{ 0x70704, KEY_1},
 	{ 0x70705, KEY_2},
 	{ 0x70706, KEY_3},

@@ -29,9 +29,10 @@
 #include <stdarg.h>
 #ifdef __GNU_LIBRARY__
 #include <getopt.h>
-#endif				
+#endif				/* __GNU_LIBRARY__ */
 
 #include "genksyms.h"
+/*----------------------------------------------------------------------*/
 
 #define HASH_BUCKETS  4096
 
@@ -72,6 +73,7 @@ static struct string_list *mk_node(const char *string);
 static void print_location(void);
 static void print_type_name(enum symbol_type type, const char *name);
 
+/*----------------------------------------------------------------------*/
 
 static const unsigned int crctab32[] = {
 	0x00000000U, 0x77073096U, 0xee0e612cU, 0x990951baU, 0x076dc419U,
@@ -145,6 +147,7 @@ static unsigned long crc32(const char *s)
 	return partial_crc32(s, 0xffffffff) ^ 0xffffffff;
 }
 
+/*----------------------------------------------------------------------*/
 
 static enum symbol_type map_to_ns(enum symbol_type t)
 {
@@ -199,6 +202,10 @@ static struct symbol *__add_symbol(const char *name, enum symbol_type type,
 	unsigned long h;
 	struct symbol *sym;
 	enum symbol_status status = STATUS_UNCHANGED;
+	/* The parser adds symbols in the order their declaration completes,
+	 * so it is safe to store the value of the previous enum constant in
+	 * a static variable.
+	 */
 	static int enum_counter;
 	static struct string_list *last_enum_expr;
 
@@ -228,7 +235,7 @@ static struct symbol *__add_symbol(const char *name, enum symbol_type type,
 		last_enum_expr = NULL;
 		enum_counter = 0;
 		if (!name)
-			
+			/* Anonymous enum definition, nothing more to do */
 			return NULL;
 	}
 
@@ -237,7 +244,7 @@ static struct symbol *__add_symbol(const char *name, enum symbol_type type,
 		if (map_to_ns(sym->type) == map_to_ns(type) &&
 		    strcmp(name, sym->name) == 0) {
 			if (is_reference)
-				 ;
+				/* fall through */ ;
 			else if (sym->type == type &&
 				 equal_list(sym->defn, defn)) {
 				if (!sym->is_declared && sym->is_override) {
@@ -324,6 +331,7 @@ static struct symbol *add_reference_symbol(const char *name, enum symbol_type ty
 	return __add_symbol(name, type, defn, is_extern, 1);
 }
 
+/*----------------------------------------------------------------------*/
 
 void free_node(struct string_list *node)
 {
@@ -568,7 +576,7 @@ static unsigned long expand_and_crc_sym(struct symbol *sym, unsigned long crc)
 		case SYM_ENUM_CONST:
 		case SYM_TYPEDEF:
 			subsym = find_symbol(cur->string, cur->tag, 0);
-			
+			/* FIXME: Bad reference files can segfault here. */
 			if (subsym->expansion_trail) {
 				if (flag_dump_defs)
 					fprintf(debugfile, "%s ", cur->string);
@@ -683,11 +691,12 @@ void export_symbol(const char *name)
 		if (flag_dump_defs)
 			fputs(">\n", debugfile);
 
-		
+		/* Used as a linker script. */
 		printf("%s__crc_%s = 0x%08lx ;\n", mod_prefix, name, crc);
 	}
 }
 
+/*----------------------------------------------------------------------*/
 
 static void print_location(void)
 {
@@ -732,7 +741,7 @@ static void genksyms_usage(void)
 	      "  -q, --quiet           Disable warnings (default)\n"
 	      "  -h, --help            Print this message\n"
 	      "  -V, --version         Print the release version\n"
-#else				
+#else				/* __GNU_LIBRARY__ */
 	      "  -a                    Select architecture\n"
 	      "  -d                    Increment the debug level (repeatable)\n"
 	      "  -D                    Dump expanded symbol defs (for debugging only)\n"
@@ -743,7 +752,7 @@ static void genksyms_usage(void)
 	      "  -q                    Disable warnings (default)\n"
 	      "  -h                    Print this message\n"
 	      "  -V                    Print the release version\n"
-#endif				
+#endif				/* __GNU_LIBRARY__ */
 	      , stderr);
 }
 
@@ -769,9 +778,9 @@ int main(int argc, char **argv)
 
 	while ((o = getopt_long(argc, argv, "a:dwqVDr:T:ph",
 				&long_opts[0], NULL)) != EOF)
-#else				
+#else				/* __GNU_LIBRARY__ */
 	while ((o = getopt(argc, argv, "a:dwqVDr:T:ph")) != EOF)
-#endif				
+#endif				/* __GNU_LIBRARY__ */
 		switch (o) {
 		case 'a':
 			arch = optarg;
@@ -827,7 +836,7 @@ int main(int argc, char **argv)
 		yy_flex_debug = (flag_debug > 2);
 
 		debugfile = stderr;
-		
+		/* setlinebuf(debugfile); */
 	}
 
 	if (flag_reference) {

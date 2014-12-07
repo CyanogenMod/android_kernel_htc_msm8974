@@ -142,7 +142,7 @@ static struct genl_ops irda_nl_ops[] = {
 		.cmd = IRDA_NL_CMD_GET_MODE,
 		.doit = irda_nl_get_mode,
 		.policy = irda_nl_policy,
-		
+		/* can be retrieved by unprivileged users */
 	},
 
 };

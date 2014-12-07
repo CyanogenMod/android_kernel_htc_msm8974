@@ -63,6 +63,9 @@ static struct platform_device wf_platform_device = {
 	.name	= "windfarm",
 };
 
+/*
+ * Utilities & tick thread
+ */
 
 static inline void wf_notify(int event, void *param)
 {
@@ -99,10 +102,10 @@ static int wf_thread_func(void *data)
 			wf_notify(WF_EVENT_TICK, NULL);
 			if (wf_overtemp) {
 				wf_overtemp_counter++;
-				
+				/* 10 seconds overtemp, notify userland */
 				if (wf_overtemp_counter > 10)
 					wf_critical_overtemp();
-				
+				/* 30 seconds, shutdown */
 				if (wf_overtemp_counter > 30) {
 					printk(KERN_ERR "windfarm: Overtemp "
 					       "for more than 30"
@@ -141,6 +144,9 @@ static void wf_stop_thread(void)
 	wf_thread = NULL;
 }
 
+/*
+ * Controls
+ */
 
 static void wf_control_release(struct kref *kref)
 {
@@ -167,6 +173,7 @@ static ssize_t wf_show_control(struct device *dev,
 	return sprintf(buf, "%d\n", val);
 }
 
+/* This is really only for debugging... */
 static ssize_t wf_store_control(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count)
@@ -211,7 +218,7 @@ int wf_register_control(struct wf_control *new_ct)
 	if (device_create_file(&wf_platform_device.dev, &new_ct->attr))
 		printk(KERN_WARNING "windfarm: device_create_file failed"
 			" for %s\n", new_ct->name);
-		
+		/* the subsystem still does useful work without the file */
 
 	DBG("wf: Registered control %s\n", new_ct->name);
 
@@ -270,6 +277,9 @@ void wf_put_control(struct wf_control *ct)
 EXPORT_SYMBOL_GPL(wf_put_control);
 
 
+/*
+ * Sensors
+ */
 
 
 static void wf_sensor_release(struct kref *kref)
@@ -321,7 +331,7 @@ int wf_register_sensor(struct wf_sensor *new_sr)
 	if (device_create_file(&wf_platform_device.dev, &new_sr->attr))
 		printk(KERN_WARNING "windfarm: device_create_file failed"
 			" for %s\n", new_sr->name);
-		
+		/* the subsystem still does useful work without the file */
 
 	DBG("wf: Registered sensor %s\n", new_sr->name);
 
@@ -380,6 +390,9 @@ void wf_put_sensor(struct wf_sensor *sr)
 EXPORT_SYMBOL_GPL(wf_put_sensor);
 
 
+/*
+ * Client & notification
+ */
 
 int wf_register_client(struct notifier_block *nb)
 {
@@ -457,7 +470,7 @@ static int __init windfarm_core_init(void)
 {
 	DBG("wf: core loaded\n");
 
-	
+	/* Don't register on old machines that use therm_pm72 for now */
 	if (of_machine_is_compatible("PowerMac7,2") ||
 	    of_machine_is_compatible("PowerMac7,3") ||
 	    of_machine_is_compatible("RackMac3,1"))

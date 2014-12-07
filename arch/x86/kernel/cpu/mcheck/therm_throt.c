@@ -1,3 +1,18 @@
+/*
+ * Thermal throttle event support code (such as syslog messaging and rate
+ * limiting) that was factored out from x86_64 (mce_intel.c) and i386 (p4.c).
+ *
+ * This allows consistent reporting of CPU thermal throttle events.
+ *
+ * Maintains a counter in /sys that keeps track of the number of thermal
+ * events, such that the user knows how bad the thermal problem might be
+ * (since the logging to syslog and mcelog is rate limited).
+ *
+ * Author: Dmitriy Zavin (dmitriyz@google.com)
+ *
+ * Credits: Adapted from Zwane Mwaikambo's original code in mce_intel.c.
+ *          Inspired by Ross Biro's and Al Borchers' counter code.
+ */
 #include <linux/interrupt.h>
 #include <linux/notifier.h>
 #include <linux/jiffies.h>
@@ -15,11 +30,15 @@
 #include <asm/mce.h>
 #include <asm/msr.h>
 
+/* How long to wait between reporting thermal events */
 #define CHECK_INTERVAL		(300 * HZ)
 
 #define THERMAL_THROTTLING_EVENT	0
 #define POWER_LIMIT_EVENT		1
 
+/*
+ * Current thermal event state:
+ */
 struct _thermal_state {
 	bool			new_event;
 	int			event;
@@ -37,6 +56,7 @@ struct thermal_state {
 	struct _thermal_state core_thresh1;
 };
 
+/* Callback to handle core threshold interrupts */
 int (*platform_thermal_notify)(__u64 msr_val);
 EXPORT_SYMBOL(platform_thermal_notify);
 
@@ -62,7 +82,7 @@ static ssize_t therm_throt_device_show_##event##_##name(		\
 	unsigned int cpu = dev->id;					\
 	ssize_t ret;							\
 									\
-	preempt_disable();				\
+	preempt_disable();	/* CPU hotplug */			\
 	if (cpu_online(cpu)) {						\
 		ret = sprintf(buf, "%lu\n",				\
 			      per_cpu(thermal_state, cpu).event.name);	\
@@ -94,11 +114,27 @@ static struct attribute_group thermal_attr_group = {
 	.attrs	= thermal_throttle_attrs,
 	.name	= "thermal_throttle"
 };
-#endif 
+#endif /* CONFIG_SYSFS */
 
 #define CORE_LEVEL	0
 #define PACKAGE_LEVEL	1
 
+/***
+ * therm_throt_process - Process thermal throttling event from interrupt
+ * @curr: Whether the condition is current or not (boolean), since the
+ *        thermal interrupt normally gets called both when the thermal
+ *        event begins and once the event has ended.
+ *
+ * This function is called by the thermal interrupt after the
+ * IRQ has been acknowledged.
+ *
+ * It will take care of rate limiting and printing messages to the syslog.
+ *
+ * Returns: 0 : Event should NOT be further logged, i.e. still in
+ *              "timeout" from previous log message.
+ *          1 : Event should be logged further, and a message has been
+ *              printed to the syslog.
+ */
 static int therm_throt_process(bool new_event, int event, int level)
 {
 	struct _thermal_state *state;
@@ -138,7 +174,7 @@ static int therm_throt_process(bool new_event, int event, int level)
 	state->next_check = now + CHECK_INTERVAL;
 	state->last_count = state->count;
 
-	
+	/* if we just entered the thermal event */
 	if (new_event) {
 		if (event == THERMAL_THROTTLING_EVENT)
 			printk(KERN_CRIT "CPU%d: %s temperature above threshold, cpu clock throttled (total events = %lu)\n",
@@ -184,6 +220,7 @@ static int thresh_event_valid(int event)
 }
 
 #ifdef CONFIG_SYSFS
+/* Add/Remove thermal_throttle interface for CPU device: */
 static __cpuinit int thermal_throttle_add_dev(struct device *dev,
 				unsigned int cpu)
 {
@@ -216,8 +253,10 @@ static __cpuinit void thermal_throttle_remove_dev(struct device *dev)
 	sysfs_remove_group(&dev->kobj, &thermal_attr_group);
 }
 
+/* Mutex protecting device creation against CPU hotplug: */
 static DEFINE_MUTEX(therm_cpu_lock);
 
+/* Get notified when a cpu comes on/off. Be hotplug friendly. */
 static __cpuinit int
 thermal_throttle_cpu_callback(struct notifier_block *nfb,
 			      unsigned long action,
@@ -267,7 +306,7 @@ static __init int thermal_throttle_init_device(void)
 #ifdef CONFIG_HOTPLUG_CPU
 	mutex_lock(&therm_cpu_lock);
 #endif
-	
+	/* connect live CPUs to sysfs */
 	for_each_online_cpu(cpu) {
 		err = thermal_throttle_add_dev(get_cpu_device(cpu), cpu);
 		WARN_ON(err);
@@ -280,28 +319,32 @@ static __init int thermal_throttle_init_device(void)
 }
 device_initcall(thermal_throttle_init_device);
 
-#endif 
+#endif /* CONFIG_SYSFS */
 
 static void notify_thresholds(__u64 msr_val)
 {
+	/* check whether the interrupt handler is defined;
+	 * otherwise simply return
+	 */
 	if (!platform_thermal_notify)
 		return;
 
-	
+	/* lower threshold reached */
 	if ((msr_val & THERM_LOG_THRESHOLD0) &&	thresh_event_valid(0))
 		platform_thermal_notify(msr_val);
-	
+	/* higher threshold reached */
 	if ((msr_val & THERM_LOG_THRESHOLD1) && thresh_event_valid(1))
 		platform_thermal_notify(msr_val);
 }
 
+/* Thermal transition interrupt handler */
 static void intel_thermal_interrupt(void)
 {
 	__u64 msr_val;
 
 	rdmsrl(MSR_IA32_THERM_STATUS, msr_val);
 
-	
+	/* Check for violation of core thermal thresholds*/
 	notify_thresholds(msr_val);
 
 	if (therm_throt_process(msr_val & THERM_STATUS_PROCHOT,
@@ -342,10 +385,11 @@ asmlinkage void smp_thermal_interrupt(struct pt_regs *regs)
 	inc_irq_stat(irq_thermal_count);
 	smp_thermal_vector();
 	irq_exit();
-	
+	/* Ack only at the end to avoid potential reentry */
 	ack_APIC_irq();
 }
 
+/* Thermal monitoring depends on APIC, ACPI and clock modulation */
 static int intel_thermal_supported(struct cpuinfo_x86 *c)
 {
 	if (!cpu_has_apic)
@@ -357,6 +401,11 @@ static int intel_thermal_supported(struct cpuinfo_x86 *c)
 
 void __init mcheck_intel_therm_init(void)
 {
+	/*
+	 * This function is only called on boot CPU. Save the init thermal
+	 * LVT value on BSP and use that value to restore APs' thermal LVT
+	 * entry BIOS programmed later
+	 */
 	if (intel_thermal_supported(&boot_cpu_data))
 		lvtthmr_init = apic_read(APIC_LVTTHMR);
 }
@@ -370,9 +419,24 @@ void intel_init_thermal(struct cpuinfo_x86 *c)
 	if (!intel_thermal_supported(c))
 		return;
 
+	/*
+	 * First check if its enabled already, in which case there might
+	 * be some SMM goo which handles it, so we can't even put a handler
+	 * since it might be delivered via SMI already:
+	 */
 	rdmsr(MSR_IA32_MISC_ENABLE, l, h);
 
 	h = lvtthmr_init;
+	/*
+	 * The initial value of thermal LVT entries on all APs always reads
+	 * 0x10000 because APs are woken up by BSP issuing INIT-SIPI-SIPI
+	 * sequence to them and LVT registers are reset to 0s except for
+	 * the mask bits which are set to 1s when APs receive INIT IPI.
+	 * If BIOS takes over the thermal interrupt and sets its interrupt
+	 * delivery mode to SMI (not fixed), it restores the value that the
+	 * BIOS has programmed on AP based on BSP's info we saved since BIOS
+	 * is always setting the same value for all threads/cores.
+	 */
 	if ((h & APIC_DM_FIXED_MASK) != APIC_DM_FIXED)
 		apic_write(APIC_LVTTHMR, lvtthmr_init);
 
@@ -383,7 +447,7 @@ void intel_init_thermal(struct cpuinfo_x86 *c)
 		return;
 	}
 
-	
+	/* Check whether a vector already exists */
 	if (h & APIC_VECTOR_MASK) {
 		printk(KERN_DEBUG
 		       "CPU%d: Thermal LVT vector (%#x) already installed\n",
@@ -391,7 +455,7 @@ void intel_init_thermal(struct cpuinfo_x86 *c)
 		return;
 	}
 
-	
+	/* early Pentium M models use different method for enabling TM2 */
 	if (cpu_has(c, X86_FEATURE_TM2)) {
 		if (c->x86 == 6 && (c->x86_model == 9 || c->x86_model == 13)) {
 			rdmsr(MSR_THERM2_CTL, l, h);
@@ -401,7 +465,7 @@ void intel_init_thermal(struct cpuinfo_x86 *c)
 			tm2 = 1;
 	}
 
-	
+	/* We'll mask the thermal vector in the lapic till we're ready: */
 	h = THERMAL_APIC_VECTOR | APIC_DM_FIXED | APIC_LVT_MASKED;
 	apic_write(APIC_LVTTHMR, h);
 
@@ -432,13 +496,13 @@ void intel_init_thermal(struct cpuinfo_x86 *c)
 	rdmsr(MSR_IA32_MISC_ENABLE, l, h);
 	wrmsr(MSR_IA32_MISC_ENABLE, l | MSR_IA32_MISC_ENABLE_TM1, h);
 
-	
+	/* Unmask the thermal vector: */
 	l = apic_read(APIC_LVTTHMR);
 	apic_write(APIC_LVTTHMR, l & ~APIC_LVT_MASKED);
 
 	printk_once(KERN_INFO "CPU0: Thermal monitoring enabled (%s)\n",
 		       tm2 ? "TM2" : "TM1");
 
-	
+	/* enable thermal throttle processing */
 	atomic_set(&therm_throt_en, 1);
 }

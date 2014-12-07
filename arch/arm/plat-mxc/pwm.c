@@ -19,16 +19,18 @@
 #include <mach/hardware.h>
 
 
+/* i.MX1 and i.MX21 share the same PWM function block: */
 
-#define MX1_PWMC    0x00   
-#define MX1_PWMS    0x04   
-#define MX1_PWMP    0x08   
+#define MX1_PWMC    0x00   /* PWM Control Register */
+#define MX1_PWMS    0x04   /* PWM Sample Register */
+#define MX1_PWMP    0x08   /* PWM Period Register */
 
 
+/* i.MX27, i.MX31, i.MX35 share the same PWM function block: */
 
-#define MX3_PWMCR                 0x00    
-#define MX3_PWMSAR                0x0C    
-#define MX3_PWMPR                 0x10    
+#define MX3_PWMCR                 0x00    /* PWM Control Register */
+#define MX3_PWMSAR                0x0C    /* PWM Sample Register */
+#define MX3_PWMPR                 0x10    /* PWM Period Register */
 #define MX3_PWMCR_PRESCALER(x)    (((x - 1) & 0xFFF) << 4)
 #define MX3_PWMCR_DOZEEN                (1 << 24)
 #define MX3_PWMCR_WAITEN                (1 << 23)
@@ -75,6 +77,10 @@ int pwm_config(struct pwm_device *pwm, int duty_ns, int period_ns)
 		do_div(c, period_ns);
 		duty_cycles = c;
 
+		/*
+		 * according to imx pwm RM, the real period value should be
+		 * PERIOD value in PWMPR plus 2.
+		 */
 		if (period_cycles > 2)
 			period_cycles -= 2;
 		else
@@ -94,6 +100,22 @@ int pwm_config(struct pwm_device *pwm, int duty_ns, int period_ns)
 
 		writel(cr, pwm->mmio_base + MX3_PWMCR);
 	} else if (cpu_is_mx1() || cpu_is_mx21()) {
+		/* The PWM subsystem allows for exact frequencies. However,
+		 * I cannot connect a scope on my device to the PWM line and
+		 * thus cannot provide the program the PWM controller
+		 * exactly. Instead, I'm relying on the fact that the
+		 * Bootloader (u-boot or WinCE+haret) has programmed the PWM
+		 * function group already. So I'll just modify the PWM sample
+		 * register to follow the ratio of duty_ns vs. period_ns
+		 * accordingly.
+		 *
+		 * This is good enough for programming the brightness of
+		 * the LCD backlight.
+		 *
+		 * The real implementation would divide PERCLK[0] first by
+		 * both the prescaler (/1 .. /128) and then by CLKSEL
+		 * (/2 .. /16).
+		 */
 		u32 max = readl(pwm->mmio_base + MX1_PWMP);
 		u32 p = max * duty_ns / period_ns;
 		writel(max - p, pwm->mmio_base + MX1_PWMS);

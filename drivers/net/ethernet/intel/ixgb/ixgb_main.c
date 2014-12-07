@@ -45,6 +45,14 @@ module_param(copybreak, uint, 0644);
 MODULE_PARM_DESC(copybreak,
 	"Maximum size of packet that is copied to a new buffer on receive");
 
+/* ixgb_pci_tbl - PCI Device ID Table
+ *
+ * Wildcard entries (PCI_ANY_ID) should come last
+ * Last entry must be all 0s
+ *
+ * { Vendor ID, Device ID, SubVendor ID, SubDevice ID,
+ *   Class, Class Mask, private data (not used) }
+ */
 static DEFINE_PCI_DEVICE_TABLE(ixgb_pci_tbl) = {
 	{INTEL_VENDOR_ID, IXGB_DEVICE_ID_82597EX,
 	 PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0},
@@ -55,12 +63,13 @@ static DEFINE_PCI_DEVICE_TABLE(ixgb_pci_tbl) = {
 	{INTEL_VENDOR_ID, IXGB_DEVICE_ID_82597EX_LR,
 	 PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0},
 
-	
+	/* required last entry */
 	{0,}
 };
 
 MODULE_DEVICE_TABLE(pci, ixgb_pci_tbl);
 
+/* Local Function Prototypes */
 static int ixgb_init_module(void);
 static void ixgb_exit_module(void);
 static int ixgb_probe(struct pci_dev *pdev, const struct pci_device_id *ent);
@@ -97,6 +106,7 @@ static int ixgb_vlan_rx_kill_vid(struct net_device *netdev, u16 vid);
 static void ixgb_restore_vlan(struct ixgb_adapter *adapter);
 
 #ifdef CONFIG_NET_POLL_CONTROLLER
+/* for netdump / net console */
 static void ixgb_netpoll(struct net_device *dev);
 #endif
 
@@ -129,6 +139,12 @@ static int debug = -1;
 module_param(debug, int, 0);
 MODULE_PARM_DESC(debug, "Debug level (0=none,...,16=all)");
 
+/**
+ * ixgb_init_module - Driver Registration Routine
+ *
+ * ixgb_init_module is the first routine called when the driver is
+ * loaded. All it does is register with the PCI subsystem.
+ **/
 
 static int __init
 ixgb_init_module(void)
@@ -141,6 +157,12 @@ ixgb_init_module(void)
 
 module_init(ixgb_init_module);
 
+/**
+ * ixgb_exit_module - Driver Exit Cleanup Routine
+ *
+ * ixgb_exit_module is called just before the driver is removed
+ * from memory.
+ **/
 
 static void __exit
 ixgb_exit_module(void)
@@ -150,6 +172,10 @@ ixgb_exit_module(void)
 
 module_exit(ixgb_exit_module);
 
+/**
+ * ixgb_irq_disable - Mask off interrupt generation on the NIC
+ * @adapter: board private structure
+ **/
 
 static void
 ixgb_irq_disable(struct ixgb_adapter *adapter)
@@ -159,6 +185,10 @@ ixgb_irq_disable(struct ixgb_adapter *adapter)
 	synchronize_irq(adapter->pdev->irq);
 }
 
+/**
+ * ixgb_irq_enable - Enable default interrupt generation settings
+ * @adapter: board private structure
+ **/
 
 static void
 ixgb_irq_enable(struct ixgb_adapter *adapter)
@@ -179,7 +209,7 @@ ixgb_up(struct ixgb_adapter *adapter)
 	int max_frame = netdev->mtu + ENET_HEADER_SIZE + ENET_FCS_LENGTH;
 	struct ixgb_hw *hw = &adapter->hw;
 
-	
+	/* hardware has been reset, we need to reload some things */
 
 	ixgb_rar_set(hw, netdev->dev_addr, 0);
 	ixgb_set_multi(netdev);
@@ -191,17 +221,17 @@ ixgb_up(struct ixgb_adapter *adapter)
 	ixgb_configure_rx(adapter);
 	ixgb_alloc_rx_buffers(adapter, IXGB_DESC_UNUSED(&adapter->rx_ring));
 
-	
+	/* disable interrupts and get the hardware into a known state */
 	IXGB_WRITE_REG(&adapter->hw, IMC, 0xffffffff);
 
-	
+	/* only enable MSI if bus is in PCI-X mode */
 	if (IXGB_READ_REG(&adapter->hw, STATUS) & IXGB_STATUS_PCIX_MODE) {
 		err = pci_enable_msi(adapter->pdev);
 		if (!err) {
 			adapter->have_msi = true;
 			irq_flags = 0;
 		}
-		
+		/* proceed to try to request regular interrupt */
 	}
 
 	err = request_irq(adapter->pdev->irq, ixgb_intr, irq_flags,
@@ -250,11 +280,11 @@ ixgb_down(struct ixgb_adapter *adapter, bool kill_watchdog)
 {
 	struct net_device *netdev = adapter->netdev;
 
-	
+	/* prevent the interrupt handler from restarting watchdog */
 	set_bit(__IXGB_DOWN, &adapter->flags);
 
 	napi_disable(&adapter->napi);
-	
+	/* waiting for NAPI to complete can re-enable interrupts */
 	ixgb_irq_disable(adapter);
 	free_irq(adapter->pdev->irq, netdev);
 
@@ -283,7 +313,7 @@ ixgb_reset(struct ixgb_adapter *adapter)
 	if (!ixgb_init_hw(hw))
 		netif_err(adapter, probe, adapter->netdev, "ixgb_init_hw failed\n");
 
-	
+	/* restore frame size information */
 	IXGB_WRITE_REG(hw, MFS, hw->max_frame_size << IXGB_MFS_SHIFT);
 	if (hw->max_frame_size >
 	    IXGB_MAX_ENET_FRAME_SIZE_WITHOUT_FCS + ENET_FCS_LENGTH) {
@@ -298,6 +328,10 @@ ixgb_reset(struct ixgb_adapter *adapter)
 static netdev_features_t
 ixgb_fix_features(struct net_device *netdev, netdev_features_t features)
 {
+	/*
+	 * Tx VLAN insertion does not work per HW design when Rx stripping is
+	 * disabled.
+	 */
 	if (!(features & NETIF_F_HW_VLAN_RX))
 		features &= ~NETIF_F_HW_VLAN_TX;
 
@@ -345,6 +379,17 @@ static const struct net_device_ops ixgb_netdev_ops = {
 	.ndo_set_features       = ixgb_set_features,
 };
 
+/**
+ * ixgb_probe - Device Initialization Routine
+ * @pdev: PCI device information struct
+ * @ent: entry in ixgb_pci_tbl
+ *
+ * Returns 0 on success, negative on failure
+ *
+ * ixgb_probe initializes an adapter identified by a pci_dev structure.
+ * The OS initialization, configuring of the adapter private structure,
+ * and a hardware reset occur.
+ **/
 
 static int __devinit
 ixgb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
@@ -425,7 +470,7 @@ ixgb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	adapter->link_speed = 0;
 	adapter->link_duplex = 0;
 
-	
+	/* setup the private structure */
 
 	err = ixgb_sw_init(adapter);
 	if (err)
@@ -445,7 +490,7 @@ ixgb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		netdev->vlan_features |= NETIF_F_HIGHDMA;
 	}
 
-	
+	/* make sure the EEPROM is good */
 
 	if (!ixgb_validate_eeprom_checksum(&adapter->hw)) {
 		netif_err(adapter, probe, adapter->netdev,
@@ -476,13 +521,13 @@ ixgb_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (err)
 		goto err_register;
 
-	
+	/* carrier off reporting is important to ethtool even BEFORE open */
 	netif_carrier_off(netdev);
 
 	netif_info(adapter, probe, adapter->netdev,
 		   "Intel(R) PRO/10GbE Network Connection\n");
 	ixgb_check_options(adapter);
-	
+	/* reset the hardware with the new settings */
 
 	ixgb_reset(adapter);
 
@@ -503,6 +548,15 @@ err_dma_mask:
 	return err;
 }
 
+/**
+ * ixgb_remove - Device Removal Routine
+ * @pdev: PCI device information struct
+ *
+ * ixgb_remove is called by the PCI subsystem to alert the driver
+ * that it should release a PCI device.  The could be caused by a
+ * Hot-Plug event, or because the driver is going to be removed from
+ * memory.
+ **/
 
 static void __devexit
 ixgb_remove(struct pci_dev *pdev)
@@ -521,6 +575,14 @@ ixgb_remove(struct pci_dev *pdev)
 	pci_disable_device(pdev);
 }
 
+/**
+ * ixgb_sw_init - Initialize general software structures (struct ixgb_adapter)
+ * @adapter: board private structure to initialize
+ *
+ * ixgb_sw_init initializes the Adapter private data structure.
+ * Fields are initialized based on PCI device information and
+ * OS network device settings (MTU size).
+ **/
 
 static int __devinit
 ixgb_sw_init(struct ixgb_adapter *adapter)
@@ -529,7 +591,7 @@ ixgb_sw_init(struct ixgb_adapter *adapter)
 	struct net_device *netdev = adapter->netdev;
 	struct pci_dev *pdev = adapter->pdev;
 
-	
+	/* PCI config space info */
 
 	hw->vendor_id = pdev->vendor;
 	hw->device_id = pdev->device;
@@ -537,7 +599,7 @@ ixgb_sw_init(struct ixgb_adapter *adapter)
 	hw->subsystem_id = pdev->subsystem_device;
 
 	hw->max_frame_size = netdev->mtu + ENET_HEADER_SIZE + ENET_FCS_LENGTH;
-	adapter->rx_buffer_len = hw->max_frame_size + 8; 
+	adapter->rx_buffer_len = hw->max_frame_size + 8; /* + 8 for errata */
 
 	if ((hw->device_id == IXGB_DEVICE_ID_82597EX) ||
 	    (hw->device_id == IXGB_DEVICE_ID_82597EX_CX4) ||
@@ -545,17 +607,29 @@ ixgb_sw_init(struct ixgb_adapter *adapter)
 	    (hw->device_id == IXGB_DEVICE_ID_82597EX_SR))
 		hw->mac_type = ixgb_82597;
 	else {
-		
+		/* should never have loaded on this device */
 		netif_err(adapter, probe, adapter->netdev, "unsupported device id\n");
 	}
 
-	
+	/* enable flow control to be programmed */
 	hw->fc.send_xon = 1;
 
 	set_bit(__IXGB_DOWN, &adapter->flags);
 	return 0;
 }
 
+/**
+ * ixgb_open - Called when a network interface is made active
+ * @netdev: network interface device structure
+ *
+ * Returns 0 on success, negative value on failure
+ *
+ * The open entry point is called when a network interface is made
+ * active by the system (IFF_UP).  At this point all resources needed
+ * for transmit and receive operations are allocated, the interrupt
+ * handler is registered with the OS, the watchdog timer is started,
+ * and the stack is notified that the interface is ready.
+ **/
 
 static int
 ixgb_open(struct net_device *netdev)
@@ -563,14 +637,14 @@ ixgb_open(struct net_device *netdev)
 	struct ixgb_adapter *adapter = netdev_priv(netdev);
 	int err;
 
-	
+	/* allocate transmit descriptors */
 	err = ixgb_setup_tx_resources(adapter);
 	if (err)
 		goto err_setup_tx;
 
 	netif_carrier_off(netdev);
 
-	
+	/* allocate receive descriptors */
 
 	err = ixgb_setup_rx_resources(adapter);
 	if (err)
@@ -594,6 +668,17 @@ err_setup_tx:
 	return err;
 }
 
+/**
+ * ixgb_close - Disables a network interface
+ * @netdev: network interface device structure
+ *
+ * Returns 0, this is not allowed to fail
+ *
+ * The close entry point is called when an interface is de-activated
+ * by the OS.  The hardware is still under the drivers control, but
+ * needs to be disabled.  A global MAC reset is issued to stop the
+ * hardware, and all transmit and receive resources are freed.
+ **/
 
 static int
 ixgb_close(struct net_device *netdev)
@@ -608,6 +693,12 @@ ixgb_close(struct net_device *netdev)
 	return 0;
 }
 
+/**
+ * ixgb_setup_tx_resources - allocate Tx resources (Descriptors)
+ * @adapter: board private structure
+ *
+ * Return 0 on success, negative on failure
+ **/
 
 int
 ixgb_setup_tx_resources(struct ixgb_adapter *adapter)
@@ -624,7 +715,7 @@ ixgb_setup_tx_resources(struct ixgb_adapter *adapter)
 		return -ENOMEM;
 	}
 
-	
+	/* round up to nearest 4K */
 
 	txdr->size = txdr->count * sizeof(struct ixgb_tx_desc);
 	txdr->size = ALIGN(txdr->size, 4096);
@@ -645,6 +736,12 @@ ixgb_setup_tx_resources(struct ixgb_adapter *adapter)
 	return 0;
 }
 
+/**
+ * ixgb_configure_tx - Configure 82597 Transmit Unit after Reset.
+ * @adapter: board private structure
+ *
+ * Configure the Tx unit of the MAC after a reset.
+ **/
 
 static void
 ixgb_configure_tx(struct ixgb_adapter *adapter)
@@ -654,32 +751,43 @@ ixgb_configure_tx(struct ixgb_adapter *adapter)
 	u32 tctl;
 	struct ixgb_hw *hw = &adapter->hw;
 
+	/* Setup the Base and Length of the Tx Descriptor Ring
+	 * tx_ring.dma can be either a 32 or 64 bit value
+	 */
 
 	IXGB_WRITE_REG(hw, TDBAL, (tdba & 0x00000000ffffffffULL));
 	IXGB_WRITE_REG(hw, TDBAH, (tdba >> 32));
 
 	IXGB_WRITE_REG(hw, TDLEN, tdlen);
 
-	
+	/* Setup the HW Tx Head and Tail descriptor pointers */
 
 	IXGB_WRITE_REG(hw, TDH, 0);
 	IXGB_WRITE_REG(hw, TDT, 0);
 
-	
+	/* don't set up txdctl, it induces performance problems if configured
+	 * incorrectly */
+	/* Set the Tx Interrupt Delay register */
 
 	IXGB_WRITE_REG(hw, TIDV, adapter->tx_int_delay);
 
-	
+	/* Program the Transmit Control Register */
 
 	tctl = IXGB_TCTL_TCE | IXGB_TCTL_TXEN | IXGB_TCTL_TPDE;
 	IXGB_WRITE_REG(hw, TCTL, tctl);
 
-	
+	/* Setup Transmit Descriptor Settings for this adapter */
 	adapter->tx_cmd_type =
 		IXGB_TX_DESC_TYPE |
 		(adapter->tx_int_delay_enable ? IXGB_TX_DESC_CMD_IDE : 0);
 }
 
+/**
+ * ixgb_setup_rx_resources - allocate Rx resources (Descriptors)
+ * @adapter: board private structure
+ *
+ * Returns 0 on success, negative on failure
+ **/
 
 int
 ixgb_setup_rx_resources(struct ixgb_adapter *adapter)
@@ -696,7 +804,7 @@ ixgb_setup_rx_resources(struct ixgb_adapter *adapter)
 		return -ENOMEM;
 	}
 
-	
+	/* Round up to nearest 4K */
 
 	rxdr->size = rxdr->count * sizeof(struct ixgb_rx_desc);
 	rxdr->size = ALIGN(rxdr->size, 4096);
@@ -718,6 +826,10 @@ ixgb_setup_rx_resources(struct ixgb_adapter *adapter)
 	return 0;
 }
 
+/**
+ * ixgb_setup_rctl - configure the receive control register
+ * @adapter: Board private structure
+ **/
 
 static void
 ixgb_setup_rctl(struct ixgb_adapter *adapter)
@@ -747,6 +859,12 @@ ixgb_setup_rctl(struct ixgb_adapter *adapter)
 	IXGB_WRITE_REG(&adapter->hw, RCTL, rctl);
 }
 
+/**
+ * ixgb_configure_rx - Configure 82597 Receive Unit after Reset.
+ * @adapter: board private structure
+ *
+ * Configure the Rx unit of the MAC after a reset.
+ **/
 
 static void
 ixgb_configure_rx(struct ixgb_adapter *adapter)
@@ -757,40 +875,51 @@ ixgb_configure_rx(struct ixgb_adapter *adapter)
 	u32 rctl;
 	u32 rxcsum;
 
-	
+	/* make sure receives are disabled while setting up the descriptors */
 
 	rctl = IXGB_READ_REG(hw, RCTL);
 	IXGB_WRITE_REG(hw, RCTL, rctl & ~IXGB_RCTL_RXEN);
 
-	
+	/* set the Receive Delay Timer Register */
 
 	IXGB_WRITE_REG(hw, RDTR, adapter->rx_int_delay);
 
-	
+	/* Setup the Base and Length of the Rx Descriptor Ring */
 
 	IXGB_WRITE_REG(hw, RDBAL, (rdba & 0x00000000ffffffffULL));
 	IXGB_WRITE_REG(hw, RDBAH, (rdba >> 32));
 
 	IXGB_WRITE_REG(hw, RDLEN, rdlen);
 
-	
+	/* Setup the HW Rx Head and Tail Descriptor Pointers */
 	IXGB_WRITE_REG(hw, RDH, 0);
 	IXGB_WRITE_REG(hw, RDT, 0);
 
+	/* due to the hardware errata with RXDCTL, we are unable to use any of
+	 * the performance enhancing features of it without causing other
+	 * subtle bugs, some of the bugs could include receive length
+	 * corruption at high data rates (WTHRESH > 0) and/or receive
+	 * descriptor ring irregularites (particularly in hardware cache) */
 	IXGB_WRITE_REG(hw, RXDCTL, 0);
 
-	
+	/* Enable Receive Checksum Offload for TCP and UDP */
 	if (adapter->rx_csum) {
 		rxcsum = IXGB_READ_REG(hw, RXCSUM);
 		rxcsum |= IXGB_RXCSUM_TUOFL;
 		IXGB_WRITE_REG(hw, RXCSUM, rxcsum);
 	}
 
-	
+	/* Enable Receives */
 
 	IXGB_WRITE_REG(hw, RCTL, rctl);
 }
 
+/**
+ * ixgb_free_tx_resources - Free Tx Resources
+ * @adapter: board private structure
+ *
+ * Free all transmit software resources
+ **/
 
 void
 ixgb_free_tx_resources(struct ixgb_adapter *adapter)
@@ -827,8 +956,15 @@ ixgb_unmap_and_free_tx_resource(struct ixgb_adapter *adapter,
 		buffer_info->skb = NULL;
 	}
 	buffer_info->time_stamp = 0;
+	/* these fields must always be initialized in tx
+	 * buffer_info->length = 0;
+	 * buffer_info->next_to_watch = 0; */
 }
 
+/**
+ * ixgb_clean_tx_ring - Free Tx Buffers
+ * @adapter: board private structure
+ **/
 
 static void
 ixgb_clean_tx_ring(struct ixgb_adapter *adapter)
@@ -838,7 +974,7 @@ ixgb_clean_tx_ring(struct ixgb_adapter *adapter)
 	unsigned long size;
 	unsigned int i;
 
-	
+	/* Free all the Tx ring sk_buffs */
 
 	for (i = 0; i < tx_ring->count; i++) {
 		buffer_info = &tx_ring->buffer_info[i];
@@ -848,7 +984,7 @@ ixgb_clean_tx_ring(struct ixgb_adapter *adapter)
 	size = sizeof(struct ixgb_buffer) * tx_ring->count;
 	memset(tx_ring->buffer_info, 0, size);
 
-	
+	/* Zero out the descriptor ring */
 
 	memset(tx_ring->desc, 0, tx_ring->size);
 
@@ -859,6 +995,12 @@ ixgb_clean_tx_ring(struct ixgb_adapter *adapter)
 	IXGB_WRITE_REG(&adapter->hw, TDT, 0);
 }
 
+/**
+ * ixgb_free_rx_resources - Free Rx Resources
+ * @adapter: board private structure
+ *
+ * Free all receive software resources
+ **/
 
 void
 ixgb_free_rx_resources(struct ixgb_adapter *adapter)
@@ -877,6 +1019,10 @@ ixgb_free_rx_resources(struct ixgb_adapter *adapter)
 	rx_ring->desc = NULL;
 }
 
+/**
+ * ixgb_clean_rx_ring - Free Rx Buffers
+ * @adapter: board private structure
+ **/
 
 static void
 ixgb_clean_rx_ring(struct ixgb_adapter *adapter)
@@ -887,7 +1033,7 @@ ixgb_clean_rx_ring(struct ixgb_adapter *adapter)
 	unsigned long size;
 	unsigned int i;
 
-	
+	/* Free all the Rx ring sk_buffs */
 
 	for (i = 0; i < rx_ring->count; i++) {
 		buffer_info = &rx_ring->buffer_info[i];
@@ -909,7 +1055,7 @@ ixgb_clean_rx_ring(struct ixgb_adapter *adapter)
 	size = sizeof(struct ixgb_buffer) * rx_ring->count;
 	memset(rx_ring->buffer_info, 0, size);
 
-	
+	/* Zero out the descriptor ring */
 
 	memset(rx_ring->desc, 0, rx_ring->size);
 
@@ -920,6 +1066,13 @@ ixgb_clean_rx_ring(struct ixgb_adapter *adapter)
 	IXGB_WRITE_REG(&adapter->hw, RDT, 0);
 }
 
+/**
+ * ixgb_set_mac - Change the Ethernet Address of the NIC
+ * @netdev: network interface device structure
+ * @p: pointer to an address structure
+ *
+ * Returns 0 on success, negative on failure
+ **/
 
 static int
 ixgb_set_mac(struct net_device *netdev, void *p)
@@ -937,6 +1090,15 @@ ixgb_set_mac(struct net_device *netdev, void *p)
 	return 0;
 }
 
+/**
+ * ixgb_set_multi - Multicast and Promiscuous mode set
+ * @netdev: network interface device structure
+ *
+ * The set_multi entry point is called whenever the multicast address
+ * list or the network interface flags are updated.  This routine is
+ * responsible for configuring the hardware for proper multicast,
+ * promiscuous mode, and all-multi behavior.
+ **/
 
 static void
 ixgb_set_multi(struct net_device *netdev)
@@ -946,13 +1108,13 @@ ixgb_set_multi(struct net_device *netdev)
 	struct netdev_hw_addr *ha;
 	u32 rctl;
 
-	
+	/* Check for Promiscuous and All Multicast modes */
 
 	rctl = IXGB_READ_REG(hw, RCTL);
 
 	if (netdev->flags & IFF_PROMISC) {
 		rctl |= (IXGB_RCTL_UPE | IXGB_RCTL_MPE);
-		
+		/* disable VLAN filtering */
 		rctl &= ~IXGB_RCTL_CFIEN;
 		rctl &= ~IXGB_RCTL_VFE;
 	} else {
@@ -962,7 +1124,7 @@ ixgb_set_multi(struct net_device *netdev)
 		} else {
 			rctl &= ~(IXGB_RCTL_UPE | IXGB_RCTL_MPE);
 		}
-		
+		/* enable VLAN filtering */
 		rctl |= IXGB_RCTL_VFE;
 		rctl &= ~IXGB_RCTL_CFIEN;
 	}
@@ -997,6 +1159,10 @@ alloc_failed:
 
 }
 
+/**
+ * ixgb_watchdog - Timer Call-back
+ * @data: pointer to netdev cast into an unsigned long
+ **/
 
 static void
 ixgb_watchdog(unsigned long data)
@@ -1008,7 +1174,7 @@ ixgb_watchdog(unsigned long data)
 	ixgb_check_for_link(&adapter->hw);
 
 	if (ixgb_check_for_bad_link(&adapter->hw)) {
-		
+		/* force the reset path */
 		netif_stop_queue(netdev);
 	}
 
@@ -1039,19 +1205,23 @@ ixgb_watchdog(unsigned long data)
 
 	if (!netif_carrier_ok(netdev)) {
 		if (IXGB_DESC_UNUSED(txdr) + 1 < txdr->count) {
+			/* We've lost link, so the controller stops DMA,
+			 * but we've got queued Tx work that's never going
+			 * to get done, so reset controller to flush Tx.
+			 * (Do the reset outside of interrupt context). */
 			schedule_work(&adapter->tx_timeout_task);
-			
+			/* return immediately since reset is imminent */
 			return;
 		}
 	}
 
-	
+	/* Force detection of hung controller every watchdog period */
 	adapter->detect_tx_hung = true;
 
-	
+	/* generate an interrupt to force clean up of any stragglers */
 	IXGB_WRITE_REG(&adapter->hw, ICS, IXGB_INT_TXDW);
 
-	
+	/* Reset the timer */
 	mod_timer(&adapter->watchdog_timer, jiffies + 2 * HZ);
 }
 
@@ -1145,7 +1315,7 @@ ixgb_tx_csum(struct ixgb_adapter *adapter, struct sk_buff *skb)
 		context_desc->tucss = css;
 		context_desc->tucso = cso;
 		context_desc->tucse = 0;
-		
+		/* zero out any previously existing data in one instruction */
 		*(u32 *)&(context_desc->ipcss) = 0;
 		context_desc->status = 0;
 		context_desc->hdr_len = 0;
@@ -1184,6 +1354,8 @@ ixgb_tx_map(struct ixgb_adapter *adapter, struct sk_buff *skb,
 	while (len) {
 		buffer_info = &tx_ring->buffer_info[i];
 		size = min(len, IXGB_MAX_DATA_PER_TXD);
+		/* Workaround for premature desc write-backs
+		 * in TSO mode.  Append 4-byte sentinel desc */
 		if (unlikely(mss && !nr_frags && size == len && size > 8))
 			size -= 4;
 
@@ -1223,6 +1395,8 @@ ixgb_tx_map(struct ixgb_adapter *adapter, struct sk_buff *skb,
 			buffer_info = &tx_ring->buffer_info[i];
 			size = min(len, IXGB_MAX_DATA_PER_TXD);
 
+			/* Workaround for premature desc write-backs
+			 * in TSO mode.  Append 4-byte sentinel desc */
 			if (unlikely(mss && (f == (nr_frags - 1))
 				     && size == len && size > 8))
 				size -= 4;
@@ -1304,6 +1478,10 @@ ixgb_tx_queue(struct ixgb_adapter *adapter, int count, int vlan_id,int tx_flags)
 	tx_desc->cmd_type_len |=
 		cpu_to_le32(IXGB_TX_DESC_CMD_EOP | IXGB_TX_DESC_CMD_RS);
 
+	/* Force memory writes to complete before letting h/w
+	 * know there are new descriptors to fetch.  (Only
+	 * applicable for weak-ordered memory model archs,
+	 * such as IA-64). */
 	wmb();
 
 	tx_ring->next_to_use = i;
@@ -1316,12 +1494,17 @@ static int __ixgb_maybe_stop_tx(struct net_device *netdev, int size)
 	struct ixgb_desc_ring *tx_ring = &adapter->tx_ring;
 
 	netif_stop_queue(netdev);
+	/* Herbert's original patch had:
+	 *  smp_mb__after_netif_stop_queue();
+	 * but since that doesn't exist yet, just open code it. */
 	smp_mb();
 
+	/* We need to check again in a case another CPU has just
+	 * made room available. */
 	if (likely(IXGB_DESC_UNUSED(tx_ring) < size))
 		return -EBUSY;
 
-	
+	/* A reprieve! */
 	netif_start_queue(netdev);
 	++adapter->restart_queue;
 	return 0;
@@ -1336,11 +1519,12 @@ static int ixgb_maybe_stop_tx(struct net_device *netdev,
 }
 
 
+/* Tx Descriptors needed, worst case */
 #define TXD_USE_COUNT(S) (((S) >> IXGB_MAX_TXD_PWR) + \
 			 (((S) & (IXGB_MAX_DATA_PER_TXD - 1)) ? 1 : 0))
-#define DESC_NEEDED TXD_USE_COUNT(IXGB_MAX_DATA_PER_TXD)  + \
-	MAX_SKB_FRAGS * TXD_USE_COUNT(PAGE_SIZE) + 1  \
-	+ 1 
+#define DESC_NEEDED TXD_USE_COUNT(IXGB_MAX_DATA_PER_TXD) /* skb->date */ + \
+	MAX_SKB_FRAGS * TXD_USE_COUNT(PAGE_SIZE) + 1 /* for context */ \
+	+ 1 /* one more needed for sentinel TSO workaround */
 
 static netdev_tx_t
 ixgb_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
@@ -1388,7 +1572,7 @@ ixgb_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 
 	if (count) {
 		ixgb_tx_queue(adapter, count, vlan_id, tx_flags);
-		
+		/* Make sure there is space in the ring for the next send. */
 		ixgb_maybe_stop_tx(netdev, &adapter->tx_ring, DESC_NEEDED);
 
 	} else {
@@ -1400,13 +1584,17 @@ ixgb_xmit_frame(struct sk_buff *skb, struct net_device *netdev)
 	return NETDEV_TX_OK;
 }
 
+/**
+ * ixgb_tx_timeout - Respond to a Tx Hang
+ * @netdev: network interface device structure
+ **/
 
 static void
 ixgb_tx_timeout(struct net_device *netdev)
 {
 	struct ixgb_adapter *adapter = netdev_priv(netdev);
 
-	
+	/* Do the reset outside of interrupt context */
 	schedule_work(&adapter->tx_timeout_task);
 }
 
@@ -1421,6 +1609,13 @@ ixgb_tx_timeout_task(struct work_struct *work)
 	ixgb_up(adapter);
 }
 
+/**
+ * ixgb_get_stats - Get System Network Statistics
+ * @netdev: network interface device structure
+ *
+ * Returns the address of the device statistics structure.
+ * The statistics are actually updated from the timer callback.
+ **/
 
 static struct net_device_stats *
 ixgb_get_stats(struct net_device *netdev)
@@ -1428,6 +1623,13 @@ ixgb_get_stats(struct net_device *netdev)
 	return &netdev->stats;
 }
 
+/**
+ * ixgb_change_mtu - Change the Maximum Transfer Unit
+ * @netdev: network interface device structure
+ * @new_mtu: new value for maximum frame size
+ *
+ * Returns 0 on success, negative on failure
+ **/
 
 static int
 ixgb_change_mtu(struct net_device *netdev, int new_mtu)
@@ -1436,7 +1638,7 @@ ixgb_change_mtu(struct net_device *netdev, int new_mtu)
 	int max_frame = new_mtu + ENET_HEADER_SIZE + ENET_FCS_LENGTH;
 	int old_max_frame = netdev->mtu + ENET_HEADER_SIZE + ENET_FCS_LENGTH;
 
-	
+	/* MTU < 68 is an error for IPv4 traffic, just don't allow it */
 	if ((new_mtu < 68) ||
 	    (max_frame > IXGB_MAX_JUMBO_FRAME_SIZE + ENET_FCS_LENGTH)) {
 		netif_err(adapter, probe, adapter->netdev,
@@ -1450,7 +1652,7 @@ ixgb_change_mtu(struct net_device *netdev, int new_mtu)
 	if (netif_running(netdev))
 		ixgb_down(adapter, true);
 
-	adapter->rx_buffer_len = max_frame + 8; 
+	adapter->rx_buffer_len = max_frame + 8; /* + 8 for errata */
 
 	netdev->mtu = new_mtu;
 
@@ -1460,6 +1662,10 @@ ixgb_change_mtu(struct net_device *netdev, int new_mtu)
 	return 0;
 }
 
+/**
+ * ixgb_update_stats - Update the board statistics counters.
+ * @adapter: board private structure
+ **/
 
 void
 ixgb_update_stats(struct ixgb_adapter *adapter)
@@ -1467,7 +1673,7 @@ ixgb_update_stats(struct ixgb_adapter *adapter)
 	struct net_device *netdev = adapter->netdev;
 	struct pci_dev *pdev = adapter->pdev;
 
-	
+	/* Prevent stats update while adapter is being reset */
 	if (pci_channel_offline(pdev))
 		return;
 
@@ -1479,7 +1685,7 @@ ixgb_update_stats(struct ixgb_adapter *adapter)
 		u64 bcast = ((u64)bcast_h << 32) | bcast_l;
 
 		multi |= ((u64)IXGB_READ_REG(&adapter->hw, MPRCH) << 32);
-		
+		/* fix up multicast stats by removing broadcasts */
 		if (multi >= bcast)
 			multi -= bcast;
 
@@ -1550,7 +1756,7 @@ ixgb_update_stats(struct ixgb_adapter *adapter)
 	adapter->stats.xofftxc += IXGB_READ_REG(&adapter->hw, XOFFTXC);
 	adapter->stats.rjc += IXGB_READ_REG(&adapter->hw, RJC);
 
-	
+	/* Fill out the OS statistics structure */
 
 	netdev->stats.rx_packets = adapter->stats.gprcl;
 	netdev->stats.tx_packets = adapter->stats.gptcl;
@@ -1559,13 +1765,18 @@ ixgb_update_stats(struct ixgb_adapter *adapter)
 	netdev->stats.multicast = adapter->stats.mprcl;
 	netdev->stats.collisions = 0;
 
+	/* ignore RLEC as it reports errors for padded (<64bytes) frames
+	 * with a length in the type/len field */
 	netdev->stats.rx_errors =
-	     adapter->stats.crcerrs +
+	    /* adapter->stats.rnbc + */ adapter->stats.crcerrs +
 	    adapter->stats.ruc +
-	    adapter->stats.roc   +
+	    adapter->stats.roc /*+ adapter->stats.rlec */  +
 	    adapter->stats.icbc +
 	    adapter->stats.ecbc + adapter->stats.mpc;
 
+	/* see above
+	 * netdev->stats.rx_length_errors = adapter->stats.rlec;
+	 */
 
 	netdev->stats.rx_crc_errors = adapter->stats.crcerrs;
 	netdev->stats.rx_fifo_errors = adapter->stats.mpc;
@@ -1582,6 +1793,11 @@ ixgb_update_stats(struct ixgb_adapter *adapter)
 }
 
 #define IXGB_MAX_INTR 10
+/**
+ * ixgb_intr - Interrupt Handler
+ * @irq: interrupt number
+ * @data: pointer to a network interface device structure
+ **/
 
 static irqreturn_t
 ixgb_intr(int irq, void *data)
@@ -1592,7 +1808,7 @@ ixgb_intr(int irq, void *data)
 	u32 icr = IXGB_READ_REG(hw, ICR);
 
 	if (unlikely(!icr))
-		return IRQ_NONE;  
+		return IRQ_NONE;  /* Not our interrupt */
 
 	if (unlikely(icr & (IXGB_INT_RXSEQ | IXGB_INT_LSC)))
 		if (!test_bit(__IXGB_DOWN, &adapter->flags))
@@ -1600,6 +1816,9 @@ ixgb_intr(int irq, void *data)
 
 	if (napi_schedule_prep(&adapter->napi)) {
 
+		/* Disable interrupts and register for poll. The flush
+		  of the posted write is intentionally left out.
+		*/
 
 		IXGB_WRITE_REG(&adapter->hw, IMC, ~0);
 		__napi_schedule(&adapter->napi);
@@ -1607,6 +1826,10 @@ ixgb_intr(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/**
+ * ixgb_clean - NAPI Rx polling callback
+ * @adapter: board private structure
+ **/
 
 static int
 ixgb_clean(struct napi_struct *napi, int budget)
@@ -1617,7 +1840,7 @@ ixgb_clean(struct napi_struct *napi, int budget)
 	ixgb_clean_tx_irq(adapter);
 	ixgb_clean_rx_irq(adapter, &work_done, budget);
 
-	
+	/* If budget not fully consumed, exit the polling mode */
 	if (work_done < budget) {
 		napi_complete(napi);
 		if (!test_bit(__IXGB_DOWN, &adapter->flags))
@@ -1627,6 +1850,10 @@ ixgb_clean(struct napi_struct *napi, int budget)
 	return work_done;
 }
 
+/**
+ * ixgb_clean_tx_irq - Reclaim resources after transmit completes
+ * @adapter: board private structure
+ **/
 
 static bool
 ixgb_clean_tx_irq(struct ixgb_adapter *adapter)
@@ -1644,7 +1871,7 @@ ixgb_clean_tx_irq(struct ixgb_adapter *adapter)
 
 	while (eop_desc->status & IXGB_TX_DESC_STATUS_DD) {
 
-		rmb(); 
+		rmb(); /* read buffer_info after eop_desc */
 		for (cleaned = false; !cleaned; ) {
 			tx_desc = IXGB_TX_DESC(*tx_ring, i);
 			buffer_info = &tx_ring->buffer_info[i];
@@ -1670,6 +1897,8 @@ ixgb_clean_tx_irq(struct ixgb_adapter *adapter)
 
 	if (unlikely(cleaned && netif_carrier_ok(netdev) &&
 		     IXGB_DESC_UNUSED(tx_ring) >= DESC_NEEDED)) {
+		/* Make sure that anybody stopping the queue after this
+		 * sees the new next_to_clean. */
 		smp_mb();
 
 		if (netif_queue_stopped(netdev) &&
@@ -1680,12 +1909,14 @@ ixgb_clean_tx_irq(struct ixgb_adapter *adapter)
 	}
 
 	if (adapter->detect_tx_hung) {
+		/* detect a transmit hang in hardware, this serializes the
+		 * check with the clearing of time_stamp and movement of i */
 		adapter->detect_tx_hung = false;
 		if (tx_ring->buffer_info[eop].time_stamp &&
 		   time_after(jiffies, tx_ring->buffer_info[eop].time_stamp + HZ)
 		   && !(IXGB_READ_REG(&adapter->hw, STATUS) &
 		        IXGB_STATUS_TXOFF)) {
-			
+			/* detected Tx unit hang */
 			netif_err(adapter, drv, adapter->netdev,
 				  "Detected Tx Unit Hang\n"
 				  "  TDH                  <%x>\n"
@@ -1712,31 +1943,44 @@ ixgb_clean_tx_irq(struct ixgb_adapter *adapter)
 	return cleaned;
 }
 
+/**
+ * ixgb_rx_checksum - Receive Checksum Offload for 82597.
+ * @adapter: board private structure
+ * @rx_desc: receive descriptor
+ * @sk_buff: socket buffer with received data
+ **/
 
 static void
 ixgb_rx_checksum(struct ixgb_adapter *adapter,
                  struct ixgb_rx_desc *rx_desc,
                  struct sk_buff *skb)
 {
+	/* Ignore Checksum bit is set OR
+	 * TCP Checksum has not been calculated
+	 */
 	if ((rx_desc->status & IXGB_RX_DESC_STATUS_IXSM) ||
 	   (!(rx_desc->status & IXGB_RX_DESC_STATUS_TCPCS))) {
 		skb_checksum_none_assert(skb);
 		return;
 	}
 
-	
-	
+	/* At this point we know the hardware did the TCP checksum */
+	/* now look at the TCP checksum error bit */
 	if (rx_desc->errors & IXGB_RX_DESC_ERRORS_TCPE) {
-		
+		/* let the stack verify checksum errors */
 		skb_checksum_none_assert(skb);
 		adapter->hw_csum_rx_error++;
 	} else {
-		
+		/* TCP checksum is good */
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
 		adapter->hw_csum_rx_good++;
 	}
 }
 
+/*
+ * this should improve performance for small packets with large amounts
+ * of reassembly being done in the stack
+ */
 static void ixgb_check_copybreak(struct net_device *netdev,
 				 struct ixgb_buffer *buffer_info,
 				 u32 length, struct sk_buff **skb)
@@ -1753,11 +1997,15 @@ static void ixgb_check_copybreak(struct net_device *netdev,
 	skb_copy_to_linear_data_offset(new_skb, -NET_IP_ALIGN,
 				       (*skb)->data - NET_IP_ALIGN,
 				       length + NET_IP_ALIGN);
-	
+	/* save the skb in buffer_info as good */
 	buffer_info->skb = *skb;
 	*skb = new_skb;
 }
 
+/**
+ * ixgb_clean_rx_irq - Send received data up the network stack,
+ * @adapter: board private structure
+ **/
 
 static bool
 ixgb_clean_rx_irq(struct ixgb_adapter *adapter, int *work_done, int work_to_do)
@@ -1784,7 +2032,7 @@ ixgb_clean_rx_irq(struct ixgb_adapter *adapter, int *work_done, int work_to_do)
 			break;
 
 		(*work_done)++;
-		rmb();	
+		rmb();	/* read descriptor and rx_buffer_info after status DD */
 		status = rx_desc->status;
 		skb = buffer_info->skb;
 		buffer_info->skb = NULL;
@@ -1818,7 +2066,7 @@ ixgb_clean_rx_irq(struct ixgb_adapter *adapter, int *work_done, int work_to_do)
 
 		if (unlikely(!(status & IXGB_RX_DESC_STATUS_EOP))) {
 
-			
+			/* All receives must fit into a single buffer */
 
 			pr_debug("Receive packet consumed multiple buffers length<%x>\n",
 				 length);
@@ -1836,10 +2084,10 @@ ixgb_clean_rx_irq(struct ixgb_adapter *adapter, int *work_done, int work_to_do)
 
 		ixgb_check_copybreak(netdev, buffer_info, length, &skb);
 
-		
+		/* Good Receive */
 		skb_put(skb, length);
 
-		
+		/* Receive Checksum Offload */
 		ixgb_rx_checksum(adapter, rx_desc, skb);
 
 		skb->protocol = eth_type_trans(skb, netdev);
@@ -1853,13 +2101,13 @@ rxdesc_done:
 		/* clean up descriptor, might be written over by hw */
 		rx_desc->status = 0;
 
-		
+		/* return some buffers to hardware, one at a time is too slow */
 		if (unlikely(cleaned_count >= IXGB_RX_BUFFER_WRITE)) {
 			ixgb_alloc_rx_buffers(adapter, cleaned_count);
 			cleaned_count = 0;
 		}
 
-		
+		/* use prefetched values */
 		rx_desc = next_rxd;
 		buffer_info = next_buffer;
 	}
@@ -1873,6 +2121,10 @@ rxdesc_done:
 	return cleaned;
 }
 
+/**
+ * ixgb_alloc_rx_buffers - Replace used receive buffers
+ * @adapter: address of board private structure
+ **/
 
 static void
 ixgb_alloc_rx_buffers(struct ixgb_adapter *adapter, int cleaned_count)
@@ -1891,9 +2143,9 @@ ixgb_alloc_rx_buffers(struct ixgb_adapter *adapter, int cleaned_count)
 	cleancount = IXGB_DESC_UNUSED(rx_ring);
 
 
-	
+	/* leave three descriptors unused */
 	while (--cleancount > 2 && cleaned_count--) {
-		
+		/* recycle! its good for you */
 		skb = buffer_info->skb;
 		if (skb) {
 			skb_trim(skb, 0);
@@ -1902,7 +2154,7 @@ ixgb_alloc_rx_buffers(struct ixgb_adapter *adapter, int cleaned_count)
 
 		skb = netdev_alloc_skb_ip_align(netdev, adapter->rx_buffer_len);
 		if (unlikely(!skb)) {
-			
+			/* Better luck next round */
 			adapter->alloc_rx_buff_failed++;
 			break;
 		}
@@ -1917,6 +2169,9 @@ map_skb:
 
 		rx_desc = IXGB_RX_DESC(*rx_ring, i);
 		rx_desc->buff_addr = cpu_to_le64(buffer_info->dma);
+		/* guarantee DD bit not set now before h/w gets descriptor
+		 * this is the rest of the workaround for h/w double
+		 * writeback. */
 		rx_desc->status = 0;
 
 
@@ -1929,6 +2184,10 @@ map_skb:
 		if (unlikely(i-- == 0))
 			i = (rx_ring->count - 1);
 
+		/* Force memory writes to complete before letting h/w
+		 * know there are new descriptors to fetch.  (Only
+		 * applicable for weak-ordered memory model archs, such
+		 * as IA-64). */
 		wmb();
 		IXGB_WRITE_REG(&adapter->hw, RDT, i);
 	}
@@ -1939,7 +2198,7 @@ ixgb_vlan_strip_enable(struct ixgb_adapter *adapter)
 {
 	u32 ctrl;
 
-	
+	/* enable VLAN tag insert/strip */
 	ctrl = IXGB_READ_REG(&adapter->hw, CTRL0);
 	ctrl |= IXGB_CTRL0_VME;
 	IXGB_WRITE_REG(&adapter->hw, CTRL0, ctrl);
@@ -1950,7 +2209,7 @@ ixgb_vlan_strip_disable(struct ixgb_adapter *adapter)
 {
 	u32 ctrl;
 
-	
+	/* disable VLAN tag insert/strip */
 	ctrl = IXGB_READ_REG(&adapter->hw, CTRL0);
 	ctrl &= ~IXGB_CTRL0_VME;
 	IXGB_WRITE_REG(&adapter->hw, CTRL0, ctrl);
@@ -1962,7 +2221,7 @@ ixgb_vlan_rx_add_vid(struct net_device *netdev, u16 vid)
 	struct ixgb_adapter *adapter = netdev_priv(netdev);
 	u32 vfta, index;
 
-	
+	/* add VID to filter table */
 
 	index = (vid >> 5) & 0x7F;
 	vfta = IXGB_READ_REG_ARRAY(&adapter->hw, VFTA, index);
@@ -1979,7 +2238,7 @@ ixgb_vlan_rx_kill_vid(struct net_device *netdev, u16 vid)
 	struct ixgb_adapter *adapter = netdev_priv(netdev);
 	u32 vfta, index;
 
-	
+	/* remove VID from filter table */
 
 	index = (vid >> 5) & 0x7F;
 	vfta = IXGB_READ_REG_ARRAY(&adapter->hw, VFTA, index);
@@ -2000,6 +2259,11 @@ ixgb_restore_vlan(struct ixgb_adapter *adapter)
 }
 
 #ifdef CONFIG_NET_POLL_CONTROLLER
+/*
+ * Polling 'interrupt' - used by things like netconsole to send skbs
+ * without having to re-enable interrupts. It's not called while
+ * the interrupt routine is executing.
+ */
 
 static void ixgb_netpoll(struct net_device *dev)
 {
@@ -2011,6 +2275,14 @@ static void ixgb_netpoll(struct net_device *dev)
 }
 #endif
 
+/**
+ * ixgb_io_error_detected() - called when PCI error is detected
+ * @pdev    pointer to pci device with error
+ * @state   pci channel state after error
+ *
+ * This callback is called by the PCI subsystem whenever
+ * a PCI bus error is detected.
+ */
 static pci_ers_result_t ixgb_io_error_detected(struct pci_dev *pdev,
                                                enum pci_channel_state state)
 {
@@ -2027,10 +2299,19 @@ static pci_ers_result_t ixgb_io_error_detected(struct pci_dev *pdev,
 
 	pci_disable_device(pdev);
 
-	
+	/* Request a slot reset. */
 	return PCI_ERS_RESULT_NEED_RESET;
 }
 
+/**
+ * ixgb_io_slot_reset - called after the pci bus has been reset.
+ * @pdev    pointer to pci device with error
+ *
+ * This callback is called after the PCI bus has been reset.
+ * Basically, this tries to restart the card from scratch.
+ * This is a shortened version of the device probe/discovery code,
+ * it resembles the first-half of the ixgb_probe() routine.
+ */
 static pci_ers_result_t ixgb_io_slot_reset(struct pci_dev *pdev)
 {
 	struct net_device *netdev = pci_get_drvdata(pdev);
@@ -2042,7 +2323,7 @@ static pci_ers_result_t ixgb_io_slot_reset(struct pci_dev *pdev)
 		return PCI_ERS_RESULT_DISCONNECT;
 	}
 
-	
+	/* Perform card reset only on one instance of the card */
 	if (0 != PCI_FUNC (pdev->devfn))
 		return PCI_ERS_RESULT_RECOVERED;
 
@@ -2052,7 +2333,7 @@ static pci_ers_result_t ixgb_io_slot_reset(struct pci_dev *pdev)
 	netif_stop_queue(netdev);
 	ixgb_reset(adapter);
 
-	
+	/* Make sure the EEPROM is good */
 	if (!ixgb_validate_eeprom_checksum(&adapter->hw)) {
 		netif_err(adapter, probe, adapter->netdev,
 			  "After reset, the EEPROM checksum is not valid\n");
@@ -2070,6 +2351,14 @@ static pci_ers_result_t ixgb_io_slot_reset(struct pci_dev *pdev)
 	return PCI_ERS_RESULT_RECOVERED;
 }
 
+/**
+ * ixgb_io_resume - called when its OK to resume normal operations
+ * @pdev    pointer to pci device with error
+ *
+ * The error recovery driver tells us that its OK to resume
+ * normal operation. Implementation resembles the second-half
+ * of the ixgb_probe() routine.
+ */
 static void ixgb_io_resume(struct pci_dev *pdev)
 {
 	struct net_device *netdev = pci_get_drvdata(pdev);
@@ -2088,3 +2377,4 @@ static void ixgb_io_resume(struct pci_dev *pdev)
 	mod_timer(&adapter->watchdog_timer, jiffies);
 }
 
+/* ixgb_main.c */

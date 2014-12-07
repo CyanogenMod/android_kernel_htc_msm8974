@@ -17,6 +17,21 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/*
+ * BCM1x80/1x55-specific PCI support
+ *
+ * This module provides the glue between Linux's PCI subsystem
+ * and the hardware.  We basically provide glue for accessing
+ * configuration space, and set up the translation for I/O
+ * space accesses.
+ *
+ * To access configuration space, we use ioremap.  In the 32-bit
+ * kernel, this consumes either 4 or 8 page table pages, and 16MB of
+ * kernel mapped memory.  Hopefully neither of these should be a huge
+ * problem.
+ *
+ * XXX: AT THIS TIME, ONLY the NATIVE PCI-X INTERFACE IS SUPPORTED.
+ */
 #include <linux/types.h>
 #include <linux/pci.h>
 #include <linux/kernel.h>
@@ -30,6 +45,10 @@
 #include <asm/sibyte/board.h>
 #include <asm/io.h>
 
+/*
+ * Macros for calculating offsets into config space given a device
+ * structure or dev/fun/reg
+ */
 #define CFGOFFSET(bus, devfn, where) (((bus)<<16)+((devfn)<<8)+(where))
 #define CFGADDR(bus, devfn, where)   CFGOFFSET((bus)->number, (devfn), where)
 
@@ -42,6 +61,9 @@ static int bcm1480_bus_status;
 
 #define PCI_BRIDGE_DEVICE  0
 
+/*
+ * Read/write 32-bit values in config space.
+ */
 static inline u32 READCFG32(u32 addr)
 {
 	return *(u32 *)(cfg_space + (addr&~3));
@@ -60,11 +82,17 @@ int pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 	return K_BCM1480_INT_PCI_INTA - 1 + pin;
 }
 
+/* Do platform specific device initialization at pci_enable_device() time */
 int pcibios_plat_dev_init(struct pci_dev *dev)
 {
 	return 0;
 }
 
+/*
+ * Some checks before doing config cycles:
+ * In PCI Device Mode, hide everything on bus 0 except the LDT host
+ * bridge.  Otherwise, access is controlled by bridge MasterEn bits.
+ */
 static int bcm1480_pci_can_access(struct pci_bus *bus, int devfn)
 {
 	u32 devno;
@@ -82,6 +110,11 @@ static int bcm1480_pci_can_access(struct pci_bus *bus, int devfn)
 		return 1;
 }
 
+/*
+ * Read/write access functions for various sizes of values
+ * in config space.  Return all 1's for disallowed accesses
+ * for a kludgy but adequate simulation of master aborts.
+ */
 
 static int bcm1480_pcibios_read(struct pci_bus *bus, unsigned int devfn,
 				int where, int size, u32 * val)
@@ -170,19 +203,22 @@ static int __init bcm1480_pcibios_init(void)
 	uint32_t cmdreg;
 	uint64_t reg;
 
-	
+	/* CFE will assign PCI resources */
 	pci_set_flags(PCI_PROBE_ONLY);
 
-	
+	/* Avoid ISA compat ranges.  */
 	PCIBIOS_MIN_IO = 0x00008000UL;
 	PCIBIOS_MIN_MEM = 0x01000000UL;
 
-	
+	/* Set I/O resource limits. - unlimited for now to accommodate HT */
 	ioport_resource.end = 0xffffffffUL;
 	iomem_resource.end = 0xffffffffUL;
 
 	cfg_space = ioremap(A_BCM1480_PHYS_PCI_CFG_MATCH_BITS, 16*1024*1024);
 
+	/*
+	 * See if the PCI bus has been configured by the firmware.
+	 */
 	reg = __raw_readq(IOADDR(A_SCD_SYSTEM_CFG));
 	if (!(reg & M_BCM1480_SYS_PCI_HOST)) {
 		bcm1480_bus_status |= PCI_DEVICE_MODE;
@@ -193,17 +229,25 @@ static int __init bcm1480_pcibios_init(void)
 			printk
 			    ("PCI: Skipping PCI probe.  Bus is not initialized.\n");
 			iounmap(cfg_space);
-			return 1; 
+			return 1; /* XXX */
 		}
 		bcm1480_bus_status |= PCI_BUS_ENABLED;
 	}
 
-	
+	/* turn on ExpMemEn */
 	cmdreg = READCFG32(CFGOFFSET(0, PCI_DEVFN(PCI_BRIDGE_DEVICE, 0), 0x40));
 	WRITECFG32(CFGOFFSET(0, PCI_DEVFN(PCI_BRIDGE_DEVICE, 0), 0x40),
 			cmdreg | 0x10);
 	cmdreg = READCFG32(CFGOFFSET(0, PCI_DEVFN(PCI_BRIDGE_DEVICE, 0), 0x40));
 
+	/*
+	 * Establish mappings in KSEG2 (kernel virtual) to PCI I/O
+	 * space.  Use "match bytes" policy to make everything look
+	 * little-endian.  So, you need to also set
+	 * CONFIG_SWAP_IO_SPACE, but this is the combination that
+	 * works correctly with most of Linux's drivers.
+	 * XXX ehs: Should this happen in PCI Device mode?
+	 */
 
 	bcm1480_controller.io_map_base = (unsigned long)
 		ioremap(A_BCM1480_PHYS_PCI_IO_MATCH_BYTES, 65536);

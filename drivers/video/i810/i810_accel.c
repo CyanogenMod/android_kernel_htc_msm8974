@@ -17,10 +17,11 @@
 #include "i810_main.h"
 
 static u32 i810fb_rop[] = {
-	COLOR_COPY_ROP, 
-	XOR_ROP         
+	COLOR_COPY_ROP, /* ROP_COPY */
+	XOR_ROP         /* ROP_XOR  */
 };
 
+/* Macros */
 #define PUT_RING(n) {                                        \
 	i810_writel(par->cur_tail, par->iring.virtual, n);   \
         par->cur_tail += 4;                                  \
@@ -29,7 +30,9 @@ static u32 i810fb_rop[] = {
 
 extern void flush_cache(void);
 
+/************************************************************/
 
+/* BLT Engine Routines */
 static inline void i810_report_error(u8 __iomem *mmio)
 {
 	printk("IIR     : 0x%04x\n"
@@ -44,7 +47,15 @@ static inline void i810_report_error(u8 __iomem *mmio)
 	       i810_readl(IPEHR, mmio));
 }
 
-	
+/**
+ * wait_for_space - check ring buffer free space
+ * @space: amount of ringbuffer space needed in bytes
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * The function waits until a free space from the ringbuffer
+ * is available 
+ */	
 static inline int wait_for_space(struct fb_info *info, u32 space)
 {
 	struct i810fb_par *par = info->par;
@@ -68,13 +79,21 @@ static inline int wait_for_space(struct fb_info *info, u32 space)
 	return 1;
 }
 
+/** 
+ * wait_for_engine_idle - waits for all hardware engines to finish
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * This waits for lring(0), iring(1), and batch(3), etc to finish and
+ * waits until ringbuffer is empty.
+ */
 static inline int wait_for_engine_idle(struct fb_info *info)
 {
 	struct i810fb_par *par = info->par;
 	u8 __iomem *mmio = par->mmio_start_virtual;
 	int count = WAIT_COUNT;
 
-	if (wait_for_space(info, par->iring.size)) 
+	if (wait_for_space(info, par->iring.size)) /* flush */
 		return 1;
 
 	while((i810_readw(INSTDONE, mmio) & 0x7B) != 0x7B && --count); 
@@ -88,7 +107,14 @@ static inline int wait_for_engine_idle(struct fb_info *info)
 	return 1;
 }
 
- 
+/* begin_iring - prepares the ringbuffer 
+ * @space: length of sequence in dwords
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * Checks/waits for sufficient space in ringbuffer of size
+ * space.  Returns the tail of the buffer
+ */ 
 static inline u32 begin_iring(struct fb_info *info, u32 space)
 {
 	struct i810fb_par *par = info->par;
@@ -98,6 +124,14 @@ static inline u32 begin_iring(struct fb_info *info, u32 space)
 	return wait_for_space(info, space);
 }
 
+/**
+ * end_iring - advances the buffer
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * This advances the tail of the ringbuffer, effectively
+ * beginning the execution of the graphics instruction sequence.
+ */
 static inline void end_iring(struct i810fb_par *par)
 {
 	u8 __iomem *mmio = par->mmio_start_virtual;
@@ -105,6 +139,25 @@ static inline void end_iring(struct i810fb_par *par)
 	i810_writel(IRING, mmio, par->cur_tail);
 }
 
+/**
+ * source_copy_blit - BLIT transfer operation
+ * @dwidth: width of rectangular graphics data
+ * @dheight: height of rectangular graphics data
+ * @dpitch: bytes per line of destination buffer
+ * @xdir: direction of copy (left to right or right to left)
+ * @src: address of first pixel to read from
+ * @dest: address of first pixel to write to
+ * @from: source address
+ * @where: destination address
+ * @rop: raster operation
+ * @blit_bpp: pixel format which can be different from the 
+ *            framebuffer's pixelformat
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * This is a BLIT operation typically used when doing
+ * a 'Copy and Paste'
+ */
 static inline void source_copy_blit(int dwidth, int dheight, int dpitch, 
 				    int xdir, int src, int dest, int rop, 
 				    int blit_bpp, struct fb_info *info)
@@ -123,6 +176,22 @@ static inline void source_copy_blit(int dwidth, int dheight, int dpitch,
 	end_iring(par);
 }	
 
+/**
+ * color_blit - solid color BLIT operation
+ * @width: width of destination
+ * @height: height of destination
+ * @pitch: pixels per line of the buffer
+ * @dest: address of first pixel to write to
+ * @where: destination
+ * @rop: raster operation
+ * @what: color to transfer
+ * @blit_bpp: pixel format which can be different from the 
+ *            framebuffer's pixelformat
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * A BLIT operation which can be used for  color fill/rectangular fill
+ */
 static inline void color_blit(int width, int height, int pitch,  int dest, 
 			      int rop, int what, int blit_bpp, 
 			      struct fb_info *info)
@@ -141,6 +210,28 @@ static inline void color_blit(int width, int height, int pitch,  int dest,
 	end_iring(par);
 }
  
+/**
+ * mono_src_copy_imm_blit - color expand from system memory to framebuffer
+ * @dwidth: width of destination
+ * @dheight: height of destination
+ * @dpitch: pixels per line of the buffer
+ * @dsize: size of bitmap in double words
+ * @dest: address of first byte of pixel;
+ * @rop: raster operation
+ * @blit_bpp: pixelformat to use which can be different from the 
+ *            framebuffer's pixelformat
+ * @src: address of image data
+ * @bg: backgound color
+ * @fg: forground color
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * A color expand operation where the  source data is placed in the 
+ * ringbuffer itself. Useful for drawing text. 
+ *
+ * REQUIREMENT:
+ * The end of a scanline must be padded to the next word.
+ */
 static inline void mono_src_copy_imm_blit(int dwidth, int dheight, int dpitch,
 					  int dsize, int blit_bpp, int rop,
 					  int dest, const u32 *src, int bg,
@@ -181,6 +272,15 @@ static inline void load_front(int offset, struct fb_info *info)
 	end_iring(par);
 }
 
+/**
+ * i810fb_iring_enable - enables/disables the ringbuffer
+ * @mode: enable or disable
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * Enables or disables the ringbuffer, effectively enabling or
+ * disabling the instruction/acceleration engine.
+ */
 static inline void i810fb_iring_enable(struct i810fb_par *par, u32 mode)
 {
 	u32 tmp;
@@ -323,6 +423,15 @@ void i810fb_load_front(u32 offset, struct fb_info *info)
 		load_front(offset, info);
 }
 
+/**
+ * i810fb_init_ringbuffer - initialize the ringbuffer
+ * @par: pointer to i810fb_par structure
+ *
+ * DESCRIPTION:
+ * Initializes the ringbuffer by telling the device the
+ * size and location of the ringbuffer.  It also sets 
+ * the head and tail pointers = 0
+ */
 void i810fb_init_ringbuffer(struct fb_info *info)
 {
 	struct i810fb_par *par = info->par;

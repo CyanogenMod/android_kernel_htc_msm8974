@@ -19,9 +19,12 @@
 #include <mach/generic.h>
 #include <mach/hardware.h>
 
+/* pad multiplexing support */
+/* muxing registers */
 #define PAD_MUX_CONFIG_REG	0x00
 #define MODE_CONFIG_REG		0x04
 
+/* modes */
 #define NAND_MODE			(1 << 0)
 #define NOR_MODE			(1 << 1)
 #define PHOTO_FRAME_MODE		(1 << 2)
@@ -115,6 +118,7 @@ struct pmx_mode spear300_caml_lcd_mode = {
 	.mask = 0x0F,
 };
 
+/* devices */
 static struct pmx_dev_mode pmx_fsmc_2_chips_modes[] = {
 	{
 		.ids = NAND_MODE | NOR_MODE | PHOTO_FRAME_MODE |
@@ -360,11 +364,13 @@ struct pmx_dev spear300_pmx_gpio1 = {
 	.enb_on_reset = 1,
 };
 
+/* pmx driver structure */
 static struct pmx_driver pmx_driver = {
 	.mode_reg = {.offset = MODE_CONFIG_REG, .mask = 0x0000000f},
 	.mux_reg = {.offset = PAD_MUX_CONFIG_REG, .mask = 0x00007fff},
 };
 
+/* spear3xx shared irq */
 static struct shirq_dev_config shirq_ras1_config[] = {
 	{
 		.virq = SPEAR300_VIRQ_IT_PERS_S,
@@ -417,6 +423,8 @@ static struct spear_shirq shirq_ras1 = {
 	},
 };
 
+/* Add spear300 specific devices here */
+/* arm gpio1 device registration */
 static struct pl061_platform_data gpio1_plat_data = {
 	.gpio_base	= 8,
 	.irq_base	= SPEAR300_GPIO1_INT_BASE,
@@ -425,15 +433,16 @@ static struct pl061_platform_data gpio1_plat_data = {
 AMBA_APB_DEVICE(spear300_gpio1, "gpio1", 0, SPEAR300_GPIO_BASE,
 	{SPEAR300_VIRQ_GPIO1}, &gpio1_plat_data);
 
+/* spear300 routines */
 void __init spear300_init(struct pmx_mode *pmx_mode, struct pmx_dev **pmx_devs,
 		u8 pmx_dev_count)
 {
 	int ret = 0;
 
-	
+	/* call spear3xx family common init function */
 	spear3xx_init();
 
-	
+	/* shared irq registration */
 	shirq_ras1.regs.base = ioremap(SPEAR300_TELECOM_BASE, SZ_4K);
 	if (shirq_ras1.regs.base) {
 		ret = spear_shirq_register(&shirq_ras1);
@@ -441,7 +450,7 @@ void __init spear300_init(struct pmx_mode *pmx_mode, struct pmx_dev **pmx_devs,
 			printk(KERN_ERR "Error registering Shared IRQ\n");
 	}
 
-	
+	/* pmx initialization */
 	pmx_driver.mode = pmx_mode;
 	pmx_driver.devs = pmx_devs;
 	pmx_driver.devs_count = pmx_dev_count;
@@ -452,7 +461,7 @@ void __init spear300_init(struct pmx_mode *pmx_mode, struct pmx_dev **pmx_devs,
 		if (ret)
 			printk(KERN_ERR "padmux: registration failed. err no"
 					": %d\n", ret);
-		
+		/* Free Mapping, device selection already done */
 		iounmap(pmx_driver.base);
 	}
 }

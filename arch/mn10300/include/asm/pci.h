@@ -12,7 +12,7 @@
 #define _ASM_PCI_H
 
 #ifdef __KERNEL__
-#include <linux/mm.h>		
+#include <linux/mm.h>		/* for struct page */
 
 #if 0
 #define __pcbdebug(FMT, ADDR, ...) \
@@ -33,6 +33,9 @@ do {							\
 #define __pcidebug(FMT, BUS, DEVFN, WHERE, ...)	do {} while (0)
 #endif
 
+/* Can be used to override the logic in pci_scan_bus for skipping
+ * already-configured bus numbers - to be used for buggy BIOSes or
+ * architectures with incomplete PCI setup by the loader */
 
 #ifdef CONFIG_PCI
 #define pcibios_assign_all_busses()	1
@@ -48,6 +51,9 @@ extern unsigned long pci_mem_start;
 void pcibios_set_master(struct pci_dev *dev);
 void pcibios_penalize_isa_irq(int irq);
 
+/* Dynamic DMA mapping stuff.
+ * i386 has everything mapped statically.
+ */
 
 #include <linux/types.h>
 #include <linux/slab.h>
@@ -57,8 +63,13 @@ void pcibios_penalize_isa_irq(int irq);
 
 struct pci_dev;
 
+/* The PCI address space does equal the physical memory
+ * address space.  The networking and block device layers use
+ * this boolean for bounce buffer decisions.
+ */
 #define PCI_DMA_BUS_IS_PHYS	(1)
 
+/* Return the index of the PCI controller for device. */
 static inline int pci_controller_num(struct pci_dev *dev)
 {
 	return 0;
@@ -69,8 +80,9 @@ extern int pci_mmap_page_range(struct pci_dev *dev, struct vm_area_struct *vma,
 			       enum pci_mmap_state mmap_state,
 			       int write_combine);
 
-#endif 
+#endif /* __KERNEL__ */
 
+/* implement the pci_ DMA API in terms of the generic device dma_ one */
 #include <asm-generic/pci-dma-compat.h>
 
 static inline struct resource *
@@ -91,4 +103,4 @@ static inline int pci_get_legacy_ide_irq(struct pci_dev *dev, int channel)
 	return channel ? 15 : 14;
 }
 
-#endif 
+#endif /* _ASM_PCI_H */

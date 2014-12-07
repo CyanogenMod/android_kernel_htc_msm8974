@@ -34,14 +34,14 @@ struct audio_buffer {
 	dma_addr_t phys;
 	void *data;
 	uint32_t size;
-	uint32_t used;	
-	uint32_t actual_size; 
+	uint32_t used;	/* 1 = CPU is waiting for DSP to consume this buf */
+	uint32_t actual_size; /* actual number of bytes read by DSP */
 };
 
 struct audio_client {
 	struct audio_buffer buf[2];
-	int cpu_buf;	
-	int dsp_buf;	
+	int cpu_buf;	/* next buffer the CPU will touch */
+	int dsp_buf;	/* next buffer the DSP will touch */
 	int running;
 	int session;
 
@@ -52,6 +52,9 @@ struct audio_client {
 	uint32_t flags;
 };
 
+/* Obtain a 16bit signed, interleaved audio channel of the specified
+ * rate (Hz) and channels (1 or 2), with two buffers of bufsz bytes.
+ */
 struct audio_client *q6audio_open_pcm(uint32_t bufsz, uint32_t rate,
 				      uint32_t channels, uint32_t flags,
 				      uint32_t acdb_id);
@@ -111,6 +114,7 @@ struct q6audio_analog_ops {
 
 void q6audio_register_analog_ops(struct q6audio_analog_ops *ops);
 
+/* signal non-recoverable DSP error so we can log and/or panic */
 void q6audio_dsp_not_responding(void);
 
 #endif

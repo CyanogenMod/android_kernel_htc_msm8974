@@ -30,7 +30,9 @@
 
 #include "ttype.h"
 
+/*---------------------  Export Definitions -------------------------*/
 
+/* bit type */
 #define BIT0	0x00000001
 #define BIT1	0x00000002
 #define BIT2	0x00000004
@@ -64,6 +66,7 @@
 #define BIT30	0x40000000
 #define BIT31	0x80000000
 
+/* 802.11 frame related, defined as 802.11 spec */
 #define WLAN_ADDR_LEN               6
 #define WLAN_CRC_LEN                4
 #define WLAN_CRC32_LEN              4
@@ -75,6 +78,7 @@
 #define WLAN_HDR_ADDR4_LEN          30
 #define WLAN_IEHDR_LEN              2
 #define WLAN_SSID_MAXLEN            32
+/* #define WLAN_RATES_MAXLEN           255 */
 #define WLAN_RATES_MAXLEN           16
 #define WLAN_RATES_MAXLEN_11B       4
 #define WLAN_RSN_MAXLEN             32
@@ -100,6 +104,7 @@
 #define WLAN_WEP40_KEYLEN           5
 #define WLAN_WEP104_KEYLEN          13
 #define WLAN_WEP232_KEYLEN          29
+/* #define WLAN_WEPMAX_KEYLEN          29 */
 #define WLAN_WEPMAX_KEYLEN          32
 #define WLAN_CHALLENGE_IE_MAXLEN    255
 #define WLAN_CHALLENGE_IE_LEN       130
@@ -108,6 +113,7 @@
 #define WLAN_WEP_ICV_LEN            4
 #define WLAN_FRAGS_MAX              16
 
+/* Frame Type */
 #define WLAN_TYPE_MGR 0x00
 #define WLAN_TYPE_CTL  0x01
 #define WLAN_TYPE_DATA 0x02
@@ -116,6 +122,7 @@
 #define WLAN_FTYPE_CTL  0x01
 #define WLAN_FTYPE_DATA 0x02
 
+/* Frame Subtypes */
 #define WLAN_FSTYPE_ASSOCREQ        0x00
 #define WLAN_FSTYPE_ASSOCRESP       0x01
 #define WLAN_FSTYPE_REASSOCREQ      0x02
@@ -129,6 +136,7 @@
 #define WLAN_FSTYPE_DEAUTHEN        0x0c
 #define WLAN_FSTYPE_ACTION          0x0d
 
+/* Control */
 #define WLAN_FSTYPE_PSPOLL          0x0a
 #define WLAN_FSTYPE_RTS             0x0b
 #define WLAN_FSTYPE_CTS             0x0c
@@ -136,6 +144,7 @@
 #define WLAN_FSTYPE_CFEND           0x0e
 #define WLAN_FSTYPE_CFENDCFACK      0x0f
 
+/* Data */
 #define WLAN_FSTYPE_DATAONLY        0x00
 #define WLAN_FSTYPE_DATA_CFACK      0x01
 #define WLAN_FSTYPE_DATA_CFPOLL     0x02
@@ -147,6 +156,7 @@
 
 #ifdef __BIG_ENDIAN
 
+/* GET & SET Frame Control bit */
 #define WLAN_GET_FC_PRVER(n)    ((((WORD)(n) >> 8) & (BIT0 | BIT1))
 #define WLAN_GET_FC_FTYPE(n)    ((((WORD)(n) >> 8) & (BIT2 | BIT3)) >> 2)
 #define WLAN_GET_FC_FSTYPE(n)   ((((WORD)(n) >> 8) \
@@ -160,10 +170,12 @@
 #define WLAN_GET_FC_ISWEP(n)    ((((WORD)(n) << 8) & (BIT14)) >> 14)
 #define WLAN_GET_FC_ORDER(n)    ((((WORD)(n) << 8) & (BIT15)) >> 15)
 
+/* Sequence Field bit */
 #define WLAN_GET_SEQ_FRGNUM(n) (((WORD)(n) >> 8) & (BIT0|BIT1|BIT2|BIT3))
 #define WLAN_GET_SEQ_SEQNUM(n) ((((WORD)(n) >> 8) \
 				 & (~(BIT0|BIT1|BIT2|BIT3))) >> 4)
 
+/* Capability Field bit */
 #define WLAN_GET_CAP_INFO_ESS(n)           (((n) >> 8) & BIT0)
 #define WLAN_GET_CAP_INFO_IBSS(n)          ((((n) >> 8) & BIT1) >> 1)
 #define WLAN_GET_CAP_INFO_CFPOLLABLE(n)    ((((n) >> 8) & BIT2) >> 2)
@@ -179,6 +191,7 @@
 
 #else
 
+/* GET & SET Frame Control bit */
 #define WLAN_GET_FC_PRVER(n)    (((WORD)(n)) & (BIT0 | BIT1))
 #define WLAN_GET_FC_FTYPE(n)    ((((WORD)(n)) & (BIT2 | BIT3)) >> 2)
 #define WLAN_GET_FC_FSTYPE(n)   ((((WORD)(n)) & (BIT4|BIT5|BIT6|BIT7)) >> 4)
@@ -191,9 +204,11 @@
 #define WLAN_GET_FC_ISWEP(n)    ((((WORD)(n)) & (BIT14)) >> 14)
 #define WLAN_GET_FC_ORDER(n)    ((((WORD)(n)) & (BIT15)) >> 15)
 
+/* Sequence Field bit */
 #define WLAN_GET_SEQ_FRGNUM(n) (((WORD)(n)) & (BIT0|BIT1|BIT2|BIT3))
 #define WLAN_GET_SEQ_SEQNUM(n) ((((WORD)(n)) & (~(BIT0|BIT1|BIT2|BIT3))) >> 4)
 
+/* Capability Field bit */
 #define WLAN_GET_CAP_INFO_ESS(n)           ((n) & BIT0)
 #define WLAN_GET_CAP_INFO_IBSS(n)          (((n) & BIT1) >> 1)
 #define WLAN_GET_CAP_INFO_CFPOLLABLE(n)    (((n) & BIT2) >> 2)
@@ -207,7 +222,7 @@
 #define WLAN_GET_CAP_INFO_DSSSOFDM(n)      (((n) & BIT13) >> 13)
 #define WLAN_GET_CAP_INFO_GRPACK(n)        (((n) & BIT14) >> 14)
 
-#endif 
+#endif /* #ifdef __BIG_ENDIAN */
 
 #define WLAN_SET_CAP_INFO_ESS(n)           (n)
 #define WLAN_SET_CAP_INFO_IBSS(n)          ((n) << 1)
@@ -237,6 +252,7 @@
 #define WLAN_SET_SEQ_FRGNUM(n) ((WORD)(n))
 #define WLAN_SET_SEQ_SEQNUM(n) (((WORD)(n)) << 4)
 
+/* ERP Field bit */
 
 #define WLAN_GET_ERP_NONERP_PRESENT(n)     ((n) & BIT0)
 #define WLAN_GET_ERP_USE_PROTECTION(n)     (((n) & BIT1) >> 1)
@@ -246,15 +262,19 @@
 #define WLAN_SET_ERP_USE_PROTECTION(n)     ((n) << 1)
 #define WLAN_SET_ERP_BARKER_MODE(n)        ((n) << 2)
 
+/* Support & Basic Rates field */
 #define WLAN_MGMT_IS_BASICRATE(b)    ((b) & BIT7)
 #define WLAN_MGMT_GET_RATE(b)        ((b) & ~BIT7)
 
+/* TIM field */
 #define WLAN_MGMT_IS_MULTICAST_TIM(b)   ((b) & BIT0)
 #define WLAN_MGMT_GET_TIM_OFFSET(b)     (((b) & ~BIT0) >> 1)
 
+/* 3-Addr & 4-Addr */
 #define WLAN_HDR_A3_DATA_PTR(p) (((PBYTE)(p)) + WLAN_HDR_ADDR3_LEN)
 #define WLAN_HDR_A4_DATA_PTR(p) (((PBYTE)(p)) + WLAN_HDR_ADDR4_LEN)
 
+/* IEEE ADDR */
 #define IEEE_ADDR_UNIVERSAL         0x02
 #define IEEE_ADDR_GROUP             0x01
 
@@ -262,6 +282,7 @@ typedef struct {
     BYTE            abyAddr[6];
 } IEEE_ADDR, *PIEEE_ADDR;
 
+/* 802.11 Header Format */
 
 typedef struct tagWLAN_80211HDR_A2 {
 
@@ -306,7 +327,10 @@ typedef union tagUWLAN_80211HDR {
 
 } UWLAN_80211HDR, *PUWLAN_80211HDR;
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
-#endif 
+#endif /* __80211HDR_H__ */

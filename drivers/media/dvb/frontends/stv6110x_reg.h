@@ -79,4 +79,4 @@
 #define STV6110x_STAT2				0x06
 #define STV6110x_STAT3				0x07
 
-#endif 
+#endif /* __STV6110x_REG_H */

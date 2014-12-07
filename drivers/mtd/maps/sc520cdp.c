@@ -32,16 +32,40 @@
 #include <linux/mtd/map.h>
 #include <linux/mtd/concat.h>
 
+/*
+** The Embedded Systems BIOS decodes the first FLASH starting at
+** 0x8400000. This is a *terrible* place for it because accessing
+** the flash at this location causes the A22 address line to be high
+** (that's what 0x8400000 binary's ought to be). But this is the highest
+** order address line on the raw flash devices themselves!!
+** This causes the top HALF of the flash to be accessed first. Beyond
+** the physical limits of the flash, the flash chip aliases over (to
+** 0x880000 which causes the bottom half to be accessed. This splits the
+** flash into two and inverts it! If you then try to access this from another
+** program that does NOT do this insanity, then you *will* access the
+** first half of the flash, but not find what you expect there. That
+** stuff is in the *second* half! Similarly, the address used by the
+** BIOS for the second FLASH bank is also quite a bad choice.
+** If REPROGRAM_PAR is defined below (the default), then this driver will
+** choose more useful addresses for the FLASH banks by reprogramming the
+** responsible PARxx registers in the SC520's MMCR region. This will
+** cause the settings to be incompatible with the BIOS's settings, which
+** shouldn't be a problem since you are running Linux, (i.e. the BIOS is
+** not much use anyway). However, if you need to be compatible with
+** the BIOS for some reason, just undefine REPROGRAM_PAR.
+*/
 #define REPROGRAM_PAR
 
 
 
 #ifdef REPROGRAM_PAR
 
+/* These are the addresses we want.. */
 #define WINDOW_ADDR_0	0x08800000
 #define WINDOW_ADDR_1	0x09000000
 #define WINDOW_ADDR_2	0x09800000
 
+/* .. and these are the addresses the BIOS gives us */
 #define WINDOW_ADDR_0_BIOS	0x08400000
 #define WINDOW_ADDR_1_BIOS	0x08c00000
 #define WINDOW_ADDR_2_BIOS	0x09400000
@@ -87,21 +111,38 @@ static struct mtd_info *merged_mtd;
 
 #ifdef REPROGRAM_PAR
 
+/*
+** The SC520 MMCR (memory mapped control register) region resides
+** at 0xFFFEF000. The 16 Programmable Address Region (PAR) registers
+** are at offset 0x88 in the MMCR:
+*/
 #define SC520_MMCR_BASE		0xFFFEF000
 #define SC520_MMCR_EXTENT	0x1000
 #define SC520_PAR(x)		((0x88/sizeof(unsigned long)) + (x))
-#define NUM_SC520_PAR		16	
+#define NUM_SC520_PAR		16	/* total number of PAR registers */
 
+/*
+** The highest three bits in a PAR register determine what target
+** device is controlled by this PAR. Here, only ROMCS? and BOOTCS
+** devices are of interest.
+*/
 #define SC520_PAR_BOOTCS	(0x4<<29)
 #define SC520_PAR_ROMCS0	(0x5<<29)
 #define SC520_PAR_ROMCS1	(0x6<<29)
 #define SC520_PAR_TRGDEV	(0x7<<29)
 
-#define SC520_PAR_WRPROT	(1<<26)	
-#define SC520_PAR_NOCACHE	(1<<27)	
-#define SC520_PAR_NOEXEC	(1<<28)	
+/*
+** Bits 28 thru 26 determine some attributes for the
+** region controlled by the PAR. (We only use non-cacheable)
+*/
+#define SC520_PAR_WRPROT	(1<<26)	/* write protected       */
+#define SC520_PAR_NOCACHE	(1<<27)	/* non-cacheable         */
+#define SC520_PAR_NOEXEC	(1<<28)	/* code execution denied */
 
 
+/*
+** Bit 25 determines the granularity: 4K or 64K
+*/
 #define SC520_PAR_PG_SIZ4	(0<<25)
 #define SC520_PAR_PG_SIZ64	(1<<25)
 
@@ -122,17 +163,17 @@ struct sc520_par_table
 
 static const struct sc520_par_table par_table[NUM_FLASH_BANKS] =
 {
-	{	
+	{	/* Flash Bank #0: selected by ROMCS0 */
 		SC520_PAR_ROMCS0,
 		SC520_PAR_ENTRY(SC520_PAR_ROMCS0, WINDOW_ADDR_0, WINDOW_SIZE_0),
 		WINDOW_ADDR_0_BIOS
 	},
-	{	
+	{	/* Flash Bank #1: selected by ROMCS1 */
 		SC520_PAR_ROMCS1,
 		SC520_PAR_ENTRY(SC520_PAR_ROMCS1, WINDOW_ADDR_1, WINDOW_SIZE_1),
 		WINDOW_ADDR_1_BIOS
 	},
-	{	
+	{	/* DIL (BIOS) Flash: selected by BOOTCS */
 		SC520_PAR_BOOTCS,
 		SC520_PAR_ENTRY(SC520_PAR_BOOTCS, WINDOW_ADDR_2, WINDOW_SIZE_2),
 		WINDOW_ADDR_2_BIOS
@@ -146,19 +187,24 @@ static void sc520cdp_setup_par(void)
 	unsigned long mmcr_val;
 	int i, j;
 
-	
+	/* map in SC520's MMCR area */
 	mmcr = ioremap_nocache(SC520_MMCR_BASE, SC520_MMCR_EXTENT);
-	if(!mmcr) { 
-		
+	if(!mmcr) { /* ioremap_nocache failed: skip the PAR reprogramming */
+		/* force physical address fields to BIOS defaults: */
 		for(i = 0; i < NUM_FLASH_BANKS; i++)
 			sc520cdp_map[i].phys = par_table[i].default_address;
 		return;
 	}
 
-	for(i = 0; i < NUM_FLASH_BANKS; i++) {		
-		for(j = 0; j < NUM_SC520_PAR; j++) {	
+	/*
+	** Find the PARxx registers that are responsible for activating
+	** ROMCS0, ROMCS1 and BOOTCS. Reprogram each of these with a
+	** new value from the table.
+	*/
+	for(i = 0; i < NUM_FLASH_BANKS; i++) {		/* for each par_table entry  */
+		for(j = 0; j < NUM_SC520_PAR; j++) {	/* for each PAR register     */
 			mmcr_val = mmcr[SC520_PAR(j)];
-			
+			/* if target device field matches, reprogram the PAR */
 			if((mmcr_val & SC520_PAR_TRGDEV) == par_table[i].trgdev)
 			{
 				mmcr[SC520_PAR(j)] = par_table[i].new_par;
@@ -166,7 +212,7 @@ static void sc520cdp_setup_par(void)
 			}
 		}
 		if(j == NUM_SC520_PAR)
-		{	
+		{	/* no matching PAR found: try default BIOS address */
 			printk(KERN_NOTICE "Could not find PAR responsible for %s\n",
 				sc520cdp_map[i].name);
 			printk(KERN_NOTICE "Trying default address 0x%lx\n",
@@ -184,7 +230,7 @@ static int __init init_sc520cdp(void)
 	int i, devices_found = 0;
 
 #ifdef REPROGRAM_PAR
-	
+	/* reprogram PAR registers so flash appears at the desired addresses */
 	sc520cdp_setup_par();
 #endif
 
@@ -217,12 +263,12 @@ static int __init init_sc520cdp(void)
 		}
 	}
 	if(devices_found >= 2) {
-		
+		/* Combine the two flash banks into a single MTD device & register it: */
 		merged_mtd = mtd_concat_create(mymtd, 2, "SC520CDP Flash Banks #0 and #1");
 		if(merged_mtd)
 			mtd_device_register(merged_mtd, NULL, 0);
 	}
-	if(devices_found == 3) 
+	if(devices_found == 3) /* register the third (DIL-Flash) device */
 		mtd_device_register(mymtd[2], NULL, 0);
 	return(devices_found ? 0 : -ENXIO);
 }

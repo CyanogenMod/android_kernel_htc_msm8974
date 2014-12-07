@@ -49,8 +49,8 @@ MODULE_SUPPORTED_DEVICE("{{ALSA,Loopback soundcard}}");
 
 #define MAX_PCM_SUBSTREAMS	8
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
 static bool enable[SNDRV_CARDS] = {1, [1 ... (SNDRV_CARDS - 1)] = 0};
 static int pcm_substreams[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 8};
 static int pcm_notify[SNDRV_CARDS];
@@ -74,7 +74,7 @@ struct loopback_cable {
 	spinlock_t lock;
 	struct loopback_pcm *streams[2];
 	struct snd_pcm_hardware hw;
-	
+	/* flags */
 	unsigned int valid;
 	unsigned int running;
 	unsigned int pause;
@@ -105,17 +105,17 @@ struct loopback_pcm {
 	struct snd_pcm_substream *substream;
 	struct loopback_cable *cable;
 	unsigned int pcm_buffer_size;
-	unsigned int buf_pos;	
+	unsigned int buf_pos;	/* position in buffer */
 	unsigned int silent_size;
-	
+	/* PCM parameters */
 	unsigned int pcm_period_size;
-	unsigned int pcm_bps;		
-	unsigned int pcm_salign;	
-	unsigned int pcm_rate_shift;	
-	
+	unsigned int pcm_bps;		/* bytes per second */
+	unsigned int pcm_salign;	/* bytes per sample * channels */
+	unsigned int pcm_rate_shift;	/* rate shift value */
+	/* flags */
 	unsigned int period_update_pending :1;
-	
-	unsigned int irq_pos;		
+	/* timer stuff */
+	unsigned int irq_pos;		/* fractional IRQ position */
 	unsigned int period_size_frac;
 	unsigned long last_jiffies;
 	struct timer_list timer;
@@ -136,7 +136,7 @@ static inline unsigned int byte_pos(struct loopback_pcm *dpcm, unsigned int x)
 
 static inline unsigned int frac_pos(struct loopback_pcm *dpcm, unsigned int x)
 {
-	if (dpcm->pcm_rate_shift == NO_PITCH) {	
+	if (dpcm->pcm_rate_shift == NO_PITCH) {	/* no pitch */
 		return x * HZ;
 	} else {
 		x = div_u64(dpcm->pcm_rate_shift * (unsigned long long)x * HZ,
@@ -346,7 +346,7 @@ static int loopback_prepare(struct snd_pcm_substream *substream)
 	dpcm->buf_pos = 0;
 	dpcm->pcm_buffer_size = frames_to_bytes(runtime, runtime->buffer_size);
 	if (substream->stream == SNDRV_PCM_STREAM_CAPTURE) {
-		
+		/* clear capture buffer */
 		dpcm->silent_size = dpcm->pcm_buffer_size;
 		snd_pcm_format_set_silence(runtime->format, runtime->dma_area,
 					   runtime->buffer_size * runtime->channels);
@@ -406,6 +406,8 @@ static void copy_play_buf(struct loopback_pcm *play,
 	unsigned int dst_off = capt->buf_pos;
 	unsigned int clear_bytes = 0;
 
+	/* check if playback is draining, trim the capture copy size
+	 * when our pointer is at the end of playback ring buffer */
 	if (runtime->status->state == SNDRV_PCM_STATE_DRAINING &&
 	    snd_pcm_playback_hw_avail(runtime) < runtime->buffer_size) { 
 	    	snd_pcm_uframes_t appl_ptr, appl_ptr1, diff;
@@ -510,7 +512,7 @@ static unsigned int loopback_pos_update(struct loopback_cable *cable)
 	if (delta_play == 0 && delta_capt == 0)
 		goto unlock;
 
-	
+	/* note delta_capt == delta_play at this moment */
 	loopback_bytepos_update(dpcm_capt, delta_capt, BYTEPOS_UPDATE_COPY);
 	loopback_bytepos_update(dpcm_play, delta_play, BYTEPOS_UPDATE_POSONLY);
  unlock:
@@ -556,6 +558,8 @@ static struct snd_pcm_hardware loopback_pcm_hardware =
 	.channels_max =		32,
 	.buffer_bytes_max =	2 * 1024 * 1024,
 	.period_bytes_min =	64,
+	/* note check overflow in frac_pos() using pcm_rate_shift before
+	   changing period_bytes_max value */
 	.period_bytes_max =	1024 * 1024,
 	.periods_min =		1,
 	.periods_max =		1024,
@@ -604,7 +608,7 @@ static int rule_format(struct snd_pcm_hw_params *params,
 
 	maskp->bits[0] &= (u_int32_t)hw->formats;
 	maskp->bits[1] &= (u_int32_t)(hw->formats >> 32);
-	memset(maskp->bits + 2, 0, (SNDRV_MASK_MAX-64) / 8); 
+	memset(maskp->bits + 2, 0, (SNDRV_MASK_MAX-64) / 8); /* clear rest */
 	if (! maskp->bits[0] && ! maskp->bits[1])
 		return -EINVAL;
 	return 0;
@@ -673,9 +677,9 @@ static int loopback_open(struct snd_pcm_substream *substream)
 
 	snd_pcm_hw_constraint_integer(runtime, SNDRV_PCM_HW_PARAM_PERIODS);
 
-	
-	
-	
+	/* use dynamic rules based on actual runtime->hw values */
+	/* note that the default rules created in the PCM midlevel code */
+	/* are cached -> they do not reflect the actual state */
 	err = snd_pcm_hw_rule_add(runtime, 0,
 				  SNDRV_PCM_HW_PARAM_FORMAT,
 				  rule_format, &runtime->hw,
@@ -717,10 +721,10 @@ static int loopback_close(struct snd_pcm_substream *substream)
 	mutex_lock(&loopback->cable_lock);
 	cable = loopback->cables[substream->number][dev];
 	if (cable->streams[!substream->stream]) {
-		
+		/* other stream is still alive */
 		cable->streams[substream->stream] = NULL;
 	} else {
-		
+		/* free the cable */
 		loopback->cables[substream->number][dev] = NULL;
 		kfree(cable);
 	}
@@ -1106,7 +1110,7 @@ static int __devinit loopback_proc_new(struct loopback *loopback, int cidx)
 	return 0;
 }
 
-#else 
+#else /* !CONFIG_PROC_FS */
 
 #define loopback_proc_new(loopback, cidx) do { } while (0)
 

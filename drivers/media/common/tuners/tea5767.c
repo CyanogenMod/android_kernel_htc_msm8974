@@ -21,6 +21,7 @@ static int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "enable verbose debug messages");
 
+/*****************************************************************************/
 
 struct tea5767_priv {
 	struct tuner_i2c_props	i2c_props;
@@ -28,65 +29,106 @@ struct tea5767_priv {
 	struct tea5767_ctrl	ctrl;
 };
 
+/*****************************************************************************/
 
+/******************************
+ * Write mode register values *
+ ******************************/
 
-#define TEA5767_MUTE		0x80	
-#define TEA5767_SEARCH		0x40	
+/* First register */
+#define TEA5767_MUTE		0x80	/* Mutes output */
+#define TEA5767_SEARCH		0x40	/* Activates station search */
+/* Bits 0-5 for divider MSB */
 
+/* Second register */
+/* Bits 0-7 for divider LSB */
 
+/* Third register */
 
+/* Station search from botton to up */
 #define TEA5767_SEARCH_UP	0x80
 
+/* Searches with ADC output = 10 */
 #define TEA5767_SRCH_HIGH_LVL	0x60
 
+/* Searches with ADC output = 10 */
 #define TEA5767_SRCH_MID_LVL	0x40
 
+/* Searches with ADC output = 5 */
 #define TEA5767_SRCH_LOW_LVL	0x20
 
+/* if on, div=4*(Frf+Fif)/Fref otherwise, div=4*(Frf-Fif)/Freq) */
 #define TEA5767_HIGH_LO_INJECT	0x10
 
+/* Disable stereo */
 #define TEA5767_MONO		0x08
 
+/* Disable right channel and turns to mono */
 #define TEA5767_MUTE_RIGHT	0x04
 
+/* Disable left channel and turns to mono */
 #define TEA5767_MUTE_LEFT	0x02
 
 #define TEA5767_PORT1_HIGH	0x01
 
+/* Fourth register */
 #define TEA5767_PORT2_HIGH	0x80
+/* Chips stops working. Only I2C bus remains on */
 #define TEA5767_STDBY		0x40
 
+/* Japan freq (76-108 MHz. If disabled, 87.5-108 MHz */
 #define TEA5767_JAPAN_BAND	0x20
 
+/* Unselected means 32.768 KHz freq as reference. Otherwise Xtal at 13 MHz */
 #define TEA5767_XTAL_32768	0x10
 
+/* Cuts weak signals */
 #define TEA5767_SOFT_MUTE	0x08
 
+/* Activates high cut control */
 #define TEA5767_HIGH_CUT_CTRL	0x04
 
+/* Activates stereo noise control */
 #define TEA5767_ST_NOISE_CTL	0x02
 
+/* If activate PORT 1 indicates SEARCH or else it is used as PORT1 */
 #define TEA5767_SRCH_IND	0x01
 
+/* Fifth register */
 
+/* By activating, it will use Xtal at 13 MHz as reference for divider */
 #define TEA5767_PLLREF_ENABLE	0x80
 
+/* By activating, deemphasis=50, or else, deemphasis of 50us */
 #define TEA5767_DEEMPH_75	0X40
 
+/*****************************
+ * Read mode register values *
+ *****************************/
 
+/* First register */
 #define TEA5767_READY_FLAG_MASK	0x80
 #define TEA5767_BAND_LIMIT_MASK	0X40
+/* Bits 0-5 for divider MSB after search or preset */
 
+/* Second register */
+/* Bits 0-7 for divider LSB after search or preset */
 
+/* Third register */
 #define TEA5767_STEREO_MASK	0x80
 #define TEA5767_IF_CNTR_MASK	0x7f
 
+/* Fourth register */
 #define TEA5767_ADC_LEVEL_MASK	0xf0
 
+/* should be 0 */
 #define TEA5767_CHIP_ID_MASK	0x0f
 
+/* Fifth register */
+/* Reserved for future extensions */
 #define TEA5767_RESERVED_MASK	0xff
 
+/*****************************************************************************/
 
 static void tea5767_status_dump(struct tea5767_priv *priv,
 				unsigned char *buffer)
@@ -107,17 +149,17 @@ static void tea5767_status_dump(struct tea5767_priv *priv,
 
 	switch (priv->ctrl.xtal_freq) {
 	case TEA5767_HIGH_LO_13MHz:
-		frq = (div * 50000 - 700000 - 225000) / 4;	
+		frq = (div * 50000 - 700000 - 225000) / 4;	/* Freq in KHz */
 		break;
 	case TEA5767_LOW_LO_13MHz:
-		frq = (div * 50000 + 700000 + 225000) / 4;	
+		frq = (div * 50000 + 700000 + 225000) / 4;	/* Freq in KHz */
 		break;
 	case TEA5767_LOW_LO_32768:
-		frq = (div * 32768 + 700000 + 225000) / 4;	
+		frq = (div * 32768 + 700000 + 225000) / 4;	/* Freq in KHz */
 		break;
 	case TEA5767_HIGH_LO_32768:
 	default:
-		frq = (div * 32768 - 700000 - 225000) / 4;	
+		frq = (div * 32768 - 700000 - 225000) / 4;	/* Freq in KHz */
 		break;
 	}
 	buffer[0] = (div >> 8) & 0x3f;
@@ -142,6 +184,7 @@ static void tea5767_status_dump(struct tea5767_priv *priv,
 		   (buffer[4] & TEA5767_RESERVED_MASK));
 }
 
+/* Freq should be specifyed at 62.5 Hz */
 static int set_radio_freq(struct dvb_frontend *fe,
 			  struct analog_parameters *params)
 {
@@ -192,8 +235,8 @@ static int set_radio_freq(struct dvb_frontend *fe,
 		buffer[4] |= TEA5767_PLLREF_ENABLE;
 
 
-	
-	
+	/* Rounds freq to next decimal value - for 62.5 KHz step */
+	/* frq = 20*(frq/16)+radio_frq[frq%16]; */
 
 	switch (priv->ctrl.xtal_freq) {
 	case TEA5767_HIGH_LO_13MHz:
@@ -209,7 +252,7 @@ static int set_radio_freq(struct dvb_frontend *fe,
 	case TEA5767_LOW_LO_32768:
 		tuner_dbg("radio LOW LO inject xtal @ 32,768 MHz\n");
 		buffer[3] |= TEA5767_XTAL_32768;
-		
+		/* const 700=4000*175 Khz - to adjust freq to right value */
 		div = ((frq * (4000 / 16) - 700000 - 225000) + 16384) >> 15;
 		break;
 	case TEA5767_HIGH_LO_32768:
@@ -309,7 +352,7 @@ static int tea5767_standby(struct dvb_frontend *fe)
 	struct tea5767_priv *priv = fe->tuner_priv;
 	unsigned div, rc;
 
-	div = (87500 * 4 + 700 + 225 + 25) / 50; 
+	div = (87500 * 4 + 700 + 225 + 25) / 50; /* Set frequency to 87.5 MHz */
 	buffer[0] = (div >> 8) & 0x3f;
 	buffer[1] = div & 0xff;
 	buffer[2] = TEA5767_PORT1_HIGH;
@@ -334,13 +377,18 @@ int tea5767_autodetection(struct i2c_adapter* i2c_adap, u8 i2c_addr)
 		return -EINVAL;
 	}
 
-	
+	/* If all bytes are the same then it's a TV tuner and not a tea5767 */
 	if (buffer[0] == buffer[1] && buffer[0] == buffer[2] &&
 	    buffer[0] == buffer[3] && buffer[0] == buffer[4]) {
 		printk(KERN_WARNING "All bytes are equal. It is not a TEA5767\n");
 		return -EINVAL;
 	}
 
+	/*  Status bytes:
+	 *  Byte 4: bit 3:1 : CI (Chip Identification) == 0
+	 *          bit 0   : internally set to 0
+	 *  Byte 5: bit 7:0 : == 0
+	 */
 	if (((buffer[3] & 0x0f) != 0x00) || (buffer[4] != 0x00)) {
 		printk(KERN_WARNING "Chip ID is not zero. It is not a TEA5767\n");
 		return -EINVAL;
@@ -377,7 +425,7 @@ static int tea5767_set_config (struct dvb_frontend *fe, void *priv_cfg)
 
 static struct dvb_tuner_ops tea5767_tuner_ops = {
 	.info = {
-		.name           = "tea5767", 
+		.name           = "tea5767", // Philips TEA5767HN FM Radio
 	},
 
 	.set_analog_params = set_radio_freq,

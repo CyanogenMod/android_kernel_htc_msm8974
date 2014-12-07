@@ -83,7 +83,7 @@ int saa7164_api_set_debug(struct saa7164_dev *dev, u8 level)
 
 	dprintk(DBGLVL_API, "%s(level=%d)\n", __func__, level);
 
-	
+	/* Retrieve current state */
 	ret = saa7164_cmd_send(dev, 0, GET_CUR,
 		SET_DEBUG_LEVEL_CONTROL, sizeof(lvl), &lvl);
 	if (ret != SAA_OK)
@@ -93,7 +93,7 @@ int saa7164_api_set_debug(struct saa7164_dev *dev, u8 level)
 
 	lvl.dwDebugLevel = level;
 
-	
+	/* set new state */
 	ret = saa7164_cmd_send(dev, 0, SET_CUR,
 		SET_DEBUG_LEVEL_CONTROL, sizeof(lvl), &lvl);
 	if (ret != SAA_OK)
@@ -115,23 +115,23 @@ int saa7164_api_set_vbi_format(struct saa7164_port *port)
 	fmt.bFormatIndex = 1;
 	fmt.bFrameIndex = 1;
 
-	
+	/* Probe, see if it can support this format */
 	ret = saa7164_cmd_send(port->dev, port->hwcfg.unitid,
 		SET_CUR, SAA_PROBE_CONTROL, sizeof(fmt), &fmt);
 	if (ret != SAA_OK)
 		printk(KERN_ERR "%s() set error, ret = 0x%x\n", __func__, ret);
 
-	
+	/* See of the format change was successful */
 	ret = saa7164_cmd_send(port->dev, port->hwcfg.unitid,
 		GET_CUR, SAA_PROBE_CONTROL, sizeof(rsp), &rsp);
 	if (ret != SAA_OK) {
 		printk(KERN_ERR "%s() get error, ret = 0x%x\n", __func__, ret);
 	} else {
-		
+		/* Compare requested vs received, should be same */
 		if (memcmp(&fmt, &rsp, sizeof(rsp)) == 0) {
 			dprintk(DBGLVL_API, "SET/PROBE Verified\n");
 
-			
+			/* Ask the device to select the negotiated format */
 			ret = saa7164_cmd_send(port->dev, port->hwcfg.unitid,
 				SET_CUR, SAA_COMMIT_CONTROL, sizeof(fmt), &fmt);
 			if (ret != SAA_OK)
@@ -204,13 +204,13 @@ int saa7164_api_set_encoder(struct saa7164_port *port)
 	if (ret != SAA_OK)
 		printk(KERN_ERR "%s() error, ret = 0x%x\n", __func__, ret);
 
-	
+	/* Resolution */
 	ret = saa7164_cmd_send(port->dev, port->hwcfg.sourceid, SET_CUR,
 		EU_PROFILE_CONTROL, sizeof(u8), &port->encoder_profile);
 	if (ret != SAA_OK)
 		printk(KERN_ERR "%s() error, ret = 0x%x\n", __func__, ret);
 
-	
+	/* Establish video bitrates */
 	if (port->encoder_params.bitrate_mode ==
 		V4L2_MPEG_VIDEO_BITRATE_MODE_CBR)
 		vb.ucVideoBitRateMode = EU_VIDEO_BIT_RATE_MODE_CONSTANT;
@@ -225,7 +225,7 @@ int saa7164_api_set_encoder(struct saa7164_port *port)
 	if (ret != SAA_OK)
 		printk(KERN_ERR "%s() error, ret = 0x%x\n", __func__, ret);
 
-	
+	/* Establish audio bitrates */
 	ab.ucAudioBitRateMode = 0;
 	ab.dwAudioBitRate = 384000;
 	ab.dwAudioBitRatePeak = ab.dwAudioBitRate;
@@ -290,7 +290,7 @@ int saa7164_api_get_encoder(struct saa7164_port *port)
 	if (ret != SAA_OK)
 		printk(KERN_ERR "%s() error, ret = 0x%x\n", __func__, ret);
 
-	
+	/* Aspect Ratio */
 	ar.width = 0;
 	ar.height = 0;
 	ret = saa7164_cmd_send(port->dev, port->hwcfg.sourceid, GET_CUR,
@@ -355,7 +355,7 @@ int saa7164_api_set_aspect_ratio(struct saa7164_port *port)
 		port->encoder_params.ctl_aspect,
 		ar.width, ar.height);
 
-	
+	/* Aspect Ratio */
 	ret = saa7164_cmd_send(port->dev, port->hwcfg.sourceid, SET_CUR,
 		EU_VIDEO_INPUT_ASPECT_CONTROL,
 		sizeof(struct tmComResEncVideoInputAspectRatio), &ar);
@@ -442,25 +442,25 @@ int saa7164_api_set_videomux(struct saa7164_port *port)
 	dprintk(DBGLVL_ENC, "%s() v_mux=%d a_mux=%d\n",
 		__func__, port->mux_input, inputs[port->mux_input - 1]);
 
-	
+	/* Audio Mute */
 	ret = saa7164_api_audio_mute(port, 1);
 	if (ret != SAA_OK)
 		printk(KERN_ERR "%s() error, ret = 0x%x\n", __func__, ret);
 
-	
+	/* Video Mux */
 	ret = saa7164_cmd_send(port->dev, port->vidproc.sourceid, SET_CUR,
 		SU_INPUT_SELECT_CONTROL, sizeof(u8), &port->mux_input);
 	if (ret != SAA_OK)
 		printk(KERN_ERR "%s() error, ret = 0x%x\n", __func__, ret);
 
-	
+	/* Audio Mux */
 	ret = saa7164_cmd_send(port->dev, port->audfeat.sourceid, SET_CUR,
 		SU_INPUT_SELECT_CONTROL, sizeof(u8),
 		&inputs[port->mux_input - 1]);
 	if (ret != SAA_OK)
 		printk(KERN_ERR "%s() error, ret = 0x%x\n", __func__, ret);
 
-	
+	/* Audio UnMute */
 	ret = saa7164_api_audio_mute(port, 0);
 	if (ret != SAA_OK)
 		printk(KERN_ERR "%s() error, ret = 0x%x\n", __func__, ret);
@@ -484,6 +484,7 @@ int saa7164_api_audio_mute(struct saa7164_port *port, int mute)
 	return ret;
 }
 
+/* 0 = silence, 0xff = full */
 int saa7164_api_set_audio_volume(struct saa7164_port *port, s8 level)
 {
 	struct saa7164_dev *dev = port->dev;
@@ -492,7 +493,7 @@ int saa7164_api_set_audio_volume(struct saa7164_port *port, s8 level)
 
 	dprintk(DBGLVL_API, "%s(%d)\n", __func__, level);
 
-	
+	/* Obtain the min/max ranges */
 	ret = saa7164_cmd_send(port->dev, port->audfeat.unitid, GET_MIN,
 		VOLUME_CONTROL, sizeof(u16), &min);
 	if (ret != SAA_OK)
@@ -517,13 +518,13 @@ int saa7164_api_set_audio_volume(struct saa7164_port *port, s8 level)
 	if (v > max)
 		v = max;
 
-	
+	/* Left */
 	ret = saa7164_cmd_send(port->dev, port->audfeat.unitid, SET_CUR,
 		(0x01 << 8) | VOLUME_CONTROL, sizeof(s16), &v);
 	if (ret != SAA_OK)
 		printk(KERN_ERR "%s() error, ret = 0x%x\n", __func__, ret);
 
-	
+	/* Right */
 	ret = saa7164_cmd_send(port->dev, port->audfeat.unitid, SET_CUR,
 		(0x02 << 8) | VOLUME_CONTROL, sizeof(s16), &v);
 	if (ret != SAA_OK)
@@ -549,7 +550,7 @@ int saa7164_api_set_audio_std(struct saa7164_port *port)
 
 	dprintk(DBGLVL_API, "%s()\n", __func__);
 
-	
+	/* Establish default levels */
 	lvl.ucDecoderLevel = TMHW_LEV_ADJ_DECLEV_DEFAULT;
 	lvl.ucDecoderFM_Level = TMHW_LEV_ADJ_DECLEV_DEFAULT;
 	lvl.ucMonoLevel = TMHW_LEV_ADJ_MONOLEV_DEFAULT;
@@ -562,7 +563,7 @@ int saa7164_api_set_audio_std(struct saa7164_port *port)
 	if (ret != SAA_OK)
 		printk(KERN_ERR "%s() error, ret = 0x%x\n", __func__, ret);
 
-	
+	/* Manually select the appropriate TV audio standard */
 	if (port->encodernorm.id & V4L2_STD_NTSC) {
 		tvaudio.std = TU_STANDARD_NTSC_M;
 		tvaudio.country = 1;
@@ -587,7 +588,7 @@ int saa7164_api_set_audio_detection(struct saa7164_port *port, int autodetect)
 
 	dprintk(DBGLVL_API, "%s(%d)\n", __func__, autodetect);
 
-	
+	/* Disable TV Audio autodetect if not already set (buggy) */
 	if (autodetect)
 		p.mode = TU_STANDARD_AUTO;
 	else
@@ -674,6 +675,7 @@ int saa7164_api_set_dif(struct saa7164_port *port, u8 reg, u8 val)
 	return ret == SAA_OK ? 0 : -EIO;
 }
 
+/* Disable the IF block AGC controls */
 int saa7164_api_configure_dif(struct saa7164_port *port, u32 std)
 {
 	struct saa7164_dev *dev = port->dev;
@@ -684,55 +686,60 @@ int saa7164_api_configure_dif(struct saa7164_port *port, u32 std)
 
 	if (std & V4L2_STD_NTSC) {
 		dprintk(DBGLVL_API, " NTSC\n");
-		saa7164_api_set_dif(port, 0x00, 0x01); 
+		saa7164_api_set_dif(port, 0x00, 0x01); /* Video Standard */
 		agc_disable = 0;
 	} else if (std & V4L2_STD_PAL_I) {
 		dprintk(DBGLVL_API, " PAL-I\n");
-		saa7164_api_set_dif(port, 0x00, 0x08); 
+		saa7164_api_set_dif(port, 0x00, 0x08); /* Video Standard */
 		agc_disable = 0;
 	} else if (std & V4L2_STD_PAL_M) {
 		dprintk(DBGLVL_API, " PAL-M\n");
-		saa7164_api_set_dif(port, 0x00, 0x01); 
+		saa7164_api_set_dif(port, 0x00, 0x01); /* Video Standard */
 		agc_disable = 0;
 	} else if (std & V4L2_STD_PAL_N) {
 		dprintk(DBGLVL_API, " PAL-N\n");
-		saa7164_api_set_dif(port, 0x00, 0x01); 
+		saa7164_api_set_dif(port, 0x00, 0x01); /* Video Standard */
 		agc_disable = 0;
 	} else if (std & V4L2_STD_PAL_Nc) {
 		dprintk(DBGLVL_API, " PAL-Nc\n");
-		saa7164_api_set_dif(port, 0x00, 0x01); 
+		saa7164_api_set_dif(port, 0x00, 0x01); /* Video Standard */
 		agc_disable = 0;
 	} else if (std & V4L2_STD_PAL_B) {
 		dprintk(DBGLVL_API, " PAL-B\n");
-		saa7164_api_set_dif(port, 0x00, 0x02); 
+		saa7164_api_set_dif(port, 0x00, 0x02); /* Video Standard */
 		agc_disable = 0;
 	} else if (std & V4L2_STD_PAL_DK) {
 		dprintk(DBGLVL_API, " PAL-DK\n");
-		saa7164_api_set_dif(port, 0x00, 0x10); 
+		saa7164_api_set_dif(port, 0x00, 0x10); /* Video Standard */
 		agc_disable = 0;
 	} else if (std & V4L2_STD_SECAM_L) {
 		dprintk(DBGLVL_API, " SECAM-L\n");
-		saa7164_api_set_dif(port, 0x00, 0x20); 
+		saa7164_api_set_dif(port, 0x00, 0x20); /* Video Standard */
 		agc_disable = 0;
 	} else {
-		
+		/* Unknown standard, assume DTV */
 		dprintk(DBGLVL_API, " Unknown (assuming DTV)\n");
-		
+		/* Undefinded Video Standard */
 		saa7164_api_set_dif(port, 0x00, 0x80);
 		agc_disable = 1;
 	}
 
-	saa7164_api_set_dif(port, 0x48, 0xa0); 
-	saa7164_api_set_dif(port, 0xc0, agc_disable); 
-	saa7164_api_set_dif(port, 0x7c, 0x04); 
-	saa7164_api_set_dif(port, 0x04, 0x01); 
+	saa7164_api_set_dif(port, 0x48, 0xa0); /* AGC Functions 1 */
+	saa7164_api_set_dif(port, 0xc0, agc_disable); /* AGC Output Disable */
+	saa7164_api_set_dif(port, 0x7c, 0x04); /* CVBS EQ */
+	saa7164_api_set_dif(port, 0x04, 0x01); /* Active */
 	msleep(100);
-	saa7164_api_set_dif(port, 0x04, 0x00); 
+	saa7164_api_set_dif(port, 0x04, 0x00); /* Active (again) */
 	msleep(100);
 
 	return ret;
 }
 
+/* Ensure the dif is in the correct state for the operating mode
+ * (analog / dtv). We only configure the diff through the analog encoder
+ * so when we're in digital mode we need to find the appropriate encoder
+ * and use it to configure the DIF.
+ */
 int saa7164_api_initialize_dif(struct saa7164_port *port)
 {
 	struct saa7164_dev *dev = port->dev;
@@ -744,6 +751,10 @@ int saa7164_api_initialize_dif(struct saa7164_port *port)
 		port->nr, port->type);
 
 	if (port->type == SAA7164_MPEG_ENCODER) {
+		/* Pick any analog standard to init the diff.
+		 * we'll come back during encoder_init'
+		 * and set the correct standard if requried.
+		 */
 		std = V4L2_STD_NTSC;
 	} else
 	if (port->type == SAA7164_MPEG_DVB) {
@@ -804,8 +815,8 @@ int saa7164_api_read_eeprom(struct saa7164_dev *dev, u8 *buf, int buflen)
 	if (buflen < 128)
 		return -ENOMEM;
 
-	
-	
+	/* Assumption: Hauppauge eeprom is at 0xa0 on on bus 0 */
+	/* TODO: Pull the details from the boards struct */
 	return saa7164_api_i2c_read(&dev->i2c_bus[0], 0xa0 >> 1, sizeof(reg),
 		&reg[0], 128, buf);
 }
@@ -822,7 +833,7 @@ int saa7164_api_configure_port_vbi(struct saa7164_dev *dev,
 	dprintk(DBGLVL_API, "    FieldRate     = %d\n", fmt->FieldRate);
 	dprintk(DBGLVL_API, "    bNumLines     = %d\n", fmt->bNumLines);
 
-	
+	/* Cache the hardware configuration in the port */
 
 	port->bufcounter = port->hwcfg.BARLocation;
 	port->pitch = port->hwcfg.BARLocation + (2 * sizeof(u32));
@@ -856,7 +867,7 @@ int saa7164_api_configure_port_mpeg2ts(struct saa7164_dev *dev,
 	dprintk(DBGLVL_API, "    bStrideLength= 0x%x\n", tsfmt->bStrideLength);
 	dprintk(DBGLVL_API, "    bguid        = (....)\n");
 
-	
+	/* Cache the hardware configuration in the port */
 
 	port->bufcounter = port->hwcfg.BARLocation;
 	port->pitch = port->hwcfg.BARLocation + (2 * sizeof(u32));
@@ -889,8 +900,8 @@ int saa7164_api_configure_port_mpeg2ps(struct saa7164_dev *dev,
 	dprintk(DBGLVL_API, "    wPackLength=   0x%x\n", fmt->wPackLength);
 	dprintk(DBGLVL_API, "    bPackDataType= 0x%x\n", fmt->bPackDataType);
 
-	
-	
+	/* Cache the hardware configuration in the port */
+	/* TODO: CHECK THIS in the port config */
 	port->bufcounter = port->hwcfg.BARLocation;
 	port->pitch = port->hwcfg.BARLocation + (2 * sizeof(u32));
 	port->bufsize = port->hwcfg.BARLocation + (3 * sizeof(u32));
@@ -1318,7 +1329,7 @@ int saa7164_api_enum_subdevs(struct saa7164_dev *dev)
 
 	dprintk(DBGLVL_API, "%s()\n", __func__);
 
-	
+	/* Get the total descriptor length */
 	ret = saa7164_cmd_send(dev, 0, GET_LEN,
 		GET_DESCRIPTORS_CONTROL, sizeof(buflen), &buflen);
 	if (ret != SAA_OK)
@@ -1327,12 +1338,12 @@ int saa7164_api_enum_subdevs(struct saa7164_dev *dev)
 	dprintk(DBGLVL_API, "%s() total descriptor size = %d bytes.\n",
 		__func__, buflen);
 
-	
+	/* Allocate enough storage for all of the descs */
 	buf = kzalloc(buflen, GFP_KERNEL);
 	if (!buf)
 		return SAA_ERR_NO_RESOURCES;
 
-	
+	/* Retrieve them */
 	ret = saa7164_cmd_send(dev, 0, GET_CUR,
 		GET_DESCRIPTORS_CONTROL, buflen, buf);
 	if (ret != SAA_OK) {
@@ -1378,7 +1389,11 @@ int saa7164_api_i2c_read(struct saa7164_i2c *bus, u8 addr, u32 reglen, u8 *reg,
 		regval = ((*(reg) << 24) | (*(reg+1) << 16) |
 			(*(reg+2) << 8) | *(reg+3));
 
-	
+	/* Prepare the send buffer */
+	/* Bytes 00-03 source register length
+	 *       04-07 source bytes to read
+	 *       08... register address
+	 */
 	memset(buf, 0, sizeof(buf));
 	memcpy((buf + 2 * sizeof(u32) + 0), reg, reglen);
 	*((u32 *)(buf + 0 * sizeof(u32))) = reglen;
@@ -1417,6 +1432,7 @@ int saa7164_api_i2c_read(struct saa7164_i2c *bus, u8 addr, u32 reglen, u8 *reg,
 	return ret == SAA_OK ? 0 : -EIO;
 }
 
+/* For a given 8 bit i2c address device, write the buffer */
 int saa7164_api_i2c_write(struct saa7164_i2c *bus, u8 addr, u32 datalen,
 	u8 *data)
 {
@@ -1459,7 +1475,11 @@ int saa7164_api_i2c_write(struct saa7164_i2c *bus, u8 addr, u32 datalen,
 
 	dprintk(DBGLVL_API, "%s() len = %d bytes\n", __func__, len);
 
-	
+	/* Prepare the send buffer */
+	/* Bytes 00-03 dest register length
+	 *       04-07 dest bytes to write
+	 *       08... register address
+	 */
 	*((u32 *)(buf + 0 * sizeof(u32))) = reglen;
 	*((u32 *)(buf + 1 * sizeof(u32))) = datalen - reglen;
 	memcpy((buf + 2 * sizeof(u32)), data, datalen);

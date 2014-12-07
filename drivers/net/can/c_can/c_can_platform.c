@@ -35,6 +35,12 @@
 
 #include "c_can.h"
 
+/*
+ * 16-bit c_can registers can be arranged differently in the memory
+ * architecture of different implementations. For example: 16-bit
+ * registers can be aligned to a 16-bit boundary or 32-bit boundary etc.
+ * Handle the same by providing a common read/write interface.
+ */
 static u16 c_can_plat_read_reg_aligned_to_16bit(struct c_can_priv *priv,
 						void *reg)
 {
@@ -70,7 +76,7 @@ static int __devinit c_can_plat_probe(struct platform_device *pdev)
 #ifdef CONFIG_HAVE_CLK
 	struct clk *clk;
 
-	
+	/* get the appropriate clk */
 	clk = clk_get(&pdev->dev, NULL);
 	if (IS_ERR(clk)) {
 		dev_err(&pdev->dev, "no clock defined\n");
@@ -79,7 +85,7 @@ static int __devinit c_can_plat_probe(struct platform_device *pdev)
 	}
 #endif
 
-	
+	/* get the platform data */
 	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	irq = platform_get_irq(pdev, 0);
 	if (!mem || irq <= 0) {
@@ -101,7 +107,7 @@ static int __devinit c_can_plat_probe(struct platform_device *pdev)
 		goto exit_release_mem;
 	}
 
-	
+	/* allocate the c_can device */
 	dev = alloc_c_can_dev();
 	if (!dev) {
 		ret = -ENOMEM;

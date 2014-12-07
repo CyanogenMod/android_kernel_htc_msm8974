@@ -15,11 +15,11 @@
 #include <asm/uaccess.h>
 
 struct compat_mq_attr {
-	compat_long_t mq_flags;      
-	compat_long_t mq_maxmsg;     
-	compat_long_t mq_msgsize;    
-	compat_long_t mq_curmsgs;    
-	compat_long_t __reserved[4]; 
+	compat_long_t mq_flags;      /* message queue flags		     */
+	compat_long_t mq_maxmsg;     /* maximum number of messages	     */
+	compat_long_t mq_msgsize;    /* maximum message size		     */
+	compat_long_t mq_curmsgs;    /* number of messages currently queued  */
+	compat_long_t __reserved[4]; /* ignored for input, zeroed for output */
 };
 
 static inline int get_compat_mq_attr(struct mq_attr *attr,

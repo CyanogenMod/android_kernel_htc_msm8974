@@ -1,3 +1,4 @@
+/* syscall.h */
 
 #ifndef _ASM_PARISC_SYSCALL_H_
 #define _ASM_PARISC_SYSCALL_H_
@@ -36,4 +37,4 @@ static inline void syscall_get_arguments(struct task_struct *tsk,
 	}
 }
 
-#endif 
+#endif /*_ASM_PARISC_SYSCALL_H_*/

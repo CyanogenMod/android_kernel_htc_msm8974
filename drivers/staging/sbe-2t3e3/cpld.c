@@ -42,55 +42,55 @@ void cpld_init(struct channel *sc)
 {
 	u32 val;
 #if 0
-	
+	/* reset LIU and Framer */
 	val = cpld_val_map[SBE_2T3E3_CPLD_VAL_LIU_FRAMER_RESET][sc->h.slot];
 	cpld_write(sc, SBE_2T3E3_CPLD_REG_STATIC_RESET, val);
-	udelay(10000); 
+	udelay(10000); /* TODO - how long? */
 	val = 0;
 	cpld_write(sc, SBE_2T3E3_CPLD_REG_STATIC_RESET, val);
 #endif
 
-	
+	/* PCRA */
 	val = SBE_2T3E3_CPLD_VAL_CRC32 |
 		cpld_val_map[SBE_2T3E3_CPLD_VAL_LOOP_TIMING_SOURCE][sc->h.slot];
 	cpld_write(sc, SBE_2T3E3_CPLD_REG_PCRA, val);
 
-	
+	/* PCRB */
 	val = 0;
 	cpld_write(sc, SBE_2T3E3_CPLD_REG_PCRB, val);
 
-	
+	/* PCRC */
 	val = 0;
 	cpld_write(sc, SBE_2T3E3_CPLD_REG_PCRC, val);
 
-	
+	/* PBWF */
 	val = 0;
 	cpld_write(sc, SBE_2T3E3_CPLD_REG_PBWF, val);
 
-	
+	/* PBWL */
 	val = 0;
 	cpld_write(sc, SBE_2T3E3_CPLD_REG_PBWL, val);
 
-	
+	/* PLTR */
 	val = SBE_2T3E3_CPLD_VAL_LCV_COUNTER;
 	cpld_write(sc, SBE_2T3E3_CPLD_REG_PLTR, val);
 	udelay(1000);
 
-	
+	/* PLCR */
 	val = 0;
 	cpld_write(sc, SBE_2T3E3_CPLD_REG_PLCR, val);
 	udelay(1000);
 
-	
+	/* PPFR */
 	val = 0x55;
 	cpld_write(sc, SBE_2T3E3_CPLD_REG_PPFR, val);
-	
+	/* TODO: this doesn't work!!! */
 
-	
+	/* SERIAL_CHIP_SELECT */
 	val = 0;
 	cpld_write(sc, SBE_2T3E3_CPLD_REG_SERIAL_CHIP_SELECT, val);
 
-	
+	/* PICSR */
 	val = SBE_2T3E3_CPLD_VAL_DMO_SIGNAL_DETECTED |
 		SBE_2T3E3_CPLD_VAL_RECEIVE_LOSS_OF_LOCK_DETECTED |
 		SBE_2T3E3_CPLD_VAL_RECEIVE_LOSS_OF_SIGNAL_DETECTED;
@@ -105,11 +105,16 @@ void cpld_start_intr(struct channel *sc)
 {
 	u32 val;
 
-	
+	/* PIER */
 	val = SBE_2T3E3_CPLD_VAL_INTERRUPT_FROM_ETHERNET_ENABLE |
 		SBE_2T3E3_CPLD_VAL_INTERRUPT_FROM_FRAMER_ENABLE;
 	cpld_write(sc, SBE_2T3E3_CPLD_REG_PIER, val);
 #if 0
+	/*
+	  do you want to hang up your computer?
+	  ENABLE REST OF INTERRUPTS !!!
+	  you have been warned :).
+	*/
 #endif
 }
 
@@ -117,7 +122,7 @@ void cpld_stop_intr(struct channel *sc)
 {
 	u32 val;
 
-	
+	/* PIER */
 	val = 0;
 	cpld_write(sc, SBE_2T3E3_CPLD_REG_PIER, val);
 }
@@ -156,6 +161,7 @@ void cpld_set_frame_mode(struct channel *sc, u32 mode)
 	sc->p.frame_mode = mode;
 }
 
+/* set rate of the local clock */
 void cpld_set_frame_type(struct channel *sc, u32 type)
 {
 	switch (type) {

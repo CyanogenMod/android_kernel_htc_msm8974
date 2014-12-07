@@ -13,11 +13,11 @@
 		long retval = -1; \
 		switch (_sc->regs->trap) { \
 		case 0x300: \
-			 \
+			/* data exception */ \
 			retval = _sc->regs->dar; \
 			break; \
 		case 0x400: \
-			 \
+			/* instruction exception */ \
 			retval = _sc->regs->nip; \
 			break; \
 		default: \
@@ -31,11 +31,11 @@
 		long retval = -1; \
 		switch (_sc->regs->trap) { \
 		case 0x300: \
-			 \
+			/* data exception */ \
 			retval = !!(_sc->regs->dsisr & DSISR_WRITE); \
 			break; \
 		case 0x400: \
-			 \
+			/* instruction exception: not a write */ \
 			retval = 0; \
 			break; \
 		default: \

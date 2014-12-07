@@ -115,6 +115,10 @@ static int mc13xxx_rtc_set_mmss(struct device *dev, unsigned long secs)
 
 	mc13xxx_lock(priv->mc13xxx);
 
+	/*
+	 * temporarily invalidate alarm to prevent triggering it when the day is
+	 * already updated while the time isn't yet.
+	 */
 	ret = mc13xxx_reg_read(priv->mc13xxx, MC13XXX_RTCTODA, &alarmseconds);
 	if (unlikely(ret))
 		goto out;
@@ -126,6 +130,10 @@ static int mc13xxx_rtc_set_mmss(struct device *dev, unsigned long secs)
 			goto out;
 	}
 
+	/*
+	 * write seconds=0 to prevent a day switch between writing days
+	 * and seconds below
+	 */
 	ret = mc13xxx_reg_write(priv->mc13xxx, MC13XXX_RTCTOD, 0);
 	if (unlikely(ret))
 		goto out;
@@ -138,7 +146,7 @@ static int mc13xxx_rtc_set_mmss(struct device *dev, unsigned long secs)
 	if (unlikely(ret))
 		goto out;
 
-	
+	/* restore alarm */
 	if (alarmseconds < 86400) {
 		ret = mc13xxx_reg_write(priv->mc13xxx,
 				MC13XXX_RTCTODA, alarmseconds);
@@ -210,7 +218,7 @@ static int mc13xxx_rtc_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 
 	mc13xxx_lock(priv->mc13xxx);
 
-	
+	/* disable alarm to prevent false triggering */
 	ret = mc13xxx_reg_write(priv->mc13xxx, MC13XXX_RTCTODA, 0x1ffff);
 	if (unlikely(ret))
 		goto out;

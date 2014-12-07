@@ -11,6 +11,11 @@
  * any later version.
  */
 
+/*
+ * Roccat Pyra is a mobile gamer mouse which comes in wired and wireless
+ * variant. Wireless variant is not tested.
+ * Userland tools can be found at http://sourceforge.net/projects/roccat
+ */
 
 #include <linux/device.h>
 #include <linux/input.h>
@@ -24,6 +29,7 @@
 
 static uint profile_numbers[5] = {0, 1, 2, 3, 4};
 
+/* pyra_class is used for creating sysfs attributes via roccat char device */
 static struct class *pyra_class;
 
 static void profile_activated(struct pyra_device *pyra,
@@ -61,7 +67,7 @@ static int pyra_receive_control_status(struct usb_device *usb_dev)
 		retval = roccat_common_receive(usb_dev, PYRA_COMMAND_CONTROL,
 				&control, sizeof(struct pyra_control));
 
-		
+		/* requested too early, try again */
 	} while (retval == -EPROTO);
 
 	if (!retval && control.command == PYRA_COMMAND_CONTROL &&
@@ -616,6 +622,10 @@ static void pyra_report_to_chrdev(struct pyra_device const *pyra,
 		if (button_event->data2 == PYRA_MOUSE_EVENT_BUTTON_PRESS) {
 			roccat_report.type = button_event->type;
 			roccat_report.key = button_event->data1;
+			/*
+			 * pyra reports profile numbers with range 1-5.
+			 * Keeping this behaviour.
+			 */
 			roccat_report.value = pyra->actual_profile + 1;
 			roccat_report_event(pyra->chrdev_minor,
 					(uint8_t const *)&roccat_report);
@@ -667,7 +677,7 @@ static int __init pyra_init(void)
 {
 	int retval;
 
-	
+	/* class name has to be same as driver name */
 	pyra_class = class_create(THIS_MODULE, "pyra");
 	if (IS_ERR(pyra_class))
 		return PTR_ERR(pyra_class);

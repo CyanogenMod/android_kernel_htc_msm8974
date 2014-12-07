@@ -1,3 +1,6 @@
+/*  Date: 2011/3/7 11:00:00
+ *  Revision: 2.11
+ */
 
 /*
  * This software program is licensed subject to the GNU General Public License
@@ -8,6 +11,10 @@
  */
 
 
+/* file BMA150.c
+   brief This file contains all function implementations for the BMA150 in linux
+
+*/
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -60,6 +67,7 @@
 #define BMA150_CHIP_ID__LEN		3
 #define BMA150_CHIP_ID__REG		BMA150_CHIP_ID_REG
 
+/* DATA REGISTERS */
 
 #define BMA150_NEW_DATA_X__POS		0
 #define BMA150_NEW_DATA_X__LEN		1
@@ -96,6 +104,7 @@
 #define BMA150_ACC_Z_MSB__MSK		0xFF
 #define BMA150_ACC_Z_MSB__REG		BMA150_Z_AXIS_MSB_REG
 
+/* CONTROL BITS */
 
 #define BMA150_SLEEP__POS			0
 #define BMA150_SLEEP__LEN			1
@@ -122,18 +131,21 @@
 #define BMA150_RESET_INT__MSK		0x40
 #define BMA150_RESET_INT__REG		BMA150_CTRL_REG
 
+/* BANDWIDTH dependend definitions */
 
 #define BMA150_BANDWIDTH__POS				0
 #define BMA150_BANDWIDTH__LEN				3
 #define BMA150_BANDWIDTH__MSK				0x07
 #define BMA150_BANDWIDTH__REG				BMA150_RANGE_BWIDTH_REG
 
+/* RANGE */
 
 #define BMA150_RANGE__POS				3
 #define BMA150_RANGE__LEN				2
 #define BMA150_RANGE__MSK				0x18
 #define BMA150_RANGE__REG				BMA150_RANGE_BWIDTH_REG
 
+/* WAKE UP */
 
 #define BMA150_WAKE_UP__POS			0
 #define BMA150_WAKE_UP__LEN			1
@@ -152,6 +164,7 @@
 #define BMA150_SET_BITSLICE(regvar, bitname, val)\
 	((regvar & ~bitname##__MSK) | ((val<<bitname##__POS)&bitname##__MSK))
 
+/* range and bandwidth */
 
 #define BMA150_RANGE_2G			0
 #define BMA150_RANGE_4G			1
@@ -165,6 +178,7 @@
 #define BMA150_BW_750HZ		5
 #define BMA150_BW_1500HZ	6
 
+/* mode settings */
 
 #define BMA150_MODE_NORMAL      0
 #define BMA150_MODE_SLEEP       2

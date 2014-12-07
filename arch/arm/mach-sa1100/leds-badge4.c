@@ -66,7 +66,7 @@ void badge4_leds_event(led_event_t evt)
 
 #ifdef CONFIG_LEDS_CPU
         case led_idle_start:
-		
+		/* LED off when system is idle */
                 if (!(led_state & LED_STATE_CLAIMED))
                         hw_led_state &= ~LED_IDLE;
                 break;

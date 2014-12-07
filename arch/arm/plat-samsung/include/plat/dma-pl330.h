@@ -11,6 +11,15 @@
 #ifndef __DMA_PL330_H_
 #define __DMA_PL330_H_ __FILE__
 
+/*
+ * PL330 can assign any channel to communicate with
+ * any of the peripherals attched to the DMAC.
+ * For the sake of consistency across client drivers,
+ * We keep the channel names unchanged and only add
+ * missing peripherals are added.
+ * Order is not important since DMA PL330 API driver
+ * use these just as IDs.
+ */
 enum dma_ch {
 	DMACH_DT_PROP = -1,
 	DMACH_UART0_RX = 0,
@@ -89,7 +98,7 @@ enum dma_ch {
 	DMACH_MTOM_5,
 	DMACH_MTOM_6,
 	DMACH_MTOM_7,
-	
+	/* END Marker, also used to denote a reserved channel */
 	DMACH_MAX,
 };
 
@@ -109,4 +118,4 @@ static inline bool samsung_dma_is_dmadev(void)
 
 #include <plat/dma-ops.h>
 
-#endif	
+#endif	/* __DMA_PL330_H_ */

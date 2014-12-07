@@ -13,7 +13,9 @@
 #ifndef _ARCH_ARM_MACH_MSM_PM_BOOT_H
 #define _ARCH_ARM_MACH_MSM_PM_BOOT_H
 
+/* 8x25 specific macros */
 #define MPA5_CFG_CTL_REG	0x30
+/* end */
 
 enum {
 	MSM_PM_BOOT_CONFIG_TZ		    ,

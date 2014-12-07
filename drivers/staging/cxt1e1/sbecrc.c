@@ -20,6 +20,7 @@
 #include "sbecom_inline_linux.h"
 #include "sbe_promformat.h"
 
+/* defines */
 #define CRC32_POLYNOMIAL                0xEDB88320L
 #define CRC_TABLE_ENTRIES                       256
 
@@ -33,6 +34,14 @@ static u_int32_t CRCTable[CRC_TABLE_ENTRIES];
 #endif
 
 
+/***************************************************************************
+*
+* genCrcTable - fills in CRCTable, as used by sbeCrc()
+*
+* RETURNS: N/A
+*
+* ERRNO: N/A
+***************************************************************************/
 
 static void
 genCrcTable (u_int32_t *CRCTable)
@@ -57,16 +66,38 @@ genCrcTable (u_int32_t *CRCTable)
 }
 
 
+/***************************************************************************
+*
+* sbeCrc - generates a CRC on a given buffer, and initial CRC
+*
+* This routine calculates the CRC for a buffer of data using the
+* table lookup method. It accepts an original value for the crc,
+* and returns the updated value. This permits "catenation" of
+* discontiguous buffers. An original value of 0 for the "first"
+* buffer is the norm.
+*
+* Based on "File Verification Using CRC" by Mark R. Nelson in Dr. Dobb's
+* Journal, May 1992, pp. 64-67.  This algorithm generates the same CRC
+* values as ZMODEM and PKZIP.
+*
+* RETURNS: calculated crc of block
+*
+*/
 
 void
-sbeCrc (u_int8_t *buffer,          
-        u_int32_t count,           
-        u_int32_t initialCrc,      
+sbeCrc (u_int8_t *buffer,          /* data buffer to crc */
+        u_int32_t count,           /* length of block in bytes */
+        u_int32_t initialCrc,      /* starting CRC */
         u_int32_t *result)
 {
     u_int32_t     *tbl = 0;
     u_int32_t      temp1, temp2, crc;
 
+    /*
+     * if table not yet created, do so. Don't care about "extra" time
+     * checking this every time sbeCrc() is called, since CRC calculations are
+     * already time consuming
+     */
     if (!crcTableInit)
     {
 #ifdef STATIC_CRC_TABLE
@@ -76,13 +107,14 @@ sbeCrc (u_int8_t *buffer,
         tbl = (u_int32_t *) OS_kmalloc (CRC_TABLE_ENTRIES * sizeof (u_int32_t));
         if (tbl == 0)
         {
-            *result = 0;            
+            *result = 0;            /* dummy up return value due to malloc
+                                     * failure */
             return;
         }
         genCrcTable (tbl);
 #endif
     }
-    
+    /* inverting bits makes ZMODEM & PKZIP compatible */
     crc = initialCrc ^ 0xFFFFFFFFL;
 
     while (count-- != 0)
@@ -102,3 +134,4 @@ sbeCrc (u_int8_t *buffer,
 #endif
 }
 
+/*** End-of-File ***/

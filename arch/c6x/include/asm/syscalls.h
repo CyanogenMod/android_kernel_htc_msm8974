@@ -20,8 +20,10 @@
 #include <linux/linkage.h>
 #include <linux/types.h>
 
+/* The array of function pointers for syscalls. */
 extern void *sys_call_table[];
 
+/* The following are trampolines in entry.S to handle 64-bit arguments */
 extern long sys_pread_c6x(unsigned int fd, char __user *buf,
 			  size_t count, off_t pos_low, off_t pos_high);
 extern long sys_pwrite_c6x(unsigned int fd, const char __user *buf,
@@ -50,4 +52,4 @@ extern asmlinkage long sys_c6x_execve(const char __user *name,
 
 #include <asm-generic/syscalls.h>
 
-#endif 
+#endif /* __ASM_C6X_SYSCALLS_H */

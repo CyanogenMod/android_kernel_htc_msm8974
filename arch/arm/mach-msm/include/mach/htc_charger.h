@@ -68,6 +68,13 @@ enum htc_extchg_event_type {
 	HTC_EXTCHG_EVENT_TYPE_MAX = 255,
 };
 
+enum htc_ftm_power_source_type {
+	HTC_FTM_PWR_SOURCE_TYPE_NONE = 0,
+	HTC_FTM_PWR_SOURCE_TYPE_USB,
+	HTC_FTM_PWR_SOURCE_TYPE_AC,
+	HTC_FTM_PWR_SOURCE_TYPE_MAX = 255,
+};
+
 struct htc_charger {
 	const char *name;
 	int ready;
@@ -88,7 +95,9 @@ struct htc_charger {
 #else
 	int (*set_limit_charge_enable)(bool enable);
 #endif
+	int (*set_limit_input_current)(bool enable, int reason);
 	int (*set_chg_iusbmax)(int val);
+	int (*set_chg_curr_settled)(int val);
 	int (*set_chg_vin_min)(int val);
 	int (*toggle_charger)(void);
 	int (*is_ovp)(int *result);
@@ -105,8 +114,11 @@ struct htc_charger {
 	int (*is_battery_full_eoc_stop)(int *result);
 	int (*get_charge_type)(void);
 	int (*get_chg_usb_iusbmax)(void);
+	int (*get_chg_curr_settled)(void);
 	int (*get_chg_vinmin)(void);
 	int (*get_input_voltage_regulation)(void);
+	int (*store_battery_charger_data)(void);
+	int (*set_ftm_charge_enable_type)(enum htc_ftm_power_source_type ftm_src);
 };
 
 int htc_charger_event_notify(enum htc_charger_event);

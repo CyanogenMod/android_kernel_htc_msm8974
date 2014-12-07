@@ -339,10 +339,14 @@ static bool jz4740_mmc_read_data(struct jz4740_mmc_host *host,
 		}
 		data->bytes_xfered += miter->length;
 
+		/* This can go away once MIPS implements
+		 * flush_kernel_dcache_page */
 		flush_dcache_page(miter->page);
 	}
 	sg_miter_stop(miter);
 
+	/* For whatever reason there is sometime one word more in the fifo then
+	 * requested */
 	timeout = 1000;
 	status = readl(host->base + JZ_REG_MMC_STATUS);
 	while (!(status & JZ_MMC_STATUS_DATA_FIFO_EMPTY) && --timeout) {
@@ -898,7 +902,7 @@ static int __devinit jz4740_mmc_probe(struct platform_device* pdev)
 	jz4740_mmc_clock_disable(host);
 	setup_timer(&host->timeout_timer, jz4740_mmc_timeout,
 			(unsigned long)host);
-	
+	/* It is not important when it times out, it just needs to timeout. */
 	set_timer_slack(&host->timeout_timer, HZ);
 
 	platform_set_drvdata(pdev, host);

@@ -35,6 +35,10 @@ void diva_free_dma_map_entry(struct _diva_dma_map_entry *pmap, int entry);
 void diva_get_dma_map_entry(struct _diva_dma_map_entry *pmap, int nr,
 			    void **pvirt, dword *pphys);
 void diva_free_dma_mapping(struct _diva_dma_map_entry *pmap);
+/*
+  Functionality to be implemented by OS wrapper
+  and running in process context
+*/
 void diva_init_dma_map(void *hdev,
 		       struct _diva_dma_map_entry **ppmap,
 		       int nentries);

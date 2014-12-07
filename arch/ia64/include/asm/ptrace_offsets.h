@@ -5,7 +5,74 @@
  * Copyright (C) 1999, 2003 Hewlett-Packard Co
  *	David Mosberger-Tang <davidm@hpl.hp.com>
  */
+/*
+ * The "uarea" that can be accessed via PEEKUSER and POKEUSER is a
+ * virtual structure that would have the following definition:
+ *
+ *	struct uarea {
+ *		struct ia64_fpreg fph[96];		// f32-f127
+ *		unsigned long nat_bits;
+ *		unsigned long empty1;
+ *		struct ia64_fpreg f2;			// f2-f5
+ *			:
+ *		struct ia64_fpreg f5;
+ *		struct ia64_fpreg f10;			// f10-f31
+ *			:
+ *		struct ia64_fpreg f31;
+ *		unsigned long r4;			// r4-r7
+ *			:
+ *		unsigned long r7;
+ *		unsigned long b1;			// b1-b5
+ *			:
+ *		unsigned long b5;
+ *		unsigned long ar_ec;
+ *		unsigned long ar_lc;
+ *		unsigned long empty2[5];
+ *		unsigned long cr_ipsr;
+ *		unsigned long cr_iip;
+ *		unsigned long cfm;
+ *		unsigned long ar_unat;
+ *		unsigned long ar_pfs;
+ *		unsigned long ar_rsc;
+ *		unsigned long ar_rnat;
+ *		unsigned long ar_bspstore;
+ *		unsigned long pr;
+ *		unsigned long b6;
+ *		unsigned long ar_bsp;
+ *		unsigned long r1;
+ *		unsigned long r2;
+ *		unsigned long r3;
+ *		unsigned long r12;
+ *		unsigned long r13;
+ *		unsigned long r14;
+ *		unsigned long r15;
+ *		unsigned long r8;
+ *		unsigned long r9;
+ *		unsigned long r10;
+ *		unsigned long r11;
+ *		unsigned long r16;
+ *			:
+ *		unsigned long r31;
+ *		unsigned long ar_ccv;
+ *		unsigned long ar_fpsr;
+ *		unsigned long b0;
+ *		unsigned long b7;
+ *		unsigned long f6;
+ *		unsigned long f7;
+ *		unsigned long f8;
+ *		unsigned long f9;
+ *		unsigned long ar_csd;
+ *		unsigned long ar_ssd;
+ *		unsigned long rsvd1[710];
+ *		unsigned long dbr[8];
+ *		unsigned long rsvd2[504];
+ *		unsigned long ibr[8];
+ *		unsigned long rsvd3[504];
+ *		unsigned long pmd[4];
+ *	}
+ */
 
+/* fph: */
 #define PT_F32			0x0000
 #define PT_F33			0x0010
 #define PT_F34			0x0020
@@ -155,7 +222,7 @@
 #define PT_AR_BSPSTORE		0x0868
 #define PT_PR			0x0870
 #define PT_B6			0x0878
-#define PT_AR_BSP		0x0880	
+#define PT_AR_BSP		0x0880	/* note: this points to the *end* of the backing store! */
 #define PT_R1			0x0888
 #define PT_R2			0x0890
 #define PT_R3			0x0898
@@ -194,8 +261,8 @@
 #define PT_AR_CSD		0x09c0
 #define PT_AR_SSD		0x09c8
 
-#define PT_DBR			0x2000	
-#define PT_IBR			0x3000	
-#define PT_PMD			0x4000	
+#define PT_DBR			0x2000	/* data breakpoint registers */
+#define PT_IBR			0x3000	/* instruction breakpoint registers */
+#define PT_PMD			0x4000	/* performance monitoring counters */
 
-#endif 
+#endif /* _ASM_IA64_PTRACE_OFFSETS_H */

@@ -18,7 +18,10 @@
 
 #define VERSION "0.2"
 
+/* This currently only exports the external temperature sensor,
+   since that's all the control loops need. */
 
+/* Some MAX6690 register numbers */
 #define MAX6690_INTERNAL_TEMP	0
 #define MAX6690_EXTERNAL_TEMP	1
 
@@ -37,7 +40,7 @@ static int wf_max6690_get(struct wf_sensor *sr, s32 *value)
 	if (max->i2c == NULL)
 		return -ENODEV;
 
-	
+	/* chip gets initialized by firmware */
 	data = i2c_smbus_read_byte_data(max->i2c, MAX6690_EXTERNAL_TEMP);
 	if (data < 0)
 		return data;
@@ -113,6 +116,10 @@ static struct i2c_client *wf_max6690_create(struct i2c_adapter *adapter,
 		goto fail;
 	}
 
+	/*
+	 * Let i2c-core delete that device on driver removal.
+	 * This is safe because i2c-core holds the core_lock mutex for us.
+	 */
 	list_add_tail(&client->detected, &wf_max6690_driver.clients);
 	return client;
 
@@ -134,6 +141,9 @@ static int wf_max6690_attach(struct i2c_adapter *adapter)
 	while ((dev = of_get_next_child(busnode, dev)) != NULL) {
 		u8 addr;
 
+		/* We must re-match the adapter in order to properly check
+		 * the channel on multibus setups
+		 */
 		if (!pmac_i2c_match_adapter(dev, adapter))
 			continue;
 		if (!of_device_is_compatible(dev, "max6690"))
@@ -176,7 +186,7 @@ static struct i2c_driver wf_max6690_driver = {
 
 static int __init wf_max6690_sensor_init(void)
 {
-	
+	/* Don't register on old machines that use therm_pm72 for now */
 	if (of_machine_is_compatible("PowerMac7,2") ||
 	    of_machine_is_compatible("PowerMac7,3") ||
 	    of_machine_is_compatible("RackMac3,1"))

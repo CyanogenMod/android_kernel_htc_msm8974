@@ -24,15 +24,22 @@
 #define _SPU_CSA_H_
 #ifdef __KERNEL__
 
+/*
+ * Total number of 128-bit registers.
+ */
 #define NR_SPU_GPRS         	128
 #define NR_SPU_SPRS         	9
 #define NR_SPU_REGS_PAD	    	7
-#define NR_SPU_SPILL_REGS   	144	
+#define NR_SPU_SPILL_REGS   	144	/* GPRS + SPRS + PAD */
 #define SIZEOF_SPU_SPILL_REGS	NR_SPU_SPILL_REGS * 16
 
 #define SPU_SAVE_COMPLETE      	0x3FFB
 #define SPU_RESTORE_COMPLETE   	0x3FFC
 
+/*
+ * Definitions for various 'stopped' status conditions,
+ * to be recreated during context restore.
+ */
 #define SPU_STOPPED_STATUS_P    1
 #define SPU_STOPPED_STATUS_I    2
 #define SPU_STOPPED_STATUS_H    3
@@ -43,14 +50,37 @@
 #define SPU_STOPPED_STATUS_P_I  8
 #define SPU_STOPPED_STATUS_R    9
 
+/*
+ * Definitions for software decrementer status flag.
+ */
 #define SPU_DECR_STATUS_RUNNING 0x1
 #define SPU_DECR_STATUS_WRAPPED 0x2
 
 #ifndef  __ASSEMBLY__
+/**
+ * spu_reg128 - generic 128-bit register definition.
+ */
 struct spu_reg128 {
 	u32 slot[4];
 };
 
+/**
+ * struct spu_lscsa - Local Store Context Save Area.
+ * @gprs: Array of saved registers.
+ * @fpcr: Saved floating point status control register.
+ * @decr: Saved decrementer value.
+ * @decr_status: Indicates software decrementer status flags.
+ * @ppu_mb: Saved PPU mailbox data.
+ * @ppuint_mb: Saved PPU interrupting mailbox data.
+ * @tag_mask: Saved tag group mask.
+ * @event_mask: Saved event mask.
+ * @srr0: Saved SRR0.
+ * @stopped_status: Conditions to be recreated by restore.
+ * @ls: Saved contents of Local Storage Area.
+ *
+ * The LSCSA represents state that is primarily saved and
+ * restored by SPU-side code.
+ */
 struct spu_lscsa {
 	struct spu_reg128 gprs[128];
 	struct spu_reg128 fpcr;
@@ -63,10 +93,20 @@ struct spu_lscsa {
 	struct spu_reg128 srr0;
 	struct spu_reg128 stopped_status;
 
+	/*
+	 * 'ls' must be page-aligned on all configurations.
+	 * Since we don't want to rely on having the spu-gcc
+	 * installed to build the kernel and this structure
+	 * is used in the SPU-side code, make it 64k-page
+	 * aligned for now.
+	 */
 	unsigned char ls[LS_SIZE] __attribute__((aligned(65536)));
 };
 
 #ifndef __SPU__
+/*
+ * struct spu_problem_collapsed - condensed problem state area, w/o pads.
+ */
 struct spu_problem_collapsed {
 	u64 spc_mssync_RW;
 	u32 mfc_lsa_W;
@@ -89,6 +129,9 @@ struct spu_problem_collapsed {
 	u32 unused_pad1;
 };
 
+/*
+ * struct spu_priv1_collapsed - condensed privileged 1 area, w/o pads.
+ */
 struct spu_priv1_collapsed {
 	u64 mfc_sr1_RW;
 	u64 mfc_lpid_RW;
@@ -150,6 +193,9 @@ struct spu_priv1_collapsed {
 	u64 spu_trace_cntl;
 };
 
+/*
+ * struct spu_priv2_collapsed - condensed privileged 2 area, w/o pads.
+ */
 struct spu_priv2_collapsed {
 	u64 slb_index_W;
 	u64 slb_esid_RW;
@@ -172,11 +218,32 @@ struct spu_priv2_collapsed {
 	u64 spu_atomic_status_RW;
 };
 
+/**
+ * struct spu_state
+ * @lscsa: Local Store Context Save Area.
+ * @prob: Collapsed Problem State Area, w/o pads.
+ * @priv1: Collapsed Privileged 1 Area, w/o pads.
+ * @priv2: Collapsed Privileged 2 Area, w/o pads.
+ * @spu_chnlcnt_RW: Array of saved channel counts.
+ * @spu_chnldata_RW: Array of saved channel data.
+ * @suspend_time: Time stamp when decrementer disabled.
+ *
+ * Structure representing the whole of the SPU
+ * context save area (CSA).  This struct contains
+ * all of the state necessary to suspend and then
+ * later optionally resume execution of an SPU
+ * context.
+ *
+ * The @lscsa region is by far the largest, and is
+ * allocated separately so that it may either be
+ * pinned or mapped to/from application memory, as
+ * appropriate for the OS environment.
+ */
 struct spu_state {
 	struct spu_lscsa *lscsa;
 #ifdef CONFIG_SPU_FS_64K_LS
 	int		use_big_pages;
-	
+	/* One struct page per 64k page */
 #define SPU_LSCSA_NUM_BIG_PAGES	(sizeof(struct spu_lscsa) / 0x10000)
 	struct page	*lscsa_pages[SPU_LSCSA_NUM_BIG_PAGES];
 #endif
@@ -193,7 +260,7 @@ struct spu_state {
 	spinlock_t register_lock;
 };
 
-#endif 
-#endif 
-#endif 
-#endif 
+#endif /* !__SPU__ */
+#endif /* __KERNEL__ */
+#endif /* !__ASSEMBLY__ */
+#endif /* _SPU_CSA_H_ */

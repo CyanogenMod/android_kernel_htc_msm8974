@@ -25,6 +25,7 @@
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/sched.h>
+#include <linux/bug.h>
 
 #include <linux/atomic.h>
 #include <asm/cacheflush.h>
@@ -131,9 +132,11 @@ static void dump_instr(const char *lvl, struct pt_regs *regs)
 		else
 			bad = __get_user(val, &((u32 *)addr)[i]);
 
-		if (!bad)
+		if (!bad){
+                        BUG_ON(p>= str+sizeof(str)-width-3);
 			p += sprintf(p, i == 0 ? "(%0*x) " : "%0*x ",
 					width, val);
+                }
 		else {
 			p += sprintf(p, "bad PC value");
 			break;
@@ -698,6 +701,7 @@ void __pgd_error(const char *file, int line, pgd_t pgd)
 asmlinkage void __div0(void)
 {
 	printk("Division by zero in kernel.\n");
+	BUG_ON(PANIC_CORRUPTION);
 	dump_stack();
 }
 EXPORT_SYMBOL(__div0);

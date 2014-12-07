@@ -74,7 +74,7 @@ void free_thread_info(struct thread_info *ti)
 	free_thread_xstate(ti->task);
 	free_pages((unsigned long)ti, THREAD_SIZE_ORDER);
 }
-#endif 
+#endif /* THREAD_SHIFT < PAGE_SHIFT */
 
 void arch_task_cache_init(void)
 {

@@ -194,7 +194,7 @@ nouveau_connector_set_encoder(struct drm_connector *connector,
 		   (dev_priv->card_type == NV_10 &&
 		    (dev->pci_device & 0x0ff0) != 0x0100 &&
 		    (dev->pci_device & 0x0ff0) != 0x0150))
-			
+			/* HW is broken */
 			connector->interlace_allowed = false;
 		else
 			connector->interlace_allowed = true;
@@ -219,7 +219,7 @@ nouveau_connector_detect(struct drm_connector *connector, bool force)
 	struct nouveau_i2c_chan *i2c;
 	int type;
 
-	
+	/* Cleanup the previous EDID block. */
 	if (nv_connector->edid) {
 		drm_mode_connector_update_edid_property(connector, NULL);
 		kfree(nv_connector->edid);
@@ -244,6 +244,11 @@ nouveau_connector_detect(struct drm_connector *connector, bool force)
 			return connector_status_disconnected;
 		}
 
+		/* Override encoder type for DVI-I based on whether EDID
+		 * says the display is digital or analog, both use the
+		 * same i2c channel so the value returned from ddc_detect
+		 * isn't necessarily correct.
+		 */
 		nv_partner = NULL;
 		if (nv_encoder->dcb->type == OUTPUT_TMDS)
 			nv_partner = find_encoder(connector, OUTPUT_ANALOG);
@@ -301,7 +306,7 @@ nouveau_connector_detect_lvds(struct drm_connector *connector, bool force)
 	struct nouveau_encoder *nv_encoder = NULL;
 	enum drm_connector_status status = connector_status_disconnected;
 
-	
+	/* Cleanup the previous EDID block. */
 	if (nv_connector->edid) {
 		drm_mode_connector_update_edid_property(connector, NULL);
 		kfree(nv_connector->edid);
@@ -312,13 +317,22 @@ nouveau_connector_detect_lvds(struct drm_connector *connector, bool force)
 	if (!nv_encoder)
 		return connector_status_disconnected;
 
-	
+	/* Try retrieving EDID via DDC */
 	if (!dev_priv->vbios.fp_no_ddc) {
 		status = nouveau_connector_detect(connector, force);
 		if (status == connector_status_connected)
 			goto out;
 	}
 
+	/* On some laptops (Sony, i'm looking at you) there appears to
+	 * be no direct way of accessing the panel's EDID.  The only
+	 * option available to us appears to be to ask ACPI for help..
+	 *
+	 * It's important this check's before trying straps, one of the
+	 * said manufacturer's laptops are configured in such a way
+	 * the nouveau decides an entry in the VBIOS FP mode table is
+	 * valid - it's not (rh#613284)
+	 */
 	if (nv_encoder->dcb->lvdsconf.use_acpi_for_edid) {
 		if (!nouveau_acpi_edid(dev, connector)) {
 			status = connector_status_connected;
@@ -326,12 +340,19 @@ nouveau_connector_detect_lvds(struct drm_connector *connector, bool force)
 		}
 	}
 
+	/* If no EDID found above, and the VBIOS indicates a hardcoded
+	 * modeline is avalilable for the panel, set it as the panel's
+	 * native mode and exit.
+	 */
 	if (nouveau_bios_fp_mode(dev, NULL) && (dev_priv->vbios.fp_no_ddc ||
 	    nv_encoder->dcb->lvdsconf.use_straps_for_mode)) {
 		status = connector_status_connected;
 		goto out;
 	}
 
+	/* Still nothing, some VBIOS images have a hardcoded EDID block
+	 * stored for the panel stored in them.
+	 */
 	if (!dev_priv->vbios.fp_no_ddc) {
 		struct edid *edid =
 			(struct edid *)nouveau_bios_embedded_edid(dev);
@@ -398,7 +419,7 @@ nouveau_connector_set_property(struct drm_connector *connector,
 	if (connector->encoder && connector->encoder->crtc)
 		nv_crtc = nouveau_crtc(connector->encoder->crtc);
 
-	
+	/* Scaling mode */
 	if (property == dev->mode_config.scaling_mode_property) {
 		bool modeset = false;
 
@@ -412,11 +433,14 @@ nouveau_connector_set_property(struct drm_connector *connector,
 			return -EINVAL;
 		}
 
-		
+		/* LVDS always needs gpu scaling */
 		if (connector->connector_type == DRM_MODE_CONNECTOR_LVDS &&
 		    value == DRM_MODE_SCALE_NONE)
 			return -EINVAL;
 
+		/* Changing between GPU and panel scaling requires a full
+		 * modeset
+		 */
 		if ((nv_connector->scaling_mode == DRM_MODE_SCALE_NONE) ||
 		    (value == DRM_MODE_SCALE_NONE))
 			modeset = true;
@@ -441,7 +465,7 @@ nouveau_connector_set_property(struct drm_connector *connector,
 		return 0;
 	}
 
-	
+	/* Underscan */
 	if (property == disp->underscan_property) {
 		if (nv_connector->underscan != value) {
 			nv_connector->underscan = value;
@@ -478,7 +502,7 @@ nouveau_connector_set_property(struct drm_connector *connector,
 		return 0;
 	}
 
-	
+	/* Dithering */
 	if (property == disp->dithering_mode) {
 		nv_connector->dithering_mode = value;
 		if (!nv_crtc || !nv_crtc->set_dither)
@@ -496,12 +520,12 @@ nouveau_connector_set_property(struct drm_connector *connector,
 	}
 
 	if (nv_crtc && nv_crtc->set_color_vibrance) {
-		
+		/* Hue */
 		if (property == disp->vibrant_hue_property) {
 			nv_crtc->vibrant_hue = value - 90;
 			return nv_crtc->set_color_vibrance(nv_crtc, true);
 		}
-		
+		/* Saturation */
 		if (property == disp->color_vibrance_property) {
 			nv_crtc->color_vibrance = value - 100;
 			return nv_crtc->set_color_vibrance(nv_crtc, true);
@@ -530,12 +554,15 @@ nouveau_connector_native_mode(struct drm_connector *connector)
 		    (mode->flags & DRM_MODE_FLAG_INTERLACE))
 			continue;
 
-		
+		/* Use preferred mode if there is one.. */
 		if (mode->type & DRM_MODE_TYPE_PREFERRED) {
 			NV_DEBUG_KMS(dev, "native mode from preferred\n");
 			return drm_mode_duplicate(dev, mode);
 		}
 
+		/* Otherwise, take the resolution with the largest width, then
+		 * height, then vertical refresh
+		 */
 		if (mode->hdisplay < high_w)
 			continue;
 
@@ -623,11 +650,11 @@ nouveau_connector_detect_depth(struct drm_connector *connector)
 	struct drm_display_mode *mode = nv_connector->native_mode;
 	bool duallink;
 
-	
+	/* if the edid is feeling nice enough to provide this info, use it */
 	if (nv_connector->edid && connector->display_info.bpc)
 		return;
 
-	
+	/* if not, we're out of options unless we're LVDS, default to 8bpc */
 	if (nv_encoder->dcb->type != OUTPUT_LVDS) {
 		connector->display_info.bpc = 8;
 		return;
@@ -635,13 +662,16 @@ nouveau_connector_detect_depth(struct drm_connector *connector)
 
 	connector->display_info.bpc = 6;
 
-	
+	/* LVDS: panel straps */
 	if (bios->fp_no_ddc) {
 		if (bios->fp.if_is_24bit)
 			connector->display_info.bpc = 8;
 		return;
 	}
 
+	/* LVDS: DDC panel, need to first determine the number of links to
+	 * know which if_is_24bit flag to check...
+	 */
 	if (nv_connector->edid &&
 	    nv_connector->type == DCB_CONNECTOR_LVDS_SPWG)
 		duallink = ((u8 *)nv_connector->edid)[121] == 2;
@@ -663,6 +693,8 @@ nouveau_connector_get_modes(struct drm_connector *connector)
 	struct drm_encoder *encoder = to_drm_encoder(nv_encoder);
 	int ret = 0;
 
+	/* destroy the native mode, the attached monitor could have changed.
+	 */
 	if (nv_connector->native_mode) {
 		drm_mode_destroy(dev, nv_connector->native_mode);
 		nv_connector->native_mode = NULL;
@@ -680,9 +712,16 @@ nouveau_connector_get_modes(struct drm_connector *connector)
 		nv_connector->native_mode = drm_mode_duplicate(dev, &mode);
 	}
 
+	/* Determine display colour depth for everything except LVDS now,
+	 * DP requires this before mode_valid() is called.
+	 */
 	if (connector->connector_type != DRM_MODE_CONNECTOR_LVDS)
 		nouveau_connector_detect_depth(connector);
 
+	/* Find the native mode if this is a digital panel, if we didn't
+	 * find any modes through DDC previously add the native mode to
+	 * the list of modes.
+	 */
 	if (!nv_connector->native_mode)
 		nv_connector->native_mode =
 			nouveau_connector_native_mode(connector);
@@ -694,6 +733,10 @@ nouveau_connector_get_modes(struct drm_connector *connector)
 		ret = 1;
 	}
 
+	/* Determine LVDS colour depth, must happen after determining
+	 * "native" mode as some VBIOS tables require us to use the
+	 * pixel clock as part of the lookup...
+	 */
 	if (connector->connector_type == DRM_MODE_CONNECTOR_LVDS)
 		nouveau_connector_detect_depth(connector);
 
@@ -872,7 +915,7 @@ nouveau_connector_create(struct drm_device *dev, int index)
 	connector = &nv_connector->base;
 	nv_connector->index = index;
 
-	
+	/* attempt to parse vbios connector type and hotplug gpio */
 	nv_connector->dcb = dcb_conn(dev, index);
 	if (nv_connector->dcb) {
 		static const u8 hpd[16] = {
@@ -895,13 +938,13 @@ nouveau_connector_create(struct drm_device *dev, int index)
 			nv_connector->type = DCB_CONNECTOR_NONE;
 		}
 
-		
+		/* Gigabyte NX85T */
 		if (nv_match_device(dev, 0x0421, 0x1458, 0x344c)) {
 			if (nv_connector->type == DCB_CONNECTOR_HDMI_1)
 				nv_connector->type = DCB_CONNECTOR_DVI_I;
 		}
 
-		
+		/* Gigabyte GV-NX86T512H */
 		if (nv_match_device(dev, 0x0402, 0x1458, 0x3455)) {
 			if (nv_connector->type == DCB_CONNECTOR_HDMI_1)
 				nv_connector->type = DCB_CONNECTOR_DVI_I;
@@ -911,6 +954,9 @@ nouveau_connector_create(struct drm_device *dev, int index)
 		nv_connector->hpd = DCB_GPIO_UNUSED;
 	}
 
+	/* no vbios data, or an unknown dcb connector type - attempt to
+	 * figure out something suitable ourselves
+	 */
 	if (nv_connector->type == DCB_CONNECTOR_NONE) {
 		struct drm_nouveau_private *dev_priv = dev->dev_private;
 		struct dcb_table *dcbt = &dev_priv->vbios.dcb;
@@ -959,18 +1005,18 @@ nouveau_connector_create(struct drm_device *dev, int index)
 		funcs = &nouveau_connector_funcs;
 	}
 
-	
+	/* defaults, will get overridden in detect() */
 	connector->interlace_allowed = false;
 	connector->doublescan_allowed = false;
 
 	drm_connector_init(dev, connector, funcs, type);
 	drm_connector_helper_add(connector, &nouveau_connector_helper_funcs);
 
-	
+	/* Init DVI-I specific properties */
 	if (nv_connector->type == DCB_CONNECTOR_DVI_I)
 		drm_connector_attach_property(connector, dev->mode_config.dvi_i_subconnector_property, 0);
 
-	
+	/* Add overscan compensation options to digital outputs */
 	if (disp->underscan_property &&
 	    (type == DRM_MODE_CONNECTOR_DVID ||
 	     type == DRM_MODE_CONNECTOR_DVII ||
@@ -987,7 +1033,7 @@ nouveau_connector_create(struct drm_device *dev, int index)
 					      0);
 	}
 
-	
+	/* Add hue and saturation options */
 	if (disp->vibrant_hue_property)
 		drm_connector_attach_property(connector,
 					      disp->vibrant_hue_property,
@@ -1004,7 +1050,7 @@ nouveau_connector_create(struct drm_device *dev, int index)
 					dev->mode_config.scaling_mode_property,
 					nv_connector->scaling_mode);
 		}
-		
+		/* fall-through */
 	case DCB_CONNECTOR_TV_0:
 	case DCB_CONNECTOR_TV_1:
 	case DCB_CONNECTOR_TV_3:

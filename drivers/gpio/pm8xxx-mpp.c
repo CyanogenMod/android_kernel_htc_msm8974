@@ -24,12 +24,15 @@
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/mfd/pm8xxx/mpp.h>
 
+/* MPP Type */
 #define	PM8XXX_MPP_TYPE_MASK		0xE0
 #define	PM8XXX_MPP_TYPE_SHIFT		5
 
+/* MPP Config Level */
 #define	PM8XXX_MPP_CONFIG_LVL_MASK	0x1C
 #define	PM8XXX_MPP_CONFIG_LVL_SHIFT	2
 
+/* MPP Config Control */
 #define	PM8XXX_MPP_CONFIG_CTRL_MASK	0x03
 #define	PM8XXX_MPP_CONFIG_CTRL_SHIFT	0
 

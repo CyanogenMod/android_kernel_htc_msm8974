@@ -245,7 +245,7 @@ int snd_opl4_create(struct snd_card *card,
 		return err;
 	}
 
-	
+	/* opl3 initialization disabled opl4, so reenable */
 	snd_opl4_enable_opl4(opl4);
 
 	snd_opl4_create_mixer(opl4);

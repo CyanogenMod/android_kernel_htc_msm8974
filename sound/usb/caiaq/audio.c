@@ -49,7 +49,7 @@ static struct snd_pcm_hardware snd_usb_caiaq_pcm_hardware = {
 	.rates 		= (SNDRV_PCM_RATE_44100 | SNDRV_PCM_RATE_48000 |
 			   SNDRV_PCM_RATE_96000),
 	.rate_min	= 44100,
-	.rate_max	= 0, 
+	.rate_max	= 0, /* will overwrite later */
 	.channels_min	= CHANNELS_PER_STREAM,
 	.channels_max	= CHANNELS_PER_STREAM,
 	.buffer_bytes_max = MAX_BUFFER_SIZE,
@@ -163,6 +163,8 @@ static int snd_usb_caiaq_substream_close(struct snd_pcm_substream *substream)
 	debug("%s(%p)\n", __func__, substream);
 	if (all_substreams_zero(dev->sub_playback) &&
 	    all_substreams_zero(dev->sub_capture)) {
+		/* when the last client has stopped streaming,
+		 * all sample rates are allowed again */
 		stream_stop(dev);
 		dev->pcm_info.rates = dev->samplerates;
 	}
@@ -185,6 +187,7 @@ static int snd_usb_caiaq_pcm_hw_free(struct snd_pcm_substream *sub)
 	return snd_pcm_lib_free_pages(sub);
 }
 
+/* this should probably go upstream */
 #if SNDRV_PCM_RATE_5512 != 1 << 0 || SNDRV_PCM_RATE_192000 != 1 << 12
 #error "Change this table"
 #endif
@@ -240,6 +243,8 @@ static int snd_usb_caiaq_pcm_prepare(struct snd_pcm_substream *substream)
 	if (dev->streaming)
 		return 0;
 
+	/* the first client that opens a stream defines the sample rate
+	 * setting for all subsequent calls, until the last client closed. */
 	for (i=0; i < ARRAY_SIZE(rates); i++)
 		if (runtime->rate == rates[i])
 			dev->pcm_info.rates = 1 << i;
@@ -323,6 +328,7 @@ unlock:
 	return ptr;
 }
 
+/* operators for both playback and capture */
 static struct snd_pcm_ops snd_usb_caiaq_ops = {
 	.open =		snd_usb_caiaq_substream_open,
 	.close =	snd_usb_caiaq_substream_close,
@@ -439,7 +445,7 @@ static void read_in_urb_mode3(struct snd_usb_caiaqdev *dev,
 	unsigned char *usb_buf = urb->transfer_buffer + iso->offset;
 	int stream, i;
 
-	
+	/* paranoia check */
 	if (iso->actual_length % (BYTES_PER_SAMPLE_USB * CHANNELS_PER_STREAM))
 		return;
 
@@ -456,7 +462,7 @@ static void read_in_urb_mode3(struct snd_usb_caiaqdev *dev,
 			}
 
 			for (c = 0; c < CHANNELS_PER_STREAM; c++) {
-				
+				/* 3 audio data bytes, followed by 1 check byte */
 				if (audio_buf) {
 					for (n = 0; n < BYTES_PER_SAMPLE; n++) {
 						audio_buf[dev->audio_in_buf_pos[stream]++] = usb_buf[i+n];
@@ -542,7 +548,7 @@ static void fill_out_urb_mode_0(struct snd_usb_caiaqdev *dev,
 				usb_buf[i] = 0;
 		}
 
-		
+		/* fill in the check bytes */
 		if (dev->spec.data_alignment == 2 &&
 		    i % (dev->n_streams * BYTES_PER_SAMPLE_USB) ==
 		        (dev->n_streams * CHANNELS_PER_STREAM))
@@ -587,7 +593,7 @@ static void fill_out_urb_mode_3(struct snd_usb_caiaqdev *dev,
 
 				i += BYTES_PER_SAMPLE;
 
-				
+				/* fill in the check byte pattern */
 				usb_buf[i++] = (stream << 1) | c;
 			}
 		}
@@ -625,7 +631,7 @@ static void read_completed(struct urb *urb)
 	if (!dev->streaming)
 		return;
 
-	
+	/* find an unused output urb that is unused */
 	for (i = 0; i < N_URBS; i++)
 		if (test_and_set_bit(i, &dev->outurb_active_mask) == 0) {
 			out = dev->data_urbs_out[i];
@@ -637,6 +643,8 @@ static void read_completed(struct urb *urb)
 		goto requeue;
 	}
 
+	/* read the recently received packet and send back one which has
+	 * the same layout */
 	for (frame = 0; frame < FRAMES_PER_URB; frame++) {
 		if (urb->iso_frame_desc[frame].status)
 			continue;
@@ -670,7 +678,7 @@ static void read_completed(struct urb *urb)
 	}
 
 requeue:
-	
+	/* re-submit inbound urb */
 	for (frame = 0; frame < FRAMES_PER_URB; frame++) {
 		urb->iso_frame_desc[frame].offset = BYTES_PER_FRAME * frame;
 		urb->iso_frame_desc[frame].length = BYTES_PER_FRAME;
@@ -810,7 +818,7 @@ int snd_usb_caiaq_audio_init(struct snd_usb_caiaqdev *dev)
 	memcpy(&dev->pcm_info, &snd_usb_caiaq_pcm_hardware,
 			sizeof(snd_usb_caiaq_pcm_hardware));
 
-	
+	/* setup samplerates */
 	dev->samplerates = dev->pcm_info.rates;
 	switch (dev->chip.usb_id) {
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_AK1):
@@ -818,7 +826,7 @@ int snd_usb_caiaq_audio_init(struct snd_usb_caiaqdev *dev)
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_SESSIONIO):
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_GUITARRIGMOBILE):
 		dev->samplerates |= SNDRV_PCM_RATE_192000;
-		
+		/* fall thru */
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_AUDIO2DJ):
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_AUDIO4DJ):
 	case USB_ID(USB_VID_NATIVEINSTRUMENTS, USB_PID_AUDIO8DJ):

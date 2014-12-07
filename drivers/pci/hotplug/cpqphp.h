@@ -29,10 +29,10 @@
 #define _CPQPHP_H
 
 #include <linux/interrupt.h>
-#include <asm/io.h>		
-#include <linux/delay.h>	
+#include <asm/io.h>		/* for read? and write? functions */
+#include <linux/delay.h>	/* for delays */
 #include <linux/mutex.h>
-#include <linux/sched.h>	
+#include <linux/sched.h>	/* for signal_pending() */
 
 #define MY_NAME	"cpqphp"
 
@@ -57,6 +57,7 @@ struct smbios_system_slot {
 	u8 properties2;
 } __attribute__ ((packed));
 
+/* offsets to the smbios generic type based on the above structure layout */
 enum smbios_system_slot_offsets {
 	SMBIOS_SLOT_GENERIC_TYPE =	offsetof(struct smbios_system_slot, type),
 	SMBIOS_SLOT_GENERIC_LENGTH =	offsetof(struct smbios_system_slot, length),
@@ -77,6 +78,7 @@ struct smbios_generic {
 	u16 handle;
 } __attribute__ ((packed));
 
+/* offsets to the smbios generic type based on the above structure layout */
 enum smbios_generic_offsets {
 	SMBIOS_GENERIC_TYPE =	offsetof(struct smbios_generic, type),
 	SMBIOS_GENERIC_LENGTH =	offsetof(struct smbios_generic, length),
@@ -100,6 +102,7 @@ struct smbios_entry_point {
 	u8 bcd_rev;
 } __attribute__ ((packed));
 
+/* offsets to the smbios entry point based on the above structure layout */
 enum smbios_entry_point_offsets {
 	ANCHOR =		offsetof(struct smbios_entry_point, anchor[0]),
 	EP_CHECKSUM =		offsetof(struct smbios_entry_point, ep_checksum),
@@ -116,36 +119,37 @@ enum smbios_entry_point_offsets {
 	BCD_REV =		offsetof(struct smbios_entry_point, bcd_rev),
 };
 
-struct ctrl_reg {			
-	u8	slot_RST;		
-	u8	slot_enable;		
-	u16	misc;			
-	u32	led_control;		
-	u32	int_input_clear;	
-	u32	int_mask;		
-	u8	reserved0;		
-	u8	reserved1;		
-	u8	reserved2;		
-	u8	gen_output_AB;		
-	u32	non_int_input;		
-	u32	reserved3;		
-	u32	reserved4;		
-	u32	reserved5;		
-	u8	reserved6;		
-	u8	reserved7;		
-	u16	reserved8;		
-	u8	slot_mask;		
-	u8	reserved9;		
-	u8	reserved10;		
-	u8	reserved11;		
-	u8	slot_SERR;		
-	u8	slot_power;		
-	u8	reserved12;		
-	u8	reserved13;		
-	u8	next_curr_freq;		
-	u8	reset_freq_mode;	
+struct ctrl_reg {			/* offset */
+	u8	slot_RST;		/* 0x00 */
+	u8	slot_enable;		/* 0x01 */
+	u16	misc;			/* 0x02 */
+	u32	led_control;		/* 0x04 */
+	u32	int_input_clear;	/* 0x08 */
+	u32	int_mask;		/* 0x0a */
+	u8	reserved0;		/* 0x10 */
+	u8	reserved1;		/* 0x11 */
+	u8	reserved2;		/* 0x12 */
+	u8	gen_output_AB;		/* 0x13 */
+	u32	non_int_input;		/* 0x14 */
+	u32	reserved3;		/* 0x18 */
+	u32	reserved4;		/* 0x1a */
+	u32	reserved5;		/* 0x20 */
+	u8	reserved6;		/* 0x24 */
+	u8	reserved7;		/* 0x25 */
+	u16	reserved8;		/* 0x26 */
+	u8	slot_mask;		/* 0x28 */
+	u8	reserved9;		/* 0x29 */
+	u8	reserved10;		/* 0x2a */
+	u8	reserved11;		/* 0x2b */
+	u8	slot_SERR;		/* 0x2c */
+	u8	slot_power;		/* 0x2d */
+	u8	reserved12;		/* 0x2e */
+	u8	reserved13;		/* 0x2f */
+	u8	next_curr_freq;		/* 0x30 */
+	u8	reset_freq_mode;	/* 0x31 */
 } __attribute__ ((packed));
 
+/* offsets to the controller registers based on the above structure layout */
 enum ctrl_offsets {
 	SLOT_RST =		offsetof(struct ctrl_reg, slot_RST),
 	SLOT_ENABLE =		offsetof(struct ctrl_reg, slot_enable),
@@ -187,6 +191,9 @@ struct hrt {
 	u32 reserved2;
 } __attribute__ ((packed));
 
+/* offsets to the hotplug resource table registers based on the above
+ * structure layout
+ */
 enum hrt_offsets {
 	SIG0 =			offsetof(struct hrt, sig0),
 	SIG1 =			offsetof(struct hrt, sig1),
@@ -213,6 +220,9 @@ struct slot_rt {
 	u16 pre_mem_length;
 } __attribute__ ((packed));
 
+/* offsets to the hotplug slot resource table registers based on the above
+ * structure layout
+ */
 enum slot_rt_offsets {
 	DEV_FUNC =		offsetof(struct slot_rt, dev_func),
 	PRIMARY_BUS =		offsetof(struct slot_rt, primary_bus),
@@ -281,8 +291,8 @@ struct event_info {
 struct controller {
 	struct controller *next;
 	u32 ctrl_int_comp;
-	struct mutex crit_sect;	
-	void __iomem *hpc_reg;	
+	struct mutex crit_sect;	/* critical section mutex */
+	void __iomem *hpc_reg;	/* cookie for our pci controller location */
 	struct pci_resource *mem_head;
 	struct pci_resource *p_mem_head;
 	struct pci_resource *io_head;
@@ -294,23 +304,23 @@ struct controller {
 	u8 next_event;
 	u8 interrupt;
 	u8 cfgspc_irq;
-	u8 bus;			
+	u8 bus;			/* bus number for the pci hotplug controller */
 	u8 rev;
 	u8 slot_device_offset;
 	u8 first_slot;
 	u8 add_support;
 	u8 push_flag;
-	u8 push_button;			
-	u8 slot_switch_type;		
-	u8 defeature_PHP;		
-	u8 alternate_base_address;	
-	u8 pci_config_space;		
-	u8 pcix_speed_capability;	
-	u8 pcix_support;		
+	u8 push_button;			/* 0 = no pushbutton, 1 = pushbutton present */
+	u8 slot_switch_type;		/* 0 = no switch, 1 = switch present */
+	u8 defeature_PHP;		/* 0 = PHP not supported, 1 = PHP supported */
+	u8 alternate_base_address;	/* 0 = not supported, 1 = supported */
+	u8 pci_config_space;		/* Index/data access to working registers 0 = not supported, 1 = supported */
+	u8 pcix_speed_capability;	/* PCI-X */
+	u8 pcix_support;		/* PCI-X */
 	u16 vendor_id;
 	struct work_struct int_task_event;
-	wait_queue_head_t queue;	
-	struct dentry *dentry;		
+	wait_queue_head_t queue;	/* sleep & wake process */
+	struct dentry *dentry;		/* debugfs dentry */
 };
 
 struct irq_mapping {
@@ -379,6 +389,9 @@ struct resource_lists {
 #define REMOVE_NOT_SUPPORTED		0x00000003
 
 
+/*
+ * error Messages
+ */
 #define msg_initialization_err	"Initialization failure, error=%d\n"
 #define msg_HPC_rev_error	"Unsupported revision of the PCI hot plug controller found.\n"
 #define msg_HPC_non_compaq_or_intel	"The PCI hot plug controller is not supported by this driver.\n"
@@ -390,11 +403,13 @@ struct resource_lists {
 #define msg_button_ignore	"PCI slot #%d - button press ignored.  (action in progress...)\n"
 
 
+/* debugfs functions for the hotplug controller info */
 extern void cpqhp_initialize_debugfs(void);
 extern void cpqhp_shutdown_debugfs(void);
 extern void cpqhp_create_debugfs_files(struct controller *ctrl);
 extern void cpqhp_remove_debugfs_files(struct controller *ctrl);
 
+/* controller functions */
 extern void cpqhp_pushbutton_thread(unsigned long event_pointer);
 extern irqreturn_t cpqhp_ctrl_intr(int IRQ, void *data);
 extern int cpqhp_find_available_resources(struct controller *ctrl,
@@ -408,8 +423,10 @@ extern int cpqhp_process_SI(struct controller *ctrl, struct pci_func *func);
 extern int cpqhp_process_SS(struct controller *ctrl, struct pci_func *func);
 extern int cpqhp_hardware_test(struct controller *ctrl, int test_num);
 
+/* resource functions */
 extern int	cpqhp_resource_sort_and_combine	(struct pci_resource **head);
 
+/* pci functions */
 extern int cpqhp_set_irq(u8 bus_num, u8 dev_num, u8 int_pin, u8 irq_num);
 extern int cpqhp_get_bus_dev(struct controller *ctrl, u8 *bus_num, u8 *dev_num,
 			     u8 slot);
@@ -432,22 +449,30 @@ extern int cpqhp_configure_device(struct controller *ctrl,
 				  struct pci_func *func);
 extern int cpqhp_unconfigure_device(struct pci_func *func);
 
+/* Global variables */
 extern int cpqhp_debug;
 extern int cpqhp_legacy_mode;
 extern struct controller *cpqhp_ctrl_list;
 extern struct pci_func *cpqhp_slot_list[256];
 extern struct irq_routing_table *cpqhp_routing_table;
 
+/* these can be gotten rid of, but for debugging they are purty */
 extern u8 cpqhp_nic_irq;
 extern u8 cpqhp_disk_irq;
 
 
+/* inline functions */
 
 static inline const char *slot_name(struct slot *slot)
 {
 	return hotplug_slot_name(slot->hotplug_slot);
 }
 
+/*
+ * return_resource
+ *
+ * Puts node back in the resource list pointed to by head
+ */
 static inline void return_resource(struct pci_resource **head,
 				   struct pci_resource *node)
 {
@@ -564,6 +589,13 @@ static inline u8 read_slot_enable(struct controller *ctrl)
 }
 
 
+/**
+ * get_controller_speed - find the current frequency/mode of controller.
+ *
+ * @ctrl: controller to get frequency/mode for.
+ *
+ * Returns controller speed.
+ */
 static inline u8 get_controller_speed(struct controller *ctrl)
 {
 	u8 curr_freq;
@@ -588,6 +620,14 @@ static inline u8 get_controller_speed(struct controller *ctrl)
 }
 
 
+/**
+ * get_adapter_speed - find the max supported frequency/mode of adapter.
+ *
+ * @ctrl: hotplug controller.
+ * @hp_slot: hotplug slot where adapter is installed.
+ *
+ * Returns adapter speed.
+ */
 static inline u8 get_adapter_speed(struct controller *ctrl, u8 hp_slot)
 {
 	u32 temp_dword = readl(ctrl->hpc_reg + NON_INT_INPUT);
@@ -683,7 +723,7 @@ static inline int wait_for_ctrl_irq(struct controller *ctrl)
 
 	dbg("%s - start\n", __func__);
 	add_wait_queue(&ctrl->queue, &wait);
-	
+	/* Sleep for up to 1 second to wait for the LED to change. */
 	msleep_interruptible(1000);
 	remove_wait_queue(&ctrl->queue, &wait);
 	if (signal_pending(current))

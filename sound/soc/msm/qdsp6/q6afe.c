@@ -56,7 +56,7 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 			atomic_set(&this_afe.state, 0);
 			this_afe.apr = NULL;
 		}
-		
+		/* send info to user */
 		pr_debug("task_name = %s pid = %d\n",
 			this_afe.task->comm, this_afe.task->pid);
 		send_sig(SIGUSR1, this_afe.task, 0);
@@ -69,7 +69,7 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 		pr_debug("%s:opcode = 0x%x cmd = 0x%x status = 0x%x\n",
 					__func__, data->opcode,
 					payload[0], payload[1]);
-		
+		/* payload[1] contains the error status for response */
 		if (payload[1] != 0) {
 			atomic_set(&this_afe.status, -1);
 			pr_err("%s: cmd = 0x%x returned error = 0x%x\n",
@@ -245,6 +245,9 @@ int afe_convert_virtual_to_portid(u16 port_id)
 {
 	int ret;
 
+	/* if port_id is virtual, convert to physical..
+	 * if port_id is already physical, return physical
+	 */
 	if (afe_validate_port(port_id) < 0) {
 		if (port_id == RT_PROXY_DAI_001_RX ||
 			port_id == RT_PROXY_DAI_001_TX ||
@@ -434,6 +437,9 @@ void afe_send_cal(u16 port_id)
 		afe_send_cal_block(RX_CAL, port_id);
 }
 
+/* This function sends multi-channel HDMI configuration command and AFE
+ * calibration which is only supported by QDSP6 on 8960 and onward.
+ */
 int afe_port_start(u16 port_id, union afe_port_config *afe_config,
 		   u32 rate)
 {
@@ -494,6 +500,13 @@ int afe_port_start(u16 port_id, union afe_port_config *afe_config,
 		case SECONDARY_I2S_TX:
 		case PRIMARY_I2S_RX:
 		case PRIMARY_I2S_TX:
+			/* AFE_PORT_CMD_I2S_CONFIG command is not supported
+			 * in the LPASS EL 1.0. So we have to distiguish
+			 * which AFE command, AFE_PORT_CMD_I2S_CONFIG or
+			 * AFE_PORT_AUDIO_IF_CONFIG	to use. If the format
+			 * is L-PCM, the AFE_PORT_AUDIO_IF_CONFIG is used
+			 * to make the backward compatible.
+			 */
 			pr_debug("%s: afe_config->mi2s.format = %d\n", __func__,
 					 afe_config->mi2s.format);
 			if (afe_config->mi2s.format == MSM_AFE_I2S_FORMAT_LPCM)
@@ -547,7 +560,7 @@ int afe_port_start(u16 port_id, union afe_port_config *afe_config,
 		goto fail_cmd;
 	}
 
-	
+	/* send AFE cal */
 	afe_send_cal(port_id);
 
 	start.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
@@ -591,6 +604,7 @@ fail_cmd:
 	return ret;
 }
 
+/* This function should be used by 8660 exclusively */
 int afe_open(u16 port_id, union afe_port_config *afe_config, int rate)
 {
 	struct afe_port_start_command start;
@@ -641,6 +655,13 @@ int afe_open(u16 port_id, union afe_port_config *afe_config, int rate)
 	case SECONDARY_I2S_TX:
 	case PRIMARY_I2S_RX:
 	case PRIMARY_I2S_TX:
+		/* AFE_PORT_CMD_I2S_CONFIG command is not supported
+		 * in the LPASS EL 1.0. So we have to distiguish
+		 * which AFE command, AFE_PORT_CMD_I2S_CONFIG or
+		 * AFE_PORT_AUDIO_IF_CONFIG	to use. If the format
+		 * is L-PCM, the AFE_PORT_AUDIO_IF_CONFIG is used
+		 * to make the backward compatible.
+		 */
 		pr_debug("%s: afe_config->mi2s.format = %d\n", __func__,
 				 afe_config->mi2s.format);
 		if (afe_config->mi2s.format == MSM_AFE_I2S_FORMAT_LPCM)
@@ -853,7 +874,7 @@ int afe_loopback_gain(u16 port_id, u16 volume)
 		goto fail_cmd;
 	}
 
-	
+	/* RX ports numbers are even .TX ports numbers are odd. */
 	if (port_id % 2 == 0) {
 		pr_err("%s: Failed : afe loopback gain only for TX ports."
 			" port_id %d\n", __func__, port_id);
@@ -925,7 +946,7 @@ int afe_apply_gain(u16 port_id, u16 gain)
 		goto fail_cmd;
 	}
 
-	
+	/* RX ports numbers are even .TX ports numbers are odd. */
 	if (port_id % 2 == 0) {
 		pr_err("%s: Failed : afe apply gain only for TX ports."
 			" port_id %d\n", __func__, port_id);

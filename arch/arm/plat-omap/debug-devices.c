@@ -20,6 +20,9 @@
 #include <plat/board.h>
 
 
+/* Many OMAP development platforms reuse the same "debug board"; these
+ * platforms include H2, H3, H4, and Perseus2.
+ */
 
 static struct smc91x_platdata smc91x_info = {
 	.flags	= SMC91X_USE_16BIT | SMC91X_NOWAIT,
@@ -62,10 +65,10 @@ static struct platform_device led_device = {
 static struct platform_device *debug_devices[] __initdata = {
 	&smc91x_device,
 	&led_device,
-	
-	
-	
-	
+	/* ps2 kbd + mouse ports */
+	/* 4 extra uarts */
+	/* 6 input dip switches */
+	/* 8 output pins */
 };
 
 int __init debug_card_init(u32 addr, unsigned gpio)

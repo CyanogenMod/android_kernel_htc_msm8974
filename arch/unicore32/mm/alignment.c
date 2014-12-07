@@ -9,6 +9,10 @@
  * it under the terms of the GNU General Public License version 2 as
  * published by the Free Software Foundation.
  */
+/*
+ * TODO:
+ *  FPU ldm/stm not handling
+ */
 #include <linux/compiler.h>
 #include <linux/kernel.h>
 #include <linux/errno.h>
@@ -24,20 +28,20 @@
 
 #define CODING_BITS(i)	(i & 0xe0000120)
 
-#define LDST_P_BIT(i)	(i & (1 << 28))	
-#define LDST_U_BIT(i)	(i & (1 << 27))	
-#define LDST_W_BIT(i)	(i & (1 << 25))	
-#define LDST_L_BIT(i)	(i & (1 << 24))	
+#define LDST_P_BIT(i)	(i & (1 << 28))	/* Preindex             */
+#define LDST_U_BIT(i)	(i & (1 << 27))	/* Add offset           */
+#define LDST_W_BIT(i)	(i & (1 << 25))	/* Writeback            */
+#define LDST_L_BIT(i)	(i & (1 << 24))	/* Load                 */
 
 #define LDST_P_EQ_U(i)	((((i) ^ ((i) >> 1)) & (1 << 27)) == 0)
 
-#define LDSTH_I_BIT(i)	(i & (1 << 26))	
-#define LDM_S_BIT(i)	(i & (1 << 26))	
-#define LDM_H_BIT(i)	(i & (1 << 6))	
+#define LDSTH_I_BIT(i)	(i & (1 << 26))	/* half-word immed      */
+#define LDM_S_BIT(i)	(i & (1 << 26))	/* write ASR from BSR */
+#define LDM_H_BIT(i)	(i & (1 << 6))	/* select r0-r15 or r16-r31 */
 
-#define RN_BITS(i)	((i >> 19) & 31)	
-#define RD_BITS(i)	((i >> 14) & 31)	
-#define RM_BITS(i)	(i & 31)	
+#define RN_BITS(i)	((i >> 19) & 31)	/* Rn                   */
+#define RD_BITS(i)	((i >> 14) & 31)	/* Rd                   */
+#define RM_BITS(i)	(i & 31)	/* Rm                   */
 
 #define REGMASK_BITS(i)	(((i & 0x7fe00) >> 3) | (i & 0x3f))
 #define OFFSET_BITS(i)	(i & 0x03fff)
@@ -59,7 +63,7 @@ union offset_union {
 #define TYPE_LDST	2
 #define TYPE_DONE	3
 #define TYPE_SWAP  4
-#define TYPE_COLS  5		
+#define TYPE_COLS  5		/* Coprocessor load/store */
 
 #define get8_unaligned_check(val, addr, err)		\
 	__asm__(					\
@@ -211,7 +215,7 @@ do_alignment_ldrhstrh(unsigned long addr, unsigned long instr,
 {
 	unsigned int rd = RD_BITS(instr);
 
-	
+	/* old value 0x40002120, can't judge swap instr correctly */
 	if ((instr & 0x4b003fe0) == 0x40000120)
 		goto swp;
 
@@ -219,7 +223,7 @@ do_alignment_ldrhstrh(unsigned long addr, unsigned long instr,
 		unsigned long val;
 		get16_unaligned_check(val, addr);
 
-		
+		/* signed half-word? */
 		if (instr & 0x80)
 			val = (signed long)((signed short)val);
 
@@ -230,6 +234,8 @@ do_alignment_ldrhstrh(unsigned long addr, unsigned long instr,
 	return TYPE_LDST;
 
 swp:
+	/* only handle swap word
+	 * for swap byte should not active this alignment exception */
 	get32_unaligned_check(regs->uregs[RD_BITS(instr)], addr);
 	put32_unaligned_check(regs->uregs[RM_BITS(instr)], addr);
 	return TYPE_SWAP;
@@ -264,6 +270,19 @@ fault:
 	return TYPE_FAULT;
 }
 
+/*
+ * LDM/STM alignment handler.
+ *
+ * There are 4 variants of this instruction:
+ *
+ * B = rn pointer before instruction, A = rn pointer after instruction
+ *              ------ increasing address ----->
+ *	        |    | r0 | r1 | ... | rx |    |
+ * PU = 01             B                    A
+ * PU = 11        B                    A
+ * PU = 00        A                    B
+ * PU = 10             A                    B
+ */
 static int
 do_alignment_ldmstm(unsigned long addr, unsigned long instr,
 		    struct pt_regs *regs)
@@ -274,9 +293,9 @@ do_alignment_ldmstm(unsigned long addr, unsigned long instr,
 	if (LDM_S_BIT(instr))
 		goto bad;
 
-	pc_correction = 4;	
+	pc_correction = 4;	/* processor implementation defined */
 
-	
+	/* count the number of registers in the mask to be transferred */
 	nr_regs = hweight16(REGMASK_BITS(instr)) * 4;
 
 	rn = RN_BITS(instr);
@@ -288,9 +307,13 @@ do_alignment_ldmstm(unsigned long addr, unsigned long instr,
 	if (!LDST_U_BIT(instr))
 		eaddr = newaddr;
 
-	if (LDST_P_EQ_U(instr))	
+	if (LDST_P_EQ_U(instr))	/* U = P */
 		eaddr += 4;
 
+	/*
+	 * This is a "hint" - we already have eaddr worked out by the
+	 * processor for us.
+	 */
 	if (addr != eaddr) {
 		printk(KERN_ERR "LDMSTM: PC = %08lx, instr = %08lx, "
 		       "addr = %08lx, eaddr = %08lx\n",
@@ -350,7 +373,7 @@ do_alignment(unsigned long addr, unsigned int error_code, struct pt_regs *regs)
 	regs->UCreg_pc += 4;
 
 	switch (CODING_BITS(instr)) {
-	case 0x40000120:	
+	case 0x40000120:	/* ldrh or strh */
 		if (LDSTH_I_BIT(instr))
 			offset.un = (instr & 0x3e00) >> 4 | (instr & 31);
 		else
@@ -358,15 +381,15 @@ do_alignment(unsigned long addr, unsigned int error_code, struct pt_regs *regs)
 		handler = do_alignment_ldrhstrh;
 		break;
 
-	case 0x60000000:	
-	case 0x60000100:	
-	case 0x60000020:	
-	case 0x60000120:	
+	case 0x60000000:	/* ldr or str immediate */
+	case 0x60000100:	/* ldr or str immediate */
+	case 0x60000020:	/* ldr or str immediate */
+	case 0x60000120:	/* ldr or str immediate */
 		offset.un = OFFSET_BITS(instr);
 		handler = do_alignment_ldrstr;
 		break;
 
-	case 0x40000000:	
+	case 0x40000000:	/* ldr or str register */
 		offset.un = regs->uregs[RM_BITS(instr)];
 		{
 			unsigned int shiftval = SHIFT_BITS(instr);
@@ -398,8 +421,8 @@ do_alignment(unsigned long addr, unsigned int error_code, struct pt_regs *regs)
 		handler = do_alignment_ldrstr;
 		break;
 
-	case 0x80000000:	
-	case 0x80000020:	
+	case 0x80000000:	/* ldm or stm */
+	case 0x80000020:	/* ldm or stm */
 		handler = do_alignment_ldmstm;
 		break;
 
@@ -421,12 +444,19 @@ bad_or_fault:
 	if (type == TYPE_ERROR)
 		goto bad;
 	regs->UCreg_pc -= 4;
+	/*
+	 * We got a fault - fix it up, or die.
+	 */
 	do_bad_area(addr, error_code, regs);
 	return 0;
 
 bad:
+	/*
+	 * Oops, we didn't handle the instruction.
+	 * However, we must handle fpu instr firstly.
+	 */
 #ifdef CONFIG_UNICORE_FPU_F64
-	
+	/* handle co.load/store */
 #define CODING_COLS                0xc0000000
 #define COLS_OFFSET_BITS(i)	(i & 0x1FF)
 #define COLS_L_BITS(i)		(i & (1<<24))

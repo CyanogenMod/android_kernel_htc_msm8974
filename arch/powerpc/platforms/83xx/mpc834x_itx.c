@@ -50,6 +50,11 @@ static int __init mpc834x_itx_declare_of_platform_devices(void)
 }
 machine_device_initcall(mpc834x_itx, mpc834x_itx_declare_of_platform_devices);
 
+/* ************************************************************************
+ *
+ * Setup the architecture
+ *
+ */
 static void __init mpc834x_itx_setup_arch(void)
 {
 	if (ppc_md.progress)
@@ -60,6 +65,9 @@ static void __init mpc834x_itx_setup_arch(void)
 	mpc834x_usb_cfg();
 }
 
+/*
+ * Called very early, MMU is off, device-tree isn't unflattened
+ */
 static int __init mpc834x_itx_probe(void)
 {
         unsigned long root = of_get_flat_dt_root();

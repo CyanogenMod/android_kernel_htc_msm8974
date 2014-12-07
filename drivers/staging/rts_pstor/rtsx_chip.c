@@ -117,7 +117,7 @@ void rtsx_enable_bus_int(struct rtsx_chip *chip)
 	if (!chip->adma_mode)
 		reg |= DATA_DONE_INT_EN;
 
-	
+	/* Enable Bus Interrupt */
 	rtsx_writel(chip, RTSX_BIER, reg);
 
 	RTSX_DEBUGP("RTSX_BIER: 0x%08x\n", reg);
@@ -139,7 +139,7 @@ static int rtsx_pre_handle_sdio_old(struct rtsx_chip *chip)
 		}
 		RTSX_WRITE_REG(chip, CARD_SHARE_MODE, 0xFF, CARD_SHARE_48_SD);
 
-		
+		/* Enable SDIO internal clock */
 		RTSX_WRITE_REG(chip, 0xFF2C, 0x01, 0x01);
 
 		RTSX_WRITE_REG(chip, SDIO_CTRL, 0xFF, SDIO_BUS_CTRL | SDIO_CD_CTRL);
@@ -192,7 +192,7 @@ static int rtsx_pre_handle_sdio_new(struct rtsx_chip *chip)
 			cd_toggle_mask = 0x08;
 		}
 		if (tmp & cd_toggle_mask) {
-			
+			/* Disable sdio_bus_auto_switch */
 			if (CHECK_PID(chip, 0x5288)) {
 				RTSX_WRITE_REG(chip, 0xFE5A, 0x08, 0x00);
 			} else if (CHECK_PID(chip, 0x5208)) {
@@ -219,7 +219,7 @@ static int rtsx_pre_handle_sdio_new(struct rtsx_chip *chip)
 				TRACE_RET(chip, STATUS_FAIL);
 			}
 
-			
+			/* Enable sdio_bus_auto_switch */
 			if (CHECK_PID(chip, 0x5288)) {
 				RTSX_WRITE_REG(chip, 0xFE5A, 0x08, 0x08);
 			} else if (CHECK_PID(chip, 0x5208)) {
@@ -255,7 +255,7 @@ int rtsx_reset_chip(struct rtsx_chip *chip)
 	if (CHECK_PID(chip, 0x5209) && chip->asic_code) {
 		u16 val;
 
-		
+		/* optimize PHY */
 		retval = rtsx_write_phy_register(chip, 0x00, 0xB966);
 		if (retval != STATUS_SUCCESS) {
 			TRACE_RET(chip, STATUS_FAIL);
@@ -319,11 +319,11 @@ int rtsx_reset_chip(struct rtsx_chip *chip)
 
 	RTSX_WRITE_REG(chip, HOST_SLEEP_STATE, 0x03, 0x00);
 
-	
+	/* Disable card clock */
 	RTSX_WRITE_REG(chip, CARD_CLK_EN, 0x1E, 0);
 
 #ifdef SUPPORT_OCP
-	
+	/* SSC power on, OCD power on */
 	if (CHECK_LUN_MODE(chip, SD_MS_2LUN)) {
 		RTSX_WRITE_REG(chip, FPDCTL, OC_POWER_DOWN, 0);
 	} else {
@@ -348,7 +348,7 @@ int rtsx_reset_chip(struct rtsx_chip *chip)
 		RTSX_WRITE_REG(chip, OCPCTL, 0xFF, CARD_OC_INT_EN | CARD_DETECT_EN);
 	}
 #else
-	
+	/* OC power down */
 	RTSX_WRITE_REG(chip, FPDCTL, OC_POWER_DOWN, OC_POWER_DOWN);
 #endif
 
@@ -356,13 +356,13 @@ int rtsx_reset_chip(struct rtsx_chip *chip)
 		RTSX_WRITE_REG(chip, CARD_GPIO_DIR, 0xFF, 0x03);
 	}
 
-	
+	/* Turn off LED */
 	RTSX_WRITE_REG(chip, CARD_GPIO, 0xFF, 0x03);
 
-	
+	/* Reset delink mode */
 	RTSX_WRITE_REG(chip, CHANGE_LINK_STATE, 0x0A, 0);
 
-	
+	/* Card driving select */
 	RTSX_WRITE_REG(chip, CARD_DRIVE_SEL, 0xFF, chip->card_drive_sel);
 	if (CHECK_PID(chip, 0x5209)) {
 		RTSX_WRITE_REG(chip, SD30_DRIVE_SEL, 0x07, chip->sd30_drive_sel_3v3);
@@ -374,14 +374,21 @@ int rtsx_reset_chip(struct rtsx_chip *chip)
 #endif
 
 	if (chip->asic_code) {
-		
+		/* Enable SSC Clock */
 		RTSX_WRITE_REG(chip, SSC_CTL1, 0xFF, SSC_8X_EN | SSC_SEL_4M);
 		RTSX_WRITE_REG(chip, SSC_CTL2, 0xFF, 0x12);
 	}
 
+	/* Disable cd_pwr_save (u_force_rst_core_en=0, u_cd_rst_core_en=0)
+	      0xFE5B
+	      bit[1]    u_cd_rst_core_en    	rst_value = 0
+	      bit[2]    u_force_rst_core_en 	rst_value = 0
+	      bit[5]    u_mac_phy_rst_n_dbg 	rst_value = 1
+	      bit[4]	u_non_sticky_rst_n_dbg	rst_value = 0
+	*/
 	RTSX_WRITE_REG(chip, CHANGE_LINK_STATE, 0x16, 0x10);
 
-	
+	/* Enable ASPM */
 	if (chip->aspm_l0s_l1_en) {
 		if (chip->dynamic_aspm) {
 			if (CHK_SDIO_EXIST(chip)) {
@@ -479,7 +486,7 @@ int rtsx_reset_chip(struct rtsx_chip *chip)
 		RTSX_WRITE_REG(chip, PWR_GATE_CTRL, PWR_GATE_EN, PWR_GATE_EN);
 	}
 
-	
+	/* Enable PCIE interrupt */
 	if (chip->asic_code) {
 		if (CHECK_PID(chip, 0x5208)) {
 			if (chip->phy_debug_mode) {
@@ -524,7 +531,7 @@ int rtsx_reset_chip(struct rtsx_chip *chip)
 
 #ifdef HW_INT_WRITE_CLR
 	if (CHECK_PID(chip, 0x5209)) {
-		
+		/* Set interrupt write clear */
 		RTSX_WRITE_REG(chip, NFTS_TX_CTRL, 0x02, 0);
 	}
 #endif
@@ -534,7 +541,7 @@ int rtsx_reset_chip(struct rtsx_chip *chip)
 	chip->int_reg = rtsx_readl(chip, RTSX_BIPR);
 #ifdef HW_INT_WRITE_CLR
 	if (CHECK_PID(chip, 0x5209)) {
-		
+		/* Clear interrupt flag */
 		rtsx_writel(chip, RTSX_BIPR, chip->int_reg);
 	}
 #endif
@@ -549,9 +556,9 @@ int rtsx_reset_chip(struct rtsx_chip *chip)
 			retval = rtsx_pre_handle_sdio_new(chip);
 		}
 		RTSX_DEBUGP("chip->need_reset = 0x%x (rtsx_reset_chip)\n", (unsigned int)(chip->need_reset));
-#else  
+#else  /* HW_AUTO_SWITCH_SD_BUS */
 		retval = rtsx_pre_handle_sdio_old(chip);
-#endif  
+#endif  /* HW_AUTO_SWITCH_SD_BUS */
 		if (retval != STATUS_SUCCESS) {
 			TRACE_RET(chip, STATUS_FAIL);
 		}
@@ -574,7 +581,7 @@ NextCard:
 	RTSX_WRITE_REG(chip, RCCTL, 0x01, 0x00);
 
 	if (CHECK_PID(chip, 0x5208) || CHECK_PID(chip, 0x5288)) {
-		
+		/* Turn off main power when entering S3/S4 state */
 		RTSX_WRITE_REG(chip, MAIN_PWR_OFF_CTL, 0x03, 0x03);
 	}
 
@@ -613,7 +620,7 @@ NextCard:
 		wait_timeout(200);
 	}
 
-	
+	/* Reset card */
 	rtsx_reset_detected_cards(chip, 0);
 
 	chip->driver_first_load = 0;
@@ -1417,6 +1424,14 @@ void rtsx_undo_delink(struct rtsx_chip *chip)
 	rtsx_write_register(chip, CHANGE_LINK_STATE, 0x0A, 0x00);
 }
 
+/**
+ * rtsx_stop_cmd - stop command transfer and DMA transfer
+ * @chip: Realtek's card reader chip
+ * @card: flash card type
+ *
+ * Stop command transfer and DMA transfer.
+ * This function is called in error handler.
+ */
 void rtsx_stop_cmd(struct rtsx_chip *chip, int card)
 {
 	int i;
@@ -1994,6 +2009,12 @@ int rtsx_pre_handle_interrupt(struct rtsx_chip *chip)
 				clear_bit(SD_NR, &(chip->need_reset));
 			}
 		} else {
+			/* If multi-luns, it's possible that
+			   when plugging/unplugging one card
+			   there is another card which still
+			   exists in the slot. In this case,
+			   all existed cards should be reset.
+			*/
 			if (exit_ss && (status & SD_EXIST))
 				set_bit(SD_NR, &(chip->need_reinit));
 		}
@@ -2060,25 +2081,25 @@ void rtsx_do_before_power_down(struct rtsx_chip *chip, int pm_stat)
 		chip->sdio_in_charge = 1;
 		if (CHECK_PID(chip, 0x5208)) {
 			rtsx_write_register(chip, TLPTISTAT, 0x08, 0x08);
-			
+			/* Enable sdio_bus_auto_switch */
 			rtsx_write_register(chip, 0xFE70, 0x80, 0x80);
 		} else if (CHECK_PID(chip, 0x5288)) {
 			rtsx_write_register(chip, TLPTISTAT, 0x08, 0x08);
-			
+			/* Enable sdio_bus_auto_switch */
 			rtsx_write_register(chip, 0xFE5A, 0x08, 0x08);
 		} else if (CHECK_PID(chip, 0x5209)) {
 			rtsx_write_register(chip, TLPTISTAT, 0x10, 0x10);
-			
+			/* Enable sdio_bus_auto_switch */
 			rtsx_write_register(chip, SDIO_CFG, SDIO_BUS_AUTO_SWITCH, SDIO_BUS_AUTO_SWITCH);
 		}
 	}
 #endif
 
 	if (CHECK_PID(chip, 0x5208) && (chip->ic_version >= IC_VER_D)) {
-		
+		/* u_force_clkreq_0 */
 		rtsx_write_register(chip, PETXCFG, 0x08, 0x08);
 	} else if (CHECK_PID(chip, 0x5209)) {
-		
+		/* u_force_clkreq_0 */
 		rtsx_write_register(chip, PETXCFG, 0x08, 0x08);
 	}
 

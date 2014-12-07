@@ -35,6 +35,12 @@ struct sgivw_par {
 
 #define FLATPANEL_SGI_1600SW	5
 
+/*
+ *  RAM we reserve for the frame buffer. This defines the maximum screen
+ *  size
+ *
+ *  The default can be overridden if the driver is compiled as a module
+ */
 
 static int ypan = 0;
 static int ywrap = 0;
@@ -52,7 +58,7 @@ static struct fb_fix_screeninfo sgivwfb_fix __devinitdata = {
 };
 
 static struct fb_var_screeninfo sgivwfb_var __devinitdata = {
-	
+	/* 640x480, 8 bpp */
 	.xres		= 640,
 	.yres		= 480,
 	.xres_virtual	= 640,
@@ -74,7 +80,7 @@ static struct fb_var_screeninfo sgivwfb_var __devinitdata = {
 };
 
 static struct fb_var_screeninfo sgivwfb_var1600sw __devinitdata = {
-	
+	/* 1600x1024, 8 bpp */
 	.xres		= 1600,
 	.yres		= 1024,
 	.xres_virtual	= 1600,
@@ -95,6 +101,9 @@ static struct fb_var_screeninfo sgivwfb_var1600sw __devinitdata = {
 	.vmode		= FB_VMODE_NONINTERLACED
 };
 
+/*
+ *  Interface used by the world
+ */
 int sgivwfb_init(void);
 
 static int sgivwfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info);
@@ -116,6 +125,9 @@ static struct fb_ops sgivwfb_ops = {
 	.fb_mmap	= sgivwfb_mmap,
 };
 
+/*
+ *  Internal routines
+ */
 static unsigned long bytes_per_pixel(int bpp)
 {
 	switch (bpp) {
@@ -136,15 +148,22 @@ static unsigned long get_line_length(int xres_virtual, int bpp)
 	return (xres_virtual * bytes_per_pixel(bpp));
 }
 
+/*
+ * Function:	dbe_TurnOffDma
+ * Parameters:	(None)
+ * Description:	This should turn off the monitor and dbe.  This is used
+ *              when switching between the serial console and the graphics
+ *              console.
+ */
 
 static void dbe_TurnOffDma(struct sgivw_par *par)
 {
 	unsigned int readVal;
 	int i;
 
-	
-	
-	
+	// Check to see if things are already turned off:
+	// 1) Check to see if dbe is not using the internal dotclock.
+	// 2) Check to see if the xy counter in dbe is already off.
 
 	DBE_GETREG(ctrlstat, readVal);
 	if (GET_DBE_FIELD(CTRLSTAT, PCLKSEL, readVal) < 2)
@@ -154,7 +173,7 @@ static void dbe_TurnOffDma(struct sgivw_par *par)
 	if (GET_DBE_FIELD(VT_XY, VT_FREEZE, readVal) == 1)
 		return;
 
-	
+	// Otherwise, turn off dbe
 
 	DBE_GETREG(ovr_control, readVal);
 	SET_DBE_FIELD(OVR_CONTROL, OVR_DMA_ENABLE, readVal, 0);
@@ -169,12 +188,12 @@ static void dbe_TurnOffDma(struct sgivw_par *par)
 	DBE_SETREG(did_control, readVal);
 	udelay(1000);
 
-	
-	
-	
-	
-	
-	
+	// XXX HACK:
+	//
+	//    This was necessary for GBE--we had to wait through two
+	//    vertical retrace periods before the pixel DMA was
+	//    turned off for sure.  I've left this in for now, in
+	//    case dbe needs it.
 
 	for (i = 0; i < 10000; i++) {
 		DBE_GETREG(frm_inhwctrl, readVal);
@@ -199,6 +218,10 @@ static void dbe_TurnOffDma(struct sgivw_par *par)
 	}
 }
 
+/*
+ *  Set the User Defined Part of the Display. Again if par use it to get
+ *  real video mode.
+ */
 static int sgivwfb_check_var(struct fb_var_screeninfo *var, 
 			     struct fb_info *info)
 {
@@ -209,6 +232,10 @@ static int sgivwfb_check_var(struct fb_var_screeninfo *var,
 	int req_dot;
 	int test_mode;
 
+	/*
+	 *  FB_VMODE_CONUPDATE and FB_VMODE_SMOOTH_XPAN are equal!
+	 *  as FB_VMODE_SMOOTH_XPAN is only used internally
+	 */
 
 	if (var->vmode & FB_VMODE_CONUPDATE) {
 		var->vmode |= FB_VMODE_YWRAP;
@@ -216,11 +243,11 @@ static int sgivwfb_check_var(struct fb_var_screeninfo *var,
 		var->yoffset = info->var.yoffset;
 	}
 
-	
+	/* XXX FIXME - forcing var's */
 	var->xoffset = 0;
 	var->yoffset = 0;
 
-	
+	/* Limit bpp to 8, 16, and 32 */
 	if (var->bits_per_pixel <= 8)
 		var->bits_per_pixel = 8;
 	else if (var->bits_per_pixel <= 16)
@@ -230,9 +257,9 @@ static int sgivwfb_check_var(struct fb_var_screeninfo *var,
 	else
 		return -EINVAL;
 
-	var->grayscale = 0;	
+	var->grayscale = 0;	/* No grayscale for now */
 
-	
+	/* determine valid resolution and timing */
 	for (min_mode = 0; min_mode < ARRAY_SIZE(dbeVTimings); min_mode++) {
 		if (dbeVTimings[min_mode].width >= var->xres &&
 		    dbeVTimings[min_mode].height >= var->yres)
@@ -240,10 +267,10 @@ static int sgivwfb_check_var(struct fb_var_screeninfo *var,
 	}
 
 	if (min_mode == ARRAY_SIZE(dbeVTimings))
-		return -EINVAL;	
+		return -EINVAL;	/* Resolution to high */
 
-	
-	
+	/* XXX FIXME - should try to pick best refresh rate */
+	/* for now, pick closest dot-clock within 3MHz */
 	req_dot = PICOS2KHZ(var->pixclock);
 	printk(KERN_INFO "sgivwfb: requested pixclock=%d ps (%d KHz)\n",
 	       var->pixclock, req_dot);
@@ -259,15 +286,18 @@ static int sgivwfb_check_var(struct fb_var_screeninfo *var,
 	timing = &dbeVTimings[min_mode];
 	printk(KERN_INFO "sgivwfb: granted dot-clock=%d KHz\n", timing->cfreq);
 
-	
+	/* Adjust virtual resolution, if necessary */
 	if (var->xres > var->xres_virtual || (!ywrap && !ypan))
 		var->xres_virtual = var->xres;
 	if (var->yres > var->yres_virtual || (!ywrap && !ypan))
 		var->yres_virtual = var->yres;
 
+	/*
+	 *  Memory limit
+	 */
 	line_length = get_line_length(var->xres_virtual, var->bits_per_pixel);
 	if (line_length * var->yres_virtual > sgivwfb_mem_size)
-		return -ENOMEM;	
+		return -ENOMEM;	/* Virtual resolution to high */
 
 	info->fix.line_length = line_length;
 
@@ -282,7 +312,7 @@ static int sgivwfb_check_var(struct fb_var_screeninfo *var,
 		var->transp.offset = 0;
 		var->transp.length = 0;
 		break;
-	case 16:		
+	case 16:		/* RGBA 5551 */
 		var->red.offset = 11;
 		var->red.length = 5;
 		var->green.offset = 6;
@@ -292,7 +322,7 @@ static int sgivwfb_check_var(struct fb_var_screeninfo *var,
 		var->transp.offset = 0;
 		var->transp.length = 0;
 		break;
-	case 32:		
+	case 32:		/* RGB 8888 */
 		var->red.offset = 0;
 		var->red.length = 8;
 		var->green.offset = 8;
@@ -308,7 +338,7 @@ static int sgivwfb_check_var(struct fb_var_screeninfo *var,
 	var->blue.msb_right = 0;
 	var->transp.msb_right = 0;
 
-	
+	/* set video timing information */
 	var->pixclock = KHZ2PICOS(timing->cfreq);
 	var->left_margin = timing->htotal - timing->hsync_end;
 	var->right_margin = timing->hsync_start - timing->width;
@@ -317,6 +347,8 @@ static int sgivwfb_check_var(struct fb_var_screeninfo *var,
 	var->hsync_len = timing->hsync_end - timing->hsync_start;
 	var->vsync_len = timing->vsync_end - timing->vsync_start;
 
+	/* Ouch. This breaks the rules but timing_num is only important if you
+	* change a video mode */
 	par->timing_num = min_mode;
 
 	printk(KERN_INFO "sgivwfb: new video mode xres=%d yres=%d bpp=%d\n",
@@ -326,6 +358,9 @@ static int sgivwfb_check_var(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/*
+ *  Setup flatpanel related registers.
+ */
 static void sgivwfb_setup_flatpanel(struct sgivw_par *par, struct dbe_timing_info *currentTiming)
 {
 	int fp_wid, fp_hgt, fp_vbs, fp_vbe;
@@ -337,7 +372,7 @@ static void sgivwfb_setup_flatpanel(struct sgivw_par *par, struct dbe_timing_inf
 		(currentTiming->flags & FB_SYNC_VERT_HIGH_ACT) ? 0 : 1);
 	DBE_SETREG(vt_flags, outputVal);
 
-	
+	/* Turn on the flat panel */
 	switch (flatpanel_id) {
 		case FLATPANEL_SGI_1600SW:
 			fp_wid = 1600;
@@ -365,6 +400,9 @@ static void sgivwfb_setup_flatpanel(struct sgivw_par *par, struct dbe_timing_inf
 	DBE_SETREG(fp_vdrv, outputVal);
 }
 
+/*
+ *  Set the hardware according to 'par'.
+ */
 static int sgivwfb_set_par(struct fb_info *info)
 {
 	struct sgivw_par *par = info->par;
@@ -372,22 +410,22 @@ static int sgivwfb_set_par(struct fb_info *info)
 	u32 readVal, outputVal;
 	int wholeTilesX, maxPixelsPerTileX;
 	int frmWrite1, frmWrite2, frmWrite3b;
-	struct dbe_timing_info *currentTiming; 
-	int xpmax, ypmax;	
-	int bytesPerPixel;	
+	struct dbe_timing_info *currentTiming; /* Current Video Timing */
+	int xpmax, ypmax;	// Monitor resolution
+	int bytesPerPixel;	// Bytes per pixel
 
 	currentTiming = &dbeVTimings[par->timing_num];
 	bytesPerPixel = bytes_per_pixel(info->var.bits_per_pixel);
 	xpmax = currentTiming->width;
 	ypmax = currentTiming->height;
 
-	
-	
+	/* dbe_InitGraphicsBase(); */
+	/* Turn on dotclock PLL */
 	DBE_SETREG(ctrlstat, 0x20000000);
 
 	dbe_TurnOffDma(par);
 
-	
+	/* dbe_CalculateScreenParams(); */
 	maxPixelsPerTileX = 512 / bytesPerPixel;
 	wholeTilesX = xpmax / maxPixelsPerTileX;
 	if (wholeTilesX * maxPixelsPerTileX < xpmax)
@@ -396,14 +434,14 @@ static int sgivwfb_set_par(struct fb_info *info)
 	printk(KERN_DEBUG "sgivwfb: pixPerTile=%d wholeTilesX=%d\n",
 	       maxPixelsPerTileX, wholeTilesX);
 
-	
+	/* dbe_InitGammaMap(); */
 	udelay(10);
 
 	for (i = 0; i < 256; i++) {
 		DBE_ISETREG(gmap, i, (i << 24) | (i << 16) | (i << 8));
 	}
 
-	
+	/* dbe_TurnOn(); */
 	DBE_GETREG(vt_xy, readVal);
 	if (GET_DBE_FIELD(VT_XY, VT_FREEZE, readVal) == 1) {
 		DBE_SETREG(vt_xy, 0x00000000);
@@ -411,7 +449,7 @@ static int sgivwfb_set_par(struct fb_info *info)
 	} else
 		dbe_TurnOffDma(par);
 
-	
+	/* dbe_Initdbe(); */
 	for (i = 0; i < 256; i++) {
 		for (j = 0; j < 100; j++) {
 			DBE_GETREG(cm_fifo, readVal);
@@ -421,11 +459,11 @@ static int sgivwfb_set_par(struct fb_info *info)
 				udelay(10);
 		}
 
-		
+		// DBE_ISETREG(cmap, i, 0x00000000);
 		DBE_ISETREG(cmap, i, (i << 8) | (i << 16) | (i << 24));
 	}
 
-	
+	/* dbe_InitFramebuffer(); */
 	frmWrite1 = 0;
 	SET_DBE_FIELD(FRM_SIZE_TILE, FRM_WIDTH_TILE, frmWrite1,
 		      wholeTilesX);
@@ -449,15 +487,15 @@ static int sgivwfb_set_par(struct fb_info *info)
 	frmWrite2 = 0;
 	SET_DBE_FIELD(FRM_SIZE_PIXEL, FB_HEIGHT_PIX, frmWrite2, ypmax);
 
-	
-	
+	// Tell dbe about the framebuffer location and type
+	// XXX What format is the FRM_TILE_PTR??  64K aligned address?
 	frmWrite3b = 0;
 	SET_DBE_FIELD(FRM_CONTROL, FRM_TILE_PTR, frmWrite3b,
 		      sgivwfb_mem_phys >> 9);
 	SET_DBE_FIELD(FRM_CONTROL, FRM_DMA_ENABLE, frmWrite3b, 1);
 	SET_DBE_FIELD(FRM_CONTROL, FRM_LINEAR, frmWrite3b, 1);
 
-	
+	/* Initialize DIDs */
 
 	outputVal = 0;
 	switch (bytesPerPixel) {
@@ -477,7 +515,7 @@ static int sgivwfb_set_par(struct fb_info *info)
 		DBE_ISETREG(mode_regs, i, outputVal);
 	}
 
-	
+	/* dbe_InitTiming(); */
 	DBE_SETREG(vt_intr01, 0xffffffff);
 	DBE_SETREG(vt_intr23, 0xffffffff);
 
@@ -593,7 +631,7 @@ static int sgivwfb_set_par(struct fb_info *info)
 	DBE_SETREG(frm_control, frmWrite3b);
 	DBE_SETREG(did_control, 0);
 
-	
+	// Wait for dbe to take frame settings
 	for (i = 0; i < 100000; i++) {
 		DBE_GETREG(frm_inhwctrl, readVal);
 		if (GET_DBE_FIELD(FRM_INHWCTRL, FRM_DMA_ENABLE, readVal) !=
@@ -610,7 +648,7 @@ static int sgivwfb_set_par(struct fb_info *info)
 	outputVal = 0;
 	htmp = currentTiming->hblank_end - 19;
 	if (htmp < 0)
-		htmp += currentTiming->htotal;	
+		htmp += currentTiming->htotal;	/* allow blank to wrap around */
 	SET_DBE_FIELD(VT_HPIXEN, VT_HPIXEN_ON, outputVal, htmp);
 	SET_DBE_FIELD(VT_HPIXEN, VT_HPIXEN_OFF, outputVal,
 		      ((htmp + currentTiming->width -
@@ -624,10 +662,10 @@ static int sgivwfb_set_par(struct fb_info *info)
 		      currentTiming->vblank_end);
 	DBE_SETREG(vt_vpixen, outputVal);
 
-	
+	// Turn off mouse cursor
 	par->regs->crs_ctl = 0;
 
-	
+	// XXX What's this section for??
 	DBE_GETREG(ctrlstat, readVal);
 	readVal &= 0x02000000;
 
@@ -637,6 +675,11 @@ static int sgivwfb_set_par(struct fb_info *info)
 	return 0;
 }
 
+/*
+ *  Set a single color register. The values supplied are already
+ *  rounded down to the hardware's capabilities (according to the
+ *  entries in the var structure). Return != 0 for invalid regno.
+ */
 
 static int sgivwfb_setcolreg(u_int regno, u_int red, u_int green,
 			     u_int blue, u_int transp,
@@ -650,12 +693,12 @@ static int sgivwfb_setcolreg(u_int regno, u_int red, u_int green,
 	green >>= 8;
 	blue >>= 8;
 
-	
+	/* wait for the color map FIFO to have a free entry */
 	while (par->cmap_fifo == 0)
 		par->cmap_fifo = par->regs->cm_fifo;
 
 	par->regs->cmap[regno] = (red << 24) | (green << 16) | (blue << 8);
-	par->cmap_fifo--;	
+	par->cmap_fifo--;	/* assume FIFO is filling up */
 	return 0;
 }
 
@@ -699,6 +742,9 @@ int __init sgivwfb_setup(char *options)
 	return 0;
 }
 
+/*
+ *  Initialisation
+ */
 static int __devinit sgivwfb_probe(struct platform_device *dev)
 {
 	struct sgivw_par *par;
@@ -846,4 +892,4 @@ static void __exit sgivwfb_exit(void)
 
 module_exit(sgivwfb_exit);
 
-#endif				
+#endif				/* MODULE */

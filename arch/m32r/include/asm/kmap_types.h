@@ -9,4 +9,4 @@
 
 #undef __WITH_KM_FENCE
 
-#endif 
+#endif /* __M32R_KMAP_TYPES_H */

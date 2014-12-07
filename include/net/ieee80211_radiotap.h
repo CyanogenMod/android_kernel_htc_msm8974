@@ -27,6 +27,10 @@
  * OF SUCH DAMAGE.
  */
 
+/*
+ * Modifications to fit into the linux IEEE 802.11 stack,
+ * Mike Kershaw (dragorn@kismetwireless.net)
+ */
 
 #ifndef IEEE80211RADIOTAP_H
 #define IEEE80211RADIOTAP_H
@@ -35,16 +39,151 @@
 #include <linux/kernel.h>
 #include <asm/unaligned.h>
 
+/* Base version of the radiotap packet header data */
 #define PKTHDR_RADIOTAP_VERSION		0
 
+/* A generic radio capture format is desirable. There is one for
+ * Linux, but it is neither rigidly defined (there were not even
+ * units given for some fields) nor easily extensible.
+ *
+ * I suggest the following extensible radio capture format. It is
+ * based on a bitmap indicating which fields are present.
+ *
+ * I am trying to describe precisely what the application programmer
+ * should expect in the following, and for that reason I tell the
+ * units and origin of each measurement (where it applies), or else I
+ * use sufficiently weaselly language ("is a monotonically nondecreasing
+ * function of...") that I cannot set false expectations for lawyerly
+ * readers.
+ */
 
+/*
+ * The radio capture header precedes the 802.11 header.
+ * All data in the header is little endian on all platforms.
+ */
 struct ieee80211_radiotap_header {
-	u8 it_version;		
+	u8 it_version;		/* Version 0. Only increases
+				 * for drastic changes,
+				 * introduction of compatible
+				 * new fields does not count.
+				 */
 	u8 it_pad;
-	__le16 it_len;		
-	__le32 it_present;	
+	__le16 it_len;		/* length of the whole
+				 * header in bytes, including
+				 * it_version, it_pad,
+				 * it_len, and data fields.
+				 */
+	__le32 it_present;	/* A bitmap telling which
+				 * fields are present. Set bit 31
+				 * (0x80000000) to extend the
+				 * bitmap by another 32 bits.
+				 * Additional extensions are made
+				 * by setting bit 31.
+				 */
 } __packed;
 
+/* Name                                 Data type    Units
+ * ----                                 ---------    -----
+ *
+ * IEEE80211_RADIOTAP_TSFT              __le64       microseconds
+ *
+ *      Value in microseconds of the MAC's 64-bit 802.11 Time
+ *      Synchronization Function timer when the first bit of the
+ *      MPDU arrived at the MAC. For received frames, only.
+ *
+ * IEEE80211_RADIOTAP_CHANNEL           2 x __le16   MHz, bitmap
+ *
+ *      Tx/Rx frequency in MHz, followed by flags (see below).
+ *
+ * IEEE80211_RADIOTAP_FHSS              __le16       see below
+ *
+ *      For frequency-hopping radios, the hop set (first byte)
+ *      and pattern (second byte).
+ *
+ * IEEE80211_RADIOTAP_RATE              u8           500kb/s
+ *
+ *      Tx/Rx data rate
+ *
+ * IEEE80211_RADIOTAP_DBM_ANTSIGNAL     s8           decibels from
+ *                                                   one milliwatt (dBm)
+ *
+ *      RF signal power at the antenna, decibel difference from
+ *      one milliwatt.
+ *
+ * IEEE80211_RADIOTAP_DBM_ANTNOISE      s8           decibels from
+ *                                                   one milliwatt (dBm)
+ *
+ *      RF noise power at the antenna, decibel difference from one
+ *      milliwatt.
+ *
+ * IEEE80211_RADIOTAP_DB_ANTSIGNAL      u8           decibel (dB)
+ *
+ *      RF signal power at the antenna, decibel difference from an
+ *      arbitrary, fixed reference.
+ *
+ * IEEE80211_RADIOTAP_DB_ANTNOISE       u8           decibel (dB)
+ *
+ *      RF noise power at the antenna, decibel difference from an
+ *      arbitrary, fixed reference point.
+ *
+ * IEEE80211_RADIOTAP_LOCK_QUALITY      __le16       unitless
+ *
+ *      Quality of Barker code lock. Unitless. Monotonically
+ *      nondecreasing with "better" lock strength. Called "Signal
+ *      Quality" in datasheets.  (Is there a standard way to measure
+ *      this?)
+ *
+ * IEEE80211_RADIOTAP_TX_ATTENUATION    __le16       unitless
+ *
+ *      Transmit power expressed as unitless distance from max
+ *      power set at factory calibration.  0 is max power.
+ *      Monotonically nondecreasing with lower power levels.
+ *
+ * IEEE80211_RADIOTAP_DB_TX_ATTENUATION __le16       decibels (dB)
+ *
+ *      Transmit power expressed as decibel distance from max power
+ *      set at factory calibration.  0 is max power.  Monotonically
+ *      nondecreasing with lower power levels.
+ *
+ * IEEE80211_RADIOTAP_DBM_TX_POWER      s8           decibels from
+ *                                                   one milliwatt (dBm)
+ *
+ *      Transmit power expressed as dBm (decibels from a 1 milliwatt
+ *      reference). This is the absolute power level measured at
+ *      the antenna port.
+ *
+ * IEEE80211_RADIOTAP_FLAGS             u8           bitmap
+ *
+ *      Properties of transmitted and received frames. See flags
+ *      defined below.
+ *
+ * IEEE80211_RADIOTAP_ANTENNA           u8           antenna index
+ *
+ *      Unitless indication of the Rx/Tx antenna for this packet.
+ *      The first antenna is antenna 0.
+ *
+ * IEEE80211_RADIOTAP_RX_FLAGS          __le16       bitmap
+ *
+ *     Properties of received frames. See flags defined below.
+ *
+ * IEEE80211_RADIOTAP_TX_FLAGS          __le16       bitmap
+ *
+ *     Properties of transmitted frames. See flags defined below.
+ *
+ * IEEE80211_RADIOTAP_RTS_RETRIES       u8           data
+ *
+ *     Number of rts retries a transmitted frame used.
+ *
+ * IEEE80211_RADIOTAP_DATA_RETRIES      u8           data
+ *
+ *     Number of unicast retries a transmitted frame used.
+ *
+ * IEEE80211_RADIOTAP_MCS	u8, u8, u8		unitless
+ *
+ *     Contains a bitmap of known fields/flags, the flags, and
+ *     the MCS index.
+ *
+ */
 enum ieee80211_radiotap_type {
 	IEEE80211_RADIOTAP_TSFT = 0,
 	IEEE80211_RADIOTAP_FLAGS = 1,
@@ -67,37 +206,55 @@ enum ieee80211_radiotap_type {
 
 	IEEE80211_RADIOTAP_MCS = 19,
 
-	
+	/* valid in every it_present bitmap, even vendor namespaces */
 	IEEE80211_RADIOTAP_RADIOTAP_NAMESPACE = 29,
 	IEEE80211_RADIOTAP_VENDOR_NAMESPACE = 30,
 	IEEE80211_RADIOTAP_EXT = 31
 };
 
-#define	IEEE80211_CHAN_TURBO	0x0010	
-#define	IEEE80211_CHAN_CCK	0x0020	
-#define	IEEE80211_CHAN_OFDM	0x0040	
-#define	IEEE80211_CHAN_2GHZ	0x0080	
-#define	IEEE80211_CHAN_5GHZ	0x0100	
-#define	IEEE80211_CHAN_PASSIVE	0x0200	
-#define	IEEE80211_CHAN_DYN	0x0400	
-#define	IEEE80211_CHAN_GFSK	0x0800	
+/* Channel flags. */
+#define	IEEE80211_CHAN_TURBO	0x0010	/* Turbo channel */
+#define	IEEE80211_CHAN_CCK	0x0020	/* CCK channel */
+#define	IEEE80211_CHAN_OFDM	0x0040	/* OFDM channel */
+#define	IEEE80211_CHAN_2GHZ	0x0080	/* 2 GHz spectrum channel. */
+#define	IEEE80211_CHAN_5GHZ	0x0100	/* 5 GHz spectrum channel */
+#define	IEEE80211_CHAN_PASSIVE	0x0200	/* Only passive scan allowed */
+#define	IEEE80211_CHAN_DYN	0x0400	/* Dynamic CCK-OFDM channel */
+#define	IEEE80211_CHAN_GFSK	0x0800	/* GFSK channel (FHSS PHY) */
 
-#define	IEEE80211_RADIOTAP_F_CFP	0x01	
-#define	IEEE80211_RADIOTAP_F_SHORTPRE	0x02	
-#define	IEEE80211_RADIOTAP_F_WEP	0x04	
-#define	IEEE80211_RADIOTAP_F_FRAG	0x08	
-#define	IEEE80211_RADIOTAP_F_FCS	0x10	
-#define	IEEE80211_RADIOTAP_F_DATAPAD	0x20	
-#define IEEE80211_RADIOTAP_F_BADFCS	0x40	
+/* For IEEE80211_RADIOTAP_FLAGS */
+#define	IEEE80211_RADIOTAP_F_CFP	0x01	/* sent/received
+						 * during CFP
+						 */
+#define	IEEE80211_RADIOTAP_F_SHORTPRE	0x02	/* sent/received
+						 * with short
+						 * preamble
+						 */
+#define	IEEE80211_RADIOTAP_F_WEP	0x04	/* sent/received
+						 * with WEP encryption
+						 */
+#define	IEEE80211_RADIOTAP_F_FRAG	0x08	/* sent/received
+						 * with fragmentation
+						 */
+#define	IEEE80211_RADIOTAP_F_FCS	0x10	/* frame includes FCS */
+#define	IEEE80211_RADIOTAP_F_DATAPAD	0x20	/* frame has padding between
+						 * 802.11 header and payload
+						 * (to 32-bit boundary)
+						 */
+#define IEEE80211_RADIOTAP_F_BADFCS	0x40	/* bad FCS */
 
-#define IEEE80211_RADIOTAP_F_RX_BADPLCP	0x0002	
+/* For IEEE80211_RADIOTAP_RX_FLAGS */
+#define IEEE80211_RADIOTAP_F_RX_BADPLCP	0x0002	/* frame has bad PLCP */
 
-#define IEEE80211_RADIOTAP_F_TX_FAIL	0x0001	
-#define IEEE80211_RADIOTAP_F_TX_CTS	0x0002	
-#define IEEE80211_RADIOTAP_F_TX_RTS	0x0004	
-#define IEEE80211_RADIOTAP_F_TX_NOACK	0x0008	
+/* For IEEE80211_RADIOTAP_TX_FLAGS */
+#define IEEE80211_RADIOTAP_F_TX_FAIL	0x0001	/* failed due to excessive
+						 * retries */
+#define IEEE80211_RADIOTAP_F_TX_CTS	0x0002	/* used cts 'protection' */
+#define IEEE80211_RADIOTAP_F_TX_RTS	0x0004	/* used rts/cts handshake */
+#define IEEE80211_RADIOTAP_F_TX_NOACK	0x0008	/* don't expect an ack */
 
 
+/* For IEEE80211_RADIOTAP_MCS */
 #define IEEE80211_RADIOTAP_MCS_HAVE_BW		0x01
 #define IEEE80211_RADIOTAP_MCS_HAVE_MCS		0x02
 #define IEEE80211_RADIOTAP_MCS_HAVE_GI		0x04
@@ -114,6 +271,7 @@ enum ieee80211_radiotap_type {
 #define IEEE80211_RADIOTAP_MCS_FEC_LDPC		0x10
 
 
+/* helpers */
 static inline int ieee80211_get_radiotap_len(unsigned char *data)
 {
 	struct ieee80211_radiotap_header *hdr =
@@ -122,4 +280,4 @@ static inline int ieee80211_get_radiotap_len(unsigned char *data)
 	return get_unaligned_le16(&hdr->it_len);
 }
 
-#endif				
+#endif				/* IEEE80211_RADIOTAP_H */

@@ -1,3 +1,11 @@
+/******************************************************************************
+*                                                                             *
+*  easycap_sound.c                                                            *
+*                                                                             *
+*  Audio driver for EasyCAP USB2.0 Video Capture Device DC60                  *
+*                                                                             *
+*                                                                             *
+******************************************************************************/
 /*
  *
  *  Copyright (C) 2010 R.M. Thomas  <rmthomas@sciolus.org>
@@ -18,9 +26,15 @@
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
 */
+/*****************************************************************************/
 
 #include "easycap.h"
 
+/*--------------------------------------------------------------------------*/
+/*
+ *  PARAMETERS USED WHEN REGISTERING THE AUDIO INTERFACE
+ */
+/*--------------------------------------------------------------------------*/
 static const struct snd_pcm_hardware alsa_hardware = {
 	.info = SNDRV_PCM_INFO_BLOCK_TRANSFER |
 		SNDRV_PCM_INFO_MMAP           |
@@ -42,6 +56,11 @@ static const struct snd_pcm_hardware alsa_hardware = {
 };
 
 
+/*---------------------------------------------------------------------------*/
+/*
+ *  SUBMIT ALL AUDIO URBS.
+ */
+/*---------------------------------------------------------------------------*/
 static int easycap_audio_submit_urbs(struct easycap *peasycap)
 {
 	struct data_urb *pdata_urb;
@@ -123,6 +142,11 @@ static int easycap_audio_submit_urbs(struct easycap *peasycap)
 
 	return 0;
 }
+/*---------------------------------------------------------------------------*/
+/*
+ *  COMMON AUDIO INITIALIZATION
+ */
+/*---------------------------------------------------------------------------*/
 static int easycap_sound_setup(struct easycap *peasycap)
 {
 	int rc;
@@ -146,6 +170,7 @@ static int easycap_sound_setup(struct easycap *peasycap)
 		SAM("ERROR: peasycap->pusb_device has become NULL\n");
 		return -ENODEV;
 	}
+/*---------------------------------------------------------------------------*/
 	if (!peasycap->pusb_device) {
 		SAM("ERROR: peasycap->pusb_device has become NULL\n");
 		return -ENODEV;
@@ -166,6 +191,14 @@ static int easycap_sound_setup(struct easycap *peasycap)
 	JOM(4, "finished initialization\n");
 	return 0;
 }
+/*****************************************************************************/
+/*---------------------------------------------------------------------------*/
+/*
+ *  ON COMPLETION OF AN AUDIO URB ITS DATA IS COPIED TO THE DAM BUFFER
+ *  PROVIDED peasycap->audio_idle IS ZERO.  REGARDLESS OF THIS BEING TRUE,
+ *  IT IS RESUBMITTED PROVIDED peasycap->audio_isoc_streaming IS NOT ZERO.
+ */
+/*---------------------------------------------------------------------------*/
 void easycap_alsa_complete(struct urb *purb)
 {
 	struct easycap *peasycap;
@@ -179,7 +212,7 @@ void easycap_alsa_complete(struct urb *purb)
 #ifdef UPSAMPLE
 	int k;
 	s16 oldaudio, newaudio, delta;
-#endif 
+#endif /*UPSAMPLE*/
 
 	JOT(16, "\n");
 
@@ -199,6 +232,7 @@ void easycap_alsa_complete(struct urb *purb)
 		if (peasycap->audio_isoc_streaming)
 			goto resubmit;
 	}
+/*---------------------------------------------------------------------------*/
 	pss = peasycap->psubstream;
 	if (!pss)
 		goto resubmit;
@@ -211,6 +245,7 @@ void easycap_alsa_complete(struct urb *purb)
 	fragment_bytes = 4 * ((int)prt->period_size);
 	if (0 == fragment_bytes)
 		goto resubmit;
+/* -------------------------------------------------------------------------*/
 	if (purb->status) {
 		if ((-ESHUTDOWN == purb->status) || (-ENOENT == purb->status)) {
 			JOM(16, "urb status -ESHUTDOWN or -ENOENT\n");
@@ -220,10 +255,15 @@ void easycap_alsa_complete(struct urb *purb)
 		    strerror(purb->status), purb->status);
 		goto resubmit;
 	}
+/*---------------------------------------------------------------------------*/
+/*
+ *  PROCEED HERE WHEN NO ERROR
+ */
+/*---------------------------------------------------------------------------*/
 
 #ifdef UPSAMPLE
 	oldaudio = peasycap->oldaudio;
-#endif 
+#endif /*UPSAMPLE*/
 
 	for (i = 0;  i < purb->number_of_packets; i++) {
 		if (purb->iso_frame_desc[i].status < 0) {
@@ -256,6 +296,12 @@ void easycap_alsa_complete(struct urb *purb)
 		p1 = (u8 *)(purb->transfer_buffer +
 				purb->iso_frame_desc[i].offset);
 
+		/*
+		 *  COPY more BYTES FROM ISOC BUFFER
+		 *  TO THE DMA BUFFER, CONVERTING
+		 *  8-BIT MONO TO 16-BIT SIGNED
+		 *  LITTLE-ENDIAN SAMPLES IF NECESSARY
+		 */
 		while (more) {
 			much = dma_bytes - peasycap->dma_fill;
 			if (0 > much) {
@@ -303,7 +349,7 @@ void easycap_alsa_complete(struct urb *purb)
 					more--;
 					oldaudio = tmp;
 				}
-#else 
+#else /*!UPSAMPLE*/
 				if (much > (2 * more))
 					much = 2 * more;
 				p2 = (u8 *)(prt->dma_area + peasycap->dma_fill);
@@ -317,7 +363,7 @@ void easycap_alsa_complete(struct urb *purb)
 					p2 += 2;
 					more--;
 				}
-#endif 
+#endif /*UPSAMPLE*/
 			}
 			peasycap->dma_fill += much;
 			if (peasycap->dma_fill >= peasycap->dma_next) {
@@ -341,9 +387,14 @@ void easycap_alsa_complete(struct urb *purb)
 
 #ifdef UPSAMPLE
 		peasycap->oldaudio = oldaudio;
-#endif 
+#endif /*UPSAMPLE*/
 
 	}
+/*---------------------------------------------------------------------------*/
+/*
+ *  RESUBMIT THIS URB
+ */
+/*---------------------------------------------------------------------------*/
 resubmit:
 	if (peasycap->audio_isoc_streaming == 0)
 		return;
@@ -360,6 +411,7 @@ resubmit:
 	}
 	return;
 }
+/*****************************************************************************/
 static int easycap_alsa_open(struct snd_pcm_substream *pss)
 {
 	struct snd_pcm *psnd_pcm;
@@ -408,6 +460,7 @@ static int easycap_alsa_open(struct snd_pcm_substream *pss)
 	JOM(4, "ending successfully\n");
 	return 0;
 }
+/*****************************************************************************/
 static int easycap_alsa_close(struct snd_pcm_substream *pss)
 {
 	struct easycap *peasycap;
@@ -427,6 +480,7 @@ static int easycap_alsa_close(struct snd_pcm_substream *pss)
 	JOT(4, "ending successfully\n");
 	return 0;
 }
+/*****************************************************************************/
 static int easycap_alsa_vmalloc(struct snd_pcm_substream *pss, size_t sz)
 {
 	struct snd_pcm_runtime *prt;
@@ -452,6 +506,7 @@ static int easycap_alsa_vmalloc(struct snd_pcm_substream *pss, size_t sz)
 	prt->dma_bytes = sz;
 	return 0;
 }
+/*****************************************************************************/
 static int easycap_alsa_hw_params(struct snd_pcm_substream *pss,
 				 struct snd_pcm_hw_params *phw)
 {
@@ -467,6 +522,7 @@ static int easycap_alsa_hw_params(struct snd_pcm_substream *pss,
 		return rc;
 	return 0;
 }
+/*****************************************************************************/
 static int easycap_alsa_hw_free(struct snd_pcm_substream *pss)
 {
 	struct snd_pcm_runtime *prt;
@@ -489,6 +545,7 @@ static int easycap_alsa_hw_free(struct snd_pcm_substream *pss)
 		JOT(8, "dma_area already freed\n");
 	return 0;
 }
+/*****************************************************************************/
 static int easycap_alsa_prepare(struct snd_pcm_substream *pss)
 {
 	struct easycap *peasycap;
@@ -526,10 +583,12 @@ static int easycap_alsa_prepare(struct snd_pcm_substream *pss)
 	}
 	return 0;
 }
+/*****************************************************************************/
 static int easycap_alsa_ack(struct snd_pcm_substream *pss)
 {
 	return 0;
 }
+/*****************************************************************************/
 static int easycap_alsa_trigger(struct snd_pcm_substream *pss, int cmd)
 {
 	struct easycap *peasycap;
@@ -559,6 +618,7 @@ static int easycap_alsa_trigger(struct snd_pcm_substream *pss, int cmd)
 	}
 	return 0;
 }
+/*****************************************************************************/
 static snd_pcm_uframes_t easycap_alsa_pointer(struct snd_pcm_substream *pss)
 {
 	struct easycap *peasycap;
@@ -580,6 +640,7 @@ static snd_pcm_uframes_t easycap_alsa_pointer(struct snd_pcm_substream *pss)
 		    peasycap->audio_idle, peasycap->audio_eof);
 		return -EIO;
 	}
+/*---------------------------------------------------------------------------*/
 	if (0 > peasycap->dma_read) {
 		JOM(8, "returning -EBUSY\n");
 		return -EBUSY;
@@ -592,11 +653,13 @@ static snd_pcm_uframes_t easycap_alsa_pointer(struct snd_pcm_substream *pss)
 	    (int)offset, peasycap->dma_read, peasycap->dma_next);
 	return offset;
 }
+/*****************************************************************************/
 static struct page *
 easycap_alsa_page(struct snd_pcm_substream *pss, unsigned long offset)
 {
 	return vmalloc_to_page(pss->runtime->dma_area + offset);
 }
+/*****************************************************************************/
 
 static struct snd_pcm_ops easycap_alsa_pcm_ops = {
 	.open      = easycap_alsa_open,
@@ -611,6 +674,13 @@ static struct snd_pcm_ops easycap_alsa_pcm_ops = {
 	.page      = easycap_alsa_page,
 };
 
+/*****************************************************************************/
+/*---------------------------------------------------------------------------*/
+/*
+ *  THE FUNCTION snd_card_create() HAS  THIS_MODULE  AS AN ARGUMENT.  THIS
+ *  MEANS MODULE easycap.  BEWARE.
+*/
+/*---------------------------------------------------------------------------*/
 int easycap_alsa_probe(struct easycap *peasycap)
 {
 	int rc;

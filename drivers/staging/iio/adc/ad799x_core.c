@@ -40,6 +40,9 @@
 
 #include "ad799x.h"
 
+/*
+ * ad799x register access by I2C
+ */
 static int ad799x_i2c_read16(struct ad799x_state *st, u8 reg, u16 *data)
 {
 	struct i2c_client *client = st->client;
@@ -213,7 +216,7 @@ static ssize_t ad799x_write_frequency(struct device *dev,
 	ret = ad799x_i2c_read8(st, AD7998_CYCLE_TMR_REG, &t);
 	if (ret)
 		goto error_ret_mutex;
-	
+	/* Wipe the bits clean */
 	t &= ~AD7998_CYC_MASK;
 
 	for (i = 0; i < ARRAY_SIZE(ad7998_frequencies); i++)
@@ -812,14 +815,14 @@ static int __devinit ad799x_probe(struct i2c_client *client,
 		return -ENOMEM;
 
 	st = iio_priv(indio_dev);
-	
+	/* this is only used for device removal purposes */
 	i2c_set_clientdata(client, indio_dev);
 
 	st->id = id->driver_data;
 	st->chip_info = &ad799x_chip_info_tbl[st->id];
 	st->config = st->chip_info->default_config;
 
-	
+	/* TODO: Add pdata options for filtering and bit delay */
 
 	if (pdata)
 		st->int_vref_mv = pdata->vref_mv;

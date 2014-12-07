@@ -49,6 +49,10 @@ static __u16 sd_dif_ip_fn(void *data, unsigned int len)
 	return ip_compute_csum(data, len);
 }
 
+/*
+ * Type 1 and Type 2 protection use the same format: 16 bit guard tag,
+ * 16 bit app tag, 32 bit reference tag.
+ */
 static void sd_dif_type1_generate(struct blk_integrity_exchg *bix, csum_fn *fn)
 {
 	void *buf = bix->data_buf;
@@ -89,7 +93,7 @@ static int sd_dif_type1_verify(struct blk_integrity_exchg *bix, csum_fn *fn)
 		if (sdt->app_tag == 0xffff)
 			return 0;
 
-		
+		/* Bad ref tag received from disk */
 		if (sdt->ref_tag == 0xffffffff) {
 			printk(KERN_ERR
 			       "%s: bad phys ref tag on sector %lu\n",
@@ -132,6 +136,9 @@ static int sd_dif_type1_verify_ip(struct blk_integrity_exchg *bix)
 	return sd_dif_type1_verify(bix, sd_dif_ip_fn);
 }
 
+/*
+ * Functions for interleaving and deinterleaving application tags
+ */
 static void sd_dif_type1_set_tag(void *prot, void *tag_buf, unsigned int sectors)
 {
 	struct sd_dif_tuple *sdt = prot;
@@ -177,6 +184,10 @@ static struct blk_integrity dif_type1_integrity_ip = {
 };
 
 
+/*
+ * Type 3 protection has a 16-bit guard tag and 16 + 32 bits of opaque
+ * tag space.
+ */
 static void sd_dif_type3_generate(struct blk_integrity_exchg *bix, csum_fn *fn)
 {
 	void *buf = bix->data_buf;
@@ -292,6 +303,9 @@ static struct blk_integrity dif_type3_integrity_ip = {
 	.tag_size		= 0,
 };
 
+/*
+ * Configure exchange of protection information between OS and HBA.
+ */
 void sd_dif_config_host(struct scsi_disk *sdkp)
 {
 	struct scsi_device *sdp = sdkp->device;
@@ -309,7 +323,7 @@ void sd_dif_config_host(struct scsi_disk *sdkp)
 	if (!dix)
 		return;
 
-	
+	/* Enable DMA of protection information */
 	if (scsi_host_get_guard(sdkp->device->host) & SHOST_DIX_GUARD_IP)
 		if (type == SD_DIF_TYPE3_PROTECTION)
 			blk_integrity_register(disk, &dif_type3_integrity_ip);
@@ -324,7 +338,7 @@ void sd_dif_config_host(struct scsi_disk *sdkp)
 	sd_printk(KERN_NOTICE, sdkp,
 		  "Enabling DIX %s protection\n", disk->integrity->name);
 
-	
+	/* Signal to block layer that we support sector tagging */
 	if (dif && type && sdkp->ATO) {
 		if (type == SD_DIF_TYPE3_PROTECTION)
 			disk->integrity->tag_size = sizeof(u16) + sizeof(u32);
@@ -336,6 +350,22 @@ void sd_dif_config_host(struct scsi_disk *sdkp)
 	}
 }
 
+/*
+ * The virtual start sector is the one that was originally submitted
+ * by the block layer.	Due to partitioning, MD/DM cloning, etc. the
+ * actual physical start sector is likely to be different.  Remap
+ * protection information to match the physical LBA.
+ *
+ * From a protocol perspective there's a slight difference between
+ * Type 1 and 2.  The latter uses 32-byte CDBs exclusively, and the
+ * reference tag is seeded in the CDB.  This gives us the potential to
+ * avoid virt->phys remapping during write.  However, at read time we
+ * don't know whether the virt sector is the same as when we wrote it
+ * (we could be reading from real disk as opposed to MD/DM device.  So
+ * we always remap Type 2 making it identical to Type 1.
+ *
+ * Type 3 does not have a reference tag so no remapping is required.
+ */
 int sd_dif_prepare(struct request *rq, sector_t hw_sector, unsigned int sector_sz)
 {
 	const int tuple_sz = sizeof(struct sd_dif_tuple);
@@ -355,7 +385,7 @@ int sd_dif_prepare(struct request *rq, sector_t hw_sector, unsigned int sector_s
 	__rq_for_each_bio(bio, rq) {
 		struct bio_vec *iv;
 
-		
+		/* Already remapped? */
 		if (bio_flagged(bio, BIO_MAPPED_INTEGRITY))
 			break;
 
@@ -392,6 +422,10 @@ error:
 	return -EILSEQ;
 }
 
+/*
+ * Remap physical sector values in the reference tag to the virtual
+ * values expected by the block layer.
+ */
 void sd_dif_complete(struct scsi_cmnd *scmd, unsigned int good_bytes)
 {
 	const int tuple_sz = sizeof(struct sd_dif_tuple);
@@ -431,7 +465,7 @@ void sd_dif_complete(struct scsi_cmnd *scmd, unsigned int good_bytes)
 
 				if (be32_to_cpu(sdt->ref_tag) != phys &&
 				    sdt->app_tag != 0xffff)
-					sdt->ref_tag = 0xffffffff; 
+					sdt->ref_tag = 0xffffffff; /* Bad ref */
 				else
 					sdt->ref_tag = cpu_to_be32(virt);
 

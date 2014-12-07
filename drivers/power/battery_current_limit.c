@@ -23,55 +23,74 @@
 
 #define BCL_DEV_NAME "battery_current_limit"
 #define BCL_NAME_LENGTH 20
+/*
+ * Default BCL poll interval 1000 msec
+ */
 #define BCL_POLL_INTERVAL 1000
+/*
+ * Mininum BCL poll interval 10 msec
+ */
 #define MIN_BCL_POLL_INTERVAL 10
 #define BATTERY_VOLTAGE_MIN 3400
 
 static const char bcl_type[] = "bcl";
 
+/*
+ * Battery Current Limit Enable or Not
+ */
 enum bcl_device_mode {
 	BCL_DEVICE_DISABLED = 0,
 	BCL_DEVICE_ENABLED,
 };
 
+/*
+ * Battery Current Limit Iavail Threshold Mode set
+ */
 enum bcl_iavail_threshold_mode {
 	BCL_IAVAIL_THRESHOLD_DISABLED = 0,
 	BCL_IAVAIL_THRESHOLD_ENABLED,
 };
 
+/*
+ * Battery Current Limit Iavail Threshold Mode
+ */
 enum bcl_iavail_threshold_type {
 	BCL_IAVAIL_LOW_THRESHOLD_TYPE = 0,
 	BCL_IAVAIL_HIGH_THRESHOLD_TYPE,
 	BCL_IAVAIL_THRESHOLD_TYPE_MAX,
 };
 
+/**
+ * BCL control block
+ *
+ */
 struct bcl_context {
-	
+	/* BCL device */
 	struct device *dev;
 
-	
-	
+	/* BCL related config parameter */
+	/* BCL mode enable or not */
 	enum bcl_device_mode bcl_mode;
-	
+	/* BCL Iavail Threshold Activate or Not */
 	enum bcl_iavail_threshold_mode
 		bcl_threshold_mode[BCL_IAVAIL_THRESHOLD_TYPE_MAX];
-	
+	/* BCL Iavail Threshold value in milli Amp */
 	int bcl_threshold_value_ma[BCL_IAVAIL_THRESHOLD_TYPE_MAX];
-	
+	/* BCL Type */
 	char bcl_type[BCL_NAME_LENGTH];
-	
+	/* BCL poll in msec */
 	int bcl_poll_interval_msec;
 
-	
-	
+	/* BCL realtime value based on poll */
+	/* BCL realtime vbat in mV*/
 	int bcl_vbat_mv;
-	
+	/* BCL realtime rbat in mOhms*/
 	int bcl_rbat_mohm;
-	
+	/*BCL realtime iavail in milli Amp*/
 	int bcl_iavail;
-	
+	/*BCL vbatt min in mV*/
 	int bcl_vbat_min;
-	
+	/* BCL period poll delay work structure  */
 	struct delayed_work     bcl_iavail_work;
 
 };
@@ -125,6 +144,10 @@ static int bcl_get_resistance(int *rbatt_mohm)
 	return 0;
 }
 
+/*
+ * BCL iavail calculation and trigger notification to user space
+ * if iavail cross threshold
+ */
 static void bcl_calculate_iavail_trigger(void)
 {
 	int iavail_ma = 0;
@@ -167,6 +190,9 @@ static void bcl_calculate_iavail_trigger(void)
 		sysfs_notify(&gbcl->dev->kobj, NULL, "type");
 }
 
+/*
+ * BCL iavail work
+ */
 static void bcl_iavail_work(struct work_struct *work)
 {
 	struct bcl_context *bcl = container_of(work,
@@ -174,12 +200,15 @@ static void bcl_iavail_work(struct work_struct *work)
 
 	if (gbcl->bcl_mode == BCL_DEVICE_ENABLED) {
 		bcl_calculate_iavail_trigger();
-		
+		/* restart the delay work for caculating imax */
 		schedule_delayed_work(&bcl->bcl_iavail_work,
 			msecs_to_jiffies(bcl->bcl_poll_interval_msec));
 	}
 }
 
+/*
+ * Set BCL mode
+ */
 static void bcl_mode_set(enum bcl_device_mode mode)
 {
 	if (!gbcl)
@@ -407,6 +436,9 @@ static ssize_t iavail_high_threshold_value_store(struct device *dev,
 	return count;
 }
 
+/*
+ * BCL device attributes
+ */
 static struct device_attribute bcl_dev_attr[] = {
 	__ATTR(type, 0444, type_show, NULL),
 	__ATTR(iavail, 0444, iavail_show, NULL),
@@ -470,8 +502,8 @@ static int __devinit bcl_probe(struct platform_device *pdev)
 
 	gbcl = bcl;
 
-	
-	
+	/* For BCL */
+	/* Init default BCL params */
 	bcl->dev = &pdev->dev;
 	bcl->bcl_mode = BCL_DEVICE_DISABLED;
 	bcl->bcl_threshold_mode[BCL_IAVAIL_LOW_THRESHOLD_TYPE] =

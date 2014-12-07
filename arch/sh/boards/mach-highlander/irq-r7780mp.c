@@ -17,17 +17,17 @@
 enum {
 	UNUSED = 0,
 
-	
-	CF,		
-	TP,		
-	SCIF1,		
-	SCIF0,		
-	SMBUS,		
-	RTC,		
-	AX88796,	
-	PSW,		
+	/* board specific interrupt sources */
+	CF,		/* Compact Flash */
+	TP,		/* Touch panel */
+	SCIF1,		/* FPGA SCIF1 */
+	SCIF0,		/* FPGA SCIF0 */
+	SMBUS,		/* SMBUS */
+	RTC,		/* RTC Alarm */
+	AX88796,	/* Ethernet controller */
+	PSW,		/* Push Switch */
 
-	
+	/* external bus connector */
 	EXT1, EXT2, EXT4, EXT5, EXT6,
 };
 
@@ -47,7 +47,7 @@ static struct intc_vect vectors[] __initdata = {
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xa4000000, 0, 16, 
+	{ 0xa4000000, 0, 16, /* IRLMSK */
 	  { SCIF0, SCIF1, RTC, 0, CF, 0, TP, SMBUS,
 	    0, EXT6, EXT5, EXT4, EXT2, EXT1, PSW, AX88796 } },
 };

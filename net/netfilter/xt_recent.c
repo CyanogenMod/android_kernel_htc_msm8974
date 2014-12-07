@@ -145,12 +145,21 @@ static void recent_entry_remove(struct recent_table *t, struct recent_entry *e)
 	t->entries--;
 }
 
+/*
+ * Drop entries with timestamps older then 'time'.
+ */
 static void recent_entry_reap(struct recent_table *t, unsigned long time)
 {
 	struct recent_entry *e;
 
+	/*
+	 * The head of the LRU list is always the oldest entry.
+	 */
 	e = list_entry(t->lru_list.next, struct recent_entry, lru_list);
 
+	/*
+	 * The last time stamp is the most recent.
+	 */
 	if (time_after(time, e->stamps[e->index-1]))
 		recent_entry_remove(t, e);
 }
@@ -246,7 +255,7 @@ recent_mt(const struct sk_buff *skb, struct xt_action_param *par)
 		ttl = iph->hop_limit;
 	}
 
-	
+	/* use TTL as seen before forwarding */
 	if (par->out != NULL && skb->sk == NULL)
 		ttl++;
 
@@ -282,7 +291,7 @@ recent_mt(const struct sk_buff *skb, struct xt_action_param *par)
 			}
 		}
 
-		
+		/* info->seconds must be non-zero */
 		if (info->check_set & XT_RECENT_REAP)
 			recent_entry_reap(t, time);
 	}
@@ -500,19 +509,19 @@ recent_mt_proc_write(struct file *file, const char __user *input,
 	if (copy_from_user(buf, input, size) != 0)
 		return -EFAULT;
 
-	
+	/* Strict protocol! */
 	if (*loff != 0)
 		return -ESPIPE;
 	switch (*c) {
-	case '/': 
+	case '/': /* flush table */
 		spin_lock_bh(&recent_lock);
 		recent_table_flush(t);
 		spin_unlock_bh(&recent_lock);
 		return size;
-	case '-': 
+	case '-': /* remove address */
 		add = false;
 		break;
-	case '+': 
+	case '+': /* add address */
 		add = true;
 		break;
 	default:
@@ -547,7 +556,7 @@ recent_mt_proc_write(struct file *file, const char __user *input,
 			recent_entry_remove(t, e);
 	}
 	spin_unlock_bh(&recent_lock);
-	
+	/* Note we removed one above */
 	*loff += size + 1;
 	return size + 1;
 }
@@ -584,7 +593,7 @@ static inline int recent_proc_net_init(struct net *net)
 static inline void recent_proc_net_exit(struct net *net)
 {
 }
-#endif 
+#endif /* CONFIG_PROC_FS */
 
 static int __net_init recent_net_init(struct net *net)
 {

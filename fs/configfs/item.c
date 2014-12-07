@@ -40,14 +40,28 @@ static inline struct config_item * to_item(struct list_head * entry)
 	return container_of(entry,struct config_item,ci_entry);
 }
 
+/* Evil kernel */
 static void config_item_release(struct kref *kref);
 
+/**
+ *	config_item_init - initialize item.
+ *	@item:	item in question.
+ */
 void config_item_init(struct config_item * item)
 {
 	kref_init(&item->ci_kref);
 	INIT_LIST_HEAD(&item->ci_entry);
 }
 
+/**
+ *	config_item_set_name - Set the name of an item
+ *	@item:	item.
+ *	@name:	name.
+ *
+ *	If strlen(name) >= CONFIGFS_ITEM_NAME_LEN, then use a
+ *	dynamically allocated string that @item->ci_name points to.
+ *	Otherwise, use the static @item->ci_namebuf array.
+ */
 int config_item_set_name(struct config_item * item, const char * fmt, ...)
 {
 	int error = 0;
@@ -56,12 +70,18 @@ int config_item_set_name(struct config_item * item, const char * fmt, ...)
 	va_list args;
 	char * name;
 
+	/*
+	 * First, try the static array
+	 */
 	va_start(args,fmt);
 	need = vsnprintf(item->ci_namebuf,limit,fmt,args);
 	va_end(args);
 	if (need < limit)
 		name = item->ci_namebuf;
 	else {
+		/*
+		 * Need more space? Allocate it and try again
+		 */
 		limit = need + 1;
 		name = kmalloc(limit,GFP_KERNEL);
 		if (!name) {
@@ -72,7 +92,7 @@ int config_item_set_name(struct config_item * item, const char * fmt, ...)
 		need = vsnprintf(name,limit,fmt,args);
 		va_end(args);
 
-		
+		/* Still? Give up. */
 		if (need >= limit) {
 			kfree(name);
 			error = -EFAULT;
@@ -80,11 +100,11 @@ int config_item_set_name(struct config_item * item, const char * fmt, ...)
 		}
 	}
 
-	
+	/* Free the old name, if necessary. */
 	if (item->ci_name && item->ci_name != item->ci_namebuf)
 		kfree(item->ci_name);
 
-	
+	/* Now, set the new name */
 	item->ci_name = name;
  Done:
 	return error;
@@ -141,18 +161,37 @@ static void config_item_release(struct kref *kref)
 	config_item_cleanup(container_of(kref, struct config_item, ci_kref));
 }
 
+/**
+ *	config_item_put - decrement refcount for item.
+ *	@item:	item.
+ *
+ *	Decrement the refcount, and if 0, call config_item_cleanup().
+ */
 void config_item_put(struct config_item * item)
 {
 	if (item)
 		kref_put(&item->ci_kref, config_item_release);
 }
 
+/**
+ *	config_group_init - initialize a group for use
+ *	@k:	group
+ */
 void config_group_init(struct config_group *group)
 {
 	config_item_init(&group->cg_item);
 	INIT_LIST_HEAD(&group->cg_children);
 }
 
+/**
+ *	config_group_find_item - search for item in group.
+ *	@group:	group we're looking in.
+ *	@name:	item's name.
+ *
+ *	Iterate over @group->cg_list, looking for a matching config_item.
+ *	If matching item is found take a reference and return the item.
+ *	Caller must have locked group via @group->cg_subsys->su_mtx.
+ */
 struct config_item *config_group_find_item(struct config_group *group,
 					   const char *name)
 {

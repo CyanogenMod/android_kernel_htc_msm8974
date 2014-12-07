@@ -19,6 +19,9 @@
 #ifndef __ASM_OPENRISC_UACCESS_H
 #define __ASM_OPENRISC_UACCESS_H
 
+/*
+ * User space memory access functions
+ */
 #include <linux/errno.h>
 #include <linux/thread_info.h>
 #include <linux/prefetch.h>
@@ -28,7 +31,19 @@
 #define VERIFY_READ	0
 #define VERIFY_WRITE	1
 
+/*
+ * The fs value determines whether argument validity checking should be
+ * performed or not.  If get_fs() == USER_DS, checking is performed, with
+ * get_fs() == KERNEL_DS, checking is bypassed.
+ *
+ * For historical reasons, these macros are grossly misnamed.
+ */
 
+/* addr_limit is the maximum accessible address for the task. we misuse
+ * the KERNEL_DS and USER_DS values to both assign and compare the
+ * addr_limit values through the equally misnamed get/set_fs macros.
+ * (see above)
+ */
 
 #define KERNEL_DS	(~0UL)
 #define get_ds()	(KERNEL_DS)
@@ -39,21 +54,56 @@
 
 #define segment_eq(a, b)	((a) == (b))
 
+/* Ensure that the range from addr to addr+size is all within the process'
+ * address space
+ */
 #define __range_ok(addr, size) (size <= get_fs() && addr <= (get_fs()-size))
 
+/* Ensure that addr is below task's addr_limit */
 #define __addr_ok(addr) ((unsigned long) addr < get_fs())
 
 #define access_ok(type, addr, size) \
 	__range_ok((unsigned long)addr, (unsigned long)size)
 
+/*
+ * The exception table consists of pairs of addresses: the first is the
+ * address of an instruction that is allowed to fault, and the second is
+ * the address at which the program should continue.  No registers are
+ * modified, so it is entirely up to the continuation code to figure out
+ * what to do.
+ *
+ * All the routines below use bits of fixup code that are out of line
+ * with the main instruction path.  This means when everything is well,
+ * we don't even have to jump over them.  Further, they do not intrude
+ * on our cache or tlb entries.
+ */
 
 struct exception_table_entry {
 	unsigned long insn, fixup;
 };
 
+/* Returns 0 if exception not found and fixup otherwise.  */
 extern unsigned long search_exception_table(unsigned long);
 extern void sort_exception_table(void);
 
+/*
+ * These are the main single-value transfer routines.  They automatically
+ * use the right size if we just have the right pointer type.
+ *
+ * This gets kind of ugly. We want to return _two_ values in "get_user()"
+ * and yet we don't want to do any pointers, because that is too much
+ * of a performance impact. Thus we have a few rather ugly macros here,
+ * and hide all the uglyness from the user.
+ *
+ * The "__xxx" versions of the user access functions are versions that
+ * do not verify the address space, that must have been done previously
+ * with a separate "access_ok()" call (this is used when we do multiple
+ * accesses to the same area of user memory).
+ *
+ * As we use the same address space for kernel and user data on the
+ * PowerPC, we can just do these as direct assignments.  (Of course, the
+ * exception handling means that it's no longer "just"...)
+ */
 #define get_user(x, ptr) \
 	__get_user_check((x), (ptr), sizeof(*(ptr)))
 #define put_user(x, ptr) \
@@ -99,6 +149,11 @@ struct __large_struct {
 };
 #define __m(x) (*(struct __large_struct *)(x))
 
+/*
+ * We don't tell gcc that we are accessing memory, but this is OK
+ * because we do not write to any memory gcc knows about, so there
+ * are no aliasing issues.
+ */
 #define __put_user_asm(x, addr, err, op)			\
 	__asm__ __volatile__(					\
 		"1:	"op" 0(%2),%1\n"			\
@@ -202,6 +257,7 @@ do {									\
 		: "=r"(err), "=&r"(x)			\
 		: "r"(addr), "i"(-EFAULT), "0"(err))
 
+/* more complex routines */
 
 extern unsigned long __must_check
 __copy_tofrom_user(void *to, const void *from, unsigned long size);
@@ -266,9 +322,22 @@ static inline long strncpy_from_user(char *dst, const char *src, long count)
 	return -EFAULT;
 }
 
+/*
+ * Return the size of a string (including the ending 0)
+ *
+ * Return 0 for error
+ */
 
 extern int __strnlen_user(const char *str, long len, unsigned long top);
 
+/*
+ * Returns the length of the string at str (including the null byte),
+ * or 0 if we hit a page we can't access,
+ * or something > len if we didn't find a null byte.
+ *
+ * The `top' parameter to __strnlen_user is to make sure that
+ * we can never overflow from the user area into kernel space.
+ */
 static inline long strnlen_user(const char __user *str, long len)
 {
 	unsigned long top = (unsigned long)get_fs();
@@ -282,4 +351,4 @@ static inline long strnlen_user(const char __user *str, long len)
 
 #define strlen_user(str) strnlen_user(str, TASK_SIZE-1)
 
-#endif 
+#endif /* __ASM_OPENRISC_UACCESS_H */

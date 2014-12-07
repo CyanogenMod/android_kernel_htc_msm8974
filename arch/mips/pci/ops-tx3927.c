@@ -55,7 +55,7 @@ static int mkaddr(struct pci_bus *bus, unsigned char devfn, unsigned char where)
 		((devfn & 0xff) << 0x08) |
 		(where & 0xfc) | (bus->parent ? 1 : 0);
 
-	
+	/* clear M_ABORT and Disable M_ABORT Int. */
 	tx3927_pcicptr->pcistat |= PCI_STATUS_REC_MASTER_ABORT;
 	tx3927_pcicptr->pcistatim &= ~PCI_STATUS_REC_MASTER_ABORT;
 	return 0;
@@ -66,7 +66,7 @@ static inline int check_abort(void)
 	if (tx3927_pcicptr->pcistat & PCI_STATUS_REC_MASTER_ABORT) {
 		tx3927_pcicptr->pcistat |= PCI_STATUS_REC_MASTER_ABORT;
 		tx3927_pcicptr->pcistatim |= PCI_STATUS_REC_MASTER_ABORT;
-		
+		/* flush write buffer */
 		iob();
 		return PCIBIOS_DEVICE_NOT_FOUND;
 	}
@@ -150,45 +150,45 @@ void __init tx3927_pcic_setup(struct pci_controller *channel,
 	channel->pci_ops = &tx3927_pci_ops;
 
 	local_irq_save(flags);
-	
+	/* Disable External PCI Config. Access */
 	tx3927_pcicptr->lbc = TX3927_PCIC_LBC_EPCAD;
 #ifdef __BIG_ENDIAN
 	tx3927_pcicptr->lbc |= TX3927_PCIC_LBC_IBSE |
 		TX3927_PCIC_LBC_TIBSE |
 		TX3927_PCIC_LBC_TMFBSE | TX3927_PCIC_LBC_MSDSE;
 #endif
-	
+	/* LB->PCI mappings */
 	tx3927_pcicptr->iomas = ~(io_size - 1);
 	tx3927_pcicptr->ilbioma = io_base;
 	tx3927_pcicptr->ipbioma = io_pciaddr;
 	tx3927_pcicptr->mmas = ~(mem_size - 1);
 	tx3927_pcicptr->ilbmma = mem_base;
 	tx3927_pcicptr->ipbmma = mem_pciaddr;
-	
+	/* PCI->LB mappings */
 	tx3927_pcicptr->iobas = 0xffffffff;
 	tx3927_pcicptr->ioba = 0;
 	tx3927_pcicptr->tlbioma = 0;
 	tx3927_pcicptr->mbas = ~(sdram_size - 1);
 	tx3927_pcicptr->mba = 0;
 	tx3927_pcicptr->tlbmma = 0;
-	
+	/* Enable Direct mapping Address Space Decoder */
 	tx3927_pcicptr->lbc |= TX3927_PCIC_LBC_ILMDE | TX3927_PCIC_LBC_ILIDE;
 
-	
+	/* Clear All Local Bus Status */
 	tx3927_pcicptr->lbstat = TX3927_PCIC_LBIM_ALL;
-	
+	/* Enable All Local Bus Interrupts */
 	tx3927_pcicptr->lbim = TX3927_PCIC_LBIM_ALL;
-	
+	/* Clear All PCI Status Error */
 	tx3927_pcicptr->pcistat = TX3927_PCIC_PCISTATIM_ALL;
-	
+	/* Enable All PCI Status Error Interrupts */
 	tx3927_pcicptr->pcistatim = TX3927_PCIC_PCISTATIM_ALL;
 
-	
+	/* PCIC Int => IRC IRQ10 */
 	tx3927_pcicptr->il = TX3927_IR_PCI;
-	
+	/* Target Control (per errata) */
 	tx3927_pcicptr->tc = TX3927_PCIC_TC_OF8E | TX3927_PCIC_TC_IF8E;
 
-	
+	/* Enable Bus Arbiter */
 	if (!extarb)
 		tx3927_pcicptr->pbapmc = TX3927_PCIC_PBAPMC_PBAEN;
 
@@ -210,7 +210,7 @@ static irqreturn_t tx3927_pcierr_interrupt(int irq, void *dev_id)
 		       tx3927_pcicptr->pcistat, tx3927_pcicptr->lbstat);
 	}
 	if (txx9_pci_err_action != TXX9_PCI_ERR_PANIC) {
-		
+		/* clear all pci errors */
 		tx3927_pcicptr->pcistat |= TX3927_PCIC_PCISTATIM_ALL;
 		tx3927_pcicptr->istat = TX3927_PCIC_IIM_ALL;
 		tx3927_pcicptr->tstat = TX3927_PCIC_TIM_ALL;

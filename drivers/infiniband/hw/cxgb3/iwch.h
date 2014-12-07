@@ -50,25 +50,46 @@ struct iwch_mr;
 
 struct iwch_rnic_attributes {
 	u32 max_qps;
-	u32 max_wrs;				
+	u32 max_wrs;				/* Max for any SQ/RQ */
 	u32 max_sge_per_wr;
-	u32 max_sge_per_rdma_write_wr;	
+	u32 max_sge_per_rdma_write_wr;	/* for RDMA Write WR */
 	u32 max_cqs;
 	u32 max_cqes_per_cq;
 	u32 max_mem_regs;
-	u32 max_phys_buf_entries;		
+	u32 max_phys_buf_entries;		/* for phys buf list */
 	u32 max_pds;
 
+	/*
+	 * The memory page sizes supported by this RNIC.
+	 * Bit position i in bitmap indicates page of
+	 * size (4k)^i.  Phys block list mode unsupported.
+	 */
 	u32 mem_pgsizes_bitmask;
 	u64 max_mr_size;
 	u8 can_resize_wq;
 
+	/*
+	 * The maximum number of RDMA Reads that can be outstanding
+	 * per QP with this RNIC as the target.
+	 */
 	u32 max_rdma_reads_per_qp;
 
+	/*
+	 * The maximum number of resources used for RDMA Reads
+	 * by this RNIC with this RNIC as the target.
+	 */
 	u32 max_rdma_read_resources;
 
+	/*
+	 * The max depth per QP for initiation of RDMA Read
+	 * by this RNIC.
+	 */
 	u32 max_rdma_read_qp_depth;
 
+	/*
+	 * The maximum depth for initiation of RDMA Read
+	 * operations by this RNIC on all QPs
+	 */
 	u32 max_rdma_read_depth;
 	u8 rq_overflow_handled;
 	u32 can_modify_ird;

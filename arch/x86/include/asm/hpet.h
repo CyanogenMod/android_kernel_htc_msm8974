@@ -54,9 +54,15 @@
 #define HPET_TN_FSB_CAP		0x8000
 #define HPET_TN_ROUTE_SHIFT	9
 
+/* Max HPET Period is 10^8 femto sec as in HPET spec */
 #define HPET_MAX_PERIOD		100000000UL
+/*
+ * Min HPET period is 10^5 femto sec just for safety. If it is less than this,
+ * then 32 bit HPET counter wrapsaround in less than 0.5 sec.
+ */
 #define HPET_MIN_PERIOD		100000UL
 
+/* hpet memory map physical address */
 extern unsigned long hpet_address;
 extern unsigned long force_hpet_address;
 extern u8 hpet_blockid;
@@ -100,13 +106,13 @@ extern irqreturn_t hpet_rtc_interrupt(int irq, void *dev_id);
 extern int hpet_register_irq_handler(rtc_irq_handler handler);
 extern void hpet_unregister_irq_handler(rtc_irq_handler handler);
 
-#endif 
+#endif /* CONFIG_HPET_EMULATE_RTC */
 
-#else 
+#else /* CONFIG_HPET_TIMER */
 
 static inline int hpet_enable(void) { return 0; }
 static inline int is_hpet_enabled(void) { return 0; }
 #define hpet_readl(a) 0
 
 #endif
-#endif 
+#endif /* _ASM_X86_HPET_H */

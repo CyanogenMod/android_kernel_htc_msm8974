@@ -28,6 +28,7 @@
 #include <linux/timer.h>
 #include <linux/maple.h>
 
+/* Very simple mutex to ensure proper cleanup */
 static DEFINE_MUTEX(maple_keyb_mutex);
 
 #define NR_SCANCODES 256
@@ -141,6 +142,10 @@ static void dc_kbd_callback(struct mapleq *mq)
 	struct dc_kbd *kbd = maple_get_drvdata(mapledev);
 	unsigned long *buf = (unsigned long *)(mq->recvbuf->buf);
 
+	/*
+	 * We should always get the lock because the only
+	 * time it may be locked is if the driver is in the cleanup phase.
+	 */
 	if (likely(mutex_trylock(&maple_keyb_mutex))) {
 
 		if (buf[1] == mapledev->function) {
@@ -197,7 +202,7 @@ static int probe_maple_kbd(struct device *dev)
 	if (error)
 		goto fail_register;
 
-	
+	/* Maple polling is locked to VBLANK - which may be just 50/s */
 	maple_getcond_callback(mdev, dc_kbd_callback, HZ/50,
 		MAPLE_FUNC_KEYBOARD);
 

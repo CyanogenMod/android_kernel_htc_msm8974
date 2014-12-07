@@ -17,7 +17,7 @@
 #ifdef CONFIG_ZORRO
 
 static const struct resource zorro_resources[] __initconst = {
-	
+	/* Zorro II regions (on Zorro II/III) */
 	{
 		.name	= "Zorro II exp",
 		.start	= 0x00e80000,
@@ -29,7 +29,7 @@ static const struct resource zorro_resources[] __initconst = {
 		.end	= 0x009fffff,
 		.flags	= IORESOURCE_MEM,
 	},
-	
+	/* Zorro III regions (on Zorro III only) */
 	{
 		.name	= "Zorro III exp",
 		.start	= 0xff000000,
@@ -69,11 +69,11 @@ static int z_dev_present(zorro_id id)
 	return 0;
 }
 
-#else 
+#else /* !CONFIG_ZORRO */
 
 static inline int z_dev_present(zorro_id id) { return 0; }
 
-#endif 
+#endif /* !CONFIG_ZORRO */
 
 
 static const struct resource a3000_scsi_resource __initconst = {
@@ -130,17 +130,17 @@ static int __init amiga_init_devices(void)
 	if (!MACH_IS_AMIGA)
 		return -ENODEV;
 
-	
+	/* video hardware */
 	if (AMIGAHW_PRESENT(AMI_VIDEO))
 		platform_device_register_simple("amiga-video", -1, NULL, 0);
 
 
-	
+	/* sound hardware */
 	if (AMIGAHW_PRESENT(AMI_AUDIO))
 		platform_device_register_simple("amiga-audio", -1, NULL, 0);
 
 
-	
+	/* storage interfaces */
 	if (AMIGAHW_PRESENT(AMI_FLOPPY))
 		platform_device_register_simple("amiga-floppy", -1, NULL, 0);
 
@@ -168,7 +168,7 @@ static int __init amiga_init_devices(void)
 	}
 
 
-	
+	/* other I/O hardware */
 	if (AMIGAHW_PRESENT(AMI_KEYBOARD))
 		platform_device_register_simple("amiga-keyboard", -1, NULL, 0);
 
@@ -182,7 +182,7 @@ static int __init amiga_init_devices(void)
 		platform_device_register_simple("amiga-parallel", -1, NULL, 0);
 
 
-	
+	/* real time clocks */
 	if (AMIGAHW_PRESENT(A2000_CLK))
 		platform_device_register_simple("rtc-msm6242", -1,
 						&amiga_rtc_resource, 1);

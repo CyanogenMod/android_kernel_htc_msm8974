@@ -28,6 +28,19 @@
 #include <linux/spi/spi_gpio.h>
 
 
+/*
+ * This bitbanging SPI master driver should help make systems usable
+ * when a native hardware SPI engine is not available, perhaps because
+ * its driver isn't yet working or because the I/O pins it requires
+ * are used for other purposes.
+ *
+ * platform_device->driver_data ... points to spi_gpio
+ *
+ * spi->controller_state ... reserved for bitbang framework code
+ * spi->controller_data ... holds chipselect GPIO
+ *
+ * spi->master->dev.driver_data ... points to spi_gpio->bitbang
+ */
 
 struct spi_gpio {
 	struct spi_bitbang		bitbang;
@@ -35,13 +48,37 @@ struct spi_gpio {
 	struct platform_device		*pdev;
 };
 
+/*----------------------------------------------------------------------*/
 
+/*
+ * Because the overhead of going through four GPIO procedure calls
+ * per transferred bit can make performance a problem, this code
+ * is set up so that you can use it in either of two ways:
+ *
+ *   - The slow generic way:  set up platform_data to hold the GPIO
+ *     numbers used for MISO/MOSI/SCK, and issue procedure calls for
+ *     each of them.  This driver can handle several such busses.
+ *
+ *   - The quicker inlined way:  only helps with platform GPIO code
+ *     that inlines operations for constant GPIOs.  This can give
+ *     you tight (fast!) inner loops, but each such bus needs a
+ *     new driver.  You'll define a new C file, with Makefile and
+ *     Kconfig support; the C code can be a total of six lines:
+ *
+ *		#define DRIVER_NAME	"myboard_spi2"
+ *		#define	SPI_MISO_GPIO	119
+ *		#define	SPI_MOSI_GPIO	120
+ *		#define	SPI_SCK_GPIO	121
+ *		#define	SPI_N_CHIPSEL	4
+ *		#include "spi-gpio.c"
+ */
 
 #ifndef DRIVER_NAME
 #define DRIVER_NAME	"spi_gpio"
 
-#define GENERIC_BITBANG	
+#define GENERIC_BITBANG	/* vs tight inlines */
 
+/* all functions referencing these symbols must define pdata */
 #define SPI_MISO_GPIO	((pdata)->miso)
 #define SPI_MOSI_GPIO	((pdata)->mosi)
 #define SPI_SCK_GPIO	((pdata)->sck)
@@ -50,6 +87,7 @@ struct spi_gpio {
 
 #endif
 
+/*----------------------------------------------------------------------*/
 
 static inline const struct spi_gpio_platform_data * __pure
 spi_to_pdata(const struct spi_device *spi)
@@ -62,6 +100,7 @@ spi_to_pdata(const struct spi_device *spi)
 	return &spi_gpio->pdata;
 }
 
+/* this is #defined to avoid unused-variable warnings when inlining */
 #define pdata		spi_to_pdata(spi)
 
 static inline void setsck(const struct spi_device *spi, int is_on)
@@ -81,10 +120,29 @@ static inline int getmiso(const struct spi_device *spi)
 
 #undef pdata
 
+/*
+ * NOTE:  this clocks "as fast as we can".  It "should" be a function of the
+ * requested device clock.  Software overhead means we usually have trouble
+ * reaching even one Mbit/sec (except when we can inline bitops), so for now
+ * we'll just assume we never need additional per-bit slowdowns.
+ */
 #define spidelay(nsecs)	do {} while (0)
 
 #include "spi-bitbang-txrx.h"
 
+/*
+ * These functions can leverage inline expansion of GPIO calls to shrink
+ * costs for a txrx bit, often by factors of around ten (by instruction
+ * count).  That is particularly visible for larger word sizes, but helps
+ * even with default 8-bit words.
+ *
+ * REVISIT overheads calling these functions for each word also have
+ * significant performance costs.  Having txrx_bufs() calls that inline
+ * the txrx_word() logic would help performance, e.g. on larger blocks
+ * used with flash storage or MMC/SD.  There should also be ways to make
+ * GCC be less stupid about reloading registers inside the I/O loops,
+ * even without inlined GPIO calls; __attribute__((hot)) on GCC 4.3?
+ */
 
 static u32 spi_gpio_txrx_word_mode0(struct spi_device *spi,
 		unsigned nsecs, u32 word, u8 bits)
@@ -110,6 +168,15 @@ static u32 spi_gpio_txrx_word_mode3(struct spi_device *spi,
 	return bitbang_txrx_be_cpha1(spi, nsecs, 1, 0, word, bits);
 }
 
+/*
+ * These functions do not call setmosi or getmiso if respective flag
+ * (SPI_MASTER_NO_RX or SPI_MASTER_NO_TX) is set, so they are safe to
+ * call when such pin is not present or defined in the controller.
+ * A separate set of callbacks is defined to get highest possible
+ * speed in the generic case (when both MISO and MOSI lines are
+ * available), as optimiser will remove the checks when argument is
+ * constant.
+ */
 
 static u32 spi_gpio_spec_txrx_word_mode0(struct spi_device *spi,
 		unsigned nsecs, u32 word, u8 bits)
@@ -139,17 +206,18 @@ static u32 spi_gpio_spec_txrx_word_mode3(struct spi_device *spi,
 	return bitbang_txrx_be_cpha1(spi, nsecs, 1, flags, word, bits);
 }
 
+/*----------------------------------------------------------------------*/
 
 static void spi_gpio_chipselect(struct spi_device *spi, int is_active)
 {
 	unsigned long cs = (unsigned long) spi->controller_data;
 
-	
+	/* set initial clock polarity */
 	if (is_active)
 		setsck(spi, spi->mode & SPI_CPOL);
 
 	if (cs != SPI_GPIO_NO_CHIPSELECT) {
-		
+		/* SPI is normally active-low */
 		gpio_set_value(cs, (spi->mode & SPI_CS_HIGH) ? is_active : !is_active);
 	}
 }
@@ -208,14 +276,14 @@ spi_gpio_request(struct spi_gpio_platform_data *pdata, const char *label,
 {
 	int value;
 
-	
+	/* NOTE:  SPI_*_GPIO symbols may reference "pdata" */
 
 	if (SPI_MOSI_GPIO != SPI_GPIO_NO_MOSI) {
 		value = spi_gpio_alloc(SPI_MOSI_GPIO, label, false);
 		if (value)
 			goto done;
 	} else {
-		
+		/* HW configuration without MOSI pin */
 		*res_flags |= SPI_MASTER_NO_TX;
 	}
 
@@ -224,7 +292,7 @@ spi_gpio_request(struct spi_gpio_platform_data *pdata, const char *label,
 		if (value)
 			goto free_mosi;
 	} else {
-		
+		/* HW configuration without MISO pin */
 		*res_flags |= SPI_MASTER_NO_RX;
 	}
 
@@ -321,7 +389,7 @@ static int __devexit spi_gpio_remove(struct platform_device *pdev)
 	spi_gpio = platform_get_drvdata(pdev);
 	pdata = pdev->dev.platform_data;
 
-	
+	/* stop() unregisters child devices too */
 	status = spi_bitbang_stop(&spi_gpio->bitbang);
 	spi_master_put(spi_gpio->bitbang.master);
 

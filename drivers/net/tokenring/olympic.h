@@ -127,6 +127,7 @@
 #define TXSTATQCNT_2 0xe4
 #define TXCSA_1 0xc8
 #define TXCSA_2 0xe8
+/* Cardbus */
 #define FERMASK 0xf4
 #define FERMASK_INT_BIT (1<<15)
 
@@ -134,8 +135,9 @@
 
 #define SRB_COMMAND_SIZE 50
 
-#define OLYMPIC_MAX_ADAPTERS 8 
+#define OLYMPIC_MAX_ADAPTERS 8 /* 0x08 __MODULE_STRING can't hand 0xnn */
 
+/* Defines for LAN STATUS CHANGE reports */
 #define LSC_SIG_LOSS 0x8000
 #define LSC_HARD_ERR 0x4000
 #define LSC_SOFT_ERR 0x2000
@@ -150,6 +152,7 @@
 #define LSC_SR_CO    0x0010
 #define LSC_FDX_MODE 0x0004
 
+/* Defines for OPEN ADAPTER command */
 
 #define OPEN_ADAPTER_EXT_WRAP (1<<15)
 #define OPEN_ADAPTER_DIS_HARDEE (1<<14)
@@ -167,6 +170,7 @@
 
 #define OPEN_ADAPTER_2_ENABLE_ONNOW (1<<15)
 
+/* Defines for SRB Commands */
 
 #define SRB_ACCESS_REGISTER 0x1f
 #define SRB_CLOSE_ADAPTER 0x04
@@ -188,22 +192,28 @@
 #define SRB_SET_GROUP_ADDR_OPTIONS 0x11
 #define SRB_UPDATE_WAKEUP_PATTERN 0x19
 
+/* Clear return code */
 
 #define OLYMPIC_CLEAR_RET_CODE 0xfe 
 
+/* ARB Commands */
 #define ARB_RECEIVE_DATA 0x81
 #define ARB_LAN_CHANGE_STATUS 0x84
+/* ASB Response commands */
 
 #define ASB_RECEIVE_DATA 0x81
 
 
+/* Olympic defaults for buffers */
  
-#define OLYMPIC_RX_RING_SIZE 16 
-#define OLYMPIC_TX_RING_SIZE 8 
+#define OLYMPIC_RX_RING_SIZE 16 /* should be a power of 2 */
+#define OLYMPIC_TX_RING_SIZE 8 /* should be a power of 2 */
 
-#define PKT_BUF_SZ 4096 
+#define PKT_BUF_SZ 4096 /* Default packet size */
 
+/* Olympic data structures */
 
+/* xxxx These structures are all little endian in hardware. */
 
 struct olympic_tx_desc {
 	__le32 buffer;
@@ -223,6 +233,8 @@ struct olympic_rx_status {
 	__le32 fragmentcnt_framelen;
 	__le32 status_buffercnt;
 };
+/* xxxx END These structures are all little endian in hardware. */
+/* xxxx There may be more, but I'm pretty sure about these */
 
 struct mac_receive_buffer {
 	__le16 next ; 
@@ -234,10 +246,10 @@ struct mac_receive_buffer {
 
 struct olympic_private {
 	
-	u16 srb;      
-	u16 trb;      
-	u16 arb;      
-	u16 asb;      
+	u16 srb;      /* be16 */
+	u16 trb;      /* be16 */
+	u16 arb;      /* be16 */
+	u16 asb;      /* be16 */
 
 	u8 __iomem *olympic_mmio;
 	u8 __iomem *olympic_lap;
@@ -246,15 +258,15 @@ struct olympic_private {
 
 	spinlock_t olympic_lock ; 
 
-	volatile int srb_queued;    	
+	volatile int srb_queued;    /* True if an SRB is still posted */	
 	wait_queue_head_t srb_wait;
 
-	volatile int asb_queued;    
+	volatile int asb_queued;    /* True if an ASB is posted */
 
-	volatile int trb_queued;   
+	volatile int trb_queued;   /* True if a TRB is posted */
 	wait_queue_head_t trb_wait ; 
 
-	
+	/* These must be on a 4 byte boundary. */
 	struct olympic_rx_desc olympic_rx_ring[OLYMPIC_RX_RING_SIZE];
 	struct olympic_tx_desc olympic_tx_ring[OLYMPIC_TX_RING_SIZE];
 	struct olympic_rx_status olympic_rx_status_ring[OLYMPIC_RX_RING_SIZE];	

@@ -1131,8 +1131,11 @@ timeout_err:
 							break;
 						dval = readl_relaxed(dev->base +
 							QUP_IN_FIFO_BASE);
-						dev->msg->buf[dev->pos] =
-							dval & 0xFF;
+						if (dev && dev->msg &&
+						    dev->msg->buf) {
+							dev->msg->buf[dev->pos]
+								= dval & 0xFF;
+						}
 					} else
 						dev->msg->buf[dev->pos] =
 							((dval & 0xFF0000) >>
@@ -1727,7 +1730,7 @@ static struct platform_driver qup_i2c_driver = {
 	},
 };
 
-static int __init
+int __init
 qup_i2c_init_driver(void)
 {
 	return platform_driver_register(&qup_i2c_driver);

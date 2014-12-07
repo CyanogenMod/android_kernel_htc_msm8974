@@ -18,6 +18,7 @@
 #include "devices.h"
 #include "board-8930.h"
 
+/* The SPI configurations apply to GSBI 1*/
 static struct gpiomux_setting spi_active = {
 	.func = GPIOMUX_FUNC_1,
 	.drv = GPIOMUX_DRV_12MA,
@@ -73,13 +74,13 @@ static struct gpiomux_setting cdc_mclk = {
 };
 
 static struct gpiomux_setting audio_auxpcm[] = {
-	
+	/* Suspended state */
 	{
 		.func = GPIOMUX_FUNC_GPIO,
 		.drv = GPIOMUX_DRV_2MA,
 		.pull = GPIOMUX_PULL_NONE,
 	},
-	
+	/* Active state */
 	{
 		.func = GPIOMUX_FUNC_1,
 		.drv = GPIOMUX_DRV_2MA,
@@ -175,13 +176,13 @@ static struct gpiomux_setting hsusb_sus_cfg = {
 };
 static struct msm_gpiomux_config msm8930_hsusb_configs[] = {
 	{
-		.gpio = 63,     
+		.gpio = 63,     /* HSUSB_EXTERNAL_5V_LDO_EN */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &hsusb_sus_cfg,
 		},
 	},
 	{
-		.gpio = 97,     
+		.gpio = 97,     /* HSUSB_5V_EN */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &hsusb_sus_cfg,
 		},
@@ -305,91 +306,91 @@ static struct msm_gpiomux_config msm8960_ethernet_configs[] = {
 
 static struct msm_gpiomux_config msm8960_gsbi_configs[] __initdata = {
 	{
-		.gpio      = 6,		
+		.gpio      = 6,		/* GSBI1 QUP SPI_DATA_MOSI */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &spi_suspended_config,
 			[GPIOMUX_ACTIVE] = &spi_active,
 		},
 	},
 	{
-		.gpio      = 7,		
+		.gpio      = 7,		/* GSBI1 QUP SPI_DATA_MISO */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &spi_suspended_config,
 			[GPIOMUX_ACTIVE] = &spi_active,
 		},
 	},
 	{
-		.gpio      = 8,		
+		.gpio      = 8,		/* GSBI1 QUP SPI_CS_N */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &spi_suspended_config,
 			[GPIOMUX_ACTIVE] = &spi_active,
 		},
 	},
 	{
-		.gpio      = 9,		
+		.gpio      = 9,		/* GSBI1 QUP SPI_CLK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &spi_suspended_config,
 			[GPIOMUX_ACTIVE] = &spi_active,
 		},
 	},
 	{
-		.gpio      = 16,	
+		.gpio      = 16,	/* GSBI3 I2C QUP SDA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi3_suspended_cfg,
 			[GPIOMUX_ACTIVE] = &gsbi3_active_cfg,
 		},
 	},
 	{
-		.gpio      = 17,	
+		.gpio      = 17,	/* GSBI3 I2C QUP SCL */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi3_suspended_cfg,
 			[GPIOMUX_ACTIVE] = &gsbi3_active_cfg,
 		},
 	},
 	{
-		.gpio      = 22,	
+		.gpio      = 22,	/* GSBI5 UART2 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi5,
 		},
 	},
 	{
-		.gpio      = 23,	
+		.gpio      = 23,	/* GSBI5 UART2 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi5,
 		},
 	},
 	{
-		.gpio      = 44,	
+		.gpio      = 44,	/* GSBI12 I2C QUP SDA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi12,
 		},
 	},
 	{
-		.gpio      = 95,	
+		.gpio      = 95,	/* GSBI9 I2C QUP SDA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi9,
 		},
 	},
 	{
-		.gpio      = 96,	
+		.gpio      = 96,	/* GSBI12 I2C QUP SCL */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi9,
 		},
 	},
 	{
-		.gpio      = 45,	
+		.gpio      = 45,	/* GSBI12 I2C QUP SCL */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi12,
 		},
 	},
 	{
-		.gpio      = 73,	
+		.gpio      = 73,	/* GSBI10 I2C QUP SDA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi10,
 		},
 	},
 	{
-		.gpio      = 74,	
+		.gpio      = 74,	/* GSBI10 I2C QUP SCL */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi10,
 		},
@@ -398,13 +399,13 @@ static struct msm_gpiomux_config msm8960_gsbi_configs[] __initdata = {
 
 static struct msm_gpiomux_config msm8960_slimbus_config[] __initdata = {
 	{
-		.gpio	= 60,		
+		.gpio	= 60,		/* slimbus data */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &slimbus,
 		},
 	},
 	{
-		.gpio	= 61,		
+		.gpio	= 61,		/* slimbus clk */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &slimbus,
 		},
@@ -509,21 +510,21 @@ static struct msm_gpiomux_config wcnss_5wire_interface[] = {
 };
 
 static struct msm_gpiomux_config msm8960_atmel_configs[] __initdata = {
-	{	
+	{	/* TS INTERRUPT */
 		.gpio = 11,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &atmel_int_act_cfg,
 			[GPIOMUX_SUSPENDED] = &atmel_int_sus_cfg,
 		},
 	},
-	{	
+	{	/* TS LDO ENABLE */
 		.gpio = 50,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &atmel_ldo_en_act_cfg,
 			[GPIOMUX_SUSPENDED] = &atmel_ldo_en_sus_cfg,
 		},
 	},
-	{	
+	{	/* TS RESOUT */
 		.gpio = 52,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &atmel_resout_act_cfg,
@@ -543,42 +544,42 @@ static struct msm_gpiomux_config hap_lvl_shft_config[] __initdata = {
 };
 
 static struct msm_gpiomux_config mdm_configs[] __initdata = {
-	
+	/* AP2MDM_STATUS */
 	{
 		.gpio = 94,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_cfg,
 		}
 	},
-	
+	/* MDM2AP_STATUS */
 	{
 		.gpio = 69,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &mdm2ap_status_cfg,
 		}
 	},
-	
+	/* MDM2AP_ERRFATAL */
 	{
 		.gpio = 70,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &mdm2ap_errfatal_cfg,
 		}
 	},
-	
+	/* AP2MDM_ERRFATAL */
 	{
 		.gpio = 95,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_cfg,
 		}
 	},
-	
+	/* AP2MDM_KPDPWR_N */
 	{
 		.gpio = 81,
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ap2mdm_kpdpwr_n_cfg,
 		}
 	},
-	
+	/* AP2MDM_PMIC_RESET_N */
 	{
 		.gpio = 80,
 		.settings = {
@@ -692,7 +693,7 @@ static struct gpiomux_setting sd_det_line = {
 
 static struct msm_gpiomux_config msm8930_sd_det_config[] __initdata = {
 	{
-		.gpio = 94,	
+		.gpio = 94,	/* SD Card Detect Line */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &sd_det_line,
 			[GPIOMUX_ACTIVE] = &sd_det_line,
@@ -708,7 +709,7 @@ static struct gpiomux_setting gyro_int_line = {
 
 static struct msm_gpiomux_config msm8930_gyro_int_config[] __initdata = {
 	{
-		.gpio = 69,	
+		.gpio = 69,	/* Gyro Interrupt Line */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gyro_int_line,
 			[GPIOMUX_ACTIVE] = &gyro_int_line,
@@ -718,7 +719,7 @@ static struct msm_gpiomux_config msm8930_gyro_int_config[] __initdata = {
 
 static struct msm_gpiomux_config msm_sitar_config[] __initdata = {
 	{
-		.gpio   = 42,           
+		.gpio   = 42,           /* SYS_RST_N */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &sitar_reset,
 		},
@@ -750,9 +751,14 @@ static struct gpiomux_setting sdcc2_data_1_suspend_cfg = {
 	.pull = GPIOMUX_PULL_UP,
 };
 
+/**
+ * DAT_0 to DAT_3 lines (gpio 89 - 92) are shared with ethernet
+ * CMD line (gpio 97) is shared with USB
+ * CLK line (gpio 98) is shared with battery alarm in
+ */
 static struct msm_gpiomux_config msm8960_sdcc2_configs[] __initdata = {
 	{
-		
+		/* DATA_3 */
 		.gpio      = 92,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &sdcc2_cmd_data_0_3_actv_cfg,
@@ -760,7 +766,7 @@ static struct msm_gpiomux_config msm8960_sdcc2_configs[] __initdata = {
 		},
 	},
 	{
-		
+		/* DATA_2 */
 		.gpio      = 91,
 		.settings = {
 		[GPIOMUX_ACTIVE]    = &sdcc2_cmd_data_0_3_actv_cfg,
@@ -768,7 +774,7 @@ static struct msm_gpiomux_config msm8960_sdcc2_configs[] __initdata = {
 		},
 	},
 	{
-		
+		/* DATA_1 */
 		.gpio      = 90,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &sdcc2_cmd_data_0_3_actv_cfg,
@@ -776,7 +782,7 @@ static struct msm_gpiomux_config msm8960_sdcc2_configs[] __initdata = {
 		},
 	},
 	{
-		
+		/* DATA_0 */
 		.gpio      = 89,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &sdcc2_cmd_data_0_3_actv_cfg,
@@ -784,7 +790,7 @@ static struct msm_gpiomux_config msm8960_sdcc2_configs[] __initdata = {
 		},
 	},
 	{
-		
+		/* CMD */
 		.gpio      = 97,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &sdcc2_cmd_data_0_3_actv_cfg,
@@ -792,7 +798,7 @@ static struct msm_gpiomux_config msm8960_sdcc2_configs[] __initdata = {
 		},
 	},
 	{
-		
+		/* CLK */
 		.gpio      = 98,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &sdcc2_clk_actv_cfg,
@@ -808,7 +814,7 @@ static void msm_gpiomux_sdc2_install(void)
 }
 #else
 static void msm_gpiomux_sdc2_install(void) {}
-#endif 
+#endif /* CONFIG_MMC_MSM_SDC2_SUPPORT */
 
 int __init msm8930_init_gpiomux(void)
 {

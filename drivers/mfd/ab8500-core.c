@@ -20,6 +20,10 @@
 #include <linux/mfd/abx500/ab8500.h>
 #include <linux/regulator/ab8500.h>
 
+/*
+ * Interrupt register offsets
+ * Bank : 0x0E
+ */
 #define AB8500_IT_SOURCE1_REG		0x00
 #define AB8500_IT_SOURCE2_REG		0x01
 #define AB8500_IT_SOURCE3_REG		0x02
@@ -36,6 +40,9 @@
 #define AB8500_IT_SOURCE23_REG		0x16
 #define AB8500_IT_SOURCE24_REG		0x17
 
+/*
+ * latch registers
+ */
 #define AB8500_IT_LATCH1_REG		0x20
 #define AB8500_IT_LATCH2_REG		0x21
 #define AB8500_IT_LATCH3_REG		0x22
@@ -55,6 +62,9 @@
 #define AB8500_IT_LATCH23_REG		0x36
 #define AB8500_IT_LATCH24_REG		0x37
 
+/*
+ * mask registers
+ */
 
 #define AB8500_IT_MASK1_REG		0x40
 #define AB8500_IT_MASK2_REG		0x41
@@ -90,10 +100,20 @@
 #define AB9540_MODEM_CTRL2_REG			0x23
 #define AB9540_MODEM_CTRL2_SWDBBRSTN_BIT	BIT(2)
 
+/*
+ * Map interrupt numbers to the LATCH and MASK register offsets, Interrupt
+ * numbers are indexed into this array with (num / 8). The interupts are
+ * defined in linux/mfd/ab8500.h
+ *
+ * This is one off from the register names, i.e. AB8500_IT_MASK1_REG is at
+ * offset 0.
+ */
+/* AB8500 support */
 static const int ab8500_irq_regoffset[AB8500_NUM_IRQ_REGS] = {
 	0, 1, 2, 3, 4, 6, 7, 8, 9, 11, 18, 19, 20, 21,
 };
 
+/* AB9540 support */
 static const int ab9540_irq_regoffset[AB9540_NUM_IRQ_REGS] = {
 	0, 1, 2, 3, 4, 6, 7, 8, 9, 11, 18, 19, 20, 21, 12, 13, 24,
 };
@@ -119,6 +139,10 @@ static int set_register_interruptible(struct ab8500 *ab8500, u8 bank,
 	u8 reg, u8 data)
 {
 	int ret;
+	/*
+	 * Put the u8 bank and u8 register together into a an u16.
+	 * The bank on higher 8 bits and register in lower 8 bits.
+	 * */
 	u16 addr = ((u16)bank) << 8 | reg;
 
 	dev_vdbg(ab8500->dev, "wr: addr %#x <= %#x\n", addr, data);
@@ -146,6 +170,8 @@ static int get_register_interruptible(struct ab8500 *ab8500, u8 bank,
 	u8 reg, u8 *value)
 {
 	int ret;
+	/* put the u8 bank and u8 reg together into a an u16.
+	 * bank on higher 8 bits and reg in lower */
 	u16 addr = ((u16)bank) << 8 | reg;
 
 	mutex_lock(&ab8500->lock);
@@ -175,6 +201,8 @@ static int mask_and_set_register_interruptible(struct ab8500 *ab8500, u8 bank,
 	u8 reg, u8 bitmask, u8 bitvalues)
 {
 	int ret;
+	/* put the u8 bank and u8 reg together into a an u16.
+	 * bank on higher 8 bits and reg in lower */
 	u16 addr = ((u16)bank) << 8 | reg;
 
 	mutex_lock(&ab8500->lock);
@@ -251,6 +279,10 @@ static void ab8500_irq_sync_unlock(struct irq_data *data)
 		if (new == old)
 			continue;
 
+		/*
+		 * Interrupt register 12 doesn't exist prior to AB8500 version
+		 * 2.0
+		 */
 		if (ab8500->irq_reg_offset[i] == 11 &&
 			is_ab8500_1p1_or_earlier(ab8500))
 			continue;
@@ -305,6 +337,10 @@ static irqreturn_t ab8500_irq(int irq, void *dev)
 		int status;
 		u8 value;
 
+		/*
+		 * Interrupt register 12 doesn't exist prior to AB8500 version
+		 * 2.0
+		 */
 		if (regoffset == 11 && is_ab8500_1p1_or_earlier(ab8500))
 			continue;
 
@@ -375,6 +411,7 @@ static void ab8500_irq_remove(struct ab8500 *ab8500)
 	}
 }
 
+/* AB8500 GPIO Resources */
 static struct resource __devinitdata ab8500_gpio_resources[] = {
 	{
 		.name	= "GPIO_INT6",
@@ -384,6 +421,7 @@ static struct resource __devinitdata ab8500_gpio_resources[] = {
 	}
 };
 
+/* AB9540 GPIO Resources */
 static struct resource __devinitdata ab9540_gpio_resources[] = {
 	{
 		.name	= "GPIO_INT6",
@@ -831,6 +869,17 @@ static ssize_t show_chip_id(struct device *dev,
 	return sprintf(buf, "%#x\n", ab8500 ? ab8500->chip_id : -EINVAL);
 }
 
+/*
+ * ab8500 has switched off due to (SWITCH_OFF_STATUS):
+ * 0x01 Swoff bit programming
+ * 0x02 Thermal protection activation
+ * 0x04 Vbat lower then BattOk falling threshold
+ * 0x08 Watchdog expired
+ * 0x10 Non presence of 32kHz clock
+ * 0x20 Battery level lower than power on reset threshold
+ * 0x40 Power on key 1 pressed longer than 10 seconds
+ * 0x80 DB8500 thermal shutdown
+ */
 static ssize_t show_switch_off_status(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -846,6 +895,17 @@ static ssize_t show_switch_off_status(struct device *dev,
 	return sprintf(buf, "%#x\n", value);
 }
 
+/*
+ * ab8500 has turned on due to (TURN_ON_STATUS):
+ * 0x01 PORnVbat
+ * 0x02 PonKey1dbF
+ * 0x04 PonKey2dbF
+ * 0x08 RTCAlarm
+ * 0x10 MainChDet
+ * 0x20 VbusDet
+ * 0x40 UsbIDDetect
+ * 0x80 Reserved
+ */
 static ssize_t show_turn_on_status(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -979,7 +1039,7 @@ int __devinit ab8500_init(struct ab8500 *ab8500, enum ab8500_version version)
 			ab8500->chip_id >> 4,
 			ab8500->chip_id & 0x0F);
 
-	
+	/* Configure AB8500 or AB9540 IRQ */
 	if (is_ab9540(ab8500) || is_ab8505(ab8500)) {
 		ab8500->mask_size = AB9540_NUM_IRQ_REGS;
 		ab8500->irq_reg_offset = ab9540_irq_regoffset;
@@ -995,6 +1055,17 @@ int __devinit ab8500_init(struct ab8500 *ab8500, enum ab8500_version version)
 		ret = -ENOMEM;
 		goto out_freemask;
 	}
+	/*
+	 * ab8500 has switched off due to (SWITCH_OFF_STATUS):
+	 * 0x01 Swoff bit programming
+	 * 0x02 Thermal protection activation
+	 * 0x04 Vbat lower then BattOk falling threshold
+	 * 0x08 Watchdog expired
+	 * 0x10 Non presence of 32kHz clock
+	 * 0x20 Battery level lower than power on reset threshold
+	 * 0x40 Power on key 1 pressed longer than 10 seconds
+	 * 0x80 DB8500 thermal shutdown
+	 */
 
 	ret = get_register_interruptible(ab8500, AB8500_RTC,
 		AB8500_SWITCH_OFF_STATUS, &value);
@@ -1005,8 +1076,12 @@ int __devinit ab8500_init(struct ab8500 *ab8500, enum ab8500_version version)
 	if (plat && plat->init)
 		plat->init(ab8500);
 
-	
+	/* Clear and mask all interrupts */
 	for (i = 0; i < ab8500->mask_size; i++) {
+		/*
+		 * Interrupt register 12 doesn't exist prior to AB8500 version
+		 * 2.0
+		 */
 		if (ab8500->irq_reg_offset[i] == 11 &&
 				is_ab8500_1p1_or_earlier(ab8500))
 			continue;

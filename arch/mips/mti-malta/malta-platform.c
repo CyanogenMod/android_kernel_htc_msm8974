@@ -47,9 +47,9 @@ static struct plat_serial8250_port uart8250_data[] = {
 	SMC_PORT(0x3F8, 4),
 	SMC_PORT(0x2F8, 3),
 	{
-		.mapbase	= 0x1f000900,	
+		.mapbase	= 0x1f000900,	/* The CBUS UART */
 		.irq		= MIPS_CPU_IRQ_BASE + 2,
-		.uartclk	= 3686400,	
+		.uartclk	= 3686400,	/* Twice the usual clk! */
 		.iotype		= UPIO_MEM32,
 		.flags		= CBUS_UART_FLAGS,
 		.regshift	= 3,
@@ -138,6 +138,9 @@ static int __init malta_add_devices(void)
 	if (err)
 		return err;
 
+	/*
+	 * Set RTC to BCD mode to support current alarm code.
+	 */
 	CMOS_WRITE(CMOS_READ(RTC_CONTROL) & ~RTC_DM_BINARY, RTC_CONTROL);
 
 	return 0;

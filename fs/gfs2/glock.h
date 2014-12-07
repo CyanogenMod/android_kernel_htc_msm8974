@@ -14,6 +14,7 @@
 #include <linux/parser.h>
 #include "incore.h"
 
+/* Options for hostdata parser */
 
 enum {
 	Opt_jid,
@@ -23,6 +24,9 @@ enum {
 	Opt_err,
 };
 
+/*
+ * lm_lockname types
+ */
 
 #define LM_TYPE_RESERVED	0x00
 #define LM_TYPE_NONDISK		0x01
@@ -35,12 +39,45 @@ enum {
 #define LM_TYPE_QUOTA		0x08
 #define LM_TYPE_JOURNAL		0x09
 
+/*
+ * lm_lock() states
+ *
+ * SHARED is compatible with SHARED, not with DEFERRED or EX.
+ * DEFERRED is compatible with DEFERRED, not with SHARED or EX.
+ */
 
 #define LM_ST_UNLOCKED		0
 #define LM_ST_EXCLUSIVE		1
 #define LM_ST_DEFERRED		2
 #define LM_ST_SHARED		3
 
+/*
+ * lm_lock() flags
+ *
+ * LM_FLAG_TRY
+ * Don't wait to acquire the lock if it can't be granted immediately.
+ *
+ * LM_FLAG_TRY_1CB
+ * Send one blocking callback if TRY is set and the lock is not granted.
+ *
+ * LM_FLAG_NOEXP
+ * GFS sets this flag on lock requests it makes while doing journal recovery.
+ * These special requests should not be blocked due to the recovery like
+ * ordinary locks would be.
+ *
+ * LM_FLAG_ANY
+ * A SHARED request may also be granted in DEFERRED, or a DEFERRED request may
+ * also be granted in SHARED.  The preferred state is whichever is compatible
+ * with other granted locks, or the specified state if no other locks exist.
+ *
+ * LM_FLAG_PRIORITY
+ * Override fairness considerations.  Suppose a lock is held in a shared state
+ * and there is a pending request for the deferred state.  A shared lock
+ * request with the priority flag would be allowed to bypass the deferred
+ * request and directly join the other shared lock.  A shared lock request
+ * without the priority flag might be forced to wait until the deferred
+ * requested had acquired and released the lock.
+ */
 
 #define LM_FLAG_TRY		0x00000001
 #define LM_FLAG_TRY_1CB		0x00000002
@@ -52,11 +89,24 @@ enum {
 #define GL_SKIP			0x00000100
 #define GL_NOCACHE		0x00000400
   
+/*
+ * lm_async_cb return flags
+ *
+ * LM_OUT_ST_MASK
+ * Masks the lower two bits of lock state in the returned value.
+ *
+ * LM_OUT_CANCELED
+ * The lock request was canceled.
+ *
+ */
 
 #define LM_OUT_ST_MASK		0x00000003
 #define LM_OUT_CANCELED		0x00000008
 #define LM_OUT_ERROR		0x00000004
 
+/*
+ * lm_recovery_done() messages
+ */
 
 #define LM_RD_GAVEUP		308
 #define LM_RD_SUCCESS		309
@@ -90,7 +140,7 @@ static inline struct gfs2_holder *gfs2_glock_is_locked_by_me(struct gfs2_glock *
 	struct gfs2_holder *gh;
 	struct pid *pid;
 
-	
+	/* Look in glock's list of holders for one with current task as owner */
 	spin_lock(&gl->gl_spin);
 	pid = task_pid(current);
 	list_for_each_entry(gh, &gl->gl_holders, gh_list) {
@@ -157,6 +207,15 @@ void gfs2_glock_dq_uninit_m(unsigned int num_gh, struct gfs2_holder *ghs);
 __printf(2, 3)
 void gfs2_print_dbg(struct seq_file *seq, const char *fmt, ...);
 
+/**
+ * gfs2_glock_nq_init - initialize a holder and enqueue it on a glock
+ * @gl: the glock
+ * @state: the state we're requesting
+ * @flags: the modifier flags
+ * @gh: the holder structure
+ *
+ * Returns: 0, GLR_*, or errno
+ */
 
 static inline int gfs2_glock_nq_init(struct gfs2_glock *gl,
 				     unsigned int state, int flags,
@@ -191,4 +250,4 @@ extern void gfs2_unregister_debugfs(void);
 
 extern const struct lm_lockops gfs2_dlm_ops;
 
-#endif 
+#endif /* __GLOCK_DOT_H__ */

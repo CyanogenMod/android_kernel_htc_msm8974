@@ -12,8 +12,12 @@
 
 #include <linux/dw_dmac.h>
 
+/**
+ * struct atmel_abdac_pdata - board specific ABDAC configuration
+ * @dws: DMA slave interface to use for sound playback.
+ */
 struct atmel_abdac_pdata {
 	struct dw_dma_slave	dws;
 };
 
-#endif 
+#endif /* __INCLUDE_SOUND_ATMEL_ABDAC_H */

@@ -78,6 +78,22 @@ enum isci_status {
 	isci_stopped      = 0x05,
 };
 
+/**
+ * struct isci_port - isci direct attached sas port object
+ * @ready_exit: several states constitute 'ready'. When exiting ready we
+ *              need to take extra port-teardown actions that are
+ *              skipped when exiting to another 'ready' state.
+ * @logical_port_index: software port index
+ * @physical_port_index: hardware port index
+ * @active_phy_mask: identifies phy members
+ * @enabled_phy_mask: phy mask for the port
+ *                    that are already part of the port
+ * @reserved_tag:
+ * @reserved_rni: reserver for port task scheduler workaround
+ * @started_request_count: reference count for outstanding commands
+ * @not_ready_reason: set during state transitions and notified
+ * @timer: timeout start/stop operations
+ */
 struct isci_port {
 	struct isci_host *isci_host;
 	struct list_head remote_dev_list;
@@ -101,7 +117,7 @@ struct isci_port {
 	struct isci_host *owning_controller;
 	struct sci_timer timer;
 	struct scu_port_task_scheduler_registers __iomem *port_task_scheduler_registers;
-	
+	/* XXX rework: only one register, no need to replicate per-port */
 	u32 __iomem *port_pe_configuration_register;
 	struct scu_viit_entry __iomem *viit_registers;
 };
@@ -127,6 +143,34 @@ struct sci_port_properties {
 	u32 phy_mask;
 };
 
+/**
+ * enum sci_port_states - port state machine states
+ * @SCI_PORT_STOPPED: port has successfully been stopped.  In this state
+ *		      no new IO operations are permitted.  This state is
+ *		      entered from the STOPPING state.
+ * @SCI_PORT_STOPPING: port is in the process of stopping.  In this
+ *		       state no new IO operations are permitted, but
+ *		       existing IO operations are allowed to complete.
+ *		       This state is entered from the READY state.
+ * @SCI_PORT_READY: port is now ready.  Thus, the user is able to
+ *		    perform IO operations on this port. This state is
+ *		    entered from the STARTING state.
+ * @SCI_PORT_SUB_WAITING: port is started and ready but has no active
+ *			  phys.
+ * @SCI_PORT_SUB_OPERATIONAL: port is started and ready and there is at
+ *			      least one phy operational.
+ * @SCI_PORT_SUB_CONFIGURING: port is started and there was an
+ *			      add/remove phy event.  This state is only
+ *			      used in Automatic Port Configuration Mode
+ *			      (APC)
+ * @SCI_PORT_RESETTING: port is in the process of performing a hard
+ *			reset.  Thus, the user is unable to perform IO
+ *			operations on this port.  This state is entered
+ *			from the READY state.
+ * @SCI_PORT_FAILED: port has failed a reset request.  This state is
+ *		     entered when a port reset request times out. This
+ *		     state is entered from the RESETTING state.
+ */
 #define PORT_STATES {\
 	C(PORT_STOPPED),\
 	C(PORT_STOPPING),\
@@ -147,7 +191,7 @@ static inline void sci_port_decrement_request_count(struct isci_port *iport)
 	if (WARN_ONCE(iport->started_request_count == 0,
 		       "%s: tried to decrement started_request_count past 0!?",
 			__func__))
-		;
+		/* pass */;
 	else
 		iport->started_request_count--;
 }
@@ -237,4 +281,4 @@ void isci_port_init(
 int isci_port_perform_hard_reset(struct isci_host *ihost, struct isci_port *iport,
 				 struct isci_phy *iphy);
 int isci_ata_check_ready(struct domain_device *dev);
-#endif 
+#endif /* !defined(_ISCI_PORT_H_) */

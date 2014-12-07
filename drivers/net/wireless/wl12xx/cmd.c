@@ -40,6 +40,14 @@
 
 #define WL1271_CMD_FAST_POLL_COUNT       50
 
+/*
+ * send command to firmware
+ *
+ * @wl: wl struct
+ * @id: command id
+ * @buf: buffer containing the command, must work with dma
+ * @len: length of the buffer
+ */
 int wl1271_cmd_send(struct wl1271 *wl, u16 id, void *buf, size_t len,
 		    size_t res_len)
 {
@@ -80,7 +88,7 @@ int wl1271_cmd_send(struct wl1271 *wl, u16 id, void *buf, size_t len,
 		intr = wl1271_read32(wl, ACX_REG_INTERRUPT_NO_CLEAR);
 	}
 
-	
+	/* read back the status code of the command */
 	if (res_len == 0)
 		res_len = sizeof(struct wl1271_cmd_header);
 	wl1271_read(wl, wl->cmd_box_addr, cmd, res_len, false);
@@ -129,7 +137,7 @@ int wl1271_cmd_general_parms(struct wl1271 *wl)
 	if (gp->tx_bip_fem_auto_detect)
 		answer = true;
 
-	
+	/* Override the REF CLK from the NVS with the one from platform data */
 	gen_parms->general_params.ref_clock = wl->ref_clock;
 
 	ret = wl1271_cmd_test(wl, gen_parms, sizeof(*gen_parms), answer);
@@ -182,7 +190,7 @@ int wl128x_cmd_general_parms(struct wl1271 *wl)
 	if (gp->tx_bip_fem_auto_detect)
 		answer = true;
 
-	
+	/* Replace REF and TCXO CLKs with the ones from platform data */
 	gen_parms->general_params.ref_clock = wl->ref_clock;
 	gen_parms->general_params.tcxo_ref_clock = wl->tcxo_clock;
 
@@ -225,14 +233,14 @@ int wl1271_cmd_radio_parms(struct wl1271 *wl)
 
 	radio_parms->test.id = TEST_CMD_INI_FILE_RADIO_PARAM;
 
-	
+	/* 2.4GHz parameters */
 	memcpy(&radio_parms->static_params_2, &nvs->stat_radio_params_2,
 	       sizeof(struct wl1271_ini_band_params_2));
 	memcpy(&radio_parms->dyn_params_2,
 	       &nvs->dyn_radio_params_2[gp->tx_bip_fem_manufacturer].params,
 	       sizeof(struct wl1271_ini_fem_params_2));
 
-	
+	/* 5GHz parameters */
 	memcpy(&radio_parms->static_params_5,
 	       &nvs->stat_radio_params_5,
 	       sizeof(struct wl1271_ini_band_params_5));
@@ -267,14 +275,14 @@ int wl128x_cmd_radio_parms(struct wl1271 *wl)
 
 	radio_parms->test.id = TEST_CMD_INI_FILE_RADIO_PARAM;
 
-	
+	/* 2.4GHz parameters */
 	memcpy(&radio_parms->static_params_2, &nvs->stat_radio_params_2,
 	       sizeof(struct wl128x_ini_band_params_2));
 	memcpy(&radio_parms->dyn_params_2,
 	       &nvs->dyn_radio_params_2[gp->tx_bip_fem_manufacturer].params,
 	       sizeof(struct wl128x_ini_fem_params_2));
 
-	
+	/* 5GHz parameters */
 	memcpy(&radio_parms->static_params_5,
 	       &nvs->stat_radio_params_5,
 	       sizeof(struct wl128x_ini_band_params_5));
@@ -328,6 +336,10 @@ int wl1271_cmd_ext_radio_parms(struct wl1271 *wl)
 	return ret;
 }
 
+/*
+ * Poll the mailbox event field until any of the bits in the mask is set or a
+ * timeout occurs (WL1271_EVENT_TIMEOUT in msecs)
+ */
 static int wl1271_cmd_wait_for_event_or_timeout(struct wl1271 *wl, u32 mask)
 {
 	u32 events_vector, event;
@@ -344,7 +356,7 @@ static int wl1271_cmd_wait_for_event_or_timeout(struct wl1271 *wl, u32 mask)
 
 		msleep(1);
 
-		
+		/* read from both event fields */
 		wl1271_read(wl, wl->mbox_ptr[0], &events_vector,
 			    sizeof(events_vector), false);
 		event = events_vector & mask;
@@ -386,7 +398,7 @@ int wl12xx_cmd_role_enable(struct wl1271 *wl, u8 *addr, u8 role_type,
 		goto out;
 	}
 
-	
+	/* get role id */
 	cmd->role_id = find_first_zero_bit(wl->roles_map, WL12XX_MAX_ROLES);
 	if (cmd->role_id >= WL12XX_MAX_ROLES) {
 		ret = -EBUSY;
@@ -452,7 +464,7 @@ int wl12xx_allocate_link(struct wl1271 *wl, struct wl12xx_vif *wlvif, u8 *hlid)
 	if (link >= WL12XX_MAX_LINKS)
 		return -EBUSY;
 
-	
+	/* these bits are used by op_tx */
 	spin_lock_irqsave(&wl->wl_lock, flags);
 	__set_bit(link, wl->links_map);
 	__set_bit(link, wlvif->links_map);
@@ -468,12 +480,16 @@ void wl12xx_free_link(struct wl1271 *wl, struct wl12xx_vif *wlvif, u8 *hlid)
 	if (*hlid == WL12XX_INVALID_LINK_ID)
 		return;
 
-	
+	/* these bits are used by op_tx */
 	spin_lock_irqsave(&wl->wl_lock, flags);
 	__clear_bit(*hlid, wl->links_map);
 	__clear_bit(*hlid, wlvif->links_map);
 	spin_unlock_irqrestore(&wl->wl_lock, flags);
 
+	/*
+	 * At this point op_tx() will not add more packets to the queues. We
+	 * can purge them.
+	 */
 	wl1271_tx_reset_link_queues(wl, *hlid);
 
 	*hlid = WL12XX_INVALID_LINK_ID;
@@ -529,7 +545,7 @@ static int wl12xx_cmd_role_start_dev(struct wl1271 *wl,
 	goto out_free;
 
 err_hlid:
-	
+	/* clear links on error */
 	wl12xx_free_link(wl, wlvif, &wlvif->dev_hlid);
 
 out_free:
@@ -630,7 +646,7 @@ int wl12xx_cmd_role_start_sta(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 	goto out_free;
 
 err_hlid:
-	
+	/* clear links on error. */
 	wl12xx_free_link(wl, wlvif, &wlvif->sta.hlid);
 
 out_free:
@@ -640,6 +656,7 @@ out:
 	return ret;
 }
 
+/* use this function to stop ibss as well */
 int wl12xx_cmd_role_stop_sta(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 {
 	struct wl12xx_cmd_role_stop *cmd;
@@ -684,7 +701,7 @@ int wl12xx_cmd_role_start_ap(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 
 	wl1271_debug(DEBUG_CMD, "cmd role start ap %d", wlvif->role_id);
 
-	
+	/* trying to use hidden SSID with an old hostapd version */
 	if (wlvif->ssid_len == 0 && !bss_conf->hidden_ssid) {
 		wl1271_error("got a null SSID from beacon/bss");
 		ret = -EINVAL;
@@ -714,12 +731,12 @@ int wl12xx_cmd_role_start_ap(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 	cmd->ap.beacon_interval = cpu_to_le16(wlvif->beacon_int);
 	cmd->ap.dtim_interval = bss_conf->dtim_period;
 	cmd->ap.beacon_expiry = WL1271_AP_DEF_BEACON_EXP;
-	
-	cmd->ap.reset_tsf = 1;  
+	/* FIXME: Change when adding DFS */
+	cmd->ap.reset_tsf = 1;  /* By default reset AP TSF */
 	cmd->channel = wlvif->channel;
 
 	if (!bss_conf->hidden_ssid) {
-		
+		/* take the SSID from the beacon for backward compatibility */
 		cmd->ap.ssid_type = WL12XX_SSID_TYPE_PUBLIC;
 		cmd->ap.ssid_len = wlvif->ssid_len;
 		memcpy(cmd->ap.ssid, wlvif->ssid, wlvif->ssid_len);
@@ -849,7 +866,7 @@ int wl12xx_cmd_role_start_ibss(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 	goto out_free;
 
 err_hlid:
-	
+	/* clear links on error. */
 	wl12xx_free_link(wl, wlvif, &wlvif->sta.hlid);
 
 out_free:
@@ -860,6 +877,14 @@ out:
 }
 
 
+/**
+ * send test command to firmware
+ *
+ * @wl: wl struct
+ * @buf: buffer containing the command, with all headers, must work with dma
+ * @len: length of the buffer
+ * @answer: is answer needed
+ */
 int wl1271_cmd_test(struct wl1271 *wl, void *buf, size_t buf_len, u8 answer)
 {
 	int ret;
@@ -880,6 +905,14 @@ int wl1271_cmd_test(struct wl1271 *wl, void *buf, size_t buf_len, u8 answer)
 	return ret;
 }
 
+/**
+ * read acx from firmware
+ *
+ * @wl: wl struct
+ * @id: acx id
+ * @buf: buffer for the response, including all headers, must work with dma
+ * @len: length of buf
+ */
 int wl1271_cmd_interrogate(struct wl1271 *wl, u16 id, void *buf, size_t len)
 {
 	struct acx_header *acx = buf;
@@ -889,7 +922,7 @@ int wl1271_cmd_interrogate(struct wl1271 *wl, u16 id, void *buf, size_t len)
 
 	acx->id = cpu_to_le16(id);
 
-	
+	/* payload length, does not include any headers */
 	acx->len = cpu_to_le16(len - sizeof(*acx));
 
 	ret = wl1271_cmd_send(wl, CMD_INTERROGATE, acx, sizeof(*acx), len);
@@ -899,6 +932,14 @@ int wl1271_cmd_interrogate(struct wl1271 *wl, u16 id, void *buf, size_t len)
 	return ret;
 }
 
+/**
+ * write acx value to firmware
+ *
+ * @wl: wl struct
+ * @id: acx id
+ * @buf: buffer containing acx, including all headers, must work with dma
+ * @len: length of buf
+ */
 int wl1271_cmd_configure(struct wl1271 *wl, u16 id, void *buf, size_t len)
 {
 	struct acx_header *acx = buf;
@@ -908,7 +949,7 @@ int wl1271_cmd_configure(struct wl1271 *wl, u16 id, void *buf, size_t len)
 
 	acx->id = cpu_to_le16(id);
 
-	
+	/* payload length, does not include any headers */
 	acx->len = cpu_to_le16(len - sizeof(*acx));
 
 	ret = wl1271_cmd_send(wl, CMD_CONFIGURE, acx, len, 0);
@@ -934,7 +975,7 @@ int wl1271_cmd_data_path(struct wl1271 *wl, bool enable)
 		goto out;
 	}
 
-	
+	/* the channel here is only used for calibration, so hardcoded to 1 */
 	cmd->channel = 1;
 
 	if (enable) {
@@ -1019,7 +1060,7 @@ int wl1271_cmd_template_set(struct wl1271 *wl, u8 role_id,
 		goto out;
 	}
 
-	
+	/* during initialization wlvif is NULL */
 	cmd->role_id = role_id;
 	cmd->len = cpu_to_le16(buf_len);
 	cmd->template_type = template_id;
@@ -1210,11 +1251,11 @@ int wl1271_cmd_build_arp_rsp(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 	tmpl = (struct wl12xx_arp_rsp_template *)skb_put(skb, sizeof(*tmpl));
 	memset(tmpl, 0, sizeof(tmpl));
 
-	
+	/* llc layer */
 	memcpy(tmpl->llc_hdr, rfc1042_header, sizeof(rfc1042_header));
 	tmpl->llc_type = cpu_to_be16(ETH_P_ARP);
 
-	
+	/* arp header */
 	arp_hdr = &tmpl->arp_hdr;
 	arp_hdr->ar_hrd = cpu_to_be16(ARPHRD_ETHER);
 	arp_hdr->ar_pro = cpu_to_be16(ETH_P_IP);
@@ -1222,11 +1263,11 @@ int wl1271_cmd_build_arp_rsp(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 	arp_hdr->ar_pln = 4;
 	arp_hdr->ar_op = cpu_to_be16(ARPOP_REPLY);
 
-	
+	/* arp payload */
 	memcpy(tmpl->sender_hw, vif->addr, ETH_ALEN);
 	tmpl->sender_ip = wlvif->ip_addr;
 
-	
+	/* encryption space */
 	switch (wlvif->encryption_type) {
 	case KEY_TKIP:
 		extra = WL1271_EXTRA_SPACE_TKIP;
@@ -1251,11 +1292,11 @@ int wl1271_cmd_build_arp_rsp(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 		memset(space, 0, extra);
 	}
 
-	
+	/* QoS header - BE */
 	if (wlvif->sta.qos)
 		memset(skb_push(skb, sizeof(__le16)), 0, sizeof(__le16));
 
-	
+	/* mac80211 header */
 	hdr = (struct ieee80211_hdr_3addr *)skb_push(skb, sizeof(*hdr));
 	memset(hdr, 0, sizeof(hdr));
 	fc = IEEE80211_FTYPE_DATA | IEEE80211_FCTL_TODS;
@@ -1294,7 +1335,7 @@ int wl1271_build_qos_null_data(struct wl1271 *wl, struct ieee80211_vif *vif)
 					     IEEE80211_STYPE_QOS_NULLFUNC |
 					     IEEE80211_FCTL_TODS);
 
-	
+	/* FIXME: not sure what priority to use here */
 	template.qos_ctrl = cpu_to_le16(0);
 
 	return wl1271_cmd_template_set(wl, wlvif->role_id,
@@ -1342,7 +1383,7 @@ int wl1271_cmd_set_sta_key(struct wl1271 *wl, struct wl12xx_vif *wlvif,
 	struct wl1271_cmd_set_keys *cmd;
 	int ret = 0;
 
-	
+	/* hlid might have already been deleted */
 	if (wlvif->sta.hlid == WL12XX_INVALID_LINK_ID)
 		return 0;
 
@@ -1371,6 +1412,12 @@ int wl1271_cmd_set_sta_key(struct wl1271 *wl, struct wl12xx_vif *wlvif,
 	cmd->key_id = id;
 
 	if (key_type == KEY_TKIP) {
+		/*
+		 * We get the key in the following form:
+		 * TKIP (16 bytes) - TX MIC (8 bytes) - RX MIC (8 bytes)
+		 * but the target is expecting:
+		 * TKIP - RX MIC - TX MIC
+		 */
 		memcpy(cmd->key, key, 16);
 		memcpy(cmd->key + 16, key + 24, 8);
 		memcpy(cmd->key + 24, key + 16, 8);
@@ -1393,6 +1440,10 @@ out:
 	return ret;
 }
 
+/*
+ * TODO: merge with sta/ibss into 1 set_key function.
+ * note there are slight diffs
+ */
 int wl1271_cmd_set_ap_key(struct wl1271 *wl, struct wl12xx_vif *wlvif,
 			  u16 action, u8 id, u8 key_type,
 			  u8 key_size, const u8 *key, u8 hlid, u32 tx_seq_32,
@@ -1429,6 +1480,12 @@ int wl1271_cmd_set_ap_key(struct wl1271 *wl, struct wl12xx_vif *wlvif,
 	cmd->ac_seq_num32[0] = cpu_to_le32(tx_seq_32);
 
 	if (key_type == KEY_TKIP) {
+		/*
+		 * We get the key in the following form:
+		 * TKIP (16 bytes) - TX MIC (8 bytes) - RX MIC (8 bytes)
+		 * but the target is expecting:
+		 * TKIP - RX MIC - TX MIC
+		 */
 		memcpy(cmd->key, key, 16);
 		memcpy(cmd->key + 16, key + 24, 8);
 		memcpy(cmd->key + 24, key + 16, 8);
@@ -1544,7 +1601,7 @@ int wl12xx_cmd_remove_peer(struct wl1271 *wl, u8 hlid)
 	}
 
 	cmd->hlid = hlid;
-	
+	/* We never send a deauth, mac80211 is in charge of this */
 	cmd->reason_opcode = 0;
 	cmd->send_deauth_flag = 0;
 
@@ -1554,6 +1611,10 @@ int wl12xx_cmd_remove_peer(struct wl1271 *wl, u8 hlid)
 		goto out_free;
 	}
 
+	/*
+	 * We are ok with a timeout here. The event is sometimes not sent
+	 * due to a firmware bug.
+	 */
 	wl1271_cmd_wait_for_event_or_timeout(wl,
 					     PEER_REMOVE_COMPLETE_EVENT_ID);
 
@@ -1758,6 +1819,11 @@ int wl12xx_croc(struct wl1271 *wl, u8 role_id)
 
 	__clear_bit(role_id, wl->roc_map);
 
+	/*
+	 * Rearm the tx watchdog when removing the last ROC. This prevents
+	 * recoveries due to just finished ROCs - when Tx hasn't yet had
+	 * a chance to get out.
+	 */
 	if (find_first_bit(wl->roc_map, WL12XX_MAX_ROLES) >= WL12XX_MAX_ROLES)
 		wl12xx_rearm_tx_watchdog_locked(wl);
 out:
@@ -1784,8 +1850,8 @@ int wl12xx_cmd_channel_switch(struct wl1271 *wl,
 	cmd->switch_time = ch_switch->count;
 	cmd->stop_tx = ch_switch->block_tx;
 
-	
-	cmd->post_switch_tx_disable = 0;  
+	/* FIXME: control from mac80211 in the future */
+	cmd->post_switch_tx_disable = 0;  /* Enable TX on the target channel */
 
 	ret = wl1271_cmd_send(wl, CMD_CHANNEL_SWITCH, cmd, sizeof(*cmd), 0);
 	if (ret < 0) {
@@ -1826,6 +1892,7 @@ out:
 	return ret;
 }
 
+/* start dev role and roc on its channel */
 int wl12xx_start_dev(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 {
 	int ret;
@@ -1850,6 +1917,7 @@ out:
 	return ret;
 }
 
+/* croc dev hlid, and stop the role */
 int wl12xx_stop_dev(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 {
 	int ret;
@@ -1858,7 +1926,7 @@ int wl12xx_stop_dev(struct wl1271 *wl, struct wl12xx_vif *wlvif)
 		      wlvif->bss_type == BSS_TYPE_IBSS)))
 		return -EINVAL;
 
-	
+	/* flush all pending packets */
 	wl1271_tx_work_locked(wl);
 
 	if (test_bit(wlvif->dev_role_id, wl->roc_map)) {

@@ -24,11 +24,19 @@
 #include <asm/addrspace.h>
 #include <asm/fixmap.h>
 
+/*
+ * ZERO_PAGE is a global shared page that is always zero: used
+ * for zero-mapped memory areas etc..
+ */
 extern unsigned long empty_zero_page[PAGE_SIZE / sizeof(unsigned long)];
 #define ZERO_PAGE(vaddr) (virt_to_page(empty_zero_page))
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
+/*
+ * Effective and physical address definitions, to aid with sign
+ * extension.
+ */
 #define NEFF		32
 #define	NEFF_SIGN	(1LL << (NEFF - 1))
 #define	NEFF_MASK	(-1LL << NEFF)
@@ -51,6 +59,7 @@ static inline unsigned long long neff_sign_extend(unsigned long val)
 #define PGDIR_SIZE	(1UL << PGDIR_SHIFT)
 #define PGDIR_MASK	(~(PGDIR_SIZE-1))
 
+/* Entries per level */
 #define PTRS_PER_PTE	(PAGE_SIZE / (1 << PTE_MAGNITUDE))
 
 #define FIRST_USER_ADDRESS	0
@@ -60,7 +69,7 @@ static inline unsigned long long neff_sign_extend(unsigned long val)
 
 static inline unsigned long phys_addr_mask(void)
 {
-	
+	/* Is the MMU in 29bit mode? */
 	if (__in_29bit_mode())
 		return PHYS_ADDR_MASK29;
 
@@ -83,7 +92,16 @@ static inline unsigned long phys_addr_mask(void)
 #include <asm/pgtable_64.h>
 #endif
 
-	 
+/*
+ * SH-X and lower (legacy) SuperH parts (SH-3, SH-4, some SH-4A) can't do page
+ * protection for execute, and considers it the same as a read. Also, write
+ * permission implies read permission. This is the closest we can get..
+ *
+ * SH-X2 (SH7785) and later parts take this to the opposite end of the extreme,
+ * not only supporting separate execute, read, and write bits, but having
+ * completely separate permission bits for user and kernel space.
+ */
+	 /*xwr*/
 #define __P000	PAGE_NONE
 #define __P001	PAGE_READONLY
 #define __P010	PAGE_COPY
@@ -111,6 +129,9 @@ typedef pte_t *pte_addr_t;
 
 #define pte_pfn(x)		((unsigned long)(((x).pte_low >> PAGE_SHIFT)))
 
+/*
+ * Initialise the page table caches
+ */
 extern void pgtable_cache_init(void);
 
 struct vm_area_struct;
@@ -134,6 +155,7 @@ extern void paging_init(void);
 extern void page_table_range_init(unsigned long start, unsigned long end,
 				  pgd_t *pgd);
 
+/* arch/sh/mm/mmap.c */
 #define HAVE_ARCH_UNMAPPED_AREA
 #define HAVE_ARCH_UNMAPPED_AREA_TOPDOWN
 
@@ -141,4 +163,4 @@ extern void page_table_range_init(unsigned long start, unsigned long end,
 
 #include <asm-generic/pgtable.h>
 
-#endif 
+#endif /* __ASM_SH_PGTABLE_H */

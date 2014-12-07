@@ -65,20 +65,26 @@
 			ctcmpc_dumpit(buf, len); \
 	} while (0)
 
+/**
+ * Enum for classifying detected devices
+ */
 enum ctcm_channel_types {
-	
+	/* Device is not a channel  */
 	ctcm_channel_type_none,
 
-	
+	/* Device is a CTC/A */
 	ctcm_channel_type_parallel,
 
-	
+	/* Device is a FICON channel */
 	ctcm_channel_type_ficon,
 
-	
+	/* Device is a ESCON channel */
 	ctcm_channel_type_escon
 };
 
+/*
+ * CCW commands, used in this driver.
+ */
 #define CCW_CMD_WRITE		0x01
 #define CCW_CMD_READ		0x02
 #define CCW_CMD_NOOP		0x03
@@ -120,25 +126,54 @@ struct ctcm_profile {
 	struct timespec send_stamp;
 };
 
+/*
+ * Definition of one channel
+ */
 struct channel {
 	struct channel *next;
 	char id[CTCM_ID_SIZE];
 	struct ccw_device *cdev;
+	/*
+	 * Type of this channel.
+	 * CTC/A or Escon for valid channels.
+	 */
 	enum ctcm_channel_types type;
+	/*
+	 * Misc. flags. See CHANNEL_FLAGS_... below
+	 */
 	__u32 flags;
-	__u16 protocol;		
+	__u16 protocol;		/* protocol of this channel (4 = MPC) */
+	/*
+	 * I/O and irq related stuff
+	 */
 	struct ccw1 *ccw;
 	struct irb *irb;
+	/*
+	 * RX/TX buffer size
+	 */
 	int max_bufsize;
-	struct sk_buff *trans_skb;	
-	struct sk_buff_head io_queue;	
-	struct tasklet_struct ch_tasklet;	
+	struct sk_buff *trans_skb;	/* transmit/receive buffer */
+	struct sk_buff_head io_queue;	/* universal I/O queue */
+	struct tasklet_struct ch_tasklet;	/* MPC ONLY */
+	/*
+	 * TX queue for collecting skb's during busy.
+	 */
 	struct sk_buff_head collect_queue;
+	/*
+	 * Amount of data in collect_queue.
+	 */
 	int collect_len;
+	/*
+	 * spinlock for collect_queue and collect_len
+	 */
 	spinlock_t collect_lock;
+	/*
+	 * Timer for detecting unresposive
+	 * I/O operations.
+	 */
 	fsm_timer timer;
-	
-	__u32	th_seq_num;	
+	/* MPC ONLY section begin */
+	__u32	th_seq_num;	/* SNA TH seq number */
 	__u8	th_seg;
 	__u32	pdu_seq;
 	struct sk_buff		*xid_skb;
@@ -154,35 +189,35 @@ struct channel {
 	struct sk_buff_head	sweep_queue;
 	struct th_header	*discontact_th;
 	struct tasklet_struct	ch_disc_tasklet;
-	
+	/* MPC ONLY section end */
 
-	int retry;		
-	fsm_instance *fsm;	
-	struct net_device *netdev;	
+	int retry;		/* retry counter for misc. operations */
+	fsm_instance *fsm;	/* finite state machine of this channel */
+	struct net_device *netdev;	/* corresponding net_device */
 	struct ctcm_profile prof;
 	__u8 *trans_skb_data;
 	__u16 logflags;
-	__u8  sense_rc; 
+	__u8  sense_rc; /* last unit check sense code report control */
 };
 
 struct ctcm_priv {
 	struct net_device_stats	stats;
 	unsigned long	tbusy;
 
-	
-	struct	mpc_group	*mpcg;	
-	struct	xid2		*xid;	
+	/* The MPC group struct of this interface */
+	struct	mpc_group	*mpcg;	/* MPC only */
+	struct	xid2		*xid;	/* MPC only */
 
-	
+	/* The finite state machine of this interface */
 	fsm_instance *fsm;
 
-	
+	/* The protocol of this device */
 	__u16 protocol;
 
-	
+	/* Timer for restarting after I/O Errors */
 	fsm_timer	restart_timer;
 
-	int buffer_size;	
+	int buffer_size;	/* ctc only */
 
 	struct channel *channel[2];
 };
@@ -190,11 +225,18 @@ struct ctcm_priv {
 int ctcm_open(struct net_device *dev);
 int ctcm_close(struct net_device *dev);
 
+/*
+ * prototypes for non-static sysfs functions
+ */
 int ctcm_add_attributes(struct device *dev);
 void ctcm_remove_attributes(struct device *dev);
 int ctcm_add_files(struct device *dev);
 void ctcm_remove_files(struct device *dev);
 
+/*
+ * Compatibility macros for busy handling
+ * of network devices.
+ */
 static inline void ctcm_clear_busy_do(struct net_device *dev)
 {
 	clear_bit(0, &(((struct ctcm_priv *)dev->ml_priv)->tbusy));
@@ -223,6 +265,9 @@ extern struct channel *channels;
 
 void ctcm_unpack_skb(struct channel *ch, struct sk_buff *pskb);
 
+/*
+ * Functions related to setup and device detection.
+ */
 
 static inline int ctcm_less_than(char *id1, char *id2)
 {
@@ -252,8 +297,12 @@ static inline int ctcm_checkalloc_buffer(struct channel *ch)
 
 struct mpc_group *ctcmpc_init_mpc_group(struct ctcm_priv *priv);
 
+/* test if protocol attribute (of struct ctcm_priv or struct channel)
+ * has MPC protocol setting. Type is not checked
+ */
 #define IS_MPC(p) ((p)->protocol == CTCM_PROTO_MPC)
 
+/* test if struct ctcm_priv of struct net_device has MPC protocol setting */
 #define IS_MPCDEV(dev) IS_MPC((struct ctcm_priv *)dev->ml_priv)
 
 static inline gfp_t gfp_type(void)
@@ -261,6 +310,9 @@ static inline gfp_t gfp_type(void)
 	return in_interrupt() ? GFP_ATOMIC : GFP_KERNEL;
 }
 
+/*
+ * Definition of our link level header.
+ */
 struct ll_header {
 	__u16 length;
 	__u16 type;

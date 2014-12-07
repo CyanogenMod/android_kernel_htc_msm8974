@@ -1,9 +1,18 @@
 /*
+ * sound/oss/midi_synth.c
+ *
+ * High level midi sequencer manager for dumb MIDI interfaces.
+ */
+/*
  * Copyright (C) by Hannu Savolainen 1993-1997
  *
  * OSS/Free for Linux is distributed under the GNU GENERAL PUBLIC LICENSE (GPL)
  * Version 2 (June 1991). See the "COPYING" file distributed with this software
  * for more info.
+ */
+/*
+ * Thomas Sailer   : ioctl code reworked (vmalloc/vfree removed)
+ * Andrew Veliath  : fixed running status in MIDI input state machine
  */
 #define USE_SEQ_MACROS
 #define USE_SIMPLE_MACROS
@@ -71,7 +80,7 @@ do_midi_msg(int synthno, unsigned char *msg, int mlen)
 		  break;
 
 	  default:
-		  
+		  /* printk( "MPU: Unknown midi channel message %02x\n",  msg[0]); */
 		  ;
 	  }
 }
@@ -85,11 +94,20 @@ midi_outc(int midi_dev, int data)
 	for (timeout = 0; timeout < 3200; timeout++)
 		if (midi_devs[midi_dev]->outputc(midi_dev, (unsigned char) (data & 0xff)))
 		  {
-			  if (data & 0x80)	
+			  if (data & 0x80)	/*
+						 * Status byte
+						 */
 				  prev_out_status[midi_dev] =
-				      (unsigned char) (data & 0xff);	
-			  return;	
+				      (unsigned char) (data & 0xff);	/*
+									 * Store for running status
+									 */
+			  return;	/*
+					 * Mission complete
+					 */
 		  }
+	/*
+	 * Sorry! No space on buffers.
+	 */
 	printk("Midi send timed out\n");
 }
 
@@ -108,22 +126,23 @@ midi_synth_input(int orig_dev, unsigned char data)
 	int             dev;
 	struct midi_input_info *inc;
 
-	static unsigned char len_tab[] =	
+	static unsigned char len_tab[] =	/* # of data bytes following a status
+						 */
 	{
-		2,		
-		2,		
-		2,		
-		2,		
-		1,		
-		1,		
-		2,		
-		0		
+		2,		/* 8x */
+		2,		/* 9x */
+		2,		/* Ax */
+		2,		/* Bx */
+		1,		/* Cx */
+		1,		/* Dx */
+		2,		/* Ex */
+		0		/* Fx */
 	};
 
 	if (orig_dev < 0 || orig_dev > num_midis || midi_devs[orig_dev] == NULL)
 		return;
 
-	if (data == 0xfe)	
+	if (data == 0xfe)	/* Ignore active sensing */
 		return;
 
 	dev = midi2synth[orig_dev];
@@ -132,25 +151,25 @@ midi_synth_input(int orig_dev, unsigned char data)
 	switch (inc->m_state)
 	  {
 	  case MST_INIT:
-		  if (data & 0x80)	
+		  if (data & 0x80)	/* MIDI status byte */
 		    {
-			    if ((data & 0xf0) == 0xf0)	
+			    if ((data & 0xf0) == 0xf0)	/* Common message */
 			      {
 				      switch (data)
 					{
-					case 0xf0:	
+					case 0xf0:	/* Sysex */
 						inc->m_state = MST_SYSEX;
-						break;	
+						break;	/* Sysex */
 
-					case 0xf1:	
-					case 0xf3:	
+					case 0xf1:	/* MTC quarter frame */
+					case 0xf3:	/* Song select */
 						inc->m_state = MST_DATA;
 						inc->m_ptr = 1;
 						inc->m_left = 1;
 						inc->m_buf[0] = data;
 						break;
 
-					case 0xf2:	
+					case 0xf2:	/* Song position pointer */
 						inc->m_state = MST_DATA;
 						inc->m_ptr = 1;
 						inc->m_left = 2;
@@ -172,20 +191,20 @@ midi_synth_input(int orig_dev, unsigned char data)
 				      inc->m_buf[0] = inc->m_prev_status = data;
 			      }
 		    } else if (inc->m_prev_status & 0x80) {
-			    
+			    /* Data byte (use running status) */
 			    inc->m_ptr = 2;
 			    inc->m_buf[1] = data;
 			    inc->m_buf[0] = inc->m_prev_status;
 			    inc->m_left = len_tab[(inc->m_buf[0] >> 4) - 8] - 1;
 			    if (inc->m_left > 0)
-				    inc->m_state = MST_DATA; 
+				    inc->m_state = MST_DATA; /* Not done yet */
 			    else {
 				    inc->m_state = MST_INIT;
 				    do_midi_msg(dev, inc->m_buf, inc->m_ptr);
 				    inc->m_ptr = 0;
 			    }
 		    }
-		  break;	
+		  break;	/* MST_INIT */
 
 	  case MST_DATA:
 		  inc->m_buf[inc->m_ptr++] = data;
@@ -195,16 +214,16 @@ midi_synth_input(int orig_dev, unsigned char data)
 			    do_midi_msg(dev, inc->m_buf, inc->m_ptr);
 			    inc->m_ptr = 0;
 		    }
-		  break;	
+		  break;	/* MST_DATA */
 
 	  case MST_SYSEX:
-		  if (data == 0xf7)	
+		  if (data == 0xf7)	/* Sysex end */
 		    {
 			    inc->m_state = MST_INIT;
 			    inc->m_left = 0;
 			    inc->m_ptr = 0;
 		    }
-		  break;	
+		  break;	/* MST_SYSEX */
 
 	  default:
 		  printk("MIDI%d: Unexpected state %d (%02x)\n", orig_dev, inc->m_state, (int) data);
@@ -233,10 +252,16 @@ leave_sysex(int dev)
 static void
 midi_synth_output(int dev)
 {
+	/*
+	 * Currently NOP
+	 */
 }
 
 int midi_synth_ioctl(int dev, unsigned int cmd, void __user *arg)
 {
+	/*
+	 * int orig_dev = synth_devs[dev]->midi_dev;
+	 */
 
 	switch (cmd) {
 
@@ -275,14 +300,21 @@ midi_synth_kill_note(int dev, int channel, int note, int velocity)
 	chn = prev_out_status[orig_dev] & 0x0f;
 
 	if (chn == channel && ((msg == 0x90 && velocity == 64) || msg == 0x80))
-	  {			
+	  {			/*
+				 * Use running status
+				 */
 		  if (!prefix_cmd(orig_dev, note))
 			  return 0;
 
 		  midi_outc(orig_dev, note);
 
-		  if (msg == 0x90)	
-			  midi_outc(orig_dev, 0);	
+		  if (msg == 0x90)	/*
+					 * Running status = Note on
+					 */
+			  midi_outc(orig_dev, 0);	/*
+							   * Note on with velocity 0 == note
+							   * off
+							 */
 		  else
 			  midi_outc(orig_dev, velocity);
 	} else
@@ -291,14 +323,20 @@ midi_synth_kill_note(int dev, int channel, int note, int velocity)
 		    {
 			    if (!prefix_cmd(orig_dev, 0x90 | (channel & 0x0f)))
 				    return 0;
-			    midi_outc(orig_dev, 0x90 | (channel & 0x0f));	
+			    midi_outc(orig_dev, 0x90 | (channel & 0x0f));	/*
+										 * Note on
+										 */
 			    midi_outc(orig_dev, note);
-			    midi_outc(orig_dev, 0);	
+			    midi_outc(orig_dev, 0);	/*
+							 * Zero G
+							 */
 		  } else
 		    {
 			    if (!prefix_cmd(orig_dev, 0x80 | (channel & 0x0f)))
 				    return 0;
-			    midi_outc(orig_dev, 0x80 | (channel & 0x0f));	
+			    midi_outc(orig_dev, 0x80 | (channel & 0x0f));	/*
+										 * Note off
+										 */
 			    midi_outc(orig_dev, note);
 			    midi_outc(orig_dev, velocity);
 		    }
@@ -322,7 +360,9 @@ midi_synth_set_instr(int dev, int channel, int instr_no)
 
 	if (!prefix_cmd(orig_dev, 0xc0 | (channel & 0x0f)))
 		return 0;
-	midi_outc(orig_dev, 0xc0 | (channel & 0x0f));	
+	midi_outc(orig_dev, 0xc0 | (channel & 0x0f));	/*
+							 * Program change
+							 */
 	midi_outc(orig_dev, instr_no);
 
 	return 0;
@@ -350,7 +390,9 @@ midi_synth_start_note(int dev, int channel, int note, int velocity)
 	chn = prev_out_status[orig_dev] & 0x0f;
 
 	if (chn == channel && msg == 0x90)
-	  {			
+	  {			/*
+				 * Use running status
+				 */
 		  if (!prefix_cmd(orig_dev, note))
 			  return 0;
 		  midi_outc(orig_dev, note);
@@ -359,7 +401,9 @@ midi_synth_start_note(int dev, int channel, int note, int velocity)
 	  {
 		  if (!prefix_cmd(orig_dev, 0x90 | (channel & 0x0f)))
 			  return 0;
-		  midi_outc(orig_dev, 0x90 | (channel & 0x0f));		
+		  midi_outc(orig_dev, 0x90 | (channel & 0x0f));		/*
+									 * Note on
+									 */
 		  midi_outc(orig_dev, note);
 		  midi_outc(orig_dev, velocity);
 	  }
@@ -394,12 +438,15 @@ midi_synth_open(int dev, int mode)
 		return err;
 	inc = &midi_devs[orig_dev]->in_info;
 
+	/* save_flags(flags);
+	cli(); 
+	don't know against what irqhandler to protect*/
 	inc->m_busy = 0;
 	inc->m_state = MST_INIT;
 	inc->m_ptr = 0;
 	inc->m_left = 0;
 	inc->m_prev_status = 0x00;
-	
+	/* restore_flags(flags); */
 
 	return 1;
 }
@@ -412,6 +459,9 @@ midi_synth_close(int dev)
 
 	leave_sysex(dev);
 
+	/*
+	 * Shut up the synths by sending just single active sensing message.
+	 */
 	midi_devs[orig_dev]->outputc(orig_dev, 0xfe);
 
 	midi_devs[orig_dev]->close(orig_dev);
@@ -441,21 +491,24 @@ midi_synth_load_patch(int dev, int format, const char __user *addr,
 	if (!prefix_cmd(orig_dev, 0xf0))
 		return 0;
 
-	
+	/* Invalid patch format */
 	if (format != SYSEX_PATCH)
 		  return -EINVAL;
 
-	
+	/* Patch header too short */
 	if (count < hdr_size)
 		return -EINVAL;
 
 	count -= hdr_size;
 
+	/*
+	 * Copy the header from user space
+	 */
 
 	if (copy_from_user(&sysex, addr, hdr_size))
 		return -EFAULT;
 
-	
+	/* Sysex record too short */
 	if ((unsigned)count < (unsigned)sysex.len)
 		sysex.len = count;
 
@@ -470,7 +523,7 @@ midi_synth_load_patch(int dev, int format, const char __user *addr,
 		    (unsigned char __user *)(addr + hdr_size + i)))
 			return -EFAULT;
 
-		eox_seen = (i > 0 && data & 0x80);	
+		eox_seen = (i > 0 && data & 0x80);	/* End of sysex */
 
 		if (eox_seen && data != 0xf7)
 			data = 0xf7;
@@ -518,11 +571,15 @@ void midi_synth_aftertouch(int dev, int channel, int pressure)
 	msg = prev_out_status[orig_dev] & 0xf0;
 	chn = prev_out_status[orig_dev] & 0x0f;
 
-	if (msg != 0xd0 || chn != channel)	
+	if (msg != 0xd0 || chn != channel)	/*
+						 * Test for running status
+						 */
 	  {
 		  if (!prefix_cmd(orig_dev, 0xd0 | (channel & 0x0f)))
 			  return;
-		  midi_outc(orig_dev, 0xd0 | (channel & 0x0f));		
+		  midi_outc(orig_dev, 0xd0 | (channel & 0x0f));		/*
+									 * Channel pressure
+									 */
 	} else if (!prefix_cmd(orig_dev, pressure))
 		return;
 
@@ -576,7 +633,9 @@ midi_synth_bender(int dev, int channel, int value)
 	msg = prev_out_status[orig_dev] & 0xf0;
 	prev_chn = prev_out_status[orig_dev] & 0x0f;
 
-	if (msg != 0xd0 || prev_chn != channel)		
+	if (msg != 0xd0 || prev_chn != channel)		/*
+							 * Test for running status
+							 */
 	  {
 		  if (!prefix_cmd(orig_dev, 0xe0 | (channel & 0x0f)))
 			  return;
@@ -605,14 +664,14 @@ midi_synth_send_sysex(int dev, unsigned char *bytes, int len)
 	  {
 		  switch (bytes[i])
 		    {
-		    case 0xf0:	
+		    case 0xf0:	/* Start sysex */
 			    if (!prefix_cmd(orig_dev, 0xf0))
 				    return 0;
 			    sysex_state[dev] = 1;
 			    break;
 
-		    case 0xf7:	
-			    if (!sysex_state[dev])	
+		    case 0xf7:	/* End sysex */
+			    if (!sysex_state[dev])	/* Orphan sysex end */
 				    return 0;
 			    sysex_state[dev] = 0;
 			    break;
@@ -621,15 +680,18 @@ midi_synth_send_sysex(int dev, unsigned char *bytes, int len)
 			    if (!sysex_state[dev])
 				    return 0;
 
-			    if (bytes[i] & 0x80)	
+			    if (bytes[i] & 0x80)	/* Error. Another message before sysex end */
 			      {
-				      bytes[i] = 0xf7;	
+				      bytes[i] = 0xf7;	/* Sysex end */
 				      sysex_state[dev] = 0;
 			      }
 		    }
 
 		  if (!midi_devs[orig_dev]->outputc(orig_dev, bytes[i]))
 		    {
+/*
+ * Hardware level buffer is full. Abort the sysex message.
+ */
 
 			    int             timeout = 0;
 

@@ -51,8 +51,8 @@
 #include <linux/ethtool.h>
 #include <net/sock.h>
 #include <net/checksum.h>
-#include <linux/if_ether.h>	
-#include <linux/if_arp.h>	
+#include <linux/if_ether.h>	/* For the statistics structure. */
+#include <linux/if_arp.h>	/* For ARPHRD_ETHER */
 #include <linux/ip.h>
 #include <linux/tcp.h>
 #include <linux/percpu.h>
@@ -65,6 +65,10 @@ struct pcpu_lstats {
 	struct u64_stats_sync	syncp;
 };
 
+/*
+ * The higher levels take care of making this non-reentrant (it's
+ * called with bh's disabled).
+ */
 static netdev_tx_t loopback_xmit(struct sk_buff *skb,
 				 struct net_device *dev)
 {
@@ -75,7 +79,7 @@ static netdev_tx_t loopback_xmit(struct sk_buff *skb,
 
 	skb->protocol = eth_type_trans(skb, dev);
 
-	
+	/* it's OK to use per_cpu_ptr() because BHs are off */
 	lb_stats = this_cpu_ptr(dev->lstats);
 
 	len = skb->len;
@@ -147,13 +151,17 @@ static const struct net_device_ops loopback_ops = {
 	.ndo_get_stats64 = loopback_get_stats64,
 };
 
+/*
+ * The loopback device is special. There is only one instance
+ * per network namespace.
+ */
 static void loopback_setup(struct net_device *dev)
 {
 	dev->mtu		= (16 * 1024) + 20 + 20 + 12;
-	dev->hard_header_len	= ETH_HLEN;	
-	dev->addr_len		= ETH_ALEN;	
+	dev->hard_header_len	= ETH_HLEN;	/* 14	*/
+	dev->addr_len		= ETH_ALEN;	/* 6	*/
 	dev->tx_queue_len	= 0;
-	dev->type		= ARPHRD_LOOPBACK;	
+	dev->type		= ARPHRD_LOOPBACK;	/* 0x0001*/
 	dev->flags		= IFF_LOOPBACK;
 	dev->priv_flags	       &= ~IFF_XMIT_DST_RELEASE;
 	dev->hw_features	= NETIF_F_ALL_TSO | NETIF_F_UFO;
@@ -173,6 +181,7 @@ static void loopback_setup(struct net_device *dev)
 	dev->destructor		= loopback_dev_free;
 }
 
+/* Setup and register the loopback device. */
 static __net_init int loopback_net_init(struct net *net)
 {
 	struct net_device *dev;
@@ -200,6 +209,7 @@ out:
 	return err;
 }
 
+/* Registered in net/core/dev.c */
 struct pernet_operations __net_initdata loopback_net_ops = {
        .init = loopback_net_init,
 };

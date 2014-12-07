@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * Qualcomm TSENS Thermal Manager driver
+ *
+ */
 
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -22,6 +26,7 @@
 #include <mach/msm_iomap.h>
 #include <linux/pm.h>
 
+/* Trips: from very hot to very cold */
 enum tsens_trip_type {
 	TSENS_TRIP_STAGE3 = 0,
 	TSENS_TRIP_STAGE2,
@@ -30,15 +35,15 @@ enum tsens_trip_type {
 	TSENS_TRIP_NUM,
 };
 
-#define TSENS_NUM_SENSORS	1 
-#define TSENS_CAL_DEGC		30 
+#define TSENS_NUM_SENSORS	1 /* There are 5 but only 1 is useful now */
+#define TSENS_CAL_DEGC		30 /* degree C used for calibration */
 #define TSENS_QFPROM_ADDR (MSM_QFPROM_BASE + 0x000000bc)
 #define TSENS_QFPROM_RED_TEMP_SENSOR0_SHIFT 24
 #define TSENS_QFPROM_TEMP_SENSOR0_SHIFT 16
 #define TSENS_QFPROM_TEMP_SENSOR0_MASK (255 << TSENS_QFPROM_TEMP_SENSOR0_SHIFT)
-#define TSENS_SLOPE (0.702)  
-#define TSENS_FACTOR (1000)  
-#define TSENS_CONFIG 01      
+#define TSENS_SLOPE (0.702)  /* slope in (degrees_C / ADC_code) */
+#define TSENS_FACTOR (1000)  /* convert floating-point into integer */
+#define TSENS_CONFIG 01      /* this setting found to be optimal */
 #define TSENS_CONFIG_SHIFT 28
 #define TSENS_CONFIG_MASK (3 << TSENS_CONFIG_SHIFT)
 #define TSENS_CNTL_ADDR (MSM_CLK_CTL_BASE + 0x00003620)
@@ -53,7 +58,7 @@ enum tsens_trip_type {
 #define TSENS_LOWER_STATUS_CLR (1 << 9)
 #define TSENS_UPPER_STATUS_CLR (1 << 10)
 #define TSENS_MAX_STATUS_MASK (1 << 11)
-#define TSENS_MEASURE_PERIOD 4 
+#define TSENS_MEASURE_PERIOD 4 /* 1 sec. default as required by Willie */
 #define TSENS_SLP_CLK_ENA (1 << 24)
 #define TSENS_THRESHOLD_ADDR (MSM_CLK_CTL_BASE + 0x00003624)
 #define TSENS_THRESHOLD_MAX_CODE (0xff)
@@ -61,6 +66,7 @@ enum tsens_trip_type {
 #define TSENS_THRESHOLD_MIN_LIMIT_MASK (TSENS_THRESHOLD_MAX_CODE << 16)
 #define TSENS_THRESHOLD_UPPER_LIMIT_MASK (TSENS_THRESHOLD_MAX_CODE << 8)
 #define TSENS_THRESHOLD_LOWER_LIMIT_MASK (TSENS_THRESHOLD_MAX_CODE << 0)
+/* Initial temperature threshold values */
 #define TSENS_LOWER_LIMIT_TH   0x50
 #define TSENS_UPPER_LIMIT_TH   0xdf
 #define TSENS_MIN_LIMIT_TH     0x38
@@ -88,6 +94,7 @@ struct tsens_tm_device {
 
 struct tsens_tm_device *tmdev;
 
+/* Temperature on y axis and ADC-code on x-axis */
 static int tsens_tz_code_to_degC(int adc_code)
 {
 	int degC, degcbeforefactor;
@@ -97,7 +104,7 @@ static int tsens_tz_code_to_degC(int adc_code)
 		degC = degcbeforefactor;
 	else if (degcbeforefactor > 0)
 		degC = (degcbeforefactor + TSENS_FACTOR/2) / TSENS_FACTOR;
-	else  
+	else  /* rounding for negative degrees */
 		degC = (degcbeforefactor - TSENS_FACTOR/2) / TSENS_FACTOR;
 	return degC;
 }
@@ -107,9 +114,9 @@ static int tsens_tz_degC_to_code(int degC)
 	int code = (degC * TSENS_FACTOR - tmdev->offset
 			+ (int)(TSENS_FACTOR * TSENS_SLOPE)/2)
 			/ (int)(TSENS_FACTOR * TSENS_SLOPE);
-	if (code > 255) 
+	if (code > 255) /* upper bound */
 		code = 255;
-	else if (code < 0) 
+	else if (code < 0) /* lower bound */
 		code = 0;
 	return code;
 }
@@ -424,6 +431,9 @@ static void notify_uspace_tsens_fn(struct work_struct *work)
 {
 	struct tsens_tm_device *tm = container_of(work, struct tsens_tm_device,
 					work);
+	/* Currently only Sensor0 is supported. We added support
+	   to notify only the supported Sensor and this portion
+	   needs to be revisited once other sensors are supported */
 	sysfs_notify(&tm->sensor[0].tz_dev->device.kobj,
 					NULL, "type");
 }
@@ -463,7 +473,7 @@ static irqreturn_t tsens_isr_thread(int irq, void *data)
 			if (lower_th_x)
 				mask |= TSENS_LOWER_STATUS_CLR;
 			if (upper_th_x || lower_th_x) {
-				
+				/* Notify user space */
 				schedule_work(&tm->work);
 				adc_code = readl(TSENS_S0_STATUS_ADDR
 							+ (i << 2));
@@ -565,6 +575,8 @@ static int __devinit tsens_tm_probe(struct platform_device *pdev)
 		TSENS_MIN_STATUS_MASK | TSENS_MAX_STATUS_MASK |
 		(((1 << TSENS_NUM_SENSORS) - 1) << 3);
 
+	/* set TSENS_CONFIG bits (bits 29:28 of TSENS_CNTL) to '01';
+		this setting found to be optimal. */
 	reg = (reg & ~TSENS_CONFIG_MASK) | (TSENS_CONFIG << TSENS_CONFIG_SHIFT);
 
 	writel(reg, TSENS_CNTL_ADDR);

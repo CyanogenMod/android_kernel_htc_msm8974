@@ -18,8 +18,10 @@
 #include <linux/atomic.h>
 #include <linux/rcupdate.h>
 
+/* size of the nodename buffer */
 #define UNX_MAXNODENAME	32
 
+/* Work around the lack of a VFS credential */
 struct auth_cred {
 	uid_t	uid;
 	gid_t	gid;
@@ -28,24 +30,27 @@ struct auth_cred {
 	unsigned char machine_cred : 1;
 };
 
+/*
+ * Client user credentials
+ */
 struct rpc_auth;
 struct rpc_credops;
 struct rpc_cred {
-	struct hlist_node	cr_hash;	
-	struct list_head	cr_lru;		
+	struct hlist_node	cr_hash;	/* hash chain */
+	struct list_head	cr_lru;		/* lru garbage collection */
 	struct rcu_head		cr_rcu;
 	struct rpc_auth *	cr_auth;
 	const struct rpc_credops *cr_ops;
 #ifdef RPC_DEBUG
-	unsigned long		cr_magic;	
+	unsigned long		cr_magic;	/* 0x0f4aa4f0 */
 #endif
-	unsigned long		cr_expire;	
-	unsigned long		cr_flags;	
-	atomic_t		cr_count;	
+	unsigned long		cr_expire;	/* when to gc */
+	unsigned long		cr_flags;	/* various flags */
+	atomic_t		cr_count;	/* ref count */
 
 	uid_t			cr_uid;
 
-	
+	/* per-flavor data */
 };
 #define RPCAUTH_CRED_NEW	0
 #define RPCAUTH_CRED_UPTODATE	1
@@ -54,28 +59,40 @@ struct rpc_cred {
 
 #define RPCAUTH_CRED_MAGIC	0x0f4aa4f0
 
+/*
+ * Client authentication handle
+ */
 struct rpc_cred_cache;
 struct rpc_authops;
 struct rpc_auth {
-	unsigned int		au_cslack;	
+	unsigned int		au_cslack;	/* call cred size estimate */
+				/* guess at number of u32's auth adds before
+				 * reply data; normally the verifier size: */
 	unsigned int		au_rslack;
-				
+				/* for gss, used to calculate au_rslack: */
 	unsigned int		au_verfsize;
 
-	unsigned int		au_flags;	
-	const struct rpc_authops *au_ops;		
-	rpc_authflavor_t	au_flavor;	
-	atomic_t		au_count;	
+	unsigned int		au_flags;	/* various flags */
+	const struct rpc_authops *au_ops;		/* operations */
+	rpc_authflavor_t	au_flavor;	/* pseudoflavor (note may
+						 * differ from the flavor in
+						 * au_ops->au_flavor in gss
+						 * case) */
+	atomic_t		au_count;	/* Reference counter */
 
 	struct rpc_cred_cache *	au_credcache;
-	
+	/* per-flavor data */
 };
 
-#define RPCAUTH_LOOKUP_NEW		0x01	
+/* Flags for rpcauth_lookupcred() */
+#define RPCAUTH_LOOKUP_NEW		0x01	/* Accept an uninitialised cred */
 
+/*
+ * Client authentication ops
+ */
 struct rpc_authops {
 	struct module		*owner;
-	rpc_authflavor_t	au_flavor;	
+	rpc_authflavor_t	au_flavor;	/* flavor (RPC_AUTH_*) */
 	char *			au_name;
 	struct rpc_auth *	(*create)(struct rpc_clnt *, rpc_authflavor_t);
 	void			(*destroy)(struct rpc_auth *);
@@ -87,7 +104,7 @@ struct rpc_authops {
 };
 
 struct rpc_credops {
-	const char *		cr_name;	
+	const char *		cr_name;	/* Name of the auth flavour */
 	int			(*cr_init)(struct rpc_auth *, struct rpc_cred *);
 	void			(*crdestroy)(struct rpc_cred *);
 
@@ -141,5 +158,5 @@ struct rpc_cred *	get_rpccred(struct rpc_cred *cred)
 	return cred;
 }
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _LINUX_SUNRPC_AUTH_H */

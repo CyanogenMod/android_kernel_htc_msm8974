@@ -23,6 +23,7 @@
 #include <mach/regs-gpio.h>
 #include <mach/leds-gpio.h>
 
+/* our context */
 
 struct s3c24xx_gpio_led {
 	struct led_classdev		 cdev;
@@ -45,6 +46,8 @@ static void s3c24xx_led_set(struct led_classdev *led_cdev,
 	struct s3c24xx_gpio_led *led = to_gpio(led_cdev);
 	struct s3c24xx_led_platdata *pd = led->pdata;
 
+	/* there will be a short delay between setting the output and
+	 * going from output to input when using tristate. */
 
 	s3c2410_gpio_setpin(pd->gpio, (value ? 1 : 0) ^
 			    (pd->flags & S3C24XX_LEDF_ACTLOW));
@@ -86,7 +89,7 @@ static int s3c24xx_led_probe(struct platform_device *dev)
 
 	led->pdata = pdata;
 
-	
+	/* no point in having a pull-up if we are always driving */
 
 	if (pdata->flags & S3C24XX_LEDF_TRISTATE) {
 		s3c2410_gpio_setpin(pdata->gpio, 0);
@@ -97,7 +100,7 @@ static int s3c24xx_led_probe(struct platform_device *dev)
 		s3c2410_gpio_cfgpin(pdata->gpio, S3C2410_GPIO_OUTPUT);
 	}
 
-	
+	/* register our new led device */
 
 	ret = led_classdev_register(&dev->dev, &led->cdev);
 	if (ret < 0) {

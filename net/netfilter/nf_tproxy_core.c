@@ -31,9 +31,12 @@ nf_tproxy_destructor(struct sk_buff *skb)
 		sock_put(sk);
 }
 
+/* consumes sk */
 void
 nf_tproxy_assign_sock(struct sk_buff *skb, struct sock *sk)
 {
+	/* assigning tw sockets complicates things; most
+	 * skb->sk->X checks would have to test sk->sk_state first */
 	if (sk->sk_state == TCP_TIME_WAIT) {
 		inet_twsk_put(inet_twsk(sk));
 		return;

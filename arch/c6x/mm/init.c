@@ -19,9 +19,19 @@
 
 #include <asm/sections.h>
 
+/*
+ * ZERO_PAGE is a special page that is used for zero-initialized
+ * data and COW.
+ */
 unsigned long empty_zero_page;
 EXPORT_SYMBOL(empty_zero_page);
 
+/*
+ * paging_init() continues the virtual memory environment setup which
+ * was begun by the code in arch/head.S.
+ * The parameters are pointers to where to stick the starting and ending
+ * addresses  of available kernel virtual memory.
+ */
 void __init paging_init(void)
 {
 	struct pglist_data *pgdat = NODE_DATA(0);
@@ -30,8 +40,14 @@ void __init paging_init(void)
 	empty_zero_page      = (unsigned long) alloc_bootmem_pages(PAGE_SIZE);
 	memset((void *)empty_zero_page, 0, PAGE_SIZE);
 
+	/*
+	 * Set up user data space
+	 */
 	set_fs(KERNEL_DS);
 
+	/*
+	 * Define zones
+	 */
 	zones_size[ZONE_NORMAL] = (memory_end - PAGE_OFFSET) >> PAGE_SHIFT;
 	pgdat->node_zones[ZONE_NORMAL].zone_start_pfn =
 		__pa(PAGE_OFFSET) >> PAGE_SHIFT;
@@ -47,7 +63,7 @@ void __init mem_init(void)
 
 	high_memory = (void *)(memory_end & PAGE_MASK);
 
-	
+	/* this will put all memory onto the freelists */
 	totalram_pages = free_all_bootmem();
 
 	codek = (_etext - _stext) >> 10;
@@ -78,9 +94,13 @@ void __init free_initmem(void)
 {
 	unsigned long addr;
 
+	/*
+	 * The following code should be cool even if these sections
+	 * are not page aligned.
+	 */
 	addr = PAGE_ALIGN((unsigned long)(__init_begin));
 
-	
+	/* next to check that the page we free is not a partial page */
 	for (; addr + PAGE_SIZE < (unsigned long)(__init_end);
 	     addr += PAGE_SIZE) {
 		ClearPageReserved(virt_to_page(addr));

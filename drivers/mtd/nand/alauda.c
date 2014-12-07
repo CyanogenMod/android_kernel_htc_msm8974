@@ -21,23 +21,28 @@
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/nand_ecc.h>
 
+/* Control commands */
 #define ALAUDA_GET_XD_MEDIA_STATUS	0x08
 #define ALAUDA_ACK_XD_MEDIA_CHANGE	0x0a
 #define ALAUDA_GET_XD_MEDIA_SIG		0x86
 
+/* Common prefix */
 #define ALAUDA_BULK_CMD			0x40
 
+/* The two ports */
 #define ALAUDA_PORT_XD			0x00
 #define ALAUDA_PORT_SM			0x01
 
+/* Bulk commands */
 #define ALAUDA_BULK_READ_PAGE		0x84
-#define ALAUDA_BULK_READ_OOB		0x85 
+#define ALAUDA_BULK_READ_OOB		0x85 /* don't use, there's a chip bug */
 #define ALAUDA_BULK_READ_BLOCK		0x94
 #define ALAUDA_BULK_ERASE_BLOCK		0xa3
 #define ALAUDA_BULK_WRITE_PAGE		0xa4
 #define ALAUDA_BULK_WRITE_BLOCK		0xb4
 #define ALAUDA_BULK_RESET_MEDIA		0xe0
 
+/* Address shifting */
 #define PBA_LO(pba) ((pba & 0xF) << 5)
 #define PBA_HI(pba) (pba >> 3)
 #define PBA_ZONE(pba) (pba >> 11)
@@ -45,17 +50,17 @@
 #define TIMEOUT HZ
 
 static const struct usb_device_id alauda_table[] = {
-	{ USB_DEVICE(0x0584, 0x0008) },	
-	{ USB_DEVICE(0x07b4, 0x010a) },	
+	{ USB_DEVICE(0x0584, 0x0008) },	/* Fujifilm DPC-R1 */
+	{ USB_DEVICE(0x07b4, 0x010a) },	/* Olympus MAUSB-10 */
 	{ }
 };
 MODULE_DEVICE_TABLE(usb, alauda_table);
 
 struct alauda_card {
-	u8	id;		
-	u8	chipshift;	
-	u8	pageshift;	
-	u8	blockshift;	
+	u8	id;		/* id byte */
+	u8	chipshift;	/* 1<<chipshift total size */
+	u8	pageshift;	/* 1<<pageshift page size */
+	u8	blockshift;	/* 1<<blockshift block size */
 };
 
 struct alauda {
@@ -75,28 +80,28 @@ struct alauda {
 };
 
 static struct alauda_card alauda_card_ids[] = {
-	
-	{ 0x6e, 20, 8, 12},	
-	{ 0xe8, 20, 8, 12},	
-	{ 0xec, 20, 8, 12},	
-	{ 0x64, 21, 8, 12},	
-	{ 0xea, 21, 8, 12},	
-	{ 0x6b, 22, 9, 13},	
-	{ 0xe3, 22, 9, 13},	
-	{ 0xe5, 22, 9, 13},	
-	{ 0xe6, 23, 9, 13},	
-	{ 0x73, 24, 9, 14},	
-	{ 0x75, 25, 9, 14},	
-	{ 0x76, 26, 9, 14},	
-	{ 0x79, 27, 9, 14},	
-	{ 0x71, 28, 9, 14},	
+	/* NAND flash */
+	{ 0x6e, 20, 8, 12},	/* 1 MB */
+	{ 0xe8, 20, 8, 12},	/* 1 MB */
+	{ 0xec, 20, 8, 12},	/* 1 MB */
+	{ 0x64, 21, 8, 12},	/* 2 MB */
+	{ 0xea, 21, 8, 12},	/* 2 MB */
+	{ 0x6b, 22, 9, 13},	/* 4 MB */
+	{ 0xe3, 22, 9, 13},	/* 4 MB */
+	{ 0xe5, 22, 9, 13},	/* 4 MB */
+	{ 0xe6, 23, 9, 13},	/* 8 MB */
+	{ 0x73, 24, 9, 14},	/* 16 MB */
+	{ 0x75, 25, 9, 14},	/* 32 MB */
+	{ 0x76, 26, 9, 14},	/* 64 MB */
+	{ 0x79, 27, 9, 14},	/* 128 MB */
+	{ 0x71, 28, 9, 14},	/* 256 MB */
 
-	
-	{ 0x5d, 21, 9, 13},	
-	{ 0xd5, 22, 9, 13},	
-	{ 0xd6, 23, 9, 13},	
-	{ 0x57, 24, 9, 13},	
-	{ 0x58, 25, 9, 13},	
+	/* MASK ROM */
+	{ 0x5d, 21, 9, 13},	/* 2 MB */
+	{ 0xd5, 22, 9, 13},	/* 4 MB */
+	{ 0xd6, 23, 9, 13},	/* 8 MB */
+	{ 0x57, 24, 9, 13},	/* 16 MB */
+	{ 0x58, 25, 9, 13},	/* 32 MB */
 	{ }
 };
 
@@ -362,7 +367,7 @@ out:
 
 static int alauda_read_oob(struct mtd_info *mtd, loff_t from, void *oob)
 {
-	static u8 ignore_buf[512]; 
+	static u8 ignore_buf[512]; /* write only */
 
 	return __alauda_read_page(mtd, from, ignore_buf, oob);
 }
@@ -376,7 +381,7 @@ static int alauda_isbad(struct mtd_info *mtd, loff_t ofs)
 	if (err)
 		return err;
 
-	
+	/* A block is marked bad if two or more bits are zero */
 	return hweight8(oob[5]) >= 7 ? 0 : 1;
 }
 
@@ -462,7 +467,7 @@ static int alauda_write(struct mtd_info *mtd, loff_t to, size_t len,
 		u8 oob[16] = {	'h', 'e', 'l', 'l', 'o', 0xff, 0xff, 0xff,
 				0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
-		
+		/* don't write to bad blocks */
 		if (page == 0) {
 			err = alauda_isbad(mtd, to);
 			if (err) {
@@ -494,7 +499,7 @@ static int __alauda_erase(struct mtd_info *mtd, struct erase_info *instr)
 		return -EINVAL;
 
 	while (len) {
-		
+		/* don't erase bad blocks */
 		err = alauda_isbad(mtd, ofs);
 		if (err > 0)
 			err = -EIO;
@@ -552,7 +557,7 @@ static int alauda_init_media(struct alauda *al)
 		goto error;
 
 	if (*b0 != 0x14) {
-		
+		/* media not ready */
 		err = -EIO;
 		goto error;
 	}
@@ -595,7 +600,7 @@ static int alauda_init_media(struct alauda *al)
 	}
 
 	al->mtd = mtd;
-	alauda_reset(al); 
+	alauda_reset(al); /* no clue whether this is necessary */
 	return 0;
 error:
 	kfree(mtd);
@@ -612,15 +617,15 @@ static int alauda_check_media(struct alauda *al)
 		return err;
 
 	if ((*b1 & 0x01) == 0) {
-		
+		/* door open */
 		return -EIO;
 	}
 	if ((*b0 & 0x80) || ((*b0 & 0x1F) == 0x10)) {
-		
+		/* no media ? */
 		return -EIO;
 	}
 	if (*b0 & 0x08) {
-		
+		/* media change ? */
 		return alauda_init_media(al);
 	}
 	return 0;
@@ -669,7 +674,7 @@ static int alauda_probe(struct usb_interface *interface,
 	al->bulk_out = usb_sndbulkpipe(al->dev,
 			usb_endpoint_num(ep_out));
 
-	
+	/* second device is identical up to now */
 	memcpy(al+1, al, sizeof(*al));
 
 	mutex_init(&al[0].card_mutex);
@@ -697,9 +702,9 @@ static void alauda_disconnect(struct usb_interface *interface)
 	al = usb_get_intfdata(interface);
 	usb_set_intfdata(interface, NULL);
 
-	
+	/* FIXME: prevent more I/O from starting */
 
-	
+	/* decrement our usage count */
 	if (al)
 		kref_put(&al->kref, alauda_delete);
 

@@ -1,3 +1,6 @@
+/*
+ * System call callback functions for SPUs
+ */
 
 #undef DEBUG
 
@@ -9,6 +12,26 @@
 #include <asm/syscalls.h>
 #include <asm/unistd.h>
 
+/*
+ * This table defines the system calls that an SPU can call.
+ * It is currently a subset of the 64 bit powerpc system calls,
+ * with the exact semantics.
+ *
+ * The reasons for disabling some of the system calls are:
+ * 1. They interact with the way SPU syscalls are handled
+ *    and we can't let them execute ever:
+ *	restart_syscall, exit, for, execve, ptrace, ...
+ * 2. They are deprecated and replaced by other means:
+ *	uselib, pciconfig_*, sysfs, ...
+ * 3. They are somewhat interacting with the system in a way
+ *    we don't want an SPU to:
+ *	reboot, init_module, mount, kexec_load
+ * 4. They are optional and we can't rely on them being
+ *    linked into the kernel. Unfortunately, the cond_syscall
+ *    helper does not work here as it does not add the necessary
+ *    opd symbols:
+ *	mbind, mq_open, ipc, ...
+ */
 
 static void *spu_syscall_table[] = {
 #define SYSCALL(func)		sys_ni_syscall,

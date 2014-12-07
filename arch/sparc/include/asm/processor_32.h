@@ -6,6 +6,10 @@
 #ifndef __ASM_SPARC_PROCESSOR_H
 #define __ASM_SPARC_PROCESSOR_H
 
+/*
+ * Sparc32 implementation of macro that returns current
+ * instruction pointer ("program counter").
+ */
 #define current_text_addr() ({ void *pc; __asm__("sethi %%hi(1f), %0; or %0, %%lo(1f), %0;\n1:" : "=r" (pc)); pc; })
 
 #include <asm/psr.h>
@@ -15,14 +19,21 @@
 #include <asm/btfixup.h>
 #include <asm/page.h>
 
+/*
+ * The sparc has no problems with write protection
+ */
 #define wp_works_ok 1
-#define wp_works_ok__is_a_macro 
+#define wp_works_ok__is_a_macro /* for versions in ksyms.c */
 
+/* Whee, this is STACK_TOP + PAGE_SIZE and the lowest kernel address too...
+ * That one page is used to protect kernel from intruders, so that
+ * we can make our access_ok test faster
+ */
 #define TASK_SIZE	PAGE_OFFSET
 #ifdef __KERNEL__
 #define STACK_TOP	(PAGE_OFFSET - PAGE_SIZE)
 #define STACK_TOP_MAX	STACK_TOP
-#endif 
+#endif /* __KERNEL__ */
 
 struct task_struct;
 
@@ -37,15 +48,16 @@ typedef struct {
 	int seg;
 } mm_segment_t;
 
+/* The Sparc processor specific thread struct. */
 struct thread_struct {
 	struct pt_regs *kregs;
 	unsigned int _pad1;
 
-	
+	/* Special child fork kpsr/kwim values. */
 	unsigned long fork_kpsr __attribute__ ((aligned (8)));
 	unsigned long fork_kwim;
 
-	
+	/* Floating point regs */
 	unsigned long   float_regs[32] __attribute__ ((aligned (8)));
 	unsigned long   fsr;
 	unsigned long   fpqdepth;
@@ -54,16 +66,18 @@ struct thread_struct {
 	mm_segment_t current_ds;
 };
 
-#define SPARC_FLAG_KTHREAD      0x1    
-#define SPARC_FLAG_UNALIGNED    0x2    
+#define SPARC_FLAG_KTHREAD      0x1    /* task is a kernel thread */
+#define SPARC_FLAG_UNALIGNED    0x2    /* is allowed to do unaligned accesses */
 
 #define INIT_THREAD  { \
 	.flags = SPARC_FLAG_KTHREAD, \
 	.current_ds = KERNEL_DS, \
 }
 
+/* Return saved PC of a blocked thread. */
 extern unsigned long thread_saved_pc(struct task_struct *t);
 
+/* Do necessary setup to start up a newly executed thread. */
 static inline void start_thread(struct pt_regs * regs, unsigned long pc,
 				    unsigned long sp)
 {
@@ -83,7 +97,7 @@ static inline void start_thread(struct pt_regs * regs, unsigned long pc,
 			     "std\t%%g0, [%0 + %3 + 0x30]\n\t"
 			     "st\t%1, [%0 + %3 + 0x38]\n\t"
 			     "st\t%%g0, [%0 + %3 + 0x3c]"
-			     : 
+			     : /* no outputs */
 			     : "r" (regs),
 			       "r" (sp - sizeof(struct reg_window32)),
 			       "r" (zero),
@@ -91,9 +105,11 @@ static inline void start_thread(struct pt_regs * regs, unsigned long pc,
 			     : "memory");
 }
 
+/* Free all resources held by a thread. */
 #define release_thread(tsk)		do { } while(0)
 extern pid_t kernel_thread(int (*fn)(void *), void * arg, unsigned long flags);
 
+/* Prepare to copy thread state - unlazy all lazy status */
 #define prepare_to_copy(tsk)	do { } while (0)
 
 extern unsigned long get_wchan(struct task_struct *);
@@ -110,4 +126,4 @@ extern struct task_struct *last_task_used_math;
 
 #endif
 
-#endif 
+#endif /* __ASM_SPARC_PROCESSOR_H */

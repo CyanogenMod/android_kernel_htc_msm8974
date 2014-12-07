@@ -68,6 +68,16 @@ static const
 __le32 i2400m_ZERO_BARKER[4] = { 0, 0, 0, 0 };
 
 
+/*
+ * Process a received notification
+ *
+ * In normal operation mode, we can only receive two types of payloads
+ * on the notification endpoint:
+ *
+ *   - a reboot barker, we do a bootstrap (the device has reseted).
+ *
+ *   - a block of zeroes: there is pending data in the IN endpoint
+ */
 static
 int i2400mu_notification_grok(struct i2400mu *i2400mu, const void *buf,
 				 size_t buf_len)
@@ -80,7 +90,7 @@ int i2400mu_notification_grok(struct i2400mu *i2400mu, const void *buf,
 		  i2400mu, buf, buf_len);
 	ret = -EIO;
 	if (buf_len < sizeof(i2400m_ZERO_BARKER))
-		
+		/* Not a bug, just ignore */
 		goto error_bad_size;
 	ret = 0;
 	if (!memcmp(i2400m_ZERO_BARKER, buf, sizeof(i2400m_ZERO_BARKER))) {
@@ -90,7 +100,7 @@ int i2400mu_notification_grok(struct i2400mu *i2400mu, const void *buf,
 	ret = i2400m_is_boot_barker(i2400m, buf, buf_len);
 	if (unlikely(ret >= 0))
 		ret = i2400m_dev_reset_handle(i2400m, "device rebooted");
-	else	
+	else	/* Unknown or unexpected data in the notif message */
 		i2400m_unknown_barker(i2400m, buf, buf_len);
 error_bad_size:
 out:
@@ -100,6 +110,15 @@ out:
 }
 
 
+/*
+ * URB callback for the notification endpoint
+ *
+ * @urb: the urb received from the notification endpoint
+ *
+ * This function will just process the USB side of the transaction,
+ * checking everything is fine, pass the processing to
+ * i2400m_notification_grok() and resubmit the URB.
+ */
 static
 void i2400mu_notification_cb(struct urb *urb)
 {
@@ -117,16 +136,16 @@ void i2400mu_notification_cb(struct urb *urb)
 		if (ret == -EIO && edc_inc(&i2400mu->urb_edc, EDC_MAX_ERRORS,
 					   EDC_ERROR_TIMEFRAME))
 			goto error_exceeded;
-		if (ret == -ENOMEM)	
+		if (ret == -ENOMEM)	/* uff...power cycle? shutdown? */
 			goto error_exceeded;
 		break;
-	case -EINVAL:			
-	case -ENODEV:			
-	case -ENOENT:			
-	case -ESHUTDOWN:		
-	case -ECONNRESET:		
-		goto out;		
-	default:			
+	case -EINVAL:			/* while removing driver */
+	case -ENODEV:			/* dev disconnect ... */
+	case -ENOENT:			/* ditto */
+	case -ESHUTDOWN:		/* URB killed */
+	case -ECONNRESET:		/* disconnection */
+		goto out;		/* Notify around */
+	default:			/* Some error? */
 		if (edc_inc(&i2400mu->urb_edc,
 			    EDC_MAX_ERRORS, EDC_ERROR_TIMEFRAME))
 			goto error_exceeded;
@@ -137,13 +156,13 @@ void i2400mu_notification_cb(struct urb *urb)
 	ret = usb_submit_urb(i2400mu->notif_urb, GFP_ATOMIC);
 	switch (ret) {
 	case 0:
-	case -EINVAL:			
-	case -ENODEV:			
-	case -ENOENT:			
-	case -ESHUTDOWN:		
-	case -ECONNRESET:		
-		break;			
-	default:			
+	case -EINVAL:			/* while removing driver */
+	case -ENODEV:			/* dev disconnect ... */
+	case -ENOENT:			/* ditto */
+	case -ESHUTDOWN:		/* URB killed */
+	case -ECONNRESET:		/* disconnection */
+		break;			/* just ignore */
+	default:			/* Some error? */
 		dev_err(dev, "notification: cannot submit URB: %d\n", ret);
 		goto error_submit;
 	}
@@ -162,6 +181,14 @@ out:
 }
 
 
+/*
+ * setup the notification endpoint
+ *
+ * @i2400m: device descriptor
+ *
+ * This procedure prepares the notification urb and handler for receiving
+ * unsolicited barkers from the device.
+ */
 int i2400mu_notification_setup(struct i2400mu *i2400mu)
 {
 	struct device *dev = &i2400mu->usb_iface->dev;
@@ -207,6 +234,17 @@ error_buf_alloc:
 }
 
 
+/*
+ * Tear down of the notification mechanism
+ *
+ * @i2400m: device descriptor
+ *
+ * Kill the interrupt endpoint urb, free any allocated resources.
+ *
+ * We need to check if we have done it before as for example,
+ * _suspend() call this; if after a suspend() we get a _disconnect()
+ * (as the case is when hibernating), nothing bad happens.
+ */
 void i2400mu_notification_release(struct i2400mu *i2400mu)
 {
 	struct device *dev = &i2400mu->usb_iface->dev;

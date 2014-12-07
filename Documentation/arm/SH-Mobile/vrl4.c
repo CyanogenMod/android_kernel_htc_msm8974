@@ -8,6 +8,25 @@
  * for more details.
  */
 
+/*
+ * usage: vrl4 < zImage > out
+ *	  dd if=out of=/dev/sdx bs=512 seek=1 # Write the image to sector 1
+ *
+ * Reads a zImage from stdin and writes a vrl4 image to stdout.
+ * In practice this means writing a padded vrl4 header to stdout followed
+ * by the zImage.
+ *
+ * The padding places the zImage at ALIGN bytes into the output.
+ * The vrl4 uses ALIGN + START_BASE as the start_address.
+ * This is where the mask ROM will jump to after verifying the header.
+ *
+ * The header sets copy_size to min(sizeof(zImage), MAX_BOOT_PROG_LEN) + ALIGN.
+ * That is, the mask ROM will load the padded header (ALIGN bytes)
+ * And then MAX_BOOT_PROG_LEN bytes of the image, or the entire image,
+ * whichever is smaller.
+ *
+ * The zImage is not modified in any way.
+ */
 
 #define _BSD_SOURCE
 #include <endian.h>
@@ -37,11 +56,23 @@ struct hdr {
 		.magic2 =	htole32(0xe59ff008),	\
 		.reserved3 =	htole16(0x1) }
 
+/* Align to 512 bytes, the MMCIF sector size */
 #define ALIGN_BITS	9
 #define ALIGN		(1 << ALIGN_BITS)
 
 #define START_BASE	0xe55b0000
 
+/*
+ * With an alignment of 512 the header uses the first sector.
+ * There is a 128 sector (64kbyte) limit on the data loaded by the mask ROM.
+ * So there are 127 sectors left for the boot programme. But in practice
+ * Only a small portion of a zImage is needed, 16 sectors should be more
+ * than enough.
+ *
+ * Note that this sets how much of the zImage is copied by the mask ROM.
+ * The entire zImage is present after the header and is loaded
+ * by the code in the boot program (which is the first portion of the zImage).
+ */
 #define	MAX_BOOT_PROG_LEN (16 * 512)
 
 #define ROUND_UP(x)	((x + ALIGN - 1) & ~(ALIGN - 1))
@@ -123,7 +154,7 @@ int main(void)
 	if (do_write(1, boot_program, prog_len) < 0)
 		return 1;
 
-	
+	/* Write out the rest of the kernel */
 	while (1) {
 		prog_len = do_read(0, boot_program, sizeof(boot_program));
 		if (prog_len < 0)

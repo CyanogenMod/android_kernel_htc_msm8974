@@ -8,8 +8,12 @@
 
 */
 
+//***************************************************************************
 
+// PPC 6 Code in C sanitized for LINUX
+// Original x86 ASM by Ron, Converted to C by Clive
 
+//***************************************************************************
 
 
 #define port_stb					1
@@ -24,7 +28,9 @@
 #define ECR_EPP	0x80
 #define ECR_BI	0x20
 
+//***************************************************************************
 
+//  60772 Commands
 
 #define ACCESS_REG				0x00
 #define ACCESS_PORT				0x40
@@ -32,51 +38,58 @@
 #define ACCESS_READ				0x00
 #define ACCESS_WRITE			0x20
 
+//  60772 Command Prefix
 
-#define CMD_PREFIX_SET		0xe0		
-#define CMD_PREFIX_RESET	0xc0		
- #define PREFIX_IO16			0x01		
- #define PREFIX_FASTWR		0x04		
- #define PREFIX_BLK				0x08		
+#define CMD_PREFIX_SET		0xe0		// Special command that modifies the next command's operation
+#define CMD_PREFIX_RESET	0xc0		// Resets current cmd modifier reg bits
+ #define PREFIX_IO16			0x01		// perform 16-bit wide I/O
+ #define PREFIX_FASTWR		0x04		// enable PPC mode fast-write
+ #define PREFIX_BLK				0x08		// enable block transfer mode
 
+// 60772 Registers
 
-#define REG_STATUS				0x00		
- #define STATUS_IRQA			0x01		
- #define STATUS_EEPROM_DO	0x40		
-#define REG_VERSION				0x01		
-#define REG_HWCFG					0x02		
-#define REG_RAMSIZE				0x03		
+#define REG_STATUS				0x00		// status register
+ #define STATUS_IRQA			0x01		// Peripheral IRQA line
+ #define STATUS_EEPROM_DO	0x40		// Serial EEPROM data bit
+#define REG_VERSION				0x01		// PPC version register (read)
+#define REG_HWCFG					0x02		// Hardware Config register
+#define REG_RAMSIZE				0x03		// Size of RAM Buffer
  #define RAMSIZE_128K			0x02
-#define REG_EEPROM				0x06		
- #define EEPROM_SK				0x01		
- #define EEPROM_DI				0x02		
- #define EEPROM_CS				0x04		
- #define EEPROM_EN				0x08		
-#define REG_BLKSIZE				0x08		
+#define REG_EEPROM				0x06		// EEPROM control register
+ #define EEPROM_SK				0x01		// eeprom SK bit
+ #define EEPROM_DI				0x02		// eeprom DI bit
+ #define EEPROM_CS				0x04		// eeprom CS bit
+ #define EEPROM_EN				0x08		// eeprom output enable
+#define REG_BLKSIZE				0x08		// Block transfer len (24 bit)
 
+//***************************************************************************
 
 typedef struct ppc_storage {
-	u16	lpt_addr;				
+	u16	lpt_addr;				// LPT base address
 	u8	ppc_id;
-	u8	mode;						
-					
-					
-					
-					
-					
-					
-					
+	u8	mode;						// operating mode
+					// 0 = PPC Uni SW
+					// 1 = PPC Uni FW
+					// 2 = PPC Bi SW
+					// 3 = PPC Bi FW
+					// 4 = EPP Byte
+					// 5 = EPP Word
+					// 6 = EPP Dword
 	u8	ppc_flags;
-	u8	org_data;				
-	u8	org_ctrl;				
-	u8	cur_ctrl;				
+	u8	org_data;				// original LPT data port contents
+	u8	org_ctrl;				// original LPT control port contents
+	u8	cur_ctrl;				// current control port contents
 } Interface;
 
+//***************************************************************************
 
+// ppc_flags
 
 #define fifo_wait					0x10
 
+//***************************************************************************
 
+// DONT CHANGE THESE LEST YOU BREAK EVERYTHING - BIT FIELD DEPENDENCIES
 
 #define PPCMODE_UNI_SW		0
 #define PPCMODE_UNI_FW		1
@@ -86,6 +99,7 @@ typedef struct ppc_storage {
 #define PPCMODE_EPP_WORD	5
 #define PPCMODE_EPP_DWORD	6
 
+//***************************************************************************
 
 static int ppc6_select(Interface *ppc);
 static void ppc6_deselect(Interface *ppc);
@@ -103,6 +117,7 @@ static void ppc6_wr_extout(Interface *ppc, u8 regdata);
 static int ppc6_open(Interface *ppc);
 static void ppc6_close(Interface *ppc);
 
+//***************************************************************************
 
 static int ppc6_select(Interface *ppc)
 {
@@ -115,7 +130,7 @@ static int ppc6_select(Interface *ppc)
 
 	ppc->org_data = inb(ppc->lpt_addr);
 
-	ppc->org_ctrl = inb(ppc->lpt_addr + 2) & 0x5F; 
+	ppc->org_ctrl = inb(ppc->lpt_addr + 2) & 0x5F; // readback ctrl
 
 	ppc->cur_ctrl = ppc->org_ctrl;
 
@@ -150,7 +165,7 @@ static int ppc6_select(Interface *ppc)
 
 	outb(ppc->cur_ctrl, ppc->lpt_addr + 2);
 
-	
+	// DELAY
 
 	ppc->cur_ctrl |= port_afd;
 
@@ -170,9 +185,9 @@ static int ppc6_select(Interface *ppc)
 
 		if (j == k)
 		{
-			if (i & 4)	
+			if (i & 4)	// EPP
 				ppc->cur_ctrl &= ~(port_sel | port_init);
-			else				
+			else				// PPC/ECP
 				ppc->cur_ctrl &= ~port_sel;
 
 			outb(ppc->cur_ctrl, ppc->lpt_addr + 2);
@@ -185,15 +200,16 @@ static int ppc6_select(Interface *ppc)
 
 	outb(ppc->org_data, ppc->lpt_addr);
 
-	return(0); 
+	return(0); // FAIL
 }
 
+//***************************************************************************
 
 static void ppc6_deselect(Interface *ppc)
 {
-	if (ppc->mode & 4)	
+	if (ppc->mode & 4)	// EPP
 		ppc->cur_ctrl |= port_init;
-	else								
+	else								// PPC/ECP
 		ppc->cur_ctrl |= port_sel;
 
 	outb(ppc->cur_ctrl, ppc->lpt_addr + 2);
@@ -205,6 +221,7 @@ static void ppc6_deselect(Interface *ppc)
 	outb(ppc->org_ctrl, ppc->lpt_addr + 2);
 }
 
+//***************************************************************************
 
 static void ppc6_send_cmd(Interface *ppc, u8 cmd)
 {
@@ -235,6 +252,7 @@ static void ppc6_send_cmd(Interface *ppc, u8 cmd)
 	}
 }
 
+//***************************************************************************
 
 static void ppc6_wr_data_byte(Interface *ppc, u8 data)
 {
@@ -265,6 +283,7 @@ static void ppc6_wr_data_byte(Interface *ppc, u8 data)
 	}
 }
 
+//***************************************************************************
 
 static u8 ppc6_rd_data_byte(Interface *ppc)
 {
@@ -279,7 +298,7 @@ static u8 ppc6_rd_data_byte(Interface *ppc)
 
 			outb(ppc->cur_ctrl, ppc->lpt_addr + 2);
 
-			
+			// DELAY
 
 			data = inb(ppc->lpt_addr + 1);
 
@@ -289,7 +308,7 @@ static u8 ppc6_rd_data_byte(Interface *ppc)
 
 			outb(ppc->cur_ctrl, ppc->lpt_addr + 2);
 
-			
+			// DELAY
 
 			data |= inb(ppc->lpt_addr + 1) & 0xB8;
 
@@ -337,6 +356,7 @@ static u8 ppc6_rd_data_byte(Interface *ppc)
 	return(data);
 }
 
+//***************************************************************************
 
 static u8 ppc6_rd_port(Interface *ppc, u8 port)
 {
@@ -345,6 +365,7 @@ static u8 ppc6_rd_port(Interface *ppc, u8 port)
 	return(ppc6_rd_data_byte(ppc));
 }
 
+//***************************************************************************
 
 static void ppc6_wr_port(Interface *ppc, u8 port, u8 data)
 {
@@ -353,6 +374,7 @@ static void ppc6_wr_port(Interface *ppc, u8 port, u8 data)
 	ppc6_wr_data_byte(ppc, data);
 }
 
+//***************************************************************************
 
 static void ppc6_rd_data_blk(Interface *ppc, u8 *data, long count)
 {
@@ -369,7 +391,7 @@ static void ppc6_rd_data_blk(Interface *ppc, u8 *data, long count)
 
 				outb(ppc->cur_ctrl, ppc->lpt_addr + 2);
 
-				
+				// DELAY
 
 				d = inb(ppc->lpt_addr + 1);
 
@@ -379,7 +401,7 @@ static void ppc6_rd_data_blk(Interface *ppc, u8 *data, long count)
 
 				outb(ppc->cur_ctrl, ppc->lpt_addr + 2);
 
-				
+				// DELAY
 
 				d |= inb(ppc->lpt_addr + 1) & 0xB8;
 
@@ -424,7 +446,7 @@ static void ppc6_rd_data_blk(Interface *ppc, u8 *data, long count)
 		{
 			outb((ppc->cur_ctrl | port_dir), ppc->lpt_addr + 2);
 
-			
+			// DELAY
 
 			while(count)
 			{
@@ -441,7 +463,7 @@ static void ppc6_rd_data_blk(Interface *ppc, u8 *data, long count)
 		{
 			outb((ppc->cur_ctrl | port_dir), ppc->lpt_addr + 2);
 
-			
+			// DELAY
 
 			while(count > 1)
 			{
@@ -465,7 +487,7 @@ static void ppc6_rd_data_blk(Interface *ppc, u8 *data, long count)
 		{
 			outb((ppc->cur_ctrl | port_dir),ppc->lpt_addr + 2);
 
-			
+			// DELAY
 
 			while(count > 3)
 			{
@@ -488,6 +510,7 @@ static void ppc6_rd_data_blk(Interface *ppc, u8 *data, long count)
 
 }
 
+//***************************************************************************
 
 static void ppc6_wait_for_fifo(Interface *ppc)
 {
@@ -500,6 +523,7 @@ static void ppc6_wait_for_fifo(Interface *ppc)
 	}
 }
 
+//***************************************************************************
 
 static void ppc6_wr_data_blk(Interface *ppc, u8 *data, long count)
 {
@@ -618,6 +642,7 @@ static void ppc6_wr_data_blk(Interface *ppc, u8 *data, long count)
 	}
 }
 
+//***************************************************************************
 
 static void ppc6_rd_port16_blk(Interface *ppc, u8 port, u8 *data, long length)
 {
@@ -637,6 +662,7 @@ static void ppc6_rd_port16_blk(Interface *ppc, u8 port, u8 *data, long length)
 	ppc6_send_cmd(ppc, (CMD_PREFIX_RESET | PREFIX_IO16 | PREFIX_BLK));
 }
 
+//***************************************************************************
 
 static void ppc6_wr_port16_blk(Interface *ppc, u8 port, u8 *data, long length)
 {
@@ -656,6 +682,7 @@ static void ppc6_wr_port16_blk(Interface *ppc, u8 port, u8 *data, long length)
 	ppc6_send_cmd(ppc, (CMD_PREFIX_RESET | PREFIX_IO16 | PREFIX_BLK));
 }
 
+//***************************************************************************
 
 static void ppc6_wr_extout(Interface *ppc, u8 regdata)
 {
@@ -664,6 +691,7 @@ static void ppc6_wr_extout(Interface *ppc, u8 regdata)
 	ppc6_wr_data_byte(ppc, (u8)((regdata & 0x03) << 6));
 }
 
+//***************************************************************************
 
 static int ppc6_open(Interface *ppc)
 {
@@ -687,10 +715,12 @@ static int ppc6_open(Interface *ppc)
 	return(ret);
 }
 
+//***************************************************************************
 
 static void ppc6_close(Interface *ppc)
 {
 	ppc6_deselect(ppc);
 }
 
+//***************************************************************************
 

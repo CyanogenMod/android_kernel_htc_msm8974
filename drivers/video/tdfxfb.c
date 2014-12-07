@@ -81,6 +81,7 @@
 #ifdef CONFIG_MTRR
 #include <asm/mtrr.h>
 #else
+/* duplicate asm/mtrr.h defines to work on archs without mtrr */
 #define MTRR_TYPE_WRCOMB     1
 
 static inline int mtrr_add(unsigned long base, unsigned long size,
@@ -108,7 +109,7 @@ static struct fb_fix_screeninfo tdfx_fix __devinitdata = {
 };
 
 static struct fb_var_screeninfo tdfx_var __devinitdata = {
-	
+	/* "640x480, 8 bpp @ 60 Hz */
 	.xres =		640,
 	.yres =		480,
 	.xres_virtual =	640,
@@ -131,6 +132,9 @@ static struct fb_var_screeninfo tdfx_var __devinitdata = {
 	.vmode =	FB_VMODE_NONINTERLACED
 };
 
+/*
+ * PCI driver prototypes
+ */
 static int __devinit tdfxfb_probe(struct pci_dev *pdev,
 				  const struct pci_device_id *id);
 static void __devexit tdfxfb_remove(struct pci_dev *pdev);
@@ -157,12 +161,19 @@ static struct pci_driver tdfxfb_driver = {
 
 MODULE_DEVICE_TABLE(pci, tdfxfb_id_table);
 
+/*
+ * Driver data
+ */
 static int nopan;
-static int nowrap = 1;      
+static int nowrap = 1;      /* not implemented (yet) */
 static int hwcursor = 1;
 static char *mode_option __devinitdata;
+/* mtrr option */
 static bool nomtrr __devinitdata;
 
+/* -------------------------------------------------------------------------
+ *			Hardware-specific funcions
+ * ------------------------------------------------------------------------- */
 
 static inline u8 vga_inb(struct tdfx_par *par, u32 reg)
 {
@@ -260,6 +271,8 @@ static inline void tdfx_outl(struct tdfx_par *par, unsigned int reg, u32 val)
 
 static inline void banshee_make_room(struct tdfx_par *par, int size)
 {
+	/* Note: The Voodoo3's onboard FIFO has 32 slots. This loop
+	 * won't quit if you ask for more. */
 	while ((tdfx_inl(par, STATUS) & 0x1f) < size - 1)
 		cpu_relax();
 }
@@ -280,11 +293,14 @@ static int banshee_wait_idle(struct fb_info *info)
 	return 0;
 }
 
+/*
+ * Set the color of a palette entry in 8bpp mode
+ */
 static inline void do_setpalentry(struct tdfx_par *par, unsigned regno, u32 c)
 {
 	banshee_make_room(par, 2);
 	tdfx_outl(par, DACADDR, regno);
-	
+	/* read after write makes it working */
 	tdfx_inl(par, DACADDR);
 	tdfx_outl(par, DACDATA, c);
 }
@@ -299,15 +315,27 @@ static u32 do_calc_pll(int freq, int *freq_out)
 
 	for (k = 3; k >= 0; k--) {
 		for (m = 63; m >= 0; m--) {
+			/*
+			 * Estimate value of n that produces target frequency
+			 * with current m and k
+			 */
 			int n_estimated = ((freq * (m + 2) << k) / fref) - 2;
 
-			
+			/* Search neighborhood of estimated n */
 			for (n = max(0, n_estimated);
 				n <= min(255, n_estimated + 1);
 				n++) {
+				/*
+				 * Calculate PLL freqency with current m, k and
+				 * estimated n
+				 */
 				int f = (fref * (n + 2) / (m + 2)) >> k;
 				int error = abs(f - freq);
 
+				/*
+				 * If this is the closest we've come to the
+				 * target frequency then remember n, m and k
+				 */
 				if (error < best_error) {
 					best_error = error;
 					best_n = n;
@@ -335,7 +363,7 @@ static void do_write_regs(struct fb_info *info, struct banshee_reg *reg)
 
 	tdfx_outl(par, MISCINIT1, tdfx_inl(par, MISCINIT1) | 0x01);
 
-	crt_outb(par, 0x11, crt_inb(par, 0x11) & 0x7f); 
+	crt_outb(par, 0x11, crt_inb(par, 0x11) & 0x7f); /* CRT unprotect */
 
 	banshee_make_room(par, 3);
 	tdfx_outl(par, VGAINIT1, reg->vgainit1 & 0x001FFFFF);
@@ -397,22 +425,22 @@ static unsigned long do_lfb_size(struct tdfx_par *par, unsigned short dev_id)
 	u32 draminit1 = tdfx_inl(par, DRAMINIT1);
 	u32 miscinit1;
 	int num_chips = (draminit0 & DRAMINIT0_SGRAM_NUM) ? 8 : 4;
-	int chip_size; 
+	int chip_size; /* in MB */
 	int has_sgram = draminit1 & DRAMINIT1_MEM_SDRAM;
 
 	if (dev_id < PCI_DEVICE_ID_3DFX_VOODOO5) {
-		
+		/* Banshee/Voodoo3 */
 		chip_size = 2;
 		if (has_sgram && !(draminit0 & DRAMINIT0_SGRAM_TYPE))
 			chip_size = 1;
 	} else {
-		
+		/* Voodoo4/5 */
 		has_sgram = 0;
 		chip_size = draminit0 & DRAMINIT0_SGRAM_TYPE_MASK;
 		chip_size = 1 << (chip_size >> DRAMINIT0_SGRAM_TYPE_SHIFT);
 	}
 
-	
+	/* disable block writes for SDRAM */
 	miscinit1 = tdfx_inl(par, MISCINIT1);
 	miscinit1 |= has_sgram ? 0 : MISCINIT1_2DBLOCK_DIS;
 	miscinit1 |= MISCINIT1_CLUT_INV;
@@ -422,6 +450,7 @@ static unsigned long do_lfb_size(struct tdfx_par *par, unsigned short dev_id)
 	return num_chips * chip_size * 1024l * 1024;
 }
 
+/* ------------------------------------------------------------------------- */
 
 static int tdfxfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 {
@@ -446,6 +475,12 @@ static int tdfxfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 	}
 	var->yoffset = 0;
 
+	/*
+	 * Banshee doesn't support interlace, but Voodoo4/5 and probably
+	 * Voodoo3 do.
+	 * no direct information about device id now?
+	 *  use max_pixclock for this...
+	 */
 	if (((var->vmode & FB_VMODE_MASK) == FB_VMODE_INTERLACED) &&
 	    (par->max_pixclock < VOODOO3_MAX_PIXCLOCK)) {
 		DPRINTK("interlace not supported\n");
@@ -458,7 +493,7 @@ static int tdfxfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		return -EINVAL;
 	}
 
-	var->xres = (var->xres + 15) & ~15; 
+	var->xres = (var->xres + 15) & ~15; /* could sometimes be 8 */
 	lpitch = var->xres * ((var->bits_per_pixel + 7) >> 3);
 
 	if (var->xres < 320 || var->xres > 2048) {
@@ -545,7 +580,7 @@ static int tdfxfb_set_par(struct fb_info *info)
 		     ((cpp - 1) << VIDCFG_PIXFMT_SHIFT) |
 		     (cpp != 1 ? VIDCFG_CLUT_BYPASS : 0);
 
-	
+	/* PLL settings */
 	freq = PICOS2KHZ(info->var.pixclock);
 
 	reg.vidcfg &= ~VIDCFG_2X;
@@ -587,7 +622,7 @@ static int tdfxfb_set_par(struct fb_info *info)
 	vbs = vd;
 	vbe = vt;
 
-	
+	/* this is all pretty standard VGA register stuffing */
 	reg.misc[0x00] = 0x0f |
 			(info->var.xres < 400 ? 0xa0 :
 			 info->var.xres < 480 ? 0x60 :
@@ -618,7 +653,7 @@ static int tdfxfb_set_par(struct fb_info *info)
 	reg.att[0x12] = 0x0f;
 
 	reg.seq[0x00] = 0x03;
-	reg.seq[0x01] = 0x01; 
+	reg.seq[0x01] = 0x01; /* fixme: clkdiv2? */
 	reg.seq[0x02] = 0x0f;
 	reg.seq[0x03] = 0x00;
 	reg.seq[0x04] = 0x0e;
@@ -647,7 +682,7 @@ static int tdfxfb_set_par(struct fb_info *info)
 	reg.crt[0x17] = 0xc3;
 	reg.crt[0x18] = 0xff;
 
-	
+	/* Banshee's nonvga stuff */
 	reg.ext[0x00] = (((ht & 0x100) >> 8) |
 			((hd & 0x100) >> 6) |
 			((hbs & 0x100) >> 4) |
@@ -707,7 +742,7 @@ static int tdfxfb_set_par(struct fb_info *info)
 #endif
 	do_write_regs(info, &reg);
 
-	
+	/* Now change fb_fix_screeninfo according to changes in par */
 	info->fix.line_length = reg.stride;
 	info->fix.visual = (info->var.bits_per_pixel == 8)
 				? FB_VISUAL_PSEUDOCOLOR
@@ -717,6 +752,7 @@ static int tdfxfb_set_par(struct fb_info *info)
 	return 0;
 }
 
+/* A handy macro shamelessly pinched from matroxfb */
 #define CNVT_TOHW(val, width) ((((val) << (width)) + 0x7FFF - (val)) >> 16)
 
 static int tdfxfb_setcolreg(unsigned regno, unsigned red, unsigned green,
@@ -729,9 +765,9 @@ static int tdfxfb_setcolreg(unsigned regno, unsigned red, unsigned green,
 	if (regno >= info->cmap.len || regno > 255)
 		return 1;
 
-	
+	/* grayscale works only partially under directcolor */
 	if (info->var.grayscale) {
-		
+		/* grayscale = 0.30*R + 0.59*G + 0.11*B */
 		blue = (red * 77 + green * 151 + blue * 28) >> 8;
 		green = blue;
 		red = blue;
@@ -744,7 +780,7 @@ static int tdfxfb_setcolreg(unsigned regno, unsigned red, unsigned green,
 			 (((u32)blue  & 0xff00) >> 8);
 		do_setpalentry(par, regno, rgbcol);
 		break;
-	
+	/* Truecolor has no hardware color palettes. */
 	case FB_VISUAL_TRUECOLOR:
 		if (regno < 16) {
 			rgbcol = (CNVT_TOHW(red, info->var.red.length) <<
@@ -767,6 +803,7 @@ static int tdfxfb_setcolreg(unsigned regno, unsigned red, unsigned green,
 	return 0;
 }
 
+/* 0 unblank, 1 blank, 2 no vsync, 3 no hsync, 4 off */
 static int tdfxfb_blank(int blank, struct fb_info *info)
 {
 	struct tdfx_par *par = info->par;
@@ -776,18 +813,18 @@ static int tdfxfb_blank(int blank, struct fb_info *info)
 	dacmode &= ~(BIT(1) | BIT(3));
 
 	switch (blank) {
-	case FB_BLANK_UNBLANK: 
+	case FB_BLANK_UNBLANK: /* Screen: On; HSync: On, VSync: On */
 		vgablank = 0;
 		break;
-	case FB_BLANK_NORMAL: 
+	case FB_BLANK_NORMAL: /* Screen: Off; HSync: On, VSync: On */
 		break;
-	case FB_BLANK_VSYNC_SUSPEND: 
+	case FB_BLANK_VSYNC_SUSPEND: /* Screen: Off; HSync: On, VSync: Off */
 		dacmode |= BIT(3);
 		break;
-	case FB_BLANK_HSYNC_SUSPEND: 
+	case FB_BLANK_HSYNC_SUSPEND: /* Screen: Off; HSync: Off, VSync: On */
 		dacmode |= BIT(1);
 		break;
-	case FB_BLANK_POWERDOWN: 
+	case FB_BLANK_POWERDOWN: /* Screen: Off; HSync: Off, VSync: Off */
 		dacmode |= BIT(1) | BIT(3);
 		break;
 	}
@@ -801,6 +838,9 @@ static int tdfxfb_blank(int blank, struct fb_info *info)
 	return 0;
 }
 
+/*
+ * Set the starting position of the visible screen to var->yoffset
+ */
 static int tdfxfb_pan_display(struct fb_var_screeninfo *var,
 			      struct fb_info *info)
 {
@@ -817,6 +857,9 @@ static int tdfxfb_pan_display(struct fb_var_screeninfo *var,
 }
 
 #ifdef CONFIG_FB_3DFX_ACCEL
+/*
+ * FillRect 2D command (solidfill or invert (via ROP_XOR))
+ */
 static void tdfxfb_fillrect(struct fb_info *info,
 			    const struct fb_fillrect *rect)
 {
@@ -834,12 +877,12 @@ static void tdfxfb_fillrect(struct fb_info *info,
 	else
 		tdfx_rop = TDFX_ROP_XOR;
 
-	
+	/* assume always rect->height < 4096 */
 	if (dy + rect->height > 4095) {
 		dstbase = stride * dy;
 		dy = 0;
 	}
-	
+	/* assume always rect->width < 4096 */
 	if (dx + rect->width > 4095) {
 		dstbase += dx * bpp >> 3;
 		dx = 0;
@@ -848,7 +891,7 @@ static void tdfxfb_fillrect(struct fb_info *info,
 	tdfx_outl(par, DSTFORMAT, fmt);
 	if (info->fix.visual == FB_VISUAL_PSEUDOCOLOR) {
 		tdfx_outl(par, COLORFORE, rect->color);
-	} else { 
+	} else { /* FB_VISUAL_TRUECOLOR */
 		tdfx_outl(par, COLORFORE, par->palette[rect->color]);
 	}
 	tdfx_outl(par, COMMAND_2D, COMMAND_2D_FILLRECT | (tdfx_rop << 24));
@@ -857,6 +900,9 @@ static void tdfxfb_fillrect(struct fb_info *info,
 	tdfx_outl(par, LAUNCH_2D, dx | (dy << 16));
 }
 
+/*
+ * Screen-to-Screen BitBlt 2D command (for the bmove fb op.)
+ */
 static void tdfxfb_copyarea(struct fb_info *info,
 			    const struct fb_copyarea *area)
 {
@@ -869,35 +915,35 @@ static void tdfxfb_copyarea(struct fb_info *info,
 	u32 dstbase = 0;
 	u32 srcbase = 0;
 
-	
+	/* assume always area->height < 4096 */
 	if (sy + area->height > 4095) {
 		srcbase = stride * sy;
 		sy = 0;
 	}
-	
+	/* assume always area->width < 4096 */
 	if (sx + area->width > 4095) {
 		srcbase += sx * bpp >> 3;
 		sx = 0;
 	}
-	
+	/* assume always area->height < 4096 */
 	if (dy + area->height > 4095) {
 		dstbase = stride * dy;
 		dy = 0;
 	}
-	
+	/* assume always area->width < 4096 */
 	if (dx + area->width > 4095) {
 		dstbase += dx * bpp >> 3;
 		dx = 0;
 	}
 
 	if (area->sx <= area->dx) {
-		
+		/* -X */
 		blitcmd |= BIT(14);
 		sx += area->width - 1;
 		dx += area->width - 1;
 	}
 	if (area->sy <= area->dy) {
-		
+		/* -Y */
 		blitcmd |= BIT(15);
 		sy += area->height - 1;
 		dy += area->height - 1;
@@ -957,12 +1003,12 @@ static void tdfxfb_imageblit(struct fb_info *info, const struct fb_image *image)
 #else
 	srcfmt = 0x400000;
 #endif
-	
+	/* assume always image->height < 4096 */
 	if (dy + image->height > 4095) {
 		dstbase = stride * dy;
 		dy = 0;
 	}
-	
+	/* assume always image->width < 4096 */
 	if (dx + image->width > 4095) {
 		dstbase += dx * bpp >> 3;
 		dx = 0;
@@ -977,9 +1023,11 @@ static void tdfxfb_imageblit(struct fb_info *info, const struct fb_image *image)
 	tdfx_outl(par, DSTFORMAT, dstfmt);
 	tdfx_outl(par, DSTSIZE, image->width | (image->height << 16));
 
+	/* A count of how many free FIFO entries we've requested.
+	 * When this goes negative, we need to request more. */
 	fifo_free = 0;
 
-	
+	/* Send four bytes at a time of data */
 	for (i = (size >> 2); i > 0; i--) {
 		if (--fifo_free < 0) {
 			fifo_free = 31;
@@ -989,7 +1037,7 @@ static void tdfxfb_imageblit(struct fb_info *info, const struct fb_image *image)
 		chardata += 4;
 	}
 
-	
+	/* Send the leftovers now */
 	banshee_make_room(par, 3);
 	switch (size % 4) {
 	case 0:
@@ -1006,7 +1054,7 @@ static void tdfxfb_imageblit(struct fb_info *info, const struct fb_image *image)
 		break;
 	}
 }
-#endif 
+#endif /* CONFIG_FB_3DFX_ACCEL */
 
 static int tdfxfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 {
@@ -1014,9 +1062,9 @@ static int tdfxfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 	u32 vidcfg;
 
 	if (!hwcursor)
-		return -EINVAL;	
+		return -EINVAL;	/* just to force soft_cursor() call */
 
-	
+	/* Too large of a cursor or wrong bpp :-( */
 	if (cursor->image.width > 64 ||
 	    cursor->image.height > 64 ||
 	    cursor->image.depth > 1)
@@ -1028,10 +1076,15 @@ static int tdfxfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 	else
 		tdfx_outl(par, VIDPROCCFG, vidcfg & ~VIDCFG_HWCURSOR_ENABLE);
 
+	/*
+	 * If the cursor is not be changed this means either we want the
+	 * current cursor state (if enable is set) or we want to query what
+	 * we can do with the cursor (if enable is not set)
+	 */
 	if (!cursor->set)
 		return 0;
 
-	
+	/* fix cursor color - XFree86 forgets to restore it properly */
 	if (cursor->set & FB_CUR_SETCMAP) {
 		struct fb_cmap cmap = info->cmap;
 		u32 bg_idx = cursor->image.bg_color;
@@ -1059,6 +1112,24 @@ static int tdfxfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 		tdfx_outl(par, HWCURLOC, (y << 16) + x);
 	}
 	if (cursor->set & (FB_CUR_SETIMAGE | FB_CUR_SETSHAPE)) {
+		/*
+		 * Voodoo 3 and above cards use 2 monochrome cursor patterns.
+		 *    The reason is so the card can fetch 8 words at a time
+		 * and are stored on chip for use for the next 8 scanlines.
+		 * This reduces the number of times for access to draw the
+		 * cursor for each screen refresh.
+		 *    Each pattern is a bitmap of 64 bit wide and 64 bit high
+		 * (total of 8192 bits or 1024 bytes). The two patterns are
+		 * stored in such a way that pattern 0 always resides in the
+		 * lower half (least significant 64 bits) of a 128 bit word
+		 * and pattern 1 the upper half. If you examine the data of
+		 * the cursor image the graphics card uses then from the
+		 * beginning you see line one of pattern 0, line one of
+		 * pattern 1, line two of pattern 0, line two of pattern 1,
+		 * etc etc. The linear stride for the cursor is always 16 bytes
+		 * (128 bits) which is the maximum cursor width times two for
+		 * the two monochrome patterns.
+		 */
 		u8 __iomem *cursorbase = info->screen_base + info->fix.smem_len;
 		u8 *bitmap = (u8 *)cursor->image.data;
 		u8 *mask = (u8 *)cursor->mask;
@@ -1074,10 +1145,10 @@ static int tdfxfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 				u8 data = *mask ^ *bitmap;
 				if (cursor->rop == ROP_COPY)
 					data = *mask & *bitmap;
-				
+				/* Pattern 0. Copy the cursor mask to it */
 				fb_writeb(*mask, cursorbase + h);
 				mask++;
-				
+				/* Pattern 1. Copy the cursor bitmap to it */
 				fb_writeb(data, cursorbase + h + 8);
 				bitmap++;
 				h++;
@@ -1109,6 +1180,8 @@ static struct fb_ops tdfxfb_ops = {
 };
 
 #ifdef CONFIG_FB_3DFX_I2C
+/* The voo GPIO registers don't have individual masks for each bit
+   so we always have to read before writing. */
 
 static void tdfxfb_i2c_setscl(void *data, int val)
 {
@@ -1122,7 +1195,7 @@ static void tdfxfb_i2c_setscl(void *data, int val)
 	else
 		r &= ~I2C_SCL_OUT;
 	tdfx_outl(par, VIDSERPARPORT, r);
-	tdfx_inl(par, VIDSERPARPORT);	
+	tdfx_inl(par, VIDSERPARPORT);	/* flush posted write */
 }
 
 static void tdfxfb_i2c_setsda(void *data, int val)
@@ -1137,9 +1210,12 @@ static void tdfxfb_i2c_setsda(void *data, int val)
 	else
 		r &= ~I2C_SDA_OUT;
 	tdfx_outl(par, VIDSERPARPORT, r);
-	tdfx_inl(par, VIDSERPARPORT);	
+	tdfx_inl(par, VIDSERPARPORT);	/* flush posted write */
 }
 
+/* The GPIO pins are open drain, so the pins always remain outputs.
+   We rely on the i2c-algo-bit routines to set the pins high before
+   reading the input from other chips. */
 
 static int tdfxfb_i2c_getscl(void *data)
 {
@@ -1169,7 +1245,7 @@ static void tdfxfb_ddc_setscl(void *data, int val)
 	else
 		r &= ~DDC_SCL_OUT;
 	tdfx_outl(par, VIDSERPARPORT, r);
-	tdfx_inl(par, VIDSERPARPORT);	
+	tdfx_inl(par, VIDSERPARPORT);	/* flush posted write */
 }
 
 static void tdfxfb_ddc_setsda(void *data, int val)
@@ -1184,7 +1260,7 @@ static void tdfxfb_ddc_setsda(void *data, int val)
 	else
 		r &= ~DDC_SDA_OUT;
 	tdfx_outl(par, VIDSERPARPORT, r);
-	tdfx_inl(par, VIDSERPARPORT);	
+	tdfx_inl(par, VIDSERPARPORT);	/* flush posted write */
 }
 
 static int tdfxfb_ddc_getscl(void *data)
@@ -1301,8 +1377,17 @@ static int tdfxfb_probe_i2c_connector(struct tdfx_par *par,
 	}
 	return 1;
 }
-#endif 
+#endif /* CONFIG_FB_3DFX_I2C */
 
+/**
+ *      tdfxfb_probe - Device Initializiation
+ *
+ *      @pdev:  PCI Device to initialize
+ *      @id:    PCI Device ID
+ *
+ *      Initializes and allocates resources for PCI device @pdev.
+ *
+ */
 static int __devinit tdfxfb_probe(struct pci_dev *pdev,
 				  const struct pci_device_id *id)
 {
@@ -1326,7 +1411,7 @@ static int __devinit tdfxfb_probe(struct pci_dev *pdev,
 	default_par = info->par;
 	info->fix = tdfx_fix;
 
-	
+	/* Configure the default fb_fix_screeninfo first */
 	switch (pdev->device) {
 	case PCI_DEVICE_ID_3DFX_BANSHEE:
 		strcpy(info->fix.id, "3Dfx Banshee");
@@ -1408,8 +1493,8 @@ static int __devinit tdfxfb_probe(struct pci_dev *pdev,
 				   FBINFO_HWACCEL_IMAGEBLIT |
 				   FBINFO_READS_FAST;
 #endif
-	
-	
+	/* reserve 8192 bits for cursor */
+	/* the 2.4 driver says PAGE_MASK boundary is not enough for Voodoo4 */
 	if (hwcursor)
 		info->fix.smem_len = (info->fix.smem_len - 1024) &
 					(PAGE_MASK << 1);
@@ -1432,7 +1517,7 @@ static int __devinit tdfxfb_probe(struct pci_dev *pdev,
 			m = fb_find_best_display(specs, &info->modelist);
 			if (m) {
 				fb_videomode_to_var(&info->var, m);
-				
+				/* fill all other info->var's fields */
 				if (tdfxfb_check_var(&info->var, info) < 0)
 					info->var = tdfx_var;
 				else
@@ -1457,7 +1542,7 @@ static int __devinit tdfxfb_probe(struct pci_dev *pdev,
 		specs->modedb = NULL;
 	}
 
-	
+	/* maximize virtual vertical length */
 	lpitch = info->var.xres_virtual * ((info->var.bits_per_pixel + 7) >> 3);
 	info->var.yres_virtual = info->fix.smem_len / lpitch;
 	if (info->var.yres_virtual < info->var.yres)
@@ -1473,6 +1558,9 @@ static int __devinit tdfxfb_probe(struct pci_dev *pdev,
 		fb_dealloc_cmap(&info->cmap);
 		goto out_err_iobase;
 	}
+	/*
+	 * Our driver data
+	 */
 	pci_set_drvdata(pdev, info);
 	return 0;
 
@@ -1490,6 +1578,9 @@ out_err_screenbase:
 		iounmap(info->screen_base);
 	release_mem_region(info->fix.smem_start, pci_resource_len(pdev, 1));
 out_err_regbase:
+	/*
+	 * Cleanup after anything that was remapped/allocated.
+	 */
 	if (default_par->regbase_virt)
 		iounmap(default_par->regbase_virt);
 	release_mem_region(info->fix.mmio_start, info->fix.mmio_len);
@@ -1526,6 +1617,15 @@ static void __init tdfxfb_setup(char *options)
 }
 #endif
 
+/**
+ *      tdfxfb_remove - Device removal
+ *
+ *      @pdev:  PCI Device to cleanup
+ *
+ *      Releases all resources allocated during the course of the driver's
+ *      lifetime for the PCI device @pdev.
+ *
+ */
 static void __devexit tdfxfb_remove(struct pci_dev *pdev)
 {
 	struct fb_info *info = pci_get_drvdata(pdev);
@@ -1541,7 +1641,7 @@ static void __devexit tdfxfb_remove(struct pci_dev *pdev)
 	iounmap(par->regbase_virt);
 	iounmap(info->screen_base);
 
-	
+	/* Clean up after reserved regions */
 	release_region(pci_resource_start(pdev, 2),
 		       pci_resource_len(pdev, 2));
 	release_mem_region(pci_resource_start(pdev, 1),

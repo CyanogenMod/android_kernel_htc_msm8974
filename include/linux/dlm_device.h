@@ -14,16 +14,21 @@
 #ifndef _LINUX_DLM_DEVICE_H
 #define _LINUX_DLM_DEVICE_H
 
+/* This is the device interface for dlm, most users will use a library
+ * interface.
+ */
 
 #include <linux/dlm.h>
 #include <linux/types.h>
 
 #define DLM_USER_LVB_LEN	32
 
+/* Version of the device interface */
 #define DLM_DEVICE_VERSION_MAJOR 6
 #define DLM_DEVICE_VERSION_MINOR 0
 #define DLM_DEVICE_VERSION_PATCH 1
 
+/* struct passed to the lock write */
 struct dlm_lock_params {
 	__u8 mode;
 	__u8 namelen;
@@ -70,6 +75,8 @@ struct dlm_device_version {
 	__u32 version[3];
 };
 
+/* struct read from the "device" fd,
+   consists mainly of userspace pointers for the library to use */
 
 struct dlm_lock_result {
 	__u32 version[3];
@@ -80,10 +87,11 @@ struct dlm_lock_result {
 	struct dlm_lksb lksb;
 	__u8 bast_mode;
 	__u8 unused[3];
-	
+	/* Offsets may be zero if no data is present */
 	__u32 lvb_offset;
 };
 
+/* Commands passed to the device */
 #define DLM_USER_LOCK         1
 #define DLM_USER_UNLOCK       2
 #define DLM_USER_QUERY        3
@@ -92,6 +100,7 @@ struct dlm_lock_result {
 #define DLM_USER_PURGE        6
 #define DLM_USER_DEADLOCK     7
 
+/* Lockspace flags */
 #define DLM_USER_LSFLG_AUTOFREE   1
 #define DLM_USER_LSFLG_FORCEFREE  2
 

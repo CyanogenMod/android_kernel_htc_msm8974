@@ -29,9 +29,46 @@
 #include <linux/perf_event.h>
 #include <asm/bfin_pfmon.h>
 
+/*
+ * We have two counters, and each counter can support an event type.
+ * The 'o' is PFCNTx=1 and 's' is PFCNTx=0
+ *
+ * 0x04 o pc invariant branches
+ * 0x06 o mispredicted branches
+ * 0x09 o predicted branches taken
+ * 0x0B o EXCPT insn
+ * 0x0C o CSYNC/SSYNC insn
+ * 0x0D o Insns committed
+ * 0x0E o Interrupts taken
+ * 0x0F o Misaligned address exceptions
+ * 0x80 o Code memory fetches stalled due to DMA
+ * 0x83 o 64bit insn fetches delivered
+ * 0x9A o data cache fills (bank a)
+ * 0x9B o data cache fills (bank b)
+ * 0x9C o data cache lines evicted (bank a)
+ * 0x9D o data cache lines evicted (bank b)
+ * 0x9E o data cache high priority fills
+ * 0x9F o data cache low priority fills
+ * 0x00 s loop 0 iterations
+ * 0x01 s loop 1 iterations
+ * 0x0A s CSYNC/SSYNC stalls
+ * 0x10 s DAG read/after write hazards
+ * 0x13 s RAW data hazards
+ * 0x81 s code TAG stalls
+ * 0x82 s code fill stalls
+ * 0x90 s processor to memory stalls
+ * 0x91 s data memory stalls not hidden by 0x90
+ * 0x92 s data store buffer full stalls
+ * 0x93 s data memory write buffer full stalls due to high->low priority
+ * 0x95 s data memory fill buffer stalls
+ * 0x96 s data TAG collision stalls
+ * 0x97 s data collision stalls
+ * 0x98 s data stalls
+ * 0x99 s data stalls sent to processor
+ */
 
 static const int event_map[] = {
-	
+	/* use CYCLES cpu register */
 	[PERF_COUNT_HW_CPU_CYCLES]          = -1,
 	[PERF_COUNT_HW_INSTRUCTIONS]        = 0x0D,
 	[PERF_COUNT_HW_CACHE_REFERENCES]    = -1,
@@ -47,7 +84,7 @@ static const int cache_events[PERF_COUNT_HW_CACHE_MAX]
                              [PERF_COUNT_HW_CACHE_OP_MAX]
                              [PERF_COUNT_HW_CACHE_RESULT_MAX] =
 {
-	[C(L1D)] = {	
+	[C(L1D)] = {	/* Data bank A */
 		[C(OP_READ)] = {
 			[C(RESULT_ACCESS)] = 0,
 			[C(RESULT_MISS)  ] = 0x9A,
@@ -167,7 +204,7 @@ static void bfin_pfmon_enable(struct hw_perf_event *hwc, int idx)
 	val = PFPWR;
 	if (idx) {
 		mask = ~(PFCNT1 | PFMON1 | PFCEN1 | PEMUSW1);
-		
+		/* The packed config is for event0, so shift it to event1 slots */
 		val |= (hwc->config << (PFMON1_P - PFMON0_P));
 		val |= (hwc->config & PFCNT0) << (PFCNT1_P - PFCNT0_P);
 		bfin_write_PFCNTR1(0);
@@ -201,7 +238,7 @@ static int hw_perf_cache_event(int config, int *evp)
 	unsigned long type, op, result;
 	int ev;
 
-	
+	/* unpack config */
 	type = config & 0xff;
 	op = (config >> 8) & 0xff;
 	result = (config >> 16) & 0xff;
@@ -227,6 +264,18 @@ static void bfin_perf_event_update(struct perf_event *event,
 	s64 delta;
 	int shift = 0;
 
+	/*
+	 * Depending on the counter configuration, they may or may not
+	 * be chained, in which case the previous counter value can be
+	 * updated underneath us if the lower-half overflows.
+	 *
+	 * Our tactic to handle this is to first atomically read and
+	 * exchange a new raw count - then add that new-prev delta
+	 * count to the generic counter atomically.
+	 *
+	 * As there is no interrupt associated with the overflow events,
+	 * this is the simplest approach for maintaining consistency.
+	 */
 again:
 	prev_raw_count = local64_read(&hwc->prev_count);
 	new_raw_count = bfin_pfmon_read(idx);
@@ -235,6 +284,14 @@ again:
 			     new_raw_count) != prev_raw_count)
 		goto again;
 
+	/*
+	 * Now we have the new raw value and have updated the prev
+	 * timestamp already. We can now calculate the elapsed delta
+	 * (counter-)time and add that to the generic counter.
+	 *
+	 * Careful, not all hw sign-extends above the physical width
+	 * of the count.
+	 */
 	delta = (new_raw_count << shift) - (prev_raw_count << shift);
 	delta >>= shift;
 
@@ -332,6 +389,11 @@ static int bfin_pmu_event_init(struct perf_event *event)
 	if (attr->exclude_hv || attr->exclude_idle)
 		return -EPERM;
 
+	/*
+	 * All of the on-chip counters are "limited", in that they have
+	 * no interrupts, and are therefore unable to do sampling without
+	 * further work and timer assistance.
+	 */
 	if (hwc->sample_period)
 		return -EINVAL;
 

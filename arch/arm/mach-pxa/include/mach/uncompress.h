@@ -32,7 +32,7 @@ static inline void uart_write(unsigned char val, int offset)
 
 static inline int uart_is_enabled(void)
 {
-	
+	/* assume enabled by default for non-PXA uarts */
 	return uart_is_pxa ? uart_read(UART_IER) & UART_IER_UUE : 1;
 }
 
@@ -47,13 +47,16 @@ static inline void putc(char c)
 	uart_write(c, UART_TX);
 }
 
+/*
+ * This does not append a newline
+ */
 static inline void flush(void)
 {
 }
 
 static inline void arch_decomp_setup(void)
 {
-	
+	/* initialize to default */
 	uart_base = FFUART_BASE;
 	uart_shift = 2;
 	uart_is_pxa = 1;
@@ -64,10 +67,13 @@ static inline void arch_decomp_setup(void)
 		uart_base = STUART_BASE;
 
 	if (machine_is_arcom_zeus()) {
-		uart_base = 0x10000000;	
+		uart_base = 0x10000000;	/* nCS4 */
 		uart_shift = 1;
 		uart_is_pxa = 0;
 	}
 }
 
+/*
+ * nothing to do
+ */
 #define arch_decomp_wdog()

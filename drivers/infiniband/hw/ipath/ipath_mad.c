@@ -45,6 +45,10 @@
 
 static int reply(struct ib_smp *smp)
 {
+	/*
+	 * The verbs framework will handle the directed/LID route
+	 * packet changes.
+	 */
 	smp->method = IB_MGMT_METHOD_GET_RESP;
 	if (smp->mgmt_class == IB_MGMT_CLASS_SUBN_DIRECTED_ROUTE)
 		smp->status |= IB_SMP_DIRECTION;
@@ -84,15 +88,20 @@ static int recv_subn_get_nodeinfo(struct ib_smp *smp,
 	struct ipath_devdata *dd = to_idev(ibdev)->dd;
 	u32 vendor, majrev, minrev;
 
-	
+	/* GUID 0 is illegal */
 	if (smp->attr_mod || (dd->ipath_guid == 0))
 		smp->status |= IB_SMP_INVALID_FIELD;
 
 	nip->base_version = 1;
 	nip->class_version = 1;
-	nip->node_type = 1;	
+	nip->node_type = 1;	/* channel adapter */
+	/*
+	 * XXX The num_ports value will need a layer function to get
+	 * the value if we ever have more than one IB port on a chip.
+	 * We will also need to get the GUID for the port.
+	 */
 	nip->num_ports = ibdev->phys_port_cnt;
-	
+	/* This is already in network order */
 	nip->sys_guid = to_idev(ibdev)->sys_image_guid;
 	nip->node_guid = dd->ipath_guid;
 	nip->port_guid = dd->ipath_guid;
@@ -116,17 +125,21 @@ static int recv_subn_get_guidinfo(struct ib_smp *smp,
 	u32 startgx = 8 * be32_to_cpu(smp->attr_mod);
 	__be64 *p = (__be64 *) smp->data;
 
-	
+	/* 32 blocks of 8 64-bit GUIDs per block */
 
 	memset(smp->data, 0, sizeof(smp->data));
 
+	/*
+	 * We only support one GUID for now.  If this changes, the
+	 * portinfo.guid_cap field needs to be updated too.
+	 */
 	if (startgx == 0) {
 		__be64 g = to_idev(ibdev)->dd->ipath_guid;
 		if (g == 0)
-			
+			/* GUID 0 is illegal */
 			smp->status |= IB_SMP_INVALID_FIELD;
 		else
-			
+			/* The first is a copy of the read-only HW GUID. */
 			*p = g;
 	} else
 		smp->status |= IB_SMP_INVALID_FIELD;
@@ -151,6 +164,13 @@ static int get_overrunthreshold(struct ipath_devdata *dd)
 		INFINIPATH_IBCC_OVERRUNTHRESHOLD_MASK;
 }
 
+/**
+ * set_overrunthreshold - set the overrun threshold
+ * @dd: the infinipath device
+ * @n: the new threshold
+ *
+ * Note that this will only take effect when the link state changes.
+ */
 static int set_overrunthreshold(struct ipath_devdata *dd, unsigned n)
 {
 	unsigned v;
@@ -176,6 +196,13 @@ static int get_phyerrthreshold(struct ipath_devdata *dd)
 		INFINIPATH_IBCC_PHYERRTHRESHOLD_MASK;
 }
 
+/**
+ * set_phyerrthreshold - set the physical error threshold
+ * @dd: the infinipath device
+ * @n: the new threshold
+ *
+ * Note that this will only take effect when the link state changes.
+ */
 static int set_phyerrthreshold(struct ipath_devdata *dd, unsigned n)
 {
 	unsigned v;
@@ -194,6 +221,12 @@ static int set_phyerrthreshold(struct ipath_devdata *dd, unsigned n)
 	return 0;
 }
 
+/**
+ * get_linkdowndefaultstate - get the default linkdown state
+ * @dd: the infinipath device
+ *
+ * Returns zero if the default is POLL, 1 if the default is SLEEP.
+ */
 static int get_linkdowndefaultstate(struct ipath_devdata *dd)
 {
 	return !!(dd->ipath_ibcctrl & INFINIPATH_IBCC_LINKDOWNDEFAULTSTATE);
@@ -219,10 +252,10 @@ static int recv_subn_get_portinfo(struct ib_smp *smp,
 	dev = to_idev(ibdev);
 	dd = dev->dd;
 
-	
+	/* Clear all fields.  Only set the non-zero fields. */
 	memset(smp->data, 0, sizeof(smp->data));
 
-	
+	/* Only return the mkey if the protection field allows it. */
 	if (smp->method == IB_MGMT_METHOD_SET || dev->mkey == smp->mkey ||
 	    dev->mkeyprot == 0)
 		pip->mkey = dev->mkey;
@@ -231,7 +264,7 @@ static int recv_subn_get_portinfo(struct ib_smp *smp,
 	pip->lid = lid ? cpu_to_be16(lid) : IB_LID_PERMISSIVE;
 	pip->sm_lid = cpu_to_be16(dev->sm_lid);
 	pip->cap_mask = cpu_to_be32(dev->port_cap_flags);
-	
+	/* pip->diag_code; */
 	pip->mkey_lease_period = cpu_to_be16(dev->mkey_lease_period);
 	pip->local_port_num = port;
 	pip->link_width_enabled = dd->ipath_link_width_enabled;
@@ -239,7 +272,7 @@ static int recv_subn_get_portinfo(struct ib_smp *smp,
 	pip->link_width_active = dd->ipath_link_width_active;
 	pip->linkspeed_portstate = dd->ipath_link_speed_supported << 4;
 	ibcstat = dd->ipath_lastibcstat;
-	
+	/* map LinkState to IB portinfo values.  */
 	pip->linkspeed_portstate |= ipath_ib_linkstate(dd, ibcstat) + 1;
 
 	pip->portphysstate_linkdown =
@@ -264,36 +297,36 @@ static int recv_subn_get_portinfo(struct ib_smp *smp,
 	case 256:
 		mtu = IB_MTU_256;
 		break;
-	default:		
+	default:		/* oops, something is wrong */
 		mtu = IB_MTU_2048;
 		break;
 	}
 	pip->neighbormtu_mastersmsl = (mtu << 4) | dev->sm_sl;
-	pip->vlcap_inittype = 0x10;	
+	pip->vlcap_inittype = 0x10;	/* VLCap = VL0, InitType = 0 */
 	pip->vl_high_limit = dev->vl_high_limit;
-	
-	
-	
-	
+	/* pip->vl_arb_high_cap; // only one VL */
+	/* pip->vl_arb_low_cap; // only one VL */
+	/* InitTypeReply = 0 */
+	/* our mtu cap depends on whether 4K MTU enabled or not */
 	pip->inittypereply_mtucap = ipath_mtu4096 ? IB_MTU_4096 : IB_MTU_2048;
-	
-	
-	pip->operationalvl_pei_peo_fpi_fpo = 0x10;	
+	/* HCAs ignore VLStallCount and HOQLife */
+	/* pip->vlstallcnt_hoqlife; */
+	pip->operationalvl_pei_peo_fpi_fpo = 0x10;	/* OVLs = 1 */
 	pip->mkey_violations = cpu_to_be16(dev->mkey_violations);
-	
+	/* P_KeyViolations are counted by hardware. */
 	pip->pkey_violations =
 		cpu_to_be16((ipath_get_cr_errpkey(dd) -
 			     dev->z_pkey_violations) & 0xFFFF);
 	pip->qkey_violations = cpu_to_be16(dev->qkey_violations);
-	
+	/* Only the hardware GUID is supported for now */
 	pip->guid_cap = 1;
 	pip->clientrereg_resv_subnetto = dev->subnet_timeout;
-	
+	/* 32.768 usec. response time (guessing) */
 	pip->resv_resptimevalue = 3;
 	pip->localphyerrors_overrunerrors =
 		(get_phyerrthreshold(dd) << 4) |
 		get_overrunthreshold(dd);
-	
+	/* pip->max_credit_hint; */
 	if (dev->port_cap_flags & IB_PORT_LINK_LATENCY_SUP) {
 		u32 v;
 
@@ -309,9 +342,14 @@ bail:
 	return ret;
 }
 
+/**
+ * get_pkeys - return the PKEY table for port 0
+ * @dd: the infinipath device
+ * @pkeys: the pkey table is placed here
+ */
 static int get_pkeys(struct ipath_devdata *dd, u16 * pkeys)
 {
-	
+	/* always a kernel port, no locking needed */
 	struct ipath_portdata *pd = dd->ipath_pd[0];
 
 	memcpy(pkeys, pd->port_pkeys, sizeof(pd->port_pkeys));
@@ -326,7 +364,7 @@ static int recv_subn_get_pkeytable(struct ib_smp *smp,
 	u16 *p = (u16 *) smp->data;
 	__be16 *q = (__be16 *) smp->data;
 
-	
+	/* 64 blocks of 32 16-bit P_Key entries */
 
 	memset(smp->data, 0, sizeof(smp->data));
 	if (startpx == 0) {
@@ -346,10 +384,17 @@ static int recv_subn_get_pkeytable(struct ib_smp *smp,
 static int recv_subn_set_guidinfo(struct ib_smp *smp,
 				  struct ib_device *ibdev)
 {
-	
+	/* The only GUID we support is the first read-only entry. */
 	return recv_subn_get_guidinfo(smp, ibdev);
 }
 
+/**
+ * set_linkdowndefaultstate - set the default linkdown state
+ * @dd: the infinipath device
+ * @sleep: the new state
+ *
+ * Note that this will only take effect when the link state changes.
+ */
 static int set_linkdowndefaultstate(struct ipath_devdata *dd, int sleep)
 {
 	if (sleep)
@@ -361,6 +406,14 @@ static int set_linkdowndefaultstate(struct ipath_devdata *dd, int sleep)
 	return 0;
 }
 
+/**
+ * recv_subn_set_portinfo - set port information
+ * @smp: the incoming SM packet
+ * @ibdev: the infiniband device
+ * @port: the port on the device
+ *
+ * Set Portinfo (see ch. 14.2.5.6).
+ */
 static int recv_subn_set_portinfo(struct ib_smp *smp,
 				  struct ib_device *ibdev, u8 port)
 {
@@ -392,7 +445,7 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 	lid = be16_to_cpu(pip->lid);
 	if (dd->ipath_lid != lid ||
 	    dd->ipath_lmc != (pip->mkeyprot_resv_lmc & 7)) {
-		
+		/* Must be a valid unicast LID address. */
 		if (lid == 0 || lid >= IPATH_MULTICAST_LID_BASE)
 			goto err;
 		ipath_set_lid(dd, lid, pip->mkeyprot_resv_lmc & 7);
@@ -402,7 +455,7 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 
 	smlid = be16_to_cpu(pip->sm_lid);
 	if (smlid != dev->sm_lid) {
-		
+		/* Must be a valid unicast LID address. */
 		if (smlid == 0 || smlid >= IPATH_MULTICAST_LID_BASE)
 			goto err;
 		dev->sm_lid = smlid;
@@ -410,7 +463,7 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 		ib_dispatch_event(&event);
 	}
 
-	
+	/* Allow 1x or 4x to be set (see 14.2.6.6). */
 	lwe = pip->link_width_enabled;
 	if (lwe) {
 		if (lwe == 0xFF)
@@ -420,7 +473,7 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 		set_link_width_enabled(dd, lwe);
 	}
 
-	
+	/* Allow 2.5 or 5.0 Gbs. */
 	lse = pip->linkspeedactive_enabled & 0xF;
 	if (lse) {
 		if (lse == 15)
@@ -430,15 +483,15 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 		set_link_speed_enabled(dd, lse);
 	}
 
-	
+	/* Set link down default state. */
 	switch (pip->portphysstate_linkdown & 0xF) {
-	case 0: 
+	case 0: /* NOP */
 		break;
-	case 1: 
+	case 1: /* SLEEP */
 		if (set_linkdowndefaultstate(dd, 1))
 			goto err;
 		break;
-	case 2: 
+	case 2: /* POLL */
 		if (set_linkdowndefaultstate(dd, 0))
 			goto err;
 		break;
@@ -468,20 +521,24 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 		mtu = 4096;
 		break;
 	default:
-		
+		/* XXX We have already partially updated our state! */
 		goto err;
 	}
 	ipath_set_mtu(dd, mtu);
 
 	dev->sm_sl = pip->neighbormtu_mastersmsl & 0xF;
 
-	
+	/* We only support VL0 */
 	if (((pip->operationalvl_pei_peo_fpi_fpo >> 4) & 0xF) > 1)
 		goto err;
 
 	if (pip->mkey_violations == 0)
 		dev->mkey_violations = 0;
 
+	/*
+	 * Hardware counter can't be reset so snapshot and subtract
+	 * later.
+	 */
 	if (pip->pkey_violations == 0)
 		dev->z_pkey_violations = ipath_get_cr_errpkey(dd);
 
@@ -503,16 +560,26 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 		ib_dispatch_event(&event);
 	}
 
+	/*
+	 * Do the port state change now that the other link parameters
+	 * have been set.
+	 * Changing the port physical state only makes sense if the link
+	 * is down or is being set to down.
+	 */
 	state = pip->linkspeed_portstate & 0xF;
 	lstate = (pip->portphysstate_linkdown >> 4) & 0xF;
 	if (lstate && !(state == IB_PORT_DOWN || state == IB_PORT_NOP))
 		goto err;
 
+	/*
+	 * Only state changes of DOWN, ARM, and ACTIVE are valid
+	 * and must be in the correct state to take effect (see 7.2.6).
+	 */
 	switch (state) {
 	case IB_PORT_NOP:
 		if (lstate == 0)
 			break;
-		
+		/* FALLTHROUGH */
 	case IB_PORT_DOWN:
 		if (lstate == 0)
 			lstate = IPATH_IB_LINKDOWN_ONLY;
@@ -539,7 +606,7 @@ static int recv_subn_set_portinfo(struct ib_smp *smp,
 		ipath_set_linkstate(dd, IPATH_IB_LINKACTIVE);
 		break;
 	default:
-		
+		/* XXX We have already partially updated our state! */
 		goto err;
 	}
 
@@ -558,6 +625,14 @@ done:
 	return ret;
 }
 
+/**
+ * rm_pkey - decrecment the reference count for the given PKEY
+ * @dd: the infinipath device
+ * @key: the PKEY index
+ *
+ * Return true if this was the last reference and the hardware table entry
+ * needs to be changed.
+ */
 static int rm_pkey(struct ipath_devdata *dd, u16 key)
 {
 	int i;
@@ -580,6 +655,14 @@ bail:
 	return ret;
 }
 
+/**
+ * add_pkey - add the given PKEY to the hardware table
+ * @dd: the infinipath device
+ * @key: the PKEY
+ *
+ * Return an error code if unable to add the entry, zero if no change,
+ * or 1 if the hardware PKEY register needs to be updated.
+ */
 static int add_pkey(struct ipath_devdata *dd, u16 key)
 {
 	int i;
@@ -592,22 +675,27 @@ static int add_pkey(struct ipath_devdata *dd, u16 key)
 		goto bail;
 	}
 
-	
+	/* Look for an empty slot or a matching PKEY. */
 	for (i = 0; i < ARRAY_SIZE(dd->ipath_pkeys); i++) {
 		if (!dd->ipath_pkeys[i]) {
 			any++;
 			continue;
 		}
-		
+		/* If it matches exactly, try to increment the ref count */
 		if (dd->ipath_pkeys[i] == key) {
 			if (atomic_inc_return(&dd->ipath_pkeyrefs[i]) > 1) {
 				ret = 0;
 				goto bail;
 			}
-			
+			/* Lost the race. Look for an empty slot below. */
 			atomic_dec(&dd->ipath_pkeyrefs[i]);
 			any++;
 		}
+		/*
+		 * It makes no sense to have both the limited and unlimited
+		 * PKEY set at the same time since the unlimited one will
+		 * disable the limited one.
+		 */
 		if ((dd->ipath_pkeys[i] & 0x7FFF) == lkey) {
 			ret = -EEXIST;
 			goto bail;
@@ -620,7 +708,7 @@ static int add_pkey(struct ipath_devdata *dd, u16 key)
 	for (i = 0; i < ARRAY_SIZE(dd->ipath_pkeys); i++) {
 		if (!dd->ipath_pkeys[i] &&
 		    atomic_inc_return(&dd->ipath_pkeyrefs[i]) == 1) {
-			
+			/* for ipathstats, etc. */
 			ipath_stats.sps_pkeys[i] = lkey;
 			dd->ipath_pkeys[i] = key;
 			ret = 1;
@@ -633,13 +721,18 @@ bail:
 	return ret;
 }
 
+/**
+ * set_pkeys - set the PKEY table for port 0
+ * @dd: the infinipath device
+ * @pkeys: the PKEY table
+ */
 static int set_pkeys(struct ipath_devdata *dd, u16 *pkeys)
 {
 	struct ipath_portdata *pd;
 	int i;
 	int changed = 0;
 
-	
+	/* always a kernel port, no locking needed */
 	pd = dd->ipath_pd[0];
 
 	for (i = 0; i < ARRAY_SIZE(pd->port_pkeys); i++) {
@@ -648,6 +741,10 @@ static int set_pkeys(struct ipath_devdata *dd, u16 *pkeys)
 
 		if (key == okey)
 			continue;
+		/*
+		 * The value of this PKEY table entry is changing.
+		 * Remove the old entry in the hardware's array of PKEYs.
+		 */
 		if (okey & 0x7FFF)
 			changed |= rm_pkey(dd, okey);
 		if (key & 0x7FFF) {
@@ -703,15 +800,24 @@ static int recv_pma_get_classportinfo(struct ib_pma_mad *pmp)
 	if (pmp->mad_hdr.attr_mod != 0)
 		pmp->mad_hdr.status |= IB_SMP_INVALID_FIELD;
 
-	
+	/* Indicate AllPortSelect is valid (only one port anyway) */
 	p->capability_mask = cpu_to_be16(1 << 8);
 	p->base_version = 1;
 	p->class_version = 1;
+	/*
+	 * Expected response time is 4.096 usec. * 2^18 == 1.073741824
+	 * sec.
+	 */
 	p->resp_time_value = 18;
 
 	return reply((struct ib_smp *) pmp);
 }
 
+/*
+ * The PortSamplesControl.CounterMasks field is an array of 3 bit fields
+ * which specify the N'th counter's capabilities. See ch. 16.1.3.2.
+ * We support 5 counters which only count the mandatory quantities.
+ */
 #define COUNTER_MASK(q, n) (q << ((9 - n) * 3))
 #define COUNTER_MASK0_9 cpu_to_be32(COUNTER_MASK(1, 0) | \
 				    COUNTER_MASK(1, 1) | \
@@ -735,11 +841,20 @@ static int recv_pma_get_portsamplescontrol(struct ib_pma_mad *pmp,
 	if (pmp->mad_hdr.attr_mod != 0 ||
 	    (port_select != port && port_select != 0xFF))
 		pmp->mad_hdr.status |= IB_SMP_INVALID_FIELD;
+	/*
+	 * Ticks are 10x the link transfer period which for 2.5Gbs is 4
+	 * nsec.  0 == 4 nsec., 1 == 8 nsec., ..., 255 == 1020 nsec.  Sample
+	 * intervals are counted in ticks.  Since we use Linux timers, that
+	 * count in jiffies, we can't sample for less than 1000 ticks if HZ
+	 * == 1000 (4000 ticks if HZ is 250).  link_speed_active returns 2 for
+	 * DDR, 1 for SDR, set the tick to 1 for DDR, 0 for SDR on chips that
+	 * have hardware support for delaying packets.
+	 */
 	if (crp->cr_psstat)
 		p->tick = dev->dd->ipath_link_speed_active - 1;
 	else
-		p->tick = 250;		
-	p->counter_width = 4;	
+		p->tick = 250;		/* 1 usec. */
+	p->counter_width = 4;	/* 32 bit counters */
 	p->counter_mask0_9 = COUNTER_MASK0_9;
 	spin_lock_irqsave(&dev->pending_lock, flags);
 	if (crp->cr_psstat)
@@ -888,7 +1003,7 @@ static int recv_pma_get_portsamplesresult_ext(struct ib_pma_mad *pmp,
 	else
 		status = dev->pma_sample_status;
 	p->sample_status = cpu_to_be16(status);
-	
+	/* 64 bits */
 	p->extended_width = cpu_to_be32(0x80000000);
 	for (i = 0; i < ARRAY_SIZE(dev->pma_counter_select); i++)
 		p->counter[i] = (status != IB_PMA_SAMPLE_STATUS_DONE) ? 0 :
@@ -909,7 +1024,7 @@ static int recv_pma_get_portcounters(struct ib_pma_mad *pmp,
 
 	ipath_get_counters(dev->dd, &cntrs);
 
-	
+	/* Adjust counters for any resets done. */
 	cntrs.symbol_error_counter -= dev->z_symbol_error_counter;
 	cntrs.link_error_recovery_counter -=
 		dev->z_link_error_recovery_counter;
@@ -1009,7 +1124,7 @@ static int recv_pma_get_portcounters_ext(struct ib_pma_mad *pmp,
 	ipath_snapshot_counters(dev->dd, &swords, &rwords, &spkts,
 				&rpkts, &xwait);
 
-	
+	/* Adjust counters for any resets done. */
 	swords -= dev->z_port_xmit_data;
 	rwords -= dev->z_port_rcv_data;
 	spkts -= dev->z_port_xmit_packets;
@@ -1042,6 +1157,10 @@ static int recv_pma_set_portcounters(struct ib_pma_mad *pmp,
 	struct ipath_ibdev *dev = to_idev(ibdev);
 	struct ipath_verbs_counters cntrs;
 
+	/*
+	 * Since the HW doesn't support clearing counters, we save the
+	 * current count and subtract it from future responses.
+	 */
 	ipath_get_counters(dev->dd, &cntrs);
 
 	if (p->counter_select & IB_PMA_SEL_SYMBOL_ERROR)
@@ -1146,14 +1265,18 @@ static int process_subn(struct ib_device *ibdev, int mad_flags,
 		goto bail;
 	}
 
-	
+	/* Is the mkey in the process of expiring? */
 	if (dev->mkey_lease_timeout &&
 	    time_after_eq(jiffies, dev->mkey_lease_timeout)) {
-		
+		/* Clear timeout and mkey protection field. */
 		dev->mkey_lease_timeout = 0;
 		dev->mkeyprot = 0;
 	}
 
+	/*
+	 * M_Key checking depends on
+	 * Portinfo:M_Key_protect_bits
+	 */
 	if ((mad_flags & IB_MAD_IGNORE_MKEY) == 0 && dev->mkey != 0 &&
 	    dev->mkey != smp->mkey &&
 	    (smp->method == IB_MGMT_METHOD_SET ||
@@ -1169,7 +1292,7 @@ static int process_subn(struct ib_device *ibdev, int mad_flags,
 		}
 		dev->mkey_lease_timeout = jiffies +
 			dev->mkey_lease_period * HZ;
-		
+		/* Future: Generate a trap notice. */
 		ret = IB_MAD_RESULT_SUCCESS | IB_MAD_RESULT_CONSUMED;
 		goto bail;
 	} else if (dev->mkey_lease_timeout)
@@ -1203,7 +1326,7 @@ static int process_subn(struct ib_device *ibdev, int mad_flags,
 				ret = IB_MAD_RESULT_SUCCESS;
 				goto bail;
 			}
-			
+			/* FALLTHROUGH */
 		default:
 			smp->status |= IB_SMP_UNSUP_METH_ATTR;
 			ret = reply(smp);
@@ -1231,7 +1354,7 @@ static int process_subn(struct ib_device *ibdev, int mad_flags,
 				ret = IB_MAD_RESULT_SUCCESS;
 				goto bail;
 			}
-			
+			/* FALLTHROUGH */
 		default:
 			smp->status |= IB_SMP_UNSUP_METH_ATTR;
 			ret = reply(smp);
@@ -1243,6 +1366,11 @@ static int process_subn(struct ib_device *ibdev, int mad_flags,
 	case IB_MGMT_METHOD_REPORT_RESP:
 	case IB_MGMT_METHOD_TRAP_REPRESS:
 	case IB_MGMT_METHOD_GET_RESP:
+		/*
+		 * The ib_mad module will call us to process responses
+		 * before checking for other consumers.
+		 * Just tell the caller to process it normally.
+		 */
 		ret = IB_MAD_RESULT_SUCCESS;
 		goto bail;
 	default:
@@ -1320,6 +1448,11 @@ static int process_perf(struct ib_device *ibdev, u8 port_num,
 		}
 
 	case IB_MGMT_METHOD_GET_RESP:
+		/*
+		 * The ib_mad module will call us to process responses
+		 * before checking for other consumers.
+		 * Just tell the caller to process it normally.
+		 */
 		ret = IB_MAD_RESULT_SUCCESS;
 		goto bail;
 	default:
@@ -1331,6 +1464,25 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_process_mad - process an incoming MAD packet
+ * @ibdev: the infiniband device this packet came in on
+ * @mad_flags: MAD flags
+ * @port_num: the port number this packet came in on
+ * @in_wc: the work completion entry for this packet
+ * @in_grh: the global route header for this packet
+ * @in_mad: the incoming MAD
+ * @out_mad: any outgoing MAD reply
+ *
+ * Returns IB_MAD_RESULT_SUCCESS if this is a MAD that we are not
+ * interested in processing.
+ *
+ * Note that the verbs framework has already done the MAD sanity checks,
+ * and hop count/pointer updating for IB_MGMT_CLASS_SUBN_DIRECTED_ROUTE
+ * MADs.
+ *
+ * This is called by the ib_mad module.
+ */
 int ipath_process_mad(struct ib_device *ibdev, int mad_flags, u8 port_num,
 		      struct ib_wc *in_wc, struct ib_grh *in_grh,
 		      struct ib_mad *in_mad, struct ib_mad *out_mad)

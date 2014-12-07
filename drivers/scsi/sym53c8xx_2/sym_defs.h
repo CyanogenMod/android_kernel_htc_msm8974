@@ -43,335 +43,353 @@
 #define SYM_VERSION "2.2.3"
 #define SYM_DRIVER_NAME	"sym-" SYM_VERSION
 
+/*
+ *	SYM53C8XX device features descriptor.
+ */
 struct sym_chip {
 	u_short	device_id;
 	u_short	revision_id;
 	char	*name;
-	u_char	burst_max;	
+	u_char	burst_max;	/* log-base-2 of max burst */
 	u_char	offset_max;
 	u_char	nr_divisor;
 	u_char	lp_probe_bit;
 	u_int	features;
 #define FE_LED0		(1<<0)
-#define FE_WIDE		(1<<1)    
-#define FE_ULTRA	(1<<2)	  
-#define FE_ULTRA2	(1<<3)	  
-#define FE_DBLR		(1<<4)	  
-#define FE_QUAD		(1<<5)	  
-#define FE_ERL		(1<<6)    
-#define FE_CLSE		(1<<7)    
-#define FE_WRIE		(1<<8)    
-#define FE_ERMP		(1<<9)    
-#define FE_BOF		(1<<10)   
-#define FE_DFS		(1<<11)   
-#define FE_PFEN		(1<<12)   
-#define FE_LDSTR	(1<<13)   
-#define FE_RAM		(1<<14)   
-#define FE_VARCLK	(1<<15)   
-#define FE_RAM8K	(1<<16)   
-#define FE_64BIT	(1<<17)   
-#define FE_IO256	(1<<18)   
-#define FE_NOPM		(1<<19)   
-#define FE_LEDC		(1<<20)   
-#define FE_ULTRA3	(1<<21)	  
-#define FE_66MHZ	(1<<22)	  
-#define FE_CRC		(1<<23)	  
-#define FE_DIFF		(1<<24)	  
-#define FE_DFBC		(1<<25)	  
-#define FE_LCKFRQ	(1<<26)	  
-#define FE_C10		(1<<27)	  
-#define FE_U3EN		(1<<28)	  
-#define FE_DAC		(1<<29)	  
-#define FE_ISTAT1 	(1<<30)   
+#define FE_WIDE		(1<<1)    /* Wide data transfers */
+#define FE_ULTRA	(1<<2)	  /* Ultra speed 20Mtrans/sec */
+#define FE_ULTRA2	(1<<3)	  /* Ultra 2 - 40 Mtrans/sec */
+#define FE_DBLR		(1<<4)	  /* Clock doubler present */
+#define FE_QUAD		(1<<5)	  /* Clock quadrupler present */
+#define FE_ERL		(1<<6)    /* Enable read line */
+#define FE_CLSE		(1<<7)    /* Cache line size enable */
+#define FE_WRIE		(1<<8)    /* Write & Invalidate enable */
+#define FE_ERMP		(1<<9)    /* Enable read multiple */
+#define FE_BOF		(1<<10)   /* Burst opcode fetch */
+#define FE_DFS		(1<<11)   /* DMA fifo size */
+#define FE_PFEN		(1<<12)   /* Prefetch enable */
+#define FE_LDSTR	(1<<13)   /* Load/Store supported */
+#define FE_RAM		(1<<14)   /* On chip RAM present */
+#define FE_VARCLK	(1<<15)   /* Clock frequency may vary */
+#define FE_RAM8K	(1<<16)   /* On chip RAM sized 8Kb */
+#define FE_64BIT	(1<<17)   /* 64-bit PCI BUS interface */
+#define FE_IO256	(1<<18)   /* Requires full 256 bytes in PCI space */
+#define FE_NOPM		(1<<19)   /* Scripts handles phase mismatch */
+#define FE_LEDC		(1<<20)   /* Hardware control of LED */
+#define FE_ULTRA3	(1<<21)	  /* Ultra 3 - 80 Mtrans/sec DT */
+#define FE_66MHZ	(1<<22)	  /* 66MHz PCI support */
+#define FE_CRC		(1<<23)	  /* CRC support */
+#define FE_DIFF		(1<<24)	  /* SCSI HVD support */
+#define FE_DFBC		(1<<25)	  /* Have DFBC register */
+#define FE_LCKFRQ	(1<<26)	  /* Have LCKFRQ */
+#define FE_C10		(1<<27)	  /* Various C10 core (mis)features */
+#define FE_U3EN		(1<<28)	  /* U3EN bit usable */
+#define FE_DAC		(1<<29)	  /* Support PCI DAC (64 bit addressing) */
+#define FE_ISTAT1 	(1<<30)   /* Have ISTAT1, MBOX0, MBOX1 registers */
 
 #define FE_CACHE_SET	(FE_ERL|FE_CLSE|FE_WRIE|FE_ERMP)
 #define FE_CACHE0_SET	(FE_CACHE_SET & ~FE_ERL)
 };
 
+/*
+ *	SYM53C8XX IO register data structure.
+ */
 struct sym_reg {
-  u8	nc_scntl0;	
+/*00*/  u8	nc_scntl0;	/* full arb., ena parity, par->ATN  */
 
-  u8	nc_scntl1;	
-        #define   ISCON   0x10  
-        #define   CRST    0x08  
-        #define   IARB    0x02  
+/*01*/  u8	nc_scntl1;	/* no reset                         */
+        #define   ISCON   0x10  /* connected to scsi		    */
+        #define   CRST    0x08  /* force reset                      */
+        #define   IARB    0x02  /* immediate arbitration            */
 
-  u8	nc_scntl2;	
-	#define   SDU     0x80  
-	#define   CHM     0x40  
-	#define   WSS     0x08  
-	#define   WSR     0x01  
+/*02*/  u8	nc_scntl2;	/* no disconnect expected           */
+	#define   SDU     0x80  /* cmd: disconnect will raise error */
+	#define   CHM     0x40  /* sta: chained mode                */
+	#define   WSS     0x08  /* sta: wide scsi send           [W]*/
+	#define   WSR     0x01  /* sta: wide scsi received       [W]*/
 
-  u8	nc_scntl3;	
-	#define   EWS     0x08  
-	#define   ULTRA   0x80  
-				
+/*03*/  u8	nc_scntl3;	/* cnf system clock dependent       */
+	#define   EWS     0x08  /* cmd: enable wide scsi         [W]*/
+	#define   ULTRA   0x80  /* cmd: ULTRA enable                */
+				/* bits 0-2, 7 rsvd for C1010       */
 
-  u8	nc_scid;	
-	#define   RRE     0x40  
-	#define   SRE     0x20  
+/*04*/  u8	nc_scid;	/* cnf host adapter scsi address    */
+	#define   RRE     0x40  /* r/w:e enable response to resel.  */
+	#define   SRE     0x20  /* r/w:e enable response to select  */
 
-  u8	nc_sxfer;	
-				
+/*05*/  u8	nc_sxfer;	/* ### Sync speed and count         */
+				/* bits 6-7 rsvd for C1010          */
 
-  u8	nc_sdid;	
+/*06*/  u8	nc_sdid;	/* ### Destination-ID               */
 
-  u8	nc_gpreg;	
+/*07*/  u8	nc_gpreg;	/* ??? IO-Pins                      */
 
-  u8	nc_sfbr;	
+/*08*/  u8	nc_sfbr;	/* ### First byte received          */
 
-  u8	nc_socl;
-	#define   CREQ	  0x80	
-	#define   CACK	  0x40	
-	#define   CBSY	  0x20	
-	#define   CSEL	  0x10	
-	#define   CATN	  0x08	
-	#define   CMSG	  0x04	
-	#define   CC_D	  0x02	
-	#define   CI_O	  0x01	
+/*09*/  u8	nc_socl;
+	#define   CREQ	  0x80	/* r/w: SCSI-REQ                    */
+	#define   CACK	  0x40	/* r/w: SCSI-ACK                    */
+	#define   CBSY	  0x20	/* r/w: SCSI-BSY                    */
+	#define   CSEL	  0x10	/* r/w: SCSI-SEL                    */
+	#define   CATN	  0x08	/* r/w: SCSI-ATN                    */
+	#define   CMSG	  0x04	/* r/w: SCSI-MSG                    */
+	#define   CC_D	  0x02	/* r/w: SCSI-C_D                    */
+	#define   CI_O	  0x01	/* r/w: SCSI-I_O                    */
 
-  u8	nc_ssid;
+/*0a*/  u8	nc_ssid;
 
-  u8	nc_sbcl;
+/*0b*/  u8	nc_sbcl;
 
-  u8	nc_dstat;
-        #define   DFE     0x80  
-        #define   MDPE    0x40  
-        #define   BF      0x20  
-        #define   ABRT    0x10  
-        #define   SSI     0x08  
-        #define   SIR     0x04  
-        #define   IID     0x01  
+/*0c*/  u8	nc_dstat;
+        #define   DFE     0x80  /* sta: dma fifo empty              */
+        #define   MDPE    0x40  /* int: master data parity error    */
+        #define   BF      0x20  /* int: script: bus fault           */
+        #define   ABRT    0x10  /* int: script: command aborted     */
+        #define   SSI     0x08  /* int: script: single step         */
+        #define   SIR     0x04  /* int: script: interrupt instruct. */
+        #define   IID     0x01  /* int: script: illegal instruct.   */
 
-  u8	nc_sstat0;
-        #define   ILF     0x80  
-        #define   ORF     0x40  
-        #define   OLF     0x20  
-        #define   AIP     0x10  
-        #define   LOA     0x08  
-        #define   WOA     0x04  
-        #define   IRST    0x02  
-        #define   SDP     0x01  
+/*0d*/  u8	nc_sstat0;
+        #define   ILF     0x80  /* sta: data in SIDL register lsb   */
+        #define   ORF     0x40  /* sta: data in SODR register lsb   */
+        #define   OLF     0x20  /* sta: data in SODL register lsb   */
+        #define   AIP     0x10  /* sta: arbitration in progress     */
+        #define   LOA     0x08  /* sta: arbitration lost            */
+        #define   WOA     0x04  /* sta: arbitration won             */
+        #define   IRST    0x02  /* sta: scsi reset signal           */
+        #define   SDP     0x01  /* sta: scsi parity signal          */
 
-  u8	nc_sstat1;
-	#define   FF3210  0xf0	
+/*0e*/  u8	nc_sstat1;
+	#define   FF3210  0xf0	/* sta: bytes in the scsi fifo      */
 
-  u8	nc_sstat2;
-        #define   ILF1    0x80  
-        #define   ORF1    0x40  
-        #define   OLF1    0x20  
-        #define   DM      0x04  
-        #define   LDSC    0x02  
+/*0f*/  u8	nc_sstat2;
+        #define   ILF1    0x80  /* sta: data in SIDL register msb[W]*/
+        #define   ORF1    0x40  /* sta: data in SODR register msb[W]*/
+        #define   OLF1    0x20  /* sta: data in SODL register msb[W]*/
+        #define   DM      0x04  /* sta: DIFFSENS mismatch (895/6 only) */
+        #define   LDSC    0x02  /* sta: disconnect & reconnect      */
 
-  u8	nc_dsa;		
-  u8	nc_dsa1;
-  u8	nc_dsa2;
-  u8	nc_dsa3;
+/*10*/  u8	nc_dsa;		/* --> Base page                    */
+/*11*/  u8	nc_dsa1;
+/*12*/  u8	nc_dsa2;
+/*13*/  u8	nc_dsa3;
 
-  u8	nc_istat;	
-        #define   CABRT   0x80  
-        #define   SRST    0x40  
-        #define   SIGP    0x20  
-        #define   SEM     0x10  
-        #define   CON     0x08  
-        #define   INTF    0x04  
-        #define   SIP     0x02  
-        #define   DIP     0x01  
+/*14*/  u8	nc_istat;	/* --> Main Command and status      */
+        #define   CABRT   0x80  /* cmd: abort current operation     */
+        #define   SRST    0x40  /* mod: reset chip                  */
+        #define   SIGP    0x20  /* r/w: message from host to script */
+        #define   SEM     0x10  /* r/w: message between host + script  */
+        #define   CON     0x08  /* sta: connected to scsi           */
+        #define   INTF    0x04  /* sta: int on the fly (reset by wr)*/
+        #define   SIP     0x02  /* sta: scsi-interrupt              */
+        #define   DIP     0x01  /* sta: host/script interrupt       */
 
-  u8	nc_istat1;	
-        #define   FLSH    0x04  
-        #define   SCRUN   0x02  
-        #define   SIRQD   0x01  
+/*15*/  u8	nc_istat1;	/* 896 only */
+        #define   FLSH    0x04  /* sta: chip is flushing            */
+        #define   SCRUN   0x02  /* sta: scripts are running         */
+        #define   SIRQD   0x01  /* r/w: disable INT pin             */
 
-  u8	nc_mbox0;	
-  u8	nc_mbox1;	
+/*16*/  u8	nc_mbox0;	/* 896 only */
+/*17*/  u8	nc_mbox1;	/* 896 only */
 
-	u8	nc_ctest0;
-  u8	nc_ctest1;
+/*18*/	u8	nc_ctest0;
+/*19*/  u8	nc_ctest1;
 
-  u8	nc_ctest2;
+/*1a*/  u8	nc_ctest2;
 	#define   CSIGP   0x40
-				
+				/* bits 0-2,7 rsvd for C1010        */
 
-  u8	nc_ctest3;
-	#define   FLF     0x08  
-	#define   CLF	  0x04	
-	#define   FM      0x02  
-	#define   WRIE    0x01  
-				
+/*1b*/  u8	nc_ctest3;
+	#define   FLF     0x08  /* cmd: flush dma fifo              */
+	#define   CLF	  0x04	/* cmd: clear dma fifo		    */
+	#define   FM      0x02  /* mod: fetch pin mode              */
+	#define   WRIE    0x01  /* mod: write and invalidate enable */
+				/* bits 4-7 rsvd for C1010          */
 
-  u32	nc_temp;	
+/*1c*/  u32	nc_temp;	/* ### Temporary stack              */
 
-	u8	nc_dfifo;
-  u8	nc_ctest4;
-	#define   BDIS    0x80  
-	#define   MPEE    0x08  
+/*20*/	u8	nc_dfifo;
+/*21*/  u8	nc_ctest4;
+	#define   BDIS    0x80  /* mod: burst disable               */
+	#define   MPEE    0x08  /* mod: master parity error enable  */
 
-  u8	nc_ctest5;
-	#define   DFS     0x20  
-				
+/*22*/  u8	nc_ctest5;
+	#define   DFS     0x20  /* mod: dma fifo size               */
+				/* bits 0-1, 3-7 rsvd for C1010     */
 
-  u8	nc_ctest6;
+/*23*/  u8	nc_ctest6;
 
-  u32	nc_dbc;		
-  u32	nc_dnad;	
-  u32	nc_dsp;		
-  u32	nc_dsps;	
+/*24*/  u32	nc_dbc;		/* ### Byte count and command       */
+/*28*/  u32	nc_dnad;	/* ### Next command register        */
+/*2c*/  u32	nc_dsp;		/* --> Script Pointer               */
+/*30*/  u32	nc_dsps;	/* --> Script pointer save/opcode#2 */
 
-  u8	nc_scratcha;	
-  u8	nc_scratcha1;
-  u8	nc_scratcha2;
-  u8	nc_scratcha3;
+/*34*/  u8	nc_scratcha;	/* Temporary register a            */
+/*35*/  u8	nc_scratcha1;
+/*36*/  u8	nc_scratcha2;
+/*37*/  u8	nc_scratcha3;
 
-  u8	nc_dmode;
-	#define   BL_2    0x80  
-	#define   BL_1    0x40  
-	#define   ERL     0x08  
-	#define   ERMP    0x04  
-	#define   BOF     0x02  
+/*38*/  u8	nc_dmode;
+	#define   BL_2    0x80  /* mod: burst length shift value +2 */
+	#define   BL_1    0x40  /* mod: burst length shift value +1 */
+	#define   ERL     0x08  /* mod: enable read line            */
+	#define   ERMP    0x04  /* mod: enable read multiple        */
+	#define   BOF     0x02  /* mod: burst op code fetch         */
 
-  u8	nc_dien;
-  u8	nc_sbr;
+/*39*/  u8	nc_dien;
+/*3a*/  u8	nc_sbr;
 
-  u8	nc_dcntl;	
-	#define   CLSE    0x80  
-	#define   PFF     0x40  
-	#define   PFEN    0x20  
-	#define   SSM     0x10  
-	#define   IRQM    0x08  
-	#define   STD     0x04  
-	#define   IRQD    0x02  
- 	#define	  NOCOM   0x01	
-				
+/*3b*/  u8	nc_dcntl;	/* --> Script execution control     */
+	#define   CLSE    0x80  /* mod: cache line size enable      */
+	#define   PFF     0x40  /* cmd: pre-fetch flush             */
+	#define   PFEN    0x20  /* mod: pre-fetch enable            */
+	#define   SSM     0x10  /* mod: single step mode            */
+	#define   IRQM    0x08  /* mod: irq mode (1 = totem pole !) */
+	#define   STD     0x04  /* cmd: start dma mode              */
+	#define   IRQD    0x02  /* mod: irq disable                 */
+ 	#define	  NOCOM   0x01	/* cmd: protect sfbr while reselect */
+				/* bits 0-1 rsvd for C1010          */
 
-  u32	nc_adder;
+/*3c*/  u32	nc_adder;
 
-  u16	nc_sien;	
-  u16	nc_sist;	
-        #define   SBMC    0x1000
-        #define   STO     0x0400
-        #define   GEN     0x0200
-        #define   HTH     0x0100
-        #define   MA      0x80  
-        #define   CMP     0x40  
-        #define   SEL     0x20  
-        #define   RSL     0x10  
-        #define   SGE     0x08  
-        #define   UDC     0x04  
-        #define   RST     0x02  
-        #define   PAR     0x01  
+/*40*/  u16	nc_sien;	/* -->: interrupt enable            */
+/*42*/  u16	nc_sist;	/* <--: interrupt status            */
+        #define   SBMC    0x1000/* sta: SCSI Bus Mode Change (895/6 only) */
+        #define   STO     0x0400/* sta: timeout (select)            */
+        #define   GEN     0x0200/* sta: timeout (general)           */
+        #define   HTH     0x0100/* sta: timeout (handshake)         */
+        #define   MA      0x80  /* sta: phase mismatch              */
+        #define   CMP     0x40  /* sta: arbitration complete        */
+        #define   SEL     0x20  /* sta: selected by another device  */
+        #define   RSL     0x10  /* sta: reselected by another device*/
+        #define   SGE     0x08  /* sta: gross error (over/underflow)*/
+        #define   UDC     0x04  /* sta: unexpected disconnect       */
+        #define   RST     0x02  /* sta: scsi bus reset detected     */
+        #define   PAR     0x01  /* sta: scsi parity error           */
 
-  u8	nc_slpar;
-  u8	nc_swide;
-  u8	nc_macntl;
-  u8	nc_gpcntl;
-  u8	nc_stime0;	
-  u8	nc_stime1;	
-  u16	nc_respid;	
+/*44*/  u8	nc_slpar;
+/*45*/  u8	nc_swide;
+/*46*/  u8	nc_macntl;
+/*47*/  u8	nc_gpcntl;
+/*48*/  u8	nc_stime0;	/* cmd: timeout for select&handshake*/
+/*49*/  u8	nc_stime1;	/* cmd: timeout user defined        */
+/*4a*/  u16	nc_respid;	/* sta: Reselect-IDs                */
 
-  u8	nc_stest0;
+/*4c*/  u8	nc_stest0;
 
-  u8	nc_stest1;
-	#define   SCLK    0x80	
-	#define   DBLEN   0x08	
-	#define   DBLSEL  0x04	
+/*4d*/  u8	nc_stest1;
+	#define   SCLK    0x80	/* Use the PCI clock as SCSI clock	*/
+	#define   DBLEN   0x08	/* clock doubler running		*/
+	#define   DBLSEL  0x04	/* clock doubler selected		*/
   
 
-  u8	nc_stest2;
-	#define   ROF     0x40	
-	#define   EXT     0x02  
+/*4e*/  u8	nc_stest2;
+	#define   ROF     0x40	/* reset scsi offset (after gross error!) */
+	#define   EXT     0x02  /* extended filtering                     */
 
-  u8	nc_stest3;
-	#define   TE     0x80	
-	#define   HSC    0x20	
-	#define   CSF    0x02	
+/*4f*/  u8	nc_stest3;
+	#define   TE     0x80	/* c: tolerAnt enable */
+	#define   HSC    0x20	/* c: Halt SCSI Clock */
+	#define   CSF    0x02	/* c: clear scsi fifo */
 
-  u16	nc_sidl;	
-  u8	nc_stest4;
-	#define   SMODE  0xc0	
-	#define    SMODE_HVD 0x40	
-	#define    SMODE_SE  0x80	
-	#define    SMODE_LVD 0xc0	
-	#define   LCKFRQ 0x20	
-				
+/*50*/  u16	nc_sidl;	/* Lowlevel: latched from scsi data */
+/*52*/  u8	nc_stest4;
+	#define   SMODE  0xc0	/* SCSI bus mode      (895/6 only) */
+	#define    SMODE_HVD 0x40	/* High Voltage Differential       */
+	#define    SMODE_SE  0x80	/* Single Ended                    */
+	#define    SMODE_LVD 0xc0	/* Low Voltage Differential        */
+	#define   LCKFRQ 0x20	/* Frequency Lock (895/6 only)     */
+				/* bits 0-5 rsvd for C1010         */
 
-  u8	nc_53_;
-  u16	nc_sodl;	
-	u8	nc_ccntl0;	
-	#define   ENPMJ  0x80	
-	#define   PMJCTL 0x40	
-	#define   ENNDJ  0x20	
-	#define   DISFC  0x10	
-	#define   DILS   0x02	
-	#define   DPR    0x01	
+/*53*/  u8	nc_53_;
+/*54*/  u16	nc_sodl;	/* Lowlevel: data out to scsi data  */
+/*56*/	u8	nc_ccntl0;	/* Chip Control 0 (896)             */
+	#define   ENPMJ  0x80	/* Enable Phase Mismatch Jump       */
+	#define   PMJCTL 0x40	/* Phase Mismatch Jump Control      */
+	#define   ENNDJ  0x20	/* Enable Non Data PM Jump          */
+	#define   DISFC  0x10	/* Disable Auto FIFO Clear          */
+	#define   DILS   0x02	/* Disable Internal Load/Store      */
+	#define   DPR    0x01	/* Disable Pipe Req                 */
 
-	u8	nc_ccntl1;	
-	#define   ZMOD   0x80	
-	#define   DDAC   0x08	
-	#define   XTIMOD 0x04	
-	#define   EXTIBMV 0x02	
-	#define   EXDBMV 0x01	
+/*57*/	u8	nc_ccntl1;	/* Chip Control 1 (896)             */
+	#define   ZMOD   0x80	/* High Impedance Mode              */
+	#define   DDAC   0x08	/* Disable Dual Address Cycle       */
+	#define   XTIMOD 0x04	/* 64-bit Table Ind. Indexing Mode  */
+	#define   EXTIBMV 0x02	/* Enable 64-bit Table Ind. BMOV    */
+	#define   EXDBMV 0x01	/* Enable 64-bit Direct BMOV        */
 
-  u16	nc_sbdl;	
-  u16	nc_5a_;
+/*58*/  u16	nc_sbdl;	/* Lowlevel: data from scsi data    */
+/*5a*/  u16	nc_5a_;
 
-  u8	nc_scr0;	
-  u8	nc_scr1;
-  u8	nc_scr2;
-  u8	nc_scr3;
+/*5c*/  u8	nc_scr0;	/* Working register B               */
+/*5d*/  u8	nc_scr1;
+/*5e*/  u8	nc_scr2;
+/*5f*/  u8	nc_scr3;
 
-  u8	nc_scrx[64];	
-	u32	nc_mmrs;	
-	u32	nc_mmws;	
-	u32	nc_sfs;		
-	u32	nc_drs;		
-	u32	nc_sbms;	
-	u32	nc_dbms;	
-	u32	nc_dnad64;	
-	u16	nc_scntl4;	
-	#define   U3EN    0x80	
-	#define   AIPCKEN 0x40  
-				
-	#define   XCLKH_DT 0x08 
-	#define   XCLKH_ST 0x04 
-	#define   XCLKS_DT 0x02 
-	#define   XCLKS_ST 0x01 
-	u8	nc_aipcntl0;	
-	u8	nc_aipcntl1;	
-	#define DISAIP  0x08	
-	u32	nc_pmjad1;	
-	u32	nc_pmjad2;	
-	u8	nc_rbc;		
-	u8	nc_rbc1;
-	u8	nc_rbc2;
-	u8	nc_rbc3;
+/*60*/  u8	nc_scrx[64];	/* Working register C-R             */
+/*a0*/	u32	nc_mmrs;	/* Memory Move Read Selector        */
+/*a4*/	u32	nc_mmws;	/* Memory Move Write Selector       */
+/*a8*/	u32	nc_sfs;		/* Script Fetch Selector            */
+/*ac*/	u32	nc_drs;		/* DSA Relative Selector            */
+/*b0*/	u32	nc_sbms;	/* Static Block Move Selector       */
+/*b4*/	u32	nc_dbms;	/* Dynamic Block Move Selector      */
+/*b8*/	u32	nc_dnad64;	/* DMA Next Address 64              */
+/*bc*/	u16	nc_scntl4;	/* C1010 only                       */
+	#define   U3EN    0x80	/* Enable Ultra 3                   */
+	#define   AIPCKEN 0x40  /* AIP checking enable              */
+				/* Also enable AIP generation on C10-33*/
+	#define   XCLKH_DT 0x08 /* Extra clock of data hold on DT edge */
+	#define   XCLKH_ST 0x04 /* Extra clock of data hold on ST edge */
+	#define   XCLKS_DT 0x02 /* Extra clock of data set  on DT edge */
+	#define   XCLKS_ST 0x01 /* Extra clock of data set  on ST edge */
+/*be*/	u8	nc_aipcntl0;	/* AIP Control 0 C1010 only         */
+/*bf*/	u8	nc_aipcntl1;	/* AIP Control 1 C1010 only         */
+	#define DISAIP  0x08	/* Disable AIP generation C10-66 only  */
+/*c0*/	u32	nc_pmjad1;	/* Phase Mismatch Jump Address 1    */
+/*c4*/	u32	nc_pmjad2;	/* Phase Mismatch Jump Address 2    */
+/*c8*/	u8	nc_rbc;		/* Remaining Byte Count             */
+/*c9*/	u8	nc_rbc1;
+/*ca*/	u8	nc_rbc2;
+/*cb*/	u8	nc_rbc3;
 
-	u8	nc_ua;		
-	u8	nc_ua1;
-	u8	nc_ua2;
-	u8	nc_ua3;
-	u32	nc_esa;		
-	u8	nc_ia;		
-	u8	nc_ia1;
-	u8	nc_ia2;
-	u8	nc_ia3;
-	u32	nc_sbc;		
-	u32	nc_csbc;	
-                                
-	u16    nc_crcpad;	
-	u8     nc_crccntl0;	
-	#define   SNDCRC  0x10	
-	u8     nc_crccntl1;	
-	u32    nc_crcdata;	
-	u32    nc_e8_;
-	u32    nc_ec_;
-	u16    nc_dfbc;		 
+/*cc*/	u8	nc_ua;		/* Updated Address                  */
+/*cd*/	u8	nc_ua1;
+/*ce*/	u8	nc_ua2;
+/*cf*/	u8	nc_ua3;
+/*d0*/	u32	nc_esa;		/* Entry Storage Address            */
+/*d4*/	u8	nc_ia;		/* Instruction Address              */
+/*d5*/	u8	nc_ia1;
+/*d6*/	u8	nc_ia2;
+/*d7*/	u8	nc_ia3;
+/*d8*/	u32	nc_sbc;		/* SCSI Byte Count (3 bytes only)   */
+/*dc*/	u32	nc_csbc;	/* Cumulative SCSI Byte Count       */
+                                /* Following for C1010 only         */
+/*e0*/	u16    nc_crcpad;	/* CRC Value                        */
+/*e2*/	u8     nc_crccntl0;	/* CRC control register             */
+	#define   SNDCRC  0x10	/* Send CRC Request                 */
+/*e3*/	u8     nc_crccntl1;	/* CRC control register             */
+/*e4*/	u32    nc_crcdata;	/* CRC data register                */
+/*e8*/	u32    nc_e8_;
+/*ec*/	u32    nc_ec_;
+/*f0*/	u16    nc_dfbc;		/* DMA FIFO byte count              */ 
 };
 
+/*-----------------------------------------------------------
+ *
+ *	Utility macros for the script.
+ *
+ *-----------------------------------------------------------
+ */
 
 #define REGJ(p,r) (offsetof(struct sym_reg, p ## r))
 #define REG(r) REGJ (nc_, r)
 
+/*-----------------------------------------------------------
+ *
+ *	SCSI phases
+ *
+ *-----------------------------------------------------------
+ */
 
 #define	SCR_DATA_OUT	0x00000000
 #define	SCR_DATA_IN	0x01000000
@@ -381,19 +399,40 @@ struct sym_reg {
 #define	SCR_DT_DATA_IN	0x05000000
 #define SCR_MSG_OUT	0x06000000
 #define SCR_MSG_IN      0x07000000
+/* DT phases are illegal for non Ultra3 mode */
 #define SCR_ILG_OUT	0x04000000
 #define SCR_ILG_IN	0x05000000
 
+/*-----------------------------------------------------------
+ *
+ *	Data transfer via SCSI.
+ *
+ *-----------------------------------------------------------
+ *
+ *	MOVE_ABS (LEN)
+ *	<<start address>>
+ *
+ *	MOVE_IND (LEN)
+ *	<<dnad_offset>>
+ *
+ *	MOVE_TBL
+ *	<<dnad_offset>>
+ *
+ *-----------------------------------------------------------
+ */
 
 #define OPC_MOVE          0x08000000
 
 #define SCR_MOVE_ABS(l) ((0x00000000 | OPC_MOVE) | (l))
+/* #define SCR_MOVE_IND(l) ((0x20000000 | OPC_MOVE) | (l)) */
 #define SCR_MOVE_TBL     (0x10000000 | OPC_MOVE)
 
 #define SCR_CHMOV_ABS(l) ((0x00000000) | (l))
+/* #define SCR_CHMOV_IND(l) ((0x20000000) | (l)) */
 #define SCR_CHMOV_TBL     (0x10000000)
 
 #ifdef SYM_CONF_TARGET_ROLE_SUPPORT
+/* We steal the `indirect addressing' flag for target mode MOVE in scripts */
 
 #define OPC_TCHMOVE        0x08000000
 
@@ -409,6 +448,20 @@ struct sym_tblmove {
         u32  addr;
 };
 
+/*-----------------------------------------------------------
+ *
+ *	Selection
+ *
+ *-----------------------------------------------------------
+ *
+ *	SEL_ABS | SCR_ID (0..15)    [ | REL_JMP]
+ *	<<alternate_address>>
+ *
+ *	SEL_TBL | << dnad_offset>>  [ | REL_JMP]
+ *	<<alternate_address>>
+ *
+ *-----------------------------------------------------------
+ */
 
 #define	SCR_SEL_ABS	0x40000000
 #define	SCR_SEL_ABS_ATN	0x41000000
@@ -423,7 +476,7 @@ struct sym_tblmove {
 #endif
 
 struct sym_tblsel {
-        u_char  sel_scntl4;	
+        u_char  sel_scntl4;	/* C1010 only */
         u_char  sel_sxfer;
         u_char  sel_id;
         u_char  sel_scntl3;
@@ -432,6 +485,20 @@ struct sym_tblsel {
 #define SCR_JMP_REL     0x04000000
 #define SCR_ID(id)	(((u32)(id)) << 16)
 
+/*-----------------------------------------------------------
+ *
+ *	Waiting for Disconnect or Reselect
+ *
+ *-----------------------------------------------------------
+ *
+ *	WAIT_DISC
+ *	dummy: <<alternate_address>>
+ *
+ *	WAIT_RESEL
+ *	<<alternate_address>>
+ *
+ *-----------------------------------------------------------
+ */
 
 #define	SCR_WAIT_DISC	0x48000000
 #define SCR_WAIT_RESEL  0x50000000
@@ -440,6 +507,18 @@ struct sym_tblsel {
 #define	SCR_DISCONNECT	0x48000000
 #endif
 
+/*-----------------------------------------------------------
+ *
+ *	Bit Set / Reset
+ *
+ *-----------------------------------------------------------
+ *
+ *	SET (flags {|.. })
+ *
+ *	CLR (flags {|.. })
+ *
+ *-----------------------------------------------------------
+ */
 
 #define SCR_SET(f)     (0x58000000 | (f))
 #define SCR_CLR(f)     (0x60000000 | (f))
@@ -450,12 +529,55 @@ struct sym_tblsel {
 #define	SCR_ATN		0x00000008
 
 
+/*-----------------------------------------------------------
+ *
+ *	Memory to memory move
+ *
+ *-----------------------------------------------------------
+ *
+ *	COPY (bytecount)
+ *	<< source_address >>
+ *	<< destination_address >>
+ *
+ *	SCR_COPY   sets the NO FLUSH option by default.
+ *	SCR_COPY_F does not set this option.
+ *
+ *	For chips which do not support this option,
+ *	sym_fw_bind_script() will remove this bit.
+ *
+ *-----------------------------------------------------------
+ */
 
 #define SCR_NO_FLUSH 0x01000000
 
 #define SCR_COPY(n) (0xc0000000 | SCR_NO_FLUSH | (n))
 #define SCR_COPY_F(n) (0xc0000000 | (n))
 
+/*-----------------------------------------------------------
+ *
+ *	Register move and binary operations
+ *
+ *-----------------------------------------------------------
+ *
+ *	SFBR_REG (reg, op, data)        reg  = SFBR op data
+ *	<< 0 >>
+ *
+ *	REG_SFBR (reg, op, data)        SFBR = reg op data
+ *	<< 0 >>
+ *
+ *	REG_REG  (reg, op, data)        reg  = reg op data
+ *	<< 0 >>
+ *
+ *-----------------------------------------------------------
+ *
+ *	On 825A, 875, 895 and 896 chips the content 
+ *	of SFBR register can be used as data (SCR_SFBR_DATA).
+ *	The 896 has additionnal IO registers starting at 
+ *	offset 0x80. Bit 7 of register offset is stored in 
+ *	bit 7 of the SCRIPTS instruction first DWORD.
+ *
+ *-----------------------------------------------------------
+ */
 
 #define SCR_REG_OFS(ofs) ((((ofs) & 0x7f) << 16ul) + ((ofs) & 0x80)) 
 
@@ -478,8 +600,24 @@ struct sym_tblsel {
 #define      SCR_ADD    0x06000000
 #define      SCR_ADDC   0x07000000
 
-#define      SCR_SFBR_DATA   (0x00800000>>8ul)	
+#define      SCR_SFBR_DATA   (0x00800000>>8ul)	/* Use SFBR as data */
 
+/*-----------------------------------------------------------
+ *
+ *	FROM_REG (reg)		  SFBR = reg
+ *	<< 0 >>
+ *
+ *	TO_REG	 (reg)		  reg  = SFBR
+ *	<< 0 >>
+ *
+ *	LOAD_REG (reg, data)	  reg  = <data>
+ *	<< 0 >>
+ *
+ *	LOAD_SFBR(data) 	  SFBR = <data>
+ *	<< 0 >>
+ *
+ *-----------------------------------------------------------
+ */
 
 #define	SCR_FROM_REG(reg) \
 	SCR_REG_SFBR(reg,SCR_OR,0)
@@ -493,6 +631,23 @@ struct sym_tblsel {
 #define SCR_LOAD_SFBR(data) \
         (SCR_REG_SFBR (gpreg, SCR_LOAD, data))
 
+/*-----------------------------------------------------------
+ *
+ *	LOAD  from memory   to register.
+ *	STORE from register to memory.
+ *
+ *	Only supported by 810A, 860, 825A, 875, 895 and 896.
+ *
+ *-----------------------------------------------------------
+ *
+ *	LOAD_ABS (LEN)
+ *	<<start address>>
+ *
+ *	LOAD_REL (LEN)        (DSA relative)
+ *	<<dsa_offset>>
+ *
+ *-----------------------------------------------------------
+ */
 
 #define SCR_REG_OFS2(ofs) (((ofs) & 0xff) << 16ul)
 #define SCR_NO_FLUSH2	0x02000000
@@ -515,6 +670,41 @@ struct sym_tblsel {
 #define SCR_STORE_REL_F(reg, n)	SCR_STORE_R(reg, SCR_DSA_REL2, n)
 
 
+/*-----------------------------------------------------------
+ *
+ *	Waiting for Disconnect or Reselect
+ *
+ *-----------------------------------------------------------
+ *
+ *	JUMP            [ | IFTRUE/IFFALSE ( ... ) ]
+ *	<<address>>
+ *
+ *	JUMPR           [ | IFTRUE/IFFALSE ( ... ) ]
+ *	<<distance>>
+ *
+ *	CALL            [ | IFTRUE/IFFALSE ( ... ) ]
+ *	<<address>>
+ *
+ *	CALLR           [ | IFTRUE/IFFALSE ( ... ) ]
+ *	<<distance>>
+ *
+ *	RETURN          [ | IFTRUE/IFFALSE ( ... ) ]
+ *	<<dummy>>
+ *
+ *	INT             [ | IFTRUE/IFFALSE ( ... ) ]
+ *	<<ident>>
+ *
+ *	INT_FLY         [ | IFTRUE/IFFALSE ( ... ) ]
+ *	<<ident>>
+ *
+ *	Conditions:
+ *	     WHEN (phase)
+ *	     IF   (phase)
+ *	     CARRYSET
+ *	     DATA (data, mask)
+ *
+ *-----------------------------------------------------------
+ */
 
 #define SCR_NO_OP       0x80000000
 #define SCR_JUMP        0x80080000
@@ -537,7 +727,16 @@ struct sym_tblsel {
 
 #define CARRYSET       (0x00200000)
 
+/*-----------------------------------------------------------
+ *
+ *	SCSI  constants.
+ *
+ *-----------------------------------------------------------
+ */
 
+/*
+ *	Messages
+ */
 
 #define	M_COMPLETE	COMMAND_COMPLETE
 #define	M_EXTENDED	EXTENDED_MESSAGE
@@ -567,11 +766,17 @@ struct sym_tblsel {
 #define	M_X_WIDE_REQ	EXTENDED_WDTR
 #define	M_X_PPR_REQ	EXTENDED_PPR
 
+/*
+ *	PPR protocol options
+ */
 #define	PPR_OPT_IU	(0x01)
 #define	PPR_OPT_DT	(0x02)
 #define	PPR_OPT_QAS	(0x04)
 #define PPR_OPT_MASK	(0x07)
 
+/*
+ *	Status
+ */
 
 #define	S_GOOD		SAM_STAT_GOOD
 #define	S_CHECK_COND	SAM_STAT_CHECK_CONDITION
@@ -584,4 +789,4 @@ struct sym_tblsel {
 #define	S_QUEUE_FULL	SAM_STAT_TASK_SET_FULL
 #define	S_ILLEGAL	(0xff)
 
-#endif 
+#endif /* defined SYM_DEFS_H */

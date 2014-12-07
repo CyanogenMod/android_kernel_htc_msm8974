@@ -23,6 +23,7 @@
 static struct clk *mxc_ahb_clk;
 static struct clk *mxc_usb_clk;
 
+/* workaround ENGcm09152 for i.MX35 */
 #define USBPHYCTRL_OTGBASE_OFFSET	0x608
 #define USBPHYCTRL_EVDO			(1 << 23)
 
@@ -46,7 +47,7 @@ int fsl_udc_clk_init(struct platform_device *pdev)
 		}
 	}
 
-	
+	/* make sure USB_CLK is running at 60 MHz +/- 1000 Hz */
 	mxc_usb_clk = clk_get(&pdev->dev, "usb");
 	if (IS_ERR(mxc_usb_clk)) {
 		dev_err(&pdev->dev, "clk_get(\"usb\") failed\n");
@@ -91,7 +92,7 @@ void fsl_udc_clk_finalize(struct platform_device *pdev)
 	if (cpu_is_mx35()) {
 		unsigned int v;
 
-		
+		/* workaround ENGcm09152 for i.MX35 */
 		if (pdata->workaround & FLS_USB2_WORKAROUND_ENGCM09152) {
 			v = readl(MX35_IO_ADDRESS(MX35_USB_BASE_ADDR +
 					USBPHYCTRL_OTGBASE_OFFSET));
@@ -101,7 +102,7 @@ void fsl_udc_clk_finalize(struct platform_device *pdev)
 		}
 	}
 
-	
+	/* ULPI transceivers don't need usbpll */
 	if (pdata->phy_mode == FSL_USB2_PHY_ULPI) {
 		clk_disable(mxc_usb_clk);
 		clk_put(mxc_usb_clk);

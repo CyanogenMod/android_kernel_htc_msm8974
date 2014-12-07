@@ -51,13 +51,22 @@
 #define KHz(x) (1000*x)
 #define MHz(x) KHz(1000*x)
 
+/*
+ * Display related stuff
+ */
 
+/* store information about an Ixxx DVO */
+/* The i830->i865 use multiple DVOs with multiple i2cs */
+/* the i915, i945 have a single sDVO i2c bus - which is different */
 #define MAX_OUTPUTS 6
+/* maximum connectors per crtcs in the mode set */
 #define INTELFB_CONN_LIMIT 4
 
 #define INTEL_I2C_BUS_DVO 1
 #define INTEL_I2C_BUS_SDVO 2
 
+/* these are outputs from the chip - integrated only
+   external chips are via DVO or SDVO output */
 #define INTEL_OUTPUT_UNUSED 0
 #define INTEL_OUTPUT_ANALOG 1
 #define INTEL_OUTPUT_DVO 2
@@ -68,6 +77,7 @@
 #define INTEL_OUTPUT_DISPLAYPORT 7
 #define INTEL_OUTPUT_EDP 8
 
+/* Intel Pipe Clone Bit */
 #define INTEL_HDMIB_CLONE_BIT 1
 #define INTEL_HDMIC_CLONE_BIT 2
 #define INTEL_HDMID_CLONE_BIT 3
@@ -91,9 +101,13 @@
 #define INTEL_DVO_CHIP_TMDS 2
 #define INTEL_DVO_CHIP_TVOUT 4
 
+/* drm_display_mode->private_flags */
 #define INTEL_MODE_PIXEL_MULTIPLIER_SHIFT (0x0)
 #define INTEL_MODE_PIXEL_MULTIPLIER_MASK (0xf << INTEL_MODE_PIXEL_MULTIPLIER_SHIFT)
 #define INTEL_MODE_DP_FORCE_6BPC (0x10)
+/* This flag must be set by the encoder's mode_fixup if it changes the crtc
+ * timings in the mode to prevent the crtc fixup from overwriting them.
+ * Currently only lvds needs that. */
 #define INTEL_MODE_CRTC_TIMINGS_SET (0x20)
 
 static inline void
@@ -142,8 +156,8 @@ struct intel_crtc {
 	enum plane plane;
 	u8 lut_r[256], lut_g[256], lut_b[256];
 	int dpms_mode;
-	bool active; 
-	bool busy; 
+	bool active; /* is the crtc on? independent of the dpms mode */
+	bool busy; /* is scanout buffer being updated frequently? */
 	struct timer_list idle_timer;
 	bool lowfreq_avail;
 	struct intel_overlay *overlay;
@@ -157,7 +171,7 @@ struct intel_crtc {
 	bool cursor_visible;
 	unsigned int bpp;
 
-	bool no_pll; 
+	bool no_pll; /* tertiary pipe for IVB */
 	bool use_pll_a;
 };
 
@@ -211,24 +225,24 @@ struct intel_plane {
 #define DIP_SPD_SCD	0xb
 
 struct dip_infoframe {
-	uint8_t type;		
-	uint8_t ver;		
-	uint8_t len;		
-	uint8_t ecc;		
-	uint8_t checksum;	
+	uint8_t type;		/* HB0 */
+	uint8_t ver;		/* HB1 */
+	uint8_t len;		/* HB2 - body len, not including checksum */
+	uint8_t ecc;		/* Header ECC */
+	uint8_t checksum;	/* PB0 */
 	union {
 		struct {
-			
+			/* PB1 - Y 6:5, A 4:4, B 3:2, S 1:0 */
 			uint8_t Y_A_B_S;
-			
+			/* PB2 - C 7:6, M 5:4, R 3:0 */
 			uint8_t C_M_R;
-			
+			/* PB3 - ITC 7:7, EC 6:4, Q 3:2, SC 1:0 */
 			uint8_t ITC_EC_Q_SC;
-			
+			/* PB4 - VIC 6:0 */
 			uint8_t VIC;
-			
+			/* PB5 - PR 3:0 */
 			uint8_t PR;
-			
+			/* PB6 to PB13 */
 			uint16_t top_bar_end;
 			uint16_t bottom_bar_start;
 			uint16_t left_bar_end;
@@ -298,6 +312,7 @@ extern void intel_edp_link_config(struct intel_encoder *, int *, int *);
 extern bool intel_encoder_is_pch_edp(struct drm_encoder *encoder);
 extern int intel_plane_init(struct drm_device *dev, enum pipe pipe);
 
+/* intel_panel.c */
 extern void intel_fixed_panel_mode(struct drm_display_mode *fixed_mode,
 				   struct drm_display_mode *adjusted_mode);
 extern void intel_pch_panel_fitting(struct drm_device *dev,
@@ -397,6 +412,7 @@ extern void intel_write_eld(struct drm_encoder *encoder,
 			    struct drm_display_mode *mode);
 extern void intel_cpt_verify_modeset(struct drm_device *dev, int pipe);
 
+/* For use by IVB LP watermark workaround in intel_sprite.c */
 extern void sandybridge_update_wm(struct drm_device *dev);
 extern void intel_update_sprite_watermarks(struct drm_device *dev, int pipe,
 					   uint32_t sprite_width,
@@ -407,4 +423,4 @@ extern int intel_sprite_set_colorkey(struct drm_device *dev, void *data,
 extern int intel_sprite_get_colorkey(struct drm_device *dev, void *data,
 				     struct drm_file *file_priv);
 
-#endif 
+#endif /* __INTEL_DRV_H__ */

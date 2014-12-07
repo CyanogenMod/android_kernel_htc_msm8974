@@ -32,6 +32,7 @@ __SYSCALL(  6, sys_ni_syscall, 0)
 #define __NR_available9				  7
 __SYSCALL(  7, sys_ni_syscall, 0)
 
+/* File Operations */
 
 #define __NR_open 				  8
 __SYSCALL(  8, sys_open, 3)
@@ -151,7 +152,7 @@ __SYSCALL( 61, sys_fcntl64, 3)
 __SYSCALL( 62, sys_ni_syscall, 0)
 #define __NR_fadvise64_64 			 63
 __SYSCALL( 63, xtensa_fadvise64_64, 6)
-#define __NR_utime				 64	
+#define __NR_utime				 64	/* glibc 2.3.3 ?? */
 __SYSCALL( 64, sys_utime, 2)
 #define __NR_utimes 				 65
 __SYSCALL( 65, sys_utimes, 2)
@@ -185,6 +186,7 @@ __SYSCALL( 78, sys_flistxattr, 3)
 #define __NR_fremovexattr 			 79
 __SYSCALL( 79, sys_fremovexattr, 2)
 
+/* File Map / Shared Memory Operations */
 
 #define __NR_mmap2 				 80
 __SYSCALL( 80, sys_mmap_pgoff, 6)
@@ -219,6 +221,7 @@ __SYSCALL( 94, sys_shmctl, 4)
 #define __NR_shmdt				 95
 __SYSCALL( 95, sys_shmdt, 4)
 
+/* Socket Operations */
 
 #define __NR_socket 				 96
 __SYSCALL( 96, sys_socket, 3)
@@ -264,6 +267,7 @@ __SYSCALL(114, sys_sendfile64, 4)
 #define __NR_available115			115
 __SYSCALL(115, sys_ni_syscall, 0)
 
+/* Process Operations */
 
 #define __NR_clone 				116
 __SYSCALL(116, xtensa_clone, 5)
@@ -338,9 +342,9 @@ __SYSCALL(150, sys_getppid, 0)
 #define __NR_getpgrp				151
 __SYSCALL(151, sys_getpgrp, 0)
 
-#define __NR_reserved152 			152	
+#define __NR_reserved152 			152	/* set_thread_area */
 __SYSCALL(152, sys_ni_syscall, 0)
-#define __NR_reserved153 			153	
+#define __NR_reserved153 			153	/* get_thread_area */
 __SYSCALL(153, sys_ni_syscall, 0)
 #define __NR_times 				154
 __SYSCALL(154, sys_times, 1)
@@ -379,6 +383,7 @@ __SYSCALL(170, sys_ni_syscall, 0)
 #define __NR_available171			171
 __SYSCALL(171, sys_ni_syscall, 0)
 
+/* File System */
 
 #define __NR_mount 				172
 __SYSCALL(172, sys_mount, 5)
@@ -413,6 +418,7 @@ __SYSCALL(186, sys_statfs64, 3)
 #define __NR_fstatfs64 				187
 __SYSCALL(187, sys_fstatfs64, 3)
 
+/* System */
 
 #define __NR_setrlimit 				188
 __SYSCALL(188, sys_setrlimit, 2)
@@ -482,6 +488,7 @@ __SYSCALL(219, sys_sched_yield, 0)
 #define __NR_available222 			222
 __SYSCALL(222, sys_ni_syscall, 0)
 
+/* Signal Handling */
 
 #define __NR_restart_syscall 			223
 __SYSCALL(223, sys_restart_syscall, 0)
@@ -502,6 +509,7 @@ __SYSCALL(230, sys_rt_sigqueueinfo, 3)
 #define __NR_rt_sigsuspend 			231
 __SYSCALL(231, xtensa_rt_sigsuspend, 2)
 
+/* Message */
 
 #define __NR_mq_open 				232
 __SYSCALL(232, sys_mq_open, 4)
@@ -518,6 +526,7 @@ __SYSCALL(237, sys_mq_getsetattr, 3)
 #define __NR_available238			238
 __SYSCALL(238, sys_ni_syscall, 0)
 
+/* IO */
 
 #define __NR_io_setup 				239
 __SYSCALL(239, sys_io_setup, 2)
@@ -538,6 +547,7 @@ __SYSCALL(246, sys_clock_getres, 2)
 #define __NR_clock_nanosleep 			247
 __SYSCALL(247, sys_clock_nanosleep, 4)
 
+/* Timer */
 
 #define __NR_timer_create 			248
 __SYSCALL(248, sys_timer_create, 3)
@@ -550,6 +560,7 @@ __SYSCALL(251, sys_timer_gettime, 2)
 #define __NR_timer_getoverrun 			252
 __SYSCALL(252, sys_timer_getoverrun, 1)
 
+/* System */
 
 #define __NR_reserved244 			253
 __SYSCALL(253, sys_ni_syscall, 0)
@@ -624,11 +635,12 @@ __SYSCALL(283, sys_ioprio_get, 3)
 __SYSCALL(284, sys_set_robust_list, 3)
 #define __NR_get_robust_list			285
 __SYSCALL(285, sys_get_robust_list, 3)
-#define __NR_reserved286			286	
+#define __NR_reserved286			286	/* sync_file_rangeX */
 __SYSCALL(286, sys_ni_syscall, 3)
 #define __NR_available287			287
 __SYSCALL(287, sys_faccessat, 0)
 
+/* Relative File Operations */
 
 #define __NR_openat				288
 __SYSCALL(288, sys_openat, 4)
@@ -665,6 +677,7 @@ __SYSCALL(303, sys_ni_syscall, 0)
 
 #define __NR_signalfd				304
 __SYSCALL(304, sys_signalfd, 3)
+/*  305 was __NR_timerfd  */
 __SYSCALL(305, sys_ni_syscall, 0)
 #define __NR_eventfd				306
 __SYSCALL(306, sys_eventfd, 1)
@@ -675,17 +688,32 @@ __SYSCALL(308, sys_setns, 2)
 
 #define __NR_syscall_count			309
 
+/*
+ * sysxtensa syscall handler
+ *
+ * int sysxtensa (SYS_XTENSA_ATOMIC_SET,     ptr, val,    unused);
+ * int sysxtensa (SYS_XTENSA_ATOMIC_ADD,     ptr, val,    unused);
+ * int sysxtensa (SYS_XTENSA_ATOMIC_EXG_ADD, ptr, val,    unused);
+ * int sysxtensa (SYS_XTENSA_ATOMIC_CMP_SWP, ptr, oldval, newval);
+ *        a2            a6                   a3    a4      a5
+ */
 
-#define SYS_XTENSA_RESERVED               0     
-#define SYS_XTENSA_ATOMIC_SET             1     
-#define SYS_XTENSA_ATOMIC_EXG_ADD         2     
-#define SYS_XTENSA_ATOMIC_ADD             3     
-#define SYS_XTENSA_ATOMIC_CMP_SWP         4     
+#define SYS_XTENSA_RESERVED               0     /* don't use this */
+#define SYS_XTENSA_ATOMIC_SET             1     /* set variable */
+#define SYS_XTENSA_ATOMIC_EXG_ADD         2     /* exchange memory and add */
+#define SYS_XTENSA_ATOMIC_ADD             3     /* add to memory */
+#define SYS_XTENSA_ATOMIC_CMP_SWP         4     /* compare and swap */
 
-#define SYS_XTENSA_COUNT                  5     
+#define SYS_XTENSA_COUNT                  5     /* count */
 
 #ifdef __KERNEL__
 
+/*
+ * "Conditional" syscalls
+ *
+ * What we want is __attribute__((weak,alias("sys_ni_syscall"))),
+ * but it doesn't work on all toolchains, so we just do it by hand
+ */
 #define cond_syscall(x) asm(".weak\t" #x "\n\t.set\t" #x ",sys_ni_syscall");
 
 #define __ARCH_WANT_STAT64
@@ -695,14 +723,17 @@ __SYSCALL(308, sys_setns, 2)
 #define __ARCH_WANT_SYS_RT_SIGSUSPEND
 #define __ARCH_WANT_SYS_GETPGRP
 
+/* 
+ * Ignore legacy system calls in the checksyscalls.sh script
+ */
 
-#define __IGNORE_fork				
+#define __IGNORE_fork				/* use clone */
 #define __IGNORE_time
-#define __IGNORE_alarm				
+#define __IGNORE_alarm				/* use setitimer */
 #define __IGNORE_pause
-#define __IGNORE_mmap				
-#define __IGNORE_vfork				
-#define __IGNORE_fadvise64			
+#define __IGNORE_mmap				/* use mmap2 */
+#define __IGNORE_vfork				/* use clone */
+#define __IGNORE_fadvise64			/* use fadvise64_64 */
 
-#endif	
-#endif	
+#endif	/* __KERNEL__ */
+#endif	/* _XTENSA_UNISTD_H */

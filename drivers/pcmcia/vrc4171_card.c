@@ -47,7 +47,7 @@ MODULE_LICENSE("GPL");
 
 #define CARD_CONTROLLER_INDEX	0x03e0
 #define CARD_CONTROLLER_DATA	0x03e1
- 
+ /* Power register */
   #define VPP_GET_VCC		0x01
   #define POWER_ENABLE		0x10
  #define CARD_VOLTAGE_SENSE	0x1f
@@ -292,7 +292,7 @@ static int pccard_get_status(struct pcmcia_socket *sock, u_int *value)
 		val |= SS_3VCARD;
 		break;
 	default:
-		
+		/* 5V only */
 		break;
 	}
 
@@ -310,7 +310,7 @@ static inline uint8_t set_Vcc_value(u_char Vcc)
 		return VCC_5V;
 	}
 
-	
+	/* Small voltage is chosen for safety. */
 	return VCC_3V;
 }
 
@@ -353,7 +353,7 @@ static int pccard_set_socket(struct pcmcia_socket *sock, socket_state_t *state)
 
         cscint = 0;
         exca_write_byte(slot, I365_CSCINT, cscint);
-	exca_read_byte(slot, I365_CSC);	
+	exca_read_byte(slot, I365_CSC);	/* clear CardStatus change */
 	if (state->csc_mask != 0)
 		cscint |= socket->csc_irq << 8;
 	if (state->flags & SS_IOCARD) {

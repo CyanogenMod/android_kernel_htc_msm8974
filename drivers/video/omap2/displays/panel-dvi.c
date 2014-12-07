@@ -277,7 +277,7 @@ static int panel_dvi_read_edid(struct omap_dss_device *dssdev,
 
 	bytes_read = l;
 
-	
+	/* if there are extensions, read second block */
 	if (len > EDID_LENGTH && edid[0x7e] > 0) {
 		l = min(EDID_LENGTH, len - EDID_LENGTH);
 

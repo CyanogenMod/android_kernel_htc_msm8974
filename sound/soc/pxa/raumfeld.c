@@ -51,7 +51,7 @@ static void raumfeld_enable_audio(bool en)
 	if (en) {
 		gpio_set_value(GPIO_MCLK_RESET, 1);
 
-		
+		/* wait some time to let the clocks become stable */
 		msleep(100);
 
 		gpio_set_value(GPIO_SPDIF_RESET, 1);
@@ -63,12 +63,13 @@ static void raumfeld_enable_audio(bool en)
 	}
 }
 
+/* CS4270 */
 static int raumfeld_cs4270_startup(struct snd_pcm_substream *substream)
 {
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
 
-	
+	/* set freq to 0 to enable all possible codec sample rates */
 	return snd_soc_dai_set_sysclk(codec_dai, 0, 0, 0);
 }
 
@@ -77,7 +78,7 @@ static void raumfeld_cs4270_shutdown(struct snd_pcm_substream *substream)
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
 
-	
+	/* set freq to 0 to enable all possible codec sample rates */
 	snd_soc_dai_set_sysclk(codec_dai, 0, 0, 0);
 }
 
@@ -115,7 +116,7 @@ static int raumfeld_cs4270_hw_params(struct snd_pcm_substream *substream,
 	      SND_SOC_DAIFMT_NB_NF |
 	      SND_SOC_DAIFMT_CBS_CFS;
 
-	
+	/* setup the CODEC DAI */
 	ret = snd_soc_dai_set_fmt(codec_dai, fmt);
 	if (ret < 0)
 		return ret;
@@ -124,7 +125,7 @@ static int raumfeld_cs4270_hw_params(struct snd_pcm_substream *substream,
 	if (ret < 0)
 		return ret;
 
-	
+	/* setup the CPU DAI */
 	ret = snd_soc_dai_set_pll(cpu_dai, 0, 0, 0, clk);
 	if (ret < 0)
 		return ret;
@@ -162,6 +163,7 @@ static int raumfeld_analog_resume(struct snd_soc_card *card)
 	return 0;
 }
 
+/* AK4104 */
 
 static int raumfeld_ak4104_hw_params(struct snd_pcm_substream *substream,
 				     struct snd_pcm_hw_params *params)
@@ -194,12 +196,12 @@ static int raumfeld_ak4104_hw_params(struct snd_pcm_substream *substream,
 
 	fmt = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF;
 
-	
+	/* setup the CODEC DAI */
 	ret = snd_soc_dai_set_fmt(codec_dai, fmt | SND_SOC_DAIFMT_CBS_CFS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* setup the CPU DAI */
 	ret = snd_soc_dai_set_pll(cpu_dai, 0, 0, 0, clk);
 	if (ret < 0)
 		return ret;
@@ -292,7 +294,7 @@ static int __init raumfeld_audio_init(void)
 
 	set_max9485_clk(MAX9485_MCLK_FREQ_122880);
 
-	
+	/* Register analog device */
 	raumfeld_audio_device = platform_device_alloc("soc-audio", 0);
 	if (!raumfeld_audio_device)
 		return -ENOMEM;
@@ -331,6 +333,7 @@ static void __exit raumfeld_audio_exit(void)
 module_init(raumfeld_audio_init);
 module_exit(raumfeld_audio_exit);
 
+/* Module information */
 MODULE_AUTHOR("Daniel Mack <daniel@caiaq.de>");
 MODULE_DESCRIPTION("Raumfeld audio SoC");
 MODULE_LICENSE("GPL");

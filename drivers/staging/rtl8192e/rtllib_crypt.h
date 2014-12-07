@@ -17,6 +17,9 @@
  * more details.
  */
 
+/*
+ * This file defines the interface to the rtllib crypto module.
+ */
 #ifndef RTLLIB_CRYPT_H
 #define RTLLIB_CRYPT_H
 

@@ -31,43 +31,54 @@
 			TPS65910_SLEEP_CONTROL_EXT_INPUT_EN3 |		\
 			TPS65911_SLEEP_CONTROL_EXT_INPUT_SLEEP)
 
+/* supported VIO voltages in milivolts */
 static const u16 VIO_VSEL_table[] = {
 	1500, 1800, 2500, 3300,
 };
 
+/* VSEL tables for TPS65910 specific LDOs and dcdc's */
 
+/* supported VDD3 voltages in milivolts */
 static const u16 VDD3_VSEL_table[] = {
 	5000,
 };
 
+/* supported VDIG1 voltages in milivolts */
 static const u16 VDIG1_VSEL_table[] = {
 	1200, 1500, 1800, 2700,
 };
 
+/* supported VDIG2 voltages in milivolts */
 static const u16 VDIG2_VSEL_table[] = {
 	1000, 1100, 1200, 1800,
 };
 
+/* supported VPLL voltages in milivolts */
 static const u16 VPLL_VSEL_table[] = {
 	1000, 1100, 1800, 2500,
 };
 
+/* supported VDAC voltages in milivolts */
 static const u16 VDAC_VSEL_table[] = {
 	1800, 2600, 2800, 2850,
 };
 
+/* supported VAUX1 voltages in milivolts */
 static const u16 VAUX1_VSEL_table[] = {
 	1800, 2500, 2800, 2850,
 };
 
+/* supported VAUX2 voltages in milivolts */
 static const u16 VAUX2_VSEL_table[] = {
 	1800, 2800, 2900, 3300,
 };
 
+/* supported VAUX33 voltages in milivolts */
 static const u16 VAUX33_VSEL_table[] = {
 	1800, 2000, 2800, 3300,
 };
 
+/* supported VMMC voltages in milivolts */
 static const u16 VMMC_VSEL_table[] = {
 	1800, 2800, 3000, 3300,
 };
@@ -587,12 +598,12 @@ static int tps65910_get_voltage_dcdc_sel(struct regulator_dev *dev)
 		break;
 	}
 
-	
+	/* multiplier 0 == 1 but 2,3 normal */
 	if (!mult)
 		mult=1;
 
 	if (sr) {
-		
+		/* normalise to valid range */
 		if (srvsel < 3)
 			srvsel = 3;
 		if (srvsel > vselmax)
@@ -600,7 +611,7 @@ static int tps65910_get_voltage_dcdc_sel(struct regulator_dev *dev)
 		return srvsel - 3;
 	} else {
 
-		
+		/* normalise to valid range*/
 		if (opvsel < 3)
 			opvsel = 3;
 		if (opvsel > vselmax)
@@ -666,7 +677,7 @@ static int tps65911_get_voltage(struct regulator_dev *dev)
 	case TPS65911_REG_LDO4:
 		value &= LDO1_SEL_MASK;
 		value >>= LDO_SEL_SHIFT;
-		
+		/* The first 5 values of the selector correspond to 1V */
 		if (value < 5)
 			value = 0;
 		else
@@ -681,7 +692,7 @@ static int tps65911_get_voltage(struct regulator_dev *dev)
 	case TPS65911_REG_LDO8:
 		value &= LDO3_SEL_MASK;
 		value >>= LDO_SEL_SHIFT;
-		
+		/* The first 3 values of the selector correspond to 1V */
 		if (value < 3)
 			value = 0;
 		else
@@ -846,7 +857,7 @@ static int tps65911_list_voltage(struct regulator_dev *dev, unsigned selector)
 	case TPS65911_REG_LDO1:
 	case TPS65911_REG_LDO2:
 	case TPS65911_REG_LDO4:
-		
+		/* The first 5 values of the selector correspond to 1V */
 		if (selector < 5)
 			selector = 0;
 		else
@@ -859,7 +870,7 @@ static int tps65911_list_voltage(struct regulator_dev *dev, unsigned selector)
 	case TPS65911_REG_LDO6:
 	case TPS65911_REG_LDO7:
 	case TPS65911_REG_LDO8:
-		
+		/* The first 3 values of the selector correspond to 1V */
 		if (selector < 3)
 			selector = 0;
 		else
@@ -890,7 +901,7 @@ static int tps65910_set_voltage_dcdc_time_sel(struct regulator_dev *dev,
 	if (new_volt < 0)
 		return new_volt;
 
-	
+	/* VDD1 and VDD2 are 12.5mV/us, VDDCTRL is 100mV/20us */
 	switch (id) {
 	case TPS65910_REG_VDD1:
 	case TPS65910_REG_VDD2:
@@ -901,6 +912,7 @@ static int tps65910_set_voltage_dcdc_time_sel(struct regulator_dev *dev,
 	return -EINVAL;
 }
 
+/* Regulator ops (except VRTC) */
 static struct regulator_ops tps65910_ops_dcdc = {
 	.is_enabled		= tps65910_is_enabled,
 	.enable			= tps65910_enable,
@@ -957,6 +969,10 @@ static int tps65910_set_ext_sleep_config(struct tps65910_reg *pmic,
 	u8 bit_pos = (1 << pmic->ext_sleep_control[id] & 0xFF);
 	int ret;
 
+	/*
+	 * Regulator can not be control from multiple external input EN1, EN2
+	 * and EN3 together.
+	 */
 	if (ext_sleep_config & EXT_SLEEP_CONTROL) {
 		int en_count;
 		en_count = ((ext_sleep_config &
@@ -976,7 +992,7 @@ static int tps65910_set_ext_sleep_config(struct tps65910_reg *pmic,
 
 	pmic->board_ext_control[id] = ext_sleep_config;
 
-	
+	/* External EN1 control */
 	if (ext_sleep_config & TPS65910_SLEEP_CONTROL_EXT_INPUT_EN1)
 		ret = tps65910_set_bits(mfd,
 				TPS65910_EN1_LDO_ASS + regoffs, bit_pos);
@@ -989,7 +1005,7 @@ static int tps65910_set_ext_sleep_config(struct tps65910_reg *pmic,
 		return ret;
 	}
 
-	
+	/* External EN2 control */
 	if (ext_sleep_config & TPS65910_SLEEP_CONTROL_EXT_INPUT_EN2)
 		ret = tps65910_set_bits(mfd,
 				TPS65910_EN2_LDO_ASS + regoffs, bit_pos);
@@ -1002,7 +1018,7 @@ static int tps65910_set_ext_sleep_config(struct tps65910_reg *pmic,
 		return ret;
 	}
 
-	
+	/* External EN3 control for TPS65910 LDO only */
 	if ((tps65910_chip_id(mfd) == TPS65910) &&
 			(id >= TPS65910_REG_VDIG1)) {
 		if (ext_sleep_config & TPS65910_SLEEP_CONTROL_EXT_INPUT_EN3)
@@ -1018,9 +1034,9 @@ static int tps65910_set_ext_sleep_config(struct tps65910_reg *pmic,
 		}
 	}
 
-	
+	/* Return if no external control is selected */
 	if (!(ext_sleep_config & EXT_SLEEP_CONTROL)) {
-		
+		/* Clear all sleep controls */
 		ret = tps65910_clear_bits(mfd,
 			TPS65910_SLEEP_KEEP_LDO_ON + regoffs, bit_pos);
 		if (!ret)
@@ -1032,6 +1048,11 @@ static int tps65910_set_ext_sleep_config(struct tps65910_reg *pmic,
 		return ret;
 	}
 
+	/*
+	 * For regulator that has separate operational and sleep register make
+	 * sure that operational is used and clear sleep register to turn
+	 * regulator off when external control is inactive
+	 */
 	if ((id == TPS65910_REG_VDD1) ||
 		(id == TPS65910_REG_VDD2) ||
 			((id == TPS65911_REG_VDDCTRL) &&
@@ -1095,7 +1116,7 @@ static __devinit int tps65910_probe(struct platform_device *pdev)
 	pmic->mfd = tps65910;
 	platform_set_drvdata(pdev, pmic);
 
-	
+	/* Give control of all register to control port */
 	tps65910_set_bits(pmic->mfd, TPS65910_DEVCTRL,
 				DEVCTRL_SR_CTL_I2C_SEL_MASK);
 
@@ -1144,10 +1165,12 @@ static __devinit int tps65910_probe(struct platform_device *pdev)
 
 		reg_data = pmic_plat_data->tps65910_pmic_init_data[i];
 
+		/* Regulator API handles empty constraints but not NULL
+		 * constraints */
 		if (!reg_data)
 			continue;
 
-		
+		/* Register the regulators */
 		pmic->info[i] = info;
 
 		pmic->desc[i].name = info->name;
@@ -1172,6 +1195,10 @@ static __devinit int tps65910_probe(struct platform_device *pdev)
 
 		err = tps65910_set_ext_sleep_config(pmic, i,
 				pmic_plat_data->regulator_ext_sleep_control[i]);
+		/*
+		 * Failing on regulator for configuring externally control
+		 * is not a serious issue, just throw warning.
+		 */
 		if (err < 0)
 			dev_warn(tps65910->dev,
 				"Failed to initialise ext control config\n");
@@ -1189,7 +1216,7 @@ static __devinit int tps65910_probe(struct platform_device *pdev)
 			goto err_unregister_regulator;
 		}
 
-		
+		/* Save regulator for cleanup */
 		pmic->rdev[i] = rdev;
 	}
 	return 0;
@@ -1227,6 +1254,19 @@ static void tps65910_shutdown(struct platform_device *pdev)
 	struct tps65910_reg *pmic = platform_get_drvdata(pdev);
 	int i;
 
+	/*
+	 * Before bootloader jumps to kernel, it makes sure that required
+	 * external control signals are in desired state so that given rails
+	 * can be configure accordingly.
+	 * If rails are configured to be controlled from external control
+	 * then before shutting down/rebooting the system, the external
+	 * control configuration need to be remove from the rails so that
+	 * its output will be available as per register programming even
+	 * if external controls are removed. This is require when the POR
+	 * value of the control signals are not in active state and before
+	 * bootloader initializes it, the system requires the rail output
+	 * to be active for booting.
+	 */
 	for (i = 0; i < pmic->num_regulators; i++) {
 		int err;
 		if (!pmic->rdev[i])

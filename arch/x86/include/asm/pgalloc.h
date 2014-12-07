@@ -2,7 +2,7 @@
 #define _ASM_X86_PGALLOC_H
 
 #include <linux/threads.h>
-#include <linux/mm.h>		
+#include <linux/mm.h>		/* for struct page */
 #include <linux/pagemap.h>
 
 static inline int  __paravirt_pgd_alloc(struct mm_struct *mm) { return 0; }
@@ -22,14 +22,22 @@ static inline void paravirt_release_pmd(unsigned long pfn) {}
 static inline void paravirt_release_pud(unsigned long pfn) {}
 #endif
 
+/*
+ * Flags to use when allocating a user page table page.
+ */
 extern gfp_t __userpte_alloc_gfp;
 
+/*
+ * Allocate and free page tables.
+ */
 extern pgd_t *pgd_alloc(struct mm_struct *);
 extern void pgd_free(struct mm_struct *mm, pgd_t *pgd);
 
 extern pte_t *pte_alloc_one_kernel(struct mm_struct *, unsigned long);
 extern pgtable_t pte_alloc_one(struct mm_struct *, unsigned long);
 
+/* Should really implement gc for free page table pages. This could be
+   done with a reference count in struct page. */
 
 static inline void pte_free_kernel(struct mm_struct *mm, pte_t *pte)
 {
@@ -91,13 +99,13 @@ static inline void __pmd_free_tlb(struct mmu_gather *tlb, pmd_t *pmd,
 
 #ifdef CONFIG_X86_PAE
 extern void pud_populate(struct mm_struct *mm, pud_t *pudp, pmd_t *pmd);
-#else	
+#else	/* !CONFIG_X86_PAE */
 static inline void pud_populate(struct mm_struct *mm, pud_t *pud, pmd_t *pmd)
 {
 	paravirt_alloc_pmd(mm, __pa(pmd) >> PAGE_SHIFT);
 	set_pud(pud, __pud(_PAGE_TABLE | __pa(pmd)));
 }
-#endif	
+#endif	/* CONFIG_X86_PAE */
 
 #if PAGETABLE_LEVELS > 3
 static inline void pgd_populate(struct mm_struct *mm, pgd_t *pgd, pud_t *pud)
@@ -125,7 +133,7 @@ static inline void __pud_free_tlb(struct mmu_gather *tlb, pud_t *pud,
 	___pud_free_tlb(tlb, pud);
 }
 
-#endif	
-#endif	
+#endif	/* PAGETABLE_LEVELS > 3 */
+#endif	/* PAGETABLE_LEVELS > 2 */
 
-#endif 
+#endif /* _ASM_X86_PGALLOC_H */

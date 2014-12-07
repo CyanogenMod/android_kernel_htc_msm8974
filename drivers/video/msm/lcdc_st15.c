@@ -40,6 +40,7 @@ struct sii9022_i2c_addr_data{
 	u8 data;
 };
 
+/* video mode data */
 static u8 video_mode_data[] = {
 	0x00,
 	0xF9, 0x1C, 0x70, 0x17, 0x72, 0x06, 0xEE, 0x02,
@@ -50,6 +51,7 @@ static u8 avi_io_format[] = {
 	0x00, 0x00,
 };
 
+/* power state */
 static struct sii9022_i2c_addr_data regset0[] = {
 	{ 0x60, 0x04 },
 	{ 0x63, 0x00 },
@@ -62,6 +64,7 @@ static u8 video_infoframe[] = {
 	0xE9, 0x02, 0x04, 0x01, 0x04, 0x06,
 };
 
+/* configure audio */
 static struct sii9022_i2c_addr_data regset1[] = {
 	{ 0x26, 0x90 },
 	{ 0x20, 0x90 },
@@ -74,12 +77,14 @@ static struct sii9022_i2c_addr_data regset1[] = {
 	{ 0xBE, 0x02 },
 };
 
+/* enable audio */
 static u8 misc_infoframe[] = {
 	0xBF,
 	0xC2, 0x84, 0x01, 0x0A, 0x6F, 0x02, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
+/* set HDMI, active */
 static struct sii9022_i2c_addr_data regset2[] = {
 	{ 0x1A, 0x01 },
 	{ 0x3D, 0x00 },
@@ -129,7 +134,7 @@ static void sii9022_work_f(struct work_struct *work)
 	if (isr == 0)
 		return;
 
-	
+	/* reset any set bits */
 	i2c_smbus_write_byte_data(sii9022_i2c_client, SII9022_ISR, isr);
 	dd->hdmi_attached = isr & SII9022_ISR_RXS_STATUS;
 	if (dd->pd->cable_detect)
@@ -250,6 +255,10 @@ static int lcdc_sii9022_panel_on(struct platform_device *pdev)
 	}
 	if (dd->pd->irq)
 		enable_irq(dd->pd->irq);
+	/* Don't return the value from hdmi_sii_enable().
+	 * It may fail on some ST1.5s, but we must return 0 from this
+	 * function in order for the on-board display to turn on.
+	 */
 	return 0;
 }
 
@@ -384,8 +393,8 @@ static int __init lcdc_st15_init(void)
 	pinfo->lcdc.v_back_porch = 25;
 	pinfo->lcdc.v_front_porch = 1;
 	pinfo->lcdc.v_pulse_width = 7;
-	pinfo->lcdc.border_clr = 0;      
-	pinfo->lcdc.underflow_clr = 0xff;        
+	pinfo->lcdc.border_clr = 0;      /* blk */
+	pinfo->lcdc.underflow_clr = 0xff;        /* blue */
 	pinfo->lcdc.hsync_skew = 0;
 
 	ret = i2c_add_driver(&hdmi_sii_i2c_driver);

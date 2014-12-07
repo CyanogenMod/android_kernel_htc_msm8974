@@ -113,7 +113,7 @@ void cifs_fscache_reset_inode_cookie(struct inode *inode)
 	struct fscache_cookie *old = cifsi->fscache;
 
 	if (cifsi->fscache) {
-		
+		/* retire the current fscache cache and get a new one */
 		fscache_relinquish_cookie(cifsi->fscache, 1);
 
 		cifsi->fscache = fscache_acquire_cookie(
@@ -149,6 +149,9 @@ static void cifs_readpage_from_fscache_complete(struct page *page, void *ctx,
 	unlock_page(page);
 }
 
+/*
+ * Retrieve a page from FS-Cache
+ */
 int __cifs_readpage_from_fscache(struct inode *inode, struct page *page)
 {
 	int ret;
@@ -161,11 +164,11 @@ int __cifs_readpage_from_fscache(struct inode *inode, struct page *page)
 					 GFP_KERNEL);
 	switch (ret) {
 
-	case 0: 
+	case 0: /* page found in fscache, read submitted */
 		cFYI(1, "%s: submitted", __func__);
 		return ret;
-	case -ENOBUFS:	
-	case -ENODATA:	
+	case -ENOBUFS:	/* page won't be cached */
+	case -ENODATA:	/* page not in cache */
 		cFYI(1, "%s: %d", __func__, ret);
 		return 1;
 
@@ -175,6 +178,9 @@ int __cifs_readpage_from_fscache(struct inode *inode, struct page *page)
 	return ret;
 }
 
+/*
+ * Retrieve a set of pages from FS-Cache
+ */
 int __cifs_readpages_from_fscache(struct inode *inode,
 				struct address_space *mapping,
 				struct list_head *pages,
@@ -190,12 +196,12 @@ int __cifs_readpages_from_fscache(struct inode *inode,
 					  NULL,
 					  mapping_gfp_mask(mapping));
 	switch (ret) {
-	case 0:	
+	case 0:	/* read submitted to the cache for all pages */
 		cFYI(1, "%s: submitted", __func__);
 		return ret;
 
-	case -ENOBUFS:	
-	case -ENODATA:	
+	case -ENOBUFS:	/* some pages are not cached and can't be */
+	case -ENODATA:	/* some pages are not cached */
 		cFYI(1, "%s: no page", __func__);
 		return 1;
 

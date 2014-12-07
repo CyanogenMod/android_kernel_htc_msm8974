@@ -28,6 +28,7 @@ struct mschunks_map {
 
 extern struct mschunks_map mschunks_map;
 
+/* Chunks are 256 KB */
 #define MSCHUNKS_CHUNK_SHIFT	(18)
 #define MSCHUNKS_CHUNK_SIZE	(1UL << MSCHUNKS_CHUNK_SHIFT)
 #define MSCHUNKS_OFFSET_MASK	(MSCHUNKS_CHUNK_SIZE - 1)
@@ -47,8 +48,9 @@ static inline unsigned long phys_to_abs(unsigned long pa)
 	return pa;
 }
 
+/* Convenience macros */
 #define virt_to_abs(va) phys_to_abs(__pa(va))
 #define abs_to_virt(aa) __va(aa)
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_POWERPC_ABS_ADDR_H */

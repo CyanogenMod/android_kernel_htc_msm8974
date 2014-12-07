@@ -279,7 +279,7 @@ static int __devinit tle62x0_probe(struct spi_device *spi)
 		}
 	}
 
-	
+	/* tle62x0_write(st); */
 	spi_set_drvdata(spi, st);
 	return 0;
 

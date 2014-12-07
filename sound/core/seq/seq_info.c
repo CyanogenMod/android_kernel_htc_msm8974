@@ -51,6 +51,7 @@ create_info_entry(char *name, void (*read)(struct snd_info_entry *,
 	return entry;
 }
 
+/* create all our /proc entries */
 int __init snd_seq_info_init(void)
 {
 	queues_entry = create_info_entry("queues",

@@ -23,7 +23,7 @@
 
 static void pseries_kexec_cpu_down(int crash_shutdown, int secondary)
 {
-	
+	/* Don't risk a hypervisor call if we're crashing */
 	if (firmware_has_feature(FW_FEATURE_SPLPAR) && !crash_shutdown) {
 		int ret;
 		int cpu = smp_processor_id();

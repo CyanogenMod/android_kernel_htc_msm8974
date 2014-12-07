@@ -37,9 +37,11 @@ mpihelp_mul_1(mpi_ptr_t res_ptr, mpi_ptr_t s1_ptr, mpi_size_t s1_size,
 	mpi_size_t j;
 	mpi_limb_t prod_high, prod_low;
 
+	/* The loop counter and index J goes from -S1_SIZE to -1.  This way
+	 * the loop becomes faster.  */
 	j = -s1_size;
 
-	
+	/* Offset the base pointers to compensate for the negative indices.  */
 	s1_ptr -= j;
 	res_ptr -= j;
 

@@ -25,6 +25,13 @@
 #include "nouveau_drv.h"
 #include "nouveau_hw.h"
 
+/****************************************************************************\
+*                                                                            *
+* The video arbitration routines calculate some "magic" numbers.  Fixes      *
+* the snow seen when accessing the framebuffer without it.                   *
+* It just works (I hope).                                                    *
+*                                                                            *
+\****************************************************************************/
 
 struct nv_fifo_info {
 	int lwm;
@@ -108,76 +115,80 @@ nv10_calc_arb(struct nv_fifo_info *fifo, struct nv_sim_state *arb)
 	int fill_lat, extra_lat;
 	int max_burst_o, max_burst_l;
 	int fifo_len, min_lwm, max_lwm;
-	const int burst_lat = 80; 
+	const int burst_lat = 80; /* Maximum allowable latency due
+				   * to the CRTC FIFO burst. (ns) */
 
 	pclk_freq = arb->pclk_khz;
 	nvclk_freq = arb->nvclk_khz;
 	mclk_freq = arb->mclk_khz;
 
-	fill_rate = mclk_freq * arb->memory_width / 8; 
-	drain_rate = pclk_freq * arb->bpp / 8; 
+	fill_rate = mclk_freq * arb->memory_width / 8; /* kB/s */
+	drain_rate = pclk_freq * arb->bpp / 8; /* kB/s */
 
-	fifo_len = arb->two_heads ? 1536 : 1024; 
+	fifo_len = arb->two_heads ? 1536 : 1024; /* B */
 
-	
+	/* Fixed FIFO refill latency. */
 
-	pclks = 4;	
+	pclks = 4;	/* lwm detect. */
 
-	nvclks = 3	
-		+ 2	
-		+ 1	
-		+ 1	
-		+ 1	
-		+ 1;	
+	nvclks = 3	/* lwm -> sync. */
+		+ 2	/* fbi bus cycles (1 req + 1 busy) */
+		+ 1	/* 2 edge sync.  may be very close to edge so
+			 * just put one. */
+		+ 1	/* fbi_d_rdv_n */
+		+ 1	/* Fbi_d_rdata */
+		+ 1;	/* crtfifo load */
 
-	mclks = 1	
-		+ 1	
-		+ 5	
-		+ 2	
-		+ 2	
-		+ 7;	
+	mclks = 1	/* 2 edge sync.  may be very close to edge so
+			 * just put one. */
+		+ 1	/* arb_hp_req */
+		+ 5	/* tiling pipeline */
+		+ 2	/* latency fifo */
+		+ 2	/* memory request to fbio block */
+		+ 7;	/* data returned from fbio block */
 
-	
+	/* Need to accumulate 256 bits for read */
 	mclks += (arb->memory_type == 0 ? 2 : 1)
 		* arb->memory_width / 32;
 
-	fill_lat = mclks * 1000 * 1000 / mclk_freq   
-		+ nvclks * 1000 * 1000 / nvclk_freq  
-		+ pclks * 1000 * 1000 / pclk_freq;   
+	fill_lat = mclks * 1000 * 1000 / mclk_freq   /* minimum mclk latency */
+		+ nvclks * 1000 * 1000 / nvclk_freq  /* nvclk latency */
+		+ pclks * 1000 * 1000 / pclk_freq;   /* pclk latency */
 
-	
+	/* Conditional FIFO refill latency. */
 
-	xclks = 2 * arb->mem_page_miss + mclks 
-		+ 2 * arb->mem_page_miss       
-		+ (arb->bpp == 32 ? 8 : 4);    
+	xclks = 2 * arb->mem_page_miss + mclks /* Extra latency due to
+						* the overlay. */
+		+ 2 * arb->mem_page_miss       /* Extra pagemiss latency. */
+		+ (arb->bpp == 32 ? 8 : 4);    /* Margin of error. */
 
 	extra_lat = xclks * 1000 * 1000 / mclk_freq;
 
 	if (arb->two_heads)
-		
+		/* Account for another CRTC. */
 		extra_lat += fill_lat + extra_lat + burst_lat;
 
-	
+	/* FIFO burst */
 
-	
+	/* Max burst not leading to overflows. */
 	max_burst_o = (1 + fifo_len - extra_lat * drain_rate / (1000 * 1000))
 		* (fill_rate / 1000) / ((fill_rate - drain_rate) / 1000);
 	fifo->burst = min(max_burst_o, 1024);
 
-	
+	/* Max burst value with an acceptable latency. */
 	max_burst_l = burst_lat * fill_rate / (1000 * 1000);
 	fifo->burst = min(max_burst_l, fifo->burst);
 
 	fifo->burst = rounddown_pow_of_two(fifo->burst);
 
-	
+	/* FIFO low watermark */
 
 	min_lwm = (fill_lat + extra_lat) * drain_rate / (1000 * 1000) + 1;
 	max_lwm = fifo_len - fifo->burst
 		+ fill_lat * drain_rate / (1000 * 1000)
 		+ fifo->burst * drain_rate / fill_rate;
 
-	fifo->lwm = min_lwm + 10 * (max_lwm - min_lwm) / 100; 
+	fifo->lwm = min_lwm + 10 * (max_lwm - min_lwm) / 100; /* Empirical. */
 }
 
 static void
@@ -196,8 +207,8 @@ nv04_update_arb(struct drm_device *dev, int VClk, int bpp,
 	sim_data.nvclk_khz = NVClk;
 	sim_data.bpp = bpp;
 	sim_data.two_heads = nv_two_heads(dev);
-	if ((dev->pci_device & 0xffff) == 0x01a0  ||
-	    (dev->pci_device & 0xffff) == 0x01f0 ) {
+	if ((dev->pci_device & 0xffff) == 0x01a0 /*CHIPSET_NFORCE*/ ||
+	    (dev->pci_device & 0xffff) == 0x01f0 /*CHIPSET_NFORCE2*/) {
 		uint32_t type;
 
 		pci_read_config_dword(pci_get_bus_and_slot(0, 1), 0x7c, &type);
@@ -242,8 +253,8 @@ nouveau_calc_arb(struct drm_device *dev, int vclk, int bpp, int *burst, int *lwm
 
 	if (dev_priv->card_type < NV_20)
 		nv04_update_arb(dev, vclk, bpp, burst, lwm);
-	else if ((dev->pci_device & 0xfff0) == 0x0240  ||
-		 (dev->pci_device & 0xfff0) == 0x03d0 ) {
+	else if ((dev->pci_device & 0xfff0) == 0x0240 /*CHIPSET_C51*/ ||
+		 (dev->pci_device & 0xfff0) == 0x03d0 /*CHIPSET_C512*/) {
 		*burst = 128;
 		*lwm = 0x0480;
 	} else
@@ -254,6 +265,14 @@ static int
 getMNP_single(struct drm_device *dev, struct pll_lims *pll_lim, int clk,
 	      struct nouveau_pll_vals *bestpv)
 {
+	/* Find M, N and P for a single stage PLL
+	 *
+	 * Note that some bioses (NV3x) have lookup tables of precomputed MNP
+	 * values, but we're too lazy to use those atm
+	 *
+	 * "clk" parameter in kHz
+	 * returns calculated clock
+	 */
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 	int cv = dev_priv->vbios.chip_version;
 	int minvco = pll_lim->vco1.minfreq, maxvco = pll_lim->vco1.maxfreq;
@@ -269,8 +288,8 @@ getMNP_single(struct drm_device *dev, struct pll_lims *pll_lim, int clk,
 	int delta, bestdelta = INT_MAX;
 	int bestclk = 0;
 
-	
-	
+	/* this division verified for nv20, nv18, nv28 (Haiku), and nv34 */
+	/* possibly correlated with introduction of 27MHz crystal */
 	if (dev_priv->card_type < NV_50) {
 		if (cv < 0x17 || cv == 0x1a || cv == 0x20) {
 			if (clk > 250000)
@@ -293,10 +312,10 @@ getMNP_single(struct drm_device *dev, struct pll_lims *pll_lim, int clk,
 		maxvco = minvco * 2;
 	}
 
-	if (clk + clk/200 > maxvco)	
+	if (clk + clk/200 > maxvco)	/* +0.5% */
 		maxvco = clk + clk/200;
 
-	
+	/* NV34 goes maxlog2P->0, NV20 goes 0->maxlog2P */
 	for (thisP = minP; thisP <= maxP; thisP++) {
 		P = pll_lim->max_p ? thisP : (1 << thisP);
 		clkP = clk * P;
@@ -312,7 +331,7 @@ getMNP_single(struct drm_device *dev, struct pll_lims *pll_lim, int clk,
 			if (crystal/M > maxU)
 				continue;
 
-			
+			/* add crystal/2 to round better */
 			N = (clkP * M + crystal/2) / crystal;
 
 			if (N < minN)
@@ -320,16 +339,19 @@ getMNP_single(struct drm_device *dev, struct pll_lims *pll_lim, int clk,
 			if (N > maxN)
 				break;
 
-			
+			/* more rounding additions */
 			calcclk = ((N * crystal + P/2) / P + M/2) / M;
 			delta = abs(calcclk - clk);
+			/* we do an exhaustive search rather than terminating
+			 * on an optimality condition...
+			 */
 			if (delta < bestdelta) {
 				bestdelta = delta;
 				bestclk = calcclk;
 				bestpv->N1 = N;
 				bestpv->M1 = M;
 				bestpv->log2P = thisP;
-				if (delta == 0)	
+				if (delta == 0)	/* except this one */
 					return bestclk;
 			}
 		}
@@ -342,6 +364,14 @@ static int
 getMNP_double(struct drm_device *dev, struct pll_lims *pll_lim, int clk,
 	      struct nouveau_pll_vals *bestpv)
 {
+	/* Find M, N and P for a two stage PLL
+	 *
+	 * Note that some bioses (NV30+) have lookup tables of precomputed MNP
+	 * values, but we're too lazy to use those atm
+	 *
+	 * "clk" parameter in kHz
+	 * returns calculated clock
+	 */
 	struct drm_nouveau_private *dev_priv = dev->dev_private;
 	int chip_version = dev_priv->vbios.chip_version;
 	int minvco1 = pll_lim->vco1.minfreq, maxvco1 = pll_lim->vco1.maxfreq;
@@ -365,7 +395,7 @@ getMNP_double(struct drm_device *dev, struct pll_lims *pll_lim, int clk,
 		;
 	clkP = clk << log2P;
 
-	if (maxvco2 < clk + clk/200)	
+	if (maxvco2 < clk + clk/200)	/* +0.5% */
 		maxvco2 = clk + clk/200;
 
 	for (M1 = minM1; M1 <= maxM1; M1++) {
@@ -387,7 +417,7 @@ getMNP_double(struct drm_device *dev, struct pll_lims *pll_lim, int clk,
 				if (calcclk1/M2 > maxU2)
 					continue;
 
-				
+				/* add calcclk1/2 to round better */
 				N2 = (clkP * M2 + calcclk1/2) / calcclk1;
 				if (N2 < minN2)
 					continue;
@@ -409,6 +439,9 @@ getMNP_double(struct drm_device *dev, struct pll_lims *pll_lim, int clk,
 
 				calcclkout = calcclk2 >> log2P;
 				delta = abs(calcclkout - clk);
+				/* we do an exhaustive search rather than terminating
+				 * on an optimality condition...
+				 */
 				if (delta < bestdelta) {
 					bestdelta = delta;
 					bestclk = calcclkout;
@@ -417,7 +450,7 @@ getMNP_double(struct drm_device *dev, struct pll_lims *pll_lim, int clk,
 					bestpv->N2 = N2;
 					bestpv->M2 = M2;
 					bestpv->log2P = log2P;
-					if (delta == 0)	
+					if (delta == 0)	/* except this one */
 						return bestclk;
 				}
 			}

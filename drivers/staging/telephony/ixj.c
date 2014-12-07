@@ -253,9 +253,9 @@
 
 #include <linux/init.h>
 #include <linux/sched.h>
-#include <linux/kernel.h>	
-#include <linux/fs.h>		
-#include <linux/errno.h>	
+#include <linux/kernel.h>	/* printk() */
+#include <linux/fs.h>		/* everything... */
+#include <linux/errno.h>	/* error codes */
 #include <linux/slab.h>
 #include <linux/mutex.h>
 #include <linux/mm.h>
@@ -291,12 +291,32 @@ static DEFINE_PCI_DEVICE_TABLE(ixj_pci_tbl) = {
 };
 MODULE_DEVICE_TABLE(pci, ixj_pci_tbl);
 
+/************************************************************************
+*
+* ixjdebug meanings are now bit mapped instead of level based
+* Values can be or'ed together to turn on multiple messages
+*
+* bit  0 (0x0001) = any failure
+* bit  1 (0x0002) = general messages
+* bit  2 (0x0004) = POTS ringing related
+* bit  3 (0x0008) = PSTN events
+* bit  4 (0x0010) = PSTN Cadence state details
+* bit  5 (0x0020) = Tone detection triggers
+* bit  6 (0x0040) = Tone detection cadence details
+* bit  7 (0x0080) = ioctl tracking
+* bit  8 (0x0100) = signal tracking
+* bit  9 (0x0200) = CallerID generation details
+*
+************************************************************************/
 
 #ifdef IXJ_DYN_ALLOC
 
 static IXJ *ixj[IXJMAX];
 #define	get_ixj(b)	ixj[(b)]
 
+/*
+ *	Allocate a free IXJ device
+ */
  
 static IXJ *ixj_alloc()
 {
@@ -343,6 +363,9 @@ static void ixj_fsk_alloc(IXJ *j)
 static IXJ ixj[IXJMAX];
 #define	get_ixj(b)	(&ixj[(b)])
 
+/*
+ *	Allocate a free IXJ device
+ */
  
 static IXJ *ixj_alloc(void)
 {
@@ -373,6 +396,12 @@ static int ixj_convert_loaded;
 
 static int ixj_WriteDSPCommand(unsigned short, IXJ *j);
 
+/************************************************************************
+*
+* These are function definitions to allow external modules to register
+* enhanced functionality call backs.
+*
+************************************************************************/
 
 static int Stub(IXJ * J, unsigned long arg)
 {
@@ -432,6 +461,7 @@ static int ixj_init_filter_raw(IXJ *j, IXJ_FILTER_RAW * jfr);
 static int ixj_init_tone(IXJ *j, IXJ_TONE * ti);
 static int ixj_build_cadence(IXJ *j, IXJ_CADENCE __user * cp);
 static int ixj_build_filter_cadence(IXJ *j, IXJ_FILTER_CADENCE __user * cp);
+/* Serial Control Interface funtions */
 static int SCI_Control(IXJ *j, int control);
 static int SCI_Prepare(IXJ *j);
 static int SCI_WaitHighSCI(IXJ *j);
@@ -446,6 +476,19 @@ static int set_play_codec(IXJ *j, int rate);
 static void set_rec_depth(IXJ *j, int depth);
 static int ixj_mixer(long val, IXJ *j);
 
+/************************************************************************
+CT8020/CT8021 Host Programmers Model
+Host address	Function					Access
+DSPbase +
+0-1		Aux Software Status Register (reserved)		Read Only
+2-3		Software Status Register			Read Only
+4-5		Aux Software Control Register (reserved)	Read Write
+6-7		Software Control Register			Read Write
+8-9		Hardware Status Register			Read Only
+A-B		Hardware Control Register			Read Write
+C-D Host Transmit (Write) Data Buffer Access Port (buffer input)Write Only
+E-F Host Receive (Read) Data Buffer Access Port (buffer input)	Read Only
+************************************************************************/
 
 static inline void ixj_read_HSR(IXJ *j)
 {
@@ -503,7 +546,7 @@ static int set_play_volume_linear(IXJ *j, int volume)
 		return -1;
 	}
 
-	
+	/* This should normalize the perceived volumes between the different cards caused by differences in the hardware */
 	switch (j->cardtype) {
 	case QTI_PHONEJACK:
 		dspplaymax = 0x380;
@@ -551,7 +594,7 @@ static int get_play_volume_linear(IXJ *j)
 {
 	int volume, newvolume, dspplaymax;
 
-	
+	/* This should normalize the perceived volumes between the different cards caused by differences in the hardware */
 	switch (j->cardtype) {
 	case QTI_PHONEJACK:
 		dspplaymax = 0x380;
@@ -625,7 +668,7 @@ static bool SLIC_SetState(BYTE byState, IXJ *j)
 					fRetVal = true;
 				}
 				break;
-			case PLD_SLIC_STATE_OHT:	
+			case PLD_SLIC_STATE_OHT:	/* On-hook transmit */
 
 			case PLD_SLIC_STATE_STANDBY:
 			case PLD_SLIC_STATE_ACTIVE:
@@ -637,9 +680,9 @@ static bool SLIC_SetState(BYTE byState, IXJ *j)
 				j->pslic.bits.ring0 = j->pslic.bits.ring1 = 0;
 				fRetVal = true;
 				break;
-			case PLD_SLIC_STATE_APR:	
+			case PLD_SLIC_STATE_APR:	/* Active polarity reversal */
 
-			case PLD_SLIC_STATE_OHTPR:	
+			case PLD_SLIC_STATE_OHTPR:	/* OHT polarity reversal */
 
 			default:
 				fRetVal = false;
@@ -651,7 +694,7 @@ static bool SLIC_SetState(BYTE byState, IXJ *j)
 			ixj_PCcontrol_wait(j);
 		}
 	} else {
-		
+		/* Set the C1, C2, C3 & B2EN signals. */
 		switch (byState) {
 		case PLD_SLIC_STATE_OC:
 			j->pld_slicw.bits.c1 = 0;
@@ -677,7 +720,7 @@ static bool SLIC_SetState(BYTE byState, IXJ *j)
 			outb_p(j->pld_slicw.byte, j->XILINXbase + 0x01);
 			fRetVal = true;
 			break;
-		case PLD_SLIC_STATE_OHT:	
+		case PLD_SLIC_STATE_OHT:	/* On-hook transmit */
 
 			j->pld_slicw.bits.c1 = 1;
 			j->pld_slicw.bits.c2 = 1;
@@ -702,7 +745,7 @@ static bool SLIC_SetState(BYTE byState, IXJ *j)
 			outb_p(j->pld_slicw.byte, j->XILINXbase + 0x01);
 			fRetVal = true;
 			break;
-		case PLD_SLIC_STATE_APR:	
+		case PLD_SLIC_STATE_APR:	/* Active polarity reversal */
 
 			j->pld_slicw.bits.c1 = 0;
 			j->pld_slicw.bits.c2 = 1;
@@ -711,7 +754,7 @@ static bool SLIC_SetState(BYTE byState, IXJ *j)
 			outb_p(j->pld_slicw.byte, j->XILINXbase + 0x01);
 			fRetVal = true;
 			break;
-		case PLD_SLIC_STATE_OHTPR:	
+		case PLD_SLIC_STATE_OHTPR:	/* OHT polarity reversal */
 
 			j->pld_slicw.bits.c1 = 1;
 			j->pld_slicw.bits.c2 = 1;
@@ -812,8 +855,8 @@ static inline void ixj_kill_fasync(IXJ *j, IXJ_SIGEVENT event, int dir)
 	if(j->ixj_signals[event]) {
 		if(ixjdebug & 0x0100)
 			printk("Sending signal for event %d\n", event);
-			
-		
+			/* Send apps notice of change */
+		/* see config.h for macro definition */
 		kill_fasync(&(j->async_queue), j->ixj_signals[event], dir);
 	}
 }
@@ -887,7 +930,7 @@ static void ixj_pstn_state(IXJ *j)
 				if (ixjdebug & 0x0008) {
 					printk(KERN_INFO "IXJ Ring Cadence a state = %d /dev/phone%d at %ld\n", j->cadence_f[4].state, j->board, jiffies);
 				}
-				if (daaint.bitreg.SI_1) {                
+				if (daaint.bitreg.SI_1) {                /* Rising edge of RMR */
 					j->flags.pstn_rmr = 1;
 					j->pstn_ring_start = jiffies;
 					j->pstn_ring_stop = 0;
@@ -950,7 +993,7 @@ static void ixj_pstn_state(IXJ *j)
 					} else {
 						j->cadence_f[4].state = 0;
 					}
-				} else {                                
+				} else {                                /* Falling edge of RMR */
 					j->pstn_ring_start = 0;
 					j->pstn_ring_stop = jiffies;
 					if (j->cadence_f[4].state == 1) {
@@ -1330,7 +1373,7 @@ static void ixj_timeout(unsigned long ptr)
 			}
 		}
 		if (!j->flags.ringing) {
-			if (j->hookstate) { 
+			if (j->hookstate) { /* & 1) { */
 				if (j->dsp.low != 0x20 &&
 				    SLIC_GetState(j) != PLD_SLIC_STATE_ACTIVE) {
 					SLIC_SetState(PLD_SLIC_STATE_ACTIVE, j);
@@ -1358,7 +1401,7 @@ static void ixj_timeout(unsigned long ptr)
 			ixj_pstn_state(j);
 		}
 		if (j->ex.bytes) {
-			wake_up_interruptible(&j->poll_q);	
+			wake_up_interruptible(&j->poll_q);	/* Wake any blocked selects */
 		}
 		clear_bit(board, &j->busyflags);
 	}
@@ -1437,6 +1480,7 @@ static int ixj_WriteDSPCommand(unsigned short cmd, IXJ *j)
 		}
 		return -1;
 	}
+/* Read Software Status Register */
 	j->ssr.low = inb_p(j->DSPbase + 2);
 	j->ssr.high = inb_p(j->DSPbase + 3);
 	atomic_dec(&j->DSPWrite);
@@ -1449,6 +1493,11 @@ static int ixj_WriteDSPCommand(unsigned short cmd, IXJ *j)
 	return 0;
 }
 
+/***************************************************************************
+*
+*  General Purpose IO Register read routine
+*
+***************************************************************************/
 static inline int ixj_gpio_read(IXJ *j)
 {
 	if (ixj_WriteDSPCommand(0x5143, j))
@@ -1472,6 +1521,20 @@ static inline void LED_SetState(int state, IXJ *j)
 	}
 }
 
+/*********************************************************************
+*  GPIO Pins are configured as follows on the Quicknet Internet
+*  PhoneJACK Telephony Cards
+* 
+* POTS Select        GPIO_6=0 GPIO_7=0
+* Mic/Speaker Select GPIO_6=0 GPIO_7=1
+* Handset Select     GPIO_6=1 GPIO_7=0
+*
+* SLIC Active        GPIO_1=0 GPIO_2=1 GPIO_5=0
+* SLIC Ringing       GPIO_1=1 GPIO_2=1 GPIO_5=0
+* SLIC Open Circuit  GPIO_1=0 GPIO_2=0 GPIO_5=0
+*
+* Hook Switch changes reported on GPIO_3
+*********************************************************************/
 static int ixj_set_port(IXJ *j, int arg)
 {
 	if (j->cardtype == QTI_PHONEJACK_LITE) {
@@ -1496,10 +1559,11 @@ static int ixj_set_port(IXJ *j, int arg)
 			outb(j->pld_slicw.byte, j->XILINXbase + 0x01);
 			break;
 		case QTI_LINEJACK:
-			ixj_set_pots(j, 0);			
-			if (ixj_WriteDSPCommand(0xC528, j))		
+			ixj_set_pots(j, 0);			/* Disconnect POTS/PSTN relay */
+			if (ixj_WriteDSPCommand(0xC528, j))		/* Write CODEC config to
+									   Software Control Register */
 				return 2;
-			j->pld_scrw.bits.daafsyncen = 0;	
+			j->pld_scrw.bits.daafsyncen = 0;	/* Turn off DAA Frame Sync */
 
 			outb(j->pld_scrw.byte, j->XILINXbase);
 			j->pld_clock.byte = 0;
@@ -1507,15 +1571,16 @@ static int ixj_set_port(IXJ *j, int arg)
 			j->pld_slicw.bits.rly1 = 1;
 			j->pld_slicw.bits.spken = 0;
 			outb(j->pld_slicw.byte, j->XILINXbase + 0x01);
-			ixj_mixer(0x1200, j);	
-			ixj_mixer(0x1401, j);	
-			ixj_mixer(0x1300, j);       
-			ixj_mixer(0x1501, j);       
-			ixj_mixer(0x0E80, j);	
-			ixj_mixer(0x0F00, j);	
-			ixj_mixer(0x0080, j);	
-			ixj_mixer(0x0180, j);	
+			ixj_mixer(0x1200, j);	/* Turn Off MIC switch on mixer left */
+			ixj_mixer(0x1401, j);	/* Turn On Mono1 switch on mixer left */
+			ixj_mixer(0x1300, j);       /* Turn Off MIC switch on mixer right */
+			ixj_mixer(0x1501, j);       /* Turn On Mono1 switch on mixer right */
+			ixj_mixer(0x0E80, j);	/*Mic mute */
+			ixj_mixer(0x0F00, j);	/* Set mono out (SLIC) to 0dB */
+			ixj_mixer(0x0080, j);	/* Mute Master Left volume */
+			ixj_mixer(0x0180, j);	/* Mute Master Right volume */
 			SLIC_SetState(PLD_SLIC_STATE_STANDBY, j);
+/*			SLIC_SetState(PLD_SLIC_STATE_ACTIVE, j); */
 			break;
 		case QTI_PHONEJACK:
 			j->gpio.bytes.high = 0x0B;
@@ -1527,7 +1592,7 @@ static int ixj_set_port(IXJ *j, int arg)
 		break;
 	case PORT_PSTN:
 		if (j->cardtype == QTI_LINEJACK) {
-			ixj_WriteDSPCommand(0xC534, j);	
+			ixj_WriteDSPCommand(0xC534, j);	/* Write CODEC config to Software Control Register */
 
 			j->pld_slicw.bits.rly3 = 0;
 			j->pld_slicw.bits.rly1 = 1;
@@ -1552,10 +1617,11 @@ static int ixj_set_port(IXJ *j, int arg)
 			outb(j->pld_slicw.byte, j->XILINXbase + 0x01);
 			break;
 		case QTI_LINEJACK:
-			ixj_set_pots(j, 0);			
-			if (ixj_WriteDSPCommand(0xC528, j))		
+			ixj_set_pots(j, 0);			/* Disconnect POTS/PSTN relay */
+			if (ixj_WriteDSPCommand(0xC528, j))		/* Write CODEC config to
+									   Software Control Register */
 				return 2;
-			j->pld_scrw.bits.daafsyncen = 0;	
+			j->pld_scrw.bits.daafsyncen = 0;	/* Turn off DAA Frame Sync */
 
 			outb(j->pld_scrw.byte, j->XILINXbase);
 			j->pld_clock.byte = 0;
@@ -1563,14 +1629,14 @@ static int ixj_set_port(IXJ *j, int arg)
 			j->pld_slicw.bits.rly1 = 1;
 			j->pld_slicw.bits.spken = 1;
 			outb(j->pld_slicw.byte, j->XILINXbase + 0x01);
-			ixj_mixer(0x1201, j);	
-			ixj_mixer(0x1400, j);	
-			ixj_mixer(0x1301, j);       
-			ixj_mixer(0x1500, j);       
-			ixj_mixer(0x0E06, j);	
-			ixj_mixer(0x0F80, j);	
-			ixj_mixer(0x0000, j);	
-			ixj_mixer(0x0100, j);	
+			ixj_mixer(0x1201, j);	/* Turn On MIC switch on mixer left */
+			ixj_mixer(0x1400, j);	/* Turn Off Mono1 switch on mixer left */
+			ixj_mixer(0x1301, j);       /* Turn On MIC switch on mixer right */
+			ixj_mixer(0x1500, j);       /* Turn Off Mono1 switch on mixer right */
+			ixj_mixer(0x0E06, j);	/*Mic un-mute 0dB */
+			ixj_mixer(0x0F80, j);	/* Mute mono out (SLIC) */
+			ixj_mixer(0x0000, j);	/* Set Master Left volume to 0dB */
+			ixj_mixer(0x0100, j);	/* Set Master Right volume to 0dB */
 			break;
 		case QTI_PHONEJACK:
 			j->gpio.bytes.high = 0x0B;
@@ -1624,7 +1690,7 @@ static int ixj_set_pots(IXJ *j, int arg)
 
 static void ixj_ring_on(IXJ *j)
 {
-	if (j->dsp.low == 0x20)	
+	if (j->dsp.low == 0x20)	/* Internet PhoneJACK */
 	 {
 		if (ixjdebug & 0x0004)
 			printk(KERN_INFO "IXJ Ring On /dev/phone%d\n", 	j->board);
@@ -1634,8 +1700,8 @@ static void ixj_ring_on(IXJ *j)
 		j->gpio.bits.gpio1 = 1;
 		j->gpio.bits.gpio2 = 1;
 		j->gpio.bits.gpio5 = 0;
-		ixj_WriteDSPCommand(j->gpio.word, j);	
-	} else			
+		ixj_WriteDSPCommand(j->gpio.word, j);	/* send the ring signal */
+	} else			/* Internet LineJACK, Internet PhoneJACK Lite or Internet PhoneJACK PCI */
 	{
 		if (ixjdebug & 0x0004)
 			printk(KERN_INFO "IXJ Ring On /dev/phone%d\n", j->board);
@@ -1654,11 +1720,11 @@ static int ixj_siadc(IXJ *j, int val)
 			if(val < 0 || val > 0x1F)
 				return -1;
 
-			j->siadc.bits.hom = 0;				
-			j->siadc.bits.lom = 0;				
-			j->siadc.bits.rxg = val;			
-			j->psccr.bits.addr = 6;				
-			j->psccr.bits.rw = 0;				
+			j->siadc.bits.hom = 0;				/* Handset Out Mute */
+			j->siadc.bits.lom = 0;				/* Line Out Mute */
+			j->siadc.bits.rxg = val;			/*(0xC000 - 0x41C8) / 0x4EF;    RX PGA Gain */
+			j->psccr.bits.addr = 6;				/* R/W Smart Cable Register Address */
+			j->psccr.bits.rw = 0;				/* Read / Write flag */
 			j->psccr.bits.dev = 0;
 			outb(j->siadc.byte, j->XILINXbase + 0x00);
 			outb(j->psccr.byte, j->XILINXbase + 0x01);
@@ -1679,11 +1745,11 @@ static int ixj_sidac(IXJ *j, int val)
 			if(val < 0 || val > 0x1F)
 				return -1;
 
-			j->sidac.bits.srm = 1;				
-			j->sidac.bits.slm = 1;				
-			j->sidac.bits.txg = val;			
-			j->psccr.bits.addr = 7;				
-			j->psccr.bits.rw = 0;				
+			j->sidac.bits.srm = 1;				/* Speaker Right Mute */
+			j->sidac.bits.slm = 1;				/* Speaker Left Mute */
+			j->sidac.bits.txg = val;			/* (0xC000 - 0x45E4) / 0x5D3;	 TX PGA Gain */
+			j->psccr.bits.addr = 7;				/* R/W Smart Cable Register Address */
+			j->psccr.bits.rw = 0;				/* Read / Write flag */
 			j->psccr.bits.dev = 0;
 			outb(j->sidac.byte, j->XILINXbase + 0x00);
 			outb(j->psccr.byte, j->XILINXbase + 0x01);
@@ -1754,9 +1820,9 @@ static int ixj_pcmcia_cable_check(IXJ *j)
 			j->psccr.bits.rw = 1;
 			outb_p(j->psccr.byte, j->XILINXbase + 0x01);
 			ixj_PCcontrol_wait(j);
-			j->flags.pcmciascp = 1;		
+			j->flags.pcmciascp = 1;		/* Set Cable Present Flag */
 
-			j->flags.pcmciasct = (inw_p(j->XILINXbase + 0x00) >> 8) & 0x03;		
+			j->flags.pcmciasct = (inw_p(j->XILINXbase + 0x00) >> 8) & 0x03;		/* Get Cable Type */
 
 			if (j->flags.pcmciasct == 3) {
 				j->flags.pcmciastate = 4;
@@ -1769,52 +1835,52 @@ static int ixj_pcmcia_cable_check(IXJ *j)
 			} else {
 				j->port = PORT_POTS;
 			}
-			j->sic1.bits.cpd = 0;				
-			j->sic1.bits.mpd = 0;				
-			j->sic1.bits.hpd = 0;				
-			j->sic1.bits.lpd = 0;				
-			j->sic1.bits.spd = 1;				
-			j->psccr.bits.addr = 1;				
-			j->psccr.bits.rw = 0;				
+			j->sic1.bits.cpd = 0;				/* Chip Power Down */
+			j->sic1.bits.mpd = 0;				/* MIC Bias Power Down */
+			j->sic1.bits.hpd = 0;				/* Handset Bias Power Down */
+			j->sic1.bits.lpd = 0;				/* Line Bias Power Down */
+			j->sic1.bits.spd = 1;				/* Speaker Drive Power Down */
+			j->psccr.bits.addr = 1;				/* R/W Smart Cable Register Address */
+			j->psccr.bits.rw = 0;				/* Read / Write flag */
 			j->psccr.bits.dev = 0;
 			outb(j->sic1.byte, j->XILINXbase + 0x00);
 			outb(j->psccr.byte, j->XILINXbase + 0x01);
 			ixj_PCcontrol_wait(j);
 
-			j->sic2.bits.al = 0;				
-			j->sic2.bits.dl2 = 0;				
-			j->sic2.bits.dl1 = 0;				
-			j->sic2.bits.pll = 0;				
-			j->sic2.bits.hpd = 0;				
-			j->psccr.bits.addr = 2;				
-			j->psccr.bits.rw = 0;				
+			j->sic2.bits.al = 0;				/* Analog Loopback DAC analog -> ADC analog */
+			j->sic2.bits.dl2 = 0;				/* Digital Loopback DAC -> ADC one bit */
+			j->sic2.bits.dl1 = 0;				/* Digital Loopback ADC -> DAC one bit */
+			j->sic2.bits.pll = 0;				/* 1 = div 10, 0 = div 5 */
+			j->sic2.bits.hpd = 0;				/* HPF disable */
+			j->psccr.bits.addr = 2;				/* R/W Smart Cable Register Address */
+			j->psccr.bits.rw = 0;				/* Read / Write flag */
 			j->psccr.bits.dev = 0;
 			outb(j->sic2.byte, j->XILINXbase + 0x00);
 			outb(j->psccr.byte, j->XILINXbase + 0x01);
 			ixj_PCcontrol_wait(j);
 
-			j->psccr.bits.addr = 3;				
-			j->psccr.bits.rw = 0;				
+			j->psccr.bits.addr = 3;				/* R/W Smart Cable Register Address */
+			j->psccr.bits.rw = 0;				/* Read / Write flag */
 			j->psccr.bits.dev = 0;
-			outb(0x00, j->XILINXbase + 0x00);		
+			outb(0x00, j->XILINXbase + 0x00);		/* PLL Divide N1 */
 			outb(j->psccr.byte, j->XILINXbase + 0x01);
 			ixj_PCcontrol_wait(j);
 
-			j->psccr.bits.addr = 4;				
-			j->psccr.bits.rw = 0;				
+			j->psccr.bits.addr = 4;				/* R/W Smart Cable Register Address */
+			j->psccr.bits.rw = 0;				/* Read / Write flag */
 			j->psccr.bits.dev = 0;
-			outb(0x09, j->XILINXbase + 0x00);		
+			outb(0x09, j->XILINXbase + 0x00);		/* PLL Multiply M1 */
 			outb(j->psccr.byte, j->XILINXbase + 0x01);
 			ixj_PCcontrol_wait(j);
 
-			j->sirxg.bits.lig = 1;				
-			j->sirxg.bits.lim = 1;				
-			j->sirxg.bits.mcg = 0;				
-			j->sirxg.bits.mcm = 0;				
-			j->sirxg.bits.him = 0;				
-			j->sirxg.bits.iir = 1;				
-			j->psccr.bits.addr = 5;				
-			j->psccr.bits.rw = 0;				
+			j->sirxg.bits.lig = 1;				/* Line In Gain */
+			j->sirxg.bits.lim = 1;				/* Line In Mute */
+			j->sirxg.bits.mcg = 0;				/* MIC In Gain was 3 */
+			j->sirxg.bits.mcm = 0;				/* MIC In Mute */
+			j->sirxg.bits.him = 0;				/* Handset In Mute */
+			j->sirxg.bits.iir = 1;				/* IIR */
+			j->psccr.bits.addr = 5;				/* R/W Smart Cable Register Address */
+			j->psccr.bits.rw = 0;				/* Read / Write flag */
 			j->psccr.bits.dev = 0;
 			outb(j->sirxg.byte, j->XILINXbase + 0x00);
 			outb(j->psccr.byte, j->XILINXbase + 0x01);
@@ -1824,8 +1890,8 @@ static int ixj_pcmcia_cable_check(IXJ *j)
 			ixj_sidac(j, 0x1D);
 
 			j->siaatt.bits.sot = 0;
-			j->psccr.bits.addr = 9;				
-			j->psccr.bits.rw = 0;				
+			j->psccr.bits.addr = 9;				/* R/W Smart Cable Register Address */
+			j->psccr.bits.rw = 0;				/* Read / Write flag */
 			j->psccr.bits.dev = 0;
 			outb(j->siaatt.byte, j->XILINXbase + 0x00);
 			outb(j->psccr.byte, j->XILINXbase + 0x01);
@@ -1901,7 +1967,7 @@ static int ixj_hookstate(IXJ *j)
 	}
 	if (j->r_hook != fOffHook) {
 		j->r_hook = fOffHook;
-		if (j->port == PORT_SPEAKER || j->port == PORT_HANDSET) { 
+		if (j->port == PORT_SPEAKER || j->port == PORT_HANDSET) { // || (j->port == PORT_PSTN && j->flags.pots_pstn == 0)) {
 			j->ex.bits.hookstate = 1;
 			ixj_kill_fasync(j, SIG_HOOKSTATE, POLL_IN);
 		} else if (!fOffHook) {
@@ -1941,7 +2007,7 @@ static int ixj_hookstate(IXJ *j)
 
 static void ixj_ring_off(IXJ *j)
 {
-	if (j->dsp.low == 0x20)	
+	if (j->dsp.low == 0x20)	/* Internet PhoneJACK */
 	 {
 		if (ixjdebug & 0x0004)
 			printk(KERN_INFO "IXJ Ring Off\n");
@@ -1951,7 +2017,7 @@ static void ixj_ring_off(IXJ *j)
 		j->gpio.bits.gpio2 = 1;
 		j->gpio.bits.gpio5 = 0;
 		ixj_WriteDSPCommand(j->gpio.word, j);
-	} else			
+	} else			/* Internet LineJACK */
 	{
 		if (ixjdebug & 0x0004)
 			printk(KERN_INFO "IXJ Ring Off\n");
@@ -2088,6 +2154,10 @@ static int ixj_release(struct inode *inode, struct file *file_p)
 	IXJ *j = file_p->private_data;
 	int board = j->p.board;
 
+	/*
+	 *    Set up locks to ensure that only one process is talking to the DSP at a time.
+	 *    This is necessary to keep the DSP from locking up.
+	 */
 	while(test_and_set_bit(board, (void *)&j->busyflags) != 0)
 		schedule_timeout_interruptible(1);
 	if (ixjdebug & 0x0002)
@@ -2105,7 +2175,7 @@ static int ixj_release(struct inode *inode, struct file *file_p)
 	set_rec_volume(j, 0x100);
 	ixj_ring_off(j);
 
-	
+	/* Restore the tone table to default settings. */
 	ti.tone_index = 10;
 	ti.gain0 = 1;
 	ti.freq0 = hz941;
@@ -2215,9 +2285,9 @@ static int ixj_release(struct inode *inode, struct file *file_p)
 	ti.freq1 = hz620;
 	ixj_init_tone(j, &ti);
 
-	set_rec_depth(j, 2);	
+	set_rec_depth(j, 2);	/* Set Record Channel Limit to 2 frames */
 
-	set_play_depth(j, 2);	
+	set_play_depth(j, 2);	/* Set Playback Channel Limit to 2 frames */
 
 	j->ex.bits.dtmf_ready = 0;
 	j->dtmf_state = 0;
@@ -2265,13 +2335,13 @@ static int ixj_release(struct inode *inode, struct file *file_p)
 		daa_set_mode(j, SOP_PU_SLEEP);
 		ixj_set_pots(j, 1);
 	}
-	ixj_WriteDSPCommand(0x0FE3, j);	
+	ixj_WriteDSPCommand(0x0FE3, j);	/* Put the DSP in 1/5 power mode. */
 
-	
+	/* Set up the default signals for events */
 	for (cnt = 0; cnt < 35; cnt++)
 		j->ixj_signals[cnt] = SIGIO;
 
-	
+	/* Set the excetion signal enable flags */
 	j->ex_sig.bits.dtmf_ready = j->ex_sig.bits.hookstate = j->ex_sig.bits.flash = j->ex_sig.bits.pstn_ring = 
 	j->ex_sig.bits.caller_id = j->ex_sig.bits.pstn_wink = j->ex_sig.bits.f0 = j->ex_sig.bits.f1 = j->ex_sig.bits.f2 = 
 	j->ex_sig.bits.f3 = j->ex_sig.bits.fc0 = j->ex_sig.bits.fc1 = j->ex_sig.bits.fc2 = j->ex_sig.bits.fc3 = 1;
@@ -2542,7 +2612,7 @@ static int LineMonitor(IXJ *j)
 	}
 	j->dtmf_proc = 1;
 
-	if (ixj_WriteDSPCommand(0x7000, j))		
+	if (ixj_WriteDSPCommand(0x7000, j))		/* Line Monitor */
 		return -1;
 
 	j->dtmf.bytes.high = j->ssr.high;
@@ -2551,7 +2621,7 @@ static int LineMonitor(IXJ *j)
 		j->dtmf_state = 1;
 		j->dtmf_current = j->dtmf.bits.digit;
 	}
-	if (j->dtmf_state && !j->dtmf.bits.dtmf_valid)	
+	if (j->dtmf_state && !j->dtmf.bits.dtmf_valid)	/* && j->dtmf_wp != j->dtmf_rp) */
 	 {
 		if(!j->cidcw_wait) {
 			j->dtmfbuffer[j->dtmf_wp] = j->dtmf_current;
@@ -2576,6 +2646,11 @@ static int LineMonitor(IXJ *j)
 	return 0;
 }
 
+/************************************************************************
+*
+* Functions to allow alaw <-> ulaw conversions.
+*
+************************************************************************/
 
 static void ulaw2alaw(unsigned char *buff, unsigned long len)
 {
@@ -2708,7 +2783,7 @@ static ssize_t ixj_read(struct file * file_p, char __user *buf, size_t length, l
 
 	remove_wait_queue(&j->read_q, &wait);
 	set_current_state(TASK_RUNNING);
-	
+	/* Don't ever copy more than the user asks */
 	if(j->rec_codec == ALAW)
 		ulaw2alaw(j->read_buffer, min(length, j->read_buffer_size));
 	i = copy_to_user(buf, j->read_buffer, min(length, j->read_buffer_size));
@@ -2850,7 +2925,7 @@ static void ixj_read_frame(IXJ *j)
 					udelay(10);
 				}
 			}
-			
+			/* Throw away word 0 of the 8021 compressed format to get standard G.729. */
 			if (j->rec_codec == G729 && (cnt == 0 || cnt == 10 || cnt == 20)) {
 				inb_p(j->DSPbase + 0x0E);
 				inb_p(j->DSPbase + 0x0F);
@@ -2879,9 +2954,9 @@ static void ixj_read_frame(IXJ *j)
 			}
 		} else {
 			j->read_buffer_ready = 1;
-			wake_up_interruptible(&j->read_q);	
+			wake_up_interruptible(&j->read_q);	/* Wake any blocked readers */
 
-			wake_up_interruptible(&j->poll_q);	
+			wake_up_interruptible(&j->poll_q);	/* Wake any blocked selects */
 
 			if(j->ixj_signals[SIG_READ_READY])
 				ixj_kill_fasync(j, SIG_READ_READY, POLL_OUT);
@@ -3093,7 +3168,7 @@ static void ixj_post_cid(IXJ *j)
 		ixj_play_start(j);
 
 	if(j->cid_play_flag) {
-		wake_up_interruptible(&j->write_q);	
+		wake_up_interruptible(&j->write_q);	/* Wake any blocked writers */
 	}
 }
 
@@ -3258,7 +3333,7 @@ static void ixj_write_cidcw(IXJ *j)
 		}
 		ixj_post_cid(j);
 		if(j->cid_play_flag) {
-			wake_up_interruptible(&j->write_q);	
+			wake_up_interruptible(&j->write_q);	/* Wake any blocked readers */
 		}
 		return;
 	} else {
@@ -3398,15 +3473,18 @@ static void ixj_write_frame(IXJ *j)
 		if(j->cidcnt >= j->fskdcnt) {
 			ixj_post_cid(j);
 		}
+		/* This may seem rude, but if we just played one frame of FSK data for CallerID
+		   and there is real audio data in the buffer, we need to throw it away because 
+		   we just used it's time slot */
 		if (j->write_buffer_rp > j->write_buffer_wp) {
 			j->write_buffer_rp += j->cid_play_frame_size * 2;
 			if (j->write_buffer_rp >= j->write_buffer_end) {
 				j->write_buffer_rp = j->write_buffer;
 			}
 			j->write_buffers_empty++;
-			wake_up_interruptible(&j->write_q);	
+			wake_up_interruptible(&j->write_q);	/* Wake any blocked writers */
 
-			wake_up_interruptible(&j->poll_q);	
+			wake_up_interruptible(&j->poll_q);	/* Wake any blocked selects */
 		}
 	} else if (j->write_buffer && j->write_buffers_empty < 1) { 
 		if (j->write_buffer_wp > j->write_buffer_rp) {
@@ -3488,7 +3566,7 @@ static void ixj_write_frame(IXJ *j)
 						udelay(10);
 					}
 				}
-			
+			/* Add word 0 to G.729 frames for the 8021.  Right now we don't do VAD/CNG  */
 				if (j->play_codec == G729 && (cnt == 0 || cnt == 10 || cnt == 20)) {
 					if (j->write_buffer_rp[cnt] == 0 &&
 					    j->write_buffer_rp[cnt + 1] == 0 &&
@@ -3500,11 +3578,11 @@ static void ixj_write_frame(IXJ *j)
 					    j->write_buffer_rp[cnt + 7] == 0 &&
 					    j->write_buffer_rp[cnt + 8] == 0 &&
 					    j->write_buffer_rp[cnt + 9] == 0) {
-					
+					/* someone is trying to write silence lets make this a type 0 frame. */
 						outb_p(0x00, j->DSPbase + 0x0C);
 						outb_p(0x00, j->DSPbase + 0x0D);
 					} else {
-					
+					/* so all other frames are type 1. */
 						outb_p(0x01, j->DSPbase + 0x0C);
 						outb_p(0x00, j->DSPbase + 0x0D);
 					}
@@ -3519,9 +3597,9 @@ static void ixj_write_frame(IXJ *j)
 				j->write_buffer_rp = j->write_buffer;
 			}
 			j->write_buffers_empty++;
-			wake_up_interruptible(&j->write_q);	
+			wake_up_interruptible(&j->write_q);	/* Wake any blocked writers */
 
-			wake_up_interruptible(&j->poll_q);	
+			wake_up_interruptible(&j->poll_q);	/* Wake any blocked selects */
 
 			++j->frameswritten;
 		}
@@ -3535,7 +3613,7 @@ static void ixj_write_frame(IXJ *j)
 
 static int idle(IXJ *j)
 {
-	if (ixj_WriteDSPCommand(0x0000, j))		
+	if (ixj_WriteDSPCommand(0x0000, j))		/* DSP Idle */
 
 		return 0;
 
@@ -3568,15 +3646,15 @@ static int set_base_frame(IXJ *j, int size)
 		switch (size) {
 		case 30:
 			cmd = 0x07F0;
-			
+			/* Set Base Frame Size to 240 pg9-10 8021 */
 			break;
 		case 20:
 			cmd = 0x07A0;
-			
+			/* Set Base Frame Size to 160 pg9-10 8021 */
 			break;
 		case 10:
 			cmd = 0x0750;
-			
+			/* Set Base Frame Size to 80 pg9-10 8021 */
 			break;
 		default:
 			return -1;
@@ -3593,7 +3671,7 @@ static int set_base_frame(IXJ *j, int size)
 	} else {
 		j->baseframe.high = j->ssr.high;
 		j->baseframe.low = j->ssr.low;
-		
+		/* If the status returned is 0x0000 (pg9-9 8021) the call failed */
 		if(j->baseframe.high == 0x00 && j->baseframe.low == 0x00) {
 			return -1;
 		}
@@ -3791,7 +3869,7 @@ static int ixj_record_start(IXJ *j)
 		ixj_record_stop(j);
 	}
 	j->flags.recording = 1;
-	ixj_WriteDSPCommand(0x0FE0, j);	
+	ixj_WriteDSPCommand(0x0FE0, j);	/* Put the DSP in full power mode. */
 
 	if(ixjdebug & 0x0002)
 		printk("IXJ %d Starting Record Codec %d at %ld\n", j->board, j->rec_codec, jiffies);
@@ -3805,15 +3883,15 @@ static int ixj_record_start(IXJ *j)
 			cmd = 0x5132;
 			break;
 		case TS85:
-			cmd = 0x5130;	
+			cmd = 0x5130;	/* TrueSpeech 8.5 */
 
 			break;
 		case TS48:
-			cmd = 0x5133;	
+			cmd = 0x5133;	/* TrueSpeech 4.8 */
 
 			break;
 		case TS41:
-			cmd = 0x5134;	
+			cmd = 0x5134;	/* TrueSpeech 4.1 */
 
 			break;
 		case G728:
@@ -3839,47 +3917,47 @@ static int ixj_record_start(IXJ *j)
 	}
 	j->read_buffer_size = j->rec_frame_size * 2;
 
-	if (ixj_WriteDSPCommand(0x5102, j))		
+	if (ixj_WriteDSPCommand(0x5102, j))		/* Set Poll sync mode */
 
 		return -1;
 
 	switch (j->rec_mode) {
 	case 0:
-		cmd = 0x1C03;	
+		cmd = 0x1C03;	/* Record C1 */
 
 		break;
 	case 4:
 		if (j->ver.low == 0x12) {
-			cmd = 0x1E03;	
+			cmd = 0x1E03;	/* Record C1 */
 
 		} else {
-			cmd = 0x1E01;	
+			cmd = 0x1E01;	/* Record C1 */
 
 		}
 		break;
 	case 5:
 		if (j->ver.low == 0x12) {
-			cmd = 0x1E83;	
+			cmd = 0x1E83;	/* Record C1 */
 
 		} else {
-			cmd = 0x1E81;	
+			cmd = 0x1E81;	/* Record C1 */
 
 		}
 		break;
 	case 6:
 		if (j->ver.low == 0x12) {
-			cmd = 0x1F03;	
+			cmd = 0x1F03;	/* Record C1 */
 
 		} else {
-			cmd = 0x1F01;	
+			cmd = 0x1F01;	/* Record C1 */
 
 		}
 		break;
 	case 7:
 		if (j->ver.low == 0x12) {
-			cmd = 0x1F83;	
+			cmd = 0x1F83;	/* Record C1 */
 		} else {
-			cmd = 0x1F81;	
+			cmd = 0x1F81;	/* Record C1 */
 		}
 		break;
 	}
@@ -3960,16 +4038,16 @@ static int set_rec_volume_linear(IXJ *j, int volume)
 	  return -1;
 	}
 
-	
+	/* This should normalize the perceived volumes between the different cards caused by differences in the hardware */
 	switch (j->cardtype) {
 	case QTI_PHONEJACK:
 		dsprecmax = 0x440;
 		break;
 	case QTI_LINEJACK:
 		dsprecmax = 0x180;
-		ixj_mixer(0x0203, j);	
-		ixj_mixer(0x0303, j);	
-		ixj_mixer(0x0C00, j);	
+		ixj_mixer(0x0203, j);	/*Voice Left Volume unmute 6db */
+		ixj_mixer(0x0303, j);	/*Voice Right Volume unmute 6db */
+		ixj_mixer(0x0C00, j);	/*Mono1 unmute 12db */
 		break;
 	case QTI_PHONEJACK_LITE:
 		dsprecmax = 0x4C0;
@@ -4055,56 +4133,56 @@ static void ixj_aec_start(IXJ *j, int level)
 		aec_stop(j);
 	} else {
 		if (j->rec_codec == G729 || j->play_codec == G729 || j->rec_codec == G729B || j->play_codec == G729B) {
-			ixj_WriteDSPCommand(0xE022, j);	
+			ixj_WriteDSPCommand(0xE022, j);	/* Move AEC filter buffer */
 
 			ixj_WriteDSPCommand(0x0300, j);
 		}
-		ixj_WriteDSPCommand(0xB001, j);	
+		ixj_WriteDSPCommand(0xB001, j);	/* AEC On */
 
-		ixj_WriteDSPCommand(0xE013, j);	
+		ixj_WriteDSPCommand(0xE013, j);	/* Advanced AEC C1 */
 
 		switch (level) {
 		case AEC_LOW:
-			ixj_WriteDSPCommand(0x0000, j);	
+			ixj_WriteDSPCommand(0x0000, j);	/* Advanced AEC C2 = off */
 
 			ixj_WriteDSPCommand(0xE011, j);
 			ixj_WriteDSPCommand(0xFFFF, j);
 
-			ixj_WriteDSPCommand(0xCF97, j);	
-			ixj_WriteDSPCommand(0x0000, j);	
+			ixj_WriteDSPCommand(0xCF97, j);	/* Set AGC Enable */
+			ixj_WriteDSPCommand(0x0000, j);	/* to off */
 			
 			break;
 
 		case AEC_MED:
-			ixj_WriteDSPCommand(0x0600, j);	
+			ixj_WriteDSPCommand(0x0600, j);	/* Advanced AEC C2 = on medium */
 
 			ixj_WriteDSPCommand(0xE011, j);
 			ixj_WriteDSPCommand(0x0080, j);
 
-			ixj_WriteDSPCommand(0xCF97, j);	
-			ixj_WriteDSPCommand(0x0000, j);	
+			ixj_WriteDSPCommand(0xCF97, j);	/* Set AGC Enable */
+			ixj_WriteDSPCommand(0x0000, j);	/* to off */
 			
 			break;
 
 		case AEC_HIGH:
-			ixj_WriteDSPCommand(0x0C00, j);	
+			ixj_WriteDSPCommand(0x0C00, j);	/* Advanced AEC C2 = on high */
 
 			ixj_WriteDSPCommand(0xE011, j);
 			ixj_WriteDSPCommand(0x0080, j);
 
-			ixj_WriteDSPCommand(0xCF97, j);	
-			ixj_WriteDSPCommand(0x0000, j);	
+			ixj_WriteDSPCommand(0xCF97, j);	/* Set AGC Enable */
+			ixj_WriteDSPCommand(0x0000, j);	/* to off */
 			
 			break;
 
 		case AEC_AGC:
-                        
-			ixj_WriteDSPCommand(0x0002, j);	
+                        /* First we have to put the AEC into advance auto mode so that AGC will not conflict with it */
+			ixj_WriteDSPCommand(0x0002, j);	/* Attenuation scaling factor of 2 */
 
 			ixj_WriteDSPCommand(0xE011, j);
-			ixj_WriteDSPCommand(0x0100, j);	
+			ixj_WriteDSPCommand(0x0100, j);	/* Higher Threshold Floor */
 
-			ixj_WriteDSPCommand(0xE012, j);	
+			ixj_WriteDSPCommand(0xE012, j);	/* Set Train and Lock */
 
 			if(j->cardtype == QTI_LINEJACK || j->cardtype == QTI_PHONECARD)
 				ixj_WriteDSPCommand(0x0224, j);
@@ -4112,44 +4190,44 @@ static void ixj_aec_start(IXJ *j, int level)
 				ixj_WriteDSPCommand(0x1224, j);
 
 			ixj_WriteDSPCommand(0xE014, j);
-			ixj_WriteDSPCommand(0x0003, j);	
+			ixj_WriteDSPCommand(0x0003, j);	/* Lock threshold at 3dB */
 
-			ixj_WriteDSPCommand(0xE338, j);	
+			ixj_WriteDSPCommand(0xE338, j);	/* Set Echo Suppresser Attenuation to 0dB */
 
-			
-			ixj_WriteDSPCommand(0xCF90, j);	
-			ixj_WriteDSPCommand(0x0020, j);	
+			/* Now we can set the AGC initial parameters and turn it on */
+			ixj_WriteDSPCommand(0xCF90, j);	/* Set AGC Minimum gain */
+			ixj_WriteDSPCommand(0x0020, j);	/* to 0.125 (-18dB) */
 	
-			ixj_WriteDSPCommand(0xCF91, j);	
-			ixj_WriteDSPCommand(0x1000, j);	
+			ixj_WriteDSPCommand(0xCF91, j);	/* Set AGC Maximum gain */
+			ixj_WriteDSPCommand(0x1000, j);	/* to 16 (24dB) */
 			
-			ixj_WriteDSPCommand(0xCF92, j);	
-			ixj_WriteDSPCommand(0x0800, j);	
+			ixj_WriteDSPCommand(0xCF92, j);	/* Set AGC start gain */
+			ixj_WriteDSPCommand(0x0800, j);	/* to 8 (+18dB) */
 		
-			ixj_WriteDSPCommand(0xCF93, j);	
-			ixj_WriteDSPCommand(0x1F40, j);	
+			ixj_WriteDSPCommand(0xCF93, j);	/* Set AGC hold time */
+			ixj_WriteDSPCommand(0x1F40, j);	/* to 2 seconds (units are 250us) */
 			
-			ixj_WriteDSPCommand(0xCF94, j);	
-			ixj_WriteDSPCommand(0x0005, j);	
+			ixj_WriteDSPCommand(0xCF94, j);	/* Set AGC Attack Time Constant */
+			ixj_WriteDSPCommand(0x0005, j);	/* to 8ms */
 			
-			ixj_WriteDSPCommand(0xCF95, j);	
-			ixj_WriteDSPCommand(0x000D, j);	
+			ixj_WriteDSPCommand(0xCF95, j);	/* Set AGC Decay Time Constant */
+			ixj_WriteDSPCommand(0x000D, j);	/* to 4096ms */
 			
-			ixj_WriteDSPCommand(0xCF96, j);	
-			ixj_WriteDSPCommand(0x1200, j);	
+			ixj_WriteDSPCommand(0xCF96, j);	/* Set AGC Attack Threshold */
+			ixj_WriteDSPCommand(0x1200, j);	/* to 25% */
 			
-			ixj_WriteDSPCommand(0xCF97, j);	
-			ixj_WriteDSPCommand(0x0001, j);	
+			ixj_WriteDSPCommand(0xCF97, j);	/* Set AGC Enable */
+			ixj_WriteDSPCommand(0x0001, j);	/* to on */
 			
 			break;
 
 		case AEC_AUTO:
-			ixj_WriteDSPCommand(0x0002, j);	
+			ixj_WriteDSPCommand(0x0002, j);	/* Attenuation scaling factor of 2 */
 
 			ixj_WriteDSPCommand(0xE011, j);
-			ixj_WriteDSPCommand(0x0100, j);	
+			ixj_WriteDSPCommand(0x0100, j);	/* Higher Threshold Floor */
 
-			ixj_WriteDSPCommand(0xE012, j);	
+			ixj_WriteDSPCommand(0xE012, j);	/* Set Train and Lock */
 
 			if(j->cardtype == QTI_LINEJACK || j->cardtype == QTI_PHONECARD)
 				ixj_WriteDSPCommand(0x0224, j);
@@ -4157,9 +4235,9 @@ static void ixj_aec_start(IXJ *j, int level)
 				ixj_WriteDSPCommand(0x1224, j);
 
 			ixj_WriteDSPCommand(0xE014, j);
-			ixj_WriteDSPCommand(0x0003, j);	
+			ixj_WriteDSPCommand(0x0003, j);	/* Lock threshold at 3dB */
 
-			ixj_WriteDSPCommand(0xE338, j);	
+			ixj_WriteDSPCommand(0xE338, j);	/* Set Echo Suppresser Attenuation to 0dB */
 
 			break;
 		}
@@ -4170,13 +4248,13 @@ static void aec_stop(IXJ *j)
 {
 	j->aec_level = AEC_OFF;
 	if (j->rec_codec == G729 || j->play_codec == G729 || j->rec_codec == G729B || j->play_codec == G729B) {
-		ixj_WriteDSPCommand(0xE022, j);	
+		ixj_WriteDSPCommand(0xE022, j);	/* Move AEC filter buffer back */
 
 		ixj_WriteDSPCommand(0x0700, j);
 	}
 	if (j->play_mode != -1 && j->rec_mode != -1)
 	{
-		ixj_WriteDSPCommand(0xB002, j);	
+		ixj_WriteDSPCommand(0xB002, j);	/* AEC Stop */
 	}
 }
 
@@ -4373,7 +4451,7 @@ static int ixj_play_start(IXJ *j)
 		printk("IXJ %d Starting Play Codec %d at %ld\n", j->board, j->play_codec, jiffies);
 
 	j->flags.playing = 1;
-	ixj_WriteDSPCommand(0x0FE0, j);	
+	ixj_WriteDSPCommand(0x0FE0, j);	/* Put the DSP in full power mode. */
 
 	j->flags.play_first_frame = 1;
 	j->drybuffer = 0;
@@ -4387,15 +4465,15 @@ static int ixj_play_start(IXJ *j)
 			cmd = 0x5232;
 			break;
 		case TS85:
-			cmd = 0x5230;	
+			cmd = 0x5230;	/* TrueSpeech 8.5 */
 
 			break;
 		case TS48:
-			cmd = 0x5233;	
+			cmd = 0x5233;	/* TrueSpeech 4.8 */
 
 			break;
 		case TS41:
-			cmd = 0x5234;	
+			cmd = 0x5234;	/* TrueSpeech 4.1 */
 
 			break;
 		case G728:
@@ -4416,12 +4494,13 @@ static int ixj_play_start(IXJ *j)
 		printk("Write buffer allocation for ixj board %d failed!\n", j->board);
 		return -ENOMEM;
 	}
+/*	j->write_buffers_empty = 2; */
 	j->write_buffers_empty = 1; 
 	j->write_buffer_size = j->play_frame_size * 2;
 	j->write_buffer_end = j->write_buffer + j->play_frame_size * 2;
 	j->write_buffer_rp = j->write_buffer_wp = j->write_buffer;
 
-	if (ixj_WriteDSPCommand(0x5202, j))		
+	if (ixj_WriteDSPCommand(0x5202, j))		/* Set Poll sync mode */
 
 		return -1;
 
@@ -4461,10 +4540,10 @@ static int ixj_play_start(IXJ *j)
 	if (ixj_WriteDSPCommand(cmd, j))
 		return -1;
 
-	if (ixj_WriteDSPCommand(0x2000, j))		
+	if (ixj_WriteDSPCommand(0x2000, j))		/* Playback C2 */
 		return -1;
 
-	if (ixj_WriteDSPCommand(0x2000 + j->play_frame_size, j))	
+	if (ixj_WriteDSPCommand(0x2000 + j->play_frame_size, j))	/* Playback C3 */
 		return -1;
 
 	if (j->flags.recording) {
@@ -4483,7 +4562,7 @@ static void ixj_play_stop(IXJ *j)
 	j->write_buffer = NULL;
 	j->write_buffer_size = 0;
 	if (j->play_mode > -1) {
-		ixj_WriteDSPCommand(0x5221, j);	
+		ixj_WriteDSPCommand(0x5221, j);	/* Stop playback and flush buffers.  8022 reference page 9-40 */
 
 		j->play_mode = -1;
 	}
@@ -4494,7 +4573,7 @@ static inline int get_play_level(IXJ *j)
 {
 	int retval;
 
-	ixj_WriteDSPCommand(0xCF8F, j); 
+	ixj_WriteDSPCommand(0xCF8F, j); /* 8022 Reference page 9-38 */
 	return j->ssr.high << 8 | j->ssr.low;
 	retval = j->ssr.high << 8 | j->ssr.low;
 	retval = (retval * 256) / 240;
@@ -4509,9 +4588,9 @@ static unsigned int ixj_poll(struct file *file_p, poll_table * wait)
 
 	poll_wait(file_p, &(j->poll_q), wait);
 	if (j->read_buffer_ready > 0)
-		mask |= POLLIN | POLLRDNORM;	
+		mask |= POLLIN | POLLRDNORM;	/* readable */
 	if (j->write_buffers_empty > 0)
-		mask |= POLLOUT | POLLWRNORM;	
+		mask |= POLLOUT | POLLWRNORM;	/* writable */
 	if (j->ex.bytes)
 		mask |= POLLPRI;
 	return mask;
@@ -4542,7 +4621,7 @@ static int ixj_set_tone_on(unsigned short arg, IXJ *j)
 {
 	j->tone_on_time = arg;
 
-	if (ixj_WriteDSPCommand(0x6E04, j))		
+	if (ixj_WriteDSPCommand(0x6E04, j))		/* Set Tone On Period */
 
 		return -1;
 
@@ -4596,27 +4675,27 @@ static int SCI_Control(IXJ *j, int control)
 {
 	switch (control) {
 	case SCI_End:
-		j->pld_scrw.bits.c0 = 0;	
+		j->pld_scrw.bits.c0 = 0;	/* Set PLD Serial control interface */
 
-		j->pld_scrw.bits.c1 = 0;	
+		j->pld_scrw.bits.c1 = 0;	/* to no selection */
 
 		break;
 	case SCI_Enable_DAA:
-		j->pld_scrw.bits.c0 = 1;	
+		j->pld_scrw.bits.c0 = 1;	/* Set PLD Serial control interface */
 
-		j->pld_scrw.bits.c1 = 0;	
+		j->pld_scrw.bits.c1 = 0;	/* to write to DAA */
 
 		break;
 	case SCI_Enable_Mixer:
-		j->pld_scrw.bits.c0 = 0;	
+		j->pld_scrw.bits.c0 = 0;	/* Set PLD Serial control interface */
 
-		j->pld_scrw.bits.c1 = 1;	
+		j->pld_scrw.bits.c1 = 1;	/* to write to mixer */
 
 		break;
 	case SCI_Enable_EEPROM:
-		j->pld_scrw.bits.c0 = 1;	
+		j->pld_scrw.bits.c0 = 1;	/* Set PLD Serial control interface */
 
-		j->pld_scrw.bits.c1 = 1;	
+		j->pld_scrw.bits.c1 = 1;	/* to write to EEPROM */
 
 		break;
 	default:
@@ -4666,12 +4745,12 @@ static int ixj_mixer(long val, IXJ *j)
 	bytes.high = (val & 0x1F00) >> 8;
 	bytes.low = val & 0x00FF;
 
-        
+        /* save mixer value so we can get back later on */
         j->mix.vol[bytes.high] = bytes.low;
 
-	outb_p(bytes.high & 0x1F, j->XILINXbase + 0x03);	
+	outb_p(bytes.high & 0x1F, j->XILINXbase + 0x03);	/* Load Mixer Address */
 
-	outb_p(bytes.low, j->XILINXbase + 0x02);	
+	outb_p(bytes.low, j->XILINXbase + 0x02);	/* Load Mixer Data */
 
 	SCI_Control(j, SCI_Enable_Mixer);
 
@@ -5017,6 +5096,19 @@ static char daa_get_version(IXJ *j)
 
 static int daa_set_mode(IXJ *j, int mode)
 {
+	/* NOTE:
+	      The DAA *MUST* be in the conversation mode if the
+	      PSTN line is to be seized (PSTN line off-hook).
+	      Taking the PSTN line off-hook while the DAA is in
+	      a mode other than conversation mode will cause a
+	      hardware failure of the ALIS-A part.
+
+	   NOTE:
+	      The DAA can only go to SLEEP, RINGING or PULSEDIALING modes
+	      if the PSTN line is on-hook.  Failure to have the PSTN line
+	      in the on-hook state WILL CAUSE A HARDWARE FAILURE OF THE
+	      ALIS-A part.
+	*/
 
 	BYTES bytes;
 
@@ -5027,7 +5119,7 @@ static int daa_set_mode(IXJ *j, int mode)
 
 	switch (mode) {
 	case SOP_PU_RESET:
-		j->pld_scrw.bits.daafsyncen = 0;	
+		j->pld_scrw.bits.daafsyncen = 0;	/* Turn off DAA Frame Sync */
 
 		outb_p(j->pld_scrw.byte, j->XILINXbase);
 		j->pld_slicw.bits.rly2 = 0;
@@ -5047,8 +5139,9 @@ static int daa_set_mode(IXJ *j, int mode)
 		}
 		if (ixjdebug & 0x0008)
 			printk(KERN_INFO "phone DAA: SOP_PU_SLEEP at %ld\n", jiffies);
+/*		if(j->daa_mode == SOP_PU_CONVERSATION) */
 		{
-			j->pld_scrw.bits.daafsyncen = 0;	
+			j->pld_scrw.bits.daafsyncen = 0;	/* Turn off DAA Frame Sync */
 
 			outb_p(j->pld_scrw.byte, j->XILINXbase);
 			j->pld_slicw.bits.rly2 = 0;
@@ -5059,7 +5152,7 @@ static int daa_set_mode(IXJ *j, int mode)
 			if (!SCI_Prepare(j))
 				return 0;
 		}
-		j->pld_scrw.bits.daafsyncen = 0;	
+		j->pld_scrw.bits.daafsyncen = 0;	/* Turn off DAA Frame Sync */
 
 		outb_p(j->pld_scrw.byte, j->XILINXbase);
 		j->pld_slicw.bits.rly2 = 0;
@@ -5074,14 +5167,14 @@ static int daa_set_mode(IXJ *j, int mode)
 		j->flags.pstn_ringing = 0;
 		j->ex.bits.pstn_ring = 0;
 		j->pstn_sleeptil = jiffies + (hertz / 4);
-		wake_up_interruptible(&j->read_q);      
-		wake_up_interruptible(&j->write_q);     
-		wake_up_interruptible(&j->poll_q);      
+		wake_up_interruptible(&j->read_q);      /* Wake any blocked readers */
+		wake_up_interruptible(&j->write_q);     /* Wake any blocked writers */
+		wake_up_interruptible(&j->poll_q);      /* Wake any blocked selects */
  		break;
 	case SOP_PU_RINGING:
 		if (ixjdebug & 0x0008)
 			printk(KERN_INFO "phone DAA: SOP_PU_RINGING at %ld\n", jiffies);
-		j->pld_scrw.bits.daafsyncen = 0;	
+		j->pld_scrw.bits.daafsyncen = 0;	/* Turn off DAA Frame Sync */
 
 		outb_p(j->pld_scrw.byte, j->XILINXbase);
 		j->pld_slicw.bits.rly2 = 0;
@@ -5103,7 +5196,7 @@ static int daa_set_mode(IXJ *j, int mode)
 			return 0;
 		j->pld_slicw.bits.rly2 = 1;
 		outb_p(j->pld_slicw.byte, j->XILINXbase + 0x01);
-		j->pld_scrw.bits.daafsyncen = 1;	
+		j->pld_scrw.bits.daafsyncen = 1;	/* Turn on DAA Frame Sync */
 
 		outb_p(j->pld_scrw.byte, j->XILINXbase);
 		j->daa_mode = SOP_PU_CONVERSATION;
@@ -5115,7 +5208,7 @@ static int daa_set_mode(IXJ *j, int mode)
 	case SOP_PU_PULSEDIALING:
 		if (ixjdebug & 0x0008)
 			printk(KERN_INFO "phone DAA: SOP_PU_PULSEDIALING at %ld\n", jiffies);
-		j->pld_scrw.bits.daafsyncen = 0;	
+		j->pld_scrw.bits.daafsyncen = 0;	/* Turn off DAA Frame Sync */
 
 		outb_p(j->pld_scrw.byte, j->XILINXbase);
 		j->pld_slicw.bits.rly2 = 0;
@@ -5634,7 +5727,7 @@ static int ixj_daa_write(IXJ *j)
 static int ixj_set_tone_off(unsigned short arg, IXJ *j)
 {
 	j->tone_off_time = arg;
-	if (ixj_WriteDSPCommand(0x6E05, j))		
+	if (ixj_WriteDSPCommand(0x6E05, j))		/* Set Tone Off Period */
 
 		return -1;
 	if (ixj_WriteDSPCommand(arg, j))
@@ -5644,7 +5737,7 @@ static int ixj_set_tone_off(unsigned short arg, IXJ *j)
 
 static int ixj_get_tone_on(IXJ *j)
 {
-	if (ixj_WriteDSPCommand(0x6E06, j))		
+	if (ixj_WriteDSPCommand(0x6E06, j))		/* Get Tone On Period */
 
 		return -1;
 	return 0;
@@ -5652,7 +5745,7 @@ static int ixj_get_tone_on(IXJ *j)
 
 static int ixj_get_tone_off(IXJ *j)
 {
-	if (ixj_WriteDSPCommand(0x6E07, j))		
+	if (ixj_WriteDSPCommand(0x6E07, j))		/* Get Tone Off Period */
 
 		return -1;
 	return 0;
@@ -5719,7 +5812,7 @@ static void ixj_ringback(IXJ *j)
 
 static void ixj_testram(IXJ *j)
 {
-	ixj_WriteDSPCommand(0x3001, j);	
+	ixj_WriteDSPCommand(0x3001, j);	/* Test External SRAM */
 }
 
 static int ixj_build_cadence(IXJ *j, IXJ_CADENCE __user * cp)
@@ -5863,7 +5956,7 @@ static void add_caps(IXJ *j)
 	j->caplist[j->caps].handle = j->caps;
 	j->caps++;
 
- 	
+ 	/* add devices that can do speaker/mic */
 	switch (j->cardtype) {
 	case QTI_PHONEJACK:
 	case QTI_LINEJACK:
@@ -5878,7 +5971,7 @@ static void add_caps(IXJ *j)
      		break;
 	}
 
- 	
+ 	/* add devices that can do handset */
 	switch (j->cardtype) {
 	case QTI_PHONEJACK:
 		strcpy(j->caplist[j->caps].desc, "HANDSET");
@@ -5891,7 +5984,7 @@ static void add_caps(IXJ *j)
      		break;
 	}
 
- 	
+ 	/* add devices that can do PSTN */
 	switch (j->cardtype) {
 	case QTI_LINEJACK:
 		strcpy(j->caplist[j->caps].desc, "PSTN");
@@ -5904,7 +5997,7 @@ static void add_caps(IXJ *j)
      		break;
 	}
 
-	
+	/* add codecs - all cards can do uLaw, linear 8/16, and Windows sound system */
 	strcpy(j->caplist[j->caps].desc, "ULAW");
 	j->caplist[j->caps].captype = codec;
 	j->caplist[j->caps].cap = ULAW;
@@ -5929,14 +6022,14 @@ static void add_caps(IXJ *j)
 	j->caplist[j->caps].handle = j->caps;
 	j->caps++;
 
-	
+	/* software ALAW codec, made from ULAW */
 	strcpy(j->caplist[j->caps].desc, "ALAW");
 	j->caplist[j->caps].captype = codec;
 	j->caplist[j->caps].cap = ALAW;
 	j->caplist[j->caps].handle = j->caps;
 	j->caps++;
 
-	
+	/* version 12 of the 8020 does the following codecs in a broken way */
 	if (j->dsp.low != 0x20 || j->ver.low != 0x12) {
 		strcpy(j->caplist[j->caps].desc, "G.723.1 6.3kbps");
 		j->caplist[j->caps].captype = codec;
@@ -5963,7 +6056,7 @@ static void add_caps(IXJ *j)
 		j->caps++;
 	}
 
-	
+	/* 8020 chips can do TS8.5 native, and 8021/8022 can load it */
 	if (j->dsp.low == 0x20 || j->flags.ts85_loaded) {
 		strcpy(j->caplist[j->caps].desc, "TrueSpeech 8.5kbps");
 		j->caplist[j->caps].captype = codec;
@@ -5972,7 +6065,7 @@ static void add_caps(IXJ *j)
 		j->caps++;
 	}
 
-	
+	/* 8021 chips can do G728 */
 	if (j->dsp.low == 0x21) {
 		strcpy(j->caplist[j->caps].desc, "G.728 16kbps");
 		j->caplist[j->caps].captype = codec;
@@ -5981,7 +6074,7 @@ static void add_caps(IXJ *j)
 		j->caps++;
 	}
 
-	
+	/* 8021/8022 chips can do G729 if loaded */
 	if (j->dsp.low != 0x20 && j->flags.g729_loaded) {
 		strcpy(j->caplist[j->caps].desc, "G.729A 8kbps");
 		j->caplist[j->caps].captype = codec;
@@ -6027,6 +6120,10 @@ static long do_ixj_ioctl(struct file *file_p, unsigned int cmd, unsigned long ar
 
 	int retval = 0;
 
+	/*
+	 *    Set up locks to ensure that only one process is talking to the DSP at a time.
+	 *    This is necessary to keep the DSP from locking up.
+	 */
 	while(test_and_set_bit(board, (void *)&j->busyflags) != 0)
 		schedule_timeout_interruptible(1);
 	if (ixjdebug & 0x0040)
@@ -6035,6 +6132,9 @@ static long do_ixj_ioctl(struct file *file_p, unsigned int cmd, unsigned long ar
 		clear_bit(board, &j->busyflags);
 		return -ENODEV;
 	}
+	/*
+	 *    Check ioctls only root can use.
+	 */
 	if (!capable(CAP_SYS_ADMIN)) {
 		switch (cmd) {
 		case IXJCTL_TESTRAM:
@@ -6077,10 +6177,10 @@ static long do_ixj_ioctl(struct file *file_p, unsigned int cmd, unsigned long ar
 		}
 		ixj_write_cidcw(j);
 		break;
-        
+        /* Binary compatbility */
         case OLD_PHONE_RING_START:
                 arg = 0;
-                
+                /* Fall through */
  	case PHONE_RING_START:
 		if(arg) {
 			if (copy_from_user(&j->cid_send, argp, sizeof(PHONE_CID))) {
@@ -6124,7 +6224,7 @@ static long do_ixj_ioctl(struct file *file_p, unsigned int cmd, unsigned long ar
 		break;
 	case PHONE_HOOKSTATE:
 		j->ex.bits.hookstate = 0;
-		retval = j->hookstate;  
+		retval = j->hookstate;  //j->r_hook;
 		break;
 	case IXJCTL_SET_LED:
 		LED_SetState(arg, j);
@@ -6311,31 +6411,31 @@ static long do_ixj_ioctl(struct file *file_p, unsigned int cmd, unsigned long ar
 			if (j->dtmf_rp != j->dtmf_wp) {
 				switch (j->dtmfbuffer[j->dtmf_rp]) {
 				case 10:
-					retval = 42;	
+					retval = 42;	/* '*'; */
 
 					break;
 				case 11:
-					retval = 48;	
+					retval = 48;	/*'0'; */
 
 					break;
 				case 12:
-					retval = 35;	
+					retval = 35;	/*'#'; */
 
 					break;
 				case 28:
-					retval = 65;	
+					retval = 65;	/*'A'; */
 
 					break;
 				case 29:
-					retval = 66;	
+					retval = 66;	/*'B'; */
 
 					break;
 				case 30:
-					retval = 67;	
+					retval = 67;	/*'C'; */
 
 					break;
 				case 31:
-					retval = 68;	
+					retval = 68;	/*'D'; */
 
 					break;
 				default:
@@ -6602,19 +6702,19 @@ static const struct file_operations ixj_fops =
 
 static int ixj_linetest(IXJ *j)
 {
-	j->flags.pstncheck = 1;	
-	j->flags.pstn_present = 0; 
+	j->flags.pstncheck = 1;	/* Testing */
+	j->flags.pstn_present = 0; /* Assume the line is not there */
 
-	daa_int_read(j);	
-	
-	
-	
+	daa_int_read(j);	/*Clear DAA Interrupt flags */
+	/* */
+	/* Hold all relays in the normally de-energized position. */
+	/* */
 
 	j->pld_slicw.bits.rly1 = 0;
 	j->pld_slicw.bits.rly2 = 0;
 	j->pld_slicw.bits.rly3 = 0;
 	outb_p(j->pld_slicw.byte, j->XILINXbase + 0x01);
-	j->pld_scrw.bits.daafsyncen = 0;	
+	j->pld_scrw.bits.daafsyncen = 0;	/* Turn off DAA Frame Sync */
 
 	outb_p(j->pld_scrw.byte, j->XILINXbase);
 	j->pld_slicr.byte = inb_p(j->XILINXbase + 0x01);
@@ -6628,7 +6728,7 @@ static int ixj_linetest(IXJ *j)
 		j->pld_slicw.bits.rly2 = 0;
 		j->pld_slicw.bits.rly3 = 1;
 		outb_p(j->pld_slicw.byte, j->XILINXbase + 0x01);
-		j->pld_scrw.bits.daafsyncen = 0;	
+		j->pld_scrw.bits.daafsyncen = 0;	/* Turn off DAA Frame Sync */
 
 		outb_p(j->pld_scrw.byte, j->XILINXbase);
 		daa_set_mode(j, SOP_PU_CONVERSATION);
@@ -6636,7 +6736,7 @@ static int ixj_linetest(IXJ *j)
 		daa_int_read(j);
 		daa_set_mode(j, SOP_PU_RESET);
 		if (j->m_DAAShadowRegs.XOP_REGS.XOP.xr0.bitreg.VDD_OK) {
-			j->flags.pots_correct = 0;	
+			j->flags.pots_correct = 0;	/* Should not be line voltage on POTS port. */
 			LED_SetState(0x4, j);
 			j->pld_slicw.bits.rly3 = 0;
 			outb_p(j->pld_slicw.byte, j->XILINXbase + 0x01);
@@ -6674,7 +6774,7 @@ static int ixj_linetest(IXJ *j)
 			LED_SetState(0x5, j);
 		}
 	}
-	j->flags.pstncheck = 0;	
+	j->flags.pstncheck = 0;	/* Testing */
 	return j->flags.pstn_present;
 }
 
@@ -6692,21 +6792,22 @@ static int ixj_selfprobe(IXJ *j)
 		atomic_dec(&j->DSPWrite);
 	if (ixjdebug & 0x0002)
 		printk(KERN_INFO "Write IDLE to Software Control Register\n");
-	ixj_WriteDSPCommand(0x0FE0, j);	
+	ixj_WriteDSPCommand(0x0FE0, j);	/* Put the DSP in full power mode. */
 
-	if (ixj_WriteDSPCommand(0x0000, j))		
+	if (ixj_WriteDSPCommand(0x0000, j))		/* Write IDLE to Software Control Register */
 		return -1;
+/* The read values of the SSR should be 0x00 for the IDLE command */
 	if (j->ssr.low || j->ssr.high)
 		return -1;
 	if (ixjdebug & 0x0002)
 		printk(KERN_INFO "Get Device ID Code\n");
-	if (ixj_WriteDSPCommand(0x3400, j))		
+	if (ixj_WriteDSPCommand(0x3400, j))		/* Get Device ID Code */
 		return -1;
 	j->dsp.low = j->ssr.low;
 	j->dsp.high = j->ssr.high;
 	if (ixjdebug & 0x0002)
 		printk(KERN_INFO "Get Device Version Code\n");
-	if (ixj_WriteDSPCommand(0x3800, j))		
+	if (ixj_WriteDSPCommand(0x3800, j))		/* Get Device Version Code */
 		return -1;
 	j->ver.low = j->ssr.low;
 	j->ver.high = j->ssr.high;
@@ -6714,9 +6815,10 @@ static int ixj_selfprobe(IXJ *j)
 		if (j->dsp.low == 0x21) {
 			bytes.high = bytes.low = inb_p(j->XILINXbase + 0x02);
 			outb_p(bytes.low ^ 0xFF, j->XILINXbase + 0x02);
+/* Test for Internet LineJACK or Internet PhoneJACK Lite */
 			bytes.low = inb_p(j->XILINXbase + 0x02);
-			if (bytes.low == bytes.high)	
-				
+			if (bytes.low == bytes.high)	/*  Register is read only on */
+				/*  Internet PhoneJack Lite */
 			 {
 				j->cardtype = QTI_PHONEJACK_LITE;
 				if (!request_region(j->XILINXbase, 4, "ixj control")) {
@@ -6773,7 +6875,7 @@ static int ixj_selfprobe(IXJ *j)
 	if (j->dsp.low == 0x20 || j->cardtype == QTI_PHONEJACK_LITE || j->cardtype == QTI_PHONEJACK_PCI) {
 		if (ixjdebug & 0x0002)
 			printk(KERN_INFO "Write CODEC config to Software Control Register\n");
-		if (ixj_WriteDSPCommand(0xC462, j))		
+		if (ixj_WriteDSPCommand(0xC462, j))		/* Write CODEC config to Software Control Register */
 			return -1;
 		if (ixjdebug & 0x0002)
 			printk(KERN_INFO "Write CODEC timing to Software Control Register\n");
@@ -6782,7 +6884,7 @@ static int ixj_selfprobe(IXJ *j)
 		} else {
 			cmd = 0x9FF5;
 		}
-		if (ixj_WriteDSPCommand(cmd, j))	
+		if (ixj_WriteDSPCommand(cmd, j))	/* Write CODEC timing to Software Control Register */
 			return -1;
 	} else {
 		if (set_base_frame(j, 30) != 30)
@@ -6790,11 +6892,11 @@ static int ixj_selfprobe(IXJ *j)
 		if (ixjdebug & 0x0002)
 			printk(KERN_INFO "Write CODEC config to Software Control Register\n");
 		if (j->cardtype == QTI_PHONECARD) {
-			if (ixj_WriteDSPCommand(0xC528, j))		
+			if (ixj_WriteDSPCommand(0xC528, j))		/* Write CODEC config to Software Control Register */
 				return -1;
 		}
 		if (j->cardtype == QTI_LINEJACK) {
-			if (ixj_WriteDSPCommand(0xC528, j))		
+			if (ixj_WriteDSPCommand(0xC528, j))		/* Write CODEC config to Software Control Register */
 				return -1;
 			if (ixjdebug & 0x0002)
 				printk(KERN_INFO "Turn on the PLD Clock at 8Khz\n");
@@ -6807,6 +6909,7 @@ static int ixj_selfprobe(IXJ *j)
 		if (ixjdebug & 0x0002)
 			printk(KERN_INFO "Configure GPIO pins\n");
 		j->gpio.bytes.high = 0x09;
+/*  bytes.low = 0xEF;  0xF7 */
 		j->gpio.bits.gpio1 = 1;
 		j->gpio.bits.gpio2 = 1;
 		j->gpio.bits.gpio3 = 0;
@@ -6814,7 +6917,7 @@ static int ixj_selfprobe(IXJ *j)
 		j->gpio.bits.gpio5 = 1;
 		j->gpio.bits.gpio6 = 1;
 		j->gpio.bits.gpio7 = 1;
-		ixj_WriteDSPCommand(j->gpio.word, j);	
+		ixj_WriteDSPCommand(j->gpio.word, j);	/* Set GPIO pin directions */
 		if (ixjdebug & 0x0002)
 			printk(KERN_INFO "Enable SLIC\n");
 		j->gpio.bytes.high = 0x0B;
@@ -6822,7 +6925,7 @@ static int ixj_selfprobe(IXJ *j)
 		j->gpio.bits.gpio1 = 0;
 		j->gpio.bits.gpio2 = 1;
 		j->gpio.bits.gpio5 = 0;
-		ixj_WriteDSPCommand(j->gpio.word, j);	
+		ixj_WriteDSPCommand(j->gpio.word, j);	/* send the ring stop signal */
 		j->port = PORT_POTS;
 	} else {
 		if (j->cardtype == QTI_LINEJACK) {
@@ -6851,69 +6954,70 @@ static int ixj_selfprobe(IXJ *j)
 			j->flags.pstn_present = 0;
 			ixj_linetest(j);
 			if (j->flags.pots_correct) {
-				j->pld_scrw.bits.daafsyncen = 0;	
+				j->pld_scrw.bits.daafsyncen = 0;	/* Turn off DAA Frame Sync */
 
 				outb_p(j->pld_scrw.byte, j->XILINXbase);
 				j->pld_slicw.bits.rly1 = 1;
 				j->pld_slicw.bits.spken = 1;
 				outb_p(j->pld_slicw.byte, j->XILINXbase + 0x01);
 				SLIC_SetState(PLD_SLIC_STATE_STANDBY, j);
+/*				SLIC_SetState(PLD_SLIC_STATE_ACTIVE, j); */
 				j->port = PORT_POTS;
 			}
 			ixj_set_port(j, PORT_PSTN);
 			ixj_set_pots(j, 1);
 			if (ixjdebug & 0x0002)
 				printk(KERN_INFO "Enable Mixer\n");
-			ixj_mixer(0x0000, j);	
-			ixj_mixer(0x0100, j);	
+			ixj_mixer(0x0000, j);	/*Master Volume Left unmute 0db */
+			ixj_mixer(0x0100, j);	/*Master Volume Right unmute 0db */
 
-			ixj_mixer(0x0203, j);	
-			ixj_mixer(0x0303, j);	
+			ixj_mixer(0x0203, j);	/*Voice Left Volume unmute 6db */
+			ixj_mixer(0x0303, j);	/*Voice Right Volume unmute 6db */
 
-			ixj_mixer(0x0480, j);	
-			ixj_mixer(0x0580, j);	
+			ixj_mixer(0x0480, j);	/*FM Left mute */
+			ixj_mixer(0x0580, j);	/*FM Right mute */
 
-			ixj_mixer(0x0680, j);	
-			ixj_mixer(0x0780, j);	
+			ixj_mixer(0x0680, j);	/*CD Left mute */
+			ixj_mixer(0x0780, j);	/*CD Right mute */
 
-			ixj_mixer(0x0880, j);	
-			ixj_mixer(0x0980, j);	
+			ixj_mixer(0x0880, j);	/*Line Left mute */
+			ixj_mixer(0x0980, j);	/*Line Right mute */
 
-			ixj_mixer(0x0A80, j);	
-			ixj_mixer(0x0B80, j);	
+			ixj_mixer(0x0A80, j);	/*Aux left mute  */
+			ixj_mixer(0x0B80, j);	/*Aux right mute */
 
-			ixj_mixer(0x0C00, j);	
-			ixj_mixer(0x0D80, j);	
+			ixj_mixer(0x0C00, j);	/*Mono1 unmute 12db */
+			ixj_mixer(0x0D80, j);	/*Mono2 mute */
 
-			ixj_mixer(0x0E80, j);	
+			ixj_mixer(0x0E80, j);	/*Mic mute */
 
-			ixj_mixer(0x0F00, j);	
+			ixj_mixer(0x0F00, j);	/*Mono Out Volume unmute 0db */
 
-			ixj_mixer(0x1000, j);	
+			ixj_mixer(0x1000, j);	/*Voice Left and Right out only */
 			ixj_mixer(0x110C, j);
 
 
-			ixj_mixer(0x1200, j);	
+			ixj_mixer(0x1200, j);	/*Mono1 switch on mixer left */
 			ixj_mixer(0x1401, j);
 
-			ixj_mixer(0x1300, j);       
+			ixj_mixer(0x1300, j);       /*Mono1 switch on mixer right */
 			ixj_mixer(0x1501, j);
 
-			ixj_mixer(0x1700, j);	
+			ixj_mixer(0x1700, j);	/*Clock select */
 
-			ixj_mixer(0x1800, j);	
+			ixj_mixer(0x1800, j);	/*ADC input from mixer */
 
-			ixj_mixer(0x1901, j);	
+			ixj_mixer(0x1901, j);	/*Mic gain 30db */
 
 			if (ixjdebug & 0x0002)
 				printk(KERN_INFO "Setting Default US Ring Cadence Detection\n");
 			j->cadence_f[4].state = 0;
-			j->cadence_f[4].on1 = 0;	
+			j->cadence_f[4].on1 = 0;	/*Cadence Filter 4 is used for PSTN ring cadence */
 			j->cadence_f[4].off1 = 0;
 			j->cadence_f[4].on2 = 0;
 			j->cadence_f[4].off2 = 0;
 			j->cadence_f[4].on3 = 0;
-			j->cadence_f[4].off3 = 0;	
+			j->cadence_f[4].off3 = 0;	/* These should represent standard US ring pulse. */
 			j->pstn_last_rmr = jiffies;
 
 		} else {
@@ -6924,6 +7028,7 @@ static int ixj_selfprobe(IXJ *j)
 			} else {
 				ixj_set_port(j, PORT_POTS);
 				SLIC_SetState(PLD_SLIC_STATE_STANDBY, j);
+/*				SLIC_SetState(PLD_SLIC_STATE_ACTIVE, j); */
 			}
 		}
 	}
@@ -6933,7 +7038,7 @@ static int ixj_selfprobe(IXJ *j)
 	j->read_wait = j->write_wait = 0;
 	j->rxreadycheck = j->txreadycheck = 0;
 
-	
+	/* initialise the DTMF prescale to a sensible value */
 	if (j->cardtype == QTI_LINEJACK) {
 		set_dtmf_prescale(j, 0x10); 
 	} else {
@@ -6942,8 +7047,9 @@ static int ixj_selfprobe(IXJ *j)
 	set_play_volume(j, 0x100);
 	set_rec_volume(j, 0x100);
 
-	if (ixj_WriteDSPCommand(0x0000, j))		
+	if (ixj_WriteDSPCommand(0x0000, j))		/* Write IDLE to Software Control Register */
 		return -1;
+/* The read values of the SSR should be 0x00 for the IDLE command */
 	if (j->ssr.low || j->ssr.high)
 		return -1;
 
@@ -6953,21 +7059,21 @@ static int ixj_selfprobe(IXJ *j)
 	if (ixjdebug & 0x0002)
 		printk(KERN_INFO "Set Line Monitor to Asyncronous Mode\n");
 
-	if (ixj_WriteDSPCommand(0x7E01, j))		
+	if (ixj_WriteDSPCommand(0x7E01, j))		/* Asynchronous Line Monitor */
 		return -1;
 
 	if (ixjdebug & 0x002)
 		printk(KERN_INFO "Enable DTMF Detectors\n");
 
-	if (ixj_WriteDSPCommand(0x5151, j))		
+	if (ixj_WriteDSPCommand(0x5151, j))		/* Enable DTMF detection */
 		return -1;
 
-	if (ixj_WriteDSPCommand(0x6E01, j))		
+	if (ixj_WriteDSPCommand(0x6E01, j))		/* Set Asyncronous Tone Generation */
 		return -1;
 
-	set_rec_depth(j, 2);	
+	set_rec_depth(j, 2);	/* Set Record Channel Limit to 2 frames */
 
-	set_play_depth(j, 2);	
+	set_play_depth(j, 2);	/* Set Playback Channel Limit to 2 frames */
 
 	j->ex.bits.dtmf_ready = 0;
 	j->dtmf_state = 0;
@@ -6981,14 +7087,14 @@ static int ixj_selfprobe(IXJ *j)
 	j->flags.dtmf_oob = 0;
 	for (cnt = 0; cnt < 4; cnt++)
 		j->cadence_f[cnt].enable = 0;
-	
-	ixj_WriteDSPCommand(0x0FE3, j);	
+	/* must be a device on the specified address */
+	ixj_WriteDSPCommand(0x0FE3, j);	/* Put the DSP in 1/5 power mode. */
 
-	
+	/* Set up the default signals for events */
 	for (cnt = 0; cnt < 35; cnt++)
 		j->ixj_signals[cnt] = SIGIO;
 
-	
+	/* Set the excetion signal enable flags */
 	j->ex_sig.bits.dtmf_ready = j->ex_sig.bits.hookstate = j->ex_sig.bits.flash = j->ex_sig.bits.pstn_ring = 
 	j->ex_sig.bits.caller_id = j->ex_sig.bits.pstn_wink = j->ex_sig.bits.f0 = j->ex_sig.bits.f1 = j->ex_sig.bits.f2 = 
 	j->ex_sig.bits.f3 = j->ex_sig.bits.fc0 = j->ex_sig.bits.fc1 = j->ex_sig.bits.fc2 = j->ex_sig.bits.fc3 = 1;
@@ -6998,7 +7104,7 @@ static int ixj_selfprobe(IXJ *j)
 	j->fskdcnt = 0;
 	j->cidcw_wait = 0;
  
-	
+	/* Register with the Telephony for Linux subsystem */
 	j->p.f_op = &ixj_fops;
 	j->p.open = ixj_open;
 	j->p.board = j->board;
@@ -7009,6 +7115,9 @@ static int ixj_selfprobe(IXJ *j)
 	return 0;
 }
 
+/*
+ *	Exported service for pcmcia card handling
+ */
  
 IXJ *ixj_pcmcia_probe(unsigned long dsp, unsigned long xilinx)
 {
@@ -7023,7 +7132,7 @@ IXJ *ixj_pcmcia_probe(unsigned long dsp, unsigned long xilinx)
 	return j;
 }
 
-EXPORT_SYMBOL(ixj_pcmcia_probe);		
+EXPORT_SYMBOL(ixj_pcmcia_probe);		/* Fpr PCMCIA */
 
 static int ixj_get_status_proc(char *buf)
 {
@@ -7212,7 +7321,7 @@ static int ixj_get_status_proc(char *buf)
 			len += sprintf(buf + len, "\nPlay volume 0x%x", get_play_volume(j));
 			len += sprintf(buf + len, "\nDTMF prescale 0x%x", get_dtmf_prescale(j));
 			
-			len += sprintf(buf + len, "\nHook state %d", j->hookstate); 
+			len += sprintf(buf + len, "\nHook state %d", j->hookstate); /* j->r_hook);	*/
 
 			if (j->cardtype == QTI_LINEJACK) {
 				len += sprintf(buf + len, "\nPOTS Correct %d", j->flags.pots_correct);
@@ -7271,7 +7380,7 @@ static int ixj_get_status_proc(char *buf)
 				case PLD_SLIC_STATE_ACTIVE:
 					len += sprintf(buf + len, "ACTIVE");
 					break;
-				case PLD_SLIC_STATE_OHT:	
+				case PLD_SLIC_STATE_OHT:	/* On-hook transmit */
 					len += sprintf(buf + len, "OHT");
 					break;
 				case PLD_SLIC_STATE_TIPOPEN:
@@ -7280,10 +7389,10 @@ static int ixj_get_status_proc(char *buf)
 				case PLD_SLIC_STATE_STANDBY:
 					len += sprintf(buf + len, "STANDBY");
 					break;
-				case PLD_SLIC_STATE_APR:	
+				case PLD_SLIC_STATE_APR:	/* Active polarity reversal */
 					len += sprintf(buf + len, "APR");
 					break;
-				case PLD_SLIC_STATE_OHTPR:	
+				case PLD_SLIC_STATE_OHTPR:	/* OHT polarity reversal */
 					len += sprintf(buf + len, "OHTPR");
 					break;
 				default:
@@ -7341,7 +7450,7 @@ static void cleanup(void)
 				printk(KERN_INFO "IXJ: Deleting timer for /dev/phone%d\n", cnt);
 			del_timer(&j->timer);
 			if (j->cardtype == QTI_LINEJACK) {
-				j->pld_scrw.bits.daafsyncen = 0;	
+				j->pld_scrw.bits.daafsyncen = 0;	/* Turn off DAA Frame Sync */
 
 				outb_p(j->pld_scrw.byte, j->XILINXbase);
 				j->pld_slicw.bits.rly1 = 0;
@@ -7380,6 +7489,7 @@ static void cleanup(void)
 	remove_proc_entry ("ixj", NULL);
 }
 
+/* Typedefs */
 typedef struct {
 	BYTE length;
 	DWORD bits;
@@ -7389,16 +7499,16 @@ static void PCIEE_WriteBit(WORD wEEPROMAddress, BYTE lastLCC, BYTE byData)
 {
 	lastLCC = lastLCC & 0xfb;
 	lastLCC = lastLCC | (byData ? 4 : 0);
-	outb(lastLCC, wEEPROMAddress);	
+	outb(lastLCC, wEEPROMAddress);	/*set data out bit as appropriate */
 
 	mdelay(1);
 	lastLCC = lastLCC | 0x01;
-	outb(lastLCC, wEEPROMAddress);	
+	outb(lastLCC, wEEPROMAddress);	/*SK rising edge */
 
 	byData = byData << 1;
 	lastLCC = lastLCC & 0xfe;
 	mdelay(1);
-	outb(lastLCC, wEEPROMAddress);	
+	outb(lastLCC, wEEPROMAddress);	/*after delay, SK falling edge */
 
 }
 
@@ -7406,11 +7516,11 @@ static BYTE PCIEE_ReadBit(WORD wEEPROMAddress, BYTE lastLCC)
 {
 	mdelay(1);
 	lastLCC = lastLCC | 0x01;
-	outb(lastLCC, wEEPROMAddress);	
+	outb(lastLCC, wEEPROMAddress);	/*SK rising edge */
 
 	lastLCC = lastLCC & 0xfe;
 	mdelay(1);
-	outb(lastLCC, wEEPROMAddress);	
+	outb(lastLCC, wEEPROMAddress);	/*after delay, SK falling edge */
 
 	return ((inb(wEEPROMAddress) >> 3) & 1);
 }
@@ -7425,9 +7535,9 @@ static bool PCIEE_ReadWord(WORD wAddress, WORD wLoc, WORD * pwResult)
 	lastLCC = inb(wEEPROMAddress);
 	lastLCC = lastLCC | 0x02;
 	lastLCC = lastLCC & 0xfe;
-	outb(lastLCC, wEEPROMAddress);	
+	outb(lastLCC, wEEPROMAddress);	/* CS hi, SK lo */
 
-	mdelay(1);		
+	mdelay(1);		/* delay */
 
 	PCIEE_WriteBit(wEEPROMAddress, lastLCC, 1);
 	PCIEE_WriteBit(wEEPROMAddress, lastLCC, 1);
@@ -7442,10 +7552,10 @@ static bool PCIEE_ReadWord(WORD wAddress, WORD wLoc, WORD * pwResult)
 		*pwResult = (*pwResult << 1) | byResult;
 	}
 
-	mdelay(1);		
+	mdelay(1);		/* another delay */
 
 	lastLCC = lastLCC & 0xfd;
-	outb(lastLCC, wEEPROMAddress);	
+	outb(lastLCC, wEEPROMAddress);	/* negate CS */
 
 	return 0;
 }
@@ -7534,7 +7644,7 @@ static int __init ixj_probe_isapnp(int *cnt)
 				break;
 
 			if (func != 0x110)
-				j->XILINXbase = pnp_port_start(dev, 1);	
+				j->XILINXbase = pnp_port_start(dev, 1);	/* get real port */
 
 			switch (func) {
 			case (0x110):
@@ -7581,7 +7691,7 @@ static int __init ixj_probe_isa(int *cnt)
 {
 	int i, probe;
 
-	
+	/* Use passed parameters for older kernels without PnP */
 	for (i = 0; i < IXJMAX; i++) {
 		if (dspio[i]) {
 			IXJ *j = new_ixj(dspio[i]);
@@ -7639,7 +7749,7 @@ static int __init ixj_init(void)
 
 	cnt = 0;
 
-	
+	/* These might be no-ops, see above. */
 	if ((probe = ixj_probe_isapnp(&cnt)) < 0) {
 		return probe;
 	}
@@ -7662,12 +7772,13 @@ static void DAA_Coeff_US(IXJ *j)
 	int i;
 
 	j->daa_country = DAA_US;
-	
-	
+	/*----------------------------------------------- */
+	/* CAO */
 	for (i = 0; i < ALISDAA_CALLERID_SIZE; i++) {
 		j->m_DAAShadowRegs.CAO_REGS.CAO.CallerID[i] = 0;
 	}
 
+/* Bytes for IM-filter part 1 (04): 0E,32,E2,2F,C2,5A,C0,00 */
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[7] = 0x03;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[6] = 0x4B;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[5] = 0x5D;
@@ -7676,6 +7787,7 @@ static void DAA_Coeff_US(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[2] = 0xC5;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[1] = 0xA0;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[0] = 0x00;
+/* Bytes for IM-filter part 2 (05): 72,85,00,0E,2B,3A,D0,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[7] = 0x71;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[6] = 0x1A;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[5] = 0x00;
@@ -7684,6 +7796,7 @@ static void DAA_Coeff_US(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[2] = 0x33;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[1] = 0xE0;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[0] = 0x08;
+/* Bytes for FRX-filter       (08): 03,8F,48,F2,8F,48,70,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[7] = 0x05;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[6] = 0xA3;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[5] = 0x72;
@@ -7692,6 +7805,7 @@ static void DAA_Coeff_US(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[2] = 0x3B;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[1] = 0x30;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[0] = 0x08;
+/* Bytes for FRR-filter       (07): 04,8F,38,7F,9B,EA,B0,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[7] = 0x05;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[6] = 0x87;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[5] = 0xF9;
@@ -7700,14 +7814,17 @@ static void DAA_Coeff_US(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[2] = 0xDA;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[1] = 0xB0;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[0] = 0x08;
+/* Bytes for AX-filter        (0A): 16,55,DD,CA */
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[3] = 0x41;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[2] = 0xB5;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[1] = 0xDD;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[0] = 0xCA;
+/* Bytes for AR-filter        (09): 52,D3,11,42 */
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[3] = 0x25;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[2] = 0xC7;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[1] = 0x10;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[0] = 0xD6;
+/* Bytes for TH-filter part 1 (00): 00,42,48,81,B3,80,00,98 */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[7] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[6] = 0x42;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[5] = 0x48;
@@ -7716,6 +7833,7 @@ static void DAA_Coeff_US(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[2] = 0x80;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[1] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[0] = 0x98;
+/* Bytes for TH-filter part 2 (01): 02,F2,33,A0,68,AB,8A,AD */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[7] = 0x02;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[6] = 0xA2;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[5] = 0x2B;
@@ -7724,6 +7842,7 @@ static void DAA_Coeff_US(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[2] = 0xAB;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[1] = 0x81;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[0] = 0xCC;
+/* Bytes for TH-filter part 3 (02): 00,88,DA,54,A4,BA,2D,BB */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[7] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[6] = 0x88;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[5] = 0xD2;
@@ -7732,8 +7851,9 @@ static void DAA_Coeff_US(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[2] = 0xA9;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[1] = 0x3B;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[0] = 0xA6;
-	
-	
+/* ;  (10K, 0.68uF) */
+	/*  */
+	/* Bytes for Ringing part 1 (03):1B,3B,9B,BA,D4,1C,B3,23 */
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[7] = 0x1B;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[6] = 0x3C;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[5] = 0x93;
@@ -7742,7 +7862,7 @@ static void DAA_Coeff_US(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[2] = 0x12;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[1] = 0xA3;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[0] = 0x23;
-	
+	/* Bytes for Ringing part 2 (06):13,42,A6,BA,D4,73,CA,D5 */
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[7] = 0x12;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[6] = 0xA2;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[5] = 0xA6;
@@ -7752,17 +7872,38 @@ static void DAA_Coeff_US(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[1] = 0x0A;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[0] = 0xD5;
 
-	
+	/* Levelmetering Ringing        (0D):B2,45,0F,8E       */
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[3] = 0xAA;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[2] = 0x35;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[1] = 0x0F;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[0] = 0x8E;
 
-	
-	 
-	
+	/* Bytes for Ringing part 1 (03):1B,3B,9B,BA,D4,1C,B3,23 */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[7] = 0x1C; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[6] = 0xB3; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[5] = 0xAB; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[4] = 0xAB; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[3] = 0x54; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[2] = 0x2D; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[1] = 0x62; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[0] = 0x2D; */
+	/* Bytes for Ringing part 2 (06):13,42,A6,BA,D4,73,CA,D5 */ 
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[7] = 0x2D; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[6] = 0x62; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[5] = 0xA6; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[4] = 0xBB; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[3] = 0x2A; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[2] = 0x7D; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[1] = 0x0A; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[0] = 0xD4; */
+/* */
+	/* Levelmetering Ringing        (0D):B2,45,0F,8E       */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[3] = 0xAA; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[2] = 0x05; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[1] = 0x0F; */
+/*	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[0] = 0x8E; */
 
-	
+	/* Caller ID 1st Tone           (0E):CA,0E,CA,09,99,99,99,99 */
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[7] = 0xCA;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[6] = 0x0E;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[5] = 0xCA;
@@ -7771,6 +7912,7 @@ static void DAA_Coeff_US(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[2] = 0x99;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[1] = 0x99;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[0] = 0x99;
+/* Caller ID 2nd Tone           (0F):FD,B5,BA,07,DA,00,00,00 */
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[7] = 0xFD;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[6] = 0xB5;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[5] = 0xBA;
@@ -7779,45 +7921,56 @@ static void DAA_Coeff_US(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[2] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[1] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[0] = 0x00;
-	
-	
+/*  */
+	/* ;CR Registers */
+	/* Config. Reg. 0 (filters)       (cr0):FE ; CLK gen. by crystal */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr0.reg = 0xFF;
+/* Config. Reg. 1 (dialing)       (cr1):05 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr1.reg = 0x05;
+/* Config. Reg. 2 (caller ID)     (cr2):04 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr2.reg = 0x04;
+/* Config. Reg. 3 (testloops)     (cr3):03 ; SEL Bit==0, HP-disabled */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr3.reg = 0x00;
+/* Config. Reg. 4 (analog gain)   (cr4):02 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr4.reg = 0x02;
-	
-	
-	
-	
-	
-	
+	/* Config. Reg. 5 (Version)       (cr5):02 */
+	/* Config. Reg. 6 (Reserved)      (cr6):00 */
+	/* Config. Reg. 7 (Reserved)      (cr7):00 */
+	/*  */
+	/* ;xr Registers */
+	/* Ext. Reg. 0 (Interrupt Reg.)   (xr0):02 */
 
-	j->m_DAAShadowRegs.XOP_xr0_W.reg = 0x02;	
-	
+	j->m_DAAShadowRegs.XOP_xr0_W.reg = 0x02;	/* SO_1 set to '1' because it is inverted. */
+	/* Ext. Reg. 1 (Interrupt enable) (xr1):3C Cadence, RING, Caller ID, VDD_OK */
 
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr1.reg = 0x3C;
+/* Ext. Reg. 2 (Cadence Time Out) (xr2):7D */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr2.reg = 0x7D;
-	j->m_DAAShadowRegs.XOP_REGS.XOP.xr3.reg = 0x3B;		
-	
+/* Ext. Reg. 3 (DC Char)          (xr3):32 ; B-Filter Off == 1 */
+	j->m_DAAShadowRegs.XOP_REGS.XOP.xr3.reg = 0x3B;		/*0x32; */
+	/* Ext. Reg. 4 (Cadence)          (xr4):00 */
 
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr4.reg = 0x00;
+/* Ext. Reg. 5 (Ring timer)       (xr5):22 */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr5.reg = 0x22;
+/* Ext. Reg. 6 (Power State)      (xr6):00 */
 	j->m_DAAShadowRegs.XOP_xr6_W.reg = 0x00;
-	j->m_DAAShadowRegs.XOP_REGS.XOP.xr7.reg = 0x40;		
-	
-	
-	
-	
-	
+/* Ext. Reg. 7 (Vdd)              (xr7):40 */
+	j->m_DAAShadowRegs.XOP_REGS.XOP.xr7.reg = 0x40;		/* 0x40 ??? Should it be 0x00? */
+	/*  */
+	/* DTMF Tone 1                     (0B): 11,B3,5A,2C ;   697 Hz   */
+	/*                                       12,33,5A,C3 ;  770 Hz   */
+	/*                                       13,3C,5B,32 ;  852 Hz   */
+	/*                                       1D,1B,5C,CC ;  941 Hz   */
 
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[3] = 0x11;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[2] = 0xB3;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[1] = 0x5A;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[0] = 0x2C;
-	
-	
-	
+/* DTMF Tone 2                     (0C): 32,32,52,B3 ;  1209 Hz   */
+	/*                                       EC,1D,52,22 ;  1336 Hz   */
+	/*                                       AA,AC,51,D2 ;  1477 Hz   */
+	/*                                       9B,3B,51,25 ;  1633 Hz   */
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[3] = 0x32;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[2] = 0x32;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[1] = 0x52;
@@ -7829,12 +7982,13 @@ static void DAA_Coeff_UK(IXJ *j)
 	int i;
 
 	j->daa_country = DAA_UK;
-	
-	
+	/*----------------------------------------------- */
+	/* CAO */
 	for (i = 0; i < ALISDAA_CALLERID_SIZE; i++) {
 		j->m_DAAShadowRegs.CAO_REGS.CAO.CallerID[i] = 0;
 	}
 
+/*  Bytes for IM-filter part 1 (04): 00,C2,BB,A8,CB,81,A0,00 */
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[7] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[6] = 0xC2;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[5] = 0xBB;
@@ -7843,6 +7997,7 @@ static void DAA_Coeff_UK(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[2] = 0x81;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[1] = 0xA0;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[0] = 0x00;
+/* Bytes for IM-filter part 2 (05): 40,00,00,0A,A4,33,E0,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[7] = 0x40;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[6] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[5] = 0x00;
@@ -7851,6 +8006,7 @@ static void DAA_Coeff_UK(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[2] = 0x33;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[1] = 0xE0;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[0] = 0x08;
+/* Bytes for FRX-filter       (08): 07,9B,ED,24,B2,A2,A0,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[7] = 0x07;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[6] = 0x9B;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[5] = 0xED;
@@ -7859,6 +8015,7 @@ static void DAA_Coeff_UK(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[2] = 0xA2;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[1] = 0xA0;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[0] = 0x08;
+/* Bytes for FRR-filter       (07): 0F,92,F2,B2,87,D2,30,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[7] = 0x0F;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[6] = 0x92;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[5] = 0xF2;
@@ -7867,14 +8024,17 @@ static void DAA_Coeff_UK(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[2] = 0xD2;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[1] = 0x30;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[0] = 0x08;
+/* Bytes for AX-filter        (0A): 1B,A5,DD,CA */
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[3] = 0x1B;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[2] = 0xA5;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[1] = 0xDD;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[0] = 0xCA;
+/* Bytes for AR-filter        (09): E2,27,10,D6 */
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[3] = 0xE2;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[2] = 0x27;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[1] = 0x10;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[0] = 0xD6;
+/* Bytes for TH-filter part 1 (00): 80,2D,38,8B,D0,00,00,98 */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[7] = 0x80;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[6] = 0x2D;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[5] = 0x38;
@@ -7883,6 +8043,7 @@ static void DAA_Coeff_UK(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[2] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[1] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[0] = 0x98;
+/* Bytes for TH-filter part 2 (01): 02,5A,53,F0,0B,5F,84,D4 */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[7] = 0x02;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[6] = 0x5A;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[5] = 0x53;
@@ -7891,6 +8052,7 @@ static void DAA_Coeff_UK(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[2] = 0x5F;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[1] = 0x84;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[0] = 0xD4;
+/* Bytes for TH-filter part 3 (02): 00,88,6A,A4,8F,52,F5,32 */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[7] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[6] = 0x88;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[5] = 0x6A;
@@ -7899,7 +8061,8 @@ static void DAA_Coeff_UK(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[2] = 0x52;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[1] = 0xF5;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[0] = 0x32;
-	
+/* ; idle */
+	/* Bytes for Ringing part 1 (03):1B,3C,93,3A,22,12,A3,23 */
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[7] = 0x1B;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[6] = 0x3C;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[5] = 0x93;
@@ -7908,6 +8071,7 @@ static void DAA_Coeff_UK(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[2] = 0x12;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[1] = 0xA3;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[0] = 0x23;
+/* Bytes for Ringing part 2 (06):12,A2,A6,BA,22,7A,0A,D5 */
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[7] = 0x12;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[6] = 0xA2;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[5] = 0xA6;
@@ -7916,10 +8080,12 @@ static void DAA_Coeff_UK(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[2] = 0x7A;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[1] = 0x0A;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[0] = 0xD5;
+/* Levelmetering Ringing           (0D):AA,35,0F,8E     ; 25Hz 30V less possible? */
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[3] = 0xAA;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[2] = 0x35;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[1] = 0x0F;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[0] = 0x8E;
+/* Caller ID 1st Tone              (0E):CA,0E,CA,09,99,99,99,99 */
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[7] = 0xCA;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[6] = 0x0E;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[5] = 0xCA;
@@ -7928,6 +8094,7 @@ static void DAA_Coeff_UK(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[2] = 0x99;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[1] = 0x99;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[0] = 0x99;
+/* Caller ID 2nd Tone              (0F):FD,B5,BA,07,DA,00,00,00 */
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[7] = 0xFD;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[6] = 0xB5;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[5] = 0xBA;
@@ -7936,42 +8103,53 @@ static void DAA_Coeff_UK(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[2] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[1] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[0] = 0x00;
-	
+/* ;CR Registers */
+	/* Config. Reg. 0 (filters)        (cr0):FF */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr0.reg = 0xFF;
+/* Config. Reg. 1 (dialing)        (cr1):05 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr1.reg = 0x05;
+/* Config. Reg. 2 (caller ID)      (cr2):04 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr2.reg = 0x04;
+/* Config. Reg. 3 (testloops)      (cr3):00        ;  */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr3.reg = 0x00;
+/* Config. Reg. 4 (analog gain)    (cr4):02 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr4.reg = 0x02;
-	
-	
-	
-	
-	
+	/* Config. Reg. 5 (Version)        (cr5):02 */
+	/* Config. Reg. 6 (Reserved)       (cr6):00 */
+	/* Config. Reg. 7 (Reserved)       (cr7):00 */
+	/* ;xr Registers */
+	/* Ext. Reg. 0 (Interrupt Reg.)    (xr0):02 */
 
-	j->m_DAAShadowRegs.XOP_xr0_W.reg = 0x02;	
-	
+	j->m_DAAShadowRegs.XOP_xr0_W.reg = 0x02;	/* SO_1 set to '1' because it is inverted. */
+	/* Ext. Reg. 1 (Interrupt enable)  (xr1):1C */
 
-	j->m_DAAShadowRegs.XOP_REGS.XOP.xr1.reg = 0x1C;		
-	
+	j->m_DAAShadowRegs.XOP_REGS.XOP.xr1.reg = 0x1C;		/* RING, Caller ID, VDD_OK */
+	/* Ext. Reg. 2 (Cadence Time Out)  (xr2):7D */
 
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr2.reg = 0x7D;
+/* Ext. Reg. 3 (DC Char)           (xr3):36        ;  */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr3.reg = 0x36;
+/* Ext. Reg. 4 (Cadence)           (xr4):00 */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr4.reg = 0x00;
+/* Ext. Reg. 5 (Ring timer)        (xr5):22 */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr5.reg = 0x22;
+/* Ext. Reg. 6 (Power State)       (xr6):00 */
 	j->m_DAAShadowRegs.XOP_xr6_W.reg = 0x00;
-	j->m_DAAShadowRegs.XOP_REGS.XOP.xr7.reg = 0x46;		
-	
-	
-	
-	
+/* Ext. Reg. 7 (Vdd)               (xr7):46 */
+	j->m_DAAShadowRegs.XOP_REGS.XOP.xr7.reg = 0x46;		/* 0x46 ??? Should it be 0x00? */
+	/* DTMF Tone 1                     (0B): 11,B3,5A,2C    ;   697 Hz   */
+	/*                                       12,33,5A,C3    ;  770 Hz   */
+	/*                                       13,3C,5B,32    ;  852 Hz   */
+	/*                                       1D,1B,5C,CC    ;  941 Hz   */
 
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[3] = 0x11;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[2] = 0xB3;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[1] = 0x5A;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[0] = 0x2C;
-	
-	
-	
+/* DTMF Tone 2                     (0C): 32,32,52,B3    ;  1209 Hz   */
+	/*                                       EC,1D,52,22    ;  1336 Hz   */
+	/*                                       AA,AC,51,D2    ;  1477 Hz   */
+	/*                                       9B,3B,51,25    ;  1633 Hz   */
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[3] = 0x32;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[2] = 0x32;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[1] = 0x52;
@@ -7984,12 +8162,13 @@ static void DAA_Coeff_France(IXJ *j)
 	int i;
 
 	j->daa_country = DAA_FRANCE;
-	
-	
+	/*----------------------------------------------- */
+	/* CAO */
 	for (i = 0; i < ALISDAA_CALLERID_SIZE; i++) {
 		j->m_DAAShadowRegs.CAO_REGS.CAO.CallerID[i] = 0;
 	}
 
+/* Bytes for IM-filter part 1 (04): 02,A2,43,2C,22,AF,A0,00 */
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[7] = 0x02;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[6] = 0xA2;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[5] = 0x43;
@@ -7998,6 +8177,7 @@ static void DAA_Coeff_France(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[2] = 0xAF;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[1] = 0xA0;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[0] = 0x00;
+/* Bytes for IM-filter part 2 (05): 67,CE,00,0C,22,33,E0,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[7] = 0x67;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[6] = 0xCE;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[5] = 0x00;
@@ -8006,6 +8186,7 @@ static void DAA_Coeff_France(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[2] = 0x33;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[1] = 0xE0;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[0] = 0x08;
+/* Bytes for FRX-filter       (08): 07,9A,28,F6,23,4A,B0,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[7] = 0x07;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[6] = 0x9A;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[5] = 0x28;
@@ -8014,6 +8195,7 @@ static void DAA_Coeff_France(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[2] = 0x4A;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[1] = 0xB0;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[0] = 0x08;
+/* Bytes for FRR-filter       (07): 03,8F,F9,2F,9E,FA,20,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[7] = 0x03;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[6] = 0x8F;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[5] = 0xF9;
@@ -8022,14 +8204,17 @@ static void DAA_Coeff_France(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[2] = 0xFA;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[1] = 0x20;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[0] = 0x08;
+/* Bytes for AX-filter        (0A): 16,B5,DD,CA */
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[3] = 0x16;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[2] = 0xB5;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[1] = 0xDD;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[0] = 0xCA;
+/* Bytes for AR-filter        (09): 52,C7,10,D6 */
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[3] = 0xE2;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[2] = 0xC7;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[1] = 0x10;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[0] = 0xD6;
+/* Bytes for TH-filter part 1 (00): 00,42,48,81,A6,80,00,98 */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[7] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[6] = 0x42;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[5] = 0x48;
@@ -8038,6 +8223,7 @@ static void DAA_Coeff_France(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[2] = 0x80;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[1] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[0] = 0x98;
+/* Bytes for TH-filter part 2 (01): 02,AC,2A,30,78,AC,8A,2C */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[7] = 0x02;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[6] = 0xAC;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[5] = 0x2A;
@@ -8046,6 +8232,7 @@ static void DAA_Coeff_France(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[2] = 0xAC;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[1] = 0x8A;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[0] = 0x2C;
+/* Bytes for TH-filter part 3 (02): 00,88,DA,A5,22,BA,2C,45 */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[7] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[6] = 0x88;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[5] = 0xDA;
@@ -8054,7 +8241,8 @@ static void DAA_Coeff_France(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[2] = 0xBA;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[1] = 0x2C;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[0] = 0x45;
-	
+/* ; idle */
+	/* Bytes for Ringing part 1 (03):1B,3C,93,3A,22,12,A3,23 */
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[7] = 0x1B;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[6] = 0x3C;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[5] = 0x93;
@@ -8063,6 +8251,7 @@ static void DAA_Coeff_France(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[2] = 0x12;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[1] = 0xA3;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[0] = 0x23;
+/* Bytes for Ringing part 2 (06):12,A2,A6,BA,22,7A,0A,D5 */
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[7] = 0x12;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[6] = 0xA2;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[5] = 0xA6;
@@ -8071,10 +8260,12 @@ static void DAA_Coeff_France(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[2] = 0x7A;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[1] = 0x0A;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[0] = 0xD5;
+/* Levelmetering Ringing           (0D):32,45,B5,84     ; 50Hz 20V */
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[3] = 0x32;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[2] = 0x45;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[1] = 0xB5;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[0] = 0x84;
+/* Caller ID 1st Tone              (0E):CA,0E,CA,09,99,99,99,99 */
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[7] = 0xCA;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[6] = 0x0E;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[5] = 0xCA;
@@ -8083,6 +8274,7 @@ static void DAA_Coeff_France(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[2] = 0x99;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[1] = 0x99;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[0] = 0x99;
+/* Caller ID 2nd Tone              (0F):FD,B5,BA,07,DA,00,00,00 */
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[7] = 0xFD;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[6] = 0xB5;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[5] = 0xBA;
@@ -8091,42 +8283,53 @@ static void DAA_Coeff_France(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[2] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[1] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[0] = 0x00;
-	
+/* ;CR Registers */
+	/* Config. Reg. 0 (filters)        (cr0):FF */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr0.reg = 0xFF;
+/* Config. Reg. 1 (dialing)        (cr1):05 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr1.reg = 0x05;
+/* Config. Reg. 2 (caller ID)      (cr2):04 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr2.reg = 0x04;
+/* Config. Reg. 3 (testloops)      (cr3):00        ;  */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr3.reg = 0x00;
+/* Config. Reg. 4 (analog gain)    (cr4):02 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr4.reg = 0x02;
-	
-	
-	
-	
-	
+	/* Config. Reg. 5 (Version)        (cr5):02 */
+	/* Config. Reg. 6 (Reserved)       (cr6):00 */
+	/* Config. Reg. 7 (Reserved)       (cr7):00 */
+	/* ;xr Registers */
+	/* Ext. Reg. 0 (Interrupt Reg.)    (xr0):02 */
 
-	j->m_DAAShadowRegs.XOP_xr0_W.reg = 0x02;	
-	
+	j->m_DAAShadowRegs.XOP_xr0_W.reg = 0x02;	/* SO_1 set to '1' because it is inverted. */
+	/* Ext. Reg. 1 (Interrupt enable)  (xr1):1C */
 
-	j->m_DAAShadowRegs.XOP_REGS.XOP.xr1.reg = 0x1C;		
-	
+	j->m_DAAShadowRegs.XOP_REGS.XOP.xr1.reg = 0x1C;		/* RING, Caller ID, VDD_OK */
+	/* Ext. Reg. 2 (Cadence Time Out)  (xr2):7D */
 
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr2.reg = 0x7D;
+/* Ext. Reg. 3 (DC Char)           (xr3):36        ;  */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr3.reg = 0x36;
+/* Ext. Reg. 4 (Cadence)           (xr4):00 */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr4.reg = 0x00;
+/* Ext. Reg. 5 (Ring timer)        (xr5):22 */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr5.reg = 0x22;
+/* Ext. Reg. 6 (Power State)       (xr6):00 */
 	j->m_DAAShadowRegs.XOP_xr6_W.reg = 0x00;
-	j->m_DAAShadowRegs.XOP_REGS.XOP.xr7.reg = 0x46;		
-	
-	
-	
-	
+/* Ext. Reg. 7 (Vdd)               (xr7):46 */
+	j->m_DAAShadowRegs.XOP_REGS.XOP.xr7.reg = 0x46;		/* 0x46 ??? Should it be 0x00? */
+	/* DTMF Tone 1                     (0B): 11,B3,5A,2C    ;   697 Hz   */
+	/*                                       12,33,5A,C3    ;  770 Hz   */
+	/*                                       13,3C,5B,32    ;  852 Hz   */
+	/*                                       1D,1B,5C,CC    ;  941 Hz   */
 
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[3] = 0x11;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[2] = 0xB3;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[1] = 0x5A;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[0] = 0x2C;
-	
-	
-	
+/* DTMF Tone 2                     (0C): 32,32,52,B3    ;  1209 Hz   */
+	/*                                       EC,1D,52,22    ;  1336 Hz   */
+	/*                                       AA,AC,51,D2    ;  1477 Hz   */
+	/*                                       9B,3B,51,25    ;  1633 Hz   */
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[3] = 0x32;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[2] = 0x32;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[1] = 0x52;
@@ -8139,12 +8342,13 @@ static void DAA_Coeff_Germany(IXJ *j)
 	int i;
 
 	j->daa_country = DAA_GERMANY;
-	
-	
+	/*----------------------------------------------- */
+	/* CAO */
 	for (i = 0; i < ALISDAA_CALLERID_SIZE; i++) {
 		j->m_DAAShadowRegs.CAO_REGS.CAO.CallerID[i] = 0;
 	}
 
+/* Bytes for IM-filter part 1 (04): 00,CE,BB,B8,D2,81,B0,00 */
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[7] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[6] = 0xCE;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[5] = 0xBB;
@@ -8153,6 +8357,7 @@ static void DAA_Coeff_Germany(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[2] = 0x81;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[1] = 0xB0;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[0] = 0x00;
+/* Bytes for IM-filter part 2 (05): 45,8F,00,0C,D2,3A,D0,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[7] = 0x45;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[6] = 0x8F;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[5] = 0x00;
@@ -8161,6 +8366,7 @@ static void DAA_Coeff_Germany(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[2] = 0x3A;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[1] = 0xD0;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[0] = 0x08;
+/* Bytes for FRX-filter       (08): 07,AA,E2,34,24,89,20,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[7] = 0x07;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[6] = 0xAA;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[5] = 0xE2;
@@ -8169,6 +8375,7 @@ static void DAA_Coeff_Germany(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[2] = 0x89;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[1] = 0x20;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[0] = 0x08;
+/* Bytes for FRR-filter       (07): 02,87,FA,37,9A,CA,B0,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[7] = 0x02;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[6] = 0x87;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[5] = 0xFA;
@@ -8177,14 +8384,17 @@ static void DAA_Coeff_Germany(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[2] = 0xCA;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[1] = 0xB0;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[0] = 0x08;
+/* Bytes for AX-filter        (0A): 72,D5,DD,CA */
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[3] = 0x72;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[2] = 0xD5;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[1] = 0xDD;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[0] = 0xCA;
+/* Bytes for AR-filter        (09): 72,42,13,4B */
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[3] = 0x72;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[2] = 0x42;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[1] = 0x13;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[0] = 0x4B;
+/* Bytes for TH-filter part 1 (00): 80,52,48,81,AD,80,00,98 */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[7] = 0x80;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[6] = 0x52;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[5] = 0x48;
@@ -8193,6 +8403,7 @@ static void DAA_Coeff_Germany(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[2] = 0x80;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[1] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[0] = 0x98;
+/* Bytes for TH-filter part 2 (01): 02,42,5A,20,E8,1A,81,27 */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[7] = 0x02;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[6] = 0x42;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[5] = 0x5A;
@@ -8201,6 +8412,7 @@ static void DAA_Coeff_Germany(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[2] = 0x1A;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[1] = 0x81;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[0] = 0x27;
+/* Bytes for TH-filter part 3 (02): 00,88,63,26,BD,4B,A3,C2 */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[7] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[6] = 0x88;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[5] = 0x63;
@@ -8209,7 +8421,8 @@ static void DAA_Coeff_Germany(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[2] = 0x4B;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[1] = 0xA3;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[0] = 0xC2;
-	
+/* ;  (10K, 0.68uF) */
+	/* Bytes for Ringing part 1 (03):1B,3B,9B,BA,D4,1C,B3,23 */
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[7] = 0x1B;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[6] = 0x3B;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[5] = 0x9B;
@@ -8218,6 +8431,7 @@ static void DAA_Coeff_Germany(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[2] = 0x1C;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[1] = 0xB3;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[0] = 0x23;
+/* Bytes for Ringing part 2 (06):13,42,A6,BA,D4,73,CA,D5 */
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[7] = 0x13;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[6] = 0x42;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[5] = 0xA6;
@@ -8226,10 +8440,12 @@ static void DAA_Coeff_Germany(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[2] = 0x73;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[1] = 0xCA;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[0] = 0xD5;
+/* Levelmetering Ringing        (0D):B2,45,0F,8E       */
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[3] = 0xB2;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[2] = 0x45;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[1] = 0x0F;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[0] = 0x8E;
+/* Caller ID 1st Tone           (0E):CA,0E,CA,09,99,99,99,99 */
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[7] = 0xCA;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[6] = 0x0E;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[5] = 0xCA;
@@ -8238,6 +8454,7 @@ static void DAA_Coeff_Germany(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[2] = 0x99;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[1] = 0x99;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[0] = 0x99;
+/* Caller ID 2nd Tone           (0F):FD,B5,BA,07,DA,00,00,00 */
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[7] = 0xFD;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[6] = 0xB5;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[5] = 0xBA;
@@ -8246,42 +8463,53 @@ static void DAA_Coeff_Germany(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[2] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[1] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[0] = 0x00;
-	
+/* ;CR Registers */
+	/* Config. Reg. 0 (filters)        (cr0):FF ; all Filters enabled, CLK from ext. source */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr0.reg = 0xFF;
+/* Config. Reg. 1 (dialing)        (cr1):05 ; Manual Ring, Ring metering enabled */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr1.reg = 0x05;
+/* Config. Reg. 2 (caller ID)      (cr2):04 ; Analog Gain 0dB, FSC internal */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr2.reg = 0x04;
+/* Config. Reg. 3 (testloops)      (cr3):00 ; SEL Bit==0, HP-enabled */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr3.reg = 0x00;
+/* Config. Reg. 4 (analog gain)    (cr4):02 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr4.reg = 0x02;
-	
-	
-	
-	
-	
+	/* Config. Reg. 5 (Version)        (cr5):02 */
+	/* Config. Reg. 6 (Reserved)       (cr6):00 */
+	/* Config. Reg. 7 (Reserved)       (cr7):00 */
+	/* ;xr Registers */
+	/* Ext. Reg. 0 (Interrupt Reg.)    (xr0):02 */
 
-	j->m_DAAShadowRegs.XOP_xr0_W.reg = 0x02;	
-	
+	j->m_DAAShadowRegs.XOP_xr0_W.reg = 0x02;	/* SO_1 set to '1' because it is inverted. */
+	/* Ext. Reg. 1 (Interrupt enable)  (xr1):1C ; Ring, CID, VDDOK Interrupts enabled */
 
-	j->m_DAAShadowRegs.XOP_REGS.XOP.xr1.reg = 0x1C;		
-	
+	j->m_DAAShadowRegs.XOP_REGS.XOP.xr1.reg = 0x1C;		/* RING, Caller ID, VDD_OK */
+	/* Ext. Reg. 2 (Cadence Time Out)  (xr2):7D */
 
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr2.reg = 0x7D;
+/* Ext. Reg. 3 (DC Char)           (xr3):32 ; B-Filter Off==1, U0=3.5V, R=200Ohm */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr3.reg = 0x32;
+/* Ext. Reg. 4 (Cadence)           (xr4):00 */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr4.reg = 0x00;
+/* Ext. Reg. 5 (Ring timer)        (xr5):22 */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr5.reg = 0x22;
+/* Ext. Reg. 6 (Power State)       (xr6):00 */
 	j->m_DAAShadowRegs.XOP_xr6_W.reg = 0x00;
-	j->m_DAAShadowRegs.XOP_REGS.XOP.xr7.reg = 0x40;		
-	
-	
-	
-	
+/* Ext. Reg. 7 (Vdd)               (xr7):40 ; VDD=4.25 V */
+	j->m_DAAShadowRegs.XOP_REGS.XOP.xr7.reg = 0x40;		/* 0x40 ??? Should it be 0x00? */
+	/* DTMF Tone 1                     (0B): 11,B3,5A,2C    ;   697 Hz   */
+	/*                                       12,33,5A,C3    ;  770 Hz   */
+	/*                                       13,3C,5B,32    ;  852 Hz   */
+	/*                                       1D,1B,5C,CC    ;  941 Hz   */
 
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[3] = 0x11;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[2] = 0xB3;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[1] = 0x5A;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[0] = 0x2C;
-	
-	
-	
+/* DTMF Tone 2                     (0C): 32,32,52,B3    ;  1209 Hz   */
+	/*                                       EC,1D,52,22    ;  1336 Hz   */
+	/*                                       AA,AC,51,D2    ;  1477 Hz   */
+	/*                                       9B,3B,51,25    ;  1633 Hz   */
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[3] = 0x32;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[2] = 0x32;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[1] = 0x52;
@@ -8294,12 +8522,13 @@ static void DAA_Coeff_Australia(IXJ *j)
 	int i;
 
 	j->daa_country = DAA_AUSTRALIA;
-	
-	
+	/*----------------------------------------------- */
+	/* CAO */
 	for (i = 0; i < ALISDAA_CALLERID_SIZE; i++) {
 		j->m_DAAShadowRegs.CAO_REGS.CAO.CallerID[i] = 0;
 	}
 
+/* Bytes for IM-filter part 1 (04): 00,A3,AA,28,B3,82,D0,00 */
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[7] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[6] = 0xA3;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[5] = 0xAA;
@@ -8308,6 +8537,7 @@ static void DAA_Coeff_Australia(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[2] = 0x82;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[1] = 0xD0;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[0] = 0x00;
+/* Bytes for IM-filter part 2 (05): 70,96,00,09,32,6B,C0,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[7] = 0x70;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[6] = 0x96;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[5] = 0x00;
@@ -8316,6 +8546,7 @@ static void DAA_Coeff_Australia(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[2] = 0x6B;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[1] = 0xC0;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[0] = 0x08;
+/* Bytes for FRX-filter       (08): 07,96,E2,34,32,9B,30,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[7] = 0x07;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[6] = 0x96;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[5] = 0xE2;
@@ -8324,6 +8555,7 @@ static void DAA_Coeff_Australia(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[2] = 0x9B;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[1] = 0x30;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[0] = 0x08;
+/* Bytes for FRR-filter       (07): 0F,9A,E9,2F,22,CC,A0,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[7] = 0x0F;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[6] = 0x9A;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[5] = 0xE9;
@@ -8332,14 +8564,17 @@ static void DAA_Coeff_Australia(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[2] = 0xCC;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[1] = 0xA0;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[0] = 0x08;
+/* Bytes for AX-filter        (0A): CB,45,DD,CA */
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[3] = 0xCB;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[2] = 0x45;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[1] = 0xDD;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[0] = 0xCA;
+/* Bytes for AR-filter        (09): 1B,67,10,D6 */
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[3] = 0x1B;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[2] = 0x67;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[1] = 0x10;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[0] = 0xD6;
+/* Bytes for TH-filter part 1 (00): 80,52,48,81,AF,80,00,98 */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[7] = 0x80;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[6] = 0x52;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[5] = 0x48;
@@ -8348,6 +8583,7 @@ static void DAA_Coeff_Australia(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[2] = 0x80;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[1] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[0] = 0x98;
+/* Bytes for TH-filter part 2 (01): 02,DB,52,B0,38,01,82,AC */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[7] = 0x02;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[6] = 0xDB;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[5] = 0x52;
@@ -8356,6 +8592,7 @@ static void DAA_Coeff_Australia(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[2] = 0x01;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[1] = 0x82;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[0] = 0xAC;
+/* Bytes for TH-filter part 3 (02): 00,88,4A,3E,2C,3B,24,46 */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[7] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[6] = 0x88;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[5] = 0x4A;
@@ -8364,7 +8601,8 @@ static void DAA_Coeff_Australia(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[2] = 0x3B;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[1] = 0x24;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[0] = 0x46;
-	
+/* ;  idle */
+	/* Bytes for Ringing part 1 (03):1B,3C,93,3A,22,12,A3,23 */
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[7] = 0x1B;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[6] = 0x3C;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[5] = 0x93;
@@ -8373,6 +8611,7 @@ static void DAA_Coeff_Australia(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[2] = 0x12;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[1] = 0xA3;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[0] = 0x23;
+/* Bytes for Ringing part 2 (06):12,A2,A6,BA,22,7A,0A,D5 */
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[7] = 0x12;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[6] = 0xA2;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[5] = 0xA6;
@@ -8381,10 +8620,12 @@ static void DAA_Coeff_Australia(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[2] = 0x7A;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[1] = 0x0A;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[0] = 0xD5;
+/* Levelmetering Ringing           (0D):32,45,B5,84   ; 50Hz 20V */
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[3] = 0x32;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[2] = 0x45;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[1] = 0xB5;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[0] = 0x84;
+/* Caller ID 1st Tone              (0E):CA,0E,CA,09,99,99,99,99 */
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[7] = 0xCA;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[6] = 0x0E;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[5] = 0xCA;
@@ -8393,6 +8634,7 @@ static void DAA_Coeff_Australia(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[2] = 0x99;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[1] = 0x99;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[0] = 0x99;
+/* Caller ID 2nd Tone              (0F):FD,B5,BA,07,DA,00,00,00 */
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[7] = 0xFD;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[6] = 0xB5;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[5] = 0xBA;
@@ -8401,44 +8643,54 @@ static void DAA_Coeff_Australia(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[2] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[1] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[0] = 0x00;
-	
+/* ;CR Registers */
+	/* Config. Reg. 0 (filters)        (cr0):FF */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr0.reg = 0xFF;
+/* Config. Reg. 1 (dialing)        (cr1):05 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr1.reg = 0x05;
+/* Config. Reg. 2 (caller ID)      (cr2):04 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr2.reg = 0x04;
+/* Config. Reg. 3 (testloops)      (cr3):00        ;  */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr3.reg = 0x00;
+/* Config. Reg. 4 (analog gain)    (cr4):02 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr4.reg = 0x02;
-	
-	
-	
-	
-	
+	/* Config. Reg. 5 (Version)        (cr5):02 */
+	/* Config. Reg. 6 (Reserved)       (cr6):00 */
+	/* Config. Reg. 7 (Reserved)       (cr7):00 */
+	/* ;xr Registers */
+	/* Ext. Reg. 0 (Interrupt Reg.)    (xr0):02 */
 
-	j->m_DAAShadowRegs.XOP_xr0_W.reg = 0x02;	
-	
+	j->m_DAAShadowRegs.XOP_xr0_W.reg = 0x02;	/* SO_1 set to '1' because it is inverted. */
+	/* Ext. Reg. 1 (Interrupt enable)  (xr1):1C */
 
-	j->m_DAAShadowRegs.XOP_REGS.XOP.xr1.reg = 0x1C;		
-	
+	j->m_DAAShadowRegs.XOP_REGS.XOP.xr1.reg = 0x1C;		/* RING, Caller ID, VDD_OK */
+	/* Ext. Reg. 2 (Cadence Time Out)  (xr2):7D */
 
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr2.reg = 0x7D;
+/* Ext. Reg. 3 (DC Char)           (xr3):2B      ;  */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr3.reg = 0x2B;
+/* Ext. Reg. 4 (Cadence)           (xr4):00 */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr4.reg = 0x00;
+/* Ext. Reg. 5 (Ring timer)        (xr5):22 */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr5.reg = 0x22;
+/* Ext. Reg. 6 (Power State)       (xr6):00 */
 	j->m_DAAShadowRegs.XOP_xr6_W.reg = 0x00;
-	j->m_DAAShadowRegs.XOP_REGS.XOP.xr7.reg = 0x40;		
+/* Ext. Reg. 7 (Vdd)               (xr7):40 */
+	j->m_DAAShadowRegs.XOP_REGS.XOP.xr7.reg = 0x40;		/* 0x40 ??? Should it be 0x00? */
 
-	
-	
-	
-	
+	/* DTMF Tone 1                     (0B): 11,B3,5A,2C    ;  697 Hz   */
+	/*                                       12,33,5A,C3    ;  770 Hz   */
+	/*                                       13,3C,5B,32    ;  852 Hz   */
+	/*                                       1D,1B,5C,CC    ;  941 Hz   */
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[3] = 0x11;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[2] = 0xB3;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[1] = 0x5A;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[0] = 0x2C;
 
-	
-	
-	
-	
+	/* DTMF Tone 2                     (0C): 32,32,52,B3    ;  1209 Hz   */
+	/*                                       EC,1D,52,22    ;  1336 Hz   */
+	/*                                       AA,AC,51,D2    ;  1477 Hz   */
+	/*                                       9B,3B,51,25    ;  1633 Hz   */
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[3] = 0x32;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[2] = 0x32;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[1] = 0x52;
@@ -8450,12 +8702,13 @@ static void DAA_Coeff_Japan(IXJ *j)
 	int i;
 
 	j->daa_country = DAA_JAPAN;
-	
-	
+	/*----------------------------------------------- */
+	/* CAO */
 	for (i = 0; i < ALISDAA_CALLERID_SIZE; i++) {
 		j->m_DAAShadowRegs.CAO_REGS.CAO.CallerID[i] = 0;
 	}
 
+/* Bytes for IM-filter part 1 (04): 06,BD,E2,2D,BA,F9,A0,00 */
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[7] = 0x06;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[6] = 0xBD;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[5] = 0xE2;
@@ -8464,6 +8717,7 @@ static void DAA_Coeff_Japan(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[2] = 0xF9;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[1] = 0xA0;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_1[0] = 0x00;
+/* Bytes for IM-filter part 2 (05): 6F,F7,00,0E,34,33,E0,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[7] = 0x6F;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[6] = 0xF7;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[5] = 0x00;
@@ -8472,6 +8726,7 @@ static void DAA_Coeff_Japan(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[2] = 0x33;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[1] = 0xE0;
 	j->m_DAAShadowRegs.COP_REGS.COP.IMFilterCoeff_2[0] = 0x08;
+/* Bytes for FRX-filter       (08): 02,8F,68,77,9C,58,F0,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[7] = 0x02;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[6] = 0x8F;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[5] = 0x68;
@@ -8480,6 +8735,7 @@ static void DAA_Coeff_Japan(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[2] = 0x58;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[1] = 0xF0;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRXFilterCoeff[0] = 0x08;
+/* Bytes for FRR-filter       (07): 03,8F,38,73,87,EA,20,08 */
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[7] = 0x03;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[6] = 0x8F;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[5] = 0x38;
@@ -8488,14 +8744,17 @@ static void DAA_Coeff_Japan(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[2] = 0xEA;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[1] = 0x20;
 	j->m_DAAShadowRegs.COP_REGS.COP.FRRFilterCoeff[0] = 0x08;
+/* Bytes for AX-filter        (0A): 51,C5,DD,CA */
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[3] = 0x51;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[2] = 0xC5;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[1] = 0xDD;
 	j->m_DAAShadowRegs.COP_REGS.COP.AXFilterCoeff[0] = 0xCA;
+/* Bytes for AR-filter        (09): 25,A7,10,D6 */
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[3] = 0x25;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[2] = 0xA7;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[1] = 0x10;
 	j->m_DAAShadowRegs.COP_REGS.COP.ARFilterCoeff[0] = 0xD6;
+/* Bytes for TH-filter part 1 (00): 00,42,48,81,AE,80,00,98 */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[7] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[6] = 0x42;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[5] = 0x48;
@@ -8504,6 +8763,7 @@ static void DAA_Coeff_Japan(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[2] = 0x80;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[1] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_1[0] = 0x98;
+/* Bytes for TH-filter part 2 (01): 02,AB,2A,20,99,5B,89,28 */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[7] = 0x02;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[6] = 0xAB;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[5] = 0x2A;
@@ -8512,6 +8772,7 @@ static void DAA_Coeff_Japan(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[2] = 0x5B;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[1] = 0x89;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_2[0] = 0x28;
+/* Bytes for TH-filter part 3 (02): 00,88,DA,25,34,C5,4C,BA */
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[7] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[6] = 0x88;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[5] = 0xDA;
@@ -8520,7 +8781,8 @@ static void DAA_Coeff_Japan(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[2] = 0xC5;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[1] = 0x4C;
 	j->m_DAAShadowRegs.COP_REGS.COP.THFilterCoeff_3[0] = 0xBA;
-	
+/* ;  idle */
+	/* Bytes for Ringing part 1 (03):1B,3C,93,3A,22,12,A3,23 */
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[7] = 0x1B;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[6] = 0x3C;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[5] = 0x93;
@@ -8529,6 +8791,7 @@ static void DAA_Coeff_Japan(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[2] = 0x12;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[1] = 0xA3;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_1[0] = 0x23;
+/* Bytes for Ringing part 2 (06):12,A2,A6,BA,22,7A,0A,D5 */
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[7] = 0x12;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[6] = 0xA2;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[5] = 0xA6;
@@ -8537,10 +8800,12 @@ static void DAA_Coeff_Japan(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[2] = 0x7A;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[1] = 0x0A;
 	j->m_DAAShadowRegs.COP_REGS.COP.RingerImpendance_2[0] = 0xD5;
+/* Levelmetering Ringing           (0D):AA,35,0F,8E    ; 25Hz 30V ????????? */
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[3] = 0xAA;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[2] = 0x35;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[1] = 0x0F;
 	j->m_DAAShadowRegs.COP_REGS.COP.LevelmeteringRinging[0] = 0x8E;
+/* Caller ID 1st Tone              (0E):CA,0E,CA,09,99,99,99,99 */
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[7] = 0xCA;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[6] = 0x0E;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[5] = 0xCA;
@@ -8549,6 +8814,7 @@ static void DAA_Coeff_Japan(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[2] = 0x99;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[1] = 0x99;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID1stTone[0] = 0x99;
+/* Caller ID 2nd Tone              (0F):FD,B5,BA,07,DA,00,00,00 */
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[7] = 0xFD;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[6] = 0xB5;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[5] = 0xBA;
@@ -8557,42 +8823,53 @@ static void DAA_Coeff_Japan(IXJ *j)
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[2] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[1] = 0x00;
 	j->m_DAAShadowRegs.COP_REGS.COP.CallerID2ndTone[0] = 0x00;
-	
+/* ;CR Registers */
+	/* Config. Reg. 0 (filters)        (cr0):FF */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr0.reg = 0xFF;
+/* Config. Reg. 1 (dialing)        (cr1):05 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr1.reg = 0x05;
+/* Config. Reg. 2 (caller ID)      (cr2):04 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr2.reg = 0x04;
+/* Config. Reg. 3 (testloops)      (cr3):00        ;  */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr3.reg = 0x00;
+/* Config. Reg. 4 (analog gain)    (cr4):02 */
 	j->m_DAAShadowRegs.SOP_REGS.SOP.cr4.reg = 0x02;
-	
-	
-	
-	
-	
+	/* Config. Reg. 5 (Version)        (cr5):02 */
+	/* Config. Reg. 6 (Reserved)       (cr6):00 */
+	/* Config. Reg. 7 (Reserved)       (cr7):00 */
+	/* ;xr Registers */
+	/* Ext. Reg. 0 (Interrupt Reg.)    (xr0):02 */
 
-	j->m_DAAShadowRegs.XOP_xr0_W.reg = 0x02;	
-	
+	j->m_DAAShadowRegs.XOP_xr0_W.reg = 0x02;	/* SO_1 set to '1' because it is inverted. */
+	/* Ext. Reg. 1 (Interrupt enable)  (xr1):1C */
 
-	j->m_DAAShadowRegs.XOP_REGS.XOP.xr1.reg = 0x1C;		
-	
+	j->m_DAAShadowRegs.XOP_REGS.XOP.xr1.reg = 0x1C;		/* RING, Caller ID, VDD_OK */
+	/* Ext. Reg. 2 (Cadence Time Out)  (xr2):7D */
 
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr2.reg = 0x7D;
+/* Ext. Reg. 3 (DC Char)           (xr3):22        ;  */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr3.reg = 0x22;
+/* Ext. Reg. 4 (Cadence)           (xr4):00 */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr4.reg = 0x00;
+/* Ext. Reg. 5 (Ring timer)        (xr5):22 */
 	j->m_DAAShadowRegs.XOP_REGS.XOP.xr5.reg = 0x22;
+/* Ext. Reg. 6 (Power State)       (xr6):00 */
 	j->m_DAAShadowRegs.XOP_xr6_W.reg = 0x00;
-	j->m_DAAShadowRegs.XOP_REGS.XOP.xr7.reg = 0x40;		
-	
-	
-	
-	
+/* Ext. Reg. 7 (Vdd)               (xr7):40 */
+	j->m_DAAShadowRegs.XOP_REGS.XOP.xr7.reg = 0x40;		/* 0x40 ??? Should it be 0x00? */
+	/* DTMF Tone 1                     (0B): 11,B3,5A,2C    ;   697 Hz   */
+	/*                                       12,33,5A,C3    ;  770 Hz   */
+	/*                                       13,3C,5B,32    ;  852 Hz   */
+	/*                                       1D,1B,5C,CC    ;  941 Hz   */
 
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[3] = 0x11;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[2] = 0xB3;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[1] = 0x5A;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone1Coeff[0] = 0x2C;
-	
-	
-	
+/* DTMF Tone 2                     (0C): 32,32,52,B3    ;  1209 Hz   */
+	/*                                       EC,1D,52,22    ;  1336 Hz   */
+	/*                                       AA,AC,51,D2    ;  1477 Hz   */
+	/*                                       9B,3B,51,25    ;  1633 Hz   */
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[3] = 0x32;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[2] = 0x32;
 	j->m_DAAShadowRegs.COP_REGS.COP.Tone2Coeff[1] = 0x52;
@@ -8601,405 +8878,405 @@ static void DAA_Coeff_Japan(IXJ *j)
 
 static s16 tone_table[][19] =
 {
-	{			
-		32538,		
-		 -32325,	
-		 -343,		
-		 0,		
-		 343,		
-		 32619,		
-		 -32520,	
-		 19179,		
-		 -19178,	
-		 19179,		
-		 32723,		
-		 -32686,	
-		 9973,		
-		 -9955,		
-		 9973,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f20_50[] 11 */
+		32538,		/* A1 = 1.985962 */
+		 -32325,	/* A2 = -0.986511 */
+		 -343,		/* B2 = -0.010493 */
+		 0,		/* B1 = 0 */
+		 343,		/* B0 = 0.010493 */
+		 32619,		/* A1 = 1.990906 */
+		 -32520,	/* A2 = -0.992462 */
+		 19179,		/* B2 = 0.585327 */
+		 -19178,	/* B1 = -1.170593 */
+		 19179,		/* B0 = 0.585327 */
+		 32723,		/* A1 = 1.997314 */
+		 -32686,	/* A2 = -0.997528 */
+		 9973,		/* B2 = 0.304352 */
+		 -9955,		/* B1 = -0.607605 */
+		 9973,		/* B0 = 0.304352 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		32072,		
-		 -31896,	
-		 -435,		
-		 0,		
-		 435,		
-		 32188,		
-		 -32400,	
-		 15139,		
-		 -14882,	
-		 15139,		
-		 32473,		
-		 -32524,	
-		 23200,		
-		 -23113,	
-		 23200,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f133_200[] 12 */
+		32072,		/* A1 = 1.95752 */
+		 -31896,	/* A2 = -0.973419 */
+		 -435,		/* B2 = -0.013294 */
+		 0,		/* B1 = 0 */
+		 435,		/* B0 = 0.013294 */
+		 32188,		/* A1 = 1.9646 */
+		 -32400,	/* A2 = -0.98877 */
+		 15139,		/* B2 = 0.462036 */
+		 -14882,	/* B1 = -0.908356 */
+		 15139,		/* B0 = 0.462036 */
+		 32473,		/* A1 = 1.981995 */
+		 -32524,	/* A2 = -0.992584 */
+		 23200,		/* B2 = 0.708008 */
+		 -23113,	/* B1 = -1.410706 */
+		 23200,		/* B0 = 0.708008 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		31769,		
-		 -32584,	
-		 -475,		
-		 0,		
-		 475,		
-		 31789,		
-		 -32679,	
-		 17280,		
-		 -16865,	
-		 17280,		
-		 31841,		
-		 -32681,	
-		 543,		
-		 -525,		
-		 543,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f300 13 */
+		31769,		/* A1 = -1.939026 */
+		 -32584,	/* A2 = 0.994385 */
+		 -475,		/* B2 = -0.014522 */
+		 0,		/* B1 = 0.000000 */
+		 475,		/* B0 = 0.014522 */
+		 31789,		/* A1 = -1.940247 */
+		 -32679,	/* A2 = 0.997284 */
+		 17280,		/* B2 = 0.527344 */
+		 -16865,	/* B1 = -1.029358 */
+		 17280,		/* B0 = 0.527344 */
+		 31841,		/* A1 = -1.943481 */
+		 -32681,	/* A2 = 0.997345 */
+		 543,		/* B2 = 0.016579 */
+		 -525,		/* B1 = -0.032097 */
+		 543,		/* B0 = 0.016579 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30750,		
-		 -31212,	
-		 -804,		
-		 0,		
-		 804,		
-		 30686,		
-		 -32145,	
-		 14747,		
-		 -13703,	
-		 14747,		
-		 31651,		
-		 -32321,	
-		 24425,		
-		 -23914,	
-		 24427,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f300_420[] 14 */
+		30750,		/* A1 = 1.876892 */
+		 -31212,	/* A2 = -0.952515 */
+		 -804,		/* B2 = -0.024541 */
+		 0,		/* B1 = 0 */
+		 804,		/* B0 = 0.024541 */
+		 30686,		/* A1 = 1.872925 */
+		 -32145,	/* A2 = -0.980988 */
+		 14747,		/* B2 = 0.450043 */
+		 -13703,	/* B1 = -0.836395 */
+		 14747,		/* B0 = 0.450043 */
+		 31651,		/* A1 = 1.931824 */
+		 -32321,	/* A2 = -0.986389 */
+		 24425,		/* B2 = 0.745422 */
+		 -23914,	/* B1 = -1.459595 */
+		 24427,		/* B0 = 0.745483 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		31613,		
-		 -32646,	
-		 -185,		
-		 0,		
-		 185,		
-		 31620,		
-		 -32713,	
-		 19253,		
-		 -18566,	
-		 19253,		
-		 31674,		
-		 -32715,	
-		 2575,		
-		 -2495,		
-		 2575,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f330 15 */
+		31613,		/* A1 = -1.929565 */
+		 -32646,	/* A2 = 0.996277 */
+		 -185,		/* B2 = -0.005657 */
+		 0,		/* B1 = 0.000000 */
+		 185,		/* B0 = 0.005657 */
+		 31620,		/* A1 = -1.929932 */
+		 -32713,	/* A2 = 0.998352 */
+		 19253,		/* B2 = 0.587585 */
+		 -18566,	/* B1 = -1.133179 */
+		 19253,		/* B0 = 0.587585 */
+		 31674,		/* A1 = -1.933228 */
+		 -32715,	/* A2 = 0.998413 */
+		 2575,		/* B2 = 0.078590 */
+		 -2495,		/* B1 = -0.152283 */
+		 2575,		/* B0 = 0.078590 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30741,		
-		 -31475,	
-		 -703,		
-		 0,		
-		 703,		
-		 30688,		
-		 -32248,	
-		 14542,		
-		 -13523,	
-		 14542,		
-		 31494,		
-		 -32366,	
-		 21577,		
-		 -21013,	
-		 21577,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f300_425[] 16 */
+		30741,		/* A1 = 1.876282 */
+		 -31475,	/* A2 = -0.960541 */
+		 -703,		/* B2 = -0.021484 */
+		 0,		/* B1 = 0 */
+		 703,		/* B0 = 0.021484 */
+		 30688,		/* A1 = 1.873047 */
+		 -32248,	/* A2 = -0.984161 */
+		 14542,		/* B2 = 0.443787 */
+		 -13523,	/* B1 = -0.825439 */
+		 14542,		/* B0 = 0.443817 */
+		 31494,		/* A1 = 1.922302 */
+		 -32366,	/* A2 = -0.987762 */
+		 21577,		/* B2 = 0.658508 */
+		 -21013,	/* B1 = -1.282532 */
+		 21577,		/* B0 = 0.658508 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30627,		
-		 -31338,	
-		 -843,		
-		 0,		
-		 843,		
-		 30550,		
-		 -32221,	
-		 13594,		
-		 -12589,	
-		 13594,		
-		 31488,		
-		 -32358,	
-		 24684,		
-		 -24029,	
-		 24684,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f330_440[] 17 */
+		30627,		/* A1 = 1.869324 */
+		 -31338,	/* A2 = -0.95636 */
+		 -843,		/* B2 = -0.025749 */
+		 0,		/* B1 = 0 */
+		 843,		/* B0 = 0.025749 */
+		 30550,		/* A1 = 1.864685 */
+		 -32221,	/* A2 = -0.983337 */
+		 13594,		/* B2 = 0.414886 */
+		 -12589,	/* B1 = -0.768402 */
+		 13594,		/* B0 = 0.414886 */
+		 31488,		/* A1 = 1.921936 */
+		 -32358,	/* A2 = -0.987518 */
+		 24684,		/* B2 = 0.753296 */
+		 -24029,	/* B1 = -1.466614 */
+		 24684,		/* B0 = 0.753296 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		31546,		
-		 -32646,	
-		 -445,		
-		 0,		
-		 445,		
-		 31551,		
-		 -32713,	
-		 23884,		
-		 -22979,	
-		 23884,		
-		 31606,		
-		 -32715,	
-		 863,		
-		 -835,		
-		 863,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f340 18 */
+		31546,		/* A1 = -1.925476 */
+		 -32646,	/* A2 = 0.996277 */
+		 -445,		/* B2 = -0.013588 */
+		 0,		/* B1 = 0.000000 */
+		 445,		/* B0 = 0.013588 */
+		 31551,		/* A1 = -1.925781 */
+		 -32713,	/* A2 = 0.998352 */
+		 23884,		/* B2 = 0.728882 */
+		 -22979,	/* B1 = -1.402527 */
+		 23884,		/* B0 = 0.728882 */
+		 31606,		/* A1 = -1.929138 */
+		 -32715,	/* A2 = 0.998413 */
+		 863,		/* B2 = 0.026367 */
+		 -835,		/* B1 = -0.050985 */
+		 863,		/* B0 = 0.026367 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		31006,		
-		 -32029,	
-		 -461,		
-		 0,		
-		 461,		
-		 30999,		
-		 -32487,	
-		 11325,		
-		 -10682,	
-		 11325,		
-		 31441,		
-		 -32526,	
-		 24324,		
-		 -23535,	
-		 24324,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f350_400[] 19 */
+		31006,		/* A1 = 1.892517 */
+		 -32029,	/* A2 = -0.977448 */
+		 -461,		/* B2 = -0.014096 */
+		 0,		/* B1 = 0 */
+		 461,		/* B0 = 0.014096 */
+		 30999,		/* A1 = 1.892029 */
+		 -32487,	/* A2 = -0.991455 */
+		 11325,		/* B2 = 0.345612 */
+		 -10682,	/* B1 = -0.651978 */
+		 11325,		/* B0 = 0.345612 */
+		 31441,		/* A1 = 1.919067 */
+		 -32526,	/* A2 = -0.992615 */
+		 24324,		/* B2 = 0.74231 */
+		 -23535,	/* B1 = -1.436523 */
+		 24324,		/* B0 = 0.74231 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30634,		
-		 -31533,	
-		 -680,		
-		 0,		
-		 680,		
-		 30571,		
-		 -32277,	
-		 12894,		
-		 -11945,	
-		 12894,		
-		 31367,		
-		 -32379,	
-		 23820,		
-		 -23104,	
-		 23820,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f350_440[] */
+		30634,		/* A1 = 1.869751 */
+		 -31533,	/* A2 = -0.962341 */
+		 -680,		/* B2 = -0.020782 */
+		 0,		/* B1 = 0 */
+		 680,		/* B0 = 0.020782 */
+		 30571,		/* A1 = 1.865906 */
+		 -32277,	/* A2 = -0.985016 */
+		 12894,		/* B2 = 0.393524 */
+		 -11945,	/* B1 = -0.729065 */
+		 12894,		/* B0 = 0.393524 */
+		 31367,		/* A1 = 1.91449 */
+		 -32379,	/* A2 = -0.988129 */
+		 23820,		/* B2 = 0.726929 */
+		 -23104,	/* B1 = -1.410217 */
+		 23820,		/* B0 = 0.726929 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30552,		
-		 -31434,	
-		 -690,		
-		 0,		
-		 690,		
-		 30472,		
-		 -32248,	
-		 13385,		
-		 -12357,	
-		 13385,		
-		 31358,		
-		 -32366,	
-		 26488,		
-		 -25692,	
-		 26490,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f350_450[] */
+		30552,		/* A1 = 1.864807 */
+		 -31434,	/* A2 = -0.95929 */
+		 -690,		/* B2 = -0.021066 */
+		 0,		/* B1 = 0 */
+		 690,		/* B0 = 0.021066 */
+		 30472,		/* A1 = 1.859924 */
+		 -32248,	/* A2 = -0.984161 */
+		 13385,		/* B2 = 0.408478 */
+		 -12357,	/* B1 = -0.754242 */
+		 13385,		/* B0 = 0.408478 */
+		 31358,		/* A1 = 1.914001 */
+		 -32366,	/* A2 = -0.987732 */
+		 26488,		/* B2 = 0.80835 */
+		 -25692,	/* B1 = -1.568176 */
+		 26490,		/* B0 = 0.808411 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		31397,		
-		 -32623,	
-		 -117,		
-		 0,		
-		 117,		
-		 31403,		
-		 -32700,	
-		 3388,		
-		 -3240,		
-		 3388,		
-		 31463,		
-		 -32702,	
-		 13346,		
-		 -12863,	
-		 13346,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f360 */
+		31397,		/* A1 = -1.916321 */
+		 -32623,	/* A2 = 0.995605 */
+		 -117,		/* B2 = -0.003598 */
+		 0,		/* B1 = 0.000000 */
+		 117,		/* B0 = 0.003598 */
+		 31403,		/* A1 = -1.916687 */
+		 -32700,	/* A2 = 0.997925 */
+		 3388,		/* B2 = 0.103401 */
+		 -3240,		/* B1 = -0.197784 */
+		 3388,		/* B0 = 0.103401 */
+		 31463,		/* A1 = -1.920410 */
+		 -32702,	/* A2 = 0.997986 */
+		 13346,		/* B2 = 0.407288 */
+		 -12863,	/* B1 = -0.785126 */
+		 13346,		/* B0 = 0.407288 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30831,		
-		 -32064,	
-		 -367,		
-		 0,		
-		 367,		
-		 30813,		
-		 -32456,	
-		 11068,		
-		 -10338,	
-		 11068,		
-		 31214,		
-		 -32491,	
-		 16374,		
-		 -15781,	
-		 16374,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f380_420[] */
+		30831,		/* A1 = 1.881775 */
+		 -32064,	/* A2 = -0.978546 */
+		 -367,		/* B2 = -0.01122 */
+		 0,		/* B1 = 0 */
+		 367,		/* B0 = 0.01122 */
+		 30813,		/* A1 = 1.880737 */
+		 -32456,	/* A2 = -0.990509 */
+		 11068,		/* B2 = 0.337769 */
+		 -10338,	/* B1 = -0.631042 */
+		 11068,		/* B0 = 0.337769 */
+		 31214,		/* A1 = 1.905212 */
+		 -32491,	/* A2 = -0.991577 */
+		 16374,		/* B2 = 0.499695 */
+		 -15781,	/* B1 = -0.963196 */
+		 16374,		/* B0 = 0.499695 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		31152,		
-		 -32613,	
-		 -314,		
-		 0,		
-		 314,		
-		 31156,		
-		 -32694,	
-		 28847,		
-		 -2734,		
-		 28847,		
-		 31225,		
-		 -32696,	
-		 462,		
-		 -442,		
-		 462,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f392 */
+		31152,		/* A1 = -1.901428 */
+		 -32613,	/* A2 = 0.995300 */
+		 -314,		/* B2 = -0.009605 */
+		 0,		/* B1 = 0.000000 */
+		 314,		/* B0 = 0.009605 */
+		 31156,		/* A1 = -1.901672 */
+		 -32694,	/* A2 = 0.997742 */
+		 28847,		/* B2 = 0.880371 */
+		 -2734,		/* B1 = -0.166901 */
+		 28847,		/* B0 = 0.880371 */
+		 31225,		/* A1 = -1.905823 */
+		 -32696,	/* A2 = 0.997803 */
+		 462,		/* B2 = 0.014108 */
+		 -442,		/* B1 = -0.027019 */
+		 462,		/* B0 = 0.014108 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30836,		
-		 -32296,	
-		 -324,		
-		 0,		
-		 324,		
-		 30825,		
-		 -32570,	
-		 16847,		
-		 -15792,	
-		 16847,		
-		 31106,		
-		 -32584,	
-		 9579,		
-		 -9164,		
-		 9579,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f400_425[] */
+		30836,		/* A1 = 1.882141 */
+		 -32296,	/* A2 = -0.985596 */
+		 -324,		/* B2 = -0.009903 */
+		 0,		/* B1 = 0 */
+		 324,		/* B0 = 0.009903 */
+		 30825,		/* A1 = 1.881409 */
+		 -32570,	/* A2 = -0.993958 */
+		 16847,		/* B2 = 0.51416 */
+		 -15792,	/* B1 = -0.963898 */
+		 16847,		/* B0 = 0.51416 */
+		 31106,		/* A1 = 1.89856 */
+		 -32584,	/* A2 = -0.994415 */
+		 9579,		/* B2 = 0.292328 */
+		 -9164,		/* B1 = -0.559357 */
+		 9579,		/* B0 = 0.292328 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30702,		
-		 -32134,	
-		 -517,		
-		 0,		
-		 517,		
-		 30676,		
-		 -32520,	
-		 8144,		
-		 -7596,		
-		 8144,		
-		 31084,		
-		 -32547,	
-		 22713,		
-		 -21734,	
-		 22713,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f400_440[] */
+		30702,		/* A1 = 1.873962 */
+		 -32134,	/* A2 = -0.980682 */
+		 -517,		/* B2 = -0.015793 */
+		 0,		/* B1 = 0 */
+		 517,		/* B0 = 0.015793 */
+		 30676,		/* A1 = 1.872375 */
+		 -32520,	/* A2 = -0.992462 */
+		 8144,		/* B2 = 0.24855 */
+		 -7596,		/* B1 = -0.463684 */
+		 8144,		/* B0 = 0.24855 */
+		 31084,		/* A1 = 1.897217 */
+		 -32547,	/* A2 = -0.993256 */
+		 22713,		/* B2 = 0.693176 */
+		 -21734,	/* B1 = -1.326599 */
+		 22713,		/* B0 = 0.693176 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30613,		
-		 -32031,	
-		 -618,		
-		 0,		
-		 618,		
-		 30577,		
-		 -32491,	
-		 9612,		
-		 -8935,		
-		 9612,		
-		 31071,		
-		 -32524,	
-		 21596,		
-		 -20667,	
-		 21596,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f400_450[] */
+		30613,		/* A1 = 1.86853 */
+		 -32031,	/* A2 = -0.977509 */
+		 -618,		/* B2 = -0.018866 */
+		 0,		/* B1 = 0 */
+		 618,		/* B0 = 0.018866 */
+		 30577,		/* A1 = 1.866272 */
+		 -32491,	/* A2 = -0.991577 */
+		 9612,		/* B2 = 0.293335 */
+		 -8935,		/* B1 = -0.54541 */
+		 9612,		/* B0 = 0.293335 */
+		 31071,		/* A1 = 1.896484 */
+		 -32524,	/* A2 = -0.992584 */
+		 21596,		/* B2 = 0.659058 */
+		 -20667,	/* B1 = -1.261414 */
+		 21596,		/* B0 = 0.659058 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30914,		
-		 -32584,	
-		 -426,		
-		 0,		
-		 426,		
-		 30914,		
-		 -32679,	
-		 17520,		
-		 -16471,	
-		 17520,		
-		 31004,		
-		 -32683,	
-		 819,		
-		 -780,		
-		 819,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f420 */
+		30914,		/* A1 = -1.886841 */
+		 -32584,	/* A2 = 0.994385 */
+		 -426,		/* B2 = -0.013020 */
+		 0,		/* B1 = 0.000000 */
+		 426,		/* B0 = 0.013020 */
+		 30914,		/* A1 = -1.886841 */
+		 -32679,	/* A2 = 0.997314 */
+		 17520,		/* B2 = 0.534668 */
+		 -16471,	/* B1 = -1.005310 */
+		 17520,		/* B0 = 0.534668 */
+		 31004,		/* A1 = -1.892334 */
+		 -32683,	/* A2 = 0.997406 */
+		 819,		/* B2 = 0.025023 */
+		 -780,		/* B1 = -0.047619 */
+		 819,		/* B0 = 0.025023 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
 #if 0
-	{			
-		30881,		
-		 -32603,	
-		 -496,		
-		 0,		
-		 496,		
-		 30880,		
-		 -32692,	
-		 24767,		
-		 -23290,	
-		 24767,		
-		 30967,		
-		 -32694,	
-		 728,		
-		 -691,		
-		 728,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f425 */
+		30881,		/* A1 = -1.884827 */
+		 -32603,	/* A2 = 0.994965 */
+		 -496,		/* B2 = -0.015144 */
+		 0,		/* B1 = 0.000000 */
+		 496,		/* B0 = 0.015144 */
+		 30880,		/* A1 = -1.884766 */
+		 -32692,	/* A2 = 0.997711 */
+		 24767,		/* B2 = 0.755859 */
+		 -23290,	/* B1 = -1.421509 */
+		 24767,		/* B0 = 0.755859 */
+		 30967,		/* A1 = -1.890076 */
+		 -32694,	/* A2 = 0.997772 */
+		 728,		/* B2 = 0.022232 */
+		 -691,		/* B1 = -0.042194 */
+		 728,		/* B0 = 0.022232 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
 #else
 	{
@@ -9024,1139 +9301,1139 @@ static s16 tone_table[][19] =
 		0xff5
 	},
 #endif
-	{			
-		30646,		
-		 -32327,	
-		 -287,		
-		 0,		
-		 287,		
-		 30627,		
-		 -32607,	
-		 13269,		
-		 -12376,	
-		 13269,		
-		 30924,		
-		 -32619,	
-		 19950,		
-		 -18940,	
-		 19950,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f425_450[] */
+		30646,		/* A1 = 1.870544 */
+		 -32327,	/* A2 = -0.986572 */
+		 -287,		/* B2 = -0.008769 */
+		 0,		/* B1 = 0 */
+		 287,		/* B0 = 0.008769 */
+		 30627,		/* A1 = 1.869324 */
+		 -32607,	/* A2 = -0.995087 */
+		 13269,		/* B2 = 0.404968 */
+		 -12376,	/* B1 = -0.755432 */
+		 13269,		/* B0 = 0.404968 */
+		 30924,		/* A1 = 1.887512 */
+		 -32619,	/* A2 = -0.995453 */
+		 19950,		/* B2 = 0.608826 */
+		 -18940,	/* B1 = -1.156006 */
+		 19950,		/* B0 = 0.608826 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30396,		
-		 -32014,	
-		 -395,		
-		 0,		
-		 395,		
-		 30343,		
-		 -32482,	
-		 17823,		
-		 -16431,	
-		 17823,		
-		 30872,		
-		 -32516,	
-		 18124,		
-		 -17246,	
-		 18124,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f425_475[] */
+		30396,		/* A1 = 1.855225 */
+		 -32014,	/* A2 = -0.97699 */
+		 -395,		/* B2 = -0.012055 */
+		 0,		/* B1 = 0 */
+		 395,		/* B0 = 0.012055 */
+		 30343,		/* A1 = 1.85199 */
+		 -32482,	/* A2 = -0.991302 */
+		 17823,		/* B2 = 0.543945 */
+		 -16431,	/* B1 = -1.002869 */
+		 17823,		/* B0 = 0.543945 */
+		 30872,		/* A1 = 1.884338 */
+		 -32516,	/* A2 = -0.99231 */
+		 18124,		/* B2 = 0.553101 */
+		 -17246,	/* B1 = -1.052673 */
+		 18124,		/* B0 = 0.553101 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30796,		
-		 -32603,	
-		 -254,		
-		 0,		
-		 254,		
-		 30793,		
-		 -32692,	
-		 18934,		
-		 -17751,	
-		 18934,		
-		 30882,		
-		 -32694,	
-		 1858,		
-		 -1758,		
-		 1858,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f435 */
+		30796,		/* A1 = -1.879639 */
+		 -32603,	/* A2 = 0.994965 */
+		 -254,		/* B2 = -0.007762 */
+		 0,		/* B1 = 0.000000 */
+		 254,		/* B0 = 0.007762 */
+		 30793,		/* A1 = -1.879456 */
+		 -32692,	/* A2 = 0.997711 */
+		 18934,		/* B2 = 0.577820 */
+		 -17751,	/* B1 = -1.083496 */
+		 18934,		/* B0 = 0.577820 */
+		 30882,		/* A1 = -1.884888 */
+		 -32694,	/* A2 = 0.997772 */
+		 1858,		/* B2 = 0.056713 */
+		 -1758,		/* B1 = -0.107357 */
+		 1858,		/* B0 = 0.056713 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30641,		
-		 -32458,	
-		 -155,		
-		 0,		
-		 155,		
-		 30631,		
-		 -32630,	
-		 11453,		
-		 -10666,	
-		 11453,		
-		 30810,		
-		 -32634,	
-		 12237,		
-		 -11588,	
-		 12237,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f440_450[] */
+		30641,		/* A1 = 1.870239 */
+		 -32458,	/* A2 = -0.99057 */
+		 -155,		/* B2 = -0.004735 */
+		 0,		/* B1 = 0 */
+		 155,		/* B0 = 0.004735 */
+		 30631,		/* A1 = 1.869568 */
+		 -32630,	/* A2 = -0.995789 */
+		 11453,		/* B2 = 0.349548 */
+		 -10666,	/* B1 = -0.651001 */
+		 11453,		/* B0 = 0.349548 */
+		 30810,		/* A1 = 1.880554 */
+		 -32634,	/* A2 = -0.995941 */
+		 12237,		/* B2 = 0.373474 */
+		 -11588,	/* B1 = -0.707336 */
+		 12237,		/* B0 = 0.373474 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30367,		
-		 -32147,	
-		 -495,		
-		 0,		
-		 495,		
-		 30322,		
-		 -32543,	
-		 10031,		
-		 -9252,		
-		 10031,		
-		 30770,		
-		 -32563,	
-		 22674,		
-		 -21465,	
-		 22674,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f440_480[] */
+		30367,		/* A1 = 1.853455 */
+		 -32147,	/* A2 = -0.981079 */
+		 -495,		/* B2 = -0.015113 */
+		 0,		/* B1 = 0 */
+		 495,		/* B0 = 0.015113 */
+		 30322,		/* A1 = 1.850769 */
+		 -32543,	/* A2 = -0.993134 */
+		 10031,		/* B2 = 0.306152 */
+		 -9252,		/* B1 = -0.564728 */
+		 10031,		/* B0 = 0.306152 */
+		 30770,		/* A1 = 1.878052 */
+		 -32563,	/* A2 = -0.993774 */
+		 22674,		/* B2 = 0.691956 */
+		 -21465,	/* B1 = -1.31012 */
+		 22674,		/* B0 = 0.691956 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30709,		
-		 -32603,	
-		 -83,		
-		 0,		
-		 83,		
-		 30704,		
-		 -32692,	
-		 10641,		
-		 -9947,		
-		 10641,		
-		 30796,		
-		 -32694,	
-		 10079,		
-		 9513,		
-		 10079,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f445 */
+		30709,		/* A1 = -1.874329 */
+		 -32603,	/* A2 = 0.994965 */
+		 -83,		/* B2 = -0.002545 */
+		 0,		/* B1 = 0.000000 */
+		 83,		/* B0 = 0.002545 */
+		 30704,		/* A1 = -1.874084 */
+		 -32692,	/* A2 = 0.997711 */
+		 10641,		/* B2 = 0.324738 */
+		 -9947,		/* B1 = -0.607147 */
+		 10641,		/* B0 = 0.324738 */
+		 30796,		/* A1 = -1.879639 */
+		 -32694,	/* A2 = 0.997772 */
+		 10079,		/* B2 = 0.307587 */
+		 9513,		/* B1 = 0.580688 */
+		 10079,		/* B0 = 0.307587 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30664,		
-		 -32603,	
-		 -164,		
-		 0,		
-		 164,		
-		 30661,		
-		 -32692,	
-		 15294,		
-		 -14275,	
-		 15294,		
-		 30751,		
-		 -32694,	
-		 3548,		
-		 -3344,		
-		 3548,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f450 */
+		30664,		/* A1 = -1.871643 */
+		 -32603,	/* A2 = 0.994965 */
+		 -164,		/* B2 = -0.005029 */
+		 0,		/* B1 = 0.000000 */
+		 164,		/* B0 = 0.005029 */
+		 30661,		/* A1 = -1.871399 */
+		 -32692,	/* A2 = 0.997711 */
+		 15294,		/* B2 = 0.466736 */
+		 -14275,	/* B1 = -0.871307 */
+		 15294,		/* B0 = 0.466736 */
+		 30751,		/* A1 = -1.876953 */
+		 -32694,	/* A2 = 0.997772 */
+		 3548,		/* B2 = 0.108284 */
+		 -3344,		/* B1 = -0.204155 */
+		 3548,		/* B0 = 0.108284 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30653,		
-		 -32615,	
-		 -209,		
-		 0,		
-		 209,		
-		 30647,		
-		 -32702,	
-		 18971,		
-		 -17716,	
-		 18971,		
-		 30738,		
-		 -32702,	
-		 2967,		
-		 -2793,		
-		 2967,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f452 */
+		30653,		/* A1 = -1.870911 */
+		 -32615,	/* A2 = 0.995361 */
+		 -209,		/* B2 = -0.006382 */
+		 0,		/* B1 = 0.000000 */
+		 209,		/* B0 = 0.006382 */
+		 30647,		/* A1 = -1.870605 */
+		 -32702,	/* A2 = 0.997986 */
+		 18971,		/* B2 = 0.578979 */
+		 -17716,	/* B1 = -1.081299 */
+		 18971,		/* B0 = 0.578979 */
+		 30738,		/* A1 = -1.876099 */
+		 -32702,	/* A2 = 0.998016 */
+		 2967,		/* B2 = 0.090561 */
+		 -2793,		/* B1 = -0.170502 */
+		 2967,		/* B0 = 0.090561 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30437,		
-		 -32603,	
-		 -264,		
-		 0,		
-		 264,		
-		 30430,		
-		 -32692,	
-		 21681,		
-		 -20082,	
-		 21681,		
-		 30526,		
-		 -32694,	
-		 1559,		
-		 -1459,		
-		 1559,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f475 */
+		30437,		/* A1 = -1.857727 */
+		 -32603,	/* A2 = 0.994965 */
+		 -264,		/* B2 = -0.008062 */
+		 0,		/* B1 = 0.000000 */
+		 264,		/* B0 = 0.008062 */
+		 30430,		/* A1 = -1.857300 */
+		 -32692,	/* A2 = 0.997711 */
+		 21681,		/* B2 = 0.661682 */
+		 -20082,	/* B1 = -1.225708 */
+		 21681,		/* B0 = 0.661682 */
+		 30526,		/* A1 = -1.863220 */
+		 -32694,	/* A2 = 0.997742 */
+		 1559,		/* B2 = 0.047600 */
+		 -1459,		/* B1 = -0.089096 */
+		 1559,		/* B0 = 0.047600 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		28975,		
-		 -30955,	
-		 -1026,		
-		 0,		
-		 1026,		
-		 28613,		
-		 -32089,	
-		 14214,		
-		 -12202,	
-		 14214,		
-		 30243,		
-		 -32238,	
-		 24825,		
-		 -23402,	
-		 24825,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f480_620[] */
+		28975,		/* A1 = 1.768494 */
+		 -30955,	/* A2 = -0.944672 */
+		 -1026,		/* B2 = -0.03133 */
+		 0,		/* B1 = 0 */
+		 1026,		/* B0 = 0.03133 */
+		 28613,		/* A1 = 1.746399 */
+		 -32089,	/* A2 = -0.979309 */
+		 14214,		/* B2 = 0.433807 */
+		 -12202,	/* B1 = -0.744812 */
+		 14214,		/* B0 = 0.433807 */
+		 30243,		/* A1 = 1.845947 */
+		 -32238,	/* A2 = -0.983856 */
+		 24825,		/* B2 = 0.757629 */
+		 -23402,	/* B1 = -1.428345 */
+		 24825,		/* B0 = 0.757629 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30257,		
-		 -32605,	
-		 -249,		
-		 0,		
-		 249,		
-		 30247,		
-		 -32694,	
-		 18088,		
-		 -16652,	
-		 18088,		
-		 30348,		
-		 -32696,	
-		 2099,		
-		 -1953,		
-		 2099,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f494 */
+		30257,		/* A1 = -1.846741 */
+		 -32605,	/* A2 = 0.995056 */
+		 -249,		/* B2 = -0.007625 */
+		 0,		/* B1 = 0.000000 */
+		 249,		/* B0 = 0.007625 */
+		 30247,		/* A1 = -1.846191 */
+		 -32694,	/* A2 = 0.997772 */
+		 18088,		/* B2 = 0.552002 */
+		 -16652,	/* B1 = -1.016418 */
+		 18088,		/* B0 = 0.552002 */
+		 30348,		/* A1 = -1.852295 */
+		 -32696,	/* A2 = 0.997803 */
+		 2099,		/* B2 = 0.064064 */
+		 -1953,		/* B1 = -0.119202 */
+		 2099,		/* B0 = 0.064064 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30202,		
-		 -32624,	
-		 -413,		
-		 0,		
-		 413,		
-		 30191,		
-		 -32714,	
-		 25954,		
-		 -23890,	
-		 25954,		
-		 30296,		
-		 -32715,	
-		 2007,		
-		 -1860,		
-		 2007,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f500 */
+		30202,		/* A1 = -1.843431 */
+		 -32624,	/* A2 = 0.995622 */
+		 -413,		/* B2 = -0.012622 */
+		 0,		/* B1 = 0.000000 */
+		 413,		/* B0 = 0.012622 */
+		 30191,		/* A1 = -1.842721 */
+		 -32714,	/* A2 = 0.998364 */
+		 25954,		/* B2 = 0.792057 */
+		 -23890,	/* B1 = -1.458131 */
+		 25954,		/* B0 = 0.792057 */
+		 30296,		/* A1 = -1.849172 */
+		 -32715,	/* A2 = 0.998397 */
+		 2007,		/* B2 = 0.061264 */
+		 -1860,		/* B1 = -0.113568 */
+		 2007,		/* B0 = 0.061264 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		30001,		
-		 -32613,	
-		 -155,		
-		 0,		
-		 155,		
-		 29985,		
-		 -32710,	
-		 6584,		
-		 -6018,		
-		 6584,		
-		 30105,		
-		 -32712,	
-		 23812,		
-		 -21936,	
-		 23812,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f520 */
+		30001,		/* A1 = -1.831116 */
+		 -32613,	/* A2 = 0.995270 */
+		 -155,		/* B2 = -0.004750 */
+		 0,		/* B1 = 0.000000 */
+		 155,		/* B0 = 0.004750 */
+		 29985,		/* A1 = -1.830200 */
+		 -32710,	/* A2 = 0.998260 */
+		 6584,		/* B2 = 0.200928 */
+		 -6018,		/* B1 = -0.367355 */
+		 6584,		/* B0 = 0.200928 */
+		 30105,		/* A1 = -1.837524 */
+		 -32712,	/* A2 = 0.998291 */
+		 23812,		/* B2 = 0.726685 */
+		 -21936,	/* B1 = -1.338928 */
+		 23812,		/* B0 = 0.726685 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		29964,		
-		 -32601,	
-		 -101,		
-		 0,		
-		 101,		
-		 29949,		
-		 -32700,	
-		 11041,		
-		 -10075,	
-		 11041,		
-		 30070,		
-		 -32702,	
-		 16762,		
-		 -15437,	
-		 16762,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f523 */
+		29964,		/* A1 = -1.828918 */
+		 -32601,	/* A2 = 0.994904 */
+		 -101,		/* B2 = -0.003110 */
+		 0,		/* B1 = 0.000000 */
+		 101,		/* B0 = 0.003110 */
+		 29949,		/* A1 = -1.827942 */
+		 -32700,	/* A2 = 0.997925 */
+		 11041,		/* B2 = 0.336975 */
+		 -10075,	/* B1 = -0.614960 */
+		 11041,		/* B0 = 0.336975 */
+		 30070,		/* A1 = -1.835388 */
+		 -32702,	/* A2 = 0.997986 */
+		 16762,		/* B2 = 0.511536 */
+		 -15437,	/* B1 = -0.942230 */
+		 16762,		/* B0 = 0.511536 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		29936,		
-		 -32584,	
-		 -91,		
-		 0,		
-		 91,		
-		 29921,		
-		 -32688,	
-		 11449,		
-		 -10426,	
-		 11449,		
-		 30045,		
-		 -32688,	
-		 13055,		
-		 -12028,	
-		 13055,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f525 */
+		29936,		/* A1 = -1.827209 */
+		 -32584,	/* A2 = 0.994415 */
+		 -91,		/* B2 = -0.002806 */
+		 0,		/* B1 = 0.000000 */
+		 91,		/* B0 = 0.002806 */
+		 29921,		/* A1 = -1.826233 */
+		 -32688,	/* A2 = 0.997559 */
+		 11449,		/* B2 = 0.349396 */
+		 -10426,	/* B1 = -0.636383 */
+		 11449,		/* B0 = 0.349396 */
+		 30045,		/* A1 = -1.833862 */
+		 -32688,	/* A2 = 0.997589 */
+		 13055,		/* B2 = 0.398407 */
+		 -12028,	/* B1 = -0.734161 */
+		 13055,		/* B0 = 0.398407 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		28499,		
-		 -31129,	
-		 -849,		
-		 0,		
-		 849,		
-		 28128,		
-		 -32130,	
-		 14556,		
-		 -12251,	
-		 14556,		
-		 29667,		
-		 -32244,	
-		 23038,		
-		 -21358,	
-		 23040,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f540_660[] */
+		28499,		/* A1 = 1.739441 */
+		 -31129,	/* A2 = -0.949982 */
+		 -849,		/* B2 = -0.025922 */
+		 0,		/* B1 = 0 */
+		 849,		/* B0 = 0.025922 */
+		 28128,		/* A1 = 1.716797 */
+		 -32130,	/* A2 = -0.98056 */
+		 14556,		/* B2 = 0.444214 */
+		 -12251,	/* B1 = -0.747772 */
+		 14556,		/* B0 = 0.444244 */
+		 29667,		/* A1 = 1.81073 */
+		 -32244,	/* A2 = -0.984039 */
+		 23038,		/* B2 = 0.703064 */
+		 -21358,	/* B1 = -1.303589 */
+		 23040,		/* B0 = 0.703125 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		29271,		
-		 -32599,	
-		 -490,		
-		 0,		
-		 490,		
-		 29246,		
-		 -32700,	
-		 28961,		
-		 -25796,	
-		 28961,		
-		 29383,		
-		 -32700,	
-		 1299,		
-		 -1169,		
-		 1299,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f587 */
+		29271,		/* A1 = -1.786560 */
+		 -32599,	/* A2 = 0.994873 */
+		 -490,		/* B2 = -0.014957 */
+		 0,		/* B1 = 0.000000 */
+		 490,		/* B0 = 0.014957 */
+		 29246,		/* A1 = -1.785095 */
+		 -32700,	/* A2 = 0.997925 */
+		 28961,		/* B2 = 0.883850 */
+		 -25796,	/* B1 = -1.574463 */
+		 28961,		/* B0 = 0.883850 */
+		 29383,		/* A1 = -1.793396 */
+		 -32700,	/* A2 = 0.997955 */
+		 1299,		/* B2 = 0.039650 */
+		 -1169,		/* B1 = -0.071396 */
+		 1299,		/* B0 = 0.039650 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		29230,		
-		 -32584,	
-		 -418,		
-		 0,		
-		 418,		
-		 29206,		
-		 -32688,	
-		 36556,		
-		 -32478,	
-		 36556,		
-		 29345,		
-		 -32688,	
-		 897,		
-		 -808,		
-		 897,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f590 */
+		29230,		/* A1 = -1.784058 */
+		 -32584,	/* A2 = 0.994415 */
+		 -418,		/* B2 = -0.012757 */
+		 0,		/* B1 = 0.000000 */
+		 418,		/* B0 = 0.012757 */
+		 29206,		/* A1 = -1.782593 */
+		 -32688,	/* A2 = 0.997559 */
+		 36556,		/* B2 = 1.115601 */
+		 -32478,	/* B1 = -1.982300 */
+		 36556,		/* B0 = 1.115601 */
+		 29345,		/* A1 = -1.791077 */
+		 -32688,	/* A2 = 0.997589 */
+		 897,		/* B2 = 0.027397 */
+		 -808,		/* B1 = -0.049334 */
+		 897,		/* B0 = 0.027397 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		29116,		
-		 -32603,	
-		 -165,		
-		 0,		
-		 165,		
-		 29089,		
-		 -32708,	
-		 6963,		
-		 -6172,		
-		 6963,		
-		 29237,		
-		 -32710,	
-		 24197,		
-		 -21657,	
-		 24197,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f600 */
+		29116,		/* A1 = -1.777100 */
+		 -32603,	/* A2 = 0.994965 */
+		 -165,		/* B2 = -0.005039 */
+		 0,		/* B1 = 0.000000 */
+		 165,		/* B0 = 0.005039 */
+		 29089,		/* A1 = -1.775452 */
+		 -32708,	/* A2 = 0.998199 */
+		 6963,		/* B2 = 0.212494 */
+		 -6172,		/* B1 = -0.376770 */
+		 6963,		/* B0 = 0.212494 */
+		 29237,		/* A1 = -1.784485 */
+		 -32710,	/* A2 = 0.998230 */
+		 24197,		/* B2 = 0.738464 */
+		 -21657,	/* B1 = -1.321899 */
+		 24197,		/* B0 = 0.738464 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		28376,		
-		 -32567,	
-		 -363,		
-		 0,		
-		 363,		
-		 28337,		
-		 -32683,	
-		 21766,		
-		 -18761,	
-		 21766,		
-		 28513,		
-		 -32686,	
-		 2509,		
-		 -2196,		
-		 2509,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f660 */
+		28376,		/* A1 = -1.731934 */
+		 -32567,	/* A2 = 0.993896 */
+		 -363,		/* B2 = -0.011102 */
+		 0,		/* B1 = 0.000000 */
+		 363,		/* B0 = 0.011102 */
+		 28337,		/* A1 = -1.729614 */
+		 -32683,	/* A2 = 0.997434 */
+		 21766,		/* B2 = 0.664246 */
+		 -18761,	/* B1 = -1.145081 */
+		 21766,		/* B0 = 0.664246 */
+		 28513,		/* A1 = -1.740356 */
+		 -32686,	/* A2 = 0.997498 */
+		 2509,		/* B2 = 0.076584 */
+		 -2196,		/* B1 = -0.134041 */
+		 2509,		/* B0 = 0.076584 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		27844,		
-		 -32563,	
-		 -366,		
-		 0,		
-		 366,		
-		 27797,		
-		 -32686,	
-		 22748,		
-		 -19235,	
-		 22748,		
-		 27995,		
-		 -32688,	
-		 2964,		
-		 -2546,		
-		 2964,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f700 */
+		27844,		/* A1 = -1.699463 */
+		 -32563,	/* A2 = 0.993744 */
+		 -366,		/* B2 = -0.011187 */
+		 0,		/* B1 = 0.000000 */
+		 366,		/* B0 = 0.011187 */
+		 27797,		/* A1 = -1.696655 */
+		 -32686,	/* A2 = 0.997498 */
+		 22748,		/* B2 = 0.694214 */
+		 -19235,	/* B1 = -1.174072 */
+		 22748,		/* B0 = 0.694214 */
+		 27995,		/* A1 = -1.708740 */
+		 -32688,	/* A2 = 0.997559 */
+		 2964,		/* B2 = 0.090477 */
+		 -2546,		/* B1 = -0.155449 */
+		 2964,		/* B0 = 0.090477 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		27297,		
-		 -32551,	
-		 -345,		
-		 0,		
-		 345,		
-		 27240,		
-		 -32683,	
-		 22560,		
-		 -18688,	
-		 22560,		
-		 27461,		
-		 -32684,	
-		 3541,		
-		 -2985,		
-		 3541,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f740 */
+		27297,		/* A1 = -1.666077 */
+		 -32551,	/* A2 = 0.993408 */
+		 -345,		/* B2 = -0.010540 */
+		 0,		/* B1 = 0.000000 */
+		 345,		/* B0 = 0.010540 */
+		 27240,		/* A1 = -1.662598 */
+		 -32683,	/* A2 = 0.997406 */
+		 22560,		/* B2 = 0.688477 */
+		 -18688,	/* B1 = -1.140625 */
+		 22560,		/* B0 = 0.688477 */
+		 27461,		/* A1 = -1.676147 */
+		 -32684,	/* A2 = 0.997467 */
+		 3541,		/* B2 = 0.108086 */
+		 -2985,		/* B1 = -0.182220 */
+		 3541,		/* B0 = 0.108086 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		27155,		
-		 -32551,	
-		 -462,		
-		 0,		
-		 462,		
-		 27097,		
-		 -32683,	
-		 32495,		
-		 -26776,	
-		 32495,		
-		 27321,		
-		 -32684,	
-		 1835,		
-		 -1539,		
-		 1835,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f750 */
+		27155,		/* A1 = -1.657410 */
+		 -32551,	/* A2 = 0.993408 */
+		 -462,		/* B2 = -0.014117 */
+		 0,		/* B1 = 0.000000 */
+		 462,		/* B0 = 0.014117 */
+		 27097,		/* A1 = -1.653870 */
+		 -32683,	/* A2 = 0.997406 */
+		 32495,		/* B2 = 0.991699 */
+		 -26776,	/* B1 = -1.634338 */
+		 32495,		/* B0 = 0.991699 */
+		 27321,		/* A1 = -1.667542 */
+		 -32684,	/* A2 = 0.997467 */
+		 1835,		/* B2 = 0.056007 */
+		 -1539,		/* B1 = -0.093948 */
+		 1835,		/* B0 = 0.056007 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		19298,		
-		 -24471,	
-		 -4152,		
-		 0,		
-		 4152,		
-		 12902,		
-		 -29091,	
-		 12491,		
-		 -1794,		
-		 12494,		
-		 26291,		
-		 -30470,	
-		 28859,		
-		 -26084,	
-		 28861,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f750_1450[] */
+		19298,		/* A1 = 1.177917 */
+		 -24471,	/* A2 = -0.746796 */
+		 -4152,		/* B2 = -0.126709 */
+		 0,		/* B1 = 0 */
+		 4152,		/* B0 = 0.126709 */
+		 12902,		/* A1 = 0.787476 */
+		 -29091,	/* A2 = -0.887817 */
+		 12491,		/* B2 = 0.38121 */
+		 -1794,		/* B1 = -0.109528 */
+		 12494,		/* B0 = 0.381317 */
+		 26291,		/* A1 = 1.604736 */
+		 -30470,	/* A2 = -0.929901 */
+		 28859,		/* B2 = 0.880737 */
+		 -26084,	/* B1 = -1.592102 */
+		 28861,		/* B0 = 0.880798 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		26867,		
-		 -32551,	
-		 -123,		
-		 0,		
-		 123,		
-		 26805,		
-		 -32683,	
-		 17297,		
-		 -14096,	
-		 17297,		
-		 27034,		
-		 -32684,	
-		 12958,		
-		 -10756,	
-		 12958,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f770 */
+		26867,		/* A1 = -1.639832 */
+		 -32551,	/* A2 = 0.993408 */
+		 -123,		/* B2 = -0.003755 */
+		 0,		/* B1 = 0.000000 */
+		 123,		/* B0 = 0.003755 */
+		 26805,		/* A1 = -1.636108 */
+		 -32683,	/* A2 = 0.997406 */
+		 17297,		/* B2 = 0.527863 */
+		 -14096,	/* B1 = -0.860382 */
+		 17297,		/* B0 = 0.527863 */
+		 27034,		/* A1 = -1.650085 */
+		 -32684,	/* A2 = 0.997467 */
+		 12958,		/* B2 = 0.395477 */
+		 -10756,	/* B1 = -0.656525 */
+		 12958,		/* B0 = 0.395477 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		26413,		
-		 -32547,	
-		 -223,		
-		 0,		
-		 223,		
-		 26342,		
-		 -32686,	
-		 6391,		
-		 -5120,		
-		 6391,		
-		 26593,		
-		 -32688,	
-		 23681,		
-		 -19328,	
-		 23681,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f800 */
+		26413,		/* A1 = -1.612122 */
+		 -32547,	/* A2 = 0.993286 */
+		 -223,		/* B2 = -0.006825 */
+		 0,		/* B1 = 0.000000 */
+		 223,		/* B0 = 0.006825 */
+		 26342,		/* A1 = -1.607849 */
+		 -32686,	/* A2 = 0.997498 */
+		 6391,		/* B2 = 0.195053 */
+		 -5120,		/* B1 = -0.312531 */
+		 6391,		/* B0 = 0.195053 */
+		 26593,		/* A1 = -1.623108 */
+		 -32688,	/* A2 = 0.997559 */
+		 23681,		/* B2 = 0.722717 */
+		 -19328,	/* B1 = -1.179688 */
+		 23681,		/* B0 = 0.722717 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		26168,		
-		 -32528,	
-		 -235,		
-		 0,		
-		 235,		
-		 26092,		
-		 -32675,	
-		 20823,		
-		 -16510,	
-		 20823,		
-		 26363,		
-		 -32677,	
-		 6739,		
-		 -5459,		
-		 6739,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f816 */
+		26168,		/* A1 = -1.597209 */
+		 -32528,	/* A2 = 0.992706 */
+		 -235,		/* B2 = -0.007182 */
+		 0,		/* B1 = 0.000000 */
+		 235,		/* B0 = 0.007182 */
+		 26092,		/* A1 = -1.592590 */
+		 -32675,	/* A2 = 0.997192 */
+		 20823,		/* B2 = 0.635498 */
+		 -16510,	/* B1 = -1.007751 */
+		 20823,		/* B0 = 0.635498 */
+		 26363,		/* A1 = -1.609070 */
+		 -32677,	/* A2 = 0.997253 */
+		 6739,		/* B2 = 0.205688 */
+		 -5459,		/* B1 = -0.333206 */
+		 6739,		/* B0 = 0.205688 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		25641,		
-		 -32536,	
-		 -121,		
-		 0,		
-		 121,		
-		 25560,		
-		 -32684,	
-		 18341,		
-		 -14252,	
-		 18341,		
-		 25837,		
-		 -32684,	
-		 16679,		
-		 -13232,	
-		 16679,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f850 */
+		25641,		/* A1 = -1.565063 */
+		 -32536,	/* A2 = 0.992950 */
+		 -121,		/* B2 = -0.003707 */
+		 0,		/* B1 = 0.000000 */
+		 121,		/* B0 = 0.003707 */
+		 25560,		/* A1 = -1.560059 */
+		 -32684,	/* A2 = 0.997437 */
+		 18341,		/* B2 = 0.559753 */
+		 -14252,	/* B1 = -0.869904 */
+		 18341,		/* B0 = 0.559753 */
+		 25837,		/* A1 = -1.577026 */
+		 -32684,	/* A2 = 0.997467 */
+		 16679,		/* B2 = 0.509003 */
+		 -13232,	/* B1 = -0.807648 */
+		 16679,		/* B0 = 0.509003 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		16415,		
-		 -23669,	
-		 -4549,		
-		 0,		
-		 4549,		
-		 8456,		
-		 -28996,	
-		 13753,		
-		 -12,		
-		 13757,		
-		 24632,		
-		 -30271,	
-		 29070,		
-		 -25265,	
-		 29073,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f857_1645[] */
+		16415,		/* A1 = 1.001953 */
+		 -23669,	/* A2 = -0.722321 */
+		 -4549,		/* B2 = -0.138847 */
+		 0,		/* B1 = 0 */
+		 4549,		/* B0 = 0.138847 */
+		 8456,		/* A1 = 0.516174 */
+		 -28996,	/* A2 = -0.884918 */
+		 13753,		/* B2 = 0.419724 */
+		 -12,		/* B1 = -0.000763 */
+		 13757,		/* B0 = 0.419846 */
+		 24632,		/* A1 = 1.503418 */
+		 -30271,	/* A2 = -0.923828 */
+		 29070,		/* B2 = 0.887146 */
+		 -25265,	/* B1 = -1.542114 */
+		 29073,		/* B0 = 0.887268 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		24806,		
-		 -32501,	
-		 -326,		
-		 0,		
-		 326,		
-		 24709,		
-		 -32659,	
-		 20277,		
-		 -15182,	
-		 20277,		
-		 25022,		
-		 -32661,	
-		 4320,		
-		 -3331,		
-		 4320,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f900 */
+		24806,		/* A1 = -1.514099 */
+		 -32501,	/* A2 = 0.991852 */
+		 -326,		/* B2 = -0.009969 */
+		 0,		/* B1 = 0.000000 */
+		 326,		/* B0 = 0.009969 */
+		 24709,		/* A1 = -1.508118 */
+		 -32659,	/* A2 = 0.996674 */
+		 20277,		/* B2 = 0.618835 */
+		 -15182,	/* B1 = -0.926636 */
+		 20277,		/* B0 = 0.618835 */
+		 25022,		/* A1 = -1.527222 */
+		 -32661,	/* A2 = 0.996735 */
+		 4320,		/* B2 = 0.131836 */
+		 -3331,		/* B1 = -0.203339 */
+		 4320,		/* B0 = 0.131836 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		19776,		
-		 -27437,	
-		 -2666,		
-		 0,		
-		 2666,		
-		 16302,		
-		 -30354,	
-		 10389,		
-		 -3327,		
-		 10389,		
-		 24299,		
-		 -30930,	
-		 25016,		
-		 -21171,	
-		 25016,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f900_1300[] */
+		19776,		/* A1 = 1.207092 */
+		 -27437,	/* A2 = -0.837341 */
+		 -2666,		/* B2 = -0.081371 */
+		 0,		/* B1 = 0 */
+		 2666,		/* B0 = 0.081371 */
+		 16302,		/* A1 = 0.995026 */
+		 -30354,	/* A2 = -0.926361 */
+		 10389,		/* B2 = 0.317062 */
+		 -3327,		/* B1 = -0.203064 */
+		 10389,		/* B0 = 0.317062 */
+		 24299,		/* A1 = 1.483154 */
+		 -30930,	/* A2 = -0.943909 */
+		 25016,		/* B2 = 0.763428 */
+		 -21171,	/* B1 = -1.292236 */
+		 25016,		/* B0 = 0.763428 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		20554,		
-		 -28764,	
-		 -2048,		
-		 0,		
-		 2048,		
-		 18209,		
-		 -30951,	
-		 9390,		
-		 -3955,		
-		 9390,		
-		 23902,		
-		 -31286,	
-		 23252,		
-		 -19132,	
-		 23252,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f935_1215[] */
+		20554,		/* A1 = 1.254517 */
+		 -28764,	/* A2 = -0.877838 */
+		 -2048,		/* B2 = -0.062515 */
+		 0,		/* B1 = 0 */
+		 2048,		/* B0 = 0.062515 */
+		 18209,		/* A1 = 1.11145 */
+		 -30951,	/* A2 = -0.94458 */
+		 9390,		/* B2 = 0.286575 */
+		 -3955,		/* B1 = -0.241455 */
+		 9390,		/* B0 = 0.286575 */
+		 23902,		/* A1 = 1.458923 */
+		 -31286,	/* A2 = -0.954803 */
+		 23252,		/* B2 = 0.709595 */
+		 -19132,	/* B1 = -1.167725 */
+		 23252,		/* B0 = 0.709595 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		17543,		
-		 -26220,	
-		 -3298,		
-		 0,		
-		 3298,		
-		 12423,		
-		 -30036,	
-		 12651,		
-		 -2444,		
-		 12653,		
-		 23518,		
-		 -30745,	
-		 27282,		
-		 -22529,	
-		 27286,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f941_1477[] */
+		17543,		/* A1 = 1.07074 */
+		 -26220,	/* A2 = -0.800201 */
+		 -3298,		/* B2 = -0.100647 */
+		 0,		/* B1 = 0 */
+		 3298,		/* B0 = 0.100647 */
+		 12423,		/* A1 = 0.75827 */
+		 -30036,	/* A2 = -0.916626 */
+		 12651,		/* B2 = 0.386078 */
+		 -2444,		/* B1 = -0.14917 */
+		 12653,		/* B0 = 0.386154 */
+		 23518,		/* A1 = 1.435425 */
+		 -30745,	/* A2 = -0.938293 */
+		 27282,		/* B2 = 0.832581 */
+		 -22529,	/* B1 = -1.375122 */
+		 27286,		/* B0 = 0.832703 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		24104,		
-		 -32507,	
-		 -351,		
-		 0,		
-		 351,		
-		 23996,		
-		 -32671,	
-		 22848,		
-		 -16639,	
-		 22848,		
-		 24332,		
-		 -32673,	
-		 4906,		
-		 -3672,		
-		 4906,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f942 */
+		24104,		/* A1 = -1.471252 */
+		 -32507,	/* A2 = 0.992065 */
+		 -351,		/* B2 = -0.010722 */
+		 0,		/* B1 = 0.000000 */
+		 351,		/* B0 = 0.010722 */
+		 23996,		/* A1 = -1.464600 */
+		 -32671,	/* A2 = 0.997040 */
+		 22848,		/* B2 = 0.697266 */
+		 -16639,	/* B1 = -1.015564 */
+		 22848,		/* B0 = 0.697266 */
+		 24332,		/* A1 = -1.485168 */
+		 -32673,	/* A2 = 0.997101 */
+		 4906,		/* B2 = 0.149727 */
+		 -3672,		/* B1 = -0.224174 */
+		 4906,		/* B0 = 0.149727 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		23967,		
-		 -32507,	
-		 -518,		
-		 0,		
-		 518,		
-		 23856,		
-		 -32671,	
-		 26287,		
-		 -19031,	
-		 26287,		
-		 24195,		
-		 -32673,	
-		 2890,		
-		 -2151,		
-		 2890,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f950 */
+		23967,		/* A1 = -1.462830 */
+		 -32507,	/* A2 = 0.992065 */
+		 -518,		/* B2 = -0.015821 */
+		 0,		/* B1 = 0.000000 */
+		 518,		/* B0 = 0.015821 */
+		 23856,		/* A1 = -1.456055 */
+		 -32671,	/* A2 = 0.997040 */
+		 26287,		/* B2 = 0.802246 */
+		 -19031,	/* B1 = -1.161560 */
+		 26287,		/* B0 = 0.802246 */
+		 24195,		/* A1 = -1.476746 */
+		 -32673,	/* A2 = 0.997101 */
+		 2890,		/* B2 = 0.088196 */
+		 -2151,		/* B1 = -0.131317 */
+		 2890,		/* B0 = 0.088196 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		18294,		
-		 -26962,	
-		 -2914,		
-		 0,		
-		 2914,		
-		 14119,		
-		 -30227,	
-		 11466,		
-		 -2833,		
-		 11466,		
-		 23431,		
-		 -30828,	
-		 25331,		
-		 -20911,	
-		 25331,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f950_1400[] */
+		18294,		/* A1 = 1.116638 */
+		 -26962,	/* A2 = -0.822845 */
+		 -2914,		/* B2 = -0.088936 */
+		 0,		/* B1 = 0 */
+		 2914,		/* B0 = 0.088936 */
+		 14119,		/* A1 = 0.861786 */
+		 -30227,	/* A2 = -0.922455 */
+		 11466,		/* B2 = 0.349945 */
+		 -2833,		/* B1 = -0.172943 */
+		 11466,		/* B0 = 0.349945 */
+		 23431,		/* A1 = 1.430115 */
+		 -30828,	/* A2 = -0.940796 */
+		 25331,		/* B2 = 0.773071 */
+		 -20911,	/* B1 = -1.276367 */
+		 25331,		/* B0 = 0.773071 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		23521,		
-		 -32489,	
-		 -193,		
-		 0,		
-		 193,		
-		 23404,		
-		 -32655,	
-		 17740,		
-		 -12567,	
-		 17740,		
-		 23753,		
-		 -32657,	
-		 9090,		
-		 -6662,		
-		 9090,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f975 */
+		23521,		/* A1 = -1.435608 */
+		 -32489,	/* A2 = 0.991516 */
+		 -193,		/* B2 = -0.005915 */
+		 0,		/* B1 = 0.000000 */
+		 193,		/* B0 = 0.005915 */
+		 23404,		/* A1 = -1.428467 */
+		 -32655,	/* A2 = 0.996582 */
+		 17740,		/* B2 = 0.541412 */
+		 -12567,	/* B1 = -0.767029 */
+		 17740,		/* B0 = 0.541412 */
+		 23753,		/* A1 = -1.449829 */
+		 -32657,	/* A2 = 0.996613 */
+		 9090,		/* B2 = 0.277405 */
+		 -6662,		/* B1 = -0.406647 */
+		 9090,		/* B0 = 0.277405 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		23071,		
-		 -32489,	
-		 -293,		
-		 0,		
-		 293,		
-		 22951,		
-		 -32655,	
-		 5689,		
-		 -3951,		
-		 5689,		
-		 23307,		
-		 -32657,	
-		 18692,		
-		 -13447,	
-		 18692,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1000 */
+		23071,		/* A1 = -1.408203 */
+		 -32489,	/* A2 = 0.991516 */
+		 -293,		/* B2 = -0.008965 */
+		 0,		/* B1 = 0.000000 */
+		 293,		/* B0 = 0.008965 */
+		 22951,		/* A1 = -1.400818 */
+		 -32655,	/* A2 = 0.996582 */
+		 5689,		/* B2 = 0.173645 */
+		 -3951,		/* B1 = -0.241150 */
+		 5689,		/* B0 = 0.173645 */
+		 23307,		/* A1 = -1.422607 */
+		 -32657,	/* A2 = 0.996613 */
+		 18692,		/* B2 = 0.570435 */
+		 -13447,	/* B1 = -0.820770 */
+		 18692,		/* B0 = 0.570435 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		22701,		
-		 -32474,	
-		 -292,		
-		 0,		
-		 292,		
-		 22564,		
-		 -32655,	
-		 20756,		
-		 -14176,	
-		 20756,		
-		 22960,		
-		 -32657,	
-		 6520,		
-		 -4619,		
-		 6520,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1020 */
+		22701,		/* A1 = -1.385620 */
+		 -32474,	/* A2 = 0.991058 */
+		 -292,		/* B2 = -0.008933 */
+		 0,		/*163840      , B1 = 10.000000 */
+		 292,		/* B0 = 0.008933 */
+		 22564,		/* A1 = -1.377258 */
+		 -32655,	/* A2 = 0.996552 */
+		 20756,		/* B2 = 0.633423 */
+		 -14176,	/* B1 = -0.865295 */
+		 20756,		/* B0 = 0.633423 */
+		 22960,		/* A1 = -1.401428 */
+		 -32657,	/* A2 = 0.996613 */
+		 6520,		/* B2 = 0.198990 */
+		 -4619,		/* B1 = -0.281937 */
+		 6520,		/* B0 = 0.198990 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		22142,		
-		 -32474,	
-		 -147,		
-		 0,		
-		 147,		
-		 22000,		
-		 -32655,	
-		 15379,		
-		 -10237,	
-		 15379,		
-		 22406,		
-		 -32657,	
-		 17491,		
-		 -12096,	
-		 17491,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1050 */
+		22142,		/* A1 = -1.351501 */
+		 -32474,	/* A2 = 0.991058 */
+		 -147,		/* B2 = -0.004493 */
+		 0,		/* B1 = 0.000000 */
+		 147,		/* B0 = 0.004493 */
+		 22000,		/* A1 = -1.342834 */
+		 -32655,	/* A2 = 0.996552 */
+		 15379,		/* B2 = 0.469360 */
+		 -10237,	/* B1 = -0.624847 */
+		 15379,		/* B0 = 0.469360 */
+		 22406,		/* A1 = -1.367554 */
+		 -32657,	/* A2 = 0.996613 */
+		 17491,		/* B2 = 0.533783 */
+		 -12096,	/* B1 = -0.738312 */
+		 17491,		/* B0 = 0.533783 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		12973,		
-		 -24916,	
-		 6655,		
-		 367,		
-		 6657,		
-		 5915,		
-		 -29560,	
-		 -7777,		
-		 0,		
-		 7777,		
-		 20510,		
-		 -30260,	
-		 26662,		
-		 -20573,	
-		 26668,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1100_1750[] */
+		12973,		/* A1 = 0.79184 */
+		 -24916,	/* A2 = -0.760376 */
+		 6655,		/* B2 = 0.203102 */
+		 367,		/* B1 = 0.0224 */
+		 6657,		/* B0 = 0.203171 */
+		 5915,		/* A1 = 0.361053 */
+		 -29560,	/* A2 = -0.90213 */
+		 -7777,		/* B2 = -0.23735 */
+		 0,		/* B1 = 0 */
+		 7777,		/* B0 = 0.23735 */
+		 20510,		/* A1 = 1.251892 */
+		 -30260,	/* A2 = -0.923462 */
+		 26662,		/* B2 = 0.81366 */
+		 -20573,	/* B1 = -1.255737 */
+		 26668,		/* B0 = 0.813843 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		20392,		
-		 -32460,	
-		 -270,		
-		 0,		
-		 270,		
-		 20218,		
-		 -32655,	
-		 21337,		
-		 -13044,	
-		 21337,		
-		 20684,		
-		 -32657,	
-		 8572,		
-		 -5476,		
-		 8572,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1140 */
+		20392,		/* A1 = -1.244629 */
+		 -32460,	/* A2 = 0.990601 */
+		 -270,		/* B2 = -0.008240 */
+		 0,		/* B1 = 0.000000 */
+		 270,		/* B0 = 0.008240 */
+		 20218,		/* A1 = -1.234009 */
+		 -32655,	/* A2 = 0.996582 */
+		 21337,		/* B2 = 0.651154 */
+		 -13044,	/* B1 = -0.796143 */
+		 21337,		/* B0 = 0.651154 */
+		 20684,		/* A1 = -1.262512 */
+		 -32657,	/* A2 = 0.996643 */
+		 8572,		/* B2 = 0.261612 */
+		 -5476,		/* B1 = -0.334244 */
+		 8572,		/* B0 = 0.261612 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		19159,		
-		 -32456,	
-		 -335,		
-		 0,		
-		 335,		
-		 18966,		
-		 -32661,	
-		 6802,		
-		 -3900,		
-		 6802,		
-		 19467,		
-		 -32661,	
-		 25035,		
-		 -15049,	
-		 25035,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1200 */
+		19159,		/* A1 = -1.169373 */
+		 -32456,	/* A2 = 0.990509 */
+		 -335,		/* B2 = -0.010252 */
+		 0,		/* B1 = 0.000000 */
+		 335,		/* B0 = 0.010252 */
+		 18966,		/* A1 = -1.157593 */
+		 -32661,	/* A2 = 0.996735 */
+		 6802,		/* B2 = 0.207588 */
+		 -3900,		/* B1 = -0.238098 */
+		 6802,		/* B0 = 0.207588 */
+		 19467,		/* A1 = -1.188232 */
+		 -32661,	/* A2 = 0.996765 */
+		 25035,		/* B2 = 0.764008 */
+		 -15049,	/* B1 = -0.918579 */
+		 25035,		/* B0 = 0.764008 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		18976,		
-		 -32439,	
-		 -183,		
-		 0,		
-		 183,		
-		 18774,		
-		 -32650,	
-		 15468,		
-		 -8768,		
-		 15468,		
-		 19300,		
-		 -32652,	
-		 19840,		
-		 -11842,	
-		 19840,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1209 */
+		18976,		/* A1 = -1.158264 */
+		 -32439,	/* A2 = 0.989990 */
+		 -183,		/* B2 = -0.005588 */
+		 0,		/* B1 = 0.000000 */
+		 183,		/* B0 = 0.005588 */
+		 18774,		/* A1 = -1.145874 */
+		 -32650,	/* A2 = 0.996429 */
+		 15468,		/* B2 = 0.472076 */
+		 -8768,		/* B1 = -0.535217 */
+		 15468,		/* B0 = 0.472076 */
+		 19300,		/* A1 = -1.177979 */
+		 -32652,	/* A2 = 0.996490 */
+		 19840,		/* B2 = 0.605499 */
+		 -11842,	/* B1 = -0.722809 */
+		 19840,		/* B0 = 0.605499 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		16357,		
-		 -32368,	
-		 -217,		
-		 0,		
-		 217,		
-		 16107,		
-		 -32601,	
-		 11602,		
-		 -5555,		
-		 11602,		
-		 16722,		
-		 -32603,	
-		 15574,		
-		 -8176,		
-		 15574,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1330 */
+		16357,		/* A1 = -0.998413 */
+		 -32368,	/* A2 = 0.987793 */
+		 -217,		/* B2 = -0.006652 */
+		 0,		/* B1 = 0.000000 */
+		 217,		/* B0 = 0.006652 */
+		 16107,		/* A1 = -0.983126 */
+		 -32601,	/* A2 = 0.994904 */
+		 11602,		/* B2 = 0.354065 */
+		 -5555,		/* B1 = -0.339111 */
+		 11602,		/* B0 = 0.354065 */
+		 16722,		/* A1 = -1.020630 */
+		 -32603,	/* A2 = 0.994965 */
+		 15574,		/* B2 = 0.475311 */
+		 -8176,		/* B1 = -0.499069 */
+		 15574,		/* B0 = 0.475311 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		16234,		
-		 32404,		
-		 -193,		
-		 0,		
-		 193,		
-		 15986,		
-		 -32632,	
-		 18051,		
-		 -8658,		
-		 18051,		
-		 16591,		
-		 -32634,	
-		 15736,		
-		 -8125,		
-		 15736,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1336 */
+		16234,		/* A1 = -0.990875 */
+		 32404,		/* A2 = -0.988922 */
+		 -193,		/* B2 = -0.005908 */
+		 0,		/* B1 = 0.000000 */
+		 193,		/* B0 = 0.005908 */
+		 15986,		/* A1 = -0.975769 */
+		 -32632,	/* A2 = 0.995880 */
+		 18051,		/* B2 = 0.550903 */
+		 -8658,		/* B1 = -0.528473 */
+		 18051,		/* B0 = 0.550903 */
+		 16591,		/* A1 = -1.012695 */
+		 -32634,	/* A2 = 0.995941 */
+		 15736,		/* B2 = 0.480240 */
+		 -8125,		/* B1 = -0.495926 */
+		 15736,		/* B0 = 0.480240 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		15564,		
-		 -32404,	
-		 -269,		
-		 0,		
-		 269,		
-		 15310,		
-		 -32632,	
-		 10815,		
-		 -4962,		
-		 10815,		
-		 15924,		
-		 -32634,	
-		 18880,		
-		 -9364,		
-		 18880,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1366 */
+		15564,		/* A1 = -0.949982 */
+		 -32404,	/* A2 = 0.988922 */
+		 -269,		/* B2 = -0.008216 */
+		 0,		/* B1 = 0.000000 */
+		 269,		/* B0 = 0.008216 */
+		 15310,		/* A1 = -0.934479 */
+		 -32632,	/* A2 = 0.995880 */
+		 10815,		/* B2 = 0.330063 */
+		 -4962,		/* B1 = -0.302887 */
+		 10815,		/* B0 = 0.330063 */
+		 15924,		/* A1 = -0.971924 */
+		 -32634,	/* A2 = 0.995941 */
+		 18880,		/* B2 = 0.576172 */
+		 -9364,		/* B1 = -0.571594 */
+		 18880,		/* B0 = 0.576172 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		15247,		
-		 -32397,	
-		 -244,		
-		 0,		
-		 244,		
-		 14989,		
-		 -32627,	
-		 18961,		
-		 -8498,		
-		 18961,		
-		 15608,		
-		 -32628,	
-		 11145,		
-		 -5430,		
-		 11145,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1380 */
+		15247,		/* A1 = -0.930603 */
+		 -32397,	/* A2 = 0.988708 */
+		 -244,		/* B2 = -0.007451 */
+		 0,		/* B1 = 0.000000 */
+		 244,		/* B0 = 0.007451 */
+		 14989,		/* A1 = -0.914886 */
+		 -32627,	/* A2 = 0.995697 */
+		 18961,		/* B2 = 0.578644 */
+		 -8498,		/* B1 = -0.518707 */
+		 18961,		/* B0 = 0.578644 */
+		 15608,		/* A1 = -0.952667 */
+		 -32628,	/* A2 = 0.995758 */
+		 11145,		/* B2 = 0.340134 */
+		 -5430,		/* B1 = -0.331467 */
+		 11145,		/* B0 = 0.340134 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		14780,		
-		 -32393,	
-		 -396,		
-		 0,		
-		 396,		
-		 14510,		
-		 -32630,	
-		 6326,		
-		 -2747,		
-		 6326,		
-		 15154,		
-		 -32632,	
-		 23235,		
-		 -10983,	
-		 23235,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1400 */
+		14780,		/* A1 = -0.902130 */
+		 -32393,	/* A2 = 0.988586 */
+		 -396,		/* B2 = -0.012086 */
+		 0,		/* B1 = 0.000000 */
+		 396,		/* B0 = 0.012086 */
+		 14510,		/* A1 = -0.885651 */
+		 -32630,	/* A2 = 0.995819 */
+		 6326,		/* B2 = 0.193069 */
+		 -2747,		/* B1 = -0.167671 */
+		 6326,		/* B0 = 0.193069 */
+		 15154,		/* A1 = -0.924957 */
+		 -32632,	/* A2 = 0.995850 */
+		 23235,		/* B2 = 0.709076 */
+		 -10983,	/* B1 = -0.670380 */
+		 23235,		/* B0 = 0.709076 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		13005,		
-		 -32368,	
-		 -500,		
-		 0,		
-		 500,		
-		 12708,		
-		 -32615,	
-		 11420,		
-		 -4306,		
-		 11420,		
-		 13397,		
-		 -32615,	
-		 9454,		
-		 -3981,		
-		 9454,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1477 */
+		13005,		/* A1 = -0.793793 */
+		 -32368,	/* A2 = 0.987823 */
+		 -500,		/* B2 = -0.015265 */
+		 0,		/* B1 = 0.000000 */
+		 500,		/* B0 = 0.015265 */
+		 12708,		/* A1 = -0.775665 */
+		 -32615,	/* A2 = 0.995331 */
+		 11420,		/* B2 = 0.348526 */
+		 -4306,		/* B1 = -0.262833 */
+		 11420,		/* B0 = 0.348526 */
+		 13397,		/* A1 = -0.817688 */
+		 -32615,	/* A2 = 0.995361 */
+		 9454,		/* B2 = 0.288528 */
+		 -3981,		/* B1 = -0.243027 */
+		 9454,		/* B0 = 0.288528 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		10046,		
-		 -32331,	
-		 -455,		
-		 0,		
-		 455,		
-		 9694,		
-		 -32601,	
-		 6023,		
-		 -1708,		
-		 6023,		
-		 10478,		
-		 -32603,	
-		 22031,		
-		 -7342,		
-		 22031,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1600 */
+		10046,		/* A1 = -0.613190 */
+		 -32331,	/* A2 = 0.986694 */
+		 -455,		/* B2 = -0.013915 */
+		 0,		/* B1 = 0.000000 */
+		 455,		/* B0 = 0.013915 */
+		 9694,		/* A1 = -0.591705 */
+		 -32601,	/* A2 = 0.994934 */
+		 6023,		/* B2 = 0.183815 */
+		 -1708,		/* B1 = -0.104279 */
+		 6023,		/* B0 = 0.183815 */
+		 10478,		/* A1 = -0.639587 */
+		 -32603,	/* A2 = 0.994965 */
+		 22031,		/* B2 = 0.672333 */
+		 -7342,		/* B1 = -0.448151 */
+		 22031,		/* B0 = 0.672333 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		9181,		
-		 -32256,	
-		 -556,		
-		 0,		
-		 556,		
-		 8757,		
-		 -32574,	
-		 8443,		
-		 -2135,		
-		 8443,		
-		 9691,		
-		 -32574,	
-		 15446,		
-		 -4809,		
-		 15446,		
-		 7,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1633_1638[] */
+		9181,		/* A1 = 0.560394 */
+		 -32256,	/* A2 = -0.984375 */
+		 -556,		/* B2 = -0.016975 */
+		 0,		/* B1 = 0 */
+		 556,		/* B0 = 0.016975 */
+		 8757,		/* A1 = 0.534515 */
+		 -32574,	/* A2 = -0.99408 */
+		 8443,		/* B2 = 0.25769 */
+		 -2135,		/* B1 = -0.130341 */
+		 8443,		/* B0 = 0.25769 */
+		 9691,		/* A1 = 0.591522 */
+		 -32574,	/* A2 = -0.99411 */
+		 15446,		/* B2 = 0.471375 */
+		 -4809,		/* B1 = -0.293579 */
+		 15446,		/* B0 = 0.471375 */
+		 7,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		5076,		
-		 -32304,	
-		 -508,		
-		 0,		
-		 508,		
-		 4646,		
-		 -32605,	
-		 6742,		
-		 -878,		
-		 6742,		
-		 5552,		
-		 -32605,	
-		 23667,		
-		 -4297,		
-		 23667,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1800 */
+		5076,		/* A1 = -0.309875 */
+		 -32304,	/* A2 = 0.985840 */
+		 -508,		/* B2 = -0.015503 */
+		 0,		/* B1 = 0.000000 */
+		 508,		/* B0 = 0.015503 */
+		 4646,		/* A1 = -0.283600 */
+		 -32605,	/* A2 = 0.995026 */
+		 6742,		/* B2 = 0.205780 */
+		 -878,		/* B1 = -0.053635 */
+		 6742,		/* B0 = 0.205780 */
+		 5552,		/* A1 = -0.338928 */
+		 -32605,	/* A2 = 0.995056 */
+		 23667,		/* B2 = 0.722260 */
+		 -4297,		/* B1 = -0.262329 */
+		 23667,		/* B0 = 0.722260 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
-	{			
-		3569,		
-		 -32292,	
-		 -239,		
-		 0,		
-		 239,		
-		 3117,		
-		 -32603,	
-		 18658,		
-		 -1557,		
-		 18658,		
-		 4054,		
-		 -32603,	
-		 18886,		
-		 -2566,		
-		 18886,		
-		 5,		
-		 159,		
-		 21,		
-		 0x0FF5		
+	{			/* f1860 */
+		3569,		/* A1 = -0.217865 */
+		 -32292,	/* A2 = 0.985504 */
+		 -239,		/* B2 = -0.007322 */
+		 0,		/* B1 = 0.000000 */
+		 239,		/* B0 = 0.007322 */
+		 3117,		/* A1 = -0.190277 */
+		 -32603,	/* A2 = 0.994965 */
+		 18658,		/* B2 = 0.569427 */
+		 -1557,		/* B1 = -0.095032 */
+		 18658,		/* B0 = 0.569427 */
+		 4054,		/* A1 = -0.247437 */
+		 -32603,	/* A2 = 0.994965 */
+		 18886,		/* B2 = 0.576385 */
+		 -2566,		/* B1 = -0.156647 */
+		 18886,		/* B0 = 0.576385 */
+		 5,		/* Internal filter scaling */
+		 159,		/* Minimum in-band energy threshold */
+		 21,		/* 21/32 in-band to broad-band ratio */
+		 0x0FF5		/* shift-mask 0x0FF (look at 16 half-frames) bit count = 5 */
 	},
 };
 static int ixj_init_filter(IXJ *j, IXJ_FILTER * jf)
@@ -10167,33 +10444,33 @@ static int ixj_init_filter(IXJ *j, IXJ_FILTER * jf)
 	if (jf->filter > 3) {
 		return -1;
 	}
-	if (ixj_WriteDSPCommand(0x5154 + jf->filter, j))	
+	if (ixj_WriteDSPCommand(0x5154 + jf->filter, j))	/* Select Filter */
 
 		return -1;
 	if (!jf->enable) {
-		if (ixj_WriteDSPCommand(0x5152, j))		
+		if (ixj_WriteDSPCommand(0x5152, j))		/* Disable Filter */
 
 			return -1;
 		else
 			return 0;
 	} else {
-		if (ixj_WriteDSPCommand(0x5153, j))		
+		if (ixj_WriteDSPCommand(0x5153, j))		/* Enable Filter */
 
 			return -1;
-		
+		/* Select the filter (f0 - f3) to use. */
 		if (ixj_WriteDSPCommand(0x5154 + jf->filter, j))
 			return -1;
 	}
 	if (jf->freq < 12 && jf->freq > 3) {
-		
+		/* Select the frequency for the selected filter. */
 		if (ixj_WriteDSPCommand(0x5170 + jf->freq, j))
 			return -1;
 	} else if (jf->freq > 11) {
-		
-		
-		
-		
-		
+		/* We need to load a programmable filter set for undefined */
+		/* frequencies.  So we will point the filter to a programmable set. */
+		/* Since there are only 4 filters and 4 programmable sets, we will */
+		/* just point the filter to the same number set and program it for the */
+		/* frequency we want. */
 		if (ixj_WriteDSPCommand(0x5170 + jf->filter, j))
 			return -1;
 		if (j->ver.low != 0x12) {
@@ -10221,26 +10498,26 @@ static int ixj_init_filter_raw(IXJ *j, IXJ_FILTER_RAW * jfr)
 	if (jfr->filter > 3) {
 		return -1;
 	}
-	if (ixj_WriteDSPCommand(0x5154 + jfr->filter, j))	
+	if (ixj_WriteDSPCommand(0x5154 + jfr->filter, j))	/* Select Filter */
 		return -1;
 
 	if (!jfr->enable) {
-		if (ixj_WriteDSPCommand(0x5152, j))		
+		if (ixj_WriteDSPCommand(0x5152, j))		/* Disable Filter */
 			return -1;
 		else
 			return 0;
 	} else {
-		if (ixj_WriteDSPCommand(0x5153, j))		
+		if (ixj_WriteDSPCommand(0x5153, j))		/* Enable Filter */
 			return -1;
-		
+		/* Select the filter (f0 - f3) to use. */
 		if (ixj_WriteDSPCommand(0x5154 + jfr->filter, j))
 			return -1;
 	}
-	
-	
-	
-	
-	
+	/* We need to load a programmable filter set for undefined */
+	/* frequencies.  So we will point the filter to a programmable set. */
+	/* Since there are only 4 filters and 4 programmable sets, we will */
+	/* just point the filter to the same number set and program it for the */
+	/* frequency we want. */
 	if (ixj_WriteDSPCommand(0x5170 + jfr->filter, j))
 		return -1;
 	if (j->ver.low != 0x12) {

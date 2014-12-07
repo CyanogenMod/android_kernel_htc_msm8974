@@ -79,7 +79,7 @@ static void ca0106_spdif_enable(struct snd_ca0106 *emu)
 	unsigned int val;
 
 	if (emu->spdif_enable) {
-		
+		/* Digital */
 		snd_ca0106_ptr_write(emu, SPDIF_SELECT1, 0, 0xf);
 		snd_ca0106_ptr_write(emu, SPDIF_SELECT2, 0, 0x0b000000);
 		val = snd_ca0106_ptr_read(emu, CAPTURE_CONTROL, 0) & ~0x1000;
@@ -88,7 +88,7 @@ static void ca0106_spdif_enable(struct snd_ca0106 *emu)
 		outl(val, emu->port + GPIO);
 
 	} else {
-		
+		/* Analog */
 		snd_ca0106_ptr_write(emu, SPDIF_SELECT1, 0, 0xf);
 		snd_ca0106_ptr_write(emu, SPDIF_SELECT2, 0, 0x000f0000);
 		val = snd_ca0106_ptr_read(emu, CAPTURE_CONTROL, 0) | 0x1000;
@@ -113,17 +113,17 @@ static void ca0106_set_i2c_capture_source(struct snd_ca0106 *emu,
 	unsigned int ngain, ogain;
 	u32 source;
 
-	snd_ca0106_i2c_write(emu, ADC_MUX, 0); 
-	ngain = emu->i2c_capture_volume[val][0]; 
-	ogain = emu->i2c_capture_volume[emu->i2c_capture_source][0]; 
+	snd_ca0106_i2c_write(emu, ADC_MUX, 0); /* Mute input */
+	ngain = emu->i2c_capture_volume[val][0]; /* Left */
+	ogain = emu->i2c_capture_volume[emu->i2c_capture_source][0]; /* Left */
 	if (force || ngain != ogain)
 		snd_ca0106_i2c_write(emu, ADC_ATTEN_ADCL, ngain & 0xff);
-	ngain = emu->i2c_capture_volume[val][1]; 
-	ogain = emu->i2c_capture_volume[emu->i2c_capture_source][1]; 
+	ngain = emu->i2c_capture_volume[val][1]; /* Right */
+	ogain = emu->i2c_capture_volume[emu->i2c_capture_source][1]; /* Right */
 	if (force || ngain != ogain)
 		snd_ca0106_i2c_write(emu, ADC_ATTEN_ADCR, ngain & 0xff);
 	source = 1 << val;
-	snd_ca0106_i2c_write(emu, ADC_MUX, source); 
+	snd_ca0106_i2c_write(emu, ADC_MUX, source); /* Set source */
 	emu->i2c_capture_source = val;
 }
 
@@ -132,16 +132,16 @@ static void ca0106_set_capture_mic_line_in(struct snd_ca0106 *emu)
 	u32 tmp;
 
 	if (emu->capture_mic_line_in) {
-		 
+		/* snd_ca0106_i2c_write(emu, ADC_MUX, 0); */ /* Mute input */
 		tmp = inl(emu->port+GPIO) & ~0x400;
 		tmp = tmp | 0x400;
 		outl(tmp, emu->port+GPIO);
-		
+		/* snd_ca0106_i2c_write(emu, ADC_MUX, ADC_MUX_MIC); */
 	} else {
-		 
+		/* snd_ca0106_i2c_write(emu, ADC_MUX, 0); */ /* Mute input */
 		tmp = inl(emu->port+GPIO) & ~0x400;
 		outl(tmp, emu->port+GPIO);
-		
+		/* snd_ca0106_i2c_write(emu, ADC_MUX, ADC_MUX_LINEIN); */
 	}
 }
 
@@ -150,6 +150,8 @@ static void ca0106_set_spdif_bits(struct snd_ca0106 *emu, int idx)
 	snd_ca0106_ptr_write(emu, SPCS0 + idx, 0, emu->spdif_str_bits[idx]);
 }
 
+/*
+ */
 static const DECLARE_TLV_DB_SCALE(snd_ca0106_db_scale1, -5175, 25, 1);
 static const DECLARE_TLV_DB_SCALE(snd_ca0106_db_scale2, -10350, 50, 1);
 
@@ -254,6 +256,10 @@ static int snd_ca0106_i2c_capture_source_put(struct snd_kcontrol *kcontrol,
 	struct snd_ca0106 *emu = snd_kcontrol_chip(kcontrol);
 	unsigned int source_id;
 	int change = 0;
+	/* If the capture source has changed,
+	 * update the capture volume from the cached value
+	 * for the particular source.
+	 */
 	source_id = ucontrol->value.enumerated.item[0] ;
 	if (source_id >= 4)
 		return -EINVAL;
@@ -404,6 +410,9 @@ static int snd_ca0106_spdif_put_default(struct snd_kcontrol *kcontrol,
 	val = encode_spdif_bits(ucontrol->value.iec958.status);
 	if (val != emu->spdif_bits[idx]) {
 		emu->spdif_bits[idx] = val;
+		/* FIXME: this isn't safe, but needed to keep the compatibility
+		 * with older alsa-lib config
+		 */
 		emu->spdif_str_bits[idx] = val;
 		ca0106_set_spdif_bits(emu, idx);
 		return 1;
@@ -448,8 +457,8 @@ static int snd_ca0106_volume_get(struct snd_kcontrol *kcontrol,
 	reg = kcontrol->private_value & 0xff;
 
         value = snd_ca0106_ptr_read(emu, reg, channel_id);
-        ucontrol->value.integer.value[0] = 0xff - ((value >> 24) & 0xff); 
-        ucontrol->value.integer.value[1] = 0xff - ((value >> 16) & 0xff); 
+        ucontrol->value.integer.value[0] = 0xff - ((value >> 24) & 0xff); /* Left */
+        ucontrol->value.integer.value[1] = 0xff - ((value >> 16) & 0xff); /* Right */
         return 0;
 }
 
@@ -507,7 +516,7 @@ static int snd_ca0106_i2c_volume_put(struct snd_kcontrol *kcontrol,
 	int change = 0;
 
 	source_id = kcontrol->private_value;
-	ogain = emu->i2c_capture_volume[source_id][0]; 
+	ogain = emu->i2c_capture_volume[source_id][0]; /* Left */
 	ngain = ucontrol->value.integer.value[0];
 	if (ngain > 0xff)
 		return -EINVAL;
@@ -517,7 +526,7 @@ static int snd_ca0106_i2c_volume_put(struct snd_kcontrol *kcontrol,
 		emu->i2c_capture_volume[source_id][0] = ucontrol->value.integer.value[0];
 		change = 1;
 	}
-	ogain = emu->i2c_capture_volume[source_id][1]; 
+	ogain = emu->i2c_capture_volume[source_id][1]; /* Right */
 	ngain = ucontrol->value.integer.value[1];
 	if (ngain > 0xff)
 		return -EINVAL;
@@ -554,11 +563,11 @@ static int spi_mute_put(struct snd_kcontrol *kcontrol,
 
 	ret = emu->spi_dac_reg[reg] & bit;
 	if (ucontrol->value.integer.value[0]) {
-		if (!ret)	
+		if (!ret)	/* bit already cleared, do nothing */
 			return 0;
 		emu->spi_dac_reg[reg] &= ~bit;
 	} else {
-		if (ret)	
+		if (ret)	/* bit already set, do nothing */
 			return 0;
 		emu->spi_dac_reg[reg] |= bit;
 	}
@@ -714,7 +723,7 @@ snd_ca0106_volume_spi_dac_ctl(struct snd_ca0106_details *details,
 		dac_id = (details->spi_dac & 0x000f) >> (4 * 0);
 		break;
 	default:
-		
+		/* Unused channel */
 		spi_switch.name = NULL;
 		dac_id = 0;
 	}
@@ -739,7 +748,7 @@ static struct snd_kcontrol __devinit *ctl_find(struct snd_card *card, const char
 {
 	struct snd_ctl_elem_id sid;
 	memset(&sid, 0, sizeof(sid));
-	
+	/* FIXME: strcpy is bad. */
 	strcpy(sid.name, name);
 	sid.iface = SNDRV_CTL_ELEM_IFACE_MIXER;
 	return snd_ctl_find_id(card, &sid);
@@ -855,7 +864,7 @@ int __devinit snd_ca0106_mixer(struct snd_ca0106 *emu)
 		ADD_CTLS(emu, snd_ca0106_volume_i2c_adc_ctls);
 		if (emu->details->gpio_type == 1)
 			err = snd_ctl_add(card, snd_ctl_new1(&snd_ca0106_capture_mic_line_in, emu));
-		else  
+		else  /* gpio_type == 2 */
 			err = snd_ctl_add(card, snd_ctl_new1(&snd_ca0106_capture_line_in_side_out, emu));
 		if (err < 0)
 			return err;
@@ -873,7 +882,7 @@ int __devinit snd_ca0106_mixer(struct snd_ca0106 *emu)
 		}
 	}
 
-	
+	/* Create virtual master controls */
 	vmaster = snd_ctl_make_virtual_master("Master Playback Volume",
 					      snd_ca0106_master_db_scale);
 	if (!vmaster)
@@ -920,7 +929,7 @@ void snd_ca0106_mixer_suspend(struct snd_ca0106 *chip)
 {
 	int i;
 
-	
+	/* save volumes */
 	for (i = 0; i < NUM_SAVED_VOLUMES; i++)
 		chip->saved_vol[i] =
 			snd_ca0106_ptr_read(chip, saved_volumes[i].reg,
@@ -944,4 +953,4 @@ void snd_ca0106_mixer_resume(struct snd_ca0106  *chip)
 	if (chip->details->i2c_adc)
 		ca0106_set_capture_mic_line_in(chip);
 }
-#endif 
+#endif /* CONFIG_PM */

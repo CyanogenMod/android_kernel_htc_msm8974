@@ -98,22 +98,26 @@ void tsi108_clear_pci_error(u32 pci_cfg_base)
 {
 	u32 err_stat, err_addr, pci_stat;
 
+	/*
+	 * Quietly clear PB and PCI error flags set as result
+	 * of PCI/X configuration read requests.
+	 */
 
-	
+	/* Read PB Error Log Registers */
 
 	err_stat = tsi108_read_reg(TSI108_PB_OFFSET + TSI108_PB_ERRCS);
 	err_addr = tsi108_read_reg(TSI108_PB_OFFSET + TSI108_PB_AERR);
 
 	if (err_stat & TSI108_PB_ERRCS_ES) {
-		
+		/* Clear error flag */
 		tsi108_write_reg(TSI108_PB_OFFSET + TSI108_PB_ERRCS,
 				 TSI108_PB_ERRCS_ES);
 
-		
+		/* Clear read error reported in PB_ISR */
 		tsi108_write_reg(TSI108_PB_OFFSET + TSI108_PB_ISR,
 				 TSI108_PB_ISR_PBS_RD_ERR);
 
-		
+		/* Clear PCI/X bus cfg errors if applicable */
 		if ((err_addr & 0xFF000000) == pci_cfg_base) {
 			pci_stat =
 			    tsi108_read_reg(TSI108_PCI_OFFSET + TSI108_PCI_CSR);
@@ -199,16 +203,16 @@ int __init tsi108_setup_pci(struct device_node *dev, u32 cfg_phys, int primary)
 	const int *bus_range;
 	int has_address = 0;
 
-	
+	/* PCI Config mapping */
 	tsi108_pci_cfg_base = (u32)ioremap(cfg_phys, TSI108_PCI_CFG_SIZE);
 	tsi108_pci_cfg_phys = cfg_phys;
 	DBG("TSI_PCI: %s tsi108_pci_cfg_base=0x%x\n", __func__,
 	    tsi108_pci_cfg_base);
 
-	
+	/* Fetch host bridge registers address */
 	has_address = (of_address_to_resource(dev, 0, &rsrc) == 0);
 
-	
+	/* Get bus range if any */
 	bus_range = of_get_property(dev, "bus-range", &len);
 	if (bus_range == NULL || len < 2 * sizeof(int)) {
 		printk(KERN_WARNING "Can't get bus-range for %s, assume"
@@ -231,12 +235,15 @@ int __init tsi108_setup_pci(struct device_node *dev, u32 cfg_phys, int primary)
 	       "Firmware bus number: %d->%d\n",
 	       rsrc.start, hose->first_busno, hose->last_busno);
 
-	
-	
+	/* Interpret the "ranges" property */
+	/* This also maps the I/O region and sets isa_io/mem_base */
 	pci_process_bridge_OF_ranges(hose, dev, primary);
 	return 0;
 }
 
+/*
+ * Low level utility functions
+ */
 
 static void tsi108_pci_int_mask(u_int irq)
 {
@@ -245,8 +252,8 @@ static void tsi108_pci_int_mask(u_int irq)
 
 	irp_cfg = tsi108_read_reg(TSI108_PCI_OFFSET + TSI108_PCI_IRP_CFG_CTL);
 	mb();
-	irp_cfg |= (1 << int_line);	
-	irp_cfg &= ~(3 << (8 + (int_line * 2)));	
+	irp_cfg |= (1 << int_line);	/* INTx_DIR = output */
+	irp_cfg &= ~(3 << (8 + (int_line * 2)));	/* INTx_TYPE = unused */
 	tsi108_write_reg(TSI108_PCI_OFFSET + TSI108_PCI_IRP_CFG_CTL, irp_cfg);
 	mb();
 	irp_cfg = tsi108_read_reg(TSI108_PCI_OFFSET + TSI108_PCI_IRP_CFG_CTL);
@@ -282,12 +289,12 @@ static inline unsigned int get_pci_source(void)
 	u_int pci_irp_stat;
 	static int mask = 0;
 
-	
+	/* Read PCI/X block interrupt status register */
 	pci_irp_stat = tsi108_read_reg(TSI108_PCI_OFFSET + TSI108_PCI_IRP_STAT);
 	mb();
 
 	if (pci_irp_stat & TSI108_PCI_IRP_STAT_P_INT) {
-		
+		/* Process Interrupt from PCI bus INTA# - INTD# lines */
 		temp =
 		    tsi108_read_reg(TSI108_PCI_OFFSET +
 				    TSI108_PCI_IRP_INTAD) & 0xf;
@@ -300,7 +307,7 @@ static inline unsigned int get_pci_source(void)
 			}
 		}
 
-		
+		/* Disable interrupts from PCI block */
 		temp = tsi108_read_reg(TSI108_PCI_OFFSET + TSI108_PCI_IRP_ENABLE);
 		tsi108_write_reg(TSI108_PCI_OFFSET + TSI108_PCI_IRP_ENABLE,
 				temp & ~TSI108_PCI_IRP_ENABLE_P_INT);
@@ -326,18 +333,21 @@ static inline unsigned int get_pci_source(void)
 		mb();
 		printk("irp_enable=0x%08x\n", temp);
 	}
-#endif	
+#endif	/* end of DEBUG */
 
 	return irq;
 }
 
 
+/*
+ * Linux descriptor level callbacks
+ */
 
 static void tsi108_pci_irq_unmask(struct irq_data *d)
 {
 	tsi108_pci_int_unmask(d->irq);
 
-	
+	/* Enable interrupts from PCI block */
 	tsi108_write_reg(TSI108_PCI_OFFSET + TSI108_PCI_IRP_ENABLE,
 			 tsi108_read_reg(TSI108_PCI_OFFSET +
 					 TSI108_PCI_IRP_ENABLE) |
@@ -355,6 +365,9 @@ static void tsi108_pci_irq_ack(struct irq_data *d)
 	tsi108_pci_int_mask(d->irq);
 }
 
+/*
+ * Interrupt controller descriptor for cascaded PCI interrupt controller.
+ */
 
 static struct irq_chip tsi108_pci_irq = {
 	.name = "tsi108_PCI_int",
@@ -389,7 +402,18 @@ static struct irq_domain_ops pci_irq_domain_ops = {
 	.xlate = pci_irq_host_xlate,
 };
 
+/*
+ * Exported functions
+ */
 
+/*
+ * The Tsi108 PCI interrupts initialization routine.
+ *
+ * The INTA# - INTD# interrupts on the PCI bus are reported by the PCI block
+ * to the MPIC using single interrupt source (IRQ_TSI108_PCI). Therefore the
+ * PCI block has to be treated as a cascaded interrupt controller connected
+ * to the MPIC.
+ */
 
 void __init tsi108_pci_int_init(struct device_node *node)
 {

@@ -15,6 +15,7 @@
 
 #ifndef __ASSEMBLY__
 
+/* read interrupt enabled status */
 static inline unsigned long arch_local_save_flags(void)
 {
 	unsigned long flags;
@@ -23,11 +24,13 @@ static inline unsigned long arch_local_save_flags(void)
 	return flags;
 }
 
+/* set interrupt enabled status */
 static inline void arch_local_irq_restore(unsigned long flags)
 {
 	asm volatile (" mvc .s2 %0,CSR\n" : : "b"(flags));
 }
 
+/* unconditionally enable interrupts */
 static inline void arch_local_irq_enable(void)
 {
 	unsigned long flags = arch_local_save_flags();
@@ -35,6 +38,7 @@ static inline void arch_local_irq_enable(void)
 	arch_local_irq_restore(flags);
 }
 
+/* unconditionally disable interrupts */
 static inline void arch_local_irq_disable(void)
 {
 	unsigned long flags = arch_local_save_flags();
@@ -42,6 +46,7 @@ static inline void arch_local_irq_disable(void)
 	arch_local_irq_restore(flags);
 }
 
+/* get status and disable interrupts */
 static inline unsigned long arch_local_irq_save(void)
 {
 	unsigned long flags;
@@ -51,15 +56,17 @@ static inline unsigned long arch_local_irq_save(void)
 	return flags;
 }
 
+/* test flags */
 static inline int arch_irqs_disabled_flags(unsigned long flags)
 {
 	return (flags & 1) == 0;
 }
 
+/* test hardware interrupt enable bit */
 static inline int arch_irqs_disabled(void)
 {
 	return arch_irqs_disabled_flags(arch_local_save_flags());
 }
 
-#endif 
-#endif 
+#endif /* __ASSEMBLY__ */
+#endif /* __ASM_IRQFLAGS_H */

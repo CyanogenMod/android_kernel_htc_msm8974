@@ -74,7 +74,7 @@ static void cfservl_ctrlcmd(struct cflayer *layr, enum caif_ctrlcmd ctrl,
 		service->modem_flow_on = true;
 		break;
 	case _CAIF_CTRLCMD_PHYIF_DOWN_IND:
-		
+		/* In case interface is down, let's fake a remove shutdown */
 		layr->up->ctrlcmd(layr->up,
 				CAIF_CTRLCMD_REMOTE_SHUTDOWN_IND, phyid);
 		break;
@@ -83,7 +83,7 @@ static void cfservl_ctrlcmd(struct cflayer *layr, enum caif_ctrlcmd ctrl,
 		break;
 	default:
 		pr_warn("Unexpected ctrl in cfsrvl (%d)\n", ctrl);
-		
+		/* We have both modem and phy flow on, send flow on */
 		layr->up->ctrlcmd(layr->up, ctrl, phyid);
 		service->phy_flow_on = true;
 		break;

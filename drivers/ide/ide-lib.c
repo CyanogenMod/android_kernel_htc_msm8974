@@ -6,10 +6,18 @@
 #include <linux/ide.h>
 #include <linux/bitops.h>
 
+/**
+ *	ide_toggle_bounce	-	handle bounce buffering
+ *	@drive: drive to update
+ *	@on: on/off boolean
+ *
+ *	Enable or disable bounce buffering for the device. Drives move
+ *	between PIO and DMA and that changes the rules we need.
+ */
 
 void ide_toggle_bounce(ide_drive_t *drive, int on)
 {
-	u64 addr = BLK_BOUNCE_HIGH;	
+	u64 addr = BLK_BOUNCE_HIGH;	/* dma64_addr_t */
 
 	if (!PCI_DMA_BUS_IS_PHYS) {
 		addr = BLK_BOUNCE_ANY;
@@ -111,6 +119,16 @@ static void ide_dump_atapi_error(ide_drive_t *drive, u8 err)
 	printk(KERN_CONT "}\n");
 }
 
+/**
+ *	ide_dump_status		-	translate ATA/ATAPI error
+ *	@drive: drive that status applies to
+ *	@msg: text message to print
+ *	@stat: status byte to decode
+ *
+ *	Error reporting, in human readable form (luxurious, but a memory hog).
+ *	Combines the drive name, message and status byte to provide a
+ *	user understandable explanation of the device error.
+ */
 
 u8 ide_dump_status(ide_drive_t *drive, const char *msg, u8 stat)
 {

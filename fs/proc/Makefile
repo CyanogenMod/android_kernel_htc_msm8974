@@ -10,6 +10,7 @@ proc-$(CONFIG_MMU)	:= task_mmu.o
 proc-y       += inode.o root.o base.o generic.o array.o \
 		proc_tty.o
 proc-y	+= cmdline.o
+proc-y	+= offalarm.o
 proc-y	+= consoles.o
 proc-y	+= cpuinfo.o
 proc-y	+= devices.o

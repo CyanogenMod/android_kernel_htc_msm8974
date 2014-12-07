@@ -37,9 +37,9 @@ struct btrfs_device {
 	struct btrfs_fs_devices *fs_devices;
 	struct btrfs_root *dev_root;
 
-	
+	/* regular prio bios */
 	struct btrfs_pending_bios pending_bios;
-	
+	/* WRITE_SYNC bios */
 	struct btrfs_pending_bios pending_sync_bios;
 
 	int running_pending;
@@ -54,46 +54,46 @@ struct btrfs_device {
 
 	struct block_device *bdev;
 
-	
+	/* the mode sent to blkdev_get */
 	fmode_t mode;
 
 	char *name;
 
-	
+	/* the internal btrfs device id */
 	u64 devid;
 
-	
+	/* size of the device */
 	u64 total_bytes;
 
-	
+	/* size of the disk */
 	u64 disk_total_bytes;
 
-	
+	/* bytes used */
 	u64 bytes_used;
 
-	
+	/* optimal io alignment for this device */
 	u32 io_align;
 
-	
+	/* optimal io width for this device */
 	u32 io_width;
 
-	
+	/* minimal io size for this device */
 	u32 sector_size;
 
-	
+	/* type and info about this device */
 	u64 type;
 
-	
+	/* physical drive uuid (or lvm uuid) */
 	u8 uuid[BTRFS_UUID_SIZE];
 
-	
+	/* per-device scrub information */
 	struct scrub_dev *scrub_device;
 
 	struct btrfs_work work;
 	struct rcu_head rcu;
 	struct work_struct rcu_work;
 
-	
+	/* readahead state */
 	spinlock_t reada_lock;
 	atomic_t reada_in_flight;
 	u64 reada_next;
@@ -101,7 +101,7 @@ struct btrfs_device {
 	struct radix_tree_root reada_zones;
 	struct radix_tree_root reada_extents;
 
-	
+	/* for sending down flush barriers */
 	struct bio *flush_bio;
 	struct completion flush_wait;
 	int nobarriers;
@@ -109,9 +109,9 @@ struct btrfs_device {
 };
 
 struct btrfs_fs_devices {
-	u8 fsid[BTRFS_FSID_SIZE]; 
+	u8 fsid[BTRFS_FSID_SIZE]; /* FS specific uuid */
 
-	
+	/* the device with this id has the most recent copy of the super */
 	u64 latest_devid;
 	u64 latest_trans;
 	u64 num_devices;
@@ -122,10 +122,14 @@ struct btrfs_fs_devices {
 	u64 num_can_discard;
 	struct block_device *latest_bdev;
 
+	/* all of the devices in the FS, protected by a mutex
+	 * so we can safely walk it to write out the supers without
+	 * worrying about add/remove by the multi-device code
+	 */
 	struct mutex device_list_mutex;
 	struct list_head devices;
 
-	
+	/* devices not currently being allocated */
 	struct list_head alloc_list;
 	struct list_head list;
 
@@ -134,13 +138,16 @@ struct btrfs_fs_devices {
 
 	int opened;
 
+	/* set when we find or add a device that doesn't have the
+	 * nonrot flag set
+	 */
 	int rotating;
 };
 
 struct btrfs_bio_stripe {
 	struct btrfs_device *dev;
 	u64 physical;
-	u64 length; 
+	u64 length; /* only used for discard mappings */
 };
 
 struct btrfs_bio;
@@ -179,6 +186,9 @@ struct map_lookup {
 #define map_lookup_size(n) (sizeof(struct map_lookup) + \
 			    (sizeof(struct btrfs_bio_stripe) * (n)))
 
+/*
+ * Restriper's general type filter
+ */
 #define BTRFS_BALANCE_DATA		(1ULL << 0)
 #define BTRFS_BALANCE_SYSTEM		(1ULL << 1)
 #define BTRFS_BALANCE_METADATA		(1ULL << 2)
@@ -190,12 +200,20 @@ struct map_lookup {
 #define BTRFS_BALANCE_FORCE		(1ULL << 3)
 #define BTRFS_BALANCE_RESUME		(1ULL << 4)
 
+/*
+ * Balance filters
+ */
 #define BTRFS_BALANCE_ARGS_PROFILES	(1ULL << 0)
 #define BTRFS_BALANCE_ARGS_USAGE	(1ULL << 1)
 #define BTRFS_BALANCE_ARGS_DEVID	(1ULL << 2)
 #define BTRFS_BALANCE_ARGS_DRANGE	(1ULL << 3)
 #define BTRFS_BALANCE_ARGS_VRANGE	(1ULL << 4)
 
+/*
+ * Profile changing flags.  When SOFT is set we won't relocate chunk if
+ * it already has the target profile (even though it may be
+ * half-filled).
+ */
 #define BTRFS_BALANCE_ARGS_CONVERT	(1ULL << 8)
 #define BTRFS_BALANCE_ARGS_SOFT		(1ULL << 9)
 

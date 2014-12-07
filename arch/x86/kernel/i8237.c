@@ -14,6 +14,12 @@
 
 #include <asm/dma.h>
 
+/*
+ * This module just handles suspend/resume issues with the
+ * 8237A DMA controller (used for ISA and LPC).
+ * Allocation is handled in kernel/dma.c and normal usage is
+ * in asm/dma.h.
+ */
 
 static void i8237A_resume(void)
 {
@@ -27,11 +33,11 @@ static void i8237A_resume(void)
 
 	for (i = 0; i < 8; i++) {
 		set_dma_addr(i, 0x000000);
-		
+		/* DMA count is a bit weird so this is not 0 */
 		set_dma_count(i, 1);
 	}
 
-	
+	/* Enable cascade DMA or channel 0-3 won't work */
 	enable_dma(4);
 
 	release_dma_lock(flags);

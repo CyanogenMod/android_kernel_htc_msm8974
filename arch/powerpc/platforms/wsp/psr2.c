@@ -40,7 +40,7 @@ static int __init psr2_probe(void)
 	unsigned long root = of_get_flat_dt_root();
 
 	if (of_flat_dt_is_compatible(root, "ibm,wsp-chroma")) {
-		
+		/* chroma systems also claim they are psr2s */
 		return 0;
 	}
 

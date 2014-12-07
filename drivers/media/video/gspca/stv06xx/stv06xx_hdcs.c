@@ -126,11 +126,12 @@ enum hdcs_power_state {
 	HDCS_STATE_RUN
 };
 
+/* no lock? */
 struct hdcs {
 	enum hdcs_power_state state;
 	int w, h;
 
-	
+	/* visible area of the sensor array */
 	struct {
 		int left, top;
 		int width, height;
@@ -138,13 +139,13 @@ struct hdcs {
 	} array;
 
 	struct {
-		
+		/* Column timing overhead */
 		u8 cto;
-		
+		/* Column processing overhead */
 		u8 cpo;
-		
+		/* Row sample period constant */
 		u16 rs;
-		
+		/* Exposure reset duration */
 		u16 er;
 	} exp;
 
@@ -164,6 +165,8 @@ static int hdcs_reg_write_seq(struct sd *sd, u8 reg, u8 *vals, u8 len)
 	for (i = 0; i < len; i++) {
 		regs[2 * i] = reg;
 		regs[2 * i + 1] = vals[i];
+		/* All addresses are shifted left one bit
+		 * as bit 0 toggles r/w */
 		reg += 2;
 	}
 
@@ -179,7 +182,7 @@ static int hdcs_set_state(struct sd *sd, enum hdcs_power_state state)
 	if (hdcs->state == state)
 		return 0;
 
-	
+	/* we need to go idle before running or sleeping */
 	if (hdcs->state != HDCS_STATE_IDLE) {
 		ret = stv06xx_write_sensor(sd, HDCS_REG_CONTROL(sd), 0);
 		if (ret)
@@ -206,7 +209,7 @@ static int hdcs_set_state(struct sd *sd, enum hdcs_power_state state)
 
 	ret = stv06xx_write_sensor(sd, HDCS_REG_CONTROL(sd), val);
 
-	
+	/* Update the state if the write succeeded */
 	if (!ret)
 		hdcs->state = state;
 
@@ -245,12 +248,14 @@ static int hdcs_set_exposure(struct gspca_dev *gspca_dev, __s32 val)
 	struct hdcs *hdcs = sd->sensor_priv;
 	int rowexp, srowexp;
 	int max_srowexp;
-	
+	/* Column time period */
 	int ct;
-	
+	/* Column processing period */
 	int cp;
-	
+	/* Row processing period */
 	int rp;
+	/* Minimum number of column timing periods
+	   within the column processing period */
 	int mnct;
 	int cycles, err;
 	u8 exp[14];
@@ -263,23 +268,23 @@ static int hdcs_set_exposure(struct gspca_dev *gspca_dev, __s32 val)
 	ct = hdcs->exp.cto + hdcs->psmp + (HDCS_ADC_START_SIG_DUR + 2);
 	cp = hdcs->exp.cto + (hdcs->w * ct / 2);
 
-	
+	/* the cycles one row takes */
 	rp = hdcs->exp.rs + cp;
 
 	rowexp = cycles / rp;
 
-	
+	/* the remaining cycles */
 	cycles -= rowexp * rp;
 
-	
+	/* calculate sub-row exposure */
 	if (IS_1020(sd)) {
-		
+		/* see HDCS-1020 datasheet 3.5.6.4, p. 63 */
 		srowexp = hdcs->w - (cycles + hdcs->exp.er + 13) / ct;
 
 		mnct = (hdcs->exp.er + 12 + ct - 1) / ct;
 		max_srowexp = hdcs->w - mnct;
 	} else {
-		
+		/* see HDCS-1000 datasheet 3.4.5.5, p. 61 */
 		srowexp = cp - hdcs->exp.er - 6 - cycles;
 
 		mnct = (hdcs->exp.er + 5 + ct - 1) / ct;
@@ -293,7 +298,7 @@ static int hdcs_set_exposure(struct gspca_dev *gspca_dev, __s32 val)
 
 	if (IS_1020(sd)) {
 		exp[0] = HDCS20_CONTROL;
-		exp[1] = 0x00;		
+		exp[1] = 0x00;		/* Stop streaming */
 		exp[2] = HDCS_ROWEXPL;
 		exp[3] = rowexp & 0xff;
 		exp[4] = HDCS_ROWEXPH;
@@ -301,13 +306,13 @@ static int hdcs_set_exposure(struct gspca_dev *gspca_dev, __s32 val)
 		exp[6] = HDCS20_SROWEXP;
 		exp[7] = (srowexp >> 2) & 0xff;
 		exp[8] = HDCS20_ERROR;
-		exp[9] = 0x10;		
+		exp[9] = 0x10;		/* Clear exposure error flag*/
 		exp[10] = HDCS20_CONTROL;
-		exp[11] = 0x04;		
+		exp[11] = 0x04;		/* Restart streaming */
 		err = stv06xx_write_sensor_bytes(sd, exp, 6);
 	} else {
 		exp[0] = HDCS00_CONTROL;
-		exp[1] = 0x00;         
+		exp[1] = 0x00;         /* Stop streaming */
 		exp[2] = HDCS_ROWEXPL;
 		exp[3] = rowexp & 0xff;
 		exp[4] = HDCS_ROWEXPH;
@@ -317,9 +322,9 @@ static int hdcs_set_exposure(struct gspca_dev *gspca_dev, __s32 val)
 		exp[8] = HDCS00_SROWEXPH;
 		exp[9] = srowexp >> 8;
 		exp[10] = HDCS_STATUS;
-		exp[11] = 0x10;         
+		exp[11] = 0x10;         /* Clear exposure error flag*/
 		exp[12] = HDCS00_CONTROL;
-		exp[13] = 0x04;         
+		exp[13] = 0x04;         /* Restart streaming */
 		err = stv06xx_write_sensor_bytes(sd, exp, 7);
 		if (err < 0)
 			return err;
@@ -337,7 +342,7 @@ static int hdcs_set_gains(struct sd *sd, u8 g)
 
 	hdcs->gain_cache = g;
 
-	
+	/* the voltage gain Av = (1 + 19 * val / 127) * (1 + bit7) */
 	if (g > 127)
 		g = 0x80 | (g / 2);
 
@@ -375,7 +380,7 @@ static int hdcs_set_size(struct sd *sd,
 	unsigned int x, y;
 	int err;
 
-	
+	/* must be multiple of 4 */
 	width = (width + 3) & ~0x3;
 	height = (height + 3) & ~0x3;
 
@@ -383,7 +388,7 @@ static int hdcs_set_size(struct sd *sd,
 		width = hdcs->array.width;
 
 	if (IS_1020(sd)) {
-		
+		/* the borders are also invalid */
 		if (height + 2 * hdcs->array.border + HDCS_1020_BOTTOM_Y_SKIP
 				  > hdcs->array.height)
 			height = hdcs->array.height - 2 * hdcs->array.border -
@@ -409,7 +414,7 @@ static int hdcs_set_size(struct sd *sd,
 	if (err < 0)
 		return err;
 
-	
+	/* Update the current width and height */
 	hdcs->w = width;
 	hdcs->h = height;
 	return err;
@@ -447,6 +452,26 @@ static int hdcs_probe_1x00(struct sd *sd)
 	hdcs->exp.rs = 186;
 	hdcs->exp.er = 100;
 
+	/*
+	 * Frame rate on HDCS-1000 with STV600 depends on PSMP:
+	 *  4 = doesn't work at all
+	 *  5 = 7.8 fps,
+	 *  6 = 6.9 fps,
+	 *  8 = 6.3 fps,
+	 * 10 = 5.5 fps,
+	 * 15 = 4.4 fps,
+	 * 31 = 2.8 fps
+	 *
+	 * Frame rate on HDCS-1000 with STV602 depends on PSMP:
+	 * 15 = doesn't work at all
+	 * 18 = doesn't work at all
+	 * 19 = 7.3 fps
+	 * 20 = 7.4 fps
+	 * 21 = 7.4 fps
+	 * 22 = 7.4 fps
+	 * 24 = 6.3 fps
+	 * 30 = 5.4 fps
+	 */
 	hdcs->psmp = (sd->bridge == BRIDGE_STV602) ? 20 : 5;
 
 	sd->sensor_priv = hdcs;
@@ -475,6 +500,11 @@ static int hdcs_probe_1020(struct sd *sd)
 	if (!hdcs)
 		return -ENOMEM;
 
+	/*
+	 * From Andrey's test image: looks like HDCS-1020 upper-left
+	 * visible pixel is at 24,8 (y maybe even smaller?) and lower-right
+	 * visible pixel at 375,299 (x maybe even larger?)
+	 */
 	hdcs->array.left = 24;
 	hdcs->array.top  = 4;
 	hdcs->array.width = HDCS_1020_DEF_WIDTH;
@@ -518,11 +548,11 @@ static int hdcs_init(struct sd *sd)
 	struct hdcs *hdcs = sd->sensor_priv;
 	int i, err = 0;
 
-	
+	/* Set the STV0602AA in STV0600 emulation mode */
 	if (sd->bridge == BRIDGE_STV602)
 		stv06xx_write_bridge(sd, STV_STV0600_EMULATION, 1);
 
-	
+	/* Execute the bridge init */
 	for (i = 0; i < ARRAY_SIZE(stv_bridge_init) && !err; i++) {
 		err = stv06xx_write_bridge(sd, stv_bridge_init[i][0],
 					   stv_bridge_init[i][1]);
@@ -530,10 +560,10 @@ static int hdcs_init(struct sd *sd)
 	if (err < 0)
 		return err;
 
-	
+	/* sensor soft reset */
 	hdcs_reset(sd);
 
-	
+	/* Execute the sensor init */
 	for (i = 0; i < ARRAY_SIZE(stv_sensor_init) && !err; i++) {
 		err = stv06xx_write_sensor(sd, stv_sensor_init[i][0],
 					     stv_sensor_init[i][1]);
@@ -541,11 +571,13 @@ static int hdcs_init(struct sd *sd)
 	if (err < 0)
 		return err;
 
-	
+	/* Enable continuous frame capture, bit 2: stop when frame complete */
 	err = stv06xx_write_sensor(sd, HDCS_REG_CONFIG(sd), BIT(3));
 	if (err < 0)
 		return err;
 
+	/* Set PGA sample duration
+	(was 0x7E for the STV602, but caused slow framerate with HDCS-1020) */
 	if (IS_1020(sd))
 		err = stv06xx_write_sensor(sd, HDCS_TCTRL,
 				(HDCS_ADC_START_SIG_DUR << 6) | hdcs->psmp);

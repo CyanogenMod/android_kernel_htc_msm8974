@@ -111,6 +111,12 @@ failed:
 	return error;
 }
 
+/**
+ * generic_acl_init  -  Take care of acl inheritance at @inode create time
+ *
+ * Files created inside a directory with a default ACL inherit the
+ * directory's default ACL.
+ */
 int
 generic_acl_init(struct inode *inode, struct inode *dir)
 {
@@ -136,6 +142,12 @@ generic_acl_init(struct inode *inode, struct inode *dir)
 	return error;
 }
 
+/**
+ * generic_acl_chmod  -  change the access acl of @inode upon chmod()
+ *
+ * A chmod also changes the permissions of the owner, group/mask, and
+ * other ACL entries.
+ */
 int
 generic_acl_chmod(struct inode *inode)
 {

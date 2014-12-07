@@ -1,92 +1,92 @@
 #ifndef _ALPHA_UNISTD_H
 #define _ALPHA_UNISTD_H
 
-#define __NR_osf_syscall	  0	
+#define __NR_osf_syscall	  0	/* not implemented */
 #define __NR_exit		  1
 #define __NR_fork		  2
 #define __NR_read		  3
 #define __NR_write		  4
-#define __NR_osf_old_open	  5	
+#define __NR_osf_old_open	  5	/* not implemented */
 #define __NR_close		  6
 #define __NR_osf_wait4		  7
-#define __NR_osf_old_creat	  8	
+#define __NR_osf_old_creat	  8	/* not implemented */
 #define __NR_link		  9
 #define __NR_unlink		 10
-#define __NR_osf_execve		 11	
+#define __NR_osf_execve		 11	/* not implemented */
 #define __NR_chdir		 12
 #define __NR_fchdir		 13
 #define __NR_mknod		 14
 #define __NR_chmod		 15
 #define __NR_chown		 16
 #define __NR_brk		 17
-#define __NR_osf_getfsstat	 18	
+#define __NR_osf_getfsstat	 18	/* not implemented */
 #define __NR_lseek		 19
 #define __NR_getxpid		 20
 #define __NR_osf_mount		 21
 #define __NR_umount		 22
 #define __NR_setuid		 23
 #define __NR_getxuid		 24
-#define __NR_exec_with_loader	 25	
+#define __NR_exec_with_loader	 25	/* not implemented */
 #define __NR_ptrace		 26
-#define __NR_osf_nrecvmsg	 27	
-#define __NR_osf_nsendmsg	 28	
-#define __NR_osf_nrecvfrom	 29	
-#define __NR_osf_naccept	 30	
-#define __NR_osf_ngetpeername	 31	
-#define __NR_osf_ngetsockname	 32	
+#define __NR_osf_nrecvmsg	 27	/* not implemented */
+#define __NR_osf_nsendmsg	 28	/* not implemented */
+#define __NR_osf_nrecvfrom	 29	/* not implemented */
+#define __NR_osf_naccept	 30	/* not implemented */
+#define __NR_osf_ngetpeername	 31	/* not implemented */
+#define __NR_osf_ngetsockname	 32	/* not implemented */
 #define __NR_access		 33
-#define __NR_osf_chflags	 34	
-#define __NR_osf_fchflags	 35	
+#define __NR_osf_chflags	 34	/* not implemented */
+#define __NR_osf_fchflags	 35	/* not implemented */
 #define __NR_sync		 36
 #define __NR_kill		 37
-#define __NR_osf_old_stat	 38	
+#define __NR_osf_old_stat	 38	/* not implemented */
 #define __NR_setpgid		 39
-#define __NR_osf_old_lstat	 40	
+#define __NR_osf_old_lstat	 40	/* not implemented */
 #define __NR_dup		 41
 #define __NR_pipe		 42
 #define __NR_osf_set_program_attributes	43
-#define __NR_osf_profil		 44	
+#define __NR_osf_profil		 44	/* not implemented */
 #define __NR_open		 45
-#define __NR_osf_old_sigaction	 46	
+#define __NR_osf_old_sigaction	 46	/* not implemented */
 #define __NR_getxgid		 47
 #define __NR_osf_sigprocmask	 48
-#define __NR_osf_getlogin	 49	
-#define __NR_osf_setlogin	 50	
+#define __NR_osf_getlogin	 49	/* not implemented */
+#define __NR_osf_setlogin	 50	/* not implemented */
 #define __NR_acct		 51
 #define __NR_sigpending		 52
 
 #define __NR_ioctl		 54
-#define __NR_osf_reboot		 55	
-#define __NR_osf_revoke		 56	
+#define __NR_osf_reboot		 55	/* not implemented */
+#define __NR_osf_revoke		 56	/* not implemented */
 #define __NR_symlink		 57
 #define __NR_readlink		 58
 #define __NR_execve		 59
 #define __NR_umask		 60
 #define __NR_chroot		 61
-#define __NR_osf_old_fstat	 62	
+#define __NR_osf_old_fstat	 62	/* not implemented */
 #define __NR_getpgrp		 63
 #define __NR_getpagesize	 64
-#define __NR_osf_mremap		 65	
+#define __NR_osf_mremap		 65	/* not implemented */
 #define __NR_vfork		 66
 #define __NR_stat		 67
 #define __NR_lstat		 68
-#define __NR_osf_sbrk		 69	
-#define __NR_osf_sstk		 70	
-#define __NR_mmap		 71	
-#define __NR_osf_old_vadvise	 72	
+#define __NR_osf_sbrk		 69	/* not implemented */
+#define __NR_osf_sstk		 70	/* not implemented */
+#define __NR_mmap		 71	/* OSF/1 mmap is superset of Linux */
+#define __NR_osf_old_vadvise	 72	/* not implemented */
 #define __NR_munmap		 73
 #define __NR_mprotect		 74
 #define __NR_madvise		 75
 #define __NR_vhangup		 76
-#define __NR_osf_kmodcall	 77	
-#define __NR_osf_mincore	 78	
+#define __NR_osf_kmodcall	 77	/* not implemented */
+#define __NR_osf_mincore	 78	/* not implemented */
 #define __NR_getgroups		 79
 #define __NR_setgroups		 80
-#define __NR_osf_old_getpgrp	 81	
-#define __NR_setpgrp		 82	
+#define __NR_osf_old_getpgrp	 81	/* not implemented */
+#define __NR_setpgrp		 82	/* BSD alias for setpgid */
 #define __NR_osf_setitimer	 83
-#define __NR_osf_old_wait	 84	
-#define __NR_osf_table		 85	
+#define __NR_osf_old_wait	 84	/* not implemented */
+#define __NR_osf_table		 85	/* not implemented */
 #define __NR_osf_getitimer	 86
 #define __NR_gethostname	 87
 #define __NR_sethostname	 88
@@ -108,15 +108,15 @@
 #define __NR_bind		104
 #define __NR_setsockopt		105
 #define __NR_listen		106
-#define __NR_osf_plock		107	
-#define __NR_osf_old_sigvec	108	
-#define __NR_osf_old_sigblock	109	
-#define __NR_osf_old_sigsetmask	110	
+#define __NR_osf_plock		107	/* not implemented */
+#define __NR_osf_old_sigvec	108	/* not implemented */
+#define __NR_osf_old_sigblock	109	/* not implemented */
+#define __NR_osf_old_sigsetmask	110	/* not implemented */
 #define __NR_sigsuspend		111
 #define __NR_osf_sigstack	112
 #define __NR_recvmsg		113
 #define __NR_sendmsg		114
-#define __NR_osf_old_vtrace	115	
+#define __NR_osf_old_vtrace	115	/* not implemented */
 #define __NR_osf_gettimeofday	116
 #define __NR_osf_getrusage	117
 #define __NR_getsockopt		118
@@ -140,42 +140,42 @@
 #define __NR_mkdir		136
 #define __NR_rmdir		137
 #define __NR_osf_utimes		138
-#define __NR_osf_old_sigreturn	139	
-#define __NR_osf_adjtime	140	
+#define __NR_osf_old_sigreturn	139	/* not implemented */
+#define __NR_osf_adjtime	140	/* not implemented */
 #define __NR_getpeername	141
-#define __NR_osf_gethostid	142	
-#define __NR_osf_sethostid	143	
+#define __NR_osf_gethostid	142	/* not implemented */
+#define __NR_osf_sethostid	143	/* not implemented */
 #define __NR_getrlimit		144
 #define __NR_setrlimit		145
-#define __NR_osf_old_killpg	146	
+#define __NR_osf_old_killpg	146	/* not implemented */
 #define __NR_setsid		147
 #define __NR_quotactl		148
-#define __NR_osf_oldquota	149	
+#define __NR_osf_oldquota	149	/* not implemented */
 #define __NR_getsockname	150
 
-#define __NR_osf_pid_block	153	
-#define __NR_osf_pid_unblock	154	
+#define __NR_osf_pid_block	153	/* not implemented */
+#define __NR_osf_pid_unblock	154	/* not implemented */
 
 #define __NR_sigaction		156
-#define __NR_osf_sigwaitprim	157	
-#define __NR_osf_nfssvc		158	
+#define __NR_osf_sigwaitprim	157	/* not implemented */
+#define __NR_osf_nfssvc		158	/* not implemented */
 #define __NR_osf_getdirentries	159
 #define __NR_osf_statfs		160
 #define __NR_osf_fstatfs	161
 
-#define __NR_osf_asynch_daemon	163	
-#define __NR_osf_getfh		164		
+#define __NR_osf_asynch_daemon	163	/* not implemented */
+#define __NR_osf_getfh		164	/* not implemented */	
 #define __NR_osf_getdomainname	165
 #define __NR_setdomainname	166
 
-#define __NR_osf_exportfs	169	
+#define __NR_osf_exportfs	169	/* not implemented */
 
-#define __NR_osf_alt_plock	181	
+#define __NR_osf_alt_plock	181	/* not implemented */
 
-#define __NR_osf_getmnt		184	
+#define __NR_osf_getmnt		184	/* not implemented */
 
-#define __NR_osf_alt_sigpending	187	
-#define __NR_osf_alt_setsid	188	
+#define __NR_osf_alt_sigpending	187	/* not implemented */
+#define __NR_osf_alt_setsid	188	/* not implemented */
 
 #define __NR_osf_swapon		199
 #define __NR_msgctl		200
@@ -191,48 +191,51 @@
 #define __NR_shmctl		210
 #define __NR_shmdt		211
 #define __NR_shmget		212
-#define __NR_osf_mvalid		213	
-#define __NR_osf_getaddressconf	214	
-#define __NR_osf_msleep		215	
-#define __NR_osf_mwakeup	216	
+#define __NR_osf_mvalid		213	/* not implemented */
+#define __NR_osf_getaddressconf	214	/* not implemented */
+#define __NR_osf_msleep		215	/* not implemented */
+#define __NR_osf_mwakeup	216	/* not implemented */
 #define __NR_msync		217
-#define __NR_osf_signal		218	
-#define __NR_osf_utc_gettime	219	
-#define __NR_osf_utc_adjtime	220	
+#define __NR_osf_signal		218	/* not implemented */
+#define __NR_osf_utc_gettime	219	/* not implemented */
+#define __NR_osf_utc_adjtime	220	/* not implemented */
 
-#define __NR_osf_security	222	
-#define __NR_osf_kloadcall	223	
+#define __NR_osf_security	222	/* not implemented */
+#define __NR_osf_kloadcall	223	/* not implemented */
 
 #define __NR_getpgid		233
 #define __NR_getsid		234
 #define __NR_sigaltstack	235
-#define __NR_osf_waitid		236	
-#define __NR_osf_priocntlset	237	
-#define __NR_osf_sigsendset	238	
-#define __NR_osf_set_speculative	239	
-#define __NR_osf_msfs_syscall	240	
+#define __NR_osf_waitid		236	/* not implemented */
+#define __NR_osf_priocntlset	237	/* not implemented */
+#define __NR_osf_sigsendset	238	/* not implemented */
+#define __NR_osf_set_speculative	239	/* not implemented */
+#define __NR_osf_msfs_syscall	240	/* not implemented */
 #define __NR_osf_sysinfo	241
-#define __NR_osf_uadmin		242	
-#define __NR_osf_fuser		243	
+#define __NR_osf_uadmin		242	/* not implemented */
+#define __NR_osf_fuser		243	/* not implemented */
 #define __NR_osf_proplist_syscall    244
-#define __NR_osf_ntp_adjtime	245	
-#define __NR_osf_ntp_gettime	246	
-#define __NR_osf_pathconf	247	
-#define __NR_osf_fpathconf	248	
+#define __NR_osf_ntp_adjtime	245	/* not implemented */
+#define __NR_osf_ntp_gettime	246	/* not implemented */
+#define __NR_osf_pathconf	247	/* not implemented */
+#define __NR_osf_fpathconf	248	/* not implemented */
 
-#define __NR_osf_uswitch	250	
+#define __NR_osf_uswitch	250	/* not implemented */
 #define __NR_osf_usleep_thread	251
-#define __NR_osf_audcntl	252	
-#define __NR_osf_audgen		253	
+#define __NR_osf_audcntl	252	/* not implemented */
+#define __NR_osf_audgen		253	/* not implemented */
 #define __NR_sysfs		254
-#define __NR_osf_subsys_info	255	
+#define __NR_osf_subsys_info	255	/* not implemented */
 #define __NR_osf_getsysinfo	256
 #define __NR_osf_setsysinfo	257
-#define __NR_osf_afs_syscall	258	
-#define __NR_osf_swapctl	259	
-#define __NR_osf_memcntl	260	
-#define __NR_osf_fdatasync	261	
+#define __NR_osf_afs_syscall	258	/* not implemented */
+#define __NR_osf_swapctl	259	/* not implemented */
+#define __NR_osf_memcntl	260	/* not implemented */
+#define __NR_osf_fdatasync	261	/* not implemented */
 
+/*
+ * Ignore legacy syscalls that we don't use.
+ */
 #define __IGNORE_alarm
 #define __IGNORE_creat
 #define __IGNORE_getegid
@@ -246,6 +249,9 @@
 #define __IGNORE_utime
 #define __IGNORE_umount2
 
+/*
+ * Linux-specific system calls begin at 300
+ */
 #define __NR_bdflush		300
 #define __NR_sethae		301
 #define __NR_mount		302
@@ -266,6 +272,7 @@
 #define __NR_munlockall		317
 #define __NR_sysinfo		318
 #define __NR__sysctl		319
+/* 320 was sys_idle.  */
 #define __NR_oldumount		321
 #define __NR_swapon		322
 #define __NR_times		323
@@ -325,6 +332,7 @@
 #define __NR_getdents64			377
 #define __NR_gettid			378
 #define __NR_readahead			379
+/* 380 is unused */
 #define __NR_tkill			381
 #define __NR_setxattr			382
 #define __NR_lsetxattr			383
@@ -352,6 +360,8 @@
 #define __NR_epoll_create		407
 #define __NR_epoll_ctl			408
 #define __NR_epoll_wait			409
+/* Feb 2007: These three sys_epoll defines shouldn't be here but culling
+ * them would break userspace apps ... we'll kill them off in 2010 :) */
 #define __NR_sys_epoll_create		__NR_epoll_create
 #define __NR_sys_epoll_ctl		__NR_epoll_ctl
 #define __NR_sys_epoll_wait		__NR_epoll_wait
@@ -465,8 +475,17 @@
 #define __ARCH_WANT_SYS_SIGPENDING
 #define __ARCH_WANT_SYS_RT_SIGSUSPEND
 
+/* "Conditional" syscalls.  What we want is
+
+	__attribute__((weak,alias("sys_ni_syscall")))
+
+   but that raises the problem of what type to give the symbol.  If we use
+   a prototype, it'll conflict with the definition given in this file and
+   others.  If we use __typeof, we discover that not all symbols actually
+   have declarations.  If we use no prototype, then we get warnings from
+   -Wstrict-prototypes.  Ho hum.  */
 
 #define cond_syscall(x)  asm(".weak\t" #x "\n" #x " = sys_ni_syscall")
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ALPHA_UNISTD_H */

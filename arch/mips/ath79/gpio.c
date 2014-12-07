@@ -107,7 +107,7 @@ void ath79_gpio_function_enable(u32 mask)
 
 	__raw_writel(__raw_readl(base + AR71XX_GPIO_REG_FUNC) | mask,
 		     base + AR71XX_GPIO_REG_FUNC);
-	
+	/* flush write */
 	__raw_readl(base + AR71XX_GPIO_REG_FUNC);
 
 	spin_unlock_irqrestore(&ath79_gpio_lock, flags);
@@ -122,7 +122,7 @@ void ath79_gpio_function_disable(u32 mask)
 
 	__raw_writel(__raw_readl(base + AR71XX_GPIO_REG_FUNC) & ~mask,
 		     base + AR71XX_GPIO_REG_FUNC);
-	
+	/* flush write */
 	__raw_readl(base + AR71XX_GPIO_REG_FUNC);
 
 	spin_unlock_irqrestore(&ath79_gpio_lock, flags);
@@ -137,7 +137,7 @@ void ath79_gpio_function_setup(u32 set, u32 clear)
 
 	__raw_writel((__raw_readl(base + AR71XX_GPIO_REG_FUNC) & ~clear) | set,
 		     base + AR71XX_GPIO_REG_FUNC);
-	
+	/* flush write */
 	__raw_readl(base + AR71XX_GPIO_REG_FUNC);
 
 	spin_unlock_irqrestore(&ath79_gpio_lock, flags);
@@ -186,14 +186,14 @@ EXPORT_SYMBOL(gpio_set_value);
 
 int gpio_to_irq(unsigned gpio)
 {
-	
+	/* FIXME */
 	return -EINVAL;
 }
 EXPORT_SYMBOL(gpio_to_irq);
 
 int irq_to_gpio(unsigned irq)
 {
-	
+	/* FIXME */
 	return -EINVAL;
 }
 EXPORT_SYMBOL(irq_to_gpio);

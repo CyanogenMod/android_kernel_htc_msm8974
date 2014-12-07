@@ -16,10 +16,13 @@
 
 #ifdef __KERNEL__
 #include <linux/types.h>
-#endif 
+#endif /*__KERNEL__*/
 
 #define PACKED __attribute__ ((__packed__))
 
+/*
+ * Max name lengths of BFS
+ */
 
 #define BEFS_NAME_LEN 255
 
@@ -27,15 +30,26 @@
 #define BEFS_NUM_DIRECT_BLOCKS 12
 #define B_OS_NAME_LENGTH 32
 
+/* The datastream blocks mapped by the double-indirect
+ * block are always 4 fs blocks long.
+ * This eliminates the need for linear searches among
+ * the potentially huge number of indirect blocks
+ *
+ * Err. Should that be 4 fs blocks or 4k???
+ * It matters on large blocksize volumes
+ */
 #define BEFS_DBLINDIR_BRUN_LEN 4
 
+/*
+ * Flags of superblock
+ */
 
 enum super_flags {
 	BEFS_BYTESEX_BE,
 	BEFS_BYTESEX_LE,
 	BEFS_CLEAN = 0x434c454e,
 	BEFS_DIRTY = 0x44495254,
-	BEFS_SUPER_MAGIC1 = 0x42465331,	
+	BEFS_SUPER_MAGIC1 = 0x42465331,	/* BFS1 */
 	BEFS_SUPER_MAGIC2 = 0xdd121031,
 	BEFS_SUPER_MAGIC3 = 0x15b6830e,
 };
@@ -48,6 +62,9 @@ enum super_flags {
 #define BEFS_SUPER_MAGIC1_LE (__force fs32)cpu_to_le32(BEFS_SUPER_MAGIC1)
 #define BEFS_SUPER_MAGIC1_BE (__force fs32)cpu_to_be32(BEFS_SUPER_MAGIC1)
 
+/*
+ * Flags of inode
+ */
 
 #define BEFS_INODE_MAGIC1 0x3bbe0ad9
 
@@ -62,6 +79,9 @@ enum inode_flags {
 	BEFS_INODE_WAS_WRITTEN = 0x00020000,
 	BEFS_NO_TRANSACTION = 0x00040000,
 };
+/* 
+ * On-Disk datastructures of BeFS
+ */
 
 typedef u64 __bitwise fs64;
 typedef u32 __bitwise fs32;
@@ -70,6 +90,7 @@ typedef u16 __bitwise fs16;
 typedef u64 befs_off_t;
 typedef fs64 befs_time_t;
 
+/* Block runs */
 typedef struct {
 	fs32 allocation_group;
 	fs16 start;
@@ -85,6 +106,9 @@ typedef struct {
 typedef befs_disk_block_run befs_disk_inode_addr;
 typedef befs_block_run befs_inode_addr;
 
+/*
+ * The Superblock Structure
+ */
 typedef struct {
 	char name[B_OS_NAME_LENGTH];
 	fs32 magic1;
@@ -115,6 +139,10 @@ typedef struct {
 
 } PACKED befs_super_block;
 
+/* 
+ * Note: the indirect and dbl_indir block_runs may
+ * be longer than one block!
+ */
 typedef struct {
 	befs_disk_block_run direct[BEFS_NUM_DIRECT_BLOCKS];
 	fs64 max_direct_range;
@@ -135,6 +163,7 @@ typedef struct {
 	befs_off_t size;
 } PACKED befs_data_stream;
 
+/* Attribute */
 typedef struct {
 	fs32 type;
 	fs16 name_size;
@@ -142,6 +171,7 @@ typedef struct {
 	char name[1];
 } PACKED befs_small_data;
 
+/* Inode structure */
 typedef struct {
 	fs32 magic1;
 	befs_disk_inode_addr inode_num;
@@ -156,17 +186,20 @@ typedef struct {
 	fs32 type;
 
 	fs32 inode_size;
-	fs32 etc;		
+	fs32 etc;		/* not use */
 
 	union {
 		befs_disk_data_stream datastream;
 		char symlink[BEFS_SYMLINK_LEN];
 	} data;
 
-	fs32 pad[4];		
+	fs32 pad[4];		/* not use */
 	befs_small_data small_data[1];
 } PACKED befs_inode;
 
+/*
+ * B+tree superblock
+ */
 
 #define BEFS_BTREE_MAGIC 0x69f6c2e8
 
@@ -200,6 +233,9 @@ typedef struct {
 	befs_off_t max_size;
 } PACKED befs_btree_super;
 
+/*
+ * Header structure of each btree node
+ */
 typedef struct {
 	fs64 left;
 	fs64 right;
@@ -216,4 +252,4 @@ typedef struct {
 	u16 all_key_length;
 } PACKED befs_host_btree_nodehead;
 
-#endif				
+#endif				/* _LINUX_BEFS_FS_TYPES */

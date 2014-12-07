@@ -25,7 +25,7 @@ static void cfg80211_get_drvinfo(struct net_device *dev,
 
 static int cfg80211_get_regs_len(struct net_device *dev)
 {
-	
+	/* For now, return 0... */
 	return 0;
 }
 

@@ -52,13 +52,19 @@
 #include <plat/cpu.h>
 
 #include <linux/serial_core.h>
-#include <plat/regs-serial.h> 
+#include <plat/regs-serial.h> /* for s3c24xx_uart_devs */
 
+/* clock information */
 
 static LIST_HEAD(clocks);
 
+/* We originally used an mutex here, but some contexts (see resume)
+ * are calling functions such as clk_set_parent() with IRQs disabled
+ * causing an BUG to be triggered.
+ */
 DEFINE_SPINLOCK(clocks_lock);
 
+/* Global watchdog clock used by arch_wtd_reset() callback */
 struct clk *s3c2410_wdtclk;
 static int __init s3c_wdt_reset_init(void)
 {
@@ -69,6 +75,7 @@ static int __init s3c_wdt_reset_init(void)
 }
 arch_initcall(s3c_wdt_reset_init);
 
+/* enable and disable calls for use with the clk struct */
 
 static int clk_null_enable(struct clk *clk, int enable)
 {
@@ -142,6 +149,9 @@ int clk_set_rate(struct clk *clk, unsigned long rate)
 	if (IS_ERR(clk))
 		return -EINVAL;
 
+	/* We do not default just do a clk->rate = rate as
+	 * the clock may have been made this way by choice.
+	 */
 
 	WARN_ON(clk->ops == NULL);
 	WARN_ON(clk->ops && clk->ops->set_rate == NULL);
@@ -186,6 +196,7 @@ EXPORT_SYMBOL(clk_set_rate);
 EXPORT_SYMBOL(clk_get_parent);
 EXPORT_SYMBOL(clk_set_parent);
 
+/* base clocks */
 
 int clk_default_setrate(struct clk *clk, unsigned long rate)
 {
@@ -257,13 +268,20 @@ struct clk s3c24xx_uclk = {
 	.name		= "uclk",
 };
 
+/* initialise the clock system */
 
+/**
+ * s3c24xx_register_clock() - register a clock
+ * @clk: The clock to register
+ *
+ * Add the specified clock to the list of clocks known by the system.
+ */
 int s3c24xx_register_clock(struct clk *clk)
 {
 	if (clk->enable == NULL)
 		clk->enable = clk_null_enable;
 
-	
+	/* fill up the clk_lookup structure and register it*/
 	clk->lookup.dev_id = clk->devname;
 	clk->lookup.con_id = clk->name;
 	clk->lookup.clk = clk;
@@ -272,6 +290,14 @@ int s3c24xx_register_clock(struct clk *clk)
 	return 0;
 }
 
+/**
+ * s3c24xx_register_clocks() - register an array of clock pointers
+ * @clks: Pointer to an array of struct clk pointers
+ * @nr_clks: The number of clocks in the @clks array.
+ *
+ * Call s3c24xx_register_clock() for all the clock pointers contained
+ * in the @clks list. Returns the number of failures.
+ */
 int s3c24xx_register_clocks(struct clk **clks, int nr_clks)
 {
 	int fails = 0;
@@ -288,6 +314,14 @@ int s3c24xx_register_clocks(struct clk **clks, int nr_clks)
 	return fails;
 }
 
+/**
+ * s3c_register_clocks() - register an array of clocks
+ * @clkp: Pointer to the first clock in the array.
+ * @nr_clks: Number of clocks to register.
+ *
+ * Call s3c24xx_register_clock() on the @clkp array given, printing an
+ * error if it fails to register the clock (unlikely).
+ */
 void __init s3c_register_clocks(struct clk *clkp, int nr_clks)
 {
 	int ret;
@@ -302,6 +336,14 @@ void __init s3c_register_clocks(struct clk *clkp, int nr_clks)
 	}
 }
 
+/**
+ * s3c_disable_clocks() - disable an array of clocks
+ * @clkp: Pointer to the first clock in the array.
+ * @nr_clks: Number of clocks to register.
+ *
+ * for internal use only at initialisation time. disable the clocks in the
+ * @clkp array.
+ */
 
 void __init s3c_disable_clocks(struct clk *clkp, int nr_clks)
 {
@@ -309,6 +351,7 @@ void __init s3c_disable_clocks(struct clk *clkp, int nr_clks)
 		(clkp->enable)(clkp, 0);
 }
 
+/* initialise all the clocks */
 
 int __init s3c24xx_register_baseclocks(unsigned long xtal)
 {
@@ -316,7 +359,7 @@ int __init s3c24xx_register_baseclocks(unsigned long xtal)
 
 	clk_xtal.rate = xtal;
 
-	
+	/* register our clocks */
 
 	if (s3c24xx_register_clock(&clk_xtal) < 0)
 		printk(KERN_ERR "failed to register master xtal\n");
@@ -340,6 +383,7 @@ int __init s3c24xx_register_baseclocks(unsigned long xtal)
 }
 
 #if defined(CONFIG_PM_DEBUG) && defined(CONFIG_DEBUG_FS)
+/* debugfs support to trace clock tree hierarchy and attributes */
 
 static struct dentry *clk_debugfs_root;
 
@@ -420,4 +464,4 @@ err_out:
 }
 late_initcall(clk_debugfs_init);
 
-#endif 
+#endif /* defined(CONFIG_PM_DEBUG) && defined(CONFIG_DEBUG_FS) */

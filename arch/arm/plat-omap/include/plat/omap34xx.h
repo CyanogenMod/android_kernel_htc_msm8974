@@ -24,6 +24,10 @@
 #ifndef __ASM_ARCH_OMAP3_H
 #define __ASM_ARCH_OMAP3_H
 
+/*
+ * Please place only base defines here and put the rest in device
+ * specific headers.
+ */
 
 #define L4_34XX_BASE		0x48000000
 #define L4_WK_34XX_BASE		0x48300000
@@ -88,9 +92,10 @@
 
 #define OMAP34XX_MAILBOX_BASE		(L4_34XX_BASE + 0x94000)
 
+/* Security */
 #define OMAP34XX_SEC_BASE	(L4_34XX_BASE + 0xA0000)
 #define OMAP34XX_SEC_SHA1MD5_BASE	(OMAP34XX_SEC_BASE + 0x23000)
 #define OMAP34XX_SEC_AES_BASE	(OMAP34XX_SEC_BASE + 0x25000)
 
-#endif 
+#endif /* __ASM_ARCH_OMAP3_H */
 

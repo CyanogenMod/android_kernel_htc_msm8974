@@ -4,6 +4,26 @@
 #include <linux/types.h>
 #include <linux/i2c.h>
 
+/**
+ * struct drxk_config - Configure the initial parameters for DRX-K
+ *
+ * @adr:		I2C Address of the DRX-K
+ * @parallel_ts:	True means that the device uses parallel TS,
+ * 			Serial otherwise.
+ * @dynamic_clk:	True means that the clock will be dynamically
+ *			adjusted. Static clock otherwise.
+ * @enable_merr_cfg:	Enable SIO_PDR_PERR_CFG/SIO_PDR_MVAL_CFG.
+ * @single_master:	Device is on the single master mode
+ * @no_i2c_bridge:	Don't switch the I2C bridge to talk with tuner
+ * @antenna_gpio:	GPIO bit used to control the antenna
+ * @antenna_dvbt:	GPIO bit for changing antenna to DVB-C. A value of 1
+ *			means that 1=DVBC, 0 = DVBT. Zero means the opposite.
+ * @mpeg_out_clk_strength: DRXK Mpeg output clock drive strength.
+ * @microcode_name:	Name of the firmware file with the microcode
+ *
+ * On the *_gpio vars, bit 0 is UIO-1, bit 1 is UIO-2 and bit 2 is
+ * UIO-3.
+ */
 struct drxk_config {
 	u8	adr;
 	bool	single_master;

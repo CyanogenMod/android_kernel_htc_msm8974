@@ -1,3 +1,8 @@
+/*******************************************************************************
+ *
+ * Module Name: utmutex - local mutex support
+ *
+ ******************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -42,10 +47,23 @@
 #define _COMPONENT          ACPI_UTILITIES
 ACPI_MODULE_NAME("utmutex")
 
+/* Local prototypes */
 static acpi_status acpi_ut_create_mutex(acpi_mutex_handle mutex_id);
 
 static void acpi_ut_delete_mutex(acpi_mutex_handle mutex_id);
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_mutex_initialize
+ *
+ * PARAMETERS:  None.
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Create the system mutex objects. This includes mutexes,
+ *              spin locks, and reader/writer locks.
+ *
+ ******************************************************************************/
 
 acpi_status acpi_ut_mutex_initialize(void)
 {
@@ -54,7 +72,7 @@ acpi_status acpi_ut_mutex_initialize(void)
 
 	ACPI_FUNCTION_TRACE(ut_mutex_initialize);
 
-	
+	/* Create each of the predefined mutex objects */
 
 	for (i = 0; i < ACPI_NUM_MUTEX; i++) {
 		status = acpi_ut_create_mutex(i);
@@ -63,7 +81,7 @@ acpi_status acpi_ut_mutex_initialize(void)
 		}
 	}
 
-	
+	/* Create the spinlocks for use at interrupt level */
 
 	status = acpi_os_create_lock (&acpi_gbl_gpe_lock);
 	if (ACPI_FAILURE (status)) {
@@ -75,18 +93,30 @@ acpi_status acpi_ut_mutex_initialize(void)
 		return_ACPI_STATUS (status);
 	}
 
-	
+	/* Mutex for _OSI support */
 	status = acpi_os_create_mutex(&acpi_gbl_osi_mutex);
 	if (ACPI_FAILURE(status)) {
 		return_ACPI_STATUS(status);
 	}
 
-	
+	/* Create the reader/writer lock for namespace access */
 
 	status = acpi_ut_create_rw_lock(&acpi_gbl_namespace_rw_lock);
 	return_ACPI_STATUS(status);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_mutex_terminate
+ *
+ * PARAMETERS:  None.
+ *
+ * RETURN:      None.
+ *
+ * DESCRIPTION: Delete all of the system mutex objects. This includes mutexes,
+ *              spin locks, and reader/writer locks.
+ *
+ ******************************************************************************/
 
 void acpi_ut_mutex_terminate(void)
 {
@@ -94,7 +124,7 @@ void acpi_ut_mutex_terminate(void)
 
 	ACPI_FUNCTION_TRACE(ut_mutex_terminate);
 
-	
+	/* Delete each predefined mutex object */
 
 	for (i = 0; i < ACPI_NUM_MUTEX; i++) {
 		acpi_ut_delete_mutex(i);
@@ -102,17 +132,28 @@ void acpi_ut_mutex_terminate(void)
 
 	acpi_os_delete_mutex(acpi_gbl_osi_mutex);
 
-	
+	/* Delete the spinlocks */
 
 	acpi_os_delete_lock(acpi_gbl_gpe_lock);
 	acpi_os_delete_lock(acpi_gbl_hardware_lock);
 
-	
+	/* Delete the reader/writer lock */
 
 	acpi_ut_delete_rw_lock(&acpi_gbl_namespace_rw_lock);
 	return_VOID;
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_create_mutex
+ *
+ * PARAMETERS:  mutex_iD        - ID of the mutex to be created
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Create a mutex object.
+ *
+ ******************************************************************************/
 
 static acpi_status acpi_ut_create_mutex(acpi_mutex_handle mutex_id)
 {
@@ -131,6 +172,17 @@ static acpi_status acpi_ut_create_mutex(acpi_mutex_handle mutex_id)
 	return_ACPI_STATUS(status);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_delete_mutex
+ *
+ * PARAMETERS:  mutex_iD        - ID of the mutex to be deleted
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Delete a mutex object.
+ *
+ ******************************************************************************/
 
 static void acpi_ut_delete_mutex(acpi_mutex_handle mutex_id)
 {
@@ -143,6 +195,17 @@ static void acpi_ut_delete_mutex(acpi_mutex_handle mutex_id)
 	acpi_gbl_mutex_info[mutex_id].thread_id = ACPI_MUTEX_NOT_ACQUIRED;
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_acquire_mutex
+ *
+ * PARAMETERS:  mutex_iD        - ID of the mutex to be acquired
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Acquire a mutex object.
+ *
+ ******************************************************************************/
 
 acpi_status acpi_ut_acquire_mutex(acpi_mutex_handle mutex_id)
 {
@@ -160,6 +223,14 @@ acpi_status acpi_ut_acquire_mutex(acpi_mutex_handle mutex_id)
 #ifdef ACPI_MUTEX_DEBUG
 	{
 		u32 i;
+		/*
+		 * Mutex debug code, for internal debugging only.
+		 *
+		 * Deadlock prevention.  Check if this thread owns any mutexes of value
+		 * greater than or equal to this one.  If so, the thread has violated
+		 * the mutex ordering rule.  This indicates a coding error somewhere in
+		 * the ACPI subsystem code.
+		 */
 		for (i = mutex_id; i < ACPI_NUM_MUTEX; i++) {
 			if (acpi_gbl_mutex_info[i].thread_id == this_thread_id) {
 				if (i == mutex_id) {
@@ -208,6 +279,17 @@ acpi_status acpi_ut_acquire_mutex(acpi_mutex_handle mutex_id)
 	return (status);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_release_mutex
+ *
+ * PARAMETERS:  mutex_iD        - ID of the mutex to be released
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Release a mutex object.
+ *
+ ******************************************************************************/
 
 acpi_status acpi_ut_release_mutex(acpi_mutex_handle mutex_id)
 {
@@ -221,6 +303,9 @@ acpi_status acpi_ut_release_mutex(acpi_mutex_handle mutex_id)
 		return (AE_BAD_PARAMETER);
 	}
 
+	/*
+	 * Mutex must be acquired in order to release it!
+	 */
 	if (acpi_gbl_mutex_info[mutex_id].thread_id == ACPI_MUTEX_NOT_ACQUIRED) {
 		ACPI_ERROR((AE_INFO,
 			    "Mutex [0x%X] is not acquired, cannot release",
@@ -231,6 +316,14 @@ acpi_status acpi_ut_release_mutex(acpi_mutex_handle mutex_id)
 #ifdef ACPI_MUTEX_DEBUG
 	{
 		u32 i;
+		/*
+		 * Mutex debug code, for internal debugging only.
+		 *
+		 * Deadlock prevention.  Check if this thread owns any mutexes of value
+		 * greater than this one.  If so, the thread has violated the mutex
+		 * ordering rule.  This indicates a coding error somewhere in
+		 * the ACPI subsystem code.
+		 */
 		for (i = mutex_id; i < ACPI_NUM_MUTEX; i++) {
 			if (acpi_gbl_mutex_info[i].thread_id ==
 			    acpi_os_get_thread_id()) {
@@ -249,7 +342,7 @@ acpi_status acpi_ut_release_mutex(acpi_mutex_handle mutex_id)
 	}
 #endif
 
-	
+	/* Mark unlocked FIRST */
 
 	acpi_gbl_mutex_info[mutex_id].thread_id = ACPI_MUTEX_NOT_ACQUIRED;
 

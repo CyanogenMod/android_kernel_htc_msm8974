@@ -1,3 +1,4 @@
+/* $Id: os_4bri.c,v 1.28.4.4 2005/02/11 19:40:25 armin Exp $ */
 
 #include "platform.h"
 #include "debuglib.h"
@@ -20,6 +21,9 @@
 static void *diva_xdiLoadFileFile = NULL;
 static dword diva_xdiLoadFileLength = 0;
 
+/*
+**  IMPORTS
+*/
 extern void prepare_qBri_functions(PISDN_ADAPTER IoAdapter);
 extern void prepare_qBri2_functions(PISDN_ADAPTER IoAdapter);
 extern void diva_xdi_display_adapter_features(int card);
@@ -30,21 +34,24 @@ extern void start_qBri_hardware(PISDN_ADAPTER IoAdapter);
 
 extern int diva_card_read_xlog(diva_os_xdi_adapter_t *a);
 
+/*
+**  LOCALS
+*/
 static unsigned long _4bri_bar_length[4] = {
 	0x100,
-	0x100,			
+	0x100,			/* I/O */
 	MQ_MEMORY_SIZE,
 	0x2000
 };
 static unsigned long _4bri_v2_bar_length[4] = {
 	0x100,
-	0x100,			
+	0x100,			/* I/O */
 	MQ2_MEMORY_SIZE,
 	0x10000
 };
 static unsigned long _4bri_v2_bri_bar_length[4] = {
 	0x100,
-	0x100,			
+	0x100,			/* I/O */
 	BRI2_MEMORY_SIZE,
 	0x10000
 };
@@ -104,19 +111,36 @@ static void diva_4bri_set_addresses(diva_os_xdi_adapter_t *a)
 	a->resources.pci.mem_type_id[MEM_TYPE_CTLREG] = 3;
 	a->resources.pci.mem_type_id[MEM_TYPE_PROM] = 0;
 
-	a->xdi_adapter.Address = a->resources.pci.addr[2];	
+	/*
+	  Set up hardware related pointers
+	*/
+	a->xdi_adapter.Address = a->resources.pci.addr[2];	/* BAR2 SDRAM  */
 	a->xdi_adapter.Address += c_offset;
 
-	a->xdi_adapter.Control = a->resources.pci.addr[2];	
+	a->xdi_adapter.Control = a->resources.pci.addr[2];	/* BAR2 SDRAM  */
 
-	a->xdi_adapter.ram = a->resources.pci.addr[2];	
+	a->xdi_adapter.ram = a->resources.pci.addr[2];	/* BAR2 SDRAM  */
 	a->xdi_adapter.ram += c_offset + (offset - MQ_SHARED_RAM_SIZE);
 
-	a->xdi_adapter.reset = a->resources.pci.addr[0];	
-	a->xdi_adapter.ctlReg = a->resources.pci.addr[3];	
+	a->xdi_adapter.reset = a->resources.pci.addr[0];	/* BAR0 CONFIG */
+	/*
+	  ctlReg contains the register address for the MIPS CPU reset control
+	*/
+	a->xdi_adapter.ctlReg = a->resources.pci.addr[3];	/* BAR3 CNTRL  */
+	/*
+	  prom contains the register address for FPGA and EEPROM programming
+	*/
 	a->xdi_adapter.prom = &a->xdi_adapter.reset[0x6E];
 }
 
+/*
+**  BAR0 - MEM - 0x100    - CONFIG MEM
+**  BAR1 - I/O - 0x100    - UNUSED
+**  BAR2 - MEM - MQ_MEMORY_SIZE (MQ2_MEMORY_SIZE on Rev.2) - SDRAM
+**  BAR3 - MEM - 0x2000 (0x10000 on Rev.2)   - CNTRL
+**
+**  Called by master adapter, that will initialize and add slave adapters
+*/
 int diva_4bri_init_card(diva_os_xdi_adapter_t *a)
 {
 	int bar, i;
@@ -144,18 +168,31 @@ int diva_4bri_init_card(diva_os_xdi_adapter_t *a)
 	DBG_TRC(("SDRAM_LENGTH=%08x, tasks=%d, factor=%d",
 		 bar_length[2], tasks, factor))
 
+		/*
+		  Get Serial Number
+		  The serial number of 4BRI is accessible in accordance with PCI spec
+		  via command register located in configuration space, also we do not
+		  have to map any BAR before we can access it
+		*/
 		if (!_4bri_get_serial_number(a)) {
 			DBG_ERR(("A: 4BRI can't get Serial Number"))
 				diva_4bri_cleanup_adapter(a);
 			return (-1);
 		}
 
+	/*
+	  Set properties
+	*/
 	a->xdi_adapter.Properties = CardProperties[a->CardOrdinal];
 	DBG_LOG(("Load %s, SN:%ld, bus:%02x, func:%02x",
 		 a->xdi_adapter.Properties.Name,
 		 a->xdi_adapter.serialNo,
 		 a->resources.pci.bus, a->resources.pci.func))
 
+		/*
+		  First initialization step: get and check hardware resoures.
+		  Do not map resources and do not access card at this step
+		*/
 		for (bar = 0; bar < 4; bar++) {
 			a->resources.pci.bar[bar] =
 				divasa_get_pci_bar(a->resources.pci.bus,
@@ -180,8 +217,11 @@ int diva_4bri_init_card(diva_os_xdi_adapter_t *a)
 
 	a->xdi_adapter.sdram_bar = a->resources.pci.bar[2];
 
+	/*
+	  Map all MEMORY BAR's
+	*/
 	for (bar = 0; bar < 4; bar++) {
-		if (bar != 1) {	
+		if (bar != 1) {	/* ignore I/O */
 			a->resources.pci.addr[bar] =
 				divasa_remap_pci_bar(a, bar, a->resources.pci.bar[bar],
 						     bar_length[bar]);
@@ -193,6 +233,9 @@ int diva_4bri_init_card(diva_os_xdi_adapter_t *a)
 		}
 	}
 
+	/*
+	  Register I/O port
+	*/
 	sprintf(&a->port_name[0], "DIVA 4BRI %ld", (long) a->xdi_adapter.serialNo);
 
 	if (diva_os_register_io_port(a, 1, a->resources.pci.bar[1],
@@ -205,8 +248,15 @@ int diva_4bri_init_card(diva_os_xdi_adapter_t *a)
 	a->resources.pci.addr[1] =
 		(void *) (unsigned long) a->resources.pci.bar[1];
 
+	/*
+	  Set cleanup pointer for base adapter only, so slave adapter
+	  will be unable to get cleanup
+	*/
 	a->interface.cleanup_adapter_proc = diva_4bri_cleanup_adapter;
 
+	/*
+	  Create slave adapters
+	*/
 	if (tasks > 1) {
 		if (!(a->slave_adapters[0] =
 		      (diva_os_xdi_adapter_t *) diva_os_malloc(0, sizeof(*a))))
@@ -242,6 +292,9 @@ int diva_4bri_init_card(diva_os_xdi_adapter_t *a)
 	adapter_list[2] = a->slave_adapters[1];
 	adapter_list[3] = a->slave_adapters[2];
 
+	/*
+	  Allocate slave list
+	*/
 	quadro_list =
 		(PADAPTER_LIST_ENTRY) diva_os_malloc(0, sizeof(*quadro_list));
 	if (!(a->slave_list = quadro_list)) {
@@ -254,6 +307,9 @@ int diva_4bri_init_card(diva_os_xdi_adapter_t *a)
 	}
 	memset(quadro_list, 0x00, sizeof(*quadro_list));
 
+	/*
+	  Set interfaces
+	*/
 	a->xdi_adapter.QuadroList = quadro_list;
 	for (i = 0; i < tasks; i++) {
 		adapter_list[i]->xdi_adapter.ControllerNumber = i;
@@ -324,6 +380,9 @@ int diva_4bri_init_card(diva_os_xdi_adapter_t *a)
 			return (-1);
 		}
 
+		/*
+		  Do not initialize second DPC - only one thread will be created
+		*/
 		diva_current->xdi_adapter.isr_soft_isr.object =
 			diva_current->xdi_adapter.req_soft_isr.object;
 	}
@@ -341,9 +400,12 @@ int diva_4bri_init_card(diva_os_xdi_adapter_t *a)
 		diva_current->resources.pci.qoffset = (a->xdi_adapter.MemorySize >> factor);
 	}
 
-	a->xdi_adapter.cfg = (void *) (unsigned long) a->resources.pci.bar[0];	
-	a->xdi_adapter.port = (void *) (unsigned long) a->resources.pci.bar[1];	
-	a->xdi_adapter.ctlReg = (void *) (unsigned long) a->resources.pci.bar[3];	
+	/*
+	  Set up hardware related pointers
+	*/
+	a->xdi_adapter.cfg = (void *) (unsigned long) a->resources.pci.bar[0];	/* BAR0 CONFIG */
+	a->xdi_adapter.port = (void *) (unsigned long) a->resources.pci.bar[1];	/* BAR1        */
+	a->xdi_adapter.ctlReg = (void *) (unsigned long) a->resources.pci.bar[3];	/* BAR3 CNTRL  */
 
 	for (i = 0; i < tasks; i++) {
 		diva_current = adapter_list[i];
@@ -358,10 +420,16 @@ int diva_4bri_init_card(diva_os_xdi_adapter_t *a)
 		}
 	}
 
+	/*
+	  reset contains the base address for the PLX 9054 register set
+	*/
 	p = DIVA_OS_MEM_ATTACH_RESET(&a->xdi_adapter);
-	WRITE_BYTE(&p[PLX9054_INTCSR], 0x00);	
+	WRITE_BYTE(&p[PLX9054_INTCSR], 0x00);	/* disable PCI interrupts */
 	DIVA_OS_MEM_DETACH_RESET(&a->xdi_adapter, p);
 
+	/*
+	  Set IRQ handler
+	*/
 	a->xdi_adapter.irq_info.irq_nr = a->resources.pci.irq;
 	sprintf(a->xdi_adapter.irq_info.irq_name, "DIVA 4BRI %ld",
 		(long) a->xdi_adapter.serialNo);
@@ -378,6 +446,9 @@ int diva_4bri_init_card(diva_os_xdi_adapter_t *a)
 
 	a->xdi_adapter.irq_info.registered = 1;
 
+	/*
+	  Add three slave adapters
+	*/
 	if (tasks > 1) {
 		diva_add_slave_adapter(adapter_list[1]);
 		diva_add_slave_adapter(adapter_list[2]);
@@ -390,21 +461,38 @@ int diva_4bri_init_card(diva_os_xdi_adapter_t *a)
 	return (0);
 }
 
+/*
+**  Cleanup function will be called for master adapter only
+**  this is guaranteed by design: cleanup callback is set
+**  by master adapter only
+*/
 static int diva_4bri_cleanup_adapter(diva_os_xdi_adapter_t *a)
 {
 	int bar;
 
+	/*
+	  Stop adapter if running
+	*/
 	if (a->xdi_adapter.Initialized) {
 		diva_4bri_stop_adapter(a);
 	}
 
+	/*
+	  Remove IRQ handler
+	*/
 	if (a->xdi_adapter.irq_info.registered) {
 		diva_os_remove_irq(a, a->xdi_adapter.irq_info.irq_nr);
 	}
 	a->xdi_adapter.irq_info.registered = 0;
 
+	/*
+	  Free DPC's and spin locks on all adapters
+	*/
 	diva_4bri_cleanup_slave_adapters(a);
 
+	/*
+	  Unmap all BARS
+	*/
 	for (bar = 0; bar < 4; bar++) {
 		if (bar != 1) {
 			if (a->resources.pci.bar[bar]
@@ -416,6 +504,9 @@ static int diva_4bri_cleanup_adapter(diva_os_xdi_adapter_t *a)
 		}
 	}
 
+	/*
+	  Unregister I/O
+	*/
 	if (a->resources.pci.bar[1] && a->resources.pci.addr[1]) {
 		diva_os_register_io_port(a, 0, a->resources.pci.bar[1],
 					 _4bri_is_rev_2_card(a->
@@ -484,6 +575,9 @@ static int _4bri_get_serial_number(diva_os_xdi_adapter_t *a)
 		return (serNo);
 }
 
+/*
+**  Release resources of slave adapters
+*/
 static int diva_4bri_cleanup_slave_adapters(diva_os_xdi_adapter_t *a)
 {
 	diva_os_xdi_adapter_t *adapter_list[4];
@@ -568,6 +662,9 @@ diva_4bri_cmd_card_proc(struct _diva_os_xdi_adapter *a,
 
 	case DIVA_XDI_UM_CMD_GET_PCI_HW_CONFIG:
 		if (!a->xdi_adapter.ControllerNumber) {
+			/*
+			  Only master adapter can access hardware config
+			*/
 			a->xdi_mbox.data_length = sizeof(dword) * 9;
 			a->xdi_mbox.data =
 				diva_os_malloc(0, a->xdi_mbox.data_length);
@@ -771,6 +868,9 @@ static int diva_4bri_reset_adapter(PISDN_ADAPTER IoAdapter)
 			return (-1);
 	}
 
+	/*
+	  Forget all entities on all adapters
+	*/
 	for (i = 0; ((i < IoAdapter->tasks) && IoAdapter->QuadroList); i++) {
 		Slave = IoAdapter->QuadroList->QuadroAdapter[i];
 		Slave->e_count = 0;
@@ -838,9 +938,15 @@ diva_4bri_start_adapter(PISDN_ADAPTER IoAdapter,
 	int i;
 	byte __iomem *p;
 
+	/*
+	  start adapter
+	*/
 	start_qBri_hardware(IoAdapter);
 
 	p = DIVA_OS_MEM_ATTACH_RAM(IoAdapter);
+	/*
+	  wait for signature in shared memory (max. 3 seconds)
+	*/
 	signature = (volatile word __iomem *) (&p[0x1E]);
 
 	for (i = 0; i < 300; ++i) {
@@ -915,6 +1021,9 @@ static int check_qBri_interrupt(PISDN_ADAPTER IoAdapter)
 	p = DIVA_OS_MEM_ATTACH_RESET(IoAdapter);
 	WRITE_BYTE(&p[PLX9054_INTCSR], PLX9054_INT_ENABLE);
 	DIVA_OS_MEM_DETACH_RESET(IoAdapter, p);
+	/*
+	  interrupt test
+	*/
 	a->ReadyInt = 1;
 	a->ram_out(a, &PR_RAM->ReadyInt, 1);
 
@@ -924,6 +1033,9 @@ static int check_qBri_interrupt(PISDN_ADAPTER IoAdapter)
 #else
 	dword volatile __iomem *qBriIrq;
 	byte __iomem *p;
+	/*
+	  Reset on-board interrupt register
+	*/
 	IoAdapter->IrqCount = 0;
 	p = DIVA_OS_MEM_ATTACH_CTLREG(IoAdapter);
 	qBriIrq = (dword volatile __iomem *) (&p[_4bri_is_rev_2_card
@@ -941,19 +1053,25 @@ static int check_qBri_interrupt(PISDN_ADAPTER IoAdapter)
 	diva_os_wait(100);
 
 	return (0);
-#endif				
+#endif				/* SUPPORT_INTERRUPT_TEST_ON_4BRI */
 }
 
 static void diva_4bri_clear_interrupts(diva_os_xdi_adapter_t *a)
 {
 	PISDN_ADAPTER IoAdapter = &a->xdi_adapter;
 
+	/*
+	  clear any pending interrupt
+	*/
 	IoAdapter->disIrq(IoAdapter);
 
 	IoAdapter->tst_irq(&IoAdapter->a);
 	IoAdapter->clr_irq(&IoAdapter->a);
 	IoAdapter->tst_irq(&IoAdapter->a);
 
+	/*
+	  kill pending dpcs
+	*/
 	diva_os_cancel_soft_isr(&IoAdapter->req_soft_isr);
 	diva_os_cancel_soft_isr(&IoAdapter->isr_soft_isr);
 }
@@ -970,19 +1088,25 @@ static int diva_4bri_stop_adapter(diva_os_xdi_adapter_t *a)
 	if (!IoAdapter->Initialized) {
 		DBG_ERR(("A: A(%d) can't stop PRI adapter - not running",
 			 IoAdapter->ANum))
-			return (-1);	
+			return (-1);	/* nothing to stop */
 	}
 
 	for (i = 0; i < IoAdapter->tasks; i++) {
 		IoAdapter->QuadroList->QuadroAdapter[i]->Initialized = 0;
 	}
 
+	/*
+	  Disconnect Adapters from DIDD
+	*/
 	for (i = 0; i < IoAdapter->tasks; i++) {
 		diva_xdi_didd_remove_adapter(IoAdapter->QuadroList->QuadroAdapter[i]->ANum);
 	}
 
 	i = 100;
 
+	/*
+	  Stop interrupts
+	*/
 	a->clear_interrupts_proc = diva_4bri_clear_interrupts;
 	IoAdapter->a.ReadyInt = 1;
 	IoAdapter->a.ram_inc(&IoAdapter->a, &PR_RAM->ReadyInt);
@@ -998,6 +1122,9 @@ static int diva_4bri_stop_adapter(diva_os_xdi_adapter_t *a)
 			}
 	IoAdapter->a.ReadyInt = 0;
 
+	/*
+	  Stop and reset adapter
+	*/
 	IoAdapter->stop(IoAdapter);
 
 	return (0);

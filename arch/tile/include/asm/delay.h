@@ -15,6 +15,7 @@
 #ifndef _ASM_TILE_DELAY_H
 #define _ASM_TILE_DELAY_H
 
+/* Undefined functions to get compile-time errors. */
 extern void __bad_udelay(void);
 extern void __bad_ndelay(void);
 
@@ -30,4 +31,4 @@ extern void __delay(unsigned long loops);
 	((n) > 20000 ? __bad_ndelay() : __ndelay(n)) : \
 	__ndelay(n))
 
-#endif 
+#endif /* _ASM_TILE_DELAY_H */

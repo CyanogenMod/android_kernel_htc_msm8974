@@ -46,8 +46,10 @@
 
 #include "pasemi.h"
 
+/* SDC reset register, must be pre-mapped at reset time */
 static void __iomem *reset_reg;
 
+/* Various error status registers, must be pre-mapped at MCE time */
 
 #define MAX_MCE_REGS	32
 struct mce_regs {
@@ -62,7 +64,7 @@ static int nmi_virq = NO_IRQ;
 
 static void pas_restart(char *cmd)
 {
-	
+	/* Need to put others cpu in hold loop so they're not sleeping */
 	smp_send_stop();
 	udelay(10000);
 	printk("Restarting...\n");
@@ -111,23 +113,23 @@ struct smp_ops_t pas_smp_ops = {
 	.give_timebase	= pas_give_timebase,
 	.take_timebase	= pas_take_timebase,
 };
-#endif 
+#endif /* CONFIG_SMP */
 
 void __init pas_setup_arch(void)
 {
 #ifdef CONFIG_SMP
-	
+	/* Setup SMP callback */
 	smp_ops = &pas_smp_ops;
 #endif
-	
+	/* Lookup PCI hosts */
 	pas_pci_init();
 
 #ifdef CONFIG_DUMMY_CONSOLE
 	conswitchp = &dummy_con;
 #endif
 
-	
-	
+	/* Remap SDC register for doing reset */
+	/* XXXOJN This should maybe come out of the device tree */
 	reset_reg = ioremap(0xfc101100, 4);
 }
 
@@ -136,7 +138,7 @@ static int __init pas_setup_mce_regs(void)
 	struct pci_dev *dev;
 	int reg;
 
-	
+	/* Remap various SoC status registers for use by the MCE handler */
 
 	reg = 0;
 
@@ -210,7 +212,7 @@ static __init void pas_init_IRQ(void)
 		return;
 	}
 
-	
+	/* Find address list in /platform-open-pic */
 	root = of_find_node_by_path("/");
 	naddr = of_n_addr_cells(root);
 	opprop = of_get_property(root, "platform-open-pic", &opplen);
@@ -234,7 +236,7 @@ static __init void pas_init_IRQ(void)
 
 	mpic_assign_isu(mpic, 0, mpic->paddr + 0x10000);
 	mpic_init(mpic);
-	
+	/* The NMI/MCK source needs to be prio 15 */
 	if (nmiprop) {
 		nmi_virq = irq_create_mapping(NULL, *nmiprop);
 		mpic_irq_set_priority(nmi_virq, 15);
@@ -333,7 +335,7 @@ static int pas_machine_check_handler(struct pt_regs *regs)
 	}
 
 out:
-	
+	/* SRR1[62] is from MSR[62] if recoverable, so pass that back */
 	return !!(srr1 & 0x2);
 }
 
@@ -350,19 +352,22 @@ static int pcmcia_notify(struct notifier_block *nb, unsigned long action,
 	struct device *parent;
 	struct pcmcia_device *pdev = to_pcmcia_dev(dev);
 
-	
+	/* We are only intereted in device addition */
 	if (action != BUS_NOTIFY_ADD_DEVICE)
 		return 0;
 
 	parent = pdev->socket->dev.parent;
 
+	/* We know electra_cf devices will always have of_node set, since
+	 * electra_cf is an of_platform driver.
+	 */
 	if (!parent->of_node)
 		return 0;
 
 	if (!of_device_is_compatible(parent->of_node, "electra-cf"))
 		return 0;
 
-	
+	/* We use the direct ops for localbus */
 	dev->archdata.dma_ops = &dma_direct_ops;
 
 	return 0;
@@ -389,10 +394,10 @@ static inline void pasemi_pcmcia_init(void)
 
 
 static struct of_device_id pasemi_bus_ids[] = {
-	
+	/* Unfortunately needed for legacy firmwares */
 	{ .type = "localbus", },
 	{ .type = "sdc", },
-	
+	/* These are the proper entries, which newer firmware uses */
 	{ .compatible = "pasemi,localbus", },
 	{ .compatible = "pasemi,sdc", },
 	{},
@@ -402,7 +407,7 @@ static int __init pasemi_publish_devices(void)
 {
 	pasemi_pcmcia_init();
 
-	
+	/* Publish OF platform devices for SDC and other non-PCI devices */
 	of_platform_bus_probe(NULL, pasemi_bus_ids, NULL);
 
 	return 0;
@@ -410,6 +415,9 @@ static int __init pasemi_publish_devices(void)
 machine_device_initcall(pasemi, pasemi_publish_devices);
 
 
+/*
+ * Called very early, MMU is off, device-tree isn't unflattened
+ */
 static int __init pas_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();

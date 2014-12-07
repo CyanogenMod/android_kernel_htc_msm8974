@@ -54,7 +54,7 @@ DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 int mxl111sf_ctrl_msg(struct dvb_usb_device *d,
 		      u8 cmd, u8 *wbuf, int wlen, u8 *rbuf, int rlen)
 {
-	int wo = (rbuf == NULL || rlen == 0); 
+	int wo = (rbuf == NULL || rlen == 0); /* write-only */
 	int ret;
 	u8 sndbuf[1+wlen];
 
@@ -72,6 +72,7 @@ int mxl111sf_ctrl_msg(struct dvb_usb_device *d,
 	return ret;
 }
 
+/* ------------------------------------------------------------------------ */
 
 #define MXL_CMD_REG_READ	0xaa
 #define MXL_CMD_REG_WRITE	0x55
@@ -113,6 +114,7 @@ int mxl111sf_write_reg(struct mxl111sf_state *state, u8 addr, u8 data)
 	return ret;
 }
 
+/* ------------------------------------------------------------------------ */
 
 int mxl111sf_write_reg_mask(struct mxl111sf_state *state,
 				   u8 addr, u8 mask, u8 data)
@@ -123,7 +125,7 @@ int mxl111sf_write_reg_mask(struct mxl111sf_state *state,
 	if (mask != 0xff) {
 		ret = mxl111sf_read_reg(state, addr, &val);
 #if 1
-		
+		/* dont know why this usually errors out on the first try */
 		if (mxl_fail(ret))
 			err("error writing addr: 0x%02x, mask: 0x%02x, "
 			    "data: 0x%02x, retrying...", addr, mask, data);
@@ -142,6 +144,7 @@ fail:
 	return ret;
 }
 
+/* ------------------------------------------------------------------------ */
 
 int mxl111sf_ctrl_program_regs(struct mxl111sf_state *state,
 			       struct mxl111sf_reg_ctrl_info *ctrl_reg_info)
@@ -165,6 +168,7 @@ int mxl111sf_ctrl_program_regs(struct mxl111sf_state *state,
 	return ret;
 }
 
+/* ------------------------------------------------------------------------ */
 
 static int mxl1x1sf_get_chip_info(struct mxl111sf_state *state)
 {
@@ -236,9 +240,12 @@ fail:
 	___ret;								\
 })
 
+/* ------------------------------------------------------------------------ */
 
 static int mxl111sf_power_ctrl(struct dvb_usb_device *d, int onoff)
 {
+	/* power control depends on which adapter is being woken:
+	 * save this for init, instead, via mxl111sf_adap_fe_init */
 	return 0;
 }
 
@@ -251,7 +258,7 @@ static int mxl111sf_adap_fe_init(struct dvb_frontend *fe)
 
 	int err;
 
-	
+	/* exit if we didnt initialize the driver yet */
 	if (!state->chip_id) {
 		mxl_debug("driver not yet initialized, exit.");
 		goto fail;
@@ -292,7 +299,8 @@ static int mxl111sf_adap_fe_init(struct dvb_frontend *fe)
 #if 0
 		err = fe->ops.init(fe);
 #endif
-		msleep(100); 
+		msleep(100); /* add short delay after enabling
+			      * the demod before touching it */
 	}
 
 	return (adap_state->fe_init) ? adap_state->fe_init(fe) : 0;
@@ -308,7 +316,7 @@ static int mxl111sf_adap_fe_sleep(struct dvb_frontend *fe)
 	struct mxl111sf_adap_state *adap_state = adap->fe_adap[fe->id].priv;
 	int err;
 
-	
+	/* exit if we didnt initialize the driver yet */
 	if (!state->chip_id) {
 		mxl_debug("driver not yet initialized, exit.");
 		goto fail;
@@ -369,6 +377,7 @@ static int mxl111sf_ep4_streaming_ctrl(struct dvb_usb_adapter *adap, int onoff)
 	return ret;
 }
 
+/* ------------------------------------------------------------------------ */
 
 static struct lgdt3305_config hauppauge_lgdt3305_config = {
 	.i2c_addr           = 0xb2 >> 1,
@@ -391,7 +400,7 @@ static int mxl111sf_lgdt3305_frontend_attach(struct dvb_usb_adapter *adap)
 
 	deb_adv("%s()\n", __func__);
 
-	
+	/* save a pointer to the dvb_usb_device in device state */
 	state->d = d;
 	adap_state->alt_mode = (dvb_usb_mxl111sf_isoc) ? 2 : 1;
 	state->alt_mode = adap_state->alt_mode;
@@ -460,7 +469,7 @@ static int mxl111sf_attach_demod(struct dvb_usb_adapter *adap)
 
 	deb_adv("%s()\n", __func__);
 
-	
+	/* save a pointer to the dvb_usb_device in device state */
 	state->d = d;
 	adap_state->alt_mode = (dvb_usb_mxl111sf_isoc) ? 1 : 2;
 	state->alt_mode = adap_state->alt_mode;
@@ -491,7 +500,7 @@ static int mxl111sf_attach_demod(struct dvb_usb_adapter *adap)
 	if (mxl_fail(ret))
 		goto fail;
 
-	
+	/* dont care if this fails */
 	mxl111sf_init_port_expander(state);
 
 	adap->fe_adap[fe_id].fe = dvb_attach(mxl111sf_demod_attach, state,
@@ -535,7 +544,7 @@ static int mxl111sf_ant_hunt(struct dvb_frontend *fe)
 
 	u16 rxPwrA, rxPwr0, rxPwr1, rxPwr2;
 
-	
+	/* FIXME: must force EXTERNAL for QAM - done elsewhere */
 	mxl111sf_set_ant_path(state, antctrl == ANT_PATH_AUTO ?
 			      ANT_PATH_EXTERNAL : antctrl);
 
@@ -558,12 +567,12 @@ static int mxl111sf_ant_hunt(struct dvb_frontend *fe)
 		fe->ops.tuner_ops.get_rf_strength(fe, &rxPwr2);
 
 		if (rxPwr1+ANT_EXT_TWEAK >= rxPwr2) {
-			
+			/* return with EXTERNAL enabled */
 			mxl111sf_set_ant_path(state, ANT_PATH_EXTERNAL);
 			DbgAntHunt(ANT_PATH_EXTERNAL, rxPwrA,
 				   rxPwr0, rxPwr1, rxPwr2);
 		} else {
-			
+			/* return with INTERNAL enabled */
 			DbgAntHunt(ANT_PATH_INTERNAL, rxPwrA,
 				   rxPwr0, rxPwr1, rxPwr2);
 		}
@@ -572,7 +581,7 @@ static int mxl111sf_ant_hunt(struct dvb_frontend *fe)
 }
 
 static struct mxl111sf_tuner_config mxl_tuner_config = {
-	.if_freq         = MXL_IF_6_0, 
+	.if_freq         = MXL_IF_6_0, /* applies to external IF output, only */
 	.invert_spectrum = 0,
 	.read_reg        = mxl111sf_read_reg,
 	.write_reg       = mxl111sf_write_reg,
@@ -609,6 +618,8 @@ static int mxl111sf_fe_ioctl_override(struct dvb_frontend *fe,
 		switch (cmd) {
 		case FE_READ_SIGNAL_STRENGTH:
 			err = fe->ops.tuner_ops.get_rf_strength(fe, parg);
+			/* If no error occurs, prevent dvb-core from handling
+			 * this IOCTL, otherwise return the error */
 			if (0 == err)
 				err = 1;
 			break;
@@ -616,7 +627,7 @@ static int mxl111sf_fe_ioctl_override(struct dvb_frontend *fe,
 		break;
 
 	case DVB_FE_IOCTL_POST:
-		
+		/* no post-ioctl handling required */
 		break;
 	}
 	return err;
@@ -705,41 +716,41 @@ static int mxl111sf_probe(struct usb_interface *intf,
 }
 
 static struct usb_device_id mxl111sf_table[] = {
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc600) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc601) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc602) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc603) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc604) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc609) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc60a) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc60b) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc60c) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc653) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc65b) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb700) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb701) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb702) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb703) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb704) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb753) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb763) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb764) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd853) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd854) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd863) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd864) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd8d3) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd8d4) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd8e3) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd8e4) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd8ff) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc612) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc613) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc61a) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc61b) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb757) }, 
-	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb767) }, 
-	{}		
+/* 0 */	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc600) }, /* ATSC+ IR     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc601) }, /* ATSC         */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc602) }, /*     +        */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc603) }, /* ATSC+        */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc604) }, /* DVBT         */
+/* 5 */	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc609) }, /* ATSC  IR     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc60a) }, /*     + IR     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc60b) }, /* ATSC+ IR     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc60c) }, /* DVBT  IR     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc653) }, /* ATSC+        */
+/*10 */	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc65b) }, /* ATSC+ IR     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb700) }, /* ATSC+ sw     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb701) }, /* ATSC  sw     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb702) }, /*     + sw     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb703) }, /* ATSC+ sw     */
+/*15 */	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb704) }, /* DVBT  sw     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb753) }, /* ATSC+ sw     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb763) }, /* ATSC+ no     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb764) }, /* DVBT  no     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd853) }, /* ATSC+ sw     */
+/*20 */	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd854) }, /* DVBT  sw     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd863) }, /* ATSC+ no     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd864) }, /* DVBT  no     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd8d3) }, /* ATSC+ sw     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd8d4) }, /* DVBT  sw     */
+/*25 */	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd8e3) }, /* ATSC+ no     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd8e4) }, /* DVBT  no     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xd8ff) }, /* ATSC+        */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc612) }, /*     +        */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc613) }, /* ATSC+        */
+/*30 */	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc61a) }, /*     + IR     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xc61b) }, /* ATSC+ IR     */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb757) }, /* ATSC+DVBT sw */
+	{ USB_DEVICE(USB_VID_HAUPPAUGE, 0xb767) }, /* ATSC+DVBT no */
+	{}		/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, mxl111sf_table);
 
@@ -758,6 +769,7 @@ MODULE_DEVICE_TABLE(usb, mxl111sf_table);
 		}					\
 	}
 
+/* FIXME: works for v6 but not v8 silicon */
 #define MXL111SF_EP4_ISOC_STREAMING_CONFIG		\
 	.size_of_priv = sizeof(struct mxl111sf_adap_state), \
 	.streaming_ctrl = mxl111sf_ep4_streaming_ctrl,	\
@@ -768,7 +780,7 @@ MODULE_DEVICE_TABLE(usb, mxl111sf_table);
 		.u = {					\
 			.isoc = {			\
 				.framesperurb = 96,	\
-					\
+				/* FIXME: v6 SILICON: */	\
 				.framesize = 564,	\
 				.interval = 1,		\
 			}				\
@@ -789,6 +801,7 @@ MODULE_DEVICE_TABLE(usb, mxl111sf_table);
 		}					\
 	}
 
+/* FIXME */
 #define MXL111SF_EP6_ISOC_STREAMING_CONFIG		\
 	.size_of_priv = sizeof(struct mxl111sf_adap_state), \
 	.streaming_ctrl = mxl111sf_ep6_streaming_ctrl,	\
@@ -808,7 +821,11 @@ MODULE_DEVICE_TABLE(usb, mxl111sf_table);
 #define MXL111SF_DEFAULT_DEVICE_PROPERTIES			\
 	.caps = DVB_USB_IS_AN_I2C_ADAPTER,			\
 	.usb_ctrl = DEVICE_SPECIFIC,				\
-							\
+	/* use usb alt setting 1 for EP4 ISOC transfer (dvb-t),	\
+				     EP6 BULK transfer (atsc/qam), \
+	   use usb alt setting 2 for EP4 BULK transfer (dvb-t),	\
+				     EP6 ISOC transfer (atsc/qam), \
+	*/							\
 	.power_ctrl       = mxl111sf_power_ctrl,		\
 	.i2c_algo         = &mxl111sf_i2c_algo,			\
 	.generic_bulk_ctrl_endpoint          = MXL_EP2_REG_WRITE, \
@@ -1035,3 +1052,8 @@ MODULE_DESCRIPTION("Driver for MaxLinear MxL111SF");
 MODULE_VERSION("1.0");
 MODULE_LICENSE("GPL");
 
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

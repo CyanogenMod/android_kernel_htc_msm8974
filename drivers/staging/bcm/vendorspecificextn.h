@@ -15,4 +15,4 @@ INT vendorextnWriteSection(PVOID  pContext, PUCHAR pBuffer, FLASH2X_SECTION_VAL 
 INT vendorextnWriteSectionWithoutErase(PVOID  pContext, PUCHAR pBuffer, FLASH2X_SECTION_VAL SectionVal,
 			UINT offset, UINT numOfBytes);
 
-#endif 
+#endif /*  */

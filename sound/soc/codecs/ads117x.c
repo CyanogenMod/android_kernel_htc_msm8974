@@ -24,6 +24,7 @@
 #define ADS117X_FORMATS (SNDRV_PCM_FMTBIT_S16_LE)
 
 static struct snd_soc_dai_driver ads117x_dai = {
+/* ADC */
 	.name = "ads117x-hifi",
 	.capture = {
 		.stream_name = "Capture",

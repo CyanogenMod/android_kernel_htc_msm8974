@@ -44,17 +44,45 @@
 #include <linux/skbuff.h>
 #include <net/pkt_sched.h>
 
+/*
+ * State of the queue, when used for network output buffering:
+ *
+ *                 plug(i+1)            plug(i)          head
+ * ------------------+--------------------+---------------->
+ *                   |                    |
+ *                   |                    |
+ * pkts_current_epoch| pkts_last_epoch    |pkts_to_release
+ * ----------------->|<--------+--------->|+--------------->
+ *                   v                    v
+ *
+ */
 
 struct plug_sched_data {
+	/* If true, the dequeue function releases all packets
+	 * from head to end of the queue. The queue turns into
+	 * a pass-through queue for newly arriving packets.
+	 */
 	bool unplug_indefinite;
 
-	
+	/* Queue Limit in bytes */
 	u32 limit;
 
+	/* Number of packets (output) from the current speculatively
+	 * executing epoch.
+	 */
 	u32 pkts_current_epoch;
 
+	/* Number of packets corresponding to the recently finished
+	 * epoch. These will be released when we receive a
+	 * TCQ_PLUG_RELEASE_ONE command. This command is typically
+	 * issued after committing a checkpoint at the target.
+	 */
 	u32 pkts_last_epoch;
 
+	/*
+	 * Number of packets from the head of the queue, that can
+	 * be released (committed checkpoint).
+	 */
 	u32 pkts_to_release;
 };
 
@@ -80,6 +108,9 @@ static struct sk_buff *plug_dequeue(struct Qdisc *sch)
 
 	if (!q->unplug_indefinite) {
 		if (!q->pkts_to_release) {
+			/* No more packets to dequeue. Block the queue
+			 * and wait for the next release command.
+			 */
 			qdisc_throttled(sch);
 			return NULL;
 		}
@@ -99,6 +130,10 @@ static int plug_init(struct Qdisc *sch, struct nlattr *opt)
 	q->unplug_indefinite = false;
 
 	if (opt == NULL) {
+		/* We will set a default limit of 100 pkts (~150kB)
+		 * in case tx_queue_len is not available. The
+		 * default value is completely arbitrary.
+		 */
 		u32 pkt_limit = qdisc_dev(sch)->tx_queue_len ? : 100;
 		q->limit = pkt_limit * psched_mtu(qdisc_dev(sch));
 	} else {
@@ -114,6 +149,16 @@ static int plug_init(struct Qdisc *sch, struct nlattr *opt)
 	return 0;
 }
 
+/* Receives 4 types of messages:
+ * TCQ_PLUG_BUFFER: Inset a plug into the queue and
+ *  buffer any incoming packets
+ * TCQ_PLUG_RELEASE_ONE: Dequeue packets from queue head
+ *   to beginning of the next plug.
+ * TCQ_PLUG_RELEASE_INDEFINITE: Dequeue all packets from queue.
+ *   Stop buffering packets until the next TCQ_PLUG_BUFFER
+ *   command is received (just act as a pass-thru queue).
+ * TCQ_PLUG_LIMIT: Increase/decrease queue size
+ */
 static int plug_change(struct Qdisc *sch, struct nlattr *opt)
 {
 	struct plug_sched_data *q = qdisc_priv(sch);
@@ -128,7 +173,7 @@ static int plug_change(struct Qdisc *sch, struct nlattr *opt)
 
 	switch (msg->action) {
 	case TCQ_PLUG_BUFFER:
-		
+		/* Save size of the current buffer */
 		q->pkts_last_epoch = q->pkts_current_epoch;
 		q->pkts_current_epoch = 0;
 		if (q->unplug_indefinite)
@@ -136,6 +181,9 @@ static int plug_change(struct Qdisc *sch, struct nlattr *opt)
 		q->unplug_indefinite = false;
 		break;
 	case TCQ_PLUG_RELEASE_ONE:
+		/* Add packets from the last complete buffer to the
+		 * packets to be released set.
+		 */
 		q->pkts_to_release += q->pkts_last_epoch;
 		q->pkts_last_epoch = 0;
 		qdisc_unthrottled(sch);
@@ -150,7 +198,7 @@ static int plug_change(struct Qdisc *sch, struct nlattr *opt)
 		netif_schedule_queue(sch->dev_queue);
 		break;
 	case TCQ_PLUG_LIMIT:
-		
+		/* Limit is supplied in bytes */
 		q->limit = msg->limit;
 		break;
 	default:

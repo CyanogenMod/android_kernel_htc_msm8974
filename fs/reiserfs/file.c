@@ -48,7 +48,7 @@ static int reiserfs_file_release(struct inode *inode, struct file *filp)
 		return 0;
 	}
 
-	
+	/* fast out for when nothing needs to be done */
 	if ((!(REISERFS_I(inode)->i_flags & i_pack_on_close_mask) ||
 	     !tail_has_to_be_packed(inode)) &&
 	    REISERFS_I(inode)->i_prealloc_count <= 0) {
@@ -57,12 +57,28 @@ static int reiserfs_file_release(struct inode *inode, struct file *filp)
 	}
 
 	reiserfs_write_lock(inode->i_sb);
+	/* freeing preallocation only involves relogging blocks that
+	 * are already in the current transaction.  preallocation gets
+	 * freed at the end of each transaction, so it is impossible for
+	 * us to log any additional blocks (including quota blocks)
+	 */
 	err = journal_begin(&th, inode->i_sb, 1);
 	if (err) {
+		/* uh oh, we can't allow the inode to go away while there
+		 * is still preallocation blocks pending.  Try to join the
+		 * aborted transaction
+		 */
 		jbegin_failure = err;
 		err = journal_join_abort(&th, inode->i_sb, 1);
 
 		if (err) {
+			/* hmpf, our choices here aren't good.  We can pin the inode
+			 * which will disallow unmount from every happening, we can
+			 * do nothing, which will corrupt random memory on unmount,
+			 * or we can forcibly remove the file from the preallocation
+			 * list, which will leak blocks on disk.  Lets pin the inode
+			 * and let the admin know what is going on.
+			 */
 			igrab(inode);
 			reiserfs_warning(inode->i_sb, "clm-9001",
 					 "pinning inode %lu because the "
@@ -78,7 +94,7 @@ static int reiserfs_file_release(struct inode *inode, struct file *filp)
 #endif
 	err = journal_end(&th, inode->i_sb, 1);
 
-	
+	/* copy back the error code from journal_begin */
 	if (!err)
 		err = jbegin_failure;
 
@@ -86,6 +102,10 @@ static int reiserfs_file_release(struct inode *inode, struct file *filp)
 	    (REISERFS_I(inode)->i_flags & i_pack_on_close_mask) &&
 	    tail_has_to_be_packed(inode)) {
 
+		/* if regular file is released by last holder and it has been
+		   appended (we append by unformatted node only) or its direct
+		   item(s) had to be converted, then it may have to be
+		   indirect2direct converted */
 		err = reiserfs_truncate_file(inode, 0);
 	}
       out:
@@ -98,7 +118,7 @@ static int reiserfs_file_open(struct inode *inode, struct file *file)
 {
 	int err = dquot_file_open(inode, file);
         if (!atomic_inc_not_zero(&REISERFS_I(inode)->openers)) {
-		
+		/* somebody might be tailpacking on final close; wait for it */
 		mutex_lock(&(REISERFS_I(inode)->tailpack));
 		atomic_inc(&REISERFS_I(inode)->openers);
 		mutex_unlock(&(REISERFS_I(inode)->tailpack));
@@ -113,7 +133,12 @@ static void reiserfs_vfs_truncate_file(struct inode *inode)
 	mutex_unlock(&(REISERFS_I(inode)->tailpack));
 }
 
+/* Sync a reiserfs file. */
 
+/*
+ * FIXME: sync_mapping_buffers() never has anything to sync.  Can
+ * be removed...
+ */
 
 static int reiserfs_sync_file(struct file *filp, loff_t start, loff_t end,
 			      int datasync)
@@ -140,6 +165,7 @@ static int reiserfs_sync_file(struct file *filp, loff_t start, loff_t end,
 	return (err < 0) ? -EIO : 0;
 }
 
+/* taken fs/buffer.c:__block_commit_write */
 int reiserfs_commit_page(struct inode *inode, struct page *page,
 			 unsigned from, unsigned to)
 {
@@ -182,6 +208,9 @@ int reiserfs_commit_page(struct inode *inode, struct page *page,
 				journal_mark_dirty(&th, s, bh);
 			} else if (!buffer_dirty(bh)) {
 				mark_buffer_dirty(bh);
+				/* do data=ordered on any page past the end
+				 * of file and any buffer marked BH_New.
+				 */
 				if (reiserfs_data_ordered(inode->i_sb) &&
 				    (new || page->index >= i_size_index)) {
 					reiserfs_add_ordered_list(inode, bh);
@@ -194,6 +223,12 @@ int reiserfs_commit_page(struct inode *inode, struct page *page,
 	      drop_write_lock:
 		reiserfs_write_unlock(s);
 	}
+	/*
+	 * If this is a partial write which happened to make all buffers
+	 * uptodate then we can optimize away a bogus readpage() for
+	 * the next read(). Here we 'discover' whether the page went
+	 * uptodate as a result of this (potentially partial) write.
+	 */
 	if (!partial)
 		SetPageUptodate(page);
 	return ret;
@@ -225,16 +260,27 @@ int reiserfs_commit_page(struct inode *inode, struct page *page,
    Future Features: providing search_by_key with hints.
 
 */
-static ssize_t reiserfs_file_write(struct file *file,	
-				   const char __user * buf,	
-				   size_t count,	
-				   loff_t * ppos	
+static ssize_t reiserfs_file_write(struct file *file,	/* the file we are going to write into */
+				   const char __user * buf,	/*  pointer to user supplied data
+								   (in userspace) */
+				   size_t count,	/* amount of bytes to write */
+				   loff_t * ppos	/* pointer to position in file that we start writing at. Should be updated to
+							 * new current position before returning. */
 				   )
 {
-	struct inode *inode = file->f_path.dentry->d_inode;	
+	struct inode *inode = file->f_path.dentry->d_inode;	// Inode of the file that we are writing to.
+	/* To simplify coding at this time, we store
+	   locked pages in array for now */
 	struct reiserfs_transaction_handle th;
 	th.t_trans_id = 0;
 
+	/* If a filesystem is converted from 3.5 to 3.6, we'll have v3.5 items
+	* lying around (most of the disk, in fact). Despite the filesystem
+	* now being a v3.6 format, the old items still can't support large
+	* file sizes. Catch this case here, as the rest of the VFS layer is
+	* oblivious to the different limitations between old and new items.
+	* reiserfs_setattr catches this for truncates. This chunk is lifted
+	* from generic_write_checks. */
 	if (get_inode_item_key_version (inode) == KEY_FORMAT_3_5 &&
 	    *ppos + count > MAX_NON_LFS) {
 		if (*ppos >= MAX_NON_LFS) {

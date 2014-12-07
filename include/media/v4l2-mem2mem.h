@@ -19,6 +19,28 @@
 
 #include <media/videobuf2-core.h>
 
+/**
+ * struct v4l2_m2m_ops - mem-to-mem device driver callbacks
+ * @device_run:	required. Begin the actual job (transaction) inside this
+ *		callback.
+ *		The job does NOT have to end before this callback returns
+ *		(and it will be the usual case). When the job finishes,
+ *		v4l2_m2m_job_finish() has to be called.
+ * @job_ready:	optional. Should return 0 if the driver does not have a job
+ *		fully prepared to run yet (i.e. it will not be able to finish a
+ *		transaction without sleeping). If not provided, it will be
+ *		assumed that one source and one destination buffer are all
+ *		that is required for the driver to perform one full transaction.
+ *		This method may not sleep.
+ * @job_abort:	required. Informs the driver that it has to abort the currently
+ *		running transaction as soon as possible (i.e. as soon as it can
+ *		stop the device safely; e.g. in the next interrupt handler),
+ *		even if the transaction would not have been finished by then.
+ *		After the driver performs the necessary steps, it has to call
+ *		v4l2_m2m_job_finish() (as if the transaction ended normally).
+ *		This function does not have to (and will usually not) wait
+ *		until the device enters a state when it can be stopped.
+ */
 struct v4l2_m2m_ops {
 	void (*device_run)(void *priv);
 	int (*job_ready)(void *priv);
@@ -30,28 +52,32 @@ struct v4l2_m2m_ops {
 struct v4l2_m2m_dev;
 
 struct v4l2_m2m_queue_ctx {
+/* private: internal use only */
 	struct vb2_queue	q;
 
+	/* Queue for buffers ready to be processed as soon as this
+	 * instance receives access to the device */
 	struct list_head	rdy_queue;
 	spinlock_t		rdy_spinlock;
 	u8			num_rdy;
 };
 
 struct v4l2_m2m_ctx {
+/* private: internal use only */
 	struct v4l2_m2m_dev		*m2m_dev;
 
-	
+	/* Capture (output to memory) queue context */
 	struct v4l2_m2m_queue_ctx	cap_q_ctx;
 
-	
+	/* Output (input from memory) queue context */
 	struct v4l2_m2m_queue_ctx	out_q_ctx;
 
-	
+	/* For device job queue */
 	struct list_head		queue;
 	unsigned long			job_flags;
 	wait_queue_head_t		finished;
 
-	
+	/* Instance private data */
 	void				*priv;
 };
 
@@ -107,12 +133,20 @@ void v4l2_m2m_ctx_release(struct v4l2_m2m_ctx *m2m_ctx);
 
 void v4l2_m2m_buf_queue(struct v4l2_m2m_ctx *m2m_ctx, struct vb2_buffer *vb);
 
+/**
+ * v4l2_m2m_num_src_bufs_ready() - return the number of source buffers ready for
+ * use
+ */
 static inline
 unsigned int v4l2_m2m_num_src_bufs_ready(struct v4l2_m2m_ctx *m2m_ctx)
 {
 	return m2m_ctx->cap_q_ctx.num_rdy;
 }
 
+/**
+ * v4l2_m2m_num_src_bufs_ready() - return the number of destination buffers
+ * ready for use
+ */
 static inline
 unsigned int v4l2_m2m_num_dst_bufs_ready(struct v4l2_m2m_ctx *m2m_ctx)
 {
@@ -121,22 +155,36 @@ unsigned int v4l2_m2m_num_dst_bufs_ready(struct v4l2_m2m_ctx *m2m_ctx)
 
 void *v4l2_m2m_next_buf(struct v4l2_m2m_queue_ctx *q_ctx);
 
+/**
+ * v4l2_m2m_next_src_buf() - return next source buffer from the list of ready
+ * buffers
+ */
 static inline void *v4l2_m2m_next_src_buf(struct v4l2_m2m_ctx *m2m_ctx)
 {
 	return v4l2_m2m_next_buf(&m2m_ctx->out_q_ctx);
 }
 
+/**
+ * v4l2_m2m_next_dst_buf() - return next destination buffer from the list of
+ * ready buffers
+ */
 static inline void *v4l2_m2m_next_dst_buf(struct v4l2_m2m_ctx *m2m_ctx)
 {
 	return v4l2_m2m_next_buf(&m2m_ctx->cap_q_ctx);
 }
 
+/**
+ * v4l2_m2m_get_src_vq() - return vb2_queue for source buffers
+ */
 static inline
 struct vb2_queue *v4l2_m2m_get_src_vq(struct v4l2_m2m_ctx *m2m_ctx)
 {
 	return &m2m_ctx->out_q_ctx.q;
 }
 
+/**
+ * v4l2_m2m_get_dst_vq() - return vb2_queue for destination buffers
+ */
 static inline
 struct vb2_queue *v4l2_m2m_get_dst_vq(struct v4l2_m2m_ctx *m2m_ctx)
 {
@@ -145,15 +193,23 @@ struct vb2_queue *v4l2_m2m_get_dst_vq(struct v4l2_m2m_ctx *m2m_ctx)
 
 void *v4l2_m2m_buf_remove(struct v4l2_m2m_queue_ctx *q_ctx);
 
+/**
+ * v4l2_m2m_src_buf_remove() - take off a source buffer from the list of ready
+ * buffers and return it
+ */
 static inline void *v4l2_m2m_src_buf_remove(struct v4l2_m2m_ctx *m2m_ctx)
 {
 	return v4l2_m2m_buf_remove(&m2m_ctx->out_q_ctx);
 }
 
+/**
+ * v4l2_m2m_dst_buf_remove() - take off a destination buffer from the list of
+ * ready buffers and return it
+ */
 static inline void *v4l2_m2m_dst_buf_remove(struct v4l2_m2m_ctx *m2m_ctx)
 {
 	return v4l2_m2m_buf_remove(&m2m_ctx->cap_q_ctx);
 }
 
-#endif 
+#endif /* _MEDIA_V4L2_MEM2MEM_H */
 

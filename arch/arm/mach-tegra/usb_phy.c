@@ -608,7 +608,7 @@ static int ulpi_phy_power_on(struct tegra_usb_phy *phy)
 	val |= ULPI_DIR_TRIMMER_LOAD;
 	writel(val, base + ULPI_TIMING_CTRL_1);
 
-	
+	/* Fix VbusInvalid due to floating VBUS */
 	ret = usb_phy_io_write(phy->ulpi, 0x40, 0x08);
 	if (ret) {
 		pr_err("%s: ulpi write failed\n", __func__);
@@ -643,6 +643,9 @@ static void ulpi_phy_power_off(struct tegra_usb_phy *phy)
 	void __iomem *base = phy->regs;
 	struct tegra_ulpi_config *config = phy->config;
 
+	/* Clear WKCN/WKDS/WKOC wake-on events that can cause the USB
+	 * Controller to immediately bring the ULPI PHY out of low power
+	 */
 	val = readl(base + USB_PORTSC1);
 	val &= ~(USB_PORTSC1_WKOC | USB_PORTSC1_WKDS | USB_PORTSC1_WKCN);
 	writel(val, base + USB_PORTSC1);

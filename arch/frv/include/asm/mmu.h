@@ -13,13 +13,13 @@
 
 typedef struct {
 #ifdef CONFIG_MMU
-	struct list_head id_link;		
-	unsigned short	id;			
-	unsigned short	id_busy;		
-	unsigned long	itlb_cached_pge;	
-	unsigned long	itlb_ptd_mapping;	
-	unsigned long	dtlb_cached_pge;	
-	unsigned long	dtlb_ptd_mapping;	
+	struct list_head id_link;		/* link in list of context ID owners */
+	unsigned short	id;			/* MMU context ID */
+	unsigned short	id_busy;		/* true if ID is in CXNR */
+	unsigned long	itlb_cached_pge;	/* [SCR0] PGE cached for insn TLB handler */
+	unsigned long	itlb_ptd_mapping;	/* [DAMR4] PTD mapping for itlb cached PGE */
+	unsigned long	dtlb_cached_pge;	/* [SCR1] PGE cached for data TLB handler */
+	unsigned long	dtlb_ptd_mapping;	/* [DAMR5] PTD mapping for dtlb cached PGE */
 
 #else
 	unsigned long		end_brk;
@@ -38,4 +38,4 @@ extern int __nongpreldata cxn_pinned;
 extern int cxn_pin_by_pid(pid_t pid);
 #endif
 
-#endif 
+#endif /* _ASM_MMU_H */

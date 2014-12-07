@@ -86,7 +86,7 @@ struct ctlr_info {
 	int	log_drives;
 	int	phys_drives;
 
-	struct pci_dev *pci_dev;    
+	struct pci_dev *pci_dev;    /* NULL if EISA */
 	__u32	board_id;
 	char	*product_name;	
 
@@ -123,4 +123,4 @@ struct ctlr_info {
 
 #endif
 
-#endif 
+#endif /* CPQARRAY_H */

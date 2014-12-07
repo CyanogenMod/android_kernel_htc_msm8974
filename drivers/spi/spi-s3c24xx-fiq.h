@@ -10,6 +10,7 @@
  * published by the Free Software Foundation.
 */
 
+/* We have R8 through R13 to play with */
 
 #ifdef __ASSEMBLY__
 #define __REG_NR(x)     r##x

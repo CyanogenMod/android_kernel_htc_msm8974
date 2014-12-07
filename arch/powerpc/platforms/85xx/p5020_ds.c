@@ -33,6 +33,9 @@
 
 #include "corenet_ds.h"
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init p5020_ds_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();
@@ -43,7 +46,7 @@ static int __init p5020_ds_probe(void)
 	if (of_flat_dt_is_compatible(root, "fsl,P5020DS"))
 		return 1;
 
-	
+	/* Check if we're running under the Freescale hypervisor */
 	if (of_flat_dt_is_compatible(root, "fsl,P5020DS-hv")) {
 		ppc_md.init_IRQ = ehv_pic_init;
 		ppc_md.get_irq = ehv_pic_get_irq;
@@ -51,6 +54,10 @@ static int __init p5020_ds_probe(void)
 		ppc_md.power_off = fsl_hv_halt;
 		ppc_md.halt = fsl_hv_halt;
 #ifdef CONFIG_SMP
+		/*
+		 * Disable the timebase sync operations because we can't write
+		 * to the timebase registers under the hypervisor.
+		  */
 		smp_85xx_ops.give_timebase = NULL;
 		smp_85xx_ops.take_timebase = NULL;
 #endif
@@ -68,6 +75,7 @@ define_machine(p5020_ds) {
 #ifdef CONFIG_PCI
 	.pcibios_fixup_bus	= fsl_pcibios_fixup_bus,
 #endif
+/* coreint doesn't play nice with lazy EE, use legacy mpic for now */
 #ifdef CONFIG_PPC64
 	.get_irq		= mpic_get_irq,
 #else

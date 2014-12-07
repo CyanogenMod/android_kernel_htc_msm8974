@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * Qualcomm PMIC8058 driver header file
+ *
+ */
 
 #ifndef __MFD_PMIC8058_H__
 #define __MFD_PMIC8058_H__
@@ -46,11 +50,13 @@
 
 #define PM8058_IRQ_BLOCK_BIT(block, bit) ((block) * 8 + (bit))
 
+/* MPPs and GPIOs [0,N) */
 #define PM8058_MPP_IRQ(base, mpp)	((base) + \
 					PM8058_IRQ_BLOCK_BIT(16, (mpp)))
 #define PM8058_GPIO_IRQ(base, gpio)	((base) + \
 					PM8058_IRQ_BLOCK_BIT(24, (gpio)))
 
+/* PM8058 IRQ's */
 #define PM8058_VCP_IRQ			PM8058_IRQ_BLOCK_BIT(1, 0)
 #define PM8058_CHGILIM_IRQ		PM8058_IRQ_BLOCK_BIT(1, 3)
 #define PM8058_VBATDET_LOW_IRQ		PM8058_IRQ_BLOCK_BIT(1, 4)
@@ -124,4 +130,4 @@ struct pm8058_platform_data {
 	struct pmic8058_charger_data		*charger_pdata;
 };
 
-#endif  
+#endif  /* __MFD_PMIC8058_H__ */

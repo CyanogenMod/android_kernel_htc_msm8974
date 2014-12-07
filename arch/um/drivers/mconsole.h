@@ -59,7 +59,7 @@ struct mc_request
 
 	int originating_fd;
 	unsigned int originlen;
-	unsigned char origin[128];			
+	unsigned char origin[128];			/* sockaddr_un */
 
 	struct mconsole_request request;
 	struct mconsole_command *cmd;

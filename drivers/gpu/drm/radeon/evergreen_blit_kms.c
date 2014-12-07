@@ -34,6 +34,7 @@
 #include "cayman_blit_shaders.h"
 #include "radeon_blit_common.h"
 
+/* emits 17 */
 static void
 set_render_target(struct radeon_device *rdev, int format,
 		  int w, int h, u64 gpu_addr)
@@ -71,6 +72,7 @@ set_render_target(struct radeon_device *rdev, int format,
 	radeon_ring_write(ring, 0);
 }
 
+/* emits 5dw */
 static void
 cp_set_surface_sync(struct radeon_device *rdev,
 		    u32 sync_type, u32 size,
@@ -85,24 +87,29 @@ cp_set_surface_sync(struct radeon_device *rdev,
 		cp_coher_size = ((size + 255) >> 8);
 
 	if (rdev->family >= CHIP_CAYMAN) {
+		/* CP_COHER_CNTL2 has to be set manually when submitting a surface_sync
+		 * to the RB directly. For IBs, the CP programs this as part of the
+		 * surface_sync packet.
+		 */
 		radeon_ring_write(ring, PACKET3(PACKET3_SET_CONFIG_REG, 1));
 		radeon_ring_write(ring, (0x85e8 - PACKET3_SET_CONFIG_REG_START) >> 2);
-		radeon_ring_write(ring, 0); 
+		radeon_ring_write(ring, 0); /* CP_COHER_CNTL2 */
 	}
 	radeon_ring_write(ring, PACKET3(PACKET3_SURFACE_SYNC, 3));
 	radeon_ring_write(ring, sync_type);
 	radeon_ring_write(ring, cp_coher_size);
 	radeon_ring_write(ring, mc_addr >> 8);
-	radeon_ring_write(ring, 10); 
+	radeon_ring_write(ring, 10); /* poll interval */
 }
 
+/* emits 11dw + 1 surface sync = 16dw */
 static void
 set_shaders(struct radeon_device *rdev)
 {
 	struct radeon_ring *ring = &rdev->ring[RADEON_RING_TYPE_GFX_INDEX];
 	u64 gpu_addr;
 
-	
+	/* VS */
 	gpu_addr = rdev->r600_blit.shader_gpu_addr + rdev->r600_blit.vs_offset;
 	radeon_ring_write(ring, PACKET3(PACKET3_SET_CONTEXT_REG, 3));
 	radeon_ring_write(ring, (SQ_PGM_START_VS - PACKET3_SET_CONTEXT_REG_START) >> 2);
@@ -110,7 +117,7 @@ set_shaders(struct radeon_device *rdev)
 	radeon_ring_write(ring, 2);
 	radeon_ring_write(ring, 0);
 
-	
+	/* PS */
 	gpu_addr = rdev->r600_blit.shader_gpu_addr + rdev->r600_blit.ps_offset;
 	radeon_ring_write(ring, PACKET3(PACKET3_SET_CONTEXT_REG, 4));
 	radeon_ring_write(ring, (SQ_PGM_START_PS - PACKET3_SET_CONTEXT_REG_START) >> 2);
@@ -123,19 +130,20 @@ set_shaders(struct radeon_device *rdev)
 	cp_set_surface_sync(rdev, PACKET3_SH_ACTION_ENA, 512, gpu_addr);
 }
 
+/* emits 10 + 1 sync (5) = 15 */
 static void
 set_vtx_resource(struct radeon_device *rdev, u64 gpu_addr)
 {
 	struct radeon_ring *ring = &rdev->ring[RADEON_RING_TYPE_GFX_INDEX];
 	u32 sq_vtx_constant_word2, sq_vtx_constant_word3;
 
-	
+	/* high addr, stride */
 	sq_vtx_constant_word2 = SQ_VTXC_BASE_ADDR_HI(upper_32_bits(gpu_addr) & 0xff) |
 		SQ_VTXC_STRIDE(16);
 #ifdef __BIG_ENDIAN
 	sq_vtx_constant_word2 |= SQ_VTXC_ENDIAN_SWAP(SQ_ENDIAN_8IN32);
 #endif
-	
+	/* xyzw swizzles */
 	sq_vtx_constant_word3 = SQ_VTCX_SEL_X(SQ_SEL_X) |
 		SQ_VTCX_SEL_Y(SQ_SEL_Y) |
 		SQ_VTCX_SEL_Z(SQ_SEL_Z) |
@@ -144,7 +152,7 @@ set_vtx_resource(struct radeon_device *rdev, u64 gpu_addr)
 	radeon_ring_write(ring, PACKET3(PACKET3_SET_RESOURCE, 8));
 	radeon_ring_write(ring, 0x580);
 	radeon_ring_write(ring, gpu_addr & 0xffffffff);
-	radeon_ring_write(ring, 48 - 1); 
+	radeon_ring_write(ring, 48 - 1); /* size */
 	radeon_ring_write(ring, sq_vtx_constant_word2);
 	radeon_ring_write(ring, sq_vtx_constant_word3);
 	radeon_ring_write(ring, 0);
@@ -165,6 +173,7 @@ set_vtx_resource(struct radeon_device *rdev, u64 gpu_addr)
 
 }
 
+/* emits 10 */
 static void
 set_tex_resource(struct radeon_device *rdev,
 		 int format, int w, int h, int pitch,
@@ -182,7 +191,7 @@ set_tex_resource(struct radeon_device *rdev,
 				  ((w - 1) << 18));
 	sq_tex_resource_word1 = ((h - 1) << 0) |
 				TEX_ARRAY_MODE(ARRAY_1D_TILED_THIN1);
-	
+	/* xyzw swizzles */
 	sq_tex_resource_word4 = TEX_DST_SEL_X(SQ_SEL_X) |
 				TEX_DST_SEL_Y(SQ_SEL_Y) |
 				TEX_DST_SEL_Z(SQ_SEL_Z) |
@@ -206,12 +215,13 @@ set_tex_resource(struct radeon_device *rdev,
 	radeon_ring_write(ring, sq_tex_resource_word7);
 }
 
+/* emits 12 */
 static void
 set_scissors(struct radeon_device *rdev, int x1, int y1,
 	     int x2, int y2)
 {
 	struct radeon_ring *ring = &rdev->ring[RADEON_RING_TYPE_GFX_INDEX];
-	
+	/* workaround some hw bugs */
 	if (x2 == 0)
 		x1 = 1;
 	if (y2 == 0)
@@ -237,6 +247,7 @@ set_scissors(struct radeon_device *rdev, int x1, int y1,
 	radeon_ring_write(ring, (x2 << 0) | (y2 << 16));
 }
 
+/* emits 10 */
 static void
 draw_auto(struct radeon_device *rdev)
 {
@@ -261,6 +272,7 @@ draw_auto(struct radeon_device *rdev)
 
 }
 
+/* emits 39 */
 static void
 set_default_state(struct radeon_device *rdev)
 {
@@ -277,7 +289,7 @@ set_default_state(struct radeon_device *rdev)
 	u64 gpu_addr;
 	int dwords;
 
-	
+	/* set clear context state */
 	radeon_ring_write(ring, PACKET3(PACKET3_CLEAR_STATE, 0));
 	radeon_ring_write(ring, 0);
 
@@ -535,17 +547,17 @@ set_default_state(struct radeon_device *rdev)
 		sq_stack_resource_mgmt_3 = (NUM_HS_STACK_ENTRIES(num_hs_stack_entries) |
 					    NUM_LS_STACK_ENTRIES(num_ls_stack_entries));
 
-		
+		/* disable dyn gprs */
 		radeon_ring_write(ring, PACKET3(PACKET3_SET_CONFIG_REG, 1));
 		radeon_ring_write(ring, (SQ_DYN_GPR_CNTL_PS_FLUSH_REQ - PACKET3_SET_CONFIG_REG_START) >> 2);
 		radeon_ring_write(ring, 0);
 
-		
+		/* setup LDS */
 		radeon_ring_write(ring, PACKET3(PACKET3_SET_CONFIG_REG, 1));
 		radeon_ring_write(ring, (SQ_LDS_RESOURCE_MGMT - PACKET3_SET_CONFIG_REG_START) >> 2);
 		radeon_ring_write(ring, 0x10001000);
 
-		
+		/* SQ config */
 		radeon_ring_write(ring, PACKET3(PACKET3_SET_CONFIG_REG, 11));
 		radeon_ring_write(ring, (SQ_CONFIG - PACKET3_SET_CONFIG_REG_START) >> 2);
 		radeon_ring_write(ring, sq_config);
@@ -561,29 +573,29 @@ set_default_state(struct radeon_device *rdev)
 		radeon_ring_write(ring, sq_stack_resource_mgmt_3);
 	}
 
-	
+	/* CONTEXT_CONTROL */
 	radeon_ring_write(ring, 0xc0012800);
 	radeon_ring_write(ring, 0x80000000);
 	radeon_ring_write(ring, 0x80000000);
 
-	
+	/* SQ_VTX_BASE_VTX_LOC */
 	radeon_ring_write(ring, 0xc0026f00);
 	radeon_ring_write(ring, 0x00000000);
 	radeon_ring_write(ring, 0x00000000);
 	radeon_ring_write(ring, 0x00000000);
 
-	
+	/* SET_SAMPLER */
 	radeon_ring_write(ring, 0xc0036e00);
 	radeon_ring_write(ring, 0x00000000);
 	radeon_ring_write(ring, 0x00000012);
 	radeon_ring_write(ring, 0x00000000);
 	radeon_ring_write(ring, 0x00000000);
 
-	
+	/* set to DX10/11 mode */
 	radeon_ring_write(ring, PACKET3(PACKET3_MODE_CONTROL, 0));
 	radeon_ring_write(ring, 1);
 
-	
+	/* emit an IB pointing at default state */
 	dwords = ALIGN(rdev->r600_blit.state_len, 0x10);
 	gpu_addr = rdev->r600_blit.shader_gpu_addr + rdev->r600_blit.state_offset;
 	radeon_ring_write(ring, PACKET3(PACKET3_INDIRECT_BUFFER, 2));
@@ -610,18 +622,18 @@ int evergreen_blit_init(struct radeon_device *rdev)
 	rdev->r600_blit.primitives.draw_auto = draw_auto;
 	rdev->r600_blit.primitives.set_default_state = set_default_state;
 
-	rdev->r600_blit.ring_size_common = 55; 
-	rdev->r600_blit.ring_size_common += 16; 
-	rdev->r600_blit.ring_size_common += 5; 
-	rdev->r600_blit.ring_size_common += 16; 
+	rdev->r600_blit.ring_size_common = 55; /* shaders + def state */
+	rdev->r600_blit.ring_size_common += 16; /* fence emit for VB IB */
+	rdev->r600_blit.ring_size_common += 5; /* done copy */
+	rdev->r600_blit.ring_size_common += 16; /* fence emit for done copy */
 
 	rdev->r600_blit.ring_size_per_loop = 74;
 	if (rdev->family >= CHIP_CAYMAN)
-		rdev->r600_blit.ring_size_per_loop += 9; 
+		rdev->r600_blit.ring_size_per_loop += 9; /* additional DWs for surface sync */
 
 	rdev->r600_blit.max_dim = 16384;
 
-	
+	/* pin copy shader into vram if already initialized */
 	if (rdev->r600_blit.shader_obj)
 		goto done;
 

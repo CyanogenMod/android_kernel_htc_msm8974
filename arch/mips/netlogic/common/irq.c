@@ -62,7 +62,14 @@
 #else
 #error "Unknown CPU"
 #endif
+/*
+ * These are the routines that handle all the low level interrupt stuff.
+ * Actions handled here are: initialization of the interrupt map, requesting of
+ * interrupt lines by handlers, dispatching if interrupts to handlers, probing
+ * for interrupt lines
+ */
 
+/* Globals */
 static uint64_t nlm_irq_mask;
 static DEFINE_SPINLOCK(nlm_pic_lock);
 
@@ -96,7 +103,7 @@ static void xlp_pic_mask_ack(struct irq_data *d)
 {
 	uint64_t mask = 1ull << d->irq;
 
-	write_c0_eirr(mask);            
+	write_c0_eirr(mask);            /* ack by writing EIRR */
 }
 
 static void xlp_pic_unmask(struct irq_data *d)
@@ -112,7 +119,7 @@ static void xlp_pic_unmask(struct irq_data *d)
 		void (*extra_ack)(void *) = hd;
 		extra_ack(d);
 	}
-	
+	/* Ack is a single write, no need to lock */
 	nlm_pic_ack(nlm_pic_base, irt);
 }
 
@@ -154,6 +161,10 @@ static void cpuintr_nop(struct irq_data *d)
 	WARN(d->irq >= PIC_IRQ_BASE, "Bad irq %d", d->irq);
 }
 
+/*
+ * Chip definition for CPU originated interrupts(timer, msg) and
+ * IPIs
+ */
 struct irq_chip nlm_cpu_intr = {
 	.name		= "XLP-CPU-INTR",
 	.irq_enable	= cpuintr_enable,
@@ -195,7 +206,7 @@ void __init init_nlm_common_irqs(void)
 
 void __init arch_init_irq(void)
 {
-	
+	/* Initialize the irq descriptors */
 	init_nlm_common_irqs();
 
 	write_c0_eimr(nlm_irq_mask);
@@ -203,7 +214,7 @@ void __init arch_init_irq(void)
 
 void __cpuinit nlm_smp_irq_init(void)
 {
-	
+	/* set interrupt mask for non-zero cpus */
 	write_c0_eimr(nlm_irq_mask);
 }
 

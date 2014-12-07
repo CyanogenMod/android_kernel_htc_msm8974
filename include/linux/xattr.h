@@ -10,9 +10,10 @@
 #ifndef _LINUX_XATTR_H
 #define _LINUX_XATTR_H
 
-#define XATTR_CREATE	0x1	
-#define XATTR_REPLACE	0x2	
+#define XATTR_CREATE	0x1	/* set value, fail if attr already exists */
+#define XATTR_REPLACE	0x2	/* set value, fail if attr does not exist */
 
+/* Namespaces */
 #define XATTR_OS2_PREFIX "os2."
 #define XATTR_OS2_PREFIX_LEN (sizeof (XATTR_OS2_PREFIX) - 1)
 
@@ -28,6 +29,7 @@
 #define XATTR_USER_PREFIX "user."
 #define XATTR_USER_PREFIX_LEN (sizeof (XATTR_USER_PREFIX) - 1)
 
+/* Security namespace */
 #define XATTR_EVM_SUFFIX "evm"
 #define XATTR_NAME_EVM XATTR_SECURITY_PREFIX XATTR_EVM_SUFFIX
 
@@ -64,7 +66,7 @@ struct dentry;
 
 struct xattr_handler {
 	const char *prefix;
-	int flags;	
+	int flags;	/* fs private flags passed back to the handlers */
 	size_t (*list)(struct dentry *dentry, char *list, size_t list_size,
 		       const char *name, size_t name_len, int handler_flags);
 	int (*get)(struct dentry *dentry, const char *name, void *buffer,
@@ -94,6 +96,6 @@ ssize_t vfs_getxattr_alloc(struct dentry *dentry, const char *name,
 			   char **xattr_value, size_t size, gfp_t flags);
 int vfs_xattr_cmp(struct dentry *dentry, const char *xattr_name,
 		  const char *value, size_t size, gfp_t flags);
-#endif  
+#endif  /*  __KERNEL__  */
 
-#endif	
+#endif	/* _LINUX_XATTR_H */

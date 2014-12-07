@@ -1,3 +1,21 @@
+/*
+ *	MMX 3DNow! library helper functions
+ *
+ *	To do:
+ *	We can use MMX just for prefetch in IRQ's. This may be a win.
+ *		(reported so on K6-III)
+ *	We should use a better code neutral filler for the short jump
+ *		leal ebx. [ebx] is apparently best for K6-2, but Cyrix ??
+ *	We also want to clobber the filler register so we don't get any
+ *		register forwarding stalls on the filler.
+ *
+ *	Add *user handling. Checksums are not a win with MMX on any CPU
+ *	tested so far for any MMX solution figured.
+ *
+ *	22/09/2000 - Arjan van de Ven
+ *		Improved for non-egineering-sample Athlons
+ *
+ */
 #include <linux/hardirq.h>
 #include <linux/string.h>
 #include <linux/module.h>
@@ -16,19 +34,19 @@ void *_mmx_memcpy(void *to, const void *from, size_t len)
 		return __memcpy(to, from, len);
 
 	p = to;
-	i = len >> 6; 
+	i = len >> 6; /* len/64 */
 
 	kernel_fpu_begin();
 
 	__asm__ __volatile__ (
-		"1: prefetch (%0)\n"		
+		"1: prefetch (%0)\n"		/* This set is 28 bytes */
 		"   prefetch 64(%0)\n"
 		"   prefetch 128(%0)\n"
 		"   prefetch 192(%0)\n"
 		"   prefetch 256(%0)\n"
 		"2:  \n"
 		".section .fixup, \"ax\"\n"
-		"3: movw $0x1AEB, 1b\n"	
+		"3: movw $0x1AEB, 1b\n"	/* jmp on 26 bytes */
 		"   jmp 2b\n"
 		".previous\n"
 			_ASM_EXTABLE(1b, 3b)
@@ -54,7 +72,7 @@ void *_mmx_memcpy(void *to, const void *from, size_t len)
 		"  movq %%mm2, 48(%1)\n"
 		"  movq %%mm3, 56(%1)\n"
 		".section .fixup, \"ax\"\n"
-		"3: movw $0x05EB, 1b\n"	
+		"3: movw $0x05EB, 1b\n"	/* jmp on 5 bytes */
 		"   jmp 2b\n"
 		".previous\n"
 			_ASM_EXTABLE(1b, 3b)
@@ -87,6 +105,9 @@ void *_mmx_memcpy(void *to, const void *from, size_t len)
 		from += 64;
 		to += 64;
 	}
+	/*
+	 * Now do the tail of the block:
+	 */
 	__memcpy(to, from, len & 63);
 	kernel_fpu_end();
 
@@ -96,6 +117,10 @@ EXPORT_SYMBOL(_mmx_memcpy);
 
 #ifdef CONFIG_MK7
 
+/*
+ *	The K7 has streaming cache bypass load/store. The Cyrix III, K6 and
+ *	other MMX using processors do not.
+ */
 
 static void fast_clear_page(void *page)
 {
@@ -121,6 +146,10 @@ static void fast_clear_page(void *page)
 		page += 64;
 	}
 
+	/*
+	 * Since movntq is weakly-ordered, a "sfence" is needed to become
+	 * ordered again:
+	 */
 	__asm__ __volatile__("sfence\n"::);
 
 	kernel_fpu_end();
@@ -132,6 +161,10 @@ static void fast_copy_page(void *to, void *from)
 
 	kernel_fpu_begin();
 
+	/*
+	 * maybe the prefetch stuff can go before the expensive fnsave...
+	 * but that is for later. -AV
+	 */
 	__asm__ __volatile__(
 		"1: prefetch (%0)\n"
 		"   prefetch 64(%0)\n"
@@ -140,7 +173,7 @@ static void fast_copy_page(void *to, void *from)
 		"   prefetch 256(%0)\n"
 		"2:  \n"
 		".section .fixup, \"ax\"\n"
-		"3: movw $0x1AEB, 1b\n"	
+		"3: movw $0x1AEB, 1b\n"	/* jmp on 26 bytes */
 		"   jmp 2b\n"
 		".previous\n"
 			_ASM_EXTABLE(1b, 3b) : : "r" (from));
@@ -165,7 +198,7 @@ static void fast_copy_page(void *to, void *from)
 		"   movq 56(%0), %%mm7\n"
 		"   movntq %%mm7, 56(%1)\n"
 		".section .fixup, \"ax\"\n"
-		"3: movw $0x05EB, 1b\n"	
+		"3: movw $0x05EB, 1b\n"	/* jmp on 5 bytes */
 		"   jmp 2b\n"
 		".previous\n"
 		_ASM_EXTABLE(1b, 3b) : : "r" (from), "r" (to) : "memory");
@@ -196,12 +229,19 @@ static void fast_copy_page(void *to, void *from)
 		from += 64;
 		to += 64;
 	}
+	/*
+	 * Since movntq is weakly-ordered, a "sfence" is needed to become
+	 * ordered again:
+	 */
 	__asm__ __volatile__("sfence \n"::);
 	kernel_fpu_end();
 }
 
-#else 
+#else /* CONFIG_MK7 */
 
+/*
+ *	Generic MMX implementation without K7 specific streaming
+ */
 static void fast_clear_page(void *page)
 {
 	int i;
@@ -251,7 +291,7 @@ static void fast_copy_page(void *to, void *from)
 		"   prefetch 256(%0)\n"
 		"2:  \n"
 		".section .fixup, \"ax\"\n"
-		"3: movw $0x1AEB, 1b\n"	
+		"3: movw $0x1AEB, 1b\n"	/* jmp on 26 bytes */
 		"   jmp 2b\n"
 		".previous\n"
 			_ASM_EXTABLE(1b, 3b) : : "r" (from));
@@ -276,7 +316,7 @@ static void fast_copy_page(void *to, void *from)
 		"   movq %%mm2, 48(%1)\n"
 		"   movq %%mm3, 56(%1)\n"
 		".section .fixup, \"ax\"\n"
-		"3: movw $0x05EB, 1b\n"	
+		"3: movw $0x05EB, 1b\n"	/* jmp on 5 bytes */
 		"   jmp 2b\n"
 		".previous\n"
 			_ASM_EXTABLE(1b, 3b)
@@ -288,8 +328,11 @@ static void fast_copy_page(void *to, void *from)
 	kernel_fpu_end();
 }
 
-#endif 
+#endif /* !CONFIG_MK7 */
 
+/*
+ * Favour MMX for page clear and copy:
+ */
 static void slow_zero_page(void *page)
 {
 	int d0, d1;

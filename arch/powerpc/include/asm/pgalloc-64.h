@@ -17,6 +17,21 @@ struct vmemmap_backing {
 	unsigned long virt_addr;
 };
 
+/*
+ * Functions that deal with pagetables that could be at any level of
+ * the table need to be passed an "index_size" so they know how to
+ * handle allocation.  For PTE pages (which are linked to a struct
+ * page for now, and drawn from the main get_free_pages() pool), the
+ * allocation size will be (2^index_size * sizeof(pointer)) and
+ * allocations are drawn from the kmem_cache in PGT_CACHE(index_size).
+ *
+ * The maximum index size needs to be big enough to allow any
+ * pagetable sizes we need, but small enough to fit in the low bits of
+ * any page table pointer.  In other words all pagetables, even tiny
+ * ones, must be aligned to allow at least enough low 0 bits to
+ * contain this value.  This value is also used as a mask, so it must
+ * be one less than a power of two.
+ */
 #define MAX_PGTABLE_INDEX_SIZE	0xf
 
 extern struct kmem_cache *pgtable_cache[];
@@ -58,7 +73,7 @@ static inline void pud_populate(struct mm_struct *mm, pud_t *pud, pmd_t *pmd)
 #define pmd_pgtable(pmd) pmd_page(pmd)
 
 
-#else 
+#else /* CONFIG_PPC_64K_PAGES */
 
 #define pud_populate(mm, pud, pmd)	pud_set(pud, (unsigned long)pmd)
 
@@ -72,7 +87,7 @@ static inline void pmd_populate_kernel(struct mm_struct *mm, pmd_t *pmd,
 	pmd_populate_kernel(mm, pmd, page_address(pte_page))
 #define pmd_pgtable(pmd) pmd_page(pmd)
 
-#endif 
+#endif /* CONFIG_PPC_64K_PAGES */
 
 static inline pmd_t *pmd_alloc_one(struct mm_struct *mm, unsigned long addr)
 {
@@ -121,8 +136,8 @@ static inline void pgtable_free(void *table, unsigned index_size)
 #define __pud_free_tlb(tlb, pud, addr)		      \
 	pgtable_free_tlb(tlb, pud, PUD_INDEX_SIZE)
 
-#endif 
+#endif /* CONFIG_PPC_64K_PAGES */
 
 #define check_pgt_cache()	do { } while (0)
 
-#endif 
+#endif /* _ASM_POWERPC_PGALLOC_64_H */

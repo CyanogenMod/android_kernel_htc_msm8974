@@ -31,7 +31,7 @@ TRACE_EVENT(spufs_context,
 #define spu_context_nospu_trace(name, ctx) \
 	trace_spufs_context(ctx, NULL, __stringify(name))
 
-#endif 
+#endif /* _TRACE_SPUFS_H */
 
 #undef TRACE_INCLUDE_PATH
 #define TRACE_INCLUDE_PATH .

@@ -18,6 +18,7 @@
 
 #define MDP_IS_IMGTYPE_BAD(x) ((x) >= MDP_IMGTYPE_LIMIT)
 
+/* bg_config_lut not needed since it is same as src */
 const uint32_t src_cfg_lut[MDP_IMGTYPE_LIMIT] = {
 	[MDP_RGB_565] = MDP_RGB_565_SRC_REG,
 	[MDP_BGR_565] = MDP_RGB_565_SRC_REG,
@@ -140,6 +141,7 @@ const bool multi_plane[MDP_IMGTYPE_LIMIT] = {
 	[MDP_Y_CRCB_H2V1] = true,
 };
 
+/* lut default */
 uint32_t default_pre_lut_val[PPP_LUT_MAX] = {
 	0x0,
 	0x151515,
@@ -797,7 +799,7 @@ const struct ppp_table upscale_table[PPP_UPSCALE_MAX] = {
 };
 
 const struct ppp_table mdp_gaussian_blur_table[PPP_BLUR_SCALE_MAX] = {
-	
+	/* max variance */
 	{ 0x5fffc, 0x20000080 },
 	{ 0x50280, 0x20000080 },
 	{ 0x5fffc, 0x20000080 },

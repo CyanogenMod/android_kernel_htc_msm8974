@@ -64,4 +64,4 @@
 #define AR933X_UART_INT_TX_EMPTY	BIT(9)
 #define AR933X_UART_INT_ALLINTS		0x3ff
 
-#endif 
+#endif /* __AR933X_UART_H */

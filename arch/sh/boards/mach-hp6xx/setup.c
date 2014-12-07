@@ -22,6 +22,7 @@
 #define	SCPCR	0xa4000116
 #define	SCPDR	0xa4000136
 
+/* CF Slot */
 static struct resource cf_ide_resources[] = {
 	[0] = {
 		.start = 0x15000000 + 0x1f0,
@@ -56,12 +57,12 @@ static void dac_audio_start(struct dac_audio_pdata *pdata)
 	u16 v;
 	u8 v8;
 
-	
+	/* HP Jornada 680/690 speaker on */
 	v = inw(HD64461_GPADR);
 	v &= ~HD64461_GPADR_SPEAKER;
 	outw(v, HD64461_GPADR);
 
-	
+	/* HP Palmtop 620lx/660lx speaker on */
 	v8 = inb(PKDR);
 	v8 &= ~PKDR_SPEAKER;
 	outb(v8, PKDR);
@@ -74,12 +75,12 @@ static void dac_audio_stop(struct dac_audio_pdata *pdata)
 	u16 v;
 	u8 v8;
 
-	
+	/* HP Jornada 680/690 speaker off */
 	v = inw(HD64461_GPADR);
 	v |= HD64461_GPADR_SPEAKER;
 	outw(v, HD64461_GPADR);
 
-	
+	/* HP Palmtop 620lx/660lx speaker off */
 	v8 = inb(PKDR);
 	v8 |= PKDR_SPEAKER;
 	outb(v8, PKDR);
@@ -112,7 +113,7 @@ static struct platform_device *hp6xx_devices[] __initdata = {
 
 static void __init hp6xx_init_irq(void)
 {
-	
+	/* Gets touchscreen and powerbutton IRQ working */
 	plat_irq_setup_pins(IRQ_MODE_IRQ);
 }
 
@@ -167,8 +168,8 @@ device_initcall(hp6xx_devices_setup);
 static struct sh_machine_vector mv_hp6xx __initmv = {
 	.mv_name = "hp6xx",
 	.mv_setup = hp6xx_setup,
-	
+	/* IRQ's : CPU(64) + CCHIP(16) + FREE_TO_USE(6) */
 	.mv_nr_irqs = HD64461_IRQBASE + HD64461_IRQ_NUM + 6,
-	
+	/* Enable IRQ0 -> IRQ3 in IRQ_MODE */
 	.mv_init_irq = hp6xx_init_irq,
 };

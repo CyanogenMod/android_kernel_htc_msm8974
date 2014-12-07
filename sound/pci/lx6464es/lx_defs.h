@@ -25,28 +25,42 @@
 #ifndef LX_DEFS_H
 #define LX_DEFS_H
 
-#define	XES_FREQ_COUNT8_MASK    0x00001FFF 
-#define	XES_FREQ_COUNT8_44_MIN  0x00001288 
-#define	XES_FREQ_COUNT8_44_MAX	0x000010F0 
-#define	XES_FREQ_COUNT8_48_MAX	0x00000F08 
+/* code adapted from ethersound.h */
+#define	XES_FREQ_COUNT8_MASK    0x00001FFF /* compteur 25MHz entre 8 ech. */
+#define	XES_FREQ_COUNT8_44_MIN  0x00001288 /* 25M /
+					    * [ 44k - ( 44.1k + 48k ) / 2 ]
+					    * * 8 */
+#define	XES_FREQ_COUNT8_44_MAX	0x000010F0 /* 25M / [ ( 44.1k + 48k ) / 2 ]
+					    * * 8 */
+#define	XES_FREQ_COUNT8_48_MAX	0x00000F08 /* 25M /
+					    * [ 48k + ( 44.1k + 48k ) / 2 ]
+					    * * 8 */
 
+/* code adapted from LXES_registers.h */
 
-#define IOCR_OUTPUTS_OFFSET 0	
-#define IOCR_INPUTS_OFFSET  8	
-#define FREQ_RATIO_OFFSET  19	
-#define	FREQ_RATIO_SINGLE_MODE 0x01 
+#define IOCR_OUTPUTS_OFFSET 0	/* (rw) offset for the number of OUTs in the
+				 * ConfES register. */
+#define IOCR_INPUTS_OFFSET  8	/* (rw) offset for the number of INs in the
+				 * ConfES register. */
+#define FREQ_RATIO_OFFSET  19	/* (rw) offset for frequency ratio in the
+				 * ConfES register. */
+#define	FREQ_RATIO_SINGLE_MODE 0x01 /* value for single mode frequency ratio:
+				     * sample rate = frequency rate. */
 
 #define CONFES_READ_PART_MASK	0x00070000
 #define CONFES_WRITE_PART_MASK	0x00F80000
 
+/* code adapted from if_drv_mb.h */
 
-#define MASK_SYS_STATUS_ERROR	(1L << 31) 
+#define MASK_SYS_STATUS_ERROR	(1L << 31) /* events that lead to a PCI irq if
+					    * not yet pending */
 #define MASK_SYS_STATUS_URUN	(1L << 30)
 #define MASK_SYS_STATUS_ORUN	(1L << 29)
 #define MASK_SYS_STATUS_EOBO	(1L << 28)
 #define MASK_SYS_STATUS_EOBI	(1L << 27)
 #define MASK_SYS_STATUS_FREQ	(1L << 26)
-#define MASK_SYS_STATUS_ESA	(1L << 25) 
+#define MASK_SYS_STATUS_ESA	(1L << 25) /* reserved, this is set by the
+					    * XES */
 #define MASK_SYS_STATUS_TIMER	(1L << 24)
 
 #define MASK_SYS_ASYNC_EVENTS	(MASK_SYS_STATUS_ERROR |		\
@@ -62,24 +76,40 @@
 
 #define MASK_SYS_TIMER_COUNT	0x0000FFFF
 
-#define MASK_SYS_STATUS_EOT_PLX		(1L << 22) 
-#define MASK_SYS_STATUS_XES		(1L << 21) 
-#define MASK_SYS_STATUS_CMD_DONE	(1L << 20) 
+#define MASK_SYS_STATUS_EOT_PLX		(1L << 22) /* event that remains
+						    * internal: reserved fo end
+						    * of plx dma */
+#define MASK_SYS_STATUS_XES		(1L << 21) /* event that remains
+						    * internal: pending XES
+						    * IRQ */
+#define MASK_SYS_STATUS_CMD_DONE	(1L << 20) /* alternate command
+						    * management: notify driver
+						    * instead of polling */
 
 
-#define MAX_STREAM_BUFFER 5	
+#define MAX_STREAM_BUFFER 5	/* max amount of stream buffers. */
 
 #define MICROBLAZE_IBL_MIN		 32
 #define MICROBLAZE_IBL_DEFAULT	        128
 #define MICROBLAZE_IBL_MAX		512
+/* #define MASK_GRANULARITY		(2*MICROBLAZE_IBL_MAX-1) */
 
 
 
+/* command opcodes, see reference for details */
 
+/*
+ the capture bit position in the object_id field in driver commands
+ depends upon the number of managed channels. For now, 64 IN + 64 OUT are
+ supported. HOwever, the communication protocol forsees 1024 channels, hence
+ bit 10 indicates a capture (input) object).
+*/
 #define ID_IS_CAPTURE (1L << 10)
-#define ID_OFFSET	13	
+#define ID_OFFSET	13	/* object ID is at the 13th bit in the
+				 * 1st command word.*/
 #define ID_CH_MASK    0x3F
-#define OPCODE_OFFSET	24	
+#define OPCODE_OFFSET	24	/* offset of the command opcode in the first
+				 * command word.*/
 
 enum cmd_mb_opcodes {
 	CMD_00_INFO_DEBUG	        = 0x00,
@@ -107,74 +137,102 @@ enum cmd_mb_opcodes {
 	CMD_14_INVALID			= 0x14,
 };
 
+/* pipe states */
 enum pipe_state_t {
-	PSTATE_IDLE	= 0,	
-	PSTATE_RUN	= 1,	
-	PSTATE_PURGE	= 2,	
-	PSTATE_ACQUIRE	= 3,	
-	PSTATE_CLOSING	= 4,	
+	PSTATE_IDLE	= 0,	/* the pipe is not processed in the XES_IRQ
+				 * (free or stopped, or paused). */
+	PSTATE_RUN	= 1,	/* sustained play/record state. */
+	PSTATE_PURGE	= 2,	/* the ES channels are now off, render pipes do
+				 * not DMA, record pipe do a last DMA. */
+	PSTATE_ACQUIRE	= 3,	/* the ES channels are now on, render pipes do
+				 * not yet increase their sample count, record
+				 * pipes do not DMA. */
+	PSTATE_CLOSING	= 4,	/* the pipe is releasing, and may not yet
+				 * receive an "alloc" command. */
 };
 
+/* stream states */
 enum stream_state_t {
-	SSTATE_STOP	=  0x00,       
-	SSTATE_RUN	= (0x01 << 0), 
-	SSTATE_PAUSE	= (0x01 << 1), 
+	SSTATE_STOP	=  0x00,       /* setting to stop resets the stream spl
+					* count.*/
+	SSTATE_RUN	= (0x01 << 0), /* start DMA and spl count handling. */
+	SSTATE_PAUSE	= (0x01 << 1), /* pause DMA and spl count handling. */
 };
 
+/* buffer flags */
 enum buffer_flags {
-	BF_VALID	= 0x80,	
-	BF_CURRENT	= 0x40,	
-	BF_NOTIFY_EOB	= 0x20,	
-	BF_CIRCULAR	= 0x10,	
-	BF_64BITS_ADR	= 0x08,	
-	BF_xx		= 0x04,	
-	BF_EOB		= 0x02,	
-	BF_PAUSE	= 0x01,	
-	BF_ZERO		= 0x00,	
+	BF_VALID	= 0x80,	/* set if the buffer is valid, clear if free.*/
+	BF_CURRENT	= 0x40,	/* set if this is the current buffer (there is
+				 * always a current buffer).*/
+	BF_NOTIFY_EOB	= 0x20,	/* set if this buffer must cause a PCI event
+				 * when finished.*/
+	BF_CIRCULAR	= 0x10,	/* set if buffer[1] must be copied to buffer[0]
+				 * by the end of this buffer.*/
+	BF_64BITS_ADR	= 0x08,	/* set if the hi part of the address is valid.*/
+	BF_xx		= 0x04,	/* future extension.*/
+	BF_EOB		= 0x02,	/* set if finished, but not yet free.*/
+	BF_PAUSE	= 0x01,	/* pause stream at buffer end.*/
+	BF_ZERO		= 0x00,	/* no flags (init).*/
 };
 
+/**
+*	Stream Flags definitions
+*/
 enum stream_flags {
-	SF_ZERO		= 0x00000000, 
-	SF_VALID	= 0x10000000, 
-	SF_XRUN		= 0x20000000, 
-	SF_START	= 0x40000000, 
-	SF_ASIO		= 0x80000000, 
+	SF_ZERO		= 0x00000000, /* no flags (stream invalid). */
+	SF_VALID	= 0x10000000, /* the stream has a valid DMA_conf
+				       * info (setstreamformat). */
+	SF_XRUN		= 0x20000000, /* the stream is un x-run state. */
+	SF_START	= 0x40000000, /* the DMA is running.*/
+	SF_ASIO		= 0x80000000, /* ASIO.*/
 };
 
 
-#define MASK_SPL_COUNT_HI 0x00FFFFFF 
-#define PSTATE_OFFSET             28 
+#define MASK_SPL_COUNT_HI 0x00FFFFFF /* 4 MSBits are status bits */
+#define PSTATE_OFFSET             28 /* 4 MSBits are status bits */
 
 
 #define MASK_STREAM_HAS_MAPPING	(1L << 12)
 #define MASK_STREAM_IS_ASIO	(1L <<  9)
-#define STREAM_FMT_OFFSET	10   
+#define STREAM_FMT_OFFSET	10   /* the stream fmt bits start at the 10th
+				      * bit in the command word. */
 
 #define STREAM_FMT_16b          0x02
 #define STREAM_FMT_intel        0x01
 
-#define FREQ_FIELD_OFFSET	15  
+#define FREQ_FIELD_OFFSET	15  /* offset of the freq field in the response
+				     * word */
 
-#define BUFF_FLAGS_OFFSET	  24 
-#define MASK_DATA_SIZE	  0x00FFFFFF 
+#define BUFF_FLAGS_OFFSET	  24 /*  offset of the buffer flags in the
+				      *  response word. */
+#define MASK_DATA_SIZE	  0x00FFFFFF /* this must match the field size of
+				      * datasize in the buffer_t structure. */
 
-#define MASK_BUFFER_ID	        0xFF 
+#define MASK_BUFFER_ID	        0xFF /* the cancel command awaits a buffer ID,
+				      * may be 0xFF for "current". */
 
 
+/* code adapted from PcxErr_e.h */
 
+/* Bits masks */
 
 #define ERROR_MASK              0x8000
 
 #define SOURCE_MASK             0x7800
 
-#define E_SOURCE_BOARD          0x4000 
-#define E_SOURCE_DRV            0x2000 
-#define E_SOURCE_API            0x1000 
-#define E_SOURCE_TOOLS          0x0800 
-#define E_SOURCE_AUDIO          0x1800 
-#define E_SOURCE_VPCX           0x2800 
-#define E_SOURCE_DISPATCHER     0x3000 
-#define E_SOURCE_COBRANET       0x3800 
+#define E_SOURCE_BOARD          0x4000 /* 8 >> 1 */
+#define E_SOURCE_DRV            0x2000 /* 4 >> 1 */
+#define E_SOURCE_API            0x1000 /* 2 >> 1 */
+/* Error tools */
+#define E_SOURCE_TOOLS          0x0800 /* 1 >> 1 */
+/* Error pcxaudio */
+#define E_SOURCE_AUDIO          0x1800 /* 3 >> 1 */
+/* Error virtual pcx */
+#define E_SOURCE_VPCX           0x2800 /* 5 >> 1 */
+/* Error dispatcher */
+#define E_SOURCE_DISPATCHER     0x3000 /* 6 >> 1 */
+/* Error from CobraNet firmware */
+#define E_SOURCE_COBRANET       0x3800 /* 7 >> 1 */
 
 #define E_SOURCE_USER           0x7800
 
@@ -182,10 +240,13 @@ enum stream_flags {
 
 #define CODE_MASK               0x00FF
 
+/* Bits values */
 
+/* Values for the error/warning bit */
 #define ERROR_VALUE             0x8000
 #define WARNING_VALUE           0x0000
 
+/* Class values */
 #define E_CLASS_GENERAL                  0x0000
 #define E_CLASS_INVALID_CMD              0x0100
 #define E_CLASS_INVALID_STD_OBJECT       0x0200
@@ -197,6 +258,7 @@ enum stream_flags {
 #define E_CLASS_FREE                     0x0700
 
 
+/* Complete DRV error code for the general class */
 #define ED_GN           (ERROR_VALUE | E_SOURCE_DRV | E_CLASS_GENERAL)
 #define ED_CONCURRENCY                  (ED_GN | 0x01)
 #define ED_DSP_CRASHED                  (ED_GN | 0x02)
@@ -231,28 +293,33 @@ enum stream_flags {
 #define ED_RS232_NOT_OPENED                 (ED_GN | 0x25)
 #define ED_GPIO_ALREADY_OPENED              (ED_GN | 0x26)
 #define ED_GPIO_NOT_OPENED                  (ED_GN | 0x27)
-#define ED_REGISTRY_ERROR                   (ED_GN | 0x28) 
-#define ED_INVALID_SERVICE                  (ED_GN | 0x29) 
+#define ED_REGISTRY_ERROR                   (ED_GN | 0x28) /* <- NCX */
+#define ED_INVALID_SERVICE                  (ED_GN | 0x29) /* <- NCX */
 
-#define ED_READ_FILE_ALREADY_OPENED	    (ED_GN | 0x2a) 
-#define ED_READ_FILE_INVALID_COMMAND	    (ED_GN | 0x2b) 
-#define ED_READ_FILE_INVALID_PARAMETER	    (ED_GN | 0x2c) 
-#define ED_READ_FILE_ALREADY_CLOSED	    (ED_GN | 0x2d) 
-#define ED_READ_FILE_NO_INFORMATION	    (ED_GN | 0x2e) 
-#define ED_READ_FILE_INVALID_HANDLE	    (ED_GN | 0x2f) 
-#define ED_READ_FILE_END_OF_FILE	    (ED_GN | 0x30) 
-#define ED_READ_FILE_ERROR	            (ED_GN | 0x31) 
+#define ED_READ_FILE_ALREADY_OPENED	    (ED_GN | 0x2a) /* <- Decalage
+							    * pour RCX
+							    * (old 0x28)
+							    * */
+#define ED_READ_FILE_INVALID_COMMAND	    (ED_GN | 0x2b) /* ~ */
+#define ED_READ_FILE_INVALID_PARAMETER	    (ED_GN | 0x2c) /* ~ */
+#define ED_READ_FILE_ALREADY_CLOSED	    (ED_GN | 0x2d) /* ~ */
+#define ED_READ_FILE_NO_INFORMATION	    (ED_GN | 0x2e) /* ~ */
+#define ED_READ_FILE_INVALID_HANDLE	    (ED_GN | 0x2f) /* ~ */
+#define ED_READ_FILE_END_OF_FILE	    (ED_GN | 0x30) /* ~ */
+#define ED_READ_FILE_ERROR	            (ED_GN | 0x31) /* ~ */
 
-#define ED_DSP_CRASHED_EXC_DSPSTACK_OVERFLOW (ED_GN | 0x32) 
-#define ED_DSP_CRASHED_EXC_SYSSTACK_OVERFLOW (ED_GN | 0x33) 
-#define ED_DSP_CRASHED_EXC_ILLEGAL           (ED_GN | 0x34) 
-#define ED_DSP_CRASHED_EXC_TIMER_REENTRY     (ED_GN | 0x35) 
-#define ED_DSP_CRASHED_EXC_FATAL_ERROR       (ED_GN | 0x36) 
+#define ED_DSP_CRASHED_EXC_DSPSTACK_OVERFLOW (ED_GN | 0x32) /* <- Decalage pour
+							     * PCX (old 0x14) */
+#define ED_DSP_CRASHED_EXC_SYSSTACK_OVERFLOW (ED_GN | 0x33) /* ~ */
+#define ED_DSP_CRASHED_EXC_ILLEGAL           (ED_GN | 0x34) /* ~ */
+#define ED_DSP_CRASHED_EXC_TIMER_REENTRY     (ED_GN | 0x35) /* ~ */
+#define ED_DSP_CRASHED_EXC_FATAL_ERROR       (ED_GN | 0x36) /* ~ */
 
 #define ED_FLASH_PCCARD_NOT_PRESENT          (ED_GN | 0x37)
 
 #define ED_NO_CURRENT_CLOCK                  (ED_GN | 0x38)
 
+/* Complete DRV error code for real time class */
 #define ED_RT           (ERROR_VALUE | E_SOURCE_DRV | E_CLASS_REAL_TIME_ERROR)
 #define ED_DSP_TIMED_OUT                (ED_RT | 0x01)
 #define ED_DSP_CHK_TIMED_OUT            (ED_RT | 0x02)
@@ -263,6 +330,7 @@ enum stream_flags {
 #define ED_XILINX_ERROR                 (ED_RT | 0x07)
 #define ED_COBRANET_ITF_NOT_RESPONDING  (ED_RT | 0x08)
 
+/* Complete BOARD error code for the invaid standard object class */
 #define EB_ISO          (ERROR_VALUE | E_SOURCE_BOARD | \
 			 E_CLASS_INVALID_STD_OBJECT)
 #define EB_INVALID_EFFECT               (EB_ISO | 0x00)
@@ -270,6 +338,7 @@ enum stream_flags {
 #define EB_INVALID_STREAM               (EB_ISO | 0x80)
 #define EB_INVALID_AUDIO                (EB_ISO | 0xC0)
 
+/* Complete BOARD error code for impossible resource allocation class */
 #define EB_RI           (ERROR_VALUE | E_SOURCE_BOARD | E_CLASS_RSRC_IMPOSSIBLE)
 #define EB_ALLOCATE_ALL_STREAM_TRANSFERT_BUFFERS_IMPOSSIBLE (EB_RI | 0x01)
 #define EB_ALLOCATE_PIPE_SAMPLE_BUFFER_IMPOSSIBLE           (EB_RI | 0x02)
@@ -293,6 +362,7 @@ enum stream_flags {
 #define EB_ALLOCATE_STREAM_IMPOSSIBLE           (EB_RI | 0x80)
 #define EB_ALLOCATE_AUDIO_IMPOSSIBLE            (EB_RI | 0xC0)
 
+/* Complete BOARD error code for wrong call context class */
 #define EB_WCC          (ERROR_VALUE | E_SOURCE_BOARD | E_CLASS_WRONG_CONTEXT)
 #define EB_CMD_REFUSED                  (EB_WCC | 0x00)
 #define EB_START_STREAM_REFUSED         (EB_WCC | 0xFC)
@@ -303,4 +373,4 @@ enum stream_flags {
 
 
 
-#endif 
+#endif /* LX_DEFS_H */

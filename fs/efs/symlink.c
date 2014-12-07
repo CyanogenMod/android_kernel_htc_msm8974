@@ -23,7 +23,7 @@ static int efs_symlink_readpage(struct file *file, struct page *page)
 	if (size > 2 * EFS_BLOCKSIZE)
 		goto fail;
   
-	
+	/* read first 512 bytes of link target */
 	err = -EIO;
 	bh = sb_bread(inode->i_sb, efs_bmap(inode, 0));
 	if (!bh)

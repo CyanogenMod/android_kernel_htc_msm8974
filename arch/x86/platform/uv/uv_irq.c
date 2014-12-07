@@ -17,6 +17,7 @@
 #include <asm/uv/uv_irq.h>
 #include <asm/uv/uv_hub.h>
 
+/* MMR offset and pnode of hub sourcing interrupts for a given irq */
 struct uv_irq_2_mmr_pnode{
 	struct rb_node		list;
 	unsigned long		offset;
@@ -44,6 +45,10 @@ static struct irq_chip uv_irq_chip = {
 	.irq_set_affinity	= uv_set_irq_affinity,
 };
 
+/*
+ * Add offset and pnode information of the hub sourcing interrupts to the
+ * rb tree for a specific irq.
+ */
 static int uv_set_irq_2_mmr_info(int irq, unsigned long offset, unsigned blade)
 {
 	struct rb_node **link = &uv_irq_root.rb_node;
@@ -61,13 +66,13 @@ static int uv_set_irq_2_mmr_info(int irq, unsigned long offset, unsigned blade)
 	n->offset = offset;
 	n->pnode = uv_blade_to_pnode(blade);
 	spin_lock_irqsave(&uv_irq_lock, irqflags);
-	
+	/* Find the right place in the rbtree: */
 	while (*link) {
 		parent = *link;
 		e = rb_entry(parent, struct uv_irq_2_mmr_pnode, list);
 
 		if (unlikely(irq == e->irq)) {
-			
+			/* irq entry exists */
 			e->pnode = uv_blade_to_pnode(blade);
 			e->offset = offset;
 			spin_unlock_irqrestore(&uv_irq_lock, irqflags);
@@ -81,7 +86,7 @@ static int uv_set_irq_2_mmr_info(int irq, unsigned long offset, unsigned blade)
 			link = &(*link)->rb_right;
 	}
 
-	
+	/* Insert the node into the rbtree. */
 	rb_link_node(&n->list, parent, link);
 	rb_insert_color(&n->list, &uv_irq_root);
 
@@ -89,6 +94,7 @@ static int uv_set_irq_2_mmr_info(int irq, unsigned long offset, unsigned blade)
 	return 0;
 }
 
+/* Retrieve offset and pnode information from the rb tree for a specific irq */
 int uv_irq_2_mmr_info(int irq, unsigned long *offset, int *pnode)
 {
 	struct uv_irq_2_mmr_pnode *e;
@@ -116,6 +122,10 @@ int uv_irq_2_mmr_info(int irq, unsigned long *offset, int *pnode)
 	return -1;
 }
 
+/*
+ * Re-target the irq to the specified CPU and enable the specified MMR located
+ * on the specified blade to allow the sending of MSIs to the specified CPU.
+ */
 static int
 arch_enable_uv_irq(char *irq_name, unsigned int irq, int cpu, int mmr_blade,
 		       unsigned long mmr_offset, int limit)
@@ -160,6 +170,10 @@ arch_enable_uv_irq(char *irq_name, unsigned int irq, int cpu, int mmr_blade,
 	return irq;
 }
 
+/*
+ * Disable the specified MMR located on the specified blade so that MSIs are
+ * longer allowed to be sent.
+ */
 static void arch_disable_uv_irq(int mmr_pnode, unsigned long mmr_offset)
 {
 	unsigned long mmr_value;
@@ -199,7 +213,7 @@ uv_set_irq_affinity(struct irq_data *data, const struct cpumask *mask,
 	entry->mask		= 0;
 	entry->dest		= dest;
 
-	
+	/* Get previously stored MMR and pnode of hub sourcing interrupts */
 	if (uv_irq_2_mmr_info(data->irq, &mmr_offset, &mmr_pnode))
 		return -1;
 
@@ -211,6 +225,11 @@ uv_set_irq_affinity(struct irq_data *data, const struct cpumask *mask,
 	return 0;
 }
 
+/*
+ * Set up a mapping of an available irq and vector, and enable the specified
+ * MMR that defines the MSI that is to be sent to the specified CPU when an
+ * interrupt is raised.
+ */
 int uv_setup_irq(char *irq_name, int cpu, int mmr_blade,
 		 unsigned long mmr_offset, int limit)
 {
@@ -232,6 +251,13 @@ int uv_setup_irq(char *irq_name, int cpu, int mmr_blade,
 }
 EXPORT_SYMBOL_GPL(uv_setup_irq);
 
+/*
+ * Tear down a mapping of an irq and vector, and disable the specified MMR that
+ * defined the MSI that was to be sent to the specified CPU when an interrupt
+ * was raised.
+ *
+ * Set mmr_blade and mmr_offset to what was passed in on uv_setup_irq().
+ */
 void uv_teardown_irq(unsigned int irq)
 {
 	struct uv_irq_2_mmr_pnode *e;

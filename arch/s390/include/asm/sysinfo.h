@@ -158,6 +158,9 @@ static inline int stsi(void *sysinfo, int fc, int sel1, int sel2)
 	return r0;
 }
 
+/*
+ * Service level reporting interface.
+ */
 struct service_level {
 	struct list_head list;
 	void (*seq_print)(struct seq_file *, struct service_level *);
@@ -166,4 +169,4 @@ struct service_level {
 int register_service_level(struct service_level *);
 int unregister_service_level(struct service_level *);
 
-#endif 
+#endif /* __ASM_S390_SYSINFO_H */

@@ -117,7 +117,7 @@ void c4iw_ev_dispatch(struct c4iw_dev *dev, struct t4_cqe *err_cqe)
 	atomic_inc(&chp->refcnt);
 	spin_unlock(&dev->lock);
 
-	
+	/* Bad incoming write */
 	if (RQ_TYPE(err_cqe) &&
 	    (CQE_OPCODE(err_cqe) == FW_RI_RDMA_WRITE)) {
 		post_qp_event(dev, chp, qhp, err_cqe, IB_EVENT_QP_REQ_ERR);
@@ -126,7 +126,7 @@ void c4iw_ev_dispatch(struct c4iw_dev *dev, struct t4_cqe *err_cqe)
 
 	switch (CQE_STATUS(err_cqe)) {
 
-	
+	/* Completion Events */
 	case T4_ERR_SUCCESS:
 		printk(KERN_ERR MOD "AE with status 0!\n");
 		break;
@@ -142,14 +142,14 @@ void c4iw_ev_dispatch(struct c4iw_dev *dev, struct t4_cqe *err_cqe)
 		post_qp_event(dev, chp, qhp, err_cqe, IB_EVENT_QP_ACCESS_ERR);
 		break;
 
-	
+	/* Device Fatal Errors */
 	case T4_ERR_ECC:
 	case T4_ERR_ECC_PSTAG:
 	case T4_ERR_INTERNAL_ERR:
 		post_qp_event(dev, chp, qhp, err_cqe, IB_EVENT_DEVICE_FATAL);
 		break;
 
-	
+	/* QP Fatal Errors */
 	case T4_ERR_OUT_OF_RQE:
 	case T4_ERR_PBL_ADDR_BOUND:
 	case T4_ERR_CRC:

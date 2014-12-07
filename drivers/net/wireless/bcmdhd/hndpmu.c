@@ -40,20 +40,28 @@
 
 #define	PMU_MSG(args)
 
+/* To check in verbose debugging messages not intended
+ * to be on except on private builds.
+ */
 #define	PMU_NONE(args)
 
 
+/* SDIO Pad drive strength to select value mappings.
+ * The last strength value in each table must be 0 (the tri-state value).
+ */
 typedef struct {
-	uint8 strength;			
-	uint8 sel;			
+	uint8 strength;			/* Pad Drive Strength in mA */
+	uint8 sel;			/* Chip-specific select value */
 } sdiod_drive_str_t;
 
+/* SDIO Drive Strength to sel value table for PMU Rev 1 */
 static const sdiod_drive_str_t sdiod_drive_strength_tab1[] = {
 	{4, 0x2},
 	{2, 0x3},
 	{1, 0x0},
 	{0, 0x0} };
 
+/* SDIO Drive Strength to sel value table for PMU Rev 2, 3 */
 static const sdiod_drive_str_t sdiod_drive_strength_tab2[] = {
 	{12, 0x7},
 	{10, 0x6},
@@ -63,6 +71,7 @@ static const sdiod_drive_str_t sdiod_drive_strength_tab2[] = {
 	{2, 0x1},
 	{0, 0x0} };
 
+/* SDIO Drive Strength to sel value table for PMU Rev 8 (1.8V) */
 static const sdiod_drive_str_t sdiod_drive_strength_tab3[] = {
 	{32, 0x7},
 	{26, 0x6},
@@ -73,6 +82,7 @@ static const sdiod_drive_str_t sdiod_drive_strength_tab3[] = {
 	{4, 0x1},
 	{0, 0x0} };
 
+/* SDIO Drive Strength to sel value table for PMU Rev 11 (1.8v) */
 static const sdiod_drive_str_t sdiod_drive_strength_tab4_1v8[] = {
 	{32, 0x6},
 	{26, 0x7},
@@ -83,8 +93,11 @@ static const sdiod_drive_str_t sdiod_drive_strength_tab4_1v8[] = {
 	{4, 0x0},
 	{0, 0x1} };
 
+/* SDIO Drive Strength to sel value table for PMU Rev 11 (1.2v) */
 
+/* SDIO Drive Strength to sel value table for PMU Rev 11 (2.5v) */
 
+/* SDIO Drive Strength to sel value table for PMU Rev 13 (1.8v) */
 static const sdiod_drive_str_t sdiod_drive_strength_tab5_1v8[] = {
 	{6, 0x7},
 	{5, 0x6},
@@ -94,6 +107,7 @@ static const sdiod_drive_str_t sdiod_drive_strength_tab5_1v8[] = {
 	{1, 0x1},
 	{0, 0x0} };
 
+/* SDIO Drive Strength to sel value table for PMU Rev 13 (3.3v) */
 
 
 #define SDIOD_DRVSTR_KEY(chip, pmu)	(((chip) << 16) | (pmu))
@@ -111,7 +125,7 @@ si_sdiod_drive_strength_init(si_t *sih, osl_t *osh, uint32 drivestrength)
 		return;
 	}
 
-	
+	/* Remember original core before switch to chipc */
 	cc = (chipcregs_t *) si_switch_core(sih, CC_CORE_ID, &origidx, &intr_val);
 
 	switch (SDIOD_DRVSTR_KEY(sih->chip, sih->pmurev)) {
@@ -159,6 +173,9 @@ si_sdiod_drive_strength_init(si_t *sih, osl_t *osh, uint32 drivestrength)
 		uint32 cc_data_temp;
 		int i;
 
+		/* Pick the lowest available drive strength equal or greater than the
+		 * requested strength.	Drive strength of 0 requests tri-state.
+		 */
 		for (i = 0; drivestrength < str_tab[i].strength; i++)
 			;
 
@@ -175,6 +192,6 @@ si_sdiod_drive_strength_init(si_t *sih, osl_t *osh, uint32 drivestrength)
 		         drivestrength, str_tab[i].strength));
 	}
 
-	
+	/* Return to original core */
 	si_restore_core(sih, origidx, intr_val);
 }

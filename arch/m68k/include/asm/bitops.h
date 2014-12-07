@@ -14,6 +14,18 @@
 
 #include <linux/compiler.h>
 
+/*
+ *	Bit access functions vary across the ColdFire and 68k families.
+ *	So we will break them out here, and then macro in the ones we want.
+ *
+ *	ColdFire - supports standard bset/bclr/bchg with register operand only
+ *	68000    - supports standard bset/bclr/bchg with memory operand
+ *	>= 68020 - also supports the bfset/bfclr/bfchg instructions
+ *
+ *	Although it is possible to use only the bset/bclr/bchg with register
+ *	operands on all platforms you end up with larger generated code.
+ *	So we use the best form possible on a given platform.
+ */
 
 static inline void bset_reg_set_bit(int nr, volatile unsigned long *vaddr)
 {
@@ -55,6 +67,9 @@ static inline void bfset_mem_set_bit(int nr, volatile unsigned long *vaddr)
 #define __set_bit(nr, vaddr)	set_bit(nr, vaddr)
 
 
+/*
+ * clear_bit() doesn't provide any barrier for the compiler.
+ */
 #define smp_mb__before_clear_bit()	barrier()
 #define smp_mb__after_clear_bit()	barrier()
 
@@ -294,6 +309,12 @@ static inline int bfchg_mem_test_and_change_bit(int nr,
 #define __test_and_change_bit(nr, vaddr) test_and_change_bit(nr, vaddr)
 
 
+/*
+ *	The true 68020 and more advanced processors support the "bfffo"
+ *	instruction for finding bits. ColdFire and simple 68000 parts
+ *	(including CPU32) do not support this. They simply use the generic
+ *	functions.
+ */
 #if defined(CONFIG_CPU_HAS_NO_BITFIELDS)
 #include <asm-generic/bitops/find.h>
 #include <asm-generic/bitops/ffz.h>
@@ -338,7 +359,7 @@ static inline int find_next_zero_bit(const unsigned long *vaddr, int size,
 		unsigned long num = ~*p++ & (~0UL << bit);
 		offset -= bit;
 
-		
+		/* Look for zero in first longword */
 		__asm__ __volatile__ ("bfffo %1{#0,#0},%0"
 				      : "=d" (res) : "d" (num & -num));
 		if (res < 32) {
@@ -350,7 +371,7 @@ static inline int find_next_zero_bit(const unsigned long *vaddr, int size,
 		if (offset >= size)
 			return size;
 	}
-	
+	/* No zero yet, search remaining full bytes for a zero */
 	return offset + find_first_zero_bit(p, size - offset);
 }
 #define find_next_zero_bit find_next_zero_bit
@@ -393,7 +414,7 @@ static inline int find_next_bit(const unsigned long *vaddr, int size,
 		unsigned long num = *p++ & (~0UL << bit);
 		offset -= bit;
 
-		
+		/* Look for one in first longword */
 		__asm__ __volatile__ ("bfffo %1{#0,#0},%0"
 				      : "=d" (res) : "d" (num & -num));
 		if (res < 32) {
@@ -405,11 +426,15 @@ static inline int find_next_bit(const unsigned long *vaddr, int size,
 		if (offset >= size)
 			return size;
 	}
-	
+	/* No one yet, search remaining full bytes for a one */
 	return offset + find_first_bit(p, size - offset);
 }
 #define find_next_bit find_next_bit
 
+/*
+ * ffz = Find First Zero in word. Undefined if no zero exists,
+ * so code should check against ~0UL first..
+ */
 static inline unsigned long ffz(unsigned long word)
 {
 	int res;
@@ -425,6 +450,12 @@ static inline unsigned long ffz(unsigned long word)
 
 #if defined(CONFIG_CPU_HAS_NO_BITFIELDS)
 
+/*
+ *	The newer ColdFire family members support a "bitrev" instruction
+ *	and we can use that to implement a fast ffs. Older Coldfire parts,
+ *	and normal 68000 parts don't have anything special, so we use the
+ *	generic functions for those.
+ */
 #if (defined(__mcfisaaplus__) || defined(__mcfisac__)) && \
 	!defined(CONFIG_M68000) && !defined(CONFIG_MCPU32)
 static inline int __ffs(int x)
@@ -452,6 +483,11 @@ static inline int ffs(int x)
 
 #else
 
+/*
+ *	ffs: find first bit set. This is defined the same way as
+ *	the libc and compiler builtin ffs routines, therefore
+ *	differs in spirit from the above ffz (man ffs).
+ */
 static inline int ffs(int x)
 {
 	int cnt;
@@ -463,6 +499,9 @@ static inline int ffs(int x)
 }
 #define __ffs(x) (ffs(x) - 1)
 
+/*
+ *	fls: find last bit set.
+ */
 static inline int fls(int x)
 {
 	int cnt;
@@ -486,6 +525,6 @@ static inline int __fls(int x)
 #include <asm-generic/bitops/sched.h>
 #include <asm-generic/bitops/hweight.h>
 #include <asm-generic/bitops/lock.h>
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _M68K_BITOPS_H */

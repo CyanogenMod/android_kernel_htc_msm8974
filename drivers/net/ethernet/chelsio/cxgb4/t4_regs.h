@@ -882,4 +882,4 @@
 #define  ADDRESS(x)     ((x) << ADDRESS_SHIFT)
 
 #define XGMAC_PORT_INT_CAUSE 0x10dc
-#endif 
+#endif /* __T4_REGS_H */

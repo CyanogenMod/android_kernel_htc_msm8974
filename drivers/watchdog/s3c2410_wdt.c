@@ -29,7 +29,7 @@
 #include <linux/moduleparam.h>
 #include <linux/types.h>
 #include <linux/timer.h>
-#include <linux/miscdevice.h> 
+#include <linux/miscdevice.h> /* for MODULE_ALIAS_MISCDEV */
 #include <linux/watchdog.h>
 #include <linux/init.h>
 #include <linux/platform_device.h>
@@ -74,7 +74,7 @@ MODULE_PARM_DESC(soft_noboot, "Watchdog action, set to 1 to ignore reboots, "
 			"0 to reboot (default 0)");
 MODULE_PARM_DESC(debug, "Watchdog debug, set to >1 for debug (default 0)");
 
-static struct device    *wdt_dev;	
+static struct device    *wdt_dev;	/* platform device attached to */
 static struct resource	*wdt_mem;
 static struct resource	*wdt_irq;
 static struct clk	*wdt_clock;
@@ -82,6 +82,7 @@ static void __iomem	*wdt_base;
 static unsigned int	 wdt_count;
 static DEFINE_SPINLOCK(wdt_lock);
 
+/* watchdog control routines */
 
 #define DBG(fmt, ...)					\
 do {							\
@@ -89,6 +90,7 @@ do {							\
 		pr_info(fmt, ##__VA_ARGS__);		\
 } while (0)
 
+/* functions */
 
 static int s3c2410wdt_keepalive(struct watchdog_device *wdd)
 {
@@ -168,6 +170,10 @@ static int s3c2410wdt_set_heartbeat(struct watchdog_device *wdd, unsigned timeou
 	DBG("%s: count=%d, timeout=%d, freq=%lu\n",
 	    __func__, count, timeout, freq);
 
+	/* if the count is bigger than the watchdog register,
+	   then work out what we need to do (and if) we can
+	   actually make this value
+	*/
 
 	if (count >= 0x10000) {
 		for (divisor = 1; divisor <= 0x100; divisor++) {
@@ -187,7 +193,7 @@ static int s3c2410wdt_set_heartbeat(struct watchdog_device *wdd, unsigned timeou
 	count /= divisor;
 	wdt_count = count;
 
-	
+	/* update the pre-scaler */
 	wtcon = readl(wdt_base + S3C2410_WTCON);
 	wtcon &= ~S3C2410_WTCON_PRESCALE_MASK;
 	wtcon |= S3C2410_WTCON_PRESCALE(divisor-1);
@@ -221,6 +227,7 @@ static struct watchdog_device s3c2410_wdd = {
 	.ops = &s3c2410wdt_ops,
 };
 
+/* interrupt handler code */
 
 static irqreturn_t s3c2410wdt_irq(int irqno, void *param)
 {
@@ -242,6 +249,10 @@ static int s3c2410wdt_cpufreq_transition(struct notifier_block *nb,
 		goto done;
 
 	if (val == CPUFREQ_PRECHANGE) {
+		/* To ensure that over the change we don't cause the
+		 * watchdog to trigger, we perform an keep-alive if
+		 * the watchdog is running.
+		 */
 
 		s3c2410wdt_keepalive(&s3c2410_wdd);
 	} else if (val == CPUFREQ_POSTCHANGE) {
@@ -317,7 +328,7 @@ static int __devinit s3c2410wdt_probe(struct platform_device *pdev)
 		goto err;
 	}
 
-	
+	/* get the memory region for the watchdog timer */
 
 	size = resource_size(wdt_mem);
 	if (!request_mem_region(wdt_mem->start, size, pdev->name)) {
@@ -350,6 +361,8 @@ static int __devinit s3c2410wdt_probe(struct platform_device *pdev)
 		goto err_clk;
 	}
 
+	/* see if we can actually set the requested timer margin, and if
+	 * not, try the default value */
 
 	if (s3c2410wdt_set_heartbeat(&s3c2410_wdd, tmr_margin)) {
 		started = s3c2410wdt_set_heartbeat(&s3c2410_wdd,
@@ -382,11 +395,14 @@ static int __devinit s3c2410wdt_probe(struct platform_device *pdev)
 		dev_info(dev, "starting watchdog timer\n");
 		s3c2410wdt_start(&s3c2410_wdd);
 	} else if (!tmr_atboot) {
+		/* if we're not enabling the watchdog, then ensure it is
+		 * disabled if it has been left running from the bootloader
+		 * or other source */
 
 		s3c2410wdt_stop(&s3c2410_wdd);
 	}
 
-	
+	/* print out a statement of readiness */
 
 	wtcon = readl(wdt_base + S3C2410_WTCON);
 
@@ -452,11 +468,11 @@ static unsigned long wtdat_save;
 
 static int s3c2410wdt_suspend(struct platform_device *dev, pm_message_t state)
 {
-	
+	/* Save watchdog state, and turn it off. */
 	wtcon_save = readl(wdt_base + S3C2410_WTCON);
 	wtdat_save = readl(wdt_base + S3C2410_WTDAT);
 
-	
+	/* Note that WTCNT doesn't need to be saved. */
 	s3c2410wdt_stop(&s3c2410_wdd);
 
 	return 0;
@@ -464,10 +480,10 @@ static int s3c2410wdt_suspend(struct platform_device *dev, pm_message_t state)
 
 static int s3c2410wdt_resume(struct platform_device *dev)
 {
-	
+	/* Restore watchdog state. */
 
 	writel(wtdat_save, wdt_base + S3C2410_WTDAT);
-	writel(wtdat_save, wdt_base + S3C2410_WTCNT); 
+	writel(wtdat_save, wdt_base + S3C2410_WTCNT); /* Reset count */
 	writel(wtcon_save, wdt_base + S3C2410_WTCON);
 
 	pr_info("watchdog %sabled\n",
@@ -479,7 +495,7 @@ static int s3c2410wdt_resume(struct platform_device *dev)
 #else
 #define s3c2410wdt_suspend NULL
 #define s3c2410wdt_resume  NULL
-#endif 
+#endif /* CONFIG_PM */
 
 #ifdef CONFIG_OF
 static const struct of_device_id s3c2410_wdt_match[] = {

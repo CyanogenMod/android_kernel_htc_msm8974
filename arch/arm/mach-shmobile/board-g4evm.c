@@ -40,6 +40,30 @@
 #include <asm/mach-types.h>
 #include <asm/mach/arch.h>
 
+/*
+ * SDHI
+ *
+ * SDHI0 : card detection is possible
+ * SDHI1 : card detection is impossible
+ *
+ * [G4-MAIN-BOARD]
+ * JP74 : short		# DBG_2V8A    for SDHI0
+ * JP75 : NC		# DBG_3V3A    for SDHI0
+ * JP76 : NC		# DBG_3V3A_SD for SDHI0
+ * JP77 : NC		# 3V3A_SDIO   for SDHI1
+ * JP78 : short		# DBG_2V8A    for SDHI1
+ * JP79 : NC		# DBG_3V3A    for SDHI1
+ * JP80 : NC		# DBG_3V3A_SD for SDHI1
+ *
+ * [G4-CORE-BOARD]
+ * S32 : all off	# to dissever from G3-CORE_DBG board
+ * S33 : all off	# to dissever from G3-CORE_DBG board
+ *
+ * [G3-CORE_DBG-BOARD]
+ * S1  : all off	# to dissever from G3-CORE_DBG board
+ * S3  : all off	# to dissever from G3-CORE_DBG board
+ * S4  : all off	# to dissever from G3-CORE_DBG board
+ */
 
 static struct mtd_partition nor_flash_partitions[] = {
 	{
@@ -93,12 +117,13 @@ static struct platform_device nor_flash_device = {
 	.resource	= nor_flash_resources,
 };
 
+/* USBHS */
 static void usb_host_port_power(int port, int power)
 {
-	if (!power) 
+	if (!power) /* only power-on supported for now */
 		return;
 
-	
+	/* set VBOUT/PWEN and EXTLP0 in DVSTCTR */
 	__raw_writew(__raw_readw(0xe6890008) | 0x600, 0xe6890008);
 }
 
@@ -115,7 +140,7 @@ static struct resource usb_host_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= evt2irq(0x0a20), 
+		.start	= evt2irq(0x0a20), /* USBHS_USHI0 */
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -132,6 +157,7 @@ static struct platform_device usb_host_device = {
 	.resource	= usb_host_resources,
 };
 
+/* KEYSC */
 static struct sh_keysc_info keysc_info = {
 	.mode		= SH_KEYSC_MODE_5,
 	.scan_timing	= 3,
@@ -155,14 +181,14 @@ static struct resource keysc_resources[] = {
 		.flags  = IORESOURCE_MEM,
 	},
 	[1] = {
-		.start  = evt2irq(0x0be0), 
+		.start  = evt2irq(0x0be0), /* KEYSC_KEY */
 		.flags  = IORESOURCE_IRQ,
 	},
 };
 
 static struct platform_device keysc_device = {
 	.name           = "sh_keysc",
-	.id             = 0, 
+	.id             = 0, /* keysc0 clock */
 	.num_resources  = ARRAY_SIZE(keysc_resources),
 	.resource       = keysc_resources,
 	.dev	= {
@@ -170,6 +196,7 @@ static struct platform_device keysc_device = {
 	},
 };
 
+/* SDHI */
 static struct sh_mobile_sdhi_info sdhi0_info = {
 	.tmio_caps	= MMC_CAP_SDIO_IRQ,
 };
@@ -182,7 +209,7 @@ static struct resource sdhi0_resources[] = {
 		.flags  = IORESOURCE_MEM,
 	},
 	[1] = {
-		.start  = evt2irq(0x0e00), 
+		.start  = evt2irq(0x0e00), /* SDHI0 */
 		.flags  = IORESOURCE_IRQ,
 	},
 };
@@ -209,7 +236,7 @@ static struct resource sdhi1_resources[] = {
 		.flags  = IORESOURCE_MEM,
 	},
 	[1] = {
-		.start  = evt2irq(0x0e80), 
+		.start  = evt2irq(0x0e80), /* SDHI1 */
 		.flags  = IORESOURCE_IRQ,
 	},
 };
@@ -244,6 +271,15 @@ static struct platform_device *g4evm_devices[] __initdata = {
 #define GPIO_SDHID1_D3	0xe6052106
 #define GPIO_SDHICMD1	0xe6052107
 
+/*
+ * FIXME !!
+ *
+ * gpio_pull_up is quick_hack.
+ *
+ * current gpio frame work doesn't have
+ * the method to control only pull up/down/free.
+ * this function should be replaced by correct gpio function
+ */
 static void __init gpio_pull_up(u32 addr)
 {
 	u8 data = __raw_readb(addr);
@@ -257,27 +293,27 @@ static void __init g4evm_init(void)
 {
 	sh7377_pinmux_init();
 
-	
+	/* Lit DS14 LED */
 	gpio_request(GPIO_PORT109, NULL);
 	gpio_direction_output(GPIO_PORT109, 1);
 	gpio_export(GPIO_PORT109, 1);
 
-	
+	/* Lit DS15 LED */
 	gpio_request(GPIO_PORT110, NULL);
 	gpio_direction_output(GPIO_PORT110, 1);
 	gpio_export(GPIO_PORT110, 1);
 
-	
+	/* Lit DS16 LED */
 	gpio_request(GPIO_PORT112, NULL);
 	gpio_direction_output(GPIO_PORT112, 1);
 	gpio_export(GPIO_PORT112, 1);
 
-	
+	/* Lit DS17 LED */
 	gpio_request(GPIO_PORT113, NULL);
 	gpio_direction_output(GPIO_PORT113, 1);
 	gpio_export(GPIO_PORT113, 1);
 
-	
+	/* USBHS */
 	gpio_request(GPIO_FN_VBUS_0, NULL);
 	gpio_request(GPIO_FN_PWEN, NULL);
 	gpio_request(GPIO_FN_OVCN, NULL);
@@ -285,13 +321,13 @@ static void __init g4evm_init(void)
 	gpio_request(GPIO_FN_EXTLP, NULL);
 	gpio_request(GPIO_FN_IDIN, NULL);
 
-	
-	__raw_writew(0x0200, 0xe605810a);       
-	__raw_writew(0x00e0, 0xe60581c0);       
-	__raw_writew(0x6010, 0xe60581c6);       
-	__raw_writew(0x8a0a, 0xe605810c);       
+	/* setup USB phy */
+	__raw_writew(0x0200, 0xe605810a);       /* USBCR1 */
+	__raw_writew(0x00e0, 0xe60581c0);       /* CPFCH */
+	__raw_writew(0x6010, 0xe60581c6);       /* CGPOSR */
+	__raw_writew(0x8a0a, 0xe605810c);       /* USBCR2 */
 
-	
+	/* KEYSC @ CN31 */
 	gpio_request(GPIO_FN_PORT60_KEYOUT5, NULL);
 	gpio_request(GPIO_FN_PORT61_KEYOUT4, NULL);
 	gpio_request(GPIO_FN_PORT62_KEYOUT3, NULL);
@@ -306,7 +342,7 @@ static void __init g4evm_init(void)
 	gpio_request(GPIO_FN_PORT71_KEYIN5_PU, NULL);
 	gpio_request(GPIO_FN_PORT72_KEYIN6_PU, NULL);
 
-	
+	/* SDHI0 */
 	gpio_request(GPIO_FN_SDHICLK0, NULL);
 	gpio_request(GPIO_FN_SDHICD0, NULL);
 	gpio_request(GPIO_FN_SDHID0_0, NULL);
@@ -321,7 +357,7 @@ static void __init g4evm_init(void)
 	gpio_pull_up(GPIO_SDHID0_D3);
 	gpio_pull_up(GPIO_SDHICMD0);
 
-	
+	/* SDHI1 */
 	gpio_request(GPIO_FN_SDHICLK1, NULL);
 	gpio_request(GPIO_FN_SDHID1_0, NULL);
 	gpio_request(GPIO_FN_SDHID1_1, NULL);

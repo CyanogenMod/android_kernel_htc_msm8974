@@ -18,6 +18,16 @@
 #include <mach/gpiomux.h>
 #include <mach/msm_iomap.h>
 
+/* see 80-VA736-2 Rev C pp 695-751
+**
+** These are actually the *shadow* gpio registers, since the
+** real ones (which allow full access) are only available to the
+** ARM9 side of the world.
+**
+** Since the _BASE need to be page-aligned when we're mapping them
+** to virtual addresses, adjust for the additional offset in these
+** macros.
+*/
 
 #if defined(CONFIG_ARCH_FSM9XXX)
 #define MSM_GPIO1_REG(off) (MSM_TLMM_BASE + (off))
@@ -25,15 +35,17 @@
 
 #if defined(CONFIG_ARCH_FSM9XXX)
 
+/* output value */
 #define MSM_GPIO_OUT_G(group)  MSM_GPIO1_REG(0x00 + (group) * 4)
 #define MSM_GPIO_OUT_N(gpio)   MSM_GPIO_OUT_G((gpio) / 32)
-#define MSM_GPIO_OUT_0         MSM_GPIO_OUT_G(0)   
-#define MSM_GPIO_OUT_1         MSM_GPIO_OUT_G(1)   
-#define MSM_GPIO_OUT_2         MSM_GPIO_OUT_G(2)   
-#define MSM_GPIO_OUT_3         MSM_GPIO_OUT_G(3)   
-#define MSM_GPIO_OUT_4         MSM_GPIO_OUT_G(4)   
-#define MSM_GPIO_OUT_5         MSM_GPIO_OUT_G(5)   
+#define MSM_GPIO_OUT_0         MSM_GPIO_OUT_G(0)   /* gpio  31-0   */
+#define MSM_GPIO_OUT_1         MSM_GPIO_OUT_G(1)   /* gpio  63-32  */
+#define MSM_GPIO_OUT_2         MSM_GPIO_OUT_G(2)   /* gpio  95-64  */
+#define MSM_GPIO_OUT_3         MSM_GPIO_OUT_G(3)   /* gpio 127-96  */
+#define MSM_GPIO_OUT_4         MSM_GPIO_OUT_G(4)   /* gpio 159-128 */
+#define MSM_GPIO_OUT_5         MSM_GPIO_OUT_G(5)   /* gpio 167-160 */
 
+/* same pin map as above, output enable */
 #define MSM_GPIO_OE_G(group)   MSM_GPIO1_REG(0x20 + (group) * 4)
 #define MSM_GPIO_OE_N(gpio)    MSM_GPIO_OE_G((gpio) / 32)
 #define MSM_GPIO_OE_0          MSM_GPIO_OE_G(0)
@@ -43,6 +55,7 @@
 #define MSM_GPIO_OE_4          MSM_GPIO_OE_G(4)
 #define MSM_GPIO_OE_5          MSM_GPIO_OE_G(5)
 
+/* same pin map as above, input read */
 #define MSM_GPIO_IN_G(group)   MSM_GPIO1_REG(0x48 + (group) * 4)
 #define MSM_GPIO_IN_N(gpio)    MSM_GPIO_IN_G((gpio) / 32)
 #define MSM_GPIO_IN_0          MSM_GPIO_IN_G(0)
@@ -52,10 +65,11 @@
 #define MSM_GPIO_IN_4          MSM_GPIO_IN_G(4)
 #define MSM_GPIO_IN_5          MSM_GPIO_IN_G(5)
 
+/* configuration */
 #define MSM_GPIO_PAGE          MSM_GPIO1_REG(0x40)
 #define MSM_GPIO_CONFIG        MSM_GPIO1_REG(0x44)
 
-#endif 
+#endif /* CONFIG_ARCH_FSM9XXX */
 
 #define MSM_GPIO_BANK(bank, first, last)				\
 	{								\

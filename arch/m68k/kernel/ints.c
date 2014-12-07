@@ -43,12 +43,22 @@ static struct irq_chip user_irq_chip = {
 	.irq_shutdown	= m68k_irq_shutdown,
 };
 
+/*
+ * void init_IRQ(void)
+ *
+ * Parameters:	None
+ *
+ * Returns:	Nothing
+ *
+ * This function should be called during kernel startup to initialize
+ * the IRQ handling routines.
+ */
 
 void __init init_IRQ(void)
 {
 	int i;
 
-	
+	/* assembly irq entry code relies on this... */
 	if (HARDIRQ_MASK != 0x00ff0000) {
 		extern void hardirq_mask_is_broken(void);
 		hardirq_mask_is_broken();
@@ -60,6 +70,14 @@ void __init init_IRQ(void)
 	mach_init_IRQ();
 }
 
+/**
+ * m68k_setup_auto_interrupt
+ * @handler: called from auto vector interrupts
+ *
+ * setup the handler to be called from auto vector interrupts instead of the
+ * standard do_IRQ(), it will be called with irq numbers in the range
+ * from IRQ_AUTO_1 - IRQ_AUTO_7.
+ */
 void __init m68k_setup_auto_interrupt(void (*handler)(unsigned int, struct pt_regs *))
 {
 	if (handler)
@@ -67,6 +85,15 @@ void __init m68k_setup_auto_interrupt(void (*handler)(unsigned int, struct pt_re
 	flush_icache();
 }
 
+/**
+ * m68k_setup_user_interrupt
+ * @vec: first user vector interrupt to handle
+ * @cnt: number of active user vector interrupts
+ *
+ * setup user vector interrupts, this includes activating the specified range
+ * of interrupts, only then these interrupts can be requested (note: this is
+ * different from auto vector interrupts).
+ */
 void __init m68k_setup_user_interrupt(unsigned int vec, unsigned int cnt)
 {
 	int i;
@@ -79,6 +106,18 @@ void __init m68k_setup_user_interrupt(unsigned int vec, unsigned int cnt)
 	flush_icache();
 }
 
+/**
+ * m68k_setup_irq_controller
+ * @chip: irq chip which controls specified irq
+ * @handle: flow handler which handles specified irq
+ * @irq: first irq to be managed by the controller
+ * @cnt: number of irqs to be managed by the controller
+ *
+ * Change the controller for the specified range of irq, which will be used to
+ * manage these irq. auto/user irq already have a default controller, which can
+ * be changed as well, but the controller probably should use m68k_irq_startup/
+ * m68k_irq_shutdown.
+ */
 void m68k_setup_irq_controller(struct irq_chip *chip,
 			       irq_flow_handler_t handle, unsigned int irq,
 			       unsigned int cnt)

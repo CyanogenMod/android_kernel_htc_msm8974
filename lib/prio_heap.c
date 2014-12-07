@@ -1,3 +1,7 @@
+/*
+ * Simple insertion-only static-sized priority heap containing
+ * pointers, based on CLR, chapter 7
+ */
 
 #include <linux/slab.h>
 #include <linux/prio_heap.h>
@@ -26,7 +30,7 @@ void *heap_insert(struct ptr_heap *heap, void *p)
 	int pos;
 
 	if (heap->size < heap->max) {
-		
+		/* Heap insertion */
 		pos = heap->size++;
 		while (pos > 0 && heap->gt(p, ptrs[(pos-1)/2])) {
 			ptrs[pos] = ptrs[(pos-1)/2];
@@ -36,13 +40,13 @@ void *heap_insert(struct ptr_heap *heap, void *p)
 		return NULL;
 	}
 
-	
+	/* The heap is full, so something will have to be dropped */
 
-	
+	/* If the new pointer is greater than the current max, drop it */
 	if (heap->gt(p, ptrs[0]))
 		return p;
 
-	
+	/* Replace the current max and heapify */
 	res = ptrs[0];
 	ptrs[0] = p;
 	pos = 0;
@@ -57,7 +61,7 @@ void *heap_insert(struct ptr_heap *heap, void *p)
 			largest = right;
 		if (largest == pos)
 			break;
-		
+		/* Push p down the heap one level and bump one up */
 		ptrs[pos] = ptrs[largest];
 		ptrs[largest] = p;
 		pos = largest;

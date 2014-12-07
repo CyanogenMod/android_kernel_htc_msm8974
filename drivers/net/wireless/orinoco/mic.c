@@ -11,6 +11,9 @@
 #include "orinoco.h"
 #include "mic.h"
 
+/********************************************************************/
+/* Michael MIC crypto setup                                         */
+/********************************************************************/
 int orinoco_mic_init(struct orinoco_private *priv)
 {
 	priv->tx_tfm_mic = crypto_alloc_hash("michael_mic", 0, 0);
@@ -46,14 +49,14 @@ int orinoco_mic(struct crypto_hash *tfm_michael, u8 *key,
 {
 	struct hash_desc desc;
 	struct scatterlist sg[2];
-	u8 hdr[ETH_HLEN + 2]; 
+	u8 hdr[ETH_HLEN + 2]; /* size of header + padding */
 
 	if (tfm_michael == NULL) {
 		printk(KERN_WARNING "orinoco_mic: tfm_michael == NULL\n");
 		return -1;
 	}
 
-	
+	/* Copy header into buffer. We need the padding on the end zeroed */
 	memcpy(&hdr[0], da, ETH_ALEN);
 	memcpy(&hdr[ETH_ALEN], sa, ETH_ALEN);
 	hdr[ETH_ALEN * 2] = priority;
@@ -61,7 +64,7 @@ int orinoco_mic(struct crypto_hash *tfm_michael, u8 *key,
 	hdr[ETH_ALEN * 2 + 2] = 0;
 	hdr[ETH_ALEN * 2 + 3] = 0;
 
-	
+	/* Use scatter gather to MIC header and data in one go */
 	sg_init_table(sg, 2);
 	sg_set_buf(&sg[0], hdr, sizeof(hdr));
 	sg_set_buf(&sg[1], data, data_len);

@@ -34,6 +34,9 @@ int acpi_debugfs_init(void);
 static inline void acpi_debugfs_init(void) { return; }
 #endif
 
+/* --------------------------------------------------------------------------
+                                  Power Resource
+   -------------------------------------------------------------------------- */
 int acpi_power_init(void);
 int acpi_device_sleep_wake(struct acpi_device *dev,
                            int enable, int sleep_state, int dev_state);
@@ -45,6 +48,9 @@ int acpi_bus_init_power(struct acpi_device *device);
 int acpi_wakeup_device_init(void);
 void acpi_early_processor_set_pdc(void);
 
+/* --------------------------------------------------------------------------
+                                  Embedded Controller
+   -------------------------------------------------------------------------- */
 struct acpi_ec {
 	acpi_handle handle;
 	unsigned long gpe;
@@ -68,6 +74,9 @@ void acpi_ec_block_transactions(void);
 void acpi_ec_unblock_transactions(void);
 void acpi_ec_unblock_transactions_early(void);
 
+/*--------------------------------------------------------------------------
+                                  Suspend/Resume
+  -------------------------------------------------------------------------- */
 extern int acpi_sleep_init(void);
 
 #ifdef CONFIG_ACPI_SLEEP
@@ -84,4 +93,4 @@ static inline int suspend_nvs_save(void) { return 0; }
 static inline void suspend_nvs_restore(void) {}
 #endif
 
-#endif 
+#endif /* _ACPI_INTERNAL_H_ */

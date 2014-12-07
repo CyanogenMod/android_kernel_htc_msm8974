@@ -43,7 +43,13 @@
 
 #define EXOFS_DBGMSG2(M...) do {} while (0)
 
+/******************************************************************************
+ * MOUNT OPTIONS
+ *****************************************************************************/
 
+/*
+ * struct to hold what we get from mount options
+ */
 struct exofs_mountopt {
 	bool is_osdname;
 	const char *dev_name;
@@ -51,8 +57,16 @@ struct exofs_mountopt {
 	int timeout;
 };
 
+/*
+ * exofs-specific mount-time options.
+ */
 enum { Opt_name, Opt_pid, Opt_to, Opt_err };
 
+/*
+ * Our mount-time options.  These should ideally be 64-bit unsigned, but the
+ * kernel's parsing functions do not currently support that.  32-bit should be
+ * sufficient for most applications now.
+ */
 static match_table_t tokens = {
 	{Opt_name, "osdname=%s"},
 	{Opt_pid, "pid=%u"},
@@ -60,6 +74,10 @@ static match_table_t tokens = {
 	{Opt_err, NULL}
 };
 
+/*
+ * The main option parsing method.  Also makes sure that all of the mandatory
+ * mount options were set.
+ */
 static int parse_options(char *options, struct exofs_mountopt *opts)
 {
 	char *p;
@@ -68,7 +86,7 @@ static int parse_options(char *options, struct exofs_mountopt *opts)
 	bool s_pid = false;
 
 	EXOFS_DBGMSG("parse_options %s\n", options);
-	
+	/* defaults */
 	memset(opts, 0, sizeof(*opts));
 	opts->timeout = BLK_DEFAULT_SG_TIMEOUT;
 
@@ -121,9 +139,18 @@ static int parse_options(char *options, struct exofs_mountopt *opts)
 	return 0;
 }
 
+/******************************************************************************
+ * INODE CACHE
+ *****************************************************************************/
 
+/*
+ * Our inode cache.  Isn't it pretty?
+ */
 static struct kmem_cache *exofs_inode_cachep;
 
+/*
+ * Allocate an inode in the cache
+ */
 static struct inode *exofs_alloc_inode(struct super_block *sb)
 {
 	struct exofs_i_info *oi;
@@ -142,11 +169,17 @@ static void exofs_i_callback(struct rcu_head *head)
 	kmem_cache_free(exofs_inode_cachep, exofs_i(inode));
 }
 
+/*
+ * Remove an inode from the cache
+ */
 static void exofs_destroy_inode(struct inode *inode)
 {
 	call_rcu(&inode->i_rcu, exofs_i_callback);
 }
 
+/*
+ * Initialize the inode
+ */
 static void exofs_init_once(void *foo)
 {
 	struct exofs_i_info *oi = foo;
@@ -154,6 +187,9 @@ static void exofs_init_once(void *foo)
 	inode_init_once(&oi->vfs_inode);
 }
 
+/*
+ * Create and initialize the inode cache
+ */
 static int init_inodecache(void)
 {
 	exofs_inode_cachep = kmem_cache_create("exofs_inode_cache",
@@ -165,11 +201,17 @@ static int init_inodecache(void)
 	return 0;
 }
 
+/*
+ * Destroy the inode cache
+ */
 static void destroy_inodecache(void)
 {
 	kmem_cache_destroy(exofs_inode_cachep);
 }
 
+/******************************************************************************
+ * Some osd helpers
+ *****************************************************************************/
 void exofs_make_credential(u8 cred_a[OSD_CAP_LEN], const struct osd_obj_id *obj)
 {
 	osd_sec_init_nosec_doall_caps(cred_a, obj, false, true);
@@ -179,6 +221,7 @@ static int exofs_read_kern(struct osd_dev *od, u8 *cred, struct osd_obj_id *obj,
 		    u64 offset, void *p, unsigned length)
 {
 	struct osd_request *or = osd_start_request(od, GFP_KERNEL);
+/*	struct osd_sense_info osi = {.key = 0};*/
 	int ret;
 
 	if (unlikely(!or)) {
@@ -200,7 +243,7 @@ static int exofs_read_kern(struct osd_dev *od, u8 *cred, struct osd_obj_id *obj,
 	ret = osd_execute_request(or);
 	if (unlikely(ret))
 		EXOFS_DBGMSG("osd_execute_request() => %d\n", ret);
-	
+	/* osd_req_decode_sense(or, ret); */
 
 out:
 	osd_end_request(or);
@@ -266,9 +309,10 @@ out:
 static void stats_done(struct ore_io_state *ios, void *p)
 {
 	ore_put_io_state(ios);
-	
+	/* Good thanks nothing to do anymore */
 }
 
+/* Asynchronously write the stats attribute */
 int exofs_sbi_write_stats(struct exofs_sb_info *sbi)
 {
 	struct osd_attr attrs[] = {
@@ -302,9 +346,15 @@ int exofs_sbi_write_stats(struct exofs_sb_info *sbi)
 	return ret;
 }
 
+/******************************************************************************
+ * SUPERBLOCK FUNCTIONS
+ *****************************************************************************/
 static const struct super_operations exofs_sops;
 static const struct export_operations exofs_export_ops;
 
+/*
+ * Write the superblock to the OSD
+ */
 static int exofs_sync_fs(struct super_block *sb, int wait)
 {
 	struct exofs_sb_info *sbi;
@@ -320,6 +370,13 @@ static int exofs_sync_fs(struct super_block *sb, int wait)
 
 	sbi = sb->s_fs_info;
 
+	/* NOTE: We no longer dirty the super_block anywhere in exofs. The
+	 * reason we write the fscb here on unmount is so we can stay backwards
+	 * compatible with fscb->s_version == 1. (What we are not compatible
+	 * with is if a new version FS crashed and then we try to mount an old
+	 * version). Otherwise the exofs_fscb is read-only from mkfs time. All
+	 * the writeable info is set in exofs_sbi_write_stats() above.
+	 */
 
 	exofs_init_comps(&oc, &one_comp, sbi, EXOFS_SUPER_ID);
 
@@ -389,12 +446,16 @@ static void exofs_free_sbi(struct exofs_sb_info *sbi)
 	kfree(sbi);
 }
 
+/*
+ * This function is called when the vfs is freeing the superblock.  We just
+ * need to free our own part.
+ */
 static void exofs_put_super(struct super_block *sb)
 {
 	int num_pend;
 	struct exofs_sb_info *sbi = sb->s_fs_info;
 
-	
+	/* make sure there are no pending commands */
 	for (num_pend = atomic_read(&sbi->s_curr_pending); num_pend > 0;
 	     num_pend = atomic_read(&sbi->s_curr_pending)) {
 		wait_queue_head_t wq;
@@ -448,12 +509,12 @@ static int _read_and_match_data_map(struct exofs_sb_info *sbi, unsigned numdevs,
 
 static unsigned __ra_pages(struct ore_layout *layout)
 {
-	const unsigned _MIN_RA = 32; 
+	const unsigned _MIN_RA = 32; /* min 128K read-ahead */
 	unsigned ra_pages = layout->group_width * layout->stripe_unit /
 				PAGE_SIZE;
 	unsigned max_io_pages = exofs_max_io_pages(layout, ~0);
 
-	ra_pages *= 2; 
+	ra_pages *= 2; /* two stripes */
 	if (ra_pages < _MIN_RA)
 		ra_pages = roundup(_MIN_RA, ra_pages / 2);
 
@@ -463,6 +524,7 @@ static unsigned __ra_pages(struct ore_layout *layout)
 	return ra_pages;
 }
 
+/* @odi is valid only as long as @fscb_dev is valid */
 static int exofs_devs_2_odi(struct exofs_dt_device_info *dt_dev,
 			     struct osd_dev_info *odi)
 {
@@ -473,15 +535,19 @@ static int exofs_devs_2_odi(struct exofs_dt_device_info *dt_dev,
 	odi->osdname_len = le32_to_cpu(dt_dev->osdname_len);
 	odi->osdname = dt_dev->osdname;
 
-	
+	/* FIXME support long names. Will need a _put function */
 	if (dt_dev->long_name_offset)
 		return -EINVAL;
 
+	/* Make sure osdname is printable!
+	 * mkexofs should give us space for a null-terminator else the
+	 * device-table is invalid.
+	 */
 	if (unlikely(odi->osdname_len >= sizeof(dt_dev->osdname)))
 		odi->osdname_len = sizeof(dt_dev->osdname) - 1;
 	dt_dev->osdname[odi->osdname_len] = 0;
 
-	
+	/* If it's all zeros something is bad we read past end-of-obj */
 	return !(odi->systemid_len || odi->osdname_len);
 }
 
@@ -489,6 +555,9 @@ int __alloc_dev_table(struct exofs_sb_info *sbi, unsigned numdevs,
 		      struct exofs_dev **peds)
 {
 	struct __alloc_ore_devs_and_exofs_devs {
+		/* Twice bigger table: See exofs_init_comps() and comment at
+		 * exofs_read_lookup_dev_table()
+		 */
 		struct ore_dev *oreds[numdevs * 2 - 1];
 		struct exofs_dev eds[numdevs];
 	} *aoded;
@@ -555,6 +624,11 @@ static int exofs_read_lookup_dev_table(struct exofs_sb_info *sbi,
 	ret = __alloc_dev_table(sbi, numdevs, &eds);
 	if (unlikely(ret))
 		goto out;
+	/* exofs round-robins the device table view according to inode
+	 * number. We hold a: twice bigger table hence inodes can point
+	 * to any device and have a sequential view of the table
+	 * starting at this device. See exofs_init_comps()
+	 */
 	memcpy(&sbi->oc.ods[numdevs], &sbi->oc.ods[0],
 		(numdevs - 1) * sizeof(sbi->oc.ods[0]));
 
@@ -572,9 +646,13 @@ static int exofs_read_lookup_dev_table(struct exofs_sb_info *sbi,
 		printk(KERN_NOTICE "Add device[%d]: osd_name-%s\n",
 		       i, odi.osdname);
 
-		
+		/* the exofs id is currently the table index */
 		eds[i].did = i;
 
+		/* On all devices the device table is identical. The user can
+		 * specify any one of the participating devices on the command
+		 * line. We always keep them in device-table order.
+		 */
 		if (fscb_od && osduld_device_same(fscb_od, &odi)) {
 			eds[i].ored.od = fscb_od;
 			++sbi->oc.numdevs;
@@ -593,6 +671,9 @@ static int exofs_read_lookup_dev_table(struct exofs_sb_info *sbi,
 		eds[i].ored.od = od;
 		++sbi->oc.numdevs;
 
+		/* Read the fscb of the other devices to make sure the FS
+		 * partition is there.
+		 */
 		ret = exofs_read_kern(od, comp.cred, &comp.obj, 0, &fscb,
 				      sizeof(fscb));
 		if (unlikely(ret)) {
@@ -602,6 +683,10 @@ static int exofs_read_lookup_dev_table(struct exofs_sb_info *sbi,
 			goto out;
 		}
 
+		/* TODO: verify other information is correct and FS-uuid
+		 *	 matches. Benny what did you say about device table
+		 *	 generation and old devices?
+		 */
 	}
 
 out:
@@ -614,13 +699,16 @@ out:
 	return ret;
 }
 
+/*
+ * Read the superblock from the OSD and fill in the fields
+ */
 static int exofs_fill_super(struct super_block *sb, void *data, int silent)
 {
 	struct inode *root;
 	struct exofs_mountopt *opts = data;
-	struct exofs_sb_info *sbi;	
-	struct osd_dev *od;		
-	struct exofs_fscb fscb;		
+	struct exofs_sb_info *sbi;	/*extended info                  */
+	struct osd_dev *od;		/* Master device                 */
+	struct exofs_fscb fscb;		/*on-disk superblock info        */
 	struct ore_comp comp;
 	unsigned table_count;
 	int ret;
@@ -629,7 +717,7 @@ static int exofs_fill_super(struct super_block *sb, void *data, int silent)
 	if (!sbi)
 		return -ENOMEM;
 
-	
+	/* use mount options to fill superblock */
 	if (opts->is_osdname) {
 		struct osd_dev_info odi = {.systemid_len = 0};
 
@@ -646,7 +734,7 @@ static int exofs_fill_super(struct super_block *sb, void *data, int silent)
 		goto free_sbi;
 	}
 
-	
+	/* Default layout in case we do not have a device-table */
 	sbi->layout.stripe_unit = PAGE_SIZE;
 	sbi->layout.mirrors_p1 = 1;
 	sbi->layout.group_width = 1;
@@ -661,7 +749,7 @@ static int exofs_fill_super(struct super_block *sb, void *data, int silent)
 	sbi->oc.single_comp = EC_SINGLE_COMP;
 	sbi->oc.comps = &sbi->one_comp;
 
-	
+	/* fill in some other data by hand */
 	memset(sb->s_id, 0, sizeof(sb->s_id));
 	strcpy(sb->s_id, "exofs");
 	sb->s_blocksize = EXOFS_BLKSIZE;
@@ -681,11 +769,11 @@ static int exofs_fill_super(struct super_block *sb, void *data, int silent)
 		goto free_sbi;
 
 	sb->s_magic = le16_to_cpu(fscb.s_magic);
-	
+	/* NOTE: we read below to be backward compatible with old versions */
 	sbi->s_nextid = le64_to_cpu(fscb.s_nextid);
 	sbi->s_numfiles = le32_to_cpu(fscb.s_numfiles);
 
-	
+	/* make sure what we read from the object store is correct */
 	if (sb->s_magic != EXOFS_SUPER_MAGIC) {
 		if (!silent)
 			EXOFS_ERR("ERROR: Bad magic value\n");
@@ -699,7 +787,7 @@ static int exofs_fill_super(struct super_block *sb, void *data, int silent)
 		goto free_sbi;
 	}
 
-	
+	/* start generation numbers from a random point */
 	get_random_bytes(&sbi->s_next_generation, sizeof(u32));
 	spin_lock_init(&sbi->s_next_gen_lock);
 
@@ -720,7 +808,7 @@ static int exofs_fill_super(struct super_block *sb, void *data, int silent)
 
 	__sbi_read_stats(sbi);
 
-	
+	/* set up operation vectors */
 	sbi->bdi.ra_pages = __ra_pages(&sbi->layout);
 	sb->s_bdi = &sbi->bdi;
 	sb->s_fs_info = sbi;
@@ -768,6 +856,9 @@ free_sbi:
 	return ret;
 }
 
+/*
+ * Set up the superblock (calls exofs_fill_super eventually)
+ */
 static struct dentry *exofs_mount(struct file_system_type *type,
 			  int flags, const char *dev_name,
 			  void *data)
@@ -784,6 +875,10 @@ static struct dentry *exofs_mount(struct file_system_type *type,
 	return mount_nodev(type, flags, &opts, exofs_fill_super);
 }
 
+/*
+ * Return information about the file system state in the buffer.  This is used
+ * by the 'df' command, for example.
+ */
 static int exofs_statfs(struct dentry *dentry, struct kstatfs *buf)
 {
 	struct super_block *sb = dentry->d_sb;
@@ -826,7 +921,7 @@ static int exofs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	else
 		EXOFS_DBGMSG("exofs_statfs: get used-space failed.\n");
 
-	
+	/* fill in the stats buffer */
 	buf->f_type = EXOFS_SUPER_MAGIC;
 	buf->f_bsize = EXOFS_BLKSIZE;
 	buf->f_blocks = capacity >> 9;
@@ -852,6 +947,9 @@ static const struct super_operations exofs_sops = {
 	.statfs         = exofs_statfs,
 };
 
+/******************************************************************************
+ * EXPORT OPERATIONS
+ *****************************************************************************/
 
 static struct dentry *exofs_get_parent(struct dentry *child)
 {
@@ -872,7 +970,7 @@ static struct inode *exofs_nfs_get_inode(struct super_block *sb,
 	if (IS_ERR(inode))
 		return ERR_CAST(inode);
 	if (generation && inode->i_generation != generation) {
-		
+		/* we didn't find the right inode.. */
 		iput(inode);
 		return ERR_PTR(-ESTALE);
 	}
@@ -899,7 +997,13 @@ static const struct export_operations exofs_export_ops = {
 	.get_parent = exofs_get_parent,
 };
 
+/******************************************************************************
+ * INSMOD/RMMOD
+ *****************************************************************************/
 
+/*
+ * struct that describes this file system
+ */
 static struct file_system_type exofs_type = {
 	.owner          = THIS_MODULE,
 	.name           = "exofs",

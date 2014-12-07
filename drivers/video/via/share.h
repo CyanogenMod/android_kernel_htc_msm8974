@@ -24,6 +24,7 @@
 
 #include "via_modesetting.h"
 
+/* Define Bit Field */
 #define BIT0    0x01
 #define BIT1    0x02
 #define BIT2    0x04
@@ -33,8 +34,12 @@
 #define BIT6    0x40
 #define BIT7    0x80
 
+/* Video Memory Size */
 #define VIDEO_MEMORY_SIZE_16M    0x1000000
 
+/*
+ * Lengths of the VPIT structure arrays.
+ */
 #define StdCR       0x19
 #define StdSR       0x04
 #define StdGR       0x09
@@ -42,9 +47,11 @@
 
 #define PatchCR     11
 
+/* Display path */
 #define IGA1        1
 #define IGA2        2
 
+/* Define Color Depth  */
 #define MODE_8BPP       1
 #define MODE_16BPP      2
 #define MODE_32BPP      4
@@ -53,6 +60,7 @@
 #define GR21    0x21
 #define GR22    0x22
 
+/* Sequencer Registers */
 #define SR01    0x01
 #define SR10    0x10
 #define SR12    0x12
@@ -97,6 +105,7 @@
 #define SR5E    0x5E
 #define SR65    0x65
 
+/* CRT Controller Registers */
 #define CR00    0x00
 #define CR01    0x01
 #define CR02    0x02
@@ -123,6 +132,7 @@
 #define CR17    0x17
 #define CR18    0x18
 
+/* Extend CRT Controller Registers */
 #define CR30    0x30
 #define CR31    0x31
 #define CR32    0x32
@@ -243,15 +253,18 @@
 #define CRD3    0xD3
 #define CRD4    0xD4
 
-#define LUT_DATA             0x3C9	
-#define LUT_INDEX_READ       0x3C7	
-#define LUT_INDEX_WRITE      0x3C8	
+/* LUT Table*/
+#define LUT_DATA             0x3C9	/* DACDATA */
+#define LUT_INDEX_READ       0x3C7	/* DACRX */
+#define LUT_INDEX_WRITE      0x3C8	/* DACWX */
 #define DACMASK              0x3C6
 
+/* Definition Device */
 #define DEVICE_CRT  0x01
 #define DEVICE_DVI  0x03
 #define DEVICE_LCD  0x04
 
+/* Device output interface */
 #define INTERFACE_NONE          0x00
 #define INTERFACE_ANALOG_RGB    0x01
 #define INTERFACE_DVP0          0x02
@@ -270,6 +283,7 @@
 #define HW_LAYOUT_LCD1_LCD2     0x04
 #define HW_LAYOUT_LCD_EXTERNAL_LCD2 0x10
 
+/* Definition CRTC Timing Index */
 #define H_TOTAL_INDEX               0
 #define H_ADDR_INDEX                1
 #define H_BLANK_START_INDEX         2
@@ -291,9 +305,13 @@
 #define V_SYNC_SATRT_SHADOW_INDEX   18
 #define V_SYNC_END_SHADOW_INDEX     19
 
+/* LCD display method
+*/
 #define     LCD_EXPANDSION              0x00
 #define     LCD_CENTERING               0x01
 
+/* LCD mode
+*/
 #define     LCD_OPENLDI               0x00
 #define     LCD_SPWG                  0x01
 
@@ -311,4 +329,4 @@ struct io_reg {
 	u8 value;
 };
 
-#endif 
+#endif /* __SHARE_H__ */

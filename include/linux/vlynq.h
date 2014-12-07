@@ -159,4 +159,4 @@ extern int vlynq_set_remote_mapping(struct vlynq_device *dev, u32 tx_offset,
 extern int vlynq_set_local_irq(struct vlynq_device *dev, int virq);
 extern int vlynq_set_remote_irq(struct vlynq_device *dev, int virq);
 
-#endif 
+#endif /* __VLYNQ_H__ */

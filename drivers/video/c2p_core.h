@@ -13,6 +13,9 @@
  */
 
 
+    /*
+     *  Basic transpose step
+     */
 
 static inline void _transp(u32 d[], unsigned int i1, unsigned int i2,
 			   unsigned int shift, u32 mask)
@@ -50,6 +53,9 @@ static inline u32 get_mask(unsigned int n)
 }
 
 
+    /*
+     *  Transpose operations on 8 32-bit words
+     */
 
 static inline void transp8(u32 d[], unsigned int n, unsigned int m)
 {
@@ -57,27 +63,27 @@ static inline void transp8(u32 d[], unsigned int n, unsigned int m)
 
 	switch (m) {
 	case 1:
-		
+		/* First n x 1 block */
 		_transp(d, 0, 1, n, mask);
-		
+		/* Second n x 1 block */
 		_transp(d, 2, 3, n, mask);
-		
+		/* Third n x 1 block */
 		_transp(d, 4, 5, n, mask);
-		
+		/* Fourth n x 1 block */
 		_transp(d, 6, 7, n, mask);
 		return;
 
 	case 2:
-		
+		/* First n x 2 block */
 		_transp(d, 0, 2, n, mask);
 		_transp(d, 1, 3, n, mask);
-		
+		/* Second n x 2 block */
 		_transp(d, 4, 6, n, mask);
 		_transp(d, 5, 7, n, mask);
 		return;
 
 	case 4:
-		
+		/* Single n x 4 block */
 		_transp(d, 0, 4, n, mask);
 		_transp(d, 1, 5, n, mask);
 		_transp(d, 2, 6, n, mask);
@@ -89,6 +95,9 @@ static inline void transp8(u32 d[], unsigned int n, unsigned int m)
 }
 
 
+    /*
+     *  Transpose operations on 4 32-bit words
+     */
 
 static inline void transp4(u32 d[], unsigned int n, unsigned int m)
 {
@@ -96,14 +105,14 @@ static inline void transp4(u32 d[], unsigned int n, unsigned int m)
 
 	switch (m) {
 	case 1:
-		
+		/* First n x 1 block */
 		_transp(d, 0, 1, n, mask);
-		
+		/* Second n x 1 block */
 		_transp(d, 2, 3, n, mask);
 		return;
 
 	case 2:
-		
+		/* Single n x 2 block */
 		_transp(d, 0, 2, n, mask);
 		_transp(d, 1, 3, n, mask);
 		return;
@@ -113,6 +122,9 @@ static inline void transp4(u32 d[], unsigned int n, unsigned int m)
 }
 
 
+    /*
+     *  Transpose operations on 4 32-bit words (reverse order)
+     */
 
 static inline void transp4x(u32 d[], unsigned int n, unsigned int m)
 {
@@ -120,7 +132,7 @@ static inline void transp4x(u32 d[], unsigned int n, unsigned int m)
 
 	switch (m) {
 	case 2:
-		
+		/* Single n x 2 block */
 		_transp(d, 2, 0, n, mask);
 		_transp(d, 3, 1, n, mask);
 		return;
@@ -130,6 +142,10 @@ static inline void transp4x(u32 d[], unsigned int n, unsigned int m)
 }
 
 
+    /*
+     *  Compose two values, using a bitmask as decision value
+     *  This is equivalent to (a & mask) | (b & ~mask)
+     */
 
 static inline u32 comp(u32 a, u32 b, u32 mask)
 {

@@ -24,8 +24,10 @@
 #define OMAP1610_GPIO4_BASE		0xfffbbc00
 #define OMAP1_MPUIO_VBASE		OMAP1_MPUIO_BASE
 
+/* smart idle, enable wakeup */
 #define SYSCONFIG_WORD			0x14
 
+/* mpu gpio */
 static struct __initdata resource omap16xx_mpu_gpio_resources[] = {
 	{
 		.start	= OMAP1_MPUIO_VBASE,
@@ -67,6 +69,7 @@ static struct platform_device omap16xx_mpu_gpio = {
 	.resource = omap16xx_mpu_gpio_resources,
 };
 
+/* gpio1 */
 static struct __initdata resource omap16xx_gpio1_resources[] = {
 	{
 		.start	= OMAP1610_GPIO1_BASE,
@@ -111,6 +114,7 @@ static struct platform_device omap16xx_gpio1 = {
 	.resource = omap16xx_gpio1_resources,
 };
 
+/* gpio2 */
 static struct __initdata resource omap16xx_gpio2_resources[] = {
 	{
 		.start	= OMAP1610_GPIO2_BASE,
@@ -139,6 +143,7 @@ static struct platform_device omap16xx_gpio2 = {
 	.resource = omap16xx_gpio2_resources,
 };
 
+/* gpio3 */
 static struct __initdata resource omap16xx_gpio3_resources[] = {
 	{
 		.start	= OMAP1610_GPIO3_BASE,
@@ -167,6 +172,7 @@ static struct platform_device omap16xx_gpio3 = {
 	.resource = omap16xx_gpio3_resources,
 };
 
+/* gpio4 */
 static struct __initdata resource omap16xx_gpio4_resources[] = {
 	{
 		.start	= OMAP1610_GPIO4_BASE,
@@ -203,6 +209,11 @@ static struct __initdata platform_device * omap16xx_gpio_dev[] = {
 	&omap16xx_gpio4,
 };
 
+/*
+ * omap16xx_gpio_init needs to be done before
+ * machine_init functions access gpio APIs.
+ * Hence omap16xx_gpio_init is a postcore_initcall.
+ */
 static int __init omap16xx_gpio_init(void)
 {
 	int i;
@@ -214,6 +225,10 @@ static int __init omap16xx_gpio_init(void)
 	if (!cpu_is_omap16xx())
 		return -EINVAL;
 
+	/*
+	 * Enable system clock for GPIO module.
+	 * The CAM_CLK_CTRL *is* really the right place.
+	 */
 	omap_writel(omap_readl(ULPD_CAM_CLK_CTRL) | 0x04,
 					ULPD_CAM_CLK_CTRL);
 

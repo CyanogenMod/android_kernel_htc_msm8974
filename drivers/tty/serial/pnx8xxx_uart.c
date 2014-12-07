@@ -34,6 +34,7 @@
 #include <asm/io.h>
 #include <asm/irq.h>
 
+/* We'll be using StrongARM sa1100 serial port major/minor */
 #define SERIAL_PNX8XXX_MAJOR	204
 #define MINOR_START		5
 
@@ -41,13 +42,26 @@
 
 #define PNX8XXX_ISR_PASS_LIMIT	256
 
+/*
+ * Convert from ignore_status_mask or read_status_mask to FIFO
+ * and interrupt status bits
+ */
 #define SM_TO_FIFO(x)	((x) >> 10)
 #define SM_TO_ISTAT(x)	((x) & 0x000001ff)
 #define FIFO_TO_SM(x)	((x) << 10)
 #define ISTAT_TO_SM(x)	((x) & 0x000001ff)
 
+/*
+ * This is the size of our serial port register set.
+ */
 #define UART_PORT_SIZE	0x1000
 
+/*
+ * This determines how often we check the modem status signals
+ * for any change.  They generally aren't connected to an IRQ
+ * so we have to poll them.  We also check immediately before
+ * filling the TX fifo incase CTS has been dropped.
+ */
 #define MCTRL_TIMEOUT	(250*HZ/1000)
 
 extern struct pnx8xxx_port pnx8xxx_ports[];
@@ -62,6 +76,9 @@ static inline void serial_out(struct pnx8xxx_port *sport, int offset, int value)
 	__raw_writel(value, sport->port.membase + offset);
 }
 
+/*
+ * Handle any change of modem status signal since we were last called.
+ */
 static void pnx8xxx_mctrl_check(struct pnx8xxx_port *sport)
 {
 	unsigned int status, changed;
@@ -86,6 +103,10 @@ static void pnx8xxx_mctrl_check(struct pnx8xxx_port *sport)
 	wake_up_interruptible(&sport->port.state->port.delta_msr_wait);
 }
 
+/*
+ * This is our per-port timeout handler, for checking the
+ * modem status signals.
+ */
 static void pnx8xxx_timeout(unsigned long data)
 {
 	struct pnx8xxx_port *sport = (struct pnx8xxx_port *)data;
@@ -100,45 +121,57 @@ static void pnx8xxx_timeout(unsigned long data)
 	}
 }
 
+/*
+ * interrupts disabled on entry
+ */
 static void pnx8xxx_stop_tx(struct uart_port *port)
 {
 	struct pnx8xxx_port *sport = (struct pnx8xxx_port *)port;
 	u32 ien;
 
-	
+	/* Disable TX intr */
 	ien = serial_in(sport, PNX8XXX_IEN);
 	serial_out(sport, PNX8XXX_IEN, ien & ~PNX8XXX_UART_INT_ALLTX);
 
-	
+	/* Clear all pending TX intr */
 	serial_out(sport, PNX8XXX_ICLR, PNX8XXX_UART_INT_ALLTX);
 }
 
+/*
+ * interrupts may not be disabled on entry
+ */
 static void pnx8xxx_start_tx(struct uart_port *port)
 {
 	struct pnx8xxx_port *sport = (struct pnx8xxx_port *)port;
 	u32 ien;
 
-	
+	/* Clear all pending TX intr */
 	serial_out(sport, PNX8XXX_ICLR, PNX8XXX_UART_INT_ALLTX);
 
-	
+	/* Enable TX intr */
 	ien = serial_in(sport, PNX8XXX_IEN);
 	serial_out(sport, PNX8XXX_IEN, ien | PNX8XXX_UART_INT_ALLTX);
 }
 
+/*
+ * Interrupts enabled
+ */
 static void pnx8xxx_stop_rx(struct uart_port *port)
 {
 	struct pnx8xxx_port *sport = (struct pnx8xxx_port *)port;
 	u32 ien;
 
-	
+	/* Disable RX intr */
 	ien = serial_in(sport, PNX8XXX_IEN);
 	serial_out(sport, PNX8XXX_IEN, ien & ~PNX8XXX_UART_INT_ALLRX);
 
-	
+	/* Clear all pending RX intr */
 	serial_out(sport, PNX8XXX_ICLR, PNX8XXX_UART_INT_ALLRX);
 }
 
+/*
+ * Set the modem control timer to fire immediately.
+ */
 static void pnx8xxx_enable_ms(struct uart_port *port)
 {
 	struct pnx8xxx_port *sport = (struct pnx8xxx_port *)port;
@@ -160,6 +193,10 @@ static void pnx8xxx_rx_chars(struct pnx8xxx_port *sport)
 
 		flg = TTY_NORMAL;
 
+		/*
+		 * note that the error handling code is
+		 * out of the main execution path
+		 */
 		if (status & (FIFO_TO_SM(PNX8XXX_UART_FIFO_RXFE |
 					PNX8XXX_UART_FIFO_RXPAR |
 					PNX8XXX_UART_FIFO_RXBRK) |
@@ -215,6 +252,10 @@ static void pnx8xxx_tx_chars(struct pnx8xxx_port *sport)
 		return;
 	}
 
+	/*
+	 * Check the modem control lines before
+	 * transmitting anything.
+	 */
 	pnx8xxx_mctrl_check(sport);
 
 	if (uart_circ_empty(xmit) || uart_tx_stopped(&sport->port)) {
@@ -222,6 +263,9 @@ static void pnx8xxx_tx_chars(struct pnx8xxx_port *sport)
 		return;
 	}
 
+	/*
+	 * TX while bytes available
+	 */
 	while (((serial_in(sport, PNX8XXX_FIFO) &
 					PNX8XXX_UART_FIFO_TXFIFO) >> 16) < 16) {
 		serial_out(sport, PNX8XXX_FIFO, xmit->buf[xmit->tail]);
@@ -244,24 +288,27 @@ static irqreturn_t pnx8xxx_int(int irq, void *dev_id)
 	unsigned int status;
 
 	spin_lock(&sport->port.lock);
-	
+	/* Get the interrupts */
 	status  = serial_in(sport, PNX8XXX_ISTAT) & serial_in(sport, PNX8XXX_IEN);
 
-	
+	/* Byte or break signal received */
 	if (status & (PNX8XXX_UART_INT_RX | PNX8XXX_UART_INT_BREAK))
 		pnx8xxx_rx_chars(sport);
 
-	
+	/* TX holding register empty - transmit a byte */
 	if (status & PNX8XXX_UART_INT_TX)
 		pnx8xxx_tx_chars(sport);
 
-	
+	/* Clear the ISTAT register */
 	serial_out(sport, PNX8XXX_ICLR, status);
 
 	spin_unlock(&sport->port.lock);
 	return IRQ_HANDLED;
 }
 
+/*
+ * Return TIOCSER_TEMT when transmitter is not busy.
+ */
 static unsigned int pnx8xxx_tx_empty(struct uart_port *port)
 {
 	struct pnx8xxx_port *sport = (struct pnx8xxx_port *)port;
@@ -275,7 +322,7 @@ static unsigned int pnx8xxx_get_mctrl(struct uart_port *port)
 	unsigned int mctrl = TIOCM_DSR;
 	unsigned int msr;
 
-	
+	/* REVISIT */
 
 	msr = serial_in(sport, PNX8XXX_MCR);
 
@@ -287,12 +334,15 @@ static unsigned int pnx8xxx_get_mctrl(struct uart_port *port)
 
 static void pnx8xxx_set_mctrl(struct uart_port *port, unsigned int mctrl)
 {
-#if	0	
+#if	0	/* FIXME */
 	struct pnx8xxx_port *sport = (struct pnx8xxx_port *)port;
 	unsigned int msr;
 #endif
 }
 
+/*
+ * Interrupts always disabled.
+ */
 static void pnx8xxx_break_ctl(struct uart_port *port, int break_state)
 {
 	struct pnx8xxx_port *sport = (struct pnx8xxx_port *)port;
@@ -314,11 +364,17 @@ static int pnx8xxx_startup(struct uart_port *port)
 	struct pnx8xxx_port *sport = (struct pnx8xxx_port *)port;
 	int retval;
 
+	/*
+	 * Allocate the IRQ
+	 */
 	retval = request_irq(sport->port.irq, pnx8xxx_int, 0,
 			     "pnx8xxx-uart", sport);
 	if (retval)
 		return retval;
 
+	/*
+	 * Finally, clear and enable interrupts
+	 */
 
 	serial_out(sport, PNX8XXX_ICLR, PNX8XXX_UART_INT_ALLRX |
 			     PNX8XXX_UART_INT_ALLTX);
@@ -327,6 +383,9 @@ static int pnx8xxx_startup(struct uart_port *port)
 			    PNX8XXX_UART_INT_ALLRX |
 			    PNX8XXX_UART_INT_ALLTX);
 
+	/*
+	 * Enable modem status interrupts
+	 */
 	spin_lock_irq(&sport->port.lock);
 	pnx8xxx_enable_ms(&sport->port);
 	spin_unlock_irq(&sport->port.lock);
@@ -339,18 +398,33 @@ static void pnx8xxx_shutdown(struct uart_port *port)
 	struct pnx8xxx_port *sport = (struct pnx8xxx_port *)port;
 	int lcr;
 
+	/*
+	 * Stop our timer.
+	 */
 	del_timer_sync(&sport->timer);
 
+	/*
+	 * Disable all interrupts
+	 */
 	serial_out(sport, PNX8XXX_IEN, 0);
 
+	/*
+	 * Reset the Tx and Rx FIFOS, disable the break condition
+	 */
 	lcr = serial_in(sport, PNX8XXX_LCR);
 	lcr &= ~PNX8XXX_UART_LCR_TXBREAK;
 	lcr |= PNX8XXX_UART_LCR_TX_RST | PNX8XXX_UART_LCR_RX_RST;
 	serial_out(sport, PNX8XXX_LCR, lcr);
 
+	/*
+	 * Clear all interrupts
+	 */
 	serial_out(sport, PNX8XXX_ICLR, PNX8XXX_UART_INT_ALLRX |
 			     PNX8XXX_UART_INT_ALLTX);
 
+	/*
+	 * Free the interrupt
+	 */
 	free_irq(sport->port.irq, sport);
 }
 
@@ -363,6 +437,9 @@ pnx8xxx_set_termios(struct uart_port *port, struct ktermios *termios,
 	unsigned int lcr_fcr, old_ien, baud, quot;
 	unsigned int old_csize = old ? old->c_cflag & CSIZE : CS8;
 
+	/*
+	 * We only support CS7 and CS8.
+	 */
 	while ((termios->c_cflag & CSIZE) != CS7 &&
 	       (termios->c_cflag & CSIZE) != CS8) {
 		termios->c_cflag &= ~CSIZE;
@@ -383,6 +460,9 @@ pnx8xxx_set_termios(struct uart_port *port, struct ktermios *termios,
 			lcr_fcr |= PNX8XXX_UART_LCR_PAREVN;
 	}
 
+	/*
+	 * Ask the core to calculate the divisor for us.
+	 */
 	baud = uart_get_baud_rate(port, termios, old, 0, port->uartclk/16);
 	quot = uart_get_divisor(port, baud);
 
@@ -399,6 +479,9 @@ pnx8xxx_set_termios(struct uart_port *port, struct ktermios *termios,
 		sport->port.read_status_mask |=
 			ISTAT_TO_SM(PNX8XXX_UART_INT_BREAK);
 
+	/*
+	 * Characters to ignore
+	 */
 	sport->port.ignore_status_mask = 0;
 	if (termios->c_iflag & IGNPAR)
 		sport->port.ignore_status_mask |=
@@ -407,19 +490,32 @@ pnx8xxx_set_termios(struct uart_port *port, struct ktermios *termios,
 	if (termios->c_iflag & IGNBRK) {
 		sport->port.ignore_status_mask |=
 			ISTAT_TO_SM(PNX8XXX_UART_INT_BREAK);
+		/*
+		 * If we're ignoring parity and break indicators,
+		 * ignore overruns too (for real raw support).
+		 */
 		if (termios->c_iflag & IGNPAR)
 			sport->port.ignore_status_mask |=
 				ISTAT_TO_SM(PNX8XXX_UART_INT_RXOVRN);
 	}
 
+	/*
+	 * ignore all characters if CREAD is not set
+	 */
 	if ((termios->c_cflag & CREAD) == 0)
 		sport->port.ignore_status_mask |=
 			ISTAT_TO_SM(PNX8XXX_UART_INT_RX);
 
 	del_timer_sync(&sport->timer);
 
+	/*
+	 * Update the per-port timeout.
+	 */
 	uart_update_timeout(port, termios->c_cflag, baud);
 
+	/*
+	 * disable interrupts and drain transmitter
+	 */
 	old_ien = serial_in(sport, PNX8XXX_IEN);
 	serial_out(sport, PNX8XXX_IEN, old_ien & ~(PNX8XXX_UART_INT_ALLTX |
 					PNX8XXX_UART_INT_ALLRX));
@@ -427,17 +523,17 @@ pnx8xxx_set_termios(struct uart_port *port, struct ktermios *termios,
 	while (serial_in(sport, PNX8XXX_FIFO) & PNX8XXX_UART_FIFO_TXFIFO_STA)
 		barrier();
 
-	
+	/* then, disable everything */
 	serial_out(sport, PNX8XXX_IEN, 0);
 
-	
+	/* Reset the Rx and Tx FIFOs too */
 	lcr_fcr |= PNX8XXX_UART_LCR_TX_RST;
 	lcr_fcr |= PNX8XXX_UART_LCR_RX_RST;
 
-	
+	/* set the parity, stop bits and data size */
 	serial_out(sport, PNX8XXX_LCR, lcr_fcr);
 
-	
+	/* set the baud rate */
 	quot -= 1;
 	serial_out(sport, PNX8XXX_BAUD, quot);
 
@@ -458,6 +554,9 @@ static const char *pnx8xxx_type(struct uart_port *port)
 	return sport->port.type == PORT_PNX8XXX ? "PNX8XXX" : NULL;
 }
 
+/*
+ * Release the memory region(s) being used by 'port'.
+ */
 static void pnx8xxx_release_port(struct uart_port *port)
 {
 	struct pnx8xxx_port *sport = (struct pnx8xxx_port *)port;
@@ -465,6 +564,9 @@ static void pnx8xxx_release_port(struct uart_port *port)
 	release_mem_region(sport->port.mapbase, UART_PORT_SIZE);
 }
 
+/*
+ * Request the memory region(s) being used by 'port'.
+ */
 static int pnx8xxx_request_port(struct uart_port *port)
 {
 	struct pnx8xxx_port *sport = (struct pnx8xxx_port *)port;
@@ -472,6 +574,9 @@ static int pnx8xxx_request_port(struct uart_port *port)
 			"pnx8xxx-uart") != NULL ? 0 : -EBUSY;
 }
 
+/*
+ * Configure/autoconfigure the port.
+ */
 static void pnx8xxx_config_port(struct uart_port *port, int flags)
 {
 	struct pnx8xxx_port *sport = (struct pnx8xxx_port *)port;
@@ -481,6 +586,11 @@ static void pnx8xxx_config_port(struct uart_port *port, int flags)
 		sport->port.type = PORT_PNX8XXX;
 }
 
+/*
+ * Verify the new serial_struct (for TIOCSSERIAL).
+ * The only change we allow are to the flags and type, and
+ * even then only between PORT_PNX8XXX and PORT_UNKNOWN
+ */
 static int
 pnx8xxx_verify_port(struct uart_port *port, struct serial_struct *ser)
 {
@@ -524,6 +634,11 @@ static struct uart_ops pnx8xxx_pops = {
 };
 
 
+/*
+ * Setup the PNX8XXX serial ports.
+ *
+ * Note also that we support "console=ttySx" where "x" is either 0 or 1.
+ */
 static void __init pnx8xxx_init_ports(void)
 {
 	static int first = 1;
@@ -549,30 +664,39 @@ static void pnx8xxx_console_putchar(struct uart_port *port, int ch)
 	int status;
 
 	do {
-		
+		/* Wait for UART_TX register to empty */
 		status = serial_in(sport, PNX8XXX_FIFO);
 	} while (status & PNX8XXX_UART_FIFO_TXFIFO);
 	serial_out(sport, PNX8XXX_FIFO, ch);
 }
 
-static void
+/*
+ * Interrupts are disabled on entering
+ */static void
 pnx8xxx_console_write(struct console *co, const char *s, unsigned int count)
 {
 	struct pnx8xxx_port *sport = &pnx8xxx_ports[co->index];
 	unsigned int old_ien, status;
 
+	/*
+	 *	First, save IEN and then disable interrupts
+	 */
 	old_ien = serial_in(sport, PNX8XXX_IEN);
 	serial_out(sport, PNX8XXX_IEN, old_ien & ~(PNX8XXX_UART_INT_ALLTX |
 					PNX8XXX_UART_INT_ALLRX));
 
 	uart_console_write(&sport->port, s, count, pnx8xxx_console_putchar);
 
+	/*
+	 *	Finally, wait for transmitter to become empty
+	 *	and restore IEN
+	 */
 	do {
-		
+		/* Wait for UART_TX register to empty */
 		status = serial_in(sport, PNX8XXX_FIFO);
 	} while (status & PNX8XXX_UART_FIFO_TXFIFO);
 
-	
+	/* Clear TX and EMPTY interrupt */
 	serial_out(sport, PNX8XXX_ICLR, PNX8XXX_UART_INT_TX |
 			     PNX8XXX_UART_INT_EMPTY);
 
@@ -588,6 +712,11 @@ pnx8xxx_console_setup(struct console *co, char *options)
 	int parity = 'n';
 	int flow = 'n';
 
+	/*
+	 * Check whether an invalid uart number has been specified, and
+	 * if so, search for the first available port that does have
+	 * console support.
+	 */
 	if (co->index == -1 || co->index >= NR_PORTS)
 		co->index = 0;
 	sport = &pnx8xxx_ports[co->index];

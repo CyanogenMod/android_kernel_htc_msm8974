@@ -12,20 +12,29 @@
 #ifndef __57XX_ISCSI_CONSTANTS_H_
 #define __57XX_ISCSI_CONSTANTS_H_
 
+/**
+* This file defines HSI constants for the iSCSI flows
+*/
 
+/* iSCSI request op codes */
 #define ISCSI_OPCODE_CLEANUP_REQUEST    (7)
 
+/* iSCSI response/messages op codes */
 #define ISCSI_OPCODE_CLEANUP_RESPONSE 		(0x27)
 #define ISCSI_OPCODE_NOPOUT_LOCAL_COMPLETION    (0)
 
+/* iSCSI task types */
 #define ISCSI_TASK_TYPE_READ    (0)
 #define ISCSI_TASK_TYPE_WRITE   (1)
 #define ISCSI_TASK_TYPE_MPATH   (2)
 
+/* initial CQ sequence numbers */
 #define ISCSI_INITIAL_SN    (1)
 
+/* KWQ (kernel work queue) layer codes */
 #define ISCSI_KWQE_LAYER_CODE   (6)
 
+/* KWQ (kernel work queue) request op codes */
 #define ISCSI_KWQE_OPCODE_OFFLOAD_CONN1 (0)
 #define ISCSI_KWQE_OPCODE_OFFLOAD_CONN2 (1)
 #define ISCSI_KWQE_OPCODE_UPDATE_CONN   (2)
@@ -33,6 +42,7 @@
 #define ISCSI_KWQE_OPCODE_INIT1         (4)
 #define ISCSI_KWQE_OPCODE_INIT2         (5)
 
+/* KCQ (kernel completion queue) response op codes */
 #define ISCSI_KCQE_OPCODE_OFFLOAD_CONN  (0x10)
 #define ISCSI_KCQE_OPCODE_UPDATE_CONN   (0x12)
 #define ISCSI_KCQE_OPCODE_DESTROY_CONN  (0x13)
@@ -45,6 +55,7 @@
 #define ISCSI_KCQE_OPCODE_CQ_EVENT_NOTIFICATION (0x20)
 #define ISCSI_KCQE_OPCODE_ISCSI_ERROR   (0x21)
 
+/* KCQ (kernel completion queue) completion status */
 #define ISCSI_KCQE_COMPLETION_STATUS_SUCCESS                            (0x0)
 #define ISCSI_KCQE_COMPLETION_STATUS_INVALID_OPCODE                     (0x1)
 #define ISCSI_KCQE_COMPLETION_STATUS_CTX_ALLOC_FAILURE                  (0x2)
@@ -60,6 +71,7 @@
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_ITT                   (0xd)
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_STATSN                (0xe)
 
+/* Response */
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_EXP_DATASN            (0xf)
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_PEND_R2T              (0x10)
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_DATA_SEG_LEN_IS_ZERO  (0x2c)
@@ -72,6 +84,7 @@
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_O_U_5                 (0x16)
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_O_U_6                 (0x17)
 
+/* Data-In */
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_REMAIN_RCV_LEN        (0x18)
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_MAX_RCV_PDU_LEN       (0x19)
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_F_BIT_ZERO            (0x1a)
@@ -79,6 +92,7 @@
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_DATASN                (0x1c)
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_REMAIN_BURST_LEN      (0x1d)
 
+/* R2T */
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_BUFFER_OFF            (0x1f)
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_LUN                   (0x20)
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_R2TSN                 (0x21)
@@ -89,16 +103,19 @@
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_MAX_BURST_LEN         (0x26)
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_DATA_SEG_LEN_NOT_ZERO (0x27)
 
+/* TMF */
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_REJECT_PDU_LEN        (0x28)
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_ASYNC_PDU_LEN         (0x29)
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_NOPIN_PDU_LEN         (0x2a)
 #define ISCSI_KCQE_COMPLETION_STATUS_PROTOCOL_ERR_PEND_R2T_IN_CLEANUP   (0x2b)
 
+/* IP/TCP processing errors: */
 #define ISCI_KCQE_COMPLETION_STATUS_TCP_ERROR_IP_FRAGMENT               (0x40)
 #define ISCI_KCQE_COMPLETION_STATUS_TCP_ERROR_IP_OPTIONS                (0x41)
 #define ISCI_KCQE_COMPLETION_STATUS_TCP_ERROR_URGENT_FLAG               (0x42)
 #define ISCI_KCQE_COMPLETION_STATUS_TCP_ERROR_MAX_RTRANS                (0x43)
 
+/* iSCSI licensing errors */
 /* general iSCSI license not installed */
 #define ISCSI_KCQE_COMPLETION_STATUS_ISCSI_NOT_SUPPORTED                (0x50)
 /* additional LOM specific iSCSI license not installed */
@@ -107,12 +124,14 @@
 #define ISCSI_KCQE_COMPLETION_STATUS_CID_BUSY				(0x80)
 #define ISCSI_KCQE_COMPLETION_STATUS_PARITY_ERR                         (0x81)
 
+/* SQ/RQ/CQ DB structure sizes */
 #define ISCSI_SQ_DB_SIZE    (16)
 #define ISCSI_RQ_DB_SIZE    (64)
 #define ISCSI_CQ_DB_SIZE    (80)
 
 #define ISCSI_SQN_TO_NOTIFY_NOT_VALID                                   0xFFFF
 
+/* Page size codes (for flags field in connection offload request) */
 #define ISCSI_PAGE_SIZE_256     (0)
 #define ISCSI_PAGE_SIZE_512     (1)
 #define ISCSI_PAGE_SIZE_1K      (2)
@@ -130,10 +149,11 @@
 #define ISCSI_PAGE_SIZE_4M      (14)
 #define ISCSI_PAGE_SIZE_8M      (15)
 
+/* Iscsi PDU related defines */
 #define ISCSI_HEADER_SIZE   (48)
 #define ISCSI_DIGEST_SHIFT  (2)
 #define ISCSI_DIGEST_SIZE   (4)
 
 #define B577XX_ISCSI_CONNECTION_TYPE    3
 
-#endif 
+#endif /*__57XX_ISCSI_CONSTANTS_H_ */

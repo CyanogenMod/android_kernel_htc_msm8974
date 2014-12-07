@@ -36,8 +36,19 @@
 
 #include <linux/types.h>
 
+/*
+ * Increment this value if any changes that break userspace ABI
+ * compatibility are made.
+ */
 #define MLX4_IB_UVERBS_ABI_VERSION	3
 
+/*
+ * Make sure that all structs defined in this file remain laid out so
+ * that they pack the same way on 32-bit and 64-bit architectures (to
+ * avoid incompatibility between 32-bit userspace and 64-bit kernels).
+ * In particular do not use pointer types -- pass pointers in __u64
+ * instead.
+ */
 
 struct mlx4_ib_alloc_ucontext_resp {
 	__u32	qp_tab_size;
@@ -83,4 +94,4 @@ struct mlx4_ib_create_qp {
 	__u8	reserved[5];
 };
 
-#endif 
+#endif /* MLX4_IB_USER_H */

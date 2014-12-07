@@ -179,7 +179,7 @@ static ssize_t rate_show(struct ib_port *p, struct port_attribute *unused,
 {
 	struct ib_port_attr attr;
 	char *speed = "";
-	int rate;		
+	int rate;		/* in deci-Gb/sec */
 	ssize_t ret;
 
 	ret = ib_query_port(p->ibdev, p->port_num, &attr);
@@ -208,7 +208,7 @@ static ssize_t rate_show(struct ib_port *p, struct port_attribute *unused,
 		rate = 250;
 		break;
 	case IB_SPEED_SDR:
-	default:		
+	default:		/* default to SDR for invalid rates */
 		rate = 25;
 		break;
 	}
@@ -342,9 +342,9 @@ static ssize_t show_pma_counter(struct ib_port *p, struct port_attribute *attr,
 	in_mad->mad_hdr.mgmt_class    = IB_MGMT_CLASS_PERF_MGMT;
 	in_mad->mad_hdr.class_version = 1;
 	in_mad->mad_hdr.method        = IB_MGMT_METHOD_GET;
-	in_mad->mad_hdr.attr_id       = cpu_to_be16(0x12); 
+	in_mad->mad_hdr.attr_id       = cpu_to_be16(0x12); /* PortCounters */
 
-	in_mad->data[41] = p->port_num;	
+	in_mad->data[41] = p->port_num;	/* PortSelect field */
 
 	if ((p->ibdev->process_mad(p->ibdev, IB_MAD_IGNORE_MKEY,
 		 p->port_num, NULL, NULL, in_mad, out_mad) &
@@ -463,6 +463,9 @@ static int ib_device_uevent(struct device *device,
 	if (add_uevent_var(env, "NAME=%s", dev->name))
 		return -ENOMEM;
 
+	/*
+	 * It would be nice to pass the node GUID with the event...
+	 */
 
 	return 0;
 }
@@ -686,6 +689,7 @@ static struct class ib_class = {
 	.dev_uevent = ib_device_uevent,
 };
 
+/* Show a given an attribute in the statistics group */
 static ssize_t show_protocol_stat(const struct device *device,
 			    struct device_attribute *attr, char *buf,
 			    unsigned offset)
@@ -702,6 +706,7 @@ static ssize_t show_protocol_stat(const struct device *device,
 		       (unsigned long long) ((u64 *) &stats)[offset]);
 }
 
+/* generate a read-only iwarp statistics attribute */
 #define IW_STATS_ENTRY(name)						\
 static ssize_t show_##name(struct device *device,			\
 			   struct device_attribute *attr, char *buf)	\
@@ -879,7 +884,7 @@ void ib_device_unregister_sysfs(struct ib_device *device)
 	struct kobject *p, *t;
 	struct ib_port *port;
 
-	
+	/* Hold kobject until ib_dealloc_device() */
 	kobject_get(&device->dev.kobj);
 
 	list_for_each_entry_safe(p, t, &device->port_list, entry) {

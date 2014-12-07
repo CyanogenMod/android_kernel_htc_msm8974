@@ -172,6 +172,7 @@ struct rtl818x_csr {
 	u8	RETRY_CTR;
 	u8	reserved_19[3];
 	__le16	INT_MIG;
+/* RTL818X_R8187B_*: magic numbers from ioregisters */
 #define RTL818X_R8187B_B	0
 #define RTL818X_R8187B_D	1
 #define RTL818X_R8187B_E	2
@@ -195,6 +196,18 @@ struct rtl818x_rf_ops {
 	u8 (*calc_rssi)(u8 agc, u8 sq);
 };
 
+/**
+ * enum rtl818x_tx_desc_flags - Tx/Rx flags are common between RTL818X chips
+ *
+ * @RTL818X_TX_DESC_FLAG_NO_ENC: Disable hardware based encryption.
+ * @RTL818X_TX_DESC_FLAG_TX_OK: TX frame was ACKed.
+ * @RTL818X_TX_DESC_FLAG_SPLCP: Use short preamble.
+ * @RTL818X_TX_DESC_FLAG_MOREFRAG: More fragments follow.
+ * @RTL818X_TX_DESC_FLAG_CTS: Use CTS-to-self protection.
+ * @RTL818X_TX_DESC_FLAG_RTS: Use RTS/CTS protection.
+ * @RTL818X_TX_DESC_FLAG_LS: Last segment of the frame.
+ * @RTL818X_TX_DESC_FLAG_FS: First segment of the frame.
+ */
 enum rtl818x_tx_desc_flags {
 	RTL818X_TX_DESC_FLAG_NO_ENC	= (1 << 15),
 	RTL818X_TX_DESC_FLAG_TX_OK	= (1 << 15),
@@ -217,8 +230,8 @@ enum rtl818x_rx_desc_flags {
 	RTL818X_RX_DESC_FLAG_BCAST	= (1 << 16),
 	RTL818X_RX_DESC_FLAG_PAM	= (1 << 17),
 	RTL818X_RX_DESC_FLAG_MCAST	= (1 << 18),
-	RTL818X_RX_DESC_FLAG_QOS	= (1 << 19), 
-	RTL818X_RX_DESC_FLAG_TRSW	= (1 << 24), 
+	RTL818X_RX_DESC_FLAG_QOS	= (1 << 19), /* RTL8187(B) only */
+	RTL818X_RX_DESC_FLAG_TRSW	= (1 << 24), /* RTL8187(B) only */
 	RTL818X_RX_DESC_FLAG_SPLCP	= (1 << 25),
 	RTL818X_RX_DESC_FLAG_FOF	= (1 << 26),
 	RTL818X_RX_DESC_FLAG_DMA_FAIL	= (1 << 27),
@@ -228,4 +241,4 @@ enum rtl818x_rx_desc_flags {
 	RTL818X_RX_DESC_FLAG_OWN	= (1 << 31)
 };
 
-#endif 
+#endif /* RTL818X_H */

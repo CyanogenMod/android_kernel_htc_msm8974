@@ -11,6 +11,10 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * Qualcomm PMIC8XXX gpio rpc driver header file
+ *
+ */
 
 #ifndef __GPIO_PM8XXX_RPC_H
 #define __GPIO_PM8XXX_RPC_H
@@ -22,6 +26,8 @@ struct pm8xxx_gpio_rpc_platform_data {
 	int	gpio_base;
 };
 
+/* GPIO parameters */
+/* direction */
 #define	PM_GPIO_DIR_OUT			0x01
 #define	PM_GPIO_DIR_IN			0x02
 #define	PM_GPIO_DIR_BOTH		(PM_GPIO_DIR_OUT | PM_GPIO_DIR_IN)

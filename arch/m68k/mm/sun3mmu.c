@@ -1,3 +1,11 @@
+/*
+ * linux/arch/m68k/mm/sun3mmu.c
+ *
+ * Implementations of mm routines specific to the sun3 MMU.
+ *
+ * Moved here 8/20/1999 Sam Creasey
+ *
+ */
 
 #include <linux/signal.h>
 #include <linux/sched.h>
@@ -26,6 +34,9 @@ void free_initmem(void)
 {
 }
 
+/* For the sun3 we try to follow the i386 paging_init() more closely */
+/* start_mem and end_mem have PAGE_OFFSET added already */
+/* now sets up tables using sun3 PTEs rather than i386 as before. --m */
 void __init paging_init(void)
 {
 	pgd_t * pg_dir;
@@ -53,7 +64,7 @@ void __init paging_init(void)
 	next_pgtable = (unsigned long)alloc_bootmem_pages(size);
 	bootmem_end = (next_pgtable + size + PAGE_SIZE) & PAGE_MASK;
 
-	
+	/* Map whole memory from PAGE_OFFSET (0x0E000000) */
 	pg_dir += PAGE_OFFSET >> PGDIR_SHIFT;
 
 	while (address < (unsigned long)high_memory) {
@@ -62,7 +73,7 @@ void __init paging_init(void)
 		pgd_val(*pg_dir) = (unsigned long) pg_table;
 		pg_dir++;
 
-		
+		/* now change pg_table to kernel virtual addresses */
 		pg_table = (pte_t *) __va ((unsigned long) pg_table);
 		for (i=0; i<PTRS_PER_PTE; ++i, ++pg_table) {
 			pte_t pte = pfn_pte(virt_to_pfn(address), PAGE_INIT);
@@ -77,10 +88,11 @@ void __init paging_init(void)
 
 	current->mm = NULL;
 
-	
+	/* memory sizing is a hack stolen from motorola.c..  hope it works for us */
 	zones_size[ZONE_DMA] = ((unsigned long)high_memory - PAGE_OFFSET) >> PAGE_SHIFT;
 
-	
+	/* I really wish I knew why the following change made things better...  -- Sam */
+/*	free_area_init(zones_size); */
 	free_area_init_node(0, zones_size,
 			    (__pa(PAGE_OFFSET) >> PAGE_SHIFT) + 1, NULL);
 

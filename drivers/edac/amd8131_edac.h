@@ -29,12 +29,18 @@
 #define DEVFN_PCIX_BRIDGE_SOUTH_A	24
 #define DEVFN_PCIX_BRIDGE_SOUTH_B	32
 
+/************************************************************
+ *	PCI-X Bridge Status and Command Register, DevA:0x04
+ ************************************************************/
 #define REG_STS_CMD	0x04
 enum sts_cmd_bits {
 	STS_CMD_SSE	= BIT(30),
 	STS_CMD_SERREN	= BIT(8)
 };
 
+/************************************************************
+ *	PCI-X Bridge Interrupt and Bridge Control Register,
+ ************************************************************/
 #define REG_INT_CTLR	0x3c
 enum int_ctlr_bits {
 	INT_CTLR_DTSE	= BIT(27),
@@ -43,6 +49,9 @@ enum int_ctlr_bits {
 	INT_CTLR_PERR	= BIT(16)
 };
 
+/************************************************************
+ *	PCI-X Bridge Memory Base-Limit Register, DevA:0x1C
+ ************************************************************/
 #define REG_MEM_LIM	0x1c
 enum mem_limit_bits {
 	MEM_LIMIT_DPE 	= BIT(31),
@@ -55,8 +64,14 @@ enum mem_limit_bits {
 				MEM_LIMIT_RTA|MEM_LIMIT_STA|MEM_LIMIT_MDPE
 };
 
+/************************************************************
+ *	Link Configuration And Control Register, side A
+ ************************************************************/
 #define REG_LNK_CTRL_A	0xc4
 
+/************************************************************
+ *	Link Configuration And Control Register, side B
+ ************************************************************/
 #define REG_LNK_CTRL_B  0xc8
 
 enum lnk_ctrl_bits {
@@ -77,18 +92,28 @@ struct amd8131_dev_info {
 	int devfn;
 	enum pcix_bridge_inst inst;
 	struct pci_dev *dev;
-	int edac_idx;	
+	int edac_idx;	/* pci device index */
 	char *ctl_name;
 	struct edac_pci_ctl_info *edac_dev;
 };
 
+/*
+ * AMD8131 chipset has two pairs of PCIX Bridge and related IOAPIC
+ * Controller, and ATCA-6101 has two AMD8131 chipsets, so there are
+ * four PCIX Bridges on ATCA-6101 altogether.
+ *
+ * These PCIX Bridges share the same PCI Device ID and are all of
+ * Function Zero, they could be discrimated by their pci_dev->devfn.
+ * They share the same set of init/check/exit methods, and their
+ * private structures are collected in the devices[] array.
+ */
 struct amd8131_info {
-	u16 err_dev;	
+	u16 err_dev;	/* PCI Device ID for AMD8131 APIC*/
 	struct amd8131_dev_info *devices;
 	void (*init)(struct amd8131_dev_info *dev_info);
 	void (*exit)(struct amd8131_dev_info *dev_info);
 	void (*check)(struct edac_pci_ctl_info *edac_dev);
 };
 
-#endif 
+#endif /* _AMD8131_EDAC_H_ */
 

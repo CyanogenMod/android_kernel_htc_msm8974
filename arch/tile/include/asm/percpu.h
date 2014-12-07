@@ -21,4 +21,4 @@ register unsigned long __my_cpu_offset __asm__("tp");
 
 #include <asm-generic/percpu.h>
 
-#endif 
+#endif /* _ASM_TILE_PERCPU_H */

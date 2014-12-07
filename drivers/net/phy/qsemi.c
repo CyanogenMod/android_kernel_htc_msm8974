@@ -34,15 +34,18 @@
 #include <asm/irq.h>
 #include <asm/uaccess.h>
 
+/* ------------------------------------------------------------------------- */
+/* The Quality Semiconductor QS6612 is used on the RPX CLLF                  */
 
+/* register definitions */
 
-#define MII_QS6612_MCR		17  
-#define MII_QS6612_FTR		27  
-#define MII_QS6612_MCO		28  
-#define MII_QS6612_ISR		29  
-#define MII_QS6612_IMR		30  
+#define MII_QS6612_MCR		17  /* Mode Control Register      */
+#define MII_QS6612_FTR		27  /* Factory Test Register      */
+#define MII_QS6612_MCO		28  /* Misc. Control Register     */
+#define MII_QS6612_ISR		29  /* Interrupt Source Register  */
+#define MII_QS6612_IMR		30  /* Interrupt Mask Register    */
 #define MII_QS6612_IMR_INIT	0x003a
-#define MII_QS6612_PCR		31  
+#define MII_QS6612_PCR		31  /* 100BaseTx PHY Control Reg. */
 
 #define QS6612_PCR_AN_COMPLETE	0x1000
 #define QS6612_PCR_RLBEN	0x0200
@@ -56,8 +59,20 @@ MODULE_DESCRIPTION("Quality Semiconductor PHY driver");
 MODULE_AUTHOR("Andy Fleming");
 MODULE_LICENSE("GPL");
 
+/* Returns 0, unless there's a write error */
 static int qs6612_config_init(struct phy_device *phydev)
 {
+	/* The PHY powers up isolated on the RPX,
+	 * so send a command to allow operation.
+	 * XXX - My docs indicate this should be 0x0940
+	 * ...or something.  The current value sets three
+	 * reserved bits, bit 11, which specifies it should be
+	 * set to one, bit 10, which specifies it should be set
+	 * to 0, and bit 7, which doesn't specify.  However, my
+	 * docs are preliminary, and I will leave it like this
+	 * until someone more knowledgable corrects me or it.
+	 * -- Andy Fleming
+	 */
 	return phy_write(phydev, MII_QS6612_PCR, 0x0dc0);
 }
 

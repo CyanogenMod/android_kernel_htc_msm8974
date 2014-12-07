@@ -43,4 +43,4 @@ static inline void __put_unaligned_cpu64(u64 val, void *p)
 	ptr->x = val;
 }
 
-#endif 
+#endif /* _LINUX_UNALIGNED_PACKED_STRUCT_H */

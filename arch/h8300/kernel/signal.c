@@ -8,7 +8,21 @@
  * for more details.
  */
 
+/*
+ * uClinux H8/300 support by Yoshinori Sato <ysato@users.sourceforge.jp>
+ *                and David McCullough <davidm@snapgear.com>
+ *
+ * Based on
+ * Linux/m68k by Hamish Macdonald
+ */
 
+/*
+ * ++roman (07/09/96): implemented signal stacks (specially for tosemu on
+ * Atari :-) Current limitation: Only one sigstack can be active at one time.
+ * If a second signal with SA_ONSTACK set arrives while working on a sigstack,
+ * SA_ONSTACK is ignored. This behaviour avoids lots of trouble with nested
+ * signal handlers!
+ */
 
 #include <linux/sched.h>
 #include <linux/mm.h>
@@ -37,6 +51,9 @@
 
 asmlinkage int do_signal(struct pt_regs *regs, sigset_t *oldset);
 
+/*
+ * Atomically swap in the new signal mask, and wait for a signal.
+ */
 asmlinkage int do_sigsuspend(struct pt_regs *regs)
 {
 	old_sigset_t mask = regs->er3;
@@ -65,7 +82,7 @@ do_rt_sigsuspend(struct pt_regs *regs)
 	size_t sigsetsize = (size_t)regs->er2;
 	sigset_t saveset, newset;
 
-	
+	/* XXX: Don't preclude handling different sized sigset_t's.  */
 	if (sigsetsize != sizeof(sigset_t))
 		return -EINVAL;
 
@@ -127,6 +144,12 @@ sys_sigaltstack(const stack_t *uss, stack_t *uoss)
 }
 
 
+/*
+ * Do a signal return; undo the signal stack.
+ *
+ * Keep the return code on the stack quadword aligned!
+ * That makes the cache flush below easier.
+ */
 
 struct sigframe
 {
@@ -169,10 +192,10 @@ restore_sigcontext(struct pt_regs *regs, struct sigcontext *usc,
 	unsigned int usp;
 	unsigned int er0;
 
-	
+	/* Always make any pending restarted system calls return -EINTR */
 	current_thread_info()->restart_block.fn = do_no_restart_syscall;
 
-#define COPY(r) err |= __get_user(regs->r, &usc->sc_##r)    
+#define COPY(r) err |= __get_user(regs->r, &usc->sc_##r)    /* restore passed registers */
 	COPY(er1);
 	COPY(er2);
 	COPY(er3);
@@ -183,7 +206,7 @@ restore_sigcontext(struct pt_regs *regs, struct sigcontext *usc,
 #undef COPY
 	regs->ccr &= 0xef;
 	regs->ccr |= ccr;
-	regs->orig_er0 = -1;		
+	regs->orig_er0 = -1;		/* disable syscall checks */
 	err |= __get_user(usp, &usc->sc_usp);
 	wrusp(usp);
 
@@ -280,10 +303,10 @@ get_sigframe(struct k_sigaction *ka, struct pt_regs *regs, size_t frame_size)
 {
 	unsigned long usp;
 
-	
+	/* Default to using normal stack.  */
 	usp = rdusp();
 
-	
+	/* This is the X/Open sanctioned signal stack switching.  */
 	if (ka->sa.sa_flags & SA_ONSTACK) {
 		if (!sas_ss_flags(usp))
 			usp = current->sas_ss_sp + current->sas_ss_size;
@@ -329,19 +352,19 @@ static void setup_frame (int sig, struct k_sigaction *ka,
 	if (ka->sa.sa_flags & SA_RESTORER)
 		ret = (unsigned char *)(ka->sa.sa_restorer);
 	else {
-		
+		/* sub.l er0,er0; mov.b #__NR_sigreturn,r0l; trapa #0 */
 		err |= __put_user(0x1a80f800 + (__NR_sigreturn & 0xff),
 				  (unsigned long *)(frame->retcode + 0));
 		err |= __put_user(0x5700, (unsigned short *)(frame->retcode + 4));
 	}
 
-	
+	/* Set up to return from userspace.  */
 	err |= __put_user(ret, &frame->pretcode);
 
 	if (err)
 		goto give_sigsegv;
 
-	
+	/* Set up registers for signal handler */
 	wrusp ((unsigned long) frame);
 	regs->pc = (unsigned long) ka->sa.sa_handler;
 	regs->er0 = (current_thread_info()->exec_domain
@@ -350,7 +373,7 @@ static void setup_frame (int sig, struct k_sigaction *ka,
 			   ? current_thread_info()->exec_domain->signal_invmap[sig]
 		          : sig);
 	regs->er1 = (unsigned long)&(frame->sc);
-	regs->er5 = current->mm->start_data;	
+	regs->er5 = current->mm->start_data;	/* GOT base */
 
 	return;
 
@@ -387,7 +410,7 @@ static void setup_rt_frame (int sig, struct k_sigaction *ka, siginfo_t *info,
 	if (err)
 		goto give_sigsegv;
 
-	
+	/* Create the ucontext.  */
 	err |= __put_user(0, &frame->uc.uc_flags);
 	err |= __put_user(0, &frame->uc.uc_link);
 	err |= __put_user((void *)current->sas_ss_sp,
@@ -400,12 +423,12 @@ static void setup_rt_frame (int sig, struct k_sigaction *ka, siginfo_t *info,
 	if (err)
 		goto give_sigsegv;
 
-	
+	/* Set up to return from userspace.  */
 	ret = frame->retcode;
 	if (ka->sa.sa_flags & SA_RESTORER)
 		ret = (unsigned char *)(ka->sa.sa_restorer);
 	else {
-		
+		/* sub.l er0,er0; mov.b #__NR_sigreturn,r0l; trapa #0 */
 		err |= __put_user(0x1a80f800 + (__NR_sigreturn & 0xff),
 				  (unsigned long *)(frame->retcode + 0));
 		err |= __put_user(0x5700, (unsigned short *)(frame->retcode + 4));
@@ -415,7 +438,7 @@ static void setup_rt_frame (int sig, struct k_sigaction *ka, siginfo_t *info,
 	if (err)
 		goto give_sigsegv;
 
-	
+	/* Set up registers for signal handler */
 	wrusp ((unsigned long) frame);
 	regs->pc  = (unsigned long) ka->sa.sa_handler;
 	regs->er0 = (current_thread_info()->exec_domain
@@ -425,7 +448,7 @@ static void setup_rt_frame (int sig, struct k_sigaction *ka, siginfo_t *info,
 		     : sig);
 	regs->er1 = (unsigned long)&(frame->info);
 	regs->er2 = (unsigned long)&frame->uc;
-	regs->er5 = current->mm->start_data;	
+	regs->er5 = current->mm->start_data;	/* GOT base */
 
 	return;
 
@@ -433,11 +456,14 @@ give_sigsegv:
 	force_sigsegv(sig, current);
 }
 
+/*
+ * OK, we're invoking a handler
+ */
 static void
 handle_signal(unsigned long sig, siginfo_t *info, struct k_sigaction *ka,
 	      sigset_t *oldset,	struct pt_regs * regs)
 {
-	
+	/* are we from a system call? */
 	if (regs->orig_er0 >= 0) {
 		switch (regs->er0) {
 		        case -ERESTART_RESTARTBLOCK:
@@ -450,14 +476,14 @@ handle_signal(unsigned long sig, siginfo_t *info, struct k_sigaction *ka,
 					regs->er0 = -EINTR;
 					break;
 				}
-			
+			/* fallthrough */
 			case -ERESTARTNOINTR:
 				regs->er0 = regs->orig_er0;
 				regs->pc -= 2;
 		}
 	}
 
-	
+	/* set up the stack frame */
 	if (ka->sa.sa_flags & SA_SIGINFO)
 		setup_rt_frame(sig, ka, info, oldset, regs);
 	else
@@ -471,12 +497,23 @@ handle_signal(unsigned long sig, siginfo_t *info, struct k_sigaction *ka,
 	spin_unlock_irq(&current->sighand->siglock);
 }
 
+/*
+ * Note that 'init' is a special process: it doesn't get signals it doesn't
+ * want to handle. Thus you cannot kill init even with a SIGKILL even by
+ * mistake.
+ */
 asmlinkage int do_signal(struct pt_regs *regs, sigset_t *oldset)
 {
 	siginfo_t info;
 	int signr;
 	struct k_sigaction ka;
 
+	/*
+	 * We want the common case to go fast, which
+	 * is why we may in certain cases get here from
+	 * kernel mode. Just return without doing anything
+	 * if so.
+	 */
 	if ((regs->ccr & 0x10))
 		return 1;
 
@@ -490,14 +527,14 @@ asmlinkage int do_signal(struct pt_regs *regs, sigset_t *oldset)
 
 	signr = get_signal_to_deliver(&info, &ka, regs, NULL);
 	if (signr > 0) {
-		
+		/* Whee!  Actually deliver the signal.  */
 		handle_signal(signr, &info, &ka, oldset, regs);
 		return 1;
 	}
  no_signal:
-	
+	/* Did we come from a system call? */
 	if (regs->orig_er0 >= 0) {
-		
+		/* Restart the system call - no handlers present */
 		if (regs->er0 == -ERESTARTNOHAND ||
 		    regs->er0 == -ERESTARTSYS ||
 		    regs->er0 == -ERESTARTNOINTR) {

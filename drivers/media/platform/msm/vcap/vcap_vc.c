@@ -89,7 +89,7 @@ static void mov_buf_to_vp(struct work_struct *work)
 
 		p.type = V4L2_BUF_TYPE_INTERLACED_IN_DECODER;
 
-		
+		/* This call should not fail */
 		rc = vcvp_qbuf(&vp_work->cd->vp_in_vidq, &p);
 		if (rc < 0) {
 			pr_err("%s: qbuf to vp_in failed\n", __func__);
@@ -189,7 +189,7 @@ inline bool vc_isr_verify_expect_buf_rdy(struct vcap_dev *dev,
 		uint32_t irq, uint8_t done_count, uint8_t tot, uint8_t buf_num)
 {
 	int i;
-	
+	/* Double check expected buffers are done */
 	for (i = 0; i < done_count; i++) {
 		if (!(irq & (0x1 << (((buf_num + i) % tot) + 1)))) {
 			v4l2_evt.type = V4L2_EVENT_PRIVATE_START +
@@ -245,7 +245,7 @@ inline void vc_isr_switch_buffers(struct vcap_dev *dev,
 		struct vcap_client_data *c_data, struct vcap_buffer *buf,
 		struct vb2_buffer *vb, uint8_t idx, int done_count, int i)
 {
-	
+	/* Config vc with this new buffer */
 	config_buffer(c_data, buf, VCAP_VC_Y_ADDR_1 + 0x8 * idx,
 			VCAP_VC_C_ADDR_1 + 0x8 * idx);
 	vb->v4l2_buf.timestamp = interpolate_ts(
@@ -315,7 +315,7 @@ irqreturn_t vc_handler(struct vcap_dev *dev)
 	pr_debug("%s: irq=0x%08x\n", __func__, irq);
 
 	if (dev->vc_client == NULL) {
-		
+		/* This should never happen */
 		pr_err("VC: There is no active vc client\n");
 		return IRQ_HANDLED;
 	}
@@ -397,7 +397,7 @@ int vc_hw_kick_off(struct vcap_client_data *c_data)
 		counter++;
 
 	if (counter < c_data->vc_action.tot_buf) {
-		
+		/* not enough buffers have been queued */
 		spin_unlock_irqrestore(&dev->vc_client->cap_slock, flags);
 		return -EINVAL;
 	}
@@ -461,7 +461,7 @@ void vc_stop_capture(struct vcap_client_data *c_data)
 			break;
 		timeout--;
 		if (timeout == 0) {
-			
+			/* This should not happen */
 			pr_err("VC is not resetting properly\n");
 			writel_iowmb(0x00000000, VCAP_SW_RESET_REQ);
 			break;
@@ -481,7 +481,7 @@ int config_vc_format(struct vcap_client_data *c_data)
 	struct v4l2_format_vc_ext *vc_format = &c_data->vc_format;
 	dev = c_data->dev;
 
-	
+	/* restart VC */
 	writel_iowmb(0x00000102, VCAP_VC_NPL_CTRL);
 	writel_iowmb(0x00000001, VCAP_SW_RESET_REQ);
 	timeout = 10000;

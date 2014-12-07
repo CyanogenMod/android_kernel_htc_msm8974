@@ -142,7 +142,7 @@ int iwl_wait_notification(struct iwl_notif_wait_data *notif_wait,
 	if (wait_entry->aborted)
 		return -EIO;
 
-	
+	/* return value is always >= 0 */
 	if (ret <= 0)
 		return -ETIMEDOUT;
 	return 0;

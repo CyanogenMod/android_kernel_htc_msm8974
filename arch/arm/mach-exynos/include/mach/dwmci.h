@@ -17,4 +17,4 @@
 
 extern void exynos4_dwmci_set_platdata(struct dw_mci_board *pd);
 
-#endif 
+#endif /* __ASM_ARM_ARCH_DWMCI_H */

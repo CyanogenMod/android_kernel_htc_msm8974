@@ -18,6 +18,10 @@ static inline void path_put_longterm(struct path *path)
 	path_put(path);
 }
 
+/*
+ * Replace the fs->{rootmnt,root} with {mnt,dentry}. Put the old values.
+ * It can block.
+ */
 void set_fs_root(struct fs_struct *fs, struct path *path)
 {
 	struct path old_root;
@@ -33,6 +37,10 @@ void set_fs_root(struct fs_struct *fs, struct path *path)
 		path_put_longterm(&old_root);
 }
 
+/*
+ * Replace the fs->{pwdmnt,pwd} with {mnt,dentry}. Put the old values.
+ * It can block.
+ */
 void set_fs_pwd(struct fs_struct *fs, struct path *path)
 {
 	struct path old_pwd;
@@ -114,7 +122,7 @@ void exit_fs(struct task_struct *tsk)
 struct fs_struct *copy_fs_struct(struct fs_struct *old)
 {
 	struct fs_struct *fs = kmem_cache_alloc(fs_cachep, GFP_KERNEL);
-	
+	/* We don't need to lock fs - think why ;-) */
 	if (fs) {
 		fs->users = 1;
 		fs->in_exec = 0;
@@ -161,6 +169,7 @@ int current_umask(void)
 }
 EXPORT_SYMBOL(current_umask);
 
+/* to be mentioned only in INIT_TASK */
 struct fs_struct init_fs = {
 	.users		= 1,
 	.lock		= __SPIN_LOCK_UNLOCKED(init_fs.lock),

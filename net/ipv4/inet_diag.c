@@ -109,6 +109,9 @@ int inet_sk_diag_fill(struct sock *sk, struct inet_connection_sock *icsk,
 	r->id.idiag_src[0] = inet->inet_rcv_saddr;
 	r->id.idiag_dst[0] = inet->inet_daddr;
 
+	/* IPv6 dual-stack sockets use inet->tos for IPv4 connections,
+	 * hence this needs to be included regardless of socket family.
+	 */
 	if (ext & (1 << (INET_DIAG_TOS - 1)))
 		RTA_PUT_U8(skb, INET_DIAG_TOS, inet->tos);
 
@@ -505,6 +508,7 @@ static int inet_diag_bc_audit(const void *bytecode, int bytecode_len)
 	while (len > 0) {
 		const struct inet_diag_bc_op *op = bc;
 
+//printk("BC: %d %d %d {%d} / %d\n", op->code, op->yes, op->no, op[1].no, len);
 		switch (op->code) {
 		case INET_DIAG_BC_AUTO:
 		case INET_DIAG_BC_S_COND:
@@ -910,7 +914,7 @@ static int inet_diag_dump_compat(struct sk_buff *skb, struct netlink_callback *c
 	struct nlattr *bc = NULL;
 	int hdrlen = sizeof(struct inet_diag_req);
 
-	req.sdiag_family = AF_UNSPEC; 
+	req.sdiag_family = AF_UNSPEC; /* compatibility */
 	req.sdiag_protocol = inet_diag_type2proto(cb->nlh->nlmsg_type);
 	req.idiag_ext = rc->idiag_ext;
 	req.idiag_states = rc->idiag_states;
@@ -1078,5 +1082,5 @@ static void __exit inet_diag_exit(void)
 module_init(inet_diag_init);
 module_exit(inet_diag_exit);
 MODULE_LICENSE("GPL");
-MODULE_ALIAS_NET_PF_PROTO_TYPE(PF_NETLINK, NETLINK_SOCK_DIAG, 2 );
-MODULE_ALIAS_NET_PF_PROTO_TYPE(PF_NETLINK, NETLINK_SOCK_DIAG, 10 );
+MODULE_ALIAS_NET_PF_PROTO_TYPE(PF_NETLINK, NETLINK_SOCK_DIAG, 2 /* AF_INET */);
+MODULE_ALIAS_NET_PF_PROTO_TYPE(PF_NETLINK, NETLINK_SOCK_DIAG, 10 /* AF_INET6 */);

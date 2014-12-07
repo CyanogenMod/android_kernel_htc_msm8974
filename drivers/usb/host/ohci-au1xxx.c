@@ -50,19 +50,34 @@ static const struct hc_driver ohci_au1xxx_hc_driver = {
 	.product_desc =		"Au1xxx OHCI",
 	.hcd_priv_size =	sizeof(struct ohci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq =			ohci_irq,
 	.flags =		HCD_USB11 | HCD_MEMORY,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.start =		ohci_au1xxx_start,
 	.stop =			ohci_stop,
 	.shutdown =		ohci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue =		ohci_urb_enqueue,
 	.urb_dequeue =		ohci_urb_dequeue,
 	.endpoint_disable =	ohci_endpoint_disable,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number =	ohci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data =	ohci_hub_status_data,
 	.hub_control =		ohci_hub_control,
 #ifdef	CONFIG_PM
@@ -159,6 +174,11 @@ static int ohci_hcd_au1xxx_drv_suspend(struct device *dev)
 
 	rc = 0;
 
+	/* Root hub was already suspended. Disable irq emission and
+	 * mark HW unaccessible, bail out if RH has been resumed. Use
+	 * the spinlock to properly synchronize with possible pending
+	 * RH suspend or resume activity.
+	 */
 	spin_lock_irqsave(&ohci->lock, flags);
 	if (ohci->rh_state != OHCI_RH_SUSPENDED) {
 		rc = -EINVAL;

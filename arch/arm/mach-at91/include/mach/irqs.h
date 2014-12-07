@@ -27,11 +27,22 @@
 #define NR_AIC_IRQS 32
 
 
+/*
+ * Acknowledge interrupt with AIC after interrupt has been handled.
+ *   (by kernel/irq.c)
+ */
 #define irq_finish(irq) do { at91_aic_write(AT91_AIC_EOICR, 0); } while (0)
 
 
+/*
+ * IRQ interrupt symbols are the AT91xxx_ID_* symbols
+ * for IRQs handled directly through the AIC, or else the AT91_PIN_*
+ * symbols in gpio.h for ones handled indirectly as GPIOs.
+ * We make provision for 5 banks of GPIO.
+ */
 #define	NR_IRQS		(NR_AIC_IRQS + (5 * 32))
 
+/* FIQ is AIC source 0. */
 #define FIQ_START AT91_ID_FIQ
 
 #endif

@@ -128,11 +128,14 @@ static struct pci_channel sh7786_pci_channels[] = {
 };
 
 static struct clk fixed_pciexclkp = {
-	.rate = 100000000,	
+	.rate = 100000000,	/* 100 MHz reference clock */
 };
 
 static void __devinit sh7786_pci_fixup(struct pci_dev *dev)
 {
+	/*
+	 * Prevent enumeration of root complex resources.
+	 */
 	if (pci_is_root_bus(dev->bus) && dev->devfn == 0) {
 		int i;
 
@@ -182,13 +185,13 @@ static void __init phy_write_reg(struct pci_channel *chan, unsigned int addr,
 	phyaddr = (1 << BITS_CMD) + ((lane & 0xf) << BITS_LANE) +
 			((addr & 0xff) << BITS_ADR);
 
-	
+	/* Set write data */
 	pci_write_reg(chan, data, SH4A_PCIEPHYDOUTR);
 	pci_write_reg(chan, phyaddr, SH4A_PCIEPHYADRR);
 
 	phy_wait_for_ack(chan);
 
-	
+	/* Clear command */
 	pci_write_reg(chan, 0, SH4A_PCIEPHYDOUTR);
 	pci_write_reg(chan, 0, SH4A_PCIEPHYADRR);
 
@@ -202,10 +205,18 @@ static int __init pcie_clk_init(struct sh7786_pcie_port *port)
 	char fclk_name[16];
 	int ret;
 
+	/*
+	 * First register the fixed clock
+	 */
 	ret = clk_register(&fixed_pciexclkp);
 	if (unlikely(ret != 0))
 		return ret;
 
+	/*
+	 * Grab the port's function clock, which the PHY clock depends
+	 * on. clock lookups don't help us much at this point, since no
+	 * dev_id is available this early. Lame.
+	 */
 	snprintf(fclk_name, sizeof(fclk_name), "pcie%d_fck", port->index);
 
 	port->fclk = clk_get(NULL, fclk_name);
@@ -216,6 +227,9 @@ static int __init pcie_clk_init(struct sh7786_pcie_port *port)
 
 	clk_enable(port->fclk);
 
+	/*
+	 * And now, set up the PHY clock
+	 */
 	clk = &port->phy_clk;
 
 	memset(clk, 0, sizeof(struct clk));
@@ -246,7 +260,7 @@ static int __init phy_init(struct sh7786_pcie_port *port)
 
 	clk_enable(&port->phy_clk);
 
-	
+	/* Initialize the phy */
 	phy_write_reg(chan, 0x60, 0xf, 0x004b008b);
 	phy_write_reg(chan, 0x61, 0xf, 0x00007b41);
 	phy_write_reg(chan, 0x64, 0xf, 0x00ff4f00);
@@ -256,10 +270,10 @@ static int __init phy_init(struct sh7786_pcie_port *port)
 	phy_write_reg(chan, 0x79, 0xf, 0x01fc000d);
 	phy_write_reg(chan, 0xb0, 0xf, 0x00000610);
 
-	
+	/* Deassert Standby */
 	phy_write_reg(chan, 0x67, 0x1, 0x00000400);
 
-	
+	/* Disable clock */
 	clk_disable(&port->phy_clk);
 
 	while (timeout--) {
@@ -290,12 +304,17 @@ static int __init pcie_init(struct sh7786_pcie_port *port)
 	size_t memsize;
 	int ret, i, win;
 
-	
+	/* Begin initialization */
 	pcie_reset(port);
 
+	/*
+	 * Initial header for port config space is type 1, set the device
+	 * class to match. Hardware takes care of propagating the IDSETR
+	 * settings, so there is no need to bother with a quirk.
+	 */
 	pci_write_reg(chan, PCI_CLASS_BRIDGE_PCI << 16, SH4A_PCIEIDSETR1);
 
-	
+	/* Initialize default capabilities. */
 	data = pci_read_reg(chan, SH4A_PCIEEXPCAP0);
 	data &= ~(PCI_EXP_FLAGS_TYPE << 16);
 
@@ -307,27 +326,31 @@ static int __init pcie_init(struct sh7786_pcie_port *port)
 	data |= PCI_CAP_ID_EXP;
 	pci_write_reg(chan, data, SH4A_PCIEEXPCAP0);
 
-	
+	/* Enable data link layer active state reporting */
 	pci_write_reg(chan, PCI_EXP_LNKCAP_DLLLARC, SH4A_PCIEEXPCAP3);
 
-	
+	/* Enable extended sync and ASPM L0s support */
 	data = pci_read_reg(chan, SH4A_PCIEEXPCAP4);
 	data &= ~PCI_EXP_LNKCTL_ASPMC;
 	data |= PCI_EXP_LNKCTL_ES | 1;
 	pci_write_reg(chan, data, SH4A_PCIEEXPCAP4);
 
-	
+	/* Write out the physical slot number */
 	data = pci_read_reg(chan, SH4A_PCIEEXPCAP5);
 	data &= ~PCI_EXP_SLTCAP_PSN;
 	data |= (port->index + 1) << 19;
 	pci_write_reg(chan, data, SH4A_PCIEEXPCAP5);
 
-	
+	/* Set the completion timer timeout to the maximum 32ms. */
 	data = pci_read_reg(chan, SH4A_PCIETLCTLR);
 	data &= ~0x3f00;
 	data |= 0x32 << 8;
 	pci_write_reg(chan, data, SH4A_PCIETLCTLR);
 
+	/*
+	 * Set fast training sequences to the maximum 255,
+	 * and enable MAC data scrambling.
+	 */
 	data = pci_read_reg(chan, SH4A_PCIEMACCTLR);
 	data &= ~PCIEMACCTLR_SCR_DIS;
 	data |= (0xff << 16);
@@ -336,37 +359,53 @@ static int __init pcie_init(struct sh7786_pcie_port *port)
 	memphys = __pa(memory_start);
 	memsize = roundup_pow_of_two(memory_end - memory_start);
 
+	/*
+	 * If there's more than 512MB of memory, we need to roll over to
+	 * LAR1/LAMR1.
+	 */
 	if (memsize > SZ_512M) {
 		pci_write_reg(chan, memphys + SZ_512M, SH4A_PCIELAR1);
 		pci_write_reg(chan, ((memsize - SZ_512M) - SZ_256) | 1,
 			      SH4A_PCIELAMR1);
 		memsize = SZ_512M;
 	} else {
+		/*
+		 * Otherwise just zero it out and disable it.
+		 */
 		pci_write_reg(chan, 0, SH4A_PCIELAR1);
 		pci_write_reg(chan, 0, SH4A_PCIELAMR1);
 	}
 
+	/*
+	 * LAR0/LAMR0 covers up to the first 512MB, which is enough to
+	 * cover all of lowmem on most platforms.
+	 */
 	pci_write_reg(chan, memphys, SH4A_PCIELAR0);
 	pci_write_reg(chan, (memsize - SZ_256) | 1, SH4A_PCIELAMR0);
 
-	
+	/* Finish initialization */
 	data = pci_read_reg(chan, SH4A_PCIETCTLR);
 	data |= 0x1;
 	pci_write_reg(chan, data, SH4A_PCIETCTLR);
 
-	
+	/* Let things settle down a bit.. */
 	mdelay(100);
 
-	
+	/* Enable DL_Active Interrupt generation */
 	data = pci_read_reg(chan, SH4A_PCIEDLINTENR);
 	data |= PCIEDLINTENR_DLL_ACT_ENABLE;
 	pci_write_reg(chan, data, SH4A_PCIEDLINTENR);
 
-	
+	/* Disable MAC data scrambling. */
 	data = pci_read_reg(chan, SH4A_PCIEMACCTLR);
 	data |= PCIEMACCTLR_SCR_DIS | (0xff << 16);
 	pci_write_reg(chan, data, SH4A_PCIEMACCTLR);
 
+	/*
+	 * This will timeout if we don't have a link, but we permit the
+	 * port to register anyways in order to support hotplug on future
+	 * hardware.
+	 */
 	ret = pci_wait_for_irq(chan, MASK_INT_TX_CTRL);
 
 	data = pci_read_reg(chan, SH4A_PCIEPCICONF1);
@@ -393,11 +432,19 @@ static int __init pcie_init(struct sh7786_pcie_port *port)
 		resource_size_t size;
 		u32 mask;
 
+		/*
+		 * We can't use the 32-bit mode windows in legacy 29-bit
+		 * mode, so just skip them entirely.
+		 */
 		if ((res->flags & IORESOURCE_MEM_32BIT) && __in_29bit_mode())
 			continue;
 
 		pci_write_reg(chan, 0x00000000, SH4A_PCIEPTCTLR(win));
 
+		/*
+		 * The PAMR mask is calculated in units of 256kB, which
+		 * keeps things pretty simple.
+		 */
 		size = resource_size(res);
 		mask = (roundup_pow_of_two(size) / SZ_256K) - 1;
 		pci_write_reg(chan, mask << 18, SH4A_PCIEPAMR(win));
@@ -426,7 +473,7 @@ int __init pcibios_map_platform_irq(const struct pci_dev *pdev, u8 slot, u8 pin)
 
 static int __init sh7786_pcie_core_init(void)
 {
-	
+	/* Return the number of ports */
 	return test_mode_pin(MODE_PIN12) ? 3 : 2;
 }
 
@@ -435,8 +482,15 @@ static void __init sh7786_pcie_init_hw(void *data, async_cookie_t cookie)
 	struct sh7786_pcie_port *port = data;
 	int ret;
 
+	/*
+	 * Check if we are configured in endpoint or root complex mode,
+	 * this is a fixed pin setting that applies to all PCIe ports.
+	 */
 	port->endpoint = test_mode_pin(MODE_PIN11);
 
+	/*
+	 * Setup clocks, needed both for PHY and PCIe registers.
+	 */
 	ret = pcie_clk_init(port);
 	if (unlikely(ret < 0)) {
 		pr_err("clock initialization failed for port#%d\n",
@@ -458,7 +512,7 @@ static void __init sh7786_pcie_init_hw(void *data, async_cookie_t cookie)
 		return;
 	}
 
-	
+	/* In the interest of preserving device ordering, synchronize */
 	async_synchronize_cookie(cookie);
 
 	register_pci_controller(port->hose);
@@ -489,9 +543,17 @@ static int __init sh7786_pcie_init(void)
 	if (unlikely(!sh7786_pcie_ports))
 		return -ENOMEM;
 
+	/*
+	 * Fetch any optional platform clock associated with this block.
+	 *
+	 * This is a rather nasty hack for boards with spec-mocking FPGAs
+	 * that have a secondary set of clocks outside of the on-chip
+	 * ones that need to be accounted for before there is any chance
+	 * of touching the existing MSTP bits or CPG clocks.
+	 */
 	platclk = clk_get(NULL, "pcie_plat_clk");
 	if (IS_ERR(platclk)) {
-		
+		/* Sane hardware should probably get a WARN_ON.. */
 		platclk = NULL;
 	}
 

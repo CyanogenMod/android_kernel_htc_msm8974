@@ -22,10 +22,14 @@
 #include "../w1/w1.h"
 #include "../w1/slaves/w1_ds2781.h"
 
+/* Current unit measurement in uA for a 1 milli-ohm sense resistor */
 #define DS2781_CURRENT_UNITS	1563
+/* Charge unit measurement in uAh for a 1 milli-ohm sense resistor */
 #define DS2781_CHARGE_UNITS		6250
+/* Number of bytes in user EEPROM space */
 #define DS2781_USER_EEPROM_SIZE		(DS2781_EEPROM_BLOCK0_END - \
 					DS2781_EEPROM_BLOCK0_START + 1)
+/* Number of bytes in parameter EEPROM space */
 #define DS2781_PARAM_EEPROM_SIZE	(DS2781_EEPROM_BLOCK1_END - \
 					DS2781_EEPROM_BLOCK1_START + 1)
 
@@ -129,6 +133,7 @@ static int ds2781_save_eeprom(struct ds2781_device_info *dev_info, int reg)
 	return 0;
 }
 
+/* Set sense resistor value in mhos */
 static int ds2781_set_sense_register(struct ds2781_device_info *dev_info,
 	u8 conductance)
 {
@@ -142,12 +147,14 @@ static int ds2781_set_sense_register(struct ds2781_device_info *dev_info,
 	return ds2781_save_eeprom(dev_info, DS2781_RSNSP);
 }
 
+/* Get RSGAIN value from 0 to 1.999 in steps of 0.001 */
 static int ds2781_get_rsgain_register(struct ds2781_device_info *dev_info,
 	u16 *rsgain)
 {
 	return ds2781_read16(dev_info, rsgain, DS2781_RSGAIN_MSB);
 }
 
+/* Set RSGAIN value from 0 to 1.999 in steps of 0.001 */
 static int ds2781_set_rsgain_register(struct ds2781_device_info *dev_info,
 	u16 rsgain)
 {
@@ -172,9 +179,20 @@ static int ds2781_get_voltage(struct ds2781_device_info *dev_info,
 	ret = w1_ds2781_read(dev_info, val, DS2781_VOLT_MSB, 2 * sizeof(u8));
 	if (ret < 0)
 		return ret;
+	/*
+	 * The voltage value is located in 10 bits across the voltage MSB
+	 * and LSB registers in two's compliment form
+	 * Sign bit of the voltage value is in bit 7 of the voltage MSB register
+	 * Bits 9 - 3 of the voltage value are in bits 6 - 0 of the
+	 * voltage MSB register
+	 * Bits 2 - 0 of the voltage value are in bits 7 - 5 of the
+	 * voltage LSB register
+	 */
 	voltage_raw = (val[0] << 3) |
 		(val[1] >> 5);
 
+	/* DS2781 reports voltage in units of 9.76mV, but the battery class
+	 * reports in units of uV, so convert by multiplying by 9760. */
 	*voltage_uV = voltage_raw * 9760;
 
 	return 0;
@@ -190,6 +208,16 @@ static int ds2781_get_temperature(struct ds2781_device_info *dev_info,
 	ret = w1_ds2781_read(dev_info, val, DS2781_TEMP_MSB, 2 * sizeof(u8));
 	if (ret < 0)
 		return ret;
+	/*
+	 * The temperature value is located in 10 bits across the temperature
+	 * MSB and LSB registers in two's compliment form
+	 * Sign bit of the temperature value is in bit 7 of the temperature
+	 * MSB register
+	 * Bits 9 - 3 of the temperature value are in bits 6 - 0 of the
+	 * temperature MSB register
+	 * Bits 2 - 0 of the temperature value are in bits 7 - 5 of the
+	 * temperature LSB register
+	 */
 	temp_raw = ((val[0]) << 3) |
 		(val[1] >> 5);
 	*temp = temp_raw + (temp_raw / 4);
@@ -204,6 +232,10 @@ static int ds2781_get_current(struct ds2781_device_info *dev_info,
 	s16 current_raw;
 	u8 sense_res_raw, reg_msb;
 
+	/*
+	 * The units of measurement for current are dependent on the value of
+	 * the sense resistor.
+	 */
 	ret = ds2781_read8(dev_info, &sense_res_raw, DS2781_RSNSP);
 	if (ret < 0)
 		return ret;
@@ -221,6 +253,15 @@ static int ds2781_get_current(struct ds2781_device_info *dev_info,
 	else
 		return -EINVAL;
 
+	/*
+	 * The current value is located in 16 bits across the current MSB
+	 * and LSB registers in two's compliment form
+	 * Sign bit of the current value is in bit 7 of the current MSB register
+	 * Bits 14 - 8 of the current value are in bits 6 - 0 of the current
+	 * MSB register
+	 * Bits 7 - 0 of the current value are in bits 7 - 0 of the current
+	 * LSB register
+	 */
 	ret = ds2781_read16(dev_info, &current_raw, reg_msb);
 	if (ret < 0)
 		return ret;
@@ -236,6 +277,10 @@ static int ds2781_get_accumulated_current(struct ds2781_device_info *dev_info,
 	s16 current_raw;
 	u8 sense_res_raw;
 
+	/*
+	 * The units of measurement for accumulated current are dependent on
+	 * the value of the sense resistor.
+	 */
 	ret = ds2781_read8(dev_info, &sense_res_raw, DS2781_RSNSP);
 	if (ret < 0)
 		return ret;
@@ -246,6 +291,14 @@ static int ds2781_get_accumulated_current(struct ds2781_device_info *dev_info,
 	}
 	sense_res = 1000 / sense_res_raw;
 
+	/*
+	 * The ACR value is located in 16 bits across the ACR MSB and
+	 * LSB registers
+	 * Bits 15 - 8 of the ACR value are in bits 7 - 0 of the ACR
+	 * MSB register
+	 * Bits 7 - 0 of the ACR value are in bits 7 - 0 of the ACR
+	 * LSB register
+	 */
 	ret = ds2781_read16(dev_info, &current_raw, DS2781_ACR_MSB);
 	if (ret < 0)
 		return ret;
@@ -299,6 +352,14 @@ static int ds2781_get_charge_now(struct ds2781_device_info *dev_info,
 	int ret;
 	u16 charge_raw;
 
+	/*
+	 * The RAAC value is located in 16 bits across the RAAC MSB and
+	 * LSB registers
+	 * Bits 15 - 8 of the RAAC value are in bits 7 - 0 of the RAAC
+	 * MSB register
+	 * Bits 7 - 0 of the RAAC value are in bits 7 - 0 of the RAAC
+	 * LSB register
+	 */
 	ret = ds2781_read16(dev_info, &charge_raw, DS2781_RAAC_MSB);
 	if (ret < 0)
 		return ret;
@@ -403,7 +464,7 @@ static ssize_t ds2781_get_pmod_enabled(struct device *dev,
 	struct power_supply *psy = to_power_supply(dev);
 	struct ds2781_device_info *dev_info = to_ds2781_device_info(psy);
 
-	
+	/* Get power mode */
 	ret = ds2781_get_control_register(dev_info, &control_reg);
 	if (ret < 0)
 		return ret;
@@ -422,7 +483,7 @@ static ssize_t ds2781_set_pmod_enabled(struct device *dev,
 	struct power_supply *psy = to_power_supply(dev);
 	struct ds2781_device_info *dev_info = to_ds2781_device_info(psy);
 
-	
+	/* Set power mode */
 	ret = ds2781_get_control_register(dev_info, &control_reg);
 	if (ret < 0)
 		return ret;
@@ -516,7 +577,7 @@ static ssize_t ds2781_set_rsgain_setting(struct device *dev,
 	if (ret < 0)
 		return ret;
 
-	
+	/* Gain can only be from 0 to 1.999 in steps of .001 */
 	if (new_setting > 1999) {
 		dev_err(dev_info->dev, "Invalid rsgain setting (0 - 1999)\n");
 		return -EINVAL;
@@ -775,7 +836,7 @@ static int __devexit ds2781_battery_remove(struct platform_device *pdev)
 
 	dev_info->mutex_holder = current;
 
-	
+	/* remove attributes */
 	sysfs_remove_group(&dev_info->bat.dev->kobj, &ds2781_attr_group);
 
 	power_supply_unregister(&dev_info->bat);

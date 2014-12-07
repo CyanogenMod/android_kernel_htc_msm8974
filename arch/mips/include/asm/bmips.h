@@ -16,6 +16,7 @@
 #include <asm/mipsregs.h>
 #include <asm/hazards.h>
 
+/* NOTE: the CBR register returns a PA, and it can be above 0xff00_0000 */
 #define BMIPS_GET_CBR()			((void __iomem *)(CKSEG1 | \
 					 (unsigned long) \
 					 ((read_c0_brcm_cbr() >> 18) << 18)))
@@ -98,12 +99,12 @@ static inline void bmips_write_zscm_reg(unsigned int offset, unsigned long data)
 		"_ssnop\n"
 		"_ssnop\n"
 		"_ssnop\n"
-		: 
+		: /* no outputs */
 		: "r" (data),
 		  "i" (Index_Store_Tag_S), "r" (ZSCM_REG_BASE + offset)
 		: "memory");
 }
 
-#endif 
+#endif /* !defined(__ASSEMBLY__) */
 
-#endif 
+#endif /* _ASM_BMIPS_H */

@@ -1,8 +1,8 @@
 
 #include <linux/interrupt.h>
 
-#define AD_F_CS4231     0x0001  
-#define AD_F_CS4248     0x0001  
+#define AD_F_CS4231     0x0001  /* Returned if a CS4232 (or compatible) detected */
+#define AD_F_CS4248     0x0001  /* Returned if a CS4248 (or compatible) detected */
 
 #define         AD1848_SET_XTAL         1
 #define         AD1848_MIXER_REROUTE    2

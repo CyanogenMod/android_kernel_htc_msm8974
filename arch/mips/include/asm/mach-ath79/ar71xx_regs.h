@@ -60,6 +60,9 @@
 #define AR933X_EHCI_BASE	0x1b000000
 #define AR933X_EHCI_SIZE	0x1000
 
+/*
+ * DDR_CTRL block
+ */
 #define AR71XX_DDR_REG_PCI_WIN0		0x7c
 #define AR71XX_DDR_REG_PCI_WIN1		0x80
 #define AR71XX_DDR_REG_PCI_WIN2		0x84
@@ -88,6 +91,9 @@
 #define AR933X_DDR_REG_FLUSH_USB	0x84
 #define AR933X_DDR_REG_FLUSH_WMAC	0x88
 
+/*
+ * PLL block
+ */
 #define AR71XX_PLL_REG_CPU_CONFIG	0x00
 #define AR71XX_PLL_REG_SEC_CONFIG	0x04
 #define AR71XX_PLL_REG_ETH0_INT_CLOCK	0x10
@@ -144,9 +150,15 @@
 #define AR933X_PLL_CLOCK_CTRL_AHB_DIV_SHIFT	15
 #define AR933X_PLL_CLOCK_CTRL_AHB_DIV_MASK	0x7
 
+/*
+ * USB_CONFIG block
+ */
 #define AR71XX_USB_CTRL_REG_FLADJ	0x00
 #define AR71XX_USB_CTRL_REG_CONFIG	0x04
 
+/*
+ * RESET block
+ */
 #define AR71XX_RESET_REG_TIMER			0x00
 #define AR71XX_RESET_REG_TIMER_RELOAD		0x04
 #define AR71XX_RESET_REG_WDOG_CTRL		0x08
@@ -255,18 +267,21 @@
 
 #define AR724X_REV_ID_REVISION_MASK	0x3
 
-#define AR71XX_SPI_REG_FS	0x00	
-#define AR71XX_SPI_REG_CTRL	0x04	
-#define AR71XX_SPI_REG_IOC	0x08	
-#define AR71XX_SPI_REG_RDS	0x0c	
+/*
+ * SPI block
+ */
+#define AR71XX_SPI_REG_FS	0x00	/* Function Select */
+#define AR71XX_SPI_REG_CTRL	0x04	/* SPI Control */
+#define AR71XX_SPI_REG_IOC	0x08	/* SPI I/O Control */
+#define AR71XX_SPI_REG_RDS	0x0c	/* Read Data Shift */
 
-#define AR71XX_SPI_FS_GPIO	BIT(0)	
+#define AR71XX_SPI_FS_GPIO	BIT(0)	/* Enable GPIO mode */
 
-#define AR71XX_SPI_CTRL_RD	BIT(6)	
+#define AR71XX_SPI_CTRL_RD	BIT(6)	/* Remap Disable */
 #define AR71XX_SPI_CTRL_DIV_MASK 0x3f
 
-#define AR71XX_SPI_IOC_DO	BIT(0)	
-#define AR71XX_SPI_IOC_CLK	BIT(8)	
+#define AR71XX_SPI_IOC_DO	BIT(0)	/* Data Out pin */
+#define AR71XX_SPI_IOC_CLK	BIT(8)	/* CLK pin */
 #define AR71XX_SPI_IOC_CS(n)	BIT(16 + (n))
 #define AR71XX_SPI_IOC_CS0	AR71XX_SPI_IOC_CS(0)
 #define AR71XX_SPI_IOC_CS1	AR71XX_SPI_IOC_CS(1)
@@ -274,6 +289,9 @@
 #define AR71XX_SPI_IOC_CS_ALL	(AR71XX_SPI_IOC_CS0 | AR71XX_SPI_IOC_CS1 | \
 				 AR71XX_SPI_IOC_CS2)
 
+/*
+ * GPIO block
+ */
 #define AR71XX_GPIO_REG_OE		0x00
 #define AR71XX_GPIO_REG_IN		0x04
 #define AR71XX_GPIO_REG_OUT		0x08
@@ -291,4 +309,4 @@
 #define AR913X_GPIO_COUNT		22
 #define AR933X_GPIO_COUNT		30
 
-#endif 
+#endif /* __ASM_MACH_AR71XX_REGS_H */

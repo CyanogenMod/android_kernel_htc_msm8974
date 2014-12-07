@@ -20,23 +20,31 @@
 #define SAMPLE_COLUMNS	10
 #define EWMA_LEVEL		75
 
+/* Number of bits for an average sized packet */
 #define MCS_NBITS (AVG_PKT_SIZE << 3)
 
+/* Number of symbols for a packet with (bps) bits per symbol */
 #define MCS_NSYMS(bps) ((MCS_NBITS + (bps) - 1) / (bps))
 
+/* Transmission time for a packet containing (syms) symbols */
 #define MCS_SYMBOL_TIME(sgi, syms)					\
 	(sgi ?								\
-	  ((syms) * 18 + 4) / 5 :			\
-	  (syms) << 2					\
+	  ((syms) * 18 + 4) / 5 :	/* syms * 3.6 us */		\
+	  (syms) << 2			/* syms * 4 us */		\
 	)
 
+/* Transmit duration for the raw data part of an average sized packet */
 #define MCS_DURATION(streams, sgi, bps) MCS_SYMBOL_TIME(sgi, MCS_NSYMS((streams) * (bps)))
 
+/*
+ * Define group sort order: HT40 -> SGI -> #streams
+ */
 #define GROUP_IDX(_streams, _sgi, _ht40)	\
 	MINSTREL_MAX_STREAMS * 2 * _ht40 +	\
 	MINSTREL_MAX_STREAMS * _sgi +		\
 	_streams - 1
 
+/* MCS rate information for an MCS group */
 #define MCS_GROUP(_streams, _sgi, _ht40)				\
 	[GROUP_IDX(_streams, _sgi, _ht40)] = {				\
 	.streams = _streams,						\
@@ -55,6 +63,14 @@
 	}								\
 }
 
+/*
+ * To enable sufficiently targeted rate sampling, MCS rates are divided into
+ * groups, based on the number of streams and flags (HT40, SGI) that they
+ * use.
+ *
+ * Sortorder has to be fixed for GROUP_IDX macro to be applicable:
+ * HT40 -> SGI -> #streams
+ */
 const struct mcs_group minstrel_mcs_groups[] = {
 	MCS_GROUP(1, 0, 0),
 	MCS_GROUP(2, 0, 0),
@@ -83,12 +99,18 @@ const struct mcs_group minstrel_mcs_groups[] = {
 
 static u8 sample_table[SAMPLE_COLUMNS][MCS_GROUP_RATES];
 
+/*
+ * Perform EWMA (Exponentially Weighted Moving Average) calculation
+ */
 static int
 minstrel_ewma(int old, int new, int weight)
 {
 	return (new * (100 - weight) + old * weight) / 100;
 }
 
+/*
+ * Look up an MCS group index based on mac80211 rate information
+ */
 static int
 minstrel_ht_get_group_idx(struct ieee80211_tx_rate *rate)
 {
@@ -104,6 +126,9 @@ minstrel_get_ratestats(struct minstrel_ht_sta *mi, int index)
 }
 
 
+/*
+ * Recalculate success probabilities and counters for a rate using EWMA
+ */
 static void
 minstrel_calc_rate_ewma(struct minstrel_rate_stats *mr)
 {
@@ -126,6 +151,10 @@ minstrel_calc_rate_ewma(struct minstrel_rate_stats *mr)
 	mr->attempts = 0;
 }
 
+/*
+ * Calculate throughput based on the average A-MPDU length, taking into account
+ * the expected number of retransmissions and their expected length
+ */
 static void
 minstrel_ht_calc_tp(struct minstrel_ht_sta *mi, int group, int rate)
 {
@@ -144,6 +173,15 @@ minstrel_ht_calc_tp(struct minstrel_ht_sta *mi, int group, int rate)
 	mr->cur_tp = MINSTREL_TRUNC((1000000 / usecs) * mr->probability);
 }
 
+/*
+ * Update rate statistics and select new primary rates
+ *
+ * Rules for rate selection:
+ *  - max_prob_rate must use only one stream, as a tradeoff between delivery
+ *    probability and throughput during strong fluctuations
+ *  - as long as the max prob rate has a probability of more than 3/4, pick
+ *    higher throughput rates, even if the probablity is a bit lower
+ */
 static void
 minstrel_ht_update_stats(struct minstrel_priv *mp, struct minstrel_ht_sta *mi)
 {
@@ -193,7 +231,7 @@ minstrel_ht_update_stats(struct minstrel_priv *mp, struct minstrel_ht_sta *mi)
 			if (!mr->cur_tp)
 				continue;
 
-			
+			/* ignore the lowest rate of each single-stream group */
 			if (!i && minstrel_mcs_groups[group].streams == 1)
 				continue;
 
@@ -220,7 +258,7 @@ minstrel_ht_update_stats(struct minstrel_priv *mp, struct minstrel_ht_sta *mi)
 		}
 	}
 
-	
+	/* try to sample up to half of the available rates during each interval */
 	mi->sample_count *= 4;
 
 	cur_prob = 0;
@@ -358,7 +396,7 @@ minstrel_ht_tx_status(void *priv, struct ieee80211_supported_band *sband,
 	if (!msp->is_ht)
 		return mac80211_minstrel.tx_status(priv, sband, sta, &msp->legacy, skb);
 
-	
+	/* This packet was aggregated but doesn't carry status info */
 	if ((info->flags & IEEE80211_TX_CTL_AMPDU) &&
 	    !(info->flags & IEEE80211_TX_STAT_AMPDU))
 		return;
@@ -397,6 +435,10 @@ minstrel_ht_tx_status(void *priv, struct ieee80211_supported_band *sband,
 		rate->attempts += ar[i].count * info->status.ampdu_len;
 	}
 
+	/*
+	 * check for sudden death of spatial multiplexing,
+	 * downgrade to a lower number of streams if necessary.
+	 */
 	rate = minstrel_get_ratestats(mi, mi->max_tp_rate);
 	if (rate->attempts > 30 &&
 	    MINSTREL_FRAC(rate->success, rate->attempts) <
@@ -425,7 +467,7 @@ minstrel_calc_retransmit(struct minstrel_priv *mp, struct minstrel_ht_sta *mi,
 	unsigned int tx_time, tx_time_rtscts, tx_time_data;
 	unsigned int cw = mp->cw_min;
 	unsigned int ctime = 0;
-	unsigned int t_slot = 9; 
+	unsigned int t_slot = 9; /* FIXME */
 	unsigned int ampdu_len = MINSTREL_TRUNC(mi->avg_ampdu_len);
 
 	mr = minstrel_get_ratestats(mi, index);
@@ -442,23 +484,23 @@ minstrel_calc_retransmit(struct minstrel_priv *mp, struct minstrel_ht_sta *mi,
 	group = &minstrel_mcs_groups[index / MCS_GROUP_RATES];
 	tx_time_data = group->duration[index % MCS_GROUP_RATES] * ampdu_len;
 
-	
+	/* Contention time for first 2 tries */
 	ctime = (t_slot * cw) >> 1;
 	cw = min((cw << 1) | 1, mp->cw_max);
 	ctime += (t_slot * cw) >> 1;
 	cw = min((cw << 1) | 1, mp->cw_max);
 
-	
+	/* Total TX time for data and Contention after first 2 tries */
 	tx_time = ctime + 2 * (mi->overhead + tx_time_data);
 	tx_time_rtscts = ctime + 2 * (mi->overhead_rtscts + tx_time_data);
 
-	
+	/* See how many more tries we can fit inside segment size */
 	do {
-		
+		/* Contention time for this try */
 		ctime = (t_slot * cw) >> 1;
 		cw = min((cw << 1) | 1, mp->cw_max);
 
-		
+		/* Total TX time after this try */
 		tx_time += ctime + mi->overhead + tx_time_data;
 		tx_time_rtscts += ctime + mi->overhead_rtscts + tx_time_data;
 
@@ -525,11 +567,24 @@ minstrel_get_sample_rate(struct minstrel_priv *mp, struct minstrel_ht_sta *mi)
 	sample_idx += mi->sample_group * MCS_GROUP_RATES;
 	minstrel_next_sample_idx(mi);
 
+	/*
+	 * Sampling might add some overhead (RTS, no aggregation)
+	 * to the frame. Hence, don't use sampling for the currently
+	 * used max TP rate.
+	 */
 	if (sample_idx == mi->max_tp_rate)
 		return -1;
+	/*
+	 * When not using MRR, do not sample if the probability is already
+	 * higher than 95% to avoid wasting airtime
+	 */
 	if (!mp->has_mrr && (mr->probability > MINSTREL_FRAC(95, 100)))
 		return -1;
 
+	/*
+	 * Make sure that lower rates get sampled only occasionally,
+	 * if the link is working perfectly.
+	 */
 	if (minstrel_get_duration(sample_idx) >
 	    minstrel_get_duration(mi->max_tp_rate)) {
 		if (mr->sample_skipped < 20)
@@ -562,7 +617,7 @@ minstrel_ht_get_rate(void *priv, struct ieee80211_sta *sta, void *priv_sta,
 
 	info->flags |= mi->tx_flags;
 
-	
+	/* Don't use EAPOL frames for sampling on non-mrr hw */
 	if (mp->hw->max_rates == 1 &&
 	    txrc->skb->protocol == cpu_to_be16(ETH_P_PAE))
 		sample_idx = -1;
@@ -570,7 +625,7 @@ minstrel_ht_get_rate(void *priv, struct ieee80211_sta *sta, void *priv_sta,
 		sample_idx = minstrel_get_sample_rate(mp, mi);
 
 #ifdef CONFIG_MAC80211_DEBUGFS
-	
+	/* use fixed index if set */
 	if (mp->fixed_rate_idx != -1)
 		sample_idx = mp->fixed_rate_idx;
 #endif
@@ -586,6 +641,11 @@ minstrel_ht_get_rate(void *priv, struct ieee80211_sta *sta, void *priv_sta,
 	}
 
 	if (mp->hw->max_rates >= 3) {
+		/*
+		 * At least 3 tx rates supported, use
+		 * sample_rate -> max_tp_rate -> max_prob_rate for sampling and
+		 * max_tp_rate -> max_tp_rate2 -> max_prob_rate by default.
+		 */
 		if (sample_idx >= 0)
 			minstrel_ht_set_rate(mp, mi, &ar[1], mi->max_tp_rate,
 				false, false);
@@ -599,20 +659,25 @@ minstrel_ht_get_rate(void *priv, struct ieee80211_sta *sta, void *priv_sta,
 		ar[3].count = 0;
 		ar[3].idx = -1;
 	} else if (mp->hw->max_rates == 2) {
+		/*
+		 * Only 2 tx rates supported, use
+		 * sample_rate -> max_prob_rate for sampling and
+		 * max_tp_rate -> max_prob_rate by default.
+		 */
 		minstrel_ht_set_rate(mp, mi, &ar[1], mi->max_prob_rate,
 				     false, !sample);
 
 		ar[2].count = 0;
 		ar[2].idx = -1;
 	} else {
-		
+		/* Not using MRR, only use the first rate */
 		ar[1].count = 0;
 		ar[1].idx = -1;
 	}
 
 	mi->total_packets++;
 
-	
+	/* wraparound */
 	if (mi->total_packets == ~0) {
 		mi->total_packets = 0;
 		mi->sample_packets = 0;
@@ -636,7 +701,7 @@ minstrel_ht_update_caps(void *priv, struct ieee80211_supported_band *sband,
 	int i;
 	unsigned int smps;
 
-	
+	/* fall back to the old minstrel for legacy stations */
 	if (!sta->ht_cap.ht_supported)
 		goto use_legacy;
 
@@ -653,7 +718,7 @@ minstrel_ht_update_caps(void *priv, struct ieee80211_supported_band *sband,
 
 	mi->avg_ampdu_len = MINSTREL_FRAC(1, 1);
 
-	
+	/* When using MRR, sample more on the first attempt, without delay */
 	if (mp->has_mrr) {
 		mi->sample_count = 16;
 		mi->sample_wait = 0;
@@ -694,7 +759,7 @@ minstrel_ht_update_caps(void *priv, struct ieee80211_supported_band *sband,
 		if ((sta_cap & req) != req)
 			continue;
 
-		
+		/* Mark MCS > 7 as unsupported if STA is in static SMPS mode */
 		if (smps == WLAN_HT_CAP_SM_PS_STATIC &&
 		    minstrel_mcs_groups[i].streams > 1)
 			continue;

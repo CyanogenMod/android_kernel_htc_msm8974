@@ -207,6 +207,12 @@ static int exynos_ohci_suspend(struct device *dev)
 	unsigned long flags;
 	int rc = 0;
 
+	/*
+	 * Root hub was already suspended. Disable irq emission and
+	 * mark HW unaccessible, bail out if RH has been resumed. Use
+	 * the spinlock to properly synchronize with possible pending
+	 * RH suspend or resume activity.
+	 */
 	spin_lock_irqsave(&ohci->lock, flags);
 	if (ohci->rh_state != OHCI_RH_SUSPENDED &&
 			ohci->rh_state != OHCI_RH_HALTED) {
@@ -234,7 +240,7 @@ static int exynos_ohci_resume(struct device *dev)
 	if (pdata && pdata->phy_init)
 		pdata->phy_init(pdev, S5P_USB_PHY_HOST);
 
-	
+	/* Mark hardware accessible again as we are out of D3 state by now */
 	set_bit(HCD_FLAG_HW_ACCESSIBLE, &hcd->flags);
 
 	ohci_finish_controller_resume(hcd);

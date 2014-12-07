@@ -22,6 +22,7 @@ struct as102_dev_t;
 
 #include "as10x_cmd.h"
 
+/* values for "mode" field */
 #define REGMODE8	8
 #define REGMODE16	16
 #define REGMODE32	32

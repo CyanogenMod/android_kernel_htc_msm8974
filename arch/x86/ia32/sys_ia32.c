@@ -63,6 +63,10 @@ asmlinkage long sys32_ftruncate64(unsigned int fd, unsigned long offset_low,
        return sys_ftruncate(fd, ((loff_t) offset_high << 32) | offset_low);
 }
 
+/*
+ * Another set for IA32/LFS -- x86_64 struct stat is different due to
+ * support for 64bit inode numbers.
+ */
 static int cp_stat64(struct stat64 __user *ubuf, struct kstat *stat)
 {
 	typeof(ubuf->st_uid) uid = 0;
@@ -133,6 +137,11 @@ asmlinkage long sys32_fstatat(unsigned int dfd, const char __user *filename,
 	return cp_stat64(statbuf, &stat);
 }
 
+/*
+ * Linux/i386 didn't use to be able to handle more than
+ * 4 system call parameters, so these system calls used a memory
+ * block for parameter passing..
+ */
 
 struct mmap_arg_struct32 {
 	unsigned int addr;
@@ -171,7 +180,7 @@ asmlinkage long sys32_rt_sigaction(int sig, struct sigaction32 __user *act,
 	int ret;
 	compat_sigset_t set32;
 
-	
+	/* XXX: Don't preclude handling different sized sigset_t's.  */
 	if (sigsetsize != sizeof(compat_sigset_t))
 		return -EINVAL;
 
@@ -188,6 +197,10 @@ asmlinkage long sys32_rt_sigaction(int sig, struct sigaction32 __user *act,
 		new_ka.sa.sa_handler = compat_ptr(handler);
 		new_ka.sa.sa_restorer = compat_ptr(restorer);
 
+		/*
+		 * FIXME: here we rely on _COMPAT_NSIG_WORS to be >=
+		 * than _NSIG_WORDS << 1
+		 */
 		switch (_NSIG_WORDS) {
 		case 4: new_ka.sa.sa_mask.sig[3] = set32.sig[6]
 				| (((long)set32.sig[7]) << 32);
@@ -203,6 +216,10 @@ asmlinkage long sys32_rt_sigaction(int sig, struct sigaction32 __user *act,
 	ret = do_sigaction(sig, act ? &new_ka : NULL, oact ? &old_ka : NULL);
 
 	if (!ret && oact) {
+		/*
+		 * FIXME: here we rely on _COMPAT_NSIG_WORS to be >=
+		 * than _NSIG_WORDS << 1
+		 */
 		switch (_NSIG_WORDS) {
 		case 4:
 			set32.sig[7] = (old_ka.sa.sa_mask.sig[3] >> 32);
@@ -281,6 +298,7 @@ asmlinkage long sys32_waitpid(compat_pid_t pid, unsigned int *stat_addr,
 	return compat_sys_wait4(pid, stat_addr, options, NULL);
 }
 
+/* 32-bit timeval and related flotsam.  */
 
 asmlinkage long sys32_sysfs(int option, u32 arg1, u32 arg2)
 {
@@ -341,6 +359,7 @@ asmlinkage long sys32_rt_sigqueueinfo(int pid, int sig,
 	return ret;
 }
 
+/* warning: next two assume little endian */
 asmlinkage long sys32_pread(unsigned int fd, char __user *ubuf, u32 count,
 			    u32 poslo, u32 poshi)
 {
@@ -415,6 +434,10 @@ asmlinkage long sys32_clone(unsigned int clone_flags, unsigned int newsp,
 	return do_fork(clone_flags, newsp, regs, 0, parent_tid, child_tid);
 }
 
+/*
+ * Some system calls that need sign extended arguments. This could be
+ * done by a generic wrapper.
+ */
 long sys32_lseek(unsigned int fd, int offset, unsigned int whence)
 {
 	return sys_lseek(fd, offset, whence);

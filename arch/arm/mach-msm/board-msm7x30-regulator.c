@@ -262,7 +262,16 @@ PCOM_VREG_CONSUMERS(ncp)   = {
 	REGULATOR_SUPPLY("ncp",		NULL),
 };
 
+/* This list needs to be verified against actual 7x30 hardware requirements. */
 static struct proccomm_regulator_info msm7x30_pcom_vreg_info[] = {
+	/* Standard regulators (SMPS and LDO)
+	 * R = rise time (us)
+	 * P = pulldown (1 = pull down, 0 = float, -1 = don't care)
+	 * A = always on
+	 * B = boot on
+	 * V = automatic voltage set (meaningful for single-voltage regs only)
+	 * S = supply voltage (uV)
+	 *             name  id  supp    min uV    max uV  R   P  A  B  V  S */
 	PCOM_VREG_SMP(smps0,  3, NULL,   500000,  1500000, 0, -1, 0, 0, 0, 0),
 	PCOM_VREG_SMP(smps1,  4, NULL,   500000,  1500000, 0, -1, 0, 0, 0, 0),
 	PCOM_VREG_SMP(smps2, 28, NULL,  1300000,  1300000, 0, -1, 0, 0, 0, 0),
@@ -294,7 +303,7 @@ static struct proccomm_regulator_info msm7x30_pcom_vreg_info[] = {
 	PCOM_VREG_LDO(ldo24, 41, NULL,  1200000,  1200000, 0, -1, 0, 0, 0, 0),
 	PCOM_VREG_LDO(ldo25, 42, NULL,  1200000,  1200000, 0, -1, 0, 0, 0, 0),
 
-	
+	/* Low-voltage switches */
 	PCOM_VREG_LVS(lvsw0, 47, NULL,                     0, -1, 0, 0),
 	PCOM_VREG_LVS(lvsw1, 48, NULL,                     0, -1, 0, 0),
 

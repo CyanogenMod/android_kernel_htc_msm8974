@@ -7,6 +7,9 @@
 #ifndef _MAC53C94_H
 #define _MAC53C94_H
 
+/*
+ * Registers in the 53C94 controller.
+ */
 
 struct mac53c94_regs {
 	unsigned char	count_lo;
@@ -43,11 +46,17 @@ struct mac53c94_regs {
 	char pad15[15];
 };
 
+/*
+ * Alternate functions for some registers.
+ */
 #define dest_id		status
 #define sel_timeout	interrupt
 #define sync_period	seqstep
 #define sync_offset	flags
 
+/*
+ * Bits in command register.
+ */
 #define CMD_DMA_MODE	0x80
 #define CMD_MODE_MASK	0x70
 #define CMD_MODE_INIT	0x10
@@ -88,6 +97,9 @@ struct mac53c94_regs {
 #define CMD_SEL_ATN3	0x46
 #define CMD_RESEL_ATN3	0x47
 
+/*
+ * Bits in status register.
+ */
 #define STAT_IRQ	0x80
 #define STAT_ERROR	0x40
 #define STAT_PARITY	0x20
@@ -98,69 +110,105 @@ struct mac53c94_regs {
 #define STAT_CD		0x02
 #define STAT_IO		0x01
 
-#define INTR_RESET	0x80	
-#define INTR_ILL_CMD	0x40	
-#define INTR_DISCONNECT	0x20	
-#define INTR_BUS_SERV	0x10	
-#define INTR_DONE	0x08	
-#define INTR_RESELECTED	0x04	
-#define INTR_SEL_ATN	0x02	
-#define INTR_SELECT	0x01	
+/*
+ * Bits in interrupt register.
+ */
+#define INTR_RESET	0x80	/* SCSI bus was reset */
+#define INTR_ILL_CMD	0x40	/* illegal command */
+#define INTR_DISCONNECT	0x20	/* we got disconnected */
+#define INTR_BUS_SERV	0x10	/* bus service requested */
+#define INTR_DONE	0x08	/* function completed */
+#define INTR_RESELECTED	0x04	/* we were reselected */
+#define INTR_SEL_ATN	0x02	/* we were selected, ATN asserted */
+#define INTR_SELECT	0x01	/* we were selected, ATN negated */
 
+/*
+ * Encoding for the select timeout.
+ */
 #define TIMO_VAL(x)	((x) * 5000 / 7682)
 
+/*
+ * Bits in sequence step register.
+ */
 #define SS_MASK		7
-#define SS_ARB_SEL	0	
-#define SS_MSG_SENT	1	
-#define SS_NOT_CMD	2	
-#define SS_PHASE_CHG	3	
-#define SS_DONE		4	
+#define SS_ARB_SEL	0	/* Selection & arbitration complete */
+#define SS_MSG_SENT	1	/* One message byte sent */
+#define SS_NOT_CMD	2	/* Not in command phase */
+#define SS_PHASE_CHG	3	/* Early phase change, cmd bytes lost */
+#define SS_DONE		4	/* Command was sent OK */
 
+/*
+ * Encoding for sync transfer period.
+ */
 #define SYNCP_MASK	0x1f
 #define SYNCP_MIN	4
 #define SYNCP_MAX	31
 
+/*
+ * Bits in flags register.
+ */
 #define FLAGS_FIFO_LEV	0x1f
 #define FLAGS_SEQ_STEP	0xe0
 
+/*
+ * Encoding for sync offset.
+ */
 #define SYNCO_MASK	0x0f
-#define SYNCO_ASS_CTRL	0x30	
-#define SYNCO_NEG_CTRL	0xc0	
+#define SYNCO_ASS_CTRL	0x30	/* REQ/ACK assertion control */
+#define SYNCO_NEG_CTRL	0xc0	/* REQ/ACK negation control */
 
-#define CF1_SLOW_CABLE	0x80	
-#define CF1_NO_RES_REP	0x40	
-#define CF1_PAR_TEST	0x20	
-#define CF1_PAR_ENABLE	0x10	
-#define CF1_TEST	0x08	
-#define CF1_MY_ID	0x07	
+/*
+ * Bits in config1 register.
+ */
+#define CF1_SLOW_CABLE	0x80	/* Slow cable mode */
+#define CF1_NO_RES_REP	0x40	/* Disable SCSI reset reports */
+#define CF1_PAR_TEST	0x20	/* Parity test mode enable */
+#define CF1_PAR_ENABLE	0x10	/* Enable parity checks */
+#define CF1_TEST	0x08	/* Chip tests */
+#define CF1_MY_ID	0x07	/* Controller's address on bus */
 
+/*
+ * Encoding for clk_factor register.
+ */
 #define CLKF_MASK	7
 #define CLKF_VAL(freq)	((((freq) + 4999999) / 5000000) & CLKF_MASK)
 
-#define TEST_TARGET	1	
-#define TEST_INITIATOR	2	
-#define TEST_TRISTATE	4	
+/*
+ * Bits in test mode register.
+ */
+#define TEST_TARGET	1	/* target test mode */
+#define TEST_INITIATOR	2	/* initiator test mode */
+#define TEST_TRISTATE	4	/* tristate (hi-z) test mode */
 
+/*
+ * Bits in config2 register.
+ */
 #define CF2_RFB		0x80
-#define CF2_FEATURE_EN	0x40	
+#define CF2_FEATURE_EN	0x40	/* enable features / phase latch */
 #define CF2_BYTECTRL	0x20
 #define CF2_DREQ_HIZ	0x10
 #define CF2_SCSI2	0x08
-#define CF2_PAR_ABORT	0x04	
-#define CF2_REG_PARERR	0x02	
-#define CF2_DMA_PARERR	0x01	
+#define CF2_PAR_ABORT	0x04	/* bad parity target abort */
+#define CF2_REG_PARERR	0x02	/* register parity error */
+#define CF2_DMA_PARERR	0x01	/* DMA parity error */
 
+/*
+ * Bits in the config3 register.
+ */
 #define CF3_ID_MSG_CHK	0x80
 #define CF3_3B_MSGS	0x40
 #define CF3_CDB10	0x20
-#define CF3_FASTSCSI	0x10	
+#define CF3_FASTSCSI	0x10	/* enable fast SCSI support */
 #define CF3_FASTCLOCK	0x08
 #define CF3_SAVERESID	0x04
 #define CF3_ALT_DMA	0x02
 #define CF3_THRESH_8	0x01
 
+/*
+ * Bits in the config4 register.
+ */
 #define CF4_EAN		0x04
 #define CF4_TEST	0x02
 #define CF4_BBTE	0x01
 
-#endif 
+#endif /* _MAC53C94_H */

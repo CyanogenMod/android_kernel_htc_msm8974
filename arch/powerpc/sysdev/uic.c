@@ -48,7 +48,7 @@ struct uic {
 
 	raw_spinlock_t lock;
 
-	
+	/* The remapper for this UIC */
 	struct irq_domain	*irqhost;
 };
 
@@ -61,7 +61,7 @@ static void uic_unmask_irq(struct irq_data *d)
 
 	sr = 1 << (31-src);
 	raw_spin_lock_irqsave(&uic->lock, flags);
-	
+	/* ack level-triggered interrupts here */
 	if (irqd_is_level_type(d))
 		mtdcr(uic->dcrbase + UIC_SR, sr);
 	er = mfdcr(uic->dcrbase + UIC_ER);
@@ -107,6 +107,14 @@ static void uic_mask_ack_irq(struct irq_data *d)
 	er = mfdcr(uic->dcrbase + UIC_ER);
 	er &= ~sr;
 	mtdcr(uic->dcrbase + UIC_ER, er);
+ 	/* On the UIC, acking (i.e. clearing the SR bit)
+	 * a level irq will have no effect if the interrupt
+	 * is still asserted by the device, even if
+	 * the interrupt is already masked. Therefore
+	 * we only ack the egde interrupts here, while
+	 * level interrupts are ack'ed after the actual
+	 * isr call in the uic_unmask_irq()
+	 */
 	if (!irqd_is_level_type(d))
 		mtdcr(uic->dcrbase + UIC_SR, sr);
 	raw_spin_unlock_irqrestore(&uic->lock, flags);
@@ -172,9 +180,11 @@ static int uic_host_map(struct irq_domain *h, unsigned int virq,
 	struct uic *uic = h->host_data;
 
 	irq_set_chip_data(virq, uic);
+	/* Despite the name, handle_level_irq() works for both level
+	 * and edge irqs on UIC.  FIXME: check this is correct */
 	irq_set_chip_and_handler(virq, &uic_irq_chip, handle_level_irq);
 
-	
+	/* Set default irq type */
 	irq_set_irq_type(virq, IRQ_TYPE_NONE);
 
 	return 0;
@@ -202,7 +212,7 @@ void uic_irq_cascade(unsigned int virq, struct irq_desc *desc)
 	raw_spin_unlock(&desc->lock);
 
 	msr = mfdcr(uic->dcrbase + UIC_MSR);
-	if (!msr) 
+	if (!msr) /* spurious interrupt */
 		goto uic_irq_ret;
 
 	src = 32 - ffs(msr);
@@ -229,7 +239,7 @@ static struct uic * __init uic_init_one(struct device_node *node)
 
 	uic = kzalloc(sizeof(*uic), GFP_KERNEL);
 	if (! uic)
-		return NULL; 
+		return NULL; /* FIXME: panic? */
 
 	raw_spin_lock_init(&uic->lock);
 	indexp = of_get_property(node, "cell-index", &len);
@@ -251,13 +261,13 @@ static struct uic * __init uic_init_one(struct device_node *node)
 	uic->irqhost = irq_domain_add_linear(node, NR_UIC_INTS, &uic_host_ops,
 					     uic);
 	if (! uic->irqhost)
-		return NULL; 
+		return NULL; /* FIXME: panic? */
 
-	
+	/* Start with all interrupts disabled, level and non-critical */
 	mtdcr(uic->dcrbase + UIC_ER, 0);
 	mtdcr(uic->dcrbase + UIC_CR, 0);
 	mtdcr(uic->dcrbase + UIC_TR, 0);
-	
+	/* Clear any pending interrupts, in case the firmware left some */
 	mtdcr(uic->dcrbase + UIC_SR, 0xffffffff);
 
 	printk ("UIC%d (%d IRQ sources) at DCR 0x%x\n", uic->index,
@@ -272,14 +282,15 @@ void __init uic_init_tree(void)
 	struct uic *uic;
 	const u32 *interrupts;
 
-	
+	/* First locate and initialize the top-level UIC */
 	for_each_compatible_node(np, NULL, "ibm,uic") {
 		interrupts = of_get_property(np, "interrupts", NULL);
 		if (!interrupts)
 			break;
 	}
 
-	BUG_ON(!np); 
+	BUG_ON(!np); /* uic_init_tree() assumes there's a UIC as the
+		      * top-level interrupt controller */
 	primary_uic = uic_init_one(np);
 	if (!primary_uic)
 		panic("Unable to initialize primary UIC %s\n", np->full_name);
@@ -287,11 +298,11 @@ void __init uic_init_tree(void)
 	irq_set_default_host(primary_uic->irqhost);
 	of_node_put(np);
 
-	
+	/* The scan again for cascaded UICs */
 	for_each_compatible_node(np, NULL, "ibm,uic") {
 		interrupts = of_get_property(np, "interrupts", NULL);
 		if (interrupts) {
-			
+			/* Secondary UIC */
 			int cascade_virq;
 
 			uic = uic_init_one(np);
@@ -304,11 +315,12 @@ void __init uic_init_tree(void)
 			irq_set_handler_data(cascade_virq, uic);
 			irq_set_chained_handler(cascade_virq, uic_irq_cascade);
 
-			
+			/* FIXME: setup critical cascade?? */
 		}
 	}
 }
 
+/* Return an interrupt vector or NO_IRQ if no interrupt is pending. */
 unsigned int uic_get_irq(void)
 {
 	u32 msr;

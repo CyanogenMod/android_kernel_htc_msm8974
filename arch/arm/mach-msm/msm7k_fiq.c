@@ -28,6 +28,7 @@ struct msm_watchdog_dump msm_dump_cpu_ctx;
 static int fiq_counter;
 void *msm7k_fiq_stack;
 
+/* Called from the FIQ asm handler */
 void msm7k_fiq_handler(void)
 {
 	struct irq_data *d;
@@ -40,7 +41,7 @@ void msm7k_fiq_handler(void)
 	c->irq_mask(d);
 	local_irq_disable();
 
-	
+	/* Clear the IRQ from the ENABLE_SET */
 	gic_clear_irq_pending(MSM8625_INT_A9_M2A_2);
 	local_irq_enable();
 	flush_cache_all();

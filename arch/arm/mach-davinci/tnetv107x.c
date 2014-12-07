@@ -35,6 +35,7 @@
 #include "clock.h"
 #include "mux.h"
 
+/* Base addresses for on-chip devices */
 #define TNETV107X_INTC_BASE			0x03000000
 #define TNETV107X_TIMER0_BASE			0x08086500
 #define TNETV107X_TIMER1_BASE			0x08086600
@@ -43,6 +44,7 @@
 #define TNETV107X_CLOCK_CONTROL_BASE		0x0808a000
 #define TNETV107X_PSC_BASE			0x0808b000
 
+/* Reference clock frequencies */
 #define OSC_FREQ_ONCHIP		(24000 * 1000)
 #define OSC_FREQ_OFFCHIP_SYS	(25000 * 1000)
 #define OSC_FREQ_OFFCHIP_ETH	(25000 * 1000)
@@ -50,6 +52,7 @@
 
 #define N_PLLS	3
 
+/* Clock Control Registers */
 struct clk_ctrl_regs {
 	u32	pll_bypass;
 	u32	_reserved0;
@@ -61,6 +64,7 @@ struct clk_ctrl_regs {
 	u32	tdm_unlock;
 };
 
+/* SSPLL Registers */
 struct sspll_regs {
 	u32	modes;
 	u32	post_div;
@@ -73,6 +77,7 @@ struct sspll_regs {
 	u32	diag;
 };
 
+/* Watchdog Timer Registers */
 struct wdt_regs {
 	u32	kick_lock;
 	u32	kick;
@@ -89,20 +94,25 @@ static struct clk_ctrl_regs __iomem *clk_ctrl_regs;
 static struct sspll_regs __iomem *sspll_regs[N_PLLS];
 static int sspll_regs_base[N_PLLS] = { 0x40, 0x80, 0xc0 };
 
+/* PLL bypass bit shifts in clk_ctrl_regs->pll_bypass register */
 static u32 bypass_mask[N_PLLS] = { BIT(0), BIT(2), BIT(1) };
 
+/* offchip (external) reference clock frequencies */
 static u32 pll_ext_freq[] = {
 	OSC_FREQ_OFFCHIP_SYS,
 	OSC_FREQ_OFFCHIP_TDM,
 	OSC_FREQ_OFFCHIP_ETH
 };
 
+/* PSC control registers */
 static u32 psc_regs[] = { TNETV107X_PSC_BASE };
 
+/* Host map for interrupt controller */
 static u32 intc_host_map[] = { 0x01010000, 0x01010101, -1 };
 
 static unsigned long clk_sspll_recalc(struct clk *clk);
 
+/* Level 1 - the PLLs */
 #define define_pll_clk(cname, pll, divmask, base)	\
 	static struct pll_data pll_##cname##_data = {	\
 		.num		= pll,			\
@@ -121,6 +131,7 @@ define_pll_clk(sys, 0, 0x1ff, 0x600);
 define_pll_clk(tdm, 1, 0x0ff, 0x200);
 define_pll_clk(eth, 2, 0x0ff, 0x400);
 
+/* Level 2 - divided outputs from the PLLs */
 #define define_pll_div_clk(pll, cname, div)			\
 	static struct clk pll##_##cname##_clk = {		\
 		.name		= #pll "_" #cname "_clk",	\
@@ -150,6 +161,7 @@ define_pll_div_clk(tdm, extra,		2);
 define_pll_div_clk(tdm, 1,		3);
 
 
+/* Level 3 - LPSC gated clocks */
 #define __lpsc_clk(cname, _parent, mod, flg)		\
 	static struct clk clk_##cname = {		\
 		.name		= #cname,		\
@@ -209,9 +221,11 @@ lpsc_clk(ethss_rgmii,	eth_250mhz_clk,		ETHSS_RGMII);
 lpsc_clk(imcop,		sys_dsp_clk,		IMCOP);
 lpsc_clk(spare,		sys_half_clk,		SPARE);
 
+/* LCD needs a full power down to clear controller state */
 __lpsc_clk(lcd, sys_lcd_clk, LCD, PSC_SWRSTDISABLE);
 
 
+/* Level 4 - leaf clocks for LPSC modules shared across drivers */
 static struct clk clk_rng = { .name = "rng", .parent = &clk_pktsec };
 static struct clk clk_pka = { .name = "pka", .parent = &clk_pktsec };
 
@@ -555,12 +569,14 @@ static const struct mux_config pins[] = {
 #endif
 };
 
+/* FIQ are pri 0-1; otherwise 2-7, with 7 lowest priority */
 static u8 irq_prios[TNETV107X_N_CP_INTC_IRQ] = {
-	
+	/* fill in default priority 7 */
 	[0 ... (TNETV107X_N_CP_INTC_IRQ - 1)]	= 7,
-	
+	/* now override as needed, e.g. [xxx] = 5 */
 };
 
+/* Contents of JTAG ID register used to identify exact cpu type */
 static struct davinci_id ids[] = {
 	{
 		.variant	= 0x0,
@@ -597,14 +613,30 @@ static struct davinci_timer_info timer_info = {
 	.clocksource_id	= T0_TOP,
 };
 
+/*
+ * TNETV107X platforms do not use the static mappings from Davinci
+ * IO_PHYS/IO_VIRT. This SOC's interesting MMRs are at different addresses,
+ * and changing IO_PHYS would break away from existing Davinci SOCs.
+ *
+ * The primary impact of the current model is that IO_ADDRESS() is not to be
+ * used to map registers on TNETV107X.
+ *
+ * 1.	The first chunk is for INTC:  This needs to be mapped in via iotable
+ *	because ioremap() does not seem to be operational at the time when
+ *	irqs are initialized.  Without this, consistent dma init bombs.
+ *
+ * 2.	The second chunk maps in register areas that need to be populated into
+ *	davinci_soc_info.  Note that alignment restrictions come into play if
+ *	low-level debug is enabled (see note in <mach/tnetv107x.h>).
+ */
 static struct map_desc io_desc[] = {
-	{	
+	{	/* INTC */
 		.virtual	= IO_VIRT,
 		.pfn		= __phys_to_pfn(TNETV107X_INTC_BASE),
 		.length		= SZ_16K,
 		.type		= MT_DEVICE
 	},
-	{	
+	{	/* Most of the rest */
 		.virtual	= TNETV107X_IO_VIRT,
 		.pfn		= __phys_to_pfn(TNETV107X_IO_BASE),
 		.length		= IO_SIZE - SZ_1M,
@@ -670,29 +702,29 @@ static void tnetv107x_watchdog_reset(struct platform_device *pdev)
 
 	regs = ioremap(pdev->resource[0].start, SZ_4K);
 
-	
+	/* disable watchdog */
 	__raw_writel(0x7777, &regs->disable_lock);
 	__raw_writel(0xcccc, &regs->disable_lock);
 	__raw_writel(0xdddd, &regs->disable_lock);
 	__raw_writel(0, &regs->disable);
 
-	
+	/* program prescale */
 	__raw_writel(0x5a5a, &regs->prescale_lock);
 	__raw_writel(0xa5a5, &regs->prescale_lock);
 	__raw_writel(0, &regs->prescale);
 
-	
+	/* program countdown */
 	__raw_writel(0x6666, &regs->change_lock);
 	__raw_writel(0xbbbb, &regs->change_lock);
 	__raw_writel(1, &regs->change);
 
-	
+	/* enable watchdog */
 	__raw_writel(0x7777, &regs->disable_lock);
 	__raw_writel(0xcccc, &regs->disable_lock);
 	__raw_writel(0xdddd, &regs->disable_lock);
 	__raw_writel(1, &regs->disable);
 
-	
+	/* kick */
 	__raw_writel(0x5555, &regs->kick_lock);
 	__raw_writel(0xaaaa, &regs->kick_lock);
 	__raw_writel(1, &regs->kick);

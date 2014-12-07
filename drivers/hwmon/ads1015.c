@@ -35,14 +35,17 @@
 
 #include <linux/i2c/ads1015.h>
 
+/* ADS1015 registers */
 enum {
 	ADS1015_CONVERSION = 0,
 	ADS1015_CONFIG = 1,
 };
 
+/* PGA fullscale voltages in mV */
 static const unsigned int fullscale_table[8] = {
 	6144, 4096, 2048, 1024, 512, 256, 256, 256 };
 
+/* Data rates in samples per second */
 static const unsigned int data_rate_table[8] = {
 	128, 250, 490, 920, 1600, 2400, 3300, 3300 };
 
@@ -52,7 +55,7 @@ static const unsigned int data_rate_table[8] = {
 
 struct ads1015_data {
 	struct device *hwmon_dev;
-	struct mutex update_lock; 
+	struct mutex update_lock; /* mutex protect updates */
 	struct ads1015_channel_data channel_data[ADS1015_CHANNELS];
 };
 
@@ -67,14 +70,14 @@ static int ads1015_read_adc(struct i2c_client *client, unsigned int channel)
 
 	mutex_lock(&data->update_lock);
 
-	
+	/* get channel parameters */
 	res = i2c_smbus_read_word_swapped(client, ADS1015_CONFIG);
 	if (res < 0)
 		goto err_unlock;
 	config = res;
 	conversion_time_ms = DIV_ROUND_UP(1000, data_rate_table[data_rate]);
 
-	
+	/* setup and start single conversion */
 	config &= 0x001f;
 	config |= (1 << 15) | (1 << 8);
 	config |= (channel & 0x0007) << 12;
@@ -85,14 +88,14 @@ static int ads1015_read_adc(struct i2c_client *client, unsigned int channel)
 	if (res < 0)
 		goto err_unlock;
 
-	
+	/* wait until conversion finished */
 	msleep(conversion_time_ms);
 	res = i2c_smbus_read_word_swapped(client, ADS1015_CONFIG);
 	if (res < 0)
 		goto err_unlock;
 	config = res;
 	if (!(config & (1 << 15))) {
-		
+		/* conversion not finished in time */
 		res = -EIO;
 		goto err_unlock;
 	}
@@ -114,6 +117,7 @@ static int ads1015_reg_to_mv(struct i2c_client *client, unsigned int channel,
 	return DIV_ROUND_CLOSEST(reg * fullscale, 0x7ff0);
 }
 
+/* sysfs callback function */
 static ssize_t show_in(struct device *dev, struct device_attribute *da,
 	char *buf)
 {
@@ -140,6 +144,9 @@ static const struct sensor_device_attribute ads1015_in[] = {
 	SENSOR_ATTR(in7_input, S_IRUGO, show_in, NULL, 7),
 };
 
+/*
+ * Driver interface
+ */
 
 static int ads1015_remove(struct i2c_client *client)
 {
@@ -220,7 +227,7 @@ static void ads1015_get_channels_config(struct i2c_client *client)
 	struct ads1015_data *data = i2c_get_clientdata(client);
 	struct ads1015_platform_data *pdata = dev_get_platdata(&client->dev);
 
-	
+	/* prefer platform data */
 	if (pdata) {
 		memcpy(data->channel_data, pdata->channel_data,
 		       sizeof(data->channel_data));
@@ -232,7 +239,7 @@ static void ads1015_get_channels_config(struct i2c_client *client)
 		return;
 #endif
 
-	
+	/* fallback on default configuration */
 	for (k = 0; k < ADS1015_CHANNELS; ++k) {
 		data->channel_data[k].enabled = true;
 		data->channel_data[k].pga = ADS1015_DEFAULT_PGA;
@@ -256,7 +263,7 @@ static int ads1015_probe(struct i2c_client *client,
 	i2c_set_clientdata(client, data);
 	mutex_init(&data->update_lock);
 
-	
+	/* build sysfs attribute group */
 	ads1015_get_channels_config(client);
 	for (k = 0; k < ADS1015_CHANNELS; ++k) {
 		if (!data->channel_data[k].enabled)

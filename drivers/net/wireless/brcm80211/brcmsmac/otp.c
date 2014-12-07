@@ -25,11 +25,16 @@
 
 #define OTPS_GUP_MASK		0x00000f00
 #define OTPS_GUP_SHIFT		8
+/* h/w subregion is programmed */
 #define OTPS_GUP_HW		0x00000100
+/* s/w subregion is programmed */
 #define OTPS_GUP_SW		0x00000200
+/* chipid/pkgopt subregion is programmed */
 #define OTPS_GUP_CI		0x00000400
+/* fuse subregion is programmed */
 #define OTPS_GUP_FUSE		0x00000800
 
+/* Fields in otpprog in rev >= 21 */
 #define OTPP_COL_MASK		0x000000ff
 #define OTPP_COL_SHIFT		0
 #define OTPP_ROW_MASK		0x0000ff00
@@ -42,6 +47,7 @@
 #define OTPP_START_BUSY		0x80000000
 #define	OTPP_READ		0x40000000
 
+/* Opcodes for OTPP_OC field */
 #define OTPPOC_READ		0
 #define OTPPOC_BIT_PROG		1
 #define OTPPOC_VERIFY		3
@@ -54,14 +60,16 @@
 
 #define OTPTYPE_IPX(ccrev)	((ccrev) == 21 || (ccrev) >= 23)
 
-#define OTPP_TRIES	10000000	
+#define OTPP_TRIES	10000000	/* # of tries for OTPP */
 
-#define MAXNUMRDES		9	
+#define MAXNUMRDES		9	/* Maximum OTP redundancy entries */
 
+/* Fixed size subregions sizes in words */
 #define OTPGU_CI_SZ		2
 
 struct otpinfo;
 
+/* OTP function struct */
 struct otp_fn_s {
 	int (*init)(struct si_pub *sih, struct otpinfo *oi);
 	int (*read_region)(struct otpinfo *oi, int region, u16 *data,
@@ -69,36 +77,44 @@ struct otp_fn_s {
 };
 
 struct otpinfo {
-	struct bcma_device *core; 
-	const struct otp_fn_s *fn;	
-	struct si_pub *sih;		
+	struct bcma_device *core; /* chipc core */
+	const struct otp_fn_s *fn;	/* OTP functions */
+	struct si_pub *sih;		/* Saved sb handle */
 
-	
-	u16 wsize;		
-	u16 rows;		
-	u16 cols;		
-	u32 status;		
-	u16 hwbase;		
-	u16 hwlim;		
-	u16 swbase;		
-	u16 swlim;		
-	u16 fbase;		
-	u16 flim;		
-	int otpgu_base;		
+	/* IPX OTP section */
+	u16 wsize;		/* Size of otp in words */
+	u16 rows;		/* Geometry */
+	u16 cols;		/* Geometry */
+	u32 status;		/* Flag bits (lock/prog/rv).
+				 * (Reflected only when OTP is power cycled)
+				 */
+	u16 hwbase;		/* hardware subregion offset */
+	u16 hwlim;		/* hardware subregion boundary */
+	u16 swbase;		/* software subregion offset */
+	u16 swlim;		/* software subregion boundary */
+	u16 fbase;		/* fuse subregion offset */
+	u16 flim;		/* fuse subregion boundary */
+	int otpgu_base;		/* offset to General Use Region */
 };
 
+/* OTP layout */
+/* CC revs 21, 24 and 27 OTP General Use Region word offset */
 #define REVA4_OTPGU_BASE	12
 
+/* CC revs 23, 25, 26, 28 and above OTP General Use Region word offset */
 #define REVB8_OTPGU_BASE	20
 
+/* CC rev 36 OTP General Use Region word offset */
 #define REV36_OTPGU_BASE	12
 
+/* Subregion word offsets in General Use region */
 #define OTPGU_HSB_OFF		0
 #define OTPGU_SFB_OFF		1
 #define OTPGU_CI_OFF		2
 #define OTPGU_P_OFF		3
 #define OTPGU_SROM_OFF		4
 
+/* Flag bit offsets in General Use region  */
 #define OTPGU_HWP_OFF		60
 #define OTPGU_SWP_OFF		61
 #define OTPGU_CIP_OFF		62
@@ -107,13 +123,14 @@ struct otpinfo {
 #define OTPGU_P_MSK		0xf000
 #define OTPGU_P_SHIFT		(OTPGU_HWP_OFF % 16)
 
-#define OTP_SZ_FU_324		((roundup(324, 8))/8)	
-#define OTP_SZ_FU_288		(288/8)	
-#define OTP_SZ_FU_216		(216/8)	
-#define OTP_SZ_FU_72		(72/8)	
-#define OTP_SZ_CHECKSUM		(16/8)	
-#define OTP4315_SWREG_SZ	178	
-#define OTP_SZ_FU_144		(144/8)	
+/* OTP Size */
+#define OTP_SZ_FU_324		((roundup(324, 8))/8)	/* 324 bits */
+#define OTP_SZ_FU_288		(288/8)	/* 288 bits */
+#define OTP_SZ_FU_216		(216/8)	/* 216 bits */
+#define OTP_SZ_FU_72		(72/8)	/* 72 bits */
+#define OTP_SZ_CHECKSUM		(16/8)	/* 16 bits */
+#define OTP4315_SWREG_SZ	178	/* 178 bytes */
+#define OTP_SZ_FU_144		(144/8)	/* 144 bits */
 
 static u16
 ipxotp_otpr(struct otpinfo *oi, uint wn)
@@ -122,6 +139,10 @@ ipxotp_otpr(struct otpinfo *oi, uint wn)
 			   CHIPCREGOFFS(sromotp[wn]));
 }
 
+/*
+ * Calculate max HW/SW region byte size by subtracting fuse region
+ * and checksum size, osizew is oi->wsize (OTP size - GU size) in words
+ */
 static int ipxotp_max_rgnsz(struct si_pub *sih, int osizew)
 {
 	int ret = 0;
@@ -135,7 +156,7 @@ static int ipxotp_max_rgnsz(struct si_pub *sih, int osizew)
 		ret = osizew * 2 - OTP_SZ_FU_72 - OTP_SZ_CHECKSUM;
 		break;
 	default:
-		break;	
+		break;	/* Don't know about this chip */
 	}
 
 	return ret;
@@ -148,10 +169,18 @@ static void _ipxotp_init(struct otpinfo *oi)
 	int ccrev = ai_get_ccrev(oi->sih);
 
 
+	/*
+	 * record word offset of General Use Region
+	 * for various chipcommon revs
+	 */
 	if (ccrev == 21 || ccrev == 24
 	    || ccrev == 27) {
 		oi->otpgu_base = REVA4_OTPGU_BASE;
 	} else if (ccrev == 36) {
+		/*
+		 * OTP size greater than equal to 2KB (128 words),
+		 * otpgu_base is similar to rev23
+		 */
 		if (oi->wsize >= 128)
 			oi->otpgu_base = REVB8_OTPGU_BASE;
 		else
@@ -160,7 +189,7 @@ static void _ipxotp_init(struct otpinfo *oi)
 		oi->otpgu_base = REVB8_OTPGU_BASE;
 	}
 
-	
+	/* First issue an init command so the status is up to date */
 	otpp =
 	    OTPP_START_BUSY | ((OTPPOC_INIT << OTPP_OC_SHIFT) & OTPP_OC_MASK);
 
@@ -171,7 +200,7 @@ static void _ipxotp_init(struct otpinfo *oi)
 	if (k >= OTPP_TRIES)
 		return;
 
-	
+	/* Read OTP lock bits and subregion programmed indication bits */
 	oi->status = bcma_read32(oi->core, CHIPCREGOFFS(otpstatus));
 
 	if ((ai_get_chip_id(oi->sih) == BCM43224_CHIP_ID)
@@ -182,6 +211,11 @@ static void _ipxotp_init(struct otpinfo *oi)
 		oi->status |= (p_bits << OTPS_GUP_SHIFT);
 	}
 
+	/*
+	 * h/w region base and fuse region limit are fixed to
+	 * the top and the bottom of the general use region.
+	 * Everything else can be flexible.
+	 */
 	oi->hwbase = oi->otpgu_base + OTPGU_SROM_OFF;
 	oi->hwlim = oi->wsize;
 	if (oi->status & OTPS_GUP_HW) {
@@ -191,7 +225,7 @@ static void _ipxotp_init(struct otpinfo *oi)
 	} else
 		oi->swbase = oi->hwbase;
 
-	
+	/* subtract fuse and checksum from beginning */
 	oi->swlim = ipxotp_max_rgnsz(oi->sih, oi->wsize) / 2;
 
 	if (oi->status & OTPS_GUP_SW) {
@@ -206,45 +240,45 @@ static void _ipxotp_init(struct otpinfo *oi)
 
 static int ipxotp_init(struct si_pub *sih, struct otpinfo *oi)
 {
-	
+	/* Make sure we're running IPX OTP */
 	if (!OTPTYPE_IPX(ai_get_ccrev(sih)))
 		return -EBADE;
 
-	
+	/* Make sure OTP is not disabled */
 	if (ai_is_otp_disabled(sih))
 		return -EBADE;
 
-	
+	/* Check for otp size */
 	switch ((ai_get_cccaps(sih) & CC_CAP_OTPSIZE) >> CC_CAP_OTPSIZE_SHIFT) {
 	case 0:
-		
+		/* Nothing there */
 		return -EBADE;
-	case 1:		
+	case 1:		/* 32x64 */
 		oi->rows = 32;
 		oi->cols = 64;
 		oi->wsize = 128;
 		break;
-	case 2:		
+	case 2:		/* 64x64 */
 		oi->rows = 64;
 		oi->cols = 64;
 		oi->wsize = 256;
 		break;
-	case 5:		
+	case 5:		/* 96x64 */
 		oi->rows = 96;
 		oi->cols = 64;
 		oi->wsize = 384;
 		break;
-	case 7:		
+	case 7:		/* 16x64 *//* 1024 bits */
 		oi->rows = 16;
 		oi->cols = 64;
 		oi->wsize = 64;
 		break;
 	default:
-		
+		/* Don't know the geometry */
 		return -EBADE;
 	}
 
-	
+	/* Retrieve OTP region info */
 	_ipxotp_init(oi);
 	return 0;
 }
@@ -254,7 +288,7 @@ ipxotp_read_region(struct otpinfo *oi, int region, u16 *data, uint *wlen)
 {
 	uint base, i, sz;
 
-	
+	/* Validate region selection */
 	switch (region) {
 	case OTP_HW_RGN:
 		sz = (uint) oi->hwlim - oi->hwbase;
@@ -320,7 +354,7 @@ ipxotp_read_region(struct otpinfo *oi, int region, u16 *data, uint *wlen)
 		return -EINVAL;
 	}
 
-	
+	/* Read the data */
 	for (i = 0; i < sz; i++)
 		data[i] = ipxotp_otpr(oi, base + i);
 

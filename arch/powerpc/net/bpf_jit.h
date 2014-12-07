@@ -17,6 +17,22 @@
 				 BPF_PPC_STACK_SAVE)
 #define BPF_PPC_SLOWPATH_FRAME	(48+64)
 
+/*
+ * Generated code register usage:
+ *
+ * As normal PPC C ABI (e.g. r1=sp, r2=TOC), with:
+ *
+ * skb		r3	(Entry parameter)
+ * A register	r4
+ * X register	r5
+ * addr param	r6
+ * r7-r10	scratch
+ * skb->data	r14
+ * skb headlen	r15	(skb->len - skb->data_len)
+ * m[0]		r16
+ * m[...]	...
+ * m[15]	r31
+ */
 #define r_skb		3
 #define r_ret		3
 #define r_A		4
@@ -29,6 +45,9 @@
 
 #ifndef __ASSEMBLY__
 
+/*
+ * Assembly helpers from arch/powerpc/net/bpf_jit.S:
+ */
 #define DECLARE_LOAD_FUNC(func)	\
 	extern u8 func[], func##_negative_offset[], func##_positive_offset[]
 
@@ -39,6 +58,11 @@ DECLARE_LOAD_FUNC(sk_load_byte_msh);
 
 #define FUNCTION_DESCR_SIZE	24
 
+/*
+ * 16-bit immediate helper macros: HA() is for use with sign-extending instrs
+ * (e.g. LD, ADDI).  If the bottom 16 bits is "-ve", add another bit into the
+ * top half to negate the effect (i.e. 0xffff + 1 = 0x(1)0000).
+ */
 #define IMM_H(i)		((uintptr_t)(i)>>16)
 #define IMM_HA(i)		(((uintptr_t)(i)>>16) +			      \
 				 (((uintptr_t)(i) & 0x8000) >> 15))
@@ -68,6 +92,7 @@ DECLARE_LOAD_FUNC(sk_load_byte_msh);
 				     __PPC_RA(base) | IMM_L(i))
 #define PPC_LHZ(r, base, i)	EMIT(PPC_INST_LHZ | __PPC_RT(r) |	      \
 				     __PPC_RA(base) | IMM_L(i))
+/* Convenience helpers for the above with 'far' offsets: */
 #define PPC_LD_OFFS(r, base, i) do { if ((i) < 32768) PPC_LD(r, base, i);     \
 		else {	PPC_ADDIS(r, base, IMM_HA(i));			      \
 			PPC_LD(r, r, IMM_L(i)); } } while(0)
@@ -113,19 +138,24 @@ DECLARE_LOAD_FUNC(sk_load_byte_msh);
 				     __PPC_RS(a) | __PPC_RB(s))
 #define PPC_SRW(d, a, s)	EMIT(PPC_INST_SRW | __PPC_RA(d) |	      \
 				     __PPC_RS(a) | __PPC_RB(s))
+/* slwi = rlwinm Rx, Ry, n, 0, 31-n */
 #define PPC_SLWI(d, a, i)	EMIT(PPC_INST_RLWINM | __PPC_RA(d) |	      \
 				     __PPC_RS(a) | __PPC_SH(i) |	      \
 				     __PPC_MB(0) | __PPC_ME(31-(i)))
+/* srwi = rlwinm Rx, Ry, 32-n, n, 31 */
 #define PPC_SRWI(d, a, i)	EMIT(PPC_INST_RLWINM | __PPC_RA(d) |	      \
 				     __PPC_RS(a) | __PPC_SH(32-(i)) |	      \
 				     __PPC_MB(i) | __PPC_ME(31))
+/* sldi = rldicr Rx, Ry, n, 63-n */
 #define PPC_SLDI(d, a, i)	EMIT(PPC_INST_RLDICR | __PPC_RA(d) |	      \
 				     __PPC_RS(a) | __PPC_SH(i) |	      \
 				     __PPC_MB(63-(i)) | (((i) & 0x20) >> 4))
 #define PPC_NEG(d, a)		EMIT(PPC_INST_NEG | __PPC_RT(d) | __PPC_RA(a))
 
+/* Long jump; (unconditional 'branch') */
 #define PPC_JMP(dest)		EMIT(PPC_INST_BRANCH |			      \
 				     (((dest) - (ctx->idx * 4)) & 0x03fffffc))
+/* "cond" here covers BO:BI fields. */
 #define PPC_BCC_SHORT(cond, dest)	EMIT(PPC_INST_BRANCH_COND |	      \
 					     (((cond) & 0x3ff) << 16) |	      \
 					     (((dest) - (ctx->idx * 4)) &     \
@@ -155,36 +185,47 @@ static inline bool is_nearbranch(int offset)
 	return (offset < 32768) && (offset >= -32768);
 }
 
+/*
+ * The fly in the ointment of code size changing from pass to pass is
+ * avoided by padding the short branch case with a NOP.	 If code size differs
+ * with different branch reaches we will have the issue of code moving from
+ * one pass to the next and will need a few passes to converge on a stable
+ * state.
+ */
 #define PPC_BCC(cond, dest)	do {					      \
 		if (is_nearbranch((dest) - (ctx->idx * 4))) {		      \
 			PPC_BCC_SHORT(cond, dest);			      \
 			PPC_NOP();					      \
 		} else {						      \
-			      \
+			/* Flip the 'T or F' bit to invert comparison */      \
 			PPC_BCC_SHORT(cond ^ COND_CMP_TRUE, (ctx->idx+2)*4);  \
 			PPC_JMP(dest);					      \
 		} } while(0)
 
+/* To create a branch condition, select a bit of cr0... */
 #define CR0_LT		0
 #define CR0_GT		1
 #define CR0_EQ		2
+/* ...and modify BO[3] */
 #define COND_CMP_TRUE	0x100
 #define COND_CMP_FALSE	0x000
+/* Together, they make all required comparisons: */
 #define COND_GT		(CR0_GT | COND_CMP_TRUE)
 #define COND_GE		(CR0_LT | COND_CMP_FALSE)
 #define COND_EQ		(CR0_EQ | COND_CMP_TRUE)
 #define COND_NE		(CR0_EQ | COND_CMP_FALSE)
 #define COND_LT		(CR0_LT | COND_CMP_TRUE)
 
-#define SEEN_DATAREF 0x10000 
-#define SEEN_XREG    0x20000 
-#define SEEN_MEM     0x40000 
+#define SEEN_DATAREF 0x10000 /* might call external helpers */
+#define SEEN_XREG    0x20000 /* X reg is used */
+#define SEEN_MEM     0x40000 /* SEEN_MEM+(1<<n) = use mem[n] for temporary
+			      * storage */
 #define SEEN_MEM_MSK 0x0ffff
 
 struct codegen_context {
 	unsigned int seen;
 	unsigned int idx;
-	int pc_ret0; 
+	int pc_ret0; /* bpf index of first RET #0 instruction (if any) */
 };
 
 #endif

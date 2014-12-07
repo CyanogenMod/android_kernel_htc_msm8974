@@ -28,7 +28,7 @@
 #define NFAB_9625 4
 
 enum msm_bus_9625_master_ports_type {
-	
+	/* System NOC Masters */
 	MASTER_PORT_LPASS_AHB = 0,
 	MASTER_PORT_QDSS_BAM,
 	MASTER_PORT_SNOC_CFG,
@@ -42,12 +42,12 @@ enum msm_bus_9625_master_ports_type {
 	MASTER_PORT_GW_PNOC_SNOC,
 	MASTER_PORT_QDSS_ETR,
 
-	
+	/* BIMC Masters */
 	MASTER_PORT_KMPSS_M0 = 0,
 	MASTER_PORT_MSS_PROC,
 	MASTER_PORT_GW_SNOC_BIMC_0,
 
-	
+	/* Peripheral NOC Masters */
 	MASTER_PORT_QPIC = 0,
 	MASTER_PORT_SDCC_1,
 	MASTER_PORT_SDCC_3,
@@ -63,7 +63,7 @@ enum msm_bus_9625_master_ports_type {
 	MASTER_PORT_PNOC_CFG,
 	MASTER_PORT_GW_SNOC_PNOC,
 
-	
+	/* Config NOC Masters */
 	MASTER_PORT_RPM_INST = 0,
 	MASTER_PORT_RPM_DATA,
 	MASTER_PORT_RPM_SYS,
@@ -75,7 +75,7 @@ enum msm_bus_9625_master_ports_type {
 };
 
 enum msm_bus_9625_slave_ports_type {
-	
+	/* System NOC Slaves */
 	SLAVE_PORT_KMPSS = 1,
 	SLAVE_PORT_LPASS,
 	SLAVE_PORT_GW_SNOC_BIMC_P0,
@@ -85,11 +85,11 @@ enum msm_bus_9625_slave_ports_type {
 	SLAVE_PORT_SERVICE_SNOC,
 	SLAVE_PORT_QDSS_STM,
 
-	
+	/* BIMC Slaves */
 	SLAVE_PORT_EBI1_CH0 = 0,
 	SLAVE_PORT_GW_BIMC_SNOC,
 
-	
+	/*Peripheral NOC Slaves */
 	SLAVE_PORT_QPIC = 0,
 	SLAVE_PORT_SDCC_1,
 	SLAVE_PORT_SDCC_3,
@@ -109,7 +109,7 @@ enum msm_bus_9625_slave_ports_type {
 	SLAVE_PORT_GW_PNOC_SNOC,
 	SLAVE_PORT_SERVICE_PNOC,
 
-	
+	/* Config NOC slaves */
 	SLAVE_PORT_CLK_CTL = 0,
 	SLAVE_PORT_CNOC_MSS,
 	SLAVE_PORT_SECURITY,
@@ -138,6 +138,7 @@ enum msm_bus_9625_slave_ports_type {
 	SLAVE_PORT_SERVICE_CNOC,
 };
 
+/* Hardware IDs for RPM */
 enum msm_bus_9625_mas_hw_id {
 	MAS_APPSS_PROC = 0,
 	MAS_AMSS_PROC,
@@ -289,6 +290,7 @@ enum msm_bus_9625_slv_hw_id {
 static uint32_t master_iids[NMASTERS];
 static uint32_t slave_iids[NSLAVES];
 
+/* System NOC nodes */
 static int mport_lpass_ahb[] = {MASTER_PORT_LPASS_AHB,};
 static int mport_qdss_bam[] = {MASTER_PORT_QDSS_BAM,};
 static int mport_snoc_cfg[] = {MASTER_PORT_SNOC_CFG,};
@@ -311,6 +313,7 @@ static int sport_gw_snoc_pnoc[] = {SLAVE_PORT_GW_SNOC_PNOC};
 static int sport_service_snoc[] = {SLAVE_PORT_SERVICE_SNOC};
 static int sport_qdss_stm[] = {SLAVE_PORT_QDSS_STM};
 
+/* BIMC Nodes */
 
 static int mport_kmpss_m0[] = {MASTER_PORT_KMPSS_M0,};
 static int mport_mss_proc[] = {MASTER_PORT_MSS_PROC};
@@ -319,6 +322,7 @@ static int mport_gw_snoc_bimc[] = {MASTER_PORT_GW_SNOC_BIMC_0};
 static int sport_ebi1[] = {SLAVE_PORT_EBI1_CH0};
 static int sport_gw_bimc_snoc[] = {SLAVE_PORT_GW_BIMC_SNOC,};
 
+/* Peripheral NOC Nodes */
 static int mport_sdcc_1[] = {MASTER_PORT_SDCC_1,};
 static int mport_sdcc_3[] = {MASTER_PORT_SDCC_3,};
 static int mport_sdcc_2[] = {MASTER_PORT_SDCC_2,};
@@ -351,6 +355,7 @@ static int sport_prng[] = {SLAVE_PORT_PRNG,};
 static int sport_gw_pnoc_snoc[] = {SLAVE_PORT_GW_PNOC_SNOC,};
 static int sport_service_pnoc[] = {SLAVE_PORT_SERVICE_PNOC,};
 
+/* Config NOC Nodes */
 static int mport_rpm_inst[] = {MASTER_PORT_RPM_INST,};
 static int mport_rpm_data[] = {MASTER_PORT_RPM_DATA,};
 static int mport_rpm_sys[] = {MASTER_PORT_RPM_SYS,};
@@ -389,6 +394,10 @@ static int sport_service_cnoc[] = {SLAVE_PORT_SERVICE_CNOC,};
 
 static int tier2[] = {MSM_BUS_BW_TIER2,};
 
+/*
+ * QOS Ports defined only when qos ports are different than
+ * master ports
+ **/
 static int qports_crypto_c0[] = {2};
 static int qports_lpass_proc[] = {4};
 static int qports_gw_snoc_bimc[] = {2};

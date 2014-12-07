@@ -17,31 +17,31 @@
 #define __PINCONF_TEGRA_H__
 
 enum tegra_pinconf_param {
-	
+	/* argument: tegra_pinconf_pull */
 	TEGRA_PINCONF_PARAM_PULL,
-	
+	/* argument: tegra_pinconf_tristate */
 	TEGRA_PINCONF_PARAM_TRISTATE,
-	
+	/* argument: Boolean */
 	TEGRA_PINCONF_PARAM_ENABLE_INPUT,
-	
+	/* argument: Boolean */
 	TEGRA_PINCONF_PARAM_OPEN_DRAIN,
-	
+	/* argument: Boolean */
 	TEGRA_PINCONF_PARAM_LOCK,
-	
+	/* argument: Boolean */
 	TEGRA_PINCONF_PARAM_IORESET,
-	
+	/* argument: Boolean */
 	TEGRA_PINCONF_PARAM_HIGH_SPEED_MODE,
-	
+	/* argument: Boolean */
 	TEGRA_PINCONF_PARAM_SCHMITT,
-	
+	/* argument: Boolean */
 	TEGRA_PINCONF_PARAM_LOW_POWER_MODE,
-	
+	/* argument: Integer, range is HW-dependant */
 	TEGRA_PINCONF_PARAM_DRIVE_DOWN_STRENGTH,
-	
+	/* argument: Integer, range is HW-dependant */
 	TEGRA_PINCONF_PARAM_DRIVE_UP_STRENGTH,
-	
+	/* argument: Integer, range is HW-dependant */
 	TEGRA_PINCONF_PARAM_SLEW_RATE_FALLING,
-	
+	/* argument: Integer, range is HW-dependant */
 	TEGRA_PINCONF_PARAM_SLEW_RATE_RISING,
 };
 

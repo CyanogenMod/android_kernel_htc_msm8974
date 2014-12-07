@@ -42,6 +42,7 @@ static inline void usbg_cleanup_cmd(struct usbg_cmd *cmd)
 	kref_put(&cmd->ref, usbg_cmd_release);
 }
 
+/* Start bot.c code */
 
 static int bot_enqueue_cmd_cbw(struct f_uas *fu)
 {
@@ -67,7 +68,7 @@ static void bot_status_complete(struct usb_ep *ep, struct usb_request *req)
 		return;
 	}
 
-	
+	/* CSW completed, wait for next CBW */
 	bot_enqueue_cmd_cbw(fu);
 }
 
@@ -80,6 +81,11 @@ static void bot_enqueue_sense_code(struct f_uas *fu, struct usbg_cmd *cmd)
 
 	csw_stat = cmd->csw_code;
 
+	/*
+	 * We can't send SENSE as a response. So we take ASC & ASCQ from our
+	 * sense buffer and queue it and hope the host sends a REQUEST_SENSE
+	 * command where it learns why we failed.
+	 */
 	sense = cmd->sense_iu.sense;
 
 	csw->Tag = cmd->bot_tag;
@@ -155,6 +161,10 @@ static int bot_send_status(struct usbg_cmd *cmd, bool moved_data)
 
 	if (cmd->se_cmd.scsi_status == SAM_STAT_GOOD) {
 		if (!moved_data && cmd->data_len) {
+			/*
+			 * the host wants to move data, we don't. Fill / empty
+			 * the pipe and then send the csw with reside set.
+			 */
 			cmd->csw_code = US_BULK_STAT_OK;
 			bot_send_bad_status(cmd);
 			return 0;
@@ -175,6 +185,10 @@ static int bot_send_status(struct usbg_cmd *cmd, bool moved_data)
 	return 0;
 }
 
+/*
+ * Called after command (no data transfer) or after the write (to device)
+ * operation is completed
+ */
 static int bot_send_status_response(struct usbg_cmd *cmd)
 {
 	bool moved_data = false;
@@ -184,6 +198,7 @@ static int bot_send_status_response(struct usbg_cmd *cmd)
 	return bot_send_status(cmd, moved_data);
 }
 
+/* Read request completed, now we have to send the CSW */
 static void bot_read_compl(struct usb_ep *ep, struct usb_request *req)
 {
 	struct usbg_cmd *cmd = req->context;
@@ -419,6 +434,10 @@ static int usbg_bot_setup(struct usb_function *f,
 			pr_err("No LUNs configured?\n");
 			return -EINVAL;
 		}
+		/*
+		 * If 4 LUNs are present we return 3 i.e. LUN 0..3 can be
+		 * accessed. The upper limit is 0xf
+		 */
 		luns--;
 		if (luns > 0xf) {
 			pr_info_once("Limiting the number of luns to 16\n");
@@ -431,7 +450,7 @@ static int usbg_bot_setup(struct usb_function *f,
 		break;
 
 	case US_BULK_RESET_REQUEST:
-		
+		/* XXX maybe we should remove previous requests for IN + OUT */
 		bot_enqueue_cmd_cbw(fu);
 		return 0;
 		break;
@@ -439,10 +458,11 @@ static int usbg_bot_setup(struct usb_function *f,
 	return -ENOTSUPP;
 }
 
+/* Start uas.c code */
 
 static void uasp_cleanup_one_stream(struct f_uas *fu, struct uas_stream *stream)
 {
-	
+	/* We have either all three allocated or none */
 	if (!stream->req_in)
 		return;
 
@@ -524,6 +544,9 @@ static void uasp_prepare_status(struct usbg_cmd *cmd)
 	iu->iu_id = IU_ID_STATUS;
 	iu->tag = cpu_to_be16(cmd->tag);
 
+	/*
+	 * iu->status_qual = cpu_to_be16(STATUS QUALIFIER SAM-4. Where R U?);
+	 */
 	iu->len = cpu_to_be16(se_cmd->scsi_sense_length);
 	iu->status = se_cmd->scsi_status;
 	stream->req_status->context = cmd;
@@ -697,6 +720,12 @@ static void uasp_cmd_complete(struct usb_ep *ep, struct usb_request *req)
 		return;
 
 	ret = usbg_submit_command(fu, req->buf, req->actual);
+	/*
+	 * Once we tune for performance enqueue the command req here again so
+	 * we can receive a second command while we processing this one. Pay
+	 * attention to properly sync STAUS endpoint with DATA IN + OUT so you
+	 * don't break HS.
+	 */
 	if (!ret)
 		return;
 	usb_ep_queue(fu->ep_cmd, fu->cmd.req, GFP_ATOMIC);
@@ -1049,7 +1078,7 @@ static int usbg_submit_command(struct f_uas *fu,
 
 	cmd->fu = fu;
 
-	
+	/* XXX until I figure out why I can't free in on complete */
 	kref_init(&cmd->ref);
 	kref_get(&cmd->ref);
 
@@ -1169,7 +1198,7 @@ static int bot_submit_command(struct f_uas *fu,
 
 	cmd->fu = fu;
 
-	
+	/* XXX until I figure out why I can't free in on complete */
 	kref_init(&cmd->ref);
 	kref_get(&cmd->ref);
 
@@ -1202,6 +1231,7 @@ err:
 	return -EINVAL;
 }
 
+/* Start fabric.c code */
 
 static int usbg_check_true(struct se_portal_group *se_tpg)
 {
@@ -1394,6 +1424,9 @@ static u32 usbg_sess_get_index(struct se_session *se_sess)
 	return 0;
 }
 
+/*
+ * XXX Error recovery: return != 0 if we expect writes. Dunno when that could be
+ */
 static int usbg_write_pending_status(struct se_cmd *se_cmd)
 {
 	return 0;
@@ -1470,12 +1503,19 @@ static struct se_node_acl *usbg_make_nodeacl(
 		return ERR_PTR(-ENOMEM);
 
 	nexus_depth = 1;
+	/*
+	 * se_nacl_new may be released by core_tpg_add_initiator_node_acl()
+	 * when converting a NodeACL from demo mode -> explict
+	 */
 	se_nacl = core_tpg_add_initiator_node_acl(se_tpg, se_nacl_new,
 				name, nexus_depth);
 	if (IS_ERR(se_nacl)) {
 		usbg_release_fabric_acl(se_tpg, se_nacl_new);
 		return se_nacl;
 	}
+	/*
+	 * Locate our struct usbg_nacl and set the FC Nport WWPN
+	 */
 	nacl = container_of(se_nacl, struct usbg_nacl, se_node_acl);
 	nacl->iport_wwpn = wwpn;
 	snprintf(nacl->iport_name, sizeof(nacl->iport_name), "%s", name);
@@ -1582,6 +1622,9 @@ static void usbg_drop_tport(struct se_wwn *wwn)
 	kfree(tport);
 }
 
+/*
+ * If somebody feels like dropping the version property, go ahead.
+ */
 static ssize_t usbg_wwn_show_attr_version(
 	struct target_fabric_configfs *tf,
 	char *page)
@@ -1692,6 +1735,11 @@ static int tcm_usbg_make_nexus(struct usbg_tpg *tpg, char *name)
 	if (IS_ERR(tv_nexus->tvn_se_sess))
 		goto err_free;
 
+	/*
+	 * Since we are running in 'demo mode' this call with generate a
+	 * struct se_node_acl for the tcm_vhost struct se_portal_group with
+	 * the SCSI Initiator port name of the passed configfs group 'name'.
+	 */
 	tv_nexus->tvn_se_sess->se_node_acl = core_tpg_check_initiator_node_acl(
 			se_tpg, name);
 	if (!tv_nexus->tvn_se_sess->se_node_acl) {
@@ -1699,6 +1747,10 @@ static int tcm_usbg_make_nexus(struct usbg_tpg *tpg, char *name)
 				" for %s\n", name);
 		goto err_session;
 	}
+	/*
+	 * Now register the TCM vHost virtual I_T Nexus as active with the
+	 * call to __transport_register_session()
+	 */
 	__transport_register_session(se_tpg, tv_nexus->tvn_se_sess->se_node_acl,
 			tv_nexus->tvn_se_sess, tv_nexus);
 	tpg->tpg_nexus = tv_nexus;
@@ -1739,6 +1791,9 @@ static int tcm_usbg_drop_nexus(struct usbg_tpg *tpg)
 
 	pr_debug("Removing I_T Nexus to Initiator Port: %s\n",
 			tv_nexus->tvn_se_sess->se_node_acl->initiatorname);
+	/*
+	 * Release the SCSI I_T Nexus to the emulated vHost Target Port
+	 */
 	transport_deregister_session(tv_nexus->tvn_se_sess);
 	tpg->tpg_nexus = NULL;
 
@@ -1903,6 +1958,7 @@ static void usbg_deregister_configfs(void)
 	usbg_fabric_configfs = NULL;
 };
 
+/* Start gadget.c code */
 
 static struct usb_interface_descriptor bot_intf_desc = {
 	.bLength =              sizeof(bot_intf_desc),
@@ -1913,7 +1969,7 @@ static struct usb_interface_descriptor bot_intf_desc = {
 	.bInterfaceClass =      USB_CLASS_MASS_STORAGE,
 	.bInterfaceSubClass =   USB_SC_SCSI,
 	.bInterfaceProtocol =   USB_PR_BULK,
-	
+	/* .iInterface =           DYNAMIC */
 };
 
 static struct usb_interface_descriptor uasp_intf_desc = {
@@ -1924,7 +1980,7 @@ static struct usb_interface_descriptor uasp_intf_desc = {
 	.bInterfaceClass =	USB_CLASS_MASS_STORAGE,
 	.bInterfaceSubClass =	USB_SC_SCSI,
 	.bInterfaceProtocol =	USB_PR_UAS,
-	
+	/* .iInterface =           DYNAMIC */
 };
 
 static struct usb_endpoint_descriptor uasp_bi_desc = {
@@ -2138,7 +2194,7 @@ static struct usb_descriptor_header *uasp_ss_function_desc[] = {
 static struct usb_string tcm_us_strings[] = {
 	[0].s = "Bulk Only Transport",
 	[1].s = "USB Attached SCSI",
-	{  } 
+	{  } /* end of list */
 };
 
 static struct usb_gadget_strings tcm_stringtab = {
@@ -2202,7 +2258,7 @@ static int usbg_bind(struct usb_configuration *c, struct usb_function *f)
 	ep->driver_data = fu;
 	fu->ep_cmd = ep;
 
-	
+	/* Assume endpoint addresses are the same for both speeds */
 	uasp_bi_desc.bEndpointAddress =	uasp_ss_bi_desc.bEndpointAddress;
 	uasp_bo_desc.bEndpointAddress = uasp_ss_bo_desc.bEndpointAddress;
 	uasp_status_desc.bEndpointAddress =
@@ -2321,14 +2377,14 @@ static int tcm_bind_config(struct usb_configuration *c)
 	fu->function.disable = usbg_disable;
 	fu->tpg = the_only_tpg_I_currently_have;
 
-	
+	/* BOT interface string */
 	ret = usb_string_id(c->cdev);
 	if (ret < 0)
 		goto err;
 	tcm_us_strings[0].id = ret;
 	bot_intf_desc.iInterface = ret;
 
-	
+	/* data interface label */
 	ret = usb_string_id(c->cdev);
 	if (ret < 0)
 		goto err;

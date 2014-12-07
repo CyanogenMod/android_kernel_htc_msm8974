@@ -10,4 +10,4 @@ struct omap4_keypad_platform_data {
 	u8 cols;
 };
 
-#endif 
+#endif /* __LINUX_INPUT_OMAP4_KEYPAD_H */

@@ -18,6 +18,16 @@
 #include <linux/export.h>
 #include <linux/io.h>
 
+/**
+ * __iowrite32_copy - copy data to MMIO space, in 32-bit units
+ * @to: destination, in MMIO space (must be 32-bit aligned)
+ * @from: source (must be 32-bit aligned)
+ * @count: number of 32-bit quantities to copy
+ *
+ * Copy data from kernel space to MMIO space, in units of 32 bits at a
+ * time.  Order of access is not guaranteed, nor is a memory barrier
+ * performed afterwards.
+ */
 void __attribute__((weak)) __iowrite32_copy(void __iomem *to,
 					    const void *from,
 					    size_t count)
@@ -31,6 +41,16 @@ void __attribute__((weak)) __iowrite32_copy(void __iomem *to,
 }
 EXPORT_SYMBOL_GPL(__iowrite32_copy);
 
+/**
+ * __iowrite64_copy - copy data to MMIO space, in 64-bit or 32-bit units
+ * @to: destination, in MMIO space (must be 64-bit aligned)
+ * @from: source (must be 64-bit aligned)
+ * @count: number of 64-bit quantities to copy
+ *
+ * Copy data from kernel space to MMIO space, in units of 32 or 64 bits at a
+ * time.  Order of access is not guaranteed, nor is a memory barrier
+ * performed afterwards.
+ */
 void __attribute__((weak)) __iowrite64_copy(void __iomem *to,
 					    const void *from,
 					    size_t count)

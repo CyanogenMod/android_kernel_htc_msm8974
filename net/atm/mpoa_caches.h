@@ -56,7 +56,7 @@ typedef struct eg_cache_entry{
 	struct atm_vcc       *shortcut;
 	uint32_t             packets_rcvd;
 	uint16_t             entry_state;
-	__be32             latest_ip_addr;    
+	__be32             latest_ip_addr;    /* The src IP address of the last packet */
 	struct eg_ctrl_info  ctrl_info;
 	atomic_t             use;
 } eg_cache_entry;
@@ -75,16 +75,19 @@ struct eg_cache_ops{
 };
 
 
+/* Ingress cache entry states */
 
 #define INGRESS_REFRESHING 3
 #define INGRESS_RESOLVED   2
 #define INGRESS_RESOLVING  1
 #define INGRESS_INVALID    0
 
+/* VCC states */
 
 #define OPEN   1
 #define CLOSED 0
 
+/* Egress cache entry states */
 
 #define EGRESS_RESOLVED 2
 #define EGRESS_PURGE    1

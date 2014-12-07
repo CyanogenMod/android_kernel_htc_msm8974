@@ -35,6 +35,9 @@
 #include "powernv.h"
 #include "pci.h"
 
+/* For now, use a fixed amount of TCE memory for each p5ioc2
+ * hub, 16M will do
+ */
 #define P5IOC2_TCE_MEMORY	0x01000000
 
 #ifdef CONFIG_PCI_MSI
@@ -59,6 +62,9 @@ static void pnv_pci_init_p5ioc2_msis(struct pnv_phb *phb)
 	if (!prop)
 		return;
 
+	/* Don't do MSI's on p5ioc2 PCI-X are they are not properly
+	 * verified in HW
+	 */
 	if (of_device_is_compatible(phb->hose->dn, "ibm,p5ioc2-pcix"))
 		return;
 	phb->msi_base = be32_to_cpup(prop);
@@ -77,7 +83,7 @@ static void pnv_pci_init_p5ioc2_msis(struct pnv_phb *phb)
 }
 #else
 static void pnv_pci_init_p5ioc2_msis(struct pnv_phb *phb) { }
-#endif 
+#endif /* CONFIG_PCI_MSI */
 
 static void __devinit pnv_pci_p5ioc2_dma_dev_setup(struct pnv_phb *phb,
 						   struct pci_dev *pdev)
@@ -151,17 +157,17 @@ static void __init pnv_pci_init_p5ioc2_phb(struct device_node *np,
 		pr_devel("  P_MSZ2_L   = 0x%08x\n", in_be32(phb->regs + 0x2e0));
 	}
 
-	
-	
+	/* Interpret the "ranges" property */
+	/* This also maps the I/O region and sets isa_io/mem_base */
 	pci_process_bridge_OF_ranges(phb->hose, np, primary);
 	primary = 0;
 
 	phb->hose->ops = &pnv_pci_ops;
 
-	
+	/* Setup MSI support */
 	pnv_pci_init_p5ioc2_msis(phb);
 
-	
+	/* Setup TCEs */
 	phb->dma_dev_setup = pnv_pci_p5ioc2_dma_dev_setup;
 	pnv_pci_setup_iommu_table(&phb->p5ioc2.iommu_table,
 				  tce_mem, tce_size, 0);
@@ -187,6 +193,10 @@ void __init pnv_pci_init_p5ioc2_hub(struct device_node *np)
 	hub_id = be64_to_cpup(prop64);
 	pr_info(" HUB-ID : 0x%016llx\n", hub_id);
 
+	/* Currently allocate 16M of TCE memory for every Hub
+	 *
+	 * XXX TODO: Make it chip local if possible
+	 */
 	tce_mem = __alloc_bootmem(P5IOC2_TCE_MEMORY, P5IOC2_TCE_MEMORY,
 				  __pa(MAX_DMA_ADDRESS));
 	if (!tce_mem) {
@@ -202,19 +212,19 @@ void __init pnv_pci_init_p5ioc2_hub(struct device_node *np)
 		return;
 	}
 
-	
+	/* Count child PHBs */
 	for_each_child_of_node(np, phbn) {
 		if (of_device_is_compatible(phbn, "ibm,p5ioc2-pcix") ||
 		    of_device_is_compatible(phbn, "ibm,p5ioc2-pciex"))
 			phb_count++;
 	}
 
-	
+	/* Calculate how much TCE space we can give per PHB */
 	tce_per_phb = __rounddown_pow_of_two(P5IOC2_TCE_MEMORY / phb_count);
 	pr_info(" Allocating %lld MB of TCE memory per PHB\n",
 		tce_per_phb >> 20);
 
-	
+	/* Initialize PHBs */
 	for_each_child_of_node(np, phbn) {
 		if (of_device_is_compatible(phbn, "ibm,p5ioc2-pcix") ||
 		    of_device_is_compatible(phbn, "ibm,p5ioc2-pciex")) {

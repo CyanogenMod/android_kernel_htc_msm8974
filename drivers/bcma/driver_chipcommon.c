@@ -60,9 +60,10 @@ void bcma_core_chipcommon_init(struct bcma_drv_cc *cc)
 	cc->setup_done = true;
 }
 
+/* Set chip watchdog reset timer to fire in 'ticks' backplane cycles */
 void bcma_chipco_watchdog_timer_set(struct bcma_drv_cc *cc, u32 ticks)
 {
-	
+	/* instant NMI */
 	bcma_cc_write32(cc, BCMA_CC_WATCHDOG, ticks);
 }
 
@@ -117,20 +118,20 @@ void bcma_chipco_serial_init(struct bcma_drv_cc *cc)
 	struct bcma_serial_port *ports = cc->serial_ports;
 
 	if (ccrev >= 11 && ccrev != 15) {
-		
+		/* Fixed ALP clock */
 		baud_base = bcma_pmu_alp_clock(cc);
 		if (ccrev >= 21) {
-			
+			/* Turn off UART clock before switching clocksource. */
 			bcma_cc_write32(cc, BCMA_CC_CORECTL,
 				       bcma_cc_read32(cc, BCMA_CC_CORECTL)
 				       & ~BCMA_CC_CORECTL_UARTCLKEN);
 		}
-		
+		/* Set the override bit so we don't divide it */
 		bcma_cc_write32(cc, BCMA_CC_CORECTL,
 			       bcma_cc_read32(cc, BCMA_CC_CORECTL)
 			       | BCMA_CC_CORECTL_UARTCLK0);
 		if (ccrev >= 21) {
-			
+			/* Re-enable the UART clock. */
 			bcma_cc_write32(cc, BCMA_CC_CORECTL,
 				       bcma_cc_read32(cc, BCMA_CC_CORECTL)
 				       | BCMA_CC_CORECTL_UARTCLKEN);
@@ -143,7 +144,7 @@ void bcma_chipco_serial_init(struct bcma_drv_cc *cc)
 
 	irq = bcma_core_mips_irq(cc->core);
 
-	
+	/* Determine the registers of the UARTs */
 	cc->nr_serial_ports = (cc->capabilities & BCMA_CC_CAP_NRUART);
 	for (i = 0; i < cc->nr_serial_ports; i++) {
 		ports[i].regs = cc->core->io_addr + BCMA_CC_UART0_DATA +
@@ -153,4 +154,4 @@ void bcma_chipco_serial_init(struct bcma_drv_cc *cc)
 		ports[i].reg_shift = 0;
 	}
 }
-#endif 
+#endif /* CONFIG_BCMA_DRIVER_MIPS */

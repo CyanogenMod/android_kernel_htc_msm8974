@@ -42,9 +42,11 @@
 #include "control.h"
 #include "scrm44xx.h"
 
+/* OMAP4 modulemode control */
 #define OMAP4430_MODULEMODE_HWCTRL			0
 #define OMAP4430_MODULEMODE_SWCTRL			1
 
+/* Root clocks */
 
 static struct clk extalt_clkin_ck = {
 	.name		= "extalt_clkin_ck",
@@ -220,6 +222,7 @@ static struct clk xclk60motg_ck = {
 	.ops		= &clkops_null,
 };
 
+/* Module clocks and DPLL outputs */
 
 static const struct clksel abe_dpll_bypass_clk_mux_sel[] = {
 	{ .parent = &sys_clkin_ck, .rates = div_1_0_rates },
@@ -245,6 +248,7 @@ static struct clk abe_dpll_refclk_mux_ck = {
 	.recalc		= &omap2_clksel_recalc,
 };
 
+/* DPLL_ABE */
 static struct dpll_data dpll_abe_dd = {
 	.mult_div1_reg	= OMAP4430_CM_CLKSEL_DPLL_ABE,
 	.clk_bypass	= &abe_dpll_bypass_clk_mux_ck,
@@ -420,6 +424,7 @@ static struct clk core_hsd_byp_clk_mux_ck = {
 	.recalc		= &omap2_clksel_recalc,
 };
 
+/* DPLL_CORE */
 static struct dpll_data dpll_core_dd = {
 	.mult_div1_reg	= OMAP4430_CM_CLKSEL_DPLL_CORE,
 	.clk_bypass	= &core_hsd_byp_clk_mux_ck,
@@ -657,6 +662,7 @@ static struct clk iva_hsd_byp_clk_mux_ck = {
 	.recalc		= &omap2_clksel_recalc,
 };
 
+/* DPLL_IVA */
 static struct dpll_data dpll_iva_dd = {
 	.mult_div1_reg	= OMAP4430_CM_CLKSEL_DPLL_IVA,
 	.clk_bypass	= &iva_hsd_byp_clk_mux_ck,
@@ -724,6 +730,7 @@ static struct clk dpll_iva_m5x2_ck = {
 	.set_rate	= &omap2_clksel_set_rate,
 };
 
+/* DPLL_MPU */
 static struct dpll_data dpll_mpu_dd = {
 	.mult_div1_reg	= OMAP4430_CM_CLKSEL_DPLL_MPU,
 	.clk_bypass	= &div_mpu_hs_clk,
@@ -796,6 +803,7 @@ static struct clk per_hsd_byp_clk_mux_ck = {
 	.recalc		= &omap2_clksel_recalc,
 };
 
+/* DPLL_PER */
 static struct dpll_data dpll_per_dd = {
 	.mult_div1_reg	= OMAP4430_CM_CLKSEL_DPLL_PER,
 	.clk_bypass	= &per_hsd_byp_clk_mux_ck,
@@ -939,6 +947,7 @@ static struct clk usb_hs_clk_div_ck = {
 	.recalc		= &omap_fixed_divisor_recalc,
 };
 
+/* DPLL_USB */
 static struct dpll_data dpll_usb_dd = {
 	.mult_div1_reg	= OMAP4430_CM_CLKSEL_DPLL_USB,
 	.clk_bypass	= &usb_hs_clk_div_ck,
@@ -1283,6 +1292,7 @@ static struct clk syc_clk_div_ck = {
 	.set_rate	= &omap2_clksel_set_rate,
 };
 
+/* Leaf clocks controlled by modules */
 
 static struct clk aes1_fck = {
 	.name		= "aes1_fck",
@@ -1359,6 +1369,7 @@ static const struct clksel func_dmic_abe_gfclk_sel[] = {
 	{ .parent = NULL },
 };
 
+/* Merged func_dmic_abe_gfclk into dmic */
 static struct clk dmic_fck = {
 	.name		= "dmic_fck",
 	.parent		= &dmic_sync_mux_ck,
@@ -1504,6 +1515,7 @@ static const struct clksel fdif_fclk_div[] = {
 	{ .parent = NULL },
 };
 
+/* Merged fdif_fclk into fdif */
 static struct clk fdif_fck = {
 	.name		= "fdif_fck",
 	.parent		= &dpll_per_m4x2_ck,
@@ -1666,6 +1678,7 @@ static const struct clksel sgx_clk_mux_sel[] = {
 	{ .parent = NULL },
 };
 
+/* Merged sgx_clk_mux into gpu */
 static struct clk gpu_fck = {
 	.name		= "gpu_fck",
 	.parent		= &dpll_core_m7x2_ck,
@@ -1695,6 +1708,7 @@ static const struct clksel hsi_fclk_div[] = {
 	{ .parent = NULL },
 };
 
+/* Merged hsi_fclk into hsi */
 static struct clk hsi_fck = {
 	.name		= "hsi_fck",
 	.parent		= &dpll_per_m2x2_ck,
@@ -1840,6 +1854,7 @@ static const struct clksel func_mcasp_abe_gfclk_sel[] = {
 	{ .parent = NULL },
 };
 
+/* Merged func_mcasp_abe_gfclk into mcasp */
 static struct clk mcasp_fck = {
 	.name		= "mcasp_fck",
 	.parent		= &mcasp_sync_mux_ck,
@@ -1872,6 +1887,7 @@ static const struct clksel func_mcbsp1_gfclk_sel[] = {
 	{ .parent = NULL },
 };
 
+/* Merged func_mcbsp1_gfclk into mcbsp1 */
 static struct clk mcbsp1_fck = {
 	.name		= "mcbsp1_fck",
 	.parent		= &mcbsp1_sync_mux_ck,
@@ -1904,6 +1920,7 @@ static const struct clksel func_mcbsp2_gfclk_sel[] = {
 	{ .parent = NULL },
 };
 
+/* Merged func_mcbsp2_gfclk into mcbsp2 */
 static struct clk mcbsp2_fck = {
 	.name		= "mcbsp2_fck",
 	.parent		= &mcbsp2_sync_mux_ck,
@@ -1936,6 +1953,7 @@ static const struct clksel func_mcbsp3_gfclk_sel[] = {
 	{ .parent = NULL },
 };
 
+/* Merged func_mcbsp3_gfclk into mcbsp3 */
 static struct clk mcbsp3_fck = {
 	.name		= "mcbsp3_fck",
 	.parent		= &mcbsp3_sync_mux_ck,
@@ -1973,6 +1991,7 @@ static const struct clksel per_mcbsp4_gfclk_sel[] = {
 	{ .parent = NULL },
 };
 
+/* Merged per_mcbsp4_gfclk into mcbsp4 */
 static struct clk mcbsp4_fck = {
 	.name		= "mcbsp4_fck",
 	.parent		= &mcbsp4_sync_mux_ck,
@@ -2043,6 +2062,7 @@ static const struct clksel hsmmc1_fclk_sel[] = {
 	{ .parent = NULL },
 };
 
+/* Merged hsmmc1_fclk into mmc1 */
 static struct clk mmc1_fck = {
 	.name		= "mmc1_fck",
 	.parent		= &func_64m_fclk,
@@ -2057,6 +2077,7 @@ static struct clk mmc1_fck = {
 	.clkdm_name	= "l3_init_clkdm",
 };
 
+/* Merged hsmmc2_fclk into mmc2 */
 static struct clk mmc2_fck = {
 	.name		= "mmc2_fck",
 	.parent		= &func_64m_fclk,
@@ -2282,6 +2303,7 @@ static struct clk smartreflex_mpu_fck = {
 	.recalc		= &followparent_recalc,
 };
 
+/* Merged dmt1_clk_mux into timer1 */
 static struct clk timer1_fck = {
 	.name		= "timer1_fck",
 	.parent		= &sys_clkin_ck,
@@ -2296,6 +2318,7 @@ static struct clk timer1_fck = {
 	.clkdm_name	= "l4_wkup_clkdm",
 };
 
+/* Merged cm2_dm10_mux into timer10 */
 static struct clk timer10_fck = {
 	.name		= "timer10_fck",
 	.parent		= &sys_clkin_ck,
@@ -2310,6 +2333,7 @@ static struct clk timer10_fck = {
 	.clkdm_name	= "l4_per_clkdm",
 };
 
+/* Merged cm2_dm11_mux into timer11 */
 static struct clk timer11_fck = {
 	.name		= "timer11_fck",
 	.parent		= &sys_clkin_ck,
@@ -2324,6 +2348,7 @@ static struct clk timer11_fck = {
 	.clkdm_name	= "l4_per_clkdm",
 };
 
+/* Merged cm2_dm2_mux into timer2 */
 static struct clk timer2_fck = {
 	.name		= "timer2_fck",
 	.parent		= &sys_clkin_ck,
@@ -2338,6 +2363,7 @@ static struct clk timer2_fck = {
 	.clkdm_name	= "l4_per_clkdm",
 };
 
+/* Merged cm2_dm3_mux into timer3 */
 static struct clk timer3_fck = {
 	.name		= "timer3_fck",
 	.parent		= &sys_clkin_ck,
@@ -2352,6 +2378,7 @@ static struct clk timer3_fck = {
 	.clkdm_name	= "l4_per_clkdm",
 };
 
+/* Merged cm2_dm4_mux into timer4 */
 static struct clk timer4_fck = {
 	.name		= "timer4_fck",
 	.parent		= &sys_clkin_ck,
@@ -2372,6 +2399,7 @@ static const struct clksel timer5_sync_mux_sel[] = {
 	{ .parent = NULL },
 };
 
+/* Merged timer5_sync_mux into timer5 */
 static struct clk timer5_fck = {
 	.name		= "timer5_fck",
 	.parent		= &syc_clk_div_ck,
@@ -2386,6 +2414,7 @@ static struct clk timer5_fck = {
 	.clkdm_name	= "abe_clkdm",
 };
 
+/* Merged timer6_sync_mux into timer6 */
 static struct clk timer6_fck = {
 	.name		= "timer6_fck",
 	.parent		= &syc_clk_div_ck,
@@ -2400,6 +2429,7 @@ static struct clk timer6_fck = {
 	.clkdm_name	= "abe_clkdm",
 };
 
+/* Merged timer7_sync_mux into timer7 */
 static struct clk timer7_fck = {
 	.name		= "timer7_fck",
 	.parent		= &syc_clk_div_ck,
@@ -2414,6 +2444,7 @@ static struct clk timer7_fck = {
 	.clkdm_name	= "abe_clkdm",
 };
 
+/* Merged timer8_sync_mux into timer8 */
 static struct clk timer8_fck = {
 	.name		= "timer8_fck",
 	.parent		= &syc_clk_div_ck,
@@ -2428,6 +2459,7 @@ static struct clk timer8_fck = {
 	.clkdm_name	= "abe_clkdm",
 };
 
+/* Merged cm2_dm9_mux into timer9 */
 static struct clk timer9_fck = {
 	.name		= "timer9_fck",
 	.parent		= &sys_clkin_ck,
@@ -2766,6 +2798,7 @@ static struct clk wd_timer3_fck = {
 	.recalc		= &followparent_recalc,
 };
 
+/* Remaining optional clocks */
 static const struct clksel stm_clk_div_div[] = {
 	{ .parent = &pmd_stm_clock_mux_ck, .rates = div3_1to4_rates },
 	{ .parent = NULL },
@@ -2800,6 +2833,7 @@ static struct clk trace_clk_div_ck = {
 	.set_rate	= &omap2_clksel_set_rate,
 };
 
+/* SCRM aux clk nodes */
 
 static const struct clksel auxclk_src_sel[] = {
 	{ .parent = &sys_clkin_ck, .rates = div_1_0_rates },
@@ -3084,6 +3118,9 @@ static struct clk auxclkreq5_ck = {
 	.recalc		= &omap2_clksel_recalc,
 };
 
+/*
+ * clkdev
+ */
 
 static struct omap_clk omap44xx_clks[] = {
 	CLK(NULL,	"extalt_clkin_ck",		&extalt_clkin_ck,	CK_443X),
@@ -3395,6 +3432,12 @@ int __init omap4xxx_clk_init(void)
 
 	clk_init(&omap2_clk_functions);
 
+	/*
+	 * Must stay commented until all OMAP SoC drivers are
+	 * converted to runtime PM, or drivers may start crashing
+	 *
+	 * omap2_clk_disable_clkdm_control();
+	 */
 
 	for (c = omap44xx_clks; c < omap44xx_clks + ARRAY_SIZE(omap44xx_clks);
 									  c++)
@@ -3408,11 +3451,15 @@ int __init omap4xxx_clk_init(void)
 			omap2_init_clk_clkdm(c->lk.clk);
 		}
 
-	
+	/* Disable autoidle on all clocks; let the PM code enable it later */
 	omap_clk_disable_autoidle_all();
 
 	recalculate_root_clocks();
 
+	/*
+	 * Only enable those clocks we will need, let the drivers
+	 * enable other clocks as necessary
+	 */
 	clk_enable_init_clocks();
 
 	return 0;

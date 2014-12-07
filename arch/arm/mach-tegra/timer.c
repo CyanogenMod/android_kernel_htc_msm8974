@@ -110,6 +110,12 @@ static u32 notrace tegra_read_sched_clock(void)
 	return timer_readl(TIMERUS_CNTR_1US);
 }
 
+/*
+ * tegra_rtc_read - Reads the Tegra RTC registers
+ * Care must be taken that this funciton is not called while the
+ * tegra_rtc driver could be executing to avoid race conditions
+ * on the RTC shadow register
+ */
 static u64 tegra_rtc_read_ms(void)
 {
 	u32 ms = readl(rtc_base + RTC_MILLISECONDS);
@@ -117,6 +123,16 @@ static u64 tegra_rtc_read_ms(void)
 	return (u64)s * MSEC_PER_SEC + ms;
 }
 
+/*
+ * read_persistent_clock -  Return time from a persistent clock.
+ *
+ * Reads the time from a source which isn't disabled during PM, the
+ * 32k sync timer.  Convert the cycles elapsed since last read into
+ * nsecs and adds to a monotonically increasing timespec.
+ * Care must be taken that this funciton is not called while the
+ * tegra_rtc driver could be executing to avoid race conditions
+ * on the RTC shadow register
+ */
 void read_persistent_clock(struct timespec *ts)
 {
 	u64 delta;
@@ -177,6 +193,10 @@ static void __init tegra_init_timer(void)
 		rate = clk_get_rate(clk);
 	}
 
+	/*
+	 * rtc registers are used by read_persistent_clock, keep the rtc clock
+	 * enabled
+	 */
 	clk = clk_get_sys("rtc-tegra", NULL);
 	if (IS_ERR(clk))
 		pr_warn("Unable to get rtc-tegra clock\n");

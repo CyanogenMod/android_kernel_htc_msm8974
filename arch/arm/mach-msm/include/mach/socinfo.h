@@ -22,6 +22,12 @@
 
 #include <asm/cputype.h>
 #include <asm/mach-types.h>
+/*
+ * SOC version type with major number in the upper 16 bits and minor
+ * number in the lower 16 bits.  For example:
+ *   1.0 -> 0x00010000
+ *   2.3 -> 0x00020003
+ */
 #define SOCINFO_VERSION_MAJOR(ver) ((ver & 0xffff0000) >> 16)
 #define SOCINFO_VERSION_MINOR(ver) (ver & 0x0000ffff)
 
@@ -38,11 +44,18 @@
 #define of_board_is_dragonboard()	\
 	of_machine_is_compatible("qcom,dragonboard")
 #define of_board_is_m8()	of_machine_is_compatible("htc,m8")
+#define of_board_is_m8wl()	of_machine_is_compatible("htc,m8wl")
+#define of_board_is_m8whl()	of_machine_is_compatible("htc,m8whl")
+#define of_board_is_m8wlj()	of_machine_is_compatible("htc,m8wlj")
+#define of_board_is_bagoss()	of_machine_is_compatible("htc,bagoss")
+#define of_board_is_glu()	of_machine_is_compatible("htc,glu")
+#define of_board_is_gluwlj()	of_machine_is_compatible("htc,gluwlj")
 #define of_board_is_cdp()	of_machine_is_compatible("qcom,cdp")
 #define of_board_is_mtp()	of_machine_is_compatible("qcom,mtp")
 #define of_board_is_qrd()	of_machine_is_compatible("qcom,qrd")
 #define of_board_is_xpm()	of_machine_is_compatible("qcom,xpm")
 #define of_board_is_skuf()	of_machine_is_compatible("qcom,skuf")
+#define of_board_is_sbc()	of_machine_is_compatible("qcom,sbc")
 
 #define machine_is_msm8974()	of_machine_is_compatible("qcom,msm8974")
 #define machine_is_msm9625()	of_machine_is_compatible("qcom,msm9625")
@@ -74,6 +87,7 @@
 #define of_board_is_qrd()		0
 #define of_board_is_xpm()		0
 #define of_board_is_skuf()		0
+#define of_board_is_sbc()		0
 
 #define machine_is_msm8974()		0
 #define machine_is_msm9625()		0
@@ -133,6 +147,11 @@ enum msm_cpu {
 	MSM_CPU_KRYPTON,
 	FSM_CPU_9900,
 	MSM_CPU_SAMARIUM,
+};
+
+struct msm_soc_info {
+	enum msm_cpu generic_soc_type;
+	char *soc_id_string;
 };
 
 enum pmic_model {
@@ -385,6 +404,7 @@ static inline int cpu_is_msm8930ab(void)
 
 static inline int cpu_is_msm8627(void)
 {
+/* 8930 and 8627 will share the same CONFIG_ARCH type unless otherwise needed */
 #ifdef CONFIG_ARCH_MSM8930
 	return read_msm_cpu_type() == MSM_CPU_8627;
 #else

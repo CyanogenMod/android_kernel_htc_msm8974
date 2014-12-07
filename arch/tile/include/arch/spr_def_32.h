@@ -196,6 +196,6 @@
 #define SPR_UDN_TAG_VALID 0x0c19
 #define SPR_UDN_TILE_COORD 0x0c1a
 
-#endif 
+#endif /* !defined(__ARCH_SPR_DEF_H__) */
 
-#endif 
+#endif /* !defined(__DOXYGEN__) */

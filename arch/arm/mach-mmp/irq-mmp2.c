@@ -106,7 +106,7 @@ static void init_mux_irq(struct irq_chip *chip, int start, int num)
 	for (irq = start; num > 0; irq++, num--) {
 		struct irq_data *d = irq_get_irq_data(irq);
 
-		
+		/* mask and clear the IRQ */
 		chip->irq_mask(d);
 		if (chip->irq_ack)
 			chip->irq_ack(d);

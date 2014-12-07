@@ -231,7 +231,7 @@ static int32_t
 	if ((pts == NULL) || (output == NULL))
 		return -EINVAL;
 
-	
+	/* Check if table is descending or ascending */
 	if (tablesize > 1) {
 		if (pts[0].x < pts[1].x)
 			descending = 0;
@@ -239,9 +239,13 @@ static int32_t
 
 	while (i < tablesize) {
 		if ((descending == 1) && (pts[i].x < input)) {
+			/* table entry is less than measured
+				value and table is descending, stop */
 			break;
 		} else if ((descending == 0) &&
 				(pts[i].x > input)) {
+			/* table entry is greater than measured
+				value and table is ascending, stop */
 			break;
 		} else
 			i++;
@@ -252,8 +256,8 @@ static int32_t
 	else if (i == tablesize)
 		*output = pts[tablesize-1].y;
 	else {
-	
-	
+	/* result is between search_index and search_index-1 */
+	/* interpolate linearly */
 	*output = (((int32_t) ((pts[i].y - pts[i-1].y)*
 			(input - pts[i-1].x))/
 			(pts[i].x - pts[i-1].x))+
@@ -291,7 +295,7 @@ int32_t scale_default(int32_t adc_code,
 					chan_properties->adc_graph->dx*
 					chan_properties->gain_denominator;
 
-	
+	/* do_div only perform positive integer division! */
 	do_div(adc_chan_result->measurement, chan_properties->adc_graph->dy*
 					chan_properties->gain_numerator);
 
@@ -299,6 +303,10 @@ int32_t scale_default(int32_t adc_code,
 		adc_chan_result->measurement =
 		(adc_chan_result->measurement ^ -1) + 1;
 
+	/* Note: adc_chan_result->measurement is in the unit of
+	 * adc_properties.adc_reference. For generic channel processing,
+	 * channel measurement is a scale/ratio relative to the adc
+	 * reference input */
 	adc_chan_result->physical = (int32_t) adc_chan_result->measurement;
 
 	return 0;
@@ -311,7 +319,7 @@ int32_t scale_batt_therm(int32_t adc_code,
 {
 	scale_default(adc_code, adc_properties, chan_properties,
 			adc_chan_result);
-	
+	/* convert mV ---> degC using the table */
 	return adc_map_linear(
 			adcmap_batttherm,
 			sizeof(adcmap_batttherm)/sizeof(adcmap_batttherm[0]),
@@ -326,7 +334,7 @@ int32_t scale_msm_therm(int32_t adc_code,
 {
 	scale_default(adc_code, adc_properties, chan_properties,
 			adc_chan_result);
-	
+	/* convert mV ---> degC using the table */
 	return adc_map_linear(
 			adcmap_msmtherm,
 			sizeof(adcmap_msmtherm)/sizeof(adcmap_msmtherm[0]),
@@ -339,7 +347,7 @@ int32_t scale_pmic_therm(int32_t adc_code,
 				const struct chan_properties *chan_properties,
 				struct adc_chan_result *adc_chan_result)
 {
-	
+	/* 2mV/K */
 	int32_t rawfromoffset = adc_code - chan_properties->adc_graph->offset;
 
 	if (!chan_properties->gain_numerator ||
@@ -360,14 +368,19 @@ int32_t scale_pmic_therm(int32_t adc_code,
 	} else {
 		adc_chan_result->measurement = 0;
 	}
+	/* Note: adc_chan_result->measurement is in the unit of
+		adc_properties.adc_reference */
 	adc_chan_result->physical = (int32_t)adc_chan_result->measurement;
-	
+	/* Change to .001 deg C */
 	adc_chan_result->physical -= KELVINMIL_DEGMIL;
 	adc_chan_result->measurement <<= 1;
 
 	return 0;
 }
 
+/* Scales the ADC code to 0.001 degrees C using the map
+ * table for the XO thermistor.
+ */
 int32_t tdkntcgtherm(int32_t adc_code,
 			const struct adc_properties *adc_properties,
 			const struct chan_properties *chan_properties,
@@ -383,6 +396,11 @@ int32_t tdkntcgtherm(int32_t adc_code,
 
 	adc_chan_result->adc_code = adc_code;
 	fullscale_calibrated_adc_code = dy + offset;
+	/* The above is a short cut in math that would reduce a lot of
+	   computation whereas the below expression
+		(adc_properties->adc_reference*dy+dx*offset+(dx>>1))/dx
+	   is a more generic formula when the 2 reference voltages are
+	   different than 0 and full scale voltage. */
 
 	if ((dy == 0) || (dx == 0) ||
 			(offset >= fullscale_calibrated_adc_code)) {
@@ -393,6 +411,12 @@ int32_t tdkntcgtherm(int32_t adc_code,
 		} else if (adc_code <= offset) {
 			rt_r25 = 0;
 		} else {
+	/* The formula used is (adc_code of current reading - offset)/
+	 * (the calibrated fullscale adc code - adc_code of current reading).
+	 * For this channel, at this time, chan_properties->gain_numerator =
+	 * chan_properties->gain_denominator = 1, so no need to incorporate
+	 * into the formula even though we could and multiply/divide by 1
+	 * which yields the same result but expensive on computation. */
 		num1 = (adc_code - offset) << 14;
 		num2 = (fullscale_calibrated_adc_code - adc_code) >> 1;
 		denom = fullscale_calibrated_adc_code - adc_code;

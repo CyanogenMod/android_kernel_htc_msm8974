@@ -73,19 +73,23 @@
 
 #include <asm/octeon/octeon.h>
 
+/* The count needed to achieve timeout_sec. */
 static unsigned int timeout_cnt;
 
+/* The maximum period supported. */
 static unsigned int max_timeout_sec;
 
+/* The current period.  */
 static unsigned int timeout_sec;
 
+/* Set to non-zero when userspace countdown mode active */
 static int do_coundown;
 static unsigned int countdown_reset;
 static unsigned int per_cpu_countdown[NR_CPUS];
 
 static cpumask_t irq_enabled_cpus;
 
-#define WD_TIMO 60			
+#define WD_TIMO 60			/* Default heartbeat = 60 seconds */
 
 static int heartbeat = WD_TIMO;
 module_param(heartbeat, int, S_IRUGO);
@@ -103,6 +107,7 @@ static unsigned long octeon_wdt_is_open;
 static char expect_close;
 
 static u32 __initdata nmi_stage1_insns[64];
+/* We need one branch and therefore one relocation per target label. */
 static struct uasm_label __initdata labels[5];
 static struct uasm_reloc __initdata relocs[5];
 
@@ -110,6 +115,7 @@ enum lable_id {
 	label_enter_bootloader = 1
 };
 
+/* Some CP0 registers */
 #define K0		26
 #define C0_CVMMEMCTL 11, 7
 #define C0_STATUS 12, 0
@@ -128,51 +134,68 @@ static void __init octeon_wdt_build_stage1(void)
 	struct uasm_reloc *r = relocs;
 #endif
 
+	/*
+	 * For the next few instructions running the debugger may
+	 * cause corruption of k0 in the saved registers. Since we're
+	 * about to crash, nobody probably cares.
+	 *
+	 * Save K0 into the debug scratch register
+	 */
 	uasm_i_dmtc0(&p, K0, C0_DESAVE);
 
 	uasm_i_mfc0(&p, K0, C0_STATUS);
 #ifdef CONFIG_HOTPLUG_CPU
 	uasm_il_bbit0(&p, &r, K0, ilog2(ST0_NMI), label_enter_bootloader);
 #endif
-	
+	/* Force 64-bit addressing enabled */
 	uasm_i_ori(&p, K0, K0, ST0_UX | ST0_SX | ST0_KX);
 	uasm_i_mtc0(&p, K0, C0_STATUS);
 
 #ifdef CONFIG_HOTPLUG_CPU
 	uasm_i_mfc0(&p, K0, C0_EBASE);
-	
+	/* Coreid number in K0 */
 	uasm_i_andi(&p, K0, K0, 0xf);
-	
+	/* 8 * coreid in bits 16-31 */
 	uasm_i_dsll_safe(&p, K0, K0, 3 + 16);
 	uasm_i_ori(&p, K0, K0, 0x8001);
 	uasm_i_dsll_safe(&p, K0, K0, 16);
 	uasm_i_ori(&p, K0, K0, 0x0700);
 	uasm_i_drotr_safe(&p, K0, K0, 32);
+	/*
+	 * Should result in: 0x8001,0700,0000,8*coreid which is
+	 * CVMX_CIU_WDOGX(coreid) - 0x0500
+	 *
+	 * Now ld K0, CVMX_CIU_WDOGX(coreid)
+	 */
 	uasm_i_ld(&p, K0, 0x500, K0);
+	/*
+	 * If bit one set handle the NMI as a watchdog event.
+	 * otherwise transfer control to bootloader.
+	 */
 	uasm_il_bbit0(&p, &r, K0, 1, label_enter_bootloader);
 	uasm_i_nop(&p);
 #endif
 
-	
+	/* Clear Dcache so cvmseg works right. */
 	uasm_i_cache(&p, 1, 0, 0);
 
-	
+	/* Use K0 to do a read/modify/write of CVMMEMCTL */
 	uasm_i_dmfc0(&p, K0, C0_CVMMEMCTL);
-	
+	/* Clear out the size of CVMSEG	*/
 	uasm_i_dins(&p, K0, 0, 0, 6);
-	
+	/* Set CVMSEG to its largest value */
 	uasm_i_ori(&p, K0, K0, 0x1c0 | 54);
-	
+	/* Store the CVMMEMCTL value */
 	uasm_i_dmtc0(&p, K0, C0_CVMMEMCTL);
 
-	
+	/* Load the address of the second stage handler */
 	UASM_i_LA(&p, K0, (long)octeon_wdt_nmi_stage2);
 	uasm_i_jr(&p, K0);
 	uasm_i_dmfc0(&p, K0, C0_DESAVE);
 
 #ifdef CONFIG_HOTPLUG_CPU
 	uasm_build_label(&l, p, label_enter_bootloader);
-	
+	/* Jump to the bootloader and restore K0 */
 	UASM_i_LA(&p, K0, (long)octeon_bootloader_entry_addr);
 	uasm_i_jr(&p, K0);
 	uasm_i_dmfc0(&p, K0, C0_DESAVE);
@@ -210,6 +233,14 @@ static int core2cpu(int coreid)
 #endif
 }
 
+/**
+ * Poke the watchdog when an interrupt is received
+ *
+ * @cpl:
+ * @dev_id:
+ *
+ * Returns
+ */
 static irqreturn_t octeon_wdt_poke_irq(int cpl, void *dev_id)
 {
 	unsigned int core = cvmx_get_core_num();
@@ -217,30 +248,42 @@ static irqreturn_t octeon_wdt_poke_irq(int cpl, void *dev_id)
 
 	if (do_coundown) {
 		if (per_cpu_countdown[cpu] > 0) {
-			
+			/* We're alive, poke the watchdog */
 			cvmx_write_csr(CVMX_CIU_PP_POKEX(core), 1);
 			per_cpu_countdown[cpu]--;
 		} else {
-			
+			/* Bad news, you are about to reboot. */
 			disable_irq_nosync(cpl);
 			cpumask_clear_cpu(cpu, &irq_enabled_cpus);
 		}
 	} else {
-		
+		/* Not open, just ping away... */
 		cvmx_write_csr(CVMX_CIU_PP_POKEX(core), 1);
 	}
 	return IRQ_HANDLED;
 }
 
+/* From setup.c */
 extern int prom_putchar(char c);
 
+/**
+ * Write a string to the uart
+ *
+ * @str:        String to write
+ */
 static void octeon_wdt_write_string(const char *str)
 {
-	
+	/* Just loop writing one byte at a time */
 	while (*str)
 		prom_putchar(*str++);
 }
 
+/**
+ * Write a hex number out of the uart
+ *
+ * @value:      Number to display
+ * @digits:     Number of digits to print (1 to 16)
+ */
 static void octeon_wdt_write_hex(u64 value, int digits)
 {
 	int d;
@@ -261,17 +304,34 @@ const char *reg_name[] = {
 	"t8", "t9", "k0", "k1", "gp", "sp", "s8", "ra"
 };
 
+/**
+ * NMI stage 3 handler. NMIs are handled in the following manner:
+ * 1) The first NMI handler enables CVMSEG and transfers from
+ * the bootbus region into normal memory. It is careful to not
+ * destroy any registers.
+ * 2) The second stage handler uses CVMSEG to save the registers
+ * and create a stack for C code. It then calls the third level
+ * handler with one argument, a pointer to the register values.
+ * 3) The third, and final, level handler is the following C
+ * function that prints out some useful infomration.
+ *
+ * @reg:    Pointer to register state before the NMI
+ */
 void octeon_wdt_nmi_stage3(u64 reg[32])
 {
 	u64 i;
 
 	unsigned int coreid = cvmx_get_core_num();
+	/*
+	 * Save status and cause early to get them before any changes
+	 * might happen.
+	 */
 	u64 cp0_cause = read_c0_cause();
 	u64 cp0_status = read_c0_status();
 	u64 cp0_error_epc = read_c0_errorepc();
 	u64 cp0_epc = read_c0_epc();
 
-	
+	/* Delay so output from all cores output is not jumbled together. */
 	__delay(100000000ull * coreid);
 
 	octeon_wdt_write_string("\r\n*** NMI Watchdog interrupt on Core 0x");
@@ -317,10 +377,10 @@ static void octeon_wdt_disable_interrupt(int cpu)
 
 	irq = OCTEON_IRQ_WDOG0 + core;
 
-	
+	/* Poke the watchdog to clear out its state */
 	cvmx_write_csr(CVMX_CIU_PP_POKEX(core), 1);
 
-	
+	/* Disable the hardware. */
 	ciu_wdog.u64 = 0;
 	cvmx_write_csr(CVMX_CIU_WDOGX(core), ciu_wdog.u64);
 
@@ -335,7 +395,7 @@ static void octeon_wdt_setup_interrupt(int cpu)
 
 	core = cpu2core(cpu);
 
-	
+	/* Disable it before doing anything with the interrupts. */
 	ciu_wdog.u64 = 0;
 	cvmx_write_csr(CVMX_CIU_WDOGX(core), ciu_wdog.u64);
 
@@ -349,13 +409,13 @@ static void octeon_wdt_setup_interrupt(int cpu)
 
 	cpumask_set_cpu(cpu, &irq_enabled_cpus);
 
-	
+	/* Poke the watchdog to clear out its state */
 	cvmx_write_csr(CVMX_CIU_PP_POKEX(core), 1);
 
-	
+	/* Finally enable the watchdog now that all handlers are installed */
 	ciu_wdog.u64 = 0;
 	ciu_wdog.s.len = timeout_cnt;
-	ciu_wdog.s.mode = 3;	
+	ciu_wdog.s.mode = 3;	/* 3 = Interrupt + NMI + Soft-Reset */
 	cvmx_write_csr(CVMX_CIU_WDOGX(core), ciu_wdog.u64);
 }
 
@@ -389,7 +449,7 @@ static void octeon_wdt_ping(void)
 		per_cpu_countdown[cpu] = countdown_reset;
 		if ((countdown_reset || !do_coundown) &&
 		    !cpumask_test_cpu(cpu, &irq_enabled_cpus)) {
-			
+			/* We have to enable the irq */
 			int irq = OCTEON_IRQ_WDOG0 + coreid;
 			enable_irq(irq);
 			cpumask_set_cpu(cpu, &irq_enabled_cpus);
@@ -404,11 +464,19 @@ static void octeon_wdt_calc_parameters(int t)
 	timeout_sec = max_timeout_sec;
 
 
+	/*
+	 * Find the largest interrupt period, that can evenly divide
+	 * the requested heartbeat time.
+	 */
 	while ((t % timeout_sec) != 0)
 		timeout_sec--;
 
 	periods = t / timeout_sec;
 
+	/*
+	 * The last two periods are after the irq is disabled, and
+	 * then to the nmi, so we subtract them off.
+	 */
 
 	countdown_reset = periods > 2 ? periods - 2 : 0;
 	heartbeat = t;
@@ -431,14 +499,24 @@ static int octeon_wdt_set_heartbeat(int t)
 		cvmx_write_csr(CVMX_CIU_PP_POKEX(coreid), 1);
 		ciu_wdog.u64 = 0;
 		ciu_wdog.s.len = timeout_cnt;
-		ciu_wdog.s.mode = 3;	
+		ciu_wdog.s.mode = 3;	/* 3 = Interrupt + NMI + Soft-Reset */
 		cvmx_write_csr(CVMX_CIU_WDOGX(coreid), ciu_wdog.u64);
 		cvmx_write_csr(CVMX_CIU_PP_POKEX(coreid), 1);
 	}
-	octeon_wdt_ping(); 
+	octeon_wdt_ping(); /* Get the irqs back on. */
 	return 0;
 }
 
+/**
+ *	octeon_wdt_write:
+ *	@file: file handle to the watchdog
+ *	@buf: buffer to write (unused as data does not matter here
+ *	@count: count of bytes
+ *	@ppos: pointer to the position to write. No seeks allowed
+ *
+ *	A write to a watchdog device is defined as a keepalive signal. Any
+ *	write of data will do, as we we don't define content meaning.
+ */
 
 static ssize_t octeon_wdt_write(struct file *file, const char __user *buf,
 				size_t count, loff_t *ppos)
@@ -447,7 +525,7 @@ static ssize_t octeon_wdt_write(struct file *file, const char __user *buf,
 		if (!nowayout) {
 			size_t i;
 
-			
+			/* In case it was set long ago */
 			expect_close = 0;
 
 			for (i = 0; i != count; i++) {
@@ -463,6 +541,17 @@ static ssize_t octeon_wdt_write(struct file *file, const char __user *buf,
 	return count;
 }
 
+/**
+ *	octeon_wdt_ioctl:
+ *	@file: file handle to the device
+ *	@cmd: watchdog command
+ *	@arg: argument pointer
+ *
+ *	The watchdog API defines a common set of functions for all
+ *	watchdogs according to their available features. We only
+ *	actually usefully support querying capabilities and setting
+ *	the timeout.
+ */
 
 static long octeon_wdt_ioctl(struct file *file, unsigned int cmd,
 			     unsigned long arg)
@@ -493,7 +582,7 @@ static long octeon_wdt_ioctl(struct file *file, unsigned int cmd,
 			return -EFAULT;
 		if (octeon_wdt_set_heartbeat(new_heartbeat))
 			return -EINVAL;
-		
+		/* Fall through. */
 	case WDIOC_GETTIMEOUT:
 		return put_user(heartbeat, p);
 	default:
@@ -501,16 +590,38 @@ static long octeon_wdt_ioctl(struct file *file, unsigned int cmd,
 	}
 }
 
+/**
+ *	octeon_wdt_open:
+ *	@inode: inode of device
+ *	@file: file handle to device
+ *
+ *	The watchdog device has been opened. The watchdog device is single
+ *	open and on opening we do a ping to reset the counters.
+ */
 
 static int octeon_wdt_open(struct inode *inode, struct file *file)
 {
 	if (test_and_set_bit(0, &octeon_wdt_is_open))
 		return -EBUSY;
+	/*
+	 *	Activate
+	 */
 	octeon_wdt_ping();
 	do_coundown = 1;
 	return nonseekable_open(inode, file);
 }
 
+/**
+ *	octeon_wdt_release:
+ *	@inode: inode to board
+ *	@file: file handle to board
+ *
+ *	The watchdog has a configurable API. There is a religious dispute
+ *	between people who want their watchdog to be able to shut down and
+ *	those who want to be sure if the watchdog manager dies the machine
+ *	reboots. In the former case we disable the counters, in the latter
+ *	case you have to open it again very soon.
+ */
 
 static int octeon_wdt_release(struct inode *inode, struct file *file)
 {
@@ -545,6 +656,11 @@ static struct notifier_block octeon_wdt_cpu_notifier = {
 };
 
 
+/**
+ * Module/ driver initialization.
+ *
+ * Returns Zero on success
+ */
 static int __init octeon_wdt_init(void)
 {
 	int i;
@@ -552,6 +668,14 @@ static int __init octeon_wdt_init(void)
 	int cpu;
 	u64 *ptr;
 
+	/*
+	 * Watchdog time expiration length = The 16 bits of LEN
+	 * represent the most significant bits of a 24 bit decrementer
+	 * that decrements every 256 cycles.
+	 *
+	 * Try for a timeout of 5 sec, if that fails a smaller number
+	 * of even seconds,
+	 */
 	max_timeout_sec = 6;
 	do {
 		max_timeout_sec--;
@@ -571,10 +695,10 @@ static int __init octeon_wdt_init(void)
 		goto out;
 	}
 
-	
+	/* Build the NMI handler ... */
 	octeon_wdt_build_stage1();
 
-	
+	/* ... and install it. */
 	ptr = (u64 *) nmi_stage1_insns;
 	for (i = 0; i < 16; i++) {
 		cvmx_write_csr(CVMX_MIO_BOOT_LOC_ADR, i * 8);
@@ -592,6 +716,9 @@ out:
 	return ret;
 }
 
+/**
+ * Module / driver shutdown
+ */
 static void __exit octeon_wdt_cleanup(void)
 {
 	int cpu;
@@ -602,11 +729,15 @@ static void __exit octeon_wdt_cleanup(void)
 
 	for_each_online_cpu(cpu) {
 		int core = cpu2core(cpu);
-		
+		/* Disable the watchdog */
 		cvmx_write_csr(CVMX_CIU_WDOGX(core), 0);
-		
+		/* Free the interrupt handler */
 		free_irq(OCTEON_IRQ_WDOG0 + core, octeon_wdt_poke_irq);
 	}
+	/*
+	 * Disable the boot-bus memory, the code it points to is soon
+	 * to go missing.
+	 */
 	cvmx_write_csr(CVMX_MIO_BOOT_LOC_CFGX(0), 0);
 }
 

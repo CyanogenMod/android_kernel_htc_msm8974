@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -233,6 +233,30 @@ static int msm_v4l2_enum_framesizes(struct file *file, void *fh,
 	struct msm_vidc_inst *vidc_inst = get_vidc_inst(file, fh);
 	return msm_vidc_enum_framesizes((void *)vidc_inst, fsize);
 }
+
+int msm_v4l2_htc_set_callingpid_name(struct file *file, void *fh,
+                                struct htc_callingpid_data *b)
+{
+	struct msm_vidc_inst *vidc_inst;
+	if (!b) {
+		dprintk(VIDC_ERR, "%s: Invalid input params\n",  __func__);
+		return -EINVAL;
+	}
+	vidc_inst = get_vidc_inst(file, fh);
+	if (!vidc_inst) {
+		dprintk(VIDC_ERR, "%s: Invalid vidc instance\n",  __func__);
+		return -EINVAL;
+	} else {
+		dprintk(VIDC_WARN,
+			"[Vidc_Pid][%p] Calling PID: %d, Name: %s\n",
+			vidc_inst, b->call_pid, b->process_name);
+	}
+	vidc_inst->call_pid = b->call_pid;
+	strncpy(vidc_inst->process_name, b->process_name, sizeof(vidc_inst->process_name));
+	vidc_inst->process_name[sizeof(vidc_inst->process_name)-1] = '\0';
+	return 0;
+}
+
 static const struct v4l2_ioctl_ops msm_v4l2_ioctl_ops = {
 	.vidioc_querycap = msm_v4l2_querycap,
 	.vidioc_enum_fmt_vid_cap_mplane = msm_v4l2_enum_fmt,
@@ -257,6 +281,9 @@ static const struct v4l2_ioctl_ops msm_v4l2_ioctl_ops = {
 	.vidioc_s_parm = msm_v4l2_s_parm,
 	.vidioc_g_parm = msm_v4l2_g_parm,
 	.vidioc_enum_framesizes = msm_v4l2_enum_framesizes,
+	
+	.vidioc_htc_set_callingpid_name = msm_v4l2_htc_set_callingpid_name,
+	
 };
 
 static const struct v4l2_ioctl_ops msm_v4l2_enc_ioctl_ops = {
@@ -397,18 +424,22 @@ static int __devinit msm_vidc_probe(struct platform_device *pdev)
 	rc = msm_vidc_initialize_core(pdev, core);
 	if (rc) {
 		dprintk(VIDC_ERR, "Failed to init core\n");
-		goto err_v4l2_register;
+		goto err_core_init;
 	}
 	rc = device_create_file(&pdev->dev, &dev_attr_pwr_collapse_delay);
 	if (rc) {
 		dprintk(VIDC_ERR,
 				"Failed to create pwr_collapse_delay sysfs node");
-		goto err_v4l2_register;
+		goto err_core_init;
 	}
 	if (core->hfi_type == VIDC_HFI_Q6) {
 		dprintk(VIDC_ERR, "Q6 hfi device probe called\n");
 		nr += MSM_VIDC_MAX_DEVICES;
+		core->id = MSM_VIDC_CORE_Q6;
+	} else {
+		core->id = MSM_VIDC_CORE_VENUS;
 	}
+
 	rc = v4l2_device_register(&pdev->dev, &core->v4l2_dev);
 	if (rc) {
 		dprintk(VIDC_ERR, "Failed to register v4l2 device\n");
@@ -461,16 +492,20 @@ static int __devinit msm_vidc_probe(struct platform_device *pdev)
 				vidc_driver->num_cores);
 		goto err_cores_exceeded;
 	}
-	core->id = vidc_driver->num_cores++;
+	vidc_driver->num_cores++;
 	mutex_unlock(&vidc_driver->lock);
 
 	core->device = vidc_hfi_initialize(core->hfi_type, core->id,
 				&core->resources, &handle_cmd_response);
-	if (!core->device) {
-		dprintk(VIDC_ERR, "Failed to create HFI device\n");
+	if (IS_ERR_OR_NULL(core->device)) {
 		mutex_lock(&vidc_driver->lock);
 		vidc_driver->num_cores--;
 		mutex_unlock(&vidc_driver->lock);
+		rc = PTR_ERR(core->device);
+		if (rc != -EPROBE_DEFER)
+			dprintk(VIDC_ERR, "Failed to create HFI device\n");
+		else
+			dprintk(VIDC_DBG, "msm_vidc: request probe defer\n");
 		goto err_cores_exceeded;
 	}
 
@@ -495,6 +530,8 @@ err_dec_attr_link_name:
 err_dec_register:
 	v4l2_device_unregister(&core->v4l2_dev);
 err_v4l2_register:
+	device_remove_file(&pdev->dev, &dev_attr_pwr_collapse_delay);
+err_core_init:
 	kfree(core);
 err_no_mem:
 	return rc;
@@ -531,6 +568,36 @@ static int __devexit msm_vidc_remove(struct platform_device *pdev)
 }
 static const struct of_device_id msm_vidc_dt_match[] = {
 	{.compatible = "qcom,msm-vidc"},
+	{}
+};
+
+static int msm_vidc_pm_suspend(struct device *pdev)
+{
+	struct msm_vidc_core *core;
+
+	if (!pdev) {
+		dprintk(VIDC_ERR, "%s invalid device\n", __func__);
+		return -EINVAL;
+	}
+
+	core = (struct msm_vidc_core *)pdev->platform_data;
+	if (!core) {
+		dprintk(VIDC_ERR, "%s invalid core\n", __func__);
+		return -EINVAL;
+	}
+	dprintk(VIDC_INFO, "%s\n", __func__);
+
+	return msm_vidc_suspend(core->id);
+}
+
+static int msm_vidc_pm_resume(struct device *dev)
+{
+	dprintk(VIDC_INFO, "%s\n", __func__);
+	return 0;
+}
+
+static const struct dev_pm_ops msm_vidc_pm_ops = {
+	SET_SYSTEM_SLEEP_PM_OPS(msm_vidc_pm_suspend, msm_vidc_pm_resume)
 };
 
 MODULE_DEVICE_TABLE(of, msm_vidc_dt_match);
@@ -542,6 +609,7 @@ static struct platform_driver msm_vidc_driver = {
 		.name = "msm_vidc_v4l2",
 		.owner = THIS_MODULE,
 		.of_match_table = msm_vidc_dt_match,
+		.pm = &msm_vidc_pm_ops,
 	},
 };
 

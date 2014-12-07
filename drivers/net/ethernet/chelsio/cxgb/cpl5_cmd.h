@@ -103,7 +103,7 @@ enum CPL_opcode {
 	CPL_MIGRATE_C2T_RPL   = 0xDD,
 	CPL_ERROR             = 0xD7,
 
-	
+	/* internal: driver -> TOM */
 	CPL_MSS_CHANGE        = 0xE1
 };
 
@@ -151,7 +151,7 @@ enum {
 	CPL_ABORT_POST_CLOSE_REQ = 2
 };
 
-enum {                
+enum {                // TX_PKT_LSO ethernet types
 	CPL_ETH_II,
 	CPL_ETH_II_VLAN,
 	CPL_ETH_802_3,
@@ -168,10 +168,12 @@ union opcode_tid {
 #define G_OPCODE(x) (((x) >> S_OPCODE) & 0xFF)
 #define G_TID(x)    ((x) & 0xFFFFFF)
 
+/* tid is assumed to be 24-bits */
 #define MK_OPCODE_TID(opcode, tid) (V_OPCODE(opcode) | (tid))
 
 #define OPCODE_TID(cmd) ((cmd)->ot.opcode_tid)
 
+/* extract the TID from a CPL command */
 #define GET_TID(cmd) (G_TID(ntohl(OPCODE_TID(cmd))))
 
 struct tcp_options {
@@ -426,6 +428,11 @@ struct cpl_rx_data_ddp {
 	u8  status;
 };
 
+/*
+ * We want this header's alignment to be no more stringent than 2-byte aligned.
+ * All fields are u8 or u16 except for the length.  However that field is not
+ * used so we break it into 2 16-bit parts to easily meet our alignment needs.
+ */
 struct cpl_tx_pkt {
 	u8 opcode;
 #if defined(__LITTLE_ENDIAN_BITFIELD)
@@ -628,5 +635,5 @@ struct cpl_mss_change {
 	u32 mss;
 };
 
-#endif 
+#endif /* _CXGB_CPL5_CMD_H_ */
 

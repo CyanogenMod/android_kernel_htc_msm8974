@@ -37,6 +37,7 @@
 #define GPIO_USB_NRESET		38
 
 
+/* Board initialization */
 static struct omap_board_config_kernel am3517_crane_config[] __initdata = {
 };
 
@@ -68,7 +69,7 @@ static void __init am3517_crane_init(void)
 	omap_board_config = am3517_crane_config;
 	omap_board_config_size = ARRAY_SIZE(am3517_crane_config);
 
-	
+	/* Configure GPIO for EHCI port */
 	if (omap_mux_init_gpio(GPIO_USB_NRESET, OMAP_PIN_OUTPUT)) {
 		pr_err("Can not configure mux for GPIO_USB_NRESET %d\n",
 			GPIO_USB_NRESET);

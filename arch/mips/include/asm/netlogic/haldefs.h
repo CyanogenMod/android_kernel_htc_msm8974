@@ -35,9 +35,22 @@
 #ifndef __NLM_HAL_HALDEFS_H__
 #define __NLM_HAL_HALDEFS_H__
 
+/*
+ * This file contains platform specific memory mapped IO implementation
+ * and will provide a way to read 32/64 bit memory mapped registers in
+ * all ABIs
+ */
 #if !defined(CONFIG_64BIT) && defined(CONFIG_CPU_XLP)
 #error "o32 compile not supported on XLP yet"
 #endif
+/*
+ * For o32 compilation, we have to disable interrupts and enable KX bit to
+ * access 64 bit addresses or data.
+ *
+ * We need to disable interrupts because we save just the lower 32 bits of
+ * registers in  interrupt handling. So if we get hit by an interrupt while
+ * using the upper 32 bits of a register, we lose.
+ */
 static inline uint32_t nlm_save_flags_kx(void)
 {
 	return change_c0_status(ST0_KX | ST0_IE, ST0_KX);
@@ -53,6 +66,11 @@ static inline void nlm_restore_flags(uint32_t sr)
 	write_c0_status(sr);
 }
 
+/*
+ * The n64 implementations are simple, the o32 implementations when they
+ * are added, will have to disable interrupts and enable KX before doing
+ * 64 bit ops.
+ */
 static inline uint32_t
 nlm_read_reg(uint64_t base, uint32_t reg)
 {
@@ -87,6 +105,10 @@ nlm_write_reg64(uint64_t base, uint32_t reg, uint64_t val)
 	*ptr = val;
 }
 
+/*
+ * Routines to store 32/64 bit values to 64 bit addresses,
+ * used when going thru XKPHYS to access registers
+ */
 static inline uint32_t
 nlm_read_reg_xkphys(uint64_t base, uint32_t reg)
 {
@@ -111,6 +133,7 @@ nlm_write_reg64_xkphys(uint64_t base, uint32_t reg, uint64_t val)
 	nlm_write_reg64(base, reg, val);
 }
 
+/* Location where IO base is mapped */
 extern uint64_t nlm_io_base;
 
 #if defined(CONFIG_CPU_XLP)

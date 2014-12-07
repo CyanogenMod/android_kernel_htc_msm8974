@@ -204,11 +204,11 @@ void card_cd_debounce(struct rts51x_chip *chip, u8 *need_reset,
 			if (!(chip->card_status & XD_CD))
 				release_map |= XD_CARD;
 		} else if (chip->card_exist & SD_CARD) {
-			
+			/* if (!(chip->card_status & SD_CD)) { */
 			if (!(chip->card_status & SD_CD) || (value & SD_INT))
 				release_map |= SD_CARD;
 		} else if (chip->card_exist & MS_CARD) {
-			
+			/* if (!(chip->card_status & MS_CD)) { */
 			if (!(chip->card_status & MS_CD) || (value & MS_INT))
 				release_map |= MS_CARD;
 		}
@@ -409,6 +409,8 @@ int switch_ssc_clock(struct rts51x_chip *chip, int clk)
 	mcu_cnt = (u8) (60 / clk + 3);
 	if (mcu_cnt > 15)
 		mcu_cnt = 15;
+	/* To make sure that the SSC clock div_n is
+	 * equal or greater than min_N */
 	div = CLK_DIV_1;
 	while ((N < min_N) && (div < max_div)) {
 		N = (N + 2) * 2 - 2;
@@ -468,11 +470,15 @@ int switch_ssc_clock(struct rts51x_chip *chip, int clk)
 
 		if (ssc_depth) {
 			if (div == CLK_DIV_2) {
+				/* If clock divided by 2, ssc depth must
+				 * be multiplied by 2 */
 				if (ssc_depth > 1)
 					ssc_depth -= 1;
 				else
 					ssc_depth = SSC_DEPTH_2M;
 			} else if (div == CLK_DIV_4) {
+				/* If clock divided by 4, ssc depth must
+				 * be multiplied by 4 */
 				if (ssc_depth > 2)
 					ssc_depth -= 2;
 				else
@@ -480,7 +486,7 @@ int switch_ssc_clock(struct rts51x_chip *chip, int clk)
 			}
 		}
 	} else {
-		
+		/* Disable SSC */
 		ssc_depth = 0;
 	}
 
@@ -581,6 +587,19 @@ int switch_normal_clock(struct rts51x_chip *chip, int clk)
 		mcu_cnt = 2;
 		break;
 
+	/* case CLK_120:
+		RTS51X_DEBUGP("Switch clock to 120MHz\n");
+		sel = SSC_120;
+		div = CLK_DIV_1;
+		mcu_cnt = 2;
+		break;
+
+	case CLK_150:
+		RTS51X_DEBUGP("Switch clock to 150MHz\n");
+		sel = SSC_150;
+		div = CLK_DIV_1;
+		mcu_cnt = 2;
+		break; */
 
 	default:
 		RTS51X_DEBUGP("Try to switch to an illegal clock (%d)\n",
@@ -832,7 +851,16 @@ int card_power_on(struct rts51x_chip *chip, u8 card)
 	if ((card == SD_CARD) || (card == XD_CARD)) {
 		RTS51X_WRITE_REG(chip, CARD_PWR_CTL, mask | LDO3318_PWR_MASK,
 				 val1 | LDO_SUSPEND);
+		/* RTS51X_WRITE_REG(chip, CARD_PWR_CTL,
+				LDO3318_PWR_MASK, LDO_SUSPEND); */
 	}
+	/* else if(card==XD_CARD)
+	{
+		RTS51X_WRITE_REG(chip, CARD_PWR_CTL,
+			mask|LDO3318_PWR_MASK, val1|LDO_SUSPEND);
+		//RTS51X_WRITE_REG(chip, CARD_PWR_CTL,
+		//	LDO3318_PWR_MASK, LDO_SUSPEND);
+	} */
 	else {
 #endif
 		RTS51X_WRITE_REG(chip, CARD_PWR_CTL, mask, val1);
@@ -896,7 +924,7 @@ int toggle_gpio(struct rts51x_chip *chip, u8 gpio)
 		if (retval != STATUS_SUCCESS)
 			TRACE_RET(chip, STATUS_FAIL);
 		temp_reg ^= gpio_oe[gpio];
-		temp_reg &= 0xfe; 
+		temp_reg &= 0xfe; /* bit 0 always set 0 */
 		retval =
 		    rts51x_ep0_write_register(chip, CARD_GPIO, 0x03, temp_reg);
 		if (retval != STATUS_SUCCESS)

@@ -21,7 +21,7 @@ int __init oprofile_arch_init(struct oprofile_operations *ops)
 	int ret = -ENODEV;
 
 #ifdef CONFIG_PERFMON
-	
+	/* perfmon_init() can fail, but we have no way to report it */
 	ret = perfmon_init(ops);
 #endif
 	ops->backtrace = ia64_backtrace;

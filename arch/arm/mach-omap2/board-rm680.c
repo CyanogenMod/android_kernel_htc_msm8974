@@ -37,6 +37,7 @@ static struct regulator_consumer_supply rm680_vemmc_consumers[] = {
 	REGULATOR_SUPPLY("vmmc", "omap_hsmmc.1"),
 };
 
+/* Fixed regulator for internal eMMC */
 static struct regulator_init_data rm680_vemmc = {
 	.constraints =	{
 		.name			= "rm680_vemmc",
@@ -69,6 +70,7 @@ static struct platform_device *rm680_peripherals_devices[] __initdata = {
 	&rm680_vemmc_device,
 };
 
+/* TWL */
 static struct twl4030_gpio_platform_data rm680_gpio_data = {
 	.gpio_base		= OMAP_MAX_GPIO_LINES,
 	.irq_base		= TWL4030_GPIO_IRQ_BASE,
@@ -79,7 +81,7 @@ static struct twl4030_gpio_platform_data rm680_gpio_data = {
 
 static struct twl4030_platform_data rm680_twl_data = {
 	.gpio			= &rm680_gpio_data,
-	
+	/* add rest of the children here */
 };
 
 static void __init rm680_i2c_init(void)
@@ -100,6 +102,7 @@ static struct omap_onenand_platform_data board_onenand_data[] = {
 };
 #endif
 
+/* eMMC */
 static struct omap2_hsmmc_info mmc[] __initdata = {
 	{
 		.name		= "internal",
@@ -108,7 +111,7 @@ static struct omap2_hsmmc_info mmc[] __initdata = {
 		.gpio_cd	= -EINVAL,
 		.gpio_wp	= -EINVAL,
 	},
-	{  }
+	{ /* Terminator */ }
 };
 
 static void __init rm680_peripherals_init(void)

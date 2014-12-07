@@ -18,11 +18,18 @@
 #include "../iio.h"
 #include "../sysfs.h"
 
-#define ADIS16060_GYRO		0x20 
-#define ADIS16060_TEMP_OUT	0x10 
-#define ADIS16060_AIN2		0x80 
-#define ADIS16060_AIN1		0x40 
+#define ADIS16060_GYRO		0x20 /* Measure Angular Rate (Gyro) */
+#define ADIS16060_TEMP_OUT	0x10 /* Measure Temperature */
+#define ADIS16060_AIN2		0x80 /* Measure AIN2 */
+#define ADIS16060_AIN1		0x40 /* Measure AIN1 */
 
+/**
+ * struct adis16060_state - device instance specific data
+ * @us_w:		actual spi_device to write config
+ * @us_r:		actual spi_device to read back data
+ * @buf:		transmit or receive buffer
+ * @buf_lock:		mutex to protect tx and rx
+ **/
 struct adis16060_state {
 	struct spi_device		*us_w;
 	struct spi_device		*us_r;
@@ -39,7 +46,7 @@ static int adis16060_spi_write(struct iio_dev *indio_dev, u8 val)
 	struct adis16060_state *st = iio_priv(indio_dev);
 
 	mutex_lock(&st->buf_lock);
-	st->buf[2] = val; 
+	st->buf[2] = val; /* The last 8 bits clocked in are latched */
 	ret = spi_write(st->us_w, st->buf, 3);
 	mutex_unlock(&st->buf_lock);
 
@@ -55,6 +62,11 @@ static int adis16060_spi_read(struct iio_dev *indio_dev, u16 *val)
 
 	ret = spi_read(st->us_r, st->buf, 3);
 
+	/* The internal successive approximation ADC begins the
+	 * conversion process on the falling edge of MSEL1 and
+	 * starts to place data MSB first on the DOUT line at
+	 * the 6th falling edge of SCLK
+	 */
 	if (ret == 0)
 		*val = ((st->buf[0] & 0x3) << 12) |
 			(st->buf[1] << 4) |
@@ -74,7 +86,7 @@ static int adis16060_read_raw(struct iio_dev *indio_dev,
 
 	switch (mask) {
 	case 0:
-		
+		/* Take the iio_dev status lock */
 		mutex_lock(&indio_dev->mlock);
 		ret = adis16060_spi_write(indio_dev, chan->address);
 		if (ret < 0) {
@@ -135,13 +147,13 @@ static int __devinit adis16060_r_probe(struct spi_device *spi)
 	struct adis16060_state *st;
 	struct iio_dev *indio_dev;
 
-	
+	/* setup the industrialio driver allocated elements */
 	indio_dev = iio_allocate_device(sizeof(*st));
 	if (indio_dev == NULL) {
 		ret = -ENOMEM;
 		goto error_ret;
 	}
-	
+	/* this is only used for removal purposes */
 	spi_set_drvdata(spi, indio_dev);
 	st = iio_priv(indio_dev);
 	st->us_r = spi;
@@ -167,6 +179,7 @@ error_ret:
 	return ret;
 }
 
+/* fixme, confirm ordering in this function */
 static int adis16060_r_remove(struct spi_device *spi)
 {
 	iio_device_unregister(spi_get_drvdata(spi));

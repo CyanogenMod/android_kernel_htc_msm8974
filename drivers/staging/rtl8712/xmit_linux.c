@@ -89,13 +89,16 @@ void r8712_set_qos(struct pkt_file *ppktfile, struct pkt_attrib *pattrib)
 	_r8712_open_pktfile(ppktfile->pkt, ppktfile);
 	_r8712_pktfile_read(ppktfile, (unsigned char *)&etherhdr, ETH_HLEN);
 
-	
+	/* get UserPriority from IP hdr*/
 	if (pattrib->ether_type == 0x0800) {
 		i = _r8712_pktfile_read(ppktfile, (u8 *)&ip_hdr,
 					sizeof(ip_hdr));
-		
+		/*UserPriority = (ntohs(ip_hdr.tos) >> 5) & 0x3 ;*/
 		UserPriority = ip_hdr.tos >> 5;
 	} else {
+		/* "When priority processing of data frames is supported,
+		 * a STA's SME should send EAPOL-Key frames at the highest
+		 * priority." */
 
 		if (pattrib->ether_type == 0x888e)
 			UserPriority = 7;
@@ -184,7 +187,7 @@ int r8712_xmit_entry(_pkt *pkt, struct  net_device *pnetdev)
 	padapter->ledpriv.LedControlHandler(padapter, LED_CTL_TX);
 	pxmitframe->pkt = pkt;
 	if (r8712_pre_xmit(padapter, pxmitframe) == true) {
-		
+		/*dump xmitframe directly or drop xframe*/
 		dev_kfree_skb_any(pkt);
 		pxmitframe->pkt = NULL;
 	}

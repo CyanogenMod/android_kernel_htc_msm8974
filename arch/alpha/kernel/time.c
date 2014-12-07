@@ -63,14 +63,20 @@ EXPORT_SYMBOL(rtc_lock);
 
 #define TICK_SIZE (tick_nsec / 1000)
 
+/*
+ * Shift amount by which scaled_ticks_per_cycle is scaled.  Shifting
+ * by 48 gives us 16 bits for HZ while keeping the accuracy good even
+ * for large CPU clock rates.
+ */
 #define FIX_SHIFT	48
 
+/* lump static variables together for more efficient access: */
 static struct {
-	
+	/* cycle counter last time it got invoked */
 	__u32 last_time;
-	
+	/* ticks/cycle * 2^48 */
 	unsigned long scaled_ticks_per_cycle;
-	
+	/* partial unused tick */
 	unsigned long partial_tick;
 } state;
 
@@ -89,12 +95,12 @@ void arch_irq_work_raise(void)
 	set_irq_work_pending_flag();
 }
 
-#else  
+#else  /* CONFIG_IRQ_WORK */
 
 #define test_irq_work_pending()      0
 #define clear_irq_work_pending()
 
-#endif 
+#endif /* CONFIG_IRQ_WORK */
 
 
 static inline __u32 rpcc(void)
@@ -129,15 +135,15 @@ void read_persistent_clock(struct timespec *ts)
 		year = bcd2bin(year);
 	}
 
-	
+	/* PC-like is standard; used for year >= 70 */
 	epoch = 1900;
 	if (year < 20)
 		epoch = 2000;
 	else if (year >= 20 && year < 48)
-		
+		/* NT epoch */
 		epoch = 1980;
 	else if (year >= 48 && year < 70)
-		
+		/* Digital UNIX epoch */
 		epoch = 1952;
 
 	printk(KERN_INFO "Using epoch = %d\n", epoch);
@@ -151,6 +157,10 @@ void read_persistent_clock(struct timespec *ts)
 
 
 
+/*
+ * timer_interrupt() needs to keep up the real-time clock,
+ * as well as call the "xtime_update()" routine every clocktick
+ */
 irqreturn_t timer_interrupt(int irq, void *dev)
 {
 	unsigned long delta;
@@ -158,10 +168,15 @@ irqreturn_t timer_interrupt(int irq, void *dev)
 	long nticks;
 
 #ifndef CONFIG_SMP
-	
+	/* Not SMP, do kernel PC profiling here.  */
 	profile_tick(CPU_PROFILING);
 #endif
 
+	/*
+	 * Calculate how many ticks have passed since the last update,
+	 * including any previous partial leftover.  Save any resulting
+	 * fraction for the next pass.
+	 */
 	now = rpcc();
 	delta = now - state.last_time;
 	state.last_time = now;
@@ -190,14 +205,16 @@ common_init_rtc(void)
 {
 	unsigned char x;
 
-	
+	/* Reset periodic interrupt frequency.  */
 	x = CMOS_READ(RTC_FREQ_SELECT) & 0x3f;
+        /* Test includes known working values on various platforms
+           where 0x26 is wrong; we refuse to change those. */
 	if (x != 0x26 && x != 0x25 && x != 0x19 && x != 0x06) {
 		printk("Setting RTC_FREQ to 1024 Hz (%x)\n", x);
 		CMOS_WRITE(0x26, RTC_FREQ_SELECT);
 	}
 
-	
+	/* Turn on periodic interrupts.  */
 	x = CMOS_READ(RTC_CONTROL);
 	if (!(x & RTC_PIE)) {
 		printk("Turning on RTC interrupts.\n");
@@ -207,11 +224,11 @@ common_init_rtc(void)
 	}
 	(void) CMOS_READ(RTC_INTR_FLAGS);
 
-	outb(0x36, 0x43);	
+	outb(0x36, 0x43);	/* pit counter 0: system timer */
 	outb(0x00, 0x40);
 	outb(0x00, 0x40);
 
-	outb(0xb6, 0x43);	
+	outb(0xb6, 0x43);	/* pit counter 2: speaker */
 	outb(0x31, 0x42);
 	outb(0x13, 0x42);
 
@@ -228,6 +245,11 @@ int common_set_rtc_time(struct rtc_time *time)
 	return __set_rtc_time(time);
 }
 
+/* Validate a computed cycle counter result against the known bounds for
+   the given processor core.  There's too much brokenness in the way of
+   timing hardware for any one method to work everywhere.  :-(
+
+   Return 0 if the result cannot be trusted, otherwise return the argument.  */
 
 static unsigned long __init
 validate_cc_value(unsigned long cc)
@@ -235,26 +257,26 @@ validate_cc_value(unsigned long cc)
 	static struct bounds {
 		unsigned int min, max;
 	} cpu_hz[] __initdata = {
-		[EV3_CPU]    = {   50000000,  200000000 },	
+		[EV3_CPU]    = {   50000000,  200000000 },	/* guess */
 		[EV4_CPU]    = {  100000000,  300000000 },
-		[LCA4_CPU]   = {  100000000,  300000000 },	
+		[LCA4_CPU]   = {  100000000,  300000000 },	/* guess */
 		[EV45_CPU]   = {  200000000,  300000000 },
 		[EV5_CPU]    = {  250000000,  433000000 },
 		[EV56_CPU]   = {  333000000,  667000000 },
-		[PCA56_CPU]  = {  400000000,  600000000 },	
-		[PCA57_CPU]  = {  500000000,  600000000 },	
+		[PCA56_CPU]  = {  400000000,  600000000 },	/* guess */
+		[PCA57_CPU]  = {  500000000,  600000000 },	/* guess */
 		[EV6_CPU]    = {  466000000,  600000000 },
 		[EV67_CPU]   = {  600000000,  750000000 },
 		[EV68AL_CPU] = {  750000000,  940000000 },
 		[EV68CB_CPU] = { 1000000000, 1333333333 },
-		
-		[EV68CX_CPU] = { 1000000000, 1700000000 },	
-		[EV69_CPU]   = { 1000000000, 1700000000 },	
-		[EV7_CPU]    = {  800000000, 1400000000 },	
-		[EV79_CPU]   = { 1000000000, 2000000000 },	
+		/* None of the following are shipping as of 2001-11-01.  */
+		[EV68CX_CPU] = { 1000000000, 1700000000 },	/* guess */
+		[EV69_CPU]   = { 1000000000, 1700000000 },	/* guess */
+		[EV7_CPU]    = {  800000000, 1400000000 },	/* guess */
+		[EV79_CPU]   = { 1000000000, 2000000000 },	/* guess */
 	};
 
-	
+	/* Allow for some drift in the crystal.  10MHz is more than enough.  */
 	const unsigned int deviation = 10000000;
 
 	struct percpu_struct *cpu;
@@ -263,11 +285,11 @@ validate_cc_value(unsigned long cc)
 	cpu = (struct percpu_struct *)((char*)hwrpb + hwrpb->processor_offset);
 	index = cpu->type & 0xffffffff;
 
-	
+	/* If index out of bounds, no way to validate.  */
 	if (index >= ARRAY_SIZE(cpu_hz))
 		return cc;
 
-	
+	/* If index contains no data, no way to validate.  */
 	if (cpu_hz[index].max == 0)
 		return cc;
 
@@ -279,6 +301,10 @@ validate_cc_value(unsigned long cc)
 }
 
 
+/*
+ * Calibrate CPU clock using legacy 8254 timer/counter. Stolen from
+ * arch/i386/time.c.
+ */
 
 #define CALIBRATE_LATCH	0xffff
 #define TIMEOUT_COUNT	0x100000
@@ -288,12 +314,19 @@ calibrate_cc_with_pit(void)
 {
 	int cc, count = 0;
 
-	
+	/* Set the Gate high, disable speaker */
 	outb((inb(0x61) & ~0x02) | 0x01, 0x61);
 
-	outb(0xb0, 0x43);		
-	outb(CALIBRATE_LATCH & 0xff, 0x42);	
-	outb(CALIBRATE_LATCH >> 8, 0x42);	
+	/*
+	 * Now let's take care of CTC channel 2
+	 *
+	 * Set the Gate high, program CTC channel 2 for mode 0,
+	 * (interrupt on terminal count mode), binary count,
+	 * load 5 * LATCH count, (LSB and MSB) to begin countdown.
+	 */
+	outb(0xb0, 0x43);		/* binary, mode 0, LSB/MSB, Ch 2 */
+	outb(CALIBRATE_LATCH & 0xff, 0x42);	/* LSB of count */
+	outb(CALIBRATE_LATCH >> 8, 0x42);	/* MSB of count */
 
 	cc = rpcc();
 	do {
@@ -301,13 +334,17 @@ calibrate_cc_with_pit(void)
 	} while ((inb(0x61) & 0x20) == 0 && count < TIMEOUT_COUNT);
 	cc = rpcc() - cc;
 
-	
+	/* Error: ECTCNEVERSET or ECPUTOOFAST.  */
 	if (count <= 1 || count == TIMEOUT_COUNT)
 		return 0;
 
 	return ((long)cc * PIT_TICK_RATE) / (CALIBRATE_LATCH + 1);
 }
 
+/* The Linux interpretation of the CMOS clock register contents:
+   When the Update-In-Progress (UIP) flag goes from 1 to 0, the
+   RTC registers show the second which has precisely just started.
+   Let's hope other operating systems interpret the RTC the same way.  */
 
 static unsigned long __init
 rpcc_after_update_in_progress(void)
@@ -319,6 +356,8 @@ rpcc_after_update_in_progress(void)
 }
 
 #ifndef CONFIG_SMP
+/* Until and unless we figure out how to get cpu cycle counters
+   in sync and keep them there, we can't use the rpcc.  */
 static cycle_t read_rpcc(struct clocksource *cs)
 {
 	cycle_t ret = (cycle_t)rpcc();
@@ -337,11 +376,11 @@ static inline void register_rpcc_clocksource(long cycle_freq)
 {
 	clocksource_register_hz(&clocksource_rpcc, cycle_freq);
 }
-#else 
+#else /* !CONFIG_SMP */
 static inline void register_rpcc_clocksource(long cycle_freq)
 {
 }
-#endif 
+#endif /* !CONFIG_SMP */
 
 void __init
 time_init(void)
@@ -350,13 +389,13 @@ time_init(void)
 	unsigned long cycle_freq, tolerance;
 	long diff;
 
-	
+	/* Calibrate CPU clock -- attempt #1.  */
 	if (!est_cycle_freq)
 		est_cycle_freq = validate_cc_value(calibrate_cc_with_pit());
 
 	cc1 = rpcc();
 
-	
+	/* Calibrate CPU clock -- attempt #2.  */
 	if (!est_cycle_freq) {
 		cc1 = rpcc_after_update_in_progress();
 		cc2 = rpcc_after_update_in_progress();
@@ -366,6 +405,8 @@ time_init(void)
 
 	cycle_freq = hwrpb->cycle_freq;
 	if (est_cycle_freq) {
+		/* If the given value is within 250 PPM of what we calculated,
+		   accept it.  Otherwise, use what we found.  */
 		tolerance = cycle_freq / 4000;
 		diff = cycle_freq - est_cycle_freq;
 		if (diff < 0)
@@ -382,6 +423,10 @@ time_init(void)
 		       "and unable to estimate a proper value!\n");
 	}
 
+	/* From John Bowman <bowman@math.ualberta.ca>: allow the values
+	   to settle, as the Update-In-Progress bit going low isn't good
+	   enough on some hardware.  2ms is our guess; we haven't found 
+	   bogomips yet, but this is close on a 500Mhz box.  */
 	__delay(1000000);
 
 
@@ -397,7 +442,7 @@ time_init(void)
 		= ((unsigned long) HZ << FIX_SHIFT) / cycle_freq;
 	state.partial_tick = 0L;
 
-	
+	/* Startup the timer source. */
 	alpha_mv.init_rtc();
 }
 
@@ -420,13 +465,13 @@ set_rtc_mmss(unsigned long nowtime)
 	int real_seconds, real_minutes, cmos_minutes;
 	unsigned char save_control, save_freq_select;
 
-	
+	/* irq are locally disabled here */
 	spin_lock(&rtc_lock);
-	
+	/* Tell the clock it's being set */
 	save_control = CMOS_READ(RTC_CONTROL);
 	CMOS_WRITE((save_control|RTC_SET), RTC_CONTROL);
 
-	
+	/* Stop and reset prescaler */
 	save_freq_select = CMOS_READ(RTC_FREQ_SELECT);
 	CMOS_WRITE((save_freq_select|RTC_DIV_RESET2), RTC_FREQ_SELECT);
 
@@ -434,10 +479,16 @@ set_rtc_mmss(unsigned long nowtime)
 	if (!(save_control & RTC_DM_BINARY) || RTC_ALWAYS_BCD)
 		cmos_minutes = bcd2bin(cmos_minutes);
 
+	/*
+	 * since we're only adjusting minutes and seconds,
+	 * don't interfere with hour overflow. This avoids
+	 * messing with unknown time zones but requires your
+	 * RTC not to be off by more than 15 minutes
+	 */
 	real_seconds = nowtime % 60;
 	real_minutes = nowtime / 60;
 	if (((abs(real_minutes - cmos_minutes) + 15)/30) & 1) {
-		
+		/* correct for half hour time zone */
 		real_minutes += 30;
 	}
 	real_minutes %= 60;
@@ -456,6 +507,13 @@ set_rtc_mmss(unsigned long nowtime)
  		retval = -1;
 	}
 
+	/* The following flags have to be released exactly in this order,
+	 * otherwise the DS12887 (popular MC146818A clone with integrated
+	 * battery and quartz) will not reset the oscillator and will not
+	 * update precisely 500 ms later. You won't find this mentioned in
+	 * the Dallas Semiconductor data sheets, but who believes data
+	 * sheets anyway ...                           -- Markus Kuhn
+	 */
 	CMOS_WRITE(save_control, RTC_CONTROL);
 	CMOS_WRITE(save_freq_select, RTC_FREQ_SELECT);
 	spin_unlock(&rtc_lock);

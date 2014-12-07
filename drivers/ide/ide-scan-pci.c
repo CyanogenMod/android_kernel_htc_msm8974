@@ -12,10 +12,25 @@
 #include <linux/module.h>
 #include <linux/ide.h>
 
+/*
+ *	Module interfaces
+ */
 
-static int pre_init = 1;		
+static int pre_init = 1;		/* Before first ordered IDE scan */
 static LIST_HEAD(ide_pci_drivers);
 
+/*
+ *	__ide_pci_register_driver	-	attach IDE driver
+ *	@driver: pci driver
+ *	@module: owner module of the driver
+ *
+ *	Registers a driver with the IDE layer. The IDE layer arranges that
+ *	boot time setup is done in the expected device order and then
+ *	hands the controllers off to the core PCI code to do the rest of
+ *	the work.
+ *
+ *	Returns are the same as for pci_register_driver
+ */
 
 int __ide_pci_register_driver(struct pci_driver *driver, struct module *module,
 			      const char *mod_name)
@@ -28,6 +43,14 @@ int __ide_pci_register_driver(struct pci_driver *driver, struct module *module,
 }
 EXPORT_SYMBOL_GPL(__ide_pci_register_driver);
 
+/**
+ *	ide_scan_pcidev		-	find an IDE driver for a device
+ *	@dev: PCI device to check
+ *
+ *	Look for an IDE driver to handle the device we are considering.
+ *	This is only used during boot up to get the ordering correct. After
+ *	boot up the pci layer takes over the job.
+ */
 
 static int __init ide_scan_pcidev(struct pci_dev *dev)
 {
@@ -50,6 +73,13 @@ static int __init ide_scan_pcidev(struct pci_dev *dev)
 	return 0;
 }
 
+/**
+ *	ide_scan_pcibus		-	perform the initial IDE driver scan
+ *
+ *	Perform the initial bus rather than driver ordered scan of the
+ *	PCI drivers. After this all IDE pci handling becomes standard
+ *	module ordering not traditionally ordered.
+ */
 
 static int __init ide_scan_pcibus(void)
 {
@@ -61,6 +91,10 @@ static int __init ide_scan_pcibus(void)
 	for_each_pci_dev(dev)
 		ide_scan_pcidev(dev);
 
+	/*
+	 *	Hand the drivers over to the PCI layer now we
+	 *	are post init.
+	 */
 
 	list_for_each_safe(l, n, &ide_pci_drivers) {
 		list_del(l);

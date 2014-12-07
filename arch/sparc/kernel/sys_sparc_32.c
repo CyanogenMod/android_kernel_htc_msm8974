@@ -1,3 +1,9 @@
+/* linux/arch/sparc/kernel/sys_sparc.c
+ *
+ * This file contains various random system calls that
+ * have a non-standard calling sequence on the Linux/sparc
+ * platform.
+ */
 
 #include <linux/errno.h>
 #include <linux/types.h>
@@ -18,10 +24,14 @@
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
 
+/* #define DEBUG_UNIMP_SYSCALL */
 
+/* XXX Make this per-binary type, this way we can detect the type of
+ * XXX a binary.  Every Sparc executable calls this very early on.
+ */
 asmlinkage unsigned long sys_getpagesize(void)
 {
-	return PAGE_SIZE; 
+	return PAGE_SIZE; /* Possibly older binaries want 8192 on sun4's? */
 }
 
 #define COLOUR_ALIGN(addr)      (((addr)+SHMLBA-1)&~(SHMLBA-1))
@@ -31,13 +41,16 @@ unsigned long arch_get_unmapped_area(struct file *filp, unsigned long addr, unsi
 	struct vm_area_struct * vmm;
 
 	if (flags & MAP_FIXED) {
+		/* We do not accept a shared mapping if it would violate
+		 * cache aliasing constraints.
+		 */
 		if ((flags & MAP_SHARED) &&
 		    ((addr - (pgoff << PAGE_SHIFT)) & (SHMLBA - 1)))
 			return -EINVAL;
 		return addr;
 	}
 
-	
+	/* See asm-sparc/uaccess.h */
 	if (len > TASK_SIZE - PAGE_SIZE)
 		return -ENOMEM;
 	if (ARCH_SUN4C && len > 0x20000000)
@@ -51,7 +64,7 @@ unsigned long arch_get_unmapped_area(struct file *filp, unsigned long addr, unsi
 		addr = PAGE_ALIGN(addr);
 
 	for (vmm = find_vma(current->mm, addr); ; vmm = vmm->vm_next) {
-		
+		/* At this point:  (!vmm || addr < vmm->vm_end). */
 		if (ARCH_SUN4C && addr < 0xe0000000 && 0x20000000 - len < addr) {
 			addr = PAGE_OFFSET;
 			vmm = find_vma(current->mm, PAGE_OFFSET);
@@ -66,6 +79,10 @@ unsigned long arch_get_unmapped_area(struct file *filp, unsigned long addr, unsi
 	}
 }
 
+/*
+ * sys_pipe() is the normal C calling standard for creating
+ * a pipe. It's not the way unix traditionally does this, though.
+ */
 asmlinkage int sparc_pipe(struct pt_regs *regs)
 {
 	int fd[2];
@@ -87,18 +104,21 @@ int sparc_mmap_check(unsigned long addr, unsigned long len)
 	     (addr < 0xe0000000 && addr + len > 0x20000000)))
 		return -EINVAL;
 
-	
+	/* See asm-sparc/uaccess.h */
 	if (len > TASK_SIZE - PAGE_SIZE || addr + len > TASK_SIZE - PAGE_SIZE)
 		return -EINVAL;
 
 	return 0;
 }
 
+/* Linux version of mmap */
 
 asmlinkage unsigned long sys_mmap2(unsigned long addr, unsigned long len,
 	unsigned long prot, unsigned long flags, unsigned long fd,
 	unsigned long pgoff)
 {
+	/* Make sure the shift for mmap2 is constant (12), no matter what PAGE_SIZE
+	   we have. */
 	return sys_mmap_pgoff(addr, len, prot, flags, fd,
 			      pgoff >> (PAGE_SHIFT - 12));
 }
@@ -107,7 +127,7 @@ asmlinkage unsigned long sys_mmap(unsigned long addr, unsigned long len,
 	unsigned long prot, unsigned long flags, unsigned long fd,
 	unsigned long off)
 {
-	
+	/* no alignment check? */
 	return sys_mmap_pgoff(addr, len, prot, flags, fd, off >> PAGE_SHIFT);
 }
 
@@ -115,10 +135,14 @@ long sparc_remap_file_pages(unsigned long start, unsigned long size,
 			   unsigned long prot, unsigned long pgoff,
 			   unsigned long flags)
 {
+	/* This works on an existing mmap so we don't need to validate
+	 * the range as that was done at the original mmap call.
+	 */
 	return sys_remap_file_pages(start, size, prot,
 				    (pgoff >> (PAGE_SHIFT - 12)), flags);
 }
 
+/* we come to here via sys_nis_syscall so it can setup the regs argument */
 asmlinkage unsigned long
 c_sys_nis_syscall (struct pt_regs *regs)
 {
@@ -134,6 +158,7 @@ c_sys_nis_syscall (struct pt_regs *regs)
 	return -ENOSYS;
 }
 
+/* #define DEBUG_SPARC_BREAKPOINT */
 
 asmlinkage void
 sparc_breakpoint (struct pt_regs *regs)
@@ -181,6 +206,11 @@ sparc_sigaction (int sig, const struct old_sigaction __user *act,
 	ret = do_sigaction(sig, act ? &new_ka : NULL, oact ? &old_ka : NULL);
 
 	if (!ret && oact) {
+		/* In the clone() case we could copy half consistent
+		 * state to the user, however this could sleep and
+		 * deadlock us if we held the signal lock on SMP.  So for
+		 * now I take the easy way out and do no locking.
+		 */
 		if (!access_ok(VERIFY_WRITE, oact, sizeof(*oact)) ||
 		    __put_user(old_ka.sa.sa_handler, &oact->sa_handler) ||
 		    __put_user(old_ka.sa.sa_restorer, &oact->sa_restorer))
@@ -202,7 +232,7 @@ sys_rt_sigaction(int sig,
 	struct k_sigaction new_ka, old_ka;
 	int ret;
 
-	
+	/* XXX: Don't preclude handling different sized sigset_t's.  */
 	if (sigsetsize != sizeof(sigset_t))
 		return -EINVAL;
 
@@ -245,6 +275,10 @@ out:
 	return err;
 }
 
+/*
+ * Do a system call from kernel instead of calling sys_execve so we
+ * end up with proper pt_regs.
+ */
 int kernel_execve(const char *filename,
 		  const char *const argv[],
 		  const char *const envp[])

@@ -61,7 +61,7 @@ enum {
 };
 
 enum {
-	
+	/* initialization and general commands */
 	CMD_SYS_EN          = 0x1,
 	CMD_SYS_DIS         = 0x2,
 	CMD_MAP_FA          = 0xfff,
@@ -87,7 +87,7 @@ enum {
 	CMD_UNMAP_ICM_AUX   = 0xffb,
 	CMD_SET_ICM_SIZE    = 0xffd,
 
-	
+	/* TPT commands */
 	CMD_SW2HW_MPT 	    = 0xd,
 	CMD_QUERY_MPT 	    = 0xe,
 	CMD_HW2SW_MPT 	    = 0xf,
@@ -95,25 +95,25 @@ enum {
 	CMD_WRITE_MTT       = 0x11,
 	CMD_SYNC_TPT        = 0x2f,
 
-	
+	/* EQ commands */
 	CMD_MAP_EQ          = 0x12,
 	CMD_SW2HW_EQ 	    = 0x13,
 	CMD_HW2SW_EQ 	    = 0x14,
 	CMD_QUERY_EQ        = 0x15,
 
-	
+	/* CQ commands */
 	CMD_SW2HW_CQ 	    = 0x16,
 	CMD_HW2SW_CQ 	    = 0x17,
 	CMD_QUERY_CQ 	    = 0x18,
 	CMD_RESIZE_CQ       = 0x2c,
 
-	
+	/* SRQ commands */
 	CMD_SW2HW_SRQ 	    = 0x35,
 	CMD_HW2SW_SRQ 	    = 0x36,
 	CMD_QUERY_SRQ       = 0x37,
 	CMD_ARM_SRQ         = 0x40,
 
-	
+	/* QP/EE commands */
 	CMD_RST2INIT_QPEE   = 0x19,
 	CMD_INIT2RTR_QPEE   = 0x1a,
 	CMD_RTR2RTS_QPEE    = 0x1b,
@@ -128,25 +128,34 @@ enum {
 	CMD_INIT2INIT_QPEE  = 0x2d,
 	CMD_SUSPEND_QPEE    = 0x32,
 	CMD_UNSUSPEND_QPEE  = 0x33,
-	
+	/* special QPs and management commands */
 	CMD_CONF_SPECIAL_QP = 0x23,
 	CMD_MAD_IFC         = 0x24,
 
-	
+	/* multicast commands */
 	CMD_READ_MGM        = 0x25,
 	CMD_WRITE_MGM       = 0x26,
 	CMD_MGID_HASH       = 0x27,
 
-	
+	/* miscellaneous commands */
 	CMD_DIAG_RPRT       = 0x30,
 	CMD_NOP             = 0x31,
 
-	
+	/* debug commands */
 	CMD_QUERY_DEBUG_MSG = 0x2a,
 	CMD_SET_DEBUG_MSG   = 0x2b,
 };
 
+/*
+ * According to Mellanox code, FW may be starved and never complete
+ * commands.  So we can't use strict timeouts described in PRM -- we
+ * just arbitrarily select 60 seconds for now.
+ */
 #if 0
+/*
+ * Round up and add 1 to make sure we get the full wait time (since we
+ * will be starting in the middle of a jiffy)
+ */
 enum {
 	CMD_TIME_CLASS_A = (HZ + 999) / 1000 + 1,
 	CMD_TIME_CLASS_B = (HZ +  99) /  100 + 1,
@@ -239,6 +248,12 @@ static int mthca_cmd_post_hcr(struct mthca_dev *dev,
 	if (go_bit(dev))
 		return -EAGAIN;
 
+	/*
+	 * We use writel (instead of something like memcpy_toio)
+	 * because writes of less than 32 bits to the HCR don't work
+	 * (and some architectures such as ia64 implement memcpy_toio
+	 * in terms of writeb).
+	 */
 	__raw_writel((__force u32) cpu_to_be32(in_param >> 32),           dev->hcr + 0 * 4);
 	__raw_writel((__force u32) cpu_to_be32(in_param & 0xfffffffful),  dev->hcr + 1 * 4);
 	__raw_writel((__force u32) cpu_to_be32(in_modifier),              dev->hcr + 2 * 4);
@@ -246,7 +261,7 @@ static int mthca_cmd_post_hcr(struct mthca_dev *dev,
 	__raw_writel((__force u32) cpu_to_be32(out_param & 0xfffffffful), dev->hcr + 4 * 4);
 	__raw_writel((__force u32) cpu_to_be32(token << 16),              dev->hcr + 5 * 4);
 
-	
+	/* __raw_writel may not order writes. */
 	wmb();
 
 	__raw_writel((__force u32) cpu_to_be32((1 << HCR_GO_BIT)                |
@@ -277,6 +292,10 @@ static int mthca_cmd_post(struct mthca_dev *dev,
 		err = mthca_cmd_post_hcr(dev, in_param, out_param, in_modifier,
 					 op_modifier, op, token, event);
 
+	/*
+	 * Make sure that our HCR writes don't get mixed in with
+	 * writes from another CPU starting a FW command.
+	 */
 	mmiowb();
 
 	mutex_unlock(&dev->cmd.hcr_mutex);
@@ -375,7 +394,7 @@ void mthca_cmd_event(struct mthca_dev *dev,
 	struct mthca_cmd_context *context =
 		&dev->cmd.context[token & dev->cmd.token_mask];
 
-	
+	/* previously timed out command completing at long last */
 	if (token != context->token)
 		return;
 
@@ -444,6 +463,7 @@ out:
 	return err;
 }
 
+/* Invoke a command with an output mailbox */
 static int mthca_cmd_box(struct mthca_dev *dev,
 			 u64 in_param,
 			 u64 out_param,
@@ -462,6 +482,7 @@ static int mthca_cmd_box(struct mthca_dev *dev,
 				      timeout);
 }
 
+/* Invoke a command with no output parameter */
 static int mthca_cmd(struct mthca_dev *dev,
 		     u64 in_param,
 		     u32 in_modifier,
@@ -473,6 +494,11 @@ static int mthca_cmd(struct mthca_dev *dev,
 			     op_modifier, op, timeout);
 }
 
+/*
+ * Invoke a command with an immediate output parameter (and copy the
+ * output into the caller's out_param pointer after the command
+ * executes).
+ */
 static int mthca_cmd_imm(struct mthca_dev *dev,
 			 u64 in_param,
 			 u64 *out_param,
@@ -523,6 +549,10 @@ void mthca_cmd_cleanup(struct mthca_dev *dev)
 		iounmap(dev->cmd.dbell_map);
 }
 
+/*
+ * Switch to using events to issue FW commands (should be called after
+ * event queue to command events has been initialized).
+ */
 int mthca_cmd_use_events(struct mthca_dev *dev)
 {
 	int i;
@@ -547,7 +577,7 @@ int mthca_cmd_use_events(struct mthca_dev *dev)
 	for (dev->cmd.token_mask = 1;
 	     dev->cmd.token_mask < dev->cmd.max_cmds;
 	     dev->cmd.token_mask <<= 1)
-		; 
+		; /* nothing */
 	--dev->cmd.token_mask;
 
 	dev->cmd.flags |= MTHCA_CMD_USE_EVENTS;
@@ -557,6 +587,9 @@ int mthca_cmd_use_events(struct mthca_dev *dev)
 	return 0;
 }
 
+/*
+ * Switch back to polling (used when shutting down the device)
+ */
 void mthca_cmd_use_polling(struct mthca_dev *dev)
 {
 	int i;
@@ -640,6 +673,11 @@ static int mthca_map_cmd(struct mthca_dev *dev, u16 op, struct mthca_icm *icm,
 	for (mthca_icm_first(icm, &iter);
 	     !mthca_icm_last(&iter);
 	     mthca_icm_next(&iter)) {
+		/*
+		 * We have to pass pages that are aligned to their
+		 * size, so find the least significant 1 in the
+		 * address or size and use that as our log2 size.
+		 */
 		lg = ffs(mthca_icm_addr(&iter) | mthca_icm_size(&iter)) - 1;
 		if (lg < MTHCA_ICM_PAGE_SHIFT) {
 			mthca_warn(dev, "Got FW area not aligned to %d (%llx/%lx).\n",
@@ -774,6 +812,10 @@ int mthca_QUERY_FW(struct mthca_dev *dev)
 		goto out;
 
 	MTHCA_GET(dev->fw_ver,   outbox, QUERY_FW_VER_OFFSET);
+	/*
+	 * FW subminor version is at more significant bits than minor
+	 * version, so swap here.
+	 */
 	dev->fw_ver = (dev->fw_ver & 0xffff00000000ull) |
 		((dev->fw_ver & 0xffff0000ull) >> 16) |
 		((dev->fw_ver & 0x0000ffffull) << 16);
@@ -809,6 +851,10 @@ int mthca_QUERY_FW(struct mthca_dev *dev)
 		MTHCA_GET(dev->fw.arbel.eq_set_ci_base, outbox, QUERY_FW_EQ_SET_CI_BASE_OFFSET);
 		mthca_dbg(dev, "FW size %d KB\n", dev->fw.arbel.fw_pages << 2);
 
+		/*
+		 * Round up number of system pages needed in case
+		 * MTHCA_ICM_PAGE_SIZE < PAGE_SIZE.
+		 */
 		dev->fw.arbel.fw_pages =
 			ALIGN(dev->fw.arbel.fw_pages, PAGE_SIZE / MTHCA_ICM_PAGE_SIZE) >>
 				(PAGE_SHIFT - MTHCA_ICM_PAGE_SHIFT);
@@ -1206,6 +1252,11 @@ static void get_board_id(void *vsd, char *board_id)
 	    be16_to_cpup(vsd + VSD_OFFSET_SIG2) == VSD_SIGNATURE_TOPSPIN) {
 		strlcpy(board_id, vsd + VSD_OFFSET_TS_BOARD_ID, MTHCA_BOARD_ID_LEN);
 	} else {
+		/*
+		 * The board ID is a string but the firmware byte
+		 * swaps each 4-byte word before passing it back to
+		 * us.  Therefore we need to swab it before printing.
+		 */
 		for (i = 0; i < 4; ++i)
 			((u32 *) board_id)[i] =
 				swab32(*(u32 *) (vsd + VSD_OFFSET_MLX_BOARD_ID + i * 4));
@@ -1317,16 +1368,16 @@ int mthca_INIT_HCA(struct mthca_dev *dev,
 #else
 #error Host endianness not defined
 #endif
-	
+	/* Check port for UD address vector: */
 	*(inbox + INIT_HCA_FLAGS2_OFFSET / 4) |= cpu_to_be32(1);
 
-	
+	/* Enable IPoIB checksumming if we can: */
 	if (dev->device_cap_flags & IB_DEVICE_UD_IP_CSUM)
 		*(inbox + INIT_HCA_FLAGS2_OFFSET / 4) |= cpu_to_be32(7 << 3);
 
-	
+	/* We leave wqe_quota, responder_exu, etc as 0 (default) */
 
-	
+	/* QPC/EEC/CQC/EQC/RDB attributes */
 
 	MTHCA_PUT(inbox, param->qpc_base,     INIT_HCA_QPC_BASE_OFFSET);
 	MTHCA_PUT(inbox, param->log_num_qps,  INIT_HCA_LOG_QP_OFFSET);
@@ -1342,16 +1393,16 @@ int mthca_INIT_HCA(struct mthca_dev *dev,
 	MTHCA_PUT(inbox, param->log_num_eqs,  INIT_HCA_LOG_EQ_OFFSET);
 	MTHCA_PUT(inbox, param->rdb_base,     INIT_HCA_RDB_BASE_OFFSET);
 
-	
+	/* UD AV attributes */
 
-	
+	/* multicast attributes */
 
 	MTHCA_PUT(inbox, param->mc_base,         INIT_HCA_MC_BASE_OFFSET);
 	MTHCA_PUT(inbox, param->log_mc_entry_sz, INIT_HCA_LOG_MC_ENTRY_SZ_OFFSET);
 	MTHCA_PUT(inbox, param->mc_hash_sz,      INIT_HCA_MC_HASH_SZ_OFFSET);
 	MTHCA_PUT(inbox, param->log_mc_table_sz, INIT_HCA_LOG_MC_TABLE_SZ_OFFSET);
 
-	
+	/* TPT attributes */
 
 	MTHCA_PUT(inbox, param->mpt_base,   INIT_HCA_MPT_BASE_OFFSET);
 	if (!mthca_is_memfree(dev))
@@ -1359,7 +1410,7 @@ int mthca_INIT_HCA(struct mthca_dev *dev,
 	MTHCA_PUT(inbox, param->log_mpt_sz, INIT_HCA_LOG_MPT_SZ_OFFSET);
 	MTHCA_PUT(inbox, param->mtt_base,   INIT_HCA_MTT_BASE_OFFSET);
 
-	
+	/* UAR attributes */
 	{
 		u8 uar_page_sz = PAGE_SHIFT - 12;
 		MTHCA_PUT(inbox, uar_page_sz, INIT_HCA_UAR_PAGE_SZ_OFFSET);
@@ -1536,6 +1587,10 @@ int mthca_SET_ICM_SIZE(struct mthca_dev *dev, u64 icm_size, u64 *aux_pages)
 	if (ret)
 		return ret;
 
+	/*
+	 * Round up number of system pages needed in case
+	 * MTHCA_ICM_PAGE_SIZE < PAGE_SIZE.
+	 */
 	*aux_pages = ALIGN(*aux_pages, PAGE_SIZE / MTHCA_ICM_PAGE_SIZE) >>
 		(PAGE_SHIFT - MTHCA_ICM_PAGE_SHIFT);
 
@@ -1625,6 +1680,10 @@ int mthca_RESIZE_CQ(struct mthca_dev *dev, int cq_num, u32 lkey, u8 log_size)
 	inbox = mailbox->buf;
 
 	memset(inbox, 0, RESIZE_CQ_IN_SIZE);
+	/*
+	 * Leave start address fields zeroed out -- mthca assumes that
+	 * MRs for CQs always start at virtual address 0.
+	 */
 	MTHCA_PUT(inbox, log_size, RESIZE_CQ_LOG_SIZE_OFFSET);
 	MTHCA_PUT(inbox, lkey,     RESIZE_CQ_LKEY_OFFSET);
 
@@ -1712,14 +1771,14 @@ int mthca_MODIFY_QP(struct mthca_dev *dev, enum ib_qp_state cur,
 	int err;
 
 	if (op[cur][next] == CMD_ERR2RST_QPEE) {
-		op_mod = 3;	
+		op_mod = 3;	/* don't write outbox, any->reset */
 
-		
+		/* For debugging */
 		if (!mailbox) {
 			mailbox = mthca_alloc_mailbox(dev, GFP_KERNEL);
 			if (!IS_ERR(mailbox)) {
 				my_mailbox = 1;
-				op_mod     = 2;	
+				op_mod     = 2;	/* write outbox, any->reset */
 			} else
 				mailbox = NULL;
 		}
@@ -1830,6 +1889,10 @@ int mthca_MAD_IFC(struct mthca_dev *dev, int ignore_mkey, int ignore_bkey,
 
 	memcpy(inbox, in_mad, 256);
 
+	/*
+	 * Key check traps can't be generated unless we have in_wc to
+	 * tell us where to send the trap.
+	 */
 	if (ignore_mkey || !in_wc)
 		op_modifier |= 0x1;
 	if (ignore_bkey || !in_wc)

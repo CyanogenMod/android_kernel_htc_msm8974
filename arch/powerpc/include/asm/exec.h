@@ -6,4 +6,4 @@
 
 extern unsigned long arch_align_stack(unsigned long sp);
 
-#endif 
+#endif /* _ASM_POWERPC_EXEC_H */

@@ -30,7 +30,19 @@
 #include <linux/init.h>
 #include <asm/uaccess.h>
 
+/**************************************************/
+/* the actual current config file                 */
 
+/*
+ * Define kernel_config_data and kernel_config_data_size, which contains the
+ * wrapped and compressed configuration file.  The file is first compressed
+ * with gzip and then bounded by two eight byte magic numbers to allow
+ * extraction from a binary kernel image:
+ *
+ *   IKCFG_ST
+ *   <image>
+ *   IKCFG_ED
+ */
 #define MAGIC_START	"IKCFG_ST"
 #define MAGIC_END	"IKCFG_ED"
 #include "config_data.h"
@@ -61,7 +73,7 @@ static int __init ikconfig_init(void)
 {
 	struct proc_dir_entry *entry;
 
-	
+	/* create the current config file */
 	entry = proc_create("config.gz", S_IFREG | S_IRUGO, NULL,
 			    &ikconfig_file_ops);
 	if (!entry)
@@ -80,7 +92,7 @@ static void __exit ikconfig_cleanup(void)
 module_init(ikconfig_init);
 module_exit(ikconfig_cleanup);
 
-#endif 
+#endif /* CONFIG_IKCONFIG_PROC */
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Randy Dunlap");

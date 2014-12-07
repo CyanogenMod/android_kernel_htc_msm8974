@@ -6,6 +6,10 @@
 
 #ifndef __ASSEMBLY__
 
+/*
+ * This file contains the functions and defines necessary to modify and use
+ * the x86-64 page table tree.
+ */
 #include <asm/processor.h>
 #include <linux/bitops.h>
 #include <linux/threads.h>
@@ -70,6 +74,8 @@ static inline pte_t native_ptep_get_and_clear(pte_t *xp)
 #ifdef CONFIG_SMP
 	return native_make_pte(xchg(&xp->pte, 0));
 #else
+	/* native_local_ptep_get_and_clear,
+	   but duplicated because of cyclic dependency */
 	pte_t ret = *xp;
 	native_pte_clear(NULL, 0, xp);
 	return ret;
@@ -81,6 +87,8 @@ static inline pmd_t native_pmdp_get_and_clear(pmd_t *xp)
 #ifdef CONFIG_SMP
 	return native_make_pmd(xchg(&xp->pmd, 0));
 #else
+	/* native_local_pmdp_get_and_clear,
+	   but duplicated because of cyclic dependency */
 	pmd_t ret = *xp;
 	native_pmd_clear(xp);
 	return ret;
@@ -109,22 +117,34 @@ static inline void native_pgd_clear(pgd_t *pgd)
 
 extern void sync_global_pgds(unsigned long start, unsigned long end);
 
+/*
+ * Conversion functions: convert a page and protection to a page entry,
+ * and a page entry and page directory to the page they refer to.
+ */
 
+/*
+ * Level 4 access.
+ */
 static inline int pgd_large(pgd_t pgd) { return 0; }
 #define mk_kernel_pgd(address) __pgd((address) | _KERNPG_TABLE)
 
+/* PUD - Level3 access */
 
+/* PMD  - Level 2 access */
 #define pte_to_pgoff(pte) ((pte_val((pte)) & PHYSICAL_PAGE_MASK) >> PAGE_SHIFT)
 #define pgoff_to_pte(off) ((pte_t) { .pte = ((off) << PAGE_SHIFT) |	\
 					    _PAGE_FILE })
 #define PTE_FILE_MAX_BITS __PHYSICAL_MASK_SHIFT
 
+/* PTE - Level 1 access. */
 
+/* x86-64 always has all page tables mapped. */
 #define pte_offset_map(dir, address) pte_offset_kernel((dir), (address))
-#define pte_unmap(pte) ((void)(pte))
+#define pte_unmap(pte) ((void)(pte))/* NOP */
 
 #define update_mmu_cache(vma, address, ptep) do { } while (0)
 
+/* Encode and de-code a swap entry */
 #if _PAGE_BIT_FILE < _PAGE_BIT_PROTNONE
 #define SWP_TYPE_BITS (_PAGE_BIT_FILE - _PAGE_BIT_PRESENT - 1)
 #define SWP_OFFSET_SHIFT (_PAGE_BIT_PROTNONE + 1)
@@ -156,11 +176,12 @@ extern void cleanup_highmap(void);
 #define PAGE_AGP    PAGE_KERNEL_NOCACHE
 #define HAVE_PAGE_AGP 1
 
+/* fs/proc/kcore.c */
 #define	kc_vaddr_to_offset(v) ((v) & __VIRTUAL_MASK)
 #define	kc_offset_to_vaddr(o) ((o) | ~__VIRTUAL_MASK)
 
 #define __HAVE_ARCH_PTE_SAME
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_X86_PGTABLE_64_H */

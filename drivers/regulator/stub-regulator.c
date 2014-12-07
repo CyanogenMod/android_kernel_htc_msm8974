@@ -119,6 +119,7 @@ static int regulator_stub_is_enabled(struct regulator_dev *rdev)
 	return vreg_priv->enabled;
 }
 
+/* Real regulator operations. */
 static struct regulator_ops regulator_stub_ops = {
 	.enable			= regulator_stub_enable,
 	.disable		= regulator_stub_disable,
@@ -155,7 +156,7 @@ static int __devinit regulator_stub_probe(struct platform_device *pdev)
 	}
 
 	if (dev->of_node) {
-		
+		/* Use device tree. */
 		init_data = of_get_regulator_init_data(dev,
 						       dev->of_node);
 		if (!init_data) {
@@ -191,7 +192,7 @@ static int __devinit regulator_stub_probe(struct platform_device *pdev)
 		init_data->constraints.valid_modes_mask
 			= REGULATOR_MODE_NORMAL | REGULATOR_MODE_IDLE;
 	} else {
-		
+		/* Use platform data. */
 		vreg_pdata = dev->platform_data;
 		if (!vreg_pdata) {
 			dev_err(dev, "%s: no platform data\n", __func__);
@@ -212,6 +213,11 @@ static int __devinit regulator_stub_probe(struct platform_device *pdev)
 	rdesc->name = vreg_priv->name;
 	rdesc->ops = &regulator_stub_ops;
 
+	/*
+	 * Ensure that voltage set points are handled correctly for regulators
+	 * which have a specified voltage constraint range, as well as those
+	 * that do not.
+	 */
 	if (init_data->constraints.min_uV == 0 &&
 	    init_data->constraints.max_uV == 0)
 		rdesc->n_voltages = 0;

@@ -22,6 +22,9 @@ struct kirkwood_asoc_platform_data;
 #define KW_PCIE0	(1 << 0)
 #define KW_PCIE1	(1 << 1)
 
+/*
+ * Basic Kirkwood init functions used early by machine-setup.
+ */
 void kirkwood_map_io(void);
 void kirkwood_init(void);
 void kirkwood_init_early(void);
@@ -48,12 +51,14 @@ void kirkwood_nand_init_rnb(struct mtd_partition *parts, int nr_parts, int (*dev
 void kirkwood_audio_init(void);
 void kirkwood_restart(char, const char *);
 
+/* board init functions for boards not fully converted to fdt */
 #ifdef CONFIG_MACH_DREAMPLUG_DT
 void dreamplug_init(void);
 #else
 static inline void dreamplug_init(void) {};
 #endif
 
+/* early init functions not converted to fdt yet */
 char *kirkwood_id(void);
 void kirkwood_l2_init(void);
 void kirkwood_wdt_init(void);

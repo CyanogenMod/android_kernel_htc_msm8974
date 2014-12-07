@@ -20,6 +20,7 @@
 static void yaffs_handle_rd_data_error(struct yaffs_dev *dev, int nand_chunk);
 
 
+/********** Tags ECC calculations  *********/
 
 void yaffs_calc_ecc(const u8 * data, struct yaffs_spare *spare)
 {
@@ -29,7 +30,7 @@ void yaffs_calc_ecc(const u8 * data, struct yaffs_spare *spare)
 
 void yaffs_calc_tags_ecc(struct yaffs_tags *tags)
 {
-	
+	/* Calculate an ecc */
 
 	unsigned char *b = ((union yaffs_tags_union *)tags)->as_bytes;
 	unsigned i, j;
@@ -59,26 +60,27 @@ int yaffs_check_tags_ecc(struct yaffs_tags *tags)
 	ecc ^= tags->ecc;
 
 	if (ecc && ecc <= 64) {
-		
+		/* TODO: Handle the failure better. Retire? */
 		unsigned char *b = ((union yaffs_tags_union *)tags)->as_bytes;
 
 		ecc--;
 
 		b[ecc / 8] ^= (1 << (ecc & 7));
 
-		
+		/* Now recvalc the ecc */
 		yaffs_calc_tags_ecc(tags);
 
-		return 1;	
+		return 1;	/* recovered error */
 	} else if (ecc) {
-		
-		
-		return -1;	
+		/* Wierd ecc failure value */
+		/* TODO Need to do somethiong here */
+		return -1;	/* unrecovered error */
 	}
 
 	return 0;
 }
 
+/********** Tags **********/
 
 static void yaffs_load_tags_to_spare(struct yaffs_spare *spare_ptr,
 				     struct yaffs_tags *tags_ptr)
@@ -150,8 +152,8 @@ static int yaffs_rd_chunk_nand(struct yaffs_dev *dev,
 	struct yaffs_spare local_spare;
 
 	if (!spare && data) {
-		
-		
+		/* If we don't have a real spare, then we use a local one. */
+		/* Need this for the calculation of the ecc */
 		spare = &local_spare;
 	}
 
@@ -159,8 +161,8 @@ static int yaffs_rd_chunk_nand(struct yaffs_dev *dev,
 		ret_val =
 		    dev->param.read_chunk_fn(dev, nand_chunk, data, spare);
 		if (data && correct_errors) {
-			
-			
+			/* Do ECC correction */
+			/* Todo handle any errors */
 			int ecc_result1, ecc_result2;
 			u8 calc_ecc[3];
 
@@ -197,7 +199,7 @@ static int yaffs_rd_chunk_nand(struct yaffs_dev *dev,
 			}
 
 			if (ecc_result1 || ecc_result2) {
-				
+				/* We had a data problem on this page */
 				yaffs_handle_rd_data_error(dev, nand_chunk);
 			}
 
@@ -209,8 +211,8 @@ static int yaffs_rd_chunk_nand(struct yaffs_dev *dev,
 				*ecc_result = YAFFS_ECC_RESULT_NO_ERROR;
 		}
 	} else {
-		
-		
+		/* Must allocate enough memory for spare+2*sizeof(int) */
+		/* for ecc results from device. */
 		struct yaffs_nand_spare nspare;
 
 		memset(&nspare, 0, sizeof(nspare));
@@ -241,7 +243,7 @@ static int yaffs_rd_chunk_nand(struct yaffs_dev *dev,
 			}
 
 			if (nspare.eccres1 || nspare.eccres2) {
-				
+				/* We had a data problem on this page */
 				yaffs_handle_rd_data_error(dev, nand_chunk);
 			}
 
@@ -257,12 +259,15 @@ static int yaffs_rd_chunk_nand(struct yaffs_dev *dev,
 	return ret_val;
 }
 
+/*
+ * Functions for robustisizing
+ */
 
 static void yaffs_handle_rd_data_error(struct yaffs_dev *dev, int nand_chunk)
 {
 	int flash_block = nand_chunk / dev->param.chunks_per_block;
 
-	
+	/* Mark the block for retirement */
 	yaffs_get_block_info(dev,
 			     flash_block + dev->block_offset)->needs_retiring =
 	    1;
@@ -270,6 +275,11 @@ static void yaffs_handle_rd_data_error(struct yaffs_dev *dev, int nand_chunk)
 		"**>>Block %d marked for retirement",
 		flash_block);
 
+	/* TODO:
+	 * Just do a garbage collection on the affected block
+	 * then retire the block
+	 * NB recursion
+	 */
 }
 
 int yaffs_tags_compat_wr(struct yaffs_dev *dev,
@@ -324,7 +334,7 @@ int yaffs_tags_compat_rd(struct yaffs_dev *dev,
 	}
 
 	if (yaffs_rd_chunk_nand(dev, nand_chunk, data, &spare, &ecc_result, 1)) {
-		
+		/* ext_tags may be NULL */
 		if (ext_tags) {
 
 			int deleted =
@@ -332,8 +342,8 @@ int yaffs_tags_compat_rd(struct yaffs_dev *dev,
 
 			ext_tags->is_deleted = deleted;
 			ext_tags->ecc_result = ecc_result;
-			ext_tags->block_bad = 0;	
-			
+			ext_tags->block_bad = 0;	/* We're reading it */
+			/* therefore it is not a bad block */
 			ext_tags->chunk_used =
 			    (memcmp(&spare_ff, &spare, sizeof(spare_ff)) !=
 			     0) ? 1 : 0;

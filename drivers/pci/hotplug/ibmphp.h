@@ -46,7 +46,11 @@ extern int ibmphp_debug;
 #define warn(format, arg...) printk(KERN_WARNING "%s: " format , MY_NAME , ## arg)
 
 
+/* EBDA stuff */
 
+/***********************************************************
+* SLOT CAPABILITY                                          *
+***********************************************************/
 
 #define EBDA_SLOT_133_MAX		0x20
 #define EBDA_SLOT_100_MAX		0x10
@@ -54,6 +58,9 @@ extern int ibmphp_debug;
 #define EBDA_SLOT_PCIX_CAP		0x08
 
 
+/************************************************************
+*  RESOURE TYPE                                             *
+************************************************************/
 
 #define EBDA_RSRC_TYPE_MASK		0x03
 #define EBDA_IO_RSRC_TYPE		0x00
@@ -62,6 +69,9 @@ extern int ibmphp_debug;
 #define EBDA_RES_RSRC_TYPE		0x02
 
 
+/*************************************************************
+*  IO RESTRICTION TYPE                                       *
+*************************************************************/
 
 #define EBDA_IO_RESTRI_MASK		0x0c
 #define EBDA_NO_RESTRI			0x00
@@ -70,18 +80,27 @@ extern int ibmphp_debug;
 #define EBDA_AVO_ISA_ADDR		0x0c
 
 
+/**************************************************************
+*  DEVICE TYPE DEF                                            *
+**************************************************************/
 
 #define EBDA_DEV_TYPE_MASK		0x10
 #define EBDA_PCI_DEV			0x10
 #define EBDA_NON_PCI_DEV		0x00
 
 
+/***************************************************************
+*  PRIMARY DEF DEFINITION                                      *
+***************************************************************/
 
 #define EBDA_PRI_DEF_MASK		0x20
 #define EBDA_PRI_PCI_BUS_INFO		0x20
 #define EBDA_NORM_DEV_RSRC_INFO		0x00
 
 
+//--------------------------------------------------------------
+// RIO TABLE DATA STRUCTURE
+//--------------------------------------------------------------
 
 struct rio_table_hdr {
 	u8 ver_num; 
@@ -90,6 +109,9 @@ struct rio_table_hdr {
 	u16 offset;
 };
 
+//-------------------------------------------------------------
+// SCALABILITY DETAIL
+//-------------------------------------------------------------
 
 struct scal_detail {
 	u8 node_id;
@@ -101,8 +123,12 @@ struct scal_detail {
 	u8 port2_node_connect;
 	u8 port2_port_connect;
 	u8 chassis_num;
+//	struct list_head scal_detail_list;
 };
 
+//--------------------------------------------------------------
+// RIO DETAIL 
+//--------------------------------------------------------------
 
 struct rio_detail {
 	u8 rio_node_id;
@@ -137,12 +163,20 @@ struct opt_rio_lo {
 	struct list_head opt_rio_lo_list;
 };	
 
+/****************************************************************
+*  HPC DESCRIPTOR NODE                                          *
+****************************************************************/
 
 struct ebda_hpc_list {
 	u8 format;
 	u16 num_ctlrs;
 	short phys_addr;
+//      struct list_head ebda_hpc_list;
 };
+/*****************************************************************
+*   IN HPC DATA STRUCTURE, THE ASSOCIATED SLOT AND BUS           *
+*   STRUCTURE                                                    *
+*****************************************************************/
 
 struct ebda_hpc_slot {
 	u8 slot_num;
@@ -161,6 +195,9 @@ struct ebda_hpc_bus {
 };
 
 
+/********************************************************************
+*   THREE TYPE OF HOT PLUG CONTROLLER                                *
+********************************************************************/
 
 struct isa_ctlr_access {
 	u16 io_start;
@@ -180,6 +217,9 @@ struct wpeg_i2c_ctlr_access {
 #define HPC_DEVICE_ID		0x0246
 #define HPC_SUBSYSTEM_ID	0x0247
 #define HPC_PCI_OFFSET		0x40
+/*************************************************************************
+*   RSTC DESCRIPTOR NODE                                                 *
+*************************************************************************/
 
 struct ebda_rsrc_list {
 	u8 format;
@@ -189,6 +229,9 @@ struct ebda_rsrc_list {
 };
 
 
+/***************************************************************************
+*   PCI RSRC NODE                                                          *
+***************************************************************************/
 
 struct ebda_pci_rsrc {
 	u8 rsrc_type;
@@ -196,11 +239,14 @@ struct ebda_pci_rsrc {
 	u8 dev_fun;
 	u32 start_addr;
 	u32 end_addr;
-	u8 marked;	
+	u8 marked;	/* for NVRAM */
 	struct list_head ebda_pci_rsrc_list;
 };
 
 
+/***********************************************************
+* BUS_INFO DATE STRUCTURE                                  *
+***********************************************************/
 
 struct bus_info {
 	u8 slot_min;
@@ -220,8 +266,14 @@ struct bus_info {
 };
 
 
+/***********************************************************
+* GLOBAL VARIABLES                                         *
+***********************************************************/
 extern struct list_head ibmphp_ebda_pci_rsrc_head;
 extern struct list_head ibmphp_slot_head;
+/***********************************************************
+* FUNCTION PROTOTYPES                                      *
+***********************************************************/
 
 extern void ibmphp_free_ebda_hpc_queue (void);
 extern int ibmphp_access_ebda (void);
@@ -235,35 +287,51 @@ extern int ibmphp_get_bus_index (u8);
 extern u16 ibmphp_get_total_controllers (void);
 extern int ibmphp_register_pci (void);
 
+/* passed parameters */
 #define MEM		0
 #define IO		1
 #define PFMEM		2
 
+/* bit masks */
 #define RESTYPE		0x03
-#define IOMASK		0x00	
+#define IOMASK		0x00	/* will need to take its complement */
 #define MMASK		0x01
 #define PFMASK		0x03
-#define PCIDEVMASK	0x10	
+#define PCIDEVMASK	0x10	/* we should always have PCI devices */
 #define PRIMARYBUSMASK	0x20
 
+/* pci specific defines */
 #define PCI_VENDOR_ID_NOTVALID		0xFFFF
 #define PCI_HEADER_TYPE_MULTIDEVICE	0x80
 #define PCI_HEADER_TYPE_MULTIBRIDGE	0x81
 
 #define LATENCY		0x64
 #define CACHE		64
-#define DEVICEENABLE	0x015F		
+#define DEVICEENABLE	0x015F		/* CPQ has 0x0157 */
 
-#define IOBRIDGE	0x1000		
-#define MEMBRIDGE	0x100000	
+#define IOBRIDGE	0x1000		/* 4k */
+#define MEMBRIDGE	0x100000	/* 1M */
 
+/* irqs */
 #define SCSI_IRQ	0x09
 #define LAN_IRQ		0x0A
 #define OTHER_IRQ	0x0B
 
+/* Data Structures */
+
+/* type is of the form x x xx xx
+ *                     | |  |  |_ 00 - I/O, 01 - Memory, 11 - PFMemory
+ *                     | |  - 00 - No Restrictions, 01 - Avoid VGA, 10 - Avoid
+ *                     | |    VGA and their aliases, 11 - Avoid ISA
+ *                     | - 1 - PCI device, 0 - non pci device
+ *                     - 1 - Primary PCI Bus Information (0 if Normal device)
+ * the IO restrictions [2:3] are only for primary buses
+ */
 
 
-
+/* we need this struct because there could be several resource blocks
+ * allocated per primary bus in the EBDA
+ */
 struct range_node {
 	int rangeno;
 	u32 start;
@@ -282,10 +350,10 @@ struct bus_node {
 	int needIOUpdate;
 	int needMemUpdate;
 	int needPFMemUpdate;
-	struct resource_node *firstIO;	
-	struct resource_node *firstMem;	
-	struct resource_node *firstPFMem;	
-	struct resource_node *firstPFMemFromMem;	
+	struct resource_node *firstIO;	/* first IO resource on the Bus */
+	struct resource_node *firstMem;	/* first memory resource on the Bus */
+	struct resource_node *firstPFMem;	/* first prefetchable memory resource on the Bus */
+	struct resource_node *firstPFMemFromMem;	/* when run out of pfmem available, taking from Mem */
 	struct list_head bus_list;
 };
 
@@ -296,20 +364,22 @@ struct resource_node {
 	u32 start;
 	u32 end;
 	u32 len;
-	int type;		
-	u8 fromMem;		
+	int type;		/* MEM, IO, PFMEM */
+	u8 fromMem;		/* this is to indicate that the range is from
+				 * from the Memory bucket rather than from PFMem */
 	struct resource_node *next;
-	struct resource_node *nextRange;	
+	struct resource_node *nextRange;	/* for the other mem range on bus */
 };
 
 struct res_needed {
 	u32 mem;
 	u32 pfmem;
 	u32 io;
-	u8 not_correct;		
-	int devices[32];	
+	u8 not_correct;		/* needed for return */
+	int devices[32];	/* for device numbers behind this bridge */
 };
 
+/* functions */
 
 extern int ibmphp_rsrc_init (void);
 extern int ibmphp_add_resource (struct resource_node *);
@@ -320,7 +390,7 @@ extern int ibmphp_remove_bus (struct bus_node *, u8);
 extern void ibmphp_free_resources (void);
 extern int ibmphp_add_pfmem_from_mem (struct resource_node *);
 extern struct bus_node *ibmphp_find_res_bus (u8);
-extern void ibmphp_print_test (void);	
+extern void ibmphp_print_test (void);	/* for debugging purposes */
 
 extern void ibmphp_hpc_initvars (void);
 extern int ibmphp_hpc_readslot (struct slot *, u8, u8 *);
@@ -330,10 +400,17 @@ extern void ibmphp_unlock_operations (void);
 extern int ibmphp_hpc_start_poll_thread (void);
 extern void ibmphp_hpc_stop_poll_thread (void);
 
+//----------------------------------------------------------------------------
 
 
+//----------------------------------------------------------------------------
+// HPC return codes
+//----------------------------------------------------------------------------
 #define HPC_ERROR			0xFF
 
+//-----------------------------------------------------------------------------
+// BUS INFO
+//-----------------------------------------------------------------------------
 #define BUS_SPEED			0x30
 #define BUS_MODE			0x40
 #define BUS_MODE_PCIX			0x01
@@ -353,24 +430,33 @@ extern void ibmphp_hpc_stop_poll_thread (void);
 #define PRGM_MODEL_REV_LEVEL		0xF0
 #define MAX_ADAPTER_NONE		0x09
 
-#define HPC_CTLR_ENABLEIRQ	0x00	
-#define HPC_CTLR_DISABLEIRQ	0x01	
-#define HPC_SLOT_OFF		0x02	
-#define HPC_SLOT_ON		0x03	
-#define HPC_SLOT_ATTNOFF	0x04	
-#define HPC_SLOT_ATTNON		0x05	
-#define HPC_CTLR_CLEARIRQ	0x06	
-#define HPC_CTLR_RESET		0x07	
-#define HPC_CTLR_IRQSTEER	0x08	
-#define HPC_BUS_33CONVMODE	0x09	
-#define HPC_BUS_66CONVMODE	0x0A	
-#define HPC_BUS_66PCIXMODE	0x0B	
-#define HPC_BUS_100PCIXMODE	0x0C	
-#define HPC_BUS_133PCIXMODE	0x0D	
-#define HPC_ALLSLOT_OFF		0x11	
-#define HPC_ALLSLOT_ON		0x12	
-#define HPC_SLOT_BLINKLED	0x13	
+//----------------------------------------------------------------------------
+// HPC 'write' operations/commands
+//----------------------------------------------------------------------------
+//	Command			Code	State	Write to reg
+//					Machine	at index
+//-------------------------	----	-------	------------
+#define HPC_CTLR_ENABLEIRQ	0x00	// N	15
+#define HPC_CTLR_DISABLEIRQ	0x01	// N	15
+#define HPC_SLOT_OFF		0x02	// Y	0-14
+#define HPC_SLOT_ON		0x03	// Y	0-14
+#define HPC_SLOT_ATTNOFF	0x04	// N	0-14
+#define HPC_SLOT_ATTNON		0x05	// N	0-14
+#define HPC_CTLR_CLEARIRQ	0x06	// N	15
+#define HPC_CTLR_RESET		0x07	// Y	15
+#define HPC_CTLR_IRQSTEER	0x08	// N	15
+#define HPC_BUS_33CONVMODE	0x09	// Y	31-34
+#define HPC_BUS_66CONVMODE	0x0A	// Y	31-34
+#define HPC_BUS_66PCIXMODE	0x0B	// Y	31-34
+#define HPC_BUS_100PCIXMODE	0x0C	// Y	31-34
+#define HPC_BUS_133PCIXMODE	0x0D	// Y	31-34
+#define HPC_ALLSLOT_OFF		0x11	// Y	15
+#define HPC_ALLSLOT_ON		0x12	// Y	15
+#define HPC_SLOT_BLINKLED	0x13	// N	0-14
 
+//----------------------------------------------------------------------------
+// read commands
+//----------------------------------------------------------------------------
 #define READ_SLOTSTATUS		0x01
 #define READ_EXTSLOTSTATUS	0x02
 #define READ_BUSSTATUS		0x03
@@ -380,6 +466,9 @@ extern void ibmphp_hpc_stop_poll_thread (void);
 #define READ_SLOTLATCHLOWREG	0x07
 #define READ_REVLEVEL		0x08
 #define READ_HPCOPTIONS		0x09
+//----------------------------------------------------------------------------
+// slot status
+//----------------------------------------------------------------------------
 #define HPC_SLOT_POWER		0x01
 #define HPC_SLOT_CONNECT	0x02
 #define HPC_SLOT_ATTN		0x04
@@ -389,31 +478,55 @@ extern void ibmphp_hpc_stop_poll_thread (void);
 #define HPC_SLOT_BUS_SPEED	0x40
 #define HPC_SLOT_LATCH		0x80
 
+//----------------------------------------------------------------------------
+// HPC_SLOT_POWER status return codes
+//----------------------------------------------------------------------------
 #define HPC_SLOT_POWER_OFF	0x00
 #define HPC_SLOT_POWER_ON	0x01
 
+//----------------------------------------------------------------------------
+// HPC_SLOT_CONNECT status return codes
+//----------------------------------------------------------------------------
 #define HPC_SLOT_CONNECTED	0x00
 #define HPC_SLOT_DISCONNECTED	0x01
 
+//----------------------------------------------------------------------------
+// HPC_SLOT_ATTN status return codes
+//----------------------------------------------------------------------------
 #define HPC_SLOT_ATTN_OFF	0x00
 #define HPC_SLOT_ATTN_ON	0x01
 #define HPC_SLOT_ATTN_BLINK	0x02
 
+//----------------------------------------------------------------------------
+// HPC_SLOT_PRSNT status return codes
+//----------------------------------------------------------------------------
 #define HPC_SLOT_EMPTY		0x00
 #define HPC_SLOT_PRSNT_7	0x01
 #define HPC_SLOT_PRSNT_15	0x02
 #define HPC_SLOT_PRSNT_25	0x03
 
+//----------------------------------------------------------------------------
+// HPC_SLOT_PWRGD status return codes
+//----------------------------------------------------------------------------
 #define HPC_SLOT_PWRGD_FAULT_NONE	0x00
 #define HPC_SLOT_PWRGD_GOOD		0x01
 
+//----------------------------------------------------------------------------
+// HPC_SLOT_BUS_SPEED status return codes
+//----------------------------------------------------------------------------
 #define HPC_SLOT_BUS_SPEED_OK	0x00
 #define HPC_SLOT_BUS_SPEED_MISM	0x01
 
-#define HPC_SLOT_LATCH_OPEN	0x01	
-#define HPC_SLOT_LATCH_CLOSED	0x00	
+//----------------------------------------------------------------------------
+// HPC_SLOT_LATCH status return codes
+//----------------------------------------------------------------------------
+#define HPC_SLOT_LATCH_OPEN	0x01	// NOTE : in PCI spec bit off = open
+#define HPC_SLOT_LATCH_CLOSED	0x00	// NOTE : in PCI spec bit on  = closed
 
 
+//----------------------------------------------------------------------------
+// extended slot status
+//----------------------------------------------------------------------------
 #define HPC_SLOT_PCIX		0x01
 #define HPC_SLOT_SPEED1		0x02
 #define HPC_SLOT_SPEED2		0x04
@@ -423,19 +536,34 @@ extern void ibmphp_hpc_stop_poll_thread (void);
 #define HPC_SLOT_BUS_MODE	0x40
 #define HPC_SLOT_RSRVD3		0x80
 
+//----------------------------------------------------------------------------
+// HPC_XSLOT_PCIX_CAP status return codes
+//----------------------------------------------------------------------------
 #define HPC_SLOT_PCIX_NO	0x00
 #define HPC_SLOT_PCIX_YES	0x01
 
+//----------------------------------------------------------------------------
+// HPC_XSLOT_SPEED status return codes
+//----------------------------------------------------------------------------
 #define HPC_SLOT_SPEED_33	0x00
 #define HPC_SLOT_SPEED_66	0x01
 #define HPC_SLOT_SPEED_133	0x02
 
+//----------------------------------------------------------------------------
+// HPC_XSLOT_ATTN_BLINK status return codes
+//----------------------------------------------------------------------------
 #define HPC_SLOT_ATTN_BLINK_OFF	0x00
 #define HPC_SLOT_ATTN_BLINK_ON	0x01
 
+//----------------------------------------------------------------------------
+// HPC_XSLOT_BUS_MODE status return codes
+//----------------------------------------------------------------------------
 #define HPC_SLOT_BUS_MODE_OK	0x00
 #define HPC_SLOT_BUS_MODE_MISM	0x01
 
+//----------------------------------------------------------------------------
+// Controller status
+//----------------------------------------------------------------------------
 #define HPC_CTLR_WORKING	0x01
 #define HPC_CTLR_FINISHED	0x02
 #define HPC_CTLR_RESULT0	0x04
@@ -445,18 +573,30 @@ extern void ibmphp_hpc_stop_poll_thread (void);
 #define HPC_CTLR_IRQ_ROUTG	0x40
 #define HPC_CTLR_IRQ_PENDG	0x80
 
+//----------------------------------------------------------------------------
+// HPC_CTLR_WROKING status return codes
+//----------------------------------------------------------------------------
 #define HPC_CTLR_WORKING_NO	0x00
 #define HPC_CTLR_WORKING_YES	0x01
 
+//----------------------------------------------------------------------------
+// HPC_CTLR_FINISHED status return codes
+//----------------------------------------------------------------------------
 #define HPC_CTLR_FINISHED_NO	0x00
 #define HPC_CTLR_FINISHED_YES	0x01
 
+//----------------------------------------------------------------------------
+// HPC_CTLR_RESULT status return codes
+//----------------------------------------------------------------------------
 #define HPC_CTLR_RESULT_SUCCESS	0x00
 #define HPC_CTLR_RESULT_FAILED	0x01
 #define HPC_CTLR_RESULT_RSVD	0x02
 #define HPC_CTLR_RESULT_NORESP	0x03
 
 
+//----------------------------------------------------------------------------
+// macro for slot info
+//----------------------------------------------------------------------------
 #define SLOT_POWER(s)	((u8) ((s & HPC_SLOT_POWER) \
 	? HPC_SLOT_POWER_ON : HPC_SLOT_POWER_OFF))
 
@@ -491,6 +631,9 @@ extern void ibmphp_hpc_stop_poll_thread (void);
 #define SLOT_BUS_MODE(es)	((u8) ((es & HPC_SLOT_BUS_MODE) \
 	? HPC_SLOT_BUS_MODE_MISM : HPC_SLOT_BUS_MODE_OK))
 
+//--------------------------------------------------------------------------
+// macro for bus info
+//---------------------------------------------------------------------------
 #define CURRENT_BUS_SPEED(s)	((u8) (s & BUS_SPEED_2) \
 	? ((s & BUS_SPEED_1) ? BUS_SPEED_133 : BUS_SPEED_100) \
 	: ((s & BUS_SPEED_1) ? BUS_SPEED_66 : BUS_SPEED_33))
@@ -505,6 +648,9 @@ extern void ibmphp_hpc_stop_poll_thread (void);
 
 #define READ_SLOT_LATCH(s)	((u8) (s->options & SLOT_LATCH_REGS_SUPPORTED))
 
+//----------------------------------------------------------------------------
+// macro for controller info
+//----------------------------------------------------------------------------
 #define CTLR_WORKING(c) ((u8) ((c & HPC_CTLR_WORKING) \
 	? HPC_CTLR_WORKING_YES : HPC_CTLR_WORKING_NO))
 #define CTLR_FINISHED(c) ((u8) ((c & HPC_CTLR_FINISHED) \
@@ -515,6 +661,7 @@ extern void ibmphp_hpc_stop_poll_thread (void);
 	: ((c & HPC_CTLR_RESULT0) ? HPC_CTLR_RESULT_FAILED \
 				: HPC_CTLR_RESULT_SUCCESS)))
 
+// command that affect the state machine of HPC
 #define NEEDTOCHECK_CMDSTATUS(c) ((c == HPC_SLOT_OFF)        || \
 				  (c == HPC_SLOT_ON)         || \
 				  (c == HPC_CTLR_RESET)      || \
@@ -527,6 +674,7 @@ extern void ibmphp_hpc_stop_poll_thread (void);
 				  (c == HPC_ALLSLOT_ON))
 
 
+/* Core part of the driver */
 
 #define ENABLE		1
 #define DISABLE		0
@@ -538,9 +686,10 @@ extern void ibmphp_hpc_stop_poll_thread (void);
 
 extern struct pci_bus *ibmphp_pci_bus;
 
+/* Variables */
 
 struct pci_func {
-	struct pci_dev *dev;	
+	struct pci_dev *dev;	/* from the OS */
 	u8 busno;
 	u8 device;
 	u8 function;
@@ -548,9 +697,9 @@ struct pci_func {
 	struct resource_node *mem[6];
 	struct resource_node *pfmem[6];
 	struct pci_func *next;
-	int devices[32];	
-	u8 irq[4];		
-	u8 bus;			
+	int devices[32];	/* for bridge config */
+	u8 irq[4];		/* for interrupt config */
+	u8 bus;			/* flag for unconfiguring, to say if PPB */
 };
 
 struct slot {
@@ -561,13 +710,13 @@ struct slot {
 	u32 capabilities;
 	u8 supported_speed;
 	u8 supported_bus_mode;
-	u8 flag;		
+	u8 flag;		/* this is for disable slot and polling */
 	u8 ctlr_index;
 	struct hotplug_slot *hotplug_slot;
 	struct controller *ctrl;
 	struct pci_func *func;
 	u8 irq[4];
-	int bit_mode;		
+	int bit_mode;		/* 0 = 32, 1 = 64 */
 	struct bus_info *bus_on;
 	struct list_head ibm_slot_list;
 	u8 status;
@@ -578,11 +727,11 @@ struct slot {
 struct controller {
 	struct ebda_hpc_slot *slots;
 	struct ebda_hpc_bus *buses;
-	struct pci_dev *ctrl_dev; 
-	u8 starting_slot_num;	
+	struct pci_dev *ctrl_dev; /* in case where controller is PCI */
+	u8 starting_slot_num;	/* starting and ending slot #'s this ctrl controls*/
 	u8 ending_slot_num;
 	u8 revision;
-	u8 options;		
+	u8 options;		/* which options HPC supports */
 	u8 status;
 	u8 ctlr_id;
 	u8 slot_count;
@@ -598,13 +747,14 @@ struct controller {
 	struct list_head ebda_hpc_list;
 };
 
+/* Functions */
 
-extern int ibmphp_init_devno (struct slot **);	
+extern int ibmphp_init_devno (struct slot **);	/* This function is called from EBDA, so we need it not be static */
 extern int ibmphp_do_disable_slot (struct slot *slot_cur);
-extern int ibmphp_update_slot_info (struct slot *);	
+extern int ibmphp_update_slot_info (struct slot *);	/* This function is called from HPC, so we need it to not be be static */
 extern int ibmphp_configure_card (struct pci_func *, u8);
 extern int ibmphp_unconfigure_card (struct slot **, int);
 extern struct hotplug_slot_ops ibmphp_hotplug_slot_ops;
 
-#endif				
+#endif				//__IBMPHP_H
 

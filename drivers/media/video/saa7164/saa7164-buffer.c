@@ -23,6 +23,48 @@
 
 #include "saa7164.h"
 
+/* The PCI address space for buffer handling looks like this:
+ *
+ * +-u32 wide-------------+
+ * |                      +
+ * +-u64 wide------------------------------------+
+ * +                                             +
+ * +----------------------+
+ * | CurrentBufferPtr     + Pointer to current PCI buffer >-+
+ * +----------------------+                                 |
+ * | Unused               +                                 |
+ * +----------------------+                                 |
+ * | Pitch                + = 188 (bytes)                   |
+ * +----------------------+                                 |
+ * | PCI buffer size      + = pitch * number of lines (312) |
+ * +----------------------+                                 |
+ * |0| Buf0 Write Offset  +                                 |
+ * +----------------------+                                 v
+ * |1| Buf1 Write Offset  +                                 |
+ * +----------------------+                                 |
+ * |2| Buf2 Write Offset  +                                 |
+ * +----------------------+                                 |
+ * |3| Buf3 Write Offset  +                                 |
+ * +----------------------+                                 |
+ * ... More write offsets                                   |
+ * +---------------------------------------------+          |
+ * +0| set of ptrs to PCI pagetables             +          |
+ * +---------------------------------------------+          |
+ * +1| set of ptrs to PCI pagetables             + <--------+
+ * +---------------------------------------------+
+ * +2| set of ptrs to PCI pagetables             +
+ * +---------------------------------------------+
+ * +3| set of ptrs to PCI pagetables             + >--+
+ * +---------------------------------------------+    |
+ * ... More buffer pointers                           |  +----------------+
+ *						    +->| pt[0] TS data  |
+ *						    |  +----------------+
+ *						    |
+ *						    |  +----------------+
+ *						    +->| pt[1] TS data  |
+ *						    |  +----------------+
+ *						    | etc
+ */
 
 void saa7164_buffer_display(struct saa7164_buffer *buf)
 {
@@ -36,7 +78,7 @@ void saa7164_buffer_display(struct saa7164_buffer *buf)
 	dprintk(DBGLVL_BUF, "   pt_cpu @ 0x%p pt_dma @ 0x%08llx len = 0x%x\n",
 		buf->pt_cpu, (long long)buf->pt_dma, buf->pt_size);
 
-	
+	/* Format the Page Table Entries to point into the data buffer */
 	for (i = 0 ; i < SAA7164_PT_ENTRIES; i++) {
 
 		dprintk(DBGLVL_BUF, "    pt[%02d] = 0x%p -> 0x%llx\n",
@@ -44,6 +86,9 @@ void saa7164_buffer_display(struct saa7164_buffer *buf)
 
 	}
 }
+/* Allocate a new buffer structure and associated PCI space in bytes.
+ * len must be a multiple of sizeof(u64)
+ */
 struct saa7164_buffer *saa7164_buffer_alloc(struct saa7164_port *port,
 	u32 len)
 {
@@ -69,11 +114,11 @@ struct saa7164_buffer *saa7164_buffer_alloc(struct saa7164_port *port,
 	buf->pos = 0;
 	buf->actual_size = params->pitch * params->numberoflines;
 	buf->crc = 0;
-	
+	/* TODO: arg len is being ignored */
 	buf->pci_size = SAA7164_PT_ENTRIES * 0x1000;
 	buf->pt_size = (SAA7164_PT_ENTRIES * sizeof(u64)) + 0x1000;
 
-	
+	/* Allocate contiguous memory */
 	buf->cpu = pci_alloc_consistent(port->dev->pci, buf->pci_size,
 		&buf->dma);
 	if (!buf->cpu)
@@ -84,7 +129,7 @@ struct saa7164_buffer *saa7164_buffer_alloc(struct saa7164_port *port,
 	if (!buf->pt_cpu)
 		goto fail2;
 
-	
+	/* init the buffers to a known pattern, easier during debugging */
 	memset_io(buf->cpu, 0xff, buf->pci_size);
 	buf->crc = crc32(0, buf->cpu, buf->actual_size);
 	memset_io(buf->pt_cpu, 0xff, buf->pt_size);
@@ -96,10 +141,10 @@ struct saa7164_buffer *saa7164_buffer_alloc(struct saa7164_port *port,
 	dprintk(DBGLVL_BUF, "   pt_cpu @ 0x%p pt_dma @ 0x%08lx len = 0x%x\n",
 		buf->pt_cpu, (long)buf->pt_dma, buf->pt_size);
 
-	
+	/* Format the Page Table Entries to point into the data buffer */
 	for (i = 0 ; i < params->numpagetables; i++) {
 
-		*(buf->pt_cpu + i) = buf->dma + (i * 0x1000); 
+		*(buf->pt_cpu + i) = buf->dma + (i * 0x1000); /* TODO */
 		dprintk(DBGLVL_BUF, "    pt[%02d] = 0x%p -> 0x%llx\n",
 			i, buf->pt_cpu, (u64)*(buf->pt_cpu));
 
@@ -153,6 +198,7 @@ int saa7164_buffer_zero_offsets(struct saa7164_port *port, int i)
 	return 0;
 }
 
+/* Write a buffer into the hardware */
 int saa7164_buffer_activate(struct saa7164_buffer *buf, int i)
 {
 	struct saa7164_port *port = buf->port;
@@ -163,11 +209,11 @@ int saa7164_buffer_activate(struct saa7164_buffer *buf, int i)
 
 	dprintk(DBGLVL_BUF, "%s(idx = %d)\n", __func__, i);
 
-	buf->idx = i; 
+	buf->idx = i; /* Note of which buffer list index position we occupy */
 	buf->flags = SAA7164_BUFFER_BUSY;
 	buf->pos = 0;
 
-	
+	/* TODO: Review this in light of 32v64 assignments */
 	saa7164_writel(port->bufoffset + (sizeof(u32) * i), 0);
 	saa7164_writel(port->bufptr32h + ((sizeof(u32) * 2) * i), buf->pt_dma);
 	saa7164_writel(port->bufptr32l + ((sizeof(u32) * 2) * i), 0);
@@ -216,7 +262,7 @@ int saa7164_buffer_cfg_port(struct saa7164_port *port)
 	dprintk(DBGLVL_BUF, "   bufptr32h = 0x%x\n", port->bufptr32h);
 	dprintk(DBGLVL_BUF, "   bufptr32l = 0x%x\n", port->bufptr32l);
 
-	
+	/* Poke the buffers and offsets into PCI space */
 	mutex_lock(&port->dmaqueue_lock);
 	list_for_each_safe(c, n, &port->dmaqueue.list) {
 		buf = list_entry(c, struct saa7164_buffer, list);
@@ -224,10 +270,10 @@ int saa7164_buffer_cfg_port(struct saa7164_port *port)
 		if (buf->flags != SAA7164_BUFFER_FREE)
 			BUG();
 
-		
+		/* Place the buffer in the h/w queue */
 		saa7164_buffer_activate(buf, i);
 
-		
+		/* Don't exceed the device maximum # bufs */
 		if (i++ > port->hwcfg.buffercount)
 			BUG();
 

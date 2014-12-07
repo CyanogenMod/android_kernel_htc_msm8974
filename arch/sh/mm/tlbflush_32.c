@@ -48,7 +48,7 @@ void local_flush_tlb_range(struct vm_area_struct *vma, unsigned long start,
 
 		local_irq_save(flags);
 		size = (end - start + (PAGE_SIZE - 1)) >> PAGE_SHIFT;
-		if (size > (MMU_NTLB_ENTRIES/4)) { 
+		if (size > (MMU_NTLB_ENTRIES/4)) { /* Too many TLB to flush */
 			cpu_context(cpu, mm) = NO_CONTEXT;
 			if (mm == current->mm)
 				activate_context(mm, cpu);
@@ -83,7 +83,7 @@ void local_flush_tlb_kernel_range(unsigned long start, unsigned long end)
 
 	local_irq_save(flags);
 	size = (end - start + (PAGE_SIZE - 1)) >> PAGE_SHIFT;
-	if (size > (MMU_NTLB_ENTRIES/4)) { 
+	if (size > (MMU_NTLB_ENTRIES/4)) { /* Too many TLB to flush */
 		local_flush_tlb_all();
 	} else {
 		unsigned long asid;
@@ -107,8 +107,8 @@ void local_flush_tlb_mm(struct mm_struct *mm)
 {
 	unsigned int cpu = smp_processor_id();
 
-	
-	
+	/* Invalidate all TLB of this process. */
+	/* Instead of invalidating each TLB, we get new MMU context. */
 	if (cpu_context(cpu, mm) != NO_CONTEXT) {
 		unsigned long flags;
 
@@ -126,6 +126,11 @@ void __flush_tlb_global(void)
 
 	local_irq_save(flags);
 
+	/*
+	 * This is the most destructive of the TLB flushing options,
+	 * and will tear down all of the UTLB/ITLB mappings, including
+	 * wired entries.
+	 */
 	__raw_writel(__raw_readl(MMUCR) | MMUCR_TI, MMUCR);
 
 	local_irq_restore(flags);

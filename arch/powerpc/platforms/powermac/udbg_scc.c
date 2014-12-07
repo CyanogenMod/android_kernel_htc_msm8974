@@ -57,13 +57,13 @@ static int udbg_scc_getc(void)
 }
 
 static unsigned char scc_inittab[] = {
-    13, 0,		
+    13, 0,		/* set baud rate divisor */
     12, 0,
-    14, 1,		
-    11, 0x50,		
-    5,  0xea,		
-    4,  0x46,		
-    3,  0xc1,		
+    14, 1,		/* baud rate gen enable, src=rtxc */
+    11, 0x50,		/* clocks = br gen */
+    5,  0xea,		/* tx 8 bits, assert DTR & RTS */
+    4,  0x46,		/* x16 clock, 1 stop */
+    3,  0xc1,		/* rx enable, 8 bits */
 };
 
 void udbg_scc_init(int force_scc)
@@ -95,19 +95,19 @@ void udbg_scc_init(int force_scc)
 
 	ch = ch_def ? ch_def : ch_a;
 
-	
+	/* Get address within mac-io ASIC */
 	reg = of_get_property(escc, "reg", NULL);
 	if (reg == NULL)
 		goto bail;
 	addr = reg[0];
 
-	
+	/* Get address of mac-io PCI itself */
 	reg = of_get_property(macio, "assigned-addresses", NULL);
 	if (reg == NULL)
 		goto bail;
 	addr += reg[2];
 
-	
+	/* Lock the serial port */
 	pmac_call_feature(PMAC_FTR_SCC_ENABLE, ch,
 			  PMAC_SCC_ASYNC | PMAC_SCC_FLAG_XMON, 1);
 
@@ -121,9 +121,12 @@ void udbg_scc_init(int force_scc)
 
 	for (i = 20000; i != 0; --i)
 		x = in_8(sccc);
-	out_8(sccc, 0x09);		
+	out_8(sccc, 0x09);		/* reset A or B side */
 	out_8(sccc, 0xc0);
 
+	/* If SCC was the OF output port, read the BRG value, else
+	 * Setup for 38400 or 57600 8N1 depending on the machine
+	 */
 	if (ch_def != NULL) {
 		out_8(sccc, 13);
 		scc_inittab[1] = in_8(sccc);
@@ -132,11 +135,11 @@ void udbg_scc_init(int force_scc)
 	} else if (of_machine_is_compatible("RackMac1,1")
 		   || of_machine_is_compatible("RackMac1,2")
 		   || of_machine_is_compatible("MacRISC4")) {
-		
+		/* Xserves and G5s default to 57600 */
 		scc_inittab[1] = 0;
 		scc_inittab[3] = 0;
 	} else {
-		
+		/* Others default to 38400 */
 		scc_inittab[1] = 0;
 		scc_inittab[3] = 1;
 	}
@@ -178,4 +181,4 @@ void __init udbg_init_pmac_realmode(void)
 	udbg_getc = NULL;
 	udbg_getc_poll = NULL;
 }
-#endif 
+#endif /* CONFIG_PPC64 */

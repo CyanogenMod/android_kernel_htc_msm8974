@@ -18,4 +18,4 @@ do {								\
 	}							\
 } while (0)
 
-#endif 
+#endif /* _ASM_X86_RESUME_TRACE_H */

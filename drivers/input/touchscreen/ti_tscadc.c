@@ -50,6 +50,7 @@
 #define REG_FIFO0		0x100
 #define REG_FIFO1		0x200
 
+/*	Register Bitfields	*/
 #define IRQWKUP_ENB		BIT(0)
 #define STPENB_STEPENB		0x7FFF
 #define IRQENB_FIFO1THRES	BIT(5)
@@ -115,7 +116,7 @@ static void tscadc_step_config(struct tscadc *ts_dev)
 	unsigned int	config;
 	int i;
 
-	
+	/* Configure the Step registers */
 
 	config = STEPCONFIG_MODE_HWSYNC |
 			STEPCONFIG_SAMPLES_AVG | STEPCONFIG_XPP;
@@ -161,7 +162,7 @@ static void tscadc_step_config(struct tscadc *ts_dev)
 	}
 
 	config = 0;
-	
+	/* Charge step configuration */
 	config = STEPCONFIG_XPP | STEPCONFIG_YNN |
 			STEPCHARGE_RFP | STEPCHARGE_RFM |
 			STEPCHARGE_INM | STEPCHARGE_INP;
@@ -170,7 +171,7 @@ static void tscadc_step_config(struct tscadc *ts_dev)
 	tscadc_writel(ts_dev, REG_CHARGEDELAY, STEPCHARGE_DELAY);
 
 	config = 0;
-	
+	/* Configure to calculate pressure */
 	config = STEPCONFIG_MODE_HWSYNC |
 			STEPCONFIG_SAMPLES_AVG | STEPCONFIG_YPP |
 			STEPCONFIG_XNN | STEPCONFIG_INM;
@@ -203,6 +204,14 @@ static void tscadc_read_coordinates(struct tscadc *ts_dev,
 	unsigned int read, diff;
 	unsigned int i;
 
+	/*
+	 * Delta filter is used to remove large variations in sampled
+	 * values from ADC. The filter tries to predict where the next
+	 * coordinate could be. This is done by taking a previous
+	 * coordinate and subtracting it form current one. Further the
+	 * algorithm compares the difference with that of a present value,
+	 * if true the value is reported to the sub system.
+	 */
 	for (i = 0; i < fifocount - 1; i++) {
 		read = tscadc_readl(ts_dev, REG_FIFO0) & 0xfff;
 		diff = abs(read - prev_val_x);
@@ -239,6 +248,11 @@ static irqreturn_t tscadc_irq(int irq, void *dev)
 		z2 = tscadc_readl(ts_dev, REG_FIFO1) & 0xfff;
 
 		if (ts_dev->pen_down && z1 != 0 && z2 != 0) {
+			/*
+			 * Calculate pressure using formula
+			 * Resistance(touch) = x plate resistance *
+			 * x postion/4096 * ((z2 / z1) - 1)
+			 */
 			z = z2 - z1;
 			z *= x;
 			z *= ts_dev->x_plate_resistance;
@@ -256,11 +270,15 @@ static irqreturn_t tscadc_irq(int irq, void *dev)
 		irqclr |= IRQENB_FIFO1THRES;
 	}
 
+	/*
+	 * Time for sequencer to settle, to read
+	 * correct state of the sequencer.
+	 */
 	udelay(SEQ_SETTLE);
 
 	status = tscadc_readl(ts_dev, REG_RAWIRQSTATUS);
 	if (status & IRQENB_PENUP) {
-		
+		/* Pen up event */
 		fsm = tscadc_readl(ts_dev, REG_ADCFSM);
 		if (fsm == ADCFSM_STEPID) {
 			ts_dev->pen_down = false;
@@ -274,13 +292,16 @@ static irqreturn_t tscadc_irq(int irq, void *dev)
 	}
 
 	tscadc_writel(ts_dev, REG_IRQSTATUS, irqclr);
-	
+	/* check pending interrupts */
 	tscadc_writel(ts_dev, REG_IRQEOI, 0x0);
 
 	tscadc_writel(ts_dev, REG_SE, STPENB_STEPENB);
 	return IRQ_HANDLED;
 }
 
+/*
+ * The functions for inserting/removing driver as a module.
+ */
 
 static int __devinit tscadc_probe(struct platform_device *pdev)
 {
@@ -309,7 +330,7 @@ static int __devinit tscadc_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	
+	/* Allocate memory for device */
 	ts_dev = kzalloc(sizeof(struct tscadc), GFP_KERNEL);
 	input_dev = input_allocate_device();
 	if (!ts_dev || !input_dev) {
@@ -365,10 +386,10 @@ static int __devinit tscadc_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "clock input less than min clock requirement\n");
 		goto err_disable_clk;
 	}
-	
+	/* CLKDIV needs to be configured to the value minus 1 */
 	tscadc_writel(ts_dev, REG_CLKDIV, clk_value - 1);
 
-	 
+	 /* Enable wake-up of the SoC using touchscreen */
 	tscadc_writel(ts_dev, REG_IRQWAKEUP, IRQWKUP_ENB);
 
 	ctrl = CNTRLREG_STEPCONFIGWRT |
@@ -405,7 +426,7 @@ static int __devinit tscadc_probe(struct platform_device *pdev)
 	input_set_abs_params(input_dev, ABS_Y, 0, MAX_12BIT, 0, 0);
 	input_set_abs_params(input_dev, ABS_PRESSURE, 0, MAX_12BIT, 0, 0);
 
-	
+	/* register to the input system */
 	err = input_register_device(input_dev);
 	if (err)
 		goto err_disable_clk;

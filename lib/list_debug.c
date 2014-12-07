@@ -12,6 +12,12 @@
 #include <linux/kernel.h>
 #include <linux/bug.h>
 
+/*
+ * Insert a new entry between two known consecutive entries.
+ *
+ * This is only for internal list manipulation where we know
+ * the prev/next entries already!
+ */
 
 void __list_add(struct list_head *new,
 			      struct list_head *prev,
@@ -63,6 +69,12 @@ void __list_del_entry(struct list_head *entry)
 }
 EXPORT_SYMBOL(__list_del_entry);
 
+/**
+ * list_del - deletes entry from list.
+ * @entry: the element to delete from the list.
+ * Note: list_empty on entry does not return true after this, the entry is
+ * in an undefined state.
+ */
 void list_del(struct list_head *entry)
 {
 	__list_del_entry(entry);

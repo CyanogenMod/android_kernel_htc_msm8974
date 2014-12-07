@@ -14,6 +14,17 @@
  * kind, whether express or implied.
  */
 
+/* The CPM2 internal interrupt controller.  It is usually
+ * the only interrupt controller.
+ * There are two 32-bit registers (high/low) for up to 64
+ * possible interrupts.
+ *
+ * Now, the fun starts.....Interrupt Numbers DO NOT MAP
+ * in a simple arithmetic fashion to mask or pending registers.
+ * That is, interrupt 4 does not map to bit position 4.
+ * We create two tables, indexed by vector number, to indicate
+ * which register to use and which bit in the register to use.
+ */
 
 #include <linux/stddef.h>
 #include <linux/init.h>
@@ -29,16 +40,18 @@
 
 #include "cpm2_pic.h"
 
+/* External IRQS */
 #define CPM2_IRQ_EXT1		19
 #define CPM2_IRQ_EXT7		25
 
+/* Port C IRQS */
 #define CPM2_IRQ_PORTC15	48
 #define CPM2_IRQ_PORTC0		63
 
 static intctl_cpm2_t __iomem *cpm2_intctl;
 
 static struct irq_domain *cpm2_pic_host;
-static unsigned long ppc_cached_irq_mask[2]; 
+static unsigned long ppc_cached_irq_mask[2]; /* 2 32-bit registers */
 
 static const u_char irq_to_siureg[] = {
 	1, 1, 1, 1, 1, 1, 1, 1,
@@ -51,6 +64,8 @@ static const u_char irq_to_siureg[] = {
 	0, 0, 0, 0, 0, 0, 0, 0
 };
 
+/* bit numbers do not match the docs, these are precomputed so the bit for
+ * a given irq is (1 << irq_to_siubit[irq]) */
 static const u_char irq_to_siubit[] = {
 	 0, 15, 14, 13, 12, 11, 10,  9,
 	 8,  7,  6,  5,  4,  3,  2,  1,
@@ -108,6 +123,10 @@ static void cpm2_end_irq(struct irq_data *d)
 	ppc_cached_irq_mask[word] |= 1 << bit;
 	out_be32(&cpm2_intctl->ic_simrh + word, ppc_cached_irq_mask[word]);
 
+	/*
+	 * Work around large numbers of spurious IRQs on PowerPC 82xx
+	 * systems.
+	 */
 	mb();
 }
 
@@ -116,6 +135,10 @@ static int cpm2_set_irq_type(struct irq_data *d, unsigned int flow_type)
 	unsigned int src = irqd_to_hwirq(d);
 	unsigned int vold, vnew, edibit;
 
+	/* Port C interrupts are either IRQ_TYPE_EDGE_FALLING or
+	 * IRQ_TYPE_EDGE_BOTH (default).  All others are IRQ_TYPE_EDGE_FALLING
+	 * or IRQ_TYPE_LEVEL_LOW (default)
+	 */
 	if (src >= CPM2_IRQ_PORTC15 && src <= CPM2_IRQ_PORTC0) {
 		if (flow_type == IRQ_TYPE_NONE)
 			flow_type = IRQ_TYPE_EDGE_BOTH;
@@ -137,6 +160,9 @@ static int cpm2_set_irq_type(struct irq_data *d, unsigned int flow_type)
 	else
 		__irq_set_handler_locked(d->irq, handle_edge_irq);
 
+	/* internal IRQ senses are LEVEL_LOW
+	 * EXT IRQ and Port C IRQ senses are programmable
+	 */
 	if (src >= CPM2_IRQ_EXT1 && src <= CPM2_IRQ_EXT7)
 			edibit = (14 - (src - CPM2_IRQ_EXT1));
 	else
@@ -177,6 +203,8 @@ unsigned int cpm2_get_irq(void)
 	int irq;
 	unsigned long bits;
 
+       /* For CPM2, read the SIVEC register and shift the bits down
+         * to get the irq number.         */
         bits = in_be32(&cpm2_intctl->ic_sivec);
         irq = bits >> 26;
 
@@ -206,28 +234,34 @@ void cpm2_pic_init(struct device_node *node)
 
 	cpm2_intctl = cpm2_map(im_intctl);
 
+	/* Clear the CPM IRQ controller, in case it has any bits set
+	 * from the bootloader
+	 */
 
-	
+	/* Mask out everything */
 
 	out_be32(&cpm2_intctl->ic_simrh, 0x00000000);
 	out_be32(&cpm2_intctl->ic_simrl, 0x00000000);
 
 	wmb();
 
-	
+	/* Ack everything */
 	out_be32(&cpm2_intctl->ic_sipnrh, 0xffffffff);
 	out_be32(&cpm2_intctl->ic_sipnrl, 0xffffffff);
 	wmb();
 
-	
+	/* Dummy read of the vector */
 	i = in_be32(&cpm2_intctl->ic_sivec);
 	rmb();
 
+	/* Initialize the default interrupt mapping priorities,
+	 * in case the boot rom changed something on us.
+	 */
 	out_be16(&cpm2_intctl->ic_sicr, 0);
 	out_be32(&cpm2_intctl->ic_scprrh, 0x05309770);
 	out_be32(&cpm2_intctl->ic_scprrl, 0x05309770);
 
-	
+	/* create a legacy host */
 	cpm2_pic_host = irq_domain_add_linear(node, 64, &cpm2_pic_host_ops, NULL);
 	if (cpm2_pic_host == NULL) {
 		printk(KERN_ERR "CPM2 PIC: failed to allocate irq host!\n");

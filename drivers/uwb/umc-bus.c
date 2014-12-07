@@ -44,6 +44,20 @@ static int umc_bus_post_reset_helper(struct device *dev, void *data)
 	return ret;
 }
 
+/**
+ * umc_controller_reset - reset the whole UMC controller
+ * @umc: the UMC device for the radio controller.
+ *
+ * Drivers or all capabilities of the controller will have their
+ * pre_reset methods called or be unbound from their device.  Then all
+ * post_reset methods will be called or the drivers will be rebound.
+ *
+ * Radio controllers must provide pre_reset and post_reset methods and
+ * reset the hardware in their start method.
+ *
+ * If this is called while a probe() or remove() is in progress it
+ * will return -EAGAIN and not perform the reset.
+ */
 int umc_controller_reset(struct umc_dev *umc)
 {
 	struct device *parent = umc->dev.parent;
@@ -60,6 +74,12 @@ int umc_controller_reset(struct umc_dev *umc)
 }
 EXPORT_SYMBOL_GPL(umc_controller_reset);
 
+/**
+ * umc_match_pci_id - match a UMC driver to a UMC device's parent PCI device.
+ * @umc_drv: umc driver with match_data pointing to a zero-terminated
+ * table of pci_device_id's.
+ * @umc: umc device whose parent is to be matched.
+ */
 int umc_match_pci_id(struct umc_driver *umc_drv, struct umc_dev *umc)
 {
 	const struct pci_device_id *id_table = umc_drv->match_data;
@@ -87,6 +107,10 @@ static void umc_bus_rescan(struct device *parent)
 {
 	int err;
 
+	/*
+	 * We can't use bus_rescan_devices() here as it deadlocks when
+	 * it tries to retake the dev->parent semaphore.
+	 */
 	err = device_for_each_child(parent, NULL, umc_bus_rescan_helper);
 	if (err < 0)
 		printk(KERN_WARNING "%s: rescan of bus failed: %d\n",

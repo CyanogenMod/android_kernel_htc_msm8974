@@ -20,6 +20,7 @@
 #include "msm_fb.h"
 
 #define DEBUG
+/* #define SYSFS_DEBUG_CMD */
 
 #ifdef CONFIG_SPI_QUP
 #define LCDC_SAMSUNG_SPI_DEVICE_NAME	"lcdc_samsung_ams367pe02"
@@ -52,18 +53,21 @@ static struct samsung_spi_data display_sequence[] = {
 	{ .addr = 0xf7, .len = 3, .data = { 0x00, 0x00, 0x30 } },
 };
 
+/* lum=300 cd/m2 */
 static struct samsung_spi_data gamma_sequence_300[] = {
 	{ .addr = 0xfa, .len = 22, .data = { 0x02, 0x18, 0x08, 0x24, 0x7d, 0x77,
 	 0x5b, 0xbe, 0xc1, 0xb1, 0xb3, 0xb7, 0xa6, 0xc3, 0xc5, 0xb9, 0x00, 0xb3,
 	 0x00, 0xaf, 0x00, 0xe8 } },
 	{ .addr = 0xFA, .len = 1, .data = { 0x03 } },
 };
+/* lum = 180 cd/m2*/
 static struct samsung_spi_data gamma_sequence_180[] = {
 	{ .addr = 0xfa, .len = 22, .data = { 0x02, 0x18, 0x08, 0x24, 0x83, 0x78,
 	 0x60, 0xc5, 0xc6, 0xb8, 0xba, 0xbe, 0xad, 0xcb, 0xcd, 0xc2, 0x00, 0x92,
 	 0x00, 0x8e, 0x00, 0xbc } },
 	{ .addr = 0xFA, .len = 1, .data = { 0x03 } },
 };
+/* lum = 80 cd/m2*/
 static struct samsung_spi_data gamma_sequence_80[] = {
 	{ .addr = 0xfa, .len = 22, .data = { 0x02, 0x18, 0x08, 0x24, 0x94, 0x73,
 	 0x6c, 0xcb, 0xca, 0xbe, 0xc4, 0xc7, 0xb8, 0xd3, 0xd5, 0xcb, 0x00, 0x6d,
@@ -87,17 +91,17 @@ static void samsung_spi_write_byte(boolean dc, u8 data)
 
 	gpio_set_value(spi_sclk, 0);
 	gpio_set_value(spi_mosi, dc ? 1 : 0);
-	udelay(1);			
-	gpio_set_value(spi_sclk, 1);	
-	udelay(1);			
+	udelay(1);			/* at least 20 ns */
+	gpio_set_value(spi_sclk, 1);	/* clk high */
+	udelay(1);			/* at least 20 ns */
 
-	bnum = 8;			
+	bnum = 8;			/* 8 data bits */
 	bit = 0x80;
 	while (bnum--) {
-		gpio_set_value(spi_sclk, 0); 
+		gpio_set_value(spi_sclk, 0); /* clk low */
 		gpio_set_value(spi_mosi, (data & bit) ? 1 : 0);
 		udelay(1);
-		gpio_set_value(spi_sclk, 1); 
+		gpio_set_value(spi_sclk, 1); /* clk high */
 		udelay(1);
 		bit >>= 1;
 	}
@@ -109,33 +113,33 @@ static void samsung_spi_read_bytes(u8 cmd, u8 *data, int num)
 {
 	int bnum;
 
-	
+	/* Chip Select - low */
 	gpio_set_value(spi_cs, 0);
 	udelay(2);
 
-	
+	/* command byte first */
 	samsung_spi_write_byte(0, cmd);
 	udelay(2);
 
 	gpio_direction_input(spi_mosi);
 
 	if (num > 1) {
-		
+		/* extra dummy clock */
 		gpio_set_value(spi_sclk, 0);
 		udelay(1);
 		gpio_set_value(spi_sclk, 1);
 		udelay(1);
 	}
 
-	
-	bnum = num * 8;	
+	/* followed by data bytes */
+	bnum = num * 8;	/* number of bits */
 	*data = 0;
 	while (bnum) {
-		gpio_set_value(spi_sclk, 0); 
+		gpio_set_value(spi_sclk, 0); /* clk low */
 		udelay(1);
 		*data <<= 1;
 		*data |= gpio_get_value(spi_mosi) ? 1 : 0;
-		gpio_set_value(spi_sclk, 1); 
+		gpio_set_value(spi_sclk, 1); /* clk high */
 		udelay(1);
 		--bnum;
 		if ((bnum % 8) == 0)
@@ -144,7 +148,7 @@ static void samsung_spi_read_bytes(u8 cmd, u8 *data, int num)
 
 	gpio_direction_output(spi_mosi, 0);
 
-	
+	/* Chip Select - high */
 	udelay(2);
 	gpio_set_value(spi_cs, 1);
 }
@@ -209,7 +213,7 @@ static int samsung_serigo(struct samsung_spi_data data)
 		ADD_BYTE(data.data[i]);
 	}
 
-	
+	/* add padding bits so we round to next byte */
 	t.len = (bit_size+7) / 8;
 	if (t.len <= 4)
 		t.bits_per_word = bit_size;
@@ -224,7 +228,7 @@ static int samsung_serigo(struct samsung_spi_data data)
 #else
 	int i;
 
-	
+	/* Chip Select - low */
 	gpio_set_value(spi_cs, 0);
 	udelay(2);
 
@@ -236,7 +240,7 @@ static int samsung_serigo(struct samsung_spi_data data)
 		udelay(2);
 	}
 
-	
+	/* Chip Select - high */
 	gpio_set_value(spi_cs, 1);
 #ifdef DEBUG
 	pr_info("%s: cmd=0x%02x, #args=%d\n", __func__, data.addr, data.len);
@@ -279,13 +283,13 @@ static int samsung_write_cmd(u8 cmd)
 #endif
 	return rc;
 #else
-	
+	/* Chip Select - low */
 	gpio_set_value(spi_cs, 0);
 	udelay(2);
 
 	samsung_spi_write_byte(FALSE, cmd);
 
-	
+	/* Chip Select - high */
 	udelay(2);
 	gpio_set_value(spi_cs, 1);
 #ifdef DEBUG
@@ -314,11 +318,11 @@ static void samsung_spi_init(void)
 	spi_cs   = *(lcdc_samsung_pdata->gpio_num + 1);
 	spi_mosi = *(lcdc_samsung_pdata->gpio_num + 2);
 
-	
+	/* Set the output so that we don't disturb the slave device */
 	gpio_set_value(spi_sclk, 1);
 	gpio_set_value(spi_mosi, 0);
 
-	
+	/* Set the Chip Select deasserted (active low) */
 	gpio_set_value(spi_cs, 1);
 }
 #endif
@@ -332,7 +336,7 @@ static void samsung_disp_powerup(void)
 static struct work_struct disp_on_delayed_work;
 static void samsung_disp_on_delayed_work(struct work_struct *work_ptr)
 {
-	
+	/* 0x01: Software Reset */
 	samsung_write_cmd(0x01);
 	msleep(120);
 
@@ -361,10 +365,10 @@ static void samsung_disp_on_delayed_work(struct work_struct *work_ptr)
 	samsung_serigo_list(etc_sequence,
 		sizeof(etc_sequence)/sizeof(*etc_sequence));
 
-	
+	/* 0x11: Sleep Out */
 	samsung_write_cmd(0x11);
 	msleep(120);
-	
+	/* 0x13: Normal Mode On */
 	samsung_write_cmd(0x13);
 
 #ifndef CONFIG_SPI_QUP
@@ -372,20 +376,20 @@ static void samsung_disp_on_delayed_work(struct work_struct *work_ptr)
 		u8 data;
 
 		msleep(120);
-		
+		/* 0x0A: Read Display Power Mode */
 		samsung_spi_read_bytes(0x0A, &data, 1);
 		pr_info("%s: power=[%s]\n", __func__,
 			byte_to_binary(&data, 1));
 
 		msleep(120);
-		
+		/* 0x0C: Read Display Pixel Format */
 		samsung_spi_read_bytes(0x0C, &data, 1);
 		pr_info("%s: pixel-format=[%s]\n", __func__,
 			byte_to_binary(&data, 1));
 	}
 #endif
 	msleep(120);
-	
+	/* 0x29: Display On */
 	samsung_write_cmd(0x29);
 }
 
@@ -418,7 +422,7 @@ static int lcdc_samsung_panel_off(struct platform_device *pdev)
 {
 	pr_info("%s\n", __func__);
 	if (samsung_state.disp_powered_up && samsung_state.display_on) {
-		
+		/* 0x10: Sleep In */
 		samsung_write_cmd(0x10);
 		msleep(120);
 
@@ -484,16 +488,16 @@ static int __devinit samsung_probe(struct platform_device *pdev)
 	pinfo->wait_cycle = 0;
 	pinfo->bpp = 24;
 	pinfo->fb_num = 2;
-	pinfo->clk_rate = 25600000; 
+	pinfo->clk_rate = 25600000; /* Max 27.77MHz */
 	pinfo->bl_max = 15;
 	pinfo->bl_min = 1;
 
-	
-	pinfo->lcdc.h_back_porch = 16-2;	
+	/* AMS367PE02 Operation Manual, Page 7 */
+	pinfo->lcdc.h_back_porch = 16-2;	/* HBP-HLW */
 	pinfo->lcdc.h_front_porch = 16;
 	pinfo->lcdc.h_pulse_width = 2;
-	
-	pinfo->lcdc.v_back_porch = 3-2;		
+	/* AMS367PE02 Operation Manual, Page 6 */
+	pinfo->lcdc.v_back_porch = 3-2;		/* VBP-VLW */
 	pinfo->lcdc.v_front_porch = 28;
 	pinfo->lcdc.v_pulse_width = 2;
 

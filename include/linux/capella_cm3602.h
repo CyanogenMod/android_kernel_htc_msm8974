@@ -31,12 +31,12 @@
 #define LS_PWR_ON					(1 << 0)
 #define PS_PWR_ON					(1 << 1)
 struct capella_cm3602_platform_data {
-	int (*power)(int, uint8_t); 
-	int (*enable)(uint8_t); 
-	int p_en; 
-	int p_out; 
+	int (*power)(int, uint8_t); /* power to the chip */
+	int (*enable)(uint8_t); /* enable to the chip */
+	int p_en; /* proximity-sensor enable */
+	int p_out; /* proximity-sensor outpuCAPELLA_CM3602_IOCTL_ENABLE,t */
 	int irq;
 };
-#endif 
+#endif /* __KERNEL__ */
 
 #endif

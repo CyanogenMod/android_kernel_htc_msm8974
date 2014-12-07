@@ -31,10 +31,18 @@ static struct ata_port_operations isapnp_port_ops = {
 static struct ata_port_operations isapnp_noalt_port_ops = {
 	.inherits	= &ata_sff_port_ops,
 	.cable_detect	= ata_cable_40wire,
-	
+	/* No altstatus so we don't want to use the lost interrupt poll */
 	.lost_interrupt = ATA_OP_NULL,
 };
 
+/**
+ *	isapnp_init_one		-	attach an isapnp interface
+ *	@idev: PnP device
+ *	@dev_id: matching detect line
+ *
+ *	Register an ISA bus IDE interface. Such interfaces are PIO 0 and
+ *	non shared IRQ.
+ */
 
 static int isapnp_init_one(struct pnp_dev *idev, const struct pnp_device_id *dev_id)
 {
@@ -52,12 +60,12 @@ static int isapnp_init_one(struct pnp_dev *idev, const struct pnp_device_id *dev
 		handler = ata_sff_interrupt;
 	}
 
-	
+	/* allocate host */
 	host = ata_host_alloc(&idev->dev, 1);
 	if (!host)
 		return -ENOMEM;
 
-	
+	/* acquire resources and fill host */
 	cmd_addr = devm_ioport_map(&idev->dev, pnp_port_start(idev, 0), 8);
 	if (!cmd_addr)
 		return -ENOMEM;
@@ -84,11 +92,18 @@ static int isapnp_init_one(struct pnp_dev *idev, const struct pnp_device_id *dev
 		      (unsigned long long)pnp_port_start(idev, 0),
 		      (unsigned long long)pnp_port_start(idev, 1));
 
-	
+	/* activate */
 	return ata_host_activate(host, irq, handler, 0,
 				 &isapnp_sht);
 }
 
+/**
+ *	isapnp_remove_one	-	unplug an isapnp interface
+ *	@idev: PnP device
+ *
+ *	Remove a previously configured PnP ATA port. Called only on module
+ *	unload events as the core does not currently deal with ISAPnP docking.
+ */
 
 static void isapnp_remove_one(struct pnp_dev *idev)
 {
@@ -99,7 +114,7 @@ static void isapnp_remove_one(struct pnp_dev *idev)
 }
 
 static struct pnp_device_id isapnp_devices[] = {
-  	
+  	/* Generic ESDI/IDE/ATA compatible hard disk controller */
 	{.id = "PNP0600", .driver_data = 0},
 	{.id = ""}
 };

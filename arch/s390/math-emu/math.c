@@ -21,17 +21,21 @@
 #include <math-emu/double.h>
 #include <math-emu/quad.h>
 
+/*
+ * I miss a macro to round a floating point number to the
+ * nearest integer in the same floating point format.
+ */
 #define _FP_TO_FPINT_ROUND(fs, wc, X)					\
   do {									\
     switch (X##_c)							\
       {									\
       case FP_CLS_NORMAL:						\
         if (X##_e > _FP_FRACBITS_##fs + _FP_EXPBIAS_##fs)		\
-          { 	\
+          { /* floating point number has no bits after the dot. */	\
           }								\
         else if (X##_e <= _FP_FRACBITS_##fs + _FP_EXPBIAS_##fs &&	\
                  X##_e > _FP_EXPBIAS_##fs)				\
-	  { 		\
+	  { /* some bits before the dot, some after it. */		\
             _FP_FRAC_SRS_##wc(X, _FP_WFRACBITS_##fs,			\
                               X##_e - _FP_EXPBIAS_##fs			\
                               + _FP_FRACBITS_##fs);			\
@@ -40,7 +44,7 @@
                               + _FP_FRACBITS_##fs);			\
           }								\
         else								\
-          { 				\
+          { /* all bits after the dot. */				\
 	    FP_SET_EXCEPTION(FP_EX_INEXACT);				\
             X##_c = FP_CLS_ZERO;					\
 	  }								\
@@ -115,6 +119,13 @@ static inline void emu_set_CC (struct pt_regs *regs, int cc)
         regs->psw.mask = (regs->psw.mask & 0xFFFFCFFF) | ((cc&3) << 12);
 }
 
+/*
+ * Set the condition code in the user psw.
+ *  0 : Result is zero
+ *  1 : Result is less than zero
+ *  2 : Result is greater than zero
+ *  3 : Result is NaN or INF
+ */
 static inline void emu_set_CC_cs(struct pt_regs *regs, int class, int sign)
 {
         switch (class) {
@@ -131,6 +142,7 @@ static inline void emu_set_CC_cs(struct pt_regs *regs, int class, int sign)
         }
 }
 
+/* Add long double */
 static int emu_axbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_Q(QA); FP_DECL_Q(QB); FP_DECL_Q(QR);
         FP_DECL_EX;
@@ -152,6 +164,7 @@ static int emu_axbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Add double */
 static int emu_adbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_D(DA); FP_DECL_D(DB); FP_DECL_D(DR);
         FP_DECL_EX;
@@ -166,6 +179,7 @@ static int emu_adbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Add double */
 static int emu_adb (struct pt_regs *regs, int rx, double *val) {
         FP_DECL_D(DA); FP_DECL_D(DB); FP_DECL_D(DR);
         FP_DECL_EX;
@@ -180,6 +194,7 @@ static int emu_adb (struct pt_regs *regs, int rx, double *val) {
         return _fex;
 }
 
+/* Add float */
 static int emu_aebr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_S(SA); FP_DECL_S(SB); FP_DECL_S(SR);
         FP_DECL_EX;
@@ -194,6 +209,7 @@ static int emu_aebr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Add float */
 static int emu_aeb (struct pt_regs *regs, int rx, float *val) {
         FP_DECL_S(SA); FP_DECL_S(SB); FP_DECL_S(SR);
         FP_DECL_EX;
@@ -208,6 +224,7 @@ static int emu_aeb (struct pt_regs *regs, int rx, float *val) {
         return _fex;
 }
 
+/* Compare long double */
 static int emu_cxbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_Q(QA); FP_DECL_Q(QB);
 	mathemu_ldcv cvt;
@@ -220,10 +237,15 @@ static int emu_cxbr (struct pt_regs *regs, int rx, int ry) {
         cvt.w.low = current->thread.fp_regs.fprs[ry+2].ui;
         FP_UNPACK_RAW_QP(QB, &cvt.ld);
         FP_CMP_Q(IR, QA, QB, 3);
+        /*
+         * IR == -1 if DA < DB, IR == 0 if DA == DB,
+         * IR == 1 if DA > DB and IR == 3 if unorderded
+         */
         emu_set_CC(regs, (IR == -1) ? 1 : (IR == 1) ? 2 : IR);
         return 0;
 }
 
+/* Compare double */
 static int emu_cdbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_D(DA); FP_DECL_D(DB);
         int IR;
@@ -231,10 +253,15 @@ static int emu_cdbr (struct pt_regs *regs, int rx, int ry) {
         FP_UNPACK_RAW_DP(DA, &current->thread.fp_regs.fprs[rx].d);
         FP_UNPACK_RAW_DP(DB, &current->thread.fp_regs.fprs[ry].d);
         FP_CMP_D(IR, DA, DB, 3);
+        /*
+         * IR == -1 if DA < DB, IR == 0 if DA == DB,
+         * IR == 1 if DA > DB and IR == 3 if unorderded
+         */
         emu_set_CC(regs, (IR == -1) ? 1 : (IR == 1) ? 2 : IR);
         return 0;
 }
 
+/* Compare double */
 static int emu_cdb (struct pt_regs *regs, int rx, double *val) {
         FP_DECL_D(DA); FP_DECL_D(DB);
         int IR;
@@ -242,10 +269,15 @@ static int emu_cdb (struct pt_regs *regs, int rx, double *val) {
         FP_UNPACK_RAW_DP(DA, &current->thread.fp_regs.fprs[rx].d);
         FP_UNPACK_RAW_DP(DB, val);
         FP_CMP_D(IR, DA, DB, 3);
+        /*
+         * IR == -1 if DA < DB, IR == 0 if DA == DB,
+         * IR == 1 if DA > DB and IR == 3 if unorderded
+         */
         emu_set_CC(regs, (IR == -1) ? 1 : (IR == 1) ? 2 : IR);
         return 0;
 }
 
+/* Compare float */
 static int emu_cebr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_S(SA); FP_DECL_S(SB);
         int IR;
@@ -253,10 +285,15 @@ static int emu_cebr (struct pt_regs *regs, int rx, int ry) {
         FP_UNPACK_RAW_SP(SA, &current->thread.fp_regs.fprs[rx].f);
         FP_UNPACK_RAW_SP(SB, &current->thread.fp_regs.fprs[ry].f);
         FP_CMP_S(IR, SA, SB, 3);
+        /*
+         * IR == -1 if DA < DB, IR == 0 if DA == DB,
+         * IR == 1 if DA > DB and IR == 3 if unorderded
+         */
         emu_set_CC(regs, (IR == -1) ? 1 : (IR == 1) ? 2 : IR);
         return 0;
 }
 
+/* Compare float */
 static int emu_ceb (struct pt_regs *regs, int rx, float *val) {
         FP_DECL_S(SA); FP_DECL_S(SB);
         int IR;
@@ -264,10 +301,15 @@ static int emu_ceb (struct pt_regs *regs, int rx, float *val) {
         FP_UNPACK_RAW_SP(SA, &current->thread.fp_regs.fprs[rx].f);
         FP_UNPACK_RAW_SP(SB, val);
         FP_CMP_S(IR, SA, SB, 3);
+        /*
+         * IR == -1 if DA < DB, IR == 0 if DA == DB,
+         * IR == 1 if DA > DB and IR == 3 if unorderded
+         */
         emu_set_CC(regs, (IR == -1) ? 1 : (IR == 1) ? 2 : IR);
         return 0;
 }
 
+/* Compare and signal long double */
 static int emu_kxbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_Q(QA); FP_DECL_Q(QB);
         FP_DECL_EX;
@@ -281,12 +323,17 @@ static int emu_kxbr (struct pt_regs *regs, int rx, int ry) {
         cvt.w.low = current->thread.fp_regs.fprs[ry+2].ui;
         FP_UNPACK_QP(QB, &cvt.ld);
         FP_CMP_Q(IR, QA, QB, 3);
+        /*
+         * IR == -1 if DA < DB, IR == 0 if DA == DB,
+         * IR == 1 if DA > DB and IR == 3 if unorderded
+         */
         emu_set_CC(regs, (IR == -1) ? 1 : (IR == 1) ? 2 : IR);
         if (IR == 3)
                 FP_SET_EXCEPTION (FP_EX_INVALID);
         return _fex;
 }
 
+/* Compare and signal double */
 static int emu_kdbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_D(DA); FP_DECL_D(DB);
         FP_DECL_EX;
@@ -295,12 +342,17 @@ static int emu_kdbr (struct pt_regs *regs, int rx, int ry) {
         FP_UNPACK_RAW_DP(DA, &current->thread.fp_regs.fprs[rx].d);
         FP_UNPACK_RAW_DP(DB, &current->thread.fp_regs.fprs[ry].d);
         FP_CMP_D(IR, DA, DB, 3);
+        /*
+         * IR == -1 if DA < DB, IR == 0 if DA == DB,
+         * IR == 1 if DA > DB and IR == 3 if unorderded
+         */
         emu_set_CC(regs, (IR == -1) ? 1 : (IR == 1) ? 2 : IR);
         if (IR == 3)
                 FP_SET_EXCEPTION (FP_EX_INVALID);
         return _fex;
 }
 
+/* Compare and signal double */
 static int emu_kdb (struct pt_regs *regs, int rx, double *val) {
         FP_DECL_D(DA); FP_DECL_D(DB);
         FP_DECL_EX;
@@ -309,12 +361,17 @@ static int emu_kdb (struct pt_regs *regs, int rx, double *val) {
         FP_UNPACK_RAW_DP(DA, &current->thread.fp_regs.fprs[rx].d);
         FP_UNPACK_RAW_DP(DB, val);
         FP_CMP_D(IR, DA, DB, 3);
+        /*
+         * IR == -1 if DA < DB, IR == 0 if DA == DB,
+         * IR == 1 if DA > DB and IR == 3 if unorderded
+         */
         emu_set_CC(regs, (IR == -1) ? 1 : (IR == 1) ? 2 : IR);
         if (IR == 3)
                 FP_SET_EXCEPTION (FP_EX_INVALID);
         return _fex;
 }
 
+/* Compare and signal float */
 static int emu_kebr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_S(SA); FP_DECL_S(SB);
         FP_DECL_EX;
@@ -323,12 +380,17 @@ static int emu_kebr (struct pt_regs *regs, int rx, int ry) {
         FP_UNPACK_RAW_SP(SA, &current->thread.fp_regs.fprs[rx].f);
         FP_UNPACK_RAW_SP(SB, &current->thread.fp_regs.fprs[ry].f);
         FP_CMP_S(IR, SA, SB, 3);
+        /*
+         * IR == -1 if DA < DB, IR == 0 if DA == DB,
+         * IR == 1 if DA > DB and IR == 3 if unorderded
+         */
         emu_set_CC(regs, (IR == -1) ? 1 : (IR == 1) ? 2 : IR);
         if (IR == 3)
                 FP_SET_EXCEPTION (FP_EX_INVALID);
         return _fex;
 }
 
+/* Compare and signal float */
 static int emu_keb (struct pt_regs *regs, int rx, float *val) {
         FP_DECL_S(SA); FP_DECL_S(SB);
         FP_DECL_EX;
@@ -337,12 +399,17 @@ static int emu_keb (struct pt_regs *regs, int rx, float *val) {
         FP_UNPACK_RAW_SP(SA, &current->thread.fp_regs.fprs[rx].f);
         FP_UNPACK_RAW_SP(SB, val);
         FP_CMP_S(IR, SA, SB, 3);
+        /*
+         * IR == -1 if DA < DB, IR == 0 if DA == DB,
+         * IR == 1 if DA > DB and IR == 3 if unorderded
+         */
         emu_set_CC(regs, (IR == -1) ? 1 : (IR == 1) ? 2 : IR);
         if (IR == 3)
                 FP_SET_EXCEPTION (FP_EX_INVALID);
         return _fex;
 }
 
+/* Convert from fixed long double */
 static int emu_cxfbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_Q(QR);
         FP_DECL_EX;
@@ -359,6 +426,7 @@ static int emu_cxfbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Convert from fixed double */
 static int emu_cdfbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_D(DR);
         FP_DECL_EX;
@@ -372,6 +440,7 @@ static int emu_cdfbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Convert from fixed float */
 static int emu_cefbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_S(SR);
         FP_DECL_EX;
@@ -385,6 +454,7 @@ static int emu_cefbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Convert to fixed long double */
 static int emu_cfxbr (struct pt_regs *regs, int rx, int ry, int mask) {
         FP_DECL_Q(QA);
         FP_DECL_EX;
@@ -407,6 +477,7 @@ static int emu_cfxbr (struct pt_regs *regs, int rx, int ry, int mask) {
         return _fex;
 }
 
+/* Convert to fixed double */
 static int emu_cfdbr (struct pt_regs *regs, int rx, int ry, int mask) {
         FP_DECL_D(DA);
         FP_DECL_EX;
@@ -426,6 +497,7 @@ static int emu_cfdbr (struct pt_regs *regs, int rx, int ry, int mask) {
         return _fex;
 }
 
+/* Convert to fixed float */
 static int emu_cfebr (struct pt_regs *regs, int rx, int ry, int mask) {
         FP_DECL_S(SA);
         FP_DECL_EX;
@@ -445,6 +517,7 @@ static int emu_cfebr (struct pt_regs *regs, int rx, int ry, int mask) {
         return _fex;
 }
 
+/* Divide long double */
 static int emu_dxbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_Q(QA); FP_DECL_Q(QB); FP_DECL_Q(QR);
         FP_DECL_EX;
@@ -465,6 +538,7 @@ static int emu_dxbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Divide double */
 static int emu_ddbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_D(DA); FP_DECL_D(DB); FP_DECL_D(DR);
         FP_DECL_EX;
@@ -478,6 +552,7 @@ static int emu_ddbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Divide double */
 static int emu_ddb (struct pt_regs *regs, int rx, double *val) {
         FP_DECL_D(DA); FP_DECL_D(DB); FP_DECL_D(DR);
         FP_DECL_EX;
@@ -491,6 +566,7 @@ static int emu_ddb (struct pt_regs *regs, int rx, double *val) {
         return _fex;
 }
 
+/* Divide float */
 static int emu_debr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_S(SA); FP_DECL_S(SB); FP_DECL_S(SR);
         FP_DECL_EX;
@@ -504,6 +580,7 @@ static int emu_debr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Divide float */
 static int emu_deb (struct pt_regs *regs, int rx, float *val) {
         FP_DECL_S(SA); FP_DECL_S(SB); FP_DECL_S(SR);
         FP_DECL_EX;
@@ -517,21 +594,25 @@ static int emu_deb (struct pt_regs *regs, int rx, float *val) {
         return _fex;
 }
 
+/* Divide to integer double */
 static int emu_didbr (struct pt_regs *regs, int rx, int ry, int mask) {
         display_emulation_not_implemented(regs, "didbr");
         return 0;
 }
 
+/* Divide to integer float */
 static int emu_diebr (struct pt_regs *regs, int rx, int ry, int mask) {
         display_emulation_not_implemented(regs, "diebr");
         return 0;
 }
 
+/* Extract fpc */
 static int emu_efpc (struct pt_regs *regs, int rx, int ry) {
         regs->gprs[rx] = current->thread.fp_regs.fpc;
         return 0;
 }
 
+/* Load and test long double */
 static int emu_ltxbr (struct pt_regs *regs, int rx, int ry) {
         s390_fp_regs *fp_regs = &current->thread.fp_regs;
 	mathemu_ldcv cvt;
@@ -547,6 +628,7 @@ static int emu_ltxbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load and test double */
 static int emu_ltdbr (struct pt_regs *regs, int rx, int ry) {
         s390_fp_regs *fp_regs = &current->thread.fp_regs;
         FP_DECL_D(DA);
@@ -558,6 +640,7 @@ static int emu_ltdbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load and test double */
 static int emu_ltebr (struct pt_regs *regs, int rx, int ry) {
         s390_fp_regs *fp_regs = &current->thread.fp_regs;
         FP_DECL_S(SA);
@@ -569,6 +652,7 @@ static int emu_ltebr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load complement long double */
 static int emu_lcxbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_Q(QA); FP_DECL_Q(QR);
         FP_DECL_EX;
@@ -587,6 +671,7 @@ static int emu_lcxbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load complement double */
 static int emu_lcdbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_D(DA); FP_DECL_D(DR);
         FP_DECL_EX;
@@ -600,6 +685,7 @@ static int emu_lcdbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load complement float */
 static int emu_lcebr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_S(SA); FP_DECL_S(SR);
         FP_DECL_EX;
@@ -613,6 +699,7 @@ static int emu_lcebr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load floating point integer long double */
 static int emu_fixbr (struct pt_regs *regs, int rx, int ry, int mask) {
         s390_fp_regs *fp_regs = &current->thread.fp_regs;
         FP_DECL_Q(QA);
@@ -637,8 +724,9 @@ static int emu_fixbr (struct pt_regs *regs, int rx, int ry, int mask) {
         return _fex;
 }
 
+/* Load floating point integer double */
 static int emu_fidbr (struct pt_regs *regs, int rx, int ry, int mask) {
-	
+	/* FIXME: rounding mode !! */
         s390_fp_regs *fp_regs = &current->thread.fp_regs;
         FP_DECL_D(DA);
         FP_DECL_EX;
@@ -657,6 +745,7 @@ static int emu_fidbr (struct pt_regs *regs, int rx, int ry, int mask) {
         return _fex;
 }
 
+/* Load floating point integer float */
 static int emu_fiebr (struct pt_regs *regs, int rx, int ry, int mask) {
         s390_fp_regs *fp_regs = &current->thread.fp_regs;
         FP_DECL_S(SA);
@@ -676,6 +765,7 @@ static int emu_fiebr (struct pt_regs *regs, int rx, int ry, int mask) {
         return _fex;
 }
 
+/* Load lengthened double to long double */
 static int emu_lxdbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_D(DA); FP_DECL_Q(QR);
 	FP_DECL_EX;
@@ -691,6 +781,7 @@ static int emu_lxdbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load lengthened double to long double */
 static int emu_lxdb (struct pt_regs *regs, int rx, double *val) {
         FP_DECL_D(DA); FP_DECL_Q(QR);
 	FP_DECL_EX;
@@ -706,6 +797,7 @@ static int emu_lxdb (struct pt_regs *regs, int rx, double *val) {
         return _fex;
 }
 
+/* Load lengthened float to long double */
 static int emu_lxebr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_S(SA); FP_DECL_Q(QR);
 	FP_DECL_EX;
@@ -721,6 +813,7 @@ static int emu_lxebr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load lengthened float to long double */
 static int emu_lxeb (struct pt_regs *regs, int rx, float *val) {
         FP_DECL_S(SA); FP_DECL_Q(QR);
 	FP_DECL_EX;
@@ -736,6 +829,7 @@ static int emu_lxeb (struct pt_regs *regs, int rx, float *val) {
         return _fex;
 }
 
+/* Load lengthened float to double */
 static int emu_ldebr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_S(SA); FP_DECL_D(DR);
 	FP_DECL_EX;
@@ -748,6 +842,7 @@ static int emu_ldebr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load lengthened float to double */
 static int emu_ldeb (struct pt_regs *regs, int rx, float *val) {
         FP_DECL_S(SA); FP_DECL_D(DR);
 	FP_DECL_EX;
@@ -760,6 +855,7 @@ static int emu_ldeb (struct pt_regs *regs, int rx, float *val) {
         return _fex;
 }
 
+/* Load negative long double */
 static int emu_lnxbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_Q(QA); FP_DECL_Q(QR);
 	FP_DECL_EX;
@@ -785,6 +881,7 @@ static int emu_lnxbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load negative double */
 static int emu_lndbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_D(DA); FP_DECL_D(DR);
 	FP_DECL_EX;
@@ -802,6 +899,7 @@ static int emu_lndbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load negative float */
 static int emu_lnebr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_S(SA); FP_DECL_S(SR);
 	FP_DECL_EX;
@@ -819,6 +917,7 @@ static int emu_lnebr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load positive long double */
 static int emu_lpxbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_Q(QA); FP_DECL_Q(QR);
 	FP_DECL_EX;
@@ -844,6 +943,7 @@ static int emu_lpxbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load positive double */
 static int emu_lpdbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_D(DA); FP_DECL_D(DR);
 	FP_DECL_EX;
@@ -861,6 +961,7 @@ static int emu_lpdbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load positive float */
 static int emu_lpebr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_S(SA); FP_DECL_S(SR);
 	FP_DECL_EX;
@@ -878,6 +979,7 @@ static int emu_lpebr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load rounded long double to double */
 static int emu_ldxbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_Q(QA); FP_DECL_D(DR);
 	FP_DECL_EX;
@@ -893,6 +995,7 @@ static int emu_ldxbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load rounded long double to float */
 static int emu_lexbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_Q(QA); FP_DECL_S(SR);
 	FP_DECL_EX;
@@ -908,6 +1011,7 @@ static int emu_lexbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Load rounded double to float */
 static int emu_ledbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_D(DA); FP_DECL_S(SR);
 	FP_DECL_EX;
@@ -920,6 +1024,7 @@ static int emu_ledbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Multiply long double */
 static int emu_mxbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_Q(QA); FP_DECL_Q(QB); FP_DECL_Q(QR);
         FP_DECL_EX;
@@ -940,6 +1045,7 @@ static int emu_mxbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Multiply double */
 static int emu_mdbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_D(DA); FP_DECL_D(DB); FP_DECL_D(DR);
         FP_DECL_EX;
@@ -953,6 +1059,7 @@ static int emu_mdbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Multiply double */
 static int emu_mdb (struct pt_regs *regs, int rx, double *val) {
         FP_DECL_D(DA); FP_DECL_D(DB); FP_DECL_D(DR);
         FP_DECL_EX;
@@ -966,6 +1073,7 @@ static int emu_mdb (struct pt_regs *regs, int rx, double *val) {
         return _fex;
 }
 
+/* Multiply double to long double */
 static int emu_mxdbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_D(DA); FP_DECL_Q(QA); FP_DECL_Q(QB); FP_DECL_Q(QR);
 	FP_DECL_EX;
@@ -984,6 +1092,7 @@ static int emu_mxdbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Multiply double to long double */
 static int emu_mxdb (struct pt_regs *regs, int rx, long double *val) {
         FP_DECL_Q(QA); FP_DECL_Q(QB); FP_DECL_Q(QR);
         FP_DECL_EX;
@@ -1002,6 +1111,7 @@ static int emu_mxdb (struct pt_regs *regs, int rx, long double *val) {
         return _fex;
 }
 
+/* Multiply float */
 static int emu_meebr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_S(SA); FP_DECL_S(SB); FP_DECL_S(SR);
         FP_DECL_EX;
@@ -1015,6 +1125,7 @@ static int emu_meebr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Multiply float */
 static int emu_meeb (struct pt_regs *regs, int rx, float *val) {
         FP_DECL_S(SA); FP_DECL_S(SB); FP_DECL_S(SR);
         FP_DECL_EX;
@@ -1028,6 +1139,7 @@ static int emu_meeb (struct pt_regs *regs, int rx, float *val) {
         return _fex;
 }
 
+/* Multiply float to double */
 static int emu_mdebr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_S(SA); FP_DECL_D(DA); FP_DECL_D(DB); FP_DECL_D(DR);
 	FP_DECL_EX;
@@ -1043,6 +1155,7 @@ static int emu_mdebr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Multiply float to double */
 static int emu_mdeb (struct pt_regs *regs, int rx, float *val) {
         FP_DECL_S(SA); FP_DECL_D(DA); FP_DECL_D(DB); FP_DECL_D(DR);
 	FP_DECL_EX;
@@ -1058,6 +1171,7 @@ static int emu_mdeb (struct pt_regs *regs, int rx, float *val) {
         return _fex;
 }
 
+/* Multiply and add double */
 static int emu_madbr (struct pt_regs *regs, int rx, int ry, int rz) {
         FP_DECL_D(DA); FP_DECL_D(DB); FP_DECL_D(DC); FP_DECL_D(DR);
         FP_DECL_EX;
@@ -1073,6 +1187,7 @@ static int emu_madbr (struct pt_regs *regs, int rx, int ry, int rz) {
         return _fex;
 }
 
+/* Multiply and add double */
 static int emu_madb (struct pt_regs *regs, int rx, double *val, int rz) {
         FP_DECL_D(DA); FP_DECL_D(DB); FP_DECL_D(DC); FP_DECL_D(DR);
         FP_DECL_EX;
@@ -1088,6 +1203,7 @@ static int emu_madb (struct pt_regs *regs, int rx, double *val, int rz) {
         return _fex;
 }
 
+/* Multiply and add float */
 static int emu_maebr (struct pt_regs *regs, int rx, int ry, int rz) {
         FP_DECL_S(SA); FP_DECL_S(SB); FP_DECL_S(SC); FP_DECL_S(SR);
         FP_DECL_EX;
@@ -1103,6 +1219,7 @@ static int emu_maebr (struct pt_regs *regs, int rx, int ry, int rz) {
         return _fex;
 }
 
+/* Multiply and add float */
 static int emu_maeb (struct pt_regs *regs, int rx, float *val, int rz) {
         FP_DECL_S(SA); FP_DECL_S(SB); FP_DECL_S(SC); FP_DECL_S(SR);
         FP_DECL_EX;
@@ -1118,6 +1235,7 @@ static int emu_maeb (struct pt_regs *regs, int rx, float *val, int rz) {
         return _fex;
 }
 
+/* Multiply and subtract double */
 static int emu_msdbr (struct pt_regs *regs, int rx, int ry, int rz) {
         FP_DECL_D(DA); FP_DECL_D(DB); FP_DECL_D(DC); FP_DECL_D(DR);
         FP_DECL_EX;
@@ -1133,6 +1251,7 @@ static int emu_msdbr (struct pt_regs *regs, int rx, int ry, int rz) {
         return _fex;
 }
 
+/* Multiply and subtract double */
 static int emu_msdb (struct pt_regs *regs, int rx, double *val, int rz) {
         FP_DECL_D(DA); FP_DECL_D(DB); FP_DECL_D(DC); FP_DECL_D(DR);
         FP_DECL_EX;
@@ -1148,6 +1267,7 @@ static int emu_msdb (struct pt_regs *regs, int rx, double *val, int rz) {
         return _fex;
 }
 
+/* Multiply and subtract float */
 static int emu_msebr (struct pt_regs *regs, int rx, int ry, int rz) {
         FP_DECL_S(SA); FP_DECL_S(SB); FP_DECL_S(SC); FP_DECL_S(SR);
         FP_DECL_EX;
@@ -1163,6 +1283,7 @@ static int emu_msebr (struct pt_regs *regs, int rx, int ry, int rz) {
         return _fex;
 }
 
+/* Multiply and subtract float */
 static int emu_mseb (struct pt_regs *regs, int rx, float *val, int rz) {
         FP_DECL_S(SA); FP_DECL_S(SB); FP_DECL_S(SC); FP_DECL_S(SR);
         FP_DECL_EX;
@@ -1178,6 +1299,7 @@ static int emu_mseb (struct pt_regs *regs, int rx, float *val, int rz) {
         return _fex;
 }
 
+/* Set floating point control word */
 static int emu_sfpc (struct pt_regs *regs, int rx, int ry) {
         __u32 temp;
 
@@ -1188,6 +1310,7 @@ static int emu_sfpc (struct pt_regs *regs, int rx, int ry) {
         return 0;
 }
 
+/* Square root long double */
 static int emu_sqxbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_Q(QA); FP_DECL_Q(QR);
         FP_DECL_EX;
@@ -1206,6 +1329,7 @@ static int emu_sqxbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Square root double */
 static int emu_sqdbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_D(DA); FP_DECL_D(DR);
         FP_DECL_EX;
@@ -1219,6 +1343,7 @@ static int emu_sqdbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Square root double */
 static int emu_sqdb (struct pt_regs *regs, int rx, double *val) {
         FP_DECL_D(DA); FP_DECL_D(DR);
         FP_DECL_EX;
@@ -1232,6 +1357,7 @@ static int emu_sqdb (struct pt_regs *regs, int rx, double *val) {
         return _fex;
 }
 
+/* Square root float */
 static int emu_sqebr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_S(SA); FP_DECL_S(SR);
         FP_DECL_EX;
@@ -1245,6 +1371,7 @@ static int emu_sqebr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Square root float */
 static int emu_sqeb (struct pt_regs *regs, int rx, float *val) {
         FP_DECL_S(SA); FP_DECL_S(SR);
         FP_DECL_EX;
@@ -1258,6 +1385,7 @@ static int emu_sqeb (struct pt_regs *regs, int rx, float *val) {
         return _fex;
 }
 
+/* Subtract long double */
 static int emu_sxbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_Q(QA); FP_DECL_Q(QB); FP_DECL_Q(QR);
         FP_DECL_EX;
@@ -1279,6 +1407,7 @@ static int emu_sxbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Subtract double */
 static int emu_sdbr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_D(DA); FP_DECL_D(DB); FP_DECL_D(DR);
         FP_DECL_EX;
@@ -1293,6 +1422,7 @@ static int emu_sdbr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Subtract double */
 static int emu_sdb (struct pt_regs *regs, int rx, double *val) {
         FP_DECL_D(DA); FP_DECL_D(DB); FP_DECL_D(DR);
         FP_DECL_EX;
@@ -1307,6 +1437,7 @@ static int emu_sdb (struct pt_regs *regs, int rx, double *val) {
         return _fex;
 }
 
+/* Subtract float */
 static int emu_sebr (struct pt_regs *regs, int rx, int ry) {
         FP_DECL_S(SA); FP_DECL_S(SB); FP_DECL_S(SR);
         FP_DECL_EX;
@@ -1321,6 +1452,7 @@ static int emu_sebr (struct pt_regs *regs, int rx, int ry) {
         return _fex;
 }
 
+/* Subtract float */
 static int emu_seb (struct pt_regs *regs, int rx, float *val) {
         FP_DECL_S(SA); FP_DECL_S(SB); FP_DECL_S(SR);
         FP_DECL_EX;
@@ -1335,6 +1467,7 @@ static int emu_seb (struct pt_regs *regs, int rx, float *val) {
         return _fex;
 }
 
+/* Test data class long double */
 static int emu_tcxb (struct pt_regs *regs, int rx, long val) {
         FP_DECL_Q(QA);
 	mathemu_ldcv cvt;
@@ -1345,21 +1478,21 @@ static int emu_tcxb (struct pt_regs *regs, int rx, long val) {
         FP_UNPACK_RAW_QP(QA, &cvt.ld);
 	switch (QA_e) {
 	default:
-		bit = 8;		
+		bit = 8;		/* normalized number */
 		break;
 	case 0:
 		if (_FP_FRAC_ZEROP_4(QA))
-			bit = 10;	
+			bit = 10;	/* zero */
 		else
-			bit = 6;	
+			bit = 6;	/* denormalized number */
 		break;
 	case _FP_EXPMAX_Q:
 		if (_FP_FRAC_ZEROP_4(QA))
-			bit = 4;	
+			bit = 4;	/* infinity */
 		else if (_FP_FRAC_HIGH_RAW_Q(QA) & _FP_QNANBIT_Q)
-			bit = 2;	
+			bit = 2;	/* quiet NAN */
 		else
-			bit = 0;	
+			bit = 0;	/* signaling NAN */
 		break;
 	}
 	if (!QA_s)
@@ -1368,6 +1501,7 @@ static int emu_tcxb (struct pt_regs *regs, int rx, long val) {
         return 0;
 }
 
+/* Test data class double */
 static int emu_tcdb (struct pt_regs *regs, int rx, long val) {
         FP_DECL_D(DA);
 	int bit;
@@ -1375,21 +1509,21 @@ static int emu_tcdb (struct pt_regs *regs, int rx, long val) {
         FP_UNPACK_RAW_DP(DA, &current->thread.fp_regs.fprs[rx].d);
 	switch (DA_e) {
 	default:
-		bit = 8;		
+		bit = 8;		/* normalized number */
 		break;
 	case 0:
 		if (_FP_FRAC_ZEROP_2(DA))
-			bit = 10;	
+			bit = 10;	/* zero */
 		else
-			bit = 6;	
+			bit = 6;	/* denormalized number */
 		break;
 	case _FP_EXPMAX_D:
 		if (_FP_FRAC_ZEROP_2(DA))
-			bit = 4;	
+			bit = 4;	/* infinity */
 		else if (_FP_FRAC_HIGH_RAW_D(DA) & _FP_QNANBIT_D)
-			bit = 2;	
+			bit = 2;	/* quiet NAN */
 		else
-			bit = 0;	
+			bit = 0;	/* signaling NAN */
 		break;
 	}
 	if (!DA_s)
@@ -1398,6 +1532,7 @@ static int emu_tcdb (struct pt_regs *regs, int rx, long val) {
         return 0;
 }
 
+/* Test data class float */
 static int emu_tceb (struct pt_regs *regs, int rx, long val) {
         FP_DECL_S(SA);
 	int bit;
@@ -1405,21 +1540,21 @@ static int emu_tceb (struct pt_regs *regs, int rx, long val) {
         FP_UNPACK_RAW_SP(SA, &current->thread.fp_regs.fprs[rx].f);
 	switch (SA_e) {
 	default:
-		bit = 8;		
+		bit = 8;		/* normalized number */
 		break;
 	case 0:
 		if (_FP_FRAC_ZEROP_1(SA))
-			bit = 10;	
+			bit = 10;	/* zero */
 		else
-			bit = 6;	
+			bit = 6;	/* denormalized number */
 		break;
 	case _FP_EXPMAX_S:
 		if (_FP_FRAC_ZEROP_1(SA))
-			bit = 4;	
+			bit = 4;	/* infinity */
 		else if (_FP_FRAC_HIGH_RAW_S(SA) & _FP_QNANBIT_S)
-			bit = 2;	
+			bit = 2;	/* quiet NAN */
 		else
-			bit = 0;	
+			bit = 0;	/* signaling NAN */
 		break;
 	}
 	if (!SA_s)
@@ -1429,50 +1564,50 @@ static int emu_tceb (struct pt_regs *regs, int rx, long val) {
 }
 
 static inline void emu_load_regd(int reg) {
-	if ((reg&9) != 0)	
+	if ((reg&9) != 0)	/* test if reg in {0,2,4,6} */
                 return;
-	asm volatile(		
+	asm volatile(		/* load reg from fp_regs.fprs[reg] */
 		"	bras	1,0f\n"
 		"	ld	0,0(%1)\n"
 		"0:	ex	%0,0(1)"
-		: 
+		: /* no output */
 		: "a" (reg<<4),"a" (&current->thread.fp_regs.fprs[reg].d)
 		: "1");
 }
 
 static inline void emu_load_rege(int reg) {
-	if ((reg&9) != 0)	
+	if ((reg&9) != 0)	/* test if reg in {0,2,4,6} */
                 return;
-	asm volatile(		
+	asm volatile(		/* load reg from fp_regs.fprs[reg] */
 		"	bras	1,0f\n"
 		"	le	0,0(%1)\n"
 		"0:	ex	%0,0(1)"
-		: 
+		: /* no output */
 		: "a" (reg<<4), "a" (&current->thread.fp_regs.fprs[reg].f)
 		: "1");
 }
 
 static inline void emu_store_regd(int reg) {
-	if ((reg&9) != 0)	
+	if ((reg&9) != 0)	/* test if reg in {0,2,4,6} */
                 return;
-	asm volatile(		
+	asm volatile(		/* store reg to fp_regs.fprs[reg] */
 		"	bras	1,0f\n"
 		"	std	0,0(%1)\n"
 		"0:	ex	%0,0(1)"
-		: 
+		: /* no output */
 		: "a" (reg<<4), "a" (&current->thread.fp_regs.fprs[reg].d)
 		: "1");
 }
 
 
 static inline void emu_store_rege(int reg) {
-	if ((reg&9) != 0)	
+	if ((reg&9) != 0)	/* test if reg in {0,2,4,6} */
                 return;
-	asm volatile(		
+	asm volatile(		/* store reg to fp_regs.fprs[reg] */
 		"	bras	1,0f\n"
 		"	ste	0,0(%1)\n"
 		"0:	ex	%0,0(1)"
-		: 
+		: /* no output */
 		: "a" (reg<<4), "a" (&current->thread.fp_regs.fprs[reg].f)
 		: "1");
 }
@@ -1520,14 +1655,14 @@ int math_emu_b3(__u8 *opcode, struct pt_regs * regs) {
         };
 
         switch (format_table[opcode[1]]) {
-        case 1: 
+        case 1: /* RRE format, long double operation */
                 if (opcode[3] & 0x22)
 			return SIGILL;
                 emu_store_regd((opcode[3] >> 4) & 15);
                 emu_store_regd(((opcode[3] >> 4) & 15) + 2);
                 emu_store_regd(opcode[3] & 15);
                 emu_store_regd((opcode[3] & 15) + 2);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *,int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15);
@@ -1536,34 +1671,34 @@ int math_emu_b3(__u8 *opcode, struct pt_regs * regs) {
                 emu_load_regd(opcode[3] & 15);
                 emu_load_regd((opcode[3] & 15) + 2);
 		break;
-        case 2: 
+        case 2: /* RRE format, double operation */
                 emu_store_regd((opcode[3] >> 4) & 15);
                 emu_store_regd(opcode[3] & 15);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15);
                 emu_load_regd((opcode[3] >> 4) & 15);
                 emu_load_regd(opcode[3] & 15);
 		break;
-        case 3: 
+        case 3: /* RRE format, float operation */
                 emu_store_rege((opcode[3] >> 4) & 15);
                 emu_store_rege(opcode[3] & 15);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15);
                 emu_load_rege((opcode[3] >> 4) & 15);
                 emu_load_rege(opcode[3] & 15);
 		break;
-        case 4: 
+        case 4: /* RRF format, long double operation */
                 if (opcode[3] & 0x22)
 			return SIGILL;
                 emu_store_regd((opcode[3] >> 4) & 15);
                 emu_store_regd(((opcode[3] >> 4) & 15) + 2);
                 emu_store_regd(opcode[3] & 15);
                 emu_store_regd((opcode[3] & 15) + 2);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15, opcode[2] >> 4);
@@ -1572,11 +1707,11 @@ int math_emu_b3(__u8 *opcode, struct pt_regs * regs) {
                 emu_load_regd(opcode[3] & 15);
                 emu_load_regd((opcode[3] & 15) + 2);
 		break;
-        case 5: 
+        case 5: /* RRF format, double operation */
                 emu_store_regd((opcode[2] >> 4) & 15);
                 emu_store_regd((opcode[3] >> 4) & 15);
                 emu_store_regd(opcode[3] & 15);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15, opcode[2] >> 4);
@@ -1584,11 +1719,11 @@ int math_emu_b3(__u8 *opcode, struct pt_regs * regs) {
                 emu_load_regd((opcode[3] >> 4) & 15);
                 emu_load_regd(opcode[3] & 15);
 		break;
-        case 6: 
+        case 6: /* RRF format, float operation */
                 emu_store_rege((opcode[2] >> 4) & 15);
                 emu_store_rege((opcode[3] >> 4) & 15);
                 emu_store_rege(opcode[3] & 15);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15, opcode[2] >> 4);
@@ -1596,8 +1731,8 @@ int math_emu_b3(__u8 *opcode, struct pt_regs * regs) {
                 emu_load_rege((opcode[3] >> 4) & 15);
                 emu_load_rege(opcode[3] & 15);
 		break;
-        case 7: 
-                
+        case 7: /* RRE format, cxfbr instruction */
+                /* call the emulation function */
                 if (opcode[3] & 0x20)
 			return SIGILL;
                 _fex = ((int (*)(struct pt_regs *, int, int))
@@ -1606,129 +1741,129 @@ int math_emu_b3(__u8 *opcode, struct pt_regs * regs) {
                 emu_load_regd((opcode[3] >> 4) & 15);
                 emu_load_regd(((opcode[3] >> 4) & 15) + 2);
 		break;
-        case 8: 
-                
+        case 8: /* RRE format, cdfbr instruction */
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15);
                 emu_load_regd((opcode[3] >> 4) & 15);
 		break;
-        case 9: 
-                
+        case 9: /* RRE format, cefbr instruction */
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15);
                 emu_load_rege((opcode[3] >> 4) & 15);
 		break;
-        case 10: 
+        case 10: /* RRF format, cfxbr instruction */
                 if ((opcode[2] & 128) == 128 || (opcode[2] & 96) == 32)
-			
+			/* mask of { 2,3,8-15 } is invalid */
 			return SIGILL;
                 if (opcode[3] & 2)
 			return SIGILL;
                 emu_store_regd(opcode[3] & 15);
                 emu_store_regd((opcode[3] & 15) + 2);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15, opcode[2] >> 4);
 		break;
-        case 11: 
+        case 11: /* RRF format, cfdbr instruction */
                 if ((opcode[2] & 128) == 128 || (opcode[2] & 96) == 32)
-			
+			/* mask of { 2,3,8-15 } is invalid */
 			return SIGILL;
                 emu_store_regd(opcode[3] & 15);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15, opcode[2] >> 4);
 		break;
-        case 12: 
+        case 12: /* RRF format, cfebr instruction */
                 if ((opcode[2] & 128) == 128 || (opcode[2] & 96) == 32)
-			
+			/* mask of { 2,3,8-15 } is invalid */
 			return SIGILL;
                 emu_store_rege(opcode[3] & 15);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15, opcode[2] >> 4);
 		break;
-        case 13: 
-                
+        case 13: /* RRE format, ldxbr & mdxbr instruction */
+                /* double store but long double load */
                 if (opcode[3] & 0x20)
 			return SIGILL;
                 emu_store_regd((opcode[3] >> 4) & 15);
                 emu_store_regd(opcode[3]  & 15);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15);
                 emu_load_regd((opcode[3] >> 4) & 15);
                 emu_load_regd(((opcode[3] >> 4) & 15) + 2);
 		break;
-        case 14: 
-                
+        case 14: /* RRE format, ldxbr & mdxbr instruction */
+                /* float store but long double load */
                 if (opcode[3] & 0x20)
 			return SIGILL;
                 emu_store_rege((opcode[3] >> 4) & 15);
                 emu_store_rege(opcode[3]  & 15);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15);
                 emu_load_regd((opcode[3] >> 4) & 15);
                 emu_load_regd(((opcode[3] >> 4) & 15) + 2);
 		break;
-        case 15: 
-                
+        case 15: /* RRE format, ldebr & mdebr instruction */
+                /* float store but double load */
                 emu_store_rege((opcode[3] >> 4) & 15);
                 emu_store_rege(opcode[3]  & 15);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15);
                 emu_load_regd((opcode[3] >> 4) & 15);
 		break;
-        case 16: 
-                
+        case 16: /* RRE format, ldxbr instruction */
+                /* long double store but double load */
                 if (opcode[3] & 2)
 			return SIGILL;
                 emu_store_regd(opcode[3] & 15);
                 emu_store_regd((opcode[3] & 15) + 2);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15);
                 emu_load_regd((opcode[3] >> 4) & 15);
                 break;
-        case 17: 
-                
+        case 17: /* RRE format, ldxbr instruction */
+                /* long double store but float load */
                 if (opcode[3] & 2)
 			return SIGILL;
                 emu_store_regd(opcode[3] & 15);
                 emu_store_regd((opcode[3] & 15) + 2);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15);
                 emu_load_rege((opcode[3] >> 4) & 15);
                 break;
-        case 18: 
-                
+        case 18: /* RRE format, ledbr instruction */
+                /* double store but float load */
                 emu_store_regd(opcode[3] & 15);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15);
                 emu_load_rege((opcode[3] >> 4) & 15);
                 break;
-        case 19: 
-                
+        case 19: /* RRE format, efpc & sfpc instruction */
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, int))
 			jump_table[opcode[1]])
                         (regs, opcode[3] >> 4, opcode[3] & 15);
                 break;
-        default: 
+        default: /* invalid operation */
                 return SIGILL;
         }
 	if (_fex != 0) {
@@ -1746,8 +1881,8 @@ static void* calc_addr(struct pt_regs *regs, int rx, int rb, int disp)
         rx &= 15;
         rb &= 15;
         addr = disp & 0xfff;
-        addr += (rx != 0) ? regs->gprs[rx] : 0;  
-        addr += (rb != 0) ? regs->gprs[rb] : 0;  
+        addr += (rx != 0) ? regs->gprs[rx] : 0;  /* + index */
+        addr += (rb != 0) ? regs->gprs[rb] : 0;  /* + base  */
         return (void*) addr;
 }
     
@@ -1776,7 +1911,7 @@ int math_emu_ed(__u8 *opcode, struct pt_regs * regs) {
         };
 
         switch (format_table[opcode[5]]) {
-        case 1:  {
+        case 1: /* RXE format, double constant */ {
                 __u64 *dxb, temp;
                 __u32 opc;
 
@@ -1784,14 +1919,14 @@ int math_emu_ed(__u8 *opcode, struct pt_regs * regs) {
                 opc = *((__u32 *) opcode);
                 dxb = (__u64 *) calc_addr(regs, opc >> 16, opc >> 12, opc);
                 mathemu_copy_from_user(&temp, dxb, 8);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, double *))
 			jump_table[opcode[5]])
                         (regs, opcode[1] >> 4, (double *) &temp);
                 emu_load_regd((opcode[1] >> 4) & 15);
                 break;
         }
-        case 2:  {
+        case 2: /* RXE format, float constant */ {
                 __u32 *dxb, temp;
                 __u32 opc;
 
@@ -1799,14 +1934,14 @@ int math_emu_ed(__u8 *opcode, struct pt_regs * regs) {
                 opc = *((__u32 *) opcode);
                 dxb = (__u32 *) calc_addr(regs, opc >> 16, opc >> 12, opc);
                 mathemu_get_user(temp, dxb);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, float *))
 			jump_table[opcode[5]])
                         (regs, opcode[1] >> 4, (float *) &temp);
                 emu_load_rege((opcode[1] >> 4) & 15);
                 break;
         }
-        case 3:  {
+        case 3: /* RXF format, double constant */ {
                 __u64 *dxb, temp;
                 __u32 opc;
 
@@ -1815,14 +1950,14 @@ int math_emu_ed(__u8 *opcode, struct pt_regs * regs) {
                 opc = *((__u32 *) opcode);
                 dxb = (__u64 *) calc_addr(regs, opc >> 16, opc >> 12, opc);
                 mathemu_copy_from_user(&temp, dxb, 8);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, double *, int))
 			jump_table[opcode[5]])
                         (regs, opcode[1] >> 4, (double *) &temp, opcode[4] >> 4);
                 emu_load_regd((opcode[1] >> 4) & 15);
                 break;
         }
-        case 4:  {
+        case 4: /* RXF format, float constant */ {
                 __u32 *dxb, temp;
                 __u32 opc;
 
@@ -1831,15 +1966,15 @@ int math_emu_ed(__u8 *opcode, struct pt_regs * regs) {
                 opc = *((__u32 *) opcode);
                 dxb = (__u32 *) calc_addr(regs, opc >> 16, opc >> 12, opc);
                 mathemu_get_user(temp, dxb);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, float *, int))
 			jump_table[opcode[5]])
                         (regs, opcode[1] >> 4, (float *) &temp, opcode[4] >> 4);
                 emu_load_rege((opcode[4] >> 4) & 15);
                 break;
         }
-        case 5: 
-                 
+        case 5: /* RXE format, double constant */
+                /* store double and load long double */ 
         {
                 __u64 *dxb, temp;
                 __u32 opc;
@@ -1849,7 +1984,7 @@ int math_emu_ed(__u8 *opcode, struct pt_regs * regs) {
                 opc = *((__u32 *) opcode);
                 dxb = (__u64 *) calc_addr(regs, opc >> 16, opc >> 12, opc);
                 mathemu_copy_from_user(&temp, dxb, 8);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, double *))
 			jump_table[opcode[5]])
                         (regs, opcode[1] >> 4, (double *) &temp);
@@ -1857,8 +1992,8 @@ int math_emu_ed(__u8 *opcode, struct pt_regs * regs) {
                 emu_load_regd(((opcode[1] >> 4) & 15) + 2);
                 break;
         }
-        case 6: 
-                 
+        case 6: /* RXE format, float constant */
+                /* store float and load double */ 
         {
                 __u32 *dxb, temp;
                 __u32 opc;
@@ -1866,15 +2001,15 @@ int math_emu_ed(__u8 *opcode, struct pt_regs * regs) {
                 opc = *((__u32 *) opcode);
                 dxb = (__u32 *) calc_addr(regs, opc >> 16, opc >> 12, opc);
                 mathemu_get_user(temp, dxb);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, float *))
 			jump_table[opcode[5]])
                         (regs, opcode[1] >> 4, (float *) &temp);
                 emu_load_regd((opcode[1] >> 4) & 15);
                 break;
         }
-        case 7: 
-                 
+        case 7: /* RXE format, float constant */
+                /* store float and load long double */ 
         {
                 __u32 *dxb, temp;
                 __u32 opc;
@@ -1884,7 +2019,7 @@ int math_emu_ed(__u8 *opcode, struct pt_regs * regs) {
                 opc = *((__u32 *) opcode);
                 dxb = (__u32 *) calc_addr(regs, opc >> 16, opc >> 12, opc);
                 mathemu_get_user(temp, dxb);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, float *))
 			jump_table[opcode[5]])
                         (regs, opcode[1] >> 4, (float *) &temp);
@@ -1892,33 +2027,33 @@ int math_emu_ed(__u8 *opcode, struct pt_regs * regs) {
                 emu_load_regd(((opcode[1] >> 4) & 15) + 2);
                 break;
         }
-        case 8:  {
+        case 8: /* RXE format, RX address used as int value */ {
                 __u64 dxb;
                 __u32 opc;
 
                 emu_store_rege((opcode[1] >> 4) & 15);
                 opc = *((__u32 *) opcode);
                 dxb = (__u64) calc_addr(regs, opc >> 16, opc >> 12, opc);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, long))
 			jump_table[opcode[5]])
                         (regs, opcode[1] >> 4, dxb);
                 break;
         }
-        case 9:  {
+        case 9: /* RXE format, RX address used as int value */ {
                 __u64 dxb;
                 __u32 opc;
 
                 emu_store_regd((opcode[1] >> 4) & 15);
                 opc = *((__u32 *) opcode);
                 dxb = (__u64) calc_addr(regs, opc >> 16, opc >> 12, opc);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, long))
 			jump_table[opcode[5]])
                         (regs, opcode[1] >> 4, dxb);
                 break;
         }
-        case 10:  {
+        case 10: /* RXE format, RX address used as int value */ {
                 __u64 dxb;
                 __u32 opc;
 
@@ -1928,13 +2063,13 @@ int math_emu_ed(__u8 *opcode, struct pt_regs * regs) {
                 emu_store_regd(((opcode[1] >> 4) & 15) + 2);
                 opc = *((__u32 *) opcode);
                 dxb = (__u64) calc_addr(regs, opc >> 16, opc >> 12, opc);
-                
+                /* call the emulation function */
                 _fex = ((int (*)(struct pt_regs *, int, long))
 			jump_table[opcode[5]])
                         (regs, opcode[1] >> 4, dxb);
                 break;
         }
-        default: 
+        default: /* invalid operation */
                 return SIGILL;
         }
 	if (_fex != 0) {
@@ -1945,60 +2080,69 @@ int math_emu_ed(__u8 *opcode, struct pt_regs * regs) {
 	return 0;
 }
 
+/*
+ * Emulate LDR Rx,Ry with Rx or Ry not in {0, 2, 4, 6}
+ */
 int math_emu_ldr(__u8 *opcode) {
         s390_fp_regs *fp_regs = &current->thread.fp_regs;
         __u16 opc = *((__u16 *) opcode);
 
-        if ((opc & 0x90) == 0) {           
-                
-		asm volatile(		
+        if ((opc & 0x90) == 0) {           /* test if rx in {0,2,4,6} */
+                /* we got an exception therefore ry can't be in {0,2,4,6} */
+		asm volatile(		/* load rx from fp_regs.fprs[ry] */
 			"	bras	1,0f\n"
 			"	ld	0,0(%1)\n"
 			"0:	ex	%0,0(1)"
-			: 
+			: /* no output */
 			: "a" (opc & 0xf0), "a" (&fp_regs->fprs[opc & 0xf].d)
 			: "1");
-        } else if ((opc & 0x9) == 0) {     
-		asm volatile (		
+        } else if ((opc & 0x9) == 0) {     /* test if ry in {0,2,4,6} */
+		asm volatile (		/* store ry to fp_regs.fprs[rx] */
 			"	bras	1,0f\n"
 			"	std	0,0(%1)\n"
 			"0:	ex	%0,0(1)"
-			: 
+			: /* no output */
 			: "a" ((opc & 0xf) << 4),
 			  "a" (&fp_regs->fprs[(opc & 0xf0)>>4].d)
 			: "1");
-        } else  
+        } else  /* move fp_regs.fprs[ry] to fp_regs.fprs[rx] */
                 fp_regs->fprs[(opc & 0xf0) >> 4] = fp_regs->fprs[opc & 0xf];
 	return 0;
 }
 
+/*
+ * Emulate LER Rx,Ry with Rx or Ry not in {0, 2, 4, 6}
+ */
 int math_emu_ler(__u8 *opcode) {
         s390_fp_regs *fp_regs = &current->thread.fp_regs;
         __u16 opc = *((__u16 *) opcode);
 
-        if ((opc & 0x90) == 0) {           
-                
-		asm volatile(		
+        if ((opc & 0x90) == 0) {           /* test if rx in {0,2,4,6} */
+                /* we got an exception therefore ry can't be in {0,2,4,6} */
+		asm volatile(		/* load rx from fp_regs.fprs[ry] */
 			"	bras	1,0f\n"
 			"	le	0,0(%1)\n"
 			"0:	ex	%0,0(1)"
-			: 
+			: /* no output */
 			: "a" (opc & 0xf0), "a" (&fp_regs->fprs[opc & 0xf].f)
 			: "1");
-        } else if ((opc & 0x9) == 0) {     
-		asm volatile(		
+        } else if ((opc & 0x9) == 0) {     /* test if ry in {0,2,4,6} */
+		asm volatile(		/* store ry to fp_regs.fprs[rx] */
 			"	bras	1,0f\n"
 			"	ste	0,0(%1)\n"
 			"0:	ex	%0,0(1)"
-			: 
+			: /* no output */
 			: "a" ((opc & 0xf) << 4),
 			  "a" (&fp_regs->fprs[(opc & 0xf0) >> 4].f)
 			: "1");
-        } else  
+        } else  /* move fp_regs.fprs[ry] to fp_regs.fprs[rx] */
                 fp_regs->fprs[(opc & 0xf0) >> 4] = fp_regs->fprs[opc & 0xf];
 	return 0;
 }
 
+/*
+ * Emulate LD R,D(X,B) with R not in {0, 2, 4, 6}
+ */
 int math_emu_ld(__u8 *opcode, struct pt_regs * regs) {
         s390_fp_regs *fp_regs = &current->thread.fp_regs;
         __u32 opc = *((__u32 *) opcode);
@@ -2009,6 +2153,9 @@ int math_emu_ld(__u8 *opcode, struct pt_regs * regs) {
 	return 0;
 }
 
+/*
+ * Emulate LE R,D(X,B) with R not in {0, 2, 4, 6}
+ */
 int math_emu_le(__u8 *opcode, struct pt_regs * regs) {
         s390_fp_regs *fp_regs = &current->thread.fp_regs;
         __u32 opc = *((__u32 *) opcode);
@@ -2020,6 +2167,9 @@ int math_emu_le(__u8 *opcode, struct pt_regs * regs) {
 	return 0;
 }
 
+/*
+ * Emulate STD R,D(X,B) with R not in {0, 2, 4, 6}
+ */
 int math_emu_std(__u8 *opcode, struct pt_regs * regs) {
         s390_fp_regs *fp_regs = &current->thread.fp_regs;
         __u32 opc = *((__u32 *) opcode);
@@ -2030,6 +2180,9 @@ int math_emu_std(__u8 *opcode, struct pt_regs * regs) {
 	return 0;
 }
 
+/*
+ * Emulate STE R,D(X,B) with R not in {0, 2, 4, 6}
+ */
 int math_emu_ste(__u8 *opcode, struct pt_regs * regs) {
         s390_fp_regs *fp_regs = &current->thread.fp_regs;
         __u32 opc = *((__u32 *) opcode);
@@ -2041,6 +2194,9 @@ int math_emu_ste(__u8 *opcode, struct pt_regs * regs) {
 	return 0;
 }
 
+/*
+ * Emulate LFPC D(B)
+ */
 int math_emu_lfpc(__u8 *opcode, struct pt_regs *regs) {
         __u32 opc = *((__u32 *) opcode);
         __u32 *dxb, temp;
@@ -2053,6 +2209,9 @@ int math_emu_lfpc(__u8 *opcode, struct pt_regs *regs) {
         return 0;
 }
 
+/*
+ * Emulate STFPC D(B)
+ */
 int math_emu_stfpc(__u8 *opcode, struct pt_regs *regs) {
         __u32 opc = *((__u32 *) opcode);
         __u32 *dxb;
@@ -2062,6 +2221,9 @@ int math_emu_stfpc(__u8 *opcode, struct pt_regs *regs) {
         return 0;
 }
 
+/*
+ * Emulate SRNM D(B)
+ */
 int math_emu_srnm(__u8 *opcode, struct pt_regs *regs) {
         __u32 opc = *((__u32 *) opcode);
         __u32 temp;
@@ -2072,6 +2234,7 @@ int math_emu_srnm(__u8 *opcode, struct pt_regs *regs) {
         return 0;
 }
 
+/* broken compiler ... */
 long long
 __negdi2 (long long u)
 {

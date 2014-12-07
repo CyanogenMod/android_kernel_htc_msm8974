@@ -51,7 +51,7 @@ static void mpc8xx_end_irq(struct irq_data *d)
 
 static int mpc8xx_set_irq_type(struct irq_data *d, unsigned int flow_type)
 {
-	
+	/* only external IRQ senses are programmable */
 	if ((flow_type & IRQ_TYPE_EDGE_FALLING) && !(irqd_to_hwirq(d) & 1)) {
 		unsigned int siel = in_be32(&siu_reg->sc_siel);
 		siel |= mpc8xx_irqd_to_bit(d);
@@ -74,6 +74,9 @@ unsigned int mpc8xx_get_irq(void)
 {
 	int irq;
 
+	/* For MPC8xx, read the SIVEC register and shift the bits down
+	 * to get the irq number.
+	 */
 	irq = in_be32(&siu_reg->sc_sivec) >> 26;
 
 	if (irq == PIC_VEC_SPURRIOUS)
@@ -88,7 +91,7 @@ static int mpc8xx_pic_host_map(struct irq_domain *h, unsigned int virq,
 {
 	pr_debug("mpc8xx_pic_host_map(%d, 0x%lx)\n", virq, hw);
 
-	
+	/* Set default irq handle */
 	irq_set_chip_and_handler(virq, &mpc8xx_pic, handle_level_irq);
 	return 0;
 }

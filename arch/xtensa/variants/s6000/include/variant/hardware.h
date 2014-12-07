@@ -18,6 +18,7 @@
 #define S6_MEM_PCIE_APER        0xC0000000
 #define S6_MEM_AUX              0xF0000000
 
+/* Device addresses */
 
 #define S6_REG_SCB              S6_MEM_REG
 #define S6_REG_NB               (S6_REG_SCB + 0x10000)
@@ -43,6 +44,7 @@
 #define S6_REG_I2C              (S6_REG_APB + 0x4000)
 #define S6_REG_GPIO             (S6_REG_APB + 0x8000)
 
+/* Global register block */
 
 #define S6_GREG1_PLL_LOCKCLEAR	0x000
 #define S6_GREG1_PLL_LOCK_SYS		0
@@ -204,24 +206,25 @@
 #define S6_GREG1_HWSEMAPHORE(n)	(0x400 + 4 * (n))
 #define S6_GREG1_HWSEMAPHORE_NB		16
 
+/* peripheral interrupt numbers */
 
-#define S6_INTC_GPIO(n)			(n)		
+#define S6_INTC_GPIO(n)			(n)		/* 0..3 */
 #define S6_INTC_I2C			4
 #define S6_INTC_SPI			5
 #define S6_INTC_NB_ERR			6
 #define S6_INTC_DMA_LMSERR		7
-#define S6_INTC_DMA_LMSLOWWMRK(n)	(8 + (n))	
-#define S6_INTC_DMA_LMSPENDCNT(n)	(20 + (n))	
-#define S6_INTC_DMA HOSTLOWWMRK(n)	(32 + (n))	
-#define S6_INTC_DMA_HOSTPENDCNT(n)	(39 + (n))	
+#define S6_INTC_DMA_LMSLOWWMRK(n)	(8 + (n))	/* 0..11 */
+#define S6_INTC_DMA_LMSPENDCNT(n)	(20 + (n))	/* 0..11 */
+#define S6_INTC_DMA HOSTLOWWMRK(n)	(32 + (n))	/* 0..6 */
+#define S6_INTC_DMA_HOSTPENDCNT(n)	(39 + (n))	/* 0..6 */
 #define S6_INTC_DMA_HOSTERR		46
-#define S6_INTC_UART(n)			(47 + (n))	
+#define S6_INTC_UART(n)			(47 + (n))	/* 0..1 */
 #define S6_INTC_XAD			49
 #define S6_INTC_NI_ERR			50
 #define S6_INTC_NI_INFIFOFULL		51
 #define S6_INTC_DMA_NIERR		52
-#define S6_INTC_DMA_NILOWWMRK(n)	(53 + (n))	
-#define S6_INTC_DMA_NIPENDCNT(n)	(57 + (n))	
+#define S6_INTC_DMA_NILOWWMRK(n)	(53 + (n))	/* 0..3 */
+#define S6_INTC_DMA_NIPENDCNT(n)	(57 + (n))	/* 0..3 */
 #define S6_INTC_DDR			61
 #define S6_INTC_NS_ERR			62
 #define S6_INTC_EFI_CFGERR		63
@@ -238,19 +241,19 @@
 #define S6_INTC_GMAC_ERR		74
 #define S6_INTC_GIB_ERR			75
 #define S6_INTC_PCIE_ERR		76
-#define S6_INTC_PCIE_MSI(n)		(77 + (n))	
+#define S6_INTC_PCIE_MSI(n)		(77 + (n))	/* 0..3 */
 #define S6_INTC_PCIE_INTA		81
 #define S6_INTC_PCIE_INTB		82
 #define S6_INTC_PCIE_INTC		83
 #define S6_INTC_PCIE_INTD		84
-#define S6_INTC_SW(n)			(85 + (n))	
+#define S6_INTC_SW(n)			(85 + (n))	/* 0..9 */
 #define S6_INTC_SW_ENABLE(n)		(85 + 256 + (n))
 #define S6_INTC_DMA_DP_ERR		95
-#define S6_INTC_DMA_DPLOWWMRK(n)	(96 + (n))	
-#define S6_INTC_DMA_DPPENDCNT(n)	(100 + (n))	
-#define S6_INTC_DMA_DPTERMCNT(n)	(104 + (n))	
+#define S6_INTC_DMA_DPLOWWMRK(n)	(96 + (n))	/* 0..3 */
+#define S6_INTC_DMA_DPPENDCNT(n)	(100 + (n))	/* 0..3 */
+#define S6_INTC_DMA_DPTERMCNT(n)	(104 + (n))	/* 0..3 */
 #define S6_INTC_TIMER0			108
 #define S6_INTC_TIMER1			109
-#define S6_INTC_DMA_HOSTTERMCNT(n)	(110 + (n))	
+#define S6_INTC_DMA_HOSTTERMCNT(n)	(110 + (n))	/* 0..6 */
 
-#endif 
+#endif /* __XTENSA_S6000_HARDWARE_H */

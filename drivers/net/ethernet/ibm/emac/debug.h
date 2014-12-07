@@ -80,4 +80,4 @@ extern void emac_dbg_dump_all(void);
 #  define RGMII_DBG2(d,f,x...) 	((void)0)
 #endif
 
-#endif 
+#endif /* __IBM_NEWEMAC_DEBUG_H */

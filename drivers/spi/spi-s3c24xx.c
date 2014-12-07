@@ -34,6 +34,13 @@
 
 #include "spi-s3c24xx-fiq.h"
 
+/**
+ * s3c24xx_spi_devstate - per device data
+ * @hz: Last frequency calculated for @sppre field.
+ * @mode: Last mode setting for the @spcon field.
+ * @spcon: Value to write to the SPCON register.
+ * @sppre: Value to write to the SPPRE register.
+ */
 struct s3c24xx_spi_devstate {
 	unsigned int	hz;
 	unsigned int	mode;
@@ -49,7 +56,7 @@ enum spi_fiq_mode {
 };
 
 struct s3c24xx_spi {
-	
+	/* bitbang has to be first */
 	struct spi_bitbang	 bitbang;
 	struct completion	 done;
 
@@ -66,7 +73,7 @@ struct s3c24xx_spi {
 	void			(*set_cs)(struct s3c2410_spi_info *spi,
 					  int cs, int pol);
 
-	
+	/* data buffers */
 	const unsigned char	*tx;
 	unsigned char		*rx;
 
@@ -98,7 +105,7 @@ static void s3c24xx_spi_chipsel(struct spi_device *spi, int value)
 	struct s3c24xx_spi *hw = to_hw(spi);
 	unsigned int cspol = spi->mode & SPI_CS_HIGH ? 1 : 0;
 
-	
+	/* change the chipselect state and the state of the spi engine clock */
 
 	switch (value) {
 	case BITBANG_CS_INACTIVE:
@@ -188,7 +195,7 @@ static int s3c24xx_spi_setup(struct spi_device *spi)
 	struct s3c24xx_spi *hw = to_hw(spi);
 	int ret;
 
-	
+	/* allocate settings on the first call */
 	if (!cs) {
 		cs = kzalloc(sizeof(struct s3c24xx_spi_devstate), GFP_KERNEL);
 		if (!cs) {
@@ -201,7 +208,7 @@ static int s3c24xx_spi_setup(struct spi_device *spi)
 		spi->controller_state = cs;
 	}
 
-	
+	/* initialise the state from the device */
 	ret = s3c24xx_spi_update_state(spi, NULL);
 	if (ret)
 		return ret;
@@ -209,7 +216,7 @@ static int s3c24xx_spi_setup(struct spi_device *spi)
 	spin_lock(&hw->bitbang.lock);
 	if (!hw->bitbang.busy) {
 		hw->bitbang.chipselect(spi, BITBANG_CS_INACTIVE);
-		
+		/* need to ndelay for 0.5 clocktick ? */
 	}
 	spin_unlock(&hw->bitbang.lock);
 
@@ -227,7 +234,20 @@ static inline unsigned int hw_txbyte(struct s3c24xx_spi *hw, int count)
 }
 
 #ifdef CONFIG_SPI_S3C24XX_FIQ
+/* Support for FIQ based pseudo-DMA to improve the transfer speed.
+ *
+ * This code uses the assembly helper in spi_s3c24xx_spi.S which is
+ * used by the FIQ core to move data between main memory and the peripheral
+ * block. Since this is code running on the processor, there is no problem
+ * with cache coherency of the buffers, so we can use any buffer we like.
+ */
 
+/**
+ * struct spi_fiq_code - FIQ code and header
+ * @length: The length of the code fragment, excluding this header.
+ * @ack_offset: The offset from @data to the word to place the IRQ ACK bit at.
+ * @data: The code itself to install as a FIQ handler.
+ */
 struct spi_fiq_code {
 	u32	length;
 	u32	ack_offset;
@@ -238,11 +258,28 @@ extern struct spi_fiq_code s3c24xx_spi_fiq_txrx;
 extern struct spi_fiq_code s3c24xx_spi_fiq_tx;
 extern struct spi_fiq_code s3c24xx_spi_fiq_rx;
 
+/**
+ * ack_bit - turn IRQ into IRQ acknowledgement bit
+ * @irq: The interrupt number
+ *
+ * Returns the bit to write to the interrupt acknowledge register.
+ */
 static inline u32 ack_bit(unsigned int irq)
 {
 	return 1 << (irq - IRQ_EINT0);
 }
 
+/**
+ * s3c24xx_spi_tryfiq - attempt to claim and setup FIQ for transfer
+ * @hw: The hardware state.
+ *
+ * Claim the FIQ handler (only one can be active at any one time) and
+ * then setup the correct transfer code for this transfer.
+ *
+ * This call updates all the necessary state information if successful,
+ * so the caller does not need to do anything more than start the transfer
+ * as normal, since the IRQ will have been re-routed to the FIQ handler.
+*/
 void s3c24xx_spi_tryfiq(struct s3c24xx_spi *hw)
 {
 	struct pt_regs regs;
@@ -251,6 +288,8 @@ void s3c24xx_spi_tryfiq(struct s3c24xx_spi *hw)
 	int ret;
 
 	if (!hw->fiq_claimed) {
+		/* try and claim fiq if we haven't got it, and if not
+		 * then return and simply use another transfer method */
 
 		ret = claim_fiq(&hw->fiq_handler);
 		if (ret)
@@ -305,6 +344,15 @@ void s3c24xx_spi_tryfiq(struct s3c24xx_spi *hw)
 	hw->fiq_inuse = 1;
 }
 
+/**
+ * s3c24xx_spi_fiqop - FIQ core code callback
+ * @pw: Data registered with the handler
+ * @release: Whether this is a release or a return.
+ *
+ * Called by the FIQ code when another module wants to use the FIQ, so
+ * return whether we are currently using this or not and then update our
+ * internal state.
+ */
 static int s3c24xx_spi_fiqop(void *pw, int release)
 {
 	struct s3c24xx_spi *hw = pw;
@@ -314,6 +362,8 @@ static int s3c24xx_spi_fiqop(void *pw, int release)
 		if (hw->fiq_inuse)
 			ret = -EBUSY;
 
+		/* note, we do not need to unroute the FIQ, as the FIQ
+		 * vector code de-routes it to signal the end of transfer */
 
 		hw->fiq_mode = FIQ_MODE_NONE;
 		hw->fiq_claimed = 0;
@@ -324,6 +374,12 @@ static int s3c24xx_spi_fiqop(void *pw, int release)
 	return ret;
 }
 
+/**
+ * s3c24xx_spi_initfiq - setup the information for the FIQ core
+ * @hw: The hardware state.
+ *
+ * Setup the fiq_handler block to pass to the FIQ core.
+ */
 static inline void s3c24xx_spi_initfiq(struct s3c24xx_spi *hw)
 {
 	hw->fiq_handler.dev_id = hw;
@@ -331,11 +387,25 @@ static inline void s3c24xx_spi_initfiq(struct s3c24xx_spi *hw)
 	hw->fiq_handler.fiq_op = s3c24xx_spi_fiqop;
 }
 
+/**
+ * s3c24xx_spi_usefiq - return if we should be using FIQ.
+ * @hw: The hardware state.
+ *
+ * Return true if the platform data specifies whether this channel is
+ * allowed to use the FIQ.
+ */
 static inline bool s3c24xx_spi_usefiq(struct s3c24xx_spi *hw)
 {
 	return hw->pdata->use_fiq;
 }
 
+/**
+ * s3c24xx_spi_usingfiq - return if channel is using FIQ
+ * @spi: The hardware state.
+ *
+ * Return whether the channel is currently using the FIQ (separate from
+ * whether the FIQ is claimed).
+ */
 static inline bool s3c24xx_spi_usingfiq(struct s3c24xx_spi *spi)
 {
 	return spi->fiq_inuse;
@@ -347,7 +417,7 @@ static inline void s3c24xx_spi_tryfiq(struct s3c24xx_spi *s) { }
 static inline bool s3c24xx_spi_usefiq(struct s3c24xx_spi *s) { return false; }
 static inline bool s3c24xx_spi_usingfiq(struct s3c24xx_spi *s) { return false; }
 
-#endif 
+#endif /* CONFIG_SPI_S3C24XX_FIQ */
 
 static int s3c24xx_spi_txrx(struct spi_device *spi, struct spi_transfer *t)
 {
@@ -364,7 +434,7 @@ static int s3c24xx_spi_txrx(struct spi_device *spi, struct spi_transfer *t)
 	if (s3c24xx_spi_usefiq(hw) && t->len >= 3)
 		s3c24xx_spi_tryfiq(hw);
 
-	
+	/* send the first byte */
 	writeb(hw_txbyte(hw, 0), hw->regs + S3C2410_SPTDAT);
 
 	wait_for_completion(&hw->done);
@@ -417,11 +487,11 @@ static irqreturn_t s3c24xx_spi_irq(int irq, void *dev)
 
 static void s3c24xx_spi_initialsetup(struct s3c24xx_spi *hw)
 {
-	
+	/* for the moment, permanently enable the clock */
 
 	clk_enable(hw->clk);
 
-	
+	/* program defaults into the registers */
 
 	writeb(0xff, hw->regs + S3C2410_SPPRE);
 	writeb(SPPIN_DEFAULT, hw->regs + S3C2410_SPPIN);
@@ -467,19 +537,19 @@ static int __devinit s3c24xx_spi_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, hw);
 	init_completion(&hw->done);
 
-	
+	/* initialise fiq handler */
 
 	s3c24xx_spi_initfiq(hw);
 
-	
+	/* setup the master state. */
 
-	
+	/* the spi->mode bits understood by this driver: */
 	master->mode_bits = SPI_CPOL | SPI_CPHA | SPI_CS_HIGH;
 
 	master->num_chipselect = hw->pdata->num_cs;
 	master->bus_num = pdata->bus_num;
 
-	
+	/* setup the state for the bitbang driver */
 
 	hw->bitbang.master         = hw->master;
 	hw->bitbang.setup_transfer = s3c24xx_spi_setupxfer;
@@ -491,7 +561,7 @@ static int __devinit s3c24xx_spi_probe(struct platform_device *pdev)
 
 	dev_dbg(hw->dev, "bitbang at %p\n", &hw->bitbang);
 
-	
+	/* find and map our resources */
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (res == NULL) {
@@ -536,7 +606,7 @@ static int __devinit s3c24xx_spi_probe(struct platform_device *pdev)
 		goto err_no_clk;
 	}
 
-	
+	/* setup any gpio we can */
 
 	if (!pdata->set_cs) {
 		if (pdata->pin_cs < 0) {
@@ -557,7 +627,7 @@ static int __devinit s3c24xx_spi_probe(struct platform_device *pdev)
 
 	s3c24xx_spi_initialsetup(hw);
 
-	
+	/* register our spi controller */
 
 	err = spi_bitbang_start(&hw->bitbang);
 	if (err) {
@@ -646,7 +716,7 @@ static const struct dev_pm_ops s3c24xx_spi_pmops = {
 #define S3C24XX_SPI_PMOPS &s3c24xx_spi_pmops
 #else
 #define S3C24XX_SPI_PMOPS NULL
-#endif 
+#endif /* CONFIG_PM */
 
 MODULE_ALIAS("platform:s3c2410-spi");
 static struct platform_driver s3c24xx_spi_driver = {

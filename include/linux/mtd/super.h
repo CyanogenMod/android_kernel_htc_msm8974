@@ -24,6 +24,6 @@ extern struct dentry *mount_mtd(struct file_system_type *fs_type, int flags,
 extern void kill_mtd_super(struct super_block *sb);
 
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __MTD_SUPER_H__ */

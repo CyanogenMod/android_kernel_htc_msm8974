@@ -15,4 +15,4 @@ typedef unsigned long uintptr_t;
 #define fdt64_to_cpu(x)		(x)
 #define cpu_to_fdt64(x)		(x)
 
-#endif 
+#endif /* _ARCH_POWERPC_BOOT_LIBFDT_ENV_H */

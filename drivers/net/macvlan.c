@@ -82,6 +82,9 @@ static void macvlan_hash_change_addr(struct macvlan_dev *vlan,
 					const unsigned char *addr)
 {
 	macvlan_hash_del(vlan, true);
+	/* Now that we are unhashed it is safe to change the device
+	 * address without confusing packet delivery.
+	 */
 	memcpy(vlan->dev->dev_addr, addr, ETH_ALEN);
 	macvlan_hash_add(vlan);
 }
@@ -89,6 +92,10 @@ static void macvlan_hash_change_addr(struct macvlan_dev *vlan,
 static int macvlan_addr_busy(const struct macvlan_port *port,
 				const unsigned char *addr)
 {
+	/* Test to see if the specified multicast address is
+	 * currently in use by the underlying device or
+	 * another macvlan.
+	 */
 	if (!compare_ether_addr_64bits(port->dev->dev_addr, addr))
 		return 1;
 
@@ -149,6 +156,7 @@ static void macvlan_broadcast(struct sk_buff *skb,
 	}
 }
 
+/* called under rcu_read_lock() from netif_receive_skb */
 static rx_handler_result_t macvlan_handle_frame(struct sk_buff **pskb)
 {
 	struct macvlan_port *port;
@@ -168,22 +176,26 @@ static rx_handler_result_t macvlan_handle_frame(struct sk_buff **pskb)
 		eth = eth_hdr(skb);
 		src = macvlan_hash_lookup(port, eth->h_source);
 		if (!src)
-			
+			/* frame comes from an external address */
 			macvlan_broadcast(skb, port, NULL,
 					  MACVLAN_MODE_PRIVATE |
 					  MACVLAN_MODE_VEPA    |
 					  MACVLAN_MODE_PASSTHRU|
 					  MACVLAN_MODE_BRIDGE);
 		else if (src->mode == MACVLAN_MODE_VEPA)
-			
+			/* flood to everyone except source */
 			macvlan_broadcast(skb, port, src->dev,
 					  MACVLAN_MODE_VEPA |
 					  MACVLAN_MODE_BRIDGE);
 		else if (src->mode == MACVLAN_MODE_BRIDGE)
+			/*
+			 * flood only to VEPA ports, bridge ports
+			 * already saw the frame on the way out.
+			 */
 			macvlan_broadcast(skb, port, src->dev,
 					  MACVLAN_MODE_VEPA);
 		else {
-			
+			/* forward to original port. */
 			vlan = src;
 			ret = macvlan_broadcast_one(skb, vlan, eth, 0);
 			goto out;
@@ -230,7 +242,7 @@ static int macvlan_queue_xmit(struct sk_buff *skb, struct net_device *dev)
 		const struct ethhdr *eth = (void *)skb->data;
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
 
-		
+		/* send to other bridge ports directly */
 		if (is_multicast_ether_addr(eth->h_dest)) {
 			macvlan_broadcast(skb, port, dev, MACVLAN_MODE_BRIDGE);
 			goto xmit_world;
@@ -238,7 +250,7 @@ static int macvlan_queue_xmit(struct sk_buff *skb, struct net_device *dev)
 
 		dest = macvlan_hash_lookup(port, eth->h_dest);
 		if (dest && dest->mode == MACVLAN_MODE_BRIDGE) {
-			
+			/* send to lowerdev first for its network taps */
 			dev_forward_skb(vlan->lowerdev, skb);
 
 			return NET_XMIT_SUCCESS;
@@ -359,11 +371,11 @@ static int macvlan_set_mac_address(struct net_device *dev, void *p)
 		return -EADDRNOTAVAIL;
 
 	if (!(dev->flags & IFF_UP)) {
-		
+		/* Just copy in the new address */
 		dev->addr_assign_type &= ~NET_ADDR_RANDOM;
 		memcpy(dev->dev_addr, addr->sa_data, ETH_ALEN);
 	} else {
-		
+		/* Rehash and update the device filters */
 		if (macvlan_addr_busy(vlan->port, addr->sa_data))
 			return -EBUSY;
 
@@ -404,6 +416,11 @@ static int macvlan_change_mtu(struct net_device *dev, int new_mtu)
 	return 0;
 }
 
+/*
+ * macvlan network devices have devices nesting below it and are a special
+ * "super class" of normal network devices; split their locks off into a
+ * separate class since they always nest.
+ */
 static struct lock_class_key macvlan_netdev_xmit_lock_key;
 static struct lock_class_key macvlan_netdev_addr_lock_key;
 
@@ -493,6 +510,9 @@ static struct rtnl_link_stats64 *macvlan_dev_get_stats64(struct net_device *dev,
 			stats->multicast	+= rx_multicast;
 			stats->tx_packets	+= tx_packets;
 			stats->tx_bytes		+= tx_bytes;
+			/* rx_errors & tx_dropped are u32, updated
+			 * without syncp protection.
+			 */
 			rx_errors	+= p->rx_errors;
 			tx_dropped	+= p->tx_dropped;
 		}
@@ -654,6 +674,9 @@ int macvlan_common_newlink(struct net *src_net, struct net_device *dev,
 	if (lowerdev == NULL)
 		return -ENODEV;
 
+	/* When creating macvlans on top of other macvlans - use
+	 * the real device as the lowerdev.
+	 */
 	if (lowerdev->rtnl_link_ops == dev->rtnl_link_ops) {
 		struct macvlan_dev *lowervlan = netdev_priv(lowerdev);
 		lowerdev = lowervlan->lowerdev;
@@ -674,7 +697,7 @@ int macvlan_common_newlink(struct net *src_net, struct net_device *dev,
 	}
 	port = macvlan_port_get(lowerdev);
 
-	
+	/* Only 1 macvlan device can be created in passthru mode */
 	if (port->passthru)
 		return -EINVAL;
 
@@ -763,7 +786,7 @@ static const struct nla_policy macvlan_policy[IFLA_MACVLAN_MAX + 1] = {
 
 int macvlan_link_register(struct rtnl_link_ops *ops)
 {
-	
+	/* common fields */
 	ops->priv_size		= sizeof(struct macvlan_dev);
 	ops->validate		= macvlan_validate;
 	ops->maxtype		= IFLA_MACVLAN_MAX;
@@ -810,7 +833,7 @@ static int macvlan_device_event(struct notifier_block *unused,
 		}
 		break;
 	case NETDEV_UNREGISTER:
-		
+		/* twiddle thumbs on netns device moves */
 		if (dev->reg_state != NETREG_UNREGISTERING)
 			break;
 
@@ -820,7 +843,7 @@ static int macvlan_device_event(struct notifier_block *unused,
 		list_del(&list_kill);
 		break;
 	case NETDEV_PRE_TYPE_CHANGE:
-		
+		/* Forbid underlaying device to change its type. */
 		return NOTIFY_BAD;
 	}
 	return NOTIFY_DONE;

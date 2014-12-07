@@ -81,6 +81,9 @@
 
 #define PCI_DEVICE_ID_INTEL_THERMAL_SENSOR 0x3b32
 
+/*
+ * Package level MSRs for monitor/control
+ */
 #define PLATFORM_INFO	0xce
 #define   PLATFORM_TDP		(1<<29)
 #define   PLATFORM_RATIO	(1<<28)
@@ -95,9 +98,15 @@
 #define   TURBO_TDP_OVR_EN	(1UL<<15)
 #define   TURBO_TDP_MASK	(0x0000000000003fffUL)
 
+/*
+ * Core/thread MSRs for monitoring
+ */
 #define IA32_PERF_CTL		0x199
 #define   IA32_PERF_TURBO_DIS	(1ULL<<32)
 
+/*
+ * Thermal PCI device regs
+ */
 #define THM_CFG_TBAR	0x10
 #define THM_CFG_TBAR_HI	0x14
 
@@ -139,21 +148,21 @@
 #define THM_TEN		0x21
 #define   TEN_UPDATE_EN	1
 #define THM_PSC		0x24
-#define   PSC_NTG	(1<<0) 
-#define   PSC_NTPC	(1<<1) 
-#define   PSC_PP_DEF	(0<<2) 
-#define   PSP_PP_PC	(1<<2) 
-#define   PSP_PP_BAL	(2<<2) 
-#define   PSP_PP_GFX	(3<<2) 
-#define   PSP_PBRT	(1<<4) 
+#define   PSC_NTG	(1<<0) /* No GFX turbo support */
+#define   PSC_NTPC	(1<<1) /* No CPU turbo support */
+#define   PSC_PP_DEF	(0<<2) /* Perf policy up to driver */
+#define   PSP_PP_PC	(1<<2) /* BIOS prefers CPU perf */
+#define   PSP_PP_BAL	(2<<2) /* BIOS wants balanced perf */
+#define   PSP_PP_GFX	(3<<2) /* BIOS prefers GFX perf */
+#define   PSP_PBRT	(1<<4) /* BIOS run time support */
 #define THM_CTV1	0x30
 #define   CTV_TEMP_ERROR (1<<15)
 #define   CTV_TEMP_MASK	0x3f
 #define   CTV_
 #define THM_CTV2	0x32
-#define THM_CEC		0x34 
+#define THM_CEC		0x34 /* undocumented power accumulator in joules */
 #define THM_AE		0x3f
-#define THM_HTS		0x50 
+#define THM_HTS		0x50 /* 32 bits */
 #define   HTS_PCPL_MASK	(0x7fe00000)
 #define   HTS_PCPL_SHIFT 21
 #define   HTS_GPL_MASK  (0x001ff000)
@@ -169,18 +178,18 @@
 #define   HTS_PTL_MASK  (0x000000fe)
 #define   HTS_PTL_SHIFT 1
 #define   HTS_NVV	(1<<0)
-#define THM_HTSHI	0x54 
+#define THM_HTSHI	0x54 /* 16 bits */
 #define   HTS2_PPL_MASK		(0x03ff)
 #define   HTS2_PRST_MASK	(0x3c00)
 #define   HTS2_PRST_SHIFT	10
 #define   HTS2_PRST_UNLOADED	0
 #define   HTS2_PRST_RUNNING	1
-#define   HTS2_PRST_TDISOP	2 
-#define   HTS2_PRST_TDISHT	3 
-#define   HTS2_PRST_TDISUSR	4 
-#define   HTS2_PRST_TDISPLAT	5 
-#define   HTS2_PRST_TDISPM	6 
-#define   HTS2_PRST_TDISERR	7 
+#define   HTS2_PRST_TDISOP	2 /* turbo disabled due to power */
+#define   HTS2_PRST_TDISHT	3 /* turbo disabled due to high temp */
+#define   HTS2_PRST_TDISUSR	4 /* user disabled turbo */
+#define   HTS2_PRST_TDISPLAT	5 /* platform disabled turbo */
+#define   HTS2_PRST_TDISPM	6 /* power management disabled turbo */
+#define   HTS2_PRST_TDISERR	7 /* some kind of error disabled turbo */
 #define THM_PTL		0x56
 #define THM_MGTV	0x58
 #define   TV_MASK	0x000000000000ff00
@@ -223,7 +232,7 @@
 #define THM_TC2		0xac
 #define THM_DTV		0xb0
 #define THM_ITV		0xd8
-#define   ITV_ME_SEQNO_MASK 0x00ff0000 
+#define   ITV_ME_SEQNO_MASK 0x00ff0000 /* ME should update every ~200ms */
 #define   ITV_ME_SEQNO_SHIFT (16)
 #define   ITV_MCH_TEMP_MASK 0x0000ff00
 #define   ITV_MCH_TEMP_SHIFT (8)
@@ -238,23 +247,26 @@
 #define thm_writew(off, val) writew((val), ips->regmap + (off))
 #define thm_writel(off, val) writel((val), ips->regmap + (off))
 
-static const int IPS_ADJUST_PERIOD = 5000; 
+static const int IPS_ADJUST_PERIOD = 5000; /* ms */
 static bool late_i915_load = false;
 
-static const int IPS_SAMPLE_PERIOD = 200; 
-static const int IPS_SAMPLE_WINDOW = 5000; 
+/* For initial average collection */
+static const int IPS_SAMPLE_PERIOD = 200; /* ms */
+static const int IPS_SAMPLE_WINDOW = 5000; /* 5s moving window of samples */
 #define IPS_SAMPLE_COUNT (IPS_SAMPLE_WINDOW / IPS_SAMPLE_PERIOD)
 
+/* Per-SKU limits */
 struct ips_mcp_limits {
 	int cpu_family;
-	int cpu_model; 
-	int mcp_power_limit; 
+	int cpu_model; /* includes extended model... */
+	int mcp_power_limit; /* mW units */
 	int core_power_limit;
 	int mch_power_limit;
-	int core_temp_limit; 
+	int core_temp_limit; /* degrees C */
 	int mch_temp_limit;
 };
 
+/* Max temps are -10 degrees C to avoid PROCHOT# */
 
 struct ips_mcp_limits ips_sv_limits = {
 	.mcp_power_limit = 35000,
@@ -287,23 +299,23 @@ struct ips_driver {
 	struct task_struct *adjust;
 	struct dentry *debug_root;
 
-	
+	/* Average CPU core temps (all averages in .01 degrees C for precision) */
 	u16 ctv1_avg_temp;
 	u16 ctv2_avg_temp;
-	
+	/* GMCH average */
 	u16 mch_avg_temp;
-	
+	/* Average for the CPU (both cores?) */
 	u16 mcp_avg_temp;
-	
+	/* Average power consumption (in mW) */
 	u32 cpu_avg_power;
 	u32 mch_avg_power;
 
-	
+	/* Offset values */
 	u16 cta_val;
 	u16 pta_val;
 	u16 mgta_val;
 
-	
+	/* Maximums & prefs, protected by turbo status lock */
 	spinlock_t turbo_status_lock;
 	u16 mcp_temp_limit;
 	u16 mcp_power_limit;
@@ -319,14 +331,14 @@ struct ips_driver {
 	bool turbo_toggle_allowed;
 	struct ips_mcp_limits *limits;
 
-	
+	/* Optional MCH interfaces for if i915 is in use */
 	unsigned long (*read_mch_val)(void);
 	bool (*gpu_raise)(void);
 	bool (*gpu_lower)(void);
 	bool (*gpu_busy)(void);
 	bool (*gpu_turbo_disable)(void);
 
-	
+	/* For restoration at unload */
 	u64 orig_turbo_limit;
 	u64 orig_turbo_ratios;
 };
@@ -334,6 +346,15 @@ struct ips_driver {
 static bool
 ips_gpu_turbo_enabled(struct ips_driver *ips);
 
+/**
+ * ips_cpu_busy - is CPU busy?
+ * @ips: IPS driver struct
+ *
+ * Check CPU for load to see whether we should increase its thermal budget.
+ *
+ * RETURNS:
+ * True if the CPU could use more power, false otherwise.
+ */
 static bool ips_cpu_busy(struct ips_driver *ips)
 {
 	if ((avenrun[0] >> FSHIFT) > 1)
@@ -342,6 +363,16 @@ static bool ips_cpu_busy(struct ips_driver *ips)
 	return false;
 }
 
+/**
+ * ips_cpu_raise - raise CPU power clamp
+ * @ips: IPS driver struct
+ *
+ * Raise the CPU power clamp by %IPS_CPU_STEP, in accordance with TDP for
+ * this platform.
+ *
+ * We do this by adjusting the TURBO_POWER_CURRENT_LIMIT MSR upwards (as
+ * long as we haven't hit the TDP limit for the SKU).
+ */
 static void ips_cpu_raise(struct ips_driver *ips)
 {
 	u64 turbo_override;
@@ -353,9 +384,9 @@ static void ips_cpu_raise(struct ips_driver *ips)
 	rdmsrl(TURBO_POWER_CURRENT_LIMIT, turbo_override);
 
 	cur_tdp_limit = turbo_override & TURBO_TDP_MASK;
-	new_tdp_limit = cur_tdp_limit + 8; 
+	new_tdp_limit = cur_tdp_limit + 8; /* 1W increase */
 
-	
+	/* Clamp to SKU TDP limit */
 	if (((new_tdp_limit * 10) / 8) > ips->core_power_limit)
 		new_tdp_limit = cur_tdp_limit;
 
@@ -370,6 +401,16 @@ static void ips_cpu_raise(struct ips_driver *ips)
 	wrmsrl(TURBO_POWER_CURRENT_LIMIT, turbo_override);
 }
 
+/**
+ * ips_cpu_lower - lower CPU power clamp
+ * @ips: IPS driver struct
+ *
+ * Lower CPU power clamp b %IPS_CPU_STEP if possible.
+ *
+ * We do this by adjusting the TURBO_POWER_CURRENT_LIMIT MSR down, going
+ * as low as the platform limits will allow (though we could go lower there
+ * wouldn't be much point).
+ */
 static void ips_cpu_lower(struct ips_driver *ips)
 {
 	u64 turbo_override;
@@ -378,9 +419,9 @@ static void ips_cpu_lower(struct ips_driver *ips)
 	rdmsrl(TURBO_POWER_CURRENT_LIMIT, turbo_override);
 
 	cur_limit = turbo_override & TURBO_TDP_MASK;
-	new_limit = cur_limit - 8; 
+	new_limit = cur_limit - 8; /* 1W decrease */
 
-	
+	/* Clamp to SKU TDP limit */
 	if (new_limit  < (ips->orig_turbo_limit & TURBO_TDP_MASK))
 		new_limit = ips->orig_turbo_limit & TURBO_TDP_MASK;
 
@@ -395,6 +436,14 @@ static void ips_cpu_lower(struct ips_driver *ips)
 	wrmsrl(TURBO_POWER_CURRENT_LIMIT, turbo_override);
 }
 
+/**
+ * do_enable_cpu_turbo - internal turbo enable function
+ * @data: unused
+ *
+ * Internal function for actually updating MSRs.  When we enable/disable
+ * turbo, we need to do it on each CPU; this function is the one called
+ * by on_each_cpu() when needed.
+ */
 static void do_enable_cpu_turbo(void *data)
 {
 	u64 perf_ctl;
@@ -406,9 +455,16 @@ static void do_enable_cpu_turbo(void *data)
 	}
 }
 
+/**
+ * ips_enable_cpu_turbo - enable turbo mode on all CPUs
+ * @ips: IPS driver struct
+ *
+ * Enable turbo mode by clearing the disable bit in IA32_PERF_CTL on
+ * all logical threads.
+ */
 static void ips_enable_cpu_turbo(struct ips_driver *ips)
 {
-	
+	/* Already on, no need to mess with MSRs */
 	if (ips->__cpu_turbo_on)
 		return;
 
@@ -418,6 +474,14 @@ static void ips_enable_cpu_turbo(struct ips_driver *ips)
 	ips->__cpu_turbo_on = true;
 }
 
+/**
+ * do_disable_cpu_turbo - internal turbo disable function
+ * @data: unused
+ *
+ * Internal function for actually updating MSRs.  When we enable/disable
+ * turbo, we need to do it on each CPU; this function is the one called
+ * by on_each_cpu() when needed.
+ */
 static void do_disable_cpu_turbo(void *data)
 {
 	u64 perf_ctl;
@@ -429,9 +493,16 @@ static void do_disable_cpu_turbo(void *data)
 	}
 }
 
+/**
+ * ips_disable_cpu_turbo - disable turbo mode on all CPUs
+ * @ips: IPS driver struct
+ *
+ * Disable turbo mode by setting the disable bit in IA32_PERF_CTL on
+ * all logical threads.
+ */
 static void ips_disable_cpu_turbo(struct ips_driver *ips)
 {
-	
+	/* Already off, leave it */
 	if (!ips->__cpu_turbo_on)
 		return;
 
@@ -441,6 +512,16 @@ static void ips_disable_cpu_turbo(struct ips_driver *ips)
 	ips->__cpu_turbo_on = false;
 }
 
+/**
+ * ips_gpu_busy - is GPU busy?
+ * @ips: IPS driver struct
+ *
+ * Check GPU for load to see whether we should increase its thermal budget.
+ * We need to call into the i915 driver in this case.
+ *
+ * RETURNS:
+ * True if the GPU could use more power, false otherwise.
+ */
 static bool ips_gpu_busy(struct ips_driver *ips)
 {
 	if (!ips_gpu_turbo_enabled(ips))
@@ -449,6 +530,13 @@ static bool ips_gpu_busy(struct ips_driver *ips)
 	return ips->gpu_busy();
 }
 
+/**
+ * ips_gpu_raise - raise GPU power clamp
+ * @ips: IPS driver struct
+ *
+ * Raise the GPU frequency/power if possible.  We need to call into the
+ * i915 driver in this case.
+ */
 static void ips_gpu_raise(struct ips_driver *ips)
 {
 	if (!ips_gpu_turbo_enabled(ips))
@@ -460,6 +548,12 @@ static void ips_gpu_raise(struct ips_driver *ips)
 	return;
 }
 
+/**
+ * ips_gpu_lower - lower GPU power clamp
+ * @ips: IPS driver struct
+ *
+ * Lower GPU frequency/power if possible.  Need to call i915.
+ */
 static void ips_gpu_lower(struct ips_driver *ips)
 {
 	if (!ips_gpu_turbo_enabled(ips))
@@ -471,6 +565,13 @@ static void ips_gpu_lower(struct ips_driver *ips)
 	return;
 }
 
+/**
+ * ips_enable_gpu_turbo - notify the gfx driver turbo is available
+ * @ips: IPS driver struct
+ *
+ * Call into the graphics driver indicating that it can safely use
+ * turbo mode.
+ */
 static void ips_enable_gpu_turbo(struct ips_driver *ips)
 {
 	if (ips->__gpu_turbo_on)
@@ -478,9 +579,15 @@ static void ips_enable_gpu_turbo(struct ips_driver *ips)
 	ips->__gpu_turbo_on = true;
 }
 
+/**
+ * ips_disable_gpu_turbo - notify the gfx driver to disable turbo mode
+ * @ips: IPS driver struct
+ *
+ * Request that the graphics driver disable turbo mode.
+ */
 static void ips_disable_gpu_turbo(struct ips_driver *ips)
 {
-	
+	/* Avoid calling i915 if turbo is already disabled */
 	if (!ips->__gpu_turbo_on)
 		return;
 
@@ -490,6 +597,12 @@ static void ips_disable_gpu_turbo(struct ips_driver *ips)
 		ips->__gpu_turbo_on = false;
 }
 
+/**
+ * mcp_exceeded - check whether we're outside our thermal & power limits
+ * @ips: IPS driver struct
+ *
+ * Check whether the MCP is over its thermal or power budget.
+ */
 static bool mcp_exceeded(struct ips_driver *ips)
 {
 	unsigned long flags;
@@ -512,6 +625,13 @@ static bool mcp_exceeded(struct ips_driver *ips)
 	return ret;
 }
 
+/**
+ * cpu_exceeded - check whether a CPU core is outside its limits
+ * @ips: IPS driver struct
+ * @cpu: CPU number to check
+ *
+ * Check a given CPU's average temp or power is over its limit.
+ */
 static bool cpu_exceeded(struct ips_driver *ips, int cpu)
 {
 	unsigned long flags;
@@ -533,6 +653,12 @@ static bool cpu_exceeded(struct ips_driver *ips, int cpu)
 	return ret;
 }
 
+/**
+ * mch_exceeded - check whether the GPU is over budget
+ * @ips: IPS driver struct
+ *
+ * Check the MCH temp & power against their maximums.
+ */
 static bool mch_exceeded(struct ips_driver *ips)
 {
 	unsigned long flags;
@@ -548,6 +674,14 @@ static bool mch_exceeded(struct ips_driver *ips)
 	return ret;
 }
 
+/**
+ * verify_limits - verify BIOS provided limits
+ * @ips: IPS structure
+ *
+ * BIOS can optionally provide non-default limits for power and temp.  Check
+ * them here and use the defaults if the BIOS values are not provided or
+ * are otherwise unusable.
+ */
 static void verify_limits(struct ips_driver *ips)
 {
 	if (ips->mcp_power_limit < ips->limits->mcp_power_limit ||
@@ -561,11 +695,28 @@ static void verify_limits(struct ips_driver *ips)
 					  ips->limits->mch_temp_limit);
 }
 
+/**
+ * update_turbo_limits - get various limits & settings from regs
+ * @ips: IPS driver struct
+ *
+ * Update the IPS power & temp limits, along with turbo enable flags,
+ * based on latest register contents.
+ *
+ * Used at init time and for runtime BIOS support, which requires polling
+ * the regs for updates (as a result of AC->DC transition for example).
+ *
+ * LOCKING:
+ * Caller must hold turbo_status_lock (outside of init)
+ */
 static void update_turbo_limits(struct ips_driver *ips)
 {
 	u32 hts = thm_readl(THM_HTS);
 
 	ips->cpu_turbo_enabled = !(hts & HTS_PCTD_DIS);
+	/* 
+	 * Disable turbo for now, until we can figure out why the power figures
+	 * are wrong
+	 */
 	ips->cpu_turbo_enabled = false;
 
 	if (ips->gpu_busy)
@@ -577,9 +728,40 @@ static void update_turbo_limits(struct ips_driver *ips)
 	ips->mcp_power_limit = thm_readw(THM_MPPC);
 
 	verify_limits(ips);
-	
+	/* Ignore BIOS CPU vs GPU pref */
 }
 
+/**
+ * ips_adjust - adjust power clamp based on thermal state
+ * @data: ips driver structure
+ *
+ * Wake up every 5s or so and check whether we should adjust the power clamp.
+ * Check CPU and GPU load to determine which needs adjustment.  There are
+ * several things to consider here:
+ *   - do we need to adjust up or down?
+ *   - is CPU busy?
+ *   - is GPU busy?
+ *   - is CPU in turbo?
+ *   - is GPU in turbo?
+ *   - is CPU or GPU preferred? (CPU is default)
+ *
+ * So, given the above, we do the following:
+ *   - up (TDP available)
+ *     - CPU not busy, GPU not busy - nothing
+ *     - CPU busy, GPU not busy - adjust CPU up
+ *     - CPU not busy, GPU busy - adjust GPU up
+ *     - CPU busy, GPU busy - adjust preferred unit up, taking headroom from
+ *       non-preferred unit if necessary
+ *   - down (at TDP limit)
+ *     - adjust both CPU and GPU down if possible
+ *
+		cpu+ gpu+	cpu+gpu-	cpu-gpu+	cpu-gpu-
+cpu < gpu <	cpu+gpu+	cpu+		gpu+		nothing
+cpu < gpu >=	cpu+gpu-(mcp<)	cpu+gpu-(mcp<)	gpu-		gpu-
+cpu >= gpu <	cpu-gpu+(mcp<)	cpu-		cpu-gpu+(mcp<)	cpu-
+cpu >= gpu >=	cpu-gpu-	cpu-gpu-	cpu-gpu-	cpu-gpu-
+ *
+ */
 static int ips_adjust(void *data)
 {
 	struct ips_driver *ips = data;
@@ -587,6 +769,10 @@ static int ips_adjust(void *data)
 
 	dev_dbg(&ips->dev->dev, "starting ips-adjust thread\n");
 
+	/*
+	 * Adjust CPU and GPU clamps every 5s if needed.  Doing it more
+	 * often isn't recommended due to ME interaction.
+	 */
 	do {
 		bool cpu_busy = ips_cpu_busy(ips);
 		bool gpu_busy = ips_gpu_busy(ips);
@@ -596,7 +782,7 @@ static int ips_adjust(void *data)
 			update_turbo_limits(ips);
 		spin_unlock_irqrestore(&ips->turbo_status_lock, flags);
 
-		
+		/* Update turbo status if necessary */
 		if (ips->cpu_turbo_enabled)
 			ips_enable_cpu_turbo(ips);
 		else
@@ -607,7 +793,7 @@ static int ips_adjust(void *data)
 		else
 			ips_disable_gpu_turbo(ips);
 
-		
+		/* We're outside our comfort zone, crank them down */
 		if (mcp_exceeded(ips)) {
 			ips_cpu_lower(ips);
 			ips_gpu_lower(ips);
@@ -633,6 +819,10 @@ sleep:
 	return 0;
 }
 
+/*
+ * Helpers for reading out temp/power values and calculating their
+ * averages for the decision making and monitoring functions.
+ */
 
 static u16 calc_avg_temp(struct ips_driver *ips, u16 *array)
 {
@@ -665,7 +855,7 @@ static u16 read_mgtv(struct ips_driver *ips)
 
 	ret = ((val * slope + 0x40) >> 7) + offset;
 
-	return 0; 
+	return 0; /* MCH temp reporting buggy */
 }
 
 static u16 read_ptv(struct ips_driver *ips)
@@ -687,7 +877,7 @@ static u16 read_ctv(struct ips_driver *ips, int cpu)
 
 	val = thm_readw(reg);
 	if (!(val & CTV_TEMP_ERROR))
-		val = (val) >> 6; 
+		val = (val) >> 6; /* discard fractional component */
 	else
 		val = 0;
 
@@ -699,9 +889,13 @@ static u32 get_cpu_power(struct ips_driver *ips, u32 *last, int period)
 	u32 val;
 	u32 ret;
 
+	/*
+	 * CEC is in joules/65535.  Take difference over time to
+	 * get watts.
+	 */
 	val = thm_readl(THM_CEC);
 
-	
+	/* period is in ms and we want mW */
 	ret = (((val - *last) * 1000) / period);
 	ret = (ret * 1000) / 65535;
 	*last = val;
@@ -714,7 +908,7 @@ static u16 update_average_temp(u16 avg, u16 val)
 {
 	u16 ret;
 
-	
+	/* Multiply by 100 for extra precision */
 	ret = (val * 100 / temp_decay_factor) +
 		(((temp_decay_factor - 1) * avg) / temp_decay_factor);
 	return ret;
@@ -751,6 +945,17 @@ static void monitor_timeout(unsigned long arg)
 	wake_up_process((struct task_struct *)arg);
 }
 
+/**
+ * ips_monitor - temp/power monitoring thread
+ * @data: ips driver structure
+ *
+ * This is the main function for the IPS driver.  It monitors power and
+ * tempurature in the MCP and adjusts CPU and GPU power clams accordingly.
+ *
+ * We keep a 5s moving average of power consumption and tempurature.  Using
+ * that data, along with CPU vs GPU preference, we adjust the power clamps
+ * up or down.
+ */
 static int ips_monitor(void *data)
 {
 	struct ips_driver *ips = data;
@@ -787,7 +992,7 @@ static int ips_monitor(void *data)
 	old_cpu_power = thm_readl(THM_CEC);
 	schedule_timeout_interruptible(msecs_to_jiffies(IPS_SAMPLE_PERIOD));
 
-	
+	/* Collect an initial average */
 	for (i = 0; i < IPS_SAMPLE_COUNT; i++) {
 		u32 mchp, cpu_power;
 		u16 val;
@@ -830,9 +1035,14 @@ static int ips_monitor(void *data)
 	kfree(cpu_samples);
 	kfree(mchp_samples);
 
-	
+	/* Start the adjustment thread now that we have data */
 	wake_up_process(ips->adjust);
 
+	/*
+	 * Ok, now we have an initial avg.  From here on out, we track the
+	 * running avg using a decaying average calculation.  This allows
+	 * us to reduce the sample frequency if the CPU and GPU are idle.
+	 */
 	old_cpu_power = thm_readl(THM_CEC);
 	schedule_timeout_interruptible(msecs_to_jiffies(IPS_SAMPLE_PERIOD));
 	last_sample_period = IPS_SAMPLE_PERIOD;
@@ -843,31 +1053,31 @@ static int ips_monitor(void *data)
 		u32 cpu_val, mch_val;
 		u16 val;
 
-		
+		/* MCP itself */
 		val = read_ptv(ips);
 		ips->mcp_avg_temp = update_average_temp(ips->mcp_avg_temp, val);
 
-		
+		/* Processor 0 */
 		val = read_ctv(ips, 0);
 		ips->ctv1_avg_temp =
 			update_average_temp(ips->ctv1_avg_temp, val);
-		
+		/* Power */
 		cpu_val = get_cpu_power(ips, &old_cpu_power,
 					last_sample_period);
 		ips->cpu_avg_power =
 			update_average_power(ips->cpu_avg_power, cpu_val);
 
 		if (ips->second_cpu) {
-			
+			/* Processor 1 */
 			val = read_ctv(ips, 1);
 			ips->ctv2_avg_temp =
 				update_average_temp(ips->ctv2_avg_temp, val);
 		}
 
-		
+		/* MCH */
 		val = read_mgtv(ips);
 		ips->mch_avg_temp = update_average_temp(ips->mch_avg_temp, val);
-		
+		/* Power */
 		if (ips->read_mch_val) {
 			mch_val = ips->read_mch_val();
 			ips->mch_avg_power =
@@ -875,6 +1085,12 @@ static int ips_monitor(void *data)
 						     mch_val);
 		}
 
+		/*
+		 * Make sure ME is updating thermal regs.
+		 * Note:
+		 * If it's been more than a second since the last update,
+		 * the ME is probably hung.
+		 */
 		cur_seqno = (thm_readl(THM_ITV) & ITV_ME_SEQNO_MASK) >>
 			ITV_ME_SEQNO_SHIFT;
 		if (cur_seqno == last_seqno &&
@@ -892,7 +1108,7 @@ static int ips_monitor(void *data)
 		mod_timer(&timer, expire);
 		schedule();
 
-		
+		/* Calculate actual sample period for power averaging */
 		last_sample_period = jiffies_to_msecs(jiffies) - last_msecs;
 		if (!last_sample_period)
 			last_sample_period = 1;
@@ -939,6 +1155,15 @@ static void dump_thermal_info(struct ips_driver *ips)
 }
 #endif
 
+/**
+ * ips_irq_handler - handle temperature triggers and other IPS events
+ * @irq: irq number
+ * @arg: unused
+ *
+ * Handle temperature limit trigger events, generally by lowering the clamps.
+ * If we're at a critical limit, we clamp back to the lowest possible value
+ * to prevent emergency shutdown.
+ */
 static irqreturn_t ips_irq_handler(int irq, void *arg)
 {
 	struct ips_driver *ips = arg;
@@ -951,7 +1176,7 @@ static irqreturn_t ips_irq_handler(int irq, void *arg)
 	dev_info(&ips->dev->dev, "TSES: 0x%02x\n", tses);
 	dev_info(&ips->dev->dev, "TES: 0x%02x\n", tes);
 
-	
+	/* STS update from EC? */
 	if (tes & 1) {
 		u32 sts, tc1;
 
@@ -964,8 +1189,12 @@ static irqreturn_t ips_irq_handler(int irq, void *arg)
 				STS_PCPL_SHIFT;
 			ips->mch_power_limit = (sts & STS_GPL_MASK) >>
 				STS_GPL_SHIFT;
-			
+			/* ignore EC CPU vs GPU pref */
 			ips->cpu_turbo_enabled = !(sts & STS_PCTD_DIS);
+			/* 
+			 * Disable turbo for now, until we can figure
+			 * out why the power figures are wrong
+			 */
 			ips->cpu_turbo_enabled = false;
 			if (ips->gpu_busy)
 				ips->gpu_turbo_enabled = !(sts & STS_GTD_DIS);
@@ -981,7 +1210,7 @@ static irqreturn_t ips_irq_handler(int irq, void *arg)
 		thm_writeb(THM_TES, tes);
 	}
 
-	
+	/* Thermal trip */
 	if (tses) {
 		dev_warn(&ips->dev->dev,
 			 "thermal trip occurred, tses: 0x%04x\n", tses);
@@ -996,6 +1225,7 @@ static void ips_debugfs_init(struct ips_driver *ips) { return; }
 static void ips_debugfs_cleanup(struct ips_driver *ips) { return; }
 #else
 
+/* Expose current state and limits in debugfs if possible */
 
 struct ips_debugfs_node {
 	struct ips_driver *ips;
@@ -1032,11 +1262,11 @@ static int show_cpu_clamp(struct seq_file *m, void *data)
 	tdp = (int)(turbo_override & TURBO_TDP_MASK);
 	tdc = (int)((turbo_override & TURBO_TDC_MASK) >> TURBO_TDC_SHIFT);
 
-	
+	/* Convert to .1W/A units */
 	tdp = tdp * 10 / 8;
 	tdc = tdc * 10 / 8;
 
-	
+	/* Watts Amperes */
 	seq_printf(m, "%d.%dW %d.%dA\n", tdp / 10, tdp % 10,
 		   tdc / 10, tdc % 10);
 
@@ -1126,8 +1356,14 @@ err_cleanup:
 	ips_debugfs_cleanup(ips);
 	return;
 }
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 
+/**
+ * ips_detect_cpu - detect whether CPU supports IPS
+ *
+ * Walk our list and see if we're on a supported CPU.  If we find one,
+ * return the limits for it.
+ */
 static struct ips_mcp_limits *ips_detect_cpu(struct ips_driver *ips)
 {
 	u64 turbo_power, misc_en;
@@ -1140,6 +1376,11 @@ static struct ips_mcp_limits *ips_detect_cpu(struct ips_driver *ips)
 	}
 
 	rdmsrl(IA32_MISC_ENABLE, misc_en);
+	/*
+	 * If the turbo enable bit isn't set, we shouldn't try to enable/disable
+	 * turbo manually or we'll get an illegal MSR access, even though
+	 * turbo will still be available.
+	 */
 	if (misc_en & IA32_MISC_TURBO_EN)
 		ips->turbo_toggle_allowed = true;
 	else
@@ -1159,7 +1400,7 @@ static struct ips_mcp_limits *ips_detect_cpu(struct ips_driver *ips)
 	rdmsrl(TURBO_POWER_CURRENT_LIMIT, turbo_power);
 	tdp = turbo_power & TURBO_TDP_MASK;
 
-	
+	/* Sanity check TDP against CPU */
 	if (limits->core_power_limit != (tdp / 8) * 1000) {
 		dev_info(&ips->dev->dev, "CPU TDP doesn't match expected value (found %d, expected %d)\n",
 			 tdp / 8, limits->core_power_limit / 1000);
@@ -1170,6 +1411,15 @@ out:
 	return limits;
 }
 
+/**
+ * ips_get_i915_syms - try to get GPU control methods from i915 driver
+ * @ips: IPS driver
+ *
+ * The i915 driver exports several interfaces to allow the IPS driver to
+ * monitor and control graphics turbo mode.  If we can find them, we can
+ * enable graphics turbo, otherwise we must disable it to avoid exceeding
+ * thermal and power limits in the MCP.
+ */
 static bool ips_get_i915_syms(struct ips_driver *ips)
 {
 	ips->read_mch_val = symbol_get(i915_read_mch_val);
@@ -1219,6 +1469,10 @@ ips_gpu_turbo_enabled(struct ips_driver *ips)
 void
 ips_link_to_i915_driver(void)
 {
+	/* We can't cleanly get at the various ips_driver structs from
+	 * this caller (the i915 driver), so just set a flag saying
+	 * that it's time to try getting the symbols again.
+	 */
 	late_i915_load = true;
 }
 EXPORT_SYMBOL_GPL(ips_link_to_i915_driver);
@@ -1306,7 +1560,7 @@ static int ips_probe(struct pci_dev *dev, const struct pci_device_id *id)
 		ips->mcp_power_limit / 10);
 	dev_dbg(&dev->dev, "max core power clamp: %dW\n",
 		ips->core_power_limit / 10);
-	
+	/* BIOS may update limits at runtime */
 	if (thm_readl(THM_PSC) & PSP_PBRT)
 		ips->poll_turbo_status = true;
 
@@ -1318,6 +1572,10 @@ static int ips_probe(struct pci_dev *dev, const struct pci_device_id *id)
 		ips->gpu_turbo_enabled = true;
 	}
 
+	/*
+	 * Check PLATFORM_INFO MSR to make sure this chip is
+	 * turbo capable.
+	 */
 	rdmsrl(PLATFORM_INFO, platform_info);
 	if (!(platform_info & PLATFORM_TDP)) {
 		dev_err(&dev->dev, "platform indicates TDP override unavailable, aborting\n");
@@ -1325,6 +1583,10 @@ static int ips_probe(struct pci_dev *dev, const struct pci_device_id *id)
 		goto error_unmap;
 	}
 
+	/*
+	 * IRQ handler for ME interaction
+	 * Note: don't use MSI here as the PCH has bugs.
+	 */
 	pci_disable_msi(dev);
 	ret = request_irq(dev->irq, ips_irq_handler, IRQF_SHARED, "ips",
 			  ips);
@@ -1333,23 +1595,23 @@ static int ips_probe(struct pci_dev *dev, const struct pci_device_id *id)
 		goto error_unmap;
 	}
 
-	
+	/* Enable aux, hot & critical interrupts */
 	thm_writeb(THM_TSPIEN, TSPIEN_AUX2_LOHI | TSPIEN_CRIT_LOHI |
 		   TSPIEN_HOT_LOHI | TSPIEN_AUX_LOHI);
 	thm_writeb(THM_TEN, TEN_UPDATE_EN);
 
-	
+	/* Collect adjustment values */
 	ips->cta_val = thm_readw(THM_CTA);
 	ips->pta_val = thm_readw(THM_PTA);
 	ips->mgta_val = thm_readw(THM_MGTA);
 
-	
+	/* Save turbo limits & ratios */
 	rdmsrl(TURBO_POWER_CURRENT_LIMIT, ips->orig_turbo_limit);
 
 	ips_disable_cpu_turbo(ips);
 	ips->cpu_turbo_enabled = false;
 
-	
+	/* Create thermal adjust thread */
 	ips->adjust = kthread_create(ips_adjust, ips, "ips-adjust");
 	if (IS_ERR(ips->adjust)) {
 		dev_err(&dev->dev,
@@ -1359,6 +1621,10 @@ static int ips_probe(struct pci_dev *dev, const struct pci_device_id *id)
 
 	}
 
+	/*
+	 * Set up the work queue and monitor thread. The monitor thread
+	 * will wake up ips_adjust thread.
+	 */
 	ips->monitor = kthread_run(ips_monitor, ips, "ips-monitor");
 	if (IS_ERR(ips->monitor)) {
 		dev_err(&dev->dev,
@@ -1403,7 +1669,7 @@ static void ips_remove(struct pci_dev *dev)
 
 	ips_debugfs_cleanup(ips);
 
-	
+	/* Release i915 driver */
 	if (ips->read_mch_val)
 		symbol_put(i915_read_mch_val);
 	if (ips->gpu_raise)
@@ -1444,7 +1710,7 @@ static int ips_resume(struct pci_dev *dev)
 #else
 #define ips_suspend NULL
 #define ips_resume NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static void ips_shutdown(struct pci_dev *dev)
 {

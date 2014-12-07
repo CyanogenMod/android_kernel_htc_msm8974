@@ -47,11 +47,11 @@
 
 static int zero = 0;
 static int one = 1;
-static int timer_max = 86400000; 
+static int timer_max = 86400000; /* ms in one day */
 static int int_max = INT_MAX;
 static int sack_timer_min = 1;
 static int sack_timer_max = 500;
-static int addr_scope_max = 3; 
+static int addr_scope_max = 3; /* check sctp_scope_policy_t in include/net/sctp/constants.h for max entries */
 static int rwnd_scale_max = 16;
 static unsigned long max_autoclose_min = 0;
 static unsigned long max_autoclose_max =
@@ -272,7 +272,7 @@ static ctl_table sctp_table[] = {
 		.extra2		= &max_autoclose_max,
 	},
 
-	{  }
+	{ /* sentinel */ }
 };
 
 static struct ctl_path sctp_path[] = {
@@ -283,11 +283,13 @@ static struct ctl_path sctp_path[] = {
 
 static struct ctl_table_header * sctp_sysctl_header;
 
+/* Sysctl registration.  */
 void sctp_sysctl_register(void)
 {
 	sctp_sysctl_header = register_sysctl_paths(sctp_path, sctp_table);
 }
 
+/* Sysctl deregistration.  */
 void sctp_sysctl_unregister(void)
 {
 	unregister_sysctl_table(sctp_sysctl_header);

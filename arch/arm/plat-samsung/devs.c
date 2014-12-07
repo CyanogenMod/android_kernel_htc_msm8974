@@ -67,6 +67,7 @@
 
 static u64 samsung_device_dma_mask = DMA_BIT_MASK(32);
 
+/* AC97 */
 #ifdef CONFIG_CPU_S3C2440
 static struct resource s3c_ac97_resource[] = {
 	[0] = DEFINE_RES_MEM(S3C2440_PA_AC97, S3C2440_SZ_AC97),
@@ -86,8 +87,9 @@ struct platform_device s3c_device_ac97 = {
 		.coherent_dma_mask	= DMA_BIT_MASK(32),
 	}
 };
-#endif 
+#endif /* CONFIG_CPU_S3C2440 */
 
+/* ADC */
 
 #ifdef CONFIG_PLAT_S3C24XX
 static struct resource s3c_adc_resource[] = {
@@ -102,7 +104,7 @@ struct platform_device s3c_device_adc = {
 	.num_resources	= ARRAY_SIZE(s3c_adc_resource),
 	.resource	= s3c_adc_resource,
 };
-#endif 
+#endif /* CONFIG_PLAT_S3C24XX */
 
 #if defined(CONFIG_SAMSUNG_DEV_ADC)
 static struct resource s3c_adc_resource[] = {
@@ -117,8 +119,9 @@ struct platform_device s3c_device_adc = {
 	.num_resources	= ARRAY_SIZE(s3c_adc_resource),
 	.resource	= s3c_adc_resource,
 };
-#endif 
+#endif /* CONFIG_SAMSUNG_DEV_ADC */
 
+/* Camif Controller */
 
 #ifdef CONFIG_CPU_S3C2440
 static struct resource s3c_camif_resource[] = {
@@ -136,8 +139,9 @@ struct platform_device s3c_device_camif = {
 		.coherent_dma_mask	= DMA_BIT_MASK(32),
 	}
 };
-#endif 
+#endif /* CONFIG_CPU_S3C2440 */
 
+/* ASOC DMA */
 
 struct platform_device samsung_asoc_dma = {
 	.name		= "samsung-audio",
@@ -157,6 +161,7 @@ struct platform_device samsung_asoc_idma = {
 	}
 };
 
+/* FB */
 
 #ifdef CONFIG_S3C_DEV_FB
 static struct resource s3c_fb_resource[] = {
@@ -182,8 +187,9 @@ void __init s3c_fb_set_platdata(struct s3c_fb_platdata *pd)
 	s3c_set_platdata(pd, sizeof(struct s3c_fb_platdata),
 			 &s3c_device_fb);
 }
-#endif 
+#endif /* CONFIG_S3C_DEV_FB */
 
+/* FIMC */
 
 #ifdef CONFIG_S5P_DEV_FIMC0
 static struct resource s5p_fimc0_resource[] = {
@@ -206,7 +212,7 @@ struct platform_device s5p_device_fimc_md = {
 	.name	= "s5p-fimc-md",
 	.id	= -1,
 };
-#endif 
+#endif /* CONFIG_S5P_DEV_FIMC0 */
 
 #ifdef CONFIG_S5P_DEV_FIMC1
 static struct resource s5p_fimc1_resource[] = {
@@ -224,7 +230,7 @@ struct platform_device s5p_device_fimc1 = {
 		.coherent_dma_mask	= DMA_BIT_MASK(32),
 	},
 };
-#endif 
+#endif /* CONFIG_S5P_DEV_FIMC1 */
 
 #ifdef CONFIG_S5P_DEV_FIMC2
 static struct resource s5p_fimc2_resource[] = {
@@ -242,7 +248,7 @@ struct platform_device s5p_device_fimc2 = {
 		.coherent_dma_mask	= DMA_BIT_MASK(32),
 	},
 };
-#endif 
+#endif /* CONFIG_S5P_DEV_FIMC2 */
 
 #ifdef CONFIG_S5P_DEV_FIMC3
 static struct resource s5p_fimc3_resource[] = {
@@ -260,8 +266,9 @@ struct platform_device s5p_device_fimc3 = {
 		.coherent_dma_mask	= DMA_BIT_MASK(32),
 	},
 };
-#endif 
+#endif /* CONFIG_S5P_DEV_FIMC3 */
 
+/* G2D */
 
 #ifdef CONFIG_S5P_DEV_G2D
 static struct resource s5p_g2d_resource[] = {
@@ -287,7 +294,7 @@ struct platform_device s5p_device_g2d = {
 		.coherent_dma_mask	= DMA_BIT_MASK(32),
 	},
 };
-#endif 
+#endif /* CONFIG_S5P_DEV_G2D */
 
 #ifdef CONFIG_S5P_DEV_JPEG
 static struct resource s5p_jpeg_resource[] = {
@@ -305,8 +312,9 @@ struct platform_device s5p_device_jpeg = {
 		.coherent_dma_mask	= DMA_BIT_MASK(32),
 	},
 };
-#endif 
+#endif /*  CONFIG_S5P_DEV_JPEG */
 
+/* FIMD0 */
 
 #ifdef CONFIG_S5P_DEV_FIMD0
 static struct resource s5p_fimd0_resource[] = {
@@ -332,8 +340,9 @@ void __init s5p_fimd0_set_platdata(struct s3c_fb_platdata *pd)
 	s3c_set_platdata(pd, sizeof(struct s3c_fb_platdata),
 			 &s5p_device_fimd0);
 }
-#endif 
+#endif /* CONFIG_S5P_DEV_FIMD0 */
 
+/* HWMON */
 
 #ifdef CONFIG_S3C_DEV_HWMON
 struct platform_device s3c_device_hwmon = {
@@ -347,8 +356,9 @@ void __init s3c_hwmon_set_platdata(struct s3c_hwmon_pdata *pd)
 	s3c_set_platdata(pd, sizeof(struct s3c_hwmon_pdata),
 			 &s3c_device_hwmon);
 }
-#endif 
+#endif /* CONFIG_S3C_DEV_HWMON */
 
+/* HSMMC */
 
 #ifdef CONFIG_S3C_DEV_HSMMC
 static struct resource s3c_hsmmc_resource[] = {
@@ -379,7 +389,7 @@ void s3c_sdhci0_set_platdata(struct s3c_sdhci_platdata *pd)
 {
 	s3c_sdhci_set_platdata(pd, &s3c_hsmmc0_def_platdata);
 }
-#endif 
+#endif /* CONFIG_S3C_DEV_HSMMC */
 
 #ifdef CONFIG_S3C_DEV_HSMMC1
 static struct resource s3c_hsmmc1_resource[] = {
@@ -410,8 +420,9 @@ void s3c_sdhci1_set_platdata(struct s3c_sdhci_platdata *pd)
 {
 	s3c_sdhci_set_platdata(pd, &s3c_hsmmc1_def_platdata);
 }
-#endif 
+#endif /* CONFIG_S3C_DEV_HSMMC1 */
 
+/* HSMMC2 */
 
 #ifdef CONFIG_S3C_DEV_HSMMC2
 static struct resource s3c_hsmmc2_resource[] = {
@@ -442,7 +453,7 @@ void s3c_sdhci2_set_platdata(struct s3c_sdhci_platdata *pd)
 {
 	s3c_sdhci_set_platdata(pd, &s3c_hsmmc2_def_platdata);
 }
-#endif 
+#endif /* CONFIG_S3C_DEV_HSMMC2 */
 
 #ifdef CONFIG_S3C_DEV_HSMMC3
 static struct resource s3c_hsmmc3_resource[] = {
@@ -473,8 +484,9 @@ void s3c_sdhci3_set_platdata(struct s3c_sdhci_platdata *pd)
 {
 	s3c_sdhci_set_platdata(pd, &s3c_hsmmc3_def_platdata);
 }
-#endif 
+#endif /* CONFIG_S3C_DEV_HSMMC3 */
 
+/* I2C */
 
 static struct resource s3c_i2c0_resource[] = {
 	[0] = DEFINE_RES_MEM(S3C_PA_IIC, SZ_4K),
@@ -543,7 +555,7 @@ void __init s3c_i2c1_set_platdata(struct s3c2410_platform_i2c *pd)
 	if (!npd->cfg_gpio)
 		npd->cfg_gpio = s3c_i2c1_cfg_gpio;
 }
-#endif 
+#endif /* CONFIG_S3C_DEV_I2C1 */
 
 #ifdef CONFIG_S3C_DEV_I2C2
 static struct resource s3c_i2c2_resource[] = {
@@ -573,7 +585,7 @@ void __init s3c_i2c2_set_platdata(struct s3c2410_platform_i2c *pd)
 	if (!npd->cfg_gpio)
 		npd->cfg_gpio = s3c_i2c2_cfg_gpio;
 }
-#endif 
+#endif /* CONFIG_S3C_DEV_I2C2 */
 
 #ifdef CONFIG_S3C_DEV_I2C3
 static struct resource s3c_i2c3_resource[] = {
@@ -603,7 +615,7 @@ void __init s3c_i2c3_set_platdata(struct s3c2410_platform_i2c *pd)
 	if (!npd->cfg_gpio)
 		npd->cfg_gpio = s3c_i2c3_cfg_gpio;
 }
-#endif 
+#endif /*CONFIG_S3C_DEV_I2C3 */
 
 #ifdef CONFIG_S3C_DEV_I2C4
 static struct resource s3c_i2c4_resource[] = {
@@ -633,7 +645,7 @@ void __init s3c_i2c4_set_platdata(struct s3c2410_platform_i2c *pd)
 	if (!npd->cfg_gpio)
 		npd->cfg_gpio = s3c_i2c4_cfg_gpio;
 }
-#endif 
+#endif /*CONFIG_S3C_DEV_I2C4 */
 
 #ifdef CONFIG_S3C_DEV_I2C5
 static struct resource s3c_i2c5_resource[] = {
@@ -663,7 +675,7 @@ void __init s3c_i2c5_set_platdata(struct s3c2410_platform_i2c *pd)
 	if (!npd->cfg_gpio)
 		npd->cfg_gpio = s3c_i2c5_cfg_gpio;
 }
-#endif 
+#endif /*CONFIG_S3C_DEV_I2C5 */
 
 #ifdef CONFIG_S3C_DEV_I2C6
 static struct resource s3c_i2c6_resource[] = {
@@ -693,7 +705,7 @@ void __init s3c_i2c6_set_platdata(struct s3c2410_platform_i2c *pd)
 	if (!npd->cfg_gpio)
 		npd->cfg_gpio = s3c_i2c6_cfg_gpio;
 }
-#endif 
+#endif /* CONFIG_S3C_DEV_I2C6 */
 
 #ifdef CONFIG_S3C_DEV_I2C7
 static struct resource s3c_i2c7_resource[] = {
@@ -723,8 +735,9 @@ void __init s3c_i2c7_set_platdata(struct s3c2410_platform_i2c *pd)
 	if (!npd->cfg_gpio)
 		npd->cfg_gpio = s3c_i2c7_cfg_gpio;
 }
-#endif 
+#endif /* CONFIG_S3C_DEV_I2C7 */
 
+/* I2C HDMIPHY */
 
 #ifdef CONFIG_S5P_DEV_I2C_HDMIPHY
 static struct resource s5p_i2c_resource[] = {
@@ -757,8 +770,9 @@ void __init s5p_i2c_hdmiphy_set_platdata(struct s3c2410_platform_i2c *pd)
 	npd = s3c_set_platdata(pd, sizeof(struct s3c2410_platform_i2c),
 			       &s5p_device_i2c_hdmiphy);
 }
-#endif 
+#endif /* CONFIG_S5P_DEV_I2C_HDMIPHY */
 
+/* I2S */
 
 #ifdef CONFIG_PLAT_S3C24XX
 static struct resource s3c_iis_resource[] = {
@@ -775,8 +789,9 @@ struct platform_device s3c_device_iis = {
 		.coherent_dma_mask	= DMA_BIT_MASK(32),
 	}
 };
-#endif 
+#endif /* CONFIG_PLAT_S3C24XX */
 
+/* IDE CFCON */
 
 #ifdef CONFIG_SAMSUNG_DEV_IDE
 static struct resource s3c_cfcon_resource[] = {
@@ -795,8 +810,9 @@ void __init s3c_ide_set_platdata(struct s3c_ide_platdata *pdata)
 	s3c_set_platdata(pdata, sizeof(struct s3c_ide_platdata),
 			 &s3c_device_cfcon);
 }
-#endif 
+#endif /* CONFIG_SAMSUNG_DEV_IDE */
 
+/* KEYPAD */
 
 #ifdef CONFIG_SAMSUNG_DEV_KEYPAD
 static struct resource samsung_keypad_resources[] = {
@@ -821,8 +837,9 @@ void __init samsung_keypad_set_platdata(struct samsung_keypad_platdata *pd)
 	if (!npd->cfg_gpio)
 		npd->cfg_gpio = samsung_keypad_cfg_gpio;
 }
-#endif 
+#endif /* CONFIG_SAMSUNG_DEV_KEYPAD */
 
+/* LCD Controller */
 
 #ifdef CONFIG_PLAT_S3C24XX
 static struct resource s3c_lcd_resource[] = {
@@ -856,8 +873,9 @@ void __init s3c24xx_fb_set_platdata(struct s3c2410fb_mach_info *pd)
 		printk(KERN_ERR "no memory for LCD platform data\n");
 	}
 }
-#endif 
+#endif /* CONFIG_PLAT_S3C24XX */
 
+/* MFC */
 
 #ifdef CONFIG_S5P_DEV_MFC
 static struct resource s5p_mfc_resource[] = {
@@ -872,6 +890,13 @@ struct platform_device s5p_device_mfc = {
 	.resource	= s5p_mfc_resource,
 };
 
+/*
+ * MFC hardware has 2 memory interfaces which are modelled as two separate
+ * platform devices to let dma-mapping distinguish between them.
+ *
+ * MFC parent device (s5p_device_mfc) must be registered before memory
+ * interface specific devices (s5p_device_mfc_l and s5p_device_mfc_r).
+ */
 
 struct platform_device s5p_device_mfc_l = {
 	.name		= "s5p-mfc-l",
@@ -892,8 +917,9 @@ struct platform_device s5p_device_mfc_r = {
 		.coherent_dma_mask	= DMA_BIT_MASK(32),
 	},
 };
-#endif 
+#endif /* CONFIG_S5P_DEV_MFC */
 
+/* MIPI CSIS */
 
 #ifdef CONFIG_S5P_DEV_CSIS0
 static struct resource s5p_mipi_csis0_resource[] = {
@@ -907,7 +933,7 @@ struct platform_device s5p_device_mipi_csis0 = {
 	.num_resources	= ARRAY_SIZE(s5p_mipi_csis0_resource),
 	.resource	= s5p_mipi_csis0_resource,
 };
-#endif 
+#endif /* CONFIG_S5P_DEV_CSIS0 */
 
 #ifdef CONFIG_S5P_DEV_CSIS1
 static struct resource s5p_mipi_csis1_resource[] = {
@@ -923,6 +949,7 @@ struct platform_device s5p_device_mipi_csis1 = {
 };
 #endif
 
+/* NAND */
 
 #ifdef CONFIG_S3C_DEV_NAND
 static struct resource s3c_nand_resource[] = {
@@ -936,6 +963,17 @@ struct platform_device s3c_device_nand = {
 	.resource	= s3c_nand_resource,
 };
 
+/*
+ * s3c_nand_copy_set() - copy nand set data
+ * @set: The new structure, directly copied from the old.
+ *
+ * Copy all the fields from the NAND set field from what is probably __initdata
+ * to new kernel memory. The code returns 0 if the copy happened correctly or
+ * an error code for the calling function to display.
+ *
+ * Note, we currently do not try and look to see if we've already copied the
+ * data in a previous set.
+ */
 static int __init s3c_nand_copy_set(struct s3c2410_nand_set *set)
 {
 	void *ptr;
@@ -977,13 +1015,17 @@ void __init s3c_nand_set_platdata(struct s3c2410_platform_nand *nand)
 	int size;
 	int ret;
 
+	/* note, if we get a failure in allocation, we simply drop out of the
+	 * function. If there is so little memory available at initialisation
+	 * time then there is little chance the system is going to run.
+	 */
 
 	npd = s3c_set_platdata(nand, sizeof(struct s3c2410_platform_nand),
 				&s3c_device_nand);
 	if (!npd)
 		return;
 
-	
+	/* now see if we need to copy any of the nand set data */
 
 	size = sizeof(struct s3c2410_nand_set) * npd->nr_sets;
 	if (size) {
@@ -992,7 +1034,7 @@ void __init s3c_nand_set_platdata(struct s3c2410_platform_nand *nand)
 		int i;
 
 		to = kmemdup(from, size, GFP_KERNEL);
-		npd->sets = to;	
+		npd->sets = to;	/* set, even if we failed */
 
 		if (!to) {
 			printk(KERN_ERR "%s: no memory for sets\n", __func__);
@@ -1010,8 +1052,9 @@ void __init s3c_nand_set_platdata(struct s3c2410_platform_nand *nand)
 		}
 	}
 }
-#endif 
+#endif /* CONFIG_S3C_DEV_NAND */
 
+/* ONENAND */
 
 #ifdef CONFIG_S3C_DEV_ONENAND
 static struct resource s3c_onenand_resources[] = {
@@ -1026,7 +1069,7 @@ struct platform_device s3c_device_onenand = {
 	.num_resources	= ARRAY_SIZE(s3c_onenand_resources),
 	.resource	= s3c_onenand_resources,
 };
-#endif 
+#endif /* CONFIG_S3C_DEV_ONENAND */
 
 #ifdef CONFIG_S3C64XX_DEV_ONENAND1
 static struct resource s3c64xx_onenand1_resources[] = {
@@ -1047,7 +1090,7 @@ void __init s3c64xx_onenand1_set_platdata(struct onenand_platform_data *pdata)
 	s3c_set_platdata(pdata, sizeof(struct onenand_platform_data),
 			 &s3c64xx_device_onenand1);
 }
-#endif 
+#endif /* CONFIG_S3C64XX_DEV_ONENAND1 */
 
 #ifdef CONFIG_S5P_DEV_ONENAND
 static struct resource s5p_onenand_resources[] = {
@@ -1062,8 +1105,9 @@ struct platform_device s5p_device_onenand = {
 	.num_resources	= ARRAY_SIZE(s5p_onenand_resources),
 	.resource	= s5p_onenand_resources,
 };
-#endif 
+#endif /* CONFIG_S5P_DEV_ONENAND */
 
+/* PMU */
 
 #ifdef CONFIG_PLAT_S5P
 static struct resource s5p_pmu_resource[] = {
@@ -1083,8 +1127,9 @@ static int __init s5p_pmu_init(void)
 	return 0;
 }
 arch_initcall(s5p_pmu_init);
-#endif 
+#endif /* CONFIG_PLAT_S5P */
 
+/* PWM Timer */
 
 #ifdef CONFIG_SAMSUNG_DEV_PWM
 
@@ -1105,6 +1150,10 @@ arch_initcall(s5p_pmu_init);
 	.num_resources	= TIMER_RESOURCE_SIZE,		\
 	.resource	= TIMER_RESOURCE(_tmr_no, _irq),	\
 
+/*
+ * since we already have an static mapping for the timer,
+ * we do not bother setting any IO resource for the base.
+ */
 
 struct platform_device s3c_device_timer[] = {
 	[0] = { DEFINE_S3C_TIMER(0, IRQ_TIMER0) },
@@ -1113,8 +1162,9 @@ struct platform_device s3c_device_timer[] = {
 	[3] = { DEFINE_S3C_TIMER(3, IRQ_TIMER3) },
 	[4] = { DEFINE_S3C_TIMER(4, IRQ_TIMER4) },
 };
-#endif 
+#endif /* CONFIG_SAMSUNG_DEV_PWM */
 
+/* RTC */
 
 #ifdef CONFIG_PLAT_S3C24XX
 static struct resource s3c_rtc_resource[] = {
@@ -1129,7 +1179,7 @@ struct platform_device s3c_device_rtc = {
 	.num_resources	= ARRAY_SIZE(s3c_rtc_resource),
 	.resource	= s3c_rtc_resource,
 };
-#endif 
+#endif /* CONFIG_PLAT_S3C24XX */
 
 #ifdef CONFIG_S3C_DEV_RTC
 static struct resource s3c_rtc_resource[] = {
@@ -1144,8 +1194,9 @@ struct platform_device s3c_device_rtc = {
 	.num_resources	= ARRAY_SIZE(s3c_rtc_resource),
 	.resource	= s3c_rtc_resource,
 };
-#endif 
+#endif /* CONFIG_S3C_DEV_RTC */
 
+/* SDI */
 
 #ifdef CONFIG_PLAT_S3C24XX
 static struct resource s3c_sdi_resource[] = {
@@ -1165,8 +1216,9 @@ void __init s3c24xx_mci_set_platdata(struct s3c24xx_mci_pdata *pdata)
 	s3c_set_platdata(pdata, sizeof(struct s3c24xx_mci_pdata),
 			 &s3c_device_sdi);
 }
-#endif 
+#endif /* CONFIG_PLAT_S3C24XX */
 
+/* SPI */
 
 #ifdef CONFIG_PLAT_S3C24XX
 static struct resource s3c_spi0_resource[] = {
@@ -1200,8 +1252,9 @@ struct platform_device s3c_device_spi1 = {
 		.coherent_dma_mask	= DMA_BIT_MASK(32),
 	}
 };
-#endif 
+#endif /* CONFIG_PLAT_S3C24XX */
 
+/* Touchscreen */
 
 #ifdef CONFIG_PLAT_S3C24XX
 static struct resource s3c_ts_resource[] = {
@@ -1222,7 +1275,7 @@ void __init s3c24xx_ts_set_platdata(struct s3c2410_ts_mach_info *hard_s3c2410ts_
 	s3c_set_platdata(hard_s3c2410ts_info,
 			 sizeof(struct s3c2410_ts_mach_info), &s3c_device_ts);
 }
-#endif 
+#endif /* CONFIG_PLAT_S3C24XX */
 
 #ifdef CONFIG_SAMSUNG_DEV_TS
 static struct resource s3c_ts_resource[] = {
@@ -1251,8 +1304,9 @@ void __init s3c24xx_ts_set_platdata(struct s3c2410_ts_mach_info *pd)
 	s3c_set_platdata(pd, sizeof(struct s3c2410_ts_mach_info),
 			 &s3c_device_ts);
 }
-#endif 
+#endif /* CONFIG_SAMSUNG_DEV_TS */
 
+/* TV */
 
 #ifdef CONFIG_S5P_DEV_TV
 
@@ -1296,8 +1350,9 @@ struct platform_device s5p_device_mixer = {
 		.coherent_dma_mask	= DMA_BIT_MASK(32),
 	}
 };
-#endif 
+#endif /* CONFIG_S5P_DEV_TV */
 
+/* USB */
 
 #ifdef CONFIG_S3C_DEV_USB_HOST
 static struct resource s3c_usb_resource[] = {
@@ -1316,14 +1371,23 @@ struct platform_device s3c_device_ohci = {
 	}
 };
 
+/*
+ * s3c_ohci_set_platdata - initialise OHCI device platform data
+ * @info: The platform data.
+ *
+ * This call copies the @info passed in and sets the device .platform_data
+ * field to that copy. The @info is copied so that the original can be marked
+ * __initdata.
+ */
 
 void __init s3c_ohci_set_platdata(struct s3c2410_hcd_info *info)
 {
 	s3c_set_platdata(info, sizeof(struct s3c2410_hcd_info),
 			 &s3c_device_ohci);
 }
-#endif 
+#endif /* CONFIG_S3C_DEV_USB_HOST */
 
+/* USB Device (Gadget) */
 
 #ifdef CONFIG_PLAT_S3C24XX
 static struct resource s3c_usbgadget_resource[] = {
@@ -1342,8 +1406,9 @@ void __init s3c24xx_udc_set_platdata(struct s3c2410_udc_mach_info *pd)
 {
 	s3c_set_platdata(pd, sizeof(*pd), &s3c_device_usbgadget);
 }
-#endif 
+#endif /* CONFIG_PLAT_S3C24XX */
 
+/* USB EHCI Host Controller */
 
 #ifdef CONFIG_S5P_DEV_USB_EHCI
 static struct resource s5p_ehci_resource[] = {
@@ -1374,8 +1439,9 @@ void __init s5p_ehci_set_platdata(struct s5p_ehci_platdata *pd)
 	if (!npd->phy_exit)
 		npd->phy_exit = s5p_usb_phy_exit;
 }
-#endif 
+#endif /* CONFIG_S5P_DEV_USB_EHCI */
 
+/* USB HSOTG */
 
 #ifdef CONFIG_S3C_DEV_USB_HSOTG
 static struct resource s3c_usb_hsotg_resources[] = {
@@ -1406,8 +1472,9 @@ void __init s3c_hsotg_set_platdata(struct s3c_hsotg_plat *pd)
 	if (!npd->phy_exit)
 		npd->phy_exit = s5p_usb_phy_exit;
 }
-#endif 
+#endif /* CONFIG_S3C_DEV_USB_HSOTG */
 
+/* USB High Spped 2.0 Device (Gadget) */
 
 #ifdef CONFIG_PLAT_S3C24XX
 static struct resource s3c_hsudc_resource[] = {
@@ -1430,8 +1497,9 @@ void __init s3c24xx_hsudc_set_platdata(struct s3c24xx_hsudc_platdata *pd)
 {
 	s3c_set_platdata(pd, sizeof(*pd), &s3c_device_usb_hsudc);
 }
-#endif 
+#endif /* CONFIG_PLAT_S3C24XX */
 
+/* WDT */
 
 #ifdef CONFIG_S3C_DEV_WDT
 static struct resource s3c_wdt_resource[] = {
@@ -1445,7 +1513,7 @@ struct platform_device s3c_device_wdt = {
 	.num_resources	= ARRAY_SIZE(s3c_wdt_resource),
 	.resource	= s3c_wdt_resource,
 };
-#endif 
+#endif /* CONFIG_S3C_DEV_WDT */
 
 #ifdef CONFIG_S3C64XX_DEV_SPI0
 static struct resource s3c64xx_spi0_resource[] = {
@@ -1474,7 +1542,7 @@ void __init s3c64xx_spi0_set_platdata(struct s3c64xx_spi_info *pd,
 		return;
 	}
 
-	
+	/* Reject invalid configuration */
 	if (!num_cs || src_clk_nr < 0) {
 		pr_err("%s: Invalid SPI configuration\n", __func__);
 		return;
@@ -1487,7 +1555,7 @@ void __init s3c64xx_spi0_set_platdata(struct s3c64xx_spi_info *pd,
 
 	s3c_set_platdata(pd, sizeof(*pd), &s3c64xx_device_spi0);
 }
-#endif 
+#endif /* CONFIG_S3C64XX_DEV_SPI0 */
 
 #ifdef CONFIG_S3C64XX_DEV_SPI1
 static struct resource s3c64xx_spi1_resource[] = {
@@ -1516,7 +1584,7 @@ void __init s3c64xx_spi1_set_platdata(struct s3c64xx_spi_info *pd,
 		return;
 	}
 
-	
+	/* Reject invalid configuration */
 	if (!num_cs || src_clk_nr < 0) {
 		pr_err("%s: Invalid SPI configuration\n", __func__);
 		return;
@@ -1529,7 +1597,7 @@ void __init s3c64xx_spi1_set_platdata(struct s3c64xx_spi_info *pd,
 
 	s3c_set_platdata(pd, sizeof(*pd), &s3c64xx_device_spi1);
 }
-#endif 
+#endif /* CONFIG_S3C64XX_DEV_SPI1 */
 
 #ifdef CONFIG_S3C64XX_DEV_SPI2
 static struct resource s3c64xx_spi2_resource[] = {
@@ -1558,7 +1626,7 @@ void __init s3c64xx_spi2_set_platdata(struct s3c64xx_spi_info *pd,
 		return;
 	}
 
-	
+	/* Reject invalid configuration */
 	if (!num_cs || src_clk_nr < 0) {
 		pr_err("%s: Invalid SPI configuration\n", __func__);
 		return;
@@ -1571,4 +1639,4 @@ void __init s3c64xx_spi2_set_platdata(struct s3c64xx_spi_info *pd,
 
 	s3c_set_platdata(pd, sizeof(*pd), &s3c64xx_device_spi2);
 }
-#endif 
+#endif /* CONFIG_S3C64XX_DEV_SPI2 */

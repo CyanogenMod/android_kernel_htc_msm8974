@@ -416,44 +416,44 @@ static const u16 vs6624_p2[] = {
 };
 
 static const u16 vs6624_run_setup[] = {
-	0x1d18, 0x00,				
-	VS6624_PEAK_MIN_OUT_G_MSB, 0x3c,	
-	VS6624_PEAK_MIN_OUT_G_LSB, 0x66,	
-	VS6624_CM_LOW_THR_MSB, 0x65,		
-	VS6624_CM_LOW_THR_LSB, 0xd1,		
-	VS6624_CM_HIGH_THR_MSB, 0x66,		
-	VS6624_CM_HIGH_THR_LSB, 0x62,		
-	VS6624_CM_MIN_OUT_MSB, 0x00,		
-	VS6624_CM_MIN_OUT_LSB, 0x00,		
-	VS6624_NORA_DISABLE, 0x00,		
-	VS6624_NORA_USAGE, 0x04,		
-	VS6624_NORA_LOW_THR_MSB, 0x63,		
-	VS6624_NORA_LOW_THR_LSB, 0xd1,		
-	VS6624_NORA_HIGH_THR_MSB, 0x68,		
-	VS6624_NORA_HIGH_THR_LSB, 0xdd,		
-	VS6624_NORA_MIN_OUT_MSB, 0x3a,		
-	VS6624_NORA_MIN_OUT_LSB, 0x00,		
-	VS6624_F2B_DISABLE, 0x00,		
-	0x1d8a, 0x30,				
-	0x1d91, 0x62,				
-	0x1d92, 0x4a,				
-	0x1d95, 0x65,				
-	0x1d96, 0x0e,				
-	0x1da1, 0x3a,				
-	0x1da2, 0xb8,				
-	0x1e08, 0x06,				
-	0x1e0a, 0x0a,				
-	0x1601, 0x3a,				
-	0x1602, 0x14,				
-	0x1605, 0x3b,				
-	0x1606, 0x85,				
-	0x1609, 0x3b,				
-	0x160a, 0x85,				
-	0x160d, 0x3a,				
-	0x160e, 0x14,				
-	0x1611, 0x30,				
-	0x1612, 0x8f,				
-	0x1614, 0x01,				
+	0x1d18, 0x00,				/* Enableconstrainedwhitebalance */
+	VS6624_PEAK_MIN_OUT_G_MSB, 0x3c,	/* Damper PeakGain Output MSB */
+	VS6624_PEAK_MIN_OUT_G_LSB, 0x66,	/* Damper PeakGain Output LSB */
+	VS6624_CM_LOW_THR_MSB, 0x65,		/* Damper Low MSB */
+	VS6624_CM_LOW_THR_LSB, 0xd1,		/* Damper Low LSB */
+	VS6624_CM_HIGH_THR_MSB, 0x66,		/* Damper High MSB */
+	VS6624_CM_HIGH_THR_LSB, 0x62,		/* Damper High LSB */
+	VS6624_CM_MIN_OUT_MSB, 0x00,		/* Damper Min output MSB */
+	VS6624_CM_MIN_OUT_LSB, 0x00,		/* Damper Min output LSB */
+	VS6624_NORA_DISABLE, 0x00,		/* Nora fDisable */
+	VS6624_NORA_USAGE, 0x04,		/* Nora usage */
+	VS6624_NORA_LOW_THR_MSB, 0x63,		/* Damper Low MSB Changed 0x63 to 0x65 */
+	VS6624_NORA_LOW_THR_LSB, 0xd1,		/* Damper Low LSB */
+	VS6624_NORA_HIGH_THR_MSB, 0x68,		/* Damper High MSB */
+	VS6624_NORA_HIGH_THR_LSB, 0xdd,		/* Damper High LSB */
+	VS6624_NORA_MIN_OUT_MSB, 0x3a,		/* Damper Min output MSB */
+	VS6624_NORA_MIN_OUT_LSB, 0x00,		/* Damper Min output LSB */
+	VS6624_F2B_DISABLE, 0x00,		/* Disable */
+	0x1d8a, 0x30,				/* MAXWeightHigh */
+	0x1d91, 0x62,				/* fpDamperLowThresholdHigh MSB */
+	0x1d92, 0x4a,				/* fpDamperLowThresholdHigh LSB */
+	0x1d95, 0x65,				/* fpDamperHighThresholdHigh MSB */
+	0x1d96, 0x0e,				/* fpDamperHighThresholdHigh LSB */
+	0x1da1, 0x3a,				/* fpMinimumDamperOutputLow MSB */
+	0x1da2, 0xb8,				/* fpMinimumDamperOutputLow LSB */
+	0x1e08, 0x06,				/* MAXWeightLow */
+	0x1e0a, 0x0a,				/* MAXWeightHigh */
+	0x1601, 0x3a,				/* Red A MSB */
+	0x1602, 0x14,				/* Red A LSB */
+	0x1605, 0x3b,				/* Blue A MSB */
+	0x1606, 0x85,				/* BLue A LSB */
+	0x1609, 0x3b,				/* RED B MSB */
+	0x160a, 0x85,				/* RED B LSB */
+	0x160d, 0x3a,				/* Blue B MSB */
+	0x160e, 0x14,				/* Blue B LSB */
+	0x1611, 0x30,				/* Max Distance from Locus MSB */
+	0x1612, 0x8f,				/* Max Distance from Locus MSB */
+	0x1614, 0x01,				/* Enable constrainer */
 	0x0000, 0x00,
 };
 
@@ -587,12 +587,12 @@ static int vs6624_try_mbus_fmt(struct v4l2_subdev *sd,
 		if (vs6624_formats[index].mbus_code == fmt->code)
 			break;
 	if (index >= ARRAY_SIZE(vs6624_formats)) {
-		
+		/* default to first format */
 		index = 0;
 		fmt->code = vs6624_formats[0].mbus_code;
 	}
 
-	
+	/* sensor mode is VGA */
 	if (fmt->width > VGA_WIDTH)
 		fmt->width = VGA_WIDTH;
 	if (fmt->height > VGA_HEIGHT)
@@ -614,7 +614,7 @@ static int vs6624_s_mbus_fmt(struct v4l2_subdev *sd,
 	if (ret)
 		return ret;
 
-	
+	/* set image format */
 	switch (fmt->code) {
 	case V4L2_MBUS_FMT_UYVY8_2X8:
 		vs6624_write(sd, VS6624_IMG_FMT0, 0x0);
@@ -632,7 +632,7 @@ static int vs6624_s_mbus_fmt(struct v4l2_subdev *sd,
 		return -EINVAL;
 	}
 
-	
+	/* set image size */
 	if ((fmt->width == VGA_WIDTH) && (fmt->height == VGA_HEIGHT))
 		vs6624_write(sd, VS6624_IMAGE_SIZE0, 0x2);
 	else if ((fmt->width == QVGA_WIDTH) && (fmt->height == QVGA_HEIGHT))
@@ -696,7 +696,7 @@ static int vs6624_s_parm(struct v4l2_subdev *sd, struct v4l2_streamparm *parms)
 
 	if (tpf->numerator == 0 || tpf->denominator == 0
 		|| (tpf->denominator > tpf->numerator * MAX_FRAME_RATE)) {
-		
+		/* reset to max frame rate */
 		tpf->numerator = 1;
 		tpf->denominator = MAX_FRAME_RATE;
 	}
@@ -797,7 +797,7 @@ static int __devinit vs6624_probe(struct i2c_client *client,
 	const unsigned *ce;
 	int ret;
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
 		return -EIO;
 
@@ -811,7 +811,7 @@ static int __devinit vs6624_probe(struct i2c_client *client,
 		return ret;
 	}
 	gpio_direction_output(*ce, 1);
-	
+	/* wait 100ms before any further i2c writes are performed */
 	mdelay(100);
 
 	sensor = kzalloc(sizeof(*sensor), GFP_KERNEL);
@@ -833,7 +833,7 @@ static int __devinit vs6624_probe(struct i2c_client *client,
 	vs6624_write(sd, VS6624_HSYNC_SETUP, 0xF);
 	vs6624_writeregs(sd, vs6624_run_setup);
 
-	
+	/* set frame rate */
 	sensor->frame_rate.numerator = MAX_FRAME_RATE;
 	sensor->frame_rate.denominator = 1;
 	vs6624_write(sd, VS6624_DISABLE_FR_DAMPER, 0x0);
@@ -860,7 +860,7 @@ static int __devinit vs6624_probe(struct i2c_client *client,
 			V4L2_CID_HFLIP, 0, 1, 1, 0);
 	v4l2_ctrl_new_std(hdl, &vs6624_ctrl_ops,
 			V4L2_CID_VFLIP, 0, 1, 1, 0);
-	
+	/* hook the control handler into the driver */
 	sd->ctrl_handler = hdl;
 	if (hdl->error) {
 		int err = hdl->error;
@@ -871,7 +871,7 @@ static int __devinit vs6624_probe(struct i2c_client *client,
 		return err;
 	}
 
-	
+	/* initialize the hardware to the default control values */
 	ret = v4l2_ctrl_handler_setup(hdl);
 	if (ret) {
 		v4l2_ctrl_handler_free(hdl);

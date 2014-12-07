@@ -31,6 +31,7 @@
 	(sl) = __sl;					\
 })
 
+/* a umul b = a mul b + (a>=2<<31) ? b<<32:0 + (b>=2<<31) ? a<<32:0 */
 #define umul_ppmm(wh, wl, u, v) ({			\
 	unsigned int __wh = u;				\
 	unsigned int __wl = v;				\

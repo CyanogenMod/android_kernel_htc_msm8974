@@ -16,6 +16,9 @@
 #define DPRINTK(fmt, args...)
 #endif
 
+/*
+ * This file handles the architecture-dependent parts of process handling..
+ */
 
 #include <linux/fs.h>
 #include <linux/slab.h>
@@ -32,31 +35,52 @@
 
 #include <linux/err.h>
 
+/*
+ * Return saved PC of a blocked thread.
+ */
 unsigned long thread_saved_pc(struct task_struct *tsk)
 {
 	return tsk->thread.lr;
 }
 
+/*
+ * Powermanagement idle function, if any..
+ */
 static void (*pm_idle)(void) = NULL;
 
 void (*pm_power_off)(void) = NULL;
 EXPORT_SYMBOL(pm_power_off);
 
+/*
+ * We use this is we don't have any better
+ * idle routine..
+ */
 static void default_idle(void)
 {
-	
+	/* M32R_FIXME: Please use "cpu_sleep" mode.  */
 	cpu_relax();
 }
 
+/*
+ * On SMP it's slightly faster (but much more power-consuming!)
+ * to poll the ->work.need_resched flag instead of waiting for the
+ * cross-CPU IPI to arrive. Use this option with caution.
+ */
 static void poll_idle (void)
 {
-	
+	/* M32R_FIXME */
 	cpu_relax();
 }
 
+/*
+ * The idle thread. There's no useful work to be
+ * done, so just try to conserve power and have a
+ * low exit latency (ie sit in a loop waiting for
+ * somebody to say that they'd like to reschedule)
+ */
 void cpu_idle (void)
 {
-	
+	/* endless idle loop with no priority at all */
 	while (1) {
 		while (!need_resched()) {
 			void (*idle)(void) = pm_idle;
@@ -90,7 +114,7 @@ void machine_halt(void)
 
 void machine_power_off(void)
 {
-	
+	/* M32R_FIXME */
 }
 
 static int __init idle_setup (char *str)
@@ -137,7 +161,18 @@ void show_regs(struct pt_regs * regs)
 #endif
 }
 
+/*
+ * Create a kernel thread
+ */
 
+/*
+ * This is the mechanism for creating a new kernel thread.
+ *
+ * NOTE! Only a kernel-only process(ie the swapper or direct descendants
+ * who haven't done an "execve()") should use this: it will work within
+ * a system call from a "real" process, but the process memory space will
+ * not be free'd until both the parent and the child have exited.
+ */
 static void kernel_thread_helper(void *nouse, int (*fn)(void *), void *arg)
 {
 	fn(arg);
@@ -156,14 +191,17 @@ int kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 
 	regs.psw = M32R_PSW_BIE;
 
-	
+	/* Ok, create the new process. */
 	return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0, NULL,
 		NULL);
 }
 
+/*
+ * Free current thread data structures etc..
+ */
 void exit_thread(void)
 {
-	
+	/* Nothing to do. */
 	DPRINTK("pid = %d\n", current->pid);
 }
 
@@ -175,13 +213,14 @@ void flush_thread(void)
 
 void release_thread(struct task_struct *dead_task)
 {
-	
+	/* do nothing */
 	DPRINTK("pid = %d\n", dead_task->pid);
 }
 
+/* Fill in the fpu structure for a core dump.. */
 int dump_fpu(struct pt_regs *regs, elf_fpregset_t *fpu)
 {
-	return 0; 
+	return 0; /* Task didn't use the fpu at all. */
 }
 
 int copy_thread(unsigned long clone_flags, unsigned long spu,
@@ -190,11 +229,11 @@ int copy_thread(unsigned long clone_flags, unsigned long spu,
 	struct pt_regs *childregs = task_pt_regs(tsk);
 	extern void ret_from_fork(void);
 
-	
+	/* Copy registers */
 	*childregs = *regs;
 
 	childregs->spu = spu;
-	childregs->r0 = 0;	
+	childregs->r0 = 0;	/* Child gets zero as return value */
 	regs->r0 = tsk->pid;
 	tsk->thread.sp = (unsigned long)childregs;
 	tsk->thread.lr = (unsigned long)ret_from_fork;
@@ -210,7 +249,7 @@ asmlinkage int sys_fork(unsigned long r0, unsigned long r1, unsigned long r2,
 	return do_fork(SIGCHLD, regs.spu, &regs, 0, NULL, NULL);
 #else
 	return -EINVAL;
-#endif 
+#endif /* CONFIG_MMU */
 }
 
 asmlinkage int sys_clone(unsigned long clone_flags, unsigned long newsp,
@@ -226,6 +265,16 @@ asmlinkage int sys_clone(unsigned long clone_flags, unsigned long newsp,
 		       (int __user *)parent_tidptr, (int __user *)child_tidptr);
 }
 
+/*
+ * This is trivial, and on the face of it looks like it
+ * could equally well be done in user mode.
+ *
+ * Not so, for quite unobvious reasons - register pressure.
+ * In user mode vfork() cannot have a stack frame, and if
+ * done by calling the "clone()" system call directly, you
+ * do not have enough call-clobbered registers to hold all
+ * the information you need.
+ */
 asmlinkage int sys_vfork(unsigned long r0, unsigned long r1, unsigned long r2,
 	unsigned long r3, unsigned long r4, unsigned long r5, unsigned long r6,
 	struct pt_regs regs)
@@ -234,6 +283,9 @@ asmlinkage int sys_vfork(unsigned long r0, unsigned long r1, unsigned long r2,
 			NULL, NULL);
 }
 
+/*
+ * sys_execve() executes a new program.
+ */
 asmlinkage int sys_execve(const char __user *ufilename,
 			  const char __user *const __user *uargv,
 			  const char __user *const __user *uenvp,
@@ -254,11 +306,14 @@ out:
 	return error;
 }
 
+/*
+ * These bracket the sleeping functions..
+ */
 #define first_sched	((unsigned long) scheduling_functions_start_here)
 #define last_sched	((unsigned long) scheduling_functions_end_here)
 
 unsigned long get_wchan(struct task_struct *p)
 {
-	
+	/* M32R_FIXME */
 	return (0);
 }

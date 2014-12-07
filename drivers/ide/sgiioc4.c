@@ -34,6 +34,7 @@
 
 #define DRV_NAME "SGIIOC4"
 
+/* IOC4 Specific Definitions */
 #define IOC4_CMD_OFFSET		0x100
 #define IOC4_CTRL_OFFSET	0x120
 #define IOC4_DMA_OFFSET		0x140
@@ -49,6 +50,7 @@
 #define	IOC4_DMA_CTRL		0x07
 #define	IOC4_DMA_END_ADDR	0x08
 
+/* Bits in the IOC4 Control/Status Register */
 #define	IOC4_S_DMA_START	0x01
 #define	IOC4_S_DMA_STOP		0x02
 #define	IOC4_S_DMA_DIR		0x04
@@ -56,9 +58,11 @@
 #define	IOC4_S_DMA_ERROR	0x10
 #define	IOC4_ATA_MEMERR		0x02
 
+/* Read/Write Directions */
 #define	IOC4_DMA_WRITE		0x04
 #define	IOC4_DMA_READ		0x00
 
+/* Interrupt Register Offsets */
 #define IOC4_INTR_REG		0x03
 #define	IOC4_INTR_SET		0x05
 #define	IOC4_INTR_CLEAR		0x07
@@ -79,6 +83,8 @@ struct ioc4_dma_regs {
 	u32 status;
 };
 
+/* Each Physical Region Descriptor Entry size is 16 bytes (2 * 64 bits) */
+/* IOC4 has only 1 IDE channel */
 #define IOC4_PRD_BYTES		16
 #define IOC4_PRD_ENTRIES	(PAGE_SIZE / (4 * IOC4_PRD_BYTES))
 
@@ -91,7 +97,7 @@ static void sgiioc4_init_hwif_ports(struct ide_hw *hw,
 	unsigned long reg = data_port;
 	int i;
 
-	
+	/* Registers are word (32 bit) aligned */
 	for (i = 0; i <= 7; i++)
 		hw->io_ports_array[i] = reg + i * 4;
 
@@ -118,9 +124,16 @@ static int sgiioc4_clearirq(ide_drive_t *drive)
 	struct ide_io_ports *io_ports = &hwif->io_ports;
 	unsigned long other_ir = io_ports->irq_addr + (IOC4_INTR_REG << 2);
 
-	
+	/* Code to check for PCI error conditions */
 	intr_reg = readl((void __iomem *)other_ir);
-	if (intr_reg & 0x03) { 
+	if (intr_reg & 0x03) { /* Valid IOC4-IDE interrupt */
+		/*
+		 * Using sgiioc4_read_status to read the Status register has a
+		 * side effect of clearing the interrupt.  The first read should
+		 * clear it if it is set.  The second read should return
+		 * a "clear" status if it got cleared.  If not, then spin
+		 * for a bit trying to clear it.
+		 */
 		u8 stat = sgiioc4_read_status(hwif);
 		int count = 0;
 
@@ -132,7 +145,7 @@ static int sgiioc4_clearirq(ide_drive_t *drive)
 
 		if (intr_reg & 0x02) {
 			struct pci_dev *dev = to_pci_dev(hwif->dev);
-			
+			/* Error when transferring DMA data on PCI bus */
 			u32 pci_err_addr_low, pci_err_addr_high,
 			    pci_stat_cmd_reg;
 
@@ -148,11 +161,11 @@ static int sgiioc4_clearirq(ide_drive_t *drive)
 			printk(KERN_ERR "%s(%s): PCI Error Address is 0x%x%x\n",
 			       __func__, drive->name,
 			       pci_err_addr_high, pci_err_addr_low);
-			
+			/* Clear the PCI Error indicator */
 			pci_write_config_dword(dev, PCI_COMMAND, 0x00000146);
 		}
 
-		
+		/* Clear the Interrupt, Error bits on the IOC4 */
 		writel(0x03, (void __iomem *)other_ir);
 
 		intr_reg = readl((void __iomem *)other_ir);
@@ -186,6 +199,7 @@ static u32 sgiioc4_ide_dma_stop(ide_hwif_t *hwif, u64 dma_base)
 	return ioc4_dma;
 }
 
+/* Stops the IOC4 DMA Engine */
 static int sgiioc4_dma_end(ide_drive_t *drive)
 {
 	u32 ioc4_dma, bc_dev, bc_mem, num, valid = 0, cnt = 0;
@@ -206,6 +220,11 @@ static int sgiioc4_dma_end(ide_drive_t *drive)
 		dma_stat = 1;
 	}
 
+	/*
+	 * The IOC4 will DMA 1's to the ending DMA area to indicate that
+	 * previous data DMA is complete.  This is necessary because of relaxed
+	 * ordering between register reads and DMA writes on the Altix.
+	 */
 	while ((cnt++ < 200) && (!valid)) {
 		for (num = 0; num < 16; num++) {
 			if (ending_dma[num]) {
@@ -240,6 +259,7 @@ static void sgiioc4_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
 }
 
+/* Returns 1 if DMA IRQ issued, 0 otherwise */
 static int sgiioc4_dma_test_irq(ide_drive_t *drive)
 {
 	return sgiioc4_checkirq(drive->hwif);
@@ -272,11 +292,11 @@ static u8 sgiioc4_read_status(ide_hwif_t *hwif)
 	unsigned long port = hwif->io_ports.status_addr;
 	u8 reg = (u8) readb((void __iomem *) port);
 
-	if (!(reg & ATA_BUSY)) {	
+	if (!(reg & ATA_BUSY)) {	/* Not busy... check for interrupt */
 		unsigned long other_ir = port - 0x110;
 		unsigned int intr_reg = (u32) readl((void __iomem *) other_ir);
 
-		
+		/* Clear the Interrupt, Error bits on the IOC4 */
 		if (intr_reg & 0x03) {
 			writel(0x03, (void __iomem *) other_ir);
 			intr_reg = (u32) readl((void __iomem *) other_ir);
@@ -286,6 +306,7 @@ static u8 sgiioc4_read_status(ide_hwif_t *hwif)
 	return reg;
 }
 
+/* Creates a DMA map for the scatter-gather list entries */
 static int __devinit ide_dma_sgiioc4(ide_hwif_t *hwif,
 				     const struct ide_port_info *d)
 {
@@ -333,6 +354,7 @@ dma_pci_alloc_failure:
 	return -1;
 }
 
+/* Initializes the IOC4 DMA Engine */
 static void sgiioc4_configure_for_dma(int dma_direction, ide_drive_t *drive)
 {
 	u32 ioc4_dma;
@@ -367,11 +389,11 @@ static void sgiioc4_configure_for_dma(int dma_direction, ide_drive_t *drive)
 			       "still 1\n", __func__, drive->name);
 	}
 
-	
+	/* Address of the Scatter Gather List */
 	dma_addr = cpu_to_le32(hwif->dmatable_dma);
 	writel(dma_addr, (void __iomem *)(dma_base + IOC4_DMA_PTR_L * 4));
 
-	
+	/* Address of the Ending DMA */
 	memset(ide_get_hwifdata(hwif), 0, IOC4_IDE_CACHELINE_SIZE);
 	ending_dma_addr = cpu_to_le32(hwif->extra_base);
 	writel(ending_dma_addr, (void __iomem *)(dma_base +
@@ -380,6 +402,15 @@ static void sgiioc4_configure_for_dma(int dma_direction, ide_drive_t *drive)
 	writel(dma_direction, (void __iomem *)ioc4_dma_addr);
 }
 
+/* IOC4 Scatter Gather list Format					 */
+/* 128 Bit entries to support 64 bit addresses in the future		 */
+/* The Scatter Gather list Entry should be in the BIG-ENDIAN Format	 */
+/* --------------------------------------------------------------------- */
+/* | Upper 32 bits - Zero	    |		Lower 32 bits- address | */
+/* --------------------------------------------------------------------- */
+/* | Upper 32 bits - Zero	    |EOL| 15 unused     | 16 Bit Length| */
+/* --------------------------------------------------------------------- */
+/* Creates the scatter gather list, DMA Table				 */
 
 static int sgiioc4_build_dmatable(ide_drive_t *drive, struct ide_cmd *cmd)
 {
@@ -407,6 +438,10 @@ static int sgiioc4_build_dmatable(ide_drive_t *drive, struct ide_cmd *cmd)
 				if (bcount > cur_len)
 					bcount = cur_len;
 
+				/*
+				 * Put the address, length in
+				 * the IOC4 dma-table format
+				 */
 				*table = 0x0;
 				table++;
 				*table = cpu_to_be32(cur_addr);
@@ -432,7 +467,7 @@ static int sgiioc4_build_dmatable(ide_drive_t *drive, struct ide_cmd *cmd)
 		return count;
 	}
 
-	return 0;		
+	return 0;		/* revert to PIO for this request */
 }
 
 static int sgiioc4_dma_setup(ide_drive_t *drive, struct ide_cmd *cmd)
@@ -441,14 +476,14 @@ static int sgiioc4_dma_setup(ide_drive_t *drive, struct ide_cmd *cmd)
 	u8 write = !!(cmd->tf_flags & IDE_TFLAG_WRITE);
 
 	if (sgiioc4_build_dmatable(drive, cmd) == 0)
-		
+		/* try PIO instead of DMA */
 		return 1;
 
 	if (write)
-		
+		/* Writes TO the IOC4 FROM Main Memory */
 		ddir = IOC4_DMA_READ;
 	else
-		
+		/* Writes FROM the IOC4 TO Main Memory */
 		ddir = IOC4_DMA_WRITE;
 
 	sgiioc4_configure_for_dma(ddir, drive);
@@ -472,7 +507,7 @@ static const struct ide_tp_ops sgiioc4_tp_ops = {
 
 static const struct ide_port_ops sgiioc4_port_ops = {
 	.set_dma_mode		= sgiioc4_set_dma_mode,
-	
+	/* reset DMA engine, clear IRQs */
 	.resetproc		= sgiioc4_resetproc,
 };
 
@@ -505,7 +540,7 @@ static int __devinit sgiioc4_ide_setup_pci_device(struct pci_dev *dev)
 	struct ide_hw hw, *hws[] = { &hw };
 	int rc;
 
-	
+	/* Get the CmdBlk and CtrlBlk base registers */
 	bar0 = pci_resource_start(dev, 0);
 	virt_base = pci_ioremap_bar(dev, 0);
 	if (virt_base == NULL) {
@@ -527,13 +562,13 @@ static int __devinit sgiioc4_ide_setup_pci_device(struct pci_dev *dev)
 		goto req_mem_rgn_err;
 	}
 
-	
+	/* Initialize the IO registers */
 	memset(&hw, 0, sizeof(hw));
 	sgiioc4_init_hwif_ports(&hw, cmd_base, ctl, irqport);
 	hw.irq = dev->irq;
 	hw.dev = &dev->dev;
 
-	
+	/* Initialize chipset IRQ registers */
 	writel(0x03, (void __iomem *)(irqport + IOC4_INTR_SET * 4));
 
 	rc = ide_host_add(&sgiioc4_port_info, hws, 1, NULL);
@@ -568,6 +603,10 @@ out:
 
 int __devinit ioc4_ide_attach_one(struct ioc4_driver_data *idd)
 {
+	/*
+	 * PCI-RT does not bring out IDE connection.
+	 * Do not attach to this particular IOC4.
+	 */
 	if (idd->idd_variant == IOC4_VARIANT_PCI_RT)
 		return 0;
 
@@ -585,7 +624,7 @@ static int __init ioc4_ide_init(void)
 	return ioc4_register_submodule(&ioc4_ide_submodule);
 }
 
-late_initcall(ioc4_ide_init); 
+late_initcall(ioc4_ide_init); /* Call only after IDE init is done */
 
 MODULE_AUTHOR("Aniket Malatpure/Jeremy Higdon");
 MODULE_DESCRIPTION("IDE PCI driver module for SGI IOC4 Base-IO Card");

@@ -1,3 +1,4 @@
+/*-*-linux-c-*-*/
 
 /*
   Copyright (C) 2006 Lennart Poettering <mzxreary (at) 0pointer (dot) de>
@@ -18,6 +19,37 @@
   02110-1301, USA.
  */
 
+/*
+ * msi-laptop.c - MSI S270 laptop support. This laptop is sold under
+ * various brands, including "Cytron/TCM/Medion/Tchibo MD96100".
+ *
+ * Driver also supports S271, S420 models.
+ *
+ * This driver exports a few files in /sys/devices/platform/msi-laptop-pf/:
+ *
+ *   lcd_level - Screen brightness: contains a single integer in the
+ *   range 0..8. (rw)
+ *
+ *   auto_brightness - Enable automatic brightness control: contains
+ *   either 0 or 1. If set to 1 the hardware adjusts the screen
+ *   brightness automatically when the power cord is
+ *   plugged/unplugged. (rw)
+ *
+ *   wlan - WLAN subsystem enabled: contains either 0 or 1. (ro)
+ *
+ *   bluetooth - Bluetooth subsystem enabled: contains either 0 or 1
+ *   Please note that this file is constantly 0 if no Bluetooth
+ *   hardware is available. (ro)
+ *
+ * In addition to these platform device attributes the driver
+ * registers itself in the Linux backlight control subsystem and is
+ * available to userspace under /sys/class/backlight/msi-laptop-bl/.
+ *
+ * This driver might work on other laptops produced by MSI. If you
+ * want to try it you can pass force=1 as argument to the module which
+ * will force it to load even when the DMI data doesn't identify the
+ * laptop as MSI S270. YMMV.
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -46,6 +78,7 @@
 #define MSI_STANDARD_EC_WLAN_MASK	(1 << 3)
 #define MSI_STANDARD_EC_3G_MASK		(1 << 4)
 
+/* For set SCM load flag to disable BIOS fn key */
 #define MSI_STANDARD_EC_SCM_LOAD_ADDRESS	0x2d
 #define MSI_STANDARD_EC_SCM_LOAD_MASK		(1 << 0)
 
@@ -65,8 +98,8 @@ module_param(auto_brightness, int, 0);
 MODULE_PARM_DESC(auto_brightness, "Enable automatic brightness control (0: disabled; 1: enabled; 2: don't touch)");
 
 static const struct key_entry msi_laptop_keymap[] = {
-	{KE_KEY, KEY_TOUCHPAD_ON, {KEY_TOUCHPAD_ON} },	
-	{KE_KEY, KEY_TOUCHPAD_OFF, {KEY_TOUCHPAD_OFF} },
+	{KE_KEY, KEY_TOUCHPAD_ON, {KEY_TOUCHPAD_ON} },	/* Touch Pad On */
+	{KE_KEY, KEY_TOUCHPAD_OFF, {KEY_TOUCHPAD_OFF} },/* Touch Pad On */
 	{KE_END, 0}
 };
 
@@ -76,9 +109,20 @@ static bool old_ec_model;
 static int wlan_s, bluetooth_s, threeg_s;
 static int threeg_exists;
 
+/* Some MSI 3G netbook only have one fn key to control Wlan/Bluetooth/3G,
+ * those netbook will load the SCM (windows app) to disable the original
+ * Wlan/Bluetooth control by BIOS when user press fn key, then control
+ * Wlan/Bluetooth/3G by SCM (software control by OS). Without SCM, user
+ * cann't on/off 3G module on those 3G netbook.
+ * On Linux, msi-laptop driver will do the same thing to disable the
+ * original BIOS control, then might need use HAL or other userland
+ * application to do the software control that simulate with SCM.
+ * e.g. MSI N034 netbook
+ */
 static bool load_scm_model;
 static struct rfkill *rfk_wlan, *rfk_bluetooth, *rfk_threeg;
 
+/* Hardware access */
 
 static int set_lcd_level(int level)
 {
@@ -148,13 +192,13 @@ static ssize_t set_device_state(const char *buf, size_t count, u8 mask)
 	if (sscanf(buf, "%i", &status) != 1 || (status < 0 || status > 1))
 		return -EINVAL;
 
-	
+	/* read current device state */
 	result = ec_read(MSI_STANDARD_EC_COMMAND_ADDRESS, &rdata);
 	if (result < 0)
 		return -EINVAL;
 
 	if (!!(rdata & mask) != status) {
-		
+		/* reverse device bit */
 		if (rdata & mask)
 			wdata = rdata & ~mask;
 		else
@@ -218,6 +262,7 @@ static int get_threeg_exists(void)
 	return 0;
 }
 
+/* Backlight device stuff */
 
 static int bl_get_brightness(struct backlight_device *b)
 {
@@ -237,6 +282,7 @@ static const struct backlight_ops msibl_ops = {
 
 static struct backlight_device *msibl_device;
 
+/* Platform device */
 
 static ssize_t show_wlan(struct device *dev,
 	struct device_attribute *attr, char *buf)
@@ -292,7 +338,7 @@ static ssize_t show_threeg(struct device *dev,
 
 	int ret;
 
-	
+	/* old msi ec not support 3G */
 	if (old_ec_model)
 		return -1;
 
@@ -397,6 +443,7 @@ static struct platform_driver msipf_driver = {
 
 static struct platform_device *msipf_device;
 
+/* Initialization */
 
 static int dmi_check_cb(const struct dmi_system_id *id)
 {
@@ -505,7 +552,11 @@ static struct dmi_system_id __initdata msi_load_scm_models_dmi_table[] = {
 
 static int rfkill_bluetooth_set(void *data, bool blocked)
 {
-	
+	/* Do something with blocked...*/
+	/*
+	 * blocked == false is on
+	 * blocked == true is off
+	 */
 	if (blocked)
 		set_device_state("0", 0, MSI_STANDARD_EC_BLUETOOTH_MASK);
 	else
@@ -600,7 +651,7 @@ static bool msi_laptop_i8042_filter(unsigned char data, unsigned char str,
 	if (str & 0x20)
 		return false;
 
-	
+	/* 0x54 wwan, 0x62 bluetooth, 0x76 wlan, 0xE4 touchpad toggle*/
 	if (unlikely(data == 0xe0)) {
 		extended = true;
 		return false;
@@ -642,10 +693,10 @@ static DECLARE_DELAYED_WORK(msi_rfkill_init, msi_init_rfkill);
 
 static int rfkill_init(struct platform_device *sdev)
 {
-	
+	/* add rfkill */
 	int retval;
 
-	
+	/* keep the hardware wireless state */
 	get_wireless_state_ec_standard();
 
 	rfk_bluetooth = rfkill_alloc("msi-bluetooth", &sdev->dev,
@@ -681,7 +732,7 @@ static int rfkill_init(struct platform_device *sdev)
 			goto err_threeg;
 	}
 
-	
+	/* schedule to run rfkill state initial */
 	schedule_delayed_work(&msi_rfkill_init,
 				round_jiffies_relative(1 * HZ));
 
@@ -709,7 +760,7 @@ static int msi_laptop_resume(struct platform_device *device)
 	if (!load_scm_model)
 		return 0;
 
-	
+	/* set load SCM to disable hardware control by fn key */
 	result = ec_read(MSI_STANDARD_EC_SCM_LOAD_ADDRESS, &data);
 	if (result < 0)
 		return result;
@@ -763,7 +814,7 @@ static int __init load_scm_model_init(struct platform_device *sdev)
 	u8 data;
 	int result;
 
-	
+	/* allow userland write sysfs file  */
 	dev_attr_bluetooth.store = store_bluetooth;
 	dev_attr_wlan.store = store_wlan;
 	dev_attr_threeg.store = store_threeg;
@@ -771,7 +822,7 @@ static int __init load_scm_model_init(struct platform_device *sdev)
 	dev_attr_wlan.attr.mode |= S_IWUSR;
 	dev_attr_threeg.attr.mode |= S_IWUSR;
 
-	
+	/* disable hardware control by fn key */
 	result = ec_read(MSI_STANDARD_EC_SCM_LOAD_ADDRESS, &data);
 	if (result < 0)
 		return result;
@@ -781,12 +832,12 @@ static int __init load_scm_model_init(struct platform_device *sdev)
 	if (result < 0)
 		return result;
 
-	
+	/* initial rfkill */
 	result = rfkill_init(sdev);
 	if (result < 0)
 		goto fail_rfkill;
 
-	
+	/* setup input device */
 	result = msi_laptop_input_setup();
 	if (result)
 		goto fail_input;
@@ -830,7 +881,7 @@ static int __init msi_init(void)
 	if (auto_brightness < 0 || auto_brightness > 2)
 		return -EINVAL;
 
-	
+	/* Register backlight stuff */
 
 	if (acpi_video_backlight_support()) {
 		pr_info("Brightness ignored, must be controlled by ACPI video driver\n");
@@ -850,7 +901,7 @@ static int __init msi_init(void)
 	if (ret)
 		goto fail_backlight;
 
-	
+	/* Register platform stuff */
 
 	msipf_device = platform_device_alloc("msi-laptop-pf", -1);
 	if (!msipf_device) {
@@ -880,6 +931,9 @@ static int __init msi_init(void)
 			goto fail_platform_device2;
 	}
 
+	/* Disable automatic brightness control by default because
+	 * this module was probably loaded to do brightness control in
+	 * software. */
 
 	if (auto_brightness != 2)
 		set_auto_brightness(auto_brightness);
@@ -928,7 +982,7 @@ static void __exit msi_cleanup(void)
 	platform_driver_unregister(&msipf_driver);
 	backlight_device_unregister(msibl_device);
 
-	
+	/* Enable automatic brightness control again */
 	if (auto_brightness != 2)
 		set_auto_brightness(1);
 

@@ -3,4 +3,4 @@
 
 #define arch_align_stack(x) (x)
 
-#endif 
+#endif /* __PARISC_EXEC_H */

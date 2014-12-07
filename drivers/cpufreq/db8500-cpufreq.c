@@ -29,7 +29,7 @@ static struct cpufreq_frequency_table freq_table[] = {
 		.frequency = 800000,
 	},
 	[3] = {
-		
+		/* Used for MAX_OPP, if available */
 		.index = 3,
 		.frequency = CPUFREQ_TABLE_END,
 	},
@@ -63,13 +63,13 @@ static int db8500_cpufreq_target(struct cpufreq_policy *policy,
 	struct cpufreq_freqs freqs;
 	unsigned int idx;
 
-	
+	/* scale the target frequency to one of the extremes supported */
 	if (target_freq < policy->cpuinfo.min_freq)
 		target_freq = policy->cpuinfo.min_freq;
 	if (target_freq > policy->cpuinfo.max_freq)
 		target_freq = policy->cpuinfo.max_freq;
 
-	
+	/* Lookup the next frequency */
 	if (cpufreq_frequency_table_target
 	    (policy, freq_table, target_freq, relation, &idx)) {
 		return -EINVAL;
@@ -81,17 +81,17 @@ static int db8500_cpufreq_target(struct cpufreq_policy *policy,
 	if (freqs.old == freqs.new)
 		return 0;
 
-	
+	/* pre-change notification */
 	for_each_cpu(freqs.cpu, policy->cpus)
 		cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
-	
+	/* request the PRCM unit for opp change */
 	if (prcmu_set_arm_opp(idx2opp[idx])) {
 		pr_err("db8500-cpufreq:  Failed to set OPP level\n");
 		return -EINVAL;
 	}
 
-	
+	/* post change notification */
 	for_each_cpu(freqs.cpu, policy->cpus)
 		cpufreq_notify_transition(&freqs, CPUFREQ_POSTCHANGE);
 
@@ -101,7 +101,7 @@ static int db8500_cpufreq_target(struct cpufreq_policy *policy,
 static unsigned int db8500_cpufreq_getspeed(unsigned int cpu)
 {
 	int i;
-	
+	/* request the prcm to get the current ARM opp */
 	for (i = 0; prcmu_get_arm_opp() != idx2opp[i]; i++)
 		;
 	return freq_table[i].frequency;
@@ -120,7 +120,7 @@ static int __cpuinit db8500_cpufreq_init(struct cpufreq_policy *policy)
 	for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++)
 		pr_info("  %d Mhz\n", freq_table[i].frequency/1000);
 
-	
+	/* get policy fields based on the table */
 	res = cpufreq_frequency_table_cpuinfo(policy, freq_table);
 	if (!res)
 		cpufreq_frequency_table_get_attr(freq_table, policy->cpu);
@@ -134,9 +134,14 @@ static int __cpuinit db8500_cpufreq_init(struct cpufreq_policy *policy)
 	policy->cur = db8500_cpufreq_getspeed(policy->cpu);
 	policy->governor = CPUFREQ_DEFAULT_GOVERNOR;
 
-	policy->cpuinfo.transition_latency = 20 * 1000; 
+	/*
+	 * FIXME : Need to take time measurement across the target()
+	 *	   function with no/some/all drivers in the notification
+	 *	   list.
+	 */
+	policy->cpuinfo.transition_latency = 20 * 1000; /* in ns */
 
-	
+	/* policy sharing between dual CPUs */
 	cpumask_copy(policy->cpus, cpu_present_mask);
 
 	policy->shared_type = CPUFREQ_SHARED_TYPE_ALL;

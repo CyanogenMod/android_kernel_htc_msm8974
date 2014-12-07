@@ -28,7 +28,7 @@
 #include <linux/sysctl.h>
 #include <linux/init.h>
 
-#include <net/irda/irda.h>		
+#include <net/irda/irda.h>		/* irda_debug */
 #include <net/irda/irlmp.h>
 #include <net/irda/timer.h>
 #include <net/irda/irias_object.h>
@@ -49,24 +49,29 @@ extern int  sysctl_lap_keepalive_time;
 
 extern struct irlmp_cb *irlmp;
 
-static int max_discovery_slots = 16;		
+/* this is needed for the proc_dointvec_minmax - Jean II */
+static int max_discovery_slots = 16;		/* ??? */
 static int min_discovery_slots = 1;
+/* IrLAP 6.13.2 says 25ms to 10+70ms - allow higher since some devices
+ * seems to require it. (from Dag's comment) */
 static int max_slot_timeout = 160;
 static int min_slot_timeout = 20;
-static int max_max_baud_rate = 16000000;	
+static int max_max_baud_rate = 16000000;	/* See qos.c - IrLAP spec */
 static int min_max_baud_rate = 2400;
-static int max_min_tx_turn_time = 10000;	
+static int max_min_tx_turn_time = 10000;	/* See qos.c - IrLAP spec */
 static int min_min_tx_turn_time;
-static int max_max_tx_data_size = 2048;		
+static int max_max_tx_data_size = 2048;		/* See qos.c - IrLAP spec */
 static int min_max_tx_data_size = 64;
-static int max_max_tx_window = 7;		
+static int max_max_tx_window = 7;		/* See qos.c - IrLAP spec */
 static int min_max_tx_window = 1;
-static int max_max_noreply_time = 40;		
+static int max_max_noreply_time = 40;		/* See qos.c - IrLAP spec */
 static int min_max_noreply_time = 3;
-static int max_warn_noreply_time = 3;		
-static int min_warn_noreply_time = 1;		
-static int max_lap_keepalive_time = 10000;	
-static int min_lap_keepalive_time = 100;	
+static int max_warn_noreply_time = 3;		/* 3s == standard */
+static int min_warn_noreply_time = 1;		/* 1s == min WD_TIMER */
+static int max_lap_keepalive_time = 10000;	/* 10s */
+static int min_lap_keepalive_time = 100;	/* 100us */
+/* For other sysctl, I've no idea of the range. Maybe Dag could help
+ * us on that - Jean II */
 
 static int do_devname(ctl_table *table, int write,
 		      void __user *buffer, size_t *lenp, loff_t *ppos)
@@ -105,6 +110,7 @@ static int do_discovery(ctl_table *table, int write,
        return ret;
 }
 
+/* One file */
 static ctl_table irda_table[] = {
 	{
 		.procname	= "discovery",
@@ -237,6 +243,12 @@ static struct ctl_path irda_path[] = {
 
 static struct ctl_table_header *irda_table_header;
 
+/*
+ * Function irda_sysctl_register (void)
+ *
+ *    Register our sysctl interface
+ *
+ */
 int __init irda_sysctl_register(void)
 {
 	irda_table_header = register_sysctl_paths(irda_path, irda_table);
@@ -246,6 +258,12 @@ int __init irda_sysctl_register(void)
 	return 0;
 }
 
+/*
+ * Function irda_sysctl_unregister (void)
+ *
+ *    Unregister our sysctl interface
+ *
+ */
 void irda_sysctl_unregister(void)
 {
 	unregister_sysctl_table(irda_table_header);

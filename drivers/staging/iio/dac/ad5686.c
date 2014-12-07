@@ -44,12 +44,27 @@
 #define AD5686_LDAC_PWRDN_100K			0x2
 #define AD5686_LDAC_PWRDN_3STATE		0x3
 
+/**
+ * struct ad5686_chip_info - chip specific information
+ * @int_vref_mv:	AD5620/40/60: the internal reference voltage
+ * @channel:		channel specification
+*/
 
 struct ad5686_chip_info {
 	u16				int_vref_mv;
 	struct iio_chan_spec		channel[AD5686_DAC_CHANNELS];
 };
 
+/**
+ * struct ad5446_state - driver instance specific data
+ * @spi:		spi_device
+ * @chip_info:		chip model specific constants, available modes etc
+ * @reg:		supply regulator
+ * @vref_mv:		actual reference voltage used
+ * @pwr_down_mask:	power down mask
+ * @pwr_down_mode:	current power down mode
+ * @data:		spi transfer buffers
+ */
 
 struct ad5686_state {
 	struct spi_device		*spi;
@@ -58,6 +73,10 @@ struct ad5686_state {
 	unsigned short			vref_mv;
 	unsigned			pwr_down_mask;
 	unsigned			pwr_down_mode;
+	/*
+	 * DMA (thus cache coherency maintenance) requires the
+	 * transfer buffers to live in their own cache lines.
+	 */
 
 	union {
 		u32 d32;
@@ -65,6 +84,9 @@ struct ad5686_state {
 	} data[3] ____cacheline_aligned;
 };
 
+/**
+ * ad5686_supported_device_ids:
+ */
 
 enum ad5686_supported_device_ids {
 	ID_AD5684,

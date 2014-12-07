@@ -1,11 +1,18 @@
+/*
+ * H-TCP congestion control. The algorithm is detailed in:
+ * R.N.Shorten, D.J.Leith:
+ *   "H-TCP: TCP for high-speed and long-distance networks"
+ *   Proc. PFLDnet, Argonne, 2004.
+ * http://www.hamilton.ie/net/htcp3.pdf
+ */
 
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <net/tcp.h>
 
-#define ALPHA_BASE	(1<<7)	
-#define BETA_MIN	(1<<6)	
-#define BETA_MAX	102	
+#define ALPHA_BASE	(1<<7)	/* 1.0 with shift << 7 */
+#define BETA_MIN	(1<<6)	/* 0.5 with shift << 7 */
+#define BETA_MAX	102	/* 0.8 with shift << 7 */
 
 static int use_rtt_scaling __read_mostly = 1;
 module_param(use_rtt_scaling, int, 0644);
@@ -16,20 +23,21 @@ module_param(use_bandwidth_switch, int, 0644);
 MODULE_PARM_DESC(use_bandwidth_switch, "turn on/off bandwidth switcher");
 
 struct htcp {
-	u32	alpha;		
-	u8	beta;           
-	u8	modeswitch;	
+	u32	alpha;		/* Fixed point arith, << 7 */
+	u8	beta;           /* Fixed point arith, << 7 */
+	u8	modeswitch;	/* Delay modeswitch
+				   until we had at least one congestion event */
 	u16	pkts_acked;
 	u32	packetcount;
 	u32	minRTT;
 	u32	maxRTT;
-	u32	last_cong;	
+	u32	last_cong;	/* Time since last congestion event end */
 	u32	undo_last_cong;
 
 	u32	undo_maxRTT;
 	u32	undo_old_maxB;
 
-	
+	/* Bandwidth estimation */
 	u32	minB;
 	u32	maxB;
 	u32	old_maxB;
@@ -76,11 +84,11 @@ static inline void measure_rtt(struct sock *sk, u32 srtt)
 	const struct inet_connection_sock *icsk = inet_csk(sk);
 	struct htcp *ca = inet_csk_ca(sk);
 
-	
+	/* keep track of minimum RTT seen so far, minRTT is zero at first */
 	if (ca->minRTT > srtt || !ca->minRTT)
 		ca->minRTT = srtt;
 
-	
+	/* max RTT */
 	if (icsk->icsk_ca_state == TCP_CA_Open) {
 		if (ca->maxRTT < ca->minRTT)
 			ca->maxRTT = ca->minRTT;
@@ -106,7 +114,7 @@ static void measure_achieved_throughput(struct sock *sk, u32 pkts_acked, s32 rtt
 	if (!use_bandwidth_switch)
 		return;
 
-	
+	/* achieved throughput calculations */
 	if (!((1 << icsk->icsk_ca_state) & (TCPF_CA_Open | TCPF_CA_Disorder))) {
 		ca->packetcount = 0;
 		ca->lasttime = now;
@@ -121,7 +129,7 @@ static void measure_achieved_throughput(struct sock *sk, u32 pkts_acked, s32 rtt
 		__u32 cur_Bi = ca->packetcount * HZ / (now - ca->lasttime);
 
 		if (htcp_ccount(ca) <= 3) {
-			
+			/* just after backoff */
 			ca->minB = ca->maxB = ca->Bi = cur_Bi;
 		} else {
 			ca->Bi = (3 * ca->Bi + cur_Bi) / 4;
@@ -175,7 +183,7 @@ static inline void htcp_alpha_update(struct htcp *ca)
 	if (use_rtt_scaling && minRTT) {
 		u32 scale = (HZ << 3) / (10 * minRTT);
 
-		
+		/* clamping ratio to interval [0.5,10]<<3 */
 		scale = min(max(scale, 1U << 2), 10U << 3);
 		factor = (factor << 3) / scale;
 		if (!factor)
@@ -187,6 +195,15 @@ static inline void htcp_alpha_update(struct htcp *ca)
 		ca->alpha = ALPHA_BASE;
 }
 
+/*
+ * After we have the rtt data to calculate beta, we'd still prefer to wait one
+ * rtt before we adjust our beta to ensure we are working from a consistent
+ * data.
+ *
+ * This function should be called when we hit a congestion event since only at
+ * that point do we really have a real sense of maxRTT (the queues en route
+ * were getting just too full now).
+ */
 static void htcp_param_update(struct sock *sk)
 {
 	struct htcp *ca = inet_csk_ca(sk);
@@ -196,7 +213,7 @@ static void htcp_param_update(struct sock *sk)
 	htcp_beta_update(ca, minRTT, maxRTT);
 	htcp_alpha_update(ca);
 
-	
+	/* add slowly fading memory for maxRTT to accommodate routing changes */
 	if (minRTT > 0 && maxRTT > minRTT)
 		ca->maxRTT = minRTT + ((maxRTT - minRTT) * 95) / 100;
 }
@@ -221,6 +238,9 @@ static void htcp_cong_avoid(struct sock *sk, u32 ack, u32 in_flight)
 	if (tp->snd_cwnd <= tp->snd_ssthresh)
 		tcp_slow_start(tp);
 	else {
+		/* In dangerous area, increase slowly.
+		 * In theory this is tp->snd_cwnd += alpha / tp->snd_cwnd
+		 */
 		if ((tp->snd_cwnd_cnt * ca->alpha)>>7 >= tp->snd_cwnd) {
 			if (tp->snd_cwnd < tp->snd_cwnd_clamp)
 				tp->snd_cwnd++;

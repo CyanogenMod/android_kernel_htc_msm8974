@@ -33,53 +33,54 @@ enum spkr_left_right {
 };
 
 enum spkr_gain {
-	SPKR_GAIN_MINUS16DB,      
-	SPKR_GAIN_MINUS12DB,      
-	SPKR_GAIN_MINUS08DB,      
-	SPKR_GAIN_MINUS04DB,      
-	SPKR_GAIN_00DB,           
-	SPKR_GAIN_PLUS04DB,       
-	SPKR_GAIN_PLUS08DB,       
-	SPKR_GAIN_PLUS12DB,       
+	SPKR_GAIN_MINUS16DB,      /* -16 db */
+	SPKR_GAIN_MINUS12DB,      /* -12 db */
+	SPKR_GAIN_MINUS08DB,      /* -08 db */
+	SPKR_GAIN_MINUS04DB,      /* -04 db */
+	SPKR_GAIN_00DB,           /*  00 db */
+	SPKR_GAIN_PLUS04DB,       /* +04 db */
+	SPKR_GAIN_PLUS08DB,       /* +08 db */
+	SPKR_GAIN_PLUS12DB,       /* +12 db */
 };
 
 enum spkr_dly {
-	SPKR_DLY_10MS,            
-	SPKR_DLY_100MS,           
+	SPKR_DLY_10MS,            /* ~10  ms delay */
+	SPKR_DLY_100MS,           /* ~100 ms delay */
 };
 
 enum spkr_hpf_corner_freq {
-	SPKR_FREQ_1_39KHZ,         
-	SPKR_FREQ_0_64KHZ,         
-	SPKR_FREQ_0_86KHZ,         
-	SPKR_FREQ_0_51KHZ,         
-	SPKR_FREQ_1_06KHZ,         
-	SPKR_FREQ_0_57KHZ,         
-	SPKR_FREQ_0_73KHZ,         
-	SPKR_FREQ_0_47KHZ,         
-	SPKR_FREQ_1_20KHZ,         
-	SPKR_FREQ_0_60KHZ,         
-	SPKR_FREQ_0_76KHZ,         
-	SPKR_FREQ_0_49KHZ,         
-	SPKR_FREQ_0_95KHZ,         
-	SPKR_FREQ_0_54KHZ,         
-	SPKR_FREQ_0_68KHZ,         
-	SPKR_FREQ_0_45KHZ,         
+	SPKR_FREQ_1_39KHZ,         /* 1.39 kHz */
+	SPKR_FREQ_0_64KHZ,         /* 0.64 kHz */
+	SPKR_FREQ_0_86KHZ,         /* 0.86 kHz */
+	SPKR_FREQ_0_51KHZ,         /* 0.51 kHz */
+	SPKR_FREQ_1_06KHZ,         /* 1.06 kHz */
+	SPKR_FREQ_0_57KHZ,         /* 0.57 kHz */
+	SPKR_FREQ_0_73KHZ,         /* 0.73 kHz */
+	SPKR_FREQ_0_47KHZ,         /* 0.47 kHz */
+	SPKR_FREQ_1_20KHZ,         /* 1.20 kHz */
+	SPKR_FREQ_0_60KHZ,         /* 0.60 kHz */
+	SPKR_FREQ_0_76KHZ,         /* 0.76 kHz */
+	SPKR_FREQ_0_49KHZ,         /* 0.49 kHz */
+	SPKR_FREQ_0_95KHZ,         /* 0.95 kHz */
+	SPKR_FREQ_0_54KHZ,         /* 0.54 kHz */
+	SPKR_FREQ_0_68KHZ,         /* 0.68 kHz */
+	SPKR_FREQ_0_45KHZ,         /* 0.45 kHz */
 };
 
+/* Turn the speaker on or off and enables or disables mute.*/
 enum spkr_cmd {
-	SPKR_DISABLE,  
-	SPKR_ENABLE,   
-	SPKR_MUTE_OFF, 
-	SPKR_MUTE_ON,  
-	SPKR_OFF,      
-	SPKR_ON,        
-	SPKR_SET_FREQ_CMD,    
-	SPKR_GET_FREQ_CMD,    
-	SPKR_SET_GAIN_CMD,    
-	SPKR_GET_GAIN_CMD,    
-	SPKR_SET_DELAY_CMD,   
-	SPKR_GET_DELAY_CMD,   
+	SPKR_DISABLE,  /* Enable Speaker */
+	SPKR_ENABLE,   /* Disable Speaker */
+	SPKR_MUTE_OFF, /* turn speaker mute off, SOUND ON */
+	SPKR_MUTE_ON,  /* turn speaker mute on, SOUND OFF */
+	SPKR_OFF,      /* turn speaker OFF (speaker disable and mute on) */
+	SPKR_ON,        /* turn speaker ON (speaker enable and mute off)  */
+	SPKR_SET_FREQ_CMD,    /* set speaker frequency */
+	SPKR_GET_FREQ_CMD,    /* get speaker frequency */
+	SPKR_SET_GAIN_CMD,    /* set speaker gain */
+	SPKR_GET_GAIN_CMD,    /* get speaker gain */
+	SPKR_SET_DELAY_CMD,   /* set speaker delay */
+	SPKR_GET_DELAY_CMD,   /* get speaker delay */
 	SPKR_SET_PDM_MODE,
 	SPKR_SET_PWM_MODE,
 };
@@ -96,10 +97,10 @@ struct spkr_config_mode {
 };
 
 enum mic_volt {
-	MIC_VOLT_2_00V,            
-	MIC_VOLT_1_93V,            
-	MIC_VOLT_1_80V,            
-	MIC_VOLT_1_73V,            
+	MIC_VOLT_2_00V,            /*  2.00 V  */
+	MIC_VOLT_1_93V,            /*  1.93 V  */
+	MIC_VOLT_1_80V,            /*  1.80 V  */
+	MIC_VOLT_1_73V,            /*  1.73 V  */
 };
 
 enum ledtype {
@@ -154,7 +155,7 @@ enum vreg_lp_id {
 	PM_VREG_LP_USB3P3_ID,
 
 	PM_VREG_LP_MSME_ID = PM_VREG_LP_MSME1_ID,
-	
+	/* backward compatible enums only */
 	PM_VREG_LP_CAM_ID = PM_VREG_LP_GP1_ID,
 	PM_VREG_LP_MDDI_ID = PM_VREG_LP_GP2_ID,
 	PM_VREG_LP_RUIM2_ID = PM_VREG_LP_GP3_ID,
@@ -211,7 +212,7 @@ enum vreg_id {
 	PM_VREG_EXTCDC1_ID,
 	PM_VREG_EXTCDC2_ID,
 
-	
+	/* backward compatible enums only */
 	PM_VREG_MSME_ID = PM_VREG_MSME1_ID,
 	PM_VREG_MSME_BUCK_SMPS_ID = PM_VREG_MSME1_ID,
 	PM_VREG_MSME1_LDO_ID = PM_VREG_MSME1_ID,
@@ -263,7 +264,7 @@ enum vreg_pdown_id {
 	PM_VREG_PDOWN_S2_ID,
 	PM_VREG_PDOWN_S3_ID,
 	PM_VREG_PDOWN_RFUBM_ID,
-	
+	/* new for HAN */
 	PM_VREG_PDOWN_RF1_ID,
 	PM_VREG_PDOWN_RF2_ID,
 	PM_VREG_PDOWN_RFA_ID,
@@ -273,7 +274,7 @@ enum vreg_pdown_id {
 	PM_VREG_PDOWN_USB2P6_ID,
 	PM_VREG_PDOWN_USB3P3_ID,
 
-	
+	/* backward compatible enums only */
 	PM_VREG_PDOWN_CAM_ID = PM_VREG_PDOWN_GP1_ID,
 	PM_VREG_PDOWN_MDDI_ID = PM_VREG_PDOWN_GP2_ID,
 	PM_VREG_PDOWN_RUIM2_ID = PM_VREG_PDOWN_GP3_ID,
@@ -523,6 +524,7 @@ enum high_current_led {
 	HIGH_CURRENT_LED_KBD_DRV,
 };
 
+/* PMIC GPIO */
 enum pmic_gpio {
 	PMIC_GPIO_1,
 	PMIC_GPIO_2,
@@ -583,7 +585,7 @@ enum pmic_dtest_buf_onoff {
 
 enum pmic_ext_pin_config {
 	EXT_PIN_ENABLE,
-	
+	/*! Puts EXT_PIN at high Z state & disables the block */
 	EXT_PIN_DISABLE,
 };
 

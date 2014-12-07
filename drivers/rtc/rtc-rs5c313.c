@@ -51,6 +51,9 @@
 #define DRV_VERSION 	"1.13"
 
 #ifdef CONFIG_SH_LANDISK
+/*****************************************************/
+/* LANDISK dependence part of RS5C313                */
+/*****************************************************/
 
 #define SCSMR1		0xFFE00000
 #define SCSCR1		0xFFE00008
@@ -68,10 +71,13 @@
 #define SCL_OEN		SCSPTR1_SPB0IO
 #define SCL		SCSPTR1_SPB0DT
 
+/* RICOH RS5C313 CE port */
 #define RS5C313_CE	0xB0000003
 
+/* RICOH RS5C313 CE port bit */
 #define RS5C313_CE_RTCCE	0x02
 
+/* SCSPTR1 data */
 unsigned char scsptr1_data;
 
 #define RS5C313_CEENABLE    __raw_writeb(RS5C313_CE_RTCCE, RS5C313_CE);
@@ -80,16 +86,16 @@ unsigned char scsptr1_data;
 
 static void rs5c313_init_port(void)
 {
-	
+	/* Set SCK as I/O port and Initialize SCSPTR1 data & I/O port. */
 	__raw_writeb(__raw_readb(SCSMR1) & ~SCSMR1_CA, SCSMR1);
 	__raw_writeb(__raw_readb(SCSCR1) & ~SCSCR1_CKE, SCSCR1);
 
-	
-	scsptr1_data = __raw_readb(SCSPTR1) | SCL;	
+	/* And Initialize SCL for RS5C313 clock */
+	scsptr1_data = __raw_readb(SCSPTR1) | SCL;	/* SCL:H */
 	__raw_writeb(scsptr1_data, SCSPTR1);
-	scsptr1_data = __raw_readb(SCSPTR1) | SCL_OEN;	
+	scsptr1_data = __raw_readb(SCSPTR1) | SCL_OEN;	/* SCL output enable */
 	__raw_writeb(scsptr1_data, SCSPTR1);
-	RS5C313_CEDISABLE;	
+	RS5C313_CEDISABLE;	/* CE:L */
 }
 
 static void rs5c313_write_data(unsigned char data)
@@ -97,23 +103,23 @@ static void rs5c313_write_data(unsigned char data)
 	int i;
 
 	for (i = 0; i < 8; i++) {
-		
+		/* SDA:Write Data */
 		scsptr1_data = (scsptr1_data & ~SDA) |
 				((((0x80 >> i) & data) >> (7 - i)) << 2);
 		__raw_writeb(scsptr1_data, SCSPTR1);
 		if (i == 0) {
-			scsptr1_data |= SDA_OEN;	
+			scsptr1_data |= SDA_OEN;	/* SDA:output enable */
 			__raw_writeb(scsptr1_data, SCSPTR1);
 		}
 		ndelay(700);
-		scsptr1_data &= ~SCL;	
+		scsptr1_data &= ~SCL;	/* SCL:L */
 		__raw_writeb(scsptr1_data, SCSPTR1);
 		ndelay(700);
-		scsptr1_data |= SCL;	
+		scsptr1_data |= SCL;	/* SCL:H */
 		__raw_writeb(scsptr1_data, SCSPTR1);
 	}
 
-	scsptr1_data &= ~SDA_OEN;	
+	scsptr1_data &= ~SDA_OEN;	/* SDA:output disable */
 	__raw_writeb(scsptr1_data, SCSPTR1);
 }
 
@@ -124,20 +130,24 @@ static unsigned char rs5c313_read_data(void)
 
 	for (i = 0; i < 8; i++) {
 		ndelay(700);
-		
+		/* SDA:Read Data */
 		data |= ((__raw_readb(SCSPTR1) & SDA) >> 2) << (7 - i);
-		scsptr1_data &= ~SCL;	
+		scsptr1_data &= ~SCL;	/* SCL:L */
 		__raw_writeb(scsptr1_data, SCSPTR1);
 		ndelay(700);
-		scsptr1_data |= SCL;	
+		scsptr1_data |= SCL;	/* SCL:H */
 		__raw_writeb(scsptr1_data, SCSPTR1);
 	}
 	return data & 0x0F;
 }
 
-#endif 
+#endif /* CONFIG_SH_LANDISK */
 
+/*****************************************************/
+/* machine independence part of RS5C313              */
+/*****************************************************/
 
+/* RICOH RS5C313 address */
 #define RS5C313_ADDR_SEC	0x00
 #define RS5C313_ADDR_SEC10	0x01
 #define RS5C313_ADDR_MIN	0x02
@@ -155,13 +165,16 @@ static unsigned char rs5c313_read_data(void)
 #define RS5C313_ADDR_CNTREG	0x0E
 #define RS5C313_ADDR_TESTREG	0x0F
 
+/* RICOH RS5C313 control register */
 #define RS5C313_CNTREG_ADJ_BSY	0x01
 #define RS5C313_CNTREG_WTEN_XSTP	0x02
 #define RS5C313_CNTREG_12_24	0x04
 #define RS5C313_CNTREG_CTFG	0x08
 
+/* RICOH RS5C313 test register */
 #define RS5C313_TESTREG_TEST	0x01
 
+/* RICOH RS5C313 control bit */
 #define RS5C313_CNTBIT_READ	0x40
 #define RS5C313_CNTBIT_AD	0x20
 #define RS5C313_CNTBIT_DT	0x10
@@ -203,16 +216,16 @@ static int rs5c313_rtc_read_time(struct device *dev, struct rtc_time *tm)
 
 	cnt = 0;
 	while (1) {
-		RS5C313_CEENABLE;	
+		RS5C313_CEENABLE;	/* CE:H */
 
-		
+		/* Initialize control reg. 24 hour */
 		rs5c313_write_cntreg(0x04);
 
 		if (!(rs5c313_read_cntreg() & RS5C313_CNTREG_ADJ_BSY))
 			break;
 
 		RS5C313_CEDISABLE;
-		ndelay(700);	
+		ndelay(700);	/* CE:L */
 
 		if (cnt++ > 100) {
 			dev_err(dev, "%s: timeout error\n", __func__);
@@ -251,7 +264,7 @@ static int rs5c313_rtc_read_time(struct device *dev, struct rtc_time *tm)
 	tm->tm_wday = bcd2bin(data);
 
 	RS5C313_CEDISABLE;
-	ndelay(700);		
+	ndelay(700);		/* CE:L */
 
 	return 0;
 }
@@ -262,18 +275,18 @@ static int rs5c313_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	int cnt;
 
 	cnt = 0;
-	
+	/* busy check. */
 	while (1) {
-		RS5C313_CEENABLE;	
+		RS5C313_CEENABLE;	/* CE:H */
 
-		
+		/* Initiatlize control reg. 24 hour */
 		rs5c313_write_cntreg(0x04);
 
 		if (!(rs5c313_read_cntreg() & RS5C313_CNTREG_ADJ_BSY))
 			break;
 		RS5C313_MISCOP;
 		RS5C313_CEDISABLE;
-		ndelay(700);	
+		ndelay(700);	/* CE:L */
 
 		if (cnt++ > 100) {
 			dev_err(dev, "%s: timeout error\n", __func__);
@@ -308,7 +321,7 @@ static int rs5c313_rtc_set_time(struct device *dev, struct rtc_time *tm)
 	data = bin2bcd(tm->tm_wday);
 	rs5c313_write_reg(RS5C313_ADDR_WEEK, data);
 
-	RS5C313_CEDISABLE;	
+	RS5C313_CEDISABLE;	/* CE:H */
 	ndelay(700);
 
 	return 0;
@@ -319,14 +332,14 @@ static void rs5c313_check_xstp_bit(void)
 	struct rtc_time tm;
 	int cnt;
 
-	RS5C313_CEENABLE;	
+	RS5C313_CEENABLE;	/* CE:H */
 	if (rs5c313_read_cntreg() & RS5C313_CNTREG_WTEN_XSTP) {
-		
+		/* INT interval reg. OFF */
 		rs5c313_write_intintvreg(0x00);
-		
+		/* Initialize control reg. 24 hour & adjust */
 		rs5c313_write_cntreg(0x07);
 
-		
+		/* busy check. */
 		for (cnt = 0; cnt < 100; cnt++) {
 			if (!(rs5c313_read_cntreg() & RS5C313_CNTREG_ADJ_BSY))
 				break;
@@ -343,7 +356,7 @@ static void rs5c313_check_xstp_bit(void)
 				"1 Jan 2000\n");
 	}
 	RS5C313_CEDISABLE;
-	ndelay(700);		
+	ndelay(700);		/* CE:L */
 }
 
 static const struct rtc_class_ops rs5c313_rtc_ops = {

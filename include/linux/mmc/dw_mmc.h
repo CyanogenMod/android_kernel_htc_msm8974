@@ -126,7 +126,7 @@ struct dw_mci {
 	struct mmc_command	*cmd;
 	struct mmc_data		*data;
 
-	
+	/* DMA interface members*/
 	int			use_dma;
 	int			using_dma;
 
@@ -159,7 +159,7 @@ struct dw_mci {
 	struct dw_mci_board	*pdata;
 	struct dw_mci_slot	*slot[MAX_MCI_SLOTS];
 
-	
+	/* FIFO push and pull */
 	int			fifo_depth;
 	int			data_shift;
 	u8			part_buf_start;
@@ -172,16 +172,17 @@ struct dw_mci {
 	void (*push_data)(struct dw_mci *host, void *buf, int cnt);
 	void (*pull_data)(struct dw_mci *host, void *buf, int cnt);
 
-	
+	/* Workaround flags */
 	u32			quirks;
 
-	struct regulator	*vmmc;	
-	unsigned long		irq_flags; 
+	struct regulator	*vmmc;	/* Power regulator */
+	unsigned long		irq_flags; /* IRQ flags */
 	unsigned int		irq;
 };
 
+/* DMA ops for Internal/External DMAC interface */
 struct dw_mci_dma_ops {
-	
+	/* DMA Ops */
 	int (*init)(struct dw_mci *host);
 	void (*start)(struct dw_mci *host, unsigned int sg_len);
 	void (*complete)(struct dw_mci *host);
@@ -190,33 +191,44 @@ struct dw_mci_dma_ops {
 	void (*exit)(struct dw_mci *host);
 };
 
+/* IP Quirks/flags. */
+/* DTO fix for command transmission with IDMAC configured */
 #define DW_MCI_QUIRK_IDMAC_DTO			BIT(0)
+/* delay needed between retries on some 2.11a implementations */
 #define DW_MCI_QUIRK_RETRY_DELAY		BIT(1)
+/* High Speed Capable - Supports HS cards (up to 50MHz) */
 #define DW_MCI_QUIRK_HIGHSPEED			BIT(2)
+/* Unreliable card detection */
 #define DW_MCI_QUIRK_BROKEN_CARD_DETECTION	BIT(3)
 
 
 struct dma_pdata;
 
 struct block_settings {
-	unsigned short	max_segs;	
-	unsigned int	max_blk_size;	
-	unsigned int	max_blk_count;	
-	unsigned int	max_req_size;	
-	unsigned int	max_seg_size;	
+	unsigned short	max_segs;	/* see blk_queue_max_segments */
+	unsigned int	max_blk_size;	/* maximum size of one mmc block */
+	unsigned int	max_blk_count;	/* maximum number of blocks in one req*/
+	unsigned int	max_req_size;	/* maximum number of bytes in one req*/
+	unsigned int	max_seg_size;	/* see blk_queue_max_segment_size */
 };
 
+/* Board platform data */
 struct dw_mci_board {
 	u32 num_slots;
 
-	u32 quirks; 
-	unsigned int bus_hz; 
+	u32 quirks; /* Workaround / Quirk flags */
+	unsigned int bus_hz; /* Bus speed */
 
-	unsigned int caps;	
-	unsigned int caps2;	
+	unsigned int caps;	/* Capabilities */
+	unsigned int caps2;	/* More capabilities */
+	/*
+	 * Override fifo depth. If 0, autodetect it from the FIFOTH register,
+	 * but note that this may not be reliable after a bootloader has used
+	 * it.
+	 */
 	unsigned int fifo_depth;
 
-	
+	/* delay in mS before detecting cards after interrupt */
 	u32 detect_delay_ms;
 
 	int (*init)(u32 slot_id, irq_handler_t , void *);
@@ -224,6 +236,11 @@ struct dw_mci_board {
 	int (*get_cd)(u32 slot_id);
 	int (*get_ocr)(u32 slot_id);
 	int (*get_bus_wd)(u32 slot_id);
+	/*
+	 * Enable power to selected slot and set voltage to desired level.
+	 * Voltage levels are specified using MMC_VDD_xxx defines defined
+	 * in linux/mmc/host.h file.
+	 */
 	void (*setpower)(u32 slot_id, u32 volt);
 	void (*exit)(u32 slot_id);
 	void (*select_slot)(u32 slot_id);
@@ -233,4 +250,4 @@ struct dw_mci_board {
 	struct block_settings *blk_settings;
 };
 
-#endif 
+#endif /* LINUX_MMC_DW_MMC_H */

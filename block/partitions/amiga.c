@@ -30,7 +30,7 @@ int amiga_partition(struct parsed_partitions *state)
 	struct RigidDiskBlock *rdb;
 	struct PartitionBlock *pb;
 	int start_sect, nr_sects, blk, part, res = 0;
-	int blksize = 1;	
+	int blksize = 1;	/* Multiplier for disk block size */
 	int slot = 1;
 	char b[BDEVNAME_SIZE];
 
@@ -51,6 +51,9 @@ int amiga_partition(struct parsed_partitions *state)
 		rdb = (struct RigidDiskBlock *)data;
 		if (checksum_block((__be32 *)data, be32_to_cpu(rdb->rdb_SummedLongs) & 0x7F) == 0)
 			break;
+		/* Try again with 0xdc..0xdf zeroed, Windows might have
+		 * trashed it.
+		 */
 		*(__be32 *)(data+0xdc) = 0;
 		if (checksum_block((__be32 *)data,
 				be32_to_cpu(rdb->rdb_SummedLongs) & 0x7F)==0) {
@@ -63,20 +66,20 @@ int amiga_partition(struct parsed_partitions *state)
 		       bdevname(state->bdev, b), blk);
 	}
 
-	
+	/* blksize is blocks per 512 byte standard block */
 	blksize = be32_to_cpu( rdb->rdb_BlockBytes ) / 512;
 
 	{
 		char tmp[7 + 10 + 1 + 1];
 
-		
+		/* Be more informative */
 		snprintf(tmp, sizeof(tmp), " RDSK (%d)", blksize * 512);
 		strlcat(state->pp_buf, tmp, PAGE_SIZE);
 	}
 	blk = be32_to_cpu(rdb->rdb_PartitionList);
 	put_dev_sector(sect);
 	for (part = 1; blk>0 && part<=16; part++, put_dev_sector(sect)) {
-		blk *= blksize;	
+		blk *= blksize;	/* Read in terms partition table understands */
 		data = read_part_sector(state, blk, &sect);
 		if (!data) {
 			if (warn_no_part)
@@ -92,7 +95,7 @@ int amiga_partition(struct parsed_partitions *state)
 		if (checksum_block((__be32 *)pb, be32_to_cpu(pb->pb_SummedLongs) & 0x7F) != 0 )
 			continue;
 
-		
+		/* Tell Kernel about it */
 
 		nr_sects = (be32_to_cpu(pb->pb_Environment[10]) + 1 -
 			    be32_to_cpu(pb->pb_Environment[9])) *
@@ -107,7 +110,7 @@ int amiga_partition(struct parsed_partitions *state)
 			     blksize;
 		put_partition(state,slot++,start_sect,nr_sects);
 		{
-			
+			/* Be even more informative to aid mounting */
 			char dostype[4];
 			char tmp[42];
 

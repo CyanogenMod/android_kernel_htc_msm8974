@@ -21,7 +21,7 @@ extern acpi_status pci_acpi_remove_pm_notifier(struct acpi_device *dev);
 static inline acpi_handle acpi_find_root_bridge_handle(struct pci_dev *pdev)
 {
 	struct pci_bus *pbus = pdev->bus;
-	
+	/* Find a PCI root bus */
 	while (!pci_is_root_bus(pbus))
 		pbus = pbus->parent;
 	return acpi_get_pci_rootbridge_handle(pci_domain_nr(pbus),
@@ -43,4 +43,4 @@ extern bool aer_acpi_firmware_first(void);
 static inline bool aer_acpi_firmware_first(void) { return false; }
 #endif
 
-#endif	
+#endif	/* _PCI_ACPI_H_ */

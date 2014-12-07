@@ -1,3 +1,6 @@
+/*
+ * /dev/lcd driver for Apple Network Servers.
+ */
 
 #include <linux/types.h>
 #include <linux/errno.h>
@@ -99,7 +102,7 @@ anslcd_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case ANSLCD_SENDCTRL:
 		temp = (char __user *) arg;
 		__get_user(ch, temp);
-		for (; ch; temp++) { 
+		for (; ch; temp++) { /* FIXME: This is ugly, but should work, as a \0 byte is not a valid command code */
 			anslcd_write_byte_ctrl ( ch );
 			__get_user(ch, temp);
 		}
@@ -143,10 +146,10 @@ static struct miscdevice anslcd_dev = {
 	&anslcd_fops
 };
 
-const char anslcd_logo[] =	"********************"  
-				"*      LINUX!      *"  
-				"*    Welcome to    *"  
-				"********************"; 
+const char anslcd_logo[] =	"********************"  /* Line #1 */
+				"*      LINUX!      *"  /* Line #3 */
+				"*    Welcome to    *"  /* Line #2 */
+				"********************"; /* Line #4 */
 
 static int __init
 anslcd_init(void)

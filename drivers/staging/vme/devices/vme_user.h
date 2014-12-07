@@ -3,35 +3,43 @@
 
 #define VME_USER_BUS_MAX	1
 
+/*
+ * VMEbus Master Window Configuration Structure
+ */
 struct vme_master {
-	int enable;			
-	unsigned long long vme_addr;	
-	unsigned long long size;	
-	u32 aspace;			
-	u32 cycle;		
-	u32 dwidth;		
+	int enable;			/* State of Window */
+	unsigned long long vme_addr;	/* Starting Address on the VMEbus */
+	unsigned long long size;	/* Window Size */
+	u32 aspace;			/* Address Space */
+	u32 cycle;		/* Cycle properties */
+	u32 dwidth;		/* Maximum Data Width */
 #if 0
-	char prefetchEnable;		
-	int prefetchSize;		
-	char wrPostEnable;		
+	char prefetchEnable;		/* Prefetch Read Enable State */
+	int prefetchSize;		/* Prefetch Read Size (Cache Lines) */
+	char wrPostEnable;		/* Write Post State */
 #endif
 };
 
 
+/*
+ * IOCTL Commands and structures
+ */
 
+/* Magic number for use in ioctls */
 #define VME_IOC_MAGIC 0xAE
 
 
+/* VMEbus Slave Window Configuration Structure */
 struct vme_slave {
-	int enable;			
-	unsigned long long vme_addr;	
-	unsigned long long size;	
-	u32 aspace;			
-	u32 cycle;		
+	int enable;			/* State of Window */
+	unsigned long long vme_addr;	/* Starting Address on the VMEbus */
+	unsigned long long size;	/* Window Size */
+	u32 aspace;			/* Address Space */
+	u32 cycle;		/* Cycle properties */
 #if 0
-	char wrPostEnable;		
-	char rmwLock;			
-	char data64BitCapable;		
+	char wrPostEnable;		/* Write Post State */
+	char rmwLock;			/* Lock PCI during RMW Cycles */
+	char data64BitCapable;		/* non-VMEbus capable of 64-bit Data */
 #endif
 };
 
@@ -46,5 +54,5 @@ struct vme_irq_id {
 #define VME_SET_MASTER _IOW(VME_IOC_MAGIC, 4, struct vme_master)
 #define VME_IRQ_GEN _IOW(VME_IOC_MAGIC, 5, struct vme_irq_id)
 
-#endif 
+#endif /* _VME_USER_H_ */
 

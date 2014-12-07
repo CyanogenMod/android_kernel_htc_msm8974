@@ -66,7 +66,7 @@ static int __devinit nvec_led_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto err_led;
 
-	
+	/* to expose the default value to userspace */
 	led->cdev.brightness = 0;
 
 	return 0;

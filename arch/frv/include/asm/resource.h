@@ -3,5 +3,5 @@
 
 #include <asm-generic/resource.h>
 
-#endif 
+#endif /* _ASM_RESOURCE_H */
 

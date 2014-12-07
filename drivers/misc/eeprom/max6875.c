@@ -33,15 +33,19 @@
 #include <linux/i2c.h>
 #include <linux/mutex.h>
 
+/* The MAX6875 can only read/write 16 bytes at a time */
 #define SLICE_SIZE			16
 #define SLICE_BITS			4
 
+/* USER EEPROM is at addresses 0x8100 - 0x82FF */
 #define USER_EEPROM_BASE		0x8100
 #define USER_EEPROM_SIZE		0x0200
 #define USER_EEPROM_SLICES		32
 
+/* MAX6875 commands */
 #define MAX6875_CMD_BLK_READ		0x84
 
+/* Each client has this additional data */
 struct max6875_data {
 	struct i2c_client	*fake_client;
 	struct mutex		update_lock;
@@ -73,7 +77,7 @@ static void max6875_update_slice(struct i2c_client *client, int slice)
 
 		addr = USER_EEPROM_BASE + (slice << SLICE_BITS);
 
-		
+		/* select the eeprom address */
 		if (i2c_smbus_write_byte_data(client, addr >> 8, addr & 0xFF)) {
 			dev_err(&client->dev, "address set failed\n");
 			goto exit_up;
@@ -117,7 +121,7 @@ static ssize_t max6875_read(struct file *filp, struct kobject *kobj,
 	if (off + count > USER_EEPROM_SIZE)
 		count = USER_EEPROM_SIZE - off;
 
-	
+	/* refresh slices which contain requested bytes */
 	max_slice = (off + count - 1) >> SLICE_BITS;
 	for (slice = (off >> SLICE_BITS); slice <= max_slice; slice++)
 		max6875_update_slice(client, slice);
@@ -147,21 +151,21 @@ static int max6875_probe(struct i2c_client *client,
 				     | I2C_FUNC_SMBUS_READ_BYTE))
 		return -ENODEV;
 
-	
+	/* Only bind to even addresses */
 	if (client->addr & 1)
 		return -ENODEV;
 
 	if (!(data = kzalloc(sizeof(struct max6875_data), GFP_KERNEL)))
 		return -ENOMEM;
 
-	
+	/* A fake client is created on the odd address */
 	data->fake_client = i2c_new_dummy(client->adapter, client->addr + 1);
 	if (!data->fake_client) {
 		err = -ENOMEM;
 		goto exit_kfree;
 	}
 
-	
+	/* Init real i2c_client */
 	i2c_set_clientdata(client, data);
 	mutex_init(&data->update_lock);
 

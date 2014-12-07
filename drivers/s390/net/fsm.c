@@ -1,3 +1,7 @@
+/**
+ * A generic FSM based on fsm used in isdn4linux
+ *
+ */
 
 #include "fsm.h"
 #include <linux/module.h>
@@ -176,6 +180,7 @@ fsm_addtimer(fsm_timer *this, int millisec, int event, void *arg)
 	return 0;
 }
 
+/* FIXME: this function is never used, why */
 void
 fsm_modtimer(fsm_timer *this, int millisec, int event, void *arg)
 {

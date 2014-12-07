@@ -67,6 +67,11 @@
 #include <linux/ktime.h>
 #include <linux/sched.h>
 
+/*
+ * Scheduler clock - returns current time in nanosec units.
+ * This is default implementation.
+ * Architectures and sub-architectures can override this.
+ */
 unsigned long long __attribute__((weak)) sched_clock(void)
 {
 	return (unsigned long long)(jiffies - INITIAL_JIFFIES)
@@ -113,6 +118,9 @@ void sched_clock_init(void)
 	sched_clock_running = 1;
 }
 
+/*
+ * min, max except they take wrapping into account
+ */
 
 static inline u64 wrap_min(u64 x, u64 y)
 {
@@ -124,6 +132,12 @@ static inline u64 wrap_max(u64 x, u64 y)
 	return (s64)(x - y) > 0 ? x : y;
 }
 
+/*
+ * update the percpu scd from the raw @now value
+ *
+ *  - filter out backward motion
+ *  - use the GTOD tick value to create a window to filter crazy TSC values
+ */
 static u64 sched_clock_local(struct sched_clock_data *scd)
 {
 	u64 now, clock, old_clock, min_clock, max_clock;
@@ -137,6 +151,11 @@ again:
 
 	old_clock = scd->clock;
 
+	/*
+	 * scd->clock = clamp(scd->tick_gtod + delta,
+	 *		      max(scd->tick_gtod, scd->clock),
+	 *		      scd->tick_gtod + TICK_NSEC);
+	 */
 
 	clock = scd->tick_gtod + delta;
 	min_clock = wrap_max(scd->tick_gtod, old_clock);
@@ -162,11 +181,20 @@ again:
 	this_clock = my_scd->clock;
 	remote_clock = scd->clock;
 
+	/*
+	 * Use the opportunity that we have both locks
+	 * taken to couple the two clocks: we take the
+	 * larger time as the latest time for both
+	 * runqueues. (this creates monotonic movement)
+	 */
 	if (likely((s64)(remote_clock - this_clock) < 0)) {
 		ptr = &scd->clock;
 		old_val = remote_clock;
 		val = this_clock;
 	} else {
+		/*
+		 * Should be rare, but possible:
+		 */
 		ptr = &my_scd->clock;
 		old_val = this_clock;
 		val = remote_clock;
@@ -178,6 +206,11 @@ again:
 	return val;
 }
 
+/*
+ * Similar to cpu_clock(), but requires local IRQs to be disabled.
+ *
+ * See cpu_clock().
+ */
 u64 sched_clock_cpu(int cpu)
 {
 	struct sched_clock_data *scd;
@@ -223,12 +256,18 @@ void sched_clock_tick(void)
 	sched_clock_local(scd);
 }
 
+/*
+ * We are going deep-idle (irqs are disabled):
+ */
 void sched_clock_idle_sleep_event(void)
 {
 	sched_clock_cpu(smp_processor_id());
 }
 EXPORT_SYMBOL_GPL(sched_clock_idle_sleep_event);
 
+/*
+ * We just idled delta nanoseconds (called with irqs disabled):
+ */
 void sched_clock_idle_wakeup_event(u64 delta_ns)
 {
 	if (timekeeping_suspended)
@@ -239,6 +278,16 @@ void sched_clock_idle_wakeup_event(u64 delta_ns)
 }
 EXPORT_SYMBOL_GPL(sched_clock_idle_wakeup_event);
 
+/*
+ * As outlined at the top, provides a fast, high resolution, nanosecond
+ * time source that is monotonic per cpu argument and has bounded drift
+ * between cpus.
+ *
+ * ######################### BIG FAT WARNING ##########################
+ * # when comparing cpu_clock(i) to cpu_clock(j) for i != j, time can #
+ * # go backwards !!                                                  #
+ * ####################################################################
+ */
 u64 cpu_clock(int cpu)
 {
 	u64 clock;
@@ -251,6 +300,13 @@ u64 cpu_clock(int cpu)
 	return clock;
 }
 
+/*
+ * Similar to cpu_clock() for the current cpu. Time will only be observed
+ * to be monotonic if care is taken to only compare timestampt taken on the
+ * same CPU.
+ *
+ * See cpu_clock().
+ */
 u64 local_clock(void)
 {
 	u64 clock;
@@ -263,7 +319,7 @@ u64 local_clock(void)
 	return clock;
 }
 
-#else 
+#else /* CONFIG_HAVE_UNSTABLE_SCHED_CLOCK */
 
 void sched_clock_init(void)
 {
@@ -288,7 +344,7 @@ u64 local_clock(void)
 	return sched_clock_cpu(0);
 }
 
-#endif 
+#endif /* CONFIG_HAVE_UNSTABLE_SCHED_CLOCK */
 
 EXPORT_SYMBOL_GPL(cpu_clock);
 EXPORT_SYMBOL_GPL(local_clock);

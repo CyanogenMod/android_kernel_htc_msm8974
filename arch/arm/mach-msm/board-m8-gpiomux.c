@@ -18,11 +18,6 @@
 #include <mach/gpiomux.h>
 #include <mach/socinfo.h>
 
-#define m8_TL_PID 281
-#define m8_DUG_PID 299
-#define m8_DUGL_PID 300
-#define m8_DWG_PID 269
-#define m8_DWGL_PID 319
 #define m8_UHL_PID 305
 
 static struct gpiomux_setting ap2mdm_cfg = {
@@ -1240,7 +1235,7 @@ void __init msm_htc_8974_init_gpiomux(void)
 	msm_gpiomux_install(msm_sensor_configs_non_common, ARRAY_SIZE(msm_sensor_configs_non_common));
 
     
-    if (of_machine_pid() == m8_TL_PID || of_machine_pid() == m8_DUG_PID || of_machine_pid() == m8_DUGL_PID || of_machine_pid() == m8_DWG_PID || of_machine_pid() == m8_DWGL_PID || of_machine_pid() == m8_UHL_PID)
+    if (of_machine_pid() == m8_UHL_PID)
         msm_gpiomux_install(msm_sensor_configs_china_sku, ARRAY_SIZE(msm_sensor_configs_china_sku));
     else
         msm_gpiomux_install(msm_sensor_configs_non_china_sku, ARRAY_SIZE(msm_sensor_configs_non_china_sku));
@@ -1268,7 +1263,7 @@ void __init msm_htc_8974_init_gpiomux(void)
 
 	msm_gpiomux_install(msm_cir_configs, ARRAY_SIZE(msm_cir_configs));
 
-	if (of_machine_pid() == 268)
+	if (of_machine_pid() == 268 || of_board_is_m8wlj())
 		msm_gpiomux_install(msm_felica_configs, ARRAY_SIZE(msm_felica_configs));
 
 	if (socinfo_get_platform_subtype() == PLATFORM_SUBTYPE_MDM)

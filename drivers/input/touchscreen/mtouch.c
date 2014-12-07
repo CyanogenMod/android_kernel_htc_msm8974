@@ -10,6 +10,10 @@
  * the Free Software Foundation.
  */
 
+/*
+ * 2005/02/19 Dan Streetman <ddstreet@ieee.org>
+ *   Copied elo.c and edited for MicroTouch protocol
+ */
 
 #include <linux/errno.h>
 #include <linux/kernel.h>
@@ -25,6 +29,9 @@ MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
+/*
+ * Definitions & global arrays.
+ */
 
 #define MTOUCH_FORMAT_TABLET_STATUS_BIT 0x80
 #define MTOUCH_FORMAT_TABLET_TOUCH_BIT 0x40
@@ -32,6 +39,7 @@ MODULE_LICENSE("GPL");
 #define MTOUCH_RESPONSE_BEGIN_BYTE 0x01
 #define MTOUCH_RESPONSE_END_BYTE 0x0d
 
+/* todo: check specs for max length of all responses */
 #define MTOUCH_MAX_LENGTH 16
 
 #define MTOUCH_MIN_XC 0
@@ -43,6 +51,9 @@ MODULE_LICENSE("GPL");
 #define MTOUCH_GET_YC(data) (((data[4])<<7) | data[3])
 #define MTOUCH_GET_TOUCHED(data) (MTOUCH_FORMAT_TABLET_TOUCH_BIT & data[0])
 
+/*
+ * Per-touchscreen data.
+ */
 
 struct mtouch {
 	struct input_dev *dev;
@@ -69,7 +80,7 @@ static void mtouch_process_format_tablet(struct mtouch *mtouch)
 static void mtouch_process_response(struct mtouch *mtouch)
 {
 	if (MTOUCH_RESPONSE_END_BYTE == mtouch->data[mtouch->idx++]) {
-		
+		/* FIXME - process response */
 		mtouch->idx = 0;
 	} else if (MTOUCH_MAX_LENGTH == mtouch->idx) {
 		printk(KERN_ERR "mtouch.c: too many response bytes\n");
@@ -94,6 +105,9 @@ static irqreturn_t mtouch_interrupt(struct serio *serio,
 	return IRQ_HANDLED;
 }
 
+/*
+ * mtouch_disconnect() is the opposite of mtouch_connect()
+ */
 
 static void mtouch_disconnect(struct serio *serio)
 {
@@ -107,6 +121,11 @@ static void mtouch_disconnect(struct serio *serio)
 	kfree(mtouch);
 }
 
+/*
+ * mtouch_connect() is the routine that is called when someone adds a
+ * new serio device that supports MicroTouch (Format Tablet) protocol and registers it as
+ * an input device.
+ */
 
 static int mtouch_connect(struct serio *serio, struct serio_driver *drv)
 {
@@ -156,6 +175,9 @@ static int mtouch_connect(struct serio *serio, struct serio_driver *drv)
 	return err;
 }
 
+/*
+ * The serio driver structure.
+ */
 
 static struct serio_device_id mtouch_serio_ids[] = {
 	{
@@ -180,6 +202,9 @@ static struct serio_driver mtouch_drv = {
 	.disconnect	= mtouch_disconnect,
 };
 
+/*
+ * The functions for inserting/removing us as a module.
+ */
 
 static int __init mtouch_init(void)
 {

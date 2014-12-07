@@ -21,8 +21,19 @@
 
 #include "bpf_jit_32.h"
 
+/*
+ * ABI:
+ *
+ * r0	scratch register
+ * r4	BPF register A
+ * r5	BPF register X
+ * r6	pointer to the skb
+ * r7	skb->data
+ * r8	skb_headlen(skb)
+ */
 
 #define r_scratch	ARM_R0
+/* r1-r3 are (also) used for the unaligned loads on the non-ARMv7 slowpath */
 #define r_off		ARM_R1
 #define r_A		ARM_R4
 #define r_X		ARM_R5
@@ -90,6 +101,10 @@ static u64 jit_get_skb_w(struct sk_buff *skb, unsigned offset)
 	return (u64)err << 32 | ntohl(ret);
 }
 
+/*
+ * Wrapper that handles both OABI and EABI and assures Thumb2 interworking
+ * (where the assembly routines like __aeabi_uidiv could cause problems).
+ */
 static u32 jit_udiv(u32 dividend, u32 divisor)
 {
 	return dividend / divisor;
@@ -103,6 +118,9 @@ static inline void _emit(int cond, u32 inst, struct jit_ctx *ctx)
 	ctx->idx++;
 }
 
+/*
+ * Emit an instruction that will be executed unconditionally.
+ */
 static inline void emit(u32 inst, struct jit_ctx *ctx)
 {
 	_emit(ARM_COND_AL, inst, ctx);
@@ -134,7 +152,7 @@ static u16 saved_regs(struct jit_ctx *ctx)
 
 static inline int mem_words_used(struct jit_ctx *ctx)
 {
-	
+	/* yes, we do waste some stack space IF there are "holes" in the set" */
 	return fls(ctx->seen & SEEN_MEM);
 }
 
@@ -178,7 +196,7 @@ static void build_prologue(struct jit_ctx *ctx)
 	if (ctx->seen & SEEN_DATA) {
 		off = offsetof(struct sk_buff, data);
 		emit(ARM_LDR_I(r_skb_data, r_skb, off), ctx);
-		
+		/* headlen = len - data_len */
 		off = offsetof(struct sk_buff, len);
 		emit(ARM_LDR_I(r_skb_hl, r_skb, off), ctx);
 		off = offsetof(struct sk_buff, data_len);
@@ -189,11 +207,11 @@ static void build_prologue(struct jit_ctx *ctx)
 	if (ctx->flags & FLAG_NEED_X_RESET)
 		emit(ARM_MOV_I(r_X, 0), ctx);
 
-	
+	/* do not leak kernel data to userspace */
 	if ((first_inst != BPF_S_RET_K) && !(is_load_to_a(first_inst)))
 		emit(ARM_MOV_I(r_A, 0), ctx);
 
-	
+	/* stack space for the BPF_MEM words */
 	if (ctx->seen & SEEN_MEM)
 		emit(ARM_SUB_I(ARM_SP, ARM_SP, mem_words_used(ctx) * 4), ctx);
 }
@@ -208,7 +226,7 @@ static void build_epilogue(struct jit_ctx *ctx)
 	reg_set &= ~(1 << ARM_LR);
 
 #ifdef CONFIG_FRAME_POINTER
-	
+	/* the first instruction of the prologue was: mov ip, sp */
 	reg_set &= ~(1 << ARM_IP);
 	reg_set |= (1 << ARM_SP);
 	emit(ARM_LDM(ARM_SP, reg_set), ctx);
@@ -242,7 +260,7 @@ static u16 imm_offset(u32 k, struct jit_ctx *ctx)
 	unsigned i = 0, offset;
 	u16 imm;
 
-	
+	/* on the "fake" run we just count them (duplicates included) */
 	if (ctx->target == NULL) {
 		ctx->imm_count++;
 		return 0;
@@ -257,7 +275,7 @@ static u16 imm_offset(u32 k, struct jit_ctx *ctx)
 	if (ctx->imms[i] == 0)
 		ctx->imms[i] = k;
 
-	
+	/* constants go just after the epilogue */
 	offset =  ctx->offsets[ctx->skf->len];
 	offset += ctx->prologue_bytes;
 	offset += ctx->epilogue_bytes;
@@ -265,14 +283,17 @@ static u16 imm_offset(u32 k, struct jit_ctx *ctx)
 
 	ctx->target[offset / 4] = k;
 
-	
+	/* PC in ARM mode == address of the instruction + 8 */
 	imm = offset - (8 + ctx->idx * 4);
 
 	return imm;
 }
 
-#endif 
+#endif /* __LINUX_ARM_ARCH__ */
 
+/*
+ * Move an immediate that's not an imm8m to a core register.
+ */
 static inline void emit_mov_i_no8m(int rd, u32 val, struct jit_ctx *ctx)
 {
 #if __LINUX_ARM_ARCH__ < 7
@@ -323,7 +344,7 @@ static inline void emit_swap16(u8 r_dst, u8 r_src, struct jit_ctx *ctx)
 	emit(ARM_LSL_R(r_dst, r_dst, 8), ctx);
 }
 
-#else  
+#else  /* ARMv6+ */
 
 static void emit_load_be32(u8 cond, u8 r_res, u8 r_addr, struct jit_ctx *ctx)
 {
@@ -350,15 +371,20 @@ static inline void emit_swap16(u8 r_dst __maybe_unused,
 #endif
 }
 
-#endif 
+#endif /* __LINUX_ARM_ARCH__ < 6 */
 
 
+/* Compute the immediate value for a PC-relative branch. */
 static inline u32 b_imm(unsigned tgt, struct jit_ctx *ctx)
 {
 	u32 imm;
 
 	if (ctx->target == NULL)
 		return 0;
+	/*
+	 * BPF allows only forward jumps and the offset of the target is
+	 * still the one computed during the first pass.
+	 */
 	imm  = ctx->offsets[tgt] + ctx->prologue_bytes - (ctx->idx * 4 + 8);
 
 	return imm >> 2;
@@ -379,7 +405,7 @@ static inline void emit_err_ret(u8 cond, struct jit_ctx *ctx)
 {
 	if (ctx->ret0_fp_idx >= 0) {
 		_emit(cond, ARM_B(b_imm(ctx->ret0_fp_idx, ctx)), ctx);
-		
+		/* NOP to keep the size constant between passes */
 		emit(ARM_MOV_R(ARM_R0, ARM_R0), ctx);
 	} else {
 		_emit(cond, ARM_MOV_I(ARM_R0, 0), ctx);
@@ -441,10 +467,10 @@ static int build_body(struct jit_ctx *ctx)
 
 	for (i = 0; i < prog->len; i++) {
 		inst = &(prog->insns[i]);
-		
+		/* K as an immediate value operand */
 		k = inst->k;
 
-		
+		/* compute offsets only in the fake pass */
 		if (ctx->target == NULL)
 			ctx->offsets[i] = ctx->idx * 4;
 
@@ -459,7 +485,7 @@ static int build_body(struct jit_ctx *ctx)
 				       offsetof(struct sk_buff, len)), ctx);
 			break;
 		case BPF_S_LD_MEM:
-			
+			/* A = scratch[k] */
 			ctx->seen |= SEEN_MEM_WORD(k);
 			emit(ARM_LDR_I(r_A, ARM_SP, SCRATCH_OFF(k)), ctx);
 			break;
@@ -472,7 +498,7 @@ static int build_body(struct jit_ctx *ctx)
 		case BPF_S_LD_B_ABS:
 			load_order = 0;
 load:
-			
+			/* the interpreter will deal with the negative K */
 			if ((int)k < 0)
 				return -ENOTSUPP;
 			emit_mov_i(r_off, k, ctx);
@@ -502,12 +528,12 @@ load_common:
 
 			_emit(condt, ARM_B(b_imm(i + 1, ctx)), ctx);
 
-			
+			/* the slowpath */
 			emit_mov_i(ARM_R3, (u32)load_func[load_order], ctx);
 			emit(ARM_MOV_R(ARM_R0, r_skb), ctx);
-			
+			/* the offset is already in R1 */
 			emit_blx_r(ARM_R3, ctx);
-			
+			/* check the result of skb_copy_bits */
 			emit(ARM_CMP_I(ARM_R1, 0), ctx);
 			emit_err_ret(ARM_COND_NE, ctx);
 			emit(ARM_MOV_R(r_A, ARM_R0), ctx);
@@ -537,25 +563,29 @@ load_ind:
 			emit(ARM_LDR_I(r_X, ARM_SP, SCRATCH_OFF(k)), ctx);
 			break;
 		case BPF_S_LDX_B_MSH:
-			
+			/* x = ((*(frame + k)) & 0xf) << 2; */
 			ctx->seen |= SEEN_X | SEEN_DATA | SEEN_CALL;
-			
+			/* the interpreter should deal with the negative K */
 			if (k < 0)
 				return -1;
-			
+			/* offset in r1: we might have to take the slow path */
 			emit_mov_i(r_off, k, ctx);
 			emit(ARM_CMP_R(r_skb_hl, r_off), ctx);
 
-			
+			/* load in r0: common with the slowpath */
 			_emit(ARM_COND_HI, ARM_LDRB_R(ARM_R0, r_skb_data,
 						      ARM_R1), ctx);
+			/*
+			 * emit_mov_i() might generate one or two instructions,
+			 * the same holds for emit_blx_r()
+			 */
 			_emit(ARM_COND_HI, ARM_B(b_imm(i + 1, ctx) - 2), ctx);
 
 			emit(ARM_MOV_R(ARM_R0, r_skb), ctx);
-			
+			/* r_off is r1 */
 			emit_mov_i(ARM_R3, (u32)jit_get_skb_b, ctx);
 			emit_blx_r(ARM_R3, ctx);
-			
+			/* check the return value of skb_copy_bits */
 			emit(ARM_CMP_I(ARM_R1, 0), ctx);
 			emit_err_ret(ARM_COND_NE, ctx);
 
@@ -572,7 +602,7 @@ load_ind:
 			emit(ARM_STR_I(r_X, ARM_SP, SCRATCH_OFF(k)), ctx);
 			break;
 		case BPF_S_ALU_ADD_K:
-			
+			/* A += K */
 			OP_IMM3(ARM_ADD, r_A, r_A, k, ctx);
 			break;
 		case BPF_S_ALU_ADD_X:
@@ -580,7 +610,7 @@ load_ind:
 			emit(ARM_ADD_R(r_A, r_A, r_X), ctx);
 			break;
 		case BPF_S_ALU_SUB_K:
-			
+			/* A -= K */
 			OP_IMM3(ARM_SUB, r_A, r_A, k, ctx);
 			break;
 		case BPF_S_ALU_SUB_X:
@@ -588,7 +618,7 @@ load_ind:
 			emit(ARM_SUB_R(r_A, r_A, r_X), ctx);
 			break;
 		case BPF_S_ALU_MUL_K:
-			
+			/* A *= K */
 			emit_mov_i(r_scratch, k, ctx);
 			emit(ARM_MUL(r_A, r_A, r_scratch), ctx);
 			break;
@@ -597,9 +627,9 @@ load_ind:
 			emit(ARM_MUL(r_A, r_A, r_X), ctx);
 			break;
 		case BPF_S_ALU_DIV_K:
-			
+			/* current k == reciprocal_value(userspace k) */
 			emit_mov_i(r_scratch, k, ctx);
-			
+			/* A = top 32 bits of the product */
 			emit(ARM_UMULL(r_scratch, r_A, r_A, r_scratch), ctx);
 			break;
 		case BPF_S_ALU_DIV_X:
@@ -609,7 +639,7 @@ load_ind:
 			emit_udiv(r_A, r_A, r_X, ctx);
 			break;
 		case BPF_S_ALU_OR_K:
-			
+			/* A |= K */
 			OP_IMM3(ARM_ORR, r_A, r_A, k, ctx);
 			break;
 		case BPF_S_ALU_OR_X:
@@ -617,7 +647,7 @@ load_ind:
 			emit(ARM_ORR_R(r_A, r_A, r_X), ctx);
 			break;
 		case BPF_S_ALU_AND_K:
-			
+			/* A &= K */
 			OP_IMM3(ARM_AND, r_A, r_A, k, ctx);
 			break;
 		case BPF_S_ALU_AND_X:
@@ -643,23 +673,23 @@ load_ind:
 			emit(ARM_LSR_R(r_A, r_A, r_X), ctx);
 			break;
 		case BPF_S_ALU_NEG:
-			
+			/* A = -A */
 			emit(ARM_RSB_I(r_A, r_A, 0), ctx);
 			break;
 		case BPF_S_JMP_JA:
-			
+			/* pc += K */
 			emit(ARM_B(b_imm(i + k + 1, ctx)), ctx);
 			break;
 		case BPF_S_JMP_JEQ_K:
-			
+			/* pc += (A == K) ? pc->jt : pc->jf */
 			condt  = ARM_COND_EQ;
 			goto cmp_imm;
 		case BPF_S_JMP_JGT_K:
-			
+			/* pc += (A > K) ? pc->jt : pc->jf */
 			condt  = ARM_COND_HI;
 			goto cmp_imm;
 		case BPF_S_JMP_JGE_K:
-			
+			/* pc += (A >= K) ? pc->jt : pc->jf */
 			condt  = ARM_COND_HS;
 cmp_imm:
 			imm12 = imm8m(k);
@@ -678,24 +708,24 @@ cond_jump:
 							     ctx)), ctx);
 			break;
 		case BPF_S_JMP_JEQ_X:
-			
+			/* pc += (A == X) ? pc->jt : pc->jf */
 			condt   = ARM_COND_EQ;
 			goto cmp_x;
 		case BPF_S_JMP_JGT_X:
-			
+			/* pc += (A > X) ? pc->jt : pc->jf */
 			condt   = ARM_COND_HI;
 			goto cmp_x;
 		case BPF_S_JMP_JGE_X:
-			
+			/* pc += (A >= X) ? pc->jt : pc->jf */
 			condt   = ARM_COND_CS;
 cmp_x:
 			update_on_xread(ctx);
 			emit(ARM_CMP_R(r_A, r_X), ctx);
 			goto cond_jump;
 		case BPF_S_JMP_JSET_K:
-			
+			/* pc += (A & K) ? pc->jt : pc->jf */
 			condt  = ARM_COND_NE;
-			
+			/* not set iff all zeroes iff Z==1 iff EQ */
 
 			imm12 = imm8m(k);
 			if (imm12 < 0) {
@@ -706,7 +736,7 @@ cmp_x:
 			}
 			goto cond_jump;
 		case BPF_S_JMP_JSET_X:
-			
+			/* pc += (A & X) ? pc->jt : pc->jf */
 			update_on_xread(ctx);
 			condt  = ARM_COND_NE;
 			emit(ARM_TST_R(r_A, r_X), ctx);
@@ -723,17 +753,17 @@ b_epilogue:
 				emit(ARM_B(b_imm(prog->len, ctx)), ctx);
 			break;
 		case BPF_S_MISC_TAX:
-			
+			/* X = A */
 			ctx->seen |= SEEN_X;
 			emit(ARM_MOV_R(r_X, r_A), ctx);
 			break;
 		case BPF_S_MISC_TXA:
-			
+			/* A = X */
 			update_on_xread(ctx);
 			emit(ARM_MOV_R(r_A, r_X), ctx);
 			break;
 		case BPF_S_ANC_PROTOCOL:
-			
+			/* A = ntohs(skb->protocol) */
 			ctx->seen |= SEEN_SKB;
 			BUILD_BUG_ON(FIELD_SIZEOF(struct sk_buff,
 						  protocol) != 2);
@@ -742,15 +772,15 @@ b_epilogue:
 			emit_swap16(r_A, r_scratch, ctx);
 			break;
 		case BPF_S_ANC_CPU:
-			
+			/* r_scratch = current_thread_info() */
 			OP_IMM3(ARM_BIC, r_scratch, ARM_SP, THREAD_SIZE - 1, ctx);
-			
+			/* A = current_thread_info()->cpu */
 			BUILD_BUG_ON(FIELD_SIZEOF(struct thread_info, cpu) != 4);
 			off = offsetof(struct thread_info, cpu);
 			emit(ARM_LDR_I(r_A, r_scratch, off), ctx);
 			break;
 		case BPF_S_ANC_IFINDEX:
-			
+			/* A = skb->dev->ifindex */
 			ctx->seen |= SEEN_SKB;
 			off = offsetof(struct sk_buff, dev);
 			emit(ARM_LDR_I(r_scratch, r_skb, off), ctx);
@@ -789,7 +819,7 @@ b_epilogue:
 		}
 	}
 
-	
+	/* compute offsets only during the first pass */
 	if (ctx->target == NULL)
 		ctx->offsets[i] = ctx->idx * 4;
 
@@ -814,7 +844,7 @@ void bpf_jit_compile(struct sk_filter *fp)
 	if (ctx.offsets == NULL)
 		return;
 
-	
+	/* fake pass to fill in the ctx->seen */
 	if (unlikely(build_body(&ctx)))
 		goto out;
 
@@ -834,7 +864,7 @@ void bpf_jit_compile(struct sk_filter *fp)
 			goto out;
 	}
 #else
-	
+	/* there's nothing after the epilogue on ARMv7 */
 	build_epilogue(&ctx);
 #endif
 

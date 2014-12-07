@@ -1,3 +1,9 @@
+/*
+ * Quota code necessary even when VFS quota support is not compiled
+ * into the kernel.  The interesting stuff is over in dquot.c, here
+ * we have symbols for initial quotactl(2) handling, the sysctl(2)
+ * variables, etc - things needed even when quota support disabled.
+ */
 
 #include <linux/fs.h>
 #include <linux/namei.h>
@@ -16,20 +22,20 @@ static int check_quotactl_permission(struct super_block *sb, int type, int cmd,
 				     qid_t id)
 {
 	switch (cmd) {
-	
+	/* these commands do not require any special privilegues */
 	case Q_GETFMT:
 	case Q_SYNC:
 	case Q_GETINFO:
 	case Q_XGETQSTAT:
 	case Q_XQUOTASYNC:
 		break;
-	
+	/* allow to query information for dquots we "own" */
 	case Q_GETQUOTA:
 	case Q_XGETQUOTA:
 		if ((type == USRQUOTA && current_euid() == id) ||
 		    (type == GRPQUOTA && in_egroup_p(id)))
 			break;
-		
+		/*FALLTHROUGH*/
 	default:
 		if (!capable(CAP_SYS_ADMIN))
 			return -EPERM;
@@ -229,6 +235,7 @@ static int quota_getxquota(struct super_block *sb, int type, qid_t id,
 	return ret;
 }
 
+/* Copy parameters and call proper function */
 static int do_quotactl(struct super_block *sb, int type, int cmd, qid_t id,
 		       void __user *addr, struct path *path)
 {
@@ -277,13 +284,14 @@ static int do_quotactl(struct super_block *sb, int type, int cmd, qid_t id,
 	case Q_XQUOTASYNC:
 		if (sb->s_flags & MS_RDONLY)
 			return -EROFS;
-		
+		/* XFS quotas are fully coherent now, making this call a noop */
 		return 0;
 	default:
 		return -EINVAL;
 	}
 }
 
+/* Return 1 if 'cmd' will block on frozen filesystem */
 static int quotactl_cmd_write(int cmd)
 {
 	switch (cmd) {
@@ -298,6 +306,10 @@ static int quotactl_cmd_write(int cmd)
 	return 1;
 }
 
+/*
+ * look up a superblock on which quota ops will be performed
+ * - use the name of a block device to find the superblock thereon
+ */
 static struct super_block *quotactl_block(const char __user *special, int cmd)
 {
 #ifdef CONFIG_BLOCK
@@ -325,6 +337,12 @@ static struct super_block *quotactl_block(const char __user *special, int cmd)
 #endif
 }
 
+/*
+ * This is the system call interface. This communicates with
+ * the user-level programs. Currently this only supports diskquota
+ * calls. Maybe we need to add the process quotas etc. in the future,
+ * but we probably should use rlimits for that.
+ */
 SYSCALL_DEFINE4(quotactl, unsigned int, cmd, const char __user *, special,
 		qid_t, id, void __user *, addr)
 {
@@ -336,12 +354,22 @@ SYSCALL_DEFINE4(quotactl, unsigned int, cmd, const char __user *, special,
 	cmds = cmd >> SUBCMDSHIFT;
 	type = cmd & SUBCMDMASK;
 
+	/*
+	 * As a special case Q_SYNC can be called without a specific device.
+	 * It will iterate all superblocks that have quota enabled and call
+	 * the sync action on each of them.
+	 */
 	if (!special) {
 		if (cmds == Q_SYNC)
 			return quota_sync_all(type);
 		return -ENODEV;
 	}
 
+	/*
+	 * Path for quotaon has to be resolved before grabbing superblock
+	 * because that gets s_umount sem which is also possibly needed by path
+	 * resolution (think about autofs) and thus deadlocks could arise.
+	 */
 	if (cmds == Q_QUOTAON) {
 		ret = user_path_at(AT_FDCWD, addr, LOOKUP_FOLLOW|LOOKUP_AUTOMOUNT, &path);
 		if (ret)

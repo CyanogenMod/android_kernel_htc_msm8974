@@ -184,6 +184,7 @@ struct term_current_config {
 #define STAT_C_CHG_STAT_SHIFT		1
 #define STAT_C_CHG_ENABLED		0x01
 
+/* Charge status register values */
 enum smb137c_charge_status {
 	CHARGE_STAT_NO_CHG	= 0,
 	CHARGE_STAT_PRE_CHG	= 1,
@@ -856,7 +857,7 @@ static int smb137c_get_property_battery_present(struct smb137c_chip *chip)
 	if (rc || (val & IRQ_STAT_B_BATT_MISSING))
 		return 0;
 
-	
+	/* Treat battery voltage less than 2.1 V as battery not present. */
 	rc = smb137c_read_reg(chip, STAT_C_REG, &val);
 	if (rc || (val & STAT_C_VBATT_LEVEL_BELOW_2P1V))
 		return 0;
@@ -869,7 +870,7 @@ static int smb137c_get_property_battery_health(struct smb137c_chip *chip)
 	int rc;
 	u8 val;
 
-	
+	/* The health of a disconnected battery is unknown. */
 	if (!smb137c_get_property_battery_present(chip))
 		return POWER_SUPPLY_HEALTH_UNKNOWN;
 
@@ -1064,16 +1065,16 @@ static void smb137c_external_power_changed(struct power_supply *psy)
 		current_limit = prop.intval;
 
 	if (scope == POWER_SUPPLY_SCOPE_SYSTEM) {
-		
+		/* USB host mode */
 		smb137c_disable_charging(chip);
 		smb137c_enable_otg_mode(chip);
 	} else if (online) {
-		
+		/* USB online in device mode */
 		smb137c_set_usb_input_current_limit(chip, current_limit);
 		smb137c_enable_charging(chip);
 		smb137c_disable_otg_mode(chip);
 	} else {
-		
+		/* USB offline */
 		smb137c_disable_charging(chip);
 		smb137c_disable_otg_mode(chip);
 		smb137c_set_usb_input_current_limit(chip,
@@ -1091,19 +1092,19 @@ static int __devinit smb137c_set_register_defaults(struct smb137c_chip *chip)
 	int rc;
 	u8 val, mask;
 
-	
+	/* Allow volatile register writes. */
 	rc = smb137c_masked_write_reg(chip, CMD_A_REG,
 			CMD_A_VOLATILE_WRITE_MASK, CMD_A_VOLATILE_WRITE_ALLOW);
 	if (rc)
 		return rc;
 
-	
+	/* Do not reset register values on USB reinsertion. */
 	rc = smb137c_masked_write_reg(chip, SAFETY_TIMER_REG,
 			SAFETY_TIMER_RELOAD_MASK, SAFETY_TIMER_RELOAD_DISABLED);
 	if (rc)
 		return rc;
 
-	
+	/* Set various default control parameters. */
 	val = PIN_CTRL_DEAD_BATT_CHG_ENABLED | PIN_CTRL_OTG
 		| PIN_CTRL_USB_CUR_LIMIT_REG | PIN_CTRL_CHG_EN_REG_LOW
 		| PIN_CTRL_OTG_CTRL_REG;
@@ -1114,7 +1115,7 @@ static int __devinit smb137c_set_register_defaults(struct smb137c_chip *chip)
 	if (rc)
 		return rc;
 
-	
+	/* Disable charging, disable OTG mode, and allow fast-charge current. */
 	val = CMD_A_CHARGING_DISABLED | CMD_A_OTG_DISABLED
 		| CMD_A_FAST_CHG_ALLOW;
 	mask = CMD_A_CHARGING_MASK | CMD_A_OTG_MASK | CMD_A_FAST_CHG_MASK;
@@ -1122,14 +1123,14 @@ static int __devinit smb137c_set_register_defaults(struct smb137c_chip *chip)
 	if (rc)
 		return rc;
 
-	
+	/* Enable auto recharging and full-time THERM monitor. */
 	val = CTRL_A_AUTO_RECHARGE_ENABLED | CTRL_A_THERM_MONITOR_ENABLED;
 	mask = CTRL_A_AUTO_RECHARGE_MASK | CTRL_A_THERM_MONITOR_MASK;
 	rc = smb137c_masked_write_reg(chip, CTRL_A_REG, mask, val);
 	if (rc)
 		return rc;
 
-	
+	/* Use register value instead of pin to control USB suspend. */
 	rc = smb137c_masked_write_reg(chip, VAR_FUNC_REG,
 		VAR_FUNC_USB_SUSPEND_CTRL_MASK, VAR_FUNC_USB_SUSPEND_CTRL_REG);
 	if (rc)
@@ -1145,6 +1146,10 @@ static int __devinit smb137c_apply_dt_configs(struct smb137c_chip *chip)
 	int ret, current_ma, voltage_mv, timeout, value;
 	int rc = 0;
 
+	/*
+	 * All device tree parameters are optional so it is ok if read calls
+	 * fail.
+	 */
 	ret = of_property_read_u32(node, "summit,chg-current-ma", &current_ma);
 	if (ret == 0) {
 		rc = smb137c_set_charge_current_limit(chip, current_ma * 1000);

@@ -58,7 +58,9 @@
 	FPDATA->fpsr |= ((quotient) & 0xff) << 16;		\
 })
 
+/* linkage for several useful functions */
 
+/* Normalize the extended struct, return 0 for a NaN */
 #define fp_normalize_ext(fpreg) ({				\
 	register struct fp_ext *reg asm ("a0") = fpreg;		\
 	register int res asm ("d0");				\
@@ -96,6 +98,7 @@ extern const struct fp_ext fp_Inf;
 	*dest = fp_QNaN;					\
 })
 
+/* TODO check rounding mode? */
 #define fp_set_ovrflw(dest) ({					\
 	fp_set_sr(FPSR_EXC_OVFL);				\
 	dest->exp = 0x7fff;					\
@@ -121,8 +124,11 @@ extern const struct fp_ext fp_Inf;
 			: "a1", "d1", "d2", "memory");		\
 })
 
-#else 
+#else /* __ASSEMBLY__ */
 
+/*
+ * set, reset or clear a bit in the fp status register
+ */
 .macro	fp_set_sr	bit
 	bset	#(\bit&7),(FPD_FPSR+3-(\bit/8),FPDATA)
 .endm
@@ -135,6 +141,6 @@ extern const struct fp_ext fp_Inf;
 	btst	#(\bit&7),(FPD_FPSR+3-(\bit/8),FPDATA)
 .endm
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _FP_EMU_H */

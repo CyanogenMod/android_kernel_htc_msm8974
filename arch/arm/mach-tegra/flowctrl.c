@@ -46,7 +46,7 @@ static void flowctrl_update(u8 offset, u32 value)
 
 	writel(value, addr);
 
-	
+	/* ensure the update has reached the flow controller */
 	wmb();
 	readl_relaxed(addr);
 }

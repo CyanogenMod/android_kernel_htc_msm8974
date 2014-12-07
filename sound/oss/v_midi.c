@@ -31,6 +31,13 @@ static vmidi_devc *v_devc[2] = { NULL, NULL};
 static int midi1,midi2;
 static void *midi_mem = NULL;
 
+/*
+ * The DSP channel can be used either for input or output. Variable
+ * 'sb_irq_mode' will be set when the program calls read or write first time
+ * after open. Current version doesn't support mode changes without closing
+ * and reopening the device. Support for this feature may be implemented in a
+ * future version of this driver.
+ */
 
 
 static int v_midi_open (int dev, int mode,
@@ -111,6 +118,7 @@ static int v_midi_end_read (int dev)
 	return 0;
 }
 
+/* why -EPERM and not -EINVAL?? */
 
 static inline int v_midi_ioctl (int dev, unsigned cmd, void __user *arg)
 {
@@ -151,10 +159,14 @@ static struct midi_operations v_midi_operations2 =
 	.end_read	= v_midi_end_read,
 };
 
+/*
+ *	We kmalloc just one of these - it makes life simpler and the code
+ *	cleaner and the memory handling far more efficient
+ */
  
 struct vmidi_memory
 {
-	
+	/* Must be first */
 	struct midi_operations m_ops[2];
 	struct synth_operations s_ops[2];
 	struct vmidi_devc v_ops[2];
@@ -163,7 +175,7 @@ struct vmidi_memory
 static void __init attach_v_midi (struct address_info *hw_config)
 {
 	struct vmidi_memory *m;
-	
+	/* printk("Attaching v_midi device.....\n"); */
 
 	midi1 = sound_alloc_mididev();
 	if (midi1 == -1)
@@ -196,9 +208,9 @@ static void __init attach_v_midi (struct address_info *hw_config)
 
 	midi_devs[midi2] = &m->m_ops[1];
 
-	
+	/* printk("VMIDI1: %d   VMIDI2: %d\n",midi1,midi2); */
 
-	
+	/* for MIDI-1 */
 	v_devc[0] = &m->v_ops[0];
 	memcpy ((char *) midi_devs[midi1], (char *) &v_midi_operations,
 		sizeof (struct midi_operations));
@@ -218,7 +230,7 @@ static void __init attach_v_midi (struct address_info *hw_config)
 		sizeof (struct synth_operations));
 	midi_devs[midi1]->converter->id = "V_MIDI 1";
 
-	
+	/* for MIDI-2 */
 	v_devc[1] = &m->v_ops[1];
 
 	memcpy ((char *) midi_devs[midi2], (char *) &v_midi_operations2,
@@ -240,12 +252,12 @@ static void __init attach_v_midi (struct address_info *hw_config)
 	midi_devs[midi2]->converter->id = "V_MIDI 2";
 
 	sequencer_init();
-	
+	/* printk("Attached v_midi device\n"); */
 }
 
 static inline int __init probe_v_midi(struct address_info *hw_config)
 {
-	return(1);	
+	return(1);	/* always OK */
 }
 
 
@@ -256,7 +268,7 @@ static void __exit unload_v_midi(struct address_info *hw_config)
 	kfree(midi_mem);
 }
 
-static struct address_info cfg; 
+static struct address_info cfg; /* dummy */
 
 static int __init init_vmidi(void)
 {

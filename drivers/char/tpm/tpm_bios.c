@@ -27,8 +27,8 @@
 #include "tpm.h"
 
 #define TCG_EVENT_NAME_LEN_MAX	255
-#define MAX_TEXT_EVENT		1000	
-#define ACPI_TCPA_SIG		"TCPA"	
+#define MAX_TEXT_EVENT		1000	/* Max event string length */
+#define ACPI_TCPA_SIG		"TCPA"	/* 0x41504354 /'TCPA' */
 
 enum bios_platform_class {
 	BIOS_CLIENT = 0x00,
@@ -59,7 +59,7 @@ struct acpi_tcpa {
 struct tcpa_event {
 	u32 pcr_index;
 	u32 event_type;
-	u8 pcr_value[20];	
+	u8 pcr_value[20];	/* SHA1 */
 	u32 event_size;
 	u8 event_data[0];
 };
@@ -146,6 +146,7 @@ static const char* tcpa_pc_event_id_strings[] = {
 	"Table of Devices",
 };
 
+/* returns pointer to start of pos. entry of tcg log */
 static void *tpm_bios_measurements_start(struct seq_file *m, loff_t *pos)
 {
 	loff_t i;
@@ -154,7 +155,7 @@ static void *tpm_bios_measurements_start(struct seq_file *m, loff_t *pos)
 	void *limit = log->bios_event_log_end;
 	struct tcpa_event *event;
 
-	
+	/* read over *pos measurements */
 	for (i = 0; i < *pos; i++) {
 		event = addr;
 
@@ -165,7 +166,7 @@ static void *tpm_bios_measurements_start(struct seq_file *m, loff_t *pos)
 		}
 	}
 
-	
+	/* now check if current entry is valid */
 	if ((addr + sizeof(struct tcpa_event)) >= limit)
 		return NULL;
 
@@ -187,7 +188,7 @@ static void *tpm_bios_measurements_next(struct seq_file *m, void *v,
 
 	v += sizeof(struct tcpa_event) + event->event_size;
 
-	
+	/* now check if current entry is valid */
 	if ((v + sizeof(struct tcpa_event)) >= limit)
 		return NULL;
 
@@ -212,7 +213,7 @@ static int get_event_name(char *dest, struct tcpa_event *event,
 			unsigned char * event_entry)
 {
 	const char *name = "";
-	
+	/* 41 so there is room for 40 data and 1 nul */
 	char data[41] = "";
 	int i, n_len = 0, d_len = 0;
 	struct tcpa_pc_event *pc_event;
@@ -246,7 +247,7 @@ static int get_event_name(char *dest, struct tcpa_event *event,
 	case EVENT_TAG:
 		pc_event = (struct tcpa_pc_event *)event_entry;
 
-		
+		/* ToDo Row data -> Base64 */
 
 		switch (pc_event->event_id) {
 		case SMBIOS:
@@ -259,7 +260,7 @@ static int get_event_name(char *dest, struct tcpa_event *event,
 			name = tcpa_pc_event_id_strings[pc_event->event_id];
 			n_len = strlen(name);
 			break;
-		
+		/* hash data */
 		case POST_BIOS_ROM:
 		case ESCD:
 		case OPTION_ROM_MICROCODE:
@@ -327,16 +328,16 @@ static int tpm_ascii_bios_measurements_show(struct seq_file *m, void *v)
 
 	seq_printf(m, "%2d ", event->pcr_index);
 
-	
+	/* 2nd: SHA1 */
 	for (i = 0; i < 20; i++)
 		seq_printf(m, "%02x", event->pcr_value[i]);
 
-	
+	/* 3rd: event type identifier */
 	seq_printf(m, " %02x", event->event_type);
 
 	len += get_event_name(eventname, event, event_entry);
 
-	
+	/* 4th: eventname <= max + \'0' delimiter */
 	seq_printf(m, " %s\n", eventname);
 
 	kfree(eventname);
@@ -357,6 +358,7 @@ static const struct seq_operations tpm_binary_b_measurments_seqops = {
 	.show = tpm_binary_bios_measurements_show,
 };
 
+/* read binary bios log */
 static int read_log(struct tpm_bios_log *log)
 {
 	struct acpi_tcpa *buff;
@@ -371,7 +373,7 @@ static int read_log(struct tpm_bios_log *log)
 		return -EFAULT;
 	}
 
-	
+	/* Find TCPA entry in RSDT (ACPI_LOGICAL_ADDRESSING) */
 	status = acpi_get_table(ACPI_SIG_TCPA, 1,
 				(struct acpi_table_header **)&buff);
 
@@ -397,7 +399,7 @@ static int read_log(struct tpm_bios_log *log)
 		return -EIO;
 	}
 
-	
+	/* malloc EventLog space */
 	log->bios_event_log = kmalloc(len, GFP_KERNEL);
 	if (!log->bios_event_log) {
 		printk("%s: ERROR - Not enough  Memory for BIOS measurements\n",
@@ -429,7 +431,7 @@ static int tpm_ascii_bios_measurements_open(struct inode *inode,
 	if ((err = read_log(log)))
 		goto out_free;
 
-	
+	/* now register seq file */
 	err = seq_open(file, &tpm_ascii_b_measurments_seqops);
 	if (!err) {
 		seq = file->private_data;
@@ -467,7 +469,7 @@ static int tpm_binary_bios_measurements_open(struct inode *inode,
 	if ((err = read_log(log)))
 		goto out_free;
 
-	
+	/* now register seq file */
 	err = seq_open(file, &tpm_binary_b_measurments_seqops);
 	if (!err) {
 		seq = file->private_data;

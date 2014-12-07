@@ -33,6 +33,7 @@ static void topology_work_fn(struct work_struct *work);
 static struct sysinfo_15_1_x *tl_info;
 static void set_topology_timer(void);
 static DECLARE_WORK(topology_work, topology_work_fn);
+/* topology_lock protects the core linked list */
 static DEFINE_SPINLOCK(topology_lock);
 
 static struct mask_info core_info;
@@ -43,6 +44,7 @@ static struct mask_info book_info;
 cpumask_t cpu_book_map[NR_CPUS];
 unsigned char cpu_book_id[NR_CPUS];
 
+/* smp_cpu_state_mutex must be held when accessing this array */
 int cpu_polarization[NR_CPUS];
 
 static cpumask_t cpu_group_map(struct mask_info *info, unsigned int cpu)
@@ -311,6 +313,9 @@ void topology_expect_change(void)
 {
 	if (!MACHINE_HAS_TOPOLOGY)
 		return;
+	/* This is racy, but it doesn't matter since it is just a heuristic.
+	 * Worst case is that we poll in a higher frequency for a bit longer.
+	 */
 	if (atomic_read(&topology_poll) > 60)
 		return;
 	atomic_add(60, &topology_poll);

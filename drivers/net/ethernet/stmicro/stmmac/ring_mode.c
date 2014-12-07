@@ -83,11 +83,13 @@ static unsigned int stmmac_is_jumbo_frm(int len, int enh_desc)
 
 static void stmmac_refill_desc3(int bfsize, struct dma_desc *p)
 {
-	
+	/* Fill DES3 in case of RING mode */
 	if (bfsize >= BUF_SIZE_8KiB)
 		p->des3 = p->des2 + BUF_SIZE_8KiB;
 }
 
+/* In ring mode we need to fill the desc3 because it is used
+ * as buffer */
 static void stmmac_init_desc3(int des3_as_data_buf, struct dma_desc *p)
 {
 	if (unlikely(des3_as_data_buf))

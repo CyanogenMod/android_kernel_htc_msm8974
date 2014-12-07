@@ -25,42 +25,57 @@
 #endif
 #include <linux/lockd/debug.h>
 
+/*
+ * Version string
+ */
 #define LOCKD_VERSION		"0.5"
 
+/*
+ * Default timeout for RPC calls (seconds)
+ */
 #define LOCKD_DFLT_TIMEO	10
 
+/*
+ * Lockd host handle (used both by the client and server personality).
+ */
 struct nlm_host {
-	struct hlist_node	h_hash;		
-	struct sockaddr_storage	h_addr;		
+	struct hlist_node	h_hash;		/* doubly linked list */
+	struct sockaddr_storage	h_addr;		/* peer address */
 	size_t			h_addrlen;
-	struct sockaddr_storage	h_srcaddr;	
+	struct sockaddr_storage	h_srcaddr;	/* our address (optional) */
 	size_t			h_srcaddrlen;
-	struct rpc_clnt		*h_rpcclnt;	
-	char			*h_name;		
-	u32			h_version;	
-	unsigned short		h_proto;	
+	struct rpc_clnt		*h_rpcclnt;	/* RPC client to talk to peer */
+	char			*h_name;		/* remote hostname */
+	u32			h_version;	/* interface version */
+	unsigned short		h_proto;	/* transport proto */
 	unsigned short		h_reclaiming : 1,
-				h_server     : 1, 
+				h_server     : 1, /* server side, not client side */
 				h_noresvport : 1,
 				h_inuse      : 1;
-	wait_queue_head_t	h_gracewait;	
-	struct rw_semaphore	h_rwsem;	
-	u32			h_state;	
-	u32			h_nsmstate;	
-	u32			h_pidcount;	
-	atomic_t		h_count;	
-	struct mutex		h_mutex;	
-	unsigned long		h_nextrebind;	
-	unsigned long		h_expires;	
-	struct list_head	h_lockowners;	
+	wait_queue_head_t	h_gracewait;	/* wait while reclaiming */
+	struct rw_semaphore	h_rwsem;	/* Reboot recovery lock */
+	u32			h_state;	/* pseudo-state counter */
+	u32			h_nsmstate;	/* true remote NSM state */
+	u32			h_pidcount;	/* Pseudopids */
+	atomic_t		h_count;	/* reference count */
+	struct mutex		h_mutex;	/* mutex for pmap binding */
+	unsigned long		h_nextrebind;	/* next portmap call */
+	unsigned long		h_expires;	/* eligible for GC */
+	struct list_head	h_lockowners;	/* Lockowners for the client */
 	spinlock_t		h_lock;
-	struct list_head	h_granted;	
-	struct list_head	h_reclaim;	
-	struct nsm_handle	*h_nsmhandle;	
-	char			*h_addrbuf;	
-	struct net		*net;		
+	struct list_head	h_granted;	/* Locks in GRANTED state */
+	struct list_head	h_reclaim;	/* Locks in RECLAIM state */
+	struct nsm_handle	*h_nsmhandle;	/* NSM status handle */
+	char			*h_addrbuf;	/* address eyecatcher */
+	struct net		*net;		/* host net */
 };
 
+/*
+ * The largest string sm_addrbuf should hold is a full-size IPv6 address
+ * (no "::" anywhere) with a scope ID.  The buffer size is computed to
+ * hold eight groups of colon-separated four-hex-digit numbers, a
+ * percent sign, a scope id (at most 32 bits, in decimal), and NUL.
+ */
 #define NSM_ADDRBUF		((8 * 4 + 7) + (1 + 10) + 1)
 
 struct nsm_handle {
@@ -71,11 +86,14 @@ struct nsm_handle {
 	struct sockaddr_storage	sm_addr;
 	size_t			sm_addrlen;
 	unsigned int		sm_monitored : 1,
-				sm_sticky : 1;	
+				sm_sticky : 1;	/* don't unmonitor */
 	struct nsm_private	sm_priv;
 	char			sm_addrbuf[NSM_ADDRBUF];
 };
 
+/*
+ * Rigorous type checking on sockaddr type conversions
+ */
 static inline struct sockaddr_in *nlm_addr_in(const struct nlm_host *host)
 {
 	return (struct sockaddr_in *)&host->h_addr;
@@ -96,6 +114,9 @@ static inline struct sockaddr *nlm_srcaddr(const struct nlm_host *host)
 	return (struct sockaddr *)&host->h_srcaddr;
 }
 
+/*
+ * Map an fl_owner_t into a unique 32-bit "pid"
+ */
 struct nlm_lockowner {
 	struct list_head list;
 	atomic_t count;
@@ -107,52 +128,67 @@ struct nlm_lockowner {
 
 struct nlm_wait;
 
+/*
+ * Memory chunk for NLM client RPC request.
+ */
 #define NLMCLNT_OHSIZE		((__NEW_UTS_LEN) + 10u)
 struct nlm_rqst {
 	atomic_t		a_count;
-	unsigned int		a_flags;	
-	struct nlm_host *	a_host;		
-	struct nlm_args		a_args;		
-	struct nlm_res		a_res;		
+	unsigned int		a_flags;	/* initial RPC task flags */
+	struct nlm_host *	a_host;		/* host handle */
+	struct nlm_args		a_args;		/* arguments */
+	struct nlm_res		a_res;		/* result */
 	struct nlm_block *	a_block;
-	unsigned int		a_retries;	
+	unsigned int		a_retries;	/* Retry count */
 	u8			a_owner[NLMCLNT_OHSIZE];
 };
 
+/*
+ * This struct describes a file held open by lockd on behalf of
+ * an NFS client.
+ */
 struct nlm_file {
-	struct hlist_node	f_list;		
-	struct nfs_fh		f_handle;	
-	struct file *		f_file;		
-	struct nlm_share *	f_shares;	
-	struct list_head	f_blocks;	
-	unsigned int		f_locks;	
-	unsigned int		f_count;	
-	struct mutex		f_mutex;	
+	struct hlist_node	f_list;		/* linked list */
+	struct nfs_fh		f_handle;	/* NFS file handle */
+	struct file *		f_file;		/* VFS file pointer */
+	struct nlm_share *	f_shares;	/* DOS shares */
+	struct list_head	f_blocks;	/* blocked locks */
+	unsigned int		f_locks;	/* guesstimate # of locks */
+	unsigned int		f_count;	/* reference count */
+	struct mutex		f_mutex;	/* avoid concurrent access */
 };
 
+/*
+ * This is a server block (i.e. a lock requested by some client which
+ * couldn't be granted because of a conflicting lock).
+ */
 #define NLM_NEVER		(~(unsigned long) 0)
+/* timeout on non-blocking call: */
 #define NLM_TIMEOUT		(7 * HZ)
 
 struct nlm_block {
-	struct kref		b_count;	
-	struct list_head	b_list;		
-	struct list_head	b_flist;	
-	struct nlm_rqst	*	b_call;		
-	struct svc_serv *	b_daemon;	
-	struct nlm_host *	b_host;		
-	unsigned long		b_when;		
-	unsigned int		b_id;		
-	unsigned char		b_granted;	
-	struct nlm_file *	b_file;		
-	struct cache_req *	b_cache_req;	
-	struct file_lock *	b_fl;		
+	struct kref		b_count;	/* Reference count */
+	struct list_head	b_list;		/* linked list of all blocks */
+	struct list_head	b_flist;	/* linked list (per file) */
+	struct nlm_rqst	*	b_call;		/* RPC args & callback info */
+	struct svc_serv *	b_daemon;	/* NLM service */
+	struct nlm_host *	b_host;		/* host handle for RPC clnt */
+	unsigned long		b_when;		/* next re-xmit */
+	unsigned int		b_id;		/* block id */
+	unsigned char		b_granted;	/* VFS granted lock */
+	struct nlm_file *	b_file;		/* file in question */
+	struct cache_req *	b_cache_req;	/* deferred request handling */
+	struct file_lock *	b_fl;		/* set for GETLK */
 	struct cache_deferred_req * b_deferred_req;
-	unsigned int		b_flags;	
-#define B_QUEUED		1	
-#define B_GOT_CALLBACK		2	
-#define B_TIMED_OUT		4	
+	unsigned int		b_flags;	/* block flags */
+#define B_QUEUED		1	/* lock queued */
+#define B_GOT_CALLBACK		2	/* got lock or conflicting lock */
+#define B_TIMED_OUT		4	/* filesystem too slow to respond */
 };
 
+/*
+ * Global variables
+ */
 extern const struct rpc_program	nlm_program;
 extern struct svc_procedure	nlmsvc_procedures[];
 #ifdef CONFIG_LOCKD_V4
@@ -163,6 +199,9 @@ extern unsigned long		nlmsvc_timeout;
 extern bool			nsm_use_hostnames;
 extern u32			nsm_local_state;
 
+/*
+ * Lockd client functions
+ */
 struct nlm_rqst * nlm_alloc_call(struct nlm_host *host);
 int		  nlm_async_call(struct nlm_rqst *, u32, const struct rpc_call_ops *);
 int		  nlm_async_reply(struct nlm_rqst *, u32, const struct rpc_call_ops *);
@@ -176,6 +215,9 @@ void		  nlmclnt_recovery(struct nlm_host *);
 int		  nlmclnt_reclaim(struct nlm_host *, struct file_lock *);
 void		  nlmclnt_next_cookie(struct nlm_cookie *);
 
+/*
+ * Host cache
+ */
 struct nlm_host  *nlmclnt_lookup_host(const struct sockaddr *sap,
 					const size_t salen,
 					const unsigned short protocol,
@@ -195,6 +237,9 @@ void		  nlm_shutdown_hosts(void);
 void		  nlm_shutdown_hosts_net(struct net *net);
 void		  nlm_host_rebooted(const struct nlm_reboot *);
 
+/*
+ * Host monitoring
+ */
 int		  nsm_monitor(const struct nlm_host *host);
 void		  nsm_unmonitor(const struct nlm_host *host);
 
@@ -205,8 +250,15 @@ struct nsm_handle *nsm_get_handle(const struct sockaddr *sap,
 struct nsm_handle *nsm_reboot_lookup(const struct nlm_reboot *info);
 void		  nsm_release(struct nsm_handle *nsm);
 
+/*
+ * This is used in garbage collection and resource reclaim
+ * A return value != 0 means destroy the lock/block/share
+ */
 typedef int	  (*nlm_host_match_fn_t)(void *cur, struct nlm_host *ref);
 
+/*
+ * Server-side lock handling
+ */
 __be32		  nlmsvc_lock(struct svc_rqst *, struct nlm_file *,
 			      struct nlm_host *, struct nlm_lock *, int,
 			      struct nlm_cookie *, int);
@@ -221,6 +273,9 @@ void		  nlmsvc_traverse_blocks(struct nlm_host *, struct nlm_file *,
 void		  nlmsvc_grant_reply(struct nlm_cookie *, __be32);
 void		  nlmsvc_release_call(struct nlm_rqst *);
 
+/*
+ * File handling for the server personality
+ */
 __be32		  nlm_lookup_file(struct svc_rqst *, struct nlm_file **,
 					struct nfs_fh *);
 void		  nlm_release_file(struct nlm_file *);
@@ -228,6 +283,9 @@ void		  nlmsvc_mark_resources(void);
 void		  nlmsvc_free_host_resources(struct nlm_host *);
 void		  nlmsvc_invalidate_all(void);
 
+/*
+ * Cluster failover support
+ */
 int           nlmsvc_unlock_all_by_sb(struct super_block *sb);
 int           nlmsvc_unlock_all_by_ip(struct sockaddr *server_addr);
 
@@ -259,13 +317,19 @@ static inline int __nlm_privileged_request6(const struct sockaddr *sap)
 
 	return ipv6_addr_type(&sin6->sin6_addr) & IPV6_ADDR_LOOPBACK;
 }
-#else	
+#else	/* IS_ENABLED(CONFIG_IPV6) */
 static inline int __nlm_privileged_request6(const struct sockaddr *sap)
 {
 	return 0;
 }
-#endif	
+#endif	/* IS_ENABLED(CONFIG_IPV6) */
 
+/*
+ * Ensure incoming requests are from local privileged callers.
+ *
+ * Return TRUE if sender is local and is connecting via a privileged port;
+ * otherwise return FALSE.
+ */
 static inline int nlm_privileged_requester(const struct svc_rqst *rqstp)
 {
 	const struct sockaddr *sap = svc_addr(rqstp);
@@ -280,6 +344,10 @@ static inline int nlm_privileged_requester(const struct svc_rqst *rqstp)
 	}
 }
 
+/*
+ * Compare two NLM locks.
+ * When the second lock is of type F_UNLCK, this acts like a wildcard.
+ */
 static inline int nlm_compare_locks(const struct file_lock *fl1,
 				    const struct file_lock *fl2)
 {
@@ -292,6 +360,6 @@ static inline int nlm_compare_locks(const struct file_lock *fl1,
 
 extern const struct lock_manager_operations nlmsvc_lock_operations;
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* LINUX_LOCKD_LOCKD_H */

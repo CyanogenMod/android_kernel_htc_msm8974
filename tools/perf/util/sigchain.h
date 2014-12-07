@@ -7,4 +7,4 @@ int sigchain_pop(int sig);
 
 void sigchain_push_common(sigchain_fun f);
 
-#endif 
+#endif /* __PERF_SIGCHAIN_H */

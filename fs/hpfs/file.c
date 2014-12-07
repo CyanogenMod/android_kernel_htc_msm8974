@@ -1,3 +1,10 @@
+/*
+ *  linux/fs/hpfs/file.c
+ *
+ *  Mikulas Patocka (mikulas@artax.karlin.mff.cuni.cz), 1998-1999
+ *
+ *  file VFS functions
+ */
 
 #include "hpfs_fn.h"
 
@@ -22,6 +29,10 @@ int hpfs_file_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	return sync_blockdev(inode->i_sb->s_bdev);
 }
 
+/*
+ * generic_file_read often calls bmap with non-existing sector,
+ * so we must ignore such errors.
+ */
 
 static secno hpfs_bmap(struct inode *inode, unsigned file_secno)
 {
@@ -41,7 +52,7 @@ static secno hpfs_bmap(struct inode *inode, unsigned file_secno)
 
 static void hpfs_truncate(struct inode *i)
 {
-	if (IS_IMMUTABLE(i)) return ;
+	if (IS_IMMUTABLE(i)) return /*-EPERM*/;
 	hpfs_lock_assert(i->i_sb);
 
 	hpfs_i(i)->i_n_secs = 0;

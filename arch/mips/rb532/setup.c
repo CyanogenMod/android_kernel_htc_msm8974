@@ -1,3 +1,6 @@
+/*
+ * setup.c - boot time setup code
+ */
 
 #include <linux/init.h>
 #include <linux/export.h>
@@ -24,7 +27,7 @@ static struct resource pci0_res[] = {
 
 static void rb_machine_restart(char *command)
 {
-	
+	/* just jump to the reset vector */
 	writel(0x80000001, IDT434_REG_BASE + RST);
 	((void (*)(void)) KSEG1ADDR(0x1FC00000u))();
 }
@@ -57,7 +60,7 @@ void __init plat_mem_setup(void)
 	__raw_writel(val, (void *)&pci_reg->pcic);
 
 #ifdef CONFIG_PCI
-	
+	/* Enable PCI interrupts in EPLD Mask register */
 	*epld_mask = 0x0;
 	*(epld_mask + 1) = 0x0;
 #endif

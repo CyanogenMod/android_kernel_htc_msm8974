@@ -30,14 +30,32 @@
  * SOFTWARE.
  */
 
+/*
+ * This file is conditionally built on PowerPC only.  Otherwise weak symbol
+ * versions of the functions exported from here are used.
+ */
 
 #include "ipath_kernel.h"
 
+/**
+ * ipath_enable_wc - enable write combining for MMIO writes to the device
+ * @dd: infinipath device
+ *
+ * Nothing to do on PowerPC, so just return without error.
+ */
 int ipath_enable_wc(struct ipath_devdata *dd)
 {
 	return 0;
 }
 
+/**
+ * ipath_unordered_wc - indicate whether write combining is unordered
+ *
+ * Because our performance depends on our ability to do write
+ * combining mmio writes in the most efficient way, we need to
+ * know if we are on a processor that may reorder stores when
+ * write combining.
+ */
 int ipath_unordered_wc(void)
 {
 	return 1;

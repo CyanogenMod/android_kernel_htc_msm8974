@@ -8,4 +8,4 @@ asmlinkage long score_rt_sigreturn(struct pt_regs *regs);
 
 #include <asm-generic/syscalls.h>
 
-#endif 
+#endif /* _ASM_SCORE_SYSCALLS_H */

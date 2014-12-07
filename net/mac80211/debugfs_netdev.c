@@ -154,6 +154,7 @@ __IEEE80211_IF_FILE(name, ieee80211_if_write_##name)
 		IEEE80211_IF_FMT_##format(name, field)			\
 		__IEEE80211_IF_FILE(name, NULL)
 
+/* common attributes */
 IEEE80211_IF_FILE(drop_unencrypted, drop_unencrypted, DEC);
 IEEE80211_IF_FILE(rc_rateidx_mask_2ghz, rc_rateidx_mask[IEEE80211_BAND_2GHZ],
 		  HEX);
@@ -168,6 +169,7 @@ IEEE80211_IF_FILE(flags, flags, HEX);
 IEEE80211_IF_FILE(state, state, LHEX);
 IEEE80211_IF_FILE(channel_type, vif.bss_conf.channel_type, DEC);
 
+/* STA attributes */
 IEEE80211_IF_FILE(bssid, u.mgd.bssid, MAC);
 IEEE80211_IF_FILE(aid, u.mgd.aid, DEC);
 IEEE80211_IF_FILE(last_beacon, u.mgd.last_beacon_signal, DEC);
@@ -183,13 +185,13 @@ static int ieee80211_set_smps(struct ieee80211_sub_if_data *sdata,
 	    smps_mode == IEEE80211_SMPS_STATIC)
 		return -EINVAL;
 
-	
+	/* auto should be dynamic if in PS mode */
 	if (!(local->hw.flags & IEEE80211_HW_SUPPORTS_DYNAMIC_SMPS) &&
 	    (smps_mode == IEEE80211_SMPS_DYNAMIC ||
 	     smps_mode == IEEE80211_SMPS_AUTOMATIC))
 		return -EINVAL;
 
-	
+	/* supported only on managed interfaces for now */
 	if (sdata->vif.type != NL80211_IFTYPE_STATION)
 		return -EOPNOTSUPP;
 
@@ -273,6 +275,10 @@ static ssize_t ieee80211_if_parse_tkip_mic_test(
 	struct ieee80211_hdr *hdr;
 	__le16 fc;
 
+	/*
+	 * Assume colon-delimited MAC address with possible white space
+	 * following.
+	 */
 	if (buflen < 3 * ETH_ALEN - 1)
 		return -EINVAL;
 	if (hwaddr_aton(buf, addr) < 0)
@@ -293,14 +299,14 @@ static ssize_t ieee80211_if_parse_tkip_mic_test(
 	switch (sdata->vif.type) {
 	case NL80211_IFTYPE_AP:
 		fc |= cpu_to_le16(IEEE80211_FCTL_FROMDS);
-		
+		/* DA BSSID SA */
 		memcpy(hdr->addr1, addr, ETH_ALEN);
 		memcpy(hdr->addr2, sdata->vif.addr, ETH_ALEN);
 		memcpy(hdr->addr3, sdata->vif.addr, ETH_ALEN);
 		break;
 	case NL80211_IFTYPE_STATION:
 		fc |= cpu_to_le16(IEEE80211_FCTL_TODS);
-		
+		/* BSSID SA DA */
 		if (sdata->vif.bss_conf.bssid == NULL) {
 			dev_kfree_skb(skb);
 			return -ENOTCONN;
@@ -315,6 +321,11 @@ static ssize_t ieee80211_if_parse_tkip_mic_test(
 	}
 	hdr->frame_control = fc;
 
+	/*
+	 * Add some length to the test frame to make it look bit more valid.
+	 * The exact contents does not matter since the recipient is required
+	 * to drop this because of the Michael MIC failure.
+	 */
 	memset(skb_put(skb, 50), 0, 50);
 
 	IEEE80211_SKB_CB(skb)->flags |= IEEE80211_TX_INTFL_TKIP_MIC_FAILURE;
@@ -382,6 +393,7 @@ static ssize_t ieee80211_if_parse_uapsd_max_sp_len(
 }
 __IEEE80211_IF_FILE_W(uapsd_max_sp_len);
 
+/* AP attributes */
 IEEE80211_IF_FILE(num_sta_authorized, u.ap.num_sta_authorized, ATOMIC);
 IEEE80211_IF_FILE(num_sta_ps, u.ap.num_sta_ps, ATOMIC);
 IEEE80211_IF_FILE(dtim_count, u.ap.dtim_count, DEC);
@@ -394,6 +406,7 @@ static ssize_t ieee80211_if_fmt_num_buffered_multicast(
 }
 __IEEE80211_IF_FILE(num_buffered_multicast, NULL);
 
+/* IBSS attributes */
 static ssize_t ieee80211_if_fmt_tsf(
 	const struct ieee80211_sub_if_data *sdata, char *buf, int buflen)
 {
@@ -433,9 +446,11 @@ static ssize_t ieee80211_if_parse_tsf(
 __IEEE80211_IF_FILE_W(tsf);
 
 
+/* WDS attributes */
 IEEE80211_IF_FILE(peer, u.wds.remote_addr, MAC);
 
 #ifdef CONFIG_MAC80211_MESH
+/* Mesh stats attributes */
 IEEE80211_IF_FILE(fwded_mcast, u.mesh.mshstats.fwded_mcast, DEC);
 IEEE80211_IF_FILE(fwded_unicast, u.mesh.mshstats.fwded_unicast, DEC);
 IEEE80211_IF_FILE(fwded_frames, u.mesh.mshstats.fwded_frames, DEC);
@@ -446,6 +461,7 @@ IEEE80211_IF_FILE(dropped_frames_no_route,
 		u.mesh.mshstats.dropped_frames_no_route, DEC);
 IEEE80211_IF_FILE(estab_plinks, u.mesh.mshstats.estab_plinks, ATOMIC);
 
+/* Mesh parameters */
 IEEE80211_IF_FILE(dot11MeshMaxRetries,
 		u.mesh.mshcfg.dot11MeshMaxRetries, DEC);
 IEEE80211_IF_FILE(dot11MeshRetryTimeout,

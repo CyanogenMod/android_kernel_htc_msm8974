@@ -30,11 +30,16 @@
 #include <linux/spinlock.h>
 #include <linux/cpu.h>
 
-#include <asm/time.h>    
+#include <asm/time.h>    /*  timer_interrupt  */
 #include <asm/hexagon_vm.h>
 
 #define BASE_IPI_IRQ 26
 
+/*
+ * cpu_possible_mask needs to be filled out prior to setup_per_cpu_areas
+ * (which is prior to any of our smp_prepare_cpu crap), in order to set
+ * up the...  per_cpu areas.
+ */
 
 struct ipi_data {
 	unsigned long bits;
@@ -64,6 +69,9 @@ static inline void __handle_ipi(unsigned long *ops, struct ipi_data *ipi,
 			break;
 
 		case IPI_CPU_STOP:
+			/*
+			 * call vmstop()
+			 */
 			__vmstop();
 			break;
 
@@ -74,12 +82,18 @@ static inline void __handle_ipi(unsigned long *ops, struct ipi_data *ipi,
 	} while (msg < BITS_PER_LONG);
 }
 
+/*  Used for IPI call from other CPU's to unmask int  */
 void smp_vm_unmask_irq(void *info)
 {
 	__vmintop_locen((long) info);
 }
 
 
+/*
+ * This is based on Alpha's IPI stuff.
+ * Supposed to take (int, void*) as args now.
+ * Specifically, first arg is irq, second is the irq_desc.
+ */
 
 irqreturn_t handle_ipi(int irq, void *desc)
 {
@@ -104,7 +118,7 @@ void send_ipi(const struct cpumask *cpumask, enum ipi_message_type msg)
 		struct ipi_data *ipi = &per_cpu(ipi_data, cpu);
 
 		set_bit(msg, &ipi->bits);
-		
+		/*  Possible barrier here  */
 		retval = __vmintop_post(BASE_IPI_IRQ+cpu);
 
 		if (retval != 0) {
@@ -126,13 +140,18 @@ void __init smp_prepare_boot_cpu(void)
 {
 }
 
+/*
+ * interrupts should already be disabled from the VM
+ * SP should already be correct; need to set THREADINFO_REG
+ * to point to current thread info
+ */
 
 void __cpuinit start_secondary(void)
 {
 	unsigned int cpu;
 	unsigned long thread_ptr;
 
-	
+	/*  Calculate thread_info pointer from stack pointer  */
 	__asm__ __volatile__(
 		"%0 = SP;\n"
 		: "=r" (thread_ptr)
@@ -146,7 +165,7 @@ void __cpuinit start_secondary(void)
 		: "r" (thread_ptr)
 	);
 
-	
+	/*  Set the memory struct  */
 	atomic_inc(&init_mm.mm_count);
 	current->active_mm = &init_mm;
 
@@ -154,7 +173,7 @@ void __cpuinit start_secondary(void)
 
 	setup_irq(BASE_IPI_IRQ + cpu, &ipi_intdesc);
 
-	
+	/*  Register the clock_event dummy  */
 	setup_percpu_clockdev();
 
 	printk(KERN_INFO "%s cpu %d\n", __func__, current_thread_info()->cpu);
@@ -171,6 +190,11 @@ void __cpuinit start_secondary(void)
 }
 
 
+/*
+ * called once for each present cpu
+ * apparently starts up the CPU and then
+ * maintains control until "cpu_online(cpu)" is set.
+ */
 
 int __cpuinit __cpu_up(unsigned int cpu)
 {
@@ -178,7 +202,7 @@ int __cpuinit __cpu_up(unsigned int cpu)
 	struct thread_info *thread;
 	void *stack_start;
 
-	
+	/*  Create new init task for the CPU  */
 	idle = fork_idle(cpu);
 	if (IS_ERR(idle))
 		panic(KERN_ERR "fork_idle failed\n");
@@ -186,7 +210,7 @@ int __cpuinit __cpu_up(unsigned int cpu)
 	thread = (struct thread_info *)idle->stack;
 	thread->cpu = cpu;
 
-	
+	/*  Boot to the head.  */
 	stack_start =  ((void *) thread) + THREAD_SIZE;
 	__vmstart(start_secondary, stack_start);
 
@@ -204,12 +228,16 @@ void __init smp_prepare_cpus(unsigned int max_cpus)
 {
 	int i;
 
+	/*
+	 * should eventually have some sort of machine
+	 * descriptor that has this stuff
+	 */
 
-	
+	/*  Right now, let's just fake it. */
 	for (i = 0; i < max_cpus; i++)
 		set_cpu_present(i, true);
 
-	
+	/*  Also need to register the interrupts for IPI  */
 	if (max_cpus > 1)
 		setup_irq(BASE_IPI_IRQ, &ipi_intdesc);
 }

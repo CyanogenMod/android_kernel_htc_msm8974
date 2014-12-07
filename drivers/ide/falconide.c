@@ -24,12 +24,22 @@
 
 #define DRV_NAME "falconide"
 
+    /*
+     *  Base of the IDE interface
+     */
 
 #define ATA_HD_BASE	0xfff00000
 
+    /*
+     *  Offsets from the above base
+     */
 
 #define ATA_HD_CONTROL	0x39
 
+    /*
+     *  falconide_intr_lock is used to obtain access to the IDE interrupt,
+     *  which is shared between several drivers.
+     */
 
 static int falconide_intr_lock;
 
@@ -79,6 +89,7 @@ static void falconide_output_data(ide_drive_t *drive, struct ide_cmd *cmd,
 	raw_outsw_swapw((u16 *)data_addr, buf, (len + 1) / 2);
 }
 
+/* Atari has a byte-swapped IDE interface */
 static const struct ide_tp_ops falconide_tp_ops = {
 	.exec_command		= ide_exec_command,
 	.read_status		= ide_read_status,
@@ -119,6 +130,9 @@ static void __init falconide_setup_ports(struct ide_hw *hw)
 	hw->irq = IRQ_MFP_IDE;
 }
 
+    /*
+     *  Probe for a Falcon IDE interface
+     */
 
 static int __init falconide_init(void)
 {

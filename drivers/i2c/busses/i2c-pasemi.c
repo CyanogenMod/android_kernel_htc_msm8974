@@ -36,11 +36,13 @@ struct pasemi_smbus {
 	int			 size;
 };
 
+/* Register offsets */
 #define REG_MTXFIFO	0x00
 #define REG_MRXFIFO	0x04
 #define REG_SMSTA	0x14
 #define REG_CTL		0x1c
 
+/* Register defs */
 #define MTXFIFO_READ	0x00000400
 #define MTXFIFO_STOP	0x00000200
 #define MTXFIFO_START	0x00000100
@@ -98,7 +100,7 @@ static int pasemi_smb_waitready(struct pasemi_smbus *smbus)
 		status = reg_read(smbus, REG_SMSTA);
 	}
 
-	
+	/* Got NACK? */
 	if (status & SMSTA_MTN)
 		return -ENXIO;
 
@@ -108,7 +110,7 @@ static int pasemi_smb_waitready(struct pasemi_smbus *smbus)
 		return -ETIME;
 	}
 
-	
+	/* Clear XEN */
 	reg_write(smbus, REG_SMSTA, SMSTA_XEN);
 
 	return 0;
@@ -182,7 +184,7 @@ static int pasemi_smb_xfer(struct i2c_adapter *adapter,
 	int read_flag, err;
 	int len = 0, i;
 
-	
+	/* All our ops take 8-bit shifted addresses */
 	addr <<= 1;
 	read_flag = read_write == I2C_SMBUS_READ;
 
@@ -369,7 +371,7 @@ static int __devinit pasemi_smb_probe(struct pci_dev *dev,
 	smbus->adapter.algo_data = smbus;
 	smbus->adapter.nr = PCI_FUNC(dev->devfn);
 
-	
+	/* set up the sysfs linkage to our parent device */
 	smbus->adapter.dev.parent = &dev->dev;
 
 	reg_write(smbus, REG_CTL, (CTL_MTR | CTL_MRR |

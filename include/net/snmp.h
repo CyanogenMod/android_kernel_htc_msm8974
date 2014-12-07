@@ -23,6 +23,14 @@
 #include <linux/snmp.h>
 #include <linux/smp.h>
 
+/*
+ * Mibs are stored in array of unsigned long.
+ */
+/*
+ * struct snmp_mib{}
+ *  - list of entries for particular API (such as /proc/net/snmp)
+ *  - name of entries.
+ */
 struct snmp_mib {
 	const char *name;
 	int entry;
@@ -38,15 +46,20 @@ struct snmp_mib {
 	.entry = 0,		\
 }
 
+/*
+ * We use unsigned longs for most mibs but u64 for ipstats.
+ */
 #include <linux/u64_stats_sync.h>
 
+/* IPstats */
 #define IPSTATS_MIB_MAX	__IPSTATS_MIB_MAX
 struct ipstats_mib {
-	
+	/* mibs[] must be first field of struct ipstats_mib */
 	u64		mibs[IPSTATS_MIB_MAX];
 	struct u64_stats_sync syncp;
 };
 
+/* ICMP */
 #define ICMP_MIB_MAX	__ICMP_MIB_MAX
 struct icmp_mib {
 	unsigned long	mibs[ICMP_MIB_MAX];
@@ -57,38 +70,47 @@ struct icmpmsg_mib {
 	atomic_long_t	mibs[ICMPMSG_MIB_MAX];
 };
 
+/* ICMP6 (IPv6-ICMP) */
 #define ICMP6_MIB_MAX	__ICMP6_MIB_MAX
+/* per network ns counters */
 struct icmpv6_mib {
 	unsigned long	mibs[ICMP6_MIB_MAX];
 };
+/* per device counters, (shared on all cpus) */
 struct icmpv6_mib_device {
 	atomic_long_t	mibs[ICMP6_MIB_MAX];
 };
 
 #define ICMP6MSG_MIB_MAX  __ICMP6MSG_MIB_MAX
+/* per network ns counters */
 struct icmpv6msg_mib {
 	atomic_long_t	mibs[ICMP6MSG_MIB_MAX];
 };
+/* per device counters, (shared on all cpus) */
 struct icmpv6msg_mib_device {
 	atomic_long_t	mibs[ICMP6MSG_MIB_MAX];
 };
 
 
+/* TCP */
 #define TCP_MIB_MAX	__TCP_MIB_MAX
 struct tcp_mib {
 	unsigned long	mibs[TCP_MIB_MAX];
 };
 
+/* UDP */
 #define UDP_MIB_MAX	__UDP_MIB_MAX
 struct udp_mib {
 	unsigned long	mibs[UDP_MIB_MAX];
 };
 
+/* Linux */
 #define LINUX_MIB_MAX	__LINUX_MIB_MAX
 struct linux_mib {
 	unsigned long	mibs[LINUX_MIB_MAX];
 };
 
+/* Linux Xfrm */
 #define LINUX_MIB_XFRMMAX	__LINUX_MIB_XFRMMAX
 struct linux_xfrm_mib {
 	unsigned long	mibs[LINUX_MIB_XFRMMAX];
@@ -126,6 +148,10 @@ struct linux_xfrm_mib {
 
 #define SNMP_ADD_STATS(mib, field, addend)	\
 			this_cpu_add(mib[0]->mibs[field], addend)
+/*
+ * Use "__typeof__(*mib[0]) *ptr" instead of "__typeof__(mib[0]) ptr"
+ * to make @ptr a non-percpu pointer.
+ */
 #define SNMP_UPD_PO_STATS(mib, basefield, addend)	\
 	do { \
 		this_cpu_inc(mib[0]->mibs[basefield##PKTS]);		\

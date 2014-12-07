@@ -18,10 +18,16 @@
 #include <linux/clkdev.h>
 #include <linux/types.h>
 
-#define	ALWAYS_ENABLED		(1 << 0) 
-#define	RESET_TO_ENABLE		(1 << 1) 
-#define	ENABLED_ON_INIT		(1 << 2) 
+/* clk structure flags */
+#define	ALWAYS_ENABLED		(1 << 0) /* clock always enabled */
+#define	RESET_TO_ENABLE		(1 << 1) /* reset register bit to enable clk */
+#define	ENABLED_ON_INIT		(1 << 2) /* clocks enabled at init */
 
+/**
+ * struct clkops - clock operations
+ * @enable: pointer to clock enable function
+ * @disable: pointer to clock disable function
+ */
 struct clkops {
 	int (*enable) (struct clk *);
 	void (*disable) (struct clk *);
@@ -37,6 +43,13 @@ struct pclk_info {
 	u8 pclk_val;
 };
 
+/**
+ * struct pclk_sel - parents selection configuration
+ * @pclk_info: pointer to array of parent clock info
+ * @pclk_count: number of parents
+ * @pclk_sel_reg: register for selecting a parent
+ * @pclk_sel_mask: mask for selecting parent (can be used to clear bits also)
+ */
 struct pclk_sel {
 	struct pclk_info *pclk_info;
 	u8 pclk_count;
@@ -44,12 +57,41 @@ struct pclk_sel {
 	unsigned int pclk_sel_mask;
 };
 
+/**
+ * struct rate_config - clk rate configurations
+ * @tbls: array of device specific clk rate tables, in ascending order of rates
+ * @count: size of tbls array
+ * @default_index: default setting when originally disabled
+ */
 struct rate_config {
 	void *tbls;
 	u8 count;
 	u8 default_index;
 };
 
+/**
+ * struct clk - clock structure
+ * @usage_count: num of users who enabled this clock
+ * @flags: flags for clock properties
+ * @rate: programmed clock rate in Hz
+ * @en_reg: clk enable/disable reg
+ * @en_reg_bit: clk enable/disable bit
+ * @ops: clk enable/disable ops - generic_clkops selected if NULL
+ * @recalc: pointer to clock rate recalculate function
+ * @set_rate: pointer to clock set rate function
+ * @calc_rate: pointer to clock get rate function for index
+ * @rate_config: rate configuration information, used by set_rate
+ * @div_factor: division factor to parent clock.
+ * @pclk: current parent clk
+ * @pclk_sel: pointer to parent selection structure
+ * @pclk_sel_shift: register shift for selecting parent of this clock
+ * @children: list for childrens or this clock
+ * @sibling: node for list of clocks having same parents
+ * @private_data: clock specific private data
+ * @node: list to maintain clocks linearly
+ * @cl: clocklook up associated with this clock
+ * @dent: object for debugfs
+ */
 struct clk {
 	unsigned int usage_count;
 	unsigned int flags;
@@ -77,6 +119,7 @@ struct clk {
 #endif
 };
 
+/* pll configuration structure */
 struct pll_clk_masks {
 	u32 mode_mask;
 	u32 mode_shift;
@@ -97,6 +140,7 @@ struct pll_clk_config {
 	struct pll_clk_masks *masks;
 };
 
+/* pll clk rate config structure */
 struct pll_rate_tbl {
 	u8 mode;
 	u16 m;
@@ -104,6 +148,7 @@ struct pll_rate_tbl {
 	u8 p;
 };
 
+/* ahb and apb bus configuration structure */
 struct bus_clk_masks {
 	u32 mask;
 	u32 shift;
@@ -114,10 +159,12 @@ struct bus_clk_config {
 	struct bus_clk_masks *masks;
 };
 
+/* ahb and apb clk bus rate config structure */
 struct bus_rate_tbl {
 	u8 div;
 };
 
+/* Aux clk configuration structure: applicable to UART and FIRDA */
 struct aux_clk_masks {
 	u32 eq_sel_mask;
 	u32 eq_sel_shift;
@@ -134,12 +181,14 @@ struct aux_clk_config {
 	struct aux_clk_masks *masks;
 };
 
+/* aux clk rate config structure */
 struct aux_rate_tbl {
 	u16 xscale;
 	u16 yscale;
 	u8 eq;
 };
 
+/* GPT clk configuration structure */
 struct gpt_clk_masks {
 	u32 mscale_sel_mask;
 	u32 mscale_sel_shift;
@@ -152,11 +201,13 @@ struct gpt_clk_config {
 	struct gpt_clk_masks *masks;
 };
 
+/* gpt clk rate config structure */
 struct gpt_rate_tbl {
 	u16 mscale;
 	u16 nscale;
 };
 
+/* clcd clk configuration structure */
 struct clcd_synth_masks {
 	u32 div_factor_mask;
 	u32 div_factor_shift;
@@ -167,14 +218,17 @@ struct clcd_clk_config {
 	struct clcd_synth_masks *masks;
 };
 
+/* clcd clk rate config structure */
 struct clcd_rate_tbl {
 	u16 div;
 };
 
+/* platform specific clock functions */
 void __init clk_init(void);
 void clk_register(struct clk_lookup *cl);
 void recalc_root_clocks(void);
 
+/* clock recalc & set rate functions */
 int follow_parent(struct clk *clk);
 unsigned long pll_calc_rate(struct clk *clk, int index);
 int pll_clk_recalc(struct clk *clk);
@@ -192,4 +246,4 @@ unsigned long clcd_calc_rate(struct clk *clk, int index);
 int clcd_clk_recalc(struct clk *clk);
 int clcd_clk_set_rate(struct clk *clk, unsigned long desired_rate);
 
-#endif 
+#endif /* __PLAT_CLOCK_H */

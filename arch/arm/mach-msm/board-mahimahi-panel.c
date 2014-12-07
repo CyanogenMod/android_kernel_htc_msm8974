@@ -52,7 +52,7 @@ static int qspi_send(uint32_t id, uint8_t data)
 {
 	uint32_t err;
 
-	
+	/* bit-5: OUTPUT_FIFO_NOT_EMPTY */
 	while (readl(spi_base + SPI_OPERATIONAL) & (1<<5)) {
 		if ((err = readl(spi_base + SPI_ERROR_FLAGS))) {
 			pr_err("%s: ERROR: SPI_ERROR_FLAGS=0x%08x\n", __func__,
@@ -155,9 +155,9 @@ static size_t init_table_sz = ARRAY_SIZE(samsung_oled_rgb565_init_table);
 
 #define OLED_GAMMA_TABLE_SIZE		(7 * 3)
 static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
-	
+	/* level 10 */
 	{
-		
+		/* Gamma-R */
 		{ 0x40, 0x0 },
 		{ 0x41, 0x3f },
 		{ 0x42, 0x3f },
@@ -165,7 +165,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x44, 0x30 },
 		{ 0x45, 0x2c },
 		{ 0x46, 0x13 },
-		
+		/* Gamma -G */
 		{ 0x50, 0x0 },
 		{ 0x51, 0x0 },
 		{ 0x52, 0x0 },
@@ -173,7 +173,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x54, 0x27 },
 		{ 0x55, 0x2b },
 		{ 0x56, 0x12 },
-		
+		/* Gamma -B */
 		{ 0x60, 0x0 },
 		{ 0x61, 0x3f },
 		{ 0x62, 0x3f },
@@ -183,9 +183,9 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x66, 0x1b },
 	},
 
-	
+	/* level 40 */
 	{
-		
+		/* Gamma -R */
 		{ 0x40, 0x0 },
 		{ 0x41, 0x3f },
 		{ 0x42, 0x3e },
@@ -193,7 +193,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x44, 0x2d },
 		{ 0x45, 0x28 },
 		{ 0x46, 0x21 },
-		
+		/* Gamma -G */
 		{ 0x50, 0x0 },
 		{ 0x51, 0x0 },
 		{ 0x52, 0x0 },
@@ -201,7 +201,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x54, 0x2a },
 		{ 0x55, 0x28 },
 		{ 0x56, 0x20 },
-		
+		/* Gamma -B */
 		{ 0x60, 0x0 },
 		{ 0x61, 0x3f },
 		{ 0x62, 0x3e },
@@ -211,9 +211,9 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x66, 0x2d },
 	},
 
-	
+	/* level 70 */
 	{
-		
+		/* Gamma -R */
 		{ 0x40, 0x0 },
 		{ 0x41, 0x3f },
 		{ 0x42, 0x35 },
@@ -221,7 +221,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x44, 0x2b },
 		{ 0x45, 0x26 },
 		{ 0x46, 0x29 },
-		
+		/* Gamma -G */
 		{ 0x50, 0x0 },
 		{ 0x51, 0x0 },
 		{ 0x52, 0x0 },
@@ -229,7 +229,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x54, 0x29 },
 		{ 0x55, 0x26 },
 		{ 0x56, 0x28 },
-		
+		/* Gamma -B */
 		{ 0x60, 0x0 },
 		{ 0x61, 0x3f },
 		{ 0x62, 0x34 },
@@ -239,9 +239,9 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x66, 0x37 },
 	},
 
-	
+	/* level 100 */
 	{
-		
+		/* Gamma -R */
 		{ 0x40, 0x0 },
 		{ 0x41, 0x3f },
 		{ 0x42, 0x30 },
@@ -249,7 +249,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x44, 0x2b },
 		{ 0x45, 0x24 },
 		{ 0x46, 0x2f },
-		
+		/* Gamma -G */
 		{ 0x50, 0x0 },
 		{ 0x51, 0x0 },
 		{ 0x52, 0x0 },
@@ -257,7 +257,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x54, 0x29 },
 		{ 0x55, 0x24 },
 		{ 0x56, 0x2e },
-		
+		/* Gamma -B */
 		{ 0x60, 0x0 },
 		{ 0x61, 0x3f },
 		{ 0x62, 0x2f },
@@ -267,9 +267,9 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x66, 0x3f },
 	},
 
-	
+	/* level 130 */
 	{
-		
+		/* Gamma -R */
 		{ 0x40, 0x0 },
 		{ 0x41, 0x3f },
 		{ 0x42, 0x2e },
@@ -277,7 +277,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x44, 0x2a },
 		{ 0x45, 0x23 },
 		{ 0x46, 0x34 },
-		
+		/* Gamma -G */
 		{ 0x50, 0x0 },
 		{ 0x51, 0x0 },
 		{ 0x52, 0xa },
@@ -285,7 +285,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x54, 0x28 },
 		{ 0x55, 0x23 },
 		{ 0x56, 0x33 },
-		
+		/* Gamma -B */
 		{ 0x60, 0x0 },
 		{ 0x61, 0x3f },
 		{ 0x62, 0x2d },
@@ -295,9 +295,9 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x66, 0x46 },
 	},
 
-	
+	/* level 160 */
 	{
-		
+		/* Gamma -R */
 		{ 0x40, 0x0 },
 		{ 0x41, 0x3f },
 		{ 0x42, 0x2b },
@@ -305,7 +305,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x44, 0x28 },
 		{ 0x45, 0x23 },
 		{ 0x46, 0x38 },
-		
+		/* Gamma -G */
 		{ 0x50, 0x0 },
 		{ 0x51, 0x0 },
 		{ 0x52, 0xb },
@@ -313,7 +313,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x54, 0x27 },
 		{ 0x55, 0x23 },
 		{ 0x56, 0x37 },
-		
+		/* Gamma -B */
 		{ 0x60, 0x0 },
 		{ 0x61, 0x3f },
 		{ 0x62, 0x29 },
@@ -323,9 +323,9 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x66, 0x4b },
 	},
 
-	
+	/* level 190 */
 	{
-		
+		/* Gamma -R */
 		{ 0x40, 0x0 },
 		{ 0x41, 0x3f },
 		{ 0x42, 0x29 },
@@ -333,7 +333,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x44, 0x27 },
 		{ 0x45, 0x22 },
 		{ 0x46, 0x3c },
-		
+		/* Gamma -G */
 		{ 0x50, 0x0 },
 		{ 0x51, 0x0 },
 		{ 0x52, 0x10 },
@@ -341,7 +341,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x54, 0x26 },
 		{ 0x55, 0x22 },
 		{ 0x56, 0x3b },
-		
+		/* Gamma -B */
 		{ 0x60, 0x0 },
 		{ 0x61, 0x3f },
 		{ 0x62, 0x28 },
@@ -351,9 +351,9 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x66, 0x50 },
 	},
 
-	
+	/* level 220 */
 	{
-		
+		/* Gamma -R */
 		{ 0x40, 0x0 },
 		{ 0x41, 0x3f },
 		{ 0x42, 0x28 },
@@ -361,7 +361,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x44, 0x28 },
 		{ 0x45, 0x20 },
 		{ 0x46, 0x40 },
-		
+		/* Gamma -G */
 		{ 0x50, 0x0 },
 		{ 0x51, 0x0 },
 		{ 0x52, 0x11 },
@@ -369,7 +369,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x54, 0x27 },
 		{ 0x55, 0x20 },
 		{ 0x56, 0x3f },
-		
+		/* Gamma -B */
 		{ 0x60, 0x0 },
 		{ 0x61, 0x3f },
 		{ 0x62, 0x27 },
@@ -379,9 +379,9 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x66, 0x56 },
 	},
 
-	
+	/* level 250 */
 	{
-		
+		/* Gamma -R */
 		{ 0x40, 0x0 },
 		{ 0x41, 0x3f },
 		{ 0x42, 0x2a },
@@ -389,7 +389,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x44, 0x27 },
 		{ 0x45, 0x1f },
 		{ 0x46, 0x44 },
-		
+		/* Gamma -G */
 		{ 0x50, 0x0 },
 		{ 0x51, 0x0 },
 		{ 0x52, 0x17 },
@@ -397,7 +397,7 @@ static struct lcm_tbl samsung_oled_gamma_table[][OLED_GAMMA_TABLE_SIZE] = {
 		{ 0x54, 0x26 },
 		{ 0x55, 0x1f },
 		{ 0x56, 0x43 },
-		
+		/* Gamma -B */
 		{ 0x60, 0x0 },
 		{ 0x61, 0x3f },
 		{ 0x62, 0x2a },
@@ -484,7 +484,7 @@ static int samsung_oled_panel_init(struct msm_lcdc_panel_ops *ops)
 	mutex_lock(&panel_lock);
 
 	clk_enable(spi_clk);
-	
+	/* Set the gamma write target to 4, leave the current gamma set at 2 */
 	lcm_writeb(0x39, 0x24);
 	clk_disable(spi_clk);
 
@@ -733,7 +733,7 @@ static int sony_tft_panel_unblank(struct msm_lcdc_panel_ops *ops)
 	qspi_send_9bit(0x1, 0x05);
 	msleep(100);
 	qspi_send_9bit(0x0, 0x29);
-	
+	/* unlock register page for pwm setting */
 	qspi_send_9bit(0x0, 0xf0);
 	qspi_send_9bit(0x1, 0x5a);
 	qspi_send_9bit(0x1, 0x5a);
@@ -948,7 +948,7 @@ int __init mahimahi_init_panel(void)
 		return 0;
 
 	if (system_rev > 0xC0) {
-		
+		/* CDMA version (except for EVT1) supports RGB666 */
 		init_tablep = samsung_oled_rgb666_init_table;
 		init_table_sz = ARRAY_SIZE(samsung_oled_rgb666_init_table);
 		mahimahi_lcdc_fb_data.output_format = MSM_MDP_OUT_IF_FMT_RGB666;

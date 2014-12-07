@@ -1,3 +1,8 @@
+/*******************************************************************************
+ *
+ * Module Name: nsnames - Name manipulation and search
+ *
+ ******************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -44,6 +49,21 @@
 #define _COMPONENT          ACPI_NAMESPACE
 ACPI_MODULE_NAME("nsnames")
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ns_build_external_path
+ *
+ * PARAMETERS:  Node            - NS node whose pathname is needed
+ *              Size            - Size of the pathname
+ *              *name_buffer    - Where to return the pathname
+ *
+ * RETURN:      Status
+ *              Places the pathname into the name_buffer, in external format
+ *              (name segments separated by path separators)
+ *
+ * DESCRIPTION: Generate a full pathaname
+ *
+ ******************************************************************************/
 acpi_status
 acpi_ns_build_external_path(struct acpi_namespace_node *node,
 			    acpi_size size, char *name_buffer)
@@ -53,7 +73,7 @@ acpi_ns_build_external_path(struct acpi_namespace_node *node,
 
 	ACPI_FUNCTION_ENTRY();
 
-	
+	/* Special case for root */
 
 	index = size - 1;
 	if (index < ACPI_NAME_SIZE) {
@@ -62,7 +82,7 @@ acpi_ns_build_external_path(struct acpi_namespace_node *node,
 		return (AE_OK);
 	}
 
-	
+	/* Store terminator byte, then build name backwards */
 
 	parent_node = node;
 	name_buffer[index] = 0;
@@ -70,18 +90,18 @@ acpi_ns_build_external_path(struct acpi_namespace_node *node,
 	while ((index > ACPI_NAME_SIZE) && (parent_node != acpi_gbl_root_node)) {
 		index -= ACPI_NAME_SIZE;
 
-		
+		/* Put the name into the buffer */
 
 		ACPI_MOVE_32_TO_32((name_buffer + index), &parent_node->name);
 		parent_node = parent_node->parent;
 
-		
+		/* Prefix name with the path separator */
 
 		index--;
 		name_buffer[index] = ACPI_PATH_SEPARATOR;
 	}
 
-	
+	/* Overwrite final separator with the root prefix character */
 
 	name_buffer[index] = AML_ROOT_PREFIX;
 
@@ -96,6 +116,19 @@ acpi_ns_build_external_path(struct acpi_namespace_node *node,
 	return (AE_OK);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ns_get_external_pathname
+ *
+ * PARAMETERS:  Node            - Namespace node whose pathname is needed
+ *
+ * RETURN:      Pointer to storage containing the fully qualified name of
+ *              the node, In external format (name segments separated by path
+ *              separators.)
+ *
+ * DESCRIPTION: Used for debug printing in acpi_ns_search_table().
+ *
+ ******************************************************************************/
 
 char *acpi_ns_get_external_pathname(struct acpi_namespace_node *node)
 {
@@ -105,14 +138,14 @@ char *acpi_ns_get_external_pathname(struct acpi_namespace_node *node)
 
 	ACPI_FUNCTION_TRACE_PTR(ns_get_external_pathname, node);
 
-	
+	/* Calculate required buffer size based on depth below root */
 
 	size = acpi_ns_get_pathname_length(node);
 	if (!size) {
 		return_PTR(NULL);
 	}
 
-	
+	/* Allocate a buffer to be returned to caller */
 
 	name_buffer = ACPI_ALLOCATE_ZEROED(size);
 	if (!name_buffer) {
@@ -120,7 +153,7 @@ char *acpi_ns_get_external_pathname(struct acpi_namespace_node *node)
 		return_PTR(NULL);
 	}
 
-	
+	/* Build the path in the allocated buffer */
 
 	status = acpi_ns_build_external_path(node, size, name_buffer);
 	if (ACPI_FAILURE(status)) {
@@ -131,6 +164,17 @@ char *acpi_ns_get_external_pathname(struct acpi_namespace_node *node)
 	return_PTR(name_buffer);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ns_get_pathname_length
+ *
+ * PARAMETERS:  Node        - Namespace node
+ *
+ * RETURN:      Length of path, including prefix
+ *
+ * DESCRIPTION: Get the length of the pathname string for this node
+ *
+ ******************************************************************************/
 
 acpi_size acpi_ns_get_pathname_length(struct acpi_namespace_node *node)
 {
@@ -139,6 +183,10 @@ acpi_size acpi_ns_get_pathname_length(struct acpi_namespace_node *node)
 
 	ACPI_FUNCTION_ENTRY();
 
+	/*
+	 * Compute length of pathname as 5 * number of name segments.
+	 * Go back up the parent tree to the root
+	 */
 	size = 0;
 	next_node = node;
 
@@ -154,12 +202,25 @@ acpi_size acpi_ns_get_pathname_length(struct acpi_namespace_node *node)
 	}
 
 	if (!size) {
-		size = 1;	
+		size = 1;	/* Root node case */
 	}
 
-	return (size + 1);	
+	return (size + 1);	/* +1 for null string terminator */
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ns_handle_to_pathname
+ *
+ * PARAMETERS:  target_handle           - Handle of named object whose name is
+ *                                        to be found
+ *              Buffer                  - Where the pathname is returned
+ *
+ * RETURN:      Status, Buffer is filled with pathname if status is AE_OK
+ *
+ * DESCRIPTION: Build and return a full namespace pathname
+ *
+ ******************************************************************************/
 
 acpi_status
 acpi_ns_handle_to_pathname(acpi_handle target_handle,
@@ -176,21 +237,21 @@ acpi_ns_handle_to_pathname(acpi_handle target_handle,
 		return_ACPI_STATUS(AE_BAD_PARAMETER);
 	}
 
-	
+	/* Determine size required for the caller buffer */
 
 	required_size = acpi_ns_get_pathname_length(node);
 	if (!required_size) {
 		return_ACPI_STATUS(AE_BAD_PARAMETER);
 	}
 
-	
+	/* Validate/Allocate/Clear caller buffer */
 
 	status = acpi_ut_initialize_buffer(buffer, required_size);
 	if (ACPI_FAILURE(status)) {
 		return_ACPI_STATUS(status);
 	}
 
-	
+	/* Build the path in the caller buffer */
 
 	status =
 	    acpi_ns_build_external_path(node, required_size, buffer->pointer);

@@ -51,12 +51,14 @@
 #include "generic.h"
 #include "devices.h"
 
+/* EM-X270 specific GPIOs */
 #define GPIO13_MMC_CD		(13)
 #define GPIO95_MMC_WP		(95)
 #define GPIO56_NAND_RB		(56)
 #define GPIO93_CAM_RESET	(93)
 #define GPIO16_USB_HUB_RESET	(16)
 
+/* eXeda specific GPIOs */
 #define GPIO114_MMC_CD		(114)
 #define GPIO20_NAND_RB		(20)
 #define GPIO38_SD_PWEN		(38)
@@ -65,6 +67,7 @@
 #define GPIO130_CAM_RESET	(130)
 #define GPIO10_USB_HUB_RESET	(10)
 
+/* common  GPIOs */
 #define GPIO11_NAND_CS		(11)
 #define GPIO41_ETHIRQ		(41)
 #define EM_X270_ETHIRQ		PXA_GPIO_TO_IRQ(GPIO41_ETHIRQ)
@@ -79,7 +82,7 @@ static int cam_reset;
 static int usb_hub_reset;
 
 static unsigned long common_pin_config[] = {
-	
+	/* AC'97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
@@ -87,17 +90,17 @@ static unsigned long common_pin_config[] = {
 	GPIO98_AC97_SYSCLK,
 	GPIO113_AC97_nRESET,
 
-	
+	/* BTUART */
 	GPIO42_BTUART_RXD,
 	GPIO43_BTUART_TXD,
 	GPIO44_BTUART_CTS,
 	GPIO45_BTUART_RTS,
 
-	
+	/* STUART */
 	GPIO46_STUART_RXD,
 	GPIO47_STUART_TXD,
 
-	
+	/* MCI controller */
 	GPIO32_MMC_CLK,
 	GPIO112_MMC_CMD,
 	GPIO92_MMC_DAT_0,
@@ -105,10 +108,10 @@ static unsigned long common_pin_config[] = {
 	GPIO110_MMC_DAT_2,
 	GPIO111_MMC_DAT_3,
 
-	
+	/* LCD */
 	GPIOxx_LCD_TFT_16BPP,
 
-	
+	/* QCI */
 	GPIO84_CIF_FV,
 	GPIO25_CIF_LV,
 	GPIO53_CIF_MCLK,
@@ -122,11 +125,11 @@ static unsigned long common_pin_config[] = {
 	GPIO17_CIF_DD_6,
 	GPIO12_CIF_DD_7,
 
-	
+	/* I2C */
 	GPIO117_I2C_SCL,
 	GPIO118_I2C_SDA,
 
-	
+	/* Keypad */
 	GPIO100_KP_MKIN_0	| WAKEUP_ON_LEVEL_HIGH,
 	GPIO101_KP_MKIN_1	| WAKEUP_ON_LEVEL_HIGH,
 	GPIO102_KP_MKIN_2	| WAKEUP_ON_LEVEL_HIGH,
@@ -144,19 +147,19 @@ static unsigned long common_pin_config[] = {
 	GPIO96_KP_MKOUT_6,
 	GPIO22_KP_MKOUT_7,
 
-	
+	/* SSP1 */
 	GPIO26_SSP1_RXD,
 	GPIO23_SSP1_SCLK,
 	GPIO24_SSP1_SFRM,
 	GPIO57_SSP1_TXD,
 
-	
-	GPIO19_GPIO,	
+	/* SSP2 */
+	GPIO19_GPIO,	/* SSP2 clock is used as GPIO for Libertas pin-strap */
 	GPIO14_GPIO,
 	GPIO89_SSP2_TXD,
 	GPIO88_SSP2_RXD,
 
-	
+	/* SDRAM and local bus */
 	GPIO15_nCS_1,
 	GPIO78_nCS_2,
 	GPIO79_nCS_3,
@@ -164,34 +167,34 @@ static unsigned long common_pin_config[] = {
 	GPIO49_nPWE,
 	GPIO18_RDY,
 
-	
-	GPIO1_GPIO | WAKEUP_ON_EDGE_BOTH,	
+	/* GPIO */
+	GPIO1_GPIO | WAKEUP_ON_EDGE_BOTH,	/* sleep/resume button */
 
-	
-	GPIO20_GPIO	| MFP_LPM_DRIVE_LOW,	
-	GPIO115_GPIO	| MFP_LPM_DRIVE_LOW,	
+	/* power controls */
+	GPIO20_GPIO	| MFP_LPM_DRIVE_LOW,	/* GPRS_PWEN */
+	GPIO115_GPIO	| MFP_LPM_DRIVE_LOW,	/* WLAN_PWEN */
 
-	
-	GPIO11_GPIO	| MFP_LPM_DRIVE_HIGH,	
+	/* NAND controls */
+	GPIO11_GPIO	| MFP_LPM_DRIVE_HIGH,	/* NAND CE# */
 
-	
-	GPIO41_GPIO,	
+	/* interrupts */
+	GPIO41_GPIO,	/* DM9000 interrupt */
 };
 
 static unsigned long em_x270_pin_config[] = {
-	GPIO13_GPIO,				
-	GPIO16_GPIO,				
-	GPIO56_GPIO,				
-	GPIO93_GPIO	| MFP_LPM_DRIVE_LOW,	
-	GPIO95_GPIO,				
+	GPIO13_GPIO,				/* MMC card detect */
+	GPIO16_GPIO,				/* USB hub reset */
+	GPIO56_GPIO,				/* NAND Ready/Busy */
+	GPIO93_GPIO	| MFP_LPM_DRIVE_LOW,	/* Camera reset */
+	GPIO95_GPIO,				/* MMC Write protect */
 };
 
 static unsigned long exeda_pin_config[] = {
-	GPIO10_GPIO,				
-	GPIO20_GPIO,				
-	GPIO38_GPIO	| MFP_LPM_DRIVE_LOW,	
-	GPIO95_GPIO,				
-	GPIO114_GPIO,				
+	GPIO10_GPIO,				/* USB hub reset */
+	GPIO20_GPIO,				/* NAND Ready/Busy */
+	GPIO38_GPIO	| MFP_LPM_DRIVE_LOW,	/* SD slot power */
+	GPIO95_GPIO,				/* touchpad IRQ */
+	GPIO114_GPIO,				/* MMC card detect */
 };
 
 #if defined(CONFIG_DM9000) || defined(CONFIG_DM9000_MODULE)
@@ -236,6 +239,7 @@ static void __init em_x270_init_dm9000(void)
 static inline void em_x270_init_dm9000(void) {}
 #endif
 
+/* V3020 RTC */
 #if defined(CONFIG_RTC_DRV_V3020) || defined(CONFIG_RTC_DRV_V3020_MODULE)
 static struct resource em_x270_v3020_resource[] = {
 	[0] = {
@@ -267,6 +271,7 @@ static void __init em_x270_init_rtc(void)
 static inline void em_x270_init_rtc(void) {}
 #endif
 
+/* NAND flash */
 #if defined(CONFIG_MTD_NAND_PLATFORM) || defined(CONFIG_MTD_NAND_PLATFORM_MODULE)
 static inline void nand_cs_on(void)
 {
@@ -280,6 +285,7 @@ static void nand_cs_off(void)
 	gpio_set_value(GPIO11_NAND_CS, 1);
 }
 
+/* hardware specific access to control-lines */
 static void em_x270_nand_cmd_ctl(struct mtd_info *mtd, int dat,
 				 unsigned int ctrl)
 {
@@ -311,6 +317,7 @@ static void em_x270_nand_cmd_ctl(struct mtd_info *mtd, int dat,
 	dsb();
 }
 
+/* read device ready pin */
 static int em_x270_nand_device_ready(struct mtd_info *mtd)
 {
 	dsb();
@@ -401,7 +408,7 @@ static struct mtd_partition em_x270_nor_parts[] = {
 		.name =		"Bootloader",
 		.offset =	0x00000000,
 		.size =		0x00050000,
-		.mask_flags =	MTD_WRITEABLE  
+		.mask_flags =	MTD_WRITEABLE  /* force read-only */
 	}, {
 		.name =		"Environment",
 		.offset =	0x00050000,
@@ -410,7 +417,7 @@ static struct mtd_partition em_x270_nor_parts[] = {
 		.name =		"Reserved",
 		.offset =	0x00060000,
 		.size =		0x00050000,
-		.mask_flags =	MTD_WRITEABLE  
+		.mask_flags =	MTD_WRITEABLE  /* force read-only */
 	}, {
 		.name =		"Splashscreen",
 		.offset =	0x000b0000,
@@ -450,6 +457,7 @@ static void __init em_x270_init_nor(void)
 static inline void em_x270_init_nor(void) {}
 #endif
 
+/* PXA27x OHCI controller setup */
 #if defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
 static struct regulator *em_x270_usb_ldo;
 
@@ -469,7 +477,7 @@ static int em_x270_usb_hub_init(void)
 	if (err)
 		goto err_free_vbus_gpio;
 
-	
+	/* USB Hub power-on and reset */
 	gpio_direction_output(usb_hub_reset, 1);
 	gpio_direction_output(GPIO9_USB_VBUS_EN, 0);
 	regulator_enable(em_x270_usb_ldo);
@@ -494,12 +502,12 @@ static int em_x270_ohci_init(struct device *dev)
 {
 	int err;
 
-	
+	/* we don't want to entirely disable USB if the HUB init failed */
 	err = em_x270_usb_hub_init();
 	if (err)
 		pr_err("USB Hub initialization failed: %d\n", err);
 
-	
+	/* enable port 2 transiever */
 	UP2OCR = UP2OCR_HXS | UP2OCR_HXOE;
 
 	return 0;
@@ -533,6 +541,7 @@ static void __init em_x270_init_ohci(void)
 static inline void em_x270_init_ohci(void) {}
 #endif
 
+/* MCI controller setup */
 #if defined(CONFIG_MMC) || defined(CONFIG_MMC_MODULE)
 static struct regulator *em_x270_sdio_ldo;
 
@@ -641,6 +650,7 @@ static void __init em_x270_init_mmc(void)
 static inline void em_x270_init_mmc(void) {}
 #endif
 
+/* LCD */
 #if defined(CONFIG_FB_PXA) || defined(CONFIG_FB_PXA_MODULE)
 static struct pxafb_mode_info em_x270_lcd_modes[] = {
 	[0] = {
@@ -713,7 +723,7 @@ static struct pxa2xx_spi_chip em_x270_libertas_chip = {
 };
 
 static unsigned long em_x270_libertas_pin_config[] = {
-	
+	/* SSP2 */
 	GPIO19_SSP2_SCLK,
 	GPIO14_GPIO,
 	GPIO89_SSP2_TXD,
@@ -833,7 +843,7 @@ static unsigned int em_x270_module_matrix_keys[] = {
 };
 
 struct pxa27x_keypad_platform_data em_x270_module_keypad_info = {
-	
+	/* code map for the matrix keys */
 	.matrix_key_rows	= 3,
 	.matrix_key_cols	= 3,
 	.matrix_key_map		= em_x270_module_matrix_keys,
@@ -883,7 +893,7 @@ static unsigned int em_x270_exeda_matrix_keys[] = {
 };
 
 struct pxa27x_keypad_platform_data em_x270_exeda_keypad_info = {
-	
+	/* code map for the matrix keys */
 	.matrix_key_rows	= 8,
 	.matrix_key_cols	= 8,
 	.matrix_key_map		= em_x270_exeda_matrix_keys,
@@ -933,6 +943,7 @@ static void __init em_x270_init_gpio_keys(void)
 static inline void em_x270_init_gpio_keys(void) {}
 #endif
 
+/* Quick Capture Interface and sensor setup */
 #if defined(CONFIG_VIDEO_PXA27x) || defined(CONFIG_VIDEO_PXA27x_MODULE)
 static struct regulator *em_x270_camera_ldo;
 
@@ -1071,6 +1082,7 @@ static void __init em_x270_userspace_consumers_init(void)
 	platform_add_devices(ARRAY_AND_SIZE(em_x270_userspace_consumers));
 }
 
+/* DA9030 related initializations */
 #define REGULATOR_CONSUMER(_name, _dev_name, _supply)		        \
 	static struct regulator_consumer_supply _name##_consumers[] = {	\
 		{							\

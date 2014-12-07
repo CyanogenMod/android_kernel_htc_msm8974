@@ -1,3 +1,6 @@
+/*
+ * linux/mm/page_isolation.c
+ */
 
 #include <linux/mm.h>
 #include <linux/page-isolation.h>
@@ -16,6 +19,20 @@ __first_valid_page(unsigned long pfn, unsigned long nr_pages)
 	return pfn_to_page(pfn + i);
 }
 
+/*
+ * start_isolate_page_range() -- make page-allocation-type of range of pages
+ * to be MIGRATE_ISOLATE.
+ * @start_pfn: The lower PFN of the range to be isolated.
+ * @end_pfn: The upper PFN of the range to be isolated.
+ * @migratetype: migrate type to set in error recovery.
+ *
+ * Making page-allocation-type to be MIGRATE_ISOLATE means free pages in
+ * the range will never be allocated. Any free pages and pages freed in the
+ * future will not be allocated again.
+ *
+ * start_pfn/end_pfn must be aligned to pageblock_order.
+ * Returns 0 on success and -EBUSY if any part of range cannot be isolated.
+ */
 int start_isolate_page_range(unsigned long start_pfn, unsigned long end_pfn,
 			     unsigned migratetype)
 {
@@ -45,6 +62,9 @@ undo:
 	return -EBUSY;
 }
 
+/*
+ * Make isolated pages available again.
+ */
 int undo_isolate_page_range(unsigned long start_pfn, unsigned long end_pfn,
 			    unsigned migratetype)
 {
@@ -62,6 +82,13 @@ int undo_isolate_page_range(unsigned long start_pfn, unsigned long end_pfn,
 	}
 	return 0;
 }
+/*
+ * Test all pages in the range is free(means isolated) or not.
+ * all pages in [start_pfn...end_pfn) must be in the same zone.
+ * zone->lock must be held before call this.
+ *
+ * Returns 1 if all pages in the range are isolated.
+ */
 static int
 __test_page_isolated_in_pageblock(unsigned long pfn, unsigned long end_pfn)
 {
@@ -93,6 +120,11 @@ int test_pages_isolated(unsigned long start_pfn, unsigned long end_pfn)
 	struct zone *zone;
 	int ret;
 
+	/*
+	 * Note: pageblock_nr_page != MAX_ORDER. Then, chunks of free page
+	 * is not aligned to pageblock_nr_pages.
+	 * Then we just check pagetype fist.
+	 */
 	for (pfn = start_pfn; pfn < end_pfn; pfn += pageblock_nr_pages) {
 		page = __first_valid_page(pfn, pageblock_nr_pages);
 		if (page && get_pageblock_migratetype(page) != MIGRATE_ISOLATE)
@@ -101,7 +133,7 @@ int test_pages_isolated(unsigned long start_pfn, unsigned long end_pfn)
 	page = __first_valid_page(start_pfn, end_pfn - start_pfn);
 	if ((pfn < end_pfn) || !page)
 		return -EBUSY;
-	
+	/* Check all pages are free or Marked as ISOLATED */
 	zone = page_zone(page);
 	spin_lock_irqsave(&zone->lock, flags);
 	ret = __test_page_isolated_in_pageblock(start_pfn, end_pfn);

@@ -93,6 +93,9 @@ static int
 idtcps_set_domain(struct rio_mport *mport, u16 destid, u8 hopcount,
 		       u8 sw_domain)
 {
+	/*
+	 * Switch domain configuration operates only at global level
+	 */
 	rio_mport_write_config_32(mport, destid, hopcount,
 				  IDTCPS_RIO_DOMAIN, (u32)sw_domain);
 	return 0;
@@ -104,6 +107,9 @@ idtcps_get_domain(struct rio_mport *mport, u16 destid, u8 hopcount,
 {
 	u32 regval;
 
+	/*
+	 * Switch domain configuration operates only at global level
+	 */
 	rio_mport_read_config_32(mport, destid, hopcount,
 				IDTCPS_RIO_DOMAIN, &regval);
 
@@ -124,10 +130,10 @@ static int idtcps_switch_init(struct rio_dev *rdev, int do_enum)
 	rdev->rswitch->em_handle = NULL;
 
 	if (do_enum) {
-		
+		/* set TVAL = ~50us */
 		rio_write_config_32(rdev,
 			rdev->phys_efptr + RIO_PORT_LINKTO_CTL_CSR, 0x8e << 8);
-		
+		/* Ensure that default routing is disabled on startup */
 		rio_write_config_32(rdev,
 				    RIO_STD_RTE_DEFAULT_PORT, CPS_NO_ROUTE);
 	}

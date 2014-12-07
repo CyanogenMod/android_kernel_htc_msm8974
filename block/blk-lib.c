@@ -1,3 +1,6 @@
+/*
+ * Functions related to generic helpers functions
+ */
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/bio.h>
@@ -23,6 +26,17 @@ static void bio_batch_end_io(struct bio *bio, int err)
 	bio_put(bio);
 }
 
+/**
+ * blkdev_issue_discard - queue a discard
+ * @bdev:	blockdev to issue discard for
+ * @sector:	start sector
+ * @nr_sects:	number of sectors to discard
+ * @gfp_mask:	memory allocation flags (for bio_alloc)
+ * @flags:	BLKDEV_IFL_* flags to control behaviour
+ *
+ * Description:
+ *    Issue a discard request for the sectors in question.
+ */
 int blkdev_issue_discard(struct block_device *bdev, sector_t sector,
 		sector_t nr_sects, gfp_t gfp_mask, unsigned long flags)
 {
@@ -40,9 +54,13 @@ int blkdev_issue_discard(struct block_device *bdev, sector_t sector,
 	if (!blk_queue_discard(q))
 		return -EOPNOTSUPP;
 
+	/*
+	 * Ensure that max_discard_sectors is of the proper
+	 * granularity
+	 */
 	max_discard_sectors = min(q->limits.max_discard_sectors, UINT_MAX >> 9);
 	if (unlikely(!max_discard_sectors)) {
-		
+		/* Avoid infinite loop below. Being cautious never hurts. */
 		return -EOPNOTSUPP;
 	} else if (q->limits.discard_granularity) {
 		unsigned int disc_sects = q->limits.discard_granularity >> 9;
@@ -85,7 +103,7 @@ int blkdev_issue_discard(struct block_device *bdev, sector_t sector,
 		submit_bio(type, bio);
 	}
 
-	
+	/* Wait for bios in-flight */
 	if (!atomic_dec_and_test(&bb.done))
 		wait_for_completion(&wait);
 
@@ -96,6 +114,14 @@ int blkdev_issue_discard(struct block_device *bdev, sector_t sector,
 }
 EXPORT_SYMBOL(blkdev_issue_discard);
 
+/**
+ * blkdev_issue_sanitize - queue a sanitize request
+ * @bdev:	blockdev to issue sanitize for
+ * @gfp_mask:	memory allocation flags (for bio_alloc)
+ *
+ * Description:
+ *    Issue a sanitize request for the specified block device
+ */
 int blkdev_issue_sanitize(struct block_device *bdev, gfp_t gfp_mask)
 {
 	DECLARE_COMPLETION_ONSTACK(wait);
@@ -128,7 +154,7 @@ int blkdev_issue_sanitize(struct block_device *bdev, gfp_t gfp_mask)
 	atomic_inc(&bb.done);
 	submit_bio(type, bio);
 
-	
+	/* Wait for bios in-flight */
 	if (!atomic_dec_and_test(&bb.done))
 		wait_for_completion(&wait);
 
@@ -139,6 +165,16 @@ int blkdev_issue_sanitize(struct block_device *bdev, gfp_t gfp_mask)
 }
 EXPORT_SYMBOL(blkdev_issue_sanitize);
 
+/**
+ * blkdev_issue_zeroout - generate number of zero filed write bios
+ * @bdev:	blockdev to issue
+ * @sector:	start sector
+ * @nr_sects:	number of sectors to write
+ * @gfp_mask:	memory allocation flags (for bio_alloc)
+ *
+ * Description:
+ *  Generate and issue number of bios with zerofiled pages.
+ */
 
 int blkdev_issue_zeroout(struct block_device *bdev, sector_t sector,
 			sector_t nr_sects, gfp_t gfp_mask)
@@ -180,12 +216,12 @@ int blkdev_issue_zeroout(struct block_device *bdev, sector_t sector,
 		submit_bio(WRITE, bio);
 	}
 
-	
+	/* Wait for bios in-flight */
 	if (!atomic_dec_and_test(&bb.done))
 		wait_for_completion(&wait);
 
 	if (!test_bit(BIO_UPTODATE, &bb.flags))
-		
+		/* One of bios in the batch was completed with error.*/
 		ret = -EIO;
 
 	return ret;

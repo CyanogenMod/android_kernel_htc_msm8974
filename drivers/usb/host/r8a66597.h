@@ -47,7 +47,7 @@
 struct r8a66597_pipe_info {
 	unsigned long timer_interval;
 	u16 pipenum;
-	u16 address;	
+	u16 address;	/* R8A66597 HCD usb address */
 	u16 epnum;
 	u16 maxpacket;
 	u16 type;
@@ -77,7 +77,7 @@ struct r8a66597_td {
 	u16 pipenum;
 	int iso_cnt;
 
-	u16 address;		
+	u16 address;		/* R8A66597's USB address */
 	u16 maxpacket;
 
 	unsigned zero_packet:1;
@@ -86,7 +86,7 @@ struct r8a66597_td {
 };
 
 struct r8a66597_device {
-	u16	address;	
+	u16	address;	/* R8A66597's USB address */
 	u16	hub_port;
 	u16	root_port;
 
@@ -346,5 +346,5 @@ static inline u16 get_xtal_from_pdata(struct r8a66597_platdata *pdata)
 #define disable_irq_nrdy(r8a66597, pipenum)	\
 	disable_pipe_irq(r8a66597, pipenum, NRDYENB)
 
-#endif	
+#endif	/* __R8A66597_H__ */
 

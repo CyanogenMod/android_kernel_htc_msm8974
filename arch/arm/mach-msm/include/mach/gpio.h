@@ -26,6 +26,15 @@
 
 extern struct irq_chip msm_gpio_irq_extn;
 
+/**
+ * struct msm_gpio - GPIO pin description
+ * @gpio_cfg - configuration bitmap, as per gpio_tlmm_config()
+ * @label - textual label
+ *
+ * Usually, GPIO's are operated by sets.
+ * This struct accumulate all GPIO information in single source
+ * and facilitete group operations provided by msm_gpios_xxx()
+ */
 struct msm_gpio {
 	u32 gpio_cfg;
 	const char *label;
@@ -36,27 +45,79 @@ struct msm_gpio_pdata {
 	int direct_connect_irqs;
 };
 
+/**
+ * msm_gpios_request_enable() - request and enable set of GPIOs
+ *
+ * Request and configure set of GPIO's
+ * In case of error, all operations rolled back.
+ * Return error code.
+ *
+ * @table: GPIO table
+ * @size:  number of entries in @table
+ */
 int msm_gpios_request_enable(const struct msm_gpio *table, int size);
 
+/**
+ * msm_gpios_disable_free() - disable and free set of GPIOs
+ *
+ * @table: GPIO table
+ * @size:  number of entries in @table
+ */
 void msm_gpios_disable_free(const struct msm_gpio *table, int size);
 
+/**
+ * msm_gpios_request() - request set of GPIOs
+ * In case of error, all operations rolled back.
+ * Return error code.
+ *
+ * @table: GPIO table
+ * @size:  number of entries in @table
+ */
 int msm_gpios_request(const struct msm_gpio *table, int size);
 
+/**
+ * msm_gpios_free() - free set of GPIOs
+ *
+ * @table: GPIO table
+ * @size:  number of entries in @table
+ */
 void msm_gpios_free(const struct msm_gpio *table, int size);
 
+/**
+ * msm_gpios_enable() - enable set of GPIOs
+ * In case of error, all operations rolled back.
+ * Return error code.
+ *
+ * @table: GPIO table
+ * @size:  number of entries in @table
+ */
 int msm_gpios_enable(const struct msm_gpio *table, int size);
 
+/**
+ * msm_gpios_disable() - disable set of GPIOs
+ *
+ * @table: GPIO table
+ * @size:  number of entries in @table
+ */
 int msm_gpios_disable(const struct msm_gpio *table, int size);
 
+/**
+ * msm_gpios_show_resume_irq() - show the interrupts that could have triggered
+ * resume
+ */
 void msm_gpio_show_resume_irq(void);
 
+/* GPIO TLMM (Top Level Multiplexing) Definitions */
 
+/* GPIO TLMM: Function -- GPIO specific */
 
+/* GPIO TLMM: Direction */
 enum {
 	GPIO_CFG_INPUT,
 	GPIO_CFG_OUTPUT,
 };
 
+/* GPIO TLMM: Pullup/Pulldown */
 enum {
 	GPIO_CFG_NO_PULL,
 	GPIO_CFG_PULL_DOWN,
@@ -64,6 +125,7 @@ enum {
 	GPIO_CFG_PULL_UP,
 };
 
+/* GPIO TLMM: Drive Strength */
 enum {
 	GPIO_CFG_2MA,
 	GPIO_CFG_4MA,
@@ -87,6 +149,9 @@ enum {
 	 (((pull) & 0x3) << 15)          |	  \
 	 (((drvstr) & 0xF) << 17))
 
+/**
+ * extract GPIO pin from bit-field used for gpio_tlmm_config
+ */
 #define GPIO_PIN(gpio_cfg)    (((gpio_cfg) >>  4) & 0x3ff)
 #define GPIO_FUNC(gpio_cfg)   (((gpio_cfg) >>  0) & 0xf)
 #define GPIO_DIR(gpio_cfg)    (((gpio_cfg) >> 14) & 0x1)
@@ -130,6 +195,27 @@ enum msm_tlmm_pull_tgt {
 void msm_tlmm_set_hdrive(enum msm_tlmm_hdrive_tgt tgt, int drv_str);
 void msm_tlmm_set_pull(enum msm_tlmm_pull_tgt tgt, int pull);
 
+/*
+ * A GPIO can be set as a direct-connect IRQ.  This can be used to bypass
+ * the normal summary-interrupt mechanism for those GPIO lines deemed to be
+ * higher priority or otherwise worthy of special treatment, but resources
+ * are limited: only a few DC interrupt lines are available.
+ * Care must be taken when usurping a GPIO in this manner, as the summary
+ * interrupt controller has no idea that the GPIO has been taken away from it.
+ * Clients can still register to receive the summary interrupt assigned
+ * to that GPIO, which will uninstall it as a direct connect IRQ with
+ * no warning.
+ *
+ * The irq passed to this function is the DC IRQ number, not the
+ * irq number seen by the scorpion when the interrupt triggers.  For example,
+ * if 0 is specified, then when DC IRQ 0 triggers, the scorpion will see
+ * interrupt TLMM_MSM_DIR_CONN_IRQ_0.
+ *
+ * input_polarity parameter specifies when the gpio should raise the direct
+ * interrupt. A value of 0 means that it is active low, anything else means
+ * active high
+ *
+ */
 int msm_gpio_install_direct_irq(unsigned gpio, unsigned irq,
 						unsigned int input_polarity);
 #else
@@ -152,4 +238,4 @@ int __init msm_gpio_of_init(struct device_node *node,
 int msm_dump_gpios(struct seq_file *m, int curr_len, char *gpio_buffer);
 #endif
 
-#endif 
+#endif /* __ASM_ARCH_MSM_GPIO_H */

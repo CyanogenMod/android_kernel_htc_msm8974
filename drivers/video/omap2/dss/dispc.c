@@ -45,6 +45,7 @@
 #include "dss_features.h"
 #include "dispc.h"
 
+/* DISPC */
 #define DISPC_SZ_REGS			SZ_4K
 
 #define DISPC_IRQ_MASK_ERROR            (DISPC_IRQ_GFX_FIFO_UNDERFLOW | \
@@ -107,7 +108,14 @@ static struct {
 } dispc;
 
 enum omap_color_component {
+	/* used for all color formats for OMAP3 and earlier
+	 * and for RGB and Y color component on OMAP4
+	 */
 	DISPC_COLOR_COMPONENT_RGB_Y		= 1 << 0,
+	/* used for UV component for
+	 * OMAP_DSS_COLOR_YUV2, OMAP_DSS_COLOR_UYVY, OMAP_DSS_COLOR_NV12
+	 * color formats on OMAP4
+	 */
 	DISPC_COLOR_COMPONENT_UV		= 1 << 1,
 };
 
@@ -266,8 +274,8 @@ static void dispc_restore_context(void)
 	DSSDBG("ctx_loss_count: saved %d, current %d\n",
 			dispc.ctx_loss_cnt, ctx);
 
-	
-	
+	/*RR(IRQENABLE);*/
+	/*RR(CONTROL);*/
 	RR(CONFIG);
 	RR(LINE_NUMBER);
 	if (dss_has_feature(FEAT_ALPHA_FIXED_ZORDER) ||
@@ -356,13 +364,17 @@ static void dispc_restore_context(void)
 	if (dss_has_feature(FEAT_CORE_CLK_DIV))
 		RR(DIVISOR);
 
-	
+	/* enable last, because LCD & DIGIT enable are here */
 	RR(CONTROL);
 	if (dss_has_feature(FEAT_MGR_LCD2))
 		RR(CONTROL2);
-	
+	/* clear spurious SYNC_LOST_DIGIT interrupts */
 	dispc_write_reg(DISPC_IRQSTATUS, DISPC_IRQ_SYNC_LOST_DIGIT);
 
+	/*
+	 * enable last so IRQs won't trigger before
+	 * the context is fully restored
+	 */
 	RR(IRQENABLE);
 
 	DSSDBG("context restored\n");
@@ -442,9 +454,9 @@ bool dispc_mgr_go_busy(enum omap_channel channel)
 	int bit;
 
 	if (dispc_mgr_is_lcd(channel))
-		bit = 5; 
+		bit = 5; /* GOLCD */
 	else
-		bit = 6; 
+		bit = 6; /* GODIGIT */
 
 	if (channel == OMAP_DSS_CHANNEL_LCD2)
 		return REG_GET(DISPC_CONTROL2, bit, bit) == 1;
@@ -458,11 +470,11 @@ void dispc_mgr_go(enum omap_channel channel)
 	bool enable_bit, go_bit;
 
 	if (dispc_mgr_is_lcd(channel))
-		bit = 0; 
+		bit = 0; /* LCDENABLE */
 	else
-		bit = 1; 
+		bit = 1; /* DIGITALENABLE */
 
-	
+	/* if the channel is not enabled, we don't need GO */
 	if (channel == OMAP_DSS_CHANNEL_LCD2)
 		enable_bit = REG_GET(DISPC_CONTROL2, bit, bit) == 1;
 	else
@@ -472,9 +484,9 @@ void dispc_mgr_go(enum omap_channel channel)
 		return;
 
 	if (dispc_mgr_is_lcd(channel))
-		bit = 5; 
+		bit = 5; /* GOLCD */
 	else
-		bit = 6; 
+		bit = 6; /* GODIGIT */
 
 	if (channel == OMAP_DSS_CHANNEL_LCD2)
 		go_bit = REG_GET(DISPC_CONTROL2, bit, bit) == 1;
@@ -891,7 +903,7 @@ static void dispc_configure_burst_sizes(void)
 	int i;
 	const int burst_size = BURST_SIZE_X8;
 
-	
+	/* Configure burst size always to maximum size */
 	for (i = 0; i < omap_dss_get_num_overlays(); ++i)
 		dispc_ovl_set_burst_size(i, burst_size);
 }
@@ -899,12 +911,16 @@ static void dispc_configure_burst_sizes(void)
 static u32 dispc_ovl_get_burst_size(enum omap_plane plane)
 {
 	unsigned unit = dss_feat_get_burst_size_unit();
-	
+	/* burst multiplier is always x8 (see dispc_configure_burst_sizes()) */
 	return unit * 8;
 }
 
 void dispc_enable_gamma_table(bool enable)
 {
+	/*
+	 * This is partially implemented to support only disabling of
+	 * the gamma table.
+	 */
 	if (enable) {
 		DSSWARN("Gamma table enabling for TV not yet supported");
 		return;
@@ -1049,6 +1065,10 @@ void dispc_enable_fifomerge(bool enable)
 void dispc_ovl_compute_fifo_thresholds(enum omap_plane plane,
 		u32 *fifo_low, u32 *fifo_high, bool use_fifomerge)
 {
+	/*
+	 * All sizes are in bytes. Both the buffer and burst are made of
+	 * buffer_units, and the fifo thresholds must be buffer_unit aligned.
+	 */
 
 	unsigned buf_unit = dss_feat_get_buffer_size_unit();
 	unsigned ovl_fifo_size, total_fifo_size, burst_size;
@@ -1065,6 +1085,11 @@ void dispc_ovl_compute_fifo_thresholds(enum omap_plane plane,
 		total_fifo_size = ovl_fifo_size;
 	}
 
+	/*
+	 * We use the same low threshold for both fifomerge and non-fifomerge
+	 * cases, but for fifomerge we calculate the high threshold using the
+	 * combined fifo size
+	 */
 
 	if (dss_has_feature(FEAT_OMAP3_DSI_FIFO_BUG)) {
 		*fifo_low = ovl_fifo_size - burst_size * 2;
@@ -1176,20 +1201,20 @@ static void dispc_ovl_set_scaling_common(enum omap_plane plane,
 				rotation, DISPC_COLOR_COMPONENT_RGB_Y);
 	l = dispc_read_reg(DISPC_OVL_ATTRIBUTES(plane));
 
-	
+	/* RESIZEENABLE and VERTICALTAPS */
 	l &= ~((0x3 << 5) | (0x1 << 21));
 	l |= (orig_width != out_width) ? (1 << 5) : 0;
 	l |= (orig_height != out_height) ? (1 << 6) : 0;
 	l |= five_taps ? (1 << 21) : 0;
 
-	
+	/* VRESIZECONF and HRESIZECONF */
 	if (dss_has_feature(FEAT_RESIZECONF)) {
 		l &= ~(0x3 << 7);
 		l |= (orig_width <= out_width) ? 0 : (1 << 7);
 		l |= (orig_height <= out_height) ? 0 : (1 << 8);
 	}
 
-	
+	/* LINEBUFFERSPLIT */
 	if (dss_has_feature(FEAT_LINEBUFFERSPLIT)) {
 		l &= ~(0x1 << 22);
 		l |= five_taps ? (1 << 22) : 0;
@@ -1197,6 +1222,10 @@ static void dispc_ovl_set_scaling_common(enum omap_plane plane,
 
 	dispc_write_reg(DISPC_OVL_ATTRIBUTES(plane), l);
 
+	/*
+	 * field 0 = even field = bottom field
+	 * field 1 = odd field = top field
+	 */
 	if (ilace && !fieldmode) {
 		accu1 = 0;
 		accu0 = ((1024 * orig_height / out_height) / 2) & 0x3ff;
@@ -1225,24 +1254,27 @@ static void dispc_ovl_set_scaling_uv(enum omap_plane plane,
 	if ((color_mode != OMAP_DSS_COLOR_YUV2 &&
 			color_mode != OMAP_DSS_COLOR_UYVY &&
 			color_mode != OMAP_DSS_COLOR_NV12)) {
-		
+		/* reset chroma resampling for RGB formats  */
 		REG_FLD_MOD(DISPC_OVL_ATTRIBUTES2(plane), 0, 8, 8);
 		return;
 	}
 	switch (color_mode) {
 	case OMAP_DSS_COLOR_NV12:
-		
+		/* UV is subsampled by 2 vertically*/
 		orig_height >>= 1;
-		
+		/* UV is subsampled by 2 horz.*/
 		orig_width >>= 1;
 		break;
 	case OMAP_DSS_COLOR_YUV2:
 	case OMAP_DSS_COLOR_UYVY:
+		/*For YUV422 with 90/270 rotation,
+		 *we don't upsample chroma
+		 */
 		if (rotation == OMAP_DSS_ROT_0 ||
 			rotation == OMAP_DSS_ROT_180)
-			
+			/* UV is subsampled by 2 hrz*/
 			orig_width >>= 1;
-		
+		/* must use FIR for YUV422 if rotated */
 		if (rotation != OMAP_DSS_ROT_0)
 			scale_x = scale_y = true;
 		break;
@@ -1261,9 +1293,9 @@ static void dispc_ovl_set_scaling_uv(enum omap_plane plane,
 
 	REG_FLD_MOD(DISPC_OVL_ATTRIBUTES2(plane),
 		(scale_x || scale_y) ? 1 : 0, 8, 8);
-	
+	/* set H scaling */
 	REG_FLD_MOD(DISPC_OVL_ATTRIBUTES(plane), scale_x ? 1 : 0, 5, 5);
-	
+	/* set V scaling */
 	REG_FLD_MOD(DISPC_OVL_ATTRIBUTES(plane), scale_y ? 1 : 0, 6, 6);
 
 	dispc_ovl_set_vid_accu2_0(plane, 0x80, 0);
@@ -1403,7 +1435,7 @@ static void calc_vrfb_rotation_offset(u8 rotation, bool mirror,
 {
 	u8 ps;
 
-	
+	/* FIXME CLUT formats */
 	switch (color_mode) {
 	case OMAP_DSS_COLOR_CLUT1:
 	case OMAP_DSS_COLOR_CLUT2:
@@ -1423,9 +1455,17 @@ static void calc_vrfb_rotation_offset(u8 rotation, bool mirror,
 	DSSDBG("calc_rot(%d): scrw %d, %dx%d\n", rotation, screen_width,
 			width, height);
 
+	/*
+	 * field 0 = even field = bottom field
+	 * field 1 = odd field = top field
+	 */
 	switch (rotation + mirror * 4) {
 	case OMAP_DSS_ROT_0:
 	case OMAP_DSS_ROT_180:
+		/*
+		 * If the pixel format is YUV or UYVY divide the width
+		 * of the image by 2 for 0 and 180 degree rotation.
+		 */
 		if (color_mode == OMAP_DSS_COLOR_YUV2 ||
 			color_mode == OMAP_DSS_COLOR_UYVY)
 			width = width >> 1;
@@ -1445,6 +1485,9 @@ static void calc_vrfb_rotation_offset(u8 rotation, bool mirror,
 
 	case OMAP_DSS_ROT_0 + 4:
 	case OMAP_DSS_ROT_180 + 4:
+		/* If the pixel format is YUV or UYVY divide the width
+		 * of the image by 2  for 0 degree and 180 degree
+		 */
 		if (color_mode == OMAP_DSS_COLOR_YUV2 ||
 			color_mode == OMAP_DSS_COLOR_UYVY)
 			width = width >> 1;
@@ -1477,7 +1520,7 @@ static void calc_dma_rotation_offset(u8 rotation, bool mirror,
 	u8 ps;
 	u16 fbw, fbh;
 
-	
+	/* FIXME CLUT formats */
 	switch (color_mode) {
 	case OMAP_DSS_COLOR_CLUT1:
 	case OMAP_DSS_COLOR_CLUT2:
@@ -1493,7 +1536,7 @@ static void calc_dma_rotation_offset(u8 rotation, bool mirror,
 	DSSDBG("calc_rot(%d): scrw %d, %dx%d\n", rotation, screen_width,
 			width, height);
 
-	
+	/* width & height are overlay sizes, convert to fb sizes */
 
 	if (rotation == OMAP_DSS_ROT_0 || rotation == OMAP_DSS_ROT_180) {
 		fbw = width;
@@ -1503,6 +1546,10 @@ static void calc_dma_rotation_offset(u8 rotation, bool mirror,
 		fbh = width;
 	}
 
+	/*
+	 * field 0 = even field = bottom field
+	 * field 1 = odd field = top field
+	 */
 	switch (rotation + mirror * 4) {
 	case OMAP_DSS_ROT_0:
 		*offset1 = 0;
@@ -1548,7 +1595,7 @@ static void calc_dma_rotation_offset(u8 rotation, bool mirror,
 		*pix_inc = pixinc(screen_width, ps);
 		break;
 
-	
+	/* mirroring */
 	case OMAP_DSS_ROT_0 + 4:
 		*offset1 = (fbw - 1) * ps;
 		if (field_offset)
@@ -1648,6 +1695,10 @@ static unsigned long calc_fclk(enum omap_channel channel, u16 width,
 	unsigned int hf, vf;
 	unsigned long pclk = dispc_mgr_pclk_rate(channel);
 
+	/*
+	 * FIXME how to determine the 'A' factor
+	 * for the no downscaling case ?
+	 */
 
 	if (width > 3 * out_width)
 		hf = 4;
@@ -1810,13 +1861,20 @@ int dispc_ovl_setup(enum omap_plane plane, struct omap_overlay_info *oi,
 		cconv = 1;
 
 	if (ilace && !fieldmode) {
+		/*
+		 * when downscaling the bottom field may have to start several
+		 * source lines below the top field. Unfortunately ACCUI
+		 * registers will only hold the fractional part of the offset
+		 * so the integer part must be added to the base address of the
+		 * bottom field.
+		 */
 		if (!oi->height || oi->height == outh)
 			field_offset = 0;
 		else
 			field_offset = oi->height / outh / 2;
 	}
 
-	
+	/* Fields are independent but interleaved in memory. */
 	if (fieldmode)
 		field_offset = 1;
 
@@ -1895,7 +1953,7 @@ static void _enable_lcd_out(enum omap_channel channel, bool enable)
 {
 	if (channel == OMAP_DSS_CHANNEL_LCD2) {
 		REG_FLD_MOD(DISPC_CONTROL2, enable ? 1 : 0, 0, 0);
-		
+		/* flush posted write */
 		dispc_read_reg(DISPC_CONTROL2);
 	} else {
 		REG_FLD_MOD(DISPC_CONTROL, enable ? 1 : 0, 0, 0);
@@ -1910,6 +1968,9 @@ static void dispc_mgr_enable_lcd_out(enum omap_channel channel, bool enable)
 	int r;
 	u32 irq;
 
+	/* When we disable LCD output, we need to wait until frame is done.
+	 * Otherwise the DSS is still working, and turning off the clocks
+	 * prevents DSS from going to OFF mode */
 	is_on = channel == OMAP_DSS_CHANNEL_LCD2 ?
 			REG_GET(DISPC_CONTROL2, 0, 0) :
 			REG_GET(DISPC_CONTROL, 0, 0);
@@ -1945,7 +2006,7 @@ static void dispc_mgr_enable_lcd_out(enum omap_channel channel, bool enable)
 static void _enable_digit_out(bool enable)
 {
 	REG_FLD_MOD(DISPC_CONTROL, enable ? 1 : 0, 1, 1);
-	
+	/* flush posted write */
 	dispc_read_reg(DISPC_CONTROL);
 }
 
@@ -1964,12 +2025,18 @@ static void dispc_mgr_enable_digit_out(bool enable)
 
 	if (enable) {
 		unsigned long flags;
+		/* When we enable digit output, we'll get an extra digit
+		 * sync lost interrupt, that we need to ignore */
 		spin_lock_irqsave(&dispc.irq_lock, flags);
 		dispc.irq_error_mask &= ~DISPC_IRQ_SYNC_LOST_DIGIT;
 		_omap_dispc_set_irqs();
 		spin_unlock_irqrestore(&dispc.irq_lock, flags);
 	}
 
+	/* When we disable digit output, we need to wait until fields are done.
+	 * Otherwise the DSS is still working, and turning off the clocks
+	 * prevents DSS from going to OFF mode. And when enabling, we need to
+	 * wait for the extra sync losts */
 	init_completion(&frame_done_completion);
 
 	if (src == DSS_HDMI_M_PCLK && enable == false) {
@@ -1977,6 +2044,9 @@ static void dispc_mgr_enable_digit_out(bool enable)
 		num_irqs = 1;
 	} else {
 		irq_mask = DISPC_IRQ_EVSYNC_EVEN | DISPC_IRQ_EVSYNC_ODD;
+		/* XXX I understand from TRM that we should only wait for the
+		 * current field to complete. But it seems we have to wait for
+		 * both fields */
 		num_irqs = 2;
 	}
 
@@ -2108,7 +2178,7 @@ static void dispc_mgr_set_trans_key(enum omap_channel ch,
 		REG_FLD_MOD(DISPC_CONFIG, type, 11, 11);
 	else if (ch == OMAP_DSS_CHANNEL_DIGIT)
 		REG_FLD_MOD(DISPC_CONFIG, type, 13, 13);
-	else 
+	else /* OMAP_DSS_CHANNEL_LCD2 */
 		REG_FLD_MOD(DISPC_CONFIG2, type, 11, 11);
 
 	dispc_write_reg(DISPC_TRANS_COLOR(ch), trans_key);
@@ -2120,7 +2190,7 @@ static void dispc_mgr_enable_trans_key(enum omap_channel ch, bool enable)
 		REG_FLD_MOD(DISPC_CONFIG, enable, 10, 10);
 	else if (ch == OMAP_DSS_CHANNEL_DIGIT)
 		REG_FLD_MOD(DISPC_CONFIG, enable, 12, 12);
-	else 
+	else /* OMAP_DSS_CHANNEL_LCD2 */
 		REG_FLD_MOD(DISPC_CONFIG2, enable, 10, 10);
 }
 
@@ -2269,6 +2339,7 @@ static void _dispc_mgr_set_lcd_timings(enum omap_channel channel, int hsw,
 	dispc_write_reg(DISPC_TIMING_V(channel), timing_v);
 }
 
+/* change name to mode? */
 void dispc_mgr_set_lcd_timings(enum omap_channel channel,
 		struct omap_video_timings *timings)
 {
@@ -2538,7 +2609,7 @@ void dispc_dump_regs(struct seq_file *s)
 	if (dispc_runtime_get())
 		return;
 
-	
+	/* DISPC common registers */
 	DUMPREG(DISPC_REVISION);
 	DUMPREG(DISPC_SYSCONFIG);
 	DUMPREG(DISPC_SYSSTATUS);
@@ -2566,7 +2637,7 @@ void dispc_dump_regs(struct seq_file *s)
 
 	p_names = mgr_names;
 
-	
+	/* DISPC channel specific registers */
 	for (i = 0; i < dss_feat_get_num_mgrs(); i++) {
 		DUMPREG(i, DISPC_DEFAULT_COLOR);
 		DUMPREG(i, DISPC_TRANS_COLOR);
@@ -2641,9 +2712,9 @@ void dispc_dump_regs(struct seq_file *s)
 	46 - strlen(#name) - strlen(p_names[plane]), " ", \
 	dispc_read_reg(DISPC_REG(plane, name, i)))
 
-	
+	/* Video pipeline coefficient registers */
 
-	
+	/* start from OMAP_DSS_VIDEO1 */
 	for (i = 1; i < dss_feat_get_num_ovls(); i++) {
 		for (j = 0; j < 8; j++)
 			DUMPREG(i, DISPC_OVL_FIR_COEF_H, j);
@@ -2710,6 +2781,7 @@ void dispc_mgr_set_pol_freq(enum omap_channel channel,
 			acbi, acb);
 }
 
+/* with fck as input clock rate, find dispc dividers that produce req_pck */
 void dispc_find_clk_divs(bool is_tft, unsigned long req_pck, unsigned long fck,
 		struct dispc_clock_info *cinfo)
 {
@@ -2760,6 +2832,7 @@ found:
 	cinfo->pck = cinfo->lck / cinfo->pck_div;
 }
 
+/* calculate clock rates using dividers in cinfo */
 int dispc_calc_clock_rates(unsigned long dispc_fclk_rate,
 		struct dispc_clock_info *cinfo)
 {
@@ -2801,6 +2874,7 @@ int dispc_mgr_get_clock_div(enum omap_channel channel,
 	return 0;
 }
 
+/* dispc.irq_lock has to be locked by the caller */
 static void _omap_dispc_set_irqs(void)
 {
 	u32 mask;
@@ -2820,7 +2894,7 @@ static void _omap_dispc_set_irqs(void)
 	}
 
 	old_mask = dispc_read_reg(DISPC_IRQENABLE);
-	
+	/* clear the irqstatus for newly enabled irqs */
 	dispc_write_reg(DISPC_IRQSTATUS, (mask ^ old_mask) & mask);
 
 	dispc_write_reg(DISPC_IRQENABLE, mask);
@@ -2838,7 +2912,7 @@ int omap_dispc_register_isr(omap_dispc_isr_t isr, void *arg, u32 mask)
 
 	spin_lock_irqsave(&dispc.irq_lock, flags);
 
-	
+	/* check for duplicate entry */
 	for (i = 0; i < DISPC_MAX_NR_ISRS; i++) {
 		isr_data = &dispc.registered_isr[i];
 		if (isr_data->isr == isr && isr_data->arg == arg &&
@@ -2895,7 +2969,7 @@ int omap_dispc_unregister_isr(omap_dispc_isr_t isr, void *arg, u32 mask)
 				isr_data->mask != mask)
 			continue;
 
-		
+		/* found the correct isr */
 
 		isr_data->isr = NULL;
 		isr_data->arg = NULL;
@@ -2941,6 +3015,10 @@ static void print_irq_status(u32 status)
 }
 #endif
 
+/* Called from dss.c. Note that we don't touch clocks here,
+ * but we presume they are on because we got an IRQ. However,
+ * an irq handler may turn the clocks off, so we may not have
+ * clock later in the function. */
 static irqreturn_t omap_dispc_irq_handler(int irq, void *arg)
 {
 	int i;
@@ -2955,7 +3033,7 @@ static irqreturn_t omap_dispc_irq_handler(int irq, void *arg)
 	irqstatus = dispc_read_reg(DISPC_IRQSTATUS);
 	irqenable = dispc_read_reg(DISPC_IRQENABLE);
 
-	
+	/* IRQ is not for us */
 	if (!(irqstatus & irqenable)) {
 		spin_unlock(&dispc.irq_lock);
 		return IRQ_NONE;
@@ -2972,10 +3050,14 @@ static irqreturn_t omap_dispc_irq_handler(int irq, void *arg)
 	if (dss_debug)
 		print_irq_status(irqstatus);
 #endif
+	/* Ack the interrupt. Do it here before clocks are possibly turned
+	 * off */
 	dispc_write_reg(DISPC_IRQSTATUS, irqstatus);
-	
+	/* flush posted write */
 	dispc_read_reg(DISPC_IRQSTATUS);
 
+	/* make a copy and unlock, so that isrs can unregister
+	 * themselves */
 	memcpy(registered_isr, dispc.registered_isr,
 			sizeof(registered_isr));
 
@@ -3200,6 +3282,8 @@ static void _omap_dispc_initialize_irq(void)
 	if (dss_feat_get_num_ovls() > 3)
 		dispc.irq_error_mask |= DISPC_IRQ_VID3_FIFO_UNDERFLOW;
 
+	/* there's SYNC_LOST_DIGIT waiting after enabling the DSS,
+	 * so clear it */
 	dispc_write_reg(DISPC_IRQSTATUS, dispc_read_reg(DISPC_IRQSTATUS));
 
 	_omap_dispc_set_irqs();
@@ -3209,28 +3293,28 @@ static void _omap_dispc_initialize_irq(void)
 
 void dispc_enable_sidle(void)
 {
-	REG_FLD_MOD(DISPC_SYSCONFIG, 2, 4, 3);	
+	REG_FLD_MOD(DISPC_SYSCONFIG, 2, 4, 3);	/* SIDLEMODE: smart idle */
 }
 
 void dispc_disable_sidle(void)
 {
-	REG_FLD_MOD(DISPC_SYSCONFIG, 1, 4, 3);	
+	REG_FLD_MOD(DISPC_SYSCONFIG, 1, 4, 3);	/* SIDLEMODE: no idle */
 }
 
 static void _omap_dispc_initial_config(void)
 {
 	u32 l;
 
-	
+	/* Exclusively enable DISPC_CORE_CLK and set divider to 1 */
 	if (dss_has_feature(FEAT_CORE_CLK_DIV)) {
 		l = dispc_read_reg(DISPC_DIVISOR);
-		
+		/* Use DISPC_DIVISOR.LCD, instead of DISPC_DIVISOR1.LCD */
 		l = FLD_MOD(l, 1, 0, 0);
 		l = FLD_MOD(l, 1, 23, 16);
 		dispc_write_reg(DISPC_DIVISOR, l);
 	}
 
-	
+	/* FUNCGATED */
 	if (dss_has_feature(FEAT_FUNCGATED))
 		REG_FLD_MOD(DISPC_CONFIG, 1, 9, 9);
 
@@ -3245,6 +3329,7 @@ static void _omap_dispc_initial_config(void)
 	dispc_ovl_enable_zorder_planes();
 }
 
+/* DISPC HW IP initialisation */
 static int omap_dispchw_probe(struct platform_device *pdev)
 {
 	u32 rev;

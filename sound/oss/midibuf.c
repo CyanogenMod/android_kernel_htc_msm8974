@@ -1,9 +1,17 @@
 /*
+ * sound/oss/midibuf.c
+ *
+ * Device file manager for /dev/midi#
+ */
+/*
  * Copyright (C) by Hannu Savolainen 1993-1997
  *
  * OSS/Free for Linux is distributed under the GNU GENERAL PUBLIC LICENSE (GPL)
  * Version 2 (June 1991). See the "COPYING" file distributed with this software
  * for more info.
+ */
+/*
+ * Thomas Sailer   : ioctl code reworked (vmalloc/vfree removed)
  */
 #include <linux/stddef.h>
 #include <linux/kmod.h>
@@ -13,6 +21,9 @@
 #include "sound_config.h"
 
 
+/*
+ * Don't make MAX_QUEUE_SIZE larger than 4000
+ */
 
 #define MAX_QUEUE_SIZE	4000
 
@@ -27,7 +38,9 @@ struct midi_buf
 
 struct midi_parms
 {
-	long prech_timeout;	
+	long prech_timeout;	/*
+				 * Timeout before the first ch
+				 */
 };
 
 static struct midi_buf *midi_out_buf[MAX_MIDI_DEV] = {NULL};
@@ -68,6 +81,9 @@ static DEFINE_SPINLOCK(lock);
 static void drain_midi_queue(int dev)
 {
 
+	/*
+	 * Give the Midi driver time to drain its output queues
+	 */
 
 	if (midi_devs[dev]->buffer_status != NULL)
 		while (!signal_pending(current) && midi_devs[dev]->buffer_status(dev)) 
@@ -80,8 +96,12 @@ static void midi_input_intr(int dev, unsigned char data)
 	if (midi_in_buf[dev] == NULL)
 		return;
 
-	if (data == 0xfe)	
-		return;		
+	if (data == 0xfe)	/*
+				 * Active sensing
+				 */
+		return;		/*
+				 * Ignore
+				 */
 
 	if (SPACE_AVAIL(midi_in_buf[dev])) {
 		QUEUE_BYTE(midi_in_buf[dev], data);
@@ -91,6 +111,9 @@ static void midi_input_intr(int dev, unsigned char data)
 
 static void midi_output_intr(int dev)
 {
+	/*
+	 * Currently NOP
+	 */
 }
 
 static void midi_poll(unsigned long dummy)
@@ -109,7 +132,7 @@ static void midi_poll(unsigned long dummy)
 					int ok;
 					int c = midi_out_buf[dev]->queue[midi_out_buf[dev]->head];
 
-					spin_unlock_irqrestore(&lock,flags);
+					spin_unlock_irqrestore(&lock,flags);/* Give some time to others */
 					ok = midi_devs[dev]->outputc(dev, c);
 					spin_lock_irqsave(&lock, flags);
 					if (!ok)
@@ -123,6 +146,9 @@ static void midi_poll(unsigned long dummy)
 			}
 		poll_timer.expires = (1) + jiffies;
 		add_timer(&poll_timer);
+		/*
+		 * Come back later
+		 */
 	}
 	spin_unlock_irqrestore(&lock, flags);
 }
@@ -141,6 +167,9 @@ int MIDIbuf_open(int dev, struct file *file)
 	}
 	if (dev < 0 || dev >= num_midis || midi_devs[dev] == NULL)
 		  return -ENXIO;
+	/*
+	 *    Interrupts disabled. Be careful
+	 */
 
 	module_put(midi_devs[dev]->owner);
 
@@ -175,10 +204,10 @@ int MIDIbuf_open(int dev, struct file *file)
 	init_waitqueue_head(&midi_sleeper[dev]);
 	init_waitqueue_head(&input_sleeper[dev]);
 
-	if (open_devs < 2)	
+	if (open_devs < 2)	/* This was first open */
 	{
 		poll_timer.expires = 1 + jiffies;
-		add_timer(&poll_timer);	
+		add_timer(&poll_timer);	/* Start polling */
 	}
 	return err;
 }
@@ -193,15 +222,26 @@ void MIDIbuf_release(int dev, struct file *file)
 	if (dev < 0 || dev >= num_midis || midi_devs[dev] == NULL)
 		return;
 
+	/*
+	 * Wait until the queue is empty
+	 */
 
 	if (mode != OPEN_READ)
 	{
-		midi_devs[dev]->outputc(dev, 0xfe);	
+		midi_devs[dev]->outputc(dev, 0xfe);	/*
+							   * Active sensing to shut the
+							   * devices
+							 */
 
 		while (!signal_pending(current) && DATA_AVAIL(midi_out_buf[dev]))
 			  interruptible_sleep_on(&midi_sleeper[dev]);
+		/*
+		 *	Sync
+		 */
 
-		drain_midi_queue(dev);	
+		drain_midi_queue(dev);	/*
+					 * Ensure the output queues are empty
+					 */
 	}
 
 	midi_devs[dev]->close(dev);
@@ -233,7 +273,9 @@ int MIDIbuf_write(int dev, struct file *file, const char __user *buf, int count)
 	{
 		n = SPACE_AVAIL(midi_out_buf[dev]);
 
-		if (n == 0) {	
+		if (n == 0) {	/*
+				 * No space just now.
+				 */
 
 			if (file->f_flags & O_NONBLOCK) {
 				c = -EAGAIN;
@@ -253,7 +295,9 @@ int MIDIbuf_write(int dev, struct file *file, const char __user *buf, int count)
 
 		for (i = 0; i < n; i++)
 		{
-			
+			/* BROKE BROKE BROKE - CAN'T DO THIS WITH CLI !! */
+			/* yes, think the same, so I removed the cli() brackets 
+				QUEUE_BYTE is protected against interrupts */
 			if (copy_from_user((char *) &tmp_data, &(buf)[c], 1)) {
 				c = -EFAULT;
 				goto out;
@@ -274,7 +318,9 @@ int MIDIbuf_read(int dev, struct file *file, char __user *buf, int count)
 
 	dev = dev >> 4;
 
-	if (!DATA_AVAIL(midi_in_buf[dev])) {	
+	if (!DATA_AVAIL(midi_in_buf[dev])) {	/*
+						 * No data yet, wait
+						 */
  		if (file->f_flags & O_NONBLOCK) {
  			c = -EAGAIN;
 			goto out;
@@ -283,9 +329,11 @@ int MIDIbuf_read(int dev, struct file *file, char __user *buf, int count)
 					       parms[dev].prech_timeout);
 
 		if (signal_pending(current))
-			c = -EINTR;	
+			c = -EINTR;	/* The user is getting restless */
 	}
-	if (c == 0 && DATA_AVAIL(midi_in_buf[dev]))	
+	if (c == 0 && DATA_AVAIL(midi_in_buf[dev]))	/*
+							 * Got some bytes
+							 */
 	{
 		n = DATA_AVAIL(midi_in_buf[dev]);
 		if (n > count)
@@ -297,7 +345,9 @@ int MIDIbuf_read(int dev, struct file *file, char __user *buf, int count)
 			char *fixit;
 			REMOVE_BYTE(midi_in_buf[dev], tmp_data);
 			fixit = (char *) &tmp_data;
-			
+			/* BROKE BROKE BROKE */
+			/* yes removed the cli() brackets again
+			 should q->len,tail&head be atomic_t? */
 			if (copy_to_user(&(buf)[c], fixit, 1)) {
 				c = -EFAULT;
 				goto out;
@@ -318,8 +368,9 @@ int MIDIbuf_ioctl(int dev, struct file *file,
 	
 	if (((cmd >> 8) & 0xff) == 'C') 
 	{
-		if (midi_devs[dev]->coproc)	
+		if (midi_devs[dev]->coproc)	/* Coprocessor ioctl */
 			return midi_devs[dev]->coproc->ioctl(midi_devs[dev]->coproc->devc, cmd, arg, 0);
+/*		printk("/dev/midi%d: No coprocessor for this device\n", dev);*/
 		return -ENXIO;
 	}
 	else
@@ -343,18 +394,19 @@ int MIDIbuf_ioctl(int dev, struct file *file,
 	}
 }
 
+/* No kernel lock - fine */
 unsigned int MIDIbuf_poll(int dev, struct file *file, poll_table * wait)
 {
 	unsigned int mask = 0;
 
 	dev = dev >> 4;
 
-	
+	/* input */
 	poll_wait(file, &input_sleeper[dev], wait);
 	if (DATA_AVAIL(midi_in_buf[dev]))
 		mask |= POLLIN | POLLRDNORM;
 
-	
+	/* output */
 	poll_wait(file, &midi_sleeper[dev], wait);
 	if (!SPACE_AVAIL(midi_out_buf[dev]))
 		mask |= POLLOUT | POLLWRNORM;

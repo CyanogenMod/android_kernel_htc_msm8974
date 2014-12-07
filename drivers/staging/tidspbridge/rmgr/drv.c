@@ -18,10 +18,13 @@
 #include <linux/types.h>
 #include <linux/list.h>
 
+/*  ----------------------------------- Host OS */
 #include <dspbridge/host_os.h>
 
+/*  ----------------------------------- DSP/BIOS Bridge */
 #include <dspbridge/dbdefs.h>
 
+/*  ----------------------------------- This */
 #include <dspbridge/drv.h>
 #include <dspbridge/dev.h>
 
@@ -32,16 +35,22 @@
 #include <dspbridge/dspchnl.h>
 #include <dspbridge/resourcecleanup.h>
 
+/*  ----------------------------------- Defines, Data Structures, Typedefs */
 struct drv_object {
 	struct list_head dev_list;
 	struct list_head dev_node_string;
 };
 
+/*
+ *  This is the Device Extension. Named with the Prefix
+ *  DRV_ since it is living in this module
+ */
 struct drv_ext {
 	struct list_head link;
 	char sz_string[MAXREGPATHLENGTH];
 };
 
+/*  ----------------------------------- Globals */
 static bool ext_phys_mem_pool_enabled;
 struct ext_phys_mem_pool {
 	u32 phys_mem_base;
@@ -51,12 +60,16 @@ struct ext_phys_mem_pool {
 };
 static struct ext_phys_mem_pool ext_mem_pool;
 
+/*  ----------------------------------- Function Prototypes */
 static int request_bridge_resources(struct cfg_hostres *res);
 
 
+/* GPP PROCESS CLEANUP CODE */
 
 static int drv_proc_free_node_res(int id, void *p, void *data);
 
+/* Allocate and add a node resource element
+* This function is called from .Node_Allocate. */
 int drv_insert_node_res_element(void *hnode, void *node_resource,
 				       void *process_ctxt)
 {
@@ -96,6 +109,8 @@ func_end:
 	return status;
 }
 
+/* Release all Node resources and its context
+ * Actual Node De-Allocation */
 static int drv_proc_free_node_res(int id, void *p, void *data)
 {
 	struct process_context *ctxt = data;
@@ -119,6 +134,7 @@ static int drv_proc_free_node_res(int id, void *p, void *data)
 	return 0;
 }
 
+/* Release all Mapped and Reserved DMM resources */
 int drv_remove_all_dmm_res_elements(void *process_ctxt)
 {
 	struct process_context *ctxt = (struct process_context *)process_ctxt;
@@ -126,7 +142,7 @@ int drv_remove_all_dmm_res_elements(void *process_ctxt)
 	struct dmm_map_object *temp_map, *map_obj;
 	struct dmm_rsv_object *temp_rsv, *rsv_obj;
 
-	
+	/* Free DMM mapped memory resources */
 	list_for_each_entry_safe(map_obj, temp_map, &ctxt->dmm_map_list, link) {
 		status = proc_un_map(ctxt->processor,
 				     (void *)map_obj->dsp_addr, ctxt);
@@ -135,7 +151,7 @@ int drv_remove_all_dmm_res_elements(void *process_ctxt)
 			       " status = 0x%xn", __func__, status);
 	}
 
-	
+	/* Free DMM reserved memory resources */
 	list_for_each_entry_safe(rsv_obj, temp_rsv, &ctxt->dmm_rsv_list, link) {
 		status = proc_un_reserve_memory(ctxt->processor, (void *)
 						rsv_obj->dsp_reserved_addr,
@@ -147,6 +163,7 @@ int drv_remove_all_dmm_res_elements(void *process_ctxt)
 	return status;
 }
 
+/* Update Node allocation status */
 void drv_proc_node_update_status(void *node_resource, s32 status)
 {
 	struct node_res_object *node_res_obj =
@@ -154,6 +171,7 @@ void drv_proc_node_update_status(void *node_resource, s32 status)
 	node_res_obj->node_allocated = status;
 }
 
+/* Update Node Heap status */
 void drv_proc_node_update_heap_status(void *node_resource, s32 status)
 {
 	struct node_res_object *node_res_obj =
@@ -161,6 +179,9 @@ void drv_proc_node_update_heap_status(void *node_resource, s32 status)
 	node_res_obj->heap_allocated = status;
 }
 
+/* Release all Node resources and its context
+* This is called from .bridge_release.
+ */
 int drv_remove_all_node_res_elements(void *process_ctxt)
 {
 	struct process_context *ctxt = process_ctxt;
@@ -171,6 +192,9 @@ int drv_remove_all_node_res_elements(void *process_ctxt)
 	return 0;
 }
 
+/* Allocate the STRM resource element
+* This is called after the actual resource is allocated
+ */
 int drv_proc_insert_strm_res_element(void *stream_obj,
 					    void *strm_res, void *process_ctxt)
 {
@@ -241,6 +265,9 @@ static int drv_proc_free_strm_res(int id, void *p, void *process_ctxt)
 	return 0;
 }
 
+/* Release all Stream resources and its context
+* This is called from .bridge_release.
+ */
 int drv_remove_all_strm_res_elements(void *process_ctxt)
 {
 	struct process_context *ctxt = process_ctxt;
@@ -251,6 +278,7 @@ int drv_remove_all_strm_res_elements(void *process_ctxt)
 	return 0;
 }
 
+/* Updating the stream resource element */
 int drv_proc_update_strm_res(u32 num_bufs, void *strm_resources)
 {
 	int status = 0;
@@ -261,7 +289,13 @@ int drv_proc_update_strm_res(u32 num_bufs, void *strm_resources)
 	return status;
 }
 
+/* GPP PROCESS CLEANUP CODE END */
 
+/*
+ *  ======== = drv_create ======== =
+ *  Purpose:
+ *      DRV Object gets created only once during Driver Loading.
+ */
 int drv_create(struct drv_object **drv_obj)
 {
 	int status = 0;
@@ -270,13 +304,13 @@ int drv_create(struct drv_object **drv_obj)
 
 	pdrv_object = kzalloc(sizeof(struct drv_object), GFP_KERNEL);
 	if (pdrv_object) {
-		
+		/* Create and Initialize List of device objects */
 		INIT_LIST_HEAD(&pdrv_object->dev_list);
 		INIT_LIST_HEAD(&pdrv_object->dev_node_string);
 	} else {
 		status = -ENOMEM;
 	}
-	
+	/* Store the DRV Object in the driver data */
 	if (!status) {
 		if (drv_datap) {
 			drv_datap->drv_object = (void *)pdrv_object;
@@ -289,13 +323,18 @@ int drv_create(struct drv_object **drv_obj)
 	if (!status) {
 		*drv_obj = pdrv_object;
 	} else {
-		
+		/* Free the DRV Object */
 		kfree(pdrv_object);
 	}
 
 	return status;
 }
 
+/*
+ *  ======== = drv_destroy ======== =
+ *  purpose:
+ *      Invoked during bridge de-initialization
+ */
 int drv_destroy(struct drv_object *driver_obj)
 {
 	int status = 0;
@@ -303,7 +342,7 @@ int drv_destroy(struct drv_object *driver_obj)
 	struct drv_data *drv_datap = dev_get_drvdata(bridge);
 
 	kfree(pdrv_object);
-	
+	/* Update the DRV Object in the driver data */
 	if (drv_datap) {
 		drv_datap->drv_object = NULL;
 	} else {
@@ -314,6 +353,11 @@ int drv_destroy(struct drv_object *driver_obj)
 	return status;
 }
 
+/*
+ *  ======== drv_get_dev_object ========
+ *  Purpose:
+ *      Given a index, returns a handle to DevObject from the list.
+ */
 int drv_get_dev_object(u32 index, struct drv_object *hdrv_obj,
 			      struct dev_object **device_obj)
 {
@@ -336,6 +380,12 @@ int drv_get_dev_object(u32 index, struct drv_object *hdrv_obj,
 	return status;
 }
 
+/*
+ *  ======== drv_get_first_dev_object ========
+ *  Purpose:
+ *      Retrieve the first Device Object handle from an internal linked list of
+ *      of DEV_OBJECTs maintained by DRV.
+ */
 u32 drv_get_first_dev_object(void)
 {
 	u32 dw_dev_object = 0;
@@ -353,6 +403,12 @@ u32 drv_get_first_dev_object(void)
 	return dw_dev_object;
 }
 
+/*
+ *  ======== DRV_GetFirstDevNodeString ========
+ *  Purpose:
+ *      Retrieve the first Device Extension from an internal linked list of
+ *      of Pointer to dev_node Strings maintained by DRV.
+ */
 u32 drv_get_first_dev_extension(void)
 {
 	u32 dw_dev_extension = 0;
@@ -372,6 +428,13 @@ u32 drv_get_first_dev_extension(void)
 	return dw_dev_extension;
 }
 
+/*
+ *  ======== drv_get_next_dev_object ========
+ *  Purpose:
+ *      Retrieve the next Device Object handle from an internal linked list of
+ *      of DEV_OBJECTs maintained by DRV, after having previously called
+ *      drv_get_first_dev_object() and zero or more DRV_GetNext.
+ */
 u32 drv_get_next_dev_object(u32 hdev_obj)
 {
 	u32 dw_next_dev_object = 0;
@@ -394,6 +457,14 @@ u32 drv_get_next_dev_object(u32 hdev_obj)
 	return dw_next_dev_object;
 }
 
+/*
+ *  ======== drv_get_next_dev_extension ========
+ *  Purpose:
+ *      Retrieve the next Device Extension from an internal linked list of
+ *      of pointer to DevNodeString maintained by DRV, after having previously
+ *      called drv_get_first_dev_extension() and zero or more
+ *      drv_get_next_dev_extension().
+ */
 u32 drv_get_next_dev_extension(u32 dev_extension)
 {
 	u32 dw_dev_extension = 0;
@@ -416,6 +487,11 @@ u32 drv_get_next_dev_extension(u32 dev_extension)
 	return dw_dev_extension;
 }
 
+/*
+ *  ======== drv_insert_dev_object ========
+ *  Purpose:
+ *      Insert a DevObject into the list of Manager object.
+ */
 int drv_insert_dev_object(struct drv_object *driver_obj,
 				 struct dev_object *hdev_obj)
 {
@@ -426,6 +502,12 @@ int drv_insert_dev_object(struct drv_object *driver_obj,
 	return 0;
 }
 
+/*
+ *  ======== drv_remove_dev_object ========
+ *  Purpose:
+ *      Search for and remove a DeviceObject from the given list of DRV
+ *      objects.
+ */
 int drv_remove_dev_object(struct drv_object *driver_obj,
 				 struct dev_object *hdev_obj)
 {
@@ -433,9 +515,9 @@ int drv_remove_dev_object(struct drv_object *driver_obj,
 	struct drv_object *pdrv_object = (struct drv_object *)driver_obj;
 	struct list_head *cur_elem;
 
-	
+	/* Search list for p_proc_object: */
 	list_for_each(cur_elem, &pdrv_object->dev_list) {
-		
+		/* If found, remove it. */
 		if ((struct dev_object *)cur_elem == hdev_obj) {
 			list_del(cur_elem);
 			status = 0;
@@ -446,6 +528,11 @@ int drv_remove_dev_object(struct drv_object *driver_obj,
 	return status;
 }
 
+/*
+ *  ======== drv_request_resources ========
+ *  Purpose:
+ *      Requests  resources from the OS.
+ */
 int drv_request_resources(u32 dw_context, u32 *dev_node_strg)
 {
 	int status = 0;
@@ -453,6 +540,11 @@ int drv_request_resources(u32 dw_context, u32 *dev_node_strg)
 	struct drv_ext *pszdev_node;
 	struct drv_data *drv_datap = dev_get_drvdata(bridge);
 
+	/*
+	 *  Allocate memory to hold the string. This will live until
+	 *  it is freed in the Release resources. Update the driver object
+	 *  list.
+	 */
 
 	if (!drv_datap || !drv_datap->drv_object)
 		status = -ENODATA;
@@ -465,7 +557,7 @@ int drv_request_resources(u32 dw_context, u32 *dev_node_strg)
 			strncpy(pszdev_node->sz_string,
 				(char *)dw_context, MAXREGPATHLENGTH - 1);
 			pszdev_node->sz_string[MAXREGPATHLENGTH - 1] = '\0';
-			
+			/* Update the Driver Object List */
 			*dev_node_strg = (u32) pszdev_node->sz_string;
 			list_add_tail(&pszdev_node->link,
 					&pdrv_object->dev_node_string);
@@ -482,17 +574,26 @@ int drv_request_resources(u32 dw_context, u32 *dev_node_strg)
 	return status;
 }
 
+/*
+ *  ======== drv_release_resources ========
+ *  Purpose:
+ *      Releases  resources from the OS.
+ */
 int drv_release_resources(u32 dw_context, struct drv_object *hdrv_obj)
 {
 	int status = 0;
 	struct drv_ext *pszdev_node;
 
+	/*
+	 *  Irrespective of the status go ahead and clean it
+	 *  The following will over write the status.
+	 */
 	for (pszdev_node = (struct drv_ext *)drv_get_first_dev_extension();
 	     pszdev_node != NULL; pszdev_node = (struct drv_ext *)
 	     drv_get_next_dev_extension((u32) pszdev_node)) {
 		if ((u32) pszdev_node == dw_context) {
-			
-			
+			/* Found it */
+			/* Delete from the Driver object list */
 			list_del(&pszdev_node->link);
 			kfree(pszdev_node);
 			break;
@@ -501,32 +602,44 @@ int drv_release_resources(u32 dw_context, struct drv_object *hdrv_obj)
 	return status;
 }
 
+/*
+ *  ======== request_bridge_resources ========
+ *  Purpose:
+ *      Reserves shared memory for bridge.
+ */
 static int request_bridge_resources(struct cfg_hostres *res)
 {
 	struct cfg_hostres *host_res = res;
 
-	
+	/* num_mem_windows must not be more than CFG_MAXMEMREGISTERS */
 	host_res->num_mem_windows = 2;
 
-	
+	/* First window is for DSP internal memory */
 	dev_dbg(bridge, "mem_base[0] 0x%x\n", host_res->mem_base[0]);
 	dev_dbg(bridge, "mem_base[3] 0x%x\n", host_res->mem_base[3]);
 	dev_dbg(bridge, "dmmu_base %p\n", host_res->dmmu_base);
 
-	
+	/* for 24xx base port is not mapping the mamory for DSP
+	 * internal memory TODO Do a ioremap here */
+	/* Second window is for DSP external memory shared with MPU */
 
-	
+	/* These are hard-coded values */
 	host_res->birq_registers = 0;
 	host_res->birq_attrib = 0;
 	host_res->offset_for_monitor = 0;
 	host_res->chnl_offset = 0;
-	
+	/* CHNL_MAXCHANNELS */
 	host_res->num_chnls = CHNL_MAXCHANNELS;
 	host_res->chnl_buf_size = 0x400;
 
 	return 0;
 }
 
+/*
+ *  ======== drv_request_bridge_res_dsp ========
+ *  Purpose:
+ *      Reserves shared memory for bridge.
+ */
 int drv_request_bridge_res_dsp(void **phost_resources)
 {
 	int status = 0;
@@ -542,7 +655,7 @@ int drv_request_bridge_res_dsp(void **phost_resources)
 
 	if (host_res != NULL) {
 		request_bridge_resources(host_res);
-		
+		/* num_mem_windows must not be more than CFG_MAXMEMREGISTERS */
 		host_res->num_mem_windows = 4;
 
 		host_res->mem_base[0] = 0;
@@ -575,6 +688,8 @@ int drv_request_bridge_res_dsp(void **phost_resources)
 
 		shm_size = drv_datap->shm_size;
 		if (shm_size >= 0x10000) {
+			/* Allocate Physically contiguous,
+			 * non-cacheable  memory */
 			host_res->mem_base[1] =
 			    (u32) mem_alloc_phys_mem(shm_size, 0x100000,
 						     &dma_addr);
@@ -592,19 +707,19 @@ int drv_request_bridge_res_dsp(void **phost_resources)
 			}
 		}
 		if (!status) {
-			
+			/* These are hard-coded values */
 			host_res->birq_registers = 0;
 			host_res->birq_attrib = 0;
 			host_res->offset_for_monitor = 0;
 			host_res->chnl_offset = 0;
-			
+			/* CHNL_MAXCHANNELS */
 			host_res->num_chnls = CHNL_MAXCHANNELS;
 			host_res->chnl_buf_size = 0x400;
 			dw_buff_size = sizeof(struct cfg_hostres);
 		}
 		*phost_resources = host_res;
 	}
-	
+	/* End Mem alloc */
 	return status;
 }
 
@@ -612,7 +727,7 @@ void mem_ext_phys_pool_init(u32 pool_phys_base, u32 pool_size)
 {
 	u32 pool_virt_base;
 
-	
+	/* get the virtual address for the physical memory pool passed */
 	pool_virt_base = (u32) ioremap(pool_phys_base, pool_size);
 
 	if ((void **)pool_virt_base == NULL) {
@@ -635,6 +750,11 @@ void mem_ext_phys_pool_release(void)
 	}
 }
 
+/*
+ *  ======== mem_ext_phys_mem_alloc ========
+ *  Purpose:
+ *     Allocate physically contiguous, uncached memory from external memory pool
+ */
 
 static void *mem_ext_phys_mem_alloc(u32 bytes, u32 align, u32 * phys_addr)
 {
@@ -658,7 +778,7 @@ static void *mem_ext_phys_mem_alloc(u32 bytes, u32 align, u32 * phys_addr)
 			    (align - offset);
 		if ((new_alloc_ptr + bytes) <=
 		    (ext_mem_pool.phys_mem_base + ext_mem_pool.phys_mem_size)) {
-			
+			/* we can allocate */
 			*phys_addr = new_alloc_ptr;
 			ext_mem_pool.next_phys_alloc_ptr =
 			    new_alloc_ptr + bytes;
@@ -674,6 +794,11 @@ static void *mem_ext_phys_mem_alloc(u32 bytes, u32 align, u32 * phys_addr)
 	}
 }
 
+/*
+ *  ======== mem_alloc_phys_mem ========
+ *  Purpose:
+ *      Allocate physically contiguous, uncached memory
+ */
 void *mem_alloc_phys_mem(u32 byte_size, u32 align_mask,
 				u32 *physical_address)
 {
@@ -695,6 +820,11 @@ void *mem_alloc_phys_mem(u32 byte_size, u32 align_mask,
 	return va_mem;
 }
 
+/*
+ *  ======== mem_free_phys_mem ========
+ *  Purpose:
+ *      Free the given block of physically contiguous memory.
+ */
 void mem_free_phys_mem(void *virtual_address, u32 physical_address,
 		       u32 byte_size)
 {

@@ -22,6 +22,7 @@
 #include <mach/hardware.h>
 #include <asm/hardware/iop_adma.h>
 
+/* Memory copy units */
 #define DMA_CCR(chan)		(chan->mmr_base + 0x0)
 #define DMA_CSR(chan)		(chan->mmr_base + 0x4)
 #define DMA_DAR(chan)		(chan->mmr_base + 0xc)
@@ -32,6 +33,7 @@
 #define DMA_BCR(chan)		(chan->mmr_base + 0x20)
 #define DMA_DCR(chan)		(chan->mmr_base + 0x24)
 
+/* Application accelerator unit  */
 #define AAU_ACR(chan)		(chan->mmr_base + 0x0)
 #define AAU_ASR(chan)		(chan->mmr_base + 0x4)
 #define AAU_ADAR(chan)		(chan->mmr_base + 0x8)
@@ -185,6 +187,7 @@ union iop3xx_desc {
 	void *ptr;
 };
 
+/* No support for p+q operations */
 static inline int
 iop_chan_pq_slot_count(size_t len, int src_cnt, int *slots_per_op)
 {
@@ -299,16 +302,18 @@ static inline int iop_chan_is_busy(struct iop_adma_chan *chan)
 static inline int iop_desc_is_aligned(struct iop_adma_desc_slot *desc,
 					int num_slots)
 {
-	
+	/* num_slots will only ever be 1, 2, 4, or 8 */
 	return (desc->idx & (num_slots - 1)) ? 0 : 1;
 }
 
+/* to do: support large (i.e. > hw max) buffer sizes */
 static inline int iop_chan_memcpy_slot_count(size_t len, int *slots_per_op)
 {
 	*slots_per_op = 1;
 	return 1;
 }
 
+/* to do: support large (i.e. > hw max) buffer sizes */
 static inline int iop_chan_memset_slot_count(size_t len, int *slots_per_op)
 {
 	*slots_per_op = 1;
@@ -319,14 +324,14 @@ static inline int iop3xx_aau_xor_slot_count(size_t len, int src_cnt,
 					int *slots_per_op)
 {
 	static const char slot_count_table[] = {
-						1, 1, 1, 1, 
-						2, 2, 2, 2, 
-						4, 4, 4, 4, 
-						4, 4, 4, 4, 
-						8, 8, 8, 8, 
-						8, 8, 8, 8, 
-						8, 8, 8, 8, 
-						8, 8, 8, 8, 
+						1, 1, 1, 1, /* 01 - 04 */
+						2, 2, 2, 2, /* 05 - 08 */
+						4, 4, 4, 4, /* 09 - 12 */
+						4, 4, 4, 4, /* 13 - 16 */
+						8, 8, 8, 8, /* 17 - 20 */
+						8, 8, 8, 8, /* 21 - 24 */
+						8, 8, 8, 8, /* 25 - 28 */
+						8, 8, 8, 8, /* 29 - 32 */
 					      };
 	*slots_per_op = slot_count_table[src_cnt - 1];
 	return *slots_per_op;
@@ -366,6 +371,9 @@ static inline int iop_chan_xor_slot_count(size_t len, int src_cnt,
 	return slot_cnt;
 }
 
+/* zero sum on iop3xx is limited to 1k at a time so it requires multiple
+ * descriptors
+ */
 static inline int iop_chan_zero_sum_slot_count(size_t len, int src_cnt,
 						int *slots_per_op)
 {
@@ -432,6 +440,7 @@ static inline u32 iop_desc_get_byte_count(struct iop_adma_desc_slot *desc,
 	return 0;
 }
 
+/* translate the src_idx to a descriptor word index */
 static inline int __desc_idx(int src_idx)
 {
 	static const int desc_idx_table[] = { 0, 0, 0, 0,
@@ -489,7 +498,7 @@ iop_desc_init_memcpy(struct iop_adma_desc_slot *desc, unsigned long flags)
 
 	u_desc_ctrl.value = 0;
 	u_desc_ctrl.field.mem_to_mem_en = 1;
-	u_desc_ctrl.field.pci_transaction = 0xe; 
+	u_desc_ctrl.field.pci_transaction = 0xe; /* memory read block */
 	u_desc_ctrl.field.int_en = flags & DMA_PREP_INTERRUPT;
 	hw_desc->desc_ctrl = u_desc_ctrl.value;
 	hw_desc->upper_pci_src_addr = 0;
@@ -506,7 +515,7 @@ iop_desc_init_memset(struct iop_adma_desc_slot *desc, unsigned long flags)
 	} u_desc_ctrl;
 
 	u_desc_ctrl.value = 0;
-	u_desc_ctrl.field.blk1_cmd_ctrl = 0x2; 
+	u_desc_ctrl.field.blk1_cmd_ctrl = 0x2; /* memory block fill */
 	u_desc_ctrl.field.dest_write_en = 1;
 	u_desc_ctrl.field.int_en = flags & DMA_PREP_INTERRUPT;
 	hw_desc->desc_ctrl = u_desc_ctrl.value;
@@ -526,7 +535,7 @@ iop3xx_desc_init_xor(struct iop3xx_desc_aau *hw_desc, int src_cnt,
 	u_desc_ctrl.value = 0;
 	switch (src_cnt) {
 	case 25 ... 32:
-		u_desc_ctrl.field.blk_ctrl = 0x3; 
+		u_desc_ctrl.field.blk_ctrl = 0x3; /* use EDCR[2:0] */
 		edcr = 0;
 		shift = 1;
 		for (i = 24; i < src_cnt; i++) {
@@ -535,11 +544,11 @@ iop3xx_desc_init_xor(struct iop3xx_desc_aau *hw_desc, int src_cnt,
 		}
 		hw_desc->src_edc[AAU_EDCR2_IDX].e_desc_ctrl = edcr;
 		src_cnt = 24;
-		
+		/* fall through */
 	case 17 ... 24:
 		if (!u_desc_ctrl.field.blk_ctrl) {
 			hw_desc->src_edc[AAU_EDCR2_IDX].e_desc_ctrl = 0;
-			u_desc_ctrl.field.blk_ctrl = 0x3; 
+			u_desc_ctrl.field.blk_ctrl = 0x3; /* use EDCR[2:0] */
 		}
 		edcr = 0;
 		shift = 1;
@@ -549,10 +558,10 @@ iop3xx_desc_init_xor(struct iop3xx_desc_aau *hw_desc, int src_cnt,
 		}
 		hw_desc->src_edc[AAU_EDCR1_IDX].e_desc_ctrl = edcr;
 		src_cnt = 16;
-		
+		/* fall through */
 	case 9 ... 16:
 		if (!u_desc_ctrl.field.blk_ctrl)
-			u_desc_ctrl.field.blk_ctrl = 0x2; 
+			u_desc_ctrl.field.blk_ctrl = 0x2; /* use EDCR0 */
 		edcr = 0;
 		shift = 1;
 		for (i = 8; i < src_cnt; i++) {
@@ -561,7 +570,7 @@ iop3xx_desc_init_xor(struct iop3xx_desc_aau *hw_desc, int src_cnt,
 		}
 		hw_desc->src_edc[AAU_EDCR0_IDX].e_desc_ctrl = edcr;
 		src_cnt = 8;
-		
+		/* fall through */
 	case 2 ... 8:
 		shift = 1;
 		for (i = 0; i < src_cnt; i++) {
@@ -570,11 +579,11 @@ iop3xx_desc_init_xor(struct iop3xx_desc_aau *hw_desc, int src_cnt,
 		}
 
 		if (!u_desc_ctrl.field.blk_ctrl && src_cnt > 4)
-			u_desc_ctrl.field.blk_ctrl = 0x1; 
+			u_desc_ctrl.field.blk_ctrl = 0x1; /* use mini-desc */
 	}
 
 	u_desc_ctrl.field.dest_write_en = 1;
-	u_desc_ctrl.field.blk1_cmd_ctrl = 0x7; 
+	u_desc_ctrl.field.blk1_cmd_ctrl = 0x7; /* direct fill */
 	u_desc_ctrl.field.int_en = flags & DMA_PREP_INTERRUPT;
 	hw_desc->desc_ctrl = u_desc_ctrl.value;
 
@@ -588,6 +597,7 @@ iop_desc_init_xor(struct iop_adma_desc_slot *desc, int src_cnt,
 	iop3xx_desc_init_xor(desc->hw_desc, src_cnt, flags);
 }
 
+/* return the number of operations */
 static inline int
 iop_desc_init_zero_sum(struct iop_adma_desc_slot *desc, int src_cnt,
 		       unsigned long flags)
@@ -611,6 +621,9 @@ iop_desc_init_zero_sum(struct iop_adma_desc_slot *desc, int src_cnt,
 		u_desc_ctrl.field.int_en = flags & DMA_PREP_INTERRUPT;
 		iter->desc_ctrl = u_desc_ctrl.value;
 
+		/* for the subsequent descriptors preserve the store queue
+		 * and chain them together
+		 */
 		if (i) {
 			prev_hw_desc =
 				iop_hw_desc_slot_idx(hw_desc, i - slots_per_op);
@@ -635,24 +648,24 @@ iop_desc_init_null_xor(struct iop_adma_desc_slot *desc, int src_cnt,
 	u_desc_ctrl.value = 0;
 	switch (src_cnt) {
 	case 25 ... 32:
-		u_desc_ctrl.field.blk_ctrl = 0x3; 
+		u_desc_ctrl.field.blk_ctrl = 0x3; /* use EDCR[2:0] */
 		hw_desc->src_edc[AAU_EDCR2_IDX].e_desc_ctrl = 0;
-		
+		/* fall through */
 	case 17 ... 24:
 		if (!u_desc_ctrl.field.blk_ctrl) {
 			hw_desc->src_edc[AAU_EDCR2_IDX].e_desc_ctrl = 0;
-			u_desc_ctrl.field.blk_ctrl = 0x3; 
+			u_desc_ctrl.field.blk_ctrl = 0x3; /* use EDCR[2:0] */
 		}
 		hw_desc->src_edc[AAU_EDCR1_IDX].e_desc_ctrl = 0;
-		
+		/* fall through */
 	case 9 ... 16:
 		if (!u_desc_ctrl.field.blk_ctrl)
-			u_desc_ctrl.field.blk_ctrl = 0x2; 
+			u_desc_ctrl.field.blk_ctrl = 0x2; /* use EDCR0 */
 		hw_desc->src_edc[AAU_EDCR0_IDX].e_desc_ctrl = 0;
-		
+		/* fall through */
 	case 1 ... 8:
 		if (!u_desc_ctrl.field.blk_ctrl && src_cnt > 4)
-			u_desc_ctrl.field.blk_ctrl = 0x1; 
+			u_desc_ctrl.field.blk_ctrl = 0x1; /* use mini-desc */
 	}
 
 	u_desc_ctrl.field.dest_write_en = 0;
@@ -787,7 +800,7 @@ static inline void iop_desc_set_xor_src_addr(struct iop_adma_desc_slot *desc,
 static inline void iop_desc_set_next_desc(struct iop_adma_desc_slot *desc,
 					u32 next_desc_addr)
 {
-	
+	/* hw_desc->next_desc is the same location for all channels */
 	union iop3xx_desc hw_desc = { .ptr = desc->hw_desc, };
 
 	iop_paranoia(hw_desc.dma->next_desc);
@@ -796,14 +809,14 @@ static inline void iop_desc_set_next_desc(struct iop_adma_desc_slot *desc,
 
 static inline u32 iop_desc_get_next_desc(struct iop_adma_desc_slot *desc)
 {
-	
+	/* hw_desc->next_desc is the same location for all channels */
 	union iop3xx_desc hw_desc = { .ptr = desc->hw_desc, };
 	return hw_desc.dma->next_desc;
 }
 
 static inline void iop_desc_clear_next_desc(struct iop_adma_desc_slot *desc)
 {
-	
+	/* hw_desc->next_desc is the same location for all channels */
 	union iop3xx_desc hw_desc = { .ptr = desc->hw_desc, };
 	hw_desc.dma->next_desc = 0;
 }
@@ -946,4 +959,4 @@ iop_is_err_split_tx(unsigned long status, struct iop_adma_chan *chan)
 		return 0;
 	}
 }
-#endif 
+#endif /* _ADMA_H */

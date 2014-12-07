@@ -40,7 +40,7 @@ void dsp_wdt_dpc(unsigned long data)
 irqreturn_t dsp_wdt_isr(int irq, void *data)
 {
 	u32 value;
-	
+	/* ack wdt3 interrupt */
 	value = __raw_readl(dsp_wdt.reg_base + OMAP3_WDT3_ISR_OFFSET);
 	__raw_writel(value, dsp_wdt.reg_base + OMAP3_WDT3_ISR_OFFSET);
 
@@ -75,7 +75,7 @@ int dsp_wdt_init(void)
 		ret = request_irq(INT_34XX_WDT3_IRQ, dsp_wdt_isr, 0,
 							"dsp_wdt", &dsp_wdt);
 
-	
+	/* Disable at this moment, it will be enabled when DSP starts */
 	if (!ret)
 		disable_irq(INT_34XX_WDT3_IRQ);
 
@@ -85,7 +85,7 @@ int dsp_wdt_init(void)
 void dsp_wdt_sm_set(void *data)
 {
 	dsp_wdt.sm_wdt = data;
-	dsp_wdt.sm_wdt->wdt_overflow = 5;	
+	dsp_wdt.sm_wdt->wdt_overflow = 5;	/* in seconds */
 }
 
 

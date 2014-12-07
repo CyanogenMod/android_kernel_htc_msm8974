@@ -50,6 +50,10 @@ int kmemcheck_enabled = KMEMCHECK_ENABLED;
 int __init kmemcheck_init(void)
 {
 #ifdef CONFIG_SMP
+	/*
+	 * Limit SMP to use a single CPU. We rely on the fact that this code
+	 * runs before SMP is set up.
+	 */
 	if (setup_max_cpus > 1) {
 		printk(KERN_INFO
 			"kmemcheck: Limiting number of CPUs to 1.\n");
@@ -69,6 +73,9 @@ int __init kmemcheck_init(void)
 
 early_initcall(kmemcheck_init);
 
+/*
+ * We need to parse the kmemcheck= option before any memory is allocated.
+ */
 static int __init param_kmemcheck(char *str)
 {
 	if (!str)
@@ -110,11 +117,16 @@ struct kmemcheck_context {
 	bool busy;
 	int balance;
 
+	/*
+	 * There can be at most two memory operands to an instruction, but
+	 * each address can cross a page boundary -- so we may need up to
+	 * four addresses that must be hidden/revealed for each fault.
+	 */
 	unsigned long addr[4];
 	unsigned long n_addrs;
 	unsigned long flags;
 
-	
+	/* Data size of the instruction that caused a fault. */
 	unsigned int size;
 };
 
@@ -127,6 +139,7 @@ bool kmemcheck_active(struct pt_regs *regs)
 	return data->balance > 0;
 }
 
+/* Save an address that needs to be shown/hidden */
 static void kmemcheck_save_addr(unsigned long addr)
 {
 	struct kmemcheck_context *data = &__get_cpu_var(kmemcheck_context);
@@ -161,6 +174,9 @@ static unsigned int kmemcheck_hide_all(void)
 	return n;
 }
 
+/*
+ * Called from the #PF handler.
+ */
 void kmemcheck_show(struct pt_regs *regs)
 {
 	struct kmemcheck_context *data = &__get_cpu_var(kmemcheck_context);
@@ -174,11 +190,24 @@ void kmemcheck_show(struct pt_regs *regs)
 		return;
 	}
 
+	/*
+	 * None of the addresses actually belonged to kmemcheck. Note that
+	 * this is not an error.
+	 */
 	if (kmemcheck_show_all() == 0)
 		return;
 
 	++data->balance;
 
+	/*
+	 * The IF needs to be cleared as well, so that the faulting
+	 * instruction can run "uninterrupted". Otherwise, we might take
+	 * an interrupt and start executing that before we've had a chance
+	 * to hide the page again.
+	 *
+	 * NOTE: In the rare case of multiple faults, we must not override
+	 * the original flags:
+	 */
 	if (!(regs->flags & X86_EFLAGS_TF))
 		data->flags = regs->flags;
 
@@ -186,6 +215,9 @@ void kmemcheck_show(struct pt_regs *regs)
 	regs->flags &= ~X86_EFLAGS_IF;
 }
 
+/*
+ * Called from the #DB handler.
+ */
 void kmemcheck_hide(struct pt_regs *regs)
 {
 	struct kmemcheck_context *data = &__get_cpu_var(kmemcheck_context);
@@ -246,7 +278,7 @@ void kmemcheck_show_pages(struct page *p, unsigned int n)
 
 bool kmemcheck_page_is_tracked(struct page *p)
 {
-	
+	/* This will also check the "hidden" flag of the PTE. */
 	return kmemcheck_pte_lookup((unsigned long) page_address(p));
 }
 
@@ -270,6 +302,7 @@ void kmemcheck_hide_pages(struct page *p, unsigned int n)
 	}
 }
 
+/* Access may NOT cross page boundary */
 static void kmemcheck_read_strict(struct pt_regs *regs,
 	unsigned long addr, unsigned int size)
 {
@@ -291,7 +324,7 @@ static void kmemcheck_read_strict(struct pt_regs *regs,
 	if (kmemcheck_enabled == 2)
 		kmemcheck_enabled = 0;
 
-	
+	/* Don't warn about it again. */
 	kmemcheck_shadow_set(shadow, size);
 }
 
@@ -309,6 +342,7 @@ bool kmemcheck_is_obj_initialized(unsigned long addr, size_t size)
 	return status == KMEMCHECK_SHADOW_INITIALIZED;
 }
 
+/* Access may cross page boundary */
 static void kmemcheck_read(struct pt_regs *regs,
 	unsigned long addr, unsigned int size)
 {
@@ -321,6 +355,13 @@ static void kmemcheck_read(struct pt_regs *regs,
 		return;
 	}
 
+	/*
+	 * What we do is basically to split the access across the
+	 * two pages and handle each part separately. Yes, this means
+	 * that we may now see reads that are 3 + 5 bytes, for
+	 * example (and if both are uninitialized, there will be two
+	 * reports), but it makes the code a lot simpler.
+	 */
 	kmemcheck_read_strict(regs, addr, next_page - addr);
 	kmemcheck_read_strict(regs, next_page, next_addr - next_page);
 }
@@ -350,11 +391,15 @@ static void kmemcheck_write(struct pt_regs *regs,
 		return;
 	}
 
-	
+	/* See comment in kmemcheck_read(). */
 	kmemcheck_write_strict(regs, addr, next_page - addr);
 	kmemcheck_write_strict(regs, next_page, next_addr - next_page);
 }
 
+/*
+ * Copying is hard. We have two addresses, each of which may be split across
+ * a page (and each page will have different shadow addresses).
+ */
 static void kmemcheck_copy(struct pt_regs *regs,
 	unsigned long src_addr, unsigned long dst_addr, unsigned int size)
 {
@@ -376,7 +421,7 @@ static void kmemcheck_copy(struct pt_regs *regs,
 	next_page = next_addr & PAGE_MASK;
 
 	if (likely(page == next_page)) {
-		
+		/* Same page */
 		x = kmemcheck_shadow_lookup(src_addr);
 		if (x) {
 			kmemcheck_save_addr(src_addr);
@@ -390,26 +435,26 @@ static void kmemcheck_copy(struct pt_regs *regs,
 		n = next_page - src_addr;
 		BUG_ON(n > sizeof(shadow));
 
-		
+		/* First page */
 		x = kmemcheck_shadow_lookup(src_addr);
 		if (x) {
 			kmemcheck_save_addr(src_addr);
 			for (i = 0; i < n; ++i)
 				shadow[i] = x[i];
 		} else {
-			
+			/* Not tracked */
 			for (i = 0; i < n; ++i)
 				shadow[i] = KMEMCHECK_SHADOW_INITIALIZED;
 		}
 
-		
+		/* Second page */
 		x = kmemcheck_shadow_lookup(next_page);
 		if (x) {
 			kmemcheck_save_addr(next_page);
 			for (i = n; i < size; ++i)
 				shadow[i] = x[i - n];
 		} else {
-			
+			/* Not tracked */
 			for (i = n; i < size; ++i)
 				shadow[i] = KMEMCHECK_SHADOW_INITIALIZED;
 		}
@@ -420,7 +465,7 @@ static void kmemcheck_copy(struct pt_regs *regs,
 	next_page = next_addr & PAGE_MASK;
 
 	if (likely(page == next_page)) {
-		
+		/* Same page */
 		x = kmemcheck_shadow_lookup(dst_addr);
 		if (x) {
 			kmemcheck_save_addr(dst_addr);
@@ -433,7 +478,7 @@ static void kmemcheck_copy(struct pt_regs *regs,
 		n = next_page - dst_addr;
 		BUG_ON(n > sizeof(shadow));
 
-		
+		/* First page */
 		x = kmemcheck_shadow_lookup(dst_addr);
 		if (x) {
 			kmemcheck_save_addr(dst_addr);
@@ -443,7 +488,7 @@ static void kmemcheck_copy(struct pt_regs *regs,
 			}
 		}
 
-		
+		/* Second page */
 		x = kmemcheck_shadow_lookup(next_page);
 		if (x) {
 			kmemcheck_save_addr(next_page);
@@ -479,7 +524,7 @@ static void kmemcheck_access(struct pt_regs *regs,
 
 	struct kmemcheck_context *data = &__get_cpu_var(kmemcheck_context);
 
-	
+	/* Recursive fault -- ouch. */
 	if (data->busy) {
 		kmemcheck_show_addr(fallback_address);
 		kmemcheck_error_save_bug(regs);
@@ -495,43 +540,52 @@ static void kmemcheck_access(struct pt_regs *regs,
 
 	switch (insn_primary[0]) {
 #ifdef CONFIG_KMEMCHECK_BITOPS_OK
-		
+		/* AND, OR, XOR */
+		/*
+		 * Unfortunately, these instructions have to be excluded from
+		 * our regular checking since they access only some (and not
+		 * all) bits. This clears out "bogus" bitfield-access warnings.
+		 */
 	case 0x80:
 	case 0x81:
 	case 0x82:
 	case 0x83:
 		switch ((insn_primary[1] >> 3) & 7) {
-			
+			/* OR */
 		case 1:
-			
+			/* AND */
 		case 4:
-			
+			/* XOR */
 		case 6:
 			kmemcheck_write(regs, fallback_address, size);
 			goto out;
 
-			
+			/* ADD */
 		case 0:
-			
+			/* ADC */
 		case 2:
-			
+			/* SBB */
 		case 3:
-			
+			/* SUB */
 		case 5:
-			
+			/* CMP */
 		case 7:
 			break;
 		}
 		break;
 #endif
 
-		
+		/* MOVS, MOVSB, MOVSW, MOVSD */
 	case 0xa4:
 	case 0xa5:
+		/*
+		 * These instructions are special because they take two
+		 * addresses, but we only get one page fault.
+		 */
 		kmemcheck_copy(regs, regs->si, regs->di, size);
 		goto out;
 
-		
+		/* CMPS, CMPSB, CMPSW, CMPSD */
 	case 0xa6:
 	case 0xa7:
 		kmemcheck_read(regs, regs->si, size);
@@ -539,6 +593,11 @@ static void kmemcheck_access(struct pt_regs *regs,
 		goto out;
 	}
 
+	/*
+	 * If the opcode isn't special in any way, we use the data from the
+	 * page fault handler to determine the address and type of memory
+	 * access.
+	 */
 	switch (fallback_method) {
 	case KMEMCHECK_READ:
 		kmemcheck_read(regs, fallback_address, size);
@@ -557,6 +616,12 @@ bool kmemcheck_fault(struct pt_regs *regs, unsigned long address,
 {
 	pte_t *pte;
 
+	/*
+	 * XXX: Is it safe to assume that memory accesses from virtual 86
+	 * mode or non-kernel code segments will _never_ access kernel
+	 * memory (e.g. tracked pages)? For now, we need this to avoid
+	 * invoking kmemcheck for PnP BIOS calls.
+	 */
 	if (regs->flags & X86_VM_MASK)
 		return false;
 	if (regs->cs != __KERNEL_CS)
@@ -582,7 +647,7 @@ bool kmemcheck_trap(struct pt_regs *regs)
 	if (!kmemcheck_active(regs))
 		return false;
 
-	
+	/* We're done. */
 	kmemcheck_hide(regs);
 	return true;
 }

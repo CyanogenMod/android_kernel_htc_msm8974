@@ -135,15 +135,15 @@ static int z2_batt_ps_init(struct z2_charger *charger, int props)
 	struct z2_battery_info *info = charger->info;
 
 	if (info->charge_gpio >= 0)
-		props++;	
+		props++;	/* POWER_SUPPLY_PROP_STATUS */
 	if (info->batt_tech >= 0)
-		props++;	
+		props++;	/* POWER_SUPPLY_PROP_TECHNOLOGY */
 	if (info->batt_I2C_reg >= 0)
-		props++;	
+		props++;	/* POWER_SUPPLY_PROP_VOLTAGE_NOW */
 	if (info->max_voltage >= 0)
-		props++;	
+		props++;	/* POWER_SUPPLY_PROP_VOLTAGE_MAX */
 	if (info->min_voltage >= 0)
-		props++;	
+		props++;	/* POWER_SUPPLY_PROP_VOLTAGE_MIN */
 
 	prop = kzalloc(props * sizeof(*prop), GFP_KERNEL);
 	if (!prop)
@@ -184,7 +184,7 @@ static int __devinit z2_batt_probe(struct i2c_client *client,
 				const struct i2c_device_id *id)
 {
 	int ret = 0;
-	int props = 1;	
+	int props = 1;	/* POWER_SUPPLY_PROP_PRESENT */
 	struct z2_charger *charger;
 	struct z2_battery_info *info = client->dev.platform_data;
 

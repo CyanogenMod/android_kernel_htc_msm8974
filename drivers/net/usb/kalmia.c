@@ -28,12 +28,34 @@
 #include <linux/usb/usbnet.h>
 #include <linux/gfp.h>
 
+/*
+ * The Samsung Kalmia based LTE USB modems have a CDC ACM port for modem control
+ * handled by the "option" module and an ethernet data port handled by this
+ * module.
+ *
+ * The stick must first be switched into modem mode by usb_modeswitch
+ * or similar tool. Then the modem gets sent two initialization packets by
+ * this module, which gives the MAC address of the device. User space can then
+ * connect the modem using AT commands through the ACM port and then use
+ * DHCP on the network interface exposed by this module. Network packets are
+ * sent to and from the modem in a proprietary format discovered after watching
+ * the behavior of the windows driver for the modem.
+ *
+ * More information about the use of the modem is available in usb_modeswitch
+ * forum and the project page:
+ *
+ * http://www.draisberghof.de/usb_modeswitch/bb/viewtopic.php?t=465
+ * https://github.com/mkotsbak/Samsung-GT-B3730-linux-driver
+ */
 
+/* #define	DEBUG */
+/* #define	VERBOSE */
 
 #define KALMIA_HEADER_LENGTH 6
 #define KALMIA_ALIGN_SIZE 4
 #define KALMIA_USB_TIMEOUT 10000
 
+/*-------------------------------------------------------------------------*/
 
 static int
 kalmia_send_init_packet(struct usbnet *dev, u8 *init_msg, u8 init_msg_len,
@@ -116,7 +138,7 @@ kalmia_bind(struct usbnet *dev, struct usb_interface *intf)
 	int status;
 	u8 ethernet_addr[ETH_ALEN];
 
-	
+	/* Don't bind to AT command interface */
 	if (intf->cur_altsetting->desc.bInterfaceClass != USB_CLASS_VENDOR_SPEC)
 		return -EINVAL;
 
@@ -126,7 +148,7 @@ kalmia_bind(struct usbnet *dev, struct usb_interface *intf)
 
 	dev->net->hard_header_len += KALMIA_HEADER_LENGTH;
 	dev->hard_mtu = 1400;
-	dev->rx_urb_size = dev->hard_mtu * 10; 
+	dev->rx_urb_size = dev->hard_mtu * 10; // Found as optimal after testing
 
 	status = kalmia_init_and_get_ethernet_addr(dev, ethernet_addr);
 
@@ -184,7 +206,7 @@ done:
 	netdev_dbg(dev->net, "Sending etherType: %02x%02x", ether_type_1,
 		ether_type_2);
 
-	
+	/* According to empiric data for data packages */
 	header_start[0] = 0x57;
 	header_start[1] = 0x44;
 	content_len = skb->len - KALMIA_HEADER_LENGTH;
@@ -193,7 +215,7 @@ done:
 	header_start[4] = ether_type_1;
 	header_start[5] = ether_type_2;
 
-	
+	/* Align to 4 bytes by padding with zeros */
 	remainder = skb->len % KALMIA_ALIGN_SIZE;
 	if (remainder > 0) {
 		padlen = KALMIA_ALIGN_SIZE - remainder;
@@ -213,6 +235,10 @@ done:
 static int
 kalmia_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 {
+	/*
+	 * Our task here is to strip off framing, leaving skb with one
+	 * data frame for the usbnet framework code to process.
+	 */
 	static const u8 HEADER_END_OF_USB_PACKET[] =
 		{ 0x57, 0x5a, 0x00, 0x00, 0x08, 0x00 };
 	static const u8 EXPECTED_UNKNOWN_HEADER_1[] =
@@ -221,7 +247,7 @@ kalmia_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 		{ 0x57, 0x50, 0x0e, 0x00, 0x00, 0x00 };
 	int i = 0;
 
-	
+	/* incomplete header? */
 	if (skb->len < KALMIA_HEADER_LENGTH)
 		return 0;
 
@@ -265,12 +291,12 @@ kalmia_rx_fixup(struct usbnet *dev, struct sk_buff *skb)
 				header_start[3], header_start[4], header_start[5],
 				skb->len - KALMIA_HEADER_LENGTH);
 
-		
+		/* subtract start header and end header */
 		usb_packet_length = skb->len - (2 * KALMIA_HEADER_LENGTH);
 		ether_packet_length = get_unaligned_le16(&header_start[2]);
 		skb_pull(skb, KALMIA_HEADER_LENGTH);
 
-		
+		/* Some small packets misses end marker */
 		if (usb_packet_length < ether_packet_length) {
 			ether_packet_length = usb_packet_length
 				+ KALMIA_HEADER_LENGTH;
@@ -329,14 +355,15 @@ static const struct driver_info kalmia_info = {
 	.tx_fixup = kalmia_tx_fixup
 };
 
+/*-------------------------------------------------------------------------*/
 
 static const struct usb_device_id products[] = {
-	
+	/* The unswitched USB ID, to get the module auto loaded: */
 	{ USB_DEVICE(0x04e8, 0x689a) },
-	
+	/* The stick swithed into modem (by e.g. usb_modeswitch): */
 	{ USB_DEVICE(0x04e8, 0x6889),
 		.driver_info = (unsigned long) &kalmia_info, },
-	{ } };
+	{ /* EMPTY == end of list */} };
 MODULE_DEVICE_TABLE( usb, products);
 
 static struct usb_driver kalmia_driver = {

@@ -1,4 +1,4 @@
-/* Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -306,6 +306,10 @@ struct slim_controller {
 				struct completion *comp);
 	enum slim_port_err	(*port_xfer_status)(struct slim_controller *ctr,
 				u8 pn, u8 **done_buf, u32 *done_len);
+	int			(*xfer_user_msg)(struct slim_controller *ctrl,
+				u8 la, u8 mt, u8 mc,
+				struct slim_ele_access *msg, u8 *buf, u8 len);
+
 };
 #define to_slim_controller(d) container_of(d, struct slim_controller, dev)
 
@@ -318,6 +322,8 @@ struct slim_driver {
 	int				(*resume)(struct slim_device *sldev);
 	int				(*device_up)(struct slim_device *sldev);
 	int				(*device_down)
+						(struct slim_device *sldev);
+	int				(*reset_device)
 						(struct slim_device *sldev);
 
 	struct device_driver		driver;
@@ -337,6 +343,7 @@ struct slim_device {
 	struct slim_driver	*driver;
 	struct slim_controller	*ctrl;
 	u8			laddr;
+	bool			reported;
 	struct list_head	mark_define;
 	struct list_head	mark_suspend;
 	struct list_head	mark_removal;
@@ -458,6 +465,8 @@ extern int slim_assign_laddr(struct slim_controller *ctrl, const u8 *e_addr,
 				u8 e_len, u8 *laddr, bool valid);
 
 void slim_report_absent(struct slim_device *sbdev);
+
+void slim_framer_booted(struct slim_controller *ctrl);
 
 extern void slim_msg_response(struct slim_controller *ctrl, u8 *reply, u8 tid,
 				u8 len);

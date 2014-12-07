@@ -212,6 +212,10 @@ static int tcf_ipt(struct sk_buff *skb, const struct tc_action *a,
 	ipt->tcf_tm.lastuse = jiffies;
 	bstats_update(&ipt->tcf_bstats, skb);
 
+	/* yes, we have to worry about both in and out dev
+	 * worry later - danger - this API seems to have changed
+	 * from earlier kernels
+	 */
 	par.in       = skb->dev;
 	par.out      = NULL;
 	par.hooknum  = ipt->tcfi_hook;
@@ -250,6 +254,10 @@ static int tcf_ipt_dump(struct sk_buff *skb, struct tc_action *a, int bind, int 
 	struct tcf_t tm;
 	struct tc_cnt c;
 
+	/* for simple targets kernel size == user size
+	 * user name = target name
+	 * for foolproof you need to not assume this
+	 */
 
 	t = kmemdup(ipt->tcfi_t, ipt->tcfi_t->u.user.target_size, GFP_ATOMIC);
 	if (unlikely(!t))

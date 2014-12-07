@@ -84,25 +84,25 @@ struct platform_device tegra_gpio_device = {
 
 static struct resource pinmux_resource[] = {
 	[0] = {
-		
+		/* Tri-state registers */
 		.start	= TEGRA_APB_MISC_BASE + 0x14,
 		.end	= TEGRA_APB_MISC_BASE + 0x20 + 3,
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* Mux registers */
 		.start	= TEGRA_APB_MISC_BASE + 0x80,
 		.end	= TEGRA_APB_MISC_BASE + 0x9c + 3,
 		.flags	= IORESOURCE_MEM,
 	},
 	[2] = {
-		
+		/* Pull-up/down registers */
 		.start	= TEGRA_APB_MISC_BASE + 0xa0,
 		.end	= TEGRA_APB_MISC_BASE + 0xb0 + 3,
 		.flags	= IORESOURCE_MEM,
 	},
 	[3] = {
-		
+		/* Pad control registers */
 		.start	= TEGRA_APB_MISC_BASE + 0x868,
 		.end	= TEGRA_APB_MISC_BASE + 0x90c + 3,
 		.flags	= IORESOURCE_MEM,
@@ -369,6 +369,9 @@ static struct resource sdhci_resource4[] = {
 	},
 };
 
+/* board files should fill in platform_data register the devices themselvs.
+ * See board-harmony.c for an example
+ */
 struct platform_device tegra_sdhci_device1 = {
 	.name		= "sdhci-tegra",
 	.id		= 0,
@@ -437,7 +440,7 @@ static struct resource tegra_usb3_resources[] = {
 };
 
 static struct tegra_ulpi_config tegra_ehci2_ulpi_phy_config = {
-	
+	/* All existing boards use GPIO PV0 for phy reset */
 	.reset_gpio = TEGRA_GPIO_PV0,
 	.clk = "cdev2",
 };

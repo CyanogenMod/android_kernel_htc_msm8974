@@ -56,19 +56,19 @@
 # else
 # define L2_DMEMORY      (CPLB_COMMON | PAGE_SIZE_1MB)
 # endif
-#endif 
+#endif /* CONFIG_SMP */
 
-#define SIZE_1K 0x00000400      
-#define SIZE_4K 0x00001000      
-#define SIZE_1M 0x00100000      
-#define SIZE_4M 0x00400000      
+#define SIZE_1K 0x00000400      /* 1K */
+#define SIZE_4K 0x00001000      /* 4K */
+#define SIZE_1M 0x00100000      /* 1M */
+#define SIZE_4M 0x00400000      /* 4M */
 
 #define MAX_CPLBS 16
 
 #define CPLB_ENABLE_ICACHE_P	0
 #define CPLB_ENABLE_DCACHE_P	1
 #define CPLB_ENABLE_DCACHE2_P	2
-#define CPLB_ENABLE_CPLBS_P	3	
+#define CPLB_ENABLE_CPLBS_P	3	/* Deprecated! */
 #define CPLB_ENABLE_ICPLBS_P	4
 #define CPLB_ENABLE_DCPLBS_P	5
 
@@ -107,7 +107,7 @@
 static inline void _disable_cplb(u32 mmr, u32 mask)
 {
 	u32 ctrl = bfin_read32(mmr) & ~mask;
-	
+	/* CSYNC to ensure load store ordering */
 	__builtin_bfin_csync();
 	bfin_write32(mmr, ctrl);
 	__builtin_bfin_ssync();
@@ -127,7 +127,7 @@ static inline void disable_cplb(u32 mmr, u32 mask)
 static inline void _enable_cplb(u32 mmr, u32 mask)
 {
 	u32 ctrl = bfin_read32(mmr) | mask;
-	
+	/* CSYNC to ensure load store ordering */
 	__builtin_bfin_csync();
 	bfin_write32(mmr, ctrl);
 	__builtin_bfin_ssync();
@@ -144,6 +144,6 @@ static inline void enable_cplb(u32 mmr, u32 mask)
 #define _enable_icplb()  _enable_cplb(IMEM_CONTROL, ENICPLB)
 #define  enable_icplb()   enable_cplb(IMEM_CONTROL, ENICPLB)
 
-#endif		
+#endif		/* __ASSEMBLY__ */
 
-#endif		
+#endif		/* _CPLB_H */

@@ -45,6 +45,9 @@ static void zoom_panel_disable_lcd(struct omap_dss_device *dssdev)
 {
 }
 
+/*
+ * PWMA/B register offsets (TWL4030_MODULE_PWMA)
+ */
 #define TWL_INTBR_PMBR1	0xD
 #define TWL_INTBR_GPBR1	0xC
 #define TWL_LED_PWMON	0x0
@@ -63,9 +66,9 @@ static int zoom_set_bl_intensity(struct omap_dss_device *dssdev, int level)
 	twl_i2c_read_u8(TWL4030_MODULE_INTBR, &enb_pwm, TWL_INTBR_GPBR1);
 
 	if (level == 0) {
-		
+		/* disable pwm1 output and clock */
 		enb_pwm = enb_pwm & 0xF5;
-		
+		/* change pwm1 pin to gpio pin */
 		mux_pwm = mux_pwm & 0xCF;
 		twl_i2c_write_u8(TWL4030_MODULE_INTBR,
 					enb_pwm, TWL_INTBR_GPBR1);
@@ -75,9 +78,9 @@ static int zoom_set_bl_intensity(struct omap_dss_device *dssdev, int level)
 	}
 
 	if (!((enb_pwm & 0xA) && (mux_pwm & 0x30))) {
-		
+		/* change gpio pin to pwm1 pin */
 		mux_pwm = mux_pwm | 0x30;
-		
+		/* enable pwm1 output and clock*/
 		enb_pwm = enb_pwm | 0x0A;
 		twl_i2c_write_u8(TWL4030_MODULE_INTBR,
 					mux_pwm, TWL_INTBR_PMBR1);

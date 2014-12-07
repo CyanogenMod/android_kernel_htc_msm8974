@@ -16,6 +16,9 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/* Supports:
+ * Timberdale FPGA UART
+ */
 
 #ifndef _TIMBUART_H
 #define _TIMBUART_H
@@ -51,5 +54,5 @@
 #define TIMBUART_MAJOR 204
 #define TIMBUART_MINOR 192
 
-#endif 
+#endif /* _TIMBUART_H */
 

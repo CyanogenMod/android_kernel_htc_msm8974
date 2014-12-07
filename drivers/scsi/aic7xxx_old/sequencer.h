@@ -129,6 +129,7 @@ struct instruction {
 #define	AIC_OP_JE	0xe
 #define	AIC_OP_JZ	0xf
 
+/* Pseudo Ops */
 #define	AIC_OP_SHL	0x10
 #define	AIC_OP_SHR	0x20
 #define	AIC_OP_ROR	0x30

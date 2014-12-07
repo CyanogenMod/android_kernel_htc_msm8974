@@ -19,30 +19,38 @@
 #include <unistd.h>
 #include <string.h>
 
+/* CHRP note section */
 static const char arch[] = "PowerPC";
 
 #define N_DESCR	6
 unsigned int descr[N_DESCR] = {
-	0xffffffff,		
-	0x02000000,		
-	0xffffffff,		
-	0xffffffff,		
-	0xffffffff,		
-	0x4000,			
+	0xffffffff,		/* real-mode = true */
+	0x02000000,		/* real-base, i.e. where we expect OF to be */
+	0xffffffff,		/* real-size */
+	0xffffffff,		/* virt-base */
+	0xffffffff,		/* virt-size */
+	0x4000,			/* load-base */
 };
 
+/* RPA note section */
 static const char rpaname[] = "IBM,RPA-Client-Config";
 
+/*
+ * Note: setting ignore_my_client_config *should* mean that OF ignores
+ * all the other fields, but there is a firmware bug which means that
+ * it looks at the splpar field at least.  So these values need to be
+ * reasonable.
+ */
 #define N_RPA_DESCR	8
 unsigned int rpanote[N_RPA_DESCR] = {
-	0,			
-	64,			
-	0,			
-	40,			
-	1,			
-	-1,			
-	0,			
-	1,			
+	0,			/* lparaffinity */
+	64,			/* min_rmo_size */
+	0,			/* min_rmo_percent */
+	40,			/* max_pft_size */
+	1,			/* splpar */
+	-1,			/* min_load */
+	0,			/* new_mem_def */
+	1,			/* ignore_my_client_config */
 };
 
 #define ROUNDUP(len)	(((len) + 3) & ~3)
@@ -57,22 +65,23 @@ unsigned char buf[512];
 #define PUT_32BE(off, v)	(PUT_16BE((off), (v) >> 16), \
 				 PUT_16BE((off) + 2, (v)))
 
-#define E_IDENT		0	
+/* Structure of an ELF file */
+#define E_IDENT		0	/* ELF header */
 #define	E_PHOFF		28
 #define E_PHENTSIZE	42
 #define E_PHNUM		44
-#define E_HSIZE		52	
+#define E_HSIZE		52	/* size of ELF header */
 
-#define EI_MAGIC	0	
+#define EI_MAGIC	0	/* offsets in E_IDENT area */
 #define EI_CLASS	4
 #define EI_DATA		5
 
-#define PH_TYPE		0	
+#define PH_TYPE		0	/* ELF program header */
 #define PH_OFFSET	4
 #define PH_FILESZ	16
-#define PH_HSIZE	32	
+#define PH_HSIZE	32	/* size of program header */
 
-#define PT_NOTE		4	
+#define PT_NOTE		4	/* Program header type = note */
 
 #define ELFCLASS32	1
 #define ELFDATA2MSB	2
@@ -132,19 +141,19 @@ main(int ac, char **av)
 		ph += ps;
 	}
 
-	
+	/* XXX check that the area we want to use is all zeroes */
 	for (i = 0; i < 2 * ps + nnote + nnote2; ++i)
 		if (buf[ph + i] != 0)
 			goto nospace;
 
-	
+	/* fill in the program header entry */
 	ns = ph + 2 * ps;
 	PUT_32BE(ph + PH_TYPE, PT_NOTE);
 	PUT_32BE(ph + PH_OFFSET, ns);
 	PUT_32BE(ph + PH_FILESZ, nnote);
 
-	
-	
+	/* fill in the note area we point to */
+	/* XXX we should probably make this a proper section */
 	PUT_32BE(ns, strlen(arch) + 1);
 	PUT_32BE(ns + 4, N_DESCR * 4);
 	PUT_32BE(ns + 8, 0x1275);
@@ -153,13 +162,13 @@ main(int ac, char **av)
 	for (i = 0; i < N_DESCR; ++i, ns += 4)
 		PUT_32BE(ns, descr[i]);
 
-	
+	/* fill in the second program header entry and the RPA note area */
 	ph += ps;
 	PUT_32BE(ph + PH_TYPE, PT_NOTE);
 	PUT_32BE(ph + PH_OFFSET, ns);
 	PUT_32BE(ph + PH_FILESZ, nnote2);
 
-	
+	/* fill in the note area we point to */
 	PUT_32BE(ns, strlen(rpaname) + 1);
 	PUT_32BE(ns + 4, sizeof(rpanote));
 	PUT_32BE(ns + 8, 0x12759999);
@@ -168,10 +177,10 @@ main(int ac, char **av)
 	for (i = 0; i < N_RPA_DESCR; ++i, ns += 4)
 		PUT_32BE(ns, rpanote[i]);
 
-	
+	/* Update the number of program headers */
 	PUT_16BE(E_PHNUM, np + 2);
 
-	
+	/* write back */
 	lseek(fd, (long) 0, SEEK_SET);
 	i = write(fd, buf, n);
 	if (i < 0) {

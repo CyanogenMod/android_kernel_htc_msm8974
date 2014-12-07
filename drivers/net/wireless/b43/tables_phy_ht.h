@@ -1,6 +1,7 @@
 #ifndef B43_TABLES_PHY_HT_H_
 #define B43_TABLES_PHY_HT_H_
 
+/* The HT-PHY tables. */
 #define B43_HTTAB_TYPEMASK		0xF0000000
 #define B43_HTTAB_8BIT			0x10000000
 #define B43_HTTAB_16BIT			0x20000000
@@ -22,4 +23,4 @@ void b43_phy_ht_tables_init(struct b43_wldev *dev);
 #define B43_HTTAB_1A_C0_LATE_SIZE		128
 extern const u32 b43_httab_0x1a_0xc0_late[];
 
-#endif 
+#endif /* B43_TABLES_PHY_HT_H_ */

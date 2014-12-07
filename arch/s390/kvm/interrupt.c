@@ -375,7 +375,7 @@ int kvm_s390_handle_wait(struct kvm_vcpu *vcpu)
 	if (psw_interrupts_disabled(vcpu)) {
 		VCPU_EVENT(vcpu, 3, "%s", "disabled wait");
 		__unset_cpu_idle(vcpu);
-		return -EOPNOTSUPP; 
+		return -EOPNOTSUPP; /* disabled wait */
 	}
 
 	if (psw_extint_disabled(vcpu) ||
@@ -431,6 +431,10 @@ void kvm_s390_tasklet(unsigned long parm)
 	spin_unlock(&vcpu->arch.local_int.lock);
 }
 
+/*
+ * low level hrtimer wake routine. Because this runs in hardirq context
+ * we schedule a tasklet to do the real work.
+ */
 enum hrtimer_restart kvm_s390_idle_wakeup(struct hrtimer *timer)
 {
 	struct kvm_vcpu *vcpu;

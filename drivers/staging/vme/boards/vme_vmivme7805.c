@@ -24,6 +24,7 @@ static int vmic_probe(struct pci_dev *, const struct pci_device_id *);
 static void vmic_remove(struct pci_dev *);
 static void __exit vmic_exit(void);
 
+/** Base address to access FPGA register */
 static void *vmic_base;
 
 static const char driver_name[] = "vmivme_7805";
@@ -50,21 +51,21 @@ static int vmic_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	int retval;
 	u32 data;
 
-	
+	/* Enable the device */
 	retval = pci_enable_device(pdev);
 	if (retval) {
 		dev_err(&pdev->dev, "Unable to enable device\n");
 		goto err;
 	}
 
-	
+	/* Map Registers */
 	retval = pci_request_regions(pdev, driver_name);
 	if (retval) {
 		dev_err(&pdev->dev, "Unable to reserve resources\n");
 		goto err_resource;
 	}
 
-	
+	/* Map registers in BAR 0 */
 	vmic_base = ioremap_nocache(pci_resource_start(pdev, 0), 16);
 	if (!vmic_base) {
 		dev_err(&pdev->dev, "Unable to remap CRG region\n");
@@ -72,15 +73,15 @@ static int vmic_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_remap;
 	}
 
-	
+	/* Clear the FPGA VME IF contents */
 	iowrite32(0, vmic_base + VME_CONTROL);
 
-	
+	/* Clear any initial BERR  */
 	data = ioread32(vmic_base + VME_CONTROL) & 0x00000FFF;
 	data |= BM_VME_CONTROL_BERRST;
 	iowrite32(data, vmic_base + VME_CONTROL);
 
-	
+	/* Enable the vme interface and byte swapping */
 	data = ioread32(vmic_base + VME_CONTROL) & 0x00000FFF;
 	data = data | BM_VME_CONTROL_MASTER_ENDIAN |
 			BM_VME_CONTROL_SLAVE_ENDIAN |

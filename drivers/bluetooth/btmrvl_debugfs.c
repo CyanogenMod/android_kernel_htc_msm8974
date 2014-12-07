@@ -30,7 +30,7 @@ struct btmrvl_debugfs_data {
 	struct dentry *config_dir;
 	struct dentry *status_dir;
 
-	
+	/* config */
 	struct dentry *psmode;
 	struct dentry *pscmd;
 	struct dentry *hsmode;
@@ -38,7 +38,7 @@ struct btmrvl_debugfs_data {
 	struct dentry *gpiogap;
 	struct dentry *hscfgcmd;
 
-	
+	/* status */
 	struct dentry *curpsmode;
 	struct dentry *hsstate;
 	struct dentry *psstate;

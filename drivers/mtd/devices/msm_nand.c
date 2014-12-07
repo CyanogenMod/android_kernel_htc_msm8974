@@ -82,6 +82,7 @@ struct msm_nand_chip {
 
 #define CFG1_WIDE_FLASH (1U << 1)
 
+/* TODO: move datamover code out */
 
 #define SRC_CRCI_NAND_CMD  CMD_SRC_CRCI(DMOV_NAND_CRCI_CMD)
 #define DST_CRCI_NAND_CMD  CMD_DST_CRCI(DMOV_NAND_CRCI_CMD)
@@ -92,6 +93,9 @@ struct msm_nand_chip {
 	((chip)->dma_addr + \
 	 ((uint8_t *)(vaddr) - (chip)->dma_buffer))
 
+/**
+ * msm_nand_oob_64 - oob info for 2KB page
+ */
 static struct nand_ecclayout msm_nand_oob_64 = {
 	.eccbytes	= 40,
 	.eccpos		= {
@@ -106,6 +110,9 @@ static struct nand_ecclayout msm_nand_oob_64 = {
 	}
 };
 
+/**
+ * msm_nand_oob_128 - oob info for 4KB page
+ */
 static struct nand_ecclayout msm_nand_oob_128 = {
 	.eccbytes	= 80,
 	.eccpos		= {
@@ -124,6 +131,9 @@ static struct nand_ecclayout msm_nand_oob_128 = {
 	}
 };
 
+/**
+ * msm_nand_oob_224 - oob info for 4KB page 8Bit interface
+ */
 static struct nand_ecclayout msm_nand_oob_224_x8 = {
 	.eccbytes	= 104,
 	.eccpos		= {
@@ -142,6 +152,9 @@ static struct nand_ecclayout msm_nand_oob_224_x8 = {
 	}
 };
 
+/**
+ * msm_nand_oob_224 - oob info for 4KB page 16Bit interface
+ */
 static struct nand_ecclayout msm_nand_oob_224_x16 = {
 	.eccbytes	= 112,
 	.eccpos		= {
@@ -160,6 +173,9 @@ static struct nand_ecclayout msm_nand_oob_224_x16 = {
 	}
 };
 
+/**
+ * msm_nand_oob_256 - oob info for 8KB page
+ */
 static struct nand_ecclayout msm_nand_oob_256 = {
 	.eccbytes 	= 160,
 	.eccpos 	= {
@@ -186,6 +202,9 @@ static struct nand_ecclayout msm_nand_oob_256 = {
 	}
 };
 
+/**
+ * msm_onenand_oob_64 - oob info for large (2KB) page
+ */
 static struct nand_ecclayout msm_onenand_oob_64 = {
 	.eccbytes	= 20,
 	.eccpos		= {
@@ -226,10 +245,10 @@ static void *msm_nand_get_dma_buffer(struct msm_nand_chip *chip, size_t size)
 			if (old_bitmask == bitmask)
 				return chip->dma_buffer +
 					free_index * MSM_NAND_DMA_BUFFER_SLOTS;
-			free_bitmask = 0; 
+			free_bitmask = 0; /* force return */
 		}
-		
-		
+		/* current free range was too small, clear all free bits */
+		/* below the top busy bit within current_need_mask */
 		free_bitmask &=
 			~(~0U >> (32 - fls(bitmask & current_need_mask)));
 	} while (free_bitmask);
@@ -563,7 +582,7 @@ uint32_t flash_onfi_probe(struct msm_nand_chip *chip)
 		dma_buffer->data.exec = 1;
 		dma_buffer->data.flash_status = 0xeeeeeeee;
 
-		
+		/* Put the Nand ctlr in Async mode and disable SFlash ctlr */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip,
 				&dma_buffer->data.sflash_bcfg_mod);
@@ -571,14 +590,14 @@ uint32_t flash_onfi_probe(struct msm_nand_chip *chip)
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on cmd ready, & write CMD,ADDR0,ADDR1,CHIPSEL regs */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.cmd);
 		cmd->dst = MSM_NAND_FLASH_CMD;
 		cmd->len = 12;
 		cmd++;
 
-		
+		/* Configure the CFG0 and CFG1 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip,
 				&dma_buffer->data.cfg0);
@@ -586,7 +605,7 @@ uint32_t flash_onfi_probe(struct msm_nand_chip *chip)
 		cmd->len = 8;
 		cmd++;
 
-		
+		/* Configure the DEV_CMD_VLD register */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip,
 				&dma_buffer->data.devcmdvld_mod);
@@ -594,7 +613,7 @@ uint32_t flash_onfi_probe(struct msm_nand_chip *chip)
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Configure the DEV_CMD1 register */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip,
 				&dma_buffer->data.devcmd1_mod);
@@ -602,7 +621,7 @@ uint32_t flash_onfi_probe(struct msm_nand_chip *chip)
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip,
 				&dma_buffer->data.exec);
@@ -610,7 +629,7 @@ uint32_t flash_onfi_probe(struct msm_nand_chip *chip)
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the two status registers */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_FLASH_STATUS;
 		cmd->dst = msm_virt_to_dma(chip,
@@ -618,7 +637,7 @@ uint32_t flash_onfi_probe(struct msm_nand_chip *chip)
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Read data block - valid only if status says success */
 		cmd->cmd = 0;
 		cmd->src = MSM_NAND_FLASH_BUFFER;
 		cmd->dst = (cmd_set_count ? dma_addr_identifier :
@@ -627,7 +646,7 @@ uint32_t flash_onfi_probe(struct msm_nand_chip *chip)
 				ONFI_PARAM_INFO_LENGTH);
 		cmd++;
 
-		
+		/* Restore the DEV_CMD1 register */
 		cmd->cmd = 0 ;
 		cmd->src = msm_virt_to_dma(chip,
 				&dma_buffer->data.devcmd1_orig);
@@ -635,7 +654,7 @@ uint32_t flash_onfi_probe(struct msm_nand_chip *chip)
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Restore the DEV_CMD_VLD register */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip,
 				&dma_buffer->data.devcmdvld_orig);
@@ -643,7 +662,7 @@ uint32_t flash_onfi_probe(struct msm_nand_chip *chip)
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Restore the SFLASH_BURST_CONFIG register */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip,
 				&dma_buffer->data.sflash_bcfg_orig);
@@ -665,7 +684,7 @@ uint32_t flash_onfi_probe(struct msm_nand_chip *chip)
 			&dma_buffer->cmdptr)));
 		mb();
 
-		
+		/* Check for errors, protection violations etc */
 		if (dma_buffer->data.flash_status & 0x110) {
 			pr_info("MPU/OP error (0x%x) during "
 					"ONFI probe\n",
@@ -736,6 +755,11 @@ uint32_t flash_onfi_probe(struct msm_nand_chip *chip)
 					"compliant device %s\n",
 					onfi_param_page_ptr->device_model);
 
+				/* Temporary hack for MT29F4G08ABC device.
+				 * Since the device is not properly adhering
+				 * to ONFi specification it is reporting
+				 * as 16 bit device though it is 8 bit device!!!
+				 */
 				if (!strncmp(onfi_param_page_ptr->device_model,
 					"MT29F4G08ABC", 12))
 					supported_flash.widebus  = 0;
@@ -819,7 +843,7 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 	}
 	if (ops->mode != MTD_OPS_RAW) {
 		if (ops->datbuf != NULL && (ops->len % mtd->writesize) != 0) {
-			
+			/* when ops->datbuf is NULL, ops->len can be ooblen */
 			pr_err("%s: unsupported ops->len, %d\n",
 			       __func__, ops->len);
 			return -EINVAL;
@@ -887,7 +911,7 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 	while (page_count-- > 0) {
 		cmd = dma_buffer->cmd;
 
-		
+		/* CMD / ADDR0 / ADDR1 / CHIPSEL program values */
 		if (ops->mode != MTD_OPS_RAW) {
 			dma_buffer->data.cmd = MSM_NAND_CMD_PAGE_READ_ECC;
 			dma_buffer->data.cfg0 =
@@ -906,21 +930,25 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 
 		dma_buffer->data.addr0 = (page << 16) | oob_col;
 		dma_buffer->data.addr1 = (page >> 16) & 0xff;
-		
+		/* chipsel_0 + enable DM interface */
 		dma_buffer->data.chipsel = 0 | 4;
 
 
-		
+		/* GO bit for the EXEC register */
 		dma_buffer->data.exec = 1;
 
 
 		BUILD_BUG_ON(8 != ARRAY_SIZE(dma_buffer->data.result));
 
 		for (n = start_sector; n < cwperpage; n++) {
-			
+			/* flash + buffer status return words */
 			dma_buffer->data.result[n].flash_status = 0xeeeeeeee;
 			dma_buffer->data.result[n].buffer_status = 0xeeeeeeee;
 
+			/* block on cmd ready, then
+			 * write CMD / ADDR0 / ADDR1 / CHIPSEL
+			 * regs in a burst
+			 */
 			cmd->cmd = DST_CRCI_NAND_CMD;
 			cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.cmd);
 			cmd->dst = MSM_NAND_FLASH_CMD;
@@ -950,7 +978,7 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 				cmd++;
 			}
 
-			
+			/* kick the execute register */
 			cmd->cmd = 0;
 			cmd->src =
 				msm_virt_to_dma(chip, &dma_buffer->data.exec);
@@ -958,14 +986,20 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 			cmd->len = 4;
 			cmd++;
 
+			/* block on data ready, then
+			 * read the status register
+			 */
 			cmd->cmd = SRC_CRCI_NAND_DATA;
 			cmd->src = MSM_NAND_FLASH_STATUS;
 			cmd->dst = msm_virt_to_dma(chip,
 						   &dma_buffer->data.result[n]);
-			
+			/* MSM_NAND_FLASH_STATUS + MSM_NAND_BUFFER_STATUS */
 			cmd->len = 8;
 			cmd++;
 
+			/* read data block
+			 * (only valid if status says success)
+			 */
 			if (ops->datbuf) {
 				if (ops->mode != MTD_OPS_RAW)
 					sectordatasize = (n < (cwperpage - 1))
@@ -1023,6 +1057,9 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 			&dma_buffer->cmdptr)));
 		mb();
 
+		/* if any of the writes failed (0x10), or there
+		 * was a protection violation (0x100), we lose
+		 */
 		pageerr = rawerr = 0;
 		for (n = start_sector; n < cwperpage; n++) {
 			if (dma_buffer->data.result[n].flash_status & 0x110) {
@@ -1040,6 +1077,9 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 					mtd->writesize, DMA_BIDIRECTIONAL);
 
 				for (n = 0; n < mtd->writesize; n++) {
+					/* empty blocks read 0x54 at
+					 * these offsets
+					 */
 					if ((n % 516 == 3 || n % 516 == 175)
 							&& datbuf[n] == 0x54)
 						datbuf[n] = 0xff;
@@ -1075,21 +1115,21 @@ static int msm_nand_read_oob(struct mtd_info *mtd, loff_t from,
 			for (n = start_sector; n < cwperpage; n++) {
 				if (dma_buffer->data.result[n].buffer_status &
 					chip->uncorrectable_bit_mask) {
-					
+					/* not thread safe */
 					mtd->ecc_stats.failed++;
 					pageerr = -EBADMSG;
 					break;
 				}
 			}
 		}
-		if (!rawerr) { 
+		if (!rawerr) { /* check for corretable errors */
 			for (n = start_sector; n < cwperpage; n++) {
 				ecc_errors =
 				(dma_buffer->data.result[n].buffer_status
 				 & chip->num_err_mask);
 				if (ecc_errors) {
 					total_ecc_errors += ecc_errors;
-					
+					/* not thread safe */
 					mtd->ecc_stats.corrected += ecc_errors;
 					if (ecc_errors > 1)
 						pageerr = -EUCLEAN;
@@ -1334,7 +1374,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 								0xF00F3000;
 			} else {
 				dma_buffer->data.nandc01_addr0 = page << 16;
-				
+				/* NC10 ADDR0 points to the next code word */
 				dma_buffer->data.nandc10_addr0 = (page << 16) |
 								cw_offset;
 				dma_buffer->data.nc10_flash_dev_cmd_vld = 0x1D;
@@ -1346,7 +1386,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 			dma_buffer->data.nandc10_addr0 =
 						(page << 16) | oob_col;
 		}
-		
+		/* ADDR1 */
 		dma_buffer->data.nandc11_addr1 = (page >> 16) & 0xff;
 
 		dma_buffer->data.adm_mux_data_ack_req_nc01 = 0x00000A3C;
@@ -1360,18 +1400,18 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 		dma_buffer->data.ebi2_chip_select_cfg0 = 0x00000805;
 		dma_buffer->data.default_ebi2_chip_select_cfg0 = 0x00000801;
 
-		
+		/* chipsel_0 + enable DM interface */
 		dma_buffer->data.chipsel_cs0 = (1<<4) | 4;
-		
+		/* chipsel_1 + enable DM interface */
 		dma_buffer->data.chipsel_cs1 = (1<<4) | 5;
 
-		
+		/* GO bit for the EXEC register */
 		dma_buffer->data.exec = 1;
 
 		BUILD_BUG_ON(16 != ARRAY_SIZE(dma_buffer->data.result));
 
 		for (n = start_sector; n < cwperpage; n++) {
-			
+			/* flash + buffer status return words */
 			dma_buffer->data.result[n].flash_status = 0xeeeeeeee;
 			dma_buffer->data.result[n].buffer_status = 0xeeeeeeee;
 
@@ -1392,7 +1432,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* NC01, NC10 --> ADDR1 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.nandc11_addr1);
@@ -1410,7 +1450,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 						cmd->len = 8;
 					cmd++;
 				} else {
-					
+					/* enable CS0 & CS1 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->
@@ -1419,7 +1459,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* NC01, NC10 --> ADDR1 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.nandc11_addr1);
@@ -1427,7 +1467,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* Enable CS0 for NC01 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.chipsel_cs0);
@@ -1436,7 +1476,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* Enable CS1 for NC10 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.chipsel_cs1);
@@ -1445,7 +1485,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* config DEV0_CFG0 & CFG1 for CS0 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.cfg0);
@@ -1453,7 +1493,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 8;
 					cmd++;
 
-					
+					/* config DEV1_CFG0 & CFG1 for CS1 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.cfg0);
@@ -1470,9 +1510,9 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 				cmd->len = 4;
 				cmd++;
 
-				
+				/* if 'only' the last code word */
 				if (n == cwperpage - 1) {
-					
+					/* MASK CMD ACK/REQ --> NC01 (0x53C)*/
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->
@@ -1481,7 +1521,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* CMD */
 					cmd->cmd = DST_CRCI_NAND_CMD;
 					cmd->src = msm_virt_to_dma(chip,
 							&dma_buffer->data.cmd);
@@ -1489,7 +1529,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* NC10 --> ADDR0 ( 0x0 ) */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.nandc10_addr0);
@@ -1497,7 +1537,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* kick the execute reg for NC10 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 						&dma_buffer->data.exec);
@@ -1505,7 +1545,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* MASK DATA ACK/REQ --> NC01 (0xA3C)*/
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->
@@ -1514,14 +1554,20 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
+					/* block on data ready from NC10, then
+					 * read the status register
+					 */
 					cmd->cmd = SRC_CRCI_NAND_DATA;
 					cmd->src = NC10(MSM_NAND_FLASH_STATUS);
 					cmd->dst = msm_virt_to_dma(chip,
 						&dma_buffer->data.result[n]);
+					/* MSM_NAND_FLASH_STATUS +
+					 * MSM_NAND_BUFFER_STATUS
+					 */
 					cmd->len = 8;
 					cmd++;
 				} else {
-					
+					/* NC01 --> ADDR0 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.nandc01_addr0);
@@ -1529,7 +1575,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* NC10 --> ADDR1 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.nandc10_addr0);
@@ -1537,7 +1583,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* MASK CMD ACK/REQ --> NC10 (0xF14)*/
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->
@@ -1546,7 +1592,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* CMD */
 					cmd->cmd = DST_CRCI_NAND_CMD;
 					cmd->src = msm_virt_to_dma(chip,
 							&dma_buffer->data.cmd);
@@ -1554,7 +1600,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* kick the execute register for NC01*/
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 						 &dma_buffer->data.exec);
@@ -1564,6 +1610,9 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 				}
 			}
 
+			/* read data block
+			 * (only valid if status says success)
+			 */
 			if (ops->datbuf || (ops->oobbuf &&
 						 ops->mode != MTD_OPS_AUTO_OOB)) {
 				if (ops->mode != MTD_OPS_RAW)
@@ -1573,7 +1622,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					sectordatasize = chip->cw_size;
 
 				if (n % 2 == 0) {
-					
+					/* MASK DATA ACK/REQ --> NC10 (0xF28)*/
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->
@@ -1582,14 +1631,20 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
+					/* block on data ready from NC01, then
+					 * read the status register
+					 */
 					cmd->cmd = SRC_CRCI_NAND_DATA;
 					cmd->src = NC01(MSM_NAND_FLASH_STATUS);
 					cmd->dst = msm_virt_to_dma(chip,
 						&dma_buffer->data.result[n]);
+					/* MSM_NAND_FLASH_STATUS +
+					 * MSM_NAND_BUFFER_STATUS
+					 */
 					cmd->len = 8;
 					cmd++;
 
-					
+					/* MASK CMD ACK/REQ --> NC01 (0x53C)*/
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->
@@ -1598,7 +1653,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* CMD */
 					cmd->cmd = DST_CRCI_NAND_CMD;
 					cmd->src = msm_virt_to_dma(chip,
 							&dma_buffer->data.cmd);
@@ -1606,7 +1661,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* kick the execute register for NC10 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 						&dma_buffer->data.exec);
@@ -1614,6 +1669,9 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
+					/* Read only when there is data
+					 * buffer
+					 */
 					if (ops->datbuf) {
 						cmd->cmd = 0;
 						cmd->src =
@@ -1625,6 +1683,9 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 						cmd++;
 					}
 				} else {
+					/* MASK DATA ACK/REQ -->
+					 * NC01 (0xA3C)
+					 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->
@@ -1633,14 +1694,23 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd->len = 4;
 					cmd++;
 
+					/* block on data ready from NC10
+					 * then read the status register
+					 */
 					cmd->cmd = SRC_CRCI_NAND_DATA;
 					cmd->src =
 					NC10(MSM_NAND_FLASH_STATUS);
 					cmd->dst = msm_virt_to_dma(chip,
 					   &dma_buffer->data.result[n]);
+					/* MSM_NAND_FLASH_STATUS +
+					 * MSM_NAND_BUFFER_STATUS
+					 */
 					cmd->len = 8;
 					cmd++;
 					if (n != cwperpage - 1) {
+						/* MASK CMD ACK/REQ -->
+						 * NC10 (0xF14)
+						 */
 						cmd->cmd = 0;
 						cmd->src =
 						msm_virt_to_dma(chip,
@@ -1650,7 +1720,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 						cmd->len = 4;
 						cmd++;
 
-						
+						/* CMD */
 						cmd->cmd = DST_CRCI_NAND_CMD;
 						cmd->src = msm_virt_to_dma(chip,
 							&dma_buffer->data.cmd);
@@ -1659,7 +1729,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 						cmd->len = 4;
 						cmd++;
 
-						
+						/* EXEC */
 						cmd->cmd = 0;
 						cmd->src = msm_virt_to_dma(chip,
 							&dma_buffer->data.exec);
@@ -1669,6 +1739,9 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 						cmd++;
 					}
 
+					/* Read only when there is data
+					 * buffer
+					 */
 					if (ops->datbuf) {
 						cmd->cmd = 0;
 						cmd->src =
@@ -1686,6 +1759,9 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 			     || ops->mode != MTD_OPS_AUTO_OOB)) {
 				cmd->cmd = 0;
 				if (n == (cwperpage - 1)) {
+					/* Use NC10 for reading the
+					 * last codeword!!!
+					 */
 					cmd->src = NC10(MSM_NAND_FLASH_BUFFER) +
 						(512 - ((cwperpage - 1) << 2));
 					sectoroobsize = (cwperpage << 2);
@@ -1714,7 +1790,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					cmd++;
 			}
 		}
-		
+		/* ADM --> Default mux state (0xFC0) */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip,
 			&dma_buffer->data.adm_default_mux);
@@ -1737,7 +1813,7 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 			cmd->len = 4;
 			cmd++;
 		} else {
-			
+			/* disable CS1 */
 			cmd->cmd = 0;
 			cmd->src = msm_virt_to_dma(chip,
 			&dma_buffer->data.default_ebi2_chip_select_cfg0);
@@ -1761,6 +1837,9 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 			&dma_buffer->cmdptr)));
 		mb();
 
+		/* if any of the writes failed (0x10), or there
+		 * was a protection violation (0x100), we lose
+		 */
 		pageerr = rawerr = 0;
 		for (n = start_sector; n < cwperpage; n++) {
 			if (dma_buffer->data.result[n].flash_status & 0x110) {
@@ -1778,6 +1857,9 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 					mtd->writesize, DMA_BIDIRECTIONAL);
 
 				for (n = 0; n < mtd->writesize; n++) {
+					/* empty blocks read 0x54 at
+					 * these offsets
+					 */
 					if ((n % 516 == 3 || n % 516 == 175)
 							&& datbuf[n] == 0x54)
 						datbuf[n] = 0xff;
@@ -1813,21 +1895,21 @@ static int msm_nand_read_oob_dualnandc(struct mtd_info *mtd, loff_t from,
 			for (n = start_sector; n < cwperpage; n++) {
 				if (dma_buffer->data.result[n].buffer_status
 					& chip->uncorrectable_bit_mask) {
-					
+					/* not thread safe */
 					mtd->ecc_stats.failed++;
 					pageerr = -EBADMSG;
 					break;
 				}
 			}
 		}
-		if (!rawerr) { 
+		if (!rawerr) { /* check for corretable errors */
 			for (n = start_sector; n < cwperpage; n++) {
 				ecc_errors = dma_buffer->data.
 					result[n].buffer_status
 					& chip->num_err_mask;
 				if (ecc_errors) {
 					total_ecc_errors += ecc_errors;
-					
+					/* not thread safe */
 					mtd->ecc_stats.corrected += ecc_errors;
 					if (ecc_errors > 1)
 						pageerr = -EUCLEAN;
@@ -1923,13 +2005,13 @@ msm_nand_read(struct mtd_info *mtd, loff_t from, size_t len,
 	*retlen = 0;
 
 	if ((from & (mtd->writesize - 1)) == 0 && len == mtd->writesize) {
-		
+		/* reading a page on page boundary */
 		ops.len = len;
 		ops.datbuf = buf;
 		ret = read_oob(mtd, from, &ops);
 		*retlen = ops.retlen;
 	} else if (len > 0) {
-		
+		/* reading any size on any offset. partial page is supported */
 		u8 *bounce_buf;
 		loff_t aligned_from;
 		loff_t offset;
@@ -2111,15 +2193,15 @@ msm_nand_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_oob_ops *ops)
 						(chip->CFG1 & CFG1_WIDE_FLASH);
 		}
 
-		
+		/* CMD / ADDR0 / ADDR1 / CHIPSEL program values */
 		dma_buffer->data.cmd = MSM_NAND_CMD_PRG_PAGE;
 		dma_buffer->data.addr0 = page << 16;
 		dma_buffer->data.addr1 = (page >> 16) & 0xff;
-		
+		/* chipsel_0 + enable DM interface */
 		dma_buffer->data.chipsel = 0 | 4;
 
 
-		
+		/* GO bit for the EXEC register */
 		dma_buffer->data.exec = 1;
 		dma_buffer->data.clrfstatus = 0x00000020;
 		dma_buffer->data.clrrstatus = 0x000000C0;
@@ -2127,8 +2209,11 @@ msm_nand_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_oob_ops *ops)
 		BUILD_BUG_ON(8 != ARRAY_SIZE(dma_buffer->data.flash_status));
 
 		for (n = 0; n < cwperpage ; n++) {
-			
+			/* status return words */
 			dma_buffer->data.flash_status[n] = 0xeeeeeeee;
+			/* block on cmd ready, then
+			 * write CMD / ADDR0 / ADDR1 / CHIPSEL regs in a burst
+			 */
 			cmd->cmd = DST_CRCI_NAND_CMD;
 			cmd->src =
 				msm_virt_to_dma(chip, &dma_buffer->data.cmd);
@@ -2159,7 +2244,7 @@ msm_nand_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_oob_ops *ops)
 				cmd++;
 			}
 
-			
+			/* write data block */
 			if (ops->mode != MTD_OPS_RAW)
 				sectordatawritesize = (n < (cwperpage - 1)) ?
 					516 : (512 - ((cwperpage - 1) << 2));
@@ -2189,7 +2274,7 @@ msm_nand_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_oob_ops *ops)
 						cmd++;
 				}
 				if (ops->mode != MTD_OPS_AUTO_OOB) {
-					
+					/* skip ecc bytes in oobbuf */
 					if (oob_len < chip->ecc_parity_bytes) {
 						oob_dma_addr_curr +=
 							chip->ecc_parity_bytes;
@@ -2202,7 +2287,7 @@ msm_nand_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_oob_ops *ops)
 				}
 			}
 
-			
+			/* kick the execute register */
 			cmd->cmd = 0;
 			cmd->src =
 				msm_virt_to_dma(chip, &dma_buffer->data.exec);
@@ -2210,6 +2295,9 @@ msm_nand_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_oob_ops *ops)
 			cmd->len = 4;
 			cmd++;
 
+			/* block on data ready, then
+			 * read the status register
+			 */
 			cmd->cmd = SRC_CRCI_NAND_DATA;
 			cmd->src = MSM_NAND_FLASH_STATUS;
 			cmd->dst = msm_virt_to_dma(chip,
@@ -2247,6 +2335,10 @@ msm_nand_write_oob(struct mtd_info *mtd, loff_t to, struct mtd_oob_ops *ops)
 				msm_virt_to_dma(chip, &dma_buffer->cmdptr)));
 		mb();
 
+		/* if any of the writes failed (0x10), or there was a
+		 * protection violation (0x100), or the program success
+		 * bit (0x80) is unset, we lose
+		 */
 		err = 0;
 		for (n = 0; n < cwperpage; n++) {
 			if (dma_buffer->data.flash_status[n] & 0x110) {
@@ -2472,6 +2564,9 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 					(chip->CFG1 & CFG1_WIDE_FLASH);
 		}
 
+		/* Disables the automatic issuing of the read
+		 * status command for first NAND controller.
+		 */
 		if (!interleave_enable)
 			dma_buffer->data.cfg0_nc01 = dma_buffer->data.cfg0
 							| (1 << 4);
@@ -2482,25 +2577,25 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 		dma_buffer->data.chipsel_cs0 = (1<<4) | 4;
 		dma_buffer->data.chipsel_cs1 = (1<<4) | 5;
 
-		
+		/* GO bit for the EXEC register */
 		dma_buffer->data.exec = 1;
 
 		if (!interleave_enable) {
 			dma_buffer->data.nandc01_addr0 = (page << 16) | 0x0;
-			
+			/* NC10 ADDR0 points to the next code word */
 			dma_buffer->data.nandc10_addr0 =
 					(page << 16) | cw_offset;
 		} else {
 			dma_buffer->data.nandc01_addr0 =
 			dma_buffer->data.nandc10_addr0 = (page << 16) | 0x0;
 		}
-		
+		/* ADDR1 */
 		dma_buffer->data.nandc11_addr1 = (page >> 16) & 0xff;
 
 		BUILD_BUG_ON(16 != ARRAY_SIZE(dma_buffer->data.flash_status));
 
 		for (n = 0; n < cwperpage; n++) {
-			
+			/* status return words */
 			dma_buffer->data.flash_status[n] = 0xeeeeeeee;
 
 			if (n == 0) {
@@ -2520,6 +2615,9 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 					cmd->len = 4;
 					cmd++;
 
+					/* common settings for both NC01 & NC10
+					 * NC01, NC10 --> ADDR1 / CHIPSEL
+					 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.nandc11_addr1);
@@ -2527,6 +2625,10 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 					cmd->len = 8;
 					cmd++;
 
+					/* Disables the automatic issue of the
+					 * read status command after the write
+					 * operation.
+					 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 						&dma_buffer->data.cfg0_nc01);
@@ -2551,7 +2653,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 						cmd->len = 4;
 					cmd++;
 				} else {
-					
+					/* enable CS1 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->
@@ -2560,7 +2662,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* NC11 --> ADDR1 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.nandc11_addr1);
@@ -2568,7 +2670,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* Enable CS0 for NC01 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.chipsel_cs0);
@@ -2577,7 +2679,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* Enable CS1 for NC10 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.chipsel_cs1);
@@ -2586,7 +2688,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 					cmd->len = 4;
 					cmd++;
 
-					
+					/* config DEV0_CFG0 & CFG1 for CS0 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 						&dma_buffer->data.cfg0);
@@ -2594,7 +2696,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 					cmd->len = 8;
 					cmd++;
 
-					
+					/* config DEV1_CFG0 & CFG1 for CS1 */
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.cfg0);
@@ -2611,7 +2713,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 				cmd->len = 4;
 				cmd++;
 
-				
+				/* NC01 --> ADDR0 */
 				cmd->cmd = 0;
 				cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.nandc01_addr0);
@@ -2619,7 +2721,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 				cmd->len = 4;
 				cmd++;
 
-				
+				/* NC10 --> ADDR0 */
 				cmd->cmd = 0;
 				cmd->src = msm_virt_to_dma(chip,
 				&dma_buffer->data.nandc10_addr0);
@@ -2629,7 +2731,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 			}
 
 			if (n % 2 == 0) {
-				
+				/* MASK CMD ACK/REQ --> NC10 (0xF14)*/
 				cmd->cmd = 0;
 				cmd->src = msm_virt_to_dma(chip,
 				&dma_buffer->data.adm_mux_cmd_ack_req_nc10);
@@ -2637,7 +2739,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 				cmd->len = 4;
 				cmd++;
 
-				
+				/* CMD */
 				cmd->cmd = DST_CRCI_NAND_CMD;
 				cmd->src = msm_virt_to_dma(chip,
 						&dma_buffer->data.cmd);
@@ -2645,7 +2747,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 				cmd->len = 4;
 				cmd++;
 			} else {
-				
+				/* MASK CMD ACK/REQ --> NC01 (0x53C)*/
 				cmd->cmd = 0;
 				cmd->src = msm_virt_to_dma(chip,
 				&dma_buffer->data.adm_mux_cmd_ack_req_nc01);
@@ -2653,7 +2755,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 				cmd->len = 4;
 				cmd++;
 
-				
+				/* CMD */
 				cmd->cmd = DST_CRCI_NAND_CMD;
 				cmd->src = msm_virt_to_dma(chip,
 						&dma_buffer->data.cmd);
@@ -2695,7 +2797,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 						cmd++;
 				}
 				if (ops->mode != MTD_OPS_AUTO_OOB) {
-					
+					/* skip ecc bytes in oobbuf */
 					if (oob_len < chip->ecc_parity_bytes) {
 						oob_dma_addr_curr +=
 							chip->ecc_parity_bytes;
@@ -2710,7 +2812,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 
 			if (n % 2 == 0) {
 				if (n != 0) {
-					
+					/* MASK DATA ACK/REQ --> NC01 (0xA3C)*/
 					cmd->cmd = 0;
 					cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->
@@ -2719,6 +2821,9 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 					cmd->len = 4;
 					cmd++;
 
+					/* block on data ready from NC10, then
+					* read the status register
+					*/
 					cmd->cmd = SRC_CRCI_NAND_DATA;
 					cmd->src = NC10(MSM_NAND_FLASH_STATUS);
 					cmd->dst = msm_virt_to_dma(chip,
@@ -2726,7 +2831,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 					cmd->len = 4;
 					cmd++;
 				}
-				
+				/* kick the NC01 execute register */
 				cmd->cmd = 0;
 				cmd->src = msm_virt_to_dma(chip,
 						&dma_buffer->data.exec);
@@ -2734,7 +2839,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 				cmd->len = 4;
 				cmd++;
 			} else {
-				
+				/* MASK DATA ACK/REQ --> NC10 (0xF28)*/
 				cmd->cmd = 0;
 				cmd->src = msm_virt_to_dma(chip,
 				&dma_buffer->data.adm_mux_data_ack_req_nc10);
@@ -2742,6 +2847,9 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 				cmd->len = 4;
 				cmd++;
 
+				/* block on data ready from NC01, then
+				 * read the status register
+				 */
 				cmd->cmd = SRC_CRCI_NAND_DATA;
 				cmd->src = NC01(MSM_NAND_FLASH_STATUS);
 				cmd->dst = msm_virt_to_dma(chip,
@@ -2749,7 +2857,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 				cmd->len = 4;
 				cmd++;
 
-				
+				/* kick the execute register */
 				cmd->cmd = 0;
 				cmd->src =
 				msm_virt_to_dma(chip, &dma_buffer->data.exec);
@@ -2759,7 +2867,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 			}
 		}
 
-		
+		/* MASK DATA ACK/REQ --> NC01 (0xA3C)*/
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip,
 				&dma_buffer->data.adm_mux_data_ack_req_nc01);
@@ -2767,7 +2875,10 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* we should process outstanding request */
+		/* block on data ready, then
+		 * read the status register
+		 */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = NC10(MSM_NAND_FLASH_STATUS);
 		cmd->dst = msm_virt_to_dma(chip,
@@ -2787,7 +2898,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* MASK DATA ACK/REQ --> NC01 (0xFC0)*/
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip,
 				&dma_buffer->data.adm_default_mux);
@@ -2796,7 +2907,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 		cmd++;
 
 		if (!interleave_enable) {
-			
+			/* setting to defalut values back */
 			cmd->cmd = 0;
 			cmd->src = msm_virt_to_dma(chip,
 			&dma_buffer->data.nc01_flash_dev_cmd_vld_default);
@@ -2811,7 +2922,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 			cmd->len = 4;
 			cmd++;
 		} else {
-			
+			/* disable CS1 */
 			cmd->cmd = 0;
 			cmd->src = msm_virt_to_dma(chip,
 			&dma_buffer->data.default_ebi2_chip_select_cfg0);
@@ -2833,6 +2944,10 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 				msm_virt_to_dma(chip, &dma_buffer->cmdptr)));
 		mb();
 
+		/* if any of the writes failed (0x10), or there was a
+		 * protection violation (0x100), or the program success
+		 * bit (0x80) is unset, we lose
+		 */
 		err = 0;
 		for (n = 0; n < cwperpage; n++) {
 			if (dma_buffer->data.flash_status[n] & 0x110) {
@@ -2844,7 +2959,7 @@ msm_nand_write_oob_dualnandc(struct mtd_info *mtd, loff_t to,
 				break;
 			}
 		}
-		
+		/* check for flash status busy for the last codeword */
 		if (!interleave_enable)
 			if (!(dma_buffer->data.flash_status[cwperpage - 1]
 								& 0x20)) {
@@ -2919,6 +3034,13 @@ static int msm_nand_write(struct mtd_info *mtd, loff_t to, size_t len,
 	if (!virt_addr_valid(buf) &&
 	    ((to | len) & (mtd->writesize - 1)) == 0 &&
 	    ((unsigned long) buf & ~PAGE_MASK) + len > PAGE_SIZE) {
+		/*
+		 * Handle writing of large size write buffer in vmalloc
+		 * address space that does not fit in an MMU page.
+		 * The destination address must be on page boundary,
+		 * and the size must be multiple of NAND page size.
+		 * Writing partial page is not supported.
+		 */
 		ops.len = mtd->writesize;
 
 		for (;;) {
@@ -2999,7 +3121,7 @@ msm_nand_erase(struct mtd_info *mtd, struct erase_info *instr)
 	dma_buffer->data.chipsel = 0 | 4;
 	dma_buffer->data.exec = 1;
 	dma_buffer->data.flash_status = 0xeeeeeeee;
-	dma_buffer->data.cfg0 = chip->CFG0 & (~(7 << 6));  
+	dma_buffer->data.cfg0 = chip->CFG0 & (~(7 << 6));  /* CW_PER_PAGE = 0 */
 	dma_buffer->data.cfg1 = chip->CFG1;
 	dma_buffer->data.clrfstatus = 0x00000020;
 	dma_buffer->data.clrrstatus = 0x000000C0;
@@ -3051,6 +3173,9 @@ msm_nand_erase(struct mtd_info *mtd, struct erase_info *instr)
 		DMOV_CMD_ADDR(msm_virt_to_dma(chip, &dma_buffer->cmdptr)));
 	mb();
 
+	/* we fail if there was an operation error, a mpu error, or the
+	 * erase success bit was not set.
+	 */
 
 	if (dma_buffer->data.flash_status & 0x110 ||
 			!(dma_buffer->data.flash_status & 0x80))
@@ -3140,7 +3265,7 @@ msm_nand_erase_dualnandc(struct mtd_info *mtd, struct erase_info *instr)
 	dma_buffer->data.exec = 1;
 	dma_buffer->data.flash_status[0] = 0xeeeeeeee;
 	dma_buffer->data.flash_status[1] = 0xeeeeeeee;
-	dma_buffer->data.cfg0 = chip->CFG0 & (~(7 << 6));  
+	dma_buffer->data.cfg0 = chip->CFG0 & (~(7 << 6));  /* CW_PER_PAGE = 0 */
 	dma_buffer->data.cfg1 = chip->CFG1;
 	dma_buffer->data.clrfstatus = 0x00000020;
 	dma_buffer->data.clrrstatus = 0x000000C0;
@@ -3153,7 +3278,7 @@ msm_nand_erase_dualnandc(struct mtd_info *mtd, struct erase_info *instr)
 	dma_buffer->data.adm_default_mux = 0x00000FC0;
 	dma_buffer->data.default_ebi2_chip_select_cfg0 = 0x00000801;
 
-	
+	/* enable CS1 */
 	cmd->cmd = 0 | CMD_OCB;
 	cmd->src = msm_virt_to_dma(chip,
 			&dma_buffer->data.ebi2_chip_select_cfg0);
@@ -3161,8 +3286,8 @@ msm_nand_erase_dualnandc(struct mtd_info *mtd, struct erase_info *instr)
 	cmd->len = 4;
 	cmd++;
 
-	
-	
+	/* erase CS0 block now !!! */
+	/* 0xF14 */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip,
 			&dma_buffer->data.adm_mux_cmd_ack_req_nc10);
@@ -3188,7 +3313,7 @@ msm_nand_erase_dualnandc(struct mtd_info *mtd, struct erase_info *instr)
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* 0xF28 */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip,
 			&dma_buffer->data.adm_mux_data_ack_req_nc10);
@@ -3202,8 +3327,8 @@ msm_nand_erase_dualnandc(struct mtd_info *mtd, struct erase_info *instr)
 	cmd->len = 4;
 	cmd++;
 
-	
-	
+	/* erase CS1 block now !!! */
+	/* 0x53C */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip,
 			       &dma_buffer->data.adm_mux_cmd_ack_req_nc01);
@@ -3234,7 +3359,7 @@ msm_nand_erase_dualnandc(struct mtd_info *mtd, struct erase_info *instr)
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* 0xA3C */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip,
 			     &dma_buffer->data.adm_mux_data_ack_req_nc01);
@@ -3267,7 +3392,7 @@ msm_nand_erase_dualnandc(struct mtd_info *mtd, struct erase_info *instr)
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* disable CS1 */
 	cmd->cmd = CMD_OCU | CMD_LC;
 	cmd->src = msm_virt_to_dma(chip,
 			&dma_buffer->data.default_ebi2_chip_select_cfg0);
@@ -3287,6 +3412,9 @@ msm_nand_erase_dualnandc(struct mtd_info *mtd, struct erase_info *instr)
 		DMOV_CMD_ADDR(msm_virt_to_dma(chip, &dma_buffer->cmdptr)));
 	mb();
 
+	/* we fail if there was an operation error, a mpu error, or the
+	 * erase success bit was not set.
+	 */
 
 	if (dma_buffer->data.flash_status[0] & 0x110 ||
 			!(dma_buffer->data.flash_status[0] & 0x80) ||
@@ -3346,7 +3474,7 @@ msm_nand_block_isbad(struct mtd_info *mtd, loff_t ofs)
 
 	cwperpage = (mtd->writesize >> 9);
 
-	
+	/* Check for invalid offset */
 	if (ofs > mtd->size)
 		return -EINVAL;
 	if (ofs & (mtd->erasesize - 1)) {
@@ -3360,6 +3488,9 @@ msm_nand_block_isbad(struct mtd_info *mtd, loff_t ofs)
 					 sizeof(*dma_buffer) + 4)));
 	buf = (uint8_t *)dma_buffer + sizeof(*dma_buffer);
 
+	/* Read 4 bytes starting from the bad block marker location
+	 * in the last code word of the page
+	 */
 
 	cmd = dma_buffer->cmd;
 
@@ -3437,7 +3568,7 @@ msm_nand_block_isbad(struct mtd_info *mtd, loff_t ofs)
 		ret = -EIO;
 
 	if (!ret) {
-		
+		/* Check for bad block marker byte */
 		if (chip->CFG1 & CFG1_WIDE_FLASH) {
 			if (buf[0] != 0xFF || buf[1] != 0xFF)
 				ret = 1;
@@ -3499,7 +3630,7 @@ msm_nand_block_isbad_dualnandc(struct mtd_info *mtd, loff_t ofs)
 
 	cwperpage = ((mtd->writesize >> 1) >> 9);
 
-	
+	/* Check for invalid offset */
 	if (ofs > mtd->size)
 		return -EINVAL;
 	if (ofs & (mtd->erasesize - 1)) {
@@ -3514,6 +3645,9 @@ msm_nand_block_isbad_dualnandc(struct mtd_info *mtd, loff_t ofs)
 	buf01 = (uint8_t *)dma_buffer + sizeof(*dma_buffer);
 	buf10 = buf01 + 4;
 
+	/* Read 4 bytes starting from the bad block marker location
+	 * in the last code word of the page
+	 */
 	cmd = dma_buffer->cmd;
 
 	dma_buffer->data.cmd = MSM_NAND_CMD_PAGE_READ;
@@ -3547,8 +3681,8 @@ msm_nand_block_isbad_dualnandc(struct mtd_info *mtd, loff_t ofs)
 	dma_buffer->data.adm_default_mux = 0x00000FC0;
 	dma_buffer->data.default_ebi2_chip_select_cfg0 = 0x00000801;
 
-	
-	
+	/* Reading last code word from NC01 */
+	/* enable CS1 */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip,
 			&dma_buffer->data.ebi2_chip_select_cfg0);
@@ -3556,7 +3690,7 @@ msm_nand_block_isbad_dualnandc(struct mtd_info *mtd, loff_t ofs)
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* 0xF14 */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip,
 			&dma_buffer->data.adm_mux_cmd_ack_req_nc10);
@@ -3582,7 +3716,7 @@ msm_nand_block_isbad_dualnandc(struct mtd_info *mtd, loff_t ofs)
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* 0xF28 */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip,
 			&dma_buffer->data.adm_mux_data_ack_req_nc10);
@@ -3603,8 +3737,8 @@ msm_nand_block_isbad_dualnandc(struct mtd_info *mtd, loff_t ofs)
 	cmd->len = 4;
 	cmd++;
 
-	
-	
+	/* Reading last code word from NC10 */
+	/* 0x53C */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip,
 	&dma_buffer->data.adm_mux_cmd_ack_req_nc01);
@@ -3636,7 +3770,7 @@ msm_nand_block_isbad_dualnandc(struct mtd_info *mtd, loff_t ofs)
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* A3C */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip,
 			&dma_buffer->data.adm_mux_data_ack_req_nc01);
@@ -3657,7 +3791,7 @@ msm_nand_block_isbad_dualnandc(struct mtd_info *mtd, loff_t ofs)
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* FC0 */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip,
 			&dma_buffer->data.adm_default_mux);
@@ -3665,7 +3799,7 @@ msm_nand_block_isbad_dualnandc(struct mtd_info *mtd, loff_t ofs)
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* disble CS1 */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip,
 			&dma_buffer->data.ebi2_chip_select_cfg0);
@@ -3692,7 +3826,7 @@ msm_nand_block_isbad_dualnandc(struct mtd_info *mtd, loff_t ofs)
 		ret = -EIO;
 
 	if (!ret) {
-		
+		/* Check for bad block marker byte for NC01 & NC10 */
 		if (chip->CFG1 & CFG1_WIDE_FLASH) {
 			if ((buf01[0] != 0xFF || buf01[1] != 0xFF) ||
 				(buf10[0] != 0xFF || buf10[1] != 0xFF))
@@ -3714,7 +3848,7 @@ msm_nand_block_markbad(struct mtd_info *mtd, loff_t ofs)
 	int ret;
 	uint8_t *buf;
 
-	
+	/* Check for invalid offset */
 	if (ofs > mtd->size)
 		return -EINVAL;
 	if (ofs & (mtd->erasesize - 1)) {
@@ -3723,6 +3857,10 @@ msm_nand_block_markbad(struct mtd_info *mtd, loff_t ofs)
 		return -EINVAL;
 	}
 
+	/*
+	Write all 0s to the first page
+	This will set the BB marker to 0
+	*/
 	buf = page_address(ZERO_PAGE());
 
 	ops.mode = MTD_OPS_RAW;
@@ -3739,11 +3877,19 @@ msm_nand_block_markbad(struct mtd_info *mtd, loff_t ofs)
 	return ret;
 }
 
+/**
+ * msm_nand_suspend - [MTD Interface] Suspend the msm_nand flash
+ * @param mtd		MTD device structure
+ */
 static int msm_nand_suspend(struct mtd_info *mtd)
 {
 	return 0;
 }
 
+/**
+ * msm_nand_resume - [MTD Interface] Resume the msm_nand flash
+ * @param mtd		MTD device structure
+ */
 static void msm_nand_resume(struct mtd_info *mtd)
 {
 }
@@ -3827,49 +3973,49 @@ uint32_t flash_onenand_probe(struct msm_nand_chip *chip)
 	dma_buffer->data.data2 = CLEAN_DATA_32;
 	dma_buffer->data.data3 = CLEAN_DATA_32;
 
-	
+	/* Enable and configure the SFlash controller */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.bcfg);
 	cmd->dst = MSM_NAND_SFLASHC_BURST_CFG;
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Block on cmd ready and write CMD register */
 	cmd->cmd = DST_CRCI_NAND_CMD;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.cmd);
 	cmd->dst = MSM_NAND_SFLASHC_CMD;
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Configure the ADDR0 and ADDR1 registers */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr0);
 	cmd->dst = MSM_NAND_ADDR0;
 	cmd->len = 8;
 	cmd++;
 
-	
+	/* Configure the ADDR2 and ADDR3 registers */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr2);
 	cmd->dst = MSM_NAND_ADDR2;
 	cmd->len = 8;
 	cmd++;
 
-	
+	/* Kick the execute command */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.exec);
 	cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Block on data ready, and read the two status registers */
 	cmd->cmd = SRC_CRCI_NAND_DATA;
 	cmd->src = MSM_NAND_SFLASHC_STATUS;
 	cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.status);
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Read data registers - valid only if status says success */
 	cmd->cmd = 0;
 	cmd->src = MSM_NAND_GENP_REG0;
 	cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.data0);
@@ -3890,7 +4036,7 @@ uint32_t flash_onenand_probe(struct msm_nand_chip *chip)
 			&dma_buffer->cmdptr)));
 	mb();
 
-	
+	/* Check for errors, protection violations etc */
 	if (dma_buffer->data.status & 0x110) {
 		pr_info("%s: MPU/OP error"
 				"(0x%x) during Onenand probe\n",
@@ -4051,7 +4197,7 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 
 	if (ops->mode != MTD_OPS_RAW) {
 		if (ops->datbuf != NULL && (ops->len % mtd->writesize) != 0) {
-			
+			/* when ops->datbuf is NULL, ops->len can be ooblen */
 			pr_err("%s: unsupported ops->len, %d\n", __func__,
 					ops->len);
 			return -EINVAL;
@@ -4129,7 +4275,7 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 		cmd = dma_buffer->cmd;
 
 		if ((onenand_info.device_id & ONENAND_DEVICE_IS_DDP)
-			&& (from_curr >= (mtd->size>>1))) { 
+			&& (from_curr >= (mtd->size>>1))) { /* DDP Device */
 				onenand_startaddr1 = DEVICE_FLASHCORE_1 |
 					(((uint32_t)(from_curr-(mtd->size>>1))
 					/ mtd->erasesize));
@@ -4229,140 +4375,140 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 		dma_buffer->data.macro[3] = 0x0500;
 		dma_buffer->data.macro[4] = 0x8010;
 
-		
-		
-		
+		/*************************************************************/
+		/* Write necessary address registers in the onenand device   */
+		/*************************************************************/
 
-		
+		/* Enable and configure the SFlash controller */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfbcfg);
 		cmd->dst = MSM_NAND_SFLASHC_BURST_CFG;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[0]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Write the ADDR0 and ADDR1 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr0);
 		cmd->dst = MSM_NAND_ADDR0;
 		cmd->len = 8;
 		cmd++;
 
-		
+		/* Write the ADDR2 ADDR3 ADDR4 ADDR5 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr2);
 		cmd->dst = MSM_NAND_ADDR2;
 		cmd->len = 16;
 		cmd++;
 
-		
+		/* Write the ADDR6 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr6);
 		cmd->dst = MSM_NAND_ADDR6;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Write the GENP0, GENP1, GENP2, GENP3 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.data0);
 		cmd->dst = MSM_NAND_GENP_REG0;
 		cmd->len = 16;
 		cmd++;
 
-		
+		/* Write the FLASH_DEV_CMD4,5,6 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.data4);
 		cmd->dst = MSM_NAND_DEV_CMD4;
 		cmd->len = 12;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[0]);
 		cmd->len = 4;
 		cmd++;
 
-		
-		
-		
+		/*************************************************************/
+		/* Wait for the interrupt from the Onenand device controller */
+		/*************************************************************/
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[1]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[1]);
 		cmd->len = 4;
 		cmd++;
 
-		
-		
-		
+		/*************************************************************/
+		/* Read necessary status registers from the onenand device   */
+		/*************************************************************/
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[2]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[2]);
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Read the GENP3 register */
 		cmd->cmd = 0;
 		cmd->src = MSM_NAND_GENP_REG3;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.data3);
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Read the DEVCMD4 register */
 		cmd->cmd = 0;
 		cmd->src = MSM_NAND_DEV_CMD4;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.data4);
 		cmd->len = 4;
 		cmd++;
 
-		
-		
-		
+		/*************************************************************/
+		/* Read the data ram area from the onenand buffer ram        */
+		/*************************************************************/
 
 		if (ops->datbuf) {
 
@@ -4371,7 +4517,7 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 
 			for (i = 0; i < 4; i++) {
 
-				
+				/* Block on cmd ready and write CMD register */
 				cmd->cmd = DST_CRCI_NAND_CMD;
 				cmd->src = msm_virt_to_dma(chip,
 						&dma_buffer->data.sfcmd[3+i]);
@@ -4379,7 +4525,7 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 				cmd->len = 4;
 				cmd++;
 
-				
+				/* Write the MACRO1 register */
 				cmd->cmd = 0;
 				cmd->src = msm_virt_to_dma(chip,
 						&dma_buffer->data.macro[i]);
@@ -4387,7 +4533,7 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 				cmd->len = 4;
 				cmd++;
 
-				
+				/* Kick the execute command */
 				cmd->cmd = 0;
 				cmd->src = msm_virt_to_dma(chip,
 						&dma_buffer->data.sfexec);
@@ -4395,7 +4541,7 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 				cmd->len = 4;
 				cmd++;
 
-				
+				/* Block on data rdy, & read status register */
 				cmd->cmd = SRC_CRCI_NAND_DATA;
 				cmd->src = MSM_NAND_SFLASHC_STATUS;
 				cmd->dst = msm_virt_to_dma(chip,
@@ -4403,7 +4549,7 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 				cmd->len = 4;
 				cmd++;
 
-				
+				/* Transfer nand ctlr buf contents to usr buf */
 				cmd->cmd = 0;
 				cmd->src = MSM_NAND_FLASH_BUFFER;
 				cmd->dst = data_dma_addr_curr;
@@ -4415,7 +4561,7 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 
 		if ((ops->oobbuf) || (ops->mode == MTD_OPS_RAW)) {
 
-			
+			/* Block on cmd ready and write CMD register */
 			cmd->cmd = DST_CRCI_NAND_CMD;
 			cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.sfcmd[7]);
@@ -4423,7 +4569,7 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 			cmd->len = 4;
 			cmd++;
 
-			
+			/* Write the MACRO1 register */
 			cmd->cmd = 0;
 			cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.macro[4]);
@@ -4431,7 +4577,7 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 			cmd->len = 4;
 			cmd++;
 
-			
+			/* Kick the execute command */
 			cmd->cmd = 0;
 			cmd->src = msm_virt_to_dma(chip,
 					&dma_buffer->data.sfexec);
@@ -4439,7 +4585,7 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 			cmd->len = 4;
 			cmd++;
 
-			
+			/* Block on data ready, and read status register */
 			cmd->cmd = SRC_CRCI_NAND_DATA;
 			cmd->src = MSM_NAND_SFLASHC_STATUS;
 			cmd->dst = msm_virt_to_dma(chip,
@@ -4447,7 +4593,7 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 			cmd->len = 4;
 			cmd++;
 
-			
+			/* Transfer nand ctlr buffer contents into usr buf */
 			if (ops->mode == MTD_OPS_AUTO_OOB) {
 				for (i = 0; i < MTD_MAX_OOBFREE_ENTRIES; i++) {
 					cmd->cmd = 0;
@@ -4479,25 +4625,25 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 			}
 		}
 
-		
-		
-		
+		/*************************************************************/
+		/* Restore the necessary registers to proper values          */
+		/*************************************************************/
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[8]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[8]);
@@ -4546,7 +4692,7 @@ int msm_onenand_read_oob(struct mtd_info *mtd,
 		pr_info("%s: ecc_status = %x\n", __func__,
 					ecc_status);
 #endif
-		
+		/* Check for errors, protection violations etc */
 		if ((controller_status != 0)
 				|| (dma_buffer->data.sfstat[0] & 0x110)
 				|| (dma_buffer->data.sfstat[1] & 0x110)
@@ -4735,7 +4881,7 @@ static int msm_onenand_write_oob(struct mtd_info *mtd, loff_t to,
 
 	if (ops->mode != MTD_OPS_RAW) {
 		if (ops->datbuf != NULL && (ops->len % mtd->writesize) != 0) {
-			
+			/* when ops->datbuf is NULL, ops->len can be ooblen */
 			pr_err("%s: unsupported ops->len, %d\n", __func__,
 					ops->len);
 			return -EINVAL;
@@ -4848,7 +4994,7 @@ static int msm_onenand_write_oob(struct mtd_info *mtd, loff_t to,
 		cmd = dma_buffer->cmd;
 
 		if ((onenand_info.device_id & ONENAND_DEVICE_IS_DDP)
-			&& (to_curr >= (mtd->size>>1))) { 
+			&& (to_curr >= (mtd->size>>1))) { /* DDP Device */
 				onenand_startaddr1 = DEVICE_FLASHCORE_1 |
 					(((uint32_t)(to_curr-(mtd->size>>1))
 					/ mtd->erasesize));
@@ -4954,76 +5100,76 @@ static int msm_onenand_write_oob(struct mtd_info *mtd, loff_t to,
 		dma_buffer->data.macro[4] = 0x8010;
 
 
-		
-		
-		
+		/*************************************************************/
+		/* Write necessary address registers in the onenand device   */
+		/*************************************************************/
 
-		
+		/* Enable and configure the SFlash controller */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfbcfg);
 		cmd->dst = MSM_NAND_SFLASHC_BURST_CFG;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[0]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Write the ADDR0 and ADDR1 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr0);
 		cmd->dst = MSM_NAND_ADDR0;
 		cmd->len = 8;
 		cmd++;
 
-		
+		/* Write the ADDR2 ADDR3 ADDR4 ADDR5 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr2);
 		cmd->dst = MSM_NAND_ADDR2;
 		cmd->len = 16;
 		cmd++;
 
-		
+		/* Write the ADDR6 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr6);
 		cmd->dst = MSM_NAND_ADDR6;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Write the GENP0, GENP1, GENP2, GENP3 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.data0);
 		cmd->dst = MSM_NAND_GENP_REG0;
 		cmd->len = 16;
 		cmd++;
 
-		
+		/* Write the FLASH_DEV_CMD4,5,6 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.data4);
 		cmd->dst = MSM_NAND_DEV_CMD4;
 		cmd->len = 12;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[0]);
 		cmd->len = 4;
 		cmd++;
 
-		
-		
-		
+		/*************************************************************/
+		/* Write the data ram area in the onenand buffer ram         */
+		/*************************************************************/
 
 		if (ops->datbuf) {
 			dma_buffer->data.data3 = (CLEAN_DATA_16 << 16) |
@@ -5031,7 +5177,7 @@ static int msm_onenand_write_oob(struct mtd_info *mtd, loff_t to,
 
 			for (i = 0; i < 4; i++) {
 
-				
+				/* Block on cmd ready and write CMD register */
 				cmd->cmd = DST_CRCI_NAND_CMD;
 				cmd->src = msm_virt_to_dma(chip,
 						&dma_buffer->data.sfcmd[1+i]);
@@ -5039,7 +5185,7 @@ static int msm_onenand_write_oob(struct mtd_info *mtd, loff_t to,
 				cmd->len = 4;
 				cmd++;
 
-				
+				/* Trnsfr usr buf contents to nand ctlr buf */
 				cmd->cmd = 0;
 				cmd->src = data_dma_addr_curr;
 				cmd->dst = MSM_NAND_FLASH_BUFFER;
@@ -5047,7 +5193,7 @@ static int msm_onenand_write_oob(struct mtd_info *mtd, loff_t to,
 				data_dma_addr_curr += 512;
 				cmd++;
 
-				
+				/* Write the MACRO1 register */
 				cmd->cmd = 0;
 				cmd->src = msm_virt_to_dma(chip,
 						&dma_buffer->data.macro[i]);
@@ -5055,7 +5201,7 @@ static int msm_onenand_write_oob(struct mtd_info *mtd, loff_t to,
 				cmd->len = 4;
 				cmd++;
 
-				
+				/* Kick the execute command */
 				cmd->cmd = 0;
 				cmd->src = msm_virt_to_dma(chip,
 						&dma_buffer->data.sfexec);
@@ -5063,7 +5209,7 @@ static int msm_onenand_write_oob(struct mtd_info *mtd, loff_t to,
 				cmd->len = 4;
 				cmd++;
 
-				
+				/* Block on data rdy, & read status register */
 				cmd->cmd = SRC_CRCI_NAND_DATA;
 				cmd->src = MSM_NAND_SFLASHC_STATUS;
 				cmd->dst = msm_virt_to_dma(chip,
@@ -5074,7 +5220,7 @@ static int msm_onenand_write_oob(struct mtd_info *mtd, loff_t to,
 			}
 		}
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[5]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
@@ -5083,7 +5229,7 @@ static int msm_onenand_write_oob(struct mtd_info *mtd, loff_t to,
 
 		if ((ops->oobbuf) || (ops->mode == MTD_OPS_RAW)) {
 
-			
+			/* Transfer user buf contents into nand ctlr buffer */
 			if (ops->mode == MTD_OPS_AUTO_OOB) {
 				cmd->cmd = 0;
 				cmd->src = init_dma_addr;
@@ -5115,135 +5261,135 @@ static int msm_onenand_write_oob(struct mtd_info *mtd, loff_t to,
 				cmd++;
 		}
 
-		
+		/* Write the MACRO1 register */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.macro[4]);
 		cmd->dst = MSM_NAND_MACRO1_REG;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[5]);
 		cmd->len = 4;
 		cmd++;
 
-		
-		
-		
+		/*********************************************************/
+		/* Issuing write command                                 */
+		/*********************************************************/
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[6]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[6]);
 		cmd->len = 4;
 		cmd++;
 
-		
-		
-		
+		/*************************************************************/
+		/* Wait for the interrupt from the Onenand device controller */
+		/*************************************************************/
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[7]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[7]);
 		cmd->len = 4;
 		cmd++;
 
-		
-		
-		
+		/*************************************************************/
+		/* Read necessary status registers from the onenand device   */
+		/*************************************************************/
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[8]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[8]);
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Read the GENP3 register */
 		cmd->cmd = 0;
 		cmd->src = MSM_NAND_GENP_REG3;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.data3);
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Read the DEVCMD4 register */
 		cmd->cmd = 0;
 		cmd->src = MSM_NAND_DEV_CMD4;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.data4);
 		cmd->len = 4;
 		cmd++;
 
-		
-		
-		
+		/*************************************************************/
+		/* Restore the necessary registers to proper values          */
+		/*************************************************************/
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[9]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[9]);
@@ -5290,7 +5436,7 @@ static int msm_onenand_write_oob(struct mtd_info *mtd, loff_t to,
 		pr_info("%s: ecc_status = %x\n", __func__,
 					ecc_status);
 #endif
-		
+		/* Check for errors, protection violations etc */
 		if ((controller_status != 0)
 				|| (dma_buffer->data.sfstat[0] & 0x110)
 				|| (dma_buffer->data.sfstat[6] & 0x110)
@@ -5451,7 +5597,7 @@ static int msm_onenand_erase(struct mtd_info *mtd, struct erase_info *instr)
 	temp = instr->addr;
 
 	if ((onenand_info.device_id & ONENAND_DEVICE_IS_DDP)
-		&& (temp >= (mtd->size>>1))) { 
+		&& (temp >= (mtd->size>>1))) { /* DDP Device */
 			onenand_startaddr1 = DEVICE_FLASHCORE_1 |
 				(((uint32_t)(temp-(mtd->size>>1))
 						/ mtd->erasesize));
@@ -5517,156 +5663,156 @@ static int msm_onenand_erase(struct mtd_info *mtd, struct erase_info *instr)
 	dma_buffer->data.data6 = (ONENAND_STARTADDR3_RES << 16) |
 						(ONENAND_STARTADDR1_RES);
 
-	
-	
-	
+	/***************************************************************/
+	/* Write the necessary address registers in the onenand device */
+	/***************************************************************/
 
-	
+	/* Enable and configure the SFlash controller */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfbcfg);
 	cmd->dst = MSM_NAND_SFLASHC_BURST_CFG;
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Block on cmd ready and write CMD register */
 	cmd->cmd = DST_CRCI_NAND_CMD;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[0]);
 	cmd->dst = MSM_NAND_SFLASHC_CMD;
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Write the ADDR0 and ADDR1 registers */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr0);
 	cmd->dst = MSM_NAND_ADDR0;
 	cmd->len = 8;
 	cmd++;
 
-	
+	/* Write the ADDR2 ADDR3 ADDR4 ADDR5 registers */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr2);
 	cmd->dst = MSM_NAND_ADDR2;
 	cmd->len = 16;
 	cmd++;
 
-	
+	/* Write the ADDR6 registers */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr6);
 	cmd->dst = MSM_NAND_ADDR6;
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Write the GENP0, GENP1, GENP2, GENP3, GENP4 registers */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.data0);
 	cmd->dst = MSM_NAND_GENP_REG0;
 	cmd->len = 16;
 	cmd++;
 
-	
+	/* Write the FLASH_DEV_CMD4,5,6 registers */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.data4);
 	cmd->dst = MSM_NAND_DEV_CMD4;
 	cmd->len = 12;
 	cmd++;
 
-	
+	/* Kick the execute command */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 	cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Block on data ready, and read the status register */
 	cmd->cmd = SRC_CRCI_NAND_DATA;
 	cmd->src = MSM_NAND_SFLASHC_STATUS;
 	cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[0]);
 	cmd->len = 4;
 	cmd++;
 
-	
-	
-	
+	/***************************************************************/
+	/* Wait for the interrupt from the Onenand device controller   */
+	/***************************************************************/
 
-	
+	/* Block on cmd ready and write CMD register */
 	cmd->cmd = DST_CRCI_NAND_CMD;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[1]);
 	cmd->dst = MSM_NAND_SFLASHC_CMD;
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Kick the execute command */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 	cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Block on data ready, and read the status register */
 	cmd->cmd = SRC_CRCI_NAND_DATA;
 	cmd->src = MSM_NAND_SFLASHC_STATUS;
 	cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[1]);
 	cmd->len = 4;
 	cmd++;
 
-	
-	
-	
+	/***************************************************************/
+	/* Read the necessary status registers from the onenand device */
+	/***************************************************************/
 
-	
+	/* Block on cmd ready and write CMD register */
 	cmd->cmd = DST_CRCI_NAND_CMD;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[2]);
 	cmd->dst = MSM_NAND_SFLASHC_CMD;
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Kick the execute command */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 	cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Block on data ready, and read the status register */
 	cmd->cmd = SRC_CRCI_NAND_DATA;
 	cmd->src = MSM_NAND_SFLASHC_STATUS;
 	cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[2]);
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Read the GENP3 register */
 	cmd->cmd = 0;
 	cmd->src = MSM_NAND_GENP_REG3;
 	cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.data3);
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Read the DEVCMD4 register */
 	cmd->cmd = 0;
 	cmd->src = MSM_NAND_DEV_CMD4;
 	cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.data4);
 	cmd->len = 4;
 	cmd++;
 
-	
-	
-	
+	/***************************************************************/
+	/* Restore the necessary registers to proper values            */
+	/***************************************************************/
 
-	
+	/* Block on cmd ready and write CMD register */
 	cmd->cmd = DST_CRCI_NAND_CMD;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[3]);
 	cmd->dst = MSM_NAND_SFLASHC_CMD;
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Kick the execute command */
 	cmd->cmd = 0;
 	cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 	cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 	cmd->len = 4;
 	cmd++;
 
-	
+	/* Block on data ready, and read the status register */
 	cmd->cmd = SRC_CRCI_NAND_DATA;
 	cmd->src = MSM_NAND_SFLASHC_STATUS;
 	cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[3]);
@@ -5706,7 +5852,7 @@ static int msm_onenand_erase(struct mtd_info *mtd, struct erase_info *instr)
 	pr_info("%s: ecc_status = %x\n", __func__,
 				ecc_status);
 #endif
-	
+	/* Check for errors, protection violations etc */
 	if ((controller_status != 0)
 			|| (dma_buffer->data.sfstat[0] & 0x110)
 			|| (dma_buffer->data.sfstat[1] & 0x110)
@@ -5885,7 +6031,7 @@ static int msm_onenand_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 			"=============\n");
 	pr_info("%s: ofs 0x%llx len %lld\n", __func__, ofs, len);
 #endif
-	
+	/* 'ofs' & 'len' should align to block size */
 	if (ofs&(mtd->erasesize - 1)) {
 		pr_err("%s: Unsupported ofs address, 0x%llx\n",
 				__func__, ofs);
@@ -5913,7 +6059,7 @@ static int msm_onenand_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 
 		cmd = dma_buffer->cmd;
 		if ((onenand_info.device_id & ONENAND_DEVICE_IS_DDP)
-			&& (ofs >= (mtd->size>>1))) { 
+			&& (ofs >= (mtd->size>>1))) { /* DDP Device */
 			onenand_startaddr1 = DEVICE_FLASHCORE_1 |
 				(((uint32_t)(ofs - (mtd->size>>1))
 						/ mtd->erasesize));
@@ -5981,156 +6127,156 @@ static int msm_onenand_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 		dma_buffer->data.data6 = (ONENAND_STARTADDR3_RES << 16) |
 						(ONENAND_STARTADDR1_RES);
 
-		
-		
-		
+		/*************************************************************/
+		/* Write the necessary address reg in the onenand device     */
+		/*************************************************************/
 
-		
+		/* Enable and configure the SFlash controller */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfbcfg);
 		cmd->dst = MSM_NAND_SFLASHC_BURST_CFG;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[0]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Write the ADDR0 and ADDR1 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr0);
 		cmd->dst = MSM_NAND_ADDR0;
 		cmd->len = 8;
 		cmd++;
 
-		
+		/* Write the ADDR2 ADDR3 ADDR4 ADDR5 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr2);
 		cmd->dst = MSM_NAND_ADDR2;
 		cmd->len = 16;
 		cmd++;
 
-		
+		/* Write the ADDR6 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr6);
 		cmd->dst = MSM_NAND_ADDR6;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Write the GENP0, GENP1, GENP2, GENP3, GENP4 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.data0);
 		cmd->dst = MSM_NAND_GENP_REG0;
 		cmd->len = 16;
 		cmd++;
 
-		
+		/* Write the FLASH_DEV_CMD4,5,6 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.data4);
 		cmd->dst = MSM_NAND_DEV_CMD4;
 		cmd->len = 12;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[0]);
 		cmd->len = 4;
 		cmd++;
 
-		
-		
-		
+		/*************************************************************/
+		/* Wait for the interrupt from the Onenand device controller */
+		/*************************************************************/
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[1]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[1]);
 		cmd->len = 4;
 		cmd++;
 
-		
-		
-		
+		/*********************************************************/
+		/* Read the necessary status reg from the onenand device */
+		/*********************************************************/
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[2]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[2]);
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Read the GENP3 register */
 		cmd->cmd = 0;
 		cmd->src = MSM_NAND_GENP_REG3;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.data3);
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Read the DEVCMD4 register */
 		cmd->cmd = 0;
 		cmd->src = MSM_NAND_DEV_CMD4;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.data4);
 		cmd->len = 4;
 		cmd++;
 
-		
-		
-		
+		/************************************************************/
+		/* Restore the necessary registers to proper values         */
+		/************************************************************/
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[3]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[3]);
@@ -6170,7 +6316,7 @@ static int msm_onenand_unlock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 		pr_info("%s: write_prot_status = %x\n", __func__,
 					write_prot_status);
 #endif
-		
+		/* Check for errors, protection violations etc */
 		if ((controller_status != 0)
 				|| (dma_buffer->data.sfstat[0] & 0x110)
 				|| (dma_buffer->data.sfstat[1] & 0x110)
@@ -6249,7 +6395,7 @@ static int msm_onenand_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 			"=============\n");
 	pr_info("%s: ofs 0x%llx len %lld\n", __func__, ofs, len);
 #endif
-	
+	/* 'ofs' & 'len' should align to block size */
 	if (ofs&(mtd->erasesize - 1)) {
 		pr_err("%s: Unsupported ofs address, 0x%llx\n",
 				__func__, ofs);
@@ -6277,7 +6423,7 @@ static int msm_onenand_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 
 		cmd = dma_buffer->cmd;
 		if ((onenand_info.device_id & ONENAND_DEVICE_IS_DDP)
-			&& (ofs >= (mtd->size>>1))) { 
+			&& (ofs >= (mtd->size>>1))) { /* DDP Device */
 			onenand_startaddr1 = DEVICE_FLASHCORE_1 |
 				(((uint32_t)(ofs - (mtd->size>>1))
 						/ mtd->erasesize));
@@ -6345,156 +6491,156 @@ static int msm_onenand_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 		dma_buffer->data.data6 = (ONENAND_STARTADDR3_RES << 16) |
 						(ONENAND_STARTADDR1_RES);
 
-		
-		
-		
+		/*************************************************************/
+		/* Write the necessary address reg in the onenand device     */
+		/*************************************************************/
 
-		
+		/* Enable and configure the SFlash controller */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfbcfg);
 		cmd->dst = MSM_NAND_SFLASHC_BURST_CFG;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[0]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Write the ADDR0 and ADDR1 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr0);
 		cmd->dst = MSM_NAND_ADDR0;
 		cmd->len = 8;
 		cmd++;
 
-		
+		/* Write the ADDR2 ADDR3 ADDR4 ADDR5 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr2);
 		cmd->dst = MSM_NAND_ADDR2;
 		cmd->len = 16;
 		cmd++;
 
-		
+		/* Write the ADDR6 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.addr6);
 		cmd->dst = MSM_NAND_ADDR6;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Write the GENP0, GENP1, GENP2, GENP3, GENP4 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.data0);
 		cmd->dst = MSM_NAND_GENP_REG0;
 		cmd->len = 16;
 		cmd++;
 
-		
+		/* Write the FLASH_DEV_CMD4,5,6 registers */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.data4);
 		cmd->dst = MSM_NAND_DEV_CMD4;
 		cmd->len = 12;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[0]);
 		cmd->len = 4;
 		cmd++;
 
-		
-		
-		
+		/*************************************************************/
+		/* Wait for the interrupt from the Onenand device controller */
+		/*************************************************************/
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[1]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[1]);
 		cmd->len = 4;
 		cmd++;
 
-		
-		
-		
+		/*********************************************************/
+		/* Read the necessary status reg from the onenand device */
+		/*********************************************************/
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[2]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[2]);
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Read the GENP3 register */
 		cmd->cmd = 0;
 		cmd->src = MSM_NAND_GENP_REG3;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.data3);
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Read the DEVCMD4 register */
 		cmd->cmd = 0;
 		cmd->src = MSM_NAND_DEV_CMD4;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.data4);
 		cmd->len = 4;
 		cmd++;
 
-		
-		
-		
+		/************************************************************/
+		/* Restore the necessary registers to proper values         */
+		/************************************************************/
 
-		
+		/* Block on cmd ready and write CMD register */
 		cmd->cmd = DST_CRCI_NAND_CMD;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfcmd[3]);
 		cmd->dst = MSM_NAND_SFLASHC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Kick the execute command */
 		cmd->cmd = 0;
 		cmd->src = msm_virt_to_dma(chip, &dma_buffer->data.sfexec);
 		cmd->dst = MSM_NAND_SFLASHC_EXEC_CMD;
 		cmd->len = 4;
 		cmd++;
 
-		
+		/* Block on data ready, and read the status register */
 		cmd->cmd = SRC_CRCI_NAND_DATA;
 		cmd->src = MSM_NAND_SFLASHC_STATUS;
 		cmd->dst = msm_virt_to_dma(chip, &dma_buffer->data.sfstat[3]);
@@ -6534,7 +6680,7 @@ static int msm_onenand_lock(struct mtd_info *mtd, loff_t ofs, uint64_t len)
 		pr_info("%s: write_prot_status = %x\n", __func__,
 					write_prot_status);
 #endif
-		
+		/* Check for errors, protection violations etc */
 		if ((controller_status != 0)
 				|| (dma_buffer->data.sfstat[0] & 0x110)
 				|| (dma_buffer->data.sfstat[1] & 0x110)
@@ -6578,7 +6724,7 @@ int msm_onenand_scan(struct mtd_info *mtd, int maxchips)
 {
 	struct msm_nand_chip *chip = mtd->priv;
 
-	
+	/* Probe and check whether onenand device is present */
 	if (flash_onenand_probe(chip))
 		return -ENODEV;
 
@@ -6612,8 +6758,8 @@ int msm_onenand_scan(struct mtd_info *mtd, int maxchips)
 }
 
 static const unsigned int bch_sup_cntrl[] = {
-	0x307, 
-	0x4030, 
+	0x307, /* MSM7x2xA */
+	0x4030, /* MDM 9x15 */
 };
 
 static inline bool msm_nand_has_bch_ecc_engine(unsigned int hw_id)
@@ -6628,6 +6774,16 @@ static inline bool msm_nand_has_bch_ecc_engine(unsigned int hw_id)
 	return false;
 }
 
+/**
+ * msm_nand_scan - [msm_nand Interface] Scan for the msm_nand device
+ * @param mtd		MTD device structure
+ * @param maxchips	Number of chips to scan for
+ *
+ * This fills out all the not initialized function pointers
+ * with the defaults.
+ * The flash ID is read and the mtd/chip structures are
+ * filled with the appropriate values.
+ */
 int msm_nand_scan(struct mtd_info *mtd, int maxchips)
 {
 	struct msm_nand_chip *chip = mtd->priv;
@@ -6641,11 +6797,11 @@ int msm_nand_scan(struct mtd_info *mtd, int maxchips)
 	struct nand_manufacturers  *flashman = NULL;
 	unsigned int hw_id;
 
-	
+	/* Probe the Flash device for ONFI compliance */
 	if (!flash_onfi_probe(chip)) {
 		dev_found = 1;
 	} else {
-		
+		/* Read the Flash ID from the Nand Flash Device */
 		flash_id = flash_read_id(chip);
 		manid = flash_id & 0xFF;
 		devid = (flash_id >> 8) & 0xFF;
@@ -6706,7 +6862,7 @@ int msm_nand_scan(struct mtd_info *mtd, int maxchips)
 		else
 			mtd_writesize = mtd->writesize >> 1;
 
-		
+		/* Check whether controller and NAND device support 8bit ECC*/
 		hw_id = flash_rd_reg(chip, MSM_NAND_HW_INFO);
 		if (msm_nand_has_bch_ecc_engine(hw_id)
 				&& (supported_flash.ecc_correctability >= 8)) {
@@ -6728,42 +6884,46 @@ int msm_nand_scan(struct mtd_info *mtd, int maxchips)
 		return -ENODEV;
 	}
 
-	
+	/* Size of each codeword is 532Bytes incase of 8bit BCH ECC*/
 	chip->cw_size = enable_bch_ecc ? 532 : 528;
-	chip->CFG0 = (((mtd_writesize >> 9)-1) << 6) 
-		|  (516 <<  9)  
-		|   (10 << 19)  
-		|    (5 << 27)  
-		|    (0 << 30)  
-		|    (1 << 31)  
-		
+	chip->CFG0 = (((mtd_writesize >> 9)-1) << 6) /* 4/8 cw/pg for 2/4k */
+		|  (516 <<  9)  /* 516 user data bytes */
+		|   (10 << 19)  /* 10 parity bytes */
+		|    (5 << 27)  /* 5 address cycles */
+		|    (0 << 30)  /* Do not read status before data */
+		|    (1 << 31)  /* Send read cmd */
+		/* 0 spare bytes for 16 bit nand or 1/2 spare bytes for 8 bit */
 		| (wide_bus ? 0 << 23 : (enable_bch_ecc ? 2 << 23 : 1 << 23));
 
-	chip->CFG1 = (0 <<  0)  
-		|    (7 <<  2)  
-		|    (0 <<  5)  
-		
+	chip->CFG1 = (0 <<  0)  /* Enable ecc */
+		|    (7 <<  2)  /* 8 recovery cycles */
+		|    (0 <<  5)  /* Allow CS deassertion */
+		/* Bad block marker location */
 		|  ((mtd_writesize - (chip->cw_size * (
 					(mtd_writesize >> 9) - 1)) + 1) <<  6)
-		|    (0 << 16)  
-		|    (2 << 17)  
-		| ((wide_bus) ? CFG1_WIDE_FLASH : 0); 
+		|    (0 << 16)  /* Bad block in user data area */
+		|    (2 << 17)  /* 6 cycle tWB/tRB */
+		| ((wide_bus) ? CFG1_WIDE_FLASH : 0); /* Wide flash bit */
 
 	chip->ecc_buf_cfg = 0x203;
 	chip->CFG0_RAW = 0xA80420C0;
 	chip->CFG1_RAW = 0x5045D;
 
 	if (enable_bch_ecc) {
-		chip->CFG1 |= (1 << 27); 
-		chip->ecc_bch_cfg = (0 << 0) 
-			|   (0 << 1) 
-			|   (1 << 4) 
-			|   ((wide_bus) ? (14 << 8) : (13 << 8))
-			|   (516 << 16) 
-			|   (1 << 30); 
-		chip->CFG0_RAW = 0xA80428C0; 
+		chip->CFG1 |= (1 << 27); /* Enable BCH engine */
+		chip->ecc_bch_cfg = (0 << 0) /* Enable ECC*/
+			|   (0 << 1) /* Enable/Disable SW reset of ECC engine */
+			|   (1 << 4) /* 8bit ecc*/
+			|   ((wide_bus) ? (14 << 8) : (13 << 8))/*parity bytes*/
+			|   (516 << 16) /* 516 user data bytes */
+			|   (1 << 30); /* Turn on ECC engine clocks always */
+		chip->CFG0_RAW = 0xA80428C0; /* CW size is increased to 532B */
 	}
 
+	/*
+	 * For 4bit RS ECC (default ECC), parity bytes = 10 (for x8 and x16 I/O)
+	 * For 8bit BCH ECC, parity bytes = 13 (x8) or 14 (x16 I/O).
+	 */
 	chip->ecc_parity_bytes = enable_bch_ecc ? (wide_bus ? 14 : 13) : 10;
 
 	pr_info("CFG0 Init  : 0x%08x\n", chip->CFG0);
@@ -6790,10 +6950,10 @@ int msm_nand_scan(struct mtd_info *mtd, int maxchips)
 		return -ENODEV;
 	}
 
-	
+	/* Fill in remaining MTD driver data */
 	mtd->type = MTD_NANDFLASH;
 	mtd->flags = MTD_CAP_NANDFLASH;
-	
+	/* mtd->ecctype = MTD_ECC_SW; */
 	mtd->_erase = msm_nand_erase;
 	mtd->_block_isbad = msm_nand_block_isbad;
 	mtd->_block_markbad = msm_nand_block_markbad;
@@ -6812,26 +6972,30 @@ int msm_nand_scan(struct mtd_info *mtd, int maxchips)
 		}
 	}
 
-	
+	/* mtd->sync = msm_nand_sync; */
 	mtd->_lock = NULL;
-	
+	/* mtd->_unlock = msm_nand_unlock; */
 	mtd->_suspend = msm_nand_suspend;
 	mtd->_resume = msm_nand_resume;
 	mtd->owner = THIS_MODULE;
 
-	
-	
+	/* Unlock whole block */
+	/* msm_nand_unlock_all(mtd); */
 
-	
+	/* return this->scan_bbt(mtd); */
 	return 0;
 }
 EXPORT_SYMBOL_GPL(msm_nand_scan);
 
+/**
+ * msm_nand_release - [msm_nand Interface] Free resources held by the msm_nand device
+ * @param mtd		MTD device structure
+ */
 void msm_nand_release(struct mtd_info *mtd)
 {
-	
+	/* struct msm_nand_chip *this = mtd->priv; */
 
-	
+	/* Deregister the device */
 	mtd_device_unregister(mtd);
 }
 EXPORT_SYMBOL_GPL(msm_nand_release);
@@ -6842,6 +7006,7 @@ struct msm_nand_info {
 	struct msm_nand_chip	msm_nand;
 };
 
+/* duplicating the NC01 XFR contents to NC10 */
 static int msm_nand_nc10_xfr_settings(struct mtd_info *mtd)
 {
 	struct msm_nand_chip *chip = mtd->priv;
@@ -6858,7 +7023,7 @@ static int msm_nand_nc10_xfr_settings(struct mtd_info *mtd)
 
 	cmd = dma_buffer->cmd;
 
-	
+	/* Copying XFR register contents from NC01 --> NC10 */
 	cmd->cmd = 0;
 	cmd->src = NC01(MSM_NAND_XFR_STEP1);
 	cmd->dst = NC10(MSM_NAND_XFR_STEP1);
@@ -6977,9 +7142,9 @@ no_dual_nand_ctlr_support:
 	info->msm_nand.dma_channel = res->start;
 	pr_info("%s: dmac 0x%x\n", __func__, info->msm_nand.dma_channel);
 
-	
+	/* this currently fails if dev is passed in */
 	info->msm_nand.dma_buffer =
-		dma_alloc_coherent( NULL, MSM_NAND_DMA_BUFFER_SIZE,
+		dma_alloc_coherent(/*dev*/ NULL, MSM_NAND_DMA_BUFFER_SIZE,
 				&info->msm_nand.dma_addr, GFP_KERNEL);
 	if (info->msm_nand.dma_buffer == NULL) {
 		pr_err("%s: No memory for msm_nand.dma_buffer\n", __func__);
@@ -6990,7 +7155,7 @@ no_dual_nand_ctlr_support:
 	pr_info("%s: allocated dma buffer at %p, dma_addr %x\n",
 		__func__, info->msm_nand.dma_buffer, info->msm_nand.dma_addr);
 
-	
+	/* Let default be VERSION_1 for backward compatibility */
 	info->msm_nand.uncorrectable_bit_mask = BIT(3);
 	info->msm_nand.num_err_mask = 0x7;
 
@@ -7003,7 +7168,7 @@ no_dual_nand_ctlr_support:
 	info->mtd.priv = &info->msm_nand;
 	info->mtd.owner = THIS_MODULE;
 
-	
+	/* config ebi2_cfg register only for ping pong mode!!! */
 	if (!interleave_enable && dual_nand_ctlr_present)
 		flash_wr_reg(&info->msm_nand, EBI2_CFG_REG, 0x4010080);
 

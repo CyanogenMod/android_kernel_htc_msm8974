@@ -17,6 +17,9 @@ extern unsigned long asmlinkage efi_call_phys(void *, ...);
 	efi_call_phys(f, a1, a2, a3, a4, a5)
 #define efi_call_phys6(f, a1, a2, a3, a4, a5, a6)	\
 	efi_call_phys(f, a1, a2, a3, a4, a5, a6)
+/*
+ * Wrap all the virtual calls in a way that forces the parameters on the stack.
+ */
 
 #define efi_call_virt(f, args...) \
 	((efi_##f##_t __attribute__((regparm(0)))*)efi.systab->runtime->f)(args)
@@ -34,7 +37,7 @@ extern unsigned long asmlinkage efi_call_phys(void *, ...);
 
 #define efi_ioremap(addr, size, type)		ioremap_cache(addr, size)
 
-#else 
+#else /* !CONFIG_X86_32 */
 
 #define EFI_LOADER_SIGNATURE	"EL64"
 
@@ -88,7 +91,7 @@ extern u64 efi_call6(void *fp, u64 arg1, u64 arg2, u64 arg3,
 extern void __iomem *efi_ioremap(unsigned long addr, unsigned long size,
 				 u32 type);
 
-#endif 
+#endif /* CONFIG_X86_32 */
 
 extern int add_efi_memmap;
 extern void efi_set_executable(efi_memory_desc_t *md, bool executable);
@@ -97,6 +100,9 @@ extern void efi_call_phys_prelog(void);
 extern void efi_call_phys_epilog(void);
 
 #ifndef CONFIG_EFI
+/*
+ * IF EFI is not configured, have the EFI calls return -ENOSYS.
+ */
 #define efi_call0(_f)					(-ENOSYS)
 #define efi_call1(_f, _a1)				(-ENOSYS)
 #define efi_call2(_f, _a1, _a2)				(-ENOSYS)
@@ -104,6 +110,6 @@ extern void efi_call_phys_epilog(void);
 #define efi_call4(_f, _a1, _a2, _a3, _a4)		(-ENOSYS)
 #define efi_call5(_f, _a1, _a2, _a3, _a4, _a5)		(-ENOSYS)
 #define efi_call6(_f, _a1, _a2, _a3, _a4, _a5, _a6)	(-ENOSYS)
-#endif 
+#endif /* CONFIG_EFI */
 
-#endif 
+#endif /* _ASM_X86_EFI_H */

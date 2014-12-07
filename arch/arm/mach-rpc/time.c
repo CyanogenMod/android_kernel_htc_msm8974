@@ -41,9 +41,17 @@ unsigned long ioc_timer_gettimeoffset(void)
 
 	offset = count2;
 	if (count2 < count1) {
+		/*
+		 * We have not had an interrupt between reading count1
+		 * and count2.
+		 */
 		if (status & (1 << 5))
 			offset -= LATCH;
 	} else if (count2 > count1) {
+		/*
+		 * We have just had another interrupt between reading
+		 * count1 and count2.
+		 */
 		offset -= LATCH;
 	}
 
@@ -71,6 +79,9 @@ static struct irqaction ioc_timer_irq = {
 	.handler	= ioc_timer_interrupt
 };
 
+/*
+ * Set up timer interrupt.
+ */
 static void __init ioc_timer_init(void)
 {
 	ioctime_init();

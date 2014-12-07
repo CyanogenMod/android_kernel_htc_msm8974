@@ -25,6 +25,18 @@
 #include <net/llc_s_st.h>
 #include <net/llc_pdu.h>
 
+/**
+ * struct llc_station - LLC station component
+ *
+ * SAP and connection resource manager, one per adapter.
+ *
+ * @state - state of station
+ * @xid_r_count - XID response PDU counter
+ * @mac_sa - MAC source address
+ * @sap_list - list of related SAPs
+ * @ev_q - events entering state mach.
+ * @mac_pdu_q - PDUs ready to send to MAC
+ */
 struct llc_station {
 	u8			    state;
 	u8			    xid_r_count;
@@ -42,13 +54,15 @@ struct llc_station {
 
 int sysctl_llc_station_ack_timeout = LLC_STATION_ACK_TIME;
 
+/* Types of events (possible values in 'ev->type') */
 #define LLC_STATION_EV_TYPE_SIMPLE	1
 #define LLC_STATION_EV_TYPE_CONDITION	2
 #define LLC_STATION_EV_TYPE_PRIM	3
-#define LLC_STATION_EV_TYPE_PDU		4       
+#define LLC_STATION_EV_TYPE_PDU		4       /* command/response PDU */
 #define LLC_STATION_EV_TYPE_ACK_TMR	5
 #define LLC_STATION_EV_TYPE_RPT_STATUS	6
 
+/* Events */
 #define LLC_STATION_EV_ENABLE_WITH_DUP_ADDR_CHECK		1
 #define LLC_STATION_EV_ENABLE_WITHOUT_DUP_ADDR_CHECK		2
 #define LLC_STATION_EV_ACK_TMR_EXP_LT_RETRY_CNT_MAX_RETRY	3
@@ -64,7 +78,7 @@ struct llc_station_state_ev {
 	u8		 prim;
 	u8		 prim_type;
 	u8		 reason;
-	struct list_head node; 
+	struct list_head node; /* node in station->ev_q.list */
 };
 
 static __inline__ struct llc_station_state_ev *
@@ -75,14 +89,15 @@ static __inline__ struct llc_station_state_ev *
 
 typedef int (*llc_station_ev_t)(struct sk_buff *skb);
 
-#define LLC_STATION_STATE_DOWN		1	
+#define LLC_STATION_STATE_DOWN		1	/* initial state */
 #define LLC_STATION_STATE_DUP_ADDR_CHK	2
 #define LLC_STATION_STATE_UP		3
 
-#define LLC_NBR_STATION_STATES		3	
+#define LLC_NBR_STATION_STATES		3	/* size of state table */
 
 typedef int (*llc_station_action_t)(struct sk_buff *skb);
 
+/* Station component state table structure */
 struct llc_station_state_trans {
 	llc_station_ev_t ev;
 	u8 next_state;
@@ -138,10 +153,10 @@ static int llc_stat_ev_rx_null_dsap_xid_c(struct sk_buff *skb)
 	struct llc_pdu_un *pdu = llc_pdu_un_hdr(skb);
 
 	return ev->type == LLC_STATION_EV_TYPE_PDU &&
-	       LLC_PDU_IS_CMD(pdu) &&			
-	       LLC_PDU_TYPE_IS_U(pdu) &&		
+	       LLC_PDU_IS_CMD(pdu) &&			/* command PDU */
+	       LLC_PDU_TYPE_IS_U(pdu) &&		/* U type PDU */
 	       LLC_U_PDU_CMD(pdu) == LLC_1_PDU_CMD_XID &&
-	       !pdu->dsap ? 0 : 1;			
+	       !pdu->dsap ? 0 : 1;			/* NULL DSAP value */
 }
 
 static int llc_stat_ev_rx_null_dsap_0_xid_r_xid_r_cnt_eq(struct sk_buff *skb)
@@ -150,10 +165,10 @@ static int llc_stat_ev_rx_null_dsap_0_xid_r_xid_r_cnt_eq(struct sk_buff *skb)
 	struct llc_pdu_un *pdu = llc_pdu_un_hdr(skb);
 
 	return ev->type == LLC_STATION_EV_TYPE_PDU &&
-	       LLC_PDU_IS_RSP(pdu) &&			
-	       LLC_PDU_TYPE_IS_U(pdu) &&		
+	       LLC_PDU_IS_RSP(pdu) &&			/* response PDU */
+	       LLC_PDU_TYPE_IS_U(pdu) &&		/* U type PDU */
 	       LLC_U_PDU_RSP(pdu) == LLC_1_PDU_CMD_XID &&
-	       !pdu->dsap &&				
+	       !pdu->dsap &&				/* NULL DSAP value */
 	       !llc_main_station.xid_r_count ? 0 : 1;
 }
 
@@ -163,10 +178,10 @@ static int llc_stat_ev_rx_null_dsap_1_xid_r_xid_r_cnt_eq(struct sk_buff *skb)
 	struct llc_pdu_un *pdu = llc_pdu_un_hdr(skb);
 
 	return ev->type == LLC_STATION_EV_TYPE_PDU &&
-	       LLC_PDU_IS_RSP(pdu) &&			
-	       LLC_PDU_TYPE_IS_U(pdu) &&		
+	       LLC_PDU_IS_RSP(pdu) &&			/* response PDU */
+	       LLC_PDU_TYPE_IS_U(pdu) &&		/* U type PDU */
 	       LLC_U_PDU_RSP(pdu) == LLC_1_PDU_CMD_XID &&
-	       !pdu->dsap &&				
+	       !pdu->dsap &&				/* NULL DSAP value */
 	       llc_main_station.xid_r_count == 1 ? 0 : 1;
 }
 
@@ -176,10 +191,10 @@ static int llc_stat_ev_rx_null_dsap_test_c(struct sk_buff *skb)
 	struct llc_pdu_un *pdu = llc_pdu_un_hdr(skb);
 
 	return ev->type == LLC_STATION_EV_TYPE_PDU &&
-	       LLC_PDU_IS_CMD(pdu) &&			
-	       LLC_PDU_TYPE_IS_U(pdu) &&		
+	       LLC_PDU_IS_CMD(pdu) &&			/* command PDU */
+	       LLC_PDU_TYPE_IS_U(pdu) &&		/* U type PDU */
 	       LLC_U_PDU_CMD(pdu) == LLC_1_PDU_CMD_TEST &&
-	       !pdu->dsap ? 0 : 1;			
+	       !pdu->dsap ? 0 : 1;			/* NULL DSAP */
 }
 
 static int llc_stat_ev_disable_req(struct sk_buff *skb)
@@ -191,6 +206,12 @@ static int llc_stat_ev_disable_req(struct sk_buff *skb)
 	       ev->prim_type == LLC_PRIM_TYPE_REQ ? 0 : 1;
 }
 
+/**
+ *	llc_station_send_pdu - queues PDU to send
+ *	@skb: Address of the PDU
+ *
+ *	Queues a PDU to send to the MAC layer.
+ */
 static void llc_station_send_pdu(struct sk_buff *skb)
 {
 	skb_queue_tail(&llc_main_station.mac_pdu_q, skb);
@@ -283,7 +304,7 @@ static int llc_station_ac_send_test_r(struct sk_buff *skb)
 	u32 data_size;
 	struct sk_buff *nskb;
 
-	
+	/* The test request command is type U (llc_len = 3) */
 	data_size = ntohs(eth_hdr(skb)->h_proto) - 3;
 	nskb = llc_alloc_frame(NULL, skb->dev, LLC_PDU_TYPE_U, data_size);
 
@@ -310,10 +331,17 @@ static int llc_station_ac_report_status(struct sk_buff *skb)
 	return 0;
 }
 
+/* COMMON STATION STATE transitions */
 
+/* dummy last-transition indicator; common to all state transition groups
+ * last entry for this state
+ * all members are zeros, .bss zeroes it
+ */
 static struct llc_station_state_trans llc_stat_state_trans_end;
 
+/* DOWN STATE transitions */
 
+/* state transition for LLC_STATION_EV_ENABLE_WITH_DUP_ADDR_CHECK event */
 static llc_station_action_t llc_stat_down_state_actions_1[] = {
 	[0] = llc_station_ac_start_ack_timer,
 	[1] = llc_station_ac_set_retry_cnt_0,
@@ -328,8 +356,9 @@ static struct llc_station_state_trans llc_stat_down_state_trans_1 = {
 	.ev_actions = llc_stat_down_state_actions_1,
 };
 
+/* state transition for LLC_STATION_EV_ENABLE_WITHOUT_DUP_ADDR_CHECK event */
 static llc_station_action_t llc_stat_down_state_actions_2[] = {
-	[0] = llc_station_ac_report_status,	
+	[0] = llc_station_ac_report_status,	/* STATION UP */
 	[1] = NULL,
 };
 
@@ -339,14 +368,17 @@ static struct llc_station_state_trans llc_stat_down_state_trans_2 = {
 	.ev_actions = llc_stat_down_state_actions_2,
 };
 
+/* array of pointers; one to each transition */
 static struct llc_station_state_trans *llc_stat_dwn_state_trans[] = {
 	[0] = &llc_stat_down_state_trans_1,
 	[1] = &llc_stat_down_state_trans_2,
 	[2] = &llc_stat_state_trans_end,
 };
 
+/* UP STATE transitions */
+/* state transition for LLC_STATION_EV_DISABLE_REQ event */
 static llc_station_action_t llc_stat_up_state_actions_1[] = {
-	[0] = llc_station_ac_report_status,	
+	[0] = llc_station_ac_report_status,	/* STATION DOWN */
 	[1] = NULL,
 };
 
@@ -356,6 +388,7 @@ static struct llc_station_state_trans llc_stat_up_state_trans_1 = {
 	.ev_actions = llc_stat_up_state_actions_1,
 };
 
+/* state transition for LLC_STATION_EV_RX_NULL_DSAP_XID_C event */
 static llc_station_action_t llc_stat_up_state_actions_2[] = {
 	[0] = llc_station_ac_send_xid_r,
 	[1] = NULL,
@@ -367,6 +400,7 @@ static struct llc_station_state_trans llc_stat_up_state_trans_2 = {
 	.ev_actions = llc_stat_up_state_actions_2,
 };
 
+/* state transition for LLC_STATION_EV_RX_NULL_DSAP_TEST_C event */
 static llc_station_action_t llc_stat_up_state_actions_3[] = {
 	[0] = llc_station_ac_send_test_r,
 	[1] = NULL,
@@ -378,6 +412,7 @@ static struct llc_station_state_trans llc_stat_up_state_trans_3 = {
 	.ev_actions = llc_stat_up_state_actions_3,
 };
 
+/* array of pointers; one to each transition */
 static struct llc_station_state_trans *llc_stat_up_state_trans [] = {
 	[0] = &llc_stat_up_state_trans_1,
 	[1] = &llc_stat_up_state_trans_2,
@@ -385,6 +420,10 @@ static struct llc_station_state_trans *llc_stat_up_state_trans [] = {
 	[3] = &llc_stat_state_trans_end,
 };
 
+/* DUP ADDR CHK STATE transitions */
+/* state transition for LLC_STATION_EV_RX_NULL_DSAP_0_XID_R_XID_R_CNT_EQ
+ * event
+ */
 static llc_station_action_t llc_stat_dupaddr_state_actions_1[] = {
 	[0] = llc_station_ac_inc_xid_r_cnt_by_1,
 	[1] = NULL,
@@ -396,8 +435,11 @@ static struct llc_station_state_trans llc_stat_dupaddr_state_trans_1 = {
 	.ev_actions = llc_stat_dupaddr_state_actions_1,
 };
 
+/* state transition for LLC_STATION_EV_RX_NULL_DSAP_1_XID_R_XID_R_CNT_EQ
+ * event
+ */
 static llc_station_action_t llc_stat_dupaddr_state_actions_2[] = {
-	[0] = llc_station_ac_report_status,	
+	[0] = llc_station_ac_report_status,	/* DUPLICATE ADDRESS FOUND */
 	[1] = NULL,
 };
 
@@ -407,6 +449,7 @@ static struct llc_station_state_trans llc_stat_dupaddr_state_trans_2 = {
 	.ev_actions = llc_stat_dupaddr_state_actions_2,
 };
 
+/* state transition for LLC_STATION_EV_RX_NULL_DSAP_XID_C event */
 static llc_station_action_t llc_stat_dupaddr_state_actions_3[] = {
 	[0] = llc_station_ac_send_xid_r,
 	[1] = NULL,
@@ -418,6 +461,9 @@ static struct llc_station_state_trans llc_stat_dupaddr_state_trans_3 = {
 	.ev_actions = llc_stat_dupaddr_state_actions_3,
 };
 
+/* state transition for LLC_STATION_EV_ACK_TMR_EXP_LT_RETRY_CNT_MAX_RETRY
+ * event
+ */
 static llc_station_action_t llc_stat_dupaddr_state_actions_4[] = {
 	[0] = llc_station_ac_start_ack_timer,
 	[1] = llc_station_ac_inc_retry_cnt_by_1,
@@ -432,8 +478,11 @@ static struct llc_station_state_trans llc_stat_dupaddr_state_trans_4 = {
 	.ev_actions = llc_stat_dupaddr_state_actions_4,
 };
 
+/* state transition for LLC_STATION_EV_ACK_TMR_EXP_EQ_RETRY_CNT_MAX_RETRY
+ * event
+ */
 static llc_station_action_t llc_stat_dupaddr_state_actions_5[] = {
-	[0] = llc_station_ac_report_status,	
+	[0] = llc_station_ac_report_status,	/* STATION UP */
 	[1] = NULL,
 };
 
@@ -443,8 +492,9 @@ static struct llc_station_state_trans llc_stat_dupaddr_state_trans_5 = {
 	.ev_actions = llc_stat_dupaddr_state_actions_5,
 };
 
+/* state transition for LLC_STATION_EV_DISABLE_REQ event */
 static llc_station_action_t llc_stat_dupaddr_state_actions_6[] = {
-	[0] = llc_station_ac_report_status,	
+	[0] = llc_station_ac_report_status,	/* STATION DOWN */
 	[1] = NULL,
 };
 
@@ -454,11 +504,12 @@ static struct llc_station_state_trans llc_stat_dupaddr_state_trans_6 = {
 	.ev_actions = llc_stat_dupaddr_state_actions_6,
 };
 
+/* array of pointers; one to each transition */
 static struct llc_station_state_trans *llc_stat_dupaddr_state_trans[] = {
-	[0] = &llc_stat_dupaddr_state_trans_6,	
-	[1] = &llc_stat_dupaddr_state_trans_4,	
+	[0] = &llc_stat_dupaddr_state_trans_6,	/* Request */
+	[1] = &llc_stat_dupaddr_state_trans_4,	/* Timer */
 	[2] = &llc_stat_dupaddr_state_trans_5,
-	[3] = &llc_stat_dupaddr_state_trans_1,	
+	[3] = &llc_stat_dupaddr_state_trans_1,	/* Receive frame */
 	[4] = &llc_stat_dupaddr_state_trans_2,
 	[5] = &llc_stat_dupaddr_state_trans_3,
 	[6] = &llc_stat_state_trans_end,
@@ -480,6 +531,14 @@ static struct llc_station_state
 	},
 };
 
+/**
+ *	llc_exec_station_trans_actions - executes actions for transition
+ *	@trans: Address of the transition
+ *	@skb: Address of the event that caused the transition
+ *
+ *	Executes actions of a transition of the station state machine. Returns
+ *	0 if all actions complete successfully, nonzero otherwise.
+ */
 static u16 llc_exec_station_trans_actions(struct llc_station_state_trans *trans,
 					  struct sk_buff *skb)
 {
@@ -492,6 +551,14 @@ static u16 llc_exec_station_trans_actions(struct llc_station_state_trans *trans,
 	return rc;
 }
 
+/**
+ *	llc_find_station_trans - finds transition for this event
+ *	@skb: Address of the event
+ *
+ *	Search thru events of the current state of the station until list
+ *	exhausted or it's obvious that the event is not valid for the current
+ *	state. Returns the address of the transition if cound, %NULL otherwise.
+ */
 static struct llc_station_state_trans *
 				llc_find_station_trans(struct sk_buff *skb)
 {
@@ -509,6 +576,12 @@ static struct llc_station_state_trans *
 	return rc;
 }
 
+/**
+ *	llc_station_free_ev - frees an event
+ *	@skb: Address of the event
+ *
+ *	Frees an event.
+ */
 static void llc_station_free_ev(struct sk_buff *skb)
 {
 	struct llc_station_state_ev *ev = llc_station_ev(skb);
@@ -517,6 +590,13 @@ static void llc_station_free_ev(struct sk_buff *skb)
 		kfree_skb(skb);
 }
 
+/**
+ *	llc_station_next_state - processes event and goes to the next state
+ *	@skb: Address of the event
+ *
+ *	Processes an event, executes any transitions related to that event and
+ *	updates the state of the station.
+ */
 static u16 llc_station_next_state(struct sk_buff *skb)
 {
 	u16 rc = 1;
@@ -526,16 +606,37 @@ static u16 llc_station_next_state(struct sk_buff *skb)
 		goto out;
 	trans = llc_find_station_trans(skb);
 	if (trans) {
+		/* got the state to which we next transition; perform the
+		 * actions associated with this transition before actually
+		 * transitioning to the next state
+		 */
 		rc = llc_exec_station_trans_actions(trans, skb);
 		if (!rc)
+			/* transition station to next state if all actions
+			 * execute successfully; done; wait for next event
+			 */
 			llc_main_station.state = trans->next_state;
 	} else
+		/* event not recognized in current state; re-queue it for
+		 * processing again at a later time; return failure
+		 */
 		rc = 0;
 out:
 	llc_station_free_ev(skb);
 	return rc;
 }
 
+/**
+ *	llc_station_service_events - service events in the queue
+ *
+ *	Get an event from the station event queue (if any); attempt to service
+ *	the event; if event serviced, get the next event (if any) on the event
+ *	queue; if event not service, re-queue the event on the event queue and
+ *	attempt to service the next event; when serviced all events in queue,
+ *	finished; if don't transition to different state, just service all
+ *	events once; if transition to new state, service all events again.
+ *	Caller must hold llc_main_station.ev_q.lock.
+ */
 static void llc_station_service_events(void)
 {
 	struct sk_buff *skb;
@@ -544,6 +645,13 @@ static void llc_station_service_events(void)
 		llc_station_next_state(skb);
 }
 
+/**
+ *	llc_station_state_process: queue event and try to process queue.
+ *	@skb: Address of the event
+ *
+ *	Queues an event (on the station event queue) for handling by the
+ *	station state machine and attempts to process any queued-up events.
+ */
 static void llc_station_state_process(struct sk_buff *skb)
 {
 	spin_lock_bh(&llc_main_station.ev_q.lock);
@@ -564,6 +672,12 @@ static void llc_station_ack_tmr_cb(unsigned long timeout_data)
 	}
 }
 
+/*
+ *	llc_station_rcv - send received pdu to the station state machine
+ *	@skb: received frame.
+ *
+ *	Sends data unit to station state machine.
+ */
 static void llc_station_rcv(struct sk_buff *skb)
 {
 	struct llc_station_state_ev *ev = llc_station_ev(skb);

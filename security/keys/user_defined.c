@@ -20,6 +20,10 @@
 
 static int logon_vet_description(const char *desc);
 
+/*
+ * user defined keys take an arbitrary string as the description and an
+ * arbitrary blob of data as the payload
+ */
 struct key_type key_type_user = {
 	.name		= "user",
 	.instantiate	= user_instantiate,
@@ -33,6 +37,12 @@ struct key_type key_type_user = {
 
 EXPORT_SYMBOL_GPL(key_type_user);
 
+/*
+ * This key type is essentially the same as key_type_user, but it does
+ * not define a .read op. This is suitable for storing username and
+ * password pairs in the keyring that you do not want to be readable
+ * from userspace.
+ */
 struct key_type key_type_logon = {
 	.name			= "logon",
 	.instantiate		= user_instantiate,
@@ -45,6 +55,9 @@ struct key_type key_type_logon = {
 };
 EXPORT_SYMBOL_GPL(key_type_logon);
 
+/*
+ * instantiate a user defined key
+ */
 int user_instantiate(struct key *key, const void *data, size_t datalen)
 {
 	struct user_key_payload *upayload;
@@ -63,7 +76,7 @@ int user_instantiate(struct key *key, const void *data, size_t datalen)
 	if (!upayload)
 		goto error;
 
-	
+	/* attach the data */
 	upayload->datalen = datalen;
 	memcpy(upayload->data, data, datalen);
 	rcu_assign_keypointer(key, upayload);
@@ -75,6 +88,10 @@ error:
 
 EXPORT_SYMBOL_GPL(user_instantiate);
 
+/*
+ * update a user defined key
+ * - the key's semaphore is write-locked
+ */
 int user_update(struct key *key, const void *data, size_t datalen)
 {
 	struct user_key_payload *upayload, *zap;
@@ -84,7 +101,7 @@ int user_update(struct key *key, const void *data, size_t datalen)
 	if (datalen <= 0 || datalen > 32767 || !data)
 		goto error;
 
-	
+	/* construct a replacement payload */
 	ret = -ENOMEM;
 	upayload = kmalloc(sizeof(*upayload) + datalen, GFP_KERNEL);
 	if (!upayload)
@@ -93,13 +110,13 @@ int user_update(struct key *key, const void *data, size_t datalen)
 	upayload->datalen = datalen;
 	memcpy(upayload->data, data, datalen);
 
-	
+	/* check the quota and attach the new data */
 	zap = upayload;
 
 	ret = key_payload_reserve(key, datalen);
 
 	if (ret == 0) {
-		
+		/* attach the new data, displacing the old */
 		zap = key->payload.data;
 		rcu_assign_keypointer(key, upayload);
 		key->expiry = 0;
@@ -114,6 +131,9 @@ error:
 
 EXPORT_SYMBOL_GPL(user_update);
 
+/*
+ * match users on their name
+ */
 int user_match(const struct key *key, const void *description)
 {
 	return strcmp(key->description, description) == 0;
@@ -121,11 +141,15 @@ int user_match(const struct key *key, const void *description)
 
 EXPORT_SYMBOL_GPL(user_match);
 
+/*
+ * dispose of the links from a revoked keyring
+ * - called with the key sem write-locked
+ */
 void user_revoke(struct key *key)
 {
 	struct user_key_payload *upayload = key->payload.data;
 
-	
+	/* clear the quota */
 	key_payload_reserve(key, 0);
 
 	if (upayload) {
@@ -136,6 +160,9 @@ void user_revoke(struct key *key)
 
 EXPORT_SYMBOL(user_revoke);
 
+/*
+ * dispose of the data dangling from the corpse of a user key
+ */
 void user_destroy(struct key *key)
 {
 	struct user_key_payload *upayload = key->payload.data;
@@ -145,6 +172,9 @@ void user_destroy(struct key *key)
 
 EXPORT_SYMBOL_GPL(user_destroy);
 
+/*
+ * describe the user key
+ */
 void user_describe(const struct key *key, struct seq_file *m)
 {
 	seq_puts(m, key->description);
@@ -154,6 +184,10 @@ void user_describe(const struct key *key, struct seq_file *m)
 
 EXPORT_SYMBOL_GPL(user_describe);
 
+/*
+ * read the key data
+ * - the key's semaphore is read-locked
+ */
 long user_read(const struct key *key, char __user *buffer, size_t buflen)
 {
 	struct user_key_payload *upayload;
@@ -162,7 +196,7 @@ long user_read(const struct key *key, char __user *buffer, size_t buflen)
 	upayload = rcu_dereference_key(key);
 	ret = upayload->datalen;
 
-	
+	/* we can return the data as is */
 	if (buffer && buflen > 0) {
 		if (buflen > upayload->datalen)
 			buflen = upayload->datalen;
@@ -176,16 +210,17 @@ long user_read(const struct key *key, char __user *buffer, size_t buflen)
 
 EXPORT_SYMBOL_GPL(user_read);
 
+/* Vet the description for a "logon" key */
 static int logon_vet_description(const char *desc)
 {
 	char *p;
 
-	
+	/* require a "qualified" description string */
 	p = strchr(desc, ':');
 	if (!p)
 		return -EINVAL;
 
-	
+	/* also reject description with ':' as first char */
 	if (p == desc)
 		return -EINVAL;
 

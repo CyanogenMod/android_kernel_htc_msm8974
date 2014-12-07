@@ -1,5 +1,14 @@
+/*
+ * linux/include/linux/parser.h
+ *
+ * Header for lib/parser.c
+ * Intended use of these functions is parsing filesystem argument lists,
+ * but could potentially be used anywhere else that simple option=arg
+ * parsing is required.
+ */
 
 
+/* associates an integer enumerator with a pattern string. */
 struct match_token {
 	int token;
 	const char *pattern;
@@ -7,8 +16,10 @@ struct match_token {
 
 typedef struct match_token match_table_t[];
 
+/* Maximum number of arguments that match_token will find in a pattern */
 enum {MAX_OPT_ARGS = 3};
 
+/* Describe the location within a string of a substring */
 typedef struct {
 	char *from;
 	char *to;

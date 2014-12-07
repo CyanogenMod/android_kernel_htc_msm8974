@@ -16,6 +16,7 @@
    Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA
    02111-1307 USA.  */
 
+/* Slight modifications for pa-risc linux - Paul Bame <bame@debian.org> */
 
 #include <linux/types.h>
 #include <asm/string.h>
@@ -38,9 +39,11 @@ memset (void *dstpp, int sc, size_t len)
       cccc |= cccc << 8;
       cccc |= cccc << 16;
       if (OPSIZ > 4)
-	
+	/* Do the shift in two steps to avoid warning if long has 32 bits.  */
 	cccc |= (cccc << 16) << 16;
 
+      /* There are at least some bytes to set.
+	 No need to test for LEN == 0 in this alignment loop.  */
       while (dstp % OPSIZ != 0)
 	{
 	  ((unsigned char *) dstp)[0] = c;
@@ -48,7 +51,7 @@ memset (void *dstpp, int sc, size_t len)
 	  len -= 1;
 	}
 
-      
+      /* Write 8 `op_t' per iteration until less than 8 `op_t' remain.  */
       xlen = len / (OPSIZ * 8);
       while (xlen > 0)
 	{
@@ -65,7 +68,7 @@ memset (void *dstpp, int sc, size_t len)
 	}
       len %= OPSIZ * 8;
 
-      
+      /* Write 1 `op_t' per iteration until less than OPSIZ bytes remain.  */
       xlen = len / OPSIZ;
       while (xlen > 0)
 	{
@@ -76,7 +79,7 @@ memset (void *dstpp, int sc, size_t len)
       len %= OPSIZ;
     }
 
-  
+  /* Write the last few bytes.  */
   while (len > 0)
     {
       ((unsigned char *) dstp)[0] = c;

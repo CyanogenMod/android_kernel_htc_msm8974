@@ -29,6 +29,12 @@
 
 extern struct iscsi_transport beiscsi_iscsi_transport;
 
+/**
+ * beiscsi_session_create - creates a new iscsi session
+ * @cmds_max: max commands supported
+ * @qdepth: max queue depth supported
+ * @initial_cmdsn: initial iscsi CMDSN
+ */
 struct iscsi_cls_session *beiscsi_session_create(struct iscsi_endpoint *ep,
 						 u16 cmds_max,
 						 u16 qdepth,
@@ -82,6 +88,13 @@ destroy_sess:
 	return NULL;
 }
 
+/**
+ * beiscsi_session_destroy - destroys iscsi session
+ * @cls_session:	pointer to iscsi cls session
+ *
+ * Destroys iSCSI session instance and releases
+ * resources allocated for it.
+ */
 void beiscsi_session_destroy(struct iscsi_cls_session *cls_session)
 {
 	struct iscsi_session *sess = cls_session->dd_data;
@@ -92,6 +105,11 @@ void beiscsi_session_destroy(struct iscsi_cls_session *cls_session)
 	iscsi_session_teardown(cls_session);
 }
 
+/**
+ * beiscsi_conn_create - create an instance of iscsi connection
+ * @cls_session: ptr to iscsi_cls_session
+ * @cid: iscsi cid
+ */
 struct iscsi_cls_conn *
 beiscsi_conn_create(struct iscsi_cls_session *cls_session, u32 cid)
 {
@@ -123,6 +141,12 @@ beiscsi_conn_create(struct iscsi_cls_session *cls_session, u32 cid)
 	return cls_conn;
 }
 
+/**
+ * beiscsi_bindconn_cid - Bind the beiscsi_conn with phba connection table
+ * @beiscsi_conn: The pointer to  beiscsi_conn structure
+ * @phba: The phba instance
+ * @cid: The cid to free
+ */
 static int beiscsi_bindconn_cid(struct beiscsi_hba *phba,
 				struct beiscsi_conn *beiscsi_conn,
 				unsigned int cid)
@@ -139,6 +163,14 @@ static int beiscsi_bindconn_cid(struct beiscsi_hba *phba,
 	return 0;
 }
 
+/**
+ * beiscsi_conn_bind - Binds iscsi session/connection with TCP connection
+ * @cls_session: pointer to iscsi cls session
+ * @cls_conn: pointer to iscsi cls conn
+ * @transport_fd: EP handle(64 bit)
+ *
+ * This function binds the TCP Conn with iSCSI Connection and Session.
+ */
 int beiscsi_conn_bind(struct iscsi_cls_session *cls_session,
 		      struct iscsi_cls_conn *cls_conn,
 		      u64 transport_fd, int is_leading)
@@ -175,6 +207,14 @@ int beiscsi_conn_bind(struct iscsi_cls_session *cls_session,
 	return beiscsi_bindconn_cid(phba, beiscsi_conn, beiscsi_ep->ep_cid);
 }
 
+/**
+ * beiscsi_ep_get_param - get the iscsi parameter
+ * @ep: pointer to iscsi ep
+ * @param: parameter type identifier
+ * @buf: buffer pointer
+ *
+ * returns iscsi parameter
+ */
 int beiscsi_ep_get_param(struct iscsi_endpoint *ep,
 			   enum iscsi_param param, char *buf)
 {
@@ -210,6 +250,10 @@ int beiscsi_set_param(struct iscsi_cls_conn *cls_conn,
 	ret = iscsi_set_param(cls_conn, param, buf, buflen);
 	if (ret)
 		return ret;
+	/*
+	 * If userspace tried to set the value to higher than we can
+	 * support override here.
+	 */
 	switch (param) {
 	case ISCSI_PARAM_FIRST_BURST:
 		if (session->first_burst > 8192)
@@ -234,6 +278,14 @@ int beiscsi_set_param(struct iscsi_cls_conn *cls_conn,
 	return 0;
 }
 
+/**
+ * beiscsi_get_host_param - get the iscsi parameter
+ * @shost: pointer to scsi_host structure
+ * @param: parameter type identifier
+ * @buf: buffer pointer
+ *
+ * returns host parameter
+ */
 int beiscsi_get_host_param(struct Scsi_Host *shost,
 			   enum iscsi_host_param param, char *buf)
 {
@@ -297,6 +349,13 @@ int beiscsi_get_macaddr(char *buf, struct beiscsi_hba *phba)
 }
 
 
+/**
+ * beiscsi_conn_get_stats - get the iscsi stats
+ * @cls_conn: pointer to iscsi cls conn
+ * @stats: pointer to iscsi_stats structure
+ *
+ * returns iscsi stats
+ */
 void beiscsi_conn_get_stats(struct iscsi_cls_conn *cls_conn,
 			    struct iscsi_stats *stats)
 {
@@ -319,6 +378,11 @@ void beiscsi_conn_get_stats(struct iscsi_cls_conn *cls_conn,
 	stats->custom[0].value = conn->eh_abort_cnt;
 }
 
+/**
+ * beiscsi_set_params_for_offld - get the parameters for offload
+ * @beiscsi_conn: pointer to beiscsi_conn
+ * @params: pointer to offload_params structure
+ */
 static void  beiscsi_set_params_for_offld(struct beiscsi_conn *beiscsi_conn,
 					  struct beiscsi_offload_params *params)
 {
@@ -346,6 +410,10 @@ static void  beiscsi_set_params_for_offld(struct beiscsi_conn *beiscsi_conn,
 		      (conn->exp_statsn - 1));
 }
 
+/**
+ * beiscsi_conn_start - offload of session to chip
+ * @cls_conn: pointer to beiscsi_conn
+ */
 int beiscsi_conn_start(struct iscsi_cls_conn *cls_conn)
 {
 	struct iscsi_conn *conn = cls_conn->dd_data;
@@ -366,6 +434,10 @@ int beiscsi_conn_start(struct iscsi_cls_conn *cls_conn)
 	return 0;
 }
 
+/**
+ * beiscsi_get_cid - Allocate a cid
+ * @phba: The phba instance
+ */
 static int beiscsi_get_cid(struct beiscsi_hba *phba)
 {
 	unsigned short cid = 0xFFFF;
@@ -380,6 +452,11 @@ static int beiscsi_get_cid(struct beiscsi_hba *phba)
 	return cid;
 }
 
+/**
+ * beiscsi_put_cid - Free the cid
+ * @phba: The phba for which the cid is being freed
+ * @cid: The cid to free
+ */
 static void beiscsi_put_cid(struct beiscsi_hba *phba, unsigned short cid)
 {
 	phba->avlbl_cids++;
@@ -388,6 +465,10 @@ static void beiscsi_put_cid(struct beiscsi_hba *phba, unsigned short cid)
 		phba->cid_free = 0;
 }
 
+/**
+ * beiscsi_free_ep - free endpoint
+ * @ep:	pointer to iscsi endpoint structure
+ */
 static void beiscsi_free_ep(struct beiscsi_endpoint *beiscsi_ep)
 {
 	struct beiscsi_hba *phba = beiscsi_ep->phba;
@@ -396,6 +477,14 @@ static void beiscsi_free_ep(struct beiscsi_endpoint *beiscsi_ep)
 	beiscsi_ep->phba = NULL;
 }
 
+/**
+ * beiscsi_open_conn - Ask FW to open a TCP connection
+ * @ep:	endpoint to be used
+ * @src_addr: The source IP address
+ * @dst_addr: The Destination  IP address
+ *
+ * Asks the FW to open a TCP connection
+ */
 static int beiscsi_open_conn(struct iscsi_endpoint *ep,
 			     struct sockaddr *src_addr,
 			     struct sockaddr *dst_addr, int non_blocking)
@@ -482,6 +571,14 @@ free_ep:
 	return -EBUSY;
 }
 
+/**
+ * beiscsi_ep_connect - Ask chip to create TCP Conn
+ * @scsi_host: Pointer to scsi_host structure
+ * @dst_addr: The IP address of Target
+ * @non_blocking: blocking or non-blocking call
+ *
+ * This routines first asks chip to create a connection and then allocates an EP
+ */
 struct iscsi_endpoint *
 beiscsi_ep_connect(struct Scsi_Host *shost, struct sockaddr *dst_addr,
 		   int non_blocking)
@@ -528,6 +625,13 @@ free_ep:
 	return ERR_PTR(ret);
 }
 
+/**
+ * beiscsi_ep_poll - Poll to see if connection is established
+ * @ep:	endpoint to be used
+ * @timeout_ms: timeout specified in millisecs
+ *
+ * Poll to see if TCP connection established
+ */
 int beiscsi_ep_poll(struct iscsi_endpoint *ep, int timeout_ms)
 {
 	struct beiscsi_endpoint *beiscsi_ep = ep->dd_data;
@@ -539,6 +643,11 @@ int beiscsi_ep_poll(struct iscsi_endpoint *ep, int timeout_ms)
 		return 0;
 }
 
+/**
+ * beiscsi_close_conn - Upload the  connection
+ * @ep: The iscsi endpoint
+ * @flag: The type of connection closure
+ */
 static int beiscsi_close_conn(struct  beiscsi_endpoint *beiscsi_ep, int flag)
 {
 	int ret = 0;
@@ -558,6 +667,11 @@ static int beiscsi_close_conn(struct  beiscsi_endpoint *beiscsi_ep, int flag)
 	return ret;
 }
 
+/**
+ * beiscsi_unbind_conn_to_cid - Unbind the beiscsi_conn from phba conn table
+ * @phba: The phba instance
+ * @cid: The cid to free
+ */
 static int beiscsi_unbind_conn_to_cid(struct beiscsi_hba *phba,
 				      unsigned int cid)
 {
@@ -570,6 +684,12 @@ static int beiscsi_unbind_conn_to_cid(struct beiscsi_hba *phba,
 	return 0;
 }
 
+/**
+ * beiscsi_ep_disconnect - Tears down the TCP connection
+ * @ep:	endpoint to be used
+ *
+ * Tears down the TCP connection
+ */
 void beiscsi_ep_disconnect(struct iscsi_endpoint *ep)
 {
 	struct beiscsi_conn *beiscsi_conn;

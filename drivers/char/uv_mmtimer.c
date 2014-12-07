@@ -33,6 +33,7 @@ MODULE_AUTHOR("Dimitri Sivanich <sivanich@sgi.com>");
 MODULE_DESCRIPTION("SGI UV Memory Mapped RTC Timer");
 MODULE_LICENSE("GPL");
 
+/* name of the device, usually in /dev */
 #define UV_MMTIMER_NAME "mmtimer"
 #define UV_MMTIMER_DESC "SGI UV Memory Mapped RTC Timer"
 #define UV_MMTIMER_VERSION "1.0"
@@ -41,6 +42,9 @@ static long uv_mmtimer_ioctl(struct file *file, unsigned int cmd,
 						unsigned long arg);
 static int uv_mmtimer_mmap(struct file *file, struct vm_area_struct *vma);
 
+/*
+ * Period in femtoseconds (10^-15 s)
+ */
 static unsigned long uv_mmtimer_femtoperiod;
 
 static const struct file_operations uv_mmtimer_fops = {
@@ -50,13 +54,47 @@ static const struct file_operations uv_mmtimer_fops = {
 	.llseek = noop_llseek,
 };
 
+/**
+ * uv_mmtimer_ioctl - ioctl interface for /dev/uv_mmtimer
+ * @file: file structure for the device
+ * @cmd: command to execute
+ * @arg: optional argument to command
+ *
+ * Executes the command specified by @cmd.  Returns 0 for success, < 0 for
+ * failure.
+ *
+ * Valid commands:
+ *
+ * %MMTIMER_GETOFFSET - Should return the offset (relative to the start
+ * of the page where the registers are mapped) for the counter in question.
+ *
+ * %MMTIMER_GETRES - Returns the resolution of the clock in femto (10^-15)
+ * seconds
+ *
+ * %MMTIMER_GETFREQ - Copies the frequency of the clock in Hz to the address
+ * specified by @arg
+ *
+ * %MMTIMER_GETBITS - Returns the number of bits in the clock's counter
+ *
+ * %MMTIMER_MMAPAVAIL - Returns 1 if registers can be mmap'd into userspace
+ *
+ * %MMTIMER_GETCOUNTER - Gets the current value in the counter and places it
+ * in the address specified by @arg.
+ */
 static long uv_mmtimer_ioctl(struct file *file, unsigned int cmd,
 						unsigned long arg)
 {
 	int ret = 0;
 
 	switch (cmd) {
-	case MMTIMER_GETOFFSET:	
+	case MMTIMER_GETOFFSET:	/* offset of the counter */
+		/*
+		 * Starting with HUB rev 2.0, the UV RTC register is
+		 * replicated across all cachelines of it's own page.
+		 * This allows faster simultaneous reads from a given socket.
+		 *
+		 * The offset returned is in 64 bit units.
+		 */
 		if (uv_get_min_hub_revision_id() == 1)
 			ret = 0;
 		else
@@ -64,20 +102,20 @@ static long uv_mmtimer_ioctl(struct file *file, unsigned int cmd,
 					PAGE_SIZE) / 8;
 		break;
 
-	case MMTIMER_GETRES: 
+	case MMTIMER_GETRES: /* resolution of the clock in 10^-15 s */
 		if (copy_to_user((unsigned long __user *)arg,
 				&uv_mmtimer_femtoperiod, sizeof(unsigned long)))
 			ret = -EFAULT;
 		break;
 
-	case MMTIMER_GETFREQ: 
+	case MMTIMER_GETFREQ: /* frequency in Hz */
 		if (copy_to_user((unsigned long __user *)arg,
 				&sn_rtc_cycles_per_second,
 				sizeof(unsigned long)))
 			ret = -EFAULT;
 		break;
 
-	case MMTIMER_GETBITS: 
+	case MMTIMER_GETBITS: /* number of bits in the clock */
 		ret = hweight64(UVH_RTC_REAL_TIME_CLOCK_MASK);
 		break;
 
@@ -98,6 +136,14 @@ static long uv_mmtimer_ioctl(struct file *file, unsigned int cmd,
 	return ret;
 }
 
+/**
+ * uv_mmtimer_mmap - maps the clock's registers into userspace
+ * @file: file structure for the device
+ * @vma: VMA to map the registers into
+ *
+ * Calls remap_pfn_range() to map the clock's registers into
+ * the calling process' address space.
+ */
 static int uv_mmtimer_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	unsigned long uv_mmtimer_addr;
@@ -133,6 +179,11 @@ static struct miscdevice uv_mmtimer_miscdev = {
 };
 
 
+/**
+ * uv_mmtimer_init - device initialization routine
+ *
+ * Does initial setup for the uv_mmtimer device.
+ */
 static int __init uv_mmtimer_init(void)
 {
 	if (!is_uv_system()) {
@@ -140,6 +191,9 @@ static int __init uv_mmtimer_init(void)
 		return -1;
 	}
 
+	/*
+	 * Sanity check the cycles/sec variable
+	 */
 	if (sn_rtc_cycles_per_second < 100000) {
 		printk(KERN_ERR "%s: unable to determine clock frequency\n",
 		       UV_MMTIMER_NAME);

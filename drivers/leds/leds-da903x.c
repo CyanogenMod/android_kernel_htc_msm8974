@@ -26,7 +26,7 @@
 #define DA9030_LED3_CONTROL	0x22
 #define DA9030_LED4_CONTROL	0x23
 #define DA9030_LEDPC_CONTROL	0x24
-#define DA9030_MISC_CONTROL_A	0x26	
+#define DA9030_MISC_CONTROL_A	0x26	/* Vibrator Control */
 
 #define DA9034_LED1_CONTROL	0x35
 #define DA9034_LED2_CONTROL	0x36
@@ -58,13 +58,13 @@ static void da903x_led_work(struct work_struct *work)
 	case DA9030_ID_LED_PC:
 		offset = DA9030_LED_OFFSET(led->id);
 		val = led->flags & ~0x87;
-		val |= (led->new_brightness) ? 0x80 : 0; 
-		val |= (0x7 - (led->new_brightness >> 5)) & 0x7; 
+		val |= (led->new_brightness) ? 0x80 : 0; /* EN bit */
+		val |= (0x7 - (led->new_brightness >> 5)) & 0x7; /* PWM<2:0> */
 		da903x_write(led->master, DA9030_LED1_CONTROL + offset, val);
 		break;
 	case DA9030_ID_VIBRA:
 		val = led->flags & ~0x80;
-		val |= (led->new_brightness) ? 0x80 : 0; 
+		val |= (led->new_brightness) ? 0x80 : 0; /* EN bit */
 		da903x_write(led->master, DA9030_MISC_CONTROL_A, val);
 		break;
 	case DA9034_ID_LED_1:

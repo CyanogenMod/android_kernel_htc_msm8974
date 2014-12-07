@@ -63,7 +63,9 @@
 #define SSPIIR_RORIS		BIT(2)
 #define SSPICR			SSPIIR
 
+/* timeout in milliseconds */
 #define SPI_TIMEOUT		5
+/* maximum depth of RX/TX FIFO */
 #define SPI_FIFO_SIZE		8
 
 /**
@@ -155,6 +157,7 @@ struct ep93xx_spi_chip {
 	struct ep93xx_spi_chip_ops	*ops;
 };
 
+/* converts bits per word to CR0.DSS value */
 #define bits_per_word_to_dss(bpw)	((bpw) - 1)
 
 static inline void
@@ -226,6 +229,17 @@ static void ep93xx_spi_disable_interrupts(const struct ep93xx_spi *espi)
 	ep93xx_spi_write_u8(espi, SSPCR1, regval);
 }
 
+/**
+ * ep93xx_spi_calc_divisors() - calculates SPI clock divisors
+ * @espi: ep93xx SPI controller struct
+ * @chip: divisors are calculated for this chip
+ * @rate: desired SPI output clock rate
+ *
+ * Function calculates cpsr (clock pre-scaler) and scr divisors based on
+ * given @rate and places them to @chip->div_cpsr and @chip->div_scr. If,
+ * for some reason, divisors cannot be calculated nothing is stored and
+ * %-EINVAL is returned.
+ */
 static int ep93xx_spi_calc_divisors(const struct ep93xx_spi *espi,
 				    struct ep93xx_spi_chip *chip,
 				    unsigned long rate)
@@ -233,8 +247,21 @@ static int ep93xx_spi_calc_divisors(const struct ep93xx_spi *espi,
 	unsigned long spi_clk_rate = clk_get_rate(espi->clk);
 	int cpsr, scr;
 
+	/*
+	 * Make sure that max value is between values supported by the
+	 * controller. Note that minimum value is already checked in
+	 * ep93xx_spi_transfer().
+	 */
 	rate = clamp(rate, espi->min_rate, espi->max_rate);
 
+	/*
+	 * Calculate divisors so that we can get speed according the
+	 * following formula:
+	 *	rate = spi_clock_rate / (cpsr * (1 + scr))
+	 *
+	 * cpsr must be even number and starts from 2, scr can be any number
+	 * between 0 and 255.
+	 */
 	for (cpsr = 2; cpsr <= 254; cpsr += 2) {
 		for (scr = 0; scr <= 255; scr++) {
 			if ((spi_clk_rate / (cpsr * (scr + 1))) <= rate) {
@@ -257,6 +284,15 @@ static void ep93xx_spi_cs_control(struct spi_device *spi, bool control)
 		chip->ops->cs_control(spi, value);
 }
 
+/**
+ * ep93xx_spi_setup() - setup an SPI device
+ * @spi: SPI device to setup
+ *
+ * This function sets up SPI device mode, speed etc. Can be called multiple
+ * times for a single device. Returns %0 in case of success, negative error in
+ * case of failure. When this function returns success, the device is
+ * deselected.
+ */
 static int ep93xx_spi_setup(struct spi_device *spi)
 {
 	struct ep93xx_spi *espi = spi_master_get_devdata(spi->master);
@@ -309,6 +345,17 @@ static int ep93xx_spi_setup(struct spi_device *spi)
 	return 0;
 }
 
+/**
+ * ep93xx_spi_transfer() - queue message to be transferred
+ * @spi: target SPI device
+ * @msg: message to be transferred
+ *
+ * This function is called by SPI device drivers when they are going to transfer
+ * a new message. It simply puts the message in the queue and schedules
+ * workqueue to perform the actual transfer later on.
+ *
+ * Returns %0 on success and negative error in case of failure.
+ */
 static int ep93xx_spi_transfer(struct spi_device *spi, struct spi_message *msg)
 {
 	struct ep93xx_spi *espi = spi_master_get_devdata(spi->master);
@@ -318,7 +365,7 @@ static int ep93xx_spi_transfer(struct spi_device *spi, struct spi_message *msg)
 	if (!msg || !msg->complete)
 		return -EINVAL;
 
-	
+	/* first validate each transfer */
 	list_for_each_entry(t, &msg->transfers, transfer_list) {
 		if (t->bits_per_word) {
 			if (t->bits_per_word < 4 || t->bits_per_word > 16)
@@ -328,6 +375,12 @@ static int ep93xx_spi_transfer(struct spi_device *spi, struct spi_message *msg)
 				return -EINVAL;
 	}
 
+	/*
+	 * Now that we own the message, let's initialize it so that it is
+	 * suitable for us. We use @msg->status to signal whether there was
+	 * error in transfer and @msg->state is used to hold pointer to the
+	 * current transfer (or %NULL if no active current transfer).
+	 */
 	msg->state = NULL;
 	msg->status = 0;
 	msg->actual_length = 0;
@@ -344,6 +397,13 @@ static int ep93xx_spi_transfer(struct spi_device *spi, struct spi_message *msg)
 	return 0;
 }
 
+/**
+ * ep93xx_spi_cleanup() - cleans up master controller specific state
+ * @spi: SPI device to cleanup
+ *
+ * This function releases master controller specific state for given @spi
+ * device.
+ */
 static void ep93xx_spi_cleanup(struct spi_device *spi)
 {
 	struct ep93xx_spi_chip *chip;
@@ -357,6 +417,15 @@ static void ep93xx_spi_cleanup(struct spi_device *spi)
 	}
 }
 
+/**
+ * ep93xx_spi_chip_setup() - configures hardware according to given @chip
+ * @espi: ep93xx SPI controller struct
+ * @chip: chip specific settings
+ *
+ * This function sets up the actual hardware registers with settings given in
+ * @chip. Note that no validation is done so make sure that callers validate
+ * settings before calling this.
+ */
 static void ep93xx_spi_chip_setup(const struct ep93xx_spi *espi,
 				  const struct ep93xx_spi_chip *chip)
 {
@@ -420,18 +489,29 @@ static void ep93xx_do_read(struct ep93xx_spi *espi, struct spi_transfer *t)
 	}
 }
 
+/**
+ * ep93xx_spi_read_write() - perform next RX/TX transfer
+ * @espi: ep93xx SPI controller struct
+ *
+ * This function transfers next bytes (or half-words) to/from RX/TX FIFOs. If
+ * called several times, the whole transfer will be completed. Returns
+ * %-EINPROGRESS when current transfer was not yet completed otherwise %0.
+ *
+ * When this function is finished, RX FIFO should be empty and TX FIFO should be
+ * full.
+ */
 static int ep93xx_spi_read_write(struct ep93xx_spi *espi)
 {
 	struct spi_message *msg = espi->current_msg;
 	struct spi_transfer *t = msg->state;
 
-	
+	/* read as long as RX FIFO has frames in it */
 	while ((ep93xx_spi_read_u8(espi, SSPSR) & SSPSR_RNE)) {
 		ep93xx_do_read(espi, t);
 		espi->fifo_level--;
 	}
 
-	
+	/* write as long as TX FIFO has room */
 	while (espi->fifo_level < SPI_FIFO_SIZE && espi->tx < t->len) {
 		ep93xx_do_write(espi, t);
 		espi->fifo_level++;
@@ -445,12 +525,25 @@ static int ep93xx_spi_read_write(struct ep93xx_spi *espi)
 
 static void ep93xx_spi_pio_transfer(struct ep93xx_spi *espi)
 {
+	/*
+	 * Now everything is set up for the current transfer. We prime the TX
+	 * FIFO, enable interrupts, and wait for the transfer to complete.
+	 */
 	if (ep93xx_spi_read_write(espi)) {
 		ep93xx_spi_enable_interrupts(espi);
 		wait_for_completion(&espi->wait);
 	}
 }
 
+/**
+ * ep93xx_spi_dma_prepare() - prepares a DMA transfer
+ * @espi: ep93xx SPI controller struct
+ * @dir: DMA transfer direction
+ *
+ * Function configures the DMA, maps the buffer and prepares the DMA
+ * descriptor. Returns a valid DMA descriptor in case of success and ERR_PTR
+ * in case of failure.
+ */
 static struct dma_async_tx_descriptor *
 ep93xx_spi_dma_prepare(struct ep93xx_spi *espi, enum dma_transfer_direction dir)
 {
@@ -493,6 +586,15 @@ ep93xx_spi_dma_prepare(struct ep93xx_spi *espi, enum dma_transfer_direction dir)
 	if (ret)
 		return ERR_PTR(ret);
 
+	/*
+	 * We need to split the transfer into PAGE_SIZE'd chunks. This is
+	 * because we are using @espi->zeropage to provide a zero RX buffer
+	 * for the TX transfers and we have only allocated one page for that.
+	 *
+	 * For performance reasons we allocate a new sg_table only when
+	 * needed. Otherwise we will re-use the current one. Eventually the
+	 * last sg_table is released in ep93xx_spi_release_dma().
+	 */
 
 	nents = DIV_ROUND_UP(len, PAGE_SIZE);
 	if (nents != sgt->nents) {
@@ -536,6 +638,14 @@ ep93xx_spi_dma_prepare(struct ep93xx_spi *espi, enum dma_transfer_direction dir)
 	return txd;
 }
 
+/**
+ * ep93xx_spi_dma_finish() - finishes with a DMA transfer
+ * @espi: ep93xx SPI controller struct
+ * @dir: DMA transfer direction
+ *
+ * Function finishes with the DMA transfer. After this, the DMA buffer is
+ * unmapped.
+ */
 static void ep93xx_spi_dma_finish(struct ep93xx_spi *espi,
 				  enum dma_transfer_direction dir)
 {
@@ -578,11 +688,11 @@ static void ep93xx_spi_dma_transfer(struct ep93xx_spi *espi)
 		return;
 	}
 
-	
+	/* We are ready when RX is done */
 	rxd->callback = ep93xx_spi_dma_callback;
 	rxd->callback_param = &espi->wait;
 
-	
+	/* Now submit both descriptors and wait while they finish */
 	dmaengine_submit(rxd);
 	dmaengine_submit(txd);
 
@@ -595,6 +705,16 @@ static void ep93xx_spi_dma_transfer(struct ep93xx_spi *espi)
 	ep93xx_spi_dma_finish(espi, DMA_DEV_TO_MEM);
 }
 
+/**
+ * ep93xx_spi_process_transfer() - processes one SPI transfer
+ * @espi: ep93xx SPI controller struct
+ * @msg: current message
+ * @t: transfer to process
+ *
+ * This function processes one SPI transfer given in @t. Function waits until
+ * transfer is complete (may sleep) and updates @msg->status based on whether
+ * transfer was successfully processed or not.
+ */
 static void ep93xx_spi_process_transfer(struct ep93xx_spi *espi,
 					struct spi_message *msg,
 					struct spi_transfer *t)
@@ -603,6 +723,11 @@ static void ep93xx_spi_process_transfer(struct ep93xx_spi *espi,
 
 	msg->state = t;
 
+	/*
+	 * Handle any transfer specific settings if needed. We use
+	 * temporary chip settings here and restore original later when
+	 * the transfer is finished.
+	 */
 	if (t->speed_hz || t->bits_per_word) {
 		struct ep93xx_spi_chip tmp_chip = *chip;
 
@@ -622,28 +747,49 @@ static void ep93xx_spi_process_transfer(struct ep93xx_spi *espi,
 		if (t->bits_per_word)
 			tmp_chip.dss = bits_per_word_to_dss(t->bits_per_word);
 
+		/*
+		 * Set up temporary new hw settings for this transfer.
+		 */
 		ep93xx_spi_chip_setup(espi, &tmp_chip);
 	}
 
 	espi->rx = 0;
 	espi->tx = 0;
 
+	/*
+	 * There is no point of setting up DMA for the transfers which will
+	 * fit into the FIFO and can be transferred with a single interrupt.
+	 * So in these cases we will be using PIO and don't bother for DMA.
+	 */
 	if (espi->dma_rx && t->len > SPI_FIFO_SIZE)
 		ep93xx_spi_dma_transfer(espi);
 	else
 		ep93xx_spi_pio_transfer(espi);
 
+	/*
+	 * In case of error during transmit, we bail out from processing
+	 * the message.
+	 */
 	if (msg->status)
 		return;
 
 	msg->actual_length += t->len;
 
+	/*
+	 * After this transfer is finished, perform any possible
+	 * post-transfer actions requested by the protocol driver.
+	 */
 	if (t->delay_usecs) {
 		set_current_state(TASK_UNINTERRUPTIBLE);
 		schedule_timeout(usecs_to_jiffies(t->delay_usecs));
 	}
 	if (t->cs_change) {
 		if (!list_is_last(&t->transfer_list, &msg->transfers)) {
+			/*
+			 * In case protocol driver is asking us to drop the
+			 * chipselect briefly, we let the scheduler to handle
+			 * any "delay" here.
+			 */
 			ep93xx_spi_cs_control(msg->spi, false);
 			cond_resched();
 			ep93xx_spi_cs_control(msg->spi, true);
@@ -654,6 +800,18 @@ static void ep93xx_spi_process_transfer(struct ep93xx_spi *espi,
 		ep93xx_spi_chip_setup(espi, chip);
 }
 
+/*
+ * ep93xx_spi_process_message() - process one SPI message
+ * @espi: ep93xx SPI controller struct
+ * @msg: message to process
+ *
+ * This function processes a single SPI message. We go through all transfers in
+ * the message and pass them to ep93xx_spi_process_transfer(). Chipselect is
+ * asserted during the whole message (unless per transfer cs_change is set).
+ *
+ * @msg->status contains %0 in case of success or negative error code in case of
+ * failure.
+ */
 static void ep93xx_spi_process_message(struct ep93xx_spi *espi,
 				       struct spi_message *msg)
 {
@@ -661,6 +819,9 @@ static void ep93xx_spi_process_message(struct ep93xx_spi *espi,
 	struct spi_transfer *t;
 	int err;
 
+	/*
+	 * Enable the SPI controller and its clock.
+	 */
 	err = ep93xx_spi_enable(espi);
 	if (err) {
 		dev_err(&espi->pdev->dev, "failed to enable SPI controller\n");
@@ -668,6 +829,9 @@ static void ep93xx_spi_process_message(struct ep93xx_spi *espi,
 		return;
 	}
 
+	/*
+	 * Just to be sure: flush any data from RX FIFO.
+	 */
 	timeout = jiffies + msecs_to_jiffies(SPI_TIMEOUT);
 	while (ep93xx_spi_read_u16(espi, SSPSR) & SSPSR_RNE) {
 		if (time_after(jiffies, timeout)) {
@@ -679,8 +843,16 @@ static void ep93xx_spi_process_message(struct ep93xx_spi *espi,
 		ep93xx_spi_read_u16(espi, SSPDR);
 	}
 
+	/*
+	 * We explicitly handle FIFO level. This way we don't have to check TX
+	 * FIFO status using %SSPSR_TNF bit which may cause RX FIFO overruns.
+	 */
 	espi->fifo_level = 0;
 
+	/*
+	 * Update SPI controller registers according to spi device and assert
+	 * the chipselect.
+	 */
 	ep93xx_spi_chip_setup(espi, spi_get_ctldata(msg->spi));
 	ep93xx_spi_cs_control(msg->spi, true);
 
@@ -690,12 +862,28 @@ static void ep93xx_spi_process_message(struct ep93xx_spi *espi,
 			break;
 	}
 
+	/*
+	 * Now the whole message is transferred (or failed for some reason). We
+	 * deselect the device and disable the SPI controller.
+	 */
 	ep93xx_spi_cs_control(msg->spi, false);
 	ep93xx_spi_disable(espi);
 }
 
 #define work_to_espi(work) (container_of((work), struct ep93xx_spi, msg_work))
 
+/**
+ * ep93xx_spi_work() - EP93xx SPI workqueue worker function
+ * @work: work struct
+ *
+ * Workqueue worker function. This function is called when there are new
+ * SPI messages to be processed. Message is taken out from the queue and then
+ * passed to ep93xx_spi_process_message().
+ *
+ * After message is transferred, protocol driver is notified by calling
+ * @msg->complete(). In case of error, @msg->status is set to negative error
+ * number, otherwise it contains zero (and @msg->actual_length is updated).
+ */
 static void ep93xx_spi_work(struct work_struct *work)
 {
 	struct ep93xx_spi *espi = work_to_espi(work);
@@ -714,13 +902,17 @@ static void ep93xx_spi_work(struct work_struct *work)
 
 	ep93xx_spi_process_message(espi, msg);
 
+	/*
+	 * Update the current message and re-schedule ourselves if there are
+	 * more messages in the queue.
+	 */
 	spin_lock_irq(&espi->lock);
 	espi->current_msg = NULL;
 	if (espi->running && !list_empty(&espi->msg_queue))
 		queue_work(espi->wq, &espi->msg_work);
 	spin_unlock_irq(&espi->lock);
 
-	
+	/* notify the protocol driver that we are done with this message */
 	msg->complete(msg->context);
 }
 
@@ -729,18 +921,36 @@ static irqreturn_t ep93xx_spi_interrupt(int irq, void *dev_id)
 	struct ep93xx_spi *espi = dev_id;
 	u8 irq_status = ep93xx_spi_read_u8(espi, SSPIIR);
 
+	/*
+	 * If we got ROR (receive overrun) interrupt we know that something is
+	 * wrong. Just abort the message.
+	 */
 	if (unlikely(irq_status & SSPIIR_RORIS)) {
-		
+		/* clear the overrun interrupt */
 		ep93xx_spi_write_u8(espi, SSPICR, 0);
 		dev_warn(&espi->pdev->dev,
 			 "receive overrun, aborting the message\n");
 		espi->current_msg->status = -EIO;
 	} else {
+		/*
+		 * Interrupt is either RX (RIS) or TX (TIS). For both cases we
+		 * simply execute next data transfer.
+		 */
 		if (ep93xx_spi_read_write(espi)) {
+			/*
+			 * In normal case, there still is some processing left
+			 * for current transfer. Let's wait for the next
+			 * interrupt then.
+			 */
 			return IRQ_HANDLED;
 		}
 	}
 
+	/*
+	 * Current transfer is finished, either with error or with success. In
+	 * any case we disable interrupts and notify the worker to handle
+	 * any post-processing of the message.
+	 */
 	ep93xx_spi_disable_interrupts(espi);
 	complete(&espi->wait);
 	return IRQ_HANDLED;
@@ -852,6 +1062,10 @@ static int __devinit ep93xx_spi_probe(struct platform_device *pdev)
 	spin_lock_init(&espi->lock);
 	init_completion(&espi->wait);
 
+	/*
+	 * Calculate maximum and minimum supported clock rates
+	 * for the controller.
+	 */
 	espi->max_rate = clk_get_rate(espi->clk) / 2;
 	espi->min_rate = clk_get_rate(espi->clk) / (254 * 256);
 	espi->pdev = pdev;
@@ -904,7 +1118,7 @@ static int __devinit ep93xx_spi_probe(struct platform_device *pdev)
 	INIT_LIST_HEAD(&espi->msg_queue);
 	espi->running = true;
 
-	
+	/* make sure that the hardware is disabled */
 	ep93xx_spi_write_u8(espi, SSPCR1, 0);
 
 	error = spi_register_master(master);
@@ -948,6 +1162,9 @@ static int __devexit ep93xx_spi_remove(struct platform_device *pdev)
 
 	destroy_workqueue(espi->wq);
 
+	/*
+	 * Complete remaining messages with %-ESHUTDOWN status.
+	 */
 	spin_lock_irq(&espi->lock);
 	while (!list_empty(&espi->msg_queue)) {
 		struct spi_message *msg;

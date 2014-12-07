@@ -30,6 +30,11 @@
 
 #include "lis3l02dq.h"
 
+/* At the moment the spi framework doesn't allow global setting of cs_change.
+ * It's in the likely to be added comment at the top of spi.h.
+ * This means that use cannot be made of spi_write etc.
+ */
+/* direct copy of the irq_default_primary_handler */
 #ifndef CONFIG_IIO_BUFFER
 static irqreturn_t lis3l02dq_nobuffer(int irq, void *private)
 {
@@ -37,6 +42,12 @@ static irqreturn_t lis3l02dq_nobuffer(int irq, void *private)
 }
 #endif
 
+/**
+ * lis3l02dq_spi_read_reg_8() - read single byte from a single register
+ * @indio_dev: iio_dev for this actual device
+ * @reg_address: the address of the register to be read
+ * @val: pass back the resulting value
+ **/
 int lis3l02dq_spi_read_reg_8(struct iio_dev *indio_dev,
 			     u8 reg_address, u8 *val)
 {
@@ -247,7 +258,7 @@ static int lis3l02dq_read_raw(struct iio_dev *indio_dev,
 
 	switch (mask) {
 	case 0:
-		
+		/* Take the iio_dev status lock */
 		mutex_lock(&indio_dev->mlock);
 		if (indio_dev->currentmode == INDIO_BUFFER_TRIGGERED) {
 			ret = -EBUSY;
@@ -267,14 +278,14 @@ static int lis3l02dq_read_raw(struct iio_dev *indio_dev,
 		ret = lis3l02dq_spi_read_reg_8(indio_dev, reg, &utemp);
 		if (ret)
 			goto error_ret;
-		
+		/* to match with what previous code does */
 		*val = utemp;
 		return IIO_VAL_INT;
 
 	case IIO_CHAN_INFO_CALIBBIAS:
 		reg = lis3l02dq_axis_map[LIS3L02DQ_BIAS][chan->address];
 		ret = lis3l02dq_spi_read_reg_8(indio_dev, reg, (u8 *)&stemp);
-		
+		/* to match with what previous code does */
 		*val = stemp;
 		return IIO_VAL_INT;
 	}
@@ -332,7 +343,7 @@ static ssize_t lis3l02dq_write_frequency(struct device *dev,
 				       &t);
 	if (ret)
 		goto error_ret_mutex;
-	
+	/* Wipe the bits clean */
 	t &= ~LIS3L02DQ_DEC_MASK;
 	switch (val) {
 	case 280:
@@ -373,7 +384,7 @@ static int lis3l02dq_initial_setup(struct iio_dev *indio_dev)
 	spi_setup(st->us);
 
 	val = LIS3L02DQ_DEFAULT_CTRL1;
-	
+	/* Write suitable defaults to ctrl1 */
 	ret = lis3l02dq_spi_write_reg_8(indio_dev,
 					LIS3L02DQ_REG_CTRL_1_ADDR,
 					val);
@@ -381,7 +392,7 @@ static int lis3l02dq_initial_setup(struct iio_dev *indio_dev)
 		dev_err(&st->us->dev, "problem with setup control register 1");
 		goto err_ret;
 	}
-	
+	/* Repeat as sometimes doesn't work first time?*/
 	ret = lis3l02dq_spi_write_reg_8(indio_dev,
 					LIS3L02DQ_REG_CTRL_1_ADDR,
 					val);
@@ -390,6 +401,8 @@ static int lis3l02dq_initial_setup(struct iio_dev *indio_dev)
 		goto err_ret;
 	}
 
+	/* Read back to check this has worked acts as loose test of correct
+	 * chip */
 	ret = lis3l02dq_spi_read_reg_8(indio_dev,
 				       LIS3L02DQ_REG_CTRL_1_ADDR,
 				       &valtest);
@@ -491,7 +504,7 @@ static irqreturn_t lis3l02dq_event_handler(int irq, void *private)
 						  IIO_EV_DIR_FALLING),
 			       timestamp);
 
-	
+	/* Ack and allow for new interrupts */
 	lis3l02dq_spi_read_reg_8(indio_dev,
 				 LIS3L02DQ_REG_WAKE_UP_ACK_ADDR,
 				 &t);
@@ -552,7 +565,7 @@ int lis3l02dq_disable_all_events(struct iio_dev *indio_dev)
 					control);
 	if (ret)
 		goto error_ret;
-	
+	/* Also for consistency clear the mask */
 	ret = lis3l02dq_spi_read_reg_8(indio_dev,
 				       LIS3L02DQ_REG_WAKE_UP_CFG_ADDR,
 				       &val);
@@ -584,7 +597,7 @@ static int lis3l02dq_write_event_config(struct iio_dev *indio_dev,
 			  IIO_EV_DIR_RISING)));
 
 	mutex_lock(&indio_dev->mlock);
-	
+	/* read current control */
 	ret = lis3l02dq_spi_read_reg_8(indio_dev,
 				       LIS3L02DQ_REG_CTRL_2_ADDR,
 				       &control);
@@ -659,7 +672,7 @@ static int __devinit lis3l02dq_probe(struct spi_device *spi)
 		goto error_ret;
 	}
 	st = iio_priv(indio_dev);
-	
+	/* this is only used tor removal purposes */
 	spi_set_drvdata(spi, indio_dev);
 
 	st->us = spi;
@@ -699,7 +712,7 @@ static int __devinit lis3l02dq_probe(struct spi_device *spi)
 			goto error_free_interrupt;
 	}
 
-	
+	/* Get the device into a sane initial state */
 	ret = lis3l02dq_initial_setup(indio_dev);
 	if (ret)
 		goto error_remove_trigger;
@@ -726,6 +739,7 @@ error_ret:
 	return ret;
 }
 
+/* Power down the device */
 static int lis3l02dq_stop_device(struct iio_dev *indio_dev)
 {
 	int ret;
@@ -751,6 +765,7 @@ err_ret:
 	return ret;
 }
 
+/* fixme, confirm ordering in this function */
 static int lis3l02dq_remove(struct spi_device *spi)
 {
 	int ret;

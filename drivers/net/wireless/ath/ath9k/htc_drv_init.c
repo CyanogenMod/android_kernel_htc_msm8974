@@ -42,53 +42,54 @@ MODULE_PARM_DESC(nohwcrypt, "Disable hardware encryption");
 }
 
 static struct ieee80211_channel ath9k_2ghz_channels[] = {
-	CHAN2G(2412, 0), 
-	CHAN2G(2417, 1), 
-	CHAN2G(2422, 2), 
-	CHAN2G(2427, 3), 
-	CHAN2G(2432, 4), 
-	CHAN2G(2437, 5), 
-	CHAN2G(2442, 6), 
-	CHAN2G(2447, 7), 
-	CHAN2G(2452, 8), 
-	CHAN2G(2457, 9), 
-	CHAN2G(2462, 10), 
-	CHAN2G(2467, 11), 
-	CHAN2G(2472, 12), 
-	CHAN2G(2484, 13), 
+	CHAN2G(2412, 0), /* Channel 1 */
+	CHAN2G(2417, 1), /* Channel 2 */
+	CHAN2G(2422, 2), /* Channel 3 */
+	CHAN2G(2427, 3), /* Channel 4 */
+	CHAN2G(2432, 4), /* Channel 5 */
+	CHAN2G(2437, 5), /* Channel 6 */
+	CHAN2G(2442, 6), /* Channel 7 */
+	CHAN2G(2447, 7), /* Channel 8 */
+	CHAN2G(2452, 8), /* Channel 9 */
+	CHAN2G(2457, 9), /* Channel 10 */
+	CHAN2G(2462, 10), /* Channel 11 */
+	CHAN2G(2467, 11), /* Channel 12 */
+	CHAN2G(2472, 12), /* Channel 13 */
+	CHAN2G(2484, 13), /* Channel 14 */
 };
 
 static struct ieee80211_channel ath9k_5ghz_channels[] = {
-	
-	CHAN5G(5180, 14), 
-	CHAN5G(5200, 15), 
-	CHAN5G(5220, 16), 
-	CHAN5G(5240, 17), 
-	
-	CHAN5G(5260, 18), 
-	CHAN5G(5280, 19), 
-	CHAN5G(5300, 20), 
-	CHAN5G(5320, 21), 
-	
-	CHAN5G(5500, 22), 
-	CHAN5G(5520, 23), 
-	CHAN5G(5540, 24), 
-	CHAN5G(5560, 25), 
-	CHAN5G(5580, 26), 
-	CHAN5G(5600, 27), 
-	CHAN5G(5620, 28), 
-	CHAN5G(5640, 29), 
-	CHAN5G(5660, 30), 
-	CHAN5G(5680, 31), 
-	CHAN5G(5700, 32), 
-	
-	CHAN5G(5745, 33), 
-	CHAN5G(5765, 34), 
-	CHAN5G(5785, 35), 
-	CHAN5G(5805, 36), 
-	CHAN5G(5825, 37), 
+	/* _We_ call this UNII 1 */
+	CHAN5G(5180, 14), /* Channel 36 */
+	CHAN5G(5200, 15), /* Channel 40 */
+	CHAN5G(5220, 16), /* Channel 44 */
+	CHAN5G(5240, 17), /* Channel 48 */
+	/* _We_ call this UNII 2 */
+	CHAN5G(5260, 18), /* Channel 52 */
+	CHAN5G(5280, 19), /* Channel 56 */
+	CHAN5G(5300, 20), /* Channel 60 */
+	CHAN5G(5320, 21), /* Channel 64 */
+	/* _We_ call this "Middle band" */
+	CHAN5G(5500, 22), /* Channel 100 */
+	CHAN5G(5520, 23), /* Channel 104 */
+	CHAN5G(5540, 24), /* Channel 108 */
+	CHAN5G(5560, 25), /* Channel 112 */
+	CHAN5G(5580, 26), /* Channel 116 */
+	CHAN5G(5600, 27), /* Channel 120 */
+	CHAN5G(5620, 28), /* Channel 124 */
+	CHAN5G(5640, 29), /* Channel 128 */
+	CHAN5G(5660, 30), /* Channel 132 */
+	CHAN5G(5680, 31), /* Channel 136 */
+	CHAN5G(5700, 32), /* Channel 140 */
+	/* _We_ call this UNII 3 */
+	CHAN5G(5745, 33), /* Channel 149 */
+	CHAN5G(5765, 34), /* Channel 153 */
+	CHAN5G(5785, 35), /* Channel 157 */
+	CHAN5G(5805, 36), /* Channel 161 */
+	CHAN5G(5825, 37), /* Channel 165 */
 };
 
+/* Atheros hardware rate code addition for short premble */
 #define SHPCHECK(__hw_rate, __flags) \
 	((__flags & IEEE80211_RATE_SHORT_PREAMBLE) ? (__hw_rate | 0x04) : 0)
 
@@ -101,9 +102,9 @@ static struct ieee80211_channel ath9k_5ghz_channels[] = {
 
 static struct ieee80211_rate ath9k_legacy_rates[] = {
 	RATE(10, 0x1b, 0),
-	RATE(20, 0x1a, IEEE80211_RATE_SHORT_PREAMBLE), 
-	RATE(55, 0x19, IEEE80211_RATE_SHORT_PREAMBLE), 
-	RATE(110, 0x18, IEEE80211_RATE_SHORT_PREAMBLE), 
+	RATE(20, 0x1a, IEEE80211_RATE_SHORT_PREAMBLE), /* shortp : 0x1e */
+	RATE(55, 0x19, IEEE80211_RATE_SHORT_PREAMBLE), /* shortp: 0x1d */
+	RATE(110, 0x18, IEEE80211_RATE_SHORT_PREAMBLE), /* short: 0x1c */
 	RATE(60, 0x0b, 0),
 	RATE(90, 0x0f, 0),
 	RATE(120, 0x0a, 0),
@@ -138,7 +139,7 @@ static int ath9k_htc_wait_for_target(struct ath9k_htc_priv *priv)
 		return 0;
 	}
 
-	
+	/* Firmware can take up to 50ms to get ready, to be safe use 1 second */
 	time_left = wait_for_completion_timeout(&priv->htc->target_wait, HZ);
 	if (!time_left) {
 		dev_err(priv->dev, "ath9k_htc: Target is unresponsive\n");
@@ -194,60 +195,65 @@ static int ath9k_init_htc_services(struct ath9k_htc_priv *priv, u16 devid,
 {
 	int ret;
 
-	
+	/* WMI CMD*/
 	ret = ath9k_wmi_connect(priv->htc, priv->wmi, &priv->wmi_cmd_ep);
 	if (ret)
 		goto err;
 
-	
+	/* Beacon */
 	ret = ath9k_htc_connect_svc(priv, WMI_BEACON_SVC, ath9k_htc_beaconep,
 				    &priv->beacon_ep);
 	if (ret)
 		goto err;
 
-	
+	/* CAB */
 	ret = ath9k_htc_connect_svc(priv, WMI_CAB_SVC, ath9k_htc_txep,
 				    &priv->cab_ep);
 	if (ret)
 		goto err;
 
 
-	
+	/* UAPSD */
 	ret = ath9k_htc_connect_svc(priv, WMI_UAPSD_SVC, ath9k_htc_txep,
 				    &priv->uapsd_ep);
 	if (ret)
 		goto err;
 
-	
+	/* MGMT */
 	ret = ath9k_htc_connect_svc(priv, WMI_MGMT_SVC, ath9k_htc_txep,
 				    &priv->mgmt_ep);
 	if (ret)
 		goto err;
 
-	
+	/* DATA BE */
 	ret = ath9k_htc_connect_svc(priv, WMI_DATA_BE_SVC, ath9k_htc_txep,
 				    &priv->data_be_ep);
 	if (ret)
 		goto err;
 
-	
+	/* DATA BK */
 	ret = ath9k_htc_connect_svc(priv, WMI_DATA_BK_SVC, ath9k_htc_txep,
 				    &priv->data_bk_ep);
 	if (ret)
 		goto err;
 
-	
+	/* DATA VI */
 	ret = ath9k_htc_connect_svc(priv, WMI_DATA_VI_SVC, ath9k_htc_txep,
 				    &priv->data_vi_ep);
 	if (ret)
 		goto err;
 
-	
+	/* DATA VO */
 	ret = ath9k_htc_connect_svc(priv, WMI_DATA_VO_SVC, ath9k_htc_txep,
 				    &priv->data_vo_ep);
 	if (ret)
 		goto err;
 
+	/*
+	 * Setup required credits before initializing HTC.
+	 * This is a bit hacky, but, since queuing is done in
+	 * the HIF layer, shouldn't matter much.
+	 */
 
 	if (IS_AR7010_DEVICE(drv_info))
 		priv->htc->credits = 45;
@@ -358,7 +364,7 @@ static void ath9k_regwrite_buffer(void *hw_priv, u32 val, u32 reg_offset)
 
 	mutex_lock(&priv->wmi->multi_write_mutex);
 
-	
+	/* Store the register/value */
 	priv->wmi->multi_write[priv->wmi->multi_write_idx].reg =
 		cpu_to_be32(reg_offset);
 	priv->wmi->multi_write[priv->wmi->multi_write_idx].val =
@@ -366,7 +372,7 @@ static void ath9k_regwrite_buffer(void *hw_priv, u32 val, u32 reg_offset)
 
 	priv->wmi->multi_write_idx++;
 
-	
+	/* If the buffer is full, send it out. */
 	if (priv->wmi->multi_write_idx == MAX_CMD_NUMBER) {
 		r = ath9k_wmi_cmd(priv->wmi, WMI_REG_WRITE_CMDID,
 			  (u8 *) &priv->wmi->multi_write,
@@ -498,7 +504,7 @@ static void setup_ht_cap(struct ath9k_htc_priv *priv,
 
 	memset(&ht_info->mcs, 0, sizeof(ht_info->mcs));
 
-	
+	/* ath9k_htc supports only 1 or 2 stream devices */
 	tx_streams = ath9k_cmn_count_streams(priv->ah->txchainmask, 2);
 	rx_streams = ath9k_cmn_count_streams(priv->ah->rxchainmask, 2);
 
@@ -642,8 +648,12 @@ static int ath9k_init_priv(struct ath9k_htc_priv *priv,
 	setup_timer(&priv->tx.cleanup_timer, ath9k_htc_tx_cleanup_timer,
 		    (unsigned long)priv);
 
+	/*
+	 * Cache line size is used to size and align various
+	 * structures used to communicate with the hardware.
+	 */
 	ath_read_cachesize(common, &csz);
-	common->cachelsz = csz << 2; 
+	common->cachelsz = csz << 2; /* convert to bytes */
 
 	ret = ath9k_hw_init(ah);
 	if (ret) {
@@ -710,7 +720,7 @@ static void ath9k_set_hw_capab(struct ath9k_htc_priv *priv,
 	hw->vif_data_size = sizeof(struct ath9k_htc_vif);
 	hw->sta_data_size = sizeof(struct ath9k_htc_sta);
 
-	
+	/* tx_frame_hdr is larger than tx_mgmt_hdr anyway */
 	hw->extra_tx_headroom = sizeof(struct tx_frame_hdr) +
 		sizeof(struct htc_frame_hdr) + 4;
 
@@ -756,6 +766,10 @@ static int ath9k_init_firmware_version(struct ath9k_htc_priv *priv)
 		 priv->fw_version_major,
 		 priv->fw_version_minor);
 
+	/*
+	 * Check if the available FW matches the driver's
+	 * required version.
+	 */
 	if (priv->fw_version_major != MAJOR_VERSION_REQ ||
 	    priv->fw_version_minor != MINOR_VERSION_REQ) {
 		dev_err(priv->dev, "ath9k_htc: Please upgrade to FW version %d.%d\n",
@@ -776,7 +790,7 @@ static int ath9k_init_device(struct ath9k_htc_priv *priv,
 	struct ath_regulatory *reg;
 	char hw_name[64];
 
-	
+	/* Bring up device */
 	error = ath9k_init_priv(priv, devid, product, drv_info);
 	if (error != 0)
 		goto err_init;
@@ -789,7 +803,7 @@ static int ath9k_init_device(struct ath9k_htc_priv *priv,
 	if (error != 0)
 		goto err_fw;
 
-	
+	/* Initialize regulatory */
 	error = ath_regd_init(&common->regulatory, priv->hw->wiphy,
 			      ath9k_reg_notifier);
 	if (error)
@@ -797,29 +811,29 @@ static int ath9k_init_device(struct ath9k_htc_priv *priv,
 
 	reg = &common->regulatory;
 
-	
+	/* Setup TX */
 	error = ath9k_tx_init(priv);
 	if (error != 0)
 		goto err_tx;
 
-	
+	/* Setup RX */
 	error = ath9k_rx_init(priv);
 	if (error != 0)
 		goto err_rx;
 
 #ifdef CONFIG_MAC80211_LEDS
-	
+	/* must be initialized before ieee80211_register_hw */
 	priv->led_cdev.default_trigger = ieee80211_create_tpt_led_trigger(priv->hw,
 		IEEE80211_TPT_LEDTRIG_FL_RADIO, ath9k_htc_tpt_blink,
 		ARRAY_SIZE(ath9k_htc_tpt_blink));
 #endif
 
-	
+	/* Register with mac80211 */
 	error = ieee80211_register_hw(hw);
 	if (error)
 		goto err_register;
 
-	
+	/* Handle world regulatory */
 	if (!ath_is_world_regd(reg)) {
 		error = regulatory_hint(hw->wiphy, reg->alpha2);
 		if (error)
@@ -859,9 +873,9 @@ err_register:
 err_rx:
 	ath9k_tx_cleanup(priv);
 err_tx:
-	
+	/* Nothing */
 err_regd:
-	
+	/* Nothing */
 err_fw:
 	ath9k_deinit_priv(priv);
 err_init:
@@ -917,7 +931,7 @@ void ath9k_htc_disconnect_device(struct htc_target *htc_handle, bool hotunplug)
 {
 	if (htc_handle->drv_priv) {
 
-		
+		/* Check if the device has been yanked out. */
 		if (hotunplug)
 			htc_handle->drv_priv->ah->ah_flags |= AH_UNPLUGGED;
 

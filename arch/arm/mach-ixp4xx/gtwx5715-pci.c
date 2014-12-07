@@ -32,9 +32,15 @@
 
 #define SLOT0_DEVID	0
 #define SLOT1_DEVID	1
-#define INTA		10 
+#define INTA		10 /* slot 1 has INTA and INTB crossed */
 #define INTB		11
 
+/*
+ * Slot 0 isn't actually populated with a card connector but
+ * we initialize it anyway in case a future version has the
+ * slot populated or someone with good soldering skills has
+ * some free time.
+ */
 void __init gtwx5715_pci_preinit(void)
 {
 	irq_set_irq_type(IXP4XX_GPIO_IRQ(INTA), IRQ_TYPE_LEVEL_LOW);

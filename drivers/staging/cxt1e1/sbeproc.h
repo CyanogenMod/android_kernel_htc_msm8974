@@ -27,6 +27,6 @@
 void        sbecom_proc_brd_cleanup (ci_t *);
 int __init  sbecom_proc_brd_init (ci_t *);
 
-#endif                          
-#endif                          
-#endif                          
+#endif                          /*** __KERNEL__ ***/
+#endif                          /*** CONFIG_PROC_FS ***/
+#endif                          /*** _INC_SBEPROC_H_ ***/

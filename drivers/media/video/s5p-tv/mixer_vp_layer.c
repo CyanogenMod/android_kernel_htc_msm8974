@@ -17,6 +17,7 @@
 
 #include <media/videobuf2-dma-contig.h>
 
+/* FORMAT DEFINITIONS */
 static const struct mxr_format mxr_fmt_nv12 = {
 	.name = "NV12",
 	.fourcc = V4L2_PIX_FMT_NV12,
@@ -78,6 +79,7 @@ static const struct mxr_format *mxr_video_format[] = {
 	&mxr_fmt_nv12mt,
 };
 
+/* AUXILIARY CALLBACKS */
 
 static void mxr_vp_layer_release(struct mxr_layer *layer)
 {
@@ -99,6 +101,8 @@ static void mxr_vp_buffer_set(struct mxr_layer *layer,
 	if (layer->fmt->num_subframes == 2) {
 		chroma_addr[0] = vb2_dma_contig_plane_dma_addr(&buf->vb, 1);
 	} else {
+		/* FIXME: mxr_get_plane_size compute integer division,
+		 * which is slow and should not be performed in interrupt */
 		chroma_addr[0] = luma_addr[0] + mxr_get_plane_size(
 			&layer->fmt->plane[0], layer->geo.src.full_width,
 			layer->geo.src.full_height);
@@ -145,48 +149,48 @@ static void mxr_vp_fix_geometry(struct mxr_layer *layer,
 
 	switch (stage) {
 
-	case MXR_GEOMETRY_SINK: 
+	case MXR_GEOMETRY_SINK: /* nothing to be fixed here */
 	case MXR_GEOMETRY_COMPOSE:
-		
+		/* remember center of the area */
 		x_center = dst->x_offset + dst->width / 2;
 		y_center = dst->y_offset + dst->height / 2;
 
-		
+		/* ensure that compose is reachable using 16x scaling */
 		dst->width = clamp(dst->width, 8U, 16 * src->full_width);
 		dst->height = clamp(dst->height, 1U, 16 * src->full_height);
 
-		
+		/* setup offsets */
 		dst->x_offset = do_center(x_center, dst->width,
 			dst->full_width, flags);
 		dst->y_offset = do_center(y_center, dst->height,
 			dst->full_height, flags);
-		flags = 0; 
-		
+		flags = 0; /* remove possible MXR_NO_OFFSET flag */
+		/* fall through */
 	case MXR_GEOMETRY_CROP:
-		
+		/* remember center of the area */
 		x_center = src->x_offset + src->width / 2;
 		y_center = src->y_offset + src->height / 2;
 
-		
+		/* ensure scaling is between 0.25x .. 16x */
 		src->width = clamp(src->width, round_up(dst->width / 16, 4),
 			dst->width * 4);
 		src->height = clamp(src->height, round_up(dst->height / 16, 4),
 			dst->height * 4);
 
-		
+		/* hardware limits */
 		src->width = clamp(src->width, 32U, 2047U);
 		src->height = clamp(src->height, 4U, 2047U);
 
-		
+		/* setup offsets */
 		src->x_offset = do_center(x_center, src->width,
 			src->full_width, flags);
 		src->y_offset = do_center(y_center, src->height,
 			src->full_height, flags);
 
-		
+		/* setting scaling ratio */
 		geo->x_ratio = (src->width << 16) / dst->width;
 		geo->y_ratio = (src->height << 16) / dst->height;
-		
+		/* fall through */
 
 	case MXR_GEOMETRY_SOURCE:
 		src->full_width = clamp(src->full_width,
@@ -196,6 +200,7 @@ static void mxr_vp_fix_geometry(struct mxr_layer *layer,
 	};
 }
 
+/* PUBLIC API */
 
 struct mxr_layer *mxr_vp_layer_create(struct mxr_device *mdev, int idx)
 {

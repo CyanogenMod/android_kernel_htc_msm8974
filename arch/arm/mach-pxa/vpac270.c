@@ -43,24 +43,27 @@
 #include "generic.h"
 #include "devices.h"
 
+/******************************************************************************
+ * Pin configuration
+ ******************************************************************************/
 static unsigned long vpac270_pin_config[] __initdata = {
-	
+	/* MMC */
 	GPIO32_MMC_CLK,
 	GPIO92_MMC_DAT_0,
 	GPIO109_MMC_DAT_1,
 	GPIO110_MMC_DAT_2,
 	GPIO111_MMC_DAT_3,
 	GPIO112_MMC_CMD,
-	GPIO53_GPIO,	
-	GPIO52_GPIO,	
+	GPIO53_GPIO,	/* SD detect */
+	GPIO52_GPIO,	/* SD r/o switch */
 
-	
-	GPIO1_GPIO,	
+	/* GPIO KEYS */
+	GPIO1_GPIO,	/* USER BTN */
 
-	
-	GPIO15_GPIO,	
+	/* LEDs */
+	GPIO15_GPIO,	/* orange led */
 
-	
+	/* FFUART */
 	GPIO34_FFUART_RXD,
 	GPIO39_FFUART_TXD,
 	GPIO27_FFUART_RTS,
@@ -70,7 +73,7 @@ static unsigned long vpac270_pin_config[] __initdata = {
 	GPIO10_FFUART_DCD,
 	GPIO38_FFUART_RI,
 
-	
+	/* LCD */
 	GPIO58_LCD_LDD_0,
 	GPIO59_LCD_LDD_1,
 	GPIO60_LCD_LDD_2,
@@ -94,7 +97,7 @@ static unsigned long vpac270_pin_config[] __initdata = {
 	GPIO76_LCD_PCLK,
 	GPIO77_LCD_BIAS,
 
-	
+	/* PCMCIA */
 	GPIO48_nPOE,
 	GPIO49_nPWE,
 	GPIO50_nPIOR,
@@ -105,44 +108,47 @@ static unsigned long vpac270_pin_config[] __initdata = {
 	GPIO57_nIOIS16,
 	GPIO56_nPWAIT,
 	GPIO104_PSKTSEL,
-	GPIO84_GPIO,	
-	GPIO35_GPIO,	
-	GPIO107_GPIO,	
-	GPIO11_GPIO,	
-	GPIO17_GPIO,	
-	GPIO12_GPIO,	
-	GPIO16_GPIO,	
+	GPIO84_GPIO,	/* PCMCIA CD */
+	GPIO35_GPIO,	/* PCMCIA RDY */
+	GPIO107_GPIO,	/* PCMCIA PPEN */
+	GPIO11_GPIO,	/* PCMCIA RESET */
+	GPIO17_GPIO,	/* CF CD */
+	GPIO12_GPIO,	/* CF RDY */
+	GPIO16_GPIO,	/* CF RESET */
 
-	
+	/* UHC */
 	GPIO88_USBH1_PWR,
 	GPIO89_USBH1_PEN,
 	GPIO119_USBH2_PWR,
 	GPIO120_USBH2_PEN,
 
-	
+	/* UDC */
 	GPIO41_GPIO,
 
-	
-	GPIO114_GPIO,	
+	/* Ethernet */
+	GPIO114_GPIO,	/* IRQ */
 
-	
+	/* AC97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
 	GPIO31_AC97_SYNC,
 	GPIO95_AC97_nRESET,
 	GPIO98_AC97_SYSCLK,
-	GPIO113_GPIO,	
+	GPIO113_GPIO,	/* TS IRQ */
 
-	
+	/* I2C */
 	GPIO117_I2C_SCL,
 	GPIO118_I2C_SDA,
 
-	
-	GPIO36_GPIO,	
+	/* IDE */
+	GPIO36_GPIO,	/* IDE IRQ */
 	GPIO80_DREQ_1,
 };
 
+/******************************************************************************
+ * NOR Flash
+ ******************************************************************************/
 #if defined(CONFIG_MTD_PHYSMAP) || defined(CONFIG_MTD_PHYSMAP_MODULE)
 static struct mtd_partition vpac270_nor_partitions[] = {
 	{
@@ -154,7 +160,7 @@ static struct mtd_partition vpac270_nor_partitions[] = {
 
 static struct physmap_flash_data vpac270_flash_data[] = {
 	{
-		.width		= 2,	
+		.width		= 2,	/* bankwidth in bytes */
 		.parts		= vpac270_nor_partitions,
 		.nr_parts	= ARRAY_SIZE(vpac270_nor_partitions)
 	}
@@ -183,6 +189,9 @@ static void __init vpac270_nor_init(void)
 static inline void vpac270_nor_init(void) {}
 #endif
 
+/******************************************************************************
+ * OneNAND Flash
+ ******************************************************************************/
 #if defined(CONFIG_MTD_ONENAND) || defined(CONFIG_MTD_ONENAND_MODULE)
 static struct mtd_partition vpac270_onenand_partitions[] = {
 	{
@@ -223,6 +232,9 @@ static void __init vpac270_onenand_init(void)
 static void __init vpac270_onenand_init(void) {}
 #endif
 
+/******************************************************************************
+ * SD/MMC card controller
+ ******************************************************************************/
 #if defined(CONFIG_MMC_PXA) || defined(CONFIG_MMC_PXA_MODULE)
 static struct pxamci_platform_data vpac270_mci_platform_data = {
 	.ocr_mask		= MMC_VDD_32_33 | MMC_VDD_33_34,
@@ -240,6 +252,9 @@ static void __init vpac270_mmc_init(void)
 static inline void vpac270_mmc_init(void) {}
 #endif
 
+/******************************************************************************
+ * GPIO keys
+ ******************************************************************************/
 #if defined(CONFIG_KEYBOARD_GPIO) || defined(CONFIG_KEYBOARD_GPIO_MODULE)
 static struct gpio_keys_button vpac270_pxa_buttons[] = {
 	{KEY_POWER, GPIO1_VPAC270_USER_BTN, 0, "USER BTN"},
@@ -266,6 +281,9 @@ static void __init vpac270_keys_init(void)
 static inline void vpac270_keys_init(void) {}
 #endif
 
+/******************************************************************************
+ * LED
+ ******************************************************************************/
 #if defined(CONFIG_LEDS_GPIO) || defined(CONFIG_LEDS_GPIO_MODULE)
 struct gpio_led vpac270_gpio_leds[] = {
 {
@@ -297,6 +315,9 @@ static void __init vpac270_leds_init(void)
 static inline void vpac270_leds_init(void) {}
 #endif
 
+/******************************************************************************
+ * USB Host
+ ******************************************************************************/
 #if defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
 static int vpac270_ohci_init(struct device *dev)
 {
@@ -319,6 +340,9 @@ static void __init vpac270_uhc_init(void)
 static inline void vpac270_uhc_init(void) {}
 #endif
 
+/******************************************************************************
+ * USB Gadget
+ ******************************************************************************/
 #if defined(CONFIG_USB_PXA27X)||defined(CONFIG_USB_PXA27X_MODULE)
 static struct gpio_vbus_mach_info vpac270_gpio_vbus_info = {
 	.gpio_vbus		= GPIO41_VPAC270_UDC_DETECT,
@@ -355,6 +379,9 @@ static void __init vpac270_udc_init(void)
 static inline void vpac270_udc_init(void) {}
 #endif
 
+/******************************************************************************
+ * Ethernet
+ ******************************************************************************/
 #if defined(CONFIG_DM9000) || defined(CONFIG_DM9000_MODULE)
 static struct resource vpac270_dm9000_resources[] = {
 	[0] = {
@@ -396,6 +423,9 @@ static void __init vpac270_eth_init(void)
 static inline void vpac270_eth_init(void) {}
 #endif
 
+/******************************************************************************
+ * Audio and Touchscreen
+ ******************************************************************************/
 #if	defined(CONFIG_TOUCHSCREEN_UCB1400) || \
 	defined(CONFIG_TOUCHSCREEN_UCB1400_MODULE)
 static pxa2xx_audio_ops_t vpac270_ac97_pdata = {
@@ -423,6 +453,9 @@ static void __init vpac270_ts_init(void)
 static inline void vpac270_ts_init(void) {}
 #endif
 
+/******************************************************************************
+ * RTC
+ ******************************************************************************/
 #if defined(CONFIG_RTC_DRV_DS1307) || defined(CONFIG_RTC_DRV_DS1307_MODULE)
 static struct i2c_board_info __initdata vpac270_i2c_devs[] = {
 	{
@@ -438,6 +471,9 @@ static void __init vpac270_rtc_init(void)
 static inline void vpac270_rtc_init(void) {}
 #endif
 
+/******************************************************************************
+ * Framebuffer
+ ******************************************************************************/
 #if defined(CONFIG_FB_PXA) || defined(CONFIG_FB_PXA_MODULE)
 static struct pxafb_mode_info vpac270_lcd_modes[] = {
 {
@@ -456,7 +492,7 @@ static struct pxafb_mode_info vpac270_lcd_modes[] = {
 	.vsync_len	= 2,
 
 	.sync		= FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
-}, {	
+}, {	/* CRT 640x480 */
 	.pixclock	= 35000,
 	.xres		= 640,
 	.yres		= 480,
@@ -472,7 +508,7 @@ static struct pxafb_mode_info vpac270_lcd_modes[] = {
 	.vsync_len	= 1,
 
 	.sync		= FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
-}, {	
+}, {	/* CRT 800x600 H=30kHz V=48HZ */
 	.pixclock	= 25000,
 	.xres		= 800,
 	.yres		= 600,
@@ -488,7 +524,7 @@ static struct pxafb_mode_info vpac270_lcd_modes[] = {
 	.vsync_len	= 1,
 
 	.sync		= FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
-}, {	
+}, {	/* CRT 1024x768 H=40kHz V=50Hz */
 	.pixclock	= 15000,
 	.xres		= 1024,
 	.yres		= 768,
@@ -547,6 +583,9 @@ err:
 static inline void vpac270_lcd_init(void) {}
 #endif
 
+/******************************************************************************
+ * PATA IDE
+ ******************************************************************************/
 #if defined(CONFIG_PATA_PXA) || defined(CONFIG_PATA_PXA_MODULE)
 static struct pata_pxa_pdata vpac270_pata_pdata = {
 	.reg_shift	= 1,
@@ -555,22 +594,22 @@ static struct pata_pxa_pdata vpac270_pata_pdata = {
 };
 
 static struct resource vpac270_ide_resources[] = {
-	[0] = {	
+	[0] = {	/* I/O Base address */
 	       .start	= PXA_CS3_PHYS + 0x120,
 	       .end	= PXA_CS3_PHYS + 0x13f,
 	       .flags	= IORESOURCE_MEM
 	},
-	[1] = {	
+	[1] = {	/* CTL Base address */
 	       .start	= PXA_CS3_PHYS + 0x15c,
 	       .end	= PXA_CS3_PHYS + 0x15f,
 	       .flags	= IORESOURCE_MEM
 	},
-	[2] = {	
+	[2] = {	/* DMA Base address */
 	       .start	= PXA_CS3_PHYS + 0x20,
 	       .end	= PXA_CS3_PHYS + 0x2f,
 	       .flags	= IORESOURCE_DMA
 	},
-	[3] = {	
+	[3] = {	/* IDE IRQ pin */
 	       .start	= PXA_GPIO_TO_IRQ(GPIO36_VPAC270_IDE_IRQ),
 	       .end	= PXA_GPIO_TO_IRQ(GPIO36_VPAC270_IDE_IRQ),
 	       .flags	= IORESOURCE_IRQ
@@ -595,6 +634,9 @@ static void __init vpac270_ide_init(void)
 static inline void vpac270_ide_init(void) {}
 #endif
 
+/******************************************************************************
+ * Core power regulator
+ ******************************************************************************/
 #if defined(CONFIG_REGULATOR_MAX1586) || \
     defined(CONFIG_REGULATOR_MAX1586_MODULE)
 static struct regulator_consumer_supply vpac270_max1587a_consumers[] = {
@@ -626,7 +668,7 @@ static struct max1586_subdev_data vpac270_max1587a_subdevs[] = {
 static struct max1586_platform_data vpac270_max1587a_info = {
 	.subdevs     = vpac270_max1587a_subdevs,
 	.num_subdevs = ARRAY_SIZE(vpac270_max1587a_subdevs),
-	.v3_gain     = MAX1586_GAIN_R24_3k32, 
+	.v3_gain     = MAX1586_GAIN_R24_3k32, /* 730..1550 mV */
 };
 
 static struct i2c_board_info __initdata vpac270_pi2c_board_info[] = {
@@ -645,6 +687,9 @@ static inline void vpac270_pmic_init(void) {}
 #endif
 
 
+/******************************************************************************
+ * Machine init
+ ******************************************************************************/
 static void __init vpac270_init(void)
 {
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(vpac270_pin_config));

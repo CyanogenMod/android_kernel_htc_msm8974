@@ -15,8 +15,10 @@
 #ifndef _ASM_TILE_SIGNAL_H
 #define _ASM_TILE_SIGNAL_H
 
+/* Do not notify a ptracer when this signal is handled. */
 #define SA_NOPTRACE 0x02000000u
 
+/* Used in earlier Tilera releases, so keeping for binary compatibility. */
 #define SA_RESTORER 0x04000000u
 
 #include <asm-generic/signal.h>
@@ -34,4 +36,4 @@ void trace_unhandled_signal(const char *type, struct pt_regs *regs,
 #endif
 #endif
 
-#endif 
+#endif /* _ASM_TILE_SIGNAL_H */

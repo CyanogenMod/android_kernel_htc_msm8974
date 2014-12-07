@@ -33,31 +33,35 @@
 
 #define NR_CS553X_CONTROLLERS	4
 
-#define MSR_DIVIL_GLD_CAP	0x51400000	
+#define MSR_DIVIL_GLD_CAP	0x51400000	/* DIVIL capabilitiies */
 #define CAP_CS5535		0x2df000ULL
 #define CAP_CS5536		0x5df500ULL
 
-#define MSR_NANDF_DATA		0x5140001b	
-#define MSR_NANDF_CTL		0x5140001c	
-#define MSR_NANDF_RSVD		0x5140001d	
+/* NAND Timing MSRs */
+#define MSR_NANDF_DATA		0x5140001b	/* NAND Flash Data Timing MSR */
+#define MSR_NANDF_CTL		0x5140001c	/* NAND Flash Control Timing */
+#define MSR_NANDF_RSVD		0x5140001d	/* Reserved */
 
-#define MSR_DIVIL_LBAR_FLSH0	0x51400010	
-#define MSR_DIVIL_LBAR_FLSH1	0x51400011	
-#define MSR_DIVIL_LBAR_FLSH2	0x51400012	
-#define MSR_DIVIL_LBAR_FLSH3	0x51400013	
-	
+/* NAND BAR MSRs */
+#define MSR_DIVIL_LBAR_FLSH0	0x51400010	/* Flash Chip Select 0 */
+#define MSR_DIVIL_LBAR_FLSH1	0x51400011	/* Flash Chip Select 1 */
+#define MSR_DIVIL_LBAR_FLSH2	0x51400012	/* Flash Chip Select 2 */
+#define MSR_DIVIL_LBAR_FLSH3	0x51400013	/* Flash Chip Select 3 */
+	/* Each made up of... */
 #define FLSH_LBAR_EN		(1ULL<<32)
-#define FLSH_NOR_NAND		(1ULL<<33)	
-#define FLSH_MEM_IO		(1ULL<<34)	
-	
-	
+#define FLSH_NOR_NAND		(1ULL<<33)	/* 1 for NAND */
+#define FLSH_MEM_IO		(1ULL<<34)	/* 1 for MMIO */
+	/* I/O BARs have BASE_ADDR in bits 15:4, IO_MASK in 47:36 */
+	/* MMIO BARs have BASE_ADDR in bits 31:12, MEM_MASK in 63:44 */
 
+/* Pin function selection MSR (IDE vs. flash on the IDE pins) */
 #define MSR_DIVIL_BALL_OPTS	0x51400015
-#define PIN_OPT_IDE		(1<<0)	
+#define PIN_OPT_IDE		(1<<0)	/* 0 for flash, 1 for IDE */
 
-#define MM_NAND_DATA		0x00	
-#define MM_NAND_CTL		0x800	
-#define MM_NAND_IO		0x801	
+/* Registers within the NAND flash controller BAR -- memory mapped */
+#define MM_NAND_DATA		0x00	/* 0 to 0x7ff, in fact */
+#define MM_NAND_CTL		0x800	/* Any even address 0x800-0x80e */
+#define MM_NAND_IO		0x801	/* Any odd address 0x801-0x80f */
 #define MM_NAND_STS		0x810
 #define MM_NAND_ECC_LSB		0x811
 #define MM_NAND_ECC_MSB		0x812
@@ -65,7 +69,8 @@
 #define MM_NAND_LAC		0x814
 #define MM_NAND_ECC_CTL		0x815
 
-#define IO_NAND_DATA		0x00	
+/* Registers within the NAND flash controller BAR -- I/O mapped */
+#define IO_NAND_DATA		0x00	/* 0 to 3, in fact */
 #define IO_NAND_CTL		0x04
 #define IO_NAND_IO		0x05
 #define IO_NAND_STS		0x06
@@ -75,11 +80,11 @@
 #define IO_NAND_ECC_COL		0x0b
 #define IO_NAND_LAC		0x0c
 
-#define CS_NAND_CTL_DIST_EN	(1<<4)	
-#define CS_NAND_CTL_RDY_INT_MASK	(1<<3)	
+#define CS_NAND_CTL_DIST_EN	(1<<4)	/* Enable NAND Distract interrupt */
+#define CS_NAND_CTL_RDY_INT_MASK	(1<<3)	/* Enable RDY/BUSY# interrupt */
 #define CS_NAND_CTL_ALE		(1<<2)
 #define CS_NAND_CTL_CLE		(1<<1)
-#define CS_NAND_CTL_CE		(1<<0)	
+#define CS_NAND_CTL_CE		(1<<0)	/* Keep low; 1 to reset */
 
 #define CS_NAND_STS_FLASH_RDY	(1<<3)
 #define CS_NAND_CTLR_BUSY	(1<<2)
@@ -191,7 +196,7 @@ static int __init cs553x_init_one(int cs, int mmio, unsigned long adr)
 		return -ENXIO;
 	}
 
-	
+	/* Allocate memory for MTD device structure and private data */
 	new_mtd = kmalloc(sizeof(struct mtd_info) + sizeof(struct nand_chip), GFP_KERNEL);
 	if (!new_mtd) {
 		printk(KERN_WARNING "Unable to allocate CS553X NAND MTD device structure.\n");
@@ -199,18 +204,18 @@ static int __init cs553x_init_one(int cs, int mmio, unsigned long adr)
 		goto out;
 	}
 
-	
+	/* Get pointer to private data */
 	this = (struct nand_chip *)(&new_mtd[1]);
 
-	
+	/* Initialize structures */
 	memset(new_mtd, 0, sizeof(struct mtd_info));
 	memset(this, 0, sizeof(struct nand_chip));
 
-	
+	/* Link the private data with the MTD structure */
 	new_mtd->priv = this;
 	new_mtd->owner = THIS_MODULE;
 
-	
+	/* map physical address */
 	this->IO_ADDR_R = this->IO_ADDR_W = ioremap(adr, 4096);
 	if (!this->IO_ADDR_R) {
 		printk(KERN_WARNING "ioremap cs553x NAND @0x%08lx failed\n", adr);
@@ -233,11 +238,11 @@ static int __init cs553x_init_one(int cs, int mmio, unsigned long adr)
 	this->ecc.calculate = cs_calculate_ecc;
 	this->ecc.correct  = nand_correct_data;
 
-	
+	/* Enable the following for a flash based bad block table */
 	this->bbt_options = NAND_BBT_USE_FLASH;
 	this->options = NAND_NO_AUTOINCR;
 
-	
+	/* Scan to find existence of the device */
 	if (nand_scan(new_mtd, 1)) {
 		err = -ENXIO;
 		goto out_ior;
@@ -260,17 +265,17 @@ out:
 
 static int is_geode(void)
 {
-	
+	/* These are the CPUs which will have a CS553[56] companion chip */
 	if (boot_cpu_data.x86_vendor == X86_VENDOR_AMD &&
 	    boot_cpu_data.x86 == 5 &&
 	    boot_cpu_data.x86_model == 10)
-		return 1; 
+		return 1; /* Geode LX */
 
 	if ((boot_cpu_data.x86_vendor == X86_VENDOR_NSC ||
 	     boot_cpu_data.x86_vendor == X86_VENDOR_CYRIX) &&
 	    boot_cpu_data.x86 == 5 &&
 	    boot_cpu_data.x86_model == 5)
-		return 1; 
+		return 1; /* Geode GX (née GX2) */
 
 	return 0;
 }
@@ -281,17 +286,17 @@ static int __init cs553x_init(void)
 	int i;
 	uint64_t val;
 
-	
+	/* If the CPU isn't a Geode GX or LX, abort */
 	if (!is_geode())
 		return -ENXIO;
 
-	
+	/* If it doesn't have the CS553[56], abort */
 	rdmsrl(MSR_DIVIL_GLD_CAP, val);
 	val &= ~0xFFULL;
 	if (val != CAP_CS5535 && val != CAP_CS5536)
 		return -ENXIO;
 
-	
+	/* If it doesn't have the NAND controller enabled, abort */
 	rdmsrl(MSR_DIVIL_BALL_OPTS, val);
 	if (val & PIN_OPT_IDE) {
 		printk(KERN_INFO "CS553x NAND controller: Flash I/O not enabled in MSR_DIVIL_BALL_OPTS.\n");
@@ -305,9 +310,11 @@ static int __init cs553x_init(void)
 			err = cs553x_init_one(i, !!(val & FLSH_MEM_IO), val & 0xFFFFFFFF);
 	}
 
+	/* Register all devices together here. This means we can easily hack it to
+	   do mtdconcat etc. if we want to. */
 	for (i = 0; i < NR_CS553X_CONTROLLERS; i++) {
 		if (cs553x_mtd[i]) {
-			
+			/* If any devices registered, return success. Else the last error. */
 			mtd_device_parse_register(cs553x_mtd[i], NULL, NULL,
 						  NULL, 0);
 			err = 0;
@@ -334,15 +341,15 @@ static void __exit cs553x_cleanup(void)
 		this = cs553x_mtd[i]->priv;
 		mmio_base = this->IO_ADDR_R;
 
-		
+		/* Release resources, unregister device */
 		nand_release(cs553x_mtd[i]);
 		kfree(cs553x_mtd[i]->name);
 		cs553x_mtd[i] = NULL;
 
-		
+		/* unmap physical address */
 		iounmap(mmio_base);
 
-		
+		/* Free the MTD device structure */
 		kfree(mtd);
 	}
 }

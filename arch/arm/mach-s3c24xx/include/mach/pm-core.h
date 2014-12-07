@@ -15,7 +15,7 @@ static inline void s3c_pm_debug_init_uart(void)
 {
 	unsigned long tmp = __raw_readl(S3C2410_CLKCON);
 
-	
+	/* re-start uart clocks */
 	tmp |= S3C2410_CLKCON_UART0;
 	tmp |= S3C2410_CLKCON_UART1;
 	tmp |= S3C2410_CLKCON_UART2;
@@ -29,7 +29,7 @@ static inline void s3c_pm_arch_prepare_irqs(void)
 	__raw_writel(s3c_irqwake_intmask, S3C2410_INTMSK);
 	__raw_writel(s3c_irqwake_eintmask, S3C2410_EINTMASK);
 
-	
+	/* ack any outstanding external interrupts before we go to sleep */
 
 	__raw_writel(__raw_readl(S3C2410_EINTPEND), S3C2410_EINTPEND);
 	__raw_writel(__raw_readl(S3C2410_INTPND), S3C2410_INTPND);
@@ -39,7 +39,7 @@ static inline void s3c_pm_arch_prepare_irqs(void)
 
 static inline void s3c_pm_arch_stop_clocks(void)
 {
-	__raw_writel(0x00, S3C2410_CLKCON);  
+	__raw_writel(0x00, S3C2410_CLKCON);  /* turn off clocks over sleep */
 }
 
 static void s3c_pm_show_resume_irqs(int start, unsigned long which,

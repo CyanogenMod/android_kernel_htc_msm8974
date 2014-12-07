@@ -22,6 +22,7 @@
     PA header file -- do not include this header file for non-PA builds.
 #endif
 
+/* 32-bit word grabbing functions */
 #define Dbl_firstword(value) Dallp1(value)
 #define Dbl_secondword(value) Dallp2(value)
 #define Dbl_thirdword(value) dummy_location
@@ -36,11 +37,14 @@
 #define Dbl_allp1(object) Dallp1(object)
 #define Dbl_allp2(object) Dallp2(object)
 
+/* dbl_and_signs ANDs the sign bits of each argument and puts the result
+ * into the first argument. dbl_or_signs ors those same sign bits */
 #define Dbl_and_signs( src1dst, src2)		\
     Dallp1(src1dst) = (Dallp1(src2)|~((unsigned int)1<<31)) & Dallp1(src1dst)
 #define Dbl_or_signs( src1dst, src2)		\
     Dallp1(src1dst) = (Dallp1(src2)&((unsigned int)1<<31)) | Dallp1(src1dst)
 
+/* The hidden bit is always the low bit of the exponent */
 #define Dbl_clear_exponent_set_hidden(srcdst) Deposit_dexponent(srcdst,1)
 #define Dbl_clear_signexponent_set_hidden(srcdst) \
     Deposit_dsignexponent(srcdst,1)
@@ -48,6 +52,15 @@
 #define Dbl_clear_signexponent(srcdst) \
     Dallp1(srcdst) &= Dmantissap1((unsigned int)-1)
 
+/* Exponent field for doubles has already been cleared and may be
+ * included in the shift.  Here we need to generate two double width
+ * variable shifts.  The insignificant bits can be ignored.
+ *      MTSAR f(varamount)
+ *      VSHD	srcdst.high,srcdst.low => srcdst.low
+ *	VSHD	0,srcdst.high => srcdst.high 
+ * This is very difficult to model with C expressions since the shift amount
+ * could exceed 32.  */
+/* varamount must be less than 64 */
 #define Dbl_rightshift(srcdstA, srcdstB, varamount)			\
     {if((varamount) >= 32) {						\
         Dallp2(srcdstB) = Dallp1(srcdstA) >> (varamount-32);		\
@@ -58,10 +71,11 @@
 	  (varamount), Dallp2(srcdstB));				\
 	Dallp1(srcdstA) >>= varamount;					\
     } }
+/* varamount must be less than 64 */
 #define Dbl_rightshift_exponentmantissa(srcdstA, srcdstB, varamount)	\
     {if((varamount) >= 32) {						\
         Dallp2(srcdstB) = Dexponentmantissap1(srcdstA) >> (varamount-32); \
-	Dallp1(srcdstA) &= ((unsigned int)1<<31);   \
+	Dallp1(srcdstA) &= ((unsigned int)1<<31);  /* clear expmant field */ \
     }									\
     else if(varamount > 0) {						\
 	Variable_shift_double(Dexponentmantissap1(srcdstA), Dallp2(srcdstB), \
@@ -69,6 +83,7 @@
 	Deposit_dexponentmantissap1(srcdstA,				\
 	    (Dexponentmantissap1(srcdstA)>>varamount));			\
     } }
+/* varamount must be less than 64 */
 #define Dbl_leftshift(srcdstA, srcdstB, varamount)			\
     {if((varamount) >= 32) {						\
 	Dallp1(srcdstA) = Dallp2(srcdstB) << (varamount-32);		\
@@ -93,9 +108,12 @@
     Shiftdouble(Dallp1(srcdstA),Dallp2(srcdstB),1,Dallp2(srcdstB));\
     Dallp1(srcdstA) = (int)Dallp1(srcdstA) >> 1
    
+/* Sign extend the sign bit with an integer destination */
 #define Dbl_signextendedsign(value)  Dsignedsign(value)
 
 #define Dbl_isone_hidden(dbl_value) (Is_dhidden(dbl_value)!=0)
+/* Singles and doubles may include the sign and exponent fields.  The
+ * hidden bit and the hidden overflow must be included. */
 #define Dbl_increment(dbl_valueA,dbl_valueB) \
     if( (Dallp2(dbl_valueB) += 1) == 0 )  Dallp1(dbl_valueA) += 1
 #define Dbl_increment_mantissa(dbl_valueA,dbl_valueB) \
@@ -205,6 +223,16 @@
     Shiftdouble(Dallp1(dbl_valueA),Dallp2(dbl_valueB),1,Dallp2(dbl_valueB)); \
     Dallp1(dbl_valueA) >>= 1
     
+/* This magnitude comparison uses the signless first words and
+ * the regular part2 words.  The comparison is graphically:
+ *
+ *       1st greater?  -------------
+ *                                 |
+ *       1st less?-----------------+---------
+ *                                 |        |
+ *       2nd greater or equal----->|        |
+ *                               False     True
+ */
 #define Dbl_ismagnitudeless(leftB,rightB,signlessleft,signlessright)	\
       ((signlessleft <= signlessright) &&				\
        ( (signlessleft < signlessright) || (Dallp2(leftB)<Dallp2(rightB)) ))
@@ -212,6 +240,8 @@
 #define Dbl_copytoint_exponentmantissap1(src,dest) \
     dest = Dexponentmantissap1(src)
 
+/* A quiet NaN has the high mantissa bit clear and at least on other (in this
+ * case the adjacent bit) bit set. */
 #define Dbl_set_quiet(dbl_value) Deposit_dhigh2mantissa(dbl_value,1)
 #define Dbl_set_exponent(dbl_value, exp) Deposit_dexponent(dbl_value,exp)
 
@@ -236,6 +266,7 @@
     dest->wd0 = Dallp1(srca);		\
     dest->wd1 = Dallp2(srcb)
 
+/*  An infinity is represented with the max exponent and a zero mantissa */
 #define Dbl_setinfinity_exponent(dbl_value) \
     Deposit_dexponent(dbl_value,DBL_INFINITY_EXPONENT)
 #define Dbl_setinfinity_exponentmantissa(dbl_valueA,dbl_valueB)	\
@@ -281,6 +312,7 @@
     Dallp1(dbl_value) = (unsigned int)1 << 31; Dallp2(dbl_value) = 0
 #define Dbl_setnegativezerop1(dbl_value) Dallp1(dbl_value) = (unsigned int)1<<31
 
+/* Use the following macro for both overflow & underflow conditions */
 #define ovfl -
 #define unfl +
 #define Dbl_setwrapped_exponent(dbl_value,exponent,op) \
@@ -312,10 +344,12 @@
     Dallp2(dbl_valueB) = 0xFFFFFFFF
     
 
+/* The high bit is always zero so arithmetic or logical shifts will work. */
 #define Dbl_right_align(srcdstA,srcdstB,shift,extent)			\
     if( shift >= 32 ) 							\
 	{								\
-				\
+	/* Big shift requires examining the portion shift off 		\
+	the end to properly set inexact.  */				\
 	if(shift < 64)							\
 	    {								\
 	    if(shift > 32)						\
@@ -337,7 +371,7 @@
 	}								\
     else								\
 	{								\
-		\
+	/* Small alignment is simpler.  Extension is easily set. */	\
 	if (shift > 0)							\
 	    {								\
 	    Extall(extent) = Dallp2(srcdstB) << 32 - (shift);		\
@@ -348,6 +382,10 @@
 	else Extall(extent) = 0;					\
 	}
 
+/* 
+ * Here we need to shift the result right to correct for an overshift
+ * (due to the exponent becoming negative) during normalization.
+ */
 #define Dbl_fix_overshift(srcdstA,srcdstB,shift,extent)			\
 	    Extall(extent) = Dallp2(srcdstB) << 32 - (shift);		\
 	    Dallp2(srcdstB) = (Dallp1(srcdstA) << 32 - (shift)) |	\
@@ -358,11 +396,14 @@
 #define Dbl_hidden(dbl_value) Dhidden(dbl_value)
 #define Dbl_lowmantissap2(dbl_value) Dlowp2(dbl_value)
 
+/* The left argument is never smaller than the right argument */
 #define Dbl_subtract(lefta,leftb,righta,rightb,resulta,resultb)			\
     if( Dallp2(rightb) > Dallp2(leftb) ) Dallp1(lefta)--;	\
     Dallp2(resultb) = Dallp2(leftb) - Dallp2(rightb);		\
     Dallp1(resulta) = Dallp1(lefta) - Dallp1(righta)
 
+/* Subtract right augmented with extension from left augmented with zeros and
+ * store into result and extension. */
 #define Dbl_subtract_withextension(lefta,leftb,righta,rightb,extent,resulta,resultb)	\
     Dbl_subtract(lefta,leftb,righta,rightb,resulta,resultb);		\
     if( (Extall(extent) = 0-Extall(extent)) )				\
@@ -371,7 +412,8 @@
         }
 
 #define Dbl_addition(lefta,leftb,righta,rightb,resulta,resultb)		\
-			\
+    /* If the sum of the low words is less than either source, then	\
+     * an overflow into the next word occurred. */			\
     Dallp1(resulta) = Dallp1(lefta) + Dallp1(righta);			\
     if((Dallp2(resultb) = Dallp2(leftb) + Dallp2(rightb)) < Dallp2(rightb)) \
 	Dallp1(resulta)++
@@ -387,6 +429,7 @@
     Dallp2(right) = Dallp2(left) XOR Dallp2(right);		\
     Dallp2(left)  = Dallp2(left) XOR Dallp2(right)
 
+/* Need to Initialize */
 #define Dbl_makequietnan(desta,destb)					\
     Dallp1(desta) = ((DBL_EMAX+DBL_BIAS)+1)<< (32-(1+DBL_EXP_LENGTH))	\
                  | (1<<(32-(1+DBL_EXP_LENGTH+2)));			\
@@ -411,19 +454,27 @@
 	}
 
 #define Twoword_add(src1dstA,src1dstB,src2A,src2B)		\
-							\
+	/* 							\
+	 * want this macro to generate:				\
+	 *	ADD	src1dstB,src2B,src1dstB;		\
+	 *	ADDC	src1dstA,src2A,src1dstA;		\
+	 */							\
 	if ((src1dstB) + (src2B) < (src1dstB)) Dallp1(src1dstA)++; \
 	Dallp1(src1dstA) += (src2A);				\
 	Dallp2(src1dstB) += (src2B)
 
 #define Twoword_subtract(src1dstA,src1dstB,src2A,src2B)		\
-							\
+	/* 							\
+	 * want this macro to generate:				\
+	 *	SUB	src1dstB,src2B,src1dstB;		\
+	 *	SUBB	src1dstA,src2A,src1dstA;		\
+	 */							\
 	if ((src1dstB) < (src2B)) Dallp1(src1dstA)--;		\
 	Dallp1(src1dstA) -= (src2A);				\
 	Dallp2(src1dstB) -= (src2B)
 
 #define Dbl_setoverflow(resultA,resultB)				\
-				\
+	/* set result to infinity or largest number */			\
 	switch (Rounding_mode()) {					\
 		case ROUNDPLUS:						\
 			if (Dbl_isone_sign(resultA)) {			\
@@ -479,6 +530,10 @@
 	inexact = sticky;						\
     }
 
+/* 
+ * The fused multiply add instructions requires a double extended format,
+ * with 106 bits of mantissa.
+ */
 #define DBLEXT_THRESHOLD 106
 
 #define Dblext_setzero(valA,valB,valC,valD)	\
@@ -513,6 +568,7 @@
 
 #define Dblext_setone_lowmantissap4(dbl_value) Deposit_dextlowp4(dbl_value,1)
 
+/* The high bit is always zero so arithmetic or logical shifts will work. */
 #define Dblext_right_align(srcdstA,srcdstB,srcdstC,srcdstD,shift) \
   {int shiftamt, sticky;						\
     shiftamt = shift % 32;						\
@@ -575,6 +631,7 @@
     if (sticky) Dblext_setone_lowmantissap4(srcdstD);			\
   }
 
+/* The left argument is never smaller than the right argument */
 #define Dblext_subtract(lefta,leftb,leftc,leftd,righta,rightb,rightc,rightd,resulta,resultb,resultc,resultd) \
     if( Dextallp4(rightd) > Dextallp4(leftd) ) 			\
 	if( (Dextallp3(leftc)--) == 0)				\
@@ -588,7 +645,8 @@
     Dextallp1(resulta) = Dextallp1(lefta) - Dextallp1(righta)
 
 #define Dblext_addition(lefta,leftb,leftc,leftd,righta,rightb,rightc,rightd,resulta,resultb,resultc,resultd) \
- \
+    /* If the sum of the low words is less than either source, then \
+     * an overflow into the next word occurred. */ \
     if ((Dextallp4(resultd) = Dextallp4(leftd)+Dextallp4(rightd)) < \
 	Dextallp4(rightd)) \
 	if((Dextallp3(resultc) = Dextallp3(leftc)+Dextallp3(rightc)+1) <= \
@@ -681,9 +739,19 @@
 #define Dblext_clear_sign(srcdst) Dbl_clear_sign(srcdst) 
 #define Dblext_isone_hidden(dbl_value) Dbl_isone_hidden(dbl_value) 
 
+/*
+ * The Fourword_add() macro assumes that integers are 4 bytes in size.
+ * It will break if this is not the case.
+ */
 
 #define Fourword_add(src1dstA,src1dstB,src1dstC,src1dstD,src2A,src2B,src2C,src2D) \
-								\
+	/* 								\
+	 * want this macro to generate:					\
+	 *	ADD	src1dstD,src2D,src1dstD;			\
+	 *	ADDC	src1dstC,src2C,src1dstC;			\
+	 *	ADDC	src1dstB,src2B,src1dstB;			\
+	 *	ADDC	src1dstA,src2A,src1dstA;			\
+	 */								\
 	if ((unsigned int)(src1dstD += (src2D)) < (unsigned int)(src2D)) { \
 	   if ((unsigned int)(src1dstC += (src2C) + 1) <=		\
 	       (unsigned int)(src2C)) {					\

@@ -26,6 +26,9 @@
 #ifndef CPIA2_REGISTER_HEADER
 #define CPIA2_REGISTER_HEADER
 
+/***
+ * System register set (Bank 0)
+ ***/
 #define CPIA2_SYSTEM_DEVICE_HI                     0x00
 #define CPIA2_SYSTEM_DEVICE_LO                     0x01
 
@@ -58,6 +61,9 @@
 
 #define CPIA2_SYSTEM_VP_SERIAL_ADDR                  0x08
 
+/***
+ * I2C addresses for various devices in CPiA2
+ ***/
 #define CPIA2_SYSTEM_VP_SERIAL_ADDR_SENSOR           0x20
 #define CPIA2_SYSTEM_VP_SERIAL_ADDR_VP               0x88
 #define CPIA2_SYSTEM_VP_SERIAL_ADDR_676_VP           0x8A
@@ -85,6 +91,9 @@
 #define CPIA2_SYSTEM_CACHE_START_INDEX               0x80
 #define CPIA2_SYSTEM_CACHE_MAX_WRITES                0x10
 
+/***
+ * VC register set (Bank 1)
+ ***/
 #define CPIA2_VC_ASIC_ID                 0x80
 
 #define CPIA2_VC_ASIC_REV                0x81
@@ -328,6 +337,9 @@
 #define CPIA2_VC_VC_AUTO_SQUEEZE             0xE6
 
 
+/***
+ * VP register set (Bank 2)
+ ***/
 #define CPIA2_VP_DEVICEH                             0
 #define CPIA2_VP_DEVICEL                             1
 
@@ -392,14 +404,16 @@
 #define CPIA2_VP_USER_EFFECTS_COLBARS             0x01
 #define CPIA2_VP_USER_EFFECTS_COLBARS_GRAD        0x02
 #define CPIA2_VP_USER_EFFECTS_MIRROR              0x04
-#define CPIA2_VP_USER_EFFECTS_FLIP                0x40  
+#define CPIA2_VP_USER_EFFECTS_FLIP                0x40  // VP5 only
 
+/* NOTE: CPIA2_VP_EXPOSURE_MODES shares the same register as VP5 User
+ * Effects */
 #define CPIA2_VP_EXPOSURE_MODES                       0x15
 #define CPIA2_VP_EXPOSURE_MODES_INHIBIT_FLICKER   0x20
 #define CPIA2_VP_EXPOSURE_MODES_COMPILE_EXP       0x10
 
-#define CPIA2_VP4_EXPOSURE_TARGET                     0x16    
-#define CPIA2_VP5_EXPOSURE_TARGET		      0x20    
+#define CPIA2_VP4_EXPOSURE_TARGET                     0x16    // VP4
+#define CPIA2_VP5_EXPOSURE_TARGET		      0x20    // VP5
 
 #define CPIA2_VP_FLICKER_MODES                        0x1B
 #define CPIA2_VP_FLICKER_MODES_50HZ               0x80
@@ -417,7 +431,7 @@
 #define CPIA2_VP_UMISC_OPT_FOR_SENSOR_DS          0x04
 #define CPIA2_VP_UMISC_INHIBIT_AUTO_MODE_INT      0x02
 
-#define CPIA2_VP5_ANTIFLKRSETUP                       0x22  
+#define CPIA2_VP5_ANTIFLKRSETUP                       0x22  //34
 
 #define CPIA2_VP_INTERPOLATION                        0x24
 #define CPIA2_VP_INTERPOLATION_EVEN_FIRST         0x40
@@ -431,15 +445,18 @@
 
 #define CPIA2_VP_SATURATION                           0x27
 
-#define CPIA2_VP5_MYBLACK_LEVEL                       0x3A   
-#define CPIA2_VP5_MCYRANGE                            0x3B   
-#define CPIA2_VP5_MYCEILING                           0x3C   
-#define CPIA2_VP5_MCUVSATURATION                      0x3D   
+#define CPIA2_VP5_MYBLACK_LEVEL                       0x3A   //58
+#define CPIA2_VP5_MCYRANGE                            0x3B   //59
+#define CPIA2_VP5_MYCEILING                           0x3C   //60
+#define CPIA2_VP5_MCUVSATURATION                      0x3D   //61
 
 
 #define CPIA2_VP_REHASH_VALUES                        0x60
 
 
+/***
+ * Common sensor registers
+ ***/
 #define CPIA2_SENSOR_DEVICE_H                         0x00
 #define CPIA2_SENSOR_DEVICE_L                         0x01
 

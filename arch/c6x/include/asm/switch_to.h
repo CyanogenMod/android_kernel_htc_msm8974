@@ -30,4 +30,4 @@ asmlinkage void *__switch_to(struct thread_struct *prev,
 		current->thread.wchan = 0;			\
 	} while (0)
 
-#endif 
+#endif /* _ASM_C6X_SWITCH_TO_H */

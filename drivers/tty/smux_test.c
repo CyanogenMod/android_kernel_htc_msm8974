@@ -129,9 +129,11 @@
 static unsigned char test_array[] = {1, 1, 2, 3, 5, 8, 13, 21, 34, 55,
 					89, 144, 233};
 
+/* when 1, forces failure of get_rx_buffer_mock function */
 static int get_rx_buffer_mock_fail;
 
 
+/* Used for mapping local to remote TIOCM signals */
 struct tiocm_test_vector {
 	uint32_t input;
 	uint32_t set_old;
@@ -139,6 +141,9 @@ struct tiocm_test_vector {
 	uint32_t clr_old;
 };
 
+/**
+ * Allocates a new buffer for SMUX for every call.
+ */
 static int get_rx_buffer(void *priv, void **pkt_priv, void **buffer, int size)
 {
 	void *rx_buf;
@@ -150,33 +155,38 @@ static int get_rx_buffer(void *priv, void **pkt_priv, void **buffer, int size)
 	return 0;
 }
 
+/* Test vector for packet tests. */
 struct test_vector {
 	const char *data;
 	const unsigned len;
 };
 
+/* Mock object metadata for SMUX_READ_DONE event */
 struct mock_read_event {
 	struct list_head list;
 	struct smux_meta_read meta;
 };
 
+/* Mock object metadata for SMUX_WRITE_DONE event */
 struct mock_write_event {
 	struct list_head list;
 	struct smux_meta_write meta;
 };
 
+/* Mock object metadata for get_rx_buffer failure event */
 struct mock_get_rx_buff_event {
 	struct list_head list;
 	int size;
 	unsigned long jiffies;
 };
 
+/* Mock object for all SMUX callback events */
 struct smux_mock_callback {
 	int cb_count;
 	struct completion cb_completion;
 	spinlock_t lock;
 
-	
+	/* status changes */
 	int event_connected;
 	int event_disconnected;
 	int event_disconnected_ssr;
@@ -187,20 +197,20 @@ struct smux_mock_callback {
 	int event_local_closed;
 	int event_remote_closed;
 
-	
+	/* TIOCM changes */
 	int event_tiocm;
 	struct smux_meta_tiocm tiocm_meta;
 
-	
+	/* read event data */
 	int event_read_done;
 	int event_read_failed;
 	struct list_head read_events;
 
-	
+	/* read retry data */
 	int get_rx_buff_retry_count;
 	struct list_head get_rx_buff_retry_events;
 
-	
+	/* write event data */
 	int event_write_done;
 	int event_write_failed;
 	struct list_head write_events;
@@ -209,6 +219,11 @@ struct smux_mock_callback {
 static int get_rx_buffer_mock(void *priv, void **pkt_priv,
 		void **buffer, int size);
 
+/**
+ * Initialize mock callback data. Only call once.
+ *
+ * @cb  Mock callback data
+ */
 static void mock_cb_data_init(struct smux_mock_callback *cb)
 {
 	init_completion(&cb->cb_completion);
@@ -218,6 +233,13 @@ static void mock_cb_data_init(struct smux_mock_callback *cb)
 	INIT_LIST_HEAD(&cb->write_events);
 }
 
+/**
+ * Reset mock callback data to default values.
+ *
+ * @cb  Mock callback data
+ *
+ * All packets are freed and counters reset to zero.
+ */
 static void mock_cb_data_reset(struct smux_mock_callback *cb)
 {
 	cb->cb_count = 0;
@@ -269,6 +291,15 @@ static void mock_cb_data_reset(struct smux_mock_callback *cb)
 	}
 }
 
+/**
+ * Dump the values of the mock callback data for debug purposes.
+ *
+ * @cb  Mock callback data
+ * @buf Print buffer
+ * @max Maximum number of characters to print
+ *
+ * @returns Number of characters added to buffer
+ */
 static int mock_cb_data_print(const struct smux_mock_callback *cb,
 		char *buf, int max)
 {
@@ -320,6 +351,10 @@ static int mock_cb_data_print(const struct smux_mock_callback *cb,
 	return i;
 }
 
+/**
+ * Mock object event callback.  Used to logs events for analysis in the unit
+ * tests.
+ */
 static void smux_mock_cb(void *priv, int event, const void *metadata)
 {
 	struct smux_mock_callback *cb_data_ptr;
@@ -466,6 +501,20 @@ static void smux_mock_cb(void *priv, int event, const void *metadata)
 	spin_unlock_irqrestore(&cb_data_ptr->lock, flags);
 }
 
+/**
+ * Test Read/write usage.
+ *
+ * @buf       Output buffer for failure/status messages
+ * @max       Size of @buf
+ * @vectors   Test vector data (must end with NULL item)
+ * @name      Name of the test case for failure messages
+ *
+ * Perform a sanity test consisting of opening a port, writing test packet(s),
+ * reading the response(s), and closing the port.
+ *
+ * The port should already be configured to use either local or remote
+ * loopback.
+ */
 static int smux_ut_basic_core(char *buf, int max,
 	const struct test_vector *vectors,
 	const char *name)
@@ -484,7 +533,7 @@ static int smux_ut_basic_core(char *buf, int max,
 		struct mock_write_event *write_event;
 		struct mock_read_event *read_event;
 
-		
+		/* open port */
 		ret = msm_smux_open(SMUX_TEST_LCID, &cb_data, smux_mock_cb,
 					get_rx_buffer);
 		UT_ASSERT_INT(ret, ==, 0);
@@ -495,7 +544,7 @@ static int smux_ut_basic_core(char *buf, int max,
 		UT_ASSERT_INT(cb_data.event_connected, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* write, read, and verify the test vector data */
 		for (; vectors->data != NULL; ++vectors) {
 			const char *test_data = vectors->data;
 			const unsigned test_len = vectors->len;
@@ -508,7 +557,7 @@ static int smux_ut_basic_core(char *buf, int max,
 					"Writing vector %p len %d: ",
 					test_data, test_len);
 
-			
+			/* write data */
 			start_t = sched_clock();
 			msm_smux_write(SMUX_TEST_LCID, (void *)0xCAFEFACE,
 					test_data, test_len);
@@ -517,7 +566,7 @@ static int smux_ut_basic_core(char *buf, int max,
 					(int)wait_for_completion_timeout(
 					&cb_data.cb_completion, HZ), >, 0);
 
-			
+			/* wait for write and echo'd read to complete */
 			INIT_COMPLETION(cb_data.cb_completion);
 			if (cb_data.cb_count < 2)
 				UT_ASSERT_INT(
@@ -538,7 +587,7 @@ static int smux_ut_basic_core(char *buf, int max,
 							(void *)test_data);
 			UT_ASSERT_INT(write_event->meta.len, ==, test_len);
 
-			
+			/* verify read event */
 			UT_ASSERT_INT(cb_data.event_read_done, ==, 1);
 			UT_ASSERT_INT(list_empty(&cb_data.read_events), ==, 0);
 			read_event = list_first_entry(&cb_data.read_events,
@@ -550,7 +599,7 @@ static int smux_ut_basic_core(char *buf, int max,
 			if (read_event->meta.len != test_len ||
 				memcmp(read_event->meta.buffer,
 						test_data, test_len)) {
-				
+				/* data mismatch */
 				char linebuff[80];
 
 				hex_dump_to_buffer(test_data, test_len,
@@ -567,7 +616,7 @@ static int smux_ut_basic_core(char *buf, int max,
 				break;
 			}
 
-			
+			/* calculate throughput stats */
 			val = end_t - start_t;
 			rem = do_div(val, 1000);
 			i += scnprintf(buf + i, max - i,
@@ -581,7 +630,7 @@ static int smux_ut_basic_core(char *buf, int max,
 			mock_cb_data_reset(&cb_data);
 		}
 
-		
+		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
 		while (cb_data.cb_count < 3) {
@@ -612,6 +661,12 @@ static int smux_ut_basic_core(char *buf, int max,
 	return i;
 }
 
+/**
+ * Verify Basic Local Loopback Support
+ *
+ * Perform a sanity test consisting of opening a port in local loopback
+ * mode and writing a packet and reading the echo'd packet back.
+ */
 static int smux_ut_basic(char *buf, int max)
 {
 	const struct test_vector test_data[] = {
@@ -624,7 +679,7 @@ static int smux_ut_basic(char *buf, int max)
 
 	i += scnprintf(buf + i, max - i, "Running %s\n", __func__);
 	while (!failed) {
-		
+		/* enable loopback mode */
 		ret = msm_smux_set_ch_option(SMUX_TEST_LCID,
 				SMUX_CH_OPTION_LOCAL_LOOPBACK, 0);
 		UT_ASSERT_INT(ret, ==, 0);
@@ -640,6 +695,12 @@ static int smux_ut_basic(char *buf, int max)
 	return i;
 }
 
+/**
+ * Verify Basic Remote Loopback Support
+ *
+ * Perform a sanity test consisting of opening a port in remote loopback
+ * mode and writing a packet and reading the echo'd packet back.
+ */
 static int smux_ut_remote_basic(char *buf, int max)
 {
 	const struct test_vector test_data[] = {
@@ -652,7 +713,7 @@ static int smux_ut_remote_basic(char *buf, int max)
 
 	i += scnprintf(buf + i, max - i, "Running %s\n", __func__);
 	while (!failed) {
-		
+		/* enable remote mode */
 		ret = msm_smux_set_ch_option(SMUX_TEST_LCID,
 				SMUX_CH_OPTION_REMOTE_LOOPBACK, 0);
 		UT_ASSERT_INT(ret, ==, 0);
@@ -668,6 +729,12 @@ static int smux_ut_remote_basic(char *buf, int max)
 	return i;
 }
 
+/**
+ * Verify Basic Subsystem Restart Support
+ *
+ * Run a basic loopback test followed by a subsystem restart and then another
+ * loopback test.
+ */
 static int smux_ut_ssr_remote_basic(char *buf, int max)
 {
 	const struct test_vector test_data[] = {
@@ -681,7 +748,7 @@ static int smux_ut_ssr_remote_basic(char *buf, int max)
 
 	i += scnprintf(buf + i, max - i, "Running %s\n", __func__);
 	while (!failed) {
-		
+		/* enable remote mode */
 		ret = msm_smux_set_ch_option(SMUX_TEST_LCID,
 				SMUX_CH_OPTION_REMOTE_LOOPBACK, 0);
 		UT_ASSERT_INT(ret, ==, 0);
@@ -706,6 +773,9 @@ static int smux_ut_ssr_remote_basic(char *buf, int max)
 	return i;
 }
 
+/**
+ * Verify Subsystem Restart Support During Port Open
+ */
 static int smux_ut_ssr_remote_open(char *buf, int max)
 {
 	static struct smux_mock_callback cb_data;
@@ -726,7 +796,7 @@ static int smux_ut_ssr_remote_open(char *buf, int max)
 				SMUX_CH_OPTION_REMOTE_LOOPBACK, 0);
 		UT_ASSERT_INT(ret, ==, 0);
 
-		
+		/* open port */
 		ret = msm_smux_open(SMUX_TEST_LCID, &cb_data, smux_mock_cb,
 					get_rx_buffer);
 		UT_ASSERT_INT(ret, ==, 0);
@@ -737,10 +807,10 @@ static int smux_ut_ssr_remote_open(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_connected, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* restart modem */
 		subsystem_restart("external_modem");
 
-		
+		/* verify SSR events */
 		UT_ASSERT_INT(ret, ==, 0);
 		while (cb_data.cb_count < 3) {
 			UT_ASSERT_INT(
@@ -756,11 +826,11 @@ static int smux_ut_ssr_remote_open(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_remote_closed, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
 
-		
+		/* wait for remote side to finish booting */
 		retry_count = 0;
 		do {
 			msleep(500);
@@ -810,7 +880,7 @@ static int smux_ut_ssr_remote_rx_buff_retry(char *buf, int max)
 
 	mock_cb_data_reset(&cb_data);
 	while (!failed) {
-		
+		/* open port for loopback */
 		ret = msm_smux_set_ch_option(SMUX_TEST_LCID,
 				SMUX_CH_OPTION_REMOTE_LOOPBACK,
 				0);
@@ -826,7 +896,7 @@ static int smux_ut_ssr_remote_rx_buff_retry(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_connected, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* Queue up an RX buffer retry */
 		get_rx_buffer_mock_fail = 1;
 		ret = msm_smux_write(SMUX_TEST_LCID, (void *)1,
 					test_array, sizeof(test_array));
@@ -842,10 +912,10 @@ static int smux_ut_ssr_remote_rx_buff_retry(char *buf, int max)
 			break;
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* trigger SSR */
 		subsystem_restart("external_modem");
 
-		
+		/* verify SSR completed */
 		retry_count = 0;
 		while (cb_data.event_disconnected_ssr == 0) {
 			(void)wait_for_completion_timeout(
@@ -862,11 +932,11 @@ static int smux_ut_ssr_remote_rx_buff_retry(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_remote_closed, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
 
-		
+		/* wait for remote side to finish booting */
 		retry_count = 0;
 		do {
 			msleep(500);
@@ -888,6 +958,24 @@ static int smux_ut_ssr_remote_rx_buff_retry(char *buf, int max)
 	return i;
 }
 
+/**
+ * Fill test pattern into provided buffer including an optional
+ * redzone before and after the buffer.
+ *
+ * buf ---------
+ *      redzone
+ *     --------- <- returned pointer
+ *       data
+ *     --------- <- returned pointer + len
+ *      redzone
+ *     ---------
+ *
+ * @buf  Pointer to the buffer of size len or len+2*RED_ZONE_SIZE (redzone)
+ * @len  Length of the *data* buffer (excluding the extra redzone buffers)
+ * @redzone If true, adds redzone data
+ *
+ * @returns pointer to buffer (buf + RED_ZONE_SIZE if redzone enabled)
+ */
 static uint8_t *test_pattern_fill(char *buf, int len, int redzone)
 {
 	char *buf_ptr;
@@ -905,6 +993,17 @@ static uint8_t *test_pattern_fill(char *buf, int len, int redzone)
 	return buf;
 }
 
+/**
+ * Verify test pattern generated by test_pattern_fill.
+ *
+ * @buf_ptr    Pointer to buffer pointer
+ * @len        Length of the *data* buffer (excluding redzone bytes)
+ * @redzone    If true, verifies redzone and adjusts *buf_ptr
+ * @errmsg     Buffer for error message
+ * @errmsg_max Size of error message buffer
+ *
+ * @returns    0 for success; length of error message otherwise
+ */
 static unsigned test_pattern_verify(char **buf_ptr, int len, int redzone,
 					char *errmsg, int errmsg_max)
 {
@@ -917,7 +1016,7 @@ static unsigned test_pattern_verify(char **buf_ptr, int len, int redzone,
 		*buf_ptr -= RED_ZONE_SIZE;
 		zone_ptr = *buf_ptr;
 
-		
+		/* verify prefix redzone */
 		for (n = 0; n < RED_ZONE_SIZE; ++n) {
 			if (zone_ptr[n] != RED_ZONE_PRE_CH) {
 				hex_dump_to_buffer(zone_ptr, RED_ZONE_SIZE,
@@ -930,7 +1029,7 @@ static unsigned test_pattern_verify(char **buf_ptr, int len, int redzone,
 			}
 		}
 
-		
+		/* verify postfix redzone */
 		zone_ptr = *buf_ptr + RED_ZONE_SIZE + len;
 		for (n = 0; n < RED_ZONE_SIZE; ++n) {
 			if (zone_ptr[n] != RED_ZONE_POS_CH) {
@@ -977,7 +1076,7 @@ static int smux_ut_loopback_big_pkt(char *buf, int max, const char *name)
 	int failed = 0;
 	struct test_vector *tv;
 
-	
+	/* generate test data */
 	for (tv = test_data; tv->len > 0; ++tv) {
 		tv->data = kmalloc(tv->len + 2 * RED_ZONE_SIZE, GFP_KERNEL);
 		if (!tv->data) {
@@ -990,7 +1089,7 @@ static int smux_ut_loopback_big_pkt(char *buf, int max, const char *name)
 		tv->data = test_pattern_fill((uint8_t *)tv->data, tv->len, 1);
 	}
 
-	
+	/* run test */
 	i += scnprintf(buf + i, max - i, "Running %s\n", name);
 	while (!failed) {
 		i += smux_ut_basic_core(buf + i, max - i, test_data, name);
@@ -1075,6 +1174,11 @@ static int smux_ut_remote_big_pkt(char *buf, int max)
 	return i;
 }
 
+/**
+ * Run a large packet test for throughput metrics.
+ *
+ * Repeatedly send a packet for 100 iterations to get throughput metrics.
+ */
 static int smux_ut_remote_throughput(char *buf, int max)
 {
 	struct test_vector test_data[] = {
@@ -1087,7 +1191,7 @@ static int smux_ut_remote_throughput(char *buf, int max)
 	struct test_vector *tv;
 	int ret;
 
-	
+	/* generate test data */
 	for (tv = test_data; tv->len > 0; ++tv) {
 		tv->data = kmalloc(tv->len, GFP_KERNEL);
 		if (!tv->data) {
@@ -1100,7 +1204,7 @@ static int smux_ut_remote_throughput(char *buf, int max)
 		test_pattern_fill((uint8_t *)tv->data, tv->len, 0);
 	}
 
-	
+	/* run test */
 	i += scnprintf(buf + i, max - i, "Running %s\n", __func__);
 	while (!failed && loop < 100) {
 		ret = msm_smux_set_ch_option(SMUX_TEST_LCID,
@@ -1137,7 +1241,7 @@ static int smux_ut_tiocm(char *buf, int max, const char *name)
 	static struct smux_mock_callback cb_data;
 	static int cb_initialized;
 	static const struct tiocm_test_vector tiocm_vectors[] = {
-		
+		/* bit to set, set old, set new, clear old */
 		{TIOCM_DTR, TIOCM_DTR, TIOCM_DTR | TIOCM_DSR, TIOCM_DSR},
 		{TIOCM_RTS, TIOCM_RTS, TIOCM_RTS | TIOCM_CTS, TIOCM_CTS},
 		{TIOCM_RI, 0x0, TIOCM_RI, TIOCM_RI},
@@ -1155,7 +1259,7 @@ static int smux_ut_tiocm(char *buf, int max, const char *name)
 
 	mock_cb_data_reset(&cb_data);
 	while (!failed) {
-		
+		/* open port */
 		ret = msm_smux_open(SMUX_TEST_LCID, &cb_data, smux_mock_cb,
 								get_rx_buffer);
 		UT_ASSERT_INT(ret, ==, 0);
@@ -1166,9 +1270,9 @@ static int smux_ut_tiocm(char *buf, int max, const char *name)
 		UT_ASSERT_INT(cb_data.event_connected, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* set and clear each TIOCM bit */
 		for (n = 0; n < ARRAY_SIZE(tiocm_vectors) && !failed; ++n) {
-			
+			/* set signal and verify */
 			ret = msm_smux_tiocm_set(SMUX_TEST_LCID,
 						tiocm_vectors[n].input, 0x0);
 			UT_ASSERT_INT(ret, ==, 0);
@@ -1183,7 +1287,7 @@ static int smux_ut_tiocm(char *buf, int max, const char *name)
 						tiocm_vectors[n].set_new);
 			mock_cb_data_reset(&cb_data);
 
-			
+			/* clear signal and verify */
 			ret = msm_smux_tiocm_set(SMUX_TEST_LCID, 0x0,
 						tiocm_vectors[n].input);
 			UT_ASSERT_INT(ret, ==, 0);
@@ -1201,7 +1305,7 @@ static int smux_ut_tiocm(char *buf, int max, const char *name)
 		if (failed)
 			break;
 
-		
+		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
 		while (cb_data.cb_count < 3) {
@@ -1312,7 +1416,7 @@ static int smux_ut_local_wm(char *buf, int max)
 	mock_cb_data_reset(&cb_data);
 	smux_byte_loopback = SMUX_TEST_LCID;
 	while (!failed) {
-		
+		/* open port for loopback with TX disabled */
 		ret = msm_smux_set_ch_option(SMUX_TEST_LCID,
 				SMUX_CH_OPTION_LOCAL_LOOPBACK
 				| SMUX_CH_OPTION_REMOTE_TX_STOP,
@@ -1329,7 +1433,7 @@ static int smux_ut_local_wm(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_connected, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* transmit 4 packets and verify high-watermark notification */
 		ret = 0;
 		ret |= msm_smux_write(SMUX_TEST_LCID, (void *)1,
 					test_array, sizeof(test_array));
@@ -1352,12 +1456,12 @@ static int smux_ut_local_wm(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_low_wm, ==, 0);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* exceed watermark and verify failure return value */
 		ret = msm_smux_write(SMUX_TEST_LCID, (void *)5,
 					test_array, sizeof(test_array));
 		UT_ASSERT_INT(ret, ==, -EAGAIN);
 
-		
+		/* re-enable TX and verify low-watermark notification */
 		ret = msm_smux_set_ch_option(SMUX_TEST_LCID,
 				0, SMUX_CH_OPTION_REMOTE_TX_STOP);
 		UT_ASSERT_INT(ret, ==, 0);
@@ -1376,7 +1480,7 @@ static int smux_ut_local_wm(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_write_done, ==, 4);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
 		while (cb_data.cb_count < 3) {
@@ -1437,7 +1541,7 @@ static int smux_ut_local_smuxld_receive_buf(char *buf, int max)
 	mock_cb_data_reset(&cb_data);
 	smux_byte_loopback = SMUX_TEST_LCID;
 	while (!failed) {
-		
+		/* open port for loopback */
 		ret = msm_smux_set_ch_option(SMUX_TEST_LCID,
 				SMUX_CH_OPTION_LOCAL_LOOPBACK, 0);
 		UT_ASSERT_INT(ret, ==, 0);
@@ -1452,9 +1556,17 @@ static int smux_ut_local_smuxld_receive_buf(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_connected, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
+		/*
+		 * Verify RX error processing by sending 3 echo requests:
+		 *     one OK, one fail, and a final OK
+		 *
+		 * The parsing framework should process the requests
+		 * and send us three BYTE command packets with
+		 * ECHO ACK FAIL and ECHO ACK OK characters.
+		 */
 		smuxld_receive_buf(0, data, flags, sizeof(data));
 
-		
+		/* verify response characters */
 		do {
 			UT_ASSERT_INT(
 				(int)wait_for_completion_timeout(
@@ -1483,7 +1595,7 @@ static int smux_ut_local_smuxld_receive_buf(char *buf, int max)
 		list_del(&meta->list);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
 		while (cb_data.cb_count < 3) {
@@ -1514,6 +1626,10 @@ static int smux_ut_local_smuxld_receive_buf(char *buf, int max)
 	return i;
 }
 
+/**
+ * Allocates a new buffer or returns a failure based upon the
+ * global @get_rx_buffer_mock_fail.
+ */
 static int get_rx_buffer_mock(void *priv, void **pkt_priv,
 		void **buffer, int size)
 {
@@ -1528,7 +1644,7 @@ static int get_rx_buffer_mock(void *priv, void **pkt_priv,
 	}
 
 	if (get_rx_buffer_mock_fail) {
-		
+		/* force failure and log failure event */
 		struct mock_get_rx_buff_event *meta;
 		meta = kmalloc(sizeof(struct mock_get_rx_buff_event),
 				GFP_KERNEL);
@@ -1586,7 +1702,7 @@ static int smux_ut_local_get_rx_buff_retry(char *buf, int max)
 	mock_cb_data_reset(&cb_data);
 	smux_byte_loopback = SMUX_TEST_LCID;
 	while (!failed) {
-		
+		/* open port for loopback */
 		ret = msm_smux_set_ch_option(SMUX_TEST_LCID,
 				SMUX_CH_OPTION_LOCAL_LOOPBACK,
 				SMUX_CH_OPTION_AUTO_REMOTE_TX_STOP);
@@ -1602,6 +1718,32 @@ static int smux_ut_local_get_rx_buff_retry(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_connected, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
+		/*
+		 * Force get_rx_buffer failure for a single RX packet
+		 *
+		 * The get_rx_buffer calls should follow an exponential
+		 * back-off with a maximum timeout of 1024 ms after which we
+		 * will get a failure notification.
+		 *
+		 * Try   Post Delay (ms)
+		 *  0      -
+		 *  1      1
+		 *  2      2
+		 *  3      4
+		 *  4      8
+		 *  5     16
+		 *  6     32
+		 *  7     64
+		 *  8    128
+		 *  9    256
+		 * 10    512
+		 * 11   1024
+		 * 12   Fail
+		 *
+		 * All times are limited by the precision of the timer
+		 * framework, so ranges are used in the test
+		 * verification.
+		 */
 		get_rx_buffer_mock_fail = 1;
 		start_j = jiffies;
 		ret = msm_smux_write(SMUX_TEST_LCID, (void *)1,
@@ -1611,7 +1753,7 @@ static int smux_ut_local_get_rx_buff_retry(char *buf, int max)
 					try_two, sizeof(try_two));
 		UT_ASSERT_INT(ret, ==, 0);
 
-		
+		/* wait for RX failure event */
 		while (cb_data.event_read_failed == 0) {
 			UT_ASSERT_INT(
 				(int)wait_for_completion_timeout(
@@ -1622,7 +1764,7 @@ static int smux_ut_local_get_rx_buff_retry(char *buf, int max)
 		if (failed)
 			break;
 
-		
+		/* verify retry attempts */
 		UT_ASSERT_INT(cb_data.get_rx_buff_retry_count, ==, 12);
 		event = list_first_entry(&cb_data.get_rx_buff_retry_events,
 				struct mock_get_rx_buff_event, list);
@@ -1732,7 +1874,7 @@ static int smux_ut_local_get_rx_buff_retry(char *buf, int max)
 				1024 - 20, 1024 + 20);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* verify 2nd pending RX packet goes through */
 		get_rx_buffer_mock_fail = 0;
 		INIT_COMPLETION(cb_data.cb_completion);
 		if (cb_data.event_read_done == 0)
@@ -1750,7 +1892,7 @@ static int smux_ut_local_get_rx_buff_retry(char *buf, int max)
 				sizeof(try_two)));
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* Test maximum retry queue size */
 		get_rx_buffer_mock_fail = 1;
 		for (try = 0; try < (SMUX_RX_RETRY_MAX_PKTS + 1); ++try) {
 			mock_cb_data_reset(&cb_data);
@@ -1763,7 +1905,7 @@ static int smux_ut_local_get_rx_buff_retry(char *buf, int max)
 				>, 0);
 		}
 
-		
+		/* should have 32 successful rx packets and 1 failed */
 		while (cb_data.event_read_failed == 0) {
 			UT_ASSERT_INT(
 				(int)wait_for_completion_timeout(
@@ -1790,7 +1932,7 @@ static int smux_ut_local_get_rx_buff_retry(char *buf, int max)
 				cb_data.event_read_done);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
 		while (cb_data.cb_count < 3) {
@@ -1848,7 +1990,7 @@ static int smux_ut_local_get_rx_buff_retry_auto(char *buf, int max)
 	mock_cb_data_reset(&cb_data);
 	smux_byte_loopback = SMUX_TEST_LCID;
 	while (!failed) {
-		
+		/* open port for loopback */
 		ret = msm_smux_set_ch_option(SMUX_TEST_LCID,
 				SMUX_CH_OPTION_LOCAL_LOOPBACK
 				| SMUX_CH_OPTION_AUTO_REMOTE_TX_STOP,
@@ -1865,7 +2007,7 @@ static int smux_ut_local_get_rx_buff_retry_auto(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_connected, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* Test high rx-retry watermark */
 		get_rx_buffer_mock_fail = 1;
 		try_rx_retry_wm = 0;
 		for (try = 0; try < SMUX_RX_RETRY_MAX_PKTS; ++try) {
@@ -1878,7 +2020,7 @@ static int smux_ut_local_get_rx_buff_retry_auto(char *buf, int max)
 
 			if (!try_rx_retry_wm &&
 					cb_data.event_rx_retry_high_wm) {
-				
+				/* RX high watermark hit */
 				try_rx_retry_wm = try + 1;
 				break;
 			}
@@ -1896,10 +2038,14 @@ static int smux_ut_local_get_rx_buff_retry_auto(char *buf, int max)
 		if (failed)
 			break;
 
-		
+		/* RX retry high watermark should have been set */
 		UT_ASSERT_INT(cb_data.event_rx_retry_high_wm, ==, 1);
 		UT_ASSERT_INT(try_rx_retry_wm, ==, SMUX_RX_WM_HIGH);
 
+		/*
+		 * Disabled RX buffer allocation failure and wait for
+		 * the SMUX_RX_WM_HIGH count successful packets.
+		 */
 		get_rx_buffer_mock_fail = 0;
 		while (cb_data.event_read_done < SMUX_RX_WM_HIGH) {
 			UT_ASSERT_INT(
@@ -1917,7 +2063,7 @@ static int smux_ut_local_get_rx_buff_retry_auto(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_rx_retry_low_wm, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
 		while (cb_data.cb_count < 3) {
@@ -1972,7 +2118,7 @@ static int smux_ut_remote_tx_stop(char *buf, int max)
 
 	mock_cb_data_reset(&cb_data);
 	while (!failed) {
-		
+		/* open port for remote loopback */
 		ret = msm_smux_set_ch_option(SMUX_TEST_LCID,
 				SMUX_CH_OPTION_REMOTE_LOOPBACK, 0);
 		UT_ASSERT_INT(ret, ==, 0);
@@ -1987,7 +2133,7 @@ static int smux_ut_remote_tx_stop(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_connected, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* send 1 packet and verify response */
 		ret = msm_smux_write(SMUX_TEST_LCID, (void *)1,
 					test_array, sizeof(test_array));
 		UT_ASSERT_INT(ret, ==, 0);
@@ -2007,18 +2153,18 @@ static int smux_ut_remote_tx_stop(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_read_done, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* enable flow control */
 		UT_ASSERT_INT(smux_lch[SMUX_TEST_LCID].tx_flow_control, ==, 0);
 		ret = msm_smux_set_ch_option(SMUX_TEST_LCID,
 				SMUX_CH_OPTION_REMOTE_TX_STOP, 0);
 		UT_ASSERT_INT(ret, ==, 0);
 
-		
+		/* wait for remote echo and clear our tx_flow control */
 		msleep(500);
 		UT_ASSERT_INT(smux_lch[SMUX_TEST_LCID].tx_flow_control, ==, 1);
 		smux_lch[SMUX_TEST_LCID].tx_flow_control = 0;
 
-		
+		/* Send 1 packet and verify no response */
 		ret = msm_smux_write(SMUX_TEST_LCID, (void *)2,
 					test_array, sizeof(test_array));
 		UT_ASSERT_INT(ret, ==, 0);
@@ -2038,7 +2184,7 @@ static int smux_ut_remote_tx_stop(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_read_done, ==, 0);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* disable flow control and verify response is received */
 		UT_ASSERT_INT(cb_data.event_read_done, ==, 0);
 		ret = msm_smux_set_ch_option(SMUX_TEST_LCID,
 				0, SMUX_CH_OPTION_REMOTE_TX_STOP);
@@ -2051,7 +2197,7 @@ static int smux_ut_remote_tx_stop(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_read_done, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* close port */
 		ret = msm_smux_close(SMUX_TEST_LCID);
 		UT_ASSERT_INT(ret, ==, 0);
 		while (cb_data.cb_count < 3) {
@@ -2083,6 +2229,12 @@ static int smux_ut_remote_tx_stop(char *buf, int max)
 	return i;
 }
 
+/**
+ * Verify Remote-initiated wakeup test case.
+ *
+ * @buf       Output buffer for failure/status messages
+ * @max       Size of @buf
+ */
 static int smux_ut_remote_initiated_wakeup(char *buf, int max)
 {
 	int i = 0;
@@ -2106,7 +2258,7 @@ static int smux_ut_remote_initiated_wakeup(char *buf, int max)
 		unsigned lwakeup_delta;
 		unsigned rwakeup_delta;
 
-		
+		/* open port */
 		ret = msm_smux_open(SMUX_TEST_LCID, &cb_data, smux_mock_cb,
 					get_rx_buffer);
 		UT_ASSERT_INT(ret, ==, 0);
@@ -2117,7 +2269,7 @@ static int smux_ut_remote_initiated_wakeup(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_connected, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* do local wakeup test and send echo packet */
 		msleep(SMUX_REMOTE_INACTIVITY_TIME_MS);
 		smux_get_wakeup_counts(&lwakeups_start, &rwakeups_start);
 		msm_smux_write(SMUX_TEST_LCID, (void *)0x12345678,
@@ -2130,7 +2282,7 @@ static int smux_ut_remote_initiated_wakeup(char *buf, int max)
 		UT_ASSERT_INT(cb_data.event_write_done, ==, 1);
 		mock_cb_data_reset(&cb_data);
 
-		
+		/* verify local initiated wakeup */
 		smux_get_wakeup_counts(&lwakeups_end, &rwakeups_end);
 		if (lwakeups_end > lwakeups_start)
 			i += scnprintf(buf + i, max - i,
@@ -2139,7 +2291,7 @@ static int smux_ut_remote_initiated_wakeup(char *buf, int max)
 			i += scnprintf(buf + i, max - i,
 					"\tBad - no Apps-initiated wakeup\n");
 
-		
+		/* verify remote wakeup and echo response */
 		smux_get_wakeup_counts(&lwakeups_start, &rwakeups_start);
 		start_j = jiffies;
 		INIT_COMPLETION(cb_data.cb_completion);
@@ -2238,6 +2390,17 @@ static int __init smux_debugfs_init(void)
 	if (IS_ERR(dent))
 		return PTR_ERR(dent);
 
+	/*
+	 * Add Unit Test entries.
+	 *
+	 * The idea with unit tests is that you can run all of them
+	 * from ADB shell by doing:
+	 *  adb shell
+	 *	cat ut*
+	 *
+	 * And if particular tests fail, you can then repeatedly run the failing
+	 * tests as you debug and resolve the failing test.
+	 */
 	debug_create("ut_local_basic", 0444, dent, smux_ut_basic);
 	debug_create("ut_remote_basic", 0444, dent,	smux_ut_remote_basic);
 	debug_create("ut_local_big_pkt", 0444, dent, smux_ut_local_big_pkt);

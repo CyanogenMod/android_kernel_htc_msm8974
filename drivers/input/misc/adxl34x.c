@@ -20,44 +20,48 @@
 
 #include "adxl34x.h"
 
-#define DEVID		0x00	
-#define THRESH_TAP	0x1D	
-#define OFSX		0x1E	
-#define OFSY		0x1F	
-#define OFSZ		0x20	
-#define DUR		0x21	
-#define LATENT		0x22	
-#define WINDOW		0x23	
-#define THRESH_ACT	0x24	
-#define THRESH_INACT	0x25	
-#define TIME_INACT	0x26	
-#define ACT_INACT_CTL	0x27	
-				
-#define THRESH_FF	0x28	
-#define TIME_FF		0x29	
-#define TAP_AXES	0x2A	
-#define ACT_TAP_STATUS	0x2B	
-#define BW_RATE		0x2C	
-#define POWER_CTL	0x2D	
-#define INT_ENABLE	0x2E	
-#define INT_MAP		0x2F	
-#define INT_SOURCE	0x30	
-#define DATA_FORMAT	0x31	
-#define DATAX0		0x32	
-#define DATAX1		0x33	
-#define DATAY0		0x34	
-#define DATAY1		0x35	
-#define DATAZ0		0x36	
-#define DATAZ1		0x37	
-#define FIFO_CTL	0x38	
-#define FIFO_STATUS	0x39	
-#define TAP_SIGN	0x3A	
-#define ORIENT_CONF	0x3B	
-#define ORIENT		0x3C	
+/* ADXL345/6 Register Map */
+#define DEVID		0x00	/* R   Device ID */
+#define THRESH_TAP	0x1D	/* R/W Tap threshold */
+#define OFSX		0x1E	/* R/W X-axis offset */
+#define OFSY		0x1F	/* R/W Y-axis offset */
+#define OFSZ		0x20	/* R/W Z-axis offset */
+#define DUR		0x21	/* R/W Tap duration */
+#define LATENT		0x22	/* R/W Tap latency */
+#define WINDOW		0x23	/* R/W Tap window */
+#define THRESH_ACT	0x24	/* R/W Activity threshold */
+#define THRESH_INACT	0x25	/* R/W Inactivity threshold */
+#define TIME_INACT	0x26	/* R/W Inactivity time */
+#define ACT_INACT_CTL	0x27	/* R/W Axis enable control for activity and */
+				/* inactivity detection */
+#define THRESH_FF	0x28	/* R/W Free-fall threshold */
+#define TIME_FF		0x29	/* R/W Free-fall time */
+#define TAP_AXES	0x2A	/* R/W Axis control for tap/double tap */
+#define ACT_TAP_STATUS	0x2B	/* R   Source of tap/double tap */
+#define BW_RATE		0x2C	/* R/W Data rate and power mode control */
+#define POWER_CTL	0x2D	/* R/W Power saving features control */
+#define INT_ENABLE	0x2E	/* R/W Interrupt enable control */
+#define INT_MAP		0x2F	/* R/W Interrupt mapping control */
+#define INT_SOURCE	0x30	/* R   Source of interrupts */
+#define DATA_FORMAT	0x31	/* R/W Data format control */
+#define DATAX0		0x32	/* R   X-Axis Data 0 */
+#define DATAX1		0x33	/* R   X-Axis Data 1 */
+#define DATAY0		0x34	/* R   Y-Axis Data 0 */
+#define DATAY1		0x35	/* R   Y-Axis Data 1 */
+#define DATAZ0		0x36	/* R   Z-Axis Data 0 */
+#define DATAZ1		0x37	/* R   Z-Axis Data 1 */
+#define FIFO_CTL	0x38	/* R/W FIFO control */
+#define FIFO_STATUS	0x39	/* R   FIFO status */
+#define TAP_SIGN	0x3A	/* R   Sign and source for tap/double tap */
+/* Orientation ADXL346 only */
+#define ORIENT_CONF	0x3B	/* R/W Orientation configuration */
+#define ORIENT		0x3C	/* R   Orientation status */
 
+/* DEVIDs */
 #define ID_ADXL345	0xE5
 #define ID_ADXL346	0xE6
 
+/* INT_ENABLE/INT_MAP/INT_SOURCE Bits */
 #define DATA_READY	(1 << 7)
 #define SINGLE_TAP	(1 << 6)
 #define DOUBLE_TAP	(1 << 5)
@@ -67,6 +71,7 @@
 #define WATERMARK	(1 << 1)
 #define OVERRUN		(1 << 0)
 
+/* ACT_INACT_CONTROL Bits */
 #define ACT_ACDC	(1 << 7)
 #define ACT_X_EN	(1 << 6)
 #define ACT_Y_EN	(1 << 5)
@@ -76,11 +81,13 @@
 #define INACT_Y_EN	(1 << 1)
 #define INACT_Z_EN	(1 << 0)
 
+/* TAP_AXES Bits */
 #define SUPPRESS	(1 << 3)
 #define TAP_X_EN	(1 << 2)
 #define TAP_Y_EN	(1 << 1)
 #define TAP_Z_EN	(1 << 0)
 
+/* ACT_TAP_STATUS Bits */
 #define ACT_X_SRC	(1 << 6)
 #define ACT_Y_SRC	(1 << 5)
 #define ACT_Z_SRC	(1 << 4)
@@ -89,15 +96,18 @@
 #define TAP_Y_SRC	(1 << 1)
 #define TAP_Z_SRC	(1 << 0)
 
+/* BW_RATE Bits */
 #define LOW_POWER	(1 << 4)
 #define RATE(x)		((x) & 0xF)
 
+/* POWER_CTL Bits */
 #define PCTL_LINK	(1 << 5)
 #define PCTL_AUTO_SLEEP (1 << 4)
 #define PCTL_MEASURE	(1 << 3)
 #define PCTL_SLEEP	(1 << 2)
 #define PCTL_WAKEUP(x)	((x) & 0x3)
 
+/* DATA_FORMAT Bits */
 #define SELF_TEST	(1 << 7)
 #define SPI		(1 << 6)
 #define INT_INVERT	(1 << 5)
@@ -109,10 +119,19 @@
 #define RANGE_PM_8g	2
 #define RANGE_PM_16g	3
 
+/*
+ * Maximum value our axis may get in full res mode for the input device
+ * (signed 13 bits)
+ */
 #define ADXL_FULLRES_MAX_VAL 4096
 
+/*
+ * Maximum value our axis may get in fixed res mode for the input device
+ * (signed 10 bits)
+ */
 #define ADXL_FIXEDRES_MAX_VAL 512
 
+/* FIFO_CTL Bits */
 #define FIFO_MODE(x)	(((x) & 0x3) << 6)
 #define FIFO_BYPASS	0
 #define FIFO_FIFO	1
@@ -121,9 +140,11 @@
 #define TRIGGER		(1 << 5)
 #define SAMPLES(x)	((x) & 0x1F)
 
+/* FIFO_STATUS Bits */
 #define FIFO_TRIG	(1 << 7)
 #define ENTRIES(x)	((x) & 0x3F)
 
+/* TAP_SIGN Bits ADXL346 only */
 #define XSIGN		(1 << 6)
 #define YSIGN		(1 << 5)
 #define ZSIGN		(1 << 4)
@@ -131,24 +152,26 @@
 #define YTAP		(1 << 2)
 #define ZTAP		(1 << 1)
 
+/* ORIENT_CONF ADXL346 only */
 #define ORIENT_DEADZONE(x)	(((x) & 0x7) << 4)
 #define ORIENT_DIVISOR(x)	((x) & 0x7)
 
+/* ORIENT ADXL346 only */
 #define ADXL346_2D_VALID		(1 << 6)
 #define ADXL346_2D_ORIENT(x)		(((x) & 0x3) >> 4)
 #define ADXL346_3D_VALID		(1 << 3)
 #define ADXL346_3D_ORIENT(x)		((x) & 0x7)
-#define ADXL346_2D_PORTRAIT_POS		0	
-#define ADXL346_2D_PORTRAIT_NEG		1	
-#define ADXL346_2D_LANDSCAPE_POS	2	
-#define ADXL346_2D_LANDSCAPE_NEG	3	
+#define ADXL346_2D_PORTRAIT_POS		0	/* +X */
+#define ADXL346_2D_PORTRAIT_NEG		1	/* -X */
+#define ADXL346_2D_LANDSCAPE_POS	2	/* +Y */
+#define ADXL346_2D_LANDSCAPE_NEG	3	/* -Y */
 
-#define ADXL346_3D_FRONT		3	
-#define ADXL346_3D_BACK			4	
-#define ADXL346_3D_RIGHT		2	
-#define ADXL346_3D_LEFT			5	
-#define ADXL346_3D_TOP			1	
-#define ADXL346_3D_BOTTOM		6	
+#define ADXL346_3D_FRONT		3	/* +X */
+#define ADXL346_3D_BACK			4	/* -X */
+#define ADXL346_3D_RIGHT		2	/* +Y */
+#define ADXL346_3D_LEFT			5	/* -Y */
+#define ADXL346_3D_TOP			1	/* +Z */
+#define ADXL346_3D_BOTTOM		6	/* -Z */
 
 #undef ADXL_DEBUG
 
@@ -168,7 +191,7 @@ struct axis_triple {
 struct adxl34x {
 	struct device *dev;
 	struct input_dev *input;
-	struct mutex mutex;	
+	struct mutex mutex;	/* reentrant protection for struct */
 	struct adxl34x_platform_data pdata;
 	struct axis_triple swcal;
 	struct axis_triple hwcal;
@@ -176,9 +199,9 @@ struct adxl34x {
 	char phys[32];
 	unsigned orient2d_saved;
 	unsigned orient3d_saved;
-	bool disabled;	
-	bool opened;	
-	bool suspended;	
+	bool disabled;	/* P: mutex */
+	bool opened;	/* P: mutex */
+	bool suspended;	/* P: mutex */
 	bool fifo_delay;
 	int irq;
 	unsigned model;
@@ -203,11 +226,11 @@ static const struct adxl34x_platform_data adxl34x_default_init = {
 	.data_range = ADXL_FULL_RES,
 
 	.ev_type = EV_ABS,
-	.ev_code_x = ABS_X,	
-	.ev_code_y = ABS_Y,	
-	.ev_code_z = ABS_Z,	
+	.ev_code_x = ABS_X,	/* EV_REL */
+	.ev_code_y = ABS_Y,	/* EV_REL */
+	.ev_code_z = ABS_Z,	/* EV_REL */
 
-	.ev_code_tap = {BTN_TOUCH, BTN_TOUCH, BTN_TOUCH}, 
+	.ev_code_tap = {BTN_TOUCH, BTN_TOUCH, BTN_TOUCH}, /* EV_KEY {x,y,z} */
 	.power_mode = ADXL_AUTO_SLEEP | ADXL_LINK,
 	.fifo_mode = FIFO_STREAM,
 	.watermark = 0,
@@ -279,6 +302,10 @@ static irqreturn_t adxl34x_irq(int irq, void *handle)
 	struct adxl34x_platform_data *pdata = &ac->pdata;
 	int int_stat, tap_stat, samples, orient, orient_code;
 
+	/*
+	 * ACT_TAP_STATUS should be read before clearing the interrupt
+	 * Avoid reading ACT_TAP_STATUS in case TAP detection is disabled
+	 */
 
 	if (pdata->tap_axis_control & (TAP_X_EN | TAP_Y_EN | TAP_Z_EN))
 		tap_stat = AC_READ(ac, ACT_TAP_STATUS);
@@ -309,13 +336,16 @@ static irqreturn_t adxl34x_irq(int irq, void *handle)
 					 pdata->ev_code_act_inactivity, 0);
 	}
 
+	/*
+	 * ORIENTATION SENSING ADXL346 only
+	 */
 	if (pdata->orientation_enable) {
 		orient = AC_READ(ac, ORIENT);
 		if ((pdata->orientation_enable & ADXL_EN_ORIENTATION_2D) &&
 		    (orient & ADXL346_2D_VALID)) {
 
 			orient_code = ADXL346_2D_ORIENT(orient);
-			
+			/* Report orientation only when it changes */
 			if (ac->orient2d_saved != orient_code) {
 				ac->orient2d_saved = orient_code;
 				adxl34x_report_key_single(ac->input,
@@ -327,7 +357,7 @@ static irqreturn_t adxl34x_irq(int irq, void *handle)
 		    (orient & ADXL346_3D_VALID)) {
 
 			orient_code = ADXL346_3D_ORIENT(orient) - 1;
-			
+			/* Report orientation only when it changes */
 			if (ac->orient3d_saved != orient_code) {
 				ac->orient3d_saved = orient_code;
 				adxl34x_report_key_single(ac->input,
@@ -345,6 +375,20 @@ static irqreturn_t adxl34x_irq(int irq, void *handle)
 
 		for (; samples > 0; samples--) {
 			adxl34x_service_ev_fifo(ac);
+			/*
+			 * To ensure that the FIFO has
+			 * completely popped, there must be at least 5 us between
+			 * the end of reading the data registers, signified by the
+			 * transition to register 0x38 from 0x37 or the CS pin
+			 * going high, and the start of new reads of the FIFO or
+			 * reading the FIFO_STATUS register. For SPI operation at
+			 * 1.5 MHz or lower, the register addressing portion of the
+			 * transmission is sufficient delay to ensure the FIFO has
+			 * completely popped. It is necessary for SPI operation
+			 * greater than 1.5 MHz to de-assert the CS pin to ensure a
+			 * total of 5 us, which is at most 3.4 us at 5 MHz
+			 * operation.
+			 */
 			if (ac->fifo_delay && (samples > 1))
 				udelay(3);
 		}
@@ -357,6 +401,10 @@ static irqreturn_t adxl34x_irq(int irq, void *handle)
 
 static void __adxl34x_disable(struct adxl34x *ac)
 {
+	/*
+	 * A '0' places the ADXL34x into standby mode
+	 * with minimum power consumption.
+	 */
 	AC_WRITE(ac, POWER_CTL, 0);
 }
 
@@ -454,6 +502,10 @@ static ssize_t adxl34x_calibrate_store(struct device *dev,
 {
 	struct adxl34x *ac = dev_get_drvdata(dev);
 
+	/*
+	 * Hardware offset calibration has a resolution of 15.6 mg/LSB.
+	 * We use HW calibration and handle the remaining bits in SW. (4mg/LSB)
+	 */
 
 	mutex_lock(&ac->mutex);
 	ac->hwcal.x -= (ac->saved.x / 4);
@@ -574,6 +626,9 @@ static ssize_t adxl34x_write_store(struct device *dev,
 	unsigned int val;
 	int error;
 
+	/*
+	 * This allows basic ADXL register write access for debug purposes.
+	 */
 	error = kstrtouint(buf, 16, &val);
 	if (error)
 		return error;
@@ -710,15 +765,15 @@ struct adxl34x *adxl34x_probe(struct device *dev, int irq,
 		__set_bit(REL_Y, input_dev->relbit);
 		__set_bit(REL_Z, input_dev->relbit);
 	} else {
-		
+		/* EV_ABS */
 		__set_bit(ABS_X, input_dev->absbit);
 		__set_bit(ABS_Y, input_dev->absbit);
 		__set_bit(ABS_Z, input_dev->absbit);
 
 		if (pdata->data_range & FULL_RES)
-			range = ADXL_FULLRES_MAX_VAL;	
+			range = ADXL_FULLRES_MAX_VAL;	/* Signed 13-bit */
 		else
-			range = ADXL_FIXEDRES_MAX_VAL;	
+			range = ADXL_FIXEDRES_MAX_VAL;	/* Signed 10-bit */
 
 		input_set_abs_params(input_dev, ABS_X, -range, range, 3, 3);
 		input_set_abs_params(input_dev, ABS_Y, -range, range, 3, 3);
@@ -797,10 +852,10 @@ struct adxl34x *adxl34x_probe(struct device *dev, int irq,
 			SAMPLES(pdata->watermark));
 
 	if (pdata->use_int2) {
-		
+		/* Map all INTs to INT2 */
 		AC_WRITE(ac, INT_MAP, ac->int_mask | OVERRUN);
 	} else {
-		
+		/* Map all INTs to INT1 */
 		AC_WRITE(ac, INT_MAP, 0);
 	}
 

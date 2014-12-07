@@ -54,7 +54,7 @@ static int mantis_i2c_read(struct mantis_pci *mantis, const struct i2c_msg *msg)
 		mmwrite(MANTIS_INT_I2CDONE, MANTIS_INT_STAT);
 		mmwrite(rxd, MANTIS_I2CDATA_CTL);
 
-		
+		/* wait for xfer completion */
 		for (trials = 0; trials < TRIALS; trials++) {
 			stat = mmread(MANTIS_INT_STAT);
 			if (stat & MANTIS_INT_I2CDONE)
@@ -63,7 +63,7 @@ static int mantis_i2c_read(struct mantis_pci *mantis, const struct i2c_msg *msg)
 
 		dprintk(MANTIS_TMG, 0, "I2CDONE: trials=%d\n", trials);
 
-		
+		/* wait for xfer completion */
 		for (trials = 0; trials < TRIALS; trials++) {
 			stat = mmread(MANTIS_INT_STAT);
 			if (stat & MANTIS_INT_I2CRACK)
@@ -102,7 +102,7 @@ static int mantis_i2c_write(struct mantis_pci *mantis, const struct i2c_msg *msg
 		mmwrite(MANTIS_INT_I2CDONE, MANTIS_INT_STAT);
 		mmwrite(txd, MANTIS_I2CDATA_CTL);
 
-		
+		/* wait for xfer completion */
 		for (trials = 0; trials < TRIALS; trials++) {
 			stat = mmread(MANTIS_INT_STAT);
 			if (stat & MANTIS_INT_I2CDONE)
@@ -111,7 +111,7 @@ static int mantis_i2c_write(struct mantis_pci *mantis, const struct i2c_msg *msg
 
 		dprintk(MANTIS_TMG, 0, "I2CDONE: trials=%d\n", trials);
 
-		
+		/* wait for xfer completion */
 		for (trials = 0; trials < TRIALS; trials++) {
 			stat = mmread(MANTIS_INT_STAT);
 			if (stat & MANTIS_INT_I2CRACK)
@@ -141,7 +141,7 @@ static int mantis_i2c_xfer(struct i2c_adapter *adapter, struct i2c_msg *msgs, in
 	mutex_lock(&mantis->i2c_lock);
 
 	while (i < num) {
-		
+		/* Byte MODE */
 		if ((config->i2c_mode & MANTIS_BYTE_MODE) &&
 		    ((i + 1) < num)			&&
 		    (msgs[i].len < 2)			&&
@@ -150,39 +150,39 @@ static int mantis_i2c_xfer(struct i2c_adapter *adapter, struct i2c_msg *msgs, in
 
 			dprintk(MANTIS_DEBUG, 0, "        Byte MODE:\n");
 
-			
+			/* Read operation */
 			txd = msgs[i].addr << 25 | (0x1 << 24)
 						 | (msgs[i].buf[0] << 16)
 						 | MANTIS_I2C_RATE_3;
 
 			mmwrite(txd, MANTIS_I2CDATA_CTL);
-			
+			/* wait for xfer completion */
 			for (trials = 0; trials < TRIALS; trials++) {
 				stat = mmread(MANTIS_INT_STAT);
 				if (stat & MANTIS_INT_I2CDONE)
 					break;
 			}
 
-			
+			/* check for xfer completion */
 			if (stat & MANTIS_INT_I2CDONE) {
-				
+				/* check xfer was acknowledged */
 				if (stat & MANTIS_INT_I2CRACK) {
 					data = mmread(MANTIS_I2CDATA_CTL);
 					msgs[i + 1].buf[0] = (data >> 8) & 0xff;
 					dprintk(MANTIS_DEBUG, 0, "        Byte <%d> RXD=0x%02x  [%02x]\n", 0x0, data, msgs[i + 1].buf[0]);
 				} else {
-					
+					/* I/O error */
 					dprintk(MANTIS_ERROR, 1, "        I/O error, LINE:%d", __LINE__);
 					ret = -EIO;
 					break;
 				}
 			} else {
-				
+				/* I/O error */
 				dprintk(MANTIS_ERROR, 1, "        I/O error, LINE:%d", __LINE__);
 				ret = -EIO;
 				break;
 			}
-			i += 2; 
+			i += 2; /* Write/Read operation in one go */
 		}
 
 		if (i < num) {

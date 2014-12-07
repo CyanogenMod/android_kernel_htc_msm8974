@@ -21,4 +21,4 @@ static inline void trigger_address_error(void)
 asmlinkage void name##_trap_handler(unsigned int vec, struct pt_regs *regs)
 #define TRAP_HANDLER_DECL
 
-#endif 
+#endif /* __ASM_SH_TRAPS_64_H */

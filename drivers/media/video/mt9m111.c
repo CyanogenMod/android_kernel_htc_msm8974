@@ -21,7 +21,15 @@
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-chip-ident.h>
 
+/*
+ * MT9M111, MT9M112 and MT9M131:
+ * i2c address is 0x48 or 0x5d (depending on SADDR pin)
+ * The platform has to define i2c_board_info and call i2c_register_board_info()
+ */
 
+/*
+ * Sensor core register addresses (0x000..0x0ff)
+ */
 #define MT9M111_CHIP_VERSION		0x000
 #define MT9M111_ROW_START		0x001
 #define MT9M111_COLUMN_START		0x002
@@ -77,6 +85,9 @@
 #define MT9M111_CTXT_CTRL_VBLANK_SEL_B	(1 << 1)
 #define MT9M111_CTXT_CTRL_HBLANK_SEL_B	(1 << 0)
 
+/*
+ * Colorpipe register addresses (0x100..0x1ff)
+ */
 #define MT9M111_OPER_MODE_CTRL		0x106
 #define MT9M111_OUTPUT_FORMAT_CTRL	0x108
 #define MT9M111_REDUCER_XZOOM_B		0x1a0
@@ -112,6 +123,9 @@
 #define MT9M111_OUTFMT_SWAP_YCbCr_C_Y_RGB_EVEN	(1 << 1)
 #define MT9M111_OUTFMT_SWAP_YCbCr_Cb_Cr_RGB_R_B	(1 << 0)
 
+/*
+ * Camera control register addresses (0x200..0x2ff not implemented)
+ */
 
 #define reg_read(reg) mt9m111_reg_read(client, MT9M111_##reg)
 #define reg_write(reg, val) mt9m111_reg_write(client, MT9M111_##reg, (val))
@@ -165,6 +179,7 @@ static struct mt9m111_context context_b = {
 		MT9M111_CTXT_CTRL_HBLANK_SEL_B,
 };
 
+/* MT9M111 has only one fixed colorspace per pixelcode */
 struct mt9m111_datafmt {
 	enum v4l2_mbus_pixelcode	code;
 	enum v4l2_colorspace		colorspace;
@@ -189,18 +204,20 @@ struct mt9m111 {
 	struct v4l2_subdev subdev;
 	struct v4l2_ctrl_handler hdl;
 	struct v4l2_ctrl *gain;
-	int model;	
+	int model;	/* V4L2_IDENT_MT9M111 or V4L2_IDENT_MT9M112 code
+			 * from v4l2-chip-ident.h */
 	struct mt9m111_context *ctx;
-	struct v4l2_rect rect;	
-	int width;		
-	int height;		
-	struct mutex power_lock; 
+	struct v4l2_rect rect;	/* cropping rectangle */
+	int width;		/* output */
+	int height;		/* sizes */
+	struct mutex power_lock; /* lock to protect power_count */
 	int power_count;
 	const struct mt9m111_datafmt *fmt;
-	int lastpage;	
+	int lastpage;	/* PageMap cache value */
 	unsigned char datawidth;
 };
 
+/* Find a data format by a pixel code */
 static const struct mt9m111_datafmt *mt9m111_find_datafmt(struct mt9m111 *mt9m111,
 						enum v4l2_mbus_pixelcode code)
 {
@@ -330,7 +347,7 @@ static int mt9m111_setup_geometry(struct mt9m111 *mt9m111, struct v4l2_rect *rec
 		ret = reg_write(WINDOW_HEIGHT, rect->height);
 
 	if (code != V4L2_MBUS_FMT_SBGGR10_2X8_PADHI_LE) {
-		
+		/* IFP in use, down-scaling possible */
 		if (!ret)
 			ret = mt9m111_setup_rect_ctx(mt9m111, &context_b,
 						     rect, width, height);
@@ -379,13 +396,13 @@ static int mt9m111_s_crop(struct v4l2_subdev *sd, struct v4l2_crop *a)
 
 	if (mt9m111->fmt->code == V4L2_MBUS_FMT_SBGGR8_1X8 ||
 	    mt9m111->fmt->code == V4L2_MBUS_FMT_SBGGR10_2X8_PADHI_LE) {
-		
+		/* Bayer format - even size lengths */
 		rect.width	= ALIGN(rect.width, 2);
 		rect.height	= ALIGN(rect.height, 2);
-		
+		/* Let the user play with the starting pixel */
 	}
 
-	
+	/* FIXME: the datasheet doesn't specify minimum sizes */
 	soc_camera_limit_side(&rect.left, &rect.width,
 		     MT9M111_MIN_DARK_COLS, 2, MT9M111_MAX_WIDTH);
 
@@ -529,17 +546,21 @@ static int mt9m111_try_fmt(struct v4l2_subdev *sd,
 	bayer = fmt->code == V4L2_MBUS_FMT_SBGGR8_1X8 ||
 		fmt->code == V4L2_MBUS_FMT_SBGGR10_2X8_PADHI_LE;
 
+	/*
+	 * With Bayer format enforce even side lengths, but let the user play
+	 * with the starting pixel
+	 */
 	if (bayer) {
 		rect->width = ALIGN(rect->width, 2);
 		rect->height = ALIGN(rect->height, 2);
 	}
 
 	if (fmt->code == V4L2_MBUS_FMT_SBGGR10_2X8_PADHI_LE) {
-		
+		/* IFP bypass mode, no scaling */
 		mf->width = rect->width;
 		mf->height = rect->height;
 	} else {
-		
+		/* No upscaling */
 		if (mf->width > rect->width)
 			mf->width = rect->width;
 		if (mf->height > rect->height)
@@ -565,7 +586,7 @@ static int mt9m111_s_fmt(struct v4l2_subdev *sd,
 
 	mt9m111_try_fmt(sd, mf);
 	fmt = mt9m111_find_datafmt(mt9m111, mf->code);
-	
+	/* try_fmt() guarantees fmt != NULL && fmt->code == mf->code */
 
 	ret = mt9m111_setup_geometry(mt9m111, rect, mf->width, mf->height, mf->code);
 	if (!ret)
@@ -764,7 +785,7 @@ static int mt9m111_init(struct mt9m111 *mt9m111)
 	struct i2c_client *client = v4l2_get_subdevdata(&mt9m111->subdev);
 	int ret;
 
-	
+	/* Default HIGHPOWER context */
 	mt9m111->ctx = &context_b;
 	ret = mt9m111_enable(mt9m111);
 	if (!ret)
@@ -776,6 +797,10 @@ static int mt9m111_init(struct mt9m111 *mt9m111)
 	return ret;
 }
 
+/*
+ * Interface active, can use i2c. If it fails, it can indeed mean, that
+ * this wasn't our capture interface, so, we wait for the right one
+ */
 static int mt9m111_video_probe(struct i2c_client *client)
 {
 	struct mt9m111 *mt9m111 = to_mt9m111(client);
@@ -785,12 +810,12 @@ static int mt9m111_video_probe(struct i2c_client *client)
 	data = reg_read(CHIP_VERSION);
 
 	switch (data) {
-	case 0x143a: 
+	case 0x143a: /* MT9M111 or MT9M131 */
 		mt9m111->model = V4L2_IDENT_MT9M111;
 		dev_info(&client->dev,
 			"Detected a MT9M111/MT9M131 chip ID %x\n", data);
 		break;
-	case 0x148c: 
+	case 0x148c: /* MT9M112 */
 		mt9m111->model = V4L2_IDENT_MT9M112;
 		dev_info(&client->dev, "Detected a MT9M112 chip ID %x\n", data);
 		break;
@@ -815,6 +840,10 @@ static int mt9m111_s_power(struct v4l2_subdev *sd, int on)
 
 	mutex_lock(&mt9m111->power_lock);
 
+	/*
+	 * If the power count is modified from 0 to != 0 or from != 0 to 0,
+	 * update the power state.
+	 */
 	if (mt9m111->power_count == !on) {
 		if (on) {
 			ret = mt9m111_resume(mt9m111);
@@ -828,7 +857,7 @@ static int mt9m111_s_power(struct v4l2_subdev *sd, int on)
 		}
 	}
 
-	
+	/* Update the power count. */
 	mt9m111->power_count += on ? 1 : -1;
 	WARN_ON(mt9m111->power_count < 0);
 
@@ -935,7 +964,7 @@ static int mt9m111_probe(struct i2c_client *client,
 		return err;
 	}
 
-	
+	/* Second stage probe - when a capture adapter is there */
 	mt9m111->rect.left	= MT9M111_MIN_DARK_COLS;
 	mt9m111->rect.top	= MT9M111_MIN_DARK_ROWS;
 	mt9m111->rect.width	= MT9M111_MAX_WIDTH;

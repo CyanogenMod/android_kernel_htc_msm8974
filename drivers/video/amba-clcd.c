@@ -30,8 +30,13 @@
 
 #define to_clcd(info)	container_of(info, struct clcd_fb, fb)
 
+/* This is limited to 16 characters when displayed by X startup */
 static const char *clcd_name = "CLCD FB";
 
+/*
+ * Unfortunately, the enable/disable functions may be called either from
+ * process or IRQ context, and we _need_ to delay.  This is _not_ good.
+ */
 static inline void clcdfb_sleep(unsigned int ms)
 {
 	if (in_atomic()) {
@@ -72,6 +77,9 @@ static void clcdfb_disable(struct clcd_fb *fb)
 		writel(val, fb->regs + fb->off_cntl);
 	}
 
+	/*
+	 * Disable CLCD clock source.
+	 */
 	if (fb->clk_enabled) {
 		fb->clk_enabled = false;
 		clk_disable(fb->clk);
@@ -80,19 +88,31 @@ static void clcdfb_disable(struct clcd_fb *fb)
 
 static void clcdfb_enable(struct clcd_fb *fb, u32 cntl)
 {
+	/*
+	 * Enable the CLCD clock source.
+	 */
 	if (!fb->clk_enabled) {
 		fb->clk_enabled = true;
 		clk_enable(fb->clk);
 	}
 
+	/*
+	 * Bring up by first enabling..
+	 */
 	cntl |= CNTL_LCDEN;
 	writel(cntl, fb->regs + fb->off_cntl);
 
 	clcdfb_sleep(20);
 
+	/*
+	 * and now apply power.
+	 */
 	cntl |= CNTL_LCDPWR;
 	writel(cntl, fb->regs + fb->off_cntl);
 
+	/*
+	 * finally, enable the interface.
+	 */
 	if (fb->board->enable)
 		fb->board->enable(fb);
 }
@@ -106,14 +126,14 @@ clcdfb_set_bitfields(struct clcd_fb *fb, struct fb_var_screeninfo *var)
 	if (fb->panel->caps && fb->board->caps)
 		caps = fb->panel->caps & fb->board->caps;
 	else {
-		
+		/* Old way of specifying what can be used */
 		caps = fb->panel->cntl & CNTL_BGR ?
 			CLCD_CAP_BGR : CLCD_CAP_RGB;
-		
+		/* But mask out 444 modes as they weren't supported */
 		caps &= ~CLCD_CAP_444;
 	}
 
-	
+	/* Only TFT panels can do RGB888/BGR888 */
 	if (!(fb->panel->cntl & CNTL_LCDTFT))
 		caps &= ~CLCD_CAP_888;
 
@@ -128,7 +148,7 @@ clcdfb_set_bitfields(struct clcd_fb *fb, struct fb_var_screeninfo *var)
 	case 2:
 	case 4:
 	case 8:
-		
+		/* If we can't do 5551, reject */
 		caps &= CLCD_CAP_5551;
 		if (!caps) {
 			ret = -EINVAL;
@@ -144,12 +164,16 @@ clcdfb_set_bitfields(struct clcd_fb *fb, struct fb_var_screeninfo *var)
 		break;
 
 	case 16:
-		
+		/* If we can't do 444, 5551 or 565, reject */
 		if (!(caps & (CLCD_CAP_444 | CLCD_CAP_5551 | CLCD_CAP_565))) {
 			ret = -EINVAL;
 			break;
 		}
 
+		/*
+		 * Green length can be 4, 5 or 6 depending whether
+		 * we're operating in 444, 5551 or 565 mode.
+		 */
 		if (var->green.length == 4 && caps & CLCD_CAP_444)
 			caps &= CLCD_CAP_444;
 		if (var->green.length == 5 && caps & CLCD_CAP_5551)
@@ -157,6 +181,10 @@ clcdfb_set_bitfields(struct clcd_fb *fb, struct fb_var_screeninfo *var)
 		else if (var->green.length == 6 && caps & CLCD_CAP_565)
 			caps &= CLCD_CAP_565;
 		else {
+			/*
+			 * PL110 officially only supports RGB555,
+			 * but may be wired up to allow RGB565.
+			 */
 			if (caps & CLCD_CAP_565) {
 				var->green.length = 6;
 				caps &= CLCD_CAP_565;
@@ -178,7 +206,7 @@ clcdfb_set_bitfields(struct clcd_fb *fb, struct fb_var_screeninfo *var)
 		}
 		break;
 	case 32:
-		
+		/* If we can't do 888, reject */
 		caps &= CLCD_CAP_888;
 		if (!caps) {
 			ret = -EINVAL;
@@ -194,6 +222,11 @@ clcdfb_set_bitfields(struct clcd_fb *fb, struct fb_var_screeninfo *var)
 		break;
 	}
 
+	/*
+	 * >= 16bpp displays have separate colour component bitfields
+	 * encoded in the pixel data.  Calculate their position from
+	 * the bitfield length defined above.
+	 */
 	if (ret == 0 && var->bits_per_pixel >= 16) {
 		bool bgr, rgb;
 
@@ -201,6 +234,11 @@ clcdfb_set_bitfields(struct clcd_fb *fb, struct fb_var_screeninfo *var)
 		rgb = caps & CLCD_CAP_RGB && var->red.offset == 0;
 
 		if (!bgr && !rgb)
+			/*
+			 * The requested format was not possible, try just
+			 * our capabilities.  One of BGR or RGB must be
+			 * supported.
+			 */
 			bgr = caps & CLCD_CAP_BGR;
 
 		if (bgr) {
@@ -287,6 +325,10 @@ static inline u32 convert_bitfield(int val, struct fb_bitfield *bf)
 	return (val >> (16 - bf->length) & mask) << bf->offset;
 }
 
+/*
+ *  Set a single color register. The values supplied have a 16 bit
+ *  magnitude.  Return != 0 for invalid regno.
+ */
 static int
 clcdfb_setcolreg(unsigned int regno, unsigned int red, unsigned int green,
 		 unsigned int blue, unsigned int transp, struct fb_info *info)
@@ -307,6 +349,10 @@ clcdfb_setcolreg(unsigned int regno, unsigned int red, unsigned int green,
 		newval |= (green >> 6) & 0x03e0;
 		newval |= (blue >> 1)  & 0x7c00;
 
+		/*
+		 * 3.2.11: if we're configured for big endian
+		 * byte order, the palette entries are swapped.
+		 */
 		if (fb->clcd_cntl & CNTL_BEBO)
 			regno ^= 1;
 
@@ -324,6 +370,16 @@ clcdfb_setcolreg(unsigned int regno, unsigned int red, unsigned int green,
 	return regno > 255;
 }
 
+/*
+ *  Blank the screen if blank_mode != 0, else unblank. If blank == NULL
+ *  then the caller blanks by setting the CLUT (Color Look Up Table) to all
+ *  black. Return 0 if blanking succeeded, != 0 if un-/blanking failed due
+ *  to e.g. a video mode which doesn't support it. Implements VESA suspend
+ *  and powerdown modes on hardware that supports disabling hsync/vsync:
+ *    blank_mode == 2: suspend vsync
+ *    blank_mode == 3: suspend hsync
+ *    blank_mode == 4: powerdown
+ */
 static int clcdfb_blank(int blank_mode, struct fb_info *info)
 {
 	struct clcd_fb *fb = to_clcd(info);
@@ -368,6 +424,10 @@ static int clcdfb_register(struct clcd_fb *fb)
 {
 	int ret;
 
+	/*
+	 * ARM PL111 always has IENB at 0x1c; it's only PL110
+	 * which is reversed on some platforms.
+	 */
 	if (amba_manf(fb->dev) == 0x41 && amba_part(fb->dev) == 0x111) {
 		fb->off_ienb = CLCD_PL111_IENB;
 		fb->off_cntl = CLCD_PL111_CNTL;
@@ -443,12 +503,21 @@ static int clcdfb_register(struct clcd_fb *fb)
 	fb->fb.monspecs.dclkmin = 1000000;
 	fb->fb.monspecs.dclkmax	= 100000000;
 
+	/*
+	 * Make sure that the bitfields are set appropriately.
+	 */
 	clcdfb_set_bitfields(fb, &fb->fb.var);
 
+	/*
+	 * Allocate colourmap.
+	 */
 	ret = fb_alloc_cmap(&fb->fb.cmap, 256, 0);
 	if (ret)
 		goto unmap;
 
+	/*
+	 * Ensure interrupts are disabled.
+	 */
 	writel(0, fb->regs + fb->off_ienb);
 
 	fb_set_var(&fb->fb, &fb->fb.var);

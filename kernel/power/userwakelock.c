@@ -50,7 +50,7 @@ static struct user_wake_lock *lookup_wake_lock_name(
 	int name_len;
 	const char *arg;
 
-	
+	/* Find length of lock name and start of optional timeout string */
 	arg = buf;
 	while (*arg && !isspace(*arg))
 		arg++;
@@ -60,14 +60,14 @@ static struct user_wake_lock *lookup_wake_lock_name(
 	while (isspace(*arg))
 		arg++;
 
-	
+	/* Process timeout string */
 	if (timeoutptr && *arg) {
 		timeout = simple_strtoull(arg, (char **)&arg, 0);
 		while (isspace(*arg))
 			arg++;
 		if (*arg)
 			goto bad_arg;
-		
+		/* convert timeout from nanoseconds to jiffies > 0 */
 		timeout += (NSEC_PER_SEC / HZ) - 1;
 		do_div(timeout, (NSEC_PER_SEC / HZ));
 		if (timeout <= 0)
@@ -78,7 +78,7 @@ static struct user_wake_lock *lookup_wake_lock_name(
 	else if (timeoutptr)
 		*timeoutptr = 0;
 
-	
+	/* Lookup wake lock in rbtree */
 	while (*p) {
 		parent = *p;
 		l = rb_entry(parent, struct user_wake_lock, node);
@@ -97,7 +97,7 @@ static struct user_wake_lock *lookup_wake_lock_name(
 			return l;
 	}
 
-	
+	/* Allocate and add new wakelock to rbtree */
 	if (!allocate) {
 		if (debug_mask & DEBUG_ERROR)
 			pr_info("lookup_wake_lock_name: %.*s not found\n",

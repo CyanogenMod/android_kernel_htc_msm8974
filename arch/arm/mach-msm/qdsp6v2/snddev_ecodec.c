@@ -28,14 +28,16 @@
 
 #define ECODEC_SAMPLE_RATE 8000
 
+/* Context for each external codec device */
 struct snddev_ecodec_state {
 	struct snddev_ecodec_data *data;
 	u32 sample_rate;
 };
 
+/* Global state for the driver */
 struct snddev_ecodec_drv_state {
 	struct mutex dev_lock;
-	int ref_cnt;		
+	int ref_cnt;		/* ensure one rx device at a time */
 	struct clk *ecodec_clk;
 };
 
@@ -104,7 +106,7 @@ static int get_aux_pcm_gpios(struct platform_device *pdev)
 	int rc = 0;
 	struct resource *res;
 
-	
+	/* Claim all of the GPIOs. */
 	res = platform_get_resource_byname(pdev, IORESOURCE_IO, "aux_pcm_dout");
 	if (!res) {
 		pr_err("%s: failed to get gpio AUX PCM DOUT\n", __func__);
@@ -324,7 +326,7 @@ static int snddev_ecodec_probe(struct platform_device *pdev)
 	msm_snddev_register(dev_info);
 
 	ecodec->data = pdata;
-	ecodec->sample_rate = ECODEC_SAMPLE_RATE;	
+	ecodec->sample_rate = ECODEC_SAMPLE_RATE;	/* Default to 8KHz */
 error:
 	return rc;
 }

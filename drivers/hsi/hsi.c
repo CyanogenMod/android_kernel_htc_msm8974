@@ -127,6 +127,10 @@ static void hsi_port_release(struct device *dev)
 	kfree(to_hsi_port(dev));
 }
 
+/**
+ * hsi_unregister_controller - Unregister an HSI controller
+ * @hsi: The HSI controller to register
+ */
 void hsi_unregister_controller(struct hsi_controller *hsi)
 {
 	device_for_each_child(&hsi->device, NULL, hsi_remove_port);
@@ -134,6 +138,12 @@ void hsi_unregister_controller(struct hsi_controller *hsi)
 }
 EXPORT_SYMBOL_GPL(hsi_unregister_controller);
 
+/**
+ * hsi_register_controller - Register an HSI controller and its ports
+ * @hsi: The HSI controller to register
+ *
+ * Returns -errno on failure, 0 on success.
+ */
 int hsi_register_controller(struct hsi_controller *hsi)
 {
 	unsigned int i;
@@ -148,7 +158,7 @@ int hsi_register_controller(struct hsi_controller *hsi)
 		if (err < 0)
 			goto out;
 	}
-	
+	/* Populate HSI bus with HSI clients */
 	hsi_scan_board_info(hsi);
 
 	return 0;
@@ -161,6 +171,12 @@ out:
 }
 EXPORT_SYMBOL_GPL(hsi_register_controller);
 
+/**
+ * hsi_register_client_driver - Register an HSI client to the HSI bus
+ * @drv: HSI client driver to register
+ *
+ * Returns -errno on failure, 0 on success.
+ */
 int hsi_register_client_driver(struct hsi_client_driver *drv)
 {
 	drv->driver.bus = &hsi_bus_type;
@@ -179,6 +195,15 @@ static inline int hsi_dummy_cl(struct hsi_client *cl __maybe_unused)
 	return 0;
 }
 
+/**
+ * hsi_put_controller - Free an HSI controller
+ *
+ * @hsi: Pointer to the HSI controller to freed
+ *
+ * HSI controller drivers should only use this function if they need
+ * to free their allocated hsi_controller structures before a successful
+ * call to hsi_register_controller. Other use is not allowed.
+ */
 void hsi_put_controller(struct hsi_controller *hsi)
 {
 	unsigned int i;
@@ -193,6 +218,13 @@ void hsi_put_controller(struct hsi_controller *hsi)
 }
 EXPORT_SYMBOL_GPL(hsi_put_controller);
 
+/**
+ * hsi_alloc_controller - Allocate an HSI controller and its ports
+ * @n_ports: Number of ports on the HSI controller
+ * @flags: Kernel allocation flags
+ *
+ * Return NULL on failure or a pointer to an hsi_controller on success.
+ */
 struct hsi_controller *hsi_alloc_controller(unsigned int n_ports, gfp_t flags)
 {
 	struct hsi_controller	*hsi;
@@ -241,6 +273,12 @@ out:
 }
 EXPORT_SYMBOL_GPL(hsi_alloc_controller);
 
+/**
+ * hsi_free_msg - Free an HSI message
+ * @msg: Pointer to the HSI message
+ *
+ * Client is responsible to free the buffers pointed by the scatterlists.
+ */
 void hsi_free_msg(struct hsi_msg *msg)
 {
 	if (!msg)
@@ -250,6 +288,17 @@ void hsi_free_msg(struct hsi_msg *msg)
 }
 EXPORT_SYMBOL_GPL(hsi_free_msg);
 
+/**
+ * hsi_alloc_msg - Allocate an HSI message
+ * @nents: Number of memory entries
+ * @flags: Kernel allocation flags
+ *
+ * nents can be 0. This mainly makes sense for read transfer.
+ * In that case, HSI drivers will call the complete callback when
+ * there is data to be read without consuming it.
+ *
+ * Return NULL on failure or a pointer to an hsi_msg on success.
+ */
 struct hsi_msg *hsi_alloc_msg(unsigned int nents, gfp_t flags)
 {
 	struct hsi_msg *msg;
@@ -272,6 +321,25 @@ struct hsi_msg *hsi_alloc_msg(unsigned int nents, gfp_t flags)
 }
 EXPORT_SYMBOL_GPL(hsi_alloc_msg);
 
+/**
+ * hsi_async - Submit an HSI transfer to the controller
+ * @cl: HSI client sending the transfer
+ * @msg: The HSI transfer passed to controller
+ *
+ * The HSI message must have the channel, ttype, complete and destructor
+ * fields set beforehand. If nents > 0 then the client has to initialize
+ * also the scatterlists to point to the buffers to write to or read from.
+ *
+ * HSI controllers relay on pre-allocated buffers from their clients and they
+ * do not allocate buffers on their own.
+ *
+ * Once the HSI message transfer finishes, the HSI controller calls the
+ * complete callback with the status and actual_len fields of the HSI message
+ * updated. The complete callback can be called before returning from
+ * hsi_async.
+ *
+ * Returns -errno on failure or 0 on success
+ */
 int hsi_async(struct hsi_client *cl, struct hsi_msg *msg)
 {
 	struct hsi_port *port = hsi_get_port(cl);
@@ -286,6 +354,13 @@ int hsi_async(struct hsi_client *cl, struct hsi_msg *msg)
 }
 EXPORT_SYMBOL_GPL(hsi_async);
 
+/**
+ * hsi_claim_port - Claim the HSI client's port
+ * @cl: HSI client that wants to claim its port
+ * @share: Flag to indicate if the client wants to share the port or not.
+ *
+ * Returns -errno on failure, 0 on success.
+ */
 int hsi_claim_port(struct hsi_client *cl, unsigned int share)
 {
 	struct hsi_port *port = hsi_get_port(cl);
@@ -310,12 +385,16 @@ out:
 }
 EXPORT_SYMBOL_GPL(hsi_claim_port);
 
+/**
+ * hsi_release_port - Release the HSI client's port
+ * @cl: HSI client which previously claimed its port
+ */
 void hsi_release_port(struct hsi_client *cl)
 {
 	struct hsi_port *port = hsi_get_port(cl);
 
 	mutex_lock(&port->lock);
-	
+	/* Allow HW driver to do some cleanup */
 	port->release(cl);
 	if (cl->pclaimed)
 		port->claimed--;
@@ -338,6 +417,18 @@ static int hsi_event_notifier_call(struct notifier_block *nb,
 	return 0;
 }
 
+/**
+ * hsi_register_port_event - Register a client to receive port events
+ * @cl: HSI client that wants to receive port events
+ * @cb: Event handler callback
+ *
+ * Clients should register a callback to be able to receive
+ * events from the ports. Registration should happen after
+ * claiming the port.
+ * The handler can be called in interrupt context.
+ *
+ * Returns -errno on error, or 0 on success.
+ */
 int hsi_register_port_event(struct hsi_client *cl,
 			void (*handler)(struct hsi_client *, unsigned long))
 {
@@ -354,6 +445,15 @@ int hsi_register_port_event(struct hsi_client *cl,
 }
 EXPORT_SYMBOL_GPL(hsi_register_port_event);
 
+/**
+ * hsi_unregister_port_event - Stop receiving port events for a client
+ * @cl: HSI client that wants to stop receiving port events
+ *
+ * Clients should call this function before releasing their associated
+ * port.
+ *
+ * Returns -errno on error, or 0 on success.
+ */
 int hsi_unregister_port_event(struct hsi_client *cl)
 {
 	struct hsi_port *port = hsi_get_port(cl);
@@ -369,6 +469,21 @@ int hsi_unregister_port_event(struct hsi_client *cl)
 }
 EXPORT_SYMBOL_GPL(hsi_unregister_port_event);
 
+/**
+ * hsi_event -Notifies clients about port events
+ * @port: Port where the event occurred
+ * @event: The event type
+ *
+ * Clients should not be concerned about wake line behavior. However, due
+ * to a race condition in HSI HW protocol, clients need to be notified
+ * about wake line changes, so they can implement a workaround for it.
+ *
+ * Events:
+ * HSI_EVENT_START_RX - Incoming wake line high
+ * HSI_EVENT_STOP_RX - Incoming wake line down
+ *
+ * Returns -errno on error, or 0 on success.
+ */
 int hsi_event(struct hsi_port *port, unsigned long event)
 {
 	return atomic_notifier_call_chain(&port->n_head, event, NULL);

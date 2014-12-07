@@ -106,6 +106,13 @@ static inline unsigned long s3c_get_pll6553x(unsigned long baseclk,
 	sdiv = (pll_con0 >> PLL6553X_SDIV_SHIFT) & PLL6553X_SDIV_MASK;
 	kdiv = pll_con1 & PLL6553X_KDIV_MASK;
 
+	/*
+	 * We need to multiple baseclk by mdiv (the integer part) and kdiv
+	 * which is in 2^16ths, so shift mdiv up (does not overflow) and
+	 * add kdiv before multiplying. The use of tmp is to avoid any
+	 * overflows before shifting bac down into result when multipling
+	 * by the mdiv and kdiv pair.
+	 */
 
 	tmp = baseclk;
 	tmp *= (mdiv << 16) + kdiv;
@@ -198,6 +205,7 @@ static inline unsigned long s5p_get_pll45xx(unsigned long baseclk, u32 pll_con,
 	return (unsigned long)fvco;
 }
 
+/* CON0 bit-fields */
 #define PLL46XX_MDIV_MASK	(0x1FF)
 #define PLL46XX_PDIV_MASK	(0x3F)
 #define PLL46XX_SDIV_MASK	(0x7)
@@ -206,6 +214,7 @@ static inline unsigned long s5p_get_pll45xx(unsigned long baseclk, u32 pll_con,
 #define PLL46XX_PDIV_SHIFT	(8)
 #define PLL46XX_SDIV_SHIFT	(0)
 
+/* CON1 bit-fields */
 #define PLL46XX_MRR_MASK	(0x1F)
 #define PLL46XX_MFR_MASK	(0x3F)
 #define PLL46XX_KDIV_MASK	(0xFFFF)
@@ -275,6 +284,13 @@ static inline unsigned long s5p_get_pll90xx(unsigned long baseclk,
 	sdiv = (pll_con >> PLL90XX_SDIV_SHIFT) & PLL90XX_SDIV_MASK;
 	kdiv = pll_conk & PLL90XX_KDIV_MASK;
 
+	/*
+	 * We need to multiple baseclk by mdiv (the integer part) and kdiv
+	 * which is in 2^16ths, so shift mdiv up (does not overflow) and
+	 * add kdiv before multiplying. The use of tmp is to avoid any
+	 * overflows before shifting bac down into result when multipling
+	 * by the mdiv and kdiv pair.
+	 */
 
 	tmp = baseclk;
 	tmp *= (mdiv << 16) + kdiv;

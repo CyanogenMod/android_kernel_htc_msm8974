@@ -35,4 +35,4 @@ void tc35876x_exit(void);
 
 extern const struct panel_funcs mdfld_tc35876x_funcs;
 
-#endif 
+#endif /*__MDFLD_DSI_LVDS_BRIDGE_H__*/

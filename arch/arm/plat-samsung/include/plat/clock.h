@@ -17,6 +17,21 @@
 
 struct clk;
 
+/**
+ * struct clk_ops - standard clock operations
+ * @set_rate: set the clock rate, see clk_set_rate().
+ * @get_rate: get the clock rate, see clk_get_rate().
+ * @round_rate: round a given clock rate, see clk_round_rate().
+ * @set_parent: set the clock's parent, see clk_set_parent().
+ *
+ * Group the common clock implementations together so that we
+ * don't have to keep setting the same fields again. We leave
+ * enable in struct clk.
+ *
+ * Adding an extra layer of indirection into the process should
+ * not be a problem as it is unlikely these operations are going
+ * to need to be called quickly.
+ */
 struct clk_ops {
 	int		    (*set_rate)(struct clk *c, unsigned long rate);
 	unsigned long	    (*get_rate)(struct clk *c);
@@ -39,10 +54,11 @@ struct clk {
 	int		    (*enable)(struct clk *, int enable);
 	struct clk_lookup	lookup;
 #if defined(CONFIG_PM_DEBUG) && defined(CONFIG_DEBUG_FS)
-	struct dentry		*dent;	
+	struct dentry		*dent;	/* For visible tree hierarchy */
 #endif
 };
 
+/* other clocks which may be registered by board support */
 
 extern struct clk s3c24xx_dclk0;
 extern struct clk s3c24xx_dclk1;
@@ -52,6 +68,7 @@ extern struct clk s3c24xx_uclk;
 
 extern struct clk clk_usb_bus;
 
+/* core clock support */
 
 extern struct clk clk_f;
 extern struct clk clk_h;
@@ -62,9 +79,11 @@ extern struct clk clk_epll;
 extern struct clk clk_xtal;
 extern struct clk clk_ext;
 
+/* S3C2443/S3C2416 specific clocks */
 extern struct clksrc_clk clk_epllref;
 extern struct clksrc_clk clk_esysclk;
 
+/* S3C64XX specific clocks */
 extern struct clk clk_h2;
 extern struct clk clk_27m;
 extern struct clk clk_48m;
@@ -73,6 +92,10 @@ extern struct clk clk_xusbxti;
 extern int clk_default_setrate(struct clk *clk, unsigned long rate);
 extern struct clk_ops clk_ops_def_setrate;
 
+/* exports for arch/arm/mach-s3c2410
+ *
+ * Please DO NOT use these outside of arch/arm/mach-s3c2410
+*/
 
 extern spinlock_t clocks_lock;
 
@@ -96,9 +119,11 @@ extern void s3c2410_setup_clocks(void);
 extern void s3c2412_setup_clocks(void);
 extern void s3c244x_setup_clocks(void);
 
+/* S3C2410 specific clock functions */
 
 extern int s3c2410_baseclk_add(void);
 
+/* S3C2443/S3C2416 specific clock functions */
 
 typedef unsigned int (*pll_fn)(unsigned int reg, unsigned int base);
 
@@ -111,13 +136,16 @@ extern int s3c2443_clkcon_enable_h(struct clk *clk, int enable);
 extern int s3c2443_clkcon_enable_p(struct clk *clk, int enable);
 extern int s3c2443_clkcon_enable_s(struct clk *clk, int enable);
 
+/* S3C64XX specific functions and clocks */
 
 extern int s3c64xx_sclk_ctrl(struct clk *clk, int enable);
 
+/* Init for pwm clock code */
 
 extern void s3c_pwmclk_init(void);
 
+/* Global watchdog clock used by arch_wtd_reset() callback */
 
 extern struct clk *s3c2410_wdtclk;
 
-#endif 
+#endif /* __ASM_PLAT_CLOCK_H */

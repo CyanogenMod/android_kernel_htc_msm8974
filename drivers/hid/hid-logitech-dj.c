@@ -30,132 +30,150 @@
 #include "hid-ids.h"
 #include "hid-logitech-dj.h"
 
+/* Keyboard descriptor (1) */
 static const char kbd_descriptor[] = {
-	0x05, 0x01,		
-	0x09, 0x06,		
-	0xA1, 0x01,		
-	0x85, 0x01,		
-	0x95, 0x08,		
-	0x75, 0x01,		
-	0x15, 0x00,		
-	0x25, 0x01,		
-	0x05, 0x07,		
-	0x19, 0xE0,		
-	0x29, 0xE7,		
-	0x81, 0x02,		
-	0x95, 0x05,		
-	0x05, 0x08,		
-	0x19, 0x01,		
-	0x29, 0x05,		
-	0x91, 0x02,		
-	0x95, 0x01,		
-	0x75, 0x03,		
-	0x91, 0x01,		
-	0x95, 0x06,		
-	0x75, 0x08,		
-	0x15, 0x00,		
-	0x26, 0xFF, 0x00,	
-	0x05, 0x07,		
-	0x19, 0x00,		
-	0x2A, 0xFF, 0x00,	
-	0x81, 0x00,		
+	0x05, 0x01,		/* USAGE_PAGE (generic Desktop)     */
+	0x09, 0x06,		/* USAGE (Keyboard)         */
+	0xA1, 0x01,		/* COLLECTION (Application)     */
+	0x85, 0x01,		/* REPORT_ID (1)            */
+	0x95, 0x08,		/*   REPORT_COUNT (8)           */
+	0x75, 0x01,		/*   REPORT_SIZE (1)            */
+	0x15, 0x00,		/*   LOGICAL_MINIMUM (0)        */
+	0x25, 0x01,		/*   LOGICAL_MAXIMUM (1)        */
+	0x05, 0x07,		/*   USAGE_PAGE (Keyboard)      */
+	0x19, 0xE0,		/*   USAGE_MINIMUM (Left Control)   */
+	0x29, 0xE7,		/*   USAGE_MAXIMUM (Right GUI)      */
+	0x81, 0x02,		/*   INPUT (Data,Var,Abs)       */
+	0x95, 0x05,		/*   REPORT COUNT (5)           */
+	0x05, 0x08,		/*   USAGE PAGE (LED page)      */
+	0x19, 0x01,		/*   USAGE MINIMUM (1)          */
+	0x29, 0x05,		/*   USAGE MAXIMUM (5)          */
+	0x91, 0x02,		/*   OUTPUT (Data, Variable, Absolute)  */
+	0x95, 0x01,		/*   REPORT COUNT (1)           */
+	0x75, 0x03,		/*   REPORT SIZE (3)            */
+	0x91, 0x01,		/*   OUTPUT (Constant)          */
+	0x95, 0x06,		/*   REPORT_COUNT (6)           */
+	0x75, 0x08,		/*   REPORT_SIZE (8)            */
+	0x15, 0x00,		/*   LOGICAL_MINIMUM (0)        */
+	0x26, 0xFF, 0x00,	/*   LOGICAL_MAXIMUM (255)      */
+	0x05, 0x07,		/*   USAGE_PAGE (Keyboard)      */
+	0x19, 0x00,		/*   USAGE_MINIMUM (no event)       */
+	0x2A, 0xFF, 0x00,	/*   USAGE_MAXIMUM (reserved)       */
+	0x81, 0x00,		/*   INPUT (Data,Ary,Abs)       */
 	0xC0
 };
 
+/* Mouse descriptor (2)     */
 static const char mse_descriptor[] = {
-	0x05, 0x01,		
-	0x09, 0x02,		
-	0xA1, 0x01,		
-	0x85, 0x02,		
-	0x09, 0x01,		
-	0xA1, 0x00,		
-	0x05, 0x09,		
-	0x19, 0x01,		
-	0x29, 0x10,		
-	0x15, 0x00,		
-	0x25, 0x01,		
-	0x95, 0x10,		
-	0x75, 0x01,		
-	0x81, 0x02,		
-	0x05, 0x01,		
-	0x16, 0x01, 0xF8,	
-	0x26, 0xFF, 0x07,	
-	0x75, 0x0C,		
-	0x95, 0x02,		
-	0x09, 0x30,		
-	0x09, 0x31,		
-	0x81, 0x06,		
-	0x15, 0x81,		
-	0x25, 0x7F,		
-	0x75, 0x08,		
-	0x95, 0x01,		
-	0x09, 0x38,		
-	0x81, 0x06,		
-	0x05, 0x0C,		
-	0x0A, 0x38, 0x02,	
-	0x95, 0x01,		
-	0x81, 0x06,		
-	0xC0,			
-	0xC0,			
+	0x05, 0x01,		/*  USAGE_PAGE (Generic Desktop)        */
+	0x09, 0x02,		/*  USAGE (Mouse)                       */
+	0xA1, 0x01,		/*  COLLECTION (Application)            */
+	0x85, 0x02,		/*    REPORT_ID = 2                     */
+	0x09, 0x01,		/*    USAGE (pointer)                   */
+	0xA1, 0x00,		/*    COLLECTION (physical)             */
+	0x05, 0x09,		/*      USAGE_PAGE (buttons)            */
+	0x19, 0x01,		/*      USAGE_MIN (1)                   */
+	0x29, 0x10,		/*      USAGE_MAX (16)                  */
+	0x15, 0x00,		/*      LOGICAL_MIN (0)                 */
+	0x25, 0x01,		/*      LOGICAL_MAX (1)                 */
+	0x95, 0x10,		/*      REPORT_COUNT (16)               */
+	0x75, 0x01,		/*      REPORT_SIZE (1)                 */
+	0x81, 0x02,		/*      INPUT (data var abs)            */
+	0x05, 0x01,		/*      USAGE_PAGE (generic desktop)    */
+	0x16, 0x01, 0xF8,	/*      LOGICAL_MIN (-2047)             */
+	0x26, 0xFF, 0x07,	/*      LOGICAL_MAX (2047)              */
+	0x75, 0x0C,		/*      REPORT_SIZE (12)                */
+	0x95, 0x02,		/*      REPORT_COUNT (2)                */
+	0x09, 0x30,		/*      USAGE (X)                       */
+	0x09, 0x31,		/*      USAGE (Y)                       */
+	0x81, 0x06,		/*      INPUT                           */
+	0x15, 0x81,		/*      LOGICAL_MIN (-127)              */
+	0x25, 0x7F,		/*      LOGICAL_MAX (127)               */
+	0x75, 0x08,		/*      REPORT_SIZE (8)                 */
+	0x95, 0x01,		/*      REPORT_COUNT (1)                */
+	0x09, 0x38,		/*      USAGE (wheel)                   */
+	0x81, 0x06,		/*      INPUT                           */
+	0x05, 0x0C,		/*      USAGE_PAGE(consumer)            */
+	0x0A, 0x38, 0x02,	/*      USAGE(AC Pan)                   */
+	0x95, 0x01,		/*      REPORT_COUNT (1)                */
+	0x81, 0x06,		/*      INPUT                           */
+	0xC0,			/*    END_COLLECTION                    */
+	0xC0,			/*  END_COLLECTION                      */
 };
 
+/* Consumer Control descriptor (3) */
 static const char consumer_descriptor[] = {
-	0x05, 0x0C,		
-	0x09, 0x01,		
-	0xA1, 0x01,		
-	0x85, 0x03,		
-	0x75, 0x10,		
-	0x95, 0x02,		
-	0x15, 0x01,		
-	0x26, 0x8C, 0x02,	
-	0x19, 0x01,		
-	0x2A, 0x8C, 0x02,	
-	0x81, 0x00,		
-	0xC0,			
-};				
+	0x05, 0x0C,		/* USAGE_PAGE (Consumer Devices)       */
+	0x09, 0x01,		/* USAGE (Consumer Control)            */
+	0xA1, 0x01,		/* COLLECTION (Application)            */
+	0x85, 0x03,		/* REPORT_ID = 3                       */
+	0x75, 0x10,		/* REPORT_SIZE (16)                    */
+	0x95, 0x02,		/* REPORT_COUNT (2)                    */
+	0x15, 0x01,		/* LOGICAL_MIN (1)                     */
+	0x26, 0x8C, 0x02,	/* LOGICAL_MAX (652)                   */
+	0x19, 0x01,		/* USAGE_MIN (1)                       */
+	0x2A, 0x8C, 0x02,	/* USAGE_MAX (652)                     */
+	0x81, 0x00,		/* INPUT (Data Ary Abs)                */
+	0xC0,			/* END_COLLECTION                      */
+};				/*                                     */
 
+/* System control descriptor (4) */
 static const char syscontrol_descriptor[] = {
-	0x05, 0x01,		
-	0x09, 0x80,		
-	0xA1, 0x01,		
-	0x85, 0x04,		
-	0x75, 0x02,		
-	0x95, 0x01,		
-	0x15, 0x01,		
-	0x25, 0x03,		
-	0x09, 0x82,		
-	0x09, 0x81,		
-	0x09, 0x83,		
-	0x81, 0x60,		
-	0x75, 0x06,		
-	0x81, 0x03,		
-	0xC0,			
+	0x05, 0x01,		/*   USAGE_PAGE (Generic Desktop)      */
+	0x09, 0x80,		/*   USAGE (System Control)            */
+	0xA1, 0x01,		/*   COLLECTION (Application)          */
+	0x85, 0x04,		/*   REPORT_ID = 4                     */
+	0x75, 0x02,		/*   REPORT_SIZE (2)                   */
+	0x95, 0x01,		/*   REPORT_COUNT (1)                  */
+	0x15, 0x01,		/*   LOGICAL_MIN (1)                   */
+	0x25, 0x03,		/*   LOGICAL_MAX (3)                   */
+	0x09, 0x82,		/*   USAGE (System Sleep)              */
+	0x09, 0x81,		/*   USAGE (System Power Down)         */
+	0x09, 0x83,		/*   USAGE (System Wake Up)            */
+	0x81, 0x60,		/*   INPUT (Data Ary Abs NPrf Null)    */
+	0x75, 0x06,		/*   REPORT_SIZE (6)                   */
+	0x81, 0x03,		/*   INPUT (Cnst Var Abs)              */
+	0xC0,			/*   END_COLLECTION                    */
 };
 
+/* Media descriptor (8) */
 static const char media_descriptor[] = {
-	0x06, 0xbc, 0xff,	
-	0x09, 0x88,		
-	0xa1, 0x01,		
-	0x85, 0x08,		
-	0x19, 0x01,		
-	0x29, 0xff,		
-	0x15, 0x01,		
-	0x26, 0xff, 0x00,	
-	0x75, 0x08,		
-	0x95, 0x01,		
-	0x81, 0x00,		
-	0xc0,			
-};				
+	0x06, 0xbc, 0xff,	/* Usage Page 0xffbc                   */
+	0x09, 0x88,		/* Usage 0x0088                        */
+	0xa1, 0x01,		/* BeginCollection                     */
+	0x85, 0x08,		/*   Report ID 8                       */
+	0x19, 0x01,		/*   Usage Min 0x0001                  */
+	0x29, 0xff,		/*   Usage Max 0x00ff                  */
+	0x15, 0x01,		/*   Logical Min 1                     */
+	0x26, 0xff, 0x00,	/*   Logical Max 255                   */
+	0x75, 0x08,		/*   Report Size 8                     */
+	0x95, 0x01,		/*   Report Count 1                    */
+	0x81, 0x00,		/*   Input                             */
+	0xc0,			/* EndCollection                       */
+};				/*                                     */
 
+/* Maximum size of all defined hid reports in bytes (including report id) */
 #define MAX_REPORT_SIZE 8
 
+/* Number of possible hid report types that can be created by this driver.
+ *
+ * Right now, RF report types have the same report types (or report id's)
+ * than the hid report created from those RF reports. In the future
+ * this doesnt have to be true.
+ *
+ * For instance, RF report type 0x01 which has a size of 8 bytes, corresponds
+ * to hid report id 0x01, this is standard keyboard. Same thing applies to mice
+ * reports and consumer control, etc. If a new RF report is created, it doesn't
+ * has to have the same report id as its corresponding hid report, so an
+ * translation may have to take place for future report types.
+ */
 #define NUMBER_OF_HID_REPORTS 32
 static const u8 hid_reportid_size_map[NUMBER_OF_HID_REPORTS] = {
-	[1] = 8,		
-	[2] = 8,		
-	[3] = 5,		
-	[4] = 2,		
-	[8] = 2,		
+	[1] = 8,		/* Standard keyboard */
+	[2] = 8,		/* Standard mouse */
+	[3] = 5,		/* Consumer control */
+	[4] = 2,		/* System control */
+	[8] = 2,		/* Media Center */
 };
 
 
@@ -170,7 +188,7 @@ static int logi_dj_output_hidraw_report(struct hid_device *hid, u8 * buf,
 static void logi_dj_recv_destroy_djhid_device(struct dj_receiver_dev *djrcv_dev,
 						struct dj_report *dj_report)
 {
-	
+	/* Called in delayed work context */
 	struct dj_device *dj_dev;
 	unsigned long flags;
 
@@ -191,13 +209,16 @@ static void logi_dj_recv_destroy_djhid_device(struct dj_receiver_dev *djrcv_dev,
 static void logi_dj_recv_add_djhid_device(struct dj_receiver_dev *djrcv_dev,
 					  struct dj_report *dj_report)
 {
-	
+	/* Called in delayed work context */
 	struct hid_device *djrcv_hdev = djrcv_dev->hdev;
 	struct usb_interface *intf = to_usb_interface(djrcv_hdev->dev.parent);
 	struct usb_device *usbdev = interface_to_usbdev(intf);
 	struct hid_device *dj_hiddev;
 	struct dj_device *dj_dev;
 
+	/* Device index goes from 1 to 6, we need 3 bytes to store the
+	 * semicolon, the index, and a null terminator
+	 */
 	unsigned char tmpstr[3];
 
 	if (dj_report->report_params[DEVICE_PAIRED_PARAM_SPFUNCTION] &
@@ -315,7 +336,7 @@ static void delayedwork_callback(struct work_struct *work)
 static void logi_dj_recv_queue_notification(struct dj_receiver_dev *djrcv_dev,
 					   struct dj_report *dj_report)
 {
-	
+	/* We are called from atomic context (tasklet && djrcv->lock held) */
 
 	kfifo_in(&djrcv_dev->notif_fifo, dj_report, sizeof(struct dj_report));
 
@@ -328,7 +349,7 @@ static void logi_dj_recv_queue_notification(struct dj_receiver_dev *djrcv_dev,
 static void logi_dj_recv_forward_null_report(struct dj_receiver_dev *djrcv_dev,
 					     struct dj_report *dj_report)
 {
-	
+	/* We are called from atomic context (tasklet && djrcv->lock held) */
 	unsigned int i;
 	u8 reportbuffer[MAX_REPORT_SIZE];
 	struct dj_device *djdev;
@@ -360,7 +381,7 @@ static void logi_dj_recv_forward_null_report(struct dj_receiver_dev *djrcv_dev,
 static void logi_dj_recv_forward_report(struct dj_receiver_dev *djrcv_dev,
 					struct dj_report *dj_report)
 {
-	
+	/* We are called from atomic context (tasklet && djrcv->lock held) */
 	struct dj_device *dj_device;
 
 	dj_device = djrcv_dev->paired_dj_devices[dj_report->device_index];
@@ -446,7 +467,7 @@ static int logi_dj_output_hidraw_report(struct hid_device *hid, u8 * buf,
 					size_t count,
 					unsigned char report_type)
 {
-	
+	/* Called by hid raw to send data */
 	dbg_hid("%s\n", __func__);
 
 	return 0;
@@ -539,7 +560,7 @@ static int logi_dj_ll_parse(struct hid_device *hid)
 static int logi_dj_ll_input_event(struct input_dev *dev, unsigned int type,
 				  unsigned int code, int value)
 {
-	
+	/* Sent by the input layer to handle leds and Force Feedback */
 	struct hid_device *dj_hiddev = input_get_drvdata(dev);
 	struct dj_device *dj_dev = dj_hiddev->driver_data;
 
@@ -613,6 +634,29 @@ static int logi_dj_raw_event(struct hid_device *hdev,
 
 	dbg_hid("%s, size:%d\n", __func__, size);
 
+	/* Here we receive all data coming from iface 2, there are 4 cases:
+	 *
+	 * 1) Data should continue its normal processing i.e. data does not
+	 * come from the DJ collection, in which case we do nothing and
+	 * return 0, so hid-core can continue normal processing (will forward
+	 * to associated hidraw device)
+	 *
+	 * 2) Data is from DJ collection, and is intended for this driver i. e.
+	 * data contains arrival, departure, etc notifications, in which case
+	 * we queue them for delayed processing by the work queue. We return 1
+	 * to hid-core as no further processing is required from it.
+	 *
+	 * 3) Data is from DJ collection, and informs a connection change,
+	 * if the change means rf link loss, then we must send a null report
+	 * to the upper layer to discard potentially pressed keys that may be
+	 * repeated forever by the input layer. Return 1 to hid-core as no
+	 * further processing is required.
+	 *
+	 * 4) Data is from DJ collection and is an actual input event from
+	 * a paired DJ device in which case we forward it to the correct hid
+	 * device (via hid_input_report() ) and return 1 so hid-core does not do
+	 * anything else with it.
+	 */
 
 	spin_lock_irqsave(&djrcv_dev->lock, flags);
 	if (dj_report->report_id == REPORT_ID_DJ_SHORT) {
@@ -650,6 +694,8 @@ static int logi_dj_probe(struct hid_device *hdev,
 	dbg_hid("%s called for ifnum %d\n", __func__,
 		intf->cur_altsetting->desc.bInterfaceNumber);
 
+	/* Ignore interfaces 0 and 1, they will not carry any data, dont create
+	 * any hid_device for them */
 	if (intf->cur_altsetting->desc.bInterfaceNumber !=
 	    LOGITECH_DJ_INTERFACE_NUMBER) {
 		dbg_hid("%s: ignoring ifnum %d\n", __func__,
@@ -657,7 +703,7 @@ static int logi_dj_probe(struct hid_device *hdev,
 		return -ENODEV;
 	}
 
-	
+	/* Treat interface 2 */
 
 	djrcv_dev = kzalloc(sizeof(struct dj_receiver_dev), GFP_KERNEL);
 	if (!djrcv_dev) {
@@ -678,6 +724,10 @@ static int logi_dj_probe(struct hid_device *hdev,
 	}
 	hid_set_drvdata(hdev, djrcv_dev);
 
+	/* Call  to usbhid to fetch the HID descriptors of interface 2 and
+	 * subsequently call to the hid/hid-core to parse the fetched
+	 * descriptors, this will in turn create the hidraw and hiddev nodes
+	 * for interface 2 of the receiver */
 	retval = hid_parse(hdev);
 	if (retval) {
 		dev_err(&hdev->dev,
@@ -685,6 +735,8 @@ static int logi_dj_probe(struct hid_device *hdev,
 		goto hid_parse_fail;
 	}
 
+	/* Starts the usb device and connects to upper interfaces hiddev and
+	 * hidraw */
 	retval = hid_hw_start(hdev, HID_CONNECT_DEFAULT);
 	if (retval) {
 		dev_err(&hdev->dev,
@@ -700,7 +752,7 @@ static int logi_dj_probe(struct hid_device *hdev,
 		goto switch_to_dj_mode_fail;
 	}
 
-	
+	/* This is enabling the polling urb on the IN endpoint */
 	retval = hdev->ll_driver->open(hdev);
 	if (retval < 0) {
 		dev_err(&hdev->dev, "%s:hdev->ll_driver->open returned "
@@ -763,6 +815,11 @@ static void logi_dj_remove(struct hid_device *hdev)
 	hdev->ll_driver->close(hdev);
 	hid_hw_stop(hdev);
 
+	/* I suppose that at this point the only context that can access
+	 * the djrecv_data is this thread as the work item is guaranteed to
+	 * have finished and no more raw_event callbacks should arrive after
+	 * the remove callback was triggered so no locks are put around the
+	 * code below */
 	for (i = 0; i < (DJ_MAX_PAIRED_DEVICES + DJ_DEVICE_INDEX_MIN); i++) {
 		dj_dev = djrcv_dev->paired_dj_devices[i];
 		if (dj_dev != NULL) {

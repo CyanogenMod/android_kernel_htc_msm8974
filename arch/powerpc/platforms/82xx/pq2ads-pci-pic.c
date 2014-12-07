@@ -145,14 +145,14 @@ int __init pq2ads_pci_init_irq(void)
 		goto out_unmap_irq;
 	}
 
-	
+	/* PCI interrupt controller registers: status and mask */
 	priv->regs = of_iomap(np, 0);
 	if (!priv->regs) {
 		printk(KERN_ERR "Cannot map PCI PIC registers.\n");
 		goto out_free_bootmem;
 	}
 
-	
+	/* mask all PCI interrupts */
 	out_be32(&priv->regs->mask, ~0);
 	mb();
 

@@ -20,9 +20,12 @@
 #include <asm/irq.h>
 #include <asm/intctl-regs.h>
 
+/*
+ * initialise some of the unit hardware before gdbstub is set up
+ */
 asmlinkage void __init unit_init(void)
 {
-	
+	/* set up the external interrupts */
 	SET_XIRQ_TRIGGER(0, XIRQ_TRIGGER_HILEVEL);
 	SET_XIRQ_TRIGGER(2, XIRQ_TRIGGER_LOWLEVEL);
 	SET_XIRQ_TRIGGER(3, XIRQ_TRIGGER_HILEVEL);
@@ -38,10 +41,16 @@ asmlinkage void __init unit_init(void)
 #endif
 }
 
+/*
+ * initialise the rest of the unit hardware after gdbstub is ready
+ */
 void __init unit_setup(void)
 {
 }
 
+/*
+ * initialise the external interrupts used by a unit of this type
+ */
 void __init unit_init_IRQ(void)
 {
 	unsigned int extnum;

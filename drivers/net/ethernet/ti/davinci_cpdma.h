@@ -37,6 +37,11 @@ struct cpdma_params {
 	int			desc_mem_size;
 	int			desc_align;
 
+	/*
+	 * Some instances of embedded cpdma controllers have extra control and
+	 * status registers.  The following flag enables access to these
+	 * "extended" registers.
+	 */
 	bool			has_ext_regs;
 };
 
@@ -85,17 +90,17 @@ void cpdma_ctlr_eoi(struct cpdma_ctlr *ctlr);
 int cpdma_chan_int_ctrl(struct cpdma_chan *chan, bool enable);
 
 enum cpdma_control {
-	CPDMA_CMD_IDLE,			
-	CPDMA_COPY_ERROR_FRAMES,	
-	CPDMA_RX_OFF_LEN_UPDATE,	
-	CPDMA_RX_OWNERSHIP_FLIP,	
-	CPDMA_TX_PRIO_FIXED,		
-	CPDMA_STAT_IDLE,		
-	CPDMA_STAT_TX_ERR_CHAN,		
-	CPDMA_STAT_TX_ERR_CODE,		
-	CPDMA_STAT_RX_ERR_CHAN,		
-	CPDMA_STAT_RX_ERR_CODE,		
-	CPDMA_RX_BUFFER_OFFSET,		
+	CPDMA_CMD_IDLE,			/* write-only */
+	CPDMA_COPY_ERROR_FRAMES,	/* read-write */
+	CPDMA_RX_OFF_LEN_UPDATE,	/* read-write */
+	CPDMA_RX_OWNERSHIP_FLIP,	/* read-write */
+	CPDMA_TX_PRIO_FIXED,		/* read-write */
+	CPDMA_STAT_IDLE,		/* read-only */
+	CPDMA_STAT_TX_ERR_CHAN,		/* read-only */
+	CPDMA_STAT_TX_ERR_CODE,		/* read-only */
+	CPDMA_STAT_RX_ERR_CHAN,		/* read-only */
+	CPDMA_STAT_RX_ERR_CODE,		/* read-only */
+	CPDMA_RX_BUFFER_OFFSET,		/* read-write */
 };
 
 int cpdma_control_get(struct cpdma_ctlr *ctlr, int control);

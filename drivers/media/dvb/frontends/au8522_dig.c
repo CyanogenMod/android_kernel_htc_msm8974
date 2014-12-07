@@ -30,6 +30,8 @@
 
 static int debug;
 
+/* Despite the name "hybrid_tuner", the framework works just as well for
+   hybrid demodulators as well... */
 static LIST_HEAD(hybrid_tuner_instance_list);
 static DEFINE_MUTEX(au8522_list_mutex);
 
@@ -38,6 +40,7 @@ static DEFINE_MUTEX(au8522_list_mutex);
 		printk(arg);\
 	} while (0)
 
+/* 16 bit registers, 8 bit values */
 int au8522_writereg(struct au8522_state *state, u16 reg, u8 data)
 {
 	int ret;
@@ -82,6 +85,10 @@ static int au8522_i2c_gate_ctrl(struct dvb_frontend *fe, int enable)
 	dprintk("%s(%d)\n", __func__, enable);
 
 	if (state->operational_mode == AU8522_ANALOG_MODE) {
+		/* We're being asked to manage the gate even though we're
+		   not in digital mode.  This can occur if we get switched
+		   over to analog mode before the dvb_frontend kernel thread
+		   has completely shutdown */
 		return 0;
 	}
 
@@ -96,6 +103,7 @@ struct mse2snr_tab {
 	u16 data;
 };
 
+/* VSB SNR lookup table */
 static struct mse2snr_tab vsb_mse2snr_tab[] = {
 	{   0, 270 },
 	{   2, 250 },
@@ -129,6 +137,7 @@ static struct mse2snr_tab vsb_mse2snr_tab[] = {
 	{ 256, 115 },
 };
 
+/* QAM64 SNR lookup table */
 static struct mse2snr_tab qam64_mse2snr_tab[] = {
 	{  15,   0 },
 	{  16, 290 },
@@ -209,6 +218,7 @@ static struct mse2snr_tab qam64_mse2snr_tab[] = {
 	{ 256, 190 },
 };
 
+/* QAM256 SNR lookup table */
 static struct mse2snr_tab qam256_mse2snr_tab[] = {
 	{  16,   0 },
 	{  17, 400 },
@@ -330,6 +340,7 @@ static int au8522_set_if(struct dvb_frontend *fe, enum au8522_if_freq if_freq)
 	return 0;
 }
 
+/* VSB Modulation table */
 static struct {
 	u16 reg;
 	u16 data;
@@ -363,6 +374,7 @@ static struct {
 	{ 0x8231, 0x13 },
 };
 
+/* QAM64 Modulation table */
 static struct {
 	u16 reg;
 	u16 data;
@@ -441,6 +453,7 @@ static struct {
 	{ 0x0526, 0x01 },
 };
 
+/* QAM256 Modulation table */
 static struct {
 	u16 reg;
 	u16 data;
@@ -562,6 +575,7 @@ static int au8522_enable_modulation(struct dvb_frontend *fe,
 	return 0;
 }
 
+/* Talk to the demod, set the FEC, GUARD, QAM settings etc */
 static int au8522_set_frontend(struct dvb_frontend *fe)
 {
 	struct dtv_frontend_properties *c = &fe->dtv_property_cache;
@@ -585,7 +599,7 @@ static int au8522_set_frontend(struct dvb_frontend *fe)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Allow the tuner to settle */
 	msleep(100);
 
 	au8522_enable_modulation(fe, c->modulation);
@@ -595,6 +609,8 @@ static int au8522_set_frontend(struct dvb_frontend *fe)
 	return 0;
 }
 
+/* Reset the demod hardware and reset all of the configuration registers
+   to a default state. */
 int au8522_init(struct dvb_frontend *fe)
 {
 	struct au8522_state *state = fe->demodulator_priv;
@@ -602,6 +618,9 @@ int au8522_init(struct dvb_frontend *fe)
 
 	state->operational_mode = AU8522_DIGITAL_MODE;
 
+	/* Clear out any state associated with the digital side of the
+	   chip, so that when it gets powered back up it won't think
+	   that it is already tuned */
 	state->current_frequency = 0;
 
 	au8522_writereg(state, 0xa4, 1 << 5);
@@ -616,7 +635,7 @@ static int au8522_led_gpio_enable(struct au8522_state *state, int onoff)
 	struct au8522_led_config *led_config = state->config->led_cfg;
 	u8 val;
 
-	
+	/* bail out if we can't control an LED */
 	if (!led_config || !led_config->gpio_output ||
 	    !led_config->gpio_output_enable || !led_config->gpio_output_disable)
 		return 0;
@@ -624,11 +643,11 @@ static int au8522_led_gpio_enable(struct au8522_state *state, int onoff)
 	val = au8522_readreg(state, 0x4000 |
 			     (led_config->gpio_output & ~0xc000));
 	if (onoff) {
-		
+		/* enable GPIO output */
 		val &= ~((led_config->gpio_output_enable >> 8) & 0xff);
 		val |=  (led_config->gpio_output_enable & 0xff);
 	} else {
-		
+		/* disable GPIO output */
 		val &= ~((led_config->gpio_output_disable >> 8) & 0xff);
 		val |=  (led_config->gpio_output_disable & 0xff);
 	}
@@ -636,25 +655,30 @@ static int au8522_led_gpio_enable(struct au8522_state *state, int onoff)
 			       (led_config->gpio_output & ~0xc000), val);
 }
 
+/* led = 0 | off
+ * led = 1 | signal ok
+ * led = 2 | signal strong
+ * led < 0 | only light led if leds are currently off
+ */
 static int au8522_led_ctrl(struct au8522_state *state, int led)
 {
 	struct au8522_led_config *led_config = state->config->led_cfg;
 	int i, ret = 0;
 
-	
+	/* bail out if we can't control an LED */
 	if (!led_config || !led_config->gpio_leds ||
 	    !led_config->num_led_states || !led_config->led_states)
 		return 0;
 
 	if (led < 0) {
-		
+		/* if LED is already lit, then leave it as-is */
 		if (state->led_state)
 			return 0;
 		else
 			led *= -1;
 	}
 
-	
+	/* toggle LED if changing state */
 	if (state->led_state != led) {
 		u8 val;
 
@@ -665,11 +689,11 @@ static int au8522_led_ctrl(struct au8522_state *state, int led)
 		val = au8522_readreg(state, 0x4000 |
 				     (led_config->gpio_leds & ~0xc000));
 
-		
+		/* start with all leds off */
 		for (i = 0; i < led_config->num_led_states; i++)
 			val &= ~led_config->led_states[i];
 
-		
+		/* set selected LED state */
 		if (led < led_config->num_led_states)
 			val |= led_config->led_states[led];
 		else if (led_config->num_led_states)
@@ -695,15 +719,19 @@ int au8522_sleep(struct dvb_frontend *fe)
 	struct au8522_state *state = fe->demodulator_priv;
 	dprintk("%s()\n", __func__);
 
-	
+	/* Only power down if the digital side is currently using the chip */
 	if (state->operational_mode == AU8522_ANALOG_MODE) {
+		/* We're not in one of the expected power modes, which means
+		   that the DVB thread is probably telling us to go to sleep
+		   even though the analog frontend has already started using
+		   the chip.  So ignore the request */
 		return 0;
 	}
 
-	
+	/* turn off led */
 	au8522_led_ctrl(state, 0);
 
-	
+	/* Power down the chip */
 	au8522_writereg(state, 0xa4, 1 << 5);
 
 	state->current_frequency = 0;
@@ -740,7 +768,7 @@ static int au8522_read_status(struct dvb_frontend *fe, fe_status_t *status)
 			*status |= FE_HAS_CARRIER | FE_HAS_SIGNAL;
 		break;
 	case AU8522_TUNERLOCKING:
-		
+		/* Get the tuner status */
 		dprintk("%s() TUNERLOCKING\n", __func__);
 		if (fe->ops.tuner_ops.get_status) {
 			if (fe->ops.i2c_gate_ctrl)
@@ -758,10 +786,10 @@ static int au8522_read_status(struct dvb_frontend *fe, fe_status_t *status)
 	state->fe_status = *status;
 
 	if (*status & FE_HAS_LOCK)
-		
+		/* turn on LED, if it isn't on already */
 		au8522_led_ctrl(state, -1);
 	else
-		
+		/* turn off LED */
 		au8522_led_ctrl(state, 0);
 
 	dprintk("%s() status 0x%08x\n", __func__, *status);
@@ -775,7 +803,7 @@ static int au8522_led_status(struct au8522_state *state, const u16 *snr)
 	int led;
 	u16 strong;
 
-	
+	/* bail out if we can't control an LED */
 	if (!led_config)
 		return 0;
 
@@ -785,7 +813,7 @@ static int au8522_led_status(struct au8522_state *state, const u16 *snr)
 		strong = led_config->qam256_strong;
 	else if (state->current_modulation == QAM_64)
 		strong = led_config->qam64_strong;
-	else 
+	else /* (state->current_modulation == VSB_8) */
 		strong = led_config->vsb8_strong;
 
 	if (*snr >= strong)
@@ -795,6 +823,8 @@ static int au8522_led_status(struct au8522_state *state, const u16 *snr)
 
 	if ((state->led_state) &&
 	    (((strong < *snr) ? (*snr - strong) : (strong - *snr)) <= 10))
+		/* snr didn't change enough to bother
+		 * changing the color of the led */
 		return 0;
 
 	return au8522_led_ctrl(state, led);
@@ -817,7 +847,7 @@ static int au8522_read_snr(struct dvb_frontend *fe, u16 *snr)
 					    ARRAY_SIZE(qam64_mse2snr_tab),
 					    au8522_readreg(state, 0x4522),
 					    snr);
-	else 
+	else /* VSB_8 */
 		ret = au8522_mse2snr_lookup(vsb_mse2snr_tab,
 					    ARRAY_SIZE(vsb_mse2snr_tab),
 					    au8522_readreg(state, 0x4311),
@@ -832,6 +862,13 @@ static int au8522_read_snr(struct dvb_frontend *fe, u16 *snr)
 static int au8522_read_signal_strength(struct dvb_frontend *fe,
 				       u16 *signal_strength)
 {
+	/* borrowed from lgdt330x.c
+	 *
+	 * Calculate strength from SNR up to 35dB
+	 * Even though the SNR can go higher than 35dB,
+	 * there is some comfort factor in having a range of
+	 * strong signals that can show at 100%
+	 */
 	u16 snr;
 	u32 tmp;
 	int ret = au8522_read_snr(fe, &snr);
@@ -839,10 +876,15 @@ static int au8522_read_signal_strength(struct dvb_frontend *fe,
 	*signal_strength = 0;
 
 	if (0 == ret) {
+		/* The following calculation method was chosen
+		 * purely for the sake of code re-use from the
+		 * other demod drivers that use this method */
 
-		
+		/* Convert from SNR in dB * 10 to 8.24 fixed-point */
 		tmp = (snr * ((1 << 24) / 10));
 
+		/* Convert from 8.24 fixed-point to
+		 * scale the range 0 - 35*2^24 into 0 - 65535*/
 		if (tmp >= 8960 * 0x10000)
 			*signal_strength = 0xffff;
 		else
@@ -924,28 +966,28 @@ struct dvb_frontend *au8522_attach(const struct au8522_config *config,
 	struct au8522_state *state = NULL;
 	int instance;
 
-	
+	/* allocate memory for the internal state */
 	instance = au8522_get_state(&state, i2c, config->demod_address);
 	switch (instance) {
 	case 0:
 		dprintk("%s state allocation failed\n", __func__);
 		break;
 	case 1:
-		
+		/* new demod instance */
 		dprintk("%s using new instance\n", __func__);
 		break;
 	default:
-		
+		/* existing demod instance */
 		dprintk("%s using existing instance\n", __func__);
 		break;
 	}
 
-	
+	/* setup the state */
 	state->config = config;
 	state->i2c = i2c;
 	state->operational_mode = AU8522_DIGITAL_MODE;
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &au8522_ops,
 	       sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;
@@ -956,7 +998,7 @@ struct dvb_frontend *au8522_attach(const struct au8522_config *config,
 		goto error;
 	}
 
-	
+	/* Note: Leaving the I2C gate open here. */
 	au8522_i2c_gate_ctrl(&state->frontend, 1);
 
 	return &state->frontend;

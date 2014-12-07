@@ -16,6 +16,9 @@
 
 #include "htc.h"
 
+/******/
+/* TX */
+/******/
 
 static const int subtype_txq_to_hwq[] = {
 	[WME_AC_BE] = ATH_TXQ_AC_BE,
@@ -148,6 +151,9 @@ get_htc_epid_queue(struct ath9k_htc_priv *priv, u8 epid)
 	return epid_queue;
 }
 
+/*
+ * Removes the driver header and returns the TX slot number
+ */
 static inline int strip_drv_header(struct ath9k_htc_priv *priv,
 				   struct sk_buff *skb)
 {
@@ -189,7 +195,7 @@ int ath_htc_txq_update(struct ath9k_htc_priv *priv, int qnum,
 	ath9k_hw_get_txq_props(ah, qnum, &qi);
 
 	qi.tqi_aifs = qinfo->tqi_aifs;
-	qi.tqi_cwmin = qinfo->tqi_cwmin / 2; 
+	qi.tqi_cwmin = qinfo->tqi_cwmin / 2; /* XXX */
 	qi.tqi_cwmax = qinfo->tqi_cwmax;
 	qi.tqi_burstTime = qinfo->tqi_burstTime;
 	qi.tqi_readyTime = qinfo->tqi_readyTime;
@@ -223,6 +229,10 @@ static void ath9k_htc_tx_mgmt(struct ath9k_htc_priv *priv,
 	memset(tx_ctl, 0, sizeof(*tx_ctl));
 	memset(&mgmt_hdr, 0, sizeof(struct tx_mgmt_hdr));
 
+	/*
+	 * Set the TSF adjust value for probe response
+	 * frame also.
+	 */
 	if (avp && unlikely(ieee80211_is_probe_resp(hdr->frame_control))) {
 		mgmt = (struct ieee80211_mgmt *)skb->data;
 		mgmt->u.probe_resp.timestamp = avp->tsfadjust;
@@ -271,6 +281,12 @@ static void ath9k_htc_tx_data(struct ath9k_htc_priv *priv,
 	tx_hdr.vif_idx = vif_idx;
 	tx_hdr.cookie = slot;
 
+	/*
+	 * This is a bit redundant but it helps to get
+	 * the per-packet index quickly when draining the
+	 * TX queue in the HIF layer. Otherwise we would
+	 * have to parse the packet contents ...
+	 */
 	tx_ctl->sta_idx = sta_idx;
 
 	if (tx_info->flags & IEEE80211_TX_CTL_AMPDU) {
@@ -286,12 +302,12 @@ static void ath9k_htc_tx_data(struct ath9k_htc_priv *priv,
 		tx_hdr.tidno = qc[0] & IEEE80211_QOS_CTL_TID_MASK;
 	}
 
-	
+	/* Check for RTS protection */
 	if (priv->hw->wiphy->rts_threshold != (u32) -1)
 		if (skb->len > priv->hw->wiphy->rts_threshold)
 			flags |= ATH9K_HTC_TX_RTSCTS;
 
-	
+	/* CTS-to-self */
 	if (!(flags & ATH9K_HTC_TX_RTSCTS) &&
 	    (vif && vif->bss_conf.use_cts_prot))
 		flags |= ATH9K_HTC_TX_CTSONLY;
@@ -330,6 +346,10 @@ int ath9k_htc_tx_start(struct ath9k_htc_priv *priv,
 
 	hdr = (struct ieee80211_hdr *) skb->data;
 
+	/*
+	 * Find out on which interface this packet has to be
+	 * sent out.
+	 */
 	if (vif) {
 		avp = (struct ath9k_htc_vif *) vif->drv_priv;
 		vif_idx = avp->index;
@@ -343,6 +363,9 @@ int ath9k_htc_tx_start(struct ath9k_htc_priv *priv,
 		vif_idx = priv->mon_vif_idx;
 	}
 
+	/*
+	 * Find out which station this packet is destined for.
+	 */
 	if (sta) {
 		ista = (struct ath9k_htc_sta *) sta->drv_priv;
 		sta_idx = ista->index;
@@ -440,6 +463,10 @@ static void ath9k_htc_tx_process(struct ath9k_htc_priv *priv,
 
 	memset(&tx_info->status, 0, sizeof(tx_info->status));
 
+	/*
+	 * URB submission failed for this frame, it never reached
+	 * the target.
+	 */
 	if (!txok || !vif || !txs)
 		goto send_mac80211;
 
@@ -464,7 +491,7 @@ static void ath9k_htc_tx_process(struct ath9k_htc_priv *priv,
 			rate->flags |= IEEE80211_TX_RC_SHORT_GI;
 	} else {
 		if (cur_conf->channel->band == IEEE80211_BAND_5GHZ)
-			rate->idx += 4; 
+			rate->idx += 4; /* No CCK rates */
 	}
 
 	ath9k_htc_check_tx_aggr(priv, vif, skb);
@@ -477,7 +504,7 @@ send_mac80211:
 
 	ath9k_htc_tx_clear_slot(priv, slot);
 
-	
+	/* Send status to mac80211 */
 	ieee80211_tx_status(priv->hw, skb);
 }
 
@@ -499,6 +526,10 @@ void ath9k_htc_tx_drain(struct ath9k_htc_priv *priv)
 	priv->tx.flags |= ATH9K_HTC_OP_TX_DRAIN;
 	spin_unlock_bh(&priv->tx.tx_lock);
 
+	/*
+	 * Ensure that all pending TX frames are flushed,
+	 * and that the TX completion/failed tasklets is killed.
+	 */
 	htc_stop(priv->htc);
 	tasklet_kill(&priv->wmi->wmi_event_tasklet);
 	tasklet_kill(&priv->tx_failed_tasklet);
@@ -511,6 +542,9 @@ void ath9k_htc_tx_drain(struct ath9k_htc_priv *priv)
 	ath9k_htc_tx_drainq(priv, &priv->tx.data_vo_queue);
 	ath9k_htc_tx_drainq(priv, &priv->tx.tx_failed);
 
+	/*
+	 * The TX cleanup timer has already been killed.
+	 */
 	spin_lock_bh(&priv->wmi->event_lock);
 	list_for_each_entry_safe(event, tmp, &priv->wmi->pending_tx_events, list) {
 		list_del(&event->list);
@@ -607,6 +641,10 @@ void ath9k_htc_txstatus(struct ath9k_htc_priv *priv, void *wmi_event)
 
 		skb = ath9k_htc_tx_get_packet(priv, __txs);
 		if (!skb) {
+			/*
+			 * Store this event, so that the TX cleanup
+			 * routine can check later for the needed packet.
+			 */
 			tx_pend = kzalloc(sizeof(struct ath9k_htc_tx_event),
 					  GFP_ATOMIC);
 			if (!tx_pend)
@@ -626,7 +664,7 @@ void ath9k_htc_txstatus(struct ath9k_htc_priv *priv, void *wmi_event)
 		ath9k_htc_tx_process(priv, skb, __txs);
 	}
 
-	
+	/* Wake TX queues if needed */
 	ath9k_htc_check_wake_queues(priv);
 }
 
@@ -731,6 +769,9 @@ void ath9k_htc_tx_cleanup_timer(unsigned long data)
 	}
 	spin_unlock(&priv->wmi->event_lock);
 
+	/*
+	 * Check if status-pending packets have to be cleaned up.
+	 */
 	ath9k_htc_tx_cleanup_queue(priv, &priv->tx.mgmt_ep_queue);
 	ath9k_htc_tx_cleanup_queue(priv, &priv->tx.cab_ep_queue);
 	ath9k_htc_tx_cleanup_queue(priv, &priv->tx.data_be_queue);
@@ -738,7 +779,7 @@ void ath9k_htc_tx_cleanup_timer(unsigned long data)
 	ath9k_htc_tx_cleanup_queue(priv, &priv->tx.data_vi_queue);
 	ath9k_htc_tx_cleanup_queue(priv, &priv->tx.data_vo_queue);
 
-	
+	/* Wake TX queues if needed */
 	ath9k_htc_check_wake_queues(priv);
 
 	mod_timer(&priv->tx.cleanup_timer,
@@ -797,7 +838,13 @@ int ath9k_htc_cabq_setup(struct ath9k_htc_priv *priv)
 	return ath9k_hw_setuptxqueue(priv->ah, ATH9K_TX_QUEUE_CAB, &qi);
 }
 
+/******/
+/* RX */
+/******/
 
+/*
+ * Calculate the RX filter to be set in the HW.
+ */
 u32 ath9k_htc_calcrxfilter(struct ath9k_htc_priv *priv)
 {
 #define	RX_FILTER_PRESERVE (ATH9K_RX_FILTER_PHYERR | ATH9K_RX_FILTER_PHYRADAR)
@@ -812,6 +859,11 @@ u32 ath9k_htc_calcrxfilter(struct ath9k_htc_priv *priv)
 	if (priv->rxfilter & FIF_PROBE_REQ)
 		rfilt |= ATH9K_RX_FILTER_PROBEREQ;
 
+	/*
+	 * Set promiscuous mode when FIF_PROMISC_IN_BSS is enabled for station
+	 * mode interface or when in monitor mode. AP mode does not need this
+	 * since it receives all in-BSS frames anyway.
+	 */
 	if (((ah->opmode != NL80211_IFTYPE_AP) &&
 	     (priv->rxfilter & FIF_PROMISC_IN_BSS)) ||
 	    ah->is_monitoring)
@@ -843,16 +895,19 @@ u32 ath9k_htc_calcrxfilter(struct ath9k_htc_priv *priv)
 #undef RX_FILTER_PRESERVE
 }
 
+/*
+ * Recv initialization for opmode change.
+ */
 static void ath9k_htc_opmode_init(struct ath9k_htc_priv *priv)
 {
 	struct ath_hw *ah = priv->ah;
 	u32 rfilt, mfilt[2];
 
-	
+	/* configure rx filter */
 	rfilt = ath9k_htc_calcrxfilter(priv);
 	ath9k_hw_setrxfilter(ah, rfilt);
 
-	
+	/* calculate and install multicast filter */
 	mfilt[0] = mfilt[1] = ~0;
 	ath9k_hw_setmcastfilter(ah, mfilt[0], mfilt[1]);
 }
@@ -874,7 +929,7 @@ static void ath9k_process_rate(struct ieee80211_hw *hw,
 	unsigned int i = 0;
 
 	if (rx_rate & 0x80) {
-		
+		/* HT rate */
 		rxs->flag |= RX_FLAG_HT;
 		if (rs_flags & ATH9K_RX_2040)
 			rxs->flag |= RX_FLAG_40MHZ;
@@ -933,7 +988,7 @@ static bool ath9k_rx_prepare(struct ath9k_htc_priv *priv,
 
 	ath9k_htc_err_stat_rx(priv, rxstatus);
 
-	
+	/* Get the RX status information */
 	memcpy(&rxbuf->rxstatus, rxstatus, HTC_RX_FRAME_HEADER_SIZE);
 	skb_pull(skb, HTC_RX_FRAME_HEADER_SIZE);
 
@@ -958,14 +1013,24 @@ static bool ath9k_rx_prepare(struct ath9k_htc_priv *priv,
 			goto rx_next;
 
 		if (rxbuf->rxstatus.rs_status & ATH9K_RXERR_DECRYPT) {
-			
+			/* FIXME */
 		} else if (rxbuf->rxstatus.rs_status & ATH9K_RXERR_MIC) {
 			if (ieee80211_is_ctl(fc))
+				/*
+				 * Sometimes, we get invalid
+				 * MIC failures on valid control frames.
+				 * Remove these mic errors.
+				 */
 				rxbuf->rxstatus.rs_status &= ~ATH9K_RXERR_MIC;
 			else
 				rx_status->flag |= RX_FLAG_MMIC_ERROR;
 		}
 
+		/*
+		 * Reject error frames with the exception of
+		 * decryption and MIC failures. For monitor mode,
+		 * we also ignore the CRC error.
+		 */
 		if (priv->ah->opmode == NL80211_IFTYPE_MONITOR) {
 			if (rxbuf->rxstatus.rs_status &
 			    ~(ATH9K_RXERR_DECRYPT | ATH9K_RXERR_MIC |
@@ -1025,6 +1090,9 @@ rx_next:
 	return false;
 }
 
+/*
+ * FIXME: Handle FLUSH later on.
+ */
 void ath9k_rx_tasklet(unsigned long data)
 {
 	struct ath9k_htc_priv *priv = (struct ath9k_htc_priv *)data;
@@ -1112,6 +1180,7 @@ err:
 	dev_kfree_skb_any(skb);
 }
 
+/* FIXME: Locking for cleanup/init */
 
 void ath9k_rx_cleanup(struct ath9k_htc_priv *priv)
 {

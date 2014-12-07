@@ -1,3 +1,6 @@
+/*
+ *	vfsv0 quota IO operations on file
+ */
 
 #include <linux/errno.h>
 #include <linux/fs.h>
@@ -67,6 +70,7 @@ static int v2_read_header(struct super_block *sb, int type,
 	return 1;
 }
 
+/* Check whether given file is really vfsv0 quotafile */
 static int v2_check_quota_file(struct super_block *sb, int type)
 {
 	struct v2_disk_dqheader dqhead;
@@ -81,6 +85,7 @@ static int v2_check_quota_file(struct super_block *sb, int type)
 	return 1;
 }
 
+/* Read information header from quota file */
 static int v2_read_file_info(struct super_block *sb, int type)
 {
 	struct v2_disk_dqinfo dinfo;
@@ -111,12 +116,12 @@ static int v2_read_file_info(struct super_block *sb, int type)
 	}
 	qinfo = info->dqi_priv;
 	if (version == 0) {
-		
+		/* limits are stored as unsigned 32-bit data */
 		info->dqi_maxblimit = 0xffffffff;
 		info->dqi_maxilimit = 0xffffffff;
 	} else {
-		
-		info->dqi_maxblimit = 0xffffffffffffffffULL;	
+		/* used space is stored as unsigned 64-bit value */
+		info->dqi_maxblimit = 0xffffffffffffffffULL;	/* 2^64-1 */
 		info->dqi_maxilimit = 0xffffffffffffffffULL;
 	}
 	info->dqi_bgrace = le32_to_cpu(dinfo.dqi_bgrace);
@@ -140,6 +145,7 @@ static int v2_read_file_info(struct super_block *sb, int type)
 	return 0;
 }
 
+/* Write information header to quota file */
 static int v2_write_file_info(struct super_block *sb, int type)
 {
 	struct v2_disk_dqinfo dinfo;
@@ -178,7 +184,7 @@ static void v2r0_disk2memdqb(struct dquot *dquot, void *dp)
 	m->dqb_bsoftlimit = v2_qbtos(le32_to_cpu(d->dqb_bsoftlimit));
 	m->dqb_curspace = le64_to_cpu(d->dqb_curspace);
 	m->dqb_btime = le64_to_cpu(d->dqb_btime);
-	
+	/* We need to escape back all-zero structure */
 	memset(&empty, 0, sizeof(struct v2r0_disk_dqblk));
 	empty.dqb_itime = cpu_to_le64(1);
 	if (!memcmp(&empty, dp, sizeof(struct v2r0_disk_dqblk)))
@@ -229,7 +235,7 @@ static void v2r1_disk2memdqb(struct dquot *dquot, void *dp)
 	m->dqb_bsoftlimit = v2_qbtos(le64_to_cpu(d->dqb_bsoftlimit));
 	m->dqb_curspace = le64_to_cpu(d->dqb_curspace);
 	m->dqb_btime = le64_to_cpu(d->dqb_btime);
-	
+	/* We need to escape back all-zero structure */
 	memset(&empty, 0, sizeof(struct v2r1_disk_dqblk));
 	empty.dqb_itime = cpu_to_le64(1);
 	if (!memcmp(&empty, dp, sizeof(struct v2r1_disk_dqblk)))

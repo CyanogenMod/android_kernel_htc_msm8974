@@ -45,6 +45,7 @@ static void ipcomp4_err(struct sk_buff *skb, u32 info)
 	xfrm_state_put(x);
 }
 
+/* We always hold one tunnel user reference to indicate a tunnel */
 static struct xfrm_state *ipcomp_tunnel_create(struct xfrm_state *x)
 {
 	struct net *net = xs_net(x);
@@ -78,6 +79,10 @@ error:
 	goto out;
 }
 
+/*
+ * Must be protected by xfrm_cfg_mutex.  State and tunnel user references are
+ * always incremented on success.
+ */
 static int ipcomp_tunnel_attach(struct xfrm_state *x)
 {
 	struct net *net = xs_net(x);

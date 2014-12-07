@@ -18,6 +18,9 @@
 #ifndef _DM644X_CCDC_REGS_H
 #define _DM644X_CCDC_REGS_H
 
+/**************************************************************************\
+* Register OFFSET Definitions
+\**************************************************************************/
 #define CCDC_PID				0x0
 #define CCDC_PCR				0x4
 #define CCDC_SYN_MODE				0x8
@@ -58,6 +61,9 @@
 #define CCDC_VP_OUT				0x94
 #define CCDC_REG_END				0x98
 
+/***************************************************************
+*	Define for various register bit mask and shifts for CCDC
+****************************************************************/
 #define CCDC_FID_POL_MASK			1
 #define CCDC_FID_POL_SHIFT			4
 #define CCDC_HD_POL_MASK			1

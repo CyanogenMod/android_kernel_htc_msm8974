@@ -11,8 +11,15 @@
 
 #include <linux/types.h>
 
+/*
+ * All Blackfin system MMRs are padded to 32bits even if the register
+ * itself is only 16bits.  So use a helper macro to streamline this.
+ */
 #define __BFP(m) u16 m; u16 __pad_##m
 
+/*
+ * bfin ppi registers layout
+ */
 struct bfin_ppi_regs {
 	__BFP(control);
 	__BFP(status);
@@ -21,6 +28,9 @@ struct bfin_ppi_regs {
 	__BFP(frame);
 };
 
+/*
+ * bfin eppi registers layout
+ */
 struct bfin_eppi_regs {
 	__BFP(status);
 	__BFP(hcount);

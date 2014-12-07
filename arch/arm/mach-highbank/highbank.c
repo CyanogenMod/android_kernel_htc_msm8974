@@ -46,7 +46,7 @@ void __iomem *scu_base_addr = ((void __iomem *)(HB_SCU_VIRT_BASE));
 
 static struct map_desc scu_io_desc __initdata = {
 	.virtual	= HB_SCU_VIRT_BASE,
-	.pfn		= 0, 
+	.pfn		= 0, /* run-time */
 	.length		= SZ_4K,
 	.type		= MT_DEVICE,
 };
@@ -55,7 +55,7 @@ static void __init highbank_scu_map_io(void)
 {
 	unsigned long base;
 
-	
+	/* Get SCU base */
 	asm("mrc p15, 4, %0, c15, c0, 0" : "=r" (base));
 
 	scu_io_desc.pfn = __phys_to_pfn(base);
@@ -97,7 +97,7 @@ static void __init highbank_timer_init(void)
 	struct device_node *np;
 	void __iomem *timer_base;
 
-	
+	/* Map system registers */
 	np = of_find_compatible_node(NULL, NULL, "calxeda,hb-sregs");
 	sregs_base = of_iomap(np, 0);
 	WARN_ON(!sregs_base);

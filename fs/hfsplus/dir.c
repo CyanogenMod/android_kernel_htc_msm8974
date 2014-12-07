@@ -23,6 +23,7 @@ static inline void hfsplus_instantiate(struct dentry *dentry,
 	d_instantiate(dentry, inode);
 }
 
+/* Find the entry inside dir named dentry->d_name */
 static struct dentry *hfsplus_lookup(struct inode *dir, struct dentry *dentry,
 				     struct nameidata *nd)
 {
@@ -46,7 +47,7 @@ again:
 	if (err) {
 		if (err == -ENOENT) {
 			hfs_find_exit(&fd);
-			
+			/* No such entry */
 			inode = NULL;
 			goto out;
 		}
@@ -81,6 +82,10 @@ again:
 			char name[32];
 
 			if (dentry->d_fsdata) {
+				/*
+				 * We found a link pointing to another link,
+				 * so ignore it and treat it as regular file.
+				 */
 				cnid = (unsigned long)dentry->d_fsdata;
 				linkid = 0;
 			} else {
@@ -139,11 +144,11 @@ static int hfsplus_readdir(struct file *filp, void *dirent, filldir_t filldir)
 
 	switch ((u32)filp->f_pos) {
 	case 0:
-		
+		/* This is completely artificial... */
 		if (filldir(dirent, ".", 1, 0, inode->i_ino, DT_DIR))
 			goto out;
 		filp->f_pos++;
-		
+		/* fall through */
 	case 1:
 		if (fd.entrylength > sizeof(entry) || fd.entrylength < 0) {
 			err = -EIO;
@@ -166,7 +171,7 @@ static int hfsplus_readdir(struct file *filp, void *dirent, filldir_t filldir)
 			    be32_to_cpu(entry.thread.parentID), DT_DIR))
 			goto out;
 		filp->f_pos++;
-		
+		/* fall through */
 	default:
 		if (filp->f_pos >= inode->i_size)
 			goto out;
@@ -296,7 +301,7 @@ static int hfsplus_link(struct dentry *src_dentry, struct inode *dst_dir,
 		res = hfsplus_create_cat(cnid, src_dir,
 			&src_dentry->d_name, inode);
 		if (res)
-			
+			/* panic? */
 			goto out;
 		sbi->file_count++;
 	}
@@ -475,7 +480,7 @@ static int hfsplus_rename(struct inode *old_dir, struct dentry *old_dentry,
 {
 	int res;
 
-	
+	/* Unlink destination if it already exists */
 	if (new_dentry->d_inode) {
 		if (S_ISDIR(new_dentry->d_inode->i_mode))
 			res = hfsplus_rmdir(new_dir, new_dentry);

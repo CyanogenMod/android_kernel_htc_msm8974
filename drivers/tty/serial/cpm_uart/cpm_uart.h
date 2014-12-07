@@ -28,7 +28,7 @@
 
 #define IS_SMC(pinfo)		(pinfo->flags & FLAG_SMC)
 #define IS_DISCARDING(pinfo)	(pinfo->flags & FLAG_DISCARDING)
-#define FLAG_DISCARDING	0x00000004	
+#define FLAG_DISCARDING	0x00000004	/* when set, don't discard */
 #define FLAG_SMC	0x00000002
 #define FLAG_CONSOLE	0x00000001
 
@@ -80,9 +80,9 @@ struct uart_cpm_port {
 	void			*mem_addr;
 	dma_addr_t		 dma_addr;
 	u32			mem_size;
-	
+	/* wait on close if needed */
 	int			wait_closing;
-	
+	/* value to combine with opcode to form cpm command */
 	u32			command;
 	int			gpios[NUM_GPIOS];
 };
@@ -90,6 +90,7 @@ struct uart_cpm_port {
 extern int cpm_uart_nr;
 extern struct uart_cpm_port cpm_uart_ports[UART_NR];
 
+/* these are located in their respective files */
 void cpm_line_cr_cmd(struct uart_cpm_port *port, int cmd);
 void __iomem *cpm_uart_map_pram(struct uart_cpm_port *port,
 				struct device_node *np);
@@ -105,18 +106,21 @@ void scc2_lineif(struct uart_cpm_port *pinfo);
 void scc3_lineif(struct uart_cpm_port *pinfo);
 void scc4_lineif(struct uart_cpm_port *pinfo);
 
+/*
+   virtual to phys transtalion
+*/
 static inline unsigned long cpu2cpm_addr(void *addr,
                                          struct uart_cpm_port *pinfo)
 {
 	int offset;
 	u32 val = (u32)addr;
 	u32 mem = (u32)pinfo->mem_addr;
-	
+	/* sane check */
 	if (likely(val >= mem && val < mem + pinfo->mem_size)) {
 		offset = val - mem;
 		return pinfo->dma_addr + offset;
 	}
-	
+	/* something nasty happened */
 	BUG();
 	return 0;
 }
@@ -127,15 +131,15 @@ static inline void *cpm2cpu_addr(unsigned long addr,
 	int offset;
 	u32 val = addr;
 	u32 dma = (u32)pinfo->dma_addr;
-	
+	/* sane check */
 	if (likely(val >= dma && val < dma + pinfo->mem_size)) {
 		offset = val - dma;
 		return pinfo->mem_addr + offset;
 	}
-	
+	/* something nasty happened */
 	BUG();
 	return NULL;
 }
 
 
-#endif 
+#endif /* CPM_UART_H */

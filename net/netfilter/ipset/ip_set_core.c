@@ -7,6 +7,7 @@
  * published by the Free Software Foundation.
  */
 
+/* Kernel module for IP set management */
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -23,12 +24,12 @@
 #include <linux/netfilter/nfnetlink.h>
 #include <linux/netfilter/ipset/ip_set.h>
 
-static LIST_HEAD(ip_set_type_list);		
-static DEFINE_MUTEX(ip_set_type_mutex);		
-static DEFINE_RWLOCK(ip_set_ref_lock);		
+static LIST_HEAD(ip_set_type_list);		/* all registered set types */
+static DEFINE_MUTEX(ip_set_type_mutex);		/* protects ip_set_type_list */
+static DEFINE_RWLOCK(ip_set_ref_lock);		/* protects the set refs */
 
-static struct ip_set **ip_set_list;		
-static ip_set_id_t ip_set_max = CONFIG_IP_SET_MAX; 
+static struct ip_set **ip_set_list;		/* all individual sets */
+static ip_set_id_t ip_set_max = CONFIG_IP_SET_MAX; /* max number of sets */
 
 #define STREQ(a, b)	(strncmp(a, b, IPSET_MAXNAMELEN) == 0)
 
@@ -41,6 +42,11 @@ MODULE_AUTHOR("Jozsef Kadlecsik <kadlec@blackhole.kfki.hu>");
 MODULE_DESCRIPTION("core IP set support");
 MODULE_ALIAS_NFNL_SUBSYS(NFNL_SUBSYS_IPSET);
 
+/*
+ * The set types are implemented in modules and registered set types
+ * can be found in ip_set_type_list. Adding/deleting types is
+ * serialized by ip_set_type_mutex.
+ */
 
 static inline void
 ip_set_type_lock(void)
@@ -54,6 +60,7 @@ ip_set_type_unlock(void)
 	mutex_unlock(&ip_set_type_mutex);
 }
 
+/* Register and deregister settype */
 
 static struct ip_set_type *
 find_set_type(const char *name, u8 family, u8 revision)
@@ -69,6 +76,7 @@ find_set_type(const char *name, u8 family, u8 revision)
 	return NULL;
 }
 
+/* Unlock, try to load a set type module and lock again */
 static bool
 load_settype(const char *name)
 {
@@ -83,6 +91,7 @@ load_settype(const char *name)
 	return true;
 }
 
+/* Find a set type and reference it */
 #define find_set_type_get(name, family, revision, found)	\
 	__find_set_type_get(name, family, revision, found, false)
 
@@ -102,6 +111,8 @@ __find_set_type_get(const char *name, u8 family, u8 revision,
 		err = !try_module_get((*found)->me) ? -EFAULT : 0;
 		goto unlock;
 	}
+	/* Make sure the type is already loaded
+	 * but we don't support the revision */
 	list_for_each_entry_rcu(type, &ip_set_type_list, list)
 		if (STREQ(type->name, name)) {
 			err = -IPSET_ERR_FIND_TYPE;
@@ -117,6 +128,10 @@ unlock:
 	return err;
 }
 
+/* Find a given set type by name and family.
+ * If we succeeded, the supported minimal and maximum revisions are
+ * filled out.
+ */
 #define find_set_type_minmax(name, family, min, max) \
 	__find_set_type_minmax(name, family, min, max, false)
 
@@ -152,6 +167,9 @@ __find_set_type_minmax(const char *name, u8 family, u8 *min, u8 *max,
 #define family_name(f)	((f) == NFPROTO_IPV4 ? "inet" : \
 			 (f) == NFPROTO_IPV6 ? "inet6" : "any")
 
+/* Register a set type structure. The type is identified by
+ * the unique triple of name, family and revision.
+ */
 int
 ip_set_type_register(struct ip_set_type *type)
 {
@@ -168,7 +186,7 @@ ip_set_type_register(struct ip_set_type *type)
 
 	ip_set_type_lock();
 	if (find_set_type(type->name, type->family, type->revision_min)) {
-		
+		/* Duplicate! */
 		pr_warning("ip_set type %s, family %s with revision min %u "
 			   "already registered!\n", type->name,
 			   family_name(type->family), type->revision_min);
@@ -185,6 +203,7 @@ unlock:
 }
 EXPORT_SYMBOL_GPL(ip_set_type_register);
 
+/* Unregister a set type. There's a small race with ip_set_create */
 void
 ip_set_type_unregister(struct ip_set_type *type)
 {
@@ -205,6 +224,7 @@ unlock:
 }
 EXPORT_SYMBOL_GPL(ip_set_type_unregister);
 
+/* Utility functions */
 void *
 ip_set_alloc(size_t size)
 {
@@ -287,6 +307,16 @@ ip_set_get_ipaddr6(struct nlattr *nla, union nf_inet_addr *ipaddr)
 }
 EXPORT_SYMBOL_GPL(ip_set_get_ipaddr6);
 
+/*
+ * Creating/destroying/renaming/swapping affect the existence and
+ * the properties of a set. All of these can be executed from userspace
+ * only and serialized by the nfnl mutex indirectly from nfnetlink.
+ *
+ * Sets are identified by their index in ip_set_list and the index
+ * is used by the external references (set/SET netfilter modules).
+ *
+ * The set behind an index may change by swapping only, from userspace.
+ */
 
 static inline void
 __ip_set_get(ip_set_id_t index)
@@ -305,6 +335,12 @@ __ip_set_put(ip_set_id_t index)
 	write_unlock_bh(&ip_set_ref_lock);
 }
 
+/*
+ * Add, del and test set entries from kernel.
+ *
+ * The set behind the index must exist and must be referenced
+ * so it can't be destroyed (or changed) under our foot.
+ */
 
 int
 ip_set_test(ip_set_id_t index, const struct sk_buff *skb,
@@ -326,7 +362,7 @@ ip_set_test(ip_set_id_t index, const struct sk_buff *skb,
 	read_unlock_bh(&set->lock);
 
 	if (ret == -EAGAIN) {
-		
+		/* Type requests element to be completed */
 		pr_debug("element must be competed, ADD is triggered\n");
 		write_lock_bh(&set->lock);
 		set->variant->kadt(set, skb, par, IPSET_ADD, opt);
@@ -334,7 +370,7 @@ ip_set_test(ip_set_id_t index, const struct sk_buff *skb,
 		ret = 1;
 	}
 
-	
+	/* Convert error codes to nomatch */
 	return (ret < 0 ? 0 : ret);
 }
 EXPORT_SYMBOL_GPL(ip_set_test);
@@ -385,6 +421,11 @@ ip_set_del(ip_set_id_t index, const struct sk_buff *skb,
 }
 EXPORT_SYMBOL_GPL(ip_set_del);
 
+/*
+ * Find set by name, reference it once. The reference makes sure the
+ * thing pointed to, does not go away under our feet.
+ *
+ */
 ip_set_id_t
 ip_set_get_byname(const char *name, struct ip_set **set)
 {
@@ -404,6 +445,12 @@ ip_set_get_byname(const char *name, struct ip_set **set)
 }
 EXPORT_SYMBOL_GPL(ip_set_get_byname);
 
+/*
+ * If the given set pointer points to a valid set, decrement
+ * reference count by 1. The caller shall not assume the index
+ * to be valid, after calling this function.
+ *
+ */
 void
 ip_set_put_byindex(ip_set_id_t index)
 {
@@ -412,6 +459,13 @@ ip_set_put_byindex(ip_set_id_t index)
 }
 EXPORT_SYMBOL_GPL(ip_set_put_byindex);
 
+/*
+ * Get the name of a set behind a set index.
+ * We assume the set is referenced, so it does exist and
+ * can't be destroyed. The set cannot be renamed due to
+ * the referencing either.
+ *
+ */
 const char *
 ip_set_name_byindex(ip_set_id_t index)
 {
@@ -420,12 +474,22 @@ ip_set_name_byindex(ip_set_id_t index)
 	BUG_ON(set == NULL);
 	BUG_ON(set->ref == 0);
 
-	
+	/* Referenced, so it's safe */
 	return set->name;
 }
 EXPORT_SYMBOL_GPL(ip_set_name_byindex);
 
+/*
+ * Routines to call by external subsystems, which do not
+ * call nfnl_lock for us.
+ */
 
+/*
+ * Find set by name, reference it once. The reference makes sure the
+ * thing pointed to, does not go away under our feet.
+ *
+ * The nfnl mutex is used in the function.
+ */
 ip_set_id_t
 ip_set_nfnl_get(const char *name)
 {
@@ -440,6 +504,12 @@ ip_set_nfnl_get(const char *name)
 }
 EXPORT_SYMBOL_GPL(ip_set_nfnl_get);
 
+/*
+ * Find set by index, reference it once. The reference makes sure the
+ * thing pointed to, does not go away under our feet.
+ *
+ * The nfnl mutex is used in the function.
+ */
 ip_set_id_t
 ip_set_nfnl_get_byindex(ip_set_id_t index)
 {
@@ -457,6 +527,13 @@ ip_set_nfnl_get_byindex(ip_set_id_t index)
 }
 EXPORT_SYMBOL_GPL(ip_set_nfnl_get_byindex);
 
+/*
+ * If the given set pointer points to a valid set, decrement
+ * reference count by 1. The caller shall not assume the index
+ * to be valid, after calling this function.
+ *
+ * The nfnl mutex is used in the function.
+ */
 void
 ip_set_nfnl_put(ip_set_id_t index)
 {
@@ -466,6 +543,11 @@ ip_set_nfnl_put(ip_set_id_t index)
 }
 EXPORT_SYMBOL_GPL(ip_set_nfnl_put);
 
+/*
+ * Communication protocol with userspace over netlink.
+ *
+ * The commands are serialized by the nfnl mutex.
+ */
 
 static inline bool
 protocol_failed(const struct nlattr * const tb[])
@@ -500,6 +582,7 @@ start_msg(struct sk_buff *skb, u32 pid, u32 seq, unsigned int flags,
 	return nlh;
 }
 
+/* Create a set */
 
 static const struct nla_policy ip_set_create_policy[IPSET_ATTR_CMD_MAX + 1] = {
 	[IPSET_ATTR_PROTOCOL]	= { .type = NLA_U8 },
@@ -545,13 +628,13 @@ find_free_id(const char *name, ip_set_id_t *index, struct ip_set **set)
 			if (*index == IPSET_INVALID_ID)
 				*index = i;
 		} else if (STREQ(name, ip_set_list[i]->name)) {
-			
+			/* Name clash */
 			*set = ip_set_list[i];
 			return -EEXIST;
 		}
 	}
 	if (*index == IPSET_INVALID_ID)
-		
+		/* No free slot remained */
 		return -IPSET_ERR_MAX_SETS;
 	return 0;
 }
@@ -585,6 +668,10 @@ ip_set_create(struct sock *ctnl, struct sk_buff *skb,
 	pr_debug("setname: %s, typename: %s, family: %s, revision: %u\n",
 		 name, typename, family_name(family), revision);
 
+	/*
+	 * First, and without any locks, allocate and initialize
+	 * a normal base set structure.
+	 */
 	set = kzalloc(sizeof(struct ip_set), GFP_KERNEL);
 	if (!set)
 		return -ENOMEM;
@@ -593,10 +680,21 @@ ip_set_create(struct sock *ctnl, struct sk_buff *skb,
 	set->family = family;
 	set->revision = revision;
 
+	/*
+	 * Next, check that we know the type, and take
+	 * a reference on the type, to make sure it stays available
+	 * while constructing our new set.
+	 *
+	 * After referencing the type, we try to create the type
+	 * specific part of the set without holding any locks.
+	 */
 	ret = find_set_type_get(typename, family, revision, &(set->type));
 	if (ret)
 		goto out;
 
+	/*
+	 * Without holding any locks, create private part.
+	 */
 	if (attr[IPSET_ATTR_DATA] &&
 	    nla_parse_nested(tb, IPSET_ATTR_CREATE_MAX, attr[IPSET_ATTR_DATA],
 			     set->type->create_policy)) {
@@ -608,10 +706,15 @@ ip_set_create(struct sock *ctnl, struct sk_buff *skb,
 	if (ret != 0)
 		goto put_out;
 
-	
+	/* BTW, ret==0 here. */
 
+	/*
+	 * Here, we have a valid, constructed set and we are protected
+	 * by the nfnl mutex. Find the first free index in ip_set_list
+	 * and check clashing.
+	 */
 	if ((ret = find_free_id(set->name, &index, &clash)) != 0) {
-		
+		/* If this is the same set and requested, ignore error */
 		if (ret == -EEXIST &&
 		    (flags & IPSET_FLAG_EXIST) &&
 		    STREQ(set->type->name, clash->type->name) &&
@@ -623,6 +726,9 @@ ip_set_create(struct sock *ctnl, struct sk_buff *skb,
 		goto cleanup;
 	}
 
+	/*
+	 * Finally! Add our shiny new set to the list, and be done.
+	 */
 	pr_debug("create: '%s' created with index %u!\n", set->name, index);
 	ip_set_list[index] = set;
 
@@ -637,6 +743,7 @@ out:
 	return ret;
 }
 
+/* Destroy sets */
 
 static const struct nla_policy
 ip_set_setname_policy[IPSET_ATTR_CMD_MAX + 1] = {
@@ -653,7 +760,7 @@ ip_set_destroy_set(ip_set_id_t index)
 	pr_debug("set: %s\n",  set->name);
 	ip_set_list[index] = NULL;
 
-	
+	/* Must call it without holding any lock */
 	set->variant->destroy(set);
 	module_put(set->type->me);
 	kfree(set);
@@ -670,6 +777,16 @@ ip_set_destroy(struct sock *ctnl, struct sk_buff *skb,
 	if (unlikely(protocol_failed(attr)))
 		return -IPSET_ERR_PROTOCOL;
 
+	/* Commands are serialized and references are
+	 * protected by the ip_set_ref_lock.
+	 * External systems (i.e. xt_set) must call
+	 * ip_set_put|get_nfnl_* functions, that way we
+	 * can safely check references here.
+	 *
+	 * list:set timer can only decrement the reference
+	 * counter, so if it's already zero, we can proceed
+	 * without holding the lock.
+	 */
 	read_lock_bh(&ip_set_ref_lock);
 	if (!attr[IPSET_ATTR_SETNAME]) {
 		for (i = 0; i < ip_set_max; i++) {
@@ -702,6 +819,7 @@ out:
 	return ret;
 }
 
+/* Flush sets */
 
 static void
 ip_set_flush_set(struct ip_set *set)
@@ -738,6 +856,7 @@ ip_set_flush(struct sock *ctnl, struct sk_buff *skb,
 	return 0;
 }
 
+/* Rename a set */
 
 static const struct nla_policy
 ip_set_setname2_policy[IPSET_ATTR_CMD_MAX + 1] = {
@@ -788,6 +907,14 @@ out:
 	return ret;
 }
 
+/* Swap two sets so that name/index points to the other.
+ * References and set names are also swapped.
+ *
+ * The commands are serialized by the nfnl mutex and references are
+ * protected by the ip_set_ref_lock. The kernel interfaces
+ * do not hold the mutex but the pointer settings are atomic
+ * so the ip_set_list always contains valid pointers to the sets.
+ */
 
 static int
 ip_set_swap(struct sock *ctnl, struct sk_buff *skb,
@@ -814,6 +941,9 @@ ip_set_swap(struct sock *ctnl, struct sk_buff *skb,
 	from = ip_set_list[from_id];
 	to = ip_set_list[to_id];
 
+	/* Features must not change.
+	 * Not an artificial restriction anymore, as we must prevent
+	 * possible loops created by swapping in setlist type of sets. */
 	if (!(from->type->features == to->type->features &&
 	      from->type->family == to->type->family))
 		return -IPSET_ERR_TYPE_MISMATCH;
@@ -831,6 +961,7 @@ ip_set_swap(struct sock *ctnl, struct sk_buff *skb,
 	return 0;
 }
 
+/* List/save set data */
 
 #define DUMP_INIT	0
 #define DUMP_ALL	1
@@ -872,10 +1003,14 @@ dump_init(struct netlink_callback *cb)
 	u32 dump_type;
 	ip_set_id_t index;
 
-	
+	/* Second pass, so parser can't fail */
 	nla_parse(cda, IPSET_ATTR_CMD_MAX,
 		  attr, nlh->nlmsg_len - min_len, ip_set_setname_policy);
 
+	/* cb->args[0] : dump single set/all sets
+	 *         [1] : set index
+	 *         [..]: type specific
+	 */
 
 	if (cda[IPSET_ATTR_SETNAME]) {
 		index = find_set_id(nla_data(cda[IPSET_ATTR_SETNAME]));
@@ -910,6 +1045,8 @@ ip_set_dump_start(struct sk_buff *skb, struct netlink_callback *cb)
 		ret = dump_init(cb);
 		if (ret < 0) {
 			nlh = nlmsg_hdr(cb->skb);
+			/* We have to create and send the error message
+			 * manually :-( */
 			if (nlh->nlmsg_flags & NLM_F_ACK)
 				netlink_ack(cb->skb, nlh, ret);
 			return ret;
@@ -935,13 +1072,16 @@ dump_last:
 			}
 			continue;
 		}
+		/* When dumping all sets, we must dump "sorted"
+		 * so that lists (unions of sets) are dumped last.
+		 */
 		if (dump_type != DUMP_ONE &&
 		    ((dump_type == DUMP_ALL) ==
 		     !!(set->type->features & IPSET_DUMP_LAST)))
 			continue;
 		pr_debug("List set: %s\n", set->name);
 		if (!cb->args[2]) {
-			
+			/* Start listing: make sure set won't be destroyed */
 			pr_debug("reference set\n");
 			__ip_set_get(index);
 		}
@@ -958,7 +1098,7 @@ dump_last:
 			goto next_set;
 		switch (cb->args[2]) {
 		case 0:
-			
+			/* Core header data */
 			NLA_PUT_STRING(skb, IPSET_ATTR_TYPENAME,
 				       set->type->name);
 			NLA_PUT_U8(skb, IPSET_ATTR_FAMILY,
@@ -970,18 +1110,18 @@ dump_last:
 				goto release_refcount;
 			if (dump_flags & IPSET_FLAG_LIST_HEADER)
 				goto next_set;
-			
+			/* Fall through and add elements */
 		default:
 			read_lock_bh(&set->lock);
 			ret = set->variant->list(set, skb, cb);
 			read_unlock_bh(&set->lock);
 			if (!cb->args[2])
-				
+				/* Set is done, proceed with next one */
 				goto next_set;
 			goto release_refcount;
 		}
 	}
-	
+	/* If we dump all sets, continue with dumping last ones */
 	if (dump_type == DUMP_ALL) {
 		dump_type = DUMP_LAST;
 		cb->args[0] = dump_type | (dump_flags << 16);
@@ -998,7 +1138,7 @@ next_set:
 	else
 		cb->args[1]++;
 release_refcount:
-	
+	/* If there was an error or set is done, release set */
 	if (ret || !cb->args[2]) {
 		pr_debug("release set %s\n", ip_set_list[index]->name);
 		ip_set_put_byindex(index);
@@ -1031,6 +1171,7 @@ ip_set_dump(struct sock *ctnl, struct sk_buff *skb,
 	}
 }
 
+/* Add, del and test */
 
 static const struct nla_policy ip_set_adt_policy[IPSET_ATTR_CMD_MAX + 1] = {
 	[IPSET_ATTR_PROTOCOL]	= { .type = NLA_U8 },
@@ -1062,7 +1203,7 @@ call_ad(struct sock *ctnl, struct sk_buff *skb, struct ip_set *set,
 	if (!ret || (ret == -IPSET_ERR_EXIST && eexist))
 		return 0;
 	if (lineno && use_lineno) {
-		
+		/* Error in restore/batch mode: send back lineno */
 		struct nlmsghdr *rep, *nlh = nlmsg_hdr(skb);
 		struct sk_buff *skb2;
 		struct nlmsgerr *errmsg;
@@ -1091,7 +1232,7 @@ call_ad(struct sock *ctnl, struct sk_buff *skb, struct ip_set *set,
 		*errline = lineno;
 
 		netlink_unicast(ctnl, skb2, NETLINK_CB(skb).pid, MSG_DONTWAIT);
-		
+		/* Signal netlink not to send its ACK/errmsg.  */
 		return -EINTR;
 	}
 
@@ -1232,13 +1373,14 @@ ip_set_utest(struct sock *ctnl, struct sk_buff *skb,
 	read_lock_bh(&set->lock);
 	ret = set->variant->uadt(set, tb, IPSET_TEST, NULL, 0, 0);
 	read_unlock_bh(&set->lock);
-	
+	/* Userspace can't trigger element to be re-added */
 	if (ret == -EAGAIN)
 		ret = 1;
 
 	return ret < 0 ? ret : ret > 0 ? 0 : -IPSET_ERR_EXIST;
 }
 
+/* Get headed data of a set */
 
 static int
 ip_set_header(struct sock *ctnl, struct sk_buff *skb,
@@ -1288,6 +1430,7 @@ nlmsg_failure:
 	return -EMSGSIZE;
 }
 
+/* Get type data */
 
 static const struct nla_policy ip_set_type_policy[IPSET_ATTR_CMD_MAX + 1] = {
 	[IPSET_ATTR_PROTOCOL]	= { .type = NLA_U8 },
@@ -1347,6 +1490,7 @@ nlmsg_failure:
 	return -EMSGSIZE;
 }
 
+/* Get protocol version */
 
 static const struct nla_policy
 ip_set_protocol_policy[IPSET_ATTR_CMD_MAX + 1] = {
@@ -1464,6 +1608,7 @@ static struct nfnetlink_subsystem ip_set_netlink_subsys __read_mostly = {
 	.cb		= ip_set_netlink_subsys_cb,
 };
 
+/* Interface to iptables/ip6tables */
 
 static int
 ip_set_sockfn_get(struct sock *sk, int optval, void __user *user, int *len)
@@ -1489,7 +1634,7 @@ ip_set_sockfn_get(struct sock *sk, int optval, void __user *user, int *len)
 	op = (unsigned *) data;
 
 	if (*op < IP_SET_OP_VERSION) {
-		
+		/* Check the version at the beginning of operations */
 		struct ip_set_req_version *req_version = data;
 		if (req_version->version != IPSET_PROTOCOL) {
 			ret = -EPROTO;
@@ -1543,7 +1688,7 @@ ip_set_sockfn_get(struct sock *sk, int optval, void __user *user, int *len)
 	default:
 		ret = -EBADMSG;
 		goto done;
-	}	
+	}	/* end of switch(op) */
 
 copy:
 	ret = copy_to_user(user, data, copylen);
@@ -1599,7 +1744,7 @@ ip_set_init(void)
 static void __exit
 ip_set_fini(void)
 {
-	
+	/* There can't be any existing set */
 	nf_unregister_sockopt(&so_set);
 	nfnetlink_subsys_unregister(&ip_set_netlink_subsys);
 	kfree(ip_set_list);

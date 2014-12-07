@@ -122,4 +122,4 @@ void perf_evlist__splice_list_tail(struct perf_evlist *evlist,
 				   struct list_head *list,
 				   int nr_entries);
 
-#endif 
+#endif /* __PERF_EVLIST_H */

@@ -12,24 +12,24 @@
 struct ccsr_dma {
 	u8 res0[0x100];
 	struct ccsr_dma_channel {
-		__be32 mr;      
-		__be32 sr;      
-		__be32 eclndar; 
-		__be32 clndar;  
-		__be32 satr;    
-		__be32 sar;     
-		__be32 datr;    
-		__be32 dar;     
-		__be32 bcr;     
-		__be32 enlndar; 
-		__be32 nlndar;  
+		__be32 mr;      /* Mode register */
+		__be32 sr;      /* Status register */
+		__be32 eclndar; /* Current link descriptor extended addr reg */
+		__be32 clndar;  /* Current link descriptor address register */
+		__be32 satr;    /* Source attributes register */
+		__be32 sar;     /* Source address register */
+		__be32 datr;    /* Destination attributes register */
+		__be32 dar;     /* Destination address register */
+		__be32 bcr;     /* Byte count register */
+		__be32 enlndar; /* Next link descriptor extended address reg */
+		__be32 nlndar;  /* Next link descriptor address register */
 		u8 res1[4];
-		__be32 eclsdar; 
-		__be32 clsdar;  
-		__be32 enlsdar; 
-		__be32 nlsdar;  
-		__be32 ssr;     
-		__be32 dsr;     
+		__be32 eclsdar; /* Current list descriptor extended addr reg */
+		__be32 clsdar;  /* Current list descriptor address register */
+		__be32 enlsdar; /* Next list descriptor extended address reg */
+		__be32 nlsdar;  /* Next list descriptor address register */
+		__be32 ssr;     /* Source stride register */
+		__be32 dsr;     /* Destination stride register */
 		u8 res2[0x38];
 	} channel[4];
 	__be32 dgsr;
@@ -74,6 +74,7 @@ struct ccsr_dma {
 #define CCSR_DMA_SR_EOSI		0x00000002
 #define CCSR_DMA_SR_EOLSI       	0x00000001
 
+/* ECLNDAR takes bits 32-36 of the CLNDAR register */
 static inline u32 CCSR_DMA_ECLNDAR_ADDR(u64 x)
 {
 	return (x >> 32) & 0xf;
@@ -82,6 +83,7 @@ static inline u32 CCSR_DMA_ECLNDAR_ADDR(u64 x)
 #define CCSR_DMA_CLNDAR_ADDR(x) ((x) & 0xFFFFFFFE)
 #define CCSR_DMA_CLNDAR_EOSIE   	0x00000008
 
+/* SATR and DATR, combined */
 #define CCSR_DMA_ATR_PBATMU     	0x20000000
 #define CCSR_DMA_ATR_TFLOWLVL_0 	0x00000000
 #define CCSR_DMA_ATR_TFLOWLVL_1 	0x06000000
@@ -93,22 +95,35 @@ static inline u32 CCSR_DMA_ECLNDAR_ADDR(u64 x)
 #define CCSR_DMA_ATR_SNOOP      	0x00050000
 #define CCSR_DMA_ATR_ESAD_MASK  	0x0000000F
 
+/**
+ *  List Descriptor for extended chaining mode DMA operations.
+ *
+ *  The CLSDAR register points to the first (in a linked-list) List
+ *  Descriptor.  Each object must be aligned on a 32-byte boundary. Each
+ *  list descriptor points to a linked-list of link Descriptors.
+ */
 struct fsl_dma_list_descriptor {
-	__be64 next;    	
-	__be64 first_link;      
-	__be32 source;  	
-	__be32 dest;    	
-	u8 res[8];      	
+	__be64 next;    	/* Address of next list descriptor */
+	__be64 first_link;      /* Address of first link descriptor */
+	__be32 source;  	/* Source stride */
+	__be32 dest;    	/* Destination stride */
+	u8 res[8];      	/* Reserved */
 } __attribute__ ((aligned(32), packed));
 
+/**
+ *  Link Descriptor for basic and extended chaining mode DMA operations.
+ *
+ *  A Link Descriptor points to a single DMA buffer.  Each link descriptor
+ *  must be aligned on a 32-byte boundary.
+ */
 struct fsl_dma_link_descriptor {
-	__be32 source_attr;     
-	__be32 source_addr;     
-	__be32 dest_attr;       
-	__be32 dest_addr;       
-	__be64 next;    
-	__be32 count;   
-	u8 res[4];      
+	__be32 source_attr;     /* Programmed into SATR register */
+	__be32 source_addr;     /* Programmed into SAR register */
+	__be32 dest_attr;       /* Programmed into DATR register */
+	__be32 dest_addr;       /* Programmed into DAR register */
+	__be64 next;    /* Address of next link descriptor */
+	__be32 count;   /* Byte count */
+	u8 res[4];      /* Reserved */
 } __attribute__ ((aligned(32), packed));
 
 #endif

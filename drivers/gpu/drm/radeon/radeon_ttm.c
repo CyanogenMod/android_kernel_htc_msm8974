@@ -23,6 +23,12 @@
  * of the Software.
  *
  */
+/*
+ * Authors:
+ *    Jerome Glisse <glisse@freedesktop.org>
+ *    Thomas Hellstrom <thomas-at-tungstengraphics-dot-com>
+ *    Dave Airlie
+ */
 #include <ttm/ttm_bo_api.h>
 #include <ttm/ttm_bo_driver.h>
 #include <ttm/ttm_placement.h>
@@ -50,6 +56,9 @@ static struct radeon_device *radeon_get_rdev(struct ttm_bo_device *bdev)
 }
 
 
+/*
+ * Global memory.
+ */
 static int radeon_ttm_mem_global_init(struct drm_global_reference *ref)
 {
 	return ttm_mem_global_init(ref->object);
@@ -119,7 +128,7 @@ static int radeon_init_mem_type(struct ttm_bo_device *bdev, uint32_t type,
 
 	switch (type) {
 	case TTM_PL_SYSTEM:
-		
+		/* System memory */
 		man->flags = TTM_MEMTYPE_FLAG_MAPPABLE;
 		man->available_caching = TTM_PL_MASK_CACHING;
 		man->default_caching = TTM_PL_FLAG_CACHED;
@@ -146,7 +155,7 @@ static int radeon_init_mem_type(struct ttm_bo_device *bdev, uint32_t type,
 #endif
 		break;
 	case TTM_PL_VRAM:
-		
+		/* "On-card" video ram */
 		man->func = &ttm_bo_manager_func;
 		man->gpu_offset = rdev->mc.vram_start;
 		man->flags = TTM_MEMTYPE_FLAG_FIXED |
@@ -253,29 +262,29 @@ static int radeon_move_blit(struct ttm_buffer_object *bo,
 
 	BUILD_BUG_ON((PAGE_SIZE % RADEON_GPU_PAGE_SIZE) != 0);
 
-	
+	/* sync other rings */
 	if (rdev->family >= CHIP_R600) {
 		for (i = 0; i < RADEON_NUM_RINGS; ++i) {
-			
+			/* no need to sync to our own or unused rings */
 			if (i == radeon_copy_ring_index(rdev) || !rdev->ring[i].ready)
 				continue;
 
 			if (!fence->semaphore) {
 				r = radeon_semaphore_create(rdev, &fence->semaphore);
-				
+				/* FIXME: handle semaphore error */
 				if (r)
 					continue;
 			}
 
 			r = radeon_ring_lock(rdev, &rdev->ring[i], 3);
-			
+			/* FIXME: handle ring lock error */
 			if (r)
 				continue;
 			radeon_semaphore_emit_signal(rdev, i, fence->semaphore);
 			radeon_ring_unlock_commit(rdev, &rdev->ring[i]);
 
 			r = radeon_ring_lock(rdev, &rdev->ring[radeon_copy_ring_index(rdev)], 3);
-			
+			/* FIXME: handle ring lock error */
 			if (r)
 				continue;
 			radeon_semaphore_emit_wait(rdev, radeon_copy_ring_index(rdev), fence->semaphore);
@@ -284,9 +293,9 @@ static int radeon_move_blit(struct ttm_buffer_object *bo,
 	}
 
 	r = radeon_copy(rdev, old_start, new_start,
-			new_mem->num_pages * (PAGE_SIZE / RADEON_GPU_PAGE_SIZE), 
+			new_mem->num_pages * (PAGE_SIZE / RADEON_GPU_PAGE_SIZE), /* GPU pages */
 			fence);
-	
+	/* FIXME: handle copy error */
 	r = ttm_bo_move_accel_cleanup(bo, (void *)fence, NULL,
 				      evict, no_wait_reserve, no_wait_gpu, new_mem);
 	radeon_fence_unref(&fence);
@@ -397,13 +406,13 @@ static int radeon_bo_move(struct ttm_buffer_object *bo,
 	     new_mem->mem_type == TTM_PL_SYSTEM) ||
 	    (old_mem->mem_type == TTM_PL_SYSTEM &&
 	     new_mem->mem_type == TTM_PL_TT)) {
-		
+		/* bind is enough */
 		radeon_move_null(bo, new_mem);
 		return 0;
 	}
 	if (!rdev->ring[radeon_copy_ring_index(rdev)].ready ||
 	    rdev->asic->copy.copy == NULL) {
-		
+		/* use memcpy */
 		goto memcpy;
 	}
 
@@ -440,12 +449,12 @@ static int radeon_ttm_io_mem_reserve(struct ttm_bo_device *bdev, struct ttm_mem_
 		return -EINVAL;
 	switch (mem->mem_type) {
 	case TTM_PL_SYSTEM:
-		
+		/* system memory */
 		return 0;
 	case TTM_PL_TT:
 #if __OS_HAS_AGP
 		if (rdev->flags & RADEON_IS_AGP) {
-			
+			/* RADEON_IS_AGP is set only if AGP is active */
 			mem->bus.offset = mem->start << PAGE_SHIFT;
 			mem->bus.base = rdev->mc.agp_base;
 			mem->bus.is_iomem = !rdev->ddev->agp->cant_use_aperture;
@@ -454,12 +463,16 @@ static int radeon_ttm_io_mem_reserve(struct ttm_bo_device *bdev, struct ttm_mem_
 		break;
 	case TTM_PL_VRAM:
 		mem->bus.offset = mem->start << PAGE_SHIFT;
-		
+		/* check if it's visible */
 		if ((mem->bus.offset + mem->bus.size) > rdev->mc.visible_vram_size)
 			return -EINVAL;
 		mem->bus.base = rdev->mc.aper_base;
 		mem->bus.is_iomem = true;
 #ifdef __alpha__
+		/*
+		 * Alpha: use bus.addr to hold the ioremap() return,
+		 * so we can modify bus.base below.
+		 */
 		if (mem->placement & TTM_PL_FLAG_WC)
 			mem->bus.addr =
 				ioremap_wc(mem->bus.base + mem->bus.offset,
@@ -469,6 +482,12 @@ static int radeon_ttm_io_mem_reserve(struct ttm_bo_device *bdev, struct ttm_mem_
 				ioremap_nocache(mem->bus.base + mem->bus.offset,
 						mem->bus.size);
 
+		/*
+		 * Alpha: Use just the bus offset plus
+		 * the hose/domain memory base for bus.base.
+		 * It then can be used to build PTEs for VRAM
+		 * access, as done in ttm_bo_vm_fault().
+		 */
 		mem->bus.base = (mem->bus.base & 0x0ffffffffUL) +
 			rdev->ddev->hose->dense_mem_base;
 #endif
@@ -509,6 +528,9 @@ static bool radeon_sync_obj_signaled(void *sync_obj, void *sync_arg)
 	return radeon_fence_signaled((struct radeon_fence *)sync_obj);
 }
 
+/*
+ * TTM backend functions.
+ */
 struct radeon_ttm_tt {
 	struct ttm_dma_tt		ttm;
 	struct radeon_device		*rdev;
@@ -690,7 +712,7 @@ int radeon_ttm_init(struct radeon_device *rdev)
 	if (r) {
 		return r;
 	}
-	
+	/* No others user of address space so set it to 0 */
 	r = ttm_bo_device_init(&rdev->mman.bdev,
 			       rdev->mman.bo_global_ref.ref.object,
 			       &radeon_bo_driver, DRM_FILE_PAGE_OFFSET,
@@ -766,6 +788,8 @@ void radeon_ttm_fini(struct radeon_device *rdev)
 	DRM_INFO("radeon: ttm finalized\n");
 }
 
+/* this should only be called at bootup or when userspace
+ * isn't running */
 void radeon_ttm_set_active_vram_size(struct radeon_device *rdev, u64 size)
 {
 	struct ttm_mem_type_manager *man;
@@ -774,7 +798,7 @@ void radeon_ttm_set_active_vram_size(struct radeon_device *rdev, u64 size)
 		return;
 
 	man = &rdev->mman.bdev.man[TTM_PL_VRAM];
-	
+	/* this just adjusts TTM size idea, which sets lpfn to the correct value */
 	man->size = size >> PAGE_SHIFT;
 }
 
@@ -867,7 +891,7 @@ static int radeon_ttm_debugfs_init(struct radeon_device *rdev)
 			radeon_mem_types_list[i].data = rdev->mman.bdev.man[TTM_PL_TT].priv;
 
 	}
-	
+	/* Add ttm page pool to debugfs */
 	sprintf(radeon_mem_types_names[i], "ttm_page_pool");
 	radeon_mem_types_list[i].name = radeon_mem_types_names[i];
 	radeon_mem_types_list[i].show = &ttm_page_alloc_debugfs;

@@ -22,13 +22,14 @@
 
 #define AUDIO_SLOT_BLOCK_NUM 	256
 
+/* Resource allocation based on bit-map management mechanism */
 static int
 get_resource(u8 *rscs, unsigned int amount,
 	     unsigned int multi, unsigned int *ridx)
 {
 	int i, j, k, n;
 
-	
+	/* Check whether there are sufficient resources to meet request. */
 	for (i = 0, n = multi; i < amount; i++) {
 		j = i / 8;
 		k = i % 8;
@@ -37,15 +38,15 @@ get_resource(u8 *rscs, unsigned int amount,
 			continue;
 		}
 		if (!(--n))
-			break; 
+			break; /* found sufficient contiguous resources */
 	}
 
 	if (i >= amount) {
-		
+		/* Can not find sufficient contiguous resources */
 		return -ENOENT;
 	}
 
-	
+	/* Mark the contiguous bits in resource bit-map as used */
 	for (n = multi; n > 0; n--) {
 		j = i / 8;
 		k = i % 8;
@@ -62,7 +63,7 @@ static int put_resource(u8 *rscs, unsigned int multi, unsigned int idx)
 {
 	unsigned int i, j, k, n;
 
-	
+	/* Mark the contiguous bits in resource bit-map as used */
 	for (n = multi, i = idx; n > 0; n--) {
 		j = i / 8;
 		k = i % 8;
@@ -96,7 +97,7 @@ int mgr_put_resource(struct rsc_mgr *mgr, unsigned int n, unsigned int idx)
 }
 
 static unsigned char offset_in_audio_slot_block[NUM_RSCTYP] = {
-	
+	/* SRC channel is at Audio Ring slot 1 every 16 slots. */
 	[SRC]		= 0x1,
 	[AMIXER]	= 0x4,
 	[SUM]		= 0xc,

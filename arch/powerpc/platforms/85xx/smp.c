@@ -65,9 +65,15 @@ smp_85xx_kick_cpu(int nr)
 		return -ENOENT;
 	}
 
+	/*
+	 * A secondary core could be in a spinloop in the bootpage
+	 * (0xfffff000), somewhere in highmem, or somewhere in lowmem.
+	 * The bootpage and highmem can be accessed via ioremap(), but
+	 * we need to directly access the spinloop if its in lowmem.
+	 */
 	ioremappable = *cpu_rel_addr > virt_to_phys(high_memory);
 
-	
+	/* Map the spin table */
 	if (ioremappable)
 		bptr_vaddr = ioremap(*cpu_rel_addr, SIZE_BOOT_ENTRY);
 	else
@@ -83,7 +89,7 @@ smp_85xx_kick_cpu(int nr)
 		flush_dcache_range((ulong)bptr_vaddr,
 				(ulong)(bptr_vaddr + SIZE_BOOT_ENTRY));
 
-	
+	/* Wait a bit for the CPU to ack. */
 	while ((__secondary_hold_acknowledge != hw_cpu) && (++n < 1000))
 		mdelay(1);
 #else
@@ -124,7 +130,7 @@ void mpc85xx_smp_kexec_cpu_down(int crash_shutdown, int secondary)
 
 	if (secondary) {
 		atomic_inc(&kexec_down_cpus);
-		
+		/* loop forever */
 		while (1);
 	}
 }
@@ -144,6 +150,12 @@ static void map_and_flush(unsigned long paddr)
 	kunmap(page);
 }
 
+/**
+ * Before we reset the other cores, we need to flush relevant cache
+ * out to memory so we don't get anything corrupted, some of these flushes
+ * are performed out of an overabundance of caution as interrupts are not
+ * disabled yet and we can switch cores
+ */
 static void mpc85xx_smp_flush_dcache_kexec(struct kimage *image)
 {
 	kimage_entry_t *ptr, entry;
@@ -151,7 +163,7 @@ static void mpc85xx_smp_flush_dcache_kexec(struct kimage *image)
 	int i;
 
 	if (image->type == KEXEC_TYPE_DEFAULT) {
-		
+		/* normal kexec images are stored in temporary pages */
 		for (ptr = &image->head; (entry = *ptr) && !(entry & IND_DONE);
 		     ptr = (entry & IND_INDIRECTION) ?
 				phys_to_virt(entry & PAGE_MASK) : ptr + 1) {
@@ -159,10 +171,10 @@ static void mpc85xx_smp_flush_dcache_kexec(struct kimage *image)
 				map_and_flush(entry);
 			}
 		}
-		
+		/* flush out last IND_DONE page */
 		map_and_flush(entry);
 	} else {
-		
+		/* crash type kexec images are copied to the crash region */
 		for (i = 0; i < image->nr_segments; i++) {
 			struct kexec_segment *seg = &image->segment[i];
 			for (paddr = seg->mem; paddr < seg->mem + seg->memsz;
@@ -172,7 +184,7 @@ static void mpc85xx_smp_flush_dcache_kexec(struct kimage *image)
 		}
 	}
 
-	
+	/* also flush the kimage struct to be passed in as well */
 	flush_dcache_range((unsigned long)image,
 			   (unsigned long)image + sizeof(*image));
 }
@@ -204,7 +216,7 @@ static void mpc85xx_smp_machine_kexec(struct kimage *image)
 
 	default_machine_kexec(image);
 }
-#endif 
+#endif /* CONFIG_KEXEC */
 
 static void __init
 smp_85xx_setup_cpu(int cpu_nr)
@@ -229,6 +241,10 @@ void __init mpc85xx_smp_init(void)
 	}
 
 	if (cpu_has_feature(CPU_FTR_DBELL)) {
+		/*
+		 * If left NULL, .message_pass defaults to
+		 * smp_muxed_ipi_message_pass
+		 */
 		smp_85xx_ops.message_pass = NULL;
 		smp_85xx_ops.cause_ipi = doorbell_cause_ipi;
 	}

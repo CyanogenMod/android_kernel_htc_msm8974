@@ -91,15 +91,18 @@ bool iwl_check_for_ct_kill(struct iwl_priv *priv);
 
 void iwlagn_lift_passive_no_rx(struct iwl_priv *priv);
 
+/* MAC80211 */
 struct ieee80211_hw *iwl_alloc_all(void);
 int iwlagn_mac_setup_register(struct iwl_priv *priv,
 			      const struct iwl_ucode_capabilities *capa);
 void iwlagn_mac_unregister(struct iwl_priv *priv);
 
+/* commands */
 int iwl_dvm_send_cmd(struct iwl_priv *priv, struct iwl_host_cmd *cmd);
 int iwl_dvm_send_cmd_pdu(struct iwl_priv *priv, u8 id,
 			 u32 flags, u16 len, const void *data);
 
+/* RXON */
 int iwlagn_set_pan_params(struct iwl_priv *priv);
 int iwlagn_commit_rxon(struct iwl_priv *priv, struct iwl_rxon_context *ctx);
 void iwlagn_set_rxon_chain(struct iwl_priv *priv, struct iwl_rxon_context *ctx);
@@ -111,6 +114,7 @@ void iwlagn_bss_info_changed(struct ieee80211_hw *hw,
 void iwlagn_config_ht40(struct ieee80211_conf *conf,
 			struct iwl_rxon_context *ctx);
 
+/* uCode */
 int iwlagn_rx_calib_result(struct iwl_priv *priv,
 			    struct iwl_rx_cmd_buffer *rxb,
 			    struct iwl_device_cmd *cmd);
@@ -125,6 +129,7 @@ int iwl_calib_set(struct iwl_priv *priv,
 		  const struct iwl_calib_hdr *cmd, int len);
 void iwl_calib_free_results(struct iwl_priv *priv);
 
+/* lib */
 int iwlagn_send_tx_power(struct iwl_priv *priv);
 void iwlagn_temperature(struct iwl_priv *priv);
 u16 iwl_eeprom_calib_version(struct iwl_shared *shrd);
@@ -137,10 +142,12 @@ int iwlagn_send_patterns(struct iwl_priv *priv,
 int iwlagn_suspend(struct iwl_priv *priv, struct cfg80211_wowlan *wowlan);
 #endif
 
+/* rx */
 int iwlagn_hwrate_to_mac80211_idx(u32 rate_n_flags, enum ieee80211_band band);
 void iwl_setup_rx_handlers(struct iwl_priv *priv);
 
 
+/* tx */
 int iwlagn_tx_skb(struct iwl_priv *priv, struct sk_buff *skb);
 int iwlagn_tx_agg_start(struct iwl_priv *priv, struct ieee80211_vif *vif,
 			struct ieee80211_sta *sta, u16 tid, u16 *ssn);
@@ -179,9 +186,11 @@ static inline bool iwl_is_tx_success(u32 status)
 
 u8 iwl_toggle_tx_ant(struct iwl_priv *priv, u8 ant_idx, u8 valid);
 
+/* scan */
 void iwlagn_post_scan(struct iwl_priv *priv);
 void iwlagn_disable_roc(struct iwl_priv *priv);
 
+/* bt coex */
 void iwlagn_send_advance_bt_config(struct iwl_priv *priv);
 int iwlagn_bt_coex_profile_notif(struct iwl_priv *priv,
 				  struct iwl_rx_cmd_buffer *rxb,
@@ -201,13 +210,16 @@ static inline const char *iwl_get_agg_tx_fail_reason(u16 status) { return ""; }
 #endif
 
 
+/* station management */
 int iwlagn_manage_ibss_station(struct iwl_priv *priv,
 			       struct ieee80211_vif *vif, bool add);
-#define IWL_STA_DRIVER_ACTIVE BIT(0) 
-#define IWL_STA_UCODE_ACTIVE  BIT(1) 
-#define IWL_STA_UCODE_INPROGRESS  BIT(2) 
-#define IWL_STA_LOCAL BIT(3) 
-#define IWL_STA_BCAST BIT(4) 
+#define IWL_STA_DRIVER_ACTIVE BIT(0) /* driver entry is active */
+#define IWL_STA_UCODE_ACTIVE  BIT(1) /* ucode entry is active */
+#define IWL_STA_UCODE_INPROGRESS  BIT(2) /* ucode entry is in process of
+					    being activated */
+#define IWL_STA_LOCAL BIT(3) /* station state not directed by mac80211;
+				(this is for the IBSS BSSID stations) */
+#define IWL_STA_BCAST BIT(4) /* this station is the special bcast station */
 
 
 void iwl_restore_stations(struct iwl_priv *priv, struct iwl_rxon_context *ctx);
@@ -277,6 +289,7 @@ int iwl_update_bcast_station(struct iwl_priv *priv,
 			     struct iwl_rxon_context *ctx);
 int iwl_update_bcast_stations(struct iwl_priv *priv);
 
+/* rate */
 static inline u32 iwl_ant_idx_to_flags(u8 ant_idx)
 {
 	return BIT(ant_idx) << RATE_MCS_ANT_POS;
@@ -292,9 +305,11 @@ static inline __le32 iwl_hw_set_rate_n_flags(u8 rate, u32 flags)
 	return cpu_to_le32(flags|(u32)rate);
 }
 
+/* eeprom */
 void iwl_eeprom_get_mac(const struct iwl_shared *shrd, u8 *mac);
 
 extern int iwl_alive_start(struct iwl_priv *priv);
+/* svtool */
 #ifdef CONFIG_IWLWIFI_DEVICE_TESTMODE
 extern int iwlagn_mac_testmode_cmd(struct ieee80211_hw *hw, void *data,
 				   int len);
@@ -337,9 +352,12 @@ static inline void iwl_print_rx_config_cmd(struct iwl_priv *priv,
 }
 #endif
 
+/* status checks */
 
 static inline int iwl_is_ready(struct iwl_priv *priv)
 {
+	/* The adapter is 'ready' if READY and GEO_CONFIGURED bits are
+	 * set but EXIT_PENDING is not */
 	return test_bit(STATUS_READY, &priv->status) &&
 	       test_bit(STATUS_GEO_CONFIGURED, &priv->status) &&
 	       !test_bit(STATUS_EXIT_PENDING, &priv->status);
@@ -386,6 +404,6 @@ do {									\
 	else								\
 		__iwl_err(trans(m)->dev, true, true, fmt, ##args);	\
 } while (0)
-#endif				
+#endif				/* CONFIG_IWLWIFI_DEBUG */
 
-#endif 
+#endif /* __iwl_agn_h__ */

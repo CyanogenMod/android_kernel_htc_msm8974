@@ -1,3 +1,12 @@
+/*
+ *  ebt_stp
+ *
+ *	Authors:
+ *	Bart De Schuymer <bdschuym@pandora.be>
+ *	Stephen Hemminger <shemminger@osdl.org>
+ *
+ *  July, 2003
+ */
 #include <linux/etherdevice.h>
 #include <linux/module.h>
 #include <linux/netfilter/x_tables.h>
@@ -122,7 +131,7 @@ ebt_stp_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	if (sp == NULL)
 		return false;
 
-	
+	/* The stp code only considers these */
 	if (memcmp(sp, header, sizeof(header)))
 		return false;
 
@@ -154,7 +163,7 @@ static int ebt_stp_mt_check(const struct xt_mtchk_param *par)
 	if (info->bitmask & ~EBT_STP_MASK || info->invflags & ~EBT_STP_MASK ||
 	    !(info->bitmask & EBT_STP_MASK))
 		return -EINVAL;
-	
+	/* Make sure the match only receives stp frames */
 	if (compare_ether_addr(e->destmac, bridge_ula) ||
 	    compare_ether_addr(e->destmsk, msk) || !(e->bitmask & EBT_DESTMAC))
 		return -EINVAL;

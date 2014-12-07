@@ -88,6 +88,13 @@ static int adis16203_spi_write_reg_16(struct iio_dev *indio_dev,
 	return ret;
 }
 
+/**
+ * adis16203_spi_read_reg_16() - read 2 bytes from a 16-bit register
+ * @indio_dev: iio device associated with child of actual device
+ * @reg_address: the address of the lower of the two registers. Second register
+ *               is assumed to have address one greater.
+ * @val: somewhere to pass back the value read
+ **/
 static int adis16203_spi_read_reg_16(struct iio_dev *indio_dev,
 		u8 lower_reg_address,
 		u16 *val)
@@ -230,21 +237,21 @@ static int adis16203_initial_setup(struct iio_dev *indio_dev)
 {
 	int ret;
 
-	
+	/* Disable IRQ */
 	ret = adis16203_set_irq(indio_dev, false);
 	if (ret) {
 		dev_err(&indio_dev->dev, "disable irq failed");
 		goto err_ret;
 	}
 
-	
+	/* Do self test */
 	ret = adis16203_self_test(indio_dev);
 	if (ret) {
 		dev_err(&indio_dev->dev, "self test failure");
 		goto err_ret;
 	}
 
-	
+	/* Read status register to check the result */
 	ret = adis16203_check_status(indio_dev);
 	if (ret) {
 		adis16203_reset(indio_dev);
@@ -283,7 +290,7 @@ static int adis16203_write_raw(struct iio_dev *indio_dev,
 			       int val2,
 			       long mask)
 {
-	
+	/* currently only one writable parameter which keeps this simple */
 	u8 addr = adis16203_addresses[chan->address][1];
 	return adis16203_spi_write_reg_16(indio_dev, addr, val & 0x3FFF);
 }
@@ -378,7 +385,7 @@ static struct iio_chan_spec adis16203_channels[] = {
 		 IIO_CHAN_INFO_CALIBBIAS_SEPARATE_BIT,
 		 incli_x, ADIS16203_SCAN_INCLI_X,
 		 IIO_ST('s', 14, 16, 0), 0),
-	
+	/* Fixme: Not what it appears to be - see data sheet */
 	IIO_CHAN(IIO_INCLI, 1, 0, 0, NULL, 0, IIO_MOD_Y,
 		 IIO_CHAN_INFO_SCALE_SHARED_BIT,
 		 incli_y, ADIS16203_SCAN_INCLI_Y,
@@ -415,14 +422,14 @@ static int __devinit adis16203_probe(struct spi_device *spi)
 	struct iio_dev *indio_dev;
 	struct adis16203_state *st;
 
-	
+	/* setup the industrialio driver allocated elements */
 	indio_dev = iio_allocate_device(sizeof(*st));
 	if (indio_dev == NULL) {
 		ret = -ENOMEM;
 		goto error_ret;
 	}
 	st = iio_priv(indio_dev);
-	
+	/* this is only used for removal purposes */
 	spi_set_drvdata(spi, indio_dev);
 	st->us = spi;
 	mutex_init(&st->buf_lock);
@@ -452,7 +459,7 @@ static int __devinit adis16203_probe(struct spi_device *spi)
 			goto error_uninitialize_ring;
 	}
 
-	
+	/* Get the device into a sane initial state */
 	ret = adis16203_initial_setup(indio_dev);
 	if (ret)
 		goto error_remove_trigger;

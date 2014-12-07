@@ -37,4 +37,4 @@
 
 #define BASTPMU_RESET_GUARD	(0x55)
 
-#endif 
+#endif /* __ASM_ARCH_BASTPMU_H */

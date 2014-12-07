@@ -47,7 +47,7 @@ enum panel_type {
 struct panel_info {
 	u32 width_mm;
 	u32 height_mm;
-	
+	/* Other info */
 };
 
 struct panel_funcs {

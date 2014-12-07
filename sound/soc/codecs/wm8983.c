@@ -28,122 +28,123 @@
 #include "wm8983.h"
 
 static const u16 wm8983_reg_defs[WM8983_MAX_REGISTER + 1] = {
-	[0x00] = 0x0000,     
-	[0x01] = 0x0000,     
-	[0x02] = 0x0000,     
-	[0x03] = 0x0000,     
-	[0x04] = 0x0050,     
-	[0x05] = 0x0000,     
-	[0x06] = 0x0140,     
-	[0x07] = 0x0000,     
-	[0x08] = 0x0000,     
-	[0x09] = 0x0000,     
-	[0x0A] = 0x0000,     
-	[0x0B] = 0x00FF,     
-	[0x0C] = 0x00FF,     
-	[0x0D] = 0x0000,     
-	[0x0E] = 0x0100,     
-	[0x0F] = 0x00FF,     
-	[0x10] = 0x00FF,     
-	[0x12] = 0x012C,     
-	[0x13] = 0x002C,     
-	[0x14] = 0x002C,     
-	[0x15] = 0x002C,     
-	[0x16] = 0x002C,     
-	[0x18] = 0x0032,     
-	[0x19] = 0x0000,     
-	[0x1B] = 0x0000,     
-	[0x1C] = 0x0000,     
-	[0x1D] = 0x0000,     
-	[0x1E] = 0x0000,     
-	[0x20] = 0x0038,     
-	[0x21] = 0x000B,     
-	[0x22] = 0x0032,     
-	[0x23] = 0x0000,     
-	[0x24] = 0x0008,     
-	[0x25] = 0x000C,     
-	[0x26] = 0x0093,     
-	[0x27] = 0x00E9,     
-	[0x29] = 0x0000,     
-	[0x2A] = 0x0000,     
-	[0x2B] = 0x0000,     
-	[0x2C] = 0x0033,     
-	[0x2D] = 0x0010,     
-	[0x2E] = 0x0010,     
-	[0x2F] = 0x0100,     
-	[0x30] = 0x0100,     
-	[0x31] = 0x0002,     
-	[0x32] = 0x0001,     
-	[0x33] = 0x0001,     
-	[0x34] = 0x0039,     
-	[0x35] = 0x0039,     
-	[0x36] = 0x0039,     
-	[0x37] = 0x0039,     
-	[0x38] = 0x0001,     
-	[0x39] = 0x0001,     
-	[0x3D] = 0x0000      
+	[0x00] = 0x0000,     /* R0  - Software Reset */
+	[0x01] = 0x0000,     /* R1  - Power management 1 */
+	[0x02] = 0x0000,     /* R2  - Power management 2 */
+	[0x03] = 0x0000,     /* R3  - Power management 3 */
+	[0x04] = 0x0050,     /* R4  - Audio Interface */
+	[0x05] = 0x0000,     /* R5  - Companding control */
+	[0x06] = 0x0140,     /* R6  - Clock Gen control */
+	[0x07] = 0x0000,     /* R7  - Additional control */
+	[0x08] = 0x0000,     /* R8  - GPIO Control */
+	[0x09] = 0x0000,     /* R9  - Jack Detect Control 1 */
+	[0x0A] = 0x0000,     /* R10 - DAC Control */
+	[0x0B] = 0x00FF,     /* R11 - Left DAC digital Vol */
+	[0x0C] = 0x00FF,     /* R12 - Right DAC digital vol */
+	[0x0D] = 0x0000,     /* R13 - Jack Detect Control 2 */
+	[0x0E] = 0x0100,     /* R14 - ADC Control */
+	[0x0F] = 0x00FF,     /* R15 - Left ADC Digital Vol */
+	[0x10] = 0x00FF,     /* R16 - Right ADC Digital Vol */
+	[0x12] = 0x012C,     /* R18 - EQ1 - low shelf */
+	[0x13] = 0x002C,     /* R19 - EQ2 - peak 1 */
+	[0x14] = 0x002C,     /* R20 - EQ3 - peak 2 */
+	[0x15] = 0x002C,     /* R21 - EQ4 - peak 3 */
+	[0x16] = 0x002C,     /* R22 - EQ5 - high shelf */
+	[0x18] = 0x0032,     /* R24 - DAC Limiter 1 */
+	[0x19] = 0x0000,     /* R25 - DAC Limiter 2 */
+	[0x1B] = 0x0000,     /* R27 - Notch Filter 1 */
+	[0x1C] = 0x0000,     /* R28 - Notch Filter 2 */
+	[0x1D] = 0x0000,     /* R29 - Notch Filter 3 */
+	[0x1E] = 0x0000,     /* R30 - Notch Filter 4 */
+	[0x20] = 0x0038,     /* R32 - ALC control 1 */
+	[0x21] = 0x000B,     /* R33 - ALC control 2 */
+	[0x22] = 0x0032,     /* R34 - ALC control 3 */
+	[0x23] = 0x0000,     /* R35 - Noise Gate */
+	[0x24] = 0x0008,     /* R36 - PLL N */
+	[0x25] = 0x000C,     /* R37 - PLL K 1 */
+	[0x26] = 0x0093,     /* R38 - PLL K 2 */
+	[0x27] = 0x00E9,     /* R39 - PLL K 3 */
+	[0x29] = 0x0000,     /* R41 - 3D control */
+	[0x2A] = 0x0000,     /* R42 - OUT4 to ADC */
+	[0x2B] = 0x0000,     /* R43 - Beep control */
+	[0x2C] = 0x0033,     /* R44 - Input ctrl */
+	[0x2D] = 0x0010,     /* R45 - Left INP PGA gain ctrl */
+	[0x2E] = 0x0010,     /* R46 - Right INP PGA gain ctrl */
+	[0x2F] = 0x0100,     /* R47 - Left ADC BOOST ctrl */
+	[0x30] = 0x0100,     /* R48 - Right ADC BOOST ctrl */
+	[0x31] = 0x0002,     /* R49 - Output ctrl */
+	[0x32] = 0x0001,     /* R50 - Left mixer ctrl */
+	[0x33] = 0x0001,     /* R51 - Right mixer ctrl */
+	[0x34] = 0x0039,     /* R52 - LOUT1 (HP) volume ctrl */
+	[0x35] = 0x0039,     /* R53 - ROUT1 (HP) volume ctrl */
+	[0x36] = 0x0039,     /* R54 - LOUT2 (SPK) volume ctrl */
+	[0x37] = 0x0039,     /* R55 - ROUT2 (SPK) volume ctrl */
+	[0x38] = 0x0001,     /* R56 - OUT3 mixer ctrl */
+	[0x39] = 0x0001,     /* R57 - OUT4 (MONO) mix ctrl */
+	[0x3D] = 0x0000      /* R61 - BIAS CTRL */
 };
 
 static const struct wm8983_reg_access {
-	u16 read; 
-	u16 write; 
+	u16 read; /* Mask of readable bits */
+	u16 write; /* Mask of writable bits */
 } wm8983_access_masks[WM8983_MAX_REGISTER + 1] = {
-	[0x00] = { 0x0000, 0x01FF }, 
-	[0x01] = { 0x0000, 0x01FF }, 
-	[0x02] = { 0x0000, 0x01FF }, 
-	[0x03] = { 0x0000, 0x01EF }, 
-	[0x04] = { 0x0000, 0x01FF }, 
-	[0x05] = { 0x0000, 0x003F }, 
-	[0x06] = { 0x0000, 0x01FD }, 
-	[0x07] = { 0x0000, 0x000F }, 
-	[0x08] = { 0x0000, 0x003F }, 
-	[0x09] = { 0x0000, 0x0070 }, 
-	[0x0A] = { 0x0000, 0x004F }, 
-	[0x0B] = { 0x0000, 0x01FF }, 
-	[0x0C] = { 0x0000, 0x01FF }, 
-	[0x0D] = { 0x0000, 0x00FF }, 
-	[0x0E] = { 0x0000, 0x01FB }, 
-	[0x0F] = { 0x0000, 0x01FF }, 
-	[0x10] = { 0x0000, 0x01FF }, 
-	[0x12] = { 0x0000, 0x017F }, 
-	[0x13] = { 0x0000, 0x017F }, 
-	[0x14] = { 0x0000, 0x017F }, 
-	[0x15] = { 0x0000, 0x017F }, 
-	[0x16] = { 0x0000, 0x007F }, 
-	[0x18] = { 0x0000, 0x01FF }, 
-	[0x19] = { 0x0000, 0x007F }, 
-	[0x1B] = { 0x0000, 0x01FF }, 
-	[0x1C] = { 0x0000, 0x017F }, 
-	[0x1D] = { 0x0000, 0x017F }, 
-	[0x1E] = { 0x0000, 0x017F }, 
-	[0x20] = { 0x0000, 0x01BF }, 
-	[0x21] = { 0x0000, 0x00FF }, 
-	[0x22] = { 0x0000, 0x01FF }, 
-	[0x23] = { 0x0000, 0x000F }, 
-	[0x24] = { 0x0000, 0x001F }, 
-	[0x25] = { 0x0000, 0x003F }, 
-	[0x26] = { 0x0000, 0x01FF }, 
-	[0x27] = { 0x0000, 0x01FF }, 
-	[0x29] = { 0x0000, 0x000F }, 
-	[0x2A] = { 0x0000, 0x01E7 }, 
-	[0x2B] = { 0x0000, 0x01BF }, 
-	[0x2C] = { 0x0000, 0x0177 }, 
-	[0x2D] = { 0x0000, 0x01FF }, 
-	[0x2E] = { 0x0000, 0x01FF }, 
-	[0x2F] = { 0x0000, 0x0177 }, 
-	[0x30] = { 0x0000, 0x0177 }, 
-	[0x31] = { 0x0000, 0x007F }, 
-	[0x32] = { 0x0000, 0x01FF }, 
-	[0x33] = { 0x0000, 0x01FF }, 
-	[0x34] = { 0x0000, 0x01FF }, 
-	[0x35] = { 0x0000, 0x01FF }, 
-	[0x36] = { 0x0000, 0x01FF }, 
-	[0x37] = { 0x0000, 0x01FF }, 
-	[0x38] = { 0x0000, 0x004F }, 
-	[0x39] = { 0x0000, 0x00FF }, 
-	[0x3D] = { 0x0000, 0x0100 }  
+	[0x00] = { 0x0000, 0x01FF }, /* R0  - Software Reset */
+	[0x01] = { 0x0000, 0x01FF }, /* R1  - Power management 1 */
+	[0x02] = { 0x0000, 0x01FF }, /* R2  - Power management 2 */
+	[0x03] = { 0x0000, 0x01EF }, /* R3  - Power management 3 */
+	[0x04] = { 0x0000, 0x01FF }, /* R4  - Audio Interface */
+	[0x05] = { 0x0000, 0x003F }, /* R5  - Companding control */
+	[0x06] = { 0x0000, 0x01FD }, /* R6  - Clock Gen control */
+	[0x07] = { 0x0000, 0x000F }, /* R7  - Additional control */
+	[0x08] = { 0x0000, 0x003F }, /* R8  - GPIO Control */
+	[0x09] = { 0x0000, 0x0070 }, /* R9  - Jack Detect Control 1 */
+	[0x0A] = { 0x0000, 0x004F }, /* R10 - DAC Control */
+	[0x0B] = { 0x0000, 0x01FF }, /* R11 - Left DAC digital Vol */
+	[0x0C] = { 0x0000, 0x01FF }, /* R12 - Right DAC digital vol */
+	[0x0D] = { 0x0000, 0x00FF }, /* R13 - Jack Detect Control 2 */
+	[0x0E] = { 0x0000, 0x01FB }, /* R14 - ADC Control */
+	[0x0F] = { 0x0000, 0x01FF }, /* R15 - Left ADC Digital Vol */
+	[0x10] = { 0x0000, 0x01FF }, /* R16 - Right ADC Digital Vol */
+	[0x12] = { 0x0000, 0x017F }, /* R18 - EQ1 - low shelf */
+	[0x13] = { 0x0000, 0x017F }, /* R19 - EQ2 - peak 1 */
+	[0x14] = { 0x0000, 0x017F }, /* R20 - EQ3 - peak 2 */
+	[0x15] = { 0x0000, 0x017F }, /* R21 - EQ4 - peak 3 */
+	[0x16] = { 0x0000, 0x007F }, /* R22 - EQ5 - high shelf */
+	[0x18] = { 0x0000, 0x01FF }, /* R24 - DAC Limiter 1 */
+	[0x19] = { 0x0000, 0x007F }, /* R25 - DAC Limiter 2 */
+	[0x1B] = { 0x0000, 0x01FF }, /* R27 - Notch Filter 1 */
+	[0x1C] = { 0x0000, 0x017F }, /* R28 - Notch Filter 2 */
+	[0x1D] = { 0x0000, 0x017F }, /* R29 - Notch Filter 3 */
+	[0x1E] = { 0x0000, 0x017F }, /* R30 - Notch Filter 4 */
+	[0x20] = { 0x0000, 0x01BF }, /* R32 - ALC control 1 */
+	[0x21] = { 0x0000, 0x00FF }, /* R33 - ALC control 2 */
+	[0x22] = { 0x0000, 0x01FF }, /* R34 - ALC control 3 */
+	[0x23] = { 0x0000, 0x000F }, /* R35 - Noise Gate */
+	[0x24] = { 0x0000, 0x001F }, /* R36 - PLL N */
+	[0x25] = { 0x0000, 0x003F }, /* R37 - PLL K 1 */
+	[0x26] = { 0x0000, 0x01FF }, /* R38 - PLL K 2 */
+	[0x27] = { 0x0000, 0x01FF }, /* R39 - PLL K 3 */
+	[0x29] = { 0x0000, 0x000F }, /* R41 - 3D control */
+	[0x2A] = { 0x0000, 0x01E7 }, /* R42 - OUT4 to ADC */
+	[0x2B] = { 0x0000, 0x01BF }, /* R43 - Beep control */
+	[0x2C] = { 0x0000, 0x0177 }, /* R44 - Input ctrl */
+	[0x2D] = { 0x0000, 0x01FF }, /* R45 - Left INP PGA gain ctrl */
+	[0x2E] = { 0x0000, 0x01FF }, /* R46 - Right INP PGA gain ctrl */
+	[0x2F] = { 0x0000, 0x0177 }, /* R47 - Left ADC BOOST ctrl */
+	[0x30] = { 0x0000, 0x0177 }, /* R48 - Right ADC BOOST ctrl */
+	[0x31] = { 0x0000, 0x007F }, /* R49 - Output ctrl */
+	[0x32] = { 0x0000, 0x01FF }, /* R50 - Left mixer ctrl */
+	[0x33] = { 0x0000, 0x01FF }, /* R51 - Right mixer ctrl */
+	[0x34] = { 0x0000, 0x01FF }, /* R52 - LOUT1 (HP) volume ctrl */
+	[0x35] = { 0x0000, 0x01FF }, /* R53 - ROUT1 (HP) volume ctrl */
+	[0x36] = { 0x0000, 0x01FF }, /* R54 - LOUT2 (SPK) volume ctrl */
+	[0x37] = { 0x0000, 0x01FF }, /* R55 - ROUT2 (SPK) volume ctrl */
+	[0x38] = { 0x0000, 0x004F }, /* R56 - OUT3 mixer ctrl */
+	[0x39] = { 0x0000, 0x00FF }, /* R57 - OUT4 (MONO) mix ctrl */
+	[0x3D] = { 0x0000, 0x0100 }  /* R61 - BIAS CTRL */
 };
 
+/* vol/gain update regs */
 static const int vol_update_regs[] = {
 	WM8983_LEFT_DAC_DIGITAL_VOL,
 	WM8983_RIGHT_DAC_DIGITAL_VOL,
@@ -593,17 +594,17 @@ static int eqmode_put(struct snd_kcontrol *kcontrol,
 
 	regpwr2 = snd_soc_read(codec, WM8983_POWER_MANAGEMENT_2);
 	regpwr3 = snd_soc_read(codec, WM8983_POWER_MANAGEMENT_3);
-	
+	/* disable the DACs and ADCs */
 	snd_soc_update_bits(codec, WM8983_POWER_MANAGEMENT_2,
 			    WM8983_ADCENR_MASK | WM8983_ADCENL_MASK, 0);
 	snd_soc_update_bits(codec, WM8983_POWER_MANAGEMENT_3,
 			    WM8983_DACENR_MASK | WM8983_DACENL_MASK, 0);
-	
+	/* set the desired eqmode */
 	snd_soc_update_bits(codec, WM8983_EQ1_LOW_SHELF,
 			    WM8983_EQ3DMODE_MASK,
 			    ucontrol->value.integer.value[0]
 			    << WM8983_EQ3DMODE_SHIFT);
-	
+	/* restore DAC/ADC configuration */
 	snd_soc_write(codec, WM8983_POWER_MANAGEMENT_2, regpwr2);
 	snd_soc_write(codec, WM8983_POWER_MANAGEMENT_3, regpwr3);
 	return 0;
@@ -668,7 +669,7 @@ static int wm8983_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	snd_soc_update_bits(codec, WM8983_CLOCK_GEN_CONTROL,
 			    WM8983_MS_MASK, master << WM8983_MS_SHIFT);
 
-	
+	/* FIXME: We don't currently support DSP A/B modes */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_DSP_A:
 	case SND_SOC_DAIFMT_DSP_B:
@@ -745,6 +746,10 @@ static int wm8983_hw_params(struct snd_pcm_substream *substream,
 	snd_soc_update_bits(codec, WM8983_AUDIO_INTERFACE,
 			    WM8983_WL_MASK, blen << WM8983_WL_SHIFT);
 
+	/*
+	 * match to the nearest possible sample rate and rely
+	 * on the array index to configure the SR register
+	 */
 	srate_idx = 0;
 	srate_best = abs(srates[0] - params_rate(params));
 	for (i = 1; i < ARRAY_SIZE(srates); ++i) {
@@ -777,7 +782,7 @@ static int wm8983_hw_params(struct snd_pcm_substream *substream,
 	snd_soc_update_bits(codec, WM8983_CLOCK_GEN_CONTROL,
 			    WM8983_MCLKDIV_MASK, i << WM8983_MCLKDIV_SHIFT);
 
-	
+	/* select the appropriate bclk divider */
 	tmp = (wm8983->sysclk / fs_ratios[i].div) * 10;
 	for (i = 0; i < ARRAY_SIZE(bclk_divs); ++i) {
 		if (wm8983->bclk == tmp / bclk_divs[i])
@@ -852,22 +857,22 @@ static int wm8983_set_pll(struct snd_soc_dai *dai, int pll_id,
 			return ret;
 	}
 
-	
+	/* disable the PLL before re-programming it */
 	snd_soc_update_bits(codec, WM8983_POWER_MANAGEMENT_1,
 			    WM8983_PLLEN_MASK, 0);
 
 	if (!freq_in || !freq_out)
 		return 0;
 
-	
+	/* set PLLN and PRESCALE */
 	snd_soc_write(codec, WM8983_PLL_N,
 		      (pll_div.div2 << WM8983_PLL_PRESCALE_SHIFT)
 		      | pll_div.n);
-	
+	/* set PLLK */
 	snd_soc_write(codec, WM8983_PLL_K_3, pll_div.k & 0x1ff);
 	snd_soc_write(codec, WM8983_PLL_K_2, (pll_div.k >> 9) & 0x1ff);
 	snd_soc_write(codec, WM8983_PLL_K_1, (pll_div.k >> 18));
-	
+	/* enable the PLL */
 	snd_soc_update_bits(codec, WM8983_POWER_MANAGEMENT_1,
 			    WM8983_PLLEN_MASK, WM8983_PLLEN);
 	return 0;
@@ -905,7 +910,7 @@ static int wm8983_set_bias_level(struct snd_soc_codec *codec,
 	switch (level) {
 	case SND_SOC_BIAS_ON:
 	case SND_SOC_BIAS_PREPARE:
-		
+		/* VMID at 100k */
 		snd_soc_update_bits(codec, WM8983_POWER_MANAGEMENT_1,
 				    WM8983_VMIDSEL_MASK,
 				    1 << WM8983_VMIDSEL_SHIFT);
@@ -917,41 +922,41 @@ static int wm8983_set_bias_level(struct snd_soc_codec *codec,
 				dev_err(codec->dev, "Failed to sync cache: %d\n", ret);
 				return ret;
 			}
-			
+			/* enable anti-pop features */
 			snd_soc_update_bits(codec, WM8983_OUT4_TO_ADC,
 					    WM8983_POBCTRL_MASK | WM8983_DELEN_MASK,
 					    WM8983_POBCTRL | WM8983_DELEN);
-			
+			/* enable thermal shutdown */
 			snd_soc_update_bits(codec, WM8983_OUTPUT_CTRL,
 					    WM8983_TSDEN_MASK, WM8983_TSDEN);
-			
+			/* enable BIASEN */
 			snd_soc_update_bits(codec, WM8983_POWER_MANAGEMENT_1,
 					    WM8983_BIASEN_MASK, WM8983_BIASEN);
-			
+			/* VMID at 100k */
 			snd_soc_update_bits(codec, WM8983_POWER_MANAGEMENT_1,
 					    WM8983_VMIDSEL_MASK,
 					    1 << WM8983_VMIDSEL_SHIFT);
 			msleep(250);
-			
+			/* disable anti-pop features */
 			snd_soc_update_bits(codec, WM8983_OUT4_TO_ADC,
 					    WM8983_POBCTRL_MASK |
 					    WM8983_DELEN_MASK, 0);
 		}
 
-		
+		/* VMID at 500k */
 		snd_soc_update_bits(codec, WM8983_POWER_MANAGEMENT_1,
 				    WM8983_VMIDSEL_MASK,
 				    2 << WM8983_VMIDSEL_SHIFT);
 		break;
 	case SND_SOC_BIAS_OFF:
-		
+		/* disable thermal shutdown */
 		snd_soc_update_bits(codec, WM8983_OUTPUT_CTRL,
 				    WM8983_TSDEN_MASK, 0);
-		
+		/* disable VMIDSEL and BIASEN */
 		snd_soc_update_bits(codec, WM8983_POWER_MANAGEMENT_1,
 				    WM8983_VMIDSEL_MASK | WM8983_BIASEN_MASK,
 				    0);
-		
+		/* wait for VMID to discharge */
 		msleep(100);
 		snd_soc_write(codec, WM8983_POWER_MANAGEMENT_1, 0);
 		snd_soc_write(codec, WM8983_POWER_MANAGEMENT_2, 0);
@@ -1004,22 +1009,22 @@ static int wm8983_probe(struct snd_soc_codec *codec)
 		return ret;
 	}
 
-	
+	/* set the vol/gain update bits */
 	for (i = 0; i < ARRAY_SIZE(vol_update_regs); ++i)
 		snd_soc_update_bits(codec, vol_update_regs[i],
 				    0x100, 0x100);
 
-	
+	/* mute all outputs and set PGAs to minimum gain */
 	for (i = WM8983_LOUT1_HP_VOLUME_CTRL;
 	     i <= WM8983_OUT4_MONO_MIX_CTRL; ++i)
 		snd_soc_update_bits(codec, i, 0x40, 0x40);
 
-	
+	/* enable soft mute */
 	snd_soc_update_bits(codec, WM8983_DAC_CONTROL,
 			    WM8983_SOFTMUTE_MASK,
 			    WM8983_SOFTMUTE);
 
-	
+	/* enable BIASCUT */
 	snd_soc_update_bits(codec, WM8983_BIAS_CTRL,
 			    WM8983_BIASCUT, WM8983_BIASCUT);
 	return 0;

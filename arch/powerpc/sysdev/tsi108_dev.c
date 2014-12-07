@@ -130,6 +130,14 @@ static int __init tsi108_eth_of_init(void)
 		tsi_eth_data.phy = *phy_id;
 		tsi_eth_data.irq_num = irq_of_parse_and_map(np, 0);
 
+		/* Some boards with the TSI108 bridge (e.g. Holly)
+		 * have a miswiring of the ethernet PHYs which
+		 * requires a workaround.  The special
+		 * "txc-rxc-delay-disable" property enables this
+		 * workaround.  FIXME: Need to port the tsi108_eth
+		 * driver itself to phylib and use a non-misleading
+		 * name for the workaround flag - it's not actually to
+		 * do with the model of PHY in use */
 		if (of_get_property(phy, "txc-rxc-delay-disable", NULL))
 			tsi_eth_data.phy_type = TSI108_PHY_BCM54XX;
 		of_node_put(phy);

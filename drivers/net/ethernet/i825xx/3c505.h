@@ -1,52 +1,95 @@
+/*****************************************************************
+ *
+ *  defines for 3Com Etherlink Plus adapter
+ *
+ *****************************************************************/
 
 #define ELP_DMA       6
 #define ELP_RX_PCBS   4
 #define ELP_MAX_CARDS 4
 
-#define	PORT_COMMAND	0x00	
-#define	PORT_STATUS	0x02	
-#define	PORT_AUXDMA	0x02	
-#define	PORT_DATA	0x04	
-#define	PORT_CONTROL	0x06	
+/*
+ * I/O register offsets
+ */
+#define	PORT_COMMAND	0x00	/* read/write, 8-bit */
+#define	PORT_STATUS	0x02	/* read only, 8-bit */
+#define	PORT_AUXDMA	0x02	/* write only, 8-bit */
+#define	PORT_DATA	0x04	/* read/write, 16-bit */
+#define	PORT_CONTROL	0x06	/* read/write, 8-bit */
 
-#define ELP_IO_EXTENT	0x10	
+#define ELP_IO_EXTENT	0x10	/* size of used IO registers */
 
-#define	ATTN	0x80	
-#define	FLSH	0x40	
-#define DMAE	0x20	
-#define DIR	0x10	
-#define	TCEN	0x08	
-#define	CMDE	0x04	
-#define	HSF2	0x02	
-#define	HSF1	0x01	
+/*
+ * host control registers bits
+ */
+#define	ATTN	0x80	/* attention */
+#define	FLSH	0x40	/* flush data register */
+#define DMAE	0x20	/* DMA enable */
+#define DIR	0x10	/* direction */
+#define	TCEN	0x08	/* terminal count interrupt enable */
+#define	CMDE	0x04	/* command register interrupt enable */
+#define	HSF2	0x02	/* host status flag 2 */
+#define	HSF1	0x01	/* host status flag 1 */
 
+/*
+ * combinations of HSF flags used for PCB transmission
+ */
 #define	HSF_PCB_ACK	HSF1
 #define	HSF_PCB_NAK	HSF2
 #define	HSF_PCB_END	(HSF2|HSF1)
 #define	HSF_PCB_MASK	(HSF2|HSF1)
 
-#define	HRDY	0x80	
-#define	HCRE	0x40	
-#define	ACRF	0x20	
-#define	DONE	0x08	
-#define	ASF3	0x04	
-#define	ASF2	0x02	
-#define	ASF1	0x01	
+/*
+ * host status register bits
+ */
+#define	HRDY	0x80	/* data register ready */
+#define	HCRE	0x40	/* command register empty */
+#define	ACRF	0x20	/* adapter command register full */
+/* #define DIR 	0x10	direction - same as in control register */
+#define	DONE	0x08	/* DMA done */
+#define	ASF3	0x04	/* adapter status flag 3 */
+#define	ASF2	0x02	/* adapter status flag 2 */
+#define	ASF1	0x01	/* adapter status flag 1 */
 
+/*
+ * combinations of ASF flags used for PCB reception
+ */
 #define	ASF_PCB_ACK	ASF1
 #define	ASF_PCB_NAK	ASF2
 #define	ASF_PCB_END	(ASF2|ASF1)
 #define	ASF_PCB_MASK	(ASF2|ASF1)
 
-#define	DMA_BRST	0x01	
+/*
+ * host aux DMA register bits
+ */
+#define	DMA_BRST	0x01	/* DMA burst */
 
+/*
+ * maximum amount of data allowed in a PCB
+ */
 #define	MAX_PCB_DATA	62
 
+/*****************************************************************
+ *
+ *  timeout value
+ *	this is a rough value used for loops to stop them from
+ *	locking up the whole machine in the case of failure or
+ *	error conditions
+ *
+ *****************************************************************/
 
 #define	TIMEOUT	300
 
+/*****************************************************************
+ *
+ * PCB commands
+ *
+ *****************************************************************/
 
 enum {
+  /*
+   * host PCB commands
+   */
   CMD_CONFIGURE_ADAPTER_MEMORY	= 0x01,
   CMD_CONFIGURE_82586		= 0x02,
   CMD_STATION_ADDRESS		= 0x03,
@@ -66,6 +109,9 @@ enum {
   CMD_ADAPTER_INFO		= 0x11,
   NUM_TRANSMIT_CMDS,
 
+  /*
+   * adapter PCB commands
+   */
   CMD_CONFIGURE_ADAPTER_RESPONSE	= 0x31,
   CMD_CONFIGURE_82586_RESPONSE		= 0x32,
   CMD_ADDRESS_RESPONSE			= 0x33,
@@ -83,11 +129,14 @@ enum {
   CMD_ADAPTER_INFO_RESPONSE		= 0x41
 };
 
+/* Definitions for the PCB data structure */
 
+/* Data units */
 typedef unsigned char         byte;
 typedef unsigned short int    word;
 typedef unsigned long int     dword;
 
+/* Data structures */
 struct Memconf {
 	word	cmd_q,
 		rcv_q,
@@ -164,6 +213,11 @@ struct Memdump {
             seg;
 };
 
+/*
+Primary Command Block. The most important data structure. All communication
+between the host and the adapter is done with these. (Except for the actual
+Ethernet data, which has different packaging.)
+*/
 typedef struct {
 	byte	command;
 	byte	length;
@@ -185,6 +239,7 @@ typedef struct {
 	} data;
 } pcb_struct;
 
+/* These defines for 'configure' */
 #define RECV_STATION	0x00
 #define RECV_BROAD	0x01
 #define RECV_MULTI	0x02
@@ -193,16 +248,22 @@ typedef struct {
 #define INT_LOOPBACK	0x08
 #define EXT_LOOPBACK	0x10
 
+/*****************************************************************
+ *
+ *  structure to hold context information for adapter
+ *
+ *****************************************************************/
 
 #define DMA_BUFFER_SIZE  1600
 #define BACKLOG_SIZE      4
 
 typedef struct {
-	volatile short got[NUM_TRANSMIT_CMDS];	
-	pcb_struct tx_pcb;	
-	pcb_struct rx_pcb;	
-	pcb_struct itx_pcb;	
-	pcb_struct irx_pcb;	
+	volatile short got[NUM_TRANSMIT_CMDS];	/* flags for
+						   command completion */
+	pcb_struct tx_pcb;	/* PCB for foreground sending */
+	pcb_struct rx_pcb;	/* PCB for foreground receiving */
+	pcb_struct itx_pcb;	/* PCB for background sending */
+	pcb_struct irx_pcb;	/* PCB for background receiving */
 
 	void *dma_buffer;
 
@@ -220,12 +281,12 @@ typedef struct {
 		unsigned long start_time;
 	} current_dma;
 
-	
+	/* flags */
 	unsigned long send_pcb_semaphore;
 	unsigned long dmaing;
 	unsigned long busy;
 
-	unsigned int rx_active;  
-        volatile unsigned char hcr_val;  
-        spinlock_t lock;	
+	unsigned int rx_active;  /* number of receive PCBs */
+        volatile unsigned char hcr_val;  /* what we think the HCR contains */
+        spinlock_t lock;	/* Interrupt v tx lock */
 } elp_device;

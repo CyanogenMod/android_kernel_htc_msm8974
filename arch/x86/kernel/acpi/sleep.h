@@ -1,3 +1,6 @@
+/*
+ *	Variables and functions used by the code in sleep.c
+ */
 
 #include <asm/trampoline.h>
 #include <linux/linkage.h>

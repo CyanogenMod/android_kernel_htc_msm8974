@@ -49,15 +49,18 @@ MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{NeoMagic,NM256AV},"
 		"{NeoMagic,NM256ZX}}");
 
+/*
+ * some compile conditions.
+ */
 
-static int index = SNDRV_DEFAULT_IDX1;	
-static char *id = SNDRV_DEFAULT_STR1;	
+static int index = SNDRV_DEFAULT_IDX1;	/* Index */
+static char *id = SNDRV_DEFAULT_STR1;	/* ID for this card */
 static int playback_bufsize = 16;
 static int capture_bufsize = 16;
-static bool force_ac97;			
-static int buffer_top;			
-static bool use_cache;			
-static bool vaio_hack;			
+static bool force_ac97;			/* disabled as default */
+static int buffer_top;			/* not specified */
+static bool use_cache;			/* disabled */
+static bool vaio_hack;			/* disabled */
 static bool reset_workaround;
 static bool reset_workaround_2;
 
@@ -82,69 +85,95 @@ MODULE_PARM_DESC(reset_workaround, "Enable AC97 RESET workaround for some laptop
 module_param(reset_workaround_2, bool, 0444);
 MODULE_PARM_DESC(reset_workaround_2, "Enable extended AC97 RESET workaround for some other laptops.");
 
+/* just for backward compatibility */
 static bool enable;
 module_param(enable, bool, 0444);
 
 
 
+/*
+ * hw definitions
+ */
 
+/* The BIOS signature. */
 #define NM_SIGNATURE 0x4e4d0000
+/* Signature mask. */
 #define NM_SIG_MASK 0xffff0000
 
+/* Size of the second memory area. */
 #define NM_PORT2_SIZE 4096
 
+/* The base offset of the mixer in the second memory area. */
 #define NM_MIXER_OFFSET 0x600
 
+/* The maximum size of a coefficient entry. */
 #define NM_MAX_PLAYBACK_COEF_SIZE	0x5000
 #define NM_MAX_RECORD_COEF_SIZE		0x1260
 
+/* The interrupt register. */
 #define NM_INT_REG 0xa04
+/* And its bits. */
 #define NM_PLAYBACK_INT 0x40
 #define NM_RECORD_INT 0x100
 #define NM_MISC_INT_1 0x4000
 #define NM_MISC_INT_2 0x1
 #define NM_ACK_INT(chip, X) snd_nm256_writew(chip, NM_INT_REG, (X) << 1)
 
+/* The AV's "mixer ready" status bit and location. */
 #define NM_MIXER_STATUS_OFFSET 0xa04
 #define NM_MIXER_READY_MASK 0x0800
 #define NM_MIXER_PRESENCE 0xa06
 #define NM_PRESENCE_MASK 0x0050
 #define NM_PRESENCE_VALUE 0x0040
 
+/*
+ * For the ZX.  It uses the same interrupt register, but it holds 32
+ * bits instead of 16.
+ */
 #define NM2_PLAYBACK_INT 0x10000
 #define NM2_RECORD_INT 0x80000
 #define NM2_MISC_INT_1 0x8
 #define NM2_MISC_INT_2 0x2
 #define NM2_ACK_INT(chip, X) snd_nm256_writel(chip, NM_INT_REG, (X))
 
+/* The ZX's "mixer ready" status bit and location. */
 #define NM2_MIXER_STATUS_OFFSET 0xa06
 #define NM2_MIXER_READY_MASK 0x0800
 
+/* The playback registers start from here. */
 #define NM_PLAYBACK_REG_OFFSET 0x0
+/* The record registers start from here. */
 #define NM_RECORD_REG_OFFSET 0x200
 
+/* The rate register is located 2 bytes from the start of the register area. */
 #define NM_RATE_REG_OFFSET 2
 
+/* Mono/stereo flag, number of bits on playback, and rate mask. */
 #define NM_RATE_STEREO 1
 #define NM_RATE_BITS_16 2
 #define NM_RATE_MASK 0xf0
 
+/* Playback enable register. */
 #define NM_PLAYBACK_ENABLE_REG (NM_PLAYBACK_REG_OFFSET + 0x1)
 #define NM_PLAYBACK_ENABLE_FLAG 1
 #define NM_PLAYBACK_ONESHOT 2
 #define NM_PLAYBACK_FREERUN 4
 
+/* Mutes the audio output. */
 #define NM_AUDIO_MUTE_REG (NM_PLAYBACK_REG_OFFSET + 0x18)
 #define NM_AUDIO_MUTE_LEFT 0x8000
 #define NM_AUDIO_MUTE_RIGHT 0x0080
 
+/* Recording enable register. */
 #define NM_RECORD_ENABLE_REG (NM_RECORD_REG_OFFSET + 0)
 #define NM_RECORD_ENABLE_FLAG 1
 #define NM_RECORD_FREERUN 2
 
+/* coefficient buffer pointer */
 #define NM_COEFF_START_OFFSET	0x1c
 #define NM_COEFF_END_OFFSET	0x20
 
+/* DMA buffer offsets */
 #define NM_RBUFFER_START (NM_RECORD_REG_OFFSET + 0x4)
 #define NM_RBUFFER_END   (NM_RECORD_REG_OFFSET + 0x10)
 #define NM_RBUFFER_WMARK (NM_RECORD_REG_OFFSET + 0xc)
@@ -162,16 +191,16 @@ struct nm256_stream {
 	int running;
 	int suspended;
 	
-	u32 buf;	
-	int bufsize;	
-	void __iomem *bufptr;		
-	unsigned long bufptr_addr;	
+	u32 buf;	/* offset from chip->buffer */
+	int bufsize;	/* buffer size in bytes */
+	void __iomem *bufptr;		/* mapped pointer */
+	unsigned long bufptr_addr;	/* physical address of the mapped pointer */
 
-	int dma_size;		
-	int period_size;	
-	int periods;		
-	int shift;		
-	int cur_period;		
+	int dma_size;		/* buffer size of the substream in bytes */
+	int period_size;	/* period size in bytes */
+	int periods;		/* # of periods */
+	int shift;		/* bit shifts */
+	int cur_period;		/* current period # */
 
 };
 
@@ -179,41 +208,41 @@ struct nm256 {
 	
 	struct snd_card *card;
 
-	void __iomem *cport;		
-	struct resource *res_cport;	
-	unsigned long cport_addr;	
+	void __iomem *cport;		/* control port */
+	struct resource *res_cport;	/* its resource */
+	unsigned long cport_addr;	/* physical address */
 
-	void __iomem *buffer;		
-	struct resource *res_buffer;	
-	unsigned long buffer_addr;	
+	void __iomem *buffer;		/* buffer */
+	struct resource *res_buffer;	/* its resource */
+	unsigned long buffer_addr;	/* buffer phyiscal address */
 
-	u32 buffer_start;		
-	u32 buffer_end;			
-	u32 buffer_size;		
+	u32 buffer_start;		/* start offset from pci resource 0 */
+	u32 buffer_end;			/* end offset */
+	u32 buffer_size;		/* total buffer size */
 
-	u32 all_coeff_buf;		
-	u32 coeff_buf[2];		
+	u32 all_coeff_buf;		/* coefficient buffer */
+	u32 coeff_buf[2];		/* coefficient buffer for each stream */
 
-	unsigned int coeffs_current: 1;	
-	unsigned int use_cache: 1;	
-	unsigned int reset_workaround: 1; 
-	unsigned int reset_workaround_2: 1; 
+	unsigned int coeffs_current: 1;	/* coeff. table is loaded? */
+	unsigned int use_cache: 1;	/* use one big coef. table */
+	unsigned int reset_workaround: 1; /* Workaround for some laptops to avoid freeze */
+	unsigned int reset_workaround_2: 1; /* Extended workaround for some other laptops to avoid freeze */
 	unsigned int in_resume: 1;
 
-	int mixer_base;			
-	int mixer_status_offset;	
-	int mixer_status_mask;		
+	int mixer_base;			/* register offset of ac97 mixer */
+	int mixer_status_offset;	/* offset of mixer status reg. */
+	int mixer_status_mask;		/* bit mask to test the mixer status */
 
 	int irq;
 	int irq_acks;
 	irq_handler_t interrupt;
-	int badintrcount;		
+	int badintrcount;		/* counter to check bogus interrupts */
 	struct mutex irq_mutex;
 
 	struct nm256_stream streams[2];
 
 	struct snd_ac97 *ac97;
-	unsigned short *ac97_regs; 
+	unsigned short *ac97_regs; /* register caches, only for valid regs */
 
 	struct snd_pcm *pcm;
 
@@ -224,9 +253,15 @@ struct nm256 {
 };
 
 
+/*
+ * include coefficient table
+ */
 #include "nm256_coef.c"
 
 
+/*
+ * PCI ids
+ */
 static DEFINE_PCI_DEVICE_TABLE(snd_nm256_ids) = {
 	{PCI_VDEVICE(NEOMAGIC, PCI_DEVICE_ID_NEOMAGIC_NM256AV_AUDIO), 0},
 	{PCI_VDEVICE(NEOMAGIC, PCI_DEVICE_ID_NEOMAGIC_NM256ZX_AUDIO), 0},
@@ -237,6 +272,9 @@ static DEFINE_PCI_DEVICE_TABLE(snd_nm256_ids) = {
 MODULE_DEVICE_TABLE(pci, snd_nm256_ids);
 
 
+/*
+ * lowlvel stuffs
+ */
 
 static inline u8
 snd_nm256_readb(struct nm256 *chip, int offset)
@@ -288,6 +326,9 @@ snd_nm256_write_buffer(struct nm256 *chip, void *src, int offset, int size)
 	memcpy_toio(chip->buffer + offset, src, size);
 }
 
+/*
+ * coefficient handlers -- what a magic!
+ */
 
 static u16
 snd_nm256_get_start_offset(int which)
@@ -307,7 +348,7 @@ snd_nm256_load_one_coefficient(struct nm256 *chip, int stream, u32 port, int whi
 
 	snd_nm256_write_buffer(chip, coefficients + offset, coeff_buf, size);
 	snd_nm256_writel(chip, port, coeff_buf);
-	
+	/* ???  Record seems to behave differently than playback.  */
 	if (stream == SNDRV_PCM_STREAM_PLAYBACK)
 		size--;
 	snd_nm256_writel(chip, port + 4, coeff_buf + size);
@@ -316,7 +357,7 @@ snd_nm256_load_one_coefficient(struct nm256 *chip, int stream, u32 port, int whi
 static void
 snd_nm256_load_coefficient(struct nm256 *chip, int stream, int number)
 {
-	
+	/* The enable register for the specified engine.  */
 	u32 poffset = (stream == SNDRV_PCM_STREAM_CAPTURE ?
 		       NM_RECORD_ENABLE_REG : NM_PLAYBACK_ENABLE_REG);
 	u32 addr = NM_COEFF_START_OFFSET;
@@ -329,7 +370,7 @@ snd_nm256_load_coefficient(struct nm256 *chip, int stream, int number)
 		return;
 	}
 
-	
+	/* The recording engine uses coefficient values 8-15.  */
 	number &= 7;
 	if (stream == SNDRV_PCM_STREAM_CAPTURE)
 		number += 8;
@@ -354,6 +395,7 @@ snd_nm256_load_coefficient(struct nm256 *chip, int stream, int number)
 }
 
 
+/* The actual rates supported by the card. */
 static unsigned int samplerates[8] = {
 	8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000,
 };
@@ -363,6 +405,9 @@ static struct snd_pcm_hw_constraint_list constraints_rates = {
 	.mask = 0,
 };
 
+/*
+ * return the index of the target rate
+ */
 static int
 snd_nm256_fixed_rate(unsigned int rate)
 {
@@ -375,6 +420,9 @@ snd_nm256_fixed_rate(unsigned int rate)
 	return 0;
 }
 
+/*
+ * set sample rate and format
+ */
 static void
 snd_nm256_set_format(struct nm256 *chip, struct nm256_stream *s,
 		     struct snd_pcm_substream *substream)
@@ -397,13 +445,13 @@ snd_nm256_set_format(struct nm256 *chip, struct nm256_stream *s,
 
 	switch (substream->stream) {
 	case SNDRV_PCM_STREAM_PLAYBACK:
-		snd_nm256_load_coefficient(chip, 0, rate_index); 
+		snd_nm256_load_coefficient(chip, 0, rate_index); /* 0 = playback */
 		snd_nm256_writeb(chip,
 				 NM_PLAYBACK_REG_OFFSET + NM_RATE_REG_OFFSET,
 				 ratebits);
 		break;
 	case SNDRV_PCM_STREAM_CAPTURE:
-		snd_nm256_load_coefficient(chip, 1, rate_index); 
+		snd_nm256_load_coefficient(chip, 1, rate_index); /* 1 = record */
 		snd_nm256_writeb(chip,
 				 NM_RECORD_REG_OFFSET + NM_RATE_REG_OFFSET,
 				 ratebits);
@@ -411,6 +459,7 @@ snd_nm256_set_format(struct nm256 *chip, struct nm256_stream *s,
 	}
 }
 
+/* acquire interrupt */
 static int snd_nm256_acquire_irq(struct nm256 *chip)
 {
 	mutex_lock(&chip->irq_mutex);
@@ -428,6 +477,7 @@ static int snd_nm256_acquire_irq(struct nm256 *chip)
 	return 0;
 }
 
+/* release interrupt */
 static void snd_nm256_release_irq(struct nm256 *chip)
 {
 	mutex_lock(&chip->irq_mutex);
@@ -440,7 +490,11 @@ static void snd_nm256_release_irq(struct nm256 *chip)
 	mutex_unlock(&chip->irq_mutex);
 }
 
+/*
+ * start / stop
+ */
 
+/* update the watermark (current period) */
 static void snd_nm256_pcm_mark(struct nm256 *chip, struct nm256_stream *s, int reg)
 {
 	s->cur_period++;
@@ -455,16 +509,16 @@ static void
 snd_nm256_playback_start(struct nm256 *chip, struct nm256_stream *s,
 			 struct snd_pcm_substream *substream)
 {
-	
+	/* program buffer pointers */
 	snd_nm256_writel(chip, NM_PBUFFER_START, s->buf);
 	snd_nm256_writel(chip, NM_PBUFFER_END, s->buf + s->dma_size - (1 << s->shift));
 	snd_nm256_writel(chip, NM_PBUFFER_CURRP, s->buf);
 	snd_nm256_playback_mark(chip, s);
 
-	
+	/* Enable playback engine and interrupts. */
 	snd_nm256_writeb(chip, NM_PLAYBACK_ENABLE_REG,
 			 NM_PLAYBACK_ENABLE_FLAG | NM_PLAYBACK_FREERUN);
-	
+	/* Enable both channels. */
 	snd_nm256_writew(chip, NM_AUDIO_MUTE_REG, 0x0);
 }
 
@@ -472,31 +526,32 @@ static void
 snd_nm256_capture_start(struct nm256 *chip, struct nm256_stream *s,
 			struct snd_pcm_substream *substream)
 {
-	
+	/* program buffer pointers */
 	snd_nm256_writel(chip, NM_RBUFFER_START, s->buf);
 	snd_nm256_writel(chip, NM_RBUFFER_END, s->buf + s->dma_size);
 	snd_nm256_writel(chip, NM_RBUFFER_CURRP, s->buf);
 	snd_nm256_capture_mark(chip, s);
 
-	
+	/* Enable playback engine and interrupts. */
 	snd_nm256_writeb(chip, NM_RECORD_ENABLE_REG,
 			 NM_RECORD_ENABLE_FLAG | NM_RECORD_FREERUN);
 }
 
+/* Stop the play engine. */
 static void
 snd_nm256_playback_stop(struct nm256 *chip)
 {
-	
+	/* Shut off sound from both channels. */
 	snd_nm256_writew(chip, NM_AUDIO_MUTE_REG,
 			 NM_AUDIO_MUTE_LEFT | NM_AUDIO_MUTE_RIGHT);
-	
+	/* Disable play engine. */
 	snd_nm256_writeb(chip, NM_PLAYBACK_ENABLE_REG, 0);
 }
 
 static void
 snd_nm256_capture_stop(struct nm256 *chip)
 {
-	
+	/* Disable recording engine. */
 	snd_nm256_writeb(chip, NM_RECORD_ENABLE_REG, 0);
 }
 
@@ -514,7 +569,7 @@ snd_nm256_playback_trigger(struct snd_pcm_substream *substream, int cmd)
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_RESUME:
 		s->suspended = 0;
-		
+		/* fallthru */
 	case SNDRV_PCM_TRIGGER_START:
 		if (! s->running) {
 			snd_nm256_playback_start(chip, s, substream);
@@ -523,7 +578,7 @@ snd_nm256_playback_trigger(struct snd_pcm_substream *substream, int cmd)
 		break;
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 		s->suspended = 1;
-		
+		/* fallthru */
 	case SNDRV_PCM_TRIGGER_STOP:
 		if (s->running) {
 			snd_nm256_playback_stop(chip);
@@ -573,6 +628,9 @@ snd_nm256_capture_trigger(struct snd_pcm_substream *substream, int cmd)
 }
 
 
+/*
+ * prepare playback/capture channel
+ */
 static int snd_nm256_pcm_prepare(struct snd_pcm_substream *substream)
 {
 	struct nm256 *chip = snd_pcm_substream_chip(substream);
@@ -595,6 +653,9 @@ static int snd_nm256_pcm_prepare(struct snd_pcm_substream *substream)
 }
 
 
+/*
+ * get the current pointer
+ */
 static snd_pcm_uframes_t
 snd_nm256_playback_pointer(struct snd_pcm_substream *substream)
 {
@@ -623,10 +684,15 @@ snd_nm256_capture_pointer(struct snd_pcm_substream *substream)
 	return bytes_to_frames(substream->runtime, curp);
 }
 
+/* Remapped I/O space can be accessible as pointer on i386 */
+/* This might be changed in the future */
 #ifndef __i386__
+/*
+ * silence / copy for playback
+ */
 static int
 snd_nm256_playback_silence(struct snd_pcm_substream *substream,
-			   int channel, 
+			   int channel, /* not used (interleaved data) */
 			   snd_pcm_uframes_t pos,
 			   snd_pcm_uframes_t count)
 {
@@ -640,7 +706,7 @@ snd_nm256_playback_silence(struct snd_pcm_substream *substream,
 
 static int
 snd_nm256_playback_copy(struct snd_pcm_substream *substream,
-			int channel, 
+			int channel, /* not used (interleaved data) */
 			snd_pcm_uframes_t pos,
 			void __user *src,
 			snd_pcm_uframes_t count)
@@ -654,9 +720,12 @@ snd_nm256_playback_copy(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/*
+ * copy to user
+ */
 static int
 snd_nm256_capture_copy(struct snd_pcm_substream *substream,
-		       int channel, 
+		       int channel, /* not used (interleaved data) */
 		       snd_pcm_uframes_t pos,
 		       void __user *dst,
 		       snd_pcm_uframes_t count)
@@ -670,10 +739,14 @@ snd_nm256_capture_copy(struct snd_pcm_substream *substream,
 	return 0;
 }
 
-#endif 
+#endif /* !__i386__ */
 
 
+/*
+ * update playback/capture watermarks
+ */
 
+/* spinlock held! */
 static void
 snd_nm256_playback_update(struct nm256 *chip)
 {
@@ -688,6 +761,7 @@ snd_nm256_playback_update(struct nm256 *chip)
 	}
 }
 
+/* spinlock held! */
 static void
 snd_nm256_capture_update(struct nm256 *chip)
 {
@@ -702,14 +776,17 @@ snd_nm256_capture_update(struct nm256 *chip)
 	}
 }
 
+/*
+ * hardware info
+ */
 static struct snd_pcm_hardware snd_nm256_playback =
 {
 	.info =			SNDRV_PCM_INFO_MMAP_IOMEM |SNDRV_PCM_INFO_MMAP_VALID |
 				SNDRV_PCM_INFO_INTERLEAVED |
-				
+				/*SNDRV_PCM_INFO_PAUSE |*/
 				SNDRV_PCM_INFO_RESUME,
 	.formats =		SNDRV_PCM_FMTBIT_U8 | SNDRV_PCM_FMTBIT_S16_LE,
-	.rates =		SNDRV_PCM_RATE_KNOT | SNDRV_PCM_RATE_8000_48000,
+	.rates =		SNDRV_PCM_RATE_KNOT/*24k*/ | SNDRV_PCM_RATE_8000_48000,
 	.rate_min =		8000,
 	.rate_max =		48000,
 	.channels_min =		1,
@@ -725,10 +802,10 @@ static struct snd_pcm_hardware snd_nm256_capture =
 {
 	.info =			SNDRV_PCM_INFO_MMAP_IOMEM | SNDRV_PCM_INFO_MMAP_VALID |
 				SNDRV_PCM_INFO_INTERLEAVED |
-				
+				/*SNDRV_PCM_INFO_PAUSE |*/
 				SNDRV_PCM_INFO_RESUME,
 	.formats =		SNDRV_PCM_FMTBIT_U8 | SNDRV_PCM_FMTBIT_S16_LE,
-	.rates =		SNDRV_PCM_RATE_KNOT | SNDRV_PCM_RATE_8000_48000,
+	.rates =		SNDRV_PCM_RATE_KNOT/*24k*/ | SNDRV_PCM_RATE_8000_48000,
 	.rate_min =		8000,
 	.rate_max =		48000,
 	.channels_min =		1,
@@ -741,14 +818,18 @@ static struct snd_pcm_hardware snd_nm256_capture =
 };
 
 
+/* set dma transfer size */
 static int snd_nm256_pcm_hw_params(struct snd_pcm_substream *substream,
 				   struct snd_pcm_hw_params *hw_params)
 {
-	
+	/* area and addr are already set and unchanged */
 	substream->runtime->dma_bytes = params_buffer_bytes(hw_params);
 	return 0;
 }
 
+/*
+ * open
+ */
 static void snd_nm256_setup_stream(struct nm256 *chip, struct nm256_stream *s,
 				   struct snd_pcm_substream *substream,
 				   struct snd_pcm_hardware *hw_ptr)
@@ -793,6 +874,9 @@ snd_nm256_capture_open(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+/*
+ * close - we don't have to do special..
+ */
 static int
 snd_nm256_playback_close(struct snd_pcm_substream *substream)
 {
@@ -812,6 +896,9 @@ snd_nm256_capture_close(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+/*
+ * create a pcm instance
+ */
 static struct snd_pcm_ops snd_nm256_playback_ops = {
 	.open =		snd_nm256_playback_open,
 	.close =	snd_nm256_playback_close,
@@ -869,15 +956,18 @@ snd_nm256_pcm(struct nm256 *chip, int device)
 }
 
 
+/* 
+ * Initialize the hardware. 
+ */
 static void
 snd_nm256_init_chip(struct nm256 *chip)
 {
-	
+	/* Reset everything. */
 	snd_nm256_writeb(chip, 0x0, 0x11);
 	snd_nm256_writew(chip, 0x214, 0);
-	
-	
-	
+	/* stop sounds.. */
+	//snd_nm256_playback_stop(chip);
+	//snd_nm256_capture_stop(chip);
 }
 
 
@@ -885,6 +975,18 @@ static irqreturn_t
 snd_nm256_intr_check(struct nm256 *chip)
 {
 	if (chip->badintrcount++ > 1000) {
+		/*
+		 * I'm not sure if the best thing is to stop the card from
+		 * playing or just release the interrupt (after all, we're in
+		 * a bad situation, so doing fancy stuff may not be such a good
+		 * idea).
+		 *
+		 * I worry about the card engine continuing to play noise
+		 * over and over, however--that could become a very
+		 * obnoxious problem.  And we know that when this usually
+		 * happens things are fairly safe, it just means the user's
+		 * inserted a PCMCIA card and someone's spamming us with IRQ 9s.
+		 */
 		if (chip->streams[SNDRV_PCM_STREAM_PLAYBACK].running)
 			snd_nm256_playback_stop(chip);
 		if (chip->streams[SNDRV_PCM_STREAM_CAPTURE].running)
@@ -895,6 +997,14 @@ snd_nm256_intr_check(struct nm256 *chip)
 	return IRQ_NONE;
 }
 
+/* 
+ * Handle a potential interrupt for the device referred to by DEV_ID. 
+ *
+ * I don't like the cut-n-paste job here either between the two routines,
+ * but there are sufficient differences between the two interrupt handlers
+ * that parameterizing it isn't all that great either.  (Could use a macro,
+ * I suppose...yucky bleah.)
+ */
 
 static irqreturn_t
 snd_nm256_interrupt(int irq, void *dev_id)
@@ -905,13 +1015,13 @@ snd_nm256_interrupt(int irq, void *dev_id)
 
 	status = snd_nm256_readw(chip, NM_INT_REG);
 
-	
+	/* Not ours. */
 	if (status == 0)
 		return snd_nm256_intr_check(chip);
 
 	chip->badintrcount = 0;
 
-	
+	/* Rather boring; check for individual interrupts and process them. */
 
 	spin_lock(&chip->reg_lock);
 	if (status & NM_PLAYBACK_INT) {
@@ -943,11 +1053,11 @@ snd_nm256_interrupt(int irq, void *dev_id)
 		snd_nm256_writeb(chip, 0x400, cbyte & ~2);
 	}
 
-	
+	/* Unknown interrupt. */
 	if (status) {
 		snd_printd("NM256: Fire in the hole! Unknown status 0x%x\n",
 			   status);
-		
+		/* Pray. */
 		NM_ACK_INT(chip, status);
 	}
 
@@ -955,6 +1065,11 @@ snd_nm256_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Handle a potential interrupt for the device referred to by DEV_ID.
+ * This handler is for the 256ZX, and is very similar to the non-ZX
+ * routine.
+ */
 
 static irqreturn_t
 snd_nm256_interrupt_zx(int irq, void *dev_id)
@@ -965,13 +1080,13 @@ snd_nm256_interrupt_zx(int irq, void *dev_id)
 
 	status = snd_nm256_readl(chip, NM_INT_REG);
 
-	
+	/* Not ours. */
 	if (status == 0)
 		return snd_nm256_intr_check(chip);
 
 	chip->badintrcount = 0;
 
-	
+	/* Rather boring; check for individual interrupts and process them. */
 
 	spin_lock(&chip->reg_lock);
 	if (status & NM2_PLAYBACK_INT) {
@@ -1002,11 +1117,11 @@ snd_nm256_interrupt_zx(int irq, void *dev_id)
 		snd_nm256_writeb(chip, 0x400, cbyte & ~2);
 	}
 
-	
+	/* Unknown interrupt. */
 	if (status) {
 		snd_printd("NM256: Fire in the hole! Unknown status 0x%x\n",
 			   status);
-		
+		/* Pray. */
 		NM2_ACK_INT(chip, status);
 	}
 
@@ -1014,6 +1129,9 @@ snd_nm256_interrupt_zx(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * AC97 interface
+ */
 
 /*
  * Waits for the mixer to become ready to be written; returns a zero value
@@ -1029,6 +1147,9 @@ snd_nm256_ac97_ready(struct nm256 *chip)
 	testaddr = chip->mixer_status_offset;
 	testb = chip->mixer_status_mask;
 
+	/* 
+	 * Loop around waiting for the mixer to become ready. 
+	 */
 	while (timeout-- > 0) {
 		if ((snd_nm256_readw(chip, testaddr) & testb) == 0)
 			return 1;
@@ -1096,6 +1217,8 @@ snd_nm256_ac97_read(struct snd_ac97 *ac97, unsigned short reg)
 	return chip->ac97_regs[idx];
 }
 
+/* 
+ */
 static void
 snd_nm256_ac97_write(struct snd_ac97 *ac97,
 		     unsigned short reg, unsigned short val)
@@ -1112,12 +1235,12 @@ snd_nm256_ac97_write(struct snd_ac97 *ac97,
 
 	snd_nm256_ac97_ready(chip);
 
-	
+	/* Wait for the write to take, too. */
 	while (tries-- > 0) {
 		snd_nm256_writew(chip, base + reg, val);
-		msleep(1);  
+		msleep(1);  /* a little delay here seems better.. */
 		if (snd_nm256_ac97_ready(chip)) {
-			
+			/* successful write: set cache */
 			chip->ac97_regs[idx] = val;
 			return;
 		}
@@ -1125,6 +1248,7 @@ snd_nm256_ac97_write(struct snd_ac97 *ac97,
 	snd_printd("nm256: ac97 codec not ready..\n");
 }
 
+/* static resolution table */
 static struct snd_ac97_res_table nm256_res_table[] = {
 	{ AC97_MASTER, 0x1f1f },
 	{ AC97_HEADPHONE, 0x1f1f },
@@ -1138,34 +1262,39 @@ static struct snd_ac97_res_table nm256_res_table[] = {
 	{ AC97_AUX, 0x1f1f },
 	{ AC97_PCM, 0x1f1f },
 	{ AC97_REC_GAIN, 0x0f0f },
-	{ } 
+	{ } /* terminator */
 };
 
+/* initialize the ac97 into a known state */
 static void
 snd_nm256_ac97_reset(struct snd_ac97 *ac97)
 {
 	struct nm256 *chip = ac97->private_data;
 
-	
+	/* Reset the mixer.  'Tis magic!  */
 	snd_nm256_writeb(chip, 0x6c0, 1);
 	if (! chip->reset_workaround) {
-		
+		/* Dell latitude LS will lock up by this */
 		snd_nm256_writeb(chip, 0x6cc, 0x87);
 	}
 	if (! chip->reset_workaround_2) {
-		
+		/* Dell latitude CSx will lock up by this */
 		snd_nm256_writeb(chip, 0x6cc, 0x80);
 		snd_nm256_writeb(chip, 0x6cc, 0x0);
 	}
 	if (! chip->in_resume) {
 		int i;
 		for (i = 0; i < ARRAY_SIZE(nm256_ac97_init_val); i++) {
+			/* preload the cache, so as to avoid even a single
+			 * read of the mixer regs
+			 */
 			snd_nm256_ac97_write(ac97, nm256_ac97_init_val[i].reg,
 					     nm256_ac97_init_val[i].value);
 		}
 	}
 }
 
+/* create an ac97 mixer interface */
 static int __devinit
 snd_nm256_mixer(struct nm256 *chip)
 {
@@ -1187,7 +1316,7 @@ snd_nm256_mixer(struct nm256 *chip)
 		return err;
 
 	memset(&ac97, 0, sizeof(ac97));
-	ac97.scaps = AC97_SCAP_AUDIO; 
+	ac97.scaps = AC97_SCAP_AUDIO; /* we support audio! */
 	ac97.private_data = chip;
 	ac97.res_table = nm256_res_table;
 	pbus->no_vra = 1;
@@ -1195,19 +1324,24 @@ snd_nm256_mixer(struct nm256 *chip)
 	if (err < 0)
 		return err;
 	if (! (chip->ac97->id & (0xf0000000))) {
-		
+		/* looks like an invalid id */
 		sprintf(chip->card->mixername, "%s AC97", chip->card->driver);
 	}
 	return 0;
 }
 
+/* 
+ * See if the signature left by the NM256 BIOS is intact; if so, we use
+ * the associated address as the end of our audio buffer in the video
+ * RAM.
+ */
 
 static int __devinit
 snd_nm256_peek_for_sig(struct nm256 *chip)
 {
-	
+	/* The signature is located 1K below the end of video RAM.  */
 	void __iomem *temp;
-	
+	/* Default buffer end is 5120 bytes below the top of RAM.  */
 	unsigned long pointer_found = chip->buffer_end - 0x1400;
 	u32 sig;
 
@@ -1221,6 +1355,9 @@ snd_nm256_peek_for_sig(struct nm256 *chip)
 	if ((sig & NM_SIG_MASK) == NM_SIGNATURE) {
 		u32 pointer = readl(temp + 4);
 
+		/*
+		 * If it's obviously invalid, don't use it
+		 */
 		if (pointer == 0xffffffff ||
 		    pointer < chip->buffer_size ||
 		    pointer > chip->buffer_end) {
@@ -1241,6 +1378,10 @@ snd_nm256_peek_for_sig(struct nm256 *chip)
 }
 
 #ifdef CONFIG_PM
+/*
+ * APM event handler, so the card is properly reinitialized after a power
+ * event.
+ */
 static int nm256_suspend(struct pci_dev *pci, pm_message_t state)
 {
 	struct snd_card *card = pci_get_drvdata(pci);
@@ -1262,7 +1403,7 @@ static int nm256_resume(struct pci_dev *pci)
 	struct nm256 *chip = card->private_data;
 	int i;
 
-	
+	/* Perform a full reset on the hardware */
 	chip->in_resume = 1;
 
 	pci_set_power_state(pci, PCI_D0);
@@ -1277,7 +1418,7 @@ static int nm256_resume(struct pci_dev *pci)
 
 	snd_nm256_init_chip(chip);
 
-	
+	/* restore ac97 */
 	snd_ac97_resume(chip->ac97);
 
 	for (i = 0; i < 2; i++) {
@@ -1293,7 +1434,7 @@ static int nm256_resume(struct pci_dev *pci)
 	chip->in_resume = 0;
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 static int snd_nm256_free(struct nm256 *chip)
 {
@@ -1353,16 +1494,22 @@ snd_nm256_create(struct snd_card *card, struct pci_dev *pci,
 	chip->irq = -1;
 	mutex_init(&chip->irq_mutex);
 
-	
+	/* store buffer sizes in bytes */
 	chip->streams[SNDRV_PCM_STREAM_PLAYBACK].bufsize = playback_bufsize * 1024;
 	chip->streams[SNDRV_PCM_STREAM_CAPTURE].bufsize = capture_bufsize * 1024;
 
+	/* 
+	 * The NM256 has two memory ports.  The first port is nothing
+	 * more than a chunk of video RAM, which is used as the I/O ring
+	 * buffer.  The second port has the actual juicy stuff (like the
+	 * mixer and the playback engine control registers).
+	 */
 
 	chip->buffer_addr = pci_resource_start(pci, 0);
 	chip->cport_addr = pci_resource_start(pci, 1);
 
-	
-	
+	/* Init the memory port info.  */
+	/* remap control port (#2) */
 	chip->res_cport = request_mem_region(chip->cport_addr, NM_PORT2_SIZE,
 					     card->driver);
 	if (chip->res_cport == NULL) {
@@ -1379,7 +1526,7 @@ snd_nm256_create(struct snd_card *card, struct pci_dev *pci,
 	}
 
 	if (!strcmp(card->driver, "NM256AV")) {
-		
+		/* Ok, try to see if this is a non-AC97 version of the hardware. */
 		pval = snd_nm256_readw(chip, NM_MIXER_PRESENCE);
 		if ((pval & NM_PRESENCE_MASK) != NM_PRESENCE_VALUE) {
 			if (! force_ac97) {
@@ -1398,7 +1545,7 @@ snd_nm256_create(struct snd_card *card, struct pci_dev *pci,
 		chip->mixer_status_offset = NM_MIXER_STATUS_OFFSET;
 		chip->mixer_status_mask = NM_MIXER_READY_MASK;
 	} else {
-		
+		/* Not sure if there is any relevant detect for the ZX or not.  */
 		if (snd_nm256_readb(chip, 0xa0b) != 0)
 			chip->buffer_end = 6144 * 1024;
 		else
@@ -1419,7 +1566,7 @@ snd_nm256_create(struct snd_card *card, struct pci_dev *pci,
 	if (buffer_top >= chip->buffer_size && buffer_top < chip->buffer_end)
 		chip->buffer_end = buffer_top;
 	else {
-		
+		/* get buffer end pointer from signature */
 		if ((err = snd_nm256_peek_for_sig(chip)) < 0)
 			goto __error;
 	}
@@ -1446,7 +1593,7 @@ snd_nm256_create(struct snd_card *card, struct pci_dev *pci,
 		goto __error;
 	}
 
-	
+	/* set offsets */
 	addr = chip->buffer_start;
 	chip->streams[SNDRV_PCM_STREAM_PLAYBACK].buf = addr;
 	addr += chip->streams[SNDRV_PCM_STREAM_PLAYBACK].bufsize;
@@ -1460,14 +1607,14 @@ snd_nm256_create(struct snd_card *card, struct pci_dev *pci,
 		chip->coeff_buf[SNDRV_PCM_STREAM_CAPTURE] = addr;
 	}
 
-	
+	/* Fixed setting. */
 	chip->mixer_base = NM_MIXER_OFFSET;
 
 	chip->coeffs_current = 0;
 
 	snd_nm256_init_chip(chip);
 
-	
+	// pci_set_master(pci); /* needed? */
 	
 	if ((err = snd_device_new(card, SNDRV_DEV_LOWLEVEL, chip, &ops)) < 0)
 		goto __error;
@@ -1486,13 +1633,13 @@ __error:
 enum { NM_BLACKLISTED, NM_RESET_WORKAROUND, NM_RESET_WORKAROUND_2 };
 
 static struct snd_pci_quirk nm256_quirks[] __devinitdata = {
-	
+	/* HP omnibook 4150 has cs4232 codec internally */
 	SND_PCI_QUIRK(0x103c, 0x0007, "HP omnibook 4150", NM_BLACKLISTED),
-	
+	/* Reset workarounds to avoid lock-ups */
 	SND_PCI_QUIRK(0x104d, 0x8041, "Sony PCG-F305", NM_RESET_WORKAROUND),
 	SND_PCI_QUIRK(0x1028, 0x0080, "Dell Latitude LS", NM_RESET_WORKAROUND),
 	SND_PCI_QUIRK(0x1028, 0x0091, "Dell Latitude CSx", NM_RESET_WORKAROUND_2),
-	{ } 
+	{ } /* terminator */
 };
 
 
@@ -1514,7 +1661,7 @@ static int __devinit snd_nm256_probe(struct pci_dev *pci,
 			return -ENODEV;
 		case NM_RESET_WORKAROUND_2:
 			reset_workaround_2 = 1;
-			
+			/* Fall-through */
 		case NM_RESET_WORKAROUND:
 			reset_workaround = 1;
 			break;
@@ -1542,7 +1689,7 @@ static int __devinit snd_nm256_probe(struct pci_dev *pci,
 	}
 
 	if (vaio_hack)
-		buffer_top = 0x25a800;	
+		buffer_top = 0x25a800;	/* this avoids conflicts with XFree86 server */
 
 	if (playback_bufsize < 4)
 		playback_bufsize = 4;

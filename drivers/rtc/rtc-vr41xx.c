@@ -37,12 +37,15 @@ MODULE_AUTHOR("Yoichi Yuasa <yuasa@linux-mips.org>");
 MODULE_DESCRIPTION("NEC VR4100 series RTC driver");
 MODULE_LICENSE("GPL v2");
 
+/* RTC 1 registers */
 #define ETIMELREG		0x00
 #define ETIMEMREG		0x02
 #define ETIMEHREG		0x04
+/* RFU */
 #define ECMPLREG		0x08
 #define ECMPMREG		0x0a
 #define ECMPHREG		0x0c
+/* RFU */
 #define RTCL1LREG		0x10
 #define RTCL1HREG		0x12
 #define RTCL1CNTLREG		0x14
@@ -52,10 +55,12 @@ MODULE_LICENSE("GPL v2");
 #define RTCL2CNTLREG		0x1c
 #define RTCL2CNTHREG		0x1e
 
+/* RTC 2 registers */
 #define TCLKLREG		0x00
 #define TCLKHREG		0x02
 #define TCLKCNTLREG		0x04
 #define TCLKCNTHREG		0x06
+/* RFU */
 #define RTCINTREG		0x1e
  #define TCLOCK_INT		0x08
  #define RTCLONG2_INT		0x04
@@ -74,7 +79,7 @@ static void __iomem *rtc2_base;
 #define rtc2_read(offset)		readw(rtc2_base + (offset))
 #define rtc2_write(offset, value)	writew((value), rtc2_base + (offset))
 
-static unsigned long epoch = 1970;	
+static unsigned long epoch = 1970;	/* Jan 1 1970 00:00:00 */
 
 static DEFINE_SPINLOCK(rtc_lock);
 static char rtc_name[] = "RTC";
@@ -208,7 +213,7 @@ static int vr41xx_rtc_ioctl(struct device *dev, unsigned int cmd, unsigned long 
 	case RTC_EPOCH_READ:
 		return put_user(epoch, (unsigned long __user *)arg);
 	case RTC_EPOCH_SET:
-		
+		/* Doesn't support before 1900 */
 		if (arg < 1900)
 			return -EINVAL;
 		epoch = arg;
@@ -388,6 +393,7 @@ static int __devexit rtc_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:RTC");
 
 static struct platform_driver rtc_platform_driver = {

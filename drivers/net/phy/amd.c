@@ -20,9 +20,9 @@
 
 #define PHY_ID_AM79C874		0x0022561b
 
-#define MII_AM79C_IR		17	
-#define MII_AM79C_IR_EN_LINK	0x0400	
-#define MII_AM79C_IR_EN_ANEG	0x0100	
+#define MII_AM79C_IR		17	/* Interrupt Status/Control Register */
+#define MII_AM79C_IR_EN_LINK	0x0400	/* IR enable Linkstate */
+#define MII_AM79C_IR_EN_ANEG	0x0100	/* IR enable Aneg Complete */
 #define MII_AM79C_IR_IMASK_INIT	(MII_AM79C_IR_EN_LINK | MII_AM79C_IR_EN_ANEG)
 
 MODULE_DESCRIPTION("AMD PHY driver");

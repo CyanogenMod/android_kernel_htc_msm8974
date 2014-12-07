@@ -88,6 +88,7 @@ extern int ehca_debug_level;
 	dev_err((ib_dev)->dma_device, "PU%04x EHCA_ERR:%s " format "\n", \
 		raw_smp_processor_id(), __func__, ## arg)
 
+/* use this one only if no ib_dev available */
 #define ehca_gen_dbg(format, arg...) \
 	do { \
 		if (unlikely(ehca_debug_level)) \
@@ -103,6 +104,11 @@ extern int ehca_debug_level;
 	printk(KERN_ERR "PU%04x EHCA_ERR:%s " format "\n", \
 	       raw_smp_processor_id(), __func__, ## arg)
 
+/**
+ * ehca_dmp - printk a memory block, whose length is n*8 bytes.
+ * Each line has the following layout:
+ * <format string> adr=X ofs=Y <8 bytes hex> <8 bytes hex>
+ */
 #define ehca_dmp(adr, len, format, args...) \
 	do { \
 		unsigned int x; \
@@ -117,20 +123,34 @@ extern int ehca_debug_level;
 		} \
 	} while (0)
 
+/* define a bitmask, little endian version */
 #define EHCA_BMASK(pos, length) (((pos) << 16) + (length))
 
+/* define a bitmask, the ibm way... */
 #define EHCA_BMASK_IBM(from, to) (((63 - to) << 16) + ((to) - (from) + 1))
 
+/* internal function, don't use */
 #define EHCA_BMASK_SHIFTPOS(mask) (((mask) >> 16) & 0xffff)
 
+/* internal function, don't use */
 #define EHCA_BMASK_MASK(mask) (~0ULL >> ((64 - (mask)) & 0xffff))
 
+/**
+ * EHCA_BMASK_SET - return value shifted and masked by mask
+ * variable|=EHCA_BMASK_SET(MY_MASK,0x4711) ORs the bits in variable
+ * variable&=~EHCA_BMASK_SET(MY_MASK,-1) clears the bits from the mask
+ * in variable
+ */
 #define EHCA_BMASK_SET(mask, value) \
 	((EHCA_BMASK_MASK(mask) & ((u64)(value))) << EHCA_BMASK_SHIFTPOS(mask))
 
+/**
+ * EHCA_BMASK_GET - extract a parameter from value by mask
+ */
 #define EHCA_BMASK_GET(mask, value) \
 	(EHCA_BMASK_MASK(mask) & (((u64)(value)) >> EHCA_BMASK_SHIFTPOS(mask)))
 
+/* Converts ehca to ib return code */
 int ehca2ib_return_code(u64 ehca_rc);
 
-#endif 
+#endif /* EHCA_TOOLS_H */

@@ -34,29 +34,80 @@
 #include <mach/pcm027.h>
 #include "generic.h"
 
+/*
+ * ABSTRACT:
+ *
+ * The PXA270 processor comes with a bunch of hardware on its silicon.
+ * Not all of this hardware can be used at the same time and not all
+ * is routed to module's connectors. Also it depends on the baseboard, what
+ * kind of hardware can be used in which way.
+ * -> So this file supports the main devices on the CPU card only!
+ * Refer pcm990-baseboard.c how to extend this features to get a full
+ * blown system with many common interfaces.
+ *
+ * The PCM-027 supports the following interfaces through its connectors and
+ * will be used in pcm990-baseboard.c:
+ *
+ * - LCD support
+ * - MMC support
+ * - IDE/CF card
+ * - FFUART
+ * - BTUART
+ * - IRUART
+ * - AC97
+ * - SSP
+ * - SSP3
+ *
+ * Claimed GPIOs:
+ * GPIO0 -> IRQ input from RTC
+ * GPIO2 -> SYS_ENA*)
+ * GPIO3 -> PWR_SCL
+ * GPIO4 -> PWR_SDA
+ * GPIO5 -> PowerCap0*)
+ * GPIO6 -> PowerCap1*)
+ * GPIO7 -> PowerCap2*)
+ * GPIO8 -> PowerCap3*)
+ * GPIO15 -> /CS1
+ * GPIO20 -> /CS2
+ * GPIO21 -> /CS3
+ * GPIO33 -> /CS5 network controller select
+ * GPIO52 -> IRQ from network controller
+ * GPIO78 -> /CS2
+ * GPIO80 -> /CS4
+ * GPIO90 -> LED0
+ * GPIO91 -> LED1
+ * GPIO114 -> IRQ from CAN controller
+ * GPIO117 -> SCL
+ * GPIO118 -> SDA
+ *
+ * *) CPU internal use only
+ */
 
 static unsigned long pcm027_pin_config[] __initdata = {
-	
+	/* Chip Selects */
 	GPIO20_nSDCS_2,
 	GPIO21_nSDCS_3,
 	GPIO15_nCS_1,
 	GPIO78_nCS_2,
 	GPIO80_nCS_4,
-	GPIO33_nCS_5,	
+	GPIO33_nCS_5,	/* Ethernet */
 
-	
+	/* I2C */
 	GPIO117_I2C_SCL,
 	GPIO118_I2C_SDA,
 
-	
-	GPIO52_GPIO,	
+	/* GPIO */
+	GPIO52_GPIO,	/* IRQ from network controller */
 #ifdef CONFIG_LEDS_GPIO
-	GPIO90_GPIO,	
-	GPIO91_GPIO,	
+	GPIO90_GPIO,	/* PCM027_LED_CPU */
+	GPIO91_GPIO,	/* PCM027_LED_HEART_BEAT */
 #endif
-	GPIO114_GPIO,	
+	GPIO114_GPIO,	/* IRQ from CAN controller */
 };
 
+/*
+ * SMC91x network controller specific stuff
+ */
 static struct resource smc91x_resources[] = {
 	[0] = {
 		.start	= PCM027_ETH_PHYS + 0x300,
@@ -66,7 +117,7 @@ static struct resource smc91x_resources[] = {
 	[1] = {
 		.start	= PCM027_ETH_IRQ,
 		.end	= PCM027_ETH_IRQ,
-		
+		/* note: smc91x's driver doesn't use the trigger bits yet */
 		.flags	= IORESOURCE_IRQ | PCM027_ETH_IRQ_EDGE,
 	}
 };
@@ -78,6 +129,9 @@ static struct platform_device smc91x_device = {
 	.resource	= smc91x_resources,
 };
 
+/*
+ * SPI host and devices
+ */
 static struct pxa2xx_spi_master pxa_ssp_master_info = {
 	.num_chipselect	= 1,
 };
@@ -86,6 +140,7 @@ static struct max7301_platform_data max7301_info = {
 	.base = -1,
 };
 
+/* bus_num must match id in pxa2xx_set_spi_info() call */
 static struct spi_board_info spi_board_info[] __initdata = {
 	{
 		.modalias	= "max7301",
@@ -97,6 +152,9 @@ static struct spi_board_info spi_board_info[] __initdata = {
 	},
 };
 
+/*
+ * NOR flash
+ */
 static struct physmap_flash_data pcm027_flash_data = {
 	.width  = 4,
 };
@@ -121,11 +179,11 @@ static struct platform_device pcm027_flash = {
 
 static struct gpio_led pcm027_led[] = {
 	{
-		.name = "led0:red",	
+		.name = "led0:red",	/* FIXME */
 		.gpio = PCM027_LED_CPU
 	},
 	{
-		.name = "led1:green",	
+		.name = "led1:green",	/* FIXME */
 		.gpio = PCM027_LED_HEARD_BEAT
 	},
 };
@@ -143,8 +201,11 @@ static struct platform_device pcm027_led_dev = {
 	},
 };
 
-#endif 
+#endif /* CONFIG_LEDS_GPIO */
 
+/*
+ * declare the available device resources on this board
+ */
 static struct platform_device *devices[] __initdata = {
 	&smc91x_device,
 	&pcm027_flash,
@@ -153,8 +214,15 @@ static struct platform_device *devices[] __initdata = {
 #endif
 };
 
+/*
+ * pcm027_init - breath some life into the board
+ */
 static void __init pcm027_init(void)
 {
+	/* system bus arbiter setting
+	 * - Core_Park
+	 * - LCD_wt:DMA_wt:CORE_Wt = 2:3:4
+	 */
 	ARB_CNTRL = ARB_CORE_PARK | 0x234;
 
 	pxa2xx_mfp_config(pcm027_pin_config, ARRAY_SIZE(pcm027_pin_config));
@@ -165,7 +233,7 @@ static void __init pcm027_init(void)
 
 	platform_add_devices(devices, ARRAY_SIZE(devices));
 
-	
+	/* at last call the baseboard to initialize itself */
 #ifdef CONFIG_MACH_PCM990_BASEBOARD
 	pcm990_baseboard_init();
 #endif
@@ -178,7 +246,7 @@ static void __init pcm027_map_io(void)
 {
 	pxa27x_map_io();
 
-	
+	/* initialize sleep mode regs (wake-up sources, etc) */
 	PGSR0 = 0x01308000;
 	PGSR1 = 0x00CF0002;
 	PGSR2 = 0x0E294000;
@@ -189,7 +257,7 @@ static void __init pcm027_map_io(void)
 }
 
 MACHINE_START(PCM027, "Phytec Messtechnik GmbH phyCORE-PXA270")
-	
+	/* Maintainer: Pengutronix */
 	.atag_offset	= 0x100,
 	.map_io		= pcm027_map_io,
 	.nr_irqs	= PCM027_NR_IRQS,

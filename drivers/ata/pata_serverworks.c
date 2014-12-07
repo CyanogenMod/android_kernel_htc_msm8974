@@ -43,9 +43,11 @@
 #define DRV_NAME "pata_serverworks"
 #define DRV_VERSION "0.4.3"
 
-#define SVWKS_CSB5_REVISION_NEW	0x92 
-#define SVWKS_CSB6_REVISION	0xa0 
+#define SVWKS_CSB5_REVISION_NEW	0x92 /* min PCI_REVISION_ID for UDMA5 (A2.0) */
+#define SVWKS_CSB6_REVISION	0xa0 /* min PCI_REVISION_ID for UDMA4 (A1.0) */
 
+/* Seagate Barracuda ATA IV Family drives in UDMA mode 5
+ * can overrun their FIFOs when used with the CSB5 */
 
 static const char *csb_bad_ata100[] = {
 	"ST320011A",
@@ -55,6 +57,13 @@ static const char *csb_bad_ata100[] = {
 	NULL
 };
 
+/**
+ *	oem_cable	-	Dell/Sun serverworks cable detection
+ *	@ap: ATA port to do cable detect
+ *
+ *	Dell PowerEdge and Sun Cobalt 'Alpine' hide the 40/80 pin select
+ *	for their interfaces in the top two bits of the subsystem ID.
+ */
 
 static int oem_cable(struct ata_port *ap)
 {
@@ -83,6 +92,13 @@ static struct sv_cable_table cable_detect[] = {
 	{ }
 };
 
+/**
+ *	serverworks_cable_detect	-	cable detection
+ *	@ap: ATA port
+ *
+ *	Perform cable detection according to the device and subvendor
+ *	identifications
+ */
 
 static int serverworks_cable_detect(struct ata_port *ap)
 {
@@ -99,9 +115,16 @@ static int serverworks_cable_detect(struct ata_port *ap)
 	}
 
 	BUG();
-	return -1;	
+	return -1;	/* kill compiler warning */
 }
 
+/**
+ *	serverworks_is_csb	-	Check for CSB or OSB
+ *	@pdev: PCI device to check
+ *
+ *	Returns true if the device being checked is known to be a CSB
+ *	series device.
+ */
 
 static u8 serverworks_is_csb(struct pci_dev *pdev)
 {
@@ -117,6 +140,15 @@ static u8 serverworks_is_csb(struct pci_dev *pdev)
 	return 0;
 }
 
+/**
+ *	serverworks_osb4_filter	-	mode selection filter
+ *	@adev: ATA device
+ *	@mask: Mask of proposed modes
+ *
+ *	Filter the offered modes for the device to apply controller
+ *	specific rules. OSB4 requires no UDMA for disks due to a FIFO
+ *	bug we hit.
+ */
 
 static unsigned long serverworks_osb4_filter(struct ata_device *adev, unsigned long mask)
 {
@@ -126,6 +158,13 @@ static unsigned long serverworks_osb4_filter(struct ata_device *adev, unsigned l
 }
 
 
+/**
+ *	serverworks_csb_filter	-	mode selection filter
+ *	@adev: ATA device
+ *	@mask: Mask of proposed modes
+ *
+ *	Check the blacklist and disable UDMA5 if matched
+ */
 
 static unsigned long serverworks_csb_filter(struct ata_device *adev, unsigned long mask)
 {
@@ -133,11 +172,11 @@ static unsigned long serverworks_csb_filter(struct ata_device *adev, unsigned lo
 	char model_num[ATA_ID_PROD_LEN + 1];
 	int i;
 
-	
+	/* Disk, UDMA */
 	if (adev->class != ATA_DEV_ATA)
 		return mask;
 
-	
+	/* Actually do need to check */
 	ata_id_c_string(adev->id, model_num, ATA_ID_PROD, sizeof(model_num));
 
 	for (i = 0; (p = csb_bad_ata100[i]) != NULL; i++) {
@@ -147,6 +186,14 @@ static unsigned long serverworks_csb_filter(struct ata_device *adev, unsigned lo
 	return mask;
 }
 
+/**
+ *	serverworks_set_piomode	-	set initial PIO mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Program the OSB4/CSB5 timing registers for PIO. The PIO register
+ *	load is done as a simple lookup.
+ */
 static void serverworks_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
 	static const u8 pio_mode[] = { 0x5d, 0x47, 0x34, 0x22, 0x20 };
@@ -158,6 +205,8 @@ static void serverworks_set_piomode(struct ata_port *ap, struct ata_device *adev
 
 	pci_write_config_byte(pdev, 0x40 + offset, pio_mode[pio]);
 
+	/* The OSB4 just requires the timing but the CSB series want the
+	   mode number as well */
 	if (serverworks_is_csb(pdev)) {
 		pci_read_config_word(pdev, 0x4A, &csb5_pio);
 		csb5_pio &= ~(0x0F << devbits);
@@ -165,6 +214,15 @@ static void serverworks_set_piomode(struct ata_port *ap, struct ata_device *adev
 	}
 }
 
+/**
+ *	serverworks_set_dmamode	-	set initial DMA mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Program the MWDMA/UDMA modes for the serverworks OSB4/CSB5
+ *	chipset. The MWDMA mode values are pulled from a lookup table
+ *	while the chipset uses mode number for UDMA.
+ */
 
 static void serverworks_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -218,10 +276,10 @@ static int serverworks_fixup_osb4(struct pci_dev *pdev)
 		  PCI_DEVICE_ID_SERVERWORKS_OSB4, NULL);
 	if (isa_dev) {
 		pci_read_config_dword(isa_dev, 0x64, &reg);
-		reg &= ~0x00002000; 
+		reg &= ~0x00002000; /* disable 600ns interrupt mask */
 		if (!(reg & 0x00004000))
 			printk(KERN_DEBUG DRV_NAME ": UDMA not BIOS enabled.\n");
-		reg |=  0x00004000; 
+		reg |=  0x00004000; /* enable UDMA/33 support */
 		pci_write_config_dword(isa_dev, 0x64, reg);
 		pci_dev_put(isa_dev);
 		return 0;
@@ -234,7 +292,7 @@ static int serverworks_fixup_csb(struct pci_dev *pdev)
 {
 	u8 btr;
 
-	
+	/* Third Channel Test */
 	if (!(PCI_FUNC(pdev->devfn) & 1)) {
 		struct pci_dev * findev = NULL;
 		u32 reg4c = 0;
@@ -261,6 +319,15 @@ static int serverworks_fixup_csb(struct pci_dev *pdev)
 			pci_dev_put(findev);
 		}
 	}
+	/* setup the UDMA Control register
+	 *
+	 * 1. clear bit 6 to enable DMA
+	 * 2. enable DMA modes with bits 0-1
+	 * 	00 : legacy
+	 * 	01 : udma2
+	 * 	10 : udma2/udma4
+	 * 	11 : udma2/udma4/udma5
+	 */
 	pci_read_config_byte(pdev, 0x5A, &btr);
 	btr &= ~0x40;
 	if (!(PCI_FUNC(pdev->devfn) & 1))
@@ -275,7 +342,7 @@ static int serverworks_fixup_csb(struct pci_dev *pdev)
 static void serverworks_fixup_ht1000(struct pci_dev *pdev)
 {
 	u8 btr;
-	
+	/* Setup HT1000 SouthBridge Controller - Single Channel Only */
 	pci_read_config_byte(pdev, 0x5A, &btr);
 	btr &= ~0x40;
 	btr |= 0x3;
@@ -286,7 +353,7 @@ static int serverworks_fixup(struct pci_dev *pdev)
 {
 	int rc = 0;
 
-	
+	/* Force master latency timer to 64 PCI clocks */
 	pci_write_config_byte(pdev, PCI_LATENCY_TIMER, 0x40);
 
 	switch (pdev->device) {
@@ -295,7 +362,7 @@ static int serverworks_fixup(struct pci_dev *pdev)
 		break;
 	case PCI_DEVICE_ID_SERVERWORKS_CSB5IDE:
 		ata_pci_bmdma_clear_simplex(pdev);
-		
+		/* fall through */
 	case PCI_DEVICE_ID_SERVERWORKS_CSB6IDE:
 	case PCI_DEVICE_ID_SERVERWORKS_CSB6IDE2:
 		rc = serverworks_fixup_csb(pdev);
@@ -311,25 +378,25 @@ static int serverworks_fixup(struct pci_dev *pdev)
 static int serverworks_init_one(struct pci_dev *pdev, const struct pci_device_id *id)
 {
 	static const struct ata_port_info info[4] = {
-		{ 
+		{ /* OSB4 */
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = ATA_PIO4,
 			.mwdma_mask = ATA_MWDMA2,
 			.udma_mask = ATA_UDMA2,
 			.port_ops = &serverworks_osb4_port_ops
-		}, { 
+		}, { /* OSB4 no UDMA */
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = ATA_PIO4,
 			.mwdma_mask = ATA_MWDMA2,
-			
+			/* No UDMA */
 			.port_ops = &serverworks_osb4_port_ops
-		}, { 
+		}, { /* CSB5 */
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = ATA_PIO4,
 			.mwdma_mask = ATA_MWDMA2,
 			.udma_mask = ATA_UDMA4,
 			.port_ops = &serverworks_csb_port_ops
-		}, { 
+		}, { /* CSB5 - later revisions*/
 			.flags = ATA_FLAG_SLAVE_POSS,
 			.pio_mask = ATA_PIO4,
 			.mwdma_mask = ATA_MWDMA2,
@@ -346,21 +413,23 @@ static int serverworks_init_one(struct pci_dev *pdev, const struct pci_device_id
 
 	rc = serverworks_fixup(pdev);
 
-	
+	/* OSB4 : South Bridge and IDE */
 	if (pdev->device == PCI_DEVICE_ID_SERVERWORKS_OSB4IDE) {
-		
+		/* Select non UDMA capable OSB4 if we can't do fixups */
 		if (rc < 0)
 			ppi[0] = &info[1];
 	}
-	
+	/* setup CSB5/CSB6 : South Bridge and IDE option RAID */
 	else if ((pdev->device == PCI_DEVICE_ID_SERVERWORKS_CSB5IDE) ||
 		 (pdev->device == PCI_DEVICE_ID_SERVERWORKS_CSB6IDE) ||
 		 (pdev->device == PCI_DEVICE_ID_SERVERWORKS_CSB6IDE2)) {
 
+		 /* If the returned btr is the newer revision then
+		    select the right info block */
 		 if (rc == 3)
 		 	ppi[0] = &info[3];
 
-		
+		/* Is this the 3rd channel CSB6 IDE ? */
 		if (pdev->device == PCI_DEVICE_ID_SERVERWORKS_CSB6IDE2)
 			ppi[1] = &ata_dummy_port_info;
 	}

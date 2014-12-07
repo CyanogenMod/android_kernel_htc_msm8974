@@ -108,6 +108,14 @@
 #define DRIVER_NAME		"ade7758"
 
 
+/**
+ * struct ade7758_state - device instance specific data
+ * @us:			actual spi_device
+ * @trig:		data ready trigger registered with iio
+ * @tx:			transmit buffer
+ * @rx:			receive buffer
+ * @buf_lock:		mutex to protect tx and rx
+ **/
 struct ade7758_state {
 	struct spi_device	*us;
 	struct iio_trigger	*trig;
@@ -118,11 +126,18 @@ struct ade7758_state {
 	struct iio_chan_spec	*ade7758_ring_channels;
 	struct spi_transfer	ring_xfer[4];
 	struct spi_message	ring_msg;
+	/*
+	 * DMA (thus cache coherency maintenance) requires the
+	 * transfer buffers to live in their own cache lines.
+	 */
 	unsigned char		rx_buf[8] ____cacheline_aligned;
 	unsigned char		tx_buf[8];
 
 };
 #ifdef CONFIG_IIO_BUFFER
+/* At the moment triggers are only used for ring buffer
+ * filling. This may change!
+ */
 
 void ade7758_remove_trigger(struct iio_dev *indio_dev);
 int ade7758_probe_trigger(struct iio_dev *indio_dev);
@@ -143,7 +158,7 @@ int ade7758_spi_write_reg_8(struct device *dev,
 int ade7758_spi_read_reg_8(struct device *dev,
 		u8 reg_address, u8 *val);
 
-#else 
+#else /* CONFIG_IIO_BUFFER */
 
 static inline void ade7758_remove_trigger(struct iio_dev *indio_dev)
 {
@@ -167,6 +182,6 @@ static inline int ade7758_initialize_ring(struct iio_ring_buffer *ring)
 static inline void ade7758_uninitialize_ring(struct iio_dev *indio_dev)
 {
 }
-#endif 
+#endif /* CONFIG_IIO_BUFFER */
 
 #endif

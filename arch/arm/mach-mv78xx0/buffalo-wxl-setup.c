@@ -24,6 +24,7 @@
 #include "mpp.h"
 
 
+/* This arch has 2 Giga Ethernet */
 
 static struct mv643xx_eth_platform_data db78x00_ge00_data = {
 	.phy_addr	= MV643XX_ETH_PHY_ADDR(0),
@@ -34,6 +35,7 @@ static struct mv643xx_eth_platform_data db78x00_ge01_data = {
 };
 
 
+/* 2 SATA controller supporting HotPlug */
 
 static struct mv_sata_platform_data db78x00_sata_data = {
 	.n_ports	= 2,
@@ -101,9 +103,15 @@ static unsigned int wxl_mpp_config[] __initdata = {
 
 static void __init wxl_init(void)
 {
+	/*
+	 * Basic MV78xx0 setup. Needs to be called early.
+	 */
 	mv78xx0_init();
 	mv78xx0_mpp_conf(wxl_mpp_config);
 
+	/*
+	 * Partition on-chip peripherals between the two CPU cores.
+	 */
 	mv78xx0_ehci0_init();
 	mv78xx0_ehci1_init();
 	mv78xx0_ehci2_init();
@@ -121,6 +129,10 @@ static void __init wxl_init(void)
 static int __init wxl_pci_init(void)
 {
 	if (machine_is_terastation_wxl()) {
+		/*
+		 * Assign the x16 PCIe slot on the board to CPU core
+		 * #0, and let CPU core #1 have the four x1 slots.
+		 */
 		if (mv78xx0_core_index() == 0)
 			mv78xx0_pcie_init(0, 1);
 		else
@@ -132,7 +144,7 @@ static int __init wxl_pci_init(void)
 subsys_initcall(wxl_pci_init);
 
 MACHINE_START(TERASTATION_WXL, "Buffalo Nas WXL")
-	
+	/* Maintainer: Sebastien Requiem <sebastien@requiem.fr> */
 	.atag_offset	= 0x100,
 	.init_machine	= wxl_init,
 	.map_io		= mv78xx0_map_io,

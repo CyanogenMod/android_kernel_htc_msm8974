@@ -72,6 +72,7 @@ static inline void mbox_write_reg(u32 val, size_t ofs)
 	__raw_writel(val, mbox_base + ofs);
 }
 
+/* Mailbox H/W preparations */
 static int omap2_mbox_startup(struct omap_mbox *mbox)
 {
 	u32 l;
@@ -93,6 +94,7 @@ static void omap2_mbox_shutdown(struct omap_mbox *mbox)
 	pm_runtime_disable(mbox->dev->parent);
 }
 
+/* Mailbox FIFO handle functions */
 static mbox_msg_t omap2_mbox_fifo_read(struct omap_mbox *mbox)
 {
 	struct omap_mbox2_fifo *fifo =
@@ -121,6 +123,7 @@ static int omap2_mbox_fifo_full(struct omap_mbox *mbox)
 	return mbox_read_reg(fifo->fifo_stat);
 }
 
+/* Mailbox IRQ handle functions */
 static void omap2_mbox_enable_irq(struct omap_mbox *mbox,
 		omap_mbox_type_t irq)
 {
@@ -152,7 +155,7 @@ static void omap2_mbox_ack_irq(struct omap_mbox *mbox,
 
 	mbox_write_reg(bit, p->irqstatus);
 
-	
+	/* Flush posted write for irq status to avoid spurious interrupts */
 	mbox_read_reg(p->irqstatus);
 }
 
@@ -217,9 +220,17 @@ static struct omap_mbox_ops omap2_mbox_ops = {
 	.restore_ctx	= omap2_mbox_restore_ctx,
 };
 
+/*
+ * MAILBOX 0: ARM -> DSP,
+ * MAILBOX 1: ARM <- DSP.
+ * MAILBOX 2: ARM -> IVA,
+ * MAILBOX 3: ARM <- IVA.
+ */
 
+/* FIXME: the following structs should be filled automatically by the user id */
 
 #if defined(CONFIG_ARCH_OMAP3) || defined(CONFIG_ARCH_OMAP2)
+/* DSP */
 static struct omap_mbox2_priv omap2_mbox_dsp_priv = {
 	.tx_fifo = {
 		.msg		= MAILBOX_MESSAGE(0),
@@ -248,6 +259,7 @@ struct omap_mbox *omap3_mboxes[] = { &mbox_dsp_info, NULL };
 #endif
 
 #if defined(CONFIG_SOC_OMAP2420)
+/* IVA */
 static struct omap_mbox2_priv omap2_mbox_iva_priv = {
 	.tx_fifo = {
 		.msg		= MAILBOX_MESSAGE(2),
@@ -282,6 +294,7 @@ struct omap_mbox *omap2_mboxes[] = {
 #endif
 
 #if defined(CONFIG_ARCH_OMAP4)
+/* OMAP4 */
 static struct omap_mbox2_priv omap2_mbox_1_priv = {
 	.tx_fifo = {
 		.msg		= MAILBOX_MESSAGE(0),

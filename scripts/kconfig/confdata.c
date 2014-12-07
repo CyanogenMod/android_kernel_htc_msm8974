@@ -128,7 +128,7 @@ static int conf_set_sym_val(struct symbol *sym, int def, int def_flags, char *p)
 			sym->flags |= def_flags;
 			break;
 		}
-		
+		/* fall through */
 	case S_BOOLEAN:
 		if (p[0] == 'y') {
 			sym->def[def].tri = yes;
@@ -149,7 +149,7 @@ static int conf_set_sym_val(struct symbol *sym, int def, int def_flags, char *p)
 			sym->type = S_STRING;
 			goto done;
 		}
-		
+		/* fall through */
 	case S_STRING:
 		if (*p++ != '"')
 			break;
@@ -164,7 +164,7 @@ static int conf_set_sym_val(struct symbol *sym, int def, int def_flags, char *p)
 			conf_warning("invalid string found");
 			return 1;
 		}
-		
+		/* fall through */
 	case S_INT:
 	case S_HEX:
 	done:
@@ -240,7 +240,7 @@ load:
 		case S_STRING:
 			if (sym->def[def].val)
 				free(sym->def[def].val);
-			
+			/* fall through */
 		default:
 			sym->def[def].val = NULL;
 			sym->def[def].tri = no;
@@ -357,7 +357,7 @@ int conf_read(const char *name)
 		if (sym_is_choice(sym) || (sym->flags & SYMBOL_AUTO))
 			continue;
 		if (sym_has_value(sym) && (sym->flags & SYMBOL_WRITE)) {
-			
+			/* check that calculated value agrees with saved value */
 			switch (sym->type) {
 			case S_BOOLEAN:
 			case S_TRISTATE:
@@ -365,28 +365,33 @@ int conf_read(const char *name)
 					break;
 				if (!sym_is_choice(sym))
 					continue;
-				
+				/* fall through */
 			default:
 				if (!strcmp(sym->curr.val, sym->def[S_DEF_USER].val))
 					continue;
 				break;
 			}
 		} else if (!sym_has_value(sym) && !(sym->flags & SYMBOL_WRITE))
-			
+			/* no previous value and not saved */
 			continue;
 		conf_unsaved++;
-		
+		/* maybe print value in verbose mode... */
 	}
 
 	for_all_symbols(i, sym) {
 		if (sym_has_value(sym) && !sym_is_choice_value(sym)) {
+			/* Reset values of generates values, so they'll appear
+			 * as new, if they should become visible, but that
+			 * doesn't quite work if the Kconfig and the saved
+			 * configuration disagree.
+			 */
 			if (sym->visible == no && !conf_unsaved)
 				sym->flags &= ~SYMBOL_DEF_USER;
 			switch (sym->type) {
 			case S_STRING:
 			case S_INT:
 			case S_HEX:
-				
+				/* Reset a string value if it's out of range */
 				if (sym_string_within_range(sym, sym->def[S_DEF_USER].val))
 					break;
 				sym->flags &= ~(SYMBOL_VALID|SYMBOL_DEF_USER);
@@ -403,6 +408,14 @@ int conf_read(const char *name)
 	return 0;
 }
 
+/*
+ * Kconfig configuration printer
+ *
+ * This printer is used when generating the resulting configuration after
+ * kconfig invocation and `defconfig' files. Unset symbol might be omitted by
+ * passing a non-NULL argument to the printer.
+ *
+ */
 static void
 kconfig_print_symbol(FILE *fp, struct symbol *sym, const char *value, void *arg)
 {
@@ -452,6 +465,11 @@ static struct conf_printer kconfig_printer_cb =
 	.print_comment = kconfig_print_comment,
 };
 
+/*
+ * Header printer
+ *
+ * This printer is used when generating the `include/generated/autoconf.h' file.
+ */
 static void
 header_print_symbol(FILE *fp, struct symbol *sym, const char *value, void *arg)
 {
@@ -466,7 +484,7 @@ header_print_symbol(FILE *fp, struct symbol *sym, const char *value, void *arg)
 			break;
 		case 'm':
 			suffix = "_MODULE";
-			
+			/* fall through */
 		default:
 			fprintf(fp, "#define %s%s%s 1\n",
 			    CONFIG_, sym->name, suffix);
@@ -521,6 +539,11 @@ static struct conf_printer header_printer_cb =
 	.print_comment = header_print_comment,
 };
 
+/*
+ * Tristate printer
+ *
+ * This printer is used when generating the `include/config/tristate.conf' file.
+ */
 static void
 tristate_print_symbol(FILE *fp, struct symbol *sym, const char *value, void *arg)
 {
@@ -570,6 +593,10 @@ conf_write_heading(FILE *fp, struct conf_printer *printer, void *printer_arg)
 	printer->print_comment(fp, buf, printer_arg);
 }
 
+/*
+ * Write out a minimal config.
+ * All values that has default values are skipped as this is redundant.
+ */
 int conf_write_defconfig(const char *filename)
 {
 	struct symbol *sym;
@@ -582,7 +609,7 @@ int conf_write_defconfig(const char *filename)
 
 	sym_clear_all_valid();
 
-	
+	/* Traverse all menus to find all relevant symbols */
 	menu = rootmenu.list;
 
 	while (menu != NULL)
@@ -596,13 +623,20 @@ int conf_write_defconfig(const char *filename)
 			if (!(sym->flags & SYMBOL_WRITE))
 				goto next_menu;
 			sym->flags &= ~SYMBOL_WRITE;
-			
+			/* If we cannot change the symbol - skip */
 			if (!sym_is_changable(sym))
 				goto next_menu;
-			
+			/* If symbol equals to default value - skip */
 			if (strcmp(sym_get_string_value(sym), sym_get_string_default(sym)) == 0)
 				goto next_menu;
 
+			/*
+			 * If symbol is a choice value and equals to the
+			 * default for a choice - skip.
+			 * But only if value is bool and equal to "y" and
+			 * choice is not "optional".
+			 * (If choice is "optional" then all values can be "n")
+			 */
 			if (sym_is_choice_value(sym)) {
 				struct symbol *cs;
 				struct symbol *ds;
@@ -758,6 +792,10 @@ static int conf_split_config(void)
 			continue;
 		if (sym->flags & SYMBOL_WRITE) {
 			if (sym->flags & SYMBOL_DEF_AUTO) {
+				/*
+				 * symbol has old and new value,
+				 * so compare them...
+				 */
 				switch (sym->type) {
 				case S_BOOLEAN:
 				case S_TRISTATE:
@@ -776,6 +814,10 @@ static int conf_split_config(void)
 					break;
 				}
 			} else {
+				/*
+				 * If there is no old value, only 'no' (unset)
+				 * is allowed as new value.
+				 */
 				switch (sym->type) {
 				case S_BOOLEAN:
 				case S_TRISTATE:
@@ -787,10 +829,15 @@ static int conf_split_config(void)
 				}
 			}
 		} else if (!(sym->flags & SYMBOL_DEF_AUTO))
-			
+			/* There is neither an old nor a new value. */
 			continue;
+		/* else
+		 *	There is an old value, but no new value ('no' (unset)
+		 *	isn't saved in auto.conf, so the old value is always
+		 *	different from 'no').
+		 */
 
-		
+		/* Replace all '_' and append ".h" */
 		s = sym->name;
 		d = path;
 		while ((c = *s++)) {
@@ -799,13 +846,17 @@ static int conf_split_config(void)
 		}
 		strcpy(d, ".h");
 
-		
+		/* Assume directory path already exists. */
 		fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		if (fd == -1) {
 			if (errno != ENOENT) {
 				res = 1;
 				break;
 			}
+			/*
+			 * Create directory components,
+			 * unless they exist already.
+			 */
 			d = path;
 			while ((d = strchr(d, '/'))) {
 				*d = 0;
@@ -815,7 +866,7 @@ static int conf_split_config(void)
 				}
 				*d++ = '/';
 			}
-			
+			/* Try it again. */
 			fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 			if (fd == -1) {
 				res = 1;
@@ -873,7 +924,7 @@ int conf_write_autoconf(void)
 		if (!(sym->flags & SYMBOL_WRITE) || !sym->name)
 			continue;
 
-		
+		/* write symbol to auto.conf, tristate and header files */
 		conf_write_symbol(out, sym, &kconfig_printer_cb, (void *)1);
 
 		conf_write_symbol(tristate, sym, &tristate_printer_cb, (void *)1);
@@ -895,6 +946,10 @@ int conf_write_autoconf(void)
 	if (rename(".tmpconfig_tristate", name))
 		return 1;
 	name = conf_get_autoconfig_name();
+	/*
+	 * This must be the last step, kbuild has a dependency on auto.conf
+	 * and this marks the successful completion of the previous steps.
+	 */
 	if (rename(".tmpconfig", name))
 		return 1;
 
@@ -935,16 +990,25 @@ static void randomize_choice_values(struct symbol *csym)
 	struct expr *e;
 	int cnt, def;
 
+	/*
+	 * If choice is mod then we may have more items selected
+	 * and if no then no-one.
+	 * In both cases stop.
+	 */
 	if (csym->curr.tri != yes)
 		return;
 
 	prop = sym_get_choice_prop(csym);
 
-	
+	/* count entries in choice block */
 	cnt = 0;
 	expr_list_for_each_sym(prop->expr, e, sym)
 		cnt++;
 
+	/*
+	 * find a random value and set it to yes,
+	 * set the rest to no so we have only one set
+	 */
 	def = (rand() % cnt);
 
 	cnt = 0;
@@ -958,7 +1022,7 @@ static void randomize_choice_values(struct symbol *csym)
 		}
 	}
 	csym->flags |= SYMBOL_DEF_USER;
-	
+	/* clear VALID to get value calculated */
 	csym->flags &= ~(SYMBOL_VALID);
 }
 
@@ -970,12 +1034,15 @@ static void set_all_choice_values(struct symbol *csym)
 
 	prop = sym_get_choice_prop(csym);
 
+	/*
+	 * Set all non-assinged choice values to no
+	 */
 	expr_list_for_each_sym(prop->expr, e, sym) {
 		if (!sym_has_value(sym))
 			sym->def[S_DEF_USER].tri = no;
 	}
 	csym->flags |= SYMBOL_DEF_USER;
-	
+	/* clear VALID to get value calculated */
 	csym->flags &= ~(SYMBOL_VALID);
 }
 
@@ -1018,6 +1085,15 @@ void conf_set_all_new_symbols(enum conf_def_mode mode)
 
 	sym_clear_all_valid();
 
+	/*
+	 * We have different type of choice blocks.
+	 * If curr.tri equals to mod then we can select several
+	 * choice symbols in one block.
+	 * In this case we do nothing.
+	 * If curr.tri equals yes then only one symbol can be
+	 * selected in a choice block and we set it to yes,
+	 * and the rest to no.
+	 */
 	for_all_symbols(i, csym) {
 		if (sym_has_value(csym) || !sym_is_choice(csym))
 			continue;

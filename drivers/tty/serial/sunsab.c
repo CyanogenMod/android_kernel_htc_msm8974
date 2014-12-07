@@ -49,25 +49,33 @@
 #include "sunsab.h"
 
 struct uart_sunsab_port {
-	struct uart_port		port;		
-	union sab82532_async_regs	__iomem *regs;	
-	unsigned long			irqflags;	
-	int				dsr;		
-	unsigned int			cec_timeout;	
-	unsigned int			tec_timeout;	
-	unsigned char			interrupt_mask0;
-	unsigned char			interrupt_mask1;
-	unsigned char			pvr_dtr_bit;	
-	unsigned char			pvr_dsr_bit;	
+	struct uart_port		port;		/* Generic UART port	*/
+	union sab82532_async_regs	__iomem *regs;	/* Chip registers	*/
+	unsigned long			irqflags;	/* IRQ state flags	*/
+	int				dsr;		/* Current DSR state	*/
+	unsigned int			cec_timeout;	/* Chip poll timeout... */
+	unsigned int			tec_timeout;	/* likewise		*/
+	unsigned char			interrupt_mask0;/* ISR0 masking		*/
+	unsigned char			interrupt_mask1;/* ISR1 masking		*/
+	unsigned char			pvr_dtr_bit;	/* Which PVR bit is DTR */
+	unsigned char			pvr_dsr_bit;	/* Which PVR bit is DSR */
 	unsigned int			gis_shift;
-	int				type;		
+	int				type;		/* SAB82532 version	*/
 
+	/* Setting configuration bits while the transmitter is active
+	 * can cause garbage characters to get emitted by the chip.
+	 * Therefore, we cache such writes here and do the real register
+	 * write the next time the transmitter becomes idle.
+	 */
 	unsigned int			cached_ebrg;
 	unsigned char			cached_mode;
 	unsigned char			cached_pvr;
 	unsigned char			cached_dafo;
 };
 
+/*
+ * This assumes you have a 29.4912 MHz clock for your UART.
+ */
 #define SAB_BASE_BAUD ( 29491200 / 16 )
 
 static char *sab82532_version[16] = {
@@ -77,10 +85,10 @@ static char *sab82532_version[16] = {
 	"V(0x0c)", "V(0x0d)", "V(0x0e)", "V(0x0f)"
 };
 
-#define SAB82532_MAX_TEC_TIMEOUT 200000	
-#define SAB82532_MAX_CEC_TIMEOUT  50000	
+#define SAB82532_MAX_TEC_TIMEOUT 200000	/* 1 character time (at 50 baud) */
+#define SAB82532_MAX_CEC_TIMEOUT  50000	/* 2.5 TX CLKs (at 50 baud) */
 
-#define SAB82532_RECV_FIFO_SIZE	32      
+#define SAB82532_RECV_FIFO_SIZE	32      /* Standard async fifo sizes */
 #define SAB82532_XMIT_FIFO_SIZE	32
 
 static __inline__ void sunsab_tec_wait(struct uart_sunsab_port *up)
@@ -110,10 +118,10 @@ receive_chars(struct uart_sunsab_port *up,
 	int count = 0;
 	int i;
 
-	if (up->port.state != NULL)		
+	if (up->port.state != NULL)		/* Unopened serial console */
 		tty = up->port.state->port.tty;
 
-	
+	/* Read number of BYTES (Character + Status) available. */
 	if (stat->sreg.isr0 & SAB82532_ISR0_RPF) {
 		count = SAB82532_RECV_FIFO_SIZE;
 		free_fifo++;
@@ -124,7 +132,7 @@ receive_chars(struct uart_sunsab_port *up,
 		free_fifo++;
 	}
 
-	
+	/* Issue a FIFO read command in case we where idle. */
 	if (stat->sreg.isr0 & SAB82532_ISR0_TIME) {
 		sunsab_cec_wait(up);
 		writeb(SAB82532_CMDR_RFRD, &up->regs->w.cmdr);
@@ -134,17 +142,17 @@ receive_chars(struct uart_sunsab_port *up,
 	if (stat->sreg.isr0 & SAB82532_ISR0_RFO)
 		free_fifo++;
 
-	
+	/* Read the FIFO. */
 	for (i = 0; i < count; i++)
 		buf[i] = readb(&up->regs->r.rfifo[i]);
 
-	
+	/* Issue Receive Message Complete command. */
 	if (free_fifo) {
 		sunsab_cec_wait(up);
 		writeb(SAB82532_CMDR_RMC, &up->regs->w.cmdr);
 	}
 
-	
+	/* Count may be zero for BRK, so we check for it here */
 	if ((stat->sreg.isr1 & SAB82532_ISR1_BRK) &&
 	    (up->port.line == up->port.cons->index))
 		saw_console_brk = 1;
@@ -164,10 +172,19 @@ receive_chars(struct uart_sunsab_port *up,
 						SAB82532_ISR0_FERR |
 						SAB82532_ISR0_RFO)) ||
 		    unlikely(stat->sreg.isr1 & SAB82532_ISR1_BRK)) {
+			/*
+			 * For statistics only
+			 */
 			if (stat->sreg.isr1 & SAB82532_ISR1_BRK) {
 				stat->sreg.isr0 &= ~(SAB82532_ISR0_PERR |
 						     SAB82532_ISR0_FERR);
 				up->port.icount.brk++;
+				/*
+				 * We do the SysRQ and SAK checking
+				 * here because otherwise the break
+				 * may get masked by ignore_status_mask
+				 * or read_status_mask.
+				 */
 				if (uart_handle_break(&up->port))
 					continue;
 			} else if (stat->sreg.isr0 & SAB82532_ISR0_PERR)
@@ -177,6 +194,9 @@ receive_chars(struct uart_sunsab_port *up,
 			if (stat->sreg.isr0 & SAB82532_ISR0_RFO)
 				up->port.icount.overrun++;
 
+			/*
+			 * Mask off conditions which should be ingored.
+			 */
 			stat->sreg.isr0 &= (up->port.read_status_mask & 0xff);
 			stat->sreg.isr1 &= ((up->port.read_status_mask >> 8) & 0xff);
 
@@ -219,7 +239,7 @@ static void transmit_chars(struct uart_sunsab_port *up,
 		set_bit(SAB82532_ALLS, &up->irqflags);
 	}
 
-#if 0 
+#if 0 /* bde@nwlink.com says this check causes problems */
 	if (!(stat->sreg.isr1 & SAB82532_ISR1_XPR))
 		return;
 #endif
@@ -240,7 +260,7 @@ static void transmit_chars(struct uart_sunsab_port *up,
 	writeb(up->interrupt_mask1, &up->regs->w.imr1);
 	clear_bit(SAB82532_ALLS, &up->irqflags);
 
-	
+	/* Stuff 32 bytes into Transmit FIFO. */
 	clear_bit(SAB82532_XPR, &up->irqflags);
 	for (i = 0; i < up->port.fifosize; i++) {
 		writeb(xmit->buf[xmit->tail],
@@ -251,7 +271,7 @@ static void transmit_chars(struct uart_sunsab_port *up,
 			break;
 	}
 
-	
+	/* Issue a Transmit Frame command. */
 	sunsab_cec_wait(up);
 	writeb(SAB82532_CMDR_XF, &up->regs->w.cmdr);
 
@@ -319,12 +339,13 @@ static irqreturn_t sunsab_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/* port->lock is not held.  */
 static unsigned int sunsab_tx_empty(struct uart_port *port)
 {
 	struct uart_sunsab_port *up = (struct uart_sunsab_port *) port;
 	int ret;
 
-	
+	/* Do not need a lock for a state test like this.  */
 	if (test_bit(SAB82532_ALLS, &up->irqflags))
 		ret = TIOCSER_TEMT;
 	else
@@ -333,6 +354,7 @@ static unsigned int sunsab_tx_empty(struct uart_port *port)
 	return ret;
 }
 
+/* port->lock held by caller.  */
 static void sunsab_set_mctrl(struct uart_port *port, unsigned int mctrl)
 {
 	struct uart_sunsab_port *up = (struct uart_sunsab_port *) port;
@@ -355,6 +377,7 @@ static void sunsab_set_mctrl(struct uart_port *port, unsigned int mctrl)
 		sunsab_tx_idle(up);
 }
 
+/* port->lock is held by caller and interrupts are disabled.  */
 static unsigned int sunsab_get_mctrl(struct uart_port *port)
 {
 	struct uart_sunsab_port *up = (struct uart_sunsab_port *) port;
@@ -375,6 +398,7 @@ static unsigned int sunsab_get_mctrl(struct uart_port *port)
 	return result;
 }
 
+/* port->lock held by caller.  */
 static void sunsab_stop_tx(struct uart_port *port)
 {
 	struct uart_sunsab_port *up = (struct uart_sunsab_port *) port;
@@ -383,6 +407,7 @@ static void sunsab_stop_tx(struct uart_port *port)
 	writeb(up->interrupt_mask1, &up->regs->w.imr1);
 }
 
+/* port->lock held by caller.  */
 static void sunsab_tx_idle(struct uart_sunsab_port *up)
 {
 	if (test_bit(SAB82532_REGS_PENDING, &up->irqflags)) {
@@ -401,6 +426,7 @@ static void sunsab_tx_idle(struct uart_sunsab_port *up)
 	}
 }
 
+/* port->lock held by caller.  */
 static void sunsab_start_tx(struct uart_port *port)
 {
 	struct uart_sunsab_port *up = (struct uart_sunsab_port *) port;
@@ -425,11 +451,12 @@ static void sunsab_start_tx(struct uart_port *port)
 			break;
 	}
 
-	
+	/* Issue a Transmit Frame command.  */
 	sunsab_cec_wait(up);
 	writeb(SAB82532_CMDR_XF, &up->regs->w.cmdr);
 }
 
+/* port->lock is not held.  */
 static void sunsab_send_xchar(struct uart_port *port, char ch)
 {
 	struct uart_sunsab_port *up = (struct uart_sunsab_port *) port;
@@ -443,6 +470,7 @@ static void sunsab_send_xchar(struct uart_port *port, char ch)
 	spin_unlock_irqrestore(&up->port.lock, flags);
 }
 
+/* port->lock held by caller.  */
 static void sunsab_stop_rx(struct uart_port *port)
 {
 	struct uart_sunsab_port *up = (struct uart_sunsab_port *) port;
@@ -451,11 +479,13 @@ static void sunsab_stop_rx(struct uart_port *port)
 	writeb(up->interrupt_mask1, &up->regs->w.imr0);
 }
 
+/* port->lock held by caller.  */
 static void sunsab_enable_ms(struct uart_port *port)
 {
-	
+	/* For now we always receive these interrupts.  */
 }
 
+/* port->lock is not held.  */
 static void sunsab_break_ctl(struct uart_port *port, int break_state)
 {
 	struct uart_sunsab_port *up = (struct uart_sunsab_port *) port;
@@ -478,6 +508,7 @@ static void sunsab_break_ctl(struct uart_port *port, int break_state)
 	spin_unlock_irqrestore(&up->port.lock, flags);
 }
 
+/* port->lock is not held.  */
 static int sunsab_startup(struct uart_port *port)
 {
 	struct uart_sunsab_port *up = (struct uart_sunsab_port *) port;
@@ -490,17 +521,29 @@ static int sunsab_startup(struct uart_port *port)
 
 	spin_lock_irqsave(&up->port.lock, flags);
 
+	/*
+	 * Wait for any commands or immediate characters
+	 */
 	sunsab_cec_wait(up);
 	sunsab_tec_wait(up);
 
+	/*
+	 * Clear the FIFO buffers.
+	 */
 	writeb(SAB82532_CMDR_RRES, &up->regs->w.cmdr);
 	sunsab_cec_wait(up);
 	writeb(SAB82532_CMDR_XRES, &up->regs->w.cmdr);
 
+	/*
+	 * Clear the interrupt registers.
+	 */
 	(void) readb(&up->regs->r.isr0);
 	(void) readb(&up->regs->r.isr1);
 
-	writeb(0, &up->regs->w.ccr0);				
+	/*
+	 * Now, initialize the UART 
+	 */
+	writeb(0, &up->regs->w.ccr0);				/* power-down */
 	writeb(SAB82532_CCR0_MCE | SAB82532_CCR0_SC_NRZ |
 	       SAB82532_CCR0_SM_ASYNC, &up->regs->w.ccr0);
 	writeb(SAB82532_CCR1_ODS | SAB82532_CCR1_BCR | 7, &up->regs->w.ccr1);
@@ -514,9 +557,12 @@ static int sunsab_startup(struct uart_port *port)
 	writeb(SAB82532_RFC_DPS|SAB82532_RFC_RFTH_32, &up->regs->w.rfc);
 	
 	tmp = readb(&up->regs->rw.ccr0);
-	tmp |= SAB82532_CCR0_PU;	
+	tmp |= SAB82532_CCR0_PU;	/* power-up */
 	writeb(tmp, &up->regs->rw.ccr0);
 
+	/*
+	 * Finally, enable interrupts
+	 */
 	up->interrupt_mask0 = (SAB82532_IMR0_PERR | SAB82532_IMR0_FERR |
 			       SAB82532_IMR0_PLLA);
 	writeb(up->interrupt_mask0, &up->regs->w.imr0);
@@ -533,6 +579,7 @@ static int sunsab_startup(struct uart_port *port)
 	return 0;
 }
 
+/* port->lock is not held.  */
 static void sunsab_shutdown(struct uart_port *port)
 {
 	struct uart_sunsab_port *up = (struct uart_sunsab_port *) port;
@@ -540,23 +587,33 @@ static void sunsab_shutdown(struct uart_port *port)
 
 	spin_lock_irqsave(&up->port.lock, flags);
 
-	
+	/* Disable Interrupts */
 	up->interrupt_mask0 = 0xff;
 	writeb(up->interrupt_mask0, &up->regs->w.imr0);
 	up->interrupt_mask1 = 0xff;
 	writeb(up->interrupt_mask1, &up->regs->w.imr1);
 
-	
+	/* Disable break condition */
 	up->cached_dafo = readb(&up->regs->rw.dafo);
 	up->cached_dafo &= ~SAB82532_DAFO_XBRK;
 	writeb(up->cached_dafo, &up->regs->rw.dafo);
 
-		
+	/* Disable Receiver */	
 	up->cached_mode &= ~SAB82532_MODE_RAC;
 	writeb(up->cached_mode, &up->regs->rw.mode);
 
+	/*
+	 * XXX FIXME
+	 *
+	 * If the chip is powered down here the system hangs/crashes during
+	 * reboot or shutdown.  This needs to be investigated further,
+	 * similar behaviour occurs in 2.4 when the driver is configured
+	 * as a module only.  One hint may be that data is sometimes
+	 * transmitted at 9600 baud during shutdown (regardless of the
+	 * speed the chip was configured for when the port was open).
+	 */
 #if 0
-		
+	/* Power Down */	
 	tmp = readb(&up->regs->rw.ccr0);
 	tmp &= ~SAB82532_CCR0_PU;
 	writeb(tmp, &up->regs->rw.ccr0);
@@ -566,6 +623,13 @@ static void sunsab_shutdown(struct uart_port *port)
 	free_irq(up->port.irq, up);
 }
 
+/*
+ * This is used to figure out the divisor speeds.
+ *
+ * The formula is:    Baud = SAB_BASE_BAUD / ((N + 1) * (1 << M)),
+ *
+ * with               0 <= N < 64 and 0 <= M < 16
+ */
 
 static void calc_ebrg(int baud, int *n_ret, int *m_ret)
 {
@@ -577,6 +641,11 @@ static void calc_ebrg(int baud, int *n_ret, int *m_ret)
 		return;
 	}
      
+	/*
+	 * We scale numbers by 10 so that we get better accuracy
+	 * without having to use floating point.  Here we increment m
+	 * until n is within the valid range.
+	 */
 	n = (SAB_BASE_BAUD * 10) / baud;
 	m = 0;
 	while (n >= 640) {
@@ -584,6 +653,10 @@ static void calc_ebrg(int baud, int *n_ret, int *m_ret)
 		m++;
 	}
 	n = (n+5) / 10;
+	/*
+	 * We try very hard to avoid speeds with M == 0 since they may
+	 * not work correctly for XTAL frequences above 10 MHz.
+	 */
 	if ((m == 0) && ((n & 1) == 0)) {
 		n = n / 2;
 		m++;
@@ -592,6 +665,7 @@ static void calc_ebrg(int baud, int *n_ret, int *m_ret)
 	*m_ret = m;
 }
 
+/* Internal routine, port->lock is held and local interrupts are disabled.  */
 static void sunsab_convert_to_sab(struct uart_sunsab_port *up, unsigned int cflag,
 				  unsigned int iflag, unsigned int baud,
 				  unsigned int quot)
@@ -599,13 +673,13 @@ static void sunsab_convert_to_sab(struct uart_sunsab_port *up, unsigned int cfla
 	unsigned char dafo;
 	int bits, n, m;
 
-	
+	/* Byte size and parity */
 	switch (cflag & CSIZE) {
 	      case CS5: dafo = SAB82532_DAFO_CHL5; bits = 7; break;
 	      case CS6: dafo = SAB82532_DAFO_CHL6; bits = 8; break;
 	      case CS7: dafo = SAB82532_DAFO_CHL7; bits = 9; break;
 	      case CS8: dafo = SAB82532_DAFO_CHL8; bits = 10; break;
-	      
+	      /* Never happens, but GCC is too dumb to figure it out */
 	      default:  dafo = SAB82532_DAFO_CHL5; bits = 7; break;
 	}
 
@@ -633,7 +707,14 @@ static void sunsab_convert_to_sab(struct uart_sunsab_port *up, unsigned int cfla
 	up->tec_timeout = (10 * 1000000) / baud;
 	up->cec_timeout = up->tec_timeout >> 2;
 
-	
+	/* CTS flow control flags */
+	/* We encode read_status_mask and ignore_status_mask like so:
+	 *
+	 * ---------------------
+	 * | ... | ISR1 | ISR0 |
+	 * ---------------------
+	 *  ..    15   8 7    0
+	 */
 
 	up->port.read_status_mask = (SAB82532_ISR0_TCD | SAB82532_ISR0_TIME |
 				     SAB82532_ISR0_RFO | SAB82532_ISR0_RPF |
@@ -647,16 +728,26 @@ static void sunsab_convert_to_sab(struct uart_sunsab_port *up, unsigned int cfla
 	if (iflag & (BRKINT | PARMRK))
 		up->port.read_status_mask |= (SAB82532_ISR1_BRK << 8);
 
+	/*
+	 * Characteres to ignore
+	 */
 	up->port.ignore_status_mask = 0;
 	if (iflag & IGNPAR)
 		up->port.ignore_status_mask |= (SAB82532_ISR0_PERR |
 						SAB82532_ISR0_FERR);
 	if (iflag & IGNBRK) {
 		up->port.ignore_status_mask |= (SAB82532_ISR1_BRK << 8);
+		/*
+		 * If we're ignoring parity and break indicators,
+		 * ignore overruns too (for real raw support).
+		 */
 		if (iflag & IGNPAR)
 			up->port.ignore_status_mask |= SAB82532_ISR0_RFO;
 	}
 
+	/*
+	 * ignore all characters if CREAD is not set
+	 */
 	if ((cflag & CREAD) == 0)
 		up->port.ignore_status_mask |= (SAB82532_ISR0_RPF |
 						SAB82532_ISR0_TCD);
@@ -664,12 +755,16 @@ static void sunsab_convert_to_sab(struct uart_sunsab_port *up, unsigned int cfla
 	uart_update_timeout(&up->port, cflag,
 			    (up->port.uartclk / (16 * quot)));
 
+	/* Now schedule a register update when the chip's
+	 * transmitter is idle.
+	 */
 	up->cached_mode |= SAB82532_MODE_RAC;
 	set_bit(SAB82532_REGS_PENDING, &up->irqflags);
 	if (test_bit(SAB82532_XPR, &up->irqflags))
 		sunsab_tx_idle(up);
 }
 
+/* port->lock is not held.  */
 static void sunsab_set_termios(struct uart_port *port, struct ktermios *termios,
 			       struct ktermios *old)
 {
@@ -777,6 +872,12 @@ static int sunsab_console_setup(struct console *con, char *options)
 	unsigned long flags;
 	unsigned int baud, quot;
 
+	/*
+	 * The console framework calls us for each and every port
+	 * registered. Defer the console setup until the requested
+	 * port has been properly discovered. A bit of a hack,
+	 * though...
+	 */
 	if (up->port.type != PORT_SUNSAB)
 		return -1;
 
@@ -801,12 +902,21 @@ static int sunsab_console_setup(struct console *con, char *options)
 	case B460800: baud = 460800; break;
 	};
 
+	/*
+	 * Temporary fix.
+	 */
 	spin_lock_init(&up->port.lock);
 
+	/*
+	 * Initialize the hardware
+	 */
 	sunsab_startup(&up->port);
 
 	spin_lock_irqsave(&up->port.lock, flags);
 
+	/*
+	 * Finally, enable interrupts
+	 */
 	up->interrupt_mask0 = SAB82532_IMR0_PERR | SAB82532_IMR0_FERR |
 				SAB82532_IMR0_PLLA | SAB82532_IMR0_CDSC;
 	writeb(up->interrupt_mask0, &up->regs->w.imr0);

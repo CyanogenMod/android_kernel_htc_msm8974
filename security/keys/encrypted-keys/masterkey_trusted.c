@@ -21,6 +21,13 @@
 #include <keys/encrypted-type.h>
 #include "encrypted.h"
 
+/*
+ * request_trusted_key - request the trusted key
+ *
+ * Trusted keys are sealed to PCRs and other metadata. Although userspace
+ * manages both trusted/encrypted key-types, like the encrypted key type
+ * data, trusted key type data is not visible decrypted from userspace.
+ */
 struct key *request_trusted_key(const char *trusted_desc,
 				u8 **master_key, size_t *master_keylen)
 {

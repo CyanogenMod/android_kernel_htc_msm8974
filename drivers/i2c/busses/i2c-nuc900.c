@@ -31,6 +31,7 @@
 #include <mach/mfp.h>
 #include <mach/i2c.h>
 
+/* nuc900 i2c registers offset */
 
 #define CSR		0x00
 #define DIVIDER		0x04
@@ -39,6 +40,7 @@
 #define RXR		0x10
 #define TXR		0x14
 
+/* nuc900 i2c CSR register bits */
 
 #define IRQEN		0x003
 #define I2CBUSY		0x400
@@ -47,6 +49,7 @@
 #define ARBIT_LOST	0x200
 #define SLAVE_ACK	0x800
 
+/* nuc900 i2c CMDR register bits */
 
 #define I2C_CMD_START	0x10
 #define I2C_CMD_STOP	0x08
@@ -54,6 +57,7 @@
 #define I2C_CMD_WRITE	0x02
 #define I2C_CMD_NACK	0x01
 
+/* i2c controller state */
 
 enum nuc900_i2c_state {
 	STATE_IDLE,
@@ -63,6 +67,7 @@ enum nuc900_i2c_state {
 	STATE_STOP
 };
 
+/* i2c controller private data */
 
 struct nuc900_i2c {
 	spinlock_t		lock;
@@ -83,6 +88,11 @@ struct nuc900_i2c {
 	struct i2c_adapter	adap;
 };
 
+/* nuc900_i2c_master_complete
+ *
+ * complete the message and wake up the caller, using the given return code,
+ * or zero to mean ok.
+*/
 
 static inline void nuc900_i2c_master_complete(struct nuc900_i2c *i2c, int ret)
 {
@@ -98,6 +108,7 @@ static inline void nuc900_i2c_master_complete(struct nuc900_i2c *i2c, int ret)
 	wake_up(&i2c->wait);
 }
 
+/* irq enable/disable functions */
 
 static inline void nuc900_i2c_disable_irq(struct nuc900_i2c *i2c)
 {
@@ -116,6 +127,10 @@ static inline void nuc900_i2c_enable_irq(struct nuc900_i2c *i2c)
 }
 
 
+/* nuc900_i2c_message_start
+ *
+ * put the start of a message onto the bus
+*/
 
 static void nuc900_i2c_message_start(struct nuc900_i2c *i2c,
 				      struct i2c_msg *msg)
@@ -133,7 +148,7 @@ static inline void nuc900_i2c_stop(struct nuc900_i2c *i2c, int ret)
 
 	dev_dbg(i2c->dev, "STOP\n");
 
-	
+	/* stop the transfer */
 	i2c->state = STATE_STOP;
 	writel(I2C_CMD_STOP, i2c->regs + CMDR);
 
@@ -141,25 +156,44 @@ static inline void nuc900_i2c_stop(struct nuc900_i2c *i2c, int ret)
 	nuc900_i2c_disable_irq(i2c);
 }
 
+/* helper functions to determine the current state in the set of
+ * messages we are sending
+*/
 
+/* is_lastmsg()
+ *
+ * returns TRUE if the current message is the last in the set
+*/
 
 static inline int is_lastmsg(struct nuc900_i2c *i2c)
 {
 	return i2c->msg_idx >= (i2c->msg_num - 1);
 }
 
+/* is_msglast
+ *
+ * returns TRUE if we this is the last byte in the current message
+*/
 
 static inline int is_msglast(struct nuc900_i2c *i2c)
 {
 	return i2c->msg_ptr == i2c->msg->len-1;
 }
 
+/* is_msgend
+ *
+ * returns TRUE if we reached the end of the current message
+*/
 
 static inline int is_msgend(struct nuc900_i2c *i2c)
 {
 	return i2c->msg_ptr >= i2c->msg->len;
 }
 
+/* i2c_nuc900_irq_nextbyte
+ *
+ * process an interrupt and work out what to do
+ */
 
 static void i2c_nuc900_irq_nextbyte(struct nuc900_i2c *i2c,
 							unsigned long iicstat)
@@ -178,10 +212,13 @@ static void i2c_nuc900_irq_nextbyte(struct nuc900_i2c *i2c,
 		break;
 
 	case STATE_START:
+		/* last thing we did was send a start condition on the
+		 * bus, or started a new i2c message
+		 */
 
 		if (iicstat & SLAVE_ACK &&
 		    !(i2c->msg->flags & I2C_M_IGNORE_NAK)) {
-			
+			/* ack was not received... */
 
 			dev_dbg(i2c->dev, "ack was not received\n");
 			nuc900_i2c_stop(i2c, -ENXIO);
@@ -193,6 +230,9 @@ static void i2c_nuc900_irq_nextbyte(struct nuc900_i2c *i2c,
 		else
 			i2c->state = STATE_WRITE;
 
+		/* terminate the transfer if there is nothing to do
+		 * as this is used by the i2c probe to find devices.
+		*/
 
 		if (is_lastmsg(i2c) && i2c->msg->len == 0) {
 			nuc900_i2c_stop(i2c, 0);
@@ -202,8 +242,14 @@ static void i2c_nuc900_irq_nextbyte(struct nuc900_i2c *i2c,
 		if (i2c->state == STATE_READ)
 			goto prepare_read;
 
+		/* fall through to the write state, as we will need to
+		 * send a byte as well
+		*/
 
 	case STATE_WRITE:
+		/* we are writing data to the device... check for the
+		 * end of the message, and if so, work out what to do
+		 */
 
 		if (!(i2c->msg->flags & I2C_M_IGNORE_NAK)) {
 			if (iicstat & SLAVE_ACK) {
@@ -222,7 +268,7 @@ retry_write:
 			writel(I2C_CMD_WRITE, i2c->regs + CMDR);
 
 		} else if (!is_lastmsg(i2c)) {
-			
+			/* we need to go to the next i2c message */
 
 			dev_dbg(i2c->dev, "WRITE: Next Message\n");
 
@@ -230,50 +276,61 @@ retry_write:
 			i2c->msg_idx++;
 			i2c->msg++;
 
-			
+			/* check to see if we need to do another message */
 			if (i2c->msg->flags & I2C_M_NOSTART) {
 
 				if (i2c->msg->flags & I2C_M_RD) {
+					/* cannot do this, the controller
+					 * forces us to send a new START
+					 * when we change direction
+					*/
 
 					nuc900_i2c_stop(i2c, -EINVAL);
 				}
 
 				goto retry_write;
 			} else {
-				
+				/* send the new start */
 				nuc900_i2c_message_start(i2c, i2c->msg);
 				i2c->state = STATE_START;
 			}
 
 		} else {
-			
+			/* send stop */
 
 			nuc900_i2c_stop(i2c, 0);
 		}
 		break;
 
 	case STATE_READ:
+		/* we have a byte of data in the data register, do
+		 * something with it, and then work out wether we are
+		 * going to do any more read/write
+		 */
 
 		byte = readb(i2c->regs + RXR);
 		i2c->msg->buf[i2c->msg_ptr++] = byte;
 
 prepare_read:
 		if (is_msglast(i2c)) {
-			
+			/* last byte of buffer */
 
 			if (is_lastmsg(i2c))
 				writel(I2C_CMD_READ | I2C_CMD_NACK,
 							i2c->regs + CMDR);
 
 		} else if (is_msgend(i2c)) {
+			/* ok, we've read the entire buffer, see if there
+			 * is anything else we need to do
+			*/
 
 			if (is_lastmsg(i2c)) {
-				
+				/* last message, send stop and complete */
 				dev_dbg(i2c->dev, "READ: Send Stop\n");
 
 				nuc900_i2c_stop(i2c, 0);
 			} else {
-				
+				/* go to the next transfer */
 				dev_dbg(i2c->dev, "READ: Next Transfer\n");
 
 				i2c->msg_ptr = 0;
@@ -291,6 +348,10 @@ prepare_read:
 	}
 }
 
+/* nuc900_i2c_irq
+ *
+ * top level IRQ servicing routine
+*/
 
 static irqreturn_t nuc900_i2c_irq(int irqno, void *dev_id)
 {
@@ -301,7 +362,7 @@ static irqreturn_t nuc900_i2c_irq(int irqno, void *dev_id)
 	writel(status | IRQFLAG, i2c->regs + CSR);
 
 	if (status & ARBIT_LOST) {
-		
+		/* deal with arbitration loss */
 		dev_err(i2c->dev, "deal with arbitration loss\n");
 		goto out;
 	}
@@ -311,6 +372,9 @@ static irqreturn_t nuc900_i2c_irq(int irqno, void *dev_id)
 		goto out;
 	}
 
+	/* pretty much this leaves us with the fact that we've
+	 * transmitted or received whatever byte we last sent
+	*/
 
 	i2c_nuc900_irq_nextbyte(i2c, status);
 
@@ -319,6 +383,10 @@ static irqreturn_t nuc900_i2c_irq(int irqno, void *dev_id)
 }
 
 
+/* nuc900_i2c_set_master
+ *
+ * get the i2c bus for a master transaction
+*/
 
 static int nuc900_i2c_set_master(struct nuc900_i2c *i2c)
 {
@@ -336,6 +404,10 @@ static int nuc900_i2c_set_master(struct nuc900_i2c *i2c)
 	return -ETIMEDOUT;
 }
 
+/* nuc900_i2c_doxfer
+ *
+ * this starts an i2c transfer
+*/
 
 static int nuc900_i2c_doxfer(struct nuc900_i2c *i2c,
 			      struct i2c_msg *msgs, int num)
@@ -366,22 +438,25 @@ static int nuc900_i2c_doxfer(struct nuc900_i2c *i2c,
 
 	ret = i2c->msg_idx;
 
+	/* having these next two as dev_err() makes life very
+	 * noisy when doing an i2cdetect
+	*/
 
 	if (timeout == 0)
 		dev_dbg(i2c->dev, "timeout\n");
 	else if (ret != num)
 		dev_dbg(i2c->dev, "incomplete xfer (%d)\n", ret);
 
-	
+	/* ensure the stop has been through the bus */
 
 	dev_dbg(i2c->dev, "waiting for bus idle\n");
 
-	
+	/* first, try busy waiting briefly */
 	do {
 		iicstat = readl(i2c->regs + CSR);
 	} while ((iicstat & I2CBUSY) && --spins);
 
-	
+	/* if that timed out sleep */
 	if (!spins) {
 		msleep(1);
 		iicstat = readl(i2c->regs + CSR);
@@ -394,6 +469,11 @@ static int nuc900_i2c_doxfer(struct nuc900_i2c *i2c,
 	return ret;
 }
 
+/* nuc900_i2c_xfer
+ *
+ * first port of call from the i2c bus code when an message needs
+ * transferring across the i2c bus.
+*/
 
 static int nuc900_i2c_xfer(struct i2c_adapter *adap,
 			struct i2c_msg *msgs, int num)
@@ -419,17 +499,23 @@ static int nuc900_i2c_xfer(struct i2c_adapter *adap,
 	return -EREMOTEIO;
 }
 
+/* declare our i2c functionality */
 static u32 nuc900_i2c_func(struct i2c_adapter *adap)
 {
 	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL | I2C_FUNC_PROTOCOL_MANGLING;
 }
 
+/* i2c bus registration info */
 
 static const struct i2c_algorithm nuc900_i2c_algorithm = {
 	.master_xfer		= nuc900_i2c_xfer,
 	.functionality		= nuc900_i2c_func,
 };
 
+/* nuc900_i2c_probe
+ *
+ * called by the bus driver when a suitable device is found
+*/
 
 static int __devinit nuc900_i2c_probe(struct platform_device *pdev)
 {
@@ -459,7 +545,7 @@ static int __devinit nuc900_i2c_probe(struct platform_device *pdev)
 	spin_lock_init(&i2c->lock);
 	init_waitqueue_head(&i2c->wait);
 
-	
+	/* find the clock and enable it */
 
 	i2c->dev = &pdev->dev;
 	i2c->clk = clk_get(&pdev->dev, NULL);
@@ -473,7 +559,7 @@ static int __devinit nuc900_i2c_probe(struct platform_device *pdev)
 
 	clk_enable(i2c->clk);
 
-	
+	/* map the registers */
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (res == NULL) {
@@ -502,7 +588,7 @@ static int __devinit nuc900_i2c_probe(struct platform_device *pdev)
 	dev_dbg(&pdev->dev, "registers %p (%p, %p)\n",
 		i2c->regs, i2c->ioarea, res);
 
-	
+	/* setup info block for the i2c core */
 
 	i2c->adap.algo_data = i2c;
 	i2c->adap.dev.parent = &pdev->dev;
@@ -514,6 +600,9 @@ static int __devinit nuc900_i2c_probe(struct platform_device *pdev)
 	ret = (i2c->clk.apbfreq)/(pdata->bus_freq * 5) - 1;
 	writel(ret & 0xffff, i2c->regs + DIVIDER);
 
+	/* find the IRQ for this unit (note, this relies on the init call to
+	 * ensure no current IRQs pending
+	 */
 
 	i2c->irq = ret = platform_get_irq(pdev, 0);
 	if (ret <= 0) {
@@ -529,6 +618,11 @@ static int __devinit nuc900_i2c_probe(struct platform_device *pdev)
 		goto err_iomap;
 	}
 
+	/* Note, previous versions of the driver used i2c_add_adapter()
+	 * to add the bus at any number. We now pass the bus number via
+	 * the platform data, so if unset it will now default to always
+	 * being bus 0.
+	 */
 
 	i2c->adap.nr = pdata->bus_num;
 
@@ -563,6 +657,10 @@ static int __devinit nuc900_i2c_probe(struct platform_device *pdev)
 	return ret;
 }
 
+/* nuc900_i2c_remove
+ *
+ * called when device is removed from the bus
+*/
 
 static int __devexit nuc900_i2c_remove(struct platform_device *pdev)
 {

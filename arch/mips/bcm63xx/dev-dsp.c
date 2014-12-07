@@ -19,12 +19,12 @@
 
 static struct resource voip_dsp_resources[] = {
 	{
-		.start		= -1, 
-		.end		= -1, 
+		.start		= -1, /* filled at runtime */
+		.end		= -1, /* filled at runtime */
 		.flags		= IORESOURCE_MEM,
 	},
 	{
-		.start		= -1, 
+		.start		= -1, /* filled at runtime */
 		.flags		= IORESOURCE_IRQ,
 	},
 };
@@ -41,14 +41,14 @@ int __init bcm63xx_dsp_register(const struct bcm63xx_dsp_platform_data *pd)
 	struct bcm63xx_dsp_platform_data *dpd;
 	u32 val;
 
-	
+	/* Get the memory window */
 	val = bcm_mpi_readl(MPI_CSBASE_REG(pd->cs - 1));
 	val &= MPI_CSBASE_BASE_MASK;
 	voip_dsp_resources[0].start = val;
 	voip_dsp_resources[0].end = val + 0xFFFFFFF;
 	voip_dsp_resources[1].start = pd->ext_irq;
 
-	
+	/* copy given platform data */
 	dpd = bcm63xx_voip_dsp_device.dev.platform_data;
 	memcpy(dpd, pd, sizeof (*pd));
 

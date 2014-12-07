@@ -26,29 +26,33 @@
 
 #include <mach/fb.h>
 
-#define EP93XXFB_VLINES_TOTAL			0x0000	
-#define EP93XXFB_VSYNC				0x0004	
-#define EP93XXFB_VACTIVE			0x0008	
-#define EP93XXFB_VBLANK				0x0228	
-#define EP93XXFB_VCLK				0x000c	
+/* Vertical Frame Timing Registers */
+#define EP93XXFB_VLINES_TOTAL			0x0000	/* SW locked */
+#define EP93XXFB_VSYNC				0x0004	/* SW locked */
+#define EP93XXFB_VACTIVE			0x0008	/* SW locked */
+#define EP93XXFB_VBLANK				0x0228	/* SW locked */
+#define EP93XXFB_VCLK				0x000c	/* SW locked */
 
-#define EP93XXFB_HCLKS_TOTAL			0x0010	
-#define EP93XXFB_HSYNC				0x0014	
-#define EP93XXFB_HACTIVE			0x0018	
-#define EP93XXFB_HBLANK				0x022c	
-#define EP93XXFB_HCLK				0x001c	
+/* Horizontal Frame Timing Registers */
+#define EP93XXFB_HCLKS_TOTAL			0x0010	/* SW locked */
+#define EP93XXFB_HSYNC				0x0014	/* SW locked */
+#define EP93XXFB_HACTIVE			0x0018	/* SW locked */
+#define EP93XXFB_HBLANK				0x022c	/* SW locked */
+#define EP93XXFB_HCLK				0x001c	/* SW locked */
 
+/* Frame Buffer Memory Configuration Registers */
 #define EP93XXFB_SCREEN_PAGE			0x0028
 #define EP93XXFB_SCREEN_HPAGE			0x002c
 #define EP93XXFB_SCREEN_LINES			0x0030
 #define EP93XXFB_LINE_LENGTH			0x0034
 #define EP93XXFB_VLINE_STEP			0x0038
-#define EP93XXFB_LINE_CARRY			0x003c	
+#define EP93XXFB_LINE_CARRY			0x003c	/* SW locked */
 #define EP93XXFB_EOL_OFFSET			0x0230
 
+/* Other Video Registers */
 #define EP93XXFB_BRIGHTNESS			0x0020
-#define EP93XXFB_ATTRIBS			0x0024	
-#define EP93XXFB_SWLOCK				0x007c	
+#define EP93XXFB_ATTRIBS			0x0024	/* SW locked */
+#define EP93XXFB_SWLOCK				0x007c	/* SW locked */
 #define EP93XXFB_AC_RATE			0x0214
 #define EP93XXFB_FIFO_LEVEL			0x0234
 #define EP93XXFB_PIXELMODE			0x0054
@@ -64,12 +68,14 @@
 #define EP93XXFB_PARL_IF_OUT			0x0058
 #define EP93XXFB_PARL_IF_IN			0x005c
 
+/* Blink Control Registers */
 #define EP93XXFB_BLINK_RATE			0x0040
 #define EP93XXFB_BLINK_MASK			0x0044
 #define EP93XXFB_BLINK_PATTRN			0x0048
 #define EP93XXFB_PATTRN_MASK			0x004c
 #define EP93XXFB_BKGRND_OFFSET			0x0050
 
+/* Hardware Cursor Registers */
 #define EP93XXFB_CURSOR_ADR_START		0x0060
 #define EP93XXFB_CURSOR_ADR_RESET		0x0064
 #define EP93XXFB_CURSOR_SIZE			0x0068
@@ -81,6 +87,7 @@
 #define EP93XXFB_CURSOR_DSCAN_HY_LOC		0x0078
 #define EP93XXFB_CURSOR_BLINK_RATE_CTRL		0x0224
 
+/* LUT Registers */
 #define EP93XXFB_GRY_SCL_LUTR			0x0080
 #define EP93XXFB_GRY_SCL_LUTG			0x0280
 #define EP93XXFB_GRY_SCL_LUTB			0x0300
@@ -89,12 +96,14 @@
 #define EP93XXFB_LUT_SW_CONTROL_SSTAT		(1 << 1)
 #define EP93XXFB_COLOR_LUT			0x0400
 
+/* Video Signature Registers */
 #define EP93XXFB_VID_SIG_RSLT_VAL		0x0200
 #define EP93XXFB_VID_SIG_CTRL			0x0204
 #define EP93XXFB_VSIG				0x0208
 #define EP93XXFB_HSIG				0x020c
 #define EP93XXFB_SIG_CLR_STR			0x0210
 
+/* Minimum / Maximum resolutions supported */
 #define EP93XXFB_MIN_XRES			64
 #define EP93XXFB_MIN_YRES			64
 #define EP93XXFB_MAX_XRES			1024
@@ -125,9 +134,16 @@ static inline void ep93xxfb_writel(struct ep93xx_fbi *fbi,
 	__raw_writel(val, fbi->mmio_base + off);
 }
 
+/*
+ * Write to one of the locked raster registers.
+ */
 static inline void ep93xxfb_out_locked(struct ep93xx_fbi *fbi,
 				       unsigned int val, unsigned int reg)
 {
+	/*
+	 * We don't need a lock or delay here since the raster register
+	 * block will remain unlocked until the next access.
+	 */
 	ep93xxfb_writel(fbi, 0xaa, EP93XXFB_SWLOCK);
 	ep93xxfb_writel(fbi, val, reg);
 }
@@ -437,6 +453,14 @@ static int __init ep93xxfb_alloc_videomem(struct fb_info *info)
 	if (!virt_addr)
 		return -ENOMEM;
 
+	/*
+	 * There is a bug in the ep93xx framebuffer which causes problems
+	 * if bit 27 of the physical address is set.
+	 * See: http://marc.info/?l=linux-arm-kernel&m=110061245502000&w=2
+	 * There does not seem to be any official errata for this, but I
+	 * have confirmed the problem exists on my hardware (ep9315) at
+	 * least.
+	 */
 	if (check_screenpage_bug && phys_addr & (1 << 27)) {
 		dev_err(info->dev, "ep93xx framebuffer bug. phys addr (0x%x) "
 			"has bit 27 set: cannot init framebuffer\n",
@@ -495,6 +519,15 @@ static int __devinit ep93xxfb_probe(struct platform_device *pdev)
 		goto failed;
 	}
 
+	/*
+	 * FIXME - We don't do a request_mem_region here because we are
+	 * sharing the register space with the backlight driver (see
+	 * drivers/video/backlight/ep93xx_bl.c) and doing so will cause
+	 * the second loaded driver to return -EBUSY.
+	 *
+	 * NOTE: No locking is required; the backlight does not touch
+	 * any of the framebuffer registers.
+	 */
 	fbi->res = res;
 	fbi->mmio_base = ioremap(res->start, resource_size(res));
 	if (!fbi->mmio_base) {

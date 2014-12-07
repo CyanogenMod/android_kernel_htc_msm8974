@@ -24,6 +24,9 @@
 #include <mach/dma.h>
 #include "ep93xx-pcm.h"
 
+/*
+ * Per channel (1-4) registers.
+ */
 #define AC97CH(n)		(((n) - 1) * 0x20)
 
 #define AC97DR(n)		(AC97CH(n) + 0x0000)
@@ -48,6 +51,9 @@
 #define AC97ISR(n)		(AC97CH(n) + 0x0014)
 #define AC97IE(n)		(AC97CH(n) + 0x0018)
 
+/*
+ * Global AC97 controller registers.
+ */
 #define AC97S1DATA		0x0080
 #define AC97S2DATA		0x0084
 #define AC97S12DATA		0x0088
@@ -55,6 +61,9 @@
 #define AC97RGIS		0x008c
 #define AC97GIS			0x0090
 #define AC97IM			0x0094
+/*
+ * Common bits for RGIS, GIS and IM registers.
+ */
 #define AC97_SLOT2RXVALID	BIT(1)
 #define AC97_CODECREADY		BIT(5)
 #define AC97_SLOT2TXCOMPLETE	BIT(6)
@@ -74,6 +83,15 @@
 
 #define AC97_TIMEOUT		msecs_to_jiffies(5)
 
+/**
+ * struct ep93xx_ac97_info - EP93xx AC97 controller info structure
+ * @lock: mutex serializing access to the bus (slot 1 & 2 ops)
+ * @dev: pointer to the platform device dev structure
+ * @mem: physical memory resource for the registers
+ * @regs: mapped AC97 controller registers
+ * @irq: AC97 interrupt number
+ * @done: bus ops wait here for an interrupt
+ */
 struct ep93xx_ac97_info {
 	struct mutex		lock;
 	struct device		*dev;
@@ -83,6 +101,7 @@ struct ep93xx_ac97_info {
 	struct completion	done;
 };
 
+/* currently ALSA only supports a single AC97 device */
 static struct ep93xx_ac97_info *ep93xx_ac97_info;
 
 static struct ep93xx_pcm_dma_params ep93xx_ac97_pcm_out = {
@@ -136,6 +155,10 @@ static void ep93xx_ac97_write(struct snd_ac97 *ac97,
 
 	mutex_lock(&info->lock);
 
+	/*
+	 * Writes to the codec need to be done so that slot 2 is filled in
+	 * before slot 1.
+	 */
 	ep93xx_ac97_write_reg(info, AC97S2DATA, val);
 	ep93xx_ac97_write_reg(info, AC97S1DATA, reg);
 
@@ -152,6 +175,12 @@ static void ep93xx_ac97_warm_reset(struct snd_ac97 *ac97)
 
 	mutex_lock(&info->lock);
 
+	/*
+	 * We are assuming that before this functions gets called, the codec
+	 * BIT_CLK is stopped by forcing the codec into powerdown mode. We can
+	 * control the SYNC signal directly via AC97SYNC register. Using
+	 * TIMEDSYNC the controller will keep the SYNC high > 1us.
+	 */
 	ep93xx_ac97_write_reg(info, AC97SYNC, AC97SYNC_TIMEDSYNC);
 	ep93xx_ac97_write_reg(info, AC97IM, AC97_CODECREADY);
 	if (!wait_for_completion_timeout(&info->done, AC97_TIMEOUT))
@@ -166,15 +195,26 @@ static void ep93xx_ac97_cold_reset(struct snd_ac97 *ac97)
 
 	mutex_lock(&info->lock);
 
+	/*
+	 * For doing cold reset, we disable the AC97 controller interface, clear
+	 * WINT and CODECREADY bits, and finally enable the interface again.
+	 */
 	ep93xx_ac97_write_reg(info, AC97GCR, 0);
 	ep93xx_ac97_write_reg(info, AC97EOI, AC97EOI_CODECREADY | AC97EOI_WINT);
 	ep93xx_ac97_write_reg(info, AC97GCR, AC97GCR_AC97IFE);
 
+	/*
+	 * Now, assert the reset and wait for the codec to become ready.
+	 */
 	ep93xx_ac97_write_reg(info, AC97RESET, AC97RESET_TIMEDRESET);
 	ep93xx_ac97_write_reg(info, AC97IM, AC97_CODECREADY);
 	if (!wait_for_completion_timeout(&info->done, AC97_TIMEOUT))
 		dev_warn(info->dev, "codec cold reset timeout\n");
 
+	/*
+	 * Give the codec some time to come fully out from the reset. This way
+	 * we ensure that the subsequent reads/writes will work.
+	 */
 	usleep_range(15000, 20000);
 
 	mutex_unlock(&info->lock);
@@ -185,6 +225,11 @@ static irqreturn_t ep93xx_ac97_interrupt(int irq, void *dev_id)
 	struct ep93xx_ac97_info *info = dev_id;
 	unsigned status, mask;
 
+	/*
+	 * Just mask out the interrupt and wake up the waiting thread.
+	 * Interrupts are cleared via reading/writing to slot 1 & 2 registers by
+	 * the waiting thread.
+	 */
 	status = ep93xx_ac97_read_reg(info, AC97GIS);
 	mask = ep93xx_ac97_read_reg(info, AC97IM);
 	mask &= ~status;
@@ -213,11 +258,19 @@ static int ep93xx_ac97_trigger(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+			/*
+			 * Enable compact mode, TX slots 3 & 4, and the TX FIFO
+			 * itself.
+			 */
 			v |= AC97TXCR_CM;
 			v |= AC97TXCR_TX3 | AC97TXCR_TX4;
 			v |= AC97TXCR_TEN;
 			ep93xx_ac97_write_reg(info, AC97TXCR(1), v);
 		} else {
+			/*
+			 * Enable compact mode, RX slots 3 & 4, and the RX FIFO
+			 * itself.
+			 */
 			v |= AC97RXCR_CM;
 			v |= AC97RXCR_RX3 | AC97RXCR_RX4;
 			v |= AC97RXCR_REN;
@@ -229,6 +282,14 @@ static int ep93xx_ac97_trigger(struct snd_pcm_substream *substream,
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
+			/*
+			 * As per Cirrus EP93xx errata described below:
+			 *
+			 * http://www.cirrus.com/en/pubs/errata/ER667E2B.pdf
+			 *
+			 * we will wait for the TX FIFO to be empty before
+			 * clearing the TEN bit.
+			 */
 			unsigned long timeout = jiffies + AC97_TIMEOUT;
 
 			do {
@@ -239,10 +300,10 @@ static int ep93xx_ac97_trigger(struct snd_pcm_substream *substream,
 				}
 			} while (!(v & (AC97SR_TXFE | AC97SR_TXUE)));
 
-			
+			/* disable the TX FIFO */
 			ep93xx_ac97_write_reg(info, AC97TXCR(1), 0);
 		} else {
-			
+			/* disable the RX FIFO */
 			ep93xx_ac97_write_reg(info, AC97RXCR(1), 0);
 		}
 		break;
@@ -367,7 +428,7 @@ static int __devexit ep93xx_ac97_remove(struct platform_device *pdev)
 
 	snd_soc_unregister_dai(&pdev->dev);
 
-	
+	/* disable the AC97 controller */
 	ep93xx_ac97_write_reg(info, AC97GCR, 0);
 
 	free_irq(info->irq, info);

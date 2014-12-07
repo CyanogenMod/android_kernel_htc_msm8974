@@ -33,4 +33,4 @@ struct ads1015_platform_data {
 	struct ads1015_channel_data channel_data[ADS1015_CHANNELS];
 };
 
-#endif 
+#endif /* LINUX_ADS1015_H */

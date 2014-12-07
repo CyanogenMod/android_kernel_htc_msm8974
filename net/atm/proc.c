@@ -8,7 +8,7 @@
  * the reader.
  */
 
-#include <linux/module.h> 
+#include <linux/module.h> /* for EXPORT_SYMBOL */
 #include <linux/string.h>
 #include <linux/types.h>
 #include <linux/mm.h>
@@ -21,16 +21,16 @@
 #include <linux/atmdev.h>
 #include <linux/netdevice.h>
 #include <linux/atmclip.h>
-#include <linux/init.h> 
+#include <linux/init.h> /* for __init */
 #include <linux/slab.h>
 #include <net/net_namespace.h>
 #include <net/atmclip.h>
 #include <linux/uaccess.h>
-#include <linux/param.h> 
+#include <linux/param.h> /* for HZ */
 #include <linux/atomic.h>
 #include "resources.h"
-#include "common.h" 
-#include "signaling.h" 
+#include "common.h" /* atm_proc_init prototype */
+#include "signaling.h" /* to get sigd - ugly too */
 
 static ssize_t proc_dev_atm_read(struct file *file, char __user *buf,
 				 size_t count, loff_t *pos);
@@ -156,10 +156,10 @@ static void pvc_info(struct seq_file *seq, struct atm_vcc *vcc)
 	static const char *const class_name[] = {
 		"off", "UBR", "CBR", "VBR", "ABR"};
 	static const char *const aal_name[] = {
-		"---",	"1",	"2",	"3/4",	
-		"???",	"5",	"???",	"???",	
-		"???",	"???",	"???",	"???",	
-		"???",	"0",	"???",	"???"};	
+		"---",	"1",	"2",	"3/4",	/*  0- 3 */
+		"???",	"5",	"???",	"???",	/*  4- 7 */
+		"???",	"???",	"???",	"???",	/*  8-11 */
+		"???",	"0",	"???",	"???"};	/* 12-15 */
 
 	seq_printf(seq, "%3d %3d %5d %-3s %7d %-5s %7d %-6s",
 		   vcc->dev->number, vcc->vpi, vcc->vci,
@@ -410,7 +410,7 @@ int atm_proc_dev_register(struct atm_dev *dev)
 {
 	int error;
 
-	
+	/* No proc info */
 	if (!dev->ops->proc_read)
 		return 0;
 

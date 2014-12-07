@@ -48,9 +48,10 @@
 #include <net/sctp/sctp.h>
 
 #if SCTP_DEBUG
-int sctp_debug_flag = 1;	
-#endif	
+int sctp_debug_flag = 1;	/* Initially enable DEBUG */
+#endif	/* SCTP_DEBUG */
 
+/* These are printable forms of Chunk ID's from section 3.1.  */
 static const char *const sctp_cid_tbl[SCTP_NUM_BASE_CHUNK_TYPES] = {
 	"DATA",
 	"INIT",
@@ -69,6 +70,7 @@ static const char *const sctp_cid_tbl[SCTP_NUM_BASE_CHUNK_TYPES] = {
 	"SHUTDOWN_COMPLETE",
 };
 
+/* Lookup "chunk type" debug name. */
 const char *sctp_cname(const sctp_subtype_t cid)
 {
 	if (cid.chunk <= SCTP_CID_BASE_MAX)
@@ -94,6 +96,7 @@ const char *sctp_cname(const sctp_subtype_t cid)
 	return "unknown chunk";
 }
 
+/* These are printable forms of the states.  */
 const char *const sctp_state_tbl[SCTP_STATE_NUM_STATES] = {
 	"STATE_CLOSED",
 	"STATE_COOKIE_WAIT",
@@ -105,6 +108,7 @@ const char *const sctp_state_tbl[SCTP_STATE_NUM_STATES] = {
 	"STATE_SHUTDOWN_ACK_SENT",
 };
 
+/* Events that could change the state of an association.  */
 const char *const sctp_evttype_tbl[] = {
 	"EVENT_T_unknown",
 	"EVENT_T_CHUNK",
@@ -113,6 +117,7 @@ const char *const sctp_evttype_tbl[] = {
 	"EVENT_T_PRIMITIVE"
 };
 
+/* Return value of a state function */
 const char *const sctp_status_tbl[] = {
 	"DISPOSITION_DISCARD",
 	"DISPOSITION_CONSUME",
@@ -125,6 +130,7 @@ const char *const sctp_status_tbl[] = {
 	"DISPOSITION_BUG"
 };
 
+/* Printable forms of primitives */
 static const char *const sctp_primitive_tbl[SCTP_NUM_PRIMITIVE_TYPES] = {
 	"PRIMITIVE_ASSOCIATE",
 	"PRIMITIVE_SHUTDOWN",
@@ -134,6 +140,7 @@ static const char *const sctp_primitive_tbl[SCTP_NUM_PRIMITIVE_TYPES] = {
 	"PRIMITIVE_ASCONF",
 };
 
+/* Lookup primitive debug name. */
 const char *sctp_pname(const sctp_subtype_t id)
 {
 	if (id.primitive <= SCTP_EVENT_PRIMITIVE_MAX)
@@ -146,6 +153,7 @@ static const char *const sctp_other_tbl[] = {
 	"ICMP_PROTO_UNREACH",
 };
 
+/* Lookup "other" debug name. */
 const char *sctp_oname(const sctp_subtype_t id)
 {
 	if (id.other <= SCTP_EVENT_OTHER_MAX)
@@ -166,6 +174,7 @@ static const char *const sctp_timer_tbl[] = {
 	"TIMEOUT_AUTOCLOSE",
 };
 
+/* Lookup timer debug name. */
 const char *sctp_tname(const sctp_subtype_t id)
 {
 	if (id.timeout <= SCTP_EVENT_TIMEOUT_MAX)

@@ -34,6 +34,11 @@
 #include <hv/hypervisor.h>
 
 
+/*
+ * This stuff is not in elf.h and is not in any other kernel include.
+ * This stuff is needed below in the little boot notes parser to
+ * extract the command line so we can pass it to the hypervisor.
+ */
 struct Elf32_Bhdr {
 	Elf32_Word b_signature;
 	Elf32_Word b_size;
@@ -44,14 +49,26 @@ struct Elf32_Bhdr {
 #define EBN_COMMAND_LINE	0x00000004
 #define roundupsz(X) (((X) + 3) & ~3)
 
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 
 void machine_shutdown(void)
 {
+	/*
+	 * Normally we would stop all the other processors here, but
+	 * the check in machine_kexec_prepare below ensures we'll only
+	 * get this far if we've been booted with "nosmp" on the
+	 * command line or without CONFIG_SMP so there's nothing to do
+	 * here (for now).
+	 */
 }
 
 void machine_crash_shutdown(struct pt_regs *regs)
 {
+	/*
+	 * Cannot happen.  This type of kexec is disabled on this
+	 * architecture (and enforced in machine_kexec_prepare below).
+	 */
 }
 
 
@@ -75,8 +92,18 @@ int machine_kexec_prepare(struct kimage *image)
 
 void machine_kexec_cleanup(struct kimage *image)
 {
+	/*
+	 * We did nothing in machine_kexec_prepare,
+	 * so we have nothing to do here.
+	 */
 }
 
+/*
+ * If we can find elf boot notes on this page, return the command
+ * line.  Otherwise, silently return null.  Somewhat kludgy, but no
+ * good way to do this without significantly rearchitecting the
+ * architecture-independent kexec code.
+ */
 
 static unsigned char *kexec_bn2cl(void *pg)
 {
@@ -88,10 +115,18 @@ static unsigned char *kexec_bn2cl(void *pg)
 
 	bhdrp = (struct Elf32_Bhdr *) pg;
 
+	/*
+	 * This routine is invoked for every source page, so make
+	 * sure to quietly ignore every impossible page.
+	 */
 	if (bhdrp->b_signature != ELF_BOOT_MAGIC ||
 	    bhdrp->b_size > PAGE_SIZE)
 		return 0;
 
+	/*
+	 * If we get a checksum mismatch, warn with the checksum
+	 * so we can diagnose better.
+	 */
 	csum = ip_compute_csum(pg, bhdrp->b_size);
 	if (csum != 0) {
 		pr_warning("%s: bad checksum %#x (size %d)\n",
@@ -108,7 +143,7 @@ static unsigned char *kexec_bn2cl(void *pg)
 
 		nhdrp = (Elf32_Nhdr *) desc;
 
-		
+		/* still in bounds? */
 		if ((unsigned char *) (nhdrp + 1) >
 		    ((unsigned char *) pg) + bhdrp->b_size) {
 
@@ -174,6 +209,13 @@ static void kexec_find_and_set_command_line(struct kimage *image)
 			   __func__, hverr);
 }
 
+/*
+ * The kexec code range-checks all its PAs, so to avoid having it run
+ * amok and allocate memory and then sequester it from every other
+ * controller, we force it to come from controller zero.  We also
+ * disable the oom-killer since if we do end up running out of memory,
+ * that almost certainly won't help.
+ */
 struct page *kimage_alloc_pages_arch(gfp_t gfp_mask, unsigned int order)
 {
 	gfp_mask |= __GFP_THISNODE | __GFP_NORETRY;
@@ -186,9 +228,13 @@ static void setup_quasi_va_is_pa(void)
 	HV_PTE pte;
 	int i;
 
+	/*
+	 * Flush our TLB to prevent conflicts between the previous contents
+	 * and the new stuff we're about to add.
+	 */
 	local_flush_tlb_all();
 
-	
+	/* setup VA is PA, at least up to PAGE_OFFSET */
 
 	pgtable = (HV_PTE *)current->mm->pgd;
 	pte = hv_pte(_PAGE_KERNEL | _PAGE_HUGE_PAGE);
@@ -208,11 +254,16 @@ void machine_kexec(struct kimage *image)
 	void (*rnk)(unsigned long, void *, unsigned long)
 		__noreturn;
 
-	
+	/* Mask all interrupts before starting to reboot. */
 	interrupt_mask_set_mask(~0ULL);
 
 	kexec_find_and_set_command_line(image);
 
+	/*
+	 * Adjust the home caching of the control page to be cached on
+	 * this cpu, and copy the assembly helper into the control
+	 * code page, which we map in the vmalloc area.
+	 */
 	homecache_change_page_home(image->control_code_page, 0,
 				   smp_processor_id());
 	reboot_code_buffer = vmap(&image->control_code_page, 1, 0,
@@ -225,7 +276,7 @@ void machine_kexec(struct kimage *image)
 
 	setup_quasi_va_is_pa();
 
-	
+	/* now call it */
 	rnk = reboot_code_buffer;
 	(*rnk)(image->head, reboot_code_buffer, image->start);
 }

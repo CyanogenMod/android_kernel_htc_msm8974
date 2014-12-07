@@ -1,3 +1,4 @@
+/* Glue code to lib/swiotlb-xen.c */
 
 #include <linux/dma-mapping.h>
 #include <linux/pci.h>
@@ -24,13 +25,26 @@ static struct dma_map_ops xen_swiotlb_dma_ops = {
 	.dma_supported = xen_swiotlb_dma_supported,
 };
 
+/*
+ * pci_xen_swiotlb_detect - set xen_swiotlb to 1 if necessary
+ *
+ * This returns non-zero if we are forced to use xen_swiotlb (by the boot
+ * option).
+ */
 int __init pci_xen_swiotlb_detect(void)
 {
 
+	/* If running as PV guest, either iommu=soft, or swiotlb=force will
+	 * activate this IOMMU. If running as PV privileged, activate it
+	 * irregardless.
+	 */
 	if ((xen_initial_domain() || swiotlb || swiotlb_force) &&
 	    (xen_pv_domain()))
 		xen_swiotlb = 1;
 
+	/* If we are running under Xen, we MUST disable the native SWIOTLB.
+	 * Don't worry about swiotlb_force flag activating the native, as
+	 * the 'swiotlb' flag is the only one turning it on. */
 	if (xen_pv_domain())
 		swiotlb = 0;
 
@@ -43,7 +57,7 @@ void __init pci_xen_swiotlb_init(void)
 		xen_swiotlb_init(1);
 		dma_ops = &xen_swiotlb_dma_ops;
 
-		
+		/* Make sure ACS will be enabled */
 		pci_request_acs();
 	}
 }

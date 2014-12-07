@@ -5,6 +5,7 @@
 
 #define MAX_RESOURCE_DMA	2
 
+/* structure for describing the on-chip devices */
 struct pxa_device_desc {
 	const char	*dev_name;
 	const char	*drv_name;
@@ -49,4 +50,4 @@ struct pxa_device_desc mmp2_device_##_name __initdata = {		\
 }
 
 extern int pxa_register_device(struct pxa_device_desc *, void *, size_t);
-#endif 
+#endif /* __MACH_DEVICE_H */

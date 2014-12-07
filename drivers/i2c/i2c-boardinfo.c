@@ -26,6 +26,9 @@
 #include "i2c-core.h"
 
 
+/* These symbols are exported ONLY FOR the i2c core.
+ * No other users will be supported.
+ */
 DECLARE_RWSEM(__i2c_board_lock);
 EXPORT_SYMBOL_GPL(__i2c_board_lock);
 
@@ -36,6 +39,28 @@ int __i2c_first_dynamic_bus_num;
 EXPORT_SYMBOL_GPL(__i2c_first_dynamic_bus_num);
 
 
+/**
+ * i2c_register_board_info - statically declare I2C devices
+ * @busnum: identifies the bus to which these devices belong
+ * @info: vector of i2c device descriptors
+ * @len: how many descriptors in the vector; may be zero to reserve
+ *	the specified bus number.
+ *
+ * Systems using the Linux I2C driver stack can declare tables of board info
+ * while they initialize.  This should be done in board-specific init code
+ * near arch_initcall() time, or equivalent, before any I2C adapter driver is
+ * registered.  For example, mainboard init code could define several devices,
+ * as could the init code for each daughtercard in a board stack.
+ *
+ * The I2C devices will be created later, after the adapter for the relevant
+ * bus has been registered.  After that moment, standard driver model tools
+ * are used to bind "new style" I2C drivers to the devices.  The bus number
+ * for any device declared using this routine is not available for dynamic
+ * allocation.
+ *
+ * The board info passed can safely be __initdata, but be careful of embedded
+ * pointers (for platform_data, functions, etc) since that won't be copied.
+ */
 int __init
 i2c_register_board_info(int busnum,
 	struct i2c_board_info const *info, unsigned len)
@@ -44,7 +69,7 @@ i2c_register_board_info(int busnum,
 
 	down_write(&__i2c_board_lock);
 
-	
+	/* dynamic bus numbers will be assigned after the last static one */
 	if (busnum >= __i2c_first_dynamic_bus_num)
 		__i2c_first_dynamic_bus_num = busnum + 1;
 

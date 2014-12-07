@@ -1,6 +1,16 @@
 #ifndef __SPARC_IPCBUF_H
 #define __SPARC_IPCBUF_H
 
+/*
+ * The ipc64_perm structure for sparc/sparc64 architecture.
+ * Note extra padding because this structure is passed back and forth
+ * between kernel and user space.
+ *
+ * Pad space is left for:
+ * - 32-bit seq
+ * - on sparc for 32 bit mode (it is 32 bit on sparc64)
+ * - 2 miscellaneous 64-bit values
+ */
 
 struct ipc64_perm
 {
@@ -19,4 +29,4 @@ struct ipc64_perm
 	unsigned long long __unused2;
 };
 
-#endif 
+#endif /* __SPARC_IPCBUF_H */

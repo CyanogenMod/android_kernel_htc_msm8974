@@ -53,19 +53,23 @@ static void pdc202xx_set_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	}
 
 	if (speed < XFER_SW_DMA_0) {
+		/*
+		 * preserve SYNC_INT / ERDDY_EN bits while clearing
+		 * Prefetch_EN / IORDY_EN / PA[3:0] bits of register A
+		 */
 		AP &= ~0x3f;
 		if (ide_pio_need_iordy(drive, speed - XFER_PIO_0))
-			AP |= 0x20;	
+			AP |= 0x20;	/* set IORDY_EN bit */
 		if (drive->media == ide_disk)
-			AP |= 0x10;	
-		
+			AP |= 0x10;	/* set Prefetch_EN bit */
+		/* clear PB[4:0] bits of register B */
 		BP &= ~0x1f;
 		pci_write_config_byte(dev, drive_pci,     AP | TA);
 		pci_write_config_byte(dev, drive_pci + 1, BP | TB);
 	} else {
-		
+		/* clear MB[2:0] bits of register B */
 		BP &= ~0xe0;
-		
+		/* clear MC[3:0] bits of register C */
 		CP &= ~0x0f;
 		pci_write_config_byte(dev, drive_pci + 1, BP | TB);
 		pci_write_config_byte(dev, drive_pci + 2, CP | TC);
@@ -85,8 +89,16 @@ static int pdc202xx_test_irq(ide_hwif_t *hwif)
 	u8 sc1d			= inb(high_16 + 0x1d);
 
 	if (hwif->channel) {
+		/*
+		 * bit 7: error, bit 6: interrupting,
+		 * bit 5: FIFO full, bit 4: FIFO empty
+		 */
 		return (sc1d & 0x40) ? 1 : 0;
 	} else	{
+		/*
+		 * bit 3: error, bit 2: interrupting,
+		 * bit 1: FIFO full, bit 0: FIFO empty
+		 */
 		return (sc1d & 0x04) ? 1 : 0;
 	}
 }
@@ -101,6 +113,15 @@ static u8 pdc2026x_cable_detect(ide_hwif_t *hwif)
 	return (CIS & mask) ? ATA_CBL_PATA40 : ATA_CBL_PATA80;
 }
 
+/*
+ * Set the control register to use the 66MHz system
+ * clock for UDMA 3/4/5 mode operation when necessary.
+ *
+ * FIXME: this register is shared by both channels, some locking is needed
+ *
+ * It may also be possible to leave the 66MHz clock on
+ * and readjust the timing parameters.
+ */
 static void pdc_old_enable_66MHz_clock(ide_hwif_t *hwif)
 {
 	unsigned long clock_reg = hwif->extra_base + 0x01;
@@ -152,7 +173,7 @@ static int pdc202xx_dma_end(ide_drive_t *drive)
 		unsigned long atapi_reg	= high_16 + (hwif->channel ? 0x24 : 0x20);
 		u8 clock		= 0;
 
-		outl(0, atapi_reg); 
+		outl(0, atapi_reg); /* zero out extra */
 		clock = inb(high_16 + 0x11);
 		outb(clock & ~(hwif->channel ? 0x08:0x02), high_16 + 0x11);
 	}
@@ -196,11 +217,11 @@ static void __devinit pdc202ata4_fixup_irq(struct pci_dev *dev,
 	if ((dev->class >> 8) != PCI_CLASS_STORAGE_IDE) {
 		u8 irq = 0, irq2 = 0;
 		pci_read_config_byte(dev, PCI_INTERRUPT_LINE, &irq);
-		
+		/* 0xbc */
 		pci_read_config_byte(dev, (PCI_INTERRUPT_LINE)|0x80, &irq2);
 		if (irq != irq2) {
 			pci_write_config_byte(dev,
-				(PCI_INTERRUPT_LINE)|0x80, irq);     
+				(PCI_INTERRUPT_LINE)|0x80, irq);     /* 0xbc */
 			printk(KERN_INFO "%s %s: PCI config space interrupt "
 				"mirror fixed\n", name, pci_name(dev));
 		}
@@ -250,7 +271,7 @@ static const struct ide_dma_ops pdc2026x_dma_ops = {
 	}
 
 static const struct ide_port_info pdc202xx_chipsets[] __devinitdata = {
-	{	
+	{	/* 0: PDC20246 */
 		.name		= DRV_NAME,
 		.init_chipset	= init_chipset_pdc202xx,
 		.port_ops	= &pdc20246_port_ops,
@@ -261,12 +282,20 @@ static const struct ide_port_info pdc202xx_chipsets[] __devinitdata = {
 		.udma_mask	= ATA_UDMA2,
 	},
 
-	
+	/* 1: PDC2026{2,3} */
 	DECLARE_PDC2026X_DEV(ATA_UDMA4, 0),
-	
+	/* 2: PDC2026{5,7}: UDMA5, limit LBA48 requests to 256 sectors */
 	DECLARE_PDC2026X_DEV(ATA_UDMA5, 256),
 };
 
+/**
+ *	pdc202xx_init_one	-	called when a PDC202xx is found
+ *	@dev: the pdc202xx device
+ *	@id: the matching pci id
+ *
+ *	Called when the PCI registration layer (or the IDE initialization)
+ *	finds a device matching our IDE device tables.
+ */
  
 static int __devinit pdc202xx_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {

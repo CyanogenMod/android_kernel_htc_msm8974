@@ -22,4 +22,4 @@ extern struct phy_device *of_phy_connect_fixed_link(struct net_device *dev,
 					 void (*hndlr)(struct net_device *),
 					 phy_interface_t iface);
 
-#endif 
+#endif /* __LINUX_OF_MDIO_H */

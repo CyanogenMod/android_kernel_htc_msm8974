@@ -19,6 +19,16 @@
 
 #include <asm/types.h>
 
+/*
+ * Address types:
+ *
+ *  gva - guest virtual address
+ *  gpa - guest physical address
+ *  gfn - guest frame number
+ *  hva - host virtual address
+ *  hpa - host physical address
+ *  hfn - host frame number
+ */
 
 typedef unsigned long  gva_t;
 typedef u64            gpa_t;
@@ -64,4 +74,4 @@ struct gfn_to_hva_cache {
 	struct kvm_memory_slot *memslot;
 };
 
-#endif 
+#endif /* __KVM_TYPES_H__ */

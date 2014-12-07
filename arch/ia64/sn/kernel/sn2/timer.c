@@ -35,6 +35,11 @@ static struct clocksource clocksource_sn2 = {
         .flags          = CLOCK_SOURCE_IS_CONTINUOUS,
 };
 
+/*
+ * sn udelay uses the RTC instead of the ITC because the ITC is not
+ * synchronized across all CPUs, and the thread may migrate to another CPU
+ * if preemption is enabled.
+ */
 static void
 ia64_sn_udelay (unsigned long usecs)
 {

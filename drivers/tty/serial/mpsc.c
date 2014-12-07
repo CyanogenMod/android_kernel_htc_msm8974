@@ -15,6 +15,40 @@
  * is licensed "as is" without any warranty of any kind, whether express
  * or implied.
  */
+/*
+ * The MPSC interface is much like a typical network controller's interface.
+ * That is, you set up separate rings of descriptors for transmitting and
+ * receiving data.  There is also a pool of buffers with (one buffer per
+ * descriptor) that incoming data are dma'd into or outgoing data are dma'd
+ * out of.
+ *
+ * The MPSC requires two other controllers to be able to work.  The Baud Rate
+ * Generator (BRG) provides a clock at programmable frequencies which determines
+ * the baud rate.  The Serial DMA Controller (SDMA) takes incoming data from the
+ * MPSC and DMA's it into memory or DMA's outgoing data and passes it to the
+ * MPSC.  It is actually the SDMA interrupt that the driver uses to keep the
+ * transmit and receive "engines" going (i.e., indicate data has been
+ * transmitted or received).
+ *
+ * NOTES:
+ *
+ * 1) Some chips have an erratum where several regs cannot be
+ * read.  To work around that, we keep a local copy of those regs in
+ * 'mpsc_port_info'.
+ *
+ * 2) Some chips have an erratum where the ctlr will hang when the SDMA ctlr
+ * accesses system mem with coherency enabled.  For that reason, the driver
+ * assumes that coherency for that ctlr has been disabled.  This means
+ * that when in a cache coherent system, the driver has to manually manage
+ * the data cache on the areas that it touches because the dma_* macro are
+ * basically no-ops.
+ *
+ * 3) There is an erratum (on PPC) where you can't use the instruction to do
+ * a DMA_TO_DEVICE/cache clean so DMA_BIDIRECTIONAL/flushes are used in places
+ * where a DMA_TO_DEVICE/clean would have [otherwise] sufficed.
+ *
+ * 4) AFAICT, hardware flow control isn't supported by the controller --MAG.
+ */
 
 
 #if defined(CONFIG_SERIAL_MPSC_CONSOLE) && defined(CONFIG_MAGIC_SYSRQ)
@@ -43,6 +77,11 @@
 
 #define	MPSC_NUM_CTLRS		2
 
+/*
+ * Descriptors and buffers must be cache line aligned.
+ * Buffers lengths must be multiple of cache line size.
+ * Number of Tx & Rx descriptors must be powers of 2.
+ */
 #define	MPSC_RXR_ENTRIES	32
 #define	MPSC_RXRE_SIZE		dma_get_cache_alignment()
 #define	MPSC_RXR_SIZE		(MPSC_RXR_ENTRIES * MPSC_RXRE_SIZE)
@@ -56,8 +95,9 @@
 #define	MPSC_TXB_SIZE		(MPSC_TXR_ENTRIES * MPSC_TXBE_SIZE)
 
 #define	MPSC_DMA_ALLOC_SIZE	(MPSC_RXR_SIZE + MPSC_RXB_SIZE + MPSC_TXR_SIZE \
-		+ MPSC_TXB_SIZE + dma_get_cache_alignment() )
+		+ MPSC_TXB_SIZE + dma_get_cache_alignment() /* for alignment */)
 
+/* Rx and Tx Ring entry descriptors -- assume entry size is <= cacheline size */
 struct mpsc_rx_desc {
 	u16 bufsize;
 	u16 bytecnt;
@@ -74,6 +114,10 @@ struct mpsc_tx_desc {
 	u32 buf_ptr;
 } __attribute((packed));
 
+/*
+ * Some regs that have the erratum that you can't read them are are shared
+ * between the two MPSC controllers.  This struct contains those shared regs.
+ */
 struct mpsc_shared_regs {
 	phys_addr_t mpsc_routing_base_p;
 	phys_addr_t sdma_intr_base_p;
@@ -88,19 +132,20 @@ struct mpsc_shared_regs {
 	u32 SDMA_INTR_MASK_m;
 };
 
+/* The main driver data structure */
 struct mpsc_port_info {
-	struct uart_port port;	
+	struct uart_port port;	/* Overlay uart_port structure */
 
-	
+	/* Internal driver state for this ctlr */
 	u8 ready;
 	u8 rcv_data;
-	tcflag_t c_iflag;	
-	tcflag_t c_cflag;	
+	tcflag_t c_iflag;	/* save termios->c_iflag */
+	tcflag_t c_cflag;	/* save termios->c_cflag */
 
-	
-	u8 mirror_regs;		
-	u8 cache_mgmt;		
-	u8 brg_can_tune;	
+	/* Info passed in from platform */
+	u8 mirror_regs;		/* Need to mirror regs? */
+	u8 cache_mgmt;		/* Need manual cache mgmt? */
+	u8 brg_can_tune;	/* BRG has baud tuning? */
 	u32 brg_clk_src;
 	u16 mpsc_max_idle;
 	int default_baud;
@@ -108,35 +153,35 @@ struct mpsc_port_info {
 	int default_parity;
 	int default_flow;
 
-	
+	/* Physical addresses of various blocks of registers (from platform) */
 	phys_addr_t mpsc_base_p;
 	phys_addr_t sdma_base_p;
 	phys_addr_t brg_base_p;
 
-	
+	/* Virtual addresses of various blocks of registers (from platform) */
 	void __iomem *mpsc_base;
 	void __iomem *sdma_base;
 	void __iomem *brg_base;
 
-	
+	/* Descriptor ring and buffer allocations */
 	void *dma_region;
 	dma_addr_t dma_region_p;
 
-	dma_addr_t rxr;		
-	dma_addr_t rxr_p;	
-	u8 *rxb;		
-	u8 *rxb_p;		
-	u32 rxr_posn;		
+	dma_addr_t rxr;		/* Rx descriptor ring */
+	dma_addr_t rxr_p;	/* Phys addr of rxr */
+	u8 *rxb;		/* Rx Ring I/O buf */
+	u8 *rxb_p;		/* Phys addr of rxb */
+	u32 rxr_posn;		/* First desc w/ Rx data */
 
-	dma_addr_t txr;		
-	dma_addr_t txr_p;	
-	u8 *txb;		
-	u8 *txb_p;		
-	int txr_head;		
-	int txr_tail;		
-	spinlock_t tx_lock;	
+	dma_addr_t txr;		/* Tx descriptor ring */
+	dma_addr_t txr_p;	/* Phys addr of txr */
+	u8 *txb;		/* Tx Ring I/O buf */
+	u8 *txb_p;		/* Phys addr of txb */
+	int txr_head;		/* Where new data goes */
+	int txr_tail;		/* Where sent data comes off */
+	spinlock_t tx_lock;	/* transmit lock */
 
-	
+	/* Mirrored values of regs we can't read (if 'mirror_regs' set) */
 	u32 MPSC_MPCR_m;
 	u32 MPSC_CHR_1_m;
 	u32 MPSC_CHR_2_m;
@@ -145,12 +190,15 @@ struct mpsc_port_info {
 	struct mpsc_shared_regs *shared_regs;
 };
 
+/* Hooks to platform-specific code */
 int mpsc_platform_register_driver(void);
 void mpsc_platform_unregister_driver(void);
 
+/* Hooks back in to mpsc common to be called by platform-specific code */
 struct mpsc_port_info *mpsc_device_probe(int index);
 struct mpsc_port_info *mpsc_device_remove(int index);
 
+/* Main MPSC Configuration Register Offsets */
 #define	MPSC_MMCRL			0x0000
 #define	MPSC_MMCRH			0x0004
 #define	MPSC_MPCR			0x0008
@@ -186,10 +234,12 @@ struct mpsc_port_info *mpsc_device_remove(int index);
 #define	MPSC_CHR_2_PAR_EVEN		2
 #define	MPSC_CHR_2_PAR_MARK		3
 
+/* MPSC Signal Routing */
 #define	MPSC_MRR			0x0000
 #define	MPSC_RCRR			0x0004
 #define	MPSC_TCRR			0x0008
 
+/* Serial DMA Controller Interface Registers */
 #define	SDMA_SDC			0x0000
 #define	SDMA_SDCM			0x0008
 #define	SDMA_RX_DESC			0x0800
@@ -246,12 +296,18 @@ struct mpsc_port_info *mpsc_device_remove(int index);
 #define	SDMA_CAUSE_TX_MASK	(SDMA_0_CAUSE_TXBUF | SDMA_0_CAUSE_TXEND \
 		| SDMA_1_CAUSE_TXBUF | SDMA_1_CAUSE_TXEND)
 
+/* SDMA Interrupt registers */
 #define	SDMA_INTR_CAUSE			0x0000
 #define	SDMA_INTR_MASK			0x0080
 
+/* Baud Rate Generator Interface Registers */
 #define	BRG_BCR				0x0000
 #define	BRG_BTR				0x0004
 
+/*
+ * Define how this driver is known to the outside (we've been assigned a
+ * range on the "Low-density serial ports" major).
+ */
 #define MPSC_MAJOR			204
 #define MPSC_MINOR_START		44
 #define	MPSC_DRIVER_NAME		"MPSC"
@@ -265,6 +321,13 @@ static struct uart_driver mpsc_reg;
 static void mpsc_start_rx(struct mpsc_port_info *pi);
 static void mpsc_free_ring_mem(struct mpsc_port_info *pi);
 static void mpsc_release_port(struct uart_port *port);
+/*
+ ******************************************************************************
+ *
+ * Baud Rate Generator Routines (BRG)
+ *
+ ******************************************************************************
+ */
 static void mpsc_brg_init(struct mpsc_port_info *pi, u32 clk_src)
 {
 	u32	v;
@@ -307,6 +370,15 @@ static void mpsc_brg_disable(struct mpsc_port_info *pi)
 	writel(v, pi->brg_base + BRG_BCR);
 }
 
+/*
+ * To set the baud, we adjust the CDV field in the BRG_BCR reg.
+ * From manual: Baud = clk / ((CDV+1)*2) ==> CDV = (clk / (baud*2)) - 1.
+ * However, the input clock is divided by 16 in the MPSC b/c of how
+ * 'MPSC_MMCRH' was set up so we have to divide the 'clk' used in our
+ * calculation by 16 to account for that.  So the real calculation
+ * that accounts for the way the mpsc is set up is:
+ * CDV = (clk / (baud*2*16)) - 1 ==> CDV = (clk / (baud << 5)) - 1.
+ */
 static void mpsc_set_baudrate(struct mpsc_port_info *pi, u32 baud)
 {
 	u32	cdv = (pi->port.uartclk / (baud << 5)) - 1;
@@ -322,6 +394,13 @@ static void mpsc_set_baudrate(struct mpsc_port_info *pi, u32 baud)
 	mpsc_brg_enable(pi);
 }
 
+/*
+ ******************************************************************************
+ *
+ * Serial DMA Routines (SDMA)
+ *
+ ******************************************************************************
+ */
 
 static void mpsc_sdma_burstsize(struct mpsc_port_info *pi, u32 burst_size)
 {
@@ -330,16 +409,16 @@ static void mpsc_sdma_burstsize(struct mpsc_port_info *pi, u32 burst_size)
 	pr_debug("mpsc_sdma_burstsize[%d]: burst_size: %d\n",
 			pi->port.line, burst_size);
 
-	burst_size >>= 3; 
+	burst_size >>= 3; /* Divide by 8 b/c reg values are 8-byte chunks */
 
 	if (burst_size < 2)
-		v = 0x0;	
+		v = 0x0;	/* 1 64-bit word */
 	else if (burst_size < 4)
-		v = 0x1;	
+		v = 0x1;	/* 2 64-bit words */
 	else if (burst_size < 8)
-		v = 0x2;	
+		v = 0x2;	/* 4 64-bit words */
 	else
-		v = 0x3;	
+		v = 0x3;	/* 8 64-bit words */
 
 	writel((readl(pi->sdma_base + SDMA_SDC) & (0x3 << 12)) | (v << 12),
 		pi->sdma_base + SDMA_SDC);
@@ -446,14 +525,14 @@ static void mpsc_sdma_start_tx(struct mpsc_port_info *pi)
 {
 	struct mpsc_tx_desc *txre, *txre_p;
 
-	
+	/* If tx isn't running & there's a desc ready to go, start it */
 	if (!mpsc_sdma_tx_active(pi)) {
 		txre = (struct mpsc_tx_desc *)(pi->txr
 				+ (pi->txr_tail * MPSC_TXRE_SIZE));
 		dma_cache_sync(pi->port.dev, (void *)txre, MPSC_TXRE_SIZE,
 				DMA_FROM_DEVICE);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_NOT_COHERENT_CACHE)
-		if (pi->cache_mgmt) 
+		if (pi->cache_mgmt) /* GT642[46]0 Res #COMM-2 */
 			invalidate_dcache_range((ulong)txre,
 					(ulong)txre + MPSC_TXRE_SIZE);
 #endif
@@ -472,19 +551,26 @@ static void mpsc_sdma_stop(struct mpsc_port_info *pi)
 {
 	pr_debug("mpsc_sdma_stop[%d]: Stopping SDMA\n", pi->port.line);
 
-	
+	/* Abort any SDMA transfers */
 	mpsc_sdma_cmd(pi, 0);
 	mpsc_sdma_cmd(pi, SDMA_SDCM_AR | SDMA_SDCM_AT);
 
-	
+	/* Clear the SDMA current and first TX and RX pointers */
 	mpsc_sdma_set_tx_ring(pi, NULL);
 	mpsc_sdma_set_rx_ring(pi, NULL);
 
-	
+	/* Disable interrupts */
 	mpsc_sdma_intr_mask(pi, 0xf);
 	mpsc_sdma_intr_ack(pi);
 }
 
+/*
+ ******************************************************************************
+ *
+ * Multi-Protocol Serial Controller Routines (MPSC)
+ *
+ ******************************************************************************
+ */
 
 static void mpsc_hw_init(struct mpsc_port_info *pi)
 {
@@ -492,7 +578,7 @@ static void mpsc_hw_init(struct mpsc_port_info *pi)
 
 	pr_debug("mpsc_hw_init[%d]: Initializing hardware\n", pi->port.line);
 
-	
+	/* Set up clock routing */
 	if (pi->mirror_regs) {
 		v = pi->shared_regs->MPSC_MRR_m;
 		v &= ~0x1c7;
@@ -522,10 +608,10 @@ static void mpsc_hw_init(struct mpsc_port_info *pi)
 		writel(v, pi->shared_regs->mpsc_routing_base + MPSC_TCRR);
 	}
 
-	
+	/* Put MPSC in UART mode & enabel Tx/Rx egines */
 	writel(0x000004c4, pi->mpsc_base + MPSC_MMCRL);
 
-	
+	/* No preamble, 16x divider, low-latency, */
 	writel(0x04400400, pi->mpsc_base + MPSC_MMCRH);
 	mpsc_set_baudrate(pi, pi->default_baud);
 
@@ -552,7 +638,7 @@ static void mpsc_enter_hunt(struct mpsc_port_info *pi)
 	if (pi->mirror_regs) {
 		writel(pi->MPSC_CHR_2_m | MPSC_CHR_2_EH,
 			pi->mpsc_base + MPSC_CHR_2);
-		
+		/* Erratum prevents reading CHR_2 so just delay for a while */
 		udelay(100);
 	} else {
 		writel(readl(pi->mpsc_base + MPSC_CHR_2) | MPSC_CHR_2_EH,
@@ -642,6 +728,13 @@ static void mpsc_set_parity(struct mpsc_port_info *pi, u32 p)
 	writel(v, pi->mpsc_base + MPSC_CHR_2);
 }
 
+/*
+ ******************************************************************************
+ *
+ * Driver Init Routines
+ *
+ ******************************************************************************
+ */
 
 static void mpsc_init_hw(struct mpsc_port_info *pi)
 {
@@ -649,7 +742,7 @@ static void mpsc_init_hw(struct mpsc_port_info *pi)
 
 	mpsc_brg_init(pi, pi->brg_clk_src);
 	mpsc_brg_enable(pi);
-	mpsc_sdma_init(pi, dma_get_cache_alignment());	
+	mpsc_sdma_init(pi, dma_get_cache_alignment());	/* burst a cacheline */
 	mpsc_sdma_stop(pi);
 	mpsc_hw_init(pi);
 }
@@ -703,9 +796,17 @@ static void mpsc_init_rings(struct mpsc_port_info *pi)
 
 	memset(pi->dma_region, 0, MPSC_DMA_ALLOC_SIZE);
 
+	/*
+	 * Descriptors & buffers are multiples of cacheline size and must be
+	 * cacheline aligned.
+	 */
 	dp = ALIGN((u32)pi->dma_region, dma_get_cache_alignment());
 	dp_p = ALIGN((u32)pi->dma_region_p, dma_get_cache_alignment());
 
+	/*
+	 * Partition dma region into rx ring descriptor, rx buffers,
+	 * tx ring descriptors, and tx buffers.
+	 */
 	pi->rxr = dp;
 	pi->rxr_p = dp_p;
 	dp += MPSC_RXR_SIZE;
@@ -729,7 +830,7 @@ static void mpsc_init_rings(struct mpsc_port_info *pi)
 	pi->txr_head = 0;
 	pi->txr_tail = 0;
 
-	
+	/* Init rx ring descriptors */
 	dp = pi->rxr;
 	dp_p = pi->rxr_p;
 	bp = pi->rxb;
@@ -751,9 +852,9 @@ static void mpsc_init_rings(struct mpsc_port_info *pi)
 		bp += MPSC_RXBE_SIZE;
 		bp_p += MPSC_RXBE_SIZE;
 	}
-	rxre->link = cpu_to_be32(pi->rxr_p);	
+	rxre->link = cpu_to_be32(pi->rxr_p);	/* Wrap last back to first */
 
-	
+	/* Init tx ring descriptors */
 	dp = pi->txr;
 	dp_p = pi->txr_p;
 	bp = pi->txb;
@@ -770,12 +871,12 @@ static void mpsc_init_rings(struct mpsc_port_info *pi)
 		bp += MPSC_TXBE_SIZE;
 		bp_p += MPSC_TXBE_SIZE;
 	}
-	txre->link = cpu_to_be32(pi->txr_p);	
+	txre->link = cpu_to_be32(pi->txr_p);	/* Wrap last back to first */
 
 	dma_cache_sync(pi->port.dev, (void *)pi->dma_region,
 			MPSC_DMA_ALLOC_SIZE, DMA_BIDIRECTIONAL);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_NOT_COHERENT_CACHE)
-		if (pi->cache_mgmt) 
+		if (pi->cache_mgmt) /* GT642[46]0 Res #COMM-2 */
 			flush_dcache_range((ulong)pi->dma_region,
 					(ulong)pi->dma_region
 					+ MPSC_DMA_ALLOC_SIZE);
@@ -825,6 +926,13 @@ static int mpsc_make_ready(struct mpsc_port_info *pi)
 static int serial_polled;
 #endif
 
+/*
+ ******************************************************************************
+ *
+ * Interrupt Handling Routines
+ *
+ ******************************************************************************
+ */
 
 static int mpsc_rx_intr(struct mpsc_port_info *pi)
 {
@@ -842,11 +950,14 @@ static int mpsc_rx_intr(struct mpsc_port_info *pi)
 	dma_cache_sync(pi->port.dev, (void *)rxre, MPSC_RXRE_SIZE,
 			DMA_FROM_DEVICE);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_NOT_COHERENT_CACHE)
-	if (pi->cache_mgmt) 
+	if (pi->cache_mgmt) /* GT642[46]0 Res #COMM-2 */
 		invalidate_dcache_range((ulong)rxre,
 				(ulong)rxre + MPSC_RXRE_SIZE);
 #endif
 
+	/*
+	 * Loop through Rx descriptors handling ones that have been completed.
+	 */
 	while (!((cmdstat = be32_to_cpu(rxre->cmdstat))
 				& SDMA_DESC_CMDSTAT_O)) {
 		bytes_in = be16_to_cpu(rxre->bytecnt);
@@ -856,29 +967,41 @@ static int mpsc_rx_intr(struct mpsc_port_info *pi)
 			return 0;
 		}
 #endif
-		
+		/* Following use of tty struct directly is deprecated */
 		if (unlikely(tty_buffer_request_room(tty, bytes_in)
 					< bytes_in)) {
 			if (tty->low_latency)
 				tty_flip_buffer_push(tty);
+			/*
+			 * If this failed then we will throw away the bytes
+			 * but must do so to clear interrupts.
+			 */
 		}
 
 		bp = pi->rxb + (pi->rxr_posn * MPSC_RXBE_SIZE);
 		dma_cache_sync(pi->port.dev, (void *)bp, MPSC_RXBE_SIZE,
 				DMA_FROM_DEVICE);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_NOT_COHERENT_CACHE)
-		if (pi->cache_mgmt) 
+		if (pi->cache_mgmt) /* GT642[46]0 Res #COMM-2 */
 			invalidate_dcache_range((ulong)bp,
 					(ulong)bp + MPSC_RXBE_SIZE);
 #endif
 
+		/*
+		 * Other than for parity error, the manual provides little
+		 * info on what data will be in a frame flagged by any of
+		 * these errors.  For parity error, it is the last byte in
+		 * the buffer that had the error.  As for the rest, I guess
+		 * we'll assume there is no data in the buffer.
+		 * If there is...it gets lost.
+		 */
 		if (unlikely(cmdstat & (SDMA_DESC_CMDSTAT_BR
 						| SDMA_DESC_CMDSTAT_FR
 						| SDMA_DESC_CMDSTAT_OR))) {
 
 			pi->port.icount.rx++;
 
-			if (cmdstat & SDMA_DESC_CMDSTAT_BR) {	
+			if (cmdstat & SDMA_DESC_CMDSTAT_BR) {	/* Break */
 				pi->port.icount.brk++;
 
 				if (uart_handle_break(&pi->port))
@@ -935,26 +1058,26 @@ next_frame:
 		dma_cache_sync(pi->port.dev, (void *)rxre, MPSC_RXRE_SIZE,
 				DMA_BIDIRECTIONAL);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_NOT_COHERENT_CACHE)
-		if (pi->cache_mgmt) 
+		if (pi->cache_mgmt) /* GT642[46]0 Res #COMM-2 */
 			flush_dcache_range((ulong)rxre,
 					(ulong)rxre + MPSC_RXRE_SIZE);
 #endif
 
-		
+		/* Advance to next descriptor */
 		pi->rxr_posn = (pi->rxr_posn + 1) & (MPSC_RXR_ENTRIES - 1);
 		rxre = (struct mpsc_rx_desc *)
 			(pi->rxr + (pi->rxr_posn * MPSC_RXRE_SIZE));
 		dma_cache_sync(pi->port.dev, (void *)rxre, MPSC_RXRE_SIZE,
 				DMA_FROM_DEVICE);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_NOT_COHERENT_CACHE)
-		if (pi->cache_mgmt) 
+		if (pi->cache_mgmt) /* GT642[46]0 Res #COMM-2 */
 			invalidate_dcache_range((ulong)rxre,
 					(ulong)rxre + MPSC_RXRE_SIZE);
 #endif
 		rc = 1;
 	}
 
-	
+	/* Restart rx engine, if its stopped */
 	if ((readl(pi->sdma_base + SDMA_SDCM) & SDMA_SDCM_ERD) == 0)
 		mpsc_start_rx(pi);
 
@@ -971,7 +1094,7 @@ static void mpsc_setup_tx_desc(struct mpsc_port_info *pi, u32 count, u32 intr)
 
 	txre->bytecnt = cpu_to_be16(count);
 	txre->shadow = txre->bytecnt;
-	wmb();			
+	wmb();			/* ensure cmdstat is last field updated */
 	txre->cmdstat = cpu_to_be32(SDMA_DESC_CMDSTAT_O | SDMA_DESC_CMDSTAT_F
 			| SDMA_DESC_CMDSTAT_L
 			| ((intr) ? SDMA_DESC_CMDSTAT_EI : 0));
@@ -979,7 +1102,7 @@ static void mpsc_setup_tx_desc(struct mpsc_port_info *pi, u32 count, u32 intr)
 	dma_cache_sync(pi->port.dev, (void *)txre, MPSC_TXRE_SIZE,
 			DMA_BIDIRECTIONAL);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_NOT_COHERENT_CACHE)
-	if (pi->cache_mgmt) 
+	if (pi->cache_mgmt) /* GT642[46]0 Res #COMM-2 */
 		flush_dcache_range((ulong)txre,
 				(ulong)txre + MPSC_TXRE_SIZE);
 #endif
@@ -991,10 +1114,18 @@ static void mpsc_copy_tx_data(struct mpsc_port_info *pi)
 	u8 *bp;
 	u32 i;
 
-	
+	/* Make sure the desc ring isn't full */
 	while (CIRC_CNT(pi->txr_head, pi->txr_tail, MPSC_TXR_ENTRIES)
 			< (MPSC_TXR_ENTRIES - 1)) {
 		if (pi->port.x_char) {
+			/*
+			 * Ideally, we should use the TCS field in
+			 * CHR_1 to put the x_char out immediately but
+			 * errata prevents us from being able to read
+			 * CHR_2 to know that its safe to write to
+			 * CHR_1.  Instead, just put it in-band with
+			 * all the other Tx data.
+			 */
 			bp = pi->txb + (pi->txr_head * MPSC_TXBE_SIZE);
 			*bp = pi->port.x_char;
 			pi->port.x_char = 0;
@@ -1011,20 +1142,20 @@ static void mpsc_copy_tx_data(struct mpsc_port_info *pi)
 
 			if (uart_circ_chars_pending(xmit) < WAKEUP_CHARS)
 				uart_write_wakeup(&pi->port);
-		} else { 
+		} else { /* All tx data copied into ring bufs */
 			return;
 		}
 
 		dma_cache_sync(pi->port.dev, (void *)bp, MPSC_TXBE_SIZE,
 				DMA_BIDIRECTIONAL);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_NOT_COHERENT_CACHE)
-		if (pi->cache_mgmt) 
+		if (pi->cache_mgmt) /* GT642[46]0 Res #COMM-2 */
 			flush_dcache_range((ulong)bp,
 					(ulong)bp + MPSC_TXBE_SIZE);
 #endif
 		mpsc_setup_tx_desc(pi, i, 1);
 
-		
+		/* Advance to next descriptor */
 		pi->txr_head = (pi->txr_head + 1) & (MPSC_TXR_ENTRIES - 1);
 	}
 }
@@ -1044,7 +1175,7 @@ static int mpsc_tx_intr(struct mpsc_port_info *pi)
 		dma_cache_sync(pi->port.dev, (void *)txre, MPSC_TXRE_SIZE,
 				DMA_FROM_DEVICE);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_NOT_COHERENT_CACHE)
-		if (pi->cache_mgmt) 
+		if (pi->cache_mgmt) /* GT642[46]0 Res #COMM-2 */
 			invalidate_dcache_range((ulong)txre,
 					(ulong)txre + MPSC_TXRE_SIZE);
 #endif
@@ -1054,7 +1185,7 @@ static int mpsc_tx_intr(struct mpsc_port_info *pi)
 			pi->port.icount.tx += be16_to_cpu(txre->bytecnt);
 			pi->txr_tail = (pi->txr_tail+1) & (MPSC_TXR_ENTRIES-1);
 
-			
+			/* If no more data to tx, fall out of loop */
 			if (pi->txr_head == pi->txr_tail)
 				break;
 
@@ -1063,20 +1194,25 @@ static int mpsc_tx_intr(struct mpsc_port_info *pi)
 			dma_cache_sync(pi->port.dev, (void *)txre,
 					MPSC_TXRE_SIZE, DMA_FROM_DEVICE);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_NOT_COHERENT_CACHE)
-			if (pi->cache_mgmt) 
+			if (pi->cache_mgmt) /* GT642[46]0 Res #COMM-2 */
 				invalidate_dcache_range((ulong)txre,
 						(ulong)txre + MPSC_TXRE_SIZE);
 #endif
 		}
 
 		mpsc_copy_tx_data(pi);
-		mpsc_sdma_start_tx(pi);	
+		mpsc_sdma_start_tx(pi);	/* start next desc if ready */
 	}
 
 	spin_unlock_irqrestore(&pi->tx_lock, iflags);
 	return rc;
 }
 
+/*
+ * This is the driver's interrupt handler.  To avoid a race, we first clear
+ * the interrupt, then handle any completed Rx/Tx descriptors.  When done
+ * handling those descriptors, we restart the Rx/Tx engines if they're stopped.
+ */
 static irqreturn_t mpsc_sdma_intr(int irq, void *dev_id)
 {
 	struct mpsc_port_info *pi = dev_id;
@@ -1097,6 +1233,13 @@ static irqreturn_t mpsc_sdma_intr(int irq, void *dev_id)
 	return rc;
 }
 
+/*
+ ******************************************************************************
+ *
+ * serial_core.c Interface routines
+ *
+ ******************************************************************************
+ */
 static uint mpsc_tx_empty(struct uart_port *port)
 {
 	struct mpsc_port_info *pi = (struct mpsc_port_info *)port;
@@ -1112,7 +1255,7 @@ static uint mpsc_tx_empty(struct uart_port *port)
 
 static void mpsc_set_mctrl(struct uart_port *port, uint mctrl)
 {
-	
+	/* Have no way to set modem control lines AFAICT */
 }
 
 static uint mpsc_get_mctrl(struct uart_port *port)
@@ -1129,7 +1272,7 @@ static uint mpsc_get_mctrl(struct uart_port *port)
 	if (status & 0x2)
 		mflags |= TIOCM_CAR;
 
-	return mflags | TIOCM_DSR;	
+	return mflags | TIOCM_DSR;	/* No way to tell if DSR asserted */
 }
 
 static void mpsc_stop_tx(struct uart_port *port)
@@ -1176,7 +1319,7 @@ static void mpsc_stop_rx(struct uart_port *port)
 	if (pi->mirror_regs) {
 		writel(pi->MPSC_CHR_2_m | MPSC_CHR_2_RA,
 				pi->mpsc_base + MPSC_CHR_2);
-		
+		/* Erratum prevents reading CHR_2 so just delay for a while */
 		udelay(100);
 	} else {
 		writel(readl(pi->mpsc_base + MPSC_CHR_2) | MPSC_CHR_2_RA,
@@ -1218,10 +1361,10 @@ static int mpsc_startup(struct uart_port *port)
 		port->line, pi->port.irq);
 
 	if ((rc = mpsc_make_ready(pi)) == 0) {
-		
+		/* Setup IRQ handler */
 		mpsc_sdma_intr_ack(pi);
 
-		
+		/* If irq's are shared, need to set flag */
 		if (mpsc_ports[0].port.irq == mpsc_ports[1].port.irq)
 			flag = IRQF_SHARED;
 
@@ -1304,7 +1447,7 @@ static void mpsc_set_termios(struct uart_port *port, struct ktermios *termios,
 	mpsc_set_parity(pi, par);
 	mpsc_set_baudrate(pi, baud);
 
-	
+	/* Characters/events to read */
 	pi->port.read_status_mask = SDMA_DESC_CMDSTAT_OR;
 
 	if (termios->c_iflag & INPCK)
@@ -1314,7 +1457,7 @@ static void mpsc_set_termios(struct uart_port *port, struct ktermios *termios,
 	if (termios->c_iflag & (BRKINT | PARMRK))
 		pi->port.read_status_mask |= SDMA_DESC_CMDSTAT_BR;
 
-	
+	/* Characters/events to ignore */
 	pi->port.ignore_status_mask = 0;
 
 	if (termios->c_iflag & IGNPAR)
@@ -1349,7 +1492,7 @@ static const char *mpsc_type(struct uart_port *port)
 
 static int mpsc_request_port(struct uart_port *port)
 {
-	
+	/* Should make chip/platform specific call */
 	return 0;
 }
 
@@ -1381,7 +1524,7 @@ static int mpsc_verify_port(struct uart_port *port, struct serial_struct *ser)
 		rc = -EINVAL;
 	else if (ser->io_type != SERIAL_IO_MEM)
 		rc = -EINVAL;
-	else if (pi->port.uartclk / 16 != ser->baud_base) 
+	else if (pi->port.uartclk / 16 != ser->baud_base) /* Not sure */
 		rc = -EINVAL;
 	else if ((void *)pi->port.mapbase != ser->iomem_base)
 		rc = -EINVAL;
@@ -1393,6 +1536,9 @@ static int mpsc_verify_port(struct uart_port *port, struct serial_struct *ser)
 	return rc;
 }
 #ifdef CONFIG_CONSOLE_POLL
+/* Serial polling routines for writing and reading from the uart while
+ * in an interrupt or debug context.
+ */
 
 static char poll_buf[2048];
 static int poll_ptr;
@@ -1425,10 +1571,14 @@ static int mpsc_get_poll_char(struct uart_port *port)
 		dma_cache_sync(pi->port.dev, (void *)rxre,
 			       MPSC_RXRE_SIZE, DMA_FROM_DEVICE);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_NOT_COHERENT_CACHE)
-		if (pi->cache_mgmt) 
+		if (pi->cache_mgmt) /* GT642[46]0 Res #COMM-2 */
 			invalidate_dcache_range((ulong)rxre,
 			(ulong)rxre + MPSC_RXRE_SIZE);
 #endif
+		/*
+		 * Loop through Rx descriptors handling ones that have
+		 * been completed.
+		 */
 		while (poll_cnt == 0 &&
 		       !((cmdstat = be32_to_cpu(rxre->cmdstat)) &
 			 SDMA_DESC_CMDSTAT_O)){
@@ -1437,7 +1587,7 @@ static int mpsc_get_poll_char(struct uart_port *port)
 			dma_cache_sync(pi->port.dev, (void *) bp,
 				       MPSC_RXBE_SIZE, DMA_FROM_DEVICE);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_NOT_COHERENT_CACHE)
-			if (pi->cache_mgmt) 
+			if (pi->cache_mgmt) /* GT642[46]0 Res #COMM-2 */
 				invalidate_dcache_range((ulong)bp,
 					(ulong)bp + MPSC_RXBE_SIZE);
 #endif
@@ -1463,12 +1613,12 @@ static int mpsc_get_poll_char(struct uart_port *port)
 			dma_cache_sync(pi->port.dev, (void *)rxre,
 				       MPSC_RXRE_SIZE, DMA_BIDIRECTIONAL);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_NOT_COHERENT_CACHE)
-			if (pi->cache_mgmt) 
+			if (pi->cache_mgmt) /* GT642[46]0 Res #COMM-2 */
 				flush_dcache_range((ulong)rxre,
 					   (ulong)rxre + MPSC_RXRE_SIZE);
 #endif
 
-			
+			/* Advance to next descriptor */
 			pi->rxr_posn = (pi->rxr_posn + 1) &
 				(MPSC_RXR_ENTRIES - 1);
 			rxre = (struct mpsc_rx_desc *)(pi->rxr +
@@ -1476,13 +1626,13 @@ static int mpsc_get_poll_char(struct uart_port *port)
 			dma_cache_sync(pi->port.dev, (void *)rxre,
 				       MPSC_RXRE_SIZE, DMA_FROM_DEVICE);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_NOT_COHERENT_CACHE)
-			if (pi->cache_mgmt) 
+			if (pi->cache_mgmt) /* GT642[46]0 Res #COMM-2 */
 				invalidate_dcache_range((ulong)rxre,
 						(ulong)rxre + MPSC_RXRE_SIZE);
 #endif
 		}
 
-		
+		/* Restart rx engine, if its stopped */
 		if ((readl(pi->sdma_base + SDMA_SDCM) & SDMA_SDCM_ERD) == 0)
 			mpsc_start_rx(pi);
 	}
@@ -1536,6 +1686,13 @@ static struct uart_ops mpsc_pops = {
 #endif
 };
 
+/*
+ ******************************************************************************
+ *
+ * Console Interface Routines
+ *
+ ******************************************************************************
+ */
 
 #ifdef CONFIG_SERIAL_MPSC_CONSOLE
 static void mpsc_console_write(struct console *co, const char *s, uint count)
@@ -1570,7 +1727,7 @@ static void mpsc_console_write(struct console *co, const char *s, uint count)
 			} else {
 				*(dp++) = *s;
 
-				if (*(s++) == '\n') { 
+				if (*(s++) == '\n') { /* add '\r' after '\n' */
 					add_cr = 1;
 					count++;
 				}
@@ -1582,7 +1739,7 @@ static void mpsc_console_write(struct console *co, const char *s, uint count)
 		dma_cache_sync(pi->port.dev, (void *)bp, MPSC_TXBE_SIZE,
 				DMA_BIDIRECTIONAL);
 #if defined(CONFIG_PPC32) && !defined(CONFIG_NOT_COHERENT_CACHE)
-		if (pi->cache_mgmt) 
+		if (pi->cache_mgmt) /* GT642[46]0 Res #COMM-2 */
 			flush_dcache_range((ulong)bp,
 					(ulong)bp + MPSC_TXBE_SIZE);
 #endif
@@ -1619,7 +1776,7 @@ static int __init mpsc_console_setup(struct console *co, char *options)
 	if (!pi->port.ops)
 		return -ENODEV;
 
-	spin_lock_init(&pi->port.lock);	
+	spin_lock_init(&pi->port.lock);	/* Temporary fix--copied from 8250.c */
 
 	if (options)
 		uart_parse_options(options, &baud, &parity, &bits, &flow);
@@ -1652,6 +1809,13 @@ late_initcall(mpsc_late_console_init);
 #else
 #define MPSC_CONSOLE	NULL
 #endif
+/*
+ ******************************************************************************
+ *
+ * Dummy Platform Driver to extract & map shared register regions
+ *
+ ******************************************************************************
+ */
 static void mpsc_resource_err(char *s)
 {
 	printk(KERN_WARNING "MPSC: Platform device resource error in %s\n", s);
@@ -1763,6 +1927,13 @@ static struct platform_driver mpsc_shared_driver = {
 	},
 };
 
+/*
+ ******************************************************************************
+ *
+ * Driver Interface Routines
+ *
+ ******************************************************************************
+ */
 static struct uart_driver mpsc_reg = {
 	.owner		= THIS_MODULE,
 	.driver_name	= MPSC_DRIVER_NAME,
@@ -1876,7 +2047,7 @@ static void mpsc_drv_get_platform_data(struct mpsc_port_info *pi,
 	pi->default_parity = pdata->default_parity;
 	pi->default_flow = pdata->default_flow;
 
-	
+	/* Initial values of mirrored regs */
 	pi->MPSC_CHR_1_m = pdata->chr_1_val;
 	pi->MPSC_CHR_2_m = pdata->chr_2_val;
 	pi->MPSC_CHR_10_m = pdata->chr_10_val;

@@ -28,7 +28,7 @@
 
 #include <asm/emma/emma2rh.h>
 
-#define	USE_CPU_COUNTER_TIMER	
+#define	USE_CPU_COUNTER_TIMER	/* whether we use cpu counter */
 
 extern void markeins_led(const char *);
 
@@ -64,7 +64,7 @@ static unsigned int __init detect_bus_frequency(unsigned long rtc_base)
 {
 	u32 reg;
 
-	
+	/* detect from boot strap */
 	reg = emma2rh_in32(EMMA2RH_BHIF_STRAP_0);
 	reg = (reg >> 4) & 0x3;
 
@@ -96,7 +96,7 @@ static void inline __init markeins_sio_setup(void)
 
 void __init plat_mem_setup(void)
 {
-	
+	/* initialize board - we don't trust the loader */
 	markeins_board_init();
 
 	set_io_port_base(KSEG1ADDR(EMMA2RH_PCI_IO_BASE));
@@ -105,13 +105,13 @@ void __init plat_mem_setup(void)
 	_machine_halt = markeins_machine_halt;
 	pm_power_off = markeins_machine_power_off;
 
-	
+	/* setup resource limits */
 	ioport_resource.start = EMMA2RH_PCI_IO_BASE;
 	ioport_resource.end = EMMA2RH_PCI_IO_BASE + EMMA2RH_PCI_IO_SIZE - 1;
 	iomem_resource.start = EMMA2RH_IO_BASE;
 	iomem_resource.end = EMMA2RH_ROM_BASE - 1;
 
-	
+	/* Reboot on panic */
 	panic_timeout = 180;
 
 	markeins_sio_setup();
@@ -121,10 +121,10 @@ static void __init markeins_board_init(void)
 {
 	u32 val;
 
-	val = emma2rh_in32(EMMA2RH_PBRD_INT_EN);	
+	val = emma2rh_in32(EMMA2RH_PBRD_INT_EN);	/* open serial interrupts. */
 	emma2rh_out32(EMMA2RH_PBRD_INT_EN, val | 0xaa);
-	val = emma2rh_in32(EMMA2RH_PBRD_CLKSEL);	
-	emma2rh_out32(EMMA2RH_PBRD_CLKSEL, val | 0x5);	
+	val = emma2rh_in32(EMMA2RH_PBRD_CLKSEL);	/* set serial clocks. */
+	emma2rh_out32(EMMA2RH_PBRD_CLKSEL, val | 0x5);	/* 18MHz */
 	emma2rh_out32(EMMA2RH_PCI_CONTROL, 0);
 
 	markeins_led("MVL E2RH");

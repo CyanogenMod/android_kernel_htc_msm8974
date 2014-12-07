@@ -66,6 +66,7 @@ static unsigned int dw8250_serial_in32(struct uart_port *p, int offset)
 	return readl(p->membase + offset);
 }
 
+/* Offset for the DesignWare's UART Status Register. */
 #define UART_USR	0x1f
 
 static int dw8250_handle_irq(struct uart_port *p)
@@ -76,7 +77,7 @@ static int dw8250_handle_irq(struct uart_port *p)
 	if (serial8250_handle_irq(p, iir)) {
 		return 1;
 	} else if ((iir & UART_IIR_BUSY) == UART_IIR_BUSY) {
-		
+		/* Clear the USR and write the LCR again. */
 		(void)p->serial_in(p, UART_USR);
 		p->serial_out(p, d->last_lcr, UART_LCR);
 
@@ -162,7 +163,7 @@ static int __devexit dw8250_remove(struct platform_device *pdev)
 
 static const struct of_device_id dw8250_match[] = {
 	{ .compatible = "snps,dw-apb-uart" },
-	{  }
+	{ /* Sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, dw8250_match);
 

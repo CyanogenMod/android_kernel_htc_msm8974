@@ -4,6 +4,7 @@
 #include <scsi/scsi.h>
 #include <scsi/scsi_cmnd.h>
 
+/* Common header for all IUs */
 struct iu {
 	__u8 iu_id;
 	__u8 rsvd1;
@@ -28,9 +29,13 @@ struct command_iu {
 	__u8 len;
 	__u8 rsvd7;
 	struct scsi_lun lun;
-	__u8 cdb[16];	
+	__u8 cdb[16];	/* XXX: Overflow-checking tools may misunderstand */
 };
 
+/*
+ * Also used for the Read Ready and Write Ready IUs since they have the
+ * same first four bytes
+ */
 struct sense_iu {
 	__u8 iu_id;
 	__u8 rsvd1;

@@ -90,21 +90,26 @@ void omap2430_init_early(void);
 void omap3430_init_early(void);
 void omap35xx_init_early(void);
 void omap3630_init_early(void);
-void omap3_init_early(void);	
+void omap3_init_early(void);	/* Do not use this one */
 void am35xx_init_early(void);
 void ti81xx_init_early(void);
 void omap4430_init_early(void);
 void omap_prcm_restart(char, const char *);
 
+/*
+ * IO bases for various OMAP processors
+ * Except the tap base, rest all the io bases
+ * listed are physical addresses.
+ */
 struct omap_globals {
-	u32		class;		
-	void __iomem	*tap;		
-	void __iomem	*sdrc;           
-	void __iomem	*sms;            
-	void __iomem	*ctrl;           
-	void __iomem	*ctrl_pad;	
-	void __iomem	*prm;            
-	void __iomem	*cm;             
+	u32		class;		/* OMAP class to detect */
+	void __iomem	*tap;		/* Control module ID code */
+	void __iomem	*sdrc;           /* SDRAM Controller */
+	void __iomem	*sms;            /* SDRAM Memory Scheduler */
+	void __iomem	*ctrl;           /* System Control Module */
+	void __iomem	*ctrl_pad;	/* PAD Control Module */
+	void __iomem	*prm;            /* Power and Reset Management */
+	void __iomem	*cm;             /* Clock Management */
 	void __iomem	*cm2;
 };
 
@@ -115,6 +120,7 @@ void omap2_set_globals_443x(void);
 void omap2_set_globals_ti81xx(void);
 void omap2_set_globals_am33xx(void);
 
+/* These get called from omap2_set_globals_xxxx(), do not call these */
 void omap2_set_globals_tap(struct omap_globals *);
 void omap2_set_globals_sdrc(struct omap_globals *);
 void omap2_set_globals_control(struct omap_globals *);
@@ -130,6 +136,17 @@ void omap_barriers_init(void);
 
 extern void __init omap_init_consistent_dma_size(void);
 
+/**
+ * omap_test_timeout - busy-loop, testing a condition
+ * @cond: condition to test until it evaluates to true
+ * @timeout: maximum number of microseconds in the timeout
+ * @index: loop index (integer)
+ *
+ * Loop waiting for @cond to become true or until at least @timeout
+ * microseconds have passed.  To use, define some integer @index in the
+ * calling code.  After running, if @index == @timeout, then the loop has
+ * timed out.
+ */
 #define omap_test_timeout(cond, timeout, index)			\
 ({								\
 	for (index = 0; index < timeout; index++) {		\
@@ -187,6 +204,7 @@ extern void __iomem *omap4_get_sar_ram_base(void);
 extern void omap_do_wfi(void);
 
 #ifdef CONFIG_SMP
+/* Needed for secondary core boot */
 extern void omap_secondary_startup(void);
 extern u32 omap_modify_auxcoreboot0(u32 set_mask, u32 clear_mask);
 extern void omap_auxcoreboot_addr(u32 cpu_addr);
@@ -237,5 +255,5 @@ struct omap_sdrc_params;
 extern void omap_sdrc_init(struct omap_sdrc_params *sdrc_cs0,
 				      struct omap_sdrc_params *sdrc_cs1);
 
-#endif 
-#endif 
+#endif /* __ASSEMBLER__ */
+#endif /* __ARCH_ARM_MACH_OMAP2PLUS_COMMON_H */

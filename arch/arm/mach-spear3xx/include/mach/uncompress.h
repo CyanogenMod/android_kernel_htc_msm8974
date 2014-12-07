@@ -16,4 +16,4 @@
 
 #include <plat/uncompress.h>
 
-#endif 
+#endif /* __MACH_UNCOMPRESS_H */

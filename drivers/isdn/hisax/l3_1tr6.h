@@ -13,6 +13,9 @@
 #define PROTO_DIS_N0 0x40
 #define PROTO_DIS_N1 0x41
 
+/*
+ * MsgType N0
+ */
 #define MT_N0_REG_IND 0x61
 #define MT_N0_CANC_IND 0x62
 #define MT_N0_FAC_STA 0x63
@@ -24,6 +27,9 @@
 #define MT_N0_CLOSE   0x75
 #define MT_N0_CLO_ACK 0x77
 
+/*
+ * MsgType N1
+ */
 
 #define MT_N1_ESC 0x00
 #define MT_N1_ALERT 0x01
@@ -57,6 +63,9 @@
 #define MT_N1_STAT 0x63
 #define MT_N1_INVALID 0
 
+/*
+ * W Elemente
+ */
 
 #define WE_Shift_F0 0x90
 #define WE_Shift_F6 0x96
@@ -85,6 +94,9 @@
 #define WE6_statusCalled 0x07
 #define WE6_addTransAttr 0x08
 
+/*
+ * FacCodes
+ */
 #define FAC_Sperre 0x01
 #define FAC_Sperre_All 0x02
 #define FAC_Sperre_Fern 0x03
@@ -110,6 +122,9 @@
 #define FAC_Rueckwechsel 0x23
 #define FAC_Umleitung 0x24
 
+/*
+ * Cause codes
+ */
 #define CAUSE_InvCRef 0x01
 #define CAUSE_BearerNotImpl 0x03
 #define CAUSE_CIDunknown 0x07

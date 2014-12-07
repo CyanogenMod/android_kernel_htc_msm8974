@@ -22,31 +22,35 @@
 #ifndef _NFSD_CLD_H
 #define _NFSD_CLD_H
 
+/* latest upcall version available */
 #define CLD_UPCALL_VERSION 1
 
+/* defined by RFC3530 */
 #define NFS4_OPAQUE_LIMIT 1024
 
 enum cld_command {
-	Cld_Create,		
-	Cld_Remove,		
-	Cld_Check,		
-	Cld_GraceDone,		
+	Cld_Create,		/* create a record for this cm_id */
+	Cld_Remove,		/* remove record of this cm_id */
+	Cld_Check,		/* is this cm_id allowed? */
+	Cld_GraceDone,		/* grace period is complete */
 };
 
+/* representation of long-form NFSv4 client ID */
 struct cld_name {
-	uint16_t	cn_len;				
-	unsigned char	cn_id[NFS4_OPAQUE_LIMIT];	
+	uint16_t	cn_len;				/* length of cm_id */
+	unsigned char	cn_id[NFS4_OPAQUE_LIMIT];	/* client-provided */
 } __attribute__((packed));
 
+/* message struct for communication with userspace */
 struct cld_msg {
-	uint8_t		cm_vers;		
-	uint8_t		cm_cmd;			
-	int16_t		cm_status;		
-	uint32_t	cm_xid;			
+	uint8_t		cm_vers;		/* upcall version */
+	uint8_t		cm_cmd;			/* upcall command */
+	int16_t		cm_status;		/* return code */
+	uint32_t	cm_xid;			/* transaction id */
 	union {
-		int64_t		cm_gracetime;	
+		int64_t		cm_gracetime;	/* grace period start time */
 		struct cld_name	cm_name;
 	} __attribute__((packed)) cm_u;
 } __attribute__((packed));
 
-#endif 
+#endif /* !_NFSD_CLD_H */

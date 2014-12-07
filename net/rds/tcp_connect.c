@@ -55,7 +55,7 @@ void rds_tcp_state_change(struct sock *sk)
 	rdsdebug("sock %p state_change to %d\n", tc->t_sock, sk->sk_state);
 
 	switch(sk->sk_state) {
-		
+		/* ignore connecting sockets as they make progress */
 		case TCP_SYN_SENT:
 		case TCP_SYN_RECV:
 			break;
@@ -99,6 +99,10 @@ int rds_tcp_conn_connect(struct rds_connection *conn)
 	dest.sin_addr.s_addr = (__force u32)conn->c_faddr;
 	dest.sin_port = (__force u16)htons(RDS_TCP_PORT);
 
+	/*
+	 * once we call connect() we can start getting callbacks and they
+	 * own the socket
+	 */
 	rds_tcp_set_callbacks(sock, conn);
 	ret = sock->ops->connect(sock, (struct sockaddr *)&dest, sizeof(dest),
 				 O_NONBLOCK);
@@ -114,6 +118,15 @@ out:
 	return ret;
 }
 
+/*
+ * Before killing the tcp socket this needs to serialize with callbacks.  The
+ * caller has already grabbed the sending sem so we're serialized with other
+ * senders.
+ *
+ * TCP calls the callbacks with the sock lock so we hold it while we reset the
+ * callbacks to those set by TCP.  Our callbacks won't execute again once we
+ * hold the sock lock.
+ */
 void rds_tcp_conn_shutdown(struct rds_connection *conn)
 {
 	struct rds_tcp_connection *tc = conn->c_transport_data;
@@ -124,7 +137,7 @@ void rds_tcp_conn_shutdown(struct rds_connection *conn)
 	if (sock) {
 		sock->ops->shutdown(sock, RCV_SHUTDOWN | SEND_SHUTDOWN);
 		lock_sock(sock->sk);
-		rds_tcp_restore_callbacks(sock, tc); 
+		rds_tcp_restore_callbacks(sock, tc); /* tc->tc_sock = NULL */
 
 		release_sock(sock->sk);
 		sock_release(sock);

@@ -28,4 +28,4 @@
 #define __NR_or1k_atomic __NR_arch_specific_syscall
 __SYSCALL(__NR_or1k_atomic, sys_or1k_atomic)
 
-#endif 
+#endif /* __ASM_OPENRISC_UNISTD_H */

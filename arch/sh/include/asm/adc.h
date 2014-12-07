@@ -9,5 +9,5 @@
 
 int adc_single(unsigned int channel);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASM_ADC_H */

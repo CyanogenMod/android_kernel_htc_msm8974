@@ -79,6 +79,10 @@ static int fib6_rule_action(struct fib_rule *rule, struct flowi *flp,
 	if (rt != net->ipv6.ip6_null_entry) {
 		struct fib6_rule *r = (struct fib6_rule *)rule;
 
+		/*
+		 * If we need to find a source address for this traffic,
+		 * we check the result if it meets requirement of the rule.
+		 */
 		if ((rule->flags & FIB_RULE_FIND_SADDR) &&
 		    r->src.plen && !(flags & RT6_LOOKUP_F_HAS_SADDR)) {
 			struct in6_addr saddr;
@@ -118,6 +122,11 @@ static int fib6_rule_match(struct fib_rule *rule, struct flowi *fl, int flags)
 	    !ipv6_prefix_equal(&fl6->daddr, &r->dst.addr, r->dst.plen))
 		return 0;
 
+	/*
+	 * If FIB_RULE_FIND_SADDR is set and we do not have a
+	 * source address for the traffic, we defer check for
+	 * source address.
+	 */
 	if (r->src.plen) {
 		if (flags & RT6_LOOKUP_F_HAS_SADDR) {
 			if (!ipv6_prefix_equal(&fl6->saddr, &r->src.addr,
@@ -227,8 +236,8 @@ static u32 fib6_rule_default_pref(struct fib_rules_ops *ops)
 
 static size_t fib6_rule_nlmsg_payload(struct fib_rule *rule)
 {
-	return nla_total_size(16) 
-	       + nla_total_size(16); 
+	return nla_total_size(16) /* dst */
+	       + nla_total_size(16); /* src */
 }
 
 static const struct fib_rules_ops __net_initdata fib6_rules_ops_template = {

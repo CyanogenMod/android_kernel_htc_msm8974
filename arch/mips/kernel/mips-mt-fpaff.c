@@ -13,17 +13,36 @@
 #include <linux/types.h>
 #include <asm/uaccess.h>
 
+/*
+ * CPU mask used to set process affinity for MT VPEs/TCs with FPUs
+ */
 cpumask_t mt_fpu_cpumask;
 
 static int fpaff_threshold = -1;
 unsigned long mt_fpemul_threshold;
 
+/*
+ * Replacement functions for the sys_sched_setaffinity() and
+ * sys_sched_getaffinity() system calls, so that we can integrate
+ * FPU affinity with the user's requested processor affinity.
+ * This code is 98% identical with the sys_sched_setaffinity()
+ * and sys_sched_getaffinity() system calls, and should be
+ * updated when kernel/sched.c changes.
+ */
 
+/*
+ * find_process_by_pid - find a process with a matching PID value.
+ * used in sys_sched_set/getaffinity() in kernel/sched.c, so
+ * cloned here.
+ */
 static inline struct task_struct *find_process_by_pid(pid_t pid)
 {
 	return pid ? find_task_by_vpid(pid) : current;
 }
 
+/*
+ * check the target process has a UID that matches the current process's
+ */
 static bool check_same_owner(struct task_struct *p)
 {
 	const struct cred *cred = current_cred(), *pcred;
@@ -37,6 +56,9 @@ static bool check_same_owner(struct task_struct *p)
 	return match;
 }
 
+/*
+ * mipsmt_sys_sched_setaffinity - set the cpu affinity of a process
+ */
 asmlinkage long mipsmt_sys_sched_setaffinity(pid_t pid, unsigned int len,
 				      unsigned long __user *user_mask_ptr)
 {
@@ -61,7 +83,7 @@ asmlinkage long mipsmt_sys_sched_setaffinity(pid_t pid, unsigned int len,
 		return -ESRCH;
 	}
 
-	
+	/* Prevent p going away */
 	get_task_struct(p);
 	rcu_read_unlock();
 
@@ -85,11 +107,11 @@ asmlinkage long mipsmt_sys_sched_setaffinity(pid_t pid, unsigned int len,
 	if (retval)
 		goto out_unlock;
 
-	
+	/* Record new user-specified CPU set for future reference */
 	cpumask_copy(&p->thread.user_cpus_allowed, new_mask);
 
  again:
-	
+	/* Compute new global allowed CPU set if necessary */
 	ti = task_thread_info(p);
 	if (test_ti_thread_flag(ti, TIF_FPUBOUND) &&
 	    cpus_intersects(*new_mask, mt_fpu_cpumask)) {
@@ -104,6 +126,11 @@ asmlinkage long mipsmt_sys_sched_setaffinity(pid_t pid, unsigned int len,
 	if (!retval) {
 		cpuset_cpus_allowed(p, cpus_allowed);
 		if (!cpumask_subset(effective_mask, cpus_allowed)) {
+			/*
+			 * We must have raced with a concurrent cpuset
+			 * update. Just reset the cpus_allowed to the
+			 * cpuset's cpus_allowed
+			 */
 			cpumask_copy(new_mask, cpus_allowed);
 			goto again;
 		}
@@ -120,6 +147,9 @@ out_put_task:
 	return retval;
 }
 
+/*
+ * mipsmt_sys_sched_getaffinity - get the cpu affinity of a process
+ */
 asmlinkage long mipsmt_sys_sched_getaffinity(pid_t pid, unsigned int len,
 				      unsigned long __user *user_mask_ptr)
 {
@@ -163,6 +193,9 @@ static int __init fpaff_thresh(char *str)
 }
 __setup("fpaff=", fpaff_thresh);
 
+/*
+ * FPU Use Factor empirically derived from experiments on 34K
+ */
 #define FPUSEFACTOR 2000
 
 static __init int mt_fp_affinity_init(void)

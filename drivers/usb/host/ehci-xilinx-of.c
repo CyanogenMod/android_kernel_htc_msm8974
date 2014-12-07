@@ -31,6 +31,12 @@
 #include <linux/of_platform.h>
 #include <linux/of_address.h>
 
+/**
+ * ehci_xilinx_of_setup - Initialize the device for ehci_reset()
+ * @hcd:	Pointer to the usb_hcd device to which the host controller bound
+ *
+ * called during probe() after chip reset completes.
+ */
 static int ehci_xilinx_of_setup(struct usb_hcd *hcd)
 {
 	struct ehci_hcd	*ehci = hcd_to_ehci(hcd);
@@ -49,6 +55,20 @@ static int ehci_xilinx_of_setup(struct usb_hcd *hcd)
 	return ehci_reset(ehci);
 }
 
+/**
+ * ehci_xilinx_port_handed_over - hand the port out if failed to enable it
+ * @hcd:	Pointer to the usb_hcd device to which the host controller bound
+ * @portnum:Port number to which the device is attached.
+ *
+ * This function is used as a place to tell the user that the Xilinx USB host
+ * controller does support LS devices. And in an HS only configuration, it
+ * does not support FS devices either. It is hoped that this can help a
+ * confused user.
+ *
+ * There are cases when the host controller fails to enable the port due to,
+ * for example, insufficient power that can be supplied to the device from
+ * the USB bus. In those cases, the messages printed here are not helpful.
+ */
 static int ehci_xilinx_port_handed_over(struct usb_hcd *hcd, int portnum)
 {
 	dev_warn(hcd->self.controller, "port %d cannot be enabled\n", portnum);
@@ -78,21 +98,36 @@ static const struct hc_driver ehci_xilinx_of_hc_driver = {
 	.product_desc		= "OF EHCI",
 	.hcd_priv_size		= sizeof(struct ehci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq			= ehci_irq,
 	.flags			= HCD_MEMORY | HCD_USB2,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.reset			= ehci_xilinx_of_setup,
 	.start			= ehci_run,
 	.stop			= ehci_stop,
 	.shutdown		= ehci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue		= ehci_urb_enqueue,
 	.urb_dequeue		= ehci_urb_dequeue,
 	.endpoint_disable	= ehci_endpoint_disable,
 	.endpoint_reset		= ehci_endpoint_reset,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number	= ehci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data	= ehci_hub_status_data,
 	.hub_control		= ehci_hub_control,
 #ifdef	CONFIG_PM
@@ -105,6 +140,15 @@ static const struct hc_driver ehci_xilinx_of_hc_driver = {
 	.clear_tt_buffer_complete = ehci_clear_tt_buffer_complete,
 };
 
+/**
+ * ehci_hcd_xilinx_of_probe - Probe method for the USB host controller
+ * @op:		pointer to the platform_device bound to the host controller
+ *
+ * This function requests resources and sets up appropriate properties for the
+ * host controller. Because the Xilinx USB host controller can be configured
+ * as HS only or HS/FS only, it checks the configuration in the device tree
+ * entry, and sets an appropriate value for hcd->has_tt.
+ */
 static int __devinit ehci_hcd_xilinx_of_probe(struct platform_device *op)
 {
 	struct device_node *dn = op->dev.of_node;
@@ -154,9 +198,14 @@ static int __devinit ehci_hcd_xilinx_of_probe(struct platform_device *op)
 
 	ehci = hcd_to_ehci(hcd);
 
+	/* This core always has big-endian register interface and uses
+	 * big-endian memory descriptors.
+	 */
 	ehci->big_endian_mmio = 1;
 	ehci->big_endian_desc = 1;
 
+	/* Check whether the FS support option is selected in the hardware.
+	 */
 	value = (int *)of_get_property(dn, "xlnx,support-usb-fs", NULL);
 	if (value && (*value == 1)) {
 		ehci_dbg(ehci, "USB host controller supports FS devices\n");
@@ -167,11 +216,13 @@ static int __devinit ehci_hcd_xilinx_of_probe(struct platform_device *op)
 		hcd->has_tt = 0;
 	}
 
+	/* Debug registers are at the first 0x100 region
+	 */
 	ehci->caps = hcd->regs + 0x100;
 	ehci->regs = hcd->regs + 0x100 +
 		HC_LENGTH(ehci, ehci_readl(ehci, &ehci->caps->hc_capbase));
 
-	
+	/* cache this readonly data; minimize chip reads */
 	ehci->hcs_params = ehci_readl(ehci, &ehci->caps->hcs_params);
 
 	rv = usb_add_hcd(hcd, irq, 0);
@@ -189,6 +240,13 @@ err_rmr:
 	return rv;
 }
 
+/**
+ * ehci_hcd_xilinx_of_remove - shutdown hcd and release resources
+ * @op:		pointer to platform_device structure that is to be removed
+ *
+ * Remove the hcd structure, and release resources that has been requested
+ * during probe.
+ */
 static int ehci_hcd_xilinx_of_remove(struct platform_device *op)
 {
 	struct usb_hcd *hcd = dev_get_drvdata(&op->dev);
@@ -206,6 +264,12 @@ static int ehci_hcd_xilinx_of_remove(struct platform_device *op)
 	return 0;
 }
 
+/**
+ * ehci_hcd_xilinx_of_shutdown - shutdown the hcd
+ * @op:		pointer to platform_device structure that is to be removed
+ *
+ * Properly shutdown the hcd, call driver's shutdown routine.
+ */
 static int ehci_hcd_xilinx_of_shutdown(struct platform_device *op)
 {
 	struct usb_hcd *hcd = dev_get_drvdata(&op->dev);

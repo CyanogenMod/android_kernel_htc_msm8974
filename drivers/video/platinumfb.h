@@ -19,6 +19,9 @@
  * for more details.
  */
 
+/*
+ * Structure of the registers for the DACula colormap device.
+ */
 struct cmap_regs {
 	unsigned char addr;
 	char pad1[15];
@@ -30,8 +33,11 @@ struct cmap_regs {
 	char pad4[15];
 };
 
-struct preg {			
-	unsigned r;			
+/*
+ * Structure of the registers for the "platinum" display adaptor".
+ */
+struct preg {			/* padded register */
+	unsigned r;			/* notice this is 32 bits. */
 	char pad[12];
 };
 
@@ -39,6 +45,17 @@ struct platinum_regs {
 	struct preg reg[128];
 };
 
+/*
+ * Register initialization tables for the platinum display.
+ *
+ * It seems that there are two different types of platinum display
+ * out there.  Older ones use the values in clocksel[1], for which
+ * the formula for the clock frequency seems to be
+ *	F = 14.3MHz * c0 / (c1 & 0x1f) / (1 << (c1 >> 5))
+ * Newer ones use the values in clocksel[0], for which the formula
+ * seems to be
+ *	F = 15MHz * c0 / ((c1 & 0x1f) + 2) / (1 << (c1 >> 5))
+ */
 struct platinum_regvals {
 	int	fb_offset;
 	int	pitch[3];
@@ -54,6 +71,7 @@ struct platinum_regvals {
 #define DIV8	0x60
 #define DIV16	0x80
 
+/* 1280x1024, 75Hz (20) */
 static struct platinum_regvals platinum_reg_init_20 = {
 	0x5c00,
 	{ 1312, 2592, 2592 },
@@ -65,6 +83,7 @@ static struct platinum_regvals platinum_reg_init_20 = {
 	{{ 45, 3 }, { 66, 7 }}
 };
 
+/* 1280x960, 75Hz (19) */
 static struct platinum_regvals platinum_reg_init_19 = {
 	0x5c00,
 	{ 1312, 2592, 2592 },
@@ -76,6 +95,7 @@ static struct platinum_regvals platinum_reg_init_19 = {
 	{{ 42, 3 }, { 44, 5 }}
 };
 
+/* 1152x870, 75Hz (18) */
 static struct platinum_regvals platinum_reg_init_18 = {
 	0x11b0,
 	{ 1184, 2336, 4640 },
@@ -87,6 +107,7 @@ static struct platinum_regvals platinum_reg_init_18 = {
 	{{ 26, 0 + DIV2 }, { 42, 6 }}
 };
 
+/* 1024x768, 75Hz (17) */
 static struct platinum_regvals platinum_reg_init_17 = {
 	0x10b0,
 	{ 1056, 2080, 4128 },
@@ -98,6 +119,7 @@ static struct platinum_regvals platinum_reg_init_17 = {
 	{{ 54, 3 + DIV2 }, { 67, 12 }}
 };
 
+/* 1024x768, 75Hz (16) */
 static struct platinum_regvals platinum_reg_init_16 = {
 	0x10b0,
 	{ 1056, 2080, 4128 },
@@ -109,6 +131,7 @@ static struct platinum_regvals platinum_reg_init_16 = {
 	{{ 20, 0 + DIV2 }, { 11, 2 }}
 };
 
+/* 1024x768, 70Hz (15) */
 static struct platinum_regvals platinum_reg_init_15 = {
 	0x10b0,
 	{ 1056, 2080, 4128 },
@@ -120,6 +143,7 @@ static struct platinum_regvals platinum_reg_init_15 = {
 	{{ 19, 0 + DIV2 }, { 110, 21 }}
 };
 
+/* 1024x768, 60Hz (14) */
 static struct platinum_regvals platinum_reg_init_14 = {
 	0x10b0,
 	{ 1056, 2080, 4128 },
@@ -131,9 +155,12 @@ static struct platinum_regvals platinum_reg_init_14 = {
 	{{ 71, 6 + DIV2 }, { 118, 13 + DIV2 }}
 };
 
+/* 832x624, 75Hz (13) */
 static struct platinum_regvals platinum_reg_init_13 = {
 	0x70,
-	{ 864, 1680, 3344 },	
+	{ 864, 1680, 3344 },	/* MacOS does 1680 instead of 1696 to fit 16bpp in 1MB,
+				 * and we use 3344 instead of 3360 to fit in 2Mb
+				 */
 	{ 0xff0, 4, 0, 0, 0, 0, 0x299, 0,
 	  0, 0x21e, 0x120, 0x10, 0x23f, 0x1f, 0x25, 0x37,
 	  0x8a, 0x22a, 0x23e, 0x536, 0x534, 4, 9, 0x52,
@@ -142,6 +169,7 @@ static struct platinum_regvals platinum_reg_init_13 = {
 	{{ 30, 0 + DIV4 }, { 56, 7 + DIV2 }}
 };
 
+/* 800x600, 75Hz (12) */
 static struct platinum_regvals platinum_reg_init_12 = {
 	0x1010,
 	{ 832, 1632, 3232 },
@@ -153,6 +181,7 @@ static struct platinum_regvals platinum_reg_init_12 = {
 	{{ 122, 7 + DIV4 }, { 62, 9 + DIV2 }}
 };
 
+/* 800x600, 72Hz (11) */
 static struct platinum_regvals platinum_reg_init_11 = {
 	0x1010,
 	{ 832, 1632, 3232 },
@@ -164,6 +193,7 @@ static struct platinum_regvals platinum_reg_init_11 = {
 	{{ 26, 0 + DIV4 }, { 42, 6 + DIV2 }}
 };
 
+/* 800x600, 60Hz (10) */
 static struct platinum_regvals platinum_reg_init_10 = {
 	0x1010,
 	{ 832, 1632, 3232 },
@@ -175,6 +205,7 @@ static struct platinum_regvals platinum_reg_init_10 = {
 	{{ 54, 3 + DIV4 }, { 95, 1 + DIV8 }}
 };
 
+/* 800x600, 56Hz (9) --unsupported? copy of mode 10 for now... */
 static struct platinum_regvals platinum_reg_init_9 = {
 	0x1010,
 	{ 832, 1632, 3232 },
@@ -186,6 +217,7 @@ static struct platinum_regvals platinum_reg_init_9 = {
 	{{ 54, 3 + DIV4 }, { 88, 1 + DIV8 }}
 };
 
+/* 768x576, 50Hz Interlaced-PAL (8) */
 static struct platinum_regvals platinum_reg_init_8 = {
 	0x1010,
 	{ 800, 1568, 3104 },
@@ -197,6 +229,7 @@ static struct platinum_regvals platinum_reg_init_8 = {
 	{{ 31, 0 + DIV16 }, { 74, 9 + DIV8 }}
 };
 
+/* 640x870, 75Hz Portrait (7) */
 static struct platinum_regvals platinum_reg_init_7 = {
 	0xb10,
 	{ 672, 1312, 2592 },
@@ -208,6 +241,7 @@ static struct platinum_regvals platinum_reg_init_7 = {
 	{{ 30, 0 + DIV4 }, { 56, 7 + DIV2 }}
 };
 
+/* 640x480, 67Hz (6) */
 static struct platinum_regvals platinum_reg_init_6 = {
 	0x1010,
 	{ 672, 1312, 2592 },
@@ -219,6 +253,7 @@ static struct platinum_regvals platinum_reg_init_6 = {
 	{{ 99, 4 + DIV8 }, { 42, 5 + DIV4 }}
 };
 
+/* 640x480, 60Hz (5) */
 static struct platinum_regvals platinum_reg_init_5 = {
 	0x1010,
 	{ 672, 1312, 2592 },
@@ -230,6 +265,7 @@ static struct platinum_regvals platinum_reg_init_5 = {
 	{{ 26, 0 + DIV8 }, { 14, 2 + DIV4 }}
 };
 
+/* 640x480, 60Hz Interlaced-NTSC (4) */
 static struct platinum_regvals platinum_reg_init_4 = {
 	0x1010,
 	{ 672, 1312, 2592 },
@@ -241,6 +277,7 @@ static struct platinum_regvals platinum_reg_init_4 = {
 	{{ 94, 5 + DIV16 }, { 48, 7 + DIV8 }}
 };
 
+/* 640x480, 50Hz Interlaced-PAL (3) */
 static struct platinum_regvals platinum_reg_init_3 = {
 	0x1010,
 	{ 672, 1312, 2592 },
@@ -252,6 +289,7 @@ static struct platinum_regvals platinum_reg_init_3 = {
 	{{ 31, 0 + DIV16 }, { 74, 9 + DIV8 }}
 };
 
+/* 512x384, 60Hz (2) */
 static struct platinum_regvals platinum_reg_init_2 = {
 	0x1010,
 	{ 544, 1056, 2080 },
@@ -263,6 +301,7 @@ static struct platinum_regvals platinum_reg_init_2 = {
 	{{ 33, 2 + DIV8 }, { 79, 9 + DIV8 }}
 };
 
+/* 512x384, 60Hz Interlaced-NTSC (1) */
 static struct platinum_regvals platinum_reg_init_1 = {
 	0x1010,
 	{ 544, 1056, 2080 },

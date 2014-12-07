@@ -24,8 +24,11 @@
 
 #include "ncp_fs.h"
 
+/* maximum limit for ncp_objectname_ioctl */
 #define NCP_OBJECT_NAME_MAX_LEN	4096
+/* maximum limit for ncp_privatedata_ioctl */
 #define NCP_PRIVATE_DATA_MAX_LEN 8192
+/* maximum negotiable packet size */
 #define NCP_PACKET_SIZE_INTERNAL 65536
 
 static int
@@ -41,7 +44,7 @@ ncp_get_fs_info(struct ncp_server * server, struct inode *inode,
 		DPRINTK("info.version invalid: %d\n", info.version);
 		return -EINVAL;
 	}
-	
+	/* TODO: info.addr = server->m.serv_addr; */
 	SET_UID(info.mounted_uid, server->m.mounted_uid);
 	info.connection		= server->connection;
 	info.buffer_size	= server->buffer_size;
@@ -83,7 +86,7 @@ struct compat_ncp_objectname_ioctl
 {
 	s32		auth_type;
 	u32		object_name_len;
-	compat_caddr_t	object_name;	
+	compat_caddr_t	object_name;	/* a userspace data, in most cases user name */
 };
 
 struct compat_ncp_fs_info_v2 {
@@ -109,7 +112,7 @@ struct compat_ncp_ioctl_request {
 struct compat_ncp_privatedata_ioctl
 {
 	u32		len;
-	compat_caddr_t	data;		
+	compat_caddr_t	data;		/* ~1000 for NDS */
 };
 
 #define NCP_IOC_GET_FS_INFO_V2_32	_IOWR('n', 4, struct compat_ncp_fs_info_v2)
@@ -150,6 +153,9 @@ ncp_get_compat_fs_info_v2(struct ncp_server * server, struct inode *inode,
 #define NCP_IOC_GETMOUNTUID64		_IOW('n', 2, u64)
 
 #ifdef CONFIG_NCPFS_NLS
+/* Here we are select the iocharset and the codepage for NLS.
+ * Thanks Petr Vandrovec for idea and many hints.
+ */
 static int
 ncp_set_charsets(struct ncp_server* server, struct ncp_nls_ioctl __user *arg)
 {
@@ -246,7 +252,7 @@ ncp_get_charsets(struct ncp_server* server, struct ncp_nls_ioctl __user *arg)
 		return -EFAULT;
 	return 0;
 }
-#endif 
+#endif /* CONFIG_NCPFS_NLS */
 
 static long __ncp_ioctl(struct inode *inode, unsigned int cmd, unsigned long arg)
 {
@@ -288,6 +294,8 @@ static long __ncp_ioctl(struct inode *inode, unsigned int cmd, unsigned long arg
 		}
 		ncp_lock_server(server);
 
+		/* FIXME: We hack around in the server's structures
+		   here to be able to use ncp_request */
 
 		server->has_subfunction = 0;
 		server->current_size = request.size;
@@ -333,6 +341,9 @@ static long __ncp_ioctl(struct inode *inode, unsigned int cmd, unsigned long arg
 	case NCP_IOC_GET_FS_INFO_V2_32:
 		return ncp_get_compat_fs_info_v2(server, inode, argp);
 #endif
+	/* we have too many combinations of CONFIG_COMPAT,
+	 * CONFIG_64BIT and CONFIG_UID16, so just handle
+	 * any of the possible ioctls */
 	case NCP_IOC_GETMOUNTUID16:
 		{
 			u16 uid;
@@ -457,7 +468,7 @@ static long __ncp_ioctl(struct inode *inode, unsigned int cmd, unsigned long arg
 					memcpy(server->sign_last,sign.sign_last,16);
 					server->sign_active = 1;
 				}
-				
+				/* ignore when signatures not wanted */
 			} else {
 				server->sign_active = 0;
 			}
@@ -482,13 +493,13 @@ static long __ncp_ioctl(struct inode *inode, unsigned int cmd, unsigned long arg
 		{
 			int newstate;
 
-			
+			/* get only low 8 bits... */
 			if (get_user(newstate, (unsigned char __user *)argp))
 				return -EFAULT;
 			result = 0;
 			ncp_lock_server(server);
 			if (server->sign_active) {
-				
+				/* cannot turn signatures OFF when active */
 				if (!newstate)
 					result = -EINVAL;
 			} else {
@@ -498,7 +509,7 @@ static long __ncp_ioctl(struct inode *inode, unsigned int cmd, unsigned long arg
 			return result;
 		}
 
-#endif 
+#endif /* CONFIG_NCPFS_PACKET_SIGNING */
 
 #ifdef CONFIG_NCPFS_IOCTL_LOCKING
 	case NCP_IOC_LOCKUNLOCK:
@@ -509,7 +520,7 @@ static long __ncp_ioctl(struct inode *inode, unsigned int cmd, unsigned long arg
 				return -EFAULT;
 			if (rqdata.origin != 0)
 				return -EINVAL;
-			
+			/* check for cmd */
 			switch (rqdata.cmd) {
 				case NCP_LOCK_EX:
 				case NCP_LOCK_SH:
@@ -519,13 +530,13 @@ static long __ncp_ioctl(struct inode *inode, unsigned int cmd, unsigned long arg
 							rqdata.timeout = NCP_LOCK_MAX_TIMEOUT;
 						break;
 				case NCP_LOCK_LOG:
-						rqdata.timeout = NCP_LOCK_DEFAULT_TIMEOUT;	
+						rqdata.timeout = NCP_LOCK_DEFAULT_TIMEOUT;	/* has no effect */
 				case NCP_LOCK_CLEAR:
 						break;
 				default:
 						return -EINVAL;
 			}
-			
+			/* locking needs both read and write access */
 			if ((result = ncp_make_open(inode, O_RDWR)) != 0)
 			{
 				return result;
@@ -539,7 +550,7 @@ static long __ncp_ioctl(struct inode *inode, unsigned int cmd, unsigned long arg
 							NCP_FINFO(inode)->file_handle,
 							rqdata.offset,
 							rqdata.length);
-				if (result > 0) result = 0;	
+				if (result > 0) result = 0;	/* no such lock */
 			}
 			else
 			{
@@ -563,7 +574,7 @@ outrel:
 			ncp_inode_close(inode);
 			return result;
 		}
-#endif	
+#endif	/* CONFIG_NCPFS_IOCTL_LOCKING */
 
 #ifdef CONFIG_COMPAT
 	case NCP_IOC_GETOBJECTNAME_32:
@@ -767,7 +778,7 @@ outrel:
 	case NCP_IOC_GETCHARSETS:
 		return ncp_get_charsets(server, argp);
 
-#endif 
+#endif /* CONFIG_NCPFS_NLS */
 
 	case NCP_IOC_SETDENTRYTTL:
 		{
@@ -775,7 +786,7 @@ outrel:
 
 			if (copy_from_user(&user, argp, sizeof(user)))
 				return -EFAULT;
-			
+			/* 20 secs at most... */
 			if (user > 20000)
 				return -EINVAL;
 			user = (user * HZ) / 1000;
@@ -815,6 +826,11 @@ long ncp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	}
 	if (server->m.mounted_uid != uid) {
 		switch (cmd) {
+		/*
+		 * Only mount owner can issue these ioctls.  Information
+		 * necessary to authenticate to other NDS servers are
+		 * stored here.
+		 */
 		case NCP_IOC_GETOBJECTNAME:
 		case NCP_IOC_SETOBJECTNAME:
 		case NCP_IOC_GETPRIVATEDATA:
@@ -827,6 +843,17 @@ long ncp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 #endif
 			ret = -EACCES;
 			goto out;
+		/*
+		 * These require write access on the inode if user id
+		 * does not match.  Note that they do not write to the
+		 * file...  But old code did mnt_want_write, so I keep
+		 * it as is.  Of course not for mountpoint owner, as
+		 * that breaks read-only mounts altogether as ncpmount
+		 * needs working NCP_IOC_NCPREQUEST and
+		 * NCP_IOC_GET_FS_INFO.  Some of these codes (setdentryttl,
+		 * signinit, setsignwanted) should be probably restricted
+		 * to owner only, or even more to CAP_SYS_ADMIN).
+		 */
 		case NCP_IOC_GET_FS_INFO:
 		case NCP_IOC_GET_FS_INFO_V2:
 		case NCP_IOC_NCPREQUEST:
@@ -846,6 +873,9 @@ long ncp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			if (ret)
 				goto outDropWrite;
 			break;
+		/*
+		 * Read access required.
+		 */
 		case NCP_IOC_GETMOUNTUID16:
 		case NCP_IOC_GETMOUNTUID32:
 		case NCP_IOC_GETMOUNTUID64:
@@ -855,10 +885,13 @@ long ncp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			if (ret)
 				goto out;
 			break;
+		/*
+		 * Anybody can read these.
+		 */
 		case NCP_IOC_GETCHARSETS:
 		case NCP_IOC_GETDENTRYTTL:
 		default:
-		
+		/* Three codes below are protected by CAP_SYS_ADMIN above. */
 		case NCP_IOC_SETCHARSETS:
 		case NCP_IOC_CONN_LOGGED_IN:
 		case NCP_IOC_SETROOT:

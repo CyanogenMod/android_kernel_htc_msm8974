@@ -20,7 +20,7 @@
  ******************************************************************************/
 
 #include <linux/module.h>
-#include <linux/etherdevice.h>		
+#include <linux/etherdevice.h>		/* for random_ether_addr() */
 
 #include "usbatm.h"
 
@@ -162,7 +162,7 @@ static int xusbatm_atm_start(struct usbatm_data *usbatm,
 {
 	atm_dbg(usbatm, "%s entered\n", __func__);
 
-	
+	/* use random MAC as we've no way to get it from the device */
 	random_ether_addr(atm_dev->esi);
 
 	return 0;

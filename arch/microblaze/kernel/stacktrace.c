@@ -18,7 +18,7 @@
 
 void save_stack_trace(struct stack_trace *trace)
 {
-	
+	/* Exclude our helper functions from the trace*/
 	trace->skip += 2;
 	microblaze_unwind(NULL, trace);
 }

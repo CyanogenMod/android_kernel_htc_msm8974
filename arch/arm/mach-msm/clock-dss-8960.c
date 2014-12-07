@@ -18,6 +18,7 @@
 #include <mach/msm_iomap.h>
 #include "clock-dss-8960.h"
 
+/* HDMI PLL macros */
 #define HDMI_PHY_PLL_REFCLK_CFG          (MSM_HDMI_BASE + 0x00000500)
 #define HDMI_PHY_PLL_CHRG_PUMP_CFG       (MSM_HDMI_BASE + 0x00000504)
 #define HDMI_PHY_PLL_LOOP_FLT_CFG0       (MSM_HDMI_BASE + 0x00000508)
@@ -81,6 +82,7 @@
 
 #define AHB_EN_REG                       (MSM_MMSS_CLK_CTL_BASE + 0x0008)
 
+/* HDMI PHY/PLL bit field macros */
 #define SW_RESET BIT(2)
 #define SW_RESET_PLL BIT(0)
 #define PWRDN_B BIT(7)
@@ -101,32 +103,41 @@ int hdmi_pll_enable(void)
 	ahb_enabled = ahb_en_reg & BIT(4);
 	if (!ahb_enabled) {
 		writel_relaxed(ahb_en_reg | BIT(4), AHB_EN_REG);
-		
+		/* Make sure iface clock is enabled before register access */
 		mb();
 	}
 
-	
+	/* Assert PLL S/W reset */
 	writel_relaxed(0x8D, HDMI_PHY_PLL_LOCKDET_CFG2);
 	writel_relaxed(0x10, HDMI_PHY_PLL_LOCKDET_CFG0);
 	writel_relaxed(0x1A, HDMI_PHY_PLL_LOCKDET_CFG1);
+	/* Wait for a short time before de-asserting
+	 * to allow the hardware to complete its job.
+	 * This much of delay should be fine for hardware
+	 * to assert and de-assert.
+	 */
 	udelay(10);
-	
+	/* De-assert PLL S/W reset */
 	writel_relaxed(0x0D, HDMI_PHY_PLL_LOCKDET_CFG2);
 
 	val = readl_relaxed(HDMI_PHY_REG_12);
 	val |= BIT(5);
-	
+	/* Assert PHY S/W reset */
 	writel_relaxed(val, HDMI_PHY_REG_12);
 	val &= ~BIT(5);
+	/* Wait for a short time before de-asserting
+	   to allow the hardware to complete its job.
+	   This much of delay should be fine for hardware
+	   to assert and de-assert. */
 	udelay(10);
-	
+	/* De-assert PHY S/W reset */
 	writel_relaxed(val, HDMI_PHY_REG_12);
 	writel_relaxed(0x3f, HDMI_PHY_REG_2);
 
 	val = readl_relaxed(HDMI_PHY_REG_12);
 	val |= PWRDN_B;
 	writel_relaxed(val, HDMI_PHY_REG_12);
-	
+	/* Wait 10 us for enabling global power for PHY */
 	mb();
 	udelay(10);
 
@@ -140,11 +151,25 @@ int hdmi_pll_enable(void)
 	while (!(readl_relaxed(HDMI_PHY_PLL_STATUS0) & BIT(0)) &&
 			timeout_count && pll_lock_retry) {
 		if (--timeout_count == 0) {
+			/*
+			 * PLL has still not locked.
+			 * Do a software reset and try again
+			 * Assert PLL S/W reset first
+			 */
 			writel_relaxed(0x8D, HDMI_PHY_PLL_LOCKDET_CFG2);
 
+			/* Wait for a short time before de-asserting
+			 * to allow the hardware to complete its job.
+			 * This much of delay should be fine for hardware
+			 * to assert and de-assert.
+			 */
 			udelay(10);
 			writel_relaxed(0x0D, HDMI_PHY_PLL_LOCKDET_CFG2);
 
+			/*
+			 * Wait for a short duration for the PLL calibration
+			 * before checking if the PLL gets locked
+			 */
 			udelay(350);
 
 			timeout_count = 1000;
@@ -185,7 +210,7 @@ void hdmi_pll_disable(void)
 	val |= PD_PLL;
 	val &= (~PLL_PWRDN_B);
 	writel_relaxed(val, HDMI_PHY_PLL_PWRDN_B);
-	
+	/* Make sure HDMI PHY/PLL are powered down */
 	mb();
 
 	if (!ahb_enabled)
@@ -201,7 +226,7 @@ int hdmi_pll_set_rate(unsigned rate)
 
 	if (!ahb_enabled) {
 		writel_relaxed(ahb_en_reg | BIT(4), AHB_EN_REG);
-		
+		/* Make sure iface clock is enabled before register access */
 		mb();
 	}
 
@@ -212,7 +237,7 @@ int hdmi_pll_set_rate(unsigned rate)
 
 	switch (rate) {
 	case 27030000:
-		
+		/* 480p60/480i60 case */
 		writel_relaxed(0xA, HDMI_PHY_PLL_PWRDN_B);
 		writel_relaxed(0x38, HDMI_PHY_PLL_REFCLK_CFG);
 		writel_relaxed(0x2, HDMI_PHY_PLL_CHRG_PUMP_CFG);
@@ -234,7 +259,7 @@ int hdmi_pll_set_rate(unsigned rate)
 	break;
 
 	case 25200000:
-		
+		/* 640x480p60 */
 		writel_relaxed(0x32, HDMI_PHY_PLL_REFCLK_CFG);
 		writel_relaxed(0x2, HDMI_PHY_PLL_CHRG_PUMP_CFG);
 		writel_relaxed(0x01, HDMI_PHY_PLL_LOOP_FLT_CFG0);
@@ -265,7 +290,7 @@ int hdmi_pll_set_rate(unsigned rate)
 	break;
 
 	case 27000000:
-		
+		/* 576p50/576i50 case */
 		writel_relaxed(0x32, HDMI_PHY_PLL_REFCLK_CFG);
 		writel_relaxed(0x2, HDMI_PHY_PLL_CHRG_PUMP_CFG);
 		writel_relaxed(0x01, HDMI_PHY_PLL_LOOP_FLT_CFG0);
@@ -296,6 +321,9 @@ int hdmi_pll_set_rate(unsigned rate)
 	break;
 
 	case 74250000:
+		/* 720p60/720p50/1080i60/1080i50
+		 * 1080p24/1080p30/1080p25 case
+		 */
 		writel_relaxed(0xA, HDMI_PHY_PLL_PWRDN_B);
 		writel_relaxed(0x12, HDMI_PHY_PLL_REFCLK_CFG);
 		writel_relaxed(0x01, HDMI_PHY_PLL_LOOP_FLT_CFG0);
@@ -323,7 +351,7 @@ int hdmi_pll_set_rate(unsigned rate)
 	break;
 
 	case 148500000:
-		
+		/* 1080p60/1080p50 case */
 		writel_relaxed(0x2, HDMI_PHY_PLL_REFCLK_CFG);
 		writel_relaxed(0x2, HDMI_PHY_PLL_CHRG_PUMP_CFG);
 		writel_relaxed(0x01, HDMI_PHY_PLL_LOOP_FLT_CFG0);
@@ -354,7 +382,7 @@ int hdmi_pll_set_rate(unsigned rate)
 	break;
 	}
 
-	
+	/* Make sure writes complete before disabling iface clock */
 	mb();
 
 	if (set_power_dwn)

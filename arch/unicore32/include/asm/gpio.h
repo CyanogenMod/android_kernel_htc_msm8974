@@ -47,22 +47,22 @@
 
 #ifdef CONFIG_PUV3_NB0916
 #define GPI_BTN_TOUCH		14
-#define GPIO_IN			0x000043ff 
-#define GPIO_OUT		0x0fffbc00 
-#endif	
+#define GPIO_IN			0x000043ff /* 1 for input */
+#define GPIO_OUT		0x0fffbc00 /* 1 for output */
+#endif	/* CONFIG_PUV3_NB0916 */
 
 #ifdef CONFIG_PUV3_SMW0919
-#define GPIO_IN			0x000003ff 
-#define GPIO_OUT		0x0ffffc00 
-#endif  
+#define GPIO_IN			0x000003ff /* 1 for input */
+#define GPIO_OUT		0x0ffffc00 /* 1 for output */
+#endif  /* CONFIG_PUV3_SMW0919 */
 
 #ifdef CONFIG_PUV3_DB0913
-#define GPIO_IN			0x000001df 
-#define GPIO_OUT		0x03fee800 
-#endif  
+#define GPIO_IN			0x000001df /* 1 for input */
+#define GPIO_OUT		0x03fee800 /* 1 for output */
+#endif  /* CONFIG_PUV3_DB0913 */
 
 #define GPIO_DIR                (~((GPIO_IN) | 0xf0000000))
-				
+				/* 0 input, 1 output */
 
 static inline int gpio_get_value(unsigned gpio)
 {
@@ -101,4 +101,4 @@ static inline unsigned irq_to_gpio(unsigned irq)
 		return irq - IRQ_GPIO0;
 }
 
-#endif 
+#endif /* __UNICORE_GPIO_H__ */

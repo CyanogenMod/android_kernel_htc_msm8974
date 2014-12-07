@@ -175,7 +175,7 @@ int res_counter_memparse_write_strategy(const char *buf,
 {
 	char *end;
 
-	
+	/* return RESOURCE_MAX(unlimited) if "-1" is specified */
 	if (*buf == '-') {
 		*res = simple_strtoull(buf + 1, &end, 10);
 		if (*res != 1 || *end != '\0')

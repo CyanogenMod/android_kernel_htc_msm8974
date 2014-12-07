@@ -26,12 +26,17 @@ static struct txx9aclc_soc_device {
 	struct txx9aclc_dmadata dmadata[2];
 } txx9aclc_soc_device;
 
+/* REVISIT: How to find txx9aclc_drvdata from snd_ac97? */
 static struct txx9aclc_plat_drvdata *txx9aclc_drvdata;
 
 static int txx9aclc_dma_init(struct txx9aclc_soc_device *dev,
 			     struct txx9aclc_dmadata *dmadata);
 
 static const struct snd_pcm_hardware txx9aclc_pcm_hardware = {
+	/*
+	 * REVISIT: SNDRV_PCM_INFO_MMAP | SNDRV_PCM_INFO_MMAP_VALID
+	 * needs more works for noncoherent MIPS.
+	 */
 	.info		  = SNDRV_PCM_INFO_INTERLEAVED |
 			    SNDRV_PCM_INFO_BATCH |
 			    SNDRV_PCM_INFO_PAUSE,
@@ -106,7 +111,7 @@ static void txx9aclc_dma_complete(void *arg)
 	struct txx9aclc_dmadata *dmadata = arg;
 	unsigned long flags;
 
-	
+	/* dma completion handler cannot submit new operations */
 	spin_lock_irqsave(&dmadata->dma_lock, flags);
 	if (dmadata->frag_count >= 0) {
 		dmadata->dmacount--;
@@ -161,7 +166,7 @@ static void txx9aclc_dma_tasklet(unsigned long data)
 
 		spin_unlock_irqrestore(&dmadata->dma_lock, flags);
 		chan->device->device_control(chan, DMA_TERMINATE_ALL, 0);
-		
+		/* first time */
 		for (i = 0; i < NR_DMA_CHAIN; i++) {
 			desc = txx9aclc_dma_submit(dmadata,
 				dmadata->dma_addr + i * dmadata->frag_bytes);
@@ -248,7 +253,7 @@ static int txx9aclc_pcm_open(struct snd_pcm_substream *substream)
 	ret = snd_soc_set_runtime_hwparams(substream, &txx9aclc_pcm_hardware);
 	if (ret)
 		return ret;
-	
+	/* ensure that buffer size is a multiple of period size */
 	ret = snd_pcm_hw_constraint_integer(substream->runtime,
 					    SNDRV_PCM_HW_PARAM_PERIODS);
 	if (ret < 0)
@@ -294,7 +299,7 @@ static int txx9aclc_pcm_new(struct snd_soc_pcm_runtime *rtd)
 	int i;
 	int ret;
 
-	
+	/* at this point onwards the AC97 component has probed and this will be valid */
 	dev = snd_soc_dai_get_drvdata(dai);
 
 	dev->dmadata[0].stream = SNDRV_PCM_STREAM_PLAYBACK;
@@ -356,7 +361,7 @@ static int txx9aclc_dma_init(struct txx9aclc_soc_device *dev,
 		ds->rx_reg = drvdata->physbase + ACAUDIDAT;
 	}
 
-	
+	/* Try to grab a DMA channel */
 	dma_cap_zero(mask);
 	dma_cap_set(DMA_SLAVE, mask);
 	dmadata->dma_chan = dma_request_channel(mask, filter, dmadata);
@@ -385,9 +390,9 @@ static int txx9aclc_pcm_remove(struct snd_soc_platform *platform)
 	void __iomem *base = drvdata->base;
 	int i;
 
-	
+	/* disable all FIFO DMAs */
 	__raw_writel(ACCTL_AUDODMA | ACCTL_AUDIDMA, base + ACCTLDIS);
-	
+	/* dummy R/W to clear pending DMAREQ if any */
 	__raw_writel(__raw_readl(base + ACAUDIDAT), base + ACAUDODAT);
 
 	for (i = 0; i < 2; i++) {

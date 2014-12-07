@@ -40,6 +40,7 @@
 #include "ice1712.h"
 #include "envy24ht.h"
 
+/* lowlevel routines */
 #include "amp.h"
 #include "revo.h"
 #include "aureon.h"
@@ -77,9 +78,9 @@ MODULE_SUPPORTED_DEVICE("{"
 		"{ICEnsemble,Generic Envy24HT}"
 		"{ICEnsemble,Generic Envy24PT}}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;		
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;		/* Enable this card */
 static char *model[SNDRV_CARDS];
 
 module_param_array(index, int, NULL, 0444);
@@ -92,6 +93,7 @@ module_param_array(model, charp, NULL, 0444);
 MODULE_PARM_DESC(model, "Use the given board model.");
 
 
+/* Both VT1720 and VT1724 have the same PCI IDs */
 static DEFINE_PCI_DEVICE_TABLE(snd_vt1724_ids) = {
 	{ PCI_VDEVICE(ICE, PCI_DEVICE_ID_VT1724), 0 },
 	{ 0, }
@@ -106,18 +108,31 @@ static unsigned int PRO_RATE_DEFAULT = 44100;
 
 static char *ext_clock_names[1] = { "IEC958 In" };
 
+/*
+ *  Basic I/O
+ */
 
+/*
+ *  default rates, default clock routines
+ */
 
+/* check whether the clock mode is spdif-in */
 static inline int stdclock_is_spdif_master(struct snd_ice1712 *ice)
 {
 	return (inb(ICEMT1724(ice, RATE)) & VT1724_SPDIF_MASTER) ? 1 : 0;
 }
 
+/*
+ * locking rate makes sense only for internal clock mode
+ */
 static inline int is_pro_rate_locked(struct snd_ice1712 *ice)
 {
 	return (!ice->is_spdif_master(ice)) && PRO_RATE_LOCKED;
 }
 
+/*
+ * ac97 section
+ */
 
 static unsigned char snd_vt1724_ac97_ready(struct snd_ice1712 *ice)
 {
@@ -177,24 +192,30 @@ static unsigned short snd_vt1724_ac97_read(struct snd_ac97 *ac97, unsigned short
 }
 
 
+/*
+ * GPIO operations
+ */
 
+/* set gpio direction 0 = read, 1 = write */
 static void snd_vt1724_set_gpio_dir(struct snd_ice1712 *ice, unsigned int data)
 {
 	outl(data, ICEREG1724(ice, GPIO_DIRECTION));
-	inw(ICEREG1724(ice, GPIO_DIRECTION)); 
+	inw(ICEREG1724(ice, GPIO_DIRECTION)); /* dummy read for pci-posting */
 }
 
+/* get gpio direction 0 = read, 1 = write */
 static unsigned int snd_vt1724_get_gpio_dir(struct snd_ice1712 *ice)
 {
 	return inl(ICEREG1724(ice, GPIO_DIRECTION));
 }
 
+/* set the gpio mask (0 = writable) */
 static void snd_vt1724_set_gpio_mask(struct snd_ice1712 *ice, unsigned int data)
 {
 	outw(data, ICEREG1724(ice, GPIO_WRITE_MASK));
-	if (!ice->vt1720) 
+	if (!ice->vt1720) /* VT1720 supports only 16 GPIO bits */
 		outb((data >> 16) & 0xff, ICEREG1724(ice, GPIO_WRITE_MASK_22));
-	inw(ICEREG1724(ice, GPIO_WRITE_MASK)); 
+	inw(ICEREG1724(ice, GPIO_WRITE_MASK)); /* dummy read for pci-posting */
 }
 
 static unsigned int snd_vt1724_get_gpio_mask(struct snd_ice1712 *ice)
@@ -213,7 +234,7 @@ static void snd_vt1724_set_gpio_data(struct snd_ice1712 *ice, unsigned int data)
 	outw(data, ICEREG1724(ice, GPIO_DATA));
 	if (!ice->vt1720)
 		outb(data >> 16, ICEREG1724(ice, GPIO_DATA_22));
-	inw(ICEREG1724(ice, GPIO_DATA)); 
+	inw(ICEREG1724(ice, GPIO_DATA)); /* dummy read for pci-posting */
 }
 
 static unsigned int snd_vt1724_get_gpio_data(struct snd_ice1712 *ice)
@@ -227,6 +248,9 @@ static unsigned int snd_vt1724_get_gpio_data(struct snd_ice1712 *ice)
 	return data;
 }
 
+/*
+ * MIDI
+ */
 
 static void vt1724_midi_clear_rx(struct snd_ice1712 *ice)
 {
@@ -258,6 +282,9 @@ static void vt1724_midi_write(struct snd_ice1712 *ice)
 		for (i = 0; i < count; ++i)
 			outb(buffer[i], ICEREG1724(ice, MPU_DATA));
 	}
+	/* mask irq when all bytes have been transmitted.
+	 * enabled again in output_trigger when the new data comes in.
+	 */
 	enable_midi_irq(ice, VT1724_IRQ_MPU_TX,
 			!snd_rawmidi_transmit_empty(s));
 }
@@ -278,6 +305,7 @@ static void vt1724_midi_read(struct snd_ice1712 *ice)
 	}
 }
 
+/* call with ice->reg_lock */
 static void enable_midi_irq(struct snd_ice1712 *ice, u8 flag, int enable)
 {
 	u8 mask = inb(ICEREG1724(ice, IRQMASK));
@@ -330,7 +358,7 @@ static void vt1724_midi_output_drain(struct snd_rawmidi_substream *s)
 	unsigned long timeout;
 
 	vt1724_enable_midi_irq(s, VT1724_IRQ_MPU_TX, 0);
-	
+	/* 32 bytes should be transmitted in less than about 12 ms */
 	timeout = jiffies + msecs_to_jiffies(15);
 	do {
 		if (inb(ICEREG1724(ice, MPU_CTRL)) & VT1724_MPU_TX_EMPTY)
@@ -381,6 +409,9 @@ static struct snd_rawmidi_ops vt1724_midi_input_ops = {
 };
 
 
+/*
+ *  Interrupt handler
+ */
 
 static irqreturn_t snd_vt1724_interrupt(int irq, void *dev_id)
 {
@@ -414,6 +445,11 @@ static irqreturn_t snd_vt1724_interrupt(int irq, void *dev_id)
 				vt1724_midi_write(ice);
 			else
 				enable_midi_irq(ice, VT1724_IRQ_MPU_TX, 0);
+			/* Due to mysterical reasons, MPU_TX is always
+			 * generated (and can't be cleared) when a PCM
+			 * playback is going.  So let's ignore at the
+			 * next loop.
+			 */
 			status_mask &= ~VT1724_IRQ_MPU_TX;
 		}
 		if (status & VT1724_IRQ_MPU_RX) {
@@ -422,10 +458,21 @@ static irqreturn_t snd_vt1724_interrupt(int irq, void *dev_id)
 			else
 				vt1724_midi_clear_rx(ice);
 		}
-		
+		/* ack MPU irq */
 		outb(status, ICEREG1724(ice, IRQSTAT));
 		spin_unlock(&ice->reg_lock);
 		if (status & VT1724_IRQ_MTPCM) {
+			/*
+			 * Multi-track PCM
+			 * PCM assignment are:
+			 * Playback DMA0 (M/C) = playback_pro_substream
+			 * Playback DMA1 = playback_con_substream_ds[0]
+			 * Playback DMA2 = playback_con_substream_ds[1]
+			 * Playback DMA3 = playback_con_substream_ds[2]
+			 * Playback DMA4 (SPDIF) = playback_con_substream
+			 * Record DMA0 = capture_pro_substream
+			 * Record DMA1 = capture_con_substream
+			 */
 			unsigned char mtstat = inb(ICEMT1724(ice, IRQ));
 			if (mtstat & VT1724_MULTI_PDMA0) {
 				if (ice->playback_pro_substream)
@@ -455,14 +502,14 @@ static irqreturn_t snd_vt1724_interrupt(int irq, void *dev_id)
 				if (ice->capture_con_substream)
 					snd_pcm_period_elapsed(ice->capture_con_substream);
 			}
-			
+			/* ack anyway to avoid freeze */
 			outb(mtstat, ICEMT1724(ice, IRQ));
-			
+			/* ought to really handle this properly */
 			if (mtstat & VT1724_MULTI_FIFO_ERR) {
 				unsigned char fstat = inb(ICEMT1724(ice, DMA_FIFO_ERR));
 				outb(fstat, ICEMT1724(ice, DMA_FIFO_ERR));
 				outb(VT1724_MULTI_FIFO_ERR | inb(ICEMT1724(ice, DMA_INT_MASK)), ICEMT1724(ice, DMA_INT_MASK));
-				
+				/* If I don't do this, I get machine lockup due to continual interrupts */
 			}
 
 		}
@@ -470,6 +517,9 @@ static irqreturn_t snd_vt1724_interrupt(int irq, void *dev_id)
 	return IRQ_RETVAL(handled);
 }
 
+/*
+ *  PCM code - professional part (multitrack)
+ */
 
 static unsigned int rates[] = {
 	8000, 9600, 11025, 12000, 16000, 22050, 24000,
@@ -478,13 +528,13 @@ static unsigned int rates[] = {
 };
 
 static struct snd_pcm_hw_constraint_list hw_constraints_rates_96 = {
-	.count = ARRAY_SIZE(rates) - 2, 
+	.count = ARRAY_SIZE(rates) - 2, /* up to 96000 */
 	.list = rates,
 	.mask = 0,
 };
 
 static struct snd_pcm_hw_constraint_list hw_constraints_rates_48 = {
-	.count = ARRAY_SIZE(rates) - 5, 
+	.count = ARRAY_SIZE(rates) - 5, /* up to 48000 */
 	.list = rates,
 	.mask = 0,
 };
@@ -496,10 +546,10 @@ static struct snd_pcm_hw_constraint_list hw_constraints_rates_192 = {
 };
 
 struct vt1724_pcm_reg {
-	unsigned int addr;	
-	unsigned int size;	
-	unsigned int count;	
-	unsigned int start;	
+	unsigned int addr;	/* ADDR register offset */
+	unsigned int size;	/* SIZE register offset */
+	unsigned int count;	/* COUNT register offset */
+	unsigned int start;	/* start & pause bit */
 };
 
 static int snd_vt1724_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
@@ -546,7 +596,7 @@ static int snd_vt1724_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 		break;
 
 	case SNDRV_PCM_TRIGGER_RESUME:
-		
+		/* apps will have to restart stream */
 		break;
 
 	default:
@@ -555,6 +605,8 @@ static int snd_vt1724_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 	return 0;
 }
 
+/*
+ */
 
 #define DMA_STARTS	(VT1724_RDMA0_START|VT1724_PDMA0_START|VT1724_RDMA1_START|\
 	VT1724_PDMA1_START|VT1724_PDMA2_START|VT1724_PDMA3_START|VT1724_PDMA4_START)
@@ -588,20 +640,20 @@ static unsigned char stdclock_set_mclk(struct snd_ice1712 *ice,
 				       unsigned int rate)
 {
 	unsigned char val, old;
-	
+	/* check MT02 */
 	if (ice->eeprom.data[ICE_EEP2_ACLINK] & VT1724_CFG_PRO_I2S) {
 		val = old = inb(ICEMT1724(ice, I2S_FORMAT));
 		if (rate > 96000)
-			val |= VT1724_MT_I2S_MCLK_128X; 
+			val |= VT1724_MT_I2S_MCLK_128X; /* 128x MCLK */
 		else
-			val &= ~VT1724_MT_I2S_MCLK_128X; 
+			val &= ~VT1724_MT_I2S_MCLK_128X; /* 256x MCLK */
 		if (val != old) {
 			outb(val, ICEMT1724(ice, I2S_FORMAT));
-			
+			/* master clock changed */
 			return 1;
 		}
 	}
-	
+	/* no change in master clock */
 	return 0;
 }
 
@@ -618,16 +670,20 @@ static int snd_vt1724_set_pro_rate(struct snd_ice1712 *ice, unsigned int rate,
 	spin_lock_irqsave(&ice->reg_lock, flags);
 	if ((inb(ICEMT1724(ice, DMA_CONTROL)) & DMA_STARTS) ||
 	    (inb(ICEMT1724(ice, DMA_PAUSE)) & DMA_PAUSES)) {
-		
+		/* running? we cannot change the rate now... */
 		spin_unlock_irqrestore(&ice->reg_lock, flags);
 		return ((rate == ice->cur_rate) && !force) ? 0 : -EBUSY;
 	}
 	if (!force && is_pro_rate_locked(ice)) {
+		/* comparing required and current rate - makes sense for
+		 * internal clock only */
 		spin_unlock_irqrestore(&ice->reg_lock, flags);
 		return (rate == ice->cur_rate) ? 0 : -EBUSY;
 	}
 
 	if (force || !ice->is_spdif_master(ice)) {
+		/* force means the rate was switched by ucontrol, otherwise
+		 * setting clock rate for internal clock mode */
 		old_rate = ice->get_rate(ice);
 		if (force || (old_rate != rate))
 			ice->set_rate(ice, rate);
@@ -639,7 +695,7 @@ static int snd_vt1724_set_pro_rate(struct snd_ice1712 *ice, unsigned int rate,
 
 	ice->cur_rate = rate;
 
-	
+	/* setting master clock */
 	mclk_change = ice->set_mclk(ice, rate);
 
 	spin_unlock_irqrestore(&ice->reg_lock, flags);
@@ -649,7 +705,7 @@ static int snd_vt1724_set_pro_rate(struct snd_ice1712 *ice, unsigned int rate,
 	if (ice->gpio.set_pro_rate)
 		ice->gpio.set_pro_rate(ice, rate);
 
-	
+	/* set up codecs */
 	for (i = 0; i < ice->akm_codecs; i++) {
 		if (ice->akm[i].ops.set_rate_val)
 			ice->akm[i].ops.set_rate_val(&ice->akm[i], rate);
@@ -668,9 +724,9 @@ static int snd_vt1724_pcm_hw_params(struct snd_pcm_substream *substream,
 
 	chs = params_channels(hw_params);
 	mutex_lock(&ice->open_mutex);
-	
+	/* mark surround channels */
 	if (substream == ice->playback_pro_substream) {
-		
+		/* PDMA0 can be multi-channel up to 8 */
 		chs = chs / 2 - 1;
 		for (i = 0; i < chs; i++) {
 			if (ice->pcm_reserved[i] &&
@@ -686,7 +742,7 @@ static int snd_vt1724_pcm_hw_params(struct snd_pcm_substream *substream,
 		}
 	} else {
 		for (i = 0; i < 3; i++) {
-			
+			/* check individual playback stream */
 			if (ice->playback_con_substream_ds[i] == substream) {
 				if (ice->pcm_reserved[i] &&
 				    ice->pcm_reserved[i] != substream) {
@@ -713,7 +769,7 @@ static int snd_vt1724_pcm_hw_free(struct snd_pcm_substream *substream)
 	int i;
 
 	mutex_lock(&ice->open_mutex);
-	
+	/* unmark surround channels */
 	for (i = 0; i < 3; i++)
 		if (ice->pcm_reserved[i] == substream)
 			ice->pcm_reserved[i] = NULL;
@@ -734,16 +790,24 @@ static int snd_vt1724_playback_pro_prepare(struct snd_pcm_substream *substream)
 	outl(substream->runtime->dma_addr, ICEMT1724(ice, PLAYBACK_ADDR));
 
 	size = (snd_pcm_lib_buffer_bytes(substream) >> 2) - 1;
-	
+	/* outl(size, ICEMT1724(ice, PLAYBACK_SIZE)); */
 	outw(size, ICEMT1724(ice, PLAYBACK_SIZE));
 	outb(size >> 16, ICEMT1724(ice, PLAYBACK_SIZE) + 2);
 	size = (snd_pcm_lib_period_bytes(substream) >> 2) - 1;
-	
+	/* outl(size, ICEMT1724(ice, PLAYBACK_COUNT)); */
 	outw(size, ICEMT1724(ice, PLAYBACK_COUNT));
 	outb(size >> 16, ICEMT1724(ice, PLAYBACK_COUNT) + 2);
 
 	spin_unlock_irq(&ice->reg_lock);
 
+	/*
+	printk(KERN_DEBUG "pro prepare: ch = %d, addr = 0x%x, "
+	       "buffer = 0x%x, period = 0x%x\n",
+	       substream->runtime->channels,
+	       (unsigned int)substream->runtime->dma_addr,
+	       snd_pcm_lib_buffer_bytes(substream),
+	       snd_pcm_lib_period_bytes(substream));
+	*/
 	return 0;
 }
 
@@ -754,7 +818,7 @@ static snd_pcm_uframes_t snd_vt1724_playback_pro_pointer(struct snd_pcm_substrea
 
 	if (!(inl(ICEMT1724(ice, DMA_CONTROL)) & VT1724_PDMA0_START))
 		return 0;
-#if 0 
+#if 0 /* read PLAYBACK_ADDR */
 	ptr = inl(ICEMT1724(ice, PLAYBACK_ADDR));
 	if (ptr < substream->runtime->dma_addr) {
 		snd_printd("ice1724: invalid negative ptr\n");
@@ -767,7 +831,7 @@ static snd_pcm_uframes_t snd_vt1724_playback_pro_pointer(struct snd_pcm_substrea
 			   (int)ptr, (int)substream->runtime->period_size);
 		return 0;
 	}
-#else 
+#else /* read PLAYBACK_SIZE */
 	ptr = inl(ICEMT1724(ice, PLAYBACK_SIZE)) & 0xffffff;
 	ptr = (ptr + 1) << 2;
 	ptr = bytes_to_frames(substream->runtime, ptr);
@@ -807,11 +871,11 @@ static snd_pcm_uframes_t snd_vt1724_pcm_pointer(struct snd_pcm_substream *substr
 
 	if (!(inl(ICEMT1724(ice, DMA_CONTROL)) & reg->start))
 		return 0;
-#if 0 
+#if 0 /* use ADDR register */
 	ptr = inl(ice->profi_port + reg->addr);
 	ptr -= substream->runtime->dma_addr;
 	return bytes_to_frames(substream->runtime, ptr);
-#else 
+#else /* use SIZE register */
 	ptr = inw(ice->profi_port + reg->size);
 	ptr = (ptr + 1) << 2;
 	ptr = bytes_to_frames(substream->runtime, ptr);
@@ -872,8 +936,8 @@ static const struct snd_pcm_hardware snd_vt1724_playback_pro = {
 	.rate_max =		192000,
 	.channels_min =		2,
 	.channels_max =		8,
-	.buffer_bytes_max =	(1UL << 21),	
-	.period_bytes_min =	8 * 4 * 2,	
+	.buffer_bytes_max =	(1UL << 21),	/* 19bits dword */
+	.period_bytes_min =	8 * 4 * 2,	/* FIXME: constraints needed */
 	.period_bytes_max =	(1UL << 21),
 	.periods_min =		2,
 	.periods_max =		1024,
@@ -893,7 +957,7 @@ static const struct snd_pcm_hardware snd_vt1724_spdif = {
 	.rate_max =		192000,
 	.channels_min =		2,
 	.channels_max =		2,
-	.buffer_bytes_max =	(1UL << 18),	
+	.buffer_bytes_max =	(1UL << 18),	/* 16bits dword */
 	.period_bytes_min =	2 * 4 * 2,
 	.period_bytes_max =	(1UL << 18),
 	.periods_min =		2,
@@ -911,24 +975,27 @@ static const struct snd_pcm_hardware snd_vt1724_2ch_stereo = {
 	.rate_max =		192000,
 	.channels_min =		2,
 	.channels_max =		2,
-	.buffer_bytes_max =	(1UL << 18),	
+	.buffer_bytes_max =	(1UL << 18),	/* 16bits dword */
 	.period_bytes_min =	2 * 4 * 2,
 	.period_bytes_max =	(1UL << 18),
 	.periods_min =		2,
 	.periods_max =		1024,
 };
 
+/*
+ * set rate constraints
+ */
 static void set_std_hw_rates(struct snd_ice1712 *ice)
 {
 	if (ice->eeprom.data[ICE_EEP2_ACLINK] & VT1724_CFG_PRO_I2S) {
-		
-		
+		/* I2S */
+		/* VT1720 doesn't support more than 96kHz */
 		if ((ice->eeprom.data[ICE_EEP2_I2S] & 0x08) && !ice->vt1720)
 			ice->hw_rates = &hw_constraints_rates_192;
 		else
 			ice->hw_rates = &hw_constraints_rates_96;
 	} else {
-		
+		/* ACLINK */
 		ice->hw_rates = &hw_constraints_rates_48;
 	}
 }
@@ -946,6 +1013,9 @@ static int set_rate_constraints(struct snd_ice1712 *ice,
 					  ice->hw_rates);
 }
 
+/* if the card has the internal rate locked (is_pro_locked), limit runtime
+   hw rates to the current internal rate only.
+*/
 static void constrain_rate_if_locked(struct snd_pcm_substream *substream)
 {
 	struct snd_ice1712 *ice = snd_pcm_substream_chip(substream);
@@ -962,6 +1032,9 @@ static void constrain_rate_if_locked(struct snd_pcm_substream *substream)
 }
 
 
+/* multi-channel playback needs alignment 8x32bit regardless of the channels
+ * actually used
+ */
 #define VT1724_BUFFER_ALIGN	0x20
 
 static int snd_vt1724_playback_pro_open(struct snd_pcm_substream *substream)
@@ -977,7 +1050,7 @@ static int snd_vt1724_playback_pro_open(struct snd_pcm_substream *substream)
 	snd_pcm_hw_constraint_msbits(runtime, 0, 32, 24);
 	set_rate_constraints(ice, substream);
 	mutex_lock(&ice->open_mutex);
-	
+	/* calculate the currently available channels */
 	num_indeps = ice->num_total_dacs / 2 - 1;
 	for (chs = 0; chs < num_indeps; chs++) {
 		if (ice->pcm_reserved[chs])
@@ -985,7 +1058,7 @@ static int snd_vt1724_playback_pro_open(struct snd_pcm_substream *substream)
 	}
 	chs = (chs + 1) * 2;
 	runtime->hw.channels_max = chs;
-	if (chs > 2) 
+	if (chs > 2) /* channels must be even */
 		snd_pcm_hw_constraint_step(runtime, 0, SNDRV_PCM_HW_PARAM_CHANNELS, 2);
 	mutex_unlock(&ice->open_mutex);
 	snd_pcm_hw_constraint_step(runtime, 0, SNDRV_PCM_HW_PARAM_PERIOD_BYTES,
@@ -1095,7 +1168,11 @@ static int __devinit snd_vt1724_pcm_profi(struct snd_ice1712 *ice, int device)
 }
 
 
+/*
+ * SPDIF PCM
+ */
 
+/* update spdif control bits; call with reg_lock */
 static void update_spdif_bits(struct snd_ice1712 *ice, unsigned int val)
 {
 	unsigned char cbit, disabled;
@@ -1110,6 +1187,7 @@ static void update_spdif_bits(struct snd_ice1712 *ice, unsigned int val)
 	outw(val, ICEMT1724(ice, SPDIF_CTRL));
 }
 
+/* update SPDIF control bits according to the given rate */
 static void update_spdif_rate(struct snd_ice1712 *ice, unsigned int rate)
 {
 	unsigned int val, nval;
@@ -1257,7 +1335,7 @@ static int __devinit snd_vt1724_pcm_spdif(struct snd_ice1712 *ice, int device)
 	} else
 		capt = 0;
 	if (!play && !capt)
-		return 0; 
+		return 0; /* no spdif device */
 
 	if (ice->force_pdma4 || ice->force_rdma1)
 		name = "ICE1724 Secondary";
@@ -1288,6 +1366,9 @@ static int __devinit snd_vt1724_pcm_spdif(struct snd_ice1712 *ice, int device)
 }
 
 
+/*
+ * independent surround PCMs
+ */
 
 static const struct vt1724_pcm_reg vt1724_playback_dma_regs[3] = {
 	{
@@ -1329,10 +1410,10 @@ static int snd_vt1724_playback_indep_open(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 
 	mutex_lock(&ice->open_mutex);
-	
+	/* already used by PDMA0? */
 	if (ice->pcm_reserved[substream->number]) {
 		mutex_unlock(&ice->open_mutex);
-		return -EBUSY; 
+		return -EBUSY; /* FIXME: should handle blocking mode properly */
 	}
 	mutex_unlock(&ice->open_mutex);
 	runtime->private_data = (void *)&vt1724_playback_dma_regs[substream->number];
@@ -1399,6 +1480,9 @@ static int __devinit snd_vt1724_pcm_indep(struct snd_ice1712 *ice, int device)
 }
 
 
+/*
+ *  Mixer section
+ */
 
 static int __devinit snd_vt1724_ac97_mixer(struct snd_ice1712 *ice)
 {
@@ -1412,9 +1496,9 @@ static int __devinit snd_vt1724_ac97_mixer(struct snd_ice1712 *ice)
 			.read = snd_vt1724_ac97_read,
 		};
 
-		
+		/* cold reset */
 		outb(inb(ICEMT1724(ice, AC97_CMD)) | 0x80, ICEMT1724(ice, AC97_CMD));
-		mdelay(5); 
+		mdelay(5); /* FIXME */
 		outb(inb(ICEMT1724(ice, AC97_CMD)) & ~0x80, ICEMT1724(ice, AC97_CMD));
 
 		err = snd_ac97_bus(ice->card, 0, &ops, NULL, &pbus);
@@ -1428,11 +1512,14 @@ static int __devinit snd_vt1724_ac97_mixer(struct snd_ice1712 *ice)
 		else
 			return 0;
 	}
-	
+	/* I2S mixer only */
 	strcat(ice->card->mixername, "ICE1724 - multitrack");
 	return 0;
 }
 
+/*
+ *
+ */
 
 static inline unsigned int eeprom_triple(struct snd_ice1712 *ice, int idx)
 {
@@ -1491,6 +1578,9 @@ static void __devinit snd_vt1724_proc_init(struct snd_ice1712 *ice)
 		snd_info_set_text_ops(entry, ice, snd_vt1724_proc_read);
 }
 
+/*
+ *
+ */
 
 static int snd_vt1724_eeprom_info(struct snd_kcontrol *kcontrol,
 				  struct snd_ctl_elem_info *uinfo)
@@ -1517,6 +1607,8 @@ static struct snd_kcontrol_new snd_vt1724_eeprom __devinitdata = {
 	.get = snd_vt1724_eeprom_get
 };
 
+/*
+ */
 static int snd_vt1724_spdif_info(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_info *uinfo)
 {
@@ -1529,19 +1621,19 @@ static unsigned int encode_spdif_bits(struct snd_aes_iec958 *diga)
 {
 	unsigned int val, rbits;
 
-	val = diga->status[0] & 0x03; 
+	val = diga->status[0] & 0x03; /* professional, non-audio */
 	if (val & 0x01) {
-		
+		/* professional */
 		if ((diga->status[0] & IEC958_AES0_PRO_EMPHASIS) ==
 		    IEC958_AES0_PRO_EMPHASIS_5015)
 			val |= 1U << 3;
 		rbits = (diga->status[4] >> 3) & 0x0f;
 		if (rbits) {
 			switch (rbits) {
-			case 2: val |= 5 << 12; break; 
-			case 3: val |= 6 << 12; break; 
-			case 10: val |= 4 << 12; break; 
-			case 11: val |= 7 << 12; break; 
+			case 2: val |= 5 << 12; break; /* 96k */
+			case 3: val |= 6 << 12; break; /* 192k */
+			case 10: val |= 4 << 12; break; /* 88.2k */
+			case 11: val |= 7 << 12; break; /* 176.4k */
 			}
 		} else {
 			switch (diga->status[0] & IEC958_AES0_PRO_FS) {
@@ -1556,13 +1648,13 @@ static unsigned int encode_spdif_bits(struct snd_aes_iec958 *diga)
 			}
 		}
 	} else {
-		
+		/* consumer */
 		val |= diga->status[1] & 0x04; /* copyright */
 		if ((diga->status[0] & IEC958_AES0_CON_EMPHASIS) ==
 		    IEC958_AES0_CON_EMPHASIS_5015)
 			val |= 1U << 3;
-		val |= (unsigned int)(diga->status[1] & 0x3f) << 4; 
-		val |= (unsigned int)(diga->status[3] & IEC958_AES3_CON_FS) << 12; 
+		val |= (unsigned int)(diga->status[1] & 0x3f) << 4; /* category */
+		val |= (unsigned int)(diga->status[3] & IEC958_AES3_CON_FS) << 12; /* fs */
 	}
 	return val;
 }
@@ -1570,9 +1662,9 @@ static unsigned int encode_spdif_bits(struct snd_aes_iec958 *diga)
 static void decode_spdif_bits(struct snd_aes_iec958 *diga, unsigned int val)
 {
 	memset(diga->status, 0, sizeof(diga->status));
-	diga->status[0] = val & 0x03; 
+	diga->status[0] = val & 0x03; /* professional, non-audio */
 	if (val & 0x01) {
-		
+		/* professional */
 		if (val & (1U << 3))
 			diga->status[0] |= IEC958_AES0_PRO_EMPHASIS_5015;
 		switch ((val >> 12) & 0x7) {
@@ -1586,12 +1678,12 @@ static void decode_spdif_bits(struct snd_aes_iec958 *diga, unsigned int val)
 			break;
 		}
 	} else {
-		
+		/* consumer */
 		diga->status[0] |= val & (1U << 2); /* copyright */
 		if (val & (1U << 3))
 			diga->status[0] |= IEC958_AES0_CON_EMPHASIS_5015;
-		diga->status[1] |= (val >> 4) & 0x3f; 
-		diga->status[3] |= (val >> 12) & 0x07; 
+		diga->status[1] |= (val >> 4) & 0x3f; /* category */
+		diga->status[3] |= (val >> 12) & 0x07; /* fs */
 	}
 }
 
@@ -1701,8 +1793,8 @@ static int snd_vt1724_spdif_sw_put(struct snd_kcontrol *kcontrol,
 static struct snd_kcontrol_new snd_vt1724_spdif_switch __devinitdata =
 {
 	.iface =	SNDRV_CTL_ELEM_IFACE_MIXER,
-	
-	
+	/* FIXME: the following conflict with IEC958 Playback Route */
+	/* .name =         SNDRV_CTL_NAME_IEC958("", PLAYBACK, SWITCH), */
 	.name =         SNDRV_CTL_NAME_IEC958("Output ", NONE, SWITCH),
 	.info =		snd_vt1724_spdif_sw_info,
 	.get =		snd_vt1724_spdif_sw_get,
@@ -1710,7 +1802,10 @@ static struct snd_kcontrol_new snd_vt1724_spdif_switch __devinitdata =
 };
 
 
-#if 0 
+#if 0 /* NOT USED YET */
+/*
+ * GPIO access from extern
+ */
 
 #define snd_vt1724_gpio_info		snd_ctl_boolean_mono_info
 
@@ -1747,8 +1842,11 @@ int snd_ice1712_gpio_put(struct snd_kcontrol *kcontrol,
 	snd_ice1712_restore_gpio_status(ice);
 	return val != nval;
 }
-#endif 
+#endif /* NOT USED YET */
 
+/*
+ *  rate
+ */
 static int snd_vt1724_pro_internal_clock_info(struct snd_kcontrol *kcontrol,
 					      struct snd_ctl_elem_info *uinfo)
 {
@@ -1757,22 +1855,22 @@ static int snd_vt1724_pro_internal_clock_info(struct snd_kcontrol *kcontrol,
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_ENUMERATED;
 	uinfo->count = 1;
 
-	
+	/* internal clocks */
 	uinfo->value.enumerated.items = hw_rates_count;
-	
+	/* external clocks */
 	if (ice->force_rdma1 ||
 	    (ice->eeprom.data[ICE_EEP2_SPDIF] & VT1724_CFG_SPDIF_IN))
 		uinfo->value.enumerated.items += ice->ext_clock_count;
-	
+	/* upper limit - keep at top */
 	if (uinfo->value.enumerated.item >= uinfo->value.enumerated.items)
 		uinfo->value.enumerated.item = uinfo->value.enumerated.items - 1;
 	if (uinfo->value.enumerated.item >= hw_rates_count)
-		
+		/* ext_clock items */
 		strcpy(uinfo->value.enumerated.name,
 				ice->ext_clock_names[
 				uinfo->value.enumerated.item - hw_rates_count]);
 	else
-		
+		/* int clock items */
 		sprintf(uinfo->value.enumerated.name, "%d",
 			ice->hw_rates->list[uinfo->value.enumerated.item]);
 	return 0;
@@ -1804,17 +1902,18 @@ static int snd_vt1724_pro_internal_clock_get(struct snd_kcontrol *kcontrol,
 
 static int stdclock_get_spdif_master_type(struct snd_ice1712 *ice)
 {
-	
+	/* standard external clock - only single type - SPDIF IN */
 	return 0;
 }
 
+/* setting clock to external - SPDIF */
 static int stdclock_set_spdif_clock(struct snd_ice1712 *ice, int type)
 {
 	unsigned char oval;
 	unsigned char i2s_oval;
 	oval = inb(ICEMT1724(ice, RATE));
 	outb(oval | VT1724_SPDIF_MASTER, ICEMT1724(ice, RATE));
-	
+	/* setting 256fs */
 	i2s_oval = inb(ICEMT1724(ice, I2S_FORMAT));
 	outb(i2s_oval & ~VT1724_MT_I2S_MCLK_128X, ICEMT1724(ice, I2S_FORMAT));
 	return 0;
@@ -1832,18 +1931,18 @@ static int snd_vt1724_pro_internal_clock_put(struct snd_kcontrol *kcontrol,
 	if (item >  first_ext_clock + ice->ext_clock_count - 1)
 		return -EINVAL;
 
-	
+	/* if rate = 0 => external clock */
 	spin_lock_irq(&ice->reg_lock);
 	if (ice->is_spdif_master(ice))
 		old_rate = 0;
 	else
 		old_rate = ice->get_rate(ice);
 	if (item >= first_ext_clock) {
-		
+		/* switching to external clock */
 		ice->set_spdif_clock(ice, item - first_ext_clock);
 		new_rate = 0;
 	} else {
-		
+		/* internal on-card clock */
 		new_rate = ice->hw_rates->list[item];
 		ice->pro_rate_default = new_rate;
 		spin_unlock_irq(&ice->reg_lock);
@@ -1852,9 +1951,9 @@ static int snd_vt1724_pro_internal_clock_put(struct snd_kcontrol *kcontrol,
 	}
 	spin_unlock_irq(&ice->reg_lock);
 
-	
+	/* the first switch to the ext. clock mode? */
 	if (old_rate != new_rate && !new_rate) {
-		
+		/* notify akm chips as well */
 		unsigned int i;
 		if (ice->gpio.set_pro_rate)
 			ice->gpio.set_pro_rate(ice, 0);
@@ -1937,13 +2036,16 @@ static struct snd_kcontrol_new snd_vt1724_pro_rate_reset __devinitdata = {
 };
 
 
+/*
+ * routing
+ */
 static int snd_vt1724_pro_route_info(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_info *uinfo)
 {
 	static char *texts[] = {
-		"PCM Out", 
-		"H/W In 0", "H/W In 1", 
-		"IEC958 In L", "IEC958 In R", 
+		"PCM Out", /* 0 */
+		"H/W In 0", "H/W In 1", /* 1-2 */
+		"IEC958 In L", "IEC958 In R", /* 3-4 */
 	};
 
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_ENUMERATED;
@@ -1975,7 +2077,7 @@ int snd_ice1724_get_route_val(struct snd_ice1712 *ice, int shift)
 
 	val = inl(ICEMT1724(ice, ROUTE_PLAYBACK));
 	val >>= shift;
-	val &= 7; 
+	val &= 7; /* we now have 3 bits per output */
 	eitem = xlate[val];
 	if (eitem == 255) {
 		snd_BUG();
@@ -1990,11 +2092,11 @@ int snd_ice1724_put_route_val(struct snd_ice1712 *ice, unsigned int val,
 	unsigned int old_val, nval;
 	int change;
 	static const unsigned char xroute[8] = {
-		0, 
-		2, 
-		3, 
-		6, 
-		7, 
+		0, /* PCM */
+		2, /* PSDIN0 Left */
+		3, /* PSDIN0 Right */
+		6, /* SPDIN Left */
+		7, /* SPDIN Right */
 	};
 
 	nval = xroute[val % 5];
@@ -2070,7 +2172,7 @@ static int snd_vt1724_pro_peak_info(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_info *uinfo)
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
-	uinfo->count = 22; 
+	uinfo->count = 22; /* FIXME: for compatibility with ice1712... */
 	uinfo->value.integer.min = 0;
 	uinfo->value.integer.max = 255;
 	return 0;
@@ -2100,25 +2202,33 @@ static struct snd_kcontrol_new snd_vt1724_mixer_pro_peak __devinitdata = {
 	.get = snd_vt1724_pro_peak_get
 };
 
+/*
+ *
+ */
 
 static struct snd_ice1712_card_info no_matched __devinitdata;
 
 
+/*
+  ooAoo cards with no controls
+*/
 static unsigned char ooaoo_sq210_eeprom[] __devinitdata = {
-	[ICE_EEP2_SYSCONF]     = 0x4c,	
-	[ICE_EEP2_ACLINK]      = 0x80,	
-	[ICE_EEP2_I2S]         = 0x78,	
-	[ICE_EEP2_SPDIF]       = 0xc1,	
-	[ICE_EEP2_GPIO_DIR]    = 0x00,	
+	[ICE_EEP2_SYSCONF]     = 0x4c,	/* 49MHz crystal, no mpu401, no ADC,
+					   1xDACs */
+	[ICE_EEP2_ACLINK]      = 0x80,	/* I2S */
+	[ICE_EEP2_I2S]         = 0x78,	/* no volume, 96k, 24bit, 192k */
+	[ICE_EEP2_SPDIF]       = 0xc1,	/* out-en, out-int, out-ext */
+	[ICE_EEP2_GPIO_DIR]    = 0x00,	/* no GPIOs are used */
 	[ICE_EEP2_GPIO_DIR1]   = 0x00,
 	[ICE_EEP2_GPIO_DIR2]   = 0x00,
 	[ICE_EEP2_GPIO_MASK]   = 0xff,
 	[ICE_EEP2_GPIO_MASK1]  = 0xff,
 	[ICE_EEP2_GPIO_MASK2]  = 0xff,
 
-	[ICE_EEP2_GPIO_STATE]  = 0x00, 
-	[ICE_EEP2_GPIO_STATE1] = 0x00, 
-	[ICE_EEP2_GPIO_STATE2] = 0x00, 
+	[ICE_EEP2_GPIO_STATE]  = 0x00, /* inputs */
+	[ICE_EEP2_GPIO_STATE1] = 0x00, /* all 1, but GPIO_CPLD_RW
+					  and GPIO15 always zero */
+	[ICE_EEP2_GPIO_STATE2] = 0x00, /* inputs */
 };
 
 
@@ -2129,7 +2239,7 @@ struct snd_ice1712_card_info snd_vt1724_ooaoo_cards[] __devinitdata = {
 		.eeprom_size = sizeof(ooaoo_sq210_eeprom),
 		.eeprom_data = ooaoo_sq210_eeprom,
 	},
-	{ } 
+	{ } /* terminator */
 };
 
 static struct snd_ice1712_card_info *card_tables[] __devinitdata = {
@@ -2151,6 +2261,8 @@ static struct snd_ice1712_card_info *card_tables[] __devinitdata = {
 };
 
 
+/*
+ */
 
 static void wait_i2c_busy(struct snd_ice1712 *ice)
 {
@@ -2173,6 +2285,9 @@ unsigned char snd_vt1724_read_i2c(struct snd_ice1712 *ice,
 	wait_i2c_busy(ice);
 	val = inb(ICEREG1724(ice, I2C_DATA));
 	mutex_unlock(&ice->i2c_mutex);
+	/*
+	printk(KERN_DEBUG "i2c_read: [0x%x,0x%x] = 0x%x\n", dev, addr, val);
+	*/
 	return val;
 }
 
@@ -2181,6 +2296,9 @@ void snd_vt1724_write_i2c(struct snd_ice1712 *ice,
 {
 	mutex_lock(&ice->i2c_mutex);
 	wait_i2c_busy(ice);
+	/*
+	printk(KERN_DEBUG "i2c_write: [0x%x,0x%x] = 0x%x\n", dev, addr, data);
+	*/
 	outb(addr, ICEREG1724(ice, I2C_BYTE_ADDR));
 	outb(data, ICEREG1724(ice, I2C_DATA));
 	outb(dev | VT1724_I2C_WRITE, ICEREG1724(ice, I2C_DEV_ADDR));
@@ -2191,7 +2309,7 @@ void snd_vt1724_write_i2c(struct snd_ice1712 *ice,
 static int __devinit snd_vt1724_read_eeprom(struct snd_ice1712 *ice,
 					    const char *modelname)
 {
-	const int dev = 0xa0;		
+	const int dev = 0xa0;		/* EEPROM device address */
 	unsigned int i, size;
 	struct snd_ice1712_card_info * const *tbl, *c;
 
@@ -2205,6 +2323,9 @@ static int __devinit snd_vt1724_read_eeprom(struct snd_ice1712 *ice,
 				(snd_vt1724_read_i2c(ice, dev, 0x03) << 24);
 		if (ice->eeprom.subvendor == 0 ||
 		    ice->eeprom.subvendor == (unsigned int)-1) {
+			/* invalid subvendor from EEPROM, try the PCI
+			 * subststem ID instead
+			 */
 			u16 vendor, device;
 			pci_read_config_word(ice->pci, PCI_SUBSYSTEM_VENDOR_ID,
 					     &vendor);
@@ -2229,7 +2350,7 @@ static int __devinit snd_vt1724_read_eeprom(struct snd_ice1712 *ice,
 				continue;
 			if (!c->eeprom_size || !c->eeprom_data)
 				goto found;
-			
+			/* if the EEPROM is given by the driver, use it */
 			snd_printdd("using the defined eeprom..\n");
 			ice->eeprom.version = 2;
 			ice->eeprom.size = c->eeprom_size + 6;
@@ -2270,10 +2391,10 @@ static int __devinit snd_vt1724_read_eeprom(struct snd_ice1712 *ice,
 static void snd_vt1724_chip_reset(struct snd_ice1712 *ice)
 {
 	outb(VT1724_RESET , ICEREG1724(ice, CONTROL));
-	inb(ICEREG1724(ice, CONTROL)); 
+	inb(ICEREG1724(ice, CONTROL)); /* pci posting flush */
 	msleep(10);
 	outb(0, ICEREG1724(ice, CONTROL));
-	inb(ICEREG1724(ice, CONTROL)); 
+	inb(ICEREG1724(ice, CONTROL)); /* pci posting flush */
 	msleep(10);
 }
 
@@ -2292,9 +2413,12 @@ static int snd_vt1724_chip_init(struct snd_ice1712 *ice)
 
 	outb(0, ICEREG1724(ice, POWERDOWN));
 
-	
+	/* MPU_RX and TX irq masks are cleared later dynamically */
 	outb(VT1724_IRQ_MPU_RX | VT1724_IRQ_MPU_TX , ICEREG1724(ice, IRQMASK));
 
+	/* don't handle FIFO overrun/underruns (just yet),
+	 * since they cause machine lockups
+	 */
 	outb(VT1724_MULTI_FIFO_ERR, ICEMT1724(ice, DMA_INT_MASK));
 
 	return 0;
@@ -2331,7 +2455,7 @@ static int __devinit snd_vt1724_spdif_build_controls(struct snd_ice1712 *ice)
 	if (err < 0)
 		return err;
 	kctl->id.device = ice->pcm->device;
-#if 0 
+#if 0 /* use default only */
 	err = snd_ctl_add(ice->card, kctl = snd_ctl_new1(&snd_vt1724_spdif_stream, ice));
 	if (err < 0)
 		return err;
@@ -2381,10 +2505,10 @@ static int snd_vt1724_free(struct snd_ice1712 *ice)
 {
 	if (!ice->port)
 		goto __hw_end;
-	
+	/* mask all interrupts */
 	outb(0xff, ICEMT1724(ice, DMA_INT_MASK));
 	outb(0xff, ICEREG1724(ice, IRQMASK));
-	
+	/* --- */
 __hw_end:
 	if (ice->irq >= 0)
 		free_irq(ice->irq, ice);
@@ -2415,7 +2539,7 @@ static int __devinit snd_vt1724_create(struct snd_card *card,
 
 	*r_ice1712 = NULL;
 
-	
+	/* enable PCI device */
 	err = pci_enable_device(pci);
 	if (err < 0)
 		return err;
@@ -2486,6 +2610,11 @@ static int __devinit snd_vt1724_create(struct snd_card *card,
 }
 
 
+/*
+ *
+ * Registration
+ *
+ */
 
 static int __devinit snd_vt1724_probe(struct pci_dev *pci,
 				      const struct pci_device_id *pci_id)
@@ -2516,7 +2645,7 @@ static int __devinit snd_vt1724_probe(struct pci_dev *pci,
 		return err;
 	}
 
-	
+	/* field init before calling chip_init */
 	ice->ext_clock_count = 0;
 
 	for (tbl = card_tables; *tbl; tbl++) {
@@ -2525,7 +2654,7 @@ static int __devinit snd_vt1724_probe(struct pci_dev *pci,
 			     !strcmp(model[dev], c->model)) ||
 			    (c->subvendor == ice->eeprom.subvendor)) {
 				strcpy(card->shortname, c->name);
-				if (c->driver) 
+				if (c->driver) /* specific driver? */
 					strcpy(card->driver, c->driver);
 				if (c->chip_init) {
 					err = c->chip_init(ice);
@@ -2540,6 +2669,14 @@ static int __devinit snd_vt1724_probe(struct pci_dev *pci,
 	}
 	c = &no_matched;
 __found:
+	/*
+	* VT1724 has separate DMAs for the analog and the SPDIF streams while
+	* ICE1712 has only one for both (mixed up).
+	*
+	* Confusingly the analog PCM is named "professional" here because it
+	* was called so in ice1712 driver, and vt1724 driver is derived from
+	* ice1712 driver.
+	*/
 	ice->pro_rate_default = PRO_RATE_DEFAULT;
 	if (!ice->is_spdif_master)
 		ice->is_spdif_master = stdclock_is_spdif_master;
@@ -2591,7 +2728,7 @@ __found:
 		return err;
 	}
 
-	if (ice->pcm && ice->has_spdif) { 
+	if (ice->pcm && ice->has_spdif) { /* has SPDIF I/O */
 		err = snd_vt1724_spdif_build_controls(ice);
 		if (err < 0) {
 			snd_card_free(card);
@@ -2627,11 +2764,11 @@ __found:
 			snd_rawmidi_set_ops(rmidi, SNDRV_RAWMIDI_STREAM_INPUT,
 					    &vt1724_midi_input_ops);
 
-			
+			/* set watermarks */
 			outb(VT1724_MPU_RX_FIFO | 0x1,
 			     ICEREG1724(ice, MPU_FIFO_WM));
 			outb(0x1, ICEREG1724(ice, MPU_FIFO_WM));
-			
+			/* set UART mode */
 			outb(VT1724_MPU_UART, ICEREG1724(ice, MPU_CTRL));
 		}
 	}
@@ -2716,10 +2853,10 @@ static int snd_vt1724_resume(struct pci_dev *pci)
 		ice->pm_resume(ice);
 
 	if (ice->pm_saved_is_spdif_master) {
-		
+		/* switching to external clock via SPDIF */
 		ice->set_spdif_clock(ice, 0);
 	} else {
-		
+		/* internal on-card clock */
 		snd_vt1724_set_pro_rate(ice, ice->pro_rate_default, 1);
 	}
 

@@ -9,4 +9,4 @@ struct xt_tcpmss_info {
 
 #define XT_TCPMSS_CLAMP_PMTU 0xffff
 
-#endif 
+#endif /* _XT_TCPMSS_H */

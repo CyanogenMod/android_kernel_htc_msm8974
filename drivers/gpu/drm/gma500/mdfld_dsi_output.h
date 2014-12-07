@@ -80,8 +80,12 @@ static inline int REGISTER_FLD_WAIT(struct drm_device *dev, u32 reg,
 #define CHECK_PIPE(pipe) (pipe)
 #endif
 
+/*
+ * Actual MIPIA->MIPIC reg offset is 0x800, value 0x400 is valid for 0 and 2
+ */
 #define REG_OFFSET(pipe) (CHECK_PIPE(pipe) * 0x400)
 
+/* mdfld DSI controller registers */
 #define MIPI_DEVICE_READY_REG(pipe)		(0xb000 + REG_OFFSET(pipe))
 #define MIPI_INTR_STAT_REG(pipe)		(0xb004 + REG_OFFSET(pipe))
 #define MIPI_INTR_EN_REG(pipe)			(0xb008 + REG_OFFSET(pipe))
@@ -123,6 +127,7 @@ static inline int REGISTER_FLD_WAIT(struct drm_device *dev, u32 reg,
 #define MIPI_CMD_ADD_REG(pipe)			(0xb110 + REG_OFFSET(pipe))
 #define MIPI_CMD_LEN_REG(pipe)			(0xb114 + REG_OFFSET(pipe))
 
+/* non-uniform reg offset */
 #define MIPI_PORT_CONTROL(pipe)		(CHECK_PIPE(pipe) ? MIPI_C : MIPI)
 
 #define DSI_DEVICE_READY				(0x1)
@@ -205,6 +210,7 @@ static inline int REGISTER_FLD_WAIT(struct drm_device *dev, u32 reg,
 #define DSI_DPI_CTRL_HS_SHUTDOWN			(0x00000001)
 #define DSI_DPI_CTRL_HS_TURN_ON				(0x00000002)
 
+/*dsi power modes*/
 #define DSI_POWER_MODE_DISPLAY_ON	BIT(2)
 #define DSI_POWER_MODE_NORMAL_ON	BIT(3)
 #define DSI_POWER_MODE_SLEEP_OUT	BIT(4)
@@ -227,7 +233,7 @@ struct mdfld_dsi_connector {
 	void *private;
 	void *pkg_sender;
 
-	
+	/* Connection status */
 	enum drm_connector_status status;
 };
 
@@ -236,6 +242,10 @@ struct mdfld_dsi_encoder {
 	void *private;
 };
 
+/*
+ * DSI config, consists of one DSI connector, two DSI encoders.
+ * DRM will pick up on DSI encoder basing on differents configs.
+ */
 struct mdfld_dsi_config {
 	struct drm_device *dev;
 	struct drm_display_mode *fixed_mode;
@@ -248,9 +258,9 @@ struct mdfld_dsi_config {
 
 	int bpp;
 	int lane_count;
-	
+	/*Virtual channel number for this encoder*/
 	int channel_num;
-	
+	/*video mode configure*/
 	int video_mode;
 
 	int dvr_ic_inited;
@@ -347,6 +357,7 @@ static inline int mdfld_dsi_encoder_get_pipe(struct mdfld_dsi_encoder *encoder)
 	return connector->pipe;
 }
 
+/* Export functions */
 extern void mdfld_dsi_gen_fifo_ready(struct drm_device *dev,
 					u32 gen_fifo_stat_reg, u32 fifo_stat);
 extern void mdfld_dsi_brightness_init(struct mdfld_dsi_config *dsi_config,
@@ -363,4 +374,4 @@ extern int mdfld_dsi_get_power_mode(struct mdfld_dsi_config *dsi_config,
 					u32 *mode, bool hs);
 extern int mdfld_dsi_panel_reset(int pipe);
 
-#endif 
+#endif /*__MDFLD_DSI_OUTPUT_H__*/

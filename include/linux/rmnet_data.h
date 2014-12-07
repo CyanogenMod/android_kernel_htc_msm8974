@@ -16,6 +16,7 @@
 #ifndef _RMNET_DATA_H_
 #define _RMNET_DATA_H_
 
+/* ***************** Constants ********************************************** */
 #define RMNET_LOCAL_LOGICAL_ENDPOINT -1
 
 #define RMNET_EGRESS_FORMAT__RESERVED__         (1<<0)
@@ -29,6 +30,7 @@
 #define RMNET_INGRESS_FORMAT_DEMUXING           (1<<3)
 #define RMNET_INGRESS_FORMAT_MAP_COMMANDS       (1<<4)
 
+/* ***************** Netlink API ******************************************** */
 #define RMNET_NETLINK_PROTO 31
 #define RMNET_MAX_STR_LEN  16
 #define RMNET_NL_DATA_MAX_LEN 64
@@ -68,26 +70,105 @@ struct rmnet_nl_msg_s {
 };
 
 enum rmnet_netlink_message_types_e {
+	/*
+	 * RMNET_NETLINK_ASSOCIATE_NETWORK_DEVICE - Register RMNET data driver
+	 *                                          on a particular device.
+	 * Args: char[] dev_name: Null terminated ASCII string, max length: 15
+	 * Returns: status code
+	 */
 	RMNET_NETLINK_ASSOCIATE_NETWORK_DEVICE,
 
+	/*
+	 * RMNET_NETLINK_UNASSOCIATE_NETWORK_DEVICE - Unregister RMNET data
+	 *                                            driver on a particular
+	 *                                            device.
+	 * Args: char[] dev_name: Null terminated ASCII string, max length: 15
+	 * Returns: status code
+	 */
 	RMNET_NETLINK_UNASSOCIATE_NETWORK_DEVICE,
 
+	/*
+	 * RMNET_NETLINK_GET_NETWORK_DEVICE_ASSOCIATED - Get if RMNET data
+	 *                                            driver is registered on a
+	 *                                            particular device.
+	 * Args: char[] dev_name: Null terminated ASCII string, max length: 15
+	 * Returns: 1 if registered, 0 if not
+	 */
 	RMNET_NETLINK_GET_NETWORK_DEVICE_ASSOCIATED,
 
+	/*
+	 * RMNET_NETLINK_SET_LINK_EGRESS_DATA_FORMAT - Sets the egress data
+	 *                                             format for a particular
+	 *                                             link.
+	 * Args: uint32_t egress_flags
+	 *       char[] dev_name: Null terminated ASCII string, max length: 15
+	 * Returns: status code
+	 */
 	RMNET_NETLINK_SET_LINK_EGRESS_DATA_FORMAT,
 
+	/*
+	 * RMNET_NETLINK_GET_LINK_EGRESS_DATA_FORMAT - Gets the egress data
+	 *                                             format for a particular
+	 *                                             link.
+	 * Args: char[] dev_name: Null terminated ASCII string, max length: 15
+	 * Returns: 4-bytes data: uint32_t egress_flags
+	 */
 	RMNET_NETLINK_GET_LINK_EGRESS_DATA_FORMAT,
 
+	/*
+	 * RMNET_NETLINK_SET_LINK_INGRESS_DATA_FORMAT - Sets the ingress data
+	 *                                              format for a particular
+	 *                                              link.
+	 * Args: uint32_t ingress_flags
+	 *       char[] dev_name: Null terminated ASCII string, max length: 15
+	 * Returns: status code
+	 */
 	RMNET_NETLINK_SET_LINK_INGRESS_DATA_FORMAT,
 
+	/*
+	 * RMNET_NETLINK_GET_LINK_INGRESS_DATA_FORMAT - Gets the ingress data
+	 *                                              format for a particular
+	 *                                              link.
+	 * Args: char[] dev_name: Null terminated ASCII string, max length: 15
+	 * Returns: 4-bytes data: uint32_t ingress_flags
+	 */
 	RMNET_NETLINK_GET_LINK_INGRESS_DATA_FORMAT,
 
+	/*
+	 * RMNET_NETLINK_SET_LOGICAL_EP_CONFIG - Sets the logical endpoint
+	 *                                       configuration for a particular
+	 *                                       link.
+	 * Args: char[] dev_name: Null terminated ASCII string, max length: 15
+	 *     int32_t logical_ep_id, valid values are -1 through 31
+	 *     uint8_t rmnet_mode: one of none, vnd, bridged
+	 *     char[] egress_dev_name: Egress device if operating in bridge mode
+	 * Returns: status code
+	 */
 	RMNET_NETLINK_SET_LOGICAL_EP_CONFIG,
 
+	/*
+	 * RMNET_NETLINK_GET_LOGICAL_EP_CONFIG - Gets the logical endpoint
+	 *                                       configuration for a particular
+	 *                                       link.
+	 * Args: char[] dev_name: Null terminated ASCII string, max length: 15
+	 *        int32_t logical_ep_id, valid values are -1 through 31
+	 * Returns: uint8_t rmnet_mode: one of none, vnd, bridged
+	 * char[] egress_dev_name: Egress device
+	 */
 	RMNET_NETLINK_GET_LOGICAL_EP_CONFIG,
 
+	/*
+	 * RMNET_NETLINK_NEW_VND - Creates a new virtual network device node
+	 * Args: int32_t node number
+	 * Returns: status code
+	 */
 	RMNET_NETLINK_NEW_VND,
 
+	/*
+	 * RMNET_NETLINK_FREE_VND - Removes virtual network device node
+	 * Args: int32_t node number
+	 * Returns: status code
+	 */
 	RMNET_NETLINK_FREE_VND
 };
 
@@ -95,7 +176,7 @@ enum rmnet_config_endpoint_modes_e {
 	RMNET_EPMODE_NONE,
 	RMNET_EPMODE_VND,
 	RMNET_EPMODE_BRIDGE,
-	RMNET_EPMODE_LENGTH 
+	RMNET_EPMODE_LENGTH /* Must be the last item in the list */
 };
 
 enum rmnet_config_return_codes_e {
@@ -110,4 +191,4 @@ enum rmnet_config_return_codes_e {
 	RMNET_CONFIG_BAD_EGRESS_DEVICE
 };
 
-#endif 
+#endif /* _RMNET_DATA_H_ */

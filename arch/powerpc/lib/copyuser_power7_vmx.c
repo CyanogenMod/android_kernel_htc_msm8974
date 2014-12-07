@@ -27,6 +27,12 @@ int enter_vmx_copy(void)
 	if (in_interrupt())
 		return 0;
 
+	/* This acts as preempt_disable() as well and will make
+	 * enable_kernel_altivec(). We need to disable page faults
+	 * as they can call schedule and thus make us lose the VMX
+	 * context. So on page faults, we just fail which will cause
+	 * a fallback to the normal non-vmx copy.
+	 */
 	pagefault_disable();
 
 	enable_kernel_altivec();
@@ -34,6 +40,10 @@ int enter_vmx_copy(void)
 	return 1;
 }
 
+/*
+ * This function must return 0 because we tail call optimise when calling
+ * from __copy_tofrom_user_power7 which returns 0 on success.
+ */
 int exit_vmx_copy(void)
 {
 	pagefault_enable();

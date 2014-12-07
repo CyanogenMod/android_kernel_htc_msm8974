@@ -91,6 +91,28 @@
 #define D_SUBMODULE rx
 #include "usb-debug-levels.h"
 
+/*
+ * Dynamic RX size
+ *
+ * We can't let the rx_size be a multiple of 512 bytes (the RX
+ * endpoint's max packet size). On some USB host controllers (we
+ * haven't been able to fully characterize which), if the device is
+ * about to send (for example) X bytes and we only post a buffer to
+ * receive n*512, it will fail to mark that as babble (so that
+ * i2400mu_rx() [case -EOVERFLOW] can resize the buffer and get the
+ * rest).
+ *
+ * So on growing or shrinking, if it is a multiple of the
+ * maxpacketsize, we remove some (instead of incresing some, so in a
+ * buddy allocator we try to waste less space).
+ *
+ * Note we also need a hook for this on i2400mu_rx() -- when we do the
+ * first read, we are sure we won't hit this spot because
+ * i240mm->rx_size has been set properly. However, if we have to
+ * double because of -EOVERFLOW, when we launch the read to get the
+ * rest of the data, we *have* to make sure that also is not a
+ * multiple of the max_pkt_size.
+ */
 
 static
 size_t i2400mu_rx_size_grow(struct i2400mu *i2400mu)
@@ -144,6 +166,28 @@ void i2400mu_rx_size_maybe_shrink(struct i2400mu *i2400mu)
 	}
 }
 
+/*
+ * Receive a message with payloads from the USB bus into an skb
+ *
+ * @i2400mu: USB device descriptor
+ * @rx_skb: skb where to place the received message
+ *
+ * Deals with all the USB-specifics of receiving, dynamically
+ * increasing the buffer size if so needed. Returns the payload in the
+ * skb, ready to process. On a zero-length packet, we retry.
+ *
+ * On soft USB errors, we retry (until they become too frequent and
+ * then are promoted to hard); on hard USB errors, we reset the
+ * device. On other errors (skb realloacation, we just drop it and
+ * hope for the next invocation to solve it).
+ *
+ * Returns: pointer to the skb if ok, ERR_PTR on error.
+ *   NOTE: this function might realloc the skb (if it is too small),
+ *   so always update with the one returned.
+ *   ERR_PTR() is < 0 on error.
+ *   Will return NULL if it cannot reallocate -- this can be
+ *   considered a transient retryable error.
+ */
 static
 struct sk_buff *i2400mu_rx(struct i2400mu *i2400mu, struct sk_buff *rx_skb)
 {
@@ -176,10 +220,20 @@ retry:
 	switch (result) {
 	case 0:
 		if (read_size == 0)
-			goto retry;	
+			goto retry;	/* ZLP, just resubmit */
 		skb_put(rx_skb, read_size);
 		break;
 	case -EPIPE:
+		/*
+		 * Stall -- maybe the device is choking with our
+		 * requests. Clear it and give it some time. If they
+		 * happen to often, it might be another symptom, so we
+		 * reset.
+		 *
+		 * No error handling for usb_clear_halt(0; if it
+		 * works, the retry works; if it fails, this switch
+		 * does the error handling for us.
+		 */
 		if (edc_inc(&i2400mu->urb_edc,
 			    10 * EDC_MAX_ERRORS, EDC_ERROR_TIMEFRAME)) {
 			dev_err(dev, "BM-CMD: too many stalls in "
@@ -187,18 +241,18 @@ retry:
 			goto do_reset;
 		}
 		usb_clear_halt(i2400mu->usb_dev, usb_pipe);
-		msleep(10);	
+		msleep(10);	/* give the device some time */
 		goto retry;
-	case -EINVAL:			
-	case -ENODEV:			
-	case -ENOENT:			
+	case -EINVAL:			/* while removing driver */
+	case -ENODEV:			/* dev disconnect ... */
+	case -ENOENT:			/* just ignore it */
 	case -ESHUTDOWN:
 	case -ECONNRESET:
 		break;
-	case -EOVERFLOW: {		
+	case -EOVERFLOW: {		/* too small, reallocate */
 		struct sk_buff *new_skb;
 		rx_size = i2400mu_rx_size_grow(i2400mu);
-		if (rx_size <= (1 << 16))	
+		if (rx_size <= (1 << 16))	/* cap it */
 			i2400mu->rx_size = rx_size;
 		else if (printk_ratelimit()) {
 			dev_err(dev, "BUG? rx_size up to %d\n", rx_size);
@@ -214,7 +268,7 @@ retry:
 					"RX dropped\n", rx_size);
 			kfree_skb(rx_skb);
 			rx_skb = NULL;
-			goto out;	
+			goto out;	/* drop it...*/
 		}
 		kfree_skb(rx_skb);
 		rx_skb = new_skb;
@@ -226,11 +280,15 @@ retry:
 			 (long) (skb_end_pointer(new_skb) - new_skb->head));
 		goto retry;
 	}
+		/* In most cases, it happens due to the hardware scheduling a
+		 * read when there was no data - unfortunately, we have no way
+		 * to tell this timeout from a USB timeout. So we just ignore
+		 * it. */
 	case -ETIMEDOUT:
 		dev_err(dev, "RX: timeout: %d\n", result);
 		result = 0;
 		break;
-	default:			
+	default:			/* Any error */
 		if (edc_inc(&i2400mu->urb_edc,
 			    EDC_MAX_ERRORS, EDC_ERROR_TIMEFRAME))
 			goto error_reset;
@@ -253,6 +311,22 @@ do_reset:
 }
 
 
+/*
+ * Kernel thread for USB reception of data
+ *
+ * This thread waits for a kick; once kicked, it will allocate an skb
+ * and receive a single message to it from USB (using
+ * i2400mu_rx()). Once received, it is passed to the generic i2400m RX
+ * code for processing.
+ *
+ * When done processing, it runs some dirty statistics to verify if
+ * the last 100 messages received were smaller than half of the
+ * current RX buffer size. In that case, the RX buffer size is
+ * halved. This will helps lowering the pressure on the memory
+ * allocator.
+ *
+ * Hard errors force the thread to exit.
+ */
 static
 int i2400mu_rxd(void *_i2400mu)
 {
@@ -276,7 +350,7 @@ int i2400mu_rxd(void *_i2400mu)
 		pending = 0;
 		wait_event_interruptible(
 			i2400mu->rx_wq,
-			(kthread_should_stop()	
+			(kthread_should_stop()	/* check this first! */
 			 || (pending = atomic_read(&i2400mu->rx_pending_count)))
 			);
 		if (kthread_should_stop())
@@ -289,23 +363,23 @@ int i2400mu_rxd(void *_i2400mu)
 		if (rx_skb == NULL) {
 			dev_err(dev, "RX: can't allocate skb [%d bytes]\n",
 				rx_size);
-			msleep(50);	
+			msleep(50);	/* give it some time? */
 			continue;
 		}
 
-		
+		/* Receive the message with the payloads */
 		rx_skb = i2400mu_rx(i2400mu, rx_skb);
 		result = PTR_ERR(rx_skb);
 		if (IS_ERR(rx_skb))
 			goto out;
 		atomic_dec(&i2400mu->rx_pending_count);
 		if (rx_skb == NULL || rx_skb->len == 0) {
-			
+			/* some "ignorable" condition */
 			kfree_skb(rx_skb);
 			continue;
 		}
 
-		
+		/* Deliver the message to the generic i2400m code */
 		i2400mu->rx_size_cnt++;
 		i2400mu->rx_size_acc += rx_skb->len;
 		result = i2400m_rx(i2400m, rx_skb);
@@ -315,7 +389,7 @@ int i2400mu_rxd(void *_i2400mu)
 			goto error_reset;
 		}
 
-		
+		/* Maybe adjust RX buffer size */
 		i2400mu_rx_size_maybe_shrink(i2400mu);
 	}
 	result = 0;
@@ -334,6 +408,13 @@ error_reset:
 }
 
 
+/*
+ * Start reading from the device
+ *
+ * @i2400m: device instance
+ *
+ * Notify the RX thread that there is data pending.
+ */
 void i2400mu_rx_kick(struct i2400mu *i2400mu)
 {
 	struct i2400m *i2400m = &i2400mu->i2400m;
@@ -356,7 +437,7 @@ int i2400mu_rx_setup(struct i2400mu *i2400mu)
 
 	kthread = kthread_run(i2400mu_rxd, i2400mu, "%s-rx",
 			      wimax_dev->name);
-	
+	/* the kthread function sets i2400mu->rx_thread */
 	if (IS_ERR(kthread)) {
 		result = PTR_ERR(kthread);
 		dev_err(dev, "RX: cannot start thread: %d\n", result);

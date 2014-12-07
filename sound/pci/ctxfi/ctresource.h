@@ -27,26 +27,26 @@ enum RSCTYP {
 	AMIXER,
 	SUM,
 	DAIO,
-	NUM_RSCTYP	
+	NUM_RSCTYP	/* This must be the last one and less than 16 */
 };
 
 struct rsc_ops;
 
 struct rsc {
-	u32 idx:12;	
-	u32 type:4;	
-	u32 conj:12;	
-	u32 msr:4;	
-	void *ctrl_blk;	
-	void *hw;	
-	struct rsc_ops *ops;	
+	u32 idx:12;	/* The index of a resource */
+	u32 type:4;	/* The type (RSCTYP) of a resource */
+	u32 conj:12;	/* Current conjugate index */
+	u32 msr:4;	/* The Master Sample Rate a resource working on */
+	void *ctrl_blk;	/* Chip specific control info block for a resource */
+	void *hw;	/* Chip specific object for hardware access means */
+	struct rsc_ops *ops;	/* Generic resource operations */
 };
 
 struct rsc_ops {
-	int (*master)(struct rsc *rsc);	
-	int (*next_conj)(struct rsc *rsc); 
-	int (*index)(const struct rsc *rsc); 
-	
+	int (*master)(struct rsc *rsc);	/* Move to master resource */
+	int (*next_conj)(struct rsc *rsc); /* Move to next conjugate resource */
+	int (*index)(const struct rsc *rsc); /* Return the index of resource */
+	/* Return the output slot number */
 	int (*output_slot)(const struct rsc *rsc);
 };
 
@@ -54,18 +54,19 @@ int rsc_init(struct rsc *rsc, u32 idx, enum RSCTYP type, u32 msr, void *hw);
 int rsc_uninit(struct rsc *rsc);
 
 struct rsc_mgr {
-	enum RSCTYP type; 
-	unsigned int amount; 
-	unsigned int avail; 
-	unsigned char *rscs; 
-	void *ctrl_blk; 
-	void *hw; 
+	enum RSCTYP type; /* The type (RSCTYP) of resource to manage */
+	unsigned int amount; /* The total amount of a kind of resource */
+	unsigned int avail; /* The amount of currently available resources */
+	unsigned char *rscs; /* The bit-map for resource allocation */
+	void *ctrl_blk; /* Chip specific control info block */
+	void *hw; /* Chip specific object for hardware access */
 };
 
+/* Resource management is based on bit-map mechanism */
 int rsc_mgr_init(struct rsc_mgr *mgr, enum RSCTYP type,
 		 unsigned int amount, void *hw);
 int rsc_mgr_uninit(struct rsc_mgr *mgr);
 int mgr_get_resource(struct rsc_mgr *mgr, unsigned int n, unsigned int *ridx);
 int mgr_put_resource(struct rsc_mgr *mgr, unsigned int n, unsigned int idx);
 
-#endif 
+#endif /* CTRESOURCE_H */

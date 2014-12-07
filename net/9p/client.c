@@ -43,6 +43,10 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/9p.h>
 
+/*
+  * Client Option Parsing (code inspired by NFS code)
+  *  - a little lazy - parse all client options
+  */
 
 enum {
 	Opt_msize,
@@ -72,6 +76,7 @@ inline int p9_is_proto_dotu(struct p9_client *clnt)
 }
 EXPORT_SYMBOL(p9_is_proto_dotu);
 
+/* Interpret mount option for protocol version */
 static int get_protocol_version(char *s)
 {
 	int version = -EINVAL;
@@ -91,6 +96,13 @@ static int get_protocol_version(char *s)
 	return version;
 }
 
+/**
+ * parse_options - parse mount options into client structure
+ * @opts: options string passed from mount
+ * @clnt: existing v9fs client information
+ *
+ * Return 0 upon success, -ERRNO upon failure
+ */
 
 static int parse_opts(char *opts, struct p9_client *clnt)
 {
@@ -178,6 +190,20 @@ free_and_return:
 	return ret;
 }
 
+/**
+ * p9_tag_alloc - lookup/allocate a request by tag
+ * @c: client session to lookup tag within
+ * @tag: numeric id for transaction
+ *
+ * this is a simple array lookup, but will grow the
+ * request_slots as necessary to accommodate transaction
+ * ids which did not previously have a slot.
+ *
+ * this code relies on the client spinlock to manage locks, its
+ * possible we should switch to something else, but I'd rather
+ * stick with something low-overhead for the common case.
+ *
+ */
 
 static struct p9_req_t *
 p9_tag_alloc(struct p9_client *c, u16 tag, unsigned int max_size)
@@ -187,11 +213,13 @@ p9_tag_alloc(struct p9_client *c, u16 tag, unsigned int max_size)
 	struct p9_req_t *req;
 	int alloc_msize = min(c->msize, max_size);
 
+	/* This looks up the original request by tag so we know which
+	 * buffer to read the data into */
 	tag++;
 
 	if (tag >= c->max_tag) {
 		spin_lock_irqsave(&c->lock, flags);
-		
+		/* check again since original check was outside of lock */
 		while (tag >= c->max_tag) {
 			row = (tag / P9_ROW_MAXTAG);
 			c->reqs[row] = kcalloc(P9_ROW_MAXTAG,
@@ -249,11 +277,19 @@ p9_tag_alloc(struct p9_client *c, u16 tag, unsigned int max_size)
 	return &c->reqs[row][col];
 }
 
+/**
+ * p9_tag_lookup - lookup a request by tag
+ * @c: client session to lookup tag within
+ * @tag: numeric id for transaction
+ *
+ */
 
 struct p9_req_t *p9_tag_lookup(struct p9_client *c, u16 tag)
 {
 	int row, col;
 
+	/* This looks up the original request by tag so we know which
+	 * buffer to read the data into */
 	tag++;
 
 	if(tag >= c->max_tag) 
@@ -266,6 +302,13 @@ struct p9_req_t *p9_tag_lookup(struct p9_client *c, u16 tag)
 }
 EXPORT_SYMBOL(p9_tag_lookup);
 
+/**
+ * p9_tag_init - setup tags structure and contents
+ * @c:  v9fs client struct
+ *
+ * This initializes the tags structure for each client instance.
+ *
+ */
 
 static int p9_tag_init(struct p9_client *c)
 {
@@ -276,7 +319,7 @@ static int p9_tag_init(struct p9_client *c)
 		err = PTR_ERR(c->tagpool);
 		goto error;
 	}
-	err = p9_idpool_get(c->tagpool); 
+	err = p9_idpool_get(c->tagpool); /* reserve tag 0 */
 	if (err < 0) {
 		p9_idpool_destroy(c->tagpool);
 		goto error;
@@ -286,29 +329,36 @@ error:
 	return err;
 }
 
+/**
+ * p9_tag_cleanup - cleans up tags structure and reclaims resources
+ * @c:  v9fs client struct
+ *
+ * This frees resources associated with the tags structure
+ *
+ */
 static void p9_tag_cleanup(struct p9_client *c)
 {
 	int row, col;
 
-	
+	/* check to insure all requests are idle */
 	for (row = 0; row < (c->max_tag/P9_ROW_MAXTAG); row++) {
 		for (col = 0; col < P9_ROW_MAXTAG; col++) {
 			if (c->reqs[row][col].status != REQ_STATUS_IDLE) {
 				p9_debug(P9_DEBUG_MUX,
 					 "Attempting to cleanup non-free tag %d,%d\n",
 					 row, col);
-				
+				/* TODO: delay execution of cleanup */
 				return;
 			}
 		}
 	}
 
 	if (c->tagpool) {
-		p9_idpool_put(0, c->tagpool); 
+		p9_idpool_put(0, c->tagpool); /* free reserved tag 0 */
 		p9_idpool_destroy(c->tagpool);
 	}
 
-	
+	/* free requests associated with tags */
 	for (row = 0; row < (c->max_tag/P9_ROW_MAXTAG); row++) {
 		for (col = 0; col < P9_ROW_MAXTAG; col++) {
 			kfree(c->reqs[row][col].wq);
@@ -320,6 +370,12 @@ static void p9_tag_cleanup(struct p9_client *c)
 	c->max_tag = 0;
 }
 
+/**
+ * p9_free_req - free a request and clean-up as necessary
+ * c: client state
+ * r: request to release
+ *
+ */
 
 static void p9_free_req(struct p9_client *c, struct p9_req_t *r)
 {
@@ -331,6 +387,12 @@ static void p9_free_req(struct p9_client *c, struct p9_req_t *r)
 		p9_idpool_put(tag, c->tagpool);
 }
 
+/**
+ * p9_client_cb - call back from transport to client
+ * c: client state
+ * req: request received
+ *
+ */
 void p9_client_cb(struct p9_client *c, struct p9_req_t *req)
 {
 	p9_debug(P9_DEBUG_MUX, " tag %d\n", req->tc->tag);
@@ -339,6 +401,14 @@ void p9_client_cb(struct p9_client *c, struct p9_req_t *req)
 }
 EXPORT_SYMBOL(p9_client_cb);
 
+/**
+ * p9_parse_header - parse header arguments out of a packet
+ * @pdu: packet to parse
+ * @size: size of packet
+ * @type: type of request
+ * @tag: tag of packet
+ * @rewind: set if we need to rewind offset afterwards
+ */
 
 int
 p9_parse_header(struct p9_fcall *pdu, int32_t *size, int8_t *type, int16_t *tag,
@@ -380,6 +450,16 @@ rewind_and_exit:
 }
 EXPORT_SYMBOL(p9_parse_header);
 
+/**
+ * p9_check_errors - check 9p packet for error return and process it
+ * @c: current client instance
+ * @req: request to parse and check for error conditions
+ *
+ * returns error code if one is discovered, otherwise returns 0
+ *
+ * this will have to be more complicated if we have multiple
+ * error packet types
+ */
 
 static int p9_check_errors(struct p9_client *c, struct p9_req_t *req)
 {
@@ -388,6 +468,10 @@ static int p9_check_errors(struct p9_client *c, struct p9_req_t *req)
 	int ecode;
 
 	err = p9_parse_header(req->rc, NULL, &type, NULL, 0);
+	/*
+	 * dump the response from server
+	 * This should be after check errors which poplulate pdu_fcall.
+	 */
 	trace_9p_protocol_dump(c, req->rc);
 	if (err) {
 		p9_debug(P9_DEBUG_ERROR, "couldn't parse header %d\n", err);
@@ -428,6 +512,17 @@ out_err:
 	return err;
 }
 
+/**
+ * p9_check_zc_errors - check 9p packet for error return and process it
+ * @c: current client instance
+ * @req: request to parse and check for error conditions
+ * @in_hdrlen: Size of response protocol buffer.
+ *
+ * returns error code if one is discovered, otherwise returns 0
+ *
+ * this will have to be more complicated if we have multiple
+ * error packet types
+ */
 
 static int p9_check_zc_errors(struct p9_client *c, struct p9_req_t *req,
 			      char *uidata, int in_hdrlen, int kern_buf)
@@ -438,6 +533,10 @@ static int p9_check_zc_errors(struct p9_client *c, struct p9_req_t *req,
 	char *ename = NULL;
 
 	err = p9_parse_header(req->rc, NULL, &type, NULL, 0);
+	/*
+	 * dump the response from server
+	 * This should be after parse_header which poplulate pdu_fcall.
+	 */
 	trace_9p_protocol_dump(c, req->rc);
 	if (err) {
 		p9_debug(P9_DEBUG_ERROR, "couldn't parse header %d\n", err);
@@ -448,12 +547,12 @@ static int p9_check_zc_errors(struct p9_client *c, struct p9_req_t *req,
 		return 0;
 
 	if (!p9_is_proto_dotl(c)) {
-		
+		/* Error is reported in string format */
 		uint16_t len;
-		
+		/* 7 = header size for RERROR, 2 is the size of string len; */
 		int inline_len = in_hdrlen - (7 + 2);
 
-		
+		/* Read the size of error string */
 		err = p9pdu_readf(req->rc, c->proto_version, "w", &len);
 		if (err)
 			goto out_err;
@@ -464,13 +563,16 @@ static int p9_check_zc_errors(struct p9_client *c, struct p9_req_t *req,
 			goto out_err;
 		}
 		if (len <= inline_len) {
-			
+			/* We have error in protocol buffer itself */
 			if (pdu_read(req->rc, ename, len)) {
 				err = -EFAULT;
 				goto out_free;
 
 			}
 		} else {
+			/*
+			 *  Part of the data is in user space buffer.
+			 */
 			if (pdu_read(req->rc, ename, inline_len)) {
 				err = -EFAULT;
 				goto out_free;
@@ -490,7 +592,7 @@ static int p9_check_zc_errors(struct p9_client *c, struct p9_req_t *req,
 		}
 		ename[len] = 0;
 		if (p9_is_proto_dotu(c)) {
-			
+			/* For dotu we also have error code */
 			err = p9pdu_readf(req->rc,
 					  c->proto_version, "d", &ecode);
 			if (err)
@@ -522,6 +624,17 @@ out_err:
 static struct p9_req_t *
 p9_client_rpc(struct p9_client *c, int8_t type, const char *fmt, ...);
 
+/**
+ * p9_client_flush - flush (cancel) a request
+ * @c: client state
+ * @oldreq: request to cancel
+ *
+ * This sents a flush for a particular request and links
+ * the flush request to the original request.  The current
+ * code only supports a single flush request although the protocol
+ * allows for multiple flush requests to be sent for a single request.
+ *
+ */
 
 static int p9_client_flush(struct p9_client *c, struct p9_req_t *oldreq)
 {
@@ -540,6 +653,8 @@ static int p9_client_flush(struct p9_client *c, struct p9_req_t *oldreq)
 		return PTR_ERR(req);
 
 
+	/* if we haven't received a response for oldreq,
+	   remove it from the list. */
 	spin_lock(&c->lock);
 	if (oldreq->status == REQ_STATUS_FLSH)
 		list_del(&oldreq->req_list);
@@ -558,11 +673,11 @@ static struct p9_req_t *p9_client_prepare_req(struct p9_client *c,
 
 	p9_debug(P9_DEBUG_MUX, "client %p op %d\n", c, type);
 
-	
+	/* we allow for any status other than disconnected */
 	if (c->status == Disconnected)
 		return ERR_PTR(-EIO);
 
-	
+	/* if status is begin_disconnected we allow only clunk request */
 	if ((c->status == BeginDisconnect) && (type != P9_TCLUNK))
 		return ERR_PTR(-EIO);
 
@@ -577,7 +692,7 @@ static struct p9_req_t *p9_client_prepare_req(struct p9_client *c,
 	if (IS_ERR(req))
 		return req;
 
-	
+	/* marshall the data */
 	p9pdu_prepare(req->tc, tag, type);
 	err = p9pdu_vwritef(req->tc, c->proto_version, fmt, ap);
 	if (err)
@@ -590,6 +705,14 @@ reterr:
 	return ERR_PTR(err);
 }
 
+/**
+ * p9_client_rpc - issue a request and wait for a response
+ * @c: client session
+ * @type: type of request
+ * @fmt: protocol format string (see protocol.c)
+ *
+ * Returns request structure (which client must free using p9_free_req)
+ */
 
 static struct p9_req_t *
 p9_client_rpc(struct p9_client *c, int8_t type, const char *fmt, ...)
@@ -618,7 +741,7 @@ p9_client_rpc(struct p9_client *c, int8_t type, const char *fmt, ...)
 		goto reterr;
 	}
 again:
-	
+	/* Wait for the response */
 	err = wait_event_interruptible(*req->wq,
 				       req->status >= REQ_STATUS_RCVD);
 
@@ -641,7 +764,7 @@ again:
 		if (c->trans_mod->cancel(c, req))
 			p9_client_flush(c, req);
 
-		
+		/* if we received the response anyway, don't signal error */
 		if (req->status == REQ_STATUS_RCVD)
 			err = 0;
 	}
@@ -662,6 +785,19 @@ reterr:
 	return ERR_PTR(err);
 }
 
+/**
+ * p9_client_zc_rpc - issue a request and wait for a response
+ * @c: client session
+ * @type: type of request
+ * @uidata: user bffer that should be ued for zero copy read
+ * @uodata: user buffer that shoud be user for zero copy write
+ * @inlen: read buffer size
+ * @olen: write buffer size
+ * @hdrlen: reader header size, This is the size of response protocol data
+ * @fmt: protocol format string (see protocol.c)
+ *
+ * Returns request structure (which client must free using p9_free_req)
+ */
 static struct p9_req_t *p9_client_zc_rpc(struct p9_client *c, int8_t type,
 					 char *uidata, char *uodata,
 					 int inlen, int olen, int in_hdrlen,
@@ -673,6 +809,10 @@ static struct p9_req_t *p9_client_zc_rpc(struct p9_client *c, int8_t type,
 	struct p9_req_t *req;
 
 	va_start(ap, fmt);
+	/*
+	 * We allocate a inline protocol data of only 4k bytes.
+	 * The actual content is passed in zero-copy fashion.
+	 */
 	req = p9_client_prepare_req(c, type, P9_ZC_HDR_SZ, fmt, ap);
 	va_end(ap);
 	if (IS_ERR(req))
@@ -684,7 +824,7 @@ static struct p9_req_t *p9_client_zc_rpc(struct p9_client *c, int8_t type,
 	} else
 		sigpending = 0;
 
-	
+	/* If we are called with KERNEL_DS force kern_buf */
 	if (segment_eq(get_fs(), KERNEL_DS))
 		kern_buf = 1;
 
@@ -707,7 +847,7 @@ static struct p9_req_t *p9_client_zc_rpc(struct p9_client *c, int8_t type,
 		if (c->trans_mod->cancel(c, req))
 			p9_client_flush(c, req);
 
-		
+		/* if we received the response anyway, don't signal error */
 		if (req->status == REQ_STATUS_RCVD)
 			err = 0;
 	}
@@ -1313,6 +1453,11 @@ again:
 
 	p9_free_req(clnt, req);
 error:
+	/*
+	 * Fid is not valid even after a failed clunk
+	 * If interrupted, retry once then give up and
+	 * leak fid until umount.
+	 */
 	if (err == -ERESTARTSYS) {
 		if (retries++ == 0)
 			goto again;
@@ -1396,7 +1541,7 @@ p9_client_read(struct p9_fid *fid, char *data, char __user *udata, u64 offset,
 	if (count < rsize)
 		rsize = count;
 
-	
+	/* Don't bother zerocopy for small IO (< 1024) */
 	if (clnt->trans_mod->zc_request && rsize > 1024) {
 		char *indata;
 		if (data) {
@@ -1404,6 +1549,10 @@ p9_client_read(struct p9_fid *fid, char *data, char __user *udata, u64 offset,
 			indata = data;
 		} else
 			indata = (char *)udata;
+		/*
+		 * response header len is 11
+		 * PDU Header(7) + IO Size (4)
+		 */
 		req = p9_client_zc_rpc(clnt, P9_TREAD, indata, NULL, rsize, 0,
 				       11, kernel_buf, "dqd", fid->fid,
 				       offset, rsize);
@@ -1467,7 +1616,7 @@ p9_client_write(struct p9_fid *fid, char *data, const char __user *udata,
 	if (count < rsize)
 		rsize = count;
 
-	
+	/* Don't bother zerocopy for small IO (< 1024) */
 	if (clnt->trans_mod->zc_request && rsize > 1024) {
 		char *odata;
 		if (data) {
@@ -1621,10 +1770,10 @@ static int p9_client_statsize(struct p9_wstat *wst, int proto_version)
 {
 	int ret;
 
-	
-	
-	
-	
+	/* NOTE: size shouldn't include its own length */
+	/* size[2] type[2] dev[4] qid[13] */
+	/* mode[4] atime[4] mtime[4] length[8]*/
+	/* name[s] uid[s] gid[s] muid[s] */
 	ret = 2+4+13+4+4+4+8+2+2+2+2;
 
 	if (wst->name)
@@ -1638,7 +1787,7 @@ static int p9_client_statsize(struct p9_wstat *wst, int proto_version)
 
 	if ((proto_version == p9_proto_2000u) ||
 		(proto_version == p9_proto_2000L)) {
-		ret += 2+4+4+4;	
+		ret += 2+4+4+4;	/* extension[s] n_uid[4] n_gid[4] n_muid[4] */
 		if (wst->extension)
 			ret += strlen(wst->extension);
 	}
@@ -1808,6 +1957,9 @@ error:
 }
 EXPORT_SYMBOL(p9_client_renameat);
 
+/*
+ * An xattrwalk without @attr_name gives the fid for the lisxattr namespace
+ */
 struct p9_fid *p9_client_xattrwalk(struct p9_fid *file_fid,
 				const char *attr_name, u64 *attr_size)
 {
@@ -1900,8 +2052,12 @@ int p9_client_readdir(struct p9_fid *fid, char *data, u32 count, u64 offset)
 	if (count < rsize)
 		rsize = count;
 
-	
+	/* Don't bother zerocopy for small IO (< 1024) */
 	if (clnt->trans_mod->zc_request && rsize > 1024) {
+		/*
+		 * response header len is 11
+		 * PDU Header(7) + IO Size (4)
+		 */
 		req = p9_client_zc_rpc(clnt, P9_TREADDIR, data, NULL, rsize, 0,
 				       11, 1, "dqd", fid->fid, offset, rsize);
 	} else {

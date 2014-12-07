@@ -27,4 +27,4 @@
        _r->regs[12]=0; _r->regs[13]=0; _r->regs[14]=0; \
        _r->sr = SR_FD; } while (0)
 
-#endif 
+#endif /* __ASM_SH_FLAT_H */

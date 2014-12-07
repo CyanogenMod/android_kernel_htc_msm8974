@@ -10,6 +10,10 @@
 #include <asm/io.h>
 #include <asm/pci-bridge.h>
 
+/*
+ * Here comes the ppc64 implementation of the IOMAP 
+ * interfaces.
+ */
 unsigned int ioread8(void __iomem *addr)
 {
 	return readb(addr);
@@ -62,6 +66,14 @@ EXPORT_SYMBOL(iowrite16be);
 EXPORT_SYMBOL(iowrite32);
 EXPORT_SYMBOL(iowrite32be);
 
+/*
+ * These are the "repeat read/write" functions. Note the
+ * non-CPU byte order. We do things in "IO byteorder"
+ * here.
+ *
+ * FIXME! We could make these do EEH handling if we really
+ * wanted. Not clear if we do.
+ */
 void ioread8_rep(void __iomem *addr, void *dst, unsigned long count)
 {
 	_insb((u8 __iomem *) addr, dst, count);
@@ -101,7 +113,7 @@ void __iomem *ioport_map(unsigned long port, unsigned int len)
 
 void ioport_unmap(void __iomem *addr)
 {
-	
+	/* Nothing to do */
 }
 EXPORT_SYMBOL(ioport_map);
 EXPORT_SYMBOL(ioport_unmap);
@@ -117,4 +129,4 @@ void pci_iounmap(struct pci_dev *dev, void __iomem *addr)
 }
 
 EXPORT_SYMBOL(pci_iounmap);
-#endif 
+#endif /* CONFIG_PCI */

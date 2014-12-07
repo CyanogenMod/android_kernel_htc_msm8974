@@ -53,15 +53,19 @@
 #define CRYSTALHD_API_NAME	"crystalhd"
 #define CRYSTALHD_API_DEV_NAME	"/dev/crystalhd"
 
+/*
+ * These are SW stack tunable parameters shared
+ * between the driver and the application.
+ */
 enum BC_DTS_GLOBALS {
-	BC_MAX_FW_CMD_BUFF_SZ	= 0x40,		
-	PCI_CFG_SIZE		= 256,		
-	BC_IOCTL_DATA_POOL_SIZE	= 8,		
-	BC_LINK_MAX_OPENS	= 3,		
-	BC_LINK_MAX_SGLS	= 1024,		
-	BC_TX_LIST_CNT		= 2,		
-	BC_RX_LIST_CNT		= 8,		
-	BC_PROC_OUTPUT_TIMEOUT	= 3000,		
+	BC_MAX_FW_CMD_BUFF_SZ	= 0x40,		/* FW passthrough cmd/rsp buffer size */
+	PCI_CFG_SIZE		= 256,		/* PCI config size buffer */
+	BC_IOCTL_DATA_POOL_SIZE	= 8,		/* BC_IOCTL_DATA Pool size */
+	BC_LINK_MAX_OPENS	= 3,		/* Maximum simultaneous opens*/
+	BC_LINK_MAX_SGLS	= 1024,		/* Maximum SG elements 4M/4K */
+	BC_TX_LIST_CNT		= 2,		/* Max Tx DMA Rings */
+	BC_RX_LIST_CNT		= 8,		/* Max Rx DMA Rings*/
+	BC_PROC_OUTPUT_TIMEOUT	= 3000,		/* Milliseconds */
 	BC_INFIFO_THRESHOLD	= 0x10000,
 };
 
@@ -76,6 +80,7 @@ struct BC_CMD_DEV_MEM {
 	uint32_t		Rsrd;
 };
 
+/* FW Passthrough command structure */
 enum bc_fw_cmd_flags {
 	BC_FW_CMD_FLAGS_NONE	= 0,
 	BC_FW_CMD_PIB_QS	= 0x01,
@@ -125,7 +130,7 @@ struct BC_DTS_STATS {
 	uint8_t			eosDetected;
 	uint8_t			pwr_state_change;
 
-	
+	/* Stats from App */
 	uint32_t		opFrameDropped;
 	uint32_t		opFrameCaptured;
 	uint32_t		ipSampleCnt;
@@ -135,7 +140,7 @@ struct BC_DTS_STATS {
 	uint32_t		pibMisses;
 	uint32_t		discCounter;
 
-	
+	/* Stats from Driver */
 	uint32_t		TxFifoBsyCnt;
 	uint32_t		intCount;
 	uint32_t		DrvIgnIntrCnt;
@@ -156,7 +161,7 @@ struct BC_PROC_INPUT {
 	uint8_t			Mapped;
 	uint8_t			Encrypted;
 	uint8_t			Rsrd[2];
-	uint32_t		DramOffset;	
+	uint32_t		DramOffset;	/* For debug use only */
 };
 
 struct BC_DEC_YUV_BUFFS {
@@ -219,30 +224,30 @@ struct BC_IOCTL_DATA {
 };
 
 enum BC_DRV_CMD {
-	DRV_CMD_VERSION = 0,	
-	DRV_CMD_GET_HWTYPE,	
-	DRV_CMD_REG_RD,		
-	DRV_CMD_REG_WR,		
-	DRV_CMD_FPGA_RD,	
-	DRV_CMD_FPGA_WR,	
-	DRV_CMD_MEM_RD,		
-	DRV_CMD_MEM_WR,		
-	DRV_CMD_RD_PCI_CFG,	
-	DRV_CMD_WR_PCI_CFG,	
-	DRV_CMD_FW_DOWNLOAD,	
-	DRV_ISSUE_FW_CMD,	
-	DRV_CMD_PROC_INPUT,	
-	DRV_CMD_ADD_RXBUFFS,	
-	DRV_CMD_FETCH_RXBUFF,	
-	DRV_CMD_START_RX_CAP,	
-	DRV_CMD_FLUSH_RX_CAP,	
-	DRV_CMD_GET_DRV_STAT,	
-	DRV_CMD_RST_DRV_STAT,	
-	DRV_CMD_NOTIFY_MODE,	
-	DRV_CMD_CHANGE_CLOCK,	
+	DRV_CMD_VERSION = 0,	/* Get SW version */
+	DRV_CMD_GET_HWTYPE,	/* Get HW version and type Dozer/Tank */
+	DRV_CMD_REG_RD,		/* Read Device Register */
+	DRV_CMD_REG_WR,		/* Write Device Register */
+	DRV_CMD_FPGA_RD,	/* Read FPGA Register */
+	DRV_CMD_FPGA_WR,	/* Wrtie FPGA Reister */
+	DRV_CMD_MEM_RD,		/* Read Device Memory */
+	DRV_CMD_MEM_WR,		/* Write Device Memory */
+	DRV_CMD_RD_PCI_CFG,	/* Read PCI Config Space */
+	DRV_CMD_WR_PCI_CFG,	/* Write the PCI Configuration Space*/
+	DRV_CMD_FW_DOWNLOAD,	/* Download Firmware */
+	DRV_ISSUE_FW_CMD,	/* Issue FW Cmd (pass through mode) */
+	DRV_CMD_PROC_INPUT,	/* Process Input Sample */
+	DRV_CMD_ADD_RXBUFFS,	/* Add Rx side buffers to driver pool */
+	DRV_CMD_FETCH_RXBUFF,	/* Get Rx DMAed buffer */
+	DRV_CMD_START_RX_CAP,	/* Start Rx Buffer Capture */
+	DRV_CMD_FLUSH_RX_CAP,	/* Stop the capture for now...we will enhance this later*/
+	DRV_CMD_GET_DRV_STAT,	/* Get Driver Internal Statistics */
+	DRV_CMD_RST_DRV_STAT,	/* Reset Driver Internal Statistics */
+	DRV_CMD_NOTIFY_MODE,	/* Notify the Mode to driver in which the application is Operating*/
+	DRV_CMD_CHANGE_CLOCK,	/* Change the core clock to either save power or improve performance */
 
-	
-	DRV_CMD_END,			
+	/* MUST be the last one.. */
+	DRV_CMD_END,			/* End of the List.. */
 };
 
 #define BC_IOC_BASE		'b'
@@ -273,13 +278,14 @@ enum BC_DRV_CMD {
 #define BCM_IOC_CHG_CLK		BC_IOC_IOWR(DRV_CMD_CHANGE_CLOCK, BC_IOCTL_MB)
 #define	BCM_IOC_END		BC_IOC_VOID
 
+/* Wrapper for main IOCTL data */
 struct crystalhd_ioctl_data {
-	struct BC_IOCTL_DATA	udata;		
-	uint32_t		u_id;		
-	uint32_t		cmd;		
-	void			*add_cdata;	
-	uint32_t		add_cdata_sz;	
-	struct crystalhd_ioctl_data *next;	
+	struct BC_IOCTL_DATA	udata;		/* IOCTL from App..*/
+	uint32_t		u_id;		/* Driver specific user ID */
+	uint32_t		cmd;		/* Cmd ID for driver's use. */
+	void			*add_cdata;	/* Additional command specific data..*/
+	uint32_t		add_cdata_sz;	/* Additional command specific data size */
+	struct crystalhd_ioctl_data *next;	/* List/Fifo management */
 };
 
 enum crystalhd_kmod_ver {

@@ -1,3 +1,4 @@
+/* atp.c: Attached (pocket) ethernet adapter driver for linux. */
 /*
 	This is a driver for commonly OEM pocket (parallel port)
 	ethernet adapters based on the Realtek RTL8002 and RTL8012 chips.
@@ -33,18 +34,24 @@
 static const char version[] =
 "atp.c:v1.09=ac 2002/10/01 Donald Becker <becker@scyld.com>\n";
 
+/* The user-configurable values.
+   These may be modified when a driver module is loaded.*/
 
-static int debug = 1; 			
+static int debug = 1; 			/* 1 normal messages, 0 quiet .. 7 verbose. */
 #define net_debug debug
 
+/* Maximum events (Rx packets, etc.) to handle at each interrupt. */
 static int max_interrupt_work = 15;
 
 #define NUM_UNITS 2
+/* The standard set of ISA module parameters. */
 static int io[NUM_UNITS];
 static int irq[NUM_UNITS];
-static int xcvr[NUM_UNITS]; 			
+static int xcvr[NUM_UNITS]; 			/* The data transfer mode. */
 
+/* Operational parameters that are set at compile time. */
 
+/* Time in jiffies before concluding the transmitter is hung. */
 #define TX_TIMEOUT  (400*HZ/1000)
 
 /*
@@ -153,19 +160,21 @@ MODULE_PARM_DESC(io, "ATP I/O base address(es)");
 MODULE_PARM_DESC(irq, "ATP IRQ number(s)");
 MODULE_PARM_DESC(xcvr, "ATP transceiver(s) (0=internal, 1=external)");
 
+/* The number of low I/O ports used by the ethercard. */
 #define ETHERCARD_TOTAL_SIZE	3
 
+/* Sequence to switch an 8012 from printer mux to ethernet mode. */
 static char mux_8012[] = { 0xff, 0xf7, 0xff, 0xfb, 0xf3, 0xfb, 0xff, 0xf7,};
 
 struct net_local {
     spinlock_t lock;
     struct net_device *next_module;
-    struct timer_list timer;	
-    long last_rx_time;		
+    struct timer_list timer;	/* Media selection timer. */
+    long last_rx_time;		/* Last Rx, in jiffies, to handle Rx hang. */
     int saved_tx_size;
     unsigned int tx_unit_busy:1;
-    unsigned char re_tx,	
-		addr_mode,		
+    unsigned char re_tx,	/* Number of packet retransmissions. */
+		addr_mode,		/* Current Rx filter e.g. promiscuous, etc. */
 		pac_cnt_in_tx_buf,
 		chip_type;
 };
@@ -179,6 +188,7 @@ struct net_local {
 static void atp_timed_checker(unsigned long ignored);
 #endif
 
+/* Index to functions, as function prototypes. */
 
 static int atp_probe1(long ioaddr);
 static void get_node_ID(struct net_device *dev);
@@ -197,16 +207,25 @@ static void set_rx_mode(struct net_device *dev);
 static void tx_timeout(struct net_device *dev);
 
 
+/* A list of all installed ATP devices, for removing the driver module. */
 static struct net_device *root_atp_dev;
 
+/* Check for a network adapter of this type, and return '0' iff one exists.
+   If dev->base_addr == 0, probe all likely locations.
+   If dev->base_addr == 1, always return failure.
+   If dev->base_addr == 2, allocate space for the device and return success
+   (detachable devices only).
+
+   FIXME: we should use the parport layer for this
+   */
 static int __init atp_init(void)
 {
 	int *port, ports[] = {0x378, 0x278, 0x3bc, 0};
 	int base_addr = io[0];
 
-	if (base_addr > 0x1ff)		
+	if (base_addr > 0x1ff)		/* Check a single specified location. */
 		return atp_probe1(base_addr);
-	else if (base_addr == 1)	
+	else if (base_addr == 1)	/* Don't probe at all. */
 		return -ENXIO;
 
 	for (port = ports; *port; port++) {
@@ -240,14 +259,16 @@ static int __init atp_probe1(long ioaddr)
 	int res;
 
 	outb(0xff, ioaddr + PAR_DATA);
+	/* Save the original value of the Control register, in case we guessed
+	   wrong. */
 	saved_ctrl_reg = inb(ioaddr + PAR_CONTROL);
 	if (net_debug > 3)
 		printk("atp: Control register was %#2.2x.\n", saved_ctrl_reg);
-	
+	/* IRQEN=0, SLCTB=high INITB=high, AUTOFDB=high, STBB=high. */
 	outb(0x04, ioaddr + PAR_CONTROL);
 #ifndef final_version
 	if (net_debug > 3) {
-		
+		/* Turn off the printer multiplexer on the 8012. */
 		for (i = 0; i < 8; i++)
 			outb(mux_8012[i], ioaddr + PAR_DATA);
 		write_reg(ioaddr, MODSEL, 0x00);
@@ -257,11 +278,11 @@ static int __init atp_probe1(long ioaddr)
 		printk(".\n");
 	}
 #endif
-	
+	/* Turn off the printer multiplexer on the 8012. */
 	for (i = 0; i < 8; i++)
 		outb(mux_8012[i], ioaddr + PAR_DATA);
 	write_reg_high(ioaddr, CMR1, CMR1h_RESET);
-	
+	/* udelay() here? */
 	status = read_nibble(ioaddr, CMR1);
 
 	if (net_debug > 3) {
@@ -272,7 +293,7 @@ static int __init atp_probe1(long ioaddr)
 	}
 
 	if ((status & 0x78) != 0x08) {
-		
+		/* The pocket adapter probe failed, restore the control register. */
 		outb(saved_ctrl_reg, ioaddr + PAR_CONTROL);
 		return -ENODEV;
 	}
@@ -286,23 +307,23 @@ static int __init atp_probe1(long ioaddr)
 	if (!dev)
 		return -ENOMEM;
 
-	
-	write_reg_byte(ioaddr, CMR2, 0x01);			
-	write_reg_high(ioaddr, CMR1, CMR1h_RxENABLE | CMR1h_TxENABLE);	
+	/* Find the IRQ used by triggering an interrupt. */
+	write_reg_byte(ioaddr, CMR2, 0x01);			/* No accept mode, IRQ out. */
+	write_reg_high(ioaddr, CMR1, CMR1h_RxENABLE | CMR1h_TxENABLE);	/* Enable Tx and Rx. */
 
-	
+	/* Omit autoIRQ routine for now. Use "table lookup" instead.  Uhgggh. */
 	if (irq[0])
 		dev->irq = irq[0];
 	else if (ioaddr == 0x378)
 		dev->irq = 7;
 	else
 		dev->irq = 5;
-	write_reg_high(ioaddr, CMR1, CMR1h_TxRxOFF); 
+	write_reg_high(ioaddr, CMR1, CMR1h_TxRxOFF); /* Disable Tx and Rx units. */
 	write_reg(ioaddr, CMR2, CMR2_NULL);
 
 	dev->base_addr = ioaddr;
 
-	
+	/* Read the station address PROM.  */
 	get_node_ID(dev);
 
 #ifndef MODULE
@@ -314,7 +335,7 @@ static int __init atp_probe1(long ioaddr)
 	       "SAPROM %pM.\n",
 	       dev->name, dev->base_addr, dev->irq, dev->dev_addr);
 
-	
+	/* Reset the ethernet hardware and activate the printer pass-through. */
 	write_reg_high(ioaddr, CMR1, CMR1h_RESET | CMR1h_MUX);
 
 	lp = netdev_priv(dev);
@@ -322,7 +343,7 @@ static int __init atp_probe1(long ioaddr)
 	lp->addr_mode = CMR2h_Normal;
 	spin_lock_init(&lp->lock);
 
-	
+	/* For the ATP adapter the "if_port" is really the data transfer mode. */
 	if (xcvr[0])
 		dev->if_port = xcvr[0];
 	else
@@ -345,14 +366,17 @@ static int __init atp_probe1(long ioaddr)
 	return 0;
 }
 
+/* Read the station address PROM, usually a word-wide EEPROM. */
 static void __init get_node_ID(struct net_device *dev)
 {
 	long ioaddr = dev->base_addr;
 	int sa_offset = 0;
 	int i;
 
-	write_reg(ioaddr, CMR2, CMR2_EEPROM);	  
+	write_reg(ioaddr, CMR2, CMR2_EEPROM);	  /* Point to the EEPROM control registers. */
 
+	/* Some adapters have the station address at offset 15 instead of offset
+	   zero.  Check for it, and fix it if needed. */
 	if (eeprom_op(ioaddr, EE_READ(0)) == 0xffff)
 		sa_offset = 15;
 
@@ -363,6 +387,17 @@ static void __init get_node_ID(struct net_device *dev)
 	write_reg(ioaddr, CMR2, CMR2_NULL);
 }
 
+/*
+  An EEPROM read command starts by shifting out 0x60+address, and then
+  shifting in the serial data. See the NatSemi databook for details.
+ *		   ________________
+ * CS : __|
+ *			   ___	   ___
+ * CLK: ______|	  |___|	  |
+ *		 __ _______ _______
+ * DI :	 __X_______X_______X
+ * DO :	 _________X_______X
+ */
 
 static unsigned short __init eeprom_op(long ioaddr, u32 cmd)
 {
@@ -382,11 +417,24 @@ static unsigned short __init eeprom_op(long ioaddr, u32 cmd)
 }
 
 
+/* Open/initialize the board.  This is called (in the current kernel)
+   sometime after booting when the 'ifconfig' program is run.
+
+   This routine sets everything up anew at each open, even
+   registers that "should" only need to be set once at boot, so that
+   there is non-reboot way to recover if something goes wrong.
+
+   This is an attachable device: if there is no private entry then it wasn't
+   probed for at boot-time, and we need to probe for it again.
+   */
 static int net_open(struct net_device *dev)
 {
 	struct net_local *lp = netdev_priv(dev);
 	int ret;
 
+	/* The interrupt line is turned off (tri-stated) when the device isn't in
+	   use.  That's especially important for "attached" interfaces where the
+	   port or interrupt may be shared. */
 	ret = request_irq(dev->irq, atp_interrupt, 0, dev->name, dev);
 	if (ret)
 		return ret;
@@ -396,20 +444,22 @@ static int net_open(struct net_device *dev)
 	init_timer(&lp->timer);
 	lp->timer.expires = jiffies + TIMED_CHECKER;
 	lp->timer.data = (unsigned long)dev;
-	lp->timer.function = atp_timed_checker;    
+	lp->timer.function = atp_timed_checker;    /* timer handler */
 	add_timer(&lp->timer);
 
 	netif_start_queue(dev);
 	return 0;
 }
 
+/* This routine resets the hardware.  We initialize everything, assuming that
+   the hardware may have been temporarily detached. */
 static void hardware_init(struct net_device *dev)
 {
 	struct net_local *lp = netdev_priv(dev);
 	long ioaddr = dev->base_addr;
     int i;
 
-	
+	/* Turn off the printer multiplexer on the 8012. */
 	for (i = 0; i < 8; i++)
 		outb(mux_8012[i], ioaddr + PAR_DATA);
 	write_reg_high(ioaddr, CMR1, CMR1h_RESET);
@@ -427,10 +477,10 @@ static void hardware_init(struct net_device *dev)
     write_reg(ioaddr, CMR2, CMR2_IRQOUT);
     write_reg_high(ioaddr, CMR1, CMR1h_RxENABLE | CMR1h_TxENABLE);
 
-	
+	/* Enable the interrupt line from the serial port. */
 	outb(Ctrl_SelData + Ctrl_IRQEN, ioaddr + PAR_CONTROL);
 
-	
+	/* Unmask the interesting interrupts. */
     write_reg(ioaddr, IMR, ISR_RxOK | ISR_TxErr | ISR_TxOK);
     write_reg_high(ioaddr, IMR, ISRh_RxErr);
 
@@ -456,7 +506,7 @@ static void write_packet(long ioaddr, int length, unsigned char *packet, int pad
 
     outb(EOC+MAR, ioaddr + PAR_DATA);
     if ((data_mode & 1) == 0) {
-		
+		/* Write the packet out, starting with the write addr. */
 		outb(WrAddr+MAR, ioaddr + PAR_DATA);
 		do {
 			write_byte_mode0(ioaddr, *packet++);
@@ -465,7 +515,7 @@ static void write_packet(long ioaddr, int length, unsigned char *packet, int pad
 			write_byte_mode0(ioaddr, 0);
 		} while (--length > 0) ;
     } else {
-		
+		/* Write the packet out in slow mode. */
 		unsigned char outbyte = *packet++;
 
 		outb(Ctrl_LNibWrite + Ctrl_IRQEN, ioaddr + PAR_CONTROL);
@@ -481,7 +531,7 @@ static void write_packet(long ioaddr, int length, unsigned char *packet, int pad
 		while (--length > 0)
 			write_byte_mode1(ioaddr, 0);
     }
-    
+    /* Terminate the Tx frame.  End of write: ECB. */
     outb(0xff, ioaddr + PAR_DATA);
     outb(Ctrl_HNibWrite | Ctrl_SelData | Ctrl_IRQEN, ioaddr + PAR_CONTROL);
 }
@@ -494,9 +544,9 @@ static void tx_timeout(struct net_device *dev)
 		   inb(ioaddr + PAR_CONTROL) & 0x10 ? "network cable problem"
 		   :  "IRQ conflict");
 	dev->stats.tx_errors++;
-	
+	/* Try to restart the adapter. */
 	hardware_init(dev);
-	dev->trans_start = jiffies; 
+	dev->trans_start = jiffies; /* prevent tx timeout */
 	netif_wake_queue(dev);
 	dev->stats.tx_errors++;
 }
@@ -513,6 +563,8 @@ static netdev_tx_t atp_send_packet(struct sk_buff *skb,
 
 	netif_stop_queue(dev);
 
+	/* Disable interrupts by writing 0x00 to the Interrupt Mask Register.
+	   This sequence must not be interrupted by an incoming packet. */
 
 	spin_lock_irqsave(&lp->lock, flags);
 	write_reg(ioaddr, IMR, 0);
@@ -524,12 +576,12 @@ static netdev_tx_t atp_send_packet(struct sk_buff *skb,
 	lp->pac_cnt_in_tx_buf++;
 	if (lp->tx_unit_busy == 0) {
 		trigger_send(ioaddr, length);
-		lp->saved_tx_size = 0; 				
+		lp->saved_tx_size = 0; 				/* Redundant */
 		lp->re_tx = 0;
 		lp->tx_unit_busy = 1;
 	} else
 		lp->saved_tx_size = length;
-	
+	/* Re-enable the LPT interrupts. */
 	write_reg(ioaddr, IMR, ISR_RxOK | ISR_TxErr | ISR_TxOK);
 	write_reg_high(ioaddr, IMR, ISRh_RxErr);
 
@@ -538,6 +590,8 @@ static netdev_tx_t atp_send_packet(struct sk_buff *skb,
 }
 
 
+/* The typical workload of the driver:
+   Handle the network interface interrupts. */
 static irqreturn_t atp_interrupt(int irq, void *dev_instance)
 {
 	struct net_device *dev = dev_instance;
@@ -552,10 +606,10 @@ static irqreturn_t atp_interrupt(int irq, void *dev_instance)
 
 	spin_lock(&lp->lock);
 
-	
+	/* Disable additional spurious interrupts. */
 	outb(Ctrl_SelData, ioaddr + PAR_CONTROL);
 
-	
+	/* The adapter's output is currently the IRQ line, switch it to data. */
 	write_reg(ioaddr, CMR2, CMR2_NULL);
 	write_reg(ioaddr, IMR, 0);
 
@@ -566,17 +620,19 @@ static irqreturn_t atp_interrupt(int irq, void *dev_instance)
 
 		if (status & (ISR_RxOK<<3)) {
 			handled = 1;
-			write_reg(ioaddr, ISR, ISR_RxOK); 
+			write_reg(ioaddr, ISR, ISR_RxOK); /* Clear the Rx interrupt. */
 			do {
 				int read_status = read_nibble(ioaddr, CMR1);
 				if (net_debug > 6)
 					printk("handling Rx packet %02x..", read_status);
-				if (read_status & (CMR1_IRQ << 3)) { 
+				/* We acknowledged the normal Rx interrupt, so if the interrupt
+				   is still outstanding we must have a Rx error. */
+				if (read_status & (CMR1_IRQ << 3)) { /* Overrun. */
 					dev->stats.rx_over_errors++;
-					
+					/* Set to no-accept mode long enough to remove a packet. */
 					write_reg_high(ioaddr, CMR2, CMR2h_OFF);
 					net_rx(dev);
-					
+					/* Clear the interrupt and return to normal Rx mode. */
 					write_reg_high(ioaddr, ISR, ISRh_RxErr);
 					write_reg_high(ioaddr, CMR2, lp->addr_mode);
 				} else if ((read_status & (CMR1_BufEnb << 3)) == 0) {
@@ -588,6 +644,8 @@ static irqreturn_t atp_interrupt(int irq, void *dev_instance)
 		} else if (status & ((ISR_TxErr + ISR_TxOK)<<3)) {
 			handled = 1;
 			if (net_debug > 6)  printk("handling Tx done..");
+			/* Clear the Tx interrupt.  We should check for too many failures
+			   and reinitialize the adapter. */
 			write_reg(ioaddr, ISR, ISR_TxErr + ISR_TxOK);
 			if (status & (ISR_TxErr<<3)) {
 				dev->stats.collisions++;
@@ -596,11 +654,11 @@ static irqreturn_t atp_interrupt(int irq, void *dev_instance)
 					hardware_init(dev);
 					break;
 				}
-				
+				/* Attempt to retransmit. */
 				if (net_debug > 6)  printk("attempting to ReTx");
 				write_reg(ioaddr, CMR1, CMR1_ReXmit + CMR1_Xmit);
 			} else {
-				
+				/* Finish up the transmit. */
 				dev->stats.tx_packets++;
 				lp->pac_cnt_in_tx_buf--;
 				if ( lp->saved_tx_size) {
@@ -609,7 +667,7 @@ static irqreturn_t atp_interrupt(int irq, void *dev_instance)
 					lp->re_tx = 0;
 				} else
 					lp->tx_unit_busy = 0;
-				netif_wake_queue(dev);	
+				netif_wake_queue(dev);	/* Inform upper layers. */
 			}
 			num_tx_since_rx++;
 		} else if (num_tx_since_rx > 8 &&
@@ -627,6 +685,8 @@ static irqreturn_t atp_interrupt(int irq, void *dev_instance)
 			break;
     }
 
+	/* This following code fixes a rare (and very difficult to track down)
+	   problem where the adapter forgets its ethernet address. */
 	{
 		int i;
 		for (i = 0; i < 6; i++)
@@ -636,13 +696,13 @@ static irqreturn_t atp_interrupt(int irq, void *dev_instance)
 #endif
 	}
 
-	
+	/* Tell the adapter that it can go back to using the output line as IRQ. */
     write_reg(ioaddr, CMR2, CMR2_IRQOUT);
-	
+	/* Enable the physical interrupt line, which is sure to be low until.. */
 	outb(Ctrl_SelData + Ctrl_IRQEN, ioaddr + PAR_CONTROL);
-	
+	/* .. we enable the interrupt sources. */
 	write_reg(ioaddr, IMR, ISR_RxOK | ISR_TxErr | ISR_TxOK);
-	write_reg_high(ioaddr, IMR, ISRh_RxErr); 			
+	write_reg_high(ioaddr, IMR, ISRh_RxErr); 			/* Hmmm, really needed? */
 
 	spin_unlock(&lp->lock);
 
@@ -651,6 +711,8 @@ static irqreturn_t atp_interrupt(int irq, void *dev_instance)
 }
 
 #ifdef TIMED_CHECKER
+/* This following code fixes a rare (and very difficult to track down)
+   problem where the adapter forgets its ethernet address. */
 static void atp_timed_checker(unsigned long data)
 {
 	struct net_device *dev = (struct net_device *)data;
@@ -688,13 +750,14 @@ static void atp_timed_checker(unsigned long data)
 }
 #endif
 
+/* We have a good packet(s), get it/them out of the buffers. */
 static void net_rx(struct net_device *dev)
 {
 	struct net_local *lp = netdev_priv(dev);
 	long ioaddr = dev->base_addr;
 	struct rx_header rx_head;
 
-	
+	/* Process the received packet. */
 	outb(EOC+MAR, ioaddr + PAR_DATA);
 	read_block(ioaddr, 8, (unsigned char*)&rx_head, dev->if_port);
 	if (net_debug > 5)
@@ -715,7 +778,7 @@ static void net_rx(struct net_device *dev)
 			hardware_init(dev);
 		return;
 	} else {
-		
+		/* Malloc up new buffer. The "-4" omits the FCS (CRC). */
 		int pkt_len = (rx_head.rx_count & 0x7ff) - 4;
 		struct sk_buff *skb;
 
@@ -727,7 +790,7 @@ static void net_rx(struct net_device *dev)
 			goto done;
 		}
 
-		skb_reserve(skb, 2);	
+		skb_reserve(skb, 2);	/* Align IP on 16 byte boundaries */
 		read_block(ioaddr, pkt_len, skb_put(skb,pkt_len), dev->if_port);
 		skb->protocol = eth_type_trans(skb, dev);
 		netif_rx(skb);
@@ -742,13 +805,13 @@ static void net_rx(struct net_device *dev)
 
 static void read_block(long ioaddr, int length, unsigned char *p, int data_mode)
 {
-	if (data_mode <= 3) { 
+	if (data_mode <= 3) { /* Mode 0 or 1 */
 		outb(Ctrl_LNibRead, ioaddr + PAR_CONTROL);
 		outb(length == 8  ?  RdAddr | HNib | MAR  :  RdAddr | MAR,
 			 ioaddr + PAR_DATA);
-		if (data_mode <= 1) { 
+		if (data_mode <= 1) { /* Mode 0 or 1 */
 			do { *p++ = read_byte_mode0(ioaddr); } while (--length > 0);
-		} else { 
+		} else { /* Mode 2 or 3 */
 			do { *p++ = read_byte_mode2(ioaddr); } while (--length > 0);
 		}
 	} else if (data_mode <= 5) {
@@ -761,6 +824,7 @@ static void read_block(long ioaddr, int length, unsigned char *p, int data_mode)
 	outb(Ctrl_SelData, ioaddr + PAR_CONTROL);
 }
 
+/* The inverse routine to net_open(). */
 static int
 net_close(struct net_device *dev)
 {
@@ -771,19 +835,22 @@ net_close(struct net_device *dev)
 
 	del_timer_sync(&lp->timer);
 
-	
+	/* Flush the Tx and disable Rx here. */
 	lp->addr_mode = CMR2h_OFF;
 	write_reg_high(ioaddr, CMR2, CMR2h_OFF);
 
-	
+	/* Free the IRQ line. */
 	outb(0x00, ioaddr + PAR_CONTROL);
 	free_irq(dev->irq, dev);
 
-	
+	/* Reset the ethernet hardware and activate the printer pass-through. */
 	write_reg_high(ioaddr, CMR1, CMR1h_RESET | CMR1h_MUX);
 	return 0;
 }
 
+/*
+ *	Set or clear the multicast filter for this adapter.
+ */
 
 static void set_rx_mode_8002(struct net_device *dev)
 {
@@ -801,14 +868,14 @@ static void set_rx_mode_8012(struct net_device *dev)
 {
 	struct net_local *lp = netdev_priv(dev);
 	long ioaddr = dev->base_addr;
-	unsigned char new_mode, mc_filter[8]; 
+	unsigned char new_mode, mc_filter[8]; /* Multicast hash filter */
 	int i;
 
-	if (dev->flags & IFF_PROMISC) {			
+	if (dev->flags & IFF_PROMISC) {			/* Set promiscuous. */
 		new_mode = CMR2h_PROMISC;
 	} else if ((netdev_mc_count(dev) > 1000) ||
 		   (dev->flags & IFF_ALLMULTI)) {
-		
+		/* Too many to filter perfectly -- accept all multicasts. */
 		memset(mc_filter, 0xff, sizeof(mc_filter));
 		new_mode = CMR2h_Normal;
 	} else {
@@ -822,7 +889,7 @@ static void set_rx_mode_8012(struct net_device *dev)
 		new_mode = CMR2h_Normal;
 	}
 	lp->addr_mode = new_mode;
-    write_reg(ioaddr, CMR2, CMR2_IRQOUT | 0x04); 
+    write_reg(ioaddr, CMR2, CMR2_IRQOUT | 0x04); /* Switch to page 1. */
     for (i = 0; i < 8; i++)
 		write_reg_byte(ioaddr, i, mc_filter[i]);
 	if (net_debug > 2 || 1) {
@@ -835,7 +902,7 @@ static void set_rx_mode_8012(struct net_device *dev)
 	}
 
 	write_reg_high(ioaddr, CMR2, lp->addr_mode);
-    write_reg(ioaddr, CMR2, CMR2_IRQOUT); 
+    write_reg(ioaddr, CMR2, CMR2_IRQOUT); /* Switch back to page 0 */
 }
 
 static void set_rx_mode(struct net_device *dev)
@@ -850,7 +917,7 @@ static void set_rx_mode(struct net_device *dev)
 
 
 static int __init atp_init_module(void) {
-	if (debug)					
+	if (debug)					/* Emit version even if no cards detected. */
 		printk(KERN_INFO "%s", version);
 	return atp_init();
 }
@@ -862,7 +929,7 @@ static void __exit atp_cleanup_module(void) {
 		struct net_local *atp_local = netdev_priv(root_atp_dev);
 		next_dev = atp_local->next_module;
 		unregister_netdev(root_atp_dev);
-		
+		/* No need to release_region(), since we never snarf it. */
 		free_netdev(root_atp_dev);
 		root_atp_dev = next_dev;
 	}

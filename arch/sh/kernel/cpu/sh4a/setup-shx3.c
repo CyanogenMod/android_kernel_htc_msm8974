@@ -17,6 +17,15 @@
 #include <cpu/shx3.h>
 #include <asm/mmzone.h>
 
+/*
+ * This intentionally only registers SCIF ports 0, 1, and 3. SCIF 2
+ * INTEVT values overlap with the FPU EXPEVT ones, requiring special
+ * demuxing in the exception dispatch path.
+ *
+ * As this overlap is something that never should have made it in to
+ * silicon in the first place, we just refuse to deal with the port at
+ * all rather than adding infrastructure to hack around it.
+ */
 static struct plat_sci_port scif0_platform_data = {
 	.mapbase	= 0xffc30000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -260,7 +269,7 @@ void __init plat_early_device_setup(void)
 enum {
 	UNUSED = 0,
 
-	
+	/* interrupt sources */
 	IRL_LLLL, IRL_LLLH, IRL_LLHL, IRL_LLHH,
 	IRL_LHLL, IRL_LHLH, IRL_LHHL, IRL_LHHH,
 	IRL_HLLL, IRL_HLLH, IRL_HLHL, IRL_HLHH,
@@ -287,7 +296,7 @@ enum {
 	INTICI0, INTICI1, INTICI2, INTICI3,
 	INTICI4, INTICI5, INTICI6, INTICI7,
 
-	
+	/* interrupt groups */
 	IRL, PCII56789, SCIF0, SCIF1, SCIF2, SCIF3,
 	DMAC0, DMAC1,
 };
@@ -358,25 +367,25 @@ static struct intc_group groups[] __initdata = {
 #define INT2DISTCR2	0xfe4108a8
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xfe410030, 0xfe410050, 32, 
+	{ 0xfe410030, 0xfe410050, 32, /* CnINTMSK0 / CnINTMSKCLR0 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3 } },
-	{ 0xfe410040, 0xfe410060, 32, 
+	{ 0xfe410040, 0xfe410060, 32, /* CnINTMSK1 / CnINTMSKCLR1 */
 	  { IRL } },
-	{ 0xfe410820, 0xfe410850, 32, 
+	{ 0xfe410820, 0xfe410850, 32, /* CnINT2MSK0 / CnINT2MSKCLR0 */
 	  { FE1, FE0, 0, ATAPI, VCORE0, VIN1, VIN0, IIC,
 	    DU, GPIO3, GPIO2, GPIO1, GPIO0, PAM, 0, 0,
-	    0, 0, 0, 0, 0, 0, 0, 0, 
+	    0, 0, 0, 0, 0, 0, 0, 0, /* HUDI bits ignored */
 	    0, TMU5, TMU4, TMU3, TMU2, TMU1, TMU0, 0, },
 	    INTC_SMP_BALANCING(INT2DISTCR0) },
-	{ 0xfe410830, 0xfe410860, 32, 
-	  { 0, 0, 0, 0, DTU3, DTU2, DTU1, DTU0, 
+	{ 0xfe410830, 0xfe410860, 32, /* CnINT2MSK1 / CnINT2MSKCLR1 */
+	  { 0, 0, 0, 0, DTU3, DTU2, DTU1, DTU0, /* IRM bits ignored */
 	    PCII9, PCII8, PCII7, PCII6, PCII5, PCII4, PCII3, PCII2,
 	    PCII1, PCII0, DMAC1_DMAE, DMAC1_DMINT11,
 	    DMAC1_DMINT10, DMAC1_DMINT9, DMAC1_DMINT8, DMAC1_DMINT7,
 	    DMAC1_DMINT6, DMAC0_DMAE, DMAC0_DMINT5, DMAC0_DMINT4,
 	    DMAC0_DMINT3, DMAC0_DMINT2, DMAC0_DMINT1, DMAC0_DMINT0 },
 	    INTC_SMP_BALANCING(INT2DISTCR1) },
-	{ 0xfe410840, 0xfe410870, 32, 
+	{ 0xfe410840, 0xfe410870, 32, /* CnINT2MSK2 / CnINT2MSKCLR2 */
 	  { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	    SCIF3_TXI, SCIF3_BRI, SCIF3_RXI, SCIF3_ERI,
 	    SCIF2_TXI, SCIF2_BRI, SCIF2_RXI, SCIF2_ERI,
@@ -386,22 +395,22 @@ static struct intc_mask_reg mask_registers[] __initdata = {
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xfe410010, 0, 32, 4,  { IRQ0, IRQ1, IRQ2, IRQ3 } },
+	{ 0xfe410010, 0, 32, 4, /* INTPRI */ { IRQ0, IRQ1, IRQ2, IRQ3 } },
 
-	{ 0xfe410800, 0, 32, 4,  { 0, HUDII, TMU5, TMU4,
+	{ 0xfe410800, 0, 32, 4, /* INT2PRI0 */ { 0, HUDII, TMU5, TMU4,
 						 TMU3, TMU2, TMU1, TMU0 } },
-	{ 0xfe410804, 0, 32, 4,  { DTU3, DTU2, DTU1, DTU0,
+	{ 0xfe410804, 0, 32, 4, /* INT2PRI1 */ { DTU3, DTU2, DTU1, DTU0,
 						 SCIF3, SCIF2,
 						 SCIF1, SCIF0 } },
-	{ 0xfe410808, 0, 32, 4,  { DMAC1, DMAC0,
+	{ 0xfe410808, 0, 32, 4, /* INT2PRI2 */ { DMAC1, DMAC0,
 						 PCII56789, PCII4,
 						 PCII3, PCII2,
 						 PCII1, PCII0 } },
-	{ 0xfe41080c, 0, 32, 4,  { FE1, FE0, ATAPI, VCORE0,
+	{ 0xfe41080c, 0, 32, 4, /* INT2PRI3 */ { FE1, FE0, ATAPI, VCORE0,
 						 VIN1, VIN0, IIC, DU} },
-	{ 0xfe410810, 0, 32, 4,  { 0, 0, PAM, GPIO3,
+	{ 0xfe410810, 0, 32, 4, /* INT2PRI4 */ { 0, 0, PAM, GPIO3,
 						 GPIO2, GPIO1, GPIO0, IRM } },
-	{ 0xfe410090, 0xfe4100a0, 32, 4, 
+	{ 0xfe410090, 0xfe4100a0, 32, 4, /* CnICIPRI / CnICIPRICLR */
 	  { INTICI7, INTICI6, INTICI5, INTICI4,
 	    INTICI3, INTICI2, INTICI1, INTICI0 }, INTC_SMP(4, 4) },
 };
@@ -409,18 +418,20 @@ static struct intc_prio_reg prio_registers[] __initdata = {
 static DECLARE_INTC_DESC(intc_desc, "shx3", vectors, groups,
 			 mask_registers, prio_registers, NULL);
 
+/* Support for external interrupt pins in IRQ mode */
 static struct intc_vect vectors_irq[] __initdata = {
 	INTC_VECT(IRQ0, 0x240), INTC_VECT(IRQ1, 0x280),
 	INTC_VECT(IRQ2, 0x2c0), INTC_VECT(IRQ3, 0x300),
 };
 
 static struct intc_sense_reg sense_registers[] __initdata = {
-	{ 0xfe41001c, 32, 2,    { IRQ0, IRQ1, IRQ2, IRQ3 } },
+	{ 0xfe41001c, 32, 2, /* ICR1 */   { IRQ0, IRQ1, IRQ2, IRQ3 } },
 };
 
 static DECLARE_INTC_DESC(intc_desc_irq, "shx3-irq", vectors_irq, groups,
 			 mask_registers, prio_registers, sense_registers);
 
+/* External interrupt pins in IRL mode */
 static struct intc_vect vectors_irl[] __initdata = {
 	INTC_VECT(IRL_LLLL, 0x200), INTC_VECT(IRL_LLLH, 0x220),
 	INTC_VECT(IRL_LLHL, 0x240), INTC_VECT(IRL_LLHH, 0x260),
@@ -483,15 +494,15 @@ void __init plat_mem_setup(void)
 {
 	unsigned int nid = 1;
 
-	
-	setup_bootmem_node(nid++, 0x145f0000, 0x14610000);	
+	/* Register CPU#0 URAM space as Node 1 */
+	setup_bootmem_node(nid++, 0x145f0000, 0x14610000);	/* CPU0 */
 
 #if 0
-	
-	setup_bootmem_node(nid++, 0x14df0000, 0x14e10000);	
-	setup_bootmem_node(nid++, 0x155f0000, 0x15610000);	
-	setup_bootmem_node(nid++, 0x15df0000, 0x15e10000);	
+	/* XXX: Not yet.. */
+	setup_bootmem_node(nid++, 0x14df0000, 0x14e10000);	/* CPU1 */
+	setup_bootmem_node(nid++, 0x155f0000, 0x15610000);	/* CPU2 */
+	setup_bootmem_node(nid++, 0x15df0000, 0x15e10000);	/* CPU3 */
 #endif
 
-	setup_bootmem_node(nid++, 0x16000000, 0x16020000);	
+	setup_bootmem_node(nid++, 0x16000000, 0x16020000);	/* CSM */
 }

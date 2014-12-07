@@ -25,10 +25,15 @@
 	do { if (0) printk(fmt, ##a); } while (0)
 #endif
 
+/* u64 has problems with printk this will cast it to unsigned long long */
 #define _LLU(x) (unsigned long long)(x)
 
 #define ORE_DBGMSG2(M...) do {} while (0)
+/* #define ORE_DBGMSG2 ORE_DBGMSG */
 
+/* Calculate the component order in a stripe. eg the logical data unit
+ * address within the stripe of @dev given the @par_dev of this stripe.
+ */
 static inline unsigned _dev_order(unsigned devs_in_group, unsigned mirrors_p1,
 				  unsigned par_dev, unsigned dev)
 {
@@ -37,13 +42,14 @@ static inline unsigned _dev_order(unsigned devs_in_group, unsigned mirrors_p1,
 	dev -= first_dev;
 	par_dev -= first_dev;
 
-	if (devs_in_group == par_dev) 
+	if (devs_in_group == par_dev) /* The raid 0 case */
 		return dev / mirrors_p1;
-	
+	/* raid4/5/6 case */
 	return ((devs_in_group + dev - par_dev - mirrors_p1) % devs_in_group) /
 	       mirrors_p1;
 }
 
+/* ios_raid.c stuff needed by ios.c */
 int _ore_post_alloc_raid_stuff(struct ore_io_state *ios);
 void _ore_free_raid_stuff(struct ore_io_state *ios);
 
@@ -56,11 +62,12 @@ void _ore_add_stripe_page(struct __stripe_pages_2d *sp2d,
 static inline void _add_stripe_page(struct __stripe_pages_2d *sp2d,
 				struct ore_striping_info *si, struct page *page)
 {
-	if (!sp2d) 
-		return; 
+	if (!sp2d) /* Inline the fast path */
+		return; /* Hay no raid stuff */
 	_ore_add_stripe_page(sp2d, si, page);
 }
 
+/* ios.c stuff needed by ios_raid.c */
 int  _ore_get_io_state(struct ore_layout *layout,
 			struct ore_components *oc, unsigned numdevs,
 			unsigned sgs_per_dev, unsigned num_par_pages,

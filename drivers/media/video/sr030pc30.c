@@ -30,6 +30,10 @@ module_param(debug, int, 0644);
 
 #define MODULE_NAME	"SR030PC30"
 
+/*
+ * Register offsets within a page
+ * b15..b8 - page id, b7..b0 - register address
+ */
 #define POWER_CTRL_REG		0x0001
 #define PAGEMODE_REG		0x03
 #define DEVICE_ID_REG		0x0004
@@ -53,6 +57,7 @@ module_param(debug, int, 0644);
 #define HBLANKL_REG		0x0041
 #define VSYNCH_REG		0x0042
 #define VSYNCL_REG		0x0043
+/* page 10 */
 #define ISP_CTL_REG(n)		(0x1010 + (n))
 #define YOFS_REG		0x1040
 #define DARK_YOFS_REG		0x1041
@@ -61,31 +66,40 @@ module_param(debug, int, 0644);
 #define BSAT_REG		0x1061
 #define RSAT_REG		0x1062
 #define AG_SAT_TH_REG		0x1063
+/* page 11 */
 #define ZLPF_CTRL_REG		0x1110
 #define ZLPF_CTRL2_REG		0x1112
 #define ZLPF_AGH_THR_REG	0x1121
 #define ZLPF_THR_REG		0x1160
 #define ZLPF_DYN_THR_REG	0x1160
+/* page 12 */
 #define YCLPF_CTL1_REG		0x1240
 #define YCLPF_CTL2_REG		0x1241
 #define YCLPF_THR_REG		0x1250
 #define BLPF_CTL_REG		0x1270
 #define BLPF_THR1_REG		0x1274
 #define BLPF_THR2_REG		0x1275
+/* page 14 - Lens Shading Compensation */
 #define LENS_CTRL_REG		0x1410
 #define LENS_XCEN_REG		0x1420
 #define LENS_YCEN_REG		0x1421
 #define LENS_R_COMP_REG		0x1422
 #define LENS_G_COMP_REG		0x1423
 #define LENS_B_COMP_REG		0x1424
+/* page 15 - Color correction */
 #define CMC_CTL_REG		0x1510
 #define CMC_OFSGH_REG		0x1514
 #define CMC_OFSGL_REG		0x1516
 #define CMC_SIGN_REG		0x1517
+/* Color correction coefficients */
 #define CMC_COEF_REG(n)		(0x1530 + (n))
+/* Color correction offset coefficients */
 #define CMC_OFS_REG(n)		(0x1540 + (n))
+/* page 16 - Gamma correction */
 #define GMA_CTL_REG		0x1610
+/* Gamma correction coefficients 0.14 */
 #define GMA_COEF_REG(n)		(0x1630 + (n))
+/* page 20 - Auto Exposure */
 #define AE_CTL1_REG		0x2010
 #define AE_CTL2_REG		0x2011
 #define AE_FRM_CTL_REG		0x2020
@@ -98,10 +112,12 @@ module_param(debug, int, 0644);
 #define EXP_MMAXH_REG		0x2088
 #define EXP_MMAXM_REG		0x2089
 #define EXP_MMAXL_REG		0x208A
+/* page 22 - Auto White Balance */
 #define AWB_CTL1_REG		0x2210
 #define AWB_ENABLE		0x80
 #define AWB_CTL2_REG		0x2211
 #define MWB_ENABLE		0x01
+/* RGB gain control (manual WB) when AWB_CTL1[7]=0 */
 #define AWB_RGAIN_REG		0x2280
 #define AWB_GGAIN_REG		0x2281
 #define AWB_BGAIN_REG		0x2282
@@ -109,14 +125,18 @@ module_param(debug, int, 0644);
 #define AWB_RMIN_REG		0x2284
 #define AWB_BMAX_REG		0x2285
 #define AWB_BMIN_REG		0x2286
+/* R, B gain range in bright light conditions */
 #define AWB_RMAXB_REG		0x2287
 #define AWB_RMINB_REG		0x2288
 #define AWB_BMAXB_REG		0x2289
 #define AWB_BMINB_REG		0x228A
+/* manual white balance, when AWB_CTL2[0]=1 */
 #define MWB_RGAIN_REG		0x22B2
 #define MWB_BGAIN_REG		0x22B3
+/* the token to mark an array end */
 #define REG_TERM		0xFFFF
 
+/* Minimum and maximum exposure time in ms */
 #define EXPOS_MIN_MS		1
 #define EXPOS_MAX_MS		125
 
@@ -199,6 +219,7 @@ static const struct v4l2_queryctrl sr030pc30_ctrl[] = {
 	}
 };
 
+/* supported resolutions */
 static const struct sr030pc30_frmsize sr030pc30_sizes[] = {
 	{
 		.width		= 640,
@@ -215,6 +236,7 @@ static const struct sr030pc30_frmsize sr030pc30_sizes[] = {
 	},
 };
 
+/* supported pixel formats */
 static const struct sr030pc30_format sr030pc30_formats[] = {
 	{
 		.code		= V4L2_MBUS_FMT_YUYV8_2X8,
@@ -240,7 +262,7 @@ static const struct sr030pc30_format sr030pc30_formats[] = {
 };
 
 static const struct i2c_regval sr030pc30_base_regs[] = {
-	
+	/* Window size and position within pixel matrix */
 	{ WIN_ROWH_REG,		0x00 }, { WIN_ROWL_REG,		0x06 },
 	{ WIN_COLH_REG,		0x00 },	{ WIN_COLL_REG,		0x06 },
 	{ WIN_HEIGHTH_REG,	0x01 }, { WIN_HEIGHTL_REG,	0xE0 },
@@ -248,7 +270,7 @@ static const struct i2c_regval sr030pc30_base_regs[] = {
 	{ HBLANKH_REG,		0x01 }, { HBLANKL_REG,		0x50 },
 	{ VSYNCH_REG,		0x00 }, { VSYNCL_REG,		0x14 },
 	{ SYNC_CTL_REG,		0 },
-	
+	/* Color corection and saturation */
 	{ ISP_CTL_REG(0),	0x30 }, { YOFS_REG,		0x80 },
 	{ DARK_YOFS_REG,	0x04 }, { AG_ABRTH_REG,		0x78 },
 	{ SAT_CTL_REG,		0x1F }, { BSAT_REG,		0x90 },
@@ -264,7 +286,7 @@ static const struct i2c_regval sr030pc30_base_regs[] = {
 	{ CMC_COEF_REG(6),	0x01 }, { CMC_OFS_REG(6),	0x00 },
 	{ CMC_COEF_REG(7),	0x34 }, { CMC_OFS_REG(7),	0x94 },
 	{ CMC_COEF_REG(8),	0x75 }, { CMC_OFS_REG(8),	0x14 },
-	
+	/* Color corection coefficients */
 	{ GMA_CTL_REG,		0x03 },	{ GMA_COEF_REG(0),	0x00 },
 	{ GMA_COEF_REG(1),	0x19 },	{ GMA_COEF_REG(2),	0x26 },
 	{ GMA_COEF_REG(3),	0x3B },	{ GMA_COEF_REG(4),	0x5D },
@@ -273,24 +295,24 @@ static const struct i2c_regval sr030pc30_base_regs[] = {
 	{ GMA_COEF_REG(9),	0xBD },	{ GMA_COEF_REG(10),	0xCA },
 	{ GMA_COEF_REG(11),	0xDD }, { GMA_COEF_REG(12),	0xEC },
 	{ GMA_COEF_REG(13),	0xF7 },	{ GMA_COEF_REG(14),	0xFF },
-	
+	/* Noise reduction, Z-LPF, YC-LPF and BLPF filters setup */
 	{ ZLPF_CTRL_REG,	0x99 }, { ZLPF_CTRL2_REG,	0x0E },
 	{ ZLPF_AGH_THR_REG,	0x29 }, { ZLPF_THR_REG,		0x0F },
 	{ ZLPF_DYN_THR_REG,	0x63 }, { YCLPF_CTL1_REG,	0x23 },
 	{ YCLPF_CTL2_REG,	0x3B }, { YCLPF_THR_REG,	0x05 },
 	{ BLPF_CTL_REG,		0x1D }, { BLPF_THR1_REG,	0x05 },
 	{ BLPF_THR2_REG,	0x04 },
-	
+	/* Automatic white balance */
 	{ AWB_CTL1_REG,		0xFB }, { AWB_CTL2_REG,		0x26 },
 	{ AWB_RMAX_REG,		0x54 }, { AWB_RMIN_REG,		0x2B },
 	{ AWB_BMAX_REG,		0x57 }, { AWB_BMIN_REG,		0x29 },
 	{ AWB_RMAXB_REG,	0x50 }, { AWB_RMINB_REG,	0x43 },
 	{ AWB_BMAXB_REG,	0x30 }, { AWB_BMINB_REG,	0x22 },
-	
+	/* Auto exposure */
 	{ AE_CTL1_REG,		0x8C }, { AE_CTL2_REG,		0x04 },
 	{ AE_FRM_CTL_REG,	0x01 }, { AE_FINE_CTL_REG(0),	0x3F },
 	{ AE_FINE_CTL_REG(1),	0xA3 }, { AE_FINE_CTL_REG(3),	0x34 },
-	
+	/* Lens shading compensation */
 	{ LENS_CTRL_REG,	0x01 }, { LENS_XCEN_REG,	0x80 },
 	{ LENS_YCEN_REG,	0x70 }, { LENS_R_COMP_REG,	0x53 },
 	{ LENS_G_COMP_REG,	0x40 }, { LENS_B_COMP_REG,	0x3e },
@@ -351,6 +373,7 @@ static inline int sr030pc30_bulk_write_reg(struct v4l2_subdev *sd,
 	return 0;
 }
 
+/* Device reset and sleep mode control */
 static int sr030pc30_pwr_ctrl(struct v4l2_subdev *sd,
 				     bool reset, bool sleep)
 {
@@ -374,7 +397,7 @@ static int sr030pc30_pwr_ctrl(struct v4l2_subdev *sd,
 static inline int sr030pc30_enable_autoexposure(struct v4l2_subdev *sd, int on)
 {
 	struct sr030pc30_info *info = to_sr030pc30(sd);
-	
+	/* auto anti-flicker is also enabled here */
 	int ret = cam_i2c_write(sd, AE_CTL1_REG, on ? 0xDC : 0x0C);
 	if (!ret)
 		info->auto_exp = on;
@@ -392,13 +415,14 @@ static int sr030pc30_set_exposure(struct v4l2_subdev *sd, int value)
 		ret = cam_i2c_write(sd, EXP_TIMEM_REG, expos >> 8 & 0xFF);
 	if (!ret)
 		ret = cam_i2c_write(sd, EXP_TIMEL_REG, expos & 0xFF);
-	if (!ret) { 
+	if (!ret) { /* Turn off AE */
 		info->exposure = value;
 		ret = sr030pc30_enable_autoexposure(sd, 0);
 	}
 	return ret;
 }
 
+/* Automatic white balance control */
 static int sr030pc30_enable_autowhitebalance(struct v4l2_subdev *sd, int on)
 {
 	struct sr030pc30_info *info = to_sr030pc30(sd);
@@ -428,6 +452,7 @@ static int sr030pc30_set_flip(struct v4l2_subdev *sd)
 	return cam_i2c_write(sd, VDO_CTL2_REG, reg | 0x80);
 }
 
+/* Configure resolution, color format and image flip */
 static int sr030pc30_set_params(struct v4l2_subdev *sd)
 {
 	struct sr030pc30_info *info = to_sr030pc30(sd);
@@ -436,7 +461,7 @@ static int sr030pc30_set_params(struct v4l2_subdev *sd)
 	if (!info->curr_win)
 		return -EINVAL;
 
-	
+	/* Configure the resolution through subsampling */
 	ret = cam_i2c_write(sd, VDO_CTL1_REG,
 			    info->curr_win->vid_ctl1);
 
@@ -449,6 +474,7 @@ static int sr030pc30_set_params(struct v4l2_subdev *sd)
 	return ret;
 }
 
+/* Find nearest matching image pixel size. */
 static int sr030pc30_try_frame_size(struct v4l2_mbus_framefmt *mf)
 {
 	unsigned int min_err = ~0;
@@ -610,6 +636,7 @@ static int sr030pc30_g_fmt(struct v4l2_subdev *sd,
 	return 0;
 }
 
+/* Return nearest media bus frame format. */
 static const struct sr030pc30_format *try_fmt(struct v4l2_subdev *sd,
 					      struct v4l2_mbus_framefmt *mf)
 {
@@ -626,6 +653,7 @@ static const struct sr030pc30_format *try_fmt(struct v4l2_subdev *sd,
 	return &sr030pc30_formats[i];
 }
 
+/* Return nearest media bus frame format. */
 static int sr030pc30_try_fmt(struct v4l2_subdev *sd,
 			     struct v4l2_mbus_framefmt *mf)
 {
@@ -673,7 +701,7 @@ static int sr030pc30_base_config(struct v4l2_subdev *sd)
 	v4l2_dbg(1, debug, sd, "%s: expmin= %lx, expmax= %lx", __func__,
 		 expmin, expmax);
 
-	
+	/* Setting up manual exposure time range */
 	ret = cam_i2c_write(sd, EXP_MMINH_REG, expmin >> 8 & 0xFF);
 	if (!ret)
 		ret = cam_i2c_write(sd, EXP_MMINL_REG, expmin & 0xFF);
@@ -699,10 +727,14 @@ static int sr030pc30_s_power(struct v4l2_subdev *sd, int on)
 		return -EINVAL;
 	}
 
+	/*
+	 * Put sensor into power sleep mode before switching off
+	 * power and disabling MCLK.
+	 */
 	if (!on)
 		sr030pc30_pwr_ctrl(sd, false, true);
 
-	
+	/* set_power controls sensor's power and clock */
 	if (pdata->set_power) {
 		ret = pdata->set_power(&client->dev, on);
 		if (ret)
@@ -739,13 +771,17 @@ static const struct v4l2_subdev_ops sr030pc30_ops = {
 	.video	= &sr030pc30_video_ops,
 };
 
+/*
+ * Detect sensor type. Return 0 if SR030PC30 was detected
+ * or -ENODEV otherwise.
+ */
 static int sr030pc30_detect(struct i2c_client *client)
 {
 	const struct sr030pc30_platform_data *pdata
 		= client->dev.platform_data;
 	int ret;
 
-	
+	/* Enable sensor's power and clock */
 	if (pdata->set_power) {
 		ret = pdata->set_power(&client->dev, 1);
 		if (ret)

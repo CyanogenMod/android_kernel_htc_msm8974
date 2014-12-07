@@ -30,6 +30,7 @@
 #define DEBUG			(0)
 #define ENABLE_DIAG_IOCTLS	(1)
 
+/* support at most 1024 set of commands */
 #define PARAM_MAX	(sizeof(char) * 6 * 1024)
 
 static struct i2c_client *this_client;
@@ -87,6 +88,10 @@ static void a1028_gpio_set_value(int gpio, int value)
 
 static void a1028_pmic_set_value(int gpio, int value)
 {
+/*
+	if (gpio >  0)
+		gpio_set_value(PM8058_GPIO_PM_TO_SYS(gpio), value);
+*/
 }
 
 static int a1028_i2c_read(char *rxData, int length)
@@ -224,10 +229,10 @@ static ssize_t a1028_bootup_init(struct file *file, struct a1028img *img)
 	}
 
 	while (retry--) {
-		
+		/* Reset A1028 chip */
 		a1028_gpio_set_value(pdata->gpio_a1028_reset, 0);
 
-		
+		/* Enable A1028 clock */
 		if (control_a1028_clk) {
 			a1028_gpio_set_value(pdata->gpio_a1028_clk, 1);
 			mdelay(1);
@@ -236,12 +241,12 @@ static ssize_t a1028_bootup_init(struct file *file, struct a1028img *img)
 			a1028_xo_clk_enable(1);
 			mdelay(1);
 		}
-		
+		/* Take out of reset */
 		a1028_gpio_set_value(pdata->gpio_a1028_reset, 1);
 
-		msleep(50); 
+		msleep(50); /* Delay before send I2C command */
 
-		
+		/* Boot Cmd to A1028 */
 		buf[0] = A1028_msg_BOOT >> 8;
 		buf[1] = A1028_msg_BOOT & 0xff;
 
@@ -252,7 +257,7 @@ static ssize_t a1028_bootup_init(struct file *file, struct a1028img *img)
 			continue;
 		}
 
-		mdelay(1); 
+		mdelay(1); /* use polling */
 		rc = a1028_i2c_read(buf, 1);
 		if (rc < 0) {
 			pr_err("%s: boot mode ack error \
@@ -288,7 +293,7 @@ static ssize_t a1028_bootup_init(struct file *file, struct a1028img *img)
 			continue;
 		}
 
-		msleep(20); 
+		msleep(20); /* Delay time before issue a Sync Cmd */
 
 		pr_info("%s: firmware loaded successfully\n", __func__);
 
@@ -303,7 +308,7 @@ static ssize_t a1028_bootup_init(struct file *file, struct a1028img *img)
 		break;
 	}
 
-	
+	/* Put A1028 into sleep mode */
 	rc = execute_cmdmsg(A100_msg_Sleep);
 	if (rc < 0) {
 		pr_err("%s: suspend error\n", __func__);
@@ -314,7 +319,7 @@ static ssize_t a1028_bootup_init(struct file *file, struct a1028img *img)
 	a1028_current_config = A1028_PATH_SUSPEND;
 
 	msleep(120);
-	
+	/* Disable A1028 clock */
 	if (control_a1028_clk)
 		a1028_gpio_set_value(pdata->gpio_a1028_clk, 0);
 	if (control_a1028_xo_clk)
@@ -556,7 +561,7 @@ static ssize_t chk_wakeup_a1028(void)
 	int rc = 0, retry = 3;
 
 	if (a1028_suspended == 1) {
-		
+		/* Enable A1028 clock */
 		if (control_a1028_clk) {
 			a1028_gpio_set_value(pdata->gpio_a1028_clk, 1);
 			mdelay(1);
@@ -585,6 +590,13 @@ wakeup_sync_err:
 	return rc;
 }
 
+/* Filter commands according to noise suppression state forced by
+ * A1028_SET_NS_STATE ioctl.
+ *
+ * For this function to operate properly, all configurations must include
+ * both A100_msg_Bypass and Mic_Config commands even if default values
+ * are selected or if Mic_Config is useless because VP is off
+ */
 int a1028_filter_vp_cmd(int cmd, int mode)
 {
 	int msg = (cmd >> 16) & 0xFFFF;
@@ -814,11 +826,11 @@ int a1028_set_config(int newid, int mode)
 	}
 	pr_info("%s: block write end\n", __func__);
 
-	
+	/* Don't need to get Ack after sending out a suspend command */
 	if (*i2c_cmds == 0x80 && *(i2c_cmds + 1) == 0x10
 		&& *(i2c_cmds + 2) == 0x00 && *(i2c_cmds + 3) == 0x01) {
 		a1028_suspended = 1;
-		
+		/* Disable A1028 clock */
 		msleep(120);
 		if (control_a1028_clk)
 			a1028_gpio_set_value(pdata->gpio_a1028_clk, 0);
@@ -875,7 +887,7 @@ rd_retry:
 						__func__);
 					return -EBUSY;
 				}
-			} else if (*index == 0xff) { 
+			} else if (*index == 0xff) { /* illegal cmd */
 				return -ENOEXEC;
 			} else if (*index == 0x80) {
 				index += 4;
@@ -910,7 +922,7 @@ int execute_cmdmsg(unsigned int msg)
 		return rc;
 	}
 
-	
+	/* We don't need to get Ack after sending out a suspend command */
 	if (msg == A100_msg_Sleep)
 		return rc;
 
@@ -918,7 +930,7 @@ int execute_cmdmsg(unsigned int msg)
 	while (retries--) {
 		rc = 0;
 
-		msleep(20); 
+		msleep(20); /* use polling */
 		memset(msgbuf, 0, sizeof(msgbuf));
 		rc = a1028_i2c_read(msgbuf, 4);
 		if (rc < 0) {
@@ -967,16 +979,16 @@ static int a1028_set_mic_state(char miccase)
 	unsigned int cmd_msg = 0;
 
 	switch (miccase) {
-	case 1: 
+	case 1: /* Mic-1 ON / Mic-2 OFF */
 		cmd_msg = 0x80260007;
 		break;
-	case 2: 
+	case 2: /* Mic-1 OFF / Mic-2 ON */
 		cmd_msg = 0x80260015;
 		break;
-	case 3: 
+	case 3: /* both ON */
 		cmd_msg = 0x80260001;
 		break;
-	case 4: 
+	case 4: /* both OFF */
 		cmd_msg = 0x80260006;
 		break;
 	default:
@@ -1006,7 +1018,7 @@ static int exe_cmd_in_file(unsigned char *incmd)
 		pr_err("%s: cmd %08x error %d\n", __func__, cmd_msg, rc);
 	return rc;
 }
-#endif 
+#endif /* ENABLE_DIAG_IOCTLS */
 
 static long
 a1028_ioctl(struct file *file, unsigned int cmd,
@@ -1148,7 +1160,7 @@ a1028_ioctl(struct file *file, unsigned int cmd,
 			return -EFAULT;
 		rc = exe_cmd_in_file(msg);
 		break;
-#endif 
+#endif /* ENABLE_DIAG_IOCTLS */
 	default:
 		pr_err("%s: invalid command %d\n", __func__, _IOC_NR(cmd));
 		rc = -EINVAL;

@@ -80,15 +80,15 @@ nvc0_copy_context_del(struct nouveau_channel *chan, int engine)
 	inst  = (chan->ramin->vinst >> 12);
 	inst |= 0x40000000;
 
-	
+	/* disable fifo access */
 	nv_wr32(dev, pcopy->fuc + 0x048, 0x00000000);
-	
+	/* mark channel as unloaded if it's currently active */
 	if (nv_rd32(dev, pcopy->fuc + 0x050) == inst)
 		nv_mask(dev, pcopy->fuc + 0x050, 0x40000000, 0x00000000);
-	
+	/* mark next channel as invalid if it's about to be loaded */
 	if (nv_rd32(dev, pcopy->fuc + 0x054) == inst)
 		nv_mask(dev, pcopy->fuc + 0x054, 0x40000000, 0x00000000);
-	
+	/* restore fifo access */
 	nv_wr32(dev, pcopy->fuc + 0x048, 0x00000003);
 
 	nv_wo32(chan->ramin, pcopy->ctx + 0, 0x00000000);
@@ -121,8 +121,8 @@ nvc0_copy_init(struct drm_device *dev, int engine)
 
 	nv_wr32(dev, pcopy->fuc + 0x084, engine - NVOBJ_ENGINE_COPY0);
 	nv_wr32(dev, pcopy->fuc + 0x10c, 0x00000000);
-	nv_wr32(dev, pcopy->fuc + 0x104, 0x00000000); 
-	nv_wr32(dev, pcopy->fuc + 0x100, 0x00000002); 
+	nv_wr32(dev, pcopy->fuc + 0x104, 0x00000000); /* ENTRY */
+	nv_wr32(dev, pcopy->fuc + 0x100, 0x00000002); /* TRIGGER */
 	return 0;
 }
 
@@ -133,7 +133,7 @@ nvc0_copy_fini(struct drm_device *dev, int engine, bool suspend)
 
 	nv_mask(dev, pcopy->fuc + 0x048, 0x00000003, 0x00000000);
 
-	
+	/* trigger fuc context unload */
 	nv_wait(dev, pcopy->fuc + 0x008, 0x0000000c, 0x00000000);
 	nv_mask(dev, pcopy->fuc + 0x054, 0x40000000, 0x00000000);
 	nv_wr32(dev, pcopy->fuc + 0x000, 0x00000008);

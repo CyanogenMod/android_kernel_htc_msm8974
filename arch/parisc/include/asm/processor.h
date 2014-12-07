@@ -18,13 +18,17 @@
 #include <asm/types.h>
 #include <asm/percpu.h>
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #define KERNEL_STACK_SIZE 	(4*PAGE_SIZE)
 
+/*
+ * Default implementation of macro that returns current
+ * instruction pointer ("program counter").
+ */
 #ifdef CONFIG_PA20
 #define current_ia(x)	__asm__("mfia %0" : "=r"(x))
-#else 
+#else /* mfia added in pa2.0 */
 #define current_ia(x)	__asm__("blr 0,%0\n\tnop" : "=r"(x))
 #endif
 #define current_text_addr() ({ void *pc; current_ia(pc); pc; })
@@ -46,6 +50,8 @@
 
 #ifdef __KERNEL__
 
+/* XXX: STACK_TOP actually should be STACK_BOTTOM for parisc.
+ * prumpf */
 
 #define STACK_TOP	TASK_SIZE
 #define STACK_TOP_MAX	DEFAULT_TASK_SIZE
@@ -54,6 +60,12 @@
 
 #ifndef __ASSEMBLY__
 
+/*
+ * Data detected about CPUs at boot time which is the same for all CPU's.
+ * HP boxes are SMP - ie identical processors.
+ *
+ * FIXME: some CPU rev info may be processor specific...
+ */
 struct system_cpuinfo_parisc {
 	unsigned int	cpu_count;
 	unsigned int	cpu_hz;
@@ -66,29 +78,30 @@ struct system_cpuinfo_parisc {
 		unsigned long versions;
 		unsigned long cpuid;
 		unsigned long capabilities;
-		char   sys_model_name[81]; 
+		char   sys_model_name[81]; /* PDC-ROM returnes this model name */
 	} pdc;
 
-	const char	*cpu_name;	
-	const char	*family_name;	
+	const char	*cpu_name;	/* e.g. "PA7300LC (PCX-L2)" */
+	const char	*family_name;	/* e.g. "1.1e" */
 };
 
 
+/* Per CPU data structure - ie varies per CPU.  */
 struct cpuinfo_parisc {
-	unsigned long it_value;     
-	unsigned long it_delta;     
-	unsigned long irq_count;    
-	unsigned long irq_max_cr16; 
-	unsigned long cpuid;        
-	unsigned long hpa;          
-	unsigned long txn_addr;     
+	unsigned long it_value;     /* Interval Timer at last timer Intr */
+	unsigned long it_delta;     /* Interval delta (tic_10ms / HZ * 100) */
+	unsigned long irq_count;    /* number of IRQ's since boot */
+	unsigned long irq_max_cr16; /* longest time to handle a single IRQ */
+	unsigned long cpuid;        /* aka slot_number or set to NO_PROC_ID */
+	unsigned long hpa;          /* Host Physical address */
+	unsigned long txn_addr;     /* MMIO addr of EIR or id_eid */
 #ifdef CONFIG_SMP
-	unsigned long pending_ipi;  
-	unsigned long ipi_count;    
+	unsigned long pending_ipi;  /* bitmap of type ipi_message_type */
+	unsigned long ipi_count;    /* number ipi Interrupts */
 #endif
-	unsigned long bh_count;     
-	unsigned long prof_counter; 
-	unsigned long prof_multiplier;	
+	unsigned long bh_count;     /* number of times bh was invoked */
+	unsigned long prof_counter; /* per CPU profiling support */
+	unsigned long prof_multiplier;	/* per CPU profiling support */
 	unsigned long fp_rev;
 	unsigned long fp_model;
 	unsigned int state;
@@ -116,9 +129,10 @@ struct thread_struct {
 
 #define task_pt_regs(tsk) ((struct pt_regs *)&((tsk)->thread.regs))
 
-#define PARISC_UAC_NOPRINT	(1UL << 0)	
+/* Thread struct flags. */
+#define PARISC_UAC_NOPRINT	(1UL << 0)	/* see prctl and unaligned.c */
 #define PARISC_UAC_SIGBUS	(1UL << 1)
-#define PARISC_KERNEL_DEATH	(1UL << 31)	
+#define PARISC_KERNEL_DEATH	(1UL << 31)	/* see die_if_kernel()... */
 
 #define PARISC_UAC_SHIFT	0
 #define PARISC_UAC_MASK		(PARISC_UAC_NOPRINT|PARISC_UAC_SIGBUS)
@@ -150,18 +164,36 @@ struct thread_struct {
 	.flags		= 0 \
 	}
 
+/*
+ * Return saved PC of a blocked thread.  This is used by ps mostly.
+ */
 
 struct task_struct;
 unsigned long thread_saved_pc(struct task_struct *t);
 void show_trace(struct task_struct *task, unsigned long *stack);
 
+/*
+ * Start user thread in another space.
+ *
+ * Note that we set both the iaoq and r31 to the new pc. When
+ * the kernel initially calls execve it will return through an
+ * rfi path that will use the values in the iaoq. The execve
+ * syscall path will return through the gateway page, and
+ * that uses r31 to branch to.
+ *
+ * For ELF we clear r23, because the dynamic linker uses it to pass
+ * the address of the finalizer function.
+ *
+ * We also initialize sr3 to an illegal value (illegal for our
+ * implementation, not for the architecture).
+ */
 typedef unsigned int elf_caddr_t;
 
 #define start_thread_som(regs, new_pc, new_sp) do {	\
 	unsigned long *sp = (unsigned long *)new_sp;	\
 	__u32 spaceid = (__u32)current->mm->context;	\
 	unsigned long pc = (unsigned long)new_pc;	\
-				\
+	/* offset pc for priv. level */			\
 	pc |= 3;					\
 							\
 	regs->iasq[0] = spaceid;			\
@@ -184,6 +216,75 @@ typedef unsigned int elf_caddr_t;
 	get_user(regs->gr[23],&sp[-3]); 		\
 } while(0)
 
+/* The ELF abi wants things done a "wee bit" differently than
+ * som does.  Supporting this behavior here avoids
+ * having our own version of create_elf_tables.
+ *
+ * Oh, and yes, that is not a typo, we are really passing argc in r25
+ * and argv in r24 (rather than r26 and r25).  This is because that's
+ * where __libc_start_main wants them.
+ *
+ * Duplicated from dl-machine.h for the benefit of readers:
+ *
+ *  Our initial stack layout is rather different from everyone else's
+ *  due to the unique PA-RISC ABI.  As far as I know it looks like
+ *  this:
+
+   -----------------------------------  (user startup code creates this frame)
+   |         32 bytes of magic       |
+   |---------------------------------|
+   | 32 bytes argument/sp save area  |
+   |---------------------------------| (bprm->p)
+   |	    ELF auxiliary info	     |
+   |         (up to 28 words)        |
+   |---------------------------------|
+   |		   NULL		     |
+   |---------------------------------|
+   |	   Environment pointers	     |
+   |---------------------------------|
+   |		   NULL		     |
+   |---------------------------------|
+   |        Argument pointers        |
+   |---------------------------------| <- argv
+   |          argc (1 word)          |
+   |---------------------------------| <- bprm->exec (HACK!)
+   |         N bytes of slack        |
+   |---------------------------------|
+   |	filename passed to execve    |
+   |---------------------------------| (mm->env_end)
+   |           env strings           |
+   |---------------------------------| (mm->env_start, mm->arg_end)
+   |           arg strings           |
+   |---------------------------------|
+   | additional faked arg strings if |
+   | we're invoked via binfmt_script |
+   |---------------------------------| (mm->arg_start)
+   stack base is at TASK_SIZE - rlim_max.
+
+on downward growing arches, it looks like this:
+   stack base at TASK_SIZE
+   | filename passed to execve
+   | env strings
+   | arg strings
+   | faked arg strings
+   | slack
+   | ELF
+   | envps
+   | argvs
+   | argc
+
+ *  The pleasant part of this is that if we need to skip arguments we
+ *  can just decrement argc and move argv, because the stack pointer
+ *  is utterly unrelated to the location of the environment and
+ *  argument vectors.
+ *
+ * Note that the S/390 people took the easy way out and hacked their
+ * GCC to make the stack grow downwards.
+ *
+ * Final Note: For entry from syscall, the W (wide) bit of the PSW
+ * is stuffed into the lowest bit of the user sp (%r30), so we fill
+ * it in here from the current->personality
+ */
 
 #ifdef CONFIG_64BIT
 #define USER_WIDE_MODE	(!test_thread_flag(TIF_32BIT))
@@ -223,9 +324,11 @@ typedef unsigned int elf_caddr_t;
 struct task_struct;
 struct mm_struct;
 
+/* Free all resources held by a thread. */
 extern void release_thread(struct task_struct *);
 extern int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags);
 
+/* Prepare to copy thread state - unlazy all lazy status */
 #define prepare_to_copy(tsk)	do { } while (0)
 
 extern void map_hpux_gateway_page(struct task_struct *tsk, struct mm_struct *mm);
@@ -237,6 +340,9 @@ extern unsigned long get_wchan(struct task_struct *p);
 
 #define cpu_relax()	barrier()
 
+/* Used as a macro to identify the combined VIPT/PIPT cached
+ * CPUs which require a guarantee of coherency (no inequivalent
+ * aliases with different data, whether clean or not) to operate */
 static inline int parisc_requires_coherency(void)
 {
 #ifdef CONFIG_PA8X00
@@ -247,6 +353,6 @@ static inline int parisc_requires_coherency(void)
 #endif
 }
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* __ASM_PARISC_PROCESSOR_H */

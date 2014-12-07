@@ -34,6 +34,7 @@ static void stub_free_priv_and_urb(struct stub_priv *priv)
 	usb_free_urb(urb);
 }
 
+/* be in spin_lock_irqsave(&sdev->priv_lock, flags) */
 void stub_enqueue_ret_unlink(struct stub_device *sdev, __u32 seqnum,
 			     __u32 status)
 {
@@ -52,6 +53,15 @@ void stub_enqueue_ret_unlink(struct stub_device *sdev, __u32 seqnum,
 	list_add_tail(&unlink->list, &sdev->unlink_tx);
 }
 
+/**
+ * stub_complete - completion handler of a usbip urb
+ * @urb: pointer to the urb completed
+ *
+ * When a urb has completed, the USB core driver calls this function mostly in
+ * the interrupt context. To return the result of a urb, the completed urb is
+ * linked to the pending list of returning.
+ *
+ */
 void stub_complete(struct urb *urb)
 {
 	struct stub_priv *priv = (struct stub_priv *) urb->context;
@@ -62,7 +72,7 @@ void stub_complete(struct urb *urb)
 
 	switch (urb->status) {
 	case 0:
-		
+		/* OK */
 		break;
 	case -ENOENT:
 		dev_info(&urb->dev->dev, "stopped by a call to usb_kill_urb() "
@@ -85,7 +95,7 @@ void stub_complete(struct urb *urb)
 		break;
 	}
 
-	
+	/* link a urb to the queue of tx. */
 	spin_lock_irqsave(&sdev->priv_lock, flags);
 	if (priv->unlinking) {
 		stub_enqueue_ret_unlink(sdev, priv->seqnum, urb->status);
@@ -95,7 +105,7 @@ void stub_complete(struct urb *urb)
 	}
 	spin_unlock_irqrestore(&sdev->priv_lock, flags);
 
-	
+	/* wake up tx_thread */
 	wake_up(&sdev->tx_waitq);
 }
 
@@ -178,11 +188,11 @@ static int stub_send_ret_submit(struct stub_device *sdev)
 
 		iovnum = 0;
 
-		
+		/* 1. setup usbip_header */
 		setup_ret_submit_pdu(&pdu_header, urb);
 		usbip_dbg_stub_tx("setup txdata seqnum: %d urb: %p\n",
 				  pdu_header.base.seqnum, urb);
-		
+		/*usbip_dump_header(pdu_header);*/
 		usbip_header_correct_endian(&pdu_header, 1);
 
 		iov[iovnum].iov_base = &pdu_header;
@@ -190,7 +200,7 @@ static int stub_send_ret_submit(struct stub_device *sdev)
 		iovnum++;
 		txsize += sizeof(pdu_header);
 
-		
+		/* 2. setup transfer buffer */
 		if (usb_pipein(urb->pipe) &&
 		    usb_pipetype(urb->pipe) != PIPE_ISOCHRONOUS &&
 		    urb->actual_length > 0) {
@@ -200,6 +210,13 @@ static int stub_send_ret_submit(struct stub_device *sdev)
 			txsize += urb->actual_length;
 		} else if (usb_pipein(urb->pipe) &&
 			   usb_pipetype(urb->pipe) == PIPE_ISOCHRONOUS) {
+			/*
+			 * For isochronous packets: actual length is the sum of
+			 * the actual length of the individual, packets, but as
+			 * the packet offsets are not changed there will be
+			 * padding between the packets. To optimally use the
+			 * bandwidth the padding is not transmitted.
+			 */
 
 			int i;
 			for (i = 0; i < urb->number_of_packets; i++) {
@@ -224,7 +241,7 @@ static int stub_send_ret_submit(struct stub_device *sdev)
 			}
 		}
 
-		
+		/* 3. setup iso_packet_descriptor */
 		if (usb_pipetype(urb->pipe) == PIPE_ISOCHRONOUS) {
 			ssize_t len = 0;
 
@@ -309,7 +326,7 @@ static int stub_send_ret_unlink(struct stub_device *sdev)
 
 		usbip_dbg_stub_tx("setup ret unlink %lu\n", unlink->seqnum);
 
-		
+		/* 1. setup usbip_header */
 		setup_ret_unlink_pdu(&pdu_header, unlink);
 		usbip_header_correct_endian(&pdu_header, 1);
 
@@ -352,6 +369,20 @@ int stub_tx_loop(void *data)
 		if (usbip_event_happened(ud))
 			break;
 
+		/*
+		 * send_ret_submit comes earlier than send_ret_unlink.  stub_rx
+		 * looks at only priv_init queue. If the completion of a URB is
+		 * earlier than the receive of CMD_UNLINK, priv is moved to
+		 * priv_tx queue and stub_rx does not find the target priv. In
+		 * this case, vhci_rx receives the result of the submit request
+		 * and then receives the result of the unlink request. The
+		 * result of the submit is given back to the usbcore as the
+		 * completion of the unlink request. The request of the
+		 * unlink is ignored. This is ok because a driver who calls
+		 * usb_unlink_urb() understands the unlink was too late by
+		 * getting the status of the given-backed URB which has the
+		 * status of usb_submit_urb().
+		 */
 		if (stub_send_ret_submit(sdev) < 0)
 			break;
 

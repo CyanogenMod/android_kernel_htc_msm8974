@@ -56,6 +56,10 @@ struct async_aes_ctx {
 	struct cryptd_ablkcipher *cryptd_tfm;
 };
 
+/* This data is stored at the end of the crypto_tfm struct.
+ * It's a type of per "session" data storage location.
+ * This needs to be 16 byte aligned.
+ */
 struct aesni_rfc4106_gcm_ctx {
 	u8 hash_subkey[16];
 	struct crypto_aes_ctx aes_key_expanded;
@@ -100,11 +104,43 @@ void crypto_fpu_exit(void);
 asmlinkage void aesni_ctr_enc(struct crypto_aes_ctx *ctx, u8 *out,
 			      const u8 *in, unsigned int len, u8 *iv);
 
+/* asmlinkage void aesni_gcm_enc()
+ * void *ctx,  AES Key schedule. Starts on a 16 byte boundary.
+ * u8 *out, Ciphertext output. Encrypt in-place is allowed.
+ * const u8 *in, Plaintext input
+ * unsigned long plaintext_len, Length of data in bytes for encryption.
+ * u8 *iv, Pre-counter block j0: 4 byte salt (from Security Association)
+ *         concatenated with 8 byte Initialisation Vector (from IPSec ESP
+ *         Payload) concatenated with 0x00000001. 16-byte aligned pointer.
+ * u8 *hash_subkey, the Hash sub key input. Data starts on a 16-byte boundary.
+ * const u8 *aad, Additional Authentication Data (AAD)
+ * unsigned long aad_len, Length of AAD in bytes. With RFC4106 this
+ *          is going to be 8 or 12 bytes
+ * u8 *auth_tag, Authenticated Tag output.
+ * unsigned long auth_tag_len), Authenticated Tag Length in bytes.
+ *          Valid values are 16 (most likely), 12 or 8.
+ */
 asmlinkage void aesni_gcm_enc(void *ctx, u8 *out,
 			const u8 *in, unsigned long plaintext_len, u8 *iv,
 			u8 *hash_subkey, const u8 *aad, unsigned long aad_len,
 			u8 *auth_tag, unsigned long auth_tag_len);
 
+/* asmlinkage void aesni_gcm_dec()
+ * void *ctx, AES Key schedule. Starts on a 16 byte boundary.
+ * u8 *out, Plaintext output. Decrypt in-place is allowed.
+ * const u8 *in, Ciphertext input
+ * unsigned long ciphertext_len, Length of data in bytes for decryption.
+ * u8 *iv, Pre-counter block j0: 4 byte salt (from Security Association)
+ *         concatenated with 8 byte Initialisation Vector (from IPSec ESP
+ *         Payload) concatenated with 0x00000001. 16-byte aligned pointer.
+ * u8 *hash_subkey, the Hash sub key input. Data starts on a 16-byte boundary.
+ * const u8 *aad, Additional Authentication Data (AAD)
+ * unsigned long aad_len, Length of AAD in bytes. With RFC4106 this is going
+ * to be 8 or 12 bytes
+ * u8 *auth_tag, Authenticated Tag output.
+ * unsigned long auth_tag_len) Authenticated Tag Length in bytes.
+ * Valid values are 16 (most likely), 12 or 8.
+ */
 asmlinkage void aesni_gcm_dec(void *ctx, u8 *out,
 			const u8 *in, unsigned long ciphertext_len, u8 *iv,
 			u8 *hash_subkey, const u8 *aad, unsigned long aad_len,
@@ -863,8 +899,8 @@ rfc4106_set_hash_subkey(u8 *hash_subkey, const u8 *key, unsigned int key_len)
 
 	memset(req_data->iv, 0, sizeof(req_data->iv));
 
-	
-	
+	/* Clear the data in the hash sub key container to zero.*/
+	/* We want to cipher all zeros to create the hash sub key. */
 	memset(hash_subkey, 0, RFC4106_HASH_SUBKEY_SIZE);
 
 	init_completion(&req_data->result.completion);
@@ -908,7 +944,7 @@ static int rfc4106_set_key(struct crypto_aead *parent, const u8 *key,
 		crypto_tfm_set_flags(tfm, CRYPTO_TFM_RES_BAD_KEY_LEN);
 		return -EINVAL;
 	}
-	
+	/*Account for 4 byte nonce at the end.*/
 	key_len -= 4;
 	if (key_len != AES_KEYSIZE_128) {
 		crypto_tfm_set_flags(tfm, CRYPTO_TFM_RES_BAD_KEY_LEN);
@@ -916,12 +952,12 @@ static int rfc4106_set_key(struct crypto_aead *parent, const u8 *key,
 	}
 
 	memcpy(ctx->nonce, key + key_len, sizeof(ctx->nonce));
-	
+	/*This must be on a 16 byte boundary!*/
 	if ((unsigned long)(&(ctx->aes_key_expanded.key_enc[0])) % AESNI_ALIGN)
 		return -EINVAL;
 
 	if ((unsigned long)key % AESNI_ALIGN) {
-		
+		/*key is not aligned: use an auxuliar aligned pointer*/
 		new_key_mem = kmalloc(key_len+AESNI_ALIGN, GFP_KERNEL);
 		if (!new_key_mem)
 			return -ENOMEM;
@@ -939,7 +975,7 @@ static int rfc4106_set_key(struct crypto_aead *parent, const u8 *key,
 		ret = aesni_set_key(&(ctx->aes_key_expanded), key, key_len);
 		kernel_fpu_end();
 	}
-	
+	/*This must be on a 16 byte boundary!*/
 	if ((unsigned long)(&(ctx->hash_subkey[0])) % AESNI_ALIGN) {
 		ret = -EINVAL;
 		goto exit;
@@ -951,6 +987,8 @@ exit:
 	return ret;
 }
 
+/* This is the Integrity Check Value (aka the authentication tag length and can
+ * be 8, 12 or 16 bytes long. */
 static int rfc4106_set_authsize(struct crypto_aead *parent,
 				unsigned int authsize)
 {
@@ -1054,12 +1092,12 @@ static int __driver_rfc4106_encrypt(struct aead_request *req)
 	struct scatter_walk dst_sg_walk;
 	unsigned int i;
 
-	
-	
-	
+	/* Assuming we are supporting rfc4106 64-bit extended */
+	/* sequence numbers We need to have the AAD length equal */
+	/* to 8 or 12 bytes */
 	if (unlikely(req->assoclen != 8 && req->assoclen != 12))
 		return -EINVAL;
-	
+	/* IV below built */
 	for (i = 0; i < 4; i++)
 		*(iv+i) = ctx->nonce[i];
 	for (i = 0; i < 8; i++)
@@ -1079,7 +1117,7 @@ static int __driver_rfc4106_encrypt(struct aead_request *req)
 		}
 
 	} else {
-		
+		/* Allocate memory for src, dst, assoc */
 		src = kmalloc(req->cryptlen + auth_tag_len + req->assoclen,
 			GFP_ATOMIC);
 		if (unlikely(!src))
@@ -1136,12 +1174,12 @@ static int __driver_rfc4106_decrypt(struct aead_request *req)
 	if (unlikely((req->cryptlen < auth_tag_len) ||
 		(req->assoclen != 8 && req->assoclen != 12)))
 		return -EINVAL;
-	
-	
-	
+	/* Assuming we are supporting rfc4106 64-bit extended */
+	/* sequence numbers We need to have the AAD length */
+	/* equal to 8 or 12 bytes */
 
 	tempCipherLen = (unsigned long)(req->cryptlen - auth_tag_len);
-	
+	/* IV below built */
 	for (i = 0; i < 4; i++)
 		*(iv+i) = ctx->nonce[i];
 	for (i = 0; i < 8; i++)
@@ -1161,7 +1199,7 @@ static int __driver_rfc4106_decrypt(struct aead_request *req)
 		}
 
 	} else {
-		
+		/* Allocate memory for src, dst, assoc */
 		src = kmalloc(req->cryptlen + req->assoclen, GFP_ATOMIC);
 		if (!src)
 			return -ENOMEM;
@@ -1176,7 +1214,7 @@ static int __driver_rfc4106_decrypt(struct aead_request *req)
 		ctx->hash_subkey, assoc, (unsigned long)req->assoclen,
 		authTag, auth_tag_len);
 
-	
+	/* Compare generated tag with passed in tag. */
 	retval = memcmp(src + tempCipherLen, authTag, auth_tag_len) ?
 		-EBADMSG : 0;
 

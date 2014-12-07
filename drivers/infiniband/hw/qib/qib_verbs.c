@@ -111,6 +111,11 @@ static unsigned int ib_qib_disable_sma;
 module_param_named(disable_sma, ib_qib_disable_sma, uint, S_IWUSR | S_IRUGO);
 MODULE_PARM_DESC(disable_sma, "Disable the SMA");
 
+/*
+ * Note that it is OK to post send work requests in the SQE and ERR
+ * states; qib_do_send() will process them and generate error
+ * completions as per IB 1.2 C10-96.
+ */
 const int ib_qib_state_ops[IB_QPS_ERR + 1] = {
 	[IB_QPS_RESET] = 0,
 	[IB_QPS_INIT] = QIB_POST_RECV_OK,
@@ -136,6 +141,9 @@ static inline struct qib_ucontext *to_iucontext(struct ib_ucontext
 	return container_of(ibucontext, struct qib_ucontext, ibucontext);
 }
 
+/*
+ * Translate ib_wr_opcode into ib_wc_opcode.
+ */
 const enum ib_wc_opcode ib_qib_wc_opcode[] = {
 	[IB_WR_RDMA_WRITE] = IB_WC_RDMA_WRITE,
 	[IB_WR_RDMA_WRITE_WITH_IMM] = IB_WC_RDMA_WRITE,
@@ -146,8 +154,17 @@ const enum ib_wc_opcode ib_qib_wc_opcode[] = {
 	[IB_WR_ATOMIC_FETCH_AND_ADD] = IB_WC_FETCH_ADD
 };
 
+/*
+ * System image GUID.
+ */
 __be64 ib_qib_sys_image_guid;
 
+/**
+ * qib_copy_sge - copy data to SGE memory
+ * @ss: the SGE state
+ * @data: the data to copy
+ * @length: the length of the data
+ */
 void qib_copy_sge(struct qib_sge_state *ss, void *data, u32 length, int release)
 {
 	struct qib_sge *sge = &ss->sge;
@@ -185,6 +202,11 @@ void qib_copy_sge(struct qib_sge_state *ss, void *data, u32 length, int release)
 	}
 }
 
+/**
+ * qib_skip_sge - skip over SGE memory - XXX almost dup of prev func
+ * @ss: the SGE state
+ * @length: the number of bytes to skip
+ */
 void qib_skip_sge(struct qib_sge_state *ss, u32 length, int release)
 {
 	struct qib_sge *sge = &ss->sge;
@@ -220,12 +242,17 @@ void qib_skip_sge(struct qib_sge_state *ss, u32 length, int release)
 	}
 }
 
+/*
+ * Count the number of DMA descriptors needed to send length bytes of data.
+ * Don't modify the qib_sge_state to get the count.
+ * Return zero if any of the segments is not aligned.
+ */
 static u32 qib_count_sge(struct qib_sge_state *ss, u32 length)
 {
 	struct qib_sge *sg_list = ss->sg_list;
 	struct qib_sge sge = ss->sge;
 	u8 num_sge = ss->num_sge;
-	u32 ndesc = 1;  
+	u32 ndesc = 1;  /* count the header */
 
 	while (length) {
 		u32 len = sge.length;
@@ -263,6 +290,9 @@ static u32 qib_count_sge(struct qib_sge_state *ss, u32 length)
 	return ndesc;
 }
 
+/*
+ * Copy from the SGEs to the data buffer.
+ */
 static void qib_copy_from_sge(void *data, struct qib_sge_state *ss, u32 length)
 {
 	struct qib_sge *sge = &ss->sge;
@@ -298,6 +328,11 @@ static void qib_copy_from_sge(void *data, struct qib_sge_state *ss, u32 length)
 	}
 }
 
+/**
+ * qib_post_one_send - post one RC, UC, or UD send work request
+ * @qp: the QP to post on
+ * @wr: the work request to send
+ */
 static int qib_post_one_send(struct qib_qp *qp, struct ib_send_wr *wr)
 {
 	struct qib_swqe *wqe;
@@ -312,14 +347,19 @@ static int qib_post_one_send(struct qib_qp *qp, struct ib_send_wr *wr)
 
 	spin_lock_irqsave(&qp->s_lock, flags);
 
-	
+	/* Check that state is OK to post send. */
 	if (unlikely(!(ib_qib_state_ops[qp->state] & QIB_POST_SEND_OK)))
 		goto bail_inval;
 
-	
+	/* IB spec says that num_sge == 0 is OK. */
 	if (wr->num_sge > qp->s_max_sge)
 		goto bail_inval;
 
+	/*
+	 * Don't allow RDMA reads or atomic operations on UC or
+	 * undefined operations.
+	 * Make sure buffer is large enough to hold the result for atomics.
+	 */
 	if (wr->opcode == IB_WR_FAST_REG_MR) {
 		if (qib_fast_reg_mr(qp, wr))
 			goto bail_inval;
@@ -327,11 +367,11 @@ static int qib_post_one_send(struct qib_qp *qp, struct ib_send_wr *wr)
 		if ((unsigned) wr->opcode >= IB_WR_RDMA_READ)
 			goto bail_inval;
 	} else if (qp->ibqp.qp_type != IB_QPT_RC) {
-		
+		/* Check IB_QPT_SMI, IB_QPT_GSI, IB_QPT_UD opcode */
 		if (wr->opcode != IB_WR_SEND &&
 		    wr->opcode != IB_WR_SEND_WITH_IMM)
 			goto bail_inval;
-		
+		/* Check UD destination address PD */
 		if (qp->ibqp.pd != wr->wr.ud.ah->pd)
 			goto bail_inval;
 	} else if ((unsigned) wr->opcode > IB_WR_ATOMIC_FETCH_AND_ADD)
@@ -404,6 +444,14 @@ bail:
 	return ret;
 }
 
+/**
+ * qib_post_send - post a send on a QP
+ * @ibqp: the QP to post the send on
+ * @wr: the list of work requests to post
+ * @bad_wr: the first bad WR is put here
+ *
+ * This may be called from interrupt context.
+ */
 static int qib_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 			 struct ib_send_wr **bad_wr)
 {
@@ -418,13 +466,21 @@ static int qib_post_send(struct ib_qp *ibqp, struct ib_send_wr *wr,
 		}
 	}
 
-	
+	/* Try to do the send work in the caller's context. */
 	qib_do_send(&qp->s_work);
 
 bail:
 	return err;
 }
 
+/**
+ * qib_post_receive - post a receive on a QP
+ * @ibqp: the QP to post the receive on
+ * @wr: the WR to post
+ * @bad_wr: the first bad WR is put here
+ *
+ * This may be called from interrupt context.
+ */
 static int qib_post_receive(struct ib_qp *ibqp, struct ib_recv_wr *wr,
 			    struct ib_recv_wr **bad_wr)
 {
@@ -433,7 +489,7 @@ static int qib_post_receive(struct ib_qp *ibqp, struct ib_recv_wr *wr,
 	unsigned long flags;
 	int ret;
 
-	
+	/* Check that state is OK to post receive. */
 	if (!(ib_qib_state_ops[qp->state] & QIB_POST_RECV_OK) || !wq) {
 		*bad_wr = wr;
 		ret = -EINVAL;
@@ -478,6 +534,19 @@ bail:
 	return ret;
 }
 
+/**
+ * qib_qp_rcv - processing an incoming packet on a QP
+ * @rcd: the context pointer
+ * @hdr: the packet header
+ * @has_grh: true if the packet has a GRH
+ * @data: the packet data
+ * @tlen: the packet length
+ * @qp: the QP the packet came on
+ *
+ * This is called from qib_ib_rcv() to process an incoming packet
+ * for the given QP.
+ * Called at interrupt level.
+ */
 static void qib_qp_rcv(struct qib_ctxtdata *rcd, struct qib_ib_header *hdr,
 		       int has_grh, void *data, u32 tlen, struct qib_qp *qp)
 {
@@ -485,7 +554,7 @@ static void qib_qp_rcv(struct qib_ctxtdata *rcd, struct qib_ib_header *hdr,
 
 	spin_lock(&qp->r_lock);
 
-	
+	/* Check for valid receive state. */
 	if (!(ib_qib_state_ops[qp->state] & QIB_PROCESS_RECV_OK)) {
 		ibp->n_pkt_drops++;
 		goto unlock;
@@ -496,7 +565,7 @@ static void qib_qp_rcv(struct qib_ctxtdata *rcd, struct qib_ib_header *hdr,
 	case IB_QPT_GSI:
 		if (ib_qib_disable_sma)
 			break;
-		
+		/* FALLTHROUGH */
 	case IB_QPT_UD:
 		qib_ud_rcv(ibp, hdr, has_grh, data, tlen, qp);
 		break;
@@ -517,6 +586,16 @@ unlock:
 	spin_unlock(&qp->r_lock);
 }
 
+/**
+ * qib_ib_rcv - process an incoming packet
+ * @rcd: the context pointer
+ * @rhdr: the header of the packet
+ * @data: the packet payload
+ * @tlen: the packet length
+ *
+ * This is called from qib_kreceive() to process an incoming packet at
+ * interrupt level. Tlen is the length of the header + data + CRC in bytes.
+ */
 void qib_ib_rcv(struct qib_ctxtdata *rcd, void *rhdr, void *data, u32 tlen)
 {
 	struct qib_pportdata *ppd = rcd->ppd;
@@ -529,11 +608,11 @@ void qib_ib_rcv(struct qib_ctxtdata *rcd, void *rhdr, void *data, u32 tlen)
 	u8 opcode;
 	u16 lid;
 
-	
+	/* 24 == LRH+BTH+CRC */
 	if (unlikely(tlen < 24))
 		goto drop;
 
-	
+	/* Check for a valid destination LID (see ch. 7.11.1). */
 	lid = be16_to_cpu(hdr->lrh[1]);
 	if (lid < QIB_MULTICAST_LID_BASE) {
 		lid &= ~((1 << ppd->lmc) - 1);
@@ -541,7 +620,7 @@ void qib_ib_rcv(struct qib_ctxtdata *rcd, void *rhdr, void *data, u32 tlen)
 			goto drop;
 	}
 
-	
+	/* Check for GRH */
 	lnh = be16_to_cpu(hdr->lrh[0]) & 3;
 	if (lnh == QIB_LRH_BTH)
 		ohdr = &hdr->u.oth;
@@ -561,7 +640,7 @@ void qib_ib_rcv(struct qib_ctxtdata *rcd, void *rhdr, void *data, u32 tlen)
 	ibp->opstats[opcode & 0x7f].n_bytes += tlen;
 	ibp->opstats[opcode & 0x7f].n_packets++;
 
-	
+	/* Get the destination QP number. */
 	qp_num = be32_to_cpu(ohdr->bth[1]) & QIB_QPN_MASK;
 	if (qp_num == QIB_MULTICAST_QPN) {
 		struct qib_mcast *mcast;
@@ -575,6 +654,10 @@ void qib_ib_rcv(struct qib_ctxtdata *rcd, void *rhdr, void *data, u32 tlen)
 		ibp->n_multicast_rcv++;
 		list_for_each_entry_rcu(p, &mcast->qp_list, list)
 			qib_qp_rcv(rcd, hdr, 1, data, tlen, p->qp);
+		/*
+		 * Notify qib_multicast_detach() if it is waiting for us
+		 * to finish.
+		 */
 		if (atomic_dec_return(&mcast->refcount) <= 1)
 			wake_up(&mcast->wait);
 	} else {
@@ -604,6 +687,10 @@ drop:
 	ibp->n_pkt_drops++;
 }
 
+/*
+ * This is called from a timer to check for QPs
+ * which need kernel memory in order to send a packet.
+ */
 static void mem_timer(unsigned long data)
 {
 	struct qib_ibdev *dev = (struct qib_ibdev *) data;
@@ -706,7 +793,7 @@ static void copy_io(u32 __iomem *piobuf, struct qib_sge_state *ss,
 		if (len > ss->sge.sge_length)
 			len = ss->sge.sge_length;
 		BUG_ON(len == 0);
-		
+		/* If the source address is not aligned, try to align it. */
 		off = (unsigned long)ss->sge.vaddr & (sizeof(u32) - 1);
 		if (off) {
 			u32 *addr = (u32 *)((unsigned long)ss->sge.vaddr &
@@ -730,7 +817,7 @@ static void copy_io(u32 __iomem *piobuf, struct qib_sge_state *ss,
 				extra = 0;
 				data = 0;
 			} else {
-				
+				/* Clear unused upper bytes */
 				data |= clear_upper_bytes(v, len, extra);
 				if (len == length) {
 					last = data;
@@ -739,7 +826,7 @@ static void copy_io(u32 __iomem *piobuf, struct qib_sge_state *ss,
 				extra += len;
 			}
 		} else if (extra) {
-			
+			/* Source address is aligned. */
 			u32 *addr = (u32 *) ss->sge.vaddr;
 			int shift = extra * BITS_PER_BYTE;
 			int ushift = 32 - shift;
@@ -755,6 +842,9 @@ static void copy_io(u32 __iomem *piobuf, struct qib_sge_state *ss,
 				addr++;
 				l -= sizeof(u32);
 			}
+			/*
+			 * We still have 'extra' number of bytes leftover.
+			 */
 			if (l) {
 				u32 v = *addr;
 
@@ -770,7 +860,7 @@ static void copy_io(u32 __iomem *piobuf, struct qib_sge_state *ss,
 					extra = 0;
 					data = 0;
 				} else {
-					
+					/* Clear unused upper bytes */
 					data |= clear_upper_bytes(v, l, extra);
 					if (len == length) {
 						last = data;
@@ -785,6 +875,10 @@ static void copy_io(u32 __iomem *piobuf, struct qib_sge_state *ss,
 		} else if (len == length) {
 			u32 w;
 
+			/*
+			 * Need to round up for the last dword in the
+			 * packet.
+			 */
 			w = (len + 3) >> 2;
 			qib_pio_copy(piobuf, ss->sge.vaddr, w - 1);
 			piobuf += w - 1;
@@ -800,17 +894,17 @@ static void copy_io(u32 __iomem *piobuf, struct qib_sge_state *ss,
 			if (extra) {
 				u32 v = ((u32 *) ss->sge.vaddr)[w];
 
-				
+				/* Clear unused upper bytes */
 				data = clear_upper_bytes(v, extra, 0);
 			}
 		}
 		update_sge(ss, len);
 		length -= len;
 	}
-	
+	/* Update address before sending packet. */
 	update_sge(ss, length);
 	if (flush_wc) {
-		
+		/* must flush early everything before trigger word */
 		qib_flush_wc();
 		__raw_writel(last, piobuf);
 		/* be sure trigger word is written */
@@ -857,7 +951,7 @@ static inline struct qib_verbs_txreq *get_txreq(struct qib_ibdev *dev,
 	unsigned long flags;
 
 	spin_lock_irqsave(&dev->pending_lock, flags);
-	
+	/* assume the list non empty */
 	if (likely(!list_empty(&dev->txreq_free))) {
 		struct list_head *l = dev->txreq_free.next;
 
@@ -865,7 +959,7 @@ static inline struct qib_verbs_txreq *get_txreq(struct qib_ibdev *dev,
 		spin_unlock_irqrestore(&dev->pending_lock, flags);
 		tx = list_entry(l, struct qib_verbs_txreq, txreq.list);
 	} else {
-		
+		/* call slow path to get the extra lock */
 		spin_unlock_irqrestore(&dev->pending_lock, flags);
 		tx =  __get_txreq(dev, qp);
 	}
@@ -897,11 +991,11 @@ void qib_put_txreq(struct qib_verbs_txreq *tx)
 
 	spin_lock_irqsave(&dev->pending_lock, flags);
 
-	
+	/* Put struct back on free list */
 	list_add(&tx->txreq.list, &dev->txreq_free);
 
 	if (!list_empty(&dev->txwait)) {
-		
+		/* Wake up first QP wanting a free struct */
 		qp = list_entry(dev->txwait.next, struct qib_qp, iowait);
 		list_del_init(&qp->iowait);
 		atomic_inc(&qp->refcount);
@@ -920,6 +1014,12 @@ void qib_put_txreq(struct qib_verbs_txreq *tx)
 		spin_unlock_irqrestore(&dev->pending_lock, flags);
 }
 
+/*
+ * This is called when there are send DMA descriptors that might be
+ * available.
+ *
+ * This is called with ppd->sdma_lock held.
+ */
 void qib_verbs_sdma_desc_avail(struct qib_pportdata *ppd, unsigned avail)
 {
 	struct qib_qp *qp, *nqp;
@@ -931,7 +1031,7 @@ void qib_verbs_sdma_desc_avail(struct qib_pportdata *ppd, unsigned avail)
 	dev = &ppd->dd->verbs_dev;
 	spin_lock(&dev->pending_lock);
 
-	
+	/* Search wait list for first QP wanting DMA descriptors. */
 	list_for_each_entry_safe(qp, nqp, &dev->dmawait, iowait) {
 		if (qp->port_num != ppd->port)
 			continue;
@@ -960,6 +1060,9 @@ void qib_verbs_sdma_desc_avail(struct qib_pportdata *ppd, unsigned avail)
 	}
 }
 
+/*
+ * This is called with ppd->sdma_lock held.
+ */
 static void sdma_complete(struct qib_sdma_txreq *cookie, int status)
 {
 	struct qib_verbs_txreq *tx =
@@ -1034,7 +1137,7 @@ static int qib_verbs_send_dma(struct qib_qp *qp, struct qib_ib_header *hdr,
 	tx = qp->s_tx;
 	if (tx) {
 		qp->s_tx = NULL;
-		
+		/* resend previously constructed packet */
 		ret = qib_sdma_verbs_send(ppd, tx->ss, tx->dwords, tx);
 		goto bail;
 	}
@@ -1060,6 +1163,10 @@ static int qib_verbs_send_dma(struct qib_qp *qp, struct qib_ib_header *hdr,
 		tx->txreq.flags |= QIB_SDMA_TXREQ_F_USELARGEBUF;
 
 	if (len) {
+		/*
+		 * Don't try to DMA if it takes more descriptors than
+		 * the queue holds.
+		 */
 		ndesc = qib_count_sge(ss, len);
 		if (ndesc >= ppd->sdma_descq_cnt)
 			ndesc = 0;
@@ -1074,12 +1181,12 @@ static int qib_verbs_send_dma(struct qib_qp *qp, struct qib_ib_header *hdr,
 		tx->txreq.sg_count = ndesc;
 		tx->txreq.addr = dev->pio_hdrs_phys +
 			tx->hdr_inx * sizeof(struct qib_pio_header);
-		tx->hdr_dwords = hdrwords + 2; 
+		tx->hdr_dwords = hdrwords + 2; /* add PBC length */
 		ret = qib_sdma_verbs_send(ppd, ss, dwords, tx);
 		goto bail;
 	}
 
-	
+	/* Allocate a buffer and copy the header and payload to it. */
 	tx->hdr_dwords = plen + 1;
 	phdr = kmalloc(tx->hdr_dwords << 2, GFP_ATOMIC);
 	if (!phdr)
@@ -1113,6 +1220,10 @@ bail_tx:
 	goto bail;
 }
 
+/*
+ * If we are now in the error state, return zero to flush the
+ * send work request.
+ */
 static int no_bufs_available(struct qib_qp *qp)
 {
 	struct qib_ibdev *dev = to_idev(qp->ibqp.device);
@@ -1120,6 +1231,12 @@ static int no_bufs_available(struct qib_qp *qp)
 	unsigned long flags;
 	int ret = 0;
 
+	/*
+	 * Note that as soon as want_buffer() is called and
+	 * possibly before it returns, qib_ib_piobufavail()
+	 * could be called. Therefore, put QP on the I/O wait list before
+	 * enabling the PIO avail interrupt.
+	 */
 	spin_lock_irqsave(&qp->s_lock, flags);
 	if (ib_qib_state_ops[qp->state] & QIB_PROCESS_RECV_OK) {
 		spin_lock(&dev->pending_lock);
@@ -1171,6 +1288,11 @@ static int qib_verbs_send_pio(struct qib_qp *qp, struct qib_ib_header *ibhdr,
 
 	flush_wc = dd->flags & QIB_PIO_FLUSH_WC;
 	if (len == 0) {
+		/*
+		 * If there is just the header portion, must flush before
+		 * writing last word of header for correctness, and after
+		 * the last header word (trigger word).
+		 */
 		if (flush_wc) {
 			qib_flush_wc();
 			qib_pio_copy(piobuf, hdr, hdrwords - 1);
@@ -1187,16 +1309,16 @@ static int qib_verbs_send_pio(struct qib_qp *qp, struct qib_ib_header *ibhdr,
 	qib_pio_copy(piobuf, hdr, hdrwords);
 	piobuf += hdrwords;
 
-	
+	/* The common case is aligned and contained in one segment. */
 	if (likely(ss->num_sge == 1 && len <= ss->sge.length &&
 		   !((unsigned long)ss->sge.vaddr & (sizeof(u32) - 1)))) {
 		u32 *addr = (u32 *) ss->sge.vaddr;
 
-		
+		/* Update address before sending packet. */
 		update_sge(ss, len);
 		if (flush_wc) {
 			qib_pio_copy(piobuf, addr, dwords - 1);
-			
+			/* must flush early everything before trigger word */
 			qib_flush_wc();
 			__raw_writel(addr[dwords - 1], piobuf + dwords - 1);
 			/* be sure trigger word is written */
@@ -1229,6 +1351,17 @@ done:
 	return 0;
 }
 
+/**
+ * qib_verbs_send - send a packet
+ * @qp: the QP to send on
+ * @hdr: the packet header
+ * @hdrwords: the number of 32-bit words in the header
+ * @ss: the SGE to send
+ * @len: the length of the packet in bytes
+ *
+ * Return zero if packet is sent or queued OK.
+ * Return non-zero and clear qp->s_flags QIB_S_BUSY otherwise.
+ */
 int qib_verbs_send(struct qib_qp *qp, struct qib_ib_header *hdr,
 		   u32 hdrwords, struct qib_sge_state *ss, u32 len)
 {
@@ -1237,8 +1370,17 @@ int qib_verbs_send(struct qib_qp *qp, struct qib_ib_header *hdr,
 	int ret;
 	u32 dwords = (len + 3) >> 2;
 
+	/*
+	 * Calculate the send buffer trigger address.
+	 * The +1 counts for the pbc control dword following the pbc length.
+	 */
 	plen = hdrwords + dwords + 1;
 
+	/*
+	 * VL15 packets (IB_QPT_SMI) will always use PIO, so we
+	 * can defer SDMA restart until link goes ACTIVE without
+	 * worrying about just how we got there.
+	 */
 	if (qp->ibqp.qp_type == IB_QPT_SMI ||
 	    !(dd->flags & QIB_HAS_SEND_DMA))
 		ret = qib_verbs_send_pio(qp, hdr, hdrwords, ss, len,
@@ -1258,7 +1400,7 @@ int qib_snapshot_counters(struct qib_pportdata *ppd, u64 *swords,
 	struct qib_devdata *dd = ppd->dd;
 
 	if (!(dd->flags & QIB_PRESENT)) {
-		
+		/* no hardware, freeze, etc. */
 		ret = -EINVAL;
 		goto bail;
 	}
@@ -1274,13 +1416,20 @@ bail:
 	return ret;
 }
 
+/**
+ * qib_get_counters - get various chip counters
+ * @dd: the qlogic_ib device
+ * @cntrs: counters are placed here
+ *
+ * Return the counters needed by recv_pma_get_portcounters().
+ */
 int qib_get_counters(struct qib_pportdata *ppd,
 		     struct qib_verbs_counters *cntrs)
 {
 	int ret;
 
 	if (!(ppd->dd->flags & QIB_PRESENT)) {
-		
+		/* no hardware, freeze, etc. */
 		ret = -EINVAL;
 		goto bail;
 	}
@@ -1288,6 +1437,11 @@ int qib_get_counters(struct qib_pportdata *ppd,
 		ppd->dd->f_portcntr(ppd, QIBPORTCNTR_IBSYMBOLERR);
 	cntrs->link_error_recovery_counter =
 		ppd->dd->f_portcntr(ppd, QIBPORTCNTR_IBLINKERRRECOV);
+	/*
+	 * The link downed counter counts when the other side downs the
+	 * connection.  We add in the number of times we downed the link
+	 * due to local link integrity errors to compensate.
+	 */
 	cntrs->link_downed_counter =
 		ppd->dd->f_portcntr(ppd, QIBPORTCNTR_IBLINKDOWN);
 	cntrs->port_rcv_errors =
@@ -1329,6 +1483,14 @@ bail:
 	return ret;
 }
 
+/**
+ * qib_ib_piobufavail - callback when a PIO buffer is available
+ * @dd: the device pointer
+ *
+ * This is called from qib_intr() at interrupt level when a PIO buffer is
+ * available after qib_verbs_send() returned an error that no buffers were
+ * available. Disable the interrupt if there are no more QPs waiting.
+ */
 void qib_ib_piobufavail(struct qib_devdata *dd)
 {
 	struct qib_ibdev *dev = &dd->verbs_dev;
@@ -1341,6 +1503,12 @@ void qib_ib_piobufavail(struct qib_devdata *dd)
 	list = &dev->piowait;
 	n = 0;
 
+	/*
+	 * Note: checking that the piowait list is empty and clearing
+	 * the buffer available interrupt needs to be atomic or we
+	 * could end up with QPs on the wait list with the interrupt
+	 * disabled.
+	 */
 	spin_lock_irqsave(&dev->pending_lock, flags);
 	while (!list_empty(list)) {
 		if (n == ARRAY_SIZE(qps))
@@ -1364,7 +1532,7 @@ full:
 		}
 		spin_unlock_irqrestore(&qp->s_lock, flags);
 
-		
+		/* Notify qib_destroy_qp() if it is waiting. */
 		if (atomic_dec_and_test(&qp->refcount))
 			wake_up(&qp->wait);
 	}
@@ -1401,11 +1569,11 @@ static int qib_query_device(struct ib_device *ibdev,
 	props->max_pd = ib_qib_max_pds;
 	props->max_qp_rd_atom = QIB_MAX_RDMA_ATOMIC;
 	props->max_qp_init_rd_atom = 255;
-	
+	/* props->max_res_rd_atom */
 	props->max_srq = ib_qib_max_srqs;
 	props->max_srq_wr = ib_qib_max_srq_wrs;
 	props->max_srq_sge = ib_qib_max_srq_sges;
-	
+	/* props->local_ca_ack_delay */
 	props->atomic_cap = IB_ATOMIC_GLOB;
 	props->max_pkeys = qib_get_npkeys(dd);
 	props->max_mcast_grp = ib_qib_max_mcast_grps;
@@ -1439,7 +1607,7 @@ static int qib_query_port(struct ib_device *ibdev, u8 port,
 	props->bad_pkey_cntr = ibp->pkey_violations;
 	props->qkey_viol_cntr = ibp->qkey_violations;
 	props->active_width = ppd->link_width_active;
-	
+	/* See rate_show() */
 	props->active_speed = ppd->link_speed_active;
 	props->max_vl_num = qib_num_vls(ppd->vls_supported);
 	props->init_type_reply = 0;
@@ -1558,6 +1726,12 @@ static struct ib_pd *qib_alloc_pd(struct ib_device *ibdev,
 	struct qib_pd *pd;
 	struct ib_pd *ret;
 
+	/*
+	 * This is actually totally arbitrary.  Some correctness tests
+	 * assume there's a maximum number of PDs that can be allocated.
+	 * We don't actually have this limit, but we fail the test if
+	 * we allow allocations of more than we report for this value.
+	 */
 
 	pd = kmalloc(sizeof *pd, GFP_KERNEL);
 	if (!pd) {
@@ -1576,7 +1750,7 @@ static struct ib_pd *qib_alloc_pd(struct ib_device *ibdev,
 	dev->n_pds_allocated++;
 	spin_unlock(&dev->n_pds_lock);
 
-	
+	/* ib_alloc_pd() will initialize pd->ibpd. */
 	pd->user = udata != NULL;
 
 	ret = &pd->ibpd;
@@ -1601,7 +1775,7 @@ static int qib_dealloc_pd(struct ib_pd *ibpd)
 
 int qib_check_ah(struct ib_device *ibdev, struct ib_ah_attr *ah_attr)
 {
-	
+	/* A multicast address requires a GRH (see ch. 8.4.1). */
 	if (ah_attr->dlid >= QIB_MULTICAST_LID_BASE &&
 	    ah_attr->dlid != QIB_PERMISSIVE_LID &&
 	    !(ah_attr->ah_flags & IB_AH_GRH))
@@ -1624,6 +1798,13 @@ bail:
 	return -EINVAL;
 }
 
+/**
+ * qib_create_ah - create an address handle
+ * @pd: the protection domain
+ * @ah_attr: the attributes of the AH
+ *
+ * This may be called from interrupt context.
+ */
 static struct ib_ah *qib_create_ah(struct ib_pd *pd,
 				   struct ib_ah_attr *ah_attr)
 {
@@ -1654,7 +1835,7 @@ static struct ib_ah *qib_create_ah(struct ib_pd *pd,
 	dev->n_ahs_allocated++;
 	spin_unlock_irqrestore(&dev->n_ahs_lock, flags);
 
-	
+	/* ib_create_ah() will initialize ah->ibah. */
 	ah->attr = *ah_attr;
 	atomic_set(&ah->refcount, 0);
 
@@ -1664,6 +1845,12 @@ bail:
 	return ret;
 }
 
+/**
+ * qib_destroy_ah - destroy an address handle
+ * @ibah: the AH to destroy
+ *
+ * This may be called from interrupt context.
+ */
 static int qib_destroy_ah(struct ib_ah *ibah)
 {
 	struct qib_ibdev *dev = to_idev(ibah->device);
@@ -1703,11 +1890,19 @@ static int qib_query_ah(struct ib_ah *ibah, struct ib_ah_attr *ah_attr)
 	return 0;
 }
 
+/**
+ * qib_get_npkeys - return the size of the PKEY table for context 0
+ * @dd: the qlogic_ib device
+ */
 unsigned qib_get_npkeys(struct qib_devdata *dd)
 {
 	return ARRAY_SIZE(dd->rcd[0]->pkeys);
 }
 
+/*
+ * Return the indexed PKEY from the port PKEY table.
+ * No need to validate rcd[ctxt]; the port is setup if we are here.
+ */
 unsigned qib_get_pkey(struct qib_ibport *ibp, unsigned index)
 {
 	struct qib_pportdata *ppd = ppd_from_ibp(ibp);
@@ -1715,7 +1910,7 @@ unsigned qib_get_pkey(struct qib_ibport *ibp, unsigned index)
 	unsigned ctxt = ppd->hw_pidx;
 	unsigned ret;
 
-	
+	/* dd->rcd null if mini_init or some init failures */
 	if (!dd->rcd || index >= ARRAY_SIZE(dd->rcd[ctxt]->pkeys))
 		ret = 0;
 	else
@@ -1742,6 +1937,11 @@ bail:
 	return ret;
 }
 
+/**
+ * qib_alloc_ucontext - allocate a ucontest
+ * @ibdev: the infiniband device
+ * @udata: not used by the QLogic_IB driver
+ */
 
 static struct ib_ucontext *qib_alloc_ucontext(struct ib_device *ibdev,
 					      struct ib_udata *udata)
@@ -1773,7 +1973,7 @@ static void init_ibport(struct qib_pportdata *ppd)
 	struct qib_ibport *ibp = &ppd->ibport_data;
 
 	spin_lock_init(&ibp->lock);
-	
+	/* Set the prefix to the default value (see ch. 4.1.1) */
 	ibp->gid_prefix = IB_DEFAULT_GID_PREFIX;
 	ibp->sm_lid = be16_to_cpu(IB_LID_PERMISSIVE);
 	ibp->port_cap_flags = IB_PORT_SYS_IMAGE_GUID_SUP |
@@ -1789,7 +1989,7 @@ static void init_ibport(struct qib_pportdata *ppd)
 	ibp->pma_counter_select[3] = IB_PMA_PORT_RCV_PKTS;
 	ibp->pma_counter_select[4] = IB_PMA_PORT_XMIT_WAIT;
 
-	
+	/* Snapshot current HW counters to "clear" them. */
 	qib_get_counters(ppd, &cntrs);
 	ibp->z_symbol_error_counter = cntrs.symbol_error_counter;
 	ibp->z_link_error_recovery_counter =
@@ -1811,6 +2011,11 @@ static void init_ibport(struct qib_pportdata *ppd)
 	RCU_INIT_POINTER(ibp->qp1, NULL);
 }
 
+/**
+ * qib_register_ib_device - register our device with the infiniband core
+ * @dd: the device data structure
+ * Return the allocated qib_ibdev pointer or NULL on error.
+ */
 int qib_register_ib_device(struct qib_devdata *dd)
 {
 	struct qib_ibdev *dev = &dd->verbs_dev;
@@ -1833,7 +2038,7 @@ int qib_register_ib_device(struct qib_devdata *dd)
 	for (i = 0; i < dd->num_pports; i++)
 		init_ibport(ppd + i);
 
-	
+	/* Only need to initialize non-zero fields. */
 	spin_lock_init(&dev->qpt_lock);
 	spin_lock_init(&dev->n_pds_lock);
 	spin_lock_init(&dev->n_ahs_lock);
@@ -1847,6 +2052,11 @@ int qib_register_ib_device(struct qib_devdata *dd)
 
 	qib_init_qpn_table(dd, &dev->qpn_table);
 
+	/*
+	 * The top ib_qib_lkey_table_size bits are used to index the
+	 * table.  The lower 8 bits can be owned by the user (copied from
+	 * the LKEY).  The remaining bits act as a generation number or tag.
+	 */
 	spin_lock_init(&dev->lk_table.lock);
 	dev->lk_table.max = 1 << ib_qib_lkey_table_size;
 	lk_tab_size = dev->lk_table.max * sizeof(*dev->lk_table.table);
@@ -1891,6 +2101,11 @@ int qib_register_ib_device(struct qib_devdata *dd)
 		list_add(&tx->txreq.list, &dev->txreq_free);
 	}
 
+	/*
+	 * The system image GUID is supposed to be the same for all
+	 * IB HCAs in a single system but since there can be other
+	 * device types in the system, we can't be sure this is unique.
+	 */
 	if (!ib_qib_sys_image_guid)
 		ib_qib_sys_image_guid = ppd->guid;
 

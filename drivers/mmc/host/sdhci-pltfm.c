@@ -22,6 +22,11 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/* Supports:
+ * SDHCI platform devices
+ *
+ * Inspired by sdhci-pci.c, by Pierre Ossman
+ */
 
 #include <linux/err.h>
 #include <linux/module.h>
@@ -40,12 +45,12 @@ static bool sdhci_of_wp_inverted(struct device_node *np)
 	if (of_get_property(np, "sdhci,wp-inverted", NULL))
 		return true;
 
-	
+	/* Old device trees don't have the wp-inverted property. */
 #ifdef CONFIG_PPC
 	return machine_is(mpc837x_rdb) || machine_is(mpc837x_mds);
 #else
 	return false;
-#endif 
+#endif /* CONFIG_PPC */
 }
 
 void sdhci_get_of_property(struct platform_device *pdev)
@@ -81,7 +86,7 @@ void sdhci_get_of_property(struct platform_device *pdev)
 }
 #else
 void sdhci_get_of_property(struct platform_device *pdev) {}
-#endif 
+#endif /* CONFIG_OF */
 EXPORT_SYMBOL_GPL(sdhci_get_of_property);
 
 struct sdhci_host *sdhci_pltfm_init(struct platform_device *pdev,
@@ -102,7 +107,7 @@ struct sdhci_host *sdhci_pltfm_init(struct platform_device *pdev,
 	if (resource_size(iomem) < 0x100)
 		dev_err(&pdev->dev, "Invalid iomem size!\n");
 
-	
+	/* Some PCI-based MFD need the parent here */
 	if (pdev->dev.parent != &platform_bus && !np)
 		host = sdhci_alloc_host(pdev->dev.parent, sizeof(*pltfm_host));
 	else
@@ -216,7 +221,7 @@ const struct dev_pm_ops sdhci_pltfm_pmops = {
 	.resume		= sdhci_pltfm_resume,
 };
 EXPORT_SYMBOL_GPL(sdhci_pltfm_pmops);
-#endif	
+#endif	/* CONFIG_PM */
 
 static int __init sdhci_pltfm_drv_init(void)
 {

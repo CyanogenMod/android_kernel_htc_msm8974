@@ -68,7 +68,7 @@ static void nv_crtc_set_image_sharpening(struct drm_crtc *crtc, int level)
 	struct nv04_crtc_reg *regp = &dev_priv->mode_reg.crtc_reg[nv_crtc->index];
 
 	nv_crtc->sharpness = level;
-	if (level < 0)	
+	if (level < 0)	/* blur is in hw range 0x3f -> 0x20 */
 		level += 0x40;
 	regp->ramdac_634 = level;
 	NVWriteRAMDAC(crtc->dev, nv_crtc->index, NV_PRAMDAC_634, regp->ramdac_634);
@@ -86,6 +86,19 @@ static void nv_crtc_set_image_sharpening(struct drm_crtc *crtc, int level)
 	 | NV_PRAMDAC_PLL_COEFF_SELECT_TV_VSCLK2	\
 	 | NV_PRAMDAC_PLL_COEFF_SELECT_TV_PCLK2)
 
+/* NV4x 0x40.. pll notes:
+ * gpu pll: 0x4000 + 0x4004
+ * ?gpu? pll: 0x4008 + 0x400c
+ * vpll1: 0x4010 + 0x4014
+ * vpll2: 0x4018 + 0x401c
+ * mpll: 0x4020 + 0x4024
+ * mpll: 0x4038 + 0x403c
+ *
+ * the first register of each pair has some unknown details:
+ * bits 0-7: redirected values from elsewhere? (similar to PLL_SETUP_CONTROL?)
+ * bits 20-23: (mpll) something to do with post divider?
+ * bits 28-31: related to single stage mode? (bit 8/12)
+ */
 
 static void nv_crtc_calc_state_ext(struct drm_crtc *crtc, struct drm_display_mode * mode, int dot_clock)
 {
@@ -100,9 +113,19 @@ static void nv_crtc_calc_state_ext(struct drm_crtc *crtc, struct drm_display_mod
 	if (get_pll_limits(dev, nv_crtc->index ? PLL_VPLL1 : PLL_VPLL0, &pll_lim))
 		return;
 
-	
+	/* NM2 == 0 is used to determine single stage mode on two stage plls */
 	pv->NM2 = 0;
 
+	/* for newer nv4x the blob uses only the first stage of the vpll below a
+	 * certain clock.  for a certain nv4b this is 150MHz.  since the max
+	 * output frequency of the first stage for this card is 300MHz, it is
+	 * assumed the threshold is given by vco1 maxfreq/2
+	 */
+	/* for early nv4x, specifically nv40 and *some* nv43 (devids 0 and 6,
+	 * not 8, others unknown), the blob always uses both plls.  no problem
+	 * has yet been observed in allowing the use a single stage pll on all
+	 * nv43 however.  the behaviour of single stage use is untested on nv40
+	 */
 	if (dev_priv->chipset > 0x40 && dot_clock <= (pll_lim.vco1.maxfreq / 2))
 		memset(&pll_lim.vco2, 0, sizeof(pll_lim.vco2));
 
@@ -111,10 +134,10 @@ static void nv_crtc_calc_state_ext(struct drm_crtc *crtc, struct drm_display_mod
 
 	state->pllsel &= PLLSEL_VPLL1_MASK | PLLSEL_VPLL2_MASK | PLLSEL_TV_MASK;
 
-	
+	/* The blob uses this always, so let's do the same */
 	if (dev_priv->card_type == NV_40)
 		state->pllsel |= NV_PRAMDAC_PLL_COEFF_SELECT_USE_VPLL2_TRUE;
-	
+	/* again nv40 and some nv43 act more like nv3x as described above */
 	if (dev_priv->chipset < 0x41)
 		state->pllsel |= NV_PRAMDAC_PLL_COEFF_SELECT_SOURCE_PROG_MPLL |
 				 NV_PRAMDAC_PLL_COEFF_SELECT_SOURCE_PROG_NVPLL;
@@ -141,7 +164,7 @@ nv_crtc_dpms(struct drm_crtc *crtc, int mode)
 	NV_DEBUG_KMS(dev, "Setting dpms mode %d on CRTC %d\n", mode,
 							nv_crtc->index);
 
-	if (nv_crtc->last_dpms == mode) 
+	if (nv_crtc->last_dpms == mode) /* Don't do unnecessary mode changes. */
 		return;
 
 	nv_crtc->last_dpms = mode;
@@ -149,38 +172,38 @@ nv_crtc_dpms(struct drm_crtc *crtc, int mode)
 	if (nv_two_heads(dev))
 		NVSetOwner(dev, nv_crtc->index);
 
-	
+	/* nv4ref indicates these two RPC1 bits inhibit h/v sync */
 	crtc1A = NVReadVgaCrtc(dev, nv_crtc->index,
 					NV_CIO_CRE_RPC1_INDEX) & ~0xC0;
 	switch (mode) {
 	case DRM_MODE_DPMS_STANDBY:
-		
+		/* Screen: Off; HSync: Off, VSync: On -- Not Supported */
 		seq1 = 0x20;
 		crtc17 = 0x80;
 		crtc1A |= 0x80;
 		break;
 	case DRM_MODE_DPMS_SUSPEND:
-		
+		/* Screen: Off; HSync: On, VSync: Off -- Not Supported */
 		seq1 = 0x20;
 		crtc17 = 0x80;
 		crtc1A |= 0x40;
 		break;
 	case DRM_MODE_DPMS_OFF:
-		
+		/* Screen: Off; HSync: Off, VSync: Off */
 		seq1 = 0x20;
 		crtc17 = 0x00;
 		crtc1A |= 0xC0;
 		break;
 	case DRM_MODE_DPMS_ON:
 	default:
-		
+		/* Screen: On; HSync: On, VSync: On */
 		seq1 = 0x00;
 		crtc17 = 0x80;
 		break;
 	}
 
 	NVVgaSeqReset(dev, nv_crtc->index, true);
-	
+	/* Each head has it's own sequencer, so we can turn it off when we want */
 	seq1 |= (NVReadVgaSeq(dev, nv_crtc->index, NV_VIO_SR_CLOCK_INDEX) & ~0x20);
 	NVWriteVgaSeq(dev, nv_crtc->index, NV_VIO_SR_CLOCK_INDEX, seq1);
 	crtc17 |= (NVReadVgaCrtc(dev, nv_crtc->index, NV_CIO_CR_MODE_INDEX) & ~0x80);
@@ -207,7 +230,7 @@ nv_crtc_mode_set_vga(struct drm_crtc *crtc, struct drm_display_mode *mode)
 	struct nv04_crtc_reg *regp = &dev_priv->mode_reg.crtc_reg[nv_crtc->index];
 	struct drm_framebuffer *fb = crtc->fb;
 
-	
+	/* Calculate our timings */
 	int horizDisplay	= (mode->crtc_hdisplay >> 3)		- 1;
 	int horizStart		= (mode->crtc_hsync_start >> 3) 	+ 1;
 	int horizEnd		= (mode->crtc_hsync_end >> 3)		+ 1;
@@ -242,7 +265,7 @@ nv_crtc_mode_set_vga(struct drm_crtc *crtc, struct drm_display_mode *mode)
 		horizBlankEnd = horizTotal + 4;
 #if 0
 		if (dev->overlayAdaptor && dev_priv->card_type >= NV_10)
-			
+			/* This reportedly works around some video overlay bandwidth problems */
 			horizTotal += 2;
 #endif
 	}
@@ -265,6 +288,9 @@ nv_crtc_mode_set_vga(struct drm_crtc *crtc, struct drm_display_mode *mode)
 	ErrorF("vertBlankEnd: 0x%X \n", vertBlankEnd);
 #endif
 
+	/*
+	* compute correct Hsync & Vsync polarity
+	*/
 	if ((mode->flags & (DRM_MODE_FLAG_PHSYNC | DRM_MODE_FLAG_NHSYNC))
 		&& (mode->flags & (DRM_MODE_FLAG_PVSYNC | DRM_MODE_FLAG_NVSYNC))) {
 
@@ -280,19 +306,22 @@ nv_crtc_mode_set_vga(struct drm_crtc *crtc, struct drm_display_mode *mode)
 		if (mode->vscan > 1)
 			vdisplay *= mode->vscan;
 		if (vdisplay < 400)
-			regp->MiscOutReg = 0xA3;	
+			regp->MiscOutReg = 0xA3;	/* +hsync -vsync */
 		else if (vdisplay < 480)
-			regp->MiscOutReg = 0x63;	
+			regp->MiscOutReg = 0x63;	/* -hsync +vsync */
 		else if (vdisplay < 768)
-			regp->MiscOutReg = 0xE3;	
+			regp->MiscOutReg = 0xE3;	/* -hsync -vsync */
 		else
-			regp->MiscOutReg = 0x23;	
+			regp->MiscOutReg = 0x23;	/* +hsync +vsync */
 	}
 
 	regp->MiscOutReg |= (mode->clock_index & 0x03) << 2;
 
+	/*
+	 * Time Sequencer
+	 */
 	regp->Sequencer[NV_VIO_SR_RESET_INDEX] = 0x00;
-	
+	/* 0x20 disables the sequencer */
 	if (mode->flags & DRM_MODE_FLAG_CLKDIV2)
 		regp->Sequencer[NV_VIO_SR_CLOCK_INDEX] = 0x29;
 	else
@@ -301,6 +330,9 @@ nv_crtc_mode_set_vga(struct drm_crtc *crtc, struct drm_display_mode *mode)
 	regp->Sequencer[NV_VIO_SR_CHAR_MAP_INDEX] = 0x00;
 	regp->Sequencer[NV_VIO_SR_MEM_MODE_INDEX] = 0x0E;
 
+	/*
+	 * CRTC
+	 */
 	regp->CRTC[NV_CIO_CR_HDT_INDEX] = horizTotal;
 	regp->CRTC[NV_CIO_CR_HDE_INDEX] = horizDisplay;
 	regp->CRTC[NV_CIO_CR_HBS_INDEX] = horizBlankStart;
@@ -331,7 +363,7 @@ nv_crtc_mode_set_vga(struct drm_crtc *crtc, struct drm_display_mode *mode)
 	regp->CRTC[NV_CIO_CR_VRS_INDEX] = vertStart;
 	regp->CRTC[NV_CIO_CR_VRE_INDEX] = 1 << 5 | XLATE(vertEnd, 0, NV_CIO_CR_VRE_3_0);
 	regp->CRTC[NV_CIO_CR_VDE_INDEX] = vertDisplay;
-	
+	/* framebuffer can be larger than crtc scanout area. */
 	regp->CRTC[NV_CIO_CR_OFFSET_INDEX] = fb->pitches[0] / 8;
 	regp->CRTC[NV_CIO_CR_ULINE_INDEX] = 0x00;
 	regp->CRTC[NV_CIO_CR_VBS_INDEX] = vertBlankStart;
@@ -339,8 +371,11 @@ nv_crtc_mode_set_vga(struct drm_crtc *crtc, struct drm_display_mode *mode)
 	regp->CRTC[NV_CIO_CR_MODE_INDEX] = 0x43;
 	regp->CRTC[NV_CIO_CR_LCOMP_INDEX] = 0xff;
 
+	/*
+	 * Some extended CRTC registers (they are not saved with the rest of the vga regs).
+	 */
 
-	
+	/* framebuffer can be larger than crtc scanout area. */
 	regp->CRTC[NV_CIO_CRE_RPC0_INDEX] =
 		XLATE(fb->pitches[0] / 8, 8, NV_CIO_CRE_RPC0_OFFSET_10_8);
 	regp->CRTC[NV_CIO_CRE_42] =
@@ -366,19 +401,22 @@ nv_crtc_mode_set_vga(struct drm_crtc *crtc, struct drm_display_mode *mode)
 		regp->CRTC[NV_CIO_CRE_ILACE__INDEX] = horizTotal;
 		regp->CRTC[NV_CIO_CRE_HEB__INDEX] |= XLATE(horizTotal, 8, NV_CIO_CRE_HEB_ILC_8);
 	} else
-		regp->CRTC[NV_CIO_CRE_ILACE__INDEX] = 0xff;  
+		regp->CRTC[NV_CIO_CRE_ILACE__INDEX] = 0xff;  /* interlace off */
 
+	/*
+	* Graphics Display Controller
+	*/
 	regp->Graphics[NV_VIO_GX_SR_INDEX] = 0x00;
 	regp->Graphics[NV_VIO_GX_SREN_INDEX] = 0x00;
 	regp->Graphics[NV_VIO_GX_CCOMP_INDEX] = 0x00;
 	regp->Graphics[NV_VIO_GX_ROP_INDEX] = 0x00;
 	regp->Graphics[NV_VIO_GX_READ_MAP_INDEX] = 0x00;
-	regp->Graphics[NV_VIO_GX_MODE_INDEX] = 0x40; 
-	regp->Graphics[NV_VIO_GX_MISC_INDEX] = 0x05; 
+	regp->Graphics[NV_VIO_GX_MODE_INDEX] = 0x40; /* 256 color mode */
+	regp->Graphics[NV_VIO_GX_MISC_INDEX] = 0x05; /* map 64k mem + graphic mode */
 	regp->Graphics[NV_VIO_GX_DONT_CARE_INDEX] = 0x0F;
 	regp->Graphics[NV_VIO_GX_BIT_MASK_INDEX] = 0xFF;
 
-	regp->Attribute[0]  = 0x00; 
+	regp->Attribute[0]  = 0x00; /* standard colormap translation */
 	regp->Attribute[1]  = 0x01;
 	regp->Attribute[2]  = 0x02;
 	regp->Attribute[3]  = 0x03;
@@ -394,14 +432,22 @@ nv_crtc_mode_set_vga(struct drm_crtc *crtc, struct drm_display_mode *mode)
 	regp->Attribute[13] = 0x0D;
 	regp->Attribute[14] = 0x0E;
 	regp->Attribute[15] = 0x0F;
-	regp->Attribute[NV_CIO_AR_MODE_INDEX] = 0x01; 
-	
+	regp->Attribute[NV_CIO_AR_MODE_INDEX] = 0x01; /* Enable graphic mode */
+	/* Non-vga */
 	regp->Attribute[NV_CIO_AR_OSCAN_INDEX] = 0x00;
-	regp->Attribute[NV_CIO_AR_PLANE_INDEX] = 0x0F; 
+	regp->Attribute[NV_CIO_AR_PLANE_INDEX] = 0x0F; /* enable all color planes */
 	regp->Attribute[NV_CIO_AR_HPP_INDEX] = 0x00;
 	regp->Attribute[NV_CIO_AR_CSEL_INDEX] = 0x00;
 }
 
+/**
+ * Sets up registers for the given mode/adjusted_mode pair.
+ *
+ * The clocks, CRTCs and outputs attached to this CRTC must be off.
+ *
+ * This shouldn't enable any clocks, CRTCs, or outputs, but they should
+ * be easily turned on/off after this.
+ */
 static void
 nv_crtc_mode_set_regs(struct drm_crtc *crtc, struct drm_display_mode * mode)
 {
@@ -431,18 +477,18 @@ nv_crtc_mode_set_regs(struct drm_crtc *crtc, struct drm_display_mode * mode)
 			off_chip_digital = true;
 	}
 
-	
+	/* Registers not directly related to the (s)vga mode */
 
-	
-	
+	/* What is the meaning of this register? */
+	/* A few popular values are 0x18, 0x1c, 0x38, 0x3c */
 	regp->CRTC[NV_CIO_CRE_ENH_INDEX] = savep->CRTC[NV_CIO_CRE_ENH_INDEX] & ~(1<<5);
 
 	regp->crtc_eng_ctrl = 0;
-	
+	/* Except for rare conditions I2C is enabled on the primary crtc */
 	if (nv_crtc->index == 0)
 		regp->crtc_eng_ctrl |= NV_CRTC_FSEL_I2C;
 #if 0
-	
+	/* Set overlay to desired crtc. */
 	if (dev->overlayAdaptor) {
 		NVPortPrivPtr pPriv = GET_OVERLAY_PRIVATE(dev);
 		if (pPriv->overlayCRTC == nv_crtc->index)
@@ -450,7 +496,7 @@ nv_crtc_mode_set_regs(struct drm_crtc *crtc, struct drm_display_mode * mode)
 	}
 #endif
 
-	
+	/* ADDRESS_SPACE_PNVM is the same as setting HCUR_ASI */
 	regp->cursor_cfg = NV_PCRTC_CURSOR_CONFIG_CUR_LINES_64 |
 			     NV_PCRTC_CURSOR_CONFIG_CUR_PIXELS_64 |
 			     NV_PCRTC_CURSOR_CONFIG_ADDRESS_SPACE_PNVM;
@@ -459,11 +505,11 @@ nv_crtc_mode_set_regs(struct drm_crtc *crtc, struct drm_display_mode * mode)
 	if (mode->flags & DRM_MODE_FLAG_DBLSCAN)
 		regp->cursor_cfg |= NV_PCRTC_CURSOR_CONFIG_DOUBLE_SCAN_ENABLE;
 
-	
+	/* Unblock some timings */
 	regp->CRTC[NV_CIO_CRE_53] = 0;
 	regp->CRTC[NV_CIO_CRE_54] = 0;
 
-	
+	/* 0x00 is disabled, 0x11 is lvds, 0x22 crt and 0x88 tmds */
 	if (lvds_output)
 		regp->CRTC[NV_CIO_CRE_SCRATCH3__INDEX] = 0x11;
 	else if (tmds_output)
@@ -471,19 +517,28 @@ nv_crtc_mode_set_regs(struct drm_crtc *crtc, struct drm_display_mode * mode)
 	else
 		regp->CRTC[NV_CIO_CRE_SCRATCH3__INDEX] = 0x22;
 
-	
-	
+	/* These values seem to vary */
+	/* This register seems to be used by the bios to make certain decisions on some G70 cards? */
 	regp->CRTC[NV_CIO_CRE_SCRATCH4__INDEX] = savep->CRTC[NV_CIO_CRE_SCRATCH4__INDEX];
 
 	nv_crtc_set_digital_vibrance(crtc, nv_crtc->saturation);
 
+	/* probably a scratch reg, but kept for cargo-cult purposes:
+	 * bit0: crtc0?, head A
+	 * bit6: lvds, head A
+	 * bit7: (only in X), head A
+	 */
 	if (nv_crtc->index == 0)
 		regp->CRTC[NV_CIO_CRE_4B] = savep->CRTC[NV_CIO_CRE_4B] | 0x80;
 
+	/* The blob seems to take the current value from crtc 0, add 4 to that
+	 * and reuse the old value for crtc 1 */
 	regp->CRTC[NV_CIO_CRE_TVOUT_LATENCY] = dev_priv->saved_reg.crtc_reg[0].CRTC[NV_CIO_CRE_TVOUT_LATENCY];
 	if (!nv_crtc->index)
 		regp->CRTC[NV_CIO_CRE_TVOUT_LATENCY] += 4;
 
+	/* the blob sometimes sets |= 0x10 (which is the same as setting |=
+	 * 1 << 30 on 0x60.830), for no apparent reason */
 	regp->CRTC[NV_CIO_CRE_59] = off_chip_digital;
 
 	if (dev_priv->card_type >= NV_30)
@@ -493,7 +548,7 @@ nv_crtc_mode_set_regs(struct drm_crtc *crtc, struct drm_display_mode * mode)
 	regp->crtc_834 = mode->crtc_vdisplay - 1;
 
 	if (dev_priv->card_type == NV_40)
-		
+		/* This is what the blob does */
 		regp->crtc_850 = NVReadCRTC(dev, 0, NV_PCRTC_850);
 
 	if (dev_priv->card_type >= NV_30)
@@ -504,21 +559,21 @@ nv_crtc_mode_set_regs(struct drm_crtc *crtc, struct drm_display_mode * mode)
 	else
 		regp->crtc_cfg = NV04_PCRTC_CONFIG_START_ADDRESS_HSYNC;
 
-	
+	/* Some misc regs */
 	if (dev_priv->card_type == NV_40) {
 		regp->CRTC[NV_CIO_CRE_85] = 0xFF;
 		regp->CRTC[NV_CIO_CRE_86] = 0x1;
 	}
 
 	regp->CRTC[NV_CIO_CRE_PIXEL_INDEX] = (crtc->fb->depth + 1) / 8;
-	
+	/* Enable slaved mode (called MODE_TV in nv4ref.h) */
 	if (lvds_output || tmds_output || tv_output)
 		regp->CRTC[NV_CIO_CRE_PIXEL_INDEX] |= (1 << 7);
 
-	
+	/* Generic PRAMDAC regs */
 
 	if (dev_priv->card_type >= NV_10)
-		
+		/* Only bit that bios and blob set. */
 		regp->nv10_cursync = (1 << 25);
 
 	regp->ramdac_gen_ctrl = NV_PRAMDAC_GENERAL_CONTROL_BPC_8BITS |
@@ -529,18 +584,26 @@ nv_crtc_mode_set_regs(struct drm_crtc *crtc, struct drm_display_mode * mode)
 	if (dev_priv->chipset >= 0x11)
 		regp->ramdac_gen_ctrl |= NV_PRAMDAC_GENERAL_CONTROL_PIPE_LONG;
 
-	regp->ramdac_630 = 0; 
+	regp->ramdac_630 = 0; /* turn off green mode (tv test pattern?) */
 	regp->tv_setup = 0;
 
 	nv_crtc_set_image_sharpening(crtc, nv_crtc->sharpness);
 
-	
+	/* Some values the blob sets */
 	regp->ramdac_8c0 = 0x100;
 	regp->ramdac_a20 = 0x0;
 	regp->ramdac_a24 = 0xfffff;
 	regp->ramdac_a34 = 0x1;
 }
 
+/**
+ * Sets up registers for the given mode/adjusted_mode pair.
+ *
+ * The clocks, CRTCs and outputs attached to this CRTC must be off.
+ *
+ * This shouldn't enable any clocks, CRTCs, or outputs, but they should
+ * be easily turned on/off after this.
+ */
 static int
 nv_crtc_mode_set(struct drm_crtc *crtc, struct drm_display_mode *mode,
 		 struct drm_display_mode *adjusted_mode,
@@ -553,7 +616,7 @@ nv_crtc_mode_set(struct drm_crtc *crtc, struct drm_display_mode *mode,
 	NV_DEBUG_KMS(dev, "CTRC mode on CRTC %d:\n", nv_crtc->index);
 	drm_mode_debug_printmodeline(adjusted_mode);
 
-	
+	/* unlock must come after turning off FP_TG_CONTROL in output_prepare */
 	nv_lock_vga_crtc_shadow(dev, nv_crtc->index, -1);
 
 	nv_crtc_mode_set_vga(crtc, adjusted_mode);
@@ -579,7 +642,7 @@ static void nv_crtc_save(struct drm_crtc *crtc)
 
 	nouveau_hw_save_state(crtc->dev, nv_crtc->index, saved);
 
-	
+	/* init some state to saved value */
 	state->sel_clk = saved->sel_clk & ~(0x5 << 16);
 	crtc_state->CRTC[NV_CIO_CRE_LCD__INDEX] = crtc_saved->CRTC[NV_CIO_CRE_LCD__INDEX];
 	state->pllsel = saved->pllsel & ~(PLLSEL_VPLL1_MASK | PLLSEL_VPLL2_MASK | PLLSEL_TV_MASK);
@@ -617,7 +680,7 @@ static void nv_crtc_prepare(struct drm_crtc *crtc)
 
 	NVBlankScreen(dev, nv_crtc->index, true);
 
-	
+	/* Some more preparation. */
 	NVWriteCRTC(dev, nv_crtc->index, NV_PCRTC_CONFIG, NV_PCRTC_CONFIG_START_ADDRESS_NON_VGA);
 	if (dev_priv->card_type == NV_40) {
 		uint32_t reg900 = NVReadRAMDAC(dev, nv_crtc->index, NV_PRAMDAC_900);
@@ -636,7 +699,7 @@ static void nv_crtc_commit(struct drm_crtc *crtc)
 	nv04_crtc_mode_set_base(crtc, crtc->x, crtc->y, NULL);
 
 #ifdef __BIG_ENDIAN
-	
+	/* turn on LFB swapping */
 	{
 		uint8_t tmp = NVReadVgaCrtc(dev, nv_crtc->index, NV_CIO_CRE_RCR);
 		tmp |= MASK(NV_CIO_CRE_RCR_ENDIAN_BIG);
@@ -696,6 +759,11 @@ nv_crtc_gamma_set(struct drm_crtc *crtc, u16 *r, u16 *g, u16 *b, uint32_t start,
 		nv_crtc->lut.b[i] = b[i];
 	}
 
+	/* We need to know the depth before we upload, but it's possible to
+	 * get called before a framebuffer is bound.  If this is the case,
+	 * mark the lut values as dirty by setting depth==0, and it'll be
+	 * uploaded on the first mode_set_base()
+	 */
 	if (!nv_crtc->base.fb) {
 		nv_crtc->lut.depth = 0;
 		return;
@@ -720,19 +788,26 @@ nv04_crtc_do_mode_set_base(struct drm_crtc *crtc,
 
 	NV_DEBUG_KMS(dev, "index %d\n", nv_crtc->index);
 
-	
+	/* no fb bound */
 	if (!atomic && !crtc->fb) {
 		NV_DEBUG_KMS(dev, "No FB bound\n");
 		return 0;
 	}
 
 
+	/* If atomic, we want to switch to the fb we were passed, so
+	 * now we update pointers to do that.  (We don't pin; just
+	 * assume we're already pinned and update the base address.)
+	 */
 	if (atomic) {
 		drm_fb = passed_fb;
 		fb = nouveau_framebuffer(passed_fb);
 	} else {
 		drm_fb = crtc->fb;
 		fb = nouveau_framebuffer(crtc->fb);
+		/* If not atomic, we can go ahead and pin, and unpin the
+		 * old fb we were passed.
+		 */
 		ret = nouveau_bo_pin(fb->nvbo, TTM_PL_FLAG_VRAM);
 		if (ret)
 			return ret;
@@ -750,7 +825,7 @@ nv04_crtc_do_mode_set_base(struct drm_crtc *crtc,
 		nv_crtc_gamma_load(crtc);
 	}
 
-	
+	/* Update the framebuffer format. */
 	regp->CRTC[NV_CIO_CRE_PIXEL_INDEX] &= ~3;
 	regp->CRTC[NV_CIO_CRE_PIXEL_INDEX] |= (crtc->fb->depth + 1) / 8;
 	regp->ramdac_gen_ctrl &= ~NV_PRAMDAC_GENERAL_CONTROL_ALT_MODE_SEL;
@@ -769,12 +844,12 @@ nv04_crtc_do_mode_set_base(struct drm_crtc *crtc,
 	crtc_wr_cio_state(crtc, regp, NV_CIO_CR_OFFSET_INDEX);
 	crtc_wr_cio_state(crtc, regp, NV_CIO_CRE_42);
 
-	
+	/* Update the framebuffer location. */
 	regp->fb_start = nv_crtc->fb.offset & ~3;
 	regp->fb_start += (y * drm_fb->pitches[0]) + (x * drm_fb->bits_per_pixel / 8);
 	nv_set_crtc_base(dev, nv_crtc->index, regp->fb_start);
 
-	
+	/* Update the arbitration parameters. */
 	nouveau_calc_arb(dev, crtc->mode.clock, drm_fb->bits_per_pixel,
 			 &arb_burst, &arb_lwm);
 
@@ -839,9 +914,20 @@ static void nv11_cursor_upload(struct drm_device *dev, struct nouveau_bo *src,
 	uint32_t pixel;
 	int alpha, i;
 
+	/* nv11+ supports premultiplied (PM), or non-premultiplied (NPM) alpha
+	 * cursors (though NPM in combination with fp dithering may not work on
+	 * nv11, from "nv" driver history)
+	 * NPM mode needs NV_PCRTC_CURSOR_CONFIG_ALPHA_BLEND set and is what the
+	 * blob uses, however we get given PM cursors so we use PM mode
+	 */
 	for (i = 0; i < 64 * 64; i++) {
 		pixel = nouveau_bo_rd32(src, i);
 
+		/* hw gets unhappy if alpha <= rgb values.  for a PM image "less
+		 * than" shouldn't happen; fix "equal to" case by adding one to
+		 * alpha channel (slightly inaccurate, but so is attempting to
+		 * get back to NPM images, due to limits of integer precision)
+		 */
 		alpha = pixel >> 24;
 		if (alpha > 0 && alpha < 255)
 			pixel = (pixel & 0x00ffffff) | ((alpha + 1) << 24);

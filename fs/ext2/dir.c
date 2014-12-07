@@ -28,6 +28,11 @@
 
 typedef struct ext2_dir_entry_2 ext2_dirent;
 
+/*
+ * Tests against MAX_REC_LEN etc were put in place for 64k block
+ * sizes; if that is not possible on this arch, we can skip
+ * those tests and speed things up.
+ */
 static inline unsigned ext2_rec_len_from_disk(__le16 dlen)
 {
 	unsigned len = le16_to_cpu(dlen);
@@ -50,6 +55,10 @@ static inline __le16 ext2_rec_len_to_disk(unsigned len)
 	return cpu_to_le16(len);
 }
 
+/*
+ * ext2 uses block-sized chunks. Arguably, sector-sized ones would be
+ * more robust, but we have what we have
+ */
 static inline unsigned ext2_chunk_size(struct inode *inode)
 {
 	return inode->i_sb->s_blocksize;
@@ -66,6 +75,10 @@ static inline unsigned long dir_pages(struct inode *inode)
 	return (inode->i_size+PAGE_CACHE_SIZE-1)>>PAGE_CACHE_SHIFT;
 }
 
+/*
+ * Return the offset into page `page_nr' of the last valid
+ * byte in that page, plus one.
+ */
 static unsigned
 ext2_last_byte(struct inode *inode, unsigned long page_nr)
 {
@@ -142,7 +155,7 @@ out:
 	SetPageChecked(page);
 	return;
 
-	
+	/* Too bad, we had an error */
 
 Ebadsize:
 	if (!quiet)
@@ -205,6 +218,11 @@ fail:
 	return ERR_PTR(-EIO);
 }
 
+/*
+ * NOTE! unlike strncmp, ext2_match returns 1 for success, 0 for failure.
+ *
+ * len <= EXT2_NAME_LEN and de != NULL are guaranteed by caller.
+ */
 static inline int ext2_match (int len, const char * const name,
 					struct ext2_dir_entry_2 * de)
 {
@@ -215,6 +233,9 @@ static inline int ext2_match (int len, const char * const name,
 	return !memcmp(name, de->name, len);
 }
 
+/*
+ * p is at least 6 bytes before the end of page
+ */
 static inline ext2_dirent *ext2_next_entry(ext2_dirent *p)
 {
 	return (ext2_dirent *)((char *)p +
@@ -337,6 +358,14 @@ ext2_readdir (struct file * filp, void * dirent, filldir_t filldir)
 	return 0;
 }
 
+/*
+ *	ext2_find_entry()
+ *
+ * finds an entry in the specified directory with the wanted name. It
+ * returns the page in which the entry was found (as a parameter - res_page),
+ * and the entry itself. Page is returned mapped and unlocked.
+ * Entry is guaranteed to be valid.
+ */
 struct ext2_dir_entry_2 *ext2_find_entry (struct inode * dir,
 			struct qstr *child, struct page ** res_page)
 {
@@ -353,7 +382,7 @@ struct ext2_dir_entry_2 *ext2_find_entry (struct inode * dir,
 	if (npages == 0)
 		goto out;
 
-	
+	/* OFFSET_CACHE */
 	*res_page = NULL;
 
 	start = ei->i_dir_start_lookup;
@@ -384,7 +413,7 @@ struct ext2_dir_entry_2 *ext2_find_entry (struct inode * dir,
 
 		if (++n >= npages)
 			n = 0;
-		
+		/* next page is past the blocks we've got */
 		if (unlikely(n > (dir->i_blocks >> (PAGE_CACHE_SHIFT - 9)))) {
 			ext2_error(dir->i_sb, __func__,
 				"dir %lu size %lld exceeds block count %llu",
@@ -433,6 +462,7 @@ static int ext2_prepare_chunk(struct page *page, loff_t pos, unsigned len)
 	return __block_write_begin(page, pos, len, ext2_get_block);
 }
 
+/* Releases the page */
 void ext2_set_link(struct inode *dir, struct ext2_dir_entry_2 *de,
 		   struct page *page, struct inode *inode, int update_times)
 {
@@ -454,6 +484,9 @@ void ext2_set_link(struct inode *dir, struct ext2_dir_entry_2 *de,
 	mark_inode_dirty(dir);
 }
 
+/*
+ *	Parent is locked.
+ */
 int ext2_add_link (struct dentry *dentry, struct inode *inode)
 {
 	struct inode *dir = dentry->d_parent->d_inode;
@@ -470,6 +503,11 @@ int ext2_add_link (struct dentry *dentry, struct inode *inode)
 	loff_t pos;
 	int err;
 
+	/*
+	 * We take care of directory expansion in the same loop.
+	 * This code plays outside i_size, so it locks the page
+	 * to protect that region.
+	 */
 	for (n = 0; n <= npages; n++) {
 		char *dir_end;
 
@@ -484,7 +522,7 @@ int ext2_add_link (struct dentry *dentry, struct inode *inode)
 		kaddr += PAGE_CACHE_SIZE - reclen;
 		while ((char *)de <= kaddr) {
 			if ((char *)de == dir_end) {
-				
+				/* We hit i_size */
 				name_len = 0;
 				rec_len = chunk_size;
 				de->rec_len = ext2_rec_len_to_disk(chunk_size);
@@ -534,7 +572,7 @@ got_it:
 	dir->i_mtime = dir->i_ctime = CURRENT_TIME_SEC;
 	EXT2_I(dir)->i_flags &= ~EXT2_BTREE_FL;
 	mark_inode_dirty(dir);
-	
+	/* OFFSET_CACHE */
 out_put:
 	ext2_put_page(page);
 out:
@@ -544,6 +582,10 @@ out_unlock:
 	goto out_put;
 }
 
+/*
+ * ext2_delete_entry deletes a directory entry by merging it with the
+ * previous entry. Page is up-to-date. Releases the page.
+ */
 int ext2_delete_entry (struct ext2_dir_entry_2 * dir, struct page * page )
 {
 	struct inode *inode = page->mapping->host;
@@ -584,6 +626,9 @@ out:
 	return err;
 }
 
+/*
+ * Set the first fragment of directory.
+ */
 int ext2_make_empty(struct inode *inode, struct inode *parent)
 {
 	struct page *page = grab_cache_page(inode->i_mapping, 0);
@@ -622,6 +667,9 @@ fail:
 	return err;
 }
 
+/*
+ * routine to check that the specified directory is empty (for rmdir)
+ */
 int ext2_empty_dir (struct inode * inode)
 {
 	struct page *page = NULL;
@@ -650,7 +698,7 @@ int ext2_empty_dir (struct inode * inode)
 				goto not_empty;
 			}
 			if (de->inode != 0) {
-				
+				/* check for . and .. */
 				if (de->name[0] != '.')
 					goto not_empty;
 				if (de->name_len > 2)

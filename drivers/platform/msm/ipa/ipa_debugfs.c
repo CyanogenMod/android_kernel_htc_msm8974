@@ -234,7 +234,7 @@ static ssize_t ipa_read_ep_reg(struct file *file, char __user *ubuf,
 	int ret;
 	loff_t pos;
 
-	
+	/* negative ep_reg_idx means all registers */
 	if (ep_reg_idx < 0) {
 		start_idx = 0;
 		end_idx = IPA_NUM_PIPES;
@@ -811,7 +811,7 @@ static ssize_t ipa_read_nat4(struct file *file,
 	}
 
 
-	
+	/* Print Base tables */
 	rule_id = 0;
 	for (j = 0; j < 2; j++) {
 		if (j == BASE_TABLE) {
@@ -943,7 +943,7 @@ static ssize_t ipa_read_nat4(struct file *file,
 		}
 	}
 
-	
+	/* Print Index tables */
 	rule_id = 0;
 	for (j = 0; j < 2; j++) {
 		if (j == BASE_TABLE) {
@@ -1174,7 +1174,7 @@ void ipa_debugfs_remove(void)
 	debugfs_remove_recursive(dent);
 }
 
-#else 
+#else /* !CONFIG_DEBUG_FS */
 void ipa_debugfs_init(void) {}
 void ipa_debugfs_remove(void) {}
 #endif

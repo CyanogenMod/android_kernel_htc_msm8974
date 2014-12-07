@@ -16,7 +16,7 @@ static int compare_func(const char *ida, const char *idb)
 {
 	int i;
 
-	
+	/* we only need to compare the last 4 chars */
 	for (i = 3; i < 7; i++) {
 		if (ida[i] != 'X' &&
 		    idb[i] != 'X' && toupper(ida[i]) != toupper(idb[i]))
@@ -234,6 +234,11 @@ void pnp_unregister_driver(struct pnp_driver *drv)
 	driver_unregister(&drv->driver);
 }
 
+/**
+ * pnp_add_id - adds an EISA id to the specified device
+ * @dev: pointer to the desired device
+ * @id: pointer to an EISA id string
+ */
 struct pnp_id *pnp_add_id(struct pnp_dev *dev, const char *id)
 {
 	struct pnp_id *dev_id, *ptr;

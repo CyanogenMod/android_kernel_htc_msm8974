@@ -40,14 +40,24 @@ enum profile_type {
 
 extern int prof_on __read_mostly;
 
+/* init basic kernel profiler */
 int profile_init(void);
 int profile_setup(char *str);
 void profile_tick(int type);
 
+/*
+ * Add multiple profiler hits to a given address:
+ */
 void profile_hits(int type, void *ip, unsigned int nr_hits);
 
+/*
+ * Single profiler hit:
+ */
 static inline void profile_hit(int type, void *ip)
 {
+	/*
+	 * Speedup for the common (no profiling enabled) case:
+	 */
 	if (unlikely(prof_on == type))
 		profile_hits(type, ip, 1);
 }
@@ -55,10 +65,15 @@ static inline void profile_hit(int type, void *ip)
 struct task_struct;
 struct mm_struct;
 
+/* task is in do_exit() */
 void profile_task_exit(struct task_struct * task);
 
+/* task is dead, free task struct ? Returns 1 if
+ * the task was taken, 0 if the task should be freed.
+ */
 int profile_handoff_task(struct task_struct * task);
 
+/* sys_munmap */
 void profile_munmap(unsigned long addr);
 
 int task_handoff_register(struct notifier_block * n);
@@ -130,6 +145,6 @@ static inline void unregister_timer_hook(int (*hook)(struct pt_regs *))
 	return;
 }
 
-#endif 
+#endif /* CONFIG_PROFILING */
 
-#endif 
+#endif /* _LINUX_PROFILE_H */

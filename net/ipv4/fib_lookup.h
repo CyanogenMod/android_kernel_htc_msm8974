@@ -16,12 +16,14 @@ struct fib_alias {
 
 #define FA_S_ACCESSED	0x01
 
+/* Dont write on fa_state unless needed, to keep it shared on all cpus */
 static inline void fib_alias_accessed(struct fib_alias *fa)
 {
 	if (!(fa->fa_state & FA_S_ACCESSED))
 		fa->fa_state |= FA_S_ACCESSED;
 }
 
+/* Exported by fib_semantics.c */
 extern void fib_release_info(struct fib_info *);
 extern struct fib_info *fib_create_info(struct fib_config *cfg);
 extern int fib_nh_match(struct fib_config *cfg, struct fib_info *fi);
@@ -41,7 +43,7 @@ extern int fib_detect_death(struct fib_info *fi, int order,
 static inline void fib_result_assign(struct fib_result *res,
 				     struct fib_info *fi)
 {
-	
+	/* we used to play games with refcounts, but we now use RCU */
 	res->fi = fi;
 }
 
@@ -52,4 +54,4 @@ struct fib_prop {
 
 extern const struct fib_prop fib_props[RTN_MAX + 1];
 
-#endif 
+#endif /* _FIB_LOOKUP_H */

@@ -8,6 +8,9 @@
 #ifndef __ASM_MIPS_MACH_IP22_WAR_H
 #define __ASM_MIPS_MACH_IP22_WAR_H
 
+/*
+ * R4600 CPU modules for the Indy come with both V1.7 and V2.0 processors.
+ */
 
 #define R4600_V1_INDEX_ICACHEOP_WAR	1
 #define R4600_V1_HIT_CACHEOP_WAR	1
@@ -23,4 +26,4 @@
 #define R10000_LLSC_WAR			0
 #define MIPS34K_MISSED_ITLB_WAR		0
 
-#endif 
+#endif /* __ASM_MIPS_MACH_IP22_WAR_H */

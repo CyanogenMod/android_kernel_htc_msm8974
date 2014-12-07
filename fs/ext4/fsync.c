@@ -156,7 +156,7 @@ static int ext4_sync_parent(struct inode *inode)
 			break;
 		memset(&wbc, 0, sizeof(wbc));
 		wbc.sync_mode = WB_SYNC_ALL;
-		wbc.nr_to_write = 0;         
+		wbc.nr_to_write = 0;         /* only write out the inode */
 		ret = sync_inode(inode, &wbc);
 		if (ret)
 			break;
@@ -165,6 +165,15 @@ static int ext4_sync_parent(struct inode *inode)
 	return ret;
 }
 
+/**
+ * __sync_file - generic_file_fsync without the locking and filemap_write
+ * @inode:	inode to sync
+ * @datasync:	only sync essential metadata if true
+ *
+ * This is just generic_file_fsync without the locking.  This is needed for
+ * nojournal mode to make sure this inodes data/metadata makes it to disk
+ * properly.  The i_mutex should be held already.
+ */
 static int __sync_inode(struct inode *inode, int datasync)
 {
 	int err;
@@ -182,6 +191,19 @@ static int __sync_inode(struct inode *inode, int datasync)
 	return ret;
 }
 
+/*
+ * akpm: A new design for ext4_sync_file().
+ *
+ * This is only called from sys_fsync(), sys_fdatasync() and sys_msync().
+ * There cannot be a transaction open by this task.
+ * Another task could have dirtied this inode.  Its data can be in any
+ * state in the journalling system.
+ *
+ * What we do is just kick off a commit and wait on it.  This will snapshot the
+ * inode to disk.
+ *
+ * i_mutex lock is held when entering and exiting this function
+ */
 
 int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 {
@@ -215,6 +237,20 @@ int ext4_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 		goto out;
 	}
 
+	/*
+	 * data=writeback,ordered:
+	 *  The caller's filemap_fdatawrite()/wait will sync the data.
+	 *  Metadata is in the journal, we wait for proper transaction to
+	 *  commit here.
+	 *
+	 * data=journal:
+	 *  filemap_fdatawrite won't do anything (the buffers are clean).
+	 *  ext4_force_commit will write the file data into the journal and
+	 *  will wait on that.
+	 *  filemap_fdatawait() will encounter a ton of newly-dirtied pages
+	 *  (they were dirtied by commit).  But that's OK - the blocks are
+	 *  safe in-journal, which is all fsync() needs to ensure.
+	 */
 	if (ext4_should_journal_data(inode)) {
 		ret = ext4_force_commit(inode->i_sb);
 		goto out;

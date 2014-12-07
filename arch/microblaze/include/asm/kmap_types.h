@@ -3,4 +3,4 @@
 
 #include <asm-generic/kmap_types.h>
 
-#endif 
+#endif /* _ASM_MICROBLAZE_KMAP_TYPES_H */

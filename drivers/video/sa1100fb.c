@@ -185,6 +185,9 @@
 #include <asm/mach-types.h>
 #include <mach/shannon.h>
 
+/*
+ * Complain if VAR is out of range.
+ */
 #define DEBUG_VAR 1
 
 #include "sa1100fb.h"
@@ -220,6 +223,14 @@ static inline void sa1100fb_schedule_work(struct sa1100fb_info *fbi, u_int state
 	unsigned long flags;
 
 	local_irq_save(flags);
+	/*
+	 * We need to handle two requests being made at the same time.
+	 * There are two important cases:
+	 *  1. When we are changing VT (C_REENABLE) while unblanking (C_ENABLE)
+	 *     We must perform the unblanking, which will do our REENABLE for us.
+	 *  2. When we are blanking, but immediately unblank before we have
+	 *     blanked.  We do the "REENABLE" thing here as well, just to be sure.
+	 */
 	if (fbi->task_state == C_ENABLE && state == C_REENABLE)
 		state = (u_int) -1;
 	if (fbi->task_state == C_DISABLE && state == C_ENABLE)
@@ -239,6 +250,9 @@ static inline u_int chan_to_field(u_int chan, struct fb_bitfield *bf)
 	return chan << bf->offset;
 }
 
+/*
+ * Convert bits-per-pixel to a hardware palette PBS value.
+ */
 static inline u_int palette_pbs(struct fb_var_screeninfo *var)
 {
 	int ret = 0;
@@ -279,18 +293,32 @@ sa1100fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	unsigned int val;
 	int ret = 1;
 
+	/*
+	 * If inverse mode was selected, invert all the colours
+	 * rather than the register number.  The register number
+	 * is what you poke into the framebuffer to produce the
+	 * colour you requested.
+	 */
 	if (fbi->inf->cmap_inverse) {
 		red   = 0xffff - red;
 		green = 0xffff - green;
 		blue  = 0xffff - blue;
 	}
 
+	/*
+	 * If greyscale is true, then we convert the RGB value
+	 * to greyscale no mater what visual we are using.
+	 */
 	if (fbi->fb.var.grayscale)
 		red = green = blue = (19595 * red + 38470 * green +
 					7471 * blue) >> 16;
 
 	switch (fbi->fb.fix.visual) {
 	case FB_VISUAL_TRUECOLOR:
+		/*
+		 * 12 or 16-bit True Colour.  We encode the RGB value
+		 * according to the RGB bitfield information.
+		 */
 		if (regno < 16) {
 			u32 *pal = fbi->fb.pseudo_palette;
 
@@ -313,12 +341,28 @@ sa1100fb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 }
 
 #ifdef CONFIG_CPU_FREQ
+/*
+ *  sa1100fb_display_dma_period()
+ *    Calculate the minimum period (in picoseconds) between two DMA
+ *    requests for the LCD controller.  If we hit this, it means we're
+ *    doing nothing but LCD DMA.
+ */
 static inline unsigned int sa1100fb_display_dma_period(struct fb_var_screeninfo *var)
 {
+	/*
+	 * Period = pixclock * bits_per_byte * bytes_per_transfer
+	 *		/ memory_bits_per_pixel;
+	 */
 	return var->pixclock * 8 * 16 / var->bits_per_pixel;
 }
 #endif
 
+/*
+ *  sa1100fb_check_var():
+ *    Round up in the following order: bits_per_pixel, xres,
+ *    yres, xres_virtual, yres_virtual, xoffset, yoffset, grayscale,
+ *    bitfields, horizontal timing, vertical timing.
+ */
 static int
 sa1100fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 {
@@ -351,6 +395,10 @@ sa1100fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		return -EINVAL;
 	}
 
+	/*
+	 * Copy the RGB parameters for this display
+	 * from the machine specific parameters.
+	 */
 	var->red    = fbi->rgb[rgbidx]->red;
 	var->green  = fbi->rgb[rgbidx]->green;
 	var->blue   = fbi->rgb[rgbidx]->blue;
@@ -379,6 +427,10 @@ static void sa1100fb_set_visual(struct sa1100fb_info *fbi, u32 visual)
 		fbi->inf->set_visual(visual);
 }
 
+/*
+ * sa1100fb_set_par():
+ *	Set the user defined part of the display for the specified console
+ */
 static int sa1100fb_set_par(struct fb_info *info)
 {
 	struct sa1100fb_info *fbi = (struct sa1100fb_info *)info;
@@ -392,6 +444,11 @@ static int sa1100fb_set_par(struct fb_info *info)
 	else if (!fbi->inf->cmap_static)
 		fbi->fb.fix.visual = FB_VISUAL_PSEUDOCOLOR;
 	else {
+		/*
+		 * Some people have weird ideas about wanting static
+		 * pseudocolor maps.  I suspect their user space
+		 * applications are broken.
+		 */
 		fbi->fb.fix.visual = FB_VISUAL_STATIC_PSEUDOCOLOR;
 	}
 
@@ -406,6 +463,9 @@ static int sa1100fb_set_par(struct fb_info *info)
 	fbi->palette_cpu = (u16 *)(fbi->map_cpu + PAGE_SIZE - palette_mem_size);
 	fbi->palette_dma = fbi->map_dma + PAGE_SIZE - palette_mem_size;
 
+	/*
+	 * Set (any) board control register to handle new color depth
+	 */
 	sa1100fb_set_visual(fbi, fbi->fb.fix.visual);
 	sa1100fb_activate_var(var, fbi);
 
@@ -419,6 +479,9 @@ sa1100fb_set_cmap(struct fb_cmap *cmap, int kspc, int con,
 {
 	struct sa1100fb_info *fbi = (struct sa1100fb_info *)info;
 
+	/*
+	 * Make sure the user isn't doing something stupid.
+	 */
 	if (!kspc && (fbi->fb.var.bits_per_pixel == 16 || fbi->inf->cmap_static))
 		return -EINVAL;
 
@@ -426,6 +489,41 @@ sa1100fb_set_cmap(struct fb_cmap *cmap, int kspc, int con,
 }
 #endif
 
+/*
+ * Formal definition of the VESA spec:
+ *  On
+ *  	This refers to the state of the display when it is in full operation
+ *  Stand-By
+ *  	This defines an optional operating state of minimal power reduction with
+ *  	the shortest recovery time
+ *  Suspend
+ *  	This refers to a level of power management in which substantial power
+ *  	reduction is achieved by the display.  The display can have a longer 
+ *  	recovery time from this state than from the Stand-by state
+ *  Off
+ *  	This indicates that the display is consuming the lowest level of power
+ *  	and is non-operational. Recovery from this state may optionally require
+ *  	the user to manually power on the monitor
+ *
+ *  Now, the fbdev driver adds an additional state, (blank), where they
+ *  turn off the video (maybe by colormap tricks), but don't mess with the
+ *  video itself: think of it semantically between on and Stand-By.
+ *
+ *  So here's what we should do in our fbdev blank routine:
+ *
+ *  	VESA_NO_BLANKING (mode 0)	Video on,  front/back light on
+ *  	VESA_VSYNC_SUSPEND (mode 1)  	Video on,  front/back light off
+ *  	VESA_HSYNC_SUSPEND (mode 2)  	Video on,  front/back light off
+ *  	VESA_POWERDOWN (mode 3)		Video off, front/back light off
+ *
+ *  This will match the matrox implementation.
+ */
+/*
+ * sa1100fb_blank():
+ *	Blank the display by setting all palette values to zero.  Note, the 
+ * 	12 and 16 bpp modes don't really use the palette, so this will not
+ *      blank the display in all modes.  
+ */
 static int sa1100fb_blank(int blank, struct fb_info *info)
 {
 	struct sa1100fb_info *fbi = (struct sa1100fb_info *)info;
@@ -461,7 +559,7 @@ static int sa1100fb_mmap(struct fb_info *info,
 	unsigned long start, len, off = vma->vm_pgoff << PAGE_SHIFT;
 
 	if (off < info->fix.smem_len) {
-		vma->vm_pgoff += 1; 
+		vma->vm_pgoff += 1; /* skip over the palette */
 		return dma_mmap_writecombine(fbi->dev, vma, fbi->map_cpu,
 					     fbi->map_dma, fbi->map_size);
 	}
@@ -485,6 +583,7 @@ static struct fb_ops sa1100fb_ops = {
 	.owner		= THIS_MODULE,
 	.fb_check_var	= sa1100fb_check_var,
 	.fb_set_par	= sa1100fb_set_par,
+//	.fb_set_cmap	= sa1100fb_set_cmap,
 	.fb_setcolreg	= sa1100fb_setcolreg,
 	.fb_fillrect	= cfb_fillrect,
 	.fb_copyarea	= cfb_copyarea,
@@ -493,6 +592,10 @@ static struct fb_ops sa1100fb_ops = {
 	.fb_mmap	= sa1100fb_mmap,
 };
 
+/*
+ * Calculate the PCD value from the clock rate (in picoseconds).
+ * We take account of the PPCR clock setting.
+ */
 static inline unsigned int get_pcd(unsigned int pixclock, unsigned int cpuclock)
 {
 	unsigned int pcd = cpuclock / 100;
@@ -500,7 +603,7 @@ static inline unsigned int get_pcd(unsigned int pixclock, unsigned int cpuclock)
 	pcd *= pixclock;
 	pcd /= 10000000;
 
-	return pcd + 1;	
+	return pcd + 1;	/* make up for integer math truncations */
 }
 
 /*
@@ -560,6 +663,10 @@ static int sa1100fb_activate_var(struct fb_var_screeninfo *var, struct sa1100fb_
 		LCCR1_BegLnDel(var->left_margin) +
 		LCCR1_EndLnDel(var->right_margin);
 
+	/*
+	 * If we have a dual scan LCD, then we need to halve
+	 * the YRES parameter.
+	 */
 	yres = var->yres;
 	if (fbi->inf->lccr0 & LCCR0_Dual)
 		yres /= 2;
@@ -583,7 +690,7 @@ static int sa1100fb_activate_var(struct fb_var_screeninfo *var, struct sa1100fb_
 	half_screen_size = var->bits_per_pixel;
 	half_screen_size = half_screen_size * var->xres * var->yres / 16;
 
-	
+	/* Update shadow copy atomically */
 	local_irq_save(flags);
 	fbi->dbar1 = fbi->palette_dma;
 	fbi->dbar2 = fbi->screen_dma + half_screen_size;
@@ -594,6 +701,10 @@ static int sa1100fb_activate_var(struct fb_var_screeninfo *var, struct sa1100fb_
 	fbi->reg_lccr3 = new_regs.lccr3;
 	local_irq_restore(flags);
 
+	/*
+	 * Only update the registers if the controller is enabled
+	 * and something has changed.
+	 */
 	if (readl_relaxed(fbi->base + LCCR0) != fbi->reg_lccr0 ||
 	    readl_relaxed(fbi->base + LCCR1) != fbi->reg_lccr1 ||
 	    readl_relaxed(fbi->base + LCCR2) != fbi->reg_lccr2 ||
@@ -605,6 +716,12 @@ static int sa1100fb_activate_var(struct fb_var_screeninfo *var, struct sa1100fb_
 	return 0;
 }
 
+/*
+ * NOTE!  The following functions are purely helpers for set_ctrlr_state.
+ * Do not call them directly; set_ctrlr_state does the correct serialisation
+ * to ensure that things happen in the right way 100% of time time.
+ *	-- rmk
+ */
 static inline void __sa1100fb_backlight_power(struct sa1100fb_info *fbi, int on)
 {
 	dev_dbg(fbi->dev, "backlight o%s\n", on ? "n" : "ff");
@@ -625,6 +742,18 @@ static void sa1100fb_setup_gpio(struct sa1100fb_info *fbi)
 {
 	u_int mask = 0;
 
+	/*
+	 * Enable GPIO<9:2> for LCD use if:
+	 *  1. Active display, or
+	 *  2. Color Dual Passive display
+	 *
+	 * see table 11.8 on page 11-27 in the SA1100 manual
+	 *   -- Erik.
+	 *
+	 * SA1110 spec update nr. 25 says we can and should
+	 * clear LDD15 to 12 for 4 or 8bpp modes with active
+	 * panels.  
+	 */
 	if ((fbi->reg_lccr0 & LCCR0_CMS) == LCCR0_Color &&
 	    (fbi->reg_lccr0 & (LCCR0_Dual|LCCR0_Act)) != 0) {
 		mask = GPIO_LDD11 | GPIO_LDD10 | GPIO_LDD9  | GPIO_LDD8;
@@ -638,6 +767,13 @@ static void sa1100fb_setup_gpio(struct sa1100fb_info *fbi)
 	if (mask) {
 		unsigned long flags;
 
+		/*
+		 * SA-1100 requires the GPIO direction register set
+		 * appropriately for the alternate function.  Hence
+		 * we set it here via bitmask rather than excessive
+		 * fiddling via the GPIO subsystem - and even then
+		 * we'll still have to deal with GAFR.
+		 */
 		local_irq_save(flags);
 		GPDR |= mask;
 		GAFR |= mask;
@@ -649,10 +785,13 @@ static void sa1100fb_enable_controller(struct sa1100fb_info *fbi)
 {
 	dev_dbg(fbi->dev, "Enabling LCD controller\n");
 
+	/*
+	 * Make sure the mode bits are present in the first palette entry
+	 */
 	fbi->palette_cpu[0] &= 0xcfff;
 	fbi->palette_cpu[0] |= palette_pbs(&fbi->fb.var);
 
-	
+	/* Sequence from 11.7.10 */
 	writel_relaxed(fbi->reg_lccr3, fbi->base + LCCR3);
 	writel_relaxed(fbi->reg_lccr2, fbi->base + LCCR2);
 	writel_relaxed(fbi->reg_lccr1, fbi->base + LCCR1);
@@ -685,19 +824,22 @@ static void sa1100fb_disable_controller(struct sa1100fb_info *fbi)
 	set_current_state(TASK_UNINTERRUPTIBLE);
 	add_wait_queue(&fbi->ctrlr_wait, &wait);
 
-	
+	/* Clear LCD Status Register */
 	writel_relaxed(~0, fbi->base + LCSR);
 
 	lccr0 = readl_relaxed(fbi->base + LCCR0);
-	lccr0 &= ~LCCR0_LDM;	
+	lccr0 &= ~LCCR0_LDM;	/* Enable LCD Disable Done Interrupt */
 	writel_relaxed(lccr0, fbi->base + LCCR0);
-	lccr0 &= ~LCCR0_LEN;	
+	lccr0 &= ~LCCR0_LEN;	/* Disable LCD Controller */
 	writel_relaxed(lccr0, fbi->base + LCCR0);
 
 	schedule_timeout(20 * HZ / 1000);
 	remove_wait_queue(&fbi->ctrlr_wait, &wait);
 }
 
+/*
+ *  sa1100fb_handle_irq: Handle 'LCD DONE' interrupts.
+ */
 static irqreturn_t sa1100fb_handle_irq(int irq, void *dev_id)
 {
 	struct sa1100fb_info *fbi = dev_id;
@@ -713,6 +855,11 @@ static irqreturn_t sa1100fb_handle_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * This function must be called from task context only, since it will
+ * sleep when disabling the LCD controller, or if we get two contending
+ * processes trying to alter state.
+ */
 static void set_ctrlr_state(struct sa1100fb_info *fbi, u_int state)
 {
 	u_int old_state;
@@ -721,11 +868,18 @@ static void set_ctrlr_state(struct sa1100fb_info *fbi, u_int state)
 
 	old_state = fbi->state;
 
+	/*
+	 * Hack around fbcon initialisation.
+	 */
 	if (old_state == C_STARTUP && state == C_REENABLE)
 		state = C_ENABLE;
 
 	switch (state) {
 	case C_DISABLE_CLKCHANGE:
+		/*
+		 * Disable controller for clock change.  If the
+		 * controller is already disabled, then do nothing.
+		 */
 		if (old_state != C_DISABLE && old_state != C_DISABLE_PM) {
 			fbi->state = state;
 			sa1100fb_disable_controller(fbi);
@@ -734,6 +888,9 @@ static void set_ctrlr_state(struct sa1100fb_info *fbi, u_int state)
 
 	case C_DISABLE_PM:
 	case C_DISABLE:
+		/*
+		 * Disable controller
+		 */
 		if (old_state != C_DISABLE) {
 			fbi->state = state;
 
@@ -745,6 +902,10 @@ static void set_ctrlr_state(struct sa1100fb_info *fbi, u_int state)
 		break;
 
 	case C_ENABLE_CLKCHANGE:
+		/*
+		 * Enable the controller after clock change.  Only
+		 * do this if we were disabled for the clock change.
+		 */
 		if (old_state == C_DISABLE_CLKCHANGE) {
 			fbi->state = C_ENABLE;
 			sa1100fb_enable_controller(fbi);
@@ -752,6 +913,11 @@ static void set_ctrlr_state(struct sa1100fb_info *fbi, u_int state)
 		break;
 
 	case C_REENABLE:
+		/*
+		 * Re-enable the controller only if it was already
+		 * enabled.  This is so we reprogram the control
+		 * registers.
+		 */
 		if (old_state == C_ENABLE) {
 			sa1100fb_disable_controller(fbi);
 			sa1100fb_setup_gpio(fbi);
@@ -760,11 +926,20 @@ static void set_ctrlr_state(struct sa1100fb_info *fbi, u_int state)
 		break;
 
 	case C_ENABLE_PM:
+		/*
+		 * Re-enable the controller after PM.  This is not
+		 * perfect - think about the case where we were doing
+		 * a clock change, and we suspended half-way through.
+		 */
 		if (old_state != C_DISABLE_PM)
 			break;
-		
+		/* fall through */
 
 	case C_ENABLE:
+		/*
+		 * Power up the LCD screen, enable controller, and
+		 * turn on the backlight.
+		 */
 		if (old_state != C_ENABLE) {
 			fbi->state = C_ENABLE;
 			sa1100fb_setup_gpio(fbi);
@@ -777,6 +952,10 @@ static void set_ctrlr_state(struct sa1100fb_info *fbi, u_int state)
 	mutex_unlock(&fbi->ctrlr_lock);
 }
 
+/*
+ * Our LCD controller task (which is called when we blank or unblank)
+ * via keventd.
+ */
 static void sa1100fb_task(struct work_struct *w)
 {
 	struct sa1100fb_info *fbi = container_of(w, struct sa1100fb_info, task);
@@ -786,6 +965,11 @@ static void sa1100fb_task(struct work_struct *w)
 }
 
 #ifdef CONFIG_CPU_FREQ
+/*
+ * Calculate the minimum DMA period over all displays that we own.
+ * This, together with the SDRAM bandwidth defines the slowest CPU
+ * frequency that can be selected.
+ */
 static unsigned int sa1100fb_min_dma_period(struct sa1100fb_info *fbi)
 {
 #if 0
@@ -796,9 +980,15 @@ static unsigned int sa1100fb_min_dma_period(struct sa1100fb_info *fbi)
 		struct display *disp = &fb_display[i];
 		unsigned int period;
 
+		/*
+		 * Do we own this display?
+		 */
 		if (disp->fb_info != &fbi->fb)
 			continue;
 
+		/*
+		 * Ok, calculate its DMA period
+		 */
 		period = sa1100fb_display_dma_period(&disp->var);
 		if (period < min_period)
 			min_period = period;
@@ -806,10 +996,18 @@ static unsigned int sa1100fb_min_dma_period(struct sa1100fb_info *fbi)
 
 	return min_period;
 #else
+	/*
+	 * FIXME: we need to verify _all_ consoles.
+	 */
 	return sa1100fb_display_dma_period(&fbi->fb.var);
 #endif
 }
 
+/*
+ * CPU clock speed change handler.  We need to adjust the LCD timing
+ * parameters when the CPU clock is adjusted by the power management
+ * subsystem.
+ */
 static int
 sa1100fb_freq_transition(struct notifier_block *nb, unsigned long val,
 			 void *data)
@@ -845,10 +1043,14 @@ sa1100fb_freq_policy(struct notifier_block *nb, unsigned long val,
 		dev_dbg(fbi->dev, "min dma period: %d ps, "
 			"new clock %d kHz\n", sa1100fb_min_dma_period(fbi),
 			policy->max);
-		
+		/* todo: fill in min/max values */
 		break;
 	case CPUFREQ_NOTIFY:
 		do {} while(0);
+		/* todo: panic if min/max values aren't fulfilled 
+		 * [can't really happen unless there's a bug in the
+		 * CPU policy verififcation process *
+		 */
 		break;
 	}
 	return 0;
@@ -856,6 +1058,10 @@ sa1100fb_freq_policy(struct notifier_block *nb, unsigned long val,
 #endif
 
 #ifdef CONFIG_PM
+/*
+ * Power management hooks.  Note that we won't be called from IRQ context,
+ * unlike the blank functions above, so we may sleep.
+ */
 static int sa1100fb_suspend(struct platform_device *dev, pm_message_t state)
 {
 	struct sa1100fb_info *fbi = platform_get_drvdata(dev);
@@ -876,8 +1082,20 @@ static int sa1100fb_resume(struct platform_device *dev)
 #define sa1100fb_resume		NULL
 #endif
 
+/*
+ * sa1100fb_map_video_memory():
+ *      Allocates the DRAM memory for the frame buffer.  This buffer is  
+ *	remapped into a non-cached, non-buffered, memory region to  
+ *      allow palette and pixel writes to occur without flushing the 
+ *      cache.  Once this area is remapped, all virtual memory
+ *      access to the video memory should occur at the new region.
+ */
 static int __devinit sa1100fb_map_video_memory(struct sa1100fb_info *fbi)
 {
+	/*
+	 * We reserve one page for the palette, plus the size
+	 * of the framebuffer.
+	 */
 	fbi->map_size = PAGE_ALIGN(fbi->fb.fix.smem_len + PAGE_SIZE);
 	fbi->map_cpu = dma_alloc_writecombine(fbi->dev, fbi->map_size,
 					      &fbi->map_dma, GFP_KERNEL);
@@ -885,12 +1103,19 @@ static int __devinit sa1100fb_map_video_memory(struct sa1100fb_info *fbi)
 	if (fbi->map_cpu) {
 		fbi->fb.screen_base = fbi->map_cpu + PAGE_SIZE;
 		fbi->screen_dma = fbi->map_dma + PAGE_SIZE;
+		/*
+		 * FIXME: this is actually the wrong thing to place in
+		 * smem_start.  But fbdev suffers from the problem that
+		 * it needs an API which doesn't exist (in this case,
+		 * dma_writecombine_mmap)
+		 */
 		fbi->fb.fix.smem_start = fbi->screen_dma;
 	}
 
 	return fbi->map_cpu ? 0 : -ENOMEM;
 }
 
+/* Fake monspecs to fill in fbinfo structure */
 static struct fb_monspecs monspecs __devinitdata = {
 	.hfmin	= 30000,
 	.hfmax	= 70000,
@@ -938,6 +1163,11 @@ static struct sa1100fb_info * __devinit sa1100fb_init_fbinfo(struct device *dev)
 	fbi->rgb[RGB_8]		= &rgb_8;
 	fbi->rgb[RGB_16]	= &def_rgb_16;
 
+	/*
+	 * People just don't seem to get this.  We don't support
+	 * anything but correct entries now, so panic if someone
+	 * does something stupid.
+	 */
 	if (inf->lccr3 & (LCCR3_VrtSnchL|LCCR3_HorSnchL|0xff) ||
 	    inf->pixclock == 0)
 		panic("sa1100fb error: invalid LCCR3 fields set or zero "
@@ -963,7 +1193,7 @@ static struct sa1100fb_info * __devinit sa1100fb_init_fbinfo(struct device *dev)
 					  inf->bpp / 8;
 	fbi->inf			= inf;
 
-	
+	/* Copy the RGB bitfield overrides */
 	for (i = 0; i < NR_RGB; i++)
 		if (inf->rgb[i])
 			fbi->rgb[i] = inf->rgb[i];
@@ -1003,7 +1233,7 @@ static int __devinit sa1100fb_probe(struct platform_device *pdev)
 	if (!fbi->base)
 		goto failed;
 
-	
+	/* Initialize video memory */
 	ret = sa1100fb_map_video_memory(fbi);
 	if (ret)
 		goto failed;
@@ -1021,6 +1251,10 @@ static int __devinit sa1100fb_probe(struct platform_device *pdev)
 			goto err_free_irq;
 	}
 
+	/*
+	 * This makes sure that our colour bitfield
+	 * descriptors are correctly initialised.
+	 */
 	sa1100fb_check_var(&fbi->fb.var, &fbi->fb);
 
 	platform_set_drvdata(pdev, fbi);
@@ -1036,7 +1270,7 @@ static int __devinit sa1100fb_probe(struct platform_device *pdev)
 	cpufreq_register_notifier(&fbi->freq_policy, CPUFREQ_POLICY_NOTIFIER);
 #endif
 
-	
+	/* This driver cannot be unloaded at the moment */
 	return 0;
 
  err_reg_fb:

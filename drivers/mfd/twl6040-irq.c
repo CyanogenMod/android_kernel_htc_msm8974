@@ -78,7 +78,7 @@ static void twl6040_irq_sync_unlock(struct irq_data *data)
 {
 	struct twl6040 *twl6040 = irq_data_get_irq_chip_data(data);
 
-	
+	/* write back to hardware any change in irq mask */
 	if (twl6040->irq_masks_cur != twl6040->irq_masks_cache) {
 		twl6040->irq_masks_cache = twl6040->irq_masks_cur;
 		twl6040_reg_write(twl6040, TWL6040_REG_INTMR,
@@ -122,7 +122,7 @@ static irqreturn_t twl6040_irq_thread(int irq, void *data)
 
 	intid = twl6040_reg_read(twl6040, TWL6040_REG_INTID);
 
-	
+	/* apply masking and report (backwards to handle READYINT first) */
 	for (i = ARRAY_SIZE(twl6040_irqs) - 1; i >= 0; i--) {
 		if (twl6040->irq_masks_cur & twl6040_irqs[i].mask)
 			intid &= ~twl6040_irqs[i].status;
@@ -130,7 +130,7 @@ static irqreturn_t twl6040_irq_thread(int irq, void *data)
 			handle_nested_irq(twl6040->irq_base + i);
 	}
 
-	
+	/* ack unmasked irqs */
 	twl6040_reg_write(twl6040, TWL6040_REG_INTID, intid);
 
 	return IRQ_HANDLED;
@@ -143,12 +143,12 @@ int twl6040_irq_init(struct twl6040 *twl6040)
 
 	mutex_init(&twl6040->irq_mutex);
 
-	
+	/* mask the individual interrupt sources */
 	twl6040->irq_masks_cur = TWL6040_ALLINT_MSK;
 	twl6040->irq_masks_cache = TWL6040_ALLINT_MSK;
 	twl6040_reg_write(twl6040, TWL6040_REG_INTMR, TWL6040_ALLINT_MSK);
 
-	
+	/* Register them with genirq */
 	for (cur_irq = twl6040->irq_base;
 	     cur_irq < twl6040->irq_base + ARRAY_SIZE(twl6040_irqs);
 	     cur_irq++) {
@@ -157,6 +157,8 @@ int twl6040_irq_init(struct twl6040 *twl6040)
 					 handle_level_irq);
 		irq_set_nested_thread(cur_irq, 1);
 
+		/* ARM needs us to explicitly flag the IRQ as valid
+		 * and will set them noprobe when we do so. */
 #ifdef CONFIG_ARM
 		set_irq_flags(cur_irq, IRQF_VALID);
 #else
@@ -172,10 +174,10 @@ int twl6040_irq_init(struct twl6040 *twl6040)
 		return ret;
 	}
 
-	
+	/* reset interrupts */
 	val = twl6040_reg_read(twl6040, TWL6040_REG_INTID);
 
-	
+	/* interrupts cleared on write */
 	twl6040_clear_bits(twl6040, TWL6040_REG_ACCCTL, TWL6040_INTCLRMODE);
 
 	return 0;

@@ -252,10 +252,10 @@ static void set_mode(struct cxd *ci, int mode)
 		return;
 
 	switch (mode) {
-	case 0x00: 
+	case 0x00: /* IO mem */
 		write_regm(ci, 0x06, 0x00, 0x07);
 		break;
-	case 0x01: 
+	case 0x01: /* ATT mem */
 		write_regm(ci, 0x06, 0x02, 0x07);
 		break;
 	default:
@@ -278,10 +278,10 @@ static void cam_mode(struct cxd *ci, int mode)
 		if (!ci->en.read_data)
 			return;
 		printk(KERN_INFO "enable cam buffer mode\n");
-		
-		
+		/* write_reg(ci, 0x0d, 0x00); */
+		/* write_reg(ci, 0x0e, 0x01); */
 		write_regm(ci, 0x08, 0x40, 0x40);
-		
+		/* read_reg(ci, 0x12, &dummy); */
 		write_regm(ci, 0x08, 0x80, 0x80);
 #endif
 		break;
@@ -329,11 +329,11 @@ static int init(struct cxd *ci)
 			break;
 
 #if 0
-		status = write_reg(ci, 0x09, 0x4D); 
+		status = write_reg(ci, 0x09, 0x4D); /* Input Mode C, BYPass Serial, TIVAL = low, MSB */
 		if (status < 0)
 			break;
 #endif
-		status = write_reg(ci, 0x0A, 0xA7); 
+		status = write_reg(ci, 0x0A, 0xA7); /* TOSTRT = 8, Mode B (gated clock), falling Edge, Serial, POL=HIGH, MSB */
 		if (status < 0)
 			break;
 
@@ -411,7 +411,7 @@ static int init(struct cxd *ci)
 		if (status < 0)
 			break;
 
-		
+		/* Put TS in bypass */
 		status = write_regm(ci, 0x09, 0x08, 0x08);
 		if (status < 0)
 			break;
@@ -449,7 +449,7 @@ static int read_attribute_mem(struct dvb_ca_en50221 *ca,
 	set_mode(ci, 1);
 	read_pccard(ci, address, &val, 1);
 	mutex_unlock(&ci->lock);
-	
+	/* printk(KERN_INFO "%02x:%02x\n", address,val); */
 	return val;
 #endif
 }
@@ -534,7 +534,7 @@ static int slot_reset(struct dvb_ca_en50221 *ca, int slot)
 		}
 	}
 	mutex_unlock(&ci->lock);
-	
+	/* msleep(500); */
 	return 0;
 }
 
@@ -545,8 +545,8 @@ static int slot_shutdown(struct dvb_ca_en50221 *ca, int slot)
 	printk(KERN_INFO "slot_shutdown\n");
 	mutex_lock(&ci->lock);
 	write_regm(ci, 0x09, 0x08, 0x08);
-	write_regm(ci, 0x20, 0x80, 0x80); 
-	write_regm(ci, 0x06, 0x07, 0x07); 
+	write_regm(ci, 0x20, 0x80, 0x80); /* Reset CAM Mode */
+	write_regm(ci, 0x06, 0x07, 0x07); /* Clear IO Mode */
 	ci->mode = -1;
 	mutex_unlock(&ci->lock);
 	return 0;

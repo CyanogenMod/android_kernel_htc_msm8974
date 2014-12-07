@@ -70,6 +70,7 @@ static rh_info_t cpm_muram_info;
 static u8 __iomem *muram_vbase;
 static phys_addr_t muram_pbase;
 
+/* Max address size we deal with */
 #define OF_MAX_ADDR_CELLS	4
 
 int cpm_muram_init(void)
@@ -85,7 +86,7 @@ int cpm_muram_init(void)
 		return 0;
 
 	spin_lock_init(&cpm_muram_lock);
-	
+	/* initialize the info header */
 	rh_init(&cpm_muram_info, 1,
 	        sizeof(cpm_boot_muram_rh_block) /
 	        sizeof(cpm_boot_muram_rh_block[0]),
@@ -93,7 +94,7 @@ int cpm_muram_init(void)
 
 	np = of_find_compatible_node(NULL, NULL, "fsl,cpm-muram-data");
 	if (!np) {
-		
+		/* try legacy bindings */
 		np = of_find_node_by_name(NULL, "data-only");
 		if (!np) {
 			printk(KERN_ERR "Cannot find CPM muram data node");
@@ -128,6 +129,15 @@ out:
 	return ret;
 }
 
+/**
+ * cpm_muram_alloc - allocate the requested size worth of multi-user ram
+ * @size: number of bytes to allocate
+ * @align: requested alignment, in bytes
+ *
+ * This function returns an offset into the muram area.
+ * Use cpm_dpram_addr() to get the virtual address of the area.
+ * Use cpm_muram_free() to free the allocation.
+ */
 unsigned long cpm_muram_alloc(unsigned long size, unsigned long align)
 {
 	unsigned long start;
@@ -143,6 +153,10 @@ unsigned long cpm_muram_alloc(unsigned long size, unsigned long align)
 }
 EXPORT_SYMBOL(cpm_muram_alloc);
 
+/**
+ * cpm_muram_free - free a chunk of multi-user ram
+ * @offset: The beginning of the chunk as returned by cpm_muram_alloc().
+ */
 int cpm_muram_free(unsigned long offset)
 {
 	int ret;
@@ -156,6 +170,15 @@ int cpm_muram_free(unsigned long offset)
 }
 EXPORT_SYMBOL(cpm_muram_free);
 
+/**
+ * cpm_muram_alloc_fixed - reserve a specific region of multi-user ram
+ * @offset: the offset into the muram area to reserve
+ * @size: the number of bytes to reserve
+ *
+ * This function returns "start" on success, -ENOMEM on failure.
+ * Use cpm_dpram_addr() to get the virtual address of the area.
+ * Use cpm_muram_free() to free the allocation.
+ */
 unsigned long cpm_muram_alloc_fixed(unsigned long offset, unsigned long size)
 {
 	unsigned long start;
@@ -170,6 +193,10 @@ unsigned long cpm_muram_alloc_fixed(unsigned long offset, unsigned long size)
 }
 EXPORT_SYMBOL(cpm_muram_alloc_fixed);
 
+/**
+ * cpm_muram_addr - turn a muram offset into a virtual address
+ * @offset: muram offset to convert
+ */
 void __iomem *cpm_muram_addr(unsigned long offset)
 {
 	return muram_vbase + offset;
@@ -182,6 +209,10 @@ unsigned long cpm_muram_offset(void __iomem *addr)
 }
 EXPORT_SYMBOL(cpm_muram_offset);
 
+/**
+ * cpm_muram_dma - turn a muram virtual address into a DMA address
+ * @offset: virtual address from cpm_muram_addr() to convert
+ */
 dma_addr_t cpm_muram_dma(void __iomem *addr)
 {
 	return muram_pbase + ((u8 __iomem *)addr - muram_vbase);
@@ -199,7 +230,7 @@ struct cpm2_gpio32_chip {
 	struct of_mm_gpio_chip mm_gc;
 	spinlock_t lock;
 
-	
+	/* shadowed data register to clear/set bits safely */
 	u32 cpdata;
 };
 
@@ -315,4 +346,4 @@ int cpm2_gpiochip_add32(struct device_node *np)
 
 	return of_mm_gpiochip_add(np, mm_gc);
 }
-#endif 
+#endif /* CONFIG_CPM2 || CONFIG_8xx_GPIO */

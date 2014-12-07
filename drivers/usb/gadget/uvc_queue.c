@@ -22,6 +22,60 @@
 
 #include "uvc.h"
 
+/* ------------------------------------------------------------------------
+ * Video buffers queue management.
+ *
+ * Video queues is initialized by uvc_queue_init(). The function performs
+ * basic initialization of the uvc_video_queue struct and never fails.
+ *
+ * Video buffer allocation and freeing are performed by uvc_alloc_buffers and
+ * uvc_free_buffers respectively. The former acquires the video queue lock,
+ * while the later must be called with the lock held (so that allocation can
+ * free previously allocated buffers). Trying to free buffers that are mapped
+ * to user space will return -EBUSY.
+ *
+ * Video buffers are managed using two queues. However, unlike most USB video
+ * drivers that use an in queue and an out queue, we use a main queue to hold
+ * all queued buffers (both 'empty' and 'done' buffers), and an irq queue to
+ * hold empty buffers. This design (copied from video-buf) minimizes locking
+ * in interrupt, as only one queue is shared between interrupt and user
+ * contexts.
+ *
+ * Use cases
+ * ---------
+ *
+ * Unless stated otherwise, all operations that modify the irq buffers queue
+ * are protected by the irq spinlock.
+ *
+ * 1. The user queues the buffers, starts streaming and dequeues a buffer.
+ *
+ *    The buffers are added to the main and irq queues. Both operations are
+ *    protected by the queue lock, and the later is protected by the irq
+ *    spinlock as well.
+ *
+ *    The completion handler fetches a buffer from the irq queue and fills it
+ *    with video data. If no buffer is available (irq queue empty), the handler
+ *    returns immediately.
+ *
+ *    When the buffer is full, the completion handler removes it from the irq
+ *    queue, marks it as ready (UVC_BUF_STATE_DONE) and wakes its wait queue.
+ *    At that point, any process waiting on the buffer will be woken up. If a
+ *    process tries to dequeue a buffer after it has been marked ready, the
+ *    dequeing will succeed immediately.
+ *
+ * 2. Buffers are queued, user is waiting on a buffer and the device gets
+ *    disconnected.
+ *
+ *    When the device is disconnected, the kernel calls the completion handler
+ *    with an appropriate status code. The handler marks all buffers in the
+ *    irq queue as being erroneous (UVC_BUF_STATE_ERROR) and wakes them up so
+ *    that any process waiting on a buffer gets woken up.
+ *
+ *    Waking up up the first buffer on the irq list is not enough, as the
+ *    process waiting on the buffer might restart the dequeue operation
+ *    immediately.
+ *
+ */
 
 static void
 uvc_queue_init(struct uvc_video_queue *queue, enum v4l2_buf_type type)
@@ -33,6 +87,11 @@ uvc_queue_init(struct uvc_video_queue *queue, enum v4l2_buf_type type)
 	queue->type = type;
 }
 
+/*
+ * Free the video buffers.
+ *
+ * This function must be called with the queue lock held.
+ */
 static int uvc_free_buffers(struct uvc_video_queue *queue)
 {
 	unsigned int i;
@@ -50,6 +109,14 @@ static int uvc_free_buffers(struct uvc_video_queue *queue)
 	return 0;
 }
 
+/*
+ * Allocate the video buffers.
+ *
+ * Pages are reserved to make sure they will not be swapped, as they will be
+ * filled in the URB completion handler.
+ *
+ * Buffers will be individually mapped, so they must all be page aligned.
+ */
 static int
 uvc_alloc_buffers(struct uvc_video_queue *queue, unsigned int nbuffers,
 		  unsigned int buflength)
@@ -67,11 +134,11 @@ uvc_alloc_buffers(struct uvc_video_queue *queue, unsigned int nbuffers,
 	if ((ret = uvc_free_buffers(queue)) < 0)
 		goto done;
 
-	
+	/* Bail out if no buffers should be allocated. */
 	if (nbuffers == 0)
 		goto done;
 
-	
+	/* Decrement the number of buffers until allocation succeeds. */
 	for (; nbuffers > 0; --nbuffers) {
 		mem = vmalloc_32(nbuffers * bufsize);
 		if (mem != NULL)
@@ -147,6 +214,10 @@ done:
 	return ret;
 }
 
+/*
+ * Queue a video buffer. Attempting to queue a buffer that has already been
+ * queued will return -EINVAL.
+ */
 static int
 uvc_queue_buffer(struct uvc_video_queue *queue, struct v4l2_buffer *v4l2_buf)
 {
@@ -224,6 +295,10 @@ static int uvc_queue_waiton(struct uvc_buffer *buf, int nonblocking)
 		buf->state != UVC_BUF_STATE_ACTIVE);
 }
 
+/*
+ * Dequeue a video buffer. If nonblocking is false, block until a buffer is
+ * available.
+ */
 static int
 uvc_dequeue_buffer(struct uvc_video_queue *queue, struct v4l2_buffer *v4l2_buf,
 		   int nonblocking)
@@ -280,6 +355,12 @@ done:
 	return ret;
 }
 
+/*
+ * Poll the video queue.
+ *
+ * This function implements video queue polling and is intended to be used by
+ * the device poll handler.
+ */
 static unsigned int
 uvc_queue_poll(struct uvc_video_queue *queue, struct file *file,
 	       poll_table *wait)
@@ -303,6 +384,9 @@ done:
 	return mask;
 }
 
+/*
+ * VMA operations.
+ */
 static void uvc_vm_open(struct vm_area_struct *vma)
 {
 	struct uvc_buffer *buffer = vma->vm_private_data;
@@ -320,6 +404,12 @@ static struct vm_operations_struct uvc_vm_ops = {
 	.close		= uvc_vm_close,
 };
 
+/*
+ * Memory-map a buffer.
+ *
+ * This function implements video buffer memory mapping and is intended to be
+ * used by the device mmap handler.
+ */
 static int
 uvc_queue_mmap(struct uvc_video_queue *queue, struct vm_area_struct *vma)
 {
@@ -345,6 +435,10 @@ uvc_queue_mmap(struct uvc_video_queue *queue, struct vm_area_struct *vma)
 		goto done;
 	}
 
+	/*
+	 * VM_IO marks the area as being an mmaped region for I/O to a
+	 * device. It also prevents the region from being core dumped.
+	 */
 	vma->vm_flags |= VM_IO;
 
 	addr = (unsigned long)queue->mem + buffer->buf.m.offset;
@@ -367,6 +461,18 @@ done:
 	return ret;
 }
 
+/*
+ * Cancel the video buffers queue.
+ *
+ * Cancelling the queue marks all buffers on the irq queue as erroneous,
+ * wakes them up and removes them from the queue.
+ *
+ * If the disconnect parameter is set, further calls to uvc_queue_buffer will
+ * fail with -ENODEV.
+ *
+ * This function acquires the irq spinlock and can be called from interrupt
+ * context.
+ */
 static void uvc_queue_cancel(struct uvc_video_queue *queue, int disconnect)
 {
 	struct uvc_buffer *buf;
@@ -380,11 +486,34 @@ static void uvc_queue_cancel(struct uvc_video_queue *queue, int disconnect)
 		buf->state = UVC_BUF_STATE_ERROR;
 		wake_up(&buf->wait);
 	}
+	/* This must be protected by the irqlock spinlock to avoid race
+	 * conditions between uvc_queue_buffer and the disconnection event that
+	 * could result in an interruptible wait in uvc_dequeue_buffer. Do not
+	 * blindly replace this logic by checking for the UVC_DEV_DISCONNECTED
+	 * state outside the queue code.
+	 */
 	if (disconnect)
 		queue->flags |= UVC_QUEUE_DISCONNECTED;
 	spin_unlock_irqrestore(&queue->irqlock, flags);
 }
 
+/*
+ * Enable or disable the video buffers queue.
+ *
+ * The queue must be enabled before starting video acquisition and must be
+ * disabled after stopping it. This ensures that the video buffers queue
+ * state can be properly initialized before buffers are accessed from the
+ * interrupt handler.
+ *
+ * Enabling the video queue initializes parameters (such as sequence number,
+ * sync pattern, ...). If the queue is already enabled, return -EBUSY.
+ *
+ * Disabling the video queue cancels the queue and removes all buffers from
+ * the main queue.
+ *
+ * This function can't be called from interrupt context. Use
+ * uvc_queue_cancel() instead.
+ */
 static int uvc_queue_enable(struct uvc_video_queue *queue, int enable)
 {
 	unsigned int i;
@@ -414,6 +543,7 @@ done:
 	return ret;
 }
 
+/* called with queue->irqlock held.. */
 static struct uvc_buffer *
 uvc_queue_next_buffer(struct uvc_video_queue *queue, struct uvc_buffer *buf)
 {

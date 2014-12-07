@@ -66,9 +66,35 @@ struct sk_buff;
 struct ath5k_buf;
 
 struct ath5k_dbg_info {
-	unsigned int		level;		
+	unsigned int		level;		/* debug level */
 };
 
+/**
+ * enum ath5k_debug_level - ath5k debug level
+ *
+ * @ATH5K_DEBUG_RESET: reset processing
+ * @ATH5K_DEBUG_INTR: interrupt handling
+ * @ATH5K_DEBUG_MODE: mode init/setup
+ * @ATH5K_DEBUG_XMIT: basic xmit operation
+ * @ATH5K_DEBUG_BEACON: beacon handling
+ * @ATH5K_DEBUG_CALIBRATE: periodic calibration
+ * @ATH5K_DEBUG_TXPOWER: transmit power setting
+ * @ATH5K_DEBUG_LED: led management
+ * @ATH5K_DEBUG_DUMP_RX: print received skb content
+ * @ATH5K_DEBUG_DUMP_TX: print transmit skb content
+ * @ATH5K_DEBUG_DUMPBANDS: dump bands
+ * @ATH5K_DEBUG_DMA: debug dma start/stop
+ * @ATH5K_DEBUG_TRACE: trace function calls
+ * @ATH5K_DEBUG_DESC: descriptor setup
+ * @ATH5K_DEBUG_ANY: show at any debug level
+ *
+ * The debug level is used to control the amount and type of debugging output
+ * we want to see. The debug level is given in calls to ATH5K_DBG to specify
+ * where the message should appear, and the user can control the debugging
+ * messages he wants to see, either by the module parameter 'debug' on module
+ * load, or dynamically by using debugfs 'ath5k/phyX/debug'. these levels can
+ * be combined together by bitwise OR.
+ */
 enum ath5k_debug_level {
 	ATH5K_DEBUG_RESET	= 0x00000001,
 	ATH5K_DEBUG_INTR	= 0x00000002,
@@ -111,7 +137,7 @@ ath5k_debug_dump_bands(struct ath5k_hw *ah);
 void
 ath5k_debug_printtxbuf(struct ath5k_hw *ah, struct ath5k_buf *bf);
 
-#else 
+#else /* no debugging */
 
 #include <linux/compiler.h>
 
@@ -134,6 +160,6 @@ ath5k_debug_dump_bands(struct ath5k_hw *ah) {}
 static inline void
 ath5k_debug_printtxbuf(struct ath5k_hw *ah, struct ath5k_buf *bf) {}
 
-#endif 
+#endif /* ifdef CONFIG_ATH5K_DEBUG */
 
-#endif 
+#endif /* ifndef _ATH5K_DEBUG_H */

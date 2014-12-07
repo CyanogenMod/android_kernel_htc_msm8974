@@ -97,7 +97,7 @@ static ssize_t show_ep_interval(struct device *dev,
 	switch (usb_endpoint_type(ep->desc)) {
 	case USB_ENDPOINT_XFER_CONTROL:
 		if (ep->udev->speed == USB_SPEED_HIGH)
-			
+			/* uframes per NAK */
 			interval = ep->desc->bInterval;
 		break;
 
@@ -107,7 +107,7 @@ static ssize_t show_ep_interval(struct device *dev,
 
 	case USB_ENDPOINT_XFER_BULK:
 		if (ep->udev->speed == USB_SPEED_HIGH && !in)
-			
+			/* uframes per NAK */
 			interval = ep->desc->bInterval;
 		break;
 

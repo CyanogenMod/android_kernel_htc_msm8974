@@ -134,7 +134,7 @@ static struct msm_gpiomux_config msm9615_audio_codec_configs[] __initdata = {
 		},
 	},
 	{
-		.gpio	= 84,		
+		.gpio	= 84,		/* SYS_RST_N */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &tabla_reset,
 		},
@@ -143,7 +143,7 @@ static struct msm_gpiomux_config msm9615_audio_codec_configs[] __initdata = {
 
 static struct msm_gpiomux_config msm9615_sdcc2_configs[] __initdata = {
 	{
-		
+		/* SDC2_DATA_0 */
 		.gpio      = 25,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &sdcc2_cmd_data_0_3_actv_cfg,
@@ -151,7 +151,7 @@ static struct msm_gpiomux_config msm9615_sdcc2_configs[] __initdata = {
 		},
 	},
 	{
-		
+		/* SDC2_DATA_1 */
 		.gpio      = 26,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &sdcc2_cmd_data_0_3_actv_cfg,
@@ -159,7 +159,7 @@ static struct msm_gpiomux_config msm9615_sdcc2_configs[] __initdata = {
 		},
 	},
 	{
-		
+		/* SDC2_DATA_2 */
 		.gpio      = 27,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &sdcc2_cmd_data_0_3_actv_cfg,
@@ -167,7 +167,7 @@ static struct msm_gpiomux_config msm9615_sdcc2_configs[] __initdata = {
 		},
 	},
 	{
-		
+		/* SDC2_DATA_3 */
 		.gpio      = 28,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &sdcc2_cmd_data_0_3_actv_cfg,
@@ -175,7 +175,7 @@ static struct msm_gpiomux_config msm9615_sdcc2_configs[] __initdata = {
 		},
 	},
 	{
-		
+		/* SDC2_CMD */
 		.gpio      = 29,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &sdcc2_cmd_data_0_3_actv_cfg,
@@ -183,7 +183,7 @@ static struct msm_gpiomux_config msm9615_sdcc2_configs[] __initdata = {
 		},
 	},
 	{
-		
+		/* SDC2_CLK */
 		.gpio      = 30,
 		.settings = {
 			[GPIOMUX_ACTIVE]    = &sdcc2_clk_actv_cfg,
@@ -244,69 +244,69 @@ static struct msm_gpiomux_config
 
 struct msm_gpiomux_config msm9615_gsbi_configs[] __initdata = {
 	{
-		.gpio      = 8,		
+		.gpio      = 8,		/* GSBI3 QUP SPI_CLK */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi3,
 		},
 	},
 	{
-		.gpio      = 9,		
+		.gpio      = 9,		/* GSBI3 QUP SPI_CS_N */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi3,
 		},
 	},
 	{
-		.gpio      = 10,	
+		.gpio      = 10,	/* GSBI3 QUP SPI_DATA_MISO */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi3,
 		},
 	},
 	{
-		.gpio      = 11,	
+		.gpio      = 11,	/* GSBI3 QUP SPI_DATA_MOSI */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi3,
 		},
 	},
 	{
-		.gpio      = 12,	
+		.gpio      = 12,	/* GSBI4 UART */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi4,
 		},
 	},
 	{
-		.gpio      = 13,	
+		.gpio      = 13,	/* GSBI4 UART */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi4,
 		},
 	},
 	{
-		.gpio      = 14,	
+		.gpio      = 14,	/* GSBI4 UART */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi4,
 		},
 	},
 	{
-		.gpio      = 15,	
+		.gpio      = 15,	/* GSBI4 UART */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi4,
 		},
 	},
 	{
-		.gpio      = 16,	
+		.gpio      = 16,	/* GSBI5 I2C QUP SCL */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi5,
 			[GPIOMUX_ACTIVE] = &gsbi5,
 		},
 	},
 	{
-		.gpio      = 17,	
+		.gpio      = 17,	/* GSBI5 I2C QUP SDA */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi5,
 		},
 	},
 	{
-		
-		.gpio      = 19,	
+		/* GPIO 19 can be used for I2C/UART on GSBI5 */
+		.gpio      = 19,	/* GSBI3 QUP SPI_CS_1 */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &gsbi3_cs1_config,
 		},
@@ -315,13 +315,13 @@ struct msm_gpiomux_config msm9615_gsbi_configs[] __initdata = {
 
 static struct msm_gpiomux_config msm9615_slimbus_configs[] __initdata = {
 	{
-		.gpio      = 20,	
+		.gpio      = 20,	/* Slimbus data */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &slimbus,
 		},
 	},
 	{
-		.gpio      = 23,	
+		.gpio      = 23,	/* Slimbus clk */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &slimbus,
 		},
@@ -331,19 +331,19 @@ static struct msm_gpiomux_config msm9615_slimbus_configs[] __initdata = {
 #ifdef CONFIG_FB_MSM_EBI2
 static struct msm_gpiomux_config msm9615_ebi2_lcdc_configs[] __initdata = {
 	{
-		.gpio      = 21,	
+		.gpio      = 21,	/* a_d */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ebi2_lcdc_a_d,
 		},
 	},
 	{
-		.gpio      = 22,	
+		.gpio      = 22,	/* cs */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ebi2_lcdc_cs,
 		},
 	},
 	{
-		.gpio      = 24,	
+		.gpio      = 24,	/* rs */
 		.settings = {
 			[GPIOMUX_SUSPENDED] = &ebi2_lcdc_rs,
 		},
@@ -353,7 +353,7 @@ static struct msm_gpiomux_config msm9615_ebi2_lcdc_configs[] __initdata = {
 
 static struct msm_gpiomux_config msm9615_wlan_configs[] __initdata = {
 	{
-		.gpio      = 21,
+		.gpio      = 21,/* WLAN_RESET_N */
 		.settings = {
 			[GPIOMUX_ACTIVE] = &wlan_active_config,
 			[GPIOMUX_SUSPENDED] = &wlan_suspend_config,

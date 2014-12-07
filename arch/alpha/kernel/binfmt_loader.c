@@ -29,7 +29,7 @@ static int load_binary(struct linux_binprm *bprm, struct pt_regs *regs)
 	if (IS_ERR(file))
 		return retval;
 
-	
+	/* Remember if the application is TASO.  */
 	bprm->taso = eh->ah.entry < 0x100000000UL;
 
 	bprm->file = file;

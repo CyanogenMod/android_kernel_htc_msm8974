@@ -17,8 +17,11 @@
 #include <mach/generic.h>
 #include <mach/hardware.h>
 
+/* pad multiplexing support */
+/* muxing registers */
 #define PAD_MUX_CONFIG_REG	0x08
 
+/* devices */
 static struct pmx_dev_mode pmx_emi_cs_0_1_4_5_modes[] = {
 	{
 		.ids = 0x00,
@@ -131,10 +134,12 @@ struct pmx_dev spear310_pmx_tdm0 = {
 	.enb_on_reset = 1,
 };
 
+/* pmx driver structure */
 static struct pmx_driver pmx_driver = {
 	.mux_reg = {.offset = PAD_MUX_CONFIG_REG, .mask = 0x00007fff},
 };
 
+/* spear3xx shared irq */
 static struct shirq_dev_config shirq_ras1_config[] = {
 	{
 		.virq = SPEAR310_VIRQ_SMII0,
@@ -250,45 +255,47 @@ static struct spear_shirq shirq_intrcomm_ras = {
 	},
 };
 
+/* Add spear310 specific devices here */
 
+/* spear310 routines */
 void __init spear310_init(struct pmx_mode *pmx_mode, struct pmx_dev **pmx_devs,
 		u8 pmx_dev_count)
 {
 	void __iomem *base;
 	int ret = 0;
 
-	
+	/* call spear3xx family common init function */
 	spear3xx_init();
 
-	
+	/* shared irq registration */
 	base = ioremap(SPEAR310_SOC_CONFIG_BASE, SZ_4K);
 	if (base) {
-		
+		/* shirq 1 */
 		shirq_ras1.regs.base = base;
 		ret = spear_shirq_register(&shirq_ras1);
 		if (ret)
 			printk(KERN_ERR "Error registering Shared IRQ 1\n");
 
-		
+		/* shirq 2 */
 		shirq_ras2.regs.base = base;
 		ret = spear_shirq_register(&shirq_ras2);
 		if (ret)
 			printk(KERN_ERR "Error registering Shared IRQ 2\n");
 
-		
+		/* shirq 3 */
 		shirq_ras3.regs.base = base;
 		ret = spear_shirq_register(&shirq_ras3);
 		if (ret)
 			printk(KERN_ERR "Error registering Shared IRQ 3\n");
 
-		
+		/* shirq 4 */
 		shirq_intrcomm_ras.regs.base = base;
 		ret = spear_shirq_register(&shirq_intrcomm_ras);
 		if (ret)
 			printk(KERN_ERR "Error registering Shared IRQ 4\n");
 	}
 
-	
+	/* pmx initialization */
 	pmx_driver.base = base;
 	pmx_driver.mode = pmx_mode;
 	pmx_driver.devs = pmx_devs;

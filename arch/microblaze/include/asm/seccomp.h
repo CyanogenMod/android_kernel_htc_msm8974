@@ -13,4 +13,4 @@
 #define __NR_seccomp_exit_32		__NR_exit
 #define __NR_seccomp_sigreturn_32	__NR_sigreturn
 
-#endif	
+#endif	/* _ASM_MICROBLAZE_SECCOMP_H */

@@ -23,9 +23,12 @@
 */
 
 
+/*hub device which connected with root port*/
 struct usb_device *hubdev = 0;
+/* hub interrupt urb*/
 struct urb *huburb;
 
+/*return otghub from here*/
 struct usb_device *
 phci_register_otg_device(struct isp1763_dev *dev)
 {
@@ -38,6 +41,10 @@ phci_register_otg_device(struct isp1763_dev *dev)
 }
 EXPORT_SYMBOL(phci_register_otg_device);
 
+/*suspend the otg port(0)
+ * needed when port is switching
+ * from host to device
+ * */
 int
 phci_suspend_otg_port(struct isp1763_dev *dev, u32 command)
 {
@@ -53,24 +60,29 @@ phci_suspend_otg_port(struct isp1763_dev *dev, u32 command)
 }
 EXPORT_SYMBOL(phci_suspend_otg_port);
 
+/*set the flag to enumerate the device*/
 int
 phci_enumerate_otg_port(struct isp1763_dev *dev, u32 command)
 {
-	
+	/*set the flag to enumerate */
+	/*connect change interrupt will happen from
+	 * phci_intl_worker only
+	 * */
 	hubdev->otgstate = USB_OTG_ENUMERATE;
 	if (huburb->status == -EINPROGRESS) {
 		huburb->status = 0;
 	}
-	
+	/*complete the urb */
 
 	huburb->complete(huburb);
 
-	
+	/*reset the otghub urb status */
 	huburb->status = -EINPROGRESS;
 	return 0;
 }
 EXPORT_SYMBOL(phci_enumerate_otg_port);
 
+/*host controller resume sequence at otg port*/
 int
 phci_resume_otg_port(struct isp1763_dev *dev, u32 command)
 {
@@ -79,15 +91,16 @@ phci_resume_otg_port(struct isp1763_dev *dev, u32 command)
 	if (huburb->status == -EINPROGRESS) {
 		huburb->status = 0;
 	}
-	
+	/*complete the urb */
 
 	huburb->complete(huburb);
 
-	
+	/*reset the otghub urb status */
 	huburb->status = -EINPROGRESS;
 	return 0;
 }
 EXPORT_SYMBOL(phci_resume_otg_port);
+/*host controller remote wakeup sequence at otg port*/
 int
 phci_remotewakeup(struct isp1763_dev *dev)
 {
@@ -95,18 +108,19 @@ phci_remotewakeup(struct isp1763_dev *dev)
     hubdev->otgstate = USB_OTG_REMOTEWAKEUP;
     if(huburb->status == -EINPROGRESS)
         huburb->status = 0;
-    
+    /*complete the urb*/
 #if ((defined LINUX_269) || defined (LINUX_2611))
     huburb->complete(huburb,NULL);      
 #else
 	 huburb->complete(huburb);
 #endif
-    
+    /*reset the otghub urb status*/
     huburb->status = -EINPROGRESS;
     return 0;
 }
 EXPORT_SYMBOL(phci_remotewakeup);
 
+/*host controller wakeup sequence at otg port*/
 int
 phci_resume_wakeup(struct isp1763_dev *dev)
 {
@@ -116,13 +130,13 @@ phci_resume_wakeup(struct isp1763_dev *dev)
     if(huburb->status == -EINPROGRESS)
 #endif
         huburb->status = 0;
-    
+    /*complete the urb*/
 #if ((defined LINUX_269) || defined (LINUX_2611))
     huburb->complete(huburb,NULL);      
 #else
 	 huburb->complete(huburb);
 #endif
-    
+    /*reset the otghub urb status*/
     huburb->status = -EINPROGRESS;
     return 0;
 }

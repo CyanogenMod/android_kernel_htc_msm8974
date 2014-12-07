@@ -80,6 +80,10 @@ struct icside_state {
 #define ICS_TYPE_V5	15
 #define ICS_TYPE_NOTYPE	((unsigned int)-1)
 
+/* ---------------- Version 5 PCB Support Functions --------------------- */
+/* Prototype: icside_irqenable_arcin_v5 (struct expansion_card *ec, int irqnr)
+ * Purpose  : enable interrupts from card
+ */
 static void icside_irqenable_arcin_v5 (struct expansion_card *ec, int irqnr)
 {
 	struct icside_state *state = ec->irq_data;
@@ -87,6 +91,9 @@ static void icside_irqenable_arcin_v5 (struct expansion_card *ec, int irqnr)
 	writeb(0, state->irq_port + ICS_ARCIN_V5_INTROFFSET);
 }
 
+/* Prototype: icside_irqdisable_arcin_v5 (struct expansion_card *ec, int irqnr)
+ * Purpose  : disable interrupts from card
+ */
 static void icside_irqdisable_arcin_v5 (struct expansion_card *ec, int irqnr)
 {
 	struct icside_state *state = ec->irq_data;
@@ -100,6 +107,10 @@ static const expansioncard_ops_t icside_ops_arcin_v5 = {
 };
 
 
+/* ---------------- Version 6 PCB Support Functions --------------------- */
+/* Prototype: icside_irqenable_arcin_v6 (struct expansion_card *ec, int irqnr)
+ * Purpose  : enable interrupts from card
+ */
 static void icside_irqenable_arcin_v6 (struct expansion_card *ec, int irqnr)
 {
 	struct icside_state *state = ec->irq_data;
@@ -119,6 +130,9 @@ static void icside_irqenable_arcin_v6 (struct expansion_card *ec, int irqnr)
 	}
 }
 
+/* Prototype: icside_irqdisable_arcin_v6 (struct expansion_card *ec, int irqnr)
+ * Purpose  : disable interrupts from card
+ */
 static void icside_irqdisable_arcin_v6 (struct expansion_card *ec, int irqnr)
 {
 	struct icside_state *state = ec->irq_data;
@@ -129,6 +143,9 @@ static void icside_irqdisable_arcin_v6 (struct expansion_card *ec, int irqnr)
 	readb(state->irq_port + ICS_ARCIN_V6_INTROFFSET_2);
 }
 
+/* Prototype: icside_irqprobe(struct expansion_card *ec)
+ * Purpose  : detect an active interrupt from card
+ */
 static int icside_irqpending_arcin_v6(struct expansion_card *ec)
 {
 	struct icside_state *state = ec->irq_data;
@@ -143,6 +160,10 @@ static const expansioncard_ops_t icside_ops_arcin_v6 = {
 	.irqpending	= icside_irqpending_arcin_v6,
 };
 
+/*
+ * Handle routing of interrupts.  This is called before
+ * we write the command to the drive.
+ */
 static void icside_maskproc(ide_drive_t *drive, int mask)
 {
 	ide_hwif_t *hwif = drive->hwif;
@@ -178,7 +199,41 @@ static const struct ide_port_ops icside_v6_no_dma_port_ops = {
 };
 
 #ifdef CONFIG_BLK_DEV_IDEDMA_ICS
+/*
+ * SG-DMA support.
+ *
+ * Similar to the BM-DMA, but we use the RiscPCs IOMD DMA controllers.
+ * There is only one DMA controller per card, which means that only
+ * one drive can be accessed at one time.  NOTE! We do not enforce that
+ * here, but we rely on the main IDE driver spotting that both
+ * interfaces use the same IRQ, which should guarantee this.
+ */
 
+/*
+ * Configure the IOMD to give the appropriate timings for the transfer
+ * mode being requested.  We take the advice of the ATA standards, and
+ * calculate the cycle time based on the transfer mode, and the EIDE
+ * MW DMA specs that the drive provides in the IDENTIFY command.
+ *
+ * We have the following IOMD DMA modes to choose from:
+ *
+ *	Type	Active		Recovery	Cycle
+ *	A	250 (250)	312 (550)	562 (800)
+ *	B	187		250		437
+ *	C	125 (125)	125 (375)	250 (500)
+ *	D	62		125		187
+ *
+ * (figures in brackets are actual measured timings)
+ *
+ * However, we also need to take care of the read/write active and
+ * recovery timings:
+ *
+ *			Read	Write
+ *  	Mode	Active	-- Recovery --	Cycle	IOMD type
+ *	MW0	215	50	215	480	A
+ *	MW1	80	50	50	150	C
+ *	MW2	70	25	25	120	C
+ */
 static void icside_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
 	unsigned long cycle_time;
@@ -207,6 +262,10 @@ static void icside_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 		break;
 	}
 
+	/*
+	 * If we're going to be doing MW_DMA_1 or MW_DMA_2, we should
+	 * take care to note the values in the ID...
+	 */
 	if (use_dma_info && drive->id[ATA_ID_EIDE_DMA_TIME] > cycle_time)
 		cycle_time = drive->id[ATA_ID_EIDE_DMA_TIME];
 
@@ -241,7 +300,7 @@ static void icside_dma_start(ide_drive_t *drive)
 	ide_hwif_t *hwif = drive->hwif;
 	struct expansion_card *ec = ECARD_DEV(hwif->dev);
 
-	
+	/* We can not enable DMA on both channels simultaneously. */
 	BUG_ON(dma_channel_active(ec->dma));
 	enable_dma(ec->dma);
 }
@@ -258,14 +317,30 @@ static int icside_dma_setup(ide_drive_t *drive, struct ide_cmd *cmd)
 	else
 		dma_mode = DMA_MODE_READ;
 
+	/*
+	 * We can not enable DMA on both channels.
+	 */
 	BUG_ON(dma_channel_active(ec->dma));
 
+	/*
+	 * Ensure that we have the right interrupt routed.
+	 */
 	icside_maskproc(drive, 0);
 
+	/*
+	 * Route the DMA signals to the correct interface.
+	 */
 	writeb(state->sel | hwif->channel, state->ioc_base);
 
+	/*
+	 * Select the correct timing for this drive.
+	 */
 	set_dma_speed(ec->dma, (unsigned long)ide_get_drivedata(drive));
 
+	/*
+	 * Tell the DMA engine about the SG table and
+	 * data direction.
+	 */
 	set_dma_sg(ec->dma, hwif->sg_table, cmd->sg_nents);
 	set_dma_mode(ec->dma, dma_mode);
 
@@ -352,6 +427,9 @@ icside_register_v5(struct icside_state *state, struct expansion_card *ec)
 
 	ecard_setirq(ec, &icside_ops_arcin_v5, state);
 
+	/*
+	 * Be on the safe side - disable interrupts
+	 */
 	icside_irqdisable_arcin_v5(ec, 0);
 
 	icside_setup_ports(&hw, base, &icside_cardinfo_v5, ec);
@@ -410,6 +488,9 @@ icside_register_v6(struct icside_state *state, struct expansion_card *ec)
 			goto out;
 		}
 
+		/*
+		 * Enable access to the EASI region.
+		 */
 		sel = 1 << 5;
 	}
 
@@ -421,6 +502,9 @@ icside_register_v6(struct icside_state *state, struct expansion_card *ec)
 	state->ioc_base   = ioc_base;
 	state->sel	  = sel;
 
+	/*
+	 * Be on the safe side - disable interrupts
+	 */
 	icside_irqdisable_arcin_v6(ec, 0);
 
 	icside_setup_ports(&hw[0], easi_base, &icside_cardinfo_v6_1, ec);
@@ -527,21 +611,21 @@ static void __devexit icside_remove(struct expansion_card *ec)
 
 	switch (state->type) {
 	case ICS_TYPE_V5:
-		
+		/* FIXME: tell IDE to stop using the interface */
 
-		
+		/* Disable interrupts */
 		icside_irqdisable_arcin_v5(ec, 0);
 		break;
 
 	case ICS_TYPE_V6:
-		
+		/* FIXME: tell IDE to stop using the interface */
 		if (ec->dma != NO_DMA)
 			free_dma(ec->dma);
 
-		
+		/* Disable interrupts */
 		icside_irqdisable_arcin_v6(ec, 0);
 
-		
+		/* Reset the ROM pointer/EASI selection */
 		writeb(0, state->ioc_base);
 		break;
 	}
@@ -557,10 +641,20 @@ static void icside_shutdown(struct expansion_card *ec)
 	struct icside_state *state = ecard_get_drvdata(ec);
 	unsigned long flags;
 
+	/*
+	 * Disable interrupts from this card.  We need to do
+	 * this before disabling EASI since we may be accessing
+	 * this register via that region.
+	 */
 	local_irq_save(flags);
 	ec->ops->irqdisable(ec, 0);
 	local_irq_restore(flags);
 
+	/*
+	 * Reset the ROM pointer so that we can read the ROM
+	 * after a soft reboot.  This also disables access to
+	 * the IDE taskfile via the EASI region.
+	 */
 	if (state->ioc_base)
 		writeb(0, state->ioc_base);
 }

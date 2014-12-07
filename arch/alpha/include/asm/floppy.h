@@ -24,7 +24,7 @@
 #define fd_set_dma_count(count) set_dma_count(FLOPPY_DMA,count)
 #define fd_enable_irq()         enable_irq(FLOPPY_IRQ)
 #define fd_disable_irq()        disable_irq(FLOPPY_IRQ)
-#define fd_cacheflush(addr,size) 
+#define fd_cacheflush(addr,size) /* nothing */
 #define fd_request_irq()        request_irq(FLOPPY_IRQ, floppy_interrupt,\
 					    IRQF_DISABLED, "floppy", NULL)
 #define fd_free_irq()           free_irq(FLOPPY_IRQ, NULL)
@@ -48,15 +48,15 @@ alpha_fd_dma_setup(char *addr, unsigned long size, int mode, int io)
 
 	if (bus_addr 
 	    && (addr != prev_addr || size != prev_size || dir != prev_dir)) {
-		
+		/* different from last time -- unmap prev */
 		pci_unmap_single(isa_bridge, bus_addr, prev_size, prev_dir);
 		bus_addr = 0;
 	}
 
-	if (!bus_addr)	
+	if (!bus_addr)	/* need to map it */
 		bus_addr = pci_map_single(isa_bridge, addr, size, dir);
 
-	
+	/* remember this one as prev */
 	prev_addr = addr;
 	prev_size = size;
 	prev_dir = dir;
@@ -72,22 +72,37 @@ alpha_fd_dma_setup(char *addr, unsigned long size, int mode, int io)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_PCI */
 
 __inline__ void virtual_dma_init(void)
 {
-	
+	/* Nothing to do on an Alpha */
 }
 
 static int FDC1 = 0x3f0;
 static int FDC2 = -1;
 
+/*
+ * Again, the CMOS information doesn't work on the alpha..
+ */
 #define FLOPPY0_TYPE 6
 #define FLOPPY1_TYPE 0
 
 #define N_FDC 2
 #define N_DRIVE 8
 
+/*
+ * Most Alphas have no problems with floppy DMA crossing 64k borders,
+ * except for certain ones, like XL and RUFFIAN.
+ *
+ * However, the test is simple and fast, and this *is* floppy, after all,
+ * so we do it for all platforms, just to make sure.
+ *
+ * This is advantageous in other circumstances as well, as in moving
+ * about the PCI DMA windows and forcing the floppy to start doing
+ * scatter-gather when it never had before, and there *is* a problem
+ * on that platform... ;-}
+ */
 
 static inline unsigned long CROSS_64KB(void *a, unsigned long s)
 {
@@ -97,4 +112,4 @@ static inline unsigned long CROSS_64KB(void *a, unsigned long s)
 
 #define EXTRA_FLOPPY_PARAMS
 
-#endif 
+#endif /* __ASM_ALPHA_FLOPPY_H */

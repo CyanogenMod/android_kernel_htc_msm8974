@@ -43,6 +43,9 @@
 #include "xfs_filestream.h"
 #include "xfs_trace.h"
 
+/*
+ * File system operations
+ */
 
 int
 xfs_fs_geometry(
@@ -114,8 +117,8 @@ xfs_fs_geometry(
 
 static int
 xfs_growfs_data_private(
-	xfs_mount_t		*mp,		
-	xfs_growfs_data_t	*in)		
+	xfs_mount_t		*mp,		/* mount point for filesystem */
+	xfs_growfs_data_t	*in)		/* growfs data input struct */
 {
 	xfs_agf_t		*agf;
 	xfs_agi_t		*agi;
@@ -151,7 +154,7 @@ xfs_growfs_data_private(
 		return EIO;
 	xfs_buf_relse(bp);
 
-	new = nb;	
+	new = nb;	/* use new as a temporary here */
 	nb_mod = do_div(new, mp->m_sb.sb_agblocks);
 	nagcount = new + (nb_mod != 0);
 	if (nb_mod && nb_mod < XFS_MIN_AG_BLOCKS) {
@@ -163,7 +166,7 @@ xfs_growfs_data_private(
 	new = nb - mp->m_sb.sb_dblocks;
 	oagcount = mp->m_sb.sb_agcount;
 
-	
+	/* allocate the new per-ag structures */
 	if (nagcount > oagcount) {
 		error = xfs_initialize_perag(mp, nagcount, &nagimax);
 		if (error)
@@ -185,6 +188,9 @@ xfs_growfs_data_private(
 	 */
 	nfree = 0;
 	for (agno = nagcount - 1; agno >= oagcount; agno--, new -= agsize) {
+		/*
+		 * AG freelist header block
+		 */
 		bp = xfs_buf_get(mp->m_ddev_targp,
 				 XFS_AG_DADDR(mp, agno, XFS_AGF_DADDR(mp)),
 				 XFS_FSS_TO_BB(mp, 1), XBF_LOCK | XBF_MAPPED);
@@ -219,6 +225,9 @@ xfs_growfs_data_private(
 		if (error)
 			goto error0;
 
+		/*
+		 * AG inode header block
+		 */
 		bp = xfs_buf_get(mp->m_ddev_targp,
 				 XFS_AG_DADDR(mp, agno, XFS_AGI_DADDR(mp)),
 				 XFS_FSS_TO_BB(mp, 1), XBF_LOCK | XBF_MAPPED);
@@ -245,6 +254,9 @@ xfs_growfs_data_private(
 		if (error)
 			goto error0;
 
+		/*
+		 * BNO btree root block
+		 */
 		bp = xfs_buf_get(mp->m_ddev_targp,
 				 XFS_AGB_TO_DADDR(mp, agno, XFS_BNO_BLOCK(mp)),
 				 BTOBB(mp->m_sb.sb_blocksize),
@@ -269,6 +281,9 @@ xfs_growfs_data_private(
 		if (error)
 			goto error0;
 
+		/*
+		 * CNT btree root block
+		 */
 		bp = xfs_buf_get(mp->m_ddev_targp,
 				 XFS_AGB_TO_DADDR(mp, agno, XFS_CNT_BLOCK(mp)),
 				 BTOBB(mp->m_sb.sb_blocksize),
@@ -294,6 +309,9 @@ xfs_growfs_data_private(
 		if (error)
 			goto error0;
 
+		/*
+		 * INO btree root block
+		 */
 		bp = xfs_buf_get(mp->m_ddev_targp,
 				 XFS_AGB_TO_DADDR(mp, agno, XFS_IBT_BLOCK(mp)),
 				 BTOBB(mp->m_sb.sb_blocksize),
@@ -315,7 +333,13 @@ xfs_growfs_data_private(
 			goto error0;
 	}
 	xfs_trans_agblocks_delta(tp, nfree);
+	/*
+	 * There are new blocks in the old last a.g.
+	 */
 	if (new) {
+		/*
+		 * Change the agi length.
+		 */
 		error = xfs_ialloc_read_agi(mp, tp, agno, &bp);
 		if (error) {
 			goto error0;
@@ -326,6 +350,9 @@ xfs_growfs_data_private(
 		ASSERT(nagcount == oagcount ||
 		       be32_to_cpu(agi->agi_length) == mp->m_sb.sb_agblocks);
 		xfs_ialloc_log_agi(tp, bp, XFS_AGI_LENGTH);
+		/*
+		 * Change agf length.
+		 */
 		error = xfs_alloc_read_agf(mp, tp, agno, 0, &bp);
 		if (error) {
 			goto error0;
@@ -337,6 +364,9 @@ xfs_growfs_data_private(
 		       be32_to_cpu(agi->agi_length));
 
 		xfs_alloc_log_agf(tp, bp, XFS_AGF_LENGTH);
+		/*
+		 * Free the new space.
+		 */
 		error = xfs_free_extent(tp, XFS_AGB_TO_FSB(mp, agno,
 			be32_to_cpu(agf->agf_length) - new), new);
 		if (error) {
@@ -344,6 +374,11 @@ xfs_growfs_data_private(
 		}
 	}
 
+	/*
+	 * Update changed superblock fields transactionally. These are not
+	 * seen by the rest of the world until the transaction commit applies
+	 * them atomically to the superblock.
+	 */
 	if (nagcount > oagcount)
 		xfs_trans_mod_sb(tp, XFS_TRANS_SB_AGCOUNT, nagcount - oagcount);
 	if (nb > mp->m_sb.sb_dblocks)
@@ -357,7 +392,7 @@ xfs_growfs_data_private(
 	if (error)
 		return error;
 
-	
+	/* New allocation groups fully initialized, so update mount struct */
 	if (nagimax)
 		mp->m_maxagi = nagimax;
 	if (mp->m_sb.sb_imax_pct) {
@@ -368,7 +403,7 @@ xfs_growfs_data_private(
 		mp->m_maxicount = 0;
 	xfs_set_low_space_thresholds(mp);
 
-	
+	/* update secondary superblocks. */
 	for (agno = 1; agno < nagcount; agno++) {
 		error = xfs_read_buf(mp, mp->m_ddev_targp,
 				  XFS_AGB_TO_DADDR(mp, agno, XFS_SB_BLOCK(mp)),
@@ -380,13 +415,18 @@ xfs_growfs_data_private(
 			break;
 		}
 		xfs_sb_to_disk(XFS_BUF_TO_SBP(bp), &mp->m_sb, XFS_SB_ALL_BITS);
+		/*
+		 * If we get an error writing out the alternate superblocks,
+		 * just issue a warning and continue.  The real work is
+		 * already done and committed.
+		 */
 		error = xfs_bwrite(bp);
 		xfs_buf_relse(bp);
 		if (error) {
 			xfs_warn(mp,
 		"write error %d updating secondary superblock for ag %d",
 				error, agno);
-			break; 
+			break; /* no point in continuing */
 		}
 	}
 	return 0;
@@ -398,8 +438,8 @@ xfs_growfs_data_private(
 
 static int
 xfs_growfs_log_private(
-	xfs_mount_t		*mp,	
-	xfs_growfs_log_t	*in)	
+	xfs_mount_t		*mp,	/* mount point for filesystem */
+	xfs_growfs_log_t	*in)	/* growfs log input struct */
 {
 	xfs_extlen_t		nb;
 
@@ -409,9 +449,20 @@ xfs_growfs_log_private(
 	if (nb == mp->m_sb.sb_logblocks &&
 	    in->isint == (mp->m_sb.sb_logstart != 0))
 		return XFS_ERROR(EINVAL);
+	/*
+	 * Moving the log is hard, need new interfaces to sync
+	 * the log first, hold off all activity while moving it.
+	 * Can have shorter or longer log in the same space,
+	 * or transform internal to external log or vice versa.
+	 */
 	return XFS_ERROR(ENOSYS);
 }
 
+/*
+ * protected versions of growfs function acquire and release locks on the mount
+ * point - exported through ioctls: XFS_IOC_FSGROWFSDATA, XFS_IOC_FSGROWFSLOG,
+ * XFS_IOC_FSGROWFSRT
+ */
 
 
 int
@@ -446,6 +497,9 @@ xfs_growfs_log(
 	return error;
 }
 
+/*
+ * exported through ioctl XFS_IOC_FSCOUNTS
+ */
 
 int
 xfs_fs_counts(
@@ -462,6 +516,20 @@ xfs_fs_counts(
 	return 0;
 }
 
+/*
+ * exported through ioctl XFS_IOC_SET_RESBLKS & XFS_IOC_GET_RESBLKS
+ *
+ * xfs_reserve_blocks is called to set m_resblks
+ * in the in-core mount table. The number of unused reserved blocks
+ * is kept in m_resblks_avail.
+ *
+ * Reserve the requested number of blocks if available. Otherwise return
+ * as many as possible to satisfy the request. The actual number
+ * reserved are returned in outval
+ *
+ * A null inval pointer indicates that only the current reserved blocks
+ * available  should  be returned no settings are changed.
+ */
 
 int
 xfs_reserve_blocks(
@@ -472,7 +540,7 @@ xfs_reserve_blocks(
 	__int64_t		lcounter, delta, fdblks_delta;
 	__uint64_t		request;
 
-	
+	/* If inval is null, report current values and return */
 	if (inval == (__uint64_t *)NULL) {
 		if (!outval)
 			return EINVAL;
@@ -483,14 +551,33 @@ xfs_reserve_blocks(
 
 	request = *inval;
 
+	/*
+	 * With per-cpu counters, this becomes an interesting
+	 * problem. we needto work out if we are freeing or allocation
+	 * blocks first, then we can do the modification as necessary.
+	 *
+	 * We do this under the m_sb_lock so that if we are near
+	 * ENOSPC, we will hold out any changes while we work out
+	 * what to do. This means that the amount of free space can
+	 * change while we do this, so we need to retry if we end up
+	 * trying to reserve more space than is available.
+	 *
+	 * We also use the xfs_mod_incore_sb() interface so that we
+	 * don't have to care about whether per cpu counter are
+	 * enabled, disabled or even compiled in....
+	 */
 retry:
 	spin_lock(&mp->m_sb_lock);
 	xfs_icsb_sync_counters_locked(mp, 0);
 
+	/*
+	 * If our previous reservation was larger than the current value,
+	 * then move any unused blocks back to the free pool.
+	 */
 	fdblks_delta = 0;
 	if (mp->m_resblks > request) {
 		lcounter = mp->m_resblks_avail - request;
-		if (lcounter  > 0) {		
+		if (lcounter  > 0) {		/* release unused blocks */
 			fdblks_delta = lcounter;
 			mp->m_resblks_avail -= lcounter;
 		}
@@ -500,12 +587,12 @@ retry:
 
 		free =  mp->m_sb.sb_fdblocks - XFS_ALLOC_SET_ASIDE(mp);
 		if (!free)
-			goto out; 
+			goto out; /* ENOSPC and fdblks_delta = 0 */
 
 		delta = request - mp->m_resblks;
 		lcounter = free - delta;
 		if (lcounter < 0) {
-			
+			/* We can't satisfy the request, just get what we can */
 			mp->m_resblks += free;
 			mp->m_resblks_avail += free;
 			fdblks_delta = -free;
@@ -523,6 +610,19 @@ out:
 	spin_unlock(&mp->m_sb_lock);
 
 	if (fdblks_delta) {
+		/*
+		 * If we are putting blocks back here, m_resblks_avail is
+		 * already at its max so this will put it in the free pool.
+		 *
+		 * If we need space, we'll either succeed in getting it
+		 * from the free block count or we'll get an enospc. If
+		 * we get a ENOSPC, it means things changed while we were
+		 * calculating fdblks_delta and so we should try again to
+		 * see if there is anything left to reserve.
+		 *
+		 * Don't set the reserved flag here - we don't want to reserve
+		 * the extra reserve blocks from the reserve.....
+		 */
 		int error;
 		error = xfs_icsb_modify_counters(mp, XFS_SBS_FDBLOCKS,
 						 fdblks_delta, 0);
@@ -558,7 +658,7 @@ xfs_fs_log_dummy(
 		return error;
 	}
 
-	
+	/* log the UUID because it is an unchanging field */
 	xfs_mod_sb(tp, XFS_SB_UUID);
 	xfs_trans_set_sync(tp);
 	return xfs_trans_commit(tp, 0);

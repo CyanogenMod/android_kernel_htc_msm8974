@@ -1,5 +1,6 @@
-#define _GNU_SOURCE	
-#include <fcntl.h>	
+#define _GNU_SOURCE	/* needed to get the defines */
+#include <fcntl.h>	/* in glibc 2.2 this has the needed
+				   values defined */
 #include <signal.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -24,6 +25,8 @@ int main(void)
 	fd = open(".", O_RDONLY);
 	fcntl(fd, F_SETSIG, SIGRTMIN + 1);
 	fcntl(fd, F_NOTIFY, DN_MODIFY|DN_CREATE|DN_MULTISHOT);
+	/* we will now be notified if any of the files
+	   in "." is modified or new files are created */
 	while (1) {
 		pause();
 		printf("Got event on fd=%d\n", event_fd);

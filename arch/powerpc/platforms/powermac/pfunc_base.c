@@ -45,11 +45,11 @@ static int macio_do_gpio_write(PMF_STD_ARGS, u8 value, u8 mask)
 	unsigned long flags;
 	u8 tmp;
 
-	
+	/* Check polarity */
 	if (args && args->count && !args->u[0].v)
 		value = ~value;
 
-	
+	/* Toggle the GPIO */
 	raw_spin_lock_irqsave(&feature_lock, flags);
 	tmp = readb(addr);
 	tmp = (tmp & ~mask) | (value & mask);
@@ -66,7 +66,7 @@ static int macio_do_gpio_read(PMF_STD_ARGS, u8 mask, int rshift, u8 xor)
 	u8 __iomem *addr = (u8 __iomem *)func->driver_data;
 	u32 value;
 
-	
+	/* Check if we have room for reply */
 	if (args == NULL || args->count == 0 || args->u[0].p == NULL)
 		return -EINVAL;
 
@@ -78,7 +78,7 @@ static int macio_do_gpio_read(PMF_STD_ARGS, u8 mask, int rshift, u8 xor)
 
 static int macio_do_delay(PMF_STD_ARGS, u32 duration)
 {
-	
+	/* assume we can sleep ! */
 	msleep((duration + 999) / 1000);
 	return 0;
 }
@@ -95,6 +95,9 @@ static void macio_gpio_init_one(struct macio_chip *macio)
 {
 	struct device_node *gparent, *gp;
 
+	/*
+	 * Find the "gpio" parent node
+	 */
 
 	for (gparent = NULL;
 	     (gparent = of_get_next_child(macio->of_node, gparent)) != NULL;)
@@ -106,12 +109,19 @@ static void macio_gpio_init_one(struct macio_chip *macio)
 	DBG("Installing GPIO functions for macio %s\n",
 	    macio->of_node->full_name);
 
+	/*
+	 * Ok, got one, we dont need anything special to track them down, so
+	 * we just create them all
+	 */
 	for (gp = NULL; (gp = of_get_next_child(gparent, gp)) != NULL;) {
 		const u32 *reg = of_get_property(gp, "reg", NULL);
 		unsigned long offset;
 		if (reg == NULL)
 			continue;
 		offset = *reg;
+		/* Deal with old style device-tree. We can safely hard code the
+		 * offset for now too even if it's a bit gross ...
+		 */
 		if (offset < 0x50)
 			offset += 0x50;
 		offset += (unsigned long)macio->base;
@@ -121,10 +131,13 @@ static void macio_gpio_init_one(struct macio_chip *macio)
 	DBG("Calling initial GPIO functions for macio %s\n",
 	    macio->of_node->full_name);
 
-	
+	/* And now we run all the init ones */
 	for (gp = NULL; (gp = of_get_next_child(gparent, gp)) != NULL;)
 		pmf_do_functions(gp, NULL, 0, PMF_FLAGS_ON_INIT, NULL);
 
+	/* Note: We do not at this point implement the "at sleep" or "at wake"
+	 * functions. I yet to find any for GPIOs anyway
+	 */
 }
 
 static int macio_do_write_reg32(PMF_STD_ARGS, u32 offset, u32 value, u32 mask)
@@ -142,7 +155,7 @@ static int macio_do_read_reg32(PMF_STD_ARGS, u32 offset)
 {
 	struct macio_chip *macio = func->driver_data;
 
-	
+	/* Check if we have room for reply */
 	if (args == NULL || args->count == 0 || args->u[0].p == NULL)
 		return -EINVAL;
 
@@ -165,7 +178,7 @@ static int macio_do_read_reg8(PMF_STD_ARGS, u32 offset)
 {
 	struct macio_chip *macio = func->driver_data;
 
-	
+	/* Check if we have room for reply */
 	if (args == NULL || args->count == 0 || args->u[0].p == NULL)
 		return -EINVAL;
 
@@ -178,7 +191,7 @@ static int macio_do_read_reg32_msrx(PMF_STD_ARGS, u32 offset, u32 mask,
 {
 	struct macio_chip *macio = func->driver_data;
 
-	
+	/* Check if we have room for reply */
 	if (args == NULL || args->count == 0 || args->u[0].p == NULL)
 		return -EINVAL;
 
@@ -191,7 +204,7 @@ static int macio_do_read_reg8_msrx(PMF_STD_ARGS, u32 offset, u32 mask,
 {
 	struct macio_chip *macio = func->driver_data;
 
-	
+	/* Check if we have room for reply */
 	if (args == NULL || args->count == 0 || args->u[0].p == NULL)
 		return -EINVAL;
 
@@ -206,7 +219,7 @@ static int macio_do_write_reg32_slm(PMF_STD_ARGS, u32 offset, u32 shift,
 	unsigned long flags;
 	u32 tmp, val;
 
-	
+	/* Check args */
 	if (args == NULL || args->count == 0)
 		return -EINVAL;
 
@@ -226,7 +239,7 @@ static int macio_do_write_reg8_slm(PMF_STD_ARGS, u32 offset, u32 shift,
 	unsigned long flags;
 	u32 tmp, val;
 
-	
+	/* Check args */
 	if (args == NULL || args->count == 0)
 		return -EINVAL;
 
@@ -266,6 +279,9 @@ static int unin_do_write_reg32(PMF_STD_ARGS, u32 offset, u32 value, u32 mask)
 	unsigned long flags;
 
 	raw_spin_lock_irqsave(&feature_lock, flags);
+	/* This is fairly bogus in darwin, but it should work for our needs
+	 * implemeted that way:
+	 */
 	UN_OUT(offset, (UN_IN(offset) & ~mask) | (value & mask));
 	raw_spin_unlock_irqrestore(&feature_lock, flags);
 	return 0;
@@ -284,10 +300,16 @@ static void uninorth_install_pfunc(void)
 	DBG("Installing functions for UniN %s\n",
 	    uninorth_node->full_name);
 
+	/*
+	 * Install handlers for the bridge itself
+	 */
 	pmf_register_driver(uninorth_node, &unin_mmio_handlers, NULL);
 	pmf_do_functions(uninorth_node, NULL, 0, PMF_FLAGS_ON_INIT, NULL);
 
 
+	/*
+	 * Install handlers for the hwclock child if any
+	 */
 	for (np = NULL; (np = of_get_next_child(uninorth_node, np)) != NULL;)
 		if (strcmp(np->name, "hw-clock") == 0) {
 			unin_hwclock = np;
@@ -302,6 +324,7 @@ static void uninorth_install_pfunc(void)
 	}
 }
 
+/* We export this as the SMP code might init us early */
 int __init pmac_pfunc_base_install(void)
 {
 	static int pfbase_inited;
@@ -316,6 +339,9 @@ int __init pmac_pfunc_base_install(void)
 
 	DBG("Installing base platform functions...\n");
 
+	/*
+	 * Locate mac-io chips and install handlers
+	 */
 	for (i = 0 ; i < MAX_MACIO_CHIPS; i++) {
 		if (macio_chips[i].of_node) {
 			macio_mmio_init_one(&macio_chips[i]);
@@ -323,6 +349,13 @@ int __init pmac_pfunc_base_install(void)
 		}
 	}
 
+	/*
+	 * Install handlers for northbridge and direct mapped hwclock
+	 * if any. We do not implement the config space access callback
+	 * which is only ever used for functions that we do not call in
+	 * the current driver (enabling/disabling cells in U2, mostly used
+	 * to restore the PCI settings, we do that differently)
+	 */
 	if (uninorth_node && uninorth_base)
 		uninorth_install_pfunc();
 
@@ -334,6 +367,11 @@ machine_arch_initcall(powermac, pmac_pfunc_base_install);
 
 #ifdef CONFIG_PM
 
+/* Those can be called by pmac_feature. Ultimately, I should use a sysdev
+ * or a device, but for now, that's good enough until I sort out some
+ * ordering issues. Also, we do not bother with GPIOs, as so far I yet have
+ * to see a case where a GPIO function has the on-suspend or on-resume bit
+ */
 void pmac_pfunc_base_suspend(void)
 {
 	int i;
@@ -368,4 +406,4 @@ void pmac_pfunc_base_resume(void)
 	}
 }
 
-#endif 
+#endif /* CONFIG_PM */

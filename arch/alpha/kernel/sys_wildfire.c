@@ -54,7 +54,7 @@ wildfire_update_irq_hw(unsigned int irq)
 	}
 
 	pca = WILDFIRE_pca(qbbno, pcano);
-	enable0 = (unsigned long *) &pca->pca_int[0].enable; 
+	enable0 = (unsigned long *) &pca->pca_int[0].enable; /* ??? */
 
 	*enable0 = cached_irq_mask[qbbno * WILDFIRE_PCA_PER_QBB + pcano];
 	mb();
@@ -94,7 +94,7 @@ wildfire_init_irq_hw(void)
 
 	doing_init_irq_hw = 1;
 
-	
+	/* Need to update only once for every possible PCA. */
 	for (i = 0; i < WILDFIRE_NR_IRQS; i+=WILDFIRE_IRQ_PER_PCA)
 		wildfire_update_irq_hw(i);
 
@@ -166,7 +166,7 @@ wildfire_init_irq_per_pca(int qbbno, int pcano)
 #if 0
 	unsigned long io_bias;
 
-	
+	/* Only need the following for first PCI bus per PCA. */
 	io_bias = WILDFIRE_IO(qbbno, pcano<<1) - WILDFIRE_IO_BIAS;
 
 	outb(0, DMA1_RESET_REG + io_bias);
@@ -176,8 +176,8 @@ wildfire_init_irq_per_pca(int qbbno, int pcano)
 #endif
 
 #if 0
-	
-	init_i8259a_irqs(); 
+	/* ??? Not sure how to do this, yet... */
+	init_i8259a_irqs(); /* ??? */
 #endif
 
 	for (i = 0; i < 16; ++i) {
@@ -228,25 +228,79 @@ wildfire_device_interrupt(unsigned long vector)
 
 	irq = (vector - 0x800) >> 4;
 
+	/*
+	 * bits 10-8:	source QBB ID
+	 * bits 7-6:	PCA
+	 * bits 5-0:	irq in PCA
+	 */
 
 	handle_irq(irq);
 	return;
 }
 
+/*
+ * PCI Fixup configuration.
+ *
+ * Summary per PCA (2 PCI or HIPPI buses):
+ *
+ * Bit      Meaning
+ * 0-15     ISA
+ *
+ *32        ISA summary
+ *33        SMI
+ *34        NMI
+ *36        builtin QLogic SCSI (or slot 0 if no IO module)
+ *40        Interrupt Line A from slot 2 PCI0
+ *41        Interrupt Line B from slot 2 PCI0
+ *42        Interrupt Line C from slot 2 PCI0
+ *43        Interrupt Line D from slot 2 PCI0
+ *44        Interrupt Line A from slot 3 PCI0
+ *45        Interrupt Line B from slot 3 PCI0
+ *46        Interrupt Line C from slot 3 PCI0
+ *47        Interrupt Line D from slot 3 PCI0
+ *
+ *48        Interrupt Line A from slot 4 PCI1
+ *49        Interrupt Line B from slot 4 PCI1
+ *50        Interrupt Line C from slot 4 PCI1
+ *51        Interrupt Line D from slot 4 PCI1
+ *52        Interrupt Line A from slot 5 PCI1
+ *53        Interrupt Line B from slot 5 PCI1
+ *54        Interrupt Line C from slot 5 PCI1
+ *55        Interrupt Line D from slot 5 PCI1
+ *56        Interrupt Line A from slot 6 PCI1
+ *57        Interrupt Line B from slot 6 PCI1
+ *58        Interrupt Line C from slot 6 PCI1
+ *50        Interrupt Line D from slot 6 PCI1
+ *60        Interrupt Line A from slot 7 PCI1
+ *61        Interrupt Line B from slot 7 PCI1
+ *62        Interrupt Line C from slot 7 PCI1
+ *63        Interrupt Line D from slot 7 PCI1
+ * 
+ *
+ * IdSel	
+ *   0	 Cypress Bridge I/O (ISA summary interrupt)
+ *   1	 64 bit PCI 0 option slot 1 (SCSI QLogic builtin)
+ *   2	 64 bit PCI 0 option slot 2
+ *   3	 64 bit PCI 0 option slot 3
+ *   4	 64 bit PCI 1 option slot 4
+ *   5	 64 bit PCI 1 option slot 5
+ *   6	 64 bit PCI 1 option slot 6
+ *   7	 64 bit PCI 1 option slot 7
+ */
 
 static int __init
 wildfire_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	static char irq_tab[8][5] __initdata = {
-		
-		{ -1,    -1,    -1,    -1,    -1}, 
-		{ 36,    36,    36+1, 36+2, 36+3}, 
-		{ 40,    40,    40+1, 40+2, 40+3}, 
-		{ 44,    44,    44+1, 44+2, 44+3}, 
-		{ 48,    48,    48+1, 48+2, 48+3}, 
-		{ 52,    52,    52+1, 52+2, 52+3}, 
-		{ 56,    56,    56+1, 56+2, 56+3}, 
-		{ 60,    60,    60+1, 60+2, 60+3}, 
+		/*INT    INTA   INTB   INTC   INTD */
+		{ -1,    -1,    -1,    -1,    -1}, /* IdSel 0 ISA Bridge */
+		{ 36,    36,    36+1, 36+2, 36+3}, /* IdSel 1 SCSI builtin */
+		{ 40,    40,    40+1, 40+2, 40+3}, /* IdSel 2 PCI 0 slot 2 */
+		{ 44,    44,    44+1, 44+2, 44+3}, /* IdSel 3 PCI 0 slot 3 */
+		{ 48,    48,    48+1, 48+2, 48+3}, /* IdSel 4 PCI 1 slot 4 */
+		{ 52,    52,    52+1, 52+2, 52+3}, /* IdSel 5 PCI 1 slot 5 */
+		{ 56,    56,    56+1, 56+2, 56+3}, /* IdSel 6 PCI 1 slot 6 */
+		{ 60,    60,    60+1, 60+2, 60+3}, /* IdSel 7 PCI 1 slot 7 */
 	};
 	long min_idsel = 0, max_idsel = 7, irqs_per_slot = 5;
 
@@ -262,6 +316,9 @@ wildfire_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 }
 
 
+/*
+ * The System Vectors
+ */
 
 struct alpha_machine_vector wildfire_mv __initmv = {
 	.vector_name		= "WILDFIRE",

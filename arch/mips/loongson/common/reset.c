@@ -29,17 +29,17 @@ static inline void loongson_reboot(void)
 	"       .set    noat                                            \n"
 	"       jr      %[func]                                         \n"
 	"       .set    at                                              \n"
-	: 
+	: /* No outputs */
 	: [func] "r" (func));
 #endif
 }
 
 static void loongson_restart(char *command)
 {
-	
+	/* do preparation for reboot */
 	mach_prepare_reboot();
 
-	
+	/* reboot via jumping to boot base address */
 	loongson_reboot();
 }
 

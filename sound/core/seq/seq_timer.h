@@ -25,43 +25,46 @@
 #include <sound/seq_kernel.h>
 
 struct snd_seq_timer_tick {
-	snd_seq_tick_time_t	cur_tick;	
-	unsigned long		resolution;	
-	unsigned long		fraction;	
+	snd_seq_tick_time_t	cur_tick;	/* current tick */
+	unsigned long		resolution;	/* time per tick in nsec */
+	unsigned long		fraction;	/* current time per tick in nsec */
 };
 
 struct snd_seq_timer {
-	
+	/* ... tempo / offset / running state */
 
-	unsigned int		running:1,		
-				initialized:1;	
+	unsigned int		running:1,	/* running state of queue */	
+				initialized:1;	/* timer is initialized */
 
-	unsigned int		tempo;		
-	int			ppq;		
+	unsigned int		tempo;		/* current tempo, us/tick */
+	int			ppq;		/* time resolution, ticks/quarter */
 
-	snd_seq_real_time_t	cur_time;	
-	struct snd_seq_timer_tick	tick;	
+	snd_seq_real_time_t	cur_time;	/* current time */
+	struct snd_seq_timer_tick	tick;	/* current tick */
 	int tick_updated;
 	
-	int			type;		
-	struct snd_timer_id	alsa_id;	
-	struct snd_timer_instance	*timeri;	
+	int			type;		/* timer type */
+	struct snd_timer_id	alsa_id;	/* ALSA's timer ID */
+	struct snd_timer_instance	*timeri;	/* timer instance */
 	unsigned int		ticks;
-	unsigned long		preferred_resolution; 
+	unsigned long		preferred_resolution; /* timer resolution, ticks/sec */
 
 	unsigned int skew;
 	unsigned int skew_base;
 
-	struct timeval 		last_update;	 
+	struct timeval 		last_update;	 /* time of last clock update, used for interpolation */
 
 	spinlock_t lock;
 };
 
 
+/* create new timer (constructor) */
 struct snd_seq_timer *snd_seq_timer_new(void);
 
+/* delete timer (destructor) */
 void snd_seq_timer_delete(struct snd_seq_timer **tmr);
 
+/* */
 static inline void snd_seq_timer_update_tick(struct snd_seq_timer_tick *tick,
 					     unsigned long resolution)
 {
@@ -73,15 +76,17 @@ static inline void snd_seq_timer_update_tick(struct snd_seq_timer_tick *tick,
 }
 
 
+/* compare timestamp between events */
+/* return 1 if a >= b; otherwise return 0 */
 static inline int snd_seq_compare_tick_time(snd_seq_tick_time_t *a, snd_seq_tick_time_t *b)
 {
-	
+	/* compare ticks */
 	return (*a >= *b);
 }
 
 static inline int snd_seq_compare_real_time(snd_seq_real_time_t *a, snd_seq_real_time_t *b)
 {
-	
+	/* compare real time */
 	if (a->tv_sec > b->tv_sec)
 		return 1;
 	if ((a->tv_sec == b->tv_sec) && (a->tv_nsec >= b->tv_nsec))
@@ -93,13 +98,14 @@ static inline int snd_seq_compare_real_time(snd_seq_real_time_t *a, snd_seq_real
 static inline void snd_seq_sanity_real_time(snd_seq_real_time_t *tm)
 {
 	while (tm->tv_nsec >= 1000000000) {
-		
+		/* roll-over */
 		tm->tv_nsec -= 1000000000;
                 tm->tv_sec++;
         }
 }
 
 
+/* increment timestamp */
 static inline void snd_seq_inc_real_time(snd_seq_real_time_t *tm, snd_seq_real_time_t *inc)
 {
 	tm->tv_sec  += inc->tv_sec;
@@ -113,6 +119,7 @@ static inline void snd_seq_inc_time_nsec(snd_seq_real_time_t *tm, unsigned long 
 	snd_seq_sanity_real_time(tm);
 }
 
+/* called by timer isr */
 struct snd_seq_queue;
 int snd_seq_timer_open(struct snd_seq_queue *q);
 int snd_seq_timer_close(struct snd_seq_queue *q);

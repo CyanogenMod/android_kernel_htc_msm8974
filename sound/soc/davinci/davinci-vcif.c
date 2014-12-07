@@ -58,7 +58,7 @@ static void davinci_vcif_start(struct snd_pcm_substream *substream)
 	struct davinci_vc *davinci_vc = davinci_vcif_dev->davinci_vc;
 	u32 w;
 
-	
+	/* Start the sample generator and enable transmitter/receiver */
 	w = readl(davinci_vc->base + DAVINCI_VC_CTRL);
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
@@ -77,7 +77,7 @@ static void davinci_vcif_stop(struct snd_pcm_substream *substream)
 	struct davinci_vc *davinci_vc = davinci_vcif_dev->davinci_vc;
 	u32 w;
 
-	
+	/* Reset transmitter/receiver and sample rate/frame sync generators */
 	w = readl(davinci_vc->base + DAVINCI_VC_CTRL);
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		MOD_REG_BIT(w, DAVINCI_VC_CTRL_RSTDAC, 1);
@@ -97,11 +97,11 @@ static int davinci_vcif_hw_params(struct snd_pcm_substream *substream,
 			&davinci_vcif_dev->dma_params[substream->stream];
 	u32 w;
 
-	
+	/* Restart the codec before setup */
 	davinci_vcif_stop(substream);
 	davinci_vcif_start(substream);
 
-	
+	/* General line settings */
 	writel(DAVINCI_VC_CTRL_MASK, davinci_vc->base + DAVINCI_VC_CTRL);
 
 	writel(DAVINCI_VC_INT_MASK, davinci_vc->base + DAVINCI_VC_INTCLR);
@@ -110,7 +110,7 @@ static int davinci_vcif_hw_params(struct snd_pcm_substream *substream,
 
 	w = readl(davinci_vc->base + DAVINCI_VC_CTRL);
 
-	
+	/* Determine xfer data type */
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_U8:
 		dma_params->data_type = 0;
@@ -219,14 +219,14 @@ static int davinci_vcif_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* DMA tx params */
 	davinci_vcif_dev->davinci_vc = davinci_vc;
 	davinci_vcif_dev->dma_params[SNDRV_PCM_STREAM_PLAYBACK].channel =
 					davinci_vc->davinci_vcif.dma_tx_channel;
 	davinci_vcif_dev->dma_params[SNDRV_PCM_STREAM_PLAYBACK].dma_addr =
 					davinci_vc->davinci_vcif.dma_tx_addr;
 
-	
+	/* DMA rx params */
 	davinci_vcif_dev->dma_params[SNDRV_PCM_STREAM_CAPTURE].channel =
 					davinci_vc->davinci_vcif.dma_rx_channel;
 	davinci_vcif_dev->dma_params[SNDRV_PCM_STREAM_CAPTURE].dma_addr =

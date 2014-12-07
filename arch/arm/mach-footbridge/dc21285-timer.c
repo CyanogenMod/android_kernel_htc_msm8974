@@ -90,6 +90,9 @@ static struct irqaction footbridge_timer_irq = {
 	.dev_id		= &ckevt_dc21285,
 };
 
+/*
+ * Set up timer interrupt.
+ */
 static void __init footbridge_timer_init(void)
 {
 	struct clock_event_device *ce = &ckevt_dc21285;

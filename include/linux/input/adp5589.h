@@ -9,6 +9,9 @@
 #ifndef _ADP5589_H
 #define _ADP5589_H
 
+/*
+ * ADP5589 specific GPI and Keymap defines
+ */
 
 #define ADP5589_KEYMAPSIZE	88
 
@@ -44,6 +47,9 @@
 
 #define ADP5589_GPIMAPSIZE_MAX (ADP5589_GPI_PIN_END - ADP5589_GPI_PIN_BASE + 1)
 
+/*
+ * ADP5585 specific GPI and Keymap defines
+ */
 
 #define ADP5585_KEYMAPSIZE	30
 
@@ -75,11 +81,13 @@ struct adp5589_gpi_map {
 	unsigned short sw_evt;
 };
 
+/* scan_cycle_time */
 #define ADP5589_SCAN_CYCLE_10ms		0
 #define ADP5589_SCAN_CYCLE_20ms		1
 #define ADP5589_SCAN_CYCLE_30ms		2
 #define ADP5589_SCAN_CYCLE_40ms		3
 
+/* RESET_CFG */
 #define RESET_PULSE_WIDTH_500us		0
 #define RESET_PULSE_WIDTH_1ms		1
 #define RESET_PULSE_WIDTH_2ms		2
@@ -100,6 +108,14 @@ struct adp5589_gpi_map {
 #define RESET2_POL_HIGH			(1 << 7)
 #define RESET2_POL_LOW			(0 << 7)
 
+/* ADP5589 Mask Bits:
+ * C C C C C C C C C C C | R R R R R R R R
+ * 1 9 8 7 6 5 4 3 2 1 0 | 7 6 5 4 3 2 1 0
+ * 0
+ * ---------------- BIT ------------------
+ * 1 1 1 1 1 1 1 1 1 0 0 | 0 0 0 0 0 0 0 0
+ * 8 7 6 5 4 3 2 1 0 9 8 | 7 6 5 4 3 2 1 0
+ */
 
 #define ADP_ROW(x)	(1 << (x))
 #define ADP_COL(x)	(1 << (x + 8))
@@ -109,6 +125,14 @@ struct adp5589_gpi_map {
 #define ADP5589_MAX_ROW_NUM		7
 #define ADP5589_MAX_COL_NUM		10
 
+/* ADP5585 Mask Bits:
+ * C C C C C | R R R R R R
+ * 4 3 2 1 0 | 5 4 3 2 1 0
+ *
+ * ---- BIT -- -----------
+ * 1 0 0 0 0 | 0 0 0 0 0 0
+ * 0 9 8 7 6 | 5 4 3 2 1 0
+ */
 
 #define ADP5585_ROW_MASK		0x3F
 #define ADP5585_COL_MASK		0x1F
@@ -120,37 +144,38 @@ struct adp5589_gpi_map {
 #define ADP5585_ROW(x)	(1 << ((x) & ADP5585_ROW_MASK))
 #define ADP5585_COL(x)	(1 << (((x) & ADP5585_COL_MASK) + ADP5585_COL_SHIFT))
 
+/* Put one of these structures in i2c_board_info platform_data */
 
 struct adp5589_kpad_platform_data {
-	unsigned keypad_en_mask;	
-	const unsigned short *keymap;	
-	unsigned short keymapsize;	
-	bool repeat;			
-	bool en_keylock;		
-	unsigned char unlock_key1;	
-	unsigned char unlock_key2;	
-	unsigned char unlock_timer;	
-	unsigned char scan_cycle_time;	
-	unsigned char reset_cfg;	
-	unsigned short reset1_key_1;	
-	unsigned short reset1_key_2;	
-	unsigned short reset1_key_3;	
-	unsigned short reset2_key_1;	
-	unsigned short reset2_key_2;	
-	unsigned debounce_dis_mask;	
-	unsigned pull_dis_mask;		
-	unsigned pullup_en_100k;	
-	unsigned pullup_en_300k;	
-	unsigned pulldown_en_300k;	
+	unsigned keypad_en_mask;	/* Keypad (Rows/Columns) enable mask */
+	const unsigned short *keymap;	/* Pointer to keymap */
+	unsigned short keymapsize;	/* Keymap size */
+	bool repeat;			/* Enable key repeat */
+	bool en_keylock;		/* Enable key lock feature (ADP5589 only)*/
+	unsigned char unlock_key1;	/* Unlock Key 1 (ADP5589 only) */
+	unsigned char unlock_key2;	/* Unlock Key 2 (ADP5589 only) */
+	unsigned char unlock_timer;	/* Time in seconds [0..7] between the two unlock keys 0=disable (ADP5589 only) */
+	unsigned char scan_cycle_time;	/* Time between consecutive scan cycles */
+	unsigned char reset_cfg;	/* Reset config */
+	unsigned short reset1_key_1;	/* Reset Key 1 */
+	unsigned short reset1_key_2;	/* Reset Key 2 */
+	unsigned short reset1_key_3;	/* Reset Key 3 */
+	unsigned short reset2_key_1;	/* Reset Key 1 */
+	unsigned short reset2_key_2;	/* Reset Key 2 */
+	unsigned debounce_dis_mask;	/* Disable debounce mask */
+	unsigned pull_dis_mask;		/* Disable all pull resistors mask */
+	unsigned pullup_en_100k;	/* Pull-Up 100k Enable Mask */
+	unsigned pullup_en_300k;	/* Pull-Up 300k Enable Mask */
+	unsigned pulldown_en_300k;	/* Pull-Down 300k Enable Mask */
 	const struct adp5589_gpi_map *gpimap;
 	unsigned short gpimapsize;
 	const struct adp5589_gpio_platform_data *gpio_data;
 };
 
-struct i2c_client; 
+struct i2c_client; /* forward declaration */
 
 struct adp5589_gpio_platform_data {
-	int	gpio_start;	
+	int	gpio_start;	/* GPIO Chip base # */
 	int	(*setup)(struct i2c_client *client,
 				int gpio, unsigned ngpio,
 				void *context);

@@ -196,7 +196,7 @@ int gru_dump_chiplet_request(unsigned long arg)
 	if (copy_from_user(&req, (void __user *)arg, sizeof(req)))
 		return -EFAULT;
 
-	
+	/* Currently, only dump by gid is implemented */
 	if (req.gid >= gru_max_gids || req.gid < 0)
 		return -EINVAL;
 

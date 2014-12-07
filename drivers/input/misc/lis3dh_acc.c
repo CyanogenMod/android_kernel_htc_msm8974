@@ -74,45 +74,49 @@
 #define	G_MAX		16000
 
 
-#define SENSITIVITY_2G		1	
-#define SENSITIVITY_4G		2	
-#define SENSITIVITY_8G		4	
-#define SENSITIVITY_16G		12	
+#define SENSITIVITY_2G		1	/**	mg/LSB	*/
+#define SENSITIVITY_4G		2	/**	mg/LSB	*/
+#define SENSITIVITY_8G		4	/**	mg/LSB	*/
+#define SENSITIVITY_16G		12	/**	mg/LSB	*/
 
 
 
 
+/* Accelerometer Sensor Operating Mode */
 #define LIS3DH_ACC_ENABLE	0x01
 #define LIS3DH_ACC_DISABLE	0x00
 
 #define	HIGH_RESOLUTION		0x08
 
 #define	AXISDATA_REG		0x28
-#define WHOAMI_LIS3DH_ACC	0x33	
+#define WHOAMI_LIS3DH_ACC	0x33	/*	Expected content for WAI */
 
-#define WHO_AM_I		0x0F	
-#define	TEMP_CFG_REG		0x1F	
-#define	CTRL_REG1		0x20	
-#define	CTRL_REG2		0x21	
-#define	CTRL_REG3		0x22	
-#define	CTRL_REG4		0x23	
-#define	CTRL_REG5		0x24	
-#define	CTRL_REG6		0x25	
+/*	CONTROL REGISTERS	*/
+#define WHO_AM_I		0x0F	/*	WhoAmI register		*/
+#define	TEMP_CFG_REG		0x1F	/*	temper sens control reg	*/
+/* ctrl 1: ODR3 ODR2 ODR ODR0 LPen Zenable Yenable Zenable */
+#define	CTRL_REG1		0x20	/*	control reg 1		*/
+#define	CTRL_REG2		0x21	/*	control reg 2		*/
+#define	CTRL_REG3		0x22	/*	control reg 3		*/
+#define	CTRL_REG4		0x23	/*	control reg 4		*/
+#define	CTRL_REG5		0x24	/*	control reg 5		*/
+#define	CTRL_REG6		0x25	/*	control reg 6		*/
 
-#define	FIFO_CTRL_REG		0x2E	
+#define	FIFO_CTRL_REG		0x2E	/*	FiFo control reg	*/
 
-#define	INT_CFG1		0x30	
-#define	INT_SRC1		0x31	
-#define	INT_THS1		0x32	
-#define	INT_DUR1		0x33	
+#define	INT_CFG1		0x30	/*	interrupt 1 config	*/
+#define	INT_SRC1		0x31	/*	interrupt 1 source	*/
+#define	INT_THS1		0x32	/*	interrupt 1 threshold	*/
+#define	INT_DUR1		0x33	/*	interrupt 1 duration	*/
 
 
-#define	TT_CFG			0x38	
-#define	TT_SRC			0x39	
-#define	TT_THS			0x3A	
-#define	TT_LIM			0x3B	
-#define	TT_TLAT			0x3C	
-#define	TT_TW			0x3D	
+#define	TT_CFG			0x38	/*	tap config		*/
+#define	TT_SRC			0x39	/*	tap source		*/
+#define	TT_THS			0x3A	/*	tap threshold		*/
+#define	TT_LIM			0x3B	/*	tap time limit		*/
+#define	TT_TLAT			0x3C	/*	tap time latency	*/
+#define	TT_TW			0x3D	/*	tap time window		*/
+/*	end CONTROL REGISTRES	*/
 
 
 #define ENABLE_HIGH_RESOLUTION	1
@@ -124,14 +128,14 @@
 #define PMODE_MASK			0x08
 #define ODR_MASK			0XF0
 
-#define ODR1		0x10  
-#define ODR10		0x20  
-#define ODR25		0x30  
-#define ODR50		0x40  
-#define ODR100		0x50  
-#define ODR200		0x60  
-#define ODR400		0x70  
-#define ODR1250		0x90  
+#define ODR1		0x10  /* 1Hz output data rate */
+#define ODR10		0x20  /* 10Hz output data rate */
+#define ODR25		0x30  /* 25Hz output data rate */
+#define ODR50		0x40  /* 50Hz output data rate */
+#define ODR100		0x50  /* 100Hz output data rate */
+#define ODR200		0x60  /* 200Hz output data rate */
+#define ODR400		0x70  /* 400Hz output data rate */
+#define ODR1250		0x90  /* 1250Hz output data rate */
 
 
 
@@ -142,9 +146,12 @@
 #define	YL			0x04
 #define	XH			0x02
 #define	XL			0x01
+/* */
+/* CTRL REG BITS*/
 #define	CTRL_REG3_I1_AOI1	0x40
 #define	CTRL_REG6_I2_TAPEN	0x80
 #define	CTRL_REG6_HLACTIVE	0x02
+/* */
 #define NO_MASK			0xFF
 #define INT1_DURATION_MASK	0x7F
 #define	INT1_THRESHOLD_MASK	0x7F
@@ -155,6 +162,7 @@
 #define	TAP_TW_MASK		NO_MASK
 
 
+/* TAP_SOURCE_REG BIT */
 #define	DTAP			0x20
 #define	STAP			0x10
 #define	SIGNTAP			0x08
@@ -169,6 +177,7 @@
 #define	I2C_RETRIES		5
 #define	I2C_AUTO_INCREMENT	0x80
 
+/* RESUME STATE INDICES */
 #define	RES_CTRL_REG1		0
 #define	RES_CTRL_REG2		1
 #define	RES_CTRL_REG3		2
@@ -191,6 +200,7 @@
 #define	RES_FIFO_CTRL_REG	16
 
 #define	RESUME_ENTRIES		17
+/* end RESUME STATE INDICES */
 
 
 struct {
@@ -217,7 +227,7 @@ struct lis3dh_acc_data {
 	struct input_dev *input_dev;
 
 	int hw_initialized;
-	
+	/* hw_working=-1 means not tested yet */
 	int hw_working;
 	atomic_t enabled;
 	int on_before_suspend;
@@ -405,7 +415,7 @@ static int lis3dh_acc_hw_init(struct lis3dh_acc_data *acc)
 		dev_err(&acc->client->dev,
 		"device unknown. Expected: 0x%x, Replies: 0x%x\n",
 		WHOAMI_LIS3DH_ACC, buf[0]);
-		err = -1; 
+		err = -1; /* choose the right coded error */
 		goto err_unknown_device;
 	}
 
@@ -567,8 +577,10 @@ static void lis3dh_acc_irq1_work_func(struct work_struct *work)
 
 	struct lis3dh_acc_data *acc =
 	container_of(work, struct lis3dh_acc_data, irq1_work);
+	/* TODO  add interrupt service procedure.
+		 ie:lis3dh_acc_get_int1_source(acc); */
 	;
-	
+	/*  */
 	printk(KERN_INFO "%s: IRQ1 triggered\n", LIS3DH_ACC_DEV_NAME);
 	goto exit;
 exit:
@@ -580,8 +592,10 @@ static void lis3dh_acc_irq2_work_func(struct work_struct *work)
 
 	struct lis3dh_acc_data *acc =
 	container_of(work, struct lis3dh_acc_data, irq2_work);
+	/* TODO  add interrupt service procedure.
+		 ie:lis3dh_acc_get_tap_source(acc); */
 	;
-	
+	/*  */
 	printk(KERN_INFO "%s: IRQ2 triggered\n", LIS3DH_ACC_DEV_NAME);
 	goto exit;
 exit:
@@ -623,6 +637,8 @@ int lis3dh_acc_update_g_range(struct lis3dh_acc_data *acc, u8 new_g_range)
 	}
 
 	if (atomic_read(&acc->enabled)) {
+		/* Updates configuration register 4,
+		* which contains g range setting */
 		buf[0] = CTRL_REG4;
 		err = lis3dh_acc_i2c_read(acc, buf, 1);
 		if (err < 0)
@@ -655,6 +671,10 @@ int lis3dh_acc_update_odr(struct lis3dh_acc_data *acc, int poll_interval_ms)
 	int i;
 	u8 config[2];
 
+	/* Following, looks for the longest possible odr interval scrolling the
+	 * odr_table vector from the end (shortest interval) backward (longest
+	 * interval), to support the poll_interval requested by the system.
+	 * It must be the longest interval lower then the poll interval.*/
 	for (i = ARRAY_SIZE(lis3dh_acc_odr_table) - 1; i >= 0; i--) {
 		if (lis3dh_acc_odr_table[i].cutoff_ms <= poll_interval_ms)
 			break;
@@ -663,6 +683,8 @@ int lis3dh_acc_update_odr(struct lis3dh_acc_data *acc, int poll_interval_ms)
 
 	config[1] |= LIS3DH_ACC_ENABLE_ALL_AXES;
 
+	/* If device is currently enabled, we need to write new
+	 *  configuration out to it */
 	if (atomic_read(&acc->enabled)) {
 		config[0] = CTRL_REG1;
 		err = lis3dh_acc_i2c_write(acc, config, 1);
@@ -687,6 +709,8 @@ static int lis3dh_acc_register_write(struct lis3dh_acc_data *acc, u8 *buf,
 {
 	int err = -1;
 
+	/* Sets configuration register at reg_address
+	 *  NOTE: this is a straight overwrite  */
 		buf[0] = reg_address;
 		buf[1] = new_value;
 		err = lis3dh_acc_i2c_write(acc, buf, 1);
@@ -699,9 +723,9 @@ static int lis3dh_acc_get_acceleration_data(struct lis3dh_acc_data *acc,
 		int *xyz)
 {
 	int err = -1;
-	
+	/* Data bytes from hardware xL, xH, yL, yH, zL, zH */
 	u8 acc_data[6];
-	
+	/* x,y,z hardware data */
 	s16 hw_d[3] = { 0 };
 
 	acc_data[0] = (I2C_AUTO_INCREMENT | AXISDATA_REG);
@@ -726,6 +750,10 @@ static int lis3dh_acc_get_acceleration_data(struct lis3dh_acc_data *acc,
 		   : (hw_d[acc->pdata->axis_map_z]));
 
 	#ifdef DEBUG
+	/*
+		printk(KERN_INFO "%s read x=%d, y=%d, z=%d\n",
+			LIS3DH_ACC_DEV_NAME, xyz[0], xyz[1], xyz[2]);
+	*/
 	#endif
 	return err;
 }
@@ -1012,6 +1040,7 @@ static ssize_t attr_get_click_tw(struct device *dev,
 
 
 #ifdef DEBUG
+/* PAY ATTENTION: These DEBUG funtions don't manage resume_state */
 static ssize_t attr_reg_set(struct device *dev, struct device_attribute *attr,
 				const char *buf, size_t size)
 {
@@ -1027,7 +1056,7 @@ static ssize_t attr_reg_set(struct device *dev, struct device_attribute *attr,
 	mutex_unlock(&acc->lock);
 	x[1] = val;
 	rc = lis3dh_acc_i2c_write(acc, x, 1);
-	
+	/*TODO: error need to be managed */
 	return size;
 }
 
@@ -1043,7 +1072,7 @@ static ssize_t attr_reg_get(struct device *dev, struct device_attribute *attr,
 	data = acc->reg_addr;
 	mutex_unlock(&acc->lock);
 	rc = lis3dh_acc_i2c_read(acc, &data, 1);
-	
+	/* TODO: error need to be managed */
 	ret = snprintf(buf, 8, "0x%02x\n", data);
 	return ret;
 }
@@ -1164,7 +1193,7 @@ static int lis3dh_acc_validate_pdata(struct lis3dh_acc_data *acc)
 		return -EINVAL;
 	}
 
-	
+	/* Only allow 0 and 1 for negation boolean flag */
 	if (acc->pdata->negate_x > 1 || acc->pdata->negate_y > 1
 			|| acc->pdata->negate_z > 1) {
 		dev_err(&acc->client->dev,
@@ -1174,7 +1203,7 @@ static int lis3dh_acc_validate_pdata(struct lis3dh_acc_data *acc)
 		return -EINVAL;
 	}
 
-	
+	/* Enforce minimum polling interval */
 	if (acc->pdata->poll_interval < acc->pdata->min_interval) {
 		dev_err(&acc->client->dev, "minimum poll interval violated\n");
 		return -EINVAL;
@@ -1204,17 +1233,17 @@ static int lis3dh_acc_input_init(struct lis3dh_acc_data *acc)
 	input_set_drvdata(acc->input_dev, acc);
 
 	set_bit(EV_ABS, acc->input_dev->evbit);
-	
+	/*	next is used for interruptA sources data if the case */
 	set_bit(ABS_MISC, acc->input_dev->absbit);
-	
+	/*	next is used for interruptB sources data if the case */
 	set_bit(ABS_WHEEL, acc->input_dev->absbit);
 
 	input_set_abs_params(acc->input_dev, ABS_X, -G_MAX, G_MAX, FUZZ, FLAT);
 	input_set_abs_params(acc->input_dev, ABS_Y, -G_MAX, G_MAX, FUZZ, FLAT);
 	input_set_abs_params(acc->input_dev, ABS_Z, -G_MAX, G_MAX, FUZZ, FLAT);
-	
+	/*	next is used for interruptA sources data if the case */
 	input_set_abs_params(acc->input_dev, ABS_MISC, INT_MIN, INT_MAX, 0, 0);
-	
+	/*	next is used for interruptB sources data if the case */
 	input_set_abs_params(acc->input_dev, ABS_WHEEL, INT_MIN, INT_MAX, 0, 0);
 
 
@@ -1262,6 +1291,24 @@ static int lis3dh_acc_probe(struct i2c_client *client,
 		goto exit_check_functionality_failed;
 	}
 
+	/*
+	if (!i2c_check_functionality(client->adapter,
+					I2C_FUNC_SMBUS_BYTE |
+					I2C_FUNC_SMBUS_BYTE_DATA |
+					I2C_FUNC_SMBUS_WORD_DATA)) {
+		dev_err(&client->dev, "client not smb-i2c capable:2\n");
+		err = -EIO;
+		goto exit_check_functionality_failed;
+	}
+
+
+	if (!i2c_check_functionality(client->adapter,
+						I2C_FUNC_SMBUS_I2C_BLOCK)) {
+		dev_err(&client->dev, "client not smb-i2c capable:3\n");
+		err = -EIO;
+		goto exit_check_functionality_failed;
+	}
+	*/
 
 	acc = kzalloc(sizeof(struct lis3dh_acc_data), GFP_KERNEL);
 	if (acc == NULL) {
@@ -1380,7 +1427,7 @@ static int lis3dh_acc_probe(struct i2c_client *client,
 
 	lis3dh_acc_device_power_off(acc);
 
-	
+	/* As default, do not report information */
 	atomic_set(&acc->enabled, 0);
 
 	if (acc->pdata->gpio_int1 >= 0) {
@@ -1504,7 +1551,7 @@ static int lis3dh_acc_suspend(struct i2c_client *client, pm_message_t mesg)
 #else
 #define lis3dh_acc_suspend	NULL
 #define lis3dh_acc_resume	NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static const struct i2c_device_id lis3dh_acc_id[]
 		= { { LIS3DH_ACC_DEV_NAME, 0 }, { }, };
@@ -1535,7 +1582,7 @@ static void __exit lis3dh_acc_exit(void)
 #ifdef DEBUG
 	printk(KERN_INFO "%s accelerometer driver exit\n",
 						LIS3DH_ACC_DEV_NAME);
-#endif 
+#endif /* DEBUG */
 	i2c_del_driver(&lis3dh_acc_driver);
 	return;
 }

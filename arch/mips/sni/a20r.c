@@ -76,7 +76,7 @@ static struct resource snirm_82596_rsrc[] = {
 		.flags = IORESOURCE_IRQ
 	},
 	{
-		.flags = 0x01                
+		.flags = 0x01                /* 16bit mpu port access */
 	}
 };
 
@@ -119,7 +119,7 @@ static struct resource sc26xx_rsrc[] = {
 };
 
 static unsigned int sc26xx_data[2] = {
-	
+	/* DTR   |   RTS    |   DSR    |   CTS     |   DCD     |   RI    */
 	(8 << 0) | (4 << 4) | (6 << 8) | (0 << 12) | (6 << 16) | (0 << 20),
 	(3 << 0) | (2 << 4) | (1 << 8) | (2 << 12) | (3 << 16) | (4 << 20)
 };
@@ -186,6 +186,9 @@ static struct irq_chip a20r_irq_type = {
 	.irq_unmask	= unmask_a20r_irq,
 };
 
+/*
+ * hwint 0 receive all interrupts
+ */
 static void a20r_hwint(void)
 {
 	u32 cause, status;
@@ -214,7 +217,7 @@ void __init sni_a20r_irq_init(void)
 
 void sni_a20r_init(void)
 {
-	
+	/* FIXME, remove if not needed */
 }
 
 static int __init snirm_a20r_setup_devinit(void)

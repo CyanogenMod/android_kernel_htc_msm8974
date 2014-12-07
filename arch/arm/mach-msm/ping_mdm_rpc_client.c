@@ -11,6 +11,9 @@
  *
  */
 
+/*
+ * SMD RPC PING MODEM Driver
+ */
 
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -95,8 +98,8 @@ static int ping_mdm_register_cb(struct msm_rpc_client *client,
 	struct ping_mdm_register_cb_arg arg;
 	void *cb_func;
 
-	xdr_recv_uint32(xdr, &arg.cb_id);             
-	xdr_recv_int32(xdr, &arg.val);                
+	xdr_recv_uint32(xdr, &arg.cb_id);             /* cb_id */
+	xdr_recv_int32(xdr, &arg.val);                /* val */
 
 	cb_func = msm_rpc_get_cb_func(client, arg.cb_id);
 	if (cb_func) {
@@ -126,14 +129,14 @@ static int ping_mdm_data_cb(struct msm_rpc_client *client,
 	struct ping_mdm_register_data_cb_cb_arg arg;
 	struct ping_mdm_register_data_cb_cb_ret ret;
 
-	xdr_recv_uint32(xdr, &arg.cb_id);           
+	xdr_recv_uint32(xdr, &arg.cb_id);           /* cb_id */
 
-	
+	/* data */
 	xdr_recv_array(xdr, (void **)(&(arg.data)), &size, 64,
 		       sizeof(uint32_t), (void *)xdr_recv_uint32);
 
-	xdr_recv_uint32(xdr, &arg.size);           
-	xdr_recv_uint32(xdr, &arg.sum);            
+	xdr_recv_uint32(xdr, &arg.size);           /* size */
+	xdr_recv_uint32(xdr, &arg.sum);            /* sum */
 
 	cb_func = msm_rpc_get_cb_func(client, arg.cb_id);
 	if (cb_func) {
@@ -151,7 +154,7 @@ static int ping_mdm_data_cb(struct msm_rpc_client *client,
 	xdr_start_accepted_reply(xdr, accept_status);
 
 	if (accept_status == RPC_ACCEPTSTAT_SUCCESS)
-		xdr_send_uint32(xdr, &ret.result);         
+		xdr_send_uint32(xdr, &ret.result);         /* result */
 
 	rc = xdr_send_msg(xdr);
 	if (rc)
@@ -220,11 +223,11 @@ static int ping_mdm_data_cb_register_arg(struct msm_rpc_client *client,
 	if ((cb_id < 0) && (cb_id != MSM_RPC_CLIENT_NULL_CB_ID))
 		return cb_id;
 
-	xdr_send_uint32(xdr, &cb_id);                
-	xdr_send_uint32(xdr, &arg->num);             
-	xdr_send_uint32(xdr, &arg->size);            
-	xdr_send_uint32(xdr, &arg->interval_ms);     
-	xdr_send_uint32(xdr, &arg->num_tasks);       
+	xdr_send_uint32(xdr, &cb_id);                /* cb_id */
+	xdr_send_uint32(xdr, &arg->num);             /* num */
+	xdr_send_uint32(xdr, &arg->size);            /* size */
+	xdr_send_uint32(xdr, &arg->interval_ms);     /* interval_ms */
+	xdr_send_uint32(xdr, &arg->num_tasks);       /* num_tasks */
 
 	return 0;
 }
@@ -239,7 +242,7 @@ static int ping_mdm_data_cb_unregister_arg(struct msm_rpc_client *client,
 	if ((cb_id < 0) && (cb_id != MSM_RPC_CLIENT_NULL_CB_ID))
 		return cb_id;
 
-	xdr_send_uint32(xdr, &cb_id);                
+	xdr_send_uint32(xdr, &cb_id);                /* cb_id */
 
 	return 0;
 }
@@ -249,7 +252,7 @@ static int ping_mdm_data_cb_register_ret(struct msm_rpc_client *client,
 {
 	struct ping_mdm_register_data_cb_ret *ret = data;
 
-	xdr_recv_uint32(xdr, &ret->result);      
+	xdr_recv_uint32(xdr, &ret->result);      /* result */
 
 	return 0;
 }
@@ -290,11 +293,11 @@ static int ping_mdm_data_register_arg(struct msm_rpc_client *client,
 {
 	struct ping_mdm_data_arg *arg = data;
 
-	
+	/* data */
 	xdr_send_array(xdr, (void **)&arg->data, &arg->size, 64,
 	       sizeof(uint32_t), (void *)xdr_send_uint32);
 
-	xdr_send_uint32(xdr, &arg->size);             
+	xdr_send_uint32(xdr, &arg->size);             /* size */
 
 	return 0;
 }
@@ -304,7 +307,7 @@ static int ping_mdm_data_register_ret(struct msm_rpc_client *client,
 {
 	struct ping_mdm_data_ret *ret = data;
 
-	xdr_recv_uint32(xdr, &ret->result);      
+	xdr_recv_uint32(xdr, &ret->result);      /* result */
 
 	return 0;
 }
@@ -347,8 +350,8 @@ static int ping_mdm_register_arg(struct msm_rpc_client *client,
 	if ((cb_id < 0) && (cb_id != MSM_RPC_CLIENT_NULL_CB_ID))
 		return cb_id;
 
-	xdr_send_uint32(xdr, &cb_id);             
-	xdr_send_uint32(xdr, &arg->num);          
+	xdr_send_uint32(xdr, &cb_id);             /* cb_id */
+	xdr_send_uint32(xdr, &arg->num);          /* num */
 
 	return 0;
 }
@@ -363,7 +366,7 @@ static int ping_mdm_unregister_arg(struct msm_rpc_client *client,
 	if ((cb_id < 0) && (cb_id != MSM_RPC_CLIENT_NULL_CB_ID))
 		return cb_id;
 
-	xdr_send_uint32(xdr, &cb_id);             
+	xdr_send_uint32(xdr, &cb_id);             /* cb_id */
 
 	return 0;
 }
@@ -373,7 +376,7 @@ static int ping_mdm_register_ret(struct msm_rpc_client *client,
 {
 	struct ping_mdm_register_ret *ret = data;
 
-	xdr_recv_uint32(xdr, &ret->result);      
+	xdr_recv_uint32(xdr, &ret->result);      /* result */
 
 	return 0;
 }
@@ -750,7 +753,7 @@ static ssize_t ping_test_write(struct file *fp, const char __user *buf,
 
 	cmd[len] = 0;
 
-	
+	/* lazy */
 	if (cmd[len-1] == '\n') {
 		cmd[len-1] = 0;
 		len--;

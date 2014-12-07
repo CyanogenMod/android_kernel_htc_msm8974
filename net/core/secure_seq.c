@@ -22,6 +22,16 @@ late_initcall(net_secret_init);
 #ifdef CONFIG_INET
 static u32 seq_scale(u32 seq)
 {
+	/*
+	 *	As close as possible to RFC 793, which
+	 *	suggests using a 250 kHz clock.
+	 *	Further reading shows this assumes 2 Mb/s networks.
+	 *	For 10 Mb/s Ethernet, a 1 MHz clock is appropriate.
+	 *	For 10 Gb/s Ethernet, a 1 GHz clock should be ok, but
+	 *	we also need to limit the resolution so that the u32 seq
+	 *	overlaps less than one time per MSL (2 minutes).
+	 *	Choosing a clock of 64 ns period is OK. (period of 274 s)
+	 */
 	return seq + (ktime_to_ns(ktime_get_real()) >> 6);
 }
 #endif

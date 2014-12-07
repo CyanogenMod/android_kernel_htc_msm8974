@@ -4,25 +4,40 @@
 
 #if defined(CONFIG_FSL_BOOKE) || defined(CONFIG_44x)
 
+/*
+ * On FSL-BookE we setup a 1:1 mapping which covers the first 2GiB of memory
+ * and therefore we can only deal with memory within this range
+ */
 #define KEXEC_SOURCE_MEMORY_LIMIT	(2 * 1024 * 1024 * 1024UL - 1)
 #define KEXEC_DESTINATION_MEMORY_LIMIT	(2 * 1024 * 1024 * 1024UL - 1)
 #define KEXEC_CONTROL_MEMORY_LIMIT	(2 * 1024 * 1024 * 1024UL - 1)
 
 #else
 
+/*
+ * Maximum page that is mapped directly into kernel memory.
+ * XXX: Since we copy virt we can use any page we allocate
+ */
 #define KEXEC_SOURCE_MEMORY_LIMIT (-1UL)
 
+/*
+ * Maximum address we can reach in physical address mode.
+ * XXX: I want to allow initrd in highmem. Otherwise set to rmo on LPAR.
+ */
 #define KEXEC_DESTINATION_MEMORY_LIMIT (-1UL)
 
+/* Maximum address we can use for the control code buffer */
 #ifdef __powerpc64__
 #define KEXEC_CONTROL_MEMORY_LIMIT (-1UL)
 #else
+/* TASK_SIZE, probably left over from use_mm ?? */
 #define KEXEC_CONTROL_MEMORY_LIMIT TASK_SIZE
 #endif
 #endif
 
 #define KEXEC_CONTROL_PAGE_SIZE 4096
 
+/* The native architecture */
 #ifdef __powerpc64__
 #define KEXEC_ARCH KEXEC_ARCH_PPC64
 #else
@@ -40,6 +55,10 @@ typedef void (*crash_shutdown_t)(void);
 
 #ifdef CONFIG_KEXEC
 
+/*
+ * This function is responsible for capturing register states if coming
+ * via panic or invoking dump using sysrq-trigger.
+ */
 static inline void crash_setup_regs(struct pt_regs *newregs,
 					struct pt_regs *oldregs)
 {
@@ -49,7 +68,8 @@ static inline void crash_setup_regs(struct pt_regs *newregs,
 		ppc_save_regs(newregs);
 }
 
-extern void kexec_smp_wait(void);	
+extern void kexec_smp_wait(void);	/* get and clear naca physid, wait for
+					  master to copy new code to 0 */
 extern int crashing_cpu;
 extern void crash_send_ipi(void (*crash_ipi_callback)(struct pt_regs *));
 
@@ -67,7 +87,7 @@ extern int overlaps_crashkernel(unsigned long start, unsigned long size);
 extern void reserve_crashkernel(void);
 extern void machine_kexec_mask_interrupts(void);
 
-#else 
+#else /* !CONFIG_KEXEC */
 static inline void crash_kexec_secondary(struct pt_regs *regs) { }
 
 static inline int overlaps_crashkernel(unsigned long start, unsigned long size)
@@ -87,7 +107,7 @@ static inline int crash_shutdown_unregister(crash_shutdown_t handler)
 	return 0;
 }
 
-#endif 
-#endif 
-#endif 
-#endif 
+#endif /* CONFIG_KEXEC */
+#endif /* ! __ASSEMBLY__ */
+#endif /* __KERNEL__ */
+#endif /* _ASM_POWERPC_KEXEC_H */

@@ -61,6 +61,7 @@ struct output_option {
 	{.str = "symoff", .field = PERF_OUTPUT_SYMOFFSET},
 };
 
+/* default set to maintain compatibility with current format */
 static struct {
 	bool user_set;
 	bool wildcard_set;
@@ -154,7 +155,7 @@ static int perf_event_attr__check_stype(struct perf_event_attr *attr,
 		return -1;
 	}
 
-	
+	/* user did not ask for it explicitly so remove from the default list */
 	output[type].fields &= ~field;
 	evname = __event_name(attr->type, attr->config, NULL);
 	pr_debug("Samples for '%s' event do not have %s attribute set. "
@@ -224,6 +225,10 @@ static int perf_evsel__check_attr(struct perf_evsel *evsel,
 	return 0;
 }
 
+/*
+ * verify all user requested events exist and the samples
+ * have the expected data
+ */
 static int perf_session__check_output_opt(struct perf_session *session)
 {
 	int j;
@@ -232,6 +237,10 @@ static int perf_session__check_output_opt(struct perf_session *session)
 	for (j = 0; j < PERF_TYPE_MAX; ++j) {
 		evsel = perf_session__find_first_evtype(session, j);
 
+		/*
+		 * even if fields is set to 0 (ie., show nothing) event must
+		 * exist if user explicitly includes it on the command line
+		 */
 		if (!evsel && output[j].user_set && !output[j].wildcard_set) {
 			pr_err("%s events do not exist. "
 			       "Remove corresponding -f option to proceed.\n",
@@ -372,7 +381,7 @@ static void print_sample_bts(union perf_event *event,
 {
 	struct perf_event_attr *attr = &evsel->attr;
 
-	
+	/* print branch_from information */
 	if (PRINT_FIELD(IP)) {
 		if (!symbol_conf.use_callchain)
 			printf(" ");
@@ -385,7 +394,7 @@ static void print_sample_bts(union perf_event *event,
 
 	printf(" => ");
 
-	
+	/* print branch_to information */
 	if (PRINT_FIELD(ADDR))
 		print_sample_addr(event, sample, machine, thread, attr);
 
@@ -703,6 +712,10 @@ static int parse_output_fields(const struct option *opt __used,
 	if (!str)
 		return -ENOMEM;
 
+	/* first word can state for which event type the user is specifying
+	 * the fields. If no type exists, the specified fields apply to all
+	 * event types found in the file minus the invalid fields for a type.
+	 */
 	tok = strchr(str, ':');
 	if (tok) {
 		*tok = '\0';
@@ -761,6 +774,9 @@ static int parse_output_fields(const struct option *opt __used,
 		}
 
 		if (type == -1) {
+			/* add user option to all events types for
+			 * which it is valid
+			 */
 			for (j = 0; j < PERF_TYPE_MAX; ++j) {
 				if (output[j].invalid_fields & all_output_options[i].field) {
 					pr_warning("\'%s\' not valid for %s events. Ignoring.\n",
@@ -794,6 +810,7 @@ out:
 	return rc;
 }
 
+/* Helper function for filesystems that return a dent->d_type DT_UNKNOWN */
 static int is_directory(const char *base_path, const struct dirent *dent)
 {
 	char path[PATH_MAX];
@@ -1189,7 +1206,7 @@ int cmd_script(int argc, const char **argv, const char *prefix __used)
 		}
 	}
 
-	
+	/* make sure PERF_EXEC_PATH is set for scripts */
 	perf_set_argv_exec_path(perf_exec_path());
 
 	if (argc && !script_name && !rec_script_path && !rep_script_path) {
@@ -1345,7 +1362,7 @@ int cmd_script(int argc, const char **argv, const char *prefix __used)
 			return -1;
 		}
 
-		input = open(session->filename, O_RDONLY);	
+		input = open(session->filename, O_RDONLY);	/* input_name */
 		if (input < 0) {
 			perror("failed to open file");
 			exit(-1);

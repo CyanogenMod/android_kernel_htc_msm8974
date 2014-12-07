@@ -42,11 +42,11 @@
 
 enum soc_mic_bias_zones {
 	MFLD_MV_START = 0,
-	
+	/* mic bias volutage range for Headphones*/
 	MFLD_MV_HP = 400,
-	
+	/* mic bias volutage range for American Headset*/
 	MFLD_MV_AM_HS = 650,
-	
+	/* mic bias volutage range for Headset*/
 	MFLD_MV_HS = 2000,
 	MFLD_MV_UNDEFINED,
 };
@@ -61,6 +61,7 @@ struct mfld_mc_private {
 
 struct snd_soc_jack mfld_jack;
 
+/*Headset jack detection DAPM pins */
 static struct snd_soc_jack_pin mfld_jack_pins[] = {
 	{
 		.pin = "Headphones",
@@ -72,11 +73,13 @@ static struct snd_soc_jack_pin mfld_jack_pins[] = {
 	},
 };
 
+/* jack detection voltage zones */
 static struct snd_soc_jack_zone mfld_zones[] = {
 	{MFLD_MV_START, MFLD_MV_AM_HS, SND_JACK_HEADPHONE},
 	{MFLD_MV_AM_HS, MFLD_MV_HS, SND_JACK_HEADSET},
 };
 
+/* sound card controls */
 static const char *headset_switch_text[] = {"Earpiece", "Headset"};
 
 static const char *lo_text[] = {"Vibra", "Headset", "IHF", "None"};
@@ -149,6 +152,9 @@ static int lo_set_switch(struct snd_kcontrol *kcontrol,
 	if (ucontrol->value.integer.value[0] == lo_dac)
 		return 0;
 
+	/* we dont want to work with last state of lineout so just enable all
+	 * pins and then disable pins not required
+	 */
 	lo_enable_out_pins(codec);
 	switch (ucontrol->value.integer.value[0]) {
 	case 0:
@@ -210,7 +216,7 @@ static void mfld_jack_check(unsigned int intr_status)
 	jack_data.intr_id = intr_status;
 
 	sn95031_jack_detection(&jack_data);
-	
+	/* TODO: add american headset detection post gpiolib support */
 }
 
 static int mfld_init(struct snd_soc_pcm_runtime *runtime)
@@ -219,13 +225,13 @@ static int mfld_init(struct snd_soc_pcm_runtime *runtime)
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 	int ret_val;
 
-	
+	/* Add jack sense widgets */
 	snd_soc_dapm_new_controls(dapm, mfld_widgets, ARRAY_SIZE(mfld_widgets));
 
-	
+	/* Set up the map */
 	snd_soc_dapm_add_routes(dapm, mfld_map, ARRAY_SIZE(mfld_map));
 
-	
+	/* always connected */
 	snd_soc_dapm_enable_pin(dapm, "Headphones");
 	snd_soc_dapm_enable_pin(dapm, "Mic");
 
@@ -235,18 +241,18 @@ static int mfld_init(struct snd_soc_pcm_runtime *runtime)
 		pr_err("soc_add_controls failed %d", ret_val);
 		return ret_val;
 	}
-	
+	/* default is earpiece pin, userspace sets it explcitly */
 	snd_soc_dapm_disable_pin(dapm, "Headphones");
-	
+	/* default is lineout NC, userspace sets it explcitly */
 	snd_soc_dapm_disable_pin(dapm, "LINEOUTL");
 	snd_soc_dapm_disable_pin(dapm, "LINEOUTR");
 	lo_dac = 3;
 	hs_switch = 0;
-	
+	/* we dont use linein in this so set to NC */
 	snd_soc_dapm_disable_pin(dapm, "LINEINL");
 	snd_soc_dapm_disable_pin(dapm, "LINEINR");
 
-	
+	/* Headset and button jack detection */
 	ret_val = snd_soc_jack_new(codec, "Intel(R) MID Audio Jack",
 			SND_JACK_HEADSET | SND_JACK_BTN_0 |
 			SND_JACK_BTN_1, &mfld_jack);
@@ -268,6 +274,9 @@ static int mfld_init(struct snd_soc_pcm_runtime *runtime)
 		return ret_val;
 	}
 
+	/* we want to check if anything is inserted at boot,
+	 * so send a fake event to codec and it will read adc
+	 * to find if anything is there or not */
 	mfld_jack_check(MFLD_JACK_INSERT);
 	return ret_val;
 }
@@ -311,6 +320,7 @@ static struct snd_soc_dai_link mfld_msic_dailink[] = {
 	},
 };
 
+/* SoC card */
 static struct snd_soc_card snd_soc_card_mfld = {
 	.name = "medfield_audio",
 	.owner = THIS_MODULE,
@@ -347,9 +357,11 @@ static int __devinit snd_mfld_mc_probe(struct platform_device *pdev)
 
 	pr_debug("snd_mfld_mc_probe called\n");
 
-	
+	/* retrive the irq number */
 	irq = platform_get_irq(pdev, 0);
 
+	/* audio interrupt base of SRAM location where
+	 * interrupts are stored by System FW */
 	mc_drv_ctx = kzalloc(sizeof(*mc_drv_ctx), GFP_ATOMIC);
 	if (!mc_drv_ctx) {
 		pr_err("allocation failed\n");
@@ -370,7 +382,7 @@ static int __devinit snd_mfld_mc_probe(struct platform_device *pdev)
 		ret_val = -ENOMEM;
 		goto unalloc;
 	}
-	
+	/* register for interrupt */
 	ret_val = request_threaded_irq(irq, snd_mfld_jack_intr_handler,
 			snd_mfld_jack_detection,
 			IRQF_SHARED, pdev->dev.driver->name, mc_drv_ctx);
@@ -378,7 +390,7 @@ static int __devinit snd_mfld_mc_probe(struct platform_device *pdev)
 		pr_err("cannot register IRQ\n");
 		goto unalloc;
 	}
-	
+	/* register the soc card */
 	snd_soc_card_mfld.dev = &pdev->dev;
 	ret_val = snd_soc_register_card(&snd_soc_card_mfld);
 	if (ret_val) {

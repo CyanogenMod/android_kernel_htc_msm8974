@@ -9,6 +9,9 @@
 #define INTC_NR_IRQS	1024
 #endif
 
+/*
+ * Convert back and forth between INTEVT and IRQ values.
+ */
 #ifdef CONFIG_CPU_HAS_INTEVT
 #define evt2irq(evt)		(((evt) >> 5) - 16)
 #define irq2evt(irq)		(((irq) + 16) << 5)
@@ -144,4 +147,4 @@ static inline int register_intc_userimask(unsigned long addr)
 }
 #endif
 
-#endif 
+#endif /* __SH_INTC_H */

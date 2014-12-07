@@ -17,6 +17,7 @@
 
 #define PM8058_XO_BUFFER_DEV_NAME	"pm8058-xo-buffer"
 
+/* XO buffer control ids */
 #define PM8058_XO_ID_A0		0
 #define PM8058_XO_ID_A1		1
 

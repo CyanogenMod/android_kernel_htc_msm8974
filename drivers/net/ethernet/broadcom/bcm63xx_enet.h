@@ -11,15 +11,28 @@
 #include <bcm63xx_irq.h>
 #include <bcm63xx_io.h>
 
+/* default number of descriptor */
 #define BCMENET_DEF_RX_DESC	64
 #define BCMENET_DEF_TX_DESC	32
 
+/* maximum burst len for dma (4 bytes unit) */
 #define BCMENET_DMA_MAXBURST	16
 
+/* tx transmit threshold (4 bytes unit), fifo is 256 bytes, the value
+ * must be low enough so that a DMA transfer of above burst length can
+ * not overflow the fifo  */
 #define BCMENET_TX_FIFO_TRESH	32
 
+/*
+ * hardware maximum rx/tx packet size including FCS, max mtu is
+ * actually 2047, but if we set max rx size register to 2047 we won't
+ * get overflow information if packet size is 2048 or above
+ */
 #define BCMENET_MAX_MTU		2046
 
+/*
+ * rx/tx dma descriptor
+ */
 struct bcm_enet_desc {
 	u32 len_stat;
 	u32 address;
@@ -46,6 +59,9 @@ struct bcm_enet_desc {
 				DMADESC_OV_MASK)
 
 
+/*
+ * MIB Counters register definitions
+*/
 #define ETH_MIB_TX_GD_OCTETS			0
 #define ETH_MIB_TX_GD_PKTS			1
 #define ETH_MIB_TX_ALL_OCTETS			2
@@ -149,130 +165,138 @@ struct bcm_enet_mib_counters {
 
 struct bcm_enet_priv {
 
-	
+	/* mac id (from platform device id) */
 	int mac_id;
 
-	
+	/* base remapped address of device */
 	void __iomem *base;
 
-	
+	/* mac irq, rx_dma irq, tx_dma irq */
 	int irq;
 	int irq_rx;
 	int irq_tx;
 
-	
+	/* hw view of rx & tx dma ring */
 	dma_addr_t rx_desc_dma;
 	dma_addr_t tx_desc_dma;
 
-	
+	/* allocated size (in bytes) for rx & tx dma ring */
 	unsigned int rx_desc_alloc_size;
 	unsigned int tx_desc_alloc_size;
 
 
 	struct napi_struct napi;
 
-	
+	/* dma channel id for rx */
 	int rx_chan;
 
-	
+	/* number of dma desc in rx ring */
 	int rx_ring_size;
 
-	
+	/* cpu view of rx dma ring */
 	struct bcm_enet_desc *rx_desc_cpu;
 
-	
+	/* current number of armed descriptor given to hardware for rx */
 	int rx_desc_count;
 
-	
+	/* next rx descriptor to fetch from hardware */
 	int rx_curr_desc;
 
-	
+	/* next dirty rx descriptor to refill */
 	int rx_dirty_desc;
 
-	
+	/* size of allocated rx skbs */
 	unsigned int rx_skb_size;
 
-	
+	/* list of skb given to hw for rx */
 	struct sk_buff **rx_skb;
 
+	/* used when rx skb allocation failed, so we defer rx queue
+	 * refill */
 	struct timer_list rx_timeout;
 
-	
+	/* lock rx_timeout against rx normal operation */
 	spinlock_t rx_lock;
 
 
-	
+	/* dma channel id for tx */
 	int tx_chan;
 
-	
+	/* number of dma desc in tx ring */
 	int tx_ring_size;
 
-	
+	/* cpu view of rx dma ring */
 	struct bcm_enet_desc *tx_desc_cpu;
 
-	
+	/* number of available descriptor for tx */
 	int tx_desc_count;
 
-	
+	/* next tx descriptor avaiable */
 	int tx_curr_desc;
 
-	
+	/* next dirty tx descriptor to reclaim */
 	int tx_dirty_desc;
 
-	
+	/* list of skb given to hw for tx */
 	struct sk_buff **tx_skb;
 
-	
+	/* lock used by tx reclaim and xmit */
 	spinlock_t tx_lock;
 
 
+	/* set if internal phy is ignored and external mii interface
+	 * is selected */
 	int use_external_mii;
 
+	/* set if a phy is connected, phy address must be known,
+	 * probing is not possible */
 	int has_phy;
 	int phy_id;
 
-	
+	/* set if connected phy has an associated irq */
 	int has_phy_interrupt;
 	int phy_interrupt;
 
-	
+	/* used when a phy is connected (phylib used) */
 	struct mii_bus *mii_bus;
 	struct phy_device *phydev;
 	int old_link;
 	int old_duplex;
 	int old_pause;
 
-	
+	/* used when no phy is connected */
 	int force_speed_100;
 	int force_duplex_full;
 
-	
+	/* pause parameters */
 	int pause_auto;
 	int pause_rx;
 	int pause_tx;
 
-	
+	/* stats */
 	struct bcm_enet_mib_counters mib;
 
+	/* after mib interrupt, mib registers update is done in this
+	 * work queue */
 	struct work_struct mib_update_task;
 
-	
+	/* lock mib update between userspace request and workqueue */
 	struct mutex mib_update_lock;
 
-	
+	/* mac clock */
 	struct clk *mac_clk;
 
-	
+	/* phy clock if internal phy is used */
 	struct clk *phy_clk;
 
-	
+	/* network device reference */
 	struct net_device *net_dev;
 
-	
+	/* platform device reference */
 	struct platform_device *pdev;
 
-	
+	/* maximum hardware transmit/receive size */
 	unsigned int hw_mtu;
 };
 
-#endif 
+#endif /* ! BCM63XX_ENET_H_ */

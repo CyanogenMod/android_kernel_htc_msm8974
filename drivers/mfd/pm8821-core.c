@@ -23,8 +23,8 @@
 #include <linux/mfd/pm8xxx/pm8821.h>
 #include <linux/mfd/pm8xxx/core.h>
 
-#define REG_HWREV		0x002  
-#define REG_HWREV_2		0x0E8  
+#define REG_HWREV		0x002  /* PMIC4 revision */
+#define REG_HWREV_2		0x0E8  /* PMIC4 revision 2 */
 
 #define REG_MPP_BASE		0x050
 #define REG_IRQ_BASE		0x100
@@ -254,7 +254,7 @@ static int __devinit pm8821_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* Read PMIC chip revision */
 	rc = msm_ssbi_read(pdev->dev.parent, REG_HWREV, &val, sizeof(val));
 	if (rc) {
 		pr_err("Failed to read hw rev reg %d:rc=%d\n", REG_HWREV, rc);
@@ -263,7 +263,7 @@ static int __devinit pm8821_probe(struct platform_device *pdev)
 	pr_info("PMIC revision 1: PM8821 rev %02X\n", val);
 	pmic->rev_registers = val;
 
-	
+	/* Read PMIC chip revision 2 */
 	rc = msm_ssbi_read(pdev->dev.parent, REG_HWREV_2, &val, sizeof(val));
 	if (rc) {
 		pr_err("Failed to read hw rev 2 reg %d:rc=%d\n",
@@ -277,7 +277,7 @@ static int __devinit pm8821_probe(struct platform_device *pdev)
 	pm8821_drvdata.pm_chip_data = pmic;
 	platform_set_drvdata(pdev, &pm8821_drvdata);
 
-	
+	/* Print out human readable version and revision names. */
 	version = pm8xxx_get_version(pmic->dev);
 	if (version == PM8XXX_VERSION_8821) {
 		revision = pm8xxx_get_revision(pmic->dev);

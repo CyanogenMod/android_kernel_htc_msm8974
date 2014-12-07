@@ -8,6 +8,7 @@ static char syscalls[] = {
 #include <asm/syscalls_32.h>
 };
 
+/* workaround for a warning with -Wmissing-prototypes */
 void foo(void);
 
 void foo(void)
@@ -59,7 +60,7 @@ void foo(void)
 	OFFSET(IA32_RT_SIGFRAME_sigcontext, rt_sigframe, uc.uc_mcontext);
 	BLANK();
 
-	
+	/* Offset from the sysenter stack to tss.sp0 */
 	DEFINE(TSS_sysenter_sp0, offsetof(struct tss_struct, x86_tss.sp0) -
 		 sizeof(struct tss_struct));
 

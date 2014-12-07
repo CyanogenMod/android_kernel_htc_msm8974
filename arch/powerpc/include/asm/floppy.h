@@ -25,11 +25,11 @@
 #define fd_get_dma_residue()    fd_ops->_get_dma_residue(FLOPPY_DMA)
 #define fd_enable_irq()         enable_irq(FLOPPY_IRQ)
 #define fd_disable_irq()        disable_irq(FLOPPY_IRQ)
-#define fd_cacheflush(addr,size) 
+#define fd_cacheflush(addr,size) /* nothing */
 #define fd_free_irq()           free_irq(FLOPPY_IRQ, NULL);
 
 #include <linux/pci.h>
-#include <asm/ppc-pci.h>	
+#include <asm/ppc-pci.h>	/* for isa_bridge_pcidev */
 
 #define fd_dma_setup(addr,size,mode,io) fd_ops->_dma_setup(addr,size,mode,io)
 
@@ -138,15 +138,15 @@ static int hard_dma_setup(char *addr, unsigned long size, int mode, int io)
 
 	if (bus_addr 
 	    && (addr != prev_addr || size != prev_size || dir != prev_dir)) {
-		
+		/* different from last time -- unmap prev */
 		pci_unmap_single(isa_bridge_pcidev, bus_addr, prev_size, prev_dir);
 		bus_addr = 0;
 	}
 
-	if (!bus_addr)	
+	if (!bus_addr)	/* need to map it */
 		bus_addr = pci_map_single(isa_bridge_pcidev, addr, size, dir);
 
-	
+	/* remember this one as prev */
 	prev_addr = addr;
 	prev_size = size;
 	prev_dir = dir;
@@ -193,15 +193,21 @@ static int fd_request_dma(void)
 static int FDC1 = 0x3f0;
 static int FDC2 = -1;
 
+/*
+ * Again, the CMOS information not available
+ */
 #define FLOPPY0_TYPE 6
 #define FLOPPY1_TYPE 0
 
-#define N_FDC 2			
+#define N_FDC 2			/* Don't change this! */
 #define N_DRIVE 8
 
+/*
+ * The PowerPC has no problems with floppy DMA crossing 64k borders.
+ */
 #define CROSS_64KB(a,s)	(0)
 
 #define EXTRA_FLOPPY_PARAMS
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASM_POWERPC_FLOPPY_H */

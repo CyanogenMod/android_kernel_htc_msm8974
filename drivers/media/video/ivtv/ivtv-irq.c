@@ -49,7 +49,7 @@ static void ivtv_pio_work_handler(struct ivtv *itv)
 	if (itv->cur_pio_stream < 0 || itv->cur_pio_stream >= IVTV_MAX_STREAMS ||
 			s->vdev == NULL || !ivtv_use_pio(s)) {
 		itv->cur_pio_stream = -1;
-		
+		/* trigger PIO complete user interrupt */
 		write_reg(IVTV_IRQ_ENC_PIO_COMPLETE, 0x44);
 		return;
 	}
@@ -57,7 +57,7 @@ static void ivtv_pio_work_handler(struct ivtv *itv)
 	list_for_each_entry(buf, &s->q_dma.list, list) {
 		u32 size = s->sg_processing[i].size & 0x3ffff;
 
-		
+		/* Copy the data from the card to the buffer */
 		if (s->type == IVTV_DEC_STREAM_TYPE_VBI) {
 			memcpy_fromio(buf->buf, itv->dec_mem + s->sg_processing[i].src - IVTV_DECODER_OFFSET, size);
 		}
@@ -85,6 +85,10 @@ void ivtv_irq_work_handler(struct kthread_work *work)
 		ivtv_yuv_work_handler(itv);
 }
 
+/* Determine the required DMA size, setup enough buffers in the predma queue and
+   actually copy the data from the card to the buffers in case a PIO transfer is
+   required for this stream.
+ */
 static int stream_enc_dma_append(struct ivtv_stream *s, u32 data[CX2341X_MBOX_MAX_DATA])
 {
 	struct ivtv *itv = s->itv;
@@ -96,7 +100,7 @@ static int stream_enc_dma_append(struct ivtv_stream *s, u32 data[CX2341X_MBOX_MA
 	int idx = s->sg_pending_size;
 	int rc;
 
-	
+	/* sanity checks */
 	if (s->vdev == NULL) {
 		IVTV_DEBUG_WARN("Stream %s not started\n", s->name);
 		return -1;
@@ -106,7 +110,7 @@ static int stream_enc_dma_append(struct ivtv_stream *s, u32 data[CX2341X_MBOX_MA
 		return -1;
 	}
 
-	
+	/* determine offset, size and PTS for the various streams */
 	switch (s->type) {
 		case IVTV_ENC_STREAM_TYPE_MPG:
 			offset = data[1];
@@ -148,11 +152,11 @@ static int stream_enc_dma_append(struct ivtv_stream *s, u32 data[CX2341X_MBOX_MA
 			offset += IVTV_DECODER_OFFSET;
 			break;
 		default:
-			
+			/* shouldn't happen */
 			return -1;
 	}
 
-	
+	/* if this is the start of the DMA then fill in the magic cookie */
 	if (s->sg_pending_size == 0 && ivtv_use_dma(s)) {
 		if (itv->has_cx23415 && (s->type == IVTV_ENC_STREAM_TYPE_PCM ||
 		    s->type == IVTV_DEC_STREAM_TYPE_VBI)) {
@@ -168,6 +172,9 @@ static int stream_enc_dma_append(struct ivtv_stream *s, u32 data[CX2341X_MBOX_MA
 
 	bytes_needed = size;
 	if (s->type == IVTV_ENC_STREAM_TYPE_YUV) {
+		/* The size for the Y samples needs to be rounded upwards to a
+		   multiple of the buf_size. The UV samples then start in the
+		   next buffer. */
 		bytes_needed = s->buf_size * ((bytes_needed + s->buf_size - 1) / s->buf_size);
 		bytes_needed += UVsize;
 	}
@@ -176,7 +183,7 @@ static int stream_enc_dma_append(struct ivtv_stream *s, u32 data[CX2341X_MBOX_MA
 		ivtv_use_pio(s) ? "PIO" : "DMA", s->name, bytes_needed, offset);
 
 	rc = ivtv_queue_move(s, &s->q_free, &s->q_full, &s->q_predma, bytes_needed);
-	if (rc < 0) { 
+	if (rc < 0) { /* Insufficient buffers */
 		IVTV_DEBUG_WARN("Cannot obtain %d bytes for %s data transfer\n",
 				bytes_needed, s->name);
 		return -1;
@@ -187,7 +194,7 @@ static int stream_enc_dma_append(struct ivtv_stream *s, u32 data[CX2341X_MBOX_MA
 	}
 	s->buffers_stolen = rc;
 
-	
+	/* got the buffers, now fill in sg_pending */
 	buf = list_entry(s->q_predma.list.next, struct ivtv_buffer, list);
 	memset(buf->buf, 0, 128);
 	list_for_each_entry(buf, &s->q_predma.list, list) {
@@ -203,11 +210,11 @@ static int stream_enc_dma_append(struct ivtv_stream *s, u32 data[CX2341X_MBOX_MA
 		size -= buf->bytesused;
 		offset += s->buf_size;
 
-		
+		/* Sync SG buffers */
 		ivtv_buf_sync_for_device(s, buf);
 
-		if (size == 0) {	
-			
+		if (size == 0) {	/* YUV */
+			/* process the UV section */
 			offset = UVoffset;
 			size = UVsize;
 		}
@@ -232,7 +239,7 @@ static void dma_post(struct ivtv_stream *s)
 		buf = list_entry(p, struct ivtv_buffer, list);
 		u32buf = (__le32 *)buf->buf;
 
-		
+		/* Sync Buffer */
 		ivtv_buf_sync_for_cpu(s, buf);
 
 		if (x == 0 && ivtv_use_dma(s)) {
@@ -267,7 +274,7 @@ static void dma_post(struct ivtv_stream *s)
 			*u32buf = cpu_to_le32(s->dma_backup);
 		}
 		x++;
-		
+		/* flag byteswap ABCD -> DCBA for MPG & VBI data outside irq */
 		if (s->type == IVTV_ENC_STREAM_TYPE_MPG ||
 		    s->type == IVTV_ENC_STREAM_TYPE_VBI)
 			buf->b_flags |= IVTV_F_B_NEED_BUF_SWAP;
@@ -276,7 +283,7 @@ static void dma_post(struct ivtv_stream *s)
 		buf->bytesused += s->dma_last_offset;
 	if (buf && s->type == IVTV_DEC_STREAM_TYPE_VBI) {
 		list_for_each_entry(buf, &s->q_dma.list, list) {
-			
+			/* Parse and Groom VBI Data */
 			s->q_dma.bytesused -= buf->bytesused;
 			ivtv_process_vbi_data(itv, buf, 0, s->type);
 			s->q_dma.bytesused += buf->bytesused;
@@ -307,7 +314,7 @@ void ivtv_dma_stream_dec_prepare(struct ivtv_stream *s, u32 offset, int lock)
 
 	IVTV_DEBUG_HI_DMA("DEC PREPARE DMA %s: %08x %08x\n", s->name, s->q_predma.bytesused, offset);
 
-	
+	/* Insert buffer block for YUV if needed */
 	if (s->type == IVTV_DEC_STREAM_TYPE_YUV && f->offset_y) {
 		if (yi->blanking_dmaptr) {
 			s->sg_pending[idx].src = yi->blanking_dmaptr;
@@ -319,7 +326,7 @@ void ivtv_dma_stream_dec_prepare(struct ivtv_stream *s, u32 offset, int lock)
 	}
 
 	list_for_each_entry(buf, &s->q_predma.list, list) {
-		
+		/* YUV UV Offset from Y Buffer */
 		if (s->type == IVTV_DEC_STREAM_TYPE_YUV && !y_done &&
 				(bytes_written + buf->bytesused) >= y_size) {
 			s->sg_pending[idx].src = buf->dma_handle;
@@ -344,13 +351,13 @@ void ivtv_dma_stream_dec_prepare(struct ivtv_stream *s, u32 offset, int lock)
 		}
 		bytes_written += buf->bytesused;
 
-		
+		/* Sync SG buffers */
 		ivtv_buf_sync_for_device(s, buf);
 		idx++;
 	}
 	s->sg_pending_size = idx;
 
-	
+	/* Sync Hardware SG List of buffers */
 	ivtv_stream_sync_for_device(s);
 	if (lock)
 		spin_lock_irqsave(&itv->dma_reg_lock, flags);
@@ -372,7 +379,7 @@ static void ivtv_dma_enc_start_xfer(struct ivtv_stream *s)
 	s->sg_dma->dst = cpu_to_le32(s->sg_processing[s->sg_processed].dst);
 	s->sg_dma->size = cpu_to_le32(s->sg_processing[s->sg_processed].size | 0x80000000);
 	s->sg_processed++;
-	
+	/* Sync Hardware SG List of buffers */
 	ivtv_stream_sync_for_device(s);
 	write_reg(s->sg_handle, IVTV_REG_ENCDMAADDR);
 	write_reg_sync(read_reg(IVTV_REG_DMAXFER) | 0x02, IVTV_REG_DMAXFER);
@@ -388,7 +395,7 @@ static void ivtv_dma_dec_start_xfer(struct ivtv_stream *s)
 	s->sg_dma->dst = cpu_to_le32(s->sg_processing[s->sg_processed].dst);
 	s->sg_dma->size = cpu_to_le32(s->sg_processing[s->sg_processed].size | 0x80000000);
 	s->sg_processed++;
-	
+	/* Sync Hardware SG List of buffers */
 	ivtv_stream_sync_for_device(s);
 	write_reg(s->sg_handle, IVTV_REG_DECDMAADDR);
 	write_reg_sync(read_reg(IVTV_REG_DMAXFER) | 0x01, IVTV_REG_DMAXFER);
@@ -396,6 +403,7 @@ static void ivtv_dma_dec_start_xfer(struct ivtv_stream *s)
 	add_timer(&itv->dma_timer);
 }
 
+/* start the encoder DMA */
 static void ivtv_dma_enc_start(struct ivtv_stream *s)
 {
 	struct ivtv *itv = s->itv;
@@ -410,6 +418,14 @@ static void ivtv_dma_enc_start(struct ivtv_stream *s)
 	if (ivtv_use_dma(s))
 		s->sg_pending[s->sg_pending_size - 1].size += 256;
 
+	/* If this is an MPEG stream, and VBI data is also pending, then append the
+	   VBI DMA to the MPEG DMA and transfer both sets of data at once.
+
+	   VBI DMA is a second class citizen compared to MPEG and mixing them together
+	   will confuse the firmware (the end of a VBI DMA is seen as the end of a
+	   MPEG DMA, thus effectively dropping an MPEG frame). So instead we make
+	   sure we only use the MPEG DMA to transfer the VBI DMA if both are in
+	   use. This way no conflicts occur. */
 	clear_bit(IVTV_F_S_DMA_HAS_VBI, &s->s_flags);
 	if (s->type == IVTV_ENC_STREAM_TYPE_MPG && s_vbi->sg_pending_size &&
 			s->sg_pending_size + s_vbi->sg_pending_size <= s->buffers) {
@@ -491,17 +507,19 @@ static void ivtv_irq_dma_read(struct ivtv *itv)
 					s->sg_processed, s->sg_processing_size, itv->dma_retries);
 			write_reg(read_reg(IVTV_REG_DMASTATUS) & 3, IVTV_REG_DMASTATUS);
 			if (itv->dma_retries == 3) {
-				
+				/* Too many retries, give up on this frame */
 				itv->dma_retries = 0;
 				s->sg_processed = s->sg_processing_size;
 			}
 			else {
+				/* Retry, starting with the first xfer segment.
+				   Just retrying the current segment is not sufficient. */
 				s->sg_processed = 0;
 				itv->dma_retries++;
 			}
 		}
 		if (s->sg_processed < s->sg_processing_size) {
-			
+			/* DMA next buffer */
 			ivtv_dma_dec_start_xfer(s);
 			return;
 		}
@@ -509,10 +527,16 @@ static void ivtv_irq_dma_read(struct ivtv *itv)
 			hw_stream_type = 2;
 		IVTV_DEBUG_HI_DMA("DEC DATA READ %s: %d\n", s->name, s->q_dma.bytesused);
 
+		/* For some reason must kick the firmware, like PIO mode,
+		   I think this tells the firmware we are done and the size
+		   of the xfer so it can calculate what we need next.
+		   I think we can do this part ourselves but would have to
+		   fully calculate xfer info ourselves and not use interrupts
+		 */
 		ivtv_vapi(itv, CX2341X_DEC_SCHED_DMA_FROM_HOST, 3, 0, s->q_dma.bytesused,
 				hw_stream_type);
 
-		
+		/* Free last DMA call */
 		while ((buf = ivtv_dequeue(s, &s->q_dma)) != NULL) {
 			ivtv_buf_sync_for_cpu(s, buf);
 			ivtv_enqueue(s, buf, &s->q_free);
@@ -546,17 +570,19 @@ static void ivtv_irq_enc_dma_complete(struct ivtv *itv)
 			s->dma_offset, s->sg_processed, s->sg_processing_size, itv->dma_retries);
 		write_reg(read_reg(IVTV_REG_DMASTATUS) & 3, IVTV_REG_DMASTATUS);
 		if (itv->dma_retries == 3) {
-			
+			/* Too many retries, give up on this frame */
 			itv->dma_retries = 0;
 			s->sg_processed = s->sg_processing_size;
 		}
 		else {
+			/* Retry, starting with the first xfer segment.
+			   Just retrying the current segment is not sufficient. */
 			s->sg_processed = 0;
 			itv->dma_retries++;
 		}
 	}
 	if (s->sg_processed < s->sg_processing_size) {
-		
+		/* DMA next buffer */
 		ivtv_dma_enc_start_xfer(s);
 		return;
 	}
@@ -610,6 +636,15 @@ static void ivtv_irq_dma_err(struct ivtv *itv)
 	status = read_reg(IVTV_REG_DMASTATUS);
 	IVTV_DEBUG_WARN("DMA ERROR %08x %08x %08x %d\n", data[0], data[1],
 				status, itv->cur_dma_stream);
+	/*
+	 * We do *not* write back to the IVTV_REG_DMASTATUS register to
+	 * clear the error status, if either the encoder write (0x02) or
+	 * decoder read (0x01) bus master DMA operation do not indicate
+	 * completed.  We can race with the DMA engine, which may have
+	 * transitioned to completed status *after* we read the register.
+	 * Setting a IVTV_REG_DMASTATUS flag back to "busy" status, after the
+	 * DMA engine has completed, will cause the DMA engine to stop working.
+	 */
 	status &= 0x3;
 	if (status == 0x3)
 		write_reg(status, IVTV_REG_DMASTATUS);
@@ -619,11 +654,19 @@ static void ivtv_irq_dma_err(struct ivtv *itv)
 		struct ivtv_stream *s = &itv->streams[itv->cur_dma_stream];
 
 		if (s->type >= IVTV_DEC_STREAM_TYPE_MPG) {
-			
+			/* retry */
+			/*
+			 * FIXME - handle cases of DMA error similar to
+			 * encoder below, except conditioned on status & 0x1
+			 */
 			ivtv_dma_dec_start(s);
 			return;
 		} else {
 			if ((status & 0x2) == 0) {
+				/*
+				 * CX2341x Bus Master DMA write is ongoing.
+				 * Reset the timer and let it complete.
+				 */
 				itv->dma_timer.expires =
 						jiffies + msecs_to_jiffies(600);
 				add_timer(&itv->dma_timer);
@@ -631,12 +674,18 @@ static void ivtv_irq_dma_err(struct ivtv *itv)
 			}
 
 			if (itv->dma_retries < 3) {
+				/*
+				 * CX2341x Bus Master DMA write has ended.
+				 * Retry the write, starting with the first
+				 * xfer segment. Just retrying the current
+				 * segment is not sufficient.
+				 */
 				s->sg_processed = 0;
 				itv->dma_retries++;
 				ivtv_dma_enc_start_xfer(s);
 				return;
 			}
-			
+			/* Too many retries, give up on this one */
 		}
 
 	}
@@ -655,7 +704,7 @@ static void ivtv_irq_enc_start_cap(struct ivtv *itv)
 	u32 data[CX2341X_MBOX_MAX_DATA];
 	struct ivtv_stream *s;
 
-	
+	/* Get DMA destination and size arguments from card */
 	ivtv_api_get_data(&itv->enc_mbox, IVTV_MBOX_DMA, 7, data);
 	IVTV_DEBUG_HI_IRQ("ENC START CAP %d: %08x %08x\n", data[0], data[1], data[2]);
 
@@ -699,7 +748,7 @@ static void ivtv_irq_dec_data_req(struct ivtv *itv)
 	u32 data[CX2341X_MBOX_MAX_DATA];
 	struct ivtv_stream *s;
 
-	
+	/* YUV or MPG */
 
 	if (test_bit(IVTV_F_I_DEC_YUV, &itv->i_flags)) {
 		ivtv_api_get_data(&itv->dec_mbox, IVTV_MBOX_DMA, 2, data);
@@ -732,6 +781,13 @@ static void ivtv_irq_dec_data_req(struct ivtv *itv)
 
 static void ivtv_irq_vsync(struct ivtv *itv)
 {
+	/* The vsync interrupt is unusual in that it won't clear until
+	 * the end of the first line for the current field, at which
+	 * point it clears itself. This can result in repeated vsync
+	 * interrupts, or a missed vsync. Read some of the registers
+	 * to determine the line being displayed and ensure we handle
+	 * one vsync per frame.
+	 */
 	unsigned int frame = read_reg(IVTV_REG_DEC_LINE_FIELD) & 1;
 	struct yuv_playback_info *yi = &itv->yuv_info;
 	int last_dma_frame = atomic_read(&yi->next_dma_frame);
@@ -786,7 +842,7 @@ static void ivtv_irq_vsync(struct ivtv *itv)
 			v4l2_event_queue(s->vdev, frame ? &evtop : &evbottom);
 		wake_up(&itv->vsync_waitq);
 
-		
+		/* Send VBI to saa7127 */
 		if (frame && (itv->output_mode == OUT_PASSTHROUGH ||
 			test_bit(IVTV_F_I_UPDATE_WSS, &itv->i_flags) ||
 			test_bit(IVTV_F_I_UPDATE_VPS, &itv->i_flags) ||
@@ -795,7 +851,7 @@ static void ivtv_irq_vsync(struct ivtv *itv)
 			set_bit(IVTV_F_I_HAVE_WORK, &itv->i_flags);
 		}
 
-		
+		/* Check if we need to update the yuv registers */
 		if (yi->running && (yi->yuv_forced_update || f->update)) {
 			if (!f->update) {
 				last_dma_frame =
@@ -828,20 +884,23 @@ irqreturn_t ivtv_irq_handler(int irq, void *dev_id)
 	u8 vsync_force = 0;
 
 	spin_lock(&itv->dma_reg_lock);
-	
+	/* get contents of irq status register */
 	stat = read_reg(IVTV_REG_IRQSTATUS);
 
 	combo = ~itv->irqmask & stat;
 
-	
+	/* Clear out IRQ */
 	if (combo) write_reg(combo, IVTV_REG_IRQSTATUS);
 
 	if (0 == combo) {
+		/* The vsync interrupt is unusual and clears itself. If we
+		 * took too long, we may have missed it. Do some checks
+		 */
 		if (~itv->irqmask & IVTV_IRQ_DEC_VSYNC) {
-			
+			/* vsync is enabled, see if we're in a new field */
 			if ((itv->last_vsync_field & 1) !=
 			    (read_reg(IVTV_REG_DEC_LINE_FIELD) & 1)) {
-				
+				/* New field, looks like we missed it */
 				IVTV_DEBUG_YUV("VSync interrupt missed %d\n",
 				       read_reg(IVTV_REG_DEC_LINE_FIELD) >> 16);
 				vsync_force = 1;
@@ -849,12 +908,14 @@ irqreturn_t ivtv_irq_handler(int irq, void *dev_id)
 		}
 
 		if (!vsync_force) {
-			
+			/* No Vsync expected, wasn't for us */
 			spin_unlock(&itv->dma_reg_lock);
 			return IRQ_NONE;
 		}
 	}
 
+	/* Exclude interrupts noted below from the output, otherwise the log is flooded with
+	   these messages */
 	if (combo & ~0xff6d0400)
 		IVTV_DEBUG_HI_IRQ("======= valid IRQ bits: 0x%08x ======\n", combo);
 
@@ -900,14 +961,14 @@ irqreturn_t ivtv_irq_handler(int irq, void *dev_id)
 		ivtv_irq_dec_data_req(itv);
 	}
 
-	
+	/* Decoder Vertical Sync - We can't rely on 'combo', so check if vsync enabled */
 	if (~itv->irqmask & IVTV_IRQ_DEC_VSYNC) {
 		ivtv_irq_vsync(itv);
 	}
 
 	if (combo & IVTV_IRQ_ENC_VIM_RST) {
 		IVTV_DEBUG_IRQ("VIM RST\n");
-		
+		/*ivtv_vapi(itv, CX2341X_ENC_REFRESH_INPUT, 0); */
 	}
 
 	if (combo & IVTV_IRQ_DEC_AUD_MODE_CHG) {
@@ -954,6 +1015,10 @@ irqreturn_t ivtv_irq_handler(int irq, void *dev_id)
 
 	spin_unlock(&itv->dma_reg_lock);
 
+	/* If we've just handled a 'forced' vsync, it's safest to say it
+	 * wasn't ours. Another device may have triggered it at just
+	 * the right time.
+	 */
 	return vsync_force ? IRQ_NONE : IRQ_HANDLED;
 }
 

@@ -38,7 +38,7 @@ static int mxs_sgtl5000_hw_params(struct snd_pcm_substream *substream,
 	u32 dai_format, mclk;
 	int ret;
 
-	
+	/* sgtl5000 does not support 512*rate when in 96000 fs */
 	switch (rate) {
 	case 96000:
 		mclk = 256 * rate;
@@ -48,30 +48,30 @@ static int mxs_sgtl5000_hw_params(struct snd_pcm_substream *substream,
 		break;
 	}
 
-	
+	/* Sgtl5000 sysclk should be >= 8MHz and <= 27M */
 	if (mclk < 8000000 || mclk > 27000000)
 		return -EINVAL;
 
-	
+	/* Set SGTL5000's SYSCLK (provided by SAIF MCLK) */
 	ret = snd_soc_dai_set_sysclk(codec_dai, SGTL5000_SYSCLK, mclk, 0);
 	if (ret)
 		return ret;
 
-	
+	/* The SAIF MCLK should be the same as SGTL5000_SYSCLK */
 	ret = snd_soc_dai_set_sysclk(cpu_dai, MXS_SAIF_MCLK, mclk, 0);
 	if (ret)
 		return ret;
 
-	
+	/* set codec to slave mode */
 	dai_format = SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF |
 			SND_SOC_DAIFMT_CBS_CFS;
 
-	
+	/* set codec DAI configuration */
 	ret = snd_soc_dai_set_fmt(codec_dai, dai_format);
 	if (ret)
 		return ret;
 
-	
+	/* set cpu DAI configuration */
 	ret = snd_soc_dai_set_fmt(cpu_dai, dai_format);
 	if (ret)
 		return ret;
@@ -115,6 +115,11 @@ static int __devinit mxs_sgtl5000_probe(struct platform_device *pdev)
 	struct snd_soc_card *card = &mxs_sgtl5000;
 	int ret;
 
+	/*
+	 * Set an init clock(11.28Mhz) for sgtl5000 initialization(i2c r/w).
+	 * The Sgtl5000 sysclk is derived from saif0 mclk and it's range
+	 * should be >= 8MHz and <= 27M.
+	 */
 	ret = mxs_saif_get_mclk(0, 44100 * 256, 44100);
 	if (ret)
 		return ret;

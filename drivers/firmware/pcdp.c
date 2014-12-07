@@ -59,7 +59,7 @@ setup_vga_console(struct pcdp_device *dev)
 	if (if_ptr[0] == PCDP_IF_PCI) {
 		struct pcdp_if_pci if_pci;
 
-		
+		/* struct copy since ifptr might not be correctly aligned */
 
 		memcpy(&if_pci, if_ptr, sizeof(if_pci));
 

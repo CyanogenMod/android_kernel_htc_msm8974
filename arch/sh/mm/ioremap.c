@@ -25,6 +25,15 @@
 #include <asm/tlbflush.h>
 #include <asm/mmu.h>
 
+/*
+ * Remap an arbitrary physical address space into the kernel virtual
+ * address space. Needed when the kernel wants to access high addresses
+ * directly.
+ *
+ * NOTE! We need to allow non-page-aligned mappings too: we will obviously
+ * have to convert them into an offset in a page-aligned mapping, but the
+ * caller shouldn't need to know that small detail.
+ */
 void __iomem * __init_refok
 __ioremap_caller(phys_addr_t phys_addr, unsigned long size,
 		 pgprot_t pgprot, void *caller)
@@ -33,22 +42,35 @@ __ioremap_caller(phys_addr_t phys_addr, unsigned long size,
 	unsigned long offset, last_addr, addr, orig_addr;
 	void __iomem *mapped;
 
-	
+	/* Don't allow wraparound or zero size */
 	last_addr = phys_addr + size - 1;
 	if (!size || last_addr < phys_addr)
 		return NULL;
 
+	/*
+	 * If we can't yet use the regular approach, go the fixmap route.
+	 */
 	if (!mem_init_done)
 		return ioremap_fixed(phys_addr, size, pgprot);
 
+	/*
+	 * First try to remap through the PMB.
+	 * PMB entries are all pre-faulted.
+	 */
 	mapped = pmb_remap_caller(phys_addr, size, pgprot, caller);
 	if (mapped && !IS_ERR(mapped))
 		return mapped;
 
+	/*
+	 * Mappings have to be page-aligned
+	 */
 	offset = phys_addr & ~PAGE_MASK;
 	phys_addr &= PAGE_MASK;
 	size = PAGE_ALIGN(last_addr+1) - phys_addr;
 
+	/*
+	 * Ok, go for it..
+	 */
 	area = get_vm_area_caller(size, VM_IOREMAP, caller);
 	if (!area)
 		return NULL;
@@ -64,9 +86,16 @@ __ioremap_caller(phys_addr_t phys_addr, unsigned long size,
 }
 EXPORT_SYMBOL(__ioremap_caller);
 
+/*
+ * Simple checks for non-translatable mappings.
+ */
 static inline int iomapping_nontranslatable(unsigned long offset)
 {
 #ifdef CONFIG_29BIT
+	/*
+	 * In 29-bit mode this includes the fixed P1/P2 areas, as well as
+	 * parts of P3.
+	 */
 	if (PXSEG(offset) < P3SEG || offset >= P3_ADDR_MAX)
 		return 1;
 #endif
@@ -79,12 +108,21 @@ void __iounmap(void __iomem *addr)
 	unsigned long vaddr = (unsigned long __force)addr;
 	struct vm_struct *p;
 
+	/*
+	 * Nothing to do if there is no translatable mapping.
+	 */
 	if (iomapping_nontranslatable(vaddr))
 		return;
 
+	/*
+	 * There's no VMA if it's from an early fixed mapping.
+	 */
 	if (iounmap_fixed(addr) == 0)
 		return;
 
+	/*
+	 * If the PMB handled it, there's nothing else to do.
+	 */
 	if (pmb_unmap(addr) == 0)
 		return;
 

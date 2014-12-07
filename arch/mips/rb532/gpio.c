@@ -51,6 +51,12 @@ static struct resource rb532_gpio_reg0_res[] = {
 	}
 };
 
+/* rb532_set_bit - sanely set a bit
+ *
+ * bitval: new value for the bit
+ * offset: bit index in the 4 byte address range
+ * ioaddr: 4 byte aligned address being altered
+ */
 static inline void rb532_set_bit(unsigned bitval,
 		unsigned offset, void __iomem *ioaddr)
 {
@@ -60,18 +66,24 @@ static inline void rb532_set_bit(unsigned bitval,
 	local_irq_save(flags);
 
 	val = readl(ioaddr);
-	val &= ~(!bitval << offset);   
-	val |= (!!bitval << offset);   
+	val &= ~(!bitval << offset);   /* unset bit if bitval == 0 */
+	val |= (!!bitval << offset);   /* set bit if bitval == 1 */
 	writel(val, ioaddr);
 
 	local_irq_restore(flags);
 }
 
+/* rb532_get_bit - read a bit
+ *
+ * returns the boolean state of the bit, which may be > 1
+ */
 static inline int rb532_get_bit(unsigned offset, void __iomem *ioaddr)
 {
 	return (readl(ioaddr) & (1 << offset));
 }
 
+/*
+ * Return GPIO level */
 static int rb532_gpio_get(struct gpio_chip *chip, unsigned offset)
 {
 	struct rb532_gpio_chip	*gpch;
@@ -80,6 +92,9 @@ static int rb532_gpio_get(struct gpio_chip *chip, unsigned offset)
 	return rb532_get_bit(offset, gpch->regbase + GPIOD);
 }
 
+/*
+ * Set output GPIO level
+ */
 static void rb532_gpio_set(struct gpio_chip *chip,
 				unsigned offset, int value)
 {
@@ -89,19 +104,25 @@ static void rb532_gpio_set(struct gpio_chip *chip,
 	rb532_set_bit(value, offset, gpch->regbase + GPIOD);
 }
 
+/*
+ * Set GPIO direction to input
+ */
 static int rb532_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
 {
 	struct rb532_gpio_chip	*gpch;
 
 	gpch = container_of(chip, struct rb532_gpio_chip, chip);
 
-	
+	/* disable alternate function in case it's set */
 	rb532_set_bit(0, offset, gpch->regbase + GPIOFUNC);
 
 	rb532_set_bit(0, offset, gpch->regbase + GPIOCFG);
 	return 0;
 }
 
+/*
+ * Set GPIO direction to output
+ */
 static int rb532_gpio_direction_output(struct gpio_chip *chip,
 					unsigned offset, int value)
 {
@@ -109,10 +130,10 @@ static int rb532_gpio_direction_output(struct gpio_chip *chip,
 
 	gpch = container_of(chip, struct rb532_gpio_chip, chip);
 
-	
+	/* disable alternate function in case it's set */
 	rb532_set_bit(0, offset, gpch->regbase + GPIOFUNC);
 
-	
+	/* set the initial output value */
 	rb532_set_bit(value, offset, gpch->regbase + GPIOD);
 
 	rb532_set_bit(1, offset, gpch->regbase + GPIOCFG);
@@ -133,18 +154,27 @@ static struct rb532_gpio_chip rb532_gpio_chip[] = {
 	},
 };
 
+/*
+ * Set GPIO interrupt level
+ */
 void rb532_gpio_set_ilevel(int bit, unsigned gpio)
 {
 	rb532_set_bit(bit, gpio, rb532_gpio_chip->regbase + GPIOILEVEL);
 }
 EXPORT_SYMBOL(rb532_gpio_set_ilevel);
 
+/*
+ * Set GPIO interrupt status
+ */
 void rb532_gpio_set_istat(int bit, unsigned gpio)
 {
 	rb532_set_bit(bit, gpio, rb532_gpio_chip->regbase + GPIOISTAT);
 }
 EXPORT_SYMBOL(rb532_gpio_set_istat);
 
+/*
+ * Configure GPIO alternate function
+ */
 void rb532_gpio_set_func(unsigned gpio)
 {
        rb532_set_bit(1, gpio, rb532_gpio_chip->regbase + GPIOFUNC);
@@ -163,7 +193,7 @@ int __init rb532_gpio_init(void)
 		return -ENXIO;
 	}
 
-	
+	/* Register our GPIO chip */
 	gpiochip_add(&rb532_gpio_chip->chip);
 
 	return 0;

@@ -19,13 +19,13 @@
 
 #include <linux/fb.h>
 
-#define STMLCDIF_8BIT 1	
-#define STMLCDIF_16BIT 0 
-#define STMLCDIF_18BIT 2 
-#define STMLCDIF_24BIT 3 
+#define STMLCDIF_8BIT 1	/** pixel data bus to the display is of 8 bit width */
+#define STMLCDIF_16BIT 0 /** pixel data bus to the display is of 16 bit width */
+#define STMLCDIF_18BIT 2 /** pixel data bus to the display is of 18 bit width */
+#define STMLCDIF_24BIT 3 /** pixel data bus to the display is of 24 bit width */
 
 #define FB_SYNC_DATA_ENABLE_HIGH_ACT	(1 << 6)
-#define FB_SYNC_DOTCLK_FAILING_ACT	(1 << 7) 
+#define FB_SYNC_DOTCLK_FAILING_ACT	(1 << 7) /* failing/negtive edge sampling */
 
 struct mxsfb_platform_data {
 	struct fb_videomode *mode_list;
@@ -33,11 +33,17 @@ struct mxsfb_platform_data {
 
 	unsigned default_bpp;
 
-	unsigned dotclk_delay;	
-	unsigned ld_intf_width;	
+	unsigned dotclk_delay;	/* refer manual HW_LCDIF_VDCTRL4 register */
+	unsigned ld_intf_width;	/* refer STMLCDIF_* macros */
 
-	unsigned fb_size;	
-	unsigned long fb_phys;	
+	unsigned fb_size;	/* Size of the video memory. If zero a
+				 * default will be used
+				 */
+	unsigned long fb_phys;	/* physical address for the video memory. If
+				 * zero the framebuffer memory will be dynamically
+				 * allocated. If specified,fb_size must also be specified.
+				 * fb_phys must be unused by Linux.
+				 */
 };
 
-#endif 
+#endif /* __MACH_FB_H */

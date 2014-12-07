@@ -35,8 +35,10 @@
 
 
 
+/* PDR definitions */
 #define PDR_GPIO_DATA(X)	(1 << (X))
 
+/* GPDR definitions */
 #define GPDR_INPUT		0
 #define GPDR_OUTPUT		1
 #define GPDR_DREQ0_BIT		0x00001000
@@ -55,6 +57,7 @@
 #define GPDR_DONE1_BIT		0x00020000
 #define GPDR_GPIO_DIR(X,D)	((D) << (X))
 
+/* SIR definitions */
 #define SIR_GPIO_INPUT		0
 #define SIR_DREQ7_INPUT		0x00200000
 #define SIR_DREQ6_INPUT		0x00100000
@@ -78,6 +81,7 @@
 				 SIR_DREQ4_INPUT | SIR_DREQ5_INPUT | \
 				 SIR_DREQ6_INPUT | SIR_DREQ7_INPUT)
 
+/* SOR definitions */
 #define SOR_GPIO_OUTPUT		0
 #define SOR_DACK3_OUTPUT	0x00200000
 #define SOR_DACK2_OUTPUT	0x00100000
@@ -94,14 +98,19 @@
 #define SOR_DACK_BITS		(SOR_DACK0_OUTPUT | SOR_DACK1_OUTPUT | \
 				 SOR_DACK2_OUTPUT | SOR_DACK3_OUTPUT)
 
+/* PDSR definitions */
 #define PDSR_UNCHANGED		0
 #define PDSR_SET_BIT(X)		(1 << (X))
 
+/* PDCR definitions */
 #define PDCR_UNCHANGED		0
 #define PDCR_CLEAR_BIT(X)	(1 << (X))
 
+/* RSTR definitions */
+/* Read Only */
 #define RSTR_POWERON		0x00000400
 #define RSTR_SOFTRESET_STATUS	0x00000100
+/* Write Only */
 #define RSTR_SOFTRESET		0x00000001
 
-#endif 
+#endif /* _ASM_GPIO_REGS */

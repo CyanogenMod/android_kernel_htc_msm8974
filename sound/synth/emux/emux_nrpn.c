@@ -22,13 +22,18 @@
 #include "emux_voice.h"
 #include <sound/asoundef.h>
 
+/*
+ * conversion from NRPN/control parameters to Emu8000 raw parameters
+ */
 
+/* NRPN / CC -> Emu8000 parameter converter */
 struct nrpn_conv_table {
 	int control;
 	int effect;
 	int (*convert)(int val);
 };
 
+/* effect sensitivity */
 
 #define FX_CUTOFF	0
 #define FX_RESONANCE	1
@@ -39,6 +44,9 @@ struct nrpn_conv_table {
 #define FX_VIBDELAY	6
 #define FX_NUMS		7
 
+/*
+ * convert NRPN/control values
+ */
 
 static int send_converted_effect(struct nrpn_conv_table *table, int num_tables,
 				 struct snd_emux_port *port,
@@ -65,12 +73,18 @@ static int send_converted_effect(struct nrpn_conv_table *table, int num_tables,
 #define DEF_FX_VIBDEPTH		4
 #define DEF_FX_VIBDELAY		1500
 
+/* effect sensitivities for GS NRPN:
+ *  adjusted for chaos 8MB soundfonts
+ */
 static int gs_sense[] = 
 {
 	DEF_FX_CUTOFF, DEF_FX_RESONANCE, DEF_FX_ATTACK, DEF_FX_RELEASE,
 	DEF_FX_VIBRATE, DEF_FX_VIBDEPTH, DEF_FX_VIBDELAY
 };
 
+/* effect sensitivies for XG controls:
+ * adjusted for chaos 8MB soundfonts
+ */
 static int xg_sense[] = 
 {
 	DEF_FX_CUTOFF, DEF_FX_RESONANCE, DEF_FX_ATTACK, DEF_FX_RELEASE,
@@ -78,6 +92,9 @@ static int xg_sense[] =
 };
 
 
+/*
+ * AWE32 NRPN effects
+ */
 
 static int fx_delay(int val);
 static int fx_attack(int val);
@@ -88,38 +105,38 @@ static int fx_twice_value(int val);
 static int fx_conv_pitch(int val);
 static int fx_conv_Q(int val);
 
-		
-#define fx_env1_delay	fx_delay	
-#define fx_env1_attack	fx_attack	
-#define fx_env1_hold	fx_hold		
-#define fx_env1_decay	fx_decay	
-#define fx_env1_release	fx_decay	
-#define fx_env1_sustain	fx_the_value	
-#define fx_env1_pitch	fx_the_value	
-#define fx_env1_cutoff	fx_the_value	
+/* function for each NRPN */		/* [range]  units */
+#define fx_env1_delay	fx_delay	/* [0,5900] 4msec */
+#define fx_env1_attack	fx_attack	/* [0,5940] 1msec */
+#define fx_env1_hold	fx_hold		/* [0,8191] 1msec */
+#define fx_env1_decay	fx_decay	/* [0,5940] 4msec */
+#define fx_env1_release	fx_decay	/* [0,5940] 4msec */
+#define fx_env1_sustain	fx_the_value	/* [0,127] 0.75dB */
+#define fx_env1_pitch	fx_the_value	/* [-127,127] 9.375cents */
+#define fx_env1_cutoff	fx_the_value	/* [-127,127] 56.25cents */
 
-#define fx_env2_delay	fx_delay	
-#define fx_env2_attack	fx_attack	
-#define fx_env2_hold	fx_hold		
-#define fx_env2_decay	fx_decay	
-#define fx_env2_release	fx_decay	
-#define fx_env2_sustain	fx_the_value	
+#define fx_env2_delay	fx_delay	/* [0,5900] 4msec */
+#define fx_env2_attack	fx_attack	/* [0,5940] 1msec */
+#define fx_env2_hold	fx_hold		/* [0,8191] 1msec */
+#define fx_env2_decay	fx_decay	/* [0,5940] 4msec */
+#define fx_env2_release	fx_decay	/* [0,5940] 4msec */
+#define fx_env2_sustain	fx_the_value	/* [0,127] 0.75dB */
 
-#define fx_lfo1_delay	fx_delay	
-#define fx_lfo1_freq	fx_twice_value	
-#define fx_lfo1_volume	fx_twice_value	
-#define fx_lfo1_pitch	fx_the_value	
-#define fx_lfo1_cutoff	fx_twice_value	
+#define fx_lfo1_delay	fx_delay	/* [0,5900] 4msec */
+#define fx_lfo1_freq	fx_twice_value	/* [0,127] 84mHz */
+#define fx_lfo1_volume	fx_twice_value	/* [0,127] 0.1875dB */
+#define fx_lfo1_pitch	fx_the_value	/* [-127,127] 9.375cents */
+#define fx_lfo1_cutoff	fx_twice_value	/* [-64,63] 56.25cents */
 
-#define fx_lfo2_delay	fx_delay	
-#define fx_lfo2_freq	fx_twice_value	
-#define fx_lfo2_pitch	fx_the_value	
+#define fx_lfo2_delay	fx_delay	/* [0,5900] 4msec */
+#define fx_lfo2_freq	fx_twice_value	/* [0,127] 84mHz */
+#define fx_lfo2_pitch	fx_the_value	/* [-127,127] 9.375cents */
 
-#define fx_init_pitch	fx_conv_pitch	
-#define fx_chorus	fx_the_value	
-#define fx_reverb	fx_the_value	
-#define fx_cutoff	fx_twice_value	
-#define fx_filterQ	fx_conv_Q	
+#define fx_init_pitch	fx_conv_pitch	/* [-8192,8192] cents */
+#define fx_chorus	fx_the_value	/* [0,255] -- */
+#define fx_reverb	fx_the_value	/* [0,255] -- */
+#define fx_cutoff	fx_twice_value	/* [0,127] 62Hz */
+#define fx_filterQ	fx_conv_Q	/* [0,127] -- */
 
 static int fx_delay(int val)
 {
@@ -197,42 +214,53 @@ static struct nrpn_conv_table awe_effects[] =
 };
 
 
+/*
+ * GS(SC88) NRPN effects; still experimental
+ */
 
+/* cutoff: quarter semitone step, max=255 */
 static int gs_cutoff(int val)
 {
 	return (val - 64) * gs_sense[FX_CUTOFF] / 50;
 }
 
+/* resonance: 0 to 15(max) */
 static int gs_filterQ(int val)
 {
 	return (val - 64) * gs_sense[FX_RESONANCE] / 50;
 }
 
+/* attack: */
 static int gs_attack(int val)
 {
 	return -(val - 64) * gs_sense[FX_ATTACK] / 50;
 }
 
+/* decay: */
 static int gs_decay(int val)
 {
 	return -(val - 64) * gs_sense[FX_RELEASE] / 50;
 }
 
+/* release: */
 static int gs_release(int val)
 {
 	return -(val - 64) * gs_sense[FX_RELEASE] / 50;
 }
 
+/* vibrato freq: 0.042Hz step, max=255 */
 static int gs_vib_rate(int val)
 {
 	return (val - 64) * gs_sense[FX_VIBRATE] / 50;
 }
 
+/* vibrato depth: max=127, 1 octave */
 static int gs_vib_depth(int val)
 {
 	return (val - 64) * gs_sense[FX_VIBDEPTH] / 50;
 }
 
+/* vibrato delay: -0.725msec step */
 static int gs_vib_delay(int val)
 {
 	return -(val - 64) * gs_sense[FX_VIBDELAY] / 50;
@@ -251,6 +279,9 @@ static struct nrpn_conv_table gs_effects[] =
 };
 
 
+/*
+ * NRPN events
+ */
 void
 snd_emux_nrpn(void *p, struct snd_midi_channel *chan,
 	      struct snd_midi_channel_set *chset)
@@ -264,8 +295,8 @@ snd_emux_nrpn(void *p, struct snd_midi_channel *chan,
 	if (chan->control[MIDI_CTL_NONREG_PARM_NUM_MSB] == 127 &&
 	    chan->control[MIDI_CTL_NONREG_PARM_NUM_LSB] <= 26) {
 		int val;
-		
-		
+		/* Win/DOS AWE32 specific NRPNs */
+		/* both MSB/LSB necessary */
 		val = (chan->control[MIDI_CTL_MSB_DATA_ENTRY] << 7) |
 			chan->control[MIDI_CTL_LSB_DATA_ENTRY]; 
 		val -= 8192;
@@ -279,8 +310,8 @@ snd_emux_nrpn(void *p, struct snd_midi_channel *chan,
 	if (port->chset.midi_mode == SNDRV_MIDI_MODE_GS &&
 	    chan->control[MIDI_CTL_NONREG_PARM_NUM_MSB] == 1) {
 		int val;
-		
-		
+		/* GS specific NRPNs */
+		/* only MSB is valid */
 		val = chan->control[MIDI_CTL_MSB_DATA_ENTRY];
 		send_converted_effect
 			(gs_effects, ARRAY_SIZE(gs_effects),
@@ -291,22 +322,29 @@ snd_emux_nrpn(void *p, struct snd_midi_channel *chan,
 }
 
 
+/*
+ * XG control effects; still experimental
+ */
 
+/* cutoff: quarter semitone step, max=255 */
 static int xg_cutoff(int val)
 {
 	return (val - 64) * xg_sense[FX_CUTOFF] / 64;
 }
 
+/* resonance: 0(open) to 15(most nasal) */
 static int xg_filterQ(int val)
 {
 	return (val - 64) * xg_sense[FX_RESONANCE] / 64;
 }
 
+/* attack: */
 static int xg_attack(int val)
 {
 	return -(val - 64) * xg_sense[FX_ATTACK] / 64;
 }
 
+/* release: */
 static int xg_release(int val)
 {
 	return -(val - 64) * xg_sense[FX_RELEASE] / 64;
@@ -330,6 +368,9 @@ snd_emux_xg_control(struct snd_emux_port *port, struct snd_midi_channel *chan,
 				     EMUX_FX_FLAG_ADD);
 }
 
+/*
+ * receive sysex
+ */
 void
 snd_emux_sysex(void *p, unsigned char *buf, int len, int parsed,
 	       struct snd_midi_channel_set *chset)

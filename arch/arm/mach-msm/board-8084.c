@@ -80,6 +80,12 @@ static void __init apq8084_early_memory(void)
 	of_scan_flat_dt(dt_scan_for_memory_hole, apq8084_reserve_table);
 }
 
+/*
+ * Used to satisfy dependencies for devices that need to be
+ * run early or in a particular order. Most likely your device doesn't fall
+ * into this category, and thus the driver should not be added here. The
+ * EPROBE_DEFER can satisfy most dependency problems.
+ */
 void __init apq8084_add_drivers(void)
 {
 	msm_smem_init();

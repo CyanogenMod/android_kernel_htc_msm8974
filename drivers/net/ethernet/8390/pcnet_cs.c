@@ -53,22 +53,25 @@
 #include <asm/uaccess.h>
 
 #define PCNET_CMD	0x00
-#define PCNET_DATAPORT	0x10	
-#define PCNET_RESET	0x1f	
-#define PCNET_MISC	0x18	
+#define PCNET_DATAPORT	0x10	/* NatSemi-defined port window offset. */
+#define PCNET_RESET	0x1f	/* Issue a read to reset, a write to clear. */
+#define PCNET_MISC	0x18	/* For IBM CCAE and Socket EA cards */
 
-#define PCNET_START_PG	0x40	
-#define PCNET_STOP_PG	0x80	
+#define PCNET_START_PG	0x40	/* First page of TX buffer */
+#define PCNET_STOP_PG	0x80	/* Last page +1 of RX ring */
 
+/* Socket EA cards have a larger packet buffer */
 #define SOCKET_START_PG	0x01
 #define SOCKET_STOP_PG	0xff
 
-#define PCNET_RDC_TIMEOUT (2*HZ/100)	
+#define PCNET_RDC_TIMEOUT (2*HZ/100)	/* Max wait in jiffies for Tx RDC */
 
 static const char *if_names[] = { "auto", "10baseT", "10base2"};
 
 
+/*====================================================================*/
 
+/* Module parameters */
 
 MODULE_AUTHOR("David Hinds <dahinds@users.sourceforge.net>");
 MODULE_DESCRIPTION("NE2000 compatible PCMCIA ethernet driver");
@@ -76,17 +79,19 @@ MODULE_LICENSE("GPL");
 
 #define INT_MODULE_PARM(n, v) static int n = v; module_param(n, int, 0)
 
-INT_MODULE_PARM(if_port,	1);	
-INT_MODULE_PARM(use_big_buf,	1);	
-INT_MODULE_PARM(mem_speed,	0);	
-INT_MODULE_PARM(delay_output,	0);	
-INT_MODULE_PARM(delay_time,	4);	
-INT_MODULE_PARM(use_shmem,	-1);	
-INT_MODULE_PARM(full_duplex,	0);	
+INT_MODULE_PARM(if_port,	1);	/* Transceiver type */
+INT_MODULE_PARM(use_big_buf,	1);	/* use 64K packet buffer? */
+INT_MODULE_PARM(mem_speed,	0);	/* shared mem speed, in ns */
+INT_MODULE_PARM(delay_output,	0);	/* pause after xmit? */
+INT_MODULE_PARM(delay_time,	4);	/* in usec */
+INT_MODULE_PARM(use_shmem,	-1);	/* use shared memory? */
+INT_MODULE_PARM(full_duplex,	0);	/* full duplex? */
 
-static int hw_addr[6] = { 0,  };
+/* Ugh!  Let the user hardwire the hardware address for queer cards */
+static int hw_addr[6] = { 0, /* ... */ };
 module_param_array(hw_addr, int, NULL, 0);
 
+/*====================================================================*/
 
 static void mii_phy_probe(struct net_device *dev);
 static int pcnet_config(struct pcmcia_device *link);
@@ -105,6 +110,7 @@ static int setup_dma_config(struct pcmcia_device *link, int start_pg,
 
 static void pcnet_detach(struct pcmcia_device *p_dev);
 
+/*====================================================================*/
 
 typedef struct hw_info_t {
     u_int	offset;
@@ -119,74 +125,74 @@ typedef struct hw_info_t {
 #define IS_DL10019	0x10
 #define IS_DL10022	0x20
 #define HAS_MII		0x40
-#define USE_SHMEM	0x80	
+#define USE_SHMEM	0x80	/* autodetected */
 
-#define AM79C9XX_HOME_PHY	0x00006B90  
-#define AM79C9XX_ETH_PHY	0x00006B70  
+#define AM79C9XX_HOME_PHY	0x00006B90  /* HomePNA PHY */
+#define AM79C9XX_ETH_PHY	0x00006B70  /* 10baseT PHY */
 #define MII_PHYID_REV_MASK	0xfffffff0
 #define MII_PHYID_REG1		0x02
 #define MII_PHYID_REG2		0x03
 
 static hw_info_t hw_info[] = {
-    {  0x0ff0, 0x00, 0x00, 0xe8, DELAY_OUTPUT },
-    {  0x0ff0, 0x00, 0x00, 0xf4, 0 },
-    {  0x03f4, 0x00, 0x20, 0xe5, 0 },
-    {  0x4910, 0x00, 0x00, 0x94,
+    { /* Accton EN2212 */ 0x0ff0, 0x00, 0x00, 0xe8, DELAY_OUTPUT },
+    { /* Allied Telesis LA-PCM */ 0x0ff0, 0x00, 0x00, 0xf4, 0 },
+    { /* APEX MultiCard */ 0x03f4, 0x00, 0x20, 0xe5, 0 },
+    { /* ASANTE FriendlyNet */ 0x4910, 0x00, 0x00, 0x94,
       DELAY_OUTPUT | HAS_IBM_MISC },
-    {  0x0110, 0x00, 0x40, 0xc7, 0 },
-    {  0x0ff0, 0x00, 0x20, 0xe8, 0 },
-    {  0x0110, 0x00, 0x80, 0x19, 0 },
-    {  0x0040, 0x00, 0x80, 0xc8, 0 },
-    {  0x0110, 0x00, 0x40, 0x33, 0 },
-    {  0x01c0, 0x00, 0x00, 0xb4, 0 },
-    {  0x0ff0, 0x00, 0x00, 0x48,
+    { /* Danpex EN-6200P2 */ 0x0110, 0x00, 0x40, 0xc7, 0 },
+    { /* DataTrek NetCard */ 0x0ff0, 0x00, 0x20, 0xe8, 0 },
+    { /* Dayna CommuniCard E */ 0x0110, 0x00, 0x80, 0x19, 0 },
+    { /* D-Link DE-650 */ 0x0040, 0x00, 0x80, 0xc8, 0 },
+    { /* EP-210 Ethernet */ 0x0110, 0x00, 0x40, 0x33, 0 },
+    { /* EP4000 Ethernet */ 0x01c0, 0x00, 0x00, 0xb4, 0 },
+    { /* Epson EEN10B */ 0x0ff0, 0x00, 0x00, 0x48,
       HAS_MISC_REG | HAS_IBM_MISC },
-    {  0xb8, 0x08, 0x00, 0x42, 0 },
-    {  0x01c0, 0x00, 0x40, 0x4c, 0 },
-    {  0x0ff0, 0x08, 0x00, 0x5a,
+    { /* ELECOM Laneed LD-CDWA */ 0xb8, 0x08, 0x00, 0x42, 0 },
+    { /* Hypertec Ethernet */ 0x01c0, 0x00, 0x40, 0x4c, 0 },
+    { /* IBM CCAE */ 0x0ff0, 0x08, 0x00, 0x5a,
       HAS_MISC_REG | HAS_IBM_MISC },
-    {  0x0ff0, 0x00, 0x04, 0xac,
+    { /* IBM CCAE */ 0x0ff0, 0x00, 0x04, 0xac,
       HAS_MISC_REG | HAS_IBM_MISC },
-    {  0x0ff0, 0x00, 0x06, 0x29,
+    { /* IBM CCAE */ 0x0ff0, 0x00, 0x06, 0x29,
       HAS_MISC_REG | HAS_IBM_MISC },
-    {  0x0374, 0x08, 0x00, 0x5a,
+    { /* IBM FME */ 0x0374, 0x08, 0x00, 0x5a,
       HAS_MISC_REG | HAS_IBM_MISC },
-    {  0x0374, 0x00, 0x04, 0xac,
+    { /* IBM FME */ 0x0374, 0x00, 0x04, 0xac,
       HAS_MISC_REG | HAS_IBM_MISC },
-    {  0x0ff0, 0x00, 0x60, 0x87,
+    { /* Kansai KLA-PCM/T */ 0x0ff0, 0x00, 0x60, 0x87,
       HAS_MISC_REG | HAS_IBM_MISC },
-    {  0x0374, 0x08, 0x00, 0x17,
+    { /* NSC DP83903 */ 0x0374, 0x08, 0x00, 0x17,
       HAS_MISC_REG | HAS_IBM_MISC },
-    {  0x0374, 0x00, 0xc0, 0xa8,
+    { /* NSC DP83903 */ 0x0374, 0x00, 0xc0, 0xa8,
       HAS_MISC_REG | HAS_IBM_MISC },
-    {  0x0374, 0x00, 0xa0, 0xb0,
+    { /* NSC DP83903 */ 0x0374, 0x00, 0xa0, 0xb0,
       HAS_MISC_REG | HAS_IBM_MISC },
-    {  0x0198, 0x00, 0x20, 0xe0,
+    { /* NSC DP83903 */ 0x0198, 0x00, 0x20, 0xe0,
       HAS_MISC_REG | HAS_IBM_MISC },
-    {  0x0ff0, 0x00, 0xa0, 0xb0, 0 },
-    {  0x0110, 0x00, 0x40, 0xf6, 0 },
-    {  0x0ff0, 0x00, 0xc0, 0xf0,
+    { /* I-O DATA PCLA/T */ 0x0ff0, 0x00, 0xa0, 0xb0, 0 },
+    { /* Katron PE-520 */ 0x0110, 0x00, 0x40, 0xf6, 0 },
+    { /* Kingston KNE-PCM/x */ 0x0ff0, 0x00, 0xc0, 0xf0,
       HAS_MISC_REG | HAS_IBM_MISC },
-    {  0x0ff0, 0xe2, 0x0c, 0x0f,
+    { /* Kingston KNE-PCM/x */ 0x0ff0, 0xe2, 0x0c, 0x0f,
       HAS_MISC_REG | HAS_IBM_MISC },
-    {  0x0180, 0x00, 0xc0, 0xf0, 0 },
-    {  0x5000, 0x00, 0x00, 0xe8, 0 },
-    {  0x003a, 0x00, 0x80, 0xc6, 0 },
-    {  0x0ff0, 0x00, 0xa0, 0x0c, 0 },
-    {  0x0ff0, 0x00, 0x00, 0x65,
+    { /* Kingston KNE-PC2 */ 0x0180, 0x00, 0xc0, 0xf0, 0 },
+    { /* Maxtech PCN2000 */ 0x5000, 0x00, 0x00, 0xe8, 0 },
+    { /* NDC Instant-Link */ 0x003a, 0x00, 0x80, 0xc6, 0 },
+    { /* NE2000 Compatible */ 0x0ff0, 0x00, 0xa0, 0x0c, 0 },
+    { /* Network General Sniffer */ 0x0ff0, 0x00, 0x00, 0x65,
       HAS_MISC_REG | HAS_IBM_MISC },
-    {  0x0ff0, 0x00, 0x80, 0x45,
+    { /* Panasonic VEL211 */ 0x0ff0, 0x00, 0x80, 0x45,
       HAS_MISC_REG | HAS_IBM_MISC },
-    {  0x07f0, 0x00, 0x20, 0xe0, 0 },
-    {  0x0110, 0x00, 0x40, 0x95, 0 },
-    {  0x0ff0, 0x00, 0x20, 0xcb, 0 },
-    {  0x4000, 0x00, 0xc0, 0x1b,
+    { /* PreMax PE-200 */ 0x07f0, 0x00, 0x20, 0xe0, 0 },
+    { /* RPTI EP400 */ 0x0110, 0x00, 0x40, 0x95, 0 },
+    { /* SCM Ethernet */ 0x0ff0, 0x00, 0x20, 0xcb, 0 },
+    { /* Socket EA */ 0x4000, 0x00, 0xc0, 0x1b,
       DELAY_OUTPUT | HAS_MISC_REG | USE_BIG_BUF },
-    {  0x01c0, 0x00, 0xc0, 0x1b, 0 },
-    {  0x0110, 0x00, 0xe0, 0x98, 0 },
-    {  0x0060, 0x00, 0x40, 0x05, 0 },
-    {  0x0ff0, 0x00, 0x00, 0x4c, 0 },
-    {  0x01c8, 0x00, 0xa0, 0x0c, 0 }
+    { /* Socket LP-E CF+ */ 0x01c0, 0x00, 0xc0, 0x1b, 0 },
+    { /* SuperSocket RE450T */ 0x0110, 0x00, 0xe0, 0x98, 0 },
+    { /* Volktek NPL-402CT */ 0x0060, 0x00, 0x40, 0x05, 0 },
+    { /* NEC PC-9801N-J12 */ 0x0ff0, 0x00, 0x00, 0x4c, 0 },
+    { /* PCMCIA Technology OEM */ 0x01c8, 0x00, 0xa0, 0x0c, 0 }
 };
 
 #define NR_INFO		ARRAY_SIZE(hw_info)
@@ -237,7 +243,7 @@ static int pcnet_probe(struct pcmcia_device *link)
 
     dev_dbg(&link->dev, "pcnet_attach()\n");
 
-    
+    /* Create new ethernet device */
     dev = __alloc_ei_netdev(sizeof(pcnet_dev_t));
     if (!dev) return -ENOMEM;
     info = PRIV(dev);
@@ -249,7 +255,7 @@ static int pcnet_probe(struct pcmcia_device *link)
     dev->netdev_ops = &pcnet_netdev_ops;
 
     return pcnet_config(link);
-} 
+} /* pcnet_attach */
 
 static void pcnet_detach(struct pcmcia_device *link)
 {
@@ -262,8 +268,14 @@ static void pcnet_detach(struct pcmcia_device *link)
 	pcnet_release(link);
 
 	free_netdev(dev);
-} 
+} /* pcnet_detach */
 
+/*======================================================================
+
+    This probes for a card's hardware address, for card types that
+    encode this information in their CIS.
+
+======================================================================*/
 
 static hw_info_t *get_hwinfo(struct pcmcia_device *link)
 {
@@ -271,7 +283,7 @@ static hw_info_t *get_hwinfo(struct pcmcia_device *link)
     u_char __iomem *base, *virt;
     int i, j;
 
-    
+    /* Allocate a small memory window */
     link->resource[2]->flags |= WIN_DATA_WIDTH_8|WIN_MEMORY_TYPE_AM|WIN_ENABLE;
     link->resource[2]->start = 0; link->resource[2]->end = 0;
     i = pcmcia_request_window(link, link->resource[2], 0);
@@ -296,8 +308,15 @@ static hw_info_t *get_hwinfo(struct pcmcia_device *link)
     iounmap(virt);
     j = pcmcia_release_window(link, link->resource[2]);
     return (i < NR_INFO) ? hw_info+i : NULL;
-} 
+} /* get_hwinfo */
 
+/*======================================================================
+
+    This probes for a card's hardware address by reading the PROM.
+    It checks the address against a list of known types, then falls
+    back to a simple NE2000 clone signature check.
+
+======================================================================*/
 
 static hw_info_t *get_prom(struct pcmcia_device *link)
 {
@@ -306,21 +325,21 @@ static hw_info_t *get_prom(struct pcmcia_device *link)
     u_char prom[32];
     int i, j;
 
-    
+    /* This is lifted straight from drivers/net/ethernet/8390/ne.c */
     struct {
 	u_char value, offset;
     } program_seq[] = {
-	{E8390_NODMA+E8390_PAGE0+E8390_STOP, E8390_CMD}, 
-	{0x48,	EN0_DCFG},	
-	{0x00,	EN0_RCNTLO},	
+	{E8390_NODMA+E8390_PAGE0+E8390_STOP, E8390_CMD}, /* Select page 0*/
+	{0x48,	EN0_DCFG},	/* Set byte-wide (0x48) access. */
+	{0x00,	EN0_RCNTLO},	/* Clear the count regs. */
 	{0x00,	EN0_RCNTHI},
-	{0x00,	EN0_IMR},	
+	{0x00,	EN0_IMR},	/* Mask completion irq. */
 	{0xFF,	EN0_ISR},
-	{E8390_RXOFF, EN0_RXCR},	
-	{E8390_TXOFF, EN0_TXCR},	
+	{E8390_RXOFF, EN0_RXCR},	/* 0x20  Set to monitor */
+	{E8390_TXOFF, EN0_TXCR},	/* 0x02  and loopback mode. */
 	{32,	EN0_RCNTLO},
 	{0x00,	EN0_RCNTHI},
-	{0x00,	EN0_RSARLO},	
+	{0x00,	EN0_RSARLO},	/* DMA starting at 0x0000. */
 	{0x00,	EN0_RSARHI},
 	{E8390_RREAD+E8390_START, E8390_CMD},
     };
@@ -345,8 +364,13 @@ static hw_info_t *get_prom(struct pcmcia_device *link)
 	return (i < NR_INFO) ? hw_info+i : &default_info;
     }
     return NULL;
-} 
+} /* get_prom */
 
+/*======================================================================
+
+    For DL10019 based cards, like the Linksys EtherFast
+
+======================================================================*/
 
 static hw_info_t *get_dl10019(struct pcmcia_device *link)
 {
@@ -364,6 +388,11 @@ static hw_info_t *get_dl10019(struct pcmcia_device *link)
     return ((i == 0x91)||(i == 0x99)) ? &dl10022_info : &dl10019_info;
 }
 
+/*======================================================================
+
+    For Asix AX88190 based cards
+
+======================================================================*/
 
 static hw_info_t *get_ax88190(struct pcmcia_device *link)
 {
@@ -371,12 +400,12 @@ static hw_info_t *get_ax88190(struct pcmcia_device *link)
     unsigned int ioaddr = dev->base_addr;
     int i, j;
 
-    
+    /* Not much of a test, but the alternatives are messy */
     if (link->config_base != 0x03c0)
 	return NULL;
 
-    outb_p(0x01, ioaddr + EN0_DCFG);	
-    outb_p(0x00, ioaddr + EN0_RSARLO);	
+    outb_p(0x01, ioaddr + EN0_DCFG);	/* Set word-wide access. */
+    outb_p(0x00, ioaddr + EN0_RSARLO);	/* DMA starting at 0x0400. */
     outb_p(0x04, ioaddr + EN0_RSARHI);
     outb_p(E8390_RREAD+E8390_START, ioaddr + E8390_CMD);
 
@@ -388,6 +417,13 @@ static hw_info_t *get_ax88190(struct pcmcia_device *link)
     return NULL;
 }
 
+/*======================================================================
+
+    This should be totally unnecessary... but when we can't figure
+    out the hardware address any other way, we'll let the user hard
+    wire it when the module is initialized.
+
+======================================================================*/
 
 static hw_info_t *get_hwired(struct pcmcia_device *link)
 {
@@ -403,7 +439,7 @@ static hw_info_t *get_hwired(struct pcmcia_device *link)
 	dev->dev_addr[i] = hw_addr[i];
 
     return &default_info;
-} 
+} /* get_hwired */
 
 static int try_io_port(struct pcmcia_device *link)
 {
@@ -413,11 +449,11 @@ static int try_io_port(struct pcmcia_device *link)
     if (link->resource[0]->end == 32) {
 	link->resource[0]->flags |= IO_DATA_PATH_WIDTH_AUTO;
 	if (link->resource[1]->end > 0) {
-	    
+	    /* for master/slave multifunction cards */
 	    link->resource[1]->flags |= IO_DATA_PATH_WIDTH_8;
 	}
     } else {
-	
+	/* This should be two 16-port windows */
 	link->resource[0]->flags |= IO_DATA_PATH_WIDTH_8;
 	link->resource[1]->flags |= IO_DATA_PATH_WIDTH_16;
     }
@@ -527,7 +563,7 @@ static int pcnet_config(struct pcmcia_device *link)
 
     local_hw_info = pcnet_try_config(link, &has_shmem, 0);
     if (!local_hw_info) {
-	    
+	    /* check whether forcing io_lines to 16 helps... */
 	    pcmcia_disable_device(link);
 	    local_hw_info = pcnet_try_config(link, &has_shmem, 1);
 	    if (local_hw_info == NULL) {
@@ -538,7 +574,7 @@ static int pcnet_config(struct pcmcia_device *link)
     }
 
     info->flags = local_hw_info->flags;
-    
+    /* Check for user overrides */
     info->flags |= (delay_output) ? DELAY_OUTPUT : 0;
     if ((link->manf_id == MANFID_SOCKET) &&
 	((link->card_id == PRODID_SOCKET_LPE) ||
@@ -558,7 +594,7 @@ static int pcnet_config(struct pcmcia_device *link)
 	cm_offset = 0;
     }
 
-    
+    /* has_shmem is ignored if use_shmem != -1 */
     if ((use_shmem == 0) || (!has_shmem && (use_shmem == -1)) ||
 	(setup_shmem_window(link, start_pg, stop_pg, cm_offset) != 0))
 	setup_dma_config(link, start_pg, stop_pg);
@@ -597,7 +633,7 @@ static int pcnet_config(struct pcmcia_device *link)
 failed:
     pcnet_release(link);
     return -ENODEV;
-} 
+} /* pcnet_config */
 
 static void pcnet_release(struct pcmcia_device *link)
 {
@@ -635,6 +671,14 @@ static int pcnet_resume(struct pcmcia_device *link)
 }
 
 
+/*======================================================================
+
+    MII interface support for DL10019 and DL10022 based cards
+
+    On the DL10019, the MII IO direction bit is 0x10; on the DL10022
+    it is 0x20.  Setting both bits seems to work on both card types.
+
+======================================================================*/
 
 #define DLINK_GPIO		0x1c
 #define DLINK_DIAG		0x1d
@@ -693,6 +737,11 @@ static void mdio_write(unsigned int addr, int phy_id, int loc, int value)
     }
 }
 
+/*======================================================================
+
+    EEPROM access routines for DL10019 and DL10022 based cards
+
+======================================================================*/
 
 #define EE_EEP		0x40
 #define EE_ASIC		0x10
@@ -700,10 +749,10 @@ static void mdio_write(unsigned int addr, int phy_id, int loc, int value)
 #define EE_CK		0x04
 #define EE_DO		0x02
 #define EE_DI		0x01
-#define EE_ADOT		0x01	
+#define EE_ADOT		0x01	/* DataOut for ASIC */
 #define EE_READ_CMD	0x06
 
-#define DL19FDUPLX	0x0400	
+#define DL19FDUPLX	0x0400	/* DL10019 Full duplex mode */
 
 static int read_eeprom(unsigned int ioaddr, int location)
 {
@@ -714,7 +763,7 @@ static int read_eeprom(unsigned int ioaddr, int location)
     outb(0, ee_addr);
     outb(EE_EEP|EE_CS, ee_addr);
 
-    
+    /* Shift the read command bits out. */
     for (i = 10; i >= 0; i--) {
 	short dataval = (read_cmd & (1 << i)) ? EE_DO : 0;
 	outb_p(EE_EEP|EE_CS|dataval, ee_addr);
@@ -728,11 +777,16 @@ static int read_eeprom(unsigned int ioaddr, int location)
 	outb_p(EE_EEP|EE_CS, ee_addr);
     }
 
-    
+    /* Terminate the EEPROM access. */
     outb(0, ee_addr);
     return retval;
 }
 
+/*
+    The internal ASIC registers can be changed by EEPROM READ access
+    with EE_ASIC bit set.
+    In ASIC mode, EE_ADOT is used to output the data to the ASIC.
+*/
 
 static void write_asic(unsigned int ioaddr, int location, short asic_data)
 {
@@ -748,14 +802,14 @@ static void write_asic(unsigned int ioaddr, int location, short asic_data)
 
 	read_cmd = read_cmd >> 1;
 
-	
+	/* Shift the read command bits out. */
 	for (i = 9; i >= 0; i--) {
 		dataval = (read_cmd & (1 << i)) ? EE_DO : 0;
 		outb_p(EE_ASIC|EE_CS|EE_DI|dataval, ee_addr);
 		outb_p(EE_ASIC|EE_CS|EE_DI|dataval|EE_CK, ee_addr);
 		outb_p(EE_ASIC|EE_CS|EE_DI|dataval, ee_addr);
 	}
-	
+	// sync
 	outb(EE_ASIC|EE_CS, ee_addr);
 	outb(EE_ASIC|EE_CS|EE_CK, ee_addr);
 	outb(EE_ASIC|EE_CS, ee_addr);
@@ -767,7 +821,7 @@ static void write_asic(unsigned int ioaddr, int location, short asic_data)
 		outb_p(EE_ASIC|EE_CS|dataval, ee_addr);
 	}
 
-	
+	/* Terminate the ASIC access. */
 	outb(EE_ASIC|EE_DI, ee_addr);
 	outb(EE_ASIC|EE_DI| EE_CK, ee_addr);
 	outb(EE_ASIC|EE_DI, ee_addr);
@@ -775,6 +829,7 @@ static void write_asic(unsigned int ioaddr, int location, short asic_data)
 	outb(0, ee_addr);
 }
 
+/*====================================================================*/
 
 static void set_misc_reg(struct net_device *dev)
 {
@@ -794,9 +849,9 @@ static void set_misc_reg(struct net_device *dev)
     }
     if (info->flags & IS_DL10022) {
 	if (info->flags & HAS_MII) {
-	    
+	    /* Advertise 100F, 100H, 10F, 10H */
 	    mdio_write(nic_base + DLINK_GPIO, info->eth_phy, 4, 0x01e1);
-	    
+	    /* Restart MII autonegotiation */
 	    mdio_write(nic_base + DLINK_GPIO, info->eth_phy, 0, 0x0000);
 	    mdio_write(nic_base + DLINK_GPIO, info->eth_phy, 0, 0x1200);
 	    info->mii_reset = jiffies;
@@ -804,14 +859,15 @@ static void set_misc_reg(struct net_device *dev)
 	    outb(full_duplex ? 4 : 0, nic_base + DLINK_DIAG);
 	}
     } else if (info->flags & IS_DL10019) {
-	
+	/* Advertise 100F, 100H, 10F, 10H */
 	mdio_write(nic_base + DLINK_GPIO, info->eth_phy, 4, 0x01e1);
-	
+	/* Restart MII autonegotiation */
 	mdio_write(nic_base + DLINK_GPIO, info->eth_phy, 0, 0x0000);
 	mdio_write(nic_base + DLINK_GPIO, info->eth_phy, 0, 0x1200);
     }
 }
 
+/*====================================================================*/
 
 static void mii_phy_probe(struct net_device *dev)
 {
@@ -851,7 +907,7 @@ static int pcnet_open(struct net_device *dev)
 
     set_misc_reg(dev);
 
-    outb_p(0xFF, nic_base + EN0_ISR); 
+    outb_p(0xFF, nic_base + EN0_ISR); /* Clear bogus intr. */
     ret = request_irq(dev->irq, ei_irq_wrapper, IRQF_SHARED, dev->name, dev);
     if (ret)
 	    return ret;
@@ -867,8 +923,9 @@ static int pcnet_open(struct net_device *dev)
     add_timer(&info->watchdog);
 
     return ei_open(dev);
-} 
+} /* pcnet_open */
 
+/*====================================================================*/
 
 static int pcnet_close(struct net_device *dev)
 {
@@ -885,8 +942,14 @@ static int pcnet_close(struct net_device *dev)
     del_timer_sync(&info->watchdog);
 
     return 0;
-} 
+} /* pcnet_close */
 
+/*======================================================================
+
+    Hard reset the card.  This used to pause for the same period that
+    a 8390 reset command required, but that shouldn't be necessary.
+
+======================================================================*/
 
 static void pcnet_reset_8390(struct net_device *dev)
 {
@@ -904,15 +967,16 @@ static void pcnet_reset_8390(struct net_device *dev)
 	    break;
 	udelay(100);
     }
-    outb_p(ENISR_RESET, nic_base + EN0_ISR); 
+    outb_p(ENISR_RESET, nic_base + EN0_ISR); /* Ack intr. */
 
     if (i == 100)
 	netdev_err(dev, "pcnet_reset_8390() did not complete.\n");
 
     set_misc_reg(dev);
 
-} 
+} /* pcnet_reset_8390 */
 
+/*====================================================================*/
 
 static int set_config(struct net_device *dev, struct ifmap *map)
 {
@@ -929,6 +993,7 @@ static int set_config(struct net_device *dev, struct ifmap *map)
     return 0;
 }
 
+/*====================================================================*/
 
 static irqreturn_t ei_irq_wrapper(int irq, void *dev_id)
 {
@@ -953,6 +1018,8 @@ static void ei_watchdog(u_long arg)
 
     if (!netif_device_present(dev)) goto reschedule;
 
+    /* Check for pending interrupt with expired latency timer: with
+       this, we can limp along even if the interrupt is blocked */
     if (info->stale++ && (inb_p(nic_base + EN0_ISR) & ENISR_ALL)) {
 	if (!info->fast_poll)
 	    netdev_info(dev, "interrupt(s) dropped!\n");
@@ -986,10 +1053,10 @@ static void ei_watchdog(u_long arg)
 	u_short p = mdio_read(mii_addr, info->phy_id, 5);
 	netdev_info(dev, "%s link beat\n", link ? "found" : "lost");
 	if (link && (info->flags & IS_DL10022)) {
-	    
+	    /* Disable collision detection on full duplex links */
 	    outb((p & 0x0140) ? 4 : 0, nic_base + DLINK_DIAG);
 	} else if (link && (info->flags & IS_DL10019)) {
-	    
+	    /* Disable collision detection on full duplex links */
 	    write_asic(dev->base_addr, 4, (p & 0x140) ? DL19FDUPLX : 0);
 	}
 	if (link) {
@@ -1010,7 +1077,7 @@ static void ei_watchdog(u_long arg)
 	link = mdio_read(mii_addr, info->eth_phy, 1) & 0x0004;
 	if (((info->phy_id == info->pna_phy) && link) ||
 	    ((info->phy_id != info->pna_phy) && !link)) {
-	    
+	    /* isolate this MII and try flipping to the other one */
 	    mdio_write(mii_addr, info->phy_id, 0, 0x0400);
 	    info->phy_id ^= info->pna_phy ^ info->eth_phy;
 	    netdev_info(dev, "switched to %s transceiver\n",
@@ -1027,6 +1094,7 @@ reschedule:
     add_timer(&info->watchdog);
 }
 
+/*====================================================================*/
 
 
 static int ei_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
@@ -1041,16 +1109,17 @@ static int ei_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
     switch (cmd) {
     case SIOCGMIIPHY:
 	data->phy_id = info->phy_id;
-    case SIOCGMIIREG:		
+    case SIOCGMIIREG:		/* Read MII PHY register. */
 	data->val_out = mdio_read(mii_addr, data->phy_id, data->reg_num & 0x1f);
 	return 0;
-    case SIOCSMIIREG:		
+    case SIOCSMIIREG:		/* Write MII PHY register. */
 	mdio_write(mii_addr, data->phy_id, data->reg_num & 0x1f, data->val_in);
 	return 0;
     }
     return -EOPNOTSUPP;
 }
 
+/*====================================================================*/
 
 static void dma_get_8390_hdr(struct net_device *dev,
 			     struct e8390_pkt_hdr *hdr,
@@ -1069,19 +1138,20 @@ static void dma_get_8390_hdr(struct net_device *dev,
     outb_p(E8390_NODMA+E8390_PAGE0+E8390_START, nic_base + PCNET_CMD);
     outb_p(sizeof(struct e8390_pkt_hdr), nic_base + EN0_RCNTLO);
     outb_p(0, nic_base + EN0_RCNTHI);
-    outb_p(0, nic_base + EN0_RSARLO);		
+    outb_p(0, nic_base + EN0_RSARLO);		/* On page boundary */
     outb_p(ring_page, nic_base + EN0_RSARHI);
     outb_p(E8390_RREAD+E8390_START, nic_base + PCNET_CMD);
 
     insw(nic_base + PCNET_DATAPORT, hdr,
 	    sizeof(struct e8390_pkt_hdr)>>1);
-    
+    /* Fix for big endian systems */
     hdr->count = le16_to_cpu(hdr->count);
 
-    outb_p(ENISR_RDC, nic_base + EN0_ISR);	
+    outb_p(ENISR_RDC, nic_base + EN0_ISR);	/* Ack intr. */
     ei_status.dmaing &= ~0x01;
 }
 
+/*====================================================================*/
 
 static void dma_block_input(struct net_device *dev, int count,
 			    struct sk_buff *skb, int ring_offset)
@@ -1110,10 +1180,14 @@ static void dma_block_input(struct net_device *dev, int count,
     if (count & 0x01)
 	buf[count-1] = inb(nic_base + PCNET_DATAPORT), xfer_count++;
 
+    /* This was for the ALPHA version only, but enough people have been
+       encountering problems that it is still here. */
 #ifdef PCMCIA_DEBUG
-    if (ei_debug > 4) {		
+    if (ei_debug > 4) {		/* DMA termination address check... */
 	int addr, tries = 20;
 	do {
+	    /* DON'T check for 'inb_p(EN0_ISR) & ENISR_RDC' here
+	       -- it's broken for Rx on some cards! */
 	    int high = inb_p(nic_base + EN0_RSARHI);
 	    int low = inb_p(nic_base + EN0_RSARLO);
 	    addr = (high << 8) + low;
@@ -1126,10 +1200,11 @@ static void dma_block_input(struct net_device *dev, int count,
 		   ring_offset + xfer_count, addr);
     }
 #endif
-    outb_p(ENISR_RDC, nic_base + EN0_ISR);	
+    outb_p(ENISR_RDC, nic_base + EN0_ISR);	/* Ack intr. */
     ei_status.dmaing &= ~0x01;
-} 
+} /* dma_block_input */
 
+/*====================================================================*/
 
 static void dma_block_output(struct net_device *dev, int count,
 			     const u_char *buf, const int start_page)
@@ -1146,6 +1221,9 @@ static void dma_block_output(struct net_device *dev, int count,
 	netdev_dbg(dev, "[bo=%d]\n", count);
 #endif
 
+    /* Round the count up for word writes.  Do we need to do this?
+       What effect will an odd byte count have on the 8390?
+       I should check someday. */
     if (count & 0x01)
 	count++;
     if (ei_status.dmaing) {
@@ -1155,7 +1233,7 @@ static void dma_block_output(struct net_device *dev, int count,
 	return;
     }
     ei_status.dmaing |= 0x01;
-    
+    /* We should already be in page 0, but to be safe... */
     outb_p(E8390_PAGE0+E8390_START+E8390_NODMA, nic_base+PCNET_CMD);
 
 #ifdef PCMCIA_DEBUG
@@ -1164,7 +1242,7 @@ static void dma_block_output(struct net_device *dev, int count,
 
     outb_p(ENISR_RDC, nic_base + EN0_ISR);
 
-    
+    /* Now the normal output. */
     outb_p(count & 0xff, nic_base + EN0_RCNTLO);
     outb_p(count >> 8,   nic_base + EN0_RCNTHI);
     outb_p(0x00, nic_base + EN0_RSARLO);
@@ -1176,7 +1254,9 @@ static void dma_block_output(struct net_device *dev, int count,
     dma_start = jiffies;
 
 #ifdef PCMCIA_DEBUG
-    if (ei_debug > 4) {	
+    /* This was for the ALPHA version only, but enough people have been
+       encountering problems that it is still here. */
+    if (ei_debug > 4) {	/* DMA termination address check... */
 	int addr, tries = 20;
 	do {
 	    int high = inb_p(nic_base + EN0_RSARHI);
@@ -1203,12 +1283,13 @@ static void dma_block_output(struct net_device *dev, int count,
 	    break;
 	}
 
-    outb_p(ENISR_RDC, nic_base + EN0_ISR);	
+    outb_p(ENISR_RDC, nic_base + EN0_ISR);	/* Ack intr. */
     if (info->flags & DELAY_OUTPUT)
 	udelay((long)delay_time);
     ei_status.dmaing &= ~0x01;
 }
 
+/*====================================================================*/
 
 static int setup_dma_config(struct pcmcia_device *link, int start_pg,
 			    int stop_pg)
@@ -1219,7 +1300,7 @@ static int setup_dma_config(struct pcmcia_device *link, int start_pg,
     ei_status.rx_start_page = start_pg + TX_PAGES;
     ei_status.stop_page = stop_pg;
 
-    
+    /* set up block i/o functions */
     ei_status.get_8390_hdr = dma_get_8390_hdr;
     ei_status.block_input = dma_block_input;
     ei_status.block_output = dma_block_output;
@@ -1227,6 +1308,7 @@ static int setup_dma_config(struct pcmcia_device *link, int start_pg,
     return 0;
 }
 
+/*====================================================================*/
 
 static void copyin(void *dest, void __iomem *src, int c)
 {
@@ -1241,7 +1323,7 @@ static void copyin(void *dest, void __iomem *src, int c)
     if (c) {
 	do { *d++ = __raw_readw(s++); } while (--c);
     }
-    
+    /* get last byte by fetching a word and masking */
     if (odd)
 	*((u_char *)d) = readw(s) & 0xff;
 }
@@ -1259,11 +1341,12 @@ static void copyout(void __iomem *dest, const void *src, int c)
     if (c) {
 	do { __raw_writew(*s++, d++); } while (--c);
     }
-    
+    /* copy last byte doing a read-modify-write */
     if (odd)
 	writew((readw(d) & 0xff00) | *(u_char *)s, d);
 }
 
+/*====================================================================*/
 
 static void shmem_get_8390_hdr(struct net_device *dev,
 			       struct e8390_pkt_hdr *hdr,
@@ -1274,10 +1357,11 @@ static void shmem_get_8390_hdr(struct net_device *dev,
 				- (ei_status.rx_start_page << 8);
 
     copyin(hdr, xfer_start, sizeof(struct e8390_pkt_hdr));
-    
+    /* Fix for big endian systems */
     hdr->count = le16_to_cpu(hdr->count);
 }
 
+/*====================================================================*/
 
 static void shmem_block_input(struct net_device *dev, int count,
 			      struct sk_buff *skb, int ring_offset)
@@ -1288,7 +1372,7 @@ static void shmem_block_input(struct net_device *dev, int count,
     char *buf = skb->data;
 
     if (offset + count > ei_status.priv) {
-	
+	/* We must wrap the input move. */
 	int semi_count = ei_status.priv - offset;
 	copyin(buf, base + offset, semi_count);
 	buf += semi_count;
@@ -1298,6 +1382,7 @@ static void shmem_block_input(struct net_device *dev, int count,
     copyin(buf, base + offset, count);
 }
 
+/*====================================================================*/
 
 static void shmem_block_output(struct net_device *dev, int count,
 			       const u_char *buf, const int start_page)
@@ -1307,6 +1392,7 @@ static void shmem_block_output(struct net_device *dev, int count,
     copyout(shmem, buf, count);
 }
 
+/*====================================================================*/
 
 static int setup_shmem_window(struct pcmcia_device *link, int start_pg,
 			      int stop_pg, int cm_offset)
@@ -1319,10 +1405,10 @@ static int setup_shmem_window(struct pcmcia_device *link, int start_pg,
     if (window_size > 32 * 1024)
 	window_size = 32 * 1024;
 
-    
+    /* Make sure it's a power of two.  */
     window_size = roundup_pow_of_two(window_size);
 
-    
+    /* Allocate a memory window */
     link->resource[3]->flags |= WIN_DATA_WIDTH_16|WIN_MEMORY_TYPE_CM|WIN_ENABLE;
     link->resource[3]->flags |= WIN_USE_WAIT;
     link->resource[3]->start = 0; link->resource[3]->end = window_size;
@@ -1336,7 +1422,7 @@ static int setup_shmem_window(struct pcmcia_device *link, int start_pg,
     if (ret)
 	    goto failed;
 
-    
+    /* Try scribbling on the buffer */
     info->base = ioremap(link->resource[3]->start,
 			resource_size(link->resource[3]));
     for (i = 0; i < (TX_PAGES<<8); i += 2)
@@ -1362,7 +1448,7 @@ static int setup_shmem_window(struct pcmcia_device *link, int start_pg,
     ei_status.stop_page = start_pg + (
 	    (resource_size(link->resource[3]) - offset) >> 8);
 
-    
+    /* set up block i/o functions */
     ei_status.get_8390_hdr = shmem_get_8390_hdr;
     ei_status.block_input = shmem_block_input;
     ei_status.block_output = shmem_block_output;
@@ -1374,6 +1460,7 @@ failed:
     return 1;
 }
 
+/*====================================================================*/
 
 static const struct pcmcia_device_id pcnet_ids[] = {
 	PCMCIA_PFC_DEVICE_MANF_CARD(0, 0x0057, 0x0021),
@@ -1568,8 +1655,8 @@ static const struct pcmcia_device_id pcnet_ids[] = {
 	PCMCIA_DEVICE_PROD_ID1("ETHER-C16", 0x06a8514f),
 	PCMCIA_DEVICE_PROD_ID1("NE2000 Compatible", 0x75b8ad5a),
 	PCMCIA_DEVICE_PROD_ID2("EN-6200P2", 0xa996d078),
-	
-	
+	/* too generic! */
+	/* PCMCIA_DEVICE_PROD_ID12("PCMCIA", "10/100 Ethernet Card", 0x281f1c5d, 0x11b0ffc0), */
 	PCMCIA_PFC_DEVICE_CIS_PROD_ID12(0, "PCMCIA", "EN2218-LAN/MODEM", 0x281f1c5d, 0x570f348e, "cis/PCMLM28.cis"),
 	PCMCIA_PFC_DEVICE_CIS_PROD_ID12(0, "PCMCIA", "UE2218-LAN/MODEM", 0x281f1c5d, 0x6fdcacee, "cis/PCMLM28.cis"),
 	PCMCIA_PFC_DEVICE_CIS_PROD_ID12(0, "Psion Dacom", "Gold Card V34 Ethernet", 0xf5f025c2, 0x338e8155, "cis/PCMLM28.cis"),

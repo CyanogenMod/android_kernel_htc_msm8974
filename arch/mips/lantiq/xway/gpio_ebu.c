@@ -22,8 +22,8 @@
  * written to outputs 16 bit to the latches.
  */
 
-#define LTQ_EBU_BUSCON	0x1e7ff		
-#define LTQ_EBU_WP	0x80000000	
+#define LTQ_EBU_BUSCON	0x1e7ff		/* 16 bit access, slowest timing */
+#define LTQ_EBU_WP	0x80000000	/* write protect bit */
 
 /* we keep a shadow value of the last value written to the ebu */
 static int ltq_ebu_gpio_shadow = 0x0;
@@ -91,13 +91,13 @@ static int ltq_ebu_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	
+	/* grab the default shadow value passed form the platform code */
 	ltq_ebu_gpio_shadow = (unsigned int) pdev->dev.platform_data;
 
-	
+	/* tell the ebu controller which memory address we will be using */
 	ltq_ebu_w32(pdev->resource->start | 0x1, LTQ_EBU_ADDRSEL1);
 
-	
+	/* write protect the region */
 	ltq_ebu_w32(LTQ_EBU_BUSCON | LTQ_EBU_WP, LTQ_EBU_BUSCON1);
 
 	ret = gpiochip_add(&ltq_ebu_chip);

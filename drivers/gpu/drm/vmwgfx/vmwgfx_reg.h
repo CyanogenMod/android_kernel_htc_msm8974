@@ -25,6 +25,9 @@
  *
  **************************************************************************/
 
+/**
+ * This file contains virtual hardware defines for kernel space.
+ */
 
 #ifndef _VMWGFX_REG_H_
 #define _VMWGFX_REG_H_

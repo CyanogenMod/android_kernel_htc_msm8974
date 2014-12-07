@@ -46,12 +46,20 @@ struct  intel_ring_buffer {
 	int		effective_size;
 	struct intel_hw_status_page status_page;
 
+	/** We track the position of the requests in the ring buffer, and
+	 * when each is retired we increment last_retired_head as the GPU
+	 * must have finished processing the request and so we know we
+	 * can advance the ringbuffer up to that position.
+	 *
+	 * last_retired_head is set to -1 after the value is consumed so
+	 * we can detect new retirements.
+	 */
 	u32		last_retired_head;
 
 	spinlock_t	irq_lock;
 	u32		irq_refcount;
 	u32		irq_mask;
-	u32		irq_seqno;		
+	u32		irq_seqno;		/* last seq seem at irq time */
 	u32		trace_irq_seqno;
 	u32		waiting_seqno;
 	u32		sync_seqno[I915_NUM_RINGS-1];
@@ -76,13 +84,37 @@ struct  intel_ring_buffer {
 				   u32 seqno);
 
 	u32		semaphore_register[3]; /*our mbox written by others */
-	u32		signal_mbox[2]; 
+	u32		signal_mbox[2]; /* mboxes this ring signals to */
+	/**
+	 * List of objects currently involved in rendering from the
+	 * ringbuffer.
+	 *
+	 * Includes buffers having the contents of their GPU caches
+	 * flushed, not necessarily primitives.  last_rendering_seqno
+	 * represents when the rendering involved will be completed.
+	 *
+	 * A reference is held on the buffer while on this list.
+	 */
 	struct list_head active_list;
 
+	/**
+	 * List of breadcrumbs associated with GPU requests currently
+	 * outstanding.
+	 */
 	struct list_head request_list;
 
+	/**
+	 * List of objects currently pending a GPU write flush.
+	 *
+	 * All elements on this list will belong to either the
+	 * active_list or flushing_list, last_rendering_seqno can
+	 * be used to differentiate between the two elements.
+	 */
 	struct list_head gpu_write_list;
 
+	/**
+	 * Do we have some not yet emitted requests outstanding?
+	 */
 	u32 outstanding_lazy_request;
 
 	wait_queue_head_t irq_queue;
@@ -103,6 +135,11 @@ intel_ring_sync_index(struct intel_ring_buffer *ring,
 {
 	int idx;
 
+	/*
+	 * cs -> 0 = vcs, 1 = bcs
+	 * vcs -> 0 = bcs, 1 = cs,
+	 * bcs -> 0 = cs, 1 = vcs.
+	 */
 
 	idx = (other - ring) - 1;
 	if (idx < 0)
@@ -177,6 +214,7 @@ static inline void i915_trace_irq_get(struct intel_ring_buffer *ring, u32 seqno)
 		ring->trace_irq_seqno = seqno;
 }
 
+/* DRI warts */
 int intel_render_ring_init_dri(struct drm_device *dev, u64 start, u32 size);
 
-#endif 
+#endif /* _INTEL_RINGBUFFER_H_ */

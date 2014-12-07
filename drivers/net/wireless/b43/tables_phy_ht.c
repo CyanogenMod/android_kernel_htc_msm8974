@@ -576,6 +576,7 @@ static const u32 b43_httab_0x24[] = {
 	0x005d0582, 0x005805d6, 0x0053062e, 0x004e068c,
 };
 
+/* Some late-init table */
 const u32 b43_httab_0x1a_0xc0_late[] = {
 	0x10f90040, 0x10e10040, 0x10e1003c, 0x10c9003d,
 	0x10b9003c, 0x10a9003d, 0x10a1003c, 0x1099003b,
@@ -611,6 +612,9 @@ const u32 b43_httab_0x1a_0xc0_late[] = {
 	0x10090001, 0x10090001, 0x10090001, 0x10090001,
 };
 
+/**************************************************
+ * R/W ops.
+ **************************************************/
 
 u32 b43_httab_read(struct b43_wldev *dev, u32 offset)
 {
@@ -793,6 +797,9 @@ void b43_httab_write_bulk(struct b43_wldev *dev, u32 offset,
 	}
 }
 
+/**************************************************
+ * Tables ops.
+ **************************************************/
 
 #define httab_upload(dev, offset, data) do { \
 		b43_httab_write_bulk(dev, offset, ARRAY_SIZE(data), data); \

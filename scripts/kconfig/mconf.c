@@ -324,7 +324,7 @@ again:
 		return;
 	}
 
-	
+	/* strip the prefix if necessary */
 	dialog_input = dialog_input_result;
 	if (strncasecmp(dialog_input_result, CONFIG_, strlen(CONFIG_)) == 0)
 		dialog_input += strlen(CONFIG_);
@@ -346,6 +346,10 @@ static void build_conf(struct menu *menu)
 	char ch;
 	bool visible;
 
+	/*
+	 * note: menu_is_visible() has side effect that it will
+	 * recalc the value of the symbol.
+	 */
 	visible = menu_is_visible(menu);
 	if (show_all_options && !menu_has_prompt(menu))
 		return;
@@ -481,7 +485,7 @@ static void build_conf(struct menu *menu)
 				item_set_data(menu);
 				break;
 			default:
-				tmp = 2 + strlen(sym_get_string_value(sym)); 
+				tmp = 2 + strlen(sym_get_string_value(sym)); /* () = 2 */
 				item_make("(%s)", sym_get_string_value(sym));
 				tmp = indent - tmp + 4;
 				if (tmp < 0)
@@ -814,7 +818,7 @@ static int handle_exit(void)
 					  "\n\n"));
 			return 1;
 		}
-		
+		/* fall through */
 	case -1:
 		printf(_("\n\n"
 			 "*** End of the configuration.\n"

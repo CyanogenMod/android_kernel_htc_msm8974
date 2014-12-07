@@ -40,8 +40,11 @@
 #include <asm/cacheflush.h>
 
 #include "bf5xx-sport.h"
+/* delay between frame sync pulse and first data bit in multichannel mode */
 #define FRAME_DELAY (1<<12)
 
+/* note: multichannel is in units of 8 channels,
+ * tdm_count is # channels NOT / 8 ! */
 int sport_set_multichannel(struct sport_device *sport,
 		int tdm_count, u32 mask, int packed)
 {
@@ -55,7 +58,7 @@ int sport_set_multichannel(struct sport_device *sport,
 		return -EINVAL;
 
 	if (tdm_count > 32)
-		return -EINVAL; 
+		return -EINVAL; /* Only support less than 32 channels now */
 
 	if (tdm_count) {
 		sport->regs->mcmc1 = ((tdm_count>>3)-1) << 12;
@@ -138,7 +141,7 @@ static void setup_desc(struct dmasg *desc, void *buf, int fragcount,
 		desc[i].y_modify = wdsize;
 	}
 
-	
+	/* make circular */
 	desc[fragcount-1].next_desc_addr = desc;
 
 	pr_debug("setup desc: desc0=%p, next0=%p, desc1=%p,"
@@ -179,23 +182,23 @@ static inline int sport_hook_rx_dummy(struct sport_device *sport)
 	BUG_ON(sport->dummy_rx_desc == NULL);
 	BUG_ON(sport->curr_rx_desc == sport->dummy_rx_desc);
 
-	
+	/* Maybe the dummy buffer descriptor ring is damaged */
 	sport->dummy_rx_desc->next_desc_addr = sport->dummy_rx_desc + 1;
 
 	local_irq_save(flags);
 	desc = get_dma_next_desc_ptr(sport->dma_rx_chan);
-	
+	/* Copy the descriptor which will be damaged to backup */
 	temp_desc = *desc;
 	desc->x_count = sport->dummy_count / 2;
 	desc->y_count = 0;
 	desc->next_desc_addr = sport->dummy_rx_desc;
 	local_irq_restore(flags);
-	
+	/* Waiting for dummy buffer descriptor is already hooked*/
 	while ((get_dma_curr_desc_ptr(sport->dma_rx_chan) -
 			sizeof(struct dmasg)) != sport->dummy_rx_desc)
 		continue;
 	sport->curr_rx_desc = sport->dummy_rx_desc;
-	
+	/* Restore the damaged descriptor */
 	*desc = temp_desc;
 
 	return 0;
@@ -246,7 +249,7 @@ int sport_rx_start(struct sport_device *sport)
 	if (sport->rx_run)
 		return -EBUSY;
 	if (sport->tx_run) {
-		
+		/* tx is running, rx is not running */
 		BUG_ON(sport->dma_rx_desc == NULL);
 		BUG_ON(sport->curr_rx_desc != sport->dummy_rx_desc);
 		local_irq_save(flags);
@@ -275,10 +278,10 @@ int sport_rx_stop(struct sport_device *sport)
 	if (!sport->rx_run)
 		return 0;
 	if (sport->tx_run) {
-		
+		/* TX dma is still running, hook the dummy buffer */
 		sport_hook_rx_dummy(sport);
 	} else {
-		
+		/* Both rx and tx dma will be stopped */
 		sport_stop(sport);
 		sport->curr_rx_desc = NULL;
 		sport->curr_tx_desc = NULL;
@@ -300,21 +303,21 @@ static inline int sport_hook_tx_dummy(struct sport_device *sport)
 
 	sport->dummy_tx_desc->next_desc_addr = sport->dummy_tx_desc + 1;
 
-	
+	/* Shorten the time on last normal descriptor */
 	local_irq_save(flags);
 	desc = get_dma_next_desc_ptr(sport->dma_tx_chan);
-	
+	/* Store the descriptor which will be damaged */
 	temp_desc = *desc;
 	desc->x_count = sport->dummy_count / 2;
 	desc->y_count = 0;
 	desc->next_desc_addr = sport->dummy_tx_desc;
 	local_irq_restore(flags);
-	
+	/* Waiting for dummy buffer descriptor is already hooked*/
 	while ((get_dma_curr_desc_ptr(sport->dma_tx_chan) - \
 			sizeof(struct dmasg)) != sport->dummy_tx_desc)
 		continue;
 	sport->curr_tx_desc = sport->dummy_tx_desc;
-	
+	/* Restore the damaged descriptor */
 	*desc = temp_desc;
 
 	return 0;
@@ -330,7 +333,7 @@ int sport_tx_start(struct sport_device *sport)
 	if (sport->rx_run) {
 		BUG_ON(sport->dma_tx_desc == NULL);
 		BUG_ON(sport->curr_tx_desc != sport->dummy_tx_desc);
-		
+		/* Hook the normal buffer descriptor */
 		local_irq_save(flags);
 		while ((get_dma_curr_desc_ptr(sport->dma_tx_chan) -
 			sizeof(struct dmasg)) != sport->dummy_tx_desc)
@@ -341,7 +344,7 @@ int sport_tx_start(struct sport_device *sport)
 	} else {
 
 		sport_tx_dma_start(sport, 0);
-		
+		/* Let rx dma run the dummy buffer */
 		sport_rx_dma_start(sport, 1);
 		sport_start(sport);
 	}
@@ -355,10 +358,10 @@ int sport_tx_stop(struct sport_device *sport)
 	if (!sport->tx_run)
 		return 0;
 	if (sport->rx_run) {
-		
+		/* RX is still running, hook the dummy buffer */
 		sport_hook_tx_dummy(sport);
 	} else {
-		
+		/* Both rx and tx dma stopped */
 		sport_stop(sport);
 		sport->curr_rx_desc = NULL;
 		sport->curr_tx_desc = NULL;
@@ -397,6 +400,9 @@ int sport_config_rx_dma(struct sport_device *sport, void *buf,
 	x_count = fragsize / sport->wdsize;
 	y_count = 0;
 
+	/* for fragments larger than 64k words we use 2d dma,
+	 * denote fragecount as two numbers' mutliply and both of them
+	 * are less than 64k.*/
 	if (x_count >= 0x10000) {
 		int i, count = x_count;
 
@@ -418,7 +424,7 @@ int sport_config_rx_dma(struct sport_device *sport, void *buf,
 		dma_free_coherent(NULL, sport->rx_desc_bytes,
 					sport->dma_rx_desc, 0);
 
-	
+	/* Allocate a new descritor ring as current one. */
 	sport->dma_rx_desc = dma_alloc_coherent(NULL, \
 			fragcount * sizeof(struct dmasg), &addr, 0);
 	sport->rx_desc_bytes = fragcount * sizeof(struct dmasg);
@@ -433,7 +439,7 @@ int sport_config_rx_dma(struct sport_device *sport, void *buf,
 	sport->rx_frags = fragcount;
 
 	cfg     = 0x7000 | DI_EN | compute_wdsize(sport->wdsize) | WNR | \
-		  (DESC_ELEMENT_COUNT << 8); 
+		  (DESC_ELEMENT_COUNT << 8); /* large descriptor mode */
 
 	if (y_count != 0)
 		cfg |= DMA2D;
@@ -459,6 +465,9 @@ int sport_config_tx_dma(struct sport_device *sport, void *buf, \
 	x_count = fragsize/sport->wdsize;
 	y_count = 0;
 
+	/* for fragments larger than 64k words we use 2d dma,
+	 * denote fragecount as two numbers' mutliply and both of them
+	 * are less than 64k.*/
 	if (x_count >= 0x10000) {
 		int i, count = x_count;
 
@@ -494,7 +503,7 @@ int sport_config_tx_dma(struct sport_device *sport, void *buf, \
 	sport->tx_fragsize = fragsize;
 	sport->tx_frags = fragcount;
 	cfg     = 0x7000 | DI_EN | compute_wdsize(sport->wdsize) | \
-		  (DESC_ELEMENT_COUNT << 8); 
+		  (DESC_ELEMENT_COUNT << 8); /* large descriptor mode */
 
 	if (y_count != 0)
 		cfg |= DMA2D;
@@ -506,6 +515,8 @@ int sport_config_tx_dma(struct sport_device *sport, void *buf, \
 }
 EXPORT_SYMBOL(sport_config_tx_dma);
 
+/* setup dummy dma descriptor ring, which don't generate interrupts,
+ * the x_modify is set to 0 */
 static int sport_config_rx_dummy(struct sport_device *sport)
 {
 	struct dmasg *desc;
@@ -788,7 +799,7 @@ EXPORT_SYMBOL(sport_set_err_callback);
 
 static int sport_config_pdev(struct platform_device *pdev, struct sport_param *param)
 {
-	
+	/* Extract settings from platform data */
 	struct device *dev = &pdev->dev;
 	struct bfin_snd_platform_data *pdata = dev->platform_data;
 	struct resource *res;
@@ -808,7 +819,7 @@ static int sport_config_pdev(struct platform_device *pdev, struct sport_param *p
 	}
 	param->regs = (struct sport_register *)res->start;
 
-	
+	/* first RX, then TX */
 	res = platform_get_resource(pdev, IORESOURCE_DMA, 0);
 	if (!res) {
 		dev_err(dev, "no rx DMA resource\n");
@@ -991,6 +1002,11 @@ void sport_done(struct sport_device *sport)
 }
 EXPORT_SYMBOL(sport_done);
 
+/*
+* It is only used to send several bytes when dma is not enabled
+ * sport controller is configured but not enabled.
+ * Multichannel cannot works with pio mode */
+/* Used by ac97 to write and read codec register */
 int sport_send_and_recv(struct sport_device *sport, u8 *out_data, \
 		u8 *in_data, int len)
 {
@@ -1008,7 +1024,7 @@ int sport_send_and_recv(struct sport_device *sport, u8 *out_data, \
 			sport->regs->mcmc1, sport->regs->mcmc2);
 	flush_dcache_range((unsigned)out_data, (unsigned)(out_data + len));
 
-	
+	/* Enable tx dma */
 	dma_config = (RESTART | WDSIZE_16 | DI_EN);
 	set_dma_start_addr(sport->dma_tx_chan, (unsigned long)out_data);
 	set_dma_x_count(sport->dma_tx_chan, len/2);
@@ -1019,7 +1035,7 @@ int sport_send_and_recv(struct sport_device *sport, u8 *out_data, \
 	if (in_data != NULL) {
 		invalidate_dcache_range((unsigned)in_data, \
 				(unsigned)(in_data + len));
-		
+		/* Enable rx dma */
 		dma_config = (RESTART | WDSIZE_16 | WNR | DI_EN);
 		set_dma_start_addr(sport->dma_rx_chan, (unsigned long)in_data);
 		set_dma_x_count(sport->dma_rx_chan, len/2);
@@ -1051,7 +1067,7 @@ int sport_send_and_recv(struct sport_device *sport, u8 *out_data, \
 		if (wait++ > 1000)
 			goto __over;
 	}
-	
+	/* Wait for the last byte sent out */
 	udelay(20);
 	pr_debug("sport status:0x%04x\n", status);
 
@@ -1060,7 +1076,7 @@ __over:
 	sport->regs->rcr1 &= ~RSPEN;
 	SSYNC();
 	disable_dma(sport->dma_tx_chan);
-	
+	/* Clear the status */
 	clear_dma_irqstat(sport->dma_tx_chan);
 	if (in_data != NULL) {
 		disable_dma(sport->dma_rx_chan);

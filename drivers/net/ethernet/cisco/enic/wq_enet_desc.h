@@ -20,6 +20,7 @@
 #ifndef _WQ_ENET_DESC_H_
 #define _WQ_ENET_DESC_H_
 
+/* Ethernet work queue descriptor: 16B */
 struct wq_enet_desc {
 	__le64 address;
 	__le16 length;
@@ -94,4 +95,4 @@ static inline void wq_enet_desc_dec(struct wq_enet_desc *desc,
 	*vlan_tag = le16_to_cpu(desc->vlan_tag);
 }
 
-#endif 
+#endif /* _WQ_ENET_DESC_H_ */

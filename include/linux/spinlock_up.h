@@ -5,7 +5,7 @@
 # error "please don't include this file directly"
 #endif
 
-#include <asm/processor.h>	
+#include <asm/processor.h>	/* for cpu_relax() */
 
 /*
  * include/linux/spinlock_up.h - UP-debug version of spinlocks.
@@ -48,6 +48,9 @@ static inline void arch_spin_unlock(arch_spinlock_t *lock)
 	lock->slock = 1;
 }
 
+/*
+ * Read-write spinlocks. No debug version.
+ */
 #define arch_read_lock(lock)		do { (void)(lock); } while (0)
 #define arch_write_lock(lock)		do { (void)(lock); } while (0)
 #define arch_read_trylock(lock)	({ (void)(lock); 1; })
@@ -55,13 +58,14 @@ static inline void arch_spin_unlock(arch_spinlock_t *lock)
 #define arch_read_unlock(lock)		do { (void)(lock); } while (0)
 #define arch_write_unlock(lock)	do { (void)(lock); } while (0)
 
-#else 
+#else /* DEBUG_SPINLOCK */
 #define arch_spin_is_locked(lock)	((void)(lock), 0)
+/* for sched.c and kernel_lock.c: */
 # define arch_spin_lock(lock)		do { (void)(lock); } while (0)
 # define arch_spin_lock_flags(lock, flags)	do { (void)(lock); } while (0)
 # define arch_spin_unlock(lock)	do { (void)(lock); } while (0)
 # define arch_spin_trylock(lock)	({ (void)(lock); 1; })
-#endif 
+#endif /* DEBUG_SPINLOCK */
 
 #define arch_spin_is_contended(lock)	(((void)(lock), 0))
 
@@ -71,4 +75,4 @@ static inline void arch_spin_unlock(arch_spinlock_t *lock)
 #define arch_spin_unlock_wait(lock) \
 		do { cpu_relax(); } while (arch_spin_is_locked(lock))
 
-#endif 
+#endif /* __LINUX_SPINLOCK_UP_H */

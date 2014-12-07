@@ -15,6 +15,41 @@
  *  the Free Software Foundation; version 2 of the License.
  */
 
+/*  For detecting HTC 2 Wire devices, such as wired headset.
+
+    Logically, the H2W driver is always present, and H2W state (hi->state)
+    indicates what is currently plugged into the H2W interface.
+
+    When the headset is plugged in, CABLE_IN1 is pulled low. When the headset
+    button is pressed, CABLE_IN2 is pulled low. These two lines are shared with
+    the TX and RX (respectively) of UART3 - used for serial debugging.
+
+    This headset driver keeps the CPLD configured as UART3 for as long as
+    possible, so that we can do serial FIQ debugging even when the kernel is
+    locked and this driver no longer runs. So it only configures the CPLD to
+    GPIO while the headset is plugged in, and for 10ms during detection work.
+
+    Unfortunately we can't leave the CPLD as UART3 while a headset is plugged
+    in, UART3 is pullup on TX but the headset is pull-down, causing a 55 mA
+    drain on trout.
+
+    The headset detection work involves setting CPLD to GPIO, and then pulling
+    CABLE_IN1 high with a stronger pullup than usual. A H2W headset will still
+    pull this line low, whereas other attachments such as a serial console
+    would get pulled up by this stronger pullup.
+
+    Headset insertion/removal causes UEvent's to be sent, and
+    /sys/class/switch/h2w/state to be updated.
+
+    Button presses are interpreted as input event (KEY_MEDIA). Button presses
+    are ignored if the headset is plugged in, so the buttons on 11 pin -> 3.5mm
+    jack adapters do not work until a headset is plugged into the adapter. This
+    is to avoid serial RX traffic causing spurious button press events.
+
+    We tend to check the status of CABLE_IN1 a few more times than strictly
+    necessary during headset detection, to avoid spurious headset insertion
+    events caused by serial debugger TX traffic.
+*/
 
 #include <linux/module.h>
 #include <linux/sysdev.h>
@@ -75,7 +110,7 @@ struct h2w_info {
 
 	void (*config_cpld) (int);
 	void (*init_cpld) (void);
-	
+	/* for h2w */
 	void (*set_dat)(int);
 	void (*set_clk)(int);
 	void (*set_dat_dir)(int);
@@ -124,29 +159,40 @@ static void button_released(void)
 	input_sync(hi->input);
 }
 
+/*****************
+ * H2W proctocol *
+ *****************/
 static inline void h2w_begin_command(void)
 {
-	
+	/* Disable H2W interrupt */
 	set_irq_type(hi->irq_btn, IRQF_TRIGGER_HIGH);
 	disable_irq(hi->irq);
 	disable_irq(hi->irq_btn);
 
-	
+	/* Set H2W_CLK as output low */
 	hi->set_clk(0);
 	hi->set_clk_dir(1);
 }
 
 static inline void h2w_end_command(void)
 {
-	
+	/* Set H2W_CLK as input */
 	hi->set_clk_dir(0);
 
-	
+	/* Enable H2W interrupt */
 	enable_irq(hi->irq);
 	enable_irq(hi->irq_btn);
 	set_irq_type(hi->irq_btn, IRQF_TRIGGER_RISING);
 }
 
+/*
+ * One bit write data
+ *                     ________
+ *       SCLK O ______|        |______O(L)
+ *
+ *
+ *	     SDAT I <XXXXXXXXXXXXXXXXXXXX>
+ */
 static inline void one_clock_write(unsigned short flag)
 {
 	if (flag)
@@ -160,6 +206,15 @@ static inline void one_clock_write(unsigned short flag)
 	hi->set_clk(0);
 }
 
+/*
+ * One bit write data R/W bit
+ *                   ________
+ *       SCLK ______|        |______O(L)
+ *            1---->         1----->
+ *                  2-------> ______
+ *	 SDAT <XXXXXXXXXXXXXX>      I
+ *                         O(H/L)
+ */
 static inline void one_clock_write_RWbit(unsigned short flag)
 {
 	if (flag)
@@ -175,9 +230,20 @@ static inline void one_clock_write_RWbit(unsigned short flag)
 	udelay(hi->speed);
 }
 
+/*
+ * H2W Reset
+ *                       ___________
+ *       SCLK O(L)______|           |___O(L)
+ *                1---->
+ *                      4-->1-->1-->1us-->
+ *                          ____
+ *       SDAT O(L)________ |    |_______O(L)
+ *
+ * H2w reset command needs to be issued before every access
+ */
 static inline void h2w_reset(void)
 {
-	
+	/* Set H2W_DAT as output low */
 	hi->set_dat(0);
 	hi->set_dat_dir(1);
 
@@ -192,6 +258,15 @@ static inline void h2w_reset(void)
 	udelay(hi->speed);
 }
 
+/*
+ * H2W Start
+ *                       ___________
+ *       SCLK O(L)______|           |___O(L)
+ *                1---->
+ *                      2----------->1-->
+ *
+ *       SDAT O(L)______________________O(L)
+ */
 static inline void h2w_start(void)
 {
 	udelay(hi->speed);
@@ -201,6 +276,15 @@ static inline void h2w_start(void)
 	udelay(hi->speed);
 }
 
+/*
+ * H2W Ack
+ *                  __________
+ *       SCLK _____|          |_______O(L)
+ *            1---->	      1------>
+ *		           2--------->
+ *            ________________________
+ *	 SDAT  become Input mode here I
+ */
 static inline int h2w_ack(void)
 {
 	int retry_times = 0;
@@ -225,6 +309,14 @@ ack_resend:
 	return 0;
 }
 
+/*
+ * One bit read data
+ *                   ________
+ *       SCLK ______|        |______O(L)
+ *            2---->         2----->
+ *                  2------->
+ *	 SDAT <XXXXXXXXXXXXXXXXXXXX>I
+ */
 static unsigned char h2w_readc(void)
 {
 	unsigned char h2w_read_data = 0x0;
@@ -255,7 +347,7 @@ read_resend:
 
 	h2w_reset();
 	h2w_start();
-	
+	/* Write address */
 	one_clock_write(address & 0x1000);
 	one_clock_write(address & 0x0800);
 	one_clock_write(address & 0x0400);
@@ -308,7 +400,7 @@ write_resend:
 	h2w_reset();
 	h2w_start();
 
-	
+	/* Write address */
 	one_clock_write(address & 0x1000);
 	one_clock_write(address & 0x0800);
 	one_clock_write(address & 0x0400);
@@ -331,7 +423,7 @@ write_resend:
 		goto write_resend;
 	}
 
-	
+	/* Write data */
 	hi->set_dat_dir(1);
 	one_clock_write(data & 0x0080);
 	one_clock_write(data & 0x0040);
@@ -375,7 +467,7 @@ static int h2w_dev_init(H2W_INFO *ph2w_info)
 	hi->speed = H2W_50KHz;
 	h2w_begin_command();
 
-	
+	/* read H2W_SYSTEM */
 	h2w_sys = h2w_readc_cmd(H2W_SYSTEM);
 	if (h2w_sys == -1) {
 		H2WE("read H2W_SYSTEM(0x0000) failed.\n");
@@ -387,14 +479,14 @@ static int h2w_dev_init(H2W_INFO *ph2w_info)
 	ph2w_info->SLEEP_PR  = (h2w_sys & 0x20) >> 5;
 	ph2w_info->CLK_SP = (h2w_sys & 0xC0) >> 6;
 
-	
+	/* enter init mode */
 	if (h2w_writec_cmd(H2W_ASCR0, H2W_ASCR_DEVICE_INI) < 0) {
 		H2WE("write H2W_ASCR0(0x0002) failed.\n");
 		goto err_plugin;
 	}
 	udelay(10);
 
-	
+	/* read H2W_MAX_GP_ADD */
 	maxgpadd = h2w_readc_cmd(H2W_MAX_GP_ADD);
 	if (maxgpadd == -1) {
 		H2WE("write H2W_MAX_GP_ADD(0x0001) failed.\n");
@@ -403,7 +495,7 @@ static int h2w_dev_init(H2W_INFO *ph2w_info)
 	ph2w_info->CLK_SP += (maxgpadd & 0x60) >> 3;
 	ph2w_info->MAX_GP_ADD = (maxgpadd & 0x1F);
 
-	
+	/* read key group */
 	if (ph2w_info->MAX_GP_ADD >= 1) {
 		ph2w_info->KEY_MAXADD = h2w_readc_cmd(H2W_KEY_MAXADD);
 		if (ph2w_info->KEY_MAXADD == -1)
@@ -434,7 +526,7 @@ static int h2w_dev_init(H2W_INFO *ph2w_info)
 		}
 	}
 
-	
+	/* read led group */
 	if (ph2w_info->MAX_GP_ADD >= 2) {
 		ph2w_info->LED_MAXADD = h2w_readc_cmd(H2W_LED_MAXADD);
 		if (ph2w_info->LED_MAXADD == -1)
@@ -447,7 +539,7 @@ static int h2w_dev_init(H2W_INFO *ph2w_info)
 		}
 	}
 
-	
+	/* read group 3, 4, 5 */
 	if (ph2w_info->MAX_GP_ADD >= 3) {
 		maxadd = h2w_readc_cmd(H2W_CRDL_MAXADD);
 		if (maxadd == -1)
@@ -464,7 +556,7 @@ static int h2w_dev_init(H2W_INFO *ph2w_info)
 			goto err_plugin;
 	}
 
-	
+	/* read medical group */
 	if (ph2w_info->MAX_GP_ADD >= 6) {
 		ph2w_info->MED_MAXADD = h2w_readc_cmd(H2W_MED_MAXADD);
 		if (ph2w_info->MED_MAXADD == -1)
@@ -495,9 +587,9 @@ static int h2w_dev_init(H2W_INFO *ph2w_info)
 
 	ret = 0;
 
-	
+	/* adjust speed */
 	if (ph2w_info->MAX_GP_ADD == 2) {
-		
+		/* Remote control */
 		hi->speed = H2W_250KHz;
 	} else if (ph2w_info->MAX_GP_ADD == 6) {
 		if (ph2w_info->MED_MAXADD >= 1) {
@@ -533,7 +625,7 @@ static int h2w_dev_detect(void)
 	int retry_times;
 
 	for (retry_times = 5; retry_times; retry_times--) {
-		
+		/* Enable H2W Power */
 		h2w_dev_power_on(1);
 		msleep(100);
 		memset(&hi->h2w_info, 0, sizeof(H2W_INFO));
@@ -568,7 +660,7 @@ static void remove_headset(void)
 	mutex_unlock(&hi->mutex_lock);
 	hi->init_cpld();
 
-	
+	/* Disable button */
 	switch (hi->htc_headset_flag) {
 	case H2W_HTC_HEADSET:
 		local_irq_save(irq_flags);
@@ -582,7 +674,7 @@ static void remove_headset(void)
 		h2w_dev_power_on(0);
 		set_irq_type(hi->irq_btn, IRQF_TRIGGER_LOW);
 		disable_irq(hi->irq_btn);
-		
+		/* 10ms (5-15 with 10ms tick) */
 		hi->btn_debounce_time = ktime_set(0, 10000000);
 		hi->set_clk_dir(0);
 		hi->set_dat_dir(0);
@@ -590,7 +682,7 @@ static void remove_headset(void)
 	}
 
 	hi->htc_headset_flag = 0;
-	hi->debounce_time = ktime_set(0, 100000000);  
+	hi->debounce_time = ktime_set(0, 100000000);  /* 100 ms */
 
 }
 
@@ -615,11 +707,11 @@ static void insert_headset(int type)
 		printk(KERN_INFO "insert_headset H2W_HTC_HEADSET\n");
 		state |= BIT_HEADSET;
 		hi->ignore_btn = !gpio_get_value(hi->cable_in2);
-		
+		/* Enable button irq */
 		local_irq_save(irq_flags);
 		enable_irq(hi->irq_btn);
 		local_irq_restore(irq_flags);
-		hi->debounce_time = ktime_set(0, 200000000); 
+		hi->debounce_time = ktime_set(0, 200000000); /* 20 ms */
 		break;
 	case H2W_DEVICE:
 		if (h2w_dev_detect() < 0) {
@@ -664,7 +756,7 @@ static void remove_headset(void)
 
 	hi->init_cpld();
 
-	
+	/* Disable button */
 	local_irq_save(irq_flags);
 	disable_irq(hi->irq_btn);
 	local_irq_restore(irq_flags);
@@ -672,7 +764,7 @@ static void remove_headset(void)
 	if (atomic_read(&hi->btn_state))
 		button_released();
 
-	hi->debounce_time = ktime_set(0, 100000000);  
+	hi->debounce_time = ktime_set(0, 100000000);  /* 100 ms */
 }
 #endif
 static int is_accessary_pluged_in(void)
@@ -680,29 +772,37 @@ static int is_accessary_pluged_in(void)
 	int type = 0;
 	int clk1 = 0, dat1 = 0, clk2 = 0, dat2 = 0, clk3 = 0, dat3 = 0;
 
-	
-	
+	/* Step1: save H2W_CLK and H2W_DAT */
+	/* Delay 10ms for pin stable. */
 	msleep(10);
 	clk1 = gpio_get_value(hi->h2w_clk);
 	dat1 = gpio_get_value(hi->h2w_data);
 
+	/*
+	 * Step2: set GPIO_CABLE_IN1 as output high and GPIO_CABLE_IN2 as
+	 * input
+	 */
 	gpio_direction_output(hi->cable_in1, 1);
 	gpio_direction_input(hi->cable_in2);
-	
+	/* Delay 10ms for pin stable. */
 	msleep(10);
-	
+	/* Step 3: save H2W_CLK and H2W_DAT */
 	clk2 = gpio_get_value(hi->h2w_clk);
 	dat2 = gpio_get_value(hi->h2w_data);
 
+	/*
+	 * Step 4: set GPIO_CABLE_IN1 as input and GPIO_CABLE_IN2 as output
+	 * high
+	 */
 	gpio_direction_input(hi->cable_in1);
 	gpio_direction_output(hi->cable_in2, 1);
-	
+	/* Delay 10ms for pin stable. */
 	msleep(10);
-	
+	/* Step 5: save H2W_CLK and H2W_DAT */
 	clk3 = gpio_get_value(hi->h2w_clk);
 	dat3 = gpio_get_value(hi->h2w_data);
 
-	
+	/* Step 6: set both GPIO_CABLE_IN1 and GPIO_CABLE_IN2 as input */
 	gpio_direction_input(hi->cable_in1);
 	gpio_direction_input(hi->cable_in2);
 
@@ -744,26 +844,26 @@ static void detection_work(struct work_struct *work)
 	H2W_DBG("");
 
 	if (gpio_get_value(hi->cable_in1) != 0) {
-		
+		/* Headset not plugged in */
 		if (switch_get_state(&hi->sdev) != H2W_NO_DEVICE)
 			remove_headset();
 		return;
 	}
 
-	
+	/* Something plugged in, lets make sure its a headset */
 
-	
+	/* Switch CPLD to GPIO to do detection */
 	hi->config_cpld(H2W_GPIO);
 
-	
+	/* Disable headset interrupt while detecting.*/
 	local_irq_save(irq_flags);
 	disable_irq(hi->irq);
 	local_irq_restore(irq_flags);
 
-	
+	/* Something plugged in, lets make sure its a headset */
 	type = is_accessary_pluged_in();
 
-	
+	/* Restore IRQs */
 	local_irq_save(irq_flags);
 	enable_irq(hi->irq);
 	local_irq_restore(irq_flags);
@@ -793,12 +893,15 @@ static enum hrtimer_restart button_event_timer_func(struct hrtimer *data)
 			break;
 		case H2W_DEVICE:
 			if ((hi->get_dat() == 1) && (hi->get_clk() == 1)) {
-				
+				/* Don't do anything because H2W pull out. */
 				H2WE("Remote Control pull out.\n");
 			} else {
 				key = h2w_get_fnkey();
 				press = (key > 0x7F) ? 0 : 1;
 				keyname = key & 0x7F;
+				 /* H2WI("key = %d, press = %d,
+					 keyname = %d \n",
+					 key, press, keyname); */
 				switch (keyname) {
 				case H2W_KEY_PLAY:
 					H2WI("H2W_KEY_PLAY");
@@ -848,7 +951,7 @@ static enum hrtimer_restart button_event_timer_func(struct hrtimer *data)
 				}
 			}
 			break;
-		} 
+		} /* end switch */
 	}
 
 	return HRTIMER_NORESTART;
@@ -882,7 +985,7 @@ static irqreturn_t detect_irq_handler(int irq, void *dev_id)
 	if ((switch_get_state(&hi->sdev) == H2W_NO_DEVICE) ^ value2) {
 		if (switch_get_state(&hi->sdev) == H2W_HTC_HEADSET)
 			hi->ignore_btn = 1;
-		
+		/* Do the rest of the work in timer context */
 		hrtimer_start(&hi->timer, hi->debounce_time, HRTIMER_MODE_REL);
 	}
 
@@ -954,8 +1057,8 @@ static int h2w_probe(struct platform_device *pdev)
 	atomic_set(&hi->btn_state, 0);
 	hi->ignore_btn = 0;
 
-	hi->debounce_time = ktime_set(0, 100000000);  
-	hi->btn_debounce_time = ktime_set(0, 10000000); 
+	hi->debounce_time = ktime_set(0, 100000000);  /* 100 ms */
+	hi->btn_debounce_time = ktime_set(0, 10000000); /* 10 ms */
 
 	hi->htc_headset_flag = 0;
 	hi->cable_in1 = pdata->cable_in1;
@@ -972,7 +1075,7 @@ static int h2w_probe(struct platform_device *pdev)
 	hi->get_dat = pdata->get_dat;
 	hi->get_clk = pdata->get_clk;
 	hi->speed = H2W_50KHz;
-	
+	/* obtain needed VREGs */
 	if (pdata->power_name)
 		hi->vreg_h2w = vreg_get(0, pdata->power_name);
 
@@ -1019,7 +1122,7 @@ static int h2w_probe(struct platform_device *pdev)
 		goto err_get_button_irq_num_failed;
 	}
 
-	
+	/* Set CPLD MUX to H2W <-> CPLD GPIO */
 	hi->init_cpld();
 
 	hrtimer_init(&hi->timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
@@ -1032,7 +1135,7 @@ static int h2w_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto err_request_detect_irq;
 
-	
+	/* Disable button until plugged in */
 	set_irq_flags(hi->irq_btn, IRQF_VALID | IRQF_NOAUTOEN);
 	ret = request_irq(hi->irq_btn, button_irq_handler,
 			  IRQF_TRIGGER_LOW, "h2w_button", NULL);

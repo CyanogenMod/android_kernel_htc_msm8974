@@ -18,6 +18,7 @@
 #include "be.h"
 #include "be_cmds.h"
 
+/* Must be a power of 2 or else MODULO will BUG_ON */
 static int be_get_temp_freq = 64;
 
 static inline void *embedded_payload(struct be_mcc_wrb *wrb)
@@ -40,6 +41,9 @@ static void be_mcc_notify(struct be_adapter *adapter)
 	iowrite32(val, adapter->db + DB_MCCQ_OFFSET);
 }
 
+/* To check if valid bit is set, check the entire word as we don't know
+ * the endianness of the data (old entry is host endian while a new entry is
+ * little endian) */
 static inline bool be_mcc_compl_is_new(struct be_mcc_compl *compl)
 {
 	if (compl->flags != 0) {
@@ -51,6 +55,7 @@ static inline bool be_mcc_compl_is_new(struct be_mcc_compl *compl)
 	}
 }
 
+/* Need to reset the entire word that houses the valid bit */
 static inline void be_mcc_compl_use(struct be_mcc_compl *compl)
 {
 	compl->flags = 0;
@@ -61,6 +66,8 @@ static int be_mcc_compl_process(struct be_adapter *adapter,
 {
 	u16 compl_status, extd_status;
 
+	/* Just swap the status to host endian; mcc tag is opaquely copied
+	 * from mcc_wrb */
 	be_dws_le_to_cpu(compl, 4);
 
 	compl_status = (compl->status >> CQE_STATUS_COMPL_SHIFT) &
@@ -114,16 +121,21 @@ done:
 	return compl_status;
 }
 
+/* Link state evt is a string of bytes; no need for endian swapping */
 static void be_async_link_state_process(struct be_adapter *adapter,
 		struct be_async_event_link_state *evt)
 {
-	
+	/* When link status changes, link speed must be re-queried from FW */
 	adapter->link_speed = -1;
 
+	/* For the initial link status do not rely on the ASYNC event as
+	 * it may not be received in some cases.
+	 */
 	if (adapter->flags & BE_FLAGS_LINK_STATUS_INIT)
 		be_link_status_update(adapter, evt->port_link_status);
 }
 
+/* Grp5 CoS Priority evt */
 static void be_async_grp5_cos_priority_process(struct be_adapter *adapter,
 		struct be_async_event_grp5_cos_priority *evt)
 {
@@ -135,15 +147,17 @@ static void be_async_grp5_cos_priority_process(struct be_adapter *adapter,
 	}
 }
 
+/* Grp5 QOS Speed evt */
 static void be_async_grp5_qos_speed_process(struct be_adapter *adapter,
 		struct be_async_event_grp5_qos_link_speed *evt)
 {
 	if (evt->physical_port == adapter->port_num) {
-		
+		/* qos_link_speed is in units of 10 Mbps */
 		adapter->link_speed = evt->qos_link_speed * 10;
 	}
 }
 
+/*Grp5 PVID evt*/
 static void be_async_grp5_pvid_state_process(struct be_adapter *adapter,
 		struct be_async_event_grp5_pvid_state *evt)
 {
@@ -230,7 +244,7 @@ int be_process_mcc(struct be_adapter *adapter)
 	spin_lock_bh(&adapter->mcc_cq_lock);
 	while ((compl = be_mcc_compl_get(adapter))) {
 		if (compl->flags & CQE_FLAGS_ASYNC_MASK) {
-			
+			/* Interpret flags as an async trailer */
 			if (is_link_state_evt(compl->flags))
 				be_async_link_state_process(adapter,
 				(struct be_async_event_link_state *) compl);
@@ -252,9 +266,10 @@ int be_process_mcc(struct be_adapter *adapter)
 	return status;
 }
 
+/* Wait till no more pending mcc requests are present */
 static int be_mcc_wait_compl(struct be_adapter *adapter)
 {
-#define mcc_timeout		120000 
+#define mcc_timeout		120000 /* 12s timeout */
 	int i, status = 0;
 	struct be_mcc_obj *mcc_obj = &adapter->mcc_obj;
 
@@ -276,6 +291,7 @@ static int be_mcc_wait_compl(struct be_adapter *adapter)
 	return status;
 }
 
+/* Notify MCC requests and wait for completion */
 static int be_mcc_notify_wait(struct be_adapter *adapter)
 {
 	be_mcc_notify(adapter);
@@ -313,6 +329,10 @@ static int be_mbox_db_ready_wait(struct be_adapter *adapter, void __iomem *db)
 	return 0;
 }
 
+/*
+ * Insert the mailbox address into the doorbell in two steps
+ * Polls on the mbox doorbell till a command completion (or a timeout) occurs
+ */
 static int be_mbox_notify_wait(struct be_adapter *adapter)
 {
 	int status;
@@ -322,23 +342,23 @@ static int be_mbox_notify_wait(struct be_adapter *adapter)
 	struct be_mcc_mailbox *mbox = mbox_mem->va;
 	struct be_mcc_compl *compl = &mbox->compl;
 
-	
+	/* wait for ready to be set */
 	status = be_mbox_db_ready_wait(adapter, db);
 	if (status != 0)
 		return status;
 
 	val |= MPU_MAILBOX_DB_HI_MASK;
-	
+	/* at bits 2 - 31 place mbox dma addr msb bits 34 - 63 */
 	val |= (upper_32_bits(mbox_mem->dma) >> 2) << 2;
 	iowrite32(val, db);
 
-	
+	/* wait for ready to be set */
 	status = be_mbox_db_ready_wait(adapter, db);
 	if (status != 0)
 		return status;
 
 	val = 0;
-	
+	/* at bits 2 - 31 place mbox dma addr lsb bits 4 - 33 */
 	val |= (u32)(mbox_mem->dma >> 4) << 2;
 	iowrite32(val, db);
 
@@ -346,7 +366,7 @@ static int be_mbox_notify_wait(struct be_adapter *adapter)
 	if (status != 0)
 		return status;
 
-	
+	/* A cq entry has been made now */
 	if (be_mcc_compl_is_new(compl)) {
 		status = be_mcc_compl_process(adapter, &mbox->compl);
 		be_mcc_compl_use(compl);
@@ -408,6 +428,8 @@ static inline struct be_sge *nonembedded_sgl(struct be_mcc_wrb *wrb)
 }
 
 
+/* Don't touch the hdr after it's prepared */
+/* mem will be NULL for embedded commands */
 static void be_wrb_cmd_hdr_prepare(struct be_cmd_req_hdr *req_hdr,
 				u8 subsystem, u8 opcode, int cmd_len,
 				struct be_mcc_wrb *wrb, struct be_dma_mem *mem)
@@ -447,6 +469,7 @@ static void be_cmd_page_addrs_prepare(struct phys_addr *pages, u32 max_pages,
 	}
 }
 
+/* Converts interrupt delay in microseconds to multiplier value */
 static u32 eq_delay_to_mult(u32 usec_delay)
 {
 #define MAX_INTR_RATE			651042
@@ -457,13 +480,13 @@ static u32 eq_delay_to_mult(u32 usec_delay)
 		multiplier = 0;
 	else {
 		u32 interrupt_rate = 1000000 / usec_delay;
-		
+		/* Max delay, corresponding to the lowest interrupt rate */
 		if (interrupt_rate == 0)
 			multiplier = 1023;
 		else {
 			multiplier = (MAX_INTR_RATE - interrupt_rate) * round;
 			multiplier /= interrupt_rate;
-			
+			/* Round the multiplier to the closest value.*/
 			multiplier = (multiplier + round/2) / round;
 			multiplier = min(multiplier, (u32)1023);
 		}
@@ -497,6 +520,9 @@ static struct be_mcc_wrb *wrb_from_mccq(struct be_adapter *adapter)
 	return wrb;
 }
 
+/* Tell fw we're about to start firing cmds by writing a
+ * special pattern across the wrb hdr; uses mbox
+ */
 int be_cmd_fw_init(struct be_adapter *adapter)
 {
 	u8 *wrb;
@@ -521,6 +547,9 @@ int be_cmd_fw_init(struct be_adapter *adapter)
 	return status;
 }
 
+/* Tell fw we're done with firing cmds by writing a
+ * special pattern across the wrb hdr; uses mbox
+ */
 int be_cmd_fw_clean(struct be_adapter *adapter)
 {
 	u8 *wrb;
@@ -564,7 +593,7 @@ int be_cmd_eq_create(struct be_adapter *adapter,
 	req->num_pages =  cpu_to_le16(PAGES_4K_SPANNED(q_mem->va, q_mem->size));
 
 	AMAP_SET_BITS(struct amap_eq_context, valid, req->context, 1);
-	
+	/* 4byte eqe*/
 	AMAP_SET_BITS(struct amap_eq_context, size, req->context, 0);
 	AMAP_SET_BITS(struct amap_eq_context, count, req->context,
 			__ilog2_u32(eq->len/256));
@@ -585,6 +614,7 @@ int be_cmd_eq_create(struct be_adapter *adapter,
 	return status;
 }
 
+/* Use MCC */
 int be_cmd_mac_addr_query(struct be_adapter *adapter, u8 *mac_addr,
 			u8 type, bool permanent, u32 if_handle, u32 pmac_id)
 {
@@ -623,6 +653,7 @@ err:
 	return status;
 }
 
+/* Uses synchronous MCCQ */
 int be_cmd_pmac_add(struct be_adapter *adapter, u8 *mac_addr,
 		u32 if_id, u32 *pmac_id, u32 domain)
 {
@@ -661,6 +692,7 @@ err:
 	return status;
 }
 
+/* Uses synchronous MCCQ */
 int be_cmd_pmac_del(struct be_adapter *adapter, u32 if_id, int pmac_id, u32 dom)
 {
 	struct be_mcc_wrb *wrb;
@@ -693,6 +725,7 @@ err:
 	return status;
 }
 
+/* Uses Mbox */
 int be_cmd_cq_create(struct be_adapter *adapter, struct be_queue_info *cq,
 		struct be_queue_info *eq, bool no_delay, int coalesce_wm)
 {
@@ -715,7 +748,7 @@ int be_cmd_cq_create(struct be_adapter *adapter, struct be_queue_info *cq,
 	req->num_pages =  cpu_to_le16(PAGES_4K_SPANNED(q_mem->va, q_mem->size));
 	if (lancer_chip(adapter)) {
 		req->hdr.version = 2;
-		req->page_size = 1; 
+		req->page_size = 1; /* 1 for 4K */
 		AMAP_SET_BITS(struct amap_cq_context_lancer, nodelay, ctxt,
 								no_delay);
 		AMAP_SET_BITS(struct amap_cq_context_lancer, count, ctxt,
@@ -755,7 +788,7 @@ int be_cmd_cq_create(struct be_adapter *adapter, struct be_queue_info *cq,
 
 static u32 be_encoded_q_len(int q_len)
 {
-	u32 len_encoded = fls(q_len); 
+	u32 len_encoded = fls(q_len); /* log2(len) + 1 */
 	if (len_encoded == 16)
 		len_encoded = 0;
 	return len_encoded;
@@ -801,7 +834,7 @@ int be_cmd_mccq_ext_create(struct be_adapter *adapter,
 		AMAP_SET_BITS(struct amap_mcc_context_be, cq_id, ctxt, cq->id);
 	}
 
-	
+	/* Subscribe to Link State and Group 5 Events(bits 1 and 5 set) */
 	req->async_event_bitmap[0] = cpu_to_le32(0x00000022);
 	be_dws_cpu_to_le(ctxt, sizeof(req->context));
 
@@ -932,6 +965,7 @@ err:
 	return status;
 }
 
+/* Uses MCC */
 int be_cmd_rxq_create(struct be_adapter *adapter,
 		struct be_queue_info *rxq, u16 cq_id, u16 frag_size,
 		u32 if_id, u32 rss, u8 *rss_id)
@@ -974,6 +1008,9 @@ err:
 	return status;
 }
 
+/* Generic destroyer function for all types of queues
+ * Uses Mbox
+ */
 int be_cmd_q_destroy(struct be_adapter *adapter, struct be_queue_info *q,
 		int queue_type)
 {
@@ -1025,6 +1062,7 @@ int be_cmd_q_destroy(struct be_adapter *adapter, struct be_queue_info *q,
 	return status;
 }
 
+/* Uses MCC */
 int be_cmd_rxq_destroy(struct be_adapter *adapter, struct be_queue_info *q)
 {
 	struct be_mcc_wrb *wrb;
@@ -1053,6 +1091,9 @@ err:
 	return status;
 }
 
+/* Create an rx filtering policy configuration on an i/f
+ * Uses MCCQ
+ */
 int be_cmd_if_create(struct be_adapter *adapter, u32 cap_flags, u32 en_flags,
 		u8 *mac, u32 *if_handle, u32 *pmac_id, u32 domain)
 {
@@ -1092,6 +1133,7 @@ err:
 	return status;
 }
 
+/* Uses MCCQ */
 int be_cmd_if_destroy(struct be_adapter *adapter, int interface_id, u32 domain)
 {
 	struct be_mcc_wrb *wrb;
@@ -1121,6 +1163,10 @@ err:
 	return status;
 }
 
+/* Get stats is a non embedded command: the request is not embedded inside
+ * WRB but is a separate dma memory block
+ * Uses asynchronous MCC
+ */
 int be_cmd_get_stats(struct be_adapter *adapter, struct be_dma_mem *nonemb_cmd)
 {
 	struct be_mcc_wrb *wrb;
@@ -1153,6 +1199,7 @@ err:
 	return status;
 }
 
+/* Lancer Stats */
 int lancer_cmd_get_pport_stats(struct be_adapter *adapter,
 				struct be_dma_mem *nonemb_cmd)
 {
@@ -1185,6 +1232,7 @@ err:
 	return status;
 }
 
+/* Uses synchronous mcc */
 int be_cmd_link_status_query(struct be_adapter *adapter, u8 *mac_speed,
 			     u16 *link_speed, u8 *link_status, u32 dom)
 {
@@ -1230,6 +1278,7 @@ err:
 	return status;
 }
 
+/* Uses synchronous mcc */
 int be_cmd_get_die_temperature(struct be_adapter *adapter)
 {
 	struct be_mcc_wrb *wrb;
@@ -1261,6 +1310,7 @@ err:
 	return status;
 }
 
+/* Uses synchronous mcc */
 int be_cmd_get_reg_len(struct be_adapter *adapter, u32 *log_size)
 {
 	struct be_mcc_wrb *wrb;
@@ -1359,6 +1409,7 @@ err:
 	spin_unlock_bh(&adapter->mcc_lock);
 }
 
+/* Uses synchronous mcc */
 int be_cmd_get_fw_ver(struct be_adapter *adapter, char *fw_ver,
 			char *fw_on_flash)
 {
@@ -1390,6 +1441,9 @@ err:
 	return status;
 }
 
+/* set the EQ delay interval of an EQ to specified value
+ * Uses async mcc
+ */
 int be_cmd_modify_eqd(struct be_adapter *adapter, u32 eq_id, u32 eqd)
 {
 	struct be_mcc_wrb *wrb;
@@ -1420,6 +1474,7 @@ err:
 	return status;
 }
 
+/* Uses sycnhronous mcc */
 int be_cmd_vlan_config(struct be_adapter *adapter, u32 if_id, u16 *vtag_array,
 			u32 num, bool untagged, bool promiscuous)
 {
@@ -1491,6 +1546,9 @@ int be_cmd_rx_filter(struct be_adapter *adapter, u32 flags, u32 value)
 		req->if_flags_mask = req->if_flags =
 				cpu_to_le32(BE_IF_FLAGS_MULTICAST);
 
+		/* Reset mcast promisc mode if already set by setting mask
+		 * and not setting flags field
+		 */
 		req->if_flags_mask |=
 				cpu_to_le32(BE_IF_FLAGS_MCAST_PROMISCUOUS);
 
@@ -1505,6 +1563,7 @@ err:
 	return status;
 }
 
+/* Uses synchrounous mcc */
 int be_cmd_set_flow_control(struct be_adapter *adapter, u32 tx_fc, u32 rx_fc)
 {
 	struct be_mcc_wrb *wrb;
@@ -1533,6 +1592,7 @@ err:
 	return status;
 }
 
+/* Uses sycn mcc */
 int be_cmd_get_flow_control(struct be_adapter *adapter, u32 *tx_fc, u32 *rx_fc)
 {
 	struct be_mcc_wrb *wrb;
@@ -1564,6 +1624,7 @@ err:
 	return status;
 }
 
+/* Uses mbox */
 int be_cmd_query_fw_cfg(struct be_adapter *adapter, u32 *port_num,
 		u32 *mode, u32 *caps)
 {
@@ -1592,6 +1653,7 @@ int be_cmd_query_fw_cfg(struct be_adapter *adapter, u32 *port_num,
 	return status;
 }
 
+/* Uses mbox */
 int be_cmd_reset_function(struct be_adapter *adapter)
 {
 	struct be_mcc_wrb *wrb;
@@ -1645,6 +1707,7 @@ int be_cmd_rss_config(struct be_adapter *adapter, u8 *rsstable, u16 table_size)
 	return status;
 }
 
+/* Uses sync mcc */
 int be_cmd_set_beacon_state(struct be_adapter *adapter, u8 port_num,
 			u8 bcn, u8 sts, u8 state)
 {
@@ -1676,6 +1739,7 @@ err:
 	return status;
 }
 
+/* Uses sync mcc */
 int be_cmd_get_beacon_state(struct be_adapter *adapter, u8 port_num, u32 *state)
 {
 	struct be_mcc_wrb *wrb;
@@ -2194,6 +2258,7 @@ err:
 	return status;
 }
 
+/* Uses mbox */
 int be_cmd_req_native_mode(struct be_adapter *adapter)
 {
 	struct be_mcc_wrb *wrb;
@@ -2229,6 +2294,7 @@ err:
 	return status;
 }
 
+/* Uses synchronous MCCQ */
 int be_cmd_get_mac_from_list(struct be_adapter *adapter, u32 domain,
 			bool *pmac_id_active, u32 *pmac_id, u8 *mac)
 {
@@ -2274,6 +2340,10 @@ int be_cmd_get_mac_from_list(struct be_adapter *adapter, u32 domain,
 		struct be_cmd_resp_get_mac_list *resp =
 						get_mac_list_cmd.va;
 		mac_count = resp->true_mac_count + resp->pseudo_mac_count;
+		/* Mac list returned could contain one or more active mac_ids
+		 * or one or more pseudo permanant mac addresses. If an active
+		 * mac_id is present, return first active mac_id found
+		 */
 		for (i = 0; i < mac_count; i++) {
 			struct get_list_macaddr *mac_entry;
 			u16 mac_addr_size;
@@ -2281,6 +2351,9 @@ int be_cmd_get_mac_from_list(struct be_adapter *adapter, u32 domain,
 
 			mac_entry = &resp->macaddr_list[i];
 			mac_addr_size = le16_to_cpu(mac_entry->mac_addr_size);
+			/* mac_id is a 32 bit value and mac_addr size
+			 * is 6 bytes
+			 */
 			if (mac_addr_size == sizeof(u32)) {
 				*pmac_id_active = true;
 				mac_id = mac_entry->mac_addr_id.s_mac_id.mac_id;
@@ -2288,7 +2361,7 @@ int be_cmd_get_mac_from_list(struct be_adapter *adapter, u32 domain,
 				goto out;
 			}
 		}
-		
+		/* If no active mac_id found, return first pseudo mac addr */
 		*pmac_id_active = false;
 		memcpy(mac, resp->macaddr_list[0].mac_addr_id.macaddr,
 								ETH_ALEN);
@@ -2301,6 +2374,7 @@ out:
 	return status;
 }
 
+/* Uses synchronous MCCQ */
 int be_cmd_set_mac_list(struct be_adapter *adapter, u8 *mac_array,
 			u8 mac_count, u32 domain)
 {
@@ -2382,6 +2456,7 @@ err:
 	return status;
 }
 
+/* Get Hyper switch config */
 int be_cmd_get_hsw_config(struct be_adapter *adapter, u16 *pvid,
 			u32 domain, u16 intf_id)
 {
@@ -2468,6 +2543,8 @@ int be_cmd_get_acpi_wol_cap(struct be_adapter *adapter)
 		struct be_cmd_resp_acpi_wol_magic_config_v1 *resp;
 		resp = (struct be_cmd_resp_acpi_wol_magic_config_v1 *) cmd.va;
 
+		/* the command could succeed misleadingly on old f/w
+		 * which is not aware of the V1 version. fake an error. */
 		if (resp->hdr.response_length < payload_len) {
 			status = -1;
 			goto err;

@@ -51,20 +51,20 @@ struct lpfc_bsg_event {
 	struct kref kref;
 	wait_queue_head_t wq;
 
-	
+	/* Event type and waiter identifiers */
 	uint32_t type_mask;
 	uint32_t req_id;
 	uint32_t reg_id;
 
-	
+	/* next two flags are here for the auto-delete logic */
 	unsigned long wait_time_stamp;
 	int waiting;
 
-	
+	/* seen and not seen events */
 	struct list_head events_to_get;
 	struct list_head events_to_see;
 
-	
+	/* job waiting for this event to finish */
 	struct fc_bsg_job *set_job;
 };
 
@@ -74,20 +74,20 @@ struct lpfc_bsg_iocb {
 	struct lpfc_dmabuf *bmp;
 	struct lpfc_nodelist *ndlp;
 
-	
+	/* job waiting for this iocb to finish */
 	struct fc_bsg_job *set_job;
 };
 
 struct lpfc_bsg_mbox {
 	LPFC_MBOXQ_t *pmboxq;
 	MAILBOX_t *mb;
-	struct lpfc_dmabuf *dmabuffers; 
-	uint8_t *ext; 
-	uint32_t mbOffset; 
-	uint32_t inExtWLen; 
-	uint32_t outExtWLen; 
+	struct lpfc_dmabuf *dmabuffers; /* for BIU diags */
+	uint8_t *ext; /* extended mailbox data */
+	uint32_t mbOffset; /* from app */
+	uint32_t inExtWLen; /* from app */
+	uint32_t outExtWLen; /* from app */
 
-	
+	/* job waiting for this mbox command to finish */
 	struct fc_bsg_job *set_job;
 };
 
@@ -98,7 +98,7 @@ struct lpfc_bsg_menlo {
 	struct lpfc_iocbq *rspiocbq;
 	struct lpfc_dmabuf *bmp;
 
-	
+	/* job waiting for this iocb to finish */
 	struct fc_bsg_job *set_job;
 };
 
@@ -141,6 +141,23 @@ struct lpfc_dmabufext {
 	uint32_t flag;
 };
 
+/**
+ * lpfc_bsg_send_mgmt_cmd_cmp - lpfc_bsg_send_mgmt_cmd's completion handler
+ * @phba: Pointer to HBA context object.
+ * @cmdiocbq: Pointer to command iocb.
+ * @rspiocbq: Pointer to response iocb.
+ *
+ * This function is the completion handler for iocbs issued using
+ * lpfc_bsg_send_mgmt_cmd function. This function is called by the
+ * ring event handler function without any lock held. This function
+ * can be called from both worker thread context and interrupt
+ * context. This function also can be called from another thread which
+ * cleans up the SLI layer objects.
+ * This function copies the contents of the response iocb to the
+ * response iocb memory object provided by the caller of
+ * lpfc_sli_issue_iocb_wait and then wakes up the thread which
+ * sleeps for the iocb completion.
+ **/
 static void
 lpfc_bsg_send_mgmt_cmd_cmp(struct lpfc_hba *phba,
 			struct lpfc_iocbq *cmdiocbq,
@@ -165,7 +182,7 @@ lpfc_bsg_send_mgmt_cmd_cmp(struct lpfc_hba *phba,
 
 	iocb = &dd_data->context_un.iocb;
 	job = iocb->set_job;
-	job->dd_data = NULL; 
+	job->dd_data = NULL; /* so timeout handler does not reply */
 
 	bmp = iocb->bmp;
 	rsp = &rspiocbq->iocb;
@@ -200,14 +217,18 @@ lpfc_bsg_send_mgmt_cmd_cmp(struct lpfc_hba *phba,
 	lpfc_nlp_put(ndlp);
 	kfree(bmp);
 	kfree(dd_data);
-	
+	/* make error code available to userspace */
 	job->reply->result = rc;
-	
+	/* complete the job back to userspace */
 	job->job_done(job);
 	spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 	return;
 }
 
+/**
+ * lpfc_bsg_send_mgmt_cmd - send a CT command from a bsg request
+ * @job: fc_bsg_job to handle
+ **/
 static int
 lpfc_bsg_send_mgmt_cmd(struct fc_bsg_job *job)
 {
@@ -230,10 +251,10 @@ lpfc_bsg_send_mgmt_cmd(struct fc_bsg_job *job)
 	int rc = 0;
 	int iocb_stat;
 
-	
+	/* in case no data is transferred */
 	job->reply->reply_payload_rcv_len = 0;
 
-	
+	/* allocate our bsg tracking structure */
 	dd_data = kmalloc(sizeof(struct bsg_job_data), GFP_KERNEL);
 	if (!dd_data) {
 		lpfc_printf_log(phba, KERN_WARNING, LOG_LIBDFC,
@@ -336,19 +357,19 @@ lpfc_bsg_send_mgmt_cmd(struct fc_bsg_job *job)
 		}
 		creg_val |= (HC_R0INT_ENA << LPFC_FCP_RING);
 		writel(creg_val, phba->HCregaddr);
-		readl(phba->HCregaddr); 
+		readl(phba->HCregaddr); /* flush */
 	}
 
 	iocb_stat = lpfc_sli_issue_iocb(phba, LPFC_ELS_RING, cmdiocbq, 0);
 	if (iocb_stat == IOCB_SUCCESS)
-		return 0; 
+		return 0; /* done for now */
 	else if (iocb_stat == IOCB_BUSY)
 		rc = -EAGAIN;
 	else
 		rc = -EIO;
 
 
-	
+	/* iocb failed so cleanup */
 	pci_unmap_sg(phba->pcidev, job->request_payload.sg_list,
 		     job->request_payload.sg_cnt, DMA_TO_DEVICE);
 	pci_unmap_sg(phba->pcidev, job->reply_payload.sg_list,
@@ -365,12 +386,29 @@ free_ndlp:
 no_ndlp:
 	kfree(dd_data);
 no_dd_data:
-	
+	/* make error code available to userspace */
 	job->reply->result = rc;
 	job->dd_data = NULL;
 	return rc;
 }
 
+/**
+ * lpfc_bsg_rport_els_cmp - lpfc_bsg_rport_els's completion handler
+ * @phba: Pointer to HBA context object.
+ * @cmdiocbq: Pointer to command iocb.
+ * @rspiocbq: Pointer to response iocb.
+ *
+ * This function is the completion handler for iocbs issued using
+ * lpfc_bsg_rport_els_cmp function. This function is called by the
+ * ring event handler function without any lock held. This function
+ * can be called from both worker thread context and interrupt
+ * context. This function also can be called from other thread which
+ * cleans up the SLI layer objects.
+ * This function copies the contents of the response iocb to the
+ * response iocb memory object provided by the caller of
+ * lpfc_sli_issue_iocb_wait and then wakes up the thread which
+ * sleeps for the iocb completion.
+ **/
 static void
 lpfc_bsg_rport_els_cmp(struct lpfc_hba *phba,
 			struct lpfc_iocbq *cmdiocbq,
@@ -388,7 +426,7 @@ lpfc_bsg_rport_els_cmp(struct lpfc_hba *phba,
 
 	spin_lock_irqsave(&phba->ct_ev_lock, flags);
 	dd_data = cmdiocbq->context1;
-	
+	/* normal completion and timeout crossed paths, already done */
 	if (!dd_data) {
 		spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 		return;
@@ -418,7 +456,7 @@ lpfc_bsg_rport_els_cmp(struct lpfc_hba *phba,
 	else if (rsp->ulpStatus == IOSTAT_LS_RJT) {
 		job->reply->reply_payload_rcv_len =
 			sizeof(struct fc_bsg_ctels_reply);
-		
+		/* LS_RJT data returned in word 4 */
 		rjt_data = (uint8_t *)&rsp->un.ulpWord[4];
 		els_reply = &job->reply->reply_data.ctels_reply;
 		els_reply->status = FC_CTELS_STATUS_REJECT;
@@ -435,15 +473,19 @@ lpfc_bsg_rport_els_cmp(struct lpfc_hba *phba,
 	lpfc_sli_release_iocbq(phba, cmdiocbq);
 	lpfc_nlp_put(ndlp);
 	kfree(dd_data);
-	
+	/* make error code available to userspace */
 	job->reply->result = rc;
 	job->dd_data = NULL;
-	
+	/* complete the job back to userspace */
 	job->job_done(job);
 	spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 	return;
 }
 
+/**
+ * lpfc_bsg_rport_els - send an ELS command from a bsg request
+ * @job: fc_bsg_job to handle
+ **/
 static int
 lpfc_bsg_rport_els(struct fc_bsg_job *job)
 {
@@ -471,10 +513,10 @@ lpfc_bsg_rport_els(struct fc_bsg_job *job)
 	uint32_t creg_val;
 	int rc = 0;
 
-	
+	/* in case no data is transferred */
 	job->reply->reply_payload_rcv_len = 0;
 
-	
+	/* allocate our bsg tracking structure */
 	dd_data = kmalloc(sizeof(struct bsg_job_data), GFP_KERNEL);
 	if (!dd_data) {
 		lpfc_printf_log(phba, KERN_WARNING, LOG_LIBDFC,
@@ -508,6 +550,9 @@ lpfc_bsg_rport_els(struct fc_bsg_job *job)
 		goto free_rspiocbq;
 	}
 
+	/* prep els iocb set context1 to the ndlp, context2 to the command
+	 * dmabuf, context3 holds the data dmabuf
+	 */
 	pcmd = (struct lpfc_dmabuf *) cmdiocbq->context2;
 	prsp = (struct lpfc_dmabuf *) pcmd->list.next;
 	lpfc_mbuf_free(phba, pcmd->virt, pcmd->phys);
@@ -569,12 +614,12 @@ lpfc_bsg_rport_els(struct fc_bsg_job *job)
 		}
 		creg_val |= (HC_R0INT_ENA << LPFC_FCP_RING);
 		writel(creg_val, phba->HCregaddr);
-		readl(phba->HCregaddr); 
+		readl(phba->HCregaddr); /* flush */
 	}
 	rc = lpfc_sli_issue_iocb(phba, LPFC_ELS_RING, cmdiocbq, 0);
 	lpfc_nlp_put(ndlp);
 	if (rc == IOCB_SUCCESS)
-		return 0; 
+		return 0; /* done for now */
 	else if (rc == IOCB_BUSY)
 		rc = -EAGAIN;
 	else
@@ -597,12 +642,20 @@ free_dd_data:
 	kfree(dd_data);
 
 no_dd_data:
-	
+	/* make error code available to userspace */
 	job->reply->result = rc;
 	job->dd_data = NULL;
 	return rc;
 }
 
+/**
+ * lpfc_bsg_event_free - frees an allocated event structure
+ * @kref: Pointer to a kref.
+ *
+ * Called from kref_put. Back cast the kref into an event structure address.
+ * Free any events to get, delete associated nodes, free any events to see,
+ * free any data then free the event itself.
+ **/
 static void
 lpfc_bsg_event_free(struct kref *kref)
 {
@@ -629,18 +682,32 @@ lpfc_bsg_event_free(struct kref *kref)
 	kfree(evt);
 }
 
+/**
+ * lpfc_bsg_event_ref - increments the kref for an event
+ * @evt: Pointer to an event structure.
+ **/
 static inline void
 lpfc_bsg_event_ref(struct lpfc_bsg_event *evt)
 {
 	kref_get(&evt->kref);
 }
 
+/**
+ * lpfc_bsg_event_unref - Uses kref_put to free an event structure
+ * @evt: Pointer to an event structure.
+ **/
 static inline void
 lpfc_bsg_event_unref(struct lpfc_bsg_event *evt)
 {
 	kref_put(&evt->kref, lpfc_bsg_event_free);
 }
 
+/**
+ * lpfc_bsg_event_new - allocate and initialize a event structure
+ * @ev_mask: Mask of events.
+ * @ev_reg_id: Event reg id.
+ * @ev_req_id: Event request id.
+ **/
 static struct lpfc_bsg_event *
 lpfc_bsg_event_new(uint32_t ev_mask, int ev_reg_id, uint32_t ev_req_id)
 {
@@ -660,6 +727,11 @@ lpfc_bsg_event_new(uint32_t ev_mask, int ev_reg_id, uint32_t ev_req_id)
 	return evt;
 }
 
+/**
+ * diag_cmd_data_free - Frees an lpfc dma buffer extension
+ * @phba: Pointer to HBA context object.
+ * @mlist: Pointer to an lpfc dma buffer extension.
+ **/
 static int
 diag_cmd_data_free(struct lpfc_hba *phba, struct lpfc_dmabufext *mlist)
 {
@@ -687,6 +759,15 @@ diag_cmd_data_free(struct lpfc_hba *phba, struct lpfc_dmabufext *mlist)
 	return 0;
 }
 
+/**
+ * lpfc_bsg_ct_unsol_event - process an unsolicited CT command
+ * @phba:
+ * @pring:
+ * @piocbq:
+ *
+ * This function is called when an unsolicited CT command is received.  It
+ * forwards the event to any processes registered to receive CT events.
+ **/
 int
 lpfc_bsg_ct_unsol_event(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 			struct lpfc_iocbq *piocbq)
@@ -757,7 +838,7 @@ lpfc_bsg_ct_unsol_event(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 		}
 
 		if (phba->sli3_options & LPFC_SLI3_HBQ_ENABLED) {
-			
+			/* take accumulated byte count from the last iocbq */
 			iocbq = list_entry(head.prev, typeof(*iocbq), list);
 			evt_dat->len = iocbq->iocb.unsli3.rcvsli3.acc_len;
 		} else {
@@ -874,7 +955,7 @@ lpfc_bsg_ct_unsol_event(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 		if (phba->sli_rev == LPFC_SLI_REV4) {
 			evt_dat->immed_dat = phba->ctx_idx;
 			phba->ctx_idx = (phba->ctx_idx + 1) % 64;
-			
+			/* Provide warning for over-run of the ct_ctx array */
 			if (phba->ct_ctx[evt_dat->immed_dat].flags &
 			    UNSOL_VALID)
 				lpfc_printf_log(phba, KERN_WARNING, LOG_ELS,
@@ -910,10 +991,10 @@ lpfc_bsg_ct_unsol_event(struct lpfc_hba *phba, struct lpfc_sli_ring *pring,
 		evt->set_job = NULL;
 		if (job) {
 			job->reply->reply_payload_rcv_len = size;
-			
+			/* make error code available to userspace */
 			job->reply->result = 0;
 			job->dd_data = NULL;
-			
+			/* complete the job back to userspace */
 			spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 			job->job_done(job);
 			spin_lock_irqsave(&phba->ct_ev_lock, flags);
@@ -930,6 +1011,10 @@ error_ct_unsol_exit:
 	return 1;
 }
 
+/**
+ * lpfc_bsg_hba_set_event - process a SET_EVENT bsg vendor command
+ * @job: SET_EVENT fc_bsg_job
+ **/
 static int
 lpfc_bsg_hba_set_event(struct fc_bsg_job *job)
 {
@@ -974,7 +1059,7 @@ lpfc_bsg_hba_set_event(struct fc_bsg_job *job)
 	spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 
 	if (&evt->node == &phba->ct_ev_waiters) {
-		
+		/* no event waiting struct yet - first call */
 		evt = lpfc_bsg_event_new(ev_mask, event_req->ev_reg_id,
 					event_req->ev_req_id);
 		if (!evt) {
@@ -996,10 +1081,10 @@ lpfc_bsg_hba_set_event(struct fc_bsg_job *job)
 	evt->waiting = 1;
 	dd_data->type = TYPE_EVT;
 	dd_data->context_un.evt = evt;
-	evt->set_job = job; 
-	job->dd_data = dd_data; 
+	evt->set_job = job; /* for unsolicited command */
+	job->dd_data = dd_data; /* for fc transport timeout callback*/
 	spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
-	return 0; 
+	return 0; /* call job done later */
 
 job_error:
 	if (dd_data != NULL)
@@ -1009,6 +1094,10 @@ job_error:
 	return rc;
 }
 
+/**
+ * lpfc_bsg_hba_get_event - process a GET_EVENT bsg vendor command
+ * @job: GET_EVENT fc_bsg_job
+ **/
 static int
 lpfc_bsg_hba_get_event(struct fc_bsg_job *job)
 {
@@ -1050,6 +1139,9 @@ lpfc_bsg_hba_get_event(struct fc_bsg_job *job)
 	}
 	spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 
+	/* The app may continue to ask for event data until it gets
+	 * an error indicating that there isn't anymore
+	 */
 	if (evt_dat == NULL) {
 		job->reply->reply_payload_rcv_len = 0;
 		rc = -ENOENT;
@@ -1093,6 +1185,23 @@ job_error:
 	return rc;
 }
 
+/**
+ * lpfc_issue_ct_rsp_cmp - lpfc_issue_ct_rsp's completion handler
+ * @phba: Pointer to HBA context object.
+ * @cmdiocbq: Pointer to command iocb.
+ * @rspiocbq: Pointer to response iocb.
+ *
+ * This function is the completion handler for iocbs issued using
+ * lpfc_issue_ct_rsp_cmp function. This function is called by the
+ * ring event handler function without any lock held. This function
+ * can be called from both worker thread context and interrupt
+ * context. This function also can be called from other thread which
+ * cleans up the SLI layer objects.
+ * This function copy the contents of the response iocb to the
+ * response iocb memory object provided by the caller of
+ * lpfc_sli_issue_iocb_wait and then wakes up the thread which
+ * sleeps for the iocb completion.
+ **/
 static void
 lpfc_issue_ct_rsp_cmp(struct lpfc_hba *phba,
 			struct lpfc_iocbq *cmdiocbq,
@@ -1108,7 +1217,7 @@ lpfc_issue_ct_rsp_cmp(struct lpfc_hba *phba,
 
 	spin_lock_irqsave(&phba->ct_ev_lock, flags);
 	dd_data = cmdiocbq->context2;
-	
+	/* normal completion and timeout crossed paths, already done */
 	if (!dd_data) {
 		spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 		return;
@@ -1146,15 +1255,23 @@ lpfc_issue_ct_rsp_cmp(struct lpfc_hba *phba,
 	lpfc_nlp_put(ndlp);
 	kfree(bmp);
 	kfree(dd_data);
-	
+	/* make error code available to userspace */
 	job->reply->result = rc;
 	job->dd_data = NULL;
-	
+	/* complete the job back to userspace */
 	job->job_done(job);
 	spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 	return;
 }
 
+/**
+ * lpfc_issue_ct_rsp - issue a ct response
+ * @phba: Pointer to HBA context object.
+ * @job: Pointer to the job object.
+ * @tag: tag index value into the ports context exchange array.
+ * @bmp: Pointer to a dma buffer descriptor.
+ * @num_entry: Number of enties in the bde.
+ **/
 static int
 lpfc_issue_ct_rsp(struct lpfc_hba *phba, struct fc_bsg_job *job, uint32_t tag,
 		  struct lpfc_dmabuf *bmp, int num_entry)
@@ -1166,7 +1283,7 @@ lpfc_issue_ct_rsp(struct lpfc_hba *phba, struct fc_bsg_job *job, uint32_t tag,
 	struct bsg_job_data *dd_data;
 	uint32_t creg_val;
 
-	
+	/* allocate our bsg tracking structure */
 	dd_data = kmalloc(sizeof(struct bsg_job_data), GFP_KERNEL);
 	if (!dd_data) {
 		lpfc_printf_log(phba, KERN_WARNING, LOG_LIBDFC,
@@ -1175,7 +1292,7 @@ lpfc_issue_ct_rsp(struct lpfc_hba *phba, struct fc_bsg_job *job, uint32_t tag,
 		goto no_dd_data;
 	}
 
-	
+	/* Allocate buffer for  command iocb */
 	ctiocb = lpfc_sli_get_iocbq(phba);
 	if (!ctiocb) {
 		rc = -ENOMEM;
@@ -1193,13 +1310,13 @@ lpfc_issue_ct_rsp(struct lpfc_hba *phba, struct fc_bsg_job *job, uint32_t tag,
 	icmd->un.xseq64.w5.hcsw.Rctl = FC_RCTL_DD_SOL_CTL;
 	icmd->un.xseq64.w5.hcsw.Type = FC_TYPE_CT;
 
-	
+	/* Fill in rest of iocb */
 	icmd->ulpCommand = CMD_XMIT_SEQUENCE64_CX;
 	icmd->ulpBdeCount = 1;
 	icmd->ulpLe = 1;
 	icmd->ulpClass = CLASS3;
 	if (phba->sli_rev == LPFC_SLI_REV4) {
-		
+		/* Do not issue unsol response if oxid not marked as valid */
 		if (!(phba->ct_ctx[tag].flags & UNSOL_VALID)) {
 			rc = IOCB_ERROR;
 			goto issue_ct_rsp_exit;
@@ -1216,12 +1333,15 @@ lpfc_issue_ct_rsp(struct lpfc_hba *phba, struct fc_bsg_job *job, uint32_t tag,
 			goto issue_ct_rsp_exit;
 		}
 
-		
+		/* Check if the ndlp is active */
 		if (!ndlp || !NLP_CHK_NODE_ACT(ndlp)) {
 			rc = -IOCB_ERROR;
 			goto issue_ct_rsp_exit;
 		}
 
+		/* get a refernece count so the ndlp doesn't go away while
+		 * we respond
+		 */
 		if (!lpfc_nlp_get(ndlp)) {
 			rc = -IOCB_ERROR;
 			goto issue_ct_rsp_exit;
@@ -1230,14 +1350,14 @@ lpfc_issue_ct_rsp(struct lpfc_hba *phba, struct fc_bsg_job *job, uint32_t tag,
 		icmd->un.ulpWord[3] =
 				phba->sli4_hba.rpi_ids[ndlp->nlp_rpi];
 
-		
+		/* The exchange is done, mark the entry as invalid */
 		phba->ct_ctx[tag].flags &= ~UNSOL_VALID;
 	} else
 		icmd->ulpContext = (ushort) tag;
 
 	icmd->ulpTimeout = phba->fc_ratov * 2;
 
-	
+	/* Xmit CT response on exchange <xid> */
 	lpfc_printf_log(phba, KERN_INFO, LOG_ELS,
 		"2722 Xmit CT response on exchange x%x Data: x%x x%x x%x\n",
 		icmd->ulpContext, icmd->ulpIoTag, tag, phba->link_state);
@@ -1264,13 +1384,13 @@ lpfc_issue_ct_rsp(struct lpfc_hba *phba, struct fc_bsg_job *job, uint32_t tag,
 		}
 		creg_val |= (HC_R0INT_ENA << LPFC_FCP_RING);
 		writel(creg_val, phba->HCregaddr);
-		readl(phba->HCregaddr); 
+		readl(phba->HCregaddr); /* flush */
 	}
 
 	rc = lpfc_sli_issue_iocb(phba, LPFC_ELS_RING, ctiocb, 0);
 
 	if (rc == IOCB_SUCCESS)
-		return 0; 
+		return 0; /* done for now */
 
 issue_ct_rsp_exit:
 	lpfc_sli_release_iocbq(phba, ctiocb);
@@ -1280,6 +1400,10 @@ no_dd_data:
 	return rc;
 }
 
+/**
+ * lpfc_bsg_send_mgmt_rsp - process a SEND_MGMT_RESP bsg vendor command
+ * @job: SEND_MGMT_RESP fc_bsg_job
+ **/
 static int
 lpfc_bsg_send_mgmt_rsp(struct fc_bsg_job *job)
 {
@@ -1298,7 +1422,7 @@ lpfc_bsg_send_mgmt_rsp(struct fc_bsg_job *job)
 			(unsigned long)job->request_payload.payload_len;
 	int rc = 0;
 
-	
+	/* in case no data is transferred */
 	job->reply->reply_payload_rcv_len = 0;
 
 	if (!reqbfrcnt || (reqbfrcnt > (80 * BUF_SZ_4K))) {
@@ -1335,9 +1459,9 @@ lpfc_bsg_send_mgmt_rsp(struct fc_bsg_job *job)
 	rc = lpfc_issue_ct_rsp(phba, job, tag, bmp, request_nseg);
 
 	if (rc == IOCB_SUCCESS)
-		return 0; 
+		return 0; /* done for now */
 
-	
+	/* TBD need to handle a timeout */
 	pci_unmap_sg(phba->pcidev, job->request_payload.sg_list,
 			  job->request_payload.sg_cnt, DMA_TO_DEVICE);
 	rc = -EACCES;
@@ -1346,12 +1470,19 @@ lpfc_bsg_send_mgmt_rsp(struct fc_bsg_job *job)
 send_mgmt_rsp_free_bmp:
 	kfree(bmp);
 send_mgmt_rsp_exit:
-	
+	/* make error code available to userspace */
 	job->reply->result = rc;
 	job->dd_data = NULL;
 	return rc;
 }
 
+/**
+ * lpfc_bsg_diag_mode_enter - process preparing into device diag loopback mode
+ * @phba: Pointer to HBA context object.
+ *
+ * This function is responsible for preparing driver for diag loopback
+ * on device.
+ */
 static int
 lpfc_bsg_diag_mode_enter(struct lpfc_hba *phba)
 {
@@ -1387,13 +1518,20 @@ lpfc_bsg_diag_mode_enter(struct lpfc_hba *phba)
 	}
 
 	while (pring->txcmplq_cnt) {
-		if (i++ > 500)  
+		if (i++ > 500)  /* wait up to 5 seconds */
 			break;
 		msleep(10);
 	}
 	return 0;
 }
 
+/**
+ * lpfc_bsg_diag_mode_exit - exit process from device diag loopback mode
+ * @phba: Pointer to HBA context object.
+ *
+ * This function is responsible for driver exit processing of setting up
+ * diag loopback mode on device.
+ */
 static void
 lpfc_bsg_diag_mode_exit(struct lpfc_hba *phba)
 {
@@ -1415,6 +1553,19 @@ lpfc_bsg_diag_mode_exit(struct lpfc_hba *phba)
 	return;
 }
 
+/**
+ * lpfc_sli3_bsg_diag_loopback_mode - process an sli3 bsg vendor command
+ * @phba: Pointer to HBA context object.
+ * @job: LPFC_BSG_VENDOR_DIAG_MODE
+ *
+ * This function is responsible for placing an sli3  port into diagnostic
+ * loopback mode in order to perform a diagnostic loopback test.
+ * All new scsi requests are blocked, a small delay is used to allow the
+ * scsi requests to complete then the link is brought down. If the link is
+ * is placed in loopback mode then scsi requests are again allowed
+ * so the scsi mid-layer doesn't give up on the port.
+ * All of this is done in-line.
+ */
 static int
 lpfc_sli3_bsg_diag_loopback_mode(struct lpfc_hba *phba, struct fc_bsg_job *job)
 {
@@ -1426,7 +1577,7 @@ lpfc_sli3_bsg_diag_loopback_mode(struct lpfc_hba *phba, struct fc_bsg_job *job)
 	int i = 0;
 	int rc = 0;
 
-	
+	/* no data to return just the return code */
 	job->reply->reply_payload_rcv_len = 0;
 
 	if (job->request_len < sizeof(struct fc_bsg_request) +
@@ -1445,7 +1596,7 @@ lpfc_sli3_bsg_diag_loopback_mode(struct lpfc_hba *phba, struct fc_bsg_job *job)
 	if (rc)
 		goto job_error;
 
-	
+	/* bring the link to diagnostic mode */
 	loopback_mode = (struct diag_mode_set *)
 		job->request->rqst_data.h_vendor.vendor_cmd;
 	link_flags = loopback_mode->type;
@@ -1463,7 +1614,7 @@ lpfc_sli3_bsg_diag_loopback_mode(struct lpfc_hba *phba, struct fc_bsg_job *job)
 	mbxstatus = lpfc_sli_issue_mbox_wait(phba, pmboxq, LPFC_MBOX_TMO);
 
 	if ((mbxstatus == MBX_SUCCESS) && (pmboxq->u.mb.mbxStatus == 0)) {
-		
+		/* wait for link down before proceeding */
 		i = 0;
 		while (phba->link_state != LPFC_LINK_DOWN) {
 			if (i++ > timeout) {
@@ -1492,7 +1643,7 @@ lpfc_sli3_bsg_diag_loopback_mode(struct lpfc_hba *phba, struct fc_bsg_job *job)
 			spin_lock_irq(&phba->hbalock);
 			phba->link_flag |= LS_LOOPBACK_MODE;
 			spin_unlock_irq(&phba->hbalock);
-			
+			/* wait for the link attention interrupt */
 			msleep(100);
 
 			i = 0;
@@ -1512,18 +1663,29 @@ lpfc_sli3_bsg_diag_loopback_mode(struct lpfc_hba *phba, struct fc_bsg_job *job)
 loopback_mode_exit:
 	lpfc_bsg_diag_mode_exit(phba);
 
+	/*
+	 * Let SLI layer release mboxq if mbox command completed after timeout.
+	 */
 	if (pmboxq && mbxstatus != MBX_TIMEOUT)
 		mempool_free(pmboxq, phba->mbox_mem_pool);
 
 job_error:
-	
+	/* make error code available to userspace */
 	job->reply->result = rc;
-	
+	/* complete the job back to userspace if no error */
 	if (rc == 0)
 		job->job_done(job);
 	return rc;
 }
 
+/**
+ * lpfc_sli4_bsg_set_link_diag_state - set sli4 link diag state
+ * @phba: Pointer to HBA context object.
+ * @diag: Flag for set link to diag or nomral operation state.
+ *
+ * This function is responsible for issuing a sli4 mailbox command for setting
+ * link to either diag state or normal operation state.
+ */
 static int
 lpfc_sli4_bsg_set_link_diag_state(struct lpfc_hba *phba, uint32_t diag)
 {
@@ -1576,6 +1738,13 @@ link_diag_state_set_out:
 	return rc;
 }
 
+/**
+ * lpfc_sli4_bsg_set_internal_loopback - set sli4 internal loopback diagnostic
+ * @phba: Pointer to HBA context object.
+ *
+ * This function is responsible for issuing a sli4 mailbox command for setting
+ * up internal loopback diagnostic.
+ */
 static int
 lpfc_sli4_bsg_set_internal_loopback(struct lpfc_hba *phba)
 {
@@ -1617,6 +1786,13 @@ lpfc_sli4_bsg_set_internal_loopback(struct lpfc_hba *phba)
 	return rc;
 }
 
+/**
+ * lpfc_sli4_diag_fcport_reg_setup - setup port registrations for diagnostic
+ * @phba: Pointer to HBA context object.
+ *
+ * This function set up SLI4 FC port registrations for diagnostic run, which
+ * includes all the rpis, vfi, and also vpi.
+ */
 static int
 lpfc_sli4_diag_fcport_reg_setup(struct lpfc_hba *phba)
 {
@@ -1635,6 +1811,14 @@ lpfc_sli4_diag_fcport_reg_setup(struct lpfc_hba *phba)
 	return rc;
 }
 
+/**
+ * lpfc_sli4_bsg_diag_loopback_mode - process an sli4 bsg vendor command
+ * @phba: Pointer to HBA context object.
+ * @job: LPFC_BSG_VENDOR_DIAG_MODE
+ *
+ * This function is responsible for placing an sli4 port into diagnostic
+ * loopback mode in order to perform a diagnostic loopback test.
+ */
 static int
 lpfc_sli4_bsg_diag_loopback_mode(struct lpfc_hba *phba, struct fc_bsg_job *job)
 {
@@ -1642,7 +1826,7 @@ lpfc_sli4_bsg_diag_loopback_mode(struct lpfc_hba *phba, struct fc_bsg_job *job)
 	uint32_t link_flags, timeout;
 	int i, rc = 0;
 
-	
+	/* no data to return just the return code */
 	job->reply->reply_payload_rcv_len = 0;
 
 	if (job->request_len < sizeof(struct fc_bsg_request) +
@@ -1661,17 +1845,17 @@ lpfc_sli4_bsg_diag_loopback_mode(struct lpfc_hba *phba, struct fc_bsg_job *job)
 	if (rc)
 		goto job_error;
 
-	
+	/* indicate we are in loobpack diagnostic mode */
 	spin_lock_irq(&phba->hbalock);
 	phba->link_flag |= LS_LOOPBACK_MODE;
 	spin_unlock_irq(&phba->hbalock);
 
-	
+	/* reset port to start frome scratch */
 	rc = lpfc_selective_reset(phba);
 	if (rc)
 		goto job_error;
 
-	
+	/* bring the link to diagnostic mode */
 	lpfc_printf_log(phba, KERN_INFO, LOG_LIBDFC,
 			"3129 Bring link to diagnostic state.\n");
 	loopback_mode = (struct diag_mode_set *)
@@ -1687,7 +1871,7 @@ lpfc_sli4_bsg_diag_loopback_mode(struct lpfc_hba *phba, struct fc_bsg_job *job)
 		goto loopback_mode_exit;
 	}
 
-	
+	/* wait for link down before proceeding */
 	i = 0;
 	while (phba->link_state != LPFC_LINK_DOWN) {
 		if (i++ > timeout) {
@@ -1701,7 +1885,7 @@ lpfc_sli4_bsg_diag_loopback_mode(struct lpfc_hba *phba, struct fc_bsg_job *job)
 		msleep(10);
 	}
 
-	
+	/* set up loopback mode */
 	lpfc_printf_log(phba, KERN_INFO, LOG_LIBDFC,
 			"3132 Set up loopback mode:x%x\n", link_flags);
 
@@ -1720,7 +1904,7 @@ lpfc_sli4_bsg_diag_loopback_mode(struct lpfc_hba *phba, struct fc_bsg_job *job)
 	}
 
 	if (!rc) {
-		
+		/* wait for the link attention interrupt */
 		msleep(100);
 		i = 0;
 		while (phba->link_state < LPFC_LINK_UP) {
@@ -1736,16 +1920,16 @@ lpfc_sli4_bsg_diag_loopback_mode(struct lpfc_hba *phba, struct fc_bsg_job *job)
 		}
 	}
 
-	
+	/* port resource registration setup for loopback diagnostic */
 	if (!rc) {
-		
+		/* set up a none zero myDID for loopback test */
 		phba->pport->fc_myDID = 1;
 		rc = lpfc_sli4_diag_fcport_reg_setup(phba);
 	} else
 		goto loopback_mode_exit;
 
 	if (!rc) {
-		
+		/* wait for the port ready */
 		msleep(100);
 		i = 0;
 		while (phba->link_state != LPFC_HBA_READY) {
@@ -1762,7 +1946,7 @@ lpfc_sli4_bsg_diag_loopback_mode(struct lpfc_hba *phba, struct fc_bsg_job *job)
 	}
 
 loopback_mode_exit:
-	
+	/* clear loopback diagnostic mode */
 	if (rc) {
 		spin_lock_irq(&phba->hbalock);
 		phba->link_flag &= ~LS_LOOPBACK_MODE;
@@ -1771,14 +1955,21 @@ loopback_mode_exit:
 	lpfc_bsg_diag_mode_exit(phba);
 
 job_error:
-	
+	/* make error code available to userspace */
 	job->reply->result = rc;
-	
+	/* complete the job back to userspace if no error */
 	if (rc == 0)
 		job->job_done(job);
 	return rc;
 }
 
+/**
+ * lpfc_bsg_diag_loopback_mode - bsg vendor command for diag loopback mode
+ * @job: LPFC_BSG_VENDOR_DIAG_MODE
+ *
+ * This function is responsible for responding to check and dispatch bsg diag
+ * command from the user to proper driver action routines.
+ */
 static int
 lpfc_bsg_diag_loopback_mode(struct fc_bsg_job *job)
 {
@@ -1808,6 +1999,13 @@ lpfc_bsg_diag_loopback_mode(struct fc_bsg_job *job)
 	return rc;
 }
 
+/**
+ * lpfc_sli4_bsg_diag_mode_end - sli4 bsg vendor command for ending diag mode
+ * @job: LPFC_BSG_VENDOR_DIAG_MODE_END
+ *
+ * This function is responsible for responding to check and dispatch bsg diag
+ * command from the user to proper driver action routines.
+ */
 static int
 lpfc_sli4_bsg_diag_mode_end(struct fc_bsg_job *job)
 {
@@ -1834,7 +2032,7 @@ lpfc_sli4_bsg_diag_mode_end(struct fc_bsg_job *job)
 	    LPFC_SLI_INTF_IF_TYPE_2)
 		return -ENODEV;
 
-	
+	/* clear loopback diagnostic mode */
 	spin_lock_irq(&phba->hbalock);
 	phba->link_flag &= ~LS_LOOPBACK_MODE;
 	spin_unlock_irq(&phba->hbalock);
@@ -1850,7 +2048,7 @@ lpfc_sli4_bsg_diag_mode_end(struct fc_bsg_job *job)
 		goto loopback_mode_end_exit;
 	}
 
-	
+	/* wait for link down before proceeding */
 	i = 0;
 	while (phba->link_state != LPFC_LINK_DOWN) {
 		if (i++ > timeout) {
@@ -1859,25 +2057,32 @@ lpfc_sli4_bsg_diag_mode_end(struct fc_bsg_job *job)
 					"3140 Timeout waiting for link to "
 					"diagnostic mode_end, timeout:%d ms\n",
 					timeout * 10);
-			
+			/* there is nothing much we can do here */
 			break;
 		}
 		msleep(10);
 	}
 
-	
+	/* reset port resource registrations */
 	rc = lpfc_selective_reset(phba);
 	phba->pport->fc_myDID = 0;
 
 loopback_mode_end_exit:
-	
+	/* make return code available to userspace */
 	job->reply->result = rc;
-	
+	/* complete the job back to userspace if no error */
 	if (rc == 0)
 		job->job_done(job);
 	return rc;
 }
 
+/**
+ * lpfc_sli4_bsg_link_diag_test - sli4 bsg vendor command for diag link test
+ * @job: LPFC_BSG_VENDOR_DIAG_LINK_TEST
+ *
+ * This function is to perform SLI4 diag link test request from the user
+ * applicaiton.
+ */
 static int
 lpfc_sli4_bsg_link_diag_test(struct fc_bsg_job *job)
 {
@@ -2015,14 +2220,22 @@ link_diag_test_exit:
 	lpfc_bsg_diag_mode_exit(phba);
 
 job_error:
-	
+	/* make error code available to userspace */
 	job->reply->result = rc;
-	
+	/* complete the job back to userspace if no error */
 	if (rc == 0)
 		job->job_done(job);
 	return rc;
 }
 
+/**
+ * lpfcdiag_loop_self_reg - obtains a remote port login id
+ * @phba: Pointer to HBA context object
+ * @rpi: Pointer to a remote port login id
+ *
+ * This function obtains a remote port login id so the diag loopback test
+ * can send and receive its own unsolicited CT command.
+ **/
 static int lpfcdiag_loop_self_reg(struct lpfc_hba *phba, uint16_t *rpi)
 {
 	LPFC_MBOXQ_t *mbox;
@@ -2076,12 +2289,19 @@ static int lpfcdiag_loop_self_reg(struct lpfc_hba *phba, uint16_t *rpi)
 	return 0;
 }
 
+/**
+ * lpfcdiag_loop_self_unreg - unregs from the rpi
+ * @phba: Pointer to HBA context object
+ * @rpi: Remote port login id
+ *
+ * This function unregisters the rpi obtained in lpfcdiag_loop_self_reg
+ **/
 static int lpfcdiag_loop_self_unreg(struct lpfc_hba *phba, uint16_t rpi)
 {
 	LPFC_MBOXQ_t *mbox;
 	int status;
 
-	
+	/* Allocate mboxq structure */
 	mbox = mempool_alloc(phba->mbox_mem_pool, GFP_KERNEL);
 	if (mbox == NULL)
 		return -ENOMEM;
@@ -2105,6 +2325,18 @@ static int lpfcdiag_loop_self_unreg(struct lpfc_hba *phba, uint16_t rpi)
 	return 0;
 }
 
+/**
+ * lpfcdiag_loop_get_xri - obtains the transmit and receive ids
+ * @phba: Pointer to HBA context object
+ * @rpi: Remote port login id
+ * @txxri: Pointer to transmit exchange id
+ * @rxxri: Pointer to response exchabge id
+ *
+ * This function obtains the transmit and receive ids required to send
+ * an unsolicited ct command with a payload. A special lpfc FsType and CmdRsp
+ * flags are used to the unsolicted response handler is able to process
+ * the ct command sent on the same port.
+ **/
 static int lpfcdiag_loop_get_xri(struct lpfc_hba *phba, uint16_t rpi,
 			 uint16_t *txxri, uint16_t * rxxri)
 {
@@ -2222,8 +2454,8 @@ static int lpfcdiag_loop_get_xri(struct lpfc_hba *phba, uint16_t rpi,
 
 err_get_xri_exit:
 	spin_lock_irqsave(&phba->ct_ev_lock, flags);
-	lpfc_bsg_event_unref(evt); 
-	lpfc_bsg_event_unref(evt); 
+	lpfc_bsg_event_unref(evt); /* release ref */
+	lpfc_bsg_event_unref(evt); /* delete */
 	spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 
 	if (dmabuf) {
@@ -2239,20 +2471,27 @@ err_get_xri_exit:
 	return ret_val;
 }
 
+/**
+ * lpfc_bsg_dma_page_alloc - allocate a bsg mbox page sized dma buffers
+ * @phba: Pointer to HBA context object
+ *
+ * This function allocates BSG_MBOX_SIZE (4KB) page size dma buffer and.
+ * retruns the pointer to the buffer.
+ **/
 static struct lpfc_dmabuf *
 lpfc_bsg_dma_page_alloc(struct lpfc_hba *phba)
 {
 	struct lpfc_dmabuf *dmabuf;
 	struct pci_dev *pcidev = phba->pcidev;
 
-	
+	/* allocate dma buffer struct */
 	dmabuf = kmalloc(sizeof(struct lpfc_dmabuf), GFP_KERNEL);
 	if (!dmabuf)
 		return NULL;
 
 	INIT_LIST_HEAD(&dmabuf->list);
 
-	
+	/* now, allocate dma buffer */
 	dmabuf->virt = dma_alloc_coherent(&pcidev->dev, BSG_MBOX_SIZE,
 					  &(dmabuf->phys), GFP_KERNEL);
 
@@ -2265,6 +2504,14 @@ lpfc_bsg_dma_page_alloc(struct lpfc_hba *phba)
 	return dmabuf;
 }
 
+/**
+ * lpfc_bsg_dma_page_free - free a bsg mbox page sized dma buffer
+ * @phba: Pointer to HBA context object.
+ * @dmabuf: Pointer to the bsg mbox page sized dma buffer descriptor.
+ *
+ * This routine just simply frees a dma buffer and its associated buffer
+ * descriptor referred by @dmabuf.
+ **/
 static void
 lpfc_bsg_dma_page_free(struct lpfc_hba *phba, struct lpfc_dmabuf *dmabuf)
 {
@@ -2280,6 +2527,14 @@ lpfc_bsg_dma_page_free(struct lpfc_hba *phba, struct lpfc_dmabuf *dmabuf)
 	return;
 }
 
+/**
+ * lpfc_bsg_dma_page_list_free - free a list of bsg mbox page sized dma buffers
+ * @phba: Pointer to HBA context object.
+ * @dmabuf_list: Pointer to a list of bsg mbox page sized dma buffer descs.
+ *
+ * This routine just simply frees all dma buffers and their associated buffer
+ * descriptors referred by @dmabuf_list.
+ **/
 static void
 lpfc_bsg_dma_page_list_free(struct lpfc_hba *phba,
 			    struct list_head *dmabuf_list)
@@ -2296,6 +2551,17 @@ lpfc_bsg_dma_page_list_free(struct lpfc_hba *phba,
 	return;
 }
 
+/**
+ * diag_cmd_data_alloc - fills in a bde struct with dma buffers
+ * @phba: Pointer to HBA context object
+ * @bpl: Pointer to 64 bit bde structure
+ * @size: Number of bytes to process
+ * @nocopydata: Flag to copy user data into the allocated buffer
+ *
+ * This function allocates page size buffers and populates an lpfc_dmabufext.
+ * If allowed the user data pointed to with indataptr is copied into the kernel
+ * memory. The chained list of page size buffers is returned.
+ **/
 static struct lpfc_dmabufext *
 diag_cmd_data_alloc(struct lpfc_hba *phba,
 		   struct ulp_bde64 *bpl, uint32_t size,
@@ -2309,26 +2575,26 @@ diag_cmd_data_alloc(struct lpfc_hba *phba,
 	pcidev = phba->pcidev;
 
 	while (size) {
-		
+		/* We get chunks of 4K */
 		if (size > BUF_SZ_4K)
 			cnt = BUF_SZ_4K;
 		else
 			cnt = size;
 
-		
+		/* allocate struct lpfc_dmabufext buffer header */
 		dmp = kmalloc(sizeof(struct lpfc_dmabufext), GFP_KERNEL);
 		if (!dmp)
 			goto out;
 
 		INIT_LIST_HEAD(&dmp->dma.list);
 
-		
+		/* Queue it to a linked list */
 		if (mlist)
 			list_add_tail(&dmp->dma.list, &mlist->dma.list);
 		else
 			mlist = dmp;
 
-		
+		/* allocate buffer */
 		dmp->dma.virt = dma_alloc_coherent(&pcidev->dev,
 						   cnt,
 						   &(dmp->dma.phys),
@@ -2349,7 +2615,7 @@ diag_cmd_data_alloc(struct lpfc_hba *phba,
 			bpl->tus.f.bdeFlags = BUFF_TYPE_BDE_64I;
 		}
 
-		
+		/* build buffer ptr list for IOCB */
 		bpl->addrLow = le32_to_cpu(putPaddrLow(dmp->dma.phys));
 		bpl->addrHigh = le32_to_cpu(putPaddrHigh(dmp->dma.phys));
 		bpl->tus.f.bdeSize = (ushort) cnt;
@@ -2368,6 +2634,15 @@ out:
 	return NULL;
 }
 
+/**
+ * lpfcdiag_loop_post_rxbufs - post the receive buffers for an unsol CT cmd
+ * @phba: Pointer to HBA context object
+ * @rxxri: Receive exchange id
+ * @len: Number of data bytes
+ *
+ * This function allocates and posts a data buffer of sufficient size to receive
+ * an unsolicted CT command.
+ **/
 static int lpfcdiag_loop_post_rxbufs(struct lpfc_hba *phba, uint16_t rxxri,
 			     size_t len)
 {
@@ -2402,7 +2677,7 @@ static int lpfcdiag_loop_post_rxbufs(struct lpfc_hba *phba, uint16_t rxxri,
 		goto err_post_rxbufs_exit;
 	}
 
-	
+	/* Queue buffers for the receive exchange */
 	num_bde = (uint32_t)rxbuffer->flag;
 	dmp = &rxbuffer->dma;
 
@@ -2466,7 +2741,7 @@ static int lpfcdiag_loop_post_rxbufs(struct lpfc_hba *phba, uint16_t rxxri,
 			mp[1] = NULL;
 		}
 
-		
+		/* The iocb was freed by lpfc_sli_issue_iocb */
 		cmdiocbq = lpfc_sli_get_iocbq(phba);
 		if (!cmdiocbq) {
 			dmp = list_entry(next, struct lpfc_dmabuf, list);
@@ -2492,6 +2767,25 @@ err_post_rxbufs_exit:
 	return ret_val;
 }
 
+/**
+ * lpfc_bsg_diag_loopback_run - run loopback on a port by issue ct cmd to itself
+ * @job: LPFC_BSG_VENDOR_DIAG_TEST fc_bsg_job
+ *
+ * This function receives a user data buffer to be transmitted and received on
+ * the same port, the link must be up and in loopback mode prior
+ * to being called.
+ * 1. A kernel buffer is allocated to copy the user data into.
+ * 2. The port registers with "itself".
+ * 3. The transmit and receive exchange ids are obtained.
+ * 4. The receive exchange id is posted.
+ * 5. A new els loopback event is created.
+ * 6. The command and response iocbs are allocated.
+ * 7. The cmd iocb FsType is set to elx loopback and the CmdRsp to looppback.
+ *
+ * This function is meant to be called n times while the port is in loopback
+ * so it is the apps responsibility to issue a reset to take the port out
+ * of loopback mode.
+ **/
 static int
 lpfc_bsg_diag_loopback_run(struct fc_bsg_job *job)
 {
@@ -2523,7 +2817,7 @@ lpfc_bsg_diag_loopback_run(struct fc_bsg_job *job)
 	void *dataout = NULL;
 	uint32_t total_mem;
 
-	
+	/* in case no data is returned return just the return code */
 	job->reply->reply_payload_rcv_len = 0;
 
 	if (job->request_len <
@@ -2556,7 +2850,7 @@ lpfc_bsg_diag_loopback_run(struct fc_bsg_job *job)
 	}
 
 	size = job->request_payload.payload_len;
-	full_size = size + ELX_LOOPBACK_HEADER_SZ; 
+	full_size = size + ELX_LOOPBACK_HEADER_SZ; /* plus the header */
 
 	if ((size == 0) || (size > 80 * BUF_SZ_4K)) {
 		rc = -ERANGE;
@@ -2564,12 +2858,19 @@ lpfc_bsg_diag_loopback_run(struct fc_bsg_job *job)
 	}
 
 	if (full_size >= BUF_SZ_4K) {
+		/*
+		 * Allocate memory for ioctl data. If buffer is bigger than 64k,
+		 * then we allocate 64k and re-use that buffer over and over to
+		 * xfer the whole block. This is because Linux kernel has a
+		 * problem allocating more than 120k of kernel space memory. Saw
+		 * problem with GET_FCPTARGETMAPPING...
+		 */
 		if (size <= (64 * 1024))
 			total_mem = full_size;
 		else
 			total_mem = 64 * 1024;
 	} else
-		
+		/* Allocate memory for ioctl data */
 		total_mem = BUF_SZ_4K;
 
 	dataout = kmalloc(total_mem, GFP_KERNEL);
@@ -2668,7 +2969,7 @@ lpfc_bsg_diag_loopback_run(struct fc_bsg_job *job)
 	}
 	list_del(&head);
 
-	
+	/* Build the XMIT_SEQUENCE iocb */
 	num_bde = (uint32_t)txbuffer->flag;
 
 	cmd->un.xseq64.bdl.addrHigh = putPaddrHigh(txbmp->phys);
@@ -2738,7 +3039,7 @@ lpfc_bsg_diag_loopback_run(struct fc_bsg_job *job)
 			rc = -EIO;
 		else {
 			rc = IOCB_SUCCESS;
-			
+			/* skip over elx loopback header */
 			rx_databuf += ELX_LOOPBACK_HEADER_SZ;
 			job->reply->reply_payload_rcv_len =
 				sg_copy_from_buffer(job->reply_payload.sg_list,
@@ -2752,8 +3053,8 @@ err_loopback_test_exit:
 	lpfcdiag_loop_self_unreg(phba, rpi);
 
 	spin_lock_irqsave(&phba->ct_ev_lock, flags);
-	lpfc_bsg_event_unref(evt); 
-	lpfc_bsg_event_unref(evt); 
+	lpfc_bsg_event_unref(evt); /* release ref */
+	lpfc_bsg_event_unref(evt); /* delete */
 	spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 
 	if (cmdiocbq != NULL)
@@ -2773,15 +3074,19 @@ err_loopback_test_exit:
 
 loopback_test_exit:
 	kfree(dataout);
-	
+	/* make error code available to userspace */
 	job->reply->result = rc;
 	job->dd_data = NULL;
-	
+	/* complete the job back to userspace if no error */
 	if (rc == IOCB_SUCCESS)
 		job->job_done(job);
 	return rc;
 }
 
+/**
+ * lpfc_bsg_get_dfc_rev - process a GET_DFC_REV bsg vendor command
+ * @job: GET_DFC_REV fc_bsg_job
+ **/
 static int
 lpfc_bsg_get_dfc_rev(struct fc_bsg_job *job)
 {
@@ -2824,6 +3129,17 @@ job_error:
 	return rc;
 }
 
+/**
+ * lpfc_bsg_issue_mbox_cmpl - lpfc_bsg_issue_mbox mbox completion handler
+ * @phba: Pointer to HBA context object.
+ * @pmboxq: Pointer to mailbox command.
+ *
+ * This is completion handler function for mailbox commands issued from
+ * lpfc_bsg_issue_mbox function. This function is called by the
+ * mailbox event handler function with no lock held. This function
+ * will wake up thread waiting on the wait queue pointed by context1
+ * of the mailbox.
+ **/
 void
 lpfc_bsg_issue_mbox_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq)
 {
@@ -2835,12 +3151,16 @@ lpfc_bsg_issue_mbox_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq)
 
 	spin_lock_irqsave(&phba->ct_ev_lock, flags);
 	dd_data = pmboxq->context1;
-	
+	/* job already timed out? */
 	if (!dd_data) {
 		spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 		return;
 	}
 
+	/*
+	 * The outgoing buffer is readily referred from the dma buffer,
+	 * just need to get header part from mailboxq structure.
+	 */
 	pmb = (uint8_t *)&pmboxq->u.mb;
 	pmb_buf = (uint8_t *)dd_data->context_un.mbox.mb;
 	memcpy(pmb_buf, pmb, sizeof(MAILBOX_t));
@@ -2852,6 +3172,10 @@ lpfc_bsg_issue_mbox_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq)
 			sg_copy_from_buffer(job->reply_payload.sg_list,
 					    job->reply_payload.sg_cnt,
 					    pmb_buf, size);
+		/* need to hold the lock until we set job->dd_data to NULL
+		 * to hold off the timeout handler returning to the mid-layer
+		 * while we are still processing the job.
+		 */
 		job->dd_data = NULL;
 		dd_data->context_un.mbox.set_job = NULL;
 		spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
@@ -2871,12 +3195,21 @@ lpfc_bsg_issue_mbox_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq)
 	return;
 }
 
+/**
+ * lpfc_bsg_check_cmd_access - test for a supported mailbox command
+ * @phba: Pointer to HBA context object.
+ * @mb: Pointer to a mailbox object.
+ * @vport: Pointer to a vport object.
+ *
+ * Some commands require the port to be offline, some may not be called from
+ * the application.
+ **/
 static int lpfc_bsg_check_cmd_access(struct lpfc_hba *phba,
 	MAILBOX_t *mb, struct lpfc_vport *vport)
 {
-	
+	/* return negative error values for bsg job */
 	switch (mb->mbxCommand) {
-	
+	/* Offline only */
 	case MBX_INIT_LINK:
 	case MBX_DOWN_LINK:
 	case MBX_CONFIG_LINK:
@@ -2951,20 +3284,27 @@ static int lpfc_bsg_check_cmd_access(struct lpfc_hba *phba,
 		return -EPERM;
 	}
 
-	return 0; 
+	return 0; /* ok */
 }
 
+/**
+ * lpfc_bsg_mbox_ext_cleanup - clean up context of multi-buffer mbox session
+ * @phba: Pointer to HBA context object.
+ *
+ * This is routine clean up and reset BSG handling of multi-buffer mbox
+ * command session.
+ **/
 static void
 lpfc_bsg_mbox_ext_session_reset(struct lpfc_hba *phba)
 {
 	if (phba->mbox_ext_buf_ctx.state == LPFC_BSG_MBOX_IDLE)
 		return;
 
-	
+	/* free all memory, including dma buffers */
 	lpfc_bsg_dma_page_list_free(phba,
 				    &phba->mbox_ext_buf_ctx.ext_dmabuf_list);
 	lpfc_bsg_dma_page_free(phba, phba->mbox_ext_buf_ctx.mbx_dmabuf);
-	
+	/* multi-buffer write mailbox command pass-through complete */
 	memset((char *)&phba->mbox_ext_buf_ctx, 0,
 	       sizeof(struct lpfc_mbox_ext_buf_ctx));
 	INIT_LIST_HEAD(&phba->mbox_ext_buf_ctx.ext_dmabuf_list);
@@ -2972,6 +3312,14 @@ lpfc_bsg_mbox_ext_session_reset(struct lpfc_hba *phba)
 	return;
 }
 
+/**
+ * lpfc_bsg_issue_mbox_ext_handle_job - job handler for multi-buffer mbox cmpl
+ * @phba: Pointer to HBA context object.
+ * @pmboxq: Pointer to mailbox command.
+ *
+ * This is routine handles BSG job for mailbox commands completions with
+ * multiple external buffers.
+ **/
 static struct fc_bsg_job *
 lpfc_bsg_issue_mbox_ext_handle_job(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq)
 {
@@ -2987,24 +3335,28 @@ lpfc_bsg_issue_mbox_ext_handle_job(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq)
 
 	spin_lock_irqsave(&phba->ct_ev_lock, flags);
 	dd_data = pmboxq->context1;
-	
+	/* has the job already timed out? */
 	if (!dd_data) {
 		spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 		job = NULL;
 		goto job_done_out;
 	}
 
+	/*
+	 * The outgoing buffer is readily referred from the dma buffer,
+	 * just need to get header part from mailboxq structure.
+	 */
 	pmb = (uint8_t *)&pmboxq->u.mb;
 	pmb_buf = (uint8_t *)dd_data->context_un.mbox.mb;
-	
+	/* Copy the byte swapped response mailbox back to the user */
 	memcpy(pmb_buf, pmb, sizeof(MAILBOX_t));
-	
+	/* if there is any non-embedded extended data copy that too */
 	dmabuf = phba->mbox_ext_buf_ctx.mbx_dmabuf;
 	sli_cfg_mbx = (struct lpfc_sli_config_mbox *)dmabuf->virt;
 	if (!bsg_bf_get(lpfc_mbox_hdr_emb,
 	    &sli_cfg_mbx->un.sli_config_emb0_subsys.sli_config_hdr)) {
 		pmbx = (uint8_t *)dmabuf->virt;
-		
+		/* byte swap the extended data following the mailbox command */
 		lpfc_sli_pcimem_bcopy(&pmbx[sizeof(MAILBOX_t)],
 			&pmbx[sizeof(MAILBOX_t)],
 			sli_cfg_mbx->un.sli_config_emb0_subsys.mse[0].buf_len);
@@ -3017,9 +3369,13 @@ lpfc_bsg_issue_mbox_ext_handle_job(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq)
 			sg_copy_from_buffer(job->reply_payload.sg_list,
 					    job->reply_payload.sg_cnt,
 					    pmb_buf, size);
-		
+		/* result for successful */
 		job->reply->result = 0;
 		job->dd_data = NULL;
+		/* need to hold the lock util we set job->dd_data to NULL
+		 * to hold off the timeout handler from midlayer to take
+		 * any action.
+		 */
 		spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 		lpfc_printf_log(phba, KERN_INFO, LOG_LIBDFC,
 				"2937 SLI_CONFIG ext-buffer maibox command "
@@ -3041,19 +3397,27 @@ job_done_out:
 				"command (x%x/x%x) failure, rc:x%x\n",
 				phba->mbox_ext_buf_ctx.nembType,
 				phba->mbox_ext_buf_ctx.mboxType, rc);
-	
+	/* state change */
 	phba->mbox_ext_buf_ctx.state = LPFC_BSG_MBOX_DONE;
 	kfree(dd_data);
 
 	return job;
 }
 
+/**
+ * lpfc_bsg_issue_read_mbox_ext_cmpl - compl handler for multi-buffer read mbox
+ * @phba: Pointer to HBA context object.
+ * @pmboxq: Pointer to mailbox command.
+ *
+ * This is completion handler function for mailbox read commands with multiple
+ * external buffers.
+ **/
 static void
 lpfc_bsg_issue_read_mbox_ext_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq)
 {
 	struct fc_bsg_job *job;
 
-	
+	/* handle the BSG job with mailbox command */
 	if (phba->mbox_ext_buf_ctx.state == LPFC_BSG_MBOX_ABTS)
 		pmboxq->u.mb.mbxStatus = MBXERR_ERROR;
 
@@ -3067,22 +3431,30 @@ lpfc_bsg_issue_read_mbox_ext_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq)
 	if (pmboxq->u.mb.mbxStatus || phba->mbox_ext_buf_ctx.numBuf == 1)
 		lpfc_bsg_mbox_ext_session_reset(phba);
 
-	
+	/* free base driver mailbox structure memory */
 	mempool_free(pmboxq, phba->mbox_mem_pool);
 
-	
+	/* complete the bsg job if we have it */
 	if (job)
 		job->job_done(job);
 
 	return;
 }
 
+/**
+ * lpfc_bsg_issue_write_mbox_ext_cmpl - cmpl handler for multi-buffer write mbox
+ * @phba: Pointer to HBA context object.
+ * @pmboxq: Pointer to mailbox command.
+ *
+ * This is completion handler function for mailbox write commands with multiple
+ * external buffers.
+ **/
 static void
 lpfc_bsg_issue_write_mbox_ext_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq)
 {
 	struct fc_bsg_job *job;
 
-	
+	/* handle the BSG job with the mailbox command */
 	if (phba->mbox_ext_buf_ctx.state == LPFC_BSG_MBOX_ABTS)
 		pmboxq->u.mb.mbxStatus = MBXERR_ERROR;
 
@@ -3093,11 +3465,11 @@ lpfc_bsg_issue_write_mbox_ext_cmpl(struct lpfc_hba *phba, LPFC_MBOXQ_t *pmboxq)
 
 	job = lpfc_bsg_issue_mbox_ext_handle_job(phba, pmboxq);
 
-	
+	/* free all memory, including dma buffers */
 	mempool_free(pmboxq, phba->mbox_mem_pool);
 	lpfc_bsg_mbox_ext_session_reset(phba);
 
-	
+	/* complete the bsg job if we have it */
 	if (job)
 		job->job_done(job);
 
@@ -3111,7 +3483,7 @@ lpfc_bsg_sli_cfg_dma_desc_setup(struct lpfc_hba *phba, enum nemb_type nemb_tp,
 {
 	struct lpfc_sli_config_mbox *sli_cfg_mbx;
 
-	
+	/* pointer to the start of mailbox command */
 	sli_cfg_mbx = (struct lpfc_sli_config_mbox *)mbx_dmabuf->virt;
 
 	if (nemb_tp == nemb_mse) {
@@ -3197,6 +3569,16 @@ lpfc_bsg_sli_cfg_dma_desc_setup(struct lpfc_hba *phba, enum nemb_type nemb_tp,
 	return;
 }
 
+/**
+ * lpfc_bsg_sli_cfg_mse_read_cmd_ext - sli_config non-embedded mailbox cmd read
+ * @phba: Pointer to HBA context object.
+ * @mb: Pointer to a BSG mailbox object.
+ * @nemb_tp: Enumerate of non-embedded mailbox command type.
+ * @dmabuff: Pointer to a DMA buffer descriptor.
+ *
+ * This routine performs SLI_CONFIG (0x9B) read mailbox command operation with
+ * non-embedded external bufffers.
+ **/
 static int
 lpfc_bsg_sli_cfg_read_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 			      enum nemb_type nemb_tp,
@@ -3216,7 +3598,7 @@ lpfc_bsg_sli_cfg_read_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 	mbox_req =
 	   (struct dfc_mbox_req *)job->request->rqst_data.h_vendor.vendor_cmd;
 
-	
+	/* pointer to the start of mailbox command */
 	sli_cfg_mbx = (struct lpfc_sli_config_mbox *)dmabuf->virt;
 
 	if (nemb_tp == nemb_mse) {
@@ -3235,13 +3617,13 @@ lpfc_bsg_sli_cfg_read_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 				"2941 Handled SLI_CONFIG(mse) rd, "
 				"ext_buf_cnt:%d\n", ext_buf_cnt);
 	} else {
-		
+		/* sanity check on interface type for support */
 		if (bf_get(lpfc_sli_intf_if_type, &phba->sli4_hba.sli_intf) !=
 		    LPFC_SLI_INTF_IF_TYPE_2) {
 			rc = -ENODEV;
 			goto job_error;
 		}
-		
+		/* nemb_tp == nemb_hbd */
 		ext_buf_cnt = sli_cfg_mbx->un.sli_config_emb1_subsys.hbd_count;
 		if (ext_buf_cnt > LPFC_MBX_SLI_CONFIG_MAX_HBD) {
 			lpfc_printf_log(phba, KERN_ERR, LOG_LIBDFC,
@@ -3257,16 +3639,16 @@ lpfc_bsg_sli_cfg_read_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 				"ext_buf_cnt:%d\n", ext_buf_cnt);
 	}
 
-	
+	/* before dma descriptor setup */
 	lpfc_idiag_mbxacc_dump_bsg_mbox(phba, nemb_tp, mbox_rd, dma_mbox,
 					sta_pre_addr, dmabuf, ext_buf_cnt);
 
-	
+	/* reject non-embedded mailbox command with none external buffer */
 	if (ext_buf_cnt == 0) {
 		rc = -EPERM;
 		goto job_error;
 	} else if (ext_buf_cnt > 1) {
-		
+		/* additional external read buffers */
 		for (i = 1; i < ext_buf_cnt; i++) {
 			ext_dmabuf = lpfc_bsg_dma_page_alloc(phba);
 			if (!ext_dmabuf) {
@@ -3278,14 +3660,14 @@ lpfc_bsg_sli_cfg_read_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 		}
 	}
 
-	
+	/* bsg tracking structure */
 	dd_data = kmalloc(sizeof(struct bsg_job_data), GFP_KERNEL);
 	if (!dd_data) {
 		rc = -ENOMEM;
 		goto job_error;
 	}
 
-	
+	/* mailbox command structure for base driver */
 	pmboxq = mempool_alloc(phba->mbox_mem_pool, GFP_KERNEL);
 	if (!pmboxq) {
 		rc = -ENOMEM;
@@ -3293,10 +3675,10 @@ lpfc_bsg_sli_cfg_read_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 	}
 	memset(pmboxq, 0, sizeof(LPFC_MBOXQ_t));
 
-	
+	/* for the first external buffer */
 	lpfc_bsg_sli_cfg_dma_desc_setup(phba, nemb_tp, 0, dmabuf, dmabuf);
 
-	
+	/* for the rest of external buffer descriptors if any */
 	if (ext_buf_cnt > 1) {
 		ext_buf_index = 1;
 		list_for_each_entry_safe(curr_dmabuf, next_dmabuf,
@@ -3308,18 +3690,18 @@ lpfc_bsg_sli_cfg_read_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 		}
 	}
 
-	
+	/* after dma descriptor setup */
 	lpfc_idiag_mbxacc_dump_bsg_mbox(phba, nemb_tp, mbox_rd, dma_mbox,
 					sta_pos_addr, dmabuf, ext_buf_cnt);
 
-	
+	/* construct base driver mbox command */
 	pmb = &pmboxq->u.mb;
 	pmbx = (uint8_t *)dmabuf->virt;
 	memcpy(pmb, pmbx, sizeof(*pmb));
 	pmb->mbxOwner = OWN_HOST;
 	pmboxq->vport = phba->pport;
 
-	
+	/* multi-buffer handling context */
 	phba->mbox_ext_buf_ctx.nembType = nemb_tp;
 	phba->mbox_ext_buf_ctx.mboxType = mbox_rd;
 	phba->mbox_ext_buf_ctx.numBuf = ext_buf_cnt;
@@ -3327,10 +3709,10 @@ lpfc_bsg_sli_cfg_read_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 	phba->mbox_ext_buf_ctx.seqNum = mbox_req->extSeqNum;
 	phba->mbox_ext_buf_ctx.mbx_dmabuf = dmabuf;
 
-	
+	/* callback for multi-buffer read mailbox command */
 	pmboxq->mbox_cmpl = lpfc_bsg_issue_read_mbox_ext_cmpl;
 
-	
+	/* context fields to callback function */
 	pmboxq->context1 = dd_data;
 	dd_data->type = TYPE_MBOX;
 	dd_data->context_un.mbox.pmboxq = pmboxq;
@@ -3338,9 +3720,13 @@ lpfc_bsg_sli_cfg_read_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 	dd_data->context_un.mbox.set_job = job;
 	job->dd_data = dd_data;
 
-	
+	/* state change */
 	phba->mbox_ext_buf_ctx.state = LPFC_BSG_MBOX_PORT;
 
+	/*
+	 * Non-embedded mailbox subcommand data gets byte swapped here because
+	 * the lower level driver code only does the first 64 mailbox words.
+	 */
 	if ((!bsg_bf_get(lpfc_mbox_hdr_emb,
 	    &sli_cfg_mbx->un.sli_config_emb0_subsys.sli_config_hdr)) &&
 		(nemb_tp == nemb_mse))
@@ -3371,6 +3757,15 @@ job_error:
 	return rc;
 }
 
+/**
+ * lpfc_bsg_sli_cfg_write_cmd_ext - sli_config non-embedded mailbox cmd write
+ * @phba: Pointer to HBA context object.
+ * @mb: Pointer to a BSG mailbox object.
+ * @dmabuff: Pointer to a DMA buffer descriptor.
+ *
+ * This routine performs SLI_CONFIG (0x9B) write mailbox command operation with
+ * non-embedded external bufffers.
+ **/
 static int
 lpfc_bsg_sli_cfg_write_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 			       enum nemb_type nemb_tp,
@@ -3388,7 +3783,7 @@ lpfc_bsg_sli_cfg_write_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 	mbox_req =
 	   (struct dfc_mbox_req *)job->request->rqst_data.h_vendor.vendor_cmd;
 
-	
+	/* pointer to the start of mailbox command */
 	sli_cfg_mbx = (struct lpfc_sli_config_mbox *)dmabuf->virt;
 
 	if (nemb_tp == nemb_mse) {
@@ -3406,11 +3801,11 @@ lpfc_bsg_sli_cfg_write_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 				"2949 Handled SLI_CONFIG(mse) wr, "
 				"ext_buf_cnt:%d\n", ext_buf_cnt);
 	} else {
-		
+		/* sanity check on interface type for support */
 		if (bf_get(lpfc_sli_intf_if_type, &phba->sli4_hba.sli_intf) !=
 		    LPFC_SLI_INTF_IF_TYPE_2)
 			return -ENODEV;
-		
+		/* nemb_tp == nemb_hbd */
 		ext_buf_cnt = sli_cfg_mbx->un.sli_config_emb1_subsys.hbd_count;
 		if (ext_buf_cnt > LPFC_MBX_SLI_CONFIG_MAX_HBD) {
 			lpfc_printf_log(phba, KERN_ERR, LOG_LIBDFC,
@@ -3425,21 +3820,21 @@ lpfc_bsg_sli_cfg_write_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 				"ext_buf_cnt:%d\n", ext_buf_cnt);
 	}
 
-	
+	/* before dma buffer descriptor setup */
 	lpfc_idiag_mbxacc_dump_bsg_mbox(phba, nemb_tp, mbox_wr, dma_mbox,
 					sta_pre_addr, dmabuf, ext_buf_cnt);
 
 	if (ext_buf_cnt == 0)
 		return -EPERM;
 
-	
+	/* for the first external buffer */
 	lpfc_bsg_sli_cfg_dma_desc_setup(phba, nemb_tp, 0, dmabuf, dmabuf);
 
-	
+	/* after dma descriptor setup */
 	lpfc_idiag_mbxacc_dump_bsg_mbox(phba, nemb_tp, mbox_wr, dma_mbox,
 					sta_pos_addr, dmabuf, ext_buf_cnt);
 
-	
+	/* log for looking forward */
 	for (i = 1; i < ext_buf_cnt; i++) {
 		if (nemb_tp == nemb_mse)
 			lpfc_printf_log(phba, KERN_INFO, LOG_LIBDFC,
@@ -3454,7 +3849,7 @@ lpfc_bsg_sli_cfg_write_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 				hbd[i]));
 	}
 
-	
+	/* multi-buffer handling context */
 	phba->mbox_ext_buf_ctx.nembType = nemb_tp;
 	phba->mbox_ext_buf_ctx.mboxType = mbox_wr;
 	phba->mbox_ext_buf_ctx.numBuf = ext_buf_cnt;
@@ -3463,14 +3858,14 @@ lpfc_bsg_sli_cfg_write_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 	phba->mbox_ext_buf_ctx.mbx_dmabuf = dmabuf;
 
 	if (ext_buf_cnt == 1) {
-		
+		/* bsg tracking structure */
 		dd_data = kmalloc(sizeof(struct bsg_job_data), GFP_KERNEL);
 		if (!dd_data) {
 			rc = -ENOMEM;
 			goto job_error;
 		}
 
-		
+		/* mailbox command structure for base driver */
 		pmboxq = mempool_alloc(phba->mbox_mem_pool, GFP_KERNEL);
 		if (!pmboxq) {
 			rc = -ENOMEM;
@@ -3483,10 +3878,10 @@ lpfc_bsg_sli_cfg_write_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 		pmb->mbxOwner = OWN_HOST;
 		pmboxq->vport = phba->pport;
 
-		
+		/* callback for multi-buffer read mailbox command */
 		pmboxq->mbox_cmpl = lpfc_bsg_issue_write_mbox_ext_cmpl;
 
-		
+		/* context fields to callback function */
 		pmboxq->context1 = dd_data;
 		dd_data->type = TYPE_MBOX;
 		dd_data->context_un.mbox.pmboxq = pmboxq;
@@ -3494,7 +3889,7 @@ lpfc_bsg_sli_cfg_write_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 		dd_data->context_un.mbox.set_job = job;
 		job->dd_data = dd_data;
 
-		
+		/* state change */
 		phba->mbox_ext_buf_ctx.state = LPFC_BSG_MBOX_PORT;
 
 		rc = lpfc_sli_issue_mbox(phba, pmboxq, MBX_NOWAIT);
@@ -3511,7 +3906,7 @@ lpfc_bsg_sli_cfg_write_cmd_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 		goto job_error;
 	}
 
-	
+	/* wait for additoinal external buffers */
 	job->reply->result = 0;
 	job->job_done(job);
 	return SLI_CONFIG_HANDLED;
@@ -3524,6 +3919,16 @@ job_error:
 	return rc;
 }
 
+/**
+ * lpfc_bsg_handle_sli_cfg_mbox - handle sli-cfg mailbox cmd with ext buffer
+ * @phba: Pointer to HBA context object.
+ * @mb: Pointer to a BSG mailbox object.
+ * @dmabuff: Pointer to a DMA buffer descriptor.
+ *
+ * This routine handles SLI_CONFIG (0x9B) mailbox command with non-embedded
+ * external bufffers, including both 0x9B with non-embedded MSEs and 0x9B
+ * with embedded sussystem 0x1 and opcodes with external HBDs.
+ **/
 static int
 lpfc_bsg_handle_sli_cfg_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 			     struct lpfc_dmabuf *dmabuf)
@@ -3533,7 +3938,7 @@ lpfc_bsg_handle_sli_cfg_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 	uint32_t opcode;
 	int rc = SLI_CONFIG_NOT_HANDLED;
 
-	
+	/* state change on new multi-buffer pass-through mailbox command */
 	phba->mbox_ext_buf_ctx.state = LPFC_BSG_MBOX_HOST;
 
 	sli_cfg_mbx = (struct lpfc_sli_config_mbox *)dmabuf->virt;
@@ -3636,13 +4041,20 @@ lpfc_bsg_handle_sli_cfg_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 		}
 	}
 
-	
+	/* state reset on not handled new multi-buffer mailbox command */
 	if (rc != SLI_CONFIG_HANDLED)
 		phba->mbox_ext_buf_ctx.state = LPFC_BSG_MBOX_IDLE;
 
 	return rc;
 }
 
+/**
+ * lpfc_bsg_mbox_ext_abort_req - request to abort mbox command with ext buffers
+ * @phba: Pointer to HBA context object.
+ *
+ * This routine is for requesting to abort a pass-through mailbox command with
+ * multiple external buffers due to error condition.
+ **/
 static void
 lpfc_bsg_mbox_ext_abort(struct lpfc_hba *phba)
 {
@@ -3653,6 +4065,14 @@ lpfc_bsg_mbox_ext_abort(struct lpfc_hba *phba)
 	return;
 }
 
+/**
+ * lpfc_bsg_read_ebuf_get - get the next mailbox read external buffer
+ * @phba: Pointer to HBA context object.
+ * @dmabuf: Pointer to a DMA buffer descriptor.
+ *
+ * This routine extracts the next mailbox read external buffer back to
+ * user space through BSG.
+ **/
 static int
 lpfc_bsg_read_ebuf_get(struct lpfc_hba *phba, struct fc_bsg_job *job)
 {
@@ -3687,7 +4107,7 @@ lpfc_bsg_read_ebuf_get(struct lpfc_hba *phba, struct fc_bsg_job *job)
 				  struct lpfc_dmabuf, list);
 	list_del_init(&dmabuf->list);
 
-	
+	/* after dma buffer descriptor setup */
 	lpfc_idiag_mbxacc_dump_bsg_mbox(phba, phba->mbox_ext_buf_ctx.nembType,
 					mbox_rd, dma_ebuf, sta_pos_addr,
 					dmabuf, index);
@@ -3713,6 +4133,14 @@ lpfc_bsg_read_ebuf_get(struct lpfc_hba *phba, struct fc_bsg_job *job)
 	return SLI_CONFIG_HANDLED;
 }
 
+/**
+ * lpfc_bsg_write_ebuf_set - set the next mailbox write external buffer
+ * @phba: Pointer to HBA context object.
+ * @dmabuf: Pointer to a DMA buffer descriptor.
+ *
+ * This routine sets up the next mailbox read external buffer obtained
+ * from user space through BSG.
+ **/
 static int
 lpfc_bsg_write_ebuf_set(struct lpfc_hba *phba, struct fc_bsg_job *job,
 			struct lpfc_dmabuf *dmabuf)
@@ -3760,13 +4188,13 @@ lpfc_bsg_write_ebuf_set(struct lpfc_hba *phba, struct fc_bsg_job *job,
 
 	}
 
-	
+	/* set up external buffer descriptor and add to external buffer list */
 	lpfc_bsg_sli_cfg_dma_desc_setup(phba, nemb_tp, index,
 					phba->mbox_ext_buf_ctx.mbx_dmabuf,
 					dmabuf);
 	list_add_tail(&dmabuf->list, &phba->mbox_ext_buf_ctx.ext_dmabuf_list);
 
-	
+	/* after write dma buffer */
 	lpfc_idiag_mbxacc_dump_bsg_mbox(phba, phba->mbox_ext_buf_ctx.nembType,
 					mbox_wr, dma_ebuf, sta_pos_addr,
 					dmabuf, index);
@@ -3776,7 +4204,7 @@ lpfc_bsg_write_ebuf_set(struct lpfc_hba *phba, struct fc_bsg_job *job,
 				"2968 SLI_CONFIG ext-buffer wr all %d "
 				"ebuffers received\n",
 				phba->mbox_ext_buf_ctx.numBuf);
-		
+		/* mailbox command structure for base driver */
 		pmboxq = mempool_alloc(phba->mbox_mem_pool, GFP_KERNEL);
 		if (!pmboxq) {
 			rc = -ENOMEM;
@@ -3789,10 +4217,10 @@ lpfc_bsg_write_ebuf_set(struct lpfc_hba *phba, struct fc_bsg_job *job,
 		pmb->mbxOwner = OWN_HOST;
 		pmboxq->vport = phba->pport;
 
-		
+		/* callback for multi-buffer write mailbox command */
 		pmboxq->mbox_cmpl = lpfc_bsg_issue_write_mbox_ext_cmpl;
 
-		
+		/* context fields to callback function */
 		pmboxq->context1 = dd_data;
 		dd_data->type = TYPE_MBOX;
 		dd_data->context_un.mbox.pmboxq = pmboxq;
@@ -3800,7 +4228,7 @@ lpfc_bsg_write_ebuf_set(struct lpfc_hba *phba, struct fc_bsg_job *job,
 		dd_data->context_un.mbox.set_job = job;
 		job->dd_data = dd_data;
 
-		
+		/* state change */
 		phba->mbox_ext_buf_ctx.state = LPFC_BSG_MBOX_PORT;
 
 		rc = lpfc_sli_issue_mbox(phba, pmboxq, MBX_NOWAIT);
@@ -3817,7 +4245,7 @@ lpfc_bsg_write_ebuf_set(struct lpfc_hba *phba, struct fc_bsg_job *job,
 		goto job_error;
 	}
 
-	
+	/* wait for additoinal external buffers */
 	job->reply->result = 0;
 	job->job_done(job);
 	return SLI_CONFIG_HANDLED;
@@ -3829,6 +4257,15 @@ job_error:
 	return rc;
 }
 
+/**
+ * lpfc_bsg_handle_sli_cfg_ebuf - handle ext buffer with sli-cfg mailbox cmd
+ * @phba: Pointer to HBA context object.
+ * @mb: Pointer to a BSG mailbox object.
+ * @dmabuff: Pointer to a DMA buffer descriptor.
+ *
+ * This routine handles the external buffer with SLI_CONFIG (0x9B) mailbox
+ * command with multiple non-embedded external buffers.
+ **/
 static int
 lpfc_bsg_handle_sli_cfg_ebuf(struct lpfc_hba *phba, struct fc_bsg_job *job,
 			     struct lpfc_dmabuf *dmabuf)
@@ -3851,7 +4288,7 @@ lpfc_bsg_handle_sli_cfg_ebuf(struct lpfc_hba *phba, struct fc_bsg_job *job,
 		rc = lpfc_bsg_read_ebuf_get(phba, job);
 		if (rc == SLI_CONFIG_HANDLED)
 			lpfc_bsg_dma_page_free(phba, dmabuf);
-	} else { 
+	} else { /* phba->mbox_ext_buf_ctx.mboxType == mbox_wr */
 		if (phba->mbox_ext_buf_ctx.state != LPFC_BSG_MBOX_HOST) {
 			lpfc_printf_log(phba, KERN_ERR, LOG_LIBDFC,
 					"2973 SLI_CONFIG wr buffer state "
@@ -3865,6 +4302,15 @@ lpfc_bsg_handle_sli_cfg_ebuf(struct lpfc_hba *phba, struct fc_bsg_job *job,
 	return rc;
 }
 
+/**
+ * lpfc_bsg_handle_sli_cfg_ext - handle sli-cfg mailbox with external buffer
+ * @phba: Pointer to HBA context object.
+ * @mb: Pointer to a BSG mailbox object.
+ * @dmabuff: Pointer to a DMA buffer descriptor.
+ *
+ * This routine checkes and handles non-embedded multi-buffer SLI_CONFIG
+ * (0x9B) mailbox commands and external buffers.
+ **/
 static int
 lpfc_bsg_handle_sli_cfg_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 			    struct lpfc_dmabuf *dmabuf)
@@ -3875,11 +4321,11 @@ lpfc_bsg_handle_sli_cfg_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 	mbox_req =
 	   (struct dfc_mbox_req *)job->request->rqst_data.h_vendor.vendor_cmd;
 
-	
+	/* mbox command with/without single external buffer */
 	if (mbox_req->extMboxTag == 0 && mbox_req->extSeqNum == 0)
 		return rc;
 
-	
+	/* mbox command and first external buffer */
 	if (phba->mbox_ext_buf_ctx.state == LPFC_BSG_MBOX_IDLE) {
 		if (mbox_req->extSeqNum == 1) {
 			lpfc_printf_log(phba, KERN_INFO, LOG_LIBDFC,
@@ -3892,8 +4338,11 @@ lpfc_bsg_handle_sli_cfg_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 			goto sli_cfg_ext_error;
 	}
 
+	/*
+	 * handle additional external buffers
+	 */
 
-	
+	/* check broken pipe conditions */
 	if (mbox_req->extMboxTag != phba->mbox_ext_buf_ctx.mbxTag)
 		goto sli_cfg_ext_error;
 	if (mbox_req->extSeqNum > phba->mbox_ext_buf_ctx.numBuf)
@@ -3910,7 +4359,7 @@ lpfc_bsg_handle_sli_cfg_ext(struct lpfc_hba *phba, struct fc_bsg_job *job,
 	return rc;
 
 sli_cfg_ext_error:
-	
+	/* all other cases, broken pipe */
 	lpfc_printf_log(phba, KERN_ERR, LOG_LIBDFC,
 			"2976 SLI_CONFIG mailbox broken pipe: "
 			"ctxSta:x%x, ctxNumBuf:%d "
@@ -3926,15 +4375,28 @@ sli_cfg_ext_error:
 	return -EPIPE;
 }
 
+/**
+ * lpfc_bsg_issue_mbox - issues a mailbox command on behalf of an app
+ * @phba: Pointer to HBA context object.
+ * @mb: Pointer to a mailbox object.
+ * @vport: Pointer to a vport object.
+ *
+ * Allocate a tracking object, mailbox command memory, get a mailbox
+ * from the mailbox pool, copy the caller mailbox command.
+ *
+ * If offline and the sli is active we need to poll for the command (port is
+ * being reset) and com-plete the job, otherwise issue the mailbox command and
+ * let our completion handler finish the command.
+ **/
 static uint32_t
 lpfc_bsg_issue_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 	struct lpfc_vport *vport)
 {
-	LPFC_MBOXQ_t *pmboxq = NULL; 
-	MAILBOX_t *pmb; 
-	
+	LPFC_MBOXQ_t *pmboxq = NULL; /* internal mailbox queue */
+	MAILBOX_t *pmb; /* shortcut to the pmboxq mailbox */
+	/* a 4k buffer to hold the mb and extended data from/to the bsg */
 	uint8_t *pmbx = NULL;
-	struct bsg_job_data *dd_data = NULL; 
+	struct bsg_job_data *dd_data = NULL; /* bsg data tracking structure */
 	struct lpfc_dmabuf *dmabuf = NULL;
 	struct dfc_mbox_req *mbox_req;
 	struct READ_EVENT_LOG_VAR *rdEventLog;
@@ -3949,16 +4411,20 @@ lpfc_bsg_issue_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 	uint32_t size;
 
 
-	
+	/* in case no data is transferred */
 	job->reply->reply_payload_rcv_len = 0;
 
-	
+	/* sanity check to protect driver */
 	if (job->reply_payload.payload_len > BSG_MBOX_SIZE ||
 	    job->request_payload.payload_len > BSG_MBOX_SIZE) {
 		rc = -ERANGE;
 		goto job_done;
 	}
 
+	/*
+	 * Don't allow mailbox commands to be sent when blocked or when in
+	 * the middle of discovery
+	 */
 	 if (phba->sli.sli_flag & LPFC_BLOCK_MGMT_IO) {
 		rc = -EAGAIN;
 		goto job_done;
@@ -3967,7 +4433,7 @@ lpfc_bsg_issue_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 	mbox_req =
 	    (struct dfc_mbox_req *)job->request->rqst_data.h_vendor.vendor_cmd;
 
-	
+	/* check if requested extended data lengths are valid */
 	if ((mbox_req->inExtWLen > BSG_MBOX_SIZE/sizeof(uint32_t)) ||
 	    (mbox_req->outExtWLen > BSG_MBOX_SIZE/sizeof(uint32_t))) {
 		rc = -ERANGE;
@@ -3980,27 +4446,27 @@ lpfc_bsg_issue_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 		goto job_done;
 	}
 
-	
+	/* Get the mailbox command or external buffer from BSG */
 	pmbx = (uint8_t *)dmabuf->virt;
 	size = job->request_payload.payload_len;
 	sg_copy_to_buffer(job->request_payload.sg_list,
 			  job->request_payload.sg_cnt, pmbx, size);
 
-	
+	/* Handle possible SLI_CONFIG with non-embedded payloads */
 	if (phba->sli_rev == LPFC_SLI_REV4) {
 		rc = lpfc_bsg_handle_sli_cfg_ext(phba, job, dmabuf);
 		if (rc == SLI_CONFIG_HANDLED)
 			goto job_cont;
 		if (rc)
 			goto job_done;
-		
+		/* SLI_CONFIG_NOT_HANDLED for other mailbox commands */
 	}
 
 	rc = lpfc_bsg_check_cmd_access(phba, (MAILBOX_t *)pmbx, vport);
 	if (rc != 0)
-		goto job_done; 
+		goto job_done; /* must be negative */
 
-	
+	/* allocate our bsg tracking structure */
 	dd_data = kmalloc(sizeof(struct bsg_job_data), GFP_KERNEL);
 	if (!dd_data) {
 		lpfc_printf_log(phba, KERN_WARNING, LOG_LIBDFC,
@@ -4021,6 +4487,9 @@ lpfc_bsg_issue_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 	pmb->mbxOwner = OWN_HOST;
 	pmboxq->vport = vport;
 
+	/* If HBA encountered an error attention, allow only DUMP
+	 * or RESTART mailbox commands until the HBA is restarted.
+	 */
 	if (phba->pport->stopped &&
 	    pmb->mbxCommand != MBX_DUMP_MEMORY &&
 	    pmb->mbxCommand != MBX_RESTART &&
@@ -4031,7 +4500,7 @@ lpfc_bsg_issue_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 				"0x%x while in stopped state.\n",
 				pmb->mbxCommand);
 
-	
+	/* extended mailbox commands will need an extended buffer */
 	if (mbox_req->inExtWLen || mbox_req->outExtWLen) {
 		from = pmbx;
 		ext = from + sizeof(MAILBOX_t);
@@ -4043,9 +4512,16 @@ lpfc_bsg_issue_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 		pmboxq->mbox_offset_word = mbox_req->mbOffset;
 	}
 
+	/* biu diag will need a kernel buffer to transfer the data
+	 * allocate our own buffer and setup the mailbox command to
+	 * use ours
+	 */
 	if (pmb->mbxCommand == MBX_RUN_BIU_DIAG64) {
 		transmit_length = pmb->un.varWords[1];
 		receive_length = pmb->un.varWords[4];
+		/* transmit length cannot be greater than receive length or
+		 * mailbox extension size
+		 */
 		if ((transmit_length > receive_length) ||
 			(transmit_length > BSG_MBOX_SIZE - sizeof(MAILBOX_t))) {
 			rc = -ERANGE;
@@ -4067,12 +4543,15 @@ lpfc_bsg_issue_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 		receive_length = rdEventLog->rcv_bde64.tus.f.bdeSize;
 		mode = bf_get(lpfc_event_log, rdEventLog);
 
+		/* receive length cannot be greater than mailbox
+		 * extension size
+		 */
 		if (receive_length > BSG_MBOX_SIZE - sizeof(MAILBOX_t)) {
 			rc = -ERANGE;
 			goto job_done;
 		}
 
-		
+		/* mode zero uses a bde like biu diags command */
 		if (mode == 0) {
 			pmb->un.varWords[3] = putPaddrLow(dmabuf->phys
 							+ sizeof(MAILBOX_t));
@@ -4080,9 +4559,19 @@ lpfc_bsg_issue_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 							+ sizeof(MAILBOX_t));
 		}
 	} else if (phba->sli_rev == LPFC_SLI_REV4) {
+		/* Let type 4 (well known data) through because the data is
+		 * returned in varwords[4-8]
+		 * otherwise check the recieve length and fetch the buffer addr
+		 */
 		if ((pmb->mbxCommand == MBX_DUMP_MEMORY) &&
 			(pmb->un.varDmp.type != DMP_WELL_KNOWN)) {
+			/* rebuild the command for sli4 using our own buffers
+			* like we do for biu diags
+			*/
 			receive_length = pmb->un.varWords[2];
+			/* receive length cannot be greater than mailbox
+			 * extension size
+			 */
 			if (receive_length == 0) {
 				rc = -ERANGE;
 				goto job_done;
@@ -4095,7 +4584,7 @@ lpfc_bsg_issue_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 			pmb->un.varUpdateCfg.co) {
 			bde = (struct ulp_bde64 *)&pmb->un.varWords[4];
 
-			
+			/* bde size cannot be greater than mailbox ext size */
 			if (bde->tus.f.bdeSize >
 			    BSG_MBOX_SIZE - sizeof(MAILBOX_t)) {
 				rc = -ERANGE;
@@ -4106,16 +4595,22 @@ lpfc_bsg_issue_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 			bde->addrLow = putPaddrLow(dmabuf->phys
 						+ sizeof(MAILBOX_t));
 		} else if (pmb->mbxCommand == MBX_SLI4_CONFIG) {
-			
+			/* Handling non-embedded SLI_CONFIG mailbox command */
 			sli4_config = &pmboxq->u.mqe.un.sli4_config;
 			if (!bf_get(lpfc_mbox_hdr_emb,
 			    &sli4_config->header.cfg_mhdr)) {
+				/* rebuild the command for sli4 using our
+				 * own buffers like we do for biu diags
+				 */
 				header = (struct mbox_header *)
 						&pmb->un.varWords[0];
 				nembed_sge = (struct lpfc_mbx_nembed_cmd *)
 						&pmb->un.varWords[0];
 				receive_length = nembed_sge->sge[0].length;
 
+				/* receive length cannot be greater than
+				 * mailbox extension size
+				 */
 				if ((receive_length == 0) ||
 				    (receive_length >
 				     BSG_MBOX_SIZE - sizeof(MAILBOX_t))) {
@@ -4135,10 +4630,10 @@ lpfc_bsg_issue_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 
 	dd_data->context_un.mbox.dmabuffers = dmabuf;
 
-	
+	/* setup wake call as IOCB callback */
 	pmboxq->mbox_cmpl = lpfc_bsg_issue_mbox_cmpl;
 
-	
+	/* setup context field to pass wait_queue pointer to wake function */
 	pmboxq->context1 = dd_data;
 	dd_data->type = TYPE_MBOX;
 	dd_data->context_un.mbox.pmboxq = pmboxq;
@@ -4158,23 +4653,23 @@ lpfc_bsg_issue_mbox(struct lpfc_hba *phba, struct fc_bsg_job *job,
 			goto job_done;
 		}
 
-		
+		/* job finished, copy the data */
 		memcpy(pmbx, pmb, sizeof(*pmb));
 		job->reply->reply_payload_rcv_len =
 			sg_copy_from_buffer(job->reply_payload.sg_list,
 					    job->reply_payload.sg_cnt,
 					    pmbx, size);
-		
+		/* not waiting mbox already done */
 		rc = 0;
 		goto job_done;
 	}
 
 	rc = lpfc_sli_issue_mbox(phba, pmboxq, MBX_NOWAIT);
 	if ((rc == MBX_SUCCESS) || (rc == MBX_BUSY))
-		return 1; 
+		return 1; /* job started */
 
 job_done:
-	
+	/* common exit for error or job completed inline */
 	if (pmboxq)
 		mempool_free(pmboxq, phba->mbox_mem_pool);
 	lpfc_bsg_dma_page_free(phba, dmabuf);
@@ -4184,6 +4679,10 @@ job_cont:
 	return rc;
 }
 
+/**
+ * lpfc_bsg_mbox_cmd - process an fc bsg LPFC_BSG_VENDOR_MBOX command
+ * @job: MBOX fc_bsg_job for LPFC_BSG_VENDOR_MBOX.
+ **/
 static int
 lpfc_bsg_mbox_cmd(struct fc_bsg_job *job)
 {
@@ -4192,7 +4691,7 @@ lpfc_bsg_mbox_cmd(struct fc_bsg_job *job)
 	struct dfc_mbox_req *mbox_req;
 	int rc = 0;
 
-	
+	/* mix-and-match backward compatibility */
 	job->reply->reply_payload_rcv_len = 0;
 	if (job->request_len <
 	    sizeof(struct fc_bsg_request) + sizeof(struct dfc_mbox_req)) {
@@ -4212,15 +4711,15 @@ lpfc_bsg_mbox_cmd(struct fc_bsg_job *job)
 	rc = lpfc_bsg_issue_mbox(phba, job, vport);
 
 	if (rc == 0) {
-		
+		/* job done */
 		job->reply->result = 0;
 		job->dd_data = NULL;
 		job->job_done(job);
 	} else if (rc == 1)
-		
-		rc = 0; 
+		/* job submitted, will complete later*/
+		rc = 0; /* return zero, no error */
 	else {
-		
+		/* some error occurred */
 		job->reply->result = rc;
 		job->dd_data = NULL;
 	}
@@ -4228,6 +4727,23 @@ lpfc_bsg_mbox_cmd(struct fc_bsg_job *job)
 	return rc;
 }
 
+/**
+ * lpfc_bsg_menlo_cmd_cmp - lpfc_menlo_cmd completion handler
+ * @phba: Pointer to HBA context object.
+ * @cmdiocbq: Pointer to command iocb.
+ * @rspiocbq: Pointer to response iocb.
+ *
+ * This function is the completion handler for iocbs issued using
+ * lpfc_menlo_cmd function. This function is called by the
+ * ring event handler function without any lock held. This function
+ * can be called from both worker thread context and interrupt
+ * context. This function also can be called from another thread which
+ * cleans up the SLI layer objects.
+ * This function copies the contents of the response iocb to the
+ * response iocb memory object provided by the caller of
+ * lpfc_sli_issue_iocb_wait and then wakes up the thread which
+ * sleeps for the iocb completion.
+ **/
 static void
 lpfc_bsg_menlo_cmd_cmp(struct lpfc_hba *phba,
 			struct lpfc_iocbq *cmdiocbq,
@@ -4251,7 +4767,7 @@ lpfc_bsg_menlo_cmd_cmp(struct lpfc_hba *phba,
 
 	menlo = &dd_data->context_un.menlo;
 	job = menlo->set_job;
-	job->dd_data = NULL; 
+	job->dd_data = NULL; /* so timeout handler does not reply */
 
 	spin_lock(&phba->hbalock);
 	cmdiocbq->iocb_flag |= LPFC_IO_WAKE;
@@ -4269,6 +4785,10 @@ lpfc_bsg_menlo_cmd_cmp(struct lpfc_hba *phba,
 	pci_unmap_sg(phba->pcidev, job->reply_payload.sg_list,
 		     job->reply_payload.sg_cnt, DMA_FROM_DEVICE);
 
+	/* always return the xri, this would be used in the case
+	 * of a menlo download to allow the data to be sent as a continuation
+	 * of the exchange.
+	 */
 	menlo_resp = (struct menlo_response *)
 		job->reply->reply_data.vendor_reply.vendor_rsp;
 	menlo_resp->xri = rsp->ulpContext;
@@ -4296,14 +4816,23 @@ lpfc_bsg_menlo_cmd_cmp(struct lpfc_hba *phba,
 	lpfc_sli_release_iocbq(phba, cmdiocbq);
 	kfree(bmp);
 	kfree(dd_data);
-	
+	/* make error code available to userspace */
 	job->reply->result = rc;
-	
+	/* complete the job back to userspace */
 	job->job_done(job);
 	spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 	return;
 }
 
+/**
+ * lpfc_menlo_cmd - send an ioctl for menlo hardware
+ * @job: fc_bsg_job to handle
+ *
+ * This function issues a gen request 64 CR ioctl for all menlo cmd requests,
+ * all the command completions will return the xri for the command.
+ * For menlo data requests a gen request 64 CX is used to continue the exchange
+ * supplied in the menlo request header xri field.
+ **/
 static int
 lpfc_menlo_cmd(struct fc_bsg_job *job)
 {
@@ -4323,7 +4852,7 @@ lpfc_menlo_cmd(struct fc_bsg_job *job)
 	struct bsg_job_data *dd_data;
 	struct ulp_bde64 *bpl = NULL;
 
-	
+	/* in case no data is returned return just the return code */
 	job->reply->reply_payload_rcv_len = 0;
 
 	if (job->request_len <
@@ -4359,7 +4888,7 @@ lpfc_menlo_cmd(struct fc_bsg_job *job)
 	menlo_resp = (struct menlo_response *)
 		job->reply->reply_data.vendor_reply.vendor_rsp;
 
-	
+	/* allocate our bsg tracking structure */
 	dd_data = kmalloc(sizeof(struct bsg_job_data), GFP_KERNEL);
 	if (!dd_data) {
 		lpfc_printf_log(phba, KERN_WARNING, LOG_LIBDFC,
@@ -4430,14 +4959,14 @@ lpfc_menlo_cmd(struct fc_bsg_job *job)
 	cmd->un.genreq64.w5.hcsw.Fctl = (SI | LA);
 	cmd->un.genreq64.w5.hcsw.Dfctl = 0;
 	cmd->un.genreq64.w5.hcsw.Rctl = FC_RCTL_DD_UNSOL_CMD;
-	cmd->un.genreq64.w5.hcsw.Type = MENLO_TRANSPORT_TYPE; 
+	cmd->un.genreq64.w5.hcsw.Type = MENLO_TRANSPORT_TYPE; /* 0xfe */
 	cmd->ulpBdeCount = 1;
 	cmd->ulpClass = CLASS3;
 	cmd->ulpOwner = OWN_CHIP;
-	cmd->ulpLe = 1; 
+	cmd->ulpLe = 1; /* Limited Edition */
 	cmdiocbq->iocb_flag |= LPFC_IO_LIBDFC;
 	cmdiocbq->vport = phba->pport;
-	
+	/* We want the firmware to timeout before we do */
 	cmd->ulpTimeout = MENLO_TIMEOUT - 5;
 	cmdiocbq->context3 = bmp;
 	cmdiocbq->context2 = rspiocbq;
@@ -4446,9 +4975,9 @@ lpfc_menlo_cmd(struct fc_bsg_job *job)
 	cmdiocbq->context2 = rspiocbq;
 	if (menlo_cmd->cmd == LPFC_BSG_VENDOR_MENLO_CMD) {
 		cmd->ulpCommand = CMD_GEN_REQUEST64_CR;
-		cmd->ulpPU = MENLO_PU; 
-		cmd->un.ulpWord[4] = MENLO_DID; 
-		cmd->ulpContext = MENLO_CONTEXT; 
+		cmd->ulpPU = MENLO_PU; /* 3 */
+		cmd->un.ulpWord[4] = MENLO_DID; /* 0x0000FC0E */
+		cmd->ulpContext = MENLO_CONTEXT; /* 0 */
 	} else {
 		cmd->ulpCommand = CMD_GEN_REQUEST64_CX;
 		cmd->ulpPU = 1;
@@ -4465,9 +4994,9 @@ lpfc_menlo_cmd(struct fc_bsg_job *job)
 	rc = lpfc_sli_issue_iocb(phba, LPFC_ELS_RING, cmdiocbq,
 		MENLO_TIMEOUT - 5);
 	if (rc == IOCB_SUCCESS)
-		return 0; 
+		return 0; /* done for now */
 
-	
+	/* iocb failed so cleanup */
 	pci_unmap_sg(phba->pcidev, job->request_payload.sg_list,
 		     job->request_payload.sg_cnt, DMA_TO_DEVICE);
 	pci_unmap_sg(phba->pcidev, job->reply_payload.sg_list,
@@ -4484,12 +5013,16 @@ free_bmp:
 free_dd:
 	kfree(dd_data);
 no_dd_data:
-	
+	/* make error code available to userspace */
 	job->reply->result = rc;
 	job->dd_data = NULL;
 	return rc;
 }
 
+/**
+ * lpfc_bsg_hst_vendor - process a vendor-specific fc_bsg_job
+ * @job: fc_bsg_job to handle
+ **/
 static int
 lpfc_bsg_hst_vendor(struct fc_bsg_job *job)
 {
@@ -4531,7 +5064,7 @@ lpfc_bsg_hst_vendor(struct fc_bsg_job *job)
 	default:
 		rc = -EINVAL;
 		job->reply->reply_payload_rcv_len = 0;
-		
+		/* make error code available to userspace */
 		job->reply->result = rc;
 		break;
 	}
@@ -4539,6 +5072,10 @@ lpfc_bsg_hst_vendor(struct fc_bsg_job *job)
 	return rc;
 }
 
+/**
+ * lpfc_bsg_request - handle a bsg request from the FC transport
+ * @job: fc_bsg_job to handle
+ **/
 int
 lpfc_bsg_request(struct fc_bsg_job *job)
 {
@@ -4559,7 +5096,7 @@ lpfc_bsg_request(struct fc_bsg_job *job)
 	default:
 		rc = -EINVAL;
 		job->reply->reply_payload_rcv_len = 0;
-		
+		/* make error code available to userspace */
 		job->reply->result = rc;
 		break;
 	}
@@ -4567,6 +5104,13 @@ lpfc_bsg_request(struct fc_bsg_job *job)
 	return rc;
 }
 
+/**
+ * lpfc_bsg_timeout - handle timeout of a bsg request from the FC transport
+ * @job: fc_bsg_job that has timed out
+ *
+ * This function just aborts the job's IOCB.  The aborted IOCB will return to
+ * the waiting function which will handle passing the error back to userspace
+ **/
 int
 lpfc_bsg_timeout(struct fc_bsg_job *job)
 {
@@ -4583,7 +5127,7 @@ lpfc_bsg_timeout(struct fc_bsg_job *job)
 
 	spin_lock_irqsave(&phba->ct_ev_lock, flags);
 	dd_data = (struct bsg_job_data *)job->dd_data;
-	
+	/* timeout and completion crossed paths if no dd_data */
 	if (!dd_data) {
 		spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 		return 0;
@@ -4593,32 +5137,35 @@ lpfc_bsg_timeout(struct fc_bsg_job *job)
 	case TYPE_IOCB:
 		iocb = &dd_data->context_un.iocb;
 		cmdiocb = iocb->cmdiocbq;
-		
+		/* hint to completion handler that the job timed out */
 		job->reply->result = -EAGAIN;
 		spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
-		
+		/* this will call our completion handler */
 		spin_lock_irq(&phba->hbalock);
 		lpfc_sli_issue_abort_iotag(phba, pring, cmdiocb);
 		spin_unlock_irq(&phba->hbalock);
 		break;
 	case TYPE_EVT:
 		evt = dd_data->context_un.evt;
-		
+		/* this event has no job anymore */
 		evt->set_job = NULL;
 		job->dd_data = NULL;
 		job->reply->reply_payload_rcv_len = 0;
+		/* Return -EAGAIN which is our way of signallying the
+		 * app to retry.
+		 */
 		job->reply->result = -EAGAIN;
 		spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 		job->job_done(job);
 		break;
 	case TYPE_MBOX:
 		mbox = &dd_data->context_un.mbox;
-		
+		/* this mbox has no job anymore */
 		mbox->set_job = NULL;
 		job->dd_data = NULL;
 		job->reply->reply_payload_rcv_len = 0;
 		job->reply->result = -EAGAIN;
-		
+		/* the mbox completion handler can now be run */
 		spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
 		job->job_done(job);
 		if (phba->mbox_ext_buf_ctx.state == LPFC_BSG_MBOX_PORT)
@@ -4627,10 +5174,10 @@ lpfc_bsg_timeout(struct fc_bsg_job *job)
 	case TYPE_MENLO:
 		menlo = &dd_data->context_un.menlo;
 		cmdiocb = menlo->cmdiocbq;
-		
+		/* hint to completion handler that the job timed out */
 		job->reply->result = -EAGAIN;
 		spin_unlock_irqrestore(&phba->ct_ev_lock, flags);
-		
+		/* this will call our completion handler */
 		spin_lock_irq(&phba->hbalock);
 		lpfc_sli_issue_abort_iotag(phba, pring, cmdiocb);
 		spin_unlock_irq(&phba->hbalock);
@@ -4640,5 +5187,9 @@ lpfc_bsg_timeout(struct fc_bsg_job *job)
 		break;
 	}
 
+	/* scsi transport fc fc_bsg_job_timeout expects a zero return code,
+	 * otherwise an error message will be displayed on the console
+	 * so always return success (zero)
+	 */
 	return 0;
 }

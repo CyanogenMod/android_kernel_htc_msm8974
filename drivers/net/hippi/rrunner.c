@@ -73,6 +73,20 @@ static const struct net_device_ops rr_netdev_ops = {
 	.ndo_set_mac_address	= hippi_mac_addr,
 };
 
+/*
+ * Implementation notes:
+ *
+ * The DMA engine only allows for DMA within physical 64KB chunks of
+ * memory. The current approach of the driver (and stack) is to use
+ * linear blocks of memory for the skbuffs. However, as the data block
+ * is always the first part of the skb and skbs are 2^n aligned so we
+ * are guarantted to get the whole block within one 64KB align 64KB
+ * chunk.
+ *
+ * On the long term, relying on being able to allocate 64KB linear
+ * chunks of memory is not feasible and the skb handling code and the
+ * stack will need to know about I/O vectors or something similar.
+ */
 
 static int __devinit rr_init_one(struct pci_dev *pdev,
 	const struct pci_device_id *ent)
@@ -115,10 +129,10 @@ static int __devinit rr_init_one(struct pci_dev *pdev,
 
 	dev->base_addr = pci_resource_start(pdev, 0);
 
-	
+	/* display version info if adapter is found */
 	if (!version_disp) {
-		
-		
+		/* set display flag to TRUE so that */
+		/* we only display this string ONCE */
 		version_disp = 1;
 		printk(version);
 	}
@@ -135,6 +149,9 @@ static int __devinit rr_init_one(struct pci_dev *pdev,
 	       "at 0x%08lx, irq %i, PCI latency %i\n", dev->name,
 	       dev->base_addr, dev->irq, pci_latency);
 
+	/*
+	 * Remap the regs into kernel space.
+	 */
 
 	rrpriv->regs = ioremap(dev->base_addr, 0x1000);
 
@@ -172,10 +189,16 @@ static int __devinit rr_init_one(struct pci_dev *pdev,
 		goto out;
 	}
 
+	/*
+	 * Don't access any register before this point!
+	 */
 #ifdef __BIG_ENDIAN
 	writel(readl(&rrpriv->regs->HostCtrl) | NO_SWAP,
 		&rrpriv->regs->HostCtrl);
 #endif
+	/*
+	 * Need to add a case for little-endian 64-bit hosts here.
+	 */
 
 	rr_init(dev);
 
@@ -234,12 +257,20 @@ static void __devexit rr_remove_one (struct pci_dev *pdev)
 }
 
 
+/*
+ * Commands are considered to be slow, thus there is no reason to
+ * inline this.
+ */
 static void rr_issue_cmd(struct rr_private *rrpriv, struct cmd *cmd)
 {
 	struct rr_regs __iomem *regs;
 	u32 idx;
 
 	regs = rrpriv->regs;
+	/*
+	 * This is temporary - it will go away in the final version.
+	 * We probably also want to make this function inline.
+	 */
 	if (readl(&regs->HostCtrl) & NIC_HALTED){
 		printk("issuing command for halted NIC, code 0x%x, "
 		       "HostCtrl %08x\n", cmd->code, readl(&regs->HostCtrl));
@@ -262,6 +293,10 @@ static void rr_issue_cmd(struct rr_private *rrpriv, struct cmd *cmd)
 }
 
 
+/*
+ * Reset the board in a sensible manner. The NIC is already halted
+ * when we get here and a spin-lock is held.
+ */
 static int rr_reset(struct net_device *dev)
 {
 	struct rr_private *rrpriv;
@@ -303,6 +338,9 @@ static int rr_reset(struct net_device *dev)
 #endif
 
 #if 0
+	/*
+	 * Don't worry, this is just black magic.
+	 */
 	writel(0xdf000, &regs->RxBase);
 	writel(0xdf000, &regs->RxPrd);
 	writel(0xdf000, &regs->RxCon);
@@ -343,6 +381,9 @@ static int rr_reset(struct net_device *dev)
 	for (i = 0; i < CMD_RING_ENTRIES; i++)
 		writel(0, &regs->CmdRing[i]);
 
+/*
+ * Why 32 ? is this not cache line size dependent?
+ */
 	writel(RBURST_64|WBURST_64, &regs->PciState);
 	wmb();
 
@@ -365,6 +406,9 @@ static int rr_reset(struct net_device *dev)
 }
 
 
+/*
+ * Read a string from the EEPROM.
+ */
 static unsigned int rr_read_eeprom(struct rr_private *rrpriv,
 				unsigned long offset,
 				unsigned char *buf,
@@ -396,6 +440,10 @@ static unsigned int rr_read_eeprom(struct rr_private *rrpriv,
 }
 
 
+/*
+ * Shortcut to read one word (4 bytes) out of the EEPROM and convert
+ * it to our CPU byte-order.
+ */
 static u32 rr_read_eeprom_word(struct rr_private *rrpriv,
 			    size_t offset)
 {
@@ -408,6 +456,11 @@ static u32 rr_read_eeprom_word(struct rr_private *rrpriv,
 }
 
 
+/*
+ * Write a string to the EEPROM.
+ *
+ * This is only called when the firmware is not running.
+ */
 static unsigned int write_eeprom(struct rr_private *rrpriv,
 				 unsigned long offset,
 				 unsigned char *buf,
@@ -426,6 +479,10 @@ static unsigned int write_eeprom(struct rr_private *rrpriv,
 		writel((EEPROM_BASE + ((offset+i) << 3)), &regs->WinBase);
 		mb();
 		data = buf[i] << 24;
+		/*
+		 * Only try to write the data if it is not the same
+		 * value already.
+		 */
 		if ((readl(&regs->WinData) & 0xff000000) != data){
 			writel(data, &regs->WinData);
 			ready = 0;
@@ -484,6 +541,14 @@ static int __devinit rr_init(struct net_device *dev)
 	printk("  Maximum receive rings %i\n", readl(&regs->MaxRxRng));
 #endif
 
+	/*
+	 * Read the hardware address from the eeprom.  The HW address
+	 * is not really necessary for HIPPI but awfully convenient.
+	 * The pointer arithmetic to put it in dev_addr is ugly, but
+	 * Donald Becker does it this way for the GigE version of this
+	 * card and it's shorter and more portable than any
+	 * other method I've seen.  -VAL
+	 */
 
 	*(__be16 *)(dev->dev_addr) =
 	  htons(rr_read_eeprom_word(rrpriv, offsetof(struct eeprom, manf.BoardULA)));
@@ -555,13 +620,19 @@ static int rr_init1(struct net_device *dev)
 	rrpriv->info->tx_ctrl.pi = 0;
 	set_rraddr(&rrpriv->info->tx_ctrl.rngptr, rrpriv->tx_ring_dma);
 
+	/*
+	 * Set dirty_tx before we start receiving interrupts, otherwise
+	 * the interrupt handler might think it is supposed to process
+	 * tx ints before we are up and running, which may cause a null
+	 * pointer access in the int handler.
+	 */
 	rrpriv->tx_full = 0;
 	rrpriv->cur_rx = 0;
 	rrpriv->dirty_rx = rrpriv->dirty_tx = 0;
 
 	rr_reset(dev);
 
-	
+	/* Tuning values */
 	writel(0x5000, &regs->ConRetry);
 	writel(0x100, &regs->ConRetryTmr);
 	writel(0x500000, &regs->ConTmout);
@@ -595,6 +666,10 @@ static int rr_init1(struct net_device *dev)
 		rrpriv->rx_skbuff[i] = skb;
 	        addr = pci_map_single(rrpriv->pci_dev, skb->data,
 			dev->mtu + HIPPI_HLEN, PCI_DMA_FROMDEVICE);
+		/*
+		 * Sanity test to see if we conflict with the DMA
+		 * limitations of the Roadrunner.
+		 */
 		if ((((unsigned long)skb->data) & 0xfff) > ~65320)
 			printk("skb alloc error\n");
 
@@ -611,12 +686,18 @@ static int rr_init1(struct net_device *dev)
 
 	udelay(1000);
 
+	/*
+	 * Now start the FirmWare.
+	 */
 	cmd.code = C_START_FW;
 	cmd.ring = 0;
 	cmd.index = 0;
 
 	rr_issue_cmd(rrpriv, &cmd);
 
+	/*
+	 * Give the FirmWare time to chew on the `get running' command.
+	 */
 	myjif = jiffies + 5 * HZ;
 	while (time_before(jiffies, myjif) && !rrpriv->fw_running)
 		cpu_relax();
@@ -626,6 +707,10 @@ static int rr_init1(struct net_device *dev)
 	return ecode;
 
  error:
+	/*
+	 * We might have gotten here because we are out of memory,
+	 * make sure we release everything we allocated before failing
+	 */
 	for (i = 0; i < RX_RING_ENTRIES; i++) {
 		struct sk_buff *skb = rrpriv->rx_skbuff[i];
 
@@ -644,6 +729,11 @@ static int rr_init1(struct net_device *dev)
 }
 
 
+/*
+ * All events are considered to be slow (RX/TX ints do not generate
+ * events) and are handled here, outside the main interrupt handler,
+ * to reduce the size of the handler.
+ */
 static u32 rr_handle_event(struct net_device *dev, u32 prodidx, u32 eidx)
 {
 	struct rr_private *rrpriv;
@@ -692,6 +782,9 @@ static u32 rr_handle_event(struct net_device *dev, u32 prodidx, u32 eidx)
 			       &regs->HostCtrl);
 			wmb();
 			break;
+		/*
+		 * TX events.
+		 */
 		case E_CON_REJ:
 			printk(KERN_WARNING "%s: Connection rejected\n",
 			       dev->name);
@@ -746,6 +839,9 @@ static u32 rr_handle_event(struct net_device *dev, u32 prodidx, u32 eidx)
 			       &regs->HostCtrl);
 			wmb();
 			break;
+		/*
+		 * RX events.
+		 */
 		case E_RX_RNG_OUT:
 			printk(KERN_INFO "%s: Receive ring full\n", dev->name);
 			break;
@@ -812,6 +908,14 @@ static u32 rr_handle_event(struct net_device *dev, u32 prodidx, u32 eidx)
 			wmb();
 			break;
 		drop:
+			/* Label packet to be dropped.
+			 * Actual dropping occurs in rx
+			 * handling.
+			 *
+			 * The index of packet we get to drop is
+			 * the index of the packet following
+			 * the bad packet. -kbf
+			 */
 			{
 				u16 index = rrpriv->evt_ring[eidx].index;
 				index = (index + (RX_RING_ENTRIES - 1)) %
@@ -906,7 +1010,7 @@ static void rx_int(struct net_device *dev, u32 rxlimit, u32 index)
 			}
 			skb->protocol = hippi_type_trans(skb, dev);
 
-			netif_rx(skb);		
+			netif_rx(skb);		/* send it up */
 
 			dev->stats.rx_packets++;
 			dev->stats.rx_bytes += pkt_len;
@@ -950,6 +1054,11 @@ static irqreturn_t rr_interrupt(int irq, void *dev_id)
 	printk("%s: interrupt, prodidx = %i, eidx = %i\n", dev->name,
 	       prodidx, rrpriv->info->evt_ctrl.pi);
 #endif
+	/*
+	 * Order here is important.  We must handle events
+	 * before doing anything else in order to catch
+	 * such things as LLRC errors, etc -kbf
+	 */
 
 	eidx = rrpriv->info->evt_ctrl.pi;
 	if (prodidx != eidx)
@@ -962,6 +1071,9 @@ static irqreturn_t rr_interrupt(int irq, void *dev_id)
 	txcon = rrpriv->dirty_tx;
 	if (txcsmr != txcon) {
 		do {
+			/* Due to occational firmware TX producer/consumer out
+			 * of sync. error need to check entry in ring -kbf
+			 */
 			if(rrpriv->tx_skbuff[txcon]){
 				struct tx_desc *desc;
 				struct sk_buff *skb;
@@ -1127,10 +1239,12 @@ static int rr_open(struct net_device *dev)
 	if ((ecode = rr_init1(dev)))
 		goto error;
 
+	/* Set the timer to switch to check for link beat and perhaps switch
+	   to an alternate media type. */
 	init_timer(&rrpriv->timer);
-	rrpriv->timer.expires = RUN_AT(5*HZ);           
+	rrpriv->timer.expires = RUN_AT(5*HZ);           /* 5 sec. watchdog */
 	rrpriv->timer.data = (unsigned long)dev;
-	rrpriv->timer.function = rr_timer;               
+	rrpriv->timer.function = rr_timer;               /* timer handler */
 	add_timer(&rrpriv->timer);
 
 	netif_start_queue(dev);
@@ -1235,6 +1349,10 @@ static int rr_close(struct net_device *dev)
 	rrpriv = netdev_priv(dev);
 	regs = rrpriv->regs;
 
+	/*
+	 * Lock to make sure we are not cleaning up while another CPU
+	 * is handling interrupts.
+	 */
 	spin_lock_irqsave(&rrpriv->lock, flags);
 
 	tmp = readl(&regs->HostCtrl);
@@ -1299,6 +1417,9 @@ static netdev_tx_t rr_start_xmit(struct sk_buff *skb,
 		printk("error codes Fail1 %02x, Fail2 %02x\n",
 		       readl(&regs->Fail1), readl(&regs->Fail2));
 
+	/*
+	 * We probably need to deal with tbusy here to prevent overruns.
+	 */
 
 	if (skb_headroom(skb) < 8){
 		printk("incoming skb too small - reallocating\n");
@@ -1319,6 +1440,10 @@ static netdev_tx_t rr_start_xmit(struct sk_buff *skb,
 	ifield[0] = 0;
 	ifield[1] = hcb->ifield;
 
+	/*
+	 * We don't need the lock before we are actually going to start
+	 * fiddling with the control blocks.
+	 */
 	spin_lock_irqsave(&rrpriv->lock, flags);
 
 	txctrl = &rrpriv->info->tx_ctrl;
@@ -1328,7 +1453,7 @@ static netdev_tx_t rr_start_xmit(struct sk_buff *skb,
 	rrpriv->tx_skbuff[index] = skb;
 	set_rraddr(&rrpriv->tx_ring[index].addr, pci_map_single(
 		rrpriv->pci_dev, skb->data, len + 8, PCI_DMA_TODEVICE));
-	rrpriv->tx_ring[index].size = len + 8; 
+	rrpriv->tx_ring[index].size = len + 8; /* include IFIELD */
 	rrpriv->tx_ring[index].mode = PACKET_START | PACKET_END;
 	txctrl->pi = (index + 1) % TX_RING_ENTRIES;
 	wmb();
@@ -1345,6 +1470,13 @@ static netdev_tx_t rr_start_xmit(struct sk_buff *skb,
 }
 
 
+/*
+ * Read the firmware out of the EEPROM and put it into the SRAM
+ * (or from user space - later)
+ *
+ * This operation requires the NIC to be halted and is performed with
+ * interrupts disabled and with the spinlock hold.
+ */
 static int rr_load_firmware(struct net_device *dev)
 {
 	struct rr_private *rrpriv;
@@ -1373,6 +1505,11 @@ static int rr_load_firmware(struct net_device *dev)
 	writel(0, &regs->RxPrd);
 	writel(0, &regs->TxPrd);
 
+	/*
+	 * First wipe the entire SRAM, otherwise we might run into all
+	 * kinds of trouble ... sigh, this took almost all afternoon
+	 * to track down ;-(
+	 */
 	io = readl(&regs->ExtIo);
 	writel(0, &regs->ExtIo);
 	sram_size = rr_read_eeprom_word(rrpriv, 8);

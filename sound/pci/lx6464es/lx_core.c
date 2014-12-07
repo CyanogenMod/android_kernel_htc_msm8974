@@ -22,6 +22,7 @@
  *
  */
 
+/* #define RMH_DEBUG 1 */
 
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -30,6 +31,7 @@
 #include "lx6464es.h"
 #include "lx_core.h"
 
+/* low-level register access */
 
 static const unsigned long dsp_port_offsets[] = {
 	0,
@@ -82,7 +84,7 @@ static void lx_dsp_reg_readbuf(struct lx6464es *chip, int port, u32 *data,
 	u32 __iomem *address = lx_dsp_register(chip, port);
 	int i;
 
-	
+	/* we cannot use memcpy_fromio */
 	for (i = 0; i != len; ++i)
 		data[i] = ioread32(address + i);
 }
@@ -100,7 +102,7 @@ static void lx_dsp_reg_writebuf(struct lx6464es *chip, int port,
 	u32 __iomem *address = lx_dsp_register(chip, port);
 	int i;
 
-	
+	/* we cannot use memcpy_to */
 	for (i = 0; i != len; ++i)
 		iowrite32(data[i], address + i);
 }
@@ -158,7 +160,7 @@ u32 lx_plx_mbox_read(struct lx6464es *chip, int mbox_nr)
 		index = ePLX_MBOX6;    break;
 	case 7:
 		index = ePLX_MBOX7;    break;
-	case 0:			
+	case 0:			/* reserved for HF flags */
 		snd_BUG();
 	default:
 		return 0xdeadbeef;
@@ -184,8 +186,9 @@ int lx_plx_mbox_write(struct lx6464es *chip, int mbox_nr, u32 value)
 		index = ePLX_MBOX6;    break;
 	case 7:
 		index = ePLX_MBOX7;    break;
-	case 0:			
-	case 2:			
+	case 0:			/* reserved for HF flags */
+	case 2:			/* reserved for Pipe States
+				 * the DSP keeps an image of it */
 		snd_BUG();
 		return -EBADRQC;
 	}
@@ -195,6 +198,7 @@ int lx_plx_mbox_write(struct lx6464es *chip, int mbox_nr, u32 value)
 }
 
 
+/* rmh */
 
 #ifdef CONFIG_SND_DEBUG
 #define CMD_NAME(a) a
@@ -206,56 +210,70 @@ int lx_plx_mbox_write(struct lx6464es *chip, int mbox_nr, u32 value)
 #define Reg_CSM_MC			0x00000001
 
 struct dsp_cmd_info {
-	u32    dcCodeOp;	
-	u16    dcCmdLength;	
-	u16    dcStatusType;	
-	u16    dcStatusLength;	
+	u32    dcCodeOp;	/* Op Code of the command (usually 1st 24-bits
+				 * word).*/
+	u16    dcCmdLength;	/* Command length in words of 24 bits.*/
+	u16    dcStatusType;	/* Status type: 0 for fixed length, 1 for
+				 * random. */
+	u16    dcStatusLength;	/* Status length (if fixed).*/
 	char  *dcOpName;
 };
 
+/*
+  Initialization and control data for the Microblaze interface
+  - OpCode:
+    the opcode field of the command set at the proper offset
+  - CmdLength
+    the number of command words
+  - StatusType
+    offset in the status registers: 0 means that the return value may be
+    different from 0, and must be read
+  - StatusLength
+    the number of status words (in addition to the return value)
+*/
 
 static struct dsp_cmd_info dsp_commands[] =
 {
-	{ (CMD_00_INFO_DEBUG << OPCODE_OFFSET)			, 1 
-	  , 1	, 0 		    , CMD_NAME("INFO_DEBUG") },
-	{ (CMD_01_GET_SYS_CFG << OPCODE_OFFSET) 		, 1 
-	  , 1      , 2 		    , CMD_NAME("GET_SYS_CFG") },
-	{ (CMD_02_SET_GRANULARITY << OPCODE_OFFSET)	        , 1 
-	  , 1      , 0 		    , CMD_NAME("SET_GRANULARITY") },
-	{ (CMD_03_SET_TIMER_IRQ << OPCODE_OFFSET)		, 1 
-	  , 1      , 0 		    , CMD_NAME("SET_TIMER_IRQ") },
-	{ (CMD_04_GET_EVENT << OPCODE_OFFSET)			, 1 
-	  , 1      , 0      , CMD_NAME("GET_EVENT") },
-	{ (CMD_05_GET_PIPES << OPCODE_OFFSET)			, 1 
-	  , 1      , 2       , CMD_NAME("GET_PIPES") },
-	{ (CMD_06_ALLOCATE_PIPE << OPCODE_OFFSET)		, 1 
-	  , 0      , 0 		    , CMD_NAME("ALLOCATE_PIPE") },
-	{ (CMD_07_RELEASE_PIPE << OPCODE_OFFSET)		, 1 
-	  , 0      , 0 		    , CMD_NAME("RELEASE_PIPE") },
-	{ (CMD_08_ASK_BUFFERS << OPCODE_OFFSET) 		, 1 
+	{ (CMD_00_INFO_DEBUG << OPCODE_OFFSET)			, 1 /*custom*/
+	  , 1	, 0 /**/		    , CMD_NAME("INFO_DEBUG") },
+	{ (CMD_01_GET_SYS_CFG << OPCODE_OFFSET) 		, 1 /**/
+	  , 1      , 2 /**/		    , CMD_NAME("GET_SYS_CFG") },
+	{ (CMD_02_SET_GRANULARITY << OPCODE_OFFSET)	        , 1 /**/
+	  , 1      , 0 /**/		    , CMD_NAME("SET_GRANULARITY") },
+	{ (CMD_03_SET_TIMER_IRQ << OPCODE_OFFSET)		, 1 /**/
+	  , 1      , 0 /**/		    , CMD_NAME("SET_TIMER_IRQ") },
+	{ (CMD_04_GET_EVENT << OPCODE_OFFSET)			, 1 /**/
+	  , 1      , 0 /*up to 10*/     , CMD_NAME("GET_EVENT") },
+	{ (CMD_05_GET_PIPES << OPCODE_OFFSET)			, 1 /**/
+	  , 1      , 2 /*up to 4*/      , CMD_NAME("GET_PIPES") },
+	{ (CMD_06_ALLOCATE_PIPE << OPCODE_OFFSET)		, 1 /**/
+	  , 0      , 0 /**/		    , CMD_NAME("ALLOCATE_PIPE") },
+	{ (CMD_07_RELEASE_PIPE << OPCODE_OFFSET)		, 1 /**/
+	  , 0      , 0 /**/		    , CMD_NAME("RELEASE_PIPE") },
+	{ (CMD_08_ASK_BUFFERS << OPCODE_OFFSET) 		, 1 /**/
 	  , 1      , MAX_STREAM_BUFFER  , CMD_NAME("ASK_BUFFERS") },
-	{ (CMD_09_STOP_PIPE << OPCODE_OFFSET)			, 1 
-	  , 0      , 0       , CMD_NAME("STOP_PIPE") },
-	{ (CMD_0A_GET_PIPE_SPL_COUNT << OPCODE_OFFSET)	        , 1 
-	  , 1      , 1       , CMD_NAME("GET_PIPE_SPL_COUNT") },
-	{ (CMD_0B_TOGGLE_PIPE_STATE << OPCODE_OFFSET)           , 1 
-	  , 1      , 0 		    , CMD_NAME("TOGGLE_PIPE_STATE") },
-	{ (CMD_0C_DEF_STREAM << OPCODE_OFFSET)			, 1 
-	  , 1      , 0 		    , CMD_NAME("DEF_STREAM") },
-	{ (CMD_0D_SET_MUTE  << OPCODE_OFFSET)			, 3 
-	  , 1      , 0 		    , CMD_NAME("SET_MUTE") },
-	{ (CMD_0E_GET_STREAM_SPL_COUNT << OPCODE_OFFSET)        , 1
-	  , 1      , 2 		    , CMD_NAME("GET_STREAM_SPL_COUNT") },
-	{ (CMD_0F_UPDATE_BUFFER << OPCODE_OFFSET)		, 3 
-	  , 0      , 1 		    , CMD_NAME("UPDATE_BUFFER") },
-	{ (CMD_10_GET_BUFFER << OPCODE_OFFSET)			, 1 
-	  , 1      , 4 		    , CMD_NAME("GET_BUFFER") },
-	{ (CMD_11_CANCEL_BUFFER << OPCODE_OFFSET)		, 1 
-	  , 1      , 1       , CMD_NAME("CANCEL_BUFFER") },
-	{ (CMD_12_GET_PEAK << OPCODE_OFFSET)			, 1 
-	  , 1      , 1 		    , CMD_NAME("GET_PEAK") },
-	{ (CMD_13_SET_STREAM_STATE << OPCODE_OFFSET)	        , 1 
-	  , 1      , 0 		    , CMD_NAME("SET_STREAM_STATE") },
+	{ (CMD_09_STOP_PIPE << OPCODE_OFFSET)			, 1 /**/
+	  , 0      , 0 /*up to 2*/      , CMD_NAME("STOP_PIPE") },
+	{ (CMD_0A_GET_PIPE_SPL_COUNT << OPCODE_OFFSET)	        , 1 /**/
+	  , 1      , 1 /*up to 2*/      , CMD_NAME("GET_PIPE_SPL_COUNT") },
+	{ (CMD_0B_TOGGLE_PIPE_STATE << OPCODE_OFFSET)           , 1 /*up to 5*/
+	  , 1      , 0 /**/		    , CMD_NAME("TOGGLE_PIPE_STATE") },
+	{ (CMD_0C_DEF_STREAM << OPCODE_OFFSET)			, 1 /*up to 4*/
+	  , 1      , 0 /**/		    , CMD_NAME("DEF_STREAM") },
+	{ (CMD_0D_SET_MUTE  << OPCODE_OFFSET)			, 3 /**/
+	  , 1      , 0 /**/		    , CMD_NAME("SET_MUTE") },
+	{ (CMD_0E_GET_STREAM_SPL_COUNT << OPCODE_OFFSET)        , 1/**/
+	  , 1      , 2 /**/		    , CMD_NAME("GET_STREAM_SPL_COUNT") },
+	{ (CMD_0F_UPDATE_BUFFER << OPCODE_OFFSET)		, 3 /*up to 4*/
+	  , 0      , 1 /**/		    , CMD_NAME("UPDATE_BUFFER") },
+	{ (CMD_10_GET_BUFFER << OPCODE_OFFSET)			, 1 /**/
+	  , 1      , 4 /**/		    , CMD_NAME("GET_BUFFER") },
+	{ (CMD_11_CANCEL_BUFFER << OPCODE_OFFSET)		, 1 /**/
+	  , 1      , 1 /*up to 4*/      , CMD_NAME("CANCEL_BUFFER") },
+	{ (CMD_12_GET_PEAK << OPCODE_OFFSET)			, 1 /**/
+	  , 1      , 1 /**/		    , CMD_NAME("GET_PEAK") },
+	{ (CMD_13_SET_STREAM_STATE << OPCODE_OFFSET)	        , 1 /**/
+	  , 1      , 0 /**/		    , CMD_NAME("SET_STREAM_STATE") },
 };
 
 static void lx_message_init(struct lx_rmh *rmh, enum cmd_mb_opcodes cmd)
@@ -300,6 +318,7 @@ static inline void lx_message_dump(struct lx_rmh *rmh)
 
 
 
+/* sleep 500 - 100 = 400 times 100us -> the timeout is >= 40 ms */
 #define XILINX_TIMEOUT_MS       40
 #define XILINX_POLL_NO_SLEEP    100
 #define XILINX_POLL_ITERATIONS  150
@@ -315,13 +334,13 @@ static int lx_message_send_atomic(struct lx6464es *chip, struct lx_rmh *rmh)
 		return -EBUSY;
 	}
 
-	
+	/* write command */
 	lx_dsp_reg_writebuf(chip, eReg_CRM1, rmh->cmd, rmh->cmd_len);
 
-	
+	/* MicoBlaze gogogo */
 	lx_dsp_reg_write(chip, eReg_CSM, Reg_CSM_MC);
 
-	
+	/* wait for device to answer */
 	for (dwloop = 0; dwloop != XILINX_TIMEOUT_MS * 1000; ++dwloop) {
 		if (lx_dsp_reg_read(chip, eReg_CSM) & Reg_CSM_MR) {
 			if (rmh->dsp_stat == 0)
@@ -337,7 +356,7 @@ static int lx_message_send_atomic(struct lx6464es *chip, struct lx_rmh *rmh)
 
 polling_successful:
 	if ((reg & ERROR_VALUE) == 0) {
-		
+		/* read response */
 		if (rmh->stat_len) {
 			snd_BUG_ON(rmh->stat_len >= (REG_CRM_NUMBER-1));
 			lx_dsp_reg_readbuf(chip, eReg_CRM2, rmh->stat,
@@ -346,7 +365,7 @@ polling_successful:
 	} else
 		snd_printk(LXP "rmh error: %08x\n", reg);
 
-	
+	/* clear Reg_CSM_MR */
 	lx_dsp_reg_write(chip, eReg_CSM, 0);
 
 	switch (reg) {
@@ -365,6 +384,7 @@ polling_successful:
 }
 
 
+/* low-level dsp access */
 int __devinit lx_dsp_get_version(struct lx6464es *chip, u32 *rdsp_version)
 {
 	u16 ret;
@@ -399,7 +419,7 @@ int lx_dsp_get_clock_frequency(struct lx6464es *chip, u32 *rfreq)
 
 		if ((freq < XES_FREQ_COUNT8_48_MAX) ||
 		    (freq > XES_FREQ_COUNT8_44_MIN))
-			frequency = 0; 
+			frequency = 0; /* unknown */
 		else if (freq >= XES_FREQ_COUNT8_44_MAX)
 			frequency = 44100;
 		else
@@ -420,7 +440,7 @@ int lx_dsp_get_mac(struct lx6464es *chip)
 	macmsb = lx_dsp_reg_read(chip, eReg_ADMACESMSB) & 0x00FFFFFF;
 	maclsb = lx_dsp_reg_read(chip, eReg_ADMACESLSB) & 0x00FFFFFF;
 
-	
+	/* todo: endianess handling */
 	chip->mac_address[5] = ((u8 *)(&maclsb))[0];
 	chip->mac_address[4] = ((u8 *)(&maclsb))[1];
 	chip->mac_address[3] = ((u8 *)(&maclsb))[2];
@@ -455,7 +475,7 @@ int lx_dsp_read_async_events(struct lx6464es *chip, u32 *data)
 	spin_lock_irqsave(&chip->msg_lock, flags);
 
 	lx_message_init(&chip->rmh, CMD_04_GET_EVENT);
-	chip->rmh.stat_len = 9;	
+	chip->rmh.stat_len = 9;	/* we don't necessarily need the full length */
 
 	ret = lx_message_send_atomic(chip, &chip->rmh);
 
@@ -466,7 +486,7 @@ int lx_dsp_read_async_events(struct lx6464es *chip, u32 *data)
 	return ret;
 }
 
-#define CSES_TIMEOUT        100     
+#define CSES_TIMEOUT        100     /* microseconds */
 #define CSES_CE             0x0001
 #define CSES_BROADCAST      0x0002
 #define CSES_UPDATE_LDSV    0x0004
@@ -476,6 +496,15 @@ int lx_dsp_es_check_pipeline(struct lx6464es *chip)
 	int i;
 
 	for (i = 0; i != CSES_TIMEOUT; ++i) {
+		/*
+		 * le bit CSES_UPDATE_LDSV est Ã  1 dÃ©s que le macprog
+		 * est pret. il re-passe Ã  0 lorsque le premier read a
+		 * Ã©tÃ© fait. pour l'instant on retire le test car ce bit
+		 * passe a 1 environ 200 Ã  400 ms aprÃ©s que le registre
+		 * confES Ã  Ã©tÃ© Ã©crit (kick du xilinx ES).
+		 *
+		 * On ne teste que le bit CE.
+		 * */
 
 		u32 cses = lx_dsp_reg_read(chip, eReg_CSES);
 
@@ -494,6 +523,7 @@ int lx_dsp_es_check_pipeline(struct lx6464es *chip)
 
 
 
+/* low-level pipe handling */
 int lx_pipe_allocate(struct lx6464es *chip, u32 pipe, int is_capture,
 		     int channels)
 {
@@ -563,13 +593,13 @@ int lx_buffer_ask(struct lx6464es *chip, u32 pipe, int is_capture,
 		for (i = 0; i < MAX_STREAM_BUFFER; ++i) {
 			u32 stat = chip->rmh.stat[i];
 			if (stat & (BF_EOB << BUFF_FLAGS_OFFSET)) {
-				
+				/* finished */
 				*r_freed += 1;
 				if (size_array)
 					size_array[i] = stat & MASK_DATA_SIZE;
 			} else if ((stat & (BF_VALID << BUFF_FLAGS_OFFSET))
 				   == 0)
-				
+				/* free */
 				*r_needed += 1;
 		}
 
@@ -666,17 +696,17 @@ int lx_pipe_sample_count(struct lx6464es *chip, u32 pipe, int is_capture,
 	lx_message_init(&chip->rmh, CMD_0A_GET_PIPE_SPL_COUNT);
 
 	chip->rmh.cmd[0] |= pipe_cmd;
-	chip->rmh.stat_len = 2;	
+	chip->rmh.stat_len = 2;	/* need all words here! */
 
-	err = lx_message_send_atomic(chip, &chip->rmh); 
+	err = lx_message_send_atomic(chip, &chip->rmh); /* don't sleep! */
 
 	if (err != 0)
 		snd_printk(KERN_ERR
 			   "lx6464es: could not query pipe's sample count\n");
 	else {
 		*rsample_count = ((u64)(chip->rmh.stat[0] & MASK_SPL_COUNT_HI)
-				  << 24)     
-			+ chip->rmh.stat[1]; 
+				  << 24)     /* hi part */
+			+ chip->rmh.stat[1]; /* lo part */
 	}
 
 	spin_unlock_irqrestore(&chip->msg_lock, flags);
@@ -711,6 +741,8 @@ static int lx_pipe_wait_for_state(struct lx6464es *chip, u32 pipe,
 {
 	int i;
 
+	/* max 2*PCMOnlyGranularity = 2*1024 at 44100 = < 50 ms:
+	 * timeout 50 ms */
 	for (i = 0; i != 50; ++i) {
 		u16 current_state;
 		int err = lx_pipe_state(chip, pipe, is_capture, &current_state);
@@ -737,6 +769,7 @@ int lx_pipe_wait_for_idle(struct lx6464es *chip, u32 pipe, int is_capture)
 	return lx_pipe_wait_for_state(chip, pipe, is_capture, PSTATE_IDLE);
 }
 
+/* low-level stream handling */
 int lx_stream_set_state(struct lx6464es *chip, u32 pipe,
 			       int is_capture, enum stream_state_t state)
 {
@@ -777,11 +810,11 @@ int lx_stream_set_format(struct lx6464es *chip, struct snd_pcm_runtime *runtime,
 	chip->rmh.cmd[0] |= pipe_cmd;
 
 	if (runtime->sample_bits == 16)
-		
+		/* 16 bit format */
 		chip->rmh.cmd[0] |= (STREAM_FMT_16b << STREAM_FMT_OFFSET);
 
 	if (snd_pcm_format_little_endian(runtime->format))
-		
+		/* little endian/intel format */
 		chip->rmh.cmd[0] |= (STREAM_FMT_intel << STREAM_FMT_OFFSET);
 
 	chip->rmh.cmd[0] |= channels-1;
@@ -829,13 +862,14 @@ int lx_stream_sample_position(struct lx6464es *chip, u32 pipe, int is_capture,
 	err = lx_message_send_atomic(chip, &chip->rmh);
 
 	*r_bytepos = ((u64) (chip->rmh.stat[0] & MASK_SPL_COUNT_HI)
-		      << 32)	     
-		+ chip->rmh.stat[1]; 
+		      << 32)	     /* hi part */
+		+ chip->rmh.stat[1]; /* lo part */
 
 	spin_unlock_irqrestore(&chip->msg_lock, flags);
 	return err;
 }
 
+/* low-level buffer handling */
 int lx_buffer_give(struct lx6464es *chip, u32 pipe, int is_capture,
 		   u32 buffer_size, u32 buf_address_lo, u32 buf_address_hi,
 		   u32 *r_buffer_index)
@@ -849,9 +883,9 @@ int lx_buffer_give(struct lx6464es *chip, u32 pipe, int is_capture,
 	lx_message_init(&chip->rmh, CMD_0F_UPDATE_BUFFER);
 
 	chip->rmh.cmd[0] |= pipe_cmd;
-	chip->rmh.cmd[0] |= BF_NOTIFY_EOB; 
+	chip->rmh.cmd[0] |= BF_NOTIFY_EOB; /* request interrupt notification */
 
-	
+	/* todo: pause request, circular buffer */
 
 	chip->rmh.cmd[1] = buffer_size & MASK_DATA_SIZE;
 	chip->rmh.cmd[2] = buf_address_lo;
@@ -895,7 +929,8 @@ int lx_buffer_free(struct lx6464es *chip, u32 pipe, int is_capture,
 	lx_message_init(&chip->rmh, CMD_11_CANCEL_BUFFER);
 
 	chip->rmh.cmd[0] |= pipe_cmd;
-	chip->rmh.cmd[0] |= MASK_BUFFER_ID; 
+	chip->rmh.cmd[0] |= MASK_BUFFER_ID; /* ask for the current buffer: the
+					     * microblaze will seek for it */
 
 	err = lx_message_send_atomic(chip, &chip->rmh);
 
@@ -927,12 +962,17 @@ int lx_buffer_cancel(struct lx6464es *chip, u32 pipe, int is_capture,
 }
 
 
+/* low-level gain/peak handling
+ *
+ * \todo: can we unmute capture/playback channels independently?
+ *
+ * */
 int lx_level_unmute(struct lx6464es *chip, int is_capture, int unmute)
 {
 	int err;
 	unsigned long flags;
 
-	
+	/* bit set to 1: channel muted */
 	u64 mute_mask = unmute ? 0 : 0xFFFFFFFFFFFFFFFFLLU;
 
 	spin_lock_irqsave(&chip->msg_lock, flags);
@@ -940,8 +980,8 @@ int lx_level_unmute(struct lx6464es *chip, int is_capture, int unmute)
 
 	chip->rmh.cmd[0] |= PIPE_INFO_TO_CMD(is_capture, 0);
 
-	chip->rmh.cmd[1] = (u32)(mute_mask >> (u64)32);	       
-	chip->rmh.cmd[2] = (u32)(mute_mask & (u64)0xFFFFFFFF); 
+	chip->rmh.cmd[1] = (u32)(mute_mask >> (u64)32);	       /* hi part */
+	chip->rmh.cmd[2] = (u32)(mute_mask & (u64)0xFFFFFFFF); /* lo part */
 
 	snd_printk("mute %x %x %x\n", chip->rmh.cmd[0], chip->rmh.cmd[1],
 		   chip->rmh.cmd[2]);
@@ -953,22 +993,22 @@ int lx_level_unmute(struct lx6464es *chip, int is_capture, int unmute)
 }
 
 static u32 peak_map[] = {
-	0x00000109, 
-	0x0000083B, 
-	0x000020C4, 
-	0x00008273, 
-	0x00020756, 
-	0x00040C37, 
-	0x00081385, 
-	0x00101D3F, 
-	0x0016C310, 
-	0x002026F2, 
-	0x002D6A86, 
-	0x004026E6, 
-	0x005A9DF6, 
-	0x0065AC8B, 
-	0x00721481, 
-	0x007FFFFF, 
+	0x00000109, /* -90.308dB */
+	0x0000083B, /* -72.247dB */
+	0x000020C4, /* -60.205dB */
+	0x00008273, /* -48.030dB */
+	0x00020756, /* -36.005dB */
+	0x00040C37, /* -30.001dB */
+	0x00081385, /* -24.002dB */
+	0x00101D3F, /* -18.000dB */
+	0x0016C310, /* -15.000dB */
+	0x002026F2, /* -12.001dB */
+	0x002D6A86, /* -9.000dB */
+	0x004026E6, /* -6.004dB */
+	0x005A9DF6, /* -3.000dB */
+	0x0065AC8B, /* -2.000dB */
+	0x00721481, /* -1.000dB */
+	0x007FFFFF, /* FS */
 };
 
 int lx_level_peaks(struct lx6464es *chip, int is_capture, int channels,
@@ -1007,22 +1047,23 @@ int lx_level_peaks(struct lx6464es *chip, int is_capture, int channels,
 	return err;
 }
 
+/* interrupt handling */
 #define PCX_IRQ_NONE 0
-#define IRQCS_ACTIVE_PCIDB  0x00002000L         
-#define IRQCS_ENABLE_PCIIRQ 0x00000100L         
-#define IRQCS_ENABLE_PCIDB  0x00000200L         
+#define IRQCS_ACTIVE_PCIDB  0x00002000L         /* Bit nÃÂ¸ 13 */
+#define IRQCS_ENABLE_PCIIRQ 0x00000100L         /* Bit nÃÂ¸ 08 */
+#define IRQCS_ENABLE_PCIDB  0x00000200L         /* Bit nÃÂ¸ 09 */
 
 static u32 lx_interrupt_test_ack(struct lx6464es *chip)
 {
 	u32 irqcs = lx_plx_reg_read(chip, ePLX_IRQCS);
 
-	
+	/* Test if PCI Doorbell interrupt is active */
 	if (irqcs & IRQCS_ACTIVE_PCIDB)	{
 		u32 temp;
 		irqcs = PCX_IRQ_NONE;
 
 		while ((temp = lx_plx_reg_read(chip, ePLX_L2PCIDB))) {
-			
+			/* RAZ interrupt */
 			irqcs |= temp;
 			lx_plx_reg_write(chip, ePLX_L2PCIDB, temp);
 		}
@@ -1043,7 +1084,8 @@ static int lx_interrupt_ack(struct lx6464es *chip, u32 *r_irqsrc,
 
 	*r_irqsrc = irqsrc;
 
-	irq_async = irqsrc & MASK_SYS_ASYNC_EVENTS; 
+	irq_async = irqsrc & MASK_SYS_ASYNC_EVENTS; /* + EtherSound response
+						     * (set by xilinx) + EOB */
 
 	if (irq_async & MASK_SYS_STATUS_ESA) {
 		irq_async &= ~MASK_SYS_STATUS_ESA;
@@ -1051,7 +1093,7 @@ static int lx_interrupt_ack(struct lx6464es *chip, u32 *r_irqsrc,
 	}
 
 	if (irq_async) {
-		
+		/* snd_printd("interrupt: async event pending\n"); */
 		*r_async_pending = 1;
 	}
 
@@ -1064,8 +1106,20 @@ static int lx_interrupt_handle_async_events(struct lx6464es *chip, u32 irqsrc,
 					    u64 *r_notified_out_pipe_mask)
 {
 	int err;
-	u32 stat[9];		
+	u32 stat[9];		/* answer from CMD_04_GET_EVENT */
 
+	/* On peut optimiser pour ne pas lire les evenements vides
+	 * les mots de rÃÂ©ponse sont dans l'ordre suivant :
+	 * Stat[0]	mot de status gÃÂ©nÃÂ©ral
+	 * Stat[1]	fin de buffer OUT pF
+	 * Stat[2]	fin de buffer OUT pf
+	 * Stat[3]	fin de buffer IN pF
+	 * Stat[4]	fin de buffer IN pf
+	 * Stat[5]	underrun poid fort
+	 * Stat[6]	underrun poid faible
+	 * Stat[7]	overrun poid fort
+	 * Stat[8]	overrun poid faible
+	 * */
 
 	u64 orun_mask;
 	u64 urun_mask;
@@ -1098,7 +1152,7 @@ static int lx_interrupt_handle_async_events(struct lx6464es *chip, u32 irqsrc,
 	orun_mask = ((u64)stat[7] << 32) + stat[8];
 	urun_mask = ((u64)stat[5] << 32) + stat[6];
 
-	
+	/* todo: handle xrun notification */
 
 	return err;
 }
@@ -1212,7 +1266,7 @@ irqreturn_t lx_interrupt(int irq, void *dev_id)
 	if (!lx_interrupt_ack(chip, &irqsrc, &async_pending, &async_escmd)) {
 		spin_unlock(&chip->lock);
 		snd_printdd("IRQ_NONE\n");
-		return IRQ_NONE; 
+		return IRQ_NONE; /* this device did not cause the interrupt */
 	}
 
 	if (irqsrc & MASK_SYS_STATUS_CMD_DONE)
@@ -1238,7 +1292,7 @@ irqreturn_t lx_interrupt(int irq, void *dev_id)
 		int freq_changed;
 		int err;
 
-		
+		/* handle async events */
 		err = lx_interrupt_handle_async_events(chip, irqsrc,
 						       &freq_changed,
 						       &notified_in_pipe_mask,
@@ -1258,6 +1312,11 @@ irqreturn_t lx_interrupt(int irq, void *dev_id)
 
 	if (async_escmd) {
 #if 0
+		/* backdoor for ethersound commands
+		 *
+		 * for now, we do not need this
+		 *
+		 * */
 
 		snd_printdd("lx6464es: interrupt requests escmd handling\n");
 #endif
@@ -1265,7 +1324,7 @@ irqreturn_t lx_interrupt(int irq, void *dev_id)
 
 exit:
 	spin_unlock(&chip->lock);
-	return IRQ_HANDLED;	
+	return IRQ_HANDLED;	/* this device caused the interrupt */
 }
 
 
@@ -1273,6 +1332,11 @@ static void lx_irq_set(struct lx6464es *chip, int enable)
 {
 	u32 reg = lx_plx_reg_read(chip, ePLX_IRQCS);
 
+	/* enable/disable interrupts
+	 *
+	 * Set the Doorbell and PCI interrupt enable bits
+	 *
+	 * */
 	if (enable)
 		reg |=  (IRQCS_ENABLE_PCIIRQ | IRQCS_ENABLE_PCIDB);
 	else

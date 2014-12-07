@@ -79,13 +79,30 @@
 #include <xen/tmem.h>
 #include <xen/xen.h>
 
+/* Enable/disable with sysfs. */
 static int xen_selfballooning_enabled __read_mostly;
 
+/*
+ * Controls rate at which memory target (this iteration) approaches
+ * ultimate goal when memory need is increasing (up-hysteresis) or
+ * decreasing (down-hysteresis). Higher values of hysteresis cause
+ * slower increases/decreases. The default values for the various
+ * parameters were deemed reasonable by experimentation, may be
+ * workload-dependent, and can all be adjusted via sysfs.
+ */
 static unsigned int selfballoon_downhysteresis __read_mostly = 8;
 static unsigned int selfballoon_uphysteresis __read_mostly = 1;
 
+/* In HZ, controls frequency of worker invocation. */
 static unsigned int selfballoon_interval __read_mostly = 5;
 
+/*
+ * Minimum usable RAM in MB for selfballooning target for balloon.
+ * If non-zero, it is added to totalreserve_pages and self-ballooning
+ * will not balloon below the sum.  If zero, a piecewise linear function
+ * is calculated as a minimum and added to totalreserve_pages.  Note that
+ * setting this value indiscriminately may cause OOMs and crashes.
+ */
 static unsigned int selfballoon_min_usable_mb;
 
 static void selfballoon_process(struct work_struct *work);
@@ -94,17 +111,42 @@ static DECLARE_DELAYED_WORK(selfballoon_worker, selfballoon_process);
 #ifdef CONFIG_FRONTSWAP
 #include <linux/frontswap.h>
 
+/* Enable/disable with sysfs. */
 static bool frontswap_selfshrinking __read_mostly;
 
+/* Enable/disable with kernel boot option. */
 static bool use_frontswap_selfshrink __initdata = true;
 
+/*
+ * The default values for the following parameters were deemed reasonable
+ * by experimentation, may be workload-dependent, and can all be
+ * adjusted via sysfs.
+ */
 
+/* Control rate for frontswap shrinking. Higher hysteresis is slower. */
 static unsigned int frontswap_hysteresis __read_mostly = 20;
 
+/*
+ * Number of selfballoon worker invocations to wait before observing that
+ * frontswap selfshrinking should commence. Note that selfshrinking does
+ * not use a separate worker thread.
+ */
 static unsigned int frontswap_inertia __read_mostly = 3;
 
+/* Countdown to next invocation of frontswap_shrink() */
 static unsigned long frontswap_inertia_counter;
 
+/*
+ * Invoked by the selfballoon worker thread, uses current number of pages
+ * in frontswap (frontswap_curr_pages()), previous status, and control
+ * values (hysteresis and inertia) to determine if frontswap should be
+ * shrunk and what the new frontswap size should be.  Note that
+ * frontswap_shrink is essentially a partial swapoff that immediately
+ * transfers pages from the "swap device" (frontswap) back into kernel
+ * RAM; despite the name, frontswap "shrinking" is very different from
+ * the "shrinker" interface used by the kernel MM subsystem to reclaim
+ * memory.
+ */
 static void frontswap_selfshrink(void)
 {
 	static unsigned long cur_frontswap_pages;
@@ -136,6 +178,7 @@ static int __init xen_nofrontswap_selfshrink_setup(char *s)
 
 __setup("noselfshrink", xen_nofrontswap_selfshrink_setup);
 
+/* Disable with kernel boot option. */
 static bool use_selfballooning __initdata = true;
 
 static int __init xen_noselfballooning_setup(char *s)
@@ -145,7 +188,8 @@ static int __init xen_noselfballooning_setup(char *s)
 }
 
 __setup("noselfballooning", xen_noselfballooning_setup);
-#else 
+#else /* !CONFIG_FRONTSWAP */
+/* Enable with kernel boot option. */
 static bool use_selfballooning __initdata = false;
 
 static int __init xen_selfballooning_setup(char *s)
@@ -155,10 +199,14 @@ static int __init xen_selfballooning_setup(char *s)
 }
 
 __setup("selfballooning", xen_selfballooning_setup);
-#endif 
+#endif /* CONFIG_FRONTSWAP */
 
 #define MB2PAGES(mb)	((mb) << (20 - PAGE_SHIFT))
 
+/*
+ * Use current balloon size, the goal (vm_committed_as), and hysteresis
+ * parameters to set a new target balloon size
+ */
 static void selfballoon_process(struct work_struct *work)
 {
 	unsigned long cur_pages, goal_pages, tgt_pages, floor_pages;
@@ -167,11 +215,11 @@ static void selfballoon_process(struct work_struct *work)
 
 	if (xen_selfballooning_enabled) {
 		cur_pages = totalram_pages;
-		tgt_pages = cur_pages; 
+		tgt_pages = cur_pages; /* default is no change */
 		goal_pages = percpu_counter_read_positive(&vm_committed_as) +
 				totalreserve_pages;
 #ifdef CONFIG_FRONTSWAP
-		
+		/* allow space for frontswap pages to be repatriated */
 		if (frontswap_selfshrinking && frontswap_enabled)
 			goal_pages += frontswap_curr_pages();
 #endif
@@ -183,21 +231,21 @@ static void selfballoon_process(struct work_struct *work)
 			tgt_pages = cur_pages +
 				((goal_pages - cur_pages) /
 				  selfballoon_uphysteresis);
-		
+		/* else if cur_pages == goal_pages, no change */
 		useful_pages = max_pfn - totalreserve_pages;
 		if (selfballoon_min_usable_mb != 0)
 			floor_pages = totalreserve_pages +
 					MB2PAGES(selfballoon_min_usable_mb);
-		
+		/* piecewise linear function ending in ~3% slope */
 		else if (useful_pages < MB2PAGES(16))
-			floor_pages = max_pfn; 
+			floor_pages = max_pfn; /* not worth ballooning */
 		else if (useful_pages < MB2PAGES(64))
 			floor_pages = totalreserve_pages + MB2PAGES(16) +
 					((useful_pages - MB2PAGES(16)) >> 1);
 		else if (useful_pages < MB2PAGES(512))
 			floor_pages = totalreserve_pages + MB2PAGES(40) +
 					((useful_pages - MB2PAGES(40)) >> 3);
-		else 
+		else /* useful_pages >= MB2PAGES(512) */
 			floor_pages = totalreserve_pages + MB2PAGES(99) +
 					((useful_pages - MB2PAGES(99)) >> 5);
 		if (tgt_pages < floor_pages)
@@ -424,7 +472,7 @@ static ssize_t store_frontswap_hysteresis(struct device *dev,
 static DEVICE_ATTR(frontswap_hysteresis, S_IRUGO | S_IWUSR,
 		   show_frontswap_hysteresis, store_frontswap_hysteresis);
 
-#endif 
+#endif /* CONFIG_FRONTSWAP */
 
 static struct attribute *selfballoon_attrs[] = {
 	&dev_attr_selfballooning.attr,

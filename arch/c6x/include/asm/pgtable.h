@@ -16,6 +16,10 @@
 #include <asm/setup.h>
 #include <asm/page.h>
 
+/*
+ * All 32bit addresses are effectively valid for vmalloc...
+ * Sort of meaningless for non-VM targets.
+ */
 #define	VMALLOC_START	0
 #define	VMALLOC_END	0xffffffff
 
@@ -31,11 +35,11 @@
 #define pmd_clear(xp)		do { set_pmd(xp, __pmd(0)); } while (0)
 #define pmd_bad(x)		(pmd_val(x) & ~PAGE_MASK)
 
-#define PAGE_NONE		__pgprot(0)    
-#define PAGE_SHARED		__pgprot(0)    
-#define PAGE_COPY		__pgprot(0)    
-#define PAGE_READONLY	        __pgprot(0)    
-#define PAGE_KERNEL		__pgprot(0)    
+#define PAGE_NONE		__pgprot(0)    /* these mean nothing to NO_MM */
+#define PAGE_SHARED		__pgprot(0)    /* these mean nothing to NO_MM */
+#define PAGE_COPY		__pgprot(0)    /* these mean nothing to NO_MM */
+#define PAGE_READONLY	        __pgprot(0)    /* these mean nothing to NO_MM */
+#define PAGE_KERNEL		__pgprot(0)    /* these mean nothing to NO_MM */
 #define pgprot_noncached(prot)	(prot)
 
 extern void paging_init(void);
@@ -54,14 +58,21 @@ static inline int pte_file(pte_t pte)
 #define set_pte(pteptr, pteval) (*(pteptr) = pteval)
 #define set_pte_at(mm, addr, ptep, pteval) set_pte(ptep, pteval)
 
+/*
+ * ZERO_PAGE is a global shared page that is always zero: used
+ * for zero-mapped memory areas etc..
+ */
 #define ZERO_PAGE(vaddr)	virt_to_page(empty_zero_page)
 extern unsigned long empty_zero_page;
 
 #define swapper_pg_dir ((pgd_t *) 0)
 
+/*
+ * No page table caches to initialise
+ */
 #define pgtable_cache_init()   do { } while (0)
 #define io_remap_pfn_range      remap_pfn_range
 
 #include <asm-generic/pgtable.h>
 
-#endif 
+#endif /* _ASM_C6X_PGTABLE_H */

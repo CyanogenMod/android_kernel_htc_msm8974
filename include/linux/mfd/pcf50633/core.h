@@ -31,9 +31,14 @@ struct pcf50633_platform_data {
 	char **batteries;
 	int num_batteries;
 
+	/*
+	 * Should be set accordingly to the reference resistor used, see
+	 * I_{ch(ref)} charger reference current in the pcf50633 User
+	 * Manual.
+	 */
 	int charger_reference_current_ma;
 
-	
+	/* Callbacks */
 	void (*probe_done)(struct pcf50633 *);
 	void (*mbc_event_callback)(struct pcf50633 *, int);
 	void (*regulator_registered)(struct pcf50633 *, int);
@@ -67,6 +72,7 @@ int pcf50633_reg_write(struct pcf50633 *pcf, u8 reg, u8 val);
 int pcf50633_reg_set_bit_mask(struct pcf50633 *pcf, u8 reg, u8 mask, u8 val);
 int pcf50633_reg_clear_bits(struct pcf50633 *pcf, u8 reg, u8 bits);
 
+/* Interrupt registers */
 
 #define PCF50633_REG_INT1	0x02
 #define PCF50633_REG_INT2	0x03
@@ -81,7 +87,7 @@ int pcf50633_reg_clear_bits(struct pcf50633 *pcf, u8 reg, u8 bits);
 #define PCF50633_REG_INT5M	0x0b
 
 enum {
-	
+	/* Chip IRQs */
 	PCF50633_IRQ_ADPINS,
 	PCF50633_IRQ_ADPREM,
 	PCF50633_IRQ_USBINS,
@@ -123,7 +129,7 @@ enum {
 	PCF50633_IRQ_HCLDOPWRFAIL,
 	PCF50633_IRQ_HCLDOOVL,
 
-	
+	/* Always last */
 	PCF50633_NUM_IRQ,
 };
 
@@ -155,35 +161,35 @@ struct pcf50633 {
 };
 
 enum pcf50633_reg_int1 {
-	PCF50633_INT1_ADPINS	= 0x01,	
-	PCF50633_INT1_ADPREM	= 0x02,	
-	PCF50633_INT1_USBINS	= 0x04,	
-	PCF50633_INT1_USBREM	= 0x08,	
-	
-	PCF50633_INT1_ALARM	= 0x40, 
-	PCF50633_INT1_SECOND	= 0x80,	
+	PCF50633_INT1_ADPINS	= 0x01,	/* Adapter inserted */
+	PCF50633_INT1_ADPREM	= 0x02,	/* Adapter removed */
+	PCF50633_INT1_USBINS	= 0x04,	/* USB inserted */
+	PCF50633_INT1_USBREM	= 0x08,	/* USB removed */
+	/* reserved */
+	PCF50633_INT1_ALARM	= 0x40, /* RTC alarm time is reached */
+	PCF50633_INT1_SECOND	= 0x80,	/* RTC periodic second interrupt */
 };
 
 enum pcf50633_reg_int2 {
-	PCF50633_INT2_ONKEYR	= 0x01, 
-	PCF50633_INT2_ONKEYF	= 0x02, 
-	PCF50633_INT2_EXTON1R	= 0x04, 
-	PCF50633_INT2_EXTON1F	= 0x08, 
-	PCF50633_INT2_EXTON2R	= 0x10, 
-	PCF50633_INT2_EXTON2F	= 0x20, 
-	PCF50633_INT2_EXTON3R	= 0x40, 
-	PCF50633_INT2_EXTON3F	= 0x80, 
+	PCF50633_INT2_ONKEYR	= 0x01, /* ONKEY rising edge */
+	PCF50633_INT2_ONKEYF	= 0x02, /* ONKEY falling edge */
+	PCF50633_INT2_EXTON1R	= 0x04, /* EXTON1 rising edge */
+	PCF50633_INT2_EXTON1F	= 0x08, /* EXTON1 falling edge */
+	PCF50633_INT2_EXTON2R	= 0x10, /* EXTON2 rising edge */
+	PCF50633_INT2_EXTON2F	= 0x20, /* EXTON2 falling edge */
+	PCF50633_INT2_EXTON3R	= 0x40, /* EXTON3 rising edge */
+	PCF50633_INT2_EXTON3F	= 0x80, /* EXTON3 falling edge */
 };
 
 enum pcf50633_reg_int3 {
-	PCF50633_INT3_BATFULL	= 0x01, 
-	PCF50633_INT3_CHGHALT	= 0x02,	
+	PCF50633_INT3_BATFULL	= 0x01, /* Battery full */
+	PCF50633_INT3_CHGHALT	= 0x02,	/* Charger halt */
 	PCF50633_INT3_THLIMON	= 0x04,
 	PCF50633_INT3_THLIMOFF	= 0x08,
 	PCF50633_INT3_USBLIMON	= 0x10,
 	PCF50633_INT3_USBLIMOFF	= 0x20,
-	PCF50633_INT3_ADCRDY	= 0x40, 
-	PCF50633_INT3_ONKEY1S	= 0x80,	
+	PCF50633_INT3_ADCRDY	= 0x40, /* ADC result ready */
+	PCF50633_INT3_ONKEY1S	= 0x80,	/* ONKEY pressed 1 second */
 };
 
 enum pcf50633_reg_int4 {
@@ -208,8 +214,10 @@ enum pcf50633_reg_int5 {
 	PCF50633_INT5_HCLDOOVL		= 0x80,
 };
 
+/* misc. registers */
 #define PCF50633_REG_OOCSHDWN	0x0c
 
+/* LED registers */
 #define PCF50633_REG_LEDOUT 0x28
 #define PCF50633_REG_LEDENA 0x29
 #define PCF50633_REG_LEDCTL 0x2a

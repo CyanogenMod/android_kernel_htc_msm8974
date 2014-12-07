@@ -77,6 +77,11 @@ static void irlan_client_kick_timer_expired(void *data)
 	IRDA_ASSERT(self != NULL, return;);
 	IRDA_ASSERT(self->magic == IRLAN_MAGIC, return;);
 
+	/*
+	 * If we are in peer mode, the client may not have got the discovery
+	 * indication it needs to make progress. If the client is still in
+	 * IDLE state, we must kick it to, but only if the provider is not IDLE
+	 */
 	if ((self->provider.access_type == ACCESS_PEER) &&
 	    (self->client.state == IRLAN_IDLE) &&
 	    (self->provider.state != IRLAN_IDLE)) {
@@ -92,6 +97,12 @@ static void irlan_client_start_kick_timer(struct irlan_cb *self, int timeout)
 			 irlan_client_kick_timer_expired);
 }
 
+/*
+ * Function irlan_client_wakeup (self, saddr, daddr)
+ *
+ *    Wake up client
+ *
+ */
 void irlan_client_wakeup(struct irlan_cb *self, __u32 saddr, __u32 daddr)
 {
 	IRDA_DEBUG(1, "%s()\n", __func__ );
@@ -99,6 +110,10 @@ void irlan_client_wakeup(struct irlan_cb *self, __u32 saddr, __u32 daddr)
 	IRDA_ASSERT(self != NULL, return;);
 	IRDA_ASSERT(self->magic == IRLAN_MAGIC, return;);
 
+	/*
+	 * Check if we are already awake, or if we are a provider in direct
+	 * mode (in that case we must leave the client idle
+	 */
 	if ((self->client.state != IRLAN_IDLE) ||
 	    (self->provider.access_type == ACCESS_DIRECT))
 	{
@@ -106,7 +121,7 @@ void irlan_client_wakeup(struct irlan_cb *self, __u32 saddr, __u32 daddr)
 			return;
 	}
 
-	
+	/* Addresses may have changed! */
 	self->saddr = saddr;
 	self->daddr = daddr;
 
@@ -115,16 +130,22 @@ void irlan_client_wakeup(struct irlan_cb *self, __u32 saddr, __u32 daddr)
 			return;
 	}
 
-	
+	/* Open TSAPs */
 	irlan_client_open_ctrl_tsap(self);
 	irlan_open_data_tsap(self);
 
 	irlan_do_client_event(self, IRLAN_DISCOVERY_INDICATION, NULL);
 
-	
+	/* Start kick timer */
 	irlan_client_start_kick_timer(self, 2*HZ);
 }
 
+/*
+ * Function irlan_discovery_indication (daddr)
+ *
+ *    Remote device with IrLAN server support discovered
+ *
+ */
 void irlan_client_discovery_indication(discinfo_t *discovery,
 				       DISCOVERY_MODE mode,
 				       void *priv)
@@ -136,13 +157,19 @@ void irlan_client_discovery_indication(discinfo_t *discovery,
 
 	IRDA_ASSERT(discovery != NULL, return;);
 
+	/*
+	 * I didn't check it, but I bet that IrLAN suffer from the same
+	 * deficiency as IrComm and doesn't handle two instances
+	 * simultaneously connecting to each other.
+	 * Same workaround, drop passive discoveries.
+	 * Jean II */
 	if(mode == DISCOVERY_PASSIVE)
 		return;
 
 	saddr = discovery->saddr;
 	daddr = discovery->daddr;
 
-	
+	/* Find instance */
 	rcu_read_lock();
 	self = irlan_get_any();
 	if (self) {
@@ -157,6 +184,12 @@ IRDA_ASSERT_LABEL(out:)
 	rcu_read_unlock();
 }
 
+/*
+ * Function irlan_client_data_indication (handle, skb)
+ *
+ *    This function gets the data that is received on the control channel
+ *
+ */
 static int irlan_client_ctrl_data_indication(void *instance, void *sap,
 					     struct sk_buff *skb)
 {
@@ -172,11 +205,11 @@ static int irlan_client_ctrl_data_indication(void *instance, void *sap,
 
 	irlan_do_client_event(self, IRLAN_DATA_INDICATION, skb);
 
-	
+	/* Ready for a new command */
 	IRDA_DEBUG(2, "%s(), clearing tx_busy\n", __func__ );
 	self->client.tx_busy = FALSE;
 
-	
+	/* Check if we have some queued commands waiting to be sent */
 	irlan_run_ctrl_tx_queue(self);
 
 	return 0;
@@ -202,7 +235,7 @@ static void irlan_client_ctrl_disconnect_indication(void *instance, void *sap,
 
 	IRDA_ASSERT(tsap == self->client.tsap_ctrl, return;);
 
-	
+	/* Remove frames queued on the control channel */
 	while ((skb = skb_dequeue(&self->client.txq)) != NULL) {
 		dev_kfree_skb(skb);
 	}
@@ -211,6 +244,12 @@ static void irlan_client_ctrl_disconnect_indication(void *instance, void *sap,
 	irlan_do_client_event(self, IRLAN_LMP_DISCONNECT, NULL);
 }
 
+/*
+ * Function irlan_client_open_tsaps (self)
+ *
+ *    Initialize callbacks and open IrTTP TSAPs
+ *
+ */
 static void irlan_client_open_ctrl_tsap(struct irlan_cb *self)
 {
 	struct tsap_cb *tsap;
@@ -221,13 +260,13 @@ static void irlan_client_open_ctrl_tsap(struct irlan_cb *self)
 	IRDA_ASSERT(self != NULL, return;);
 	IRDA_ASSERT(self->magic == IRLAN_MAGIC, return;);
 
-	
+	/* Check if already open */
 	if (self->client.tsap_ctrl)
 		return;
 
 	irda_notify_init(&notify);
 
-	
+	/* Set up callbacks */
 	notify.data_indication       = irlan_client_ctrl_data_indication;
 	notify.connect_confirm       = irlan_client_ctrl_connect_confirm;
 	notify.disconnect_indication = irlan_client_ctrl_disconnect_indication;
@@ -242,6 +281,12 @@ static void irlan_client_open_ctrl_tsap(struct irlan_cb *self)
 	self->client.tsap_ctrl = tsap;
 }
 
+/*
+ * Function irlan_client_connect_confirm (handle, skb)
+ *
+ *    Connection to peer IrLAN laye confirmed
+ *
+ */
 static void irlan_client_ctrl_connect_confirm(void *instance, void *sap,
 					      struct qos_info *qos,
 					      __u32 max_sdu_size,
@@ -260,11 +305,17 @@ static void irlan_client_ctrl_connect_confirm(void *instance, void *sap,
 	self->client.max_sdu_size = max_sdu_size;
 	self->client.max_header_size = max_header_size;
 
-	
+	/* TODO: we could set the MTU depending on the max_sdu_size */
 
 	irlan_do_client_event(self, IRLAN_CONNECT_COMPLETE, NULL);
 }
 
+/*
+ * Function print_ret_code (code)
+ *
+ *    Print return code of request to peer IrLAN layer.
+ *
+ */
 static void print_ret_code(__u8 code)
 {
 	switch(code) {
@@ -304,6 +355,12 @@ static void print_ret_code(__u8 code)
 	}
 }
 
+/*
+ * Function irlan_client_parse_response (self, skb)
+ *
+ *    Extract all parameters from received buffer, then feed them to
+ *    check_params for parsing
+ */
 void irlan_client_parse_response(struct irlan_cb *self, struct sk_buff *skb)
 {
 	__u8 *frame;
@@ -328,6 +385,9 @@ void irlan_client_parse_response(struct irlan_cb *self, struct sk_buff *skb)
 	}
 	frame = skb->data;
 
+	/*
+	 *  Check return code and print it if not success
+	 */
 	if (frame[0]) {
 		print_ret_code(frame[0]);
 		return;
@@ -342,14 +402,14 @@ void irlan_client_parse_response(struct irlan_cb *self, struct sk_buff *skb)
 		return;
 	}
 
-	
+	/* How many parameters? */
 	count = frame[1];
 
 	IRDA_DEBUG(4, "%s(), got %d parameters\n", __func__ , count);
 
 	ptr = frame+2;
 
-	
+	/* For all parameters */
 	for (i=0; i<count;i++) {
 		ret = irlan_extract_param(ptr, name, value, &val_len);
 		if (ret < 0) {
@@ -359,15 +419,21 @@ void irlan_client_parse_response(struct irlan_cb *self, struct sk_buff *skb)
 		ptr += ret;
 		irlan_check_response_param(self, name, value, val_len);
 	}
-	
+	/* Cleanup */
 	kfree(name);
 	kfree(value);
 }
 
+/*
+ * Function irlan_check_response_param (self, param, value, val_len)
+ *
+ *     Check which parameter is received and update local variables
+ *
+ */
 static void irlan_check_response_param(struct irlan_cb *self, char *param,
 				       char *value, int val_len)
 {
-	__u16 tmp_cpu; 
+	__u16 tmp_cpu; /* Temporary value in host order */
 	__u8 *bytes;
 	int i;
 
@@ -376,7 +442,7 @@ static void irlan_check_response_param(struct irlan_cb *self, char *param,
 	IRDA_ASSERT(self != NULL, return;);
 	IRDA_ASSERT(self->magic == IRLAN_MAGIC, return;);
 
-	
+	/* Media type */
 	if (strcmp(param, "MEDIA") == 0) {
 		if (strcmp(value, "802.3") == 0)
 			self->media = MEDIA_802_3;
@@ -412,7 +478,7 @@ static void irlan_check_response_param(struct irlan_cb *self, char *param,
 			IRDA_DEBUG(2, "%s(), unknown access type!\n", __func__ );
 		}
 	}
-	
+	/* IRLAN version */
 	if (strcmp(param, "IRLAN_VER") == 0) {
 		IRDA_DEBUG(4, "IrLAN version %d.%d\n", (__u8) value[0],
 		      (__u8) value[1]);
@@ -421,36 +487,37 @@ static void irlan_check_response_param(struct irlan_cb *self, char *param,
 		self->version[1] = value[1];
 		return;
 	}
-	
+	/* Which remote TSAP to use for data channel */
 	if (strcmp(param, "DATA_CHAN") == 0) {
 		self->dtsap_sel_data = value[0];
 		IRDA_DEBUG(4, "Data TSAP = %02x\n", self->dtsap_sel_data);
 		return;
 	}
 	if (strcmp(param, "CON_ARB") == 0) {
-		memcpy(&tmp_cpu, value, 2); 
-		le16_to_cpus(&tmp_cpu);     
+		memcpy(&tmp_cpu, value, 2); /* Align value */
+		le16_to_cpus(&tmp_cpu);     /* Convert to host order */
 		self->client.recv_arb_val = tmp_cpu;
 		IRDA_DEBUG(2, "%s(), receive arb val=%d\n", __func__ ,
 			   self->client.recv_arb_val);
 	}
 	if (strcmp(param, "MAX_FRAME") == 0) {
-		memcpy(&tmp_cpu, value, 2); 
-		le16_to_cpus(&tmp_cpu);     
+		memcpy(&tmp_cpu, value, 2); /* Align value */
+		le16_to_cpus(&tmp_cpu);     /* Convert to host order */
 		self->client.max_frame = tmp_cpu;
 		IRDA_DEBUG(4, "%s(), max frame=%d\n", __func__ ,
 			   self->client.max_frame);
 	}
 
-	
+	/* RECONNECT_KEY, in case the link goes down! */
 	if (strcmp(param, "RECONNECT_KEY") == 0) {
 		IRDA_DEBUG(4, "Got reconnect key: ");
-		
+		/* for (i = 0; i < val_len; i++) */
+/* 			printk("%02x", value[i]); */
 		memcpy(self->client.reconnect_key, value, val_len);
 		self->client.key_len = val_len;
 		IRDA_DEBUG(4, "\n");
 	}
-	
+	/* FILTER_ENTRY, have we got an ethernet address? */
 	if (strcmp(param, "FILTER_ENTRY") == 0) {
 		bytes = value;
 		IRDA_DEBUG(4, "Ethernet address = %pM\n", bytes);
@@ -459,6 +526,12 @@ static void irlan_check_response_param(struct irlan_cb *self, char *param,
 	}
 }
 
+/*
+ * Function irlan_client_get_value_confirm (obj_id, value)
+ *
+ *    Got results from remote LM-IAS
+ *
+ */
 void irlan_client_get_value_confirm(int result, __u16 obj_id,
 				    struct ias_value *value, void *priv)
 {
@@ -471,11 +544,11 @@ void irlan_client_get_value_confirm(int result, __u16 obj_id,
 	self = priv;
 	IRDA_ASSERT(self->magic == IRLAN_MAGIC, return;);
 
-	
+	/* We probably don't need to make any more queries */
 	iriap_close(self->client.iriap);
 	self->client.iriap = NULL;
 
-	
+	/* Check if request succeeded */
 	if (result != IAS_SUCCESS) {
 		IRDA_DEBUG(2, "%s(), got NULL value!\n", __func__ );
 		irlan_do_client_event(self, IRLAN_IAS_PROVIDER_NOT_AVAIL,

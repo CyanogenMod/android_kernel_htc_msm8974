@@ -19,6 +19,9 @@
 static int line6_index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;
 static char *line6_id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;
 
+/*
+	Initialize the Line6 USB audio system.
+*/
 int line6_init_audio(struct usb_line6 *line6)
 {
 	static int dev;
@@ -35,12 +38,15 @@ int line6_init_audio(struct usb_line6 *line6)
 	strcpy(card->id, line6->properties->id);
 	strcpy(card->driver, DRIVER_NAME);
 	strcpy(card->shortname, line6->properties->name);
-	
+	/* longname is 80 chars - see asound.h */
 	sprintf(card->longname, "Line6 %s at USB %s", line6->properties->name,
 		dev_name(line6->ifcdev));
 	return 0;
 }
 
+/*
+	Register the Line6 USB audio system.
+*/
 int line6_register_audio(struct usb_line6 *line6)
 {
 	int err;
@@ -52,6 +58,9 @@ int line6_register_audio(struct usb_line6 *line6)
 	return 0;
 }
 
+/*
+	Cleanup the Line6 USB audio system.
+*/
 void line6_cleanup_audio(struct usb_line6 *line6)
 {
 	struct snd_card *card = line6->card;

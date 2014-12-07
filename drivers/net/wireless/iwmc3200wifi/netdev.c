@@ -21,6 +21,30 @@
  *
  */
 
+/*
+ * This is the netdev related hooks for iwm.
+ *
+ * Some interesting code paths:
+ *
+ * iwm_open() (Called at netdev interface bringup time)
+ *  -> iwm_up() (main.c)
+ *      -> iwm_bus_enable()
+ *          -> if_sdio_enable() (In case of an SDIO bus)
+ *              -> sdio_enable_func()
+ *      -> iwm_notif_wait(BARKER_REBOOT) (wait for reboot barker)
+ *      -> iwm_notif_wait(ACK_BARKER) (wait for ACK barker)
+ *      -> iwm_load_fw() (fw.c)
+ *          -> iwm_load_umac()
+ *          -> iwm_load_lmac() (Calibration LMAC)
+ *          -> iwm_load_lmac() (Operational LMAC)
+ *      -> iwm_send_umac_config()
+ *
+ * iwm_stop() (Called at netdev interface bringdown time)
+ *  -> iwm_down()
+ *      -> iwm_bus_disable()
+ *          -> if_sdio_disable() (In case of an SDIO bus)
+ *              -> sdio_disable_func()
+ */
 #include <linux/netdevice.h>
 #include <linux/slab.h>
 
@@ -43,6 +67,14 @@ static int iwm_stop(struct net_device *ndev)
 	return iwm_down(iwm);
 }
 
+/*
+ * iwm AC to queue mapping
+ *
+ * AC_VO -> queue 3
+ * AC_VI -> queue 2
+ * AC_BE -> queue 1
+ * AC_BK -> queue 0
+ */
 static const u16 iwm_1d_to_queue[8] = { 1, 0, 0, 1, 2, 2, 3, 3 };
 
 int iwm_tid_to_queue(u16 tid)

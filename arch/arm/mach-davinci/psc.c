@@ -27,6 +27,7 @@
 
 #include "clock.h"
 
+/* Return nonzero iff the domain's clock is active */
 int __init davinci_psc_is_clk_active(unsigned int ctlr, unsigned int id)
 {
 	void __iomem *psc_base;
@@ -43,10 +44,11 @@ int __init davinci_psc_is_clk_active(unsigned int ctlr, unsigned int id)
 	mdstat = __raw_readl(psc_base + MDSTAT + 4 * id);
 	iounmap(psc_base);
 
-	
+	/* if clocked, state can be "Enable" or "SyncReset" */
 	return mdstat & BIT(12);
 }
 
+/* Enable or disable a PSC domain */
 void davinci_psc_config(unsigned int domain, unsigned int ctlr,
 		unsigned int id, bool enable, u32 flags)
 {

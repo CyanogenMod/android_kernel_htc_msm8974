@@ -9,6 +9,61 @@
  * Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru>
  */
 
+/*
+   Comparing to general packet classification problem,
+   RSVP needs only sevaral relatively simple rules:
+
+   * (dst, protocol) are always specified,
+     so that we are able to hash them.
+   * src may be exact, or may be wildcard, so that
+     we can keep a hash table plus one wildcard entry.
+   * source port (or flow label) is important only if src is given.
+
+   IMPLEMENTATION.
+
+   We use a two level hash table: The top level is keyed by
+   destination address and protocol ID, every bucket contains a list
+   of "rsvp sessions", identified by destination address, protocol and
+   DPI(="Destination Port ID"): triple (key, mask, offset).
+
+   Every bucket has a smaller hash table keyed by source address
+   (cf. RSVP flowspec) and one wildcard entry for wildcard reservations.
+   Every bucket is again a list of "RSVP flows", selected by
+   source address and SPI(="Source Port ID" here rather than
+   "security parameter index"): triple (key, mask, offset).
+
+
+   NOTE 1. All the packets with IPv6 extension headers (but AH and ESP)
+   and all fragmented packets go to the best-effort traffic class.
+
+
+   NOTE 2. Two "port id"'s seems to be redundant, rfc2207 requires
+   only one "Generalized Port Identifier". So that for classic
+   ah, esp (and udp,tcp) both *pi should coincide or one of them
+   should be wildcard.
+
+   At first sight, this redundancy is just a waste of CPU
+   resources. But DPI and SPI add the possibility to assign different
+   priorities to GPIs. Look also at note 4 about tunnels below.
+
+
+   NOTE 3. One complication is the case of tunneled packets.
+   We implement it as following: if the first lookup
+   matches a special session with "tunnelhdr" value not zero,
+   flowid doesn't contain the true flow ID, but the tunnel ID (1...255).
+   In this case, we pull tunnelhdr bytes and restart lookup
+   with tunnel ID added to the list of keys. Simple and stupid 8)8)
+   It's enough for PIMREG and IPIP.
+
+
+   NOTE 4. Two GPIs make it possible to parse even GRE packets.
+   F.e. DPI can select ETH_P_IP (and necessary flags to make
+   tunnelhdr correct) in GRE protocol field and SPI matches
+   GRE key. Is it not nice? 8)8)
+
+
+   Well, as result, despite its simplicity, we get a pretty
+   powerful classification engine.  */
 
 
 struct rsvp_head {
@@ -24,7 +79,7 @@ struct rsvp_session {
 	struct tc_rsvp_gpi 	dpi;
 	u8			protocol;
 	u8			tunnelid;
-	
+	/* 16 (src,sport) hash slots, and one wildcard source slot */
 	struct rsvp_filter	*ht[16 + 1];
 };
 
@@ -154,7 +209,7 @@ matched:
 				}
 			}
 
-			
+			/* And wildcard bucket... */
 			for (f = s->ht[16]; f; f = f->next) {
 				*res = f->res;
 				RSVP_APPLY_RESULT();
@@ -256,13 +311,13 @@ static int rsvp_delete(struct tcf_proto *tp, unsigned long arg)
 			tcf_tree_unlock(tp);
 			rsvp_delete_filter(tp, f);
 
-			
+			/* Strip tree */
 
 			for (i = 0; i <= 16; i++)
 				if (s->ht[i])
 					return 0;
 
-			
+			/* OK, session has no flows */
 			for (sp = &((struct rsvp_head *)tp->root)->ht[h & 0xFF];
 			     *sp; sp = &(*sp)->next) {
 				if (*sp == s) {
@@ -390,7 +445,7 @@ static int rsvp_change(struct tcf_proto *tp, unsigned long base,
 
 	f = (struct rsvp_filter *)*arg;
 	if (f) {
-		
+		/* Node exists: adjust only classid */
 
 		if (f->handle != handle && handle)
 			goto errout2;
@@ -403,7 +458,7 @@ static int rsvp_change(struct tcf_proto *tp, unsigned long base,
 		return 0;
 	}
 
-	
+	/* Now more serious part... */
 	err = -EINVAL;
 	if (handle)
 		goto errout2;
@@ -458,7 +513,7 @@ static int rsvp_change(struct tcf_proto *tp, unsigned long base,
 		    pinfo->tunnelid == s->tunnelid) {
 
 insert:
-			
+			/* OK, we found appropriate session */
 
 			fp = &s->ht[h2];
 
@@ -480,7 +535,7 @@ insert:
 		}
 	}
 
-	
+	/* No session found. Create new one. */
 
 	err = -ENOBUFS;
 	s = kzalloc(sizeof(struct rsvp_session), GFP_KERNEL);

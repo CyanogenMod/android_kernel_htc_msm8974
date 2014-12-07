@@ -20,13 +20,16 @@
 #include <plat/time.h>
 #include "common.h"
 
+/*****************************************************************************
+ * 512KB SPI Flash on Boot Device (MACRONIX MX25L4005)
+ ****************************************************************************/
 
 static struct mtd_partition lacie_v2_flash_parts[] = {
 	{
 		.name = "u-boot",
 		.size = MTDPART_SIZ_FULL,
 		.offset = 0,
-		.mask_flags = MTD_WRITEABLE, 
+		.mask_flags = MTD_WRITEABLE, /* force read-only */
 	},
 };
 
@@ -55,12 +58,19 @@ void __init lacie_v2_register_flash(void)
 	kirkwood_spi_init();
 }
 
+/*****************************************************************************
+ * I2C devices
+ ****************************************************************************/
 
 static struct at24_platform_data at24c04 = {
 	.byte_len	= SZ_4K / 8,
 	.page_size	= 16,
 };
 
+/*
+ * i2c addr | chip         | description
+ * 0x50     | HT24LC04     | eeprom (512B)
+ */
 
 static struct i2c_board_info __initdata lacie_v2_i2c_info[] = {
 	{
@@ -76,6 +86,9 @@ void __init lacie_v2_register_i2c_devices(void)
 				ARRAY_SIZE(lacie_v2_i2c_info));
 }
 
+/*****************************************************************************
+ * Hard Disk power
+ ****************************************************************************/
 
 static int __initdata lacie_v2_gpio_hdd_power[] = { 16, 17, 41, 42, 43 };
 
@@ -84,12 +97,14 @@ void __init lacie_v2_hdd_power_init(int hdd_num)
 	int i;
 	int err;
 
-	
+	/* Power up all hard disks. */
 	for (i = 0; i < hdd_num; i++) {
 		err = gpio_request(lacie_v2_gpio_hdd_power[i], NULL);
 		if (err == 0) {
 			err = gpio_direction_output(
 					lacie_v2_gpio_hdd_power[i], 1);
+			/* Free the HDD power GPIOs. This allow user-space to
+			 * configure them via the gpiolib sysfs interface. */
 			gpio_free(lacie_v2_gpio_hdd_power[i]);
 		}
 		if (err)

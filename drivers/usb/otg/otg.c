@@ -17,6 +17,15 @@
 
 static struct usb_phy *phy;
 
+/**
+ * usb_get_transceiver - find the (single) USB transceiver
+ *
+ * Returns the transceiver driver, after getting a refcount to it; or
+ * null if there is no such transceiver.  The caller is responsible for
+ * calling usb_put_transceiver() to release that count.
+ *
+ * For use by USB host and peripheral drivers.
+ */
 struct usb_phy *usb_get_transceiver(void)
 {
 	if (phy)
@@ -25,6 +34,14 @@ struct usb_phy *usb_get_transceiver(void)
 }
 EXPORT_SYMBOL(usb_get_transceiver);
 
+/**
+ * usb_put_transceiver - release the (single) USB transceiver
+ * @x: the transceiver returned by usb_get_transceiver()
+ *
+ * Releases a refcount the caller received from usb_get_transceiver().
+ *
+ * For use by USB host and peripheral drivers.
+ */
 void usb_put_transceiver(struct usb_phy *x)
 {
 	if (x)
@@ -32,6 +49,14 @@ void usb_put_transceiver(struct usb_phy *x)
 }
 EXPORT_SYMBOL(usb_put_transceiver);
 
+/**
+ * usb_set_transceiver - declare the (single) USB transceiver
+ * @x: the USB transceiver to be used; or NULL
+ *
+ * This call is exclusively for use by transceiver drivers, which
+ * coordinate the activities of drivers for host and peripheral
+ * controllers, and in some cases for VBUS current regulation.
+ */
 int usb_set_transceiver(struct usb_phy *x)
 {
 	if (phy && x)

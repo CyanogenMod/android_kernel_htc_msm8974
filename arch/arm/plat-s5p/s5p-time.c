@@ -214,11 +214,11 @@ static void s5p_set_mode(enum clock_event_mode mode,
 
 static void s5p_timer_resume(void)
 {
-	
+	/* event timer restart */
 	s5p_time_setup(timer_source.event_id, clock_count_per_tick);
 	s5p_time_start(timer_source.event_id, PERIODIC);
 
-	
+	/* source timer restart */
 	s5p_time_setup(timer_source.source_id, TCNT_MAX);
 	s5p_time_start(timer_source.source_id, PERIODIC);
 }
@@ -313,6 +313,13 @@ static void __iomem *s5p_timer_reg(void)
 	return S3C_TIMERREG(offset);
 }
 
+/*
+ * Override the global weak sched_clock symbol with this
+ * local implementation which uses the clocksource to get some
+ * better resolution when scheduling the kernel. We accept that
+ * this wraps around for now, since it is just a relative time
+ * stamp. (Inspired by U300 implementation.)
+ */
 static u32 notrace s5p_read_sched_clock(void)
 {
 	void __iomem *reg = s5p_timer_reg();

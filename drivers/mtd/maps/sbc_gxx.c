@@ -42,6 +42,7 @@ separate MTD devices.
                         (to support bzImages up to 638KiB-ish)
 */
 
+// Includes
 
 #include <linux/module.h>
 #include <linux/ioport.h>
@@ -52,30 +53,40 @@ separate MTD devices.
 #include <linux/mtd/map.h>
 #include <linux/mtd/partitions.h>
 
+// Defines
 
+// - Hardware specific
 
 #define WINDOW_START 0xdc000
 
+/* Number of bits in offset. */
 #define WINDOW_SHIFT 14
 #define WINDOW_LENGTH (1 << WINDOW_SHIFT)
 
+/* The bits for the offset into the window. */
 #define WINDOW_MASK (WINDOW_LENGTH-1)
 #define PAGE_IO 0x258
 #define PAGE_IO_SIZE 2
 
+/* bit 7 of 0x259 must be 1 to enable device. */
 #define DEVICE_ENABLE 0x8000
 
+// - Flash / Partition sizing
 
 #define MAX_SIZE_KiB             16384
 #define BOOT_PARTITION_SIZE_KiB  768
 #define DATA_PARTITION_SIZE_KiB  1280
 #define APP_PARTITION_SIZE_KiB   6144
 
+// Globals
 
-static volatile int page_in_window = -1; 
+static volatile int page_in_window = -1; // Current page in window.
 static void __iomem *iomapadr;
 static DEFINE_SPINLOCK(sbc_gxx_spin);
 
+/* partition_info gives details on the logical partitions that the split the
+ * single flash device into. If the size if zero we use up to the end of the
+ * device. */
 static struct mtd_partition partition_info[]={
     { .name = "SBC-GXx flash boot partition",
       .offset = 0,
@@ -155,7 +166,9 @@ static void sbc_gxx_copy_to(struct map_info *map, unsigned long to, const void *
 static struct map_info sbc_gxx_map = {
 	.name = "SBC-GXx flash",
 	.phys = NO_XIP,
-	.size = MAX_SIZE_KiB*1024, 
+	.size = MAX_SIZE_KiB*1024, /* this must be set to a maximum possible amount
+			 of flash so the cfi probe routines find all
+			 the chips */
 	.bankwidth = 1,
 	.read = sbc_gxx_read8,
 	.copy_from = sbc_gxx_copy_from,
@@ -163,6 +176,7 @@ static struct map_info sbc_gxx_map = {
 	.copy_to = sbc_gxx_copy_to
 };
 
+/* MTD device for all of the flash. */
 static struct mtd_info *all_mtd;
 
 static void cleanup_sbc_gxx(void)
@@ -199,7 +213,7 @@ static int __init init_sbc_gxx(void)
 		PAGE_IO, PAGE_IO+PAGE_IO_SIZE-1,
 		WINDOW_START, WINDOW_START+WINDOW_LENGTH-1 );
 
-	
+	/* Probe for chip. */
 	all_mtd = do_map_probe( "cfi_probe", &sbc_gxx_map );
 	if( !all_mtd ) {
 		cleanup_sbc_gxx();
@@ -208,7 +222,7 @@ static int __init init_sbc_gxx(void)
 
 	all_mtd->owner = THIS_MODULE;
 
-	
+	/* Create MTD devices for each partition. */
 	mtd_device_register(all_mtd, partition_info, NUM_PARTITIONS);
 
 	return 0;

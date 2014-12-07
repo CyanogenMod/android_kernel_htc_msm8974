@@ -6,6 +6,9 @@
  *	Gareth Hughes <gareth@valinux.com>, May 2000
  */
 
+/*
+ * Handle hardware traps and faults.
+ */
 #include <linux/interrupt.h>
 #include <linux/kallsyms.h>
 #include <linux/spinlock.h>
@@ -65,8 +68,13 @@
 
 asmlinkage int system_call(void);
 
+/* Do we ignore FPU interrupts ? */
 char ignore_fpu_irq;
 
+/*
+ * The IDT has to be page-aligned to simplify the Pentium
+ * F0 0F bug workaround.
+ */
 gate_desc idt_table[NR_VECTORS] __page_aligned_data = { { { { 0, 0 } } }, };
 #endif
 
@@ -107,6 +115,10 @@ do_trap(int trapnr, int signr, char *str, struct pt_regs *regs,
 
 #ifdef CONFIG_X86_32
 	if (regs->flags & X86_VM_MASK) {
+		/*
+		 * traps 0, 1, 3, 4, and 5 should be forwarded to vm86.
+		 * On nmi (interrupt 2), do_trap should not be called.
+		 */
 		if (trapnr < X86_TRAP_UD)
 			goto vm86_trap;
 		goto trap_signal;
@@ -119,6 +131,15 @@ do_trap(int trapnr, int signr, char *str, struct pt_regs *regs,
 #ifdef CONFIG_X86_32
 trap_signal:
 #endif
+	/*
+	 * We want error_code and trap_nr set for userspace faults and
+	 * kernelspace faults which result in die(), but not
+	 * kernelspace faults which are fixed up.  die() gives the
+	 * process no chance to handle the signal and notice the
+	 * kernel fault information, so that won't result in polluting
+	 * the information about previously queued, but not yet
+	 * delivered, faults.  See also do_general_protection below.
+	 */
 	tsk->thread.error_code = error_code;
 	tsk->thread.trap_nr = trapnr;
 
@@ -199,6 +220,7 @@ DO_ERROR_INFO(X86_TRAP_AC, SIGBUS, "alignment check", alignment_check,
 		BUS_ADRALN, 0)
 
 #ifdef CONFIG_X86_64
+/* Runs on IST stack */
 dotraplinkage void do_stack_segment(struct pt_regs *regs, long error_code)
 {
 	if (notify_die(DIE_TRAP, "stack segment", regs, error_code,
@@ -214,12 +236,16 @@ dotraplinkage void do_double_fault(struct pt_regs *regs, long error_code)
 	static const char str[] = "double fault";
 	struct task_struct *tsk = current;
 
-	
+	/* Return not checked because double check cannot be ignored */
 	notify_die(DIE_TRAP, str, regs, error_code, X86_TRAP_DF, SIGSEGV);
 
 	tsk->thread.error_code = error_code;
 	tsk->thread.trap_nr = X86_TRAP_DF;
 
+	/*
+	 * This is always a kernel trap and never fixable (and thus must
+	 * never return).
+	 */
 	for (;;)
 		die(str, regs, error_code);
 }
@@ -276,18 +302,23 @@ gp_in_kernel:
 	die("general protection fault", regs, error_code);
 }
 
+/* May run on IST stack. */
 dotraplinkage void __kprobes do_int3(struct pt_regs *regs, long error_code)
 {
 #ifdef CONFIG_KGDB_LOW_LEVEL_TRAP
 	if (kgdb_ll_trap(DIE_INT3, "int3", regs, error_code, X86_TRAP_BP,
 				SIGTRAP) == NOTIFY_STOP)
 		return;
-#endif 
+#endif /* CONFIG_KGDB_LOW_LEVEL_TRAP */
 
 	if (notify_die(DIE_INT3, "int3", regs, error_code, X86_TRAP_BP,
 			SIGTRAP) == NOTIFY_STOP)
 		return;
 
+	/*
+	 * Let others (NMI) know that the debug stack is in use
+	 * as we may switch to the interrupt stack.
+	 */
 	debug_stack_usage_inc();
 	preempt_conditional_sti(regs);
 	do_trap(X86_TRAP_BP, SIGTRAP, "int3", regs, error_code, NULL);
@@ -296,15 +327,24 @@ dotraplinkage void __kprobes do_int3(struct pt_regs *regs, long error_code)
 }
 
 #ifdef CONFIG_X86_64
+/*
+ * Help handler running on IST stack to switch back to user stack
+ * for scheduling or signal handling. The actual stack switch is done in
+ * entry.S
+ */
 asmlinkage __kprobes struct pt_regs *sync_regs(struct pt_regs *eregs)
 {
 	struct pt_regs *regs = eregs;
-	
+	/* Did already sync */
 	if (eregs == (struct pt_regs *)eregs->sp)
 		;
-	
+	/* Exception from user space */
 	else if (user_mode(eregs))
 		regs = task_pt_regs(current);
+	/*
+	 * Exception from kernel and interrupts are enabled. Move to
+	 * kernel process stack.
+	 */
 	else if (eregs->flags & X86_EFLAGS_IF)
 		regs = (struct pt_regs *)(eregs->sp -= sizeof(struct pt_regs));
 	if (eregs != regs)
@@ -313,6 +353,30 @@ asmlinkage __kprobes struct pt_regs *sync_regs(struct pt_regs *eregs)
 }
 #endif
 
+/*
+ * Our handling of the processor debug registers is non-trivial.
+ * We do not clear them on entry and exit from the kernel. Therefore
+ * it is possible to get a watchpoint trap here from inside the kernel.
+ * However, the code in ./ptrace.c has ensured that the user can
+ * only set watchpoints on userspace addresses. Therefore the in-kernel
+ * watchpoint trap can only occur in code which is reading/writing
+ * from user space. Such code must not hold kernel locks (since it
+ * can equally take a page fault), therefore it is safe to call
+ * force_sig_info even though that claims and releases locks.
+ *
+ * Code in ./signal.c ensures that the debug control register
+ * is restored before we deliver any signal, and therefore that
+ * user code runs with the correct debug control register even though
+ * we clear it here.
+ *
+ * Being careful here means that we don't have to be as careful in a
+ * lot of more complicated places (task switching can be a bit lazy
+ * about restoring all the debug state, and ptrace doesn't have to
+ * find every occurrence of the TF bit that could be saved away even
+ * by user code)
+ *
+ * May run on IST stack.
+ */
 dotraplinkage void __kprobes do_debug(struct pt_regs *regs, long error_code)
 {
 	struct task_struct *tsk = current;
@@ -322,31 +386,43 @@ dotraplinkage void __kprobes do_debug(struct pt_regs *regs, long error_code)
 
 	get_debugreg(dr6, 6);
 
-	
+	/* Filter out all the reserved bits which are preset to 1 */
 	dr6 &= ~DR6_RESERVED;
 
+	/*
+	 * If dr6 has no reason to give us about the origin of this trap,
+	 * then it's very likely the result of an icebp/int01 trap.
+	 * User wants a sigtrap for that.
+	 */
 	if (!dr6 && user_mode(regs))
 		user_icebp = 1;
 
-	
+	/* Catch kmemcheck conditions first of all! */
 	if ((dr6 & DR_STEP) && kmemcheck_trap(regs))
 		return;
 
-	
+	/* DR6 may or may not be cleared by the CPU */
 	set_debugreg(0, 6);
 
+	/*
+	 * The processor cleared BTF, so don't mark that we need it set.
+	 */
 	clear_tsk_thread_flag(tsk, TIF_BLOCKSTEP);
 
-	
+	/* Store the virtualized DR6 value */
 	tsk->thread.debugreg6 = dr6;
 
 	if (notify_die(DIE_DEBUG, "debug", regs, PTR_ERR(&dr6), error_code,
 							SIGTRAP) == NOTIFY_STOP)
 		return;
 
+	/*
+	 * Let others (NMI) know that the debug stack is in use
+	 * as we may switch to the interrupt stack.
+	 */
 	debug_stack_usage_inc();
 
-	
+	/* It's safe to allow irq's after DR6 has been saved */
 	preempt_conditional_sti(regs);
 
 	if (regs->flags & X86_VM_MASK) {
@@ -357,6 +433,13 @@ dotraplinkage void __kprobes do_debug(struct pt_regs *regs, long error_code)
 		return;
 	}
 
+	/*
+	 * Single-stepping through system calls: ignore any exceptions in
+	 * kernel space, but re-enable TF when returning to user mode.
+	 *
+	 * We already checked v86 mode above, so we can check for kernel mode
+	 * by just checking the CPL of CS.
+	 */
 	if ((dr6 & DR_STEP) && !user_mode(regs)) {
 		tsk->thread.debugreg6 &= ~DR_STEP;
 		set_tsk_thread_flag(tsk, TIF_SINGLESTEP);
@@ -371,6 +454,11 @@ dotraplinkage void __kprobes do_debug(struct pt_regs *regs, long error_code)
 	return;
 }
 
+/*
+ * Note that we play around with the 'TS' bit in an attempt to get
+ * the correct behaviour even in the presence of the asynchronous
+ * IRQ13 behaviour
+ */
 void math_error(struct pt_regs *regs, int error_code, int trapnr)
 {
 	struct task_struct *task = current;
@@ -393,6 +481,9 @@ void math_error(struct pt_regs *regs, int error_code, int trapnr)
 		return;
 	}
 
+	/*
+	 * Save the info for the exception handler and clear the error.
+	 */
 	save_init_fpu(task);
 	task->thread.trap_nr = trapnr;
 	task->thread.error_code = error_code;
@@ -401,26 +492,52 @@ void math_error(struct pt_regs *regs, int error_code, int trapnr)
 	info.si_addr = (void __user *)regs->ip;
 	if (trapnr == X86_TRAP_MF) {
 		unsigned short cwd, swd;
+		/*
+		 * (~cwd & swd) will mask out exceptions that are not set to unmasked
+		 * status.  0x3f is the exception bits in these regs, 0x200 is the
+		 * C1 reg you need in case of a stack fault, 0x040 is the stack
+		 * fault bit.  We should only be taking one exception at a time,
+		 * so if this combination doesn't produce any single exception,
+		 * then we have a bad program that isn't synchronizing its FPU usage
+		 * and it will suffer the consequences since we won't be able to
+		 * fully reproduce the context of the exception
+		 */
 		cwd = get_fpu_cwd(task);
 		swd = get_fpu_swd(task);
 
 		err = swd & ~cwd;
 	} else {
+		/*
+		 * The SIMD FPU exceptions are handled a little differently, as there
+		 * is only a single status/control register.  Thus, to determine which
+		 * unmasked exception was caught we must mask the exception mask bits
+		 * at 0x1f80, and then use these to mask the exception bits at 0x3f.
+		 */
 		unsigned short mxcsr = get_fpu_mxcsr(task);
 		err = ~(mxcsr >> 7) & mxcsr;
 	}
 
-	if (err & 0x001) {	
+	if (err & 0x001) {	/* Invalid op */
+		/*
+		 * swd & 0x240 == 0x040: Stack Underflow
+		 * swd & 0x240 == 0x240: Stack Overflow
+		 * User must clear the SF bit (0x40) if set
+		 */
 		info.si_code = FPE_FLTINV;
-	} else if (err & 0x004) { 
+	} else if (err & 0x004) { /* Divide by Zero */
 		info.si_code = FPE_FLTDIV;
-	} else if (err & 0x008) { 
+	} else if (err & 0x008) { /* Overflow */
 		info.si_code = FPE_FLTOVF;
-	} else if (err & 0x012) { 
+	} else if (err & 0x012) { /* Denormal, Underflow */
 		info.si_code = FPE_FLTUND;
-	} else if (err & 0x020) { 
+	} else if (err & 0x020) { /* Precision */
 		info.si_code = FPE_FLTRES;
 	} else {
+		/*
+		 * If we're using IRQ 13, or supposedly even some trap
+		 * X86_TRAP_MF implementations, it's possible
+		 * we get a spurious trap, which is not an error.
+		 */
 		return;
 	}
 	force_sig_info(SIGFPE, &info, task);
@@ -446,7 +563,7 @@ do_spurious_interrupt_bug(struct pt_regs *regs, long error_code)
 {
 	conditional_sti(regs);
 #if 0
-	
+	/* No need to warn about this any longer. */
 	printk(KERN_INFO "Ignoring P6 Local APIC Spurious Interrupt Bug...\n");
 #endif
 }
@@ -459,13 +576,29 @@ asmlinkage void __attribute__((weak)) smp_threshold_interrupt(void)
 {
 }
 
+/*
+ * 'math_state_restore()' saves the current math information in the
+ * old math state array, and gets the new ones from the current task
+ *
+ * Careful.. There are problems with IBM-designed IRQ13 behaviour.
+ * Don't touch unless you *really* know how it works.
+ *
+ * Must be called with kernel preemption disabled (eg with local
+ * local interrupts as in the case of do_device_not_available).
+ */
 void math_state_restore(void)
 {
 	struct task_struct *tsk = current;
 
 	if (!tsk_used_math(tsk)) {
 		local_irq_enable();
+		/*
+		 * does a slab alloc which can sleep
+		 */
 		if (init_fpu(tsk)) {
+			/*
+			 * ran out of memory!
+			 */
 			do_group_exit(SIGKILL);
 			return;
 		}
@@ -473,6 +606,9 @@ void math_state_restore(void)
 	}
 
 	__thread_fpu_begin(tsk);
+	/*
+	 * Paranoid restore. send a SIGSEGV if we fail to restore the state.
+	 */
 	if (unlikely(restore_fpu_checking(tsk))) {
 		__thread_fpu_end(tsk);
 		force_sig(SIGSEGV, tsk);
@@ -497,7 +633,7 @@ do_device_not_available(struct pt_regs *regs, long error_code)
 		return;
 	}
 #endif
-	math_state_restore(); 
+	math_state_restore(); /* interrupts still off */
 #ifdef CONFIG_X86_32
 	conditional_sti(regs);
 #endif
@@ -521,10 +657,11 @@ dotraplinkage void do_iret_error(struct pt_regs *regs, long error_code)
 }
 #endif
 
+/* Set of traps needed for early debugging. */
 void __init early_trap_init(void)
 {
 	set_intr_gate_ist(X86_TRAP_DB, &debug, DEBUG_STACK);
-	
+	/* int3 can be called from all */
 	set_system_intr_gate_ist(X86_TRAP_BP, &int3, DEBUG_STACK);
 	set_intr_gate(X86_TRAP_PF, &page_fault);
 	load_idt(&idt_descr);
@@ -544,7 +681,7 @@ void __init trap_init(void)
 
 	set_intr_gate(X86_TRAP_DE, &divide_error);
 	set_intr_gate_ist(X86_TRAP_NMI, &nmi, NMI_STACK);
-	
+	/* int4 can be called from all */
 	set_system_intr_gate(X86_TRAP_OF, &overflow);
 	set_intr_gate(X86_TRAP_BR, &bounds);
 	set_intr_gate(X86_TRAP_UD, &invalid_op);
@@ -567,7 +704,7 @@ void __init trap_init(void)
 #endif
 	set_intr_gate(X86_TRAP_XF, &simd_coprocessor_error);
 
-	
+	/* Reserve all the builtin and the syscall vector: */
 	for (i = 0; i < FIRST_EXTERNAL_VECTOR; i++)
 		set_bit(i, used_vectors);
 
@@ -581,6 +718,9 @@ void __init trap_init(void)
 	set_bit(SYSCALL_VECTOR, used_vectors);
 #endif
 
+	/*
+	 * Should be a barrier for any external CPU state:
+	 */
 	cpu_init();
 
 	x86_init.irqs.trap_init();

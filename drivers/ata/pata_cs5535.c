@@ -41,6 +41,10 @@
 #define DRV_NAME	"pata_cs5535"
 #define DRV_VERSION	"0.2.12"
 
+/*
+ *	The Geode (Aka Athlon GX now) uses an internal MSR based
+ *	bus system for control. Demented but there you go.
+ */
 
 #define MSR_ATAC_BASE    	0x51300000
 #define ATAC_GLD_MSR_CAP 	(MSR_ATAC_BASE+0)
@@ -63,6 +67,13 @@
 
 #define CS5535_CABLE_DETECT    0x48
 
+/**
+ *	cs5535_cable_detect	-	detect cable type
+ *	@ap: Port to detect on
+ *
+ *	Perform cable detection for ATA66 capable cable. Return a libata
+ *	cable type.
+ */
 
 static int cs5535_cable_detect(struct ata_port *ap)
 {
@@ -76,6 +87,13 @@ static int cs5535_cable_detect(struct ata_port *ap)
 		return ATA_CBL_PATA40;
 }
 
+/**
+ *	cs5535_set_piomode		-	PIO setup
+ *	@ap: ATA interface
+ *	@adev: device on the interface
+ *
+ *	Set our PIO requirements. The CS5535 is pretty clean about all this
+ */
 
 static void cs5535_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -91,24 +109,30 @@ static void cs5535_set_piomode(struct ata_port *ap, struct ata_device *adev)
 	int mode = adev->pio_mode - XFER_PIO_0;
 	int cmdmode = mode;
 
-	
+	/* Command timing has to be for the lowest of the pair of devices */
 	if (pair) {
 		int pairmode = pair->pio_mode - XFER_PIO_0;
 		cmdmode = min(mode, pairmode);
-		
+		/* Write the other drive timing register if it changed */
 		if (cmdmode < pairmode)
 			wrmsr(ATAC_CH0D0_PIO + 2 * pair->devno,
 				pio_cmd_timings[cmdmode] << 16 | pio_timings[pairmode], 0);
 	}
-	
+	/* Write the drive timing register */
 	wrmsr(ATAC_CH0D0_PIO + 2 * adev->devno,
 		pio_cmd_timings[cmdmode] << 16 | pio_timings[mode], 0);
 
-	
+	/* Set the PIO "format 1" bit in the DMA timing register */
 	rdmsr(ATAC_CH0D0_DMA + 2 * adev->devno, reg, dummy);
 	wrmsr(ATAC_CH0D0_DMA + 2 * adev->devno, reg | 0x80000000UL, 0);
 }
 
+/**
+ *	cs5535_set_dmamode		-	DMA timing setup
+ *	@ap: ATA interface
+ *	@adev: Device being configured
+ *
+ */
 
 static void cs5535_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -141,6 +165,15 @@ static struct ata_port_operations cs5535_port_ops = {
 	.set_dmamode	= cs5535_set_dmamode,
 };
 
+/**
+ *	cs5535_init_one		-	Initialise a CS5530
+ *	@dev: PCI device
+ *	@id: Entry in match table
+ *
+ *	Install a driver for the newly found CS5530 companion chip. Most of
+ *	this is just housekeeping. We have to set the chip up correctly and
+ *	turn off various bits of emulation magic.
+ */
 
 static int cs5535_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {

@@ -10,6 +10,11 @@
  */
 
 
+/*
+ * Operation requests for smp_cache_call().
+ *
+ * One of smp_icache_ops and one of smp_dcache_ops can be OR'd together.
+ */
 enum smp_icache_ops {
 	SMP_ICACHE_NOP			= 0x0000,
 	SMP_ICACHE_INV			= 0x0001,
@@ -31,6 +36,9 @@ enum smp_dcache_ops {
 #define	SMP_IDCACHE_INV_FLUSH		(SMP_ICACHE_INV | SMP_DCACHE_FLUSH)
 #define SMP_IDCACHE_INV_FLUSH_RANGE	(SMP_ICACHE_INV_RANGE | SMP_DCACHE_FLUSH_RANGE)
 
+/*
+ * cache-smp.c
+ */
 #ifdef CONFIG_SMP
 extern spinlock_t smp_cache_lock;
 
@@ -58,4 +66,4 @@ static inline void smp_cache_call(unsigned long opr_mask,
 				  unsigned long addr, unsigned long end)
 {
 }
-#endif 
+#endif /* CONFIG_SMP */

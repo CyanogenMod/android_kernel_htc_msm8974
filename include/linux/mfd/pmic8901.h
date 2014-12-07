@@ -12,6 +12,10 @@
  */
 #ifndef __PMIC8901_H__
 #define __PMIC8901_H__
+/*
+ * Qualcomm PMIC8901 driver header file
+ *
+ */
 
 #include <linux/irq.h>
 #include <linux/mfd/core.h>
@@ -25,9 +29,11 @@
 
 #define PM8901_NR_IRQS			72
 
+/* PM8901 MPP */
 #define PM8901_MPP_BLOCK_START		6
 #define PM8901_MPPS			4
 
+/* PM8901 IRQs */
 #define PM8901_MPP_IRQ(mpp)		PM8901_IRQ_BLOCK_BIT(6, (mpp))
 #define PM8901_TEMPSTAT_IRQ		PM8901_IRQ_BLOCK_BIT(6, 4)
 #define PM8901_OVERTEMP_IRQ		PM8901_IRQ_BLOCK_BIT(6, 5)
@@ -40,4 +46,4 @@ struct pm8901_platform_data {
 	int					num_regulators;
 };
 
-#endif 
+#endif /* __PMIC8901_H__ */

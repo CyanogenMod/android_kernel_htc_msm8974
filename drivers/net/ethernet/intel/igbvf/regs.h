@@ -28,18 +28,18 @@
 #ifndef _E1000_REGS_H_
 #define _E1000_REGS_H_
 
-#define E1000_CTRL      0x00000 
-#define E1000_STATUS    0x00008 
-#define E1000_ITR       0x000C4 
-#define E1000_EICR      0x01580 
+#define E1000_CTRL      0x00000 /* Device Control - RW */
+#define E1000_STATUS    0x00008 /* Device Status - RO */
+#define E1000_ITR       0x000C4 /* Interrupt Throttling Rate - RW */
+#define E1000_EICR      0x01580 /* Ext. Interrupt Cause Read - R/clr */
 #define E1000_EITR(_n)  (0x01680 + (0x4 * (_n)))
-#define E1000_EICS      0x01520 
-#define E1000_EIMS      0x01524 
-#define E1000_EIMC      0x01528 
-#define E1000_EIAC      0x0152C 
-#define E1000_EIAM      0x01530 
-#define E1000_IVAR0     0x01700 
-#define E1000_IVAR_MISC 0x01740 
+#define E1000_EICS      0x01520 /* Ext. Interrupt Cause Set - W0 */
+#define E1000_EIMS      0x01524 /* Ext. Interrupt Mask Set/Read - RW */
+#define E1000_EIMC      0x01528 /* Ext. Interrupt Mask Clear - WO */
+#define E1000_EIAC      0x0152C /* Ext. Interrupt Auto Clear - RW */
+#define E1000_EIAM      0x01530 /* Ext. Interrupt Ack Auto Clear Mask - RW */
+#define E1000_IVAR0     0x01700 /* Interrupt Vector Allocation (array) - RW */
+#define E1000_IVAR_MISC 0x01740 /* IVAR for "other" causes - RW */
 /*
  * Convenience macros
  *
@@ -81,6 +81,7 @@
 #define E1000_RAH(_i)  (((_i) <= 15) ? (0x05404 + ((_i) * 8)) : \
                                        (0x054E4 + ((_i - 16) * 8)))
 
+/* Statistics registers */
 #define E1000_VFGPRC    0x00F10
 #define E1000_VFGORC    0x00F18
 #define E1000_VFMPRC    0x00F3C
@@ -91,9 +92,11 @@
 #define E1000_VFGORLBC  0x00F48
 #define E1000_VFGPRLBC  0x00F40
 
+/* These act per VF so an array friendly macro is used */
 #define E1000_V2PMAILBOX(_n)   (0x00C40 + (4 * (_n)))
 #define E1000_VMBMEM(_n)       (0x00800 + (64 * (_n)))
 
+/* Define macros for handling registers */
 #define er32(reg) readl(hw->hw_addr + E1000_##reg)
 #define ew32(reg, val) writel((val), hw->hw_addr +  E1000_##reg)
 #define array_er32(reg, offset) \

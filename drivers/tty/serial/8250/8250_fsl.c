@@ -39,7 +39,7 @@ int fsl8250_handle_irq(struct uart_port *port)
 		return 0;
 	}
 
-	
+	/* This is the WAR; if last event was BRK, then read and return */
 	if (unlikely(up->lsr_saved_flags & UART_LSR_BI)) {
 		up->lsr_saved_flags &= ~UART_LSR_BI;
 		port->serial_in(port, UART_RX);

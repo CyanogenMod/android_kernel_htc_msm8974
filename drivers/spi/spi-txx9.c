@@ -30,8 +30,8 @@
 
 
 #define SPI_FIFO_SIZE 4
-#define SPI_MAX_DIVIDER 0xff	
-#define SPI_MIN_DIVIDER 1	
+#define SPI_MAX_DIVIDER 0xff	/* Max. value for SPCR1.SER */
+#define SPI_MIN_DIVIDER 1	/* Min. value for SPCR1.SER */
 
 #define TXx9_SPMCR		0x00
 #define TXx9_SPCR0		0x04
@@ -40,12 +40,14 @@
 #define TXx9_SPSR		0x14
 #define TXx9_SPDR		0x18
 
+/* SPMCR : SPI Master Control */
 #define TXx9_SPMCR_OPMODE	0xc0
 #define TXx9_SPMCR_CONFIG	0x40
 #define TXx9_SPMCR_ACTIVE	0x80
 #define TXx9_SPMCR_SPSTP	0x02
 #define TXx9_SPMCR_BCLR		0x01
 
+/* SPCR0 : SPI Control 0 */
 #define TXx9_SPCR0_TXIFL_MASK	0xc000
 #define TXx9_SPCR0_RXIFL_MASK	0x3000
 #define TXx9_SPCR0_SIDIE	0x0800
@@ -57,6 +59,7 @@
 #define TXx9_SPCR0_SPHA		0x0002
 #define TXx9_SPCR0_SPOL		0x0001
 
+/* SPSR : SPI Status */
 #define TXx9_SPSR_TBSI		0x8000
 #define TXx9_SPSR_RBSI		0x4000
 #define TXx9_SPSR_TBS_MASK	0x3800
@@ -71,7 +74,7 @@
 struct txx9spi {
 	struct workqueue_struct	*workqueue;
 	struct work_struct work;
-	spinlock_t lock;	
+	spinlock_t lock;	/* protect 'queue' */
 	struct list_head queue;
 	wait_queue_head_t waitq;
 	void __iomem *membase;
@@ -96,7 +99,7 @@ static void txx9spi_cs_func(struct spi_device *spi, struct txx9spi *c,
 {
 	int val = (spi->mode & SPI_CS_HIGH) ? on : !on;
 	if (on) {
-		
+		/* deselect the chip with cs_change hint in last transfer */
 		if (c->last_chipselect >= 0)
 			gpio_set_value(c->last_chipselect,
 					!c->last_chipselect_val);
@@ -104,10 +107,10 @@ static void txx9spi_cs_func(struct spi_device *spi, struct txx9spi *c,
 		c->last_chipselect_val = val;
 	} else {
 		c->last_chipselect = -1;
-		ndelay(cs_delay);	
+		ndelay(cs_delay);	/* CS Hold Time */
 	}
 	gpio_set_value(spi->chip_select, val);
-	ndelay(cs_delay);	
+	ndelay(cs_delay);	/* CS Setup Time / CS Recovery Time */
 }
 
 static int txx9spi_setup(struct spi_device *spi)
@@ -130,7 +133,7 @@ static int txx9spi_setup(struct spi_device *spi)
 		return -EINVAL;
 	}
 
-	
+	/* deselect chip */
 	spin_lock(&c->lock);
 	txx9spi_cs_func(spi, c, 0, (NSEC_PER_SEC / 2) / spi->max_speed_hz);
 	spin_unlock(&c->lock);
@@ -142,7 +145,7 @@ static irqreturn_t txx9spi_interrupt(int irq, void *dev_id)
 {
 	struct txx9spi *c = dev_id;
 
-	
+	/* disable rx intr */
 	txx9spi_wr(c, txx9spi_rd(c, TXx9_SPCR0) & ~TXx9_SPCR0_RBSIE,
 			TXx9_SPCR0);
 	wake_up(&c->waitq);
@@ -160,7 +163,7 @@ static void txx9spi_work_one(struct txx9spi *c, struct spi_message *m)
 	u32 prev_speed_hz = 0;
 	u8 prev_bits_per_word = 0;
 
-	
+	/* CS setup/hold/recovery time in nsec */
 	cs_delay = 100 + (NSEC_PER_SEC / 2) / spi->max_speed_hz;
 
 	mcr = txx9spi_rd(c, TXx9_SPMCR);
@@ -171,7 +174,7 @@ static void txx9spi_work_one(struct txx9spi *c, struct spi_message *m)
 	}
 	mcr &= ~(TXx9_SPMCR_OPMODE | TXx9_SPMCR_SPSTP | TXx9_SPMCR_BCLR);
 
-	
+	/* enter config mode */
 	txx9spi_wr(c, mcr | TXx9_SPMCR_CONFIG | TXx9_SPMCR_BCLR, TXx9_SPMCR);
 	txx9spi_wr(c, TXx9_SPCR0_SBOS
 			| ((spi->mode & SPI_CPOL) ? TXx9_SPCR0_SPOL : 0)
@@ -189,17 +192,17 @@ static void txx9spi_work_one(struct txx9spi *c, struct spi_message *m)
 		u8 bits_per_word = t->bits_per_word ? : spi->bits_per_word;
 
 		bits_per_word = bits_per_word ? : 8;
-		wsize = bits_per_word >> 3; 
+		wsize = bits_per_word >> 3; /* in bytes */
 
 		if (prev_speed_hz != speed_hz
 				|| prev_bits_per_word != bits_per_word) {
 			int n = DIV_ROUND_UP(c->baseclk, speed_hz) - 1;
 			n = clamp(n, SPI_MIN_DIVIDER, SPI_MAX_DIVIDER);
-			
+			/* enter config mode */
 			txx9spi_wr(c, mcr | TXx9_SPMCR_CONFIG | TXx9_SPMCR_BCLR,
 					TXx9_SPMCR);
 			txx9spi_wr(c, (n << 8) | bits_per_word, TXx9_SPCR1);
-			
+			/* enter active mode */
 			txx9spi_wr(c, mcr | TXx9_SPMCR_ACTIVE, TXx9_SPMCR);
 
 			prev_speed_hz = speed_hz;
@@ -216,16 +219,16 @@ static void txx9spi_work_one(struct txx9spi *c, struct spi_message *m)
 
 			if (len < count * wsize)
 				count = len / wsize;
-			
+			/* now tx must be idle... */
 			while (!(txx9spi_rd(c, TXx9_SPSR) & TXx9_SPSR_SIDLE))
 				cpu_relax();
 			cr0 = txx9spi_rd(c, TXx9_SPCR0);
 			cr0 &= ~TXx9_SPCR0_RXIFL_MASK;
 			cr0 |= (count - 1) << 12;
-			
+			/* enable rx intr */
 			cr0 |= TXx9_SPCR0_RBSIE;
 			txx9spi_wr(c, cr0, TXx9_SPCR0);
-			
+			/* send */
 			for (i = 0; i < count; i++) {
 				if (txbuf) {
 					data = (wsize == 1)
@@ -236,10 +239,10 @@ static void txx9spi_work_one(struct txx9spi *c, struct spi_message *m)
 				} else
 					txx9spi_wr(c, 0, TXx9_SPDR);
 			}
-			
+			/* wait all rx data */
 			wait_event(c->waitq,
 				txx9spi_rd(c, TXx9_SPSR) & TXx9_SPSR_RBSI);
-			
+			/* receive */
 			for (i = 0; i < count; i++) {
 				data = txx9spi_rd(c, TXx9_SPDR);
 				if (rxbuf) {
@@ -260,6 +263,9 @@ static void txx9spi_work_one(struct txx9spi *c, struct spi_message *m)
 			continue;
 		if (t->transfer_list.next == &m->transfers)
 			break;
+		/* sometimes a short mid-message deselect of the chip
+		 * may be needed to terminate a mode or command
+		 */
 		txx9spi_cs_func(spi, c, 0, cs_delay);
 	}
 
@@ -267,10 +273,14 @@ exit:
 	m->status = status;
 	m->complete(m->context);
 
+	/* normally deactivate chipselect ... unless no error and
+	 * cs_change has hinted that the next message will probably
+	 * be for this chip too.
+	 */
 	if (!(status == 0 && cs_change))
 		txx9spi_cs_func(spi, c, 0, cs_delay);
 
-	
+	/* enter config mode */
 	txx9spi_wr(c, mcr | TXx9_SPMCR_CONFIG | TXx9_SPMCR_BCLR, TXx9_SPMCR);
 }
 
@@ -303,7 +313,7 @@ static int txx9spi_transfer(struct spi_device *spi, struct spi_message *m)
 
 	m->actual_length = 0;
 
-	
+	/* check each transfer's parameters */
 	list_for_each_entry (t, &m->transfers, transfer_list) {
 		u32 speed_hz = t->speed_hz ? : spi->max_speed_hz;
 		u8 bits_per_word = t->bits_per_word ? : spi->bits_per_word;
@@ -373,7 +383,7 @@ static int __init txx9spi_probe(struct platform_device *dev)
 	if (!c->membase)
 		goto exit_busy;
 
-	
+	/* enter config mode */
 	mcr = txx9spi_rd(c, TXx9_SPMCR);
 	mcr &= ~(TXx9_SPMCR_OPMODE | TXx9_SPMCR_SPSTP | TXx9_SPMCR_BCLR);
 	txx9spi_wr(c, mcr | TXx9_SPMCR_CONFIG | TXx9_SPMCR_BCLR, TXx9_SPMCR);
@@ -396,13 +406,13 @@ static int __init txx9spi_probe(struct platform_device *dev)
 		 (unsigned long long)res->start, irq,
 		 (c->baseclk + 500000) / 1000000);
 
-	
+	/* the spi->mode bits understood by this driver: */
 	master->mode_bits = SPI_CS_HIGH | SPI_CPOL | SPI_CPHA;
 
 	master->bus_num = dev->id;
 	master->setup = txx9spi_setup;
 	master->transfer = txx9spi_transfer;
-	master->num_chipselect = (u16)UINT_MAX; 
+	master->num_chipselect = (u16)UINT_MAX; /* any GPIO numbers */
 
 	ret = spi_register_master(master);
 	if (ret)
@@ -436,6 +446,7 @@ static int __exit txx9spi_remove(struct platform_device *dev)
 	return 0;
 }
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:spi_txx9");
 
 static struct platform_driver txx9spi_driver = {

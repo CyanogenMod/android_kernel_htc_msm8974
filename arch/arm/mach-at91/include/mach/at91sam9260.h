@@ -17,36 +17,42 @@
 #ifndef AT91SAM9260_H
 #define AT91SAM9260_H
 
-#define AT91SAM9260_ID_PIOA	2	
-#define AT91SAM9260_ID_PIOB	3	
-#define AT91SAM9260_ID_PIOC	4	
-#define AT91SAM9260_ID_ADC	5	
-#define AT91SAM9260_ID_US0	6	
-#define AT91SAM9260_ID_US1	7	
-#define AT91SAM9260_ID_US2	8	
-#define AT91SAM9260_ID_MCI	9	
-#define AT91SAM9260_ID_UDP	10	
-#define AT91SAM9260_ID_TWI	11	
-#define AT91SAM9260_ID_SPI0	12	
-#define AT91SAM9260_ID_SPI1	13	
-#define AT91SAM9260_ID_SSC	14	
-#define AT91SAM9260_ID_TC0	17	
-#define AT91SAM9260_ID_TC1	18	
-#define AT91SAM9260_ID_TC2	19	
-#define AT91SAM9260_ID_UHP	20	
-#define AT91SAM9260_ID_EMAC	21	
-#define AT91SAM9260_ID_ISI	22	
-#define AT91SAM9260_ID_US3	23	
-#define AT91SAM9260_ID_US4	24	
-#define AT91SAM9260_ID_US5	25	
-#define AT91SAM9260_ID_TC3	26	
-#define AT91SAM9260_ID_TC4	27	
-#define AT91SAM9260_ID_TC5	28	
-#define AT91SAM9260_ID_IRQ0	29	
-#define AT91SAM9260_ID_IRQ1	30	
-#define AT91SAM9260_ID_IRQ2	31	
+/*
+ * Peripheral identifiers/interrupts.
+ */
+#define AT91SAM9260_ID_PIOA	2	/* Parallel IO Controller A */
+#define AT91SAM9260_ID_PIOB	3	/* Parallel IO Controller B */
+#define AT91SAM9260_ID_PIOC	4	/* Parallel IO Controller C */
+#define AT91SAM9260_ID_ADC	5	/* Analog-to-Digital Converter */
+#define AT91SAM9260_ID_US0	6	/* USART 0 */
+#define AT91SAM9260_ID_US1	7	/* USART 1 */
+#define AT91SAM9260_ID_US2	8	/* USART 2 */
+#define AT91SAM9260_ID_MCI	9	/* Multimedia Card Interface */
+#define AT91SAM9260_ID_UDP	10	/* USB Device Port */
+#define AT91SAM9260_ID_TWI	11	/* Two-Wire Interface */
+#define AT91SAM9260_ID_SPI0	12	/* Serial Peripheral Interface 0 */
+#define AT91SAM9260_ID_SPI1	13	/* Serial Peripheral Interface 1 */
+#define AT91SAM9260_ID_SSC	14	/* Serial Synchronous Controller */
+#define AT91SAM9260_ID_TC0	17	/* Timer Counter 0 */
+#define AT91SAM9260_ID_TC1	18	/* Timer Counter 1 */
+#define AT91SAM9260_ID_TC2	19	/* Timer Counter 2 */
+#define AT91SAM9260_ID_UHP	20	/* USB Host port */
+#define AT91SAM9260_ID_EMAC	21	/* Ethernet */
+#define AT91SAM9260_ID_ISI	22	/* Image Sensor Interface */
+#define AT91SAM9260_ID_US3	23	/* USART 3 */
+#define AT91SAM9260_ID_US4	24	/* USART 4 */
+#define AT91SAM9260_ID_US5	25	/* USART 5 */
+#define AT91SAM9260_ID_TC3	26	/* Timer Counter 3 */
+#define AT91SAM9260_ID_TC4	27	/* Timer Counter 4 */
+#define AT91SAM9260_ID_TC5	28	/* Timer Counter 5 */
+#define AT91SAM9260_ID_IRQ0	29	/* Advanced Interrupt Controller (IRQ0) */
+#define AT91SAM9260_ID_IRQ1	30	/* Advanced Interrupt Controller (IRQ1) */
+#define AT91SAM9260_ID_IRQ2	31	/* Advanced Interrupt Controller (IRQ2) */
 
 
+/*
+ * User Peripheral physical base addresses.
+ */
 #define AT91SAM9260_BASE_TCB0		0xfffa0000
 #define AT91SAM9260_BASE_TC0		0xfffa0000
 #define AT91SAM9260_BASE_TC1		0xfffa0040
@@ -71,6 +77,9 @@
 #define AT91SAM9260_BASE_TC5		0xfffdc080
 #define AT91SAM9260_BASE_ADC		0xfffe0000
 
+/*
+ * System Peripherals
+ */
 #define AT91SAM9260_BASE_ECC	0xffffe800
 #define AT91SAM9260_BASE_SDRAMC	0xffffea00
 #define AT91SAM9260_BASE_SMC	0xffffec00
@@ -94,31 +103,34 @@
 #define AT91_USART5	AT91SAM9260_BASE_US5
 
 
-#define AT91SAM9260_ROM_BASE	0x00100000	
-#define AT91SAM9260_ROM_SIZE	SZ_32K		
+/*
+ * Internal Memory.
+ */
+#define AT91SAM9260_ROM_BASE	0x00100000	/* Internal ROM base address */
+#define AT91SAM9260_ROM_SIZE	SZ_32K		/* Internal ROM size (32Kb) */
 
-#define AT91SAM9260_SRAM0_BASE	0x00200000	
-#define AT91SAM9260_SRAM0_SIZE	SZ_4K		
-#define AT91SAM9260_SRAM1_BASE	0x00300000	
-#define AT91SAM9260_SRAM1_SIZE	SZ_4K		
-#define AT91SAM9260_SRAM_BASE	0x002FF000	
-#define AT91SAM9260_SRAM_SIZE	SZ_8K		
+#define AT91SAM9260_SRAM0_BASE	0x00200000	/* Internal SRAM 0 base address */
+#define AT91SAM9260_SRAM0_SIZE	SZ_4K		/* Internal SRAM 0 size (4Kb) */
+#define AT91SAM9260_SRAM1_BASE	0x00300000	/* Internal SRAM 1 base address */
+#define AT91SAM9260_SRAM1_SIZE	SZ_4K		/* Internal SRAM 1 size (4Kb) */
+#define AT91SAM9260_SRAM_BASE	0x002FF000	/* Internal SRAM base address */
+#define AT91SAM9260_SRAM_SIZE	SZ_8K		/* Internal SRAM size (8Kb) */
 
-#define AT91SAM9260_UHP_BASE	0x00500000	
+#define AT91SAM9260_UHP_BASE	0x00500000	/* USB Host controller */
 
-#define AT91SAM9XE_FLASH_BASE	0x00200000	
-#define AT91SAM9XE_SRAM_BASE	0x00300000	
+#define AT91SAM9XE_FLASH_BASE	0x00200000	/* Internal FLASH base address */
+#define AT91SAM9XE_SRAM_BASE	0x00300000	/* Internal SRAM base address */
 
-#define AT91SAM9G20_ROM_BASE	0x00100000	
-#define AT91SAM9G20_ROM_SIZE	SZ_32K		
+#define AT91SAM9G20_ROM_BASE	0x00100000	/* Internal ROM base address */
+#define AT91SAM9G20_ROM_SIZE	SZ_32K		/* Internal ROM size (32Kb) */
 
-#define AT91SAM9G20_SRAM0_BASE	0x00200000	
-#define AT91SAM9G20_SRAM0_SIZE	SZ_16K		
-#define AT91SAM9G20_SRAM1_BASE	0x00300000	
-#define AT91SAM9G20_SRAM1_SIZE	SZ_16K		
-#define AT91SAM9G20_SRAM_BASE	0x002FC000	
-#define AT91SAM9G20_SRAM_SIZE	SZ_32K		
+#define AT91SAM9G20_SRAM0_BASE	0x00200000	/* Internal SRAM 0 base address */
+#define AT91SAM9G20_SRAM0_SIZE	SZ_16K		/* Internal SRAM 0 size (16Kb) */
+#define AT91SAM9G20_SRAM1_BASE	0x00300000	/* Internal SRAM 1 base address */
+#define AT91SAM9G20_SRAM1_SIZE	SZ_16K		/* Internal SRAM 1 size (16Kb) */
+#define AT91SAM9G20_SRAM_BASE	0x002FC000	/* Internal SRAM base address */
+#define AT91SAM9G20_SRAM_SIZE	SZ_32K		/* Internal SRAM size (32Kb) */
 
-#define AT91SAM9G20_UHP_BASE	0x00500000	
+#define AT91SAM9G20_UHP_BASE	0x00500000	/* USB Host controller */
 
 #endif

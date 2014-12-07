@@ -17,6 +17,12 @@
  * 02110-1301 USA.
  */
 
+/*
+ * Supports following chips:
+ *
+ * Chip	#vin	#fanin	#pwm	#temp	wchipid	vendid	i2c	ISA
+ * w83l786ng	3	2	2	2	0x7b	0x5ca3	yes	no
+ */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -28,8 +34,10 @@
 #include <linux/err.h>
 #include <linux/mutex.h>
 
+/* Addresses to scan */
 static const unsigned short normal_i2c[] = { 0x2e, 0x2f, I2C_CLIENT_END };
 
+/* Insmod parameters */
 
 static bool reset;
 module_param(reset, bool, 0);
@@ -57,17 +65,18 @@ MODULE_PARM_DESC(reset, "Set to 1 to reset chip, not recommended");
 #define W83L786NG_REG_TOLERANCE		0x8D
 
 static const u8 W83L786NG_REG_TEMP[2][3] = {
-	{ 0x25,		
-	  0x35,		
-	  0x36 },	
-	{ 0x26,		
-	  0x37,		
-	  0x38 }	
+	{ 0x25,		/* TEMP 0 in DataSheet */
+	  0x35,		/* TEMP 0 Over in DataSheet */
+	  0x36 },	/* TEMP 0 Hyst in DataSheet */
+	{ 0x26,		/* TEMP 1 in DataSheet */
+	  0x37,		/* TEMP 1 Over in DataSheet */
+	  0x38 }	/* TEMP 1 Hyst in DataSheet */
 };
 
 static const u8 W83L786NG_PWM_MODE_SHIFT[] = {6, 7};
 static const u8 W83L786NG_PWM_ENABLE_SHIFT[] = {2, 4};
 
+/* FAN Duty Cycle, be used to control */
 static const u8 W83L786NG_REG_PWM[] = {0x81, 0x87};
 
 
@@ -84,12 +93,18 @@ FAN_TO_REG(long rpm, int div)
 				((val) == 255 ? 0 : \
 				1350000 / ((val) * (div))))
 
+/* for temp */
 #define TEMP_TO_REG(val)	(SENSORS_LIMIT(((val) < 0 ? \
 						(val) + 0x100 * 1000 \
 						: (val)) / 1000, 0, 0xff))
 #define TEMP_FROM_REG(val)	(((val) & 0x80 ? \
 				  (val) - 0x100 : (val)) * 1000)
 
+/*
+ * The analog voltage inputs have 8mV LSB. Since the sysfs output is
+ * in mV as would be measured on the chip input pin, need to just
+ * multiply/divide by 8 to translate from/to register values.
+ */
 #define IN_TO_REG(val)		(SENSORS_LIMIT((((val) + 4) / 8), 0, 255))
 #define IN_FROM_REG(val)	((val) * 8)
 
@@ -111,9 +126,10 @@ DIV_TO_REG(long val)
 struct w83l786ng_data {
 	struct device *hwmon_dev;
 	struct mutex update_lock;
-	char valid;			
-	unsigned long last_updated;	
-	unsigned long last_nonvolatile;	
+	char valid;			/* !=0 if following fields are valid */
+	unsigned long last_updated;	/* In jiffies */
+	unsigned long last_nonvolatile;	/* In jiffies, last time we update the
+					 * nonvolatile registers */
 
 	u8 in[3];
 	u8 in_max[3];
@@ -124,9 +140,11 @@ struct w83l786ng_data {
 	u8 temp_type[2];
 	u8 temp[2][3];
 	u8 pwm[2];
-	u8 pwm_mode[2];	
+	u8 pwm_mode[2];	/* 0->DC variable voltage
+			 * 1->PWM variable duty cycle */
 
-	u8 pwm_enable[2]; 
+	u8 pwm_enable[2]; /* 1->manual
+			   * 2->thermal cruise (also called SmartFan I) */
 	u8 tolerance[2];
 };
 
@@ -168,6 +186,7 @@ w83l786ng_write_value(struct i2c_client *client, u8 reg, u8 value)
 	return i2c_smbus_write_byte_data(client, reg, value);
 }
 
+/* following are the sysfs callback functions */
 #define show_in_reg(reg) \
 static ssize_t \
 show_##reg(struct device *dev, struct device_attribute *attr, \
@@ -268,6 +287,12 @@ show_fan_div(struct device *dev, struct device_attribute *attr,
 	return sprintf(buf, "%u\n", DIV_FROM_REG(data->fan_div[nr]));
 }
 
+/*
+ * Note: we save and restore the fan minimum here, because its value is
+ * determined in part by the fan divisor.  This follows the principle of
+ * least surprise; the user doesn't expect the fan minimum to change just
+ * because the divisor changed.
+ */
 static ssize_t
 store_fan_div(struct device *dev, struct device_attribute *attr,
 	      const char *buf, size_t count)
@@ -289,7 +314,7 @@ store_fan_div(struct device *dev, struct device_attribute *attr,
 	if (err)
 		return err;
 
-	
+	/* Save fan_min */
 	mutex_lock(&data->update_lock);
 	min = FAN_FROM_REG(data->fan_min[nr], DIV_FROM_REG(data->fan_div[nr]));
 
@@ -314,7 +339,7 @@ store_fan_div(struct device *dev, struct device_attribute *attr,
 	w83l786ng_write_value(client, W83L786NG_REG_FAN_DIV,
 			      fan_div_reg | tmp_fan_div);
 
-	
+	/* Restore fan_min */
 	data->fan_min[nr] = FAN_TO_REG(min, DIV_FROM_REG(data->fan_div[nr]));
 	w83l786ng_write_value(client, W83L786NG_REG_FAN_MIN(nr),
 			      data->fan_min[nr]);
@@ -343,6 +368,7 @@ static struct sensor_device_attribute sda_fan_div[] = {
 };
 
 
+/* read/write the temperature, includes measured value and limits */
 
 static ssize_t
 show_temp(struct device *dev, struct device_attribute *attr, char *buf)
@@ -478,7 +504,7 @@ store_pwm_enable(struct device *dev, struct device_attribute *attr,
 	if (err)
 		return err;
 
-	if (!val || val > 2)  
+	if (!val || val > 2)  /* only modes 1 and 2 are supported */
 		return -EINVAL;
 
 	mutex_lock(&data->update_lock);
@@ -510,6 +536,7 @@ static struct sensor_device_attribute sda_pwm_enable[] = {
 		    store_pwm_enable, 1),
 };
 
+/* For Smart Fan I/Thermal Cruise and Smart Fan II */
 static ssize_t
 show_tolerance(struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -608,20 +635,20 @@ w83l786ng_detect(struct i2c_client *client, struct i2c_board_info *info)
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -ENODEV;
 
-	
+	/* Detection */
 	if ((w83l786ng_read_value(client, W83L786NG_REG_CONFIG) & 0x80)) {
 		dev_dbg(&adapter->dev, "W83L786NG detection failed at 0x%02x\n",
 			client->addr);
 		return -ENODEV;
 	}
 
-	
+	/* Identification */
 	man_id = (w83l786ng_read_value(client, W83L786NG_REG_MAN_ID1) << 8) +
 		 w83l786ng_read_value(client, W83L786NG_REG_MAN_ID2);
 	chip_id = w83l786ng_read_value(client, W83L786NG_REG_CHIP_ID);
 
-	if (man_id != 0x5CA3 ||		
-	    chip_id != 0x80) {		
+	if (man_id != 0x5CA3 ||		/* Winbond */
+	    chip_id != 0x80) {		/* W83L786NG */
 		dev_dbg(&adapter->dev,
 			"Unsupported chip (man_id=0x%04X, chip_id=0x%02X)\n",
 			man_id, chip_id);
@@ -650,21 +677,21 @@ w83l786ng_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	i2c_set_clientdata(client, data);
 	mutex_init(&data->update_lock);
 
-	
+	/* Initialize the chip */
 	w83l786ng_init_client(client);
 
-	
+	/* A few vars need to be filled upon startup */
 	for (i = 0; i < 2; i++) {
 		data->fan_min[i] = w83l786ng_read_value(client,
 		    W83L786NG_REG_FAN_MIN(i));
 	}
 
-	
+	/* Update the fan divisor */
 	reg_tmp = w83l786ng_read_value(client, W83L786NG_REG_FAN_DIV);
 	data->fan_div[0] = reg_tmp & 0x07;
 	data->fan_div[1] = (reg_tmp >> 4) & 0x07;
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&client->dev.kobj, &w83l786ng_group);
 	if (err)
 		goto exit_remove;
@@ -677,7 +704,7 @@ w83l786ng_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 	return 0;
 
-	
+	/* Unregister sysfs hooks */
 
 exit_remove:
 	sysfs_remove_group(&client->dev.kobj, &w83l786ng_group);
@@ -707,7 +734,7 @@ w83l786ng_init_client(struct i2c_client *client)
 	if (reset)
 		w83l786ng_write_value(client, W83L786NG_REG_CONFIG, 0x80);
 
-	
+	/* Start monitoring */
 	tmp = w83l786ng_read_value(client, W83L786NG_REG_CONFIG);
 	if (!(tmp & 0x01))
 		w83l786ng_write_value(client, W83L786NG_REG_CONFIG, tmp | 0x01);
@@ -725,7 +752,7 @@ static struct w83l786ng_data *w83l786ng_update_device(struct device *dev)
 	    || !data->valid) {
 		dev_dbg(&client->dev, "Updating w83l786ng data.\n");
 
-		
+		/* Update the voltages measured value and limits */
 		for (i = 0; i < 3; i++) {
 			data->in[i] = w83l786ng_read_value(client,
 			    W83L786NG_REG_IN(i));
@@ -735,7 +762,7 @@ static struct w83l786ng_data *w83l786ng_update_device(struct device *dev)
 			    W83L786NG_REG_IN_MAX(i));
 		}
 
-		
+		/* Update the fan counts and limits */
 		for (i = 0; i < 2; i++) {
 			data->fan[i] = w83l786ng_read_value(client,
 			    W83L786NG_REG_FAN(i));
@@ -743,7 +770,7 @@ static struct w83l786ng_data *w83l786ng_update_device(struct device *dev)
 			    W83L786NG_REG_FAN_MIN(i));
 		}
 
-		
+		/* Update the fan divisor */
 		reg_tmp = w83l786ng_read_value(client, W83L786NG_REG_FAN_DIV);
 		data->fan_div[0] = reg_tmp & 0x07;
 		data->fan_div[1] = (reg_tmp >> 4) & 0x07;
@@ -760,7 +787,7 @@ static struct w83l786ng_data *w83l786ng_update_device(struct device *dev)
 		}
 
 
-		
+		/* Update the temperature sensors */
 		for (i = 0; i < 2; i++) {
 			for (j = 0; j < 3; j++) {
 				data->temp[i][j] = w83l786ng_read_value(client,
@@ -768,7 +795,7 @@ static struct w83l786ng_data *w83l786ng_update_device(struct device *dev)
 			}
 		}
 
-		
+		/* Update Smart Fan I/II tolerance */
 		reg_tmp = w83l786ng_read_value(client, W83L786NG_REG_TOLERANCE);
 		data->tolerance[0] = reg_tmp & 0x0f;
 		data->tolerance[1] = (reg_tmp >> 4) & 0x0f;

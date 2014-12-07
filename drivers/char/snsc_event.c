@@ -8,6 +8,12 @@
  * Copyright (C) 2004-2006 Silicon Graphics, Inc. All rights reserved.
  */
 
+/*
+ * System controller event handler
+ *
+ * These routines deal with environmental events arriving from the
+ * system controllers.
+ */
 
 #include <linux/interrupt.h>
 #include <linux/sched.h>
@@ -22,6 +28,14 @@ static struct subch_data_s *event_sd;
 void scdrv_event(unsigned long);
 DECLARE_TASKLET(sn_sysctl_event, scdrv_event, 0);
 
+/*
+ * scdrv_event_interrupt
+ *
+ * Pull incoming environmental events off the physical link to the
+ * system controller and put them in a temporary holding area in SAL.
+ * Schedule scdrv_event() to move them along to their ultimate
+ * destination.
+ */
 static irqreturn_t
 scdrv_event_interrupt(int irq, void *subch_data)
 {
@@ -40,43 +54,49 @@ scdrv_event_interrupt(int irq, void *subch_data)
 }
 
 
+/*
+ * scdrv_parse_event
+ *
+ * Break an event (as read from SAL) into useful pieces so we can decide
+ * what to do with it.
+ */
 static int
 scdrv_parse_event(char *event, int *src, int *code, int *esp_code, char *desc)
 {
 	char *desc_end;
 
-	
+	/* record event source address */
 	*src = get_unaligned_be32(event);
-	event += 4; 			
+	event += 4; 			/* move on to event code */
 
-	
+	/* record the system controller's event code */
 	*code = get_unaligned_be32(event);
-	event += 4;			
+	event += 4;			/* move on to event arguments */
 
-	
+	/* how many arguments are in the packet? */
 	if (*event++ != 2) {
-		
+		/* if not 2, give up */
 		return -1;
 	}
 
-	
+	/* parse out the ESP code */
 	if (*event++ != IR_ARG_INT) {
-		
+		/* not an integer argument, so give up */
 		return -1;
 	}
 	*esp_code = get_unaligned_be32(event);
 	event += 4;
 
-	
+	/* parse out the event description */
 	if (*event++ != IR_ARG_ASCII) {
-		
+		/* not an ASCII string, so give up */
 		return -1;
 	}
-	event[CHUNKSIZE-1] = '\0';	
-	event += 2; 			
+	event[CHUNKSIZE-1] = '\0';	/* ensure this string ends! */
+	event += 2; 			/* skip leading CR/LF */
 	desc_end = desc + sprintf(desc, "%s", event);
 
-	
+	/* strip trailing CR/LF (if any) */
 	for (desc_end--;
 	     (desc_end != desc) && ((*desc_end == 0xd) || (*desc_end == 0xa));
 	     desc_end--) {
@@ -87,6 +107,12 @@ scdrv_parse_event(char *event, int *src, int *code, int *esp_code, char *desc)
 }
 
 
+/*
+ * scdrv_event_severity
+ *
+ * Figure out how urgent a message we should write to the console/syslog
+ * via printk.
+ */
 static char *
 scdrv_event_severity(int code)
 {
@@ -148,6 +174,13 @@ scdrv_event_severity(int code)
 }
 
 
+/*
+ * scdrv_dispatch_event
+ *
+ * Do the right thing with an incoming event.  That's often nothing
+ * more than printing it to the system log.  For power-down notifications
+ * we start a graceful shutdown.
+ */
 static void
 scdrv_dispatch_event(char *event, int len)
 {
@@ -157,11 +190,11 @@ scdrv_dispatch_event(char *event, int len)
 	char *severity;
 
 	if (scdrv_parse_event(event, &src, &code, &esp_code, desc) < 0) {
-		
+		/* ignore uninterpretible event */
 		return;
 	}
 
-	
+	/* how urgent is the message? */
 	severity = scdrv_event_severity(code);
 
 	class = (code & EV_CLASS_MASK);
@@ -172,7 +205,7 @@ scdrv_dispatch_event(char *event, int len)
 
 		snsc_shutting_down = 1;
 
-		
+		/* give a message for each type of event */
 		if (class == EV_CLASS_PWRD_NOTIFY)
 			printk(KERN_NOTICE "Power off indication received."
 			       " Sending SIGPWR to init...\n");
@@ -181,15 +214,23 @@ scdrv_dispatch_event(char *event, int len)
 			       " due to a critical environmental condition."
 			       " Sending SIGPWR to init...\n");
 
-		
+		/* give a SIGPWR signal to init proc */
 		kill_cad_pid(SIGPWR, 0);
 	} else {
-		
+		/* print to system log */
 		printk("%s|$(0x%x)%s\n", severity, esp_code, desc);
 	}
 }
 
 
+/*
+ * scdrv_event
+ *
+ * Called as a tasklet when an event arrives from the L1.  Read the event
+ * from where it's temporarily stored in SAL and call scdrv_dispatch_event()
+ * to send it on its way.  Keep trying to read events until SAL indicates
+ * that there are no more immediately available.
+ */
 void
 scdrv_event(unsigned long dummy)
 {
@@ -198,7 +239,7 @@ scdrv_event(unsigned long dummy)
 	unsigned long flags;
 	struct subch_data_s *sd = event_sd;
 
-	
+	/* anything to read? */
 	len = CHUNKSIZE;
 	spin_lock_irqsave(&sd->sd_rlock, flags);
 	status = ia64_sn_irtr_recv(sd->sd_nasid, sd->sd_subch,
@@ -216,6 +257,13 @@ scdrv_event(unsigned long dummy)
 }
 
 
+/*
+ * scdrv_event_init
+ *
+ * Sets up a system controller subchannel to begin receiving event
+ * messages. This is sort of a specialized version of scdrv_open()
+ * in drivers/char/sn_sysctl.c.
+ */
 void
 scdrv_event_init(struct sysctl_data_s *scd)
 {
@@ -228,11 +276,11 @@ scdrv_event_init(struct sysctl_data_s *scd)
 		return;
 	}
 
-	
+	/* initialize subch_data_s fields */
 	event_sd->sd_nasid = scd->scd_nasid;
 	spin_lock_init(&event_sd->sd_rlock);
 
-	
+	/* ask the system controllers to send events to this node */
 	event_sd->sd_subch = ia64_sn_sysctl_event_init(scd->scd_nasid);
 
 	if (event_sd->sd_subch < 0) {
@@ -242,7 +290,7 @@ scdrv_event_init(struct sysctl_data_s *scd)
 		return;
 	}
 
-	
+	/* hook event subchannel up to the system controller interrupt */
 	rv = request_irq(SGI_UART_VECTOR, scdrv_event_interrupt,
 			 IRQF_SHARED | IRQF_DISABLED,
 			 "system controller events", event_sd);

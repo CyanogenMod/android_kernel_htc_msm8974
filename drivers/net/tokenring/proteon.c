@@ -40,19 +40,22 @@ static const char version[] = "proteon.c: v1.00 02/01/2003 by Jochen Friedrich\n
 
 #define PROTEON_IO_EXTENT 32
 
+/* A zero-terminated list of I/O addresses to be probed. */
 static unsigned int portlist[] __initdata = {
-	0x0A20, 0x0E20, 0x1A20, 0x1E20, 0x2A20, 0x2E20, 0x3A20, 0x3E20,
-	0x4A20, 0x4E20, 0x5A20, 0x5E20, 0x6A20, 0x6E20, 0x7A20, 0x7E20,
-	0x8A20, 0x8E20, 0x9A20, 0x9E20, 0xAA20, 0xAE20, 0xBA20, 0xBE20,
-	0xCA20, 0xCE20, 0xDA20, 0xDE20, 0xEA20, 0xEE20, 0xFA20, 0xFE20,
+	0x0A20, 0x0E20, 0x1A20, 0x1E20, 0x2A20, 0x2E20, 0x3A20, 0x3E20,// Prot.
+	0x4A20, 0x4E20, 0x5A20, 0x5E20, 0x6A20, 0x6E20, 0x7A20, 0x7E20,// Prot.
+	0x8A20, 0x8E20, 0x9A20, 0x9E20, 0xAA20, 0xAE20, 0xBA20, 0xBE20,// Prot.
+	0xCA20, 0xCE20, 0xDA20, 0xDE20, 0xEA20, 0xEE20, 0xFA20, 0xFE20,// Prot.
 	0
 };
 
+/* A zero-terminated list of IRQs to be probed. */
 static unsigned short irqlist[] = {
 	7, 6, 5, 4, 3, 12, 11, 10, 9,
 	0
 };
 
+/* A zero-terminated list of DMAs to be probed. */
 static int dmalist[] __initdata = {
 	5, 6, 7,
 	0
@@ -93,11 +96,11 @@ static int __init proteon_probe1(struct net_device *dev, int ioaddr)
 		return -ENODEV;
 		
 
-	chk1 = inb(ioaddr + 0x1f);      
+	chk1 = inb(ioaddr + 0x1f);      /* Get Proteon ID reg 1 */
 	if (chk1 != 0x1f) 
 		goto nodev;
 
-	chk1 = inb(ioaddr + 0x1e) & 0x07;       
+	chk1 = inb(ioaddr + 0x1e) & 0x07;       /* Get Proteon ID reg 0 */
 	for (i=0; i<16; i++) {
 		chk2 = inb(ioaddr + 0x1e) & 0x07;
 		if (((chk1 + 1) & 0x07) != chk2)
@@ -124,7 +127,7 @@ static int __init setup_card(struct net_device *dev, struct device *pdev)
 	if (!dev)
 		return -ENOMEM;
 
-	if (dev->base_addr)	
+	if (dev->base_addr)	/* probe specific location */
 		err = proteon_probe1(dev, dev->base_addr);
 	else {
 		for (port = portlist; *port; port++) {
@@ -136,7 +139,7 @@ static int __init setup_card(struct net_device *dev, struct device *pdev)
 	if (err)
 		goto out5;
 
-	
+	/* At this point we have found a valid card. */
 
 	if (versionprinted++ == 0)
 		printk(KERN_DEBUG "%s", version);
@@ -257,15 +260,24 @@ out5:
 	return err;
 }
 
+/*
+ * Reads MAC address from adapter RAM, which should've read it from
+ * the onboard ROM.  
+ *
+ * Calling this on a board that does not support it can be a very
+ * dangerous thing.  The Madge board, for instance, will lock your
+ * machine hard when this is called.  Luckily, its supported in a
+ * separate driver.  --ASF
+ */
 static void proteon_read_eeprom(struct net_device *dev)
 {
 	int i;
 	
-	
+	/* Address: 0000:0000 */
 	proteon_sifwritew(dev, 0, SIFADX);
 	proteon_sifwritew(dev, 0, SIFADR);	
 	
-	
+	/* Read six byte MAC address data */
 	dev->addr_len = 6;
 	for(i = 0; i < 6; i++)
 		dev->dev_addr[i] = proteon_sifreadw(dev, SIFINC) >> 8;
@@ -282,7 +294,7 @@ static int proteon_open(struct net_device *dev)
 	unsigned short val = 0;
 	int i;
 
-	
+	/* Proteon reset sequence */
 	outb(0, dev->base_addr + 0x11);
 	mdelay(20);
 	outb(0x04, dev->base_addr + 0x11);
@@ -290,7 +302,7 @@ static int proteon_open(struct net_device *dev)
 	outb(0, dev->base_addr + 0x11);
 	mdelay(100);
 
-	
+	/* set control/status reg */
 	val = inb(dev->base_addr + 0x11);
 	val |= 0x78;
 	val &= 0xf9;
@@ -374,7 +386,7 @@ static int __init proteon_init(void)
 	}
 
 	printk(KERN_NOTICE "proteon.c: %d cards found.\n", num);
-	
+	/* Probe for cards. */
 	if (num == 0) {
 		printk(KERN_NOTICE "proteon.c: No cards found.\n");
 		platform_driver_unregister(&proteon_driver);

@@ -36,20 +36,20 @@
 
 static void __init pnv_setup_arch(void)
 {
-	
+	/* Initialize SMP */
 	pnv_smp_init();
 
-	
+	/* Setup PCI */
 	pnv_pci_init();
 
-	
+	/* Setup RTC and NVRAM callbacks */
 	if (firmware_has_feature(FW_FEATURE_OPAL))
 		opal_nvram_init();
 
-	
+	/* Enable NAP mode */
 	powersave_nap = 1;
 
-	
+	/* XXX PMCS */
 }
 
 static void __init pnv_init_early(void)
@@ -131,7 +131,7 @@ static void pnv_kexec_cpu_down(int crash_shutdown, int secondary)
 {
 	xics_kexec_teardown_cpu(secondary);
 }
-#endif 
+#endif /* CONFIG_KEXEC */
 
 static void __init pnv_setup_machdep_opal(void)
 {
@@ -156,7 +156,7 @@ static void __init pnv_setup_machdep_rtas(void)
 	ppc_md.power_off = rtas_power_off;
 	ppc_md.halt = rtas_halt;
 }
-#endif 
+#endif /* CONFIG_PPC_POWERNV_RTAS */
 
 static int __init pnv_probe(void)
 {
@@ -172,7 +172,7 @@ static int __init pnv_probe(void)
 #ifdef CONFIG_PPC_POWERNV_RTAS
 	else if (rtas.base)
 		pnv_setup_machdep_rtas();
-#endif 
+#endif /* CONFIG_PPC_POWERNV_RTAS */
 
 	pr_debug("PowerNV detected !\n");
 

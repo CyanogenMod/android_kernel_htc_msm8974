@@ -1,3 +1,5 @@
+/* This file is meant to be include multiple times by other headers */
+/* last 2 argments are used by platforms/cell/io-workarounds.[ch] */
 
 DEF_PCI_AC_RET(readb, u8, (const PCI_IO_ADDR addr), (addr), mem, addr)
 DEF_PCI_AC_RET(readw, u16, (const PCI_IO_ADDR addr), (addr), mem, addr)
@@ -15,7 +17,7 @@ DEF_PCI_AC_RET(readq, u64, (const PCI_IO_ADDR addr), (addr), mem, addr)
 DEF_PCI_AC_RET(readq_be, u64, (const PCI_IO_ADDR addr), (addr), mem, addr)
 DEF_PCI_AC_NORET(writeq, (u64 val, PCI_IO_ADDR addr), (val, addr), mem, addr)
 DEF_PCI_AC_NORET(writeq_be, (u64 val, PCI_IO_ADDR addr), (val, addr), mem, addr)
-#endif 
+#endif /* __powerpc64__ */
 
 DEF_PCI_AC_RET(inb, u8, (unsigned long port), (port), pio, port)
 DEF_PCI_AC_RET(inw, u16, (unsigned long port), (port), pio, port)

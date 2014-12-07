@@ -24,6 +24,7 @@
 #define SERIAL3_BASE		(IO_PHYS + SERIAL3_OFS)
 #define SERIAL3_VIRT 		(IO_VIRT + SERIAL3_OFS)
 
+/* Matrix Keyboard Controller */
 #define KBD_VIRT		(IO_VIRT + 0x22000)
 #define KBD_KBCR		0x00
 #define KBD_KBSC		0x04
@@ -43,6 +44,7 @@
 #define KBD_KBSR_INTR		(1 << 0)
 #define KBD_KBSR_WAKEUP		(1 << 1)
 
+/* USB device controller */
 
 #define USBD_BASE		(IO_VIRT + 0x12000)
 #define USBD_LENGTH		0x3C
@@ -63,6 +65,7 @@
 #define USBD_ENDP1RD		0x34
 #define USBD_ENDP2WT		0x38
 
+/* PS/2 port */
 #define PSDATA 0x00
 #define PSSTAT 0x04
 #define PSSTAT_TXEMPTY (1<<0)
@@ -88,12 +91,13 @@
 #define PSINTR_RXTO (1<<3)
 #define PSINTR_TXTO (1<<4)
 
-#define PSTDLO 0x10 
-#define PSTPRI 0x14 
-#define PSTXMT 0x18 
-#define PSTREC 0x20 
+#define PSTDLO 0x10 /* clk low before start transmission */
+#define PSTPRI 0x14 /* PRI clock */
+#define PSTXMT 0x18 /* maximum transmission time */
+#define PSTREC 0x20 /* maximum receive time */
 #define PSPWDN 0x3c
 
+/* ADC converter */
 #define ADC_BASE 		(IO_VIRT + 0x29000)
 #define ADC_CR 			0x00
 #define ADC_TSCTRL 		0x04
@@ -101,6 +105,7 @@
 #define ADC_MC_CTRL		0x0C
 #define ADC_STATUS		0x10
 
+/* ADC control register bits */
 #define ADC_CR_PW_CTRL 		0x80
 #define ADC_CR_DIRECTC		0x04
 #define ADC_CR_CONTIME_NO	0x00
@@ -109,6 +114,7 @@
 #define ADC_CR_CONTIME_ADE	0x0c
 #define ADC_CR_LONGCALTIME	0x01
 
+/* ADC touch panel register bits */
 #define ADC_TSCTRL_ENABLE 	0x80
 #define ADC_TSCTRL_INTR   	0x40
 #define	ADC_TSCTRL_SWBYPSS	0x20
@@ -118,11 +124,13 @@
 #define ADC_TSCTRL_S100   	0x01
 #define ADC_TSCTRL_S50    	0x00
 
+/* ADC Interrupt Status Register bits */
 #define ADC_STATUS_TS_BIT	0x80
 #define ADC_STATUS_MBT_BIT	0x40
 #define ADC_STATUS_BBT_BIT	0x20
 #define ADC_STATUS_MIC_BIT	0x10
 
+/* Touch data registers */
 #define ADC_TS_X0X1  		0x30
 #define ADC_TS_X2X3		0x34
 #define ADC_TS_Y0Y1		0x38
@@ -132,9 +140,11 @@
 #define ADC_TS_Y4Y5		0x48
 #define ADC_TS_Y6Y7		0x50
 
+/* battery data */
 #define ADC_MB_DATA		0x54
 #define ADC_BB_DATA		0x58
 
+/* Sound data register */
 #define ADC_SD_DAT0 		0x60
 #define ADC_SD_DAT1		0x64
 #define ADC_SD_DAT2		0x68

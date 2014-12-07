@@ -38,15 +38,32 @@
 #define SIGWINCH	28
 #define SIGIO		29
 #define SIGPOLL		SIGIO
+/*
+#define SIGLOST		29
+*/
 #define SIGPWR		30
 #define SIGSYS		31
 #define	SIGUNUSED	31
 
+/* These should not be considered constants from userland.  */
 #define SIGRTMIN	32
 #ifndef SIGRTMAX
 #define SIGRTMAX	_NSIG
 #endif
 
+/*
+ * SA_FLAGS values:
+ *
+ * SA_ONSTACK indicates that a registered stack_t will be used.
+ * SA_RESTART flag to get restarting signals (which were the default long ago)
+ * SA_NOCLDSTOP flag to turn off SIGCHLD when children stop.
+ * SA_RESETHAND clears the handler when the signal is delivered.
+ * SA_NOCLDWAIT flag on SIGCHLD to inhibit zombies.
+ * SA_NODEFER prevents the current signal from being masked in the handler.
+ *
+ * SA_ONESHOT and SA_NOMASK are the historical Linux names for the Single
+ * Unix names RESETHAND and NODEFER respectively.
+ */
 #define SA_NOCLDSTOP	0x00000001
 #define SA_NOCLDWAIT	0x00000002
 #define SA_SIGINFO	0x00000004
@@ -58,7 +75,14 @@
 #define SA_NOMASK	SA_NODEFER
 #define SA_ONESHOT	SA_RESETHAND
 
+/*
+ * New architectures should not define the obsolete
+ *	SA_RESTORER	0x04000000
+ */
 
+/*
+ * sigaltstack controls
+ */
 #define SS_ONSTACK	1
 #define SS_DISABLE	2
 
@@ -70,6 +94,7 @@ typedef struct {
 	unsigned long sig[_NSIG_WORDS];
 } sigset_t;
 
+/* not actually used, but required for linux/syscalls.h */
 typedef unsigned long old_sigset_t;
 
 #include <asm-generic/signal-defs.h>
@@ -80,7 +105,7 @@ struct sigaction {
 #ifdef SA_RESTORER
 	__sigrestore_t sa_restorer;
 #endif
-	sigset_t sa_mask;		
+	sigset_t sa_mask;		/* mask last for extensibility */
 };
 
 struct k_sigaction {
@@ -100,7 +125,7 @@ typedef struct sigaltstack {
 
 #define ptrace_signal_deliver(regs, cookie) do { } while (0)
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_GENERIC_SIGNAL_H */

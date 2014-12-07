@@ -44,6 +44,12 @@ struct ladder_device {
 
 static DEFINE_PER_CPU(struct ladder_device, ladder_devices);
 
+/**
+ * ladder_do_selection - prepares private data for a state change
+ * @ldev: the ladder device
+ * @old_idx: the current state index
+ * @new_idx: the new target state index
+ */
 static inline void ladder_do_selection(struct ladder_device *ldev,
 				       int old_idx, int new_idx)
 {
@@ -52,6 +58,11 @@ static inline void ladder_do_selection(struct ladder_device *ldev,
 	ldev->last_state_idx = new_idx;
 }
 
+/**
+ * ladder_select_state - selects the next state to enter
+ * @drv: cpuidle driver
+ * @dev: the CPU
+ */
 static int ladder_select_state(struct cpuidle_driver *drv,
 				struct cpuidle_device *dev)
 {
@@ -60,7 +71,7 @@ static int ladder_select_state(struct cpuidle_driver *drv,
 	int last_residency, last_idx = ldev->last_state_idx;
 	int latency_req = pm_qos_request(PM_QOS_CPU_DMA_LATENCY);
 
-	
+	/* Special case when user has set very strict latency requirement */
 	if (unlikely(latency_req == 0)) {
 		ladder_do_selection(ldev, last_idx, 0);
 		return 0;
@@ -75,7 +86,7 @@ static int ladder_select_state(struct cpuidle_driver *drv,
 	else
 		last_residency = last_state->threshold.promotion_time + 1;
 
-	
+	/* consider promotion */
 	if (last_idx < drv->state_count - 1 &&
 	    last_residency > last_state->threshold.promotion_time &&
 	    drv->states[last_idx + 1].exit_latency <= latency_req) {
@@ -87,7 +98,7 @@ static int ladder_select_state(struct cpuidle_driver *drv,
 		}
 	}
 
-	
+	/* consider demotion */
 	if (last_idx > CPUIDLE_DRIVER_STATE_START &&
 	    drv->states[last_idx].exit_latency > latency_req) {
 		int i;
@@ -110,10 +121,15 @@ static int ladder_select_state(struct cpuidle_driver *drv,
 		}
 	}
 
-	
+	/* otherwise remain at the current state */
 	return last_idx;
 }
 
+/**
+ * ladder_enable_device - setup for the governor
+ * @drv: cpuidle driver
+ * @dev: the CPU
+ */
 static int ladder_enable_device(struct cpuidle_driver *drv,
 				struct cpuidle_device *dev)
 {
@@ -143,6 +159,11 @@ static int ladder_enable_device(struct cpuidle_driver *drv,
 	return 0;
 }
 
+/**
+ * ladder_reflect - update the correct last_state_idx
+ * @dev: the CPU
+ * @index: the index of actual state entered
+ */
 static void ladder_reflect(struct cpuidle_device *dev, int index)
 {
 	struct ladder_device *ldev = &__get_cpu_var(ladder_devices);
@@ -159,11 +180,17 @@ static struct cpuidle_governor ladder_governor = {
 	.owner =	THIS_MODULE,
 };
 
+/**
+ * init_ladder - initializes the governor
+ */
 static int __init init_ladder(void)
 {
 	return cpuidle_register_governor(&ladder_governor);
 }
 
+/**
+ * exit_ladder - exits the governor
+ */
 static void __exit exit_ladder(void)
 {
 	cpuidle_unregister_governor(&ladder_governor);

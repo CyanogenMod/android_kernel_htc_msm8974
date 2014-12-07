@@ -30,11 +30,24 @@
 
 #include <linux/ti_wilink_st.h>
 
+/* Bluetooth Driver Version */
 #define VERSION               "1.0"
 #define MAX_BT_CHNL_IDS		3
 
-#define BT_REGISTER_TIMEOUT   6000	
+/* Number of seconds to wait for registration completion
+ * when ST returns PENDING status.
+ */
+#define BT_REGISTER_TIMEOUT   6000	/* 6 sec */
 
+/**
+ * struct ti_st - driver operation structure
+ * @hdev: hci device pointer which binds to bt driver
+ * @reg_status: ST registration callback status
+ * @st_write: write function provided by the ST driver
+ *	to be used by the driver during send_frame.
+ * @wait_reg_completion - completion sync between ti_st_open
+ *	and st_reg_completion_cb.
+ */
 struct ti_st {
 	struct hci_dev *hdev;
 	char reg_status;
@@ -42,11 +55,12 @@ struct ti_st {
 	struct completion wait_reg_completion;
 };
 
+/* Increments HCI counters based on pocket ID (cmd,acl,sco) */
 static inline void ti_st_tx_complete(struct ti_st *hst, int pkt_type)
 {
 	struct hci_dev *hdev = hst->hdev;
 
-	
+	/* Update HCI stat counters */
 	switch (pkt_type) {
 	case HCI_COMMAND_PKT:
 		hdev->stat.cmd_tx++;
@@ -62,17 +76,24 @@ static inline void ti_st_tx_complete(struct ti_st *hst, int pkt_type)
 	}
 }
 
+/* ------- Interfaces to Shared Transport ------ */
 
+/* Called by ST layer to indicate protocol registration completion
+ * status.ti_st_open() function will wait for signal from this
+ * API when st_register() function returns ST_PENDING.
+ */
 static void st_reg_completion_cb(void *priv_data, char data)
 {
 	struct ti_st *lhst = priv_data;
 
-	
+	/* Save registration status for use in ti_st_open() */
 	lhst->reg_status = data;
-	
+	/* complete the wait in ti_st_open() */
 	complete(&lhst->wait_reg_completion);
 }
 
+/* Called by Shared Transport layer when receive data is
+ * available */
 static long st_receive(void *priv_data, struct sk_buff *skb)
 {
 	struct ti_st *lhst = priv_data;
@@ -88,7 +109,7 @@ static long st_receive(void *priv_data, struct sk_buff *skb)
 
 	skb->dev = (void *) lhst->hdev;
 
-	
+	/* Forward skb to HCI core layer */
 	err = hci_recv_frame(skb);
 	if (err < 0) {
 		BT_ERR("Unable to push skb to HCI core(%d)", err);
@@ -100,30 +121,33 @@ static long st_receive(void *priv_data, struct sk_buff *skb)
 	return 0;
 }
 
+/* ------- Interfaces to HCI layer ------ */
+/* protocol structure registered with shared transport */
 static struct st_proto_s ti_st_proto[MAX_BT_CHNL_IDS] = {
 	{
-		.chnl_id = HCI_ACLDATA_PKT, 
+		.chnl_id = HCI_ACLDATA_PKT, /* ACL */
 		.hdr_len = sizeof(struct hci_acl_hdr),
 		.offset_len_in_hdr = offsetof(struct hci_acl_hdr, dlen),
-		.len_size = 2,	
+		.len_size = 2,	/* sizeof(dlen) in struct hci_acl_hdr */
 		.reserve = 8,
 	},
 	{
-		.chnl_id = HCI_SCODATA_PKT, 
+		.chnl_id = HCI_SCODATA_PKT, /* SCO */
 		.hdr_len = sizeof(struct hci_sco_hdr),
 		.offset_len_in_hdr = offsetof(struct hci_sco_hdr, dlen),
-		.len_size = 1, 
+		.len_size = 1, /* sizeof(dlen) in struct hci_sco_hdr */
 		.reserve = 8,
 	},
 	{
-		.chnl_id = HCI_EVENT_PKT, 
+		.chnl_id = HCI_EVENT_PKT, /* HCI Events */
 		.hdr_len = sizeof(struct hci_event_hdr),
 		.offset_len_in_hdr = offsetof(struct hci_event_hdr, plen),
-		.len_size = 1, 
+		.len_size = 1, /* sizeof(plen) in struct hci_event_hdr */
 		.reserve = 8,
 	},
 };
 
+/* Called from HCI core to initialize the device */
 static int ti_st_open(struct hci_dev *hdev)
 {
 	unsigned long timeleft;
@@ -135,7 +159,7 @@ static int ti_st_open(struct hci_dev *hdev)
 	if (test_and_set_bit(HCI_RUNNING, &hdev->flags))
 		return -EBUSY;
 
-	
+	/* provide contexts for callbacks from ST */
 	hst = hdev->driver_data;
 
 	for (i = 0; i < MAX_BT_CHNL_IDS; i++) {
@@ -144,8 +168,13 @@ static int ti_st_open(struct hci_dev *hdev)
 		ti_st_proto[i].recv = st_receive;
 		ti_st_proto[i].reg_complete_cb = st_reg_completion_cb;
 
-		
+		/* Prepare wait-for-completion handler */
 		init_completion(&hst->wait_reg_completion);
+		/* Reset ST registration callback status flag,
+		 * this value will be updated in
+		 * st_reg_completion_cb()
+		 * function whenever it called from ST driver.
+		 */
 		hst->reg_status = -EINPROGRESS;
 
 		err = st_register(&ti_st_proto[i]);
@@ -158,6 +187,9 @@ static int ti_st_open(struct hci_dev *hdev)
 			return err;
 		}
 
+		/* ST is busy with either protocol
+		 * registration or firmware download.
+		 */
 		BT_DBG("waiting for registration "
 				"completion signal from ST");
 		timeleft = wait_for_completion_timeout
@@ -171,6 +203,8 @@ static int ti_st_open(struct hci_dev *hdev)
 			return -ETIMEDOUT;
 		}
 
+		/* Is ST registration callback
+		 * called with ERROR status? */
 		if (hst->reg_status != 0) {
 			clear_bit(HCI_RUNNING, &hdev->flags);
 			BT_ERR("ST registration completed with invalid "
@@ -184,7 +218,7 @@ done:
 			BT_ERR("undefined ST write function");
 			clear_bit(HCI_RUNNING, &hdev->flags);
 			for (i = 0; i < MAX_BT_CHNL_IDS; i++) {
-				
+				/* Undo registration with ST */
 				err = st_unregister(&ti_st_proto[i]);
 				if (err)
 					BT_ERR("st_unregister() failed with "
@@ -197,6 +231,7 @@ done:
 	return 0;
 }
 
+/* Close device */
 static int ti_st_close(struct hci_dev *hdev)
 {
 	int err, i;
@@ -230,21 +265,25 @@ static int ti_st_send_frame(struct sk_buff *skb)
 
 	hst = hdev->driver_data;
 
-	
+	/* Prepend skb with frame type */
 	memcpy(skb_push(skb, 1), &bt_cb(skb)->pkt_type, 1);
 
 	BT_DBG("%s: type %d len %d", hdev->name, bt_cb(skb)->pkt_type,
 			skb->len);
 
+	/* Insert skb to shared transport layer's transmit queue.
+	 * Freeing skb memory is taken care in shared transport layer,
+	 * so don't free skb memory here.
+	 */
 	len = hst->st_write(skb);
 	if (len < 0) {
 		kfree_skb(skb);
 		BT_ERR("ST write failed (%ld)", len);
-		
+		/* Try Again, would only fail if UART has gone bad */
 		return -EAGAIN;
 	}
 
-	
+	/* ST accepted our skb. So, Go ahead and do rest */
 	hdev->stat.byte_tx += len;
 	ti_st_tx_complete(hst, bt_cb(skb)->pkt_type);
 
@@ -254,6 +293,9 @@ static int ti_st_send_frame(struct sk_buff *skb)
 static void ti_st_destruct(struct hci_dev *hdev)
 {
 	BT_DBG("%s", hdev->name);
+	/* do nothing here, since platform remove
+	 * would free the hdev->driver_data
+	 */
 }
 
 static int bt_ti_probe(struct platform_device *pdev)
@@ -266,7 +308,7 @@ static int bt_ti_probe(struct platform_device *pdev)
 	if (!hst)
 		return -ENOMEM;
 
-	
+	/* Expose "hciX" device to user space */
 	hdev = hci_alloc_dev();
 	if (!hdev) {
 		kfree(hst);
@@ -329,6 +371,7 @@ static struct platform_driver btwilink_driver = {
 	},
 };
 
+/* ------- Module Init/Exit interfaces ------ */
 static int __init btwilink_init(void)
 {
 	BT_INFO("Bluetooth Driver for TI WiLink - Version %s", VERSION);
@@ -344,6 +387,7 @@ static void __exit btwilink_exit(void)
 module_init(btwilink_init);
 module_exit(btwilink_exit);
 
+/* ------ Module Info ------ */
 
 MODULE_AUTHOR("Raja Mani <raja_mani@ti.com>");
 MODULE_DESCRIPTION("Bluetooth Driver for TI Shared Transport" VERSION);

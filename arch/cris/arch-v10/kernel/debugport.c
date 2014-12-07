@@ -19,7 +19,7 @@
 #include <linux/delay.h>
 #include <linux/tty.h>
 #include <arch/svinto.h>
-#include <asm/io.h>             
+#include <asm/io.h>             /* Get SIMCOUT. */
 
 extern void reset_watchdog(void);
 
@@ -287,20 +287,26 @@ console_write_direct(struct console *co, const char *buf, unsigned int len)
 
 	local_irq_save(flags);
 
-	
+	/* Send data */
 	for (i = 0; i < len; i++) {
-		
+		/* LF -> CRLF */
 		if (buf[i] == '\n') {
 			while (!(*port->read & IO_MASK(R_SERIAL0_READ, tr_ready)))
 			;
 			*port->write = '\r';
 		}
-		
+		/* Wait until transmitter is ready and send.*/
 		while (!(*port->read & IO_MASK(R_SERIAL0_READ, tr_ready)))
 			;
 		*port->write = buf[i];
 	}
 
+	/*
+	 * Feed the watchdog, otherwise it will reset the chip during boot.
+	 * The time to send an ordinary boot message line (10-90 chars)
+	 * varies between 1-8ms at 115200. What makes up for the additional
+	 * 90ms that allows the watchdog to bite?
+	*/
 	reset_watchdog();
 
 	local_irq_restore(flags);
@@ -313,7 +319,7 @@ console_write(struct console *co, const char *buf, unsigned int len)
 		return;
 
 #ifdef CONFIG_SVINTO_SIM
-	
+	/* no use to simulate the serial debug output */
 	SIMCOUT(buf, len);
 	return;
 #endif
@@ -321,6 +327,7 @@ console_write(struct console *co, const char *buf, unsigned int len)
         console_write_direct(co, buf, len);
 }
 
+/* legacy function */
 
 void
 console_print_etrax(const char *buf)
@@ -328,6 +335,7 @@ console_print_etrax(const char *buf)
 	console_write(NULL, buf, strlen(buf));
 }
 
+/* Use polling to get a single character FROM the debug port */
 
 int
 getDebugChar(void)
@@ -344,6 +352,7 @@ getDebugChar(void)
 	return (readval & IO_MASK(R_SERIAL0_READ, data_in));
 }
 
+/* Use polling to put a single character to the debug port */
 
 void
 putDebugChar(int val)
@@ -356,6 +365,7 @@ putDebugChar(int val)
 	*kgdb_port->write = val;
 }
 
+/* Enable irq for receiving chars on the debug port, used by kgdb */
 
 void
 enableDebugIRQ(void)
@@ -364,6 +374,9 @@ enableDebugIRQ(void)
 		return;
 
 	*R_IRQ_MASK1_SET = kgdb_port->irq;
+	/* use R_VECT_MASK directly, since we really bypass Linux normal
+	 * IRQ handling in kgdb anyway, we don't need to use enable_irq
+	 */
 	*R_VECT_MASK_SET = IO_STATE(R_VECT_MASK_SET, serial, set);
 
 	*kgdb_port->rec_ctrl = IO_STATE(R_SERIAL0_REC_CTRL, rec_enable, enable);
@@ -432,11 +445,11 @@ init_dummy_console(void)
 	dummy_driver.name = "ttyS";
 	dummy_driver.major = TTY_MAJOR;
 	dummy_driver.minor_start = 68;
-	dummy_driver.num = 1;       
+	dummy_driver.num = 1;       /* etrax100 has 4 serial ports */
 	dummy_driver.type = TTY_DRIVER_TYPE_SERIAL;
 	dummy_driver.subtype = SERIAL_TYPE_NORMAL;
 	dummy_driver.init_termios = tty_std_termios;
-	
+	/* Normally B9600 default... */
 	dummy_driver.init_termios.c_cflag =
 		B115200 | CS8 | CREAD | HUPCL | CLOCAL;
 	dummy_driver.flags = TTY_DRIVER_REAL_RAW | TTY_DRIVER_DYNAMIC_DEV;
@@ -523,6 +536,9 @@ static struct console sercons3 = {
 	cflag : 0,
 	next : NULL
 };
+/*
+ *      Register console (for printk's etc)
+ */
 
 int __init
 init_etrax_debug(void)

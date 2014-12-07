@@ -3,4 +3,4 @@
 
 #include <linux/byteorder/big_endian.h>
 
-#endif 
+#endif /* _M68K_BYTEORDER_H */

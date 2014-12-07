@@ -26,10 +26,15 @@
 
 #define MSK(n)			((1 << (n)) - 1)
 
+/*
+ *  Register offset addresses
+ */
+/* CPU Configuration.  */
 #define GT_CPU_OFS		0x000
 
 #define GT_MULTI_OFS		0x120
 
+/* CPU Address Decode.  */
 #define GT_SCS10LD_OFS		0x008
 #define GT_SCS10HD_OFS		0x010
 #define GT_SCS32LD_OFS		0x018
@@ -67,16 +72,19 @@
 #define GT_PCI1M0REMAP_OFS	0x110
 #define GT_PCI1M1REMAP_OFS	0x118
 
+/* CPU Error Report.  */
 #define GT_CPUERR_ADDRLO_OFS	0x070
 #define GT_CPUERR_ADDRHI_OFS	0x078
 
-#define GT_CPUERR_DATALO_OFS	0x128			
-#define GT_CPUERR_DATAHI_OFS	0x130			
-#define GT_CPUERR_PARITY_OFS	0x138			
+#define GT_CPUERR_DATALO_OFS	0x128			/* GT-64120A only  */
+#define GT_CPUERR_DATAHI_OFS	0x130			/* GT-64120A only  */
+#define GT_CPUERR_PARITY_OFS	0x138			/* GT-64120A only  */
 
+/* CPU Sync Barrier.  */
 #define GT_PCI0SYNC_OFS		0x0c0
 #define GT_PCI1SYNC_OFS		0x0c8
 
+/* SDRAM and Device Address Decode.  */
 #define GT_SCS0LD_OFS		0x400
 #define GT_SCS0HD_OFS		0x404
 #define GT_SCS1LD_OFS		0x408
@@ -98,29 +106,34 @@
 
 #define GT_ADERR_OFS		0x470
 
+/* SDRAM Configuration.  */
 #define GT_SDRAM_CFG_OFS	0x448
 
 #define GT_SDRAM_OPMODE_OFS	0x474
 #define GT_SDRAM_BM_OFS		0x478
 #define GT_SDRAM_ADDRDECODE_OFS	0x47c
 
+/* SDRAM Parameters.  */
 #define GT_SDRAM_B0_OFS		0x44c
 #define GT_SDRAM_B1_OFS		0x450
 #define GT_SDRAM_B2_OFS		0x454
 #define GT_SDRAM_B3_OFS		0x458
 
+/* Device Parameters.  */
 #define GT_DEV_B0_OFS		0x45c
 #define GT_DEV_B1_OFS		0x460
 #define GT_DEV_B2_OFS		0x464
 #define GT_DEV_B3_OFS		0x468
 #define GT_DEV_BOOT_OFS		0x46c
 
-#define GT_ECC_ERRDATALO	0x480			
-#define GT_ECC_ERRDATAHI	0x484			
-#define GT_ECC_MEM		0x488			
-#define GT_ECC_CALC		0x48c			
-#define GT_ECC_ERRADDR		0x490			
+/* ECC.  */
+#define GT_ECC_ERRDATALO	0x480			/* GT-64120A only  */
+#define GT_ECC_ERRDATAHI	0x484			/* GT-64120A only  */
+#define GT_ECC_MEM		0x488			/* GT-64120A only  */
+#define GT_ECC_CALC		0x48c			/* GT-64120A only  */
+#define GT_ECC_ERRADDR		0x490			/* GT-64120A only  */
 
+/* DMA Record.  */
 #define GT_DMA0_CNT_OFS		0x800
 #define GT_DMA1_CNT_OFS		0x804
 #define GT_DMA2_CNT_OFS		0x808
@@ -143,13 +156,16 @@
 #define GT_DMA2_CUR_OFS		0x878
 #define GT_DMA3_CUR_OFS		0x87c
 
+/* DMA Channel Control.  */
 #define GT_DMA0_CTRL_OFS	0x840
 #define GT_DMA1_CTRL_OFS	0x844
 #define GT_DMA2_CTRL_OFS	0x848
 #define GT_DMA3_CTRL_OFS	0x84c
 
+/* DMA Arbiter.  */
 #define GT_DMA_ARB_OFS		0x860
 
+/* Timer/Counter.  */
 #define GT_TC0_OFS		0x850
 #define GT_TC1_OFS		0x854
 #define GT_TC2_OFS		0x858
@@ -157,6 +173,7 @@
 
 #define GT_TC_CONTROL_OFS	0x864
 
+/* PCI Internal.  */
 #define GT_PCI0_CMD_OFS		0xc00
 #define GT_PCI0_TOR_OFS		0xc04
 #define GT_PCI0_BS_SCS10_OFS	0xc08
@@ -203,6 +220,7 @@
 #define GT_PCI0_CFGADDR_OFS	0xcf8
 #define GT_PCI0_CFGDATA_OFS	0xcfc
 
+/* Interrupts.  */
 #define GT_INTRCAUSE_OFS	0xc18
 #define GT_INTRMASK_OFS		0xc1c
 
@@ -219,6 +237,9 @@
 #define GT_PCI1_SERR1MASK_OFS	0xca8
 
 
+/*
+ * I2O Support Registers
+ */
 #define INBOUND_MESSAGE_REGISTER0_PCI_SIDE		0x010
 #define INBOUND_MESSAGE_REGISTER1_PCI_SIDE		0x014
 #define OUTBOUND_MESSAGE_REGISTER0_PCI_SIDE		0x018
@@ -265,6 +286,9 @@
 #define OUTBOUND_POST_HEAD_POINTER_REGISTER_CPU_SIDE	0x1c78
 #define OUTBOUND_POST_TAIL_POINTER_REGISTER_CPU_SIDE	0x1c7c
 
+/*
+ *  Register encodings
+ */
 #define GT_CPU_ENDIAN_SHF	12
 #define GT_CPU_ENDIAN_MSK	(MSK(1) << GT_CPU_ENDIAN_SHF)
 #define GT_CPU_ENDIAN_BIT	GT_CPU_ENDIAN_MSK
@@ -513,18 +537,34 @@
 #define GT_INTR_RETRYCTR0_MSK		(MSK(1) << GT_INTR_RETRYCTR0_SHF)
 #define GT_INTR_RETRYCTR0_BIT		GT_INTR_RETRYCTR0_MSK
 
+/*
+ *  Misc
+ */
 #define GT_DEF_PCI0_IO_BASE	0x10000000UL
 #define GT_DEF_PCI0_IO_SIZE	0x02000000UL
 #define GT_DEF_PCI0_MEM0_BASE	0x12000000UL
 #define GT_DEF_PCI0_MEM0_SIZE	0x02000000UL
 #define GT_DEF_BASE		0x14000000UL
 
-#define GT_MAX_BANKSIZE		(256 * 1024 * 1024)	
-#define GT_LATTIM_MIN		6			
+#define GT_MAX_BANKSIZE		(256 * 1024 * 1024)	/* Max 256MB bank  */
+#define GT_LATTIM_MIN		6			/* Minimum lat  */
 
+/*
+ * The gt64120_dep.h file must define the following macros
+ *
+ *   GT_READ(ofs, data_pointer)
+ *   GT_WRITE(ofs, data)           - read/write GT64120 registers in 32bit
+ *
+ *   TIMER 	- gt64120 timer irq, temporary solution until
+ *		  full gt64120 cascade interrupt support is in place
+ */
 
 #include <mach-gt64120.h>
 
+/*
+ * Because of an error/peculiarity in the Galileo chip, we need to swap the
+ * bytes when running bigendian.  We also provide non-swapping versions.
+ */
 #define __GT_READ(ofs)							\
 	(*(volatile u32 *)(GT64120_BASE+(ofs)))
 #define __GT_WRITE(ofs, data)						\
@@ -535,4 +575,4 @@
 extern void gt641xx_set_base_clock(unsigned int clock);
 extern int gt641xx_timer0_state(void);
 
-#endif 
+#endif /* _ASM_GT64120_H */

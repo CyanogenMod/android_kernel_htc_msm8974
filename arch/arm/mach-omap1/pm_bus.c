@@ -60,7 +60,7 @@ static struct dev_pm_domain default_pm_domain = {
 #define OMAP1_PM_DOMAIN (&default_pm_domain)
 #else
 #define OMAP1_PM_DOMAIN NULL
-#endif 
+#endif /* CONFIG_PM_RUNTIME */
 
 static struct pm_clk_notifier_block platform_bus_notifier = {
 	.pm_domain = OMAP1_PM_DOMAIN,

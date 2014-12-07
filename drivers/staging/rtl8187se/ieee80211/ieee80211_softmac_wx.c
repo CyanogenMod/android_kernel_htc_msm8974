@@ -16,6 +16,7 @@
 
 #include "ieee80211.h"
 
+/* FIXME: add A freqs */
 
 const long ieee80211_wlan_frequencies[] = {
 	2412, 2417, 2422, 2427,
@@ -30,6 +31,7 @@ int ieee80211_wx_set_freq(struct ieee80211_device *ieee, struct iw_request_info 
 {
 	int ret;
 	struct iw_freq *fwrq = & wrqu->freq;
+//	printk("in %s\n",__func__);
 	down(&ieee->wx_sem);
 
 	if(ieee->iw_mode == IW_MODE_INFRA){
@@ -37,7 +39,7 @@ int ieee80211_wx_set_freq(struct ieee80211_device *ieee, struct iw_request_info 
 		goto out;
 	}
 
-	
+	/* if setting by freq convert to channel */
 	if (fwrq->e == 1) {
 		if ((fwrq->m >= (int) 2.412e8 &&
 		     fwrq->m <= (int) 2.487e8)) {
@@ -47,7 +49,7 @@ int ieee80211_wx_set_freq(struct ieee80211_device *ieee, struct iw_request_info 
 			while ((c < 14) && (f != ieee80211_wlan_frequencies[c]))
 				c++;
 
-			
+			/* hack to fall through */
 			fwrq->e = 0;
 			fwrq->m = c + 1;
 		}
@@ -57,7 +59,7 @@ int ieee80211_wx_set_freq(struct ieee80211_device *ieee, struct iw_request_info 
 		ret = -EOPNOTSUPP;
 		goto out;
 
-	}else { 
+	}else { /* Set the channel */
 
 
 		ieee->current_network.channel = fwrq->m;
@@ -104,7 +106,7 @@ int ieee80211_wx_get_wap(struct ieee80211_device *ieee,
 	if (ieee->iw_mode == IW_MODE_MONITOR)
 		return -1;
 
-	
+	/* We want avoid to give to the user inconsistent infos*/
 	spin_lock_irqsave(&ieee->lock, flags);
 
 	if (ieee->state != IEEE80211_LINKED &&
@@ -132,14 +134,14 @@ int ieee80211_wx_set_wap(struct ieee80211_device *ieee,
 	u8 zero[] = {0,0,0,0,0,0};
 	unsigned long flags;
 
-	short ifup = ieee->proto_started;
+	short ifup = ieee->proto_started;//dev->flags & IFF_UP;
 	struct sockaddr *temp = (struct sockaddr *)awrq;
 
-	
+	//printk("=======Set WAP:");
 	ieee->sync_scan_hurryup = 1;
 
 	down(&ieee->wx_sem);
-	
+	/* use ifconfig hw ether */
 	if (ieee->iw_mode == IW_MODE_MASTER){
 		ret = -1;
 		goto out;
@@ -153,11 +155,14 @@ int ieee80211_wx_set_wap(struct ieee80211_device *ieee,
 	if (ifup)
 		ieee80211_stop_protocol(ieee);
 
+	/* just to avoid to give inconsistent infos in the
+	 * get wx method. not really needed otherwise
+	 */
 	spin_lock_irqsave(&ieee->lock, flags);
 
 	memcpy(ieee->current_network.bssid, temp->sa_data, ETH_ALEN);
 	ieee->wap_set = memcmp(temp->sa_data, zero,ETH_ALEN)!=0;
-	
+	//printk(" %x:%x:%x:%x:%x:%x\n", ieee->current_network.bssid[0],ieee->current_network.bssid[1],ieee->current_network.bssid[2],ieee->current_network.bssid[3],ieee->current_network.bssid[4],ieee->current_network.bssid[5]);
 
 	spin_unlock_irqrestore(&ieee->lock, flags);
 
@@ -177,7 +182,7 @@ out:
 	if (ieee->iw_mode == IW_MODE_MONITOR)
 		return -1;
 
-	
+	/* We want avoid to give to the user inconsistent infos*/
 	spin_lock_irqsave(&ieee->lock, flags);
 
 	if (ieee->current_network.ssid[0] == '\0' ||
@@ -211,13 +216,13 @@ int ieee80211_wx_set_rate(struct ieee80211_device *ieee,
 
 	u32 target_rate = wrqu->bitrate.value;
 
-	
+	//added by lizhaoming for auto mode
 	if(target_rate == -1){
 	ieee->rate = 110;
 	} else {
 	ieee->rate = target_rate/100000;
 	}
-	
+	//FIXME: we might want to limit rate also in management protocols.
 	return 0;
 }
 
@@ -293,9 +298,9 @@ void ieee80211_wx_sync_scan_wq(struct work_struct *work)
 	if(ieee->iw_mode == IW_MODE_ADHOC || ieee->iw_mode == IW_MODE_MASTER)
 		ieee80211_start_send_beacons(ieee);
 
-	
-	
-	
+	//YJ,add,080828, In prevent of lossing ping packet during scanning
+	//ieee80211_sta_ps_send_null_frame(ieee, false);
+	//YJ,add,080828,end
 
 	up(&ieee->wx_sem);
 
@@ -312,14 +317,14 @@ int ieee80211_wx_set_scan(struct ieee80211_device *ieee, struct iw_request_info 
 		ret = -1;
 		goto out;
 	}
-	
-	
-	
-	
+	//YJ,add,080828
+	//In prevent of lossing ping packet during scanning
+	//ieee80211_sta_ps_send_null_frame(ieee, true);
+	//YJ,add,080828,end
 
 	if ( ieee->state == IEEE80211_LINKED){
 		queue_work(ieee->wq, &ieee->wx_sync_scan_wq);
-		
+		/* intentionally forget to up sem */
 		return 0;
 	}
 
@@ -356,28 +361,33 @@ int ieee80211_wx_set_essid(struct ieee80211_device *ieee,
 	if(proto_started)
 		ieee80211_stop_protocol(ieee);
 
+	/* this is just to be sure that the GET wx callback
+	 * has consisten infos. not needed otherwise
+	 */
 	spin_lock_irqsave(&ieee->lock, flags);
 
 	if (wrqu->essid.flags && wrqu->essid.length) {
+//YJ,modified,080819
 		len = (wrqu->essid.length < IW_ESSID_MAX_SIZE) ? (wrqu->essid.length) : IW_ESSID_MAX_SIZE;
-		memset(ieee->current_network.ssid, 0, ieee->current_network.ssid_len); 
+		memset(ieee->current_network.ssid, 0, ieee->current_network.ssid_len); //YJ,add,080819
 		strncpy(ieee->current_network.ssid, extra, len);
 		ieee->current_network.ssid_len = len;
 		ieee->ssid_set = 1;
+//YJ,modified,080819,end
 
-		
+		//YJ,add,080819,for hidden ap
 		if(len == 0){
 			memset(ieee->current_network.bssid, 0, ETH_ALEN);
 			ieee->current_network.capability = 0;
 		}
-		
+		//YJ,add,080819,for hidden ap,end
 	}
 	else{
 		ieee->ssid_set = 0;
 		ieee->current_network.ssid[0] = '\0';
 		ieee->current_network.ssid_len = 0;
 	}
-	
+	//printk("==========set essid %s!\n",ieee->current_network.ssid);
 	spin_unlock_irqrestore(&ieee->lock, flags);
 
 	if (proto_started)
@@ -455,6 +465,7 @@ int ieee80211_wx_get_name(struct ieee80211_device *ieee,
 }
 
 
+/* this is mostly stolen from hostap */
 int ieee80211_wx_set_power(struct ieee80211_device *ieee,
 				 struct iw_request_info *info,
 				 union iwreq_data *wrqu, char *extra)
@@ -507,7 +518,7 @@ int ieee80211_wx_set_power(struct ieee80211_device *ieee,
 
 		ret = -EOPNOTSUPP;
 		goto exit;
-		
+		//wrq->value / 1024;
 
 	}
 exit:
@@ -516,6 +527,7 @@ exit:
 
 }
 
+/* this is stolen from hostap */
 int ieee80211_wx_get_power(struct ieee80211_device *ieee,
 				 struct iw_request_info *info,
 				 union iwreq_data *wrqu, char *extra)
@@ -531,11 +543,16 @@ int ieee80211_wx_get_power(struct ieee80211_device *ieee,
 
 	wrqu->power.disabled = 0;
 
+//	if ((wrqu->power.flags & IW_POWER_TYPE) == IW_POWER_TIMEOUT) {
 		wrqu->power.flags = IW_POWER_TIMEOUT;
 		wrqu->power.value = ieee->ps_timeout * 1000;
-		
-		
-		
+//	} else {
+//		ret = -EOPNOTSUPP;
+//		goto exit;
+		//wrqu->power.flags = IW_POWER_PERIOD;
+		//wrqu->power.value = ieee->current_network.dtim_period *
+		//	ieee->current_network.beacon_interval * 1024;
+//	}
 
 
 	if (ieee->ps & IEEE80211_PS_MBCAST)

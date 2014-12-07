@@ -28,6 +28,17 @@ extern pte_t *kmap_pte;
 extern pgprot_t kmap_prot;
 extern pte_t *pkmap_page_table;
 
+/*
+ * Right now we initialize only a single pte table. It can be extended
+ * easily, subsequent pte tables have to be allocated in one physical
+ * chunk of RAM.
+ */
+/*
+ * We use one full pte table with 4K pages. And with 16K/64K/256K pages pte
+ * table covers enough memory (32MB/512MB/2GB resp.), so that both FIXMAP
+ * and PKMAP can be placed in a single pte table. We use 512 pages for PKMAP
+ * in case of 16K/64K/256K page sizes.
+ */
 
 #define PKMAP_ORDER	PTE_SHIFT
 #define LAST_PKMAP	(1 << PKMAP_ORDER)
@@ -80,6 +91,6 @@ static inline struct page *kmap_atomic_to_page(void *ptr)
 
 #define flush_cache_kmaps()	{ flush_icache(); flush_dcache(); }
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_HIGHMEM_H */

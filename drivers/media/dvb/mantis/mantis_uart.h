@@ -55,4 +55,4 @@ struct mantis_pci;
 extern int mantis_uart_init(struct mantis_pci *mantis);
 extern void mantis_uart_exit(struct mantis_pci *mantis);
 
-#endif 
+#endif /* __MANTIS_UART_H */

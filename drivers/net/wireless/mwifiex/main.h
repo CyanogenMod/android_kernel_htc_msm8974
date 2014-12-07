@@ -186,7 +186,7 @@ struct mwifiex_ra_list_tbl {
 
 struct mwifiex_tid_tbl {
 	struct list_head ra_list;
-	
+	/* spin lock for tid table */
 	spinlock_t tid_tbl_lock;
 	struct mwifiex_ra_list_tbl *ra_list_curr;
 };
@@ -199,16 +199,16 @@ struct mwifiex_tid_tbl {
 struct mwifiex_wmm_desc {
 	struct mwifiex_tid_tbl tid_tbl_ptr[MAX_NUM_TID];
 	u32 packets_out[MAX_NUM_TID];
-	
+	/* spin lock to protect ra_list */
 	spinlock_t ra_list_spinlock;
 	struct mwifiex_wmm_ac_status ac_status[IEEE80211_MAX_QUEUES];
 	enum mwifiex_wmm_ac_e ac_down_graded_vals[IEEE80211_MAX_QUEUES];
 	u32 drv_pkt_delay_max;
 	u8 queue_priority[IEEE80211_MAX_QUEUES];
-	u32 user_pri_pkt_tx_ctrl[WMM_HIGHEST_PRIORITY + 1];	
-	
+	u32 user_pri_pkt_tx_ctrl[WMM_HIGHEST_PRIORITY + 1];	/* UP: 0 to 7 */
+	/* Number of transmit packets queued */
 	atomic_t tx_pkts_queued;
-	
+	/* Tracks highest priority with a packet queued */
 	atomic_t highest_queued_prio;
 };
 
@@ -254,6 +254,11 @@ struct mwifiex_bssdescriptor {
 	u32 bss_mode;
 	u8 supported_rates[MWIFIEX_SUPPORTED_RATES];
 	u8 data_rates[MWIFIEX_SUPPORTED_RATES];
+	/* Network band.
+	 * BAND_B(0x01): 'b' band
+	 * BAND_G(0x02): 'g' band
+	 * BAND_A(0X04): 'a' band
+	 */
 	u16 bss_band;
 	u64 network_tsf;
 	u8 time_stamp[8];
@@ -407,15 +412,15 @@ struct mwifiex_private {
 	u8 wmm_qosinfo;
 	struct mwifiex_wmm_desc wmm;
 	struct list_head tx_ba_stream_tbl_ptr;
-	
+	/* spin lock for tx_ba_stream_tbl_ptr queue */
 	spinlock_t tx_ba_stream_tbl_lock;
 	struct mwifiex_tx_aggr aggr_prio_tbl[MAX_NUM_TID];
 	struct mwifiex_add_ba_param add_ba_param;
 	u16 rx_seq[MAX_NUM_TID];
 	struct list_head rx_reorder_tbl_ptr;
-	
+	/* spin lock for rx_reorder_tbl_ptr queue */
 	spinlock_t rx_reorder_tbl_lock;
-	
+	/* spin lock for Rx packets */
 	spinlock_t rx_pkt_lock;
 
 #define MWIFIEX_ASSOC_RSP_BUF_SIZE  500
@@ -434,7 +439,7 @@ struct mwifiex_private {
 
 	u8 *curr_bcn_buf;
 	u32 curr_bcn_size;
-	
+	/* spin lock for beacon buffer */
 	spinlock_t curr_bcn_buf_lock;
 	struct wireless_dev *wdev;
 	struct mwifiex_chan_freq_power cfp;
@@ -494,7 +499,7 @@ struct mwifiex_bss_prio_node {
 
 struct mwifiex_bss_prio_tbl {
 	struct list_head bss_prio_head;
-	
+	/* spin lock for bss priority  */
 	spinlock_t bss_prio_lock;
 	struct mwifiex_bss_prio_node *bss_prio_cur;
 };
@@ -527,7 +532,7 @@ struct mwifiex_if_ops {
 	int (*wakeup) (struct mwifiex_adapter *);
 	int (*wakeup_complete) (struct mwifiex_adapter *);
 
-	
+	/* Interface specific functions */
 	void (*update_mp_end_port) (struct mwifiex_adapter *, u16);
 	void (*cleanup_mpa_buf) (struct mwifiex_adapter *);
 	int (*cmdrsp_complete) (struct mwifiex_adapter *, struct sk_buff *);
@@ -554,9 +559,9 @@ struct mwifiex_adapter {
 	struct workqueue_struct *workqueue;
 	struct work_struct main_work;
 	struct mwifiex_bss_prio_tbl bss_prio_tbl[MWIFIEX_MAX_BSS_NUM];
-	
+	/* spin lock for init/shutdown */
 	spinlock_t mwifiex_lock;
-	
+	/* spin lock for main process */
 	spinlock_t main_proc_lock;
 	u32 mwifiex_processing;
 	u16 max_tx_buf_size;
@@ -566,7 +571,7 @@ struct mwifiex_adapter {
 	enum MWIFIEX_HARDWARE_STATUS hw_status;
 	u16 number_of_antenna;
 	u32 fw_cap_info;
-	
+	/* spin lock for interrupt handling */
 	spinlock_t int_lock;
 	u8 int_status;
 	u32 event_cause;
@@ -580,19 +585,19 @@ struct mwifiex_adapter {
 	u16 seq_num;
 	struct cmd_ctrl_node *cmd_pool;
 	struct cmd_ctrl_node *curr_cmd;
-	
+	/* spin lock for command */
 	spinlock_t mwifiex_cmd_lock;
 	u32 num_cmd_timeout;
 	u16 last_init_cmd;
 	struct timer_list cmd_timer;
 	struct list_head cmd_free_q;
-	
+	/* spin lock for cmd_free_q */
 	spinlock_t cmd_free_q_lock;
 	struct list_head cmd_pending_q;
-	
+	/* spin lock for cmd_pending_q */
 	spinlock_t cmd_pending_q_lock;
 	struct list_head scan_pending_q;
-	
+	/* spin lock for scan_pending_q */
 	spinlock_t scan_pending_q_lock;
 	u32 scan_processing;
 	u16 region_code;
@@ -645,7 +650,7 @@ struct mwifiex_adapter {
 	struct mwifiex_wait_queue cmd_wait_q;
 	u8 scan_wait_q_woken;
 	struct cmd_ctrl_node *cmd_queued;
-	spinlock_t queue_lock;		
+	spinlock_t queue_lock;		/* lock for tx queues */
 };
 
 int mwifiex_init_lock_list(struct mwifiex_adapter *adapter);
@@ -790,9 +795,16 @@ int is_command_pending(struct mwifiex_adapter *adapter);
 void mwifiex_init_priv_params(struct mwifiex_private *priv,
 						struct net_device *dev);
 
+/*
+ * This function checks if the queuing is RA based or not.
+ */
 static inline u8
 mwifiex_queuing_ra_based(struct mwifiex_private *priv)
 {
+	/*
+	 * Currently we assume if we are in Infra, then DA=RA. This might not be
+	 * true in the future
+	 */
 	if ((priv->bss_mode == NL80211_IFTYPE_STATION) &&
 	    (GET_BSS_ROLE(priv) == MWIFIEX_BSS_ROLE_STA))
 		return false;
@@ -800,6 +812,9 @@ mwifiex_queuing_ra_based(struct mwifiex_private *priv)
 	return true;
 }
 
+/*
+ * This function copies rates.
+ */
 static inline u32
 mwifiex_copy_rates(u8 *dest, u32 pos, u8 *src, int len)
 {
@@ -814,6 +829,10 @@ mwifiex_copy_rates(u8 *dest, u32 pos, u8 *src, int len)
 	return pos;
 }
 
+/*
+ * This function returns the correct private structure pointer based
+ * upon the BSS type and BSS number.
+ */
 static inline struct mwifiex_private *
 mwifiex_get_priv_by_id(struct mwifiex_adapter *adapter,
 		       u8 bss_num, u8 bss_type)
@@ -830,6 +849,10 @@ mwifiex_get_priv_by_id(struct mwifiex_adapter *adapter,
 	return ((i < adapter->priv_num) ? adapter->priv[i] : NULL);
 }
 
+/*
+ * This function returns the first available private structure pointer
+ * based upon the BSS role.
+ */
 static inline struct mwifiex_private *
 mwifiex_get_priv(struct mwifiex_adapter *adapter,
 		 enum mwifiex_bss_role bss_role)
@@ -847,6 +870,9 @@ mwifiex_get_priv(struct mwifiex_adapter *adapter,
 	return ((i < adapter->priv_num) ? adapter->priv[i] : NULL);
 }
 
+/*
+ * This function returns the driver private structure of a network device.
+ */
 static inline struct mwifiex_private *
 mwifiex_netdev_get_priv(struct net_device *dev)
 {
@@ -947,4 +973,4 @@ void mwifiex_debugfs_remove(void);
 void mwifiex_dev_debugfs_init(struct mwifiex_private *priv);
 void mwifiex_dev_debugfs_remove(struct mwifiex_private *priv);
 #endif
-#endif 
+#endif /* !_MWIFIEX_MAIN_H_ */

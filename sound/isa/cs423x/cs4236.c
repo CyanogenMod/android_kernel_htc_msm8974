@@ -72,21 +72,21 @@ MODULE_ALIAS("snd_cs4232");
 #define IDENT "CS4232+"
 #define DEV_NAME "cs4232+"
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_ISAPNP; 
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_ISAPNP; /* Enable this card */
 #ifdef CONFIG_PNP
 static bool isapnp[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 1};
 #endif
-static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static long cport[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static long mpu_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;
-static long fm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static long sb_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int mpu_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
-static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
+static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* PnP setup */
+static long cport[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* PnP setup */
+static long mpu_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;/* PnP setup */
+static long fm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* PnP setup */
+static long sb_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* PnP setup */
+static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* 5,7,9,11,12,15 */
+static int mpu_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* 9,11,12,15 */
+static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* 0,1,3,5,6,7 */
+static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* 0,1,3,5,6,7 */
 
 module_param_array(index, int, NULL, 0444);
 MODULE_PARM_DESC(index, "Index value for " IDENT " soundcard.");
@@ -121,7 +121,7 @@ MODULE_PARM_DESC(dma2, "DMA2 # for " IDENT " driver.");
 static int isa_registered;
 static int pnpc_registered;
 static int pnp_registered;
-#endif 
+#endif /* CONFIG_PNP */
 
 struct snd_card_cs4236 {
 	struct snd_wss *chip;
@@ -135,9 +135,14 @@ struct snd_card_cs4236 {
 
 #ifdef CONFIG_PNP
 
+/*
+ * PNP BIOS
+ */
 static const struct pnp_device_id snd_cs423x_pnpbiosids[] = {
 	{ .id = "CSC0100" },
 	{ .id = "CSC0000" },
+	/* Guillemot Turtlebeach something appears to be cs4232 compatible
+	 * (untested) */
 	{ .id = "GIM0100" },
 	{ .id = "" }
 };
@@ -145,106 +150,107 @@ MODULE_DEVICE_TABLE(pnp, snd_cs423x_pnpbiosids);
 
 #define CS423X_ISAPNP_DRIVER	"cs4232_isapnp"
 static struct pnp_card_device_id snd_cs423x_pnpids[] = {
-	
+	/* Philips PCA70PS */
 	{ .id = "CSC0d32", .devs = { { "CSC0000" }, { "CSC0010" }, { "PNPb006" } } },
-	
+	/* TerraTec Maestro 32/96 (CS4232) */
 	{ .id = "CSC1a32", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* HP Omnibook 5500 onboard */
 	{ .id = "CSC4232", .devs = { { "CSC0000" }, { "CSC0002" }, { "CSC0003" } } },
-	
+	/* Unnamed CS4236 card (Made in Taiwan) */
 	{ .id = "CSC4236", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* Turtle Beach TBS-2000 (CS4232) */
 	{ .id = "CSC7532", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSCb006" } } },
-	
+	/* Turtle Beach Tropez Plus (CS4232) */
 	{ .id = "CSC7632", .devs = { { "CSC0000" }, { "CSC0010" }, { "PNPb006" } } },
-	
+	/* SIC CrystalWave 32 (CS4232) */
 	{ .id = "CSCf032", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* Netfinity 3000 on-board soundcard */
 	{ .id = "CSCe825", .devs = { { "CSC0100" }, { "CSC0110" }, { "CSC010f" } } },
-	
+	/* Intel Marlin Spike Motherboard - CS4235 */
 	{ .id = "CSC0225", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* Intel Marlin Spike Motherboard (#2) - CS4235 */
 	{ .id = "CSC0225", .devs = { { "CSC0100" }, { "CSC0110" }, { "CSC0103" } } },
-	
+	/* Unknown Intel mainboard - CS4235 */
 	{ .id = "CSC0225", .devs = { { "CSC0100" }, { "CSC0110" } } },
-	
+	/* Genius Sound Maker 3DJ - CS4237B */
 	{ .id = "CSC0437", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* Digital PC 5000 Onboard - CS4236B */
 	{ .id = "CSC0735", .devs = { { "CSC0000" }, { "CSC0010" } } },
-	
+	/* some unknown CS4236B */
 	{ .id = "CSC0b35", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* Intel PR440FX Onboard sound */
 	{ .id = "CSC0b36", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* CS4235 on mainboard without MPU */
 	{ .id = "CSC1425", .devs = { { "CSC0100" }, { "CSC0110" } } },
-	
+	/* Gateway E1000 Onboard CS4236B */
 	{ .id = "CSC1335", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* HP 6330 Onboard sound */
 	{ .id = "CSC1525", .devs = { { "CSC0100" }, { "CSC0110" }, { "CSC0103" } } },
-	
+	/* Crystal Computer TidalWave128 */
 	{ .id = "CSC1e37", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* ACER AW37 - CS4235 */
 	{ .id = "CSC4236", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* build-in soundcard in EliteGroup P5TX-LA motherboard - CS4237B */
 	{ .id = "CSC4237", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* Crystal 3D - CS4237B */
 	{ .id = "CSC4336", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* Typhoon Soundsystem PnP - CS4236B */
 	{ .id = "CSC4536", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* Crystal CX4235-XQ3 EP - CS4235 */
 	{ .id = "CSC4625", .devs = { { "CSC0100" }, { "CSC0110" }, { "CSC0103" } } },
-	
+	/* Crystal Semiconductors CS4237B */
 	{ .id = "CSC4637", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* NewClear 3D - CX4237B-XQ3 */
 	{ .id = "CSC4837", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* Dell Optiplex GX1 - CS4236B */
 	{ .id = "CSC6835", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* Dell P410 motherboard - CS4236B */
 	{ .id = "CSC6835", .devs = { { "CSC0000" }, { "CSC0010" } } },
-	
+	/* Dell Workstation 400 Onboard - CS4236B */
 	{ .id = "CSC6836", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* Turtle Beach Malibu - CS4237B */
 	{ .id = "CSC7537", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* CS4235 - onboard */
 	{ .id = "CSC8025", .devs = { { "CSC0100" }, { "CSC0110" }, { "CSC0103" } } },
-	
+	/* IBM Aptiva 2137 E24 Onboard - CS4237B */
 	{ .id = "CSC8037", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* IBM IntelliStation M Pro motherboard */
 	{ .id = "CSCc835", .devs = { { "CSC0000" }, { "CSC0010" } } },
-	
+	/* Guillemot MaxiSound 16 PnP - CS4236B */
 	{ .id = "CSC9836", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* Gallant SC-70P */
 	{ .id = "CSC9837", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* Techmakers MF-4236PW */
 	{ .id = "CSCa736", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* TerraTec AudioSystem EWS64XL - CS4236B */
 	{ .id = "CSCa836", .devs = { { "CSCa800" }, { "CSCa810" }, { "CSCa803" } } },
-	
+	/* TerraTec AudioSystem EWS64XL - CS4236B */
 	{ .id = "CSCa836", .devs = { { "CSCa800" }, { "CSCa810" } } },
-	
+	/* ACER AW37/Pro - CS4235 */
 	{ .id = "CSCd925", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* ACER AW35/Pro - CS4237B */
 	{ .id = "CSCd937", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* CS4235 without MPU401 */
 	{ .id = "CSCe825", .devs = { { "CSC0100" }, { "CSC0110" } } },
-	
+	/* Unknown SiS530 - CS4235 */
 	{ .id = "CSC4825", .devs = { { "CSC0100" }, { "CSC0110" } } },
-	
+	/* IBM IntelliStation M Pro 6898 11U - CS4236B */
 	{ .id = "CSCe835", .devs = { { "CSC0000" }, { "CSC0010" } } },
-	
+	/* IBM PC 300PL Onboard - CS4236B */
 	{ .id = "CSCe836", .devs = { { "CSC0000" }, { "CSC0010" } } },
-	
+	/* Some noname CS4236 based card */
 	{ .id = "CSCe936", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* CS4236B */
 	{ .id = "CSCf235", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
+	/* CS4236B */
 	{ .id = "CSCf238", .devs = { { "CSC0000" }, { "CSC0010" }, { "CSC0003" } } },
-	
-	{ .id = "" }	
+	/* --- */
+	{ .id = "" }	/* end */
 };
 
 MODULE_DEVICE_TABLE(pnp_card, snd_cs423x_pnpids);
 
+/* WSS initialization */
 static int __devinit snd_cs423x_pnp_init_wss(int dev, struct pnp_dev *pdev)
 {
 	if (pnp_activate_dev(pdev) < 0) {
@@ -265,6 +271,7 @@ static int __devinit snd_cs423x_pnp_init_wss(int dev, struct pnp_dev *pdev)
 	return 0;
 }
 
+/* CTRL initialization */
 static int __devinit snd_cs423x_pnp_init_ctrl(int dev, struct pnp_dev *pdev)
 {
 	if (pnp_activate_dev(pdev) < 0) {
@@ -276,6 +283,7 @@ static int __devinit snd_cs423x_pnp_init_ctrl(int dev, struct pnp_dev *pdev)
 	return 0;
 }
 
+/* MPU initialization */
 static int __devinit snd_cs423x_pnp_init_mpu(int dev, struct pnp_dev *pdev)
 {
 	if (pnp_activate_dev(pdev) < 0) {
@@ -288,7 +296,7 @@ static int __devinit snd_cs423x_pnp_init_mpu(int dev, struct pnp_dev *pdev)
 		    pnp_irq_valid(pdev, 0) && pnp_irq(pdev, 0) >= 0) {
 			mpu_irq[dev] = pnp_irq(pdev, 0);
 		} else {
-			mpu_irq[dev] = -1;	
+			mpu_irq[dev] = -1;	/* disable interrupt */
 		}
 	}
 	snd_printdd("isapnp MPU: port=0x%lx, irq=%i\n", mpu_port[dev], mpu_irq[dev]);
@@ -325,23 +333,23 @@ static int __devinit snd_card_cs423x_pnpc(int dev, struct snd_card_cs4236 *acard
 			return -EBUSY;
 	}
 
-	
+	/* WSS initialization */
 	if (snd_cs423x_pnp_init_wss(dev, acard->wss) < 0)
 		return -EBUSY;
 
-	
+	/* CTRL initialization */
 	if (acard->ctrl && cport[dev] > 0) {
 		if (snd_cs423x_pnp_init_ctrl(dev, acard->ctrl) < 0)
 			return -EBUSY;
 	}
-	
+	/* MPU initialization */
 	if (acard->mpu && mpu_port[dev] > 0) {
 		if (snd_cs423x_pnp_init_mpu(dev, acard->mpu) < 0)
 			return -EBUSY;
 	}
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PNP */
 
 #ifdef CONFIG_PNP
 #define is_isapnp_selected(dev)		isapnp[dev]
@@ -554,7 +562,7 @@ static int __devinit snd_cs423x_pnpbios_detect(struct pnp_dev *pdev,
 	char cid[PNP_ID_LEN];
 
 	if (pnp_device_is_isapnp(pdev))
-		return -ENOENT;	
+		return -ENOENT;	/* we have another procedure - card */
 	for (; dev < SNDRV_CARDS; dev++) {
 		if (enable[dev] && isapnp[dev])
 			break;
@@ -562,7 +570,7 @@ static int __devinit snd_cs423x_pnpbios_detect(struct pnp_dev *pdev,
 	if (dev >= SNDRV_CARDS)
 		return -ENODEV;
 
-	
+	/* prepare second id */
 	strcpy(cid, pdev->id[0].id);
 	cid[5] = '1';
 	cdev = NULL;
@@ -680,7 +688,7 @@ static struct pnp_card_driver cs423x_pnpc_driver = {
 	.resume		= snd_cs423x_pnpc_resume,
 #endif
 };
-#endif 
+#endif /* CONFIG_PNP */
 
 static int __init alsa_card_cs423x_init(void)
 {

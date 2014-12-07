@@ -39,7 +39,7 @@
 #define CORGI_SPK_ON    0
 #define CORGI_SPK_OFF   1
 
- 
+ /* audio clock in Hz - rounded from 12.235MHz */
 #define CORGI_AUDIO_CLOCK 12288000
 
 static int corgi_jack_func;
@@ -47,10 +47,10 @@ static int corgi_spk_func;
 
 static void corgi_ext_control(struct snd_soc_dapm_context *dapm)
 {
-	
+	/* set up jack connection */
 	switch (corgi_jack_func) {
 	case CORGI_HP:
-		
+		/* set = unmute headphone */
 		gpio_set_value(CORGI_GPIO_MUTE_L, 1);
 		gpio_set_value(CORGI_GPIO_MUTE_R, 1);
 		snd_soc_dapm_disable_pin(dapm, "Mic Jack");
@@ -59,7 +59,7 @@ static void corgi_ext_control(struct snd_soc_dapm_context *dapm)
 		snd_soc_dapm_disable_pin(dapm, "Headset Jack");
 		break;
 	case CORGI_MIC:
-		
+		/* reset = mute headphone */
 		gpio_set_value(CORGI_GPIO_MUTE_L, 0);
 		gpio_set_value(CORGI_GPIO_MUTE_R, 0);
 		snd_soc_dapm_enable_pin(dapm, "Mic Jack");
@@ -90,7 +90,7 @@ static void corgi_ext_control(struct snd_soc_dapm_context *dapm)
 	else
 		snd_soc_dapm_disable_pin(dapm, "Ext Spk");
 
-	
+	/* signal a DAPM event */
 	snd_soc_dapm_sync(dapm);
 }
 
@@ -101,7 +101,7 @@ static int corgi_startup(struct snd_pcm_substream *substream)
 
 	mutex_lock(&codec->mutex);
 
-	
+	/* check the jack status at stream startup */
 	corgi_ext_control(&codec->dapm);
 
 	mutex_unlock(&codec->mutex);
@@ -109,9 +109,10 @@ static int corgi_startup(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+/* we need to unmute the HP at shutdown as the mute burns power on corgi */
 static void corgi_shutdown(struct snd_pcm_substream *substream)
 {
-	
+	/* set = unmute headphone */
 	gpio_set_value(CORGI_GPIO_MUTE_L, 1);
 	gpio_set_value(CORGI_GPIO_MUTE_R, 1);
 }
@@ -139,13 +140,13 @@ static int corgi_hw_params(struct snd_pcm_substream *substream,
 		break;
 	}
 
-	
+	/* set the codec system clock for DAC and ADC */
 	ret = snd_soc_dai_set_sysclk(codec_dai, WM8731_SYSCLK_XTAL, clk,
 		SND_SOC_CLOCK_IN);
 	if (ret < 0)
 		return ret;
 
-	
+	/* set the I2S system clock as input (unused) */
 	ret = snd_soc_dai_set_sysclk(cpu_dai, PXA2XX_I2S_SYSCLK, 0,
 		SND_SOC_CLOCK_IN);
 	if (ret < 0)
@@ -214,6 +215,7 @@ static int corgi_mic_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+/* corgi machine dapm widgets */
 static const struct snd_soc_dapm_widget wm8731_dapm_widgets[] = {
 SND_SOC_DAPM_HP("Headphone Jack", NULL),
 SND_SOC_DAPM_MIC("Mic Jack", corgi_mic_event),
@@ -222,23 +224,24 @@ SND_SOC_DAPM_LINE("Line Jack", NULL),
 SND_SOC_DAPM_HP("Headset Jack", NULL),
 };
 
+/* Corgi machine audio map (connections to the codec pins) */
 static const struct snd_soc_dapm_route corgi_audio_map[] = {
 
-	
+	/* headset Jack  - in = micin, out = LHPOUT*/
 	{"Headset Jack", NULL, "LHPOUT"},
 
-	
+	/* headphone connected to LHPOUT1, RHPOUT1 */
 	{"Headphone Jack", NULL, "LHPOUT"},
 	{"Headphone Jack", NULL, "RHPOUT"},
 
-	
+	/* speaker connected to LOUT, ROUT */
 	{"Ext Spk", NULL, "ROUT"},
 	{"Ext Spk", NULL, "LOUT"},
 
-	
+	/* mic is connected to MICIN (via right channel of headphone jack) */
 	{"MICIN", NULL, "Mic Jack"},
 
-	
+	/* Same as the above but no mic bias for line signals */
 	{"MICIN", NULL, "Line Jack"},
 };
 
@@ -257,6 +260,9 @@ static const struct snd_kcontrol_new wm8731_corgi_controls[] = {
 		corgi_set_spk),
 };
 
+/*
+ * Logic for a wm8731 as connected on a Sharp SL-C7x0 Device
+ */
 static int corgi_wm8731_init(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_soc_codec *codec = rtd->codec;
@@ -268,6 +274,7 @@ static int corgi_wm8731_init(struct snd_soc_pcm_runtime *rtd)
 	return 0;
 }
 
+/* corgi digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link corgi_dai = {
 	.name = "WM8731",
 	.stream_name = "WM8731",
@@ -281,6 +288,7 @@ static struct snd_soc_dai_link corgi_dai = {
 	.ops = &corgi_ops,
 };
 
+/* corgi audio machine driver */
 static struct snd_soc_card corgi = {
 	.name = "Corgi",
 	.owner = THIS_MODULE,
@@ -328,6 +336,7 @@ static struct platform_driver corgi_driver = {
 
 module_platform_driver(corgi_driver);
 
+/* Module information */
 MODULE_AUTHOR("Richard Purdie");
 MODULE_DESCRIPTION("ALSA SoC Corgi");
 MODULE_LICENSE("GPL");

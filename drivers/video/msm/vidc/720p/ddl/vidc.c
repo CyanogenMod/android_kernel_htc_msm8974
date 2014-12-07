@@ -183,7 +183,7 @@ u32 vidc_720p_engine_reset(u32 ch_id,
 	u32 counter = 0;
 
 	VIDC_LOGERR_STRING("ENG-RESET!!");
-	
+	/* issue the engine reset command */
 	vidc_720p_submit_command(ch_id, VIDC_720P_CMD_MFC_ENGINE_RESET);
 
 	do {
@@ -193,40 +193,40 @@ u32 vidc_720p_engine_reset(u32 ch_id,
 	} while (!op_done && counter < 10);
 
 	if (!op_done) {
-		
+		/* Reset fails */
 		return  false ;
 	}
 
-	
+	/* write invalid channel id */
 	VIDC_IO_OUT(REG_97293, 4);
 
-	
+	/* Set INT_PULSE_SEL */
 	if (interrupt_sel == VIDC_720P_INTERRUPT_LEVEL_SEL)
 		VIDC_IO_OUT(REG_491082, 0);
 	else
 		VIDC_IO_OUT(REG_491082, 1);
 
 	if (!interrupt_mask) {
-		
+		/* Disable interrupt */
 		VIDC_IO_OUT(REG_609676, 1);
 	} else {
-	  
+	  /* Enable interrupt */
 		VIDC_IO_OUT(REG_609676, 0);
 	}
 
-	
+	/* Clear any pending interrupt */
 	VIDC_IO_OUT(REG_614776, 1);
 
-	
+	/* Set INT_ENABLE_REG */
 	VIDC_IO_OUT(REG_418173, interrupt_mask);
 
-	
+	/*Sets the DMA endianness */
 	VIDC_IO_OUT(REG_736316, dma_endian);
 
-	
+	/*Restore ARM endianness */
 	VIDC_IO_OUT(REG_215724, 0);
 
-	
+	/* retun engine reset success */
 	return true ;
 }
 
@@ -387,7 +387,7 @@ void vidc_720p_encode_set_mb_level_rc_params(u32 dark_region_as_flag,
 		mb_level_rc |= (0x1 << 0x2);
 	if (dark_region_as_flag)
 		mb_level_rc |= (0x1 << 0x3);
-	
+	/* Write MB level rate control */
 	VIDC_IO_OUT(REG_995041, mb_level_rc);
 }
 
@@ -398,12 +398,12 @@ void vidc_720p_encode_set_entropy_control(enum vidc_720p_entropy_sel
 {
 	u32 num;
 	u32 entropy_params = (u32)entropy_sel;
-	
+	/* Set Model Number */
 	if (entropy_sel == VIDC_720P_ENTROPY_SEL_CABAC) {
 		num = (u32)cabac_model_number;
 		entropy_params |= (num << 0x2);
 	}
-	
+	/* Set Entropy parameters */
 	VIDC_IO_OUT(REG_504878, entropy_params);
 }
 
@@ -417,7 +417,7 @@ void vidc_720p_encode_set_db_filter_control(enum vidc_720p_DBConfig
 	deblock_params |=
 		((i_slice_beta_offset << 0x2) | (i_slice_alpha_offset << 0x7));
 
-	
+	/* Write deblocking control settings */
 	VIDC_IO_OUT(REG_458130, deblock_params);
 }
 
@@ -592,11 +592,11 @@ void vidc_720p_decode_get_seq_hdr_info(struct vidc_720p_seq_hdr_info
 				&display_status);
 	seq_hdr_info->progressive =
 			((display_status & 0x4) >> 2);
-	
+	/* bit 3 is for crop existence */
 	seq_hdr_info->crop_exists = ((display_status & 0x8) >> 3);
 
 	if (seq_hdr_info->crop_exists) {
-		
+		/* read the cropping information */
 		VIDC_IO_INF(REG_881638, CROP_RIGHT_OFFSET, \
 			&seq_hdr_info->crop_right_offset);
 		VIDC_IO_INF(REG_881638, CROP_LEFT_OFFSET, \
@@ -606,7 +606,7 @@ void vidc_720p_decode_get_seq_hdr_info(struct vidc_720p_seq_hdr_info
 		VIDC_IO_INF(REG_161486, CROP_TOP_OFFSET, \
 			&seq_hdr_info->crop_top_offset);
 	}
-	
+	/* Read the MPEG4 data partitioning indication */
 	VIDC_IO_INF(REG_441270, DATA_PARTITIONED, \
 				&seq_hdr_info->data_partitioned);
 

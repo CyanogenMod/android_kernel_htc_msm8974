@@ -29,10 +29,12 @@ extern void __lshrdi3(void);
 extern void __negdi2(void);
 extern void iounmap(volatile void * __iomem);
 
+/* Platform dependent support */
 EXPORT_SYMBOL(kernel_thread);
 EXPORT_SYMBOL(get_cmos_time);
 EXPORT_SYMBOL(loops_per_usec);
 
+/* Math functions */
 EXPORT_SYMBOL(__Udiv);
 EXPORT_SYMBOL(__Umod);
 EXPORT_SYMBOL(__Div);
@@ -42,9 +44,11 @@ EXPORT_SYMBOL(__ashrdi3);
 EXPORT_SYMBOL(__lshrdi3);
 EXPORT_SYMBOL(__negdi2);
 
+/* Memory functions */
 EXPORT_SYMBOL(__ioremap);
 EXPORT_SYMBOL(iounmap);
 
+/* Userspace access functions */
 EXPORT_SYMBOL(__copy_user_zeroing);
 EXPORT_SYMBOL(__copy_user);
 
@@ -56,6 +60,7 @@ EXPORT_SYMBOL(memcpy);
 EXPORT_SYMBOL(memset);
 
 #ifdef CONFIG_ETRAX_FAST_TIMER
+/* Fast timer functions */
 EXPORT_SYMBOL(fast_timer_list);
 EXPORT_SYMBOL(start_one_shot_timer);
 EXPORT_SYMBOL(del_fast_timer);

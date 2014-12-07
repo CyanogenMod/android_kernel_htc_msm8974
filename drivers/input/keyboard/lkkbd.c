@@ -2,7 +2,48 @@
  *  Copyright (C) 2004 by Jan-Benedict Glaw <jbglaw@lug-owl.de>
  */
 
+/*
+ * LK keyboard driver for Linux, based on sunkbd.c (C) by Vojtech Pavlik
+ */
 
+/*
+ * DEC LK201 and LK401 keyboard driver for Linux (primary for DECstations
+ * and VAXstations, but can also be used on any standard RS232 with an
+ * adaptor).
+ *
+ * DISCLAIMER: This works for _me_. If you break anything by using the
+ * information given below, I will _not_ be liable!
+ *
+ * RJ10 pinout:		To DE9:		Or DB25:
+ *	1 - RxD <---->	Pin 3 (TxD) <->	Pin 2 (TxD)
+ *	2 - GND <---->	Pin 5 (GND) <->	Pin 7 (GND)
+ *	4 - TxD <---->	Pin 2 (RxD) <->	Pin 3 (RxD)
+ *	3 - +12V (from HDD drive connector), DON'T connect to DE9 or DB25!!!
+ *
+ * Pin numbers for DE9 and DB25 are noted on the plug (quite small:). For
+ * RJ10, it's like this:
+ *
+ *      __=__	Hold the plug in front of you, cable downwards,
+ *     /___/|	nose is hidden behind the plug. Now, pin 1 is at
+ *    |1234||	the left side, pin 4 at the right and 2 and 3 are
+ *    |IIII||	in between, of course:)
+ *    |    ||
+ *    |____|/
+ *      ||	So the adaptor consists of three connected cables
+ *      ||	for data transmission (RxD and TxD) and signal ground.
+ *		Additionally, you have to get +12V from somewhere.
+ * Most easily, you'll get that from a floppy or HDD power connector.
+ * It's the yellow cable there (black is ground and red is +5V).
+ *
+ * The keyboard and all the commands it understands are documented in
+ * "VCB02 Video Subsystem - Technical Manual", EK-104AA-TM-001. This
+ * document is LK201 specific, but LK401 is mostly compatible. It comes
+ * up in LK201 mode and doesn't report any of the additional keys it
+ * has. These need to be switched on with the LK_CMD_ENABLE_LK401
+ * command. You'll find this document (scanned .pdf file) on MANX,
+ * a search engine specific to DEC documentation. Try
+ * http://www.vt100.net/manx/details?pn=EK-104AA-TM-001;id=21;cp=1
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -35,15 +76,23 @@ MODULE_AUTHOR("Jan-Benedict Glaw <jbglaw@lug-owl.de>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
-static int bell_volume = 100; 
+/*
+ * Known parameters:
+ *	bell_volume
+ *	keyclick_volume
+ *	ctrlclick_volume
+ *
+ * Please notice that there's not yet an API to set these at runtime.
+ */
+static int bell_volume = 100; /* % */
 module_param(bell_volume, int, 0);
 MODULE_PARM_DESC(bell_volume, "Bell volume (in %). default is 100%");
 
-static int keyclick_volume = 100; 
+static int keyclick_volume = 100; /* % */
 module_param(keyclick_volume, int, 0);
 MODULE_PARM_DESC(keyclick_volume, "Keyclick volume (in %), default is 100%");
 
-static int ctrlclick_volume = 100; 
+static int ctrlclick_volume = 100; /* % */
 module_param(ctrlclick_volume, int, 0);
 MODULE_PARM_DESC(ctrlclick_volume, "Ctrlclick volume (in %), default is 100%");
 
@@ -61,6 +110,7 @@ MODULE_PARM_DESC(lk201_compose_is_alt,
 #define DBG(x...) do {} while (0)
 #endif
 
+/* LED control */
 #define LK_LED_WAIT		0x81
 #define LK_LED_COMPOSE		0x82
 #define LK_LED_SHIFTLOCK	0x84
@@ -68,11 +118,13 @@ MODULE_PARM_DESC(lk201_compose_is_alt,
 #define LK_CMD_LED_ON		0x13
 #define LK_CMD_LED_OFF		0x11
 
+/* Mode control */
 #define LK_MODE_DOWN		0x80
 #define LK_MODE_AUTODOWN	0x82
 #define LK_MODE_UPDOWN		0x86
 #define LK_CMD_SET_MODE(mode, div)	((mode) | ((div) << 3))
 
+/* Misc commands */
 #define LK_CMD_ENABLE_KEYCLICK	0x1b
 #define LK_CMD_DISABLE_KEYCLICK	0x99
 #define LK_CMD_DISABLE_BELL	0xa1
@@ -85,6 +137,7 @@ MODULE_PARM_DESC(lk201_compose_is_alt,
 #define LK_CMD_ENABLE_LK401	0xe9
 #define LK_CMD_REQUEST_ID	0xab
 
+/* Misc responses from keyboard */
 #define LK_STUCK_KEY		0x3d
 #define LK_SELFTEST_FAILED	0x3e
 #define LK_ALL_KEYS_UP		0xb3
@@ -151,11 +204,11 @@ static unsigned short lkkbd_keycode[LK_NUM_KEYCODES] = {
 	[0xaa] = KEY_UP,
 	[0xab] = KEY_RIGHTSHIFT,
 	[0xac] = KEY_LEFTALT,
-	[0xad] = KEY_COMPOSE, 
-	[0xae] = KEY_LEFTSHIFT, 
+	[0xad] = KEY_COMPOSE, /* Right Compose, that is. */
+	[0xae] = KEY_LEFTSHIFT, /* Same as KEY_RIGHTSHIFT on LK201 */
 	[0xaf] = KEY_LEFTCTRL,
 	[0xb0] = KEY_CAPSLOCK,
-	[0xb1] = KEY_COMPOSE, 
+	[0xb1] = KEY_COMPOSE, /* Left Compose, that is. */
 	[0xb2] = KEY_RIGHTALT,
 	[0xbc] = KEY_BACKSPACE,
 	[0xbd] = KEY_ENTER,
@@ -218,6 +271,9 @@ static unsigned short lkkbd_keycode[LK_NUM_KEYCODES] = {
 		VAR_OFF |= BITS;				\
 	} while (0)
 
+/*
+ * Per-keyboard data
+ */
 struct lkkbd {
 	unsigned short keycode[LK_NUM_KEYCODES];
 	int ignore_bytes;
@@ -234,6 +290,9 @@ struct lkkbd {
 };
 
 #ifdef LKKBD_DEBUG
+/*
+ * Responses from the keyboard and mapping back to their names.
+ */
 static struct {
 	unsigned char value;
 	unsigned char *name;
@@ -263,8 +322,11 @@ static unsigned char *response_name(unsigned char value)
 
 	return "<unknown>";
 }
-#endif 
+#endif /* LKKBD_DEBUG */
 
+/*
+ * Calculate volume parameter byte for a given volume.
+ */
 static unsigned char volume_to_hw(int volume_percent)
 {
 	unsigned char ret = 0;
@@ -276,19 +338,19 @@ static unsigned char volume_to_hw(int volume_percent)
 
 	if (volume_percent >= 0)
 		ret = 7;
-	if (volume_percent >= 13)	
+	if (volume_percent >= 13)	/* 12.5 */
 		ret = 6;
 	if (volume_percent >= 25)
 		ret = 5;
-	if (volume_percent >= 38)	
+	if (volume_percent >= 38)	/* 37.5 */
 		ret = 4;
 	if (volume_percent >= 50)
 		ret = 3;
-	if (volume_percent >= 63)	
-		ret = 2;		
+	if (volume_percent >= 63)	/* 62.5 */
+		ret = 2;		/* This is the default volume */
 	if (volume_percent >= 75)
 		ret = 1;
-	if (volume_percent >= 88)	
+	if (volume_percent >= 88)	/* 87.5 */
 		ret = 0;
 
 	ret |= 0x80;
@@ -300,8 +362,14 @@ static void lkkbd_detection_done(struct lkkbd *lk)
 {
 	int i;
 
+	/*
+	 * Reset setting for Compose key. Let Compose be KEY_COMPOSE.
+	 */
 	lk->keycode[0xb1] = KEY_COMPOSE;
 
+	/*
+	 * Print keyboard name and modify Compose=Alt on user's request.
+	 */
 	switch (lk->id[4]) {
 	case 1:
 		strlcpy(lk->name, "DEC LK201 keyboard", sizeof(lk->name));
@@ -329,9 +397,12 @@ static void lkkbd_detection_done(struct lkkbd *lk)
 	printk(KERN_INFO "lkkbd: keyboard on %s identified as: %s\n",
 		lk->phys, lk->name);
 
+	/*
+	 * Report errors during keyboard boot-up.
+	 */
 	switch (lk->id[2]) {
 	case 0x00:
-		
+		/* All okay */
 		break;
 
 	case LK_STUCK_KEY:
@@ -352,12 +423,19 @@ static void lkkbd_detection_done(struct lkkbd *lk)
 		break;
 	}
 
+	/*
+	 * Try to hint user if there's a stuck key.
+	 */
 	if (lk->id[2] == LK_STUCK_KEY && lk->id[3] != 0)
 		printk(KERN_ERR
 			"Scancode of stuck key is 0x%02x, keycode is 0x%04x\n",
 			lk->id[3], lk->keycode[lk->id[3]]);
 }
 
+/*
+ * lkkbd_interrupt() is called by the low level driver when a character
+ * is received.
+ */
 static irqreturn_t lkkbd_interrupt(struct serio *serio,
 				   unsigned char data, unsigned int flags)
 {
@@ -458,6 +536,9 @@ static void lkkbd_toggle_keyclick(struct lkkbd *lk, bool on)
 
 }
 
+/*
+ * lkkbd_event() handles events from the input module.
+ */
 static int lkkbd_event(struct input_dev *dev,
 			unsigned int type, unsigned int code, int value)
 {
@@ -491,39 +572,51 @@ static int lkkbd_event(struct input_dev *dev,
 	return -1;
 }
 
+/*
+ * lkkbd_reinit() sets leds and beeps to a state the computer remembers they
+ * were in.
+ */
 static void lkkbd_reinit(struct work_struct *work)
 {
 	struct lkkbd *lk = container_of(work, struct lkkbd, tq);
 	int division;
 
-	
+	/* Ask for ID */
 	serio_write(lk->serio, LK_CMD_REQUEST_ID);
 
-	
+	/* Reset parameters */
 	serio_write(lk->serio, LK_CMD_SET_DEFAULTS);
 
-	
+	/* Set LEDs */
 	lkkbd_toggle_leds(lk);
 
+	/*
+	 * Try to activate extended LK401 mode. This command will
+	 * only work with a LK401 keyboard and grants access to
+	 * LAlt, RAlt, RCompose and RShift.
+	 */
 	serio_write(lk->serio, LK_CMD_ENABLE_LK401);
 
-	
+	/* Set all keys to UPDOWN mode */
 	for (division = 1; division <= 14; division++)
 		serio_write(lk->serio,
 			    LK_CMD_SET_MODE(LK_MODE_UPDOWN, division));
 
-	
+	/* Enable bell and set volume */
 	serio_write(lk->serio, LK_CMD_ENABLE_BELL);
 	serio_write(lk->serio, volume_to_hw(lk->bell_volume));
 
-	
+	/* Enable/disable keyclick (and possibly set volume) */
 	lkkbd_toggle_keyclick(lk, test_bit(SND_CLICK, lk->dev->snd));
 
-	
+	/* Sound the bell if needed */
 	if (test_bit(SND_BELL, lk->dev->snd))
 		serio_write(lk->serio, LK_CMD_SOUND_BELL);
 }
 
+/*
+ * lkkbd_connect() probes for a LK keyboard and fills the necessary structures.
+ */
 static int lkkbd_connect(struct serio *serio, struct serio_driver *drv)
 {
 	struct lkkbd *lk;
@@ -600,6 +693,9 @@ static int lkkbd_connect(struct serio *serio, struct serio_driver *drv)
 	return err;
 }
 
+/*
+ * lkkbd_disconnect() unregisters and closes behind us.
+ */
 static void lkkbd_disconnect(struct serio *serio)
 {
 	struct lkkbd *lk = serio_get_drvdata(serio);
@@ -635,6 +731,9 @@ static struct serio_driver lkkbd_drv = {
 	.interrupt	= lkkbd_interrupt,
 };
 
+/*
+ * The functions for insering/removing us as a module.
+ */
 static int __init lkkbd_init(void)
 {
 	return serio_register_driver(&lkkbd_drv);

@@ -21,7 +21,7 @@ void jz4740_serial_out(struct uart_port *p, int offset, int value)
 {
 	switch (offset) {
 	case UART_FCR:
-		value |= 0x10; 
+		value |= 0x10; /* Enable uart module */
 		break;
 	case UART_IER:
 		value |= (value & 0x4) << 2;

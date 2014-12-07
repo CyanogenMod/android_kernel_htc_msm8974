@@ -98,7 +98,7 @@ struct fw_eth_tx_pkt_wr {
 };
 
 enum fw_flowc_mnem {
-	FW_FLOWC_MNEM_PFNVFN,		
+	FW_FLOWC_MNEM_PFNVFN,		/* PFN [15:8] VFN [7:0] */
 	FW_FLOWC_MNEM_CH,
 	FW_FLOWC_MNEM_PORT,
 	FW_FLOWC_MNEM_IQID,
@@ -198,6 +198,9 @@ enum fw_cmd_cap {
 	FW_CMD_CAP_VF                  = 0x80,
 };
 
+/*
+ * Generic command header flit0
+ */
 struct fw_cmd_hdr {
 	__be32 hi;
 	__be32 lo;
@@ -417,18 +420,27 @@ struct fw_caps_config_cmd {
 	__be64 r6;
 };
 
+/*
+ * params command mnemonics
+ */
 enum fw_params_mnem {
-	FW_PARAMS_MNEM_DEV		= 1,	
-	FW_PARAMS_MNEM_PFVF		= 2,	
-	FW_PARAMS_MNEM_REG		= 3,	
-	FW_PARAMS_MNEM_DMAQ		= 4,	
+	FW_PARAMS_MNEM_DEV		= 1,	/* device params */
+	FW_PARAMS_MNEM_PFVF		= 2,	/* function params */
+	FW_PARAMS_MNEM_REG		= 3,	/* limited register access */
+	FW_PARAMS_MNEM_DMAQ		= 4,	/* dma queue params */
 	FW_PARAMS_MNEM_LAST
 };
 
+/*
+ * device parameters
+ */
 enum fw_params_param_dev {
-	FW_PARAMS_PARAM_DEV_CCLK	= 0x00, 
-	FW_PARAMS_PARAM_DEV_PORTVEC	= 0x01, 
-	FW_PARAMS_PARAM_DEV_NTID	= 0x02, 
+	FW_PARAMS_PARAM_DEV_CCLK	= 0x00, /* chip core clock in khz */
+	FW_PARAMS_PARAM_DEV_PORTVEC	= 0x01, /* the port vector */
+	FW_PARAMS_PARAM_DEV_NTID	= 0x02, /* reads the number of TIDs
+						 * allocated by the device's
+						 * Lookup Engine
+						 */
 	FW_PARAMS_PARAM_DEV_FLOWC_BUFFIFO_SZ = 0x03,
 	FW_PARAMS_PARAM_DEV_INTVER_NIC	= 0x04,
 	FW_PARAMS_PARAM_DEV_INTVER_VNIC = 0x05,
@@ -441,6 +453,9 @@ enum fw_params_param_dev {
 	FW_PARAMS_PARAM_DEV_TPREV = 0x0C,
 };
 
+/*
+ * physical and virtual function parameters
+ */
 enum fw_params_param_pfvf {
 	FW_PARAMS_PARAM_PFVF_RWXCAPS	= 0x00,
 	FW_PARAMS_PARAM_PFVF_ROUTE_START = 0x01,
@@ -479,6 +494,9 @@ enum fw_params_param_pfvf {
 	FW_PARAMS_PARAM_PFVF_EQ_END	= 0x2C,
 };
 
+/*
+ * dma queue parameters
+ */
 enum fw_params_param_dmaq {
 	FW_PARAMS_PARAM_DMAQ_IQ_DCAEN_DCACPU = 0x00,
 	FW_PARAMS_PARAM_DMAQ_IQ_INTCNTTHRESH = 0x01,
@@ -797,6 +815,10 @@ struct fw_eq_ofld_cmd {
 #define FW_EQ_OFLD_CMD_CIDXFTHRESH(x) ((x) << 16)
 #define FW_EQ_OFLD_CMD_EQSIZE(x) ((x) << 0)
 
+/*
+ * Macros for VIID parsing:
+ * VIID - [10:8] PFN, [7] VI Valid, [6:0] VI number
+ */
 #define FW_VIID_PFN_GET(x) (((x) >> 8) & 0x7)
 #define FW_VIID_VIVLD_GET(x) (((x) >> 7) & 0x1)
 #define FW_VIID_VIN_GET(x) (((x) >> 0) & 0x7F)
@@ -829,6 +851,7 @@ struct fw_vi_cmd {
 #define FW_VI_CMD_PORTID_GET(x) (((x) >> 4) & 0xf)
 #define FW_VI_CMD_RSSSIZE_GET(x) (((x) >> 0) & 0x7ff)
 
+/* Special VI_MAC command index ids */
 #define FW_VI_MAC_ADD_MAC		0x3FF
 #define FW_VI_MAC_ADD_PERSIST_MAC	0x3FE
 #define FW_VI_MAC_MAC_BASED_FREE	0x3FD
@@ -907,6 +930,7 @@ struct fw_vi_enable_cmd {
 #define FW_VI_ENABLE_CMD_EEN(x) ((x) << 30)
 #define FW_VI_ENABLE_CMD_LED (1U << 29)
 
+/* VI VF stats offset definitions */
 #define VI_VF_NUM_STATS	16
 enum fw_vi_stats_vf_index {
 	FW_VI_VF_STAT_TX_BCAST_BYTES_IX,
@@ -927,6 +951,7 @@ enum fw_vi_stats_vf_index {
 	FW_VI_VF_STAT_RX_ERR_FRAMES_IX
 };
 
+/* VI PF stats offset definitions */
 #define VI_PF_NUM_STATS	17
 enum fw_vi_stats_pf_index {
 	FW_VI_PF_STAT_TX_BCAST_BYTES_IX,
@@ -1231,6 +1256,7 @@ enum fw_port_module_type {
 	FW_PORT_MOD_TYPE_NONE = FW_PORT_CMD_MODTYPE_MASK
 };
 
+/* port stats */
 #define FW_NUM_PORT_STATS 50
 #define FW_NUM_PORT_TX_STATS 23
 #define FW_NUM_PORT_RX_STATS 27
@@ -1369,6 +1395,7 @@ struct fw_port_stats_cmd {
 #define FW_PORT_STATS_CMD_TX(x) ((x) << 7)
 #define FW_PORT_STATS_CMD_IX(x) ((x) << 0)
 
+/* port loopback stats */
 #define FW_NUM_LB_STATS 16
 enum fw_port_lb_stats_index {
 	FW_STAT_LB_PORT_BYTES_IX,
@@ -1575,8 +1602,8 @@ struct fw_debug_cmd {
 struct fw_hdr {
 	u8 ver;
 	u8 reserved1;
-	__be16	len512;			
-	__be32	fw_ver;			
+	__be16	len512;			/* bin length in units of 512-bytes */
+	__be32	fw_ver;			/* firmware version */
 	__be32	tp_microcode_ver;
 	u8 intfver_nic;
 	u8 intfver_vnic;
@@ -1593,4 +1620,4 @@ struct fw_hdr {
 #define FW_HDR_FW_VER_MINOR_GET(x) (((x) >> 16) & 0xff)
 #define FW_HDR_FW_VER_MICRO_GET(x) (((x) >> 8) & 0xff)
 #define FW_HDR_FW_VER_BUILD_GET(x) (((x) >> 0) & 0xff)
-#endif 
+#endif /* _T4FW_INTERFACE_H_ */

@@ -19,15 +19,17 @@
 
 #define ASHMEM_NAME_DEF		"dev/ashmem"
 
+/* Return values from ASHMEM_PIN: Was the mapping purged while unpinned? */
 #define ASHMEM_NOT_PURGED	0
 #define ASHMEM_WAS_PURGED	1
 
+/* Return values from ASHMEM_GET_PIN_STATUS: Is the mapping pinned? */
 #define ASHMEM_IS_UNPINNED	0
 #define ASHMEM_IS_PINNED	1
 
 struct ashmem_pin {
-	__u32 offset;	
-	__u32 len;	
+	__u32 offset;	/* offset into region, in bytes, page-aligned */
+	__u32 len;	/* length forward from offset, in bytes, page-aligned */
 };
 
 #define __ASHMEMIOC		0x77
@@ -50,4 +52,4 @@ int get_ashmem_file(int fd, struct file **filp, struct file **vm_file,
 			unsigned long *len);
 void put_ashmem_file(struct file *file);
 
-#endif	
+#endif	/* _LINUX_ASHMEM_H */

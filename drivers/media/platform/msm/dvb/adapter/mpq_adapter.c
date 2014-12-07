@@ -19,28 +19,34 @@
 
 DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 
+/* data-structure holding MPQ adapter information */
 static struct
 {
-	
+	/* MPQ adapter registered to dvb-core */
 	struct dvb_adapter adapter;
 
-	
+	/* mutex protect against the data-structure */
 	struct mutex mutex;
 
-	
+	/* List of stream interfaces registered to the MPQ adapter */
 	struct {
-		
+		/* pointer to the stream buffer using for data tunneling */
 		struct mpq_streambuffer *stream_buffer;
 
-		
+		/* callback triggered when the stream interface is registered */
 		mpq_adapter_stream_if_callback callback;
 
-		
+		/* parameter passed to the callback function */
 		void *user_param;
 	} interfaces[MPQ_ADAPTER_MAX_NUM_OF_INTERFACES];
 } mpq_info;
 
 
+/**
+ * Initialize MPQ DVB adapter module.
+ *
+ * Return     error status
+ */
 static int __init mpq_adapter_init(void)
 {
 	int i;
@@ -50,13 +56,13 @@ static int __init mpq_adapter_init(void)
 
 	mutex_init(&mpq_info.mutex);
 
-	
+	/* reset stream interfaces list */
 	for (i = 0; i < MPQ_ADAPTER_MAX_NUM_OF_INTERFACES; i++) {
 		mpq_info.interfaces[i].stream_buffer = NULL;
 		mpq_info.interfaces[i].callback = NULL;
 	}
 
-	
+	/* regsiter a new dvb-adapter to dvb-core */
 	result = dvb_register_adapter(&mpq_info.adapter,
 								  "Qualcomm DVB adapter",
 								  THIS_MODULE,
@@ -74,11 +80,14 @@ static int __init mpq_adapter_init(void)
 }
 
 
+/**
+ * Cleanup MPQ DVB adapter module.
+ */
 static void __exit mpq_adapter_exit(void)
 {
 	MPQ_DVB_DBG_PRINT("%s executed\n", __func__);
 
-	
+	/* un-regsiter adapter from dvb-core */
 	dvb_unregister_adapter(&mpq_info.adapter);
 	mutex_destroy(&mpq_info.mutex);
 }
@@ -107,7 +116,7 @@ int mpq_adapter_register_stream_if(
 	}
 
 	if (mpq_info.interfaces[interface_id].stream_buffer != NULL) {
-		
+		/* already registered interface */
 		ret = -EINVAL;
 		goto register_failed_unlock_mutex;
 	}
@@ -115,6 +124,10 @@ int mpq_adapter_register_stream_if(
 	mpq_info.interfaces[interface_id].stream_buffer = stream_buffer;
 	mutex_unlock(&mpq_info.mutex);
 
+	/*
+	 * If callback is installed, trigger it to notify that
+	 * stream interface was registered.
+	 */
 	if (mpq_info.interfaces[interface_id].callback != NULL) {
 		mpq_info.interfaces[interface_id].callback(
 				interface_id,
@@ -140,7 +153,7 @@ int mpq_adapter_unregister_stream_if(
 	if (mutex_lock_interruptible(&mpq_info.mutex))
 		return -ERESTARTSYS;
 
-	
+	/* clear the registered interface */
 	mpq_info.interfaces[interface_id].stream_buffer = NULL;
 
 	mutex_unlock(&mpq_info.mutex);

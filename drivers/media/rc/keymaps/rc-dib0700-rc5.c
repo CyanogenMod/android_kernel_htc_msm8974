@@ -19,9 +19,9 @@
 #include <linux/module.h>
 
 static struct rc_map_table dib0700_rc5_table[] = {
-	
+	/* Key codes for the tiny Pinnacle remote*/
 	{ 0x0700, KEY_MUTE },
-	{ 0x0701, KEY_MENU }, 
+	{ 0x0701, KEY_MENU }, /* Pinnacle logo */
 	{ 0x0739, KEY_POWER },
 	{ 0x0703, KEY_VOLUMEUP },
 	{ 0x0709, KEY_VOLUMEDOWN },
@@ -37,16 +37,16 @@ static struct rc_map_table dib0700_rc5_table[] = {
 	{ 0x0721, KEY_8 },
 	{ 0x0712, KEY_9 },
 	{ 0x0727, KEY_0 },
-	{ 0x0724, KEY_SCREEN }, 
-	{ 0x072a, KEY_TEXT },   
+	{ 0x0724, KEY_SCREEN }, /* 'Square' key */
+	{ 0x072a, KEY_TEXT },   /* 'T' key */
 	{ 0x072d, KEY_REWIND },
 	{ 0x0730, KEY_PLAY },
 	{ 0x0733, KEY_FASTFORWARD },
 	{ 0x0736, KEY_RECORD },
 	{ 0x073c, KEY_STOP },
-	{ 0x073f, KEY_CANCEL }, 
+	{ 0x073f, KEY_CANCEL }, /* '?' key */
 
-	
+	/* Key codes for the Terratec Cinergy DT XS Diversity, similar to cinergyT2.c */
 	{ 0xeb01, KEY_POWER },
 	{ 0xeb02, KEY_1 },
 	{ 0xeb03, KEY_2 },
@@ -78,16 +78,16 @@ static struct rc_map_table dib0700_rc5_table[] = {
 	{ 0xeb1f, KEY_CHANNELDOWN },
 	{ 0xeb40, KEY_PAUSE },
 	{ 0xeb41, KEY_HOME },
-	{ 0xeb42, KEY_MENU }, 
+	{ 0xeb42, KEY_MENU }, /* DVD Menu */
 	{ 0xeb43, KEY_SUBTITLE },
-	{ 0xeb44, KEY_TEXT }, 
+	{ 0xeb44, KEY_TEXT }, /* Teletext */
 	{ 0xeb45, KEY_DELETE },
 	{ 0xeb46, KEY_TV },
 	{ 0xeb47, KEY_DVD },
 	{ 0xeb48, KEY_STOP },
 	{ 0xeb49, KEY_VIDEO },
-	{ 0xeb4a, KEY_AUDIO }, 
-	{ 0xeb4b, KEY_SCREEN }, 
+	{ 0xeb4a, KEY_AUDIO }, /* Music */
+	{ 0xeb4b, KEY_SCREEN }, /* Pic */
 	{ 0xeb4c, KEY_PLAY },
 	{ 0xeb4d, KEY_BACK },
 	{ 0xeb4e, KEY_REWIND },
@@ -96,7 +96,7 @@ static struct rc_map_table dib0700_rc5_table[] = {
 	{ 0xeb58, KEY_RECORD },
 	{ 0xeb5c, KEY_NEXT },
 
-	
+	/* Key codes for the Haupauge WinTV Nova-TD, copied from nova-t-usb2.c (Nova-T USB2) */
 	{ 0x1e00, KEY_0 },
 	{ 0x1e01, KEY_1 },
 	{ 0x1e02, KEY_2 },
@@ -111,7 +111,7 @@ static struct rc_map_table dib0700_rc5_table[] = {
 	{ 0x1e0b, KEY_RED },
 	{ 0x1e0c, KEY_RADIO },
 	{ 0x1e0d, KEY_MENU },
-	{ 0x1e0e, KEY_GRAVE }, 
+	{ 0x1e0e, KEY_GRAVE }, /* # */
 	{ 0x1e0f, KEY_MUTE },
 	{ 0x1e10, KEY_VOLUMEUP },
 	{ 0x1e11, KEY_VOLUMEDOWN },
@@ -129,7 +129,7 @@ static struct rc_map_table dib0700_rc5_table[] = {
 	{ 0x1e1f, KEY_BACK },
 	{ 0x1e20, KEY_CHANNELUP },
 	{ 0x1e21, KEY_CHANNELDOWN },
-	{ 0x1e24, KEY_LAST }, 
+	{ 0x1e24, KEY_LAST }, /* Skip backwards */
 	{ 0x1e25, KEY_OK },
 	{ 0x1e29, KEY_BLUE},
 	{ 0x1e2e, KEY_GREEN },
@@ -143,12 +143,12 @@ static struct rc_map_table dib0700_rc5_table[] = {
 	{ 0x1e3b, KEY_GOTO },
 	{ 0x1e3d, KEY_POWER },
 
-	
+	/* Key codes for the Leadtek Winfast DTV Dongle */
 	{ 0x0042, KEY_POWER },
 	{ 0x077c, KEY_TUNER },
-	{ 0x0f4e, KEY_PRINT }, 
-	{ 0x0840, KEY_SCREEN }, 
-	{ 0x0f71, KEY_DOT }, 
+	{ 0x0f4e, KEY_PRINT }, /* PREVIEW */
+	{ 0x0840, KEY_SCREEN }, /* full screen toggle*/
+	{ 0x0f71, KEY_DOT }, /* frequency */
 	{ 0x0743, KEY_0 },
 	{ 0x0c41, KEY_1 },
 	{ 0x0443, KEY_2 },
@@ -160,19 +160,19 @@ static struct rc_map_table dib0700_rc5_table[] = {
 	{ 0x057c, KEY_8 },
 	{ 0x0a40, KEY_9 },
 	{ 0x0e4e, KEY_CLEAR },
-	{ 0x047c, KEY_CHANNEL }, 
-	{ 0x0f41, KEY_LAST }, 
+	{ 0x047c, KEY_CHANNEL }, /* show channel number */
+	{ 0x0f41, KEY_LAST }, /* recall */
 	{ 0x0342, KEY_MUTE },
-	{ 0x064c, KEY_RESERVED }, 
-	{ 0x0172, KEY_SHUFFLE }, 
-	{ 0x0c4e, KEY_PLAYPAUSE }, 
+	{ 0x064c, KEY_RESERVED }, /* PIP button*/
+	{ 0x0172, KEY_SHUFFLE }, /* SNAPSHOT */
+	{ 0x0c4e, KEY_PLAYPAUSE }, /* TIMESHIFT */
 	{ 0x0b70, KEY_RECORD },
 	{ 0x037d, KEY_VOLUMEUP },
 	{ 0x017d, KEY_VOLUMEDOWN },
 	{ 0x0242, KEY_CHANNELUP },
 	{ 0x007d, KEY_CHANNELDOWN },
 
-	
+	/* Key codes for Nova-TD "credit card" remote control. */
 	{ 0x1d00, KEY_0 },
 	{ 0x1d01, KEY_1 },
 	{ 0x1d02, KEY_2 },

@@ -23,9 +23,17 @@ Author:			author name
 Description:	declaration of Ilp0100 structures that will be used for init and setup
 				for current project
 ********************************************************************************/
+/*!
+ * \file	ilp0100_customer_sensor_config.c
+ * \brief	declaration of Ilp0100 structures that will be used for init and setup
+			for current project
+ * \author	sheena jain
+ */
 
 #include "ilp0100_customer_sensor_config.h"
 
+/*  Structure containing All parameters for Ilp0100 depending on setup, but not sensor  */
+/*  Initialization phase. */
 #ifdef ST_SPECIFIC
 Ilp0100_structInit SystemInitStruct={
 	.NumberOfLanes		 = 1,
@@ -63,10 +71,10 @@ Ilp0100_structDefcorConfig DefcorConfig={
 };
 
 Ilp0100_structDefcorParams DefcorParams={
-	.SingletThreshold			=	11,  
-	.CoupletThreshold			=	200, 
-	.WhiteStrength				=	15, 
-	.BlackStrength				=	15  
+	.SingletThreshold			=	11,  //  1
+	.CoupletThreshold			=	200, // 33
+	.WhiteStrength				=	15, //  22
+	.BlackStrength				=	15  //  21
 };
 
 Ilp0100_structChannelOffsetConfig ChannelOffsetConfig={
@@ -353,7 +361,7 @@ const Ilp0100_structInit PrimarySensor612MhzInitStruct={
 };
 
 const Ilp0100_structInit SecondarySensor612MhzInitStruct={
-	.NumberOfLanes		 = 1, 
+	.NumberOfLanes		 = 1, // Only 1/2 MIPI lane(s) available for secondary camera interface
 	.BitRate			 = 612000000,
 	.uwPixelFormat		 = RAW_10,
 	.ExternalClock		 = 24000000,
@@ -364,31 +372,35 @@ const Ilp0100_structInit SecondarySensor612MhzInitStruct={
 };
 
 
+/*  Structure containing sensor-dependant parameter. */
+/*  but not streaming mode-dependant parameters. */
 const Ilp0100_structSensorParams Ilp0100AlishanParams={
-	
-	.FullActivePixels	= 2688, 
-	
+	/*  Max sensor active line length (in full frame) */
+	.FullActivePixels	= 2688, /*  HSize */
+	/*  Min sensor line length (Active line+Line blanking) */
 	.MinLineLength		= 2888,
-	
-	.FullActiveLines	= 1520,	
-	
+	/*  Max sensor active frame length (in full frame) */
+	.FullActiveLines	= 1520,	/*  VSize; */
+	/* First pixel color */
 	.PixelOrder			= GR,
 	.StatusNbLines		= 2
 };
 
+/* Sensor information for sensor conencted to secondary interface */
 const Ilp0100_structSensorParams Ilp0100OVTParams={
-	
-	.FullActivePixels 	= 1928, 
-	
+	/*  Max sensor active line length (in full frame) */
+	.FullActivePixels 	= 1928, /*  HSize */
+	/*  Min sensor line length (Active line+Line blanking) */
 	.MinLineLength 		= 2128,
-	
-	.FullActiveLines 	= 1088,  
-	
+	/*  Max sensor active frame length (in full frame) */
+	.FullActiveLines 	= 1088,  /*  VSize; */
+	/* First pixel color */
 	.PixelOrder			= GR,
 	.StatusNbLines		= 0
 };
 
 
+/*  Structure containing Frame formats modes */
 const Ilp0100_structFrameFormat Ilp0100955Sensor5MPFormat={
 	.ActiveLineLengthPixels		= 2600,
 	.ActiveFrameLengthLines		= 1952,
@@ -603,6 +615,7 @@ const Ilp0100_structFrameFormat Ilp0100Alishan1080pFrameFormat={
 	.VScaling					= 2,
 	.Binning					= 0x22
 };
+/*  Structure containing Frame formats modes */
 const Ilp0100_structFrameFormat Ilp0100Alishan720pFrameFormat={
 	.ActiveLineLengthPixels		= 1296,
 	.ActiveFrameLengthLines		= 728,
@@ -728,6 +741,7 @@ const Ilp0100_structFrameFormat Ilp0100AlishanHDR1080pFrameFormat={
 	.VScaling					= 2,
 	.Binning					= 0x22
 };
+/*  Structure containing Frame formats modes */
 const Ilp0100_structFrameFormat Ilp0100AlishanHDR720pFrameFormat={
 	.ActiveLineLengthPixels		= 1296,
 	.ActiveFrameLengthLines		= 728,
@@ -783,10 +797,10 @@ Ilp0100_structDefcorConfig DefcorConfig={
 };
 
 Ilp0100_structDefcorParams DefcorParams={
-	.SingletThreshold			=	11,  
-	.CoupletThreshold			=	200, 
-	.WhiteStrength				=	15, 
-	.BlackStrength				=	15  
+	.SingletThreshold			=	11,  //  1
+	.CoupletThreshold			=	200, // 33
+	.WhiteStrength				=	15, //  22
+	.BlackStrength				=	15  //  21
 };
 
 Ilp0100_structChannelOffsetConfig ChannelOffsetConfig={
@@ -1075,7 +1089,7 @@ const Ilp0100_structInit PrimarySensor612MhzInitStruct={
 };
 
 const Ilp0100_structInit SecondarySensor612MhzInitStruct={
-	.NumberOfLanes		 = 1, 
+	.NumberOfLanes		 = 1, // Only 1/2 MIPI lane(s) available for secondary camera interface
 	.BitRate			 = 612000000,
 	.uwPixelFormat		 = RAW_10,
 	.ExternalClock		 = 24000000,
@@ -1086,44 +1100,49 @@ const Ilp0100_structInit SecondarySensor612MhzInitStruct={
 };
 
 
+/*  Structure containing sensor-dependant parameter. */
+/*  but not streaming mode-dependant parameters. */
 const Ilp0100_structSensorParams Ilp0100AlishanParams={
-	
-	.FullActivePixels	= 2688, 
-	
+	/*  Max sensor active line length (in full frame) */
+	.FullActivePixels	= 2688, /*  HSize */
+	/*  Min sensor line length (Active line+Line blanking) */
 	.MinLineLength		= 2888,
-	
-	.FullActiveLines	= 1520,	
-	
+	/*  Max sensor active frame length (in full frame) */
+	.FullActiveLines	= 1520,	/*  VSize; */
+	/* First pixel color */
 	.PixelOrder			= GR,
 	.StatusNbLines		= 2
 };
 
+/* Sensor information for sensor conencted to secondary interface */
 const Ilp0100_structSensorParams Ilp0100OVTParams={
-	
-	.FullActivePixels 	= 1928, 
-	
+	/*  Max sensor active line length (in full frame) */
+	.FullActivePixels 	= 1928, /*  HSize */
+	/*  Min sensor line length (Active line+Line blanking) */
 	.MinLineLength 		= 2128,
-	
-	.FullActiveLines 	= 1088,  
-	
+	/*  Max sensor active frame length (in full frame) */
+	.FullActiveLines 	= 1088,  /*  VSize; */
+	/* First pixel color */
 	.PixelOrder			= GR,
 	.StatusNbLines		= 0
 };
 
 
 
+/* Sensor information for sensor conencted to secondary interface */
 const Ilp0100_structSensorParams Ilp0100XxxxParams={
-	
-	.FullActivePixels 	= 1248, 
-	
+	/*  Max sensor active line length (in full frame) */
+	.FullActivePixels 	= 1248, /*  HSize */
+	/*  Min sensor line length (Active line+Line blanking) */
 	.MinLineLength 		= 1724,
-	
-	.FullActiveLines 	= 728,  
-	
+	/*  Max sensor active frame length (in full frame) */
+	.FullActiveLines 	= 728,  /*  VSize; */
+	/* First pixel color */
 	.PixelOrder			= GR
 };
 
 
+/*  Structure containing Frame formats modes */
 const Ilp0100_structFrameFormat Ilp0100955Sensor5MPFormat={
 	.ActiveLineLengthPixels		= 2600,
 	.ActiveFrameLengthLines		= 1952,
@@ -1339,6 +1358,7 @@ const Ilp0100_structFrameFormat Ilp0100Alishan1080pFrameFormat={
 	.VScaling					= 2,
 	.Binning					= 0x22
 };
+/*  Structure containing Frame formats modes */
 const Ilp0100_structFrameFormat Ilp0100Alishan720pFrameFormat={
 	.ActiveLineLengthPixels		= 1296,
 	.ActiveFrameLengthLines		= 728,
@@ -1464,6 +1484,7 @@ const Ilp0100_structFrameFormat Ilp0100AlishanHDR1080pFrameFormat={
 	.VScaling					= 2,
 	.Binning					= 0x22
 };
+/*  Structure containing Frame formats modes */
 const Ilp0100_structFrameFormat Ilp0100AlishanHDR720pFrameFormat={
 	.ActiveLineLengthPixels		= 1296,
 	.ActiveFrameLengthLines		= 728,
@@ -1483,4 +1504,4 @@ const Ilp0100_structFrameFormat Ilp0100AlishanHDR720pFrameFormat={
 };
 
 
-#endif 
+#endif /*ST_SPECIFIC*/

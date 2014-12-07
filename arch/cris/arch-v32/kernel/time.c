@@ -30,10 +30,13 @@
 #include <hwregs/clkgen_defs.h>
 #endif
 
-#define ETRAX_WD_KEY_MASK	0x7F 
-#define ETRAX_WD_HZ		763 
+/* Watchdog defines */
+#define ETRAX_WD_KEY_MASK	0x7F /* key is 7 bit */
+#define ETRAX_WD_HZ		763 /* watchdog counts at 763 Hz */
+/* Number of 763 counts before watchdog bites */
 #define ETRAX_WD_CNT		((2*ETRAX_WD_HZ)/HZ + 1)
 
+/* Register the continuos readonly timer available in FS and ARTPEC-3.  */
 static cycle_t read_cont_rotime(struct clocksource *cs)
 {
 	return (u32)REG_RD(timer, regi_timer0, r_time);
@@ -87,13 +90,25 @@ unsigned long get_ns_in_jiffie(void)
 }
 
 
+/* From timer MDS describing the hardware watchdog:
+ * 4.3.1 Watchdog Operation
+ * The watchdog timer is an 8-bit timer with a configurable start value.
+ * Once started the watchdog counts downwards with a frequency of 763 Hz
+ * (100/131072 MHz). When the watchdog counts down to 1, it generates an
+ * NMI (Non Maskable Interrupt), and when it counts down to 0, it resets the
+ * chip.
+ */
+/* This gives us 1.3 ms to do something useful when the NMI comes */
 
+/* Right now, starting the watchdog is the same as resetting it */
 #define start_watchdog reset_watchdog
 
 #if defined(CONFIG_ETRAX_WATCHDOG)
-static short int watchdog_key = 42;  
+static short int watchdog_key = 42;  /* arbitrary 7 bit number */
 #endif
 
+/* Number of pages to consider "out of memory". It is normal that the memory
+ * is used though, so set this really low. */
 #define WATCHDOG_MIN_FREE_PAGES 8
 
 void reset_watchdog(void)
@@ -101,10 +116,10 @@ void reset_watchdog(void)
 #if defined(CONFIG_ETRAX_WATCHDOG)
 	reg_timer_rw_wd_ctrl wd_ctrl = { 0 };
 
-	
+	/* Only keep watchdog happy as long as we have memory left! */
 	if(nr_free_pages() > WATCHDOG_MIN_FREE_PAGES) {
-		
-		
+		/* Reset the watchdog with the inverse of the old key */
+		/* Invert key, which is 7 bits */
 		watchdog_key ^= ETRAX_WD_KEY_MASK;
 		wd_ctrl.cnt = ETRAX_WD_CNT;
 		wd_ctrl.cmd = regk_timer_start;
@@ -114,12 +129,13 @@ void reset_watchdog(void)
 #endif
 }
 
+/* stop the watchdog - we still need the correct key */
 
 void stop_watchdog(void)
 {
 #if defined(CONFIG_ETRAX_WATCHDOG)
 	reg_timer_rw_wd_ctrl wd_ctrl = { 0 };
-	watchdog_key ^= ETRAX_WD_KEY_MASK; 
+	watchdog_key ^= ETRAX_WD_KEY_MASK; /* invert key, which is 7 bits */
 	wd_ctrl.cnt = ETRAX_WD_CNT;
 	wd_ctrl.cmd = regk_timer_stop;
 	wd_ctrl.key = watchdog_key;
@@ -137,9 +153,12 @@ void handle_watchdog_bite(struct pt_regs *regs)
 	oops_in_progress = 1;
 	printk(KERN_WARNING "Watchdog bite\n");
 
-	
+	/* Check if forced restart or unexpected watchdog */
 	if (cause_of_death == 0xbedead) {
 #ifdef CONFIG_CRIS_MACH_ARTPEC3
+		/* There is a bug in Artpec-3 (voodoo TR 78) that requires
+		 * us to go to lower frequency for the reset to be reliable
+		 */
 		reg_clkgen_rw_clk_ctrl ctrl =
 			REG_RD(clkgen, regi_clkgen, rw_clk_ctrl);
 		ctrl.pll = 0;
@@ -148,7 +167,7 @@ void handle_watchdog_bite(struct pt_regs *regs)
 		while(1);
 	}
 
-	
+	/* Unexpected watchdog, stop the watchdog and dump registers. */
 	stop_watchdog();
 	printk(KERN_WARNING "Oops: bitten by watchdog\n");
 	show_registers(regs);
@@ -156,10 +175,14 @@ void handle_watchdog_bite(struct pt_regs *regs)
 #ifndef CONFIG_ETRAX_WATCHDOG_NICE_DOGGY
 	reset_watchdog();
 #endif
-	while(1) ;
+	while(1) /* nothing */;
 #endif
 }
 
+/*
+ * timer_interrupt() needs to keep up the real-time clock,
+ * as well as call the "xtime_update()" routine every clocktick.
+ */
 extern void cris_do_profile(struct pt_regs *regs);
 
 static inline irqreturn_t timer_interrupt(int irq, void *dev_id)
@@ -169,32 +192,35 @@ static inline irqreturn_t timer_interrupt(int irq, void *dev_id)
 	reg_timer_r_masked_intr masked_intr;
 	reg_timer_rw_ack_intr ack_intr = { 0 };
 
-	
+	/* Check if the timer interrupt is for us (a tmr0 int) */
 	masked_intr = REG_RD(timer, timer_regs[cpu], r_masked_intr);
 	if (!masked_intr.tmr0)
 		return IRQ_NONE;
 
-	
+	/* Acknowledge the timer irq. */
 	ack_intr.tmr0 = 1;
 	REG_WR(timer, timer_regs[cpu], rw_ack_intr, ack_intr);
 
-	
+	/* Reset watchdog otherwise it resets us! */
 	reset_watchdog();
 
-        
+        /* Update statistics. */
 	update_process_times(user_mode(regs));
 
-	cris_do_profile(regs); 
+	cris_do_profile(regs); /* Save profiling information */
 
-	
+	/* The master CPU is responsible for the time keeping. */
 	if (cpu != 0)
 		return IRQ_HANDLED;
 
-	
+	/* Call the real timer interrupt handler */
 	xtime_update(1);
         return IRQ_HANDLED;
 }
 
+/* Timer is IRQF_SHARED so drivers can add stuff to the timer irq chain.
+ * It needs to be IRQF_DISABLED to make the jiffies update work properly.
+ */
 static struct irqaction irq_timer = {
 	.handler = timer_interrupt,
 	.flags = IRQF_SHARED | IRQF_DISABLED,
@@ -208,15 +234,20 @@ void __init cris_timer_init(void)
 	reg_timer_rw_tmr0_div tmr0_div = TIMER0_DIV;
 	reg_timer_rw_intr_mask timer_intr_mask;
 
+	/* Setup the etrax timers.
+	 * Base frequency is 100MHz, divider 1000000 -> 100 HZ
+	 * We use timer0, so timer1 is free.
+	 * The trig timer is used by the fasttimer API if enabled.
+	 */
 
 	tmr0_ctrl.op = regk_timer_ld;
 	tmr0_ctrl.freq = regk_timer_f100;
 	REG_WR(timer, timer_regs[cpu], rw_tmr0_div, tmr0_div);
-	REG_WR(timer, timer_regs[cpu], rw_tmr0_ctrl, tmr0_ctrl); 
+	REG_WR(timer, timer_regs[cpu], rw_tmr0_ctrl, tmr0_ctrl); /* Load */
 	tmr0_ctrl.op = regk_timer_run;
-	REG_WR(timer, timer_regs[cpu], rw_tmr0_ctrl, tmr0_ctrl); 
+	REG_WR(timer, timer_regs[cpu], rw_tmr0_ctrl, tmr0_ctrl); /* Start */
 
-	
+	/* Enable the timer irq. */
 	timer_intr_mask = REG_RD(timer, timer_regs[cpu], rw_intr_mask);
 	timer_intr_mask.tmr0 = 1;
 	REG_WR(timer, timer_regs[cpu], rw_intr_mask, timer_intr_mask);
@@ -226,6 +257,12 @@ void __init time_init(void)
 {
 	reg_intr_vect_rw_mask intr_mask;
 
+	/* Probe for the RTC and read it if it exists.
+	 * Before the RTC can be probed the loops_per_usec variable needs
+	 * to be initialized to make usleep work. A better value for
+	 * loops_per_usec is calculated by the kernel later once the
+	 * clock has started.
+	 */
 	loops_per_usec = 50;
 
 	if(RTC_INIT() < 0)
@@ -233,26 +270,32 @@ void __init time_init(void)
 	else
 		have_rtc = 1;
 
-	
+	/* Start CPU local timer. */
 	cris_timer_init();
 
-	
+	/* Enable the timer irq in global config. */
 	intr_mask = REG_RD_VECT(intr_vect, regi_irq, rw_mask, 1);
 	intr_mask.timer0 = 1;
 	REG_WR_VECT(intr_vect, regi_irq, rw_mask, 1, intr_mask);
 
+	/* Now actually register the timer irq handler that calls
+	 * timer_interrupt(). */
 	setup_irq(TIMER0_INTR_VECT, &irq_timer);
 
-	
+	/* Enable watchdog if we should use one. */
 
 #if defined(CONFIG_ETRAX_WATCHDOG)
 	printk(KERN_INFO "Enabling watchdog...\n");
 	start_watchdog();
 
+	/* If we use the hardware watchdog, we want to trap it as an NMI
+	 * and dump registers before it resets us.  For this to happen, we
+	 * must set the "m" NMI enable flag (which once set, is unset only
+	 * when an NMI is taken). */
 	{
 		unsigned long flags;
 		local_save_flags(flags);
-		flags |= (1<<30); 
+		flags |= (1<<30); /* NMI M flag is at bit 30 */
 		local_irq_restore(flags);
 	}
 #endif

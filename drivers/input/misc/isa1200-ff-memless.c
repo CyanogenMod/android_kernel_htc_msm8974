@@ -171,7 +171,7 @@ static int isa1200_play_effect(struct input_dev *dev, void *data,
 {
 	struct isa1200_chip *haptic = input_get_drvdata(dev);
 
-	
+	/* support basic vibration */
 	haptic->state = effect->u.rumble.strong_magnitude >> 8;
 	if (!haptic->state)
 		haptic->state = effect->u.rumble.weak_magnitude >> 9;
@@ -188,7 +188,7 @@ static int isa1200_suspend(struct device *dev)
 	int rc;
 
 	cancel_work_sync(&haptic->work);
-	
+	/* turn-off current vibration */
 	isa1200_vib_set(haptic, 0);
 
 	if (haptic->pdata->power_on) {
@@ -228,7 +228,7 @@ static int isa1200_open(struct input_dev *dev)
 	struct isa1200_chip *haptic = input_get_drvdata(dev);
 	int rc;
 
-	
+	/* device setup */
 	if (haptic->pdata->dev_setup) {
 		rc = haptic->pdata->dev_setup(true);
 		if (rc < 0) {
@@ -237,7 +237,7 @@ static int isa1200_open(struct input_dev *dev)
 		}
 	}
 
-	
+	/* power on */
 	if (haptic->pdata->power_on) {
 		rc = haptic->pdata->power_on(true);
 		if (rc < 0) {
@@ -246,7 +246,7 @@ static int isa1200_open(struct input_dev *dev)
 		}
 	}
 
-	
+	/* request gpio */
 	rc = gpio_is_valid(haptic->pdata->hap_en_gpio);
 	if (rc) {
 		rc = gpio_request(haptic->pdata->hap_en_gpio, "haptic_gpio");
@@ -268,7 +268,7 @@ static int isa1200_open(struct input_dev *dev)
 		goto err_gpio_free;
 	}
 
-	
+	/* setup registers */
 	rc = isa1200_setup(haptic->client);
 	if (rc < 0) {
 		pr_err("setup fail %d\n", rc);
@@ -285,7 +285,7 @@ static int isa1200_open(struct input_dev *dev)
 		}
 	}
 
-	
+	/* init workqeueue */
 	INIT_WORK(&haptic->work, isa1200_worker);
 	return 0;
 
@@ -308,7 +308,7 @@ static void isa1200_close(struct input_dev *dev)
 {
 	struct isa1200_chip *haptic = input_get_drvdata(dev);
 
-	
+	/* turn-off current vibration */
 	isa1200_vib_set(haptic, 0);
 
 	if (haptic->pdata->mode_ctrl == PWM_INPUT_MODE)
@@ -316,7 +316,7 @@ static void isa1200_close(struct input_dev *dev)
 
 	gpio_free(haptic->pdata->hap_en_gpio);
 
-	
+	/* reset hardware registers */
 	i2c_smbus_write_byte_data(haptic->client, ISA1200_HCTRL0,
 				HCTRL0_RESET);
 	i2c_smbus_write_byte_data(haptic->client, ISA1200_HCTRL1,
@@ -325,7 +325,7 @@ static void isa1200_close(struct input_dev *dev)
 	if (haptic->pdata->dev_setup)
 		haptic->pdata->dev_setup(false);
 
-	
+	/* power-off the chip */
 	if (haptic->pdata->power_on)
 		haptic->pdata->power_on(0);
 }

@@ -28,8 +28,8 @@ MODULE_PARM_DESC(nowayout,
 static DEFINE_MUTEX(wdt_mutex);
 
 static struct {
-	unsigned int time;  
-	u16 val;	    
+	unsigned int time;  /* Seconds */
+	u16 val;	    /* To be set in WM8350_SYSTEM_CONTROL_2 */
 } wm8350_wdt_cfgs[] = {
 	{ 1, 0x02 },
 	{ 2, 0x04 },
@@ -152,7 +152,7 @@ static int __devinit wm8350_wdt_probe(struct platform_device *pdev)
 	watchdog_set_nowayout(&wm8350_wdt, nowayout);
 	watchdog_set_drvdata(&wm8350_wdt, wm8350);
 
-	
+	/* Default to 4s timeout */
 	wm8350_wdt_set_timeout(&wm8350_wdt, 4);
 
 	return watchdog_register_device(&wm8350_wdt);

@@ -31,7 +31,7 @@
 
 static void gamecube_spin(void)
 {
-	
+	/* spin until power button pressed */
 	for (;;)
 		cpu_relax();
 }

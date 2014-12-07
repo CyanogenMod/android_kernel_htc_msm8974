@@ -23,12 +23,18 @@
 
 #include "sbuslib.h"
 
+/*
+ * Local functions.
+ */
 
 static int bw2_blank(int, struct fb_info *);
 
 static int bw2_mmap(struct fb_info *, struct vm_area_struct *);
 static int bw2_ioctl(struct fb_info *, unsigned int, unsigned long);
 
+/*
+ *  Frame buffer operations
+ */
 
 static struct fb_ops bw2_ops = {
 	.owner			= THIS_MODULE,
@@ -43,6 +49,7 @@ static struct fb_ops bw2_ops = {
 #endif
 };
 
+/* OBio addresses for the bwtwo registers */
 #define BWTWO_REGISTER_OFFSET 0x400000
 
 struct bt_regs {
@@ -72,6 +79,7 @@ struct bw2_regs {
 	u8	xfer_holdoff_end;
 };
 
+/* Status Register Constants */
 #define BWTWO_SR_RES_MASK	0x70
 #define BWTWO_SR_1600_1280	0x50
 #define BWTWO_SR_1152_900_76_A	0x40
@@ -82,6 +90,7 @@ struct bw2_regs {
 #define BWTWO_SR_ID_MSYNC	0x04
 #define BWTWO_SR_ID_NOCONN	0x0a
 
+/* Control Register Constants */
 #define BWTWO_CTL_ENABLE_INTS   0x80
 #define BWTWO_CTL_ENABLE_VIDEO  0x40
 #define BWTWO_CTL_ENABLE_TIMING 0x20
@@ -89,6 +98,7 @@ struct bw2_regs {
 #define BWTWO_CTL_XTAL_MASK     0x0C
 #define BWTWO_CTL_DIVISOR_MASK  0x03
 
+/* Status Register Constants */
 #define BWTWO_STAT_PENDING_INT  0x80
 #define BWTWO_STAT_MSENSE_MASK  0x70
 #define BWTWO_STAT_ID_MASK      0x0f
@@ -103,6 +113,11 @@ struct bw2_par {
 	unsigned long		which_io;
 };
 
+/**
+ *      bw2_blank - Optional function.  Blanks the display.
+ *      @blank_mode: the blank mode we want.
+ *      @info: frame buffer structure that represents a single frame buffer
+ */
 static int
 bw2_blank(int blank, struct fb_info *info)
 {
@@ -114,17 +129,17 @@ bw2_blank(int blank, struct fb_info *info)
 	spin_lock_irqsave(&par->lock, flags);
 
 	switch (blank) {
-	case FB_BLANK_UNBLANK: 
+	case FB_BLANK_UNBLANK: /* Unblanking */
 		val = sbus_readb(&regs->control);
 		val |= BWTWO_CTL_ENABLE_VIDEO;
 		sbus_writeb(val, &regs->control);
 		par->flags &= ~BW2_FLAG_BLANKED;
 		break;
 
-	case FB_BLANK_NORMAL: 
-	case FB_BLANK_VSYNC_SUSPEND: 
-	case FB_BLANK_HSYNC_SUSPEND: 
-	case FB_BLANK_POWERDOWN: 
+	case FB_BLANK_NORMAL: /* Normal blanking */
+	case FB_BLANK_VSYNC_SUSPEND: /* VESA blank (vsync off) */
+	case FB_BLANK_HSYNC_SUSPEND: /* VESA blank (hsync off) */
+	case FB_BLANK_POWERDOWN: /* Poweroff */
 		val = sbus_readb(&regs->control);
 		val &= ~BWTWO_CTL_ENABLE_VIDEO;
 		sbus_writeb(val, &regs->control);
@@ -160,6 +175,9 @@ static int bw2_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg)
 				   FBTYPE_SUN2BW, 1, info->fix.smem_len);
 }
 
+/*
+ *  Initialisation
+ */
 
 static void __devinit bw2_init_fix(struct fb_info *info, int linebytes)
 {

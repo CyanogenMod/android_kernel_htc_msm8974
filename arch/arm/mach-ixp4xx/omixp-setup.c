@@ -103,6 +103,13 @@ static struct platform_device omixp_flash_device[] = {
 	},
 };
 
+/* Swap UART's - These boards have the console on UART2. The following
+ * configuration is used:
+ *      ttyS0 .. UART2
+ *      ttyS1 .. UART1
+ * This way standard images can be used with the kernel that expect
+ * the console on ttyS0.
+ */
 static struct resource omixp_uart_resources[] = {
 	{
 		.start		= IXP4XX_UART2_BASE_PHYS,
@@ -133,7 +140,7 @@ static struct plat_serial8250_port omixp_uart_data[] = {
 		.regshift	= 2,
 		.uartclk	= IXP4XX_UART_XTAL,
 	}, {
-		
+		/* list termination */
 	}
 };
 
@@ -163,6 +170,7 @@ static struct platform_device mic256_leds = {
 	.dev.platform_data	= &mic256_led_data,
 };
 
+/* Built-in 10/100 Ethernet MAC interfaces */
 static struct eth_plat_info ixdp425_plat_eth[] = {
 	{
 		.phy		= 0,
@@ -215,11 +223,11 @@ static void __init omixp_init(void)
 {
 	ixp4xx_sys_init();
 
-	
+	/* 16MiB Boot Flash */
 	omixp_flash_resources[0].start = IXP4XX_EXP_BUS_BASE(0);
 	omixp_flash_resources[0].end   = IXP4XX_EXP_BUS_END(0);
 
-	
+	/* 32 MiB Data Flash */
 	omixp_flash_resources[1].start = IXP4XX_EXP_BUS_BASE(2);
 	omixp_flash_resources[1].end   = IXP4XX_EXP_BUS_END(2);
 

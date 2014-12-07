@@ -32,13 +32,18 @@
 #include "rmi_spi.h"
 #include "rmi_drvr.h"
 
-#define COMM_DEBUG  1 
+#define COMM_DEBUG  1 /* Set to 1 to dump transfers. */
 
-#define RMI_DEFAULT_BYTE_DELAY_US	0 
+/* 65 microseconds inter-byte delay between bytes for RMI chip*/
+#define RMI_DEFAULT_BYTE_DELAY_US	0 /* 65 */
 #define	SPI_BUFFER_SIZE	32
 
 static u8 *buf;
 
+/* This is the data kept on a per instance (client) basis.  This data is
+ * always accessible by using the container_of() macro of the various elements
+ * inside.
+ */
 struct spi_device_instance_data {
 	int		instance_no;
 	int		irq;
@@ -78,7 +83,7 @@ static int spi_xfer(struct spi_device_instance_data *instance_data,
 	if (!xfer_list)
 		return -ENOMEM;
 
-	
+	/* ... unless someone else is using the pre-allocated buffer */
 	local_buf = kzalloc(SPI_BUFFER_SIZE, GFP_KERNEL);
 	if (!local_buf) {
 		kfree(xfer_list);
@@ -113,15 +118,16 @@ static int spi_xfer(struct spi_device_instance_data *instance_data,
 #ifdef CONFIG_ARCH_OMAP
 				printk(KERN_INFO "%s: Did you compensate for
 					      ARCH_OMAP?", __func__);
-	
+/*		x[1].len = n_rx-1; */	/* since OMAP has one dummy byte. */
 #else
+/*		x[1].len = n_rx;  */
 #endif
 			}
 		} else {
 			memset(&xfer_list[xfer_index], 0, sizeof(struct
 						spi_transfer));
 #ifdef CONFIG_ARCH_OMAP
-			
+			/* since OMAP has one dummy byte. */
 			xfer_list[xfer_index].len = n_rx-1;
 #else
 			xfer_list[xfer_index].len = n_rx;
@@ -140,7 +146,7 @@ static int spi_xfer(struct spi_device_instance_data *instance_data,
 		printk(KERN_INFO "    0x%02X", local_buf[i]);
 #endif
 
-	
+	/* do the i/o */
 	status = spi_sync(spi, &message);
 	if (status == 0) {
 		memcpy(rxbuf, local_buf + n_tx, n_rx);
@@ -164,6 +170,13 @@ static int spi_xfer(struct spi_device_instance_data *instance_data,
 	return status;
 }
 
+/**
+ * Read a single register through spi.
+ * \param[in] pd
+ * \param[in] address The address at which to start the data read.
+ * \param[out] valp Pointer to the buffer where the data will be stored.
+ * \return zero upon success (with the byte read in valp),non-zero upon error.
+ */
 static int
 rmi_spi_read(struct rmi_phys_driver *pd, unsigned short address, char *valp)
 {
@@ -177,7 +190,7 @@ rmi_spi_read(struct rmi_phys_driver *pd, unsigned short address, char *valp)
 	addr = ((addr & 0xff00) >> 8);
 	address = ((address & 0x00ff) << 8);
 	addr |= address;
-	addr |= 0x80;		
+	addr |= 0x80;		/* High bit set indicates read. */
 
 	retval = spi_xfer(id, (u8 *)&addr, 2, rxbuf, 1);
 
@@ -186,6 +199,15 @@ rmi_spi_read(struct rmi_phys_driver *pd, unsigned short address, char *valp)
 	return retval;
 }
 
+/**
+ * Same as rmi_spi_read, except that multiple bytes are allowed to be read.
+ * \param[in] pd
+ * \param[in] address The address at which to start the data read.
+ * \param[out] valp Pointer to the buffer where the data will be stored.  This
+ * buffer must be at least size bytes long.
+ * \param[in] size The number of bytes to be read.
+ * \return zero upon success(with the byte read in valp), non-zero upon error.
+ */
 static int
 rmi_spi_read_multiple(struct rmi_phys_driver *pd, unsigned short address,
 	char *valp, int size)
@@ -199,7 +221,7 @@ rmi_spi_read_multiple(struct rmi_phys_driver *pd, unsigned short address,
 	addr = ((addr & 0xff00) >> 8);
 	address = ((address & 0x00ff) << 8);
 	addr |= address;
-	addr |= 0x80;		
+	addr |= 0x80;		/* High bit set indicates read. */
 
 	retval = spi_xfer(id, (u8 *)&addr, 2, valp, size);
 
@@ -261,6 +283,11 @@ rmi_spi_write_multiple(struct rmi_phys_driver *pd, unsigned short address,
 	return retval ? 0 : 1;
 }
 
+/**
+ * This is the Interrupt Service Routine.
+ * It just notifies the physical device
+ * that attention is required.
+ */
 static irqreturn_t spi_attn_isr(int irq, void *info)
 {
 	struct spi_device_instance_data *instance_data = info;
@@ -271,6 +298,8 @@ static irqreturn_t spi_attn_isr(int irq, void *info)
 	return IRQ_HANDLED;
 }
 
+/* TODO: Move this to rmi_bus, and call a function to get the next sensorID
+ */
 static int sensor_count;
 
 static int __devinit rmi_spi_probe(struct spi_device *spi)
@@ -283,6 +312,8 @@ static int __devinit rmi_spi_probe(struct spi_device *spi)
 
 	printk(KERN_INFO "Probing RMI4 SPI device\n");
 
+	/* This should have already been set up in the board file,
+	   shouldn't it? */
 	spi->bits_per_word = 8;
 
 	spi->mode = SPI_MODE_3;
@@ -316,7 +347,7 @@ static int __devinit rmi_spi_probe(struct spi_device *spi)
 	instance_data->rpd.write_multiple = rmi_spi_write_multiple;
 	instance_data->rpd.read_multiple  = rmi_spi_read_multiple;
 	instance_data->rpd.module         = THIS_MODULE;
-	
+	/* default to polling if irq not used */
 	instance_data->rpd.polling_required = true;
 
 	platformdata = spi->dev.platform_data;
@@ -329,6 +360,10 @@ static int __devinit rmi_spi_probe(struct spi_device *spi)
 	instance_data->platformdata = platformdata;
 	sensordata = platformdata->sensordata;
 
+	/* Call the platform setup routine, to do any setup that is required
+	 * before
+	 * interacting with the device.
+	 */
 	if (sensordata && sensordata->rmi_sensor_setup) {
 		retval = sensordata->rmi_sensor_setup();
 		if (retval) {
@@ -339,13 +374,20 @@ static int __devinit rmi_spi_probe(struct spi_device *spi)
 		}
 	}
 
-	
+	/* TODO: I think this if is no longer required. */
 	if (platformdata->chip == RMI_SUPPORT) {
 		instance_data->instance_no = sensor_count;
 		sensor_count++;
 
+		/* set the device name using the instance_no
+		 * appended to DEVICE_NAME to make a unique name
+		 */
 		dev_set_name(&spi->dev, "%s%d", RMI4_SPI_DEVICE_NAME,
 						instance_data->instance_no);
+		/*
+		 * Determine if we need to poll (inefficient) or
+		 * use interrupts.
+		 */
 		if (platformdata->irq) {
 			switch (platformdata->irq_type) {
 			case IORESOURCE_IRQ_HIGHEDGE:
@@ -366,6 +408,20 @@ static int __devinit rmi_spi_probe(struct spi_device *spi)
 				retval = -ENXIO;
 				goto error_exit;
 			}
+/*
+			retval = request_irq(instance_data->irq, spi_attn_isr,
+					irqtype, "rmi_spi", instance_data);
+			if (retval) {
+				dev_info(&spi->dev, "%s: Unable to get attn
+				irq %d. Reverting to polling. ", __func__,
+				instance_data->irq);
+				instance_data->rpd.polling_required = true;
+			} else {
+				dev_dbg(&spi->dev, "%s: got irq", __func__);
+				instance_data->rpd.polling_required = false;
+				instance_data->rpd.irq = instance_data->irq;
+			}
+*/
 			instance_data->rpd.polling_required = false;
 		} else {
 			instance_data->rpd.polling_required = true;
@@ -374,10 +430,13 @@ static int __devinit rmi_spi_probe(struct spi_device *spi)
 		}
 	}
 
-	
+	/* Store instance data for later access. */
 	if (instance_data)
 		spi_set_drvdata(spi, instance_data);
 
+	/* Register the sensor driver -
+	 * which will trigger a scan of the PDT.
+	 */
 	retval = rmi_register_sensor(&instance_data->rpd,
 			platformdata->sensordata);
 	if (retval) {
@@ -398,6 +457,9 @@ static int __devinit rmi_spi_probe(struct spi_device *spi)
 					__func__);
 			instance_data->rpd.polling_required = true;
 			instance_data->irq = 0;
+			/* TODO: Need to revert back to polling
+			 * - create and start timer.
+			 */
 		} else {
 			dev_dbg(&spi->dev, "%s: got irq.\n", __func__);
 			instance_data->rpd.irq = instance_data->irq;
@@ -461,6 +523,10 @@ static struct spi_driver rmi_spi_driver = {
 	.resume   = rmi_spi_resume,
 };
 
+/**
+ * The Platform Driver probe function.  We just tell the spi subsystem about
+ * ourselves in this call.
+ */
 static int
 rmi_spi_plat_probe(struct platform_device *dev)
 {
@@ -477,6 +543,11 @@ rmi_spi_plat_probe(struct platform_device *dev)
 	return spi_register_driver(&rmi_spi_driver);
 }
 
+/**
+ * Tell the spi subsystem that we're done.
+ * \param[in] dev
+ * \return Always returns 0.
+ */
 static int
 rmi_spi_plat_remove(struct platform_device *dev)
 {
@@ -485,6 +556,9 @@ rmi_spi_plat_remove(struct platform_device *dev)
 	return 0;
 }
 
+/**
+ * Structure used to tell the Platform Driver subsystem about us.
+ */
 static struct platform_driver rmi_spi_platform_driver = {
 	.driver		= {
 		.name	= RMI4_SPI_DRIVER_NAME,
@@ -506,6 +580,16 @@ static int __init rmi_spi_init(void)
 				= %d.", __func__, retval);
 		return retval;
 	}
+/*
+#else
+	retval = platform_driver_register(&rmi_spi_platform_driver);
+	if (retval < 0) {
+		printk(KERN_ERR "%s: Failed to register platform driver,
+				code = %d.", __func__, retval);
+		return retval;
+	}
+#endif
+*/
 	printk(KERN_INFO "%s:    result = %d", __func__, retval);
 	return retval;
 }
@@ -520,7 +604,11 @@ static void __exit rmi_spi_exit(void)
 }
 module_exit(rmi_spi_exit);
 
+/** Standard driver module information - the author of the module.
+ */
 MODULE_AUTHOR("Synaptics, Inc.");
+/** Standard driver module information - a summary description of this module.
+ */
 MODULE_DESCRIPTION("RMI4 Driver SPI Physical Layer");
 /** Standard driver module information - the license under which this module
  * is included in the kernel.

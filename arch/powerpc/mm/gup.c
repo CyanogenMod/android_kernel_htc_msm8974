@@ -16,6 +16,11 @@
 
 #ifdef __HAVE_ARCH_PTE_SPECIAL
 
+/*
+ * The performance critical leaf functions are made noinline otherwise gcc
+ * inlines everything into a single function which results in too much
+ * register pressure.
+ */
 static noinline int gup_pte_range(pmd_t pmd, unsigned long addr,
 		unsigned long end, int write, struct page **pages, int *nr)
 {
@@ -120,6 +125,23 @@ int get_user_pages_fast(unsigned long start, int nr_pages, int write,
 
 	pr_devel("  aligned: %lx .. %lx\n", start, end);
 
+	/*
+	 * XXX: batch / limit 'nr', to avoid large irq off latency
+	 * needs some instrumenting to determine the common sizes used by
+	 * important workloads (eg. DB2), and whether limiting the batch size
+	 * will decrease performance.
+	 *
+	 * It seems like we're in the clear for the moment. Direct-IO is
+	 * the main guy that batches up lots of get_user_pages, and even
+	 * they are limited to 64-at-a-time which is not so many.
+	 */
+	/*
+	 * This doesn't prevent pagetable teardown, but does prevent
+	 * the pagetables from being freed on powerpc.
+	 *
+	 * So long as we atomically load page table pointers versus teardown,
+	 * we can follow the address down to the the page and take a ref on it.
+	 */
 	local_irq_disable();
 
 	pgdp = pgd_offset(mm, addr);
@@ -152,7 +174,7 @@ slow:
 slow_irqon:
 		pr_devel("  slow path ! nr = %d\n", nr);
 
-		
+		/* Try to get the remaining pages with get_user_pages */
 		start += nr << PAGE_SHIFT;
 		pages += nr;
 
@@ -161,7 +183,7 @@ slow_irqon:
 			(end - start) >> PAGE_SHIFT, write, 0, pages, NULL);
 		up_read(&mm->mmap_sem);
 
-		
+		/* Have to be a bit careful with return values */
 		if (nr > 0) {
 			if (ret < 0)
 				ret = nr;
@@ -173,4 +195,4 @@ slow_irqon:
 	}
 }
 
-#endif 
+#endif /* __HAVE_ARCH_PTE_SPECIAL */

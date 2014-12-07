@@ -39,7 +39,11 @@
 #define	LIS3DH_ACC_DEV_NAME	"lis3dh_acc"
 #define ACCEL_INPUT_DEV_NAME	"accelerometer"
 
+/************************************************/
+/*	Accelerometer defines section		*/
+/************************************************/
 
+/* Accelerometer Sensor Full Scale */
 #define	LIS3DH_ACC_FS_MASK		0x30
 #define LIS3DH_ACC_G_2G			0x00
 #define LIS3DH_ACC_G_4G			0x10
@@ -67,12 +71,15 @@ struct lis3dh_acc_platform_data {
 	int (*power_on)(void);
 	int (*power_off)(void);
 
+	/* set gpio_int[1,2] either to the choosen gpio pin number or to -EINVAL
+	 * if leaved unconnected
+	 */
 	int gpio_int1;
 	int gpio_int2;
 };
-#endif	
+#endif	/* __KERNEL__ */
 
-#endif	
+#endif	/* __LIS3DH_H__ */
 
 
 

@@ -1,3 +1,4 @@
+/* typhoon.h:	chip info for the 3Com 3CR990 family of controllers */
 /*
 	Written 2002-2003 by David Dillow <dave@thedillows.org>
 
@@ -18,12 +19,24 @@
 	number Y1-LM-2015-01.
 */
 
+/* All Typhoon ring positions are specificed in bytes, and point to the
+ * first "clean" entry in the ring -- ie the next entry we use for whatever
+ * purpose.
+ */
 
+/* The Typhoon basic ring
+ * ringBase:  where this ring lives (our virtual address)
+ * lastWrite: the next entry we'll use
+ */
 struct basic_ring {
 	u8 *ringBase;
 	u32 lastWrite;
 };
 
+/* The Typoon transmit ring -- same as a basic ring, plus:
+ * lastRead:      where we're at in regard to cleaning up the ring
+ * writeRegister: register to use for writing (different for Hi & Lo rings)
+ */
 struct transmit_ring {
 	u8 *ringBase;
 	u32 lastWrite;
@@ -31,6 +44,24 @@ struct transmit_ring {
 	int writeRegister;
 };
 
+/* The host<->Typhoon ring index structure
+ * This indicates the current positions in the rings
+ *
+ * All values must be in little endian format for the 3XP
+ *
+ * rxHiCleared:   entry we've cleared to in the Hi receive ring
+ * rxLoCleared:   entry we've cleared to in the Lo receive ring
+ * rxBuffReady:   next entry we'll put a free buffer in
+ * respCleared:   entry we've cleared to in the response ring
+ *
+ * txLoCleared:   entry the NIC has cleared to in the Lo transmit ring
+ * txHiCleared:   entry the NIC has cleared to in the Hi transmit ring
+ * rxLoReady:     entry the NIC has filled to in the Lo receive ring
+ * rxBuffCleared: entry the NIC has cleared in the free buffer ring
+ * cmdCleared:    entry the NIC has cleared in the command ring
+ * respReady:     entry the NIC has filled to in the response ring
+ * rxHiReady:     entry the NIC has filled to in the Hi receive ring
+ */
 struct typhoon_indexes {
 	/* The first four are written by the host, and read by the NIC */
 	volatile __le32 rxHiCleared;
@@ -48,6 +79,26 @@ struct typhoon_indexes {
 	volatile __le32 rxHiReady;
 } __packed;
 
+/* The host<->Typhoon interface
+ * Our means of communicating where things are
+ *
+ * All values must be in little endian format for the 3XP
+ *
+ * ringIndex:   64 bit bus address of the index structure
+ * txLoAddr:    64 bit bus address of the Lo transmit ring
+ * txLoSize:    size (in bytes) of the Lo transmit ring
+ * txHi*:       as above for the Hi priority transmit ring
+ * rxLo*:       as above for the Lo priority receive ring
+ * rxBuff*:     as above for the free buffer ring
+ * cmd*:        as above for the command ring
+ * resp*:       as above for the response ring
+ * zeroAddr:    64 bit bus address of a zero word (for DMA)
+ * rxHi*:       as above for the Hi Priority receive ring
+ *
+ * While there is room for 64 bit addresses, current versions of the 3XP
+ * only do 32 bit addresses, so the *Hi for each of the above will always
+ * be zero.
+ */
 struct typhoon_interface {
 	__le32 ringIndex;
 	__le32 ringIndexHi;
@@ -76,6 +127,27 @@ struct typhoon_interface {
 	__le32 rxHiSize;
 } __packed;
 
+/* The Typhoon transmit/fragment descriptor
+ *
+ * A packet is described by a packet descriptor, followed by option descriptors,
+ * if any, then one or more fragment descriptors.
+ *
+ * Packet descriptor:
+ * flags:	Descriptor type
+ * len:i	zero, or length of this packet
+ * addr*:	8 bytes of opaque data to the firmware -- for skb pointer
+ * processFlags: Determine offload tasks to perform on this packet.
+ *
+ * Fragment descriptor:
+ * flags:	Descriptor type
+ * len:i	length of this fragment
+ * addr:	low bytes of DMA address for this part of the packet
+ * addrHi:	hi bytes of DMA address for this part of the packet
+ * processFlags: must be zero
+ *
+ * TYPHOON_DESC_VALID is not mentioned in their docs, but their Linux
+ * driver uses it.
+ */
 struct tx_desc {
 	u8  flags;
 #define TYPHOON_TYPE_MASK	0x07
@@ -99,7 +171,7 @@ struct tx_desc {
 			__le32 addr;
 			__le32 addrHi;
 		} frag;
-		u64 tx_addr;	
+		u64 tx_addr;	/* opaque for hardware, for TX_DESC */
 	};
 	__le32 processFlags;
 #define TYPHOON_TX_PF_NO_CRC		cpu_to_le32(0x00000001)
@@ -117,6 +189,16 @@ struct tx_desc {
 #define TYPHOON_TX_PF_VLAN_TAG_SHIFT	12
 } __packed;
 
+/* The TCP Segmentation offload option descriptor
+ *
+ * flags:	descriptor type
+ * numDesc:	must be 1
+ * mss_flags:	bits 0-11 (little endian) are MSS, 12 is first TSO descriptor
+ *			13 is list TSO descriptor, set both if only one TSO
+ * respAddrLo:	low bytes of address of the bytesTx field of this descriptor
+ * bytesTx:	total number of bytes in this TSO request
+ * status:	0 on completion
+ */
 struct tcpopt_desc {
 	u8  flags;
 	u8  numDesc;
@@ -128,6 +210,14 @@ struct tcpopt_desc {
 	__le32 status;
 } __packed;
 
+/* The IPSEC Offload descriptor
+ *
+ * flags:	descriptor type
+ * numDesc:	must be 1
+ * ipsecFlags:	bit 0: 0 -- generate IV, 1 -- use supplied IV
+ * sa1, sa2:	Security Association IDs for this packet
+ * reserved:	set to 0
+ */
 struct ipsec_desc {
 	u8  flags;
 	u8  numDesc;
@@ -139,12 +229,24 @@ struct ipsec_desc {
 	__le32 reserved;
 } __packed;
 
+/* The Typhoon receive descriptor (Updated by NIC)
+ *
+ * flags:         Descriptor type, error indication
+ * numDesc:       Always zero
+ * frameLen:      the size of the packet received
+ * addr:          low 32 bytes of the virtual addr passed in for this buffer
+ * addrHi:        high 32 bytes of the virtual addr passed in for this buffer
+ * rxStatus:      Error if set in flags, otherwise result of offload processing
+ * filterResults: results of filtering on packet, not used
+ * ipsecResults:  Results of IPSEC processing
+ * vlanTag:       the 801.2q TCI from the packet
+ */
 struct rx_desc {
 	u8  flags;
 	u8  numDesc;
 	__le16 frameLen;
-	u32 addr;	
-	u32 addrHi;	
+	u32 addr;	/* opaque, comes from virtAddr */
+	u32 addrHi;	/* opaque, comes from virtAddrHi */
 	__le32 rxStatus;
 #define TYPHOON_RX_ERR_INTERNAL		cpu_to_le32(0x00000000)
 #define TYPHOON_RX_ERR_FIFO_UNDERRUN	cpu_to_le32(0x00000001)
@@ -184,6 +286,16 @@ struct rx_desc {
 	__be32 vlanTag;
 } __packed;
 
+/* The Typhoon free buffer descriptor, used to give a buffer to the NIC
+ *
+ * physAddr:    low 32 bits of the bus address of the buffer
+ * physAddrHi:  high 32 bits of the bus address of the buffer, always zero
+ * virtAddr:    low 32 bits of the skb address
+ * virtAddrHi:  high 32 bits of the skb address, always zero
+ *
+ * the virt* address is basically two 32 bit cookies, just passed back
+ * from the NIC
+ */
 struct rx_free {
 	__le32 physAddr;
 	__le32 physAddrHi;
@@ -191,6 +303,17 @@ struct rx_free {
 	u32 virtAddrHi;
 } __packed;
 
+/* The Typhoon command descriptor, used for commands and responses
+ *
+ * flags:   descriptor type
+ * numDesc: number of descriptors following in this command/response,
+ *				ie, zero for a one descriptor command
+ * cmd:     the command
+ * seqNo:   sequence number (unused)
+ * parm1:   use varies by command
+ * parm2:   use varies by command
+ * parm3:   use varies by command
+ */
 struct cmd_desc {
 	u8  flags;
 	u8  numDesc;
@@ -226,6 +349,8 @@ struct cmd_desc {
 	__le32 parm3;
 } __packed;
 
+/* The Typhoon response descriptor, see command descriptor for details
+ */
 struct resp_desc {
 	u8  flags;
 	u8  numDesc;
@@ -243,6 +368,7 @@ struct resp_desc {
 		_ptr->cmd = command;					\
 	} while(0)
 
+/* We set seqNo to 1 if we're expecting a response from this command */
 #define INIT_COMMAND_WITH_RESPONSE(x, command)				\
 	do { struct cmd_desc *_ptr = (x);				\
 		memset(_ptr, 0, sizeof(struct cmd_desc));		\
@@ -252,12 +378,16 @@ struct resp_desc {
 		_ptr->seqNo = 1;					\
 	} while(0)
 
+/* TYPHOON_CMD_SET_RX_FILTER filter bits (cmd.parm1)
+ */
 #define TYPHOON_RX_FILTER_DIRECTED	cpu_to_le16(0x0001)
 #define TYPHOON_RX_FILTER_ALL_MCAST	cpu_to_le16(0x0002)
 #define TYPHOON_RX_FILTER_BROADCAST	cpu_to_le16(0x0004)
 #define TYPHOON_RX_FILTER_PROMISCOUS	cpu_to_le16(0x0008)
 #define TYPHOON_RX_FILTER_MCAST_HASH	cpu_to_le16(0x0010)
 
+/* TYPHOON_CMD_READ_STATS response format
+ */
 struct stats_resp {
 	u8  flags;
 	u8  numDesc;
@@ -299,22 +429,30 @@ struct stats_resp {
 	__le32 unused3;
 } __packed;
 
+/* TYPHOON_CMD_XCVR_SELECT xcvr values (resp.parm1)
+ */
 #define TYPHOON_XCVR_10HALF	cpu_to_le16(0x0000)
 #define TYPHOON_XCVR_10FULL	cpu_to_le16(0x0001)
 #define TYPHOON_XCVR_100HALF	cpu_to_le16(0x0002)
 #define TYPHOON_XCVR_100FULL	cpu_to_le16(0x0003)
 #define TYPHOON_XCVR_AUTONEG	cpu_to_le16(0x0004)
 
+/* TYPHOON_CMD_READ_MEDIA_STATUS (resp.parm1)
+ */
 #define TYPHOON_MEDIA_STAT_CRC_STRIP_DISABLE	cpu_to_le16(0x0004)
 #define TYPHOON_MEDIA_STAT_COLLISION_DETECT	cpu_to_le16(0x0010)
 #define TYPHOON_MEDIA_STAT_CARRIER_SENSE	cpu_to_le16(0x0020)
 #define TYPHOON_MEDIA_STAT_POLARITY_REV		cpu_to_le16(0x0400)
 #define TYPHOON_MEDIA_STAT_NO_LINK		cpu_to_le16(0x0800)
 
+/* TYPHOON_CMD_SET_MULTICAST_HASH enable values (cmd.parm1)
+ */
 #define TYPHOON_MCAST_HASH_DISABLE	cpu_to_le16(0x0000)
 #define TYPHOON_MCAST_HASH_ENABLE	cpu_to_le16(0x0001)
 #define TYPHOON_MCAST_HASH_SET		cpu_to_le16(0x0002)
 
+/* TYPHOON_CMD_CREATE_SA descriptor and settings
+ */
 struct sa_descriptor {
 	u8  flags;
 	u8  numDesc;
@@ -352,6 +490,9 @@ struct sa_descriptor {
 	u32 unused2;
 } __packed;
 
+/* TYPHOON_CMD_SET_OFFLOAD_TASKS bits (cmd.parm2 (Tx) & cmd.parm3 (Rx))
+ * This is all for IPv4.
+ */
 #define TYPHOON_OFFLOAD_TCP_CHKSUM	cpu_to_le32(0x00000002)
 #define TYPHOON_OFFLOAD_UDP_CHKSUM	cpu_to_le32(0x00000004)
 #define TYPHOON_OFFLOAD_IP_CHKSUM	cpu_to_le32(0x00000008)
@@ -362,11 +503,15 @@ struct sa_descriptor {
 #define TYPHOON_OFFLOAD_FILTERING	cpu_to_le32(0x00000100)
 #define TYPHOON_OFFLOAD_TCP_SEGMENT	cpu_to_le32(0x00000200)
 
+/* TYPHOON_CMD_ENABLE_WAKE_EVENTS bits (cmd.parm1)
+ */
 #define TYPHOON_WAKE_MAGIC_PKT		cpu_to_le16(0x01)
 #define TYPHOON_WAKE_LINK_EVENT		cpu_to_le16(0x02)
 #define TYPHOON_WAKE_ICMP_ECHO		cpu_to_le16(0x04)
 #define TYPHOON_WAKE_ARP		cpu_to_le16(0x08)
 
+/* These are used to load the firmware image on the NIC
+ */
 struct typhoon_file_header {
 	u8  tag[8];
 	__le32 version;
@@ -382,6 +527,8 @@ struct typhoon_section_header {
 	__le32 startAddr;
 } __packed;
 
+/* The Typhoon Register offsets
+ */
 #define TYPHOON_REG_SOFT_RESET			0x00
 #define TYPHOON_REG_INTR_STATUS			0x04
 #define TYPHOON_REG_INTR_ENABLE			0x08
@@ -424,9 +571,19 @@ struct typhoon_section_header {
 #define TYPHOON_REG_HEARTBEAT			TYPHOON_REG_ARM2HOST3
 #define TYPHOON_REG_STATUS			TYPHOON_REG_ARM2HOST0
 
+/* 3XP Reset values (TYPHOON_REG_SOFT_RESET)
+ */
 #define TYPHOON_RESET_ALL	0x7f
 #define TYPHOON_RESET_NONE	0x00
 
+/* 3XP irq bits (TYPHOON_REG_INTR{STATUS,ENABLE,MASK})
+ *
+ * Some of these came from OpenBSD, as the 3Com docs have it wrong
+ * (INTR_SELF) or don't list it at all (INTR_*_ABORT)
+ *
+ * Enabling irqs on the Heartbeat reg (ArmToHost3) gets you an irq
+ * about every 8ms, so don't do it.
+ */
 #define TYPHOON_INTR_HOST_INT		0x00000001
 #define TYPHOON_INTR_ARM2HOST0		0x00000002
 #define TYPHOON_INTR_ARM2HOST1		0x00000004
@@ -447,6 +604,8 @@ struct typhoon_section_header {
 #define TYPHOON_INTR_ALL		0xffffffff
 #define TYPHOON_INTR_NONE		0x00000000
 
+/* The commands for the 3XP chip (TYPHOON_REG_COMMAND)
+ */
 #define TYPHOON_BOOTCMD_BOOT			0x00
 #define TYPHOON_BOOTCMD_WAKEUP			0xfa
 #define TYPHOON_BOOTCMD_DNLD_COMPLETE		0xfb
@@ -454,6 +613,8 @@ struct typhoon_section_header {
 #define TYPHOON_BOOTCMD_RUNTIME_IMAGE		0xfd
 #define TYPHOON_BOOTCMD_REG_BOOT_RECORD		0xff
 
+/* 3XP Status values (TYPHOON_REG_STATUS)
+ */
 #define TYPHOON_STATUS_WAITING_FOR_BOOT		0x07
 #define TYPHOON_STATUS_SECOND_INIT		0x08
 #define TYPHOON_STATUS_RUNNING			0x09

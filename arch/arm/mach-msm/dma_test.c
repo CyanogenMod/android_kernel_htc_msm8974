@@ -23,31 +23,47 @@
 #include <mach/dma_test.h>
 
 
+/**********************************************************************
+ * User-space testing of the DMA driver.
+ * Intended to be loaded as a module.  We have a bunch of static
+ * buffers that the user-side can refer to.  The main DMA is simply
+ * used memory-to-memory.  Device DMA is best tested with the specific
+ * device driver in question.
+ */
 #define MAX_TEST_BUFFERS 40
 #define MAX_TEST_BUFFER_SIZE 65536
 static void *(buffers[MAX_TEST_BUFFERS]);
 static int sizes[MAX_TEST_BUFFERS];
 
+/* Anything that allocates or deallocates buffers must lock with this
+ * mutex. */
 static DEFINE_SEMAPHORE(buffer_lock);
 
+/* Each buffer has a semaphore associated with it that will be held
+ * for the duration of any operations on that buffer.  It also must be
+ * available to free the given buffer. */
 static struct semaphore buffer_sems[MAX_TEST_BUFFERS];
 
 #define buffer_up(num)  up(&buffer_sems[num])
 #define buffer_down(num)  down(&buffer_sems[num])
 
+/* Use the General Purpose DMA channel as our test channel.  This channel
+ * should be available on any target. */
 #define TEST_CHANNEL    DMOV_GP_CHAN
 
 struct private {
+	/* Each open instance is allowed a single pending
+	 * operation. */
 	struct semaphore sem;
 
-	
-	
+	/* Simple command buffer.  Allocated and freed by driver. */
+	/* TODO: Allocate these together. */
 	dmov_s *command_ptr;
 
-	
+	/* Indirect. */
 	u32 *command_ptr_ptr;
 
-	
+	/* Indicates completion with pending request. */
 	struct completion complete;
 };
 
@@ -63,7 +79,9 @@ static void free_buffers(void)
 	}
 }
 
+/* Copy between two buffers, using the DMA. */
 
+/* Allocate a buffer of a requested size. */
 static int buffer_req(struct msm_dma_alloc_req *req)
 {
 	int i;
@@ -73,7 +91,7 @@ static int buffer_req(struct msm_dma_alloc_req *req)
 
 	down(&buffer_lock);
 
-	
+	/* Find a free buffer. */
 	for (i = 0; i < MAX_TEST_BUFFERS; i++)
 		if (sizes[i] == 0)
 			break;
@@ -154,8 +172,10 @@ static int dma_test_open(struct inode *inode, struct file *file)
 
 	sema_init(&priv->sem, 1);
 
+	/* Note, that these should be allocated together so we don't
+	 * waste 32 bytes for each. */
 
-	
+	/* Allocate the command pointer. */
 	priv->command_ptr = kmalloc(sizeof(&priv->command_ptr),
 				    GFP_KERNEL | __GFP_DMA);
 	if (priv->command_ptr == NULL) {
@@ -163,7 +183,7 @@ static int dma_test_open(struct inode *inode, struct file *file)
 		return -ENOSPC;
 	}
 
-	
+	/* And the indirect pointer. */
 	priv->command_ptr_ptr = kmalloc(sizeof(u32), GFP_KERNEL | __GFP_DMA);
 	if (priv->command_ptr_ptr == NULL) {
 		kfree(priv->command_ptr);
@@ -200,7 +220,7 @@ static long dma_test_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	struct msm_dma_scopy scopy;
 	struct private *priv = file->private_data;
 
-	
+	/* Verify user arguments. */
 	if (_IOC_TYPE(cmd) != MSM_DMA_IOC_MAGIC)
 		return -ENOTTY;
 
@@ -278,7 +298,7 @@ static long dma_test_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 		    scopy.size > sizes[scopy.srcbuf])
 			return -EINVAL;
 #if 0
-		
+		/* Test interface using memcpy. */
 		memcpy(buffers[scopy.destbuf],
 		       buffers[scopy.srcbuf], scopy.size);
 #else
@@ -293,6 +313,9 @@ static long dma_test_ioctl(struct file *file, unsigned cmd, unsigned long arg)
 	return err;
 }
 
+/**********************************************************************
+ * Register ourselves as a misc device to be able to test the DMA code
+ * from userspace. */
 
 static const struct file_operations dma_test_fops = {
 	.owner = THIS_MODULE,

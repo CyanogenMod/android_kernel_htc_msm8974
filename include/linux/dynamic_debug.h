@@ -1,14 +1,28 @@
 #ifndef _DYNAMIC_DEBUG_H
 #define _DYNAMIC_DEBUG_H
 
+/*
+ * An instance of this structure is created in a special
+ * ELF section at every dynamic debug callsite.  At runtime,
+ * the special section is treated as an array of these.
+ */
 struct _ddebug {
+	/*
+	 * These fields are used to drive the user interface
+	 * for selecting and displaying debug callsites.
+	 */
 	const char *modname;
 	const char *function;
 	const char *filename;
 	const char *format;
 	unsigned int lineno:18;
+	/*
+ 	 * The flags field controls the behaviour at the callsite.
+ 	 * The bits here are changed dynamically when the user
+	 * writes commands to <debugfs>/dynamic_debug/control
+	 */
 #define _DPRINTK_FLAGS_NONE	0
-#define _DPRINTK_FLAGS_PRINT	(1<<0) 
+#define _DPRINTK_FLAGS_PRINT	(1<<0) /* printk() a message using the format */
 #define _DPRINTK_FLAGS_INCL_MODNAME	(1<<1)
 #define _DPRINTK_FLAGS_INCL_FUNCNAME	(1<<2)
 #define _DPRINTK_FLAGS_INCL_LINENO	(1<<3)

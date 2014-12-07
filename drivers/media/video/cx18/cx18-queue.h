@@ -24,6 +24,7 @@
 
 #define CX18_DMA_UNMAPPED	((u32) -1)
 
+/* cx18_buffer utility functions */
 
 static inline void cx18_buf_sync_for_cpu(struct cx18_stream *s,
 	struct cx18_buffer *buf)
@@ -64,6 +65,7 @@ static inline void cx18_mdl_swap(struct cx18_mdl *mdl)
 		_cx18_mdl_swap(mdl);
 }
 
+/* cx18_queue utility functions */
 struct cx18_queue *_cx18_enqueue(struct cx18_stream *s, struct cx18_mdl *mdl,
 				 struct cx18_queue *q, int to_front);
 
@@ -71,14 +73,14 @@ static inline
 struct cx18_queue *cx18_enqueue(struct cx18_stream *s, struct cx18_mdl *mdl,
 				struct cx18_queue *q)
 {
-	return _cx18_enqueue(s, mdl, q, 0); 
+	return _cx18_enqueue(s, mdl, q, 0); /* FIFO */
 }
 
 static inline
 struct cx18_queue *cx18_push(struct cx18_stream *s, struct cx18_mdl *mdl,
 			     struct cx18_queue *q)
 {
-	return _cx18_enqueue(s, mdl, q, 1); 
+	return _cx18_enqueue(s, mdl, q, 1); /* LIFO */
 }
 
 void cx18_queue_init(struct cx18_queue *q);
@@ -87,8 +89,10 @@ struct cx18_mdl *cx18_queue_get_mdl(struct cx18_stream *s, u32 id,
 	u32 bytesused);
 void cx18_flush_queues(struct cx18_stream *s);
 
+/* queue MDL reconfiguration helpers */
 void cx18_unload_queues(struct cx18_stream *s);
 void cx18_load_queues(struct cx18_stream *s);
 
+/* cx18_stream utility functions */
 int cx18_stream_alloc(struct cx18_stream *s);
 void cx18_stream_free(struct cx18_stream *s);

@@ -37,6 +37,15 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+/*
+ * transport.c
+ *
+ * This file contains the top-level implementation of an RPC RDMA
+ * transport.
+ *
+ * Naming convention: functions beginning with xprt_ are part of the
+ * transport switch. All others are RPC RDMA internal.
+ */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -54,6 +63,9 @@ MODULE_LICENSE("Dual BSD/GPL");
 MODULE_DESCRIPTION("RPC/RDMA Transport for Linux kernel NFS");
 MODULE_AUTHOR("Network Appliance, Inc.");
 
+/*
+ * tunables
+ */
 
 static unsigned int xprt_rdma_slot_table_entries = RPCRDMA_DEF_SLOT_TABLE;
 static unsigned int xprt_rdma_max_inline_read = RPCRDMA_DEF_INLINE;
@@ -136,7 +148,7 @@ static ctl_table sunrpc_table[] = {
 
 #endif
 
-static struct rpc_xprt_ops xprt_rdma_procs;	
+static struct rpc_xprt_ops xprt_rdma_procs;	/* forward reference */
 
 static void
 xprt_rdma_format_addresses(struct rpc_xprt *xprt)
@@ -160,7 +172,7 @@ xprt_rdma_format_addresses(struct rpc_xprt *xprt)
 	snprintf(buf, sizeof(buf), "%4hx", rpc_get_port(sap));
 	xprt->address_strings[RPC_DISPLAY_HEX_PORT] = kstrdup(buf, GFP_KERNEL);
 
-	
+	/* netid */
 	xprt->address_strings[RPC_DISPLAY_NETID] = "rdma";
 }
 
@@ -206,6 +218,17 @@ out_clear:
 	xprt_clear_connecting(xprt);
 }
 
+/*
+ * xprt_rdma_destroy
+ *
+ * Destroy the xprt.
+ * Free all memory associated with the object, including its own.
+ * NOTE: none of the *destroy methods free memory for their top-level
+ * objects, even though they may have allocated it (they do free
+ * private memory). It's up to the caller to handle it. In this
+ * case (RDMA transport), all structure memory is inlined with the
+ * struct rpcrdma_xprt.
+ */
 static void
 xprt_rdma_destroy(struct rpc_xprt *xprt)
 {
@@ -239,6 +262,11 @@ static const struct rpc_timeout xprt_rdma_default_timeout = {
 	.to_maxval = 60 * HZ,
 };
 
+/**
+ * xprt_setup_rdma - Set up transport to use RDMA
+ *
+ * @args: rpc transport arguments
+ */
 static struct rpc_xprt *
 xprt_setup_rdma(struct xprt_create *args)
 {
@@ -263,21 +291,26 @@ xprt_setup_rdma(struct xprt_create *args)
 		return ERR_PTR(-ENOMEM);
 	}
 
-	
+	/* 60 second timeout, no retries */
 	xprt->timeout = &xprt_rdma_default_timeout;
 	xprt->bind_timeout = (60U * HZ);
 	xprt->reestablish_timeout = (5U * HZ);
 	xprt->idle_timeout = (5U * 60 * HZ);
 
-	xprt->resvport = 0;		
-	xprt->tsh_size = 0;		
+	xprt->resvport = 0;		/* privileged port not needed */
+	xprt->tsh_size = 0;		/* RPC-RDMA handles framing */
 	xprt->max_payload = RPCRDMA_MAX_DATA_SEGS * PAGE_SIZE;
 	xprt->ops = &xprt_rdma_procs;
 
+	/*
+	 * Set up RDMA-specific connect data.
+	 */
 
-	
+	/* Put server RDMA address in local cdata */
 	memcpy(&cdata.addr, args->dstaddr, args->addrlen);
 
+	/* Ensure xprt->addr holds valid server TCP (not RDMA)
+	 * address, for any side protocols which peek at it */
 	xprt->prot = IPPROTO_TCP;
 	xprt->addrlen = args->addrlen;
 	memcpy(&xprt->addr, &cdata.addr, xprt->addrlen);
@@ -289,12 +322,12 @@ xprt_setup_rdma(struct xprt_create *args)
 	dprintk("RPC:       %s: %pI4:%u\n",
 		__func__, &sin->sin_addr.s_addr, ntohs(sin->sin_port));
 
-	
+	/* Set max requests */
 	cdata.max_requests = xprt->max_reqs;
 
-	
-	cdata.rsize = RPCRDMA_MAX_SEGS * PAGE_SIZE; 
-	cdata.wsize = RPCRDMA_MAX_SEGS * PAGE_SIZE; 
+	/* Set some length limits */
+	cdata.rsize = RPCRDMA_MAX_SEGS * PAGE_SIZE; /* RDMA write max */
+	cdata.wsize = RPCRDMA_MAX_SEGS * PAGE_SIZE; /* RDMA read max */
 
 	cdata.inline_wsize = xprt_rdma_max_inline_write;
 	if (cdata.inline_wsize > cdata.wsize)
@@ -306,6 +339,12 @@ xprt_setup_rdma(struct xprt_create *args)
 
 	cdata.padding = xprt_rdma_inline_write_padding;
 
+	/*
+	 * Create new transport instance, which includes initialized
+	 *  o ia
+	 *  o endpoint
+	 *  o buffers
+	 */
 
 	new_xprt = rpcx_to_rdmax(xprt);
 
@@ -314,6 +353,9 @@ xprt_setup_rdma(struct xprt_create *args)
 	if (rc)
 		goto out1;
 
+	/*
+	 * initialize and create ep
+	 */
 	new_xprt->rx_data = cdata;
 	new_ep = &new_xprt->rx_ep;
 	new_ep->rep_remote_addr = cdata.addr;
@@ -323,11 +365,21 @@ xprt_setup_rdma(struct xprt_create *args)
 	if (rc)
 		goto out2;
 
+	/*
+	 * Allocate pre-registered send and receive buffers for headers and
+	 * any inline data. Also specify any padding which will be provided
+	 * from a preregistered zero buffer.
+	 */
 	rc = rpcrdma_buffer_create(&new_xprt->rx_buf, new_ep, &new_xprt->rx_ia,
 				&new_xprt->rx_data);
 	if (rc)
 		goto out3;
 
+	/*
+	 * Register a callback for connection events. This is necessary because
+	 * connection loss notification is async. We also catch connection loss
+	 * when reaping receives.
+	 */
 	INIT_DELAYED_WORK(&new_xprt->rdma_connect, xprt_rdma_connect_worker);
 	new_ep->rep_func = rpcrdma_conn_func;
 	new_ep->rep_xprt = xprt;
@@ -351,6 +403,9 @@ out1:
 	return ERR_PTR(rc);
 }
 
+/*
+ * Close a connection, during shutdown or timeout/reconnect
+ */
 static void
 xprt_rdma_close(struct rpc_xprt *xprt)
 {
@@ -382,7 +437,7 @@ xprt_rdma_connect(struct rpc_task *task)
 	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(xprt);
 
 	if (r_xprt->rx_ep.rep_connected != 0) {
-		
+		/* Reconnect */
 		schedule_delayed_work(&r_xprt->rdma_connect,
 			xprt->reestablish_timeout);
 		xprt->reestablish_timeout <<= 1;
@@ -403,7 +458,7 @@ xprt_rdma_reserve_xprt(struct rpc_xprt *xprt, struct rpc_task *task)
 	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(xprt);
 	int credits = atomic_read(&r_xprt->rx_buf.rb_credits);
 
-	
+	/* == RPC_CWNDSCALE @ init, but *after* setup */
 	if (r_xprt->rx_buf.rb_cwndscale == 0UL) {
 		r_xprt->rx_buf.rb_cwndscale = xprt->cwnd;
 		dprintk("RPC:       %s: cwndscale %lu\n", __func__,
@@ -414,6 +469,14 @@ xprt_rdma_reserve_xprt(struct rpc_xprt *xprt, struct rpc_task *task)
 	return xprt_reserve_xprt_cong(xprt, task);
 }
 
+/*
+ * The RDMA allocate/free functions need the task structure as a place
+ * to hide the struct rpcrdma_req, which is necessary for the actual send/recv
+ * sequence. For this reason, the recv buffers are attached to send
+ * buffers for portions of the RPC. Note that the RPC layer allocates
+ * both send and receive buffers in the same call. We may register
+ * the receive buffer portion when using reply chunks.
+ */
 static void *
 xprt_rdma_allocate(struct rpc_task *task, size_t size)
 {
@@ -429,15 +492,31 @@ xprt_rdma_allocate(struct rpc_task *task, size_t size)
 			__func__, size, req->rl_size,
 			task->tk_client->cl_prog, task->tk_client->cl_vers,
 			task->tk_msg.rpc_proc->p_proc);
+		/*
+		 * Outgoing length shortage. Our inline write max must have
+		 * been configured to perform direct i/o.
+		 *
+		 * This is therefore a large metadata operation, and the
+		 * allocate call was made on the maximum possible message,
+		 * e.g. containing long filename(s) or symlink data. In
+		 * fact, while these metadata operations *might* carry
+		 * large outgoing payloads, they rarely *do*. However, we
+		 * have to commit to the request here, so reallocate and
+		 * register it now. The data path will never require this
+		 * reallocation.
+		 *
+		 * If the allocation or registration fails, the RPC framework
+		 * will (doggedly) retry.
+		 */
 		if (rpcx_to_rdmax(xprt)->rx_ia.ri_memreg_strategy ==
 				RPCRDMA_BOUNCEBUFFERS) {
-			
+			/* forced to "pure inline" */
 			dprintk("RPC:       %s: too much data (%zd) for inline "
 					"(r/w max %d/%d)\n", __func__, size,
 					rpcx_to_rdmad(xprt).inline_rsize,
 					rpcx_to_rdmad(xprt).inline_wsize);
 			size = req->rl_size;
-			rpc_exit(task, -EIO);		
+			rpc_exit(task, -EIO);		/* fail the operation */
 			rpcx_to_rdmax(xprt)->rx_stats.failed_marshal_count++;
 			goto out;
 		}
@@ -463,14 +542,14 @@ xprt_rdma_allocate(struct rpc_task *task, size_t size)
 		nreq->rl_reply = req->rl_reply;
 		memcpy(nreq->rl_segments,
 			req->rl_segments, sizeof nreq->rl_segments);
-		
+		/* flag the swap with an unused field */
 		nreq->rl_iov.length = 0;
 		req->rl_reply = NULL;
 		req = nreq;
 	}
 	dprintk("RPC:       %s: size %zd, request 0x%p\n", __func__, size, req);
 out:
-	req->rl_connect_cookie = 0;	
+	req->rl_connect_cookie = 0;	/* our reserved value */
 	return req->rl_xdr_buf;
 
 outfail:
@@ -479,6 +558,9 @@ outfail:
 	return NULL;
 }
 
+/*
+ * This function returns all RDMA resources to the pool.
+ */
 static void
 xprt_rdma_free(void *buffer)
 {
@@ -491,7 +573,7 @@ xprt_rdma_free(void *buffer)
 		return;
 
 	req = container_of(buffer, struct rpcrdma_req, rl_xdr_buf[0]);
-	if (req->rl_iov.length == 0) {	
+	if (req->rl_iov.length == 0) {	/* see allocate above */
 		r_xprt = container_of(((struct rpcrdma_req *) req->rl_buffer)->rl_buffer,
 				      struct rpcrdma_xprt, rx_buf);
 	} else
@@ -501,6 +583,15 @@ xprt_rdma_free(void *buffer)
 	dprintk("RPC:       %s: called on 0x%p%s\n",
 		__func__, rep, (rep && rep->rr_func) ? " (with waiter)" : "");
 
+	/*
+	 * Finish the deregistration. When using mw bind, this was
+	 * begun in rpcrdma_reply_handler(). In all other modes, we
+	 * do it here, in thread context. The process is considered
+	 * complete when the rr_func vector becomes NULL - this
+	 * was put in place during rpcrdma_reply_handler() - the wait
+	 * call below will not block if the dereg is "done". If
+	 * interrupted, our framework will clean up.
+	 */
 	for (i = 0; req->rl_nchunks;) {
 		--req->rl_nchunks;
 		i += rpcrdma_deregister_external(
@@ -508,11 +599,11 @@ xprt_rdma_free(void *buffer)
 	}
 
 	if (rep && wait_event_interruptible(rep->rr_unbind, !rep->rr_func)) {
-		rep->rr_func = NULL;	
+		rep->rr_func = NULL;	/* abandon the callback */
 		req->rl_reply = NULL;
 	}
 
-	if (req->rl_iov.length == 0) {	
+	if (req->rl_iov.length == 0) {	/* see allocate above */
 		struct rpcrdma_req *oreq = (struct rpcrdma_req *)req->rl_buffer;
 		oreq->rl_reply = req->rl_reply;
 		(void) rpcrdma_deregister_internal(&r_xprt->rx_ia,
@@ -522,10 +613,20 @@ xprt_rdma_free(void *buffer)
 		req = oreq;
 	}
 
-	
+	/* Put back request+reply buffers */
 	rpcrdma_buffer_put(req);
 }
 
+/*
+ * send_request invokes the meat of RPC RDMA. It must do the following:
+ *  1.  Marshal the RPC request into an RPC RDMA request, which means
+ *	putting a header in front of data, and creating IOVs for RDMA
+ *	from those in the request.
+ *  2.  In marshaling, detect opportunities for RDMA, and use them.
+ *  3.  Post a recv message to set up asynch completion, then send
+ *	the request (rpcrdma_ep_post).
+ *  4.  No partial sends are possible in the RPC-RDMA protocol (as in UDP).
+ */
 
 static int
 xprt_rdma_send_request(struct rpc_task *task)
@@ -535,7 +636,7 @@ xprt_rdma_send_request(struct rpc_task *task)
 	struct rpcrdma_req *req = rpcr_to_rdmar(rqst);
 	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(xprt);
 
-	
+	/* marshal the send itself */
 	if (req->rl_niovs == 0 && rpcrdma_marshal_req(rqst) != 0) {
 		r_xprt->rx_stats.failed_marshal_count++;
 		dprintk("RPC:       %s: rpcrdma_marshal_req failed\n",
@@ -543,16 +644,16 @@ xprt_rdma_send_request(struct rpc_task *task)
 		return -EIO;
 	}
 
-	if (req->rl_reply == NULL) 		
+	if (req->rl_reply == NULL) 		/* e.g. reconnection */
 		rpcrdma_recv_buffer_get(req);
 
 	if (req->rl_reply) {
 		req->rl_reply->rr_func = rpcrdma_reply_handler;
-		
+		/* this need only be done once, but... */
 		req->rl_reply->rr_xprt = xprt;
 	}
 
-	
+	/* Must suppress retransmit to maintain credits */
 	if (req->rl_connect_cookie == xprt->connect_cookie)
 		goto drop_connection;
 	req->rl_connect_cookie = xprt->connect_cookie;
@@ -566,7 +667,7 @@ xprt_rdma_send_request(struct rpc_task *task)
 
 drop_connection:
 	xprt_disconnect_done(xprt);
-	return -ENOTCONN;	
+	return -ENOTCONN;	/* implies disconnect */
 }
 
 static void xprt_rdma_print_stats(struct rpc_xprt *xprt, struct seq_file *seq)
@@ -581,7 +682,7 @@ static void xprt_rdma_print_stats(struct rpc_xprt *xprt, struct seq_file *seq)
 	  "\txprt:\trdma %u %lu %lu %lu %ld %lu %lu %lu %Lu %Lu "
 	  "%lu %lu %lu %Lu %Lu %Lu %Lu %lu %lu %lu\n",
 
-	   0,	
+	   0,	/* need a local port? */
 	   xprt->stat.bind_count,
 	   xprt->stat.connect_count,
 	   xprt->stat.connect_time,
@@ -604,13 +705,16 @@ static void xprt_rdma_print_stats(struct rpc_xprt *xprt, struct seq_file *seq)
 	   r_xprt->rx_stats.bad_reply_count);
 }
 
+/*
+ * Plumbing for rpc transport switch and kernel module
+ */
 
 static struct rpc_xprt_ops xprt_rdma_procs = {
 	.reserve_xprt		= xprt_rdma_reserve_xprt,
-	.release_xprt		= xprt_release_xprt_cong, 
-	.release_request	= xprt_release_rqst_cong,       
-	.set_retrans_timeout	= xprt_set_retrans_timeout_def, 
-	.rpcbind		= rpcb_getport_async,	
+	.release_xprt		= xprt_release_xprt_cong, /* sunrpc/xprt.c */
+	.release_request	= xprt_release_rqst_cong,       /* ditto */
+	.set_retrans_timeout	= xprt_set_retrans_timeout_def, /* ditto */
+	.rpcbind		= rpcb_getport_async,	/* sunrpc/rpcb_clnt.c */
 	.set_port		= xprt_rdma_set_port,
 	.connect		= xprt_rdma_connect,
 	.buf_alloc		= xprt_rdma_allocate,

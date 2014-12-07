@@ -24,10 +24,15 @@
 
 #include <asm/sizes.h>
 
-#define IO_BASE			0xF0000000                 
-#define IO_SIZE			0x0B000000                 
-#define IO_START		INTEGRATOR_HDR_BASE        
+/*
+ * Where in virtual memory the IO devices (timers, system controllers
+ * and so on)
+ */
+#define IO_BASE			0xF0000000                 // VA of IO 
+#define IO_SIZE			0x0B000000                 // How much?
+#define IO_START		INTEGRATOR_HDR_BASE        // PA of IO
 
+/* macro to get at IO space when running virtually */
 #ifdef CONFIG_MMU
 #define IO_ADDRESS(x)	(((x) & 0x000fffff) | (((x) >> 4) & 0x0ff00000) | IO_BASE)
 #else

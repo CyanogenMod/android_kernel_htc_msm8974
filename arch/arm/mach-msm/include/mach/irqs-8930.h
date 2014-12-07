@@ -13,6 +13,7 @@
 #ifndef __ASM_ARCH_MSM_IRQS_8930_H
 #define __ASM_ARCH_MSM_IRQS_8930_H
 
+/* MSM ACPU Interrupt Numbers */
 
 #define INT_VGIC				(GIC_PPI_START + 0)
 #define INT_DEBUG_TIMER_EXP			(GIC_PPI_START + 1)
@@ -29,6 +30,7 @@
 #define SC_AVSCPUXUP				(GIC_PPI_START + 12)
 #define SC_SICCPUXACGIRPTREQ			(GIC_PPI_START + 13)
 #define SC_SICCPUXEXTFAULTIRPTREQ		(GIC_PPI_START + 14)
+/* PPI 15 is unused */
 
 #define APCC_QGICACGIRPTREQ			(GIC_SPI_START + 0)
 #define APCC_QGICL2PERFMONIRPTREQ		(GIC_SPI_START + 1)
@@ -81,6 +83,7 @@
 #define VPE_IRQ					(GIC_SPI_START + 47)
 #define VFE_IRQ					(GIC_SPI_START + 48)
 #define VCODEC_IRQ				(GIC_SPI_START + 49)
+/* SPI IRQ 50 is unused */
 #define SMMU_VPE_CB_SC_SECURE_IRQ		(GIC_SPI_START + 51)
 #define SMMU_VPE_CB_SC_NON_SECURE_IRQ		(GIC_SPI_START + 52)
 #define SMMU_VFE_CB_SC_SECURE_IRQ		(GIC_SPI_START + 53)
@@ -95,17 +98,23 @@
 #define SMMU_MDP1_CB_SC_NON_SECURE_IRQ		(GIC_SPI_START + 62)
 #define SMMU_MDP0_CB_SC_SECURE_IRQ		(GIC_SPI_START + 63)
 #define SMMU_MDP0_CB_SC_NON_SECURE_IRQ		(GIC_SPI_START + 64)
+/* SPI IRQ 65 is unused */
+/* SPI IRQ 66 is unused */
 #define SMMU_IJPEG_CB_SC_SECURE_IRQ		(GIC_SPI_START + 67)
 #define SMMU_IJPEG_CB_SC_NON_SECURE_IRQ		(GIC_SPI_START + 68)
 #define SMMU_GFX3D_CB_SC_SECURE_IRQ		(GIC_SPI_START + 69)
 #define SMMU_GFX3D_CB_SC_NON_SECURE_IRQ		(GIC_SPI_START + 70)
+/* SPI IRQ 71 is unused */
+/* SPI IRQ 72 is unused */
 #define ROT_IRQ					(GIC_SPI_START + 73)
 #define MMSS_FABRIC_IRQ				(GIC_SPI_START + 74)
 #define MDP_IRQ					(GIC_SPI_START + 75)
+/* SPI IRQ 76 is unused */
 #define JPEG_IRQ				(GIC_SPI_START + 77)
 #define MMSS_IMEM_IRQ				(GIC_SPI_START + 78)
 #define HDMI_IRQ				(GIC_SPI_START + 79)
 #define GFX3D_IRQ				(GIC_SPI_START + 80)
+/* SPI IRQ 81 is unused */
 #define DSI1_IRQ				(GIC_SPI_START + 82)
 #define CSI_1_IRQ				(GIC_SPI_START + 83)
 #define CSI_0_IRQ				(GIC_SPI_START + 84)
@@ -136,6 +145,10 @@
 #define SPS_MTI_2				(GIC_SPI_START + 109)
 #define SPS_MTI_3				(GIC_SPI_START + 110)
 #define GPS_PPS_OUT				(GIC_SPI_START + 111)
+/* SPI IRQ 112 is unused */
+/* SPI IRQ 113 is unused */
+/* SPI IRQ 114 is unused */
+/* SPI IRQ 115 is unused */
 #define TLMM_MSM_DIR_CONN_IRQ_11		(GIC_SPI_START + 116)
 #define TLMM_MSM_DIR_CONN_IRQ_10		(GIC_SPI_START + 117)
 #define BAM_DMA1				(GIC_SPI_START + 118)
@@ -186,6 +199,7 @@
 #define TSIF_BAM_IRQ				(GIC_SPI_START + 163)
 #define TSIF2_IRQ				(GIC_SPI_START + 164)
 #define TSIF1_IRQ				(GIC_SPI_START + 165)
+/* SPI IRQ 166 is unused */
 #define ISPIF_IRQ				(GIC_SPI_START + 167)
 #define MSMC_SC_SEC_TMR_IRQ			(GIC_SPI_START + 168)
 #define MSMC_SC_SEC_WDOG_BARK_IRQ		(GIC_SPI_START + 169)
@@ -205,6 +219,7 @@
 #define XPU_SUMMARY_IRQ				(GIC_SPI_START + 183)
 #define BUS_EXCEPTION_SUMMARY_IRQ		(GIC_SPI_START + 184)
 #define HSDDRX_EBI1CH0_IRQ			(GIC_SPI_START + 185)
+/* SPI IRQ 186 is unused */
 #define SDC5_BAM_IRQ				(GIC_SPI_START + 187)
 #define SDC5_IRQ_0				(GIC_SPI_START + 188)
 #define GSBI9_UARTDM_IRQ			(GIC_SPI_START + 189)
@@ -228,6 +243,9 @@
 #define RIVA_APPS_HCI_IRQ			(GIC_SPI_START + 207)
 #define RIVA_APPS_WLAN_CTRL_IRQ			(GIC_SPI_START + 208)
 #define A2_BAM_IRQ				(GIC_SPI_START + 209)
+/* SPI IRQ 210 is unused */
+/* SPI IRQ 211 is unused */
+/* SPI IRQ 212 is unused */
 #define PPSS_WDOG_TIMER_IRQ			(GIC_SPI_START + 213)
 #define SPS_SLIMBUS_CORE_EE0_IRQ		(GIC_SPI_START + 214)
 #define SPS_SLIMBUS_BAM_EE0_IRQ			(GIC_SPI_START + 215)
@@ -250,10 +268,12 @@
 #define RBIF_IRQ_1				(GIC_SPI_START + 234)
 #define RBIF_IRQ_2				(GIC_SPI_START + 235)
 
+/* Backwards compatible IRQ macros. */
 #define INT_ADM_AARM				ADM_0_SCSS_0_IRQ
 
-#define INT_A9_M2A_0		(GIC_SPI_START + 37) 
-#define INT_A9_M2A_5		(GIC_SPI_START + 38) 
+/* smd/smsm interrupts */
+#define INT_A9_M2A_0		(GIC_SPI_START + 37) /*MSS_TO_APPS_IRQ_0*/
+#define INT_A9_M2A_5		(GIC_SPI_START + 38) /*MSS_TO_APPS_IRQ_1*/
 #define INT_ADSP_A11		LPASS_SCSS_GP_HIGH_IRQ
 #define INT_ADSP_A11_SMSM	LPASS_SCSS_GP_MEDIUM_IRQ
 #define INT_DSPS_A11		SPS_MTI_31

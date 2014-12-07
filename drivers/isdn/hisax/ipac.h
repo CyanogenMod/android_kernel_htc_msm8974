@@ -10,6 +10,7 @@
  *
  */
 
+/* All Registers original Siemens Spec  */
 
 #define IPAC_CONF	0xC0
 #define IPAC_MASK	0xC1

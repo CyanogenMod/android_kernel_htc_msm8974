@@ -35,6 +35,7 @@
 #include <linux/pm_runtime.h>
 #include <asm/intel_scu_ipc.h>
 
+/* get the LABC from command line. */
 static int LABC_control = 1;
 
 #ifdef MODULE
@@ -43,9 +44,9 @@ module_param(LABC_control, int, 0644);
 
 static int __init parse_LABC_control(char *arg)
 {
-	
-	
-	
+	/* LABC control can be passed in as a cmdline parameter */
+	/* to enable this feature add LABC=1 to cmdline */
+	/* to disable this feature add LABC=0 to cmdline */
 	if (!arg)
 		return -EINVAL;
 
@@ -59,12 +60,15 @@ static int __init parse_LABC_control(char *arg)
 early_param("LABC", parse_LABC_control);
 #endif
 
+/**
+ * Check and see if the generic control or data buffer is empty and ready.
+ */
 void mdfld_dsi_gen_fifo_ready(struct drm_device *dev, u32 gen_fifo_stat_reg,
 							u32 fifo_stat)
 {
 	u32 GEN_BF_time_out_count;
 
-	
+	/* Check MIPI Adatper command registers */
 	for (GEN_BF_time_out_count = 0;
 			GEN_BF_time_out_count < GEN_FB_TIME_OUT;
 			GEN_BF_time_out_count++) {
@@ -78,6 +82,11 @@ void mdfld_dsi_gen_fifo_ready(struct drm_device *dev, u32 gen_fifo_stat_reg,
 					gen_fifo_stat_reg);
 }
 
+/**
+ * Manage the DSI MIPI keyboard and display brightness.
+ * FIXME: this is exported to OSPM code. should work out an specific
+ * display interface to OSPM.
+ */
 
 void mdfld_dsi_brightness_init(struct mdfld_dsi_config *dsi_config, int pipe)
 {
@@ -92,14 +101,14 @@ void mdfld_dsi_brightness_init(struct mdfld_dsi_config *dsi_config, int pipe)
 		return;
 	}
 
-	
+	/* Set default display backlight value to 85% (0xd8)*/
 	mdfld_dsi_send_mcs_short(sender, write_display_brightness, 0xd8, 1,
 				true);
 
-	
+	/* Set minimum brightness setting of CABC function to 20% (0x33)*/
 	mdfld_dsi_send_mcs_short(sender, write_cabc_min_bright, 0x33, 1, true);
 
-	
+	/* Enable backlight or/and LABC */
 	gen_ctrl_val = BRIGHT_CNTL_BLOCK_ON | DISPLAY_DIMMING_ON |
 								BACKLIGHT_ON;
 	if (LABC_control == 1)
@@ -152,15 +161,15 @@ void mdfld_dsi_brightness_control(struct drm_device *dev, int pipe, int level)
 							pipe, gen_ctrl_val);
 
 	if (p_type == TMD_VID) {
-		
+		/* Set display backlight value */
 		mdfld_dsi_send_mcs_short(sender, tmd_write_display_brightness,
 					(u8)gen_ctrl_val, 1, true);
 	} else {
-		
+		/* Set display backlight value */
 		mdfld_dsi_send_mcs_short(sender, write_display_brightness,
 					(u8)gen_ctrl_val, 1, true);
 
-		
+		/* Enable backlight control */
 		if (level == 0)
 			gen_ctrl_val = 0;
 		else
@@ -196,6 +205,10 @@ int mdfld_dsi_get_power_mode(struct mdfld_dsi_config *dsi_config, u32 *mode,
 	return mdfld_dsi_get_panel_status(dsi_config, 0x0a, mode, hs);
 }
 
+/*
+ * NOTE: this function was used by OSPM.
+ * TODO: will be removed later, should work out display interfaces for OSPM
+ */
 void mdfld_dsi_controller_init(struct mdfld_dsi_config *dsi_config, int pipe)
 {
 	if (!dsi_config || ((pipe != 0) && (pipe != 2))) {
@@ -214,6 +227,7 @@ static void mdfld_dsi_connector_restore(struct drm_connector *connector)
 {
 }
 
+/* FIXME: start using the force parameter */
 static enum drm_connector_status
 mdfld_dsi_connector_detect(struct drm_connector *connector, bool force)
 {
@@ -359,6 +373,11 @@ static int mdfld_dsi_connector_mode_valid(struct drm_connector *connector,
 	if (mode->flags & DRM_MODE_FLAG_INTERLACE)
 		return MODE_NO_INTERLACE;
 
+	/**
+	 * FIXME: current DC has no fitting unit, reject any mode setting
+	 * request
+	 * Will figure out a way to do up-scaling(pannel fitting) later.
+	 **/
 	if (fixed_mode) {
 		if (mode->hdisplay != fixed_mode->hdisplay)
 			return MODE_PANEL;
@@ -375,7 +394,7 @@ static void mdfld_dsi_connector_dpms(struct drm_connector *connector, int mode)
 	if (mode == connector->dpms)
 		return;
 
-	
+	/*first, execute dpms*/
 
 	drm_helper_connector_dpms(connector, mode);
 }
@@ -390,8 +409,9 @@ static struct drm_encoder *mdfld_dsi_connector_best_encoder(
 	return &dsi_config->encoder->base.base;
 }
 
+/*DSI connector funcs*/
 static const struct drm_connector_funcs mdfld_dsi_connector_funcs = {
-	.dpms = mdfld_dsi_connector_dpms,
+	.dpms = /*drm_helper_connector_dpms*/mdfld_dsi_connector_dpms,
 	.save = mdfld_dsi_connector_save,
 	.restore = mdfld_dsi_connector_restore,
 	.detect = mdfld_dsi_connector_detect,
@@ -400,6 +420,7 @@ static const struct drm_connector_funcs mdfld_dsi_connector_funcs = {
 	.destroy = mdfld_dsi_connector_destroy,
 };
 
+/*DSI connector helper funcs*/
 static const struct drm_connector_helper_funcs
 	mdfld_dsi_connector_helper_funcs = {
 	.get_modes = mdfld_dsi_connector_get_modes,
@@ -471,6 +492,15 @@ gpio_error:
 	return ret;
 }
 
+/*
+ * MIPI output init
+ * @dev drm device
+ * @pipe pipe number. 0 or 2
+ * @config
+ *
+ * Do the initialization of a MIPI output, including create DRM mode objects
+ * initialization of DSI output on @pipe
+ */
 void mdfld_dsi_output_init(struct drm_device *dev,
 			   int pipe,
 			   const struct panel_funcs *p_vid_funcs)
@@ -490,7 +520,7 @@ void mdfld_dsi_output_init(struct drm_device *dev,
 		return;
 	}
 
-	
+	/*create a new connetor*/
 	dsi_connector = kzalloc(sizeof(struct mdfld_dsi_connector), GFP_KERNEL);
 	if (!dsi_connector) {
 		DRM_ERROR("No memory");
@@ -550,7 +580,7 @@ void mdfld_dsi_output_init(struct drm_device *dev,
 	connector->interlace_allowed = false;
 	connector->doublescan_allowed = false;
 
-	
+	/*attach properties*/
 	drm_connector_attach_property(connector,
 				dev->mode_config.scaling_mode_property,
 				DRM_MODE_SCALE_FULLSCREEN);
@@ -558,7 +588,7 @@ void mdfld_dsi_output_init(struct drm_device *dev,
 				dev_priv->backlight_property,
 				MDFLD_DSI_BRIGHTNESS_MAX_LEVEL);
 
-	
+	/*init DSI package sender on this output*/
 	if (mdfld_dsi_pkg_sender_init(dsi_connector, pipe)) {
 		DRM_ERROR("Package Sender initialization failed on pipe %d\n",
 									pipe);
@@ -577,9 +607,9 @@ void mdfld_dsi_output_init(struct drm_device *dev,
 	drm_sysfs_connector_add(connector);
 	return;
 
-	
+	/*TODO: add code to destroy outputs on error*/
 dsi_init_err1:
-	
+	/*destroy sender*/
 	mdfld_dsi_pkg_sender_destroy(dsi_connector->pkg_sender);
 
 	drm_connector_cleanup(connector);

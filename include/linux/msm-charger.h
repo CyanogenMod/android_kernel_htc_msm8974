@@ -35,6 +35,15 @@ enum msm_hardware_charger_event {
 	CHG_BATT_NEEDS_RECHARGING,
 };
 
+/**
+ * enum hardware_charger_state
+ * @CHG_ABSENT_STATE: charger cable is unplugged
+ * @CHG_PRESENT_STATE: charger cable is plugged but charge current isnt drawn
+ * @CHG_READY_STATE: charger cable is plugged and kernel knows how much current
+ *			it can draw
+ * @CHG_CHARGING_STATE: charger cable is plugged and current is drawn for
+ *			charging
+ */
 enum msm_hardware_charger_state {
 	CHG_ABSENT_STATE,
 	CHG_PRESENT_STATE,
@@ -54,7 +63,7 @@ struct msm_hardware_charger {
 							int chg_current);
 	void (*stop_system_current) (struct msm_hardware_charger *hw_chg);
 
-	void *charger_private;	
+	void *charger_private;	/* used by the msm_charger.c */
 };
 
 struct msm_battery_gauge {
@@ -67,6 +76,15 @@ struct msm_battery_gauge {
 	int (*get_batt_remaining_capacity) (void);
 	int (*monitor_for_recharging) (void);
 };
+/**
+ * struct msm_charger_platform_data
+ * @safety_time: max charging time in minutes
+ * @update_time: how often the userland be updated of the charging progress
+ * @max_voltage: the max voltage the battery should be charged upto
+ * @min_voltage: the voltage where charging method switches from trickle to fast
+ * @get_batt_capacity_percent: a board specific function to return battery
+ *			capacity. Can be null - a default one will be used
+ */
 struct msm_charger_platform_data {
 	unsigned int safety_time;
 	unsigned int update_time;
@@ -118,4 +136,4 @@ static inline void msm_charger_unregister_vbus_sn(void (*callback)(int))
 {
 }
 #endif
-#endif 
+#endif /* __MSM_CHARGER_H__ */

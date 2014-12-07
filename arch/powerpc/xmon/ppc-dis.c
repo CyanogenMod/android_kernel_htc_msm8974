@@ -25,6 +25,7 @@ Software Foundation, 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301, US
 #include "ppc.h"
 #include "dis-asm.h"
 
+/* Print a PowerPC or POWER instruction.  */
 
 int
 print_insn_powerpc (unsigned long insn, unsigned long memaddr)
@@ -46,9 +47,11 @@ print_insn_powerpc (unsigned long insn, unsigned long memaddr)
   if (cpu_has_feature(CPU_FTRS_POWER6))
     dialect |= PPC_OPCODE_POWER5 | PPC_OPCODE_POWER6 | PPC_OPCODE_ALTIVEC;
 
-  
+  /* Get the major opcode of the instruction.  */
   op = PPC_OP (insn);
 
+  /* Find the first match in the opcode table.  We could speed this up
+     a bit by doing a binary search on the major opcode.  */
   opcode_end = powerpc_opcodes + powerpc_num_opcodes;
  again:
   for (opcode = powerpc_opcodes; opcode < opcode_end; opcode++)
@@ -70,6 +73,9 @@ print_insn_powerpc (unsigned long insn, unsigned long memaddr)
 	  || (opcode->flags & dialect) == 0)
 	continue;
 
+      /* Make two passes over the operands.  First see if any of them
+	 have extraction functions, and, if they do, make sure the
+	 instruction is valid.  */
       invalid = 0;
       for (opindex = opcode->operands; *opindex != 0; opindex++)
 	{
@@ -80,12 +86,12 @@ print_insn_powerpc (unsigned long insn, unsigned long memaddr)
       if (invalid)
 	continue;
 
-      
+      /* The instruction is valid.  */
       printf("%s", opcode->name);
       if (opcode->operands[0] != 0)
 	printf("\t");
 
-      
+      /* Now extract and print the operands.  */
       need_comma = 0;
       need_paren = 0;
       for (opindex = opcode->operands; *opindex != 0; opindex++)
@@ -94,10 +100,13 @@ print_insn_powerpc (unsigned long insn, unsigned long memaddr)
 
 	  operand = powerpc_operands + *opindex;
 
+	  /* Operands that are marked FAKE are simply ignored.  We
+	     already made sure that the extract function considered
+	     the instruction to be valid.  */
 	  if ((operand->flags & PPC_OPERAND_FAKE) != 0)
 	    continue;
 
-	  
+	  /* Extract the value from the instruction.  */
 	  if (operand->extract)
 	    value = (*operand->extract) (insn, dialect, &invalid);
 	  else
@@ -108,6 +117,8 @@ print_insn_powerpc (unsigned long insn, unsigned long memaddr)
 		value -= 1 << operand->bits;
 	    }
 
+	  /* If the operand is optional, and the value is zero, don't
+	     print anything.  */
 	  if ((operand->flags & PPC_OPERAND_OPTIONAL) != 0
 	      && (operand->flags & PPC_OPERAND_NEXT) == 0
 	      && value == 0)
@@ -119,7 +130,7 @@ print_insn_powerpc (unsigned long insn, unsigned long memaddr)
 	      need_comma = 0;
 	    }
 
-	  
+	  /* Print the operand as directed by the flags.  */
 	  if ((operand->flags & PPC_OPERAND_GPR) != 0
 	      || ((operand->flags & PPC_OPERAND_GPR_0) != 0 && value != 0))
 	    printf("r%ld", value);
@@ -167,7 +178,7 @@ print_insn_powerpc (unsigned long insn, unsigned long memaddr)
 	    }
 	}
 
-      
+      /* We have found and printed an instruction; return.  */
       return 4;
     }
 
@@ -177,7 +188,7 @@ print_insn_powerpc (unsigned long insn, unsigned long memaddr)
       goto again;
     }
 
-  
+  /* We could not find a match.  */
   printf(".long 0x%lx", insn);
 
   return 4;

@@ -60,7 +60,7 @@ static void perf_gtk_show_hists(GtkWidget *window, struct hists *hists)
 
 	nr_cols = 0;
 
-	
+	/* The percentage column */
 	col_types[nr_cols++] = G_TYPE_STRING;
 
 	list_for_each_entry(se, &hist_entry__sort_list, list) {
@@ -78,7 +78,7 @@ static void perf_gtk_show_hists(GtkWidget *window, struct hists *hists)
 
 	col_idx = 0;
 
-	
+	/* The percentage column */
 	gtk_tree_view_insert_column_with_attributes(GTK_TREE_VIEW(view),
 						    -1, "Overhead (%)",
 						    renderer, "text",

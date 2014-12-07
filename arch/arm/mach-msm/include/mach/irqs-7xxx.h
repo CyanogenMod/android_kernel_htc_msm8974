@@ -7,6 +7,8 @@
 #ifndef __ASM_ARCH_MSM_IRQS_7XXX_H
 #define __ASM_ARCH_MSM_IRQS_7XXX_H
 
+/* MSM ARM11 Interrupt Numbers */
+/* See 80-VE113-1 A, pp219-221     */
 
 #define INT_A9_M2A_0         0
 #define INT_A9_M2A_1         1
@@ -70,6 +72,7 @@
 #define INT_UART2DM_IRQ      (32 + 20)
 #define INT_UART2DM_RX       (32 + 21)
 
+/* 22-31 are reserved except 7x27a*/
 #if defined(CONFIG_ARCH_MSM7X27A)
 #define INT_L2CC_EM          (32 + 22)
 #define SC_SICL2PERFMONIRPTREQ (32 + 23)

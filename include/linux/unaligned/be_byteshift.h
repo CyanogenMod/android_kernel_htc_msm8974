@@ -67,4 +67,4 @@ static inline void put_unaligned_be64(u64 val, void *p)
 	__put_unaligned_be64(val, p);
 }
 
-#endif 
+#endif /* _LINUX_UNALIGNED_BE_BYTESHIFT_H */

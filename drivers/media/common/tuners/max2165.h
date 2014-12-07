@@ -27,7 +27,7 @@ struct i2c_adapter;
 
 struct max2165_config {
 	u8 i2c_address;
-	u8 osc_clk; 
+	u8 osc_clk; /* in MHz, selectable values: 4,16,18,20,22,24,26,28 */
 };
 
 #if defined(CONFIG_MEDIA_TUNER_MAX2165) || \

@@ -3,6 +3,7 @@
  */
 
 
+/* C.f. ETRAX100LX Designer's Reference chapter 19.9 */
 
 #include <linux/kernel.h>
 #include <linux/slab.h>
@@ -18,6 +19,7 @@
 
 #define DBG(s)
 
+/* Macro to access ETRAX 100 registers */
 #define SETS(var, reg, field, val) var = (var & ~IO_MASK_(reg##_, field##_)) | \
 					  IO_STATE_(reg##_, field##_, _##val)
 
@@ -43,8 +45,11 @@ struct watcher
 struct if_group
 {
 	enum io_if_group        group;
-	
+	/* name	- the name of the group 'A' to 'F' */
 	char                   *name;
+	/* used	- a bit mask of all pins in the group in the order listed
+	 * in the tables in 19.9.1 to 19.9.6.  Note that no
+	 * distinction is made between in, out and in/out pins. */
 	unsigned int            used;
 };
 
@@ -52,12 +57,16 @@ struct if_group
 struct interface
 {
 	enum cris_io_interface   ioif;
-	
+	/* name - the name of the interface */
 	char                    *name;
+	/* groups - OR'ed together io_if_group flags describing what pin groups
+	 * the interface uses pins in. */
 	unsigned char            groups;
-	
+	/* used - set when the interface is allocated. */
 	unsigned char            used;
 	char                    *owner;
+	/* group_a through group_f - bit masks describing what pins in the
+	 * pin groups the interface uses. */
 	unsigned int             group_a;
 	unsigned int             group_b;
 	unsigned int             group_c;
@@ -65,6 +74,10 @@ struct interface
 	unsigned int             group_e;
 	unsigned int             group_f;
 
+	/* gpio_g_in, gpio_g_out, gpio_b - bit masks telling what pins in the
+	 * GPIO ports the interface uses.  This could be reconstucted using
+	 * the group_X masks and a table of what pins the GPIO ports use,
+	 * but that would be messy. */
 	unsigned int             gpio_g_in;
 	unsigned int             gpio_g_out;
 	unsigned char            gpio_b;
@@ -103,8 +116,10 @@ static struct if_group if_groups[6] = {
 	}
 };
 
+/* The order in the array must match the order of enum
+ * cris_io_interface in io_interface_mux.h */
 static struct interface interfaces[] = {
-	
+	/* Begin Non-multiplexed interfaces */
 	{
 		.ioif = if_eth,
 		.name = "ethernet",
@@ -137,7 +152,7 @@ static struct interface interfaces[] = {
 		.gpio_g_out = 0,
 		.gpio_b = 0
 	},
-	
+	/* End Non-multiplexed interfaces */
 	{
 		.ioif = if_serial_1,
 		.name = "serial_1",
@@ -426,7 +441,7 @@ static struct interface interfaces[] = {
 		.gpio_g_out = 0x0c000000,
 		.gpio_b = 0x00
 	},
-	
+	/* GPIO pins */
 	{
 		.ioif = if_gpio_grp_a,
 		.name = "gpio_a",
@@ -523,16 +538,18 @@ static struct interface interfaces[] = {
 		.gpio_g_out = 0x00000000,
 		.gpio_b = 0xff
 	}
-	
+	/* Array end */
 };
 
 static struct watcher *watchers = NULL;
 
+/* The pins that are free to use in the GPIO ports. */
 static unsigned int gpio_in_pins =  0xffffffff;
 static unsigned int gpio_out_pins = 0xffffffff;
 static unsigned char gpio_pb_pins = 0xff;
 static unsigned char gpio_pa_pins = 0xff;
 
+/* Identifiers for the owners of the GPIO pins. */
 static enum cris_io_interface gpio_pa_owners[8];
 static enum cris_io_interface gpio_pb_owners[8];
 static enum cris_io_interface gpio_pg_owners[32];
@@ -608,6 +625,8 @@ int cris_request_io_interface(enum cris_io_interface ioif, const char *device_id
 		goto exit;
 	}
 
+	/* Check that all required pins in the used groups are free
+	 * before allocating. */
 	group_set = interfaces[ioif].groups;
 	while (NULL != (grp = get_group(group_set))) {
 		unsigned int if_group_use = 0;
@@ -646,7 +665,7 @@ int cris_request_io_interface(enum cris_io_interface ioif, const char *device_id
 		group_set = clear_group_from_set(group_set, grp);
 	}
 
-	
+	/* Are the required GPIO pins available too? */
 	if (((interfaces[ioif].gpio_g_in & gpio_in_pins) !=
 			interfaces[ioif].gpio_g_in) ||
 		((interfaces[ioif].gpio_g_out & gpio_out_pins) !=
@@ -659,20 +678,20 @@ int cris_request_io_interface(enum cris_io_interface ioif, const char *device_id
 		goto exit;
 	}
 
-	
+	/* Check which registers need to be reconfigured. */
 	gens = genconfig_shadow;
 	gens_ii = gen_config_ii_shadow;
 
 	set_gen_config = 1;
 	switch (ioif)
 	{
-	
+	/* Begin Non-multiplexed interfaces */
 	case if_eth:
-		
+		/* fall through */
 	case if_serial_0:
 		set_gen_config = 0;
 		break;
-	
+	/* End Non-multiplexed interfaces */
 	case if_serial_1:
 		set_gen_config_ii = 1;
 		SETS(gens_ii, R_GEN_CONFIG_II, sermode1, async);
@@ -724,7 +743,7 @@ int cris_request_io_interface(enum cris_io_interface ioif, const char *device_id
 		SETS(gens, R_GEN_CONFIG, ata, select);
 		break;
 	case if_csp:
-		
+		/* fall through */
 	case if_i2c:
 		set_gen_config = 0;
 		break;
@@ -735,16 +754,16 @@ int cris_request_io_interface(enum cris_io_interface ioif, const char *device_id
 		SETS(gens, R_GEN_CONFIG, usb2, select);
 		break;
 	case if_gpio_grp_a:
-		
-		
+		/* GPIO groups are only accounted, don't do configuration changes. */
+		/* fall through */
 	case if_gpio_grp_b:
-		
+		/* fall through */
 	case if_gpio_grp_c:
-		
+		/* fall through */
 	case if_gpio_grp_d:
-		
+		/* fall through */
 	case if_gpio_grp_e:
-		
+		/* fall through */
 	case if_gpio_grp_f:
 		set_gen_config = 0;
 		break;
@@ -756,7 +775,7 @@ int cris_request_io_interface(enum cris_io_interface ioif, const char *device_id
 		goto exit;
 	}
 
-	
+	/* All needed I/O pins and pin groups are free, allocate. */
 	group_set = interfaces[ioif].groups;
 	while (NULL != (grp = get_group(group_set))) {
 		unsigned int if_group_use = 0;
@@ -795,7 +814,7 @@ int cris_request_io_interface(enum cris_io_interface ioif, const char *device_id
 		volatile int i;
 		genconfig_shadow = gens;
 		*R_GEN_CONFIG = genconfig_shadow;
-		
+		/* Wait 12 cycles before doing any DMA command */
 		for(i = 6; i > 0; i--)
 			nop();
 	}
@@ -904,9 +923,11 @@ void cris_free_io_interface(enum cris_io_interface ioif)
 	notify_watchers();
 }
 
+/* Create a bitmask from bit 0 (inclusive) to bit stop_bit
+   (non-inclusive).  stop_bit == 0 returns 0x0 */
 static inline unsigned int create_mask(const unsigned stop_bit)
 {
-	
+	/* Avoid overflow */
 	if (stop_bit >= 32) {
 		return 0xffffffff;
 	}
@@ -914,6 +935,7 @@ static inline unsigned int create_mask(const unsigned stop_bit)
 }
 
 
+/* port can be 'a', 'b' or 'g' */
 int cris_io_interface_allocate_pins(const enum cris_io_interface ioif,
 				    const char port,
 				    const unsigned start_bit,
@@ -987,6 +1009,7 @@ int cris_io_interface_allocate_pins(const enum cris_io_interface ioif,
 }
 
 
+/* port can be 'a', 'b' or 'g' */
 int cris_io_interface_free_pins(const enum cris_io_interface ioif,
                                 const char port,
                                 const unsigned start_bit,
@@ -1039,7 +1062,7 @@ int cris_io_interface_free_pins(const enum cris_io_interface ioif,
 		owners = gpio_pg_owners;
 		break;
 	default:
-		owners = NULL; 
+		owners = NULL; /* Cannot happen. Shut up, gcc! */
 	}
 
 	for (i = start_bit; i <= stop_bit; i++) {
@@ -1048,7 +1071,7 @@ int cris_io_interface_free_pins(const enum cris_io_interface ioif,
 		}
 	}
 
-	
+	/* All was ok, change data. */
 	switch (port) {
 	case 'a':
 		gpio_pa_pins |= mask;

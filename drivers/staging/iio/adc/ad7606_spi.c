@@ -14,7 +14,7 @@
 #include "../iio.h"
 #include "ad7606.h"
 
-#define MAX_SPI_FREQ_HZ		23500000	
+#define MAX_SPI_FREQ_HZ		23500000	/* VDRIVE above 4.75 V */
 
 static int ad7606_spi_read_block(struct device *dev,
 				 int count, void *buf)

@@ -48,4 +48,4 @@ void service_subclass_irq_unregister(void);
 void measurement_alert_subclass_register(void);
 void measurement_alert_subclass_unregister(void);
 
-#endif 
+#endif /* _ASM_IRQ_H */

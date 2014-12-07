@@ -76,6 +76,9 @@
 #define DECLARE_MSM_IOMAP
 #include <mach/msm_iomap.h>
 
+/*
+** SOC GPIO
+*/
 #define SAPPHIRE_BALL_UP_0     94
 #define SAPPHIRE_BALL_LEFT_0   18
 #define SAPPHIRE_BALL_DOWN_0   49
@@ -91,6 +94,7 @@
 #define SAPPHIRE_TP_LS_EN    	(1)
 #define SAPPHIRE20_TP_LS_EN			(88)
 
+/* H2W */
 #define SAPPHIRE_GPIO_CABLE_IN1		(83)
 #define SAPPHIRE_GPIO_CABLE_IN2		(37)
 #define SAPPHIRE_GPIO_UART3_RX		(86)
@@ -101,27 +105,38 @@
 #define SAPPHIRE_GPIO_UART1_RTS		(43)
 #define SAPPHIRE_GPIO_UART1_CTS		(44)
 
-#define SAPPHIRE_CPLD_BASE   0xFA000000	
-#define SAPPHIRE_CPLD_START  0x98000000	
+/*
+** CPLD GPIO
+**
+** Sapphire Altera CPLD can keep the registers value and
+** doesn't need a shadow to backup.
+**/
+#define SAPPHIRE_CPLD_BASE   0xFA000000	/* VA */
+#define SAPPHIRE_CPLD_START  0x98000000	/* PA */
 #define SAPPHIRE_CPLD_SIZE   SZ_4K
 
-#define SAPPHIRE_GPIO_START (128)				
+#define SAPPHIRE_GPIO_START (128)				/* Pseudo GPIO number */
 
-#define SAPPHIRE_GPIO_INT_B0_MASK_REG           (0x0c)	
-#define SAPPHIRE_GPIO_INT_B0_STAT_REG           (0x0e)	
+/* Sapphire has one INT BANK only. */
+#define SAPPHIRE_GPIO_INT_B0_MASK_REG           (0x0c)	/*INT3 MASK*/
+#define SAPPHIRE_GPIO_INT_B0_STAT_REG           (0x0e)	/*INT1 STATUS*/
 
-#define SAPPHIRE_CPLD_LED_BASE									(SAPPHIRE_CPLD_BASE + 0x10)		
-#define SAPPHIRE_CPLD_LED_START									(SAPPHIRE_CPLD_START + 0x10)	
+/* LED control register */
+#define SAPPHIRE_CPLD_LED_BASE									(SAPPHIRE_CPLD_BASE + 0x10)		/* VA */
+#define SAPPHIRE_CPLD_LED_START									(SAPPHIRE_CPLD_START + 0x10)	/* PA */
 #define SAPPHIRE_CPLD_LED_SIZE									0x08
 
+/* MISCn: GPO pin to Enable/Disable some functions. */
 #define SAPPHIRE_GPIO_MISC1_BASE               	(SAPPHIRE_GPIO_START + 0x00)
 #define SAPPHIRE_GPIO_MISC2_BASE               	(SAPPHIRE_GPIO_START + 0x08)
 #define SAPPHIRE_GPIO_MISC3_BASE               	(SAPPHIRE_GPIO_START + 0x10)
 #define SAPPHIRE_GPIO_MISC4_BASE               	(SAPPHIRE_GPIO_START + 0x18)
 #define SAPPHIRE_GPIO_MISC5_BASE               	(SAPPHIRE_GPIO_START + 0x20)
 
+/* INT BANK0: INT1: int status, INT2: int level, INT3: int Mask */
 #define SAPPHIRE_GPIO_INT_B0_BASE              	(SAPPHIRE_GPIO_START + 0x28)
 
+/* MISCn GPIO: */
 #define SAPPHIRE_GPIO_CPLD128_VER_0            	(SAPPHIRE_GPIO_MISC1_BASE + 4)
 #define SAPPHIRE_GPIO_CPLD128_VER_1            	(SAPPHIRE_GPIO_MISC1_BASE + 5)
 #define SAPPHIRE_GPIO_CPLD128_VER_2            	(SAPPHIRE_GPIO_MISC1_BASE + 6)
@@ -150,6 +165,7 @@
 #define SAPPHIRE_GPIO_MDDI_32K_EN              	(SAPPHIRE_GPIO_MISC5_BASE + 2)
 #define SAPPHIRE_GPIO_COMPASS_32K_EN           	(SAPPHIRE_GPIO_MISC5_BASE + 3)
 
+/* INT STATUS/LEVEL/MASK : INT GPIO should be the last. */
 #define SAPPHIRE_GPIO_NAVI_ACT_N           		(SAPPHIRE_GPIO_INT_B0_BASE + 0)
 #define SAPPHIRE_GPIO_COMPASS_IRQ         		(SAPPHIRE_GPIO_INT_B0_BASE + 1)
 #define SAPPHIRE_GPIO_SEARCH_ACT_N			(SAPPHIRE_GPIO_INT_B0_BASE + 2)
@@ -162,14 +178,20 @@
 #define	SAPPHIRE_GPIO_END						SAPPHIRE_GPIO_TP_ATT_N
 #define	SAPPHIRE_GPIO_LAST_INT					(SAPPHIRE_GPIO_TP_ATT_N)
 
+/* Bit position in the CPLD MISCn by the CPLD GPIOn: only bit0-7 is used. */
 #define	CPLD_GPIO_BIT_POS_MASK(n)		(1U << ((n) & 7))
 #define	CPLD_GPIO_REG_OFFSET(n)			_g_CPLD_MISCn_Offset[((n)-SAPPHIRE_GPIO_START) >> 3]
 #define	CPLD_GPIO_REG(n)				(CPLD_GPIO_REG_OFFSET(n) + SAPPHIRE_CPLD_BASE)
 
-#define SAPPHIRE_INT_START 					(NR_MSM_IRQS + NR_GPIO_IRQS)	
+/*
+** CPLD INT Start
+*/
+#define SAPPHIRE_INT_START 					(NR_MSM_IRQS + NR_GPIO_IRQS)	/* pseudo number for CPLD INT */
+/* Using INT status/Bank0 for GPIO to INT */
 #define	SAPPHIRE_GPIO_TO_INT(n)				((n-SAPPHIRE_GPIO_INT_B0_BASE) + SAPPHIRE_INT_START)
 #define SAPPHIRE_INT_END 					(SAPPHIRE_GPIO_TO_INT(SAPPHIRE_GPIO_END))
 
+/* get the INT reg by GPIO number */
 #define	CPLD_INT_GPIO_TO_BANK(n)			(((n)-SAPPHIRE_GPIO_INT_B0_BASE) >> 3)
 #define	CPLD_INT_STATUS_REG_OFFSET_G(n)		_g_INT_BANK_Offset[CPLD_INT_GPIO_TO_BANK(n)][0]
 #define	CPLD_INT_LEVEL_REG_OFFSET_G(n)		_g_INT_BANK_Offset[CPLD_INT_GPIO_TO_BANK(n)][1]
@@ -178,6 +200,7 @@
 #define	CPLD_INT_LEVEL_REG_G(n)				(SAPPHIRE_CPLD_BASE + CPLD_INT_LEVEL_REG_OFFSET_G(n))
 #define	CPLD_INT_MASK_REG_G(n)				(SAPPHIRE_CPLD_BASE + CPLD_INT_MASK_REG_OFFSET_G(n))
 
+/* get the INT reg by INT number */
 #define	CPLD_INT_TO_BANK(i)					((i-SAPPHIRE_INT_START) >> 3)
 #define	CPLD_INT_STATUS_REG_OFFSET(i)		_g_INT_BANK_Offset[CPLD_INT_TO_BANK(i)][0]
 #define	CPLD_INT_LEVEL_REG_OFFSET(i)		_g_INT_BANK_Offset[CPLD_INT_TO_BANK(i)][1]
@@ -186,6 +209,7 @@
 #define	CPLD_INT_LEVEL_REG(i)				(SAPPHIRE_CPLD_BASE + CPLD_INT_LEVEL_REG_OFFSET(i))
 #define	CPLD_INT_MASK_REG(i)				(SAPPHIRE_CPLD_BASE + CPLD_INT_MASK_REG_OFFSET(i) )
 
+/* return the bit mask by INT number */
 #define SAPPHIRE_INT_BIT_MASK(i) 			(1U << ((i - SAPPHIRE_INT_START) & 7))
 
 void config_sapphire_camera_on_gpios(void);
@@ -197,4 +221,4 @@ unsigned int is_12pin_camera(void);
 int sapphire_is_5M_camera(void);
 int sapphire_gpio_write(struct gpio_chip *chip, unsigned n, unsigned on);
 
-#endif 
+#endif /* GUARD */

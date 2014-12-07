@@ -32,8 +32,9 @@
 #include <linux/of_address.h>
 #include <linux/of_platform.h>
 
-#define GRUSBHC_HCIVERSION 0x0100 
+#define GRUSBHC_HCIVERSION 0x0100 /* Known value of cap. reg. HCIVERSION */
 
+/* called during probe() after chip reset completes */
 static int ehci_grlib_setup(struct usb_hcd *hcd)
 {
 	struct ehci_hcd	*ehci = hcd_to_ehci(hcd);
@@ -59,21 +60,36 @@ static const struct hc_driver ehci_grlib_hc_driver = {
 	.product_desc		= "GRLIB GRUSBHC EHCI",
 	.hcd_priv_size		= sizeof(struct ehci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq			= ehci_irq,
 	.flags			= HCD_MEMORY | HCD_USB2,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.reset			= ehci_grlib_setup,
 	.start			= ehci_run,
 	.stop			= ehci_stop,
 	.shutdown		= ehci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue		= ehci_urb_enqueue,
 	.urb_dequeue		= ehci_urb_dequeue,
 	.endpoint_disable	= ehci_endpoint_disable,
 	.endpoint_reset		= ehci_endpoint_reset,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number	= ehci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data	= ehci_hub_status_data,
 	.hub_control		= ehci_hub_control,
 #ifdef	CONFIG_PM
@@ -106,7 +122,7 @@ static int __devinit ehci_hcd_grlib_probe(struct platform_device *op)
 	if (rv)
 		return rv;
 
-	
+	/* usb_create_hcd requires dma_mask != NULL */
 	op->dev.dma_mask = &op->dev.coherent_dma_mask;
 	hcd = usb_create_hcd(&ehci_grlib_hc_driver, &op->dev,
 			"GRUSBHC EHCI USB");
@@ -140,7 +156,7 @@ static int __devinit ehci_hcd_grlib_probe(struct platform_device *op)
 
 	ehci->caps = hcd->regs;
 
-	
+	/* determine endianness of this implementation */
 	hc_capbase = ehci_readl(ehci, &ehci->caps->hc_capbase);
 	if (HC_VERSION(ehci, hc_capbase) != GRUSBHC_HCIVERSION) {
 		ehci->big_endian_mmio = 1;
@@ -151,7 +167,7 @@ static int __devinit ehci_hcd_grlib_probe(struct platform_device *op)
 	ehci->regs = hcd->regs +
 		HC_LENGTH(ehci, ehci_readl(ehci, &ehci->caps->hc_capbase));
 
-	
+	/* cache this readonly data; minimize chip reads */
 	ehci->hcs_params = ehci_readl(ehci, &ehci->caps->hcs_params);
 
 	rv = usb_add_hcd(hcd, irq, 0);

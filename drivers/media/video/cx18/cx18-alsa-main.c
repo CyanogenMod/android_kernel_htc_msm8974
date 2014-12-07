@@ -81,7 +81,7 @@ static void snd_cx18_card_free(struct snd_cx18_card *cxsc)
 	if (cxsc->v4l2_dev != NULL)
 		to_cx18(cxsc->v4l2_dev)->alsa = NULL;
 
-	
+	/* FIXME - take any other stopping actions needed */
 
 	kfree(cxsc);
 }
@@ -117,14 +117,14 @@ static int snd_cx18_card_set_names(struct snd_cx18_card *cxsc)
 	struct cx18 *cx = to_cx18(cxsc->v4l2_dev);
 	struct snd_card *sc = cxsc->sc;
 
-	
+	/* sc->driver is used by alsa-lib's configurator: simple, unique */
 	strlcpy(sc->driver, "CX23418", sizeof(sc->driver));
 
-	
+	/* sc->shortname is a symlink in /proc/asound: CX18-M -> cardN */
 	snprintf(sc->shortname,  sizeof(sc->shortname), "CX18-%d",
 		 cx->instance);
 
-	
+	/* sc->longname is read from /proc/asound/cards */
 	snprintf(sc->longname, sizeof(sc->longname),
 		 "CX23418 #%d %s TV/FM Radio/Line-In Capture",
 		 cx->instance, cx->card_name);
@@ -139,14 +139,14 @@ static int snd_cx18_init(struct v4l2_device *v4l2_dev)
 	struct snd_cx18_card *cxsc;
 	int ret;
 
-	
+	/* Numbrs steps from "Writing an ALSA Driver" by Takashi Iwai */
 
-	
-	
+	/* (1) Check and increment the device index */
+	/* This is a no-op for us.  We'll use the cx->instance */
 
-	
-	ret = snd_card_create(SNDRV_DEFAULT_IDX1, 
-			      SNDRV_DEFAULT_STR1, 
+	/* (2) Create a card instance */
+	ret = snd_card_create(SNDRV_DEFAULT_IDX1, /* use first available id */
+			      SNDRV_DEFAULT_STR1, /* xid from end of shortname*/
 			      THIS_MODULE, 0, &sc);
 	if (ret) {
 		CX18_ALSA_ERR("%s: snd_card_create() failed with err %d\n",
@@ -154,7 +154,7 @@ static int snd_cx18_init(struct v4l2_device *v4l2_dev)
 		goto err_exit;
 	}
 
-	
+	/* (3) Create a main component */
 	ret = snd_cx18_card_create(v4l2_dev, sc, &cxsc);
 	if (ret) {
 		CX18_ALSA_ERR("%s: snd_cx18_card_create() failed with err %d\n",
@@ -162,7 +162,7 @@ static int snd_cx18_init(struct v4l2_device *v4l2_dev)
 		goto err_exit_free;
 	}
 
-	
+	/* (4) Set the driver ID and name strings */
 	snd_cx18_card_set_names(cxsc);
 
 
@@ -172,13 +172,13 @@ static int snd_cx18_init(struct v4l2_device *v4l2_dev)
 			      __func__, ret);
 		goto err_exit_free;
 	}
-	
+	/* FIXME - proc files */
 
-	
-	
+	/* (7) Set the driver data and return 0 */
+	/* We do this out of normal order for PCI drivers to avoid races */
 	cx->alsa = cxsc;
 
-	
+	/* (6) Register the card instance */
 	ret = snd_card_register(sc);
 	if (ret) {
 		cx->alsa = NULL;
@@ -248,7 +248,7 @@ static void __exit snd_cx18_exit(struct snd_cx18_card *cxsc)
 {
 	struct cx18 *cx = to_cx18(cxsc->v4l2_dev);
 
-	
+	/* FIXME - pointer checks & shutdown cxsc */
 
 	snd_card_free(cxsc->sc);
 	cx->alsa = NULL;

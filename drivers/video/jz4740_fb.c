@@ -233,6 +233,7 @@ static unsigned int jzfb_num_data_pins(struct jzfb *jzfb)
 	return num;
 }
 
+/* Based on CNVT_TOHW macro from skeletonfb.c */
 static inline uint32_t jzfb_convert_color_to_hw(unsigned val,
 	struct fb_bitfield *bf)
 {
@@ -392,7 +393,7 @@ static int jzfb_set_par(struct fb_info *info)
 		ctrl |= JZ_LCD_CTRL_BPP_8;
 	break;
 	case 15:
-		ctrl |= JZ_LCD_CTRL_RGB555; 
+		ctrl |= JZ_LCD_CTRL_RGB555; /* Falltrough */
 	case 16:
 		ctrl |= JZ_LCD_CTRL_BPP_15_16;
 		break;

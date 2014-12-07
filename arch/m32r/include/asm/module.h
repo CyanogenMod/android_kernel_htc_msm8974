@@ -7,4 +7,4 @@ struct mod_arch_specific { };
 #define Elf_Sym		Elf32_Sym
 #define Elf_Ehdr	Elf32_Ehdr
 
-#endif 
+#endif /* _ASM_M32R_MODULE_H */

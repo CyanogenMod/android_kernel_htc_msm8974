@@ -1,9 +1,13 @@
+/*
+ * ARCS hardware/memory inventory/configuration and system ID definitions.
+ */
 #ifndef _ASM_ARC_HINV_H
 #define _ASM_ARC_HINV_H
 
 #include <asm/sgidefs.h>
 #include <asm/fw/arc/types.h>
 
+/* configuration query defines */
 typedef enum configclass {
 	SystemClass,
 	ProcessorClass,
@@ -13,12 +17,12 @@ typedef enum configclass {
 	AdapterClass,
 	ControllerClass,
 	PeripheralClass
-#else	
+#else	/* _NT_PROM */
 	AdapterClass,
 	ControllerClass,
 	PeripheralClass,
 	MemoryClass
-#endif	
+#endif	/* _NT_PROM */
 } CONFIGCLASS;
 
 typedef enum configtype {
@@ -66,9 +70,9 @@ typedef enum configtype {
 #endif
 	OtherPeripheral,
 
-	
-	
-	
+	/* new stuff for IP30 */
+	/* added without moving anything */
+	/* except ANONYMOUS. */
 
 	XTalkAdapter,
 	PCIAdapter,
@@ -88,31 +92,31 @@ typedef enum {
 	Output = 64
 } IDENTIFIERFLAG;
 
-#ifndef NULL			
+#ifndef NULL			/* for GetChild(NULL); */
 #define	NULL	0
 #endif
 
 union key_u {
 	struct {
 #ifdef	_MIPSEB
-		unsigned char  c_bsize;		
-		unsigned char  c_lsize;		
-		unsigned short c_size;		
-#else	
-		unsigned short c_size;		
-		unsigned char  c_lsize;		
-		unsigned char  c_bsize;		
-#endif	
+		unsigned char  c_bsize;		/* block size in lines */
+		unsigned char  c_lsize;		/* line size in bytes/tag */
+		unsigned short c_size;		/* cache size in 4K pages */
+#else	/* _MIPSEL */
+		unsigned short c_size;		/* cache size in 4K pages */
+		unsigned char  c_lsize;		/* line size in bytes/tag */
+		unsigned char  c_bsize;		/* block size in lines */
+#endif	/* _MIPSEL */
 	} cache;
 	ULONG FullKey;
 };
 
 #if _MIPS_SIM == _MIPS_SIM_ABI64
-#define SGI_ARCS_VERS	64			
-#define SGI_ARCS_REV	0			
+#define SGI_ARCS_VERS	64			/* sgi 64-bit version */
+#define SGI_ARCS_REV	0			/* rev .00 */
 #else
-#define SGI_ARCS_VERS	1			
-#define SGI_ARCS_REV	10			
+#define SGI_ARCS_VERS	1			/* first version */
+#define SGI_ARCS_REV	10			/* rev .10, 3/04/92 */
 #endif
 
 typedef struct component {
@@ -128,20 +132,23 @@ typedef struct component {
 	char		*Identifier;
 } COMPONENT;
 
+/* internal structure that holds pathname parsing data */
 struct cfgdata {
-	char *name;			
-	int minlen;			
-	CONFIGTYPE type;		
+	char *name;			/* full name */
+	int minlen;			/* minimum length to match */
+	CONFIGTYPE type;		/* type of token */
 };
 
+/* System ID */
 typedef struct systemid {
 	CHAR VendorId[8];
 	CHAR ProductId[8];
 } SYSTEMID;
 
+/* memory query functions */
 typedef enum memorytype {
 	ExceptionBlock,
-	SPBPage,			
+	SPBPage,			/* ARCS == SystemParameterBlock */
 #ifndef	_NT_PROM
 	FreeContiguous,
 	FreeMemory,
@@ -149,14 +156,14 @@ typedef enum memorytype {
 	LoadedProgram,
 	FirmwareTemporary,
 	FirmwarePermanent
-#else	
+#else	/* _NT_PROM */
 	FreeMemory,
 	BadMemory,
 	LoadedProgram,
 	FirmwareTemporary,
 	FirmwarePermanent,
 	FreeContiguous
-#endif	
+#endif	/* _NT_PROM */
 } MEMORYTYPE;
 
 typedef struct memorydescriptor {
@@ -165,4 +172,4 @@ typedef struct memorydescriptor {
 	LONG		PageCount;
 } MEMORYDESCRIPTOR;
 
-#endif 
+#endif /* _ASM_ARC_HINV_H */

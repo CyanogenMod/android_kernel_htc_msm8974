@@ -19,22 +19,28 @@
 #ifndef PCAN_USB_CORE_H
 #define PCAN_USB_CORE_H
 
+/* PEAK-System vendor id. */
 #define PCAN_USB_VENDOR_ID		0x0c72
 
+/* supported device ids. */
 #define PCAN_USB_PRODUCT_ID		0x000c
 #define PCAN_USBPRO_PRODUCT_ID		0x000d
 
 #define PCAN_USB_DRIVER_NAME		"peak_usb"
 
+/* number of urbs that are submitted for rx/tx per channel */
 #define PCAN_USB_MAX_RX_URBS		4
 #define PCAN_USB_MAX_TX_URBS		10
 
+/* usb adapters maximum channels per usb interface */
 #define PCAN_USB_MAX_CHANNEL		2
 
+/* maximum length of the usb commands sent to/received from  the devices */
 #define PCAN_USB_MAX_CMD_LEN		32
 
 struct peak_usb_device;
 
+/* PEAK-System USB adapter descriptor */
 struct peak_usb_adapter {
 	char *name;
 	u32 device_id;
@@ -93,6 +99,7 @@ struct peak_tx_urb_context {
 #define PCAN_USB_STATE_CONNECTED	0x00000001
 #define PCAN_USB_STATE_STARTED		0x00000002
 
+/* PEAK-System USB device */
 struct peak_usb_device {
 	struct can_priv can;
 	struct peak_usb_adapter *adapter;
@@ -126,6 +133,7 @@ struct peak_usb_device {
 
 void dump_mem(char *prompt, void *p, int l);
 
+/* common timestamp management */
 void peak_usb_init_time_ref(struct peak_time_ref *time_ref,
 			    struct peak_usb_adapter *adapter);
 void peak_usb_update_ts_now(struct peak_time_ref *time_ref, u32 ts_now);

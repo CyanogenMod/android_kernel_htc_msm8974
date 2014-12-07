@@ -8,6 +8,9 @@
 #ifndef __ASM_MACH_IP22_CPU_FEATURE_OVERRIDES_H
 #define __ASM_MACH_IP22_CPU_FEATURE_OVERRIDES_H
 
+/*
+ * IP22 with a variety of processors so we can't use defaults for everything.
+ */
 #define cpu_has_tlb		1
 #define cpu_has_4kex		1
 #define cpu_has_4k_cache	1
@@ -22,7 +25,7 @@
 #define cpu_has_ejtag		0
 
 #define cpu_has_llsc		1
-#define cpu_has_vtag_icache	0		
+#define cpu_has_vtag_icache	0		/* Needs to change for R8000 */
 #define cpu_has_dc_aliases	(PAGE_SIZE < 0x4000)
 #define cpu_has_ic_fills_f_dc	0
 
@@ -38,4 +41,4 @@
 #define cpu_has_mips64r1	0
 #define cpu_has_mips64r2	0
 
-#endif 
+#endif /* __ASM_MACH_IP22_CPU_FEATURE_OVERRIDES_H */

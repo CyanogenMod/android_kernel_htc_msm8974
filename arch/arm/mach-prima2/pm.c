@@ -21,6 +21,10 @@
 
 #include "pm.h"
 
+/*
+ * suspend asm codes will access these to make DRAM become self-refresh and
+ * system sleep
+ */
 u32 sirfsoc_pwrc_base;
 void __iomem *sirfsoc_memc_base;
 
@@ -66,7 +70,7 @@ static int sirfsoc_pm_enter(suspend_state_t state)
 
 		outer_flush_all();
 		outer_disable();
-		
+		/* go zzz */
 		cpu_suspend(0, sirfsoc_finish_suspend);
 		outer_resume();
 		break;
@@ -101,6 +105,11 @@ static int __init sirfsoc_of_pwrc_init(void)
 	if (!np)
 		panic("unable to find compatible pwrc node in dtb\n");
 
+	/*
+	 * pwrc behind rtciobrg is not located in memory space
+	 * though the property is named reg. reg only means base
+	 * offset for pwrc. then of_iomap is not suitable here.
+	 */
 	if (of_property_read_u32(np, "reg", &sirfsoc_pwrc_base))
 		panic("unable to find base address of pwrc node in dtb\n");
 

@@ -17,11 +17,17 @@
 
 extern unsigned long __stack_chk_guard;
 
+/*
+ * Initialize the stackprotector canary value.
+ *
+ * NOTE: this must only be called from functions that never return,
+ * and it must always be inlined.
+ */
 static __always_inline void boot_init_stack_canary(void)
 {
 	unsigned long canary;
 
-	
+	/* Try to get a semi random initial value. */
 	get_random_bytes(&canary, sizeof(canary));
 	canary ^= LINUX_VERSION_CODE;
 
@@ -29,4 +35,4 @@ static __always_inline void boot_init_stack_canary(void)
 	__stack_chk_guard = current->stack_canary;
 }
 
-#endif	
+#endif	/* _ASM_STACKPROTECTOR_H */

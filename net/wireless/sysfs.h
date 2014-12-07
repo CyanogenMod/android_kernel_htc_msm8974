@@ -6,4 +6,4 @@ extern void wiphy_sysfs_exit(void);
 
 extern struct class ieee80211_class;
 
-#endif 
+#endif /* __WIRELESS_SYSFS_H */

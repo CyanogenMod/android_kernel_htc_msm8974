@@ -52,21 +52,36 @@ static const struct hc_driver ehci_sh_hc_driver = {
 	.product_desc			= "SuperH EHCI",
 	.hcd_priv_size			= sizeof(struct ehci_hcd),
 
+	/*
+	 * generic hardware linkage
+	 */
 	.irq				= ehci_irq,
 	.flags				= HCD_USB2 | HCD_MEMORY,
 
+	/*
+	 * basic lifecycle operations
+	 */
 	.reset				= ehci_sh_reset,
 	.start				= ehci_run,
 	.stop				= ehci_stop,
 	.shutdown			= ehci_shutdown,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue			= ehci_urb_enqueue,
 	.urb_dequeue			= ehci_urb_dequeue,
 	.endpoint_disable		= ehci_endpoint_disable,
 	.endpoint_reset			= ehci_endpoint_reset,
 
+	/*
+	 * scheduling support
+	 */
 	.get_frame_number		= ehci_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data		= ehci_hub_status_data,
 	.hub_control			= ehci_hub_control,
 
@@ -109,7 +124,7 @@ static int ehci_hcd_sh_probe(struct platform_device *pdev)
 		goto fail_create_hcd;
 	}
 
-	
+	/* initialize hcd */
 	hcd = usb_create_hcd(&ehci_sh_hc_driver, &pdev->dev,
 			     dev_name(&pdev->dev));
 	if (!hcd) {
@@ -141,7 +156,7 @@ static int ehci_hcd_sh_probe(struct platform_device *pdev)
 		goto fail_alloc;
 	}
 
-	
+	/* These are optional, we don't care if they fail */
 	priv->fclk = clk_get(&pdev->dev, "usb_fck");
 	if (IS_ERR(priv->fclk))
 		priv->fclk = NULL;

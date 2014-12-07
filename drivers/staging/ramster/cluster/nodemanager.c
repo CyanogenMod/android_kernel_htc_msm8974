@@ -29,11 +29,14 @@
 #include "heartbeat.h"
 #include "masklog.h"
 
+/* for now we operate under the assertion that there can be only one
+ * cluster active at a time.  Changing this will require trickling
+ * cluster references throughout where nodes are looked up */
 struct r2nm_cluster *r2nm_single_cluster;
 
 char *r2nm_fence_method_desc[R2NM_FENCE_METHODS] = {
-		"reset",	
-		"panic",	
+		"reset",	/* R2NM_FENCE_RESET */
+		"panic",	/* R2NM_FENCE_PANIC */
 };
 
 struct r2nm_node *r2nm_get_node_by_num(u8 node_num)
@@ -147,6 +150,7 @@ u8 r2nm_this_node(void)
 }
 EXPORT_SYMBOL_GPL(r2nm_this_node);
 
+/* node configfs bits */
 
 static struct r2nm_cluster *to_r2nm_cluster(struct config_item *item)
 {
@@ -174,6 +178,8 @@ static ssize_t r2nm_node_num_read(struct r2nm_node *node, char *page)
 
 static struct r2nm_cluster *to_r2nm_cluster_from_node(struct r2nm_node *node)
 {
+	/* through the first node_set .parent
+	 * mycluster/nodes/mynode == r2nm_cluster->r2nm_node_group->r2nm_node */
 	return to_r2nm_cluster(node->nd_item.ci_parent->ci_parent);
 }
 
@@ -199,9 +205,13 @@ static ssize_t r2nm_node_num_write(struct r2nm_node *node, const char *page,
 	if (tmp >= R2NM_MAX_NODES)
 		return -ERANGE;
 
+	/* once we're in the cl_nodes tree networking can look us up by
+	 * node number and try to use our address and port attributes
+	 * to connect to this node.. make sure that they've been set
+	 * before writing the node attribute? */
 	if (!test_bit(R2NM_NODE_ATTR_ADDRESS, &node->nd_set_attributes) ||
 	    !test_bit(R2NM_NODE_ATTR_PORT, &node->nd_set_attributes))
-		return -EINVAL; 
+		return -EINVAL; /* XXX */
 
 	write_lock(&cluster->cl_nodes_lock);
 	if (cluster->cl_nodes[tmp])
@@ -304,18 +314,22 @@ static ssize_t r2nm_node_local_write(struct r2nm_node *node, const char *page,
 	if (err)
 		return err;
 
-	tmp = !!tmp; 
+	tmp = !!tmp; /* boolean of whether this node wants to be local */
 
+	/* setting local turns on networking rx for now so we require having
+	 * set everything else first */
 	if (!test_bit(R2NM_NODE_ATTR_ADDRESS, &node->nd_set_attributes) ||
 	    !test_bit(R2NM_NODE_ATTR_NUM, &node->nd_set_attributes) ||
 	    !test_bit(R2NM_NODE_ATTR_PORT, &node->nd_set_attributes))
-		return -EINVAL; 
+		return -EINVAL; /* XXX */
 
+	/* the only failure case is trying to set a new local node
+	 * when a different one is already set */
 	if (tmp && tmp == cluster->cl_has_local &&
 	    cluster->cl_local_node != node->nd_num)
 		return -EBUSY;
 
-	
+	/* bring up the rx thread if we're setting the new local node. */
 	if (tmp && !cluster->cl_has_local) {
 		ret = r2net_start_listening(node);
 		if (ret)
@@ -447,10 +461,11 @@ static struct config_item_type r2nm_node_type = {
 	.ct_owner	= THIS_MODULE,
 };
 
+/* node set */
 
 struct r2nm_node_group {
 	struct config_group ns_group;
-	
+	/* some stuff? */
 };
 
 #if 0
@@ -694,7 +709,7 @@ static struct config_item *r2nm_node_group_make_item(struct config_group *group,
 	if (node == NULL)
 		return ERR_PTR(-ENOMEM);
 
-	strcpy(node->nd_name, name); 
+	strcpy(node->nd_name, name); /* use item.ci_namebuf instead? */
 	config_item_init_type_name(&node->nd_item, name, &r2nm_node_type);
 	spin_lock_init(&node->nd_lock);
 
@@ -719,15 +734,15 @@ static void r2nm_node_group_drop_item(struct config_group *group,
 		r2net_stop_listening(node);
 	}
 
-	
+	/* XXX call into net to stop this node from trading messages */
 
 	write_lock(&cluster->cl_nodes_lock);
 
-	
+	/* XXX sloppy */
 	if (node->nd_ipv4_address)
 		rb_erase(&node->nd_ip_node, &cluster->cl_node_ip_tree);
 
-	
+	/* nd_num might be 0 if the node number hasn't been set.. */
 	if (cluster->cl_nodes[node->nd_num] == node) {
 		cluster->cl_nodes[node->nd_num] = NULL;
 		clear_bit(node->nd_num, cluster->cl_nodes_bitmap);
@@ -750,6 +765,7 @@ static struct config_item_type r2nm_node_group_type = {
 	.ct_owner	= THIS_MODULE,
 };
 
+/* cluster */
 
 static void r2nm_cluster_release(struct config_item *item)
 {
@@ -771,10 +787,11 @@ static struct config_item_type r2nm_cluster_type = {
 	.ct_owner	= THIS_MODULE,
 };
 
+/* cluster set */
 
 struct r2nm_cluster_group {
 	struct configfs_subsystem cs_subsys;
-	
+	/* some stuff? */
 };
 
 #if 0
@@ -797,6 +814,8 @@ r2nm_cluster_group_make_group(struct config_group *group,
 	struct config_group *r2hb_group = NULL, *ret = NULL;
 	void *defs = NULL;
 
+	/* this runs under the parent dir's i_mutex; there can be only
+	 * one caller in here at a time */
 	if (r2nm_single_cluster)
 		return ERR_PTR(-ENOSPC);
 
@@ -920,7 +939,7 @@ void r2nm_undepend_this_node(void)
 
 static void __exit exit_r2nm(void)
 {
-	
+	/* XXX sync with hb callbacks and shut down hb? */
 	r2net_unregister_hb_callbacks();
 	configfs_unregister_subsystem(&r2nm_cluster_group.cs_subsys);
 

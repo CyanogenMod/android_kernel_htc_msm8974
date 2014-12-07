@@ -19,6 +19,15 @@
 #include "dma.h"
 #include "pcm.h"
 
+/*
+ * Board Settings:
+ *  o '1' means 'ON'
+ *  o '0' means 'OFF'
+ *  o 'X' means 'Don't care'
+ *
+ * SMDK6410, SMDK6440, SMDK6450 Base B/D: CFG1-0000, CFG2-1111
+ * SMDKC110, SMDKV210: CFGB11-100100, CFGB12-0000
+ */
 
 #define SMDK_WM8580_EXT_OSC 12000000
 #define SMDK_WM8580_EXT_MCLK 4096000
@@ -27,6 +36,12 @@
 static unsigned long mclk_freq;
 static unsigned long xtal_freq;
 
+/*
+ * If MCLK clock directly gets from XTAL, we don't have to use PLL
+ * to make MCLK, but if XTAL clock source connects with other codec
+ * pin (like XTI), we should have to set codec's PLL to make MCLK.
+ * Because Samsung SoC does not support pcmcdclk output like I2S.
+ */
 
 static int smdk_wm8580_pcm_hw_params(struct snd_pcm_substream *substream,
 			      struct snd_pcm_hw_params *params)
@@ -47,14 +62,14 @@ static int smdk_wm8580_pcm_hw_params(struct snd_pcm_substream *substream,
 
 	rfs = mclk_freq / params_rate(params) / 2;
 
-	
+	/* Set the codec DAI configuration */
 	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_DSP_B
 				| SND_SOC_DAIFMT_IB_NF
 				| SND_SOC_DAIFMT_CBS_CFS);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Set the cpu DAI configuration */
 	ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_DSP_B
 				| SND_SOC_DAIFMT_IB_NF
 				| SND_SOC_DAIFMT_CBS_CFS);
@@ -88,13 +103,13 @@ static int smdk_wm8580_pcm_hw_params(struct snd_pcm_substream *substream,
 			return ret;
 	}
 
-	
+	/* Set PCM source clock on CPU */
 	ret = snd_soc_dai_set_sysclk(cpu_dai, S3C_PCM_CLKSRC_MUX,
 					mclk_freq, SND_SOC_CLOCK_IN);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Set SCLK_DIV for making bclk */
 	ret = snd_soc_dai_set_clkdiv(cpu_dai, S3C_PCM_SCLK_PER_FS, rfs);
 	if (ret < 0)
 		return ret;
@@ -133,6 +148,11 @@ static struct snd_soc_card smdk_pcm = {
 	.num_links = 2,
 };
 
+/*
+ * After SMDKC110 Base Board's Rev is '0.1', 12MHz External OSC(X1)
+ * is absent (or not connected), so we connect EXT_VOICE_CLK(OSC4),
+ * 2.0484Mhz, directly with MCLK both Codec and SoC.
+ */
 static int __devinit snd_smdk_probe(struct platform_device *pdev)
 {
 	int ret = 0;

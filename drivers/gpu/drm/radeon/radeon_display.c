@@ -151,7 +151,7 @@ static void dce5_crtc_load_lut(struct drm_crtc *crtc)
 	WREG32(NI_OUTPUT_CSC_CONTROL + radeon_crtc->crtc_offset,
 	       (NI_OUTPUT_CSC_GRPH_MODE(NI_OUTPUT_CSC_BYPASS) |
 		NI_OUTPUT_CSC_OVL_MODE(NI_OUTPUT_CSC_BYPASS)));
-	
+	/* XXX match this to the depth of the crtc fmt block, move to modeset? */
 	WREG32(0x6940 + radeon_crtc->crtc_offset, 0);
 
 }
@@ -198,6 +198,7 @@ void radeon_crtc_load_lut(struct drm_crtc *crtc)
 		legacy_crtc_load_lut(crtc);
 }
 
+/** Sets the color ramps on behalf of fbcon */
 void radeon_crtc_fb_gamma_set(struct drm_crtc *crtc, u16 red, u16 green,
 			      u16 blue, int regno)
 {
@@ -208,6 +209,7 @@ void radeon_crtc_fb_gamma_set(struct drm_crtc *crtc, u16 red, u16 green,
 	radeon_crtc->lut_b[regno] = blue >> 6;
 }
 
+/** Gets the color ramps on behalf of fbcon */
 void radeon_crtc_fb_gamma_get(struct drm_crtc *crtc, u16 *red, u16 *green,
 			      u16 *blue, int regno)
 {
@@ -224,7 +226,7 @@ static void radeon_crtc_gamma_set(struct drm_crtc *crtc, u16 *red, u16 *green,
 	struct radeon_crtc *radeon_crtc = to_radeon_crtc(crtc);
 	int end = (start + size > 256) ? 256 : start + size, i;
 
-	
+	/* userspace palettes are always correct as is */
 	for (i = start; i < end; i++) {
 		radeon_crtc->lut_r[i] = red[i] >> 6;
 		radeon_crtc->lut_g[i] = green[i] >> 6;
@@ -241,13 +243,16 @@ static void radeon_crtc_destroy(struct drm_crtc *crtc)
 	kfree(radeon_crtc);
 }
 
+/*
+ * Handle unpin events outside the interrupt handler proper.
+ */
 static void radeon_unpin_work_func(struct work_struct *__work)
 {
 	struct radeon_unpin_work *work =
 		container_of(__work, struct radeon_unpin_work, work);
 	int r;
 
-	
+	/* unpin of the old buffer */
 	r = radeon_bo_reserve(work->old_rbo, false);
 	if (likely(r == 0)) {
 		r = radeon_bo_unpin(work->old_rbo);
@@ -279,32 +284,50 @@ void radeon_crtc_handle_flip(struct radeon_device *rdev, int crtc_id)
 		spin_unlock_irqrestore(&rdev->ddev->event_lock, flags);
 		return;
 	}
-	
+	/* New pageflip, or just completion of a previous one? */
 	if (!radeon_crtc->deferred_flip_completion) {
-		
+		/* do the flip (mmio) */
 		update_pending = radeon_page_flip(rdev, crtc_id, work->new_crtc_base);
 	} else {
+		/* This is just a completion of a flip queued in crtc
+		 * at last invocation. Make sure we go directly to
+		 * completion routine.
+		 */
 		update_pending = 0;
 		radeon_crtc->deferred_flip_completion = 0;
 	}
 
+	/* Has the pageflip already completed in crtc, or is it certain
+	 * to complete in this vblank?
+	 */
 	if (update_pending &&
 	    (DRM_SCANOUTPOS_VALID & radeon_get_crtc_scanoutpos(rdev->ddev, crtc_id,
 							       &vpos, &hpos)) &&
 	    ((vpos >= (99 * rdev->mode_info.crtcs[crtc_id]->base.hwmode.crtc_vdisplay)/100) ||
 	     (vpos < 0 && !ASIC_IS_AVIVO(rdev)))) {
+		/* crtc didn't flip in this target vblank interval,
+		 * but flip is pending in crtc. Based on the current
+		 * scanout position we know that the current frame is
+		 * (nearly) complete and the flip will (likely)
+		 * complete before the start of the next frame.
+		 */
 		update_pending = 0;
 	}
 	if (update_pending) {
+		/* crtc didn't flip in this target vblank interval,
+		 * but flip is pending in crtc. It will complete it
+		 * in next vblank interval, so complete the flip at
+		 * next vblank irq.
+		 */
 		radeon_crtc->deferred_flip_completion = 1;
 		spin_unlock_irqrestore(&rdev->ddev->event_lock, flags);
 		return;
 	}
 
-	
+	/* Pageflip (will be) certainly completed in this vblank. Clean up. */
 	radeon_crtc->unpin_work = NULL;
 
-	
+	/* wakeup userspace */
 	if (work->event) {
 		e = work->event;
 		e->event.sequence = drm_vblank_count_and_time(rdev->ddev, crtc_id, &now);
@@ -347,9 +370,9 @@ static int radeon_crtc_page_flip(struct drm_crtc *crtc,
 	work->crtc_id = radeon_crtc->crtc_id;
 	old_radeon_fb = to_radeon_framebuffer(crtc->fb);
 	new_radeon_fb = to_radeon_framebuffer(fb);
-	
+	/* schedule unpin of the old buffer */
 	obj = old_radeon_fb->obj;
-	
+	/* take a reference to the old object */
 	drm_gem_object_reference(obj);
 	rbo = gem_to_radeon_bo(obj);
 	work->old_rbo = rbo;
@@ -359,7 +382,7 @@ static int radeon_crtc_page_flip(struct drm_crtc *crtc,
 		work->fence = radeon_fence_ref(rbo->tbo.sync_obj);
 	INIT_WORK(&work->work, radeon_unpin_work_func);
 
-	
+	/* We borrow the event spin lock for protecting unpin_work */
 	spin_lock_irqsave(&dev->event_lock, flags);
 	if (radeon_crtc->unpin_work) {
 		DRM_DEBUG_DRIVER("flip queue: crtc already busy\n");
@@ -370,7 +393,7 @@ static int radeon_crtc_page_flip(struct drm_crtc *crtc,
 	radeon_crtc->deferred_flip_completion = 0;
 	spin_unlock_irqrestore(&dev->event_lock, flags);
 
-	
+	/* pin the new buffer */
 	DRM_DEBUG_DRIVER("flip-ioctl() cur_fbo = %p, cur_bbo = %p\n",
 			 work->old_rbo, rbo);
 
@@ -379,7 +402,7 @@ static int radeon_crtc_page_flip(struct drm_crtc *crtc,
 		DRM_ERROR("failed to reserve new rbo buffer before flip\n");
 		goto pflip_cleanup;
 	}
-	
+	/* Only 27 bit offset for legacy CRTC */
 	r = radeon_bo_pin_restricted(rbo, RADEON_GEM_DOMAIN_VRAM,
 				     ASIC_IS_AVIVO(rdev) ? 0 : 1 << 27, &base);
 	if (unlikely(r != 0)) {
@@ -392,7 +415,7 @@ static int radeon_crtc_page_flip(struct drm_crtc *crtc,
 	radeon_bo_unreserve(rbo);
 
 	if (!ASIC_IS_AVIVO(rdev)) {
-		
+		/* crtc offset is from display base addr not FB location */
 		base -= radeon_crtc->legacy_display_base_addr;
 		pitch_pixels = fb->pitches[0] / (fb->bits_per_pixel / 8);
 
@@ -431,7 +454,7 @@ static int radeon_crtc_page_flip(struct drm_crtc *crtc,
 	work->new_crtc_base = base;
 	spin_unlock_irqrestore(&dev->event_lock, flags);
 
-	
+	/* update crtc fb */
 	crtc->fb = fb;
 
 	r = drm_vblank_get(dev, radeon_crtc->crtc_id);
@@ -440,7 +463,7 @@ static int radeon_crtc_page_flip(struct drm_crtc *crtc,
 		goto pflip_cleanup1;
 	}
 
-	
+	/* set the proper interrupt */
 	radeon_pre_page_flip(rdev, radeon_crtc->crtc_id);
 
 	return 0;
@@ -686,7 +709,7 @@ int radeon_ddc_get_modes(struct radeon_connector *radeon_connector)
 	struct radeon_device *rdev = dev->dev_private;
 	int ret = 0;
 
-	
+	/* on hw with routers, select right port */
 	if (radeon_connector->router.ddc_valid)
 		radeon_router_select_ddc_port(radeon_connector);
 
@@ -711,12 +734,12 @@ int radeon_ddc_get_modes(struct radeon_connector *radeon_connector)
 
 	if (!radeon_connector->edid) {
 		if (rdev->is_atom_bios) {
-			
+			/* some laptops provide a hardcoded edid in rom for LCDs */
 			if (((radeon_connector->base.connector_type == DRM_MODE_CONNECTOR_LVDS) ||
 			     (radeon_connector->base.connector_type == DRM_MODE_CONNECTOR_eDP)))
 				radeon_connector->edid = radeon_bios_get_hardcoded_edid(rdev);
 		} else
-			
+			/* some servers provide a hardcoded edid in rom for KVMs */
 			radeon_connector->edid = radeon_bios_get_hardcoded_edid(rdev);
 	}
 	if (radeon_connector->edid) {
@@ -728,6 +751,7 @@ int radeon_ddc_get_modes(struct radeon_connector *radeon_connector)
 	return 0;
 }
 
+/* avivo */
 static void avivo_get_fb_div(struct radeon_pll *pll,
 			     u32 target_clock,
 			     u32 post_div,
@@ -845,6 +869,7 @@ void radeon_compute_pll_avivo(struct radeon_pll *pll,
 		      *dot_clock_p, fb_div, frac_fb_div, ref_div, post_div);
 }
 
+/* pre-avivo */
 static inline uint32_t radeon_div(uint64_t n, uint32_t d)
 {
 	uint64_t mod;
@@ -923,7 +948,7 @@ void radeon_compute_pll_legacy(struct radeon_pll *pll,
 		if ((pll->flags & RADEON_PLL_NO_ODD_POST_DIV) && (post_div & 1))
 			continue;
 
-		
+		/* legacy radeons only have a few post_divs */
 		if (pll->flags & RADEON_PLL_LEGACY) {
 			if ((post_div == 5) ||
 			    (post_div == 7) ||
@@ -1200,8 +1225,14 @@ static int radeon_modeset_create_props(struct radeon_device *rdev)
 
 void radeon_update_display_priority(struct radeon_device *rdev)
 {
-	
+	/* adjustment options for the display watermarks */
 	if ((radeon_disp_priority == 0) || (radeon_disp_priority > 2)) {
+		/* set display priority to high for r3xx, rv515 chips
+		 * this avoids flickering due to underflow to the
+		 * display controllers during heavy acceleration.
+		 * Don't force high on rs4xx igp chips as it seems to
+		 * affect the sound card.  See kernel bug 15982.
+		 */
 		if ((ASIC_IS_R300(rdev) || (rdev->family == CHIP_RV515)) &&
 		    !(rdev->flags & RADEON_IS_IGP))
 			rdev->disp_priority = 2;
@@ -1243,36 +1274,36 @@ int radeon_modeset_init(struct radeon_device *rdev)
 		return ret;
 	}
 
-	
+	/* init i2c buses */
 	radeon_i2c_init(rdev);
 
-	
+	/* check combios for a valid hardcoded EDID - Sun servers */
 	if (!rdev->is_atom_bios) {
-		
+		/* check for hardcoded EDID in BIOS */
 		radeon_combios_check_hardcoded_edid(rdev);
 	}
 
-	
+	/* allocate crtcs */
 	for (i = 0; i < rdev->num_crtc; i++) {
 		radeon_crtc_init(rdev->ddev, i);
 	}
 
-	
+	/* okay we should have all the bios connectors */
 	ret = radeon_setup_enc_conn(rdev->ddev);
 	if (!ret) {
 		return ret;
 	}
 
-	
+	/* init dig PHYs, disp eng pll */
 	if (rdev->is_atom_bios) {
 		radeon_atom_encoder_init(rdev);
 		radeon_atom_disp_eng_pll_init(rdev);
 	}
 
-	
+	/* initialize hpd */
 	radeon_hpd_init(rdev);
 
-	
+	/* Initialize power management */
 	radeon_pm_init(rdev);
 
 	radeon_fbdev_init(rdev);
@@ -1293,17 +1324,17 @@ void radeon_modeset_fini(struct radeon_device *rdev)
 		drm_mode_config_cleanup(rdev->ddev);
 		rdev->mode_info.mode_config_initialized = false;
 	}
-	
+	/* free i2c buses */
 	radeon_i2c_fini(rdev);
 }
 
 static bool is_hdtv_mode(struct drm_display_mode *mode)
 {
-	
-	if ((mode->vdisplay == 480 && mode->hdisplay == 720) || 
-	    (mode->vdisplay == 576) || 
-	    (mode->vdisplay == 720) || 
-	    (mode->vdisplay == 1080)) 
+	/* try and guess if this is a tv or a monitor */
+	if ((mode->vdisplay == 480 && mode->hdisplay == 720) || /* 480p */
+	    (mode->vdisplay == 576) || /* 576p */
+	    (mode->vdisplay == 720) || /* 720p */
+	    (mode->vdisplay == 1080)) /* 1080p */
 		return true;
 	else
 		return false;
@@ -1335,7 +1366,7 @@ bool radeon_crtc_scaling_mode_fixup(struct drm_crtc *crtc,
 		radeon_connector = to_radeon_connector(connector);
 
 		if (first) {
-			
+			/* set scaling */
 			if (radeon_encoder->rmx_type == RMX_OFF)
 				radeon_crtc->rmx_type = RMX_OFF;
 			else if (mode->hdisplay < radeon_encoder->native_mode.hdisplay ||
@@ -1343,7 +1374,7 @@ bool radeon_crtc_scaling_mode_fixup(struct drm_crtc *crtc,
 				radeon_crtc->rmx_type = radeon_encoder->rmx_type;
 			else
 				radeon_crtc->rmx_type = RMX_OFF;
-			
+			/* copy native mode */
 			memcpy(&radeon_crtc->native_mode,
 			       &radeon_encoder->native_mode,
 				sizeof(struct drm_display_mode));
@@ -1352,7 +1383,7 @@ bool radeon_crtc_scaling_mode_fixup(struct drm_crtc *crtc,
 			src_h = crtc->mode.hdisplay;
 			dst_h = radeon_crtc->native_mode.hdisplay;
 
-			
+			/* fix up for overscan on hdmi */
 			if (ASIC_IS_AVIVO(rdev) &&
 			    (!(mode->flags & DRM_MODE_FLAG_INTERLACE)) &&
 			    ((radeon_encoder->underscan_type == UNDERSCAN_ON) ||
@@ -1376,6 +1407,12 @@ bool radeon_crtc_scaling_mode_fixup(struct drm_crtc *crtc,
 			first = false;
 		} else {
 			if (radeon_crtc->rmx_type != radeon_encoder->rmx_type) {
+				/* WARNING: Right now this can't happen but
+				 * in the future we need to check that scaling
+				 * are consistent across different encoder
+				 * (ie all encoder can work with the same
+				 *  scaling).
+				 */
 				DRM_ERROR("Scaling not consistent across encoder.\n");
 				return false;
 			}
@@ -1396,6 +1433,28 @@ bool radeon_crtc_scaling_mode_fixup(struct drm_crtc *crtc,
 	return true;
 }
 
+/*
+ * Retrieve current video scanout position of crtc on a given gpu.
+ *
+ * \param dev Device to query.
+ * \param crtc Crtc to query.
+ * \param *vpos Location where vertical scanout position should be stored.
+ * \param *hpos Location where horizontal scanout position should go.
+ *
+ * Returns vpos as a positive number while in active scanout area.
+ * Returns vpos as a negative number inside vblank, counting the number
+ * of scanlines to go until end of vblank, e.g., -1 means "one scanline
+ * until start of active scanout / end of vblank."
+ *
+ * \return Flags, or'ed together as follows:
+ *
+ * DRM_SCANOUTPOS_VALID = Query successful.
+ * DRM_SCANOUTPOS_INVBL = Inside vblank.
+ * DRM_SCANOUTPOS_ACCURATE = Returned position is accurate. A lack of
+ * this flag means that returned position may be offset by a constant but
+ * unknown small number of scanlines wrt. real scanout position.
+ *
+ */
 int radeon_get_crtc_scanoutpos(struct drm_device *dev, int crtc, int *vpos, int *hpos)
 {
 	u32 stat_crtc = 0, vbl = 0, position = 0;
@@ -1459,11 +1518,14 @@ int radeon_get_crtc_scanoutpos(struct drm_device *dev, int crtc, int *vpos, int 
 			ret |= DRM_SCANOUTPOS_VALID;
 		}
 	} else {
-		
+		/* Pre-AVIVO: Different encoding of scanout pos and vblank interval. */
 		if (crtc == 0) {
+			/* Assume vbl_end == 0, get vbl_start from
+			 * upper 16 bits.
+			 */
 			vbl = (RREG32(RADEON_CRTC_V_TOTAL_DISP) &
 				RADEON_CRTC_V_DISP) >> RADEON_CRTC_V_DISP_SHIFT;
-			
+			/* Only retrieve vpos from upper 16 bits, set hpos == 0. */
 			position = (RREG32(RADEON_CRTC_VLINE_CRNT_VLINE) >> 16) & RADEON_CRTC_V_TOTAL;
 			stat_crtc = RREG32(RADEON_CRTC_STATUS);
 			if (!(stat_crtc & 1))
@@ -1483,38 +1545,43 @@ int radeon_get_crtc_scanoutpos(struct drm_device *dev, int crtc, int *vpos, int 
 		}
 	}
 
-	
+	/* Decode into vertical and horizontal scanout position. */
 	*vpos = position & 0x1fff;
 	*hpos = (position >> 16) & 0x1fff;
 
-	
+	/* Valid vblank area boundaries from gpu retrieved? */
 	if (vbl > 0) {
-		
+		/* Yes: Decode. */
 		ret |= DRM_SCANOUTPOS_ACCURATE;
 		vbl_start = vbl & 0x1fff;
 		vbl_end = (vbl >> 16) & 0x1fff;
 	}
 	else {
-		
+		/* No: Fake something reasonable which gives at least ok results. */
 		vbl_start = rdev->mode_info.crtcs[crtc]->base.hwmode.crtc_vdisplay;
 		vbl_end = 0;
 	}
 
-	
+	/* Test scanout position against vblank region. */
 	if ((*vpos < vbl_start) && (*vpos >= vbl_end))
 		in_vbl = false;
 
+	/* Check if inside vblank area and apply corrective offsets:
+	 * vpos will then be >=0 in video scanout area, but negative
+	 * within vblank area, counting down the number of lines until
+	 * start of scanout.
+	 */
 
-	
+	/* Inside "upper part" of vblank area? Apply corrective offset if so: */
 	if (in_vbl && (*vpos >= vbl_start)) {
 		vtotal = rdev->mode_info.crtcs[crtc]->base.hwmode.crtc_vtotal;
 		*vpos = *vpos - vtotal;
 	}
 
-	
+	/* Correct for shifted end of vbl at vbl_end. */
 	*vpos = *vpos - vbl_end;
 
-	
+	/* In vblank? */
 	if (in_vbl)
 		ret |= DRM_SCANOUTPOS_INVBL;
 

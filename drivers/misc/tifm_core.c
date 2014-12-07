@@ -137,7 +137,7 @@ static int tifm_device_resume(struct device *dev)
 #define tifm_device_suspend NULL
 #define tifm_device_resume NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
 static ssize_t type_show(struct device *dev, struct device_attribute *attr,
 			 char *buf)

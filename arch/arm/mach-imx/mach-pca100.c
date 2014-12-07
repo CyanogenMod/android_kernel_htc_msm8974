@@ -48,12 +48,12 @@
 #define SD2_CD (GPIO_PORTC + 29)
 
 static const int pca100_pins[] __initconst = {
-	
+	/* UART1 */
 	PE12_PF_UART1_TXD,
 	PE13_PF_UART1_RXD,
 	PE14_PF_UART1_CTS,
 	PE15_PF_UART1_RTS,
-	
+	/* SDHC */
 	PB4_PF_SD2_D0,
 	PB5_PF_SD2_D1,
 	PB6_PF_SD2_D2,
@@ -61,7 +61,7 @@ static const int pca100_pins[] __initconst = {
 	PB8_PF_SD2_CMD,
 	PB9_PF_SD2_CLK,
 	SD2_CD | GPIO_GPIO | GPIO_IN,
-	
+	/* FEC */
 	PD0_AIN_FEC_TXD0,
 	PD1_AIN_FEC_TXD1,
 	PD2_AIN_FEC_TXD2,
@@ -80,23 +80,23 @@ static const int pca100_pins[] __initconst = {
 	PD15_AOUT_FEC_COL,
 	PD16_AIN_FEC_TX_ER,
 	PF23_AIN_FEC_TX_EN,
-	
+	/* SSI1 */
 	PC20_PF_SSI1_FS,
 	PC21_PF_SSI1_RXD,
 	PC22_PF_SSI1_TXD,
 	PC23_PF_SSI1_CLK,
-	
+	/* onboard I2C */
 	PC5_PF_I2C2_SDA,
 	PC6_PF_I2C2_SCL,
-	
+	/* external I2C */
 	PD17_PF_I2C_DATA,
 	PD18_PF_I2C_CLK,
-	
+	/* SPI1 */
 	PD25_PF_CSPI1_RDY,
 	PD29_PF_CSPI1_SCLK,
 	PD30_PF_CSPI1_MISO,
 	PD31_PF_CSPI1_MOSI,
-	
+	/* OTG */
 	OTG_PHY_CS_GPIO | GPIO_GPIO | GPIO_OUT,
 	PC7_PF_USBOTG_DATA5,
 	PC8_PF_USBOTG_DATA6,
@@ -110,7 +110,7 @@ static const int pca100_pins[] __initconst = {
 	PE2_PF_USBOTG_DIR,
 	PE24_PF_USBOTG_CLK,
 	PE25_PF_USBOTG_DATA7,
-	
+	/* USBH2 */
 	USBH2_PHY_CS_GPIO | GPIO_GPIO | GPIO_OUT,
 	PA0_PF_USBH2_CLK,
 	PA1_PF_USBH2_DIR,
@@ -124,7 +124,7 @@ static const int pca100_pins[] __initconst = {
 	PD23_AF_USBH2_DATA2,
 	PD24_AF_USBH2_DATA1,
 	PD26_AF_USBH2_DATA5,
-	
+	/* display */
 	PA5_PF_LSCLK,
 	PA6_PF_LD0,
 	PA7_PF_LD1,
@@ -148,10 +148,10 @@ static const int pca100_pins[] __initconst = {
 	PA28_PF_HSYNC,
 	PA29_PF_VSYNC,
 	PA31_PF_OE_ACD,
-	
-	GPIO_PORTC | 31 | GPIO_GPIO | GPIO_IN, 
-	GPIO_PORTC | 25 | GPIO_GPIO | GPIO_IN, 
-	GPIO_PORTE | 5 | GPIO_GPIO | GPIO_IN, 
+	/* free GPIO */
+	GPIO_PORTC | 31 | GPIO_GPIO | GPIO_IN, /* GPIO0_IRQ */
+	GPIO_PORTC | 25 | GPIO_GPIO | GPIO_IN, /* GPIO1_IRQ */
+	GPIO_PORTE | 5 | GPIO_GPIO | GPIO_IN, /* GPIO2_IRQ */
 };
 
 static const struct imxuart_platform_data uart_pdata __initconst = {
@@ -176,7 +176,7 @@ static struct at24_platform_data board_eeprom = {
 
 static struct i2c_board_info pca100_i2c_devices[] = {
 	{
-		I2C_BOARD_INFO("at24", 0x52), 
+		I2C_BOARD_INFO("at24", 0x52), /* E0=0, E1=1, E2=0 */
 		.platform_data = &board_eeprom,
 	}, {
 		I2C_BOARD_INFO("pcf8563", 0x51),
@@ -221,11 +221,11 @@ static void pca100_ac97_warm_reset(struct snd_ac97 *ac97)
 
 static void pca100_ac97_cold_reset(struct snd_ac97 *ac97)
 {
-	mxc_gpio_mode(GPIO_PORTC | 20 | GPIO_GPIO | GPIO_OUT);  
+	mxc_gpio_mode(GPIO_PORTC | 20 | GPIO_GPIO | GPIO_OUT);  /* FS */
 	gpio_set_value(GPIO_PORTC + 20, 0);
-	mxc_gpio_mode(GPIO_PORTC | 22 | GPIO_GPIO | GPIO_OUT);  
+	mxc_gpio_mode(GPIO_PORTC | 22 | GPIO_GPIO | GPIO_OUT);  /* TX */
 	gpio_set_value(GPIO_PORTC + 22, 0);
-	mxc_gpio_mode(GPIO_PORTC | 28 | GPIO_GPIO | GPIO_OUT);  
+	mxc_gpio_mode(GPIO_PORTC | 28 | GPIO_GPIO | GPIO_OUT);  /* reset */
 	gpio_set_value(GPIO_PORTC + 28, 0);
 	udelay(10);
 	gpio_set_value(GPIO_PORTC + 28, 1);
@@ -313,6 +313,7 @@ static int __init pca100_otg_mode(char *options)
 }
 __setup("otg_mode=", pca100_otg_mode);
 
+/* framebuffer info */
 static struct imx_fb_videomode pca100_fb_modes[] = {
 	{
 		.mode = {
@@ -320,7 +321,7 @@ static struct imx_fb_videomode pca100_fb_modes[] = {
 			.refresh	= 60,
 			.xres		= 640,
 			.yres		= 480,
-			.pixclock	= 39722, 
+			.pixclock	= 39722, /* in ps (25.175 MHz) */
 			.hsync_len	= 30,
 			.left_margin	= 114,
 			.right_margin	= 16,
@@ -328,6 +329,15 @@ static struct imx_fb_videomode pca100_fb_modes[] = {
 			.upper_margin	= 32,
 			.lower_margin	= 0,
 		},
+		/*
+		 * TFT
+		 * Pixel pol active high
+		 * HSYNC active low
+		 * VSYNC active low
+		 * use HSYNC for ACD count
+		 * line clock disable while idle
+		 * always enable line clock even if no data
+		 */
 		.pcr = 0xf0c08080,
 		.bpp = 16,
 	},
@@ -361,7 +371,7 @@ static void __init pca100_init(void)
 
 	imx27_add_mxc_nand(&pca100_nand_board_info);
 
-	
+	/* only the i2c master 1 is used on this CPU card */
 	i2c_register_board_info(1, pca100_i2c_devices,
 				ARRAY_SIZE(pca100_i2c_devices));
 

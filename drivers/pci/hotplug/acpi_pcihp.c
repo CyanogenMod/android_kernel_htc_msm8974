@@ -156,7 +156,7 @@ acpi_run_hpx(acpi_handle handle, struct hotplug_params *hpx)
 	u32 type;
 	int i;
 
-	
+	/* Clear the return buffer with zeros */
 	memset(hpx, 0, sizeof(struct hotplug_params));
 
 	status = acpi_evaluate_object(handle, "_HPX", NULL, &buffer);
@@ -255,6 +255,10 @@ exit:
 
 
 
+/* acpi_run_oshp - get control of hotplug from the firmware
+ *
+ * @handle - the handle of the hotplug controller.
+ */
 static acpi_status acpi_run_oshp(acpi_handle handle)
 {
 	acpi_status		status;
@@ -262,7 +266,7 @@ static acpi_status acpi_run_oshp(acpi_handle handle)
 
 	acpi_get_name(handle, ACPI_FULL_PATHNAME, &string);
 
-	
+	/* run OSHP */
 	status = acpi_evaluate_object(handle, METHOD_NAME_OSHP, NULL, NULL);
 	if (ACPI_FAILURE(status))
 		if (status != AE_NOT_FOUND)
@@ -279,6 +283,11 @@ static acpi_status acpi_run_oshp(acpi_handle handle)
 	return status;
 }
 
+/* pci_get_hp_params
+ *
+ * @dev - the pci_dev for which we want parameters
+ * @hpp - allocated by the caller
+ */
 int pci_get_hp_params(struct pci_dev *dev, struct hotplug_params *hpp)
 {
 	acpi_status status;
@@ -292,6 +301,12 @@ int pci_get_hp_params(struct pci_dev *dev, struct hotplug_params *hpp)
 			break;
 	}
 
+	/*
+	 * _HPP settings apply to all child buses, until another _HPP is
+	 * encountered. If we don't find an _HPP for the input pci dev,
+	 * look for it in the parent device scope since that would apply to
+	 * this pci dev.
+	 */
 	while (handle) {
 		status = acpi_run_hpx(handle, hpp);
 		if (ACPI_SUCCESS(status))
@@ -310,6 +325,13 @@ int pci_get_hp_params(struct pci_dev *dev, struct hotplug_params *hpp)
 }
 EXPORT_SYMBOL_GPL(pci_get_hp_params);
 
+/**
+ * acpi_get_hp_hw_control_from_firmware
+ * @dev: the pci_dev of the bridge that has a hotplug controller
+ * @flags: requested control bits for _OSC
+ *
+ * Attempt to take hotplug control from firmware.
+ */
 int acpi_get_hp_hw_control_from_firmware(struct pci_dev *pdev, u32 flags)
 {
 	acpi_status status;
@@ -322,6 +344,15 @@ int acpi_get_hp_hw_control_from_firmware(struct pci_dev *pdev, u32 flags)
 		return -EINVAL;
 	}
 
+	/*
+	 * Per PCI firmware specification, we should run the ACPI _OSC
+	 * method to get control of hotplug hardware before using it. If
+	 * an _OSC is missing, we look for an OSHP to do the same thing.
+	 * To handle different BIOS behavior, we look for _OSC on a root
+	 * bridge preferentially (according to PCI fw spec). Later for
+	 * OSHP within the scope of the hotplug controller and its parents,
+	 * up to the host bridge under which this controller exists.
+	 */
 	handle = acpi_find_root_bridge_handle(pdev);
 	if (handle) {
 		acpi_get_name(handle, ACPI_FULL_PATHNAME, &string);
@@ -338,6 +369,10 @@ int acpi_get_hp_hw_control_from_firmware(struct pci_dev *pdev, u32 flags)
 
 	handle = DEVICE_ACPI_HANDLE(&pdev->dev);
 	if (!handle) {
+		/*
+		 * This hotplug controller was not listed in the ACPI name
+		 * space at all. Try to get acpi handle of parent pci bus.
+		 */
 		struct pci_bus *pbus;
 		for (pbus = pdev->bus; pbus; pbus = pbus->parent) {
 			handle = acpi_pci_get_bridge_handle(pbus);
@@ -390,6 +425,13 @@ static int pcihp_is_ejectable(acpi_handle handle)
 	return 0;
 }
 
+/**
+ * acpi_pcihp_check_ejectable - check if handle is ejectable ACPI PCI slot
+ * @pbus: the PCI bus of the PCI slot corresponding to 'handle'
+ * @handle: ACPI handle to check
+ *
+ * Return 1 if handle is ejectable PCI slot, 0 otherwise.
+ */
 int acpi_pci_check_ejectable(struct pci_bus *pbus, acpi_handle handle)
 {
 	acpi_handle bridge_handle, parent_handle;
@@ -415,6 +457,12 @@ check_hotplug(acpi_handle handle, u32 lvl, void *context, void **rv)
 	return AE_OK;
 }
 
+/**
+ * acpi_pci_detect_ejectable - check if the PCI bus has ejectable slots
+ * @handle - handle of the PCI bus to scan
+ *
+ * Returns 1 if the PCI bus has ACPI based ejectable slots, 0 otherwise.
+ */
 int acpi_pci_detect_ejectable(acpi_handle handle)
 {
 	int found = 0;

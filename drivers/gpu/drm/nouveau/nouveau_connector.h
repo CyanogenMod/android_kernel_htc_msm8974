@@ -36,6 +36,9 @@ enum nouveau_underscan_type {
 	UNDERSCAN_AUTO,
 };
 
+/* the enum values specifically defined here match nv50/nvd0 hw values, and
+ * the code relies on this
+ */
 enum nouveau_dithering_mode {
 	DITHERING_MODE_OFF = 0x00,
 	DITHERING_MODE_ON = 0x01,
@@ -82,4 +85,4 @@ nouveau_connector_create(struct drm_device *, int index);
 int
 nouveau_connector_bpp(struct drm_connector *);
 
-#endif 
+#endif /* __NOUVEAU_CONNECTOR_H__ */

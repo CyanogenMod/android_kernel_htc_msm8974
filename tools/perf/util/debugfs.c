@@ -17,6 +17,7 @@ static const char *debugfs_known_mountpoints[] = {
 
 static int debugfs_found;
 
+/* find the path to the mounted debugfs */
 const char *debugfs_find_mountpoint(void)
 {
 	const char **ptr;
@@ -36,7 +37,7 @@ const char *debugfs_find_mountpoint(void)
 		ptr++;
 	}
 
-	
+	/* give up and parse /proc/mounts */
 	fp = fopen("/proc/mounts", "r");
 	if (fp == NULL)
 		return NULL;
@@ -56,6 +57,7 @@ const char *debugfs_find_mountpoint(void)
 	return debugfs_mountpoint;
 }
 
+/* verify that a mountpoint is actually a debugfs instance */
 
 int debugfs_valid_mountpoint(const char *debugfs)
 {
@@ -75,20 +77,21 @@ static void debugfs_set_tracing_events_path(const char *mountpoint)
 		 mountpoint, "tracing/events");
 }
 
+/* mount the debugfs somewhere if it's not mounted */
 
 char *debugfs_mount(const char *mountpoint)
 {
-	
+	/* see if it's already mounted */
 	if (debugfs_find_mountpoint()) {
 		debugfs_premounted = 1;
 		goto out;
 	}
 
-	
+	/* if not mounted and no argument */
 	if (mountpoint == NULL) {
-		
+		/* see if environment variable set */
 		mountpoint = getenv(PERF_DEBUGFS_ENVIRONMENT);
-		
+		/* if no environment variable, use default */
 		if (mountpoint == NULL)
 			mountpoint = "/sys/kernel/debug";
 	}
@@ -96,7 +99,7 @@ char *debugfs_mount(const char *mountpoint)
 	if (mount(NULL, mountpoint, "debugfs", 0, NULL) < 0)
 		return NULL;
 
-	
+	/* save the mountpoint */
 	debugfs_found = 1;
 	strncpy(debugfs_mountpoint, mountpoint, sizeof(debugfs_mountpoint));
 out:

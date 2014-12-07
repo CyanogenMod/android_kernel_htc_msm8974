@@ -17,7 +17,19 @@
 
 #include "lxfb.h"
 
+/* TODO
+ * Support panel scaling
+ * Add acceleration
+ * Add support for interlacing (TV out)
+ * Support compression
+ */
 
+/* This is the complete list of PLL frequencies that we can set -
+ * we will choose the closest match to the incoming clock.
+ * freq is the frequency of the dotclock * 1000 (for example,
+ * 24823 = 24.983 Mhz).
+ * pllval is the corresponding PLL value
+*/
 
 static const struct {
   unsigned int pllval;
@@ -129,11 +141,11 @@ static void lx_set_dotpll(u32 pllval)
 
 	wrmsr(MSR_GLCP_DOTPLL, dotpll_lo, dotpll_hi);
 
-	
+	/* Wait 100us for the PLL to lock */
 
 	udelay(100);
 
-	
+	/* Now, loop for the lock bit */
 
 	for (i = 0; i < 1000; i++) {
 		rdmsr(MSR_GLCP_DOTPLL, dotpll_lo, dotpll_hi);
@@ -141,12 +153,13 @@ static void lx_set_dotpll(u32 pllval)
 			break;
 	}
 
-	
+	/* Clear the reset bit */
 
 	dotpll_lo &= ~MSR_GLCP_DOTPLL_DOTRESET;
 	wrmsr(MSR_GLCP_DOTPLL, dotpll_lo, dotpll_hi);
 }
 
+/* Set the clock based on the frequency specified by the current mode */
 
 static void lx_set_clock(struct fb_info *info)
 {
@@ -173,13 +186,13 @@ static void lx_graphics_disable(struct fb_info *info)
 	struct lxfb_par *par = info->par;
 	unsigned int val, gcfg;
 
-	
+	/* Note:  This assumes that the video is in a quitet state */
 
 	write_vp(par, VP_A1T, 0);
 	write_vp(par, VP_A2T, 0);
 	write_vp(par, VP_A3T, 0);
 
-	
+	/* Turn off the VGA and video enable */
 	val = read_dc(par, DC_GENERAL_CFG) & ~(DC_GENERAL_CFG_VGAE |
 			DC_GENERAL_CFG_VIDE);
 
@@ -197,13 +210,13 @@ static void lx_graphics_disable(struct fb_info *info)
 	val = read_dc(par, DC_CLR_KEY);
 	write_dc(par, DC_CLR_KEY, val & ~DC_CLR_KEY_CLR_KEY_EN);
 
-	
+	/* turn off the panel */
 	write_fp(par, FP_PM, read_fp(par, FP_PM) & ~FP_PM_P);
 
 	val = read_vp(par, VP_MISC) | VP_MISC_DACPWRDN;
 	write_vp(par, VP_MISC, val);
 
-	
+	/* Turn off the display */
 
 	val = read_vp(par, VP_DCFG);
 	write_vp(par, VP_DCFG, val & ~(VP_DCFG_CRT_EN | VP_DCFG_HSYNC_EN |
@@ -213,20 +226,20 @@ static void lx_graphics_disable(struct fb_info *info)
 	gcfg &= ~(DC_GENERAL_CFG_CMPE | DC_GENERAL_CFG_DECE);
 	write_dc(par, DC_GENERAL_CFG, gcfg);
 
-	
+	/* Turn off the TGEN */
 	val = read_dc(par, DC_DISPLAY_CFG);
 	val &= ~DC_DISPLAY_CFG_TGEN;
 	write_dc(par, DC_DISPLAY_CFG, val);
 
-	
+	/* Wait 1000 usecs to ensure that the TGEN is clear */
 	udelay(1000);
 
-	
+	/* Turn off the FIFO loader */
 
 	gcfg &= ~DC_GENERAL_CFG_DFLE;
 	write_dc(par, DC_GENERAL_CFG, gcfg);
 
-	
+	/* Lastly, wait for the GP to go idle */
 
 	do {
 		val = read_gp(par, GP_BLT_STATUS);
@@ -238,10 +251,10 @@ static void lx_graphics_enable(struct fb_info *info)
 	struct lxfb_par *par = info->par;
 	u32 temp, config;
 
-	
+	/* Set the video request register */
 	write_vp(par, VP_VRR, 0);
 
-	
+	/* Set up the polarities */
 
 	config = read_vp(par, VP_DCFG);
 
@@ -285,7 +298,7 @@ static void lx_graphics_enable(struct fb_info *info)
 
 	write_vp(par, VP_DCFG, config);
 
-	
+	/* Turn the CRT dacs back on */
 
 	if (par->output & OUTPUT_CRT) {
 		temp = read_vp(par, VP_MISC);
@@ -293,7 +306,7 @@ static void lx_graphics_enable(struct fb_info *info)
 		write_vp(par, VP_MISC, temp);
 	}
 
-	
+	/* Turn the panel on (if it isn't already) */
 	if (par->output & OUTPUT_PANEL)
 		write_fp(par, FP_PM, read_fp(par, FP_PM) | FP_PM_P);
 }
@@ -305,22 +318,22 @@ unsigned int lx_framebuffer_size(void)
 	if (!cs5535_has_vsa2()) {
 		uint32_t hi, lo;
 
-		
+		/* The number of pages is (PMAX - PMIN)+1 */
 		rdmsr(MSR_GLIU_P2D_RO0, lo, hi);
 
-		
+		/* PMAX */
 		val = ((hi & 0xff) << 12) | ((lo & 0xfff00000) >> 20);
-		
+		/* PMIN */
 		val -= (lo & 0x000fffff);
 		val += 1;
 
-		
+		/* The page size is 4k */
 		return (val << 12);
 	}
 
-	
-	
-	
+	/* The frame buffer size is reported by a VSM in VSA II */
+	/* Virtual Register Class    = 0x02                     */
+	/* VG_MEM_SIZE (1MB units)   = 0x00                     */
 
 	outw(VSA_VR_UNLOCK, VSA_VRC_INDEX);
 	outw(VSA_VR_MEM_SIZE, VSA_VRC_INDEX);
@@ -340,14 +353,14 @@ void lx_set_mode(struct fb_info *info)
 	int hactive, hblankstart, hsyncstart, hsyncend, hblankend, htotal;
 	int vactive, vblankstart, vsyncstart, vsyncend, vblankend, vtotal;
 
-	
+	/* Unlock the DC registers */
 	write_dc(par, DC_UNLOCK, DC_UNLOCK_UNLOCK);
 
 	lx_graphics_disable(info);
 
 	lx_set_clock(info);
 
-	
+	/* Set output mode */
 
 	rdmsrl(MSR_LX_GLD_MSR_CONFIG, msrval);
 	msrval &= ~MSR_LX_GLD_MSR_CONFIG_FMT;
@@ -364,27 +377,27 @@ void lx_set_mode(struct fb_info *info)
 
 	wrmsrl(MSR_LX_GLD_MSR_CONFIG, msrval);
 
-	
-	
+	/* Clear the various buffers */
+	/* FIXME:  Adjust for panning here */
 
 	write_dc(par, DC_FB_ST_OFFSET, 0);
 	write_dc(par, DC_CB_ST_OFFSET, 0);
 	write_dc(par, DC_CURS_ST_OFFSET, 0);
 
-	
-	
+	/* FIXME: Add support for interlacing */
+	/* FIXME: Add support for scaling */
 
 	val = read_dc(par, DC_GENLK_CTL);
 	val &= ~(DC_GENLK_CTL_ALPHA_FLICK_EN | DC_GENLK_CTL_FLICK_EN |
 			DC_GENLK_CTL_FLICK_SEL_MASK);
 
-	
+	/* Default scaling params */
 
 	write_dc(par, DC_GFX_SCALE, (0x4000 << 16) | 0x4000);
 	write_dc(par, DC_IRQ_FILT_CTL, 0);
 	write_dc(par, DC_GENLK_CTL, val);
 
-	
+	/* FIXME:  Support compression */
 
 	if (info->fix.line_length > 4096)
 		dv = DC_DV_CTL_DV_LINE_SIZE_8K;
@@ -408,7 +421,7 @@ void lx_set_mode(struct fb_info *info)
 	write_dc(par, DC_GFX_PITCH, info->fix.line_length >> 3);
 	write_dc(par, DC_LINE_SIZE, (size + 7) >> 3);
 
-	
+	/* Set default watermark values */
 
 	rdmsrl(MSR_LX_SPARE_MSR, msrval);
 
@@ -420,20 +433,20 @@ void lx_set_mode(struct fb_info *info)
 			MSR_LX_SPARE_MSR_DIS_INIT_V_PRI;
 	wrmsrl(MSR_LX_SPARE_MSR, msrval);
 
-	gcfg = DC_GENERAL_CFG_DFLE;   
-	gcfg |= (0x6 << DC_GENERAL_CFG_DFHPSL_SHIFT) | 
+	gcfg = DC_GENERAL_CFG_DFLE;   /* Display fifo enable */
+	gcfg |= (0x6 << DC_GENERAL_CFG_DFHPSL_SHIFT) | /* default priority */
 			(0xb << DC_GENERAL_CFG_DFHPEL_SHIFT);
-	gcfg |= DC_GENERAL_CFG_FDTY;  
+	gcfg |= DC_GENERAL_CFG_FDTY;  /* Set the frame dirty mode */
 
-	dcfg  = DC_DISPLAY_CFG_VDEN;  
-	dcfg |= DC_DISPLAY_CFG_GDEN;  
-	dcfg |= DC_DISPLAY_CFG_TGEN;  
-	dcfg |= DC_DISPLAY_CFG_TRUP;  
-	dcfg |= DC_DISPLAY_CFG_PALB;  
+	dcfg  = DC_DISPLAY_CFG_VDEN;  /* Enable video data */
+	dcfg |= DC_DISPLAY_CFG_GDEN;  /* Enable graphics */
+	dcfg |= DC_DISPLAY_CFG_TGEN;  /* Turn on the timing generator */
+	dcfg |= DC_DISPLAY_CFG_TRUP;  /* Update timings immediately */
+	dcfg |= DC_DISPLAY_CFG_PALB;  /* Palette bypass in > 8 bpp modes */
 	dcfg |= DC_DISPLAY_CFG_VISL;
-	dcfg |= DC_DISPLAY_CFG_DCEN;  
+	dcfg |= DC_DISPLAY_CFG_DCEN;  /* Always center the display */
 
-	
+	/* Set the current BPP mode */
 
 	switch (info->var.bits_per_pixel) {
 	case 8:
@@ -450,7 +463,7 @@ void lx_set_mode(struct fb_info *info)
 		break;
 	}
 
-	
+	/* Now - set up the timings */
 
 	hactive = info->var.xres;
 	hblankstart = hactive;
@@ -481,15 +494,15 @@ void lx_set_mode(struct fb_info *info)
 	write_dc(par, DC_FB_ACTIVE,
 			(info->var.xres - 1) << 16 | (info->var.yres - 1));
 
-	
+	/* And re-enable the graphics output */
 	lx_graphics_enable(info);
 
-	
+	/* Write the two main configuration registers */
 	write_dc(par, DC_DISPLAY_CFG, dcfg);
 	write_dc(par, DC_ARB_CFG, 0);
 	write_dc(par, DC_GENERAL_CFG, gcfg);
 
-	
+	/* Lock the DC registers */
 	write_dc(par, DC_UNLOCK, DC_UNLOCK_LOCK);
 }
 
@@ -499,7 +512,7 @@ void lx_set_palette_reg(struct fb_info *info, unsigned regno,
 	struct lxfb_par *par = info->par;
 	int val;
 
-	
+	/* Hardware palette is in RGB 8-8-8 format. */
 
 	val  = (red   << 8) & 0xff0000;
 	val |= (green)      & 0x00ff00;
@@ -515,7 +528,7 @@ int lx_blank_display(struct fb_info *info, int blank_mode)
 	u32 dcfg, misc, fp_pm;
 	int blank, hsync, vsync;
 
-	
+	/* CRT power saving modes. */
 	switch (blank_mode) {
 	case FB_BLANK_UNBLANK:
 		blank = 0; hsync = 1; vsync = 1;
@@ -557,7 +570,7 @@ int lx_blank_display(struct fb_info *info, int blank_mode)
 
 	write_vp(par, VP_MISC, misc);
 
-	
+	/* Power on/off flat panel */
 
 	if (par->output & OUTPUT_PANEL) {
 		fp_pm = read_fp(par, FP_PM);
@@ -578,12 +591,12 @@ static void lx_save_regs(struct lxfb_par *par)
 	uint32_t filt;
 	int i;
 
-	
+	/* wait for the BLT engine to stop being busy */
 	do {
 		i = read_gp(par, GP_BLT_STATUS);
 	} while ((i & GP_BLT_STATUS_PB) || !(i & GP_BLT_STATUS_CE));
 
-	
+	/* save MSRs */
 	rdmsrl(MSR_LX_MSR_PADSEL, par->msr.padsel);
 	rdmsrl(MSR_GLCP_DOTPLL, par->msr.dotpll);
 	rdmsrl(MSR_LX_GLD_MSR_CONFIG, par->msr.dfglcfg);
@@ -591,23 +604,23 @@ static void lx_save_regs(struct lxfb_par *par)
 
 	write_dc(par, DC_UNLOCK, DC_UNLOCK_UNLOCK);
 
-	
+	/* save registers */
 	memcpy(par->gp, par->gp_regs, sizeof(par->gp));
 	memcpy(par->dc, par->dc_regs, sizeof(par->dc));
 	memcpy(par->vp, par->vp_regs, sizeof(par->vp));
 	memcpy(par->fp, par->vp_regs + VP_FP_START, sizeof(par->fp));
 
-	
+	/* save the display controller palette */
 	write_dc(par, DC_PAL_ADDRESS, 0);
 	for (i = 0; i < ARRAY_SIZE(par->dc_pal); i++)
 		par->dc_pal[i] = read_dc(par, DC_PAL_DATA);
 
-	
+	/* save the video processor palette */
 	write_vp(par, VP_PAR, 0);
 	for (i = 0; i < ARRAY_SIZE(par->vp_pal); i++)
 		par->vp_pal[i] = read_vp(par, VP_PDR);
 
-	
+	/* save the horizontal filter coefficients */
 	filt = par->dc[DC_IRQ_FILT_CTL] | DC_IRQ_FILT_CTL_H_FILT_SEL;
 	for (i = 0; i < ARRAY_SIZE(par->hcoeff); i += 2) {
 		write_dc(par, DC_IRQ_FILT_CTL, (filt & 0xffffff00) | i);
@@ -615,14 +628,14 @@ static void lx_save_regs(struct lxfb_par *par)
 		par->hcoeff[i + 1] = read_dc(par, DC_FILT_COEFF2);
 	}
 
-	
+	/* save the vertical filter coefficients */
 	filt &= ~DC_IRQ_FILT_CTL_H_FILT_SEL;
 	for (i = 0; i < ARRAY_SIZE(par->vcoeff); i++) {
 		write_dc(par, DC_IRQ_FILT_CTL, (filt & 0xffffff00) | i);
 		par->vcoeff[i] = read_dc(par, DC_FILT_COEFF1);
 	}
 
-	
+	/* save video coeff ram */
 	memcpy(par->vp_coeff, par->vp_regs + VP_VCR, sizeof(par->vp_coeff));
 }
 
@@ -630,7 +643,7 @@ static void lx_restore_gfx_proc(struct lxfb_par *par)
 {
 	int i;
 
-	
+	/* a bunch of registers require GP_RASTER_MODE to be set first */
 	write_gp(par, GP_RASTER_MODE, par->gp[GP_RASTER_MODE]);
 
 	for (i = 0; i < ARRAY_SIZE(par->gp); i++) {
@@ -640,10 +653,10 @@ static void lx_restore_gfx_proc(struct lxfb_par *par)
 		case GP_BLT_MODE:
 		case GP_BLT_STATUS:
 		case GP_HST_SRC:
-			
+			/* FIXME: restore LUT data */
 		case GP_LUT_INDEX:
 		case GP_LUT_DATA:
-			
+			/* don't restore these registers */
 			break;
 
 		default:
@@ -662,18 +675,18 @@ static void lx_restore_display_ctlr(struct lxfb_par *par)
 	for (i = 0; i < ARRAY_SIZE(par->dc); i++) {
 		switch (i) {
 		case DC_UNLOCK:
-			
+			/* unlock the DC; runs first */
 			write_dc(par, DC_UNLOCK, DC_UNLOCK_UNLOCK);
 			break;
 
 		case DC_GENERAL_CFG:
 		case DC_DISPLAY_CFG:
-			
+			/* disable all while restoring */
 			write_dc(par, i, 0);
 			break;
 
 		case DC_DV_CTL:
-			
+			/* set all ram to dirty */
 			write_dc(par, i, par->dc[i] | DC_DV_CTL_CLEAR_DV_RAM);
 
 		case DC_RSVD_1:
@@ -688,7 +701,7 @@ static void lx_restore_display_ctlr(struct lxfb_par *par)
 		case DC_FILT_COEFF2:
 		case DC_RSVD_4:
 		case DC_RSVD_5:
-			
+			/* don't restore these registers */
 			break;
 
 		default:
@@ -696,12 +709,12 @@ static void lx_restore_display_ctlr(struct lxfb_par *par)
 		}
 	}
 
-	
+	/* restore the palette */
 	write_dc(par, DC_PAL_ADDRESS, 0);
 	for (i = 0; i < ARRAY_SIZE(par->dc_pal); i++)
 		write_dc(par, DC_PAL_DATA, par->dc_pal[i]);
 
-	
+	/* restore the horizontal filter coefficients */
 	filt = par->dc[DC_IRQ_FILT_CTL] | DC_IRQ_FILT_CTL_H_FILT_SEL;
 	for (i = 0; i < ARRAY_SIZE(par->hcoeff); i += 2) {
 		write_dc(par, DC_IRQ_FILT_CTL, (filt & 0xffffff00) | i);
@@ -709,7 +722,7 @@ static void lx_restore_display_ctlr(struct lxfb_par *par)
 		write_dc(par, DC_FILT_COEFF2, par->hcoeff[i + 1]);
 	}
 
-	
+	/* restore the vertical filter coefficients */
 	filt &= ~DC_IRQ_FILT_CTL_H_FILT_SEL;
 	for (i = 0; i < ARRAY_SIZE(par->vcoeff); i++) {
 		write_dc(par, DC_IRQ_FILT_CTL, (filt & 0xffffff00) | i);
@@ -732,10 +745,10 @@ static void lx_restore_video_proc(struct lxfb_par *par)
 		case VP_PDR:
 		case VP_CCS:
 		case VP_RSVD_0:
-		 
+		/* case VP_VDC: */ /* why should this not be restored? */
 		case VP_RSVD_1:
 		case VP_CRC32:
-			
+			/* don't restore these registers */
 			break;
 
 		default:
@@ -743,12 +756,12 @@ static void lx_restore_video_proc(struct lxfb_par *par)
 		}
 	}
 
-	
+	/* restore video processor palette */
 	write_vp(par, VP_PAR, 0);
 	for (i = 0; i < ARRAY_SIZE(par->vp_pal); i++)
 		write_vp(par, VP_PDR, par->vp_pal[i]);
 
-	
+	/* restore video coeff ram */
 	memcpy(par->vp_regs + VP_VCR, par->vp_coeff, sizeof(par->vp_coeff));
 }
 
@@ -761,7 +774,7 @@ static void lx_restore_regs(struct lxfb_par *par)
 	lx_restore_display_ctlr(par);
 	lx_restore_video_proc(par);
 
-	
+	/* Flat Panel */
 	for (i = 0; i < ARRAY_SIZE(par->fp); i++) {
 		switch (i) {
 		case FP_PM:
@@ -770,7 +783,7 @@ static void lx_restore_regs(struct lxfb_par *par)
 		case FP_RSVD_2:
 		case FP_RSVD_3:
 		case FP_RSVD_4:
-			
+			/* don't restore these registers */
 			break;
 
 		default:
@@ -778,27 +791,27 @@ static void lx_restore_regs(struct lxfb_par *par)
 		}
 	}
 
-	
+	/* control the panel */
 	if (par->fp[FP_PM] & FP_PM_P) {
-		
+		/* power on the panel if not already power{ed,ing} on */
 		if (!(read_fp(par, FP_PM) &
 				(FP_PM_PANEL_ON|FP_PM_PANEL_PWR_UP)))
 			write_fp(par, FP_PM, par->fp[FP_PM]);
 	} else {
-		
+		/* power down the panel if not already power{ed,ing} down */
 		if (!(read_fp(par, FP_PM) &
 				(FP_PM_PANEL_OFF|FP_PM_PANEL_PWR_DOWN)))
 			write_fp(par, FP_PM, par->fp[FP_PM]);
 	}
 
-	
+	/* turn everything on */
 	write_vp(par, VP_VCFG, par->vp[VP_VCFG]);
 	write_vp(par, VP_DCFG, par->vp[VP_DCFG]);
 	write_dc(par, DC_DISPLAY_CFG, par->dc[DC_DISPLAY_CFG]);
-	
+	/* do this last; it will enable the FIFO load */
 	write_dc(par, DC_GENERAL_CFG, par->dc[DC_GENERAL_CFG]);
 
-	
+	/* lock the door behind us */
 	write_dc(par, DC_UNLOCK, DC_UNLOCK_LOCK);
 }
 

@@ -26,5 +26,5 @@ static inline u16 crc16_byte(u16 crc, const u8 data)
 	return (crc >> 8) ^ crc16_table[(crc ^ data) & 0xff];
 }
 
-#endif 
+#endif /* __CRC16_H */
 

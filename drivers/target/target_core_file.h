@@ -23,22 +23,22 @@ struct fd_request {
 struct fd_dev {
 	u32		fbd_flags;
 	unsigned char	fd_dev_name[FD_MAX_DEV_NAME];
-	
+	/* Unique Ramdisk Device ID in Ramdisk HBA */
 	u32		fd_dev_id;
-	
+	/* Number of SG tables in sg_table_array */
 	u32		fd_table_count;
 	u32		fd_queue_depth;
 	u32		fd_block_size;
 	unsigned long long fd_dev_size;
 	struct file	*fd_file;
-	
+	/* FILEIO HBA device is connected to */
 	struct fd_host *fd_host;
 } ____cacheline_aligned;
 
 struct fd_host {
 	u32		fd_host_dev_id_count;
-	
+	/* Unique FILEIO Host ID */
 	u32		fd_host_id;
 } ____cacheline_aligned;
 
-#endif 
+#endif /* TARGET_CORE_FILE_H */

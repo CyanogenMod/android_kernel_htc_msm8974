@@ -188,44 +188,79 @@
 #include <scsi/scsicam.h>
 
 
-#undef  WD7000_DEBUG		
+#undef  WD7000_DEBUG		/* general debug                */
 #ifdef WD7000_DEBUG
 #define dprintk printk
 #else
 #define dprintk(format,args...)
 #endif
 
+/*
+ *  Mailbox structure sizes.
+ *  I prefer to keep the number of ICMBs much larger than the number of
+ *  OGMBs.  OGMBs are used very quickly by the driver to start one or
+ *  more commands, while ICMBs are used by the host adapter per command.
+ */
 #define OGMB_CNT	16
 #define ICMB_CNT	32
 
+/*
+ *  Scb's are shared by all active adapters.  So, if they all become busy,
+ *  callers may be made to wait in alloc_scbs for them to free.  That can
+ *  be avoided by setting MAX_SCBS to NUM_CONFIG * WD7000_Q.  If you'd
+ *  rather conserve memory, use a smaller number (> 0, of course) - things
+ *  will should still work OK.
+ */
 #define MAX_SCBS        32
 
+/*
+ *  In this version, sg_tablesize now defaults to WD7000_SG, and will
+ *  be set to SG_NONE for older boards.  This is the reverse of the
+ *  previous default, and was changed so that the driver-level
+ *  scsi_host_template would reflect the driver's support for scatter/
+ *  gather.
+ *
+ *  Also, it has been reported that boards at Revision 6 support scatter/
+ *  gather, so the new definition of an "older" board has been changed
+ *  accordingly.
+ */
 #define WD7000_Q	16
 #define WD7000_SG	16
 
 
+/*
+ *  WD7000-specific mailbox structure
+ *
+ */
 typedef volatile struct mailbox {
 	unchar status;
-	unchar scbptr[3];	
+	unchar scbptr[3];	/* SCSI-style - MSB first (big endian) */
 } Mailbox;
 
+/*
+ *  This structure should contain all per-adapter global data.  I.e., any
+ *  new global per-adapter data should put in here.
+ */
 typedef struct adapter {
-	struct Scsi_Host *sh;	
-	int iobase;		
-	int irq;		
-	int dma;		
-	int int_counter;	
-	int bus_on;		
-	int bus_off;		
-	struct {		
-		Mailbox ogmb[OGMB_CNT];	
-		Mailbox icmb[ICMB_CNT];	
+	struct Scsi_Host *sh;	/* Pointer to Scsi_Host structure    */
+	int iobase;		/* This adapter's I/O base address   */
+	int irq;		/* This adapter's IRQ level          */
+	int dma;		/* This adapter's DMA channel        */
+	int int_counter;	/* This adapter's interrupt counter  */
+	int bus_on;		/* This adapter's BUS_ON time        */
+	int bus_off;		/* This adapter's BUS_OFF time       */
+	struct {		/* This adapter's mailboxes          */
+		Mailbox ogmb[OGMB_CNT];	/* Outgoing mailboxes                */
+		Mailbox icmb[ICMB_CNT];	/* Incoming mailboxes                */
 	} mb;
-	int next_ogmb;		
-	unchar control;		
-	unchar rev1, rev2;	
+	int next_ogmb;		/* to reduce contention at mailboxes */
+	unchar control;		/* shadows CONTROL port value        */
+	unchar rev1, rev2;	/* filled in by wd7000_revision      */
 } Adapter;
 
+/*
+ * (linear) base address for ROM BIOS
+ */
 static const long wd7000_biosaddr[] = {
 	0xc0000, 0xc2000, 0xc4000, 0xc6000, 0xc8000, 0xca000, 0xcc000, 0xce000,
 	0xd0000, 0xd2000, 0xd4000, 0xd6000, 0xd8000, 0xda000, 0xdc000, 0xde000
@@ -246,111 +281,191 @@ static const short wd7000_irq[] = { 3, 4, 5, 7, 9, 10, 11, 12, 14, 15 };
 static const short wd7000_dma[] = { 5, 6, 7 };
 #define NUM_DMAS ARRAY_SIZE(wd7000_dma)
 
+/*
+ * The following is set up by wd7000_detect, and used thereafter for
+ * proc and other global ookups
+ */
 
 #define UNITS	8
 static struct Scsi_Host *wd7000_host[UNITS];
 
-#define BUS_ON    64		
-#define BUS_OFF   15		
+#define BUS_ON    64		/* x 125ns = 8000ns (BIOS default) */
+#define BUS_OFF   15		/* x 125ns = 1875ns (BIOS default) */
 
+/*
+ *  Standard Adapter Configurations - used by wd7000_detect
+ */
 typedef struct {
-	short irq;		
-	short dma;		
-	unsigned iobase;	
-	short bus_on;		
-	
-	short bus_off;		
-	
-	
+	short irq;		/* IRQ level                                  */
+	short dma;		/* DMA channel                                */
+	unsigned iobase;	/* I/O base address                           */
+	short bus_on;		/* Time that WD7000 spends on the AT-bus when */
+	/* transferring data. BIOS default is 8000ns. */
+	short bus_off;		/* Time that WD7000 spends OFF THE BUS after  */
+	/* while it is transferring data.             */
+	/* BIOS default is 1875ns                     */
 } Config;
 
+/*
+ * Add here your configuration...
+ */
 static Config configs[] = {
-	{15, 6, 0x350, BUS_ON, BUS_OFF},	
-	{11, 5, 0x320, BUS_ON, BUS_OFF},	
-	{7, 6, 0x350, BUS_ON, BUS_OFF},	
-	{-1, -1, 0x0, BUS_ON, BUS_OFF}	
+	{15, 6, 0x350, BUS_ON, BUS_OFF},	/* defaults for single adapter */
+	{11, 5, 0x320, BUS_ON, BUS_OFF},	/* defaults for second adapter */
+	{7, 6, 0x350, BUS_ON, BUS_OFF},	/* My configuration (Zaga)     */
+	{-1, -1, 0x0, BUS_ON, BUS_OFF}	/* Empty slot                  */
 };
 #define NUM_CONFIGS ARRAY_SIZE(configs)
 
+/*
+ *  The following list defines strings to look for in the BIOS that identify
+ *  it as the WD7000-FASST2 SST BIOS.  I suspect that something should be
+ *  added for the Future Domain version.
+ */
 typedef struct signature {
-	const char *sig;	
-	unsigned long ofs;	
-	unsigned len;		
+	const char *sig;	/* String to look for            */
+	unsigned long ofs;	/* offset from BIOS base address */
+	unsigned len;		/* length of string              */
 } Signature;
 
 static const Signature signatures[] = {
-	{"SSTBIOS", 0x0000d, 7}	
+	{"SSTBIOS", 0x0000d, 7}	/* "SSTBIOS" @ offset 0x0000d */
 };
 #define NUM_SIGNATURES ARRAY_SIZE(signatures)
 
 
-#define ASC_STAT        0	
-#define ASC_COMMAND     0	
-#define ASC_INTR_STAT   1	
-#define ASC_INTR_ACK    1	
-#define ASC_CONTROL     2	
+/*
+ *  I/O Port Offsets and Bit Definitions
+ *  4 addresses are used.  Those not defined here are reserved.
+ */
+#define ASC_STAT        0	/* Status,  Read          */
+#define ASC_COMMAND     0	/* Command, Write         */
+#define ASC_INTR_STAT   1	/* Interrupt Status, Read */
+#define ASC_INTR_ACK    1	/* Acknowledge, Write     */
+#define ASC_CONTROL     2	/* Control, Write         */
 
-#define INT_IM		0x80	
-#define CMD_RDY		0x40	
-#define CMD_REJ		0x20	
-#define ASC_INIT        0x10	
-#define ASC_STATMASK    0xf0	
+/*
+ * ASC Status Port
+ */
+#define INT_IM		0x80	/* Interrupt Image Flag           */
+#define CMD_RDY		0x40	/* Command Port Ready             */
+#define CMD_REJ		0x20	/* Command Port Byte Rejected     */
+#define ASC_INIT        0x10	/* ASC Initialized Flag           */
+#define ASC_STATMASK    0xf0	/* The lower 4 Bytes are reserved */
 
-#define NO_OP             0	
-#define INITIALIZATION    1	
-#define DISABLE_UNS_INTR  2	
-#define ENABLE_UNS_INTR   3	
-#define INTR_ON_FREE_OGMB 4	
-#define SOFT_RESET        5	
-#define HARD_RESET_ACK    6	
-#define START_OGMB        0x80	
-#define SCAN_OGMBS        0xc0	
-				
+/*
+ * COMMAND opcodes
+ *
+ *  Unfortunately, I have no idea how to properly use some of these commands,
+ *  as the OEM manual does not make it clear.  I have not been able to use
+ *  enable/disable unsolicited interrupts or the reset commands with any
+ *  discernible effect whatsoever.  I think they may be related to certain
+ *  ICB commands, but again, the OEM manual doesn't make that clear.
+ */
+#define NO_OP             0	/* NO-OP toggles CMD_RDY bit in ASC_STAT  */
+#define INITIALIZATION    1	/* initialization (10 bytes)              */
+#define DISABLE_UNS_INTR  2	/* disable unsolicited interrupts         */
+#define ENABLE_UNS_INTR   3	/* enable unsolicited interrupts          */
+#define INTR_ON_FREE_OGMB 4	/* interrupt on free OGMB                 */
+#define SOFT_RESET        5	/* SCSI bus soft reset                    */
+#define HARD_RESET_ACK    6	/* SCSI bus hard reset acknowledge        */
+#define START_OGMB        0x80	/* start command in OGMB (n)              */
+#define SCAN_OGMBS        0xc0	/* start multiple commands, signature (n) */
+				/*    where (n) = lower 6 bits            */
+/*
+ * For INITIALIZATION:
+ */
 typedef struct initCmd {
-	unchar op;		
-	unchar ID;		
-	unchar bus_on;		
-	unchar bus_off;		
-	unchar rsvd;		
-	unchar mailboxes[3];	
-	unchar ogmbs;		
-	unchar icmbs;		
+	unchar op;		/* command opcode (= 1)                    */
+	unchar ID;		/* Adapter's SCSI ID                       */
+	unchar bus_on;		/* Bus on time, x 125ns (see below)        */
+	unchar bus_off;		/* Bus off time, ""         ""             */
+	unchar rsvd;		/* Reserved                                */
+	unchar mailboxes[3];	/* Address of Mailboxes, MSB first         */
+	unchar ogmbs;		/* Number of outgoing MBs, max 64, 0,1 = 1 */
+	unchar icmbs;		/* Number of incoming MBs,   ""       ""   */
 } InitCmd;
 
-#define MB_INTR    0xC0		
-#define IMB_INTR   0x40		
-#define MB_MASK    0x3f		
+/*
+ * Interrupt Status Port - also returns diagnostic codes at ASC reset
+ *
+ * if msb is zero, the lower bits are diagnostic status
+ * Diagnostics:
+ * 01   No diagnostic error occurred
+ * 02   RAM failure
+ * 03   FIFO R/W failed
+ * 04   SBIC register read/write failed
+ * 05   Initialization D-FF failed
+ * 06   Host IRQ D-FF failed
+ * 07   ROM checksum error
+ * Interrupt status (bitwise):
+ * 10NNNNNN   outgoing mailbox NNNNNN is free
+ * 11NNNNNN   incoming mailbox NNNNNN needs service
+ */
+#define MB_INTR    0xC0		/* Mailbox Service possible/required */
+#define IMB_INTR   0x40		/* 1 Incoming / 0 Outgoing           */
+#define MB_MASK    0x3f		/* mask for mailbox number           */
 
-#define INT_EN     0x08		
-#define DMA_EN     0x04		
-#define SCSI_RES   0x02		
-#define ASC_RES    0x01		
+/*
+ * CONTROL port bits
+ */
+#define INT_EN     0x08		/* Interrupt Enable */
+#define DMA_EN     0x04		/* DMA Enable       */
+#define SCSI_RES   0x02		/* SCSI Reset       */
+#define ASC_RES    0x01		/* ASC Reset        */
 
+/*
+ * Driver data structures:
+ *   - mb and scbs are required for interfacing with the host adapter.
+ *     An SCB has extra fields not visible to the adapter; mb's
+ *     _cannot_ do this, since the adapter assumes they are contiguous in
+ *     memory, 4 bytes each, with ICMBs following OGMBs, and uses this fact
+ *     to access them.
+ *   - An icb is for host-only (non-SCSI) commands.  ICBs are 16 bytes each;
+ *     the additional bytes are used only by the driver.
+ *   - For now, a pool of SCBs are kept in global storage by this driver,
+ *     and are allocated and freed as needed.
+ *
+ *  The 7000-FASST2 marks OGMBs empty as soon as it has _started_ a command,
+ *  not when it has finished.  Since the SCB must be around for completion,
+ *  problems arise when SCBs correspond to OGMBs, which may be reallocated
+ *  earlier (or delayed unnecessarily until a command completes).
+ *  Mailboxes are used as transient data structures, simply for
+ *  carrying SCB addresses to/from the 7000-FASST2.
+ *
+ *  Note also since SCBs are not "permanently" associated with mailboxes,
+ *  there is no need to keep a global list of scsi_cmnd pointers indexed
+ *  by OGMB.   Again, SCBs reference their scsi_cmnds directly, so mailbox
+ *  indices need not be involved.
+ */
 
+/*
+ *  WD7000-specific scatter/gather element structure
+ */
 typedef struct sgb {
 	unchar len[3];
-	unchar ptr[3];		
+	unchar ptr[3];		/* Also SCSI-style - MSB first */
 } Sgb;
 
-typedef struct scb {		
-	unchar op;		
-	unchar idlun;		
-	
-	
-	
-	unchar cdb[12];		
-	volatile unchar status;	
-	volatile unchar vue;	
-	unchar maxlen[3];	
-	unchar dataptr[3];	
-	unchar linkptr[3];	
-	unchar direc;		
-	unchar reserved2[6];	
-	
-	struct scsi_cmnd *SCpnt;
-	Sgb sgb[WD7000_SG];	
-	Adapter *host;		
-	struct scb *next;	
+typedef struct scb {		/* Command Control Block 5.4.1               */
+	unchar op;		/* Command Control Block Operation Code      */
+	unchar idlun;		/* op=0,2:Target Id, op=1:Initiator Id       */
+	/* Outbound data transfer, length is checked */
+	/* Inbound data transfer, length is checked  */
+	/* Logical Unit Number                       */
+	unchar cdb[12];		/* SCSI Command Block                        */
+	volatile unchar status;	/* SCSI Return Status                        */
+	volatile unchar vue;	/* Vendor Unique Error Code                  */
+	unchar maxlen[3];	/* Maximum Data Transfer Length              */
+	unchar dataptr[3];	/* SCSI Data Block Pointer                   */
+	unchar linkptr[3];	/* Next Command Link Pointer                 */
+	unchar direc;		/* Transfer Direction                        */
+	unchar reserved2[6];	/* SCSI Command Descriptor Block             */
+	/* end of hardware SCB                       */
+	struct scsi_cmnd *SCpnt;/* scsi_cmnd using this SCB                  */
+	Sgb sgb[WD7000_SG];	/* Scatter/gather list for this SCB          */
+	Adapter *host;		/* host adapter                              */
+	struct scb *next;	/* for lists of scbs                         */
 } Scb;
 
 /*
@@ -364,109 +479,109 @@ typedef struct scb {
  *  (notably, get/set unsolicited interrupt status) in my copy of the OEM
  *  manual, and others are ambiguous/hard to follow.
  */
-#define ICB_OP_MASK           0x80	
-#define ICB_OP_OPEN_RBUF      0x80	
-#define ICB_OP_RECV_CMD       0x81	
-#define ICB_OP_RECV_DATA      0x82	
-#define ICB_OP_RECV_SDATA     0x83	
-#define ICB_OP_SEND_DATA      0x84	
-#define ICB_OP_SEND_STAT      0x86	
-					
-#define ICB_OP_READ_INIT      0x88	
-#define ICB_OP_READ_ID        0x89	
-#define ICB_OP_SET_UMASK      0x8A	
-#define ICB_OP_GET_UMASK      0x8B	
-#define ICB_OP_GET_REVISION   0x8C	
-#define ICB_OP_DIAGNOSTICS    0x8D	
-#define ICB_OP_SET_EPARMS     0x8E	
-#define ICB_OP_GET_EPARMS     0x8F	
+#define ICB_OP_MASK           0x80	/* distinguishes scbs from icbs        */
+#define ICB_OP_OPEN_RBUF      0x80	/* open receive buffer                 */
+#define ICB_OP_RECV_CMD       0x81	/* receive command from initiator      */
+#define ICB_OP_RECV_DATA      0x82	/* receive data from initiator         */
+#define ICB_OP_RECV_SDATA     0x83	/* receive data with status from init. */
+#define ICB_OP_SEND_DATA      0x84	/* send data with status to initiator  */
+#define ICB_OP_SEND_STAT      0x86	/* send command status to initiator    */
+					/* 0x87 is reserved                    */
+#define ICB_OP_READ_INIT      0x88	/* read initialization bytes           */
+#define ICB_OP_READ_ID        0x89	/* read adapter's SCSI ID              */
+#define ICB_OP_SET_UMASK      0x8A	/* set unsolicited interrupt mask      */
+#define ICB_OP_GET_UMASK      0x8B	/* read unsolicited interrupt mask     */
+#define ICB_OP_GET_REVISION   0x8C	/* read firmware revision level        */
+#define ICB_OP_DIAGNOSTICS    0x8D	/* execute diagnostics                 */
+#define ICB_OP_SET_EPARMS     0x8E	/* set execution parameters            */
+#define ICB_OP_GET_EPARMS     0x8F	/* read execution parameters           */
 
 typedef struct icbRecvCmd {
 	unchar op;
-	unchar IDlun;		
-	unchar len[3];		
-	unchar ptr[3];		
-	unchar rsvd[7];		
-	volatile unchar vue;	
-	volatile unchar status;	
-	volatile unchar phase;	
+	unchar IDlun;		/* Initiator SCSI ID/lun     */
+	unchar len[3];		/* command buffer length     */
+	unchar ptr[3];		/* command buffer address    */
+	unchar rsvd[7];		/* reserved                  */
+	volatile unchar vue;	/* vendor-unique error code  */
+	volatile unchar status;	/* returned (icmb) status    */
+	volatile unchar phase;	/* used by interrupt handler */
 } IcbRecvCmd;
 
 typedef struct icbSendStat {
 	unchar op;
-	unchar IDlun;		
-	unchar stat;		
-	unchar rsvd[12];	
-	volatile unchar vue;	
-	volatile unchar status;	
-	volatile unchar phase;	
+	unchar IDlun;		/* Target SCSI ID/lun                  */
+	unchar stat;		/* (outgoing) completion status byte 1 */
+	unchar rsvd[12];	/* reserved                            */
+	volatile unchar vue;	/* vendor-unique error code            */
+	volatile unchar status;	/* returned (icmb) status              */
+	volatile unchar phase;	/* used by interrupt handler           */
 } IcbSendStat;
 
 typedef struct icbRevLvl {
 	unchar op;
-	volatile unchar primary;	
-	volatile unchar secondary;	
-	unchar rsvd[12];	
-	volatile unchar vue;	
-	volatile unchar status;	
-	volatile unchar phase;	
+	volatile unchar primary;	/* primary revision level (returned)   */
+	volatile unchar secondary;	/* secondary revision level (returned) */
+	unchar rsvd[12];	/* reserved                            */
+	volatile unchar vue;	/* vendor-unique error code            */
+	volatile unchar status;	/* returned (icmb) status              */
+	volatile unchar phase;	/* used by interrupt handler           */
 } IcbRevLvl;
 
-typedef struct icbUnsMask {	
+typedef struct icbUnsMask {	/* I'm totally guessing here */
 	unchar op;
-	volatile unchar mask[14];	
+	volatile unchar mask[14];	/* mask bits                 */
 #if 0
-	unchar rsvd[12];	
+	unchar rsvd[12];	/* reserved                  */
 #endif
-	volatile unchar vue;	
-	volatile unchar status;	
-	volatile unchar phase;	
+	volatile unchar vue;	/* vendor-unique error code  */
+	volatile unchar status;	/* returned (icmb) status    */
+	volatile unchar phase;	/* used by interrupt handler */
 } IcbUnsMask;
 
 typedef struct icbDiag {
 	unchar op;
-	unchar type;		
-	unchar len[3];		
-	unchar ptr[3];		
-	unchar rsvd[7];		
-	volatile unchar vue;	
-	volatile unchar status;	
-	volatile unchar phase;	
+	unchar type;		/* diagnostics type code (0-3) */
+	unchar len[3];		/* buffer length               */
+	unchar ptr[3];		/* buffer address              */
+	unchar rsvd[7];		/* reserved                    */
+	volatile unchar vue;	/* vendor-unique error code    */
+	volatile unchar status;	/* returned (icmb) status      */
+	volatile unchar phase;	/* used by interrupt handler   */
 } IcbDiag;
 
-#define ICB_DIAG_POWERUP   0	
-#define ICB_DIAG_WALKING   1	
-#define ICB_DIAG_DMA       2	
-#define ICB_DIAG_FULL      3	
+#define ICB_DIAG_POWERUP   0	/* Power-up diags only       */
+#define ICB_DIAG_WALKING   1	/* walking 1's pattern       */
+#define ICB_DIAG_DMA       2	/* DMA - system memory diags */
+#define ICB_DIAG_FULL      3	/* do both 1 & 2             */
 
 typedef struct icbParms {
 	unchar op;
-	unchar rsvd1;		
-	unchar len[3];		
-	unchar ptr[3];		
-	unchar idx[2];		
-	unchar rsvd2[5];	
-	volatile unchar vue;	
-	volatile unchar status;	
-	volatile unchar phase;	
+	unchar rsvd1;		/* reserved                  */
+	unchar len[3];		/* parms buffer length       */
+	unchar ptr[3];		/* parms buffer address      */
+	unchar idx[2];		/* index (MSB-LSB)           */
+	unchar rsvd2[5];	/* reserved                  */
+	volatile unchar vue;	/* vendor-unique error code  */
+	volatile unchar status;	/* returned (icmb) status    */
+	volatile unchar phase;	/* used by interrupt handler */
 } IcbParms;
 
 typedef struct icbAny {
 	unchar op;
-	unchar data[14];	
-	volatile unchar vue;	
-	volatile unchar status;	
-	volatile unchar phase;	
+	unchar data[14];	/* format-specific data      */
+	volatile unchar vue;	/* vendor-unique error code  */
+	volatile unchar status;	/* returned (icmb) status    */
+	volatile unchar phase;	/* used by interrupt handler */
 } IcbAny;
 
 typedef union icb {
-	unchar op;		
-	IcbRecvCmd recv_cmd;	
-	IcbSendStat send_stat;	
-	IcbRevLvl rev_lvl;	
-	IcbDiag diag;		
-	IcbParms eparms;	
-	IcbAny icb;		
+	unchar op;		/* ICB opcode                     */
+	IcbRecvCmd recv_cmd;	/* format for receive command     */
+	IcbSendStat send_stat;	/* format for send status         */
+	IcbRevLvl rev_lvl;	/* format for get revision level  */
+	IcbDiag diag;		/* format for execute diagnostics */
+	IcbParms eparms;	/* format for get/set exec parms  */
+	IcbAny icb;		/* generic format                 */
 	unchar data[18];
 } Icb;
 
@@ -475,11 +590,20 @@ static char *wd7000;
 module_param(wd7000, charp, 0);
 #endif
 
+/*
+ *  Driver SCB structure pool.
+ *
+ *  The SCBs declared here are shared by all host adapters; hence, this
+ *  structure is not part of the Adapter structure.
+ */
 static Scb scbs[MAX_SCBS];
-static Scb *scbfree;		
-static int freescbs = MAX_SCBS;	
-static spinlock_t scbpool_lock;	
+static Scb *scbfree;		/* free list         */
+static int freescbs = MAX_SCBS;	/* free list counter */
+static spinlock_t scbpool_lock;	/* guards the scb free list and count */
 
+/*
+ *  END of data/declarations - code follows.
+ */
 static void __init setup_error(char *mesg, int *ints)
 {
 	if (ints[0] == 3)
@@ -491,9 +615,23 @@ static void __init setup_error(char *mesg, int *ints)
 }
 
 
+/*
+ * Note: You can now set these options from the kernel's "command line".
+ * The syntax is:
+ *
+ *     wd7000=<IRQ>,<DMA>,<IO>[,<BUS_ON>[,<BUS_OFF>]]
+ *
+ * , where BUS_ON and BUS_OFF are in nanoseconds. BIOS default values
+ * are 8000ns for BUS_ON and 1875ns for BUS_OFF.
+ * eg:
+ *     wd7000=7,6,0x350
+ *
+ * will configure the driver for a WD-7000 controller
+ * using IRQ 15 with a DMA channel 6, at IO base address 0x350.
+ */
 static int __init wd7000_setup(char *str)
 {
-	static short wd7000_card_num;	
+	static short wd7000_card_num;	/* .bss will zero this */
 	short i;
 	int ints[6];
 
@@ -618,7 +756,7 @@ static inline void wd7000_enable_dma(Adapter * host)
 }
 
 
-#define WAITnexttimeout 200	
+#define WAITnexttimeout 200	/* 2 seconds */
 
 static inline short WAIT(unsigned port, unsigned mask, unsigned allof, unsigned noneof)
 {
@@ -657,6 +795,16 @@ static inline int command_out(Adapter * host, unchar * cmd, int len)
 }
 
 
+/*
+ *  This version of alloc_scbs is in preparation for supporting multiple
+ *  commands per lun and command chaining, by queueing pending commands.
+ *  We will need to allocate Scbs in blocks since they will wait to be
+ *  executed so there is the possibility of deadlock otherwise.
+ *  Also, to keep larger requests from being starved by smaller requests,
+ *  we limit access to this routine with an internal busy flag, so that
+ *  the satisfiability of a request is not dependent on the size of the
+ *  request.
+ */
 static inline Scb *alloc_scbs(struct Scsi_Host *host, int needed)
 {
 	Scb *scb, *p = NULL;
@@ -666,7 +814,7 @@ static inline Scb *alloc_scbs(struct Scsi_Host *host, int needed)
 	int i;
 
 	if (needed <= 0)
-		return (NULL);	
+		return (NULL);	/* sanity check */
 
 	spin_unlock_irq(host->host_lock);
 
@@ -674,17 +822,21 @@ static inline Scb *alloc_scbs(struct Scsi_Host *host, int needed)
 	while (freescbs < needed) {
 		timeout = jiffies + WAITnexttimeout;
 		do {
-			
+			/* FIXME: can we actually just yield here ?? */
 			for (now = jiffies; now == jiffies;)
-				cpu_relax();	
+				cpu_relax();	/* wait a jiffy */
 		} while (freescbs < needed && time_before_eq(jiffies, timeout));
+		/*
+		 *  If we get here with enough free Scbs, we can take them.
+		 *  Otherwise, we timed out and didn't get enough.
+		 */
 		if (freescbs < needed) {
 			printk(KERN_ERR "wd7000: can't get enough free SCBs.\n");
 			return (NULL);
 		}
 	}
 
-	
+	/* Take the lock, then check we didn't get beaten, if so try again */
 	spin_lock_irqsave(&scbpool_lock, flags);
 	if (freescbs < needed) {
 		spin_unlock_irqrestore(&scbpool_lock, flags);
@@ -727,7 +879,7 @@ static inline void init_scbs(void)
 
 	spin_lock_init(&scbpool_lock);
 
-	
+	/* This is only ever called before the SCB pool is active */
 
 	scbfree = &(scbs[0]);
 	memset(scbs, 0, sizeof(scbs));
@@ -741,6 +893,9 @@ static inline void init_scbs(void)
 
 
 static int mail_out(Adapter * host, Scb * scbptr)
+/*
+ *  Note: this can also be used for ICBs; just cast to the parm type.
+ */
 {
 	int i, ogmb;
 	unsigned long flags;
@@ -750,7 +905,7 @@ static int mail_out(Adapter * host, Scb * scbptr)
 
 	dprintk("wd7000_mail_out: 0x%06lx", (long) scbptr);
 
-	
+	/* We first look for a free outgoing mailbox */
 	spin_lock_irqsave(host->sh->host_lock, flags);
 	ogmb = *next_ogmb;
 	for (i = 0; i < OGMB_CNT; i++) {
@@ -769,6 +924,14 @@ static int mail_out(Adapter * host, Scb * scbptr)
 	dprintk(", scb is 0x%06lx", (long) scbptr);
 
 	if (i >= OGMB_CNT) {
+		/*
+		 *  Alternatively, we might issue the "interrupt on free OGMB",
+		 *  and sleep, but it must be ensured that it isn't the init
+		 *  task running.  Instead, this version assumes that the caller
+		 *  will be persistent, and try again.  Since it's the adapter
+		 *  that marks OGMB's free, waiting even with interrupts off
+		 *  should work, since they are freed very quickly in most cases.
+		 */
 		dprintk(", no free OGMBs.\n");
 		return (0);
 	}
@@ -791,36 +954,36 @@ static int make_code(unsigned hosterr, unsigned scsierr)
 #endif
 
 	switch ((hosterr >> 8) & 0xff) {
-	case 0:		
+	case 0:		/* Reserved */
 		hosterr = DID_ERROR;
 		break;
-	case 1:		
+	case 1:		/* Command Complete, no errors */
 		hosterr = DID_OK;
 		break;
-	case 2:		
+	case 2:		/* Command complete, error logged in scb status (scsierr) */
 		hosterr = DID_OK;
 		break;
-	case 4:		
+	case 4:		/* Command failed to complete - timeout */
 		hosterr = DID_TIME_OUT;
 		break;
-	case 5:		
+	case 5:		/* Command terminated; Bus reset by external device */
 		hosterr = DID_RESET;
 		break;
-	case 6:		
+	case 6:		/* Unexpected Command Received w/ host as target */
 		hosterr = DID_BAD_TARGET;
 		break;
-	case 80:		
-	case 81:		
+	case 80:		/* Unexpected Reselection */
+	case 81:		/* Unexpected Selection */
 		hosterr = DID_BAD_INTR;
 		break;
-	case 82:		
+	case 82:		/* Abort Command Message  */
 		hosterr = DID_ABORT;
 		break;
-	case 83:		
-	case 84:		
+	case 83:		/* SCSI Bus Software Reset */
+	case 84:		/* SCSI Bus Hardware Reset */
 		hosterr = DID_RESET;
 		break;
-	default:		
+	default:		/* Reserved */
 		hosterr = DID_ERROR;
 	}
 #ifdef WD7000_DEBUG
@@ -838,8 +1001,8 @@ static irqreturn_t wd7000_intr(int irq, void *dev_id)
 	Adapter *host = (Adapter *) dev_id;
 	int flag, icmb, errstatus, icmb_status;
 	int host_error, scsi_error;
-	Scb *scb;	
-	IcbAny *icb;	
+	Scb *scb;	/* for SCSI commands */
+	IcbAny *icb;	/* for host commands */
 	struct scsi_cmnd *SCpnt;
 	Mailbox *icmbs = host->mb.icmb;
 	unsigned long flags;
@@ -854,6 +1017,14 @@ static irqreturn_t wd7000_intr(int irq, void *dev_id)
 	dprintk("wd7000_intr: intr stat = 0x%02x\n", flag);
 
 	if (!(inb(host->iobase + ASC_STAT) & INT_IM)) {
+		/* NB: these are _very_ possible if IRQ 15 is being used, since
+		 * it's the "garbage collector" on the 2nd 8259 PIC.  Specifically,
+		 * any interrupt signal into the 8259 which can't be identified
+		 * comes out as 7 from the 8259, which is 15 to the host.  Thus, it
+		 * is a good thing the WD7000 has an interrupt status port, so we
+		 * can sort these out.  Otherwise, electrical noise and other such
+		 * problems would be indistinguishable from valid interrupts...
+		 */
 		dprintk("wd7000_intr: phantom interrupt...\n");
 		goto ack;
 	}
@@ -861,24 +1032,29 @@ static irqreturn_t wd7000_intr(int irq, void *dev_id)
 	if (!(flag & MB_INTR))
 		goto ack;
 
-	
+	/* The interrupt is for a mailbox */
 	if (!(flag & IMB_INTR)) {
 		dprintk("wd7000_intr: free outgoing mailbox\n");
+		/*
+		 * If sleep_on() and the "interrupt on free OGMB" command are
+		 * used in mail_out(), wake_up() should correspondingly be called
+		 * here.  For now, we don't need to do anything special.
+		 */
 		goto ack;
 	}
 
-	
+	/* The interrupt is for an incoming mailbox */
 	icmb = flag & MB_MASK;
 	icmb_status = icmbs[icmb].status;
-	if (icmb_status & 0x80) {	
+	if (icmb_status & 0x80) {	/* unsolicited - result in ICMB */
 		dprintk("wd7000_intr: unsolicited interrupt 0x%02x\n", icmb_status);
 		goto ack;
 	}
 
-	
+	/* Aaaargh! (Zaga) */
 	scb = isa_bus_to_virt(scsi2int((unchar *) icmbs[icmb].scbptr));
 	icmbs[icmb].status = 0;
-	if (scb->op & ICB_OP_MASK) {	
+	if (scb->op & ICB_OP_MASK) {	/* an SCB is done */
 		icb = (IcbAny *) scb;
 		icb->status = icmb_status;
 		icb->phase = 0;
@@ -886,7 +1062,7 @@ static irqreturn_t wd7000_intr(int irq, void *dev_id)
 	}
 
 	SCpnt = scb->SCpnt;
-	if (--(SCpnt->SCp.phase) <= 0) {	
+	if (--(SCpnt->SCp.phase) <= 0) {	/* all scbs are done */
 		host_error = scb->vue | (icmb_status << 8);
 		scsi_error = scb->status;
 		errstatus = make_code(host_error, scsi_error);
@@ -923,9 +1099,9 @@ static int wd7000_queuecommand_lck(struct scsi_cmnd *SCpnt,
 	scb = alloc_scbs(SCpnt->device->host, 1);
 	scb->idlun = idlun;
 	memcpy(scb->cdb, cdb, cdblen);
-	scb->direc = 0x40;	
+	scb->direc = 0x40;	/* Disable direction check */
 
-	scb->SCpnt = SCpnt;	
+	scb->SCpnt = SCpnt;	/* so we can find stuff later */
 	SCpnt->host_scribble = (unchar *) scb;
 	scb->host = host;
 
@@ -954,10 +1130,10 @@ static int wd7000_queuecommand_lck(struct scsi_cmnd *SCpnt,
 		any2scsi(scb->maxlen, scsi_bufflen(SCpnt));
 	}
 
-	
+	/* FIXME: drop lock and yield here ? */
 
 	while (!mail_out(host, scb))
-		cpu_relax();	
+		cpu_relax();	/* keep trying */
 
 	return 0;
 }
@@ -974,10 +1150,15 @@ static int wd7000_diagnostics(Adapter * host, int code)
 	any2scsi(icb.len, sizeof(buf));
 	any2scsi(icb.ptr, (int) &buf);
 	icb.phase = 1;
+	/*
+	 * This routine is only called at init, so there should be OGMBs
+	 * available.  I'm assuming so here.  If this is going to
+	 * fail, I can just let the timeout catch the failure.
+	 */
 	mail_out(host, (struct scb *) &icb);
-	timeout = jiffies + WAITnexttimeout;	
+	timeout = jiffies + WAITnexttimeout;	/* wait up to 2 seconds */
 	while (icb.phase && time_before(jiffies, timeout)) {
-		cpu_relax();	
+		cpu_relax();	/* wait for completion */
 		barrier();
 	}
 
@@ -1007,14 +1188,18 @@ static int wd7000_adapter_reset(Adapter * host)
 		ICMB_CNT
 	};
 	int diag;
+	/*
+	 *  Reset the adapter - only.  The SCSI bus was initialized at power-up,
+	 *  and we need to do this just so we control the mailboxes, etc.
+	 */
 	outb(ASC_RES, host->iobase + ASC_CONTROL);
-	udelay(40);		
+	udelay(40);		/* reset pulse: this is 40us, only need 25us */
 	outb(0, host->iobase + ASC_CONTROL);
-	host->control = 0;	
+	host->control = 0;	/* this must always shadow ASC_CONTROL */
 
 	if (WAIT(host->iobase + ASC_STAT, ASC_STATMASK, CMD_RDY, 0)) {
 		printk(KERN_ERR "wd7000_init: WAIT timed out.\n");
-		return -1;	
+		return -1;	/* -1 = not ok */
 	}
 
 	if ((diag = inb(host->iobase + ASC_INTR_STAT)) != 1) {
@@ -1044,10 +1229,10 @@ static int wd7000_adapter_reset(Adapter * host)
 		}
 		return -1;
 	}
-	
+	/* Clear mailboxes */
 	memset(&(host->mb), 0, sizeof(host->mb));
 
-	
+	/* Execute init command */
 	any2scsi((unchar *) & (init_cmd.mailboxes), (int) &(host->mb));
 	if (!command_out(host, (unchar *) & init_cmd, sizeof(init_cmd))) {
 		printk(KERN_ERR "wd7000_adapter_reset: adapter initialization failed.\n");
@@ -1094,9 +1279,15 @@ static void wd7000_revision(Adapter * host)
 	static IcbRevLvl icb = { ICB_OP_GET_REVISION };
 
 	icb.phase = 1;
+	/*
+	 * Like diagnostics, this is only done at init time, in fact, from
+	 * wd7000_detect, so there should be OGMBs available.  If it fails,
+	 * the only damage will be that the revision will show up as 0.0,
+	 * which in turn means that scatter/gather will be disabled.
+	 */
 	mail_out(host, (struct scb *) &icb);
 	while (icb.phase) {
-		cpu_relax();	
+		cpu_relax();	/* wait for completion */
 		barrier();
 	}
 	host->rev1 = icb.primary;
@@ -1111,6 +1302,9 @@ static int wd7000_set_info(char *buffer, int length, struct Scsi_Host *host)
 {
 	dprintk("Buffer = <%.*s>, length = %d\n", length, buffer, length);
 
+	/*
+	 * Currently this is a no-op
+	 */
 	dprintk("Sorry, this function is currently out of order...\n");
 	return (length);
 }
@@ -1174,6 +1368,9 @@ static int wd7000_proc_info(struct Scsi_Host *host, char *buffer, char **start, 
 
 	spin_unlock_irqrestore(host->host_lock, flags);
 
+	/*
+	 * Calculate start of next buffer, and return value.
+	 */
 	*start = buffer + offset;
 
 	if ((pos - buffer) < offset)
@@ -1185,6 +1382,16 @@ static int wd7000_proc_info(struct Scsi_Host *host, char *buffer, char **start, 
 }
 
 
+/*
+ *  Returns the number of adapters this driver is supporting.
+ *
+ *  The source for hosts.c says to wait to call scsi_register until 100%
+ *  sure about an adapter.  We need to do it a little sooner here; we
+ *  need the storage set up by scsi_register before wd7000_init, and
+ *  changing the location of an Adapter structure is more trouble than
+ *  calling scsi_unregister.
+ *
+ */
 
 static __init int wd7000_detect(struct scsi_host_template *tpnt)
 {
@@ -1208,9 +1415,15 @@ static __init int wd7000_detect(struct scsi_host_template *tpnt)
 	tpnt->proc_name = "wd7000";
 	tpnt->proc_info = &wd7000_proc_info;
 
+	/*
+	 * Set up SCB free list, which is shared by all adapters
+	 */
 	init_scbs();
 
 	for (pass = 0; pass < NUM_CONFIGS; pass++) {
+		/*
+		 * First, search for BIOS SIGNATURE...
+		 */
 		for (biosaddr_ptr = 0; biosaddr_ptr < NUM_ADDRS; biosaddr_ptr++)
 			for (sig_ptr = 0; sig_ptr < NUM_SIGNATURES; sig_ptr++) {
 				for (i = 0; i < pass; i++)
@@ -1233,6 +1446,9 @@ static __init int wd7000_detect(struct scsi_host_template *tpnt)
 			}
 
 	      bios_matched:
+		/*
+		 * BIOS SIGNATURE has been found.
+		 */
 #ifdef WD7000_DEBUG
 		dprintk("wd7000_detect: pass %d\n", pass + 1);
 
@@ -1255,6 +1471,9 @@ static __init int wd7000_detect(struct scsi_host_template *tpnt)
 		if (request_region(iobase, 4, "wd7000")) {
 
 			dprintk("wd7000_detect: ASC reset (IO 0x%x) ...", iobase);
+			/*
+			 * ASC reset...
+			 */
 			outb(ASC_RES, iobase + ASC_CONTROL);
 			msleep(10);
 			outb(0, iobase + ASC_CONTROL);
@@ -1266,6 +1485,13 @@ static __init int wd7000_detect(struct scsi_host_template *tpnt)
 				dprintk("ok!\n");
 
 			if (inb(iobase + ASC_INTR_STAT) == 1) {
+				/*
+				 *  We register here, to get a pointer to the extra space,
+				 *  which we'll use as the Adapter structure (host) for
+				 *  this adapter.  It is located just after the registered
+				 *  Scsi_Host structure (sh), and is located by the empty
+				 *  array hostdata.
+				 */
 				sh = scsi_register(tpnt, sizeof(Adapter));
 				if (sh == NULL)
 					goto err_release;
@@ -1286,15 +1512,21 @@ static __init int wd7000_detect(struct scsi_host_template *tpnt)
 
 				dprintk("wd7000_detect: Trying init WD-7000 card at IO " "0x%x, IRQ %d, DMA %d...\n", host->iobase, host->irq, host->dma);
 
-				if (!wd7000_init(host))	
+				if (!wd7000_init(host))	/* Initialization failed */
 					goto err_unregister;
 
-				wd7000_revision(host);	
+				/*
+				 *  OK from here - we'll use this adapter/configuration.
+				 */
+				wd7000_revision(host);	/* important for scatter/gather */
 
+				/*
+				 *  For boards before rev 6.0, scatter/gather isn't supported.
+				 */
 				if (host->rev1 < 6)
 					sh->sg_tablesize = 1;
 
-				present++;	
+				present++;	/* count it */
 
 				if (biosaddr_ptr != NUM_ADDRS)
 					biosptr[pass] = biosaddr_ptr;
@@ -1332,6 +1564,9 @@ static int wd7000_release(struct Scsi_Host *shost)
 }
 
 #if 0
+/*
+ *  I have absolutely NO idea how to do an abort with the WD7000...
+ */
 static int wd7000_abort(Scsi_Cmnd * SCpnt)
 {
 	Adapter *host = (Adapter *) SCpnt->device->host->hostdata;
@@ -1345,6 +1580,9 @@ static int wd7000_abort(Scsi_Cmnd * SCpnt)
 }
 #endif
 
+/*
+ *  Last resort. Reinitialize the board.
+ */
 
 static int wd7000_host_reset(struct scsi_cmnd *SCpnt)
 {
@@ -1363,6 +1601,9 @@ static int wd7000_host_reset(struct scsi_cmnd *SCpnt)
 	return SUCCESS;
 }
 
+/*
+ *  This was borrowed directly from aha1542.c. (Zaga)
+ */
 
 static int wd7000_biosparam(struct scsi_device *sdev,
 		struct block_device *bdev, sector_t capacity, int *ip)
@@ -1371,15 +1612,24 @@ static int wd7000_biosparam(struct scsi_device *sdev,
 
 	dprintk("wd7000_biosparam: dev=%s, size=%d, ",
 		bdevname(bdev, b), capacity);
-	(void)b;	
+	(void)b;	/* unused var warning? */
 
+	/*
+	 * try default translation
+	 */
 	ip[0] = 64;
 	ip[1] = 32;
 	ip[2] = capacity >> 11;
 
+	/*
+	 * for disks >1GB do some guessing
+	 */
 	if (ip[2] >= 1024) {
 		int info[3];
 
+		/*
+		 * try to figure out the geometry from the partition table
+		 */
 		if ((scsicam_bios_param(bdev, capacity, info) < 0) || !(((info[0] == 64) && (info[1] == 32)) || ((info[0] == 255) && (info[1] == 63)))) {
 			printk("wd7000_biosparam: unable to verify geometry for disk with >1GB.\n" "                  using extended translation.\n");
 

@@ -51,7 +51,7 @@ static int omap3pandora_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *cpu_dai = rtd->cpu_dai;
 	int ret;
 
-	
+	/* Set the codec system clock for DAC and ADC */
 	ret = snd_soc_dai_set_sysclk(codec_dai, 0, 26000000,
 					    SND_SOC_CLOCK_IN);
 	if (ret < 0) {
@@ -59,7 +59,7 @@ static int omap3pandora_hw_params(struct snd_pcm_substream *substream,
 		return ret;
 	}
 
-	
+	/* Set McBSP clock to external */
 	ret = snd_soc_dai_set_sysclk(cpu_dai, OMAP_MCBSP_SYSCLK_CLKS_EXT,
 				     256 * params_rate(params),
 				     SND_SOC_CLOCK_IN);
@@ -80,6 +80,10 @@ static int omap3pandora_hw_params(struct snd_pcm_substream *substream,
 static int omap3pandora_dac_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *k, int event)
 {
+	/*
+	 * The PCM1773 DAC datasheet requires 1ms delay between switching
+	 * VCC power on/off and /PD pin high/low
+	 */
 	if (SND_SOC_DAPM_EVENT_ON(event)) {
 		regulator_enable(omap3pandora_dac_reg);
 		mdelay(1);
@@ -104,6 +108,14 @@ static int omap3pandora_hp_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+/*
+ * Audio paths on Pandora board:
+ *
+ *  |O| ---> PCM DAC +-> AMP -> Headphone Jack
+ *  |M|         A    +--------> Line Out
+ *  |A| <~~clk~~+
+ *  |P| <--- TWL4030 <--------- Line In and MICs
+ */
 static const struct snd_soc_dapm_widget omap3pandora_out_dapm_widgets[] = {
 	SND_SOC_DAPM_DAC_E("PCM DAC", "HiFi Playback", SND_SOC_NOPM,
 			   0, 0, omap3pandora_dac_event,
@@ -145,7 +157,7 @@ static int omap3pandora_out_init(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 	int ret;
 
-	
+	/* All TWL4030 output pins are floating */
 	snd_soc_dapm_nc_pin(dapm, "EARPIECE");
 	snd_soc_dapm_nc_pin(dapm, "PREDRIVEL");
 	snd_soc_dapm_nc_pin(dapm, "PREDRIVER");
@@ -172,7 +184,7 @@ static int omap3pandora_in_init(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 	int ret;
 
-	
+	/* Not comnnected */
 	snd_soc_dapm_nc_pin(dapm, "HSMIC");
 	snd_soc_dapm_nc_pin(dapm, "CARKITMIC");
 	snd_soc_dapm_nc_pin(dapm, "DIGIMIC0");
@@ -191,6 +203,7 @@ static struct snd_soc_ops omap3pandora_ops = {
 	.hw_params = omap3pandora_hw_params,
 };
 
+/* Digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link omap3pandora_dai[] = {
 	{
 		.name = "PCM1773",
@@ -217,6 +230,7 @@ static struct snd_soc_dai_link omap3pandora_dai[] = {
 	}
 };
 
+/* SoC card */
 static struct snd_soc_card snd_soc_card_omap3pandora = {
 	.name = "omap3pandora",
 	.owner = THIS_MODULE,

@@ -67,7 +67,7 @@ void *subsys_notif_register_notifier(
 
 	if (!subsys) {
 
-		
+		/* Possible first time reference to this subsystem. Add it. */
 		subsys = (struct subsys_notif_info *)
 				subsys_notif_add_subsys(subsys_name);
 

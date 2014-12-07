@@ -30,10 +30,13 @@ struct max9850_priv {
 	unsigned int sysclk;
 };
 
+/* max9850 register cache */
 static const u8 max9850_reg[MAX9850_CACHEREGNUM] = {
 	0x00, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
+/* these registers are not used at the moment but provided for the sake of
+ * completeness */
 static int max9850_volatile_register(struct snd_soc_codec *codec,
 		unsigned int reg)
 {
@@ -84,22 +87,22 @@ SND_SOC_DAPM_INPUT("INR"),
 };
 
 static const struct snd_soc_dapm_route max9850_dapm_routes[] = {
-	
+	/* output mixer */
 	{"Output Mixer", NULL, "DAC"},
 	{"Output Mixer", "Line In Switch", "Line Input"},
 
-	
+	/* outputs */
 	{"Headphone Output", NULL, "Output Mixer"},
 	{"HPL", NULL, "Headphone Output"},
 	{"HPR", NULL, "Headphone Output"},
 	{"OUTL", NULL, "Output Mixer"},
 	{"OUTR", NULL, "Output Mixer"},
 
-	
+	/* inputs */
 	{"Line Input", NULL, "INL"},
 	{"Line Input", NULL, "INR"},
 
-	
+	/* supplies */
 	{"Output Mixer", NULL, "Charge Pump 1"},
 	{"Output Mixer", NULL, "Charge Pump 2"},
 	{"Output Mixer", NULL, "SHDN"},
@@ -118,7 +121,7 @@ static int max9850_hw_params(struct snd_pcm_substream *substream,
 	if (!max9850->sysclk)
 		return -EINVAL;
 
-	
+	/* lrclk_div = 2^22 * rate / iclk with iclk = mclk / sf */
 	sf = (snd_soc_read(codec, MAX9850_CLOCK) >> 2) + 1;
 	lrclk_div = (1 << 22);
 	lrclk_div *= params_rate(params);
@@ -152,7 +155,7 @@ static int max9850_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 	struct snd_soc_codec *codec = codec_dai->codec;
 	struct max9850_priv *max9850 = snd_soc_codec_get_drvdata(codec);
 
-	
+	/* calculate mclk -> iclk divider */
 	if (freq <= 13000000)
 		snd_soc_write(codec, MAX9850_CLOCK, 0x0);
 	else if (freq <= 26000000)
@@ -171,7 +174,7 @@ static int max9850_set_dai_fmt(struct snd_soc_dai *codec_dai, unsigned int fmt)
 	struct snd_soc_codec *codec = codec_dai->codec;
 	u8 da = 0;
 
-	
+	/* set master/slave audio interface */
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBM_CFM:
 		da |= MAX9850_MASTER;
@@ -182,7 +185,7 @@ static int max9850_set_dai_fmt(struct snd_soc_dai *codec_dai, unsigned int fmt)
 		return -EINVAL;
 	}
 
-	
+	/* interface format */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 		da |= MAX9850_DLY;
@@ -196,7 +199,7 @@ static int max9850_set_dai_fmt(struct snd_soc_dai *codec_dai, unsigned int fmt)
 		return -EINVAL;
 	}
 
-	
+	/* clock inversion */
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_NB_NF:
 		break;
@@ -213,7 +216,7 @@ static int max9850_set_dai_fmt(struct snd_soc_dai *codec_dai, unsigned int fmt)
 		return -EINVAL;
 	}
 
-	
+	/* set da */
 	snd_soc_write(codec, MAX9850_DIGITAL_AUDIO, da);
 
 	return 0;
@@ -298,11 +301,11 @@ static int max9850_probe(struct snd_soc_codec *codec)
 		return ret;
 	}
 
-	
+	/* enable zero-detect */
 	snd_soc_update_bits(codec, MAX9850_GENERAL_PURPOSE, 1, 1);
-	
+	/* enable slew-rate control */
 	snd_soc_update_bits(codec, MAX9850_VOLUME, 0x40, 0x40);
-	
+	/* set slew-rate 125ms */
 	snd_soc_update_bits(codec, MAX9850_CHARGE_PUMP, 0xff, 0xc0);
 
 	return 0;

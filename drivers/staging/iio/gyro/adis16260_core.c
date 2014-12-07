@@ -95,6 +95,13 @@ static int adis16260_spi_write_reg_16(struct iio_dev *indio_dev,
 	return ret;
 }
 
+/**
+ * adis16260_spi_read_reg_16() - read 2 bytes from a 16-bit register
+ * @indio_dev: iio_dev for the device
+ * @reg_address: the address of the lower of the two registers. Second register
+ *               is assumed to have address one greater.
+ * @val: somewhere to pass back the value read
+ **/
 static int adis16260_spi_read_reg_16(struct iio_dev *indio_dev,
 		u8 lower_reg_address,
 		u16 *val)
@@ -165,7 +172,7 @@ static ssize_t adis16260_read_frequency(struct device *dev,
 	if (ret)
 		return ret;
 
-	if (spi_get_device_id(st->us)->driver_data) 
+	if (spi_get_device_id(st->us)->driver_data) /* If an adis16251 */
 		sps =  (t & ADIS16260_SMPL_PRD_TIME_BASE) ? 8 : 256;
 	else
 		sps =  (t & ADIS16260_SMPL_PRD_TIME_BASE) ? 66 : 2048;
@@ -264,6 +271,7 @@ error_ret:
 	return ret;
 }
 
+/* Power down the device */
 static int adis16260_stop_device(struct iio_dev *indio_dev)
 {
 	int ret;
@@ -332,21 +340,21 @@ static int adis16260_initial_setup(struct iio_dev *indio_dev)
 	int ret;
 	struct device *dev = &indio_dev->dev;
 
-	
+	/* Disable IRQ */
 	ret = adis16260_set_irq(indio_dev, false);
 	if (ret) {
 		dev_err(dev, "disable irq failed");
 		goto err_ret;
 	}
 
-	
+	/* Do self test */
 	ret = adis16260_self_test(indio_dev);
 	if (ret) {
 		dev_err(dev, "self test failure");
 		goto err_ret;
 	}
 
-	
+	/* Read status register to check the result */
 	ret = adis16260_check_status(indio_dev);
 	if (ret) {
 		adis16260_reset(indio_dev);
@@ -572,7 +580,7 @@ static int __devinit adis16260_probe(struct spi_device *spi)
 	struct adis16260_state *st;
 	struct iio_dev *indio_dev;
 
-	
+	/* setup the industrialio driver allocated elements */
 	indio_dev = iio_allocate_device(sizeof(*st));
 	if (indio_dev == NULL) {
 		ret = -ENOMEM;
@@ -581,7 +589,7 @@ static int __devinit adis16260_probe(struct spi_device *spi)
 	st = iio_priv(indio_dev);
 	if (pd)
 		st->negate = pd->negate;
-	
+	/* this is only used for removal purposes */
 	spi_set_drvdata(spi, st);
 
 	st->us = spi;
@@ -623,7 +631,7 @@ static int __devinit adis16260_probe(struct spi_device *spi)
 		goto error_unreg_ring_funcs;
 	}
 	if (indio_dev->buffer) {
-		
+		/* Set default scan mode */
 		iio_scan_mask_set(indio_dev, indio_dev->buffer,
 				  ADIS16260_SCAN_SUPPLY);
 		iio_scan_mask_set(indio_dev, indio_dev->buffer,
@@ -641,7 +649,7 @@ static int __devinit adis16260_probe(struct spi_device *spi)
 			goto error_uninitialize_ring;
 	}
 
-	
+	/* Get the device into a sane initial state */
 	ret = adis16260_initial_setup(indio_dev);
 	if (ret)
 		goto error_remove_trigger;
@@ -685,6 +693,10 @@ err_ret:
 	return ret;
 }
 
+/*
+ * These parts do not need to be differentiated until someone adds
+ * support for the on chip filtering.
+ */
 static const struct spi_device_id adis16260_id[] = {
 	{"adis16260", 0},
 	{"adis16265", 0},

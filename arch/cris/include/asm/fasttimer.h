@@ -4,7 +4,7 @@
  * Fast timers for ETRAX100LX
  * Copyright (C) 2000-2007 Axis Communications AB
  */
-#include <linux/time.h> 
+#include <linux/time.h> /* struct timeval */
 #include <linux/timex.h>
 
 #ifdef CONFIG_ETRAX_FAST_TIMER
@@ -12,11 +12,11 @@
 typedef void fast_timer_function_type(unsigned long);
 
 struct fasttime_t {
-	unsigned long tv_jiff;  
-	unsigned long tv_usec;  
+	unsigned long tv_jiff;  /* jiffies */
+	unsigned long tv_usec;  /* microseconds */
 };
 
-struct fast_timer{ 
+struct fast_timer{ /* Close to timer_list */
   struct fast_timer *next;
   struct fast_timer *prev;
 	struct fasttime_t tv_set;
@@ -36,6 +36,7 @@ void start_one_shot_timer(struct fast_timer *t,
                           const char *name);
 
 int del_fast_timer(struct fast_timer * t);
+/* return 1 if deleted */
 
 
 void schedule_usleep(unsigned long us);

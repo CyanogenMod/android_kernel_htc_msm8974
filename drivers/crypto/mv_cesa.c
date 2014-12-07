@@ -24,24 +24,51 @@
 #define MV_CESA	"MV-CESA:"
 #define MAX_HW_HASH_SIZE	0xFFFF
 
+/*
+ * STM:
+ *   /---------------------------------------\
+ *   |					     | request complete
+ *  \./					     |
+ * IDLE -> new request -> BUSY -> done -> DEQUEUE
+ *                         /°\               |
+ *			    |		     | more scatter entries
+ *			    \________________/
+ */
 enum engine_status {
 	ENGINE_IDLE,
 	ENGINE_BUSY,
 	ENGINE_W_DEQUEUE,
 };
 
+/**
+ * struct req_progress - used for every crypt request
+ * @src_sg_it:		sg iterator for src
+ * @dst_sg_it:		sg iterator for dst
+ * @sg_src_left:	bytes left in src to process (scatter list)
+ * @src_start:		offset to add to src start position (scatter list)
+ * @crypt_len:		length of current hw crypt/hash process
+ * @hw_nbytes:		total bytes to process in hw for this request
+ * @copy_back:		whether to copy data back (crypt) or not (hash)
+ * @sg_dst_left:	bytes left dst to process in this scatter list
+ * @dst_start:		offset to add to dst start position (scatter list)
+ * @hw_processed_bytes:	number of bytes processed by hw (request).
+ *
+ * sg helper are used to iterate over the scatterlist. Since the size of the
+ * SRAM may be less than the scatter size, this struct struct is used to keep
+ * track of progress within current scatterlist.
+ */
 struct req_progress {
 	struct sg_mapping_iter src_sg_it;
 	struct sg_mapping_iter dst_sg_it;
 	void (*complete) (void);
 	void (*process) (int is_first);
 
-	
+	/* src mostly */
 	int sg_src_left;
 	int src_start;
 	int crypt_len;
 	int hw_nbytes;
-	
+	/* dst mostly */
 	int copy_back;
 	int sg_dst_left;
 	int dst_start;
@@ -54,7 +81,7 @@ struct crypto_priv {
 	int irq;
 	struct task_struct *queue_th;
 
-	
+	/* the lock protects queue and eng_st */
 	spinlock_t lock;
 	struct crypto_queue queue;
 	enum engine_status eng_st;
@@ -102,9 +129,9 @@ struct mv_req_hash_ctx {
 	u64 count;
 	u32 state[SHA1_DIGEST_SIZE / 4];
 	u8 buffer[SHA1_BLOCK_SIZE];
-	int first_hash;		
-	int last_chunk;		
-	int extra_bytes;	
+	int first_hash;		/* marks that we don't have previous state */
+	int last_chunk;		/* marks that this is the 'final' request */
+	int extra_bytes;	/* unprocessed bytes in buffer */
 	enum hash_op op;
 	int count_add;
 };
@@ -124,7 +151,7 @@ static void compute_aes_dec_key(struct mv_ctx *ctx)
 	switch (ctx->key_len) {
 	case AES_KEYSIZE_256:
 		key_pos -= 2;
-		
+		/* fall */
 	case AES_KEYSIZE_192:
 		key_pos -= 2;
 		memcpy(&ctx->aes_dec_key[4], &gen_aes_key.key_enc[key_pos],
@@ -243,9 +270,13 @@ static void mv_process_current_q(int first_block)
 	memcpy(cpg->sram + SRAM_CONFIG, &op,
 			sizeof(struct sec_accel_config));
 
-	
+	/* GO */
 	writel(SEC_CMD_EN_SEC_ACCL0, cpg->reg + SEC_ACCEL_CMD);
 
+	/*
+	 * XXX: add timer if the interrupt does not occur for some mystery
+	 * reason
+	 */
 }
 
 static void mv_crypto_algo_completion(void)
@@ -323,9 +354,13 @@ static void mv_process_hash_current(int first_block)
 
 	memcpy(cpg->sram + SRAM_CONFIG, &op, sizeof(struct sec_accel_config));
 
-	
+	/* GO */
 	writel(SEC_CMD_EN_SEC_ACCL0, cpg->reg + SEC_ACCEL_CMD);
 
+	/*
+	* XXX: add timer if the interrupt does not occur for some mystery
+	* reason
+	*/
 }
 
 static inline int mv_hash_import_sha1_ctx(const struct mv_req_hash_ctx *ctx,
@@ -358,6 +393,8 @@ static int mv_hash_final_fallback(struct ahash_request *req)
 		crypto_shash_update(&desc.shash, req_ctx->buffer,
 				    req_ctx->extra_bytes);
 	} else {
+		/* only SHA1 for now....
+		 */
 		rc = mv_hash_import_sha1_ctx(req_ctx, &desc.shash);
 		if (rc)
 			goto out;
@@ -430,7 +467,7 @@ static void dequeue_complete_req(void)
 
 	BUG_ON(cpg->eng_st != ENGINE_W_DEQUEUE);
 	if (cpg->p.hw_processed_bytes < cpg->p.hw_nbytes) {
-		
+		/* process next scatter list entry */
 		cpg->eng_st = ENGINE_BUSY;
 		cpg->p.process(0);
 	} else {
@@ -721,6 +758,8 @@ static int mv_hash_setkey(struct crypto_ahash *tfm, const u8 * key,
 	if (rc)
 		return rc;
 
+	/* Can't see a way to extract the ipad/opad from the fallback tfm
+	   so I'm basically copying code from the hmac module */
 	bs = crypto_shash_blocksize(ctx->base_hash);
 	ds = crypto_shash_digestsize(ctx->base_hash);
 	ss = crypto_shash_statesize(ctx->base_hash);
@@ -784,7 +823,7 @@ static int mv_cra_hash_init(struct crypto_tfm *tfm, const char *base_hash_name,
 	ctx->op = op;
 	ctx->count_add = count_add;
 
-	
+	/* Allocate a fallback and abort if it failed. */
 	fallback_tfm = crypto_alloc_shash(fallback_driver_name, 0,
 					  CRYPTO_ALG_NEED_FALLBACK);
 	if (IS_ERR(fallback_tfm)) {
@@ -797,7 +836,7 @@ static int mv_cra_hash_init(struct crypto_tfm *tfm, const char *base_hash_name,
 	ctx->fallback = fallback_tfm;
 
 	if (base_hash_name) {
-		
+		/* Allocate a hash to compute the ipad/opad of hmac. */
 		base_hash = crypto_alloc_shash(base_hash_name, 0,
 					       CRYPTO_ALG_NEED_FALLBACK);
 		if (IS_ERR(base_hash)) {

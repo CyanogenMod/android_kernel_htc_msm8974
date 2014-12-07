@@ -34,13 +34,14 @@
 #define MODULE_VERS "1.0"
 #define MODULE_NAME "scanlog"
 
+/* Status returns from ibm,scan-log-dump */
 #define SCANLOG_COMPLETE 0
 #define SCANLOG_HWERROR -1
 #define SCANLOG_CONTINUE 1
 
 
-static unsigned int ibm_scan_log_dump;			
-static struct proc_dir_entry *proc_ppc64_scan_log_dump;	
+static unsigned int ibm_scan_log_dump;			/* RTAS token */
+static struct proc_dir_entry *proc_ppc64_scan_log_dump;	/* The proc file */
 
 static ssize_t scanlog_read(struct file *file, char __user *buf,
 			    size_t count, loff_t *ppos)
@@ -59,6 +60,10 @@ static ssize_t scanlog_read(struct file *file, char __user *buf,
 		count = RTAS_DATA_BUF_SIZE;
 
 	if (count < 1024) {
+		/* This is the min supported by this RTAS call.  Rather
+		 * than do all the buffering we insist the user code handle
+		 * larger reads.  As long as cp works... :)
+		 */
 		printk(KERN_ERR "scanlog: cannot perform a small read (%ld)\n", count);
 		return -EINVAL;
 	}
@@ -67,7 +72,7 @@ static ssize_t scanlog_read(struct file *file, char __user *buf,
 		return -EFAULT;
 
 	for (;;) {
-		wait_time = 500;	
+		wait_time = 500;	/* default wait if no data */
 		spin_lock(&rtas_data_buf_lock);
 		memcpy(rtas_data_buf, data, RTAS_DATA_BUF_SIZE);
 		status = rtas_call(ibm_scan_log_dump, 2, 1, NULL,
@@ -85,7 +90,7 @@ static ssize_t scanlog_read(struct file *file, char __user *buf,
 			pr_debug("scanlog: hardware error reading data\n");
 			return -EIO;
 		    case SCANLOG_CONTINUE:
-			
+			/* We may or may not have data yet */
 			len = data[1];
 			off = data[2];
 			if (len > 0) {
@@ -93,10 +98,10 @@ static ssize_t scanlog_read(struct file *file, char __user *buf,
 					return -EFAULT;
 				return len;
 			}
-			
+			/* Break to sleep default time */
 			break;
 		    default:
-			
+			/* Assume extended busy */
 			wait_time = rtas_busy_delay_time(status);
 			if (!wait_time) {
 				printk(KERN_ERR "scanlog: unknown error " \
@@ -104,10 +109,10 @@ static ssize_t scanlog_read(struct file *file, char __user *buf,
 				return -EIO;
 			}
 		}
-		
+		/* Apparently no data yet.  Wait and try again. */
 		msleep_interruptible(wait_time);
 	}
-	
+	/*NOTREACHED*/
 }
 
 static ssize_t scanlog_write(struct file * file, const char __user * buf,
@@ -138,10 +143,13 @@ static int scanlog_open(struct inode * inode, struct file * file)
 	unsigned int *data = (unsigned int *)dp->data;
 
 	if (data[0] != 0) {
+		/* This imperfect test stops a second copy of the
+		 * data (or a reset while data is being copied)
+		 */
 		return -EBUSY;
 	}
 
-	data[0] = 0;	
+	data[0] = 0;	/* re-init so we restart the scan */
 
 	return 0;
 }
@@ -175,7 +183,7 @@ static int __init scanlog_init(void)
 	if (ibm_scan_log_dump == RTAS_UNKNOWN_SERVICE)
 		return -ENODEV;
 
-	
+	/* Ideally we could allocate a buffer < 4G */
 	data = kzalloc(RTAS_DATA_BUF_SIZE, GFP_KERNEL);
 	if (!data)
 		goto err;

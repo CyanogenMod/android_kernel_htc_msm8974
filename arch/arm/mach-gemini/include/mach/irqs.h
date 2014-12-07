@@ -50,4 +50,4 @@
 
 #define NR_IRQS		(NORMAL_IRQ_NUM + GPIO_IRQ_NUM)
 
-#endif 
+#endif /* __MACH_IRQS_H__ */

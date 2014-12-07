@@ -65,8 +65,14 @@ void pxa27x_assert_ac97reset(int reset_gpio, int on)
 }
 EXPORT_SYMBOL_GPL(pxa27x_assert_ac97reset);
 
+/* Crystal clock: 13MHz */
 #define BASE_CLK	13000000
 
+/*
+ * Get the clock frequency as reflected by CCSR and the turbo flag.
+ * We assume these values have been applied via a fcs.
+ * If info is not 0 we also display the current settings.
+ */
 unsigned int pxa27x_get_clk_frequency_khz(int info)
 {
 	unsigned long ccsr, clkcfg;
@@ -76,7 +82,7 @@ unsigned int pxa27x_get_clk_frequency_khz(int info)
 	ccsr = CCSR;
 	cccr_a = CCCR & (1 << 25);
 
-	
+	/* Read clkcfg register: it has turbo, b, half-turbo (and f) */
 	asm( "mrc\tp14, 0, %0, c6, c0, 0" : "=r" (clkcfg) );
 	t  = clkcfg & (1 << 0);
 	ht = clkcfg & (1 << 2);
@@ -106,6 +112,9 @@ unsigned int pxa27x_get_clk_frequency_khz(int info)
 	return (t) ? (N/1000) : (L/1000);
 }
 
+/*
+ * Return the current mem clock frequency as reflected by CCCR[A], B, and L
+ */
 static unsigned long clk_pxa27x_mem_getrate(struct clk *clk)
 {
 	unsigned long ccsr, clkcfg;
@@ -115,7 +124,7 @@ static unsigned long clk_pxa27x_mem_getrate(struct clk *clk)
 	ccsr = CCSR;
 	cccr_a = CCCR & (1 << 25);
 
-	
+	/* Read clkcfg register: it has turbo, b, half-turbo (and f) */
 	asm( "mrc\tp14, 0, %0, c6, c0, 0" : "=r" (clkcfg) );
 	b = clkcfg & (1 << 3);
 
@@ -134,6 +143,9 @@ static const struct clkops clk_pxa27x_mem_ops = {
 	.getrate	= clk_pxa27x_mem_getrate,
 };
 
+/*
+ * Return the current LCD clock frequency in units of 10kHz as
+ */
 static unsigned int pxa27x_get_lcdclk_frequency_10khz(void)
 {
 	unsigned long ccsr;
@@ -225,6 +237,9 @@ static struct clk_lookup pxa27x_clkregs[] = {
 #define SAVE(x)		sleep_save[SLEEP_SAVE_##x] = x
 #define RESTORE(x)	x = sleep_save[SLEEP_SAVE_##x]
 
+/*
+ * allow platforms to override default PWRMODE setting used for PM_SUSPEND_MEM
+ */
 static unsigned int pwrmode = PWRMODE_SLEEP;
 
 int __init pxa27x_set_pwrmode(unsigned int mode)
@@ -239,6 +254,11 @@ int __init pxa27x_set_pwrmode(unsigned int mode)
 	return -EINVAL;
 }
 
+/*
+ * List of global PXA peripheral registers to preserve.
+ * More ones like CP and general purpose register values are preserved
+ * with the stack pointer in sleep.S.
+ */
 enum {
 	SLEEP_SAVE_PSTR,
 	SLEEP_SAVE_MDREFR,
@@ -273,13 +293,13 @@ void pxa27x_cpu_pm_enter(suspend_state_t state)
 	asm volatile("mra %Q0, %R0, acc0" : "=r" (acc0));
 #endif
 
-	
+	/* ensure voltage-change sequencer not initiated, which hangs */
 	PCFR &= ~PCFR_FVC;
 
-	
+	/* Clear edge-detect status register. */
 	PEDR = 0xDF12FE1B;
 
-	
+	/* Clear reset status */
 	RCSR = RCSR_HWR | RCSR_WDR | RCSR_SMR | RCSR_GPR;
 
 	switch (state) {
@@ -302,14 +322,14 @@ static int pxa27x_cpu_pm_valid(suspend_state_t state)
 
 static int pxa27x_cpu_pm_prepare(void)
 {
-	
+	/* set resume return address */
 	PSPR = virt_to_phys(cpu_resume);
 	return 0;
 }
 
 static void pxa27x_cpu_pm_finish(void)
 {
-	
+	/* ensure not to come back here if it wasn't intended */
 	PSPR = 0;
 }
 
@@ -331,6 +351,9 @@ static void __init pxa27x_init_pm(void)
 static inline void pxa27x_init_pm(void) {}
 #endif
 
+/* PXA27x:  Various gpios can issue wakeup events.  This logic only
+ * handles the simple cases, not the WEMUX2 and WEMUX3 options
+ */
 static int pxa27x_set_wake(struct irq_data *d, unsigned int on)
 {
 	int gpio = pxa_irq_to_gpio(d->irq);
@@ -367,12 +390,12 @@ void __init pxa27x_init_irq(void)
 }
 
 static struct map_desc pxa27x_io_desc[] __initdata = {
-	{	
+	{	/* Mem Ctl */
 		.virtual	= (unsigned long)SMEMC_VIRT,
 		.pfn		= __phys_to_pfn(PXA2XX_SMEMC_BASE),
 		.length		= 0x00200000,
 		.type		= MT_DEVICE
-	}, {	
+	}, {	/* IMem ctl */
 		.virtual	=  0xfe000000,
 		.pfn		= __phys_to_pfn(0x58000000),
 		.length		= 0x00100000,
@@ -387,6 +410,9 @@ void __init pxa27x_map_io(void)
 	pxa27x_get_clk_frequency_khz(1);
 }
 
+/*
+ * device registration specific to PXA27x.
+ */
 void __init pxa27x_set_i2c_power_info(struct i2c_pxa_platform_data *info)
 {
 	local_irq_disable();

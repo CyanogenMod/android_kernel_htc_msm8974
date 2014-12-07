@@ -16,79 +16,89 @@ typedef unsigned char cc_t;
 typedef unsigned int speed_t;
 typedef unsigned int tcflag_t;
 
+/*
+ * The ABI says nothing about NCC but seems to use NCCS as
+ * replacement for it in struct termio
+ */
 #define NCCS	23
 struct termios {
-	tcflag_t c_iflag;		
-	tcflag_t c_oflag;		
-	tcflag_t c_cflag;		
-	tcflag_t c_lflag;		
-	cc_t c_line;			
-	cc_t c_cc[NCCS];		
+	tcflag_t c_iflag;		/* input mode flags */
+	tcflag_t c_oflag;		/* output mode flags */
+	tcflag_t c_cflag;		/* control mode flags */
+	tcflag_t c_lflag;		/* local mode flags */
+	cc_t c_line;			/* line discipline */
+	cc_t c_cc[NCCS];		/* control characters */
 };
 
 struct termios2 {
-	tcflag_t c_iflag;		
-	tcflag_t c_oflag;		
-	tcflag_t c_cflag;		
-	tcflag_t c_lflag;		
-	cc_t c_line;			
-	cc_t c_cc[NCCS];		
-	speed_t c_ispeed;		
-	speed_t c_ospeed;		
+	tcflag_t c_iflag;		/* input mode flags */
+	tcflag_t c_oflag;		/* output mode flags */
+	tcflag_t c_cflag;		/* control mode flags */
+	tcflag_t c_lflag;		/* local mode flags */
+	cc_t c_line;			/* line discipline */
+	cc_t c_cc[NCCS];		/* control characters */
+	speed_t c_ispeed;		/* input speed */
+	speed_t c_ospeed;		/* output speed */
 };
 
 struct ktermios {
-	tcflag_t c_iflag;		
-	tcflag_t c_oflag;		
-	tcflag_t c_cflag;		
-	tcflag_t c_lflag;		
-	cc_t c_line;			
-	cc_t c_cc[NCCS];		
-	speed_t c_ispeed;		
-	speed_t c_ospeed;		
+	tcflag_t c_iflag;		/* input mode flags */
+	tcflag_t c_oflag;		/* output mode flags */
+	tcflag_t c_cflag;		/* control mode flags */
+	tcflag_t c_lflag;		/* local mode flags */
+	cc_t c_line;			/* line discipline */
+	cc_t c_cc[NCCS];		/* control characters */
+	speed_t c_ispeed;		/* input speed */
+	speed_t c_ospeed;		/* output speed */
 };
 
-#define VINTR		 0		
-#define VQUIT		 1		
-#define VERASE		 2		
-#define VKILL		 3		
-#define VMIN		 4		
-#define VTIME		 5		
-#define VEOL2		 6		
-#define VSWTC		 7		
+/* c_cc characters */
+#define VINTR		 0		/* Interrupt character [ISIG].  */
+#define VQUIT		 1		/* Quit character [ISIG].  */
+#define VERASE		 2		/* Erase character [ICANON].  */
+#define VKILL		 3		/* Kill-line character [ICANON].  */
+#define VMIN		 4		/* Minimum number of bytes read at once [!ICANON].  */
+#define VTIME		 5		/* Time-out value (tenths of a second) [!ICANON].  */
+#define VEOL2		 6		/* Second EOL character [ICANON].  */
+#define VSWTC		 7		/* ??? */
 #define VSWTCH		VSWTC
-#define VSTART		 8		
-#define VSTOP		 9		
-#define VSUSP		10		
+#define VSTART		 8		/* Start (X-ON) character [IXON, IXOFF].  */
+#define VSTOP		 9		/* Stop (X-OFF) character [IXON, IXOFF].  */
+#define VSUSP		10		/* Suspend character [ISIG].  */
 #if 0
-#define VDSUSP		11		
+/*
+ * VDSUSP is not supported
+ */
+#define VDSUSP		11		/* Delayed suspend character [ISIG].  */
 #endif
-#define VREPRINT	12		
-#define VDISCARD	13		
-#define VWERASE		14		
-#define VLNEXT		15		
-#define VEOF		16		
-#define VEOL		17		
+#define VREPRINT	12		/* Reprint-line character [ICANON].  */
+#define VDISCARD	13		/* Discard character [IEXTEN].  */
+#define VWERASE		14		/* Word-erase character [ICANON].  */
+#define VLNEXT		15		/* Literal-next character [IEXTEN].  */
+#define VEOF		16		/* End-of-file character [ICANON].  */
+#define VEOL		17		/* End-of-line character [ICANON].  */
 
-#define IGNBRK	0000001		
-#define BRKINT	0000002		
-#define IGNPAR	0000004		
-#define PARMRK	0000010		
-#define INPCK	0000020		
-#define ISTRIP	0000040		
-#define INLCR	0000100		
-#define IGNCR	0000200		
-#define ICRNL	0000400		
-#define IUCLC	0001000		
-#define IXON	0002000		
-#define IXANY	0004000		
-#define IXOFF	0010000		
-#define IMAXBEL	0020000		
-#define IUTF8	0040000		
+/* c_iflag bits */
+#define IGNBRK	0000001		/* Ignore break condition.  */
+#define BRKINT	0000002		/* Signal interrupt on break.  */
+#define IGNPAR	0000004		/* Ignore characters with parity errors.  */
+#define PARMRK	0000010		/* Mark parity and framing errors.  */
+#define INPCK	0000020		/* Enable input parity check.  */
+#define ISTRIP	0000040		/* Strip 8th bit off characters.  */
+#define INLCR	0000100		/* Map NL to CR on input.  */
+#define IGNCR	0000200		/* Ignore CR.  */
+#define ICRNL	0000400		/* Map CR to NL on input.  */
+#define IUCLC	0001000		/* Map upper case to lower case on input.  */
+#define IXON	0002000		/* Enable start/stop output control.  */
+#define IXANY	0004000		/* Any character will restart after stop.  */
+#define IXOFF	0010000		/* Enable start/stop input control.  */
+#define IMAXBEL	0020000		/* Ring bell when input queue is full.  */
+#define IUTF8	0040000		/* Input is UTF-8 */
 
-#define OPOST	0000001		
-#define OLCUC	0000002		
-#define ONLCR	0000004		
+/* c_oflag bits */
+#define OPOST	0000001		/* Perform output processing.  */
+#define OLCUC	0000002		/* Map lower case to upper case on output.  */
+#define ONLCR	0000004		/* Map NL to CR-NL on output.  */
 #define OCRNL	0000010
 #define ONOCR	0000020
 #define ONLRET	0000040
@@ -117,9 +127,14 @@ struct ktermios {
 #define FFDLY	0100000
 #define   FF0	0000000
 #define   FF1	0100000
+/*
+#define PAGEOUT ???
+#define WRAP    ???
+ */
 
+/* c_cflag bit meaning */
 #define CBAUD	0010017
-#define  B0	0000000		
+#define  B0	0000000		/* hang up */
 #define  B50	0000001
 #define  B75	0000002
 #define  B110	0000003
@@ -137,17 +152,17 @@ struct ktermios {
 #define  B38400	0000017
 #define EXTA B19200
 #define EXTB B38400
-#define CSIZE	0000060		
-#define   CS5	0000000		
-#define   CS6	0000020		
-#define   CS7	0000040		
-#define   CS8	0000060		
-#define CSTOPB	0000100		
-#define CREAD	0000200		
-#define PARENB	0000400		
-#define PARODD	0001000		
-#define HUPCL	0002000		
-#define CLOCAL	0004000		
+#define CSIZE	0000060		/* Number of bits per byte (mask).  */
+#define   CS5	0000000		/* 5 bits per byte.  */
+#define   CS6	0000020		/* 6 bits per byte.  */
+#define   CS7	0000040		/* 7 bits per byte.  */
+#define   CS8	0000060		/* 8 bits per byte.  */
+#define CSTOPB	0000100		/* Two stop bits instead of one.  */
+#define CREAD	0000200		/* Enable receiver.  */
+#define PARENB	0000400		/* Parity enable.  */
+#define PARODD	0001000		/* Odd parity instead of even.  */
+#define HUPCL	0002000		/* Hang up on last close.  */
+#define CLOCAL	0004000		/* Ignore modem status lines.  */
 #define CBAUDEX 0010000
 #define    BOTHER 0010000
 #define    B57600 0010001
@@ -165,43 +180,48 @@ struct ktermios {
 #define  B3000000 0010015
 #define  B3500000 0010016
 #define  B4000000 0010017
-#define CIBAUD	  002003600000	
-#define CMSPAR    010000000000	
-#define CRTSCTS	  020000000000	
+#define CIBAUD	  002003600000	/* input baud rate */
+#define CMSPAR    010000000000	/* mark or space (stick) parity */
+#define CRTSCTS	  020000000000	/* flow control */
 
-#define IBSHIFT	16		
+#define IBSHIFT	16		/* Shift from CBAUD to CIBAUD */
 
-#define ISIG	0000001		
-#define ICANON	0000002		
+/* c_lflag bits */
+#define ISIG	0000001		/* Enable signals.  */
+#define ICANON	0000002		/* Do erase and kill processing.  */
 #define XCASE	0000004
-#define ECHO	0000010		
-#define ECHOE	0000020		
-#define ECHOK	0000040		
-#define ECHONL	0000100		
-#define NOFLSH	0000200		
-#define IEXTEN	0000400		
-#define ECHOCTL	0001000		
-#define ECHOPRT	0002000		
-#define ECHOKE	0004000		
+#define ECHO	0000010		/* Enable echo.  */
+#define ECHOE	0000020		/* Visual erase for ERASE.  */
+#define ECHOK	0000040		/* Echo NL after KILL.  */
+#define ECHONL	0000100		/* Echo NL even if ECHO is off.  */
+#define NOFLSH	0000200		/* Disable flush after interrupt.  */
+#define IEXTEN	0000400		/* Enable DISCARD and LNEXT.  */
+#define ECHOCTL	0001000		/* Echo control characters as ^X.  */
+#define ECHOPRT	0002000		/* Hardcopy visual erase.  */
+#define ECHOKE	0004000		/* Visual erase for KILL.  */
 #define FLUSHO	0020000
-#define PENDIN	0040000		
-#define TOSTOP	0100000		
+#define PENDIN	0040000		/* Retype pending input (state).  */
+#define TOSTOP	0100000		/* Send SIGTTOU for background output.  */
 #define ITOSTOP	TOSTOP
-#define EXTPROC	0200000		
+#define EXTPROC	0200000		/* External processing on pty */
 
-#define TIOCSER_TEMT    0x01	
+/* ioctl (fd, TIOCSERGETLSR, &result) where result may be as below */
+#define TIOCSER_TEMT    0x01	/* Transmitter physically empty */
 
-#define	TCOOFF		0	
-#define	TCOON		1	
-#define	TCIOFF		2	
-#define	TCION		3	
+/* tcflow() and TCXONC use these */
+#define	TCOOFF		0	/* Suspend output.  */
+#define	TCOON		1	/* Restart suspended output.  */
+#define	TCIOFF		2	/* Send a STOP character.  */
+#define	TCION		3	/* Send a START character.  */
 
-#define	TCIFLUSH	0	
+/* tcflush() and TCFLSH use these */
+#define	TCIFLUSH	0	/* Discard data received but not yet read.  */
 #define	TCOFLUSH	1	/* Discard data written but not yet sent.  */
-#define	TCIOFLUSH	2	
+#define	TCIOFLUSH	2	/* Discard all pending data.  */
 
-#define	TCSANOW		TCSETS	
+/* tcsetattr uses these */
+#define	TCSANOW		TCSETS	/* Change immediately.  */
 #define	TCSADRAIN	TCSETSW	/* Change when pending output is written.  */
-#define	TCSAFLUSH	TCSETSF	
+#define	TCSAFLUSH	TCSETSF	/* Flush pending input before changing.  */
 
-#endif 
+#endif /* _ASM_TERMBITS_H */

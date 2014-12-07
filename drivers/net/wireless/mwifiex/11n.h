@@ -70,6 +70,9 @@ int mwifiex_cmd_amsdu_aggr_ctrl(struct host_cmd_ds_command *cmd,
 				int cmd_action,
 				struct mwifiex_ds_11n_amsdu_aggr_ctrl *aa_ctrl);
 
+/*
+ * This function checks whether AMPDU is allowed or not for a particular TID.
+ */
 static inline u8
 mwifiex_is_ampdu_allowed(struct mwifiex_private *priv, int tid)
 {
@@ -77,6 +80,9 @@ mwifiex_is_ampdu_allowed(struct mwifiex_private *priv, int tid)
 		? true : false);
 }
 
+/*
+ * This function checks whether AMSDU is allowed or not for a particular TID.
+ */
 static inline u8
 mwifiex_is_amsdu_allowed(struct mwifiex_private *priv, int tid)
 {
@@ -85,6 +91,9 @@ mwifiex_is_amsdu_allowed(struct mwifiex_private *priv, int tid)
 		? true : false);
 }
 
+/*
+ * This function checks whether a space is available for new BA stream or not.
+ */
 static inline u8 mwifiex_space_avail_for_new_ba_stream(
 					struct mwifiex_adapter *adapter)
 {
@@ -104,6 +113,11 @@ static inline u8 mwifiex_space_avail_for_new_ba_stream(
 		 MWIFIEX_MAX_TX_BASTREAM_SUPPORTED) ? true : false);
 }
 
+/*
+ * This function finds the correct Tx BA stream to delete.
+ *
+ * Upon successfully locating, both the TID and the RA are returned.
+ */
 static inline u8
 mwifiex_find_stream_to_delete(struct mwifiex_private *priv, int ptr_tid,
 			      int *ptid, u8 *ra)
@@ -129,6 +143,9 @@ mwifiex_find_stream_to_delete(struct mwifiex_private *priv, int ptr_tid,
 	return ret;
 }
 
+/*
+ * This function checks whether BA stream is set up or not.
+ */
 static inline int
 mwifiex_is_ba_stream_setup(struct mwifiex_private *priv,
 			   struct mwifiex_ra_list_tbl *ptr, int tid)
@@ -141,4 +158,4 @@ mwifiex_is_ba_stream_setup(struct mwifiex_private *priv,
 
 	return false;
 }
-#endif 
+#endif /* !_MWIFIEX_11N_H_ */

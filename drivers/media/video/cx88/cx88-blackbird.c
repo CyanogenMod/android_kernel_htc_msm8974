@@ -56,12 +56,15 @@ MODULE_PARM_DESC(debug,"enable debug messages [blackbird]");
 	printk(KERN_DEBUG "%s/2-bb: " fmt, dev->core->name , ## arg)
 
 
+/* ------------------------------------------------------------------ */
 
 #define BLACKBIRD_FIRM_IMAGE_SIZE 376836
 
+/* defines below are from ivtv-driver.h */
 
 #define IVTV_CMD_HW_BLOCKS_RST 0xFFFFFFFF
 
+/* Firmware API commands */
 #define IVTV_API_STD_TIMEOUT 500
 
 enum blackbird_capture_type {
@@ -78,12 +81,12 @@ enum blackbird_capture_bits {
 	BLACKBIRD_RAW_BITS_TO_HOST_CAPTURE  = 0x10
 };
 enum blackbird_capture_end {
-	BLACKBIRD_END_AT_GOP, 
-	BLACKBIRD_END_NOW, 
+	BLACKBIRD_END_AT_GOP, /* stop at the end of gop, generate irq */
+	BLACKBIRD_END_NOW, /* stop immediately, no irq */
 };
 enum blackbird_framerate {
-	BLACKBIRD_FRAMERATE_NTSC_30, 
-	BLACKBIRD_FRAMERATE_PAL_25   
+	BLACKBIRD_FRAMERATE_NTSC_30, /* NTSC: 30fps */
+	BLACKBIRD_FRAMERATE_PAL_25   /* PAL: 25fps */
 };
 enum blackbird_stream_port {
 	BLACKBIRD_OUTPUT_PORT_MEMORY,
@@ -139,14 +142,14 @@ enum blackbird_notification_mailbox {
 	BLACKBIRD_NOTIFICATION_NO_MAILBOX = -1,
 };
 enum blackbird_field1_lines {
-	BLACKBIRD_FIELD1_SAA7114 = 0x00EF, 
-	BLACKBIRD_FIELD1_SAA7115 = 0x00F0, 
-	BLACKBIRD_FIELD1_MICRONAS = 0x0105, 
+	BLACKBIRD_FIELD1_SAA7114 = 0x00EF, /* 239 */
+	BLACKBIRD_FIELD1_SAA7115 = 0x00F0, /* 240 */
+	BLACKBIRD_FIELD1_MICRONAS = 0x0105, /* 261 */
 };
 enum blackbird_field2_lines {
-	BLACKBIRD_FIELD2_SAA7114 = 0x00EF, 
-	BLACKBIRD_FIELD2_SAA7115 = 0x00F0, 
-	BLACKBIRD_FIELD2_MICRONAS = 0x0106, 
+	BLACKBIRD_FIELD2_SAA7114 = 0x00EF, /* 239 */
+	BLACKBIRD_FIELD2_SAA7115 = 0x00F0, /* 240 */
+	BLACKBIRD_FIELD2_MICRONAS = 0x0106, /* 262 */
 };
 enum blackbird_custom_data_type {
 	BLACKBIRD_CUSTOM_EXTENSION_USR_DATA,
@@ -167,23 +170,25 @@ enum blackbird_mute_video_shift {
 	BLACKBIRD_MUTE_VIDEO_Y_SHIFT = 24,
 };
 
-#define IVTV_REG_ENC_SDRAM_REFRESH (0x07F8 )
-#define IVTV_REG_ENC_SDRAM_PRECHARGE (0x07FC )
-#define IVTV_REG_SPU (0x9050 )
-#define IVTV_REG_HW_BLOCKS (0x9054 )
-#define IVTV_REG_VPU (0x9058 )
-#define IVTV_REG_APU (0xA064 )
+/* Registers */
+#define IVTV_REG_ENC_SDRAM_REFRESH (0x07F8 /*| IVTV_REG_OFFSET*/)
+#define IVTV_REG_ENC_SDRAM_PRECHARGE (0x07FC /*| IVTV_REG_OFFSET*/)
+#define IVTV_REG_SPU (0x9050 /*| IVTV_REG_OFFSET*/)
+#define IVTV_REG_HW_BLOCKS (0x9054 /*| IVTV_REG_OFFSET*/)
+#define IVTV_REG_VPU (0x9058 /*| IVTV_REG_OFFSET*/)
+#define IVTV_REG_APU (0xA064 /*| IVTV_REG_OFFSET*/)
 
+/* ------------------------------------------------------------------ */
 
 static void host_setup(struct cx88_core *core)
 {
-	
+	/* toggle reset of the host */
 	cx_write(MO_GPHST_SOFT_RST, 1);
 	udelay(100);
 	cx_write(MO_GPHST_SOFT_RST, 0);
 	udelay(100);
 
-	
+	/* host port setup */
 	cx_write(MO_GPHST_WSC, 0x44444444U);
 	cx_write(MO_GPHST_XFR, 0);
 	cx_write(MO_GPHST_WDTH, 15);
@@ -192,6 +197,7 @@ static void host_setup(struct cx88_core *core)
 	cx_write(MO_GPHST_MODE, 0);
 }
 
+/* ------------------------------------------------------------------ */
 
 #define P1_MDATA0 0x390000
 #define P1_MDATA1 0x390001
@@ -226,7 +232,7 @@ static int wait_ready_gpio0_bit1(struct cx88_core *core, u32 state)
 
 static int memory_write(struct cx88_core *core, u32 address, u32 value)
 {
-	
+	/* Warning: address is dword address (4 bytes) */
 	cx_writeb(P1_MDATA0, (unsigned int)value);
 	cx_writeb(P1_MDATA1, (unsigned int)(value >> 8));
 	cx_writeb(P1_MDATA2, (unsigned int)(value >> 16));
@@ -245,7 +251,7 @@ static int memory_read(struct cx88_core *core, u32 address, u32 *value)
 	int retval;
 	u32 val;
 
-	
+	/* Warning: address is dword address (4 bytes) */
 	cx_writeb(P1_MADDR2, (unsigned int)(address >> 16) & ~0xC0);
 	cx_writeb(P1_MADDR1, (unsigned int)(address >> 8));
 	cx_writeb(P1_MADDR0, (unsigned int)address);
@@ -302,6 +308,7 @@ static int register_read(struct cx88_core *core, u32 address, u32 *value)
 	return retval;
 }
 
+/* ------------------------------------------------------------------ */
 
 static int blackbird_mbox_func(void *priv, u32 command, int in, int out, u32 data[CX2341X_MBOX_MAX_DATA])
 {
@@ -312,6 +319,8 @@ static int blackbird_mbox_func(void *priv, u32 command, int in, int out, u32 dat
 
 	dprintk(1,"%s: 0x%X\n", __func__, command);
 
+	/* this may not be 100% safe if we can't read any memory location
+	   without side effects */
 	memory_read(dev->core, dev->mailbox - 4, &value);
 	if (value != 0x12345678) {
 		dprintk(0, "Firmware and/or mailbox pointer not initialized or corrupted\n");
@@ -324,12 +333,12 @@ static int blackbird_mbox_func(void *priv, u32 command, int in, int out, u32 dat
 		return -1;
 	}
 
-	flag |= 1; 
+	flag |= 1; /* tell 'em we're working on it */
 	memory_write(dev->core, dev->mailbox, flag);
 
-	
-	memory_write(dev->core, dev->mailbox + 1, command); 
-	memory_write(dev->core, dev->mailbox + 3, IVTV_API_STD_TIMEOUT); 
+	/* write command + args + fill remaining with zeros */
+	memory_write(dev->core, dev->mailbox + 1, command); /* command code */
+	memory_write(dev->core, dev->mailbox + 3, IVTV_API_STD_TIMEOUT); /* timeout */
 	for (i = 0; i < in; i++) {
 		memory_write(dev->core, dev->mailbox + 4 + i, data[i]);
 		dprintk(1, "API Input %d = %d\n", i, data[i]);
@@ -337,10 +346,10 @@ static int blackbird_mbox_func(void *priv, u32 command, int in, int out, u32 dat
 	for (; i < CX2341X_MBOX_MAX_DATA; i++)
 		memory_write(dev->core, dev->mailbox + 4 + i, 0);
 
-	flag |= 3; 
+	flag |= 3; /* tell 'em we're done writing */
 	memory_write(dev->core, dev->mailbox, flag);
 
-	
+	/* wait for firmware to handle the API command */
 	timeout = jiffies + msecs_to_jiffies(10);
 	for (;;) {
 		memory_read(dev->core, dev->mailbox, &flag);
@@ -353,7 +362,7 @@ static int blackbird_mbox_func(void *priv, u32 command, int in, int out, u32 dat
 		udelay(10);
 	}
 
-	
+	/* read output values */
 	for (i = 0; i < out; i++) {
 		memory_read(dev->core, dev->mailbox + 4 + i, data + i);
 		dprintk(1, "API Output %d = %d\n", i, data[i]);
@@ -366,7 +375,9 @@ static int blackbird_mbox_func(void *priv, u32 command, int in, int out, u32 dat
 	memory_write(dev->core, dev->mailbox, flag);
 	return retval;
 }
+/* ------------------------------------------------------------------ */
 
+/* We don't need to call the API often, so using just one mailbox will probably suffice */
 static int blackbird_api_cmd(struct cx8802_dev *dev, u32 command,
 			     u32 inputcnt, u32 outputcnt, ...)
 {
@@ -456,7 +467,7 @@ static int blackbird_load_firmware(struct cx8802_dev *dev)
 		return -1;
 	}
 
-	
+	/* transfer to the chip */
 	dprintk(1,"Loading firmware ...\n");
 	dataptr = (u32*)firmware->data;
 	for (i = 0; i < (firmware->size >> 2); i++) {
@@ -466,7 +477,7 @@ static int blackbird_load_firmware(struct cx8802_dev *dev)
 		dataptr++;
 	}
 
-	
+	/* read back to verify with the checksum */
 	for (i--; i >= 0; i--) {
 		memory_read(dev->core, i, &value);
 		checksum -= ~value;
@@ -492,10 +503,23 @@ static int blackbird_load_firmware(struct cx8802_dev *dev)
 	return 0;
 }
 
+/**
+ Settings used by the windows tv app for PVR2000:
+=================================================================================================================
+Profile | Codec | Resolution | CBR/VBR | Video Qlty   | V. Bitrate | Frmrate | Audio Codec | A. Bitrate | A. Mode
+-----------------------------------------------------------------------------------------------------------------
+MPEG-1  | MPEG1 | 352x288PAL | (CBR)   | 1000:Optimal | 2000 Kbps  | 25fps   | MPG1 Layer2 | 224kbps    | Stereo
+MPEG-2  | MPEG2 | 720x576PAL | VBR     | 600 :Good    | 4000 Kbps  | 25fps   | MPG1 Layer2 | 224kbps    | Stereo
+VCD     | MPEG1 | 352x288PAL | (CBR)   | 1000:Optimal | 1150 Kbps  | 25fps   | MPG1 Layer2 | 224kbps    | Stereo
+DVD     | MPEG2 | 720x576PAL | VBR     | 600 :Good    | 6000 Kbps  | 25fps   | MPG1 Layer2 | 224kbps    | Stereo
+DB* DVD | MPEG2 | 720x576PAL | CBR     | 600 :Good    | 6000 Kbps  | 25fps   | MPG1 Layer2 | 224kbps    | Stereo
+=================================================================================================================
+*DB: "DirectBurn"
+*/
 
 static void blackbird_codec_settings(struct cx8802_dev *dev)
 {
-	
+	/* assign frame size */
 	blackbird_api_cmd(dev, CX2341X_ENC_SET_FRAME_SIZE, 2, 0,
 				dev->height, dev->width);
 
@@ -513,14 +537,14 @@ static int blackbird_initialize_codec(struct cx8802_dev *dev)
 	int retval;
 
 	dprintk(1,"Initialize codec\n");
-	retval = blackbird_api_cmd(dev, CX2341X_ENC_PING_FW, 0, 0); 
+	retval = blackbird_api_cmd(dev, CX2341X_ENC_PING_FW, 0, 0); /* ping */
 	if (retval < 0) {
 
 		dev->mpeg_active = 0;
 
-		
-		cx_write(MO_SRST_IO, 0); 
-		cx_write(MO_SRST_IO, 1); 
+		/* ping was not successful, reset and upload firmware */
+		cx_write(MO_SRST_IO, 0); /* SYS_RSTO=0 */
+		cx_write(MO_SRST_IO, 1); /* SYS_RSTO=1 */
 		retval = blackbird_load_firmware(dev);
 		if (retval < 0)
 			return retval;
@@ -531,7 +555,7 @@ static int blackbird_initialize_codec(struct cx8802_dev *dev)
 
 		dev->mailbox = retval;
 
-		retval = blackbird_api_cmd(dev, CX2341X_ENC_PING_FW, 0, 0); 
+		retval = blackbird_api_cmd(dev, CX2341X_ENC_PING_FW, 0, 0); /* ping */
 		if (retval < 0) {
 			dprintk(0, "ERROR: Firmware ping failed!\n");
 			return -1;
@@ -545,10 +569,10 @@ static int blackbird_initialize_codec(struct cx8802_dev *dev)
 		dprintk(0, "Firmware version is 0x%08x\n", version);
 	}
 
-	cx_write(MO_PINMUX_IO, 0x88); 
-	cx_clear(MO_INPUT_FORMAT, 0x100); 
-	cx_write(MO_VBOS_CONTROL, 0x84A00); 
-	cx_clear(MO_OUTPUT_FORMAT, 0x0008); 
+	cx_write(MO_PINMUX_IO, 0x88); /* 656-8bit IO and enable MPEG parallel IO */
+	cx_clear(MO_INPUT_FORMAT, 0x100); /* chroma subcarrier lock to normal? */
+	cx_write(MO_VBOS_CONTROL, 0x84A00); /* no 656 mode, 8-bit pixels, disable VBI */
+	cx_clear(MO_OUTPUT_FORMAT, 0x0008); /* Normal Y-limits to let the mpeg encoder sync */
 
 	blackbird_codec_settings(dev);
 
@@ -568,7 +592,7 @@ static int blackbird_start_codec(struct file *file, void *priv)
 {
 	struct cx8802_dev *dev  = ((struct cx8802_fh *)priv)->dev;
 	struct cx88_core *core = dev->core;
-	
+	/* start capturing to the host interface */
 	u32 reg;
 
 	int i;
@@ -586,15 +610,15 @@ static int blackbird_start_codec(struct file *file, void *priv)
 		msleep(100);
 	}
 
-	
+	/* unmute audio source */
 	cx_clear(AUD_VOL_CTL, (1 << 6));
 
 	blackbird_api_cmd(dev, CX2341X_ENC_REFRESH_INPUT, 0, 0);
 
-	
+	/* initialize the video input */
 	blackbird_api_cmd(dev, CX2341X_ENC_INITIALIZE_INPUT, 0, 0);
 
-	
+	/* start capturing to the host interface */
 	blackbird_api_cmd(dev, CX2341X_ENC_START_CAPTURE, 2, 0,
 			BLACKBIRD_MPEG_CAPTURE,
 			BLACKBIRD_RAW_BITS_NONE
@@ -616,14 +640,15 @@ static int blackbird_stop_codec(struct cx8802_dev *dev)
 	return 0;
 }
 
+/* ------------------------------------------------------------------ */
 
 static int bb_buf_setup(struct videobuf_queue *q,
 			unsigned int *count, unsigned int *size)
 {
 	struct cx8802_fh *fh = q->priv_data;
 
-	fh->dev->ts_packet_size  = 188 * 4; 
-	fh->dev->ts_packet_count = mpegbufs; 
+	fh->dev->ts_packet_size  = 188 * 4; /* was: 512 */
+	fh->dev->ts_packet_count = mpegbufs; /* was: 100 */
 
 	*size = fh->dev->ts_packet_size * fh->dev->ts_packet_count;
 	*count = fh->dev->ts_packet_count;
@@ -658,6 +683,7 @@ static struct videobuf_queue_ops blackbird_qops = {
 	.buf_release  = bb_buf_release,
 };
 
+/* ------------------------------------------------------------------ */
 
 static const u32 *ctrl_classes[] = {
 	cx88_user_ctrls,
@@ -671,16 +697,18 @@ static int blackbird_queryctrl(struct cx8802_dev *dev, struct v4l2_queryctrl *qc
 	if (qctrl->id == 0)
 		return -EINVAL;
 
-	
+	/* Standard V4L2 controls */
 	if (cx8800_ctrl_query(dev->core, qctrl) == 0)
 		return 0;
 
-	
+	/* MPEG V4L2 controls */
 	if (cx2341x_ctrl_query(&dev->params, qctrl))
 		qctrl->flags |= V4L2_CTRL_FLAG_DISABLED;
 	return 0;
 }
 
+/* ------------------------------------------------------------------ */
+/* IOCTL Handlers                                                     */
 
 static int vidioc_querymenu (struct file *file, void *priv,
 				struct v4l2_querymenu *qmenu)
@@ -731,7 +759,7 @@ static int vidioc_g_fmt_vid_cap (struct file *file, void *priv,
 
 	f->fmt.pix.pixelformat  = V4L2_PIX_FMT_MPEG;
 	f->fmt.pix.bytesperline = 0;
-	f->fmt.pix.sizeimage    = dev->ts_packet_size * dev->ts_packet_count; 
+	f->fmt.pix.sizeimage    = dev->ts_packet_size * dev->ts_packet_count; /* 188 * 4 * 1024; */
 	f->fmt.pix.colorspace   = 0;
 	f->fmt.pix.width        = dev->width;
 	f->fmt.pix.height       = dev->height;
@@ -749,7 +777,7 @@ static int vidioc_try_fmt_vid_cap (struct file *file, void *priv,
 
 	f->fmt.pix.pixelformat  = V4L2_PIX_FMT_MPEG;
 	f->fmt.pix.bytesperline = 0;
-	f->fmt.pix.sizeimage    = dev->ts_packet_size * dev->ts_packet_count; ;
+	f->fmt.pix.sizeimage    = dev->ts_packet_size * dev->ts_packet_count; /* 188 * 4 * 1024; */;
 	f->fmt.pix.colorspace   = 0;
 	dprintk(0,"VIDIOC_TRY_FMT: w: %d, h: %d, f: %d\n",
 		dev->width, dev->height, fh->mpegq.field );
@@ -765,7 +793,7 @@ static int vidioc_s_fmt_vid_cap (struct file *file, void *priv,
 
 	f->fmt.pix.pixelformat  = V4L2_PIX_FMT_MPEG;
 	f->fmt.pix.bytesperline = 0;
-	f->fmt.pix.sizeimage    = dev->ts_packet_size * dev->ts_packet_count; ;
+	f->fmt.pix.sizeimage    = dev->ts_packet_size * dev->ts_packet_count; /* 188 * 4 * 1024; */;
 	f->fmt.pix.colorspace   = 0;
 	dev->width              = f->fmt.pix.width;
 	dev->height             = f->fmt.pix.height;
@@ -1016,6 +1044,7 @@ static int vidioc_s_std (struct file *file, void *priv, v4l2_std_id *id)
 	return 0;
 }
 
+/* FIXME: cx88_ioctl_hook not implemented */
 
 static int mpeg_open(struct file *file)
 {
@@ -1029,7 +1058,7 @@ static int mpeg_open(struct file *file)
 
 	mutex_lock(&dev->core->lock);
 
-	
+	/* Make sure we can acquire the hardware */
 	drv = cx8802_get_driver(dev, CX88_MPEG_BLACKBIRD);
 	if (!drv) {
 		dprintk(1, "%s: blackbird driver is not loaded\n", __func__);
@@ -1051,7 +1080,7 @@ static int mpeg_open(struct file *file)
 	}
 	dprintk(1, "open dev=%s\n", video_device_node_name(vdev));
 
-	
+	/* allocate + initialize per filehandle data */
 	fh = kzalloc(sizeof(*fh),GFP_KERNEL);
 	if (NULL == fh) {
 		drv->request_release(drv);
@@ -1068,7 +1097,7 @@ static int mpeg_open(struct file *file)
 			    sizeof(struct cx88_buffer),
 			    fh, NULL);
 
-	
+	/* FIXME: locking against other video device */
 	cx88_set_scale(dev->core, dev->width, dev->height,
 			fh->mpegq.field);
 
@@ -1089,7 +1118,7 @@ static int mpeg_release(struct file *file)
 		blackbird_stop_codec(dev);
 
 	cx8802_cancel_buffers(fh->dev);
-	
+	/* stop mpeg capture */
 	videobuf_stop(&fh->mpegq);
 
 	videobuf_mmap_free(&fh->mpegq);
@@ -1097,7 +1126,7 @@ static int mpeg_release(struct file *file)
 	file->private_data = NULL;
 	kfree(fh);
 
-	
+	/* Make sure we release the hardware */
 	drv = cx8802_get_driver(dev, CX88_MPEG_BLACKBIRD);
 	WARN_ON(!drv);
 	if (drv)
@@ -1192,7 +1221,9 @@ static struct video_device cx8802_mpeg_template = {
 	.current_norm         = V4L2_STD_NTSC_M,
 };
 
+/* ------------------------------------------------------------------ */
 
+/* The CX8802 MPEG API will call this when we can use the hardware */
 static int cx8802_blackbird_advise_acquire(struct cx8802_driver *drv)
 {
 	struct cx88_core *core = drv->core;
@@ -1200,14 +1231,19 @@ static int cx8802_blackbird_advise_acquire(struct cx8802_driver *drv)
 
 	switch (core->boardnr) {
 	case CX88_BOARD_HAUPPAUGE_HVR1300:
-		
+		/* By default, core setup will leave the cx22702 out of reset, on the bus.
+		 * We left the hardware on power up with the cx22702 active.
+		 * We're being given access to re-arrange the GPIOs.
+		 * Take the bus off the cx22702 and put the cx23416 on it.
+		 */
+		/* Toggle reset on cx22702 leaving i2c active */
 		cx_set(MO_GP0_IO, 0x00000080);
 		udelay(1000);
 		cx_clear(MO_GP0_IO, 0x00000080);
 		udelay(50);
 		cx_set(MO_GP0_IO, 0x00000080);
 		udelay(1000);
-		
+		/* tri-state the cx22702 pins */
 		cx_set(MO_GP0_IO, 0x00000004);
 		udelay(1000);
 		break;
@@ -1217,6 +1253,7 @@ static int cx8802_blackbird_advise_acquire(struct cx8802_driver *drv)
 	return err;
 }
 
+/* The CX8802 MPEG API will call this when we need to release the hardware */
 static int cx8802_blackbird_advise_release(struct cx8802_driver *drv)
 {
 	struct cx88_core *core = drv->core;
@@ -1224,7 +1261,7 @@ static int cx8802_blackbird_advise_release(struct cx8802_driver *drv)
 
 	switch (core->boardnr) {
 	case CX88_BOARD_HAUPPAUGE_HVR1300:
-		
+		/* Exit leaving the cx23416 on the bus */
 		break;
 	default:
 		err = -ENODEV;
@@ -1261,6 +1298,7 @@ static int blackbird_register_video(struct cx8802_dev *dev)
 	return 0;
 }
 
+/* ----------------------------------------------------------- */
 
 static int cx8802_blackbird_probe(struct cx8802_driver *drv)
 {
@@ -1292,7 +1330,7 @@ static int cx8802_blackbird_probe(struct cx8802_driver *drv)
 		dev->height = 576;
 	}
 
-	
+	/* blackbird stuff */
 	printk("%s/2: cx23416 based mpeg encoder (blackbird reference design)\n",
 	       core->name);
 	host_setup(dev->core);
@@ -1300,7 +1338,8 @@ static int cx8802_blackbird_probe(struct cx8802_driver *drv)
 	blackbird_initialize_codec(dev);
 	blackbird_register_video(dev);
 
-	
+	/* initial device configuration: needed ? */
+//	init_controls(core);
 	cx88_set_tvnorm(core,core->tvnorm);
 	cx88_video_mux(core,0);
 
@@ -1312,7 +1351,7 @@ static int cx8802_blackbird_probe(struct cx8802_driver *drv)
 
 static int cx8802_blackbird_remove(struct cx8802_driver *drv)
 {
-	
+	/* blackbird */
 	blackbird_unregister_video(drv->core->dvbdev);
 
 	return 0;

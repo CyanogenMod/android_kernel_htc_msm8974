@@ -21,6 +21,24 @@
 #include "bfad_drv.h"
 #include "bfad_im.h"
 
+/*
+ * BFA debufs interface
+ *
+ * To access the interface, debugfs file system should be mounted
+ * if not already mounted using:
+ * mount -t debugfs none /sys/kernel/debug
+ *
+ * BFA Hierarchy:
+ *	- bfa/pci_dev:<pci_name>
+ * where the pci_name corresponds to the one under /sys/bus/pci/drivers/bfa
+ *
+ * Debugging service available per pci_dev:
+ * fwtrc:  To collect current firmware trace.
+ * drvtrc: To collect current driver trace
+ * fwsave: To collect last saved fw trace as a result of firmware crash.
+ * regwr:  To write one word to chip register
+ * regrd:  To read one or more words from chip register.
+ */
 
 struct bfad_debug_info {
 	char *debug_buffer;
@@ -151,6 +169,7 @@ bfad_debugfs_open_reg(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* Changes the current file position */
 static loff_t
 bfad_debugfs_lseek(struct file *file, loff_t offset, int orig)
 {
@@ -206,18 +225,18 @@ bfad_reg_offset_check(struct bfa_s *bfa, u32 offset, u32 len)
 {
 	u8	area;
 
-	
+	/* check [16:15] */
 	area = (offset >> 15) & 0x7;
 	if (area == 0) {
-		
-		if ((offset + (len<<2)) > 0x8000)    
+		/* PCIe core register */
+		if ((offset + (len<<2)) > 0x8000)    /* 8k dwords or 32KB */
 			return BFA_STATUS_EINVAL;
 	} else if (area == 0x1) {
-		
-		if ((offset + (len<<2)) > 0x10000)    
+		/* CB 32 KB memory page */
+		if ((offset + (len<<2)) > 0x10000)    /* 8k dwords or 32KB */
 			return BFA_STATUS_EINVAL;
 	} else {
-		
+		/* CB register space 64KB */
 		if ((offset + (len<<2)) > BFA_REG_ADDRMSK(&bfa->ioc))
 			return BFA_STATUS_EINVAL;
 	}
@@ -301,7 +320,7 @@ bfad_debugfs_write_regrd(struct file *file, const char __user *buf,
 	rb = bfa_ioc_bar0(ioc);
 	addr &= BFA_REG_ADDRMSK(ioc);
 
-	
+	/* offset and len sanity check */
 	rc = bfad_reg_offset_check(bfa, addr, len);
 	if (rc) {
 		printk(KERN_INFO "bfad[%d]: Failed reg offset check\n",
@@ -362,9 +381,9 @@ bfad_debugfs_write_regwr(struct file *file, const char __user *buf,
 	}
 	kfree(kern_buf);
 
-	addr &= BFA_REG_ADDRMSK(ioc); 
+	addr &= BFA_REG_ADDRMSK(ioc); /* offset only 17 bit and word align */
 
-	
+	/* offset and len sanity check */
 	rc = bfad_reg_offset_check(bfa, addr, 1);
 	if (rc) {
 		printk(KERN_INFO
@@ -479,7 +498,7 @@ bfad_debugfs_init(struct bfad_port_s *port)
 	if (!bfa_debugfs_enable)
 		return;
 
-	
+	/* Setup the BFA debugfs root directory*/
 	if (!bfa_debugfs_root) {
 		bfa_debugfs_root = debugfs_create_dir("bfa", NULL);
 		atomic_set(&bfa_debugfs_port_count, 0);
@@ -490,7 +509,7 @@ bfad_debugfs_init(struct bfad_port_s *port)
 		}
 	}
 
-	
+	/* Setup the pci_dev debugfs directory for the port */
 	snprintf(name, sizeof(name), "pci_dev:%s", bfad->pci_name);
 	if (!port->port_debugfs_root) {
 		port->port_debugfs_root =
@@ -538,14 +557,14 @@ bfad_debugfs_exit(struct bfad_port_s *port)
 		}
 	}
 
-	
+	/* Remove the pci_dev debugfs directory for the port */
 	if (port->port_debugfs_root) {
 		debugfs_remove(port->port_debugfs_root);
 		port->port_debugfs_root = NULL;
 		atomic_dec(&bfa_debugfs_port_count);
 	}
 
-	
+	/* Remove the BFA debugfs root directory */
 	if (atomic_read(&bfa_debugfs_port_count) == 0) {
 		debugfs_remove(bfa_debugfs_root);
 		bfa_debugfs_root = NULL;

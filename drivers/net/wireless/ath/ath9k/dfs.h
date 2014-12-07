@@ -19,6 +19,20 @@
 #define ATH9K_DFS_H
 
 #if defined(CONFIG_ATH9K_DFS_CERTIFIED)
+/**
+ * ath9k_dfs_process_phyerr - process radar PHY error
+ * @sc: ath_softc
+ * @data: RX payload data
+ * @rs: RX status after processing descriptor
+ * @mactime: receive time
+ *
+ * This function is called whenever the HW DFS module detects a radar
+ * pulse and reports it as a PHY error.
+ *
+ * The radar information provided as raw payload data is validated and
+ * filtered for false pulses. Events passing all tests are forwarded to
+ * the upper layer for pattern detection.
+ */
 void ath9k_dfs_process_phyerr(struct ath_softc *sc, void *data,
 			      struct ath_rx_status *rs, u64 mactime);
 #else
@@ -26,4 +40,4 @@ static inline void ath9k_dfs_process_phyerr(struct ath_softc *sc, void *data,
 					    struct ath_rx_status *rs, u64 mactime) { }
 #endif
 
-#endif 
+#endif /* ATH9K_DFS_H */

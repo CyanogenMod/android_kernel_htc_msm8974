@@ -30,6 +30,14 @@
 static DEFINE_SPINLOCK(opened_lock);
 static LIST_HEAD(opened);
 
+/*
+ * The drop_skb is used when we can't allocate an skb.  The
+ * packet is read into drop_skb in order to get the data off the
+ * connection to the host.
+ * It is reallocated whenever a maximum packet size is seen which is
+ * larger than any seen before.  update_drop_skb is called from
+ * eth_configure when a new interface is added.
+ */
 static DEFINE_SPINLOCK(drop_lock);
 static struct sk_buff *drop_skb;
 static int drop_max;
@@ -68,11 +76,11 @@ static int uml_net_rx(struct net_device *dev)
 	int pkt_len;
 	struct sk_buff *skb;
 
-	
+	/* If we can't allocate memory, try again next round. */
 	skb = dev_alloc_skb(lp->max_packet);
 	if (skb == NULL) {
 		drop_skb->dev = dev;
-		
+		/* Read a packet into drop_skb and don't do anything with it. */
 		(*lp->read)(lp->fd, drop_skb, lp);
 		dev->stats.rx_dropped++;
 		return 0;
@@ -119,6 +127,13 @@ static irqreturn_t uml_net_interrupt(int irq, void *dev_id)
 		printk(KERN_ERR
 		       "Device '%s' read returned %d, shutting it down\n",
 		       dev->name, err);
+		/* dev_close can't be called in interrupt context, and takes
+		 * again lp->lock.
+		 * And dev_close() can be safely called multiple times on the
+		 * same device, since it tests for (dev->flags & IFF_UP). So
+		 * there's no harm in delaying the device shutdown.
+		 * Furthermore, the workqueue will not re-enqueue an already
+		 * enqueued work item. */
 		schedule_work(&lp->work);
 		goto out;
 	}
@@ -156,6 +171,10 @@ static int uml_net_open(struct net_device *dev)
 	lp->tl.data = (unsigned long) &lp->user;
 	netif_start_queue(dev);
 
+	/* clear buffer - it can happen that the host side of the interface
+	 * is full when we get here.  In this case, new data is never queued,
+	 * SIGIOs never arrive, and the net never works.
+	 */
 	while ((err = uml_net_rx(dev)) > 0) ;
 
 	spin_lock(&opened_lock);
@@ -206,7 +225,7 @@ static int uml_net_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		dev->trans_start = jiffies;
 		netif_start_queue(dev);
 
-		
+		/* this is normally done in the interrupt when tx finishes */
 		netif_wake_queue(dev);
 	}
 	else if (len == 0) {
@@ -360,6 +379,10 @@ static const struct net_device_ops uml_netdev_ops = {
 #endif
 };
 
+/*
+ * Ensures that platform_driver_register is called only once by
+ * eth_configure.  Will be set in an initcall.
+ */
 static int driver_registered;
 
 static void eth_configure(int n, void *init, char *mac,
@@ -390,6 +413,10 @@ static void eth_configure(int n, void *init, char *mac,
 	INIT_LIST_HEAD(&device->list);
 	device->index = n;
 
+	/* If this name ends up conflicting with an existing registered
+	 * netdevice, that is OK, register_netdev{,ice}() will notice this
+	 * and fail.
+	 */
 	snprintf(dev->name, sizeof(dev->name), "eth%d", n);
 
 	random_mac = setup_etheraddr(mac, device->mac, dev->name);
@@ -397,10 +424,12 @@ static void eth_configure(int n, void *init, char *mac,
 	printk(KERN_INFO "Netdevice %d (%pM) : ", n, device->mac);
 
 	lp = netdev_priv(dev);
+	/* This points to the transport private data. It's still clear, but we
+	 * must memset it to 0 *now*. Let's help the drivers. */
 	memset(lp, 0, size);
 	INIT_WORK(&lp->work, uml_dev_close);
 
-	
+	/* sysfs register */
 	if (!driver_registered) {
 		platform_driver_register(&uml_net_driver);
 		driver_registered = 1;
@@ -415,6 +444,10 @@ static void eth_configure(int n, void *init, char *mac,
 
 	device->dev = dev;
 
+	/*
+	 * These just fill in a data structure, so there's no failure
+	 * to be worried about.
+	 */
 	(*transport->kern->init)(dev, init);
 
 	*lp = ((struct uml_net_private)
@@ -441,7 +474,7 @@ static void eth_configure(int n, void *init, char *mac,
 	    ((*transport->user->init)(&lp->user, dev) != 0))
 		goto out_unregister;
 
-	
+	/* don't use eth_mac_addr, it will not work here */
 	memcpy(dev->dev_addr, device->mac, ETH_ALEN);
 	if (random_mac)
 		dev->addr_assign_type |= NET_ADDR_RANDOM;
@@ -473,7 +506,7 @@ out_undo_user_init:
 		(*transport->user->remove)(&lp->user);
 out_unregister:
 	platform_device_unregister(&device->pdev);
-	return; 
+	return; /* platform_device_unregister frees dev and device */
 out_free_netdev:
 	free_netdev(dev);
 out_free_device:
@@ -535,6 +568,7 @@ struct eth_init {
 static DEFINE_SPINLOCK(transports_lock);
 static LIST_HEAD(transports);
 
+/* Filled in during early boot */
 static LIST_HEAD(eth_cmd_line);
 
 static int check_transport(struct transport *transport, char *eth, int n,
@@ -656,6 +690,9 @@ static int net_config(char *str, char **error_out)
 	if (err)
 		return err;
 
+	/* This string is broken up and the pieces used by the underlying
+	 * driver.  So, it is freed only if eth_setup_common fails.
+	 */
 	str = kstrdup(str, GFP_KERNEL);
 	if (str == NULL) {
 	        *error_out = "net_config failed to strdup string";
@@ -743,6 +780,7 @@ static int uml_inetaddr_event(struct notifier_block *this, unsigned long event,
 	return NOTIFY_DONE;
 }
 
+/* uml_net_init shouldn't be called twice on two CPUs at the same time */
 static struct notifier_block uml_inetaddr_notifier = {
 	.notifier_call		= uml_inetaddr_event,
 };
@@ -756,6 +794,10 @@ static void inet_register(void)
 
 	register_inetaddr_notifier(&uml_inetaddr_notifier);
 
+	/* Devices may have been opened already, so the uml_inetaddr_notifier
+	 * didn't get a chance to run for them.  This fakes it so that
+	 * addresses which have already been set up get handled properly.
+	 */
 	spin_lock(&opened_lock);
 	list_for_each(ele, &opened) {
 		lp = list_entry(ele, struct uml_net_private, list);

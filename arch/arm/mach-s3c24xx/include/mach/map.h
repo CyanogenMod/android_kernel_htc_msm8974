@@ -15,29 +15,44 @@
 
 #include <plat/map-base.h>
 
+/*
+ * S3C2410 UART offset is 0x4000 but the other SoCs are 0x400.
+ * So need to define it, and here is to avoid redefinition warning.
+ */
 #define S3C_UART_OFFSET		(0x4000)
 
 #include <plat/map-s3c.h>
 
+/*
+ * interrupt controller is the first thing we put in, to make
+ * the assembly code for the irq detection easier
+ */
 #define S3C2410_PA_IRQ		(0x4A000000)
 #define S3C24XX_SZ_IRQ		SZ_1M
 
+/* memory controller registers */
 #define S3C2410_PA_MEMCTRL	(0x48000000)
 #define S3C24XX_SZ_MEMCTRL	SZ_1M
 
+/* UARTs */
 #define S3C_VA_UARTx(uart)	(S3C_VA_UART + ((uart * S3C_UART_OFFSET)))
 
+/* Timers */
 #define S3C2410_PA_TIMER	(0x51000000)
 #define S3C24XX_SZ_TIMER	SZ_1M
 
+/* Clock and Power management */
 #define S3C24XX_SZ_CLKPWR	SZ_1M
 
+/* USB Device port */
 #define S3C2410_PA_USBDEV	(0x52000000)
 #define S3C24XX_SZ_USBDEV	SZ_1M
 
+/* Watchdog */
 #define S3C2410_PA_WATCHDOG	(0x53000000)
 #define S3C24XX_SZ_WATCHDOG	SZ_1M
 
+/* Standard size definitions for peripheral blocks. */
 
 #define S3C24XX_SZ_UART		SZ_1M
 #define S3C24XX_SZ_IIS		SZ_1M
@@ -47,50 +62,67 @@
 #define S3C24XX_SZ_NAND		SZ_1M
 #define S3C24XX_SZ_GPIO		SZ_1M
 
+/* USB host controller */
 #define S3C2410_PA_USBHOST (0x49000000)
 
+/* S3C2416/S3C2443/S3C2450 High-Speed USB Gadget */
 #define S3C2416_PA_HSUDC	(0x49800000)
 #define S3C2416_SZ_HSUDC	(SZ_4K)
 
+/* DMA controller */
 #define S3C2410_PA_DMA	   (0x4B000000)
 #define S3C24XX_SZ_DMA	   SZ_1M
 
+/* Clock and Power management */
 #define S3C2410_PA_CLKPWR  (0x4C000000)
 
+/* LCD controller */
 #define S3C2410_PA_LCD	   (0x4D000000)
 #define S3C24XX_SZ_LCD	   SZ_1M
 
+/* NAND flash controller */
 #define S3C2410_PA_NAND	   (0x4E000000)
 
+/* IIC hardware controller */
 #define S3C2410_PA_IIC	   (0x54000000)
 
+/* IIS controller */
 #define S3C2410_PA_IIS	   (0x55000000)
 
+/* RTC */
 #define S3C2410_PA_RTC	   (0x57000000)
 #define S3C24XX_SZ_RTC	   SZ_1M
 
+/* ADC */
 #define S3C2410_PA_ADC	   (0x58000000)
 
+/* SPI */
 #define S3C2410_PA_SPI	   (0x59000000)
 
+/* SDI */
 #define S3C2410_PA_SDI	   (0x5A000000)
 
+/* CAMIF */
 #define S3C2440_PA_CAMIF   (0x4F000000)
 #define S3C2440_SZ_CAMIF   SZ_1M
 
+/* AC97 */
 
 #define S3C2440_PA_AC97	   (0x5B000000)
 #define S3C2440_SZ_AC97	   SZ_1M
 
+/* S3C2443/S3C2416 High-speed SD/MMC */
 #define S3C2443_PA_HSMMC   (0x4A800000)
 #define S3C2416_PA_HSMMC0  (0x4AC00000)
 
 #define	S3C2443_PA_FB	(0x4C800000)
 
+/* S3C2412 memory and IO controls */
 #define S3C2412_PA_SSMC	(0x4F000000)
 
 #define S3C2412_PA_EBI	(0x48800000)
 
+/* physical addresses of all the chip-select areas */
 
 #define S3C2410_CS0 (0x00000000)
 #define S3C2410_CS1 (0x08000000)
@@ -103,6 +135,7 @@
 
 #define S3C2410_SDRAM_PA    (S3C2410_CS6)
 
+/* Use a single interface for common resources between S3C24XX cpus */
 
 #define S3C24XX_PA_IRQ      S3C2410_PA_IRQ
 #define S3C24XX_PA_MEMCTRL  S3C2410_PA_MEMCTRL
@@ -129,4 +162,4 @@
 #define S3C_PA_WDT	    S3C2410_PA_WATCHDOG
 #define S3C_PA_NAND	    S3C24XX_PA_NAND
 
-#endif 
+#endif /* __ASM_ARCH_MAP_H */

@@ -69,13 +69,13 @@ static void dell_wmi_aio_notify(u32 value, void *context)
 
 		switch (obj->type) {
 		case ACPI_TYPE_INTEGER:
-			
+			/* Most All-In-One correctly return integer scancode */
 			scancode = obj->integer.value;
 			sparse_keymap_report_event(dell_wmi_aio_input_dev,
 				scancode, 1, true);
 			break;
 		case ACPI_TYPE_BUFFER:
-			
+			/* Broken machines return the scancode in a buffer */
 			if (obj->buffer.pointer && obj->buffer.length > 0) {
 				scancode = obj->buffer.pointer[0];
 				sparse_keymap_report_event(

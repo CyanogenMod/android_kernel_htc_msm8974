@@ -51,6 +51,10 @@ static inline struct xfrm6_tunnel_net *xfrm6_tunnel_pernet(struct net *net)
 	return net_generic(net, xfrm6_tunnel_net_id);
 }
 
+/*
+ * xfrm_tunnel_spi things are for allocating unique id ("spi")
+ * per xfrm_address_t.
+ */
 struct xfrm6_tunnel_spi {
 	struct hlist_node	list_byaddr;
 	struct hlist_node	list_byspi;
@@ -243,7 +247,7 @@ static int xfrm6_tunnel_rcv(struct sk_buff *skb)
 static int xfrm6_tunnel_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 			    u8 type, u8 code, int offset, __be32 info)
 {
-	
+	/* xfrm6_tunnel native err handling */
 	switch (type) {
 	case ICMPV6_DEST_UNREACH:
 		switch (code) {

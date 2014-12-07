@@ -59,7 +59,7 @@ static int omap_abe_hw_params(struct snd_pcm_substream *substream,
 	else
 		return -EINVAL;
 
-	
+	/* set the codec mclk */
 	ret = snd_soc_dai_set_sysclk(codec_dai, clk_id, freq,
 				SND_SOC_CLOCK_IN);
 	if (ret) {
@@ -99,8 +99,10 @@ static struct snd_soc_ops omap_abe_dmic_ops = {
 	.hw_params = omap_abe_dmic_hw_params,
 };
 
+/* Headset jack */
 static struct snd_soc_jack hs_jack;
 
+/*Headset jack detection DAPM pins */
 static struct snd_soc_jack_pin hs_jack_pins[] = {
 	{
 		.pin = "Headset Mic",
@@ -112,15 +114,16 @@ static struct snd_soc_jack_pin hs_jack_pins[] = {
 	},
 };
 
+/* SDP4430 machine DAPM */
 static const struct snd_soc_dapm_widget twl6040_dapm_widgets[] = {
-	
+	/* Outputs */
 	SND_SOC_DAPM_HP("Headset Stereophone", NULL),
 	SND_SOC_DAPM_SPK("Earphone Spk", NULL),
 	SND_SOC_DAPM_SPK("Ext Spk", NULL),
 	SND_SOC_DAPM_LINE("Line Out", NULL),
 	SND_SOC_DAPM_SPK("Vibrator", NULL),
 
-	
+	/* Inputs */
 	SND_SOC_DAPM_MIC("Headset Mic", NULL),
 	SND_SOC_DAPM_MIC("Main Handset Mic", NULL),
 	SND_SOC_DAPM_MIC("Sub Handset Mic", NULL),
@@ -128,7 +131,7 @@ static const struct snd_soc_dapm_widget twl6040_dapm_widgets[] = {
 };
 
 static const struct snd_soc_dapm_route audio_map[] = {
-	
+	/* Routings for outputs */
 	{"Headset Stereophone", NULL, "HSOL"},
 	{"Headset Stereophone", NULL, "HSOR"},
 
@@ -143,7 +146,7 @@ static const struct snd_soc_dapm_route audio_map[] = {
 	{"Vibrator", NULL, "VIBRAL"},
 	{"Vibrator", NULL, "VIBRAR"},
 
-	
+	/* Routings for inputs */
 	{"HSMIC", NULL, "Headset Mic"},
 	{"Headset Mic", NULL, "Headset Mic Bias"},
 
@@ -173,7 +176,7 @@ static int omap_abe_twl6040_init(struct snd_soc_pcm_runtime *rtd)
 	int hs_trim;
 	int ret = 0;
 
-	
+	/* Disable not connected paths if not used */
 	twl6040_disconnect_pin(dapm, pdata->has_hs, "Headset Stereophone");
 	twl6040_disconnect_pin(dapm, pdata->has_hf, "Ext Spk");
 	twl6040_disconnect_pin(dapm, pdata->has_ep, "Earphone Spk");
@@ -184,11 +187,15 @@ static int omap_abe_twl6040_init(struct snd_soc_pcm_runtime *rtd)
 	twl6040_disconnect_pin(dapm, pdata->has_submic, "Sub Handset Mic");
 	twl6040_disconnect_pin(dapm, pdata->has_afm, "Line In");
 
+	/*
+	 * Configure McPDM offset cancellation based on the HSOTRIM value from
+	 * twl6040.
+	 */
 	hs_trim = twl6040_get_trim_value(codec, TWL6040_TRIM_HSOTRIM);
 	omap_mcpdm_configure_dn_offsets(rtd, TWL6040_HSF_TRIM_LEFT(hs_trim),
 					TWL6040_HSF_TRIM_RIGHT(hs_trim));
 
-	
+	/* Headset jack detection only if it is supported */
 	if (pdata->jack_detection) {
 		ret = snd_soc_jack_new(codec, "Headset Jack",
 					SND_JACK_HEADSET, &hs_jack);
@@ -227,6 +234,7 @@ static int omap_abe_dmic_init(struct snd_soc_pcm_runtime *rtd)
 				ARRAY_SIZE(dmic_audio_map));
 }
 
+/* Digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link twl6040_dmic_dai[] = {
 	{
 		.name = "TWL6040",
@@ -263,6 +271,7 @@ static struct snd_soc_dai_link twl6040_only_dai[] = {
 	},
 };
 
+/* Audio machine driver */
 static struct snd_soc_card omap_abe_card = {
 	.owner = THIS_MODULE,
 

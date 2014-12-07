@@ -65,6 +65,7 @@ struct t_usb_status_notifier{
 #endif
 
 int __init board_mfg_mode(void);
+int __init board_ftm_mode(void);
 int __init parse_tag_smi(const struct tag *tags);
 int __init parse_tag_hwid(const struct tag * tags);
 int __init parse_tag_skuid(const struct tag * tags);

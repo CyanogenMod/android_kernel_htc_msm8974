@@ -18,6 +18,24 @@
 #include <linux/regulator/driver.h>
 #include <linux/regulator/pm8xxx-regulator.h>
 
+/**
+ * enum pm8xxx_regulator_type - possible PM8XXX voltage regulator types
+ * %PM8XXX_REGULATOR_TYPE_PLDO:		PMOS low drop-out linear regulator
+ * %PM8XXX_REGULATOR_TYPE_NLDO:		NMOS low drop-out linear regulator
+ * %PM8XXX_REGULATOR_TYPE_NLDO1200:	NMOS low drop-out linear regulator
+ *					capable of supplying up to 1200 mA
+ * %PM8XXX_REGULATOR_TYPE_SMPS:		switched-mode power supply (buck)
+ * %PM8XXX_REGULATOR_TYPE_FTSMPS:	fast transient switched-mode power
+ *					supply (buck)
+ * %PM8XXX_REGULATOR_TYPE_VS:		voltage switch capable of sourcing 100mA
+ * %PM8XXX_REGULATOR_TYPE_VS300:	voltage switch capable of sourcing 300mA
+ * %PM8XXX_REGULATOR_TYPE_NCP:		negative charge pump
+ * %PM8XXX_REGULATOR_TYPE_BOOST:	boost regulator
+ * %PM8XXX_REGULATOR_TYPE_MAX:		used internally for error checking; not
+ *					a valid regulator type.
+ *
+ * Each of these has a different register control interface.
+ */
 enum pm8xxx_regulator_type {
 	PM8XXX_REGULATOR_TYPE_PLDO,
 	PM8XXX_REGULATOR_TYPE_NLDO,
@@ -95,7 +113,7 @@ enum pm8xxx_regulator_type {
  * are probed separately.
  */
 struct pm8xxx_vreg {
-	
+	/* Configuration data */
 	struct regulator_desc			rdesc;
 	struct regulator_desc			rdesc_pc;
 	enum pm8xxx_regulator_type		type;
@@ -106,7 +124,7 @@ struct pm8xxx_vreg {
 	const u16				sleep_ctrl_addr;
 	const u16				pfm_ctrl_addr;
 	const u16				pwr_cnfg_addr;
-	
+	/* State data */
 	struct pm8xxx_regulator_platform_data	pdata;
 	struct regulator_dev			*rdev;
 	struct regulator_dev			*rdev_pc;
@@ -127,12 +145,26 @@ struct pm8xxx_vreg {
 	u8					pwr_cnfg_reg;
 };
 
+/**
+ * struct pm8xxx_regulator_core_platform_data - platform data specified in a
+ *		PMIC core driver and utilized in the pm8xxx-regulator driver
+* @vreg:		pointer to pm8xxx_vreg data structure that may be shared
+*			between pin controlled and non-pin controlled versions
+*			of a given regulator.  Note that this data must persist
+*			as long as the regulator device is in use.
+* @pdata:		pointer to platform data passed in from a board file
+* @is_pin_controlled:	true if the regulator driver represents the pin control
+*			portion of a regulator, false if not.
+*
+* This data structure should only be needed in a PMIC core driver.
+*/
 struct pm8xxx_regulator_core_platform_data {
 	struct pm8xxx_vreg			*vreg;
 	struct pm8xxx_regulator_platform_data	*pdata;
 	bool					is_pin_controlled;
 };
 
+/* Helper macros */
 #define PLDO(_name, _pc_name, _ctrl_addr, _test_addr, _hpm_min_load) \
 	{ \
 		.type		= PM8XXX_REGULATOR_TYPE_PLDO, \

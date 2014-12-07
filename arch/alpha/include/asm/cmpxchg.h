@@ -1,6 +1,9 @@
 #ifndef _ALPHA_CMPXCHG_H
 #define _ALPHA_CMPXCHG_H
 
+/*
+ * Atomic exchange routines.
+ */
 
 #define __ASM__MB
 #define ____xchg(type, args...)		__xchg ## type ## _local(args)
@@ -65,4 +68,4 @@
 
 #define __HAVE_ARCH_CMPXCHG 1
 
-#endif 
+#endif /* _ALPHA_CMPXCHG_H */

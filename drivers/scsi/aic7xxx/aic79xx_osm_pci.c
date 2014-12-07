@@ -43,16 +43,18 @@
 #include "aic79xx_inline.h"
 #include "aic79xx_pci.h"
 
+/* Define the macro locally since it's different for different class of chips.
+ */
 #define ID(x)            \
 	ID2C(x),         \
 	ID2C(IDIROC(x))
 
 static const struct pci_device_id ahd_linux_pci_id_table[] = {
-	
+	/* aic7901 based controllers */
 	ID(ID_AHA_29320A),
 	ID(ID_AHA_29320ALP),
 	ID(ID_AHA_29320LPE),
-	
+	/* aic7902 based controllers */
 	ID(ID_AHA_29320),
 	ID(ID_AHA_29320B),
 	ID(ID_AHA_29320LP),
@@ -63,7 +65,7 @@ static const struct pci_device_id ahd_linux_pci_id_table[] = {
 	ID(ID_AHA_39320D_HP),
 	ID(ID_AHA_39320D_B),
 	ID(ID_AHA_39320D_B_HP),
-	
+	/* Generic chip probes for devices we don't know exactly. */
 	ID16(ID_AIC7901 & ID_9005_GENERIC_MASK),
 	ID(ID_AIC7901A & ID_DEV_VENDOR_MASK),
 	ID16(ID_AIC7902 & ID_9005_GENERIC_MASK),
@@ -167,6 +169,11 @@ ahd_linux_pci_dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (entry == NULL)
 		return (-ENODEV);
 
+	/*
+	 * Allocate a softc for this card and
+	 * set it up for attachment by our
+	 * common detect routine.
+	 */
 	sprintf(buf, "ahd_pci:%d:%d:%d",
 		ahd_get_pci_bus(pci),
 		ahd_get_pci_slot(pci),
@@ -205,6 +212,10 @@ ahd_linux_pci_dev_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		return (-error);
 	}
 
+	/*
+	 * Second Function PCI devices need to inherit some
+	 * * settings from function 0.
+	 */
 	if ((ahd->features & AHD_MULTI_FUNC) && PCI_FUNC(pdev->devfn) != 0)
 		ahd_linux_pci_inherit_flags(ahd);
 
@@ -242,6 +253,11 @@ ahd_linux_pci_reserve_io_regions(struct ahd_softc *ahd, resource_size_t *base,
 				 resource_size_t *base2)
 {
 	*base = pci_resource_start(ahd->dev_softc, 0);
+	/*
+	 * This is really the 3rd bar and should be at index 2,
+	 * but the Linux PCI code doesn't know how to "count" 64bit
+	 * bars.
+	 */
 	*base2 = pci_resource_start(ahd->dev_softc, 3);
 	if (*base == 0 || *base2 == 0)
 		return (ENOMEM);
@@ -298,6 +314,9 @@ ahd_pci_map_registers(struct ahd_softc *ahd)
 	uint8_t	__iomem *maddr;
 	int	 error;
 
+	/*
+	 * If its allowed, we prefer memory mapped access.
+	 */
 	command = ahd_pci_read_config(ahd->dev_softc, PCIR_COMMAND, 4);
 	command &= ~(PCIM_CMD_PORTEN|PCIM_CMD_MEMEN);
 	base = 0;

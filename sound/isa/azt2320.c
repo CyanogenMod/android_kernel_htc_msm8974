@@ -17,6 +17,17 @@
     Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
 */
 
+/*
+    This driver should provide support for most Aztech AZT2320 based cards.
+    Several AZT2316 chips are also supported/tested, but autoprobe doesn't
+    work: all module option have to be set.
+
+    No docs available for us at Aztech headquarters !!!   Unbelievable ...
+    No other help obtained.
+
+    Thanks to Rainer Wiesner <rainer.wiesner@01019freenet.de> for the WSS
+    activation method (full-duplex audio!).
+*/
 
 #include <asm/io.h>
 #include <linux/delay.h>
@@ -42,17 +53,17 @@ MODULE_SUPPORTED_DEVICE("{{Aztech Systems,PRO16V},"
 		"{Aztech Systems,AZT2320},"
 		"{Aztech Systems,AZT3000}}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_ISAPNP; 
-static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static long wss_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static long mpu_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static long fm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int mpu_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
-static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_ISAPNP; /* Enable this card */
+static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* PnP setup */
+static long wss_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* PnP setup */
+static long mpu_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* PnP setup */
+static long fm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* PnP setup */
+static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* Pnp setup */
+static int mpu_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* Pnp setup */
+static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* PnP setup */
+static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* PnP setup */
 
 module_param_array(index, int, NULL, 0444);
 MODULE_PARM_DESC(index, "Index value for azt2320 based soundcard.");
@@ -69,19 +80,19 @@ struct snd_card_azt2320 {
 };
 
 static struct pnp_card_device_id snd_azt2320_pnpids[] = {
-	
+	/* PRO16V */
 	{ .id = "AZT1008", .devs = { { "AZT1008" }, { "AZT2001" }, } },
-	
+	/* Aztech Sound Galaxy 16 */
 	{ .id = "AZT2320", .devs = { { "AZT0001" }, { "AZT0002" }, } },
-	
+	/* Packard Bell Sound III 336 AM/SP */
 	{ .id = "AZT3000", .devs = { { "AZT1003" }, { "AZT2001" }, } },
-	
+	/* AT3300 */
 	{ .id = "AZT3002", .devs = { { "AZT1004" }, { "AZT2001" }, } },
-	
+	/* --- */
 	{ .id = "AZT3005", .devs = { { "AZT1003" }, { "AZT2001" }, } },
-	
+	/* --- */
 	{ .id = "AZT3011", .devs = { { "AZT1003" }, { "AZT2001" }, } },
-	{ .id = "" }	
+	{ .id = "" }	/* end */
 };
 
 MODULE_DEVICE_TABLE(pnp_card, snd_azt2320_pnpids);
@@ -135,6 +146,7 @@ static int __devinit snd_card_azt2320_pnp(int dev, struct snd_card_azt2320 *acar
 	return 0;
 }
 
+/* same of snd_sbdsp_command by Jaroslav Kysela */
 static int __devinit snd_card_azt2320_command(unsigned long port, unsigned char val)
 {
 	int i;

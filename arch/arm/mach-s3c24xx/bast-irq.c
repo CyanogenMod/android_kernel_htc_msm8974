@@ -48,24 +48,28 @@
 #define irqdbf2(x...)
 
 
+/* handle PC104 ISA interrupts from the system CPLD */
 
+/* table of ISA irq nos to the relevant mask... zero means
+ * the irq is not implemented
+*/
 static unsigned char bast_pc104_irqmasks[] = {
-	0,   
-	0,   
-	0,   
-	1,   
-	0,   
-	2,   
-	0,   
-	4,   
-	0,   
-	0,   
-	8,   
-	0,   
-	0,   
-	0,   
-	0,   
-	0,   
+	0,   /* 0 */
+	0,   /* 1 */
+	0,   /* 2 */
+	1,   /* 3 */
+	0,   /* 4 */
+	2,   /* 5 */
+	0,   /* 6 */
+	4,   /* 7 */
+	0,   /* 8 */
+	0,   /* 9 */
+	8,   /* 10 */
+	0,   /* 11 */
+	0,   /* 12 */
+	0,   /* 13 */
+	0,   /* 14 */
+	0,   /* 15 */
 };
 
 static unsigned char bast_pc104_irqs[] = { 3, 5, 7, 10 };
@@ -116,12 +120,12 @@ bast_irq_pc104_demux(unsigned int irq,
 	stat = __raw_readb(BAST_VA_PC104_IRQREQ) & 0xf;
 
 	if (unlikely(stat == 0)) {
-		
+		/* ack if we get an irq with nothing (ie, startup) */
 
 		desc = irq_desc + IRQ_ISA;
 		desc->irq_data.chip->irq_ack(&desc->irq_data);
 	} else {
-		
+		/* handle the IRQ */
 
 		for (i = 0; stat != 0; i++, stat >>= 1) {
 			if (stat & 1) {
@@ -139,13 +143,13 @@ static __init int bast_irq_init(void)
 	if (machine_is_bast()) {
 		printk(KERN_INFO "BAST PC104 IRQ routing, Copyright 2005 Simtec Electronics\n");
 
-		
+		/* zap all the IRQs */
 
 		__raw_writeb(0x0, BAST_VA_PC104_IRQMASK);
 
 		irq_set_chained_handler(IRQ_ISA, bast_irq_pc104_demux);
 
-		
+		/* register our IRQs */
 
 		for (i = 0; i < 4; i++) {
 			unsigned int irqno = bast_pc104_irqs[i];

@@ -19,6 +19,10 @@
 #ifndef _ASM_SIBYTE_SB1250_H
 #define _ASM_SIBYTE_SB1250_H
 
+/*
+ * yymmddpp: year, month, day, patch.
+ * should sync with Makefile EXTRAVERSION
+ */
 #define SIBYTE_RELEASE 0x02111403
 
 #define SB1250_NR_IRQS 64
@@ -32,6 +36,7 @@
 
 #include <asm/addrspace.h>
 
+/* For revision/pass information */
 #include <asm/sibyte/sb1250_scd.h>
 #include <asm/sibyte/bcm1480_scd.h>
 extern unsigned int sb1_pass;

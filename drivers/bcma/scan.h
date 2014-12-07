@@ -5,7 +5,7 @@
 #define BCMA_WRAP_BASE		0x18100000
 
 #define SCAN_ER_VALID		0x00000001
-#define SCAN_ER_TAGX		0x00000006 
+#define SCAN_ER_TAGX		0x00000006 /* we have to ignore 0x8 bit when checking tag for SCAN_ER_TAG_ADDR */
 #define SCAN_ER_TAG		0x0000000E
 #define  SCAN_ER_TAG_CI		0x00000000
 #define  SCAN_ER_TAG_MP		0x00000002
@@ -47,10 +47,10 @@
 #define SCAN_ADDR_PORT_SHIFT	8
 #define SCAN_ADDR_ADDR		0xFFFFF000
 
-#define SCAN_ADDR_SZ_BASE	0x00001000	
+#define SCAN_ADDR_SZ_BASE	0x00001000	/* 4KB */
 
 #define SCAN_SIZE_SZ_ALIGN	0x00000FFF
 #define SCAN_SIZE_SZ		0xFFFFF000
 #define SCAN_SIZE_SG32		0x00000008
 
-#endif 
+#endif /* BCMA_SCAN_H_ */

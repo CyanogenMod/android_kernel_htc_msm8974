@@ -50,7 +50,7 @@
 
 #define AUDDEC_DEC_PCM 0
 
-#define AUDLPA_EVENT_NUM 10 
+#define AUDLPA_EVENT_NUM 10 /* Default number of pre-allocated event packets */
 
 #define __CONTAINS(r, v, l) ({					\
 	typeof(r) __r = r;					\
@@ -169,6 +169,7 @@ static void audlpa_allow_sleep(struct audio *audio)
 	wake_unlock(&audio->wakelock);
 }
 
+/* must be called with audio->lock held */
 static int audio_enable(struct audio *audio)
 {
 	pr_debug("%s\n", __func__);
@@ -196,6 +197,8 @@ static void audlpa_async_flush(struct audio *audio)
 								  payload);
 				kfree(buf_node);
 		}
+		/* Implicitly issue a pause to the decoder before flushing if
+		   it is not in pause state */
 		if (!(audio->drv_status & ADRV_STATUS_PAUSE)) {
 			rc = audlpa_pause(audio);
 			if (rc < 0)
@@ -225,6 +228,7 @@ static void audlpa_async_flush(struct audio *audio)
 	}
 }
 
+/* must be called with audio->lock held */
 static int audio_disable(struct audio *audio)
 {
 	int rc = 0;
@@ -261,6 +265,7 @@ static int audlpa_pause(struct audio *audio)
 	return rc;
 }
 
+/* ------------------- dsp --------------------- */
 static void audlpa_async_send_data(struct audio *audio, unsigned needed,
 				uint32_t token)
 {
@@ -276,7 +281,7 @@ static void audlpa_async_send_data(struct audio *audio, unsigned needed,
 	if (needed && !audio->wflush) {
 		audio->out_needed = 1;
 		if (audio->drv_status & ADRV_STATUS_OBUF_GIVEN) {
-			
+			/* pop one node out of queue */
 			union msm_audio_event_payload evt_payload;
 			struct audlpa_buffer_node *used_buf;
 
@@ -313,7 +318,7 @@ static void audlpa_async_send_data(struct audio *audio, unsigned needed,
 				param.len = next_buf->buf.data_len;
 				param.msw_ts = 0;
 				param.lsw_ts = 0;
-				
+				/* No time stamp valid */
 				param.flags = NO_TIMESTAMP;
 				param.uid = next_buf->paddr;
 				rc = q6asm_async_write(ac, &param);
@@ -574,11 +579,14 @@ static int audlpa_ion_lookup_vaddr(struct audio *audio, void *addr,
 	int match_count = 0;
 	*region = NULL;
 
-	
+	/* returns physical address or zero */
 	list_for_each_entry(region_elt, &audio->ion_region_queue, list) {
 		if (addr >= region_elt->vaddr &&
 			addr < region_elt->vaddr + region_elt->len &&
 			addr + len <= region_elt->vaddr + region_elt->len) {
+			/* offset since we could pass vaddr inside a registerd
+			* ion buffer
+			*/
 
 			match_count++;
 			if (!*region)
@@ -624,6 +632,7 @@ static unsigned long audlpa_ion_fixup(struct audio *audio, void *addr,
 	return paddr;
 }
 
+/* audio -> lock must be held at this point */
 static int audlpa_aio_buf_add(struct audio *audio, unsigned dir,
 	void __user *arg)
 {
@@ -643,7 +652,7 @@ static int audlpa_aio_buf_add(struct audio *audio, unsigned dir,
 		audio, buf_node->buf.buf_addr,
 		buf_node->buf.buf_len, 1);
 	if (dir) {
-		
+		/* write */
 		if (!buf_node->paddr ||
 		    (buf_node->paddr & 0x1) ||
 		    (buf_node->buf.data_len & 0x1)) {
@@ -655,7 +664,7 @@ static int audlpa_aio_buf_add(struct audio *audio, unsigned dir,
 			__func__, buf_node->paddr, buf_node->buf.data_len);
 		audlpa_async_send_data(audio, 0, 0);
 	} else {
-		
+		/* read */
 		kfree(buf_node);
 	}
 	return 0;
@@ -842,7 +851,7 @@ static long audio_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			if (rc < 0)
 				pr_err("%s: Send channel gain failed rc=%d\n",
 					__func__, rc);
-			
+			/* disable mute by default */
 			rc = q6asm_set_mute(audio->ac, 0);
 			if (rc < 0)
 				pr_err("%s: Send mute command failed rc=%d\n",
@@ -995,13 +1004,14 @@ fail:
 	return rc;
 }
 
+/* Only useful in tunnel-mode */
 int audlpa_async_fsync(struct audio *audio)
 {
 	int rc = 0;
 
 	pr_info("%s:Session %d\n", __func__, audio->ac->session);
 
-	
+	/* Blocking client sends more data */
 	mutex_lock(&audio->lock);
 	audio->drv_status |= ADRV_STATUS_FSYNC;
 	mutex_unlock(&audio->lock);
@@ -1226,6 +1236,10 @@ static ssize_t audlpa_debug_read(struct file *file, char __user *buf,
 					"channel mode %d\n",
 					audio->out_channel_mode);
 	mutex_unlock(&audio->lock);
+	/* Following variables are only useful for debugging when
+	 * when playback halts unexpectedly. Thus, no mutual exclusion
+	 * enforced
+	 */
 	n += scnprintf(buffer + n, debug_bufmax - n,
 					"wflush %d\n", audio->wflush);
 	n += scnprintf(buffer + n, debug_bufmax - n,
@@ -1248,12 +1262,12 @@ static int audio_open(struct inode *inode, struct file *file)
 	int rc, i, dec_attrb = 0;
 	struct audlpa_event *e_node = NULL;
 #ifdef CONFIG_DEBUG_FS
-	
+	/* 4 bytes represents decoder number, 1 byte for terminate string */
 	char name[sizeof "msm_lpa_" + 5];
 #endif
 	char wake_lock_name[24];
 
-	
+	/* Allocate audio instance, set to zero */
 	audio = kzalloc(sizeof(struct audio), GFP_KERNEL);
 	if (!audio) {
 		pr_err("%s: no memory to allocate audio instance\n", __func__);
@@ -1269,7 +1283,7 @@ static int audio_open(struct inode *inode, struct file *file)
 		goto done;
 	}
 
-	
+	/* Allocate the decoder based on inode minor number*/
 	audio->minor_no = iminor(inode);
 	dec_attrb |= audlpa_decs[audio->minor_no].dec_attrb;
 	audio->codec_ops.ioctl = audlpa_decs[audio->minor_no].ioctl;
@@ -1299,7 +1313,7 @@ static int audio_open(struct inode *inode, struct file *file)
 		pr_err("%s: Set IO mode failed\n", __func__);
 
 
-	
+	/* Initialize all locks of audio instance */
 	mutex_init(&audio->lock);
 	mutex_init(&audio->write_lock);
 	mutex_init(&audio->get_event_lock);

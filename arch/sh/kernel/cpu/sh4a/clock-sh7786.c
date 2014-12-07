@@ -17,6 +17,10 @@
 #include <asm/clock.h>
 #include <asm/freq.h>
 
+/*
+ * Default rate for the root input clock, reset this with clk_set_rate()
+ * from the platform code.
+ */
 static struct clk extal_clk = {
 	.rate		= 33333333,
 };
@@ -25,6 +29,10 @@ static unsigned long pll_recalc(struct clk *clk)
 {
 	int multiplier;
 
+	/*
+	 * Clock modes 0, 1, and 2 use an x64 multiplier against PLL1,
+	 * while modes 3, 4, and 5 use an x32.
+	 */
 	multiplier = (sh_mv.mv_mode_pins() & 0xf) < 3 ? 64 : 32;
 
 	return clk->parent->rate * multiplier;
@@ -83,7 +91,7 @@ enum { MSTP029, MSTP028, MSTP027, MSTP026, MSTP025, MSTP024,
        MSTP_NR };
 
 static struct clk mstp_clks[MSTP_NR] = {
-	
+	/* MSTPCR0 */
 	[MSTP029] = SH_CLK_MSTP32(&div4_clks[DIV4_P], MSTPCR0, 29, 0),
 	[MSTP028] = SH_CLK_MSTP32(&div4_clks[DIV4_P], MSTPCR0, 28, 0),
 	[MSTP027] = SH_CLK_MSTP32(&div4_clks[DIV4_P], MSTPCR0, 27, 0),
@@ -106,7 +114,7 @@ static struct clk mstp_clks[MSTP_NR] = {
 	[MSTP004] = SH_CLK_MSTP32(&div4_clks[DIV4_P], MSTPCR0, 4, 0),
 	[MSTP002] = SH_CLK_MSTP32(&div4_clks[DIV4_P], MSTPCR0, 2, 0),
 
-	
+	/* MSTPCR1 */
 	[MSTP112] = SH_CLK_MSTP32(NULL, MSTPCR1, 12, 0),
 	[MSTP110] = SH_CLK_MSTP32(NULL, MSTPCR1, 10, 0),
 	[MSTP109] = SH_CLK_MSTP32(NULL, MSTPCR1, 9, 0),
@@ -118,11 +126,11 @@ static struct clk mstp_clks[MSTP_NR] = {
 };
 
 static struct clk_lookup lookups[] = {
-	
+	/* main clocks */
 	CLKDEV_CON_ID("extal", &extal_clk),
 	CLKDEV_CON_ID("pll_clk", &pll_clk),
 
-	
+	/* DIV4 clocks */
 	CLKDEV_CON_ID("peripheral_clk", &div4_clks[DIV4_P]),
 	CLKDEV_CON_ID("du_clk", &div4_clks[DIV4_DU]),
 	CLKDEV_CON_ID("ddr_clk", &div4_clks[DIV4_DDR]),
@@ -130,7 +138,7 @@ static struct clk_lookup lookups[] = {
 	CLKDEV_CON_ID("shyway_clk", &div4_clks[DIV4_SH]),
 	CLKDEV_CON_ID("cpu_clk", &div4_clks[DIV4_I]),
 
-	
+	/* MSTP32 clocks */
 	CLKDEV_ICK_ID("sci_fck", "sh-sci.5", &mstp_clks[MSTP029]),
 	CLKDEV_ICK_ID("sci_fck", "sh-sci.4", &mstp_clks[MSTP028]),
 	CLKDEV_ICK_ID("sci_fck", "sh-sci.3", &mstp_clks[MSTP027]),

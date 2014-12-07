@@ -92,6 +92,36 @@ MODULE_PARM_DESC(barkers,
 		 "signal; values are appended to a list--setting one value "
 		 "as zero cleans the existing list and starts a new one.");
 
+/*
+ * WiMAX stack operation: relay a message from user space
+ *
+ * @wimax_dev: device descriptor
+ * @pipe_name: named pipe the message is for
+ * @msg_buf: pointer to the message bytes
+ * @msg_len: length of the buffer
+ * @genl_info: passed by the generic netlink layer
+ *
+ * The WiMAX stack will call this function when a message was received
+ * from user space.
+ *
+ * For the i2400m, this is an L3L4 message, as specified in
+ * include/linux/wimax/i2400m.h, and thus prefixed with a 'struct
+ * i2400m_l3l4_hdr'. Driver (and device) expect the messages to be
+ * coded in Little Endian.
+ *
+ * This function just verifies that the header declaration and the
+ * payload are consistent and then deals with it, either forwarding it
+ * to the device or procesing it locally.
+ *
+ * In the i2400m, messages are basically commands that will carry an
+ * ack, so we use i2400m_msg_to_dev() and then deliver the ack back to
+ * user space. The rx.c code might intercept the response and use it
+ * to update the driver's state, but then it will pass it on so it can
+ * be relayed back to user space.
+ *
+ * Note that asynchronous events from the device are processed and
+ * sent to user space in rx.c.
+ */
 static
 int i2400m_op_msg_from_user(struct wimax_dev *wimax_dev,
 			    const char *pipe_name,
@@ -119,12 +149,31 @@ error_msg_to_dev:
 }
 
 
+/*
+ * Context to wait for a reset to finalize
+ */
 struct i2400m_reset_ctx {
 	struct completion completion;
 	int result;
 };
 
 
+/*
+ * WiMAX stack operation: reset a device
+ *
+ * @wimax_dev: device descriptor
+ *
+ * See the documentation for wimax_reset() and wimax_dev->op_reset for
+ * the requirements of this function. The WiMAX stack guarantees
+ * serialization on calls to this function.
+ *
+ * Do a warm reset on the device; if it fails, resort to a cold reset
+ * and return -ENODEV. On successful warm reset, we need to block
+ * until it is complete.
+ *
+ * The bus-driver implementation of reset takes care of falling back
+ * to cold reset if warm fails.
+ */
 static
 int i2400m_op_reset(struct wimax_dev *wimax_dev)
 {
@@ -148,7 +197,7 @@ int i2400m_op_reset(struct wimax_dev *wimax_dev)
 		result = -ETIMEDOUT;
 	else if (result > 0)
 		result = ctx.result;
-	
+	/* if result < 0, pass it on */
 	mutex_lock(&i2400m->init_mutex);
 	i2400m->reset_ctx = NULL;
 	mutex_unlock(&i2400m->init_mutex);
@@ -158,6 +207,13 @@ out:
 }
 
 
+/*
+ * Check the MAC address we got from boot mode is ok
+ *
+ * @i2400m: device descriptor
+ *
+ * Returns: 0 if ok, < 0 errno code on error.
+ */
 static
 int i2400m_check_mac_addr(struct i2400m *i2400m)
 {
@@ -176,7 +232,7 @@ int i2400m_check_mac_addr(struct i2400m *i2400m)
 			result);
 		goto error;
 	}
-	
+	/* Extract MAC address */
 	ddi = (void *) skb->data;
 	BUILD_BUG_ON(ETH_ALEN != sizeof(ddi->mac_address));
 	d_printf(2, dev, "GET DEVICE INFO: mac addr %pM\n",
@@ -206,6 +262,25 @@ error:
 }
 
 
+/**
+ * __i2400m_dev_start - Bring up driver communication with the device
+ *
+ * @i2400m: device descriptor
+ * @flags: boot mode flags
+ *
+ * Returns: 0 if ok, < 0 errno code on error.
+ *
+ * Uploads firmware and brings up all the resources needed to be able
+ * to communicate with the device.
+ *
+ * The workqueue has to be setup early, at least before RX handling
+ * (it's only real user for now) so it can process reports as they
+ * arrive. We also want to destroy it if we retry, to make sure it is
+ * flushed...easier like this.
+ *
+ * TX needs to be setup before the bus-specific code (otherwise on
+ * shutdown, the bus-tx code could try to access it).
+ */
 static
 int __i2400m_dev_start(struct i2400m *i2400m, enum i2400m_bri flags)
 {
@@ -240,13 +315,13 @@ retry:
 			goto error_bus_dev_start;
 	}
 	i2400m->ready = 1;
-	wmb();		
-	
+	wmb();		/* see i2400m->ready's documentation  */
+	/* process pending reports from the device */
 	queue_work(i2400m->work_queue, &i2400m->rx_report_ws);
-	result = i2400m_firmware_check(i2400m);	
+	result = i2400m_firmware_check(i2400m);	/* fw versions ok? */
 	if (result < 0)
 		goto error_fw_check;
-	
+	/* At this point is ok to send commands to the device */
 	result = i2400m_check_mac_addr(i2400m);
 	if (result < 0)
 		goto error_check_mac_addr;
@@ -254,9 +329,17 @@ retry:
 	if (result < 0)
 		goto error_dev_initialize;
 
+	/* We don't want any additional unwanted error recovery triggered
+	 * from any other context so if anything went wrong before we come
+	 * here, let's keep i2400m->error_recovery untouched and leave it to
+	 * dev_reset_handle(). See dev_reset_handle(). */
 
 	atomic_dec(&i2400m->error_recovery);
+	/* Every thing works so far, ok, now we are ready to
+	 * take error recovery if it's required. */
 
+	/* At this point, reports will come for the device and set it
+	 * to the right state if it is different than UNINITIALIZED */
 	d_fnend(3, dev, "(net_dev %p [i2400m %p]) = %d\n",
 		net_dev, i2400m, result);
 	return result;
@@ -265,7 +348,7 @@ error_dev_initialize:
 error_check_mac_addr:
 error_fw_check:
 	i2400m->ready = 0;
-	wmb();		
+	wmb();		/* see i2400m->ready's documentation  */
 	flush_workqueue(i2400m->work_queue);
 	if (i2400m->bus_dev_stop)
 		i2400m->bus_dev_stop(i2400m);
@@ -291,13 +374,13 @@ static
 int i2400m_dev_start(struct i2400m *i2400m, enum i2400m_bri bm_flags)
 {
 	int result = 0;
-	mutex_lock(&i2400m->init_mutex);	
+	mutex_lock(&i2400m->init_mutex);	/* Well, start the device */
 	if (i2400m->updown == 0) {
 		result = __i2400m_dev_start(i2400m, bm_flags);
 		if (result >= 0) {
 			i2400m->updown = 1;
 			i2400m->alive = 1;
-			wmb();
+			wmb();/* see i2400m->updown and i2400m->alive's doc */
 		}
 	}
 	mutex_unlock(&i2400m->init_mutex);
@@ -305,6 +388,17 @@ int i2400m_dev_start(struct i2400m *i2400m, enum i2400m_bri bm_flags)
 }
 
 
+/**
+ * i2400m_dev_stop - Tear down driver communication with the device
+ *
+ * @i2400m: device descriptor
+ *
+ * Returns: 0 if ok, < 0 errno code on error.
+ *
+ * Releases all the resources allocated to communicate with the
+ * device. Note we cannot destroy the workqueue earlier as until RX is
+ * fully destroyed, it could still try to schedule jobs.
+ */
 static
 void __i2400m_dev_stop(struct i2400m *i2400m)
 {
@@ -317,8 +411,12 @@ void __i2400m_dev_stop(struct i2400m *i2400m)
 	complete(&i2400m->msg_completion);
 	i2400m_net_wake_stop(i2400m);
 	i2400m_dev_shutdown(i2400m);
-	i2400m->ready = 0;	
-	wmb();		
+	/*
+	 * Make sure no report hooks are running *before* we stop the
+	 * communication infrastructure with the device.
+	 */
+	i2400m->ready = 0;	/* nobody can queue work anymore */
+	wmb();		/* see i2400m->ready's documentation  */
 	flush_workqueue(i2400m->work_queue);
 
 	if (i2400m->bus_dev_stop)
@@ -331,6 +429,11 @@ void __i2400m_dev_stop(struct i2400m *i2400m)
 }
 
 
+/*
+ * Watch out -- we only need to stop if there is a need for it. The
+ * device could have reset itself and failed to come up again (see
+ * _i2400m_dev_reset_handle()).
+ */
 static
 void i2400m_dev_stop(struct i2400m *i2400m)
 {
@@ -339,12 +442,25 @@ void i2400m_dev_stop(struct i2400m *i2400m)
 		__i2400m_dev_stop(i2400m);
 		i2400m->updown = 0;
 		i2400m->alive = 0;
-		wmb();	
+		wmb();	/* see i2400m->updown and i2400m->alive's doc */
 	}
 	mutex_unlock(&i2400m->init_mutex);
 }
 
 
+/*
+ * Listen to PM events to cache the firmware before suspend/hibernation
+ *
+ * When the device comes out of suspend, it might go into reset and
+ * firmware has to be uploaded again. At resume, most of the times, we
+ * can't load firmware images from disk, so we need to cache it.
+ *
+ * i2400m_fw_cache() will allocate a kobject and attach the firmware
+ * to it; that way we don't have to worry too much about the fw loader
+ * hitting a race condition.
+ *
+ * Note: modus operandi stolen from the Orinoco driver; thx.
+ */
 static
 int i2400m_pm_notifier(struct notifier_block *notifier,
 		       unsigned long pm_event,
@@ -361,6 +477,8 @@ int i2400m_pm_notifier(struct notifier_block *notifier,
 		i2400m_fw_cache(i2400m);
 		break;
 	case PM_POST_RESTORE:
+		/* Restore from hibernation failed. We need to clean
+		 * up in exactly the same way, so fall through. */
 	case PM_POST_HIBERNATION:
 	case PM_POST_SUSPEND:
 		i2400m_fw_uncache(i2400m);
@@ -375,6 +493,12 @@ int i2400m_pm_notifier(struct notifier_block *notifier,
 }
 
 
+/*
+ * pre-reset is called before a device is going on reset
+ *
+ * This has to be followed by a call to i2400m_post_reset(), otherwise
+ * bad things might happen.
+ */
 int i2400m_pre_reset(struct i2400m *i2400m)
 {
 	int result;
@@ -389,6 +513,8 @@ int i2400m_pre_reset(struct i2400m *i2400m)
 		netif_tx_disable(i2400m->wimax_dev.net_dev);
 		__i2400m_dev_stop(i2400m);
 		result = 0;
+		/* down't set updown to zero -- this way
+		 * post_reset can restore properly */
 	}
 	mutex_unlock(&i2400m->init_mutex);
 	if (i2400m->bus_release)
@@ -399,6 +525,14 @@ int i2400m_pre_reset(struct i2400m *i2400m)
 EXPORT_SYMBOL_GPL(i2400m_pre_reset);
 
 
+/*
+ * Restore device state after a reset
+ *
+ * Do the work needed after a device reset to bring it up to the same
+ * state as it was before the reset.
+ *
+ * NOTE: this requires i2400m->init_mutex taken
+ */
 int i2400m_post_reset(struct i2400m *i2400m)
 {
 	int result = 0;
@@ -428,8 +562,10 @@ int i2400m_post_reset(struct i2400m *i2400m)
 error_dev_start:
 	if (i2400m->bus_release)
 		i2400m->bus_release(i2400m);
+	/* even if the device was up, it could not be recovered, so we
+	 * mark it as down. */
 	i2400m->updown = 0;
-	wmb();		
+	wmb();		/* see i2400m->updown's documentation  */
 	mutex_unlock(&i2400m->init_mutex);
 error_bus_setup:
 	d_fnend(3, dev, "(i2400m %p) = %d\n", i2400m, result);
@@ -438,6 +574,29 @@ error_bus_setup:
 EXPORT_SYMBOL_GPL(i2400m_post_reset);
 
 
+/*
+ * The device has rebooted; fix up the device and the driver
+ *
+ * Tear down the driver communication with the device, reload the
+ * firmware and reinitialize the communication with the device.
+ *
+ * If someone calls a reset when the device's firmware is down, in
+ * theory we won't see it because we are not listening. However, just
+ * in case, leave the code to handle it.
+ *
+ * If there is a reset context, use it; this means someone is waiting
+ * for us to tell him when the reset operation is complete and the
+ * device is ready to rock again.
+ *
+ * NOTE: if we are in the process of bringing up or down the
+ *       communication with the device [running i2400m_dev_start() or
+ *       _stop()], don't do anything, let it fail and handle it.
+ *
+ * This function is ran always in a thread context
+ *
+ * This function gets passed, as payload to i2400m_work() a 'const
+ * char *' ptr with a "reason" why the reset happened (for messages).
+ */
 static
 void __i2400m_dev_reset_handle(struct work_struct *ws)
 {
@@ -450,10 +609,13 @@ void __i2400m_dev_reset_handle(struct work_struct *ws)
 	d_fnstart(3, dev, "(ws %p i2400m %p reason %s)\n", ws, i2400m, reason);
 
 	i2400m->boot_mode = 1;
-	wmb();		
+	wmb();		/* Make sure i2400m_msg_to_dev() sees boot_mode */
 
 	result = 0;
 	if (mutex_trylock(&i2400m->init_mutex) == 0) {
+		/* We are still in i2400m_dev_start() [let it fail] or
+		 * i2400m_dev_stop() [we are shutting down anyway, so
+		 * ignore it] or we are resetting somewhere else. */
 		dev_err(dev, "device rebooted somewhere else?\n");
 		i2400m_msg_to_dev_cancel_wait(i2400m, -EL3RST);
 		complete(&i2400m->msg_completion);
@@ -465,7 +627,7 @@ void __i2400m_dev_reset_handle(struct work_struct *ws)
 	if (i2400m->updown) {
 		__i2400m_dev_stop(i2400m);
 		i2400m->updown = 0;
-		wmb();		
+		wmb();		/* see i2400m->updown's documentation  */
 	}
 
 	if (i2400m->alive) {
@@ -490,17 +652,27 @@ void __i2400m_dev_reset_handle(struct work_struct *ws)
 	}
 	mutex_unlock(&i2400m->init_mutex);
 	if (result == -EUCLEAN) {
+		/*
+		 * We come here because the reset during operational mode
+		 * wasn't successfully done and need to proceed to a bus
+		 * reset. For the dev_reset_handle() to be able to handle
+		 * the reset event later properly, we restore boot_mode back
+		 * to the state before previous reset. ie: just like we are
+		 * issuing the bus reset for the first time
+		 */
 		i2400m->boot_mode = 0;
 		wmb();
 
 		atomic_inc(&i2400m->bus_reset_retries);
-		
+		/* ops, need to clean up [w/ init_mutex not held] */
 		result = i2400m_reset(i2400m, I2400M_RT_BUS);
 		if (result >= 0)
 			result = -ENODEV;
 	} else {
 		rmb();
 		if (i2400m->alive) {
+			/* great, we expect the device state up and
+			 * dev_start() actually brings the device state up */
 			i2400m->updown = 1;
 			wmb();
 			atomic_set(&i2400m->bus_reset_retries, 0);
@@ -512,6 +684,18 @@ out:
 }
 
 
+/**
+ * i2400m_dev_reset_handle - Handle a device's reset in a thread context
+ *
+ * Schedule a device reset handling out on a thread context, so it
+ * is safe to call from atomic context. We can't use the i2400m's
+ * queue as we are going to destroy it and reinitialize it as part of
+ * the driver bringup/bringup process.
+ *
+ * See __i2400m_dev_reset_handle() for details; that takes care of
+ * reinitializing the driver to handle the reset, calling into the
+ * bus-specific functions ops as needed.
+ */
 int i2400m_dev_reset_handle(struct i2400m *i2400m, const char *reason)
 {
 	i2400m->reset_reason = reason;
@@ -520,6 +704,11 @@ int i2400m_dev_reset_handle(struct i2400m *i2400m, const char *reason)
 EXPORT_SYMBOL_GPL(i2400m_dev_reset_handle);
 
 
+ /*
+ * The actual work of error recovery.
+ *
+ * The current implementation of error recovery is to trigger a bus reset.
+ */
 static
 void __i2400m_error_recovery(struct work_struct *ws)
 {
@@ -528,6 +717,31 @@ void __i2400m_error_recovery(struct work_struct *ws)
 	i2400m_reset(i2400m, I2400M_RT_BUS);
 }
 
+/*
+ * Schedule a work struct for error recovery.
+ *
+ * The intention of error recovery is to bring back the device to some
+ * known state whenever TX sees -110 (-ETIMEOUT) on copying the data to
+ * the device. The TX failure could mean a device bus stuck, so the current
+ * error recovery implementation is to trigger a bus reset to the device
+ * and hopefully it can bring back the device.
+ *
+ * The actual work of error recovery has to be in a thread context because
+ * it is kicked off in the TX thread (i2400ms->tx_workqueue) which is to be
+ * destroyed by the error recovery mechanism (currently a bus reset).
+ *
+ * Also, there may be already a queue of TX works that all hit
+ * the -ETIMEOUT error condition because the device is stuck already.
+ * Since bus reset is used as the error recovery mechanism and we don't
+ * want consecutive bus resets simply because the multiple TX works
+ * in the queue all hit the same device erratum, the flag "error_recovery"
+ * is introduced for preventing unwanted consecutive bus resets.
+ *
+ * Error recovery shall only be invoked again if previous one was completed.
+ * The flag error_recovery is set when error recovery mechanism is scheduled,
+ * and is checked when we need to schedule another error recovery. If it is
+ * in place already, then we shouldn't schedule another one.
+ */
 void i2400m_error_recovery(struct i2400m *i2400m)
 {
 	if (atomic_add_return(1, &i2400m->error_recovery) == 1)
@@ -537,6 +751,12 @@ void i2400m_error_recovery(struct i2400m *i2400m)
 }
 EXPORT_SYMBOL_GPL(i2400m_error_recovery);
 
+/*
+ * Alloc the command and ack buffers for boot mode
+ *
+ * Get the buffers needed to deal with boot mode messages.  These
+ * buffers need to be allocated before the sdio receive irq is setup.
+ */
 static
 int i2400m_bm_buf_alloc(struct i2400m *i2400m)
 {
@@ -558,6 +778,9 @@ error_bm_cmd_kzalloc:
 }
 
 
+/*
+ * Free boot mode command and ack buffers.
+ */
 static
 void i2400m_bm_buf_free(struct i2400m *i2400m)
 {
@@ -566,6 +789,11 @@ void i2400m_bm_buf_free(struct i2400m *i2400m)
 }
 
 
+/**
+ * i2400m_init - Initialize a 'struct i2400m' from all zeroes
+ *
+ * This is a bus-generic API call.
+ */
 void i2400m_init(struct i2400m *i2400m)
 {
 	wimax_dev_init(&i2400m->wimax_dev);
@@ -588,7 +816,7 @@ void i2400m_init(struct i2400m *i2400m)
 	init_completion(&i2400m->msg_completion);
 
 	mutex_init(&i2400m->init_mutex);
-	
+	/* wake_tx_ws is initialized in i2400m_tx_setup() */
 
 	INIT_WORK(&i2400m->reset_ws, __i2400m_dev_reset_handle);
 	INIT_WORK(&i2400m->recovery_ws, __i2400m_error_recovery);
@@ -597,6 +825,8 @@ void i2400m_init(struct i2400m *i2400m)
 
 	i2400m->alive = 0;
 
+	/* initialize error_recovery to 1 for denoting we
+	 * are not yet ready to take any error recovery */
 	atomic_set(&i2400m->error_recovery, 1);
 }
 EXPORT_SYMBOL_GPL(i2400m_init);
@@ -606,6 +836,11 @@ int i2400m_reset(struct i2400m *i2400m, enum i2400m_reset_type rt)
 {
 	struct net_device *net_dev = i2400m->wimax_dev.net_dev;
 
+	/*
+	 * Make sure we stop TXs and down the carrier before
+	 * resetting; this is needed to avoid things like
+	 * i2400m_wake_tx() scheduling stuff in parallel.
+	 */
 	if (net_dev->reg_state == NETREG_REGISTERED) {
 		netif_tx_disable(net_dev);
 		netif_carrier_off(net_dev);
@@ -615,6 +850,17 @@ int i2400m_reset(struct i2400m *i2400m, enum i2400m_reset_type rt)
 EXPORT_SYMBOL_GPL(i2400m_reset);
 
 
+/**
+ * i2400m_setup - bus-generic setup function for the i2400m device
+ *
+ * @i2400m: device descriptor (bus-specific parts have been initialized)
+ *
+ * Returns: 0 if ok, < 0 errno code on error.
+ *
+ * Sets up basic device comunication infrastructure, boots the ROM to
+ * read the MAC address, registers with the WiMAX and network stacks
+ * and then brings up the device.
+ */
 int i2400m_setup(struct i2400m *i2400m, enum i2400m_bri bm_flags)
 {
 	int result = -ENODEV;
@@ -656,7 +902,7 @@ int i2400m_setup(struct i2400m *i2400m, enum i2400m_bri bm_flags)
 	i2400m->pm_notifier.notifier_call = i2400m_pm_notifier;
 	register_pm_notifier(&i2400m->pm_notifier);
 
-	result = register_netdev(net_dev);	
+	result = register_netdev(net_dev);	/* Okey dokey, bring it up */
 	if (result < 0) {
 		dev_err(dev, "cannot register i2400m network device: %d\n",
 			result);
@@ -672,7 +918,7 @@ int i2400m_setup(struct i2400m *i2400m, enum i2400m_bri bm_flags)
 	if (result < 0)
 		goto error_wimax_dev_add;
 
-	
+	/* Now setup all that requires a registered net and wimax device. */
 	result = sysfs_create_group(&net_dev->dev.kobj, &i2400m_dev_attr_group);
 	if (result < 0) {
 		dev_err(dev, "cannot setup i2400m's sysfs: %d\n", result);
@@ -715,6 +961,11 @@ error_bm_buf_alloc:
 EXPORT_SYMBOL_GPL(i2400m_setup);
 
 
+/**
+ * i2400m_release - release the bus-generic driver resources
+ *
+ * Sends a disconnect message and undoes any setup done by i2400m_setup()
+ */
 void i2400m_release(struct i2400m *i2400m)
 {
 	struct device *dev = i2400m_dev(i2400m);
@@ -741,6 +992,9 @@ void i2400m_release(struct i2400m *i2400m)
 EXPORT_SYMBOL_GPL(i2400m_release);
 
 
+/*
+ * Debug levels control; see debug.h
+ */
 struct d_level D_LEVEL[] = {
 	D_SUBMODULE_DEFINE(control),
 	D_SUBMODULE_DEFINE(driver),

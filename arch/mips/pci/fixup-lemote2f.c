@@ -18,31 +18,37 @@
 #include <cs5536/cs5536.h>
 #include <cs5536/cs5536_pci.h>
 
+/* PCI interrupt pins
+ *
+ * These should not be changed, or you should consider loongson2f interrupt
+ * register and your pci card dispatch
+ */
 
 #define PCIA		4
 #define PCIB		5
 #define PCIC		6
 #define PCID		7
 
+/* all the pci device has the PCIA pin, check the datasheet. */
 static char irq_tab[][5] __initdata = {
-	
-	{0, 0, 0, 0, 0},	
-	{0, 0, 0, 0, 0},	
-	{0, 0, 0, 0, 0},	
-	{0, 0, 0, 0, 0},	
-	{0, 0, 0, 0, 0},	
-	{0, 0, 0, 0, 0},	
-	{0, PCIA, 0, 0, 0},	
-	{0, PCIB, 0, 0, 0},	
-	{0, PCIC, 0, 0, 0},	
-	{0, PCID, 0, 0, 0},	
-	{0, PCIA, PCIB, PCIC, PCID},	
-	{0, 0, 0, 0, 0},	
-	{0, 0, 0, 0, 0},	
-	{0, 0, 0, 0, 0},	
-	{0, 0, 0, 0, 0},	
-	{0, 0, 0, 0, 0},	
-	{0, 0, 0, 0, 0},	
+	/*      INTA    INTB    INTC    INTD */
+	{0, 0, 0, 0, 0},	/*  11: Unused */
+	{0, 0, 0, 0, 0},	/*  12: Unused */
+	{0, 0, 0, 0, 0},	/*  13: Unused */
+	{0, 0, 0, 0, 0},	/*  14: Unused */
+	{0, 0, 0, 0, 0},	/*  15: Unused */
+	{0, 0, 0, 0, 0},	/*  16: Unused */
+	{0, PCIA, 0, 0, 0},	/*  17: RTL8110-0 */
+	{0, PCIB, 0, 0, 0},	/*  18: RTL8110-1 */
+	{0, PCIC, 0, 0, 0},	/*  19: SiI3114 */
+	{0, PCID, 0, 0, 0},	/*  20: 3-ports nec usb */
+	{0, PCIA, PCIB, PCIC, PCID},	/*  21: PCI-SLOT */
+	{0, 0, 0, 0, 0},	/*  22: Unused */
+	{0, 0, 0, 0, 0},	/*  23: Unused */
+	{0, 0, 0, 0, 0},	/*  24: Unused */
+	{0, 0, 0, 0, 0},	/*  25: Unused */
+	{0, 0, 0, 0, 0},	/*  26: Unused */
+	{0, 0, 0, 0, 0},	/*  27: Unused */
 };
 
 int __init pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
@@ -58,20 +64,20 @@ int __init pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 			return LOONGSON_IRQ_BASE + virq;
 		else
 			return 0;
-	} else if (PCI_SLOT(dev->devfn) == PCI_IDSEL_CS5536) {	
+	} else if (PCI_SLOT(dev->devfn) == PCI_IDSEL_CS5536) {	/*  cs5536 */
 		switch (PCI_FUNC(dev->devfn)) {
 		case 2:
 			pci_write_config_byte(dev, PCI_INTERRUPT_LINE,
 					      CS5536_IDE_INTR);
-			return CS5536_IDE_INTR;	
+			return CS5536_IDE_INTR;	/*  for IDE */
 		case 3:
 			pci_write_config_byte(dev, PCI_INTERRUPT_LINE,
 					      CS5536_ACC_INTR);
-			return CS5536_ACC_INTR;	
-		case 4:	
-		case 5:	
-		case 6:	
-		case 7:	
+			return CS5536_ACC_INTR;	/*  for AUDIO */
+		case 4:	/*  for OHCI */
+		case 5:	/*  for EHCI */
+		case 6:	/*  for UDC */
+		case 7:	/*  for OTG */
 			pci_write_config_byte(dev, PCI_INTERRUPT_LINE,
 					      CS5536_USB_INTR);
 			return CS5536_USB_INTR;
@@ -83,28 +89,30 @@ int __init pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 	}
 }
 
+/* Do platform specific device initialization at pci_enable_device() time */
 int pcibios_plat_dev_init(struct pci_dev *dev)
 {
 	return 0;
 }
 
+/* CS5536 SPEC. fixup */
 static void __init loongson_cs5536_isa_fixup(struct pci_dev *pdev)
 {
-	
+	/* the uart1 and uart2 interrupt in PIC is enabled as default */
 	pci_write_config_dword(pdev, PCI_UART1_INT_REG, 1);
 	pci_write_config_dword(pdev, PCI_UART2_INT_REG, 1);
 }
 
 static void __init loongson_cs5536_ide_fixup(struct pci_dev *pdev)
 {
-	
+	/* setting the mutex pin as IDE function */
 	pci_write_config_dword(pdev, PCI_IDE_CFG_REG,
 			       CS5536_IDE_FLASH_SIGNATURE);
 }
 
 static void __init loongson_cs5536_acc_fixup(struct pci_dev *pdev)
 {
-	
+	/* enable the AUDIO interrupt in PIC  */
 	pci_write_config_dword(pdev, PCI_ACC_INT_REG, 1);
 
 	pci_write_config_byte(pdev, PCI_LATENCY_TIMER, 0xc0);
@@ -112,8 +120,8 @@ static void __init loongson_cs5536_acc_fixup(struct pci_dev *pdev)
 
 static void __init loongson_cs5536_ohci_fixup(struct pci_dev *pdev)
 {
-	
-	
+	/* enable the OHCI interrupt in PIC */
+	/* THE OHCI, EHCI, UDC, OTG are shared with interrupt in PIC */
 	pci_write_config_dword(pdev, PCI_OHCI_INT_REG, 1);
 }
 
@@ -121,11 +129,11 @@ static void __init loongson_cs5536_ehci_fixup(struct pci_dev *pdev)
 {
 	u32 hi, lo;
 
-	
+	/* Serial short detect enable */
 	_rdmsr(USB_MSR_REG(USB_CONFIG), &hi, &lo);
 	_wrmsr(USB_MSR_REG(USB_CONFIG), (1 << 1) | (1 << 3), lo);
 
-	
+	/* setting the USB2.0 micro frame length */
 	pci_write_config_dword(pdev, PCI_EHCI_FLADJ_REG, 0x2000);
 }
 
@@ -134,7 +142,7 @@ static void __init loongson_nec_fixup(struct pci_dev *pdev)
 	unsigned int val;
 
 	pci_read_config_dword(pdev, 0xe0, &val);
-	
+	/* Only 2 port be used */
 	pci_write_config_dword(pdev, 0xe0, (val & ~3) | 0x2);
 }
 

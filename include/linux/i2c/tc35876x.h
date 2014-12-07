@@ -8,4 +8,4 @@ struct tc35876x_platform_data {
 	int gpio_panel_vadd;
 };
 
-#endif 
+#endif /* _TC35876X_H */

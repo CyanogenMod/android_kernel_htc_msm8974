@@ -13,8 +13,10 @@
 
 #include <asm/lowcore.h>
 
+/* The value of the TOD clock for 1.1.1970. */
 #define TOD_UNIX_EPOCH 0x7d91048bca000000ULL
 
+/* Inline functions for clock register access. */
 static inline int set_clock(__u64 time)
 {
 	int cc;
@@ -67,7 +69,7 @@ static inline void local_tick_enable(unsigned long long comp)
 	set_clock_comparator(S390_lowcore.clock_comparator);
 }
 
-#define CLOCK_TICK_RATE	1193180 
+#define CLOCK_TICK_RATE	1193180 /* Underlying HZ */
 
 typedef unsigned long long cycles_t;
 
@@ -121,6 +123,15 @@ void stck_to_timespec(unsigned long long stck, struct timespec *ts)
 
 extern u64 sched_clock_base_cc;
 
+/**
+ * get_clock_monotonic - returns current time in clock rate units
+ *
+ * The caller must ensure that preemption is disabled.
+ * The clock and sched_clock_base get changed via stop_machine.
+ * Therefore preemption must be disabled when calling this
+ * function, otherwise the returned value is not guaranteed to
+ * be monotonic.
+ */
 static inline unsigned long long get_clock_monotonic(void)
 {
 	return get_clock_xt() - sched_clock_base_cc;

@@ -28,7 +28,13 @@
 #include "clock.h"
 #include "sam9_smc.h"
 
+/* --------------------------------------------------------------------
+ *  Clocks
+ * -------------------------------------------------------------------- */
 
+/*
+ * The peripheral clocks.
+ */
 static struct clk pioA_clk = {
 	.name		= "pioA_clk",
 	.pmc_mask	= 1 << AT91SAM9260_ID_PIOA,
@@ -181,11 +187,11 @@ static struct clk *periph_clocks[] __initdata = {
 	&tc3_clk,
 	&tc4_clk,
 	&tc5_clk,
-	
+	// irq0 .. irq2
 };
 
 static struct clk_lookup periph_clocks_lookups[] = {
-	
+	/* One additional fake clock for macb_hclk */
 	CLKDEV_CON_ID("hclk", &macb_clk),
 	CLKDEV_CON_DEV_ID("spi_clk", "atmel_spi.0", &spi0_clk),
 	CLKDEV_CON_DEV_ID("spi_clk", "atmel_spi.1", &spi1_clk),
@@ -196,7 +202,7 @@ static struct clk_lookup periph_clocks_lookups[] = {
 	CLKDEV_CON_DEV_ID("t1_clk", "atmel_tcb.1", &tc4_clk),
 	CLKDEV_CON_DEV_ID("t2_clk", "atmel_tcb.1", &tc5_clk),
 	CLKDEV_CON_DEV_ID("pclk", "ssc.0", &ssc_clk),
-	
+	/* more usart lookup table for DT entries */
 	CLKDEV_CON_DEV_ID("usart", "fffff200.serial", &mck),
 	CLKDEV_CON_DEV_ID("usart", "fffb0000.serial", &usart0_clk),
 	CLKDEV_CON_DEV_ID("usart", "fffb4000.serial", &usart1_clk),
@@ -204,7 +210,7 @@ static struct clk_lookup periph_clocks_lookups[] = {
 	CLKDEV_CON_DEV_ID("usart", "fffd0000.serial", &usart3_clk),
 	CLKDEV_CON_DEV_ID("usart", "fffd4000.serial", &usart4_clk),
 	CLKDEV_CON_DEV_ID("usart", "fffd8000.serial", &usart5_clk),
-	
+	/* more tc lookup table for DT entries */
 	CLKDEV_CON_DEV_ID("t0_clk", "fffa0000.timer", &tc0_clk),
 	CLKDEV_CON_DEV_ID("t1_clk", "fffa0000.timer", &tc1_clk),
 	CLKDEV_CON_DEV_ID("t2_clk", "fffa0000.timer", &tc2_clk),
@@ -212,7 +218,7 @@ static struct clk_lookup periph_clocks_lookups[] = {
 	CLKDEV_CON_DEV_ID("t1_clk", "fffdc000.timer", &tc4_clk),
 	CLKDEV_CON_DEV_ID("t2_clk", "fffdc000.timer", &tc5_clk),
 	CLKDEV_CON_DEV_ID("hclk", "500000.ohci", &ohci_clk),
-	
+	/* fake hclk clock */
 	CLKDEV_CON_DEV_ID("hclk", "at91_ohci", &ohci_clk),
 	CLKDEV_CON_ID("pioA", &pioA_clk),
 	CLKDEV_CON_ID("pioB", &pioB_clk),
@@ -229,6 +235,10 @@ static struct clk_lookup usart_clocks_lookups[] = {
 	CLKDEV_CON_DEV_ID("usart", "atmel_usart.6", &usart5_clk),
 };
 
+/*
+ * The two programmable clocks.
+ * You must configure pin multiplexing to bring these signals out.
+ */
 static struct clk pck0 = {
 	.name		= "pck0",
 	.pmc_mask	= AT91_PMC_PCK0,
@@ -270,6 +280,9 @@ void __init at91sam9260_set_console_clock(int id)
 	clkdev_add(&console_clock_lookup);
 }
 
+/* --------------------------------------------------------------------
+ *  GPIO
+ * -------------------------------------------------------------------- */
 
 static struct at91_gpio_bank at91sam9260_gpio[] __initdata = {
 	{
@@ -284,6 +297,9 @@ static struct at91_gpio_bank at91sam9260_gpio[] __initdata = {
 	}
 };
 
+/* --------------------------------------------------------------------
+ *  AT91SAM9260 processor initialization
+ * -------------------------------------------------------------------- */
 
 static void __init at91sam9xe_map_io(void)
 {
@@ -328,44 +344,50 @@ static void __init at91sam9260_initialize(void)
 	at91_extern_irq = (1 << AT91SAM9260_ID_IRQ0) | (1 << AT91SAM9260_ID_IRQ1)
 			| (1 << AT91SAM9260_ID_IRQ2);
 
-	
+	/* Register GPIO subsystem */
 	at91_gpio_init(at91sam9260_gpio, 3);
 }
 
+/* --------------------------------------------------------------------
+ *  Interrupt initialization
+ * -------------------------------------------------------------------- */
 
+/*
+ * The default interrupt priority levels (0 = lowest, 7 = highest).
+ */
 static unsigned int at91sam9260_default_irq_priority[NR_AIC_IRQS] __initdata = {
-	7,	
-	7,	
-	1,	
-	1,	
-	1,	
-	0,	
-	5,	
-	5,	
-	5,	
-	0,	
-	2,	
-	6,	
-	5,	
-	5,	
-	5,	
+	7,	/* Advanced Interrupt Controller */
+	7,	/* System Peripherals */
+	1,	/* Parallel IO Controller A */
+	1,	/* Parallel IO Controller B */
+	1,	/* Parallel IO Controller C */
+	0,	/* Analog-to-Digital Converter */
+	5,	/* USART 0 */
+	5,	/* USART 1 */
+	5,	/* USART 2 */
+	0,	/* Multimedia Card Interface */
+	2,	/* USB Device Port */
+	6,	/* Two-Wire Interface */
+	5,	/* Serial Peripheral Interface 0 */
+	5,	/* Serial Peripheral Interface 1 */
+	5,	/* Serial Synchronous Controller */
 	0,
 	0,
-	0,	
-	0,	
-	0,	
-	2,	
-	3,	
-	0,	
-	5,	
-	5,	
-	5,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0,	
+	0,	/* Timer Counter 0 */
+	0,	/* Timer Counter 1 */
+	0,	/* Timer Counter 2 */
+	2,	/* USB Host port */
+	3,	/* Ethernet */
+	0,	/* Image Sensor Interface */
+	5,	/* USART 3 */
+	5,	/* USART 4 */
+	5,	/* USART 5 */
+	0,	/* Timer Counter 3 */
+	0,	/* Timer Counter 4 */
+	0,	/* Timer Counter 5 */
+	0,	/* Advanced Interrupt Controller */
+	0,	/* Advanced Interrupt Controller */
+	0,	/* Advanced Interrupt Controller */
 };
 
 struct at91_init_soc __initdata at91sam9260_soc = {

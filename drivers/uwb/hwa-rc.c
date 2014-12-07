@@ -61,18 +61,34 @@
 
 #include "uwb-internal.h"
 
+/* The device uses commands and events from the WHCI specification, although
+ * reporting itself as WUSB compliant. */
 #define WUSB_QUIRK_WHCI_CMD_EVT		0x01
 
+/**
+ * Descriptor for an instance of the UWB Radio Control Driver that
+ * attaches to the RCI interface of the Host Wired Adapter.
+ *
+ * Unless there is a lock specific to the 'data members', all access
+ * is protected by uwb_rc->mutex.
+ *
+ * The NEEP (Notification/Event EndPoint) URB (@neep_urb) writes to
+ * @rd_buffer. Note there is no locking because it is perfectly (heh!)
+ * serialized--probe() submits an URB, callback is called, processes
+ * the data (synchronously), submits another URB, and so on. There is
+ * no concurrent access to the buffer.
+ */
 struct hwarc {
 	struct usb_device *usb_dev;
 	struct usb_interface *usb_iface;
-	struct uwb_rc *uwb_rc;		
-	struct urb *neep_urb;		
+	struct uwb_rc *uwb_rc;		/* UWB host controller */
+	struct urb *neep_urb;		/* Notification endpoint handling */
 	struct edc neep_edc;
-	void *rd_buffer;		
+	void *rd_buffer;		/* NEEP read buffer */
 };
 
 
+/* Beacon received notification (WUSB 1.0 [8.6.3.2]) */
 struct uwb_rc_evt_beacon_WUSB_0100 {
 	struct uwb_rceb rceb;
 	u8	bChannelNumber;
@@ -83,6 +99,20 @@ struct uwb_rc_evt_beacon_WUSB_0100 {
 	u8	BeaconInfo[];
 } __attribute__((packed));
 
+/**
+ * Filter WUSB 1.0 BEACON RCV notification to be WHCI 0.95
+ *
+ * @header: the incoming event
+ * @buf_size: size of buffer containing incoming event
+ * @new_size: size of event after filtering completed
+ *
+ * The WHCI 0.95 spec has a "Beacon Type" field. This value is unknown at
+ * the time we receive the beacon from WUSB so we just set it to
+ * UWB_RC_BEACON_TYPE_NEIGHBOR as a default.
+ * The solution below allocates memory upon receipt of every beacon from a
+ * WUSB device. This will deteriorate performance. What is the right way to
+ * do this?
+ */
 static
 int hwarc_filter_evt_beacon_WUSB_0100(struct uwb_rc *rc,
 				      struct uwb_rceb **header,
@@ -123,16 +153,24 @@ int hwarc_filter_evt_beacon_WUSB_0100(struct uwb_rc *rc,
 	memcpy(newbe->BeaconInfo, be->BeaconInfo, ielength);
 	*header = &newbe->rceb;
 	*new_size = sizeof(*newbe) + ielength;
-	return 1;  
+	return 1;  /* calling function will free memory */
 }
 
 
+/* DRP Availability change notification (WUSB 1.0 [8.6.3.8]) */
 struct uwb_rc_evt_drp_avail_WUSB_0100 {
 	struct uwb_rceb rceb;
 	__le16 wIELength;
 	u8 IEData[];
 } __attribute__((packed));
 
+/**
+ * Filter WUSB 1.0 DRP AVAILABILITY CHANGE notification to be WHCI 0.95
+ *
+ * @header: the incoming event
+ * @buf_size: size of buffer containing incoming event
+ * @new_size: size of event after filtering completed
+ */
 static
 int hwarc_filter_evt_drp_avail_WUSB_0100(struct uwb_rc *rc,
 					 struct uwb_rceb **header,
@@ -182,10 +220,11 @@ int hwarc_filter_evt_drp_avail_WUSB_0100(struct uwb_rc *rc,
 	memcpy(newda->bmp, (u8 *) ie_hdr + sizeof(*ie_hdr), ie_hdr->length);
 	*header = &newda->rceb;
 	*new_size = sizeof(*newda);
-	return 1; 
+	return 1; /* calling function will free memory */
 }
 
 
+/* DRP notification (WUSB 1.0 [8.6.3.9]) */
 struct uwb_rc_evt_drp_WUSB_0100 {
 	struct uwb_rceb rceb;
 	struct uwb_dev_addr wSrcAddr;
@@ -194,6 +233,19 @@ struct uwb_rc_evt_drp_WUSB_0100 {
 	u8 IEData[];
 } __attribute__((packed));
 
+/**
+ * Filter WUSB 1.0 DRP Notification to be WHCI 0.95
+ *
+ * @header: the incoming event
+ * @buf_size: size of buffer containing incoming event
+ * @new_size: size of event after filtering completed
+ *
+ * It is hard to manage DRP reservations without having a Reason code.
+ * Unfortunately there is none in the WUSB spec. We just set the default to
+ * DRP IE RECEIVED.
+ * We do not currently use the bBeaconSlotNumber value, so we set this to
+ * zero for now.
+ */
 static
 int hwarc_filter_evt_drp_WUSB_0100(struct uwb_rc *rc,
 				   struct uwb_rceb **header,
@@ -232,16 +284,27 @@ int hwarc_filter_evt_drp_WUSB_0100(struct uwb_rc *rc,
 	memcpy(newdrpev->ie_data, drpev->IEData, ielength);
 	*header = &newdrpev->rceb;
 	*new_size = sizeof(*newdrpev) + ielength;
-	return 1; 
+	return 1; /* calling function will free memory */
 }
 
 
+/* Scan Command (WUSB 1.0 [8.6.2.5]) */
 struct uwb_rc_cmd_scan_WUSB_0100 {
 	struct uwb_rccb rccb;
 	u8 bChannelNumber;
 	u8 bScanState;
 } __attribute__((packed));
 
+/**
+ * Filter WHCI 0.95 SCAN command to be WUSB 1.0 SCAN command
+ *
+ * @header:   command sent to device (compliant to WHCI 0.95)
+ * @size:     size of command sent to device
+ *
+ * We only reduce the size by two bytes because the WUSB 1.0 scan command
+ * does not have the last field (wStarttime). Also, make sure we don't send
+ * the device an unexpected scan type.
+ */
 static
 int hwarc_filter_cmd_scan_WUSB_0100(struct uwb_rc *rc,
 				    struct uwb_rccb **header,
@@ -253,12 +316,13 @@ int hwarc_filter_cmd_scan_WUSB_0100(struct uwb_rc *rc,
 
 	if (sc->bScanState == UWB_SCAN_ONLY_STARTTIME)
 		sc->bScanState = UWB_SCAN_ONLY;
-	
+	/* Don't send the last two bytes. */
 	*size -= 2;
 	return 0;
 }
 
 
+/* SET DRP IE command (WUSB 1.0 [8.6.2.7]) */
 struct uwb_rc_cmd_set_drp_ie_WUSB_0100 {
 	struct uwb_rccb rccb;
 	u8 bExplicit;
@@ -266,6 +330,19 @@ struct uwb_rc_cmd_set_drp_ie_WUSB_0100 {
 	struct uwb_ie_drp IEData[];
 } __attribute__((packed));
 
+/**
+ * Filter WHCI 0.95 SET DRP IE command to be WUSB 1.0 SET DRP IE command
+ *
+ * @header:   command sent to device (compliant to WHCI 0.95)
+ * @size:     size of command sent to device
+ *
+ * WUSB has an extra bExplicit field - we assume always explicit
+ * negotiation so this field is set. The command expected by the device is
+ * thus larger than the one prepared by the driver so we need to
+ * reallocate memory to accommodate this.
+ * We trust the driver to send us the correct data so no checking is done
+ * on incoming data - evn though it is variable length.
+ */
 static
 int hwarc_filter_cmd_set_drp_ie_WUSB_0100(struct uwb_rc *rc,
 					  struct uwb_rccb **header,
@@ -286,10 +363,31 @@ int hwarc_filter_cmd_set_drp_ie_WUSB_0100(struct uwb_rc *rc,
 	memcpy(cmd->IEData, orgcmd->IEData, ielength);
 	*header = &cmd->rccb;
 	*size = sizeof(*cmd) + ielength;
-	return 1; 
+	return 1; /* calling function will free memory */
 }
 
 
+/**
+ * Filter data from WHCI driver to WUSB device
+ *
+ * @header: WHCI 0.95 compliant command from driver
+ * @size:   length of command
+ *
+ * The routine managing commands to the device (uwb_rc_cmd()) will call the
+ * filtering function pointer (if it exists) before it passes any data to
+ * the device. At this time the command has been formatted according to
+ * WHCI 0.95 and is ready to be sent to the device.
+ *
+ * The filter function will be provided with the current command and its
+ * length. The function will manipulate the command if necessary and
+ * potentially reallocate memory for a command that needed more memory that
+ * the given command. If new memory was created the function will return 1
+ * to indicate to the calling function that the memory need to be freed
+ * when not needed any more. The size will contain the new length of the
+ * command.
+ * If memory has not been allocated we rely on the original mechanisms to
+ * free the memory of the command - even when we reduce the value of size.
+ */
 static
 int hwarc_filter_cmd_WUSB_0100(struct uwb_rc *rc, struct uwb_rccb **header,
 			       size_t *size)
@@ -312,6 +410,16 @@ int hwarc_filter_cmd_WUSB_0100(struct uwb_rc *rc, struct uwb_rccb **header,
 }
 
 
+/**
+ * Filter data from WHCI driver to WUSB device
+ *
+ * @header: WHCI 0.95 compliant command from driver
+ * @size:   length of command
+ *
+ * Filter commands based on which protocol the device supports. The WUSB
+ * errata should be the same as WHCI 0.95 so we do not filter that here -
+ * only WUSB 1.0.
+ */
 static
 int hwarc_filter_cmd(struct uwb_rc *rc, struct uwb_rccb **header,
 		     size_t *size)
@@ -323,6 +431,16 @@ int hwarc_filter_cmd(struct uwb_rc *rc, struct uwb_rccb **header,
 }
 
 
+/**
+ * Compute return value as sum of incoming value and value at given offset
+ *
+ * @rceb:      event for which we compute the size, it contains a variable
+ *	       length field.
+ * @core_size: size of the "non variable" part of the event
+ * @offset:    place in event where the length of the variable part is stored
+ * @buf_size: total length of buffer in which event arrived - we need to make
+ *	       sure we read the offset in memory that is still part of the event
+ */
 static
 ssize_t hwarc_get_event_size(struct uwb_rc *rc, const struct uwb_rceb *rceb,
 			     size_t core_size, size_t offset,
@@ -347,12 +465,35 @@ out:
 }
 
 
+/* Beacon slot change notification (WUSB 1.0 [8.6.3.5]) */
 struct uwb_rc_evt_bp_slot_change_WUSB_0100 {
 	struct uwb_rceb rceb;
 	u8 bSlotNumber;
 } __attribute__((packed));
 
 
+/**
+ * Filter data from WUSB device to WHCI driver
+ *
+ * @header:	 incoming event
+ * @buf_size:	 size of buffer in which event arrived
+ * @_event_size: actual size of event in the buffer
+ * @new_size:	 size of event after filtered
+ *
+ * We don't know how the buffer is constructed - there may be more than one
+ * event in it so buffer length does not determine event length. We first
+ * determine the expected size of the incoming event. This value is passed
+ * back only if the actual filtering succeeded (so we know the computed
+ * expected size is correct). This value will be zero if
+ * the event did not need any filtering.
+ *
+ * WHCI interprets the BP Slot Change event's data differently than
+ * WUSB. The event sizes are exactly the same. The data field
+ * indicates the new beacon slot in which a RC is transmitting its
+ * beacon. The maximum value of this is 96 (wMacBPLength ECMA-368
+ * 17.16 (Table 117)). We thus know that the WUSB value will not set
+ * the bit bNoSlot, so we don't really do anything (placeholder).
+ */
 static
 int hwarc_filter_event_WUSB_0100(struct uwb_rc *rc, struct uwb_rceb **header,
 				 const size_t buf_size, size_t *_real_size,
@@ -417,6 +558,22 @@ out:
 	return result;
 }
 
+/**
+ * Filter data from WUSB device to WHCI driver
+ *
+ * @header:	 incoming event
+ * @buf_size:	 size of buffer in which event arrived
+ * @_event_size: actual size of event in the buffer
+ * @_new_size:	 size of event after filtered
+ *
+ * Filter events based on which protocol the device supports. The WUSB
+ * errata should be the same as WHCI 0.95 so we do not filter that here -
+ * only WUSB 1.0.
+ *
+ * If we don't handle it, we return -ENOANO (why the weird error code?
+ * well, so if I get it, I can pinpoint in the code that raised
+ * it...after all, not too many places use the higher error codes).
+ */
 static
 int hwarc_filter_event(struct uwb_rc *rc, struct uwb_rceb **header,
 		       const size_t buf_size, size_t *_real_size,
@@ -430,6 +587,15 @@ int hwarc_filter_event(struct uwb_rc *rc, struct uwb_rceb **header,
 }
 
 
+/**
+ * Execute an UWB RC command on HWA
+ *
+ * @rc:	      Instance of a Radio Controller that is a HWA
+ * @cmd:      Buffer containing the RCCB and payload to execute
+ * @cmd_size: Size of the command buffer.
+ *
+ * NOTE: rc's mutex has to be locked
+ */
 static
 int hwarc_cmd(struct uwb_rc *uwb_rc, const struct uwb_rccb *cmd, size_t cmd_size)
 {
@@ -438,7 +604,7 @@ int hwarc_cmd(struct uwb_rc *uwb_rc, const struct uwb_rccb *cmd, size_t cmd_size
 		hwarc->usb_dev, usb_sndctrlpipe(hwarc->usb_dev, 0),
 		WA_EXEC_RC_CMD, USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
 		0, hwarc->usb_iface->cur_altsetting->desc.bInterfaceNumber,
-		(void *) cmd, cmd_size, 100 );
+		(void *) cmd, cmd_size, 100 /* FIXME: this is totally arbitrary */);
 }
 
 static
@@ -448,6 +614,12 @@ int hwarc_reset(struct uwb_rc *uwb_rc)
 	return usb_reset_device(hwarc->usb_dev);
 }
 
+/**
+ * Callback for the notification and event endpoint
+ *
+ * Check's that everything is fine and then passes the read data to
+ * the notification/event handling mechanism (neh).
+ */
 static
 void hwarc_neep_cb(struct urb *urb)
 {
@@ -461,12 +633,12 @@ void hwarc_neep_cb(struct urb *urb)
 		uwb_rc_neh_grok(hwarc->uwb_rc, urb->transfer_buffer,
 				urb->actual_length);
 		break;
-	case -ECONNRESET:	
-	case -ENOENT:		
+	case -ECONNRESET:	/* Not an error, but a controlled situation; */
+	case -ENOENT:		/* (we killed the URB)...so, no broadcast */
 		goto out;
-	case -ESHUTDOWN:	
+	case -ESHUTDOWN:	/* going away! */
 		goto out;
-	default:		
+	default:		/* On general errors, retry unless it gets ugly */
 		if (edc_inc(&hwarc->neep_edc, EDC_MAX_ERRORS,
 			    EDC_ERROR_TIMEFRAME))
 			goto error_exceeded;
@@ -474,7 +646,7 @@ void hwarc_neep_cb(struct urb *urb)
 	}
 	result = usb_submit_urb(urb, GFP_ATOMIC);
 	if (result < 0 && result != -ENODEV && result != -EPERM) {
-		
+		/* ignoring unrecoverable errors */
 		dev_err(dev, "NEEP: Can't resubmit URB (%d) resetting device\n",
 			result);
 		goto error;
@@ -496,6 +668,14 @@ static void hwarc_init(struct hwarc *hwarc)
 	edc_init(&hwarc->neep_edc);
 }
 
+/**
+ * Initialize the notification/event endpoint stuff
+ *
+ * Note this is effectively a parallel thread; it knows that
+ * hwarc->uwb_rc always exists because the existence of a 'hwarc'
+ * means that there is a reverence on the hwarc->uwb_rc (see
+ * _probe()), and thus _neep_cb() can execute safely.
+ */
 static int hwarc_neep_init(struct uwb_rc *rc)
 {
 	struct hwarc *hwarc = rc->priv;
@@ -536,6 +716,7 @@ error_rd_buffer:
 }
 
 
+/** Clean up all the notification endpoint resources */
 static void hwarc_neep_release(struct uwb_rc *rc)
 {
 	struct hwarc *hwarc = rc->priv;
@@ -545,6 +726,15 @@ static void hwarc_neep_release(struct uwb_rc *rc)
 	free_page((unsigned long)hwarc->rd_buffer);
 }
 
+/**
+ * Get the version from class-specific descriptor
+ *
+ * NOTE: this descriptor comes with the big bundled configuration
+ *	 descriptor that includes the interfaces' and endpoints', so
+ *	 we just look for it in the cached copy kept by the USB stack.
+ *
+ * NOTE2: We convert LE fields to CPU order.
+ */
 static int hwarc_get_version(struct uwb_rc *rc)
 {
 	int result;
@@ -579,7 +769,7 @@ static int hwarc_get_version(struct uwb_rc *rc)
 
 found:
 	result = -EINVAL;
-	if (hdr->bLength > itr_size) {	
+	if (hdr->bLength > itr_size) {	/* is it available? */
 		dev_err(dev, "incomplete Radio Control Interface Class "
 			"descriptor (%zu bytes left, %u needed)\n",
 			itr_size, hdr->bLength);
@@ -591,7 +781,7 @@ found:
 		goto error;
 	}
 	descr = (struct uwb_rc_control_intf_class_desc *) hdr;
-	
+	/* Make LE fields CPU order */
 	version = __le16_to_cpu(descr->bcdRCIVersion);
 	if (version != 0x0100) {
 		dev_err(dev, "Device reports protocol version 0x%04x. We "
@@ -606,6 +796,13 @@ error:
 	return result;
 }
 
+/*
+ * By creating a 'uwb_rc', we have a reference on it -- that reference
+ * is the one we drop when we disconnect.
+ *
+ * No need to switch altsettings; according to WUSB1.0[8.6.1.1], there
+ * is only one altsetting allowed.
+ */
 static int hwarc_probe(struct usb_interface *iface,
 		       const struct usb_device_id *id)
 {
@@ -675,7 +872,7 @@ static void hwarc_disconnect(struct usb_interface *iface)
 	usb_put_intf(hwarc->usb_iface);
 	usb_put_dev(hwarc->usb_dev);
 	kfree(hwarc);
-	uwb_rc_put(uwb_rc);	
+	uwb_rc_put(uwb_rc);	/* when creating the device, refcount = 1 */
 }
 
 static int hwarc_pre_reset(struct usb_interface *iface)
@@ -695,14 +892,15 @@ static int hwarc_post_reset(struct usb_interface *iface)
 	return uwb_rc_post_reset(uwb_rc);
 }
 
+/** USB device ID's that we handle */
 static const struct usb_device_id hwarc_id_table[] = {
-	
+	/* D-Link DUB-1210 */
 	{ USB_DEVICE_AND_INTERFACE_INFO(0x07d1, 0x3d02, 0xe0, 0x01, 0x02),
 	  .driver_info = WUSB_QUIRK_WHCI_CMD_EVT },
-	
+	/* Intel i1480 (using firmware 1.3PA2-20070828) */
 	{ USB_DEVICE_AND_INTERFACE_INFO(0x8086, 0x0c3b, 0xe0, 0x01, 0x02),
 	  .driver_info = WUSB_QUIRK_WHCI_CMD_EVT },
-	
+	/* Generic match for the Radio Control interface */
 	{ USB_INTERFACE_INFO(0xe0, 0x01, 0x02), },
 	{ },
 };

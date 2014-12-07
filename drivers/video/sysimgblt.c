@@ -52,7 +52,7 @@ static const u32 cfb_tab32[] = {
 static void color_imageblit(const struct fb_image *image, struct fb_info *p,
 			    void *dst1, u32 start_index, u32 pitch_index)
 {
-	
+	/* Draw the penguin */
 	u32 *dst, *dst2;
 	u32 color = 0, val, shift;
 	int i, n, bpp = p->var.bits_per_pixel;
@@ -131,7 +131,7 @@ static void slow_imageblit(const struct fb_image *image, struct fb_info *p,
 		dst = dst1;
 		s = src;
 
-		
+		/* write leading bits */
 		if (start_index) {
 			u32 start_mask = ~(FB_SHIFT_HIGH(p, ~(u32)0,
 							 start_index));
@@ -144,7 +144,7 @@ static void slow_imageblit(const struct fb_image *image, struct fb_info *p,
 			color = (*s & (1 << l)) ? fgcolor : bgcolor;
 			val |= FB_SHIFT_HIGH(p, color, shift);
 
-			
+			/* Did the bitshift spill bits to the next long? */
 			if (shift >= null_bits) {
 				*dst++ = val;
 				val = (shift == null_bits) ? 0 :
@@ -155,7 +155,7 @@ static void slow_imageblit(const struct fb_image *image, struct fb_info *p,
 			if (!l) { l = 8; s++; };
 		}
 
-		
+		/* write trailing bits */
  		if (shift) {
 			u32 end_mask = FB_SHIFT_HIGH(p, ~(u32)0, shift);
 
@@ -175,6 +175,14 @@ static void slow_imageblit(const struct fb_image *image, struct fb_info *p,
 	}
 }
 
+/*
+ * fast_imageblit - optimized monochrome color expansion
+ *
+ * Only if:  bits_per_pixel == 8, 16, or 32
+ *           image->width is divisible by pixel/dword (ppw);
+ *           fix->line_legth is divisible by 4;
+ *           beginning and end of a scanline is dword aligned
+ */
 static void fast_imageblit(const struct fb_image *image, struct fb_info *p,
 				  void *dst1, u32 fgcolor, u32 bgcolor)
 {

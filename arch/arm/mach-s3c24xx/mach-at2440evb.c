@@ -52,7 +52,7 @@
 #include "common.h"
 
 static struct map_desc at2440evb_iodesc[] __initdata = {
-	
+	/* Nothing here */
 };
 
 #define UCON S3C2410_UCON_DEFAULT
@@ -78,6 +78,7 @@ static struct s3c2410_uartcfg at2440evb_uartcfgs[] __initdata = {
 	},
 };
 
+/* NAND Flash on AT2440EVB board */
 
 static struct mtd_partition __initdata at2440evb_default_nand_part[] = {
 	[0] = {
@@ -114,6 +115,7 @@ static struct s3c2410_platform_nand __initdata at2440evb_nand_info = {
 	.sets		= at2440evb_nand_sets,
 };
 
+/* DM9000AEP 10/100 ethernet controller */
 
 static struct resource at2440evb_dm9k_resource[] = {
 	[0] = {
@@ -151,6 +153,7 @@ static struct s3c24xx_mci_pdata at2440evb_mci_pdata __initdata = {
 	.gpio_detect	= S3C2410_GPG(10),
 };
 
+/* 7" LCD panel */
 
 static struct s3c2410fb_display at2440evb_lcd_cfg __initdata = {
 
@@ -165,7 +168,7 @@ static struct s3c2410fb_display at2440evb_lcd_cfg __initdata = {
 	.width		= 800,
 	.height		= 480,
 
-	.pixclock	= 33333, 
+	.pixclock	= 33333, /* HCLK 60 MHz, divisor 2 */
 	.xres		= 800,
 	.yres		= 480,
 	.bpp		= 16,

@@ -31,11 +31,14 @@ static DESCRIPTOR MAdapter;
 
 static void no_printf(unsigned char *x, ...)
 {
-	
+	/* dummy debug function */
 }
 
 #include "debuglib.c"
 
+/*
+ * stop debug
+ */
 static void stop_dbg(void)
 {
 	DbgDeregister();
@@ -52,6 +55,9 @@ typedef struct _udiva_card {
 static LIST_HEAD(cards);
 static diva_os_spin_lock_t ll_lock;
 
+/*
+ * find card in list
+ */
 static udiva_card *find_card_in_list(DESCRIPTOR *d)
 {
 	udiva_card *card;
@@ -71,6 +77,9 @@ static udiva_card *find_card_in_list(DESCRIPTOR *d)
 	return ((udiva_card *) NULL);
 }
 
+/*
+ * new card
+ */
 static void um_new_card(DESCRIPTOR *d)
 {
 	int adapter_nr = 0;
@@ -101,6 +110,9 @@ static void um_new_card(DESCRIPTOR *d)
 	}
 }
 
+/*
+ * remove card
+ */
 static void um_remove_card(DESCRIPTOR *d)
 {
 	diva_os_spin_lock_magic_t old_irql;
@@ -118,6 +130,9 @@ static void um_remove_card(DESCRIPTOR *d)
 	diva_os_free(0, card);
 }
 
+/*
+ * remove all adapter
+ */
 static void DIVA_EXIT_FUNCTION remove_all_idi_proc(void)
 {
 	udiva_card *card;
@@ -136,6 +151,9 @@ rescan:
 	diva_os_leave_spin_lock(&ll_lock, &old_irql, "remove all");
 }
 
+/*
+ * DIDD notify callback
+ */
 static void *didd_callback(void *context, DESCRIPTOR *adapter,
 			   int removal)
 {
@@ -150,7 +168,7 @@ static void *didd_callback(void *context, DESCRIPTOR *adapter,
 			dprintf = (DIVA_DI_PRINTF) MAdapter.request;
 			DbgRegister("User IDI", DRIVERRELEASE_IDI, DBG_DEFAULT);
 		}
-	} else if ((adapter->type > 0) && (adapter->type < 16)) {	
+	} else if ((adapter->type > 0) && (adapter->type < 16)) {	/* IDI Adapter */
 		if (removal) {
 			um_remove_card(adapter);
 		} else {
@@ -160,6 +178,9 @@ static void *didd_callback(void *context, DESCRIPTOR *adapter,
 	return (NULL);
 }
 
+/*
+ * connect DIDD
+ */
 static int DIVA_INIT_FUNCTION connect_didd(void)
 {
 	int x = 0;
@@ -170,7 +191,7 @@ static int DIVA_INIT_FUNCTION connect_didd(void)
 	DIVA_DIDD_Read(DIDD_Table, sizeof(DIDD_Table));
 
 	for (x = 0; x < MAX_DESCRIPTORS; x++) {
-		if (DIDD_Table[x].type == IDI_DADAPTER) {	
+		if (DIDD_Table[x].type == IDI_DADAPTER) {	/* DADAPTER found */
 			dadapter = 1;
 			memcpy(&DAdapter, &DIDD_Table[x], sizeof(DAdapter));
 			req.didd_notify.e.Req = 0;
@@ -184,12 +205,12 @@ static int DIVA_INIT_FUNCTION connect_didd(void)
 				return (0);
 			}
 			notify_handle = req.didd_notify.info.handle;
-		} else if (DIDD_Table[x].type == IDI_DIMAINT) {	
+		} else if (DIDD_Table[x].type == IDI_DIMAINT) {	/* MAINT found */
 			memcpy(&MAdapter, &DIDD_Table[x], sizeof(DAdapter));
 			dprintf = (DIVA_DI_PRINTF) MAdapter.request;
 			DbgRegister("User IDI", DRIVERRELEASE_IDI, DBG_DEFAULT);
 		} else if ((DIDD_Table[x].type > 0)
-			   && (DIDD_Table[x].type < 16)) {	
+			   && (DIDD_Table[x].type < 16)) {	/* IDI Adapter found */
 			um_new_card(&DIDD_Table[x]);
 		}
 	}
@@ -201,6 +222,9 @@ static int DIVA_INIT_FUNCTION connect_didd(void)
 	return (dadapter);
 }
 
+/*
+ *  Disconnect from DIDD
+ */
 static void DIVA_EXIT_FUNCTION disconnect_didd(void)
 {
 	IDI_SYNC_REQ req;
@@ -213,6 +237,9 @@ static void DIVA_EXIT_FUNCTION disconnect_didd(void)
 	DAdapter.request((ENTITY *)&req);
 }
 
+/*
+ * init
+ */
 int DIVA_INIT_FUNCTION idifunc_init(void)
 {
 	diva_os_initialize_spin_lock(&ll_lock, "idifunc");
@@ -230,6 +257,9 @@ int DIVA_INIT_FUNCTION idifunc_init(void)
 	return (1);
 }
 
+/*
+ * finit
+ */
 void DIVA_EXIT_FUNCTION idifunc_finit(void)
 {
 	diva_user_mode_idi_finit();

@@ -26,7 +26,7 @@
 #include "rc-core-priv.h"
 
 #define SANYO_NBITS		(13+13+8+8)
-#define SANYO_UNIT		562500  
+#define SANYO_UNIT		562500  /* ns */
 #define SANYO_HEADER_PULSE	(16  * SANYO_UNIT)
 #define SANYO_HEADER_SPACE	(8   * SANYO_UNIT)
 #define SANYO_BIT_PULSE		(1   * SANYO_UNIT)
@@ -34,7 +34,7 @@
 #define SANYO_BIT_1_SPACE	(3   * SANYO_UNIT)
 #define SANYO_REPEAT_SPACE	(150 * SANYO_UNIT)
 #define	SANYO_TRAILER_PULSE	(1   * SANYO_UNIT)
-#define	SANYO_TRAILER_SPACE	(10  * SANYO_UNIT)	
+#define	SANYO_TRAILER_SPACE	(10  * SANYO_UNIT)	/* in fact, 42 */
 
 enum sanyo_state {
 	STATE_INACTIVE,
@@ -45,6 +45,13 @@ enum sanyo_state {
 	STATE_TRAILER_SPACE,
 };
 
+/**
+ * ir_sanyo_decode() - Decode one SANYO pulse or space
+ * @dev:	the struct rc_dev descriptor of the device
+ * @duration:	the struct ir_raw_event descriptor of the pulse/space
+ *
+ * This function returns -EINVAL if the pulse violates the state machine
+ */
 static int ir_sanyo_decode(struct rc_dev *dev, struct ir_raw_event ev)
 {
 	struct sanyo_dec *data = &dev->raw->sanyo;

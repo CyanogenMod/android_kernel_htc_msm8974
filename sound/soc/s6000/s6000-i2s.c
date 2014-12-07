@@ -87,7 +87,7 @@ struct s6000_i2s_dev {
 #define S6_I2S_NUM_LINES	4
 
 #define S6_I2S_SIF_PORT0	0x0000000
-#define S6_I2S_SIF_PORT1	0x0000080 
+#define S6_I2S_SIF_PORT1	0x0000080 /* docs say 0x0000010 */
 
 static inline void s6_i2s_write_reg(struct s6000_i2s_dev *dev, int reg, u32 val)
 {
@@ -110,6 +110,12 @@ static void s6000_i2s_start_channel(struct s6000_i2s_dev *dev, int channel)
 {
 	int i, j, cur, prev;
 
+	/*
+	 * Wait for WCLK to toggle 5 times before enabling the channel
+	 * s6000 Family Datasheet 3.6.4:
+	 *   "At least two cycles of WS must occur between commands
+	 *    to disable or enable the interface"
+	 */
 	j = 0;
 	prev = ~S6_I2S_CUR_WS;
 	for (i = 1000000; --i && j < 6; ) {

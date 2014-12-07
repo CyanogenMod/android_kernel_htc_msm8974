@@ -11,6 +11,9 @@
 #include <asm/ipl.h>
 #include "sizes.h"
 
+/*
+ * gzip declarations
+ */
 #define STATIC static
 
 #undef memset
@@ -19,6 +22,7 @@
 #define memmove memmove
 #define memzero(s, n) memset((s), 0, (n))
 
+/* Symbols defined by linker scripts */
 extern char input_data[];
 extern int input_len;
 extern char _text, _end;
@@ -142,6 +146,10 @@ unsigned long decompress_kernel(void)
 	output = (unsigned char *) output_addr;
 
 #ifdef CONFIG_BLK_DEV_INITRD
+	/*
+	 * Move the initrd right behind the end of the decompressed
+	 * kernel image.
+	 */
 	if (INITRD_START && INITRD_SIZE &&
 	    INITRD_START < (unsigned long) output + SZ__bss_start) {
 		check_ipl_parmblock(output + SZ__bss_start,

@@ -31,6 +31,7 @@
 #include <plat/usb.h>
 #include "control.h"
 
+/* OMAP control module register for UTMI PHY */
 #define CONTROL_DEV_CONF		0x300
 #define PHY_PD				0x1
 
@@ -52,7 +53,7 @@ int omap4430_phy_init(struct device *dev)
 		pr_err("control module ioremap failed\n");
 		return -ENOMEM;
 	}
-	
+	/* Power down the phy */
 	__raw_writel(PHY_PD, ctrl_base + CONTROL_DEV_CONF);
 
 	if (!dev) {
@@ -91,13 +92,13 @@ int omap4430_phy_set_clk(struct device *dev, int on)
 	static int state;
 
 	if (on && !state) {
-		
+		/* Enable the phy clocks */
 		clk_enable(phyclk);
 		clk_enable(clk48m);
 		clk_enable(clk32k);
 		state = 1;
 	} else if (state) {
-		
+		/* Disable the phy clocks */
 		clk_disable(phyclk);
 		clk_disable(clk48m);
 		clk_disable(clk32k);
@@ -110,14 +111,18 @@ int omap4430_phy_power(struct device *dev, int ID, int on)
 {
 	if (on) {
 		if (ID)
-			
+			/* enable VBUS valid, IDDIG groung */
 			__raw_writel(AVALID | VBUSVALID, ctrl_base +
 							USBOTGHS_CONTROL);
 		else
+			/*
+			 * Enable VBUS Valid, AValid and IDDIG
+			 * high impedance
+			 */
 			__raw_writel(IDDIG | AVALID | VBUSVALID,
 						ctrl_base + USBOTGHS_CONTROL);
 	} else {
-		
+		/* Enable session END and IDIG to high impedance. */
 		__raw_writel(SESSEND | IDDIG, ctrl_base +
 					USBOTGHS_CONTROL);
 	}
@@ -127,23 +132,23 @@ int omap4430_phy_power(struct device *dev, int ID, int on)
 int omap4430_phy_suspend(struct device *dev, int suspend)
 {
 	if (suspend) {
-		
+		/* Disable the clocks */
 		omap4430_phy_set_clk(dev, 0);
-		
+		/* Power down the phy */
 		__raw_writel(PHY_PD, ctrl_base + CONTROL_DEV_CONF);
 
-		
+		/* save the context */
 		usbotghs_control = __raw_readl(ctrl_base + USBOTGHS_CONTROL);
 	} else {
-		
+		/* Enable the internel phy clcoks */
 		omap4430_phy_set_clk(dev, 1);
-		
+		/* power on the phy */
 		if (__raw_readl(ctrl_base + CONTROL_DEV_CONF) & PHY_PD) {
 			__raw_writel(~PHY_PD, ctrl_base + CONTROL_DEV_CONF);
 			mdelay(200);
 		}
 
-		
+		/* restore the context */
 		__raw_writel(usbotghs_control, ctrl_base + USBOTGHS_CONTROL);
 	}
 
@@ -168,7 +173,7 @@ void am35x_musb_reset(void)
 {
 	u32	regval;
 
-	
+	/* Reset the musb interface */
 	regval = omap_ctrl_readl(AM35XX_CONTROL_IP_SW_RESET);
 
 	regval |= AM35XX_USBOTGSS_SW_RST;
@@ -186,6 +191,9 @@ void am35x_musb_phy_power(u8 on)
 	u32 devconf2;
 
 	if (on) {
+		/*
+		 * Start the on-chip PHY and its PLL.
+		 */
 		devconf2 = omap_ctrl_readl(AM35XX_CONTROL_DEVCONF2);
 
 		devconf2 &= ~(CONF2_RESET | CONF2_PHYPWRDN | CONF2_OTGPWRDN);
@@ -204,6 +212,9 @@ void am35x_musb_phy_power(u8 on)
 			}
 		}
 	} else {
+		/*
+		 * Power down the on-chip PHY.
+		 */
 		devconf2 = omap_ctrl_readl(AM35XX_CONTROL_DEVCONF2);
 
 		devconf2 &= ~CONF2_PHY_PLLON;
@@ -229,17 +240,17 @@ void am35x_set_mode(u8 musb_mode)
 	devconf2 &= ~CONF2_OTGMODE;
 	switch (musb_mode) {
 #ifdef	CONFIG_USB_MUSB_HDRC_HCD
-	case MUSB_HOST:		
+	case MUSB_HOST:		/* Force VBUS valid, ID = 0 */
 		devconf2 |= CONF2_FORCE_HOST;
 		break;
 #endif
 #ifdef	CONFIG_USB_GADGET_MUSB_HDRC
-	case MUSB_PERIPHERAL:	
+	case MUSB_PERIPHERAL:	/* Force VBUS valid, ID = 1 */
 		devconf2 |= CONF2_FORCE_DEVICE;
 		break;
 #endif
 #ifdef	CONFIG_USB_MUSB_OTG
-	case MUSB_OTG:		
+	case MUSB_OTG:		/* Don't override the VBUS/ID comparators */
 		devconf2 |= CONF2_NO_OVERRIDE;
 		break;
 #endif

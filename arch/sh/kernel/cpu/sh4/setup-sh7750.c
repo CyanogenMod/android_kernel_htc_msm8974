@@ -23,7 +23,7 @@ static struct resource rtc_resources[] = {
 		.flags	= IORESOURCE_IO,
 	},
 	[1] = {
-		
+		/* Shared Period/Carry/Alarm IRQ */
 		.start	= 20,
 		.flags	= IORESOURCE_IRQ,
 	},
@@ -155,6 +155,7 @@ static struct platform_device tmu2_device = {
 	.num_resources	= ARRAY_SIZE(tmu2_resources),
 };
 
+/* SH7750R, SH7751 and SH7751R all have two extra timer channels */
 #if defined(CONFIG_CPU_SUBTYPE_SH7750R) || \
 	defined(CONFIG_CPU_SUBTYPE_SH7751) || \
 	defined(CONFIG_CPU_SUBTYPE_SH7751R)
@@ -276,14 +277,14 @@ void __init plat_early_device_setup(void)
 enum {
 	UNUSED = 0,
 
-	
-	IRL0, IRL1, IRL2, IRL3, 
+	/* interrupt sources */
+	IRL0, IRL1, IRL2, IRL3, /* only IRLM mode supported */
 	HUDI, GPIOI, DMAC,
 	PCIC0_PCISERR, PCIC1_PCIERR, PCIC1_PCIPWDWN, PCIC1_PCIPWON,
 	PCIC1_PCIDMA0, PCIC1_PCIDMA1, PCIC1_PCIDMA2, PCIC1_PCIDMA3,
 	TMU3, TMU4, TMU0, TMU1, TMU2, RTC, SCI1, SCIF, WDT, REF,
 
-	
+	/* interrupt groups */
 	PCIC1,
 };
 
@@ -302,11 +303,11 @@ static struct intc_vect vectors[] __initdata = {
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xffd00004, 0, 16, 4,  { TMU0, TMU1, TMU2, RTC } },
-	{ 0xffd00008, 0, 16, 4,  { WDT, REF, SCI1, 0 } },
-	{ 0xffd0000c, 0, 16, 4,  { GPIOI, DMAC, SCIF, HUDI } },
-	{ 0xffd00010, 0, 16, 4,  { IRL0, IRL1, IRL2, IRL3 } },
-	{ 0xfe080000, 0, 32, 4,  { 0, 0, 0, 0,
+	{ 0xffd00004, 0, 16, 4, /* IPRA */ { TMU0, TMU1, TMU2, RTC } },
+	{ 0xffd00008, 0, 16, 4, /* IPRB */ { WDT, REF, SCI1, 0 } },
+	{ 0xffd0000c, 0, 16, 4, /* IPRC */ { GPIOI, DMAC, SCIF, HUDI } },
+	{ 0xffd00010, 0, 16, 4, /* IPRD */ { IRL0, IRL1, IRL2, IRL3 } },
+	{ 0xfe080000, 0, 32, 4, /* INTPRI00 */ { 0, 0, 0, 0,
 						 TMU4, TMU3,
 						 PCIC1, PCIC0_PCISERR } },
 };
@@ -314,6 +315,7 @@ static struct intc_prio_reg prio_registers[] __initdata = {
 static DECLARE_INTC_DESC(intc_desc, "sh7750", vectors, NULL,
 			 NULL, prio_registers, NULL);
 
+/* SH7750, SH7750S, SH7751 and SH7091 all have 4-channel DMA controllers */
 #if defined(CONFIG_CPU_SUBTYPE_SH7750) || \
 	defined(CONFIG_CPU_SUBTYPE_SH7750S) || \
 	defined(CONFIG_CPU_SUBTYPE_SH7751) || \
@@ -329,6 +331,7 @@ static DECLARE_INTC_DESC(intc_desc_dma4, "sh7750_dma4",
 			 NULL, prio_registers, NULL);
 #endif
 
+/* SH7750R and SH7751R both have 8-channel DMA controllers */
 #if defined(CONFIG_CPU_SUBTYPE_SH7750R) || defined(CONFIG_CPU_SUBTYPE_SH7751R)
 static struct intc_vect vectors_dma8[] __initdata = {
 	INTC_VECT(DMAC, 0x640), INTC_VECT(DMAC, 0x660),
@@ -343,6 +346,7 @@ static DECLARE_INTC_DESC(intc_desc_dma8, "sh7750_dma8",
 			 NULL, prio_registers, NULL);
 #endif
 
+/* SH7750R, SH7751 and SH7751R all have two extra timer channels */
 #if defined(CONFIG_CPU_SUBTYPE_SH7750R) || \
 	defined(CONFIG_CPU_SUBTYPE_SH7751) || \
 	defined(CONFIG_CPU_SUBTYPE_SH7751R)
@@ -351,7 +355,7 @@ static struct intc_vect vectors_tmu34[] __initdata = {
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xfe080040, 0xfe080060, 32, 
+	{ 0xfe080040, 0xfe080060, 32, /* INTMSK00 / INTMSKCLR00 */
 	  { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	    0, 0, 0, 0, 0, 0, TMU4, TMU3,
 	    PCIC1_PCIERR, PCIC1_PCIPWDWN, PCIC1_PCIPWON,
@@ -364,6 +368,7 @@ static DECLARE_INTC_DESC(intc_desc_tmu34, "sh7750_tmu34",
 			 mask_registers, prio_registers, NULL);
 #endif
 
+/* SH7750S, SH7750R, SH7751 and SH7751R all have IRLM priority registers */
 static struct intc_vect vectors_irlm[] __initdata = {
 	INTC_VECT(IRL0, 0x240), INTC_VECT(IRL1, 0x2a0),
 	INTC_VECT(IRL2, 0x300), INTC_VECT(IRL3, 0x360),
@@ -372,6 +377,7 @@ static struct intc_vect vectors_irlm[] __initdata = {
 static DECLARE_INTC_DESC(intc_desc_irlm, "sh7750_irlm", vectors_irlm, NULL,
 			 NULL, prio_registers, NULL);
 
+/* SH7751 and SH7751R both have PCI */
 #if defined(CONFIG_CPU_SUBTYPE_SH7751) || defined(CONFIG_CPU_SUBTYPE_SH7751R)
 static struct intc_vect vectors_pci[] __initdata = {
 	INTC_VECT(PCIC0_PCISERR, 0xa00), INTC_VECT(PCIC1_PCIERR, 0xae0),
@@ -394,6 +400,10 @@ static DECLARE_INTC_DESC(intc_desc_pci, "sh7750_pci", vectors_pci, groups_pci,
 	defined(CONFIG_CPU_SUBTYPE_SH7091)
 void __init plat_irq_setup(void)
 {
+	/*
+	 * same vectors for SH7750, SH7750S and SH7091 except for IRLM,
+	 * see below..
+	 */
 	register_intc_controller(&intc_desc);
 	register_intc_controller(&intc_desc_dma4);
 }
@@ -434,12 +444,12 @@ void __init plat_irq_setup(void)
 void __init plat_irq_setup_pins(int mode)
 {
 #if defined(CONFIG_CPU_SUBTYPE_SH7750) || defined(CONFIG_CPU_SUBTYPE_SH7091)
-	BUG(); 
+	BUG(); /* impossible to mask interrupts on SH7750 and SH7091 */
 	return;
 #endif
 
 	switch (mode) {
-	case IRQ_MODE_IRQ: 
+	case IRQ_MODE_IRQ: /* individual interrupt mode for IRL3-0 */
 		__raw_writew(__raw_readw(INTC_ICR) | INTC_ICR_IRLM, INTC_ICR);
 		register_intc_controller(&intc_desc_irlm);
 		break;

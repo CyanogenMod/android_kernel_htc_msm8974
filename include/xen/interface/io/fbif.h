@@ -26,27 +26,42 @@
 #ifndef __XEN_PUBLIC_IO_FBIF_H__
 #define __XEN_PUBLIC_IO_FBIF_H__
 
+/* Out events (frontend -> backend) */
 
+/*
+ * Out events may be sent only when requested by backend, and receipt
+ * of an unknown out event is an error.
+ */
 
+/* Event type 1 currently not used */
+/*
+ * Framebuffer update notification event
+ * Capable frontend sets feature-update in xenstore.
+ * Backend requests it by setting request-update in xenstore.
+ */
 #define XENFB_TYPE_UPDATE 2
 
 struct xenfb_update {
-	uint8_t type;		
-	int32_t x;		
-	int32_t y;		
-	int32_t width;		
-	int32_t height;		
+	uint8_t type;		/* XENFB_TYPE_UPDATE */
+	int32_t x;		/* source x */
+	int32_t y;		/* source y */
+	int32_t width;		/* rect width */
+	int32_t height;		/* rect height */
 };
 
+/*
+ * Framebuffer resize notification event
+ * Capable backend sets feature-resize in xenstore.
+ */
 #define XENFB_TYPE_RESIZE 3
 
 struct xenfb_resize {
-	uint8_t type;		
-	int32_t width;		
-	int32_t height;		
-	int32_t stride;		
-	int32_t depth;		
-	int32_t offset;		
+	uint8_t type;		/* XENFB_TYPE_RESIZE */
+	int32_t width;		/* width in pixels */
+	int32_t height;		/* height in pixels */
+	int32_t stride;		/* stride in bytes */
+	int32_t depth;		/* depth in bits */
+	int32_t offset;		/* start offset within framebuffer */
 };
 
 #define XENFB_OUT_EVENT_SIZE 40
@@ -58,7 +73,12 @@ union xenfb_out_event {
 	char pad[XENFB_OUT_EVENT_SIZE];
 };
 
+/* In events (backend -> frontend) */
 
+/*
+ * Frontends should ignore unknown in events.
+ * No in events currently defined.
+ */
 
 #define XENFB_IN_EVENT_SIZE 40
 
@@ -67,6 +87,7 @@ union xenfb_in_event {
 	char pad[XENFB_IN_EVENT_SIZE];
 };
 
+/* shared page */
 
 #define XENFB_IN_RING_SIZE 1024
 #define XENFB_IN_RING_LEN (XENFB_IN_RING_SIZE / XENFB_IN_EVENT_SIZE)
@@ -88,15 +109,31 @@ struct xenfb_page {
 	uint32_t in_cons, in_prod;
 	uint32_t out_cons, out_prod;
 
-	int32_t width;          
-	int32_t height;         
-	uint32_t line_length;   
-	uint32_t mem_length;    
-	uint8_t depth;          
+	int32_t width;          /* width of the framebuffer (in pixels) */
+	int32_t height;         /* height of the framebuffer (in pixels) */
+	uint32_t line_length;   /* length of a row of pixels (in bytes) */
+	uint32_t mem_length;    /* length of the framebuffer (in bytes) */
+	uint8_t depth;          /* depth of a pixel (in bits) */
 
+	/*
+	 * Framebuffer page directory
+	 *
+	 * Each directory page holds PAGE_SIZE / sizeof(*pd)
+	 * framebuffer pages, and can thus map up to PAGE_SIZE *
+	 * PAGE_SIZE / sizeof(*pd) bytes.  With PAGE_SIZE == 4096 and
+	 * sizeof(unsigned long) == 4/8, that's 4 Megs 32 bit and 2
+	 * Megs 64 bit.  256 directories give enough room for a 512
+	 * Meg framebuffer with a max resolution of 12,800x10,240.
+	 * Should be enough for a while with room leftover for
+	 * expansion.
+	 */
 	unsigned long pd[256];
 };
 
+/*
+ * Wart: xenkbd needs to know default resolution.  Put it here until a
+ * better solution is found, but don't leak it to the backend.
+ */
 #ifdef __KERNEL__
 #define XENFB_WIDTH 800
 #define XENFB_HEIGHT 600

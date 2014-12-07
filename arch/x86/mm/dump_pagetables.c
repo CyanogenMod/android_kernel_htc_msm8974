@@ -19,6 +19,11 @@
 
 #include <asm/pgtable.h>
 
+/*
+ * The dumper groups pagetable entries of the same type into one, and for
+ * that it needs to keep some state when walking, and flush this state
+ * when a "break" in the continuity is found.
+ */
 struct pg_state {
 	int level;
 	pgprot_t current_prot;
@@ -32,6 +37,7 @@ struct addr_marker {
 	const char *name;
 };
 
+/* indices for address_markers; keep sync'd w/ address_markers below */
 enum address_markers_idx {
 	USER_SPACE_NR = 0,
 #ifdef CONFIG_X86_64
@@ -53,6 +59,7 @@ enum address_markers_idx {
 #endif
 };
 
+/* Address space markers hints */
 static struct addr_marker address_markers[] = {
 	{ 0, "User Space" },
 #ifdef CONFIG_X86_64
@@ -65,21 +72,25 @@ static struct addr_marker address_markers[] = {
 	{ MODULES_END,          "End Modules" },
 #else
 	{ PAGE_OFFSET,          "Kernel Mapping" },
-	{ 0, "vmalloc() Area" },
-	{ 0,     "vmalloc() End" },
+	{ 0/* VMALLOC_START */, "vmalloc() Area" },
+	{ 0/*VMALLOC_END*/,     "vmalloc() End" },
 # ifdef CONFIG_HIGHMEM
-	{ 0,      "Persisent kmap() Area" },
+	{ 0/*PKMAP_BASE*/,      "Persisent kmap() Area" },
 # endif
-	{ 0,   "Fixmap Area" },
+	{ 0/*FIXADDR_START*/,   "Fixmap Area" },
 #endif
-	{ -1, NULL }		
+	{ -1, NULL }		/* End of list */
 };
 
+/* Multipliers for offsets within the PTEs */
 #define PTE_LEVEL_MULT (PAGE_SIZE)
 #define PMD_LEVEL_MULT (PTRS_PER_PTE * PTE_LEVEL_MULT)
 #define PUD_LEVEL_MULT (PTRS_PER_PMD * PMD_LEVEL_MULT)
 #define PGD_LEVEL_MULT (PTRS_PER_PUD * PUD_LEVEL_MULT)
 
+/*
+ * Print a readable form of a pgprot_t to the seq_file
+ */
 static void printk_prot(struct seq_file *m, pgprot_t prot, int level)
 {
 	pgprotval_t pr = pgprot_val(prot);
@@ -87,7 +98,7 @@ static void printk_prot(struct seq_file *m, pgprot_t prot, int level)
 		{ "cr3", "pgd", "pud", "pmd", "pte" };
 
 	if (!pgprot_val(prot)) {
-		
+		/* Not present */
 		seq_printf(m, "                          ");
 	} else {
 		if (pr & _PAGE_USER)
@@ -107,7 +118,7 @@ static void printk_prot(struct seq_file *m, pgprot_t prot, int level)
 		else
 			seq_printf(m, "    ");
 
-		
+		/* Bit 9 has a different meaning on level 3 vs 4 */
 		if (level <= 3) {
 			if (pr & _PAGE_PSE)
 				seq_printf(m, "PSE ");
@@ -131,6 +142,9 @@ static void printk_prot(struct seq_file *m, pgprot_t prot, int level)
 	seq_printf(m, "%s\n", level_name[level]);
 }
 
+/*
+ * On 64 bits, sign-extend the 48 bit address to 64 bit
+ */
 static unsigned long normalize_addr(unsigned long u)
 {
 #ifdef CONFIG_X86_64
@@ -140,17 +154,27 @@ static unsigned long normalize_addr(unsigned long u)
 #endif
 }
 
+/*
+ * This function gets called on a break in a continuous series
+ * of PTE entries; the next one is different so we need to
+ * print what we collected so far.
+ */
 static void note_page(struct seq_file *m, struct pg_state *st,
 		      pgprot_t new_prot, int level)
 {
 	pgprotval_t prot, cur;
 	static const char units[] = "KMGTPE";
 
+	/*
+	 * If we have a "break" in the series, we need to flush the state that
+	 * we have now. "break" is either changing perms, levels or
+	 * address space marker.
+	 */
 	prot = pgprot_val(new_prot) & PTE_FLAGS_MASK;
 	cur = pgprot_val(st->current_prot) & PTE_FLAGS_MASK;
 
 	if (!st->level) {
-		
+		/* First entry */
 		st->current_prot = new_prot;
 		st->level = level;
 		st->marker = address_markers;
@@ -161,6 +185,9 @@ static void note_page(struct seq_file *m, struct pg_state *st,
 		unsigned long delta;
 		int width = sizeof(unsigned long) * 2;
 
+		/*
+		 * Now print the actual finished series
+		 */
 		seq_printf(m, "0x%0*lx-0x%0*lx   ",
 			   width, st->start_address,
 			   width, st->current_address);
@@ -173,6 +200,11 @@ static void note_page(struct seq_file *m, struct pg_state *st,
 		seq_printf(m, "%9lu%c ", delta, *unit);
 		printk_prot(m, st->current_prot, st->level);
 
+		/*
+		 * We print markers for special areas of address space,
+		 * such as the start of vmalloc space etc.
+		 * This helps in the interpretation.
+		 */
 		if (st->current_address >= st->marker[1].start_address) {
 			st->marker++;
 			seq_printf(m, "---[ %s ]---\n", st->marker->name);
@@ -292,7 +324,7 @@ static void walk_pgd_level(struct seq_file *m)
 		start++;
 	}
 
-	
+	/* Flush out the last page */
 	st.current_address = normalize_addr(PTRS_PER_PGD*PGD_LEVEL_MULT);
 	note_page(m, &st, __pgprot(0), 0);
 }
@@ -320,7 +352,7 @@ static int pt_dump_init(void)
 	struct dentry *pe;
 
 #ifdef CONFIG_X86_32
-	
+	/* Not a compile-time constant on x86-32 */
 	address_markers[VMALLOC_START_NR].start_address = VMALLOC_START;
 	address_markers[VMALLOC_END_NR].start_address = VMALLOC_END;
 # ifdef CONFIG_HIGHMEM

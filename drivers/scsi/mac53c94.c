@@ -49,9 +49,9 @@ struct fsc_state {
 	struct	Scsi_Host *host;
 	struct scsi_cmnd *request_q;
 	struct scsi_cmnd *request_qtail;
-	struct scsi_cmnd *current_req;		
-	enum fsc_phase phase;		
-	struct dbdma_cmd *dma_cmds;	
+	struct scsi_cmnd *current_req;		/* req we're currently working on */
+	enum fsc_phase phase;		/* what we're currently trying to do */
+	struct dbdma_cmd *dma_cmds;	/* space for dbdma commands, aligned */
 	void	*dma_cmd_space;
 	struct	pci_dev *pdev;
 	dma_addr_t dma_addr;
@@ -111,8 +111,8 @@ static int mac53c94_host_reset(struct scsi_cmnd *cmd)
 	spin_lock_irqsave(cmd->device->host->host_lock, flags);
 
 	writel((RUN|PAUSE|FLUSH|WAKE) << 16, &dma->control);
-	writeb(CMD_SCSI_RESET, &regs->command);	
-	udelay(100);			
+	writeb(CMD_SCSI_RESET, &regs->command);	/* assert RST */
+	udelay(100);			/* leave it on for a while (>= 25us) */
 	writeb(CMD_RESET, &regs->command);
 	udelay(20);
 	mac53c94_init(state);
@@ -129,7 +129,7 @@ static void mac53c94_init(struct fsc_state *state)
 	int x;
 
 	writeb(state->host->this_id | CF1_PAR_ENABLE, &regs->config1);
-	writeb(TIMO_VAL(250), &regs->sel_timeout);	
+	writeb(TIMO_VAL(250), &regs->sel_timeout);	/* 250ms */
 	writeb(CLKF_VAL(state->clk_freq), &regs->clk_factor);
 	writeb(CF2_FEATURE_EN, &regs->config2);
 	writeb(0, &regs->config3);
@@ -139,6 +139,10 @@ static void mac53c94_init(struct fsc_state *state)
 	writel((RUN|PAUSE|FLUSH|WAKE) << 16, &dma->control);
 }
 
+/*
+ * Start the next command for a 53C94.
+ * Should be called with interrupts disabled.
+ */
 static void mac53c94_start(struct fsc_state *state)
 {
 	struct scsi_cmnd *cmd;
@@ -152,7 +156,7 @@ static void mac53c94_start(struct fsc_state *state)
 	state->current_req = cmd = state->request_q;
 	state->request_q = (struct scsi_cmnd *) cmd->host_scribble;
 
-	
+	/* Off we go */
 	writeb(0, &regs->count_lo);
 	writeb(0, &regs->count_mid);
 	writeb(0, &regs->count_hi);
@@ -164,11 +168,11 @@ static void mac53c94_start(struct fsc_state *state)
 	writeb(0, &regs->sync_period);
 	writeb(0, &regs->sync_offset);
 
-	
+	/* load the command into the FIFO */
 	for (i = 0; i < cmd->cmd_len; ++i)
 		writeb(cmd->cmnd[i], &regs->fifo);
 
-	
+	/* do select without ATN XXX */
 	writeb(CMD_SELECT, &regs->command);
 	state->phase = selecting;
 
@@ -195,6 +199,10 @@ static void mac53c94_interrupt(int irq, void *dev_id)
 	int nb, stat, seq, intr;
 	static int mac53c94_errors;
 
+	/*
+	 * Apparently, reading the interrupt register unlatches
+	 * the status and sequence step registers.
+	 */
 	seq = readb(&regs->seqstep);
 	stat = readb(&regs->status);
 	intr = readb(&regs->interrupt);
@@ -205,10 +213,10 @@ static void mac53c94_interrupt(int irq, void *dev_id)
 #endif
 
 	if (intr & INTR_RESET) {
-		
+		/* SCSI bus was reset */
 		printk(KERN_INFO "external SCSI bus reset detected\n");
 		writeb(CMD_NOP, &regs->command);
-		writel(RUN << 16, &dma->control);	
+		writel(RUN << 16, &dma->control);	/* stop dma */
 		cmd_done(state, DID_RESET << 16);
 		return;
 	}
@@ -220,7 +228,7 @@ static void mac53c94_interrupt(int irq, void *dev_id)
 	}
 	if (stat & STAT_ERROR) {
 #if 0
-		
+		/* XXX these seem to be harmless? */
 		printk("53c94: bad error, intr=%x stat=%x seq=%x phase=%d\n",
 		       intr, stat, seq, state->phase);
 #endif
@@ -239,7 +247,7 @@ static void mac53c94_interrupt(int irq, void *dev_id)
 	switch (state->phase) {
 	case selecting:
 		if (intr & INTR_DISCONNECT) {
-			
+			/* selection timed out */
 			cmd_done(state, DID_BAD_TARGET << 16);
 			return;
 		}
@@ -254,7 +262,7 @@ static void mac53c94_interrupt(int irq, void *dev_id)
 			return;
 		}
 		writeb(CMD_NOP, &regs->command);
-		
+		/* set DMA controller going if any data to transfer */
 		if ((stat & (STAT_MSG|STAT_CD)) == 0
 		    && (scsi_sg_count(cmd) > 0 || scsi_bufflen(cmd))) {
 			nb = cmd->SCp.this_residual;
@@ -270,7 +278,7 @@ static void mac53c94_interrupt(int irq, void *dev_id)
 			state->phase = dataing;
 			break;
 		} else if ((stat & STAT_PHASE) == STAT_CD + STAT_IO) {
-			
+			/* up to status phase already */
 			writeb(CMD_I_COMPLETE, &regs->command);
 			state->phase = completing;
 		} else {
@@ -289,7 +297,7 @@ static void mac53c94_interrupt(int irq, void *dev_id)
 		}
 		if (cmd->SCp.this_residual != 0
 		    && (stat & (STAT_MSG|STAT_CD)) == 0) {
-			
+			/* Set up the count regs to transfer more */
 			nb = cmd->SCp.this_residual;
 			if (nb > 0xfff0)
 				nb = 0xfff0;
@@ -303,9 +311,9 @@ static void mac53c94_interrupt(int irq, void *dev_id)
 		if ((stat & STAT_PHASE) != STAT_CD + STAT_IO) {
 			printk(KERN_DEBUG "intr %x before data xfer complete\n", intr);
 		}
-		writel(RUN << 16, &dma->control);	
+		writel(RUN << 16, &dma->control);	/* stop dma */
 		scsi_dma_unmap(cmd);
-		
+		/* should check dma status */
 		writeb(CMD_I_COMPLETE, &regs->command);
 		state->phase = completing;
 		break;
@@ -347,6 +355,9 @@ static void cmd_done(struct fsc_state *state, int result)
 	mac53c94_start(state);
 }
 
+/*
+ * Set up DMA commands for transferring data.
+ */
 static void set_dma_cmds(struct fsc_state *state, struct scsi_cmnd *cmd)
 {
 	int i, dma_cmd, total, nseg;
@@ -451,6 +462,10 @@ static int mac53c94_probe(struct macio_dev *mdev, const struct of_device_id *mat
        	} else
        		state->clk_freq = *(int *)clkprop;
 
+       	/* Space for dma command list: +1 for stop command,
+       	 * +1 to allow for aligning.
+	 * XXX FIXME: Use DMA consistent routines
+	 */
        	dma_cmd_space = kmalloc((host->sg_tablesize + 2) *
        				sizeof(struct dbdma_cmd), GFP_KERNEL);
        	if (dma_cmd_space == 0) {

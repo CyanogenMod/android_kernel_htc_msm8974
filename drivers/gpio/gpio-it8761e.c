@@ -169,7 +169,7 @@ static int __init it8761e_gpio_init(void)
 {
 	int i, id, err;
 
-	
+	/* chip and port detection */
 	for (i = 0; i < ARRAY_SIZE(ports); i++) {
 		spin_lock(&sio_lock);
 		enter_conf_mode(ports[i]);
@@ -189,7 +189,7 @@ static int __init it8761e_gpio_init(void)
 	if (!port)
 		return -ENODEV;
 
-	
+	/* fetch GPIO base address */
 	enter_conf_mode(port);
 	enter_gpio_mode(port);
 	gpio_ba = (read_reg(GPIO_BA_HIGH_BYTE, port) << 8) +

@@ -41,7 +41,7 @@ static int uio_pdrv_genirq_open(struct uio_info *info, struct inode *inode)
 {
 	struct uio_pdrv_genirq_platdata *priv = info->priv;
 
-	
+	/* Wait until the Runtime PM code has woken up the device */
 	pm_runtime_get_sync(&priv->pdev->dev);
 	return 0;
 }
@@ -50,7 +50,7 @@ static int uio_pdrv_genirq_release(struct uio_info *info, struct inode *inode)
 {
 	struct uio_pdrv_genirq_platdata *priv = info->priv;
 
-	
+	/* Tell the Runtime PM code that the device has become idle */
 	pm_runtime_put_sync(&priv->pdev->dev);
 	return 0;
 }
@@ -59,6 +59,9 @@ static irqreturn_t uio_pdrv_genirq_handler(int irq, struct uio_info *dev_info)
 {
 	struct uio_pdrv_genirq_platdata *priv = dev_info->priv;
 
+	/* Just disable the interrupt in the interrupt controller, and
+	 * remember the state so we can allow user space to enable it later.
+	 */
 
 	if (!test_and_set_bit(0, &priv->flags))
 		disable_irq_nosync(irq);
@@ -71,6 +74,12 @@ static int uio_pdrv_genirq_irqcontrol(struct uio_info *dev_info, s32 irq_on)
 	struct uio_pdrv_genirq_platdata *priv = dev_info->priv;
 	unsigned long flags;
 
+	/* Allow user space to enable and disable the interrupt
+	 * in the interrupt controller, but keep track of the
+	 * state to prevent per-irq depth damage.
+	 *
+	 * Serialize this operation to support multiple tasks.
+	 */
 
 	spin_lock_irqsave(&priv->lock, flags);
 	if (irq_on) {
@@ -96,7 +105,7 @@ static int uio_pdrv_genirq_probe(struct platform_device *pdev)
 	if (!uioinfo) {
 		int irq;
 
-		
+		/* alloc uioinfo for one device */
 		uioinfo = kzalloc(sizeof(*uioinfo), GFP_KERNEL);
 		if (!uioinfo) {
 			ret = -ENOMEM;
@@ -106,7 +115,7 @@ static int uio_pdrv_genirq_probe(struct platform_device *pdev)
 		uioinfo->name = pdev->dev.of_node->name;
 		uioinfo->version = "devicetree";
 
-		
+		/* Multiple IRQs are not supported */
 		irq = platform_get_irq(pdev, 0);
 		if (irq == -ENXIO)
 			uioinfo->irq = UIO_IRQ_NONE;
@@ -134,7 +143,7 @@ static int uio_pdrv_genirq_probe(struct platform_device *pdev)
 
 	priv->uioinfo = uioinfo;
 	spin_lock_init(&priv->lock);
-	priv->flags = 0; 
+	priv->flags = 0; /* interrupt is enabled to begin with */
 	priv->pdev = pdev;
 
 	uiomem = &uioinfo->mem[0];
@@ -163,6 +172,14 @@ static int uio_pdrv_genirq_probe(struct platform_device *pdev)
 		++uiomem;
 	}
 
+	/* This driver requires no hardware specific kernel code to handle
+	 * interrupts. Instead, the interrupt handler simply disables the
+	 * interrupt in the interrupt controller. User space is responsible
+	 * for performing hardware specific acknowledge and re-enabling of
+	 * the interrupt in the interrupt controller.
+	 *
+	 * Interrupt sharing is not supported.
+	 */
 
 	uioinfo->handler = uio_pdrv_genirq_handler;
 	uioinfo->irqcontrol = uio_pdrv_genirq_irqcontrol;
@@ -170,6 +187,11 @@ static int uio_pdrv_genirq_probe(struct platform_device *pdev)
 	uioinfo->release = uio_pdrv_genirq_release;
 	uioinfo->priv = priv;
 
+	/* Enable Runtime PM for this device:
+	 * The device starts in suspended state to allow the hardware to be
+	 * turned off by default. The Runtime PM bus code should power on the
+	 * hardware and enable clocks at open().
+	 */
 	pm_runtime_enable(&pdev->dev);
 
 	ret = uio_register_device(&pdev->dev, priv->uioinfo);
@@ -184,7 +206,7 @@ static int uio_pdrv_genirq_probe(struct platform_device *pdev)
 	kfree(priv);
 	pm_runtime_disable(&pdev->dev);
  bad0:
-	
+	/* kfree uioinfo for OF */
 	if (pdev->dev.of_node)
 		kfree(uioinfo);
  bad2:
@@ -201,7 +223,7 @@ static int uio_pdrv_genirq_remove(struct platform_device *pdev)
 	priv->uioinfo->handler = NULL;
 	priv->uioinfo->irqcontrol = NULL;
 
-	
+	/* kfree uioinfo for OF */
 	if (pdev->dev.of_node)
 		kfree(priv->uioinfo);
 
@@ -211,6 +233,18 @@ static int uio_pdrv_genirq_remove(struct platform_device *pdev)
 
 static int uio_pdrv_genirq_runtime_nop(struct device *dev)
 {
+	/* Runtime PM callback shared between ->runtime_suspend()
+	 * and ->runtime_resume(). Simply returns success.
+	 *
+	 * In this driver pm_runtime_get_sync() and pm_runtime_put_sync()
+	 * are used at open() and release() time. This allows the
+	 * Runtime PM code to turn off power to the device while the
+	 * device is unused, ie before open() and after release().
+	 *
+	 * This Runtime PM callback does not need to save or restore
+	 * any registers since user space is responsbile for hardware
+	 * register reinitialization after open().
+	 */
 	return 0;
 }
 
@@ -221,7 +255,7 @@ static const struct dev_pm_ops uio_pdrv_genirq_dev_pm_ops = {
 
 #ifdef CONFIG_OF
 static const struct of_device_id uio_of_genirq_match[] = {
-	{  },
+	{ /* empty for now */ },
 };
 MODULE_DEVICE_TABLE(of, uio_of_genirq_match);
 #else

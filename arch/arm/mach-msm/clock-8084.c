@@ -31,6 +31,10 @@
 #include "clock-voter.h"
 #include "clock.h"
 
+/*
+ * TODO: Drivers need to fill in the clock names and device names for the clocks
+ *       they need to control.
+ */
 static struct clk_lookup msm_clocks_8084[] = {
 	CLK_DUMMY("core_clk",   BLSP1_UART_CLK, "f991f000.serial", OFF),
 	CLK_DUMMY("iface_clk",  BLSP1_UART_CLK, "f991f000.serial", OFF),
@@ -382,7 +386,7 @@ static struct clk_lookup msm_clocks_8084[] = {
 	CLK_DUMMY("iface_clk", NULL, "fe064000.qcom,iommu", OFF),
 	CLK_DUMMY("core_clk", NULL, "fe064000.qcom,iommu", OFF),
 
-	
+	/* CoreSight clocks */
 	CLK_DUMMY("core_clk", qdss_clk.c, "fc326000.tmc", OFF),
 	CLK_DUMMY("core_clk", qdss_clk.c, "fc324000.replicator", OFF),
 	CLK_DUMMY("core_clk", qdss_clk.c, "fc325000.tmc", OFF),

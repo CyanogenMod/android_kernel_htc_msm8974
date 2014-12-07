@@ -16,6 +16,10 @@
 #include <asm/clock.h>
 #include <asm/freq.h>
 
+/*
+ * Default rate for the root input clock, reset this with clk_set_rate()
+ * from the platform code.
+ */
 static struct clk extal_clk = {
 	.rate		= 48000000,
 };
@@ -62,6 +66,10 @@ enum { DIV4_I, DIV4_SH, DIV4_P, DIV4_NR };
   SH_CLK_DIV4(&pll_clk, FRQCR, _bit, _mask, _flags)
 
 struct clk div4_clks[DIV4_NR] = {
+	/*
+	 * P clock is always enable, because some P clock modules is used
+	 * by Host PC.
+	 */
 	[DIV4_P] = DIV4(0, 0x2800, CLK_ENABLE_ON_INIT),
 	[DIV4_SH] = DIV4(12, 0x00a0, CLK_ENABLE_ON_INIT),
 	[DIV4_I] = DIV4(20, 0x0004, CLK_ENABLE_ON_INIT),
@@ -76,11 +84,11 @@ enum { MSTP004, MSTP000, MSTP127, MSTP114, MSTP113, MSTP112,
        MSTP_NR };
 
 static struct clk mstp_clks[MSTP_NR] = {
-	
+	/* MSTPCR0 */
 	[MSTP004] = SH_CLK_MSTP32(&div4_clks[DIV4_P], MSTPCR0, 4, 0),
 	[MSTP000] = SH_CLK_MSTP32(&div4_clks[DIV4_P], MSTPCR0, 0, 0),
 
-	
+	/* MSTPCR1 */
 	[MSTP127] = SH_CLK_MSTP32(&div4_clks[DIV4_P], MSTPCR1, 27, 0),
 	[MSTP114] = SH_CLK_MSTP32(&div4_clks[DIV4_P], MSTPCR1, 14, 0),
 	[MSTP113] = SH_CLK_MSTP32(&div4_clks[DIV4_P], MSTPCR1, 13, 0),
@@ -90,21 +98,21 @@ static struct clk mstp_clks[MSTP_NR] = {
 	[MSTP103] = SH_CLK_MSTP32(&div4_clks[DIV4_P], MSTPCR1, 3, 0),
 	[MSTP102] = SH_CLK_MSTP32(&div4_clks[DIV4_P], MSTPCR1, 2, 0),
 
-	
+	/* MSTPCR2 */
 	[MSTP220] = SH_CLK_MSTP32(&div4_clks[DIV4_P], MSTPCR2, 20, 0),
 };
 
 static struct clk_lookup lookups[] = {
-	
+	/* main clocks */
 	CLKDEV_CON_ID("extal", &extal_clk),
 	CLKDEV_CON_ID("pll_clk", &pll_clk),
 
-	
+	/* DIV4 clocks */
 	CLKDEV_CON_ID("peripheral_clk", &div4_clks[DIV4_P]),
 	CLKDEV_CON_ID("shyway_clk", &div4_clks[DIV4_SH]),
 	CLKDEV_CON_ID("cpu_clk", &div4_clks[DIV4_I]),
 
-	
+	/* MSTP32 clocks */
 	CLKDEV_DEV_ID("sh_mobile_sdhi.0", &mstp_clks[MSTP004]),
 	CLKDEV_CON_ID("riic0", &mstp_clks[MSTP000]),
 	CLKDEV_CON_ID("riic1", &mstp_clks[MSTP000]),

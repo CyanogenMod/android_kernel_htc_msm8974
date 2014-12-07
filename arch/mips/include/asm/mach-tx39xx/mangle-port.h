@@ -20,4 +20,4 @@ extern unsigned long (*__swizzle_addr_b)(unsigned long port);
 #define ioswabq(a, x)		le64_to_cpu(x)
 #define __mem_ioswabq(a, x)	(x)
 
-#endif 
+#endif /* __ASM_MACH_TX39XX_MANGLE_PORT_H */

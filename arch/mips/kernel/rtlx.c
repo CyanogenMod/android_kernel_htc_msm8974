@@ -63,13 +63,16 @@ static void rtlx_dispatch(void)
 }
 
 
+/* Interrupt handler may be called before rtlx_init has otherwise had
+   a chance to run.
+*/
 static irqreturn_t rtlx_interrupt(int irq, void *dev_id)
 {
 	unsigned int vpeflags;
 	unsigned long flags;
 	int i;
 
-	
+	/* Ought not to be strictly necessary for SMTC builds */
 	local_irq_save(flags);
 	vpeflags = dvpe();
 	set_c0_status(0x100 << MIPS_CPU_RTLX_IRQ);
@@ -108,6 +111,7 @@ static void __used dump_rtlx(void)
 	}
 }
 
+/* call when we have the address of the shared structure from the SP side. */
 static int rtlx_init(struct rtlx_info *rtlxi)
 {
 	if (rtlxi->id != RTLX_ID) {
@@ -121,15 +125,16 @@ static int rtlx_init(struct rtlx_info *rtlxi)
 	return 0;
 }
 
+/* notifications */
 static void starting(int vpe)
 {
 	int i;
 	sp_stopping = 0;
 
-	
+	/* force a reload of rtlx */
 	rtlx=NULL;
 
-	
+	/* wake up any sleeping rtlx_open's */
 	for (i = 0; i < RTLX_CHANNELS; i++)
 		wake_up_interruptible(&channel_wqs[i].lx_queue);
 }
@@ -254,7 +259,7 @@ unsigned int rtlx_read_poll(int index, int can_sleep)
 
  	chan = &rtlx->channel[index];
 
-	
+	/* data available to read? */
 	if (chan->lx_read == chan->lx_write) {
 		if (can_sleep) {
 			int ret = 0;
@@ -278,6 +283,10 @@ unsigned int rtlx_read_poll(int index, int can_sleep)
 static inline int write_spacefree(int read, int write, int size)
 {
 	if (read == write) {
+		/*
+		 * Never fill the buffer completely, so indexes are always
+		 * equal if empty and only empty, or !equal if data available
+		 */
 		return size - 1;
 	}
 
@@ -307,19 +316,19 @@ ssize_t rtlx_read(int index, void __user *buff, size_t count)
 	smp_rmb();
 	lx_write = lx->lx_write;
 
-	
+	/* find out how much in total */
 	count = min(count,
 		     (size_t)(lx_write + lx->buffer_size - lx->lx_read)
 		     % lx->buffer_size);
 
-	
+	/* then how much from the read pointer onwards */
 	fl = min(count, (size_t)lx->buffer_size - lx->lx_read);
 
 	failed = copy_to_user(buff, lx->lx_buffer + lx->lx_read, fl);
 	if (failed)
 		goto out;
 
-	
+	/* and if there is anything left at the beginning of the buffer */
 	if (count - fl)
 		failed = copy_to_user(buff + fl, lx->lx_buffer, count - fl);
 
@@ -350,18 +359,18 @@ ssize_t rtlx_write(int index, const void __user *buffer, size_t count)
 	smp_rmb();
 	rt_read = rt->rt_read;
 
-	
+	/* total number of bytes to copy */
 	count = min(count, (size_t)write_spacefree(rt_read, rt->rt_write,
 							rt->buffer_size));
 
-	
+	/* first bit from write pointer to the end of the buffer, or count */
 	fl = min(count, (size_t) rt->buffer_size - rt->rt_write);
 
 	failed = copy_from_user(rt->rt_buffer + rt->rt_write, buffer, fl);
 	if (failed)
 		goto out;
 
-	
+	/* if there's any left copy to the beginning of the buffer */
 	if (count - fl) {
 		failed = copy_from_user(rt->rt_buffer, buffer + fl, count - fl);
 	}
@@ -401,11 +410,11 @@ static unsigned int file_poll(struct file *file, poll_table * wait)
 	if (rtlx == NULL)
 		return 0;
 
-	
+	/* data available to read? */
 	if (rtlx_read_poll(minor, 0))
 		mask |= POLLIN | POLLRDNORM;
 
-	
+	/* space to write */
 	if (rtlx_write_poll(minor))
 		mask |= POLLOUT | POLLWRNORM;
 
@@ -417,9 +426,9 @@ static ssize_t file_read(struct file *file, char __user * buffer, size_t count,
 {
 	int minor = iminor(file->f_path.dentry->d_inode);
 
-	
+	/* data available? */
 	if (!rtlx_read_poll(minor, (file->f_flags & O_NONBLOCK) ? 0 : 1)) {
-		return 0;	
+		return 0;	// -EAGAIN makes cat whinge
 	}
 
 	return rtlx_read(minor, buffer, count);
@@ -434,7 +443,7 @@ static ssize_t file_write(struct file *file, const char __user * buffer,
 	minor = iminor(file->f_path.dentry->d_inode);
 	rt = &rtlx->channel[minor];
 
-	
+	/* any space left... */
 	if (!rtlx_write_poll(minor)) {
 		int ret = 0;
 
@@ -495,7 +504,7 @@ static int __init rtlx_module_init(void)
 		return major;
 	}
 
-	
+	/* initialise the wait queues */
 	for (i = 0; i < RTLX_CHANNELS; i++) {
 		init_waitqueue_head(&channel_wqs[i].rt_queue);
 		init_waitqueue_head(&channel_wqs[i].lx_queue);
@@ -510,7 +519,7 @@ static int __init rtlx_module_init(void)
 		}
 	}
 
-	
+	/* set up notifiers */
 	notify.start = starting;
 	notify.stop = stopping;
 	vpe_notify(tclimit, &notify);

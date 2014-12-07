@@ -32,7 +32,7 @@
 #include "pvrusb2-v4l2.h"
 #ifdef CONFIG_VIDEO_PVRUSB2_SYSFS
 #include "pvrusb2-sysfs.h"
-#endif 
+#endif /* CONFIG_VIDEO_PVRUSB2_SYSFS */
 
 #define DRIVER_AUTHOR "Mike Isely <isely@pobox.com>"
 #define DRIVER_DESC "Hauppauge WinTV-PVR-USB2 MPEG2 Encoder/Tuner"
@@ -52,19 +52,19 @@ MODULE_PARM_DESC(debug, "Debug trace mask");
 
 #ifdef CONFIG_VIDEO_PVRUSB2_SYSFS
 static struct pvr2_sysfs_class *class_ptr = NULL;
-#endif 
+#endif /* CONFIG_VIDEO_PVRUSB2_SYSFS */
 
 static void pvr_setup_attach(struct pvr2_context *pvr)
 {
-	
+	/* Create association with v4l layer */
 	pvr2_v4l2_create(pvr);
 #ifdef CONFIG_VIDEO_PVRUSB2_DVB
-	
+	/* Create association with dvb layer */
 	pvr2_dvb_create(pvr);
 #endif
 #ifdef CONFIG_VIDEO_PVRUSB2_SYSFS
 	pvr2_sysfs_create(pvr,class_ptr);
-#endif 
+#endif /* CONFIG_VIDEO_PVRUSB2_SYSFS */
 }
 
 static int pvr_probe(struct usb_interface *intf,
@@ -72,7 +72,7 @@ static int pvr_probe(struct usb_interface *intf,
 {
 	struct pvr2_context *pvr;
 
-	
+	/* Create underlying hardware interface */
 	pvr = pvr2_context_create(intf,devid,pvr_setup_attach);
 	if (!pvr) {
 		pvr2_trace(PVR2_TRACE_ERROR_LEGS,
@@ -87,6 +87,10 @@ static int pvr_probe(struct usb_interface *intf,
 	return 0;
 }
 
+/*
+ * pvr_disconnect()
+ *
+ */
 static void pvr_disconnect(struct usb_interface *intf)
 {
 	struct pvr2_context *pvr = usb_get_intfdata(intf);
@@ -107,6 +111,12 @@ static struct usb_driver pvr_driver = {
 	.disconnect =   pvr_disconnect
 };
 
+/*
+ * pvr_init() / pvr_exit()
+ *
+ * This code is run to initialize/exit the driver.
+ *
+ */
 static int __init pvr_init(void)
 {
 	int ret;
@@ -121,7 +131,7 @@ static int __init pvr_init(void)
 
 #ifdef CONFIG_VIDEO_PVRUSB2_SYSFS
 	class_ptr = pvr2_sysfs_class_create();
-#endif 
+#endif /* CONFIG_VIDEO_PVRUSB2_SYSFS */
 
 	ret = usb_register(&pvr_driver);
 
@@ -147,7 +157,7 @@ static void __exit pvr_exit(void)
 
 #ifdef CONFIG_VIDEO_PVRUSB2_SYSFS
 	pvr2_sysfs_class_destroy(class_ptr);
-#endif 
+#endif /* CONFIG_VIDEO_PVRUSB2_SYSFS */
 
 	pvr2_trace(PVR2_TRACE_INIT,"pvr_exit complete");
 }
@@ -161,3 +171,12 @@ MODULE_LICENSE("GPL");
 MODULE_VERSION("0.9.1");
 
 
+/*
+  Stuff for Emacs to see, in order to encourage consistent editing style:
+  *** Local Variables: ***
+  *** mode: c ***
+  *** fill-column: 70 ***
+  *** tab-width: 8 ***
+  *** c-basic-offset: 8 ***
+  *** End: ***
+  */

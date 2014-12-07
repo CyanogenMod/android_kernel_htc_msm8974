@@ -30,39 +30,51 @@
 #include <linux/types.h>
 #include <linux/input.h>
 
+/*
+ * Version
+ */
 
 #define JS_VERSION		0x020100
 
+/*
+ * Types and constants for reading from /dev/js
+ */
 
-#define JS_EVENT_BUTTON		0x01	
-#define JS_EVENT_AXIS		0x02	
-#define JS_EVENT_INIT		0x80	
+#define JS_EVENT_BUTTON		0x01	/* button pressed/released */
+#define JS_EVENT_AXIS		0x02	/* joystick moved */
+#define JS_EVENT_INIT		0x80	/* initial state of device */
 
 struct js_event {
-	__u32 time;	
-	__s16 value;	
-	__u8 type;	
-	__u8 number;	
+	__u32 time;	/* event timestamp in milliseconds */
+	__s16 value;	/* value */
+	__u8 type;	/* event type */
+	__u8 number;	/* axis/button number */
 };
 
+/*
+ * IOCTL commands for joystick driver
+ */
 
-#define JSIOCGVERSION		_IOR('j', 0x01, __u32)				
+#define JSIOCGVERSION		_IOR('j', 0x01, __u32)				/* get driver version */
 
-#define JSIOCGAXES		_IOR('j', 0x11, __u8)				
-#define JSIOCGBUTTONS		_IOR('j', 0x12, __u8)				
-#define JSIOCGNAME(len)		_IOC(_IOC_READ, 'j', 0x13, len)			
+#define JSIOCGAXES		_IOR('j', 0x11, __u8)				/* get number of axes */
+#define JSIOCGBUTTONS		_IOR('j', 0x12, __u8)				/* get number of buttons */
+#define JSIOCGNAME(len)		_IOC(_IOC_READ, 'j', 0x13, len)			/* get identifier string */
 
-#define JSIOCSCORR		_IOW('j', 0x21, struct js_corr)			
-#define JSIOCGCORR		_IOR('j', 0x22, struct js_corr)			
+#define JSIOCSCORR		_IOW('j', 0x21, struct js_corr)			/* set correction values */
+#define JSIOCGCORR		_IOR('j', 0x22, struct js_corr)			/* get correction values */
 
-#define JSIOCSAXMAP		_IOW('j', 0x31, __u8[ABS_CNT])			
-#define JSIOCGAXMAP		_IOR('j', 0x32, __u8[ABS_CNT])			
-#define JSIOCSBTNMAP		_IOW('j', 0x33, __u16[KEY_MAX - BTN_MISC + 1])	
-#define JSIOCGBTNMAP		_IOR('j', 0x34, __u16[KEY_MAX - BTN_MISC + 1])	
+#define JSIOCSAXMAP		_IOW('j', 0x31, __u8[ABS_CNT])			/* set axis mapping */
+#define JSIOCGAXMAP		_IOR('j', 0x32, __u8[ABS_CNT])			/* get axis mapping */
+#define JSIOCSBTNMAP		_IOW('j', 0x33, __u16[KEY_MAX - BTN_MISC + 1])	/* set button mapping */
+#define JSIOCGBTNMAP		_IOR('j', 0x34, __u16[KEY_MAX - BTN_MISC + 1])	/* get button mapping */
 
+/*
+ * Types and constants for get/set correction
+ */
 
-#define JS_CORR_NONE		0x00	
-#define JS_CORR_BROKEN		0x01	
+#define JS_CORR_NONE		0x00	/* returns raw values */
+#define JS_CORR_BROKEN		0x01	/* broken line */
 
 struct js_corr {
 	__s32 coef[8];
@@ -70,6 +82,9 @@ struct js_corr {
 	__u16 type;
 };
 
+/*
+ * v0.x compatibility definitions
+ */
 
 #define JS_RETURN		sizeof(struct JS_DATA_TYPE)
 #define JS_TRUE			1
@@ -127,4 +142,4 @@ struct JS_DATA_SAVE_TYPE_64 {
 #endif
 #endif
 
-#endif 
+#endif /* _LINUX_JOYSTICK_H */

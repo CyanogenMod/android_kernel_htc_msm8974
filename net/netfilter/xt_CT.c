@@ -27,7 +27,7 @@ static unsigned int xt_ct_target_v0(struct sk_buff *skb,
 	const struct xt_ct_target_info *info = par->targinfo;
 	struct nf_conn *ct = info->ct;
 
-	
+	/* Previously seen (loopback)? Ignore. */
 	if (skb->nfct != NULL)
 		return XT_CONTINUE;
 
@@ -44,7 +44,7 @@ static unsigned int xt_ct_target_v1(struct sk_buff *skb,
 	const struct xt_ct_target_info_v1 *info = par->targinfo;
 	struct nf_conn *ct = info->ct;
 
-	
+	/* Previously seen (loopback)? Ignore. */
 	if (skb->nfct != NULL)
 		return XT_CONTINUE;
 
@@ -259,6 +259,9 @@ static int xt_ct_tg_check_v1(const struct xt_tgchk_param *par)
 					info->timeout, timeout->l3num);
 				goto err5;
 			}
+			/* Make sure the timeout policy matches any existing
+			 * protocol tracker, otherwise default to generic.
+			 */
 			l4proto = __nf_ct_l4proto_find(par->family,
 						       e->ip.proto);
 			if (timeout->l4proto->l4proto != l4proto->l4proto) {

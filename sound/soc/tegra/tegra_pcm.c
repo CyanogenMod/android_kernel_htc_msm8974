@@ -166,10 +166,10 @@ static int tegra_pcm_open(struct snd_pcm_substream *substream)
 		goto err;
 	}
 
-	
+	/* Set HW params now that initialization is complete */
 	snd_soc_set_runtime_hwparams(substream, &tegra_pcm_hardware);
 
-	
+	/* Ensure that buffer size is a multiple of period size */
 	ret = snd_pcm_hw_constraint_integer(runtime,
 						SNDRV_PCM_HW_PARAM_PERIODS);
 	if (ret < 0)
@@ -232,7 +232,7 @@ static int tegra_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 		prtd->dma_pos_end = frames_to_bytes(runtime, runtime->periods * runtime->period_size);
 		prtd->period_index = 0;
 		prtd->dma_req_idx = 0;
-		
+		/* Fall-through */
 	case SNDRV_PCM_TRIGGER_RESUME:
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
 		spin_lock_irqsave(&prtd->lock, flags);

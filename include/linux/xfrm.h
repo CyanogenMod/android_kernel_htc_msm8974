@@ -3,12 +3,22 @@
 
 #include <linux/types.h>
 
+/* All of the structures in this file may not change size as they are
+ * passed into the kernel from userspace via netlink sockets.
+ */
 
+/* Structure to encapsulate addresses. I do not want to use
+ * "standard" structure. My apologies.
+ */
 typedef union {
 	__be32		a4;
 	__be32		a6[4];
 } xfrm_address_t;
 
+/* Ident of a specific xfrm_state. It is used on input to lookup
+ * the state by (spi,daddr,ah/esp) or to store information about
+ * spi, protocol and tunnel address on output.
+ */
 struct xfrm_id {
 	xfrm_address_t	daddr;
 	__be32		spi;
@@ -23,12 +33,15 @@ struct xfrm_sec_ctx {
 	char	ctx_str[0];
 };
 
+/* Security Context Domains of Interpretation */
 #define XFRM_SC_DOI_RESERVED 0
 #define XFRM_SC_DOI_LSM 1
 
+/* Security Context Algorithms */
 #define XFRM_SC_ALG_RESERVED 0
 #define XFRM_SC_ALG_SELINUX 1
 
+/* Selector, used as selector both on policy rules (SPD) and SAs. */
 
 struct xfrm_selector {
 	xfrm_address_t	daddr;
@@ -83,21 +96,21 @@ struct xfrm_replay_state_esn {
 
 struct xfrm_algo {
 	char		alg_name[64];
-	unsigned int	alg_key_len;    
+	unsigned int	alg_key_len;    /* in bits */
 	char		alg_key[0];
 };
 
 struct xfrm_algo_auth {
 	char		alg_name[64];
-	unsigned int	alg_key_len;    
-	unsigned int	alg_trunc_len;  
+	unsigned int	alg_key_len;    /* in bits */
+	unsigned int	alg_trunc_len;  /* in bits */
 	char		alg_key[0];
 };
 
 struct xfrm_algo_aead {
 	char		alg_name[64];
-	unsigned int	alg_key_len;	
-	unsigned int	alg_icv_len;	
+	unsigned int	alg_key_len;	/* in bits */
+	unsigned int	alg_icv_len;	/* in bits */
 	char		alg_key[0];
 };
 
@@ -123,10 +136,10 @@ enum {
 };
 
 enum {
-	XFRM_SHARE_ANY,		
-	XFRM_SHARE_SESSION,	
-	XFRM_SHARE_USER,	
-	XFRM_SHARE_UNIQUE	
+	XFRM_SHARE_ANY,		/* No limitations */
+	XFRM_SHARE_SESSION,	/* For this session only */
+	XFRM_SHARE_USER,	/* For this user only */
+	XFRM_SHARE_UNIQUE	/* Use once */
 };
 
 #define XFRM_MODE_TRANSPORT 0
@@ -136,6 +149,7 @@ enum {
 #define XFRM_MODE_BEET 4
 #define XFRM_MODE_MAX 5
 
+/* Netlink configuration messages.  */
 enum {
 	XFRM_MSG_BASE = 0x10,
 
@@ -202,10 +216,14 @@ enum {
 
 #define XFRM_NR_MSGTYPES (XFRM_MSG_MAX + 1 - XFRM_MSG_BASE)
 
+/*
+ * Generic LSM security context for comunicating to user space
+ * NOTE: Same format as sadb_x_sec_ctx
+ */
 struct xfrm_user_sec_ctx {
 	__u16			len;
 	__u16			exttype;
-	__u8			ctx_alg;  
+	__u8			ctx_alg;  /* LSMs: e.g., selinux == 1 */
 	__u8			ctx_doi;
 	__u16			ctx_len;
 };
@@ -230,15 +248,16 @@ struct xfrm_encap_tmpl {
 	xfrm_address_t	encap_oa;
 };
 
+/* AEVENT flags  */
 enum xfrm_ae_ftype_t {
 	XFRM_AE_UNSPEC,
-	XFRM_AE_RTHR=1,	
-	XFRM_AE_RVAL=2, 
-	XFRM_AE_LVAL=4, 
-	XFRM_AE_ETHR=8, 
-	XFRM_AE_CR=16, 
-	XFRM_AE_CE=32, 
-	XFRM_AE_CU=64, 
+	XFRM_AE_RTHR=1,	/* replay threshold*/
+	XFRM_AE_RVAL=2, /* replay value */
+	XFRM_AE_LVAL=4, /* lifetime value */
+	XFRM_AE_ETHR=8, /* expiry timer threshold */
+	XFRM_AE_CR=16, /* Event cause is replay update */
+	XFRM_AE_CE=32, /* Event cause is timer expiry */
+	XFRM_AE_CU=64, /* Event cause is policy update */
 	__XFRM_AE_MAX
 
 #define XFRM_AE_MAX (__XFRM_AE_MAX - 1)
@@ -250,39 +269,40 @@ struct xfrm_userpolicy_type {
 	__u8		reserved2;
 };
 
+/* Netlink message attributes.  */
 enum xfrm_attr_type_t {
 	XFRMA_UNSPEC,
-	XFRMA_ALG_AUTH,		
-	XFRMA_ALG_CRYPT,	
-	XFRMA_ALG_COMP,		
-	XFRMA_ENCAP,		
-	XFRMA_TMPL,		
-	XFRMA_SA,		
-	XFRMA_POLICY,		
-	XFRMA_SEC_CTX,		
+	XFRMA_ALG_AUTH,		/* struct xfrm_algo */
+	XFRMA_ALG_CRYPT,	/* struct xfrm_algo */
+	XFRMA_ALG_COMP,		/* struct xfrm_algo */
+	XFRMA_ENCAP,		/* struct xfrm_algo + struct xfrm_encap_tmpl */
+	XFRMA_TMPL,		/* 1 or more struct xfrm_user_tmpl */
+	XFRMA_SA,		/* struct xfrm_usersa_info  */
+	XFRMA_POLICY,		/*struct xfrm_userpolicy_info */
+	XFRMA_SEC_CTX,		/* struct xfrm_sec_ctx */
 	XFRMA_LTIME_VAL,
 	XFRMA_REPLAY_VAL,
 	XFRMA_REPLAY_THRESH,
 	XFRMA_ETIMER_THRESH,
-	XFRMA_SRCADDR,		
-	XFRMA_COADDR,		
-	XFRMA_LASTUSED,		
-	XFRMA_POLICY_TYPE,	
+	XFRMA_SRCADDR,		/* xfrm_address_t */
+	XFRMA_COADDR,		/* xfrm_address_t */
+	XFRMA_LASTUSED,		/* unsigned long  */
+	XFRMA_POLICY_TYPE,	/* struct xfrm_userpolicy_type */
 	XFRMA_MIGRATE,
-	XFRMA_ALG_AEAD,		
-	XFRMA_KMADDRESS,        
-	XFRMA_ALG_AUTH_TRUNC,	
-	XFRMA_MARK,		
-	XFRMA_TFCPAD,		
-	XFRMA_REPLAY_ESN_VAL,	
+	XFRMA_ALG_AEAD,		/* struct xfrm_algo_aead */
+	XFRMA_KMADDRESS,        /* struct xfrm_user_kmaddress */
+	XFRMA_ALG_AUTH_TRUNC,	/* struct xfrm_algo_auth */
+	XFRMA_MARK,		/* struct xfrm_mark */
+	XFRMA_TFCPAD,		/* __u32 */
+	XFRMA_REPLAY_ESN_VAL,	/* struct xfrm_replay_esn */
 	__XFRMA_MAX
 
 #define XFRMA_MAX (__XFRMA_MAX - 1)
 };
 
 struct xfrm_mark {
-	__u32           v; 
-	__u32           m; 
+	__u32           v; /* value */
+	__u32           m; /* mask */
 };
 
 enum xfrm_sadattr_type_t {
@@ -295,8 +315,8 @@ enum xfrm_sadattr_type_t {
 };
 
 struct xfrmu_sadhinfo {
-	__u32 sadhcnt; 
-	__u32 sadhmcnt; 
+	__u32 sadhcnt; /* current hash bkts */
+	__u32 sadhmcnt; /* max allowed hash bkts */
 };
 
 enum xfrm_spdattr_type_t {
@@ -332,7 +352,7 @@ struct xfrm_usersa_info {
 	__u32				seq;
 	__u32				reqid;
 	__u16				family;
-	__u8				mode;		
+	__u8				mode;		/* XFRM_MODE_xxx */
 	__u8				replay_window;
 	__u8				flags;
 #define XFRM_STATE_NOECN	1
@@ -376,8 +396,8 @@ struct xfrm_userpolicy_info {
 #define XFRM_POLICY_ALLOW	0
 #define XFRM_POLICY_BLOCK	1
 	__u8				flags;
-#define XFRM_POLICY_LOCALOK	1	
-	
+#define XFRM_POLICY_LOCALOK	1	/* Allow user to override global policy */
+	/* Automatically expand selector to include matching ICMP payloads. */
 #define XFRM_POLICY_ICMP	2
 	__u8				share;
 };
@@ -418,6 +438,8 @@ struct xfrm_user_report {
 	struct xfrm_selector		sel;
 };
 
+/* Used by MIGRATE to pass addresses IKE should use to perform
+ * SA negotiation with the peer */
 struct xfrm_user_kmaddress {
 	xfrm_address_t                  local;
 	xfrm_address_t                  remote;
@@ -448,6 +470,7 @@ struct xfrm_user_mapping {
 };
 
 #ifndef __KERNEL__
+/* backwards compatibility for userspace */
 #define XFRMGRP_ACQUIRE		1
 #define XFRMGRP_EXPIRE		2
 #define XFRMGRP_SA		4
@@ -478,4 +501,4 @@ enum xfrm_nlgroups {
 };
 #define XFRMNLGRP_MAX	(__XFRMNLGRP_MAX - 1)
 
-#endif 
+#endif /* _LINUX_XFRM_H */

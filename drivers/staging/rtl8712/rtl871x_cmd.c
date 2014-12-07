@@ -52,6 +52,10 @@
 #include "mlme_osdep.h"
 #include "rtl871x_byteorder.h"
 
+/*
+Caller and the r8712_cmd_thread can protect cmd_q by spin_lock.
+No irqsave is necessary.
+*/
 
 static sint _init_cmd_priv(struct cmd_priv *pcmdpriv)
 {
@@ -60,7 +64,7 @@ static sint _init_cmd_priv(struct cmd_priv *pcmdpriv)
 
 	_init_queue(&(pcmdpriv->cmd_queue));
 
-	
+	/* allocate DMA-able/Non-Page memory for cmd_buf and rsp_buf */
 	pcmdpriv->cmd_seq = 1;
 	pcmdpriv->cmd_allocated_buf = _malloc(MAX_CMDSZ + CMDBUFF_ALIGN_SZ);
 	if (pcmdpriv->cmd_allocated_buf == NULL)
@@ -81,7 +85,7 @@ static sint _init_cmd_priv(struct cmd_priv *pcmdpriv)
 
 static sint _init_evt_priv(struct evt_priv *pevtpriv)
 {
-	
+	/* allocate DMA-able/Non-Page memory for cmd_buf and rsp_buf */
 	pevtpriv->event_seq = 0;
 	pevtpriv->evt_allocated_buf = _malloc(MAX_EVTSZ + 4);
 
@@ -106,6 +110,15 @@ static void _free_cmd_priv(struct cmd_priv *pcmdpriv)
 	}
 }
 
+/*
+Calling Context:
+
+_enqueue_cmd can only be called between kernel thread,
+since only spin_lock is used.
+
+ISR/Call-Back functions can't call this sub-function.
+
+*/
 
 static sint _enqueue_cmd(struct  __queue *queue, struct cmd_obj *obj)
 {
@@ -201,6 +214,12 @@ void r8712_free_cmd_obj(struct cmd_obj *pcmd)
 	kfree((unsigned char *)pcmd);
 }
 
+/*
+r8712_sitesurvey_cmd(~)
+	### NOTE:#### (!!!!)
+	MUST TAKE CARE THAT BEFORE CALLING THIS FUNC,
+	 YOU SHOULD HAVE LOCKED pmlmepriv->lock
+*/
 u8 r8712_sitesurvey_cmd(struct _adapter *padapter,
 			struct ndis_802_11_ssid *pssid)
 {
@@ -303,6 +322,7 @@ u8 r8712_setbasicrate_cmd(struct _adapter *padapter, u8 *rateset)
 	return _SUCCESS;
 }
 
+/* power tracking mechanism setting */
 u8 r8712_setptm_cmd(struct _adapter *padapter, u8 type)
 {
 	struct cmd_obj		*ph2c;
@@ -449,7 +469,7 @@ u8 r8712_createbss_cmd(struct _adapter *padapter)
 			pdev_network);
 	pcmd->rsp = NULL;
 	pcmd->rspsz = 0;
-	
+	/* notes: translate IELength & Length after assign to cmdsz; */
 	pdev_network->Length = cpu_to_le32(pcmd->cmdsz);
 	pdev_network->IELength = cpu_to_le32(pdev_network->IELength);
 	pdev_network->Ssid.SsidLength = cpu_to_le32(
@@ -485,7 +505,7 @@ u8 r8712_joinbss_cmd(struct _adapter  *padapter, struct wlan_network *pnetwork)
 			sizeof(NDIS_802_11_RATES_EX) +
 			sizeof(u32) + MAX_IE_SZ;
 
-	
+	/* for hidden ap to set fw_state here */
 	if (check_fwstate(pmlmepriv, WIFI_STATION_STATE|WIFI_ADHOC_STATE) !=
 	    true) {
 		switch (ndis_network_mode) {
@@ -518,6 +538,10 @@ u8 r8712_joinbss_cmd(struct _adapter  *padapter, struct wlan_network *pnetwork)
 		memcpy(&psecuritypriv->authenticator_ie[1],
 			&psecnetwork->IEs[12], (256-1));
 	psecnetwork->IELength = 0;
+	/* If the the driver wants to use the bssid to create the connection.
+	 * If not,  we copy the connecting AP's MAC address to it so that
+	 * the driver just has the bssid information for PMKIDList searching.
+	 */
 	if (pmlmepriv->assoc_by_bssid == false)
 		memcpy(&pmlmepriv->assoc_bssid[0],
 			&pnetwork->network.MacAddress[0], ETH_ALEN);
@@ -536,14 +560,18 @@ u8 r8712_joinbss_cmd(struct _adapter  *padapter, struct wlan_network *pnetwork)
 					  psecnetwork->IELength);
 		if (psecnetwork->IELength != tmp_len) {
 			psecnetwork->IELength = tmp_len;
-			pqospriv->qos_option = 1; 
+			pqospriv->qos_option = 1; /* WMM IE in beacon */
 		} else
-			pqospriv->qos_option = 0; 
+			pqospriv->qos_option = 0; /* no WMM IE in beacon */
 	}
 	if (pregistrypriv->ht_enable) {
+		/* For WEP mode, we will use the bg mode to do the connection
+		 * to avoid some IOT issues, especially for Realtek 8192u
+		 * SoftAP.
+		 */
 		if ((padapter->securitypriv.PrivacyAlgrthm != _WEP40_) &&
 		    (padapter->securitypriv.PrivacyAlgrthm != _WEP104_)) {
-			
+			/* restructure_ht_ie */
 			r8712_restructure_ht_ie(padapter,
 						&pnetwork->network.IEs[0],
 						&psecnetwork->IEs[0],
@@ -558,10 +586,10 @@ u8 r8712_joinbss_cmd(struct _adapter  *padapter, struct wlan_network *pnetwork)
 	else
 		memcpy(&psecuritypriv->supplicant_ie[1], &psecnetwork->IEs[0],
 			255);
-	
+	/* get cmdsz before endian conversion */
 	pcmd->cmdsz = r8712_get_ndis_wlan_bssid_ex_sz(psecnetwork);
 #ifdef __BIG_ENDIAN
-	
+	/* wlan_network endian conversion */
 	psecnetwork->Length = cpu_to_le32(psecnetwork->Length);
 	psecnetwork->Ssid.SsidLength = cpu_to_le32(
 				       psecnetwork->Ssid.SsidLength);
@@ -598,7 +626,7 @@ u8 r8712_joinbss_cmd(struct _adapter  *padapter, struct wlan_network *pnetwork)
 	return _SUCCESS;
 }
 
-u8 r8712_disassoc_cmd(struct _adapter *padapter) 
+u8 r8712_disassoc_cmd(struct _adapter *padapter) /* for sta_mode */
 {
 	struct cmd_obj *pdisconnect_cmd;
 	struct disconnect_parm *pdisconnect;
@@ -907,7 +935,7 @@ void r8712_createbss_cmd_callback(struct _adapter *padapter,
 		_set_timer(&pmlmepriv->assoc_timer, 1);
 	_cancel_timer(&pmlmepriv->assoc_timer, &timer_cancelled);
 #ifdef __BIG_ENDIAN
-	
+	/* endian_convert */
 	pnetwork->Length = le32_to_cpu(pnetwork->Length);
 	pnetwork->Ssid.SsidLength = le32_to_cpu(pnetwork->Ssid.SsidLength);
 	pnetwork->Privacy = le32_to_cpu(pnetwork->Privacy);
@@ -960,6 +988,8 @@ void r8712_createbss_cmd_callback(struct _adapter *padapter,
 			(r8712_get_ndis_wlan_bssid_ex_sz(pnetwork)));
 		if (pmlmepriv->fw_state & _FW_UNDER_LINKING)
 			pmlmepriv->fw_state ^= _FW_UNDER_LINKING;
+		/* we will set _FW_LINKED when there is one more sat to
+		 * join us (stassoc_event_callback) */
 	}
 createbss_cmd_fail:
 	spin_unlock_irqrestore(&pmlmepriv->lock, irqL);
@@ -977,7 +1007,7 @@ void r8712_setstaKey_cmdrsp_callback(struct _adapter *padapter,
 
 	if (psta == NULL)
 		goto exit;
-	psta->aid = psta->mac_id = psetstakey_rsp->keyid; 
+	psta->aid = psta->mac_id = psetstakey_rsp->keyid; /*CAM_ID(CAM_ENTRY)*/
 exit:
 	r8712_free_cmd_obj(pcmd);
 }

@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Module Name: utglobal - Global variables for the ACPI subsystem
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -45,20 +50,34 @@
 #define _COMPONENT          ACPI_UTILITIES
 ACPI_MODULE_NAME("utglobal")
 
+/*******************************************************************************
+ *
+ * Static global variable initialization.
+ *
+ ******************************************************************************/
+/*
+ * We want the debug switches statically initialized so they
+ * are already set when the debugger is entered.
+ */
+/* Debug switch - level and trace mask */
 u32 acpi_dbg_level = ACPI_DEBUG_DEFAULT;
 
+/* Debug switch - layer (component) mask */
 
 u32 acpi_dbg_layer = 0;
 u32 acpi_gbl_nesting_level = 0;
 
+/* Debugger globals */
 
 u8 acpi_gbl_db_terminate_threads = FALSE;
 u8 acpi_gbl_abort_method = FALSE;
 u8 acpi_gbl_method_executing = FALSE;
 
+/* System flags */
 
 u32 acpi_gbl_startup_flags = 0;
 
+/* System starts uninitialized */
 
 u8 acpi_gbl_shutdown = TRUE;
 
@@ -86,6 +105,22 @@ const char *acpi_gbl_highest_dstate_names[ACPI_NUM_sx_d_METHODS] = {
 	"_S4D"
 };
 
+/*******************************************************************************
+ *
+ * Namespace globals
+ *
+ ******************************************************************************/
+/*
+ * Predefined ACPI Names (Built-in to the Interpreter)
+ *
+ * NOTES:
+ * 1) _SB_ is defined to be a device to allow \_SB_._INI to be run
+ *    during the initialization sequence.
+ * 2) _TZ_ is defined to be a thermal zone in order to allow ASL code to
+ *    perform a Notify() operation on it. 09/2010: Changed to type Device.
+ *    This still allows notifies, but does not confuse host code that
+ *    searches for valid thermal_zone objects.
+ */
 const struct acpi_predefined_names acpi_gbl_pre_defined_names[] = {
 	{"_GPE", ACPI_TYPE_LOCAL_SCOPE, NULL},
 	{"_PR_", ACPI_TYPE_LOCAL_SCOPE, NULL},
@@ -100,105 +135,122 @@ const struct acpi_predefined_names acpi_gbl_pre_defined_names[] = {
 	{"_OSI", ACPI_TYPE_METHOD, (char *)1},
 #endif
 
-	
+	/* Table terminator */
 
 	{NULL, ACPI_TYPE_ANY, NULL}
 };
 
 #if (!ACPI_REDUCED_HARDWARE)
+/******************************************************************************
+ *
+ * Event and Hardware globals
+ *
+ ******************************************************************************/
 
 struct acpi_bit_register_info acpi_gbl_bit_register_info[ACPI_NUM_BITREG] = {
-	
+	/* Name                                     Parent Register             Register Bit Position                   Register Bit Mask       */
 
-	 {ACPI_REGISTER_PM1_STATUS,
+	/* ACPI_BITREG_TIMER_STATUS         */ {ACPI_REGISTER_PM1_STATUS,
 						ACPI_BITPOSITION_TIMER_STATUS,
 						ACPI_BITMASK_TIMER_STATUS},
-	 {ACPI_REGISTER_PM1_STATUS,
+	/* ACPI_BITREG_BUS_MASTER_STATUS    */ {ACPI_REGISTER_PM1_STATUS,
 						ACPI_BITPOSITION_BUS_MASTER_STATUS,
 						ACPI_BITMASK_BUS_MASTER_STATUS},
-	 {ACPI_REGISTER_PM1_STATUS,
+	/* ACPI_BITREG_GLOBAL_LOCK_STATUS   */ {ACPI_REGISTER_PM1_STATUS,
 						ACPI_BITPOSITION_GLOBAL_LOCK_STATUS,
 						ACPI_BITMASK_GLOBAL_LOCK_STATUS},
-	 {ACPI_REGISTER_PM1_STATUS,
+	/* ACPI_BITREG_POWER_BUTTON_STATUS  */ {ACPI_REGISTER_PM1_STATUS,
 						ACPI_BITPOSITION_POWER_BUTTON_STATUS,
 						ACPI_BITMASK_POWER_BUTTON_STATUS},
-	 {ACPI_REGISTER_PM1_STATUS,
+	/* ACPI_BITREG_SLEEP_BUTTON_STATUS  */ {ACPI_REGISTER_PM1_STATUS,
 						ACPI_BITPOSITION_SLEEP_BUTTON_STATUS,
 						ACPI_BITMASK_SLEEP_BUTTON_STATUS},
-	 {ACPI_REGISTER_PM1_STATUS,
+	/* ACPI_BITREG_RT_CLOCK_STATUS      */ {ACPI_REGISTER_PM1_STATUS,
 						ACPI_BITPOSITION_RT_CLOCK_STATUS,
 						ACPI_BITMASK_RT_CLOCK_STATUS},
-	 {ACPI_REGISTER_PM1_STATUS,
+	/* ACPI_BITREG_WAKE_STATUS          */ {ACPI_REGISTER_PM1_STATUS,
 						ACPI_BITPOSITION_WAKE_STATUS,
 						ACPI_BITMASK_WAKE_STATUS},
-	 {ACPI_REGISTER_PM1_STATUS,
+	/* ACPI_BITREG_PCIEXP_WAKE_STATUS   */ {ACPI_REGISTER_PM1_STATUS,
 						ACPI_BITPOSITION_PCIEXP_WAKE_STATUS,
 						ACPI_BITMASK_PCIEXP_WAKE_STATUS},
 
-	 {ACPI_REGISTER_PM1_ENABLE,
+	/* ACPI_BITREG_TIMER_ENABLE         */ {ACPI_REGISTER_PM1_ENABLE,
 						ACPI_BITPOSITION_TIMER_ENABLE,
 						ACPI_BITMASK_TIMER_ENABLE},
-	 {ACPI_REGISTER_PM1_ENABLE,
+	/* ACPI_BITREG_GLOBAL_LOCK_ENABLE   */ {ACPI_REGISTER_PM1_ENABLE,
 						ACPI_BITPOSITION_GLOBAL_LOCK_ENABLE,
 						ACPI_BITMASK_GLOBAL_LOCK_ENABLE},
-	 {ACPI_REGISTER_PM1_ENABLE,
+	/* ACPI_BITREG_POWER_BUTTON_ENABLE  */ {ACPI_REGISTER_PM1_ENABLE,
 						ACPI_BITPOSITION_POWER_BUTTON_ENABLE,
 						ACPI_BITMASK_POWER_BUTTON_ENABLE},
-	 {ACPI_REGISTER_PM1_ENABLE,
+	/* ACPI_BITREG_SLEEP_BUTTON_ENABLE  */ {ACPI_REGISTER_PM1_ENABLE,
 						ACPI_BITPOSITION_SLEEP_BUTTON_ENABLE,
 						ACPI_BITMASK_SLEEP_BUTTON_ENABLE},
-	 {ACPI_REGISTER_PM1_ENABLE,
+	/* ACPI_BITREG_RT_CLOCK_ENABLE      */ {ACPI_REGISTER_PM1_ENABLE,
 						ACPI_BITPOSITION_RT_CLOCK_ENABLE,
 						ACPI_BITMASK_RT_CLOCK_ENABLE},
-	 {ACPI_REGISTER_PM1_ENABLE,
+	/* ACPI_BITREG_PCIEXP_WAKE_DISABLE  */ {ACPI_REGISTER_PM1_ENABLE,
 						ACPI_BITPOSITION_PCIEXP_WAKE_DISABLE,
 						ACPI_BITMASK_PCIEXP_WAKE_DISABLE},
 
-	 {ACPI_REGISTER_PM1_CONTROL,
+	/* ACPI_BITREG_SCI_ENABLE           */ {ACPI_REGISTER_PM1_CONTROL,
 						ACPI_BITPOSITION_SCI_ENABLE,
 						ACPI_BITMASK_SCI_ENABLE},
-	 {ACPI_REGISTER_PM1_CONTROL,
+	/* ACPI_BITREG_BUS_MASTER_RLD       */ {ACPI_REGISTER_PM1_CONTROL,
 						ACPI_BITPOSITION_BUS_MASTER_RLD,
 						ACPI_BITMASK_BUS_MASTER_RLD},
-	 {ACPI_REGISTER_PM1_CONTROL,
+	/* ACPI_BITREG_GLOBAL_LOCK_RELEASE  */ {ACPI_REGISTER_PM1_CONTROL,
 						ACPI_BITPOSITION_GLOBAL_LOCK_RELEASE,
 						ACPI_BITMASK_GLOBAL_LOCK_RELEASE},
-	 {ACPI_REGISTER_PM1_CONTROL,
+	/* ACPI_BITREG_SLEEP_TYPE           */ {ACPI_REGISTER_PM1_CONTROL,
 						ACPI_BITPOSITION_SLEEP_TYPE,
 						ACPI_BITMASK_SLEEP_TYPE},
-	 {ACPI_REGISTER_PM1_CONTROL,
+	/* ACPI_BITREG_SLEEP_ENABLE         */ {ACPI_REGISTER_PM1_CONTROL,
 						ACPI_BITPOSITION_SLEEP_ENABLE,
 						ACPI_BITMASK_SLEEP_ENABLE},
 
-	 {ACPI_REGISTER_PM2_CONTROL,
+	/* ACPI_BITREG_ARB_DIS              */ {ACPI_REGISTER_PM2_CONTROL,
 						ACPI_BITPOSITION_ARB_DISABLE,
 						ACPI_BITMASK_ARB_DISABLE}
 };
 
 struct acpi_fixed_event_info acpi_gbl_fixed_event_info[ACPI_NUM_FIXED_EVENTS] = {
-	 {ACPI_BITREG_TIMER_STATUS,
+	/* ACPI_EVENT_PMTIMER       */ {ACPI_BITREG_TIMER_STATUS,
 					ACPI_BITREG_TIMER_ENABLE,
 					ACPI_BITMASK_TIMER_STATUS,
 					ACPI_BITMASK_TIMER_ENABLE},
-	 {ACPI_BITREG_GLOBAL_LOCK_STATUS,
+	/* ACPI_EVENT_GLOBAL        */ {ACPI_BITREG_GLOBAL_LOCK_STATUS,
 					ACPI_BITREG_GLOBAL_LOCK_ENABLE,
 					ACPI_BITMASK_GLOBAL_LOCK_STATUS,
 					ACPI_BITMASK_GLOBAL_LOCK_ENABLE},
-	 {ACPI_BITREG_POWER_BUTTON_STATUS,
+	/* ACPI_EVENT_POWER_BUTTON  */ {ACPI_BITREG_POWER_BUTTON_STATUS,
 					ACPI_BITREG_POWER_BUTTON_ENABLE,
 					ACPI_BITMASK_POWER_BUTTON_STATUS,
 					ACPI_BITMASK_POWER_BUTTON_ENABLE},
-	 {ACPI_BITREG_SLEEP_BUTTON_STATUS,
+	/* ACPI_EVENT_SLEEP_BUTTON  */ {ACPI_BITREG_SLEEP_BUTTON_STATUS,
 					ACPI_BITREG_SLEEP_BUTTON_ENABLE,
 					ACPI_BITMASK_SLEEP_BUTTON_STATUS,
 					ACPI_BITMASK_SLEEP_BUTTON_ENABLE},
-	 {ACPI_BITREG_RT_CLOCK_STATUS,
+	/* ACPI_EVENT_RTC           */ {ACPI_BITREG_RT_CLOCK_STATUS,
 					ACPI_BITREG_RT_CLOCK_ENABLE,
 					ACPI_BITMASK_RT_CLOCK_STATUS,
 					ACPI_BITMASK_RT_CLOCK_ENABLE},
 };
-#endif				
+#endif				/* !ACPI_REDUCED_HARDWARE */
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_init_globals
+ *
+ * PARAMETERS:  None
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Init library globals.  All globals that require specific
+ *              initialization should be initialized here!
+ *
+ ******************************************************************************/
 
 acpi_status acpi_ut_init_globals(void)
 {
@@ -207,20 +259,20 @@ acpi_status acpi_ut_init_globals(void)
 
 	ACPI_FUNCTION_TRACE(ut_init_globals);
 
-	
+	/* Create all memory caches */
 
 	status = acpi_ut_create_caches();
 	if (ACPI_FAILURE(status)) {
 		return_ACPI_STATUS(status);
 	}
 
-	
+	/* Address Range lists */
 
 	for (i = 0; i < ACPI_ADDRESS_RANGE_MAX; i++) {
 		acpi_gbl_address_range_list[i] = NULL;
 	}
 
-	
+	/* Mutex locked flags */
 
 	for (i = 0; i < ACPI_NUM_MUTEX; i++) {
 		acpi_gbl_mutex_info[i].mutex = NULL;
@@ -232,13 +284,13 @@ acpi_status acpi_ut_init_globals(void)
 		acpi_gbl_owner_id_mask[i] = 0;
 	}
 
-	
+	/* Last owner_iD is never valid */
 
 	acpi_gbl_owner_id_mask[ACPI_NUM_OWNERID_MASKS - 1] = 0x80000000;
 
 #if (!ACPI_REDUCED_HARDWARE)
 
-	
+	/* GPE support */
 
 	acpi_gbl_gpe_xrupt_list_head = NULL;
 	acpi_gbl_gpe_fadt_blocks[0] = NULL;
@@ -248,9 +300,9 @@ acpi_status acpi_ut_init_globals(void)
 
 	acpi_gbl_global_event_handler = NULL;
 
-#endif				
+#endif				/* !ACPI_REDUCED_HARDWARE */
 
-	
+	/* Global handlers */
 
 	acpi_gbl_system_notify.handler = NULL;
 	acpi_gbl_device_notify.handler = NULL;
@@ -259,7 +311,7 @@ acpi_status acpi_ut_init_globals(void)
 	acpi_gbl_table_handler = NULL;
 	acpi_gbl_interface_handler = NULL;
 
-	
+	/* Global Lock support */
 
 	acpi_gbl_global_lock_semaphore = NULL;
 	acpi_gbl_global_lock_mutex = NULL;
@@ -267,7 +319,7 @@ acpi_status acpi_ut_init_globals(void)
 	acpi_gbl_global_lock_handle = 0;
 	acpi_gbl_global_lock_present = FALSE;
 
-	
+	/* Miscellaneous variables */
 
 	acpi_gbl_DSDT = NULL;
 	acpi_gbl_cm_single_step = FALSE;
@@ -287,12 +339,12 @@ acpi_status acpi_ut_init_globals(void)
 	acpi_gbl_osi_mutex = NULL;
 	acpi_gbl_reg_methods_executed = FALSE;
 
-	
+	/* Hardware oriented */
 
 	acpi_gbl_events_initialized = FALSE;
 	acpi_gbl_system_awake_and_running = TRUE;
 
-	
+	/* Namespace */
 
 	acpi_gbl_module_code_list = NULL;
 	acpi_gbl_root_node = NULL;

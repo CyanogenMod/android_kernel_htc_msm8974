@@ -37,4 +37,4 @@ int msm_jpeg_core_fe_start(struct msm_jpeg_device *);
 
 void msm_jpeg_core_release(struct msm_jpeg_device *, int);
 void msm_jpeg_core_init(struct msm_jpeg_device *);
-#endif 
+#endif /* MSM_JPEG_CORE_H */

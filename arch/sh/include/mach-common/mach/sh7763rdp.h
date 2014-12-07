@@ -14,8 +14,10 @@
  */
 #include <asm/addrspace.h>
 
+/* clock control */
 #define MSTPCR1 0xFFC80038
 
+/* PORT */
 #define PORT_PSEL0	0xFFEF0070
 #define PORT_PSEL1	0xFFEF0072
 #define PORT_PSEL2	0xFFEF0074
@@ -34,14 +36,19 @@
 #define PORT_PMCR	0xFFEF0018
 #define PORT_PNCR	0xFFEF001A
 
+/* FPGA */
 #define CPLD_BOARD_ID_ERV_REG	0xB1000000
 #define CPLD_CPLD_CMD_REG		0xB1000006
 
+/*
+ * USB SH7763RDP board can use Host only.
+ */
 #define USB_USBHSC	0xFFEC80f0
 
+/* arch/sh/boards/renesas/sh7763rdp/irq.c */
 void init_sh7763rdp_IRQ(void);
 int sh7763rdp_irq_demux(int irq);
 #define __IO_PREFIX	sh7763rdp
 #include <asm/io_generic.h>
 
-#endif 
+#endif /* __ASM_SH_SH7763RDP_H */

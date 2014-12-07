@@ -183,7 +183,7 @@ calc_src(struct drm_device *dev, int clk, u32 freq, u32 *dsrc, u32 *ddiv)
 {
 	u32 sclk;
 
-	
+	/* use one of the fixed frequencies if possible */
 	*ddiv = 0x00000000;
 	switch (freq) {
 	case  27000:
@@ -200,7 +200,7 @@ calc_src(struct drm_device *dev, int clk, u32 freq, u32 *dsrc, u32 *ddiv)
 		break;
 	}
 
-	
+	/* otherwise, calculate the closest divider */
 	sclk = read_vco(dev, clk);
 	if (clk < 7)
 		sclk = calc_div(dev, clk, sclk, freq, ddiv);
@@ -229,6 +229,30 @@ calc_pll(struct drm_device *dev, int clk, u32 freq, u32 *coef)
 	return ret;
 }
 
+/* A (likely rather simplified and incomplete) view of the clock tree
+ *
+ * Key:
+ *
+ * S: source select
+ * D: divider
+ * P: pll
+ * F: switch
+ *
+ * Engine clocks:
+ *
+ * 137250(D) ---- 137100(F0) ---- 137160(S)/1371d0(D) ------------------- ref
+ *                      (F1) ---- 1370X0(P) ---- 137120(S)/137140(D) ---- ref
+ *
+ * Not all registers exist for all clocks.  For example: clocks >= 8 don't
+ * have their own PLL (all tied to clock 7's PLL when in PLL mode), nor do
+ * they have the divider at 1371d0, though the source selection at 137160
+ * still exists.  You must use the divider at 137250 for these instead.
+ *
+ * Memory clock:
+ *
+ * TBD, read_mem() above is likely very wrong...
+ *
+ */
 
 static int
 calc_clk(struct drm_device *dev, int clk, struct nvc0_pm_clock *info, u32 freq)
@@ -236,15 +260,15 @@ calc_clk(struct drm_device *dev, int clk, struct nvc0_pm_clock *info, u32 freq)
 	u32 src0, div0, div1D, div1P = 0;
 	u32 clk0, clk1 = 0;
 
-	
+	/* invalid clock domain */
 	if (!freq)
 		return 0;
 
-	
+	/* first possible path, using only dividers */
 	clk0 = calc_src(dev, clk, freq, &src0, &div0);
 	clk0 = calc_div(dev, clk, clk0, freq, &div1D);
 
-	
+	/* see if we can get any closer using PLLs */
 	if (clk0 != freq && (0x00004387 & (1 << clk))) {
 		if (clk < 7)
 			clk1 = calc_pll(dev, clk, freq, &info->coef);
@@ -253,7 +277,7 @@ calc_clk(struct drm_device *dev, int clk, struct nvc0_pm_clock *info, u32 freq)
 		clk1 = calc_div(dev, clk, clk1, freq, &div1P);
 	}
 
-	
+	/* select the method which gets closest to target freq */
 	if (abs((int)freq - clk0) <= abs((int)freq - clk1)) {
 		info->dsrc = src0;
 		if (div0) {
@@ -290,6 +314,12 @@ nvc0_pm_clocks_pre(struct drm_device *dev, struct nouveau_pm_level *perflvl)
 	if (!info)
 		return ERR_PTR(-ENOMEM);
 
+	/* NFI why this is still in the performance table, the ROPCs appear
+	 * to get their clock from clock 2 ("hub07", actually hub05 on this
+	 * chip, but, anyway...) as well.  nvatiming confirms hub05 and ROP
+	 * are always the same freq with the binary driver even when the
+	 * performance table says they should differ.
+	 */
 	if (dev_priv->chipset == 0xd9)
 		perflvl->rop = 0;
 
@@ -311,26 +341,26 @@ nvc0_pm_clocks_pre(struct drm_device *dev, struct nouveau_pm_level *perflvl)
 static void
 prog_clk(struct drm_device *dev, int clk, struct nvc0_pm_clock *info)
 {
-	
+	/* program dividers at 137160/1371d0 first */
 	if (clk < 7 && !info->ssel) {
 		nv_mask(dev, 0x1371d0 + (clk * 0x04), 0x80003f3f, info->ddiv);
 		nv_wr32(dev, 0x137160 + (clk * 0x04), info->dsrc);
 	}
 
-	
+	/* switch clock to non-pll mode */
 	nv_mask(dev, 0x137100, (1 << clk), 0x00000000);
 	nv_wait(dev, 0x137100, (1 << clk), 0x00000000);
 
-	
+	/* reprogram pll */
 	if (clk < 7) {
-		
+		/* make sure it's disabled first... */
 		u32 base = 0x137000 + (clk * 0x20);
 		u32 ctrl = nv_rd32(dev, base + 0x00);
 		if (ctrl & 0x00000001) {
 			nv_mask(dev, base + 0x00, 0x00000004, 0x00000000);
 			nv_mask(dev, base + 0x00, 0x00000001, 0x00000000);
 		}
-		
+		/* program it to new values, if necessary */
 		if (info->ssel) {
 			nv_wr32(dev, base + 0x04, info->coef);
 			nv_mask(dev, base + 0x00, 0x00000001, 0x00000001);
@@ -339,7 +369,7 @@ prog_clk(struct drm_device *dev, int clk, struct nvc0_pm_clock *info)
 		}
 	}
 
-	
+	/* select pll/non-pll mode, and program final clock divider */
 	nv_mask(dev, 0x137100, (1 << clk), info->ssel);
 	nv_wait(dev, 0x137100, (1 << clk), info->ssel);
 	nv_mask(dev, 0x137250 + (clk * 0x04), 0x00003f3f, info->mdiv);

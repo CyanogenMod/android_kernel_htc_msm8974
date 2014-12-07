@@ -13,18 +13,25 @@ struct winsize {
 
 #define NCC 8
 struct termio {
-	unsigned short c_iflag;		
-	unsigned short c_oflag;		
-	unsigned short c_cflag;		
-	unsigned short c_lflag;		
-	unsigned char c_line;		
-	unsigned char c_cc[NCC];	
+	unsigned short c_iflag;		/* input mode flags */
+	unsigned short c_oflag;		/* output mode flags */
+	unsigned short c_cflag;		/* control mode flags */
+	unsigned short c_lflag;		/* local mode flags */
+	unsigned char c_line;		/* line discipline */
+	unsigned char c_cc[NCC];	/* control characters */
 };
 
 #ifdef __KERNEL__
+/*	intr=^C		quit=^|		erase=del	kill=^U
+	eof=^D		vtime=\0	vmin=\1		sxtc=\0
+	start=^Q	stop=^S		susp=^Z		eol=\0
+	reprint=^R	discard=^U	werase=^W	lnext=^V
+	eol2=\0
+*/
 #define INIT_C_CC "\003\034\177\025\004\0\1\0\021\023\032\0\022\017\027\026\0"
 #endif
 
+/* modem lines */
 #define TIOCM_LE	0x001
 #define TIOCM_DTR	0x002
 #define TIOCM_RTS	0x004
@@ -40,9 +47,13 @@ struct termio {
 #define TIOCM_OUT2	0x4000
 #define TIOCM_LOOP	0x8000
 
+/* ioctl (fd, TIOCSERGETLSR, &result) where result may be as below */
 
 #ifdef __KERNEL__
 
+/*
+ * Translate a "termio" structure into a "termios". Ugh.
+ */
 #define SET_LOW_TERMIOS_BITS(termios, termio, x) {		\
 	unsigned short __tmp;					\
 	get_user(__tmp,&(termio)->x);				\
@@ -58,6 +69,9 @@ struct termio {
 	copy_from_user((termios)->c_cc, (termio)->c_cc, NCC); \
 })
 
+/*
+ * Translate a "termios" structure into a "termio". Ugh.
+ */
 #define kernel_termios_to_user_termio(termio, termios) \
 ({ \
 	put_user((termios)->c_iflag, &(termio)->c_iflag); \
@@ -73,6 +87,6 @@ struct termio {
 #define user_termios_to_kernel_termios_1(k, u) copy_from_user(k, u, sizeof(struct termios))
 #define kernel_termios_to_user_termios_1(u, k) copy_to_user(u, k, sizeof(struct termios))
 
-#endif	
+#endif	/* __KERNEL__ */
 
-#endif	
+#endif	/* __ASM_ARM_TERMIOS_H */

@@ -41,7 +41,7 @@
 #include "hyperv_net.h"
 
 struct net_device_context {
-	
+	/* point back to our device context */
 	struct hv_device *device_ctx;
 	struct delayed_work dwork;
 	struct work_struct work;
@@ -90,7 +90,7 @@ static int netvsc_open(struct net_device *net)
 	struct hv_device *device_obj = net_device_ctx->device_ctx;
 	int ret = 0;
 
-	
+	/* Open up the device */
 	ret = rndis_filter_open(device_obj);
 	if (ret != 0) {
 		netdev_err(net, "unable to open device (ret %d).\n", ret);
@@ -110,7 +110,7 @@ static int netvsc_close(struct net_device *net)
 
 	netif_tx_disable(net);
 
-	
+	/* Make sure netvsc_set_multicast_list doesn't re-enable filter! */
 	cancel_work_sync(&net_device_ctx->work);
 	ret = rndis_filter_close(device_obj);
 	if (ret != 0)
@@ -138,18 +138,18 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	int ret;
 	unsigned int i, num_pages, npg_data;
 
-	
+	/* Add multipages for skb->data and additional 2 for RNDIS */
 	npg_data = (((unsigned long)skb->data + skb_headlen(skb) - 1)
 		>> PAGE_SHIFT) - ((unsigned long)skb->data >> PAGE_SHIFT) + 1;
 	num_pages = skb_shinfo(skb)->nr_frags + npg_data + 2;
 
-	
+	/* Allocate a netvsc packet based on # of frags. */
 	packet = kzalloc(sizeof(struct hv_netvsc_packet) +
 			 (num_pages * sizeof(struct hv_page_buffer)) +
 			 sizeof(struct rndis_filter_packet) +
 			 NDIS_VLAN_PPI_SIZE, GFP_ATOMIC);
 	if (!packet) {
-		
+		/* out of memory, drop packet */
 		netdev_err(net, "unable to allocate hv_netvsc_packet\n");
 
 		dev_kfree_skb(skb);
@@ -163,13 +163,13 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 				sizeof(struct hv_netvsc_packet) +
 				    (num_pages * sizeof(struct hv_page_buffer));
 
-	
+	/* If the rndis msg goes beyond 1 page, we will add 1 later */
 	packet->page_buf_cnt = num_pages - 1;
 
-	
+	/* Initialize it from the skb */
 	packet->total_data_buflen = skb->len;
 
-	
+	/* Start filling in the page buffers starting after RNDIS buffer. */
 	packet->page_buf[1].pfn = virt_to_phys(skb->data) >> PAGE_SHIFT;
 	packet->page_buf[1].offset
 		= (unsigned long)skb->data & (PAGE_SIZE - 1);
@@ -189,7 +189,7 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 		packet->page_buf[npg_data].len = (((unsigned long)skb->data
 			+ skb_headlen(skb) - 1) & (PAGE_SIZE - 1)) + 1;
 
-	
+	/* Additional fragments are after SKB data */
 	for (i = 0; i < skb_shinfo(skb)->nr_frags; i++) {
 		const skb_frag_t *f = &skb_shinfo(skb)->frags[i];
 
@@ -199,7 +199,7 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 		packet->page_buf[i+npg_data+1].len = skb_frag_size(f);
 	}
 
-	
+	/* Set the completion routine */
 	packet->completion.send.send_completion = netvsc_xmit_completion;
 	packet->completion.send.send_completion_ctx = packet;
 	packet->completion.send.send_completion_tid = (unsigned long)skb;
@@ -216,6 +216,9 @@ static int netvsc_start_xmit(struct sk_buff *skb, struct net_device *net)
 	return ret ? NETDEV_TX_BUSY : NETDEV_TX_OK;
 }
 
+/*
+ * netvsc_linkstatus_callback - Link up/down notification
+ */
 void netvsc_linkstatus_callback(struct hv_device *device_obj,
 				       unsigned int status)
 {
@@ -244,6 +247,10 @@ void netvsc_linkstatus_callback(struct hv_device *device_obj,
 	}
 }
 
+/*
+ * netvsc_recv_callback -  Callback when we receive a packet from the
+ * "wire" on the specified device.
+ */
 int netvsc_recv_callback(struct hv_device *device_obj,
 				struct hv_netvsc_packet *packet)
 {
@@ -257,13 +264,17 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 		return 0;
 	}
 
-	
+	/* Allocate a skb - TODO direct I/O to pages? */
 	skb = netdev_alloc_skb_ip_align(net, packet->total_data_buflen);
 	if (unlikely(!skb)) {
 		++net->stats.rx_dropped;
 		return 0;
 	}
 
+	/*
+	 * Copy to skb. This copy is needed here since the memory pointed by
+	 * hv_netvsc_packet cannot be deallocated
+	 */
 	memcpy(skb_put(skb, packet->total_data_buflen), packet->data,
 		packet->total_data_buflen);
 
@@ -274,6 +285,11 @@ int netvsc_recv_callback(struct hv_device *device_obj,
 	net->stats.rx_packets++;
 	net->stats.rx_bytes += packet->total_data_buflen;
 
+	/*
+	 * Pass the skb back up. Network stack will deallocate the skb when it
+	 * is done.
+	 * TODO - use NAPI?
+	 */
 	netif_rx(skb);
 
 	return 0;
@@ -336,6 +352,13 @@ static const struct net_device_ops device_ops = {
 	.ndo_set_mac_address =		eth_mac_addr,
 };
 
+/*
+ * Send GARP packet to network peers after migrations.
+ * After Quick Migration, the network is not immediately operational in the
+ * current context when receiving RNDIS_STATUS_MEDIA_CONNECT event. So, add
+ * another netif_notify_peers() into a delayed work, otherwise GARP packet
+ * will not be sent after quick migration, and cause network disconnection.
+ */
 static void netvsc_send_garp(struct work_struct *w)
 {
 	struct net_device_context *ndev_ctx;
@@ -361,7 +384,7 @@ static int netvsc_probe(struct hv_device *dev,
 	if (!net)
 		return -ENOMEM;
 
-	
+	/* Set initial state */
 	netif_carrier_off(net);
 
 	net_device_ctx = netdev_priv(net);
@@ -372,7 +395,7 @@ static int netvsc_probe(struct hv_device *dev,
 
 	net->netdev_ops = &device_ops;
 
-	
+	/* TODO: Add GSO and Checksum offload */
 	net->hw_features = NETIF_F_SG;
 	net->features = NETIF_F_SG | NETIF_F_HW_VLAN_TX;
 
@@ -386,7 +409,7 @@ static int netvsc_probe(struct hv_device *dev,
 		goto out;
 	}
 
-	
+	/* Notify the netvsc driver of the new device */
 	device_info.ring_size = ring_size;
 	ret = rndis_filter_device_add(dev, &device_info);
 	if (ret != 0) {
@@ -424,11 +447,15 @@ static int netvsc_remove(struct hv_device *dev)
 	cancel_delayed_work_sync(&ndev_ctx->dwork);
 	cancel_work_sync(&ndev_ctx->work);
 
-	
+	/* Stop outbound asap */
 	netif_tx_disable(net);
 
 	unregister_netdev(net);
 
+	/*
+	 * Call to the vsc driver to let it know that the device is being
+	 * removed
+	 */
 	rndis_filter_device_remove(dev);
 
 	free_netdev(net);
@@ -436,7 +463,7 @@ static int netvsc_remove(struct hv_device *dev)
 }
 
 static const struct hv_vmbus_device_id id_table[] = {
-	
+	/* Network guid */
 	{ VMBUS_DEVICE(0x63, 0x51, 0x61, 0xF8, 0x3E, 0xDF, 0xc5, 0x46,
 		       0x91, 0x3F, 0xF2, 0xD2, 0xF9, 0x65, 0xED, 0x0E) },
 	{ },
@@ -444,6 +471,7 @@ static const struct hv_vmbus_device_id id_table[] = {
 
 MODULE_DEVICE_TABLE(vmbus, id_table);
 
+/* The one and only one */
 static struct  hv_driver netvsc_drv = {
 	.name = KBUILD_MODNAME,
 	.id_table = id_table,

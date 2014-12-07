@@ -41,6 +41,11 @@ struct matrix_keypad {
 	bool gpio_all_disabled;
 };
 
+/*
+ * NOTE: normally the GPIO has to be put into HiZ when de-activated to cause
+ * minmal side effect when scanning other columns, here it is configured to
+ * be input, and it should work on most platforms.
+ */
 static void __activate_col(const struct matrix_keypad_platform_data *pdata,
 			   int col, bool on)
 {
@@ -105,6 +110,9 @@ static void disable_row_irqs(struct matrix_keypad *keypad)
 	}
 }
 
+/*
+ * This gets the keys from keyboard and reports it to input subsystem
+ */
 static void matrix_keypad_scan(struct work_struct *work)
 {
 	struct matrix_keypad *keypad =
@@ -114,12 +122,12 @@ static void matrix_keypad_scan(struct work_struct *work)
 	uint32_t new_state[MATRIX_MAX_COLS];
 	int row, col, code;
 
-	
+	/* de-activate all columns for scanning */
 	activate_all_cols(pdata, false);
 
 	memset(new_state, 0, sizeof(new_state));
 
-	
+	/* assert each column and read the row status out */
 	for (col = 0; col < pdata->num_col_gpios; col++) {
 
 		activate_col(pdata, col, true);
@@ -167,6 +175,11 @@ static irqreturn_t matrix_keypad_interrupt(int irq, void *id)
 
 	mutex_lock(&keypad->lock);
 
+	/*
+	 * See if another IRQ beaten us to it and scheduled the
+	 * scan already. In that case we should not try to
+	 * disable IRQs again.
+	 */
 	if (unlikely(keypad->scan_pending || keypad->stopped))
 		goto out;
 
@@ -187,6 +200,10 @@ static int matrix_keypad_start(struct input_dev *dev)
 	keypad->stopped = false;
 	mb();
 
+	/*
+	 * Schedule an immediate key scan to capture current key state;
+	 * columns will be activated and IRQs be enabled after the scan.
+	 */
 	schedule_delayed_work(&keypad->work, 0);
 
 	return 0;
@@ -199,6 +216,10 @@ static void matrix_keypad_stop(struct input_dev *dev)
 	keypad->stopped = true;
 	mb();
 	flush_work(&keypad->work.work);
+	/*
+	 * matrix_keypad_scan() will leave IRQs enabled;
+	 * we should disable them now.
+	 */
 	disable_row_irqs(keypad);
 }
 
@@ -282,7 +303,7 @@ static int __devinit init_matrix_gpio(struct platform_device *pdev,
 	const struct matrix_keypad_platform_data *pdata = keypad->pdata;
 	int i, err = -EINVAL;
 
-	
+	/* initialized strobe lines as outputs, activated */
 	for (i = 0; i < pdata->num_col_gpios; i++) {
 		err = gpio_request(pdata->col_gpios[i], "matrix_kbd_col");
 		if (err) {
@@ -337,7 +358,7 @@ static int __devinit init_matrix_gpio(struct platform_device *pdev,
 		}
 	}
 
-	
+	/* initialized as disabled - enabled by input->open */
 	disable_row_irqs(keypad);
 	return 0;
 

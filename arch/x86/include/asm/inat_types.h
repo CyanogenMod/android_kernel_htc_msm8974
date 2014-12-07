@@ -21,6 +21,7 @@
  *
  */
 
+/* Instruction attributes */
 typedef unsigned int insn_attr_t;
 typedef unsigned char insn_byte_t;
 typedef signed int insn_value_t;

@@ -172,4 +172,4 @@ extern int snd_ad1816a_mixer(struct snd_ad1816a *chip);
 extern int snd_ad1816a_timer(struct snd_ad1816a *chip, int device,
 			     struct snd_timer **rtimer);
 
-#endif	
+#endif	/* __SOUND_AD1816A_H */

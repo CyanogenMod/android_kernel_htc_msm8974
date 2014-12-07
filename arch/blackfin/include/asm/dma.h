@@ -16,6 +16,9 @@
 #include <asm-generic/dma.h>
 #include <asm/bfin_dma.h>
 
+/*-------------------------
+ * config reg bits value
+ *-------------------------*/
 #define DATA_SIZE_8			0
 #define DATA_SIZE_16		1
 #define DATA_SIZE_32		2
@@ -50,40 +53,42 @@ struct dmasg {
 } __attribute__((packed));
 
 struct dma_register {
-	void *next_desc_ptr;	
-	unsigned long start_addr;	
+	void *next_desc_ptr;	/* DMA Next Descriptor Pointer register */
+	unsigned long start_addr;	/* DMA Start address  register */
 
-	unsigned short cfg;	
-	unsigned short dummy1;	
+	unsigned short cfg;	/* DMA Configuration register */
+	unsigned short dummy1;	/* DMA Configuration register */
 
 	unsigned long reserved;
 
-	unsigned short x_count;	
+	unsigned short x_count;	/* DMA x_count register */
 	unsigned short dummy2;
 
-	short x_modify;	
+	short x_modify;	/* DMA x_modify register */
 	unsigned short dummy3;
 
-	unsigned short y_count;	
+	unsigned short y_count;	/* DMA y_count register */
 	unsigned short dummy4;
 
-	short y_modify;	
+	short y_modify;	/* DMA y_modify register */
 	unsigned short dummy5;
 
-	void *curr_desc_ptr;	
-	unsigned long curr_addr_ptr;	
-	unsigned short irq_status;	
+	void *curr_desc_ptr;	/* DMA Current Descriptor Pointer
+					   register */
+	unsigned long curr_addr_ptr;	/* DMA Current Address Pointer
+						   register */
+	unsigned short irq_status;	/* DMA irq status register */
 	unsigned short dummy6;
 
-	unsigned short peripheral_map;	
+	unsigned short peripheral_map;	/* DMA peripheral map register */
 	unsigned short dummy7;
 
-	unsigned short curr_x_count;	
+	unsigned short curr_x_count;	/* DMA Current x-count register */
 	unsigned short dummy8;
 
 	unsigned long reserved2;
 
-	unsigned short curr_y_count;	
+	unsigned short curr_y_count;	/* DMA Current y-count register */
 	unsigned short dummy9;
 
 	unsigned long reserved3;
@@ -94,7 +99,7 @@ struct dma_channel {
 	const char *device_id;
 	atomic_t chan_status;
 	volatile struct dma_register *regs;
-	struct dmasg *sg;		
+	struct dmasg *sg;		/* large mode descriptor */
 	unsigned int irq;
 	void *data;
 #ifdef CONFIG_PM
@@ -107,6 +112,9 @@ int blackfin_dma_suspend(void);
 void blackfin_dma_resume(void);
 #endif
 
+/*******************************************************************************
+*	DMA API's
+*******************************************************************************/
 extern struct dma_channel dma_ch[MAX_DMA_CHANNELS];
 extern struct dma_register * const dma_io_base_addr[MAX_DMA_CHANNELS];
 extern int channel2irq(unsigned int channel);

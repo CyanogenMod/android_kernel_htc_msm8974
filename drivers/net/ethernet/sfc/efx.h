@@ -14,8 +14,10 @@
 #include "net_driver.h"
 #include "filter.h"
 
+/* Solarstorm controllers use BAR 0 for I/O space and BAR 2(&3) for memory */
 #define EFX_MEM_BAR 2
 
+/* TX */
 extern int efx_probe_tx_queue(struct efx_tx_queue *tx_queue);
 extern void efx_remove_tx_queue(struct efx_tx_queue *tx_queue);
 extern void efx_init_tx_queue(struct efx_tx_queue *tx_queue);
@@ -29,6 +31,7 @@ efx_enqueue_skb(struct efx_tx_queue *tx_queue, struct sk_buff *skb);
 extern void efx_xmit_done(struct efx_tx_queue *tx_queue, unsigned int index);
 extern int efx_setup_tc(struct net_device *net_dev, u8 num_tc);
 
+/* RX */
 extern int efx_probe_rx_queue(struct efx_rx_queue *rx_queue);
 extern void efx_remove_rx_queue(struct efx_rx_queue *rx_queue);
 extern void efx_init_rx_queue(struct efx_rx_queue *rx_queue);
@@ -49,8 +52,12 @@ extern void efx_schedule_slow_fill(struct efx_rx_queue *rx_queue);
 #define EFX_MAX_EVQ_SIZE 16384UL
 #define EFX_MIN_EVQ_SIZE 512UL
 
+/* The smallest [rt]xq_entries that the driver supports. Callers of
+ * efx_wake_queue() assume that they can subsequently send at least one
+ * skb. Falcon/A1 may require up to three descriptors per skb_frag. */
 #define EFX_MIN_RING_SIZE (roundup_pow_of_two(2 * 3 * MAX_SKB_FRAGS))
 
+/* Filters */
 extern int efx_probe_filters(struct efx_nic *efx);
 extern void efx_restore_filters(struct efx_nic *efx);
 extern void efx_remove_filters(struct efx_nic *efx);
@@ -87,20 +94,25 @@ static inline void efx_filter_rfs_expire(struct efx_channel *channel) {}
 #define efx_filter_rfs_enabled() 0
 #endif
 
+/* Channels */
 extern int efx_channel_dummy_op_int(struct efx_channel *channel);
 extern void efx_process_channel_now(struct efx_channel *channel);
 extern int
 efx_realloc_channels(struct efx_nic *efx, u32 rxq_entries, u32 txq_entries);
 
+/* Ports */
 extern int efx_reconfigure_port(struct efx_nic *efx);
 extern int __efx_reconfigure_port(struct efx_nic *efx);
 
+/* Ethtool support */
 extern const struct ethtool_ops efx_ethtool_ops;
 
+/* Reset handling */
 extern int efx_reset(struct efx_nic *efx, enum reset_type method);
 extern void efx_reset_down(struct efx_nic *efx, enum reset_type method);
 extern int efx_reset_up(struct efx_nic *efx, enum reset_type method, bool ok);
 
+/* Global */
 extern void efx_schedule_reset(struct efx_nic *efx, enum reset_type type);
 extern int efx_init_irq_moderation(struct efx_nic *efx, unsigned int tx_usecs,
 				   unsigned int rx_usecs, bool rx_adaptive,
@@ -108,10 +120,12 @@ extern int efx_init_irq_moderation(struct efx_nic *efx, unsigned int tx_usecs,
 extern void efx_get_irq_moderation(struct efx_nic *efx, unsigned int *tx_usecs,
 				   unsigned int *rx_usecs, bool *rx_adaptive);
 
+/* Dummy PHY ops for PHY drivers */
 extern int efx_port_dummy_op_int(struct efx_nic *efx);
 extern void efx_port_dummy_op_void(struct efx_nic *efx);
 
 
+/* MTD */
 #ifdef CONFIG_SFC_MTD
 extern int efx_mtd_probe(struct efx_nic *efx);
 extern void efx_mtd_rename(struct efx_nic *efx);
@@ -142,4 +156,4 @@ extern void efx_link_status_changed(struct efx_nic *efx);
 extern void efx_link_set_advertising(struct efx_nic *efx, u32);
 extern void efx_link_set_wanted_fc(struct efx_nic *efx, u8);
 
-#endif 
+#endif /* EFX_EFX_H */

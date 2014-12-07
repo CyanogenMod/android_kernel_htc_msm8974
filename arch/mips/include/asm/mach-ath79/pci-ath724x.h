@@ -18,4 +18,4 @@ struct ath724x_pci_data {
 
 void ath724x_pci_add_data(struct ath724x_pci_data *data, int size);
 
-#endif 
+#endif /* __ASM_MACH_ATH79_PCI_ATH724X_H */

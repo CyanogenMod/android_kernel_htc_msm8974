@@ -875,6 +875,8 @@ void HTResetSelfAndSavePeerSetting(struct rtllib_device *ieee,
 	u8	bIOTAction = 0;
 
 	RTLLIB_DEBUG(RTLLIB_DL_HT, "==============>%s()\n", __func__);
+	/* unmark bEnableHT flag here is the same reason why unmarked in
+	 * function rtllib_softmac_new_net. WB 2008.09.10*/
 	if (pNetwork->bssht.bdSupportHT) {
 		pHTInfo->bCurrentHTSupport = true;
 		pHTInfo->ePeerHTSpecVer = pNetwork->bssht.bdHTSpecVer;

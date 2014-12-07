@@ -150,6 +150,14 @@ static int __devinit snd_cs5530_create(struct snd_card *card,
 	map = readw(mem + 0x18);
 	iounmap(mem);
 
+	/* Map bits
+		0:1	* 0x20 + 0x200 = sb base
+		2	sb enable
+		3	adlib enable
+		5	MPU enable 0x330
+		6	MPU enable 0x300
+
+	   The other bits may be used internally so must be masked */
 
 	sb_base = 0x220 + 0x20 * (map & 3);
 

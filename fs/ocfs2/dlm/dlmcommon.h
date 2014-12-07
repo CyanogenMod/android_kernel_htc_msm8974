@@ -34,8 +34,8 @@
 
 #define DLM_DOMAIN_NAME_MAX_LEN    255
 #define DLM_LOCK_RES_OWNER_UNKNOWN     O2NM_MAX_NODES
-#define DLM_THREAD_SHUFFLE_INTERVAL    5     
-#define DLM_THREAD_MS                  200   
+#define DLM_THREAD_SHUFFLE_INTERVAL    5     // flush everything every 5 passes
+#define DLM_THREAD_MS                  200   // flush at least every 200 ms
 
 #define DLM_HASH_SIZE_DEFAULT	(1 << 17)
 #if DLM_HASH_SIZE_DEFAULT < PAGE_SIZE
@@ -46,6 +46,7 @@
 #define DLM_BUCKETS_PER_PAGE	(PAGE_SIZE / sizeof(struct hlist_head))
 #define DLM_HASH_BUCKETS	(DLM_HASH_PAGES * DLM_BUCKETS_PER_PAGE)
 
+/* Intended to make it easier for us to switch out hash functions */
 #define dlm_lockid_hash(_n, _l) full_name_hash(_n, _l)
 
 enum dlm_mle_type {
@@ -150,7 +151,7 @@ struct dlm_ctxt
 	struct hlist_head **master_hash;
 	struct list_head mle_hb_events;
 
-	
+	/* these give a really vague idea of the system load */
 	atomic_t mle_tot_count[DLM_MLE_NUM_TYPES];
 	atomic_t mle_cur_count[DLM_MLE_NUM_TYPES];
 	atomic_t res_tot_count;
@@ -159,7 +160,7 @@ struct dlm_ctxt
 	struct dlm_debug_ctxt *dlm_debug_ctxt;
 	struct dentry *dlm_debugfs_subroot;
 
-	
+	/* NOTE: Next three are protected by dlm_domain_lock */
 	struct kref dlm_refs;
 	enum dlm_ctxt_state dlm_state;
 	unsigned int num_joins;
@@ -180,8 +181,10 @@ struct dlm_ctxt
 	struct list_head dlm_domain_handlers;
 	struct list_head	dlm_eviction_callbacks;
 
+	/* The filesystem specifies this at domain registration.  We
+	 * cache it here to know what to tell other nodes. */
 	struct dlm_protocol_version fs_locking_proto;
-	
+	/* This is the inter-dlm communication version */
 	struct dlm_protocol_version dlm_locking_proto;
 };
 
@@ -197,6 +200,10 @@ static inline struct hlist_head *dlm_master_hash(struct dlm_ctxt *dlm,
 			(i % DLM_BUCKETS_PER_PAGE);
 }
 
+/* these keventd work queue items are for less-frequently
+ * called functions that cannot be directly called from the
+ * net message handlers for some reason, usually because
+ * they need to send net messages of their own. */
 void dlm_dispatch_work(struct work_struct *work);
 
 struct dlm_lock_resource;
@@ -253,7 +260,7 @@ static inline void dlm_init_work_item(struct dlm_ctxt *dlm,
 	i->func = f;
 	INIT_LIST_HEAD(&i->list);
 	i->data = data;
-	i->dlm = dlm;  
+	i->dlm = dlm;  /* must have already done a dlm_grab on this! */
 }
 
 
@@ -277,27 +284,42 @@ static inline void __dlm_set_joining_node(struct dlm_ctxt *dlm,
 #define DLM_LOCK_RES_BLOCK_DIRTY          0x00001000
 #define DLM_LOCK_RES_SETREF_INPROG        0x00002000
 
+/* max milliseconds to wait to sync up a network failure with a node death */
 #define DLM_NODE_DEATH_WAIT_MAX (5 * 1000)
 
 #define DLM_PURGE_INTERVAL_MS   (8 * 1000)
 
 struct dlm_lock_resource
 {
+	/* WARNING: Please see the comment in dlm_init_lockres before
+	 * adding fields here. */
 	struct hlist_node hash_node;
 	struct qstr lockname;
 	struct kref      refs;
 
+	/*
+	 * Please keep granted, converting, and blocked in this order,
+	 * as some funcs want to iterate over all lists.
+	 *
+	 * All four lists are protected by the hash's reference.
+	 */
 	struct list_head granted;
 	struct list_head converting;
 	struct list_head blocked;
 	struct list_head purge;
 
+	/*
+	 * These two lists require you to hold an additional reference
+	 * while they are on the list.
+	 */
 	struct list_head dirty;
-	struct list_head recovering; 
+	struct list_head recovering; // dlm_recovery_ctxt.resources list
 
-	
-	struct list_head tracking;	
+	/* Added during init and removed during release */
+	struct list_head tracking;	/* dlm->tracking_list */
 
+	/* unused lock resources have their last_used stamped and are
+	 * put on a list for the dlm thread to run. */
 	unsigned long    last_used;
 
 	struct dlm_ctxt *dlm;
@@ -306,7 +328,7 @@ struct dlm_lock_resource
 	atomic_t asts_reserved;
 	spinlock_t spinlock;
 	wait_queue_head_t wq;
-	u8  owner;              
+	u8  owner;              //node which owns the lock resource, or unknown
 	u16 state;
 	char lvb[DLM_LVB_LEN];
 	unsigned int inflight_locks;
@@ -317,15 +339,17 @@ struct dlm_migratable_lock
 {
 	__be64 cookie;
 
+	/* these 3 are just padding for the in-memory structure, but
+	 * list and flags are actually used when sent over the wire */
 	__be16 pad1;
-	u8 list;  
+	u8 list;  // 0=granted, 1=converting, 2=blocked
 	u8 flags;
 
 	s8 type;
 	s8 convert_type;
 	s8 highest_blocked;
 	u8 node;
-};  
+};  // 16 bytes
 
 struct dlm_lock
 {
@@ -338,7 +362,7 @@ struct dlm_lock
 	spinlock_t spinlock;
 	struct kref lock_refs;
 
-	
+	// ast and bast must be callable while holding a spinlock!
 	dlm_astlockfunc_t *ast;
 	dlm_bastlockfunc_t *bast;
 	void *astdata;
@@ -518,29 +542,61 @@ struct dlm_master_requery
 #define DLM_MRES_MIGRATION  0x02
 #define DLM_MRES_ALL_DONE   0x04
 
+/*
+ * We would like to get one whole lockres into a single network
+ * message whenever possible.  Generally speaking, there will be
+ * at most one dlm_lock on a lockres for each node in the cluster,
+ * plus (infrequently) any additional locks coming in from userdlm.
+ *
+ * struct _dlm_lockres_page
+ * {
+ * 	dlm_migratable_lockres mres;
+ * 	dlm_migratable_lock ml[DLM_MAX_MIGRATABLE_LOCKS];
+ * 	u8 pad[DLM_MIG_LOCKRES_RESERVED];
+ * };
+ *
+ * from ../cluster/tcp.h
+ *    NET_MAX_PAYLOAD_BYTES  (4096 - sizeof(net_msg))
+ *    (roughly 4080 bytes)
+ * and sizeof(dlm_migratable_lockres) = 112 bytes
+ * and sizeof(dlm_migratable_lock) = 16 bytes
+ *
+ * Choosing DLM_MAX_MIGRATABLE_LOCKS=240 and
+ * DLM_MIG_LOCKRES_RESERVED=128 means we have this:
+ *
+ *  (DLM_MAX_MIGRATABLE_LOCKS * sizeof(dlm_migratable_lock)) +
+ *     sizeof(dlm_migratable_lockres) + DLM_MIG_LOCKRES_RESERVED =
+ *        NET_MAX_PAYLOAD_BYTES
+ *  (240 * 16) + 112 + 128 = 4080
+ *
+ * So a lockres would need more than 240 locks before it would
+ * use more than one network packet to recover.  Not too bad.
+ */
 #define DLM_MAX_MIGRATABLE_LOCKS   240
 
 struct dlm_migratable_lockres
 {
 	u8 master;
 	u8 lockname_len;
-	u8 num_locks;    
+	u8 num_locks;    // locks sent in this structure
 	u8 flags;
-	__be32 total_locks; 
-	__be64 mig_cookie;  
-			 
-	
+	__be32 total_locks; // locks to be sent for this migration cookie
+	__be64 mig_cookie;  // cookie for this lockres migration
+			 // or zero if not needed
+	// 16 bytes
 	u8 lockname[DLM_LOCKID_NAME_MAX];
-	
+	// 48 bytes
 	u8 lvb[DLM_LVB_LEN];
-	
-	struct dlm_migratable_lock ml[0];  
+	// 112 bytes
+	struct dlm_migratable_lock ml[0];  // 16 bytes each, begins at byte 112
 };
 #define DLM_MIG_LOCKRES_MAX_LEN  \
 	(sizeof(struct dlm_migratable_lockres) + \
 	 (sizeof(struct dlm_migratable_lock) * \
 	  DLM_MAX_MIGRATABLE_LOCKS) )
 
+/* from above, 128 bytes
+ * for some undetermined future use */
 #define DLM_MIG_LOCKRES_RESERVED   (NET_MAX_PAYLOAD_BYTES - \
 				    DLM_MIG_LOCKRES_MAX_LEN)
 
@@ -613,9 +669,12 @@ enum dlm_query_join_response_code {
 };
 
 struct dlm_query_join_packet {
-	u8 code;	
-	u8 dlm_minor;	
-	u8 fs_minor;	
+	u8 code;	/* Response code.  dlm_minor and fs_minor
+			   are only valid if this is JOIN_OK */
+	u8 dlm_minor;	/* The minor version of the protocol the
+			   dlm is speaking. */
+	u8 fs_minor;	/* The minor version of the protocol the
+			   filesystem is speaking. */
 	u8 reserved;
 };
 
@@ -639,7 +698,9 @@ struct dlm_reco_data_done
 	__be16 pad1;
 	__be32 pad2;
 
-	
+	/* unused for now */
+	/* eventually we can use this to attempt
+	 * lvb recovery based on each node's info */
 	u8 reco_lvb[DLM_LVB_LEN];
 };
 
@@ -811,6 +872,8 @@ void dlm_lockres_calc_usage(struct dlm_ctxt *dlm,
 			    struct dlm_lock_resource *res);
 static inline void dlm_lockres_get(struct dlm_lock_resource *res)
 {
+	/* This is called on every lookup, so it might be worth
+	 * inlining. */
 	kref_get(&res->refs);
 }
 void dlm_lockres_put(struct dlm_lock_resource *res);
@@ -946,9 +1009,11 @@ int dlm_send_one_lockres(struct dlm_ctxt *dlm,
 void dlm_move_lockres_to_recovery_list(struct dlm_ctxt *dlm,
 				       struct dlm_lock_resource *res);
 
+/* will exit holding res->spinlock, but may drop in function */
 void __dlm_wait_on_lockres_flags(struct dlm_lock_resource *res, int flags);
 void __dlm_wait_on_lockres_flags_set(struct dlm_lock_resource *res, int flags);
 
+/* will exit holding res->spinlock, but may drop in function */
 static inline void __dlm_wait_on_lockres(struct dlm_lock_resource *res)
 {
 	__dlm_wait_on_lockres_flags(res, (DLM_LOCK_RES_IN_PROGRESS|
@@ -959,6 +1024,7 @@ static inline void __dlm_wait_on_lockres(struct dlm_lock_resource *res)
 void __dlm_unlink_mle(struct dlm_ctxt *dlm, struct dlm_master_list_entry *mle);
 void __dlm_insert_mle(struct dlm_ctxt *dlm, struct dlm_master_list_entry *mle);
 
+/* create/destroy slab caches */
 int dlm_init_master_caches(void);
 void dlm_destroy_master_caches(void);
 
@@ -994,16 +1060,16 @@ static inline const char * dlm_lock_mode_name(int mode)
 
 static inline int dlm_lock_compatible(int existing, int request)
 {
-	
+	/* NO_LOCK compatible with all */
 	if (request == LKM_NLMODE ||
 	    existing == LKM_NLMODE)
 		return 1;
 
-	
+	/* EX incompatible with all non-NO_LOCK */
 	if (request == LKM_EXMODE)
 		return 0;
 
-	
+	/* request must be PR, which is compatible with PR */
 	if (existing == LKM_PRMODE)
 		return 1;
 
@@ -1080,4 +1146,4 @@ static inline void dlm_change_lockres_owner(struct dlm_ctxt *dlm,
 		dlm_set_lockres_owner(dlm, res, owner);
 }
 
-#endif 
+#endif /* DLMCOMMON_H */

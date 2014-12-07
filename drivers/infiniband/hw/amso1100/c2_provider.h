@@ -54,12 +54,17 @@ struct c2_buf_list {
 };
 
 
+/* The user context keeps track of objects allocated for a
+ * particular user-mode client. */
 struct c2_ucontext {
 	struct ib_ucontext ibucontext;
 };
 
 struct c2_mtt;
 
+/* All objects associated with a PD are kept in the
+ * associated user context if present.
+ */
 struct c2_pd {
 	struct ib_pd ibpd;
 	u32 pd_id;
@@ -174,4 +179,4 @@ static inline int is_rnic_addr(struct net_device *netdev, u32 addr)
 	in_dev_put(ind);
 	return ret;
 }
-#endif				
+#endif				/* C2_PROVIDER_H */

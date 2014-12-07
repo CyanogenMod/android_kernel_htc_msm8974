@@ -10,6 +10,7 @@
 #include <linux/types.h>
 #include <linux/string.h>
 
+/* Simplified asprintf. */
 char *kvasprintf(gfp_t gfp, const char *fmt, va_list ap)
 {
 	unsigned int len;

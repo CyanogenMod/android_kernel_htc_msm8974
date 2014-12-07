@@ -33,6 +33,11 @@
 #include <linux/device.h>
 #include <linux/cdev.h>
 
+/*
+ * Flag to mark the media_devnode struct as registered. Drivers must not touch
+ * this flag directly, it will be set and cleared by media_devnode_register and
+ * media_devnode_unregister.
+ */
 #define MEDIA_FLAG_REGISTERED	0
 
 struct media_file_operations {
@@ -45,23 +50,35 @@ struct media_file_operations {
 	int (*release) (struct file *);
 };
 
+/**
+ * struct media_devnode - Media device node
+ * @parent:	parent device
+ * @minor:	device node minor number
+ * @flags:	flags, combination of the MEDIA_FLAG_* constants
+ *
+ * This structure represents a media-related device node.
+ *
+ * The @parent is a physical device. It must be set by core or device drivers
+ * before registering the node.
+ */
 struct media_devnode {
-	
+	/* device ops */
 	const struct media_file_operations *fops;
 
-	
-	struct device dev;		
-	struct cdev cdev;		
-	struct device *parent;		
+	/* sysfs */
+	struct device dev;		/* media device */
+	struct cdev cdev;		/* character device */
+	struct device *parent;		/* device parent */
 
-	
+	/* device info */
 	int minor;
-	unsigned long flags;		
+	unsigned long flags;		/* Use bitops to access flags */
 
-	
+	/* callbacks */
 	void (*release)(struct media_devnode *mdev);
 };
 
+/* dev to media_devnode */
 #define to_media_devnode(cd) container_of(cd, struct media_devnode, dev)
 
 int __must_check media_devnode_register(struct media_devnode *mdev);
@@ -77,4 +94,4 @@ static inline int media_devnode_is_registered(struct media_devnode *mdev)
 	return test_bit(MEDIA_FLAG_REGISTERED, &mdev->flags);
 }
 
-#endif 
+#endif /* _MEDIA_DEVNODE_H */

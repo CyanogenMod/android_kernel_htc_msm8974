@@ -7,4 +7,4 @@
 # include "bl_bit_64.h"
 #endif
 
-#endif 
+#endif /* __ASM_SH_BL_BIT_H */

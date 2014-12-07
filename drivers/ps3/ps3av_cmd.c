@@ -149,7 +149,7 @@ static int ps3av_hdmi_range(void)
 	if (ps3_compare_firmware_version(1, 8, 0) < 0)
 		return 0;
 	else
-		return 1; 
+		return 1; /* supported */
 }
 
 int ps3av_cmd_init(void)
@@ -159,7 +159,7 @@ int ps3av_cmd_init(void)
 	struct ps3av_pkt_video_init video_init;
 	struct ps3av_pkt_audio_init audio_init;
 
-	
+	/* video init */
 	memset(&video_init, 0, sizeof(video_init));
 
 	res = ps3av_do_pkt(PS3AV_CID_VIDEO_INIT, sizeof(video_init.send_hdr),
@@ -173,7 +173,7 @@ int ps3av_cmd_init(void)
 		return res;
 	}
 
-	
+	/* audio init */
 	memset(&audio_init, 0, sizeof(audio_init));
 
 	res = ps3av_do_pkt(PS3AV_CID_AUDIO_INIT, sizeof(audio_init.send_hdr),
@@ -187,7 +187,7 @@ int ps3av_cmd_init(void)
 		return res;
 	}
 
-	
+	/* av init */
 	memset(&av_init, 0, sizeof(av_init));
 	av_init.event_bit = 0;
 
@@ -353,22 +353,22 @@ u32 ps3av_cmd_set_av_video_cs(void *p, u32 avport, int video_vid, int cs_out,
 	ps3av_set_hdr(PS3AV_CID_AV_VIDEO_CS, sizeof(*av_video_cs),
 		      &av_video_cs->send_hdr);
 	av_video_cs->avport = avport;
-	
+	/* should be same as video_mode.resolution */
 	av_video_cs->av_vid = ps3av_vid_video2av(video_vid);
 	av_video_cs->av_cs_out = ps3av_cs_video2av(cs_out);
-	
+	/* should be same as video_mode.video_cs_out */
 	av_video_cs->av_cs_in = ps3av_cs_video2av(PS3AV_CMD_VIDEO_CS_RGB_8);
 	av_video_cs->bitlen_out = ps3av_cs_video2av_bitlen(cs_out);
 	if ((id & PS3AV_MODE_WHITE) && ps3av_hdmi_range())
 		av_video_cs->super_white = PS3AV_CMD_AV_SUPER_WHITE_ON;
-	else 
+	else /* default off */
 		av_video_cs->super_white = PS3AV_CMD_AV_SUPER_WHITE_OFF;
 	av_video_cs->aspect = aspect;
 	if (id & PS3AV_MODE_DITHER) {
 		av_video_cs->dither = PS3AV_CMD_AV_DITHER_ON
 		    | PS3AV_CMD_AV_DITHER_8BIT;
 	} else {
-		
+		/* default off */
 		av_video_cs->dither = PS3AV_CMD_AV_DITHER_OFF;
 	}
 
@@ -390,7 +390,7 @@ u32 ps3av_cmd_set_video_mode(void *p, u32 head, int video_vid, int video_fmt,
 	if (ps3av_video_mode2res(id, &x, &y))
 		return 0;
 
-	
+	/* video mode */
 	memset(video_mode, 0, sizeof(*video_mode));
 	ps3av_set_hdr(PS3AV_CID_VIDEO_MODE, sizeof(*video_mode),
 		      &video_mode->send_hdr);
@@ -402,12 +402,12 @@ u32 ps3av_cmd_set_video_mode(void *p, u32 head, int video_vid, int video_fmt,
 		video_mode->video_vid = video_vid;
 	video_mode->width = (u16) x;
 	video_mode->height = (u16) y;
-	video_mode->pitch = video_mode->width * 4;	
+	video_mode->pitch = video_mode->width * 4;	/* line_length */
 	video_mode->video_out_format = PS3AV_CMD_VIDEO_OUT_FORMAT_RGB_12BIT;
 	video_mode->video_format = ps3av_video_fmt_table[video_fmt].format;
 	if ((id & PS3AV_MODE_COLOR) && ps3av_hdmi_range())
 		video_mode->video_cl_cnv = PS3AV_CMD_VIDEO_CL_CNV_DISABLE_LUT;
-	else 
+	else /* default enable */
 		video_mode->video_cl_cnv = PS3AV_CMD_VIDEO_CL_CNV_ENABLE_LUT;
 	video_mode->video_order = ps3av_video_fmt_table[video_fmt].order;
 
@@ -453,7 +453,7 @@ int ps3av_cmd_av_audio_mute(int num_of_port, u32 *port, u32 mute)
 	if (num_of_port > PS3AV_MUTE_PORT_MAX)
 		return -EINVAL;
 
-	
+	/* audio mute */
 	memset(&av_audio_mute, 0, sizeof(av_audio_mute));
 	for (i = 0; i < num_of_port; i++) {
 		av_audio_mute.mute[i].avport = port[i];
@@ -501,7 +501,7 @@ static u8 ps3av_cnv_mclk(u32 fs)
 #define BASE	PS3AV_CMD_AUDIO_FS_44K
 
 static const u32 ps3av_ns_table[][5] = {
-					
+					/*   D1,    D2,    D3,    D4,    D5 */
 	[PS3AV_CMD_AUDIO_FS_44K-BASE] =	{  6272,  6272, 17836, 17836,  8918 },
 	[PS3AV_CMD_AUDIO_FS_48K-BASE] =	{  6144,  6144, 11648, 11648,  5824 },
 	[PS3AV_CMD_AUDIO_FS_88K-BASE] =	{ 12544, 12544, 35672, 35672, 17836 },
@@ -616,12 +616,12 @@ static u8 ps3av_cnv_layout(u32 num_of_ch)
 static void ps3av_cnv_info(struct ps3av_audio_info_frame *info,
 			   const struct ps3av_pkt_audio_mode *mode)
 {
-	info->pb1.cc = mode->audio_num_of_ch + 1;	
+	info->pb1.cc = mode->audio_num_of_ch + 1;	/* CH2:0x01 --- CH8:0x07 */
 	info->pb1.ct = 0;
 	info->pb2.sf = 0;
 	info->pb2.ss = 0;
 
-	info->pb3 = 0;		
+	info->pb3 = 0;		/* check mode->audio_format ?? */
 	info->pb4 = mode->audio_layout;
 	info->pb5.dm = mode->audio_downmix;
 	info->pb5.lsv = mode->audio_downmix_level;
@@ -660,6 +660,7 @@ u32 ps3av_cmd_set_av_audio_param(void *p, u32 port,
 	return sizeof(*param);
 }
 
+/* default cs val */
 u8 ps3av_mode_cs_info[] = {
 	0x00, 0x09, 0x00, 0x02, 0x01, 0x00, 0x00, 0x00
 };
@@ -689,12 +690,12 @@ void ps3av_cmd_set_audio_mode(struct ps3av_pkt_audio_mode *audio, u32 avport,
 		source = PS3AV_CMD_AUDIO_SOURCE_SERIAL;
 	}
 
-	
+	/* audio mode */
 	memset(audio, 0, sizeof(*audio));
 	ps3av_set_hdr(PS3AV_CID_AUDIO_MODE, sizeof(*audio), &audio->send_hdr);
 
 	audio->avport = (u8) avport;
-	audio->mask = 0x0FFF;	
+	audio->mask = 0x0FFF;	/* XXX set all */
 	audio->audio_num_of_ch = ch;
 	audio->audio_fs = fs;
 	audio->audio_word_bits = word_bits;
@@ -704,27 +705,27 @@ void ps3av_cmd_set_audio_mode(struct ps3av_pkt_audio_mode *audio, u32 avport,
 	switch (ch) {
 	case PS3AV_CMD_AUDIO_NUM_OF_CH_8:
 		audio->audio_enable[3] = 1;
-		
+		/* fall through */
 	case PS3AV_CMD_AUDIO_NUM_OF_CH_6:
 		audio->audio_enable[2] = 1;
 		audio->audio_enable[1] = 1;
-		
+		/* fall through */
 	case PS3AV_CMD_AUDIO_NUM_OF_CH_2:
 	default:
 		audio->audio_enable[0] = 1;
 	}
 
-	
+	/* audio swap L/R */
 	for (i = 0; i < 4; i++)
-		audio->audio_swap[i] = PS3AV_CMD_AUDIO_SWAP_0;	
+		audio->audio_swap[i] = PS3AV_CMD_AUDIO_SWAP_0;	/* no swap */
 
-	
+	/* audio serial input mapping */
 	audio->audio_map[0] = PS3AV_CMD_AUDIO_MAP_OUTPUT_0;
 	audio->audio_map[1] = PS3AV_CMD_AUDIO_MAP_OUTPUT_1;
 	audio->audio_map[2] = PS3AV_CMD_AUDIO_MAP_OUTPUT_2;
 	audio->audio_map[3] = PS3AV_CMD_AUDIO_MAP_OUTPUT_3;
 
-	
+	/* audio speaker layout */
 	if (avport == PS3AV_CMD_AVPORT_HDMI_0 ||
 	    avport == PS3AV_CMD_AVPORT_HDMI_1) {
 		switch (ch) {
@@ -743,12 +744,12 @@ void ps3av_cmd_set_audio_mode(struct ps3av_pkt_audio_mode *audio, u32 avport,
 		audio->audio_layout = PS3AV_CMD_AUDIO_LAYOUT_2CH;
 	}
 
-	
+	/* audio downmix permission */
 	audio->audio_downmix = PS3AV_CMD_AUDIO_DOWNMIX_PERMITTED;
-	
-	audio->audio_downmix_level = 0;	
+	/* audio downmix level shift (0:0dB to 15:15dB) */
+	audio->audio_downmix_level = 0;	/* 0dB */
 
-	
+	/* set ch status */
 	for (i = 0; i < 8; i++)
 		audio->audio_cs_info[i] = ps3av_mode_cs_info[i];
 
@@ -777,10 +778,10 @@ void ps3av_cmd_set_audio_mode(struct ps3av_pkt_audio_mode *audio, u32 avport,
 		break;
 	}
 
-	
+	/* non-audio bit */
 	spdif_through = audio->audio_cs_info[0] & 0x02;
 
-	
+	/* pass through setting */
 	if (spdif_through &&
 	    (avport == PS3AV_CMD_AVPORT_SPDIF_0 ||
 	     avport == PS3AV_CMD_AVPORT_SPDIF_1 ||
@@ -815,7 +816,7 @@ int ps3av_cmd_audio_mute(int num_of_port, u32 *port, u32 mute)
 	if (num_of_port > PS3AV_OPT_PORT_MAX)
 		return -EINVAL;
 
-	
+	/* audio mute */
 	memset(&audio_mute, 0, sizeof(audio_mute));
 	for (i = 0; i < num_of_port; i++) {
 		audio_mute.mute[i].avport = port[i];
@@ -842,7 +843,7 @@ int ps3av_cmd_audio_active(int active, u32 port)
 	struct ps3av_pkt_audio_active audio_active;
 	u32 cid;
 
-	
+	/* audio active */
 	memset(&audio_active, 0, sizeof(audio_active));
 	audio_active.audio_port = port;
 	cid = active ? PS3AV_CID_AUDIO_ACTIVE : PS3AV_CID_AUDIO_INACTIVE;
@@ -866,7 +867,7 @@ int ps3av_cmd_avb_param(struct ps3av_pkt_avb_param *avb, u32 send_len)
 
 	mutex_lock(&ps3_gpu_mutex);
 
-	
+	/* avb packet */
 	res = ps3av_do_pkt(PS3AV_CID_AVB_PARAM, send_len, sizeof(*avb),
 			   &avb->send_hdr);
 	if (res < 0)

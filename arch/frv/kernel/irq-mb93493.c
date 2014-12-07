@@ -40,6 +40,10 @@
 	 IRQ_ROUTE_ONE(IRQ_MB93493_GPIO)	|	\
 	 IRQ_ROUTE_ONE(IRQ_MB93493_AUDIO_IN))
 
+/*
+ * daughter board PIC operations
+ * - there is no way to ACK interrupts in the MB93493 chip
+ */
 static void frv_mb93493_mask(struct irq_data *d)
 {
 	uint32_t iqsr;
@@ -82,6 +86,9 @@ static struct irq_chip frv_mb93493_pic = {
 	.irq_unmask	= frv_mb93493_unmask,
 };
 
+/*
+ * MB93493 PIC interrupt handler
+ */
 static irqreturn_t mb93493_interrupt(int irq, void *_piqsr)
 {
 	volatile void *piqsr = _piqsr;
@@ -90,7 +97,7 @@ static irqreturn_t mb93493_interrupt(int irq, void *_piqsr)
 	iqsr = readl(piqsr);
 	iqsr = iqsr & (iqsr >> 16) & 0xffff;
 
-	
+	/* poll all the triggered IRQs */
 	while (iqsr) {
 		int irq;
 
@@ -104,6 +111,10 @@ static irqreturn_t mb93493_interrupt(int irq, void *_piqsr)
 	return IRQ_HANDLED;
 }
 
+/*
+ * define an interrupt action for each MB93493 PIC output
+ * - use dev_id to indicate the MB93493 PIC input to output mappings
+ */
 static struct irqaction mb93493_irq[2]  = {
 	[0] = {
 		.handler	= mb93493_interrupt,
@@ -119,6 +130,9 @@ static struct irqaction mb93493_irq[2]  = {
 	}
 };
 
+/*
+ * initialise the motherboard MB93493's PIC
+ */
 void __init mb93493_init(void)
 {
 	int irq;
@@ -127,7 +141,7 @@ void __init mb93493_init(void)
 		irq_set_chip_and_handler(irq, &frv_mb93493_pic,
 					 handle_edge_irq);
 
-	
+	/* the MB93493 drives external IRQ inputs on the CPU PIC */
 	setup_irq(IRQ_CPU_MB93493_0, &mb93493_irq[0]);
 	setup_irq(IRQ_CPU_MB93493_1, &mb93493_irq[1]);
 }

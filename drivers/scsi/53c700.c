@@ -1,3 +1,4 @@
+/* -*- mode: c; c-basic-offset: 8 -*- */
 
 /* NCR (or Symbios) 53c700 and 53c700-66 Driver
  *
@@ -21,7 +22,96 @@
 **-----------------------------------------------------------------------------
  */
 
+/* Notes:
+ *
+ * This driver is designed exclusively for these chips (virtually the
+ * earliest of the scripts engine chips).  They need their own drivers
+ * because they are missing so many of the scripts and snazzy register
+ * features of their elder brothers (the 710, 720 and 770).
+ *
+ * The 700 is the lowliest of the line, it can only do async SCSI.
+ * The 700-66 can at least do synchronous SCSI up to 10MHz.
+ * 
+ * The 700 chip has no host bus interface logic of its own.  However,
+ * it is usually mapped to a location with well defined register
+ * offsets.  Therefore, if you can determine the base address and the
+ * irq your board incorporating this chip uses, you can probably use
+ * this driver to run it (although you'll probably have to write a
+ * minimal wrapper for the purpose---see the NCR_D700 driver for
+ * details about how to do this).
+ *
+ *
+ * TODO List:
+ *
+ * 1. Better statistics in the proc fs
+ *
+ * 2. Implement message queue (queues SCSI messages like commands) and make
+ *    the abort and device reset functions use them.
+ * */
 
+/* CHANGELOG
+ *
+ * Version 2.8
+ *
+ * Fixed bad bug affecting tag starvation processing (previously the
+ * driver would hang the system if too many tags starved.  Also fixed
+ * bad bug having to do with 10 byte command processing and REQUEST
+ * SENSE (the command would loop forever getting a transfer length
+ * mismatch in the CMD phase).
+ *
+ * Version 2.7
+ *
+ * Fixed scripts problem which caused certain devices (notably CDRWs)
+ * to hang on initial INQUIRY.  Updated NCR_700_readl/writel to use
+ * __raw_readl/writel for parisc compatibility (Thomas
+ * Bogendoerfer). Added missing SCp->request_bufflen initialisation
+ * for sense requests (Ryan Bradetich).
+ *
+ * Version 2.6
+ *
+ * Following test of the 64 bit parisc kernel by Richard Hirst,
+ * several problems have now been corrected.  Also adds support for
+ * consistent memory allocation.
+ *
+ * Version 2.5
+ * 
+ * More Compatibility changes for 710 (now actually works).  Enhanced
+ * support for odd clock speeds which constrain SDTR negotiations.
+ * correct cacheline separation for scsi messages and status for
+ * incoherent architectures.  Use of the pci mapping functions on
+ * buffers to begin support for 64 bit drivers.
+ *
+ * Version 2.4
+ *
+ * Added support for the 53c710 chip (in 53c700 emulation mode only---no 
+ * special 53c710 instructions or registers are used).
+ *
+ * Version 2.3
+ *
+ * More endianness/cache coherency changes.
+ *
+ * Better bad device handling (handles devices lying about tag
+ * queueing support and devices which fail to provide sense data on
+ * contingent allegiance conditions)
+ *
+ * Many thanks to Richard Hirst <rhirst@linuxcare.com> for patiently
+ * debugging this driver on the parisc architecture and suggesting
+ * many improvements and bug fixes.
+ *
+ * Thanks also go to Linuxcare Inc. for providing several PARISC
+ * machines for me to debug the driver on.
+ *
+ * Version 2.2
+ *
+ * Made the driver mem or io mapped; added endian invariance; added
+ * dma cache flushing operations for architectures which need it;
+ * added support for more varied clocking speeds.
+ *
+ * Version 2.1
+ *
+ * Initial modularisation from the D700.  See NCR_D700.c for the rest of
+ * the changelog.
+ * */
 #define NCR_700_VERSION "2.8"
 
 #include <linux/kernel.h>
@@ -54,6 +144,12 @@
 
 #include "53c700.h"
 
+/* NOTE: For 64 bit drivers there are points in the code where we use
+ * a non dereferenceable pointer to point to a structure in dma-able
+ * memory (which is 32 bits) so that we can use all of the structure
+ * operations but take the address at the end.  This macro allows us
+ * to truncate the 64 bit pointer down to 32 bits without the compiler
+ * complaining */
 #define to32bit(x)	((__u32)((unsigned long)(x)))
 
 #ifdef NCR_700_DEBUG
@@ -66,6 +162,7 @@ MODULE_AUTHOR("James Bottomley");
 MODULE_DESCRIPTION("53c700 and 53c700-66 Driver");
 MODULE_LICENSE("GPL");
 
+/* This is the script */
 #include "53c700_d.h"
 
 
@@ -140,6 +237,11 @@ static char *NCR_700_SBCL_to_phase[] = {
 	"MSG IN",
 };
 
+/* This translates the SDTR message offset and period to a value
+ * which can be loaded into the SXFER_REG.
+ *
+ * NOTE: According to SCSI-2, the true transfer period (in ns) is
+ *       actually four times this period value */
 static inline __u8
 NCR_700_offset_period_to_sxfer(struct NCR_700_Host_Parameters *hostdata,
 			       __u8 offset, __u8 period)
@@ -211,7 +313,7 @@ NCR_700_detect(struct scsi_host_template *tpnt,
 
 	pSlots = pScript + SLOTS_OFFSET;
 
-	
+	/* Fill in the missing routines from the host template */
 	tpnt->queuecommand = NCR_700_queuecommand;
 	tpnt->eh_abort_handler = NCR_700_abort;
 	tpnt->eh_bus_reset_handler = NCR_700_bus_reset;
@@ -250,10 +352,10 @@ NCR_700_detect(struct scsi_host_template *tpnt,
 	for (j = 0; j < ARRAY_SIZE(SCRIPT); j++)
 		script[j] = bS_to_host(SCRIPT[j]);
 
-	
+	/* adjust all labels to be bus physical */
 	for (j = 0; j < PATCHES; j++)
 		script[LABELPATCHES[j]] = bS_to_host(pScript + SCRIPT[LABELPATCHES[j]]);
-	
+	/* now patch up fixed addresses. */
 	script_patch_32(hostdata->dev, script, MessageLocation,
 			pScript + MSGOUT_OFFSET);
 	script_patch_32(hostdata->dev, script, StatusAddress,
@@ -273,7 +375,7 @@ NCR_700_detect(struct scsi_host_template *tpnt,
 	host->unique_id = (unsigned long)hostdata->base;
 	hostdata->eh_complete = NULL;
 	host->hostdata[0] = (unsigned long)hostdata;
-	
+	/* kick the chip */
 	NCR_700_writeb(0xff, host, CTEST9_REG);
 	if (hostdata->chip710)
 		hostdata->rev = (NCR_700_readb(host, CTEST8_REG)>>4) & 0x0f;
@@ -289,7 +391,7 @@ NCR_700_detect(struct scsi_host_template *tpnt,
 	       (hostdata->fast ? "53c700-66" : "53c700"),
 	       hostdata->rev, hostdata->differential ?
 	       "(Differential)" : "");
-	
+	/* reset the chip */
 	NCR_700_chip_reset(host);
 
 	if (scsi_add_host(host, dev)) {
@@ -323,6 +425,16 @@ NCR_700_identify(int can_disconnect, __u8 lun)
 		(lun & NCR_700_LUN_MASK);
 }
 
+/*
+ * Function : static int data_residual (Scsi_Host *host)
+ *
+ * Purpose : return residual data count of what's in the chip.  If you
+ * really want to know what this function is doing, it's almost a
+ * direct transcription of the algorithm described in the 53c710
+ * guide, except that the DBC and DFIFO registers are only 6 bits
+ * wide on a 53c700.
+ *
+ * Inputs : host - SCSI host */
 static inline int
 NCR_700_data_residual (struct Scsi_Host *host) {
 	struct NCR_700_Host_Parameters *hostdata = 
@@ -341,18 +453,18 @@ NCR_700_data_residual (struct Scsi_Host *host) {
 	if(hostdata->fast)
 		synchronous = NCR_700_readb(host, SXFER_REG) & 0x0f;
 	
-	
+	/* get the data direction */
 	ddir = NCR_700_readb(host, CTEST0_REG) & 0x01;
 
 	if (ddir) {
-		
+		/* Receive */
 		if (synchronous) 
 			count += (NCR_700_readb(host, SSTAT2_REG) & 0xf0) >> 4;
 		else
 			if (NCR_700_readb(host, SSTAT1_REG) & SIDL_REG_FULL)
 				++count;
 	} else {
-		
+		/* Send */
 		__u8 sstat = NCR_700_readb(host, SSTAT1_REG);
 		if (sstat & SODL_REG_FULL)
 			++count;
@@ -366,6 +478,8 @@ NCR_700_data_residual (struct Scsi_Host *host) {
 	return count;
 }
 
+/* print out the SCSI wires and corresponding phase from the SBCL register
+ * in the chip */
 static inline char *
 sbcl_to_string(__u8 sbcl)
 {
@@ -391,20 +505,21 @@ bitmap_to_number(__u8 bitmap)
 	return i;
 }
 
+/* Pull a slot off the free list */
 STATIC struct NCR_700_command_slot *
 find_empty_slot(struct NCR_700_Host_Parameters *hostdata)
 {
 	struct NCR_700_command_slot *slot = hostdata->free_list;
 
 	if(slot == NULL) {
-		
+		/* sanity check */
 		if(hostdata->command_slot_count != NCR_700_COMMAND_SLOTS_PER_HOST)
 			printk(KERN_ERR "SLOTS FULL, but count is %d, should be %d\n", hostdata->command_slot_count, NCR_700_COMMAND_SLOTS_PER_HOST);
 		return NULL;
 	}
 
 	if(slot->state != NCR_700_SLOT_FREE)
-		
+		/* should panic! */
 		printk(KERN_ERR "BUSY SLOT ON FREE LIST!!!\n");
 		
 
@@ -412,6 +527,10 @@ find_empty_slot(struct NCR_700_Host_Parameters *hostdata)
 	slot->ITL_forw = NULL;
 
 
+	/* NOTE: set the state to busy here, not queued, since this
+	 * indicates the slot is in use and cannot be run by the IRQ
+	 * finish routine.  If we cannot queue the command when it
+	 * is properly build, we then change to NCR_700_SLOT_QUEUED */
 	slot->state = NCR_700_SLOT_BUSY;
 	slot->flags = 0;
 	hostdata->command_slot_count++;
@@ -439,11 +558,13 @@ free_slot(struct NCR_700_command_slot *slot,
 }
 
 
+/* This routine really does very little.  The command is indexed on
+   the ITL and (if tagged) the ITLQ lists in _queuecommand */
 STATIC void
 save_for_reselection(struct NCR_700_Host_Parameters *hostdata,
 		     struct scsi_cmnd *SCp, __u32 dsp)
 {
-	
+	/* Its just possible that this gets executed twice */
 	if(SCp != NULL) {
 		struct NCR_700_command_slot *slot =
 			(struct NCR_700_command_slot *)SCp->host_scribble;
@@ -486,9 +607,11 @@ NCR_700_scsi_done(struct NCR_700_Host_Parameters *hostdata,
 #endif
 			dma_unmap_single(hostdata->dev, slot->dma_handle,
 					 SCSI_SENSE_BUFFERSIZE, DMA_FROM_DEVICE);
+			/* restore the old result if the request sense was
+			 * successful */
 			if (result == 0)
 				result = cmnd[7];
-			
+			/* restore the original length */
 			SCp->cmd_len = cmnd[8];
 		} else
 			NCR_700_unmap(hostdata, SCp, slot);
@@ -499,7 +622,7 @@ NCR_700_scsi_done(struct NCR_700_Host_Parameters *hostdata,
 		   NCR_700_get_depth(SCp->device) > SCp->device->queue_depth)
 			printk(KERN_ERR "Invalid depth in NCR_700_scsi_done(): %d\n",
 			       NCR_700_get_depth(SCp->device));
-#endif 
+#endif /* NCR_700_DEBUG */
 		NCR_700_set_depth(SCp->device, NCR_700_get_depth(SCp->device) - 1);
 
 		SCp->host_scribble = NULL;
@@ -514,7 +637,7 @@ NCR_700_scsi_done(struct NCR_700_Host_Parameters *hostdata,
 STATIC void
 NCR_700_internal_bus_reset(struct Scsi_Host *host)
 {
-	
+	/* Bus reset */
 	NCR_700_writeb(ASSERT_RST, host, SCNTL1_REG);
 	udelay(50);
 	NCR_700_writeb(0, host, SCNTL1_REG);
@@ -567,7 +690,7 @@ NCR_700_chip_setup(struct Scsi_Host *host)
 		NCR_700_writeb(hostdata->differential ? 
 			       DIFF : 0, host, CTEST7_REG);
 		if(hostdata->fast) {
-			
+			/* this is for 700-66, does nothing on 700 */
 			NCR_700_writeb(LAST_DIS_ENBL | ENABLE_ACTIVE_NEGATION 
 				       | GENERATE_RECEIVE_PARITY, host,
 				       CTEST8_REG);
@@ -588,12 +711,14 @@ NCR_700_chip_setup(struct Scsi_Host *host)
 	NCR_700_writeb(ENABLE_SELECT, host, SCNTL1_REG);
 	if(hostdata->clock > 75) {
 		printk(KERN_ERR "53c700: Clock speed %dMHz is too high: 75Mhz is the maximum this chip can be driven at\n", hostdata->clock);
+		/* do the best we can, but the async clock will be out
+		 * of spec: sync divider 2, async divider 3 */
 		DEBUG(("53c700: sync 2 async 3\n"));
 		NCR_700_writeb(SYNC_DIV_2_0, host, SBCL_REG);
 		NCR_700_writeb(ASYNC_DIV_3_0 | hostdata->dcntl_extra, host, DCNTL_REG);
 		hostdata->sync_clock = hostdata->clock/2;
 	} else	if(hostdata->clock > 50  && hostdata->clock <= 75) {
-		
+		/* sync divider 1.5, async divider 3 */
 		DEBUG(("53c700: sync 1.5 async 3\n"));
 		NCR_700_writeb(SYNC_DIV_1_5, host, SBCL_REG);
 		NCR_700_writeb(ASYNC_DIV_3_0 | hostdata->dcntl_extra, host, DCNTL_REG);
@@ -601,13 +726,13 @@ NCR_700_chip_setup(struct Scsi_Host *host)
 		hostdata->sync_clock /= 3;
 		
 	} else if(hostdata->clock > 37 && hostdata->clock <= 50) {
-		
+		/* sync divider 1, async divider 2 */
 		DEBUG(("53c700: sync 1 async 2\n"));
 		NCR_700_writeb(SYNC_DIV_1_0, host, SBCL_REG);
 		NCR_700_writeb(ASYNC_DIV_2_0 | hostdata->dcntl_extra, host, DCNTL_REG);
 		hostdata->sync_clock = hostdata->clock;
 	} else if(hostdata->clock > 25 && hostdata->clock <=37) {
-		
+		/* sync divider 1, async divider 1.5 */
 		DEBUG(("53c700: sync 1 async 1.5\n"));
 		NCR_700_writeb(SYNC_DIV_1_0, host, SBCL_REG);
 		NCR_700_writeb(ASYNC_DIV_1_5 | hostdata->dcntl_extra, host, DCNTL_REG);
@@ -616,9 +741,13 @@ NCR_700_chip_setup(struct Scsi_Host *host)
 		DEBUG(("53c700: sync 1 async 1\n"));
 		NCR_700_writeb(SYNC_DIV_1_0, host, SBCL_REG);
 		NCR_700_writeb(ASYNC_DIV_1_0 | hostdata->dcntl_extra, host, DCNTL_REG);
-		
+		/* sync divider 1, async divider 1 */
 		hostdata->sync_clock = hostdata->clock;
 	}
+	/* Calculate the actual minimum period that can be supported
+	 * by our synchronous clock speed.  See the 710 manual for
+	 * exact details of this calculation which is based on a
+	 * setting of the SXFER register */
 	min_period = 1000*(4+min_xferp)/(4*hostdata->sync_clock);
 	hostdata->min_period = NCR_700_MIN_PERIOD;
 	if(min_period > NCR_700_MIN_PERIOD)
@@ -647,6 +776,12 @@ NCR_700_chip_reset(struct Scsi_Host *host)
 	NCR_700_chip_setup(host);
 }
 
+/* The heart of the message processing engine is that the instruction
+ * immediately after the INT is the normal case (and so must be CLEAR
+ * ACK).  If we want to do something else, we call that routine in
+ * scripts and set temp to be the normal case + 8 (skipping the CLEAR
+ * ACK) so that the routine returns correctly to resume its activity
+ * */
 STATIC __u32
 process_extended_message(struct Scsi_Host *host, 
 			 struct NCR_700_Host_Parameters *hostdata,
@@ -687,13 +822,15 @@ process_extended_message(struct Scsi_Host *host,
 				       host, SXFER_REG);
 
 		} else {
-			
+			/* SDTR message out of the blue, reject it */
 			shost_printk(KERN_WARNING, host,
 				"Unexpected SDTR msg\n");
 			hostdata->msgout[0] = A_REJECT_MSG;
 			dma_cache_sync(hostdata->dev, hostdata->msgout, 1, DMA_TO_DEVICE);
 			script_patch_16(hostdata->dev, hostdata->script,
 			                MessageCount, 1);
+			/* SendMsgOut returns, so set up the return
+			 * address */
 			resume_offset = hostdata->pScript + Ent_SendMessageWithATN;
 		}
 		break;
@@ -715,11 +852,13 @@ process_extended_message(struct Scsi_Host *host,
 		       NCR_700_phase[(dsps & 0xf00) >> 8]);
 		spi_print_msg(hostdata->msgin);
 		printk("\n");
-		
+		/* just reject it */
 		hostdata->msgout[0] = A_REJECT_MSG;
 		dma_cache_sync(hostdata->dev, hostdata->msgout, 1, DMA_TO_DEVICE);
 		script_patch_16(hostdata->dev, hostdata->script, MessageCount,
 		                1);
+		/* SendMsgOut returns, so set up the return
+		 * address */
 		resume_offset = hostdata->pScript + Ent_SendMessageWithATN;
 	}
 	NCR_700_writel(temp, host, TEMP_REG);
@@ -730,7 +869,7 @@ STATIC __u32
 process_message(struct Scsi_Host *host,	struct NCR_700_Host_Parameters *hostdata,
 		struct scsi_cmnd *SCp, __u32 dsp, __u32 dsps)
 {
-	
+	/* work out where to return to */
 	__u32 temp = dsp + 8, resume_offset = dsp;
 	__u8 pun = 0xff, lun = 0xff;
 
@@ -755,16 +894,16 @@ process_message(struct Scsi_Host *host,	struct NCR_700_Host_Parameters *hostdata
 
 	case A_REJECT_MSG:
 		if(SCp != NULL && NCR_700_is_flag_set(SCp->device, NCR_700_DEV_BEGIN_SYNC_NEGOTIATION)) {
-			
+			/* Rejected our sync negotiation attempt */
 			spi_period(SCp->device->sdev_target) =
 				spi_offset(SCp->device->sdev_target) = 0;
 			NCR_700_set_flag(SCp->device, NCR_700_DEV_NEGOTIATED_SYNC);
 			NCR_700_clear_flag(SCp->device, NCR_700_DEV_BEGIN_SYNC_NEGOTIATION);
 		} else if(SCp != NULL && NCR_700_get_tag_neg_state(SCp->device) == NCR_700_DURING_TAG_NEGOTIATION) {
-			
+			/* rejected our first simple tag message */
 			scmd_printk(KERN_WARNING, SCp,
 				"Rejected first tag queue attempt, turning off tag queueing\n");
-			
+			/* we're done negotiating */
 			NCR_700_set_tag_neg_state(SCp->device, NCR_700_FINISHED_TAG_NEGOTIATION);
 			hostdata->tag_negotiated &= ~(1<<scmd_id(SCp));
 			SCp->device->tagged_supported = 0;
@@ -774,7 +913,7 @@ process_message(struct Scsi_Host *host,	struct NCR_700_Host_Parameters *hostdata
 				"(%d:%d) Unexpected REJECT Message %s\n",
 			       pun, lun,
 			       NCR_700_phase[(dsps & 0xf00) >> 8]);
-			
+			/* however, just ignore it */
 		}
 		break;
 
@@ -787,7 +926,7 @@ process_message(struct Scsi_Host *host,	struct NCR_700_Host_Parameters *hostdata
 		printk(KERN_INFO "scsi%d (%d:%d) SIMPLE TAG %d %s\n", host->host_no,
 		       pun, lun, hostdata->msgin[1],
 		       NCR_700_phase[(dsps & 0xf00) >> 8]);
-		
+		/* just ignore it */
 		break;
 	default:
 		printk(KERN_INFO "scsi%d (%d:%d): Unexpected message %s: ",
@@ -796,17 +935,19 @@ process_message(struct Scsi_Host *host,	struct NCR_700_Host_Parameters *hostdata
 
 		spi_print_msg(hostdata->msgin);
 		printk("\n");
-		
+		/* just reject it */
 		hostdata->msgout[0] = A_REJECT_MSG;
 		dma_cache_sync(hostdata->dev, hostdata->msgout, 1, DMA_TO_DEVICE);
 		script_patch_16(hostdata->dev, hostdata->script, MessageCount,
 		                1);
+		/* SendMsgOut returns, so set up the return
+		 * address */
 		resume_offset = hostdata->pScript + Ent_SendMessageWithATN;
 
 		break;
 	}
 	NCR_700_writel(temp, host, TEMP_REG);
-	
+	/* set us up to receive another message */
 	dma_cache_sync(hostdata->dev, hostdata->msgin, MSG_ARRAY_SIZE, DMA_FROM_DEVICE);
 	return resume_offset;
 }
@@ -827,17 +968,19 @@ process_script_interrupt(__u32 dsps, __u32 dsp, struct scsi_cmnd *SCp,
 	if(dsps == A_GOOD_STATUS_AFTER_STATUS) {
 		DEBUG(("  COMMAND COMPLETE, status=%02x\n",
 		       hostdata->status[0]));
-		
+		/* OK, if TCQ still under negotiation, we now know it works */
 		if (NCR_700_get_tag_neg_state(SCp->device) == NCR_700_DURING_TAG_NEGOTIATION)
 			NCR_700_set_tag_neg_state(SCp->device,
 						  NCR_700_FINISHED_TAG_NEGOTIATION);
 			
-		
+		/* check for contingent allegiance contitions */
 		if(status_byte(hostdata->status[0]) == CHECK_CONDITION ||
 		   status_byte(hostdata->status[0]) == COMMAND_TERMINATED) {
 			struct NCR_700_command_slot *slot =
 				(struct NCR_700_command_slot *)SCp->host_scribble;
 			if(slot->flags == NCR_700_FLAG_AUTOSENSE) {
+				/* OOPS: bad device, returning another
+				 * contingent allegiance condition */
 				scmd_printk(KERN_ERR, SCp,
 					"broken device is looping in contingent allegiance: ignoring\n");
 				NCR_700_scsi_done(hostdata, SCp, hostdata->status[0]);
@@ -849,6 +992,13 @@ process_script_interrupt(__u32 dsps, __u32 dsp, struct scsi_cmnd *SCp,
 				printk("  cmd %p has status %d, requesting sense\n",
 				       SCp, hostdata->status[0]);
 #endif
+				/* we can destroy the command here
+				 * because the contingent allegiance
+				 * condition will cause a retry which
+				 * will re-copy the command from the
+				 * saved data_cmnd.  We also unmap any
+				 * data associated with the command
+				 * here */
 				NCR_700_unmap(hostdata, SCp, slot);
 				dma_unmap_single(hostdata->dev, slot->pCmd,
 						 MAX_COMMAND_SIZE,
@@ -860,10 +1010,17 @@ process_script_interrupt(__u32 dsps, __u32 dsp, struct scsi_cmnd *SCp,
 				cmnd[3] = 0;
 				cmnd[4] = SCSI_SENSE_BUFFERSIZE;
 				cmnd[5] = 0;
+				/* Here's a quiet hack: the
+				 * REQUEST_SENSE command is six bytes,
+				 * so store a flag indicating that
+				 * this was an internal sense request
+				 * and the original status at the end
+				 * of the command */
 				cmnd[6] = NCR_700_INTERNAL_SENSE_MAGIC;
 				cmnd[7] = hostdata->status[0];
 				cmnd[8] = SCp->cmd_len;
-				SCp->cmd_len = 6; 
+				SCp->cmd_len = 6; /* command length for
+						   * REQUEST_SENSE */
 				slot->pCmd = dma_map_single(hostdata->dev, cmnd, MAX_COMMAND_SIZE, DMA_TO_DEVICE);
 				slot->dma_handle = dma_map_single(hostdata->dev, SCp->sense_buffer, SCSI_SENSE_BUFFERSIZE, DMA_FROM_DEVICE);
 				slot->SG[0].ins = bS_to_host(SCRIPT_MOVE_DATA_IN | SCSI_SENSE_BUFFERSIZE);
@@ -874,34 +1031,34 @@ process_script_interrupt(__u32 dsps, __u32 dsp, struct scsi_cmnd *SCp,
 				dma_cache_sync(hostdata->dev, slot->SG, sizeof(slot->SG[0])*2, DMA_TO_DEVICE);
 				dma_cache_sync(hostdata->dev, SCp->sense_buffer, SCSI_SENSE_BUFFERSIZE, DMA_FROM_DEVICE);
 
-				
+				/* queue the command for reissue */
 				slot->state = NCR_700_SLOT_QUEUED;
 				slot->flags = NCR_700_FLAG_AUTOSENSE;
 				hostdata->state = NCR_700_HOST_FREE;
 				hostdata->cmd = NULL;
 			}
 		} else {
-			
-			
-			
-			
-			
-			
-			
-			
-			
-			
-			
-			
-			
-			
-			
-			
-			
-			
-			
-			
-			
+			// Currently rely on the mid layer evaluation
+			// of the tag queuing capability
+			//
+			//if(status_byte(hostdata->status[0]) == GOOD &&
+			//   SCp->cmnd[0] == INQUIRY && SCp->use_sg == 0) {
+			//	/* Piggy back the tag queueing support
+			//	 * on this command */
+			//	dma_sync_single_for_cpu(hostdata->dev,
+			//			    slot->dma_handle,
+			//			    SCp->request_bufflen,
+			//			    DMA_FROM_DEVICE);
+			//	if(((char *)SCp->request_buffer)[7] & 0x02) {
+			//		scmd_printk(KERN_INFO, SCp,
+			//		     "Enabling Tag Command Queuing\n");
+			//		hostdata->tag_negotiated |= (1<<scmd_id(SCp));
+			//		NCR_700_set_flag(SCp->device, NCR_700_DEV_BEGIN_TAG_QUEUEING);
+			//	} else {
+			//		NCR_700_clear_flag(SCp->device, NCR_700_DEV_BEGIN_TAG_QUEUEING);
+			//		hostdata->tag_negotiated &= ~(1<<scmd_id(SCp));
+			//	}
+			//}
 			NCR_700_scsi_done(hostdata, SCp, hostdata->status[0]);
 		}
 	} else if((dsps & 0xfffff0f0) == A_UNEXPECTED_PHASE) {
@@ -946,7 +1103,7 @@ process_script_interrupt(__u32 dsps, __u32 dsp, struct scsi_cmnd *SCp,
 		hostdata->reselection_id = 0xff;
 		DEBUG(("scsi%d: (%d:%d) RESELECTED!\n",
 		       host->host_no, reselection_id, lun));
-		
+		/* clear the reselection indicator */
 		SDp = __scsi_device_lookup(host, 0, reselection_id, lun);
 		if(unlikely(SDp == NULL)) {
 			printk(KERN_ERR "scsi%d: (%d:%d) HAS NO device\n",
@@ -987,7 +1144,7 @@ process_script_interrupt(__u32 dsps, __u32 dsp, struct scsi_cmnd *SCp,
 			resume_offset = slot->resume_offset;
 			hostdata->cmd = slot->cmnd;
 
-			
+			/* re-patch for this command */
 			script_patch_32_abs(hostdata->dev, hostdata->script,
 			                    CommandAddress, slot->pCmd);
 			script_patch_16(hostdata->dev, hostdata->script,
@@ -996,12 +1153,19 @@ process_script_interrupt(__u32 dsps, __u32 dsp, struct scsi_cmnd *SCp,
 			                    SGScriptStartAddress,
 					    to32bit(&slot->pSG[0].ins));
 
+			/* Note: setting SXFER only works if we're
+			 * still in the MESSAGE phase, so it is vital
+			 * that ACK is still asserted when we process
+			 * the reselection message.  The resume offset
+			 * should therefore always clear ACK */
 			NCR_700_writeb(NCR_700_get_SXFER(hostdata->cmd->device),
 				       host, SXFER_REG);
 			dma_cache_sync(hostdata->dev, hostdata->msgin,
 				       MSG_ARRAY_SIZE, DMA_FROM_DEVICE);
 			dma_cache_sync(hostdata->dev, hostdata->msgout,
 				       MSG_ARRAY_SIZE, DMA_TO_DEVICE);
+			/* I'm just being paranoid here, the command should
+			 * already have been flushed from the cache */
 			dma_cache_sync(hostdata->dev, slot->cmnd->cmnd,
 				       slot->cmnd->cmd_len, DMA_TO_DEVICE);
 
@@ -1010,18 +1174,26 @@ process_script_interrupt(__u32 dsps, __u32 dsp, struct scsi_cmnd *SCp,
 		}
 	} else if(dsps == A_RESELECTED_DURING_SELECTION) {
 
+		/* This section is full of debugging code because I've
+		 * never managed to reach it.  I think what happens is
+		 * that, because the 700 runs with selection
+		 * interrupts enabled the whole time that we take a
+		 * selection interrupt before we manage to get to the
+		 * reselected script interrupt */
 
 		__u8 reselection_id = NCR_700_readb(host, SFBR_REG);
 		struct NCR_700_command_slot *slot;
 		
-		
+		/* Take out our own ID */
 		reselection_id &= ~(1<<host->this_id);
 		
+		/* I've never seen this happen, so keep this as a printk rather
+		 * than a debug */
 		printk(KERN_INFO "scsi%d: (%d:%d) RESELECTION DURING SELECTION, dsp=%08x[%04x] state=%d, count=%d\n",
 		       host->host_no, reselection_id, lun, dsp, dsp - hostdata->pScript, hostdata->state, hostdata->command_slot_count);
 
 		{
-			
+			/* FIXME: DEBUGGING CODE */
 			__u32 SG = (__u32)bS_to_cpu(hostdata->script[A_SGScriptStartAddress_used[0]]);
 			int i;
 
@@ -1036,7 +1208,7 @@ process_script_interrupt(__u32 dsps, __u32 dsp, struct scsi_cmnd *SCp,
 
 		if(SCp != NULL) {
 			slot = (struct NCR_700_command_slot *)SCp->host_scribble;
-			
+			/* change slot from busy to queued to redo command */
 			slot->state = NCR_700_SLOT_QUEUED;
 		}
 		hostdata->cmd = NULL;
@@ -1052,11 +1224,11 @@ process_script_interrupt(__u32 dsps, __u32 dsp, struct scsi_cmnd *SCp,
 			}
 		} else {
 			
-			
+			/* convert to real ID */
 			reselection_id = bitmap_to_number(reselection_id);
 		}
 		hostdata->reselection_id = reselection_id;
-		
+		/* just in case we have a stale simple tag message, clear it */
 		hostdata->msgin[1] = 0;
 		dma_cache_sync(hostdata->dev, hostdata->msgin,
 			       MSG_ARRAY_SIZE, DMA_BIDIRECTIONAL);
@@ -1066,6 +1238,9 @@ process_script_interrupt(__u32 dsps, __u32 dsp, struct scsi_cmnd *SCp,
 			resume_offset = hostdata->pScript + Ent_GetReselectionData;
 		}
 	} else if(dsps == A_COMPLETED_SELECTION_AS_TARGET) {
+		/* we've just disconnected from the bus, do nothing since
+		 * a return here will re-run the queued command slot
+		 * that may have been interrupted by the initial selection */
 		DEBUG((" SELECTION COMPLETED\n"));
 	} else if((dsps & 0xfffff0f0) == A_MSG_IN) { 
 		resume_offset = process_message(host, hostdata, SCp,
@@ -1096,10 +1271,17 @@ process_script_interrupt(__u32 dsps, __u32 dsp, struct scsi_cmnd *SCp,
 	return resume_offset;
 }
 
+/* We run the 53c700 with selection interrupts always enabled.  This
+ * means that the chip may be selected as soon as the bus frees.  On a
+ * busy bus, this can be before the scripts engine finishes its
+ * processing.  Therefore, part of the selection processing has to be
+ * to find out what the scripts engine is doing and complete the
+ * function if necessary (i.e. process the pending disconnect or save
+ * the interrupted initial selection */
 STATIC inline __u32
 process_selection(struct Scsi_Host *host, __u32 dsp)
 {
-	__u8 id = 0;	
+	__u8 id = 0;	/* Squash compiler warning */
 	int count = 0;
 	__u32 resume_offset = 0;
 	struct NCR_700_Host_Parameters *hostdata =
@@ -1111,7 +1293,7 @@ process_selection(struct Scsi_Host *host, __u32 dsp)
 		id = NCR_700_readb(host, hostdata->chip710 ?
 				   CTEST9_REG : SFBR_REG);
 
-		
+		/* Take out our own ID */
 		id &= ~(1<<host->this_id);
 		if(id != 0) 
 			break;
@@ -1119,10 +1301,10 @@ process_selection(struct Scsi_Host *host, __u32 dsp)
 	}
 	sbcl = NCR_700_readb(host, SBCL_REG);
 	if((sbcl & SBCL_IO) == 0) {
-		
+		/* mark as having been selected rather than reselected */
 		id = 0xff;
 	} else {
-		
+		/* convert to real ID */
 		hostdata->reselection_id = id = bitmap_to_number(id);
 		DEBUG(("scsi%d:  Reselected by %d\n",
 		       host->host_no, id));
@@ -1161,13 +1343,13 @@ process_selection(struct Scsi_Host *host, __u32 dsp)
 	}
 	hostdata->state = NCR_700_HOST_BUSY;
 	hostdata->cmd = NULL;
-	
+	/* clear any stale simple tag message */
 	hostdata->msgin[1] = 0;
 	dma_cache_sync(hostdata->dev, hostdata->msgin, MSG_ARRAY_SIZE,
 		       DMA_BIDIRECTIONAL);
 
 	if(id == 0xff) {
-		
+		/* Selected as target, Ignore */
 		resume_offset = hostdata->pScript + Ent_SelectedAsTarget;
 	} else if(hostdata->tag_negotiated & (1<<id)) {
 		resume_offset = hostdata->pScript + Ent_GetReselectionWithTag;
@@ -1204,6 +1386,8 @@ NCR_700_flush_fifo(struct Scsi_Host *host) {
 }
 
 
+/* The queue lock with interrupts disabled must be held on entry to
+ * this function */
 STATIC int
 NCR_700_start_command(struct scsi_cmnd *SCp)
 {
@@ -1211,9 +1395,12 @@ NCR_700_start_command(struct scsi_cmnd *SCp)
 		(struct NCR_700_command_slot *)SCp->host_scribble;
 	struct NCR_700_Host_Parameters *hostdata =
 		(struct NCR_700_Host_Parameters *)SCp->device->host->hostdata[0];
-	__u16 count = 1;	
+	__u16 count = 1;	/* for IDENTIFY message */
 	
 	if(hostdata->state != NCR_700_HOST_FREE) {
+		/* keep this inside the lock to close the race window where
+		 * the running command finishes on another CPU while we don't
+		 * change the state to queued on this one */
 		slot->state = NCR_700_SLOT_QUEUED;
 
 		DEBUG(("scsi%d: host busy, queueing command %p, slot %p\n",
@@ -1223,15 +1410,24 @@ NCR_700_start_command(struct scsi_cmnd *SCp)
 	hostdata->state = NCR_700_HOST_BUSY;
 	hostdata->cmd = SCp;
 	slot->state = NCR_700_SLOT_BUSY;
+	/* keep interrupts disabled until we have the command correctly
+	 * set up so we cannot take a selection interrupt */
 
 	hostdata->msgout[0] = NCR_700_identify((SCp->cmnd[0] != REQUEST_SENSE &&
 						slot->flags != NCR_700_FLAG_AUTOSENSE),
 					       SCp->device->lun);
+	/* for INQUIRY or REQUEST_SENSE commands, we cannot be sure
+	 * if the negotiated transfer parameters still hold, so
+	 * always renegotiate them */
 	if(SCp->cmnd[0] == INQUIRY || SCp->cmnd[0] == REQUEST_SENSE ||
 	   slot->flags == NCR_700_FLAG_AUTOSENSE) {
 		NCR_700_clear_flag(SCp->device, NCR_700_DEV_NEGOTIATED_SYNC);
 	}
 
+	/* REQUEST_SENSE is asking for contingent I_T_L(_Q) status.
+	 * If a contingent allegiance condition exists, the device
+	 * will refuse all tags, so send the request sense as untagged
+	 * */
 	if((hostdata->tag_negotiated & (1<<scmd_id(SCp)))
 	   && (slot->tag != SCSI_NO_TAG && SCp->cmnd[0] != REQUEST_SENSE &&
 	       slot->flags != NCR_700_FLAG_AUTOSENSE)) {
@@ -1256,20 +1452,22 @@ NCR_700_start_command(struct scsi_cmnd *SCp)
 			    slot->pCmd);
 	script_patch_16(hostdata->dev, hostdata->script, CommandCount,
 	                SCp->cmd_len);
+	/* finally plumb the beginning of the SG list into the script
+	 * */
 	script_patch_32_abs(hostdata->dev, hostdata->script,
 	                    SGScriptStartAddress, to32bit(&slot->pSG[0].ins));
 	NCR_700_clear_fifo(SCp->device->host);
 
 	if(slot->resume_offset == 0)
 		slot->resume_offset = hostdata->pScript;
-	
+	/* now perform all the writebacks and invalidates */
 	dma_cache_sync(hostdata->dev, hostdata->msgout, count, DMA_TO_DEVICE);
 	dma_cache_sync(hostdata->dev, hostdata->msgin, MSG_ARRAY_SIZE,
 		       DMA_FROM_DEVICE);
 	dma_cache_sync(hostdata->dev, SCp->cmnd, SCp->cmd_len, DMA_TO_DEVICE);
 	dma_cache_sync(hostdata->dev, hostdata->status, 1, DMA_FROM_DEVICE);
 
-	
+	/* set the synchronous period/offset */
 	NCR_700_writeb(NCR_700_get_SXFER(SCp->device),
 		       SCp->device->host, SXFER_REG);
 	NCR_700_writel(slot->temp, SCp->device->host, TEMP_REG);
@@ -1290,6 +1488,11 @@ NCR_700_intr(int irq, void *dev_id)
 	unsigned long flags;
 	int handled = 0;
 
+	/* Use the host lock to serialise access to the 53c700
+	 * hardware.  Note: In future, we may need to take the queue
+	 * lock to enter the done routines.  When that happens, we
+	 * need to ensure that for this driver, the host lock and the
+	 * queue lock point to the same thing. */
 	spin_lock_irqsave(host->host_lock, flags);
 	if((istat = NCR_700_readb(host, ISTAT_REG))
 	      & (SCSI_INT_PENDING | DMA_INT_PENDING)) {
@@ -1339,11 +1542,11 @@ NCR_700_intr(int irq, void *dev_id)
 
 			scsi_report_bus_reset(host, 0);
 
-			
+			/* clear all the negotiated parameters */
 			__shost_for_each_device(SDp, host)
 				NCR_700_clear_flag(SDp, ~0);
 			
-			
+			/* clear all the slots and their pending commands */
 			for(i = 0; i < NCR_700_COMMAND_SLOTS_PER_HOST; i++) {
 				struct scsi_cmnd *SCp;
 				struct NCR_700_command_slot *slot =
@@ -1358,6 +1561,12 @@ NCR_700_intr(int irq, void *dev_id)
 				free_slot(slot, hostdata);
 				SCp->host_scribble = NULL;
 				NCR_700_set_depth(SCp->device, 0);
+				/* NOTE: deadlock potential here: we
+				 * rely on mid-layer guarantees that
+				 * scsi_done won't try to issue the
+				 * command again otherwise we'll
+				 * deadlock on the
+				 * hostdata->state_lock */
 				SCp->result = DID_RESET << 16;
 				SCp->scsi_done(SCp);
 			}
@@ -1366,7 +1575,7 @@ NCR_700_intr(int irq, void *dev_id)
 
 			hostdata->state = NCR_700_HOST_FREE;
 			hostdata->cmd = NULL;
-			
+			/* signal back if this was an eh induced reset */
 			if(hostdata->eh_complete != NULL)
 				complete(hostdata->eh_complete);
 			goto out_unlock;
@@ -1379,6 +1588,8 @@ NCR_700_intr(int irq, void *dev_id)
 				(struct NCR_700_command_slot *)SCp->host_scribble;
 
 			if(dsp == Ent_SendMessage + 8 + hostdata->pScript) {
+				/* It wants to reply to some part of
+				 * our message */
 #ifdef NCR_700_DEBUG
 				__u32 temp = NCR_700_readl(host, TEMP_REG);
 				int count = (hostdata->script[Ent_SendMessage/4] & 0xffffff) - ((NCR_700_readl(host, DBC_REG) & 0xffffff) + NCR_700_data_residual(host));
@@ -1425,14 +1636,16 @@ NCR_700_intr(int irq, void *dev_id)
 #endif
 					slot->SG[SGcount].pAddr = bS_to_host(pAddr);
 				}
-				
+				/* set the executed moves to nops */
 				for(i=0; i<SGcount; i++) {
 					slot->SG[i].ins = bS_to_host(SCRIPT_NOP);
 					slot->SG[i].pAddr = 0;
 				}
 				dma_cache_sync(hostdata->dev, slot->SG, sizeof(slot->SG), DMA_TO_DEVICE);
+				/* and pretend we disconnected after
+				 * the command phase */
 				resume_offset = hostdata->pScript + Ent_MsgInDuringData;
-				
+				/* make sure all the data is flushed */
 				NCR_700_flush_fifo(host);
 			} else {
 				__u8 sbcl = NCR_700_readb(host, SBCL_REG);
@@ -1466,7 +1679,26 @@ NCR_700_intr(int irq, void *dev_id)
 		}
 
 		
+		/* NOTE: selection interrupt processing MUST occur
+		 * after script interrupt processing to correctly cope
+		 * with the case where we process a disconnect and
+		 * then get reselected before we process the
+		 * disconnection */
 		if(sstat0 & SELECTED) {
+			/* FIXME: It currently takes at least FOUR
+			 * interrupts to complete a command that
+			 * disconnects: one for the disconnect, one
+			 * for the reselection, one to get the
+			 * reselection data and one to complete the
+			 * command.  If we guess the reselected
+			 * command here and prepare it, we only need
+			 * to get a reselection data interrupt if we
+			 * guessed wrongly.  Since the interrupt
+			 * overhead is much greater than the command
+			 * setup, this would be an efficient
+			 * optimisation particularly as we probably
+			 * only have one outstanding command on a
+			 * target most of the time */
 
 			resume_offset = process_selection(host, dsp);
 
@@ -1485,10 +1717,17 @@ NCR_700_intr(int irq, void *dev_id)
 		NCR_700_clear_fifo(host);
 		NCR_700_writel(resume_offset, host, DSP_REG);
 	} 
+	/* There is probably a technical no-no about this: If we're a
+	 * shared interrupt and we got this interrupt because the
+	 * other device needs servicing not us, we're still going to
+	 * check our queued commands here---of course, there shouldn't
+	 * be any outstanding.... */
 	if(hostdata->state == NCR_700_HOST_FREE) {
 		int i;
 
 		for(i = 0; i < NCR_700_COMMAND_SLOTS_PER_HOST; i++) {
+			/* fairness: always run the queue from the last
+			 * position we left off */
 			int j = (i + hostdata->saved_slot_position)
 				% NCR_700_COMMAND_SLOTS_PER_HOST;
 			
@@ -1519,9 +1758,17 @@ NCR_700_queuecommand_lck(struct scsi_cmnd *SCp, void (*done)(struct scsi_cmnd *)
 	struct NCR_700_command_slot *slot;
 
 	if(hostdata->command_slot_count >= NCR_700_COMMAND_SLOTS_PER_HOST) {
+		/* We're over our allocation, this should never happen
+		 * since we report the max allocation to the mid layer */
 		printk(KERN_WARNING "scsi%d: Command depth has gone over queue depth\n", SCp->device->host->host_no);
 		return 1;
 	}
+	/* check for untagged commands.  We cannot have any outstanding
+	 * commands if we accept them.  Commands could be untagged because:
+	 *
+	 * - The tag negotiated bitmap is clear
+	 * - The blk layer sent and untagged command
+	 */
 	if(NCR_700_get_depth(SCp->device) != 0
 	   && (!(hostdata->tag_negotiated & (1<<scmd_id(SCp)))
 	       || !blk_rq_tagged(SCp->request))) {
@@ -1536,7 +1783,9 @@ NCR_700_queuecommand_lck(struct scsi_cmnd *SCp, void (*done)(struct scsi_cmnd *)
 	}
 	NCR_700_set_depth(SCp->device, NCR_700_get_depth(SCp->device) + 1);
 
-	
+	/* begin the command here */
+	/* no need to check for NULL, test for command_slot_count above
+	 * ensures a slot is free */
 	slot = find_empty_slot(hostdata);
 
 	slot->cmnd = SCp;
@@ -1558,6 +1807,12 @@ NCR_700_queuecommand_lck(struct scsi_cmnd *SCp, void (*done)(struct scsi_cmnd *)
 		NCR_700_set_tag_neg_state(SCp->device, NCR_700_DURING_TAG_NEGOTIATION);
 	}
 
+	/* here we may have to process an untagged command.  The gate
+	 * above ensures that this will be the only one outstanding,
+	 * so clear the tag negotiated bit.
+	 *
+	 * FIXME: This will royally screw up on multiple LUN devices
+	 * */
 	if(!blk_rq_tagged(SCp->request)
 	   && (hostdata->tag_negotiated &(1<<scmd_id(SCp)))) {
 		scmd_printk(KERN_INFO, SCp, "Disabling Tag Command Queuing\n");
@@ -1571,9 +1826,11 @@ NCR_700_queuecommand_lck(struct scsi_cmnd *SCp, void (*done)(struct scsi_cmnd *)
 		       slot->tag, slot);
 	} else {
 		slot->tag = SCSI_NO_TAG;
-		
+		/* must populate current_cmnd for scsi_find_tag to work */
 		SCp->device->current_cmnd = SCp;
 	}
+	/* sanity check: some of the commands generated by the mid-layer
+	 * have an eccentric idea of their sc_data_direction */
 	if(!scsi_sg_count(SCp) && !scsi_bufflen(SCp) &&
 	   SCp->sc_data_direction != DMA_NONE) {
 #ifdef NCR_700_DEBUG
@@ -1586,11 +1843,11 @@ NCR_700_queuecommand_lck(struct scsi_cmnd *SCp, void (*done)(struct scsi_cmnd *)
 
 	switch (SCp->cmnd[0]) {
 	case REQUEST_SENSE:
-		
+		/* clear the internal sense magic */
 		SCp->cmnd[6] = 0;
-		
+		/* fall through */
 	default:
-		
+		/* OK, get it from the command */
 		switch(SCp->sc_data_direction) {
 		case DMA_BIDIRECTIONAL:
 		default:
@@ -1611,7 +1868,7 @@ NCR_700_queuecommand_lck(struct scsi_cmnd *SCp, void (*done)(struct scsi_cmnd *)
 		}
 	}
 
-	
+	/* now build the scatter gather list */
 	direction = SCp->sc_data_direction;
 	if(move_ins != 0) {
 		int i;
@@ -1660,11 +1917,21 @@ NCR_700_abort(struct scsi_cmnd * SCp)
 	slot = (struct NCR_700_command_slot *)SCp->host_scribble;
 
 	if(slot == NULL)
-		
+		/* no outstanding command to abort */
 		return SUCCESS;
 	if(SCp->cmnd[0] == TEST_UNIT_READY) {
+		/* FIXME: This is because of a problem in the new
+		 * error handler.  When it is in error recovery, it
+		 * will send a TUR to a device it thinks may still be
+		 * showing a problem.  If the TUR isn't responded to,
+		 * it will abort it and mark the device off line.
+		 * Unfortunately, it does no other error recovery, so
+		 * this would leave us with an outstanding command
+		 * occupying a slot.  Rather than allow this to
+		 * happen, we issue a bus reset to force all
+		 * outstanding commands to terminate here. */
 		NCR_700_internal_bus_reset(SCp->device->host);
-		
+		/* still drop through and return failed */
 	}
 	return FAILED;
 
@@ -1681,6 +1948,9 @@ NCR_700_bus_reset(struct scsi_cmnd * SCp)
 		"New error handler wants BUS reset, cmd %p\n\t", SCp);
 	scsi_print_command(SCp);
 
+	/* In theory, eh_complete should always be null because the
+	 * eh is single threaded, but just in case we're handling a
+	 * reset via sg or something */
 	spin_lock_irq(SCp->device->host->host_lock);
 	while (hostdata->eh_complete != NULL) {
 		spin_unlock_irq(SCp->device->host->host_lock);
@@ -1696,7 +1966,7 @@ NCR_700_bus_reset(struct scsi_cmnd * SCp)
 	spin_lock_irq(SCp->device->host->host_lock);
 
 	hostdata->eh_complete = NULL;
-	
+	/* Revalidate the transport parameters of the failing device */
 	if(hostdata->fast)
 		spi_schedule_dv_device(SCp->device);
 
@@ -1754,7 +2024,7 @@ NCR_700_set_offset(struct scsi_target *STp, int offset)
 	if(offset > max_offset)
 		offset = max_offset;
 
-	
+	/* if we're currently async, make sure the period is reasonable */
 	if(spi_offset(STp) == 0 && (spi_period(STp) < hostdata->min_period ||
 				    spi_period(STp) > 0xff))
 		spi_period(STp) = hostdata->min_period;
@@ -1783,17 +2053,17 @@ NCR_700_slave_configure(struct scsi_device *SDp)
 	struct NCR_700_Host_Parameters *hostdata = 
 		(struct NCR_700_Host_Parameters *)SDp->host->hostdata[0];
 
-	
+	/* to do here: allocate memory; build a queue_full list */
 	if(SDp->tagged_supported) {
 		scsi_set_tag_type(SDp, MSG_ORDERED_TAG);
 		scsi_activate_tcq(SDp, NCR_700_DEFAULT_TAGS);
 		NCR_700_set_tag_neg_state(SDp, NCR_700_START_TAG_NEGOTIATION);
 	} else {
-		
+		/* initialise to default depth */
 		scsi_adjust_queue_depth(SDp, 0, SDp->host->cmd_per_lun);
 	}
 	if(hostdata->fast) {
-		
+		/* Find the correct offset and period via domain validation */
 		if (!spi_initial_dv(SDp->sdev_target))
 			spi_dv_device(SDp);
 	} else {
@@ -1832,13 +2102,21 @@ static int NCR_700_change_queue_type(struct scsi_device *SDp, int tag_type)
 
 	scsi_set_tag_type(SDp, tag_type);
 
+	/* We have a global (per target) flag to track whether TCQ is
+	 * enabled, so we'll be turning it off for the entire target here.
+	 * our tag algorithm will fail if we mix tagged and untagged commands,
+	 * so quiesce the device before doing this */
 	if (change_tag)
 		scsi_target_quiesce(SDp->sdev_target);
 
 	if (!tag_type) {
+		/* shift back to the default unqueued number of commands
+		 * (the user can still raise this) */
 		scsi_deactivate_tcq(SDp, SDp->host->cmd_per_lun);
 		hostdata->tag_negotiated &= ~(1 << sdev_id(SDp));
 	} else {
+		/* Here, we cleared the negotiation flag above, so this
+		 * will force the driver to renegotiate */
 		scsi_activate_tcq(SDp, SDp->queue_depth);
 		if (change_tag)
 			NCR_700_set_tag_neg_state(SDp, NCR_700_START_TAG_NEGOTIATION);

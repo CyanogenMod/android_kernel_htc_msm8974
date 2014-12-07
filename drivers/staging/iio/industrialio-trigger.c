@@ -21,12 +21,26 @@
 #include "iio_core_trigger.h"
 #include "trigger_consumer.h"
 
+/* RFC - Question of approach
+ * Make the common case (single sensor single trigger)
+ * simple by starting trigger capture from when first sensors
+ * is added.
+ *
+ * Complex simultaneous start requires use of 'hold' functionality
+ * of the trigger. (not implemented)
+ *
+ * Any other suggestions?
+ */
 
 static DEFINE_IDA(iio_trigger_ida);
 
+/* Single list of all available triggers */
 static LIST_HEAD(iio_trigger_list);
 static DEFINE_MUTEX(iio_trigger_list_lock);
 
+/**
+ * iio_trigger_read_name() - retrieve useful identifying name
+ **/
 static ssize_t iio_trigger_read_name(struct device *dev,
 				     struct device_attribute *attr,
 				     char *buf)
@@ -37,6 +51,12 @@ static ssize_t iio_trigger_read_name(struct device *dev,
 
 static DEVICE_ATTR(name, S_IRUGO, iio_trigger_read_name, NULL);
 
+/**
+ * iio_trigger_register_sysfs() - create a device for this trigger
+ * @trig_info:	the trigger
+ *
+ * Also adds any control attribute registered by the trigger driver
+ **/
 static int iio_trigger_register_sysfs(struct iio_trigger *trig_info)
 {
 	return sysfs_add_file_to_group(&trig_info->dev.kobj,
@@ -60,7 +80,7 @@ int iio_trigger_register(struct iio_trigger *trig_info)
 		ret = trig_info->id;
 		goto error_ret;
 	}
-	
+	/* Set the name used for the sysfs directory etc */
 	dev_set_name(&trig_info->dev, "trigger%ld",
 		     (unsigned long) trig_info->id);
 
@@ -72,7 +92,7 @@ int iio_trigger_register(struct iio_trigger *trig_info)
 	if (ret)
 		goto error_device_del;
 
-	
+	/* Add to list of available triggers held by the IIO core */
 	mutex_lock(&iio_trigger_list_lock);
 	list_add_tail(&trig_info->list, &iio_trigger_list);
 	mutex_unlock(&iio_trigger_list_lock);
@@ -96,7 +116,7 @@ void iio_trigger_unregister(struct iio_trigger *trig_info)
 
 	iio_trigger_unregister_sysfs(trig_info);
 	ida_simple_remove(&iio_trigger_ida, trig_info->id);
-	
+	/* Possible issue in here */
 	device_unregister(&trig_info->dev);
 }
 EXPORT_SYMBOL(iio_trigger_unregister);
@@ -153,11 +173,12 @@ void iio_trigger_notify_done(struct iio_trigger *trig)
 	trig->use_count--;
 	if (trig->use_count == 0 && trig->ops && trig->ops->try_reenable)
 		if (trig->ops->try_reenable(trig))
-			
+			/* Missed and interrupt so launch new poll now */
 			iio_trigger_poll(trig, 0);
 }
 EXPORT_SYMBOL(iio_trigger_notify_done);
 
+/* Trigger Consumer related functions */
 static int iio_trigger_get_irq(struct iio_trigger *trig)
 {
 	int ret;
@@ -179,6 +200,13 @@ static void iio_trigger_put_irq(struct iio_trigger *trig, int irq)
 	mutex_unlock(&trig->pool_lock);
 }
 
+/* Complexity in here.  With certain triggers (datardy) an acknowledgement
+ * may be needed if the pollfuncs do not include the data read for the
+ * triggering device.
+ * This is not currently handled.  Alternative of not enabling trigger unless
+ * the relevant function is in there may be the best option.
+ */
+/* Worth protecting against double additions?*/
 static int iio_trigger_attach_poll_func(struct iio_trigger *trig,
 					struct iio_poll_func *pf)
 {
@@ -186,7 +214,7 @@ static int iio_trigger_attach_poll_func(struct iio_trigger *trig,
 	bool notinuse
 		= bitmap_empty(trig->pool, CONFIG_IIO_CONSUMERS_PER_TRIGGER);
 
-	
+	/* Prevent the module being removed whilst attached to a trigger */
 	__module_get(pf->indio_dev->info->driver_module);
 	pf->irq = iio_trigger_get_irq(trig);
 	ret = request_threaded_irq(pf->irq, pf->h, pf->thread,
@@ -272,6 +300,12 @@ void iio_dealloc_pollfunc(struct iio_poll_func *pf)
 }
 EXPORT_SYMBOL_GPL(iio_dealloc_pollfunc);
 
+/**
+ * iio_trigger_read_current() - trigger consumer sysfs query which trigger
+ *
+ * For trigger consumers the current_trigger interface allows the trigger
+ * used by the device to be queried.
+ **/
 static ssize_t iio_trigger_read_current(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
@@ -283,6 +317,13 @@ static ssize_t iio_trigger_read_current(struct device *dev,
 	return 0;
 }
 
+/**
+ * iio_trigger_write_current() trigger consumer sysfs set current trigger
+ *
+ * For trigger consumers the current_trigger interface allows the trigger
+ * used for this device to be specified at run time based on the triggers
+ * name.
+ **/
 static ssize_t iio_trigger_write_current(struct device *dev,
 					 struct device_attribute *attr,
 					 const char *buf,
@@ -448,7 +489,7 @@ void iio_device_register_trigger_consumer(struct iio_dev *indio_dev)
 
 void iio_device_unregister_trigger_consumer(struct iio_dev *indio_dev)
 {
-	
+	/* Clean up and associated but not attached triggers references */
 	if (indio_dev->trig)
 		iio_put_trigger(indio_dev->trig);
 }

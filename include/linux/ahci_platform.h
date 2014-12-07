@@ -30,4 +30,4 @@ struct ahci_platform_data {
 	unsigned int mask_port_map;
 };
 
-#endif 
+#endif /* _AHCI_PLATFORM_H */

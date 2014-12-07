@@ -3,4 +3,4 @@
 
 #include <asm-generic/socket.h>
 
-#endif 
+#endif /* _ASM_SCORE_SOCKET_H */

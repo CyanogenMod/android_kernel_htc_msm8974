@@ -19,7 +19,7 @@
 
 struct gpiomux {
 	struct i2c_adapter *parent;
-	struct i2c_adapter **adap; 
+	struct i2c_adapter **adap; /* child busses */
 	struct gpio_i2cmux_platform_data data;
 };
 

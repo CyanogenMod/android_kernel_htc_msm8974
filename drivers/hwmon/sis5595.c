@@ -23,6 +23,32 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*
+ * SiS southbridge has a LM78-like chip integrated on the same IC.
+ * This driver is a customized copy of lm78.c
+ *
+ * Supports following revisions:
+ *	Version		PCI ID		PCI Revision
+ *	1		1039/0008	AF or less
+ *	2		1039/0008	B0 or greater
+ *
+ *  Note: these chips contain a 0008 device which is incompatible with the
+ *	 5595. We recognize these by the presence of the listed
+ *	 "blacklist" PCI ID and refuse to load.
+ *
+ * NOT SUPPORTED	PCI ID		BLACKLIST PCI ID
+ *	 540		0008		0540
+ *	 550		0008		0550
+ *	5513		0008		5511
+ *	5581		0008		5597
+ *	5582		0008		5597
+ *	5597		0008		5597
+ *	5598		0008		5597/5598
+ *	 630		0008		0630
+ *	 645		0008		0645
+ *	 730		0008		0730
+ *	 735		0008		0735
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -42,6 +68,10 @@
 #include <linux/io.h>
 
 
+/*
+ * If force_addr is set to anything different from 0, we forcibly enable
+ * the device at the given address.
+ */
 static u16 force_addr;
 module_param(force_addr, ushort, 0);
 MODULE_PARM_DESC(force_addr,
@@ -49,15 +79,20 @@ MODULE_PARM_DESC(force_addr,
 
 static struct platform_device *pdev;
 
+/* Many SIS5595 constants specified below */
 
+/* Length of ISA address segment */
 #define SIS5595_EXTENT 8
+/* PCI Config Registers */
 #define SIS5595_BASE_REG 0x68
 #define SIS5595_PIN_REG 0x7A
 #define SIS5595_ENABLE_REG 0x7B
 
+/* Where are the ISA address/data registers relative to the base address */
 #define SIS5595_ADDR_REG_OFFSET 5
 #define SIS5595_DATA_REG_OFFSET 6
 
+/* The SIS5595 registers */
 #define SIS5595_REG_IN_MAX(nr) (0x2b + (nr) * 2)
 #define SIS5595_REG_IN_MIN(nr) (0x2c + (nr) * 2)
 #define SIS5595_REG_IN(nr) (0x20 + (nr))
@@ -65,6 +100,13 @@ static struct platform_device *pdev;
 #define SIS5595_REG_FAN_MIN(nr) (0x3b + (nr))
 #define SIS5595_REG_FAN(nr) (0x28 + (nr))
 
+/*
+ * On the first version of the chip, the temp registers are separate.
+ * On the second version,
+ * TEMP pin is shared with IN4, configured in PCI register 0x7A.
+ * The registers are the same as well.
+ * OVER and HYST are really MAX and MIN.
+ */
 
 #define REV2MIN	0xb0
 #define SIS5595_REG_TEMP	(((data->revision) >= REV2MIN) ? \
@@ -79,7 +121,15 @@ static struct platform_device *pdev;
 #define SIS5595_REG_ALARM2 0x42
 #define SIS5595_REG_FANDIV 0x47
 
+/*
+ * Conversions. Limit checking is only done on the TO_REG
+ * variants.
+ */
 
+/*
+ * IN: mV, (0V to 4.08V)
+ * REG: 16mV/bit
+ */
 static inline u8 IN_TO_REG(unsigned long val)
 {
 	unsigned long nval = SENSORS_LIMIT(val, 0, 4080);
@@ -99,6 +149,10 @@ static inline int FAN_FROM_REG(u8 val, int div)
 	return val == 0 ? -1 : val == 255 ? 0 : 1350000 / (val * div);
 }
 
+/*
+ * TEMP: mC (-54.12C to +157.53C)
+ * REG: 0.83C/bit + 52.12, two's complement
+ */
 static inline int TEMP_FROM_REG(s8 val)
 {
 	return val * 830 + 52120;
@@ -109,12 +163,20 @@ static inline s8 TEMP_TO_REG(int val)
 	return nval < 0 ? (nval - 5212 - 415) / 830 : (nval - 5212 + 415) / 830;
 }
 
+/*
+ * FAN DIV: 1, 2, 4, or 8 (defaults to 2)
+ * REG: 0, 1, 2, or 3 (respectively) (defaults to 1)
+ */
 static inline u8 DIV_TO_REG(int val)
 {
 	return val == 8 ? 3 : val == 4 ? 2 : val == 1 ? 0 : 1;
 }
 #define DIV_FROM_REG(val) (1 << (val))
 
+/*
+ * For each registered chip, we need to keep some data in memory.
+ * The structure is dynamically allocated.
+ */
 struct sis5595_data {
 	unsigned short addr;
 	const char *name;
@@ -122,24 +184,24 @@ struct sis5595_data {
 	struct mutex lock;
 
 	struct mutex update_lock;
-	char valid;		
-	unsigned long last_updated;	
-	char maxins;		
-	u8 revision;		
+	char valid;		/* !=0 if following fields are valid */
+	unsigned long last_updated;	/* In jiffies */
+	char maxins;		/* == 3 if temp enabled, otherwise == 4 */
+	u8 revision;		/* Reg. value */
 
-	u8 in[5];		
-	u8 in_max[5];		
-	u8 in_min[5];		
-	u8 fan[2];		
-	u8 fan_min[2];		
-	s8 temp;		
-	s8 temp_over;		
-	s8 temp_hyst;		
-	u8 fan_div[2];		
-	u16 alarms;		
+	u8 in[5];		/* Register value */
+	u8 in_max[5];		/* Register value */
+	u8 in_min[5];		/* Register value */
+	u8 fan[2];		/* Register value */
+	u8 fan_min[2];		/* Register value */
+	s8 temp;		/* Register value */
+	s8 temp_over;		/* Register value */
+	s8 temp_hyst;		/* Register value */
+	u8 fan_div[2];		/* Register encoding, shifted right */
+	u16 alarms;		/* Register encoding, combined */
 };
 
-static struct pci_dev *s_bridge;	
+static struct pci_dev *s_bridge;	/* pointer to the (only) sis5595 */
 
 static int sis5595_probe(struct platform_device *pdev);
 static int __devexit sis5595_remove(struct platform_device *pdev);
@@ -158,6 +220,7 @@ static struct platform_driver sis5595_driver = {
 	.remove		= __devexit_p(sis5595_remove),
 };
 
+/* 4 Voltages */
 static ssize_t show_in(struct device *dev, struct device_attribute *da,
 		       char *buf)
 {
@@ -239,6 +302,7 @@ show_in_offset(2);
 show_in_offset(3);
 show_in_offset(4);
 
+/* Temperature */
 static ssize_t show_temp(struct device *dev, struct device_attribute *attr,
 			 char *buf)
 {
@@ -302,6 +366,7 @@ static DEVICE_ATTR(temp1_max, S_IRUGO | S_IWUSR,
 static DEVICE_ATTR(temp1_max_hyst, S_IRUGO | S_IWUSR,
 		show_temp_hyst, set_temp_hyst);
 
+/* 2 Fans */
 static ssize_t show_fan(struct device *dev, struct device_attribute *da,
 			char *buf)
 {
@@ -351,6 +416,12 @@ static ssize_t show_fan_div(struct device *dev, struct device_attribute *da,
 	return sprintf(buf, "%d\n", DIV_FROM_REG(data->fan_div[nr]));
 }
 
+/*
+ * Note: we save and restore the fan minimum here, because its value is
+ * determined in part by the fan divisor.  This follows the principle of
+ * least surprise; the user doesn't expect the fan minimum to change just
+ * because the divisor changed.
+ */
 static ssize_t set_fan_div(struct device *dev, struct device_attribute *da,
 			   const char *buf, size_t count)
 {
@@ -418,6 +489,7 @@ static SENSOR_DEVICE_ATTR(fan##offset##_div, S_IRUGO | S_IWUSR,		\
 show_fan_offset(1);
 show_fan_offset(2);
 
+/* Alarms */
 static ssize_t show_alarms(struct device *dev, struct device_attribute *attr,
 			   char *buf)
 {
@@ -510,6 +582,7 @@ static const struct attribute_group sis5595_group_temp1 = {
 	.attrs = sis5595_attributes_temp1,
 };
 
+/* This is called when the module is loaded */
 static int __devinit sis5595_probe(struct platform_device *pdev)
 {
 	int err = 0;
@@ -518,7 +591,7 @@ static int __devinit sis5595_probe(struct platform_device *pdev)
 	struct resource *res;
 	char val;
 
-	
+	/* Reserve the ISA region */
 	res = platform_get_resource(pdev, IORESOURCE_IO, 0);
 	if (!request_region(res->start, SIS5595_EXTENT,
 			    sis5595_driver.driver.name)) {
@@ -538,26 +611,29 @@ static int __devinit sis5595_probe(struct platform_device *pdev)
 	data->name = "sis5595";
 	platform_set_drvdata(pdev, data);
 
+	/*
+	 * Check revision and pin registers to determine whether 4 or 5 voltages
+	 */
 	data->revision = s_bridge->revision;
-	
+	/* 4 voltages, 1 temp */
 	data->maxins = 3;
 	if (data->revision >= REV2MIN) {
 		pci_read_config_byte(s_bridge, SIS5595_PIN_REG, &val);
 		if (!(val & 0x80))
-			
+			/* 5 voltages, no temps */
 			data->maxins = 4;
 	}
 
-	
+	/* Initialize the SIS5595 chip */
 	sis5595_init_device(data);
 
-	
+	/* A few vars need to be filled upon startup */
 	for (i = 0; i < 2; i++) {
 		data->fan_min[i] = sis5595_read_value(data,
 					SIS5595_REG_FAN_MIN(i));
 	}
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&pdev->dev.kobj, &sis5595_group);
 	if (err)
 		goto exit_free;
@@ -608,6 +684,7 @@ static int __devexit sis5595_remove(struct platform_device *pdev)
 }
 
 
+/* ISA access must be locked explicitly. */
 static int sis5595_read_value(struct sis5595_data *data, u8 reg)
 {
 	int res;
@@ -627,6 +704,7 @@ static void sis5595_write_value(struct sis5595_data *data, u8 reg, u8 value)
 	mutex_unlock(&data->lock);
 }
 
+/* Called when we have found a new SIS5595. */
 static void __devinit sis5595_init_device(struct sis5595_data *data)
 {
 	u8 config = sis5595_read_value(data, SIS5595_REG_CONFIG);
@@ -699,7 +777,11 @@ static int blacklist[] __devinitdata = {
 	PCI_DEVICE_ID_SI_645,
 	PCI_DEVICE_ID_SI_730,
 	PCI_DEVICE_ID_SI_735,
-	PCI_DEVICE_ID_SI_5511, 
+	PCI_DEVICE_ID_SI_5511, /*
+				* 5513 chip has the 0008 device but
+				* that ID shows up in other chips so we
+				* use the 5511 ID for recognition
+				*/
 	PCI_DEVICE_ID_SI_5597,
 	PCI_DEVICE_ID_SI_5598,
 	0 };
@@ -783,7 +865,7 @@ static int __devinit sis5595_pci_probe(struct pci_dev *dev,
 		return -ENODEV;
 	}
 	if (force_addr && address != force_addr) {
-		
+		/* doesn't work for some chips? */
 		dev_err(&dev->dev, "Failed to force ISA address\n");
 		return -ENODEV;
 	}
@@ -800,7 +882,7 @@ static int __devinit sis5595_pci_probe(struct pci_dev *dev,
 		 || (PCIBIOS_SUCCESSFUL !=
 		     pci_read_config_byte(dev, SIS5595_ENABLE_REG, &enable))
 		 || (!(enable & 0x80))) {
-			
+			/* doesn't work for some chips! */
 			dev_err(&dev->dev, "Failed to enable HWM device\n");
 			return -ENODEV;
 		}
@@ -812,10 +894,15 @@ static int __devinit sis5595_pci_probe(struct pci_dev *dev,
 	}
 
 	s_bridge = pci_dev_get(dev);
-	
+	/* Sets global pdev as a side effect */
 	if (sis5595_device_add(address))
 		goto exit_unregister;
 
+	/*
+	 * Always return failure here.  This is to allow other drivers to bind
+	 * to this pci device.  We don't really want to have control over the
+	 * pci device, we only wanted to read as few register values from it.
+	 */
 	return -ENODEV;
 
 exit_unregister:

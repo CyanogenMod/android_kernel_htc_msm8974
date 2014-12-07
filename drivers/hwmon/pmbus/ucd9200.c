@@ -93,6 +93,12 @@ static int ucd9200_probe(struct i2c_client *client,
 		return ret;
 	}
 
+	/*
+	 * Calculate number of configured pages (rails) from PHASE_INFO
+	 * register.
+	 * Rails have to be sequential, so we can abort after finding
+	 * the first unconfigured rail.
+	 */
 	info->pages = 0;
 	for (i = 0; i < ret; i++) {
 		if (!block_buffer[i])
@@ -105,7 +111,19 @@ static int ucd9200_probe(struct i2c_client *client,
 	}
 	dev_info(&client->dev, "%d rails configured\n", info->pages);
 
+	/*
+	 * Set PHASE registers on all pages to 0xff to ensure that phase
+	 * specific commands will apply to all phases of a given page (rail).
+	 * This only affects the READ_IOUT and READ_TEMPERATURE2 registers.
+	 * READ_IOUT will return the sum of currents of all phases of a rail,
+	 * and READ_TEMPERATURE2 will return the maximum temperature detected
+	 * for the the phases of the rail.
+	 */
 	for (i = 0; i < info->pages; i++) {
+		/*
+		 * Setting PAGE & PHASE fails once in a while for no obvious
+		 * reason, so we need to retry a couple of times.
+		 */
 		for (j = 0; j < 3; j++) {
 			ret = i2c_smbus_write_byte_data(client, PMBUS_PAGE, i);
 			if (ret < 0)
@@ -138,13 +156,14 @@ static int ucd9200_probe(struct i2c_client *client,
 			PMBUS_HAVE_POUT |
 			PMBUS_HAVE_TEMP2 | PMBUS_HAVE_STATUS_TEMP;
 
-	
+	/* ucd9240 supports a single fan */
 	if (mid->driver_data == ucd9240)
 		info->func[0] |= PMBUS_HAVE_FAN12 | PMBUS_HAVE_STATUS_FAN12;
 
 	return pmbus_do_probe(client, mid, info);
 }
 
+/* This is the driver that will be inserted */
 static struct i2c_driver ucd9200_driver = {
 	.driver = {
 		.name = "ucd9200",

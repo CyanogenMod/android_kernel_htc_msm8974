@@ -67,6 +67,7 @@
 #define CONFIG_RBPL_BUFSIZE	4096
 #define RBPL_MASK(x)		(((unsigned long)(x))&((CONFIG_RBPL_SIZE<<3)-1))
 
+/* 5.1.3 initialize connection memory */
 
 #define CONFIG_RSRA		0x00000
 #define CONFIG_RCMLBM		0x08000
@@ -82,6 +83,7 @@
 
 #define HE_MAXCIDBITS		12
 
+/* 2.9.3.3 interrupt encodings */
 
 struct he_irq {
 	volatile u32 isw;
@@ -109,10 +111,11 @@ struct he_irq {
 
 #define HE_NUM_GROUPS 8
 
+/* 2.1.4 transmit packet descriptor */
 
 struct he_tpd {
 
-	
+	/* read by the adapter */
 
 	volatile u32 status;
 	volatile u32 reserved;
@@ -125,7 +128,7 @@ struct he_tpd {
 #define address0 iovec[0].addr
 #define length0 iovec[0].len
 
-	
+	/* linux-atm extensions */
 
 	struct sk_buff *skb;
 	struct atm_vcc *vcc;
@@ -142,6 +145,7 @@ struct he_tpd {
 #define TPD_INDEX(x)	(TPD_ADDR(x) >> TPD_ADDR_SHIFT)
 
 
+/* table 2.3 transmit buffer return elements */
 
 struct he_tbrq {
 	volatile u32 tbre;
@@ -153,6 +157,7 @@ struct he_tbrq {
 #define TBRQ_EOS(tbrq)		((tbrq)->tbre & (1<<3))
 #define TBRQ_MULTIPLE(tbrq)	((tbrq)->tbre & (1))
 
+/* table 2.21 receive buffer return queue element field organization */
 
 struct he_rbrq {
 	volatile u32 addr;
@@ -171,6 +176,7 @@ struct he_rbrq {
 #define RBRQ_CID(rbrq)		(((rbrq)->cidlen >> 16) & 0x1fff)
 #define RBRQ_BUFLEN(rbrq)	((rbrq)->cidlen & 0xffff)
 
+/* figure 2.3 transmit packet descriptor ready queue */
 
 struct he_tpdrq {
 	volatile u32 tpd;
@@ -179,8 +185,9 @@ struct he_tpdrq {
 
 #define TPDRQ_ALIGNMENT CONFIG_TPDRQ_SIZE
 
+/* table 2.30 host status page detail */
 
-#define HSP_ALIGNMENT	0x400		
+#define HSP_ALIGNMENT	0x400		/* must align on 1k boundary */
 
 struct he_hsp {
 	struct he_hsp_entry {
@@ -191,14 +198,25 @@ struct he_hsp {
 	} group[HE_NUM_GROUPS];
 };
 
+/*
+ * figure 2.9 receive buffer pools
+ *
+ * since a virtual address might be more than 32 bits, we store an index
+ * in the virt member of he_rbp.  NOTE: the lower six bits in the  rbrq
+ * addr member are used for buffer status further limiting us to 26 bits.
+ */
 
 struct he_rbp {
 	volatile u32 phys;
-	volatile u32 idx;	
+	volatile u32 idx;	/* virt */
 };
 
 #define RBP_IDX_OFFSET 6
 
+/*
+ * the he dma engine will try to hold an extra 16 buffers in its local
+ * caches.  and add a couple buffers for safety.
+ */
 
 #define RBPL_TABLE_SIZE (CONFIG_RBPL_SIZE + 16 + 2)
 
@@ -269,7 +287,8 @@ struct he_dev {
 	dma_addr_t tpdrq_phys;
 	struct he_tpdrq *tpdrq_base, *tpdrq_tail, *tpdrq_head;
 
-	spinlock_t global_lock;		
+	spinlock_t global_lock;		/* 8.1.5 pci transaction ordering
+					  error problem */
 	dma_addr_t rbrq_phys;
 	struct he_rbrq *rbrq_base, *rbrq_head;
 	int rbrq_peak;
@@ -321,7 +340,7 @@ struct he_vcc
 #define  IGNORE_TIMEOUT		(1<<1)
 #define  ENBL_64		(1<<0)
 
-#define MIN_PCI_LATENCY		32	
+#define MIN_PCI_LATENCY		32	/* errata 8.1.3 */
 
 #define HE_DEV(dev) ((struct he_dev *) (dev)->dev_data)
 
@@ -390,12 +409,13 @@ struct he_vcc
 
 #define IRQ0_BASE	0x80080
 #define  IRQ_BASE(x)		(x<<12)
-#define  IRQ_MASK		((CONFIG_IRQ_SIZE<<2)-1)	
+#define  IRQ_MASK		((CONFIG_IRQ_SIZE<<2)-1)	/* was 0x3ff */
 #define  IRQ_TAIL(x)		(((unsigned long)(x)) & IRQ_MASK)
 #define IRQ0_HEAD	0x80084
 #define  IRQ_SIZE(x)		(x<<22)
 #define  IRQ_THRESH(x)		(x<<12)
 #define  IRQ_HEAD(x)		(x<<2)
+/* #define  IRQ_PENDING		(1) 		conflict with linux/irq.h */
 #define IRQ0_CNTL	0x80088
 #define  IRQ_ADDRSEL(x)		(x<<2)
 #define  IRQ_INT_A		(0<<2)
@@ -513,6 +533,7 @@ struct he_vcc
 #define  RBRQ_TIME(x)		((x)<<8)
 #define  RBRQ_COUNT(x)		(x)
 
+/* fill in 1 ... 7 later */
 
 #define G0_TBRQ_B_T	0x80600
 #define G0_TBRQ_H	0x80604
@@ -520,6 +541,7 @@ struct he_vcc
 #define G0_TBRQ_THRESH	0x8060c
 #define  TBRQ_THRESH(x)		(x)
 
+/* fill in 1 ... 7 later */
 
 #define RH_CONFIG	0x805c0
 #define  PHY_INT_ENB	(1<<10)
@@ -648,25 +670,26 @@ struct he_vcc
 #define  CON_CTL_WRITE		(1<<29)
 #define  CON_CTL_READ		(0<<29)
 #define  CON_CTL_BUSY		(1<<28)
-#define  CON_BYTE_DISABLE_3	(1<<22)		
-#define  CON_BYTE_DISABLE_2	(1<<21)		
-#define  CON_BYTE_DISABLE_1	(1<<20)		
-#define  CON_BYTE_DISABLE_0	(1<<19)		
+#define  CON_BYTE_DISABLE_3	(1<<22)		/* 24..31 */
+#define  CON_BYTE_DISABLE_2	(1<<21)		/* 16..23 */
+#define  CON_BYTE_DISABLE_1	(1<<20)		/* 8..15 */
+#define  CON_BYTE_DISABLE_0	(1<<19)		/* 0..7 */
 #define  CON_CTL_ADDR(x)	(x)
 
-#define FRAMER		0x80800		
+#define FRAMER		0x80800		/* to 0x80bfc */
 
+/* 3.3 network controller (internal) mailbox registers */
 
 #define CS_STPER0	0x0
-	
+	/* ... */
 #define CS_STPER31	0x01f
 
 #define CS_STTIM0	0x020
-	
+	/* ... */
 #define CS_STTIM31	0x03f
 
 #define CS_TGRLD0	0x040
-	
+	/* ... */
 #define CS_TGRLD15	0x04f
 
 #define CS_ERTHR0	0x050
@@ -704,7 +727,7 @@ struct he_vcc
 #define CS_OTTCNT	0x083
 
 #define CS_HGRRT0	0x090
-	
+	/* ... */
 #define CS_HGRRT7	0x097
 
 #define CS_ORPTRS	0x0a0
@@ -712,9 +735,10 @@ struct he_vcc
 #define RXCON_CLOSE	0x100
 
 
-#define RCM_MEM_SIZE	0x10000		
-#define TCM_MEM_SIZE	0x20000		
+#define RCM_MEM_SIZE	0x10000		/* 1M of 32-bit registers */
+#define TCM_MEM_SIZE	0x20000		/* 2M of 32-bit registers */
 
+/* 2.5 transmit connection memory registers */
 
 #define TSR0_CONN_STATE(x)	((x>>28) & 0x7)
 #define TSR0_USE_WMIN		(1<<23)
@@ -764,6 +788,7 @@ struct he_vcc
 #define TSR14_DELETE		(1<<31)
 #define TSR14_ABR_CLOSE		(1<<16)
 
+/* 2.7.1 per connection receieve state registers */
 
 #define RSR0_START_PDU	(1<<10)
 #define RSR0_OPEN_CONN	(1<<6)
@@ -785,6 +810,7 @@ struct he_vcc
 #define RSR4_GROUP(x)	((x)<<27)
 #define RSR4_RBPL_ONLY	(1<<26)
 
+/* 2.1.4 transmit packet descriptor */
 
 #define	TPD_USERCELL		0x0
 #define	TPD_SEGMENT_OAMF5	0x4
@@ -796,23 +822,24 @@ struct he_vcc
 #define TPD_INT			(1<<0)
 #define TPD_LST		(1<<31)
 
+/* table 4.3 serial eeprom information */
 
-#define PROD_ID		0x08	
+#define PROD_ID		0x08	/* char[] */
 #define  PROD_ID_LEN	30
-#define HW_REV		0x26	
-#define M_SN		0x3a	
-#define MEDIA		0x3e	
+#define HW_REV		0x26	/* char[] */
+#define M_SN		0x3a	/* integer */
+#define MEDIA		0x3e	/* integer */
 #define  HE155MM	0x26
 #define  HE622MM	0x27
 #define  HE155SM	0x46
 #define  HE622SM	0x47
-#define MAC_ADDR	0x42	
+#define MAC_ADDR	0x42	/* char[] */
 
 #define CS_LOW		0x0
-#define CS_HIGH		ID_CS 
+#define CS_HIGH		ID_CS /* HOST_CNTL_ID_PROM_SEL */
 #define CLK_LOW		0x0
-#define CLK_HIGH	ID_CLOCK 
-#define SI_HIGH		ID_DIN 
-#define EEPROM_DELAY	400 
+#define CLK_HIGH	ID_CLOCK /* HOST_CNTL_ID_PROM_CLOCK */
+#define SI_HIGH		ID_DIN /* HOST_CNTL_ID_PROM_DATA_IN */
+#define EEPROM_DELAY	400 /* microseconds */
 
-#endif 
+#endif /* _HE_H_ */

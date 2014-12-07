@@ -15,6 +15,15 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
+/*
+ * Broadcom Common Firmware Environment (CFE)
+ *
+ * This file contains declarations for doing callbacks to
+ * cfe from an application.  It should be the only header
+ * needed by the application to use this library
+ *
+ * Authors:  Mitch Lichtenberg, Chris Demetriou
+ */
 #ifndef CFE_API_H
 #define CFE_API_H
 
@@ -24,11 +33,15 @@
 typedef long intptr_t;
 
 
+/*
+ * Constants
+ */
 
+/* Seal indicating CFE's presence, passed to user program. */
 #define CFE_EPTSEAL 0x43464531
 
-#define CFE_MI_RESERVED	0	
-#define CFE_MI_AVAILABLE 1	
+#define CFE_MI_RESERVED	0	/* memory is reserved, do not use */
+#define CFE_MI_AVAILABLE 1	/* memory is available */
 
 #define CFE_FLG_WARMSTART     0x00000001
 #define CFE_FLG_FULL_ARENA    0x00000001
@@ -63,18 +76,24 @@ typedef long intptr_t;
 #define CFE_FWI_RTLSIM		0x00000040
 
 typedef struct {
-	int64_t fwi_version;		
-	int64_t fwi_totalmem;		
-	int64_t fwi_flags;		
-	int64_t fwi_boardid;		
-	int64_t fwi_bootarea_va;	
-	int64_t fwi_bootarea_pa;	
-	int64_t fwi_bootarea_size;	
+	int64_t fwi_version;		/* major, minor, eco version */
+	int64_t fwi_totalmem;		/* total installed mem */
+	int64_t fwi_flags;		/* various flags */
+	int64_t fwi_boardid;		/* board ID */
+	int64_t fwi_bootarea_va;	/* VA of boot area */
+	int64_t fwi_bootarea_pa;	/* PA of boot area */
+	int64_t fwi_bootarea_size;	/* size of boot area */
 } cfe_fwinfo_t;
 
 
+/*
+ * Defines and prototypes for functions which take no arguments.
+ */
 int64_t cfe_getticks(void);
 
+/*
+ * Defines and prototypes for the rest of the functions.
+ */
 int cfe_close(int handle);
 int cfe_cpu_start(int cpu, void (*fn) (void), long sp, long gp, long a1);
 int cfe_cpu_stop(int cpu);
@@ -100,4 +119,4 @@ int cfe_write(int handle, unsigned char *buffer, int length);
 int cfe_writeblk(int handle, int64_t offset, unsigned char *buffer,
 		 int length);
 
-#endif				
+#endif				/* CFE_API_H */

@@ -10,6 +10,16 @@
 #ifndef EFX_MCDI_H
 #define EFX_MCDI_H
 
+/**
+ * enum efx_mcdi_state
+ * @MCDI_STATE_QUIESCENT: No pending MCDI requests. If the caller holds the
+ *	mcdi_lock then they are able to move to MCDI_STATE_RUNNING
+ * @MCDI_STATE_RUNNING: There is an MCDI request pending. Only the thread that
+ *	moved into this state is allowed to move out of it.
+ * @MCDI_STATE_COMPLETED: An MCDI request has completed, but the owning thread
+ *	has not yet consumed the result. For all other threads, equivalent to
+ *	MCDI_STATE_RUNNING.
+ */
 enum efx_mcdi_state {
 	MCDI_STATE_QUIESCENT,
 	MCDI_STATE_RUNNING,
@@ -21,6 +31,20 @@ enum efx_mcdi_mode {
 	MCDI_MODE_EVENTS,
 };
 
+/**
+ * struct efx_mcdi_iface
+ * @state: Interface state. Waited for by mcdi_wq.
+ * @wq: Wait queue for threads waiting for state != STATE_RUNNING
+ * @iface_lock: Protects @credits, @seqno, @resprc, @resplen
+ * @mode: Poll for mcdi completion, or wait for an mcdi_event.
+ *	Serialised by @lock
+ * @seqno: The next sequence number to use for mcdi requests.
+ *	Serialised by @lock
+ * @credits: Number of spurious MCDI completion events allowed before we
+ *	trigger a fatal error. Protected by @lock
+ * @resprc: Returned MCDI completion
+ * @resplen: Returned payload length
+ */
 struct efx_mcdi_iface {
 	atomic_t state;
 	wait_queue_head_t wq;
@@ -137,4 +161,4 @@ static inline int efx_mcdi_mon_probe(struct efx_nic *efx) { return 0; }
 static inline void efx_mcdi_mon_remove(struct efx_nic *efx) {}
 #endif
 
-#endif 
+#endif /* EFX_MCDI_H */

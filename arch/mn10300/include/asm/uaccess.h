@@ -11,6 +11,9 @@
 #ifndef _ASM_UACCESS_H
 #define _ASM_UACCESS_H
 
+/*
+ * User space memory access functions
+ */
 #include <linux/thread_info.h>
 #include <linux/kernel.h>
 #include <asm/page.h>
@@ -19,6 +22,13 @@
 #define VERIFY_READ 0
 #define VERIFY_WRITE 1
 
+/*
+ * The fs value determines whether argument validity checking should be
+ * performed or not.  If get_fs() == USER_DS, checking is performed, with
+ * get_fs() == KERNEL_DS, checking is bypassed.
+ *
+ * For historical reasons, these macros are grossly misnamed.
+ */
 #define MAKE_MM_SEG(s)	((mm_segment_t) { (s) })
 
 #define KERNEL_XDS	MAKE_MM_SEG(0xBFFFFFFF)
@@ -35,15 +45,18 @@
 #define __addr_ok(addr) \
 	((unsigned long)(addr) < (current_thread_info()->addr_limit.seg))
 
+/*
+ * check that a range of addresses falls within the current address limit
+ */
 static inline int ___range_ok(unsigned long addr, unsigned int size)
 {
 	int flag = 1, tmp;
 
-	asm("	add	%3,%1	\n"	
+	asm("	add	%3,%1	\n"	/* set C-flag if addr + size > 4Gb */
 	    "	bcs	0f	\n"
-	    "	cmp	%4,%1	\n"	
+	    "	cmp	%4,%1	\n"	/* jump if addr+size>limit (error) */
 	    "	bhi	0f	\n"
-	    "	clr	%0	\n"	
+	    "	clr	%0	\n"	/* mark okay */
 	    "0:			\n"
 	    : "=r"(flag), "=&r"(tmp)
 	    : "1"(addr), "ir"(size),
@@ -65,20 +78,43 @@ static inline int verify_area(int type, const void *addr, unsigned long size)
 }
 
 
+/*
+ * The exception table consists of pairs of addresses: the first is the
+ * address of an instruction that is allowed to fault, and the second is
+ * the address at which the program should continue.  No registers are
+ * modified, so it is entirely up to the continuation code to figure out
+ * what to do.
+ *
+ * All the routines below use bits of fixup code that are out of line
+ * with the main instruction path.  This means when everything is well,
+ * we don't even have to jump over them.  Further, they do not intrude
+ * on our cache or tlb entries.
+ */
 
 struct exception_table_entry
 {
 	unsigned long insn, fixup;
 };
 
+/* Returns 0 if exception not found and fixup otherwise.  */
 extern int fixup_exception(struct pt_regs *regs);
 
 #define put_user(x, ptr) __put_user_check((x), (ptr), sizeof(*(ptr)))
 #define get_user(x, ptr) __get_user_check((x), (ptr), sizeof(*(ptr)))
 
+/*
+ * The "__xxx" versions do not do address space checking, useful when
+ * doing multiple accesses to the same area (the user has to do the
+ * checks by hand with "access_ok()")
+ */
 #define __put_user(x, ptr) __put_user_nocheck((x), (ptr), sizeof(*(ptr)))
 #define __get_user(x, ptr) __get_user_nocheck((x), (ptr), sizeof(*(ptr)))
 
+/*
+ * The "xxx_ret" versions return constant specified in third argument, if
+ * something bad happens. These macros can be optimized for the
+ * case of just returning from the function xxx_ret is used.
+ */
 
 #define put_user_ret(x, ptr, ret) \
 	({ if (put_user((x), (ptr)))	return (ret); })
@@ -252,6 +288,10 @@ extern int __get_user_unknown(void);
 extern int __put_user_unknown(void);
 
 
+/*
+ * Copy To/From Userspace
+ */
+/* Generic arbitrary sized copy.  */
 #define __copy_user(to, from, size)					\
 do {									\
 	if (size) {							\
@@ -316,6 +356,9 @@ do {									\
 	}								\
 } while (0)
 
+/* We let the __ versions of copy_from/to_user inline, because they're often
+ * used in fast paths and have only a small space overhead.
+ */
 static inline
 unsigned long __generic_copy_from_user_nocheck(void *to, const void *from,
 					       unsigned long n)
@@ -335,6 +378,7 @@ unsigned long __generic_copy_to_user_nocheck(void *to, const void *from,
 
 #if 0
 #error "don't use - these macros don't increment to & from pointers"
+/* Optimize just a little bit when we know the size of the move. */
 #define __constant_copy_user(to, from, size)	\
 do {						\
 	asm volatile(				\
@@ -357,6 +401,7 @@ do {						\
 		: "d3", "a0");			\
 } while (0)
 
+/* Optimize just a little bit when we know the size of the move. */
 #define __constant_copy_user_zeroing(to, from, size)	\
 do {							\
 	asm volatile(					\
@@ -447,4 +492,4 @@ extern long strnlen_user(const char __user *str, long n);
 extern unsigned long clear_user(void __user *mem, unsigned long len);
 extern unsigned long __clear_user(void __user *mem, unsigned long len);
 
-#endif 
+#endif /* _ASM_UACCESS_H */

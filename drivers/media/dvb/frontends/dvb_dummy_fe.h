@@ -46,6 +46,6 @@ static inline struct dvb_frontend *dvb_dummy_fe_qam_attach(void)
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_DVB_DUMMY_FE */
 
-#endif 
+#endif // DVB_DUMMY_FE_H

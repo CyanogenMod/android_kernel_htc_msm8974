@@ -1,3 +1,4 @@
+/* $Id: os_pri.c,v 1.32 2004/03/21 17:26:01 armin Exp $ */
 
 #include "platform.h"
 #include "debuglib.h"
@@ -19,11 +20,19 @@
 #include "diva_dma.h"
 #include "dsrv_pri.h"
 
+/* --------------------------------------------------------------------------
+   OS Dependent part of XDI driver for DIVA PRI Adapter
+
+   DSP detection/validation by Anthony Booth (Eicon Networks, www.eicon.com)
+   -------------------------------------------------------------------------- */
 
 #define DIVA_PRI_NO_PCI_BIOS_WORKAROUND 1
 
 extern int diva_card_read_xlog(diva_os_xdi_adapter_t *a);
 
+/*
+**  IMPORTS
+*/
 extern void prepare_pri_functions(PISDN_ADAPTER IoAdapter);
 extern void prepare_pri2_functions(PISDN_ADAPTER IoAdapter);
 extern void diva_xdi_display_adapter_features(int card);
@@ -35,6 +44,9 @@ static int pri_get_serial_number(diva_os_xdi_adapter_t *a);
 static int diva_pri_stop_adapter(diva_os_xdi_adapter_t *a);
 static dword diva_pri_detect_dsps(diva_os_xdi_adapter_t *a);
 
+/*
+**  Check card revision
+*/
 static int pri_is_rev_2_card(int card_ordinal)
 {
 	switch (card_ordinal) {
@@ -73,6 +85,13 @@ static void diva_pri_set_addresses(diva_os_xdi_adapter_t *a)
 	a->xdi_adapter.prom = a->resources.pci.addr[3];
 }
 
+/*
+**  BAR0 - SDRAM, MP_MEMORY_SIZE, MP2_MEMORY_SIZE by Rev.2
+**  BAR1 - DEVICES,				0x1000
+**  BAR2 - CONTROL (REG), 0x2000
+**  BAR3 - FLASH (REG),		0x8000
+**  BAR4 - CONFIG (CFG),	0x1000
+*/
 int diva_pri_init_card(diva_os_xdi_adapter_t *a)
 {
 	int bar = 0;
@@ -90,9 +109,16 @@ int diva_pri_init_card(diva_os_xdi_adapter_t *a)
 	if (pri_rev_2) {
 		bar_length[0] = MP2_MEMORY_SIZE;
 	}
+	/*
+	  Set properties
+	*/
 	a->xdi_adapter.Properties = CardProperties[a->CardOrdinal];
 	DBG_LOG(("Load %s", a->xdi_adapter.Properties.Name))
 
+		/*
+		  First initialization step: get and check hardware resoures.
+		  Do not map resources and do not acecess card at this step
+		*/
 		for (bar = 0; bar < 5; bar++) {
 			a->resources.pci.bar[bar] =
 				divasa_get_pci_bar(a->resources.pci.bus,
@@ -114,6 +140,9 @@ int diva_pri_init_card(diva_os_xdi_adapter_t *a)
 		return (-1);
 	}
 
+	/*
+	  Map all BAR's
+	*/
 	for (bar = 0; bar < 5; bar++) {
 		a->resources.pci.addr[bar] =
 			divasa_remap_pci_bar(a, bar, a->resources.pci.bar[bar],
@@ -126,8 +155,14 @@ int diva_pri_init_card(diva_os_xdi_adapter_t *a)
 		}
 	}
 
+	/*
+	  Set all memory areas
+	*/
 	diva_pri_set_addresses(a);
 
+	/*
+	  Get Serial Number of this adapter
+	*/
 	if (pri_get_serial_number(a)) {
 		dword serNo;
 		serNo = a->resources.pci.bar[1] & 0xffff0000;
@@ -139,6 +174,9 @@ int diva_pri_init_card(diva_os_xdi_adapter_t *a)
 			}
 
 
+	/*
+	  Initialize os objects
+	*/
 	if (diva_os_initialize_spin_lock(&a->xdi_adapter.isr_spin_lock, "isr")) {
 		diva_pri_cleanup_adapter(a);
 		return (-1);
@@ -157,9 +195,16 @@ int diva_pri_init_card(diva_os_xdi_adapter_t *a)
 		return (-1);
 	}
 
+	/*
+	  Do not initialize second DPC - only one thread will be created
+	*/
 	a->xdi_adapter.isr_soft_isr.object =
 		a->xdi_adapter.req_soft_isr.object;
 
+	/*
+	  Next step of card initialization:
+	  set up all interface pointers
+	*/
 	a->xdi_adapter.Channels = CardProperties[a->CardOrdinal].Channels;
 	a->xdi_adapter.e_max = CardProperties[a->CardOrdinal].E_info;
 
@@ -184,11 +229,17 @@ int diva_pri_init_card(diva_os_xdi_adapter_t *a)
 
 	a->dsp_mask = diva_pri_detect_dsps(a);
 
+	/*
+	  Allocate DMA map
+	*/
 	if (pri_rev_2) {
 		diva_init_dma_map(a->resources.pci.hdev,
 				  (struct _diva_dma_map_entry **) &a->xdi_adapter.dma_map, 32);
 	}
 
+	/*
+	  Set IRQ handler
+	*/
 	a->xdi_adapter.irq_info.irq_nr = a->resources.pci.irq;
 	sprintf(a->xdi_adapter.irq_info.irq_name,
 		"DIVA PRI %ld", (long) a->xdi_adapter.serialNo);
@@ -210,15 +261,24 @@ static int diva_pri_cleanup_adapter(diva_os_xdi_adapter_t *a)
 {
 	int bar = 0;
 
+	/*
+	  Stop Adapter if adapter is running
+	*/
 	if (a->xdi_adapter.Initialized) {
 		diva_pri_stop_adapter(a);
 	}
 
+	/*
+	  Remove ISR Handler
+	*/
 	if (a->xdi_adapter.irq_info.registered) {
 		diva_os_remove_irq(a, a->xdi_adapter.irq_info.irq_nr);
 	}
 	a->xdi_adapter.irq_info.registered = 0;
 
+	/*
+	  Step 1: unmap all BAR's, if any was mapped
+	*/
 	for (bar = 0; bar < 5; bar++) {
 		if (a->resources.pci.bar[bar]
 		    && a->resources.pci.addr[bar]) {
@@ -228,6 +288,9 @@ static int diva_pri_cleanup_adapter(diva_os_xdi_adapter_t *a)
 		}
 	}
 
+	/*
+	  Free OS objects
+	*/
 	diva_os_cancel_soft_isr(&a->xdi_adapter.isr_soft_isr);
 	diva_os_cancel_soft_isr(&a->xdi_adapter.req_soft_isr);
 
@@ -237,6 +300,9 @@ static int diva_pri_cleanup_adapter(diva_os_xdi_adapter_t *a)
 	diva_os_destroy_spin_lock(&a->xdi_adapter.isr_spin_lock, "rm");
 	diva_os_destroy_spin_lock(&a->xdi_adapter.data_spin_lock, "rm");
 
+	/*
+	  Free memory accupied by XDI adapter
+	*/
 	if (a->xdi_adapter.e_tbl) {
 		diva_os_free(0, a->xdi_adapter.e_tbl);
 		a->xdi_adapter.e_tbl = NULL;
@@ -245,16 +311,25 @@ static int diva_pri_cleanup_adapter(diva_os_xdi_adapter_t *a)
 	a->xdi_adapter.e_max = 0;
 
 
+	/*
+	  Free adapter DMA map
+	*/
 	diva_free_dma_map(a->resources.pci.hdev,
 			  (struct _diva_dma_map_entry *) a->xdi_adapter.
 			  dma_map);
 	a->xdi_adapter.dma_map = NULL;
 
 
+	/*
+	  Detach this adapter from debug driver
+	*/
 
 	return (0);
 }
 
+/*
+**  Activate On Board Boot Loader
+*/
 static int diva_pri_reset_adapter(PISDN_ADAPTER IoAdapter)
 {
 	dword i;
@@ -296,6 +371,9 @@ static int diva_pri_reset_adapter(PISDN_ADAPTER IoAdapter)
 	}
 	DIVA_OS_MEM_DETACH_ADDRESS(IoAdapter, boot);
 
+	/*
+	  Forget all outstanding entities
+	*/
 	IoAdapter->e_count = 0;
 	if (IoAdapter->e_tbl) {
 		memset(IoAdapter->e_tbl, 0x00,
@@ -342,7 +420,7 @@ diva_pri_write_sdram_block(PISDN_ADAPTER IoAdapter,
 	}
 	mem += address;
 
-	
+	/* memcpy_toio(), maybe? */
 	while (length--) {
 		WRITE_BYTE(mem++, *data++);
 	}
@@ -411,6 +489,9 @@ diva_pri_start_adapter(PISDN_ADAPTER IoAdapter,
 
 	IoAdapter->Initialized = true;
 
+	/*
+	  Check Interrupt
+	*/
 	IoAdapter->IrqCount = 0;
 	p = DIVA_OS_MEM_ATTACH_CFG(IoAdapter);
 	WRITE_DWORD(p, (dword)~0x03E00000);
@@ -433,6 +514,9 @@ diva_pri_start_adapter(PISDN_ADAPTER IoAdapter,
 	diva_xdi_display_adapter_features(IoAdapter->ANum);
 
 	DBG_LOG(("A(%d) PRI adapter successfully started", IoAdapter->ANum))
+		/*
+		  Register with DIDD
+		*/
 		diva_xdi_didd_register_adapter(IoAdapter->ANum);
 
 	return (0);
@@ -442,16 +526,26 @@ static void diva_pri_clear_interrupts(diva_os_xdi_adapter_t *a)
 {
 	PISDN_ADAPTER IoAdapter = &a->xdi_adapter;
 
+	/*
+	  clear any pending interrupt
+	*/
 	IoAdapter->disIrq(IoAdapter);
 
 	IoAdapter->tst_irq(&IoAdapter->a);
 	IoAdapter->clr_irq(&IoAdapter->a);
 	IoAdapter->tst_irq(&IoAdapter->a);
 
+	/*
+	  kill pending dpcs
+	*/
 	diva_os_cancel_soft_isr(&IoAdapter->req_soft_isr);
 	diva_os_cancel_soft_isr(&IoAdapter->isr_soft_isr);
 }
 
+/*
+**  Stop Adapter, but do not unmap/unregister - adapter
+**  will be restarted later
+*/
 static int diva_pri_stop_adapter(diva_os_xdi_adapter_t *a)
 {
 	PISDN_ADAPTER IoAdapter = &a->xdi_adapter;
@@ -463,12 +557,18 @@ static int diva_pri_stop_adapter(diva_os_xdi_adapter_t *a)
 	if (!IoAdapter->Initialized) {
 		DBG_ERR(("A: A(%d) can't stop PRI adapter - not running",
 			 IoAdapter->ANum))
-			return (-1);	
+			return (-1);	/* nothing to stop */
 	}
 	IoAdapter->Initialized = 0;
 
+	/*
+	  Disconnect Adapter from DIDD
+	*/
 	diva_xdi_didd_remove_adapter(IoAdapter->ANum);
 
+	/*
+	  Stop interrupts
+	*/
 	a->clear_interrupts_proc = diva_pri_clear_interrupts;
 	IoAdapter->a.ReadyInt = 1;
 	IoAdapter->a.ram_inc(&IoAdapter->a, &PR_RAM->ReadyInt);
@@ -484,11 +584,20 @@ static int diva_pri_stop_adapter(diva_os_xdi_adapter_t *a)
 			}
 	IoAdapter->a.ReadyInt = 0;
 
+	/*
+	  Stop and reset adapter
+	*/
 	IoAdapter->stop(IoAdapter);
 
 	return (0);
 }
 
+/*
+**  Process commands form configuration/download framework and from
+**  user mode
+**
+**  return 0 on success
+*/
 static int
 diva_pri_cmd_card_proc(struct _diva_os_xdi_adapter *a,
 		       diva_xdi_um_cfg_cmd_t *cmd, int length)
@@ -649,6 +758,9 @@ diva_pri_cmd_card_proc(struct _diva_os_xdi_adapter *a,
 	return (ret);
 }
 
+/*
+**  Get Serial Number
+*/
 static int pri_get_serial_number(diva_os_xdi_adapter_t *a)
 {
 	byte data[64];
@@ -658,14 +770,20 @@ static int pri_get_serial_number(diva_os_xdi_adapter_t *a)
 	volatile byte __iomem *flash;
 	byte c;
 
+/*
+ *  First set some GT6401x config registers before accessing the BOOT-ROM
+ */
 	config = DIVA_OS_MEM_ATTACH_CONFIG(&a->xdi_adapter);
 	c = READ_BYTE(&config[0xc3c]);
 	if (!(c & 0x08)) {
-		WRITE_BYTE(&config[0xc3c], c);	
+		WRITE_BYTE(&config[0xc3c], c);	/* Base Address enable register */
 	}
 	WRITE_BYTE(&config[LOW_BOOTCS_DREG], 0x00);
 	WRITE_BYTE(&config[HI_BOOTCS_DREG], 0xFF);
 	DIVA_OS_MEM_DETACH_CONFIG(&a->xdi_adapter, config);
+/*
+ *  Read only the last 64 bytes of manufacturing data
+ */
 	memset(data, '\0', len);
 	flash = DIVA_OS_MEM_ATTACH_PROM(&a->xdi_adapter);
 	for (i = 0; i < len; i++) {
@@ -674,20 +792,20 @@ static int pri_get_serial_number(diva_os_xdi_adapter_t *a)
 	DIVA_OS_MEM_DETACH_PROM(&a->xdi_adapter, flash);
 
 	config = DIVA_OS_MEM_ATTACH_CONFIG(&a->xdi_adapter);
-	WRITE_BYTE(&config[LOW_BOOTCS_DREG], 0xFC);	
+	WRITE_BYTE(&config[LOW_BOOTCS_DREG], 0xFC);	/* Disable FLASH EPROM access */
 	WRITE_BYTE(&config[HI_BOOTCS_DREG], 0xFF);
 	DIVA_OS_MEM_DETACH_CONFIG(&a->xdi_adapter, config);
 
 	if (memcmp(&data[48], "DIVAserverPR", 12)) {
-#if !defined(DIVA_PRI_NO_PCI_BIOS_WORKAROUND)	
+#if !defined(DIVA_PRI_NO_PCI_BIOS_WORKAROUND)	/* { */
 		word cmd = 0, cmd_org;
 		void *addr;
 		dword addr1, addr3, addr4;
 		byte Bus, Slot;
 		void *hdev;
 		addr4 = a->resources.pci.bar[4];
-		addr3 = a->resources.pci.bar[3];	
-		addr1 = a->resources.pci.bar[1];	
+		addr3 = a->resources.pci.bar[3];	/* flash  */
+		addr1 = a->resources.pci.bar[1];	/* unused */
 
 		DBG_ERR(("A: apply Compaq BIOS workaround"))
 			DBG_LOG(("%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x",
@@ -713,11 +831,14 @@ static int pri_get_serial_number(diva_os_xdi_adapter_t *a)
 		a->resources.pci.bar[1] = a->resources.pci.bar[4];
 		a->resources.pci.bar[4] = addr1;
 
+		/*
+		  Try to read Flash again
+		*/
 		len = sizeof(data);
 
 		config = DIVA_OS_MEM_ATTACH_CONFIG(&a->xdi_adapter);
 		if (!(config[0xc3c] & 0x08)) {
-			config[0xc3c] |= 0x08;	
+			config[0xc3c] |= 0x08;	/* Base Address enable register */
 		}
 		config[LOW_BOOTCS_DREG] = 0x00;
 		config[HI_BOOTCS_DREG] = 0xFF;
@@ -741,14 +862,14 @@ static int pri_get_serial_number(diva_os_xdi_adapter_t *a)
 					 data[4], data[5], data[6], data[7]))
 				return (-1);
 		}
-#else				
+#else				/* } { */
 		DBG_ERR(("A: failed to read DIVA signature word"))
 			DBG_LOG(("%02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x",
 				 data[0], data[1], data[2], data[3],
 				 data[4], data[5], data[6], data[7]))
 			DBG_LOG(("%02x:%02x:%02x:%02x", data[47], data[46],
 				 data[45], data[44]))
-#endif				
+#endif				/* } */
 			}
 
 	a->xdi_adapter.serialNo =
@@ -784,6 +905,9 @@ void diva_os_prepare_pri_functions(PISDN_ADAPTER IoAdapter)
 {
 }
 
+/*
+**  Checks presence of DSP on board
+*/
 static int
 dsp_check_presence(volatile byte __iomem *addr, volatile byte __iomem *data, int dsp)
 {
@@ -819,6 +943,15 @@ dsp_check_presence(volatile byte __iomem *addr, volatile byte __iomem *data, int
 }
 
 
+/*
+**  Check if DSP's are present and operating
+**  Information about detected DSP's is returned as bit mask
+**  Bit 0  - DSP1
+**  ...
+**  ...
+**  ...
+**  Bit 29 - DSP30
+*/
 static dword diva_pri_detect_dsps(diva_os_xdi_adapter_t *a)
 {
 	byte __iomem *base;
@@ -826,11 +959,11 @@ static dword diva_pri_detect_dsps(diva_os_xdi_adapter_t *a)
 	dword ret = 0;
 	dword row_offset[7] = {
 		0x00000000,
-		0x00000800,	
-		0x00000840,	
-		0x00001000,	
-		0x00001040,	
-		0x00000000	
+		0x00000800,	/* 1 - ROW 1 */
+		0x00000840,	/* 2 - ROW 2 */
+		0x00001000,	/* 3 - ROW 3 */
+		0x00001040,	/* 4 - ROW 4 */
+		0x00000000	/* 5 - ROW 0 */
 	};
 
 	byte __iomem *dsp_addr_port;
@@ -874,6 +1007,9 @@ static dword diva_pri_detect_dsps(diva_os_xdi_adapter_t *a)
 	DIVA_OS_MEM_DETACH_RESET(&a->xdi_adapter, p);
 	diva_os_wait(5);
 
+	/*
+	  Verify modules
+	*/
 	for (dsp_row = 0; dsp_row < 4; dsp_row++) {
 		row_state = ((ret >> (dsp_row * 7)) & 0x7F);
 		if (row_state && (row_state != 0x7F)) {
@@ -894,6 +1030,9 @@ static dword diva_pri_detect_dsps(diva_os_xdi_adapter_t *a)
 		DBG_ERR(("A: ON BOARD-DSP[2] failed"))
 			}
 
+	/*
+	  Print module population now
+	*/
 	DBG_LOG(("+-----------------------+"))
 		DBG_LOG(("| DSP MODULE POPULATION |"))
 		DBG_LOG(("+-----------------------+"))

@@ -739,6 +739,7 @@
 
 
 
+/* function which gets slave data and sends it to SLAVE */
 
 struct slaveirq_dev_data {
 	struct miscdevice dev;
@@ -759,8 +760,13 @@ struct slaveirq_dev_data {
 #endif
 };
 
+/* The following depends on patch fa1f68db6ca7ebb6fc4487ac215bffba06c01c28
+ * drivers: misc: pass miscdevice pointer via file private data
+ */
 static int slaveirq_open(struct inode *inode, struct file *file)
 {
+	/* Device node is availabe in the file->private_data, this is
+	 * exactly what we want so we leave it there */
 	struct slaveirq_dev_data *data =
 		container_of(file->private_data, struct slaveirq_dev_data, dev);
 
@@ -778,6 +784,7 @@ static int slaveirq_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* read function called when from /dev/slaveirq is read */
 static ssize_t slaveirq_read(struct file *file,
 			   char *buf, size_t count, loff_t *ppos)
 {
@@ -820,6 +827,7 @@ unsigned int slaveirq_poll(struct file *file, struct poll_table_struct *poll)
 	return mask;
 }
 
+/* ioctl - I/O control */
 static long slaveirq_ioctl(struct file *file,
 			   unsigned int cmd, unsigned long arg)
 {
@@ -862,8 +870,8 @@ static irqreturn_t slaveirq_handler(int irq, void *dev_id)
 
 	data->data.interruptcount++;
 
-	
-	
+	/* wake up (unblock) for reading data from userspace */
+	/* and ignore first interrupt generated in module init */
 	data->data_ready = 1;
 
 	do_gettimeofday(&irqtime);
@@ -877,6 +885,7 @@ static irqreturn_t slaveirq_handler(int irq, void *dev_id)
 
 }
 
+/* define which file operations are supported */
 static const struct file_operations slaveirq_fops = {
 	.owner = THIS_MODULE,
 	.read = slaveirq_read,

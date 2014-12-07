@@ -42,4 +42,4 @@ int ocfs2_mv_orphaned_inode_to_new(struct inode *dir,
 				   struct inode *new_inode,
 				   struct dentry *new_dentry);
 
-#endif 
+#endif /* OCFS2_NAMEI_H */

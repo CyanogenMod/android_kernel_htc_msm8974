@@ -19,6 +19,9 @@
 #include "psmouse.h"
 #include "trackpoint.h"
 
+/*
+ * Device IO: read, write and toggle bit
+ */
 static int trackpoint_read(struct ps2dev *ps2dev, unsigned char loc, unsigned char *results)
 {
 	if (ps2_command(ps2dev, NULL, MAKE_PS2_CMD(0, 0, TP_COMMAND)) ||
@@ -43,7 +46,7 @@ static int trackpoint_write(struct ps2dev *ps2dev, unsigned char loc, unsigned c
 
 static int trackpoint_toggle_bit(struct ps2dev *ps2dev, unsigned char loc, unsigned char mask)
 {
-	
+	/* Bad things will happen if the loc param isn't in this range */
 	if (loc < 0x20 || loc >= 0x2F)
 		return -1;
 
@@ -58,6 +61,9 @@ static int trackpoint_toggle_bit(struct ps2dev *ps2dev, unsigned char loc, unsig
 }
 
 
+/*
+ * Trackpoint-specific attributes
+ */
 struct trackpoint_attr_data {
 	size_t field_offset;
 	unsigned char command;
@@ -201,7 +207,7 @@ static int trackpoint_sync(struct psmouse *psmouse)
 	struct trackpoint_data *tp = psmouse->private;
 	unsigned char toggle;
 
-	
+	/* Disable features that may make device unusable with this driver */
 	trackpoint_read(&psmouse->ps2dev, TP_TOGGLE_TWOHAND, &toggle);
 	if (toggle & TP_MASK_TWOHAND)
 		trackpoint_toggle_bit(&psmouse->ps2dev, TP_TOGGLE_TWOHAND, TP_MASK_TWOHAND);
@@ -214,7 +220,7 @@ static int trackpoint_sync(struct psmouse *psmouse)
 	if (toggle & TP_MASK_MB)
 		trackpoint_toggle_bit(&psmouse->ps2dev, TP_TOGGLE_MB, TP_MASK_MB);
 
-	
+	/* Push the config to the device */
 	trackpoint_write(&psmouse->ps2dev, TP_SENS, tp->sensitivity);
 	trackpoint_write(&psmouse->ps2dev, TP_INERTIA, tp->inertia);
 	trackpoint_write(&psmouse->ps2dev, TP_SPEED, tp->speed);

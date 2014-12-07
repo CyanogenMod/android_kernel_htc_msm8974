@@ -54,11 +54,13 @@ out:
 }
 
 
+/* Return a frequency in MHz, given an input fid */
 static uint32_t find_freq_from_fid(uint32_t fid)
 {
 	return 800 + (fid * 100);
 }
 
+/* Return a voltage in miliVolts, given an input vid */
 static uint32_t find_millivolts_from_vid(uint32_t vid)
 {
 	return 1550-vid*25;

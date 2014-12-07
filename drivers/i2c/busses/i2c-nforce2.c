@@ -23,7 +23,28 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
 
+/*
+    SUPPORTED DEVICES		PCI ID
+    nForce2 MCP			0064
+    nForce2 Ultra 400 MCP	0084
+    nForce3 Pro150 MCP		00D4
+    nForce3 250Gb MCP		00E4
+    nForce4 MCP			0052
+    nForce4 MCP-04		0034
+    nForce MCP51		0264
+    nForce MCP55		0368
+    nForce MCP61		03EB
+    nForce MCP65		0446
+    nForce MCP67		0542
+    nForce MCP73		07D8
+    nForce MCP78S		0752
+    nForce MCP79		0AA2
 
+    This driver supports the 2 SMBuses that are included in the MCP of the
+    nForce2/3/4/5xx chipsets.
+*/
+
+/* Note: we assume there can only be one nForce2, with two SMBus interfaces */
 
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -52,20 +73,31 @@ struct nforce2_smbus {
 };
 
 
+/*
+ * nVidia nForce2 SMBus control register definitions
+ * (Newer incarnations use standard BARs 4 and 5 instead)
+ */
 #define NFORCE_PCI_SMB1	0x50
 #define NFORCE_PCI_SMB2	0x54
 
 
-#define NVIDIA_SMB_PRTCL	(smbus->base + 0x00)	
-#define NVIDIA_SMB_STS		(smbus->base + 0x01)	
-#define NVIDIA_SMB_ADDR		(smbus->base + 0x02)	
-#define NVIDIA_SMB_CMD		(smbus->base + 0x03)	
-#define NVIDIA_SMB_DATA		(smbus->base + 0x04)	
-#define NVIDIA_SMB_BCNT		(smbus->base + 0x24)	
-#define NVIDIA_SMB_STATUS_ABRT	(smbus->base + 0x3c)	
-#define NVIDIA_SMB_CTRL		(smbus->base + 0x3e)	
+/*
+ * ACPI 2.0 chapter 13 SMBus 2.0 EC register model
+ */
+#define NVIDIA_SMB_PRTCL	(smbus->base + 0x00)	/* protocol, PEC */
+#define NVIDIA_SMB_STS		(smbus->base + 0x01)	/* status */
+#define NVIDIA_SMB_ADDR		(smbus->base + 0x02)	/* address */
+#define NVIDIA_SMB_CMD		(smbus->base + 0x03)	/* command */
+#define NVIDIA_SMB_DATA		(smbus->base + 0x04)	/* 32 data registers */
+#define NVIDIA_SMB_BCNT		(smbus->base + 0x24)	/* number of data
+							   bytes */
+#define NVIDIA_SMB_STATUS_ABRT	(smbus->base + 0x3c)	/* register used to
+							   check the status of
+							   the abort command */
+#define NVIDIA_SMB_CTRL		(smbus->base + 0x3e)	/* control register */
 
-#define NVIDIA_SMB_STATUS_ABRT_STS	0x01		
+#define NVIDIA_SMB_STATUS_ABRT_STS	0x01		/* Bit to notify that
+							   abort succeeded */
 #define NVIDIA_SMB_CTRL_ABORT	0x20
 #define NVIDIA_SMB_STS_DONE	0x80
 #define NVIDIA_SMB_STS_ALRM	0x40
@@ -81,8 +113,10 @@ struct nforce2_smbus {
 #define NVIDIA_SMB_PRTCL_BLOCK_DATA		0x0a
 #define NVIDIA_SMB_PRTCL_PEC			0x80
 
+/* Misc definitions */
 #define MAX_TIMEOUT	100
 
+/* We disable the second SMBus channel on these boards */
 static struct dmi_system_id __devinitdata nforce2_dmi_blacklist2[] = {
 	{
 		.ident = "DFI Lanparty NF4 Expert",
@@ -96,6 +130,8 @@ static struct dmi_system_id __devinitdata nforce2_dmi_blacklist2[] = {
 
 static struct pci_driver nforce2_driver;
 
+/* For multiplexing support, we need a global reference to the 1st
+   SMBus channel */
 #if defined CONFIG_I2C_NFORCE2_S4985 || defined CONFIG_I2C_NFORCE2_S4985_MODULE
 struct i2c_adapter *nforce2_smbus;
 EXPORT_SYMBOL_GPL(nforce2_smbus);
@@ -151,6 +187,7 @@ static int nforce2_check_status(struct i2c_adapter *adap)
 	return 0;
 }
 
+/* Return negative errno on error */
 static s32 nforce2_access(struct i2c_adapter * adap, u16 addr,
 		unsigned short flags, char read_write,
 		u8 command, int size, union i2c_smbus_data * data)
@@ -258,7 +295,7 @@ static s32 nforce2_access(struct i2c_adapter * adap, u16 addr,
 
 static u32 nforce2_func(struct i2c_adapter *adapter)
 {
-	
+	/* other functionality might be possible, but is not tested */
 	return I2C_FUNC_SMBUS_QUICK | I2C_FUNC_SMBUS_BYTE |
 	       I2C_FUNC_SMBUS_BYTE_DATA | I2C_FUNC_SMBUS_WORD_DATA |
 	       I2C_FUNC_SMBUS_PEC |
@@ -302,7 +339,7 @@ static int __devinit nforce2_probe_smb (struct pci_dev *dev, int bar,
 	if (smbus->base) {
 		smbus->size = pci_resource_len(dev, bar);
 	} else {
-		
+		/* Older incarnations of the device used non-standard BARs */
 		u16 iobase;
 
 		if (pci_read_config_word(dev, alt_reg, &iobase)
@@ -350,7 +387,7 @@ static int __devinit nforce2_probe(struct pci_dev *dev, const struct pci_device_
 	struct nforce2_smbus *smbuses;
 	int res1, res2;
 
-	
+	/* we support 2 SMBus adapters */
 	if (!(smbuses = kzalloc(2*sizeof(struct nforce2_smbus), GFP_KERNEL)))
 		return -ENOMEM;
 	pci_set_drvdata(dev, smbuses);
@@ -365,12 +402,12 @@ static int __devinit nforce2_probe(struct pci_dev *dev, const struct pci_device_
 		smbuses[1].can_abort = 1;
 	}
 
-	
+	/* SMBus adapter 1 */
 	res1 = nforce2_probe_smb(dev, 4, NFORCE_PCI_SMB1, &smbuses[0], "SMB1");
 	if (res1 < 0)
-		smbuses[0].base = 0;	
+		smbuses[0].base = 0;	/* to have a check value */
 
-	
+	/* SMBus adapter 2 */
 	if (dmi_check_system(nforce2_dmi_blacklist2)) {
 		dev_err(&dev->dev, "Disabling SMB2 for safety reasons.\n");
 		res2 = -EPERM;
@@ -379,11 +416,11 @@ static int __devinit nforce2_probe(struct pci_dev *dev, const struct pci_device_
 		res2 = nforce2_probe_smb(dev, 5, NFORCE_PCI_SMB2, &smbuses[1],
 					 "SMB2");
 		if (res2 < 0)
-			smbuses[1].base = 0;	
+			smbuses[1].base = 0;	/* to have a check value */
 	}
 
 	if ((res1 < 0) && (res2 < 0)) {
-		
+		/* we did not find even one of the SMBuses, so we give up */
 		kfree(smbuses);
 		return -ENODEV;
 	}

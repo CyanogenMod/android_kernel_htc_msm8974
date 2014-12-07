@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Name: actbl3.h - ACPI Table Definitions
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2011, Intel Corp.
@@ -39,32 +44,63 @@
 #ifndef __ACTBL3_H__
 #define __ACTBL3_H__
 
+/*******************************************************************************
+ *
+ * Additional ACPI Tables (3)
+ *
+ * These tables are not consumed directly by the ACPICA subsystem, but are
+ * included here to support device drivers and the AML disassembler.
+ *
+ * The tables in this file are fully defined within the ACPI specification.
+ *
+ ******************************************************************************/
 
-#define ACPI_SIG_BGRT           "BGRT"	
-#define ACPI_SIG_DRTM           "DRTM"	
-#define ACPI_SIG_FPDT           "FPDT"	
-#define ACPI_SIG_GTDT           "GTDT"	
-#define ACPI_SIG_MPST           "MPST"	
-#define ACPI_SIG_PCCT           "PCCT"	
-#define ACPI_SIG_PMTT           "PMTT"	
-#define ACPI_SIG_RASF           "RASF"	
+/*
+ * Values for description table header signatures for tables defined in this
+ * file. Useful because they make it more difficult to inadvertently type in
+ * the wrong signature.
+ */
+#define ACPI_SIG_BGRT           "BGRT"	/* Boot Graphics Resource Table */
+#define ACPI_SIG_DRTM           "DRTM"	/* Dynamic Root of Trust for Measurement table */
+#define ACPI_SIG_FPDT           "FPDT"	/* Firmware Performance Data Table */
+#define ACPI_SIG_GTDT           "GTDT"	/* Generic Timer Description Table */
+#define ACPI_SIG_MPST           "MPST"	/* Memory Power State Table */
+#define ACPI_SIG_PCCT           "PCCT"	/* Platform Communications Channel Table */
+#define ACPI_SIG_PMTT           "PMTT"	/* Platform Memory Topology Table */
+#define ACPI_SIG_RASF           "RASF"	/* RAS Feature table */
 
-#define ACPI_SIG_S3PT           "S3PT"	
-#define ACPI_SIG_PCCS           "PCC"	
+#define ACPI_SIG_S3PT           "S3PT"	/* S3 Performance (sub)Table */
+#define ACPI_SIG_PCCS           "PCC"	/* PCC Shared Memory Region */
 
+/* Reserved table signatures */
 
-#define ACPI_SIG_CSRT           "CSRT"	
-#define ACPI_SIG_DBG2           "DBG2"	
-#define ACPI_SIG_MATR           "MATR"	
-#define ACPI_SIG_MSDM           "MSDM"	
-#define ACPI_SIG_WPBT           "WPBT"	
+#define ACPI_SIG_CSRT           "CSRT"	/* Core System Resources Table */
+#define ACPI_SIG_DBG2           "DBG2"	/* Debug Port table 2 */
+#define ACPI_SIG_MATR           "MATR"	/* Memory Address Translation Table */
+#define ACPI_SIG_MSDM           "MSDM"	/* Microsoft Data Management Table */
+#define ACPI_SIG_WPBT           "WPBT"	/* Windows Platform Binary Table */
 
+/*
+ * All tables must be byte-packed to match the ACPI specification, since
+ * the tables are provided by the system BIOS.
+ */
 #pragma pack(1)
 
+/*
+ * Note about bitfields: The u8 type is used for bitfields in ACPI tables.
+ * This is the only type that is even remotely portable. Anything else is not
+ * portable, so do not use any other bitfield types.
+ */
 
+/*******************************************************************************
+ *
+ * BGRT - Boot Graphics Resource Table (ACPI 5.0)
+ *        Version 1
+ *
+ ******************************************************************************/
 
 struct acpi_table_bgrt {
-	struct acpi_table_header header;	
+	struct acpi_table_header header;	/* Common ACPI table header */
 	u16 version;
 	u8 status;
 	u8 image_type;
@@ -73,9 +109,14 @@ struct acpi_table_bgrt {
 	u32 image_offset_y;
 };
 
+/*******************************************************************************
+ *
+ * DRTM - Dynamic Root of Trust for Measurement table
+ *
+ ******************************************************************************/
 
 struct acpi_table_drtm {
-	struct acpi_table_header header;	
+	struct acpi_table_header header;	/* Common ACPI table header */
 	u64 entry_base_address;
 	u64 entry_length;
 	u32 entry_address32;
@@ -87,26 +128,36 @@ struct acpi_table_drtm {
 	u32 flags;
 };
 
+/* 1) Validated Tables List */
 
 struct acpi_drtm_vtl_list {
 	u32 validated_table_list_count;
 };
 
+/* 2) Resources List */
 
 struct acpi_drtm_resource_list {
 	u32 resource_list_count;
 };
 
+/* 3) Platform-specific Identifiers List */
 
 struct acpi_drtm_id_list {
 	u32 id_list_count;
 };
 
+/*******************************************************************************
+ *
+ * FPDT - Firmware Performance Data Table (ACPI 5.0)
+ *        Version 1
+ *
+ ******************************************************************************/
 
 struct acpi_table_fpdt {
-	struct acpi_table_header header;	
+	struct acpi_table_header header;	/* Common ACPI table header */
 };
 
+/* FPDT subtable header */
 
 struct acpi_fpdt_header {
 	u16 type;
@@ -114,13 +165,18 @@ struct acpi_fpdt_header {
 	u8 revision;
 };
 
+/* Values for Type field above */
 
 enum acpi_fpdt_type {
 	ACPI_FPDT_TYPE_BOOT = 0,
 	ACPI_FPDT_TYPE_S3PERF = 1,
 };
 
+/*
+ * FPDT subtables
+ */
 
+/* 0: Firmware Basic Boot Performance Record */
 
 struct acpi_fpdt_boot {
 	struct acpi_fpdt_header header;
@@ -132,6 +188,7 @@ struct acpi_fpdt_boot {
 	u64 exit_services_exit;
 };
 
+/* 1: S3 Performance Table Pointer Record */
 
 struct acpi_fpdt_s3pt_ptr {
 	struct acpi_fpdt_header header;
@@ -139,17 +196,25 @@ struct acpi_fpdt_s3pt_ptr {
 	u64 address;
 };
 
+/*
+ * S3PT - S3 Performance Table. This table is pointed to by the
+ * FPDT S3 Pointer Record above.
+ */
 struct acpi_table_s3pt {
-	u8 signature[4];	
+	u8 signature[4];	/* "S3PT" */
 	u32 length;
 };
 
+/*
+ * S3PT Subtables
+ */
 struct acpi_s3pt_header {
 	u16 type;
 	u8 length;
 	u8 revision;
 };
 
+/* Values for Type field above */
 
 enum acpi_s3pt_type {
 	ACPI_S3PT_TYPE_RESUME = 0,
@@ -169,9 +234,15 @@ struct acpi_s3pt_suspend {
 	u64 suspend_end;
 };
 
+/*******************************************************************************
+ *
+ * GTDT - Generic Timer Description Table (ACPI 5.0)
+ *        Version 1
+ *
+ ******************************************************************************/
 
 struct acpi_table_gtdt {
-	struct acpi_table_header header;	
+	struct acpi_table_header header;	/* Common ACPI table header */
 	u64 address;
 	u32 flags;
 	u32 secure_pl1_interrupt;
@@ -184,13 +255,21 @@ struct acpi_table_gtdt {
 	u32 non_secure_pl2_flags;
 };
 
+/* Values for Flags field above */
 
 #define ACPI_GTDT_MAPPED_BLOCK_PRESENT      1
 
+/* Values for all "TimerFlags" fields above */
 
 #define ACPI_GTDT_INTERRUPT_MODE            1
 #define ACPI_GTDT_INTERRUPT_POLARITY        2
 
+/*******************************************************************************
+ *
+ * MPST - Memory Power State Table (ACPI 5.0)
+ *        Version 1
+ *
+ ******************************************************************************/
 
 #define ACPI_MPST_CHANNEL_INFO \
 	u16                             reserved1; \
@@ -198,17 +277,20 @@ struct acpi_table_gtdt {
 	u8                              reserved2; \
 	u16                             power_node_count;
 
+/* Main table */
 
 struct acpi_table_mpst {
-	struct acpi_table_header header;	
-	 ACPI_MPST_CHANNEL_INFO	
+	struct acpi_table_header header;	/* Common ACPI table header */
+	 ACPI_MPST_CHANNEL_INFO	/* Platform Communication Channel */
 };
 
+/* Memory Platform Communication Channel Info */
 
 struct acpi_mpst_channel {
-	ACPI_MPST_CHANNEL_INFO	
+	ACPI_MPST_CHANNEL_INFO	/* Platform Communication Channel */
 };
 
+/* Memory Power Node Structure */
 
 struct acpi_mpst_power_node {
 	u8 flags;
@@ -222,22 +304,26 @@ struct acpi_mpst_power_node {
 	u16 reserved2;
 };
 
+/* Values for Flags field above */
 
 #define ACPI_MPST_ENABLED               1
 #define ACPI_MPST_POWER_MANAGED         2
 #define ACPI_MPST_HOT_PLUG_CAPABLE      4
 
+/* Memory Power State Structure (follows POWER_NODE above) */
 
 struct acpi_mpst_power_state {
 	u8 power_state;
 	u8 info_index;
 };
 
+/* Physical Component ID Structure (follows POWER_STATE above) */
 
 struct acpi_mpst_component {
 	u16 component_id;
 };
 
+/* Memory Power State Characteristics Structure (follows all POWER_NODEs) */
 
 struct acpi_mpst_data_hdr {
 	u16 characteristics_count;
@@ -253,11 +339,13 @@ struct acpi_mpst_power_data {
 	u64 reserved2;
 };
 
+/* Values for Flags field above */
 
 #define ACPI_MPST_PRESERVE              1
 #define ACPI_MPST_AUTOENTRY             2
 #define ACPI_MPST_AUTOEXIT              4
 
+/* Shared Memory Region (not part of an ACPI table) */
 
 struct acpi_mpst_shared {
 	u32 signature;
@@ -271,18 +359,29 @@ struct acpi_mpst_shared {
 	u64 average_power;
 };
 
+/*******************************************************************************
+ *
+ * PCCT - Platform Communications Channel Table (ACPI 5.0)
+ *        Version 1
+ *
+ ******************************************************************************/
 
 struct acpi_table_pcct {
-	struct acpi_table_header header;	
+	struct acpi_table_header header;	/* Common ACPI table header */
 	u32 flags;
 	u32 latency;
 	u32 reserved;
 };
 
+/* Values for Flags field above */
 
 #define ACPI_PCCT_DOORBELL              1
 
+/*
+ * PCCT subtables
+ */
 
+/* 0: Generic Communications Subspace */
 
 struct acpi_pcct_subspace {
 	struct acpi_subtable_header header;
@@ -294,7 +393,11 @@ struct acpi_pcct_subspace {
 	u64 write_mask;
 };
 
+/*
+ * PCC memory structures (not part of the ACPI table)
+ */
 
+/* Shared Memory Region */
 
 struct acpi_pcct_shared_memory {
 	u32 signature;
@@ -302,12 +405,19 @@ struct acpi_pcct_shared_memory {
 	u16 status;
 };
 
+/*******************************************************************************
+ *
+ * PMTT - Platform Memory Topology Table (ACPI 5.0)
+ *        Version 1
+ *
+ ******************************************************************************/
 
 struct acpi_table_pmtt {
-	struct acpi_table_header header;	
+	struct acpi_table_header header;	/* Common ACPI table header */
 	u32 reserved;
 };
 
+/* Common header for PMTT subtables that follow main table */
 
 struct acpi_pmtt_header {
 	u8 type;
@@ -317,18 +427,24 @@ struct acpi_pmtt_header {
 	u16 reserved2;
 };
 
+/* Values for Type field above */
 
 #define ACPI_PMTT_TYPE_SOCKET           0
 #define ACPI_PMTT_TYPE_CONTROLLER       1
 #define ACPI_PMTT_TYPE_DIMM             2
-#define ACPI_PMTT_TYPE_RESERVED         3	
+#define ACPI_PMTT_TYPE_RESERVED         3	/* 0x03-0xFF are reserved */
 
+/* Values for Flags field above */
 
 #define ACPI_PMTT_TOP_LEVEL             0x0001
 #define ACPI_PMTT_PHYSICAL              0x0002
 #define ACPI_PMTT_MEMORY_TYPE           0x000C
 
+/*
+ * PMTT subtables, correspond to Type in struct acpi_pmtt_header
+ */
 
+/* 0: Socket Structure */
 
 struct acpi_pmtt_socket {
 	struct acpi_pmtt_header header;
@@ -336,6 +452,7 @@ struct acpi_pmtt_socket {
 	u16 reserved;
 };
 
+/* 1: Memory Controller subtable */
 
 struct acpi_pmtt_controller {
 	struct acpi_pmtt_header header;
@@ -349,11 +466,13 @@ struct acpi_pmtt_controller {
 	u16 domain_count;
 };
 
+/* 1a: Proximity Domain substructure */
 
 struct acpi_pmtt_domain {
 	u32 proximity_domain;
 };
 
+/* 2: Physical Component Identifier (DIMM) */
 
 struct acpi_pmtt_physical_component {
 	struct acpi_pmtt_header header;
@@ -363,12 +482,19 @@ struct acpi_pmtt_physical_component {
 	u32 bios_handle;
 };
 
+/*******************************************************************************
+ *
+ * RASF - RAS Feature Table (ACPI 5.0)
+ *        Version 1
+ *
+ ******************************************************************************/
 
 struct acpi_table_rasf {
-	struct acpi_table_header header;	
+	struct acpi_table_header header;	/* Common ACPI table header */
 	u8 channel_id[12];
 };
 
+/* RASF Platform Communication Channel Shared Memory Region */
 
 struct acpi_rasf_shared_memory {
 	u32 signature;
@@ -382,10 +508,12 @@ struct acpi_rasf_shared_memory {
 	u8 speed;
 };
 
+/* Masks for Flags and Speed fields above */
 
 #define ACPI_RASF_SCRUBBER_RUNNING      1
 #define ACPI_RASF_SPEED                 (7<<1)
 
+/* Channel Commands */
 
 enum acpi_rasf_commands {
 	ACPI_RASF_GET_RAS_CAPABILITIES = 1,
@@ -394,9 +522,11 @@ enum acpi_rasf_commands {
 	ACPI_RASF_STOP_PATROL_SCRUBBER = 4
 };
 
+/* Channel Command flags */
 
 #define ACPI_RASF_GENERATE_SCI          (1<<15)
 
+/* Status values */
 
 enum acpi_rasf_status {
 	ACPI_RASF_SUCCESS = 0,
@@ -408,13 +538,15 @@ enum acpi_rasf_status {
 	ACPI_RASF_INVALID_DATA = 6
 };
 
+/* Status flags */
 
 #define ACPI_RASF_COMMAND_COMPLETE      (1)
 #define ACPI_RASF_SCI_DOORBELL          (1<<1)
 #define ACPI_RASF_ERROR                 (1<<2)
 #define ACPI_RASF_STATUS                (0x1F<<3)
 
+/* Reset to default packing */
 
 #pragma pack()
 
-#endif				
+#endif				/* __ACTBL3_H__ */

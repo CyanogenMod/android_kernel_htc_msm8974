@@ -14,9 +14,9 @@
 #include <asm/ebus_dma.h>
 #include <asm/io.h>
 
-#define EBDMA_CSR	0x00UL	
-#define EBDMA_ADDR	0x04UL	
-#define EBDMA_COUNT	0x08UL	
+#define EBDMA_CSR	0x00UL	/* Control/Status */
+#define EBDMA_ADDR	0x04UL	/* DMA Address */
+#define EBDMA_COUNT	0x08UL	/* DMA Count */
 
 #define EBDMA_CSR_INT_PEND	0x00000001
 #define EBDMA_CSR_ERR_PEND	0x00000002

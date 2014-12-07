@@ -42,6 +42,7 @@
 #define HMANU_SYNC	(1 << 2)
 #define HSPD_SYNC	(1 << 3)
 
+/* Register format: 1 byte addr + value */
 struct ad9951_config {
 	u8 asf[3];
 	u8 arr[2];

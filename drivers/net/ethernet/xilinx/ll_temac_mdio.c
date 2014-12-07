@@ -16,11 +16,17 @@
 
 #include "ll_temac.h"
 
+/* ---------------------------------------------------------------------
+ * MDIO Bus functions
+ */
 static int temac_mdio_read(struct mii_bus *bus, int phy_id, int reg)
 {
 	struct temac_local *lp = bus->priv;
 	u32 rc;
 
+	/* Write the PHY address to the MIIM Access Initiator register.
+	 * When the transfer completes, the PHY register value will appear
+	 * in the LSW0 register */
 	mutex_lock(&lp->indirect_mutex);
 	temac_iow(lp, XTE_LSW0_OFFSET, (phy_id << 5) | reg);
 	rc = temac_indirect_in32(lp, XTE_MIIMAI_OFFSET);
@@ -39,6 +45,9 @@ static int temac_mdio_write(struct mii_bus *bus, int phy_id, int reg, u16 val)
 	dev_dbg(lp->dev, "temac_mdio_write(phy_id=%i, reg=%x, val=%x)\n",
 		phy_id, reg, val);
 
+	/* First write the desired value into the write data register
+	 * and then write the address into the access initiator register
+	 */
 	mutex_lock(&lp->indirect_mutex);
 	temac_indirect_out32(lp, XTE_MGTDR_OFFSET, val);
 	temac_indirect_out32(lp, XTE_MIIMAI_OFFSET, (phy_id << 5) | reg);
@@ -55,8 +64,8 @@ int temac_mdio_setup(struct temac_local *lp, struct device_node *np)
 	int rc, size;
 	struct resource res;
 
-	
-	clk_div = 0x3f; 
+	/* Calculate a reasonable divisor for the clock rate */
+	clk_div = 0x3f; /* worst-case default setting */
 	bus_hz = of_get_property(np, "clock-frequency", &size);
 	if (bus_hz && size >= sizeof(*bus_hz)) {
 		clk_div = (*bus_hz) / (2500 * 1000 * 2) - 1;
@@ -66,6 +75,8 @@ int temac_mdio_setup(struct temac_local *lp, struct device_node *np)
 			clk_div = 0x3f;
 	}
 
+	/* Enable the MDIO bus by asserting the enable bit and writing
+	 * in the clock config */
 	mutex_lock(&lp->indirect_mutex);
 	temac_indirect_out32(lp, XTE_MC_OFFSET, 1 << 6 | clk_div);
 	mutex_unlock(&lp->indirect_mutex);
@@ -82,7 +93,7 @@ int temac_mdio_setup(struct temac_local *lp, struct device_node *np)
 	bus->read = temac_mdio_read;
 	bus->write = temac_mdio_write;
 	bus->parent = lp->dev;
-	bus->irq = lp->mdio_irqs; 
+	bus->irq = lp->mdio_irqs; /* preallocated IRQ table */
 
 	lp->mii_bus = bus;
 

@@ -23,6 +23,9 @@
 
 #include "sbuslib.h"
 
+/*
+ * Local functions.
+ */
 
 static int cg3_setcolreg(unsigned, unsigned, unsigned, unsigned,
 			 unsigned, struct fb_info *);
@@ -31,6 +34,9 @@ static int cg3_blank(int, struct fb_info *);
 static int cg3_mmap(struct fb_info *, struct vm_area_struct *);
 static int cg3_ioctl(struct fb_info *, unsigned int, unsigned long);
 
+/*
+ *  Frame buffer operations
+ */
 
 static struct fb_ops cg3_ops = {
 	.owner			= THIS_MODULE,
@@ -47,6 +53,7 @@ static struct fb_ops cg3_ops = {
 };
 
 
+/* Control Register Constants */
 #define CG3_CR_ENABLE_INTS      0x80
 #define CG3_CR_ENABLE_VIDEO     0x40
 #define CG3_CR_ENABLE_TIMING    0x20
@@ -54,6 +61,7 @@ static struct fb_ops cg3_ops = {
 #define CG3_CR_XTAL_MASK        0x0c
 #define CG3_CR_DIVISOR_MASK     0x03
 
+/* Status Register Constants */
 #define CG3_SR_PENDING_INT      0x80
 #define CG3_SR_RES_MASK         0x70
 #define CG3_SR_1152_900_76_A    0x40
@@ -96,6 +104,7 @@ struct cg3_regs {
 	u8	xfer_holdoff_end;
 };
 
+/* Offset of interesting structures in the OBIO space */
 #define CG3_REGS_OFFSET	     0x400000UL
 #define CG3_RAM_OFFSET	     0x800000UL
 
@@ -111,6 +120,20 @@ struct cg3_par {
 	unsigned long		which_io;
 };
 
+/**
+ *      cg3_setcolreg - Optional function. Sets a color register.
+ *      @regno: boolean, 0 copy local, 1 get_user() function
+ *      @red: frame buffer colormap structure
+ *      @green: The green value which can be up to 16 bits wide
+ *      @blue:  The blue value which can be up to 16 bits wide.
+ *      @transp: If supported the alpha value which can be up to 16 bits wide.
+ *      @info: frame buffer info structure
+ *
+ * The cg3 palette is loaded with 4 color values at each time
+ * so you end up with: (rgb)(r), (gb)(rg), (b)(rgb), and so on.
+ * We keep a sw copy of the hw cmap to assist us in this esoteric
+ * loading procedure.
+ */
 static int cg3_setcolreg(unsigned regno,
 			 unsigned red, unsigned green, unsigned blue,
 			 unsigned transp, struct fb_info *info)
@@ -136,8 +159,8 @@ static int cg3_setcolreg(unsigned regno,
 	p8[1] = green;
 	p8[2] = blue;
 
-#define D4M3(x) ((((x)>>2)<<1) + ((x)>>2))      
-#define D4M4(x) ((x)&~0x3)                      
+#define D4M3(x) ((((x)>>2)<<1) + ((x)>>2))      /* (x/4)*3 */
+#define D4M4(x) ((x)&~0x3)                      /* (x/4)*4 */
 
 	count = 3;
 	p32 = &par->sw_cmap[D4M3(regno)];
@@ -153,6 +176,11 @@ static int cg3_setcolreg(unsigned regno,
 	return 0;
 }
 
+/**
+ *      cg3_blank - Optional function.  Blanks the display.
+ *      @blank_mode: the blank mode we want.
+ *      @info: frame buffer structure that represents a single frame buffer
+ */
 static int cg3_blank(int blank, struct fb_info *info)
 {
 	struct cg3_par *par = (struct cg3_par *) info->par;
@@ -163,17 +191,17 @@ static int cg3_blank(int blank, struct fb_info *info)
 	spin_lock_irqsave(&par->lock, flags);
 
 	switch (blank) {
-	case FB_BLANK_UNBLANK: 
+	case FB_BLANK_UNBLANK: /* Unblanking */
 		val = sbus_readb(&regs->control);
 		val |= CG3_CR_ENABLE_VIDEO;
 		sbus_writeb(val, &regs->control);
 		par->flags &= ~CG3_FLAG_BLANKED;
 		break;
 
-	case FB_BLANK_NORMAL: 
-	case FB_BLANK_VSYNC_SUSPEND: 
-	case FB_BLANK_HSYNC_SUSPEND: 
-	case FB_BLANK_POWERDOWN: 
+	case FB_BLANK_NORMAL: /* Normal blanking */
+	case FB_BLANK_VSYNC_SUSPEND: /* VESA blank (vsync off) */
+	case FB_BLANK_HSYNC_SUSPEND: /* VESA blank (hsync off) */
+	case FB_BLANK_POWERDOWN: /* Poweroff */
 		val = sbus_readb(&regs->control);
 		val &= ~CG3_CR_ENABLE_VIDEO;
 		sbus_writeb(val, &regs->control);
@@ -211,6 +239,9 @@ static int cg3_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg)
 				   FBTYPE_SUN3COLOR, 8, info->fix.smem_len);
 }
 
+/*
+ *  Initialisation
+ */
 
 static void __devinit cg3_init_fix(struct fb_info *info, int linebytes,
 				   struct device_node *dp)
@@ -248,21 +279,21 @@ static void __devinit cg3_rdi_maybe_fixup_var(struct fb_var_screeninfo *var,
 	}
 }
 
-static u8 cg3regvals_66hz[] __devinitdata = {	
+static u8 cg3regvals_66hz[] __devinitdata = {	/* 1152 x 900, 66 Hz */
 	0x14, 0xbb,	0x15, 0x2b,	0x16, 0x04,	0x17, 0x14,
 	0x18, 0xae,	0x19, 0x03,	0x1a, 0xa8,	0x1b, 0x24,
 	0x1c, 0x01,	0x1d, 0x05,	0x1e, 0xff,	0x1f, 0x01,
 	0x10, 0x20,	0
 };
 
-static u8 cg3regvals_76hz[] __devinitdata = {	
+static u8 cg3regvals_76hz[] __devinitdata = {	/* 1152 x 900, 76 Hz */
 	0x14, 0xb7,	0x15, 0x27,	0x16, 0x03,	0x17, 0x0f,
 	0x18, 0xae,	0x19, 0x03,	0x1a, 0xae,	0x1b, 0x2a,
 	0x1c, 0x01,	0x1d, 0x09,	0x1e, 0xff,	0x1f, 0x01,
 	0x10, 0x24,	0
 };
 
-static u8 cg3regvals_rdi[] __devinitdata = {	
+static u8 cg3regvals_rdi[] __devinitdata = {	/* 640 x 480, cgRDI */
 	0x14, 0x70,	0x15, 0x20,	0x16, 0x08,	0x17, 0x10,
 	0x18, 0x06,	0x19, 0x02,	0x1a, 0x31,	0x1b, 0x51,
 	0x1c, 0x06,	0x1d, 0x0c,	0x1e, 0xff,	0x1f, 0x01,

@@ -36,19 +36,23 @@
 #include <hv/hypervisor.h>
 #include <arch/interrupts.h>
 
+/* <linux/smp.h> doesn't provide this definition. */
 #ifndef CONFIG_SMP
 #define setup_max_cpus 1
 #endif
 
 static inline int ABS(int x) { return x >= 0 ? x : -x; }
 
+/* Chip information */
 char chip_model[64] __write_once;
 
 struct pglist_data node_data[MAX_NUMNODES] __read_mostly;
 EXPORT_SYMBOL(node_data);
 
+/* We only create bootmem data on node 0. */
 static bootmem_data_t __initdata node0_bdata;
 
+/* Information on the NUMA nodes that we compute early */
 unsigned long __cpuinitdata node_start_pfn[MAX_NUMNODES];
 unsigned long __cpuinitdata node_end_pfn[MAX_NUMNODES];
 unsigned long __initdata node_memmap_pfn[MAX_NUMNODES];
@@ -58,23 +62,29 @@ unsigned long __initdata node_free_pfn[MAX_NUMNODES];
 static unsigned long __initdata node_percpu[MAX_NUMNODES];
 
 #ifdef CONFIG_HIGHMEM
+/* Page frame index of end of lowmem on each controller. */
 unsigned long __cpuinitdata node_lowmem_end_pfn[MAX_NUMNODES];
 
+/* Number of pages that can be mapped into lowmem. */
 static unsigned long __initdata mappable_physpages;
 #endif
 
+/* Data on which physical memory controller corresponds to which NUMA node */
 int node_controller[MAX_NUMNODES] = { [0 ... MAX_NUMNODES-1] = -1 };
 
 #ifdef CONFIG_HIGHMEM
+/* Map information from VAs to PAs */
 unsigned long pbase_map[1 << (32 - HPAGE_SHIFT)]
   __write_once __attribute__((aligned(L2_CACHE_BYTES)));
 EXPORT_SYMBOL(pbase_map);
 
+/* Map information from PAs to VAs */
 void *vbase_map[NR_PA_HIGHBIT_VALUES]
   __write_once __attribute__((aligned(L2_CACHE_BYTES)));
 EXPORT_SYMBOL(vbase_map);
 #endif
 
+/* Node number as a function of the high PA bits */
 int highbits_to_node[NR_PA_HIGHBIT_VALUES] __write_once;
 EXPORT_SYMBOL(highbits_to_node);
 
@@ -153,6 +163,10 @@ early_param("pci_reserve", setup_pci_reserve);
 #endif
 
 #ifndef __tilegx__
+/*
+ * vmalloc=size forces the vmalloc area to be exactly 'size' bytes.
+ * This can be used to increase (or decrease) the vmalloc area.
+ */
 static int __init parse_vmalloc(char *arg)
 {
 	if (!arg)
@@ -160,7 +174,7 @@ static int __init parse_vmalloc(char *arg)
 
 	VMALLOC_RESERVE = (memparse(arg, &arg) + PGDIR_SIZE - 1) & PGDIR_MASK;
 
-	
+	/* See validate_va() for more on this test. */
 	if ((long)_VMALLOC_START >= 0)
 		early_panic("\"vmalloc=%#lx\" value too large: maximum %#lx\n",
 			    VMALLOC_RESERVE, _VMALLOC_END - 0x80000000UL);
@@ -171,6 +185,24 @@ early_param("vmalloc", parse_vmalloc);
 #endif
 
 #ifdef CONFIG_HIGHMEM
+/*
+ * Determine for each controller where its lowmem is mapped and how much of
+ * it is mapped there.  On controller zero, the first few megabytes are
+ * already mapped in as code at MEM_SV_INTRPT, so in principle we could
+ * start our data mappings higher up, but for now we don't bother, to avoid
+ * additional confusion.
+ *
+ * One question is whether, on systems with more than 768 Mb and
+ * controllers of different sizes, to map in a proportionate amount of
+ * each one, or to try to map the same amount from each controller.
+ * (E.g. if we have three controllers with 256MB, 1GB, and 256MB
+ * respectively, do we map 256MB from each, or do we map 128 MB, 512
+ * MB, and 128 MB respectively?)  For now we use a proportionate
+ * solution like the latter.
+ *
+ * The VA/PA mapping demands that we align our decisions at 16 MB
+ * boundaries so that we can rapidly convert VA to PA.
+ */
 static void *__init setup_pa_va_mapping(void)
 {
 	unsigned long curr_pages = 0;
@@ -181,10 +213,10 @@ static void *__init setup_pa_va_mapping(void)
 	memset(pbase_map, -1, sizeof(pbase_map));
 	memset(vbase_map, -1, sizeof(vbase_map));
 
-	
+	/* Node zero cannot be isolated for LOWMEM purposes. */
 	node_clear(0, highonlynodes);
 
-	
+	/* Count up the number of pages on non-highonlynodes controllers. */
 	mappable_physpages = 0;
 	for_each_online_node(i) {
 		if (!node_isset(i, highonlynodes))
@@ -199,7 +231,7 @@ static void *__init setup_pa_va_mapping(void)
 		unsigned long vaddr_end;
 
 		if (node_isset(i, highonlynodes)) {
-			
+			/* Mark this controller as having no lowmem. */
 			node_lowmem_end_pfn[i] = start;
 			continue;
 		}
@@ -226,11 +258,17 @@ static void *__init setup_pa_va_mapping(void)
 		BUG_ON(node_lowmem_end_pfn[i] > end);
 	}
 
-	
+	/* Return highest address of any mapped memory. */
 	return (void *)vaddr;
 }
-#endif 
+#endif /* CONFIG_HIGHMEM */
 
+/*
+ * Register our most important memory mappings with the debug stub.
+ *
+ * This is up to 4 mappings for lowmem, one mapping per memory
+ * controller, plus one for our text segment.
+ */
 static void __cpuinit store_permanent_mappings(void)
 {
 	int i;
@@ -252,6 +290,11 @@ static void __cpuinit store_permanent_mappings(void)
 			 (uint32_t)(_einittext - _stext), 0);
 }
 
+/*
+ * Use hv_inquire_physical() to populate node_{start,end}_pfn[]
+ * and node_online_map, doing suitable sanity-checking.
+ * Also set min_low_pfn, max_low_pfn, and max_pfn.
+ */
 static void __init setup_memory(void)
 {
 	int i, j;
@@ -266,10 +309,10 @@ static void __init setup_memory(void)
 	long lowmem_pages;
 #endif
 
-	
+	/* We are using a char to hold the cpu_2_node[] mapping */
 	BUILD_BUG_ON(MAX_NUMNODES > 127);
 
-	
+	/* Discover the ranges of memory available to us */
 	for (i = 0; ; ++i) {
 		unsigned long start, size, end, highbits;
 		HV_PhysAddrRange range = hv_inquire_physical(i);
@@ -354,6 +397,13 @@ static void __init setup_memory(void)
 		}
 #endif
 #ifdef CONFIG_PCI
+		/*
+		 * Blocks that overlap the pci reserved region must
+		 * have enough space to hold the maximum percpu data
+		 * region at the top of the range.  If there isn't
+		 * enough space above the reserved region, just
+		 * truncate the node.
+		 */
 		if (start <= pci_reserve_start_pfn &&
 		    end > pci_reserve_start_pfn) {
 			unsigned int per_cpu_size =
@@ -378,13 +428,22 @@ static void __init setup_memory(void)
 		num_physpages += size;
 		max_pfn = end;
 
-		
+		/* Mark node as online */
 		node_set(i, node_online_map);
 		node_set(i, node_possible_map);
 	}
 
 #ifndef __tilegx__
-	cap = 8 * 1024 * 1024;  
+	/*
+	 * For 4KB pages, mem_map "struct page" data is 1% of the size
+	 * of the physical memory, so can be quite big (640 MB for
+	 * four 16G zones).  These structures must be mapped in
+	 * lowmem, and since we currently cap out at about 768 MB,
+	 * it's impractical to try to use this much address space.
+	 * For now, arbitrarily cap the amount of physical memory
+	 * we're willing to use at 8 million pages (32GB of 4KB pages).
+	 */
+	cap = 8 * 1024 * 1024;  /* 8 million pages */
 	if (num_physpages > cap) {
 		int num_nodes = num_online_nodes();
 		int cap_each = cap / num_nodes;
@@ -405,14 +464,14 @@ static void __init setup_memory(void)
 	}
 #endif
 
-	
+	/* Heap starts just above the last loaded address. */
 	min_low_pfn = PFN_UP((unsigned long)_end - PAGE_OFFSET);
 
 #ifdef CONFIG_HIGHMEM
-	
+	/* Find where we map lowmem from each controller. */
 	high_memory = setup_pa_va_mapping();
 
-	
+	/* Set max_low_pfn based on what node 0 can directly address. */
 	max_low_pfn = node_lowmem_end_pfn[0];
 
 	lowmem_pages = (mappable_physpages > MAXMEM_PFN) ?
@@ -424,7 +483,7 @@ static void __init setup_memory(void)
 	pr_notice("%ldMB LOWMEM available.\n",
 			pages_to_mb(lowmem_pages));
 #else
-	
+	/* Set max_low_pfn based on what node 0 can directly address. */
 	max_low_pfn = node_end_pfn[0];
 
 #ifndef __tilegx__
@@ -463,18 +522,27 @@ static void __init setup_bootmem_allocator(void)
 {
 	unsigned long bootmap_size, first_alloc_pfn, last_alloc_pfn;
 
-	
+	/* Provide a node 0 bdata. */
 	NODE_DATA(0)->bdata = &node0_bdata;
 
 #ifdef CONFIG_PCI
-	
+	/* Don't let boot memory alias the PCI region. */
 	last_alloc_pfn = min(max_low_pfn, pci_reserve_start_pfn);
 #else
 	last_alloc_pfn = max_low_pfn;
 #endif
 
+	/*
+	 * Initialize the boot-time allocator (with low memory only):
+	 * The first argument says where to put the bitmap, and the
+	 * second says where the end of allocatable memory is.
+	 */
 	bootmap_size = init_bootmem(min_low_pfn, last_alloc_pfn);
 
+	/*
+	 * Let the bootmem allocator use all the space we've given it
+	 * except for its own bitmap.
+	 */
 	first_alloc_pfn = min_low_pfn + PFN_UP(bootmap_size);
 	if (first_alloc_pfn >= last_alloc_pfn)
 		early_panic("Not enough memory on controller 0 for bootmem\n");
@@ -506,7 +574,7 @@ static int __init percpu_size(void)
 		size = PCPU_MIN_UNIT_SIZE;
 	size = roundup(size, PAGE_SIZE);
 
-	
+	/* In several places we assume the per-cpu data fits on a huge page. */
 	BUG_ON(kdata_huge && size > HPAGE_SIZE);
 	return size;
 }
@@ -540,8 +608,24 @@ static void __init zone_sizes_init(void)
 		int memmap_size = (end - start) * sizeof(struct page);
 		node_free_pfn[i] = start;
 
+		/*
+		 * Set aside pages for per-cpu data and the mem_map array.
+		 *
+		 * Since the per-cpu data requires special homecaching,
+		 * if we are in kdata_huge mode, we put it at the end of
+		 * the lowmem region.  If we're not in kdata_huge mode,
+		 * we take the per-cpu pages from the bottom of the
+		 * controller, since that avoids fragmenting a huge page
+		 * that users might want.  We always take the memmap
+		 * from the bottom of the controller, since with
+		 * kdata_huge that lets it be under a huge TLB entry.
+		 *
+		 * If the user has requested isolnodes for a controller,
+		 * though, there'll be no lowmem, so we just alloc_bootmem
+		 * the memmap.  There will be no percpu memory either.
+		 */
 		if (__pfn_to_highbits(start) == 0) {
-			
+			/* In low PAs, allocate via bootmem. */
 			unsigned long goal = 0;
 			node_memmap_pfn[i] =
 				alloc_bootmem_pfn(memmap_size, goal);
@@ -554,7 +638,7 @@ static void __init zone_sizes_init(void)
 			node_memmap_pfn[i] = alloc_bootmem_pfn(memmap_size, 0);
 			BUG_ON(node_percpu[i] != 0);
 		} else {
-			
+			/* In high PAs, just reserve some pages. */
 			node_memmap_pfn[i] = node_free_pfn[i];
 			node_free_pfn[i] += PFN_UP(memmap_size);
 			if (!kdata_huge) {
@@ -578,13 +662,22 @@ static void __init zone_sizes_init(void)
 		zones_size[ZONE_NORMAL] = end - start;
 #endif
 
+		/*
+		 * Everyone shares node 0's bootmem allocator, but
+		 * we use alloc_remap(), above, to put the actual
+		 * struct page array on the individual controllers,
+		 * which is most of the data that we actually care about.
+		 * We can't place bootmem allocators on the other
+		 * controllers since the bootmem allocator can only
+		 * operate on 32-bit physical addresses.
+		 */
 		NODE_DATA(i)->bdata = NODE_DATA(0)->bdata;
 
 		free_area_init_node(i, zones_size, start, NULL);
 		printk(KERN_DEBUG "  Normal zone: %ld per-cpu pages\n",
 		       PFN_UP(node_percpu[i]));
 
-		
+		/* Track the type of memory on each node */
 		if (zones_size[ZONE_NORMAL])
 			node_set_state(i, N_NORMAL_MEMORY);
 #ifdef CONFIG_HIGHMEM
@@ -598,12 +691,15 @@ static void __init zone_sizes_init(void)
 
 #ifdef CONFIG_NUMA
 
+/* which logical CPUs are on which nodes */
 struct cpumask node_2_cpu_mask[MAX_NUMNODES] __write_once;
 EXPORT_SYMBOL(node_2_cpu_mask);
 
+/* which node each logical CPU is on */
 char cpu_2_node[NR_CPUS] __write_once __attribute__((aligned(L2_CACHE_BYTES)));
 EXPORT_SYMBOL(cpu_2_node);
 
+/* Return cpu_to_node() except for cpus not yet assigned, which return -1 */
 static int __init cpu_to_bound_node(int cpu, struct cpumask* unbound_cpus)
 {
 	if (!cpu_possible(cpu) || cpumask_test_cpu(cpu, unbound_cpus))
@@ -612,6 +708,7 @@ static int __init cpu_to_bound_node(int cpu, struct cpumask* unbound_cpus)
 		return cpu_to_node(cpu);
 }
 
+/* Return number of immediately-adjacent tiles sharing the same NUMA node. */
 static int __init node_neighbors(int node, int cpu,
 				 struct cpumask *unbound_cpus)
 {
@@ -642,7 +739,7 @@ static void __init setup_numa_mapping(void)
 
 	cpumask_clear(&unbound_cpus);
 
-	
+	/* Get set of nodes we will use for defaults */
 	nodes_andnot(default_nodes, node_online_map, isolnodes);
 	if (nodes_empty(default_nodes)) {
 		BUG_ON(!node_isset(0, node_online_map));
@@ -650,7 +747,7 @@ static void __init setup_numa_mapping(void)
 		node_set(0, default_nodes);
 	}
 
-	
+	/* Populate the distance[] array */
 	memset(distance, -1, sizeof(distance));
 	cpu = 0;
 	for (coord.y = 0; coord.y < smp_height; ++coord.y) {
@@ -673,18 +770,35 @@ static void __init setup_numa_mapping(void)
 	}
 	cpus = cpu;
 
+	/*
+	 * Round-robin through the NUMA nodes until all the cpus are
+	 * assigned.  We could be more clever here (e.g. create four
+	 * sorted linked lists on the same set of cpu nodes, and pull
+	 * off them in round-robin sequence, removing from all four
+	 * lists each time) but given the relatively small numbers
+	 * involved, O(n^2) seem OK for a one-time cost.
+	 */
 	node = first_node(default_nodes);
 	while (!cpumask_empty(&unbound_cpus)) {
 		int best_cpu = -1;
 		int best_distance = INT_MAX;
 		for (cpu = 0; cpu < cpus; ++cpu) {
 			if (cpumask_test_cpu(cpu, &unbound_cpus)) {
+				/*
+				 * Compute metric, which is how much
+				 * closer the cpu is to this memory
+				 * controller than the others, shifted
+				 * up, and then the number of
+				 * neighbors already in the node as an
+				 * epsilon adjustment to try to keep
+				 * the nodes compact.
+				 */
 				int d = distance[node][cpu] * num_nodes;
 				for_each_node_mask(i, default_nodes) {
 					if (i != node)
 						d -= distance[i][cpu];
 				}
-				d *= 8;  
+				d *= 8;  /* allow space for epsilon */
 				d -= node_neighbors(node, cpu, &unbound_cpus);
 				if (d < best_distance) {
 					best_cpu = cpu;
@@ -701,7 +815,7 @@ static void __init setup_numa_mapping(void)
 			node = first_node(default_nodes);
 	}
 
-	
+	/* Print out node assignments and set defaults for disabled cpus */
 	cpu = 0;
 	for (y = 0; y < smp_height; ++y) {
 		printk(KERN_DEBUG "NUMA cpu-to-node row %d:", y);
@@ -734,19 +848,25 @@ static int __init topology_init(void)
 
 subsys_initcall(topology_init);
 
-#else 
+#else /* !CONFIG_NUMA */
 
 #define setup_numa_mapping() do { } while (0)
 
-#endif 
+#endif /* CONFIG_NUMA */
 
+/**
+ * setup_cpu() - Do all necessary per-cpu, tile-specific initialization.
+ * @boot: Is this the boot cpu?
+ *
+ * Called from setup_arch() on the boot cpu, or online_secondary().
+ */
 void __cpuinit setup_cpu(int boot)
 {
-	
+	/* The boot cpu sets up its permanent mappings much earlier. */
 	if (!boot)
 		store_permanent_mappings();
 
-	
+	/* Allow asynchronous TLB interrupts. */
 #if CHIP_HAS_TILE_DMA()
 	arch_local_irq_unmask(INT_DMATLB_MISS);
 	arch_local_irq_unmask(INT_DMATLB_ACCESS);
@@ -758,10 +878,14 @@ void __cpuinit setup_cpu(int boot)
 	arch_local_irq_unmask(INT_SINGLE_STEP_K);
 #endif
 
+	/*
+	 * Allow user access to many generic SPRs, like the cycle
+	 * counter, PASS/FAIL/DONE, INTERRUPT_CRITICAL_SECTION, etc.
+	 */
 	__insn_mtspr(SPR_MPL_WORLD_ACCESS_SET_0, 1);
 
 #if CHIP_HAS_SN()
-	
+	/* Static network is not restricted. */
 	__insn_mtspr(SPR_MPL_SN_ACCESS_SET_0, 1);
 #endif
 #if CHIP_HAS_SN_PROC()
@@ -769,20 +893,32 @@ void __cpuinit setup_cpu(int boot)
 	__insn_mtspr(SPR_MPL_SN_CPL_SET_0, 1);
 #endif
 
+	/*
+	 * Set the MPL for interrupt control 0 & 1 to the corresponding
+	 * values.  This includes access to the SYSTEM_SAVE and EX_CONTEXT
+	 * SPRs, as well as the interrupt mask.
+	 */
 	__insn_mtspr(SPR_MPL_INTCTRL_0_SET_0, 1);
 	__insn_mtspr(SPR_MPL_INTCTRL_1_SET_1, 1);
 
-	
+	/* Initialize IRQ support for this cpu. */
 	setup_irq_regs();
 
 #ifdef CONFIG_HARDWALL
-	
+	/* Reset the network state on this cpu. */
 	reset_network_state();
 #endif
 }
 
 #ifdef CONFIG_BLK_DEV_INITRD
 
+/*
+ * Note that the kernel can potentially support other compression
+ * techniques than gz, though we don't do so by default.  If we ever
+ * decide to do so we can either look for other filename extensions,
+ * or just allow a file with this name to be compressed with an
+ * arbitrary compressor (somewhat counterintuitively).
+ */
 static int __initdata set_initramfs_file;
 static char __initdata initramfs_file[128] = "initramfs.cpio.gz";
 
@@ -797,6 +933,11 @@ static int __init setup_initramfs_file(char *str)
 }
 early_param("initramfs_file", setup_initramfs_file);
 
+/*
+ * We look for an "initramfs.cpio.gz" file in the hvfs.
+ * If there is one, we allocate some memory for it and it will be
+ * unpacked to the initramfs.
+ */
 static void __init load_hv_initrd(void)
 {
 	HV_FS_StatInfo stat;
@@ -837,10 +978,14 @@ void __init free_initrd_mem(unsigned long begin, unsigned long end)
 
 #else
 static inline void load_hv_initrd(void) {}
-#endif 
+#endif /* CONFIG_BLK_DEV_INITRD */
 
 static void __init validate_hv(void)
 {
+	/*
+	 * It may already be too late, but let's check our built-in
+	 * configuration against what the hypervisor is providing.
+	 */
 	unsigned long glue_size = hv_sysconf(HV_SYSCONF_GLUE_SIZE);
 	int hv_page_size = hv_sysconf(HV_SYSCONF_PAGE_SIZE_SMALL);
 	int hv_hpage_size = hv_sysconf(HV_SYSCONF_PAGE_SIZE_LARGE);
@@ -867,12 +1012,21 @@ static void __init validate_hv(void)
 			    hv_hpage_size, HPAGE_SIZE);
 
 #ifdef CONFIG_SMP
+	/*
+	 * Some hypervisor APIs take a pointer to a bitmap array
+	 * whose size is at least the number of cpus on the chip.
+	 * We use a struct cpumask for this, so it must be big enough.
+	 */
 	if ((smp_height * smp_width) > nr_cpu_ids)
 		early_panic("Hypervisor %d x %d grid too big for Linux"
 			    " NR_CPUS %d\n", smp_height, smp_width,
 			    nr_cpu_ids);
 #endif
 
+	/*
+	 * Check that we're using allowed ASIDs, and initialize the
+	 * various asid variables to their appropriate initial states.
+	 */
 	asid_range = hv_inquire_asid(0);
 	__get_cpu_var(current_asid) = min_asid = asid_range.start;
 	max_asid = asid_range.start + asid_range.size - 1;
@@ -886,7 +1040,14 @@ static void __init validate_hv(void)
 
 static void __init validate_va(void)
 {
-#ifndef __tilegx__   
+#ifndef __tilegx__   /* FIXME: GX: probably some validation relevant here */
+	/*
+	 * Similarly, make sure we're only using allowed VAs.
+	 * We assume we can contiguously use MEM_USER_INTRPT .. MEM_HV_INTRPT,
+	 * and 0 .. KERNEL_HIGH_VADDR.
+	 * In addition, make sure we CAN'T use the end of memory, since
+	 * we use the last chunk of each pgd for the pgd_list.
+	 */
 	int i, user_kernel_ok = 0;
 	unsigned long max_va = 0;
 	unsigned long list_va =
@@ -911,7 +1072,7 @@ static void __init validate_va(void)
 		early_panic("Hypervisor max VA %#lx smaller than %#lx\n",
 			    max_va, KERNEL_HIGH_VADDR);
 
-	
+	/* Kernel PCs must have their high bit set; see intvec.S. */
 	if ((long)VMALLOC_START >= 0)
 		early_panic(
 			"Linux VMALLOC region below the 2GB line (%#lx)!\n"
@@ -921,14 +1082,37 @@ static void __init validate_va(void)
 #endif
 }
 
+/*
+ * cpu_lotar_map lists all the cpus that are valid for the supervisor
+ * to cache data on at a page level, i.e. what cpus can be placed in
+ * the LOTAR field of a PTE.  It is equivalent to the set of possible
+ * cpus plus any other cpus that are willing to share their cache.
+ * It is set by hv_inquire_tiles(HV_INQ_TILES_LOTAR).
+ */
 struct cpumask __write_once cpu_lotar_map;
 EXPORT_SYMBOL(cpu_lotar_map);
 
 #if CHIP_HAS_CBOX_HOME_MAP()
+/*
+ * hash_for_home_map lists all the tiles that hash-for-home data
+ * will be cached on.  Note that this may includes tiles that are not
+ * valid for this supervisor to use otherwise (e.g. if a hypervisor
+ * device is being shared between multiple supervisors).
+ * It is set by hv_inquire_tiles(HV_INQ_TILES_HFH_CACHE).
+ */
 struct cpumask hash_for_home_map;
 EXPORT_SYMBOL(hash_for_home_map);
 #endif
 
+/*
+ * cpu_cacheable_map lists all the cpus whose caches the hypervisor can
+ * flush on our behalf.  It is set to cpu_possible_mask OR'ed with
+ * hash_for_home_map, and it is what should be passed to
+ * hv_flush_remote() to flush all caches.  Note that if there are
+ * dedicated hypervisor driver tiles that have authorized use of their
+ * cache, those tiles will only appear in cpu_lotar_map, NOT in
+ * cpu_cacheable_map, as they are a special case.
+ */
 struct cpumask __write_once cpu_cacheable_map;
 EXPORT_SYMBOL(cpu_cacheable_map);
 
@@ -964,7 +1148,7 @@ static void __init setup_cpu_maps(void)
 	int boot_cpu = smp_processor_id();
 	int cpus, i, rc;
 
-	
+	/* Learn which cpus are allowed by the hypervisor. */
 	rc = hv_inquire_tiles(HV_INQ_TILES_AVAIL,
 			      (HV_VirtAddr) cpumask_bits(&cpu_possible_init),
 			      sizeof(cpu_cacheable_map));
@@ -973,27 +1157,36 @@ static void __init setup_cpu_maps(void)
 	if (!cpumask_test_cpu(boot_cpu, &cpu_possible_init))
 		early_panic("Boot CPU %d disabled by hypervisor!\n", boot_cpu);
 
-	
+	/* Compute the cpus disabled by the hvconfig file. */
 	cpumask_complement(&hv_disabled_map, &cpu_possible_init);
 
-	
+	/* Include them with the cpus disabled by "disabled_cpus". */
 	cpumask_or(&disabled_map, &disabled_map, &hv_disabled_map);
 
-	cpus = 1;                          
-	cpumask_set_cpu(boot_cpu, &disabled_map);   
+	/*
+	 * Disable every cpu after "setup_max_cpus".  But don't mark
+	 * as disabled the cpus that are outside of our initial rectangle,
+	 * since that turns out to be confusing.
+	 */
+	cpus = 1;                          /* this cpu */
+	cpumask_set_cpu(boot_cpu, &disabled_map);   /* ignore this cpu */
 	for (i = 0; cpus < setup_max_cpus; ++i)
 		if (!cpumask_test_cpu(i, &disabled_map))
 			++cpus;
 	for (; i < smp_height * smp_width; ++i)
 		cpumask_set_cpu(i, &disabled_map);
-	cpumask_clear_cpu(boot_cpu, &disabled_map); 
+	cpumask_clear_cpu(boot_cpu, &disabled_map); /* reset this cpu */
 	for (i = smp_height * smp_width; i < NR_CPUS; ++i)
 		cpumask_clear_cpu(i, &disabled_map);
 
+	/*
+	 * Setup cpu_possible map as every cpu allocated to us, minus
+	 * the results of any "disabled_cpus" settings.
+	 */
 	cpumask_andnot(&cpu_possible_init, &cpu_possible_init, &disabled_map);
 	init_cpu_possible(&cpu_possible_init);
 
-	
+	/* Learn which cpus are valid for LOTAR caching. */
 	rc = hv_inquire_tiles(HV_INQ_TILES_LOTAR,
 			      (HV_VirtAddr) cpumask_bits(&cpu_lotar_map),
 			      sizeof(cpu_lotar_map));
@@ -1003,7 +1196,7 @@ static void __init setup_cpu_maps(void)
 	}
 
 #if CHIP_HAS_CBOX_HOME_MAP()
-	
+	/* Retrieve set of CPUs used for hash-for-home caching */
 	rc = hv_inquire_tiles(HV_INQ_TILES_HFH_CACHE,
 			      (HV_VirtAddr) hash_for_home_map.bits,
 			      sizeof(hash_for_home_map));
@@ -1062,10 +1255,10 @@ void __init setup_arch(char **cmdline_p)
 
 	*cmdline_p = boot_command_line;
 
-	
+	/* Set disabled_map and setup_max_cpus very early */
 	parse_early_param();
 
-	
+	/* Make sure the kernel is compatible with the hypervisor. */
 	validate_hv();
 	validate_va();
 
@@ -1073,10 +1266,15 @@ void __init setup_arch(char **cmdline_p)
 
 
 #ifdef CONFIG_PCI
+	/*
+	 * Initialize the PCI structures.  This is done before memory
+	 * setup so that we know whether or not a pci_reserve region
+	 * is necessary.
+	 */
 	if (tile_pci_init() == 0)
 		pci_reserve_mb = 0;
 
-	
+	/* PCI systems reserve a region just below 4GB for mapping iomem. */
 	pci_reserve_end_pfn  = (1 << (32 - PAGE_SHIFT));
 	pci_reserve_start_pfn = pci_reserve_end_pfn -
 		(pci_reserve_mb << (20 - PAGE_SHIFT));
@@ -1091,6 +1289,10 @@ void __init setup_arch(char **cmdline_p)
 	store_permanent_mappings();
 	setup_bootmem_allocator();
 
+	/*
+	 * NOTE: before this point _nobody_ is allowed to allocate
+	 * any memory using the bootmem allocator.
+	 */
 
 	paging_init();
 	setup_numa_mapping();
@@ -1102,6 +1304,9 @@ void __init setup_arch(char **cmdline_p)
 }
 
 
+/*
+ * Set up per-cpu memory.
+ */
 
 unsigned long __per_cpu_offset[NR_CPUS] __write_once;
 EXPORT_SYMBOL(__per_cpu_offset);
@@ -1109,6 +1314,10 @@ EXPORT_SYMBOL(__per_cpu_offset);
 static size_t __initdata pfn_offset[MAX_NUMNODES] = { 0 };
 static unsigned long __initdata percpu_pfn[NR_CPUS] = { 0 };
 
+/*
+ * As the percpu code allocates pages, we return the pages from the
+ * end of the node for the specified cpu.
+ */
 static void *__init pcpu_fc_alloc(unsigned int cpu, size_t size, size_t align)
 {
 	int nid = cpu_to_node(cpu);
@@ -1123,10 +1332,17 @@ static void *__init pcpu_fc_alloc(unsigned int cpu, size_t size, size_t align)
 	return pfn_to_kaddr(pfn);
 }
 
+/*
+ * Pages reserved for percpu memory are not freeable, and in any case we are
+ * on a short path to panic() in setup_per_cpu_area() at this point anyway.
+ */
 static void __init pcpu_fc_free(void *ptr, size_t size)
 {
 }
 
+/*
+ * Set up vmalloc page tables using bootmem for the percpu code.
+ */
 static void __init pcpu_fc_populate_pte(unsigned long addr)
 {
 	pgd_t *pgd;
@@ -1170,16 +1386,16 @@ void __init setup_per_cpu_areas(void)
 	for_each_possible_cpu(cpu) {
 		__per_cpu_offset[cpu] = delta + pcpu_unit_offsets[cpu];
 
-		
+		/* finv the copy out of cache so we can change homecache */
 		ptr = pcpu_base_addr + pcpu_unit_offsets[cpu];
 		__finv_buffer(ptr, size);
 		pfn = percpu_pfn[cpu];
 
-		
+		/* Rewrite the page tables to cache on that cpu */
 		pg = pfn_to_page(pfn);
 		for (i = 0; i < size; i += PAGE_SIZE, ++pfn, ++pg) {
 
-			
+			/* Update the vmalloc mapping and page home. */
 			pte_t *ptep =
 				virt_to_pte(NULL, (unsigned long)ptr + i);
 			pte_t pte = *ptep;
@@ -1188,7 +1404,7 @@ void __init setup_per_cpu_areas(void)
 			pte = set_remote_cache_cpu(pte, cpu);
 			set_pte(ptep, pte);
 
-			
+			/* Update the lowmem mapping for consistency. */
 			lowmem_va = (unsigned long)pfn_to_kaddr(pfn);
 			ptep = virt_to_pte(NULL, lowmem_va);
 			if (pte_huge(*ptep)) {
@@ -1203,13 +1419,13 @@ void __init setup_per_cpu_areas(void)
 		}
 	}
 
-	
+	/* Set our thread pointer appropriately. */
 	set_my_cpu_offset(__per_cpu_offset[smp_processor_id()]);
 
-	
+	/* Make sure the finv's have completed. */
 	mb_incoherent();
 
-	
+	/* Flush the TLB so we reference it properly from here on out. */
 	local_flush_tlb_all();
 }
 
@@ -1227,6 +1443,11 @@ static struct resource code_resource = {
 	.flags	= IORESOURCE_BUSY | IORESOURCE_MEM
 };
 
+/*
+ * We reserve all resources above 4GB so that PCI won't try to put
+ * mappings above 4GB; the standard allows that for some devices but
+ * the probing code trunates values to 32 bits.
+ */
 #ifdef CONFIG_PCI
 static struct resource* __init
 insert_non_bus_resource(void)
@@ -1261,6 +1482,12 @@ insert_ram_resource(u64 start_pfn, u64 end_pfn)
 	return res;
 }
 
+/*
+ * Request address space for all standard resources
+ *
+ * If the system includes PCI root complex drivers, we need to create
+ * a window just below 4GB where PCI BARs can be mapped.
+ */
 static int __init request_standard_resources(void)
 {
 	int i;

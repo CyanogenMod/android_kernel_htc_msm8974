@@ -15,11 +15,11 @@
 #define SIMULATOR_SLEEP()		asm("nop.i 0x8beef")
 #define IS_RUNNING_ON_SIMULATOR()	(sn_prom_type)
 #define IS_RUNNING_ON_FAKE_PROM()	(sn_prom_type == 2)
-extern int sn_prom_type;		
+extern int sn_prom_type;		/* 0=hardware, 1=medusa/realprom, 2=medusa/fakeprom */
 #else
 #define IS_MEDUSA()			0
 #define SIMULATOR_SLEEP()
 #define IS_RUNNING_ON_SIMULATOR()	0
 #endif
 
-#endif 
+#endif /* _ASM_IA64_SN_SIMULATOR_H */

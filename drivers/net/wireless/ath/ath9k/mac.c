@@ -77,6 +77,31 @@ u32 ath9k_hw_numtxpending(struct ath_hw *ah, u32 q)
 }
 EXPORT_SYMBOL(ath9k_hw_numtxpending);
 
+/**
+ * ath9k_hw_updatetxtriglevel - adjusts the frame trigger level
+ *
+ * @ah: atheros hardware struct
+ * @bIncTrigLevel: whether or not the frame trigger level should be updated
+ *
+ * The frame trigger level specifies the minimum number of bytes,
+ * in units of 64 bytes, that must be DMA'ed into the PCU TX FIFO
+ * before the PCU will initiate sending the frame on the air. This can
+ * mean we initiate transmit before a full frame is on the PCU TX FIFO.
+ * Resets to 0x1 (meaning 64 bytes or a full frame, whichever occurs
+ * first)
+ *
+ * Caution must be taken to ensure to set the frame trigger level based
+ * on the DMA request size. For example if the DMA request size is set to
+ * 128 bytes the trigger level cannot exceed 6 * 64 = 384. This is because
+ * there need to be enough space in the tx FIFO for the requested transfer
+ * size. Hence the tx FIFO will stop with 512 - 128 = 384 bytes. If we set
+ * the threshold to a value beyond 6, then the transmit will hang.
+ *
+ * Current dual   stream devices have a PCU TX FIFO size of 8 KB.
+ * Current single stream devices have a PCU TX FIFO size of 4 KB, however,
+ * there is a hardware issue which forces us to use 2 KB instead so the
+ * frame trigger level must not exceed 2 KB for these chipsets.
+ */
 bool ath9k_hw_updatetxtriglevel(struct ath_hw *ah, bool bIncTrigLevel)
 {
 	u32 txcfg, curLevel, newLevel;
@@ -136,8 +161,8 @@ EXPORT_SYMBOL(ath9k_hw_abort_tx_dma);
 
 bool ath9k_hw_stop_dma_queue(struct ath_hw *ah, u32 q)
 {
-#define ATH9K_TX_STOP_DMA_TIMEOUT	1000    
-#define ATH9K_TIME_QUANTUM		100     
+#define ATH9K_TX_STOP_DMA_TIMEOUT	1000    /* usec */
+#define ATH9K_TIME_QUANTUM		100     /* usec */
 	int wait_time = ATH9K_TX_STOP_DMA_TIMEOUT / ATH9K_TIME_QUANTUM;
 	int wait;
 
@@ -431,6 +456,11 @@ bool ath9k_hw_resettxqueue(struct ath_hw *ah, u32 q)
 
 		REGWRITE_BUFFER_FLUSH(ah);
 
+		/*
+		 * cwmin and cwmax should be 0 for beacon queue
+		 * but not for IBSS as we would create an imbalance
+		 * on beaconing fairness for participating nodes.
+		 */
 		if (AR_SREV_9300_20_OR_LATER(ah) &&
 		    ah->opmode != NL80211_IFTYPE_ADHOC) {
 			REG_WRITE(ah, AR_DLCL_IFS(q), SM(0, AR_D_LCL_IFS_CWMIN)
@@ -561,6 +591,12 @@ int ath9k_hw_rxprocdesc(struct ath_hw *ah, struct ath_desc *ds,
 		rs->rs_flags |= ATH9K_RX_DECRYPT_BUSY;
 
 	if ((ads.ds_rxstatus8 & AR_RxFrameOK) == 0) {
+		/*
+		 * Treat these errors as mutually exclusive to avoid spurious
+		 * extra error reports from the hardware. If a CRC error is
+		 * reported, then decryption and MIC errors are irrelevant,
+		 * the frame is going to be dropped either way
+		 */
 		if (ads.ds_rxstatus8 & AR_CRCErr)
 			rs->rs_status |= ATH9K_RXERR_CRC;
 		else if (ads.ds_rxstatus8 & AR_PHYErr) {
@@ -580,6 +616,13 @@ int ath9k_hw_rxprocdesc(struct ath_hw *ah, struct ath_desc *ds,
 }
 EXPORT_SYMBOL(ath9k_hw_rxprocdesc);
 
+/*
+ * This can stop or re-enables RX.
+ *
+ * If bool is set this will kill any frame which is currently being
+ * transferred between the MAC and baseband and also prevent any new
+ * frames from getting started.
+ */
 bool ath9k_hw_setrxabort(struct ath_hw *ah, bool set)
 {
 	u32 reg;
@@ -636,12 +679,12 @@ EXPORT_SYMBOL(ath9k_hw_abortpcurecv);
 
 bool ath9k_hw_stopdmarecv(struct ath_hw *ah, bool *reset)
 {
-#define AH_RX_STOP_DMA_TIMEOUT 10000   
+#define AH_RX_STOP_DMA_TIMEOUT 10000   /* usec */
 	struct ath_common *common = ath9k_hw_common(ah);
 	u32 mac_status, last_mac_status = 0;
 	int i;
 
-	
+	/* Enable access to the DMA observation bus */
 	REG_WRITE(ah, AR_MACMISC,
 		  ((AR_MACMISC_DMA_OBS_LINE_8 << AR_MACMISC_DMA_OBS_S) |
 		   (AR_MACMISC_MISC_OBS_BUS_1 <<
@@ -649,7 +692,7 @@ bool ath9k_hw_stopdmarecv(struct ath_hw *ah, bool *reset)
 
 	REG_WRITE(ah, AR_CR, AR_CR_RXD);
 
-	
+	/* Wait for rx enable bit to go low */
 	for (i = AH_RX_STOP_DMA_TIMEOUT / AH_TIME_QUANTUM; i != 0; i--) {
 		if ((REG_READ(ah, AR_CR) & AR_CR_RXE) == 0)
 			break;

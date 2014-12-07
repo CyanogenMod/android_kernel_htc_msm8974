@@ -37,7 +37,7 @@
 #include "zd_usb.h"
 
 static struct usb_device_id usb_ids[] = {
-	
+	/* ZD1211 */
 	{ USB_DEVICE(0x0105, 0x145f), .driver_info = DEVICE_ZD1211 },
 	{ USB_DEVICE(0x0586, 0x3401), .driver_info = DEVICE_ZD1211 },
 	{ USB_DEVICE(0x0586, 0x3402), .driver_info = DEVICE_ZD1211 },
@@ -64,7 +64,7 @@ static struct usb_device_id usb_ids[] = {
 	{ USB_DEVICE(0x157e, 0x3207), .driver_info = DEVICE_ZD1211 },
 	{ USB_DEVICE(0x1740, 0x2000), .driver_info = DEVICE_ZD1211 },
 	{ USB_DEVICE(0x6891, 0xa727), .driver_info = DEVICE_ZD1211 },
-	
+	/* ZD1211B */
 	{ USB_DEVICE(0x0053, 0x5301), .driver_info = DEVICE_ZD1211B },
 	{ USB_DEVICE(0x0409, 0x0248), .driver_info = DEVICE_ZD1211B },
 	{ USB_DEVICE(0x0411, 0x00da), .driver_info = DEVICE_ZD1211B },
@@ -96,7 +96,7 @@ static struct usb_device_id usb_ids[] = {
 	{ USB_DEVICE(0x1582, 0x6003), .driver_info = DEVICE_ZD1211B },
 	{ USB_DEVICE(0x2019, 0x5303), .driver_info = DEVICE_ZD1211B },
 	{ USB_DEVICE(0x2019, 0xed01), .driver_info = DEVICE_ZD1211B },
-	
+	/* "Driverless" devices that need ejecting */
 	{ USB_DEVICE(0x0ace, 0x2011), .driver_info = DEVICE_INSTALLER },
 	{ USB_DEVICE(0x0ace, 0x20ff), .driver_info = DEVICE_INSTALLER },
 	{}
@@ -115,6 +115,7 @@ MODULE_DEVICE_TABLE(usb, usb_ids);
 static bool check_read_regs(struct zd_usb *usb, struct usb_req_read_regs *req,
 			    unsigned int count);
 
+/* USB device initialization */
 static void int_urb_complete(struct urb *urb);
 
 static int request_fw_file(
@@ -141,6 +142,7 @@ enum upload_code_flags {
 	REBOOT = 1,
 };
 
+/* Ensures that MAX_TRANSFER_SIZE is even. */
 #define MAX_TRANSFER_SIZE (USB_MAX_TRANSFER_SIZE & ~1)
 
 static int upload_code(struct usb_device *udev,
@@ -149,6 +151,8 @@ static int upload_code(struct usb_device *udev,
 	u8 *p;
 	int r;
 
+	/* USB request blocks need "kmalloced" buffers.
+	 */
 	p = kmalloc(MAX_TRANSFER_SIZE, GFP_KERNEL);
 	if (!p) {
 		dev_err(&udev->dev, "out of memory\n");
@@ -167,7 +171,7 @@ static int upload_code(struct usb_device *udev,
 		r = usb_control_msg(udev, usb_sndctrlpipe(udev, 0),
 			USB_REQ_FIRMWARE_DOWNLOAD,
 			USB_DIR_OUT | USB_TYPE_VENDOR,
-			code_offset, 0, p, transfer_size, 1000 );
+			code_offset, 0, p, transfer_size, 1000 /* ms */);
 		if (r < 0) {
 			dev_err(&udev->dev,
 			       "USB control request for firmware upload"
@@ -184,11 +188,11 @@ static int upload_code(struct usb_device *udev,
 	if (flags & REBOOT) {
 		u8 ret;
 
-		
+		/* Use "DMA-aware" buffer. */
 		r = usb_control_msg(udev, usb_rcvctrlpipe(udev, 0),
 			USB_REQ_FIRMWARE_CONFIRM,
 			USB_DIR_IN | USB_TYPE_VENDOR,
-			0, 0, p, sizeof(ret), 5000 );
+			0, 0, p, sizeof(ret), 5000 /* ms */);
 		if (r != sizeof(ret)) {
 			dev_err(&udev->dev,
 				"control request firmeware confirmation failed."
@@ -255,6 +259,11 @@ static int handle_version_mismatch(struct zd_usb *usb,
 	r = upload_code(udev, ub_fw->data + offset, ub_fw->size - offset,
 		E2P_START + E2P_BOOT_CODE_OFFSET, REBOOT);
 
+	/* At this point, the vendor driver downloads the whole firmware
+	 * image, hacks around with version IDs, and uploads it again,
+	 * completely overwriting the boot code. We do not do this here as
+	 * it is not required on any tested devices, and it is suspected to
+	 * cause problems. */
 error:
 	release_firmware(ur_fw);
 	return r;
@@ -311,7 +320,7 @@ static int upload_firmware(struct zd_usb *usb)
 			r);
 	}
 
-	
+	/* FALL-THROUGH */
 error:
 	release_firmware(ub_fw);
 	release_firmware(uph_fw);
@@ -325,13 +334,15 @@ MODULE_FIRMWARE(FW_ZD1211_PREFIX "ub");
 MODULE_FIRMWARE(FW_ZD1211B_PREFIX "uphr");
 MODULE_FIRMWARE(FW_ZD1211_PREFIX "uphr");
 
+/* Read data from device address space using "firmware interface" which does
+ * not require firmware to be loaded. */
 int zd_usb_read_fw(struct zd_usb *usb, zd_addr_t addr, u8 *data, u16 len)
 {
 	int r;
 	struct usb_device *udev = zd_usb_to_usbdev(usb);
 	u8 *buf;
 
-	
+	/* Use "DMA-aware" buffer. */
 	buf = kmalloc(len, GFP_KERNEL);
 	if (!buf)
 		return -ENOMEM;
@@ -398,6 +409,12 @@ static inline void handle_regs_int(struct urb *urb)
 
 		memcpy(intr->read_regs.buffer, urb->transfer_buffer, len);
 
+		/* Sometimes USB_INT_ID_REGS is not overridden, but comes after
+		 * USB_INT_ID_RETRY_FAILED. Read-reg retry then gets this
+		 * delayed USB_INT_ID_REGS, but leaves USB_INT_ID_REGS of
+		 * retry unhandled. Next read-reg command then might catch
+		 * this wrong USB_INT_ID_REGS. Fix by ignoring wrong reads.
+		 */
 		if (!check_read_regs(usb, intr->read_regs.req,
 						intr->read_regs.req_count))
 			goto out;
@@ -412,7 +429,7 @@ static inline void handle_regs_int(struct urb *urb)
 out:
 	spin_unlock(&intr->lock);
 
-	
+	/* CR_INTERRUPT might override read_reg too. */
 	if (int_num == CR_INTERRUPT && atomic_read(&intr->read_regs_enabled))
 		handle_regs_int_override(urb);
 }
@@ -451,6 +468,9 @@ static void int_urb_complete(struct urb *urb)
 		goto resubmit;
 	}
 
+	/* USB_INT_ID_RETRY_FAILED triggered by tx-urb submit can override
+	 * pending USB_INT_ID_REGS causing read command timeout.
+	 */
 	usb = urb->context;
 	intr = &usb->intr;
 	if (hdr->id != USB_INT_ID_REGS && atomic_read(&intr->read_regs_enabled))
@@ -474,7 +494,7 @@ resubmit:
 	if (r) {
 		dev_dbg_f(urb_dev(urb), "error: resubmit urb %p err code %d\n",
 			  urb, r);
-		
+		/* TODO: add worker to reset intr->urb */
 	}
 	return;
 }
@@ -604,7 +624,7 @@ static void handle_rx_packet(struct zd_usb *usb, const u8 *buffer,
 	const struct rx_length_info *length_info;
 
 	if (length < sizeof(struct rx_length_info)) {
-		
+		/* It's not a complete packet anyhow. */
 		dev_dbg_f(zd_usb_dev(usb), "invalid, small RX packet : %d\n",
 					   length);
 		return;
@@ -612,6 +632,14 @@ static void handle_rx_packet(struct zd_usb *usb, const u8 *buffer,
 	length_info = (struct rx_length_info *)
 		(buffer + length - sizeof(struct rx_length_info));
 
+	/* It might be that three frames are merged into a single URB
+	 * transaction. We have to check for the length info tag.
+	 *
+	 * While testing we discovered that length_info might be unaligned,
+	 * because if USB transactions are merged, the last packet will not
+	 * be padded. Unaligned access might also happen if the length_info
+	 * structure is not present.
+	 */
 	if (get_unaligned_le16(&length_info->tag) == RX_LENGTH_INFO_TAG)
 	{
 		unsigned int l, k, n;
@@ -664,7 +692,7 @@ static void rx_urb_complete(struct urb *urb)
 	tasklet_schedule(&rx->reset_timer_tasklet);
 
 	if (length%rx->usb_packet_size > rx->usb_packet_size-4) {
-		
+		/* If there is an old first fragment, we don't care. */
 		dev_dbg_f(urb_dev(urb), "*** first fragment ***\n");
 		ZD_ASSERT(length <= ARRAY_SIZE(rx->fragment));
 		spin_lock(&rx->lock);
@@ -676,7 +704,7 @@ static void rx_urb_complete(struct urb *urb)
 
 	spin_lock(&rx->lock);
 	if (rx->fragment_length > 0) {
-		
+		/* We are on a second fragment, we believe */
 		ZD_ASSERT(length + rx->fragment_length <=
 			  ARRAY_SIZE(rx->fragment));
 		dev_dbg_f(urb_dev(urb), "*** second fragment ***\n");
@@ -857,6 +885,12 @@ static void zd_usb_reset_rx(struct zd_usb *usb)
 		zd_usb_reset_rx_idle_timer(usb);
 }
 
+/**
+ * zd_usb_disable_tx - disable transmission
+ * @usb: the zd1211rw-private USB structure
+ *
+ * Frees all URBs in the free list and marks the transmission as disabled.
+ */
 void zd_usb_disable_tx(struct zd_usb *usb)
 {
 	struct zd_usb_tx *tx = &usb->tx;
@@ -864,7 +898,7 @@ void zd_usb_disable_tx(struct zd_usb *usb)
 
 	atomic_set(&tx->enabled, 0);
 
-	
+	/* kill all submitted tx-urbs */
 	usb_kill_anchored_urbs(&tx->submitted);
 
 	spin_lock_irqsave(&tx->lock, flags);
@@ -873,8 +907,18 @@ void zd_usb_disable_tx(struct zd_usb *usb)
 	tx->submitted_urbs = 0;
 	spin_unlock_irqrestore(&tx->lock, flags);
 
+	/* The stopped state is ignored, relying on ieee80211_wake_queues()
+	 * in a potentionally following zd_usb_enable_tx().
+	 */
 }
 
+/**
+ * zd_usb_enable_tx - enables transmission
+ * @usb: a &struct zd_usb pointer
+ *
+ * This function enables transmission and prepares the &zd_usb_tx data
+ * structure.
+ */
 void zd_usb_enable_tx(struct zd_usb *usb)
 {
 	unsigned long flags;
@@ -916,6 +960,13 @@ static void tx_inc_submitted_urbs(struct zd_usb *usb)
 	spin_unlock_irqrestore(&tx->lock, flags);
 }
 
+/**
+ * tx_urb_complete - completes the execution of an URB
+ * @urb: a URB
+ *
+ * This function is called if the URB has been transferred to a device or an
+ * error has happened.
+ */
 static void tx_urb_complete(struct urb *urb)
 {
 	int r;
@@ -926,6 +977,10 @@ static void tx_urb_complete(struct urb *urb)
 
 	skb = (struct sk_buff *)urb->context;
 	info = IEEE80211_SKB_CB(skb);
+	/*
+	 * grab 'usb' pointer before handing off the skb (since
+	 * it might be freed by zd_mac_tx_to_dev or mac80211)
+	 */
 	usb = &zd_hw_mac(info->rate_driver_data[0])->chip.usb;
 	tx = &usb->tx;
 
@@ -960,6 +1015,18 @@ resubmit:
 	}
 }
 
+/**
+ * zd_usb_tx: initiates transfer of a frame of the device
+ *
+ * @usb: the zd1211rw-private USB structure
+ * @skb: a &struct sk_buff pointer
+ *
+ * This function tranmits a frame to the device. It doesn't wait for
+ * completion. The frame must contain the control set and have all the
+ * control set information available.
+ *
+ * The function returns 0 if the transfer has been successfully initiated.
+ */
 int zd_usb_tx(struct zd_usb *usb, struct sk_buff *skb)
 {
 	int r;
@@ -1036,12 +1103,12 @@ static void zd_tx_watchdog_handler(struct work_struct *work)
 	if (!zd_tx_timeout(usb))
 		goto out;
 
-	
+	/* TX halted, try reset */
 	dev_warn(zd_usb_dev(usb), "TX-stall detected, resetting device...");
 
 	usb_queue_reset_device(usb->intf);
 
-	
+	/* reset will stop this worker, don't rearm */
 	return;
 out:
 	queue_delayed_work(zd_workqueue, &tx->watchdog_work,
@@ -1082,7 +1149,7 @@ static void zd_rx_idle_timer_handler(struct work_struct *work)
 
 	dev_dbg_f(zd_usb_dev(usb), "\n");
 
-	
+	/* 30 seconds since last rx, reset rx */
 	zd_usb_reset_rx(usb);
 }
 
@@ -1160,7 +1227,7 @@ void zd_usb_clear(struct zd_usb *usb)
 	usb_set_intfdata(usb->intf, NULL);
 	usb_put_intf(usb->intf);
 	ZD_MEMCLEAR(usb, sizeof(*usb));
-	
+	/* FIXME: usb_interrupt, usb_tx, usb_rx? */
 }
 
 static const char *speed(enum usb_device_speed speed)
@@ -1214,7 +1281,7 @@ static int eject_installer(struct usb_interface *intf)
 	u8 bulk_out_ep;
 	int r;
 
-	
+	/* Find bulk out endpoint */
 	for (r = 1; r >= 0; r--) {
 		endpoint = &iface_desc->endpoint[r].desc;
 		if (usb_endpoint_dir_out(endpoint) &&
@@ -1233,15 +1300,15 @@ static int eject_installer(struct usb_interface *intf)
 	if (cmd == NULL)
 		return -ENODEV;
 
-	
-	cmd[0] = 0x55;	
-	cmd[1] = 0x53;	
-	cmd[2] = 0x42;	
-	cmd[3] = 0x43;	
-	cmd[14] = 6;	
+	/* USB bulk command block */
+	cmd[0] = 0x55;	/* bulk command signature */
+	cmd[1] = 0x53;	/* bulk command signature */
+	cmd[2] = 0x42;	/* bulk command signature */
+	cmd[3] = 0x43;	/* bulk command signature */
+	cmd[14] = 6;	/* command length */
 
-	cmd[15] = 0x1b;	
-	cmd[19] = 0x2;	
+	cmd[15] = 0x1b;	/* SCSI command: START STOP UNIT */
+	cmd[19] = 0x2;	/* eject disc */
 
 	dev_info(&udev->dev, "Ejecting virtual installer media...\n");
 	r = usb_bulk_msg(udev, usb_sndbulkpipe(udev, bulk_out_ep),
@@ -1250,6 +1317,8 @@ static int eject_installer(struct usb_interface *intf)
 	if (r)
 		return r;
 
+	/* At this point, the device disconnects and reconnects with the real
+	 * ID numbers. */
 
 	usb_set_intfdata(intf, NULL);
 	return 0;
@@ -1358,6 +1427,8 @@ static void disconnect(struct usb_interface *intf)
 	struct zd_mac *mac;
 	struct zd_usb *usb;
 
+	/* Either something really bad happened, or we're just dealing with
+	 * a DEVICE_INSTALLER. */
 	if (hw == NULL)
 		return;
 
@@ -1368,11 +1439,16 @@ static void disconnect(struct usb_interface *intf)
 
 	ieee80211_unregister_hw(hw);
 
-	
+	/* Just in case something has gone wrong! */
 	zd_usb_disable_tx(usb);
 	zd_usb_disable_rx(usb);
 	zd_usb_disable_int(usb);
 
+	/* If the disconnect has been caused by a removal of the
+	 * driver module, the reset allows reloading of the driver. If the
+	 * reset will not be executed here, the upload of the firmware in the
+	 * probe function caused by the reloading of the driver will fail.
+	 */
 	usb_reset_device(interface_to_usbdev(intf));
 
 	zd_mac_clear(mac);
@@ -1507,6 +1583,10 @@ module_exit(usb_exit);
 static int zd_ep_regs_out_msg(struct usb_device *udev, void *data, int len,
 			      int *actual_length, int timeout)
 {
+	/* In USB 2.0 mode EP_REGS_OUT endpoint is interrupt type. However in
+	 * USB 1.1 mode endpoint is bulk. Select correct type URB by endpoint
+	 * descriptor.
+	 */
 	struct usb_host_endpoint *ep;
 	unsigned int pipe;
 
@@ -1561,6 +1641,9 @@ static bool check_read_regs(struct zd_usb *usb, struct usb_req_read_regs *req,
 	struct read_regs_int *rr = &intr->read_regs;
 	struct usb_int_regs *regs = (struct usb_int_regs *)rr->buffer;
 
+	/* The created block size seems to be larger than expected.
+	 * However results appear to be correct.
+	 */
 	if (rr->length < usb_int_regs_length(count)) {
 		dev_dbg_f(zd_usb_dev(usb),
 			 "error: actual length %d less than expected %d\n",
@@ -1603,7 +1686,7 @@ static int get_results(struct zd_usb *usb, u16 *values,
 
 	r = -EIO;
 
-	
+	/* Read failed because firmware bug? */
 	*retry = !!intr->read_regs_int_overridden;
 	if (*retry)
 		goto error_unlock;
@@ -1671,7 +1754,7 @@ retry_read:
 	try_count++;
 	udev = zd_usb_to_usbdev(usb);
 	prepare_read_regs_int(usb, req, count);
-	r = zd_ep_regs_out_msg(udev, req, req_len, &actual_req_len, 50 );
+	r = zd_ep_regs_out_msg(udev, req, req_len, &actual_req_len, 50 /*ms*/);
 	if (r) {
 		dev_dbg_f(zd_usb_dev(usb),
 			"error in zd_ep_regs_out_msg(). Error number %d\n", r);
@@ -1738,7 +1821,7 @@ static int zd_submit_waiting_urb(struct zd_usb *usb, bool last)
 		goto error;
 	}
 
-	
+	/* fall-through with r == 0 */
 error:
 	usb_free_urb(urb);
 	return r;
@@ -1764,7 +1847,7 @@ int zd_usb_iowrite16v_async_end(struct zd_usb *usb, unsigned int timeout)
 	ZD_ASSERT(mutex_is_locked(&zd_usb_to_chip(usb)->mutex));
 	ZD_ASSERT(usb->in_async);
 
-	
+	/* Submit last iowrite16v URB */
 	r = zd_submit_waiting_urb(usb, true);
 	if (r) {
 		dev_dbg_f(zd_usb_dev(usb),
@@ -1845,6 +1928,9 @@ int zd_usb_iowrite16v_async(struct zd_usb *usb, const struct zd_ioreq16 *ioreqs,
 		rw->value = cpu_to_le16(ioreqs[i].value);
 	}
 
+	/* In USB 2.0 mode endpoint is interrupt type. However in USB 1.1 mode
+	 * endpoint is bulk. Select correct type URB by endpoint descriptor.
+	 */
 	if (usb_endpoint_xfer_int(&ep->desc))
 		usb_fill_int_urb(urb, udev, usb_sndintpipe(udev, EP_REGS_OUT),
 				 req, req_len, iowrite16v_urb_complete, usb,
@@ -1855,7 +1941,7 @@ int zd_usb_iowrite16v_async(struct zd_usb *usb, const struct zd_ioreq16 *ioreqs,
 
 	urb->transfer_flags |= URB_FREE_BUFFER;
 
-	
+	/* Submit previous URB */
 	r = zd_submit_waiting_urb(usb, false);
 	if (r) {
 		dev_dbg_f(zd_usb_dev(usb),
@@ -1864,6 +1950,9 @@ int zd_usb_iowrite16v_async(struct zd_usb *usb, const struct zd_ioreq16 *ioreqs,
 		goto error;
 	}
 
+	/* Delay submit so that URB_NO_INTERRUPT flag can be set for all URBs
+	 * of currect batch except for very last.
+	 */
 	usb->urb_async_waiting = urb;
 	return 0;
 error:
@@ -1882,7 +1971,7 @@ int zd_usb_iowrite16v(struct zd_usb *usb, const struct zd_ioreq16 *ioreqs,
 		zd_usb_iowrite16v_async_end(usb, 0);
 		return r;
 	}
-	return zd_usb_iowrite16v_async_end(usb, 50 );
+	return zd_usb_iowrite16v_async_end(usb, 50 /* ms */);
 }
 
 int zd_usb_rfwrite(struct zd_usb *usb, u32 value, u8 bits)
@@ -1918,7 +2007,7 @@ int zd_usb_rfwrite(struct zd_usb *usb, u32 value, u8 bits)
 			value, bits);
 		return -EINVAL;
 	}
-#endif 
+#endif /* DEBUG */
 
 	dev_dbg_f(zd_usb_dev(usb), "value %#09x bits %d\n", value, bits);
 
@@ -1941,7 +2030,7 @@ int zd_usb_rfwrite(struct zd_usb *usb, u32 value, u8 bits)
 	req = (void *)usb->req_buf;
 
 	req->id = cpu_to_le16(USB_REQ_WRITE_RF);
-	
+	/* 1: 3683a, but not used in ZYDAS driver */
 	req->value = cpu_to_le16(2);
 	req->bits = cpu_to_le16(bits);
 
@@ -1953,7 +2042,7 @@ int zd_usb_rfwrite(struct zd_usb *usb, u32 value, u8 bits)
 	}
 
 	udev = zd_usb_to_usbdev(usb);
-	r = zd_ep_regs_out_msg(udev, req, req_len, &actual_req_len, 50 );
+	r = zd_ep_regs_out_msg(udev, req, req_len, &actual_req_len, 50 /*ms*/);
 	if (r) {
 		dev_dbg_f(zd_usb_dev(usb),
 			"error in zd_ep_regs_out_msg(). Error number %d\n", r);
@@ -1967,7 +2056,7 @@ int zd_usb_rfwrite(struct zd_usb *usb, u32 value, u8 bits)
 		goto out;
 	}
 
-	
+	/* FALL-THROUGH with r == 0 */
 out:
 	return r;
 }

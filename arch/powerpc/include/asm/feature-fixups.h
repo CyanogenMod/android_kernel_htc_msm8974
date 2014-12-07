@@ -8,7 +8,17 @@
  * 2 of the License, or (at your option) any later version.
  */
 
+/*
+ * Feature section common macros
+ *
+ * Note that the entries now contain offsets between the table entry
+ * and the code rather than absolute code pointers in order to be
+ * useable with the vdso shared library. There is also an assumption
+ * that values will be negative, that is, the fixup table has to be
+ * located after the code it fixes up.
+ */
 #if defined(CONFIG_PPC64) && !defined(__powerpc64__)
+/* 64 bits kernel, 32 bits code (ie. vdso32) */
 #define FTR_ENTRY_LONG		.llong
 #define FTR_ENTRY_OFFSET	.long 0xffffffff; .long
 #elif defined(CONFIG_PPC64)
@@ -45,6 +55,7 @@ label##5:							\
 	.popsection;
 
 
+/* CPU feature dependent sections */
 #define BEGIN_FTR_SECTION_NESTED(label)	START_FTR_SECTION(label)
 #define BEGIN_FTR_SECTION		START_FTR_SECTION(97)
 
@@ -58,6 +69,7 @@ label##5:							\
 #define END_FTR_SECTION_IFSET(msk)	END_FTR_SECTION((msk), (msk))
 #define END_FTR_SECTION_IFCLR(msk)	END_FTR_SECTION((msk), 0)
 
+/* CPU feature sections with alternatives, use BEGIN_FTR_SECTION to start */
 #define FTR_SECTION_ELSE	FTR_SECTION_ELSE_NESTED(97)
 #define ALT_FTR_SECTION_END_NESTED(msk, val, label)	\
 	MAKE_FTR_SECTION_ENTRY(msk, val, label, __ftr_fixup)
@@ -72,6 +84,7 @@ label##5:							\
 #define ALT_FTR_SECTION_END_IFCLR(msk)	\
 	ALT_FTR_SECTION_END_NESTED_IFCLR(msk, 97)
 
+/* MMU feature dependent sections */
 #define BEGIN_MMU_FTR_SECTION_NESTED(label)	START_FTR_SECTION(label)
 #define BEGIN_MMU_FTR_SECTION			START_FTR_SECTION(97)
 
@@ -85,6 +98,7 @@ label##5:							\
 #define END_MMU_FTR_SECTION_IFSET(msk)	END_MMU_FTR_SECTION((msk), (msk))
 #define END_MMU_FTR_SECTION_IFCLR(msk)	END_MMU_FTR_SECTION((msk), 0)
 
+/* MMU feature sections with alternatives, use BEGIN_FTR_SECTION to start */
 #define MMU_FTR_SECTION_ELSE_NESTED(label)	FTR_SECTION_ELSE_NESTED(label)
 #define MMU_FTR_SECTION_ELSE	MMU_FTR_SECTION_ELSE_NESTED(97)
 #define ALT_MMU_FTR_SECTION_END_NESTED(msk, val, label)	\
@@ -100,6 +114,7 @@ label##5:							\
 #define ALT_MMU_FTR_SECTION_END_IFCLR(msk)	\
 	ALT_MMU_FTR_SECTION_END_NESTED_IFCLR(msk, 97)
 
+/* Firmware feature dependent sections */
 #define BEGIN_FW_FTR_SECTION_NESTED(label)	START_FTR_SECTION(label)
 #define BEGIN_FW_FTR_SECTION			START_FTR_SECTION(97)
 
@@ -113,6 +128,7 @@ label##5:							\
 #define END_FW_FTR_SECTION_IFSET(msk)	END_FW_FTR_SECTION((msk), (msk))
 #define END_FW_FTR_SECTION_IFCLR(msk)	END_FW_FTR_SECTION((msk), 0)
 
+/* Firmware feature sections with alternatives */
 #define FW_FTR_SECTION_ELSE_NESTED(label)	FTR_SECTION_ELSE_NESTED(label)
 #define FW_FTR_SECTION_ELSE	FTR_SECTION_ELSE_NESTED(97)
 #define ALT_FW_FTR_SECTION_END_NESTED(msk, val, label)	\
@@ -156,8 +172,9 @@ label##5:							\
 #define ASM_MMU_FTR_IFCLR(section_if, section_else, msk)	\
 	ASM_MMU_FTR_IF(section_if, section_else, (msk), 0)
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
+/* LWSYNC feature sections */
 #define START_LWSYNC_SECTION(label)	label##1:
 #define MAKE_LWSYNC_SECTION_ENTRY(label, sect)		\
 label##2:						\
@@ -167,4 +184,4 @@ label##3:					       	\
 	FTR_ENTRY_OFFSET label##1b-label##3b;		\
 	.popsection;
 
-#endif 
+#endif /* __ASM_POWERPC_FEATURE_FIXUPS_H */

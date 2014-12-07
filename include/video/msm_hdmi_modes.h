@@ -14,9 +14,9 @@ struct msm_hdmi_mode_timing_info {
 	uint32_t	pulse_width_v;
 	uint32_t	back_porch_v;
 	uint32_t	active_low_v;
-	
+	/* Must divide by 1000 to get the actual frequency in MHZ */
 	uint32_t	pixel_freq;
-	
+	/* Must divide by 1000 to get the actual frequency in HZ */
 	uint32_t	refresh_rate;
 	uint32_t	interlaced;
 	uint32_t	supported;
@@ -29,6 +29,7 @@ struct msm_hdmi_mode_timing_info {
 					 MSM_HDMI_MODES_XTND |\
 					 MSM_HDMI_MODES_DVI)
 
+/* all video formats defined by CEA 861D */
 #define HDMI_VFRMT_UNKNOWN		0
 #define HDMI_VFRMT_640x480p60_4_3	1
 #define HDMI_VFRMT_720x480p60_4_3	2
@@ -110,14 +111,17 @@ struct msm_hdmi_mode_timing_info {
 #define HDMI_VFRMT_1280x720p30_16_9	62
 #define HDMI_VFRMT_1920x1080p120_16_9	63
 #define HDMI_VFRMT_1920x1080p100_16_9	64
+/* Video Identification Codes from 65-127 are reserved for the future */
 #define HDMI_VFRMT_END			127
 
+/* extended video formats */
 #define HDMI_VFRMT_3840x2160p30_16_9	(HDMI_VFRMT_END + 1)
 #define HDMI_VFRMT_3840x2160p25_16_9	(HDMI_VFRMT_END + 2)
 #define HDMI_VFRMT_3840x2160p24_16_9	(HDMI_VFRMT_END + 3)
 #define HDMI_VFRMT_4096x2160p24_16_9	(HDMI_VFRMT_END + 4)
 #define HDMI_EVFRMT_END			HDMI_VFRMT_4096x2160p24_16_9
 
+/* VESA DMT TIMINGS */
 #define HDMI_VFRMT_1024x768p60_4_3	(HDMI_EVFRMT_END + 1)
 #define HDMI_VFRMT_1280x1024p60_5_4	(HDMI_EVFRMT_END + 2)
 #define HDMI_VFRMT_2560x1600p60_16_9	(HDMI_EVFRMT_END + 3)
@@ -125,6 +129,7 @@ struct msm_hdmi_mode_timing_info {
 #define HDMI_VFRMT_MAX			(VESA_DMT_VFRMT_END + 1)
 #define HDMI_VFRMT_FORCE_32BIT		0x7FFFFFFF
 
+/* Timing information for supported modes */
 #define VFRMT_NOT_SUPPORTED(VFRMT) \
 	{VFRMT, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, false}
 
@@ -352,4 +357,4 @@ static inline const char *msm_hdmi_mode_2string(uint32_t mode)
 	default:				return "???";
 	}
 }
-#endif 
+#endif /* __MSM_HDMI_MODES_H__ */

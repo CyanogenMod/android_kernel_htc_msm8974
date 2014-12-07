@@ -33,6 +33,20 @@
  * 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*
+ * This driver attempts to support USB CompactFlash reader/writer devices
+ * based on Datafab USB-to-ATA chips.  It was specifically developed for the 
+ * Datafab MDCFE-B USB CompactFlash reader but has since been found to work 
+ * with a variety of Datafab-based devices from a number of manufacturers.
+ * I've received a report of this driver working with a Datafab-based
+ * SmartMedia device though please be aware that I'm personally unable to
+ * test SmartMedia support.
+ *
+ * This driver supports reading and writing.  If you're truly paranoid,
+ * however, you can force the driver into a write-protected state by setting
+ * the WP enable bits in datafab_handle_mode_sense().  See the comments
+ * in that routine.
+ */
 
 #include <linux/errno.h>
 #include <linux/module.h>
@@ -51,20 +65,23 @@ MODULE_AUTHOR("Jimmie Mayfield <mayfield+datafab@sackheads.org>");
 MODULE_LICENSE("GPL");
 
 struct datafab_info {
-	unsigned long   sectors;	
-	unsigned long   ssize;		
-	signed char	lun;		
+	unsigned long   sectors;	/* total sector count */
+	unsigned long   ssize;		/* sector size in bytes */
+	signed char	lun;		/* used for dual-slot readers */
 
-	
+	/* the following aren't used yet */
 	unsigned char   sense_key;
-	unsigned long   sense_asc;	
-	unsigned long   sense_ascq;	
+	unsigned long   sense_asc;	/* additional sense code */
+	unsigned long   sense_ascq;	/* additional sense code qualifier */
 };
 
 static int datafab_determine_lun(struct us_data *us,
 				 struct datafab_info *info);
 
 
+/*
+ * The table of devices
+ */
 #define UNUSUAL_DEV(id_vendor, id_product, bcdDeviceMin, bcdDeviceMax, \
 		    vendorName, productName, useProtocol, useTransport, \
 		    initFunction, flags) \
@@ -73,12 +90,15 @@ static int datafab_determine_lun(struct us_data *us,
 
 static struct usb_device_id datafab_usb_ids[] = {
 #	include "unusual_datafab.h"
-	{ }		
+	{ }		/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, datafab_usb_ids);
 
 #undef UNUSUAL_DEV
 
+/*
+ * The flags table
+ */
 #define UNUSUAL_DEV(idVendor, idProduct, bcdDeviceMin, bcdDeviceMax, \
 		    vendor_name, product_name, use_protocol, use_transport, \
 		    init_function, Flags) \
@@ -92,7 +112,7 @@ MODULE_DEVICE_TABLE(usb, datafab_usb_ids);
 
 static struct us_unusual_dev datafab_unusual_dev_list[] = {
 #	include "unusual_datafab.h"
-	{ }		
+	{ }		/* Terminating entry */
 };
 
 #undef UNUSUAL_DEV
@@ -133,11 +153,11 @@ static int datafab_read_data(struct us_data *us,
 	unsigned int sg_offset = 0;
 	struct scatterlist *sg = NULL;
 
-	
-	
-	
-	
-	
+	// we're working in LBA mode.  according to the ATA spec, 
+	// we can support up to 28-bit addressing.  I don't know if Datafab
+	// supports beyond 24-bit addressing.  It's kind of hard to test 
+	// since it requires > 8GB CF card.
+	//
 	if (sectors > 0x0FFFFFFF)
 		return USB_STOR_TRANSPORT_ERROR;
 
@@ -149,9 +169,9 @@ static int datafab_read_data(struct us_data *us,
 
 	totallen = sectors * info->ssize;
 
-	
-	
-	
+	// Since we don't read more than 64 KB at a time, we have to create
+	// a bounce buffer and move the data a piece at a time between the
+	// bounce buffer and the actual transfer buffer.
 
 	alloclen = min(totallen, 65536u);
 	buffer = kmalloc(alloclen, GFP_NOIO);
@@ -159,8 +179,8 @@ static int datafab_read_data(struct us_data *us,
 		return USB_STOR_TRANSPORT_ERROR;
 
 	do {
-		
-		
+		// loop, never allocate or transfer more than 64k at once
+		// (min(128k, 255*info->ssize) is the real limit)
 
 		len = min(totallen, alloclen);
 		thistime = (len / info->ssize) & 0xff;
@@ -176,17 +196,17 @@ static int datafab_read_data(struct us_data *us,
 		command[6] = 0x20;
 		command[7] = 0x01;
 
-		
+		// send the read command
 		result = datafab_bulk_write(us, command, 8);
 		if (result != USB_STOR_XFER_GOOD)
 			goto leave;
 
-		
+		// read the result
 		result = datafab_bulk_read(us, buffer, len);
 		if (result != USB_STOR_XFER_GOOD)
 			goto leave;
 
-		
+		// Store the data in the transfer buffer
 		usb_stor_access_xfer_buf(buffer, len, us->srb,
 				 &sg, &sg_offset, TO_XFER_BUF);
 
@@ -217,11 +237,11 @@ static int datafab_write_data(struct us_data *us,
 	unsigned int sg_offset = 0;
 	struct scatterlist *sg = NULL;
 
-	
-	
-	
-	
-	
+	// we're working in LBA mode.  according to the ATA spec, 
+	// we can support up to 28-bit addressing.  I don't know if Datafab
+	// supports beyond 24-bit addressing.  It's kind of hard to test 
+	// since it requires > 8GB CF card.
+	//
 	if (sectors > 0x0FFFFFFF)
 		return USB_STOR_TRANSPORT_ERROR;
 
@@ -233,9 +253,9 @@ static int datafab_write_data(struct us_data *us,
 
 	totallen = sectors * info->ssize;
 
-	
-	
-	
+	// Since we don't write more than 64 KB at a time, we have to create
+	// a bounce buffer and move the data a piece at a time between the
+	// bounce buffer and the actual transfer buffer.
 
 	alloclen = min(totallen, 65536u);
 	buffer = kmalloc(alloclen, GFP_NOIO);
@@ -243,13 +263,13 @@ static int datafab_write_data(struct us_data *us,
 		return USB_STOR_TRANSPORT_ERROR;
 
 	do {
-		
-		
+		// loop, never allocate or transfer more than 64k at once
+		// (min(128k, 255*info->ssize) is the real limit)
 
 		len = min(totallen, alloclen);
 		thistime = (len / info->ssize) & 0xff;
 
-		
+		// Get the data from the transfer buffer
 		usb_stor_access_xfer_buf(buffer, len, us->srb,
 				&sg, &sg_offset, FROM_XFER_BUF);
 
@@ -264,17 +284,17 @@ static int datafab_write_data(struct us_data *us,
 		command[6] = 0x30;
 		command[7] = 0x02;
 
-		
+		// send the command
 		result = datafab_bulk_write(us, command, 8);
 		if (result != USB_STOR_XFER_GOOD)
 			goto leave;
 
-		
+		// send the data
 		result = datafab_bulk_write(us, buffer, len);
 		if (result != USB_STOR_XFER_GOOD)
 			goto leave;
 
-		
+		// read the result
 		result = datafab_bulk_read(us, reply, 2);
 		if (result != USB_STOR_XFER_GOOD)
 			goto leave;
@@ -303,11 +323,11 @@ static int datafab_write_data(struct us_data *us,
 static int datafab_determine_lun(struct us_data *us,
 				 struct datafab_info *info)
 {
-	
-	
-	
-	
-	
+	// Dual-slot readers can be thought of as dual-LUN devices.
+	// We need to determine which card slot is being used.
+	// We'll send an IDENTIFY DEVICE command and see which LUN responds...
+	//
+	// There might be a better way of doing this?
 
 	static unsigned char scommand[8] = { 0, 1, 0, 0, 0, 0xa0, 0xec, 1 };
 	unsigned char *command = us->iobuf;
@@ -324,8 +344,8 @@ static int datafab_determine_lun(struct us_data *us,
 
 	US_DEBUGP("datafab_determine_lun:  locating...\n");
 
-	
-	
+	// we'll try 3 times before giving up...
+	//
 	while (count++ < 3) {
 		command[5] = 0xa0;
 
@@ -370,10 +390,10 @@ static int datafab_determine_lun(struct us_data *us,
 static int datafab_id_device(struct us_data *us,
 			     struct datafab_info *info)
 {
-	
-	
-	
-	
+	// this is a variation of the ATA "IDENTIFY DEVICE" command...according
+	// to the ATA spec, 'Sector Count' isn't used but the Windows driver
+	// sets this bit so we do too...
+	//
 	static unsigned char scommand[8] = { 0, 1, 0, 0, 0, 0xa0, 0xec, 1 };
 	unsigned char *command = us->iobuf;
 	unsigned char *reply;
@@ -401,12 +421,12 @@ static int datafab_id_device(struct us_data *us,
 		goto leave;
 	}
 
-	
-	
+	// we'll go ahead and extract the media capacity while we're here...
+	//
 	rc = datafab_bulk_read(us, reply, 512);
 	if (rc == USB_STOR_XFER_GOOD) {
-		
-		
+		// capacity is at word offset 57-58
+		//
 		info->sectors = ((u32)(reply[117]) << 24) | 
 				((u32)(reply[116]) << 16) |
 				((u32)(reply[115]) <<  8) | 
@@ -444,10 +464,10 @@ static int datafab_handle_mode_sense(struct us_data *us,
 	struct datafab_info *info = (struct datafab_info *) (us->extra);
 	unsigned char *ptr = us->iobuf;
 
-	
-	
-	
-	
+	// most of this stuff is just a hack to get things working.  the
+	// datafab reader doesn't present a SCSI interface so we
+	// fudge the SCSI commands...
+	//
 
 	pc = srb->cmnd[2] >> 6;
 	page_code = srb->cmnd[2] & 0x3F;
@@ -469,16 +489,16 @@ static int datafab_handle_mode_sense(struct us_data *us,
 
 	memset(ptr, 0, 8);
 	if (sense_6) {
-		ptr[2] = 0x00;		
+		ptr[2] = 0x00;		// WP enable: 0x80
 		i = 4;
 	} else {
-		ptr[3] = 0x00;		
+		ptr[3] = 0x00;		// WP enable: 0x80
 		i = 8;
 	}
 
 	switch (page_code) {
 	   default:
-		
+		// vendor-specific mode
 		info->sense_key = 0x05;
 		info->sense_asc = 0x24;
 		info->sense_ascq = 0x00;
@@ -504,7 +524,7 @@ static int datafab_handle_mode_sense(struct us_data *us,
 		i += sizeof(timer_page);
 		break;
 
-	   case 0x3F:		
+	   case 0x3F:		// retrieve all pages
 		memcpy(ptr + i, timer_page, sizeof(timer_page));
 		i += sizeof(timer_page);
 		memcpy(ptr + i, rbac_page, sizeof(rbac_page));
@@ -527,11 +547,13 @@ static int datafab_handle_mode_sense(struct us_data *us,
 
 static void datafab_info_destructor(void *extra)
 {
-	
-	
+	// this routine is a placeholder...
+	// currently, we don't allocate any extra memory so we're okay
 }
 
 
+// Transport for the Datafab MDCFE-B
+//
 static int datafab_transport(struct scsi_cmnd *srb, struct us_data *us)
 {
 	struct datafab_info *info;
@@ -563,7 +585,7 @@ static int datafab_transport(struct scsi_cmnd *srb, struct us_data *us)
 	}
 
 	if (srb->cmnd[0] == READ_CAPACITY) {
-		info->ssize = 0x200;  
+		info->ssize = 0x200;  // hard coded 512 byte sectors as per ATA spec
 		rc = datafab_id_device(us, info);
 		if (rc != USB_STOR_TRANSPORT_GOOD)
 			return rc;
@@ -571,8 +593,8 @@ static int datafab_transport(struct scsi_cmnd *srb, struct us_data *us)
 		US_DEBUGP("datafab_transport:  READ_CAPACITY:  %ld sectors, %ld bytes per sector\n",
 			  info->sectors, info->ssize);
 
-		
-		
+		// build the reply
+		// we need the last sector, not the number of sectors
 		((__be32 *) ptr)[0] = cpu_to_be32(info->sectors - 1);
 		((__be32 *) ptr)[1] = cpu_to_be32(info->ssize);
 		usb_stor_set_xfer_buf(ptr, 8, srb);
@@ -585,8 +607,8 @@ static int datafab_transport(struct scsi_cmnd *srb, struct us_data *us)
 		return USB_STOR_TRANSPORT_ERROR;
 	}
 
-	
-	
+	// don't bother implementing READ_6 or WRITE_6.
+	//
 	if (srb->cmnd[0] == READ_10) {
 		block = ((u32)(srb->cmnd[2]) << 24) | ((u32)(srb->cmnd[3]) << 16) |
 			((u32)(srb->cmnd[4]) <<  8) | ((u32)(srb->cmnd[5]));
@@ -598,8 +620,8 @@ static int datafab_transport(struct scsi_cmnd *srb, struct us_data *us)
 	}
 
 	if (srb->cmnd[0] == READ_12) {
-		
-		
+		// we'll probably never see a READ_12 but we'll do it anyway...
+		//
 		block = ((u32)(srb->cmnd[2]) << 24) | ((u32)(srb->cmnd[3]) << 16) |
 			((u32)(srb->cmnd[4]) <<  8) | ((u32)(srb->cmnd[5]));
 
@@ -621,8 +643,8 @@ static int datafab_transport(struct scsi_cmnd *srb, struct us_data *us)
 	}
 
 	if (srb->cmnd[0] == WRITE_12) {
-		
-		
+		// we'll probably never see a WRITE_12 but we'll do it anyway...
+		//
 		block = ((u32)(srb->cmnd[2]) << 24) | ((u32)(srb->cmnd[3]) << 16) |
 			((u32)(srb->cmnd[4]) <<  8) | ((u32)(srb->cmnd[5]));
 
@@ -641,10 +663,10 @@ static int datafab_transport(struct scsi_cmnd *srb, struct us_data *us)
 	if (srb->cmnd[0] == REQUEST_SENSE) {
 		US_DEBUGP("datafab_transport:  REQUEST_SENSE.  Returning faked response\n");
 
-		
-		
-		
-		
+		// this response is pretty bogus right now.  eventually if necessary
+		// we can set the correct sense data.  so far though it hasn't been
+		// necessary
+		//
 		memset(ptr, 0, 18);
 		ptr[0] = 0xF0;
 		ptr[2] = info->sense_key;
@@ -667,14 +689,18 @@ static int datafab_transport(struct scsi_cmnd *srb, struct us_data *us)
 	}
 
 	if (srb->cmnd[0] == ALLOW_MEDIUM_REMOVAL) {
-		
-		
-		
+		// sure.  whatever.  not like we can stop the user from
+		// popping the media out of the device (no locking doors, etc)
+		//
 		return USB_STOR_TRANSPORT_GOOD;
 	}
 
 	if (srb->cmnd[0] == START_STOP) {
+		/* this is used by sd.c'check_scsidisk_media_change to detect
+		   media change */
 		US_DEBUGP("datafab_transport:  START_STOP.\n");
+		/* the first datafab_id_device after a media change returns
+		   an error (determined experimentally) */
 		rc = datafab_id_device(us, info);
 		if (rc == USB_STOR_TRANSPORT_GOOD) {
 			info->sense_key = NO_SENSE;

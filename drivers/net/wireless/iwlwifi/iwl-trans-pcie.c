@@ -96,13 +96,13 @@ static int iwl_trans_rx_alloc(struct iwl_trans *trans)
 	if (WARN_ON(rxq->bd || rxq->rb_stts))
 		return -EINVAL;
 
-	
+	/* Allocate the circular buffer of Read Buffer Descriptors (RBDs) */
 	rxq->bd = dma_zalloc_coherent(dev, sizeof(__le32) * RX_QUEUE_SIZE,
 				      &rxq->bd_dma, GFP_KERNEL);
 	if (!rxq->bd)
 		goto err_bd;
 
-	
+	/*Allocate the driver's pointer to receive buffer status */
 	rxq->rb_stts = dma_zalloc_coherent(dev, sizeof(*rxq->rb_stts),
 					   &rxq->rb_stts_dma, GFP_KERNEL);
 	if (!rxq->rb_stts)
@@ -126,8 +126,10 @@ static void iwl_trans_rxq_free_rx_bufs(struct iwl_trans *trans)
 	struct iwl_rx_queue *rxq = &trans_pcie->rxq;
 	int i;
 
-	
+	/* Fill the rx_used queue with _all_ of the Rx buffers */
 	for (i = 0; i < RX_FREE_BUFFERS + RX_QUEUE_SIZE; i++) {
+		/* In the reset function, these buffers may have been allocated
+		 * to an SKB, so we need to unmap and free potential storage */
 		if (rxq->pool[i].page != NULL) {
 			dma_unmap_page(trans->dev, rxq->pool[i].page_dma,
 				PAGE_SIZE << hw_params(trans).rx_page_order,
@@ -144,28 +146,36 @@ static void iwl_trans_rx_hw_init(struct iwl_trans *trans,
 				 struct iwl_rx_queue *rxq)
 {
 	u32 rb_size;
-	const u32 rfdnlog = RX_QUEUE_SIZE_LOG; 
-	u32 rb_timeout = RX_RB_TIMEOUT; 
+	const u32 rfdnlog = RX_QUEUE_SIZE_LOG; /* 256 RBDs */
+	u32 rb_timeout = RX_RB_TIMEOUT; /* FIXME: RX_RB_TIMEOUT for all devices? */
 
 	if (iwlagn_mod_params.amsdu_size_8K)
 		rb_size = FH_RCSR_RX_CONFIG_REG_VAL_RB_SIZE_8K;
 	else
 		rb_size = FH_RCSR_RX_CONFIG_REG_VAL_RB_SIZE_4K;
 
-	
+	/* Stop Rx DMA */
 	iwl_write_direct32(trans, FH_MEM_RCSR_CHNL0_CONFIG_REG, 0);
 
-	
+	/* Reset driver's Rx queue write index */
 	iwl_write_direct32(trans, FH_RSCSR_CHNL0_RBDCB_WPTR_REG, 0);
 
-	
+	/* Tell device where to find RBD circular buffer in DRAM */
 	iwl_write_direct32(trans, FH_RSCSR_CHNL0_RBDCB_BASE_REG,
 			   (u32)(rxq->bd_dma >> 8));
 
-	
+	/* Tell device where in DRAM to update its Rx status */
 	iwl_write_direct32(trans, FH_RSCSR_CHNL0_STTS_WPTR_REG,
 			   rxq->rb_stts_dma >> 4);
 
+	/* Enable Rx DMA
+	 * FH_RCSR_CHNL0_RX_IGNORE_RXF_EMPTY is set because of HW bug in
+	 *      the credit mechanism in 5000 HW RX FIFO
+	 * Direct rx interrupts to hosts
+	 * Rx buffer size 4 or 8k
+	 * RB timeout 0x10
+	 * 256 RBDs
+	 */
 	iwl_write_direct32(trans, FH_MEM_RCSR_CHNL0_CONFIG_REG,
 			   FH_RCSR_RX_CONFIG_CHNL_EN_ENABLE_VAL |
 			   FH_RCSR_CHNL0_RX_IGNORE_RXF_EMPTY |
@@ -175,7 +185,7 @@ static void iwl_trans_rx_hw_init(struct iwl_trans *trans,
 			   (rb_timeout << FH_RCSR_RX_CONFIG_REG_IRQ_RBTH_POS)|
 			   (rfdnlog << FH_RCSR_RX_CONFIG_RBDCB_SIZE_POS));
 
-	
+	/* Set interrupt coalescing timer to default (2048 usecs) */
 	iwl_write8(trans, CSR_INT_COALESCING, IWL_HOST_INT_TIMEOUT_DEF);
 }
 
@@ -203,6 +213,8 @@ static int iwl_rx_init(struct iwl_trans *trans)
 	for (i = 0; i < RX_QUEUE_SIZE; i++)
 		rxq->queue[i] = NULL;
 
+	/* Set us so that we have processed and used all buffers, but have
+	 * not restocked the Rx queue with fresh buffers */
 	rxq->read = rxq->write = 0;
 	rxq->write_actual = 0;
 	rxq->free_count = 0;
@@ -228,6 +240,8 @@ static void iwl_trans_pcie_rx_free(struct iwl_trans *trans)
 
 	unsigned long flags;
 
+	/*if rxq->bd is NULL, it means that nothing has been allocated,
+	 * exit now */
 	if (!rxq->bd) {
 		IWL_DEBUG_INFO(trans, "Free NULL rx context\n");
 		return;
@@ -255,7 +269,7 @@ static void iwl_trans_pcie_rx_free(struct iwl_trans *trans)
 static int iwl_trans_rx_stop(struct iwl_trans *trans)
 {
 
-	
+	/* stop Rx DMA */
 	iwl_write_direct32(trans, FH_MEM_RCSR_CHNL0_CONFIG_REG, 0);
 	return iwl_poll_direct_bit(trans, FH_MEM_RSSR_RX_STATUS_REG,
 			    FH_RSSR_CHNL0_RX_STATUS_CHNL_IDLE, 1000);
@@ -312,7 +326,9 @@ static int iwl_trans_txq_alloc(struct iwl_trans *trans,
 				goto error;
 		}
 
-	
+	/* Alloc driver data array and TFD circular buffer */
+	/* Driver private data, only for Tx (not command) queues,
+	 * not shared with device. */
 	if (txq_id != trans_pcie->cmd_queue) {
 		txq->skbs = kcalloc(TFD_QUEUE_SIZE_MAX, sizeof(txq->skbs[0]),
 				    GFP_KERNEL);
@@ -325,6 +341,8 @@ static int iwl_trans_txq_alloc(struct iwl_trans *trans,
 		txq->skbs = NULL;
 	}
 
+	/* Circular buffer of transmit frame descriptors (TFDs),
+	 * shared with device */
 	txq->tfds = dma_alloc_coherent(trans->dev, tfd_sz,
 				       &txq->q.dma_addr, GFP_KERNEL);
 	if (!txq->tfds) {
@@ -337,6 +355,8 @@ static int iwl_trans_txq_alloc(struct iwl_trans *trans,
 error:
 	kfree(txq->skbs);
 	txq->skbs = NULL;
+	/* since txq->cmd has been zeroed,
+	 * all non allocated cmd[i] will be NULL */
 	if (txq->cmd && txq_id == trans_pcie->cmd_queue)
 		for (i = 0; i < slots_num; i++)
 			kfree(txq->cmd[i]);
@@ -357,12 +377,19 @@ static int iwl_trans_txq_init(struct iwl_trans *trans, struct iwl_tx_queue *txq,
 	txq->need_update = 0;
 	memset(txq->meta, 0, sizeof(txq->meta[0]) * slots_num);
 
+	/*
+	 * For the default queues 0-3, set up the swq_id
+	 * already -- all others need to get one later
+	 * (if they need one at all).
+	 */
 	if (txq_id < 4)
 		iwl_set_swq_id(txq, txq_id, txq_id);
 
+	/* TFD_QUEUE_SIZE_MAX must be power-of-two size, otherwise
+	 * iwl_queue_inc_wrap and iwl_queue_dec_wrap are broken. */
 	BUILD_BUG_ON(TFD_QUEUE_SIZE_MAX & (TFD_QUEUE_SIZE_MAX - 1));
 
-	
+	/* Initialize queue's high/low-water marks, and head/tail indexes */
 	ret = iwl_queue_init(&txq->q, TFD_QUEUE_SIZE_MAX, slots_num,
 			txq_id);
 	if (ret)
@@ -370,12 +397,19 @@ static int iwl_trans_txq_init(struct iwl_trans *trans, struct iwl_tx_queue *txq,
 
 	spin_lock_init(&txq->lock);
 
+	/*
+	 * Tell nic where to find circular buffer of Tx Frame Descriptors for
+	 * given Tx queue, and enable the DMA channel used for that queue.
+	 * Circular buffer (TFD queue in DRAM) physical base address */
 	iwl_write_direct32(trans, FH_MEM_CBBC_QUEUE(txq_id),
 			     txq->q.dma_addr >> 8);
 
 	return 0;
 }
 
+/**
+ * iwl_tx_queue_unmap -  Unmap any remaining DMA mappings and free skb's
+ */
 static void iwl_tx_queue_unmap(struct iwl_trans *trans, int txq_id)
 {
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
@@ -386,6 +420,9 @@ static void iwl_tx_queue_unmap(struct iwl_trans *trans, int txq_id)
 	if (!q->n_bd)
 		return;
 
+	/* In the command queue, all the TBs are mapped as BIDI
+	 * so unmap them as such.
+	 */
 	if (txq_id == trans_pcie->cmd_queue)
 		dma_dir = DMA_BIDIRECTIONAL;
 	else
@@ -393,7 +430,7 @@ static void iwl_tx_queue_unmap(struct iwl_trans *trans, int txq_id)
 
 	spin_lock_bh(&txq->lock);
 	while (q->write_ptr != q->read_ptr) {
-		
+		/* The read_ptr needs to bound by q->n_window */
 		iwlagn_txq_free_tfd(trans, txq, get_cmd_index(q, q->read_ptr),
 				    dma_dir);
 		q->read_ptr = iwl_queue_inc_wrap(q->read_ptr, q->n_bd);
@@ -401,6 +438,14 @@ static void iwl_tx_queue_unmap(struct iwl_trans *trans, int txq_id)
 	spin_unlock_bh(&txq->lock);
 }
 
+/**
+ * iwl_tx_queue_free - Deallocate DMA queue.
+ * @txq: Transmit queue to deallocate.
+ *
+ * Empty queue by removing and destroying all BD's.
+ * Free all buffers.
+ * 0-fill, but do not free "txq" descriptor structure.
+ */
 static void iwl_tx_queue_free(struct iwl_trans *trans, int txq_id)
 {
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
@@ -412,39 +457,44 @@ static void iwl_tx_queue_free(struct iwl_trans *trans, int txq_id)
 
 	iwl_tx_queue_unmap(trans, txq_id);
 
-	
+	/* De-alloc array of command/tx buffers */
 
 	if (txq_id == trans_pcie->cmd_queue)
 		for (i = 0; i < txq->q.n_window; i++)
 			kfree(txq->cmd[i]);
 
-	
+	/* De-alloc circular buffer of TFDs */
 	if (txq->q.n_bd) {
 		dma_free_coherent(dev, sizeof(struct iwl_tfd) *
 				  txq->q.n_bd, txq->tfds, txq->q.dma_addr);
 		memset(&txq->q.dma_addr, 0, sizeof(txq->q.dma_addr));
 	}
 
-	
+	/* De-alloc array of per-TFD driver data */
 	kfree(txq->skbs);
 	txq->skbs = NULL;
 
-	
+	/* deallocate arrays */
 	kfree(txq->cmd);
 	kfree(txq->meta);
 	txq->cmd = NULL;
 	txq->meta = NULL;
 
-	
+	/* 0-fill queue descriptor structure */
 	memset(txq, 0, sizeof(*txq));
 }
 
+/**
+ * iwl_trans_tx_free - Free TXQ Context
+ *
+ * Destroy all TX DMA queues and structures
+ */
 static void iwl_trans_pcie_tx_free(struct iwl_trans *trans)
 {
 	int txq_id;
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 
-	
+	/* Tx queues */
 	if (trans_pcie->txq) {
 		for (txq_id = 0;
 		     txq_id < cfg(trans)->base_params->num_of_queues; txq_id++)
@@ -459,6 +509,13 @@ static void iwl_trans_pcie_tx_free(struct iwl_trans *trans)
 	iwlagn_free_dma_ptr(trans, &trans_pcie->scd_bc_tbls);
 }
 
+/**
+ * iwl_trans_tx_alloc - allocate TX context
+ * Allocate all Tx DMA structures and initialize them
+ *
+ * @param priv
+ * @return error code
+ */
 static int iwl_trans_tx_alloc(struct iwl_trans *trans)
 {
 	int ret;
@@ -468,6 +525,8 @@ static int iwl_trans_tx_alloc(struct iwl_trans *trans)
 	u16 scd_bc_tbls_size = cfg(trans)->base_params->num_of_queues *
 			sizeof(struct iwlagn_scd_bc_tbl);
 
+	/*It is not allowed to alloc twice, so warn when this happens.
+	 * We cannot rely on the previous allocation, so free and fail */
 	if (WARN_ON(trans_pcie->txq)) {
 		ret = -EINVAL;
 		goto error;
@@ -480,7 +539,7 @@ static int iwl_trans_tx_alloc(struct iwl_trans *trans)
 		goto error;
 	}
 
-	
+	/* Alloc keep-warm buffer */
 	ret = iwlagn_alloc_dma_ptr(trans, &trans_pcie->kw, IWL_KW_SIZE);
 	if (ret) {
 		IWL_ERR(trans, "Keep Warm allocation failed\n");
@@ -495,7 +554,7 @@ static int iwl_trans_tx_alloc(struct iwl_trans *trans)
 		goto error;
 	}
 
-	
+	/* Alloc and init all Tx queues, including the command queue (#4/#9) */
 	for (txq_id = 0; txq_id < cfg(trans)->base_params->num_of_queues;
 	     txq_id++) {
 		slots_num = (txq_id == trans_pcie->cmd_queue) ?
@@ -532,16 +591,16 @@ static int iwl_tx_init(struct iwl_trans *trans)
 
 	spin_lock_irqsave(&trans_pcie->irq_lock, flags);
 
-	
+	/* Turn off all Tx DMA fifos */
 	iwl_write_prph(trans, SCD_TXFACT, 0);
 
-	
+	/* Tell NIC where to find the "keep warm" buffer */
 	iwl_write_direct32(trans, FH_KW_MEM_ADDR_REG,
 			   trans_pcie->kw.dma >> 4);
 
 	spin_unlock_irqrestore(&trans_pcie->irq_lock, flags);
 
-	
+	/* Alloc and init all Tx queues, including the command queue (#4/#9) */
 	for (txq_id = 0; txq_id < cfg(trans)->base_params->num_of_queues;
 	     txq_id++) {
 		slots_num = (txq_id == trans_pcie->cmd_queue) ?
@@ -556,7 +615,7 @@ static int iwl_tx_init(struct iwl_trans *trans)
 
 	return 0;
 error:
-	
+	/*Upon error, free only if we allocated something */
 	if (alloc)
 		iwl_trans_pcie_tx_free(trans);
 	return ret;
@@ -564,12 +623,22 @@ error:
 
 static void iwl_set_pwr_vmain(struct iwl_trans *trans)
 {
+/*
+ * (for documentation purposes)
+ * to set power to V_AUX, do:
+
+		if (pci_pme_capable(priv->pci_dev, PCI_D3cold))
+			iwl_set_bits_mask_prph(trans, APMG_PS_CTRL_REG,
+					       APMG_PS_CTRL_VAL_PWR_SRC_VAUX,
+					       ~APMG_PS_CTRL_MSK_PWR_SRC);
+ */
 
 	iwl_set_bits_mask_prph(trans, APMG_PS_CTRL_REG,
 			       APMG_PS_CTRL_VAL_PWR_SRC_VMAIN,
 			       ~APMG_PS_CTRL_MSK_PWR_SRC);
 }
 
+/* PCI registers */
 #define PCI_CFG_RETRY_TIMEOUT	0x041
 #define PCI_CFG_LINK_CTRL_VAL_L0S_EN	0x01
 #define PCI_CFG_LINK_CTRL_VAL_L1_EN	0x02
@@ -590,16 +659,24 @@ static u16 iwl_pciexp_link_ctrl(struct iwl_trans *trans)
 
 static void iwl_apm_config(struct iwl_trans *trans)
 {
+	/*
+	 * HW bug W/A for instability in PCIe bus L0S->L1 transition.
+	 * Check if BIOS (or OS) enabled L1-ASPM on this device.
+	 * If so (likely), disable L0S, so device moves directly L0->L1;
+	 *    costs negligible amount of power savings.
+	 * If not (unlikely), enable L0S, so there is at least some
+	 *    power savings, even without L1.
+	 */
 	u16 lctl = iwl_pciexp_link_ctrl(trans);
 
 	if ((lctl & PCI_CFG_LINK_CTRL_VAL_L1_EN) ==
 				PCI_CFG_LINK_CTRL_VAL_L1_EN) {
-		
+		/* L1-ASPM enabled; disable(!) L0S */
 		iwl_set_bit(trans, CSR_GIO_REG, CSR_GIO_REG_VAL_L0S_ENABLED);
 		dev_printk(KERN_INFO, trans->dev,
 			   "L1 Enabled; Disabling L0S\n");
 	} else {
-		
+		/* L1-ASPM disabled; enable(!) L0S */
 		iwl_clear_bit(trans, CSR_GIO_REG, CSR_GIO_REG_VAL_L0S_ENABLED);
 		dev_printk(KERN_INFO, trans->dev,
 			   "L1 Disabled; Enabling L0S\n");
@@ -607,35 +684,61 @@ static void iwl_apm_config(struct iwl_trans *trans)
 	trans->pm_support = !(lctl & PCI_CFG_LINK_CTRL_VAL_L0S_EN);
 }
 
+/*
+ * Start up NIC's basic functionality after it has been reset
+ * (e.g. after platform boot, or shutdown via iwl_apm_stop())
+ * NOTE:  This does not load uCode nor start the embedded processor
+ */
 static int iwl_apm_init(struct iwl_trans *trans)
 {
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 	int ret = 0;
 	IWL_DEBUG_INFO(trans, "Init card's basic functions\n");
 
+	/*
+	 * Use "set_bit" below rather than "write", to preserve any hardware
+	 * bits already set by default after reset.
+	 */
 
-	
+	/* Disable L0S exit timer (platform NMI Work/Around) */
 	iwl_set_bit(trans, CSR_GIO_CHICKEN_BITS,
 			  CSR_GIO_CHICKEN_BITS_REG_BIT_DIS_L0S_EXIT_TIMER);
 
+	/*
+	 * Disable L0s without affecting L1;
+	 *  don't wait for ICH L0s (ICH bug W/A)
+	 */
 	iwl_set_bit(trans, CSR_GIO_CHICKEN_BITS,
 			  CSR_GIO_CHICKEN_BITS_REG_BIT_L1A_NO_L0S_RX);
 
-	
+	/* Set FH wait threshold to maximum (HW error during stress W/A) */
 	iwl_set_bit(trans, CSR_DBG_HPET_MEM_REG, CSR_DBG_HPET_MEM_REG_VAL);
 
+	/*
+	 * Enable HAP INTA (interrupt from management bus) to
+	 * wake device's PCI Express link L1a -> L0s
+	 */
 	iwl_set_bit(trans, CSR_HW_IF_CONFIG_REG,
 				    CSR_HW_IF_CONFIG_REG_BIT_HAP_WAKE_L1A);
 
 	iwl_apm_config(trans);
 
-	
+	/* Configure analog phase-lock-loop before activating to D0A */
 	if (cfg(trans)->base_params->pll_cfg_val)
 		iwl_set_bit(trans, CSR_ANA_PLL_CFG,
 			    cfg(trans)->base_params->pll_cfg_val);
 
+	/*
+	 * Set "initialization complete" bit to move adapter from
+	 * D0U* --> D0A* (powered-up active) state.
+	 */
 	iwl_set_bit(trans, CSR_GP_CNTRL, CSR_GP_CNTRL_REG_FLAG_INIT_DONE);
 
+	/*
+	 * Wait for clock stabilization; once stabilized, access to
+	 * device-internal resources is supported, e.g. iwl_write_prph()
+	 * and accesses to uCode SRAM.
+	 */
 	ret = iwl_poll_bit(trans, CSR_GP_CNTRL,
 			CSR_GP_CNTRL_REG_FLAG_MAC_CLOCK_READY,
 			CSR_GP_CNTRL_REG_FLAG_MAC_CLOCK_READY, 25000);
@@ -644,10 +747,17 @@ static int iwl_apm_init(struct iwl_trans *trans)
 		goto out;
 	}
 
+	/*
+	 * Enable DMA clock and wait for it to stabilize.
+	 *
+	 * Write to "CLK_EN_REG"; "1" bits enable clocks, while "0" bits
+	 * do not disable clocks.  This preserves any hardware bits already
+	 * set by default in "CLK_CTRL_REG" after reset.
+	 */
 	iwl_write_prph(trans, APMG_CLK_EN_REG, APMG_CLK_VAL_DMA_CLK_RQT);
 	udelay(20);
 
-	
+	/* Disable L1-Active */
 	iwl_set_bits_prph(trans, APMG_PCIDEV_STT_REG,
 			  APMG_PCIDEV_STT_VAL_L1_ACT_DIS);
 
@@ -661,7 +771,7 @@ static int iwl_apm_stop_master(struct iwl_trans *trans)
 {
 	int ret = 0;
 
-	
+	/* stop device's busmaster DMA activity */
 	iwl_set_bit(trans, CSR_RESET, CSR_RESET_REG_FLAG_STOP_MASTER);
 
 	ret = iwl_poll_bit(trans, CSR_RESET,
@@ -682,14 +792,18 @@ static void iwl_apm_stop(struct iwl_trans *trans)
 
 	clear_bit(STATUS_DEVICE_ENABLED, &trans_pcie->status);
 
-	
+	/* Stop device's DMA activity */
 	iwl_apm_stop_master(trans);
 
-	
+	/* Reset the entire device */
 	iwl_set_bit(trans, CSR_RESET, CSR_RESET_REG_FLAG_SW_RESET);
 
 	udelay(10);
 
+	/*
+	 * Clear "initialization complete" bit to move adapter from
+	 * D0A* (powered-up Active) --> D0U* (Uninitialized) state.
+	 */
 	iwl_clear_bit(trans, CSR_GP_CNTRL,
 		      CSR_GP_CNTRL_REG_FLAG_INIT_DONE);
 }
@@ -699,11 +813,11 @@ static int iwl_nic_init(struct iwl_trans *trans)
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 	unsigned long flags;
 
-	
+	/* nic_init */
 	spin_lock_irqsave(&trans_pcie->irq_lock, flags);
 	iwl_apm_init(trans);
 
-	
+	/* Set interrupt coalescing calibration timer to default (512 usecs) */
 	iwl_write8(trans, CSR_INT_COALESCING,
 		IWL_HOST_INT_CALIB_TIMEOUT_DEF);
 
@@ -714,16 +828,16 @@ static int iwl_nic_init(struct iwl_trans *trans)
 	iwl_op_mode_nic_config(trans->op_mode);
 
 #ifndef CONFIG_IWLWIFI_IDI
-	
+	/* Allocate the RX queue, or reset if it is already allocated */
 	iwl_rx_init(trans);
 #endif
 
-	
+	/* Allocate or reset and init all Tx and Command queues */
 	if (iwl_tx_init(trans))
 		return -ENOMEM;
 
 	if (cfg(trans)->base_params->shadow_reg_enable) {
-		
+		/* enable shadow regs in HW */
 		iwl_set_bit(trans, CSR_MAC_SHADOW_REG_CTRL,
 			0x800FFFFF);
 	}
@@ -733,6 +847,7 @@ static int iwl_nic_init(struct iwl_trans *trans)
 
 #define HW_READY_TIMEOUT (50)
 
+/* Note: returns poll_bit return value, which is >= 0 if success */
 static int iwl_set_hw_ready(struct iwl_trans *trans)
 {
 	int ret;
@@ -740,7 +855,7 @@ static int iwl_set_hw_ready(struct iwl_trans *trans)
 	iwl_set_bit(trans, CSR_HW_IF_CONFIG_REG,
 		CSR_HW_IF_CONFIG_REG_BIT_NIC_READY);
 
-	
+	/* See if we got it */
 	ret = iwl_poll_bit(trans, CSR_HW_IF_CONFIG_REG,
 				CSR_HW_IF_CONFIG_REG_BIT_NIC_READY,
 				CSR_HW_IF_CONFIG_REG_BIT_NIC_READY,
@@ -750,6 +865,7 @@ static int iwl_set_hw_ready(struct iwl_trans *trans)
 	return ret;
 }
 
+/* Note: returns standard 0/-ERROR code */
 static int iwl_prepare_card_hw(struct iwl_trans *trans)
 {
 	int ret;
@@ -757,11 +873,11 @@ static int iwl_prepare_card_hw(struct iwl_trans *trans)
 	IWL_DEBUG_INFO(trans, "iwl_trans_prepare_card_hw enter\n");
 
 	ret = iwl_set_hw_ready(trans);
-	
+	/* If the card is ready, exit 0 */
 	if (ret >= 0)
 		return 0;
 
-	
+	/* If HW is not ready, prepare the conditions to check again */
 	iwl_set_bit(trans, CSR_HW_IF_CONFIG_REG,
 			CSR_HW_IF_CONFIG_REG_PREPARE);
 
@@ -772,7 +888,7 @@ static int iwl_prepare_card_hw(struct iwl_trans *trans)
 	if (ret < 0)
 		return ret;
 
-	
+	/* HW should be ready by now, check again. */
 	ret = iwl_set_hw_ready(trans);
 	if (ret >= 0)
 		return 0;
@@ -832,6 +948,9 @@ static const u8 iwlagn_pan_ac_to_queue[] = {
 	7, 6, 5, 4,
 };
 
+/*
+ * ucode
+ */
 static int iwl_load_section(struct iwl_trans *trans, u8 section_num,
 			    const struct fw_desc *section)
 {
@@ -899,7 +1018,7 @@ static int iwl_load_given_ucode(struct iwl_trans *trans,
 				return ret;
 		}
 
-	
+	/* Remove all resets to allow NIC to operate */
 	iwl_write32(trans, CSR_RESET, 0);
 
 	return 0;
@@ -922,13 +1041,13 @@ static int iwl_trans_pcie_start_fw(struct iwl_trans *trans,
 	trans_pcie->mcast_queue[IWL_RXON_CTX_BSS] = 0;
 	trans_pcie->mcast_queue[IWL_RXON_CTX_PAN] = IWL_IPAN_MCAST_QUEUE;
 
-	
+	/* This may fail if AMT took ownership of the device */
 	if (iwl_prepare_card_hw(trans)) {
 		IWL_WARN(trans, "Exit HW not ready\n");
 		return -EIO;
 	}
 
-	
+	/* If platform's RF_KILL switch is NOT set to KILL */
 	hw_rfkill = !(iwl_read32(trans, CSR_GP_CNTRL) &
 				CSR_GP_CNTRL_REG_FLAG_HW_RF_KILL_SW);
 	iwl_op_mode_hw_rf_kill(trans->op_mode, hw_rfkill);
@@ -946,23 +1065,27 @@ static int iwl_trans_pcie_start_fw(struct iwl_trans *trans,
 		return ret;
 	}
 
-	
+	/* make sure rfkill handshake bits are cleared */
 	iwl_write32(trans, CSR_UCODE_DRV_GP1_CLR, CSR_UCODE_SW_BIT_RFKILL);
 	iwl_write32(trans, CSR_UCODE_DRV_GP1_CLR,
 		    CSR_UCODE_DRV_GP1_BIT_CMD_BLOCKED);
 
-	
+	/* clear (again), then enable host interrupts */
 	iwl_write32(trans, CSR_INT, 0xFFFFFFFF);
 	iwl_enable_interrupts(trans);
 
-	
+	/* really make sure rfkill handshake bits are cleared */
 	iwl_write32(trans, CSR_UCODE_DRV_GP1_CLR, CSR_UCODE_SW_BIT_RFKILL);
 	iwl_write32(trans, CSR_UCODE_DRV_GP1_CLR, CSR_UCODE_SW_BIT_RFKILL);
 
-	
+	/* Load the given image to the HW */
 	return iwl_load_given_ucode(trans, fw);
 }
 
+/*
+ * Activate/Deactivate Tx DMA/FIFO channels according tx fifos mask
+ * must be called under the irq lock and with MAC access
+ */
 static void iwl_trans_txq_set_sched(struct iwl_trans *trans, u32 mask)
 {
 	struct iwl_trans_pcie __maybe_unused *trans_pcie =
@@ -988,11 +1111,11 @@ static void iwl_tx_start(struct iwl_trans *trans)
 	trans_pcie->scd_base_addr =
 		iwl_read_prph(trans, SCD_SRAM_BASE_ADDR);
 	a = trans_pcie->scd_base_addr + SCD_CONTEXT_MEM_LOWER_BOUND;
-	
+	/* reset conext data memory */
 	for (; a < trans_pcie->scd_base_addr + SCD_CONTEXT_MEM_UPPER_BOUND;
 		a += 4)
 		iwl_write_targ_mem(trans, a, 0);
-	
+	/* reset tx status memory */
 	for (; a < trans_pcie->scd_base_addr + SCD_TX_STTS_MEM_UPPER_BOUND;
 		a += 4)
 		iwl_write_targ_mem(trans, a, 0);
@@ -1005,13 +1128,13 @@ static void iwl_tx_start(struct iwl_trans *trans)
 	iwl_write_prph(trans, SCD_DRAM_BASE_ADDR,
 		       trans_pcie->scd_bc_tbls.dma >> 10);
 
-	
+	/* Enable DMA channel */
 	for (chan = 0; chan < FH_TCSR_CHNL_NUM ; chan++)
 		iwl_write_direct32(trans, FH_TCSR_CHNL_TX_CONFIG_REG(chan),
 				FH_TCSR_TX_CONFIG_REG_VAL_DMA_CHNL_ENABLE |
 				FH_TCSR_TX_CONFIG_REG_VAL_DMA_CREDIT_ENABLE);
 
-	
+	/* Update FH chicken bits */
 	reg_val = iwl_read_direct32(trans, FH_TX_CHICKEN_BITS_REG);
 	iwl_write_direct32(trans, FH_TX_CHICKEN_BITS_REG,
 			   reg_val | FH_TX_CHICKEN_BITS_SCD_AUTO_RETRY_EN);
@@ -1020,7 +1143,7 @@ static void iwl_tx_start(struct iwl_trans *trans)
 		SCD_QUEUECHAIN_SEL_ALL(trans, trans_pcie));
 	iwl_write_prph(trans, SCD_AGGR_SEL, 0);
 
-	
+	/* initiate the queues */
 	for (i = 0; i < cfg(trans)->base_params->num_of_queues; i++) {
 		iwl_write_prph(trans, SCD_QUEUE_RDPTR(i), 0);
 		iwl_write_direct32(trans, HBUS_TARG_WRPTR, 0 | (i << 8));
@@ -1040,10 +1163,10 @@ static void iwl_tx_start(struct iwl_trans *trans)
 	iwl_write_prph(trans, SCD_INTERRUPT_MASK,
 			IWL_MASK(0, cfg(trans)->base_params->num_of_queues));
 
-	
+	/* Activate all Tx DMA/FIFO channels */
 	iwl_trans_txq_set_sched(trans, IWL_MASK(0, 7));
 
-	
+	/* map queues to FIFOs */
 	if (trans->shrd->valid_contexts != BIT(IWL_RXON_CTX_BSS))
 		queue_to_fifo = iwlagn_ipan_queue_to_tx_fifo;
 	else
@@ -1051,13 +1174,13 @@ static void iwl_tx_start(struct iwl_trans *trans)
 
 	iwl_trans_set_wr_ptrs(trans, trans_pcie->cmd_queue, 0);
 
-	
+	/* make sure all queue are not stopped */
 	memset(&trans_pcie->queue_stopped[0], 0,
 		sizeof(trans_pcie->queue_stopped));
 	for (i = 0; i < 4; i++)
 		atomic_set(&trans_pcie->queue_stop_count[i], 0);
 
-	
+	/* reset to 0 to enable all the queue first */
 	trans_pcie->txq_ctx_active_msk = 0;
 
 	BUILD_BUG_ON(ARRAY_SIZE(iwlagn_default_queue_to_tx_fifo) <
@@ -1082,7 +1205,7 @@ static void iwl_tx_start(struct iwl_trans *trans)
 
 	spin_unlock_irqrestore(&trans_pcie->irq_lock, flags);
 
-	
+	/* Enable L1-Active */
 	iwl_clear_bits_prph(trans, APMG_PCIDEV_STT_REG,
 			  APMG_PCIDEV_STT_VAL_L1_ACT_DIS);
 }
@@ -1093,18 +1216,21 @@ static void iwl_trans_pcie_fw_alive(struct iwl_trans *trans)
 	iwl_tx_start(trans);
 }
 
+/**
+ * iwlagn_txq_ctx_stop - Stop all Tx DMA channels
+ */
 static int iwl_trans_tx_stop(struct iwl_trans *trans)
 {
 	int ch, txq_id, ret;
 	unsigned long flags;
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 
-	
+	/* Turn off all Tx DMA fifos */
 	spin_lock_irqsave(&trans_pcie->irq_lock, flags);
 
 	iwl_trans_txq_set_sched(trans, 0);
 
-	
+	/* Stop each Tx DMA channel, and wait for it to be idle */
 	for (ch = 0; ch < FH_TCSR_CHNL_NUM; ch++) {
 		iwl_write_direct32(trans,
 				   FH_TCSR_CHNL_TX_CONFIG_REG(ch), 0x0);
@@ -1124,7 +1250,7 @@ static int iwl_trans_tx_stop(struct iwl_trans *trans)
 		return 0;
 	}
 
-	
+	/* Unmap DMA from host system and free skb's */
 	for (txq_id = 0; txq_id < cfg(trans)->base_params->num_of_queues;
 	     txq_id++)
 		iwl_tx_queue_unmap(trans, txq_id);
@@ -1137,49 +1263,59 @@ static void iwl_trans_pcie_stop_device(struct iwl_trans *trans)
 	unsigned long flags;
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 
-	
+	/* tell the device to stop sending interrupts */
 	spin_lock_irqsave(&trans_pcie->irq_lock, flags);
 	iwl_disable_interrupts(trans);
 	spin_unlock_irqrestore(&trans_pcie->irq_lock, flags);
 
-	
+	/* device going down, Stop using ICT table */
 	iwl_disable_ict(trans);
 
+	/*
+	 * If a HW restart happens during firmware loading,
+	 * then the firmware loading might call this function
+	 * and later it might be called again due to the
+	 * restart. So don't process again if the device is
+	 * already dead.
+	 */
 	if (test_bit(STATUS_DEVICE_ENABLED, &trans_pcie->status)) {
 		iwl_trans_tx_stop(trans);
 #ifndef CONFIG_IWLWIFI_IDI
 		iwl_trans_rx_stop(trans);
 #endif
-		
+		/* Power-down device's busmaster DMA clocks */
 		iwl_write_prph(trans, APMG_CLK_DIS_REG,
 			       APMG_CLK_VAL_DMA_CLK_RQT);
 		udelay(5);
 	}
 
-	
+	/* Make sure (redundant) we've released our request to stay awake */
 	iwl_clear_bit(trans, CSR_GP_CNTRL,
 			CSR_GP_CNTRL_REG_FLAG_MAC_ACCESS_REQ);
 
-	
+	/* Stop the device, and put it in low power state */
 	iwl_apm_stop(trans);
 
+	/* Upon stop, the APM issues an interrupt if HW RF kill is set.
+	 * Clean again the interrupt here
+	 */
 	spin_lock_irqsave(&trans_pcie->irq_lock, flags);
 	iwl_disable_interrupts(trans);
 	spin_unlock_irqrestore(&trans_pcie->irq_lock, flags);
 
-	
+	/* wait to make sure we flush pending tasklet*/
 	synchronize_irq(trans_pcie->irq);
 	tasklet_kill(&trans_pcie->irq_tasklet);
 
 	cancel_work_sync(&trans_pcie->rx_replenish);
 
-	
+	/* stop and reset the on-board processor */
 	iwl_write32(trans, CSR_RESET, CSR_RESET_REG_FLAG_NEVO_RESET);
 }
 
 static void iwl_trans_pcie_wowlan_suspend(struct iwl_trans *trans)
 {
-	
+	/* let the ucode operate on its own */
 	iwl_write32(trans, CSR_UCODE_DRV_GP1_SET,
 		    CSR_UCODE_DRV_GP1_BIT_D3_CFG_COMPLETE);
 
@@ -1211,9 +1347,17 @@ static int iwl_trans_pcie_tx(struct iwl_trans *trans, struct sk_buff *skb,
 	u8 hdr_len = ieee80211_hdrlen(fc);
 	u16 __maybe_unused wifi_seq;
 
+	/*
+	 * Send this frame after DTIM -- there's a special queue
+	 * reserved for this for contexts that support AP mode.
+	 */
 	if (info->flags & IEEE80211_TX_CTL_SEND_AFTER_DTIM) {
 		txq_id = trans_pcie->mcast_queue[ctx];
 
+		/*
+		 * The microcode will clear the more data
+		 * bit in the last frame it transmits.
+		 */
 		hdr->frame_control |=
 			cpu_to_le16(IEEE80211_FCTL_MOREDATA);
 	} else if (info->flags & IEEE80211_TX_CTL_TX_OFFCHAN)
@@ -1222,7 +1366,7 @@ static int iwl_trans_pcie_tx(struct iwl_trans *trans, struct sk_buff *skb,
 		txq_id =
 		    trans_pcie->ac_to_queue[ctx][skb_get_queue_mapping(skb)];
 
-	
+	/* aggregation is on for this <sta,tid> */
 	if (info->flags & IEEE80211_TX_CTL_AMPDU) {
 		WARN_ON(tid >= IWL_MAX_TID_COUNT);
 		txq_id = trans_pcie->agg_txq[sta_id][tid];
@@ -1234,6 +1378,11 @@ static int iwl_trans_pcie_tx(struct iwl_trans *trans, struct sk_buff *skb,
 
 	spin_lock(&txq->lock);
 
+	/* In AGG mode, the index in the ring must correspond to the WiFi
+	 * sequence number. This is a HW requirements to help the SCD to parse
+	 * the BA.
+	 * Check here that the packets are in the right place on the ring.
+	 */
 #ifdef CONFIG_IWLWIFI_DEBUG
 	wifi_seq = SEQ_TO_SN(le16_to_cpu(hdr->seq_ctrl));
 	WARN_ONCE(is_agg && ((wifi_seq & 0xff) != q->write_ptr),
@@ -1241,7 +1390,7 @@ static int iwl_trans_pcie_tx(struct iwl_trans *trans, struct sk_buff *skb,
 		  txq_id, wifi_seq, q->write_ptr);
 #endif
 
-	
+	/* Set up driver data for this TFD */
 	txq->skbs[q->write_ptr] = skb;
 	txq->cmd[q->write_ptr] = dev_cmd;
 
@@ -1249,17 +1398,28 @@ static int iwl_trans_pcie_tx(struct iwl_trans *trans, struct sk_buff *skb,
 	dev_cmd->hdr.sequence = cpu_to_le16((u16)(QUEUE_TO_SEQ(txq_id) |
 				INDEX_TO_SEQ(q->write_ptr)));
 
-	
+	/* Set up first empty entry in queue's array of Tx/cmd buffers */
 	out_meta = &txq->meta[q->write_ptr];
 
+	/*
+	 * Use the first empty entry in this queue's command buffer array
+	 * to contain the Tx command and MAC header concatenated together
+	 * (payload data will be in another buffer).
+	 * Size of this varies, due to varying MAC header length.
+	 * If end is not dword aligned, we'll have 2 extra bytes at the end
+	 * of the MAC header (device reads on dword boundaries).
+	 * We'll tell device about this padding later.
+	 */
 	len = sizeof(struct iwl_tx_cmd) +
 		sizeof(struct iwl_cmd_header) + hdr_len;
 	firstlen = (len + 3) & ~3;
 
-	
+	/* Tell NIC about any 2-byte padding after MAC header */
 	if (firstlen != len)
 		tx_cmd->tx_flags |= TX_CMD_FLG_MH_PAD_MSK;
 
+	/* Physical address of this Tx command's header (not MAC header!),
+	 * within command buffer array. */
 	txcmd_phys = dma_map_single(trans->dev,
 				    &dev_cmd->hdr, firstlen,
 				    DMA_BIDIRECTIONAL);
@@ -1275,6 +1435,8 @@ static int iwl_trans_pcie_tx(struct iwl_trans *trans, struct sk_buff *skb,
 		txq->need_update = 0;
 	}
 
+	/* Set up TFD's 2nd entry to point directly to remainder of skb,
+	 * if any (802.11 null frames have no payload). */
 	secondlen = skb->len - hdr_len;
 	if (secondlen > 0) {
 		phys_addr = dma_map_single(trans->dev, skb->data + hdr_len,
@@ -1288,7 +1450,7 @@ static int iwl_trans_pcie_tx(struct iwl_trans *trans, struct sk_buff *skb,
 		}
 	}
 
-	
+	/* Attach buffers to TFD */
 	iwlagn_txq_attach_buf_to_tfd(trans, txq, txcmd_phys, firstlen, 1);
 	if (secondlen > 0)
 		iwlagn_txq_attach_buf_to_tfd(trans, txq, phys_addr,
@@ -1297,7 +1459,7 @@ static int iwl_trans_pcie_tx(struct iwl_trans *trans, struct sk_buff *skb,
 	scratch_phys = txcmd_phys + sizeof(struct iwl_cmd_header) +
 				offsetof(struct iwl_tx_cmd, scratch);
 
-	
+	/* take back ownership of DMA buffer to enable update */
 	dma_sync_single_for_cpu(trans->dev, txcmd_phys, firstlen,
 			DMA_BIDIRECTIONAL);
 	tx_cmd->dram_lsb_ptr = cpu_to_le32(scratch_phys);
@@ -1307,7 +1469,7 @@ static int iwl_trans_pcie_tx(struct iwl_trans *trans, struct sk_buff *skb,
 		     le16_to_cpu(dev_cmd->hdr.sequence));
 	IWL_DEBUG_TX(trans, "tx_flags = 0X%x\n", le32_to_cpu(tx_cmd->tx_flags));
 
-	
+	/* Set up entry for this TFD in Tx byte-count array */
 	iwl_trans_txq_update_byte_cnt_tbl(trans, txq, le16_to_cpu(tx_cmd->len));
 
 	dma_sync_single_for_device(trans->dev, txcmd_phys, firstlen,
@@ -1319,10 +1481,16 @@ static int iwl_trans_pcie_tx(struct iwl_trans *trans, struct sk_buff *skb,
 			     &dev_cmd->hdr, firstlen,
 			     skb->data + hdr_len, secondlen);
 
-	
+	/* Tell device the write index *just past* this latest filled TFD */
 	q->write_ptr = iwl_queue_inc_wrap(q->write_ptr, q->n_bd);
 	iwl_txq_update_write_ptr(trans, txq);
 
+	/*
+	 * At this point the frame is "transmitted" successfully
+	 * and we will get a TX status notification eventually,
+	 * regardless of the value of ret. "ret" only indicates
+	 * whether or not we should update the write pointer.
+	 */
 	if (iwl_queue_space(q) < q->high_mark) {
 		if (wait_write_ptr) {
 			txq->need_update = 1;
@@ -1393,7 +1561,7 @@ static void iwl_trans_pcie_stop_hw(struct iwl_trans *trans)
 
 	iwl_write32(trans, CSR_INT, 0xFFFFFFFF);
 
-	
+	/* Even if we stop the HW, we still want the RF kill interrupt */
 	iwl_enable_rfkill_int(trans);
 }
 
@@ -1402,7 +1570,7 @@ static int iwl_trans_pcie_reclaim(struct iwl_trans *trans, int sta_id, int tid,
 {
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 	struct iwl_tx_queue *txq = &trans_pcie->txq[txq_id];
-	
+	/* n_bd is usually 256 => n_bd - 1 = 0xff */
 	int tfd_num = ssn & (txq->q.n_bd - 1);
 	int freed = 0;
 
@@ -1413,6 +1581,12 @@ static int iwl_trans_pcie_reclaim(struct iwl_trans *trans, int sta_id, int tid,
 	if (unlikely(txq_id >= IWLAGN_FIRST_AMPDU_QUEUE &&
 		     tid != IWL_TID_NON_QOS &&
 		     txq_id != trans_pcie->agg_txq[sta_id][tid])) {
+		/*
+		 * FIXME: this is a uCode bug which need to be addressed,
+		 * log the information and return for now.
+		 * Since it is can possibly happen very often and in order
+		 * not to fill the syslog, don't use IWL_ERR or IWL_WARN
+		 */
 		IWL_DEBUG_TX_QUEUES(trans, "Bad queue mapping txq_id %d, "
 			"agg_txq[sta_id[tid] %d", txq_id,
 			trans_pcie->agg_txq[sta_id][tid]);
@@ -1508,7 +1682,7 @@ static int iwl_trans_pcie_resume(struct iwl_trans *trans)
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PM_SLEEP */
 
 #define IWL_FLUSH_WAIT_MS	2000
 
@@ -1521,7 +1695,7 @@ static int iwl_trans_pcie_wait_tx_queue_empty(struct iwl_trans *trans)
 	unsigned long now = jiffies;
 	int ret = 0;
 
-	
+	/* waiting for all the tx frames complete might take a while */
 	for (cnt = 0; cnt < cfg(trans)->base_params->num_of_queues; cnt++) {
 		if (cnt == trans_pcie->cmd_queue)
 			continue;
@@ -1540,6 +1714,10 @@ static int iwl_trans_pcie_wait_tx_queue_empty(struct iwl_trans *trans)
 	return ret;
 }
 
+/*
+ * On every watchdog tick we check (latest) time stamp. If it does not
+ * change during timeout period and queue is not empty we reset firmware.
+ */
 static int iwl_trans_pcie_check_stuck_queue(struct iwl_trans *trans, int cnt)
 {
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
@@ -1701,12 +1879,14 @@ void iwl_dump_csr(struct iwl_trans *trans)
 }
 
 #ifdef CONFIG_IWLWIFI_DEBUGFS
+/* create and remove of files */
 #define DEBUGFS_ADD_FILE(name, parent, mode) do {			\
 	if (!debugfs_create_file(#name, mode, parent, trans,		\
 				 &iwl_dbgfs_##name##_ops))		\
 		return -ENOMEM;						\
 } while (0)
 
+/* file operation */
 #define DEBUGFS_READ_FUNC(name)                                         \
 static ssize_t iwl_dbgfs_##name##_read(struct file *file,               \
 					char __user *user_buf,          \
@@ -1780,7 +1960,7 @@ static ssize_t iwl_dbgfs_tx_queue_read(struct file *file,
 				(txq->swq_id >> 2) & 0x1f);
 		if (cnt >= 4)
 			continue;
-		
+		/* for the ACs, display the stop count too */
 		pos += scnprintf(buf + pos, bufsz - pos,
 			"        stop-count: %d\n",
 			atomic_read(&trans_pcie->queue_stop_count[cnt]));
@@ -1866,7 +2046,7 @@ static ssize_t iwl_dbgfs_interrupt_read(struct file *file,
 
 	int pos = 0;
 	char *buf;
-	int bufsz = 24 * 64; 
+	int bufsz = 24 * 64; /* 24 items * 64 char per item */
 	ssize_t ret;
 
 	buf = kzalloc(bufsz, GFP_KERNEL);
@@ -1988,6 +2168,10 @@ DEBUGFS_READ_FILE_OPS(rx_queue);
 DEBUGFS_READ_FILE_OPS(tx_queue);
 DEBUGFS_WRITE_FILE_OPS(csr);
 
+/*
+ * Create the debugfs files and directories
+ *
+ */
 static int iwl_trans_pcie_dbgfs_register(struct iwl_trans *trans,
 					struct dentry *dir)
 {
@@ -2004,7 +2188,7 @@ static int iwl_trans_pcie_dbgfs_register(struct iwl_trans *trans,
 					struct dentry *dir)
 { return 0; }
 
-#endif 
+#endif /*CONFIG_IWLWIFI_DEBUGFS */
 
 const struct iwl_trans_ops trans_ops_pcie = {
 	.start_hw = iwl_trans_pcie_start_hw,
@@ -2064,6 +2248,8 @@ struct iwl_trans *iwl_trans_pcie_alloc(struct iwl_shared *shrd,
 	spin_lock_init(&trans_pcie->irq_lock);
 	init_waitqueue_head(&trans_pcie->ucode_write_waitq);
 
+	/* W/A - seems to solve weird behavior. We need to remove this if we
+	 * don't want to stay in L1 all the time. This wastes a lot of power */
 	pci_disable_link_state(pdev, PCIE_LINK_STATE_L0S | PCIE_LINK_STATE_L1 |
 				PCIE_LINK_STATE_CLKPM);
 
@@ -2082,7 +2268,7 @@ struct iwl_trans *iwl_trans_pcie_alloc(struct iwl_shared *shrd,
 		if (!err)
 			err = pci_set_consistent_dma_mask(pdev,
 							DMA_BIT_MASK(32));
-		
+		/* both attempts failed: */
 		if (err) {
 			dev_printk(KERN_ERR, &pdev->dev,
 				   "No suitable DMA available.\n");
@@ -2112,6 +2298,8 @@ struct iwl_trans *iwl_trans_pcie_alloc(struct iwl_shared *shrd,
 	dev_printk(KERN_INFO, &pdev->dev,
 		"HW Revision ID = 0x%X\n", pdev->revision);
 
+	/* We disable the RETRY_TIMEOUT register (0x41) to keep
+	 * PCI Tx retries from interfering with C3 CPU state */
 	pci_write_config_byte(pdev, PCI_CFG_RETRY_TIMEOUT, 0x00);
 
 	err = pci_enable_msi(pdev);
@@ -2127,15 +2315,15 @@ struct iwl_trans *iwl_trans_pcie_alloc(struct iwl_shared *shrd,
 	snprintf(trans->hw_id_str, sizeof(trans->hw_id_str),
 		 "PCI ID: 0x%04X:0x%04X", pdev->device, pdev->subsystem_device);
 
-	
-	
+	/* TODO: Move this away, not needed if not MSI */
+	/* enable rfkill interrupt: hw bug w/a */
 	pci_read_config_word(pdev, PCI_COMMAND, &pci_cmd);
 	if (pci_cmd & PCI_COMMAND_INTX_DISABLE) {
 		pci_cmd &= ~PCI_COMMAND_INTX_DISABLE;
 		pci_write_config_word(pdev, PCI_COMMAND, pci_cmd);
 	}
 
-	
+	/* Initialize the wait queue for commands */
 	init_waitqueue_head(&trans->wait_command_queue);
 
 	return trans;

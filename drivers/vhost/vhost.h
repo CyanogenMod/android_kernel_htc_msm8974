@@ -13,6 +13,8 @@
 #include <linux/virtio_ring.h>
 #include <linux/atomic.h>
 
+/* This is for zerocopy, used buffer len is set to 1 when lower device DMA
+ * done */
 #define VHOST_DMA_DONE_LEN	1
 #define VHOST_DMA_CLEAR_LEN	0
 
@@ -30,6 +32,8 @@ struct vhost_work {
 	unsigned		  done_seq;
 };
 
+/* Poll a file (eventfd or socket) */
+/* Note: there's nothing vhost specific about this structure. */
 struct vhost_poll {
 	poll_table                table;
 	wait_queue_head_t        *wqh;
@@ -63,10 +67,11 @@ struct vhost_ubuf_ref *vhost_ubuf_alloc(struct vhost_virtqueue *, bool zcopy);
 void vhost_ubuf_put(struct vhost_ubuf_ref *);
 void vhost_ubuf_put_and_wait(struct vhost_ubuf_ref *);
 
+/* The virtqueue structure describes a queue attached to a device. */
 struct vhost_virtqueue {
 	struct vhost_dev *dev;
 
-	
+	/* The actual ring of buffers. */
 	struct mutex mutex;
 	unsigned int num;
 	struct vring_desc __user *desc;
@@ -81,52 +86,67 @@ struct vhost_virtqueue {
 
 	struct vhost_poll poll;
 
-	
+	/* The routine to call when the Guest pings us, or timeout. */
 	vhost_work_fn_t handle_kick;
 
-	
+	/* Last available index we saw. */
 	u16 last_avail_idx;
 
-	
+	/* Caches available index value from user. */
 	u16 avail_idx;
 
-	
+	/* Last index we used. */
 	u16 last_used_idx;
 
-	
+	/* Used flags */
 	u16 used_flags;
 
-	
+	/* Last used index value we have signalled on */
 	u16 signalled_used;
 
-	
+	/* Last used index value we have signalled on */
 	bool signalled_used_valid;
 
-	
+	/* Log writes to used structure. */
 	bool log_used;
 	u64 log_addr;
 
 	struct iovec iov[UIO_MAXIOV];
+	/* hdr is used to store the virtio header.
+	 * Since each iovec has >= 1 byte length, we never need more than
+	 * header length entries to store the header. */
 	struct iovec hdr[sizeof(struct virtio_net_hdr_mrg_rxbuf)];
 	struct iovec *indirect;
 	size_t vhost_hlen;
 	size_t sock_hlen;
 	struct vring_used_elem *heads;
+	/* We use a kind of RCU to access private pointer.
+	 * All readers access it from worker, which makes it possible to
+	 * flush the vhost_work instead of synchronize_rcu. Therefore readers do
+	 * not need to call rcu_read_lock/rcu_read_unlock: the beginning of
+	 * vhost_work execution acts instead of rcu_read_lock() and the end of
+	 * vhost_work execution acts instead of rcu_read_unlock().
+	 * Writers use virtqueue mutex. */
 	void __rcu *private_data;
-	
+	/* Log write descriptors */
 	void __user *log_base;
 	struct vhost_log *log;
-	
-	
+	/* vhost zerocopy support fields below: */
+	/* last used idx for outstanding DMA zerocopy buffers */
 	int upend_idx;
-	
+	/* first used idx for DMA done zerocopy buffers */
 	int done_idx;
-	
+	/* an array of userspace buffers info */
 	struct ubuf_info *ubuf_info;
+	/* Reference counting for outstanding ubufs.
+	 * Protected by vq mutex. Writers must also take device mutex. */
 	struct vhost_ubuf_ref *ubufs;
 };
 
 struct vhost_dev {
+	/* Readers use RCU to access memory table pointer
+	 * log base pointer and features.
+	 * Writers use mutex below.*/
 	struct vhost_memory __rcu *memory;
 	struct mm_struct *mm;
 	struct mutex mutex;
@@ -190,6 +210,8 @@ static inline int vhost_has_feature(struct vhost_dev *dev, int bit)
 {
 	unsigned acked_features;
 
+	/* TODO: check that we are running from vhost_worker or dev mutex is
+	 * held? */
 	acked_features = rcu_dereference_index_check(dev->acked_features, 1);
 	return acked_features & (1 << bit);
 }

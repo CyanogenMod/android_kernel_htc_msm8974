@@ -26,16 +26,19 @@ struct strm_object;
 struct strm_attr {
 	void *user_event;
 	char *str_event_name;
-	void *virt_base;	
-	u32 virt_size;		
+	void *virt_base;	/* Process virtual base address of
+				 * mapped SM */
+	u32 virt_size;		/* Size of virtual space in bytes */
 	struct dsp_streamattrin *stream_attr_in;
 };
 
 struct stream_info {
-	enum dsp_strmmode strm_mode;	
-	u32 segment_id;		
-	void *virt_base;	
-	struct dsp_streaminfo *user_strm;	
+	enum dsp_strmmode strm_mode;	/* transport mode of
+					 * stream(DMA, ZEROCOPY..) */
+	u32 segment_id;		/* Segment strm allocs from. 0 is local mem */
+	void *virt_base;	/* "      " Stream'process virt base */
+	struct dsp_streaminfo *user_strm;	/* User's stream information
+						 * returned */
 };
 
-#endif 
+#endif /* STRMDEFS_ */

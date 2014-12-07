@@ -27,4 +27,4 @@ int s5p_mfc_wakeup_cmd(struct s5p_mfc_dev *dev);
 int s5p_mfc_open_inst_cmd(struct s5p_mfc_ctx *ctx);
 int s5p_mfc_close_inst_cmd(struct s5p_mfc_ctx *ctx);
 
-#endif 
+#endif /* S5P_MFC_CMD_H_ */

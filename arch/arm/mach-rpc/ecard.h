@@ -8,6 +8,10 @@
  * published by the Free Software Foundation.
  */
 
+/* Definitions internal to ecard.c - for it's use only!!
+ *
+ * External expansion card header as read from the card
+ */
 struct ex_ecid {
 	unsigned char	r_irq:1;
 	unsigned char	r_zero:1;
@@ -35,6 +39,9 @@ struct ex_ecid {
 	unsigned char	r_irqoff[3];
 };
 
+/*
+ * Chunk directory entry as read from the card
+ */
 struct ex_chunk_dir {
 	unsigned char r_id;
 	unsigned char r_len[3];
@@ -48,13 +55,13 @@ struct ex_chunk_dir {
 #define c_start(x)	((x)->r_start)
 };
 
-typedef enum ecard_type {		
+typedef enum ecard_type {		/* Cards address space		*/
 	ECARD_IOC,
 	ECARD_MEMC,
 	ECARD_EASI
 } card_type_t;
 
-typedef enum {				
+typedef enum {				/* Speed for ECARD_IOC space	*/
 	ECARD_SLOW	 = 0,
 	ECARD_MEDIUM	 = 1,
 	ECARD_FAST	 = 2,

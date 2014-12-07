@@ -40,12 +40,15 @@ extern void init_mmu(void);
 
 extern char _end[];
 
+/*
+ * Machine setup..
+ */
 struct cpuinfo_m32r boot_cpu_data;
 
 #ifdef CONFIG_BLK_DEV_RAM
-extern int rd_doload;	
-extern int rd_prompt;	
-extern int rd_image_start;	
+extern int rd_doload;	/* 1 = load ramdisk, 0 = don't load */
+extern int rd_prompt;	/* 1 = prompt for ramdisk, 0 = don't prompt */
+extern int rd_image_start;	/* starting block # of image */
 #endif
 
 #if defined(CONFIG_VGA_CONSOLE)
@@ -91,7 +94,7 @@ static __inline__ void parse_mem_cmdline(char ** cmdline_p)
 	int len = 0;
 	int usermem = 0;
 
-	
+	/* Save unparsed command line copy for /proc/cmdline */
 	memcpy(boot_command_line, COMMAND_LINE, COMMAND_LINE_SIZE);
 	boot_command_line[COMMAND_LINE_SIZE-1] = '\0';
 
@@ -134,16 +137,28 @@ static unsigned long __init setup_memory(void)
 	start_pfn = PFN_UP( __pa(_end) );
 	max_low_pfn = PFN_DOWN( __pa(memory_end) );
 
+	/*
+	 * Initialize the boot-time allocator (with low memory only):
+	 */
 	bootmap_size = init_bootmem_node(NODE_DATA(0), start_pfn,
 		CONFIG_MEMORY_START>>PAGE_SHIFT, max_low_pfn);
 
+	/*
+	 * Register fully available low RAM pages with the bootmem allocator.
+	 */
 	{
 		unsigned long curr_pfn;
 		unsigned long last_pfn;
 		unsigned long pages;
 
+		/*
+		 * We are rounding up the start address of usable memory:
+		 */
 		curr_pfn = PFN_UP(__pa(memory_start));
 
+		/*
+		 * ... and at the end of the usable range downwards:
+		 */
 		last_pfn = PFN_DOWN(__pa(memory_end));
 
 		if (last_pfn > max_low_pfn)
@@ -153,13 +168,27 @@ static unsigned long __init setup_memory(void)
 		free_bootmem(PFN_PHYS(curr_pfn), PFN_PHYS(pages));
 	}
 
+	/*
+	 * Reserve the kernel text and
+	 * Reserve the bootmem bitmap. We do this in two steps (first step
+	 * was init_bootmem()), because this catches the (definitely buggy)
+	 * case of us accidentally initializing the bootmem allocator with
+	 * an invalid RAM area.
+	 */
 	reserve_bootmem(CONFIG_MEMORY_START + PAGE_SIZE,
 		(PFN_PHYS(start_pfn) + bootmap_size + PAGE_SIZE - 1)
 		- CONFIG_MEMORY_START,
 		BOOTMEM_DEFAULT);
 
+	/*
+	 * reserve physical page 0 - it's a special BIOS page on many boxes,
+	 * enabling clean reboots, SMP operation, laptop functions.
+	 */
 	reserve_bootmem(CONFIG_MEMORY_START, PAGE_SIZE, BOOTMEM_DEFAULT);
 
+	/*
+	 * reserve memory hole
+	 */
 #ifdef CONFIG_MEMHOLE
 	reserve_bootmem(CONFIG_MEMHOLE_START, CONFIG_MEMHOLE_SIZE,
 			BOOTMEM_DEFAULT);
@@ -187,9 +216,9 @@ static unsigned long __init setup_memory(void)
 
 	return max_low_pfn;
 }
-#else	
+#else	/* CONFIG_DISCONTIGMEM */
 extern unsigned long setup_memory(void);
-#endif	
+#endif	/* CONFIG_DISCONTIGMEM */
 
 void __init setup_arch(char **cmdline_p)
 {
@@ -220,7 +249,7 @@ void __init setup_arch(char **cmdline_p)
 	nodes_clear(node_online_map);
 	node_set_online(0);
 	node_set_online(1);
-#endif	
+#endif	/* CONFIG_DISCONTIGMEM */
 
 	init_mm.start_code = (unsigned long) _text;
 	init_mm.end_code = (unsigned long) _etext;
@@ -254,6 +283,9 @@ static int __init topology_init(void)
 subsys_initcall(topology_init);
 
 #ifdef CONFIG_PROC_FS
+/*
+ *	Get CPU information for use by the procfs.
+ */
 static int show_cpuinfo(struct seq_file *m, void *v)
 {
 	struct cpuinfo_m32r *c = v;
@@ -262,7 +294,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 #ifdef CONFIG_SMP
 	if (!cpu_online(cpu))
 		return 0;
-#endif	
+#endif	/* CONFIG_SMP */
 
 	seq_printf(m, "processor\t: %ld\n", cpu);
 
@@ -343,10 +375,16 @@ const struct seq_operations cpuinfo_op = {
 	.stop = c_stop,
 	.show = show_cpuinfo,
 };
-#endif	
+#endif	/* CONFIG_PROC_FS */
 
 unsigned long cpu_initialized __initdata = 0;
 
+/*
+ * cpu_init() initializes state that is per-CPU. Some data is already
+ * initialized (naturally) in the bootstrap process.
+ * We reload them nevertheless, this function acts as a
+ * 'CPU state barrier', nothing should get across.
+ */
 #if defined(CONFIG_CHIP_VDEC2) || defined(CONFIG_CHIP_XNUX2)	\
 	|| defined(CONFIG_CHIP_M32700) || defined(CONFIG_CHIP_M32102) \
 	|| defined(CONFIG_CHIP_OPSP) || defined(CONFIG_CHIP_M32104)
@@ -361,22 +399,22 @@ void __init cpu_init (void)
 	}
 	printk(KERN_INFO "Initializing CPU#%d\n", cpu_id);
 
-	
+	/* Set up and load the per-CPU TSS and LDT */
 	atomic_inc(&init_mm.mm_count);
 	current->active_mm = &init_mm;
 	if (current->mm)
 		BUG();
 
-	
+	/* Force FPU initialization */
 	current_thread_info()->status = 0;
 	clear_used_math();
 
 #ifdef CONFIG_MMU
-	
+	/* Set up MMU */
 	init_mmu();
 #endif
 
-	
-	outl(0x00070000, M32R_ICU_IMASK_PORTL);		
+	/* Set up ICUIMASK */
+	outl(0x00070000, M32R_ICU_IMASK_PORTL);		/* imask=111 */
 }
-#endif	
+#endif	/* defined(CONFIG_CHIP_VDEC2) ... */

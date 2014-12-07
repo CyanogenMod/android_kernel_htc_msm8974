@@ -1,3 +1,5 @@
+/* $XFree86$ */
+/* $XdotOrg$ */
 /*
  * OEM Data for 300 series
  *
@@ -84,7 +86,7 @@ static const unsigned char SiS300_OEMTVFlicker[8][4] =
 	{0x00,0x00,0x00,0x00}
 };
 
-static const unsigned char SiS300_OEMLCDDelay2[64][4] =		 
+static const unsigned char SiS300_OEMLCDDelay2[64][4] =		 /* for 301/301b/302b/301LV/302LV */
 {
 	{0x20,0x20,0x20,0x20},
 	{0x20,0x20,0x20,0x20},
@@ -204,7 +206,7 @@ static const unsigned char SiS300_OEMLCDDelay5[32][4] =
 	{0x20,0x20,0x20,0x20},
 };
 
-static const unsigned char SiS300_OEMLCDDelay3[64][4] =		
+static const unsigned char SiS300_OEMLCDDelay3[64][4] =		/* For LVDS */
 {
 	{0x20,0x20,0x20,0x20},
 	{0x20,0x20,0x20,0x20},
@@ -690,6 +692,7 @@ static const unsigned char SiS300_Filter2[10][9][7] =
     }
 };
 
+/* Custom data for Barco iQ Pro R300 */
 static const unsigned char barco_p1[2][9][7][3] =
 {
   {

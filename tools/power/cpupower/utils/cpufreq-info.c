@@ -47,7 +47,7 @@ static unsigned int count_cpus(void)
 	}
 	fclose(fp);
 
-	
+	/* cpu count starts from 0, on error return 1 (UP) */
 	return ret + 1;
 }
 
@@ -136,11 +136,12 @@ static void print_duration(unsigned long duration)
 	return;
 }
 
+/* --boost / -b */
 
 static int get_boost_mode(unsigned int cpu)
 {
 	int support, active, b_states = 0, ret, pstate_no, i;
-	
+	/* ToDo: Make this more global */
 	unsigned long pstates[MAX_HW_PSTATES] = {0,};
 
 	if (cpupower_cpu_info.vendor != X86_VENDOR_AMD &&
@@ -153,6 +154,11 @@ static int get_boost_mode(unsigned int cpu)
 				" on CPU %d -- are you root?\n"), cpu);
 		return ret;
 	}
+	/* P state changes via MSR are identified via cpuid 80000007
+	   on Intel and AMD, but we assume boost capable machines can do that
+	   if (cpuid_eax(0x80000000) >= 0x80000007
+	   && (cpuid_edx(0x80000007) & (1 << 7)))
+	*/
 
 	printf(_("  boost state support:\n"));
 
@@ -181,7 +187,7 @@ static int get_boost_mode(unsigned int cpu)
 		unsigned long long intel_turbo_ratio = 0;
 		unsigned int ratio;
 
-		
+		/* Any way to autodetect this ? */
 		if (cpupower_cpu_info.caps & CPUPOWER_CAP_IS_SNB)
 			bclk = 100.00;
 		else
@@ -344,6 +350,7 @@ static void debug_output_one(unsigned int cpu)
 
 }
 
+/* --freq / -f */
 
 static int get_freq_kernel(unsigned int cpu, unsigned int human)
 {
@@ -359,6 +366,7 @@ static int get_freq_kernel(unsigned int cpu, unsigned int human)
 }
 
 
+/* --hwfreq / -w */
 
 static int get_freq_hardware(unsigned int cpu, unsigned int human)
 {
@@ -373,6 +381,7 @@ static int get_freq_hardware(unsigned int cpu, unsigned int human)
 	return 0;
 }
 
+/* --hwlimits / -l */
 
 static int get_hardware_limits(unsigned int cpu)
 {
@@ -383,6 +392,7 @@ static int get_hardware_limits(unsigned int cpu)
 	return 0;
 }
 
+/* --driver / -d */
 
 static int get_driver(unsigned int cpu)
 {
@@ -394,6 +404,7 @@ static int get_driver(unsigned int cpu)
 	return 0;
 }
 
+/* --policy / -p */
 
 static int get_policy(unsigned int cpu)
 {
@@ -405,6 +416,7 @@ static int get_policy(unsigned int cpu)
 	return 0;
 }
 
+/* --governors / -g */
 
 static int get_available_governors(unsigned int cpu)
 {
@@ -423,6 +435,7 @@ static int get_available_governors(unsigned int cpu)
 }
 
 
+/* --affected-cpus  / -a */
 
 static int get_affected_cpus(unsigned int cpu)
 {
@@ -439,6 +452,7 @@ static int get_affected_cpus(unsigned int cpu)
 	return 0;
 }
 
+/* --related-cpus  / -r */
 
 static int get_related_cpus(unsigned int cpu)
 {
@@ -455,6 +469,7 @@ static int get_related_cpus(unsigned int cpu)
 	return 0;
 }
 
+/* --stats / -s */
 
 static int get_freq_stats(unsigned int cpu, unsigned int human)
 {
@@ -479,6 +494,7 @@ static int get_freq_stats(unsigned int cpu, unsigned int human)
 	return 0;
 }
 
+/* --latency / -y */
 
 static int get_latency(unsigned int cpu, unsigned int human)
 {
@@ -579,7 +595,7 @@ int cmd_freq_info(int argc, char **argv)
 
 	ret = 0;
 
-	
+	/* Default is: show output of CPU 0 only */
 	if (bitmask_isallclear(cpus_chosen))
 		bitmask_setbit(cpus_chosen, 0);
 

@@ -46,7 +46,7 @@ static int lis3_spi_init(struct lis3lv02d *lis3)
 	u8 reg;
 	int ret;
 
-	
+	/* power up the device */
 	ret = lis3->read(lis3, CTRL_REG1, &reg);
 	if (ret < 0)
 		return ret;

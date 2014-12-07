@@ -34,18 +34,25 @@
 
 #define DRV_NAME	"tile-edac"
 
+/* Number of cs_rows needed per memory controller on TILEPro. */
 #define TILE_EDAC_NR_CSROWS	1
 
+/* Number of channels per memory controller on TILEPro. */
 #define TILE_EDAC_NR_CHANS	1
 
+/* Granularity of reported error in bytes on TILEPro. */
 #define TILE_EDAC_ERROR_GRAIN	8
 
+/* TILE processor has multiple independent memory controllers. */
 struct platform_device *mshim_pdev[TILE_MAX_MSHIMS];
 
 struct tile_edac_priv {
-	int		hv_devhdl;	
-	int		node;		
-	unsigned int	ce_count;	
+	int		hv_devhdl;	/* Hypervisor device handle. */
+	int		node;		/* Memory controller instance #. */
+	unsigned int	ce_count;	/*
+					 * Correctable-error counter
+					 * kept by the driver.
+					 */
 };
 
 static void tile_edac_check(struct mem_ctl_info *mci)
@@ -60,7 +67,7 @@ static void tile_edac_check(struct mem_ctl_info *mci)
 		return;
 	}
 
-	
+	/* Check if the current error count is different from the saved one. */
 	if (mem_error.sbe_count != priv->ce_count) {
 		dev_dbg(mci->dev, "ECC CE err on node %d\n", priv->node);
 		priv->ce_count = mem_error.sbe_count;
@@ -68,6 +75,10 @@ static void tile_edac_check(struct mem_ctl_info *mci)
 	}
 }
 
+/*
+ * Initialize the 'csrows' table within the mci control structure with the
+ * addressing of memory.
+ */
 static int __devinit tile_edac_init_csrows(struct mem_ctl_info *mci)
 {
 	struct csrow_info	*csrow = &mci->csrows[0];
@@ -120,7 +131,7 @@ static int __devinit tile_edac_mc_probe(struct platform_device *pdev)
 	if (hv_devhdl < 0)
 		return -EINVAL;
 
-	
+	/* A TILE MC has a single channel and one chip-select row. */
 	mci = edac_mc_alloc(sizeof(struct tile_edac_priv),
 		TILE_EDAC_NR_CSROWS, TILE_EDAC_NR_CHANS, pdev->id);
 	if (mci == NULL)
@@ -142,8 +153,12 @@ static int __devinit tile_edac_mc_probe(struct platform_device *pdev)
 	mci->dev_name = dev_name(&pdev->dev);
 	mci->edac_check = tile_edac_check;
 
+	/*
+	 * Initialize the MC control structure 'csrows' table
+	 * with the mapping and control information.
+	 */
 	if (tile_edac_init_csrows(mci)) {
-		
+		/* No csrows found. */
 		mci->edac_cap = EDAC_FLAG_NONE;
 	} else {
 		mci->edac_cap = EDAC_FLAG_SECDED;
@@ -151,7 +166,7 @@ static int __devinit tile_edac_mc_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, mci);
 
-	
+	/* Register with EDAC core */
 	rc = edac_mc_add_mc(mci);
 	if (rc) {
 		dev_err(&pdev->dev, "failed to register with EDAC core\n");
@@ -181,13 +196,16 @@ static struct platform_driver tile_edac_mc_driver = {
 	.remove		= __devexit_p(tile_edac_mc_remove),
 };
 
+/*
+ * Driver init routine.
+ */
 static int __init tile_edac_init(void)
 {
 	char	hv_file[32];
 	struct platform_device *pdev;
 	int i, err, num = 0;
 
-	
+	/* Only support POLL mode. */
 	edac_op_state = EDAC_OPSTATE_POLL;
 
 	err = platform_driver_register(&tile_edac_mc_driver);
@@ -195,6 +213,11 @@ static int __init tile_edac_init(void)
 		return err;
 
 	for (i = 0; i < TILE_MAX_MSHIMS; i++) {
+		/*
+		 * Not all memory controllers are configured such as in the
+		 * case of a simulator. So we register only those mshims
+		 * that are configured by the hypervisor.
+		 */
 		sprintf(hv_file, "mshim/%d", i);
 		if (hv_dev_open((HV_VirtAddr)hv_file, 0) < 0)
 			continue;
@@ -213,6 +236,9 @@ static int __init tile_edac_init(void)
 	return 0;
 }
 
+/*
+ * Driver cleanup routine.
+ */
 static void __exit tile_edac_exit(void)
 {
 	int i;

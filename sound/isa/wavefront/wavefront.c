@@ -36,21 +36,21 @@ MODULE_DESCRIPTION("Turtle Beach Wavefront");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("{{Turtle Beach,Maui/Tropez/Tropez+}}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	    
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	    
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE;	    
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	    /* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	    /* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE;	    /* Enable this card */
 #ifdef CONFIG_PNP
 static bool isapnp[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 1};
 #endif
-static long cs4232_pcm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static int cs4232_pcm_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ; 
-static long cs4232_mpu_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT; 
-static int cs4232_mpu_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ; 
-static long ics2115_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT; 
-static int ics2115_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;    
-static long fm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	    
-static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	    
-static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	    
+static long cs4232_pcm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* PnP setup */
+static int cs4232_pcm_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ; /* 5,7,9,11,12,15 */
+static long cs4232_mpu_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT; /* PnP setup */
+static int cs4232_mpu_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ; /* 9,11,12,15 */
+static long ics2115_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT; /* PnP setup */
+static int ics2115_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;    /* 2,9,11,12,15 */
+static long fm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	    /* PnP setup */
+static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	    /* 0,1,3,5,6,7 */
+static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	    /* 0,1,3,5,6,7 */
 static bool use_cs4232_midi[SNDRV_CARDS];
 
 module_param_array(index, int, NULL, 0444);
@@ -89,9 +89,9 @@ static int isa_registered;
 static int pnp_registered;
 
 static struct pnp_card_device_id snd_wavefront_pnpids[] = {
-	
+	/* Tropez */
 	{ .id = "CSC7532", .devs = { { "CSC0000" }, { "CSC0010" }, { "PnPb006" }, { "CSC0004" } } },
-	
+	/* Tropez+ */
 	{ .id = "CSC7632", .devs = { { "CSC0000" }, { "CSC0010" }, { "PnPb006" }, { "CSC0004" } } },
 	{ .id = "" }
 };
@@ -105,17 +105,24 @@ snd_wavefront_pnp (int dev, snd_wavefront_card_t *acard, struct pnp_card_link *c
 	struct pnp_dev *pdev;
 	int err;
 
-	
+	/* Check for each logical device. */
 
-	
+	/* CS4232 chip (aka "windows sound system") is logical device 0 */
 
 	acard->wss = pnp_request_card_device(card, id->devs[0].id, NULL);
 	if (acard->wss == NULL)
 		return -EBUSY;
 
-	
+	/* there is a game port at logical device 1, but we ignore it completely */
 
+	/* the control interface is logical device 2, but we ignore it
+	   completely. in fact, nobody even seems to know what it
+	   does.
+	*/
 
+	/* Only configure the CS4232 MIDI interface if its been
+	   specifically requested. It is logical device 3.
+	*/
 
 	if (use_cs4232_midi[dev]) {
 		acard->mpu = pnp_request_card_device(card, id->devs[2].id, NULL);
@@ -123,16 +130,27 @@ snd_wavefront_pnp (int dev, snd_wavefront_card_t *acard, struct pnp_card_link *c
 			return -EBUSY;
 	}
 
-	
+	/* The ICS2115 synth is logical device 4 */
 
 	acard->synth = pnp_request_card_device(card, id->devs[3].id, NULL);
 	if (acard->synth == NULL)
 		return -EBUSY;
 
-	
+	/* PCM/FM initialization */
 
 	pdev = acard->wss;
 
+	/* An interesting note from the Tropez+ FAQ:
+
+	   Q. [Ports] Why is the base address of the WSS I/O ports off by 4?
+
+	   A. WSS I/O requires a block of 8 I/O addresses ("ports"). Of these, the first
+	   4 are used to identify and configure the board. With the advent of PnP,
+	   these first 4 addresses have become obsolete, and software applications
+	   only use the last 4 addresses to control the codec chip. Therefore, the
+	   base address setting "skips past" the 4 unused addresses.
+
+	*/
 
 	err = pnp_activate_dev(pdev);
 	if (err < 0) {
@@ -146,7 +164,7 @@ snd_wavefront_pnp (int dev, snd_wavefront_card_t *acard, struct pnp_card_link *c
 	dma2[dev] = pnp_dma(pdev, 1);
 	cs4232_pcm_irq[dev] = pnp_irq(pdev, 0);
 
-	
+	/* Synth initialization */
 
 	pdev = acard->synth;
 	
@@ -159,6 +177,10 @@ snd_wavefront_pnp (int dev, snd_wavefront_card_t *acard, struct pnp_card_link *c
 	ics2115_port[dev] = pnp_port_start(pdev, 0);
 	ics2115_irq[dev] = pnp_irq(pdev, 0);
 
+	/* CS4232 MPU initialization. Configure this only if
+	   explicitly requested, since its physically inaccessible and
+	   consumes another IRQ.
+	*/
 
 	if (use_cs4232_midi[dev]) {
 
@@ -190,7 +212,7 @@ snd_wavefront_pnp (int dev, snd_wavefront_card_t *acard, struct pnp_card_link *c
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_PNP */
 
 static irqreturn_t snd_wavefront_ics2115_interrupt(int irq, void *dev_id)
 {
@@ -350,7 +372,7 @@ snd_wavefront_probe (struct snd_card *card, int dev)
 	struct snd_hwdep *fx_processor;
 	int hw_dev = 0, midi_dev = 0, err;
 
-	
+	/* --------- PCM --------------- */
 
 	err = snd_wss_create(card, cs4232_pcm_port[dev], -1,
 			     cs4232_pcm_irq[dev], dma1[dev], dma2[dev],
@@ -368,7 +390,7 @@ snd_wavefront_probe (struct snd_card *card, int dev)
 	if (err < 0)
 		return err;
 
-	
+	/* ---------- OPL3 synth --------- */
 
 	if (fm_port[dev] > 0 && fm_port[dev] != SNDRV_AUTO_PORT) {
 		struct snd_opl3 *opl3;
@@ -386,7 +408,7 @@ snd_wavefront_probe (struct snd_card *card, int dev)
 		hw_dev++;
 	}
 
-	
+	/* ------- ICS2115 Wavetable synth ------- */
 
 	acard->wavefront.res_base = request_region(ics2115_port[dev], 16,
 						   "ICS2115");
@@ -414,7 +436,7 @@ snd_wavefront_probe (struct snd_card *card, int dev)
 	wavefront_synth->iface = SNDRV_HWDEP_IFACE_ICS2115;
 	hw_dev++;
 
-	
+	/* --------- Mixer ------------ */
 
 	err = snd_wss_mixer(chip);
 	if (err < 0) {
@@ -422,7 +444,7 @@ snd_wavefront_probe (struct snd_card *card, int dev)
 		return err;
 	}
 
-	
+	/* -------- CS4232 MPU-401 interface -------- */
 
 	if (cs4232_mpu_port[dev] > 0 && cs4232_mpu_port[dev] != SNDRV_AUTO_PORT) {
 		err = snd_mpu401_uart_new(card, midi_dev, MPU401_HW_CS4232,
@@ -435,7 +457,7 @@ snd_wavefront_probe (struct snd_card *card, int dev)
 		midi_dev++;
 	}
 
-	
+	/* ------ ICS2115 internal MIDI ------------ */
 
 	if (ics2115_port[dev] > 0 && ics2115_port[dev] != SNDRV_AUTO_PORT) {
 		ics2115_internal_rmidi = 
@@ -451,7 +473,7 @@ snd_wavefront_probe (struct snd_card *card, int dev)
 		midi_dev++;
 	}
 
-	
+	/* ------ ICS2115 external MIDI ------------ */
 
 	if (ics2115_port[dev] > 0 && ics2115_port[dev] != SNDRV_AUTO_PORT) {
 		ics2115_external_rmidi = 
@@ -467,7 +489,7 @@ snd_wavefront_probe (struct snd_card *card, int dev)
 		midi_dev++;
 	}
 
-	
+	/* FX processor for Tropez+ */
 
 	if (acard->wavefront.has_fx) {
 		fx_processor = snd_wavefront_new_fx (card,
@@ -484,13 +506,16 @@ snd_wavefront_probe (struct snd_card *card, int dev)
 		strcpy(card->driver, "Tropez+");
 		strcpy(card->shortname, "Turtle Beach Tropez+");
 	} else {
-		
+		/* Need a way to distinguish between Maui and Tropez */
 		strcpy(card->driver, "WaveFront");
 		strcpy(card->shortname, "Turtle Beach WaveFront");
 	}
 
-	
+	/* ----- Register the card --------- */
 
+	/* Not safe to include "Turtle Beach" in longname, due to 
+	   length restrictions
+	*/
 
 	sprintf(card->longname, "%s PCM 0x%lx irq %d dma %d",
 		card->driver,
@@ -569,7 +594,7 @@ static struct isa_driver snd_wavefront_driver = {
 	.match		= snd_wavefront_isa_match,
 	.probe		= snd_wavefront_isa_probe,
 	.remove		= __devexit_p(snd_wavefront_isa_remove),
-	
+	/* FIXME: suspend, resume */
 	.driver		= {
 		.name	= DEV_NAME
 	},
@@ -624,10 +649,10 @@ static struct pnp_card_driver wavefront_pnpc_driver = {
 	.id_table	= snd_wavefront_pnpids,
 	.probe		= snd_wavefront_pnp_detect,
 	.remove		= __devexit_p(snd_wavefront_pnp_remove),
-	
+	/* FIXME: suspend,resume */
 };
 
-#endif 
+#endif /* CONFIG_PNP */
 
 static int __init alsa_card_wavefront_init(void)
 {

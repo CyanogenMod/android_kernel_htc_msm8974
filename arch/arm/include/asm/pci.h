@@ -5,7 +5,7 @@
 #include <asm-generic/pci-dma-compat.h>
 #include <asm-generic/pci-bridge.h>
 
-#include <asm/mach/pci.h> 
+#include <asm/mach/pci.h> /* for pci_sys_data */
 
 extern unsigned long pcibios_min_io;
 #define PCIBIOS_MIN_IO pcibios_min_io
@@ -29,13 +29,18 @@ static inline int pci_proc_domain(struct pci_bus *bus)
 {
 	return pci_domain_nr(bus);
 }
-#endif 
+#endif /* CONFIG_PCI_DOMAINS */
 
 static inline void pcibios_penalize_isa_irq(int irq, int active)
 {
-	
+	/* We don't do dynamic PCI IRQ allocation */
 }
 
+/*
+ * The PCI address space does equal the physical memory address space.
+ * The networking and block device layers use this boolean for bounce
+ * buffer decisions.
+ */
 #define PCI_DMA_BUS_IS_PHYS     (1)
 
 #ifdef CONFIG_PCI
@@ -52,11 +57,14 @@ static inline void pci_dma_burst_advice(struct pci_dev *pdev,
 extern int pci_mmap_page_range(struct pci_dev *dev, struct vm_area_struct *vma,
                                enum pci_mmap_state mmap_state, int write_combine);
 
+/*
+ * Dummy implementation; always return 0.
+ */
 static inline int pci_get_legacy_ide_irq(struct pci_dev *dev, int channel)
 {
 	return 0;
 }
 
-#endif 
+#endif /* __KERNEL__ */
  
 #endif

@@ -16,6 +16,7 @@
 
 #include <linux/genalloc.h>
 
+/* ARBITRARY:  SRAM allocations are multiples of this 2^N size */
 #define SRAM_GRANULARITY	512
 
 enum sram_type {
@@ -31,4 +32,4 @@ struct sram_platdata {
 
 extern struct gen_pool *sram_get_gpool(char *pool_name);
 
-#endif 
+#endif /* __ASM_ARCH_SRAM_H */

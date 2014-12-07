@@ -18,7 +18,7 @@ prom_getbootargs(void)
 	int iter;
 	char *cp, *arg;
 
-	
+	/* This check saves us from a panic when bootfd patches args. */
 	if (fetched) {
 		return barg_buf;
 	}
@@ -26,15 +26,15 @@ prom_getbootargs(void)
 	switch(prom_vers) {
 	case PROM_V0:
 		cp = barg_buf;
-		
+		/* Start from 1 and go over fd(0,0,0)kernel */
 		for(iter = 1; iter < 8; iter++) {
 			arg = (*(romvec->pv_v0bootargs))->argv[iter];
 			if (arg == NULL)
 				break;
 			while(*arg != 0) {
-				
+				/* Leave place for space and null. */
 				if(cp >= barg_buf + BARG_LEN-2){
-					
+					/* We might issue a warning here. */
 					break;
 				}
 				*cp++ = *arg++;
@@ -45,6 +45,10 @@ prom_getbootargs(void)
 		break;
 	case PROM_V2:
 	case PROM_V3:
+		/*
+		 * V3 PROM cannot supply as with more than 128 bytes
+		 * of an argument. But a smart bootstrap loader can.
+		 */
 		strlcpy(barg_buf, *romvec->pv_v2bootargs.bootargs, sizeof(barg_buf));
 		break;
 	default:

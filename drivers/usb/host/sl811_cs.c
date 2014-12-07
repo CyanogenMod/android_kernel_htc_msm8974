@@ -1,3 +1,14 @@
+/*
+ * PCMCIA driver for SL811HS (as found in REX-CFU1U)
+ * Filename: sl811_cs.c
+ * Author:   Yukio Yamamoto
+ *
+ *  Port to sl811-hcd and 2.6.x by
+ *    Botond Botyanszki <boti@rocketmail.com>
+ *    Simon Pickering
+ *
+ *  Last update: 2005-05-12
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -20,9 +31,15 @@ MODULE_DESCRIPTION("REX-CFU1U PCMCIA driver for 2.6");
 MODULE_LICENSE("GPL");
 
 
+/*====================================================================*/
+/* MACROS                                                             */
+/*====================================================================*/
 
 #define INFO(args...) printk(KERN_INFO "sl811_cs: " args)
 
+/*====================================================================*/
+/* VARIABLES                                                          */
+/*====================================================================*/
 
 typedef struct local_info_t {
 	struct pcmcia_device	*p_dev;
@@ -30,6 +47,7 @@ typedef struct local_info_t {
 
 static void sl811_cs_release(struct pcmcia_device * link);
 
+/*====================================================================*/
 
 static void release_platform_dev(struct device * dev)
 {
@@ -39,8 +57,8 @@ static void release_platform_dev(struct device * dev)
 
 static struct sl811_platform_data platform_data = {
 	.potpg		= 100,
-	.power		= 50,		
-	
+	.power		= 50,		/* == 100mA */
+	// .reset	= ... FIXME:  invoke CF reset on the card
 };
 
 static struct resource resources[] = {
@@ -48,11 +66,11 @@ static struct resource resources[] = {
 		.flags	= IORESOURCE_IRQ,
 	},
 	[1] = {
-		
+		// .name   = "address",
 		.flags	= IORESOURCE_IO,
 	},
 	[2] = {
-		
+		// .name   = "data",
 		.flags	= IORESOURCE_IO,
 	},
 };
@@ -76,7 +94,7 @@ static int sl811_hc_init(struct device *parent, resource_size_t base_addr,
 		return -EBUSY;
 	platform_dev.dev.parent = parent;
 
-	
+	/* finish seting up the platform device */
 	resources[0].start = irq;
 
 	resources[1].start = base_addr;
@@ -85,10 +103,15 @@ static int sl811_hc_init(struct device *parent, resource_size_t base_addr,
 	resources[2].start = base_addr + 1;
 	resources[2].end   = base_addr + 1;
 
+	/* The driver core will probe for us.  We know sl811-hcd has been
+	 * initialized already because of the link order dependency created
+	 * by referencing "sl811h_driver".
+	 */
 	platform_dev.name = sl811h_driver.driver.name;
 	return platform_device_register(&platform_dev);
 }
 
+/*====================================================================*/
 
 static void sl811_cs_detach(struct pcmcia_device *link)
 {
@@ -96,7 +119,7 @@ static void sl811_cs_detach(struct pcmcia_device *link)
 
 	sl811_cs_release(link);
 
-	
+	/* This points to the parent local_info_t struct */
 	kfree(link->priv);
 }
 
@@ -130,7 +153,7 @@ static int sl811_cs_config(struct pcmcia_device *link)
 	if (pcmcia_loop_config(link, sl811_cs_config_check, NULL))
 		goto failed;
 
-	
+	/* require an IRQ and two registers */
 	if (resource_size(link->resource[0]) < 2)
 		goto failed;
 
@@ -165,7 +188,7 @@ static int sl811_cs_probe(struct pcmcia_device *link)
 }
 
 static const struct pcmcia_device_id sl811_ids[] = {
-	PCMCIA_DEVICE_MANF_CARD(0xc015, 0x0001), 
+	PCMCIA_DEVICE_MANF_CARD(0xc015, 0x0001), /* RATOC USB HOST CF+ Card */
 	PCMCIA_DEVICE_NULL,
 };
 MODULE_DEVICE_TABLE(pcmcia, sl811_ids);
@@ -178,6 +201,7 @@ static struct pcmcia_driver sl811_cs_driver = {
 	.id_table	= sl811_ids,
 };
 
+/*====================================================================*/
 
 static int __init init_sl811_cs(void)
 {

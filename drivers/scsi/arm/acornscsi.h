@@ -12,6 +12,7 @@
 #ifndef ACORNSCSI_H
 #define ACORNSCSI_H
 
+/* SBIC registers */
 #define SBIC_OWNID		0
 #define OWNID_FS1		(1<<7)
 #define OWNID_FS2		(1<<6)
@@ -121,6 +122,7 @@
 #define ASR_PE			(1<<1)
 #define ASR_DBR			(1<<0)
 
+/* DMAC registers */
 #define DMAC_INIT		0x00
 #define INIT_8BIT		(1)
 
@@ -175,60 +177,82 @@
 #define MASKREG_M2		0x04
 #define MASKREG_M3		0x08
 
+/* miscellaneous internal variables */
 
 #define MASK_ON		(MASKREG_M3|MASKREG_M2|MASKREG_M1|MASKREG_M0)
 #define MASK_OFF	(MASKREG_M3|MASKREG_M2|MASKREG_M1)
 
+/*
+ * SCSI driver phases
+ */
 typedef enum {
-    PHASE_IDLE,					
-    PHASE_CONNECTING,				
-    PHASE_CONNECTED,				
-    PHASE_MSGOUT,				
-    PHASE_RECONNECTED,				
-    PHASE_COMMANDPAUSED,			
-    PHASE_COMMAND,				
-    PHASE_DATAOUT,				
-    PHASE_DATAIN,				
-    PHASE_STATUSIN,				
-    PHASE_MSGIN,				
-    PHASE_DONE,					
-    PHASE_ABORTED,				
-    PHASE_DISCONNECT,				
+    PHASE_IDLE,					/* we're not planning on doing anything	 */
+    PHASE_CONNECTING,				/* connecting to a target		 */
+    PHASE_CONNECTED,				/* connected to a target		 */
+    PHASE_MSGOUT,				/* message out to device		 */
+    PHASE_RECONNECTED,				/* reconnected				 */
+    PHASE_COMMANDPAUSED,			/* command partly sent			 */
+    PHASE_COMMAND,				/* command all sent			 */
+    PHASE_DATAOUT,				/* data out to device			 */
+    PHASE_DATAIN,				/* data in from device			 */
+    PHASE_STATUSIN,				/* status in from device		 */
+    PHASE_MSGIN,				/* message in from device		 */
+    PHASE_DONE,					/* finished				 */
+    PHASE_ABORTED,				/* aborted				 */
+    PHASE_DISCONNECT,				/* disconnecting			 */
 } phase_t;
 
+/*
+ * After interrupt, what to do now
+ */
 typedef enum {
-    INTR_IDLE,					
-    INTR_NEXT_COMMAND,				
-    INTR_PROCESSING,				
+    INTR_IDLE,					/* not expecting another IRQ		 */
+    INTR_NEXT_COMMAND,				/* start next command			 */
+    INTR_PROCESSING,				/* interrupt routine still processing	 */
 } intr_ret_t;
 
+/*
+ * DMA direction
+ */
 typedef enum {
-    DMA_OUT,					
-    DMA_IN					
+    DMA_OUT,					/* DMA from memory to chip		*/
+    DMA_IN					/* DMA from chip to memory		*/
 } dmadir_t;
 
-typedef enum {					
-    SYNC_ASYNCHRONOUS,				
-    SYNC_NEGOCIATE,				
-    SYNC_SENT_REQUEST,				
-    SYNC_COMPLETED,				
+/*
+ * Synchronous transfer state
+ */
+typedef enum {					/* Synchronous transfer state		*/
+    SYNC_ASYNCHRONOUS,				/* don't negotiate synchronous transfers*/
+    SYNC_NEGOCIATE,				/* start negotiation			*/
+    SYNC_SENT_REQUEST,				/* sent SDTR message			*/
+    SYNC_COMPLETED,				/* received SDTR reply			*/
 } syncxfer_t;
 
-typedef enum {					
-    CMD_READ,					
-    CMD_WRITE,					
-    CMD_MISC,					
+/*
+ * Command type
+ */
+typedef enum {					/* command type				*/
+    CMD_READ,					/* READ_6, READ_10, READ_12		*/
+    CMD_WRITE,					/* WRITE_6, WRITE_10, WRITE_12		*/
+    CMD_MISC,					/* Others				*/
 } cmdtype_t;
 
-typedef enum {					
-    DATADIR_IN,					
-    DATADIR_OUT					
+/*
+ * Data phase direction
+ */
+typedef enum {					/* Data direction			*/
+    DATADIR_IN,					/* Data in phase expected		*/
+    DATADIR_OUT					/* Data out phase expected		*/
 } datadir_t;
 
 #include "queue.h"
 #include "msgqueue.h"
 
 #define STATUS_BUFFER_SIZE	32
+/*
+ * This is used to dump the previous states of the SBIC
+ */
 struct status_entry {
 	unsigned long	when;
 	unsigned char	ssr;
@@ -246,34 +270,37 @@ struct status_entry {
 	host->status_ptr[(_q)] = (host->status_ptr[(_q)] + 1) & (STATUS_BUFFER_SIZE - 1); \
 })
 
+/*
+ * AcornSCSI host specific data
+ */
 typedef struct acornscsi_hostdata {
-    
-    struct Scsi_Host	*host;			
-    struct scsi_cmnd	*SCpnt;			
-    struct scsi_cmnd	*origSCpnt;		
-    void __iomem	*base;			
-    void __iomem	*fast;			
+    /* miscellaneous */
+    struct Scsi_Host	*host;			/* host					*/
+    struct scsi_cmnd	*SCpnt;			/* currently processing command		*/
+    struct scsi_cmnd	*origSCpnt;		/* original connecting command		*/
+    void __iomem	*base;			/* memc base address 			*/
+    void __iomem	*fast;			/* fast ioc base address		*/
 
-    
+    /* driver information */
     struct {
-	unsigned int	irq;			
-	phase_t		phase;			
+	unsigned int	irq;			/* interrupt				*/
+	phase_t		phase;			/* current phase			*/
 
 	struct {
-	    unsigned char	target;		
-	    unsigned char	lun;		
-	    unsigned char	tag;		
+	    unsigned char	target;		/* reconnected target			*/
+	    unsigned char	lun;		/* reconnected lun			*/
+	    unsigned char	tag;		/* reconnected tag			*/
 	} reconnected;
 
-	struct scsi_pointer	SCp;			
+	struct scsi_pointer	SCp;			/* current commands data pointer	*/
 
 	MsgQueue_t	msgs;
 
-	unsigned short	last_message;		
-	unsigned char	disconnectable:1;	
+	unsigned short	last_message;		/* last message to be sent		*/
+	unsigned char	disconnectable:1;	/* this command can be disconnected	*/
     } scsi;
 
-    
+    /* statistics information */
     struct {
 	unsigned int	queues;
 	unsigned int	removes;
@@ -286,41 +313,41 @@ typedef struct acornscsi_hostdata {
 	unsigned int	resets;
     } stats;
 
-    
+    /* queue handling */
     struct {
-	Queue_t		issue;			
-	Queue_t		disconnected;		
+	Queue_t		issue;			/* issue queue				*/
+	Queue_t		disconnected;		/* disconnected command queue		*/
     } queues;
 
-    
+    /* per-device info */
     struct {
-	unsigned char	sync_xfer;		
-	syncxfer_t	sync_state;		
-	unsigned char	disconnect_ok:1;	
+	unsigned char	sync_xfer;		/* synchronous transfer (SBIC value)	*/
+	syncxfer_t	sync_state;		/* sync xfer negotiation state		*/
+	unsigned char	disconnect_ok:1;	/* device can disconnect		*/
     } device[8];
-    unsigned long	busyluns[64 / sizeof(unsigned long)];
+    unsigned long	busyluns[64 / sizeof(unsigned long)];/* array of bits indicating LUNs busy	*/
 
-    
+    /* DMA info */
     struct {
-	unsigned int	free_addr;		
-	unsigned int	start_addr;		
-	dmadir_t	direction;		
-	unsigned int	transferred;		
-	unsigned int	xfer_start;		
-	unsigned int	xfer_length;		
-	char		*xfer_ptr;		
-	unsigned char	xfer_required:1;	
-	unsigned char	xfer_setup:1;		
-	unsigned char	xfer_done:1;		
+	unsigned int	free_addr;		/* next free address			*/
+	unsigned int	start_addr;		/* start address of current transfer	*/
+	dmadir_t	direction;		/* dma direction			*/
+	unsigned int	transferred;		/* number of bytes transferred		*/
+	unsigned int	xfer_start;		/* scheduled DMA transfer start		*/
+	unsigned int	xfer_length;		/* scheduled DMA transfer length	*/
+	char		*xfer_ptr;		/* pointer to area			*/
+	unsigned char	xfer_required:1;	/* set if we need to transfer something	*/
+	unsigned char	xfer_setup:1;		/* set if DMA is setup			*/
+	unsigned char	xfer_done:1;		/* set if DMA reached end of BH list	*/
     } dma;
 
-    
+    /* card info */
     struct {
-	unsigned char	page_reg;		
+	unsigned char	page_reg;		/* current setting of page reg		*/
     } card;
 
     unsigned char status_ptr[9];
     struct status_entry status[9][STATUS_BUFFER_SIZE];
 } AS_Host;
 
-#endif 
+#endif /* ACORNSCSI_H */

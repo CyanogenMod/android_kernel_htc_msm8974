@@ -13,6 +13,8 @@
 #include "hfsplus_fs.h"
 #include "hfsplus_raw.h"
 
+/* Fold the case of a unicode char, given the 16 bit value */
+/* Returns folded char, or 0 if ignorable */
 static inline u16 case_fold(u16 c)
 {
 	u16 tmp;
@@ -25,6 +27,7 @@ static inline u16 case_fold(u16 c)
 	return tmp;
 }
 
+/* Compare unicode strings, return values like normal strcmp */
 int hfsplus_strcasecmp(const struct hfsplus_unistr *s1,
 		       const struct hfsplus_unistr *s2)
 {
@@ -57,6 +60,7 @@ int hfsplus_strcasecmp(const struct hfsplus_unistr *s1,
 	}
 }
 
+/* Compare names as a sequence of 16-bit unsigned integers */
 int hfsplus_strcmp(const struct hfsplus_unistr *s1,
 		   const struct hfsplus_unistr *s2)
 {
@@ -135,7 +139,7 @@ int hfsplus_uni2asc(struct super_block *sb,
 	while (ustrlen > 0) {
 		c0 = be16_to_cpu(*ip++);
 		ustrlen--;
-		
+		/* search for single decomposed char */
 		if (likely(compose))
 			ce1 = hfsplus_compose_lookup(hfsplus_compose_table, c0);
 		if (ce1)
@@ -143,14 +147,14 @@ int hfsplus_uni2asc(struct super_block *sb,
 		else
 			cc = 0;
 		if (cc) {
-			
+			/* start of a possibly decomposed Hangul char */
 			if (cc != 0xffff)
 				goto done;
 			if (!ustrlen)
 				goto same;
 			c1 = be16_to_cpu(*ip) - Hangul_VBase;
 			if (c1 < Hangul_VCount) {
-				
+				/* compose the Hangul char */
 				cc = (c0 - Hangul_LBase) * Hangul_VCount;
 				cc = (cc + c1) * Hangul_TCount;
 				cc += Hangul_SBase;
@@ -168,7 +172,7 @@ int hfsplus_uni2asc(struct super_block *sb,
 			}
 		}
 		while (1) {
-			
+			/* main loop for common case of not composed chars */
 			if (!ustrlen)
 				goto same;
 			c1 = be16_to_cpu(*ip);
@@ -244,6 +248,10 @@ out:
 	return res;
 }
 
+/*
+ * Convert one or more ASCII characters into a single unicode character.
+ * Returns the number of ASCII characters corresponding to the unicode char.
+ */
 static inline int asc2unichar(struct super_block *sb, const char *astr, int len,
 			      wchar_t *uc)
 {
@@ -263,6 +271,7 @@ static inline int asc2unichar(struct super_block *sb, const char *astr, int len,
 	return size;
 }
 
+/* Decomposes a single unicode character. */
 static inline u16 *decompose_unichar(wchar_t uc, int *size)
 {
 	int off;
@@ -319,6 +328,11 @@ int hfsplus_asc2uni(struct super_block *sb, struct hfsplus_unistr *ustr,
 	return 0;
 }
 
+/*
+ * Hash a string to an integer as appropriate for the HFS+ filesystem.
+ * Composed unicode characters are decomposed and case-folding is performed
+ * if the appropriate bits are (un)set on the superblock.
+ */
 int hfsplus_hash_dentry(const struct dentry *dentry, const struct inode *inode,
 		struct qstr *str)
 {
@@ -366,6 +380,11 @@ int hfsplus_hash_dentry(const struct dentry *dentry, const struct inode *inode,
 	return 0;
 }
 
+/*
+ * Compare strings with HFS+ filename ordering.
+ * Composed unicode characters are decomposed and case-folding is performed
+ * if the appropriate bits are (un)set on the superblock.
+ */
 int hfsplus_compare_dentry(const struct dentry *parent,
 		const struct inode *pinode,
 		const struct dentry *dentry, const struct inode *inode,

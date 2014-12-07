@@ -10,10 +10,14 @@
 
 #include "befs_fs_types.h"
 
+/* used in debug.c */
 #define BEFS_VERSION "0.9.3"
 
 
 typedef u64 befs_blocknr_t;
+/*
+ * BeFS in memory structures
+ */
 
 typedef struct befs_mount_options {
 	gid_t gid;
@@ -34,12 +38,12 @@ typedef struct befs_sb_info {
 	u32 inode_size;
 	u32 magic2;
 
-	
+	/* Allocation group information */
 	u32 blocks_per_ag;
 	u32 ag_shift;
 	u32 num_ags;
 
-	
+	/* jornal log entry */
 	befs_block_run log_blocks;
 	befs_off_t log_start;
 	befs_off_t log_end;
@@ -82,6 +86,8 @@ enum befs_err {
 };
 
 
+/****************************/
+/* debug.c */
 void befs_error(const struct super_block *sb, const char *fmt, ...);
 void befs_warning(const struct super_block *sb, const char *fmt, ...);
 void befs_debug(const struct super_block *sb, const char *fmt, ...);
@@ -90,8 +96,12 @@ void befs_dump_super_block(const struct super_block *sb, befs_super_block *);
 void befs_dump_inode(const struct super_block *sb, befs_inode *);
 void befs_dump_index_entry(const struct super_block *sb, befs_disk_btree_super *);
 void befs_dump_index_node(const struct super_block *sb, befs_btree_nodehead *);
+/****************************/
 
 
+/* Gets a pointer to the private portion of the super_block
+ * structure from the public part
+ */
 static inline befs_sb_info *
 BEFS_SB(const struct super_block *super)
 {
@@ -143,4 +153,4 @@ befs_brun_size(struct super_block *sb, befs_block_run run)
 
 #include "endian.h"
 
-#endif				
+#endif				/* _LINUX_BEFS_H */

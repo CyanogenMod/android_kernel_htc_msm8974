@@ -47,16 +47,19 @@
 
 static void __init cam60_init_early(void)
 {
-	
+	/* Initialize processor: 10 MHz crystal */
 	at91_initialize(10000000);
 
-	
+	/* DBGU on ttyS0. (Rx & Tx only) */
 	at91_register_uart(0, 0, 0);
 
-	
+	/* set serial console to ttyS0 (ie, DBGU) */
 	at91_set_serial_console(0);
 }
 
+/*
+ * USB Host
+ */
 static struct at91_usbh_data __initdata cam60_usbh_data = {
 	.ports		= 1,
 	.vbus_pin	= {-EINVAL, -EINVAL},
@@ -64,6 +67,9 @@ static struct at91_usbh_data __initdata cam60_usbh_data = {
 };
 
 
+/*
+ * SPI devices.
+ */
 #if defined(CONFIG_MTD_DATAFLASH)
 static struct mtd_partition cam60_spi_partitions[] = {
 	{
@@ -97,7 +103,7 @@ static struct flash_platform_data cam60_spi_flash_platform_data = {
 
 static struct spi_board_info cam60_spi_devices[] __initdata = {
 #if defined(CONFIG_MTD_DATAFLASH)
-	{	
+	{	/* DataFlash chip */
 		.modalias	= "mtd_dataflash",
 		.chip_select	= 0,
 		.max_speed_hz	= 15 * 1000 * 1000,
@@ -108,12 +114,18 @@ static struct spi_board_info cam60_spi_devices[] __initdata = {
 };
 
 
+/*
+ * MACB Ethernet device
+ */
 static struct __initdata macb_platform_data cam60_macb_data = {
 	.phy_irq_pin	= AT91_PIN_PB5,
 	.is_rmii	= 0,
 };
 
 
+/*
+ * NAND Flash
+ */
 static struct mtd_partition __initdata cam60_nand_partition[] = {
 	{
 		.name	= "nand_fs",
@@ -153,7 +165,7 @@ static struct sam9_smc_config __initdata cam60_nand_smc_config = {
 
 static void __init cam60_add_device_nand(void)
 {
-	
+	/* configure chip-select 3 (NAND) */
 	sam9_smc_configure(0, 3, &cam60_nand_smc_config);
 
 	at91_add_device_nand(&cam60_nand_data);
@@ -162,22 +174,22 @@ static void __init cam60_add_device_nand(void)
 
 static void __init cam60_board_init(void)
 {
-	
+	/* Serial */
 	at91_add_device_serial();
-	
+	/* SPI */
 	at91_add_device_spi(cam60_spi_devices, ARRAY_SIZE(cam60_spi_devices));
-	
+	/* Ethernet */
 	at91_add_device_eth(&cam60_macb_data);
-	
-	
+	/* USB Host */
+	/* enable USB power supply circuit */
 	at91_set_gpio_output(AT91_PIN_PB18, 1);
 	at91_add_device_usbh(&cam60_usbh_data);
-	
+	/* NAND */
 	cam60_add_device_nand();
 }
 
 MACHINE_START(CAM60, "KwikByte CAM60")
-	
+	/* Maintainer: KwikByte */
 	.timer		= &at91sam926x_timer,
 	.map_io		= at91_map_io,
 	.init_early	= cam60_init_early,

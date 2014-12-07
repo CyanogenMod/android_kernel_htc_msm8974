@@ -16,6 +16,10 @@
 
 void save_processor_state(void)
 {
+	/*
+	 * flush out all the special registers so we don't need
+	 * to save them in the snapshot
+	 */
 	flush_fp_to_thread(current);
 	flush_altivec_to_thread(current);
 	flush_spe_to_thread(current);

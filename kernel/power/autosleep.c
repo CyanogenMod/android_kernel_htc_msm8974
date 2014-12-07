@@ -17,6 +17,12 @@
 
 static suspend_state_t autosleep_state;
 static struct workqueue_struct *autosleep_wq;
+/*
+ * Note: it is only safe to mutex_lock(&autosleep_lock) if a wakeup_source
+ * is active, otherwise a deadlock with try_to_suspend() is possible.
+ * Alternatively mutex_lock_interruptible() can be used.  This will then fail
+ * if an auto_sleep cycle tries to freeze processes.
+ */
 static DEFINE_MUTEX(autosleep_lock);
 static struct wakeup_source *autosleep_ws;
 
@@ -67,6 +73,10 @@ static void try_to_suspend(struct work_struct *work)
 #endif
 		goto out;
 	}
+	/*
+	 * If the wakeup occured for an unknown reason, wait to prevent the
+	 * system from trying to suspend and waking up in a tight loop.
+	 */
 	if (final_count == initial_count) {
 #ifdef CONFIG_HTC_POWER_DEBUG
 		pr_info("[P] wakeup occured for an unknown reason, wait HZ/2\n");

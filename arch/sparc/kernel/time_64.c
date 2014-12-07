@@ -70,6 +70,10 @@ EXPORT_SYMBOL(profile_pc);
 
 static void tick_disable_protection(void)
 {
+	/* Set things up so user can access tick register for profiling
+	 * purposes.  Also workaround BB_ERRATA_1 by doing a dummy
+	 * read back of %tick after writing it.
+	 */
 	__asm__ __volatile__(
 	"	ba,pt	%%xcc, 1f\n"
 	"	 nop\n"
@@ -79,7 +83,7 @@ static void tick_disable_protection(void)
 	"	andn	%%g2, %0, %%g2\n"
 	"	wrpr	%%g2, 0, %%tick\n"
 	"	rdpr	%%tick, %%g0"
-	: 
+	: /* no outputs */
 	: "r" (TICK_PRIV_BIT)
 	: "g2");
 }
@@ -92,7 +96,7 @@ static void tick_disable_irq(void)
 	"	.align	64\n"
 	"1:	wr	%0, 0x0, %%tick_cmpr\n"
 	"	rd	%%tick_cmpr, %%g0"
-	: 
+	: /* no outputs */
 	: "r" (TICKCMP_IRQ_BIT));
 }
 
@@ -122,6 +126,15 @@ static int tick_add_compare(unsigned long adj)
 
 	orig_tick &= ~TICKCMP_IRQ_BIT;
 
+	/* Workaround for Spitfire Errata (#54 I think??), I discovered
+	 * this via Sun BugID 4008234, mentioned in Solaris-2.5.1 patch
+	 * number 103640.
+	 *
+	 * On Blackbird writes to %tick_cmpr can fail, the
+	 * workaround seems to be to execute the wr instruction
+	 * at the start of an I-cache line, and perform a dummy
+	 * read back from %tick_cmpr right after writing to it. -DaveM
+	 */
 	__asm__ __volatile__("ba,pt	%%xcc, 1f\n\t"
 			     " add	%1, %2, %0\n\t"
 			     ".align	64\n"
@@ -142,7 +155,7 @@ static unsigned long tick_add_tick(unsigned long adj)
 {
 	unsigned long new_tick;
 
-	
+	/* Also need to handle Blackbird bug here too. */
 	__asm__ __volatile__("rd	%%tick, %0\n\t"
 			     "add	%0, %1, %0\n\t"
 			     "wrpr	%0, 0, %%tick\n\t"
@@ -169,22 +182,26 @@ static void stick_disable_irq(void)
 {
 	__asm__ __volatile__(
 	"wr	%0, 0x0, %%asr25"
-	: 
+	: /* no outputs */
 	: "r" (TICKCMP_IRQ_BIT));
 }
 
 static void stick_init_tick(void)
 {
+	/* Writes to the %tick and %stick register are not
+	 * allowed on sun4v.  The Hypervisor controls that
+	 * bit, per-strand.
+	 */
 	if (tlb_type != hypervisor) {
 		tick_disable_protection();
 		tick_disable_irq();
 
-		
+		/* Let the user get at STICK too. */
 		__asm__ __volatile__(
 		"	rd	%%asr24, %%g2\n"
 		"	andn	%%g2, %0, %%g2\n"
 		"	wr	%%g2, 0, %%asr24"
-		: 
+		: /* no outputs */
 		: "r" (TICK_PRIV_BIT)
 		: "g1", "g2");
 	}
@@ -224,7 +241,7 @@ static int stick_add_compare(unsigned long adj)
 	orig_tick &= ~TICKCMP_IRQ_BIT;
 
 	__asm__ __volatile__("wr	%0, 0, %%asr25"
-			     : 
+			     : /* no outputs */
 			     : "r" (orig_tick + adj));
 
 	__asm__ __volatile__("rd	%%asr24, %0"
@@ -244,6 +261,23 @@ static struct sparc64_tick_ops stick_operations __read_mostly = {
 	.softint_mask	=	1UL << 16,
 };
 
+/* On Hummingbird the STICK/STICK_CMPR register is implemented
+ * in I/O space.  There are two 64-bit registers each, the
+ * first holds the low 32-bits of the value and the second holds
+ * the high 32-bits.
+ *
+ * Since STICK is constantly updating, we have to access it carefully.
+ *
+ * The sequence we use to read is:
+ * 1) read high
+ * 2) read low
+ * 3) read high again, if it rolled re-read both low and high again.
+ *
+ * Writing STICK safely is also tricky:
+ * 1) write low to zero
+ * 2) write high
+ * 3) write low
+ */
 #define HBIRD_STICKCMP_ADDR	0x1fe0000f060UL
 #define HBIRD_STICK_ADDR	0x1fe0000f070UL
 
@@ -309,6 +343,11 @@ static void hbtick_init_tick(void)
 {
 	tick_disable_protection();
 
+	/* XXX This seems to be necessary to 'jumpstart' Hummingbird
+	 * XXX into actually sending STICK interrupts.  I think because
+	 * XXX of how we store %tick_cmpr in head.S this somehow resets the
+	 * XXX {TICK + STICK} interrupt mux.  -DaveM
+	 */
 	__hbird_write_stick(__hbird_read_stick());
 
 	hbtick_disable_irq();
@@ -387,6 +426,11 @@ static int __devinit rtc_probe(struct platform_device *op)
 	printk(KERN_INFO "%s: RTC regs at 0x%llx\n",
 	       op->dev.of_node->full_name, op->resource[0].start);
 
+	/* The CMOS RTC driver only accepts IORESOURCE_IO, so cons
+	 * up a fake resource so that the probe works for all cases.
+	 * When the RTC is behind an ISA bus it will have IORESOURCE_IO
+	 * already, whereas when it's behind EBUS is will be IORESOURCE_MEM.
+	 */
 
 	r = &rtc_cmos_resource;
 	r->flags = IORESOURCE_IO;
@@ -494,6 +538,9 @@ static int __devinit mostek_probe(struct platform_device *op)
 {
 	struct device_node *dp = op->dev.of_node;
 
+	/* On an Enterprise system there can be multiple mostek clocks.
+	 * We should only match the one that is on the central FHC bus.
+	 */
 	if (!strcmp(dp->parent->name, "fhc") &&
 	    strcmp(dp->parent->parent->name, "central") != 0)
 		return -ENODEV;
@@ -546,8 +593,13 @@ static int __init clock_init(void)
 	return 0;
 }
 
+/* Must be after subsys_initcall() so that busses are probed.  Must
+ * be before device_initcall() because things like the RTC driver
+ * need to see the clock registers.
+ */
 fs_initcall(clock_init);
 
+/* This is gets the master TICK_INT timer going. */
 static unsigned long sparc64_init_timers(void)
 {
 	struct device_node *dp;
@@ -562,7 +614,7 @@ static unsigned long sparc64_init_timers(void)
 		manuf = ((ver >> 48) & 0xffff);
 		impl = ((ver >> 32) & 0xffff);
 		if (manuf == 0x17 && impl == 0x13) {
-			
+			/* Hummingbird, aka Ultra-IIe */
 			tick_ops = &hbtick_operations;
 			freq = of_getintprop_default(dp, "stick-frequency", 0);
 		} else {
@@ -632,7 +684,7 @@ static int __init register_sparc64_cpufreq_notifier(void)
 
 core_initcall(register_sparc64_cpufreq_notifier);
 
-#endif 
+#endif /* CONFIG_CPU_FREQ */
 
 static int sparc64_next_event(unsigned long delta,
 			      struct clock_event_device *evt)
@@ -699,6 +751,9 @@ void __devinit setup_sparc64_timer(void)
 	struct clock_event_device *sevt;
 	unsigned long pstate;
 
+	/* Guarantee that the following sequences execute
+	 * uninterrupted.
+	 */
 	__asm__ __volatile__("rdpr	%%pstate, %0\n\t"
 			     "wrpr	%0, %1, %%pstate"
 			     : "=r" (pstate)
@@ -706,9 +761,9 @@ void __devinit setup_sparc64_timer(void)
 
 	tick_ops->init_tick();
 
-	
+	/* Restore PSTATE_IE. */
 	__asm__ __volatile__("wrpr	%0, 0x0, %%pstate"
-			     : 
+			     : /* no outputs */
 			     : "r" (pstate));
 
 	sevt = &__get_cpu_var(sparc64_events);

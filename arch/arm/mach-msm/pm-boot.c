@@ -123,7 +123,7 @@ static void msm_pm_config_rst_vector_before_pc(unsigned int cpu,
 {
 	saved_vector[0] = msm_pm_reset_vector[0];
 	saved_vector[1] = msm_pm_reset_vector[1];
-	msm_pm_reset_vector[0] = 0xE51FF004; 
+	msm_pm_reset_vector[0] = 0xE51FF004; /* ldr pc, 4 */
 	msm_pm_reset_vector[1] = entry;
 }
 
@@ -160,7 +160,7 @@ int __devinit msm_pm_boot_init(struct msm_pm_boot_platform_data *pdata)
 		break;
 	case MSM_PM_BOOT_CONFIG_RESET_VECTOR_PHYS:
 		pdata->v_addr = ioremap(pdata->p_addr, PAGE_SIZE);
-		
+		/* Fall through */
 	case MSM_PM_BOOT_CONFIG_RESET_VECTOR_VIRT:
 
 		if (!pdata->v_addr)
@@ -176,6 +176,10 @@ int __devinit msm_pm_boot_init(struct msm_pm_boot_platform_data *pdata)
 		if (!cpu_is_msm8625() && !cpu_is_msm8625q()) {
 			void *remapped;
 
+			/*
+			 * Set the boot remap address and enable remapping of
+			 * reset vector
+			 */
 			if (!pdata->p_addr || !pdata->v_addr)
 				return -ENODEV;
 
@@ -199,30 +203,48 @@ int __devinit msm_pm_boot_init(struct msm_pm_boot_platform_data *pdata)
 
 			entry = virt_to_phys(msm_pm_boot_entry);
 
-			msm_pm_reset_vector[0] = 0xE59F000C; 
-			msm_pm_reset_vector[1] = 0xE59F1008; 
-			msm_pm_reset_vector[2] = 0xE1500001; 
-			msm_pm_reset_vector[3] = 0x1AFFFFFB; 
-			msm_pm_reset_vector[4] = 0xE12FFF10; 
-			msm_pm_reset_vector[5] = entry; 
+			/*
+			 * Below sequence is a work around for cores
+			 * to come out of GDFS properly on 8625 target.
+			 * On 8625 while cores coming out of GDFS observed
+			 * the memory corruption at very first memory read.
+			 */
+			msm_pm_reset_vector[0] = 0xE59F000C; /* ldr r0, 0x14 */
+			msm_pm_reset_vector[1] = 0xE59F1008; /* ldr r1, 0x14 */
+			msm_pm_reset_vector[2] = 0xE1500001; /* cmp r0, r1 */
+			msm_pm_reset_vector[3] = 0x1AFFFFFB; /* bne 0x0 */
+			msm_pm_reset_vector[4] = 0xE12FFF10; /* bx  r0 */
+			msm_pm_reset_vector[5] = entry; /* 0x14 */
 
+			/*
+			 * Here upper 16bits[16:31] used by CORE1
+			 * lower 16bits[0:15] used by CORE0
+			 */
 			entry = (MSM8625_WARM_BOOT_PHYS |
 				((MSM8625_WARM_BOOT_PHYS & 0xFFFF0000) >> 16));
 
-			
+			/* write 'entry' to boot remapper register */
 			__raw_writel(entry, (pdata->v_addr +
 						mpa5_boot_remap_addr[0]));
 
+			/*
+			 * Enable boot remapper for C0 [bit:25th]
+			 * Enable boot remapper for C1 [bit:26th]
+			 */
 			__raw_writel(readl_relaxed(pdata->v_addr +
 					mpa5_cfg_ctl[0]) | (0x3 << 25),
 					pdata->v_addr + mpa5_cfg_ctl[0]);
 
-			
+			/* 8x25Q changes */
 			if (cpu_is_msm8625q()) {
-				
+				/* write 'entry' to boot remapper register */
 				__raw_writel(entry, (pdata->v_addr +
 						mpa5_boot_remap_addr[1]));
 
+				/*
+				 * Enable boot remapper for C2 [bit:25th]
+				 * Enable boot remapper for C3 [bit:26th]
+				 */
 				__raw_writel(readl_relaxed(pdata->v_addr +
 					mpa5_cfg_ctl[1]) | (0x3 << 25),
 					pdata->v_addr + mpa5_cfg_ctl[1]);

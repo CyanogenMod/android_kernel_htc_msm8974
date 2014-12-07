@@ -26,6 +26,7 @@ static inline struct cryptd_ablkcipher *__cryptd_ablkcipher_cast(
 	return (struct cryptd_ablkcipher *)tfm;
 }
 
+/* alg_name should be algorithm to be cryptd-ed */
 struct cryptd_ablkcipher *cryptd_alloc_ablkcipher(const char *alg_name,
 						  u32 type, u32 mask);
 struct crypto_blkcipher *cryptd_ablkcipher_child(struct cryptd_ablkcipher *tfm);
@@ -41,6 +42,7 @@ static inline struct cryptd_ahash *__cryptd_ahash_cast(
 	return (struct cryptd_ahash *)tfm;
 }
 
+/* alg_name should be algorithm to be cryptd-ed */
 struct cryptd_ahash *cryptd_alloc_ahash(const char *alg_name,
 					u32 type, u32 mask);
 struct crypto_shash *cryptd_ahash_child(struct cryptd_ahash *tfm);

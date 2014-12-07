@@ -1,16 +1,35 @@
+/*
+ * Binary Increase Congestion control for TCP
+ * Home page:
+ *      http://netsrv.csc.ncsu.edu/twiki/bin/view/Main/BIC
+ * This is from the implementation of BICTCP in
+ * Lison-Xu, Kahaled Harfoush, and Injong Rhee.
+ *  "Binary Increase Congestion Control for Fast, Long Distance
+ *  Networks" in InfoComm 2004
+ * Available from:
+ *  http://netsrv.csc.ncsu.edu/export/bitcp.pdf
+ *
+ * Unless BIC is enabled and congestion window is large
+ * this behaves the same as the original Reno.
+ */
 
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <net/tcp.h>
 
 
-#define BICTCP_BETA_SCALE    1024	
-#define BICTCP_B		4	 
+#define BICTCP_BETA_SCALE    1024	/* Scale factor beta calculation
+					 * max_cwnd = snd_cwnd * beta
+					 */
+#define BICTCP_B		4	 /*
+					  * In binary search,
+					  * go to point (max+min)/N
+					  */
 
 static int fast_convergence = 1;
 static int max_increment = 16;
 static int low_window = 14;
-static int beta = 819;		
+static int beta = 819;		/* = 819/1024 (BICTCP_BETA_SCALE) */
 static int initial_ssthresh;
 static int smooth_part = 20;
 
@@ -28,15 +47,16 @@ module_param(smooth_part, int, 0644);
 MODULE_PARM_DESC(smooth_part, "log(B/(B*Smin))/log(B/(B-1))+B, # of RTT from Wmax-B to Wmax");
 
 
+/* BIC TCP Parameters */
 struct bictcp {
-	u32	cnt;		
-	u32 	last_max_cwnd;	
-	u32	loss_cwnd;	
-	u32	last_cwnd;	
-	u32	last_time;	
-	u32	epoch_start;	
+	u32	cnt;		/* increase cwnd by 1 after ACKs */
+	u32 	last_max_cwnd;	/* last maximum snd_cwnd */
+	u32	loss_cwnd;	/* congestion window at last loss */
+	u32	last_cwnd;	/* the last snd_cwnd */
+	u32	last_time;	/* time when updated last_cwnd */
+	u32	epoch_start;	/* beginning of an epoch */
 #define ACK_RATIO_SHIFT	4
-	u32	delayed_ack;	
+	u32	delayed_ack;	/* estimate the ratio of Packets/ACKs << 4 */
 };
 
 static inline void bictcp_reset(struct bictcp *ca)
@@ -60,6 +80,9 @@ static void bictcp_init(struct sock *sk)
 		tcp_sk(sk)->snd_ssthresh = initial_ssthresh;
 }
 
+/*
+ * Compute congestion window to use.
+ */
 static inline void bictcp_update(struct bictcp *ca, u32 cwnd)
 {
 	if (ca->last_cwnd == cwnd &&
@@ -69,51 +92,51 @@ static inline void bictcp_update(struct bictcp *ca, u32 cwnd)
 	ca->last_cwnd = cwnd;
 	ca->last_time = tcp_time_stamp;
 
-	if (ca->epoch_start == 0) 
+	if (ca->epoch_start == 0) /* record the beginning of an epoch */
 		ca->epoch_start = tcp_time_stamp;
 
-	
+	/* start off normal */
 	if (cwnd <= low_window) {
 		ca->cnt = cwnd;
 		return;
 	}
 
-	
+	/* binary increase */
 	if (cwnd < ca->last_max_cwnd) {
 		__u32 	dist = (ca->last_max_cwnd - cwnd)
 			/ BICTCP_B;
 
 		if (dist > max_increment)
-			
+			/* linear increase */
 			ca->cnt = cwnd / max_increment;
 		else if (dist <= 1U)
-			
+			/* binary search increase */
 			ca->cnt = (cwnd * smooth_part) / BICTCP_B;
 		else
-			
+			/* binary search increase */
 			ca->cnt = cwnd / dist;
 	} else {
-		
+		/* slow start AMD linear increase */
 		if (cwnd < ca->last_max_cwnd + BICTCP_B)
-			
+			/* slow start */
 			ca->cnt = (cwnd * smooth_part) / BICTCP_B;
 		else if (cwnd < ca->last_max_cwnd + max_increment*(BICTCP_B-1))
-			
+			/* slow start */
 			ca->cnt = (cwnd * (BICTCP_B-1))
 				/ (cwnd - ca->last_max_cwnd);
 		else
-			
+			/* linear increase */
 			ca->cnt = cwnd / max_increment;
 	}
 
-	
+	/* if in slow start or link utilization is very low */
 	if (ca->last_max_cwnd == 0) {
-		if (ca->cnt > 20) 
+		if (ca->cnt > 20) /* increase cwnd 5% per RTT */
 			ca->cnt = 20;
 	}
 
 	ca->cnt = (ca->cnt << ACK_RATIO_SHIFT) / ca->delayed_ack;
-	if (ca->cnt == 0)			
+	if (ca->cnt == 0)			/* cannot be zero */
 		ca->cnt = 1;
 }
 
@@ -134,14 +157,18 @@ static void bictcp_cong_avoid(struct sock *sk, u32 ack, u32 in_flight)
 
 }
 
+/*
+ *	behave like Reno until low_window is reached,
+ *	then increase congestion window slowly
+ */
 static u32 bictcp_recalc_ssthresh(struct sock *sk)
 {
 	const struct tcp_sock *tp = tcp_sk(sk);
 	struct bictcp *ca = inet_csk_ca(sk);
 
-	ca->epoch_start = 0;	
+	ca->epoch_start = 0;	/* end of epoch */
 
-	
+	/* Wmax and fast convergence */
 	if (tp->snd_cwnd < ca->last_max_cwnd && fast_convergence)
 		ca->last_max_cwnd = (tp->snd_cwnd * (BICTCP_BETA_SCALE + beta))
 			/ (2 * BICTCP_BETA_SCALE);
@@ -170,6 +197,9 @@ static void bictcp_state(struct sock *sk, u8 new_state)
 		bictcp_reset(inet_csk_ca(sk));
 }
 
+/* Track delayed acknowledgment ratio using sliding window
+ * ratio = (15*ratio + sample) / 16
+ */
 static void bictcp_acked(struct sock *sk, u32 cnt, s32 rtt)
 {
 	const struct inet_connection_sock *icsk = inet_csk(sk);

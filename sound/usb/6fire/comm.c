@@ -40,7 +40,7 @@ static void usb6fire_comm_receiver_handler(struct urb *urb)
 	struct midi_runtime *midi_rt = rt->chip->midi;
 
 	if (!urb->status) {
-		if (rt->receiver_buffer[0] == 0x10) 
+		if (rt->receiver_buffer[0] == 0x10) /* midi in event */
 			if (midi_rt)
 				midi_rt->in_received(midi_rt,
 						rt->receiver_buffer + 2,
@@ -64,14 +64,14 @@ static void usb6fire_comm_init_buffer(u8 *buffer, u8 id, u8 request,
 	buffer[3] = id;
 	switch (request) {
 	case 0x02:
-		buffer[1] = 0x05; 
+		buffer[1] = 0x05; /* length (starting at buffer[2]) */
 		buffer[4] = reg;
 		buffer[5] = vl;
 		buffer[6] = vh;
 		break;
 
 	case 0x12:
-		buffer[1] = 0x0b; 
+		buffer[1] = 0x0b; /* length (starting at buffer[2]) */
 		buffer[4] = 0x00;
 		buffer[5] = 0x18;
 		buffer[6] = 0x05;
@@ -110,7 +110,7 @@ static int usb6fire_comm_send_buffer(u8 *buffer, struct usb_device *dev)
 static int usb6fire_comm_write8(struct comm_runtime *rt, u8 request,
 		u8 reg, u8 value)
 {
-	u8 buffer[13]; 
+	u8 buffer[13]; /* 13: maximum length of message */
 
 	usb6fire_comm_init_buffer(buffer, 0x00, request, reg, value, 0x00);
 	return usb6fire_comm_send_buffer(buffer, rt->chip->dev);
@@ -119,7 +119,7 @@ static int usb6fire_comm_write8(struct comm_runtime *rt, u8 request,
 static int usb6fire_comm_write16(struct comm_runtime *rt, u8 request,
 		u8 reg, u8 vl, u8 vh)
 {
-	u8 buffer[13]; 
+	u8 buffer[13]; /* 13: maximum length of message */
 
 	usb6fire_comm_init_buffer(buffer, 0x00, request, reg, vl, vh);
 	return usb6fire_comm_send_buffer(buffer, rt->chip->dev);
@@ -142,7 +142,7 @@ int __devinit usb6fire_comm_init(struct sfire_chip *chip)
 	rt->write8 = usb6fire_comm_write8;
 	rt->write16 = usb6fire_comm_write16;
 
-	
+	/* submit an urb that receives communication data from device */
 	urb->transfer_buffer = rt->receiver_buffer;
 	urb->transfer_buffer_length = COMM_RECEIVER_BUFSIZE;
 	urb->pipe = usb_rcvintpipe(chip->dev, COMM_EP);

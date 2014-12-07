@@ -24,12 +24,18 @@
 
 unsigned long cpu_khz;
 
+/*
+ * Estimate CPU frequency.  Sets mips_hpt_frequency as a side-effect
+ */
 static unsigned int __init estimate_cpu_frequency(void)
 {
 	unsigned int prid = read_c0_prid() & 0xffff00;
 	unsigned int count;
 
 #if 1
+	/*
+	 * hardwire the board frequency to 12MHz.
+	 */
 
 	if ((prid == (PRID_COMP_MIPS | PRID_IMP_20KC)) ||
 	    (prid == (PRID_COMP_MIPS | PRID_IMP_25KF)))
@@ -41,20 +47,20 @@ static unsigned int __init estimate_cpu_frequency(void)
 
 	local_irq_save(flags);
 
-	
+	/* Start counter exactly on falling edge of update flag */
 	while (CMOS_READ(RTC_REG_A) & RTC_UIP);
 	while (!(CMOS_READ(RTC_REG_A) & RTC_UIP));
 
-	
+	/* Start r4k counter. */
 	write_c0_count(0);
 
-	
+	/* Read counter exactly on falling edge of update flag */
 	while (CMOS_READ(RTC_REG_A) & RTC_UIP);
 	while (!(CMOS_READ(RTC_REG_A) & RTC_UIP));
 
 	count = read_c0_count();
 
-	
+	/* restore interrupts */
 	local_irq_restore(flags);
 #endif
 
@@ -64,7 +70,7 @@ static unsigned int __init estimate_cpu_frequency(void)
 	    (prid != (PRID_COMP_MIPS | PRID_IMP_25KF)))
 		count *= 2;
 
-	count += 5000;    
+	count += 5000;    /* round */
 	count -= count%10000;
 
 	return count;
@@ -99,7 +105,7 @@ void __init plat_time_init(void)
 {
 	unsigned int est_freq;
 
-	
+	/* Set Data mode - binary. */
 	CMOS_WRITE(CMOS_READ(RTC_CONTROL) | RTC_DM_BINARY, RTC_CONTROL);
 
 	est_freq = estimate_cpu_frequency();

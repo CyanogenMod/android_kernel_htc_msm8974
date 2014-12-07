@@ -61,11 +61,11 @@ enum WIFI_FRAME_TYPE {
 	WIFI_MGT_TYPE  =	(0),
 	WIFI_CTRL_TYPE =	(BIT(2)),
 	WIFI_DATA_TYPE =	(BIT(3)),
-	WIFI_QOS_DATA_TYPE	= (BIT(7)|BIT(3)),	
+	WIFI_QOS_DATA_TYPE	= (BIT(7)|BIT(3)),	/*!< QoS Data */
 };
 
 enum WIFI_FRAME_SUBTYPE {
-	
+	/* below is for mgt frame */
 	WIFI_ASSOCREQ       = (0 | WIFI_MGT_TYPE),
 	WIFI_ASSOCRSP       = (BIT(4) | WIFI_MGT_TYPE),
 	WIFI_REASSOCREQ     = (BIT(5) | WIFI_MGT_TYPE),
@@ -78,14 +78,14 @@ enum WIFI_FRAME_SUBTYPE {
 	WIFI_AUTH           = (BIT(7) | BIT(5) | BIT(4) | WIFI_MGT_TYPE),
 	WIFI_DEAUTH         = (BIT(7) | BIT(6) | WIFI_MGT_TYPE),
 	WIFI_ACTION         = (BIT(7) | BIT(6) | BIT(4) | WIFI_MGT_TYPE),
-	
+	/* below is for control frame */
 	WIFI_PSPOLL         = (BIT(7) | BIT(5) | WIFI_CTRL_TYPE),
 	WIFI_RTS            = (BIT(7) | BIT(5) | BIT(4) | WIFI_CTRL_TYPE),
 	WIFI_CTS            = (BIT(7) | BIT(6) | WIFI_CTRL_TYPE),
 	WIFI_ACK            = (BIT(7) | BIT(6) | BIT(4) | WIFI_CTRL_TYPE),
 	WIFI_CFEND          = (BIT(7) | BIT(6) | BIT(5) | WIFI_CTRL_TYPE),
 	WIFI_CFEND_CFACK = (BIT(7) | BIT(6) | BIT(5) | BIT(4) | WIFI_CTRL_TYPE),
-	
+	/* below is for data frame */
 	WIFI_DATA           = (0 | WIFI_DATA_TYPE),
 	WIFI_DATA_CFACK     = (BIT(4) | WIFI_DATA_TYPE),
 	WIFI_DATA_CFPOLL    = (BIT(5) | WIFI_DATA_TYPE),
@@ -107,7 +107,7 @@ enum WIFI_REASON_CODE	{
 	_RSON_CLS3_			= 7,
 	_RSON_DISAOC_STA_LEAVING_	= 8,
 	_RSON_ASOC_NOT_AUTH_		= 9,
-	
+	/* WPA reason */
 	_RSON_INVALID_IE_		= 13,
 	_RSON_MIC_FAILURE_		= 14,
 	_RSON_4WAY_HNDSHK_TIMEOUT_	= 15,
@@ -119,7 +119,7 @@ enum WIFI_REASON_CODE	{
 	_RSON_UNSUPPORT_RSNE_VER_	= 21,
 	_RSON_INVALID_RSNE_CAP_		= 22,
 	_RSON_IEEE_802DOT1X_AUTH_FAIL_	= 23,
-	
+	/* below are Realtek definitions */
 	_RSON_PMK_NOT_AVAILABLE_	= 24,
 };
 
@@ -363,16 +363,16 @@ static inline unsigned char *get_da(unsigned char *pframe)
 	unsigned int	to_fr_ds = (GetToDs(pframe) << 1) | GetFrDs(pframe);
 
 	switch (to_fr_ds) {
-	case 0x00:	
+	case 0x00:	/* ToDs=0, FromDs=0 */
 		da = GetAddr1Ptr(pframe);
 		break;
-	case 0x01:	
+	case 0x01:	/* ToDs=0, FromDs=1 */
 		da = GetAddr1Ptr(pframe);
 		break;
-	case 0x02:	
+	case 0x02:	/* ToDs=1, FromDs=0 */
 		da = GetAddr3Ptr(pframe);
 		break;
-	default:	
+	default:	/* ToDs=1, FromDs=1 */
 		da = GetAddr3Ptr(pframe);
 		break;
 	}
@@ -386,16 +386,16 @@ static inline unsigned char *get_sa(unsigned char *pframe)
 	unsigned int	to_fr_ds = (GetToDs(pframe) << 1) | GetFrDs(pframe);
 
 	switch (to_fr_ds) {
-	case 0x00:	
+	case 0x00:	/* ToDs=0, FromDs=0 */
 		sa = GetAddr2Ptr(pframe);
 		break;
-	case 0x01:	
+	case 0x01:	/* ToDs=0, FromDs=1 */
 		sa = GetAddr3Ptr(pframe);
 		break;
-	case 0x02:	
+	case 0x02:	/* ToDs=1, FromDs=0 */
 		sa = GetAddr2Ptr(pframe);
 		break;
-	default:	
+	default:	/* ToDs=1, FromDs=1 */
 		sa = GetAddr4Ptr(pframe);
 		break;
 	}
@@ -409,16 +409,16 @@ static inline unsigned char *get_hdr_bssid(unsigned char *pframe)
 	unsigned int	to_fr_ds = (GetToDs(pframe) << 1) | GetFrDs(pframe);
 
 	switch (to_fr_ds) {
-	case 0x00:	
+	case 0x00:	/* ToDs=0, FromDs=0 */
 		sa = GetAddr3Ptr(pframe);
 		break;
-	case 0x01:	
+	case 0x01:	/* ToDs=0, FromDs=1 */
 		sa = GetAddr2Ptr(pframe);
 		break;
-	case 0x02:	
+	case 0x02:	/* ToDs=1, FromDs=0 */
 		sa = GetAddr1Ptr(pframe);
 		break;
-	default:	
+	default:	/* ToDs=1, FromDs=1 */
 		sa = NULL;
 		break;
 	}
@@ -427,6 +427,9 @@ static inline unsigned char *get_hdr_bssid(unsigned char *pframe)
 
 
 
+/*-----------------------------------------------------------------------------
+			Below is for the security related definition
+------------------------------------------------------------------------------*/
 #define _RESERVED_FRAME_TYPE_	0
 #define _SKB_FRAME_TYPE_	2
 #define _PRE_ALLOCMEM_		1
@@ -437,10 +440,10 @@ static inline unsigned char *get_hdr_bssid(unsigned char *pframe)
 
 #define _SIFSTIME_		((priv->pmib->BssType.net_work_type & \
 				WIRELESS_11A) ? 16 : 10)
-#define _ACKCTSLNG_		14	
+#define _ACKCTSLNG_		14	/*14 bytes long, including crclng */
 #define _CRCLNG_		4
 
-#define _ASOCREQ_IE_OFFSET_	4	
+#define _ASOCREQ_IE_OFFSET_	4	/* excluding wlan_hdr */
 #define	_ASOCRSP_IE_OFFSET_	6
 #define _REASOCREQ_IE_OFFSET_	10
 #define _REASOCRSP_IE_OFFSET_	6
@@ -465,13 +468,16 @@ static inline unsigned char *get_hdr_bssid(unsigned char *pframe)
 
 #define _HT_CAPABILITY_IE_	45
 #define _HT_EXTRA_INFO_IE_	61
-#define _HT_ADD_INFO_IE_	61 
+#define _HT_ADD_INFO_IE_	61 /* _HT_EXTRA_INFO_IE_ */
 
 #define _VENDOR_SPECIFIC_IE_	221
 
 #define	_RESERVED47_		47
 
 
+/* ---------------------------------------------------------------------------
+					Below is the fixed elements...
+-----------------------------------------------------------------------------*/
 #define _AUTH_ALGM_NUM_			2
 #define _AUTH_SEQ_NUM_			2
 #define _BEACON_ITERVAL_		2
@@ -497,14 +503,24 @@ static inline unsigned char *get_hdr_bssid(unsigned char *pframe)
 #define cap_Privacy BIT(4)
 #define cap_ShortPremble BIT(5)
 
-#define _IEEE8021X_MGT_			1	
-#define _IEEE8021X_PSK_			2	
+/*-----------------------------------------------------------------------------
+				Below is the definition for 802.11i / 802.1x
+------------------------------------------------------------------------------*/
+#define _IEEE8021X_MGT_			1	/*WPA */
+#define _IEEE8021X_PSK_			2	/* WPA with pre-shared key */
 
-#define _WMM_IE_Length_				7  
+/*-----------------------------------------------------------------------------
+				Below is the definition for WMM
+------------------------------------------------------------------------------*/
+#define _WMM_IE_Length_				7  /* for WMM STA */
 #define _WMM_Para_Element_Length_		24
 
 
+/*-----------------------------------------------------------------------------
+				Below is the definition for 802.11n
+------------------------------------------------------------------------------*/
 
+/* block-ack parameters */
 #define IEEE80211_ADDBA_PARAM_POLICY_MASK 0x0002
 #define IEEE80211_ADDBA_PARAM_TID_MASK 0x003C
 #define IEEE80211_ADDBA_PARAM_BUF_SIZE_MASK 0xFFA0
@@ -520,6 +536,12 @@ static inline unsigned char *get_hdr_bssid(unsigned char *pframe)
 				le16_to_cpu(_ORDER_)) != 0)
 
 
+/**
+ * struct ieee80211_bar - HT Block Ack Request
+ *
+ * This structure refers to "HT BlockAckReq" as
+ * described in 802.11n draft section 7.2.1.7.1
+ */
 struct ieee80211_bar {
 	unsigned short frame_control;
 	unsigned short duration;
@@ -529,10 +551,17 @@ struct ieee80211_bar {
 	unsigned short start_seq_num;
 } __packed;
 
+/* 802.11 BAR control masks */
 #define IEEE80211_BAR_CTRL_ACK_POLICY_NORMAL     0x0000
 #define IEEE80211_BAR_CTRL_CBMTID_COMPRESSED_BA  0x0004
 
 
+ /**
+ * struct ieee80211_ht_cap - HT capabilities
+ *
+ * This structure refers to "HT capabilities element" as
+ * described in 802.11n draft section 7.3.2.52
+ */
 
 struct ieee80211_ht_cap {
 	unsigned short	cap_info;
@@ -543,6 +572,12 @@ struct ieee80211_ht_cap {
 	unsigned char	       antenna_selection_info;
 } __packed;
 
+/**
+ * struct ieee80211_ht_cap - HT additional information
+ *
+ * This structure refers to "HT information element" as
+ * described in 802.11n draft section 7.3.2.53
+ */
 struct ieee80211_ht_addt_info {
 	unsigned char	control_chan;
 	unsigned char		ht_param;
@@ -551,6 +586,7 @@ struct ieee80211_ht_addt_info {
 	unsigned char		basic_set[16];
 } __packed;
 
+/* 802.11n HT capabilities masks */
 #define IEEE80211_HT_CAP_SUP_WIDTH		0x0002
 #define IEEE80211_HT_CAP_SM_PS			0x000C
 #define IEEE80211_HT_CAP_GRN_FLD		0x0010
@@ -560,15 +596,19 @@ struct ieee80211_ht_addt_info {
 #define IEEE80211_HT_CAP_DELAY_BA		0x0400
 #define IEEE80211_HT_CAP_MAX_AMSDU		0x0800
 #define IEEE80211_HT_CAP_DSSSCCK40		0x1000
+/* 802.11n HT capability AMPDU settings */
 #define IEEE80211_HT_CAP_AMPDU_FACTOR		0x03
 #define IEEE80211_HT_CAP_AMPDU_DENSITY		0x1C
+/* 802.11n HT capability MSC set */
 #define IEEE80211_SUPP_MCS_SET_UEQM		4
 #define IEEE80211_HT_CAP_MAX_STREAMS		4
 #define IEEE80211_SUPP_MCS_SET_LEN		10
+/* maximum streams the spec allows */
 #define IEEE80211_HT_CAP_MCS_TX_DEFINED		0x01
 #define IEEE80211_HT_CAP_MCS_TX_RX_DIFF		0x02
 #define IEEE80211_HT_CAP_MCS_TX_STREAMS		0x0C
 #define IEEE80211_HT_CAP_MCS_TX_UEQM		0x10
+/* 802.11n HT IE masks */
 #define IEEE80211_HT_IE_CHA_SEC_OFFSET		0x03
 #define IEEE80211_HT_IE_CHA_SEC_NONE		0x00
 #define IEEE80211_HT_IE_CHA_SEC_ABOVE		0x01
@@ -578,20 +618,26 @@ struct ieee80211_ht_addt_info {
 #define IEEE80211_HT_IE_NON_GF_STA_PRSNT	0x0004
 #define IEEE80211_HT_IE_NON_HT_STA_PRSNT	0x0010
 
+/* block-ack parameters */
 #define IEEE80211_ADDBA_PARAM_POLICY_MASK 0x0002
 #define IEEE80211_ADDBA_PARAM_TID_MASK 0x003C
 #define IEEE80211_ADDBA_PARAM_BUF_SIZE_MASK 0xFFA0
 #define IEEE80211_DELBA_PARAM_TID_MASK 0xF000
 #define IEEE80211_DELBA_PARAM_INITIATOR_MASK 0x0800
 
+/*
+ * A-PMDU buffer sizes
+ * According to IEEE802.11n spec size varies from 8K to 64K (in powers of 2)
+ */
 #define IEEE80211_MIN_AMPDU_BUF 0x8
 #define IEEE80211_MAX_AMPDU_BUF 0x40
 
 
+/* Spatial Multiplexing Power Save Modes */
 #define WLAN_HT_CAP_SM_PS_STATIC		0
 #define WLAN_HT_CAP_SM_PS_DYNAMIC	1
 #define WLAN_HT_CAP_SM_PS_INVALID	2
 #define WLAN_HT_CAP_SM_PS_DISABLED	3
 
-#endif 
+#endif /* _WIFI_H_ */
 

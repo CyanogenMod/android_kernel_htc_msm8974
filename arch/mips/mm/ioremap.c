@@ -97,7 +97,19 @@ static int remap_area_pages(unsigned long address, phys_t phys_addr,
 	return error;
 }
 
+/*
+ * Generic mapping function (not visible outside):
+ */
 
+/*
+ * Remap an arbitrary physical address space into the kernel virtual
+ * address space. Needed when the kernel wants to access high addresses
+ * directly.
+ *
+ * NOTE! We need to allow non-page-aligned mappings too: we will obviously
+ * have to convert them into an offset in a page-aligned mapping, but the
+ * caller shouldn't need to know that small detail.
+ */
 
 #define IS_LOW512(addr) (!((phys_t)(addr) & (phys_t) ~0x1fffffffULL))
 
@@ -110,15 +122,22 @@ void __iomem * __ioremap(phys_t phys_addr, phys_t size, unsigned long flags)
 
 	phys_addr = fixup_bigphys_addr(phys_addr, size);
 
-	
+	/* Don't allow wraparound or zero size */
 	last_addr = phys_addr + size - 1;
 	if (!size || last_addr < phys_addr)
 		return NULL;
 
+	/*
+	 * Map uncached objects in the low 512mb of address space using KSEG1,
+	 * otherwise map using page tables.
+	 */
 	if (IS_LOW512(phys_addr) && IS_LOW512(last_addr) &&
 	    flags == _CACHE_UNCACHED)
 		return (void __iomem *) CKSEG1ADDR(phys_addr);
 
+	/*
+	 * Don't allow anybody to remap normal RAM that we're using..
+	 */
 	if (phys_addr < virt_to_phys(high_memory)) {
 		char *t_addr, *t_end;
 		struct page *page;
@@ -131,10 +150,16 @@ void __iomem * __ioremap(phys_t phys_addr, phys_t size, unsigned long flags)
 				return NULL;
 	}
 
+	/*
+	 * Mappings have to be page-aligned
+	 */
 	offset = phys_addr & ~PAGE_MASK;
 	phys_addr &= PAGE_MASK;
 	size = PAGE_ALIGN(last_addr + 1) - phys_addr;
 
+	/*
+	 * Ok, go for it..
+	 */
 	area = get_vm_area(size, VM_IOREMAP);
 	if (!area)
 		return NULL;

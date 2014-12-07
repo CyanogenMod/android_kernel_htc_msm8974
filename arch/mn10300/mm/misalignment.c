@@ -102,36 +102,36 @@ static const struct {
 };
 
 enum value_id {
-	DM0,		
-	DM1,		
-	DM2,		
-	AM0,		
-	AM1,		
-	AM2,		
-	RM0,		
-	RM1,		
-	RM2,		
-	RM4,		
-	RM6,		
+	DM0,		/* data reg in opcode in bits 0-1 */
+	DM1,		/* data reg in opcode in bits 2-3 */
+	DM2,		/* data reg in opcode in bits 4-5 */
+	AM0,		/* addr reg in opcode in bits 0-1 */
+	AM1,		/* addr reg in opcode in bits 2-3 */
+	AM2,		/* addr reg in opcode in bits 4-5 */
+	RM0,		/* reg in opcode in bits 0-3 */
+	RM1,		/* reg in opcode in bits 2-5 */
+	RM2,		/* reg in opcode in bits 4-7 */
+	RM4,		/* reg in opcode in bits 8-11 */
+	RM6,		/* reg in opcode in bits 12-15 */
 
-	RD0,		
-	RD2,		
+	RD0,		/* reg in displacement in bits 0-3 */
+	RD2,		/* reg in displacement in bits 4-7 */
 
-	SP,		
+	SP,		/* stack pointer */
 
-	SD8,		
-	SD16,		
-	SD24,		
-	SIMM4_2,	
-	SIMM8,		
-	IMM8,		
-	IMM16,		
-	IMM24,		
-	IMM32,		
-	IMM32_HIGH8,	
+	SD8,		/* 8-bit signed displacement */
+	SD16,		/* 16-bit signed displacement */
+	SD24,		/* 24-bit signed displacement */
+	SIMM4_2,	/* 4-bit signed displacement in opcode bits 4-7 */
+	SIMM8,		/* 8-bit signed immediate */
+	IMM8,		/* 8-bit unsigned immediate */
+	IMM16,		/* 16-bit unsigned immediate */
+	IMM24,		/* 24-bit unsigned immediate */
+	IMM32,		/* 32-bit unsigned immediate */
+	IMM32_HIGH8,	/* 32-bit unsigned immediate, LSB in opcode */
 
-	IMM32_MEM,	
-	IMM32_HIGH8_MEM, 
+	IMM32_MEM,	/* 32-bit unsigned displacement */
+	IMM32_HIGH8_MEM, /* 32-bit unsigned displacement, LSB in opcode */
 
 	DN0	= DM0,
 	DN1	= DM1,
@@ -311,6 +311,9 @@ static const struct mn10300_opcode mn10300_opcodes[] = {
 { "", 0, 0, 0, 0, 0, {0}},
 };
 
+/*
+ * fix up misalignment problems where possible
+ */
 asmlinkage void misalignment(struct pt_regs *regs, enum exception_code code)
 {
 	const struct exception_table_entry *fixup;
@@ -324,7 +327,7 @@ asmlinkage void misalignment(struct pt_regs *regs, enum exception_code code)
 	void *address;
 	unsigned tmp, npop, dispsz, loop;
 
-	
+	/* we don't fix up userspace misalignment faults */
 	if (user_mode(regs))
 		goto bus_error;
 
@@ -340,7 +343,7 @@ asmlinkage void misalignment(struct pt_regs *regs, enum exception_code code)
 
 	fixup = search_exception_tables(regs->pc);
 
-	
+	/* first thing to do is to match the opcode */
 	pc = (u_int8_t *) regs->pc;
 
 	if (__get_user(byte, pc) != 0)
@@ -365,6 +368,8 @@ asmlinkage void misalignment(struct pt_regs *regs, enum exception_code code)
 			if ((opcode & xm) != xo)
 				continue;
 
+			/* we've got a partial match (an exact match on the
+			 * first N bytes), so we need to get some more data */
 			pc++;
 			if (__get_user(byte, pc) != 0)
 				goto fetch_error;
@@ -372,11 +377,14 @@ asmlinkage void misalignment(struct pt_regs *regs, enum exception_code code)
 			noc += 8;
 			goto got_more_bits;
 		} else {
+			/* there's already been a partial match as long as the
+			 * complete match we're now considering, so this one
+			 * should't match */
 			continue;
 		}
 	}
 
-	
+	/* didn't manage to find a fixup */
 	printk(KERN_CRIT "MISALIGN: %lx: unsupported instruction %x\n",
 	       regs->pc, opcode);
 
@@ -393,7 +401,7 @@ bus_error:
 	force_sig_info(SIGBUS, &info, current);
 	return;
 
-	
+	/* error reading opcodes */
 fetch_error:
 	printk(KERN_CRIT
 	       "MISALIGN: %p: fault whilst reading instruction data\n",
@@ -434,13 +442,13 @@ transfer_failed:
 	force_sig_info(SIGSEGV, &info, current);
 	return;
 
-	
+	/* we matched the opcode */
 found_opcode:
 	kdebug("%lx: %x==%x { %x, %x }",
 	       regs->pc, opcode, pop->opcode, pop->params[0], pop->params[1]);
 
 	tmp = format_tbl[pop->format].opsz;
-	BUG_ON(tmp > noc); 
+	BUG_ON(tmp > noc); /* match was less complete than it ought to have been */
 
 	if (tmp < noc) {
 		tmp = noc - tmp;
@@ -448,7 +456,7 @@ found_opcode:
 		pc -= tmp >> 3;
 	}
 
-	
+	/* grab the extra displacement (note it's LSB first) */
 	disp = 0;
 	dispsz = format_tbl[pop->format].dispsz;
 	for (loop = 0; loop < dispsz; loop += 8) {
@@ -473,17 +481,17 @@ found_opcode:
 		goto failed;
 	}
 
-	
-	if (pop->name[3] == 0 || 
-	    pop->name[4] == 'l') 
+	/* determine the data transfer size of the move */
+	if (pop->name[3] == 0 || /* "mov" */
+	    pop->name[4] == 'l') /* mov_lcc */
 		inc = datasz = 4;
-	else if (pop->name[3] == 'h') 
+	else if (pop->name[3] == 'h') /* movhu */
 		inc = datasz = 2;
 	else
 		goto unsupported_instruction;
 
 	if (pop->params[0] & 0x80000000) {
-		
+		/* move memory to register */
 		if (!misalignment_addr(registers, sp,
 				       pop->params[0], opcode, disp,
 				       &address, &postinc, &inc))
@@ -504,7 +512,7 @@ found_opcode:
 		*store = data;
 		kdebug("loaded %lx", data);
 	} else {
-		
+		/* move register to memory */
 		if (!misalignment_reg(registers, pop->params[0], opcode, disp,
 				      &store))
 			goto bad_reg_mode;
@@ -526,12 +534,17 @@ found_opcode:
 	tmp = format_tbl[pop->format].opsz + format_tbl[pop->format].dispsz;
 	regs->pc += tmp >> 3;
 
+	/* handle MOV_Lcc, which are currently the only FMT_D10 insns that
+	 * access memory */
 	if (pop->format == FMT_D10)
 		misalignment_MOV_Lcc(regs, opcode);
 
 	set_fs(seg);
 }
 
+/*
+ * determine the address that was being accessed
+ */
 static int misalignment_addr(unsigned long *registers, unsigned long sp,
 			     unsigned params, unsigned opcode,
 			     unsigned long disp,
@@ -606,6 +619,9 @@ static int misalignment_addr(unsigned long *registers, unsigned long sp,
 			address += sp;
 			break;
 
+			/* displacements are either to be added to the address
+			 * before use, or, in the case of post-inc addressing,
+			 * to be added into the base register after use */
 		case SD8:
 		case SIMM8:
 			disp = (long) (int8_t) (disp & 0xff);
@@ -655,6 +671,9 @@ static int misalignment_addr(unsigned long *registers, unsigned long sp,
 	return 1;
 }
 
+/*
+ * determine the register that is acting as source/dest
+ */
 static int misalignment_reg(unsigned long *registers, unsigned params,
 			    unsigned opcode, unsigned long disp,
 			    unsigned long **_register)
@@ -716,6 +735,9 @@ static int misalignment_reg(unsigned long *registers, unsigned params,
 	return 1;
 }
 
+/*
+ * handle the conditional loop part of the move-and-loop instructions
+ */
 static void misalignment_MOV_Lcc(struct pt_regs *regs, uint32_t opcode)
 {
 	unsigned long epsw = regs->epsw;
@@ -723,53 +745,53 @@ static void misalignment_MOV_Lcc(struct pt_regs *regs, uint32_t opcode)
 
 	kdebug("MOV_Lcc %x [flags=%lx]", opcode, epsw & 0xf);
 
-	
+	/* calculate N^V and shift onto the same bit position as Z */
 	NxorV = ((epsw >> 3) ^ epsw >> 1) & 1;
 
 	switch (opcode & 0xf) {
-	case 0x0: 
+	case 0x0: /* MOV_LLT: N^V */
 		if (NxorV)
 			goto take_the_loop;
 		return;
-	case 0x1: 
+	case 0x1: /* MOV_LGT: ~(Z or (N^V))*/
 		if (!((epsw & EPSW_FLAG_Z) | NxorV))
 			goto take_the_loop;
 		return;
-	case 0x2: 
+	case 0x2: /* MOV_LGE: ~(N^V) */
 		if (!NxorV)
 			goto take_the_loop;
 		return;
-	case 0x3: 
+	case 0x3: /* MOV_LLE: Z or (N^V) */
 		if ((epsw & EPSW_FLAG_Z) | NxorV)
 			goto take_the_loop;
 		return;
 
-	case 0x4: 
+	case 0x4: /* MOV_LCS: C */
 		if (epsw & EPSW_FLAG_C)
 			goto take_the_loop;
 		return;
-	case 0x5: 
+	case 0x5: /* MOV_LHI: ~(C or Z) */
 		if (!(epsw & (EPSW_FLAG_C | EPSW_FLAG_Z)))
 			goto take_the_loop;
 		return;
-	case 0x6: 
+	case 0x6: /* MOV_LCC: ~C */
 		if (!(epsw & EPSW_FLAG_C))
 			goto take_the_loop;
 		return;
-	case 0x7: 
+	case 0x7: /* MOV_LLS: C or Z */
 		if (epsw & (EPSW_FLAG_C | EPSW_FLAG_Z))
 			goto take_the_loop;
 		return;
 
-	case 0x8: 
+	case 0x8: /* MOV_LEQ: Z */
 		if (epsw & EPSW_FLAG_Z)
 			goto take_the_loop;
 		return;
-	case 0x9: 
+	case 0x9: /* MOV_LNE: ~Z */
 		if (!(epsw & EPSW_FLAG_Z))
 			goto take_the_loop;
 		return;
-	case 0xa: 
+	case 0xa: /* MOV_LRA: always */
 		goto take_the_loop;
 
 	default:
@@ -777,11 +799,14 @@ static void misalignment_MOV_Lcc(struct pt_regs *regs, uint32_t opcode)
 	}
 
 take_the_loop:
-	
+	/* wind the PC back to just after the SETLB insn */
 	kdebug("loop LAR=%lx", regs->lar);
 	regs->pc = regs->lar - 4;
 }
 
+/*
+ * misalignment handler tests
+ */
 #ifdef CONFIG_TEST_MISALIGNMENT_HANDLER
 static u8 __initdata testbuf[512] __attribute__((aligned(16))) = {
 	[257] = 0x11,
@@ -938,4 +963,4 @@ static int __init test_misalignment(void)
 
 arch_initcall(test_misalignment);
 
-#endif 
+#endif /* CONFIG_TEST_MISALIGNMENT_HANDLER */

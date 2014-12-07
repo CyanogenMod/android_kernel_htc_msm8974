@@ -24,13 +24,21 @@
 #include <asm/ptrace.h>
 #include <asm/user.h>
 
-#define EM_HEXAGON	164   
+/*
+ * This should really be in linux/elf-em.h.
+ */
+#define EM_HEXAGON	164   /* QUALCOMM Hexagon */
 
 struct elf32_hdr;
 
+/*
+ * ELF header e_flags defines.
+ */
 
+/*  should have stuff like "CPU type" and maybe "ABI version", etc  */
 
-  
+/* Hexagon relocations */
+  /* V2 */
 #define R_HEXAGON_NONE           0
 #define R_HEXAGON_B22_PCREL      1
 #define R_HEXAGON_B15_PCREL      2
@@ -45,14 +53,14 @@ struct elf32_hdr;
 #define R_HEXAGON_GPREL16_2     11
 #define R_HEXAGON_GPREL16_3     12
 #define R_HEXAGON_HL16          13
-  
+  /* V3 */
 #define R_HEXAGON_B13_PCREL     14
-  
+  /* V4 */
 #define R_HEXAGON_B9_PCREL      15
-  
+  /* V4 (extenders) */
 #define R_HEXAGON_B32_PCREL_X   16
 #define R_HEXAGON_32_6_X        17
-  
+  /* V4 (extended) */
 #define R_HEXAGON_B22_PCREL_X   18
 #define R_HEXAGON_B15_PCREL_X   19
 #define R_HEXAGON_B13_PCREL_X   20
@@ -66,7 +74,7 @@ struct elf32_hdr;
 #define R_HEXAGON_8_X           28
 #define R_HEXAGON_7_X           29
 #define R_HEXAGON_6_X           30
-  
+  /* V2 PIC */
 #define R_HEXAGON_32_PCREL      31
 #define R_HEXAGON_COPY          32
 #define R_HEXAGON_GLOB_DAT      33
@@ -81,13 +89,20 @@ struct elf32_hdr;
 #define R_HEXAGON_GOT_32        42
 #define R_HEXAGON_GOT_16        43
 
+/*
+ * ELF register definitions..
+ */
 typedef unsigned long elf_greg_t;
 
 typedef struct user_regs_struct elf_gregset_t;
 #define ELF_NGREG (sizeof(elf_gregset_t)/sizeof(unsigned long))
 
+/*  Placeholder  */
 typedef unsigned long elf_fpregset_t;
 
+/*
+ * Bypass the whole "regsets" thing for now and use the define.
+ */
 
 #define ELF_CORE_COPY_REGS(DEST, REGS)	\
 do {					\
@@ -140,8 +155,15 @@ do {					\
 
 
 
+/*
+ * This is used to ensure we don't load something for the wrong architecture.
+ * Checks the machine and ABI type.
+ */
 #define elf_check_arch(hdr)	((hdr)->e_machine == EM_HEXAGON)
 
+/*
+ * These are used to set parameters in the core dumps.
+ */
 #define ELF_CLASS	ELFCLASS32
 #define ELF_DATA	ELFDATA2LSB
 #define ELF_ARCH	EM_HEXAGON
@@ -158,17 +180,40 @@ do {					\
 #define ELF_CORE_EFLAGS 0x3
 #endif
 
+/*
+ * Some architectures have ld.so set up a pointer to a function
+ * to be registered using atexit, to facilitate cleanup.  So that
+ * static executables will be well-behaved, we would null the register
+ * in question here, in the pt_regs structure passed.  For now,
+ * leave it a null macro.
+ */
 #define ELF_PLAT_INIT(regs, load_addr) do { } while (0)
 
 #define USE_ELF_CORE_DUMP
 #define CORE_DUMP_USE_REGSET
 
+/* Hrm is this going to cause problems for changing PAGE_SIZE?  */
 #define ELF_EXEC_PAGESIZE	4096
 
+/*
+ * This is the location that an ET_DYN program is loaded if exec'ed.  Typical
+ * use of this is to invoke "./ld.so someprog" to test out a new version of
+ * the loader.  We need to make sure that it is out of the way of the program
+ * that it will "exec", and that there is sufficient room for the brk.
+ */
 #define ELF_ET_DYN_BASE         0x08000000UL
 
+/*
+ * This yields a mask that user programs can use to figure out what
+ * instruction set this cpu supports.
+ */
 #define ELF_HWCAP	(0)
 
+/*
+ * This yields a string that ld.so will use to load implementation
+ * specific libraries for optimization.  This is more specific in
+ * intent than poking at uname or /proc/cpuinfo.
+ */
 #define ELF_PLATFORM  (NULL)
 
 #ifdef __KERNEL__

@@ -71,6 +71,11 @@ static unsigned int valid_mem[] = {
 
 static DEFINE_SPINLOCK(sdla_lock);
 
+/*********************************************************
+ *
+ * these are the core routines that access the card itself 
+ *
+ *********************************************************/
 
 #define SDLA_WINDOW(dev,addr) outb((((addr) >> 13) & 0x1F), (dev)->base_addr + SDLA_REG_Z80_WINDOW)
 
@@ -232,6 +237,15 @@ static void sdla_start(struct net_device *dev)
 	}
 }
 
+/****************************************************
+ *
+ * this is used for the S502A/E cards to determine
+ * the speed of the onboard CPU.  Calibration is
+ * necessary for the Frame Relay code uploaded 
+ * later.  Incorrect results cause timing problems
+ * with link checks & status messages
+ *
+ ***************************************************/
 
 static int sdla_z80_poll(struct net_device *dev, int z80_addr, int jiffs, char resp1, char resp2)
 {
@@ -257,10 +271,11 @@ static int sdla_z80_poll(struct net_device *dev, int z80_addr, int jiffs, char r
 	return time_before(jiffies, done) ? jiffies - start : -1;
 }
 
-#define Z80_READY 		'1'	
-#define LOADER_READY 		'2'	
-#define Z80_SCC_OK 		'3'	
-#define Z80_SCC_BAD	 	'4'	
+/* constants for Z80 CPU speed */
+#define Z80_READY 		'1'	/* Z80 is ready to begin */
+#define LOADER_READY 		'2'	/* driver is ready to begin */
+#define Z80_SCC_OK 		'3'	/* SCC is on board */
+#define Z80_SCC_BAD	 	'4'	/* SCC was not found */
 
 static int sdla_cpuspeed(struct net_device *dev, struct ifreq *ifr)
 {
@@ -305,6 +320,12 @@ static int sdla_cpuspeed(struct net_device *dev, struct ifreq *ifr)
 	return 0;
 }
 
+/************************************************
+ *
+ *  Direct interaction with the Frame Relay code 
+ *  starts here.
+ *
+ ************************************************/
 
 struct _dlci_stat 
 {
@@ -333,17 +354,17 @@ static void sdla_errors(struct net_device *dev, int cmd, int dlci, int ret, int 
 				netdev_info(dev, "Modem DCD unexpectedly low!\n");
 			if (*state & SDLA_MODEM_CTS_LOW)
 				netdev_info(dev, "Modem CTS unexpectedly low!\n");
-			
+			/* I should probably do something about this! */
 			break;
 
 		case SDLA_RET_CHANNEL_OFF:
 			netdev_info(dev, "Channel became inoperative!\n");
-			
+			/* same here */
 			break;
 
 		case SDLA_RET_CHANNEL_ON:
 			netdev_info(dev, "Channel became operative!\n");
-			
+			/* same here */
 			break;
 
 		case SDLA_RET_DLCI_STATUS:
@@ -364,7 +385,7 @@ static void sdla_errors(struct net_device *dev, int cmd, int dlci, int ret, int 
 				}
 				netdev_info(dev, "DLCI %i: %s\n",
 					    pstatus->dlci, state);
-				
+				/* same here */
 			}
 			break;
 
@@ -400,7 +421,7 @@ static void sdla_errors(struct net_device *dev, int cmd, int dlci, int ret, int 
 		default: 
 			netdev_dbg(dev, "Cmd 0x%02X generated return code 0x%02X\n",
 				   cmd, ret);
-			
+			/* Further processing could be done here */
 			break;
 	}
 }
@@ -421,7 +442,7 @@ static int sdla_cmd(struct net_device *dev, int cmd, short dlci, short flags,
 	cmd_buf = (struct sdla_cmd *)(dev->mem_start + (window & SDLA_ADDR_MASK));
 	ret = 0;
 	len = 0;
-	jiffs = jiffies + HZ;  
+	jiffs = jiffies + HZ;  /* 1 second is plenty */
 
 	spin_lock_irqsave(&sdla_lock, pflags);
 	SDLA_WINDOW(dev, window);
@@ -465,7 +486,7 @@ static int sdla_cmd(struct net_device *dev, int cmd, short dlci, short flags,
 				memcpy(outbuf, cmd_buf->data, *outlen);
 		}
 
-		
+		/* This is a local copy that's used for error handling */
 		if (ret)
 			memcpy(&status, cmd_buf->data, len > sizeof(status) ? sizeof(status) : len);
 
@@ -480,6 +501,11 @@ static int sdla_cmd(struct net_device *dev, int cmd, short dlci, short flags,
 	return ret;
 }
 
+/***********************************************
+ *
+ * these functions are called by the DLCI driver 
+ *
+ ***********************************************/
 
 static int sdla_reconfig(struct net_device *dev);
 
@@ -546,7 +572,7 @@ static int sdla_assoc(struct net_device *slave, struct net_device *master)
 	} 
 
 	if (i == CONFIG_DLCI_MAX)
-		return -EMLINK;  
+		return -EMLINK;  /* #### Alan: Comments on this ?? */
 
 
 	flp->master[i] = master;
@@ -623,7 +649,13 @@ static int sdla_dlci_conf(struct net_device *slave, struct net_device *master, i
 	return ret == SDLA_RET_OK ? 0 : -EIO;
 }
 
+/**************************
+ *
+ * now for the Linux driver 
+ *
+ **************************/
 
+/* NOTE: the DLCI driver deals with freeing the SKB!! */
 static netdev_tx_t sdla_transmit(struct sk_buff *skb,
 				 struct net_device *dev)
 {
@@ -639,6 +671,11 @@ static netdev_tx_t sdla_transmit(struct sk_buff *skb,
 
 	netif_stop_queue(dev);
 
+	/*
+	 * stupid GateD insists on setting up the multicast router thru us
+	 * and we're ill equipped to handle a non Frame Relay packet at this
+	 * time!
+	 */
 
 	accept = 1;
 	switch (dev->type)
@@ -659,7 +696,7 @@ static netdev_tx_t sdla_transmit(struct sk_buff *skb,
 	}
 	if (accept)
 	{
-		
+		/* this is frame specific, but till there's a PPP module, it's the default */
 		switch (flp->type)
 		{
 			case SDLA_S502A:
@@ -768,7 +805,7 @@ static void sdla_receive(struct net_device *dev)
 			break;
 	}
 
-	
+	/* common code, find the DLCI and get the SKB */
 	if (success)
 	{
 		for (i=0;i<CONFIG_DLCI_MAX;i++)
@@ -798,7 +835,7 @@ static void sdla_receive(struct net_device *dev)
 			skb_reserve(skb, sizeof(struct frhdr));
 	}
 
-	
+	/* pick up the data */
 	switch (flp->type)
 	{
 		case SDLA_S502A:
@@ -813,7 +850,7 @@ static void sdla_receive(struct net_device *dev)
 		case SDLA_S508:
 			if (success)
 			{
-				
+				/* is this buffer split off the end of the internal ring buffer */
 				split = addr + len > buf_top + 1 ? len - (buf_top - addr + 1) : 0;
 				len2 = len - split;
 
@@ -822,7 +859,7 @@ static void sdla_receive(struct net_device *dev)
 					__sdla_read(dev, buf_base, skb_put(skb, split), split);
 			}
 
-			
+			/* increment the buffer we're looking at */
 			SDLA_WINDOW(dev, SDLA_508_RXBUF_INFO);
 			flp->buffer = (flp->buffer + 1) % pbufi->rse_num;
 			pbuf->opp_flag = 0;
@@ -862,7 +899,7 @@ static irqreturn_t sdla_isr(int dummy, void *dev_id)
 			sdla_receive(dev);
 			break;
 
-		
+		/* the command will get an error return, which is processed above */
 		case SDLA_INTR_MODEM:
 		case SDLA_INTR_STATUS:
 			sdla_cmd(dev, SDLA_READ_DLC_STATUS, 0, 0, NULL, 0, NULL, NULL);
@@ -875,7 +912,7 @@ static irqreturn_t sdla_isr(int dummy, void *dev_id)
 			break;
 	}
 
-	 
+	/* the S502E requires a manual acknowledgement of the interrupt */ 
 	if (flp->type == SDLA_S502E)
 	{
 		flp->state &= ~SDLA_S502E_INTACK;
@@ -884,7 +921,7 @@ static irqreturn_t sdla_isr(int dummy, void *dev_id)
 		outb(flp->state, dev->base_addr + SDLA_REG_CONTROL);
 	}
 
-	
+	/* this clears the byte, informing the Z80 we're done */
 	byte = 0;
 	sdla_write(dev, flp->type == SDLA_S508 ? SDLA_508_IRQ_INTERFACE : SDLA_502_IRQ_INTERFACE, &byte, sizeof(byte));
 	return IRQ_HANDLED;
@@ -929,7 +966,7 @@ static int sdla_close(struct net_device *dev)
 	}
 
 	memset(&intr, 0, sizeof(intr));
-	
+	/* let's start up the reception */
 	switch(flp->type)
 	{
 		case SDLA_S502A:
@@ -981,7 +1018,7 @@ static int sdla_open(struct net_device *dev)
 	if (!flp->configured)
 		return -EPERM;
 
-	
+	/* time to send in the configuration */
 	len = 0;
 	for(i=0;i<CONFIG_DLCI_MAX;i++)
 		if (flp->dlci[i])
@@ -999,7 +1036,7 @@ static int sdla_open(struct net_device *dev)
 
 	sdla_cmd(dev, SDLA_ENABLE_COMMUNICATIONS, 0, 0, NULL, 0, NULL, NULL);
 
-	
+	/* let's start up the reception */
 	memset(&intr, 0, sizeof(intr));
 	switch(flp->type)
 	{
@@ -1046,7 +1083,7 @@ static int sdla_open(struct net_device *dev)
 				sdla_cmd(dev, SDLA_ACTIVATE_DLCI, 0, 0, &flp->dlci[i], 2*sizeof(flp->dlci[i]), NULL, NULL);
 	}
 
-	
+	/* configure any specific DLCI settings */
 	for(i=0;i<CONFIG_DLCI_MAX;i++)
 		if (flp->dlci[i])
 		{
@@ -1119,7 +1156,7 @@ static int sdla_config(struct net_device *dev, struct frad_conf __user *conf, in
 
 		if (dev->mtu != flp->config.mtu)
 		{
-			
+			/* this is required to change the MTU */
 			dev->mtu = flp->config.mtu;
 			for(i=0;i<CONFIG_DLCI_MAX;i++)
 				if (flp->master[i])
@@ -1128,7 +1165,7 @@ static int sdla_config(struct net_device *dev, struct frad_conf __user *conf, in
 
 		flp->config.mtu += sizeof(struct frhdr);
 
-		
+		/* off to the races! */
 		if (!flp->configured)
 			sdla_start(dev);
 
@@ -1136,7 +1173,7 @@ static int sdla_config(struct net_device *dev, struct frad_conf __user *conf, in
 	}
 	else
 	{
-		
+		/* no sense reading if the CPU isn't started */
 		if (netif_running(dev))
 		{
 			size = sizeof(data);
@@ -1239,6 +1276,12 @@ static int sdla_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		case SDLA_CPUSPEED:
 			return sdla_cpuspeed(dev, ifr);
 
+/* ==========================================================
+NOTE:  This is rather a useless action right now, as the
+       current driver does not support protocols other than
+       FR.  However, Sangoma has modules for a number of
+       other protocols in the works.
+============================================================*/
 		case SDLA_PROTOCOL:
 			if (flp->configured)
 				return -EALREADY;
@@ -1286,7 +1329,7 @@ static int sdla_change_mtu(struct net_device *dev, int new_mtu)
 	if (netif_running(dev))
 		return -EBUSY;
 
-	
+	/* for now, you can't change the MTU! */
 	return -EOPNOTSUPP;
 }
 
@@ -1316,8 +1359,8 @@ static int sdla_set_config(struct net_device *dev, struct ifmap *map)
 	}
 	base = map->base_addr;
 
-	
-	
+	/* test for card types, S502A, S502E, S507, S508                 */
+	/* these tests shut down the card completely, so clear the state */
 	flp->type = SDLA_UNKNOWN;
 	flp->state = 0;
    
@@ -1519,7 +1562,7 @@ got_type:
 			break;
 	}
 
-	
+	/* set the memory bits, and enable access */
 	outb(byte, base + SDLA_REG_PC_WINDOW);
 
 	switch(flp->type)

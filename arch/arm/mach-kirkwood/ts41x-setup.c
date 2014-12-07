@@ -27,6 +27,7 @@
 #include "mpp.h"
 #include "tsx1x-common.h"
 
+/* for the PCIe reset workaround */
 #include <plat/pcie.h>
 
 
@@ -88,8 +89,8 @@ static unsigned int qnap_ts41x_mpp_config[] __initdata = {
 	MPP9_TW0_SCK,
 	MPP10_UART0_TXD,
 	MPP11_UART0_RXD,
-	MPP13_UART1_TXD,	
-	MPP14_UART1_RXD,	
+	MPP13_UART1_TXD,	/* PIC controller */
+	MPP14_UART1_RXD,	/* PIC controller */
 	MPP15_SATA0_ACTn,
 	MPP16_SATA1_ACTn,
 	MPP20_GE1_TXD0,
@@ -104,15 +105,15 @@ static unsigned int qnap_ts41x_mpp_config[] __initdata = {
 	MPP31_GE1_RXCLK,
 	MPP32_GE1_TCLKOUT,
 	MPP33_GE1_TXCTL,
-	MPP36_GPIO,		
-	MPP37_GPIO,		
-	MPP43_GPIO,		
-	MPP44_GPIO,		
-	MPP45_GPIO,		
-	MPP46_GPIO,		
-	MPP47_GPIO,		
-	MPP48_GPIO,		
-	MPP49_GPIO,		
+	MPP36_GPIO,		/* RAM: 0: 256 MB, 1: 512 MB */
+	MPP37_GPIO,		/* Reset button */
+	MPP43_GPIO,		/* USB Copy button */
+	MPP44_GPIO,		/* Board ID: 0: TS-419U, 1: TS-419 */
+	MPP45_GPIO,		/* JP1: 0: LCD, 1: serial console */
+	MPP46_GPIO,		/* External SATA HDD1 error indicator */
+	MPP47_GPIO,		/* External SATA HDD2 error indicator */
+	MPP48_GPIO,		/* External SATA HDD3 error indicator */
+	MPP49_GPIO,		/* External SATA HDD4 error indicator */
 	0
 };
 
@@ -120,11 +121,14 @@ static void __init qnap_ts41x_init(void)
 {
 	u32 dev, rev;
 
+	/*
+	 * Basic setup. Needs to be called early.
+	 */
 	kirkwood_init();
 	kirkwood_mpp_conf(qnap_ts41x_mpp_config);
 
 	kirkwood_uart0_init();
-	kirkwood_uart1_init(); 
+	kirkwood_uart1_init(); /* A PIC controller is connected here. */
 	qnap_tsx1x_register_flash();
 	kirkwood_i2c_init();
 	i2c_register_board_info(0, &qnap_ts41x_i2c_rtc, 1);
@@ -152,6 +156,11 @@ static int __init ts41x_pci_init(void)
 	if (machine_is_ts41x()) {
 		u32 dev, rev;
 
+		/*
+		 * Without this explicit reset, the PCIe SATA controller
+		 * (Marvell 88sx7042/sata_mv) is known to stop working
+		 * after a few minutes.
+		 */
 		orion_pcie_reset((void __iomem *)PCIE_VIRT_BASE);
 
 		kirkwood_pcie_id(&dev, &rev);
@@ -166,7 +175,7 @@ static int __init ts41x_pci_init(void)
 subsys_initcall(ts41x_pci_init);
 
 MACHINE_START(TS41X, "QNAP TS-41x")
-	
+	/* Maintainer: Martin Michlmayr <tbm@cyrius.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= qnap_ts41x_init,
 	.map_io		= kirkwood_map_io,

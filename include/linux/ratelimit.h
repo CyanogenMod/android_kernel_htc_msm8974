@@ -8,7 +8,7 @@
 #define DEFAULT_RATELIMIT_BURST		10
 
 struct ratelimit_state {
-	raw_spinlock_t	lock;		
+	raw_spinlock_t	lock;		/* protect the state */
 
 	int		interval;
 	int		burst;
@@ -81,4 +81,4 @@ extern int ___ratelimit(struct ratelimit_state *rs, const char *func);
 
 #endif
 
-#endif 
+#endif /* _LINUX_RATELIMIT_H */

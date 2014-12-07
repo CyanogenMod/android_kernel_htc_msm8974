@@ -120,13 +120,13 @@ static void pxa310_otg_transceiver_rtsm(void)
 {
 	u32 u2dotgcr;
 
-	
+	/* put PHY to sync mode */
 	u2dotgcr = u2d_readl(U2DOTGCR);
 	u2dotgcr |=  U2DOTGCR_RTSM | U2DOTGCR_UTMID;
 	u2d_writel(U2DOTGCR, u2dotgcr);
 	msleep(10);
 
-	
+	/* setup OTG sync mode */
 	u2dotgcr = u2d_readl(U2DOTGCR);
 	u2dotgcr |= U2DOTGCR_ULAF;
 	u2dotgcr &= ~(U2DOTGCR_SMAF | U2DOTGCR_CKAF);
@@ -163,7 +163,7 @@ static int pxa310_start_otg_hc(struct usb_bus *host)
 	u32 u2dotgcr;
 	int err;
 
-	
+	/* disable USB device controller */
 	u2d_writel(U2DCR, u2d_readl(U2DCR) & ~U2DCR_UDE);
 	u2d_writel(U2DOTGCR, u2d_readl(U2DOTGCR) | U2DOTGCR_UTMID);
 	u2d_writel(U2DOTGICR, u2d_readl(U2DOTGICR) & ~0x37F7F);
@@ -172,13 +172,13 @@ static int pxa310_start_otg_hc(struct usb_bus *host)
 	if (err)
 		return err;
 
-	
+	/* set xceiver mode */
 	if (u2d->ulpi_mode & ULPI_IC_6PIN_SERIAL)
 		u2d_writel(U2DP3CR, u2d_readl(U2DP3CR) & ~U2DP3CR_P2SS);
 	else if (u2d->ulpi_mode & ULPI_IC_3PIN_SERIAL)
 		u2d_writel(U2DP3CR, u2d_readl(U2DP3CR) | U2DP3CR_P2SS);
 
-	
+	/* start OTG host controller */
 	u2dotgcr = u2d_readl(U2DOTGCR) | U2DOTGCR_SMAF;
 	u2d_writel(U2DOTGCR, u2dotgcr & ~(U2DOTGCR_ULAF | U2DOTGCR_CKAF));
 
@@ -246,13 +246,13 @@ static inline int pxa310_otg_init(struct pxa3xx_u2d_platform_data *pdata)
 	return 0;
 }
 static inline void pxa310_otg_exit(void) {}
-#endif 
+#endif /* CONFIG_PXA310_ULPI */
 
 int pxa3xx_u2d_start_hc(struct usb_bus *host)
 {
 	int err = 0;
 
-	
+	/* In case the PXA3xx ULPI isn't used, do nothing. */
 	if (!u2d)
 		return 0;
 
@@ -269,7 +269,7 @@ EXPORT_SYMBOL_GPL(pxa3xx_u2d_start_hc);
 
 void pxa3xx_u2d_stop_hc(struct usb_bus *host)
 {
-	
+	/* In case the PXA3xx ULPI isn't used, do nothing. */
 	if (!u2d)
 		return;
 
@@ -326,7 +326,7 @@ static int pxa3xx_u2d_probe(struct platform_device *pdev)
 			goto err_free_io;
 	}
 
-	
+	/* Only PXA310 U2D has OTG functionality */
 	if (cpu_is_pxa310()) {
 		err = pxa310_otg_init(pdata);
 		if (err)

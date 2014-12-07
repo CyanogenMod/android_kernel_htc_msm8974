@@ -17,22 +17,33 @@
 #ifndef	_BRCMU_WIFI_H_
 #define	_BRCMU_WIFI_H_
 
-#include <linux/if_ether.h>		
-#include <linux/ieee80211.h>		
+#include <linux/if_ether.h>		/* for ETH_ALEN */
+#include <linux/ieee80211.h>		/* for WLAN_PMKID_LEN */
 
+/*
+ * A chanspec (u16) holds the channel number, band, bandwidth and control
+ * sideband
+ */
 
+/* channel defines */
 #define CH_UPPER_SB			0x01
 #define CH_LOWER_SB			0x02
 #define CH_EWA_VALID			0x04
 #define CH_20MHZ_APART			4
 #define CH_10MHZ_APART			2
-#define CH_5MHZ_APART			1 
-#define CH_MAX_2G_CHANNEL		14	
-#define BRCM_MAX_2G_CHANNEL	CH_MAX_2G_CHANNEL	
+#define CH_5MHZ_APART			1 /* 2G band channels are 5 Mhz apart */
+#define CH_MAX_2G_CHANNEL		14	/* Max channel in 2G band */
+#define BRCM_MAX_2G_CHANNEL	CH_MAX_2G_CHANNEL	/* legacy define */
 
-#define BAND_2G_INDEX		0	
-#define BAND_5G_INDEX		1	
+/* bandstate array indices */
+#define BAND_2G_INDEX		0	/* wlc->bandstate[x] index */
+#define BAND_5G_INDEX		1	/* wlc->bandstate[x] index */
 
+/*
+ * max # supported channels. The max channel no is 216, this is that + 1
+ * rounded up to a multiple of NBBY (8). DO NOT MAKE it > 255: channels are
+ * u8's all over
+*/
 #define	MAXCHANNEL		224
 
 #define WL_CHANSPEC_CHAN_MASK		0x00ff
@@ -56,9 +67,10 @@
 #define WL_CHANSPEC_BAND_2G		0x2000
 #define INVCHANSPEC			255
 
-#define WF_CHAN_FACTOR_2_4_G		4814	
-#define WF_CHAN_FACTOR_5_G		10000	
-#define WF_CHAN_FACTOR_4_G		8000	
+/* used to calculate the chan_freq = chan_factor * 500Mhz + 5 * chan_number */
+#define WF_CHAN_FACTOR_2_4_G		4814	/* 2.4 GHz band, 2407 MHz */
+#define WF_CHAN_FACTOR_5_G		10000	/* 5   GHz band, 5000 MHz */
+#define WF_CHAN_FACTOR_4_G		8000	/* 4.9 GHz band for Japan */
 
 #define CHSPEC_CHANNEL(chspec)	((u8)((chspec) & WL_CHANSPEC_CHAN_MASK))
 #define CHSPEC_BAND(chspec)	((chspec) & WL_CHANSPEC_BAND_MASK)
@@ -132,21 +144,22 @@ static inline int next_20mhz_chan(int channel)
 	       channel + CH_20MHZ_APART : 0;
 }
 
-#define BRCM_MAXRATE	108	
-#define BRCM_RATE_1M	2	
-#define BRCM_RATE_2M	4	
-#define BRCM_RATE_5M5	11	
-#define BRCM_RATE_11M	22	
-#define BRCM_RATE_6M	12	
-#define BRCM_RATE_9M	18	
-#define BRCM_RATE_12M	24	
-#define BRCM_RATE_18M	36	
-#define BRCM_RATE_24M	48	
-#define BRCM_RATE_36M	72	
-#define BRCM_RATE_48M	96	
-#define BRCM_RATE_54M	108	
+/* defined rate in 500kbps */
+#define BRCM_MAXRATE	108	/* in 500kbps units */
+#define BRCM_RATE_1M	2	/* in 500kbps units */
+#define BRCM_RATE_2M	4	/* in 500kbps units */
+#define BRCM_RATE_5M5	11	/* in 500kbps units */
+#define BRCM_RATE_11M	22	/* in 500kbps units */
+#define BRCM_RATE_6M	12	/* in 500kbps units */
+#define BRCM_RATE_9M	18	/* in 500kbps units */
+#define BRCM_RATE_12M	24	/* in 500kbps units */
+#define BRCM_RATE_18M	36	/* in 500kbps units */
+#define BRCM_RATE_24M	48	/* in 500kbps units */
+#define BRCM_RATE_36M	72	/* in 500kbps units */
+#define BRCM_RATE_48M	96	/* in 500kbps units */
+#define BRCM_RATE_54M	108	/* in 500kbps units */
 
-#define BRCM_2G_25MHZ_OFFSET		5	
+#define BRCM_2G_25MHZ_OFFSET		5	/* 2.4GHz band channel offset */
 
 #define MCSSET_LEN	16
 
@@ -155,6 +168,7 @@ static inline bool ac_bitmap_tst(u8 bitmap, int prec)
 	return (bitmap & (1 << (prec))) != 0;
 }
 
+/* Enumerate crypto algorithms */
 #define	CRYPTO_ALGO_OFF			0
 #define	CRYPTO_ALGO_WEP1		1
 #define	CRYPTO_ALGO_TKIP		2
@@ -164,27 +178,31 @@ static inline bool ac_bitmap_tst(u8 bitmap, int prec)
 #define CRYPTO_ALGO_AES_RESERVED2	6
 #define CRYPTO_ALGO_NALG		7
 
+/* wireless security bitvec */
 
 #define WEP_ENABLED		0x0001
 #define TKIP_ENABLED		0x0002
 #define AES_ENABLED		0x0004
 #define WSEC_SWFLAG		0x0008
+/* to go into transition mode without setting wep */
 #define SES_OW_ENABLED		0x0040
 
-#define WPA_AUTH_DISABLED	0x0000	
-#define WPA_AUTH_NONE		0x0001	
-#define WPA_AUTH_UNSPECIFIED	0x0002	
-#define WPA_AUTH_PSK		0x0004	
+/* WPA authentication mode bitvec */
+#define WPA_AUTH_DISABLED	0x0000	/* Legacy (i.e., non-WPA) */
+#define WPA_AUTH_NONE		0x0001	/* none (IBSS) */
+#define WPA_AUTH_UNSPECIFIED	0x0002	/* over 802.1x */
+#define WPA_AUTH_PSK		0x0004	/* Pre-shared key */
 #define WPA_AUTH_RESERVED1	0x0008
 #define WPA_AUTH_RESERVED2	0x0010
 
 #define WPA2_AUTH_RESERVED1	0x0020
-#define WPA2_AUTH_UNSPECIFIED	0x0040	
-#define WPA2_AUTH_PSK		0x0080	
+#define WPA2_AUTH_UNSPECIFIED	0x0040	/* over 802.1x */
+#define WPA2_AUTH_PSK		0x0080	/* Pre-shared key */
 #define WPA2_AUTH_RESERVED3	0x0200
 #define WPA2_AUTH_RESERVED4	0x0400
 #define WPA2_AUTH_RESERVED5	0x0800
 
+/* pmkid */
 #define	MAXPMKID		16
 
 #define DOT11_DEFAULT_RTS_LEN		2347
@@ -218,4 +236,4 @@ struct pmkid_cand_list {
 	struct pmkid_cand pmkid_cand[1];
 };
 
-#endif				
+#endif				/* _BRCMU_WIFI_H_ */

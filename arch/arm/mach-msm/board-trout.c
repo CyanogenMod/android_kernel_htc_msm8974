@@ -91,7 +91,7 @@ static void __init trout_map_io(void)
 	iotable_init(trout_io_desc, ARRAY_SIZE(trout_io_desc));
 
 #ifdef CONFIG_MSM_DEBUG_UART3
-	
+	/* route UART3 to the "H2W" extended usb connector */
 	writeb(0x80, TROUT_CPLD_BASE + 0x00);
 #endif
 

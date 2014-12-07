@@ -380,6 +380,7 @@ static struct carl9170_phy_init ar5416_phy_init[] = {
 	{ 0x1c7960, 0x00009b40, 0x00009b40, 0x00009b40, 0x00009b40, },
 	{ 0x1c820c, 0x012e8160, 0x012e8160, 0x012a8160, 0x012a8160, },
 	{ 0x1c826c, 0x09249126, 0x09249126, 0x09249126, 0x09249126, },
+/*	{ 0x1c8864, 0x0001ce00, 0x0001ce00, 0x0001ce00, 0x0001ce00, }, */
 	{ 0x1c8864, 0x0001c600, 0x0001c600, 0x0001c600, 0x0001c600, },
 	{ 0x1c895c, 0x004b6a8e, 0x004b6a8e, 0x004b6a8e, 0x004b6a8e, },
 	{ 0x1c8968, 0x000003ce, 0x000003ce, 0x000003ce, 0x000003ce, },
@@ -398,6 +399,10 @@ static struct carl9170_phy_init ar5416_phy_init[] = {
 	{ 0x1c9384, 0xf3307ff0, 0xf3307ff0, 0xf3307ff0, 0xf3307ff0, }
 };
 
+/*
+ * look up a certain register in ar5416_phy_init[] and return the init. value
+ * for the band and bandwidth given. Return 0 if register address not found.
+ */
 static u32 carl9170_def_val(u32 reg, bool is_2ghz, bool is_40mhz)
 {
 	unsigned int i;
@@ -420,6 +425,10 @@ static u32 carl9170_def_val(u32 reg, bool is_2ghz, bool is_40mhz)
 	return 0;
 }
 
+/*
+ * initialize some phy regs from eeprom values in modal_header[]
+ * acc. to band and bandwidth
+ */
 static int carl9170_init_phy_from_eeprom(struct ar9170 *ar,
 				bool is_2ghz, bool is_40mhz)
 {
@@ -427,25 +436,25 @@ static int carl9170_init_phy_from_eeprom(struct ar9170 *ar,
 		0x2, 0x2, 0x2, 0x1, 0x2, 0x2, 0x6, 0x2,
 		0x2, 0x3, 0x7, 0x2, 0xb, 0x2, 0x2, 0x2
 	};
-	
+	/* pointer to the modal_header acc. to band */
 	struct ar9170_eeprom_modal *m = &ar->eeprom.modal_header[is_2ghz];
 	u32 val;
 
 	carl9170_regwrite_begin(ar);
 
-	
+	/* ant common control (index 0) */
 	carl9170_regwrite(AR9170_PHY_REG_SWITCH_COM,
 		le32_to_cpu(m->antCtrlCommon));
 
-	
+	/* ant control chain 0 (index 1) */
 	carl9170_regwrite(AR9170_PHY_REG_SWITCH_CHAIN_0,
 		le32_to_cpu(m->antCtrlChain[0]));
 
-	
+	/* ant control chain 2 (index 2) */
 	carl9170_regwrite(AR9170_PHY_REG_SWITCH_CHAIN_2,
 		le32_to_cpu(m->antCtrlChain[1]));
 
-	
+	/* SwSettle (index 3) */
 	if (!is_40mhz) {
 		val = carl9170_def_val(AR9170_PHY_REG_SETTLING,
 				     is_2ghz, is_40mhz);
@@ -453,13 +462,13 @@ static int carl9170_init_phy_from_eeprom(struct ar9170 *ar,
 		carl9170_regwrite(AR9170_PHY_REG_SETTLING, val);
 	}
 
-	
+	/* adcDesired, pdaDesired (index 4) */
 	val = carl9170_def_val(AR9170_PHY_REG_DESIRED_SZ, is_2ghz, is_40mhz);
 	SET_VAL(AR9170_PHY_DESIRED_SZ_PGA, val, m->pgaDesiredSize);
 	SET_VAL(AR9170_PHY_DESIRED_SZ_ADC, val, m->adcDesiredSize);
 	carl9170_regwrite(AR9170_PHY_REG_DESIRED_SZ, val);
 
-	
+	/* TxEndToXpaOff, TxFrameToXpaOn (index 5) */
 	val = carl9170_def_val(AR9170_PHY_REG_RF_CTL4, is_2ghz, is_40mhz);
 	SET_VAL(AR9170_PHY_RF_CTL4_TX_END_XPAB_OFF, val, m->txEndToXpaOff);
 	SET_VAL(AR9170_PHY_RF_CTL4_TX_END_XPAA_OFF, val, m->txEndToXpaOff);
@@ -467,56 +476,56 @@ static int carl9170_init_phy_from_eeprom(struct ar9170 *ar,
 	SET_VAL(AR9170_PHY_RF_CTL4_FRAME_XPAA_ON, val, m->txFrameToXpaOn);
 	carl9170_regwrite(AR9170_PHY_REG_RF_CTL4, val);
 
-	
+	/* TxEndToRxOn (index 6) */
 	val = carl9170_def_val(AR9170_PHY_REG_RF_CTL3, is_2ghz, is_40mhz);
 	SET_VAL(AR9170_PHY_RF_CTL3_TX_END_TO_A2_RX_ON, val, m->txEndToRxOn);
 	carl9170_regwrite(AR9170_PHY_REG_RF_CTL3, val);
 
-	
+	/* thresh62 (index 7) */
 	val = carl9170_def_val(0x1c8864, is_2ghz, is_40mhz);
 	val = (val & ~0x7f000) | (m->thresh62 << 12);
 	carl9170_regwrite(0x1c8864, val);
 
-	
+	/* tx/rx attenuation chain 0 (index 8) */
 	val = carl9170_def_val(AR9170_PHY_REG_RXGAIN, is_2ghz, is_40mhz);
 	SET_VAL(AR9170_PHY_RXGAIN_TXRX_ATTEN, val, m->txRxAttenCh[0]);
 	carl9170_regwrite(AR9170_PHY_REG_RXGAIN, val);
 
-	
+	/* tx/rx attenuation chain 2 (index 9) */
 	val = carl9170_def_val(AR9170_PHY_REG_RXGAIN_CHAIN_2,
 			       is_2ghz, is_40mhz);
 	SET_VAL(AR9170_PHY_RXGAIN_TXRX_ATTEN, val, m->txRxAttenCh[1]);
 	carl9170_regwrite(AR9170_PHY_REG_RXGAIN_CHAIN_2, val);
 
-	
+	/* tx/rx margin chain 0 (index 10) */
 	val = carl9170_def_val(AR9170_PHY_REG_GAIN_2GHZ, is_2ghz, is_40mhz);
 	SET_VAL(AR9170_PHY_GAIN_2GHZ_RXTX_MARGIN, val, m->rxTxMarginCh[0]);
-	
+	/* bsw margin chain 0 for 5GHz only */
 	if (!is_2ghz)
 		SET_VAL(AR9170_PHY_GAIN_2GHZ_BSW_MARGIN, val, m->bswMargin[0]);
 	carl9170_regwrite(AR9170_PHY_REG_GAIN_2GHZ, val);
 
-	
+	/* tx/rx margin chain 2 (index 11) */
 	val = carl9170_def_val(AR9170_PHY_REG_GAIN_2GHZ_CHAIN_2,
 			       is_2ghz, is_40mhz);
 	SET_VAL(AR9170_PHY_GAIN_2GHZ_RXTX_MARGIN, val, m->rxTxMarginCh[1]);
 	carl9170_regwrite(AR9170_PHY_REG_GAIN_2GHZ_CHAIN_2, val);
 
-	
+	/* iqCall, iqCallq chain 0 (index 12) */
 	val = carl9170_def_val(AR9170_PHY_REG_TIMING_CTRL4(0),
 			       is_2ghz, is_40mhz);
 	SET_VAL(AR9170_PHY_TIMING_CTRL4_IQCORR_Q_I_COFF, val, m->iqCalICh[0]);
 	SET_VAL(AR9170_PHY_TIMING_CTRL4_IQCORR_Q_Q_COFF, val, m->iqCalQCh[0]);
 	carl9170_regwrite(AR9170_PHY_REG_TIMING_CTRL4(0), val);
 
-	
+	/* iqCall, iqCallq chain 2 (index 13) */
 	val = carl9170_def_val(AR9170_PHY_REG_TIMING_CTRL4(2),
 			       is_2ghz, is_40mhz);
 	SET_VAL(AR9170_PHY_TIMING_CTRL4_IQCORR_Q_I_COFF, val, m->iqCalICh[1]);
 	SET_VAL(AR9170_PHY_TIMING_CTRL4_IQCORR_Q_Q_COFF, val, m->iqCalQCh[1]);
 	carl9170_regwrite(AR9170_PHY_REG_TIMING_CTRL4(2), val);
 
-	
+	/* xpd gain mask (index 14) */
 	val = carl9170_def_val(AR9170_PHY_REG_TPCRG1, is_2ghz, is_40mhz);
 	SET_VAL(AR9170_PHY_TPCRG1_PD_GAIN_1, val,
 		xpd2pd[m->xpdGain & 0xf] & 3);
@@ -582,24 +591,24 @@ struct carl9170_rf_initvals {
 };
 
 static struct carl9170_rf_initvals carl9170_rf_initval[] = {
-	
+	/* bank 0 */
 	{ 0x1c58b0, 0x1e5795e5, 0x1e5795e5},
 	{ 0x1c58e0, 0x02008020, 0x02008020},
-	
+	/* bank 1 */
 	{ 0x1c58b0, 0x02108421, 0x02108421},
 	{ 0x1c58ec, 0x00000008, 0x00000008},
-	
+	/* bank 2 */
 	{ 0x1c58b0, 0x0e73ff17, 0x0e73ff17},
 	{ 0x1c58e0, 0x00000420, 0x00000420},
-	
+	/* bank 3 */
 	{ 0x1c58f0, 0x01400018, 0x01c00018},
-	
+	/* bank 4 */
 	{ 0x1c58b0, 0x000001a1, 0x000001a1},
 	{ 0x1c58e8, 0x00000001, 0x00000001},
-	
+	/* bank 5 */
 	{ 0x1c58b0, 0x00000013, 0x00000013},
 	{ 0x1c58e4, 0x00000002, 0x00000002},
-	
+	/* bank 6 */
 	{ 0x1c58b0, 0x00000000, 0x00000000},
 	{ 0x1c58b0, 0x00000000, 0x00000000},
 	{ 0x1c58b0, 0x00000000, 0x00000000},
@@ -653,7 +662,7 @@ static struct carl9170_rf_initvals carl9170_rf_initval[] = {
 	{ 0x1c58b0, 0x00000015, 0x00000015},
 	{ 0x1c58b0, 0x0000001f, 0x0000001f},
 	{ 0x1c58e0, 0x00000000, 0x00000400},
-	
+	/* bank 7 */
 	{ 0x1c58b0, 0x000000a0, 0x000000a0},
 	{ 0x1c58b0, 0x00000000, 0x00000000},
 	{ 0x1c58b0, 0x00000040, 0x00000040},
@@ -699,7 +708,14 @@ struct carl9170_phy_freq_entry {
 	struct carl9170_phy_freq_params params[__CARL9170_NUM_BW];
 };
 
+/* NB: must be in sync with channel tables in main! */
 static const struct carl9170_phy_freq_entry carl9170_phy_freq_params[] = {
+/*
+ *	freq,
+ *		20MHz,
+ *		40MHz (below),
+ *		40Mhz (above),
+ */
 	{ 2412, {
 		{ 3, 21737, 3, 19563, },
 		{ 3, 21827, 3, 19644, },
@@ -1051,17 +1067,17 @@ static int carl9170_find_freq_idx(int nfreqs, u8 *freqs, u8 f)
 
 static s32 carl9170_interpolate_s32(s32 x, s32 x1, s32 y1, s32 x2, s32 y2)
 {
-	
+	/* nothing to interpolate, it's horizontal */
 	if (y2 == y1)
 		return y1;
 
-	
+	/* check if we hit one of the edges */
 	if (x == x1)
 		return y1;
 	if (x == x2)
 		return y2;
 
-	
+	/* x1 == x2 is bad, hopefully == x */
 	if (x2 == x1)
 		return y1;
 
@@ -1076,6 +1092,11 @@ static u8 carl9170_interpolate_u8(u8 x, u8 x1, u8 y1, u8 x2, u8 y2)
 	y = carl9170_interpolate_s32(x << SHIFT, x1 << SHIFT,
 		y1 << SHIFT, x2 << SHIFT, y2 << SHIFT);
 
+	/*
+	 * XXX: unwrap this expression
+	 *	Isn't it just DIV_ROUND_UP(y, 1<<SHIFT)?
+	 *	Can we rely on the compiler to optimise away the div?
+	 */
 	return (y >> SHIFT) + ((y & (1 << (SHIFT - 1))) >> (SHIFT - 1));
 #undef SHIFT
 }
@@ -1209,7 +1230,7 @@ static u8 carl9170_get_max_edge_power(struct ar9170 *ar,
 		if (edges[i].channel == 0xff)
 			break;
 		if (f == edges[i].channel) {
-			
+			/* exact freq match */
 			rc = edges[i].power_flags & ~AR9170_CALCTL_EDGE_FLAGS;
 			break;
 		}
@@ -1217,7 +1238,7 @@ static u8 carl9170_get_max_edge_power(struct ar9170 *ar,
 			if (f > edges[i - 1].channel &&
 			    edges[i - 1].power_flags &
 			    AR9170_CALCTL_EDGE_FLAGS) {
-				
+				/* lower channel has the inband flag set */
 				rc = edges[i - 1].power_flags &
 					~AR9170_CALCTL_EDGE_FLAGS;
 			}
@@ -1228,7 +1249,7 @@ static u8 carl9170_get_max_edge_power(struct ar9170 *ar,
 	if (i == AR5416_NUM_BAND_EDGES) {
 		if (f > edges[i - 1].channel &&
 		    edges[i - 1].power_flags & AR9170_CALCTL_EDGE_FLAGS) {
-			
+			/* lower channel has the inband flag set */
 			rc = edges[i - 1].power_flags &
 				~AR9170_CALCTL_EDGE_FLAGS;
 		}
@@ -1264,10 +1285,14 @@ static u8 carl9170_get_heavy_clip(struct ar9170 *ar, u32 freq,
 	return rc;
 }
 
+/*
+ * calculate the conformance test limits and the heavy clip parameter
+ * and apply them to ar->power* (derived from otus hal/hpmain.c, line 3706)
+ */
 static void carl9170_calc_ctl(struct ar9170 *ar, u32 freq, enum carl9170_bw bw)
 {
-	u8 ctl_grp; 
-	u8 ctl_idx; 
+	u8 ctl_grp; /* CTL group */
+	u8 ctl_idx; /* CTL index */
 	int i, j;
 	struct ctl_modes {
 		u8 ctl_mode;
@@ -1276,6 +1301,10 @@ static void carl9170_calc_ctl(struct ar9170 *ar, u32 freq, enum carl9170_bw bw)
 		int pwr_cal_len;
 	} *modes;
 
+	/*
+	 * order is relevant in the mode_list_*: we fall back to the
+	 * lower indices if any mode is missed in the EEPROM.
+	 */
 	struct ctl_modes mode_list_2ghz[] = {
 		{ CTL_11B, 0, ar->power_2G_cck, 4 },
 		{ CTL_11G, 0, ar->power_2G_ofdm, 4 },
@@ -1293,15 +1322,23 @@ static void carl9170_calc_ctl(struct ar9170 *ar, u32 freq, enum carl9170_bw bw)
 
 	ar->heavy_clip = 0;
 
+	/*
+	 * TODO: investigate the differences between OTUS'
+	 * hpreg.c::zfHpGetRegulatoryDomain() and
+	 * ath/regd.c::ath_regd_get_band_ctl() -
+	 * e.g. for FCC3_WORLD the OTUS procedure
+	 * always returns CTL_FCC, while the one in ath/ delivers
+	 * CTL_ETSI for 2GHz and CTL_FCC for 5GHz.
+	 */
 	ctl_grp = ath_regd_get_band_ctl(&ar->common.regulatory,
 					ar->hw->conf.channel->band);
 
-	
+	/* ctl group not found - either invalid band (NO_CTL) or ww roaming */
 	if (ctl_grp == NO_CTL || ctl_grp == SD_NO_CTL)
 		ctl_grp = CTL_FCC;
 
 	if (ctl_grp != CTL_FCC)
-		
+		/* skip CTL and heavy clip for CTL_MKK and CTL_ETSI */
 		return;
 
 	if (ar->hw->conf.channel->band == IEEE80211_BAND_2GHZ) {
@@ -1320,13 +1357,17 @@ static void carl9170_calc_ctl(struct ar9170 *ar, u32 freq, enum carl9170_bw bw)
 		if (ctl_idx < AR5416_NUM_CTLS) {
 			int f_off = 0;
 
+			/*
+			 * determine heavy clip parameter
+			 * from the 11G edges array
+			 */
 			if (modes[i].ctl_mode == CTL_11G) {
 				ar->heavy_clip =
 					carl9170_get_heavy_clip(ar,
 						freq, bw, EDGES(ctl_idx, 1));
 			}
 
-			
+			/* adjust freq for 40MHz */
 			if (modes[i].ctl_mode == CTL_2GHT40 ||
 			    modes[i].ctl_mode == CTL_5GHT40) {
 				if (bw == CARL9170_BW_40_BELOW)
@@ -1339,8 +1380,19 @@ static void carl9170_calc_ctl(struct ar9170 *ar, u32 freq, enum carl9170_bw bw)
 				carl9170_get_max_edge_power(ar,
 					freq + f_off, EDGES(ctl_idx, 1));
 
+			/*
+			 * TODO: check if the regulatory max. power is
+			 * controlled by cfg80211 for DFS.
+			 * (hpmain applies it to max_power itself for DFS freq)
+			 */
 
 		} else {
+			/*
+			 * Workaround in otus driver, hpmain.c, line 3906:
+			 * if no data for 5GHT20 are found, take the
+			 * legacy 5G value. We extend this here to fallback
+			 * from any other HT* or 11G, too.
+			 */
 			int k = i;
 
 			modes[i].max_power = AR5416_MAX_RATE_POWER;
@@ -1353,7 +1405,7 @@ static void carl9170_calc_ctl(struct ar9170 *ar, u32 freq, enum carl9170_bw bw)
 			}
 		}
 
-		
+		/* apply max power to pwr_cal_data (ar->power_*) */
 		for (j = 0; j < modes[i].pwr_cal_len; j++) {
 			modes[i].pwr_cal_data[j] = min(modes[i].pwr_cal_data[j],
 						       modes[i].max_power);
@@ -1390,19 +1442,24 @@ static void carl9170_set_power_cal(struct ar9170 *ar, u32 freq,
 	else
 		f = (freq - 4800) / 5;
 
+	/*
+	 * cycle through the various modes
+	 *
+	 * legacy modes first: 5G, 2G CCK, 2G OFDM
+	 */
 	for (i = 0; i < 3; i++) {
 		switch (i) {
-		case 0: 
+		case 0: /* 5 GHz legacy */
 			ctpl = &ar->eeprom.cal_tgt_pwr_5G[0];
 			ntargets = AR5416_NUM_5G_TARGET_PWRS;
 			ctpres = ar->power_5G_leg;
 			break;
-		case 1: 
+		case 1: /* 2.4 GHz CCK */
 			ctpl = &ar->eeprom.cal_tgt_pwr_2G_cck[0];
 			ntargets = AR5416_NUM_2G_CCK_TARGET_PWRS;
 			ctpres = ar->power_2G_cck;
 			break;
-		case 2: 
+		case 2: /* 2.4 GHz OFDM */
 			ctpl = &ar->eeprom.cal_tgt_pwr_2G_ofdm[0];
 			ntargets = AR5416_NUM_2G_OFDM_TARGET_PWRS;
 			ctpres = ar->power_2G_ofdm;
@@ -1424,25 +1481,25 @@ static void carl9170_set_power_cal(struct ar9170 *ar, u32 freq,
 				ctpl[idx + 1].freq, ctpl[idx + 1].power[n]);
 	}
 
-	
+	/* HT modes now: 5G HT20, 5G HT40, 2G CCK, 2G OFDM, 2G HT20, 2G HT40 */
 	for (i = 0; i < 4; i++) {
 		switch (i) {
-		case 0: 
+		case 0: /* 5 GHz HT 20 */
 			ctph = &ar->eeprom.cal_tgt_pwr_5G_ht20[0];
 			ntargets = AR5416_NUM_5G_TARGET_PWRS;
 			ctpres = ar->power_5G_ht20;
 			break;
-		case 1: 
+		case 1: /* 5 GHz HT 40 */
 			ctph = &ar->eeprom.cal_tgt_pwr_5G_ht40[0];
 			ntargets = AR5416_NUM_5G_TARGET_PWRS;
 			ctpres = ar->power_5G_ht40;
 			break;
-		case 2: 
+		case 2: /* 2.4 GHz HT 20 */
 			ctph = &ar->eeprom.cal_tgt_pwr_2G_ht20[0];
 			ntargets = AR5416_NUM_2G_OFDM_TARGET_PWRS;
 			ctpres = ar->power_2G_ht20;
 			break;
-		case 3: 
+		case 3: /* 2.4 GHz HT 40 */
 			ctph = &ar->eeprom.cal_tgt_pwr_2G_ht40[0];
 			ntargets = AR5416_NUM_2G_OFDM_TARGET_PWRS;
 			ctpres = ar->power_2G_ht40;
@@ -1464,7 +1521,7 @@ static void carl9170_set_power_cal(struct ar9170 *ar, u32 freq,
 				ctph[idx + 1].freq, ctph[idx + 1].power[n]);
 	}
 
-	
+	/* calc. conformance test limits and apply to ar->power*[] */
 	carl9170_calc_ctl(ar, freq, bw);
 }
 
@@ -1532,7 +1589,7 @@ int carl9170_set_channel(struct ar9170 *ar, struct ieee80211_channel *channel,
 	if (conf_is_ht40(&ar->hw->conf))
 		new_ht |= CARL9170FW_PHY_HT_DYN2040;
 
-	
+	/* may be NULL at first setup */
 	if (ar->channel) {
 		old_channel = ar->channel;
 		warm_reset = (old_channel->band != channel->band) ||
@@ -1545,7 +1602,7 @@ int carl9170_set_channel(struct ar9170 *ar, struct ieee80211_channel *channel,
 		warm_reset = true;
 	}
 
-	
+	/* HW workaround */
 	if (!ar->hw->wiphy->bands[IEEE80211_BAND_5GHZ] &&
 	    channel->center_freq <= 2417)
 		warm_reset = true;
@@ -1558,7 +1615,7 @@ int carl9170_set_channel(struct ar9170 *ar, struct ieee80211_channel *channel,
 		else
 			val = AR9170_PWR_RESET_BB_WARM_RESET;
 
-		
+		/* warm/cold reset BB/ADDA */
 		err = carl9170_write_reg(ar, AR9170_PWR_REG_RESET, val);
 		if (err)
 			return err;
@@ -1668,6 +1725,13 @@ int carl9170_set_channel(struct ar9170 *ar, struct ieee80211_channel *channel,
 			  err);
 
 		if ((rfi == CARL9170_RFI_COLD) || (ar->chan_fail > 3)) {
+			/*
+			 * We have tried very hard to change to _another_
+			 * channel and we've failed to do so!
+			 * Chances are that the PHY/RF is no longer
+			 * operable (due to corruptions/fatal events/bugs?)
+			 * and we need to reset at a higher level.
+			 */
 			carl9170_restart(ar, CARL9170_RR_TOO_MANY_PHY_ERRORS);
 			return 0;
 		}

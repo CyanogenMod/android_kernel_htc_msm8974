@@ -14,13 +14,13 @@ DEF_NATIVE(pv_cpu_ops, read_tsc, "rdtsc");
 
 unsigned paravirt_patch_ident_32(void *insnbuf, unsigned len)
 {
-	
+	/* arg in %eax, return in %eax */
 	return 0;
 }
 
 unsigned paravirt_patch_ident_64(void *insnbuf, unsigned len)
 {
-	
+	/* arg in %edx:%eax, return in %edx:%eax */
 	return 0;
 }
 

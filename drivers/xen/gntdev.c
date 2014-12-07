@@ -59,7 +59,7 @@ static int use_ptemod;
 
 struct gntdev_priv {
 	struct list_head maps;
-	
+	/* lock protects maps from concurrent changes */
 	spinlock_t lock;
 	struct mm_struct *mm;
 	struct mmu_notifier mn;
@@ -67,7 +67,7 @@ struct gntdev_priv {
 
 struct unmap_notify {
 	int flags;
-	
+	/* Address relative to the start of the grant_map */
 	int addr;
 	int event;
 };
@@ -89,6 +89,7 @@ struct grant_map {
 
 static int unmap_grant_pages(struct grant_map *map, int offset, int pages);
 
+/* ------------------------------------------------------------------ */
 
 static void gntdev_print_maps(struct gntdev_priv *priv,
 			      char *text, int text_index)
@@ -125,7 +126,7 @@ static struct grant_map *gntdev_alloc_map(struct gntdev_priv *priv, int count)
 	    NULL == add->pages)
 		goto err;
 
-	if (alloc_xenballooned_pages(count, add->pages, false ))
+	if (alloc_xenballooned_pages(count, add->pages, false /* lowmem */))
 		goto err;
 
 	for (i = 0; i < count; i++) {
@@ -210,6 +211,7 @@ static void gntdev_put_map(struct grant_map *map)
 	kfree(map);
 }
 
+/* ------------------------------------------------------------------ */
 
 static int find_grant_ptes(pte_t *pte, pgtable_t token,
 		unsigned long addr, void *data)
@@ -226,7 +228,7 @@ static int find_grant_ptes(pte_t *pte, pgtable_t token,
 			  map->grants[pgnr].ref,
 			  map->grants[pgnr].domid);
 	gnttab_set_unmap_op(&map->unmap_ops[pgnr], pte_maddr, flags,
-			    -1 );
+			    -1 /* handle */);
 	return 0;
 }
 
@@ -235,7 +237,7 @@ static int map_grant_pages(struct grant_map *map)
 	int i, err = 0;
 
 	if (!use_ptemod) {
-		
+		/* Note: it could already be mapped */
 		if (map->map_ops[0].handle != -1)
 			return 0;
 		for (i = 0; i < map->count; i++) {
@@ -245,9 +247,15 @@ static int map_grant_pages(struct grant_map *map)
 				map->grants[i].ref,
 				map->grants[i].domid);
 			gnttab_set_unmap_op(&map->unmap_ops[i], addr,
-				map->flags, -1 );
+				map->flags, -1 /* handle */);
 		}
 	} else {
+		/*
+		 * Setup the map_ops corresponding to the pte entries pointing
+		 * to the kernel linear addresses of the struct pages.
+		 * These ptes are completely different from the user ptes dealt
+		 * with find_grant_ptes.
+		 */
 		for (i = 0; i < map->count; i++) {
 			unsigned level;
 			unsigned long address = (unsigned long)
@@ -328,6 +336,9 @@ static int unmap_grant_pages(struct grant_map *map, int offset, int pages)
 
 	pr_debug("unmap %d+%d [%d+%d]\n", map->index, map->count, offset, pages);
 
+	/* It is possible the requested range will have a "hole" where we
+	 * already unmapped some of the grants. Only unmap valid ranges.
+	 */
 	while (pages && !err) {
 		while (pages && map->unmap_ops[offset].handle == -1) {
 			offset++;
@@ -349,6 +360,7 @@ static int unmap_grant_pages(struct grant_map *map, int offset, int pages)
 	return err;
 }
 
+/* ------------------------------------------------------------------ */
 
 static void gntdev_vma_open(struct vm_area_struct *vma)
 {
@@ -373,6 +385,7 @@ static struct vm_operations_struct gntdev_vmops = {
 	.close = gntdev_vma_close,
 };
 
+/* ------------------------------------------------------------------ */
 
 static void mn_invl_range_start(struct mmu_notifier *mn,
 				struct mm_struct *mm,
@@ -426,7 +439,7 @@ static void mn_release(struct mmu_notifier *mn,
 		pr_debug("map %d+%d (%lx %lx)\n",
 				map->index, map->count,
 				map->vma->vm_start, map->vma->vm_end);
-		err = unmap_grant_pages(map,  0, map->count);
+		err = unmap_grant_pages(map, /* offset */ 0, map->count);
 		WARN_ON(err);
 	}
 	spin_unlock(&priv->lock);
@@ -438,6 +451,7 @@ struct mmu_notifier_ops gntdev_mmu_ops = {
 	.invalidate_range_start = mn_invl_range_start,
 };
 
+/* ------------------------------------------------------------------ */
 
 static int gntdev_open(struct inode *inode, struct file *flip)
 {
@@ -597,6 +611,13 @@ static long gntdev_ioctl_notify(struct gntdev_priv *priv, void __user *u)
 	if (op.action & ~(UNMAP_NOTIFY_CLEAR_BYTE|UNMAP_NOTIFY_SEND_EVENT))
 		return -EINVAL;
 
+	/* We need to grab a reference to the event channel we are going to use
+	 * to send the notify before releasing the reference we may already have
+	 * (if someone has called this ioctl twice). This is required so that
+	 * it is possible to change the clear_byte part of the notification
+	 * without disturbing the event channel part, which may now be the last
+	 * reference to that event channel.
+	 */
 	if (op.action & UNMAP_NOTIFY_SEND_EVENT) {
 		if (evtchn_get(op.event_channel_port))
 			return -EINVAL;
@@ -635,7 +656,7 @@ static long gntdev_ioctl_notify(struct gntdev_priv *priv, void __user *u)
  unlock_out:
 	spin_unlock(&priv->lock);
 
-	
+	/* Drop the reference to the event channel we did not save in the map */
 	if (out_flags & UNMAP_NOTIFY_SEND_EVENT)
 		evtchn_put(out_event);
 
@@ -772,6 +793,7 @@ static struct miscdevice gntdev_miscdev = {
 	.fops         = &gntdev_fops,
 };
 
+/* ------------------------------------------------------------------ */
 
 static int __init gntdev_init(void)
 {
@@ -798,3 +820,4 @@ static void __exit gntdev_exit(void)
 module_init(gntdev_init);
 module_exit(gntdev_exit);
 
+/* ------------------------------------------------------------------ */

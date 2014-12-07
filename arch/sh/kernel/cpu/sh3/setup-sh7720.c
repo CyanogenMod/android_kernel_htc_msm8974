@@ -29,7 +29,7 @@ static struct resource rtc_resources[] = {
 		.flags	= IORESOURCE_IO,
 	},
 	[1] = {
-		
+		/* Shared Period/Carry/Alarm IRQ */
 		.start	= 20,
 		.flags	= IORESOURCE_IRQ,
 	},
@@ -403,7 +403,7 @@ void __init plat_early_device_setup(void)
 enum {
 	UNUSED = 0,
 
-	
+	/* interrupt sources */
 	TMU0, TMU1, TMU2, RTC,
 	WDT, REF_RCMI, SIM,
 	IRQ0, IRQ1, IRQ2, IRQ3,
@@ -418,14 +418,14 @@ enum {
 };
 
 static struct intc_vect vectors[] __initdata = {
-	
+	/* IRQ0->5 are handled in setup-sh3.c */
 	INTC_VECT(TMU0, 0x400),       INTC_VECT(TMU1, 0x420),
 	INTC_VECT(TMU2, 0x440),       INTC_VECT(RTC, 0x480),
 	INTC_VECT(RTC, 0x4a0),	      INTC_VECT(RTC, 0x4c0),
 	INTC_VECT(SIM, 0x4e0),	      INTC_VECT(SIM, 0x500),
 	INTC_VECT(SIM, 0x520),	      INTC_VECT(SIM, 0x540),
 	INTC_VECT(WDT, 0x560),        INTC_VECT(REF_RCMI, 0x580),
-	  INTC_VECT(TMU_SUNI, 0x6c0),
+	/* H_UDI cannot be masked */  INTC_VECT(TMU_SUNI, 0x6c0),
 	INTC_VECT(USBF_SPD, 0x6e0),   INTC_VECT(DMAC1, 0x800),
 	INTC_VECT(DMAC1, 0x820),      INTC_VECT(DMAC1, 0x840),
 	INTC_VECT(DMAC1, 0x860),      INTC_VECT(LCDC, 0x900),
@@ -448,16 +448,16 @@ static struct intc_vect vectors[] __initdata = {
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xA414FEE2UL, 0, 16, 4,  { TMU0, TMU1, TMU2, RTC } },
-	{ 0xA414FEE4UL, 0, 16, 4,  { WDT, REF_RCMI, SIM, 0 } },
-	{ 0xA4140016UL, 0, 16, 4,  { IRQ3, IRQ2, IRQ1, IRQ0 } },
-	{ 0xA4140018UL, 0, 16, 4,  { USBF_SPD, TMU_SUNI, IRQ5, IRQ4 } },
-	{ 0xA414001AUL, 0, 16, 4,  { DMAC1, 0, LCDC, SSL } },
-	{ 0xA4080000UL, 0, 16, 4,  { ADC, DMAC2, USBFI, CMT } },
-	{ 0xA4080002UL, 0, 16, 4,  { SCIF0, SCIF1, 0, 0 } },
-	{ 0xA4080004UL, 0, 16, 4,  { PINT07, PINT815, TPU, IIC } },
-	{ 0xA4080006UL, 0, 16, 4,  { SIOF0, SIOF1, MMC, PCC } },
-	{ 0xA4080008UL, 0, 16, 4,  { 0, USBHI, 0, AFEIF } },
+	{ 0xA414FEE2UL, 0, 16, 4, /* IPRA */ { TMU0, TMU1, TMU2, RTC } },
+	{ 0xA414FEE4UL, 0, 16, 4, /* IPRB */ { WDT, REF_RCMI, SIM, 0 } },
+	{ 0xA4140016UL, 0, 16, 4, /* IPRC */ { IRQ3, IRQ2, IRQ1, IRQ0 } },
+	{ 0xA4140018UL, 0, 16, 4, /* IPRD */ { USBF_SPD, TMU_SUNI, IRQ5, IRQ4 } },
+	{ 0xA414001AUL, 0, 16, 4, /* IPRE */ { DMAC1, 0, LCDC, SSL } },
+	{ 0xA4080000UL, 0, 16, 4, /* IPRF */ { ADC, DMAC2, USBFI, CMT } },
+	{ 0xA4080002UL, 0, 16, 4, /* IPRG */ { SCIF0, SCIF1, 0, 0 } },
+	{ 0xA4080004UL, 0, 16, 4, /* IPRH */ { PINT07, PINT815, TPU, IIC } },
+	{ 0xA4080006UL, 0, 16, 4, /* IPRI */ { SIOF0, SIOF1, MMC, PCC } },
+	{ 0xA4080008UL, 0, 16, 4, /* IPRJ */ { 0, USBHI, 0, AFEIF } },
 };
 
 static DECLARE_INTC_DESC(intc_desc, "sh7720", vectors, NULL,

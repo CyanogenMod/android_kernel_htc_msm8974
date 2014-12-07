@@ -45,7 +45,7 @@ void wl1271_elp_work(struct work_struct *work)
 	if (unlikely(wl->state == WL1271_STATE_OFF))
 		goto out;
 
-	
+	/* our work might have been already cancelled */
 	if (unlikely(!test_bit(WL1271_FLAG_ELP_REQUESTED, &wl->flags)))
 		goto out;
 
@@ -69,11 +69,12 @@ out:
 	mutex_unlock(&wl->mutex);
 }
 
+/* Routines to toggle sleep mode while in ELP */
 void wl1271_ps_elp_sleep(struct wl1271 *wl)
 {
 	struct wl12xx_vif *wlvif;
 
-	
+	/* we shouldn't get consecutive sleep requests */
 	if (WARN_ON(test_and_set_bit(WL1271_FLAG_ELP_REQUESTED, &wl->flags)))
 		return;
 
@@ -98,10 +99,14 @@ int wl1271_ps_elp_wakeup(struct wl1271 *wl)
 	u32 start_time = jiffies;
 	bool pending = false;
 
+	/*
+	 * we might try to wake up even if we didn't go to sleep
+	 * before (e.g. on boot)
+	 */
 	if (!test_and_clear_bit(WL1271_FLAG_ELP_REQUESTED, &wl->flags))
 		return 0;
 
-	
+	/* don't cancel_sync as it might contend for a mutex and deadlock */
 	cancel_delayed_work(&wl->elp_work);
 
 	if (!test_bit(WL1271_FLAG_IN_ELP, &wl->flags))
@@ -109,6 +114,10 @@ int wl1271_ps_elp_wakeup(struct wl1271 *wl)
 
 	wl1271_debug(DEBUG_PSM, "waking up chip from elp");
 
+	/*
+	 * The spinlock is required here to synchronize both the work and
+	 * the completion variable in one entity.
+	 */
 	spin_lock_irqsave(&wl->wl_lock, flags);
 	if (test_bit(WL1271_FLAG_IRQ_RUNNING, &wl->flags))
 		pending = true;
@@ -174,7 +183,7 @@ int wl1271_ps_set_mode(struct wl1271 *wl, struct wl12xx_vif *wlvif,
 
 		set_bit(WLVIF_FLAG_IN_PS, &wlvif->flags);
 
-		
+		/* enable beacon early termination. Not relevant for 5GHz */
 		if (wlvif->band == IEEE80211_BAND_2GHZ) {
 			ret = wl1271_acx_bet_enable(wl, wlvif, true);
 			if (ret < 0)
@@ -184,7 +193,7 @@ int wl1271_ps_set_mode(struct wl1271 *wl, struct wl12xx_vif *wlvif,
 	case STATION_ACTIVE_MODE:
 		wl1271_debug(DEBUG_PSM, "leaving psm");
 
-		
+		/* disable beacon early termination */
 		if (wlvif->band == IEEE80211_BAND_2GHZ) {
 			ret = wl1271_acx_bet_enable(wl, wlvif, false);
 			if (ret < 0)
@@ -213,7 +222,7 @@ static void wl1271_ps_filter_frames(struct wl1271 *wl, u8 hlid)
 	unsigned long flags;
 	int filtered[NUM_TX_QUEUES];
 
-	
+	/* filter all frames currently in the low level queues for this hlid */
 	for (i = 0; i < NUM_TX_QUEUES; i++) {
 		filtered[i] = 0;
 		while ((skb = skb_dequeue(&wl->links[hlid].tx_queue[i]))) {
@@ -262,7 +271,7 @@ void wl12xx_ps_link_start(struct wl1271 *wl, struct wl12xx_vif *wlvif,
 	ieee80211_sta_ps_transition_ni(sta, true);
 	rcu_read_unlock();
 
-	
+	/* do we want to filter all frames from this link's queues? */
 	if (clean_queues)
 		wl1271_ps_filter_frames(wl, hlid);
 

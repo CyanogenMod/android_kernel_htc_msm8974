@@ -67,6 +67,9 @@ static struct platform_driver ebi2_host_driver = {
 	.remove = ebi2_host_remove,
 	.shutdown = NULL,
 	.driver = {
+		/*
+		 * Simulate mdp hw
+		 */
 		.name = "mdp",
 		.pm = &ebi2_host_dev_pm_ops,
 	},
@@ -143,7 +146,7 @@ static int ebi2_host_probe(struct platform_device *pdev)
 	if (!msm_fb_dev)
 		return -ENOMEM;
 
-	
+	/* link to the latest pdev */
 	mfd->pdev = msm_fb_dev;
 
 	if (ebi2_host_pdata) {
@@ -151,7 +154,7 @@ static int ebi2_host_probe(struct platform_device *pdev)
 		mfd->mem_hid = ebi2_host_pdata->mem_hid;
 	}
 
-	
+	/* add panel data */
 	if (platform_device_add_data
 	    (msm_fb_dev, pdev->dev.platform_data,
 	     sizeof(struct msm_fb_panel_data))) {
@@ -159,13 +162,13 @@ static int ebi2_host_probe(struct platform_device *pdev)
 		rc = -ENOMEM;
 		goto ebi2_host_probe_err;
 	}
-	
+	/* data chain */
 	pdata = msm_fb_dev->dev.platform_data;
 	pdata->on = ebi2_host_on;
 	pdata->off = ebi2_host_off;
 	pdata->next = pdev;
 
-	
+	/* set driver data */
 	platform_set_drvdata(msm_fb_dev, mfd);
 
 	rc = platform_device_add(msm_fb_dev);
@@ -207,7 +210,7 @@ void mdp_set_dma_pan_info(struct fb_info *info, struct mdp_dirty_region *dirty,
 	down(&mfd->sem);
 
 	iBuf = &mfd->ibuf;
-	
+	/* use virtual address */
 	iBuf->buf = (uint8 *) fbi->screen_base;
 
 	if (fbi->var.yoffset < yres) {
@@ -226,6 +229,10 @@ void mdp_set_dma_pan_info(struct fb_info *info, struct mdp_dirty_region *dirty,
 	iBuf->vsync_enable = sync;
 
 	if (dirty) {
+		/*
+		 * ToDo: dirty region check inside var.xoffset+xres
+		 * <-> var.yoffset+yres
+		 */
 		iBuf->dma_x = dirty->xoffset % info->var.xres;
 		iBuf->dma_y = dirty->yoffset % info->var.yres;
 		iBuf->dma_w = dirty->width;

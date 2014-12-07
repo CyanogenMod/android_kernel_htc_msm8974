@@ -60,15 +60,18 @@
 #define MSP_POLL_DELAY			10
 #define MSP_IRQ_TIMEOUT			(MSP_MAX_POLL * MSP_POLL_DELAY)
 
+/* IO Operation macros */
 #define pmcmsptwi_readl		__raw_readl
 #define pmcmsptwi_writel	__raw_writel
 
+/* TWI command type */
 enum pmcmsptwi_cmd_type {
-	MSP_TWI_CMD_WRITE	= 0,	
-	MSP_TWI_CMD_READ	= 1,	
-	MSP_TWI_CMD_WRITE_READ	= 2,	
+	MSP_TWI_CMD_WRITE	= 0,	/* Write only */
+	MSP_TWI_CMD_READ	= 1,	/* Read only */
+	MSP_TWI_CMD_WRITE_READ	= 2,	/* Write then Read */
 };
 
+/* The possible results of the xferCmd */
 enum pmcmsptwi_xfer_result {
 	MSP_TWI_XFER_OK	= 0,
 	MSP_TWI_XFER_TIMEOUT,
@@ -78,42 +81,47 @@ enum pmcmsptwi_xfer_result {
 	MSP_TWI_XFER_LOST_ARBITRATION,
 };
 
+/* Corresponds to a PMCTWI clock configuration register */
 struct pmcmsptwi_clock {
-	u8 filter;	
-	u16 clock;	
+	u8 filter;	/* Bits 15:12,	default = 0x03 */
+	u16 clock;	/* Bits 9:0,	default = 0x001f */
 };
 
 struct pmcmsptwi_clockcfg {
-	struct pmcmsptwi_clock standard;  
-	struct pmcmsptwi_clock highspeed; 
+	struct pmcmsptwi_clock standard;  /* The standard/fast clock config */
+	struct pmcmsptwi_clock highspeed; /* The highspeed clock config */
 };
 
+/* Corresponds to the main TWI configuration register */
 struct pmcmsptwi_cfg {
-	u8 arbf;	
-	u8 nak;		
-	u8 add10;	
-	u8 mst_code;	
-	u8 arb;		
-	u8 highspeed;	
+	u8 arbf;	/* Bits 15:12,	default=0x03 */
+	u8 nak;		/* Bits 11:8,	default=0x03 */
+	u8 add10;	/* Bit 7,	default=0x00 */
+	u8 mst_code;	/* Bits 6:4,	default=0x00 */
+	u8 arb;		/* Bit 1,	default=0x01 */
+	u8 highspeed;	/* Bit 0,	default=0x00 */
 };
 
+/* A single pmctwi command to issue */
 struct pmcmsptwi_cmd {
-	u16 addr;	
-	enum pmcmsptwi_cmd_type type;	
-	u8 write_len;	
-	u8 read_len;	
-	u8 *write_data;	
-	u8 *read_data;	
+	u16 addr;	/* The slave address (7 or 10 bits) */
+	enum pmcmsptwi_cmd_type type;	/* The command type */
+	u8 write_len;	/* Number of bytes in the write buffer */
+	u8 read_len;	/* Number of bytes in the read buffer */
+	u8 *write_data;	/* Buffer of characters to send */
+	u8 *read_data;	/* Buffer to fill with incoming data */
 };
 
+/* The private data */
 struct pmcmsptwi_data {
-	void __iomem *iobase;			
-	int irq;				
-	struct completion wait;			
-	struct mutex lock;			
-	enum pmcmsptwi_xfer_result last_result;	
+	void __iomem *iobase;			/* iomapped base for IO */
+	int irq;				/* IRQ to use (0 disables) */
+	struct completion wait;			/* Completion for xfer */
+	struct mutex lock;			/* Used for threadsafeness */
+	enum pmcmsptwi_xfer_result last_result;	/* result of last xfer */
 };
 
+/* The default settings */
 static const struct pmcmsptwi_clockcfg pmcmsptwi_defclockcfg = {
 	.standard = {
 		.filter	= 0x3,
@@ -138,6 +146,7 @@ static struct pmcmsptwi_data pmcmsptwi_data;
 
 static struct i2c_adapter pmcmsptwi_adapter;
 
+/* inline helper functions */
 static inline u32 pmcmsptwi_clock_to_reg(
 			const struct pmcmsptwi_clock *clock)
 {
@@ -171,6 +180,9 @@ static inline void pmcmsptwi_reg_to_cfg(u32 reg, struct pmcmsptwi_cfg *cfg)
 	cfg->highspeed = reg & 0x1;
 }
 
+/*
+ * Sets the current clock configuration
+ */
 static void pmcmsptwi_set_clock_config(const struct pmcmsptwi_clockcfg *cfg,
 					struct pmcmsptwi_data *data)
 {
@@ -182,6 +194,9 @@ static void pmcmsptwi_set_clock_config(const struct pmcmsptwi_clockcfg *cfg,
 	mutex_unlock(&data->lock);
 }
 
+/*
+ * Gets the current TWI bus configuration
+ */
 static void pmcmsptwi_get_twi_config(struct pmcmsptwi_cfg *cfg,
 					struct pmcmsptwi_data *data)
 {
@@ -191,6 +206,9 @@ static void pmcmsptwi_get_twi_config(struct pmcmsptwi_cfg *cfg,
 	mutex_unlock(&data->lock);
 }
 
+/*
+ * Sets the current TWI bus configuration
+ */
 static void pmcmsptwi_set_twi_config(const struct pmcmsptwi_cfg *cfg,
 					struct pmcmsptwi_data *data)
 {
@@ -200,6 +218,9 @@ static void pmcmsptwi_set_twi_config(const struct pmcmsptwi_cfg *cfg,
 	mutex_unlock(&data->lock);
 }
 
+/*
+ * Parses the 'int_sts' register and returns a well-defined error code
+ */
 static enum pmcmsptwi_xfer_result pmcmsptwi_get_result(u32 reg)
 {
 	if (reg & MSP_TWI_INT_STS_LOST_ARBITRATION) {
@@ -224,6 +245,10 @@ static enum pmcmsptwi_xfer_result pmcmsptwi_get_result(u32 reg)
 	return MSP_TWI_XFER_OK;
 }
 
+/*
+ * In interrupt mode, handle the interrupt.
+ * NOTE: Assumes data->lock is held.
+ */
 static irqreturn_t pmcmsptwi_interrupt(int irq, void *ptr)
 {
 	struct pmcmsptwi_data *data = ptr;
@@ -242,19 +267,22 @@ static irqreturn_t pmcmsptwi_interrupt(int irq, void *ptr)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Probe for and register the device and return 0 if there is one.
+ */
 static int __devinit pmcmsptwi_probe(struct platform_device *pldev)
 {
 	struct resource *res;
 	int rc = -ENODEV;
 
-	
+	/* get the static platform resources */
 	res = platform_get_resource(pldev, IORESOURCE_MEM, 0);
 	if (!res) {
 		dev_err(&pldev->dev, "IOMEM resource not found\n");
 		goto ret_err;
 	}
 
-	
+	/* reserve the memory region */
 	if (!request_mem_region(res->start, resource_size(res),
 				pldev->name)) {
 		dev_err(&pldev->dev,
@@ -264,7 +292,7 @@ static int __devinit pmcmsptwi_probe(struct platform_device *pldev)
 		goto ret_err;
 	}
 
-	
+	/* remap the memory */
 	pmcmsptwi_data.iobase = ioremap_nocache(res->start,
 						resource_size(res));
 	if (!pmcmsptwi_data.iobase) {
@@ -274,13 +302,21 @@ static int __devinit pmcmsptwi_probe(struct platform_device *pldev)
 		goto ret_unreserve;
 	}
 
-	
+	/* request the irq */
 	pmcmsptwi_data.irq = platform_get_irq(pldev, 0);
 	if (pmcmsptwi_data.irq) {
 		rc = request_irq(pmcmsptwi_data.irq, &pmcmsptwi_interrupt,
 			IRQF_SHARED | IRQF_SAMPLE_RANDOM,
 			pldev->name, &pmcmsptwi_data);
 		if (rc == 0) {
+			/*
+			 * Enable 'DONE' interrupt only.
+			 *
+			 * If you enable all interrupts, you will get one on
+			 * error and another when the operation completes.
+			 * This way you only have to handle one interrupt,
+			 * but you can still check all result flags.
+			 */
 			pmcmsptwi_writel(MSP_TWI_INT_STS_DONE,
 					pmcmsptwi_data.iobase +
 					MSP_TWI_INT_MSK_REG_OFFSET);
@@ -330,6 +366,9 @@ ret_err:
 	return rc;
 }
 
+/*
+ * Release the device and return 0 if there is one.
+ */
 static int __devexit pmcmsptwi_remove(struct platform_device *pldev)
 {
 	struct resource *res;
@@ -351,6 +390,10 @@ static int __devexit pmcmsptwi_remove(struct platform_device *pldev)
 	return 0;
 }
 
+/*
+ * Polls the 'busy' register until the command is complete.
+ * NOTE: Assumes data->lock is held.
+ */
 static void pmcmsptwi_poll_complete(struct pmcmsptwi_data *data)
 {
 	int i;
@@ -373,6 +416,12 @@ static void pmcmsptwi_poll_complete(struct pmcmsptwi_data *data)
 	data->last_result = MSP_TWI_XFER_TIMEOUT;
 }
 
+/*
+ * Do the transfer (low level):
+ *   May use interrupt-driven or polling, depending on if an IRQ is
+ *   presently registered.
+ * NOTE: Assumes data->lock is held.
+ */
 static enum pmcmsptwi_xfer_result pmcmsptwi_do_xfer(
 			u32 reg, struct pmcmsptwi_data *data)
 {
@@ -393,6 +442,9 @@ static enum pmcmsptwi_xfer_result pmcmsptwi_do_xfer(
 	return data->last_result;
 }
 
+/*
+ * Helper routine, converts 'pmctwi_cmd' struct to register format
+ */
 static inline u32 pmcmsptwi_cmd_to_reg(const struct pmcmsptwi_cmd *cmd)
 {
 	return ((cmd->type & 0x3) << 8) |
@@ -400,6 +452,9 @@ static inline u32 pmcmsptwi_cmd_to_reg(const struct pmcmsptwi_cmd *cmd)
 		((cmd->read_len - 1) & 0x7);
 }
 
+/*
+ * Do the transfer (high level)
+ */
 static enum pmcmsptwi_xfer_result pmcmsptwi_xfer_cmd(
 			struct pmcmsptwi_cmd *cmd,
 			struct pmcmsptwi_data *data)
@@ -467,7 +522,11 @@ xfer_err:
 	return retval;
 }
 
+/* -- Algorithm functions -- */
 
+/*
+ * Sends an i2c command out on the adapter
+ */
 static int pmcmsptwi_master_xfer(struct i2c_adapter *adap,
 				struct i2c_msg *msg, int num)
 {
@@ -480,7 +539,7 @@ static int pmcmsptwi_master_xfer(struct i2c_adapter *adap,
 		dev_dbg(&adap->dev, "%d messages unsupported\n", num);
 		return -EINVAL;
 	} else if (num == 2) {
-		
+		/* Check for a dual write-then-read command */
 		struct i2c_msg *nextmsg = msg + 1;
 		if (!(msg->flags & I2C_M_RD) &&
 		    (nextmsg->flags & I2C_M_RD) &&
@@ -520,13 +579,13 @@ static int pmcmsptwi_master_xfer(struct i2c_adapter *adap,
 		pmcmsptwi_get_twi_config(&newcfg, data);
 		memcpy(&oldcfg, &newcfg, sizeof(oldcfg));
 
-		
+		/* Set the special 10-bit address flag */
 		newcfg.add10 = 1;
 
 		pmcmsptwi_set_twi_config(&newcfg, data);
 	}
 
-	
+	/* Execute the command */
 	ret = pmcmsptwi_xfer_cmd(&cmd, data);
 
 	if (msg->flags & I2C_M_TEN)
@@ -537,6 +596,10 @@ static int pmcmsptwi_master_xfer(struct i2c_adapter *adap,
 		(ret == MSP_TWI_XFER_OK) ? "succeeded" : "failed");
 
 	if (ret != MSP_TWI_XFER_OK) {
+		/*
+		 * TODO: We could potentially loop and retry in the case
+		 * of MSP_TWI_XFER_TIMEOUT.
+		 */
 		return -1;
 	}
 
@@ -550,6 +613,7 @@ static u32 pmcmsptwi_i2c_func(struct i2c_adapter *adapter)
 		I2C_FUNC_SMBUS_WORD_DATA | I2C_FUNC_SMBUS_PROC_CALL;
 }
 
+/* -- Initialization -- */
 
 static struct i2c_algorithm pmcmsptwi_algo = {
 	.master_xfer	= pmcmsptwi_master_xfer,

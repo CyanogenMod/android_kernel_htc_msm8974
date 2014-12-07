@@ -3,4 +3,4 @@
 
 const char *sysfs_find_mountpoint(void);
 
-#endif 
+#endif /* __DEBUGFS_H__ */

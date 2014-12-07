@@ -53,6 +53,12 @@ typedef __u8 BYTE;
 #define IXJMAX 16
 #endif
 
+/******************************************************************************
+*
+*  This structure when unioned with the structures below makes simple byte
+*  access to the registers easier.
+*
+******************************************************************************/
 typedef struct {
 	unsigned char low;
 	unsigned char high;
@@ -79,6 +85,13 @@ typedef union{
 	  char  cbyte;
 } IXJ_CBYTE;
 
+/******************************************************************************
+*
+*  This structure represents the Hardware Control Register of the CT8020/8021
+*  The CT8020 is used in the Internet PhoneJACK, and the 8021 in the
+*  Internet LineJACK
+*
+******************************************************************************/
 typedef struct {
 	unsigned int rxrdy:1;
 	unsigned int txrdy:1;
@@ -99,6 +112,13 @@ typedef union {
 	BYTES bytes;
 } HCR;
 
+/******************************************************************************
+*
+*  This structure represents the Hardware Status Register of the CT8020/8021
+*  The CT8020 is used in the Internet PhoneJACK, and the 8021 in the
+*  Internet LineJACK
+*
+******************************************************************************/
 typedef struct {
 	unsigned int controlrdy:1;
 	unsigned int auxctlrdy:1;
@@ -119,6 +139,13 @@ typedef union {
 	BYTES bytes;
 } HSR;
 
+/******************************************************************************
+*
+*  This structure represents the General Purpose IO Register of the CT8020/8021
+*  The CT8020 is used in the Internet PhoneJACK, and the 8021 in the
+*  Internet LineJACK
+*
+******************************************************************************/
 typedef struct {
 	unsigned int x:1;
 	unsigned int gpio1:1;
@@ -144,6 +171,11 @@ typedef union {
 	unsigned short word;
 } GPIO;
 
+/******************************************************************************
+*
+*  This structure represents the Line Monitor status response
+*
+******************************************************************************/
 typedef struct {
 	unsigned int digit:4;
 	unsigned int cpf_valid:1;
@@ -177,6 +209,12 @@ typedef union {
 	BYTES bytes;
 } CPTF;
 
+/******************************************************************************
+*
+*  This structure represents the Status Control Register on the Internet
+*  LineJACK
+*
+******************************************************************************/
 typedef struct {
 	unsigned int c0:1;
 	unsigned int c1:1;
@@ -186,13 +224,13 @@ typedef struct {
 	unsigned int led2:1;
 	unsigned int led3:1;
 	unsigned int led4:1;
-} PSCRWI;			
+} PSCRWI;			/* Internet LineJACK and Internet PhoneJACK Lite */
 
 typedef struct {
 	unsigned int eidp:1;
 	unsigned int eisd:1;
 	unsigned int x:6;
-} PSCRWP;			
+} PSCRWP;			/* Internet PhoneJACK PCI */
 
 typedef union {
 	PSCRWI bits;
@@ -225,6 +263,12 @@ typedef union {
 	char byte;
 } PLD_SCRR;
 
+/******************************************************************************
+*
+*  These structures represents the SLIC Control Register on the
+*  Internet LineJACK
+*
+******************************************************************************/
 typedef struct {
 	unsigned int c1:1;
 	unsigned int c2:1;
@@ -269,6 +313,12 @@ typedef union {
 	char byte;
 } PLD_SLICR;
 
+/******************************************************************************
+*
+*  These structures represents the Clock Control Register on the
+*  Internet LineJACK
+*
+******************************************************************************/
 typedef struct {
 	unsigned int clk0:1;
 	unsigned int clk1:1;
@@ -285,6 +335,11 @@ typedef union {
 	char byte;
 } PLD_CLOCK;
 
+/******************************************************************************
+*
+*  These structures deal with the mixer on the Internet LineJACK
+*
+******************************************************************************/
 
 typedef struct {
 	unsigned short vol[10];
@@ -293,16 +348,21 @@ typedef struct {
 	unsigned short micpreamp;
 } MIX;
 
+/******************************************************************************
+*
+*  These structures deal with the control logic on the Internet PhoneCARD
+*
+******************************************************************************/
 typedef struct {
-	unsigned int x0:4;	
+	unsigned int x0:4;	/* unused bits */
 
-	unsigned int ed:1;	
+	unsigned int ed:1;	/* Event Detect */
 
-	unsigned int drf:1;	
+	unsigned int drf:1;	/* SmartCABLE Removal Flag 1=no cable */
 
-	unsigned int dspf:1;	
+	unsigned int dspf:1;	/* DSP Flag 1=DSP Ready */
 
-	unsigned int crr:1;	
+	unsigned int crr:1;	/* Control Register Ready */
 
 } COMMAND_REG1;
 
@@ -312,13 +372,13 @@ typedef union {
 } PCMCIA_CR1;
 
 typedef struct {
-	unsigned int x0:4;	
+	unsigned int x0:4;	/* unused bits */
 
-	unsigned int rstc:1;	
+	unsigned int rstc:1;	/* SmartCABLE Reset */
 
-	unsigned int pwr:1;	
+	unsigned int pwr:1;	/* SmartCABLE Power */
 
-	unsigned int x1:2;	
+	unsigned int x1:2;	/* unused bits */
 
 } COMMAND_REG2;
 
@@ -328,11 +388,11 @@ typedef union {
 } PCMCIA_CR2;
 
 typedef struct {
-	unsigned int addr:5;	
+	unsigned int addr:5;	/* R/W SmartCABLE Register Address */
 
-	unsigned int rw:1;	
+	unsigned int rw:1;	/* Read / Write flag */
 
-	unsigned int dev:2;	
+	unsigned int dev:2;	/* 2 bit SmartCABLE Device Address */
 
 } CONTROL_REG;
 
@@ -358,19 +418,19 @@ typedef union {
 } PCMCIA_SLIC;
 
 typedef struct {
-	unsigned int cpd:1;	
+	unsigned int cpd:1;	/* Chip Power Down */
 
-	unsigned int mpd:1;	
+	unsigned int mpd:1;	/* MIC Bias Power Down */
 
-	unsigned int hpd:1;	
+	unsigned int hpd:1;	/* Handset Drive Power Down */
 
-	unsigned int lpd:1;	
+	unsigned int lpd:1;	/* Line Drive Power Down */
 
-	unsigned int spd:1;	
+	unsigned int spd:1;	/* Speaker Drive Power Down */
 
-	unsigned int x:2;	
+	unsigned int x:2;	/* unused bits */
 
-	unsigned int sr:1;	
+	unsigned int sr:1;	/* Software Reset */
 
 } Si3CONTROL1;
 
@@ -380,17 +440,17 @@ typedef union {
 } Si3C1;
 
 typedef struct {
-	unsigned int al:1;	
+	unsigned int al:1;	/* Analog Loopback DAC analog -> ADC analog */
 
-	unsigned int dl2:1;	
+	unsigned int dl2:1;	/* Digital Loopback DAC -> ADC one bit */
 
-	unsigned int dl1:1;	
+	unsigned int dl1:1;	/* Digital Loopback ADC -> DAC one bit */
 
-	unsigned int pll:1;	
+	unsigned int pll:1;	/* 1 = div 10, 0 = div 5 */
 
-	unsigned int hpd:1;	
+	unsigned int hpd:1;	/* HPF disable */
 
-	unsigned int x:3;	
+	unsigned int x:3;	/* unused bits */
 
 } Si3CONTROL2;
 
@@ -400,17 +460,17 @@ typedef union {
 } Si3C2;
 
 typedef struct {
-	unsigned int iir:1;	
+	unsigned int iir:1;	/* 1 enables IIR, 0 enables FIR */
 
-	unsigned int him:1;	
+	unsigned int him:1;	/* Handset Input Mute */
 
-	unsigned int mcm:1;	
+	unsigned int mcm:1;	/* MIC In Mute */
 
-	unsigned int mcg:2;	
+	unsigned int mcg:2;	/* MIC In Gain */
 
-	unsigned int lim:1;	
+	unsigned int lim:1;	/* Line In Mute */
 
-	unsigned int lig:2;	
+	unsigned int lig:2;	/* Line In Gain */
 
 } Si3RXGAIN;
 
@@ -420,13 +480,13 @@ typedef union {
 } Si3RXG;
 
 typedef struct {
-	unsigned int hom:1;	
+	unsigned int hom:1;	/* Handset Out Mute */
 
-	unsigned int lom:1;	
+	unsigned int lom:1;	/* Line Out Mute */
 
-	unsigned int rxg:5;	
+	unsigned int rxg:5;	/* RX PGA Gain */
 
-	unsigned int x:1;	
+	unsigned int x:1;	/* unused bit */
 
 } Si3ADCVOLUME;
 
@@ -436,13 +496,13 @@ typedef union {
 } Si3ADC;
 
 typedef struct {
-	unsigned int srm:1;	
+	unsigned int srm:1;	/* Speaker Right Mute */
 
-	unsigned int slm:1;	
+	unsigned int slm:1;	/* Speaker Left Mute */
 
-	unsigned int txg:5;	
+	unsigned int txg:5;	/* TX PGA Gain */
 
-	unsigned int x:1;	
+	unsigned int x:1;	/* unused bit */
 
 } Si3DACVOLUME;
 
@@ -452,13 +512,13 @@ typedef union {
 } Si3DAC;
 
 typedef struct {
-	unsigned int x:5;	
+	unsigned int x:5;	/* unused bit */
 
-	unsigned int losc:1;	
+	unsigned int losc:1;	/* Line Out Short Circuit */
 
-	unsigned int srsc:1;	
+	unsigned int srsc:1;	/* Speaker Right Short Circuit */
 
-	unsigned int slsc:1;	
+	unsigned int slsc:1;	/* Speaker Left Short Circuit */
 
 } Si3STATUSREPORT;
 
@@ -468,11 +528,11 @@ typedef union {
 } Si3STAT;
 
 typedef struct {
-	unsigned int sot:2;	
+	unsigned int sot:2;	/* Speaker Out Attenuation */
 
-	unsigned int lot:2;	
+	unsigned int lot:2;	/* Line Out Attenuation */
 
-	unsigned int x:4;	
+	unsigned int x:4;	/* unused bits */
 
 } Si3ANALOGATTN;
 
@@ -481,151 +541,156 @@ typedef union {
 	unsigned char byte;
 } Si3AATT;
 
+/******************************************************************************
+*
+*  These structures deal with the DAA on the Internet LineJACK
+*
+******************************************************************************/
 
 typedef struct _DAA_REGS {
-	
-	
-	
+	/*----------------------------------------------- */
+	/* SOP Registers */
+	/* */
 	BYTE bySOP;
 
 	union _SOP_REGS {
 		struct _SOP {
-			union	
+			union	/* SOP - CR0 Register */
 			 {
 				BYTE reg;
 				struct _CR0_BITREGS {
-					BYTE CLK_EXT:1;		
+					BYTE CLK_EXT:1;		/* cr0[0:0] */
 
-					BYTE RIP:1;	
+					BYTE RIP:1;	/* cr0[1:1] */
 
-					BYTE AR:1;	
+					BYTE AR:1;	/* cr0[2:2] */
 
-					BYTE AX:1;	
+					BYTE AX:1;	/* cr0[3:3] */
 
-					BYTE FRR:1;	
+					BYTE FRR:1;	/* cr0[4:4] */
 
-					BYTE FRX:1;	
+					BYTE FRX:1;	/* cr0[5:5] */
 
-					BYTE IM:1;	
+					BYTE IM:1;	/* cr0[6:6] */
 
-					BYTE TH:1;	
+					BYTE TH:1;	/* cr0[7:7] */
 
 				} bitreg;
 			} cr0;
 
-			union	
+			union	/* SOP - CR1 Register */
 			 {
 				BYTE reg;
 				struct _CR1_REGS {
-					BYTE RM:1;	
+					BYTE RM:1;	/* cr1[0:0] */
 
-					BYTE RMR:1;	
+					BYTE RMR:1;	/* cr1[1:1] */
 
-					BYTE No_auto:1;		
+					BYTE No_auto:1;		/* cr1[2:2] */
 
-					BYTE Pulse:1;	
+					BYTE Pulse:1;	/* cr1[3:3] */
 
-					BYTE P_Tone1:1;		
+					BYTE P_Tone1:1;		/* cr1[4:4] */
 
-					BYTE P_Tone2:1;		
+					BYTE P_Tone2:1;		/* cr1[5:5] */
 
-					BYTE E_Tone1:1;		
+					BYTE E_Tone1:1;		/* cr1[6:6] */
 
-					BYTE E_Tone2:1;		
+					BYTE E_Tone2:1;		/* cr1[7:7] */
 
 				} bitreg;
 			} cr1;
 
-			union	
+			union	/* SOP - CR2 Register */
 			 {
 				BYTE reg;
 				struct _CR2_REGS {
-					BYTE Call_II:1;		
+					BYTE Call_II:1;		/* CR2[0:0] */
 
-					BYTE Call_I:1;	
+					BYTE Call_I:1;	/* CR2[1:1] */
 
-					BYTE Call_en:1;		
+					BYTE Call_en:1;		/* CR2[2:2] */
 
-					BYTE Call_pon:1;	
+					BYTE Call_pon:1;	/* CR2[3:3] */
 
-					BYTE IDR:1;	
+					BYTE IDR:1;	/* CR2[4:4] */
 
-					BYTE COT_R:3;	
+					BYTE COT_R:3;	/* CR2[5:7] */
 
 				} bitreg;
 			} cr2;
 
-			union	
+			union	/* SOP - CR3 Register */
 			 {
 				BYTE reg;
 				struct _CR3_REGS {
-					BYTE DHP_X:1;	
+					BYTE DHP_X:1;	/* CR3[0:0] */
 
-					BYTE DHP_R:1;	
+					BYTE DHP_R:1;	/* CR3[1:1] */
 
-					BYTE Cal_pctl:1;	
+					BYTE Cal_pctl:1;	/* CR3[2:2] */
 
-					BYTE SEL:1;	
+					BYTE SEL:1;	/* CR3[3:3] */
 
-					BYTE TestLoops:4;	
+					BYTE TestLoops:4;	/* CR3[4:7] */
 
 				} bitreg;
 			} cr3;
 
-			union	
+			union	/* SOP - CR4 Register */
 			 {
 				BYTE reg;
 				struct _CR4_REGS {
-					BYTE Fsc_en:1;	
+					BYTE Fsc_en:1;	/* CR4[0:0] */
 
-					BYTE Int_en:1;	
+					BYTE Int_en:1;	/* CR4[1:1] */
 
-					BYTE AGX:2;	
+					BYTE AGX:2;	/* CR4[2:3] */
 
-					BYTE AGR_R:2;	
+					BYTE AGR_R:2;	/* CR4[4:5] */
 
-					BYTE AGR_Z:2;	
+					BYTE AGR_Z:2;	/* CR4[6:7] */
 
 				} bitreg;
 			} cr4;
 
-			union	
+			union	/* SOP - CR5 Register */
 			 {
 				BYTE reg;
 				struct _CR5_REGS {
-					BYTE V_0:1;	
+					BYTE V_0:1;	/* CR5[0:0] */
 
-					BYTE V_1:1;	
+					BYTE V_1:1;	/* CR5[1:1] */
 
-					BYTE V_2:1;	
+					BYTE V_2:1;	/* CR5[2:2] */
 
-					BYTE V_3:1;	
+					BYTE V_3:1;	/* CR5[3:3] */
 
-					BYTE V_4:1;	
+					BYTE V_4:1;	/* CR5[4:4] */
 
-					BYTE V_5:1;	
+					BYTE V_5:1;	/* CR5[5:5] */
 
-					BYTE V_6:1;	
+					BYTE V_6:1;	/* CR5[6:6] */
 
-					BYTE V_7:1;	
+					BYTE V_7:1;	/* CR5[7:7] */
 
 				} bitreg;
 			} cr5;
 
-			union	
+			union	/* SOP - CR6 Register */
 			 {
 				BYTE reg;
 				struct _CR6_REGS {
-					BYTE reserved:8;	
+					BYTE reserved:8;	/* CR6[0:7] */
 
 				} bitreg;
 			} cr6;
 
-			union	
+			union	/* SOP - CR7 Register */
 			 {
 				BYTE reg;
 				struct _CR7_REGS {
-					BYTE reserved:8;	
+					BYTE reserved:8;	/* CR7[0:7] */
 
 				} bitreg;
 			} cr7;
@@ -635,184 +700,184 @@ typedef struct _DAA_REGS {
 
 	} SOP_REGS;
 
-	
-	
-	
-	
+	/* DAA_REGS.SOP_REGS.SOP.CR5.reg */
+	/* DAA_REGS.SOP_REGS.SOP.CR5.bitreg */
+	/* DAA_REGS.SOP_REGS.SOP.CR5.bitreg.V_2 */
+	/* DAA_REGS.SOP_REGS.ByteRegs[5] */
 
-	
-	
-	
+	/*----------------------------------------------- */
+	/* XOP Registers */
+	/* */
 	BYTE byXOP;
 
 	union _XOP_REGS {
 		struct _XOP {
-			union	XOPXR0
+			union	XOPXR0/* XOP - XR0 Register - Read values */
 			 {
 				BYTE reg;
 				struct _XR0_BITREGS {
-					BYTE SI_0:1;	
+					BYTE SI_0:1;	/* XR0[0:0] - Read */
 
-					BYTE SI_1:1;	
+					BYTE SI_1:1;	/* XR0[1:1] - Read */
 
-					BYTE VDD_OK:1;	
+					BYTE VDD_OK:1;	/* XR0[2:2] - Read */
 
-					BYTE Caller_ID:1;	
+					BYTE Caller_ID:1;	/* XR0[3:3] - Read */
 
-					BYTE RING:1;	
+					BYTE RING:1;	/* XR0[4:4] - Read */
 
-					BYTE Cadence:1;		
+					BYTE Cadence:1;		/* XR0[5:5] - Read */
 
-					BYTE Wake_up:1;		
+					BYTE Wake_up:1;		/* XR0[6:6] - Read */
 
-					BYTE RMR:1;	
+					BYTE RMR:1;	/* XR0[7:7] - Read */
 
 				} bitreg;
 			} xr0;
 
-			union	
+			union	/* XOP - XR1 Register */
 			 {
 				BYTE reg;
 				struct _XR1_BITREGS {
-					BYTE M_SI_0:1;	
+					BYTE M_SI_0:1;	/* XR1[0:0] */
 
-					BYTE M_SI_1:1;	
+					BYTE M_SI_1:1;	/* XR1[1:1] */
 
-					BYTE M_VDD_OK:1;	
+					BYTE M_VDD_OK:1;	/* XR1[2:2] */
 
-					BYTE M_Caller_ID:1;	
+					BYTE M_Caller_ID:1;	/* XR1[3:3] */
 
-					BYTE M_RING:1;	
+					BYTE M_RING:1;	/* XR1[4:4] */
 
-					BYTE M_Cadence:1;	
+					BYTE M_Cadence:1;	/* XR1[5:5] */
 
-					BYTE M_Wake_up:1;	
+					BYTE M_Wake_up:1;	/* XR1[6:6] */
 
-					BYTE unused:1;	
+					BYTE unused:1;	/* XR1[7:7] */
 
 				} bitreg;
 			} xr1;
 
-			union	
+			union	/* XOP - XR2 Register */
 			 {
 				BYTE reg;
 				struct _XR2_BITREGS {
-					BYTE CTO0:1;	
+					BYTE CTO0:1;	/* XR2[0:0] */
 
-					BYTE CTO1:1;	
+					BYTE CTO1:1;	/* XR2[1:1] */
 
-					BYTE CTO2:1;	
+					BYTE CTO2:1;	/* XR2[2:2] */
 
-					BYTE CTO3:1;	
+					BYTE CTO3:1;	/* XR2[3:3] */
 
-					BYTE CTO4:1;	
+					BYTE CTO4:1;	/* XR2[4:4] */
 
-					BYTE CTO5:1;	
+					BYTE CTO5:1;	/* XR2[5:5] */
 
-					BYTE CTO6:1;	
+					BYTE CTO6:1;	/* XR2[6:6] */
 
-					BYTE CTO7:1;	
+					BYTE CTO7:1;	/* XR2[7:7] */
 
 				} bitreg;
 			} xr2;
 
-			union	
+			union	/* XOP - XR3 Register */
 			 {
 				BYTE reg;
 				struct _XR3_BITREGS {
-					BYTE DCR0:1;	
+					BYTE DCR0:1;	/* XR3[0:0] */
 
-					BYTE DCR1:1;	
+					BYTE DCR1:1;	/* XR3[1:1] */
 
-					BYTE DCI:1;	
+					BYTE DCI:1;	/* XR3[2:2] */
 
-					BYTE DCU0:1;	
+					BYTE DCU0:1;	/* XR3[3:3] */
 
-					BYTE DCU1:1;	
+					BYTE DCU1:1;	/* XR3[4:4] */
 
-					BYTE B_off:1;	
+					BYTE B_off:1;	/* XR3[5:5] */
 
-					BYTE AGB0:1;	
+					BYTE AGB0:1;	/* XR3[6:6] */
 
-					BYTE AGB1:1;	
+					BYTE AGB1:1;	/* XR3[7:7] */
 
 				} bitreg;
 			} xr3;
 
-			union	
+			union	/* XOP - XR4 Register */
 			 {
 				BYTE reg;
 				struct _XR4_BITREGS {
-					BYTE C_0:1;	
+					BYTE C_0:1;	/* XR4[0:0] */
 
-					BYTE C_1:1;	
+					BYTE C_1:1;	/* XR4[1:1] */
 
-					BYTE C_2:1;	
+					BYTE C_2:1;	/* XR4[2:2] */
 
-					BYTE C_3:1;	
+					BYTE C_3:1;	/* XR4[3:3] */
 
-					BYTE C_4:1;	
+					BYTE C_4:1;	/* XR4[4:4] */
 
-					BYTE C_5:1;	
+					BYTE C_5:1;	/* XR4[5:5] */
 
-					BYTE C_6:1;	
+					BYTE C_6:1;	/* XR4[6:6] */
 
-					BYTE C_7:1;	
+					BYTE C_7:1;	/* XR4[7:7] */
 
 				} bitreg;
 			} xr4;
 
-			union	
+			union	/* XOP - XR5 Register */
 			 {
 				BYTE reg;
 				struct _XR5_BITREGS {
-					BYTE T_0:1;	
+					BYTE T_0:1;	/* XR5[0:0] */
 
-					BYTE T_1:1;	
+					BYTE T_1:1;	/* XR5[1:1] */
 
-					BYTE T_2:1;	
+					BYTE T_2:1;	/* XR5[2:2] */
 
-					BYTE T_3:1;	
+					BYTE T_3:1;	/* XR5[3:3] */
 
-					BYTE T_4:1;	
+					BYTE T_4:1;	/* XR5[4:4] */
 
-					BYTE T_5:1;	
+					BYTE T_5:1;	/* XR5[5:5] */
 
-					BYTE T_6:1;	
+					BYTE T_6:1;	/* XR5[6:6] */
 
-					BYTE T_7:1;	
+					BYTE T_7:1;	/* XR5[7:7] */
 
 				} bitreg;
 			} xr5;
 
-			union	
+			union	/* XOP - XR6 Register - Read Values */
 			 {
 				BYTE reg;
 				struct _XR6_BITREGS {
-					BYTE CPS0:1;	
+					BYTE CPS0:1;	/* XR6[0:0] */
 
-					BYTE CPS1:1;	
+					BYTE CPS1:1;	/* XR6[1:1] */
 
-					BYTE unused1:2;		
+					BYTE unused1:2;		/* XR6[2:3] */
 
-					BYTE CLK_OFF:1;		
+					BYTE CLK_OFF:1;		/* XR6[4:4] */
 
-					BYTE unused2:3;		
+					BYTE unused2:3;		/* XR6[5:7] */
 
 				} bitreg;
 			} xr6;
 
-			union	
+			union	/* XOP - XR7 Register */
 			 {
 				BYTE reg;
 				struct _XR7_BITREGS {
-					BYTE unused1:1;		
+					BYTE unused1:1;		/* XR7[0:0] */
 
-					BYTE Vdd0:1;	
+					BYTE Vdd0:1;	/* XR7[1:1] */
 
-					BYTE Vdd1:1;	
+					BYTE Vdd1:1;	/* XR7[2:2] */
 
-					BYTE unused2:5;		
+					BYTE unused2:5;		/* XR7[3:7] */
 
 				} bitreg;
 			} xr7;
@@ -822,49 +887,49 @@ typedef struct _DAA_REGS {
 
 	} XOP_REGS;
 
-	
-	
-	
-	
+	/* DAA_REGS.XOP_REGS.XOP.XR7.reg */
+	/* DAA_REGS.XOP_REGS.XOP.XR7.bitreg */
+	/* DAA_REGS.XOP_REGS.XOP.XR7.bitreg.Vdd0 */
+	/* DAA_REGS.XOP_REGS.ByteRegs[7] */
 
-	
-	
-	
+	/*----------------------------------------------- */
+	/* COP Registers */
+	/* */
 	BYTE byCOP;
 
 	union _COP_REGS {
 		struct _COP {
-			BYTE THFilterCoeff_1[8];	
+			BYTE THFilterCoeff_1[8];	/* COP - TH Filter Coefficients,      CODE=0, Part 1 */
 
-			BYTE THFilterCoeff_2[8];	
+			BYTE THFilterCoeff_2[8];	/* COP - TH Filter Coefficients,      CODE=1, Part 2 */
 
-			BYTE THFilterCoeff_3[8];	
+			BYTE THFilterCoeff_3[8];	/* COP - TH Filter Coefficients,      CODE=2, Part 3 */
 
-			BYTE RingerImpendance_1[8];	
+			BYTE RingerImpendance_1[8];	/* COP - Ringer Impendance Coefficients,  CODE=3, Part 1 */
 
-			BYTE IMFilterCoeff_1[8];	
+			BYTE IMFilterCoeff_1[8];	/* COP - IM Filter Coefficients,      CODE=4, Part 1 */
 
-			BYTE IMFilterCoeff_2[8];	
+			BYTE IMFilterCoeff_2[8];	/* COP - IM Filter Coefficients,      CODE=5, Part 2 */
 
-			BYTE RingerImpendance_2[8];	
+			BYTE RingerImpendance_2[8];	/* COP - Ringer Impendance Coefficients,  CODE=6, Part 2 */
 
-			BYTE FRRFilterCoeff[8];		
+			BYTE FRRFilterCoeff[8];		/* COP - FRR Filter Coefficients,      CODE=7 */
 
-			BYTE FRXFilterCoeff[8];		
+			BYTE FRXFilterCoeff[8];		/* COP - FRX Filter Coefficients,      CODE=8 */
 
-			BYTE ARFilterCoeff[4];	
+			BYTE ARFilterCoeff[4];	/* COP - AR Filter Coefficients,      CODE=9 */
 
-			BYTE AXFilterCoeff[4];	
+			BYTE AXFilterCoeff[4];	/* COP - AX Filter Coefficients,      CODE=10  */
 
-			BYTE Tone1Coeff[4];	
+			BYTE Tone1Coeff[4];	/* COP - Tone1 Coefficients,        CODE=11 */
 
-			BYTE Tone2Coeff[4];	
+			BYTE Tone2Coeff[4];	/* COP - Tone2 Coefficients,        CODE=12 */
 
-			BYTE LevelmeteringRinging[4];	
+			BYTE LevelmeteringRinging[4];	/* COP - Levelmetering Ringing,        CODE=13 */
 
-			BYTE CallerID1stTone[8];	
+			BYTE CallerID1stTone[8];	/* COP - Caller ID 1st Tone,        CODE=14 */
 
-			BYTE CallerID2ndTone[8];	
+			BYTE CallerID2ndTone[8];	/* COP - Caller ID 2nd Tone,        CODE=15 */
 
 		} COP;
 
@@ -872,49 +937,49 @@ typedef struct _DAA_REGS {
 
 	} COP_REGS;
 
-	
-	
-	
-	
+	/* DAA_REGS.COP_REGS.COP.XR7.Tone1Coeff[3] */
+	/* DAA_REGS.COP_REGS.COP.XR7.bitreg */
+	/* DAA_REGS.COP_REGS.COP.XR7.bitreg.Vdd0 */
+	/* DAA_REGS.COP_REGS.ByteRegs[57] */
 
-	
-	
-	
+	/*----------------------------------------------- */
+	/* CAO Registers */
+	/* */
 	BYTE byCAO;
 
 	union _CAO_REGS {
 		struct _CAO {
-			BYTE CallerID[512];	
+			BYTE CallerID[512];	/* CAO - Caller ID Bytes */
 
 		} CAO;
 
 		BYTE ByteRegs[sizeof(struct _CAO)];
 	} CAO_REGS;
 
-	union			
+	union			/* XOP - XR0 Register - Write values */
 	 {
 		BYTE reg;
 		struct _XR0_BITREGSW {
-			BYTE SO_0:1;	
+			BYTE SO_0:1;	/* XR1[0:0] - Write */
 
-			BYTE SO_1:1;	
+			BYTE SO_1:1;	/* XR1[1:1] - Write */
 
-			BYTE SO_2:1;	
+			BYTE SO_2:1;	/* XR1[2:2] - Write */
 
-			BYTE unused:5;	
+			BYTE unused:5;	/* XR1[3:7] - Write */
 
 		} bitreg;
 	} XOP_xr0_W;
 
-	union			
+	union			/* XOP - XR6 Register - Write values */
 	 {
 		BYTE reg;
 		struct _XR6_BITREGSW {
-			BYTE unused1:4;		
+			BYTE unused1:4;		/* XR6[0:3] */
 
-			BYTE CLK_OFF:1;		
+			BYTE CLK_OFF:1;		/* XR6[4:4] */
 
-			BYTE unused2:3;		
+			BYTE unused2:3;		/* XR6[5:7] */
 
 		} bitreg;
 	} XOP_xr6_W;
@@ -924,7 +989,12 @@ typedef struct _DAA_REGS {
 #define ALISDAA_ID_BYTE      0x81
 #define ALISDAA_CALLERID_SIZE  512
 
+/*------------------------------ */
+/* */
+/*  Misc definitions */
+/* */
 
+/* Power Up Operation */
 #define SOP_PU_SLEEP    0
 #define SOP_PU_RINGING    1
 #define SOP_PU_CONVERSATION  2
@@ -933,22 +1003,22 @@ typedef struct _DAA_REGS {
 
 #define ALISDAA_CALLERID_SIZE 512
 
-#define PLAYBACK_MODE_COMPRESSED	0	
-#define PLAYBACK_MODE_TRUESPEECH_V40	0	
-#define PLAYBACK_MODE_TRUESPEECH	8	
-#define PLAYBACK_MODE_ULAW		2	
-#define PLAYBACK_MODE_ALAW		10	
-#define PLAYBACK_MODE_16LINEAR		6	
-#define PLAYBACK_MODE_8LINEAR		4	
-#define PLAYBACK_MODE_8LINEAR_WSS	5	
+#define PLAYBACK_MODE_COMPRESSED	0	/*        Selects: Compressed modes, TrueSpeech 8.5-4.1, G.723.1, G.722, G.728, G.729 */
+#define PLAYBACK_MODE_TRUESPEECH_V40	0	/*        Selects: TrueSpeech 8.5, 6.3, 5.3, 4.8 or 4.1 Kbps */
+#define PLAYBACK_MODE_TRUESPEECH	8	/*        Selects: TrueSpeech 8.5, 6.3, 5.3, 4.8 or 4.1 Kbps Version 5.1 */
+#define PLAYBACK_MODE_ULAW		2	/*        Selects: 64 Kbit/sec MuA-law PCM */
+#define PLAYBACK_MODE_ALAW		10	/*        Selects: 64 Kbit/sec A-law PCM */
+#define PLAYBACK_MODE_16LINEAR		6	/*        Selects: 128 Kbit/sec 16-bit linear */
+#define PLAYBACK_MODE_8LINEAR		4	/*        Selects: 64 Kbit/sec 8-bit signed linear */
+#define PLAYBACK_MODE_8LINEAR_WSS	5	/*        Selects: 64 Kbit/sec WSS 8-bit unsigned linear */
 
-#define RECORD_MODE_COMPRESSED		0	
-#define RECORD_MODE_TRUESPEECH		0	
-#define RECORD_MODE_ULAW		4	
-#define RECORD_MODE_ALAW		12	
-#define RECORD_MODE_16LINEAR		5	
-#define RECORD_MODE_8LINEAR		6	
-#define RECORD_MODE_8LINEAR_WSS		7	
+#define RECORD_MODE_COMPRESSED		0	/*        Selects: Compressed modes, TrueSpeech 8.5-4.1, G.723.1, G.722, G.728, G.729 */
+#define RECORD_MODE_TRUESPEECH		0	/*        Selects: TrueSpeech 8.5, 6.3, 5.3, 4.8 or 4.1 Kbps */
+#define RECORD_MODE_ULAW		4	/*        Selects: 64 Kbit/sec Mu-law PCM */
+#define RECORD_MODE_ALAW		12	/*        Selects: 64 Kbit/sec A-law PCM */
+#define RECORD_MODE_16LINEAR		5	/*        Selects: 128 Kbit/sec 16-bit linear */
+#define RECORD_MODE_8LINEAR		6	/*        Selects: 64 Kbit/sec 8-bit signed linear */
+#define RECORD_MODE_8LINEAR_WSS		7	/*        Selects: 64 Kbit/sec WSS 8-bit unsigned linear */
 
 enum SLIC_STATES {
 	PLD_SLIC_STATE_OC = 0,
@@ -1004,39 +1074,39 @@ typedef struct {
 	char enable;
 	char en_filter;
 	unsigned int filter;
-	unsigned int state;	
+	unsigned int state;	/* State 0 when cadence has not started. */
 
-	unsigned int on1;	
+	unsigned int on1;	/* State 1 */
 
-	unsigned long on1min;	
- 	unsigned long on1dot;	
+	unsigned long on1min;	/* State 1 - 10% + jiffies */
+ 	unsigned long on1dot;	/* State 1 + jiffies */
 
-	unsigned long on1max;	
+	unsigned long on1max;	/* State 1 + 10% + jiffies */
 
-	unsigned int off1;	
+	unsigned int off1;	/* State 2 */
 
 	unsigned long off1min;
- 	unsigned long off1dot;	
+ 	unsigned long off1dot;	/* State 2 + jiffies */
 	unsigned long off1max;
-	unsigned int on2;	
+	unsigned int on2;	/* State 3 */
 
 	unsigned long on2min;
 	unsigned long on2dot;
 	unsigned long on2max;
-	unsigned int off2;	
+	unsigned int off2;	/* State 4 */
 
 	unsigned long off2min;
- 	unsigned long off2dot;	
+ 	unsigned long off2dot;	/* State 4 + jiffies */
 	unsigned long off2max;
-	unsigned int on3;	
+	unsigned int on3;	/* State 5 */
 
 	unsigned long on3min;
 	unsigned long on3dot;
 	unsigned long on3max;
-	unsigned int off3;	
+	unsigned int off3;	/* State 6 */
 
 	unsigned long off3min;
- 	unsigned long off3dot;	
+ 	unsigned long off3dot;	/* State 6 + jiffies */
 	unsigned long off3max;
 } IXJ_CADENCE_F;
 
@@ -1055,34 +1125,39 @@ typedef struct {
 	unsigned int pots_pstn:1;
 	unsigned int g729_loaded:1;
 	unsigned int ts85_loaded:1;
-	unsigned int dtmf_oob:1;	
+	unsigned int dtmf_oob:1;	/* DTMF Out-Of-Band */
 
-	unsigned int pcmciascp:1;	
+	unsigned int pcmciascp:1;	/* SmartCABLE Present */
 
-	unsigned int pcmciasct:2;	
+	unsigned int pcmciasct:2;	/* SmartCABLE Type */
 
-	unsigned int pcmciastate:3;	
+	unsigned int pcmciastate:3;	/* SmartCABLE Init State */
 
-	unsigned int inwrite:1;	
+	unsigned int inwrite:1;	/* Currently writing */
 
-	unsigned int inread:1;	
+	unsigned int inread:1;	/* Currently reading */
 
-	unsigned int incheck:1;	
+	unsigned int incheck:1;	/* Currently checking the SmartCABLE */
 
-	unsigned int cidplay:1; 
+	unsigned int cidplay:1; /* Currently playing Caller ID */
 
-	unsigned int cidring:1; 
+	unsigned int cidring:1; /* This is the ring for Caller ID */
 
-	unsigned int cidsent:1; 
+	unsigned int cidsent:1; /* Caller ID has been sent */
 
-	unsigned int cidcw_ack:1; 
-	unsigned int firstring:1; 
-	unsigned int pstncheck:1;	
+	unsigned int cidcw_ack:1; /* Caller ID CW ACK (from CPE) */
+	unsigned int firstring:1; /* First ring cadence is complete */
+	unsigned int pstncheck:1;	/* Currently checking the PSTN Line */
 	unsigned int pstn_rmr:1;
-	unsigned int x:3;	
+	unsigned int x:3;	/* unused bits */
 
 } IXJ_FLAGS;
 
+/******************************************************************************
+*
+*  This structure holds the state of all of the Quicknet cards
+*
+******************************************************************************/
 
 typedef struct {
 	int elements_used;

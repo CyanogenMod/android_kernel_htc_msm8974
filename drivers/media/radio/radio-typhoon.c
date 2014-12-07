@@ -1,9 +1,38 @@
+/* Typhoon Radio Card driver for radio support
+ * (c) 1999 Dr. Henrik Seidel <Henrik.Seidel@gmx.de>
+ *
+ * Notes on the hardware
+ *
+ * This card has two output sockets, one for speakers and one for line.
+ * The speaker output has volume control, but only in four discrete
+ * steps. The line output has neither volume control nor mute.
+ *
+ * The card has auto-stereo according to its manual, although it all
+ * sounds mono to me (even with the Win/DOS drivers). Maybe it's my
+ * antenna - I really don't know for sure.
+ *
+ * Frequency control is done digitally.
+ *
+ * Volume control is done digitally, but there are only four different
+ * possible values. So you should better always turn the volume up and
+ * use line control. I got the best results by connecting line output
+ * to the sound card microphone input. For such a configuration the
+ * volume control has no effect, since volume control only influences
+ * the speaker output.
+ *
+ * There is no explicit mute/unmute. So I set the radio frequency to a
+ * value where I do expect just noise and turn the speaker volume down.
+ * The frequency change is necessary since the card never seems to be
+ * completely silent.
+ *
+ * Converted to V4L2 API by Mauro Carvalho Chehab <mchehab@infradead.org>
+ */
 
-#include <linux/module.h>	
-#include <linux/init.h>		
-#include <linux/ioport.h>	
-#include <linux/videodev2.h>	
-#include <linux/io.h>		
+#include <linux/module.h>	/* Modules                        */
+#include <linux/init.h>		/* Initdata                       */
+#include <linux/ioport.h>	/* request_region		  */
+#include <linux/videodev2.h>	/* kernel radio structs           */
+#include <linux/io.h>		/* outb, outb_p                   */
 #include <linux/slab.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-ioctl.h>
@@ -55,6 +84,16 @@ static int typhoon_s_frequency(struct radio_isa_card *isa, u32 freq)
 	unsigned long outval;
 	unsigned long x;
 
+	/*
+	 * The frequency transfer curve is not linear. The best fit I could
+	 * get is
+	 *
+	 * outval = -155 + exp((f + 15.55) * 0.057))
+	 *
+	 * where frequency f is in MHz. Since we don't have exp in the kernel,
+	 * I approximate this function by a third order polynomial.
+	 *
+	 */
 
 	x = freq / 160;
 	outval = (x * x + 2500) / 5000;
@@ -74,10 +113,10 @@ static int typhoon_s_mute_volume(struct radio_isa_card *isa, bool mute, int vol)
 
 	if (mute)
 		vol = 0;
-	vol >>= 14;			
+	vol >>= 14;			/* Map 16 bit to 2 bit */
 	vol &= 3;
-	outb_p(vol / 2, isa->io);	
-	outb_p(vol % 2, isa->io + 2);	
+	outb_p(vol / 2, isa->io);	/* Set the volume, high bit. */
+	outb_p(vol % 2, isa->io + 2);	/* Set the volume, low bit. */
 
 	if (vol == 0 && !ty->muted) {
 		ty->muted = true;

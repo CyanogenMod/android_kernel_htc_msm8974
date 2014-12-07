@@ -1,22 +1,37 @@
+/*
+ * TCP HYBLA
+ *
+ * TCP-HYBLA Congestion control algorithm, based on:
+ *   C.Caini, R.Firrincieli, "TCP-Hybla: A TCP Enhancement
+ *   for Heterogeneous Networks",
+ *   International Journal on satellite Communications,
+ *				       September 2004
+ *    Daniele Lacamera
+ *    root at danielinux.net
+ */
 
 #include <linux/module.h>
 #include <net/tcp.h>
 
+/* Tcp Hybla structure. */
 struct hybla {
 	u8    hybla_en;
-	u32   snd_cwnd_cents; 
-	u32   rho;	      
-	u32   rho2;	      
-	u32   rho_3ls;	      
-	u32   rho2_7ls;	      
-	u32   minrtt;	      
+	u32   snd_cwnd_cents; /* Keeps increment values when it is <1, <<7 */
+	u32   rho;	      /* Rho parameter, integer part  */
+	u32   rho2;	      /* Rho * Rho, integer part */
+	u32   rho_3ls;	      /* Rho parameter, <<3 */
+	u32   rho2_7ls;	      /* Rho^2, <<7	*/
+	u32   minrtt;	      /* Minimum smoothed round trip time value seen */
 };
 
+/* Hybla reference round trip time (default= 1/40 sec = 25 ms),
+   expressed in jiffies */
 static int rtt0 = 25;
 module_param(rtt0, int, 0644);
 MODULE_PARM_DESC(rtt0, "reference rout trip time (ms)");
 
 
+/* This is called to refresh values for hybla parameters */
 static inline void hybla_recalc_param (struct sock *sk)
 {
 	struct hybla *ca = inet_csk_ca(sk);
@@ -41,10 +56,10 @@ static void hybla_init(struct sock *sk)
 	tp->snd_cwnd = 2;
 	tp->snd_cwnd_clamp = 65535;
 
-	
+	/* 1st Rho measurement based on initial srtt */
 	hybla_recalc_param(sk);
 
-	
+	/* set minimum rtt as this is the 1st ever seen */
 	ca->minrtt = tp->srtt;
 	tp->snd_cwnd = ca->rho;
 }
@@ -64,6 +79,12 @@ static inline u32 hybla_fraction(u32 odds)
 	return (odds < ARRAY_SIZE(fractions)) ? fractions[odds] : 128;
 }
 
+/* TCP Hybla main routine.
+ * This is the algorithm behavior:
+ *     o Recalc Hybla parameters if min_rtt has changed
+ *     o Give cwnd a new value based on the model proposed
+ *     o remember increments <1
+ */
 static void hybla_cong_avoid(struct sock *sk, u32 ack, u32 in_flight)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
@@ -71,7 +92,7 @@ static void hybla_cong_avoid(struct sock *sk, u32 ack, u32 in_flight)
 	u32 increment, odd, rho_fractions;
 	int is_slowstart = 0;
 
-	
+	/*  Recalculate rho only if this srtt is the lowest */
 	if (tp->srtt < ca->minrtt){
 		hybla_recalc_param(sk);
 		ca->minrtt = tp->srtt;
@@ -91,10 +112,29 @@ static void hybla_cong_avoid(struct sock *sk, u32 ack, u32 in_flight)
 	rho_fractions = ca->rho_3ls - (ca->rho << 3);
 
 	if (tp->snd_cwnd < tp->snd_ssthresh) {
+		/*
+		 * slow start
+		 *      INC = 2^RHO - 1
+		 * This is done by splitting the rho parameter
+		 * into 2 parts: an integer part and a fraction part.
+		 * Inrement<<7 is estimated by doing:
+		 *	       [2^(int+fract)]<<7
+		 * that is equal to:
+		 *	       (2^int)	*  [(2^fract) <<7]
+		 * 2^int is straightly computed as 1<<int,
+		 * while we will use hybla_slowstart_fraction_increment() to
+		 * calculate 2^fract in a <<7 value.
+		 */
 		is_slowstart = 1;
 		increment = ((1 << min(ca->rho, 16U)) *
 			hybla_fraction(rho_fractions)) - 128;
 	} else {
+		/*
+		 * congestion avoidance
+		 * INC = RHO^2 / W
+		 * as long as increment is estimated as (rho<<7)/window
+		 * it already is <<7 and we can easily count its fractions.
+		 */
 		increment = ca->rho2_7ls / tp->snd_cwnd;
 		if (increment < 128)
 			tp->snd_cwnd_cnt++;
@@ -104,18 +144,18 @@ static void hybla_cong_avoid(struct sock *sk, u32 ack, u32 in_flight)
 	tp->snd_cwnd += increment >> 7;
 	ca->snd_cwnd_cents += odd;
 
-	
+	/* check when fractions goes >=128 and increase cwnd by 1. */
 	while (ca->snd_cwnd_cents >= 128) {
 		tp->snd_cwnd++;
 		ca->snd_cwnd_cents -= 128;
 		tp->snd_cwnd_cnt = 0;
 	}
-	
+	/* check when cwnd has not been incremented for a while */
 	if (increment == 0 && odd == 0 && tp->snd_cwnd_cnt >= tp->snd_cwnd) {
 		tp->snd_cwnd++;
 		tp->snd_cwnd_cnt = 0;
 	}
-	
+	/* clamp down slowstart cwnd to ssthresh value. */
 	if (is_slowstart)
 		tp->snd_cwnd = min(tp->snd_cwnd, tp->snd_ssthresh);
 

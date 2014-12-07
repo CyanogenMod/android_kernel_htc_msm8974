@@ -50,7 +50,7 @@ int __devinit pcibios_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 static void rc32434_pci_early_fixup(struct pci_dev *dev)
 {
 	if (PCI_SLOT(dev->devfn) == 6 && dev->bus->number == 0) {
-		
+		/* disable prefetched memory range */
 		pci_write_config_word(dev, PCI_PREF_MEMORY_LIMIT, 0);
 		pci_write_config_word(dev, PCI_PREF_MEMORY_BASE, 0x10);
 
@@ -58,8 +58,12 @@ static void rc32434_pci_early_fixup(struct pci_dev *dev)
 	}
 }
 
+/*
+ * The fixup applies to both the IDT and VIA devices present on the board
+ */
 DECLARE_PCI_FIXUP_HEADER(PCI_ANY_ID, PCI_ANY_ID, rc32434_pci_early_fixup);
 
+/* Do platform specific device initialization at pci_enable_device() time */
 int pcibios_plat_dev_init(struct pci_dev *dev)
 {
 	return 0;

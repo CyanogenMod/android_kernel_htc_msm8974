@@ -31,8 +31,9 @@ extern unsigned int ___illegal_use_of_BTFIXUP_INT_in_module(void);
 #define BTFIXUP_INT(__name) ((unsigned int)&___i_##__name)
 /* This must be written in assembly and present in a sethi */
 #define BTFIXUP_BLACKBOX(__name) ___b_##__name
-#endif 
+#endif /* MODULE */
 
+/* Fixup call xx */
 
 #define BTFIXUPDEF_CALL(__type, __name, __args...) 					\
 	extern __type ___f_##__name(__args);						\
@@ -45,6 +46,7 @@ extern unsigned int ___illegal_use_of_BTFIXUP_INT_in_module(void);
 #define BTFIXUPDEF_BLACKBOX(__name)							\
 	extern unsigned ___bs_##__name[2];
 
+/* Put bottom 13bits into some register variable */
 
 #define BTFIXUPDEF_SIMM13(__name)							\
 	static inline unsigned int ___sf_##__name(void) __attribute_const__;		\
@@ -63,6 +65,10 @@ extern unsigned int ___illegal_use_of_BTFIXUP_INT_in_module(void);
 		return ret;								\
 	}
 
+/* Put either bottom 13 bits, or upper 22 bits into some register variable
+ * (depending on the value, this will lead into sethi FIX, reg; or
+ * mov FIX, reg; )
+ */
 
 #define BTFIXUPDEF_HALF(__name)								\
 	static inline unsigned int ___af_##__name(void) __attribute_const__;		\
@@ -81,6 +87,7 @@ extern unsigned int ___illegal_use_of_BTFIXUP_INT_in_module(void);
 		return ret;								\
 	}
 
+/* Put upper 22 bits into some register variable */
 
 #define BTFIXUPDEF_SETHI(__name)							\
 	static inline unsigned int ___hf_##__name(void) __attribute_const__;		\
@@ -100,22 +107,23 @@ extern unsigned int ___illegal_use_of_BTFIXUP_INT_in_module(void);
 		return ret;								\
 	}
 
+/* Put a full 32bit integer into some register variable */
 
 #define BTFIXUPDEF_INT(__name)								\
 	extern unsigned char ___i_##__name;						\
 	extern unsigned ___is_##__name[2];
 
-#define BTFIXUPCALL_NORM	0x00000000			
-#define BTFIXUPCALL_NOP		0x01000000			
-#define BTFIXUPCALL_RETINT(i)	(0x90102000|((i) & 0x1fff))	
-#define BTFIXUPCALL_ORINT(i)	(0x90122000|((i) & 0x1fff))	
-#define BTFIXUPCALL_RETO0	0x01000000			
-#define BTFIXUPCALL_ANDNINT(i)	(0x902a2000|((i) & 0x1fff))	
-#define BTFIXUPCALL_SWAPO0O1	0xd27a0000			
-#define BTFIXUPCALL_SWAPO0G0	0xc07a0000			
-#define BTFIXUPCALL_SWAPG1G2	0xc4784000			
-#define BTFIXUPCALL_STG0O0	0xc0220000			
-#define BTFIXUPCALL_STO1O0	0xd2220000			
+#define BTFIXUPCALL_NORM	0x00000000			/* Always call */
+#define BTFIXUPCALL_NOP		0x01000000			/* Possibly optimize to nop */
+#define BTFIXUPCALL_RETINT(i)	(0x90102000|((i) & 0x1fff))	/* Possibly optimize to mov i, %o0 */
+#define BTFIXUPCALL_ORINT(i)	(0x90122000|((i) & 0x1fff))	/* Possibly optimize to or %o0, i, %o0 */
+#define BTFIXUPCALL_RETO0	0x01000000			/* Return first parameter, actually a nop */
+#define BTFIXUPCALL_ANDNINT(i)	(0x902a2000|((i) & 0x1fff))	/* Possibly optimize to andn %o0, i, %o0 */
+#define BTFIXUPCALL_SWAPO0O1	0xd27a0000			/* Possibly optimize to swap [%o0],%o1 */
+#define BTFIXUPCALL_SWAPO0G0	0xc07a0000			/* Possibly optimize to swap [%o0],%g0 */
+#define BTFIXUPCALL_SWAPG1G2	0xc4784000			/* Possibly optimize to swap [%g1],%g2 */
+#define BTFIXUPCALL_STG0O0	0xc0220000			/* Possibly optimize to st %g0,[%o0] */
+#define BTFIXUPCALL_STO1O0	0xd2220000			/* Possibly optimize to st %o1,[%o0] */
 
 #define BTFIXUPSET_CALL(__name, __addr, __insn)						\
 	do {										\
@@ -190,11 +198,11 @@ extern unsigned int ___illegal_use_of_BTFIXUP_INT_in_module(void);
 	
 extern void btfixup(void);
 
-#else 
+#else /* __ASSEMBLY__ */
 
 #define BTFIXUP_SETHI(__name)			%hi(___h_ ## __name)
 #define BTFIXUP_SETHI_INIT(__name,__val)	%hi(___h_ ## __name ## __btset_ ## __val)
 
-#endif 
+#endif /* __ASSEMBLY__ */
 	
-#endif 
+#endif /* !(_SPARC_BTFIXUP_H) */

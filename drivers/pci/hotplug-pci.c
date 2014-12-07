@@ -1,3 +1,4 @@
+/* Core PCI functionality used only by PCI hotplug */
 
 #include <linux/pci.h>
 #include <linux/export.h>
@@ -10,6 +11,9 @@ unsigned int __devinit pci_do_scan_bus(struct pci_bus *bus)
 
 	max = pci_scan_child_bus(bus);
 
+	/*
+	 * Make the discovered devices available.
+	 */
 	pci_bus_add_devices(bus);
 
 	return max;

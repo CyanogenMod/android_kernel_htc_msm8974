@@ -57,6 +57,7 @@ static int sp_banks_cmp(const void *a, const void *b)
 	return 0;
 }
 
+/* Initialize the memory lists based upon the prom version. */
 void __init prom_meminit(void)
 {
 	int i, num_ents = 0;
@@ -77,7 +78,7 @@ void __init prom_meminit(void)
 	sort(sp_banks, num_ents, sizeof(struct sparc_phys_banks),
 	     sp_banks_cmp, NULL);
 
-	
+	/* Sentinel.  */
 	sp_banks[num_ents].base_addr = 0xdeadbeef;
 	sp_banks[num_ents].num_bytes = 0;
 

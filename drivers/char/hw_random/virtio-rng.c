@@ -32,20 +32,21 @@ static bool busy;
 
 static void random_recv_done(struct virtqueue *vq)
 {
-	
+	/* We can get spurious callbacks, e.g. shared IRQs + virtio_pci. */
 	if (!virtqueue_get_buf(vq, &data_avail))
 		return;
 
 	complete(&have_data);
 }
 
+/* The host will fill any buffer we give it with sweet, sweet randomness. */
 static void register_buffer(u8 *buf, size_t size)
 {
 	struct scatterlist sg;
 
 	sg_init_one(&sg, buf, size);
 
-	
+	/* There should always be room for one buffer. */
 	if (virtqueue_add_buf(vq, &sg, 0, 1, buf, GFP_KERNEL) < 0)
 		BUG();
 
@@ -88,7 +89,7 @@ static int virtrng_probe(struct virtio_device *vdev)
 {
 	int err;
 
-	
+	/* We expect a single virtqueue. */
 	vq = virtio_find_single_vq(vdev, random_recv_done, "input");
 	if (IS_ERR(vq))
 		return PTR_ERR(vq);

@@ -9,7 +9,7 @@
 	mfcr	r30, cr0
 	mv	r31, r0
 	nop
-	
+	/* if UMs == 1, change stack. */
 	slli.c	r30, r30, 28
 	bpl	1f
 	la	r31, kernelsp
@@ -157,5 +157,5 @@
 	rte
 .endm
 
-#endif 
-#endif 
+#endif /* __ASSEMBLY__ */
+#endif /* _ASM_SCORE_ASMMACRO_H */

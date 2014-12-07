@@ -9,4 +9,4 @@ extern const unsigned long sys_call_table[];
 # include "syscall_64.h"
 #endif
 
-#endif 
+#endif /* __ASM_SH_SYSCALL_H */

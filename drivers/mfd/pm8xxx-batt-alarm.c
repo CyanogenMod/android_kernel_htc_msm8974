@@ -9,6 +9,10 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+/*
+ * Qualcomm PMIC PM8xxx Battery Alarm driver
+ *
+ */
 
 #define pr_fmt(fmt)	"%s: " fmt, __func__
 
@@ -21,16 +25,20 @@
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/mfd/pm8xxx/batt-alarm.h>
 
+/* Available voltage threshold values */
 #define THRESHOLD_MIN_MV		2500
 #define THRESHOLD_MAX_MV		5675
 #define THRESHOLD_STEP_MV		25
 
+/* Register bit definitions */
 
+/* Threshold register */
 #define THRESHOLD_UPPER_MASK		0xF0
 #define THRESHOLD_LOWER_MASK		0x0F
 #define THRESHOLD_UPPER_SHIFT		4
 #define THRESHOLD_LOWER_SHIFT		0
 
+/* CTRL 1 register */
 #define CTRL1_BATT_ALARM_ENABLE_MASK	0x80
 #define CTRL1_BATT_ALARM_ENABLE		0x80
 #define CTRL1_BATT_ALARM_DISABLE	0x00
@@ -41,6 +49,7 @@
 #define CTRL1_HOLD_TIME_MIN		0
 #define CTRL1_HOLD_TIME_MAX		7
 
+/* CTRL 2 register */
 #define CTRL2_COMP_UPPER_DISABLE_MASK	0x80
 #define CTRL2_COMP_UPPER_ENABLE		0x00
 #define CTRL2_COMP_UPPER_DISABLE	0x80
@@ -54,6 +63,7 @@
 #define CTRL2_FINE_STEP_UPPER_SHIFT	4
 #define CTRL2_FINE_STEP_LOWER_SHIFT	1
 
+/* PWM control register */
 #define PWM_CTRL_ALARM_EN_MASK		0xC0
 #define PWM_CTRL_ALARM_EN_NEVER		0x00
 #define PWM_CTRL_ALARM_EN_TCXO		0x40
@@ -68,14 +78,23 @@
 #define PWM_CTRL_DIV_MIN		1
 #define PWM_CTRL_DIV_MAX		7
 
+/* PWM control input range */
 #define PWM_CTRL_PRE_INPUT_MIN		2
 #define PWM_CTRL_PRE_INPUT_MAX		9
 #define PWM_CTRL_DIV_INPUT_MIN		2
 #define PWM_CTRL_DIV_INPUT_MAX		8
 
+/* Available voltage threshold values */
 #define THRESHOLD_BASIC_MIN_MV		2800
 #define THRESHOLD_EXT_MIN_MV		4400
 
+/*
+ * Default values used during initialization:
+ * Slowest PWM rate to ensure minimal status jittering when crossing thresholds.
+ * Largest hold time also helps reduce status value jittering.  Comparators
+ * are disabled by default and must be turned on by calling
+ * pm8xxx_batt_alarm_state_set.
+ */
 #define DEFAULT_THRESHOLD_LOWER		3200
 #define DEFAULT_THRESHOLD_UPPER		4300
 #define DEFAULT_HOLD_TIME		PM8XXX_BATT_ALARM_HOLD_TIME_16_MS
@@ -116,6 +135,13 @@ static int pm8xxx_reg_write(struct pm8xxx_batt_alarm_chip *chip, u16 addr,
 	return rc;
 }
 
+/**
+ * pm8xxx_batt_alarm_enable - enable one of the battery voltage threshold
+ *			      comparators
+ * @comparator:	selects which comparator to enable
+ *
+ * RETURNS: an appropriate -ERRNO error value on error, or zero for success.
+ */
 int pm8xxx_batt_alarm_enable(enum pm8xxx_batt_alarm_comparator comparator)
 {
 	struct pm8xxx_batt_alarm_chip *chip = the_battalarm;
@@ -142,14 +168,14 @@ int pm8xxx_batt_alarm_enable(enum pm8xxx_batt_alarm_comparator comparator)
 
 	mutex_lock(&chip->lock);
 
-	
+	/* Enable the battery alarm block. */
 	rc = pm8xxx_reg_write(chip, chip->cdata.reg_addr_ctrl1,
 				CTRL1_BATT_ALARM_ENABLE,
 				CTRL1_BATT_ALARM_ENABLE_MASK, &chip->reg_ctrl1);
 	if (rc)
 		goto bail;
 
-	
+	/* Enable the individual comparators. */
 	rc = pm8xxx_reg_write(chip, chip->cdata.reg_addr_ctrl2, val_ctrl2,
 				mask_ctrl2, &chip->reg_ctrl2);
 
@@ -159,6 +185,13 @@ bail:
 }
 EXPORT_SYMBOL(pm8xxx_batt_alarm_enable);
 
+/**
+ * pm8xxx_batt_alarm_disable - disable one of the battery voltage threshold
+ *			       comparators
+ * @comparator:	selects which comparator to disable
+ *
+ * RETURNS: an appropriate -ERRNO error value on error, or zero for success.
+ */
 int pm8xxx_batt_alarm_disable(enum pm8xxx_batt_alarm_comparator comparator)
 {
 	struct pm8xxx_batt_alarm_chip *chip = the_battalarm;
@@ -185,13 +218,13 @@ int pm8xxx_batt_alarm_disable(enum pm8xxx_batt_alarm_comparator comparator)
 
 	mutex_lock(&chip->lock);
 
-	
+	/* Disable the specified comparator. */
 	rc = pm8xxx_reg_write(chip, chip->cdata.reg_addr_ctrl2, val_ctrl2,
 				mask_ctrl2, &chip->reg_ctrl2);
 	if (rc)
 		goto bail;
 
-	
+	/* Disable the battery alarm block if both comparators are disabled. */
 	val_ctrl2 = chip->reg_ctrl2
 	      & (CTRL2_COMP_LOWER_DISABLE_MASK | CTRL2_COMP_UPPER_DISABLE_MASK);
 	if (val_ctrl2 == (CTRL2_COMP_LOWER_DISABLE | CTRL2_COMP_UPPER_DISABLE))
@@ -208,6 +241,14 @@ bail:
 }
 EXPORT_SYMBOL(pm8xxx_batt_alarm_disable);
 
+/**
+ * pm8xxx_batt_alarm_threshold_set - set the lower and upper alarm thresholds
+ * @comparator:		selects which comparator to set the threshold of
+ * @threshold_mV:	battery voltage threshold in millivolts
+ *			set points = 2500-5675 mV in 25 mV steps
+ *
+ * RETURNS: an appropriate -ERRNO error value on error, or zero for success.
+ */
 int pm8xxx_batt_alarm_threshold_set(
 	enum pm8xxx_batt_alarm_comparator comparator, int threshold_mV)
 {
@@ -249,28 +290,28 @@ int pm8xxx_batt_alarm_threshold_set(
 		fine_step_shift = CTRL2_FINE_STEP_UPPER_SHIFT;
 	}
 
-	
+	/* Determine register settings to achieve the threshold. */
 	if (threshold_mV < THRESHOLD_BASIC_MIN_MV) {
-		
+		/* Extended low range */
 		val_ctrl2 |= range_ext_mask;
 
 		step = (threshold_mV - THRESHOLD_MIN_MV) / THRESHOLD_STEP_MV;
 
 		fine_step = step & 0x3;
-		
+		/* Extended low range is for steps 0 to 2 */
 		step >>= 2;
 	} else if (threshold_mV >= THRESHOLD_EXT_MIN_MV) {
-		
+		/* Extended high range */
 		val_ctrl2 |= range_ext_mask;
 
 		step = (threshold_mV - THRESHOLD_EXT_MIN_MV)
 			/ THRESHOLD_STEP_MV;
 
 		fine_step = step & 0x3;
-		
+		/* Extended high range is for steps 3 to 15 */
 		step = (step >> 2) + 3;
 	} else {
-		
+		/* Basic range */
 		step = (threshold_mV - THRESHOLD_BASIC_MIN_MV)
 			/ THRESHOLD_STEP_MV;
 
@@ -295,6 +336,14 @@ bail:
 }
 EXPORT_SYMBOL(pm8xxx_batt_alarm_threshold_set);
 
+/**
+ * pm8xxx_batt_alarm_status_read - get status of both threshold comparators
+ *
+ * RETURNS:	< 0	   = error
+ *		  0	   = battery voltage ok
+ *		BIT(0) set = battery voltage below lower threshold
+ *		BIT(1) set = battery voltage above upper threshold
+ */
 int pm8xxx_batt_alarm_status_read(void)
 {
 	struct pm8xxx_batt_alarm_chip *chip = the_battalarm;
@@ -324,6 +373,13 @@ int pm8xxx_batt_alarm_status_read(void)
 }
 EXPORT_SYMBOL(pm8xxx_batt_alarm_status_read);
 
+/**
+ * pm8xxx_batt_alarm_hold_time_set - set hold time of interrupt output *
+ * @hold_time:	amount of time that battery voltage must remain outside of the
+ *		threshold range before the battery alarm interrupt triggers
+ *
+ * RETURNS: an appropriate -ERRNO error value on error, or zero for success.
+ */
 int pm8xxx_batt_alarm_hold_time_set(enum pm8xxx_batt_alarm_hold_time hold_time)
 {
 	struct pm8xxx_batt_alarm_chip *chip = the_battalarm;
@@ -355,6 +411,21 @@ int pm8xxx_batt_alarm_hold_time_set(enum pm8xxx_batt_alarm_hold_time hold_time)
 }
 EXPORT_SYMBOL(pm8xxx_batt_alarm_hold_time_set);
 
+/**
+ * pm8xxx_batt_alarm_pwm_rate_set - set battery alarm update rate *
+ * @use_pwm:		1 = use PWM update rate, 0 = comparators always active
+ * @clock_scaler:	PWM clock scaler = 2 to 9
+ * @clock_divider:	PWM clock divider = 2 to 8
+ *
+ * This function sets the rate at which the battery alarm module enables
+ * the threshold comparators.  The rate is determined by the following equation:
+ *
+ * f_update = (1024 Hz) / (clock_divider * (2 ^ clock_scaler))
+ *
+ * Thus, the update rate can range from 0.25 Hz to 128 Hz.
+ *
+ * RETURNS: an appropriate -ERRNO error value on error, or zero for success.
+ */
 int pm8xxx_batt_alarm_pwm_rate_set(int use_pwm, int clock_scaler,
 				   int clock_divider)
 {
@@ -384,11 +455,11 @@ int pm8xxx_batt_alarm_pwm_rate_set(int use_pwm, int clock_scaler,
 	}
 
 	if (!use_pwm) {
-		
+		/* Turn off PWM control and always enable. */
 		reg_pwm_ctrl = PWM_CTRL_ALARM_EN_ALWAYS;
 		mask = PWM_CTRL_ALARM_EN_MASK;
 	} else {
-		
+		/* Use PWM control. */
 		reg_pwm_ctrl = PWM_CTRL_ALARM_EN_PWM;
 		mask = PWM_CTRL_ALARM_EN_MASK | PWM_CTRL_PRE_MASK
 			| PWM_CTRL_DIV_MASK;
@@ -411,6 +482,10 @@ int pm8xxx_batt_alarm_pwm_rate_set(int use_pwm, int clock_scaler,
 }
 EXPORT_SYMBOL(pm8xxx_batt_alarm_pwm_rate_set);
 
+/*
+ * Handle the BATT_ALARM interrupt:
+ * Battery voltage is above or below threshold range.
+ */
 static irqreturn_t pm8xxx_batt_alarm_isr(int irq, void *data)
 {
 	struct pm8xxx_batt_alarm_chip *chip = data;
@@ -441,6 +516,18 @@ static void pm8xxx_batt_alarm_isr_work(struct work_struct *work)
 	enable_irq(chip->irq);
 }
 
+/**
+ * pm8xxx_batt_alarm_register_notifier - register a notifier to run when a
+ *	battery voltage change interrupt fires
+ * @nb:	notifier block containing callback function to register
+ *
+ * nb->notifier_call must point to a function of this form -
+ * int (*notifier_call)(struct notifier_block *nb, unsigned long status,
+ *			void *unused);
+ * "status" will receive the battery alarm status; "unused" will be NULL.
+ *
+ * RETURNS: an appropriate -ERRNO error value on error, or zero for success.
+ */
 int pm8xxx_batt_alarm_register_notifier(struct notifier_block *nb)
 {
 	struct pm8xxx_batt_alarm_chip *chip = the_battalarm;
@@ -467,6 +554,13 @@ int pm8xxx_batt_alarm_register_notifier(struct notifier_block *nb)
 }
 EXPORT_SYMBOL(pm8xxx_batt_alarm_register_notifier);
 
+/**
+ * pm8xxx_batt_alarm_unregister_notifier - unregister a notifier that is run
+ *	when a battery voltage change interrupt fires
+ * @nb:	notifier block containing callback function to unregister
+ *
+ * RETURNS: an appropriate -ERRNO error value on error, or zero for success.
+ */
 int pm8xxx_batt_alarm_unregister_notifier(struct notifier_block *nb)
 {
 	struct pm8xxx_batt_alarm_chip *chip = the_battalarm;
@@ -501,7 +595,7 @@ static int pm8xxx_batt_alarm_reg_init(struct pm8xxx_batt_alarm_chip *chip)
 {
 	int rc = 0;
 
-	
+	/* save the current register states */
 	rc = pm8xxx_readb(chip->dev->parent, chip->cdata.reg_addr_threshold,
 			  &chip->reg_threshold);
 	if (rc)
@@ -529,11 +623,12 @@ bail:
 	return rc;
 }
 
+/* TODO: should this default setting function be removed? */
 static int pm8xxx_batt_alarm_config_defaults(void)
 {
 	int rc = 0;
 
-	
+	/* Use default values when no platform data is provided. */
 	rc = pm8xxx_batt_alarm_threshold_set(PM8XXX_BATT_ALARM_LOWER_COMPARATOR,
 		DEFAULT_THRESHOLD_LOWER);
 	if (rc) {
@@ -637,6 +732,7 @@ static int __devinit pm8xxx_batt_alarm_probe(struct platform_device *pdev)
 
 	INIT_WORK(&chip->irq_work, pm8xxx_batt_alarm_isr_work);
 
+/* TODO: Is it best to trigger on both edges? Should this be configurable? */
 	rc = request_irq(chip->irq, pm8xxx_batt_alarm_isr,
 		IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING, cdata->irq_name,
 		chip);
@@ -645,7 +741,7 @@ static int __devinit pm8xxx_batt_alarm_probe(struct platform_device *pdev)
 		goto err_cancel_work;
 	}
 
-	
+	/* Disable the IRQ until a notifier is registered. */
 	disable_irq(chip->irq);
 
 	platform_set_drvdata(pdev, chip);

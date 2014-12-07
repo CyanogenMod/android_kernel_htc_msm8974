@@ -38,7 +38,73 @@
  * 1+ (800) 334-5454
  */
 
+/*
+ * Options : 
+ * AUTOSENSE - if defined, REQUEST SENSE will be performed automatically
+ *      for commands that return with a CHECK CONDITION status. 
+ *
+ * PSEUDO_DMA - enables PSEUDO-DMA hardware, should give a 3-4X performance
+ * increase compared to polled I/O.
+ *
+ * PARITY - enable parity checking.  Not supported.
+ * 
+ * SCSI2 - enable support for SCSI-II tagged queueing.  Untested.
+ *
+ *
+ * UNSAFE - leave interrupts enabled during pseudo-DMA transfers.  You
+ *          only really want to use this if you're having a problem with
+ *          dropped characters during high speed communications, and even
+ *          then, you're going to be better off twiddling with transfersize.
+ *
+ * USLEEP - enable support for devices that don't disconnect.  Untested.
+ *
+ * The card is detected and initialized in one of several ways : 
+ * 1.  Autoprobe (default) - since the board is memory mapped, 
+ *     a BIOS signature is scanned for to locate the registers.
+ *     An interrupt is triggered to autoprobe for the interrupt
+ *     line.
+ *
+ * 2.  With command line overrides - t128=address,irq may be 
+ *     used on the LILO command line to override the defaults.
+ *
+ * 3.  With the T128_OVERRIDE compile time define.  This is 
+ *     specified as an array of address, irq tuples.  Ie, for
+ *     one board at the default 0xcc000 address, IRQ5, I could say 
+ *     -DT128_OVERRIDE={{0xcc000, 5}}
+ *	
+ *     Note that if the override methods are used, place holders must
+ *     be specified for other boards in the system.
+ * 
+ * T128/T128F jumper/dipswitch settings (note : on my sample, the switches 
+ * were epoxy'd shut, meaning I couldn't change the 0xcc000 base address) :
+ *
+ * T128    Sw7 Sw8 Sw6 = 0ws Sw5 = boot 
+ * T128F   Sw6 Sw7 Sw5 = 0ws Sw4 = boot Sw8 = floppy disable
+ * cc000   off off      
+ * c8000   off on
+ * dc000   on  off
+ * d8000   on  on
+ *
+ * 
+ * Interrupts 
+ * There is a 12 pin jumper block, jp1, numbered as follows : 
+ *   T128 (JP1)  	 T128F (J5)
+ * 2 4 6 8 10 12	11 9  7 5 3 1
+ * 1 3 5 7 9  11	12 10 8 6 4 2
+ *
+ * 3   2-4
+ * 5   1-3
+ * 7   3-5
+ * T128F only 
+ * 10 8-10
+ * 12 7-9
+ * 14 10-12
+ * 15 9-11
+ */
  
+/*
+ * $Log: t128.c,v $
+ */
 
 #include <linux/signal.h>
 #include <linux/io.h>
@@ -86,6 +152,15 @@ static struct signature {
 
 #define NO_SIGNATURES ARRAY_SIZE(signatures)
 
+/*
+ * Function : t128_setup(char *str, int *ints)
+ *
+ * Purpose : LILO command line initialization of the overrides array,
+ * 
+ * Inputs : str - unused, ints - array of integer parameters with ints[0]
+ *	equal to the number of ints.
+ *
+ */
 
 void __init t128_setup(char *str, int *ints){
     static int commandline_current = 0;
@@ -105,6 +180,18 @@ void __init t128_setup(char *str, int *ints){
 	}
 }
 
+/* 
+ * Function : int t128_detect(struct scsi_host_template * tpnt)
+ *
+ * Purpose : detects and initializes T128,T128F, or T228 controllers
+ *	that were autoprobed, overridden on the LILO command line, 
+ *	or specified at compile time.
+ *
+ * Inputs : tpnt - template for this SCSI adapter.
+ * 
+ * Returns : 1 if a host adapter was found, 0 if not.
+ *
+ */
 
 int __init t128_detect(struct scsi_host_template * tpnt){
     static int current_override = 0, current_base = 0;
@@ -217,7 +304,25 @@ static int t128_release(struct Scsi_Host *shost)
 	return 0;
 }
 
+/*
+ * Function : int t128_biosparam(Disk * disk, struct block_device *dev, int *ip)
+ *
+ * Purpose : Generates a BIOS / DOS compatible H-C-S mapping for 
+ *	the specified device / size.
+ * 
+ * Inputs : size = size of device in sectors (512 bytes), dev = block device
+ *	major / minor, ip[] = {heads, sectors, cylinders}  
+ *
+ * Returns : always 0 (success), initializes ip
+ *	
+ */
 
+/* 
+ * XXX Most SCSI boards use this mapping, I could be incorrect.  Some one
+ * using hard disks on a trantor should verify that this mapping corresponds
+ * to that used by the BIOS / ASPI driver by running the linux fdisk program
+ * and matching the H_C_S coordinates to what DOS uses.
+ */
 
 int t128_biosparam(struct scsi_device *sdev, struct block_device *bdev,
 		sector_t capacity, int * ip)
@@ -228,6 +333,18 @@ int t128_biosparam(struct scsi_device *sdev, struct block_device *bdev,
   return 0;
 }
 
+/*
+ * Function : int NCR5380_pread (struct Scsi_Host *instance, 
+ *	unsigned char *dst, int len)
+ *
+ * Purpose : Fast 5380 pseudo-dma read function, transfers len bytes to 
+ *	dst
+ * 
+ * Inputs : dst = destination, len = length in bytes
+ *
+ * Returns : 0 on success, non zero on a failure such as a watchdog 
+ * 	timeout.
+ */
 
 static inline int NCR5380_pread (struct Scsi_Host *instance, unsigned char *dst,
     int len) {
@@ -262,6 +379,18 @@ static inline int NCR5380_pread (struct Scsi_Host *instance, unsigned char *dst,
 	return 0;
 }
 
+/*
+ * Function : int NCR5380_pwrite (struct Scsi_Host *instance, 
+ *	unsigned char *src, int len)
+ *
+ * Purpose : Fast 5380 pseudo-dma write function, transfers len bytes from
+ *	src
+ * 
+ * Inputs : src = source, len = length in bytes
+ *
+ * Returns : 0 on success, non zero on a failure such as a watchdog 
+ * 	timeout.
+ */
 
 static inline int NCR5380_pwrite (struct Scsi_Host *instance, unsigned char *src,
     int len) {

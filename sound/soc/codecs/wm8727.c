@@ -23,6 +23,10 @@
 #include <sound/initval.h>
 #include <sound/soc.h>
 
+/*
+ * Note this is a simple chip with no configuration interface, sample rate is
+ * determined automatically by examining the Master clock and Bit clock ratios
+ */
 #define WM8727_RATES  (SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_44100 |\
 			SNDRV_PCM_RATE_48000 | SNDRV_PCM_RATE_96000 |\
 			SNDRV_PCM_RATE_192000)

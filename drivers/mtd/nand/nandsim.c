@@ -43,14 +43,15 @@
 #include <linux/fs.h>
 #include <linux/pagemap.h>
 
+/* Default simulator parameters values */
 #if !defined(CONFIG_NANDSIM_FIRST_ID_BYTE)  || \
     !defined(CONFIG_NANDSIM_SECOND_ID_BYTE) || \
     !defined(CONFIG_NANDSIM_THIRD_ID_BYTE)  || \
     !defined(CONFIG_NANDSIM_FOURTH_ID_BYTE)
 #define CONFIG_NANDSIM_FIRST_ID_BYTE  0x98
 #define CONFIG_NANDSIM_SECOND_ID_BYTE 0x39
-#define CONFIG_NANDSIM_THIRD_ID_BYTE  0xFF 
-#define CONFIG_NANDSIM_FOURTH_ID_BYTE 0xFF 
+#define CONFIG_NANDSIM_THIRD_ID_BYTE  0xFF /* No byte */
+#define CONFIG_NANDSIM_FOURTH_ID_BYTE 0xFF /* No byte */
 #endif
 
 #ifndef CONFIG_NANDSIM_ACCESS_DELAY
@@ -149,6 +150,7 @@ MODULE_PARM_DESC(do_delays,      "Simulate NAND delays using busy-waits if not z
 MODULE_PARM_DESC(log,            "Perform logging if not zero");
 MODULE_PARM_DESC(dbg,            "Output debug information if not zero");
 MODULE_PARM_DESC(parts,          "Partition sizes (in erase blocks) separated by commas");
+/* Page and erase block positions for the following parameters are independent of any partitions */
 MODULE_PARM_DESC(badblocks,      "Erase blocks that are initially marked bad, separated by commas");
 MODULE_PARM_DESC(weakblocks,     "Weak erase blocks [: remaining erase cycles (defaults to 3)]"
 				 " separated by commas e.g. 113:2 means eb 113"
@@ -169,10 +171,13 @@ MODULE_PARM_DESC(bbt,		 "0 OOB, 1 BBT with marker in OOB, 2 BBT with marker in d
 MODULE_PARM_DESC(bch,		 "Enable BCH ecc and set how many bits should "
 				 "be correctable in 512-byte blocks");
 
+/* The largest possible page size */
 #define NS_LARGEST_PAGE_SIZE	4096
 
+/* The prefix for simulator output */
 #define NS_OUTPUT_PREFIX "[nandsim]"
 
+/* Simulator's output macros (logging, debugging, warning, error) */
 #define NS_LOG(args...) \
 	do { if (log) printk(KERN_DEBUG NS_OUTPUT_PREFIX " log: " args); } while(0)
 #define NS_DBG(args...) \
@@ -184,197 +189,226 @@ MODULE_PARM_DESC(bch,		 "Enable BCH ecc and set how many bits should "
 #define NS_INFO(args...) \
 	do { printk(KERN_INFO NS_OUTPUT_PREFIX " " args); } while(0)
 
+/* Busy-wait delay macros (microseconds, milliseconds) */
 #define NS_UDELAY(us) \
         do { if (do_delays) udelay(us); } while(0)
 #define NS_MDELAY(us) \
         do { if (do_delays) mdelay(us); } while(0)
 
+/* Is the nandsim structure initialized ? */
 #define NS_IS_INITIALIZED(ns) ((ns)->geom.totsz != 0)
 
+/* Good operation completion status */
 #define NS_STATUS_OK(ns) (NAND_STATUS_READY | (NAND_STATUS_WP * ((ns)->lines.wp == 0)))
 
+/* Operation failed completion status */
 #define NS_STATUS_FAILED(ns) (NAND_STATUS_FAIL | NS_STATUS_OK(ns))
 
+/* Calculate the page offset in flash RAM image by (row, column) address */
 #define NS_RAW_OFFSET(ns) \
 	(((ns)->regs.row << (ns)->geom.pgshift) + ((ns)->regs.row * (ns)->geom.oobsz) + (ns)->regs.column)
 
+/* Calculate the OOB offset in flash RAM image by (row, column) address */
 #define NS_RAW_OFFSET_OOB(ns) (NS_RAW_OFFSET(ns) + ns->geom.pgsz)
 
-#define STATE_CMD_READ0        0x00000001 
-#define STATE_CMD_READ1        0x00000002 
-#define STATE_CMD_READSTART    0x00000003 
-#define STATE_CMD_PAGEPROG     0x00000004 
-#define STATE_CMD_READOOB      0x00000005 
-#define STATE_CMD_ERASE1       0x00000006 
-#define STATE_CMD_STATUS       0x00000007 
-#define STATE_CMD_STATUS_M     0x00000008 
-#define STATE_CMD_SEQIN        0x00000009 
-#define STATE_CMD_READID       0x0000000A 
-#define STATE_CMD_ERASE2       0x0000000B 
-#define STATE_CMD_RESET        0x0000000C 
-#define STATE_CMD_RNDOUT       0x0000000D 
-#define STATE_CMD_RNDOUTSTART  0x0000000E 
-#define STATE_CMD_MASK         0x0000000F 
+/* After a command is input, the simulator goes to one of the following states */
+#define STATE_CMD_READ0        0x00000001 /* read data from the beginning of page */
+#define STATE_CMD_READ1        0x00000002 /* read data from the second half of page */
+#define STATE_CMD_READSTART    0x00000003 /* read data second command (large page devices) */
+#define STATE_CMD_PAGEPROG     0x00000004 /* start page program */
+#define STATE_CMD_READOOB      0x00000005 /* read OOB area */
+#define STATE_CMD_ERASE1       0x00000006 /* sector erase first command */
+#define STATE_CMD_STATUS       0x00000007 /* read status */
+#define STATE_CMD_STATUS_M     0x00000008 /* read multi-plane status (isn't implemented) */
+#define STATE_CMD_SEQIN        0x00000009 /* sequential data input */
+#define STATE_CMD_READID       0x0000000A /* read ID */
+#define STATE_CMD_ERASE2       0x0000000B /* sector erase second command */
+#define STATE_CMD_RESET        0x0000000C /* reset */
+#define STATE_CMD_RNDOUT       0x0000000D /* random output command */
+#define STATE_CMD_RNDOUTSTART  0x0000000E /* random output start command */
+#define STATE_CMD_MASK         0x0000000F /* command states mask */
 
-#define STATE_ADDR_PAGE        0x00000010 
-#define STATE_ADDR_SEC         0x00000020 
-#define STATE_ADDR_COLUMN      0x00000030 
-#define STATE_ADDR_ZERO        0x00000040 
-#define STATE_ADDR_MASK        0x00000070 
+/* After an address is input, the simulator goes to one of these states */
+#define STATE_ADDR_PAGE        0x00000010 /* full (row, column) address is accepted */
+#define STATE_ADDR_SEC         0x00000020 /* sector address was accepted */
+#define STATE_ADDR_COLUMN      0x00000030 /* column address was accepted */
+#define STATE_ADDR_ZERO        0x00000040 /* one byte zero address was accepted */
+#define STATE_ADDR_MASK        0x00000070 /* address states mask */
 
-#define STATE_DATAIN           0x00000100 
-#define STATE_DATAIN_MASK      0x00000100 
+/* During data input/output the simulator is in these states */
+#define STATE_DATAIN           0x00000100 /* waiting for data input */
+#define STATE_DATAIN_MASK      0x00000100 /* data input states mask */
 
-#define STATE_DATAOUT          0x00001000 
-#define STATE_DATAOUT_ID       0x00002000 
-#define STATE_DATAOUT_STATUS   0x00003000 
-#define STATE_DATAOUT_STATUS_M 0x00004000 
-#define STATE_DATAOUT_MASK     0x00007000 
+#define STATE_DATAOUT          0x00001000 /* waiting for page data output */
+#define STATE_DATAOUT_ID       0x00002000 /* waiting for ID bytes output */
+#define STATE_DATAOUT_STATUS   0x00003000 /* waiting for status output */
+#define STATE_DATAOUT_STATUS_M 0x00004000 /* waiting for multi-plane status output */
+#define STATE_DATAOUT_MASK     0x00007000 /* data output states mask */
 
+/* Previous operation is done, ready to accept new requests */
 #define STATE_READY            0x00000000
 
+/* This state is used to mark that the next state isn't known yet */
 #define STATE_UNKNOWN          0x10000000
 
-#define ACTION_CPY       0x00100000 
-#define ACTION_PRGPAGE   0x00200000 
-#define ACTION_SECERASE  0x00300000 
-#define ACTION_ZEROOFF   0x00400000 
-#define ACTION_HALFOFF   0x00500000 
-#define ACTION_OOBOFF    0x00600000 
-#define ACTION_MASK      0x00700000 
+/* Simulator's actions bit masks */
+#define ACTION_CPY       0x00100000 /* copy page/OOB to the internal buffer */
+#define ACTION_PRGPAGE   0x00200000 /* program the internal buffer to flash */
+#define ACTION_SECERASE  0x00300000 /* erase sector */
+#define ACTION_ZEROOFF   0x00400000 /* don't add any offset to address */
+#define ACTION_HALFOFF   0x00500000 /* add to address half of page */
+#define ACTION_OOBOFF    0x00600000 /* add to address OOB offset */
+#define ACTION_MASK      0x00700000 /* action mask */
 
-#define NS_OPER_NUM      13 
-#define NS_OPER_STATES   6  
+#define NS_OPER_NUM      13 /* Number of operations supported by the simulator */
+#define NS_OPER_STATES   6  /* Maximum number of states in operation */
 
-#define OPT_ANY          0xFFFFFFFF 
-#define OPT_PAGE256      0x00000001 
-#define OPT_PAGE512      0x00000002 
-#define OPT_PAGE2048     0x00000008 
-#define OPT_SMARTMEDIA   0x00000010 
-#define OPT_AUTOINCR     0x00000020 
-#define OPT_PAGE512_8BIT 0x00000040 
-#define OPT_PAGE4096     0x00000080 
-#define OPT_LARGEPAGE    (OPT_PAGE2048 | OPT_PAGE4096) 
-#define OPT_SMALLPAGE    (OPT_PAGE256  | OPT_PAGE512)  
+#define OPT_ANY          0xFFFFFFFF /* any chip supports this operation */
+#define OPT_PAGE256      0x00000001 /* 256-byte  page chips */
+#define OPT_PAGE512      0x00000002 /* 512-byte  page chips */
+#define OPT_PAGE2048     0x00000008 /* 2048-byte page chips */
+#define OPT_SMARTMEDIA   0x00000010 /* SmartMedia technology chips */
+#define OPT_AUTOINCR     0x00000020 /* page number auto incrementation is possible */
+#define OPT_PAGE512_8BIT 0x00000040 /* 512-byte page chips with 8-bit bus width */
+#define OPT_PAGE4096     0x00000080 /* 4096-byte page chips */
+#define OPT_LARGEPAGE    (OPT_PAGE2048 | OPT_PAGE4096) /* 2048 & 4096-byte page chips */
+#define OPT_SMALLPAGE    (OPT_PAGE256  | OPT_PAGE512)  /* 256 and 512-byte page chips */
 
+/* Remove action bits from state */
 #define NS_STATE(x) ((x) & ~ACTION_MASK)
 
+/*
+ * Maximum previous states which need to be saved. Currently saving is
+ * only needed for page program operation with preceded read command
+ * (which is only valid for 512-byte pages).
+ */
 #define NS_MAX_PREVSTATES 1
 
+/* Maximum page cache pages needed to read or write a NAND page to the cache_file */
 #define NS_MAX_HELD_PAGES 16
 
+/*
+ * A union to represent flash memory contents and flash buffer.
+ */
 union ns_mem {
-	u_char *byte;    
-	uint16_t *word;  
+	u_char *byte;    /* for byte access */
+	uint16_t *word;  /* for 16-bit word access */
 };
 
+/*
+ * The structure which describes all the internal simulator data.
+ */
 struct nandsim {
 	struct mtd_partition partitions[CONFIG_NANDSIM_MAX_PARTS];
 	unsigned int nbparts;
 
-	uint busw;              
-	u_char ids[4];          
-	uint32_t options;       
-	uint32_t state;         
-	uint32_t nxstate;       
+	uint busw;              /* flash chip bus width (8 or 16) */
+	u_char ids[4];          /* chip's ID bytes */
+	uint32_t options;       /* chip's characteristic bits */
+	uint32_t state;         /* current chip state */
+	uint32_t nxstate;       /* next expected state */
 
-	uint32_t *op;           
-	uint32_t pstates[NS_MAX_PREVSTATES]; 
-	uint16_t npstates;      
-	uint16_t stateidx;      
+	uint32_t *op;           /* current operation, NULL operations isn't known yet  */
+	uint32_t pstates[NS_MAX_PREVSTATES]; /* previous states */
+	uint16_t npstates;      /* number of previous states saved */
+	uint16_t stateidx;      /* current state index */
 
-	
+	/* The simulated NAND flash pages array */
 	union ns_mem *pages;
 
-	
+	/* Slab allocator for nand pages */
 	struct kmem_cache *nand_pages_slab;
 
-	
+	/* Internal buffer of page + OOB size bytes */
 	union ns_mem buf;
 
-	
+	/* NAND flash "geometry" */
 	struct {
-		uint64_t totsz;     
-		uint32_t secsz;     
-		uint pgsz;          
-		uint oobsz;         
-		uint64_t totszoob;  
-		uint pgszoob;       
-		uint secszoob;      
-		uint pgnum;         
-		uint pgsec;         
-		uint secshift;      
-		uint pgshift;       
-		uint oobshift;      
-		uint pgaddrbytes;   
-		uint secaddrbytes;  
-		uint idbytes;       
+		uint64_t totsz;     /* total flash size, bytes */
+		uint32_t secsz;     /* flash sector (erase block) size, bytes */
+		uint pgsz;          /* NAND flash page size, bytes */
+		uint oobsz;         /* page OOB area size, bytes */
+		uint64_t totszoob;  /* total flash size including OOB, bytes */
+		uint pgszoob;       /* page size including OOB , bytes*/
+		uint secszoob;      /* sector size including OOB, bytes */
+		uint pgnum;         /* total number of pages */
+		uint pgsec;         /* number of pages per sector */
+		uint secshift;      /* bits number in sector size */
+		uint pgshift;       /* bits number in page size */
+		uint oobshift;      /* bits number in OOB size */
+		uint pgaddrbytes;   /* bytes per page address */
+		uint secaddrbytes;  /* bytes per sector address */
+		uint idbytes;       /* the number ID bytes that this chip outputs */
 	} geom;
 
-	
+	/* NAND flash internal registers */
 	struct {
-		unsigned command; 
-		u_char   status;  
-		uint     row;     
-		uint     column;  
-		uint     count;   
-		uint     num;     
-		uint     off;     
+		unsigned command; /* the command register */
+		u_char   status;  /* the status register */
+		uint     row;     /* the page number */
+		uint     column;  /* the offset within page */
+		uint     count;   /* internal counter */
+		uint     num;     /* number of bytes which must be processed */
+		uint     off;     /* fixed page offset */
 	} regs;
 
-	
+	/* NAND flash lines state */
         struct {
-                int ce;  
-                int cle; 
-                int ale; 
-                int wp;  
+                int ce;  /* chip Enable */
+                int cle; /* command Latch Enable */
+                int ale; /* address Latch Enable */
+                int wp;  /* write Protect */
         } lines;
 
-	
-	struct file *cfile; 
+	/* Fields needed when using a cache file */
+	struct file *cfile; /* Open file */
 	unsigned char *pages_written; /* Which pages have been written */
 	void *file_buf;
 	struct page *held_pages[NS_MAX_HELD_PAGES];
 	int held_cnt;
 };
 
+/*
+ * Operations array. To perform any operation the simulator must pass
+ * through the correspondent states chain.
+ */
 static struct nandsim_operations {
-	uint32_t reqopts;  
-	uint32_t states[NS_OPER_STATES]; 
+	uint32_t reqopts;  /* options which are required to perform the operation */
+	uint32_t states[NS_OPER_STATES]; /* operation's states */
 } ops[NS_OPER_NUM] = {
-	
+	/* Read page + OOB from the beginning */
 	{OPT_SMALLPAGE, {STATE_CMD_READ0 | ACTION_ZEROOFF, STATE_ADDR_PAGE | ACTION_CPY,
 			STATE_DATAOUT, STATE_READY}},
-	
+	/* Read page + OOB from the second half */
 	{OPT_PAGE512_8BIT, {STATE_CMD_READ1 | ACTION_HALFOFF, STATE_ADDR_PAGE | ACTION_CPY,
 			STATE_DATAOUT, STATE_READY}},
-	
+	/* Read OOB */
 	{OPT_SMALLPAGE, {STATE_CMD_READOOB | ACTION_OOBOFF, STATE_ADDR_PAGE | ACTION_CPY,
 			STATE_DATAOUT, STATE_READY}},
-	
+	/* Program page starting from the beginning */
 	{OPT_ANY, {STATE_CMD_SEQIN, STATE_ADDR_PAGE, STATE_DATAIN,
 			STATE_CMD_PAGEPROG | ACTION_PRGPAGE, STATE_READY}},
-	
+	/* Program page starting from the beginning */
 	{OPT_SMALLPAGE, {STATE_CMD_READ0, STATE_CMD_SEQIN | ACTION_ZEROOFF, STATE_ADDR_PAGE,
 			      STATE_DATAIN, STATE_CMD_PAGEPROG | ACTION_PRGPAGE, STATE_READY}},
-	
+	/* Program page starting from the second half */
 	{OPT_PAGE512, {STATE_CMD_READ1, STATE_CMD_SEQIN | ACTION_HALFOFF, STATE_ADDR_PAGE,
 			      STATE_DATAIN, STATE_CMD_PAGEPROG | ACTION_PRGPAGE, STATE_READY}},
-	
+	/* Program OOB */
 	{OPT_SMALLPAGE, {STATE_CMD_READOOB, STATE_CMD_SEQIN | ACTION_OOBOFF, STATE_ADDR_PAGE,
 			      STATE_DATAIN, STATE_CMD_PAGEPROG | ACTION_PRGPAGE, STATE_READY}},
-	
+	/* Erase sector */
 	{OPT_ANY, {STATE_CMD_ERASE1, STATE_ADDR_SEC, STATE_CMD_ERASE2 | ACTION_SECERASE, STATE_READY}},
-	
+	/* Read status */
 	{OPT_ANY, {STATE_CMD_STATUS, STATE_DATAOUT_STATUS, STATE_READY}},
-	
+	/* Read multi-plane status */
 	{OPT_SMARTMEDIA, {STATE_CMD_STATUS_M, STATE_DATAOUT_STATUS_M, STATE_READY}},
-	
+	/* Read ID */
 	{OPT_ANY, {STATE_CMD_READID, STATE_ADDR_ZERO, STATE_DATAOUT_ID, STATE_READY}},
-	
+	/* Large page devices read page */
 	{OPT_LARGEPAGE, {STATE_CMD_READ0, STATE_ADDR_PAGE, STATE_CMD_READSTART | ACTION_CPY,
 			       STATE_DATAOUT, STATE_READY}},
-	
+	/* Large page devices random page read */
 	{OPT_LARGEPAGE, {STATE_CMD_RNDOUT, STATE_ADDR_COLUMN, STATE_CMD_RNDOUTSTART | ACTION_CPY,
 			       STATE_DATAOUT, STATE_READY}},
 };
@@ -411,10 +445,17 @@ static unsigned int wear_eb_count = 0;
 static unsigned long total_wear = 0;
 static unsigned int rptwear_cnt = 0;
 
+/* MTD structure for NAND controller */
 static struct mtd_info *nsmtd;
 
 static u_char ns_verify_buf[NS_LARGEST_PAGE_SIZE];
 
+/*
+ * Allocate array of page pointers, create slab allocation for an array
+ * and initialize the array by NULL pointers.
+ *
+ * RETURNS: 0 if success, -ENOMEM if memory alloc fails.
+ */
 static int alloc_device(struct nandsim *ns)
 {
 	struct file *cfile;
@@ -474,6 +515,9 @@ err_close:
 	return err;
 }
 
+/*
+ * Free any allocated pages, and free the array of page pointers.
+ */
 static void free_device(struct nandsim *ns)
 {
 	int i;
@@ -509,6 +553,11 @@ static uint64_t divide(uint64_t n, uint32_t d)
 	return n;
 }
 
+/*
+ * Initialize the nandsim structure.
+ *
+ * RETURNS: 0 if success, -ERRNO if failure.
+ */
 static int init_nandsim(struct mtd_info *mtd)
 {
 	struct nand_chip *chip = mtd->priv;
@@ -522,10 +571,10 @@ static int init_nandsim(struct mtd_info *mtd)
 		return -EIO;
 	}
 
-	
+	/* Force mtd to not do delays */
 	chip->chip_delay = 0;
 
-	
+	/* Initialize the NAND flash parameters */
 	ns->busw = chip->options & NAND_BUSWIDTH_16 ? 16 : 8;
 	ns->geom.totsz    = mtd->size;
 	ns->geom.pgsz     = mtd->writesize;
@@ -575,7 +624,7 @@ static int init_nandsim(struct mtd_info *mtd)
 		}
 	}
 
-	
+	/* Fill the partition_info structure */
 	if (parts_num > ARRAY_SIZE(ns->partitions)) {
 		NS_ERR("too many partitions.\n");
 		ret = -EINVAL;
@@ -610,7 +659,7 @@ static int init_nandsim(struct mtd_info *mtd)
 		ns->nbparts += 1;
 	}
 
-	
+	/* Detect how many ID bytes the NAND chip outputs */
         for (i = 0; nand_flash_ids[i].name != NULL; i++) {
                 if (second_id_byte != nand_flash_ids[i].id)
                         continue;
@@ -641,7 +690,7 @@ static int init_nandsim(struct mtd_info *mtd)
 	if ((ret = alloc_device(ns)) != 0)
 		goto error;
 
-	
+	/* Allocate / initialize the internal buffer */
 	ns->buf.byte = kmalloc(ns->geom.pgszoob, GFP_KERNEL);
 	if (!ns->buf.byte) {
 		NS_ERR("init_nandsim: unable to allocate %u bytes for the internal buffer\n",
@@ -659,6 +708,9 @@ error:
 	return ret;
 }
 
+/*
+ * Free the nandsim structure.
+ */
 static void free_nandsim(struct nandsim *ns)
 {
 	kfree(ns->buf.byte);
@@ -904,7 +956,7 @@ static void update_wear(unsigned int erase_block_no)
 	if (rptwear_cnt < rptwear)
 		return;
 	rptwear_cnt = 0;
-	
+	/* Calc wear stats */
 	for (i = 0; i < wear_eb_count; ++i) {
 		unsigned long wear = erase_block_wear[i];
 		if (wear < wmin)
@@ -929,7 +981,7 @@ static void update_wear(unsigned int erase_block_no)
 			}
 	}
 	avg = tot / wear_eb_count;
-	
+	/* Output wear report */
 	NS_INFO("*** Wear Report ***\n");
 	NS_INFO("Total numbers of erases:  %lu\n", tot);
 	NS_INFO("Number of erase blocks:   %u\n", wear_eb_count);
@@ -948,6 +1000,9 @@ static void update_wear(unsigned int erase_block_no)
 	NS_INFO("*** End of Wear Report ***\n");
 }
 
+/*
+ * Returns the string representation of 'state' state.
+ */
 static char *get_state_name(uint32_t state)
 {
 	switch (NS_STATE(state)) {
@@ -1007,6 +1062,11 @@ static char *get_state_name(uint32_t state)
 	return NULL;
 }
 
+/*
+ * Check if command is valid.
+ *
+ * RETURNS: 1 if wrong command, 0 if right.
+ */
 static int check_command(int cmd)
 {
 	switch (cmd) {
@@ -1032,6 +1092,9 @@ static int check_command(int cmd)
 	}
 }
 
+/*
+ * Returns state after command is accepted by command number.
+ */
 static uint32_t get_state_by_command(unsigned command)
 {
 	switch (command) {
@@ -1069,6 +1132,9 @@ static uint32_t get_state_by_command(unsigned command)
 	return 0;
 }
 
+/*
+ * Move an address byte to the correspondent internal register.
+ */
 static inline void accept_addr_byte(struct nandsim *ns, u_char bt)
 {
 	uint byte = (uint)bt;
@@ -1084,6 +1150,9 @@ static inline void accept_addr_byte(struct nandsim *ns, u_char bt)
 	return;
 }
 
+/*
+ * Switch to STATE_READY state.
+ */
 static inline void switch_to_ready_state(struct nandsim *ns, u_char status)
 {
 	NS_DBG("switch_to_ready_state: switch to %s state\n", get_state_name(STATE_READY));
@@ -1101,6 +1170,48 @@ static inline void switch_to_ready_state(struct nandsim *ns, u_char status)
 	ns->regs.status = status;
 }
 
+/*
+ * If the operation isn't known yet, try to find it in the global array
+ * of supported operations.
+ *
+ * Operation can be unknown because of the following.
+ *   1. New command was accepted and this is the first call to find the
+ *      correspondent states chain. In this case ns->npstates = 0;
+ *   2. There are several operations which begin with the same command(s)
+ *      (for example program from the second half and read from the
+ *      second half operations both begin with the READ1 command). In this
+ *      case the ns->pstates[] array contains previous states.
+ *
+ * Thus, the function tries to find operation containing the following
+ * states (if the 'flag' parameter is 0):
+ *    ns->pstates[0], ... ns->pstates[ns->npstates], ns->state
+ *
+ * If (one and only one) matching operation is found, it is accepted (
+ * ns->ops, ns->state, ns->nxstate are initialized, ns->npstate is
+ * zeroed).
+ *
+ * If there are several matches, the current state is pushed to the
+ * ns->pstates.
+ *
+ * The operation can be unknown only while commands are input to the chip.
+ * As soon as address command is accepted, the operation must be known.
+ * In such situation the function is called with 'flag' != 0, and the
+ * operation is searched using the following pattern:
+ *     ns->pstates[0], ... ns->pstates[ns->npstates], <address input>
+ *
+ * It is supposed that this pattern must either match one operation or
+ * none. There can't be ambiguity in that case.
+ *
+ * If no matches found, the function does the following:
+ *   1. if there are saved states present, try to ignore them and search
+ *      again only using the last command. If nothing was found, switch
+ *      to the STATE_READY state.
+ *   2. if there are no saved states, switch to the STATE_READY state.
+ *
+ * RETURNS: -2 - no matched operations found.
+ *          -1 - several matches.
+ *           0 - operation is found.
+ */
 static int find_operation(struct nandsim *ns, uint32_t flag)
 {
 	int opsfound = 0;
@@ -1111,7 +1222,7 @@ static int find_operation(struct nandsim *ns, uint32_t flag)
 		int found = 1;
 
 		if (!(ns->options & ops[i].reqopts))
-			
+			/* Ignore operations we can't perform */
 			continue;
 
 		if (flag) {
@@ -1136,9 +1247,16 @@ static int find_operation(struct nandsim *ns, uint32_t flag)
 	}
 
 	if (opsfound == 1) {
-		
+		/* Exact match */
 		ns->op = &ops[idx].states[0];
 		if (flag) {
+			/*
+			 * In this case the find_operation function was
+			 * called when address has just began input. But it isn't
+			 * yet fully input and the current state must
+			 * not be one of STATE_ADDR_*, but the STATE_ADDR_*
+			 * state must be the next state (ns->nxstate).
+			 */
 			ns->stateidx = ns->npstates - 1;
 		} else {
 			ns->stateidx = ns->npstates;
@@ -1152,7 +1270,7 @@ static int find_operation(struct nandsim *ns, uint32_t flag)
 	}
 
 	if (opsfound == 0) {
-		
+		/* Nothing was found. Try to ignore previous commands (if any) and search again */
 		if (ns->npstates != 0) {
 			NS_DBG("find_operation: no operation found, try again with state %s\n",
 					get_state_name(ns->state));
@@ -1166,7 +1284,7 @@ static int find_operation(struct nandsim *ns, uint32_t flag)
 	}
 
 	if (flag) {
-		
+		/* This shouldn't happen */
 		NS_DBG("find_operation: BUG, operation must be known if address is input\n");
 		return -2;
 	}
@@ -1186,6 +1304,7 @@ static void put_pages(struct nandsim *ns)
 		page_cache_release(ns->held_pages[i]);
 }
 
+/* Get page cache pages in advance to provide NOFS memory allocation */
 static int get_pages(struct nandsim *ns, struct file *file, size_t count, loff_t pos)
 {
 	pgoff_t index, start_index, end_index;
@@ -1268,11 +1387,17 @@ static ssize_t write_file(struct nandsim *ns, struct file *file, void *buf, size
 	return tx;
 }
 
+/*
+ * Returns a pointer to the current page.
+ */
 static inline union ns_mem *NS_GET_PAGE(struct nandsim *ns)
 {
 	return &(ns->pages[ns->regs.row]);
 }
 
+/*
+ * Retuns a pointer to the current byte, within the current page.
+ */
 static inline u_char *NS_PAGE_BYTE_OFF(struct nandsim *ns)
 {
 	return NS_GET_PAGE(ns)->byte + ns->regs.column + ns->regs.off;
@@ -1310,6 +1435,9 @@ void do_bit_flips(struct nandsim *ns, int num)
 	}
 }
 
+/*
+ * Fill the NAND buffer with data read from the specified page.
+ */
 static void read_page(struct nandsim *ns, int num)
 {
 	union ns_mem *mypage;
@@ -1351,6 +1479,9 @@ static void read_page(struct nandsim *ns, int num)
 	}
 }
 
+/*
+ * Erase all pages in the specified sector.
+ */
 static void erase_sector(struct nandsim *ns)
 {
 	union ns_mem *mypage;
@@ -1376,6 +1507,9 @@ static void erase_sector(struct nandsim *ns)
 	}
 }
 
+/*
+ * Program the specified page with the contents from the NAND buffer.
+ */
 static int prog_page(struct nandsim *ns, int num)
 {
 	int i;
@@ -1426,6 +1560,12 @@ static int prog_page(struct nandsim *ns, int num)
 	mypage = NS_GET_PAGE(ns);
 	if (mypage->byte == NULL) {
 		NS_DBG("prog_page: allocating page %d\n", ns->regs.row);
+		/*
+		 * We allocate memory with GFP_NOFS because a flash FS may
+		 * utilize this. If it is holding an FS lock, then gets here,
+		 * then kernel memory alloc runs writeback which goes to the FS
+		 * again and deadlocks. This was seen in practice.
+		 */
 		mypage->byte = kmem_cache_alloc(ns->nand_pages_slab, GFP_NOFS);
 		if (mypage->byte == NULL) {
 			NS_ERR("prog_page: error allocating memory for page %d\n", ns->regs.row);
@@ -1441,6 +1581,11 @@ static int prog_page(struct nandsim *ns, int num)
 	return 0;
 }
 
+/*
+ * If state has any action bit, perform this action.
+ *
+ * RETURNS: 0 if success, -1 if error.
+ */
 static int do_state_action(struct nandsim *ns, uint32_t action)
 {
 	int num;
@@ -1449,7 +1594,7 @@ static int do_state_action(struct nandsim *ns, uint32_t action)
 
 	action &= ACTION_MASK;
 
-	
+	/* Check that page address input is correct */
 	if (action != ACTION_SECERASE && ns->regs.row >= ns->geom.pgnum) {
 		NS_WARN("do_state_action: wrong page number (%#x)\n", ns->regs.row);
 		return -1;
@@ -1458,8 +1603,11 @@ static int do_state_action(struct nandsim *ns, uint32_t action)
 	switch (action) {
 
 	case ACTION_CPY:
+		/*
+		 * Copy page data to the internal buffer.
+		 */
 
-		
+		/* Column shouldn't be very large */
 		if (ns->regs.column >= (ns->geom.pgszoob - ns->regs.off)) {
 			NS_ERR("do_state_action: column number is too large\n");
 			break;
@@ -1483,6 +1631,9 @@ static int do_state_action(struct nandsim *ns, uint32_t action)
 		break;
 
 	case ACTION_SECERASE:
+		/*
+		 * Erase sector.
+		 */
 
 		if (ns->lines.wp) {
 			NS_ERR("do_state_action: device is write-protected, ignore sector erase\n");
@@ -1520,6 +1671,9 @@ static int do_state_action(struct nandsim *ns, uint32_t action)
 		break;
 
 	case ACTION_PRGPAGE:
+		/*
+		 * Program page - move internal buffer data to the page.
+		 */
 
 		if (ns->lines.wp) {
 			NS_WARN("do_state_action: device is write-protected, programm\n");
@@ -1579,9 +1733,16 @@ static int do_state_action(struct nandsim *ns, uint32_t action)
 	return 0;
 }
 
+/*
+ * Switch simulator's state.
+ */
 static void switch_state(struct nandsim *ns)
 {
 	if (ns->op) {
+		/*
+		 * The current operation have already been identified.
+		 * Just follow the states chain.
+		 */
 
 		ns->stateidx += 1;
 		ns->state = ns->nxstate;
@@ -1591,14 +1752,22 @@ static void switch_state(struct nandsim *ns)
 			"state: %s, nxstate: %s\n",
 			get_state_name(ns->state), get_state_name(ns->nxstate));
 
-		
+		/* See, whether we need to do some action */
 		if ((ns->state & ACTION_MASK) && do_state_action(ns, ns->state) < 0) {
 			switch_to_ready_state(ns, NS_STATUS_FAILED(ns));
 			return;
 		}
 
 	} else {
+		/*
+		 * We don't yet know which operation we perform.
+		 * Try to identify it.
+		 */
 
+		/*
+		 *  The only event causing the switch_state function to
+		 *  be called with yet unknown operation is new command.
+		 */
 		ns->state = get_state_by_command(ns->regs.command);
 
 		NS_DBG("switch_state: operation is unknown, try to find it\n");
@@ -1612,17 +1781,20 @@ static void switch_state(struct nandsim *ns)
 		}
 	}
 
-	
+	/* For 16x devices column means the page offset in words */
 	if ((ns->nxstate & STATE_ADDR_MASK) && ns->busw == 16) {
 		NS_DBG("switch_state: double the column number for 16x device\n");
 		ns->regs.column <<= 1;
 	}
 
 	if (NS_STATE(ns->nxstate) == STATE_READY) {
+		/*
+		 * The current state is the last. Return to STATE_READY
+		 */
 
 		u_char status = NS_STATUS_OK(ns);
 
-		
+		/* In case of data states, see if all bytes were input/output */
 		if ((ns->state & (STATE_DATAIN_MASK | STATE_DATAOUT_MASK))
 			&& ns->regs.count != ns->regs.num) {
 			NS_WARN("switch_state: not all bytes were processed, %d left\n",
@@ -1636,6 +1808,9 @@ static void switch_state(struct nandsim *ns)
 
 		return;
 	} else if (ns->nxstate & (STATE_DATAIN_MASK | STATE_DATAOUT_MASK)) {
+		/*
+		 * If the next state is data input/output, switch to it now
+		 */
 
 		ns->state      = ns->nxstate;
 		ns->nxstate    = ns->op[++ns->stateidx + 1];
@@ -1645,6 +1820,10 @@ static void switch_state(struct nandsim *ns)
 			"state: %s, nxstate: %s\n",
 			get_state_name(ns->state), get_state_name(ns->nxstate));
 
+		/*
+		 * Set the internal register to the count of bytes which
+		 * are expected to be input or output
+		 */
 		switch (NS_STATE(ns->state)) {
 			case STATE_DATAIN:
 			case STATE_DATAOUT:
@@ -1665,6 +1844,10 @@ static void switch_state(struct nandsim *ns)
 		}
 
 	} else if (ns->nxstate & STATE_ADDR_MASK) {
+		/*
+		 * If the next state is address input, set the internal
+		 * register to the number of expected address bytes
+		 */
 
 		ns->regs.count = 0;
 
@@ -1682,7 +1865,7 @@ static void switch_state(struct nandsim *ns)
 				break;
 
 			case STATE_ADDR_COLUMN:
-				
+				/* Column address is always 2 bytes */
 				ns->regs.num = ns->geom.pgaddrbytes - ns->geom.secaddrbytes;
 				break;
 
@@ -1690,6 +1873,9 @@ static void switch_state(struct nandsim *ns)
 				NS_ERR("switch_state: BUG! unknown address state\n");
 		}
 	} else {
+		/*
+		 * Just reset internal counters.
+		 */
 
 		ns->regs.num = 0;
 		ns->regs.count = 0;
@@ -1701,7 +1887,7 @@ static u_char ns_nand_read_byte(struct mtd_info *mtd)
 	struct nandsim *ns = ((struct nand_chip *)mtd->priv)->priv;
 	u_char outb = 0x00;
 
-	
+	/* Sanity and correctness checks */
 	if (!ns->lines.ce) {
 		NS_ERR("read_byte: chip is disabled, return %#x\n", (uint)outb);
 		return outb;
@@ -1716,13 +1902,13 @@ static u_char ns_nand_read_byte(struct mtd_info *mtd)
 		return outb;
 	}
 
-	
+	/* Status register may be read as many times as it is wanted */
 	if (NS_STATE(ns->state) == STATE_DATAOUT_STATUS) {
 		NS_DBG("read_byte: return %#x status\n", ns->regs.status);
 		return ns->regs.status;
 	}
 
-	
+	/* Check if there is any data in the internal buffer which may be read */
 	if (ns->regs.count == ns->regs.num) {
 		NS_WARN("read_byte: no more data to output, return %#x\n", (uint)outb);
 		return outb;
@@ -1750,6 +1936,10 @@ static u_char ns_nand_read_byte(struct mtd_info *mtd)
 	if (ns->regs.count == ns->regs.num) {
 		NS_DBG("read_byte: all bytes were read\n");
 
+		/*
+		 * The OPT_AUTOINCR allows to read next consecutive pages without
+		 * new read operation cycle.
+		 */
 		if ((ns->options & OPT_AUTOINCR) && NS_STATE(ns->state) == STATE_DATAOUT) {
 			ns->regs.count = 0;
 			if (ns->regs.row + 1 < ns->geom.pgnum)
@@ -1769,7 +1959,7 @@ static void ns_nand_write_byte(struct mtd_info *mtd, u_char byte)
 {
 	struct nandsim *ns = ((struct nand_chip *)mtd->priv)->priv;
 
-	
+	/* Sanity and correctness checks */
 	if (!ns->lines.ce) {
 		NS_ERR("write_byte: chip is disabled, ignore write\n");
 		return;
@@ -1790,7 +1980,7 @@ static void ns_nand_write_byte(struct mtd_info *mtd, u_char byte)
 			return;
 		}
 
-		
+		/* Check that the command byte is correct */
 		if (check_command(byte)) {
 			NS_ERR("write_byte: unknown command %#x\n", (uint)byte);
 			return;
@@ -1806,11 +1996,16 @@ static void ns_nand_write_byte(struct mtd_info *mtd, u_char byte)
 				ns->regs.row = row;
 		}
 
-		
+		/* Check if chip is expecting command */
 		if (NS_STATE(ns->nxstate) != STATE_UNKNOWN && !(ns->nxstate & STATE_CMD_MASK)) {
-			
+			/* Do not warn if only 2 id bytes are read */
 			if (!(ns->regs.command == NAND_CMD_READID &&
 			    NS_STATE(ns->state) == STATE_DATAOUT_ID && ns->regs.count == 2)) {
+				/*
+				 * We are in situation when something else (not command)
+				 * was expected but command was input. In this case ignore
+				 * previous command(s)/state(s) and accept the last one.
+				 */
 				NS_WARN("write_byte: command (%#x) wasn't expected, expected state is %s, "
 					"ignore previous states\n", (uint)byte, get_state_name(ns->nxstate));
 			}
@@ -1855,7 +2050,7 @@ static void ns_nand_write_byte(struct mtd_info *mtd, u_char byte)
 			}
 		}
 
-		
+		/* Check that chip is expecting address */
 		if (!(ns->nxstate & STATE_ADDR_MASK)) {
 			NS_ERR("write_byte: address (%#x) isn't expected, expected state is %s, "
 				"switch to STATE_READY\n", (uint)byte, get_state_name(ns->nxstate));
@@ -1863,7 +2058,7 @@ static void ns_nand_write_byte(struct mtd_info *mtd, u_char byte)
 			return;
 		}
 
-		
+		/* Check if this is expected byte */
 		if (ns->regs.count == ns->regs.num) {
 			NS_ERR("write_byte: no more address bytes expected\n");
 			switch_to_ready_state(ns, NS_STATUS_FAILED(ns));
@@ -1887,7 +2082,7 @@ static void ns_nand_write_byte(struct mtd_info *mtd, u_char byte)
 		 * The byte written is an input data.
 		 */
 
-		
+		/* Check that chip is expecting data input */
 		if (!(ns->state & STATE_DATAIN_MASK)) {
 			NS_ERR("write_byte: data input (%#x) isn't expected, state is %s, "
 				"switch to %s\n", (uint)byte,
@@ -1896,7 +2091,7 @@ static void ns_nand_write_byte(struct mtd_info *mtd, u_char byte)
 			return;
 		}
 
-		
+		/* Check if this is expected byte */
 		if (ns->regs.count == ns->regs.num) {
 			NS_WARN("write_byte: %u input bytes has already been accepted, ignore write\n",
 					ns->regs.num);
@@ -1946,7 +2141,7 @@ static void ns_nand_write_buf(struct mtd_info *mtd, const u_char *buf, int len)
 {
 	struct nandsim *ns = ((struct nand_chip *)mtd->priv)->priv;
 
-	
+	/* Check that chip is expecting data input */
 	if (!(ns->state & STATE_DATAIN_MASK)) {
 		NS_ERR("write_buf: data input isn't expected, state is %s, "
 			"switch to STATE_READY\n", get_state_name(ns->state));
@@ -1954,7 +2149,7 @@ static void ns_nand_write_buf(struct mtd_info *mtd, const u_char *buf, int len)
 		return;
 	}
 
-	
+	/* Check if these are expected bytes */
 	if (ns->regs.count + len > ns->regs.num) {
 		NS_ERR("write_buf: too many input bytes\n");
 		switch_to_ready_state(ns, NS_STATUS_FAILED(ns));
@@ -1973,7 +2168,7 @@ static void ns_nand_read_buf(struct mtd_info *mtd, u_char *buf, int len)
 {
 	struct nandsim *ns = ((struct nand_chip *)mtd->priv)->priv;
 
-	
+	/* Sanity and correctness checks */
 	if (!ns->lines.ce) {
 		NS_ERR("read_buf: chip is disabled\n");
 		return;
@@ -1997,7 +2192,7 @@ static void ns_nand_read_buf(struct mtd_info *mtd, u_char *buf, int len)
 		return;
 	}
 
-	
+	/* Check if these are expected bytes */
 	if (ns->regs.count + len > ns->regs.num) {
 		NS_ERR("read_buf: too many bytes to read\n");
 		switch_to_ready_state(ns, NS_STATUS_FAILED(ns));
@@ -2035,6 +2230,9 @@ static int ns_nand_verify_buf(struct mtd_info *mtd, const u_char *buf, int len)
 	}
 }
 
+/*
+ * Module initialization function
+ */
 static int __init ns_init_module(void)
 {
 	struct nand_chip *chip;
@@ -2046,7 +2244,7 @@ static int __init ns_init_module(void)
 		return -EINVAL;
 	}
 
-	
+	/* Allocate and initialize mtd_info, nand_chip and nandsim structures */
 	nsmtd = kzalloc(sizeof(struct mtd_info) + sizeof(struct nand_chip)
 				+ sizeof(struct nandsim), GFP_KERNEL);
 	if (!nsmtd) {
@@ -2058,6 +2256,9 @@ static int __init ns_init_module(void)
 	nand        = (struct nandsim *)(chip + 1);
 	chip->priv  = (void *)nand;
 
+	/*
+	 * Register simulator's callbacks.
+	 */
 	chip->cmd_ctrl	 = ns_hwcontrol;
 	chip->read_byte  = ns_nand_read_byte;
 	chip->dev_ready  = ns_device_ready;
@@ -2066,8 +2267,8 @@ static int __init ns_init_module(void)
 	chip->verify_buf = ns_nand_verify_buf;
 	chip->read_word  = ns_nand_read_word;
 	chip->ecc.mode   = NAND_ECC_SOFT;
-	
-	
+	/* The NAND_SKIP_BBTSCAN option is necessary for 'overridesize' */
+	/* and 'badblocks' parameters to work */
 	chip->options   |= NAND_SKIP_BBTSCAN;
 
 	switch (bbt) {
@@ -2082,13 +2283,17 @@ static int __init ns_init_module(void)
 		retval = -EINVAL;
 		goto error;
 	}
+	/*
+	 * Perform minimum nandsim structure initialization to handle
+	 * the initial ID read command correctly
+	 */
 	if (third_id_byte != 0xFF || fourth_id_byte != 0xFF)
 		nand->geom.idbytes = 4;
 	else
 		nand->geom.idbytes = 2;
 	nand->regs.status = NS_STATUS_OK(nand);
 	nand->nxstate = STATE_UNKNOWN;
-	nand->options |= OPT_PAGE256; 
+	nand->options |= OPT_PAGE256; /* temporary value */
 	nand->ids[0] = first_id_byte;
 	nand->ids[1] = second_id_byte;
 	nand->ids[2] = third_id_byte;
@@ -2124,10 +2329,10 @@ static int __init ns_init_module(void)
 			retval = -EINVAL;
 			goto error;
 		}
-		
+		/* use 512-byte ecc blocks */
 		eccsteps = nsmtd->writesize/512;
 		eccbytes = (bch*13+7)/8;
-		
+		/* do not bother supporting small page devices */
 		if ((nsmtd->oobsize < 64) || !eccsteps) {
 			NS_ERR("bch not available on small page devices\n");
 			retval = -EINVAL;
@@ -2158,7 +2363,7 @@ static int __init ns_init_module(void)
 			NS_ERR("overridesize is too big\n");
 			goto err_exit;
 		}
-		
+		/* N.B. This relies on nand_scan not doing anything with the size before we change it */
 		nsmtd->size = new_size;
 		chip->chipsize = new_size;
 		chip->chip_shift = ffs(nsmtd->erasesize) + overridesize - 1;
@@ -2177,7 +2382,7 @@ static int __init ns_init_module(void)
 	if ((retval = parse_badblocks(nand, nsmtd)) != 0)
 		goto err_exit;
 
-	
+	/* Register NAND partitions */
 	retval = mtd_device_register(nsmtd, &nand->partitions[0],
 				     nand->nbparts);
 	if (retval != 0)
@@ -2199,16 +2404,19 @@ error:
 
 module_init(ns_init_module);
 
+/*
+ * Module clean-up function
+ */
 static void __exit ns_cleanup_module(void)
 {
 	struct nandsim *ns = ((struct nand_chip *)nsmtd->priv)->priv;
 	int i;
 
-	free_nandsim(ns);    
-	nand_release(nsmtd); 
+	free_nandsim(ns);    /* Free nandsim private resources */
+	nand_release(nsmtd); /* Unregister driver */
 	for (i = 0;i < ARRAY_SIZE(ns->partitions); ++i)
 		kfree(ns->partitions[i].name);
-	kfree(nsmtd);        
+	kfree(nsmtd);        /* Free other structures */
 	free_lists();
 }
 

@@ -100,12 +100,12 @@ struct iwm_if_ops;
 struct iwm_wifi_cmd;
 
 struct pool_entry {
-	int id;		
-	int sid;	
-	int min_pages;	
-	int max_pages;	
-	int alloc_pages;	
-	int total_freed_pages;	
+	int id;		/* group id */
+	int sid;	/* super group id */
+	int min_pages;	/* min capacity in pages */
+	int max_pages;	/* max capacity in pages */
+	int alloc_pages;	/* allocated # of pages. incresed by driver */
+	int total_freed_pages;	/* total freed # of pages. incresed by UMAC */
 };
 
 struct spool_entry {
@@ -117,7 +117,7 @@ struct spool_entry {
 struct iwm_tx_credit {
 	spinlock_t lock;
 	int pool_nr;
-	unsigned long full_pools_map; 
+	unsigned long full_pools_map; /* bitmap for # of filled tx pools */
 	struct pool_entry pools[IWM_MACS_OUT_GROUPS];
 	struct spool_entry spools[IWM_MACS_OUT_SGROUPS];
 };
@@ -161,7 +161,7 @@ struct iwm_rx_info {
 struct iwm_umac_key_hdr {
 	u8 mac[ETH_ALEN];
 	u8 key_idx;
-	u8 multicast; 
+	u8 multicast; /* BCast encrypt & BCast decrypt of frames FROM mac */
 } __packed;
 
 struct iwm_key {
@@ -201,6 +201,7 @@ struct iwm_tx_queue {
 	u8 *concat_ptr;
 };
 
+/* Queues 0 ~ 3 for AC data, 5 for iPAN */
 #define IWM_TX_QUEUES		5
 #define IWM_TX_DATA_QUEUES	4
 #define IWM_TX_CMD_QUEUE	4
@@ -350,11 +351,13 @@ void iwm_link_off(struct iwm_priv *iwm);
 int iwm_up(struct iwm_priv *iwm);
 int iwm_down(struct iwm_priv *iwm);
 
+/* TX API */
 int iwm_tid_to_queue(u16 tid);
 void iwm_tx_credit_inc(struct iwm_priv *iwm, int id, int total_freed_pages);
 void iwm_tx_worker(struct work_struct *work);
 int iwm_xmit_frame(struct sk_buff *skb, struct net_device *netdev);
 
+/* RX API */
 void iwm_rx_setup_handlers(struct iwm_priv *iwm);
 int iwm_rx_handle(struct iwm_priv *iwm, u8 *buf, unsigned long buf_size);
 int iwm_rx_handle_resp(struct iwm_priv *iwm, u8 *buf, unsigned long buf_size,

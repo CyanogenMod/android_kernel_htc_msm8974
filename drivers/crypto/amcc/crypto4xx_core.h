@@ -50,16 +50,21 @@ struct pd_uinfo {
 	struct crypto4xx_device *dev;
 	u32   state;
 	u32 using_sd;
-	u32 first_gd;		
-	u32 num_gd;             
-	u32 first_sd;		
-	u32 num_sd;		
-	void *sa_va;		
+	u32 first_gd;		/* first gather discriptor
+				used by this packet */
+	u32 num_gd;             /* number of gather discriptor
+				used by this packet */
+	u32 first_sd;		/* first scatter discriptor
+				used by this packet */
+	u32 num_sd;		/* number of scatter discriptors
+				used by this packet */
+	void *sa_va;		/* shadow sa, when using cp from ctx->sa */
 	u32 sa_pa;
-	void *sr_va;		
+	void *sr_va;		/* state record for shadow sa */
 	u32 sr_pa;
 	struct scatterlist *dest_va;
-	struct crypto_async_request *async_req; 	
+	struct crypto_async_request *async_req; 	/* base crypto request
+							for this packet */
 };
 
 struct crypto4xx_device {
@@ -68,19 +73,23 @@ struct crypto4xx_device {
 	u64  ce_phy_address;
 	void __iomem *ce_base;
 
-	void *pdr;			
-	dma_addr_t pdr_pa;		
-	void *gdr;                      
-	dma_addr_t gdr_pa;		
-	void *sdr;			
-	dma_addr_t sdr_pa;		
+	void *pdr;			/* base address of packet
+					descriptor ring */
+	dma_addr_t pdr_pa;		/* physical address used to
+					program ce pdr_base_register */
+	void *gdr;                      /* gather descriptor ring */
+	dma_addr_t gdr_pa;		/* physical address used to
+					program ce gdr_base_register */
+	void *sdr;			/* scatter descriptor ring */
+	dma_addr_t sdr_pa;		/* physical address used to
+					program ce sdr_base_register */
 	void *scatter_buffer_va;
 	dma_addr_t scatter_buffer_pa;
 	u32 scatter_buffer_size;
 
-	void *shadow_sa_pool;		
+	void *shadow_sa_pool;		/* pool of memory for sa in pd_uinfo */
 	dma_addr_t shadow_sa_pool_pa;
-	void *shadow_sr_pool;		
+	void *shadow_sr_pool;		/* pool of memory for sr in pd_uinfo */
 	dma_addr_t shadow_sr_pool_pa;
 	u32 pdr_tail;
 	u32 pdr_head;
@@ -89,7 +98,8 @@ struct crypto4xx_device {
 	u32 sdr_tail;
 	u32 sdr_head;
 	void *pdr_uinfo;
-	struct list_head alg_list;	
+	struct list_head alg_list;	/* List of algorithm supported
+					by this device */
 };
 
 struct crypto4xx_core_device {
@@ -111,7 +121,7 @@ struct crypto4xx_ctx {
 	void *state_record;
 	dma_addr_t state_record_dma_addr;
 	u32 sa_len;
-	u32 offset_to_sr_ptr;           
+	u32 offset_to_sr_ptr;           /* offset to state ptr, in dynamic sa */
 	u32 direction;
 	u32 next_hdr;
 	u32 save_iv;
@@ -123,7 +133,8 @@ struct crypto4xx_ctx {
 };
 
 struct crypto4xx_req_ctx {
-	struct crypto4xx_device *dev;	
+	struct crypto4xx_device *dev;	/* Device in which
+					operation to send to */
 	void *sa;
 	u32 sa_dma_addr;
 	u16 sa_len;

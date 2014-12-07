@@ -17,7 +17,7 @@ static struct {
 	uint32_t reg;
 	uint32_t val;
 } csc_matrix_config_table[] = {
-	
+	/* RGB -> YUV primary forward matrix (set1). */
 	{ MDP_CSC_PFMVn(0), 0x83 },
 	{ MDP_CSC_PFMVn(1), 0x102 },
 	{ MDP_CSC_PFMVn(2), 0x32 },
@@ -28,7 +28,7 @@ static struct {
 	{ MDP_CSC_PFMVn(7), 0xffffff45 },
 	{ MDP_CSC_PFMVn(8), 0xffffffdc },
 
-	
+	/* YUV -> RGB primary reverse matrix (set2) */
 	{ MDP_CSC_PRMVn(0), 0x254 },
 	{ MDP_CSC_PRMVn(1), 0x0 },
 	{ MDP_CSC_PRMVn(2), 0x331 },
@@ -40,23 +40,23 @@ static struct {
 	{ MDP_CSC_PRMVn(8), 0x0 },
 
 #ifndef CONFIG_MSM_MDP31
-	
+	/* For MDP 2.2/3.0 */
 
-	
+	/* primary limit vector */
 	{ MDP_CSC_PLVn(0), 0x10 },
 	{ MDP_CSC_PLVn(1), 0xeb },
 	{ MDP_CSC_PLVn(2), 0x10 },
 	{ MDP_CSC_PLVn(3), 0xf0 },
 
-	
+	/* primary bias vector */
 	{ MDP_CSC_PBVn(0), 0x10 },
 	{ MDP_CSC_PBVn(1), 0x80 },
 	{ MDP_CSC_PBVn(2), 0x80 },
 
-#else 
+#else /* CONFIG_MSM_MDP31 */
 
-	
-	
+	/* limit vectors configuration */
+	/* rgb -> yuv (set1) pre-limit vector */
 	{ MDP_PPP_CSC_PRE_LV1n(0), 0x10 },
 	{ MDP_PPP_CSC_PRE_LV1n(1), 0xeb },
 	{ MDP_PPP_CSC_PRE_LV1n(2), 0x10 },
@@ -64,7 +64,7 @@ static struct {
 	{ MDP_PPP_CSC_PRE_LV1n(4), 0x10 },
 	{ MDP_PPP_CSC_PRE_LV1n(5), 0xf0 },
 
-	
+	/* rgb -> yuv (set1) post-limit vector */
 	{ MDP_PPP_CSC_POST_LV1n(0), 0x0 },
 	{ MDP_PPP_CSC_POST_LV1n(1), 0xff },
 	{ MDP_PPP_CSC_POST_LV1n(2), 0x0 },
@@ -72,7 +72,7 @@ static struct {
 	{ MDP_PPP_CSC_POST_LV1n(4), 0x0 },
 	{ MDP_PPP_CSC_POST_LV1n(5), 0xff },
 
-	
+	/* yuv -> rgb (set2) pre-limit vector */
 	{ MDP_PPP_CSC_PRE_LV2n(0), 0x0 },
 	{ MDP_PPP_CSC_PRE_LV2n(1), 0xff },
 	{ MDP_PPP_CSC_PRE_LV2n(2), 0x0 },
@@ -80,7 +80,7 @@ static struct {
 	{ MDP_PPP_CSC_PRE_LV2n(4), 0x0 },
 	{ MDP_PPP_CSC_PRE_LV2n(5), 0xff },
 
-	
+	/* yuv -> rgb (set2) post-limit vector */
 	{ MDP_PPP_CSC_POST_LV2n(0), 0x10 },
 	{ MDP_PPP_CSC_POST_LV2n(1), 0xeb },
 	{ MDP_PPP_CSC_POST_LV2n(2), 0x10 },
@@ -88,31 +88,33 @@ static struct {
 	{ MDP_PPP_CSC_POST_LV2n(4), 0x10 },
 	{ MDP_PPP_CSC_POST_LV2n(5), 0xf0 },
 
-	
+	/* bias vectors configuration */
 
-	
+	/* XXX: why is set2 used for rgb->yuv, but set1 */
+	/* used for yuv -> rgb??!? Seems to be the reverse of the
+	 * other vectors. */
 
-	
+	/* RGB -> YUV pre-bias vector... */
 	{ MDP_PPP_CSC_PRE_BV2n(0), 0 },
 	{ MDP_PPP_CSC_PRE_BV2n(1), 0 },
 	{ MDP_PPP_CSC_PRE_BV2n(2), 0 },
 
-	
+	/* RGB -> YUV post-bias vector */
 	{ MDP_PPP_CSC_POST_BV2n(0), 0x10 },
 	{ MDP_PPP_CSC_POST_BV2n(1), 0x80 },
 	{ MDP_PPP_CSC_POST_BV2n(2), 0x80 },
 
-	
+	/* YUV -> RGB pre-bias vector... */
 	{ MDP_PPP_CSC_PRE_BV1n(0), 0x1f0 },
 	{ MDP_PPP_CSC_PRE_BV1n(1), 0x180 },
 	{ MDP_PPP_CSC_PRE_BV1n(2), 0x180 },
 
-	
+	/* YUV -> RGB post-bias vector */
 	{ MDP_PPP_CSC_POST_BV1n(0), 0 },
 	{ MDP_PPP_CSC_POST_BV1n(1), 0 },
 	{ MDP_PPP_CSC_POST_BV1n(2), 0 },
 
-	
+	/* luma filter coefficients */
 	{ MDP_PPP_DEINT_COEFFn(0), 0x3e0 },
 	{ MDP_PPP_DEINT_COEFFn(1), 0x360 },
 	{ MDP_PPP_DEINT_COEFFn(2), 0x120 },

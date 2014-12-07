@@ -5,6 +5,9 @@
  *	Toby Deshane
  */
 
+/*
+ * InterAct digital gamepad/joystick driver for Linux
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -41,12 +44,12 @@ MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
-#define INTERACT_MAX_START	600	
-#define INTERACT_MAX_STROBE	60	
-#define INTERACT_MAX_LENGTH	32	
+#define INTERACT_MAX_START	600	/* 400 us */
+#define INTERACT_MAX_STROBE	60	/* 40 us */
+#define INTERACT_MAX_LENGTH	32	/* 32 bits */
 
-#define INTERACT_TYPE_HHFX	0	
-#define INTERACT_TYPE_PP8D	1	
+#define INTERACT_TYPE_HHFX	0	/* HammerHead/FX */
+#define INTERACT_TYPE_PP8D	1	/* ProPad 8 */
 
 struct interact {
 	struct gameport *gameport;
@@ -82,6 +85,9 @@ static struct interact_type interact_type[] = {
 	{ 0x53f8, interact_abs_pp8d, interact_btn_pp8d, "InterAct ProPad 8 Digital", 16, 0 },
 	{ 0 }};
 
+/*
+ * interact_read_packet() reads and InterAct joystick data.
+ */
 
 static int interact_read_packet(struct gameport *gameport, int length, u32 *data)
 {
@@ -116,6 +122,9 @@ static int interact_read_packet(struct gameport *gameport, int length, u32 *data
 	return i;
 }
 
+/*
+ * interact_poll() reads and analyzes InterAct joystick data.
+ */
 
 static void interact_poll(struct gameport *gameport)
 {
@@ -168,6 +177,9 @@ static void interact_poll(struct gameport *gameport)
 	input_sync(dev);
 }
 
+/*
+ * interact_open() is a callback from the input open routine.
+ */
 
 static int interact_open(struct input_dev *dev)
 {
@@ -177,6 +189,9 @@ static int interact_open(struct input_dev *dev)
 	return 0;
 }
 
+/*
+ * interact_close() is a callback from the input close routine.
+ */
 
 static void interact_close(struct input_dev *dev)
 {
@@ -185,6 +200,9 @@ static void interact_close(struct input_dev *dev)
 	gameport_stop_polling(interact->gameport);
 }
 
+/*
+ * interact_connect() probes for InterAct joysticks.
+ */
 
 static int interact_connect(struct gameport *gameport, struct gameport_driver *drv)
 {

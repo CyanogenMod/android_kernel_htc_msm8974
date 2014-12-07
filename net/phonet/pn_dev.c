@@ -59,6 +59,7 @@ struct phonet_device_list *phonet_device_list(struct net *net)
 	return &pnn->pndevs;
 }
 
+/* Allocate new Phonet device. */
 static struct phonet_device *__phonet_device_alloc(struct net_device *dev)
 {
 	struct phonet_device_list *pndevs = phonet_device_list(dev_net(dev));
@@ -149,7 +150,7 @@ int phonet_address_add(struct net_device *dev, u8 addr)
 	int err = 0;
 
 	mutex_lock(&pndevs->lock);
-	
+	/* Find or create Phonet-specific device data */
 	pnd = __phonet_get(dev);
 	if (pnd == NULL)
 		pnd = __phonet_device_alloc(dev);
@@ -184,6 +185,7 @@ int phonet_address_del(struct net_device *dev, u8 addr)
 	return err;
 }
 
+/* Gets a source address toward a destination, through a interface. */
 u8 phonet_address_get(struct net_device *dev, u8 daddr)
 {
 	struct phonet_device *pnd;
@@ -194,7 +196,7 @@ u8 phonet_address_get(struct net_device *dev, u8 daddr)
 	if (pnd) {
 		BUG_ON(bitmap_empty(pnd->addrs, 64));
 
-		
+		/* Use same source address as destination, if possible */
 		if (test_bit(daddr >> 2, pnd->addrs))
 			saddr = daddr;
 		else
@@ -204,7 +206,7 @@ u8 phonet_address_get(struct net_device *dev, u8 daddr)
 	rcu_read_unlock();
 
 	if (saddr == PN_NO_ADDR) {
-		
+		/* Fallback to another device */
 		struct net_device *def_dev;
 
 		def_dev = phonet_device_get(dev_net(dev));
@@ -225,7 +227,7 @@ int phonet_address_lookup(struct net *net, u8 addr)
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(pnd, &pndevs->list, list) {
-		
+		/* Don't allow unregistering devices! */
 		if ((pnd->netdev->reg_state != NETREG_REGISTERED) ||
 				((pnd->netdev->flags & IFF_UP)) != IFF_UP)
 			continue;
@@ -240,6 +242,7 @@ found:
 	return err;
 }
 
+/* automatically configure a Phonet device, if supported */
 static int phonet_device_autoconf(struct net_device *dev)
 {
 	struct if_phonet_req req;
@@ -268,7 +271,7 @@ static void phonet_route_autodel(struct net_device *dev)
 	unsigned i;
 	DECLARE_BITMAP(deleted, 64);
 
-	
+	/* Remove left-over Phonet routes */
 	bitmap_zero(deleted, 64);
 	mutex_lock(&pnn->routes.lock);
 	for (i = 0; i < 64; i++)
@@ -279,7 +282,7 @@ static void phonet_route_autodel(struct net_device *dev)
 	mutex_unlock(&pnn->routes.lock);
 
 	if (bitmap_empty(deleted, 64))
-		return; 
+		return; /* short-circuit RCU */
 	synchronize_rcu();
 	for_each_set_bit(i, deleted, 64) {
 		rtm_phonet_notify(RTM_DELROUTE, dev, i);
@@ -287,6 +290,7 @@ static void phonet_route_autodel(struct net_device *dev)
 	}
 }
 
+/* notify Phonet of device events */
 static int phonet_device_notify(struct notifier_block *me, unsigned long what,
 				void *arg)
 {
@@ -311,6 +315,7 @@ static struct notifier_block phonet_device_notifier = {
 	.priority = 0,
 };
 
+/* Per-namespace Phonet devices handling */
 static int __net_init phonet_init_net(struct net *net)
 {
 	struct phonet_net *pnn = phonet_pernet(net);
@@ -336,6 +341,7 @@ static struct pernet_operations phonet_net_ops = {
 	.size = sizeof(struct phonet_net),
 };
 
+/* Initialize Phonet devices list */
 int __init phonet_device_init(void)
 {
 	int err = register_pernet_subsys(&phonet_net_ops);
@@ -420,6 +426,6 @@ struct net_device *phonet_route_output(struct net *net, u8 daddr)
 	rcu_read_unlock();
 
 	if (!dev)
-		dev = phonet_device_get(net); 
+		dev = phonet_device_get(net); /* Default route */
 	return dev;
 }

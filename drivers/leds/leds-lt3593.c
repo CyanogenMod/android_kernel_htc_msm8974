@@ -39,6 +39,14 @@ static void lt3593_led_work(struct work_struct *work)
 	struct lt3593_led_data *led_dat =
 		container_of(work, struct lt3593_led_data, work);
 
+	/*
+	 * The LT3593 resets its internal current level register to the maximum
+	 * level on the first falling edge on the control pin. Each following
+	 * falling edge decreases the current level by 625uA. Up to 32 pulses
+	 * can be sent, so the maximum power reduction is 20mA.
+	 * After a timeout of 128us, the value is taken from the register and
+	 * applied is to the output driver.
+	 */
 
 	if (led_dat->new_level == 0) {
 		gpio_set_value_cansleep(led_dat->gpio, 0);
@@ -79,7 +87,7 @@ static int __devinit create_lt3593_led(const struct gpio_led *template,
 {
 	int ret, state;
 
-	
+	/* skip leds on GPIOs that aren't available */
 	if (!gpio_is_valid(template->gpio)) {
 		printk(KERN_INFO "%s: skipping unavailable LT3593 LED at gpio %d (%s)\n",
 				KBUILD_MODNAME, template->gpio, template->name);

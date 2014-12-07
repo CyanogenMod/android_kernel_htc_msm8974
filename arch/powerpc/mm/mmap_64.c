@@ -27,6 +27,16 @@
 #include <linux/random.h>
 #include <linux/sched.h>
 
+/*
+ * Top of mmap area (just below the process stack).
+ *
+ * Leave at least a ~128 MB hole on 32bit applications.
+ *
+ * On 64bit applications we randomise the stack by 1GB so we need to
+ * space our mmap start address by a further 1GB, otherwise there is a
+ * chance the mmap area will end up closer to the stack than our ulimit
+ * requires.
+ */
 #define MIN_GAP32 (128*1024*1024)
 #define MIN_GAP64 ((128 + 1024)*1024*1024UL)
 #define MIN_GAP ((is_32bit_task()) ? MIN_GAP32 : MIN_GAP64)
@@ -48,7 +58,7 @@ static unsigned long mmap_rnd(void)
 	unsigned long rnd = 0;
 
 	if (current->flags & PF_RANDOMIZE) {
-		
+		/* 8MB for 32bit, 1GB for 64bit */
 		if (is_32bit_task())
 			rnd = (long)(get_random_int() % (1<<(23-PAGE_SHIFT)));
 		else
@@ -69,8 +79,16 @@ static inline unsigned long mmap_base(void)
 	return PAGE_ALIGN(TASK_SIZE - gap - mmap_rnd());
 }
 
+/*
+ * This function, called very early during the creation of a new
+ * process VM image, sets up which VM layout function to use:
+ */
 void arch_pick_mmap_layout(struct mm_struct *mm)
 {
+	/*
+	 * Fall back to the standard layout if the personality
+	 * bit is set, or if the expected stack growth is unlimited:
+	 */
 	if (mmap_is_legacy()) {
 		mm->mmap_base = TASK_UNMAPPED_BASE;
 		mm->get_unmapped_area = arch_get_unmapped_area;

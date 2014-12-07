@@ -138,10 +138,10 @@ struct zd1201_frag {
 
 #define ZD1201_RATEB1	1
 #define ZD1201_RATEB2	2
-#define ZD1201_RATEB5	4	
+#define ZD1201_RATEB5	4	/* 5.5 really, but 5 is shorter :) */
 #define ZD1201_RATEB11	8
 
 #define ZD1201_CNFAUTHENTICATION_OPENSYSTEM	0x0001
 #define ZD1201_CNFAUTHENTICATION_SHAREDKEY	0x0002
 
-#endif 
+#endif /* _INCLUDE_ZD1201_H_ */

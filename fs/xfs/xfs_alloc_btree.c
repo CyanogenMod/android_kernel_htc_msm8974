@@ -80,7 +80,7 @@ xfs_allocbt_alloc_block(
 
 	XFS_BTREE_TRACE_CURSOR(cur, XBT_ENTRY);
 
-	
+	/* Allocate the new block from the freelist. If we can't, give up.  */
 	error = xfs_alloc_get_freelist(cur->bc_tp, cur->bc_private.a.agbp,
 				       &bno, 1);
 	if (error) {
@@ -125,6 +125,9 @@ xfs_allocbt_free_block(
 	return 0;
 }
 
+/*
+ * Update the longest extent in the AGF
+ */
 STATIC void
 xfs_allocbt_update_lastrec(
 	struct xfs_btree_cur	*cur,
@@ -143,6 +146,10 @@ xfs_allocbt_update_lastrec(
 
 	switch (reason) {
 	case LASTREC_UPDATE:
+		/*
+		 * If this is the last leaf block and it's the last record,
+		 * then update the size of the longest extent in the AG.
+		 */
 		if (ptr != xfs_btree_get_numrecs(block))
 			return;
 		len = rec->alloc.ar_blockcount;
@@ -301,7 +308,7 @@ xfs_allocbt_recs_inorder(
 			 be32_to_cpu(r2->alloc.ar_startblock));
 	}
 }
-#endif	
+#endif	/* DEBUG */
 
 static const struct xfs_btree_ops xfs_allocbt_ops = {
 	.rec_len		= sizeof(xfs_alloc_rec_t),
@@ -325,13 +332,16 @@ static const struct xfs_btree_ops xfs_allocbt_ops = {
 #endif
 };
 
-struct xfs_btree_cur *			
+/*
+ * Allocate a new allocation btree cursor.
+ */
+struct xfs_btree_cur *			/* new alloc btree cursor */
 xfs_allocbt_init_cursor(
-	struct xfs_mount	*mp,		
-	struct xfs_trans	*tp,		
-	struct xfs_buf		*agbp,		
-	xfs_agnumber_t		agno,		
-	xfs_btnum_t		btnum)		
+	struct xfs_mount	*mp,		/* file system mount point */
+	struct xfs_trans	*tp,		/* transaction pointer */
+	struct xfs_buf		*agbp,		/* buffer for agf structure */
+	xfs_agnumber_t		agno,		/* allocation group number */
+	xfs_btnum_t		btnum)		/* btree identifier */
 {
 	struct xfs_agf		*agf = XFS_BUF_TO_AGF(agbp);
 	struct xfs_btree_cur	*cur;
@@ -359,6 +369,9 @@ xfs_allocbt_init_cursor(
 	return cur;
 }
 
+/*
+ * Calculate number of records in an alloc btree block.
+ */
 int
 xfs_allocbt_maxrecs(
 	struct xfs_mount	*mp,

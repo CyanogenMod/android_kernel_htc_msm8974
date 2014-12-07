@@ -18,12 +18,12 @@
 
 #ifndef __ASSEMBLY__
 
-#define MN10300_IOCLK		100000000UL		
-		
-#define MN10300_IOBCLK		MN10300_IOCLK		
+#define MN10300_IOCLK		100000000UL		/* for DDR800 */
+/*#define MN10300_IOCLK		83333333UL */		/* for DDR667 */
+#define MN10300_IOBCLK		MN10300_IOCLK		/* IOBCLK is equal to IOCLK */
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #define MN10300_WDCLK		27000000UL
 
-#endif 
+#endif /* _ASM_UNIT_CLOCK_H */

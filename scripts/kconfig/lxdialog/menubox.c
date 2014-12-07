@@ -19,11 +19,50 @@
  *  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*
+ *  Changes by Clifford Wolf (god@clifford.at)
+ *
+ *  [ 1998-06-13 ]
+ *
+ *    *)  A bugfix for the Page-Down problem
+ *
+ *    *)  Formerly when I used Page Down and Page Up, the cursor would be set 
+ *        to the first position in the menu box.  Now lxdialog is a bit
+ *        smarter and works more like other menu systems (just have a look at
+ *        it).
+ *
+ *    *)  Formerly if I selected something my scrolling would be broken because
+ *        lxdialog is re-invoked by the Menuconfig shell script, can't
+ *        remember the last scrolling position, and just sets it so that the
+ *        cursor is at the bottom of the box.  Now it writes the temporary file
+ *        lxdialog.scrltmp which contains this information. The file is
+ *        deleted by lxdialog if the user leaves a submenu or enters a new
+ *        one, but it would be nice if Menuconfig could make another "rm -f"
+ *        just to be sure.  Just try it out - you will recognise a difference!
+ *
+ *  [ 1998-06-14 ]
+ *
+ *    *)  Now lxdialog is crash-safe against broken "lxdialog.scrltmp" files
+ *        and menus change their size on the fly.
+ *
+ *    *)  If for some reason the last scrolling position is not saved by
+ *        lxdialog, it sets the scrolling so that the selected item is in the
+ *        middle of the menu box, not at the bottom.
+ *
+ * 02 January 1999, Michael Elizabeth Chastain (mec@shout.net)
+ * Reset 'scroll' to 0 if the value from lxdialog.scrltmp is bogus.
+ * This fixes a bug in Menuconfig where using ' ' to descend into menus
+ * would leave mis-synchronized lxdialog.scrltmp files lying around,
+ * fscanf would read in 'scroll', and eventually that value would get used.
+ */
 
 #include "dialog.h"
 
 static int menu_width, item_x;
 
+/*
+ * Print menu item
+ */
 static void do_print_item(WINDOW * win, const char *item, int line_y,
                           int selected, int hotkey)
 {
@@ -34,7 +73,7 @@ static void do_print_item(WINDOW * win, const char *item, int line_y,
 	menu_item[menu_width - item_x] = '\0';
 	j = first_alpha(menu_item, "YyNnMmHh");
 
-	
+	/* Clear 'residue' of last item */
 	wattrset(win, dlg.menubox.atr);
 	wmove(win, line_y, 0);
 #if OLD_NCURSES
@@ -66,6 +105,9 @@ do {									\
 	do_print_item(menu, item_str(), choice, selected, !item_is_tag(':')); \
 } while (0)
 
+/*
+ * Print the scroll indicators.
+ */
 static void print_arrows(WINDOW * win, int item_no, int scroll, int y, int x,
 			 int height)
 {
@@ -107,6 +149,9 @@ static void print_arrows(WINDOW * win, int item_no, int scroll, int y, int x,
 	wrefresh(win);
 }
 
+/*
+ * Display the termination buttons.
+ */
 static void print_buttons(WINDOW * win, int height, int width, int selected)
 {
 	int x = width / 2 - 16;
@@ -120,9 +165,10 @@ static void print_buttons(WINDOW * win, int height, int width, int selected)
 	wrefresh(win);
 }
 
+/* scroll up n lines (n may be negative) */
 static void do_scroll(WINDOW *win, int *scroll, int n)
 {
-	
+	/* Scroll menu up */
 	scrollok(win, TRUE);
 	wscrl(win, n);
 	scrollok(win, FALSE);
@@ -130,6 +176,9 @@ static void do_scroll(WINDOW *win, int *scroll, int n)
 	wrefresh(win);
 }
 
+/*
+ * Display a menu for choosing among a number of options
+ */
 int dialog_menu(const char *title, const char *prompt,
                 const void *selected, int *s_scroll)
 {
@@ -151,7 +200,7 @@ do_resize:
 
 	max_choice = MIN(menu_height, item_count());
 
-	
+	/* center dialog box on screen */
 	x = (COLS - width) / 2;
 	y = (LINES - height) / 2;
 
@@ -179,12 +228,12 @@ do_resize:
 	box_y = height - menu_height - 5;
 	box_x = (width - menu_width) / 2 - 1;
 
-	
+	/* create new window for the menu */
 	menu = subwin(dialog, menu_height, menu_width,
 		      y + box_y + 1, x + box_x + 1);
 	keypad(menu, TRUE);
 
-	
+	/* draw a box around the menu items */
 	draw_box(dialog, box_y, box_x, menu_height + 2, menu_width + 2,
 		 dlg.menubox_border.atr, dlg.menubox.atr);
 
@@ -193,11 +242,11 @@ do_resize:
 	else
 		item_x = 4;
 
-	
+	/* Set choice to default item */
 	item_foreach()
 		if (selected && (selected == item_data()))
 			choice = item_n();
-	
+	/* get the saved scroll info */
 	scroll = *s_scroll;
 	if ((scroll <= choice) && (scroll + max_choice > choice) &&
 	   (scroll >= 0) && (scroll + max_choice <= item_count())) {
@@ -214,7 +263,7 @@ do_resize:
 		choice = choice - scroll;
 	}
 
-	
+	/* Print the menu */
 	for (i = 0; i < max_choice; i++) {
 		print_item(first_item + i, i, i == choice);
 	}
@@ -256,12 +305,12 @@ do_resize:
 		    key == KEY_UP || key == KEY_DOWN ||
 		    key == '-' || key == '+' ||
 		    key == KEY_PPAGE || key == KEY_NPAGE) {
-			
+			/* Remove highligt of current item */
 			print_item(scroll + choice, choice, FALSE);
 
 			if (key == KEY_UP || key == '-') {
 				if (choice < 2 && scroll) {
-					
+					/* Scroll menu down */
 					do_scroll(menu, &scroll, -1);
 
 					print_item(scroll, 0, FALSE);
@@ -273,7 +322,7 @@ do_resize:
 
 				if ((choice > max_choice - 3) &&
 				    (scroll + max_choice < item_count())) {
-					
+					/* Scroll menu up */
 					do_scroll(menu, &scroll, 1);
 
 					print_item(scroll+max_choice - 1,
@@ -315,7 +364,7 @@ do_resize:
 			wnoutrefresh(dialog);
 			wrefresh(menu);
 
-			continue;	
+			continue;	/* wait for another key press */
 		}
 
 		switch (key) {
@@ -338,7 +387,7 @@ do_resize:
 		case '?':
 		case 'z':
 		case '\n':
-			
+			/* save scroll info */
 			*s_scroll = scroll;
 			delwin(menu);
 			delwin(dialog);
@@ -381,5 +430,5 @@ do_resize:
 	}
 	delwin(menu);
 	delwin(dialog);
-	return key;		
+	return key;		/* ESC pressed */
 }

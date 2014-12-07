@@ -46,38 +46,41 @@
 #define find_next_offset(map, off) find_next_zero_bit((map)->page, \
 						      BITS_PER_PAGE, off)
 
+/*
+ * Convert the AETH credit code into the number of credits.
+ */
 static u32 credit_table[31] = {
-	0,			
-	1,			
-	2,			
-	3,			
-	4,			
-	6,			
-	8,			
-	12,			
-	16,			
-	24,			
-	32,			
-	48,			
-	64,			
-	96,			
-	128,			
-	192,			
-	256,			
-	384,			
-	512,			
-	768,			
-	1024,			
-	1536,			
-	2048,			
-	3072,			
-	4096,			
-	6144,			
-	8192,			
-	12288,			
-	16384,			
-	24576,			
-	32768			
+	0,			/* 0 */
+	1,			/* 1 */
+	2,			/* 2 */
+	3,			/* 3 */
+	4,			/* 4 */
+	6,			/* 5 */
+	8,			/* 6 */
+	12,			/* 7 */
+	16,			/* 8 */
+	24,			/* 9 */
+	32,			/* A */
+	48,			/* B */
+	64,			/* C */
+	96,			/* D */
+	128,			/* E */
+	192,			/* F */
+	256,			/* 10 */
+	384,			/* 11 */
+	512,			/* 12 */
+	768,			/* 13 */
+	1024,			/* 14 */
+	1536,			/* 15 */
+	2048,			/* 16 */
+	3072,			/* 17 */
+	4096,			/* 18 */
+	6144,			/* 19 */
+	8192,			/* 1A */
+	12288,			/* 1B */
+	16384,			/* 1C */
+	24576,			/* 1D */
+	32768			/* 1E */
 };
 
 
@@ -86,6 +89,9 @@ static void get_map_page(struct ipath_qp_table *qpt, struct qpn_map *map)
 	unsigned long page = get_zeroed_page(GFP_KERNEL);
 	unsigned long flags;
 
+	/*
+	 * Free the page if someone raced with us installing it.
+	 */
 
 	spin_lock_irqsave(&qpt->lock, flags);
 	if (map->page)
@@ -145,8 +151,21 @@ static int alloc_qpn(struct ipath_qp_table *qpt, enum ib_qp_type type)
 				}
 				offset = find_next_offset(map, offset);
 				qpn = mk_qpn(qpt, map, offset);
+				/*
+				 * This test differs from alloc_pidmap().
+				 * If find_next_offset() does find a zero
+				 * bit, we don't need to check for QPN
+				 * wrapping around past our starting QPN.
+				 * We just need to be sure we don't loop
+				 * forever.
+				 */
 			} while (offset < BITS_PER_PAGE && qpn < QPN_MAX);
 		}
+		/*
+		 * In order to keep the number of pages allocated to a
+		 * minimum, we scan the all existing pages before increasing
+		 * the size of the bitmap table.
+		 */
 		if (++i > max_scan) {
 			if (qpt->nmaps == QPNMAP_ENTRIES)
 				break;
@@ -178,6 +197,15 @@ static void free_qpn(struct ipath_qp_table *qpt, u32 qpn)
 	atomic_inc(&map->n_free);
 }
 
+/**
+ * ipath_alloc_qpn - allocate a QP number
+ * @qpt: the QP table
+ * @qp: the QP
+ * @type: the QP type (IB_QPT_SMI and IB_QPT_GSI are special)
+ *
+ * Allocate the next available QPN and put the QP into the hash table.
+ * The hash table holds a reference to the QP.
+ */
 static int ipath_alloc_qpn(struct ipath_qp_table *qpt, struct ipath_qp *qp,
 			   enum ib_qp_type type)
 {
@@ -189,7 +217,7 @@ static int ipath_alloc_qpn(struct ipath_qp_table *qpt, struct ipath_qp *qp,
 		goto bail;
 	qp->ibqp.qp_num = ret;
 
-	
+	/* Add the QP to the hash table. */
 	spin_lock_irqsave(&qpt->lock, flags);
 
 	ret %= qpt->max;
@@ -204,6 +232,14 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_free_qp - remove a QP from the QP table
+ * @qpt: the QP table
+ * @qp: the QP to remove
+ *
+ * Remove the QP from the table so it can't be found asynchronously by
+ * the receive interrupt routine.
+ */
 static void ipath_free_qp(struct ipath_qp_table *qpt, struct ipath_qp *qp)
 {
 	struct ipath_qp *q, **qpp;
@@ -211,7 +247,7 @@ static void ipath_free_qp(struct ipath_qp_table *qpt, struct ipath_qp *qp)
 
 	spin_lock_irqsave(&qpt->lock, flags);
 
-	
+	/* Remove QP from the hash table. */
 	qpp = &qpt->table[qp->ibqp.qp_num % qpt->max];
 	for (; (q = *qpp) != NULL; qpp = &q->next) {
 		if (q == qp) {
@@ -225,6 +261,13 @@ static void ipath_free_qp(struct ipath_qp_table *qpt, struct ipath_qp *qp)
 	spin_unlock_irqrestore(&qpt->lock, flags);
 }
 
+/**
+ * ipath_free_all_qps - check for QPs still in use
+ * @qpt: the QP table to empty
+ *
+ * There should not be any QPs still in use.
+ * Free memory for table.
+ */
 unsigned ipath_free_all_qps(struct ipath_qp_table *qpt)
 {
 	unsigned long flags;
@@ -247,6 +290,14 @@ unsigned ipath_free_all_qps(struct ipath_qp_table *qpt)
 	return qp_inuse;
 }
 
+/**
+ * ipath_lookup_qpn - return the QP with the given QPN
+ * @qpt: the QP table
+ * @qpn: the QP number to look up
+ *
+ * The caller is responsible for decrementing the QP reference count
+ * when done.
+ */
 struct ipath_qp *ipath_lookup_qpn(struct ipath_qp_table *qpt, u32 qpn)
 {
 	unsigned long flags;
@@ -265,6 +316,11 @@ struct ipath_qp *ipath_lookup_qpn(struct ipath_qp_table *qpt, u32 qpn)
 	return qp;
 }
 
+/**
+ * ipath_reset_qp - initialize the QP state to the reset state
+ * @qp: the QP to reset
+ * @type: the QP type
+ */
 static void ipath_reset_qp(struct ipath_qp *qp, enum ib_qp_type type)
 {
 	qp->remote_qpn = 0;
@@ -307,6 +363,16 @@ static void ipath_reset_qp(struct ipath_qp *qp, enum ib_qp_type type)
 	}
 }
 
+/**
+ * ipath_error_qp - put a QP into the error state
+ * @qp: the QP to put into the error state
+ * @err: the receive completion error to signal if a RWQE is active
+ *
+ * Flushes both send and receive work queues.
+ * Returns true if last WQE event should be generated.
+ * The QP s_lock should be held and interrupts disabled.
+ * If we are already in error state, just return.
+ */
 
 int ipath_error_qp(struct ipath_qp *qp, enum ib_wc_status err)
 {
@@ -326,7 +392,7 @@ int ipath_error_qp(struct ipath_qp *qp, enum ib_wc_status err)
 		list_del_init(&qp->piowait);
 	spin_unlock(&dev->pending_lock);
 
-	
+	/* Schedule the sending tasklet to drain the send work queue. */
 	if (qp->s_last != qp->s_head)
 		ipath_schedule_send(qp);
 
@@ -348,7 +414,7 @@ int ipath_error_qp(struct ipath_qp *qp, enum ib_wc_status err)
 
 		spin_lock(&qp->r_rq.lock);
 
-		
+		/* sanity check pointers before trusting them */
 		wq = qp->r_rq.wq;
 		head = wq->head;
 		if (head >= qp->r_rq.size)
@@ -372,6 +438,15 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_modify_qp - modify the attributes of a queue pair
+ * @ibqp: the queue pair who's attributes we're modifying
+ * @attr: the new attributes
+ * @attr_mask: the mask of attributes to modify
+ * @udata: user data for ipathverbs.so
+ *
+ * Returns 0 on success, otherwise returns an errno.
+ */
 int ipath_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 		    int attr_mask, struct ib_udata *udata)
 {
@@ -414,6 +489,10 @@ int ipath_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 		    attr->port_num > ibqp->device->phys_port_cnt)
 			goto inval;
 
+	/*
+	 * don't allow invalid Path MTU values or greater than 2048
+	 * unless we are configured for a 4KB MTU
+	 */
 	if ((attr_mask & IB_QP_PATH_MTU) &&
 		(ib_mtu_enum_to_int(attr->path_mtu) == -1 ||
 		(attr->path_mtu > IB_MTU_2048 && !ipath_mtu4096)))
@@ -440,7 +519,7 @@ int ipath_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 			spin_unlock(&dev->pending_lock);
 			qp->s_flags &= ~IPATH_S_ANY_WAIT;
 			spin_unlock_irq(&qp->s_lock);
-			
+			/* Stop the sending tasklet */
 			tasklet_kill(&qp->s_task);
 			wait_event(qp->wait_dma, !atomic_read(&qp->s_dma_busy));
 			spin_lock_irq(&qp->s_lock);
@@ -589,11 +668,21 @@ int ipath_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *attr,
 	return 0;
 }
 
+/**
+ * ipath_compute_aeth - compute the AETH (syndrome + MSN)
+ * @qp: the queue pair to compute the AETH for
+ *
+ * Returns the AETH.
+ */
 __be32 ipath_compute_aeth(struct ipath_qp *qp)
 {
 	u32 aeth = qp->r_msn & IPATH_MSN_MASK;
 
 	if (qp->ibqp.srq) {
+		/*
+		 * Shared receive queues don't generate credits.
+		 * Set the credit field to the invalid value.
+		 */
 		aeth |= IPATH_AETH_CREDIT_INVAL << IPATH_AETH_CREDIT_SHIFT;
 	} else {
 		u32 min, max, x;
@@ -602,16 +691,25 @@ __be32 ipath_compute_aeth(struct ipath_qp *qp)
 		u32 head;
 		u32 tail;
 
-		
+		/* sanity check pointers before trusting them */
 		head = wq->head;
 		if (head >= qp->r_rq.size)
 			head = 0;
 		tail = wq->tail;
 		if (tail >= qp->r_rq.size)
 			tail = 0;
+		/*
+		 * Compute the number of credits available (RWQEs).
+		 * XXX Not holding the r_rq.lock here so there is a small
+		 * chance that the pair of reads are not atomic.
+		 */
 		credits = head - tail;
 		if ((int)credits < 0)
 			credits += qp->r_rq.size;
+		/*
+		 * Binary search the credit table to find the code to
+		 * use.
+		 */
 		min = 0;
 		max = 31;
 		for (;;) {
@@ -630,6 +728,16 @@ __be32 ipath_compute_aeth(struct ipath_qp *qp)
 	return cpu_to_be32(aeth);
 }
 
+/**
+ * ipath_create_qp - create a queue pair for a device
+ * @ibpd: the protection domain who's device we create the queue pair for
+ * @init_attr: the attributes of the queue pair
+ * @udata: unused by InfiniPath
+ *
+ * Returns the queue pair on success, otherwise returns an errno.
+ *
+ * Called by the ib_create_qp() core verbs function.
+ */
 struct ib_qp *ipath_create_qp(struct ib_pd *ibpd,
 			      struct ib_qp_init_attr *init_attr,
 			      struct ib_udata *udata)
@@ -653,7 +761,7 @@ struct ib_qp *ipath_create_qp(struct ib_pd *ibpd,
 		goto bail;
 	}
 
-	
+	/* Check receive queue parameters if no SRQ is specified. */
 	if (!init_attr->srq) {
 		if (init_attr->cap.max_recv_sge > ib_ipath_max_sges ||
 		    init_attr->cap.max_recv_wr > ib_ipath_max_qp_wrs) {
@@ -729,6 +837,10 @@ struct ib_qp *ipath_create_qp(struct ib_pd *ibpd,
 			}
 		}
 
+		/*
+		 * ib_create_qp() will initialize qp->ibqp
+		 * except for qp->ibqp.qp_num.
+		 */
 		spin_lock_init(&qp->s_lock);
 		spin_lock_init(&qp->r_rq.lock);
 		atomic_set(&qp->refcount, 0);
@@ -759,13 +871,17 @@ struct ib_qp *ipath_create_qp(struct ib_pd *ibpd,
 		break;
 
 	default:
-		
+		/* Don't support raw QPs */
 		ret = ERR_PTR(-ENOSYS);
 		goto bail;
 	}
 
 	init_attr->cap.max_inline_data = 0;
 
+	/*
+	 * Return the address of the RWQ as the offset to mmap.
+	 * See ipath_mmap() for details.
+	 */
 	if (udata && udata->outlen >= sizeof(__u64)) {
 		if (!qp->r_rq.wq) {
 			__u64 offset = 0;
@@ -834,12 +950,21 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_destroy_qp - destroy a queue pair
+ * @ibqp: the queue pair to destroy
+ *
+ * Returns 0 on success.
+ *
+ * Note that this can be called while the QP is actively sending or
+ * receiving!
+ */
 int ipath_destroy_qp(struct ib_qp *ibqp)
 {
 	struct ipath_qp *qp = to_iqp(ibqp);
 	struct ipath_ibdev *dev = to_idev(ibqp->device);
 
-	
+	/* Make sure HW and driver activity is stopped. */
 	spin_lock_irq(&qp->s_lock);
 	if (qp->state != IB_QPS_RESET) {
 		qp->state = IB_QPS_RESET;
@@ -851,7 +976,7 @@ int ipath_destroy_qp(struct ib_qp *ibqp)
 		spin_unlock(&dev->pending_lock);
 		qp->s_flags &= ~IPATH_S_ANY_WAIT;
 		spin_unlock_irq(&qp->s_lock);
-		
+		/* Stop the sending tasklet */
 		tasklet_kill(&qp->s_task);
 		wait_event(qp->wait_dma, !atomic_read(&qp->s_dma_busy));
 	} else
@@ -871,7 +996,7 @@ int ipath_destroy_qp(struct ib_qp *ibqp)
 
 	wait_event(qp->wait, !atomic_read(&qp->refcount));
 
-	
+	/* all user's cleaned up, mark it available */
 	free_qpn(&dev->qp_table, qp->ibqp.qp_num);
 	spin_lock(&dev->n_qps_lock);
 	dev->n_qps_allocated--;
@@ -887,12 +1012,19 @@ int ipath_destroy_qp(struct ib_qp *ibqp)
 	return 0;
 }
 
+/**
+ * ipath_init_qp_table - initialize the QP table for a device
+ * @idev: the device who's QP table we're initializing
+ * @size: the size of the QP table
+ *
+ * Returns 0 on success, otherwise returns an errno.
+ */
 int ipath_init_qp_table(struct ipath_ibdev *idev, int size)
 {
 	int i;
 	int ret;
 
-	idev->qp_table.last = 1;	
+	idev->qp_table.last = 1;	/* QPN 0 and 1 are special. */
 	idev->qp_table.max = size;
 	idev->qp_table.nmaps = 1;
 	idev->qp_table.table = kzalloc(size * sizeof(*idev->qp_table.table),
@@ -913,20 +1045,32 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_get_credit - flush the send work queue of a QP
+ * @qp: the qp who's send work queue to flush
+ * @aeth: the Acknowledge Extended Transport Header
+ *
+ * The QP s_lock should be held.
+ */
 void ipath_get_credit(struct ipath_qp *qp, u32 aeth)
 {
 	u32 credit = (aeth >> IPATH_AETH_CREDIT_SHIFT) & IPATH_AETH_CREDIT_MASK;
 
+	/*
+	 * If the credit is invalid, we can send
+	 * as many packets as we like.  Otherwise, we have to
+	 * honor the credit field.
+	 */
 	if (credit == IPATH_AETH_CREDIT_INVAL)
 		qp->s_lsn = (u32) -1;
 	else if (qp->s_lsn != (u32) -1) {
-		
+		/* Compute new LSN (i.e., MSN + credit) */
 		credit = (aeth + credit_table[credit]) & IPATH_MSN_MASK;
 		if (ipath_cmp24(credit, qp->s_lsn) > 0)
 			qp->s_lsn = credit;
 	}
 
-	
+	/* Restart sending if it was blocked due to lack of credits. */
 	if ((qp->s_flags & IPATH_S_WAIT_SSN_CREDIT) &&
 	    qp->s_cur != qp->s_head &&
 	    (qp->s_lsn == (u32) -1 ||

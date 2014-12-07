@@ -34,6 +34,8 @@ struct dib0700_adapter_state {
 	const struct firmware *frontend_firmware;
 };
 
+/* Hauppauge Nova-T 500 (aka Bristol)
+ *  has a LNA on GPIO0 which is enabled by setting 1 */
 static struct mt2060_config bristol_mt2060_config[2] = {
 	{
 		.i2c_address = 0x60,
@@ -128,11 +130,15 @@ static int bristol_tuner_attach(struct dvb_usb_adapter *adap)
 			  -ENODEV : 0;
 }
 
+/* STK7700D: Pinnacle/Terratec/Hauppauge Dual DVB-T Diversity */
 
+/* MT226x */
 static struct dibx000_agc_config stk7700d_7000p_mt2266_agc_config[2] = {
 	{
 		BAND_UHF,
 
+		/* P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0, P_agc_freq_pwm_div=1, P_agc_inv_pwm1=1, P_agc_inv_pwm2=1,
+		* P_agc_inh_dc_rv_est=0, P_agc_time_est=3, P_agc_freeze=0, P_agc_nb_est=2, P_agc_write=0 */
 		(0 << 15) | (0 << 14) | (1 << 11) | (1 << 10) | (1 << 9) | (0 << 8)
 	    | (3 << 5) | (0 << 4) | (5 << 1) | (0 << 0),
 
@@ -171,6 +177,8 @@ static struct dibx000_agc_config stk7700d_7000p_mt2266_agc_config[2] = {
 	}, {
 		BAND_VHF | BAND_LBAND,
 
+		/* P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0, P_agc_freq_pwm_div=1, P_agc_inv_pwm1=1, P_agc_inv_pwm2=1,
+		* P_agc_inh_dc_rv_est=0, P_agc_time_est=3, P_agc_freeze=0, P_agc_nb_est=2, P_agc_write=0 */
 		(0 << 15) | (0 << 14) | (1 << 11) | (1 << 10) | (1 << 9) | (0 << 8)
 	    | (3 << 5) | (0 << 4) | (2 << 1) | (0 << 0),
 
@@ -317,53 +325,59 @@ static int stk7700d_tuner_attach(struct dvb_usb_adapter *adap)
 		&stk7700d_mt2266_config[adap->id]) == NULL ? -ENODEV : 0;
 }
 
+/* STK7700-PH: Digital/Analog Hybrid Tuner, e.h. Cinergy HT USB HE */
 static struct dibx000_agc_config xc3028_agc_config = {
-	BAND_VHF | BAND_UHF,       
+	BAND_VHF | BAND_UHF,       /* band_caps */
 
+	/* P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0, P_agc_freq_pwm_div=0,
+	 * P_agc_inv_pwm1=0, P_agc_inv_pwm2=0, P_agc_inh_dc_rv_est=0,
+	 * P_agc_time_est=3, P_agc_freeze=0, P_agc_nb_est=2, P_agc_write=0 */
 	(0 << 15) | (0 << 14) | (0 << 11) | (0 << 10) | (0 << 9) | (0 << 8) |
-	(3 << 5) | (0 << 4) | (2 << 1) | (0 << 0), 
+	(3 << 5) | (0 << 4) | (2 << 1) | (0 << 0), /* setup */
 
-	712,	
-	21,	
+	712,	/* inv_gain */
+	21,	/* time_stabiliz */
 
-	0,	
-	118,	
+	0,	/* alpha_level */
+	118,	/* thlock */
 
-	0,	
-	2867,	
-	0,	
-	2,	
+	0,	/* wbd_inv */
+	2867,	/* wbd_ref */
+	0,	/* wbd_sel */
+	2,	/* wbd_alpha */
 
-	0,	
-	0,	
-	39718,	
-	9930,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0,	
-	0,	
-	128,	
-	29,	
-	29,	
+	0,	/* agc1_max */
+	0,	/* agc1_min */
+	39718,	/* agc2_max */
+	9930,	/* agc2_min */
+	0,	/* agc1_pt1 */
+	0,	/* agc1_pt2 */
+	0,	/* agc1_pt3 */
+	0,	/* agc1_slope1 */
+	0,	/* agc1_slope2 */
+	0,	/* agc2_pt1 */
+	128,	/* agc2_pt2 */
+	29,	/* agc2_slope1 */
+	29,	/* agc2_slope2 */
 
-	17,	
-	27,	
-	23,	
-	51,	
+	17,	/* alpha_mant */
+	27,	/* alpha_exp */
+	23,	/* beta_mant */
+	51,	/* beta_exp */
 
-	1,	
+	1,	/* perform_agc_softsplit */
 };
 
+/* PLL Configuration for COFDM BW_MHz = 8.00 with external clock = 30.00 */
 static struct dibx000_bandwidth_config xc3028_bw_config = {
-	60000, 30000, 
-	1, 8, 3, 1, 0, 
-	0, 0, 1, 1, 0, 
-	(3 << 14) | (1 << 12) | (524 << 0), 
-	(1 << 25) | 5816102, 
-	20452225, 
-	30000000, 
+	60000, 30000, /* internal, sampling */
+	1, 8, 3, 1, 0, /* pll_cfg: prediv, ratio, range, reset, bypass */
+	0, 0, 1, 1, 0, /* misc: refdiv, bypclk_div, IO_CLK_en_core, ADClkSrc,
+			  modulo */
+	(3 << 14) | (1 << 12) | (524 << 0), /* sad_cfg: refsel, sel, freq_15k */
+	(1 << 25) | 5816102, /* ifreq = 5.200000 MHz */
+	20452225, /* timf */
+	30000000, /* xtal_hz */
 };
 
 static struct dib7000p_config stk7700ph_dib7700_xc3028_config = {
@@ -386,7 +400,7 @@ static int stk7700ph_xc3028_callback(void *ptr, int component,
 
 	switch (command) {
 	case XC2028_TUNER_RESET:
-		
+		/* Send the tuner in then out of reset */
 		dib7000p_set_gpio(adap->fe_adap[0].fe, 8, 0, 0); msleep(10);
 		dib7000p_set_gpio(adap->fe_adap[0].fe, 8, 0, 1);
 		break;
@@ -453,7 +467,7 @@ static int stk7700ph_tuner_attach(struct dvb_usb_adapter *adap)
 
 	stk7700ph_xc3028_config.i2c_adap = tun_i2c;
 
-	
+	/* FIXME: generalize & move to common area */
 	adap->fe_adap[0].fe->callback = stk7700ph_xc3028_callback;
 
 	return dvb_attach(xc2028_attach, adap->fe_adap[0].fe, &stk7700ph_xc3028_config)
@@ -464,8 +478,14 @@ static int stk7700ph_tuner_attach(struct dvb_usb_adapter *adap)
 
 static u8 rc_request[] = { REQUEST_POLL_RC, 0 };
 
+/* Number of keypresses to ignore before start repeating */
 #define RC_REPEAT_DELAY 6
 
+/*
+ * This function is used only when firmware is < 1.20 version. Newer
+ * firmwares use bulk mode, with functions implemented at dib0700_core,
+ * at dib0700_rc_urb_completion()
+ */
 static int dib0700_rc_query_old_firmware(struct dvb_usb_device *d)
 {
 	u8 key[4];
@@ -475,6 +495,10 @@ static int dib0700_rc_query_old_firmware(struct dvb_usb_device *d)
 	struct dib0700_state *st = d->priv;
 
 	if (st->fw_version >= 0x10200) {
+		/* For 1.20 firmware , We need to keep the RC polling
+		   callback so we can reuse the input device setup in
+		   dvb-usb-remote.c.  However, the actual work is being done
+		   in the bulk URB completion handler. */
 		return 0;
 	}
 
@@ -484,18 +508,18 @@ static int dib0700_rc_query_old_firmware(struct dvb_usb_device *d)
 		return -1;
 	}
 
-	
+	/* losing half of KEY_0 events from Philipps rc5 remotes.. */
 	if (key[0] == 0 && key[1] == 0 && key[2] == 0 && key[3] == 0)
 		return 0;
 
-	
+	/* info("%d: %2X %2X %2X %2X",dvb_usb_dib0700_ir_proto,(int)key[3-2],(int)key[3-3],(int)key[3-1],(int)key[3]);  */
 
-	dib0700_rc_setup(d); 
+	dib0700_rc_setup(d); /* reset ir sensor data to prevent false events */
 
 	d->last_event = 0;
 	switch (d->props.rc.core.protocol) {
 	case RC_TYPE_NEC:
-		
+		/* NEC protocol sends repeat code as 0 0 0 FF */
 		if ((key[3-2] == 0x00) && (key[3-3] == 0x00) &&
 		    (key[3] == 0xff))
 			keycode = d->last_event;
@@ -507,7 +531,7 @@ static int dib0700_rc_query_old_firmware(struct dvb_usb_device *d)
 		rc_keydown(d->rc_dev, keycode, 0);
 		break;
 	default:
-		
+		/* RC-5 protocol changes toggle bit on new keypress */
 		keycode = key[3-2] << 8 | key[3-3];
 		toggle = key[3-1];
 		rc_keydown(d->rc_dev, keycode, toggle);
@@ -517,9 +541,12 @@ static int dib0700_rc_query_old_firmware(struct dvb_usb_device *d)
 	return 0;
 }
 
+/* STK7700P: Hauppauge Nova-T Stick, AVerMedia Volar */
 static struct dibx000_agc_config stk7700p_7000m_mt2060_agc_config = {
 	BAND_UHF | BAND_VHF,
 
+	/* P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0, P_agc_freq_pwm_div=5, P_agc_inv_pwm1=0, P_agc_inv_pwm2=0,
+	 * P_agc_inh_dc_rv_est=0, P_agc_time_est=3, P_agc_freeze=0, P_agc_nb_est=2, P_agc_write=0 */
 	(0 << 15) | (0 << 14) | (5 << 11) | (0 << 10) | (0 << 9) | (0 << 8)
 	| (3 << 5) | (0 << 4) | (2 << 1) | (0 << 0),
 
@@ -564,6 +591,8 @@ static struct dibx000_agc_config stk7700p_7000m_mt2060_agc_config = {
 static struct dibx000_agc_config stk7700p_7000p_mt2060_agc_config = {
 	BAND_UHF | BAND_VHF,
 
+	/* P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0, P_agc_freq_pwm_div=5, P_agc_inv_pwm1=0, P_agc_inv_pwm2=0,
+	 * P_agc_inh_dc_rv_est=0, P_agc_time_est=3, P_agc_freeze=0, P_agc_nb_est=2, P_agc_write=0 */
 	(0 << 15) | (0 << 14) | (5 << 11) | (0 << 10) | (0 << 9) | (0 << 8)
 	| (3 << 5) | (0 << 4) | (2 << 1) | (0 << 0),
 
@@ -644,7 +673,7 @@ static struct dib7000p_config stk7700p_dib7000p_config = {
 static int stk7700p_frontend_attach(struct dvb_usb_adapter *adap)
 {
 	struct dib0700_state *st = adap->dev->priv;
-	
+	/* unless there is no real power management in DVB - we leave the device on GPIO6 */
 
 	dib0700_set_gpio(adap->dev, GPIO10, GPIO_OUT, 0);
 	dib0700_set_gpio(adap->dev, GPIO6,  GPIO_OUT, 0); msleep(50);
@@ -693,8 +722,11 @@ static int stk7700p_tuner_attach(struct dvb_usb_adapter *adap)
 		if1) == NULL ? -ENODEV : 0;
 }
 
+/* DIB7070 generic */
 static struct dibx000_agc_config dib7070_agc_config = {
 	BAND_UHF | BAND_VHF | BAND_LBAND | BAND_SBAND,
+	/* P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0, P_agc_freq_pwm_div=5, P_agc_inv_pwm1=0, P_agc_inv_pwm2=0,
+	 * P_agc_inh_dc_rv_est=0, P_agc_time_est=3, P_agc_freeze=0, P_agc_nb_est=5, P_agc_write=0 */
 	(0 << 15) | (0 << 14) | (5 << 11) | (0 << 10) | (0 << 9) | (0 << 8)
 	| (3 << 5) | (0 << 4) | (5 << 1) | (0 << 0),
 
@@ -900,6 +932,7 @@ static struct dib7000p_config dib7070p_dib7000p_config = {
 	.hostbus_diversity = 1,
 };
 
+/* STK7070P */
 static int stk7070p_frontend_attach(struct dvb_usb_adapter *adap)
 {
 	struct usb_device_descriptor *p = &adap->dev->udev->descriptor;
@@ -933,6 +966,7 @@ static int stk7070p_frontend_attach(struct dvb_usb_adapter *adap)
 	return adap->fe_adap[0].fe == NULL ? -ENODEV : 0;
 }
 
+/* STK7770P */
 static struct dib7000p_config dib7770p_dib7000p_config = {
 	.output_mpeg2_in_188_bytes = 1,
 
@@ -984,96 +1018,108 @@ static int stk7770p_frontend_attach(struct dvb_usb_adapter *adap)
 	return adap->fe_adap[0].fe == NULL ? -ENODEV : 0;
 }
 
+/* DIB807x generic */
 static struct dibx000_agc_config dib807x_agc_config[2] = {
 	{
 		BAND_VHF,
+		/* P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0,
+		 * P_agc_freq_pwm_div=1, P_agc_inv_pwm1=0,
+		 * P_agc_inv_pwm2=0,P_agc_inh_dc_rv_est=0,
+		 * P_agc_time_est=3, P_agc_freeze=0, P_agc_nb_est=5,
+		 * P_agc_write=0 */
 		(0 << 15) | (0 << 14) | (7 << 11) | (0 << 10) | (0 << 9) |
 			(0 << 8) | (3 << 5) | (0 << 4) | (5 << 1) |
-			(0 << 0), 
+			(0 << 0), /* setup*/
 
-		600, 
-		10,  
+		600, /* inv_gain*/
+		10,  /* time_stabiliz*/
 
-		0,  
-		118,  
+		0,  /* alpha_level*/
+		118,  /* thlock*/
 
-		0,     
-		3530,  
-		1,     
-		5,     
+		0,     /* wbd_inv*/
+		3530,  /* wbd_ref*/
+		1,     /* wbd_sel*/
+		5,     /* wbd_alpha*/
 
-		65535,  
-		0,  
+		65535,  /* agc1_max*/
+		0,  /* agc1_min*/
 
-		65535,  
-		0,      
+		65535,  /* agc2_max*/
+		0,      /* agc2_min*/
 
-		0,      
-		40,     
-		183,    
-		206,    
-		255,    
-		72,     
-		152,    
-		88,     
-		90,     
+		0,      /* agc1_pt1*/
+		40,     /* agc1_pt2*/
+		183,    /* agc1_pt3*/
+		206,    /* agc1_slope1*/
+		255,    /* agc1_slope2*/
+		72,     /* agc2_pt1*/
+		152,    /* agc2_pt2*/
+		88,     /* agc2_slope1*/
+		90,     /* agc2_slope2*/
 
-		17,  
-		27,  
-		23,  
-		51,  
+		17,  /* alpha_mant*/
+		27,  /* alpha_exp*/
+		23,  /* beta_mant*/
+		51,  /* beta_exp*/
 
-		0,  
+		0,  /* perform_agc_softsplit*/
 	}, {
 		BAND_UHF,
+		/* P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0,
+		 * P_agc_freq_pwm_div=1, P_agc_inv_pwm1=0,
+		 * P_agc_inv_pwm2=0, P_agc_inh_dc_rv_est=0,
+		 * P_agc_time_est=3, P_agc_freeze=0, P_agc_nb_est=5,
+		 * P_agc_write=0 */
 		(0 << 15) | (0 << 14) | (1 << 11) | (0 << 10) | (0 << 9) |
 			(0 << 8) | (3 << 5) | (0 << 4) | (5 << 1) |
-			(0 << 0), 
+			(0 << 0), /* setup */
 
-		600, 
-		10,  
+		600, /* inv_gain*/
+		10,  /* time_stabiliz*/
 
-		0,  
-		118,  
+		0,  /* alpha_level*/
+		118,  /* thlock*/
 
-		0,     
-		3530,  
-		1,     
-		5,     
+		0,     /* wbd_inv*/
+		3530,  /* wbd_ref*/
+		1,     /* wbd_sel*/
+		5,     /* wbd_alpha*/
 
-		65535,  
-		0,  
+		65535,  /* agc1_max*/
+		0,  /* agc1_min*/
 
-		65535,  
-		0,      
+		65535,  /* agc2_max*/
+		0,      /* agc2_min*/
 
-		0,      
-		40,     
-		183,    
-		206,    
-		255,    
-		72,     
-		152,    
-		88,     
-		90,     
+		0,      /* agc1_pt1*/
+		40,     /* agc1_pt2*/
+		183,    /* agc1_pt3*/
+		206,    /* agc1_slope1*/
+		255,    /* agc1_slope2*/
+		72,     /* agc2_pt1*/
+		152,    /* agc2_pt2*/
+		88,     /* agc2_slope1*/
+		90,     /* agc2_slope2*/
 
-		17,  
-		27,  
-		23,  
-		51,  
+		17,  /* alpha_mant*/
+		27,  /* alpha_exp*/
+		23,  /* beta_mant*/
+		51,  /* beta_exp*/
 
-		0,  
+		0,  /* perform_agc_softsplit*/
 	}
 };
 
 static struct dibx000_bandwidth_config dib807x_bw_config_12_mhz = {
-	60000, 15000, 
-	1, 20, 3, 1, 0, 
-	0, 0, 1, 1, 2, 
-	(3 << 14) | (1 << 12) | (599 << 0), 
-	(0 << 25) | 0, 
-	18179755, 
-	12000000, 
+	60000, 15000, /* internal, sampling*/
+	1, 20, 3, 1, 0, /* pll_cfg: prediv, ratio, range, reset, bypass*/
+	0, 0, 1, 1, 2, /* misc: refdiv, bypclk_div, IO_CLK_en_core,
+			  ADClkSrc, modulo */
+	(3 << 14) | (1 << 12) | (599 << 0), /* sad_cfg: refsel, sel, freq_15k*/
+	(0 << 25) | 0, /* ifreq = 0.000000 MHz*/
+	18179755, /* timf*/
+	12000000, /* xtal_hz*/
 };
 
 static struct dib8000_config dib807x_dib8000_config[2] = {
@@ -1172,7 +1218,7 @@ static int dib807x_set_param_override(struct dvb_frontend *fe)
 	case BAND_VHF:
 		offset += 750;
 		break;
-	case BAND_UHF:  
+	case BAND_UHF:  /* fall-thru wanted */
 	default:
 		offset += 250; break;
 	}
@@ -1215,6 +1261,7 @@ static int stk80xx_pid_filter_ctrl(struct dvb_usb_adapter *adapter,
 	return dib8000_pid_filter_ctrl(adapter->fe_adap[0].fe, onoff);
 }
 
+/* STK807x */
 static int stk807x_frontend_attach(struct dvb_usb_adapter *adap)
 {
 	dib0700_set_gpio(adap->dev, GPIO6, GPIO_OUT, 1);
@@ -1241,6 +1288,7 @@ static int stk807x_frontend_attach(struct dvb_usb_adapter *adap)
 	return adap->fe_adap[0].fe == NULL ?  -ENODEV : 0;
 }
 
+/* STK807xPVR */
 static int stk807xpvr_frontend_attach0(struct dvb_usb_adapter *adap)
 {
 	dib0700_set_gpio(adap->dev, GPIO6, GPIO_OUT, 0);
@@ -1260,7 +1308,7 @@ static int stk807xpvr_frontend_attach0(struct dvb_usb_adapter *adap)
 	msleep(10);
 	dib0700_set_gpio(adap->dev, GPIO0, GPIO_OUT, 1);
 
-	
+	/* initialize IC 0 */
 	dib8000_i2c_enumeration(&adap->dev->i2c_adap, 1, 0x22, 0x80, 0);
 
 	adap->fe_adap[0].fe = dvb_attach(dib8000_attach, &adap->dev->i2c_adap, 0x80,
@@ -1271,7 +1319,7 @@ static int stk807xpvr_frontend_attach0(struct dvb_usb_adapter *adap)
 
 static int stk807xpvr_frontend_attach1(struct dvb_usb_adapter *adap)
 {
-	
+	/* initialize IC 1 */
 	dib8000_i2c_enumeration(&adap->dev->i2c_adap, 1, 0x12, 0x82, 0);
 
 	adap->fe_adap[0].fe = dvb_attach(dib8000_attach, &adap->dev->i2c_adap, 0x82,
@@ -1280,9 +1328,13 @@ static int stk807xpvr_frontend_attach1(struct dvb_usb_adapter *adap)
 	return adap->fe_adap[0].fe == NULL ? -ENODEV : 0;
 }
 
+/* STK8096GP */
 static struct dibx000_agc_config dib8090_agc_config[2] = {
 	{
 	BAND_UHF | BAND_VHF | BAND_LBAND | BAND_SBAND,
+	/* P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0, P_agc_freq_pwm_div=1,
+	 * P_agc_inv_pwm1=0, P_agc_inv_pwm2=0, P_agc_inh_dc_rv_est=0,
+	 * P_agc_time_est=3, P_agc_freeze=0, P_agc_nb_est=5, P_agc_write=0 */
 	(0 << 15) | (0 << 14) | (5 << 11) | (0 << 10) | (0 << 9) | (0 << 8)
 	| (3 << 5) | (0 << 4) | (5 << 1) | (0 << 0),
 
@@ -1322,6 +1374,9 @@ static struct dibx000_agc_config dib8090_agc_config[2] = {
 	},
 	{
 	BAND_CBAND,
+	/* P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0, P_agc_freq_pwm_div=1,
+	 * P_agc_inv_pwm1=0, P_agc_inv_pwm2=0, P_agc_inh_dc_rv_est=0,
+	 * P_agc_time_est=3, P_agc_freeze=0, P_agc_nb_est=5, P_agc_write=0 */
 	(0 << 15) | (0 << 14) | (5 << 11) | (0 << 10) | (0 << 9) | (0 << 8)
 	| (3 << 5) | (0 << 4) | (5 << 1) | (0 << 0),
 
@@ -1419,12 +1474,12 @@ static struct dib8000_config dib809x_dib8000_config[2] = {
 };
 
 static struct dib0090_wbd_slope dib8090_wbd_table[] = {
-	
-	{ 120,     0, 500,  0,   500, 4 }, 
-	{ 170,     0, 450,  0,   450, 4 }, 
-	{ 380,    48, 373, 28,   259, 6 }, 
-	{ 860,    34, 700, 36,   616, 6 }, 
-	{ 0xFFFF, 34, 700, 36,   616, 6 }, 
+	/* max freq ; cold slope ; cold offset ; warm slope ; warm offset ; wbd gain */
+	{ 120,     0, 500,  0,   500, 4 }, /* CBAND */
+	{ 170,     0, 450,  0,   450, 4 }, /* CBAND */
+	{ 380,    48, 373, 28,   259, 6 }, /* VHF */
+	{ 860,    34, 700, 36,   616, 6 }, /* high UHF */
+	{ 0xFFFF, 34, 700, 36,   616, 6 }, /* default */
 };
 
 static struct dib0090_config dib809x_dib0090_config = {
@@ -1587,9 +1642,15 @@ static int nim8096md_frontend_attach(struct dvb_usb_adapter *adap)
 	return fe_slave == NULL ?  -ENODEV : 0;
 }
 
+/* TFE8096P */
 static struct dibx000_agc_config dib8096p_agc_config[2] = {
 	{
 		.band_caps		= BAND_UHF,
+		/* P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0,
+		   P_agc_freq_pwm_div=1, P_agc_inv_pwm1=0,
+		   P_agc_inv_pwm2=0, P_agc_inh_dc_rv_est=0,
+		   P_agc_time_est=3, P_agc_freeze=0, P_agc_nb_est=5,
+		   P_agc_write=0 */
 		.setup			= (0 << 15) | (0 << 14) | (5 << 11)
 			| (0 << 10) | (0 << 9) | (0 << 8) | (3 << 5)
 			| (0 << 4) | (5 << 1) | (0 << 0),
@@ -1629,6 +1690,11 @@ static struct dibx000_agc_config dib8096p_agc_config[2] = {
 		.perform_agc_softsplit = 0,
 	} , {
 		.band_caps		= BAND_FM | BAND_VHF | BAND_CBAND,
+		/* P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0,
+		   P_agc_freq_pwm_div=1, P_agc_inv_pwm1=0,
+		   P_agc_inv_pwm2=0, P_agc_inh_dc_rv_est=0,
+		   P_agc_time_est=3, P_agc_freeze=0, P_agc_nb_est=5,
+		   P_agc_write=0 */
 		.setup			= (0 << 15) | (0 << 14) | (5 << 11)
 			| (0 << 10) | (0 << 9) | (0 << 8) | (3 << 5)
 			| (0 << 4) | (5 << 1) | (0 << 0),
@@ -1742,16 +1808,16 @@ static const struct dib0090_config tfe8096p_dib0090_config = {
 };
 
 struct dibx090p_adc {
-	u32 freq;			
-	u32 timf;			
-	u32 pll_loopdiv;	
-	u32 pll_prediv;		
+	u32 freq;			/* RF freq MHz */
+	u32 timf;			/* New Timf */
+	u32 pll_loopdiv;	/* New prediv */
+	u32 pll_prediv;		/* New loopdiv */
 };
 
 struct dibx090p_adc dib8090p_adc_tab[] = {
-	{ 50000, 17043521, 16, 3}, 
-	{878000, 20199729, 9, 1}, 
-	{0xffffffff, 0, 0, 0}, 
+	{ 50000, 17043521, 16, 3}, /* 64 MHz */
+	{878000, 20199729, 9, 1}, /* 60 MHz */
+	{0xffffffff, 0, 0, 0}, /* 60 MHz */
 };
 
 static int dib8096p_agc_startup(struct dvb_frontend *fe)
@@ -1770,6 +1836,8 @@ static int dib8096p_agc_startup(struct dvb_frontend *fe)
 	memset(&pll, 0, sizeof(struct dibx000_bandwidth_config));
 
 	dib0090_pwm_gain_reset(fe);
+	/* dib0090_get_wbd_target is returning any possible
+	   temperature compensated wbd-target */
 	target = (dib0090_get_wbd_target(fe) * 8  + 1) / 2;
 	dib8000_set_wbd_ref(fe, target);
 
@@ -1829,6 +1897,7 @@ static int tfe8096p_tuner_attach(struct dvb_usb_adapter *adap)
 	return 0;
 }
 
+/* STK9090M */
 static int dib90x0_pid_filter(struct dvb_usb_adapter *adapter, int index, u16 pid, int onoff)
 {
 	return dib9000_fw_pid_filter(adapter->fe_adap[0].fe, index, pid, onoff);
@@ -1913,8 +1982,8 @@ static struct dib9000_config stk9090m_config = {
 	.subband = {
 		2,
 		{
-			{ 240, { BOARD_GPIO_COMPONENT_DEMOD, BOARD_GPIO_FUNCTION_SUBBAND_GPIO, 0x0008, 0x0000, 0x0008 } }, 
-			{ 890, { BOARD_GPIO_COMPONENT_DEMOD, BOARD_GPIO_FUNCTION_SUBBAND_GPIO, 0x0008, 0x0000, 0x0000 } }, 
+			{ 240, { BOARD_GPIO_COMPONENT_DEMOD, BOARD_GPIO_FUNCTION_SUBBAND_GPIO, 0x0008, 0x0000, 0x0008 } }, /* GPIO 3 to 1 for VHF */
+			{ 890, { BOARD_GPIO_COMPONENT_DEMOD, BOARD_GPIO_FUNCTION_SUBBAND_GPIO, 0x0008, 0x0000, 0x0000 } }, /* GPIO 3 to 0 for UHF */
 			{ 0 },
 		},
 	},
@@ -1944,8 +2013,8 @@ static struct dib9000_config nim9090md_config[2] = {
 		.subband = {
 			2,
 			{
-				{ 240, { BOARD_GPIO_COMPONENT_DEMOD, BOARD_GPIO_FUNCTION_SUBBAND_GPIO, 0x0006, 0x0000, 0x0006 } }, 
-				{ 890, { BOARD_GPIO_COMPONENT_DEMOD, BOARD_GPIO_FUNCTION_SUBBAND_GPIO, 0x0006, 0x0000, 0x0000 } }, 
+				{ 240, { BOARD_GPIO_COMPONENT_DEMOD, BOARD_GPIO_FUNCTION_SUBBAND_GPIO, 0x0006, 0x0000, 0x0006 } }, /* GPIO 1 and 2 to 1 for VHF */
+				{ 890, { BOARD_GPIO_COMPONENT_DEMOD, BOARD_GPIO_FUNCTION_SUBBAND_GPIO, 0x0006, 0x0000, 0x0000 } }, /* GPIO 1 and 2 to 0 for UHF */
 				{ 0 },
 			},
 		},
@@ -2017,7 +2086,7 @@ static int stk9090m_frontend_attach(struct dvb_usb_adapter *adap)
 	struct dib0700_state *st = adap->dev->priv;
 	u32 fw_version;
 
-	
+	/* Make use of the new i2c functions from FW 1.20 */
 	dib0700_get_version(adap->dev, NULL, NULL, &fw_version, NULL);
 	if (fw_version >= 0x10200)
 		st->fw_use_new_i2c_api = 1;
@@ -2085,7 +2154,7 @@ static int nim9090md_frontend_attach(struct dvb_usb_adapter *adap)
 	struct dvb_frontend *fe_slave;
 	u32 fw_version;
 
-	
+	/* Make use of the new i2c functions from FW 1.20 */
 	dib0700_get_version(adap->dev, NULL, NULL, &fw_version, NULL);
 	if (fw_version >= 0x10200)
 		st->fw_use_new_i2c_api = 1;
@@ -2172,6 +2241,7 @@ static int nim9090md_tuner_attach(struct dvb_usb_adapter *adap)
 	return 0;
 }
 
+/* NIM7090 */
 struct dib7090p_best_adc {
 	u32 timf;
 	u32 pll_loopdiv;
@@ -2183,8 +2253,8 @@ static int dib7090p_get_best_sampling(struct dvb_frontend *fe , struct dib7090p_
 	u8 spur = 0, prediv = 0, loopdiv = 0, min_prediv = 1, max_prediv = 1;
 
 	u16 xtal = 12000;
-	u32 fcp_min = 1900;  
-	u32 fcp_max = 20000; 
+	u32 fcp_min = 1900;  /* PLL Minimum Frequency comparator KHz */
+	u32 fcp_max = 20000; /* PLL Maximum Frequency comparator KHz */
 	u32 fdem_max = 76000;
 	u32 fdem_min = 69500;
 	u32 fcp = 0, fs = 0, fdem = 0;
@@ -2196,7 +2266,7 @@ static int dib7090p_get_best_sampling(struct dvb_frontend *fe , struct dib7090p_
 
 	deb_info("bandwidth = %d fdem_min =%d", fe->dtv_property_cache.bandwidth_hz, fdem_min);
 
-	
+	/* Find Min and Max prediv */
 	while ((xtal/max_prediv) >= fcp_min)
 		max_prediv++;
 
@@ -2217,11 +2287,11 @@ static int dib7090p_get_best_sampling(struct dvb_frontend *fe , struct dib7090p_
 			for (loopdiv = 1 ; loopdiv < 64 ; loopdiv++) {
 				fdem = ((xtal/prediv) * loopdiv);
 				fs   = fdem / 4;
-				
+				/* test min/max system restrictions */
 
 				if ((fdem >= fdem_min) && (fdem <= fdem_max) && (fs >= fe->dtv_property_cache.bandwidth_hz/1000)) {
 					spur = 0;
-					
+					/* test fs harmonics positions */
 					for (harmonic_id = (fe->dtv_property_cache.frequency / (1000*fs)) ;  harmonic_id <= ((fe->dtv_property_cache.frequency / (1000*fs))+1) ; harmonic_id++) {
 						if (((fs*harmonic_id) >= ((fe->dtv_property_cache.frequency/1000) - (fe->dtv_property_cache.bandwidth_hz/2000))) &&  ((fs*harmonic_id) <= ((fe->dtv_property_cache.frequency/1000) + (fe->dtv_property_cache.bandwidth_hz/2000)))) {
 							spur = 1;
@@ -2282,7 +2352,7 @@ static int dib7090_agc_startup(struct dvb_frontend *fe)
 static int dib7090_agc_restart(struct dvb_frontend *fe, u8 restart)
 {
 	deb_info("AGC restart callback: %d", restart);
-	if (restart == 0) 
+	if (restart == 0) /* before AGC startup */
 		dib0090_set_dc_servo(fe, 1);
 	return 0;
 }
@@ -2342,6 +2412,8 @@ static struct dib0090_wbd_slope dib7090e_wbd_table[] = {
 static struct dibx000_agc_config dib7090_agc_config[2] = {
 	{
 		.band_caps      = BAND_UHF,
+		/* P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0, P_agc_freq_pwm_div=1, P_agc_inv_pwm1=0, P_agc_inv_pwm2=0,
+		* P_agc_inh_dc_rv_est=0, P_agc_time_est=3, P_agc_freeze=0, P_agc_nb_est=5, P_agc_write=0 */
 		.setup          = (0 << 15) | (0 << 14) | (5 << 11) | (0 << 10) | (0 << 9) | (0 << 8) | (3 << 5) | (0 << 4) | (5 << 1) | (0 << 0),
 
 		.inv_gain       = 687,
@@ -2379,6 +2451,8 @@ static struct dibx000_agc_config dib7090_agc_config[2] = {
 		.perform_agc_softsplit = 0,
 	} , {
 		.band_caps      = BAND_FM | BAND_VHF | BAND_CBAND,
+		/* P_agc_use_sd_mod1=0, P_agc_use_sd_mod2=0, P_agc_freq_pwm_div=1, P_agc_inv_pwm1=0, P_agc_inv_pwm2=0,
+		* P_agc_inh_dc_rv_est=0, P_agc_time_est=3, P_agc_freeze=0, P_agc_nb_est=5, P_agc_write=0 */
 		.setup          = (0 << 15) | (0 << 14) | (5 << 11) | (0 << 10) | (0 << 9) | (0 << 8) | (3 << 5) | (0 << 4) | (5 << 1) | (0 << 0),
 
 		.inv_gain       = 732,
@@ -2786,7 +2860,7 @@ static int tfe7090pvr_frontend0_attach(struct dvb_usb_adapter *adap)
 {
 	struct dib0700_state *st = adap->dev->priv;
 
-	
+	/* The TFE7090 requires the dib0700 to not be in master mode */
 	st->disable_streaming_master_mode = 1;
 
 	dib0700_set_gpio(adap->dev, GPIO6, GPIO_OUT, 1);
@@ -2801,7 +2875,7 @@ static int tfe7090pvr_frontend0_attach(struct dvb_usb_adapter *adap)
 	msleep(20);
 	dib0700_set_gpio(adap->dev, GPIO0, GPIO_OUT, 1);
 
-	
+	/* initialize IC 0 */
 	if (dib7000p_i2c_enumeration(&adap->dev->i2c_adap, 1, 0x20, &tfe7090pvr_dib7000p_config[0]) != 0) {
 		err("%s: dib7000p_i2c_enumeration failed.  Cannot continue\n", __func__);
 		return -ENODEV;
@@ -2823,7 +2897,7 @@ static int tfe7090pvr_frontend1_attach(struct dvb_usb_adapter *adap)
 
 	if (adap->dev->adapter[0].fe_adap[0].fe == NULL) {
 		err("the master dib7090 has to be initialized first");
-		return -ENODEV; 
+		return -ENODEV; /* the master device has not been initialized */
 	}
 
 	i2c = dib7000p_get_i2c_master(adap->dev->adapter[0].fe_adap[0].fe, DIBX000_I2C_INTERFACE_GPIO_6_7, 1);
@@ -2898,7 +2972,7 @@ static int tfe7790e_frontend_attach(struct dvb_usb_adapter *adap)
 {
 	struct dib0700_state *st = adap->dev->priv;
 
-	
+	/* The TFE7790E requires the dib0700 to not be in master mode */
 	st->disable_streaming_master_mode = 1;
 
 	dib0700_set_gpio(adap->dev, GPIO6, GPIO_OUT, 1);
@@ -2959,6 +3033,7 @@ static int tfe7090e_tuner_attach(struct dvb_usb_adapter *adap)
 	return 0;
 }
 
+/* STK7070PD */
 static struct dib7000p_config stk7070pd_dib7000p_config[2] = {
 	{
 		.output_mpeg2_in_188_bytes = 1,
@@ -3053,12 +3128,18 @@ static int novatd_sleep_override(struct dvb_frontend* fe)
 	struct dvb_usb_device *dev = adap->dev;
 	struct dib0700_state *state = dev->priv;
 
-	
+	/* turn off LED */
 	dib0700_set_gpio(dev, adap->id == 0 ? GPIO1 : GPIO0, GPIO_OUT, 0);
 
 	return state->sleep(fe);
 }
 
+/**
+ * novatd_frontend_attach - Nova-TD specific attach
+ *
+ * Nova-TD has GPIO0, 1 and 2 for LEDs. So do not fiddle with them except for
+ * information purposes.
+ */
 static int novatd_frontend_attach(struct dvb_usb_adapter *adap)
 {
 	struct dvb_usb_device *dev = adap->dev;
@@ -3067,7 +3148,7 @@ static int novatd_frontend_attach(struct dvb_usb_adapter *adap)
 	if (adap->id == 0) {
 		stk7070pd_init(dev);
 
-		
+		/* turn the power LED on, the other two off (just in case) */
 		dib0700_set_gpio(dev, GPIO0, GPIO_OUT, 0);
 		dib0700_set_gpio(dev, GPIO1, GPIO_OUT, 0);
 		dib0700_set_gpio(dev, GPIO2, GPIO_OUT, 1);
@@ -3095,6 +3176,7 @@ static int novatd_frontend_attach(struct dvb_usb_adapter *adap)
 	return 0;
 }
 
+/* S5H1411 */
 static struct s5h1411_config pinnacle_801e_config = {
 	.output_mode   = S5H1411_PARALLEL_OUTPUT,
 	.gpio          = S5H1411_GPIO_OFF,
@@ -3105,17 +3187,28 @@ static struct s5h1411_config pinnacle_801e_config = {
 	.status_mode   = S5H1411_DEMODLOCKING
 };
 
+/* Pinnacle PCTV HD Pro 801e GPIOs map:
+   GPIO0  - currently unknown
+   GPIO1  - xc5000 tuner reset
+   GPIO2  - CX25843 sleep
+   GPIO3  - currently unknown
+   GPIO4  - currently unknown
+   GPIO6  - currently unknown
+   GPIO7  - currently unknown
+   GPIO9  - currently unknown
+   GPIO10 - CX25843 reset
+ */
 static int s5h1411_frontend_attach(struct dvb_usb_adapter *adap)
 {
 	struct dib0700_state *st = adap->dev->priv;
 
-	
+	/* Make use of the new i2c functions from FW 1.20 */
 	st->fw_use_new_i2c_api = 1;
 
-	
+	/* The s5h1411 requires the dib0700 to not be in master mode */
 	st->disable_streaming_master_mode = 1;
 
-	
+	/* All msleep values taken from Windows USB trace */
 	dib0700_set_gpio(adap->dev, GPIO0, GPIO_OUT, 0);
 	dib0700_set_gpio(adap->dev, GPIO3, GPIO_OUT, 0);
 	dib0700_set_gpio(adap->dev, GPIO6, GPIO_OUT, 1);
@@ -3131,10 +3224,10 @@ static int s5h1411_frontend_attach(struct dvb_usb_adapter *adap)
 	dib0700_set_gpio(adap->dev, GPIO2, GPIO_OUT, 0);
 	msleep(30);
 
-	
+	/* Put the CX25843 to sleep for now since we're in digital mode */
 	dib0700_set_gpio(adap->dev, GPIO2, GPIO_OUT, 1);
 
-	
+	/* GPIOs are initialized, do the attach */
 	adap->fe_adap[0].fe = dvb_attach(s5h1411_attach, &pinnacle_801e_config,
 			      &adap->dev->i2c_adap);
 	return adap->fe_adap[0].fe == NULL ? -ENODEV : 0;
@@ -3146,7 +3239,7 @@ static int dib0700_xc5000_tuner_callback(void *priv, int component,
 	struct dvb_usb_adapter *adap = priv;
 
 	if (command == XC5000_TUNER_RESET) {
-		
+		/* Reset the tuner */
 		dib0700_set_gpio(adap->dev, GPIO1, GPIO_OUT, 0);
 		msleep(10);
 		dib0700_set_gpio(adap->dev, GPIO1, GPIO_OUT, 1);
@@ -3166,7 +3259,7 @@ static struct xc5000_config s5h1411_xc5000_tunerconfig = {
 
 static int xc5000_tuner_attach(struct dvb_usb_adapter *adap)
 {
-	
+	/* FIXME: generalize & move to common area */
 	adap->fe_adap[0].fe->callback = dib0700_xc5000_tuner_callback;
 
 	return dvb_attach(xc5000_attach, adap->fe_adap[0].fe, &adap->dev->i2c_adap,
@@ -3180,7 +3273,7 @@ static int dib0700_xc4000_tuner_callback(void *priv, int component,
 	struct dvb_usb_adapter *adap = priv;
 
 	if (command == XC4000_TUNER_RESET) {
-		
+		/* Reset the tuner */
 		dib7000p_set_gpio(adap->fe_adap[0].fe, 8, 0, 0);
 		msleep(10);
 		dib7000p_set_gpio(adap->fe_adap[0].fe, 8, 0, 1);
@@ -3224,16 +3317,17 @@ static struct dibx000_agc_config stk7700p_7000p_xc4000_agc_config = {
 };
 
 static struct dibx000_bandwidth_config stk7700p_xc4000_pll_config = {
-	60000, 30000,	
-	1, 8, 3, 1, 0,	
-	0, 0, 1, 1, 0,	
-			
-	(3 << 14) | (1 << 12) | 524,	
-	39370534,	
-	20452225,	
-	30000000	
+	60000, 30000,	/* internal, sampling */
+	1, 8, 3, 1, 0,	/* pll_cfg: prediv, ratio, range, reset, bypass */
+	0, 0, 1, 1, 0,	/* misc: refdiv, bypclk_div, IO_CLK_en_core, */
+			/* ADClkSrc, modulo */
+	(3 << 14) | (1 << 12) | 524,	/* sad_cfg: refsel, sel, freq_15k */
+	39370534,	/* ifreq */
+	20452225,	/* timf */
+	30000000	/* xtal */
 };
 
+/* FIXME: none of these inputs are validated yet */
 static struct dib7000p_config pctv_340e_config = {
 	.output_mpeg2_in_188_bytes = 1,
 
@@ -3246,34 +3340,45 @@ static struct dib7000p_config pctv_340e_config = {
 	.gpio_pwm_pos = DIB7000M_GPIO_DEFAULT_PWM_POS,
 };
 
+/* PCTV 340e GPIOs map:
+   dib0700:
+   GPIO2  - CX25843 sleep
+   GPIO3  - CS5340 reset
+   GPIO5  - IRD
+   GPIO6  - Power Supply
+   GPIO8  - LNA (1=off 0=on)
+   GPIO10 - CX25843 reset
+   dib7000:
+   GPIO8  - xc4000 reset
+ */
 static int pctv340e_frontend_attach(struct dvb_usb_adapter *adap)
 {
 	struct dib0700_state *st = adap->dev->priv;
 
-	
+	/* Power Supply on */
 	dib0700_set_gpio(adap->dev, GPIO6,  GPIO_OUT, 0);
 	msleep(50);
 	dib0700_set_gpio(adap->dev, GPIO6,  GPIO_OUT, 1);
-	msleep(100); 
+	msleep(100); /* Allow power supply to settle before probing */
 
-	
+	/* cx25843 reset */
 	dib0700_set_gpio(adap->dev, GPIO10,  GPIO_OUT, 0);
-	msleep(1); 
+	msleep(1); /* cx25843 datasheet say 350us required */
 	dib0700_set_gpio(adap->dev, GPIO10,  GPIO_OUT, 1);
 
-	
+	/* LNA off for now */
 	dib0700_set_gpio(adap->dev, GPIO8,  GPIO_OUT, 1);
 
-	
+	/* Put the CX25843 to sleep for now since we're in digital mode */
 	dib0700_set_gpio(adap->dev, GPIO2, GPIO_OUT, 1);
 
-	
+	/* FIXME: not verified yet */
 	dib0700_ctrl_clock(adap->dev, 72, 1);
 
 	msleep(500);
 
 	if (dib7000pc_detection(&adap->dev->i2c_adap) == 0) {
-		
+		/* Demodulator not found for some reason? */
 		return -ENODEV;
 	}
 
@@ -3296,7 +3401,7 @@ static int xc4000_tuner_attach(struct dvb_usb_adapter *adap)
 {
 	struct i2c_adapter *tun_i2c;
 
-	
+	/* The xc4000 is not on the main i2c bus */
 	tun_i2c = dib7000p_get_i2c_master(adap->fe_adap[0].fe,
 					  DIBX000_I2C_INTERFACE_TUNER, 1);
 	if (tun_i2c == NULL) {
@@ -3304,7 +3409,7 @@ static int xc4000_tuner_attach(struct dvb_usb_adapter *adap)
 		return 0;
 	}
 
-	
+	/* Setup the reset callback */
 	adap->fe_adap[0].fe->callback = dib0700_xc4000_tuner_callback;
 
 	return dvb_attach(xc4000_attach, adap->fe_adap[0].fe, tun_i2c,
@@ -3330,22 +3435,32 @@ static struct mxl5007t_config hcw_mxl5007t_config = {
 	.invert_if = 1,
 };
 
+/* TIGER-ATSC map:
+   GPIO0  - LNA_CTR  (H: LNA power enabled, L: LNA power disabled)
+   GPIO1  - ANT_SEL  (H: VPA, L: MCX)
+   GPIO4  - SCL2
+   GPIO6  - EN_TUNER
+   GPIO7  - SDA2
+   GPIO10 - DEM_RST
+
+   MXL is behind LG's i2c repeater.  LG is on SCL2/SDA2 gpios on the DIB
+ */
 static int lgdt3305_frontend_attach(struct dvb_usb_adapter *adap)
 {
 	struct dib0700_state *st = adap->dev->priv;
 
-	
+	/* Make use of the new i2c functions from FW 1.20 */
 	st->fw_use_new_i2c_api = 1;
 
 	st->disable_streaming_master_mode = 1;
 
-	
+	/* fe power enable */
 	dib0700_set_gpio(adap->dev, GPIO6, GPIO_OUT, 0);
 	msleep(30);
 	dib0700_set_gpio(adap->dev, GPIO6, GPIO_OUT, 1);
 	msleep(30);
 
-	
+	/* demod reset */
 	dib0700_set_gpio(adap->dev, GPIO10, GPIO_OUT, 1);
 	msleep(30);
 	dib0700_set_gpio(adap->dev, GPIO10, GPIO_OUT, 0);
@@ -3368,92 +3483,93 @@ static int mxl5007t_tuner_attach(struct dvb_usb_adapter *adap)
 }
 
 
+/* DVB-USB and USB stuff follows */
 struct usb_device_id dib0700_usb_id_table[] = {
-	{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_STK7700P) },
+/* 0 */	{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_STK7700P) },
 	{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_STK7700P_PC) },
 	{ USB_DEVICE(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_NOVA_T_500) },
 	{ USB_DEVICE(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_NOVA_T_500_2) },
 	{ USB_DEVICE(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_NOVA_T_STICK) },
-	{ USB_DEVICE(USB_VID_AVERMEDIA, USB_PID_AVERMEDIA_VOLAR) },
+/* 5 */	{ USB_DEVICE(USB_VID_AVERMEDIA, USB_PID_AVERMEDIA_VOLAR) },
 	{ USB_DEVICE(USB_VID_COMPRO,    USB_PID_COMPRO_VIDEOMATE_U500) },
 	{ USB_DEVICE(USB_VID_UNIWILL,   USB_PID_UNIWILL_STK7700P) },
 	{ USB_DEVICE(USB_VID_LEADTEK,   USB_PID_WINFAST_DTV_DONGLE_STK7700P) },
 	{ USB_DEVICE(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_NOVA_T_STICK_2) },
-{ USB_DEVICE(USB_VID_AVERMEDIA, USB_PID_AVERMEDIA_VOLAR_2) },
+/* 10 */{ USB_DEVICE(USB_VID_AVERMEDIA, USB_PID_AVERMEDIA_VOLAR_2) },
 	{ USB_DEVICE(USB_VID_PINNACLE,  USB_PID_PINNACLE_PCTV2000E) },
 	{ USB_DEVICE(USB_VID_TERRATEC,
 			USB_PID_TERRATEC_CINERGY_DT_XS_DIVERSITY) },
 	{ USB_DEVICE(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_NOVA_TD_STICK) },
 	{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_STK7700D) },
-{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_STK7070P) },
+/* 15 */{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_STK7070P) },
 	{ USB_DEVICE(USB_VID_PINNACLE,  USB_PID_PINNACLE_PCTV_DVB_T_FLASH) },
 	{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_STK7070PD) },
 	{ USB_DEVICE(USB_VID_PINNACLE,
 			USB_PID_PINNACLE_PCTV_DUAL_DIVERSITY_DVB_T) },
 	{ USB_DEVICE(USB_VID_COMPRO,    USB_PID_COMPRO_VIDEOMATE_U500_PC) },
-{ USB_DEVICE(USB_VID_AVERMEDIA, USB_PID_AVERMEDIA_EXPRESS) },
+/* 20 */{ USB_DEVICE(USB_VID_AVERMEDIA, USB_PID_AVERMEDIA_EXPRESS) },
 	{ USB_DEVICE(USB_VID_GIGABYTE,  USB_PID_GIGABYTE_U7000) },
 	{ USB_DEVICE(USB_VID_ULTIMA_ELECTRONIC, USB_PID_ARTEC_T14BR) },
 	{ USB_DEVICE(USB_VID_ASUS,      USB_PID_ASUS_U3000) },
 	{ USB_DEVICE(USB_VID_ASUS,      USB_PID_ASUS_U3100) },
-{ USB_DEVICE(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_NOVA_T_STICK_3) },
+/* 25 */{ USB_DEVICE(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_NOVA_T_STICK_3) },
 	{ USB_DEVICE(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_MYTV_T) },
 	{ USB_DEVICE(USB_VID_TERRATEC,  USB_PID_TERRATEC_CINERGY_HT_USB_XE) },
 	{ USB_DEVICE(USB_VID_PINNACLE,	USB_PID_PINNACLE_EXPRESSCARD_320CX) },
 	{ USB_DEVICE(USB_VID_PINNACLE,	USB_PID_PINNACLE_PCTV72E) },
-{ USB_DEVICE(USB_VID_PINNACLE,	USB_PID_PINNACLE_PCTV73E) },
+/* 30 */{ USB_DEVICE(USB_VID_PINNACLE,	USB_PID_PINNACLE_PCTV73E) },
 	{ USB_DEVICE(USB_VID_YUAN,	USB_PID_YUAN_EC372S) },
 	{ USB_DEVICE(USB_VID_TERRATEC,	USB_PID_TERRATEC_CINERGY_HT_EXPRESS) },
 	{ USB_DEVICE(USB_VID_TERRATEC,	USB_PID_TERRATEC_CINERGY_T_XXS) },
 	{ USB_DEVICE(USB_VID_LEADTEK,   USB_PID_WINFAST_DTV_DONGLE_STK7700P_2) },
-{ USB_DEVICE(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_NOVA_TD_STICK_52009) },
+/* 35 */{ USB_DEVICE(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_NOVA_TD_STICK_52009) },
 	{ USB_DEVICE(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_NOVA_T_500_3) },
 	{ USB_DEVICE(USB_VID_GIGABYTE,  USB_PID_GIGABYTE_U8000) },
 	{ USB_DEVICE(USB_VID_YUAN,      USB_PID_YUAN_STK7700PH) },
 	{ USB_DEVICE(USB_VID_ASUS,	USB_PID_ASUS_U3000H) },
-{ USB_DEVICE(USB_VID_PINNACLE,  USB_PID_PINNACLE_PCTV801E) },
+/* 40 */{ USB_DEVICE(USB_VID_PINNACLE,  USB_PID_PINNACLE_PCTV801E) },
 	{ USB_DEVICE(USB_VID_PINNACLE,  USB_PID_PINNACLE_PCTV801E_SE) },
 	{ USB_DEVICE(USB_VID_TERRATEC,	USB_PID_TERRATEC_CINERGY_T_EXPRESS) },
 	{ USB_DEVICE(USB_VID_TERRATEC,
 			USB_PID_TERRATEC_CINERGY_DT_XS_DIVERSITY_2) },
 	{ USB_DEVICE(USB_VID_SONY,	USB_PID_SONY_PLAYTV) },
-{ USB_DEVICE(USB_VID_YUAN,      USB_PID_YUAN_PD378S) },
+/* 45 */{ USB_DEVICE(USB_VID_YUAN,      USB_PID_YUAN_PD378S) },
 	{ USB_DEVICE(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_TIGER_ATSC) },
 	{ USB_DEVICE(USB_VID_HAUPPAUGE, USB_PID_HAUPPAUGE_TIGER_ATSC_B210) },
 	{ USB_DEVICE(USB_VID_YUAN,	USB_PID_YUAN_MC770) },
 	{ USB_DEVICE(USB_VID_ELGATO,	USB_PID_ELGATO_EYETV_DTT) },
-{ USB_DEVICE(USB_VID_ELGATO,	USB_PID_ELGATO_EYETV_DTT_Dlx) },
+/* 50 */{ USB_DEVICE(USB_VID_ELGATO,	USB_PID_ELGATO_EYETV_DTT_Dlx) },
 	{ USB_DEVICE(USB_VID_LEADTEK,   USB_PID_WINFAST_DTV_DONGLE_H) },
 	{ USB_DEVICE(USB_VID_TERRATEC,	USB_PID_TERRATEC_T3) },
 	{ USB_DEVICE(USB_VID_TERRATEC,	USB_PID_TERRATEC_T5) },
 	{ USB_DEVICE(USB_VID_YUAN,      USB_PID_YUAN_STK7700D) },
-{ USB_DEVICE(USB_VID_YUAN,	USB_PID_YUAN_STK7700D_2) },
+/* 55 */{ USB_DEVICE(USB_VID_YUAN,	USB_PID_YUAN_STK7700D_2) },
 	{ USB_DEVICE(USB_VID_PINNACLE,	USB_PID_PINNACLE_PCTV73A) },
 	{ USB_DEVICE(USB_VID_PCTV,	USB_PID_PINNACLE_PCTV73ESE) },
 	{ USB_DEVICE(USB_VID_PCTV,	USB_PID_PINNACLE_PCTV282E) },
 	{ USB_DEVICE(USB_VID_DIBCOM,	USB_PID_DIBCOM_STK7770P) },
-{ USB_DEVICE(USB_VID_TERRATEC,	USB_PID_TERRATEC_CINERGY_T_XXS_2) },
+/* 60 */{ USB_DEVICE(USB_VID_TERRATEC,	USB_PID_TERRATEC_CINERGY_T_XXS_2) },
 	{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_STK807XPVR) },
 	{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_STK807XP) },
 	{ USB_DEVICE_VER(USB_VID_PIXELVIEW, USB_PID_PIXELVIEW_SBTVD, 0x000, 0x3f00) },
 	{ USB_DEVICE(USB_VID_EVOLUTEPC, USB_PID_TVWAY_PLUS) },
-{ USB_DEVICE(USB_VID_PINNACLE,	USB_PID_PINNACLE_PCTV73ESE) },
+/* 65 */{ USB_DEVICE(USB_VID_PINNACLE,	USB_PID_PINNACLE_PCTV73ESE) },
 	{ USB_DEVICE(USB_VID_PINNACLE,	USB_PID_PINNACLE_PCTV282E) },
 	{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_STK8096GP) },
 	{ USB_DEVICE(USB_VID_ELGATO,    USB_PID_ELGATO_EYETV_DIVERSITY) },
 	{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_NIM9090M) },
-{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_NIM8096MD) },
+/* 70 */{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_NIM8096MD) },
 	{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_NIM9090MD) },
 	{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_NIM7090) },
 	{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_TFE7090PVR) },
 	{ USB_DEVICE(USB_VID_TECHNISAT, USB_PID_TECHNISAT_AIRSTAR_TELESTICK_2) },
-{ USB_DEVICE(USB_VID_MEDION,    USB_PID_CREATIX_CTX1921) },
+/* 75 */{ USB_DEVICE(USB_VID_MEDION,    USB_PID_CREATIX_CTX1921) },
 	{ USB_DEVICE(USB_VID_PINNACLE,  USB_PID_PINNACLE_PCTV340E) },
 	{ USB_DEVICE(USB_VID_PINNACLE,  USB_PID_PINNACLE_PCTV340E_SE) },
 	{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_TFE7090E) },
 	{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_TFE7790E) },
-{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_TFE8096P) },
-	{ 0 }		
+/* 80 */{ USB_DEVICE(USB_VID_DIBCOM,    USB_PID_DIBCOM_TFE8096P) },
+	{ 0 }		/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, dib0700_usb_id_table);
 

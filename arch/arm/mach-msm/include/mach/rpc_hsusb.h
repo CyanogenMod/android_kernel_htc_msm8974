@@ -59,6 +59,7 @@ int msm_fsusb_remote_dev_disconnected(void);
 int msm_fsusb_set_remote_wakeup(void);
 void msm_fsusb_rpc_deinit(void);
 
+/* wrapper to send pid and serial# info to bootloader */
 int usb_diag_update_pid_and_serial_num(uint32_t pid, const char *snum);
 #else
 static inline int msm_hsusb_rpc_connect(void) { return 0; }

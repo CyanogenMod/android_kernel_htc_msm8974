@@ -84,6 +84,7 @@
 
 #define MAHIMAHI_GPIO_DS2482_SLP_N	87
 #define MAHIMAHI_GPIO_VIBRATOR_ON	89
+/* Compass */
 #define MAHIMAHI_REV0_GPIO_COMPASS_INT_N	36
 
 #define MAHIMAHI_GPIO_COMPASS_INT_N	153
@@ -96,6 +97,7 @@
 	{ {-1,  0, 0}, { 0,  0, -1}, {0, 1,  0} }  \
 }
 
+/* Audio */
 #define MAHIMAHI_AUD_JACKHP_EN		157
 #define MAHIMAHI_AUD_2V5_EN		158
 #define MAHIMAHI_AUD_MICPATH_SEL 	111
@@ -104,14 +106,21 @@
 #define MAHIMAHI_AUD_A1026_RESET 	129
 #define MAHIMAHI_AUD_A1026_CLK		 -1
 #define MAHIMAHI_CDMA_XA_AUD_A1026_CLK	105
+/* NOTE: MAHIMAHI_CDMA_XB_AUD_A1026_WAKEUP on CDMA is the same GPIO as
+ * MAHIMAHI_GPIO_BATTERY_CHARGER_CURRENT on UMTS.  Also,
+ * MAHIMAHI_CDMA_XB_AUD_A1026_RESET is the same as
+ * GPIO MAHIMAHI_GPIO_35MM_KEY_INT_SHUTDOWN on UMTS.
+ */
 #define MAHIMAHI_CDMA_XB_AUD_A1026_WAKEUP	16
 #define MAHIMAHI_CDMA_XB_AUD_A1026_RESET	19
 #define MAHIMAHI_CDMA_XB_AUD_A1026_CLK	-1
 
+/* Bluetooth PCM */
 #define MAHIMAHI_BT_PCM_OUT		68
 #define MAHIMAHI_BT_PCM_IN		69
 #define MAHIMAHI_BT_PCM_SYNC		70
 #define MAHIMAHI_BT_PCM_CLK		71
+/* flash light */
 #define MAHIMAHI_GPIO_FLASHLIGHT_TORCH	58
 #define MAHIMAHI_GPIO_FLASHLIGHT_FLASH	84
 
@@ -119,10 +128,12 @@
 #define MAHIMAHI_GPIO_LCD_RST_N		29
 #define MAHIMAHI_GPIO_LCD_ID0		147
 
+/* 3.5mm remote control key interrupt shutdown signal */
 #define MAHIMAHI_GPIO_35MM_KEY_INT_SHUTDOWN	19
 
 #define MAHIMAHI_GPIO_DOCK		106
 
+/* speaker amplifier enable pin for mahimahi CDMA version */
 #define MAHIMAHI_CDMA_GPIO_AUD_SPK_AMP_EN	104
 
 #define MAHIMAHI_GPIO_BATTERY_DETECTION		39
@@ -134,6 +145,7 @@
 
 #define MAHIMAHI_CDMA_SD_2V85_EN		100
 #define MAHIMAHI_CDMA_JOG_2V6_EN		150
+/* display relative */
 #define MAHIMAHI_LCD_SPI_CLK            (17)
 #define MAHIMAHI_LCD_SPI_DO             (18)
 #define MAHIMAHI_LCD_SPI_CSz            (20)
@@ -160,4 +172,4 @@
 #define MAHIMAHI_LCD_DE                 (138)
 #define is_cdma_version(rev) (((rev) & 0xF0) == 0xC0)
 
-#endif 
+#endif /* __ARCH_ARM_MACH_MSM_BOARD_MAHIMAHI_H */

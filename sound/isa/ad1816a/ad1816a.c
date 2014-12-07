@@ -42,16 +42,16 @@ MODULE_SUPPORTED_DEVICE("{{Highscreen,Sound-Boostar 16 3D},"
 		"{Aztech/Newcom SC-16 3D},"
 		"{Shark Predator ISA}}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_ISAPNP;	
-static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static long mpu_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static long fm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int mpu_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
-static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 1-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_ISAPNP;	/* Enable this card */
+static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* PnP setup */
+static long mpu_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* PnP setup */
+static long fm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* PnP setup */
+static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* Pnp setup */
+static int mpu_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* Pnp setup */
+static int dma1[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* PnP setup */
+static int dma2[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* PnP setup */
 static int clockfreq[SNDRV_CARDS];
 
 module_param_array(index, int, NULL, 0444);
@@ -69,27 +69,27 @@ struct snd_card_ad1816a {
 };
 
 static struct pnp_card_device_id snd_ad1816a_pnpids[] = {
-	
+	/* Analog Devices AD1815 */
 	{ .id = "ADS7150", .devs = { { .id = "ADS7150" }, { .id = "ADS7151" } } },
-	
+	/* Analog Device AD1816? */
 	{ .id = "ADS7180", .devs = { { .id = "ADS7180" }, { .id = "ADS7181" } } },
-	
+	/* Analog Devices AD1816A - added by Kenneth Platz <kxp@atl.hp.com> */
 	{ .id = "ADS7181", .devs = { { .id = "ADS7180" }, { .id = "ADS7181" } } },
-	
+	/* Analog Devices AD1816A - Aztech/Newcom SC-16 3D */
 	{ .id = "AZT1022", .devs = { { .id = "AZT1018" }, { .id = "AZT2002" } } },
-	
+	/* Highscreen Sound-Boostar 16 3D - added by Stefan Behnel */
 	{ .id = "LWC1061", .devs = { { .id = "ADS7180" }, { .id = "ADS7181" } } },
-	
+	/* Highscreen Sound-Boostar 16 3D */
 	{ .id = "MDK1605", .devs = { { .id = "ADS7180" }, { .id = "ADS7181" } } },
-	
+	/* Shark Predator ISA - added by Ken Arromdee */
 	{ .id = "SMM7180", .devs = { { .id = "ADS7180" }, { .id = "ADS7181" } } },
-	
+	/* Analog Devices AD1816A - Terratec AudioSystem EWS64 S */
 	{ .id = "TER1112", .devs = { { .id = "ADS7180" }, { .id = "ADS7181" } } },
-	
+	/* Analog Devices AD1816A - Terratec AudioSystem EWS64 S */
 	{ .id = "TER1112", .devs = { { .id = "TER1100" }, { .id = "TER1101" } } },
-	
+	/* Analog Devices AD1816A - Terratec Base 64 */
 	{ .id = "TER1411", .devs = { { .id = "ADS7180" }, { .id = "ADS7181" } } },
-	
+	/* end */
 	{ .id = "" }
 };
 
@@ -264,7 +264,7 @@ static struct pnp_card_driver ad1816a_pnpc_driver = {
 	.id_table	= snd_ad1816a_pnpids,
 	.probe		= snd_ad1816a_pnp_detect,
 	.remove		= __devexit_p(snd_ad1816a_pnp_remove),
-	
+	/* FIXME: suspend/resume */
 };
 
 static int __init alsa_card_ad1816a_init(void)
@@ -279,7 +279,7 @@ static int __init alsa_card_ad1816a_init(void)
 		pnp_unregister_card_driver(&ad1816a_pnpc_driver);
 #ifdef MODULE
 		printk(KERN_ERR "no AD1816A based soundcards found.\n");
-#endif	
+#endif	/* MODULE */
 		return -ENODEV;
 	}
 	return 0;

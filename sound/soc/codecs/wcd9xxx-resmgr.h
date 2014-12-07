@@ -105,8 +105,8 @@ enum wcd9xxx_notify_event {
 
 	WCD9XXX_EVENT_POST_RESUME,
 
-	WCD9XXX_EVENT_PRE_TX_3_ON,
-	WCD9XXX_EVENT_POST_TX_3_OFF,
+	WCD9XXX_EVENT_PRE_TX_1_3_ON,
+	WCD9XXX_EVENT_POST_TX_1_3_OFF,
 
 	WCD9XXX_EVENT_LAST,
 };
@@ -117,15 +117,23 @@ struct wcd9xxx_resmgr {
 
 	u32 rx_bias_count;
 
+	/*
+	 * bandgap_type, bg_audio_users and bg_mbhc_users have to be
+	 * referred/manipulated after acquiring codec_bg_clk_lock mutex
+	 */
 	enum wcd9xxx_bandgap_type bandgap_type;
 	u16 bg_audio_users;
 	u16 bg_mbhc_users;
 
+	/*
+	 * clk_type, clk_rco_users and clk_mclk_users have to be
+	 * referred/manipulated after acquiring codec_bg_clk_lock mutex
+	 */
 	enum wcd9xxx_clock_type clk_type;
 	u16 clk_rco_users;
 	u16 clk_mclk_users;
 
-	
+	/* cfilt users per cfilts */
 	u16 cfilt_users[WCD9XXX_NUM_OF_CFILT];
 
 	struct wcd9xxx_reg_address *reg_addr;
@@ -135,7 +143,7 @@ struct wcd9xxx_resmgr {
 	struct wcd9xxx_micbias_setting *micbias_pdata;
 
 	struct blocking_notifier_head notifier;
-	
+	/* Notifier needs mbhc pointer with resmgr */
 	struct wcd9xxx_mbhc *mbhc;
 
 	unsigned long cond_flags;
@@ -143,6 +151,12 @@ struct wcd9xxx_resmgr {
 	struct list_head update_bit_cond_h;
 	struct mutex update_bit_cond_lock;
 
+	/*
+	 * Currently, only used for mbhc purpose, to protect
+	 * concurrent execution of mbhc threaded irq handlers and
+	 * kill race between DAPM and MBHC. But can serve as a
+	 * general lock to protect codec resource
+	 */
 	struct mutex codec_resource_lock;
 	struct mutex codec_bg_clk_lock;
 
@@ -229,8 +243,8 @@ void wcd9xxx_resmgr_notifier_call(struct wcd9xxx_resmgr *resmgr,
 				  const enum wcd9xxx_notify_event e);
 
 enum wcd9xxx_resmgr_cond {
-	WCD9XXX_COND_HPH = 0x01, 
-	WCD9XXX_COND_HPH_MIC = 0x02, 
+	WCD9XXX_COND_HPH = 0x01, /* Headphone */
+	WCD9XXX_COND_HPH_MIC = 0x02, /* Microphone on the headset */
 };
 void wcd9xxx_regmgr_cond_register(struct wcd9xxx_resmgr *resmgr,
 				  unsigned long condbits);
@@ -247,4 +261,4 @@ int wcd9xxx_resmgr_add_cond_update_bits(struct wcd9xxx_resmgr *resmgr,
 void wcd9xxx_resmgr_cond_update_cond(struct wcd9xxx_resmgr *resmgr,
 				     enum wcd9xxx_resmgr_cond cond, bool set);
 
-#endif 
+#endif /* __WCD9XXX_COMMON_H__ */

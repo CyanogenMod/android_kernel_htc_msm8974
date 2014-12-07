@@ -63,6 +63,9 @@ do {									\
 struct task_struct *__switch_to(struct task_struct *prev,
 				struct task_struct *next);
 
+/*
+ *	switch_to() should switch tasks to task nr n, first
+ */
 #define switch_to(prev, next, last)				\
 do {								\
 	register u32 *__ts1 __asm__ ("r1");			\
@@ -128,4 +131,4 @@ do {								\
 		__restore_dsp(prev);				\
 } while (0)
 
-#endif 
+#endif /* __ASM_SH_SWITCH_TO_32_H */

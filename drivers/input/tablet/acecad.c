@@ -31,6 +31,9 @@
 #include <linux/init.h>
 #include <linux/usb/input.h>
 
+/*
+ * Version Information
+ */
 #define DRIVER_VERSION "v3.2"
 #define DRIVER_DESC    "USB Acecad Flair tablet driver"
 #define DRIVER_LICENSE "GPL"
@@ -64,12 +67,12 @@ static void usb_acecad_irq(struct urb *urb)
 
 	switch (urb->status) {
 	case 0:
-		
+		/* success */
 		break;
 	case -ECONNRESET:
 	case -ENOENT:
 	case -ESHUTDOWN:
-		
+		/* this urb is terminated, clean up */
 		dbg("%s - urb shutting down with status: %d", __func__, urb->status);
 		return;
 	default:
@@ -83,7 +86,7 @@ static void usb_acecad_irq(struct urb *urb)
 	if (prox) {
 		int x = data[1] | (data[2] << 8);
 		int y = data[3] | (data[4] << 8);
-		
+		/* Pressure should compute the same way for flair and 302 */
 		int pressure = data[5] | (data[6] << 8);
 		int touch = data[0] & 0x01;
 		int stylus = (data[0] & 0x10) >> 4;
@@ -96,7 +99,7 @@ static void usb_acecad_irq(struct urb *urb)
 		input_report_key(dev, BTN_STYLUS2, stylus2);
 	}
 
-	
+	/* event termination */
 	input_sync(dev);
 
 resubmit:

@@ -63,12 +63,12 @@ static uint64_t get_callback_via(struct pci_dev *pdev)
 
 	irq = pdev->irq;
 	if (irq < 16)
-		return irq; 
+		return irq; /* ISA IRQ */
 
 	pin = pdev->pin;
 
-	
-	return ((uint64_t)0x01 << 56) | 
+	/* We don't know the GSI. Specify the PCI INTx line instead. */
+	return ((uint64_t)0x01 << 56) | /* PCI INTx identifier */
 		((uint64_t)pci_domain_nr(pdev->bus) << 32) |
 		((uint64_t)pdev->bus->number << 16) |
 		((uint64_t)(pdev->devfn & 0xff) << 8) |

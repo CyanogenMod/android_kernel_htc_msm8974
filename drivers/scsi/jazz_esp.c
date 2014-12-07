@@ -76,7 +76,7 @@ static void jazz_esp_reset_dma(struct esp *esp)
 
 static void jazz_esp_dma_drain(struct esp *esp)
 {
-	
+	/* nothing to do */
 }
 
 static void jazz_esp_dma_invalidate(struct esp *esp)
@@ -218,6 +218,7 @@ static int __devexit esp_jazz_remove(struct platform_device *dev)
 	return 0;
 }
 
+/* work with hotplug and coldplug */
 MODULE_ALIAS("platform:jazz_esp");
 
 static struct platform_driver esp_jazz_driver = {

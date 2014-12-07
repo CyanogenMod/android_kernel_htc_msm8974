@@ -74,7 +74,7 @@ void __init uv_setup(char **cmdline_p)
 		m_n_config.s.n_skt = 0;
 		mmr_base = 0;
 #if 0
-		
+		/* Need BIOS calls - TDB */
 		if (!ia64_sn_is_fake_prom())
 			sn_prom_type = 1;
 		else
@@ -109,7 +109,7 @@ void __init uv_setup(char **cmdline_p)
 		uv_cpu_hub_info(cpu)->gpa_mask = (1 << (m_val + n_val)) - 1;
 		uv_cpu_hub_info(cpu)->gnode_upper = gnode_upper;
 		uv_cpu_hub_info(cpu)->global_mmr_base = mmr_base;
-		uv_cpu_hub_info(cpu)->coherency_domain_number = 0;
+		uv_cpu_hub_info(cpu)->coherency_domain_number = 0;/* ZZZ */
 		printk(KERN_DEBUG "UV cpu %d, nid %d\n", cpu, nid);
 	}
 }

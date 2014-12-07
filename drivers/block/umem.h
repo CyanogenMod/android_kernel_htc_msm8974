@@ -15,6 +15,7 @@
 
 #define IRQ_TIMEOUT (1 * HZ)
 
+/* CSR register definition */
 #define MEMCTRLSTATUS_MAGIC	0x00
 #define  MM_MAGIC_VALUE		(unsigned char)0x59
 
@@ -120,10 +121,11 @@ struct mm_dma_desc {
 
 	dma_addr_t data_dma_handle;
 
-	
+	/* Copy of the bits */
 	__le64	sem_control_bits;
 } __attribute__((aligned(8)));
 
+/* bits for card->flags */
 #define UM_FLAG_DMA_IN_REGS		1
 #define UM_FLAG_NO_BYTE_STATUS		2
 #define UM_FLAG_NO_BATTREG		4

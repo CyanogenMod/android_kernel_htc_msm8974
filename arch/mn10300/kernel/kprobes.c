@@ -27,6 +27,7 @@
 struct kretprobe_blackpoint kretprobe_blacklist[] = { { NULL, NULL } };
 const int kretprobe_blacklist_size = ARRAY_SIZE(kretprobe_blacklist);
 
+/* kprobe_status settings */
 #define KPROBE_HIT_ACTIVE	0x00000001
 #define KPROBE_HIT_SS		0x00000002
 
@@ -41,6 +42,7 @@ static unsigned long cur_kprobe_bp_addr;
 DEFINE_PER_CPU(struct kprobe *, current_kprobe) = NULL;
 
 
+/* singlestep flag bits */
 #define SINGLESTEP_BRANCH 1
 #define SINGLESTEP_PCREL  2
 
@@ -64,23 +66,23 @@ DEFINE_PER_CPU(struct kprobe *, current_kprobe) = NULL;
 
 static const u8 mn10300_insn_sizes[256] =
 {
-	
-	1, 3, 3, 3, 1, 3, 3, 3, 1, 3, 3, 3, 1, 3, 3, 3,	
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
-	2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 2, 2, 3, 3, 3, 3, 
-	3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 1, 1, 1, 
-	1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 
-	1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
-	2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 
-	2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 
-	2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 
-	2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 2, 2, 
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 
-	0, 2, 2, 2, 2, 2, 2, 4, 0, 3, 0, 4, 0, 6, 7, 1  
+	/* 1  2  3  4  5  6  7  8  9  a  b  c  d  e  f */
+	1, 3, 3, 3, 1, 3, 3, 3, 1, 3, 3, 3, 1, 3, 3, 3,	/* 0 */
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, /* 1 */
+	2, 2, 2, 2, 3, 3, 3, 3, 2, 2, 2, 2, 3, 3, 3, 3, /* 2 */
+	3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 1, 1, 1, /* 3 */
+	1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, 1, 1, 2, 2, /* 4 */
+	1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, /* 5 */
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, /* 6 */
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, /* 7 */
+	2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, /* 8 */
+	2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, /* 9 */
+	2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, /* a */
+	2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, 1, 1, 1, 1, 2, /* b */
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 2, 2, /* c */
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, /* d */
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, /* e */
+	0, 2, 2, 2, 2, 2, 2, 4, 0, 3, 0, 4, 0, 6, 7, 1  /* f */
 };
 
 #define LT (1 << 0)
@@ -100,25 +102,28 @@ static const u8 mn10300_insn_sizes[256] =
 #define NS (1 << 14)
 
 static const u16 cond_table[] = {
-	
-	 (NE | NC | CC | VC | GE | GT | HI),
-	 (EQ | NC | CC | VC | GE | LE | LS),
-	 (NE | NS | CC | VC | LT | LE | HI),
-	 (EQ | NS | CC | VC | LT | LE | LS),
-	 (NE | NC | CS | VC | GE | GT | LS),
-	 (EQ | NC | CS | VC | GE | LE | LS),
-	 (NE | NS | CS | VC | LT | LE | LS),
-	 (EQ | NS | CS | VC | LT | LE | LS),
-	 (NE | NC | CC | VS | LT | LE | HI),
-	 (EQ | NC | CC | VS | LT | LE | LS),
-	 (NE | NS | CC | VS | GE | GT | HI),
-	 (EQ | NS | CC | VS | GE | LE | LS),
-	 (NE | NC | CS | VS | LT | LE | LS),
-	 (EQ | NC | CS | VS | LT | LE | LS),
-	 (NE | NS | CS | VS | GE | GT | LS),
-	 (EQ | NS | CS | VS | GE | LE | LS),
+	/*  V  C  N  Z  */
+	/*  0  0  0  0  */ (NE | NC | CC | VC | GE | GT | HI),
+	/*  0  0  0  1  */ (EQ | NC | CC | VC | GE | LE | LS),
+	/*  0  0  1  0  */ (NE | NS | CC | VC | LT | LE | HI),
+	/*  0  0  1  1  */ (EQ | NS | CC | VC | LT | LE | LS),
+	/*  0  1  0  0  */ (NE | NC | CS | VC | GE | GT | LS),
+	/*  0  1  0  1  */ (EQ | NC | CS | VC | GE | LE | LS),
+	/*  0  1  1  0  */ (NE | NS | CS | VC | LT | LE | LS),
+	/*  0  1  1  1  */ (EQ | NS | CS | VC | LT | LE | LS),
+	/*  1  0  0  0  */ (NE | NC | CC | VS | LT | LE | HI),
+	/*  1  0  0  1  */ (EQ | NC | CC | VS | LT | LE | LS),
+	/*  1  0  1  0  */ (NE | NS | CC | VS | GE | GT | HI),
+	/*  1  0  1  1  */ (EQ | NS | CC | VS | GE | LE | LS),
+	/*  1  1  0  0  */ (NE | NC | CS | VS | LT | LE | LS),
+	/*  1  1  0  1  */ (EQ | NC | CS | VS | LT | LE | LS),
+	/*  1  1  1  0  */ (NE | NS | CS | VS | GE | GT | LS),
+	/*  1  1  1  1  */ (EQ | NS | CS | VS | GE | LE | LS),
 };
 
+/*
+ * Calculate what the PC will be after executing next instruction
+ */
 static unsigned find_nextpc(struct pt_regs *regs, int *flags)
 {
 	unsigned size;
@@ -139,7 +144,7 @@ static unsigned find_nextpc(struct pt_regs *regs, int *flags)
 		next = pc + size;
 	} else {
 		switch (opc) {
-			
+			/* Bxx (d8,PC) */
 		case 0xc0 ... 0xca:
 			x8 = 2;
 			if (cond_table[regs->epsw & 0xf] & (1 << (opc & 0xf)))
@@ -148,7 +153,7 @@ static unsigned find_nextpc(struct pt_regs *regs, int *flags)
 			*flags |= SINGLESTEP_BRANCH;
 			break;
 
-			
+			/* JMP (d16,PC) or CALL (d16,PC) */
 		case 0xcc:
 		case 0xcd:
 			READ_WORD16(pc + 1, &x16);
@@ -156,7 +161,7 @@ static unsigned find_nextpc(struct pt_regs *regs, int *flags)
 			*flags |= SINGLESTEP_BRANCH;
 			break;
 
-			
+			/* JMP (d32,PC) or CALL (d32,PC) */
 		case 0xdc:
 		case 0xdd:
 			READ_WORD32(pc + 1, &x32);
@@ -164,14 +169,14 @@ static unsigned find_nextpc(struct pt_regs *regs, int *flags)
 			*flags |= SINGLESTEP_BRANCH;
 			break;
 
-			
+			/* RETF */
 		case 0xde:
 			next = (u8 *)regs->mdr;
 			*flags &= ~SINGLESTEP_PCREL;
 			*flags |= SINGLESTEP_BRANCH;
 			break;
 
-			
+			/* RET */
 		case 0xdf:
 			sp += pc[2];
 			READ_WORD32(sp, &x32);
@@ -184,7 +189,7 @@ static unsigned find_nextpc(struct pt_regs *regs, int *flags)
 			next = pc + 2;
 			opc = pc[1];
 			if (opc >= 0xf0 && opc <= 0xf7) {
-				
+				/* JMP (An) / CALLS (An) */
 				switch (opc & 3) {
 				case 0:
 					next = (u8 *)regs->a0;
@@ -202,13 +207,13 @@ static unsigned find_nextpc(struct pt_regs *regs, int *flags)
 				*flags &= ~SINGLESTEP_PCREL;
 				*flags |= SINGLESTEP_BRANCH;
 			} else if (opc == 0xfc) {
-				
+				/* RETS */
 				READ_WORD32(sp, &x32);
 				next = (u8 *)x32;
 				*flags &= ~SINGLESTEP_PCREL;
 				*flags |= SINGLESTEP_BRANCH;
 			} else if (opc == 0xfd) {
-				
+				/* RTI */
 				READ_WORD32(sp + 4, &x32);
 				next = (u8 *)x32;
 				*flags &= ~SINGLESTEP_PCREL;
@@ -216,7 +221,7 @@ static unsigned find_nextpc(struct pt_regs *regs, int *flags)
 			}
 			break;
 
-			
+			/* potential 3-byte conditional branches */
 		case 0xf8:
 			next = pc + 3;
 			opc = pc[1];
@@ -232,7 +237,7 @@ static unsigned find_nextpc(struct pt_regs *regs, int *flags)
 
 		case 0xfa:
 			if (pc[1] == 0xff) {
-				
+				/* CALLS (d16,PC) */
 				READ_WORD16(pc + 2, &x16);
 				next = pc + x16;
 			} else
@@ -243,14 +248,14 @@ static unsigned find_nextpc(struct pt_regs *regs, int *flags)
 		case 0xfc:
 			x32 = 6;
 			if (pc[1] == 0xff) {
-				
+				/* CALLS (d32,PC) */
 				READ_WORD32(pc + 2, &x32);
 			}
 			next = pc + x32;
 			*flags |= SINGLESTEP_BRANCH;
 			break;
-			
-			
+			/* LXX (d8,PC) */
+			/* SETLB - loads the next four bytes into the LIR reg */
 		case 0xd0 ... 0xda:
 		case 0xdb:
 			panic("Can't singlestep Lxx/SETLB\n");
@@ -261,6 +266,9 @@ static unsigned find_nextpc(struct pt_regs *regs, int *flags)
 
 }
 
+/*
+ * set up out of place singlestep of some branching instructions
+ */
 static unsigned __kprobes singlestep_branch_setup(struct pt_regs *regs)
 {
 	u8 opc, *pc, *sp, *next;
@@ -270,21 +278,21 @@ static unsigned __kprobes singlestep_branch_setup(struct pt_regs *regs)
 	sp = (u8 *) (regs + 1);
 
 	switch (pc[0]) {
-	case 0xc0 ... 0xca:	
-	case 0xcc:		
-	case 0xdc:		
-	case 0xf8:              
-		
+	case 0xc0 ... 0xca:	/* Bxx (d8,PC) */
+	case 0xcc:		/* JMP (d16,PC) */
+	case 0xdc:		/* JMP (d32,PC) */
+	case 0xf8:              /* Bxx (d8,PC)  3-byte version */
+		/* don't really need to do anything except cause trap  */
 		next = pc;
 		break;
 
-	case 0xcd:		
+	case 0xcd:		/* CALL (d16,PC) */
 		pc[1] = 5;
 		pc[2] = 0;
 		next = pc + 5;
 		break;
 
-	case 0xdd:		
+	case 0xdd:		/* CALL (d32,PC) */
 		pc[1] = 7;
 		pc[2] = 0;
 		pc[3] = 0;
@@ -292,12 +300,12 @@ static unsigned __kprobes singlestep_branch_setup(struct pt_regs *regs)
 		next = pc + 7;
 		break;
 
-	case 0xde:		
+	case 0xde:		/* RETF */
 		next = pc + 3;
 		regs->mdr = (unsigned) next;
 		break;
 
-	case 0xdf:		
+	case 0xdf:		/* RET */
 		sp += pc[2];
 		next = pc + 3;
 		*(unsigned *)sp = (unsigned) next;
@@ -307,34 +315,34 @@ static unsigned __kprobes singlestep_branch_setup(struct pt_regs *regs)
 		next = pc + 2;
 		opc = pc[1];
 		if (opc >= 0xf0 && opc <= 0xf3) {
-			
-			
+			/* CALLS (An) */
+			/* use CALLS (d16,PC) to avoid mucking with An */
 			pc[0] = 0xfa;
 			pc[1] = 0xff;
 			pc[2] = 4;
 			pc[3] = 0;
 			next = pc + 4;
 		} else if (opc >= 0xf4 && opc <= 0xf7) {
-			
+			/* JMP (An) */
 			next = pc;
 		} else if (opc == 0xfc) {
-			
+			/* RETS */
 			next = pc + 2;
 			*(unsigned *) sp = (unsigned) next;
 		} else if (opc == 0xfd) {
-			
+			/* RTI */
 			next = pc + 2;
 			*(unsigned *)(sp + 4) = (unsigned) next;
 		}
 		break;
 
-	case 0xfa:	
+	case 0xfa:	/* CALLS (d16,PC) */
 		pc[2] = 4;
 		pc[3] = 0;
 		next = pc + 4;
 		break;
 
-	case 0xfc:	
+	case 0xfc:	/* CALLS (d32,PC) */
 		pc[2] = 6;
 		pc[3] = 0;
 		pc[4] = 0;
@@ -342,8 +350,8 @@ static unsigned __kprobes singlestep_branch_setup(struct pt_regs *regs)
 		next = pc + 6;
 		break;
 
-	case 0xd0 ... 0xda:	
-	case 0xdb:		
+	case 0xd0 ... 0xda:	/* LXX (d8,PC) */
+	case 0xdb:		/* SETLB */
 		panic("Can't singlestep Lxx/SETLB\n");
 	}
 
@@ -405,7 +413,7 @@ void __kprobes prepare_singlestep(struct kprobe *p, struct pt_regs *regs)
 	else
 		cur_kprobe_next_pc = nextpc;
 
-	
+	/* branching instructions need special handling */
 	if (cur_kprobe_ss_flags & SINGLESTEP_BRANCH)
 		nextpc = singlestep_branch_setup(regs);
 
@@ -423,11 +431,13 @@ static inline int __kprobes kprobe_handler(struct pt_regs *regs)
 	int ret = 0;
 	unsigned int *addr = (unsigned int *) regs->pc;
 
-	
+	/* We're in an interrupt, but this is clear and BUG()-safe. */
 	preempt_disable();
 
-	
+	/* Check we're not actually recursing */
 	if (kprobe_running()) {
+		/* We *are* holding lock here, so this is safe.
+		   Disarm the probe we just hit, and ignore it. */
 		p = get_kprobe(addr);
 		if (p) {
 			disarm_kprobe(p, regs);
@@ -437,23 +447,29 @@ static inline int __kprobes kprobe_handler(struct pt_regs *regs)
 			if (p->break_handler && p->break_handler(p, regs))
 				goto ss_probe;
 		}
-		
+		/* If it's not ours, can't be delete race, (we hold lock). */
 		goto no_kprobe;
 	}
 
 	p = get_kprobe(addr);
 	if (!p) {
 		if (*addr != BREAKPOINT_INSTRUCTION) {
+			/* The breakpoint instruction was removed right after
+			 * we hit it.  Another cpu has removed either a
+			 * probepoint or a debugger breakpoint at this address.
+			 * In either case, no further handling of this
+			 * interrupt is appropriate.
+			 */
 			ret = 1;
 		}
-		
+		/* Not one of ours: let kernel handle it */
 		goto no_kprobe;
 	}
 
 	kprobe_status = KPROBE_HIT_ACTIVE;
 	cur_kprobe = p;
 	if (p->pre_handler(p, regs)) {
-		
+		/* handler has already set things up, so skip ss setup */
 		return 1;
 	}
 
@@ -467,36 +483,44 @@ no_kprobe:
 	return ret;
 }
 
+/*
+ * Called after single-stepping.  p->addr is the address of the
+ * instruction whose first byte has been replaced by the "breakpoint"
+ * instruction.  To avoid the SMP problems that can occur when we
+ * temporarily put back the original opcode to single-step, we
+ * single-stepped a copy of the instruction.  The address of this
+ * copy is p->ainsn.insn.
+ */
 static void __kprobes resume_execution(struct kprobe *p, struct pt_regs *regs)
 {
-	
+	/* we may need to fixup regs/stack after singlestepping a call insn */
 	if (cur_kprobe_ss_flags & SINGLESTEP_BRANCH) {
 		regs->pc = cur_kprobe_orig_pc;
 		switch (p->ainsn.insn[0]) {
-		case 0xcd:	
+		case 0xcd:	/* CALL (d16,PC) */
 			*(unsigned *) regs->sp = regs->mdr = regs->pc + 5;
 			break;
-		case 0xdd:	
-			
+		case 0xdd:	/* CALL (d32,PC) */
+			/* fixup mdr and return address on stack */
 			*(unsigned *) regs->sp = regs->mdr = regs->pc + 7;
 			break;
 		case 0xf0:
 			if (p->ainsn.insn[1] >= 0xf0 &&
 			    p->ainsn.insn[1] <= 0xf3) {
-				
-				
+				/* CALLS (An) */
+				/* fixup MDR and return address on stack */
 				regs->mdr = regs->pc + 2;
 				*(unsigned *) regs->sp = regs->mdr;
 			}
 			break;
 
-		case 0xfa:	
-			
+		case 0xfa:	/* CALLS (d16,PC) */
+			/* fixup MDR and return address on stack */
 			*(unsigned *) regs->sp = regs->mdr = regs->pc + 4;
 			break;
 
-		case 0xfc:	
-			
+		case 0xfc:	/* CALLS (d32,PC) */
+			/* fixup MDR and return address on stack */
 			*(unsigned *) regs->sp = regs->mdr = regs->pc + 6;
 			break;
 		}
@@ -520,6 +544,7 @@ static inline int __kprobes post_kprobe_handler(struct pt_regs *regs)
 	return 1;
 }
 
+/* Interrupts disabled, kprobe_lock held. */
 static inline
 int __kprobes kprobe_fault_handler(struct pt_regs *regs, int trapnr)
 {
@@ -535,6 +560,9 @@ int __kprobes kprobe_fault_handler(struct pt_regs *regs, int trapnr)
 	return 0;
 }
 
+/*
+ * Wrapper routine to for handling exceptions.
+ */
 int __kprobes kprobe_exceptions_notify(struct notifier_block *self,
 				       unsigned long val, void *data)
 {
@@ -561,6 +589,7 @@ int __kprobes kprobe_exceptions_notify(struct notifier_block *self,
 	return NOTIFY_DONE;
 }
 
+/* Jprobes support.  */
 static struct pt_regs jprobe_saved_regs;
 static struct pt_regs *jprobe_saved_regs_location;
 static kprobe_opcode_t jprobe_saved_stack[MAX_STACK_SIZE];
@@ -572,9 +601,13 @@ int __kprobes setjmp_pre_handler(struct kprobe *p, struct pt_regs *regs)
 	jprobe_saved_regs_location = regs;
 	memcpy(&jprobe_saved_regs, regs, sizeof(struct pt_regs));
 
+	/* Save a whole stack frame, this gets arguments
+	 * pushed onto the stack after using up all the
+	 * arg registers.
+	 */
 	memcpy(&jprobe_saved_stack, regs + 1, sizeof(jprobe_saved_stack));
 
-	
+	/* setup return addr to the jprobe handler routine */
 	regs->pc = (unsigned long) jp->entry;
 	return 1;
 }
@@ -606,6 +639,8 @@ int __kprobes longjmp_break_handler(struct kprobe *p, struct pt_regs *regs)
 			BUG();
 		}
 
+		/* Restore old register state.
+		 */
 		memcpy(regs, &jprobe_saved_regs, sizeof(struct pt_regs));
 
 		memcpy(regs + 1, &jprobe_saved_stack,

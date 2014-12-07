@@ -32,4 +32,4 @@ extern void si_pmu_init(struct si_pub *sih);
 extern void si_pmu_res_init(struct si_pub *sih);
 extern u32 si_pmu_measure_alpclk(struct si_pub *sih);
 
-#endif 
+#endif /* _BRCM_PMU_H_ */

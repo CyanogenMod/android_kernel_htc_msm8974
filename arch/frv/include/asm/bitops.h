@@ -25,6 +25,9 @@
 
 #include <asm-generic/bitops/ffz.h>
 
+/*
+ * clear_bit() doesn't provide any barrier for the compiler.
+ */
 #define smp_mb__before_clear_bit()	barrier()
 #define smp_mb__after_clear_bit()	barrier()
 
@@ -36,13 +39,13 @@ unsigned long atomic_test_and_ANDNOT_mask(unsigned long mask, volatile unsigned 
 
 	asm volatile(
 		"0:						\n"
-		"	orcc		gr0,gr0,gr0,icc3	\n"	
+		"	orcc		gr0,gr0,gr0,icc3	\n"	/* set ICC3.Z */
 		"	ckeq		icc3,cc7		\n"
-		"	ld.p		%M0,%1			\n"	
-		"	orcr		cc7,cc7,cc3		\n"	
+		"	ld.p		%M0,%1			\n"	/* LD.P/ORCR are atomic */
+		"	orcr		cc7,cc7,cc3		\n"	/* set CC3 to true */
 		"	and%I3		%1,%3,%2		\n"
-		"	cst.p		%2,%M0		,cc3,#1	\n"	
-		"	corcc		gr29,gr29,gr0	,cc3,#1	\n"	
+		"	cst.p		%2,%M0		,cc3,#1	\n"	/* if store happens... */
+		"	corcc		gr29,gr29,gr0	,cc3,#1	\n"	/* ... clear ICC3.Z */
 		"	beq		icc3,#0,0b		\n"
 		: "+U"(*v), "=&r"(old), "=r"(tmp)
 		: "NPr"(~mask)
@@ -59,13 +62,13 @@ unsigned long atomic_test_and_OR_mask(unsigned long mask, volatile unsigned long
 
 	asm volatile(
 		"0:						\n"
-		"	orcc		gr0,gr0,gr0,icc3	\n"	
+		"	orcc		gr0,gr0,gr0,icc3	\n"	/* set ICC3.Z */
 		"	ckeq		icc3,cc7		\n"
-		"	ld.p		%M0,%1			\n"	
-		"	orcr		cc7,cc7,cc3		\n"	
+		"	ld.p		%M0,%1			\n"	/* LD.P/ORCR are atomic */
+		"	orcr		cc7,cc7,cc3		\n"	/* set CC3 to true */
 		"	or%I3		%1,%3,%2		\n"
-		"	cst.p		%2,%M0		,cc3,#1	\n"	
-		"	corcc		gr29,gr29,gr0	,cc3,#1	\n"	
+		"	cst.p		%2,%M0		,cc3,#1	\n"	/* if store happens... */
+		"	corcc		gr29,gr29,gr0	,cc3,#1	\n"	/* ... clear ICC3.Z */
 		"	beq		icc3,#0,0b		\n"
 		: "+U"(*v), "=&r"(old), "=r"(tmp)
 		: "NPr"(mask)
@@ -82,13 +85,13 @@ unsigned long atomic_test_and_XOR_mask(unsigned long mask, volatile unsigned lon
 
 	asm volatile(
 		"0:						\n"
-		"	orcc		gr0,gr0,gr0,icc3	\n"	
+		"	orcc		gr0,gr0,gr0,icc3	\n"	/* set ICC3.Z */
 		"	ckeq		icc3,cc7		\n"
-		"	ld.p		%M0,%1			\n"	
-		"	orcr		cc7,cc7,cc3		\n"	
+		"	ld.p		%M0,%1			\n"	/* LD.P/ORCR are atomic */
+		"	orcr		cc7,cc7,cc3		\n"	/* set CC3 to true */
 		"	xor%I3		%1,%3,%2		\n"
-		"	cst.p		%2,%M0		,cc3,#1	\n"	
-		"	corcc		gr29,gr29,gr0	,cc3,#1	\n"	
+		"	cst.p		%2,%M0		,cc3,#1	\n"	/* if store happens... */
+		"	corcc		gr29,gr29,gr0	,cc3,#1	\n"	/* ... clear ICC3.Z */
 		"	beq		icc3,#0,0b		\n"
 		: "+U"(*v), "=&r"(old), "=r"(tmp)
 		: "NPr"(mask)
@@ -214,6 +217,9 @@ static inline int __test_and_change_bit(unsigned long nr, volatile void *addr)
 	return retval;
 }
 
+/*
+ * This routine doesn't need to be atomic.
+ */
 static inline int
 __constant_test_bit(unsigned long nr, const volatile void *addr)
 {
@@ -237,6 +243,14 @@ static inline int __test_bit(unsigned long nr, const volatile void *addr)
 
 #include <asm-generic/bitops/find.h>
 
+/**
+ * fls - find last bit set
+ * @x: the word to search
+ *
+ * This is defined the same way as ffs:
+ * - return 32..1 to indicate bit 31..0 most significant bit set
+ * - return 0 to indicate no bits set
+ */
 #define fls(x)						\
 ({							\
 	int bit;					\
@@ -254,6 +268,14 @@ static inline int __test_bit(unsigned long nr, const volatile void *addr)
 	bit;						\
 })
 
+/**
+ * fls64 - find last bit set in a 64-bit value
+ * @n: the value to search
+ *
+ * This is defined the same way as ffs:
+ * - return 64..1 to indicate bit 63..0 most significant bit set
+ * - return 0 to indicate no bits set
+ */
 static inline __attribute__((const))
 int fls64(u64 n)
 {
@@ -287,12 +309,29 @@ int fls64(u64 n)
 
 }
 
+/**
+ * ffs - find first bit set
+ * @x: the word to search
+ *
+ * - return 32..1 to indicate bit 31..0 most least significant bit set
+ * - return 0 to indicate no bits set
+ */
 static inline __attribute__((const))
 int ffs(int x)
 {
+	/* Note: (x & -x) gives us a mask that is the least significant
+	 * (rightmost) 1-bit of the value in x.
+	 */
 	return fls(x & -x);
 }
 
+/**
+ * __ffs - find first bit set
+ * @x: the word to search
+ *
+ * - return 31..0 to indicate bit 31..0 most least significant bit set
+ * - if no bits are set in x, the result is undefined
+ */
 static inline __attribute__((const))
 int __ffs(unsigned long x)
 {
@@ -301,6 +340,12 @@ int __ffs(unsigned long x)
 	return 31 - bit;
 }
 
+/**
+ * __fls - find last (most-significant) set bit in a long word
+ * @word: the word to search
+ *
+ * Undefined if no set bit exists, so code should check against 0 first.
+ */
 static inline unsigned long __fls(unsigned long word)
 {
 	unsigned long bit;
@@ -308,6 +353,10 @@ static inline unsigned long __fls(unsigned long word)
 	return bit;
 }
 
+/*
+ * special slimline version of fls() for calculating ilog2_u32()
+ * - note: no protection against n == 0
+ */
 #define ARCH_HAS_ILOG2_U32
 static inline __attribute__((const))
 int __ilog2_u32(u32 n)
@@ -317,6 +366,10 @@ int __ilog2_u32(u32 n)
 	return 31 - bit;
 }
 
+/*
+ * special slimline version of fls64() for calculating ilog2_u64()
+ * - note: no protection against n == 0
+ */
 #define ARCH_HAS_ILOG2_U64
 static inline __attribute__((const))
 int __ilog2_u64(u64 n)
@@ -352,6 +405,6 @@ int __ilog2_u64(u64 n)
 
 #include <asm-generic/bitops/ext2-atomic-setbit.h>
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_BITOPS_H */

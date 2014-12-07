@@ -32,6 +32,15 @@
 #include "iwch_provider.h"
 #include "iwch.h"
 
+/*
+ * Get one cq entry from cxio and map it to openib.
+ *
+ * Returns:
+ *	0			EMPTY;
+ *	1			cqe returned
+ *	-EAGAIN		caller must try again
+ *	any other -errno	fatal error
+ */
 static int iwch_poll_cq_one(struct iwch_dev *rhp, struct iwch_cq *chp,
 			    struct ib_wc *wc)
 {
@@ -200,6 +209,11 @@ int iwch_poll_cq(struct ib_cq *ibcq, int num_entries, struct ib_wc *wc)
 		int i=0;
 #endif
 
+		/*
+		 * Because T3 can post CQEs that are _not_ associated
+		 * with a WR, we might have to poll again after removing
+		 * one of these.
+		 */
 		do {
 			err = iwch_poll_cq_one(rhp, chp, wc + npolled);
 #ifdef DEBUG

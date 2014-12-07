@@ -10,11 +10,13 @@
  *
  */
 
+/* map W6692 functions to ISAC functions */
 #define readW6692	readisac
 #define writeW6692	writeisac
 #define	readW6692fifo	readisacfifo
 #define	writeW6692fifo	writeisacfifo
 
+/* B-channel FIFO read/write routines */
 
 #define READW6692BFIFO(cs, bchan, ptr, count)				\
 	insb(cs->hw.w6692.iobase + W_B_RFIFO + (bchan ? 0x40 : 0), ptr, count)
@@ -22,58 +24,60 @@
 #define WRITEW6692BFIFO(cs, bchan, ptr, count)				\
 	outsb(cs->hw.w6692.iobase + W_B_XFIFO + (bchan ? 0x40 : 0), ptr, count)
 
+/* Specifications of W6692 registers */
 
-#define W_D_RFIFO	0x00	
-#define W_D_XFIFO	0x04	
-#define W_D_CMDR	0x08	
-#define W_D_MODE	0x0c	
-#define W_D_TIMR	0x10	
-#define W_ISTA		0x14	
-#define W_IMASK		0x18	
-#define W_D_EXIR	0x1c	
-#define W_D_EXIM	0x20	
-#define W_D_STAR	0x24	
-#define W_D_RSTA	0x28	
-#define W_D_SAM		0x2c	
-#define W_D_SAP1	0x30	
-#define W_D_SAP2	0x34	
-#define W_D_TAM		0x38	
-#define W_D_TEI1	0x3c	
-#define W_D_TEI2	0x40	
-#define W_D_RBCH	0x44	
-#define W_D_RBCL	0x48	
-#define W_TIMR2		0x4c	
-#define W_L1_RC		0x50	
-#define W_D_CTL		0x54	
-#define W_CIR		0x58	
-#define W_CIX		0x5c	
-#define W_SQR		0x60	
-#define W_SQX		0x64	
-#define W_PCTL		0x68	
-#define W_MOR		0x6c	
-#define W_MOX		0x70	
-#define W_MOSR		0x74	
-#define W_MOCR		0x78	
-#define W_GCR		0x7c	
+#define W_D_RFIFO	0x00	/* R */
+#define W_D_XFIFO	0x04	/* W */
+#define W_D_CMDR	0x08	/* W */
+#define W_D_MODE	0x0c	/* R/W */
+#define W_D_TIMR	0x10	/* R/W */
+#define W_ISTA		0x14	/* R_clr */
+#define W_IMASK		0x18	/* R/W */
+#define W_D_EXIR	0x1c	/* R_clr */
+#define W_D_EXIM	0x20	/* R/W */
+#define W_D_STAR	0x24	/* R */
+#define W_D_RSTA	0x28	/* R */
+#define W_D_SAM		0x2c	/* R/W */
+#define W_D_SAP1	0x30	/* R/W */
+#define W_D_SAP2	0x34	/* R/W */
+#define W_D_TAM		0x38	/* R/W */
+#define W_D_TEI1	0x3c	/* R/W */
+#define W_D_TEI2	0x40	/* R/W */
+#define W_D_RBCH	0x44	/* R */
+#define W_D_RBCL	0x48	/* R */
+#define W_TIMR2		0x4c	/* W */
+#define W_L1_RC		0x50	/* R/W */
+#define W_D_CTL		0x54	/* R/W */
+#define W_CIR		0x58	/* R */
+#define W_CIX		0x5c	/* W */
+#define W_SQR		0x60	/* R */
+#define W_SQX		0x64	/* W */
+#define W_PCTL		0x68	/* R/W */
+#define W_MOR		0x6c	/* R */
+#define W_MOX		0x70	/* R/W */
+#define W_MOSR		0x74	/* R_clr */
+#define W_MOCR		0x78	/* R/W */
+#define W_GCR		0x7c	/* R/W */
 
-#define	W_B_RFIFO	0x80	
-#define	W_B_XFIFO	0x84	
-#define	W_B_CMDR	0x88	
-#define	W_B_MODE	0x8c	
-#define	W_B_EXIR	0x90	
-#define	W_B_EXIM	0x94	
-#define	W_B_STAR	0x98	
-#define	W_B_ADM1	0x9c	
-#define	W_B_ADM2	0xa0	
-#define	W_B_ADR1	0xa4	
-#define	W_B_ADR2	0xa8	
-#define	W_B_RBCL	0xac	
-#define	W_B_RBCH	0xb0	
+#define	W_B_RFIFO	0x80	/* R */
+#define	W_B_XFIFO	0x84	/* W */
+#define	W_B_CMDR	0x88	/* W */
+#define	W_B_MODE	0x8c	/* R/W */
+#define	W_B_EXIR	0x90	/* R_clr */
+#define	W_B_EXIM	0x94	/* R/W */
+#define	W_B_STAR	0x98	/* R */
+#define	W_B_ADM1	0x9c	/* R/W */
+#define	W_B_ADM2	0xa0	/* R/W */
+#define	W_B_ADR1	0xa4	/* R/W */
+#define	W_B_ADR2	0xa8	/* R/W */
+#define	W_B_RBCL	0xac	/* R */
+#define	W_B_RBCH	0xb0	/* R */
 
-#define W_XADDR		0xf4	
-#define W_XDATA		0xf8	
-#define W_EPCTL		0xfc	
+#define W_XADDR		0xf4	/* R/W */
+#define W_XDATA		0xf8	/* R/W */
+#define W_EPCTL		0xfc	/* W */
 
+/* W6692 register bits */
 
 #define	W_D_CMDR_XRST	0x01
 #define	W_D_CMDR_XME	0x02
@@ -152,6 +156,7 @@
 
 #define	W_B_RBCH_LOV	0x20
 
+/* W6692 Layer1 commands */
 
 #define	W_L1CMD_ECK	0x00
 #define W_L1CMD_RST	0x01
@@ -162,6 +167,7 @@
 #define W_L1CMD_EAL	0x0a
 #define W_L1CMD_DRC	0x0f
 
+/* W6692 Layer1 indications */
 
 #define W_L1IND_CE	0x07
 #define W_L1IND_DRD	0x00
@@ -173,5 +179,6 @@
 #define W_L1IND_AI10	0x0d
 #define W_L1IND_CD	0x0f
 
+/* FIFO thresholds */
 #define W_D_FIFO_THRESH	64
 #define W_B_FIFO_THRESH	64

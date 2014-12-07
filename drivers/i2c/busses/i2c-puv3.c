@@ -23,6 +23,10 @@
 #include <linux/io.h>
 #include <mach/hardware.h>
 
+/*
+ * Poll the i2c status register until the specified bit is set.
+ * Returns 0 if timed out (100 msec).
+ */
 static short poll_status(unsigned long bit)
 {
 	int loop_cntr = 1000;
@@ -32,7 +36,7 @@ static short poll_status(unsigned long bit)
 			udelay(10);
 		} while (!(readl(I2C_STATUS) & bit) && (--loop_cntr > 0));
 	} else {
-		
+		/* RXRDY handler */
 		do {
 			if (readl(I2C_TAR) == I2C_TAR_EEPROM)
 				msleep(20);
@@ -48,29 +52,29 @@ static int xfer_read(struct i2c_adapter *adap, unsigned char *buf, int length)
 {
 	int i2c_reg = *buf;
 
-	
+	/* Read data */
 	while (length--) {
 		if (!poll_status(I2C_STATUS_TFNF)) {
 			dev_dbg(&adap->dev, "Tx FIFO Not Full timeout\n");
 			return -ETIMEDOUT;
 		}
 
-		
+		/* send addr */
 		writel(i2c_reg | I2C_DATACMD_WRITE, I2C_DATACMD);
 
-		
+		/* get ready to next write */
 		i2c_reg++;
 
-		
+		/* send read CMD */
 		writel(I2C_DATACMD_READ, I2C_DATACMD);
 
-		
+		/* wait until the Rx FIFO have available */
 		if (!poll_status(I2C_STATUS_RFNE)) {
 			dev_dbg(&adap->dev, "RXRDY timeout\n");
 			return -ETIMEDOUT;
 		}
 
-		
+		/* read the data to buf */
 		*buf = (readl(I2C_DATACMD) & I2C_DATACMD_DAT_MASK);
 		buf++;
 	}
@@ -82,7 +86,7 @@ static int xfer_write(struct i2c_adapter *adap, unsigned char *buf, int length)
 {
 	int i2c_reg = *buf;
 
-	
+	/* Do nothing but storing the reg_num to a static variable */
 	if (i2c_reg == -1) {
 		printk(KERN_WARNING "Error i2c reg\n");
 		return -ETIMEDOUT;
@@ -94,16 +98,16 @@ static int xfer_write(struct i2c_adapter *adap, unsigned char *buf, int length)
 	buf++;
 	length--;
 	while (length--) {
-		
+		/* send addr */
 		writel(i2c_reg | I2C_DATACMD_WRITE, I2C_DATACMD);
 
-		
+		/* send write CMD */
 		writel(*buf | I2C_DATACMD_WRITE, I2C_DATACMD);
 
-		
+		/* wait until the Rx FIFO have available */
 		msleep(20);
 
-		
+		/* read the data to buf */
 		i2c_reg++;
 		buf++;
 	}
@@ -111,21 +115,25 @@ static int xfer_write(struct i2c_adapter *adap, unsigned char *buf, int length)
 	return 0;
 }
 
+/*
+ * Generic i2c master transfer entrypoint.
+ *
+ */
 static int puv3_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *pmsg,
 		int num)
 {
 	int i, ret;
 	unsigned char swap;
 
-	
+	/* Disable i2c */
 	writel(I2C_ENABLE_DISABLE, I2C_ENABLE);
 
-	
+	/* Set the work mode and speed*/
 	writel(I2C_CON_MASTER | I2C_CON_SPEED_STD | I2C_CON_SLAVEDISABLE, I2C_CON);
 
 	writel(pmsg->addr, I2C_TAR);
 
-	
+	/* Enable i2c */
 	writel(I2C_ENABLE_ENABLE, I2C_ENABLE);
 
 	dev_dbg(&adap->dev, "puv3_i2c_xfer: processing %d messages:\n", num);
@@ -136,7 +144,7 @@ static int puv3_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *pmsg,
 			pmsg->len, pmsg->len > 1 ? "s" : "",
 			pmsg->flags & I2C_M_RD ? "from" : "to",	pmsg->addr);
 
-		if (pmsg->len && pmsg->buf) {	
+		if (pmsg->len && pmsg->buf) {	/* sanity check */
 			if (pmsg->flags & I2C_M_RD)
 				ret = xfer_read(adap, pmsg->buf, pmsg->len);
 			else
@@ -147,10 +155,10 @@ static int puv3_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *pmsg,
 
 		}
 		dev_dbg(&adap->dev, "transfer complete\n");
-		pmsg++;		
+		pmsg++;		/* next message */
 	}
 
-	
+	/* XXX: fixup be16_to_cpu in bq27x00_battery.c */
 	if (pmsg->addr == I2C_TAR_PWIC) {
 		swap = pmsg->buf[0];
 		pmsg->buf[0] = pmsg->buf[1];
@@ -160,6 +168,9 @@ static int puv3_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg *pmsg,
 	return i;
 }
 
+/*
+ * Return list of supported functionality.
+ */
 static u32 puv3_i2c_func(struct i2c_adapter *adapter)
 {
 	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL;
@@ -170,6 +181,9 @@ static struct i2c_algorithm puv3_i2c_algorithm = {
 	.functionality	= puv3_i2c_func,
 };
 
+/*
+ * Main initialization routine.
+ */
 static int __devinit puv3_i2c_probe(struct platform_device *pdev)
 {
 	struct i2c_adapter *adapter;
@@ -243,7 +257,7 @@ static int __devexit puv3_i2c_remove(struct platform_device *pdev)
 static int puv3_i2c_suspend(struct platform_device *dev, pm_message_t state)
 {
 	int poll_count;
-	
+	/* Disable the IIC */
 	writel(I2C_ENABLE_DISABLE, I2C_ENABLE);
 	for (poll_count = 0; poll_count < 50; poll_count++) {
 		if (readl(I2C_ENSTATUS) & I2C_ENSTATUS_ENABLE)

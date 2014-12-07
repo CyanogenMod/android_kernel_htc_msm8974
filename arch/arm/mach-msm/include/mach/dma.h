@@ -36,8 +36,8 @@ struct msm_dmov_cmd {
 			      struct msm_dmov_errdata *err);
 	void (*exec_func)(struct msm_dmov_cmd *cmd);
 	struct work_struct work;
-	unsigned id;    
-	void *user;	
+	unsigned id;    /* For internal use */
+	void *user;	/* Pointer for caller's reference */
 	u8 toflush;
 };
 
@@ -56,18 +56,18 @@ int msm_dmov_exec_cmd(unsigned id, unsigned int cmdptr);
 #define DMOV_ADDR(off, ch) ((off) + ((ch) << 2))
 
 #define DMOV_CMD_PTR(ch)      DMOV_ADDR(0x000, ch)
-#define DMOV_CMD_LIST         (0 << 29) 
-#define DMOV_CMD_PTR_LIST     (1 << 29) 
-#define DMOV_CMD_INPUT_CFG    (2 << 29) 
-#define DMOV_CMD_OUTPUT_CFG   (3 << 29) 
+#define DMOV_CMD_LIST         (0 << 29) /* does not work */
+#define DMOV_CMD_PTR_LIST     (1 << 29) /* works */
+#define DMOV_CMD_INPUT_CFG    (2 << 29) /* untested */
+#define DMOV_CMD_OUTPUT_CFG   (3 << 29) /* untested */
 #define DMOV_CMD_ADDR(addr)   ((addr) >> 3)
 
 #define DMOV_RSLT(ch)         DMOV_ADDR(0x040, ch)
-#define DMOV_RSLT_VALID       (1 << 31) 
+#define DMOV_RSLT_VALID       (1 << 31) /* 0 == host has empties result fifo */
 #define DMOV_RSLT_ERROR       (1 << 3)
 #define DMOV_RSLT_FLUSH       (1 << 2)
-#define DMOV_RSLT_DONE        (1 << 1)  
-#define DMOV_RSLT_USER        (1 << 0)  
+#define DMOV_RSLT_DONE        (1 << 1)  /* top pointer done */
+#define DMOV_RSLT_USER        (1 << 0)  /* command with FR force result */
 
 #define DMOV_FLUSH0(ch)       DMOV_ADDR(0x080, ch)
 #define DMOV_FLUSH1(ch)       DMOV_ADDR(0x0C0, ch)
@@ -117,7 +117,11 @@ int msm_dmov_exec_cmd(unsigned id, unsigned int cmdptr);
 #define DMOV_CRCI_CTL_RST              (1 << 17)
 #define DMOV_CRCI_MUX                  (1 << 18)
 
+/* channel assignments */
 
+/*
+ * Format of CRCI numbers: crci number + (muxsel << 4)
+ */
 
 #if defined(CONFIG_ARCH_MSM8X60)
 #define DMOV_GP_CHAN           15
@@ -211,6 +215,7 @@ int msm_dmov_exec_cmd(unsigned id, unsigned int cmdptr);
 #define DMOV_NAND_CRCI_DATA   3
 
 #elif defined(CONFIG_ARCH_FSM9XXX)
+/* defined in dma-fsm9xxx.h */
 
 #else
 #define DMOV_GP_CHAN          4
@@ -257,6 +262,7 @@ int msm_dmov_exec_cmd(unsigned id, unsigned int cmdptr);
 #define DMOV_HSUART2_RX_CRCI   15
 #endif
 
+/* channels for APQ8064 */
 #define DMOV8064_CE_IN_CHAN        0
 #define DMOV8064_CE_IN_CRCI       14
 
@@ -266,19 +272,28 @@ int msm_dmov_exec_cmd(unsigned id, unsigned int cmdptr);
 #define DMOV8064_TSIF_CHAN         4
 #define DMOV8064_TSIF_CRCI         1
 
+/* channels for MPQ8064 */
 #define DMOV_MPQ8064_HSUART_GSBI6_TX_CHAN	7
 #define DMOV_MPQ8064_HSUART_GSBI6_TX_CRCI	6
 
 #define DMOV_MPQ8064_HSUART_GSBI6_RX_CHAN	6
 #define DMOV_MPQ8064_HSUART_GSBI6_RX_CRCI	11
 
+/* no client rate control ifc (eg, ram) */
 #define DMOV_NONE_CRCI        0
 
 
+/* If the CMD_PTR register has CMD_PTR_LIST selected, the data mover
+ * is going to walk a list of 32bit pointers as described below.  Each
+ * pointer points to a *array* of dmov_s, etc structs.  The last pointer
+ * in the list is marked with CMD_PTR_LP.  The last struct in each array
+ * is marked with CMD_LC (see below).
+ */
 #define CMD_PTR_ADDR(addr)  ((addr) >> 3)
-#define CMD_PTR_LP          (1 << 31) 
-#define CMD_PTR_PT          (3 << 29) 
+#define CMD_PTR_LP          (1 << 31) /* last pointer */
+#define CMD_PTR_PT          (3 << 29) /* ? */
 
+/* Single Item Mode */
 typedef struct {
 	unsigned cmd;
 	unsigned src;
@@ -286,6 +301,7 @@ typedef struct {
 	unsigned len;
 } dmov_s;
 
+/* Scatter/Gather Mode */
 typedef struct {
 	unsigned cmd;
 	unsigned src_dscr;
@@ -293,6 +309,7 @@ typedef struct {
 	unsigned _reserved;
 } dmov_sg;
 
+/* Box mode */
 typedef struct {
 	uint32_t cmd;
 	uint32_t src_row_addr;
@@ -302,27 +319,28 @@ typedef struct {
 	uint32_t row_offset;
 } dmov_box;
 
+/* bits for the cmd field of the above structures */
 
-#define CMD_LC      (1 << 31)  
-#define CMD_FR      (1 << 22)  
-#define CMD_OCU     (1 << 21)  
-#define CMD_OCB     (1 << 20)  
-#define CMD_TCB     (1 << 19)  
-#define CMD_DAH     (1 << 18)  
-#define CMD_SAH     (1 << 17)  
+#define CMD_LC      (1 << 31)  /* last command */
+#define CMD_FR      (1 << 22)  /* force result -- does not work? */
+#define CMD_OCU     (1 << 21)  /* other channel unblock */
+#define CMD_OCB     (1 << 20)  /* other channel block */
+#define CMD_TCB     (1 << 19)  /* ? */
+#define CMD_DAH     (1 << 18)  /* destination address hold -- does not work?*/
+#define CMD_SAH     (1 << 17)  /* source address hold -- does not work? */
 
-#define CMD_MODE_SINGLE     (0 << 0) 
-#define CMD_MODE_SG         (1 << 0) 
-#define CMD_MODE_IND_SG     (2 << 0) 
-#define CMD_MODE_BOX        (3 << 0) 
+#define CMD_MODE_SINGLE     (0 << 0) /* dmov_s structure used */
+#define CMD_MODE_SG         (1 << 0) /* untested */
+#define CMD_MODE_IND_SG     (2 << 0) /* untested */
+#define CMD_MODE_BOX        (3 << 0) /* untested */
 
-#define CMD_DST_SWAP_BYTES  (1 << 14) 
-#define CMD_DST_SWAP_SHORTS (1 << 15) 
-#define CMD_DST_SWAP_WORDS  (1 << 16) 
+#define CMD_DST_SWAP_BYTES  (1 << 14) /* exchange each byte n with byte n+1 */
+#define CMD_DST_SWAP_SHORTS (1 << 15) /* exchange each short n with short n+1 */
+#define CMD_DST_SWAP_WORDS  (1 << 16) /* exchange each word n with word n+1 */
 
-#define CMD_SRC_SWAP_BYTES  (1 << 11) 
-#define CMD_SRC_SWAP_SHORTS (1 << 12) 
-#define CMD_SRC_SWAP_WORDS  (1 << 13) 
+#define CMD_SRC_SWAP_BYTES  (1 << 11) /* exchange each byte n with byte n+1 */
+#define CMD_SRC_SWAP_SHORTS (1 << 12) /* exchange each short n with short n+1 */
+#define CMD_SRC_SWAP_WORDS  (1 << 13) /* exchange each word n with word n+1 */
 
 #define CMD_DST_CRCI(n)     (((n) & 15) << 7)
 #define CMD_SRC_CRCI(n)     (((n) & 15) << 3)

@@ -46,6 +46,7 @@ static bool icmpv6_pkt_to_tuple(const struct sk_buff *skb,
 	return true;
 }
 
+/* Add 1; spaces filled with 0. */
 static const u_int8_t invmap[] = {
 	[ICMPV6_ECHO_REQUEST - 128]	= ICMPV6_ECHO_REPLY + 1,
 	[ICMPV6_ECHO_REPLY - 128]	= ICMPV6_ECHO_REQUEST + 1,
@@ -77,6 +78,7 @@ static bool icmpv6_invert_tuple(struct nf_conntrack_tuple *tuple,
 	return true;
 }
 
+/* Print out the per-protocol part of the tuple. */
 static int icmpv6_print_tuple(struct seq_file *s,
 			      const struct nf_conntrack_tuple *tuple)
 {
@@ -91,6 +93,7 @@ static unsigned int *icmpv6_get_timeouts(struct net *net)
 	return &nf_ct_icmpv6_timeout;
 }
 
+/* Returns verdict for packet, or -1 for invalid. */
 static int icmpv6_packet(struct nf_conn *ct,
 		       const struct sk_buff *skb,
 		       unsigned int dataoff,
@@ -99,11 +102,15 @@ static int icmpv6_packet(struct nf_conn *ct,
 		       unsigned int hooknum,
 		       unsigned int *timeout)
 {
+	/* Do not immediately delete the connection after the first
+	   successful reply to avoid excessive conntrackd traffic
+	   and also to handle correctly ICMP echo reply duplicates. */
 	nf_ct_refresh_acct(ct, ctinfo, skb, *timeout);
 
 	return NF_ACCEPT;
 }
 
+/* Called when a new connection for this protocol found. */
 static bool icmpv6_new(struct nf_conn *ct, const struct sk_buff *skb,
 		       unsigned int dataoff, unsigned int *timeouts)
 {
@@ -114,7 +121,7 @@ static bool icmpv6_new(struct nf_conn *ct, const struct sk_buff *skb,
 	int type = ct->tuplehash[0].tuple.dst.u.icmp.type - 128;
 
 	if (type < 0 || type >= sizeof(valid_new) || !valid_new[type]) {
-		
+		/* Can't create a new ICMPv6 `conn' with this. */
 		pr_debug("icmpv6: can't create new conn with type %u\n",
 			 type + 128);
 		nf_ct_dump_tuple_ipv6(&ct->tuplehash[0].tuple);
@@ -141,7 +148,7 @@ icmpv6_error_message(struct net *net, struct nf_conn *tmpl,
 
 	NF_CT_ASSERT(skb->nfct == NULL);
 
-	
+	/* Are they talking about one of our connections? */
 	if (!nf_ct_get_tuplepr(skb,
 			       skb_network_offset(skb)
 				+ sizeof(struct ipv6hdr)
@@ -151,9 +158,11 @@ icmpv6_error_message(struct net *net, struct nf_conn *tmpl,
 		return -NF_ACCEPT;
 	}
 
-	
+	/* rcu_read_lock()ed by nf_hook_slow */
 	inproto = __nf_ct_l4proto_find(PF_INET6, origtuple.dst.protonum);
 
+	/* Ordinarily, we'd expect the inverted tupleproto, but it's
+	   been preserved inside the ICMP. */
 	if (!nf_ct_invert_tuple(&intuple, &origtuple,
 				&nf_conntrack_l3proto_ipv6, inproto)) {
 		pr_debug("icmpv6_error: Can't invert tuple\n");
@@ -171,7 +180,7 @@ icmpv6_error_message(struct net *net, struct nf_conn *tmpl,
 			*ctinfo += IP_CT_IS_REPLY;
 	}
 
-	
+	/* Update skb to refer to this connection */
 	skb->nfct = &nf_ct_tuplehash_to_ctrack(h)->ct_general;
 	skb->nfctinfo = *ctinfo;
 	return NF_ACCEPT;
@@ -211,7 +220,7 @@ icmpv6_error(struct net *net, struct nf_conn *tmpl,
 		return NF_ACCEPT;
 	}
 
-	
+	/* is not error message ? */
 	if (icmp6h->icmp6_type >= 128)
 		return NF_ACCEPT;
 
@@ -280,7 +289,7 @@ static int icmpv6_timeout_nlattr_to_obj(struct nlattr *tb[], void *data)
 		*timeout =
 		    ntohl(nla_get_be32(tb[CTA_TIMEOUT_ICMPV6_TIMEOUT])) * HZ;
 	} else {
-		
+		/* Set default ICMPv6 timeout. */
 		*timeout = nf_ct_icmpv6_timeout;
 	}
 	return 0;
@@ -303,7 +312,7 @@ static const struct nla_policy
 icmpv6_timeout_nla_policy[CTA_TIMEOUT_ICMPV6_MAX+1] = {
 	[CTA_TIMEOUT_ICMPV6_TIMEOUT]	= { .type = NLA_U32 },
 };
-#endif 
+#endif /* CONFIG_NF_CT_NETLINK_TIMEOUT */
 
 #ifdef CONFIG_SYSCTL
 static struct ctl_table_header *icmpv6_sysctl_header;
@@ -317,7 +326,7 @@ static struct ctl_table icmpv6_sysctl_table[] = {
 	},
 	{ }
 };
-#endif 
+#endif /* CONFIG_SYSCTL */
 
 struct nf_conntrack_l4proto nf_conntrack_l4proto_icmpv6 __read_mostly =
 {
@@ -345,7 +354,7 @@ struct nf_conntrack_l4proto nf_conntrack_l4proto_icmpv6 __read_mostly =
 		.obj_size	= sizeof(unsigned int),
 		.nla_policy	= icmpv6_timeout_nla_policy,
 	},
-#endif 
+#endif /* CONFIG_NF_CT_NETLINK_TIMEOUT */
 #ifdef CONFIG_SYSCTL
 	.ctl_table_header	= &icmpv6_sysctl_header,
 	.ctl_table		= icmpv6_sysctl_table,

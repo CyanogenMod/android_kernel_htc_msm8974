@@ -26,6 +26,9 @@
 #include <asm/ip32/ip32_ints.h>
 
 #define POWERDOWN_TIMEOUT	120
+/*
+ * Blink frequency during reboot grace period and when panicked.
+ */
 #define POWERDOWN_FREQ		(HZ / 4)
 #define PANIC_FREQ		(HZ / 8)
 
@@ -54,7 +57,7 @@ static void ip32_machine_power_off(void)
 	disable_irq(MACEISA_RTC_IRQ);
 	reg_a = CMOS_READ(RTC_REG_A);
 
-	
+	/* setup for kickstart & wake-up (DS12287 Ref. Man. p. 19) */
 	reg_a &= ~DS_REGA_DV2;
 	reg_a |= DS_REGA_DV1;
 
@@ -66,7 +69,7 @@ static void ip32_machine_power_off(void)
 	xctrl_a = CMOS_READ(DS_B1_XCTRL4A) & ~DS_XCTRL4A_IFS;
 	CMOS_WRITE(xctrl_a, DS_B1_XCTRL4A);
 	wbflush();
-	
+	/* adios amigos... */
 	CMOS_WRITE(xctrl_a | DS_XCTRL4A_PAB, DS_B1_XCTRL4A);
 	CMOS_WRITE(reg_a, RTC_REG_A);
 	wbflush();
@@ -95,11 +98,11 @@ static void debounce(unsigned long data)
 	wbflush();
 	xctrl_a = CMOS_READ(DS_B1_XCTRL4A);
 	if ((xctrl_a & DS_XCTRL4A_IFS) || (reg_c & RTC_IRQF )) {
-		
+		/* Interrupt still being sent. */
 		debounce_timer.expires = jiffies + 50;
 		add_timer(&debounce_timer);
 
-		
+		/* clear interrupt source */
 		CMOS_WRITE(xctrl_a & ~DS_XCTRL4A_IFS, DS_B1_XCTRL4A);
 		CMOS_WRITE(reg_a & ~DS_REGA_DV0, RTC_REG_A);
 		return;
@@ -118,7 +121,7 @@ static inline void ip32_power_button(void)
 		return;
 
 	if (shuting_down || kill_cad_pid(SIGINT, 1)) {
-		
+		/* No init process or button pressed twice.  */
 		ip32_machine_power_off();
 	}
 
@@ -141,7 +144,7 @@ static irqreturn_t ip32_rtc_int(int irq, void *dev_id)
 		printk(KERN_WARNING
 			"%s: RTC IRQ without RTC_IRQF\n", __func__);
 	}
-	
+	/* Wait until interrupt goes away */
 	disable_irq_nosync(MACEISA_RTC_IRQ);
 	init_timer(&debounce_timer);
 	debounce_timer.function = debounce;
@@ -162,7 +165,7 @@ static int panic_event(struct notifier_block *this, unsigned long event,
 		return NOTIFY_DONE;
 	has_panicked = 1;
 
-	
+	/* turn off the green LED */
 	led = mace->perif.ctrl.misc | MACEISA_LED_GREEN;
 	mace->perif.ctrl.misc = led;
 
@@ -178,7 +181,7 @@ static struct notifier_block panic_block = {
 
 static __init int ip32_reboot_setup(void)
 {
-	
+	/* turn on the green led only */
 	unsigned long led = mace->perif.ctrl.misc;
 	led |= MACEISA_LED_RED;
 	led &= ~MACEISA_LED_GREEN;

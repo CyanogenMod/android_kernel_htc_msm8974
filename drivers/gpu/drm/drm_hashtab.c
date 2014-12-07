@@ -25,6 +25,12 @@
  *
  *
  **************************************************************************/
+/*
+ * Simple open hash tab implementation.
+ *
+ * Authors:
+ * Thomas Hellström <thomas-at-tungstengraphics-dot-com>
+ */
 
 #include "drmP.h"
 #include "drm_hashtab.h"
@@ -116,6 +122,10 @@ int drm_ht_insert_item(struct drm_open_hash *ht, struct drm_hash_item *item)
 }
 EXPORT_SYMBOL(drm_ht_insert_item);
 
+/*
+ * Just insert an item and return any "bits" bit key that hasn't been
+ * used before.
+ */
 int drm_ht_just_insert_please(struct drm_open_hash *ht, struct drm_hash_item *item,
 			      unsigned long seed, int bits, int shift,
 			      unsigned long add)

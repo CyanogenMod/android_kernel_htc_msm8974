@@ -16,14 +16,14 @@
 #include <linux/init.h>
 #include <linux/moduleparam.h>
 #include <linux/sched.h>
-#include <linux/kernel.h>      
-#include <linux/slab.h>        
-#include <linux/errno.h>       
-#include <linux/types.h>       
+#include <linux/kernel.h>      /* printk() */
+#include <linux/slab.h>        /* kmalloc() */
+#include <linux/errno.h>       /* error codes */
+#include <linux/types.h>       /* size_t */
 #include <linux/interrupt.h>
 #include <linux/in.h>
-#include <linux/netdevice.h>   
-#include <linux/etherdevice.h> 
+#include <linux/netdevice.h>   /* struct device, and other headers */
+#include <linux/etherdevice.h> /* eth_type_trans */
 #include <linux/skbuff.h>
 #include <linux/ioctl.h>
 #include <linux/cdev.h>
@@ -39,36 +39,96 @@
 #include <hv/hypervisor.h>
 #include <hv/netio_intf.h>
 
+/* For TSO */
 #include <linux/ip.h>
 #include <linux/tcp.h>
 
 
+/*
+ * First, "tile_net_init_module()" initializes all four "devices" which
+ * can be used by linux.
+ *
+ * Then, "ifconfig DEVICE up" calls "tile_net_open()", which analyzes
+ * the network cpus, then uses "tile_net_open_aux()" to initialize
+ * LIPP/LEPP, and then uses "tile_net_open_inner()" to register all
+ * the tiles, provide buffers to LIPP, allow ingress to start, and
+ * turn on hypervisor interrupt handling (and NAPI) on all tiles.
+ *
+ * If registration fails due to the link being down, then "retry_work"
+ * is used to keep calling "tile_net_open_inner()" until it succeeds.
+ *
+ * If "ifconfig DEVICE down" is called, it uses "tile_net_stop()" to
+ * stop egress, drain the LIPP buffers, unregister all the tiles, stop
+ * LIPP/LEPP, and wipe the LEPP queue.
+ *
+ * We start out with the ingress interrupt enabled on each CPU.  When
+ * this interrupt fires, we disable it, and call "napi_schedule()".
+ * This will cause "tile_net_poll()" to be called, which will pull
+ * packets from the netio queue, filtering them out, or passing them
+ * to "netif_receive_skb()".  If our budget is exhausted, we will
+ * return, knowing we will be called again later.  Otherwise, we
+ * reenable the ingress interrupt, and call "napi_complete()".
+ *
+ * HACK: Since disabling the ingress interrupt is not reliable, we
+ * ignore the interrupt if the global "active" flag is false.
+ *
+ *
+ * NOTE: The use of "native_driver" ensures that EPP exists, and that
+ * we are using "LIPP" and "LEPP".
+ *
+ * NOTE: Failing to free completions for an arbitrarily long time
+ * (which is defined to be illegal) does in fact cause bizarre
+ * problems.  The "egress_timer" helps prevent this from happening.
+ */
 
 
+/* HACK: Allow use of "jumbo" packets. */
+/* This should be 1500 if "jumbo" is not set in LIPP. */
+/* This should be at most 10226 (10240 - 14) if "jumbo" is set in LIPP. */
+/* ISSUE: This has not been thoroughly tested (except at 1500). */
 #define TILE_NET_MTU 1500
 
+/* HACK: Define to support GSO. */
+/* ISSUE: This may actually hurt performance of the TCP blaster. */
+/* #define TILE_NET_GSO */
 
+/* Define this to collapse "duplicate" acks. */
+/* #define IGNORE_DUP_ACKS */
 
+/* HACK: Define this to verify incoming packets. */
+/* #define TILE_NET_VERIFY_INGRESS */
 
+/* Use 3000 to enable the Linux Traffic Control (QoS) layer, else 0. */
 #define TILE_NET_TX_QUEUE_LEN 0
 
+/* Define to dump packets (prints out the whole packet on tx and rx). */
+/* #define TILE_NET_DUMP_PACKETS */
+
+/* Define to enable debug spew (all PDEBUG's are enabled). */
+/* #define TILE_NET_DEBUG */
 
 
+/* Define to activate paranoia checks. */
+/* #define TILE_NET_PARANOIA */
 
-
+/* Default transmit lockup timeout period, in jiffies. */
 #define TILE_NET_TIMEOUT (5 * HZ)
 
+/* Default retry interval for bringing up the NetIO interface, in jiffies. */
 #define TILE_NET_RETRY_INTERVAL (5 * HZ)
 
+/* Number of ports (xgbe0, xgbe1, gbe0, gbe1). */
 #define TILE_NET_DEVS 4
 
 
 
+/* Paranoia. */
 #if NET_IP_ALIGN != LIPP_PACKET_PADDING
 #error "NET_IP_ALIGN must match LIPP_PACKET_PADDING."
 #endif
 
 
+/* Debug print. */
 #ifdef TILE_NET_DEBUG
 #define PDEBUG(fmt, args...) net_printk(fmt, ## args)
 #else
@@ -80,6 +140,11 @@ MODULE_AUTHOR("Tilera");
 MODULE_LICENSE("GPL");
 
 
+/*
+ * Queue of incoming packets for a specific cpu and device.
+ *
+ * Includes a pointer to the "system" data, and the actual "user" data.
+ */
 struct tile_netio_queue {
 	netio_queue_impl_t *__system_part;
 	netio_queue_user_impl_t __user_part;
@@ -87,6 +152,9 @@ struct tile_netio_queue {
 };
 
 
+/*
+ * Statistics counters for a specific cpu and device.
+ */
 struct tile_net_stats_t {
 	u32 rx_packets;
 	u32 rx_bytes;
@@ -95,79 +163,106 @@ struct tile_net_stats_t {
 };
 
 
+/*
+ * Info for a specific cpu and device.
+ *
+ * ISSUE: There is a "dev" pointer in "napi" as well.
+ */
 struct tile_net_cpu {
-	
+	/* The NAPI struct. */
 	struct napi_struct napi;
-	
+	/* Packet queue. */
 	struct tile_netio_queue queue;
-	
+	/* Statistics. */
 	struct tile_net_stats_t stats;
-	
+	/* True iff NAPI is enabled. */
 	bool napi_enabled;
-	
+	/* True if this tile has successfully registered with the IPP. */
 	bool registered;
-	
+	/* True if the link was down last time we tried to register. */
 	bool link_down;
-	
+	/* True if "egress_timer" is scheduled. */
 	bool egress_timer_scheduled;
-	
+	/* Number of small sk_buffs which must still be provided. */
 	unsigned int num_needed_small_buffers;
-	
+	/* Number of large sk_buffs which must still be provided. */
 	unsigned int num_needed_large_buffers;
-	
+	/* A timer for handling egress completions. */
 	struct timer_list egress_timer;
 };
 
 
+/*
+ * Info for a specific device.
+ */
 struct tile_net_priv {
-	
+	/* Our network device. */
 	struct net_device *dev;
-	
+	/* Pages making up the egress queue. */
 	struct page *eq_pages;
-	
+	/* Address of the actual egress queue. */
 	lepp_queue_t *eq;
-	
+	/* Protects "eq". */
 	spinlock_t eq_lock;
-	
+	/* The hypervisor handle for this interface. */
 	int hv_devhdl;
-	
+	/* The intr bit mask that IDs this device. */
 	u32 intr_id;
-	
+	/* True iff "tile_net_open_aux()" has succeeded. */
 	bool partly_opened;
-	
+	/* True iff the device is "active". */
 	bool active;
-	
+	/* Effective network cpus. */
 	struct cpumask network_cpus_map;
-	
+	/* Number of network cpus. */
 	int network_cpus_count;
-	
+	/* Credits per network cpu. */
 	int network_cpus_credits;
-	
+	/* Network stats. */
 	struct net_device_stats stats;
-	
+	/* For NetIO bringup retries. */
 	struct delayed_work retry_work;
-	
+	/* Quick access to per cpu data. */
 	struct tile_net_cpu *cpu[NR_CPUS];
 };
 
+/* Log2 of the number of small pages needed for the egress queue. */
 #define EQ_ORDER  get_order(sizeof(lepp_queue_t))
+/* Size of the egress queue's pages. */
 #define EQ_SIZE   (1 << (PAGE_SHIFT + EQ_ORDER))
 
+/*
+ * The actual devices (xgbe0, xgbe1, gbe0, gbe1).
+ */
 static struct net_device *tile_net_devs[TILE_NET_DEVS];
 
+/*
+ * The "tile_net_cpu" structures for each device.
+ */
 static DEFINE_PER_CPU(struct tile_net_cpu, hv_xgbe0);
 static DEFINE_PER_CPU(struct tile_net_cpu, hv_xgbe1);
 static DEFINE_PER_CPU(struct tile_net_cpu, hv_gbe0);
 static DEFINE_PER_CPU(struct tile_net_cpu, hv_gbe1);
 
 
+/*
+ * True if "network_cpus" was specified.
+ */
 static bool network_cpus_used;
 
+/*
+ * The actual cpus in "network_cpus".
+ */
 static struct cpumask network_cpus_map;
 
 
 
 #ifdef TILE_NET_DEBUG
+/*
+ * printk with extra stuff.
+ *
+ * We print the CPU we're running in brackets.
+ */
 static void net_printk(char *fmt, ...)
 {
 	int i;
@@ -186,6 +281,9 @@ static void net_printk(char *fmt, ...)
 
 
 #ifdef TILE_NET_DUMP_PACKETS
+/*
+ * Dump a packet.
+ */
 static void dump_packet(unsigned char *data, unsigned long length, char *s)
 {
 	int my_cpu = smp_processor_id();
@@ -213,6 +311,20 @@ static void dump_packet(unsigned char *data, unsigned long length, char *s)
 #endif
 
 
+/*
+ * Provide support for the __netio_fastio1() swint
+ * (see <hv/drv_xgbe_intf.h> for how it is used).
+ *
+ * The fastio swint2 call may clobber all the caller-saved registers.
+ * It rarely clobbers memory, but we allow for the possibility in
+ * the signature just to be on the safe side.
+ *
+ * Also, gcc doesn't seem to allow an input operand to be
+ * clobbered, so we fake it with dummy outputs.
+ *
+ * This function can't be static because of the way it is declared
+ * in the netio header.
+ */
 inline int __netio_fastio1(u32 fastio_index, u32 arg0)
 {
 	long result, clobber_r1, clobber_r10;
@@ -235,7 +347,7 @@ static void tile_net_return_credit(struct tile_net_cpu *info)
 	struct tile_netio_queue *queue = &info->queue;
 	netio_queue_user_impl_t *qup = &queue->__user_part;
 
-	
+	/* Return four credits after every fourth packet. */
 	if (--qup->__receive_credit_remaining == 0) {
 		u32 interval = qup->__receive_credit_interval;
 		qup->__receive_credit_remaining = interval;
@@ -245,31 +357,84 @@ static void tile_net_return_credit(struct tile_net_cpu *info)
 
 
 
+/*
+ * Provide a linux buffer to LIPP.
+ */
 static void tile_net_provide_linux_buffer(struct tile_net_cpu *info,
 					  void *va, bool small)
 {
 	struct tile_netio_queue *queue = &info->queue;
 
-	
+	/* Convert "va" and "small" to "linux_buffer_t". */
 	unsigned int buffer = ((unsigned int)(__pa(va) >> 7) << 1) + small;
 
 	__netio_fastio_free_buffer(queue->__user_part.__fastio_index, buffer);
 }
 
 
+/*
+ * Provide a linux buffer for LIPP.
+ *
+ * Note that the ACTUAL allocation for each buffer is a "struct sk_buff",
+ * plus a chunk of memory that includes not only the requested bytes, but
+ * also NET_SKB_PAD bytes of initial padding, and a "struct skb_shared_info".
+ *
+ * Note that "struct skb_shared_info" is 88 bytes with 64K pages and
+ * 268 bytes with 4K pages (since the frags[] array needs 18 entries).
+ *
+ * Without jumbo packets, the maximum packet size will be 1536 bytes,
+ * and we use 2 bytes (NET_IP_ALIGN) of padding.  ISSUE: If we told
+ * the hardware to clip at 1518 bytes instead of 1536 bytes, then we
+ * could save an entire cache line, but in practice, we don't need it.
+ *
+ * Since CPAs are 38 bits, and we can only encode the high 31 bits in
+ * a "linux_buffer_t", the low 7 bits must be zero, and thus, we must
+ * align the actual "va" mod 128.
+ *
+ * We assume that the underlying "head" will be aligned mod 64.  Note
+ * that in practice, we have seen "head" NOT aligned mod 128 even when
+ * using 2048 byte allocations, which is surprising.
+ *
+ * If "head" WAS always aligned mod 128, we could change LIPP to
+ * assume that the low SIX bits are zero, and the 7th bit is one, that
+ * is, align the actual "va" mod 128 plus 64, which would be "free".
+ *
+ * For now, the actual "head" pointer points at NET_SKB_PAD bytes of
+ * padding, plus 28 or 92 bytes of extra padding, plus the sk_buff
+ * pointer, plus the NET_IP_ALIGN padding, plus 126 or 1536 bytes for
+ * the actual packet, plus 62 bytes of empty padding, plus some
+ * padding and the "struct skb_shared_info".
+ *
+ * With 64K pages, a large buffer thus needs 32+92+4+2+1536+62+88
+ * bytes, or 1816 bytes, which fits comfortably into 2048 bytes.
+ *
+ * With 64K pages, a small buffer thus needs 32+92+4+2+126+88
+ * bytes, or 344 bytes, which means we are wasting 64+ bytes, and
+ * could presumably increase the size of small buffers.
+ *
+ * With 4K pages, a large buffer thus needs 32+92+4+2+1536+62+268
+ * bytes, or 1996 bytes, which fits comfortably into 2048 bytes.
+ *
+ * With 4K pages, a small buffer thus needs 32+92+4+2+126+268
+ * bytes, or 524 bytes, which is annoyingly wasteful.
+ *
+ * Maybe we should increase LIPP_SMALL_PACKET_SIZE to 192?
+ *
+ * ISSUE: Maybe we should increase "NET_SKB_PAD" to 64?
+ */
 static bool tile_net_provide_needed_buffer(struct tile_net_cpu *info,
 					   bool small)
 {
 #if TILE_NET_MTU <= 1536
-	
+	/* Without "jumbo", 2 + 1536 should be sufficient. */
 	unsigned int large_size = NET_IP_ALIGN + 1536;
 #else
-	
+	/* ISSUE: This has not been tested. */
 	unsigned int large_size = NET_IP_ALIGN + TILE_NET_MTU + 100;
 #endif
 
-	
-	
+	/* Avoid "false sharing" with last cache line. */
+	/* ISSUE: This is already done by "netdev_alloc_skb()". */
 	unsigned int len =
 		 (((small ? LIPP_SMALL_PACKET_SIZE : large_size) +
 		   CHIP_L2_LINE_SIZE() - 1) & -CHIP_L2_LINE_SIZE());
@@ -282,20 +447,20 @@ static bool tile_net_provide_needed_buffer(struct tile_net_cpu *info,
 
 	struct sk_buff **skb_ptr;
 
-	
+	/* Request 96 extra bytes for alignment purposes. */
 	skb = netdev_alloc_skb(info->napi.dev, len + padding);
 	if (skb == NULL)
 		return false;
 
-	
+	/* Skip 32 or 96 bytes to align "data" mod 128. */
 	align = -(long)skb->data & (128 - 1);
 	BUG_ON(align > padding);
 	skb_reserve(skb, align);
 
-	
+	/* This address is given to IPP. */
 	va = skb->data;
 
-	
+	/* Buffers must not span a huge page. */
 	BUG_ON(((((long)va & ~HPAGE_MASK) + len) & HPAGE_MASK) != 0);
 
 #ifdef TILE_NET_PARANOIA
@@ -309,29 +474,32 @@ static bool tile_net_provide_needed_buffer(struct tile_net_cpu *info,
 #endif
 #endif
 
-	
+	/* Invalidate the packet buffer. */
 	if (!hash_default)
 		__inv_buffer(va, len);
 
-	
-	
-	
+	/* Skip two bytes to satisfy LIPP assumptions. */
+	/* Note that this aligns IP on a 16 byte boundary. */
+	/* ISSUE: Do this when the packet arrives? */
 	skb_reserve(skb, NET_IP_ALIGN);
 
-	
+	/* Save a back-pointer to 'skb'. */
 	skb_ptr = va - sizeof(*skb_ptr);
 	*skb_ptr = skb;
 
-	
+	/* Make sure "skb_ptr" has been flushed. */
 	__insn_mf();
 
-	
+	/* Provide the new buffer. */
 	tile_net_provide_linux_buffer(info, va, small);
 
 	return true;
 }
 
 
+/*
+ * Provide linux buffers for LIPP.
+ */
 static void tile_net_provide_needed_buffers(struct tile_net_cpu *info)
 {
 	while (info->num_needed_small_buffers != 0) {
@@ -350,11 +518,16 @@ static void tile_net_provide_needed_buffers(struct tile_net_cpu *info)
 
 oops:
 
-	
+	/* Add a description to the page allocation failure dump. */
 	pr_notice("Could not provide a linux buffer to LIPP.\n");
 }
 
 
+/*
+ * Grab some LEPP completions, and store them in "comps", of size
+ * "comps_size", and return the number of completions which were
+ * stored, so the caller can free them.
+ */
 static unsigned int tile_net_lepp_grab_comps(lepp_queue_t *eq,
 					     struct sk_buff *comps[],
 					     unsigned int comps_size,
@@ -379,6 +552,9 @@ static unsigned int tile_net_lepp_grab_comps(lepp_queue_t *eq,
 }
 
 
+/*
+ * Free some comps, and return true iff there are still some pending.
+ */
 static bool tile_net_lepp_free_comps(struct net_device *dev, bool all)
 {
 	struct tile_net_priv *priv = netdev_priv(dev);
@@ -408,6 +584,12 @@ static bool tile_net_lepp_free_comps(struct net_device *dev, bool all)
 }
 
 
+/*
+ * Make sure the egress timer is scheduled.
+ *
+ * Note that we use "schedule if not scheduled" logic instead of the more
+ * obvious "reschedule" logic, because "reschedule" is fairly expensive.
+ */
 static void tile_net_schedule_egress_timer(struct tile_net_cpu *info)
 {
 	if (!info->egress_timer_scheduled) {
@@ -417,15 +599,29 @@ static void tile_net_schedule_egress_timer(struct tile_net_cpu *info)
 }
 
 
+/*
+ * The "function" for "info->egress_timer".
+ *
+ * This timer will reschedule itself as long as there are any pending
+ * completions expected (on behalf of any tile).
+ *
+ * ISSUE: Realistically, will the timer ever stop scheduling itself?
+ *
+ * ISSUE: This timer is almost never actually needed, so just use a global
+ * timer that can run on any tile.
+ *
+ * ISSUE: Maybe instead track number of expected completions, and free
+ * only that many, resetting to zero if "pending" is ever false.
+ */
 static void tile_net_handle_egress_timer(unsigned long arg)
 {
 	struct tile_net_cpu *info = (struct tile_net_cpu *)arg;
 	struct net_device *dev = info->napi.dev;
 
-	
+	/* The timer is no longer scheduled. */
 	info->egress_timer_scheduled = false;
 
-	
+	/* Free comps, and reschedule timer if more are pending. */
 	if (tile_net_lepp_free_comps(dev, false))
 		tile_net_schedule_egress_timer(info);
 }
@@ -433,31 +629,41 @@ static void tile_net_handle_egress_timer(unsigned long arg)
 
 #ifdef IGNORE_DUP_ACKS
 
+/*
+ * Help detect "duplicate" ACKs.  These are sequential packets (for a
+ * given flow) which are exactly 66 bytes long, sharing everything but
+ * ID=2@0x12, Hsum=2@0x18, Ack=4@0x2a, WinSize=2@0x30, Csum=2@0x32,
+ * Tstamps=10@0x38.  The ID's are +1, the Hsum's are -1, the Ack's are
+ * +N, and the Tstamps are usually identical.
+ *
+ * NOTE: Apparently truly duplicate acks (with identical "ack" values),
+ * should not be collapsed, as they are used for some kind of flow control.
+ */
 static bool is_dup_ack(char *s1, char *s2, unsigned int len)
 {
 	int i;
 
 	unsigned long long ignorable = 0;
 
-	
+	/* Identification. */
 	ignorable |= (1ULL << 0x12);
 	ignorable |= (1ULL << 0x13);
 
-	
+	/* Header checksum. */
 	ignorable |= (1ULL << 0x18);
 	ignorable |= (1ULL << 0x19);
 
-	
+	/* ACK. */
 	ignorable |= (1ULL << 0x2a);
 	ignorable |= (1ULL << 0x2b);
 	ignorable |= (1ULL << 0x2c);
 	ignorable |= (1ULL << 0x2d);
 
-	
+	/* WinSize. */
 	ignorable |= (1ULL << 0x30);
 	ignorable |= (1ULL << 0x31);
 
-	
+	/* Checksum. */
 	ignorable |= (1ULL << 0x32);
 	ignorable |= (1ULL << 0x33);
 
@@ -467,7 +673,7 @@ static bool is_dup_ack(char *s1, char *s2, unsigned int len)
 			continue;
 
 #ifdef TILE_NET_DEBUG
-		
+		/* HACK: Mention non-timestamp diffs. */
 		if (i < 0x38 && i != 0x2f &&
 		    net_ratelimit())
 			pr_info("Diff at 0x%x\n", i);
@@ -477,8 +683,8 @@ static bool is_dup_ack(char *s1, char *s2, unsigned int len)
 	}
 
 #ifdef TILE_NET_NO_SUPPRESS_DUP_ACKS
-	
-	
+	/* HACK: Do not suppress truly duplicate ACKs. */
+	/* ISSUE: Is this actually necessary or helpful? */
 	if (s1[0x2a] == s2[0x2a] &&
 	    s1[0x2b] == s2[0x2b] &&
 	    s1[0x2c] == s2[0x2c] &&
@@ -508,23 +714,26 @@ static void tile_net_discard_aux(struct tile_net_cpu *info, int index)
 
 	netio_pkt_t *pkt = (netio_pkt_t *)((unsigned long) &qsp[1] + index);
 
-	
+	/* Extract the "linux_buffer_t". */
 	unsigned int buffer = pkt->__packet.word;
 
-	
+	/* Convert "linux_buffer_t" to "va". */
 	void *va = __va((phys_addr_t)(buffer >> 1) << 7);
 
-	
+	/* Acquire the associated "skb". */
 	struct sk_buff **skb_ptr = va - sizeof(*skb_ptr);
 	struct sk_buff *skb = *skb_ptr;
 
 	kfree_skb(skb);
 
-	
+	/* Consume this packet. */
 	qup->__packet_receive_read = index2;
 }
 
 
+/*
+ * Like "tile_net_poll()", but just discard packets.
+ */
 static void tile_net_discard_packets(struct net_device *dev)
 {
 	struct tile_net_priv *priv = netdev_priv(dev);
@@ -542,6 +751,9 @@ static void tile_net_discard_packets(struct net_device *dev)
 }
 
 
+/*
+ * Handle the next packet.  Return true if "processed", false if "filtered".
+ */
 static bool tile_net_poll_aux(struct tile_net_cpu *info, int index)
 {
 	struct net_device *dev = info->napi.dev;
@@ -563,40 +775,40 @@ static bool tile_net_poll_aux(struct tile_net_cpu *info, int index)
 
 	netio_pkt_metadata_t *metadata = NETIO_PKT_METADATA(pkt);
 
-	
-	
+	/* Extract the packet size.  FIXME: Shouldn't the second line */
+	/* get subtracted?  Mostly moot, since it should be "zero". */
 	unsigned long len =
 		(NETIO_PKT_CUSTOM_LENGTH(pkt) +
 		 NET_IP_ALIGN - NETIO_PACKET_PADDING);
 
-	
+	/* Extract the "linux_buffer_t". */
 	unsigned int buffer = pkt->__packet.word;
 
-	
+	/* Extract "small" (vs "large"). */
 	bool small = ((buffer & 1) != 0);
 
-	
+	/* Convert "linux_buffer_t" to "va". */
 	void *va = __va((phys_addr_t)(buffer >> 1) << 7);
 
-	
-	
+	/* Extract the packet data pointer. */
+	/* Compare to "NETIO_PKT_CUSTOM_DATA(pkt)". */
 	unsigned char *buf = va + NET_IP_ALIGN;
 
-	
+	/* Invalidate the packet buffer. */
 	if (!hash_default)
 		__inv_buffer(buf, len);
 
-	
+	/* ISSUE: Is this needed? */
 	dev->last_rx = jiffies;
 
 #ifdef TILE_NET_DUMP_PACKETS
 	dump_packet(buf, len, "rx");
-#endif 
+#endif /* TILE_NET_DUMP_PACKETS */
 
 #ifdef TILE_NET_VERIFY_INGRESS
 	if (!NETIO_PKT_L4_CSUM_CORRECT_M(metadata, pkt) &&
 	    NETIO_PKT_L4_CSUM_CALCULATED_M(metadata, pkt)) {
-		
+		/* Bug 6624: Includes UDP packets with a "zero" checksum. */
 		pr_warning("Bad L4 checksum on %d byte packet.\n", len);
 	}
 	if (!NETIO_PKT_L3_CSUM_CORRECT_M(metadata, pkt) &&
@@ -618,18 +830,18 @@ static bool tile_net_poll_aux(struct tile_net_cpu *info, int index)
 
 	filter = 0;
 
-	
+	/* ISSUE: Filter TCP packets with "bad" checksums? */
 
 	if (!(dev->flags & IFF_UP)) {
-		
+		/* Filter packets received before we're up. */
 		filter = 1;
 	} else if (NETIO_PKT_STATUS_M(metadata, pkt) == NETIO_PKT_STATUS_BAD) {
-		
+		/* Filter "truncated" packets. */
 		filter = 1;
 	} else if (!(dev->flags & IFF_PROMISC)) {
-		
+		/* FIXME: Implement HW multicast filter. */
 		if (!is_multicast_ether_addr(buf)) {
-			
+			/* Filter packets not for our address. */
 			const u8 *mine = dev->dev_addr;
 			filter = compare_ether_addr(mine, buf);
 		}
@@ -637,29 +849,29 @@ static bool tile_net_poll_aux(struct tile_net_cpu *info, int index)
 
 	if (filter) {
 
-		
+		/* ISSUE: Update "drop" statistics? */
 
 		tile_net_provide_linux_buffer(info, va, small);
 
 	} else {
 
-		
+		/* Acquire the associated "skb". */
 		struct sk_buff **skb_ptr = va - sizeof(*skb_ptr);
 		struct sk_buff *skb = *skb_ptr;
 
-		
+		/* Paranoia. */
 		if (skb->data != buf)
 			panic("Corrupt linux buffer from LIPP! "
 			      "VA=%p, skb=%p, skb->data=%p\n",
 			      va, skb, skb->data);
 
-		
+		/* Encode the actual packet length. */
 		skb_put(skb, len);
 
-		
+		/* NOTE: This call also sets "skb->dev = dev". */
 		skb->protocol = eth_type_trans(skb, dev);
 
-		
+		/* Avoid recomputing "good" TCP/UDP checksums. */
 		if (NETIO_PKT_L4_CSUM_CORRECT_M(metadata, pkt))
 			skb->ip_summed = CHECKSUM_UNNECESSARY;
 
@@ -669,17 +881,29 @@ static bool tile_net_poll_aux(struct tile_net_cpu *info, int index)
 		stats->rx_bytes += len;
 	}
 
-	
-	
+	/* ISSUE: It would be nice to defer this until the packet has */
+	/* actually been processed. */
 	tile_net_return_credit(info);
 
-	
+	/* Consume this packet. */
 	qup->__packet_receive_read = index2;
 
 	return !filter;
 }
 
 
+/*
+ * Handle some packets for the given device on the current CPU.
+ *
+ * If "tile_net_stop()" is called on some other tile while this
+ * function is running, we will return, hopefully before that
+ * other tile asks us to call "napi_disable()".
+ *
+ * The "rotting packet" race condition occurs if a packet arrives
+ * during the extremely narrow window between the queue appearing to
+ * be empty, and the ingress interrupt being re-enabled.  This happens
+ * a LOT under heavy network load.
+ */
 static int tile_net_poll(struct napi_struct *napi, int budget)
 {
 	struct net_device *dev = napi->dev;
@@ -708,14 +932,14 @@ static int tile_net_poll(struct napi_struct *napi, int budget)
 	if (!priv->active)
 		goto done;
 
-	
+	/* Re-enable the ingress interrupt. */
 	enable_percpu_irq(priv->intr_id, 0);
 
-	
+	/* HACK: Avoid the "rotting packet" problem (see above). */
 	if (qup->__packet_receive_read !=
 	    qsp->__packet_receive_queue.__packet_write) {
-		
-		
+		/* ISSUE: Sometimes this returns zero, presumably */
+		/* because an interrupt was handled for this tile. */
 		(void)napi_reschedule(&info->napi);
 	}
 
@@ -728,6 +952,15 @@ done:
 }
 
 
+/*
+ * Handle an ingress interrupt for the given device on the current cpu.
+ *
+ * ISSUE: Sometimes this gets called after "disable_percpu_irq()" has
+ * been called!  This is probably due to "pending hypervisor downcalls".
+ *
+ * ISSUE: Is there any race condition between the "napi_schedule()" here
+ * and the "napi_complete()" call above?
+ */
 static irqreturn_t tile_net_handle_ingress_interrupt(int irq, void *dev_ptr)
 {
 	struct net_device *dev = (struct net_device *)dev_ptr;
@@ -735,14 +968,14 @@ static irqreturn_t tile_net_handle_ingress_interrupt(int irq, void *dev_ptr)
 	int my_cpu = smp_processor_id();
 	struct tile_net_cpu *info = priv->cpu[my_cpu];
 
-	
+	/* Disable the ingress interrupt. */
 	disable_percpu_irq(priv->intr_id);
 
-	
+	/* Ignore unwanted interrupts. */
 	if (!priv->active)
 		return IRQ_HANDLED;
 
-	
+	/* ISSUE: Sometimes "info->napi_enabled" is false here. */
 
 	napi_schedule(&info->napi);
 
@@ -750,6 +983,9 @@ static irqreturn_t tile_net_handle_ingress_interrupt(int irq, void *dev_ptr)
 }
 
 
+/*
+ * One time initialization per interface.
+ */
 static int tile_net_open_aux(struct net_device *dev)
 {
 	struct tile_net_priv *priv = netdev_priv(dev);
@@ -758,6 +994,9 @@ static int tile_net_open_aux(struct net_device *dev)
 	int dummy;
 	unsigned int epp_lotar;
 
+	/*
+	 * Find out where EPP memory should be homed.
+	 */
 	ret = hv_dev_pread(priv->hv_devhdl, 0,
 			   (HV_VirtAddr)&epp_lotar, sizeof(epp_lotar),
 			   NETIO_EPP_SHM_OFF);
@@ -766,11 +1005,17 @@ static int tile_net_open_aux(struct net_device *dev)
 		return -EIO;
 	}
 
+	/*
+	 * Home the page on the EPP.
+	 */
 	{
 		int epp_home = hv_lotar_to_cpu(epp_lotar);
 		homecache_change_page_home(priv->eq_pages, EQ_ORDER, epp_home);
 	}
 
+	/*
+	 * Register the EPP shared memory queue.
+	 */
 	{
 		netio_ipp_address_t ea = {
 			.va = 0,
@@ -788,6 +1033,9 @@ static int tile_net_open_aux(struct net_device *dev)
 			return -EIO;
 	}
 
+	/*
+	 * Start LIPP/LEPP.
+	 */
 	if (hv_dev_pwrite(priv->hv_devhdl, 0, (HV_VirtAddr)&dummy,
 			  sizeof(dummy), NETIO_IPP_START_SHIM_OFF) < 0) {
 		pr_warning("Failed to start LIPP/LEPP.\n");
@@ -798,6 +1046,13 @@ static int tile_net_open_aux(struct net_device *dev)
 }
 
 
+/*
+ * Register with hypervisor on the current CPU.
+ *
+ * Strangely, this function does important things even if it "fails",
+ * which is especially common if the link is not up yet.  Hopefully
+ * these things are all "harmless" if done twice!
+ */
 static void tile_net_register(void *dev_ptr)
 {
 	struct net_device *dev = (struct net_device *)dev_ptr;
@@ -807,7 +1062,7 @@ static void tile_net_register(void *dev_ptr)
 
 	struct tile_netio_queue *queue;
 
-	
+	/* Only network cpus can receive packets. */
 	int queue_id =
 		cpumask_test_cpu(my_cpu, &priv->network_cpus_map) ? 0 : 255;
 
@@ -833,13 +1088,17 @@ static void tile_net_register(void *dev_ptr)
 	else
 		BUG();
 
-	
+	/* Initialize the egress timer. */
 	init_timer(&info->egress_timer);
 	info->egress_timer.data = (long)info;
 	info->egress_timer.function = tile_net_handle_egress_timer;
 
 	priv->cpu[my_cpu] = info;
 
+	/*
+	 * Register ourselves with LIPP.  This does a lot of stuff,
+	 * including invoking the LIPP registration code.
+	 */
 	ret = hv_dev_pwrite(priv->hv_devhdl, 0,
 			    (HV_VirtAddr)&config,
 			    sizeof(netio_input_config_t),
@@ -856,6 +1115,9 @@ static void tile_net_register(void *dev_ptr)
 		return;
 	}
 
+	/*
+	 * Get the pointer to our queue's system part.
+	 */
 
 	ret = hv_dev_pread(priv->hv_devhdl, 0,
 			   (HV_VirtAddr)&queuep,
@@ -865,7 +1127,7 @@ static void tile_net_register(void *dev_ptr)
 	       ret);
 	PDEBUG("queuep %p\n", queuep);
 	if (ret <= 0) {
-		
+		/* ISSUE: Shouldn't this be a fatal error? */
 		pr_err("hv_dev_pread NETIO_IPP_INPUT_REGISTER_OFF failure\n");
 		return;
 	}
@@ -876,22 +1138,34 @@ static void tile_net_register(void *dev_ptr)
 
 	memset(&queue->__user_part, 0, sizeof(netio_queue_user_impl_t));
 
-	
+	/* This is traditionally "config.num_receive_packets / 2". */
 	queue->__user_part.__receive_credit_interval = 4;
 	queue->__user_part.__receive_credit_remaining =
 		queue->__user_part.__receive_credit_interval;
 
+	/*
+	 * Get a fastio index from the hypervisor.
+	 * ISSUE: Shouldn't this check the result?
+	 */
 	ret = hv_dev_pread(priv->hv_devhdl, 0,
 			   (HV_VirtAddr)&queue->__user_part.__fastio_index,
 			   sizeof(queue->__user_part.__fastio_index),
 			   NETIO_IPP_GET_FASTIO_OFF);
 	PDEBUG("hv_dev_pread(NETIO_IPP_GET_FASTIO_OFF) returned %d\n", ret);
 
-	
+	/* Now we are registered. */
 	info->registered = true;
 }
 
 
+/*
+ * Deregister with hypervisor on the current CPU.
+ *
+ * This simply discards all our credits, so no more packets will be
+ * delivered to this tile.  There may still be packets in our queue.
+ *
+ * Also, disable the ingress interrupt.
+ */
 static void tile_net_deregister(void *dev_ptr)
 {
 	struct net_device *dev = (struct net_device *)dev_ptr;
@@ -899,10 +1173,10 @@ static void tile_net_deregister(void *dev_ptr)
 	int my_cpu = smp_processor_id();
 	struct tile_net_cpu *info = priv->cpu[my_cpu];
 
-	
+	/* Disable the ingress interrupt. */
 	disable_percpu_irq(priv->intr_id);
 
-	
+	/* Do nothing else if not registered. */
 	if (info == NULL || !info->registered)
 		return;
 
@@ -910,12 +1184,17 @@ static void tile_net_deregister(void *dev_ptr)
 		struct tile_netio_queue *queue = &info->queue;
 		netio_queue_user_impl_t *qup = &queue->__user_part;
 
-		
+		/* Discard all our credits. */
 		__netio_fastio_return_credits(qup->__fastio_index, -1);
 	}
 }
 
 
+/*
+ * Unregister with hypervisor on the current CPU.
+ *
+ * Also, disable the ingress interrupt.
+ */
 static void tile_net_unregister(void *dev_ptr)
 {
 	struct net_device *dev = (struct net_device *)dev_ptr;
@@ -926,32 +1205,38 @@ static void tile_net_unregister(void *dev_ptr)
 	int ret;
 	int dummy = 0;
 
-	
+	/* Disable the ingress interrupt. */
 	disable_percpu_irq(priv->intr_id);
 
-	
+	/* Do nothing else if not registered. */
 	if (info == NULL || !info->registered)
 		return;
 
-	
+	/* Unregister ourselves with LIPP/LEPP. */
 	ret = hv_dev_pwrite(priv->hv_devhdl, 0, (HV_VirtAddr)&dummy,
 			    sizeof(dummy), NETIO_IPP_INPUT_UNREGISTER_OFF);
 	if (ret < 0)
 		panic("Failed to unregister with LIPP/LEPP!\n");
 
-	
+	/* Discard all packets still in our NetIO queue. */
 	tile_net_discard_packets(dev);
 
-	
+	/* Reset state. */
 	info->num_needed_small_buffers = 0;
 	info->num_needed_large_buffers = 0;
 
-	
+	/* Cancel egress timer. */
 	del_timer(&info->egress_timer);
 	info->egress_timer_scheduled = false;
 }
 
 
+/*
+ * Helper function for "tile_net_stop()".
+ *
+ * Also used to handle registration failure in "tile_net_open_inner()",
+ * when the various extra steps in "tile_net_stop()" are not necessary.
+ */
 static void tile_net_stop_aux(struct net_device *dev)
 {
 	struct tile_net_priv *priv = netdev_priv(dev);
@@ -959,6 +1244,11 @@ static void tile_net_stop_aux(struct net_device *dev)
 
 	int dummy = 0;
 
+	/*
+	 * Unregister all tiles, so LIPP will stop delivering packets.
+	 * Also, delete all the "napi" objects (sequentially, to protect
+	 * "dev->napi_list").
+	 */
 	on_each_cpu(tile_net_unregister, (void *)dev, 1);
 	for_each_online_cpu(i) {
 		struct tile_net_cpu *info = priv->cpu[i];
@@ -968,7 +1258,7 @@ static void tile_net_stop_aux(struct net_device *dev)
 		}
 	}
 
-	
+	/* Stop LIPP/LEPP. */
 	if (hv_dev_pwrite(priv->hv_devhdl, 0, (HV_VirtAddr)&dummy,
 			  sizeof(dummy), NETIO_IPP_STOP_SHIM_OFF) < 0)
 		panic("Failed to stop LIPP/LEPP!\n");
@@ -977,6 +1267,9 @@ static void tile_net_stop_aux(struct net_device *dev)
 }
 
 
+/*
+ * Disable NAPI for the given device on the current cpu.
+ */
 static void tile_net_stop_disable(void *dev_ptr)
 {
 	struct net_device *dev = (struct net_device *)dev_ptr;
@@ -984,7 +1277,7 @@ static void tile_net_stop_disable(void *dev_ptr)
 	int my_cpu = smp_processor_id();
 	struct tile_net_cpu *info = priv->cpu[my_cpu];
 
-	
+	/* Disable NAPI if needed. */
 	if (info != NULL && info->napi_enabled) {
 		napi_disable(&info->napi);
 		info->napi_enabled = false;
@@ -992,6 +1285,12 @@ static void tile_net_stop_disable(void *dev_ptr)
 }
 
 
+/*
+ * Enable NAPI and the ingress interrupt for the given device
+ * on the current cpu.
+ *
+ * ISSUE: Only do this for "network cpus"?
+ */
 static void tile_net_open_enable(void *dev_ptr)
 {
 	struct net_device *dev = (struct net_device *)dev_ptr;
@@ -999,15 +1298,23 @@ static void tile_net_open_enable(void *dev_ptr)
 	int my_cpu = smp_processor_id();
 	struct tile_net_cpu *info = priv->cpu[my_cpu];
 
-	
+	/* Enable NAPI. */
 	napi_enable(&info->napi);
 	info->napi_enabled = true;
 
-	
+	/* Enable the ingress interrupt. */
 	enable_percpu_irq(priv->intr_id, 0);
 }
 
 
+/*
+ * tile_net_open_inner does most of the work of bringing up the interface.
+ * It's called from tile_net_open(), and also from tile_net_retry_open().
+ * The return value is 0 if the interface was brought up, < 0 if
+ * tile_net_open() should return the return value as an error, and > 0 if
+ * tile_net_open() should return success and schedule a work item to
+ * periodically retry the bringup.
+ */
 static int tile_net_open_inner(struct net_device *dev)
 {
 	struct tile_net_priv *priv = netdev_priv(dev);
@@ -1018,6 +1325,11 @@ static int tile_net_open_inner(struct net_device *dev)
 	int i;
 	int dummy = 0;
 
+	/*
+	 * First try to register just on the local CPU, and handle any
+	 * semi-expected "link down" failure specially.  Note that we
+	 * do NOT call "tile_net_stop_aux()", unlike below.
+	 */
 	tile_net_register(dev);
 	info = priv->cpu[my_cpu];
 	if (!info->registered) {
@@ -1026,6 +1338,13 @@ static int tile_net_open_inner(struct net_device *dev)
 		return -EAGAIN;
 	}
 
+	/*
+	 * Now register everywhere else.  If any registration fails,
+	 * even for "link down" (which might not be possible), we
+	 * clean up using "tile_net_stop_aux()".  Also, add all the
+	 * "napi" objects (sequentially, to protect "dev->napi_list").
+	 * ISSUE: Only use "netif_napi_add()" for "network cpus"?
+	 */
 	smp_call_function(tile_net_register, (void *)dev, 1);
 	for_each_online_cpu(i) {
 		struct tile_net_cpu *info = priv->cpu[i];
@@ -1044,17 +1363,31 @@ static int tile_net_open_inner(struct net_device *dev)
 	if (priv->intr_id == 0) {
 		unsigned int irq;
 
+		/*
+		 * Acquire the irq allocated by the hypervisor.  Every
+		 * queue gets the same irq.  The "__intr_id" field is
+		 * "1 << irq", so we use "__ffs()" to extract "irq".
+		 */
 		priv->intr_id = queue->__system_part->__intr_id;
 		BUG_ON(priv->intr_id == 0);
 		irq = __ffs(priv->intr_id);
 
+		/*
+		 * Register the ingress interrupt handler for this
+		 * device, permanently.
+		 *
+		 * We used to call "free_irq()" in "tile_net_stop()",
+		 * and then re-register the handler here every time,
+		 * but that caused DNP errors in "handle_IRQ_event()"
+		 * because "desc->action" was NULL.  See bug 9143.
+		 */
 		tile_irq_activate(irq, TILE_IRQ_PERCPU);
 		BUG_ON(request_irq(irq, tile_net_handle_ingress_interrupt,
 				   0, dev->name, (void *)dev) != 0);
 	}
 
 	{
-		
+		/* Allocate initial buffers. */
 
 		int max_buffers =
 			priv->network_cpus_count * priv->network_cpus_credits;
@@ -1072,27 +1405,31 @@ static int tile_net_open_inner(struct net_device *dev)
 			panic("Insufficient memory for buffer stack!");
 	}
 
-	
+	/* We are about to be active. */
 	priv->active = true;
 
-	
+	/* Make sure "active" is visible to all tiles. */
 	mb();
 
-	
+	/* On each tile, enable NAPI and the ingress interrupt. */
 	on_each_cpu(tile_net_open_enable, (void *)dev, 1);
 
-	
+	/* Start LIPP/LEPP and activate "ingress" at the shim. */
 	if (hv_dev_pwrite(priv->hv_devhdl, 0, (HV_VirtAddr)&dummy,
 			  sizeof(dummy), NETIO_IPP_INPUT_INIT_OFF) < 0)
 		panic("Failed to activate the LIPP Shim!\n");
 
-	
+	/* Start our transmit queue. */
 	netif_start_queue(dev);
 
 	return 0;
 }
 
 
+/*
+ * Called periodically to retry bringing up the NetIO interface,
+ * if it doesn't come up cleanly during tile_net_open().
+ */
 static void tile_net_open_retry(struct work_struct *w)
 {
 	struct delayed_work *dw =
@@ -1101,6 +1438,11 @@ static void tile_net_open_retry(struct work_struct *w)
 	struct tile_net_priv *priv =
 		container_of(dw, struct tile_net_priv, retry_work);
 
+	/*
+	 * Try to bring the NetIO interface up.  If it fails, reschedule
+	 * ourselves to try again later; otherwise, tell Linux we now have
+	 * a working link.  ISSUE: What if the return value is negative?
+	 */
 	if (tile_net_open_inner(priv->dev) != 0)
 		schedule_delayed_work(&priv->retry_work,
 				      TILE_NET_RETRY_INTERVAL);
@@ -1109,24 +1451,44 @@ static void tile_net_open_retry(struct work_struct *w)
 }
 
 
+/*
+ * Called when a network interface is made active.
+ *
+ * Returns 0 on success, negative value on failure.
+ *
+ * The open entry point is called when a network interface is made
+ * active by the system (IFF_UP).  At this point all resources needed
+ * for transmit and receive operations are allocated, the interrupt
+ * handler is registered with the OS (if needed), the watchdog timer
+ * is started, and the stack is notified that the interface is ready.
+ *
+ * If the actual link is not available yet, then we tell Linux that
+ * we have no carrier, and we keep checking until the link comes up.
+ */
 static int tile_net_open(struct net_device *dev)
 {
 	int ret = 0;
 	struct tile_net_priv *priv = netdev_priv(dev);
 
+	/*
+	 * We rely on priv->partly_opened to tell us if this is the
+	 * first time this interface is being brought up. If it is
+	 * set, the IPP was already initialized and should not be
+	 * initialized again.
+	 */
 	if (!priv->partly_opened) {
 
 		int count;
 		int credits;
 
-		
+		/* Initialize LIPP/LEPP, and start the Shim. */
 		ret = tile_net_open_aux(dev);
 		if (ret < 0) {
 			pr_err("tile_net_open_aux failed: %d\n", ret);
 			return ret;
 		}
 
-		
+		/* Analyze the network cpus. */
 
 		if (network_cpus_used)
 			cpumask_copy(&priv->network_cpus_map,
@@ -1137,11 +1499,11 @@ static int tile_net_open(struct net_device *dev)
 
 		count = cpumask_weight(&priv->network_cpus_map);
 
-		
+		/* Limit credits to available buffers, and apply min. */
 		credits = max(16, (LIPP_LARGE_BUFFERS / count) & ~1);
 
-		
-		
+		/* Apply "GBE" max limit. */
+		/* ISSUE: Use higher limit for XGBE? */
 		credits = min(NETIO_MAX_RECEIVE_PKTS, credits);
 
 		priv->network_cpus_count = count;
@@ -1155,10 +1517,13 @@ static int tile_net_open(struct net_device *dev)
 		priv->partly_opened = true;
 
 	} else {
-		
-		
+		/* FIXME: Is this possible? */
+		/* printk("Already partly opened.\n"); */
 	}
 
+	/*
+	 * Attempt to bring up the link.
+	 */
 	ret = tile_net_open_inner(dev);
 	if (ret <= 0) {
 		if (ret == 0)
@@ -1166,6 +1531,12 @@ static int tile_net_open(struct net_device *dev)
 		return ret;
 	}
 
+	/*
+	 * We were unable to bring up the NetIO interface, but we want to
+	 * try again in a little bit.  Tell Linux that we have no carrier
+	 * so it doesn't try to use the interface before the link comes up
+	 * and then remember to try again later.
+	 */
 	netif_carrier_off(dev);
 	schedule_delayed_work(&priv->retry_work, TILE_NET_RETRY_INTERVAL);
 
@@ -1177,24 +1548,24 @@ static int tile_net_drain_lipp_buffers(struct tile_net_priv *priv)
 {
 	int n = 0;
 
-	
+	/* Drain all the LIPP buffers. */
 	while (true) {
 		unsigned int buffer;
 
-		
+		/* NOTE: This should never fail. */
 		if (hv_dev_pread(priv->hv_devhdl, 0, (HV_VirtAddr)&buffer,
 				 sizeof(buffer), NETIO_IPP_DRAIN_OFF) < 0)
 			break;
 
-		
+		/* Stop when done. */
 		if (buffer == 0)
 			break;
 
 		{
-			
+			/* Convert "linux_buffer_t" to "va". */
 			void *va = __va((phys_addr_t)(buffer >> 1) << 7);
 
-			
+			/* Acquire the associated "skb". */
 			struct sk_buff **skb_ptr = va - sizeof(*skb_ptr);
 			struct sk_buff *skb = *skb_ptr;
 
@@ -1208,42 +1579,93 @@ static int tile_net_drain_lipp_buffers(struct tile_net_priv *priv)
 }
 
 
+/*
+ * Disables a network interface.
+ *
+ * Returns 0, this is not allowed to fail.
+ *
+ * The close entry point is called when an interface is de-activated
+ * by the OS.  The hardware is still under the drivers control, but
+ * needs to be disabled.  A global MAC reset is issued to stop the
+ * hardware, and all transmit and receive resources are freed.
+ *
+ * ISSUE: How closely does "netif_running(dev)" mirror "priv->active"?
+ *
+ * Before we are called by "__dev_close()", "netif_running()" will
+ * have been cleared, so no NEW calls to "tile_net_poll()" will be
+ * made by "netpoll_poll_dev()".
+ *
+ * Often, this can cause some tiles to still have packets in their
+ * queues, so we must call "tile_net_discard_packets()" later.
+ *
+ * Note that some other tile may still be INSIDE "tile_net_poll()",
+ * and in fact, many will be, if there is heavy network load.
+ *
+ * Calling "on_each_cpu(tile_net_stop_disable, (void *)dev, 1)" when
+ * any tile is still "napi_schedule()"'d will induce a horrible crash
+ * when "msleep()" is called.  This includes tiles which are inside
+ * "tile_net_poll()" which have not yet called "napi_complete()".
+ *
+ * So, we must first try to wait long enough for other tiles to finish
+ * with any current "tile_net_poll()" call, and, hopefully, to clear
+ * the "scheduled" flag.  ISSUE: It is unclear what happens to tiles
+ * which have called "napi_schedule()" but which had not yet tried to
+ * call "tile_net_poll()", or which exhausted their budget inside
+ * "tile_net_poll()" just before this function was called.
+ */
 static int tile_net_stop(struct net_device *dev)
 {
 	struct tile_net_priv *priv = netdev_priv(dev);
 
 	PDEBUG("tile_net_stop()\n");
 
-	
+	/* Start discarding packets. */
 	priv->active = false;
 
-	
+	/* Make sure "active" is visible to all tiles. */
 	mb();
 
+	/*
+	 * On each tile, make sure no NEW packets get delivered, and
+	 * disable the ingress interrupt.
+	 *
+	 * Note that the ingress interrupt can fire AFTER this,
+	 * presumably due to packets which were recently delivered,
+	 * but it will have no effect.
+	 */
 	on_each_cpu(tile_net_deregister, (void *)dev, 1);
 
-	
+	/* Optimistically drain LIPP buffers. */
 	(void)tile_net_drain_lipp_buffers(priv);
 
-	
+	/* ISSUE: Only needed if not yet fully open. */
 	cancel_delayed_work_sync(&priv->retry_work);
 
-	
+	/* Can't transmit any more. */
 	netif_stop_queue(dev);
 
-	
+	/* Disable NAPI on each tile. */
 	on_each_cpu(tile_net_stop_disable, (void *)dev, 1);
 
+	/*
+	 * Drain any remaining LIPP buffers.  NOTE: This "printk()"
+	 * has never been observed, but in theory it could happen.
+	 */
 	if (tile_net_drain_lipp_buffers(priv) != 0)
 		printk("Had to drain some extra LIPP buffers!\n");
 
-	
+	/* Stop LIPP/LEPP. */
 	tile_net_stop_aux(dev);
 
+	/*
+	 * ISSUE: It appears that, in practice anyway, by the time we
+	 * get here, there are no pending completions, but just in case,
+	 * we free (all of) them anyway.
+	 */
 	while (tile_net_lepp_free_comps(dev, true))
-		;
+		/* loop */;
 
-	
+	/* Wipe the EPP queue, and wait till the stores hit the EPP. */
 	memset(priv->eq, 0, sizeof(lepp_queue_t));
 	mb();
 
@@ -1251,6 +1673,11 @@ static int tile_net_stop(struct net_device *dev)
 }
 
 
+/*
+ * Prepare the "frags" info for the resulting LEPP command.
+ *
+ * If needed, flush the memory used by the frags.
+ */
 static unsigned int tile_net_tx_frags(lepp_frag_t *frags,
 				      struct sk_buff *skb,
 				      void *b_data, unsigned int b_len)
@@ -1279,11 +1706,11 @@ static unsigned int tile_net_tx_frags(lepp_frag_t *frags,
 		skb_frag_t *f = &sh->frags[i];
 		unsigned long pfn = page_to_pfn(skb_frag_page(f));
 
-		
-		
+		/* FIXME: Compute "hash_for_home" properly. */
+		/* ISSUE: The hypervisor checks CHIP_HAS_REV1_DMA_PACKETS(). */
 		int hash_for_home = hash_default;
 
-		
+		/* FIXME: Hmmm. */
 		if (!hash_default) {
 			void *va = pfn_to_kaddr(pfn) + f->page_offset;
 			BUG_ON(PageHighMem(skb_frag_page(f)));
@@ -1302,6 +1729,27 @@ static unsigned int tile_net_tx_frags(lepp_frag_t *frags,
 }
 
 
+/*
+ * This function takes "skb", consisting of a header template and a
+ * payload, and hands it to LEPP, to emit as one or more segments,
+ * each consisting of a possibly modified header, plus a piece of the
+ * payload, via a process known as "tcp segmentation offload".
+ *
+ * Usually, "data" will contain the header template, of size "sh_len",
+ * and "sh->frags" will contain "skb->data_len" bytes of payload, and
+ * there will be "sh->gso_segs" segments.
+ *
+ * Sometimes, if "sendfile()" requires copying, we will be called with
+ * "data" containing the header and payload, with "frags" being empty.
+ *
+ * Sometimes, for example when using NFS over TCP, a single segment can
+ * span 3 fragments, which must be handled carefully in LEPP.
+ *
+ * See "emulate_large_send_offload()" for some reference code, which
+ * does not handle checksumming.
+ *
+ * ISSUE: How do we make sure that high memory DMA does not migrate?
+ */
 static int tile_net_tx_tso(struct sk_buff *skb, struct net_device *dev)
 {
 	struct tile_net_priv *priv = netdev_priv(dev);
@@ -1313,47 +1761,47 @@ static int tile_net_tx_tso(struct sk_buff *skb, struct net_device *dev)
 
 	unsigned char *data = skb->data;
 
-	
+	/* The ip header follows the ethernet header. */
 	struct iphdr *ih = ip_hdr(skb);
 	unsigned int ih_len = ih->ihl * 4;
 
-	
+	/* Note that "nh == ih", by definition. */
 	unsigned char *nh = skb_network_header(skb);
 	unsigned int eh_len = nh - data;
 
-	
+	/* The tcp header follows the ip header. */
 	struct tcphdr *th = (struct tcphdr *)(nh + ih_len);
 	unsigned int th_len = th->doff * 4;
 
-	
-	
+	/* The total number of header bytes. */
+	/* NOTE: This may be less than skb_headlen(skb). */
 	unsigned int sh_len = eh_len + ih_len + th_len;
 
-	
-	
+	/* The number of payload bytes at "skb->data + sh_len". */
+	/* This is non-zero for sendfile() without HIGHDMA. */
 	unsigned int b_len = skb_headlen(skb) - sh_len;
 
-	
+	/* The total number of payload bytes. */
 	unsigned int d_len = b_len + skb->data_len;
 
-	
+	/* The maximum payload size. */
 	unsigned int p_len = sh->gso_size;
 
-	
+	/* The total number of segments. */
 	unsigned int num_segs = sh->gso_segs;
 
-	
+	/* The temporary copy of the command. */
 	u32 cmd_body[(LEPP_MAX_CMD_SIZE + 3) / 4];
 	lepp_tso_cmd_t *cmd = (lepp_tso_cmd_t *)cmd_body;
 
-	
+	/* Analyze the "frags". */
 	unsigned int num_frags =
 		tile_net_tx_frags(cmd->frags, skb, data + sh_len, b_len);
 
-	
+	/* The size of the command, including frags and header. */
 	size_t cmd_size = LEPP_TSO_CMD_SIZE(num_frags, sh_len);
 
-	
+	/* The command header. */
 	lepp_tso_cmd_t cmd_init = {
 		.tso = true,
 		.header_size = sh_len,
@@ -1375,36 +1823,36 @@ static int tile_net_tx_tso(struct sk_buff *skb, struct net_device *dev)
 	unsigned int comp_tail;
 
 
-	
+	/* Paranoia. */
 	BUG_ON(skb->protocol != htons(ETH_P_IP));
 	BUG_ON(ih->protocol != IPPROTO_TCP);
 	BUG_ON(skb->ip_summed != CHECKSUM_PARTIAL);
 	BUG_ON(num_frags > LEPP_MAX_FRAGS);
-	
+	/*--BUG_ON(num_segs != (d_len + (p_len - 1)) / p_len); */
 	BUG_ON(num_segs <= 1);
 
 
-	
+	/* Finish preparing the command. */
 
-	
+	/* Copy the command header. */
 	*cmd = cmd_init;
 
-	
+	/* Copy the "header". */
 	memcpy(&cmd->frags[num_frags], data, sh_len);
 
 
-	
+	/* Prefetch and wait, to minimize time spent holding the spinlock. */
 	prefetch_L1(&eq->comp_tail);
 	prefetch_L1(&eq->cmd_tail);
 	mb();
 
 
-	
+	/* Enqueue the command. */
 
 	spin_lock_irqsave(&priv->eq_lock, irqflags);
 
-	
-	
+	/* Handle completions if needed to make room. */
+	/* NOTE: Return NETDEV_TX_BUSY if there is still no room. */
 	if (lepp_num_free_comp_slots(eq) == 0) {
 		nolds = tile_net_lepp_grab_comps(eq, olds, wanted, 0);
 		if (nolds == 0) {
@@ -1417,8 +1865,8 @@ busy:
 	cmd_head = eq->cmd_head;
 	cmd_tail = eq->cmd_tail;
 
-	
-	
+	/* Prepare to advance, detecting full queue. */
+	/* NOTE: Return NETDEV_TX_BUSY if the queue is full. */
 	cmd_next = cmd_tail + cmd_size;
 	if (cmd_tail < cmd_head && cmd_next >= cmd_head)
 		goto busy;
@@ -1428,47 +1876,50 @@ busy:
 			goto busy;
 	}
 
-	
+	/* Copy the command. */
 	memcpy(&eq->cmds[cmd_tail], cmd, cmd_size);
 
-	
+	/* Advance. */
 	cmd_tail = cmd_next;
 
-	
+	/* Record "skb" for eventual freeing. */
 	comp_tail = eq->comp_tail;
 	eq->comps[comp_tail] = skb;
 	LEPP_QINC(comp_tail);
 	eq->comp_tail = comp_tail;
 
-	
-	
+	/* Flush before allowing LEPP to handle the command. */
+	/* ISSUE: Is this the optimal location for the flush? */
 	__insn_mf();
 
 	eq->cmd_tail = cmd_tail;
 
-	
-	
-	
+	/* NOTE: Using "4" here is more efficient than "0" or "2", */
+	/* and, strangely, more efficient than pre-checking the number */
+	/* of available completions, and comparing it to 4. */
 	if (nolds == 0)
 		nolds = tile_net_lepp_grab_comps(eq, olds, wanted, 4);
 
 	spin_unlock_irqrestore(&priv->eq_lock, irqflags);
 
-	
+	/* Handle completions. */
 	for (i = 0; i < nolds; i++)
 		kfree_skb(olds[i]);
 
-	
+	/* Update stats. */
 	stats->tx_packets += num_segs;
 	stats->tx_bytes += (num_segs * sh_len) + d_len;
 
-	
+	/* Make sure the egress timer is scheduled. */
 	tile_net_schedule_egress_timer(info);
 
 	return NETDEV_TX_OK;
 }
 
 
+/*
+ * Transmit a packet (called by the kernel via "hard_start_xmit" hook).
+ */
 static int tile_net_tx(struct sk_buff *skb, struct net_device *dev)
 {
 	struct tile_net_priv *priv = netdev_priv(dev);
@@ -1503,11 +1954,17 @@ static int tile_net_tx(struct sk_buff *skb, struct net_device *dev)
 	lepp_cmd_t cmds[LEPP_MAX_FRAGS];
 
 
+	/*
+	 * This is paranoia, since we think that if the link doesn't come
+	 * up, telling Linux we have no carrier will keep it from trying
+	 * to transmit.  If it does, though, we can't execute this routine,
+	 * since data structures we depend on aren't set up yet.
+	 */
 	if (!info->registered)
 		return NETDEV_TX_BUSY;
 
 
-	
+	/* Save the timestamp. */
 	dev->trans_start = jiffies;
 
 
@@ -1524,16 +1981,16 @@ static int tile_net_tx(struct sk_buff *skb, struct net_device *dev)
 
 
 #ifdef TILE_NET_DUMP_PACKETS
-	
+	/* ISSUE: Does not dump the "frags". */
 	dump_packet(data, skb_headlen(skb), "tx");
-#endif 
+#endif /* TILE_NET_DUMP_PACKETS */
 
 
 	if (sh->gso_size != 0)
 		return tile_net_tx_tso(skb, dev);
 
 
-	
+	/* Prepare the commands. */
 
 	num_frags = tile_net_tx_frags(frags, skb, data, skb_headlen(skb));
 
@@ -1562,18 +2019,18 @@ static int tile_net_tx(struct sk_buff *skb, struct net_device *dev)
 	}
 
 
-	
+	/* Prefetch and wait, to minimize time spent holding the spinlock. */
 	prefetch_L1(&eq->comp_tail);
 	prefetch_L1(&eq->cmd_tail);
 	mb();
 
 
-	
+	/* Enqueue the commands. */
 
 	spin_lock_irqsave(&priv->eq_lock, irqflags);
 
-	
-	
+	/* Handle completions if needed to make room. */
+	/* NOTE: Return NETDEV_TX_BUSY if there is still no room. */
 	if (lepp_num_free_comp_slots(eq) == 0) {
 		nolds = tile_net_lepp_grab_comps(eq, olds, wanted, 0);
 		if (nolds == 0) {
@@ -1586,11 +2043,11 @@ busy:
 	cmd_head = eq->cmd_head;
 	cmd_tail = eq->cmd_tail;
 
-	
-	
+	/* Copy the commands, or fail. */
+	/* NOTE: Return NETDEV_TX_BUSY if the queue is full. */
 	for (i = 0; i < num_frags; i++) {
 
-		
+		/* Prepare to advance, detecting full queue. */
 		cmd_next = cmd_tail + cmd_size;
 		if (cmd_tail < cmd_head && cmd_next >= cmd_head)
 			goto busy;
@@ -1600,65 +2057,76 @@ busy:
 				goto busy;
 		}
 
-		
+		/* Copy the command. */
 		*(lepp_cmd_t *)&eq->cmds[cmd_tail] = cmds[i];
 
-		
+		/* Advance. */
 		cmd_tail = cmd_next;
 	}
 
-	
+	/* Record "skb" for eventual freeing. */
 	comp_tail = eq->comp_tail;
 	eq->comps[comp_tail] = skb;
 	LEPP_QINC(comp_tail);
 	eq->comp_tail = comp_tail;
 
-	
-	
+	/* Flush before allowing LEPP to handle the command. */
+	/* ISSUE: Is this the optimal location for the flush? */
 	__insn_mf();
 
 	eq->cmd_tail = cmd_tail;
 
-	
-	
-	
+	/* NOTE: Using "4" here is more efficient than "0" or "2", */
+	/* and, strangely, more efficient than pre-checking the number */
+	/* of available completions, and comparing it to 4. */
 	if (nolds == 0)
 		nolds = tile_net_lepp_grab_comps(eq, olds, wanted, 4);
 
 	spin_unlock_irqrestore(&priv->eq_lock, irqflags);
 
-	
+	/* Handle completions. */
 	for (i = 0; i < nolds; i++)
 		kfree_skb(olds[i]);
 
-	
+	/* HACK: Track "expanded" size for short packets (e.g. 42 < 60). */
 	stats->tx_packets++;
 	stats->tx_bytes += ((len >= ETH_ZLEN) ? len : ETH_ZLEN);
 
-	
+	/* Make sure the egress timer is scheduled. */
 	tile_net_schedule_egress_timer(info);
 
 	return NETDEV_TX_OK;
 }
 
 
+/*
+ * Deal with a transmit timeout.
+ */
 static void tile_net_tx_timeout(struct net_device *dev)
 {
 	PDEBUG("tile_net_tx_timeout()\n");
 	PDEBUG("Transmit timeout at %ld, latency %ld\n", jiffies,
 	       jiffies - dev->trans_start);
 
-	
+	/* XXX: ISSUE: This doesn't seem useful for us. */
 	netif_wake_queue(dev);
 }
 
 
+/*
+ * Ioctl commands.
+ */
 static int tile_net_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
 	return -EOPNOTSUPP;
 }
 
 
+/*
+ * Get System Network Statistics.
+ *
+ * Returns the address of the device statistics structure.
+ */
 static struct net_device_stats *tile_net_get_stats(struct net_device *dev)
 {
 	struct tile_net_priv *priv = netdev_priv(dev);
@@ -1686,21 +2154,38 @@ static struct net_device_stats *tile_net_get_stats(struct net_device *dev)
 }
 
 
+/*
+ * Change the "mtu".
+ *
+ * The "change_mtu" method is usually not needed.
+ * If you need it, it must be like this.
+ */
 static int tile_net_change_mtu(struct net_device *dev, int new_mtu)
 {
 	PDEBUG("tile_net_change_mtu()\n");
 
-	
+	/* Check ranges. */
 	if ((new_mtu < 68) || (new_mtu > 1500))
 		return -EINVAL;
 
-	
+	/* Accept the value. */
 	dev->mtu = new_mtu;
 
 	return 0;
 }
 
 
+/*
+ * Change the Ethernet Address of the NIC.
+ *
+ * The hypervisor driver does not support changing MAC address.  However,
+ * the IPP does not do anything with the MAC address, so the address which
+ * gets used on outgoing packets, and which is accepted on incoming packets,
+ * is completely up to the NetIO program or kernel driver which is actually
+ * handling them.
+ *
+ * Returns 0 on success, negative on failure.
+ */
 static int tile_net_set_mac_address(struct net_device *dev, void *p)
 {
 	struct sockaddr *addr = p;
@@ -1708,7 +2193,7 @@ static int tile_net_set_mac_address(struct net_device *dev, void *p)
 	if (!is_valid_ether_addr(addr->sa_data))
 		return -EADDRNOTAVAIL;
 
-	
+	/* ISSUE: Note that "dev_addr" is now a pointer. */
 	memcpy(dev->dev_addr, addr->sa_data, dev->addr_len);
 	dev->addr_assign_type &= ~NET_ADDR_RANDOM;
 
@@ -1716,6 +2201,10 @@ static int tile_net_set_mac_address(struct net_device *dev, void *p)
 }
 
 
+/*
+ * Obtain the MAC address from the hypervisor.
+ * This must be done before opening the device.
+ */
 static int tile_net_get_mac(struct net_device *dev)
 {
 	struct tile_net_priv *priv = netdev_priv(dev);
@@ -1727,19 +2216,19 @@ static int tile_net_get_mac(struct net_device *dev)
 
 	int ret;
 
-	
+	/* For example, "xgbe0". */
 	strcpy(hv_dev_name, dev->name);
 	len = strlen(hv_dev_name);
 
-	
+	/* For example, "xgbe/0". */
 	hv_dev_name[len] = hv_dev_name[len - 1];
 	hv_dev_name[len - 1] = '/';
 	len++;
 
-	
+	/* For example, "xgbe/0/native_hash". */
 	strcpy(hv_dev_name + len, hash_default ? "/native_hash" : "/native");
 
-	
+	/* Get the hypervisor handle for this device. */
 	priv->hv_devhdl = hv_dev_open((HV_VirtAddr)hv_dev_name, 0);
 	PDEBUG("hv_dev_open(%s) returned %d %p\n",
 	       hv_dev_name, priv->hv_devhdl, &priv->hv_devhdl);
@@ -1753,6 +2242,10 @@ static int tile_net_get_mac(struct net_device *dev)
 		return -1;
 	}
 
+	/*
+	 * Read the hardware address from the hypervisor.
+	 * ISSUE: Note that "dev_addr" is now a pointer.
+	 */
 	offset.bits.class = NETIO_PARAM;
 	offset.bits.addr = NETIO_PARAM_MAC;
 	ret = hv_dev_pread(priv->hv_devhdl, 0,
@@ -1762,6 +2255,11 @@ static int tile_net_get_mac(struct net_device *dev)
 	if (ret <= 0) {
 		printk(KERN_DEBUG "hv_dev_pread(NETIO_PARAM_MAC) %s failed\n",
 		       dev->name);
+		/*
+		 * Since the device is configured by the hypervisor but we
+		 * can't get its MAC address, we are most likely running
+		 * the simulator, so let's generate a random MAC address.
+		 */
 		eth_hw_addr_random(dev);
 	}
 
@@ -1770,6 +2268,11 @@ static int tile_net_get_mac(struct net_device *dev)
 
 
 #ifdef CONFIG_NET_POLL_CONTROLLER
+/*
+ * Polling 'interrupt' - used by things like netconsole to send skbs
+ * without having to re-enable interrupts. It's not called while
+ * the interrupt routine is executing.
+ */
 static void tile_net_netpoll(struct net_device *dev)
 {
 	struct tile_net_priv *priv = netdev_priv(dev);
@@ -1795,6 +2298,12 @@ static const struct net_device_ops tile_net_ops = {
 };
 
 
+/*
+ * The setup function.
+ *
+ * This uses ether_setup() to assign various fields in dev, including
+ * setting IFF_BROADCAST and IFF_MULTICAST, then sets some extra fields.
+ */
 static void tile_net_setup(struct net_device *dev)
 {
 	PDEBUG("tile_net_setup()\n");
@@ -1805,27 +2314,27 @@ static void tile_net_setup(struct net_device *dev)
 
 	dev->watchdog_timeo = TILE_NET_TIMEOUT;
 
-	
+	/* We want lockless xmit. */
 	dev->features |= NETIF_F_LLTX;
 
-	
+	/* We support hardware tx checksums. */
 	dev->features |= NETIF_F_HW_CSUM;
 
-	
+	/* We support scatter/gather. */
 	dev->features |= NETIF_F_SG;
 
-	
+	/* We support TSO. */
 	dev->features |= NETIF_F_TSO;
 
 #ifdef TILE_NET_GSO
-	
+	/* We support GSO. */
 	dev->features |= NETIF_F_GSO;
 #endif
 
 	if (hash_default)
 		dev->features |= NETIF_F_HIGHDMA;
 
-	
+	/* ISSUE: We should support NETIF_F_UFO. */
 
 	dev->tx_queue_len = TILE_NET_TX_QUEUE_LEN;
 
@@ -1833,12 +2342,21 @@ static void tile_net_setup(struct net_device *dev)
 }
 
 
+/*
+ * Allocate the device structure, register the device, and obtain the
+ * MAC address from the hypervisor.
+ */
 static struct net_device *tile_net_dev_init(const char *name)
 {
 	int ret;
 	struct net_device *dev;
 	struct tile_net_priv *priv;
 
+	/*
+	 * Allocate the device structure.  This allocates "priv", calls
+	 * tile_net_setup(), and saves "name".  Normally, "name" is a
+	 * template, instantiated by register_netdev(), but not for us.
+	 */
 	dev = alloc_netdev(sizeof(*priv), name, tile_net_setup);
 	if (!dev) {
 		pr_err("alloc_netdev(%s) failed\n", name);
@@ -1847,18 +2365,18 @@ static struct net_device *tile_net_dev_init(const char *name)
 
 	priv = netdev_priv(dev);
 
-	
+	/* Initialize "priv". */
 
 	memset(priv, 0, sizeof(*priv));
 
-	
+	/* Save "dev" for "tile_net_open_retry()". */
 	priv->dev = dev;
 
 	INIT_DELAYED_WORK(&priv->retry_work, tile_net_open_retry);
 
 	spin_lock_init(&priv->eq_lock);
 
-	
+	/* Allocate "eq". */
 	priv->eq_pages = alloc_pages(GFP_KERNEL | __GFP_ZERO, EQ_ORDER);
 	if (!priv->eq_pages) {
 		free_netdev(dev);
@@ -1866,7 +2384,7 @@ static struct net_device *tile_net_dev_init(const char *name)
 	}
 	priv->eq = page_address(priv->eq_pages);
 
-	
+	/* Register the network device. */
 	ret = register_netdev(dev);
 	if (ret) {
 		pr_err("register_netdev %s failed %d\n", dev->name, ret);
@@ -1875,7 +2393,7 @@ static struct net_device *tile_net_dev_init(const char *name)
 		return NULL;
 	}
 
-	
+	/* Get the MAC address. */
 	ret = tile_net_get_mac(dev);
 	if (ret < 0) {
 		unregister_netdev(dev);
@@ -1888,6 +2406,12 @@ static struct net_device *tile_net_dev_init(const char *name)
 }
 
 
+/*
+ * Module cleanup.
+ *
+ * FIXME: If compiled as a module, this module cannot be "unloaded",
+ * because the "ingress interrupt handler" is registered permanently.
+ */
 static void tile_net_cleanup(void)
 {
 	int i;
@@ -1905,6 +2429,9 @@ static void tile_net_cleanup(void)
 }
 
 
+/*
+ * Module initialization.
+ */
 static int tile_net_init_module(void)
 {
 	pr_info("Tilera Network Driver\n");
@@ -1924,6 +2451,14 @@ module_exit(tile_net_cleanup);
 
 #ifndef MODULE
 
+/*
+ * The "network_cpus" boot argument specifies the cpus that are dedicated
+ * to handle ingress packets.
+ *
+ * The parameter should be in the form "network_cpus=m-n[,x-y]", where
+ * m, n, x, y are integer numbers that represent the cpus that can be
+ * neither a dedicated cpu nor a dataplane cpu.
+ */
 static int __init network_cpus_setup(char *str)
 {
 	int rc = cpulist_parse_crop(str, &network_cpus_map);
@@ -1932,7 +2467,7 @@ static int __init network_cpus_setup(char *str)
 		       str);
 	} else {
 
-		
+		/* Remove dedicated cpus. */
 		cpumask_and(&network_cpus_map, &network_cpus_map,
 			    cpu_possible_mask);
 

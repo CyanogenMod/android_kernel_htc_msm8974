@@ -40,6 +40,16 @@
 #include "v9fs_vfs.h"
 #include "fid.h"
 
+/**
+ * struct p9_rdir - readdir accounting
+ * @mutex: mutex protecting readdir
+ * @head: start offset of current dirread buffer
+ * @tail: end offset of current dirread buffer
+ * @buf: dirread buffer
+ *
+ * private structure for keeping track of readdir
+ * allocated on demand
+ */
 
 struct p9_rdir {
 	struct mutex mutex;
@@ -48,6 +58,11 @@ struct p9_rdir {
 	uint8_t *buf;
 };
 
+/**
+ * dt_type - return file type
+ * @mistat: mistat structure
+ *
+ */
 
 static inline int dt_type(struct p9_wstat *mistat)
 {
@@ -71,6 +86,12 @@ static void p9stat_init(struct p9_wstat *stbuf)
 	stbuf->extension = NULL;
 }
 
+/**
+ * v9fs_alloc_rdir_buf - Allocate buffer used for read and readdir
+ * @filp: opened file structure
+ * @buflen: Length in bytes of buffer to allocate
+ *
+ */
 
 static int v9fs_alloc_rdir_buf(struct file *filp, int buflen)
 {
@@ -101,6 +122,13 @@ exit:
 	return err;
 }
 
+/**
+ * v9fs_dir_readdir - read a directory
+ * @filp: opened file structure
+ * @dirent: directory structure ???
+ * @filldir: function to populate directory structure ???
+ *
+ */
 
 static int v9fs_dir_readdir(struct file *filp, void *dirent, filldir_t filldir)
 {
@@ -167,6 +195,13 @@ exit:
 	return err;
 }
 
+/**
+ * v9fs_dir_readdir_dotl - read a directory
+ * @filp: opened file structure
+ * @dirent: buffer to fill dirent structures
+ * @filldir: function to populate dirent structures
+ *
+ */
 static int v9fs_dir_readdir_dotl(struct file *filp, void *dirent,
 						filldir_t filldir)
 {
@@ -214,6 +249,12 @@ static int v9fs_dir_readdir_dotl(struct file *filp, void *dirent,
 				goto unlock_and_exit;
 			}
 
+			/* d_off in dirent structure tracks the offset into
+			 * the next dirent in the dir. However, filldir()
+			 * expects offset into the current dirent. Hence
+			 * while calling filldir send the offset from the
+			 * previous dirent structure.
+			 */
 			over = filldir(dirent, curdirent.d_name,
 					strlen(curdirent.d_name),
 					oldoffset, v9fs_qid2ino(&curdirent.qid),
@@ -237,6 +278,12 @@ exit:
 }
 
 
+/**
+ * v9fs_dir_release - close a directory
+ * @inode: inode of the directory
+ * @filp: file pointer to a directory
+ *
+ */
 
 int v9fs_dir_release(struct inode *inode, struct file *filp)
 {

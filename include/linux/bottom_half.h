@@ -6,4 +6,4 @@ extern void _local_bh_enable(void);
 extern void local_bh_enable(void);
 extern void local_bh_enable_ip(unsigned long ip);
 
-#endif 
+#endif /* _LINUX_BH_H */

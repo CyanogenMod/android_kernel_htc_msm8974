@@ -23,5 +23,5 @@ struct crypto_authenc_key_param {
 	__be32 enckeylen;
 };
 
-#endif	
+#endif	/* _CRYPTO_AUTHENC_H */
 

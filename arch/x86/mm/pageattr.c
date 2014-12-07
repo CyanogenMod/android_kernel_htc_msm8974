@@ -25,6 +25,9 @@
 #include <asm/proto.h>
 #include <asm/pat.h>
 
+/*
+ * The current flushing context - we pass it instead of 5 arguments:
+ */
 struct cpa_data {
 	unsigned long	*vaddr;
 	pgprot_t	mask_set;
@@ -37,6 +40,12 @@ struct cpa_data {
 	struct page	**pages;
 };
 
+/*
+ * Serialize cpa() (for !DEBUG_PAGEALLOC which uses large identity mappings)
+ * using cpa_lock. So that we don't allow any other cpu, with stale large tlb
+ * entries change the page attribute in parallel to some other cpu
+ * splitting a large page entry along with changing the attribute.
+ */
 static DEFINE_SPINLOCK(cpa_lock);
 
 #define CPA_FLUSHTLB 1
@@ -48,7 +57,7 @@ static unsigned long direct_pages_count[PG_LEVEL_NUM];
 
 void update_page_count(int level, unsigned long pages)
 {
-	
+	/* Protect against CPA */
 	spin_lock(&pgd_lock);
 	direct_pages_count[level] += pages;
 	spin_unlock(&pgd_lock);
@@ -107,7 +116,18 @@ within(unsigned long addr, unsigned long start, unsigned long end)
 	return addr >= start && addr < end;
 }
 
+/*
+ * Flushing functions
+ */
 
+/**
+ * clflush_cache_range - flush a cache range with clflush
+ * @addr:	virtual start address
+ * @size:	number of bytes to flush
+ *
+ * clflush is an unordered instruction which needs fencing with mfence
+ * to avoid ordering issues.
+ */
 void clflush_cache_range(void *vaddr, unsigned int size)
 {
 	void *vend = vaddr + size - 1;
@@ -116,6 +136,9 @@ void clflush_cache_range(void *vaddr, unsigned int size)
 
 	for (; vaddr < vend; vaddr += boot_cpu_data.x86_clflush_size)
 		clflush(vaddr);
+	/*
+	 * Flush any possible final partial cacheline:
+	 */
 	clflush(vend);
 
 	mb();
@@ -126,6 +149,10 @@ static void __cpa_flush_all(void *arg)
 {
 	unsigned long cache = (unsigned long)arg;
 
+	/*
+	 * Flush all to work around Errata in early athlons regarding
+	 * large page flushing.
+	 */
 	__flush_tlb_all();
 
 	if (cache && boot_cpu_data.x86 >= 4)
@@ -141,6 +168,11 @@ static void cpa_flush_all(unsigned long cache)
 
 static void __cpa_flush_range(void *arg)
 {
+	/*
+	 * We could optimize that further and do individual per page
+	 * tlb invalidates for a low number of pages. Caveat: we must
+	 * flush the high aliases on 64bit as well.
+	 */
 	__flush_tlb_all();
 }
 
@@ -157,9 +189,18 @@ static void cpa_flush_range(unsigned long start, int numpages, int cache)
 	if (!cache)
 		return;
 
+	/*
+	 * We only need to flush on one CPU,
+	 * clflush is a MESI-coherent instruction that
+	 * will cause all other CPUs to flush the same
+	 * cachelines:
+	 */
 	for (i = 0, addr = start; i < numpages; i++, addr += PAGE_SIZE) {
 		pte_t *pte = lookup_address(addr, &level);
 
+		/*
+		 * Only flush present addresses:
+		 */
 		if (pte && (pte_val(*pte) & _PAGE_PRESENT))
 			clflush_cache_range((void *) addr, PAGE_SIZE);
 	}
@@ -169,7 +210,7 @@ static void cpa_flush_array(unsigned long *start, int numpages, int cache,
 			    int in_flags, struct page **pages)
 {
 	unsigned int i, level;
-	unsigned long do_wbinvd = cache && numpages >= 1024; 
+	unsigned long do_wbinvd = cache && numpages >= 1024; /* 4M threshold */
 
 	BUG_ON(irqs_disabled());
 
@@ -178,6 +219,12 @@ static void cpa_flush_array(unsigned long *start, int numpages, int cache,
 	if (!cache || do_wbinvd)
 		return;
 
+	/*
+	 * We only need to flush on one CPU,
+	 * clflush is a MESI-coherent instruction that
+	 * will cause all other CPUs to flush the same
+	 * cachelines:
+	 */
 	for (i = 0; i < numpages; i++) {
 		unsigned long addr;
 		pte_t *pte;
@@ -189,34 +236,82 @@ static void cpa_flush_array(unsigned long *start, int numpages, int cache,
 
 		pte = lookup_address(addr, &level);
 
+		/*
+		 * Only flush present addresses:
+		 */
 		if (pte && (pte_val(*pte) & _PAGE_PRESENT))
 			clflush_cache_range((void *)addr, PAGE_SIZE);
 	}
 }
 
+/*
+ * Certain areas of memory on x86 require very specific protection flags,
+ * for example the BIOS area or kernel text. Callers don't always get this
+ * right (again, ioremap() on BIOS memory is not uncommon) so this function
+ * checks and fixes these known static required protection bits.
+ */
 static inline pgprot_t static_protections(pgprot_t prot, unsigned long address,
 				   unsigned long pfn)
 {
 	pgprot_t forbidden = __pgprot(0);
 
+	/*
+	 * The BIOS area between 640k and 1Mb needs to be executable for
+	 * PCI BIOS based config access (CONFIG_PCI_GOBIOS) support.
+	 */
 #ifdef CONFIG_PCI_BIOS
 	if (pcibios_enabled && within(pfn, BIOS_BEGIN >> PAGE_SHIFT, BIOS_END >> PAGE_SHIFT))
 		pgprot_val(forbidden) |= _PAGE_NX;
 #endif
 
+	/*
+	 * The kernel text needs to be executable for obvious reasons
+	 * Does not cover __inittext since that is gone later on. On
+	 * 64bit we do not enforce !NX on the low mapping
+	 */
 	if (within(address, (unsigned long)_text, (unsigned long)_etext))
 		pgprot_val(forbidden) |= _PAGE_NX;
 
+	/*
+	 * The .rodata section needs to be read-only. Using the pfn
+	 * catches all aliases.
+	 */
 	if (within(pfn, __pa((unsigned long)__start_rodata) >> PAGE_SHIFT,
 		   __pa((unsigned long)__end_rodata) >> PAGE_SHIFT))
 		pgprot_val(forbidden) |= _PAGE_RW;
 
 #if defined(CONFIG_X86_64) && defined(CONFIG_DEBUG_RODATA)
+	/*
+	 * Once the kernel maps the text as RO (kernel_set_to_readonly is set),
+	 * kernel text mappings for the large page aligned text, rodata sections
+	 * will be always read-only. For the kernel identity mappings covering
+	 * the holes caused by this alignment can be anything that user asks.
+	 *
+	 * This will preserve the large page mappings for kernel text/data
+	 * at no extra cost.
+	 */
 	if (kernel_set_to_readonly &&
 	    within(address, (unsigned long)_text,
 		   (unsigned long)__end_rodata_hpage_align)) {
 		unsigned int level;
 
+		/*
+		 * Don't enforce the !RW mapping for the kernel text mapping,
+		 * if the current mapping is already using small page mapping.
+		 * No need to work hard to preserve large page mappings in this
+		 * case.
+		 *
+		 * This also fixes the Linux Xen paravirt guest boot failure
+		 * (because of unexpected read-only mappings for kernel identity
+		 * mappings). In this paravirt guest case, the kernel text
+		 * mapping and the kernel identity mapping share the same
+		 * page-table pages. Thus we can't really use different
+		 * protections for the kernel text and identity mappings. Also,
+		 * these shared mappings are made of small page mappings.
+		 * Thus this don't enforce !RW mapping for small page kernel
+		 * text mapping logic will help Linux Xen parvirt guest boot
+		 * as well.
+		 */
 		if (lookup_address(address, &level) && (level != PG_LEVEL_4K))
 			pgprot_val(forbidden) |= _PAGE_RW;
 	}
@@ -227,6 +322,14 @@ static inline pgprot_t static_protections(pgprot_t prot, unsigned long address,
 	return prot;
 }
 
+/*
+ * Lookup the page table entry for a virtual address. Return a pointer
+ * to the entry and the level of the mapping.
+ *
+ * Note: We return pud and pmd either when the entry is marked large
+ * or when the present bit is not set. Otherwise we would return a
+ * pointer to a nonexisting mapping.
+ */
 pte_t *lookup_address(unsigned long address, unsigned int *level)
 {
 	pgd_t *pgd = pgd_offset_k(address);
@@ -260,9 +363,12 @@ pte_t *lookup_address(unsigned long address, unsigned int *level)
 }
 EXPORT_SYMBOL_GPL(lookup_address);
 
+/*
+ * Set the new pmd in all the pgds we know about:
+ */
 static void __set_pmd_pte(pte_t *kpte, unsigned long address, pte_t pte)
 {
-	
+	/* change init_mm */
 	set_pte_atomic(kpte, pte);
 #ifdef CONFIG_X86_32
 	if (!SHARED_KERNEL_PMD) {
@@ -296,6 +402,10 @@ try_preserve_large_page(pte_t *kpte, unsigned long address,
 		return 1;
 
 	spin_lock(&pgd_lock);
+	/*
+	 * Check for races, another CPU might have split this page
+	 * up already:
+	 */
 	tmp = lookup_address(address, &level);
 	if (tmp != kpte)
 		goto out_unlock;
@@ -316,22 +426,38 @@ try_preserve_large_page(pte_t *kpte, unsigned long address,
 		goto out_unlock;
 	}
 
+	/*
+	 * Calculate the number of pages, which fit into this large
+	 * page starting at address:
+	 */
 	nextpage_addr = (address + psize) & pmask;
 	numpages = (nextpage_addr - address) >> PAGE_SHIFT;
 	if (numpages < cpa->numpages)
 		cpa->numpages = numpages;
 
+	/*
+	 * We are safe now. Check whether the new pgprot is the same:
+	 */
 	old_pte = *kpte;
 	old_prot = new_prot = req_prot = pte_pgprot(old_pte);
 
 	pgprot_val(req_prot) &= ~pgprot_val(cpa->mask_clr);
 	pgprot_val(req_prot) |= pgprot_val(cpa->mask_set);
 
+	/*
+	 * old_pte points to the large page base address. So we need
+	 * to add the offset of the virtual address:
+	 */
 	pfn = pte_pfn(old_pte) + ((address & (psize - 1)) >> PAGE_SHIFT);
 	cpa->pfn = pfn;
 
 	new_prot = static_protections(req_prot, address, pfn);
 
+	/*
+	 * We need to check the full range, whether
+	 * static_protection() requires a different pgprot for one of
+	 * the pages in the range we try to preserve:
+	 */
 	addr = address & pmask;
 	pfn = pte_pfn(old_pte);
 	for (i = 0; i < (psize >> PAGE_SHIFT); i++, addr += PAGE_SIZE, pfn++) {
@@ -341,12 +467,28 @@ try_preserve_large_page(pte_t *kpte, unsigned long address,
 			goto out_unlock;
 	}
 
+	/*
+	 * If there are no changes, return. maxpages has been updated
+	 * above:
+	 */
 	if (pgprot_val(new_prot) == pgprot_val(old_prot)) {
 		do_split = 0;
 		goto out_unlock;
 	}
 
+	/*
+	 * We need to change the attributes. Check, whether we can
+	 * change the large page in one go. We request a split, when
+	 * the address is not aligned and the number of pages is
+	 * smaller than the number of pages in the large page. Note
+	 * that we limited the number of possible pages already to
+	 * the number of pages in the large page.
+	 */
 	if (address == (address & pmask) && cpa->numpages == (psize >> PAGE_SHIFT)) {
+		/*
+		 * The address is aligned and the number of pages
+		 * covers the full page.
+		 */
 		new_pte = pfn_pte(pte_pfn(old_pte), canon_pgprot(new_prot));
 		__set_pmd_pte(kpte, address, new_pte);
 		cpa->flags |= CPA_FLUSHTLB;
@@ -376,6 +518,10 @@ static int split_large_page(pte_t *kpte, unsigned long address)
 		return -ENOMEM;
 
 	spin_lock(&pgd_lock);
+	/*
+	 * Check for races, another CPU might have split this page
+	 * up for us already:
+	 */
 	tmp = lookup_address(address, &level);
 	if (tmp != kpte)
 		goto out_unlock;
@@ -383,6 +529,12 @@ static int split_large_page(pte_t *kpte, unsigned long address)
 	pbase = (pte_t *)page_address(base);
 	paravirt_alloc_pte(&init_mm, page_to_pfn(base));
 	ref_prot = pte_pgprot(pte_clrhuge(*kpte));
+	/*
+	 * If we ever want to utilize the PAT bit, we need to
+	 * update this function to make sure it's converted from
+	 * bit 12 to bit 7 when we cross from the 2MB level to
+	 * the 4K level:
+	 */
 	WARN_ON_ONCE(pgprot_val(ref_prot) & _PAGE_PAT_LARGE);
 
 #ifdef CONFIG_X86_64
@@ -392,6 +544,9 @@ static int split_large_page(pte_t *kpte, unsigned long address)
 	}
 #endif
 
+	/*
+	 * Get the target pfn from the original entry:
+	 */
 	pfn = pte_pfn(*kpte);
 	for (i = 0; i < PTRS_PER_PTE; i++, pfn += pfninc)
 		set_pte(&pbase[i], pfn_pte(pfn, ref_prot));
@@ -406,13 +561,32 @@ static int split_large_page(pte_t *kpte, unsigned long address)
 		split_page_count(level);
 #endif
 
+	/*
+	 * Install the new, split up pagetable.
+	 *
+	 * We use the standard kernel pagetable protections for the new
+	 * pagetable protections, the actual ptes set above control the
+	 * primary protection behavior:
+	 */
 	__set_pmd_pte(kpte, address, mk_pte(base, __pgprot(_KERNPG_TABLE)));
 
+	/*
+	 * Intel Atom errata AAH41 workaround.
+	 *
+	 * The real fix should be in hw or in a microcode update, but
+	 * we also probabilistically try to reduce the window of having
+	 * a large TLB mixed with 4K TLBs while instruction fetches are
+	 * going on.
+	 */
 	__flush_tlb_all();
 
 	base = NULL;
 
 out_unlock:
+	/*
+	 * If we dropped out via the lookup_address check under
+	 * pgd_lock then stick the page back into the pool:
+	 */
 	if (base)
 		__free_page(base);
 	spin_unlock(&pgd_lock);
@@ -423,9 +597,19 @@ out_unlock:
 static int __cpa_process_fault(struct cpa_data *cpa, unsigned long vaddr,
 			       int primary)
 {
+	/*
+	 * Ignore all non primary paths.
+	 */
 	if (!primary)
 		return 0;
 
+	/*
+	 * Ignore the NULL PTE for kernel identity mapping, as it is expected
+	 * to have holes.
+	 * Also set numpages to '1' indicating that we processed cpa req for
+	 * one virtual address page and its pfn. TBD: numpages can be set based
+	 * on the initial value and the level returned by lookup_address().
+	 */
 	if (within(vaddr, PAGE_OFFSET,
 		   PAGE_OFFSET + (max_pfn_mapped << PAGE_SHIFT))) {
 		cpa->numpages = 1;
@@ -475,8 +659,16 @@ repeat:
 
 		new_prot = static_protections(new_prot, address, pfn);
 
+		/*
+		 * We need to keep the pfn from the existing PTE,
+		 * after all we're only going to change it's attributes
+		 * not the memory it points to
+		 */
 		new_pte = pfn_pte(pfn, canon_pgprot(new_prot));
 		cpa->pfn = pfn;
+		/*
+		 * Do we really change anything ?
+		 */
 		if (pte_val(old_pte) != pte_val(new_pte)) {
 			set_pte_atomic(kpte, new_pte);
 			cpa->flags |= CPA_FLUSHTLB;
@@ -485,12 +677,42 @@ repeat:
 		return 0;
 	}
 
+	/*
+	 * Check, whether we can keep the large page intact
+	 * and just change the pte:
+	 */
 	do_split = try_preserve_large_page(kpte, address, cpa);
+	/*
+	 * When the range fits into the existing large page,
+	 * return. cp->numpages and cpa->tlbflush have been updated in
+	 * try_large_page:
+	 */
 	if (do_split <= 0)
 		return do_split;
 
+	/*
+	 * We have to split the large page:
+	 */
 	err = split_large_page(kpte, address);
 	if (!err) {
+		/*
+	 	 * Do a global flush tlb after splitting the large page
+	 	 * and before we do the actual change page attribute in the PTE.
+	 	 *
+	 	 * With out this, we violate the TLB application note, that says
+	 	 * "The TLBs may contain both ordinary and large-page
+		 *  translations for a 4-KByte range of linear addresses. This
+		 *  may occur if software modifies the paging structures so that
+		 *  the page size used for the address range changes. If the two
+		 *  translations differ with respect to page frame or attributes
+		 *  (e.g., permissions), processor behavior is undefined and may
+		 *  be implementation-specific."
+	 	 *
+	 	 * We do this global tlb flush inside the cpa_lock, so that we
+		 * don't allow any other cpu, with stale tlb entries change the
+		 * page attribute in parallel, that also falls into the
+		 * just split large page entry.
+	 	 */
 		flush_tlb_all();
 		goto repeat;
 	}
@@ -514,6 +736,10 @@ static int cpa_process_alias(struct cpa_data *cpa)
 	if (cpa->pfn >= max_low_pfn_mapped && cpa->pfn < (1UL<<(32-PAGE_SHIFT)))
 		return 0;
 #endif
+	/*
+	 * No need to redo, when the primary call touched the direct
+	 * mapping already:
+	 */
 	if (cpa->flags & CPA_PAGES_ARRAY) {
 		struct page *page = cpa->pages[cpa->curpage];
 		if (unlikely(PageHighMem(page)))
@@ -537,6 +763,11 @@ static int cpa_process_alias(struct cpa_data *cpa)
 	}
 
 #ifdef CONFIG_X86_64
+	/*
+	 * If the primary call didn't touch the high mapping already
+	 * and the physical address is inside the kernel map, we need
+	 * to touch the high mapped kernel as well:
+	 */
 	if (!within(vaddr, (unsigned long)_text, _brk_end) &&
 	    within(cpa->pfn, highmap_start_pfn(), highmap_end_pfn())) {
 		unsigned long temp_cpa_vaddr = (cpa->pfn << PAGE_SHIFT) +
@@ -545,6 +776,10 @@ static int cpa_process_alias(struct cpa_data *cpa)
 		alias_cpa.vaddr = &temp_cpa_vaddr;
 		alias_cpa.flags &= ~(CPA_PAGES_ARRAY | CPA_ARRAY);
 
+		/*
+		 * The high mapping range is imprecise, so ignore the
+		 * return value.
+		 */
 		__change_page_attr_set_clr(&alias_cpa, 0);
 	}
 #endif
@@ -557,8 +792,12 @@ static int __change_page_attr_set_clr(struct cpa_data *cpa, int checkalias)
 	int ret, numpages = cpa->numpages;
 
 	while (numpages) {
+		/*
+		 * Store the remaining nr of pages for the large page
+		 * preservation check.
+		 */
 		cpa->numpages = numpages;
-		
+		/* for array changes, we can't use large page */
 		if (cpa->flags & (CPA_ARRAY | CPA_PAGES_ARRAY))
 			cpa->numpages = 1;
 
@@ -576,6 +815,11 @@ static int __change_page_attr_set_clr(struct cpa_data *cpa, int checkalias)
 				return ret;
 		}
 
+		/*
+		 * Adjust the number of pages with the result of the
+		 * CPA operation. Either a large page has been
+		 * preserved or a single page update happened.
+		 */
 		BUG_ON(cpa->numpages > numpages);
 		numpages -= cpa->numpages;
 		if (cpa->flags & (CPA_PAGES_ARRAY | CPA_ARRAY))
@@ -602,12 +846,16 @@ static int change_page_attr_set_clr(unsigned long *addr, int numpages,
 	int ret, cache, checkalias;
 	unsigned long baddr = 0;
 
+	/*
+	 * Check, if we are requested to change a not supported
+	 * feature:
+	 */
 	mask_set = canon_pgprot(mask_set);
 	mask_clr = canon_pgprot(mask_clr);
 	if (!pgprot_val(mask_set) && !pgprot_val(mask_clr) && !force_split)
 		return 0;
 
-	
+	/* Ensure we are PAGE_SIZE aligned */
 	if (in_flag & CPA_ARRAY) {
 		int i;
 		for (i = 0; i < numpages; i++) {
@@ -617,14 +865,25 @@ static int change_page_attr_set_clr(unsigned long *addr, int numpages,
 			}
 		}
 	} else if (!(in_flag & CPA_PAGES_ARRAY)) {
+		/*
+		 * in_flag of CPA_PAGES_ARRAY implies it is aligned.
+		 * No need to cehck in that case
+		 */
 		if (*addr & ~PAGE_MASK) {
 			*addr &= PAGE_MASK;
+			/*
+			 * People should not be passing in unaligned addresses:
+			 */
 			WARN_ON_ONCE(1);
 		}
+		/*
+		 * Save address for cache flush. *addr is modified in the call
+		 * to __change_page_attr_set_clr() below.
+		 */
 		baddr = *addr;
 	}
 
-	
+	/* Must avoid aliasing mappings in the highmem code */
 	kmap_flush_unused();
 
 	vm_unmap_aliases();
@@ -641,16 +900,29 @@ static int change_page_attr_set_clr(unsigned long *addr, int numpages,
 	if (in_flag & (CPA_ARRAY | CPA_PAGES_ARRAY))
 		cpa.flags |= in_flag;
 
-	
+	/* No alias checking for _NX bit modifications */
 	checkalias = (pgprot_val(mask_set) | pgprot_val(mask_clr)) != _PAGE_NX;
 
 	ret = __change_page_attr_set_clr(&cpa, checkalias);
 
+	/*
+	 * Check whether we really changed something:
+	 */
 	if (!(cpa.flags & CPA_FLUSHTLB))
 		goto out;
 
+	/*
+	 * No need to flush, when we did not set any of the caching
+	 * attributes:
+	 */
 	cache = cache_attr(mask_set);
 
+	/*
+	 * On success we use clflush, when the CPU supports it to
+	 * avoid the wbindv. If the CPU does not support it and in the
+	 * error case we fall back to cpa_flush_all (which uses
+	 * wbindv):
+	 */
 	if (!ret && cpu_has_clflush) {
 		if (cpa.flags & (CPA_PAGES_ARRAY | CPA_ARRAY)) {
 			cpa_flush_array(addr, numpages, cache,
@@ -694,6 +966,9 @@ static inline int cpa_clear_pages_array(struct page **pages, int numpages,
 
 int _set_memory_uc(unsigned long addr, int numpages)
 {
+	/*
+	 * for now UC MINUS. see comments in ioremap_nocache()
+	 */
 	return change_page_attr_set(&addr, numpages,
 				    __pgprot(_PAGE_CACHE_UC_MINUS), 0);
 }
@@ -702,6 +977,9 @@ int set_memory_uc(unsigned long addr, int numpages)
 {
 	int ret;
 
+	/*
+	 * for now UC MINUS. see comments in ioremap_nocache()
+	 */
 	ret = reserve_memtype(__pa(addr), __pa(addr) + numpages * PAGE_SIZE,
 			    _PAGE_CACHE_UC_MINUS, NULL);
 	if (ret)
@@ -726,6 +1004,9 @@ static int _set_memory_array(unsigned long *addr, int addrinarray,
 	int i, j;
 	int ret;
 
+	/*
+	 * for now UC MINUS. see comments in ioremap_nocache()
+	 */
 	for (i = 0; i < addrinarray; i++) {
 		ret = reserve_memtype(__pa(addr[i]), __pa(addr[i]) + PAGE_SIZE,
 					new_type, NULL);
@@ -918,7 +1199,7 @@ static int _set_pages_array(struct page **pages, int addrinarray,
 					       0, CPA_PAGES_ARRAY, pages);
 	if (ret)
 		goto err_out;
-	return 0; 
+	return 0; /* Success */
 err_out:
 	free_idx = i;
 	for (i = 0; i < free_idx; i++) {
@@ -1016,6 +1297,12 @@ static int __set_pages_p(struct page *page, int numpages)
 				.mask_clr = __pgprot(0),
 				.flags = 0};
 
+	/*
+	 * No alias checking needed for setting present flag. otherwise,
+	 * we may need to break large pages for 64-bit kernel text
+	 * mappings (this adds to complexity if we want to do this from
+	 * atomic context especially). Let's keep it simple!
+	 */
 	return __change_page_attr_set_clr(&cpa, 0);
 }
 
@@ -1028,6 +1315,12 @@ static int __set_pages_np(struct page *page, int numpages)
 				.mask_clr = __pgprot(_PAGE_PRESENT | _PAGE_RW),
 				.flags = 0};
 
+	/*
+	 * No alias checking needed for setting not present flag. otherwise,
+	 * we may need to break large pages for 64-bit kernel text
+	 * mappings (this adds to complexity if we want to do this from
+	 * atomic context especially). Let's keep it simple!
+	 */
 	return __change_page_attr_set_clr(&cpa, 0);
 }
 
@@ -1040,11 +1333,20 @@ void kernel_map_pages(struct page *page, int numpages, int enable)
 					   numpages * PAGE_SIZE);
 	}
 
+	/*
+	 * The return value is ignored as the calls cannot fail.
+	 * Large pages for identity mappings are not used at boot time
+	 * and hence no memory allocations during large page split.
+	 */
 	if (enable)
 		__set_pages_p(page, numpages);
 	else
 		__set_pages_np(page, numpages);
 
+	/*
+	 * We should perform an IPI and flush all tlbs,
+	 * but that can deadlock->flush only current cpu:
+	 */
 	__flush_tlb_all();
 }
 
@@ -1062,10 +1364,14 @@ bool kernel_page_present(struct page *page)
 	return (pte_val(*pte) & _PAGE_PRESENT);
 }
 
-#endif 
+#endif /* CONFIG_HIBERNATION */
 
-#endif 
+#endif /* CONFIG_DEBUG_PAGEALLOC */
 
+/*
+ * The testcases use internal knowledge of the implementation that shouldn't
+ * be exposed to the rest of the kernel. Include these directly here.
+ */
 #ifdef CONFIG_CPA_DEBUG
 #include "pageattr-test.c"
 #endif

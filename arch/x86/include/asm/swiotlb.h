@@ -29,4 +29,4 @@ static inline void pci_swiotlb_late_init(void)
 
 static inline void dma_mark_clean(void *addr, size_t size) {}
 
-#endif 
+#endif /* _ASM_X86_SWIOTLB_H */

@@ -24,15 +24,23 @@
 #include <mach/hardware.h>
 #include <mach/irqs.h>
 
+/*
+ * We would use TIMER0 and TIMER1 as clockevent and clocksource.
+ * Timer0 and Timer1 both belong to same gpt block in cpu subbsystem. Further
+ * they share same functional clock. Any change in one's functional clock will
+ * also affect other timer.
+ */
 
-#define CLKEVT	0	
-#define CLKSRC	1	
+#define CLKEVT	0	/* gpt0, channel0 as clockevent */
+#define CLKSRC	1	/* gpt0, channel1 as clocksource */
 
+/* Register offsets, x is channel number */
 #define CR(x)		((x) * 0x80 + 0x80)
 #define IR(x)		((x) * 0x80 + 0x84)
 #define LOAD(x)		((x) * 0x80 + 0x88)
 #define COUNT(x)	((x) * 0x80 + 0x8C)
 
+/* Reg bit definitions */
 #define CTRL_INT_ENABLE		0x0100
 #define CTRL_ENABLE		0x0020
 #define CTRL_ONE_SHOT		0x0010
@@ -49,6 +57,9 @@
 
 #define INT_STATUS		0x1
 
+/*
+ * Minimum clocksource/clockevent timer range in seconds
+ */
 #define SPEAR_MIN_RANGE 4
 
 static __iomem void *gpt_base;
@@ -64,21 +75,21 @@ static void spear_clocksource_init(void)
 	u32 tick_rate;
 	u16 val;
 
-	
+	/* program the prescaler (/256)*/
 	writew(CTRL_PRESCALER256, gpt_base + CR(CLKSRC));
 
-	
+	/* find out actual clock driving Timer */
 	tick_rate = clk_get_rate(gpt_clk);
 	tick_rate >>= CTRL_PRESCALER256;
 
 	writew(0xFFFF, gpt_base + LOAD(CLKSRC));
 
 	val = readw(gpt_base + CR(CLKSRC));
-	val &= ~CTRL_ONE_SHOT;	
+	val &= ~CTRL_ONE_SHOT;	/* autoreload mode */
 	val |= CTRL_ENABLE ;
 	writew(val, gpt_base + CR(CLKSRC));
 
-	
+	/* register the clocksource */
 	clocksource_mmio_init(gpt_base + COUNT(CLKSRC), "tmr1", tick_rate,
 		200, 16, clocksource_mmio_readw_up);
 }
@@ -88,7 +99,7 @@ static struct clock_event_device clkevt = {
 	.features = CLOCK_EVT_FEAT_PERIODIC | CLOCK_EVT_FEAT_ONESHOT,
 	.set_mode = clockevent_set_mode,
 	.set_next_event = clockevent_next_event,
-	.shift = 0,	
+	.shift = 0,	/* to be computed */
 };
 
 static void clockevent_set_mode(enum clock_event_mode mode,
@@ -97,7 +108,7 @@ static void clockevent_set_mode(enum clock_event_mode mode,
 	u32 period;
 	u16 val;
 
-	
+	/* stop the timer */
 	val = readw(gpt_base + CR(CLKEVT));
 	val &= ~CTRL_ENABLE;
 	writew(val, gpt_base + CR(CLKEVT));
@@ -168,7 +179,7 @@ static void __init spear_clockevent_init(void)
 {
 	u32 tick_rate;
 
-	
+	/* program the prescaler */
 	writew(CTRL_PRESCALER16, gpt_base + CR(CLKEVT));
 
 	tick_rate = clk_get_rate(gpt_clk);

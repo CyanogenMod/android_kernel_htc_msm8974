@@ -35,7 +35,7 @@ static int debug;
 	} while (0)
 
 struct stb6000_priv {
-	
+	/* i2c details */
 	int i2c_address;
 	struct i2c_adapter *i2c;
 	u32 frequency;
@@ -123,10 +123,10 @@ static int stb6000_set_params(struct dvb_frontend *fe)
 		if (freq_mhz < 1000)
 			buf[1] = 0xba;
 		if (freq_mhz < 1075) {
-			n = freq_mhz / 8; 
+			n = freq_mhz / 8; /* vco=lo*4 */
 			m = 2;
 		} else {
-			n = freq_mhz / 16; 
+			n = freq_mhz / 16; /* vco=lo*2 */
 			m = 1;
 		}
 		buf[2] = n >> 1;
@@ -224,7 +224,7 @@ struct dvb_frontend *stb6000_attach(struct dvb_frontend *fe, int addr,
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 1);
 
-	
+	/* is some i2c device here ? */
 	ret = i2c_transfer(i2c, msg, 2);
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 0);

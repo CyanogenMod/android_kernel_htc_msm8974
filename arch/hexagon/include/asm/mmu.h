@@ -21,6 +21,11 @@
 
 #include <asm/vdso.h>
 
+/*
+ * Architecture-specific state for a mm_struct.
+ * For the Hexagon Virtual Machine, it can be a copy
+ * of the pointer to the page table base.
+ */
 struct mm_context {
 	unsigned long long generation;
 	unsigned long ptbase;

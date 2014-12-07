@@ -10,17 +10,30 @@
 #include <asm/machvec.h>
 #include <asm/hwrpb.h>
 
+/* The generic header contains only prototypes.  Including it ensures that
+   the implementation we have here matches that interface.  */
 #include <asm-generic/iomap.h>
 
+/* We don't use IO slowdowns on the Alpha, but.. */
 #define __SLOW_DOWN_IO	do { } while (0)
 #define SLOW_DOWN_IO	do { } while (0)
 
+/*
+ * Virtual -> physical identity mapping starts at this offset
+ */
 #ifdef USE_48_BIT_KSEG
 #define IDENT_ADDR     0xffff800000000000UL
 #else
 #define IDENT_ADDR     0xfffffc0000000000UL
 #endif
 
+/*
+ * We try to avoid hae updates (thus the cache), but when we
+ * do need to update the hae, we need to do it atomically, so
+ * that any interrupts wouldn't get confused with the hae
+ * register not being up-to-date with respect to the hardware
+ * value.
+ */
 extern inline void __set_hae(unsigned long new_hae)
 {
 	unsigned long flags = swpipl(IPL_MAX);
@@ -43,6 +56,9 @@ extern inline void set_hae(unsigned long new_hae)
 		__set_hae(new_hae);
 }
 
+/*
+ * Change virtual addresses to physical addresses and vv.
+ */
 #ifdef USE_48_BIT_KSEG
 static inline unsigned long virt_to_phys(void *address)
 {
@@ -58,11 +74,11 @@ static inline unsigned long virt_to_phys(void *address)
 {
         unsigned long phys = (unsigned long)address;
 
-	
+	/* Sign-extend from bit 41.  */
 	phys <<= (64 - 41);
 	phys = (long)phys >> (64 - 41);
 
-	
+	/* Crop to the physical address width of the processor.  */
         phys &= (1ul << hwrpb->pa_bits) - 1;
 
         return phys;
@@ -81,8 +97,17 @@ static inline dma_addr_t __deprecated isa_page_to_bus(struct page *page)
 	return page_to_phys(page);
 }
 
+/* Maximum PIO space address supported?  */
 #define IO_SPACE_LIMIT 0xffff
 
+/*
+ * Change addresses as seen by the kernel (virtual) to addresses as
+ * seen by a device (bus), and vice versa.
+ *
+ * Note that this only works for a limited range of kernel addresses,
+ * and very well may not span all memory.  Consider this interface 
+ * deprecated in favour of the DMA-mapping API.
+ */
 extern unsigned long __direct_map_base;
 extern unsigned long __direct_map_size;
 
@@ -98,18 +123,25 @@ static inline void * __deprecated bus_to_virt(unsigned long address)
 {
 	void *virt;
 
+	/* This check is a sanity check but also ensures that bus address 0
+	   maps to virtual address 0 which is useful to detect null pointers
+	   (the NCR driver is much simpler if NULL pointers are preserved).  */
 	address -= __direct_map_base;
 	virt = phys_to_virt(address);
 	return (long)address <= 0 ? NULL : virt;
 }
 #define isa_bus_to_virt bus_to_virt
 
+/*
+ * There are different chipsets to interface the Alpha CPUs to the world.
+ */
 
 #define IO_CONCAT(a,b)	_IO_CONCAT(a,b)
 #define _IO_CONCAT(a,b)	a ## _ ## b
 
 #ifdef CONFIG_ALPHA_GENERIC
 
+/* In a generic kernel, we always go through the machine vector.  */
 
 #define REMAP1(TYPE, NAME, QUAL)					\
 static inline TYPE generic_##NAME(QUAL void __iomem *addr)		\
@@ -123,17 +155,17 @@ static inline void generic_##NAME(TYPE b, QUAL void __iomem *addr)	\
 	alpha_mv.mv_##NAME(b, addr);					\
 }
 
-REMAP1(unsigned int, ioread8, )
-REMAP1(unsigned int, ioread16, )
-REMAP1(unsigned int, ioread32, )
+REMAP1(unsigned int, ioread8, /**/)
+REMAP1(unsigned int, ioread16, /**/)
+REMAP1(unsigned int, ioread32, /**/)
 REMAP1(u8, readb, const volatile)
 REMAP1(u16, readw, const volatile)
 REMAP1(u32, readl, const volatile)
 REMAP1(u64, readq, const volatile)
 
-REMAP2(u8, iowrite8, )
-REMAP2(u16, iowrite16, )
-REMAP2(u32, iowrite32, )
+REMAP2(u8, iowrite8, /**/)
+REMAP2(u16, iowrite16, /**/)
+REMAP2(u32, iowrite32, /**/)
 REMAP2(u8, writeb, volatile)
 REMAP2(u16, writew, volatile)
 REMAP2(u32, writel, volatile)
@@ -204,8 +236,11 @@ static inline int generic_is_mmio(const volatile void __iomem *a)
 #error "What system is this?"
 #endif
 
-#endif 
+#endif /* GENERIC */
 
+/*
+ * We always have external versions of these routines.
+ */
 extern u8		inb(unsigned long port);
 extern u16		inw(unsigned long port);
 extern u32		inl(unsigned long port);
@@ -231,7 +266,13 @@ extern void		__raw_writew(u16 b, volatile void __iomem *addr);
 extern void		__raw_writel(u32 b, volatile void __iomem *addr);
 extern void		__raw_writeq(u64 b, volatile void __iomem *addr);
 
+/*
+ * Mapping from port numbers to __iomem space is pretty easy.
+ */
 
+/* These two have to be extern inline because of the extern prototype from
+   <asm-generic/iomap.h>.  It is not legal to mix "extern" and "static" for
+   the same declaration.  */
 extern inline void __iomem *ioport_map(unsigned long port, unsigned int size)
 {
 	return IO_CONCAT(__IO_PREFIX,ioportmap) (port);
@@ -275,6 +316,9 @@ static inline int __is_mmio(const volatile void __iomem *addr)
 }
 
 
+/*
+ * If the actual I/O bits are sufficiently trivial, then expand inline.
+ */
 
 #if IO_CONCAT(__IO_PREFIX,trivial_io_bw)
 extern inline unsigned int ioread8(void __iomem *addr)
@@ -458,6 +502,9 @@ extern inline void writeq(u64 b, volatile void __iomem *addr)
 
 #define mmiowb()
 
+/*
+ * String version of IO memory access ops:
+ */
 extern void memcpy_fromio(void *, const volatile void __iomem *, long);
 extern void memcpy_toio(volatile void __iomem *, const void *, long);
 extern void _memset_c_io(volatile void __iomem *, unsigned long, long);
@@ -473,6 +520,9 @@ static inline void memsetw_io(volatile void __iomem *addr, u16 c, long len)
 	_memset_c_io(addr, 0x0001000100010001UL * c, len);
 }
 
+/*
+ * String versions of in/out ops:
+ */
 extern void insb (unsigned long port, void *dst, unsigned long count);
 extern void insw (unsigned long port, void *dst, unsigned long count);
 extern void insl (unsigned long port, void *dst, unsigned long count);
@@ -480,6 +530,13 @@ extern void outsb (unsigned long port, const void *src, unsigned long count);
 extern void outsw (unsigned long port, const void *src, unsigned long count);
 extern void outsl (unsigned long port, const void *src, unsigned long count);
 
+/*
+ * The Alpha Jensen hardware for some rather strange reason puts
+ * the RTC clock at 0x170 instead of 0x70. Probably due to some
+ * misguided idea about using 0x70 for NMI stuff.
+ *
+ * These defines will override the defaults when doing RTC queries
+ */
 
 #ifdef CONFIG_ALPHA_GENERIC
 # define RTC_PORT(x)	((x) + alpha_mv.rtc_port)
@@ -492,14 +549,27 @@ extern void outsl (unsigned long port, const void *src, unsigned long count);
 #endif
 #define RTC_ALWAYS_BCD	0
 
+/*
+ * Some mucking forons use if[n]def writeq to check if platform has it.
+ * It's a bloody bad idea and we probably want ARCH_HAS_WRITEQ for them
+ * to play with; for now just use cpp anti-recursion logics and make sure
+ * that damn thing is defined and expands to itself.
+ */
 
 #define writeq writeq
 #define readq readq
 
+/*
+ * Convert a physical pointer to a virtual kernel pointer for /dev/mem
+ * access
+ */
 #define xlate_dev_mem_ptr(p)	__va(p)
 
+/*
+ * Convert a virtual cached pointer to an uncached pointer
+ */
 #define xlate_dev_kmem_ptr(p)	p
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ALPHA_IO_H */

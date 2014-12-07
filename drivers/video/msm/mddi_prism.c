@@ -20,7 +20,7 @@ static int prism_lcd_off(struct platform_device *pdev);
 
 static int prism_lcd_on(struct platform_device *pdev)
 {
-	
+	/* Set the MDP pixel data attributes for Primary Display */
 	mddi_host_write_pix_attr_reg(0x00C3);
 
 	return 0;

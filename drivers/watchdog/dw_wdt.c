@@ -43,6 +43,7 @@
 #define WDOG_COUNTER_RESTART_REG_OFFSET     0x0c
 #define WDOG_COUNTER_RESTART_KICK_VALUE	    0x76
 
+/* The maximum TOP (timeout period) value that can be set in the watchdog. */
 #define DW_WDT_MAX_TOP		15
 
 static bool nowayout = WATCHDOG_NOWAYOUT;
@@ -70,6 +71,10 @@ static inline int dw_wdt_is_enabled(void)
 
 static inline int dw_wdt_top_in_seconds(unsigned top)
 {
+	/*
+	 * There are 16 possible timeout values in 0..15 where the number of
+	 * cycles is 2 ^ (16 + i) and the watchdog counts down.
+	 */
 	return (1 << (16 + top)) / clk_get_rate(dw_wdt.clk);
 }
 
@@ -89,13 +94,17 @@ static int dw_wdt_set_top(unsigned top_s)
 {
 	int i, top_val = DW_WDT_MAX_TOP;
 
+	/*
+	 * Iterate over the timeout values until we find the closest match. We
+	 * always look for >=.
+	 */
 	for (i = 0; i <= DW_WDT_MAX_TOP; ++i)
 		if (dw_wdt_top_in_seconds(i) >= top_s) {
 			top_val = i;
 			break;
 		}
 
-	
+	/* Set the new value in the watchdog. */
 	writel(top_val, dw_wdt.regs + WDOG_TIMEOUT_RANGE_REG_OFFSET);
 
 	dw_wdt_set_next_heartbeat();
@@ -124,11 +133,15 @@ static int dw_wdt_open(struct inode *inode, struct file *filp)
 	if (test_and_set_bit(0, &dw_wdt.in_use))
 		return -EBUSY;
 
-	
+	/* Make sure we don't get unloaded. */
 	__module_get(THIS_MODULE);
 
 	spin_lock(&dw_wdt.lock);
 	if (!dw_wdt_is_enabled()) {
+		/*
+		 * The watchdog is not currently enabled. Set the timeout to
+		 * the maximum and then start it.
+		 */
 		dw_wdt_set_top(DW_WDT_MAX_TOP);
 		writel(WDOG_CONTROL_REG_WDT_EN_MASK,
 		       dw_wdt.regs + WDOG_CONTROL_REG_OFFSET);
@@ -211,7 +224,7 @@ static long dw_wdt_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		return put_user(dw_wdt_get_top(), (int __user *)arg);
 
 	case WDIOC_GETTIMELEFT:
-		
+		/* Get the time left until expiry. */
 		if (get_user(val, (int __user *)arg))
 			return -EFAULT;
 		return put_user(dw_wdt_time_left(), (int __user *)arg);
@@ -263,7 +276,7 @@ static const struct dev_pm_ops dw_wdt_pm_ops = {
 	.suspend	= dw_wdt_suspend,
 	.resume		= dw_wdt_resume,
 };
-#endif 
+#endif /* CONFIG_PM */
 
 static const struct file_operations wdt_fops = {
 	.owner		= THIS_MODULE,
@@ -338,7 +351,7 @@ static struct platform_driver dw_wdt_driver = {
 		.owner	= THIS_MODULE,
 #ifdef CONFIG_PM
 		.pm	= &dw_wdt_pm_ops,
-#endif 
+#endif /* CONFIG_PM */
 	},
 };
 

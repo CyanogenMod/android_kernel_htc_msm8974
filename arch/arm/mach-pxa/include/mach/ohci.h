@@ -19,7 +19,10 @@ struct pxaohci_platform_data {
 #define OC_MODE_GLOBAL		(0 << 6)
 #define OC_MODE_PERPORT		(1 << 6)
 
-	int power_on_delay;	
+	int power_on_delay;	/* Power On to Power Good time - in ms
+				 * HCD must wait for this duration before
+				 * accessing a powered on port
+				 */
 	int port_mode;
 #define PMM_NPS_MODE           1
 #define PMM_GLOBAL_MODE        2

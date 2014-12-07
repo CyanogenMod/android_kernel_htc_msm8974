@@ -30,6 +30,7 @@
 
 #include <linux/dvb/frontend.h>
 
+/* system register bits */
 #define ISL6421_OLF1	0x01
 #define ISL6421_EN1	0x02
 #define ISL6421_VSEL1	0x04
@@ -39,6 +40,7 @@
 #define ISL6421_DCL	0x40
 
 #if defined(CONFIG_DVB_ISL6421) || (defined(CONFIG_DVB_ISL6421_MODULE) && defined(MODULE))
+/* override_set and override_clear control which system register bits (above) to always set & clear */
 extern struct dvb_frontend *isl6421_attach(struct dvb_frontend *fe, struct i2c_adapter *i2c, u8 i2c_addr,
 			  u8 override_set, u8 override_clear);
 #else
@@ -48,6 +50,6 @@ static inline struct dvb_frontend *isl6421_attach(struct dvb_frontend *fe, struc
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif // CONFIG_DVB_ISL6421
 
 #endif

@@ -39,6 +39,7 @@
 #define SPUFS_SIGNAL_MAP_SIZE	PAGE_SIZE
 #define SPUFS_MSS_MAP_SIZE	0x1000
 
+/* The magic number for our file system */
 enum {
 	SPUFS_MAGIC = 0x23c9b64e,
 };
@@ -46,10 +47,11 @@ enum {
 struct spu_context_ops;
 struct spu_gang;
 
+/* ctx->sched_flags */
 enum {
 	SPU_SCHED_NOTIFY_ACTIVE,
-	SPU_SCHED_WAS_ACTIVE,	
-	SPU_SCHED_SPU_RUN,	
+	SPU_SCHED_WAS_ACTIVE,	/* was active upon spu_acquire_saved()  */
+	SPU_SCHED_SPU_RUN,	/* context is within spu_run */
 };
 
 enum {
@@ -76,18 +78,18 @@ struct switch_log {
 };
 
 struct spu_context {
-	struct spu *spu;		  
-	struct spu_state csa;		  
-	spinlock_t mmio_lock;		  
-	struct address_space *local_store; 
-	struct address_space *mfc;	   
-	struct address_space *cntl;	   
-	struct address_space *signal1;	   
-	struct address_space *signal2;	   
-	struct address_space *mss;	   
-	struct address_space *psmap;	   
+	struct spu *spu;		  /* pointer to a physical SPU */
+	struct spu_state csa;		  /* SPU context save area. */
+	spinlock_t mmio_lock;		  /* protects mmio access */
+	struct address_space *local_store; /* local store mapping.  */
+	struct address_space *mfc;	   /* 'mfc' area mappings. */
+	struct address_space *cntl;	   /* 'control' area mappings. */
+	struct address_space *signal1;	   /* 'signal1' area mappings. */
+	struct address_space *signal2;	   /* 'signal2' area mappings. */
+	struct address_space *mss;	   /* 'mss' area mappings. */
+	struct address_space *psmap;	   /* 'psmap' area mappings. */
 	struct mutex mapping_lock;
-	u64 object_id;		   
+	u64 object_id;		   /* user space pointer for oprofile */
 
 	enum { SPU_STATE_RUNNABLE, SPU_STATE_SAVED } state;
 	struct mutex state_mutex;
@@ -115,10 +117,10 @@ struct spu_context {
 	struct kref *prof_priv_kref;
 	void ( * prof_priv_release) (struct kref *kref);
 
-	
+	/* owner thread */
 	pid_t tid;
 
-	
+	/* scheduler fields */
 	struct list_head rq;
 	unsigned int time_slice;
 	unsigned long sched_flags;
@@ -127,11 +129,11 @@ struct spu_context {
 	int prio;
 	int last_ran;
 
-	
+	/* statistics */
 	struct {
-		
+		/* updates protected by ctx->state_mutex */
 		enum spu_utilization_state util_state;
-		unsigned long long tstamp;	
+		unsigned long long tstamp;	/* time of last state switch */
 		unsigned long long times[SPU_UTIL_MAX];
 		unsigned long long vol_ctx_switch;
 		unsigned long long invol_ctx_switch;
@@ -139,13 +141,13 @@ struct spu_context {
 		unsigned long long maj_flt;
 		unsigned long long hash_flt;
 		unsigned long long slb_flt;
-		unsigned long long slb_flt_base; 
+		unsigned long long slb_flt_base; /* # at last ctx switch */
 		unsigned long long class2_intr;
-		unsigned long long class2_intr_base; 
+		unsigned long long class2_intr_base; /* # at last ctx switch */
 		unsigned long long libassist;
 	} stats;
 
-	
+	/* context switch log */
 	struct switch_log *switch_log;
 
 	struct list_head aff_list;
@@ -167,20 +169,22 @@ struct spu_gang {
 	atomic_t aff_sched_count;
 };
 
+/* Flag bits for spu_gang aff_flags */
 #define AFF_OFFSETS_SET		1
 #define AFF_MERGED		2
 
 struct mfc_dma_command {
-	int32_t pad;	
-	uint32_t lsa;	
-	uint64_t ea;	
-	uint16_t size;	
-	uint16_t tag;	
-	uint16_t class;	
-	uint16_t cmd;	
+	int32_t pad;	/* reserved */
+	uint32_t lsa;	/* local storage address */
+	uint64_t ea;	/* effective address */
+	uint16_t size;	/* transfer size */
+	uint16_t tag;	/* command tag */
+	uint16_t class;	/* class ID */
+	uint16_t cmd;	/* command opcode */
 };
 
 
+/* SPU context query/set operations. */
 struct spu_context_ops {
 	int (*mbox_read) (struct spu_context * ctx, u32 * data);
 	 u32(*mbox_stat_read) (struct spu_context * ctx);
@@ -241,26 +245,32 @@ extern const struct spufs_tree_descr spufs_dir_contents[];
 extern const struct spufs_tree_descr spufs_dir_nosched_contents[];
 extern const struct spufs_tree_descr spufs_dir_debug_contents[];
 
+/* system call implementation */
 extern struct spufs_calls spufs_calls;
 long spufs_run_spu(struct spu_context *ctx, u32 *npc, u32 *status);
 long spufs_create(struct path *nd, struct dentry *dentry, unsigned int flags,
 			umode_t mode, struct file *filp);
+/* ELF coredump callbacks for writing SPU ELF notes */
 extern int spufs_coredump_extra_notes_size(void);
 extern int spufs_coredump_extra_notes_write(struct file *file, loff_t *foffset);
 
 extern const struct file_operations spufs_context_fops;
 
+/* gang management */
 struct spu_gang *alloc_spu_gang(void);
 struct spu_gang *get_spu_gang(struct spu_gang *gang);
 int put_spu_gang(struct spu_gang *gang);
 void spu_gang_remove_ctx(struct spu_gang *gang, struct spu_context *ctx);
 void spu_gang_add_ctx(struct spu_gang *gang, struct spu_context *ctx);
 
+/* fault handling */
 int spufs_handle_class1(struct spu_context *ctx);
 int spufs_handle_class0(struct spu_context *ctx);
 
+/* affinity */
 struct spu *affinity_check(struct spu_context *ctx);
 
+/* context management */
 extern atomic_t nr_spu_contexts;
 static inline int __must_check spu_acquire(struct spu_context *ctx)
 {
@@ -298,6 +308,15 @@ void spu_sched_exit(void);
 
 extern char *isolated_loader;
 
+/*
+ * spufs_wait
+ *	Same as wait_event_interruptible(), except that here
+ *	we need to call spu_release(ctx) before sleeping, and
+ *	then spu_acquire(ctx) when awoken.
+ *
+ * 	Returns with state_mutex re-acquired when successful or
+ * 	with -ERESTARTSYS and the state_mutex dropped when interrupted.
+ */
 
 #define spufs_wait(wq, condition)					\
 ({									\
@@ -324,6 +343,7 @@ extern char *isolated_loader;
 size_t spu_wbox_write(struct spu_context *ctx, u32 data);
 size_t spu_ibox_read(struct spu_context *ctx, u32 *data);
 
+/* irq callback funcs. */
 void spufs_ibox_callback(struct spu *spu);
 void spufs_wbox_callback(struct spu *spu);
 void spufs_stop_callback(struct spu *spu, int irq);

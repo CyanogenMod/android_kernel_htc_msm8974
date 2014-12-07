@@ -38,8 +38,9 @@
 #include "clock.h"
 #include "mux.h"
 
-#define DM365_REF_FREQ		24000000	
+#define DM365_REF_FREQ		24000000	/* 24 MHz on the DM365 EVM */
 
+/* Base of key scan register bank */
 #define DM365_KEYSCAN_BASE		0x01c69400
 
 #define DM365_RTC_BASE			0x01c69000
@@ -479,6 +480,7 @@ static struct clk_lookup dm365_clks[] = {
 	CLK(NULL, NULL, NULL),
 };
 
+/*----------------------------------------------------------------------*/
 
 #define INTMUX		0x18
 #define EVTMUX		0x1c
@@ -680,7 +682,7 @@ void __init dm365_init_spi0(unsigned chipselect_mask,
 	davinci_cfg_reg(DM365_SPI0_SDI);
 	davinci_cfg_reg(DM365_SPI0_SDO);
 
-	
+	/* not all slaves will be wired up */
 	if (chipselect_mask & BIT(0))
 		davinci_cfg_reg(DM365_SPI0_SDENA0);
 	if (chipselect_mask & BIT(1))
@@ -819,9 +821,10 @@ static u8 dm365_default_priorities[DAVINCI_N_AINTC_IRQ] = {
 	[IRQ_DM365_EMUINT]		= 7,
 };
 
+/* Four Transfer Controllers on DM365 */
 static const s8
 dm365_queue_tc_mapping[][2] = {
-	
+	/* {event queue no, TC no} */
 	{0, 0},
 	{1, 1},
 	{2, 2},
@@ -831,7 +834,7 @@ dm365_queue_tc_mapping[][2] = {
 
 static const s8
 dm365_queue_priority_mapping[][2] = {
-	
+	/* {event queue no, Priority} */
 	{0, 7},
 	{1, 7},
 	{2, 7},
@@ -895,7 +898,7 @@ static struct resource edma_resources[] = {
 		.start	= IRQ_CCERRINT,
 		.flags	= IORESOURCE_IRQ,
 	},
-	
+	/* not using TC*_ERR */
 };
 
 static struct platform_device dm365_edma_device = {
@@ -992,13 +995,13 @@ static struct map_desc dm365_io_desc[] = {
 
 static struct resource dm365_ks_resources[] = {
 	{
-		
+		/* registers */
 		.start = DM365_KEYSCAN_BASE,
 		.end = DM365_KEYSCAN_BASE + SZ_1K - 1,
 		.flags = IORESOURCE_MEM,
 	},
 	{
-		
+		/* interrupt */
 		.start = IRQ_DM365_KEYINT,
 		.end = IRQ_DM365_KEYINT,
 		.flags = IORESOURCE_IRQ,
@@ -1012,6 +1015,7 @@ static struct platform_device dm365_ks_device = {
 	.resource	= dm365_ks_resources,
 };
 
+/* Contents of JTAG ID register used to identify exact cpu type */
 static struct davinci_id dm365_ids[] = {
 	{
 		.variant	= 0x0,
@@ -1090,7 +1094,7 @@ static struct davinci_soc_info davinci_soc_info_dm365 = {
 	.gpio_base		= DAVINCI_GPIO_BASE,
 	.gpio_num		= 104,
 	.gpio_irq		= IRQ_DM365_GPIO0,
-	.gpio_unbanked		= 8,	
+	.gpio_unbanked		= 8,	/* really 16 ... skip muxed GPIOs */
 	.serial_dev		= &dm365_serial_device,
 	.emac_pdata		= &dm365_emac_pdata,
 	.sram_dma		= 0x00010000,
@@ -1139,14 +1143,14 @@ void __init dm365_init(void)
 
 static struct resource dm365_vpss_resources[] = {
 	{
-		
+		/* VPSS ISP5 Base address */
 		.name           = "isp5",
 		.start          = 0x01c70000,
 		.end            = 0x01c70000 + 0xff,
 		.flags          = IORESOURCE_MEM,
 	},
 	{
-		
+		/* VPSS CLK Base address */
 		.name           = "vpss",
 		.start          = 0x01c70200,
 		.end            = 0x01c70200 + 0xff,
@@ -1197,19 +1201,19 @@ static void dm365_isif_setup_pinmux(void)
 }
 
 static struct resource isif_resource[] = {
-	
+	/* ISIF Base address */
 	{
 		.start          = 0x01c71000,
 		.end            = 0x01c71000 + 0x1ff,
 		.flags          = IORESOURCE_MEM,
 	},
-	
+	/* ISIF Linearization table 0 */
 	{
 		.start          = 0x1C7C000,
 		.end            = 0x1C7C000 + 0x2ff,
 		.flags          = IORESOURCE_MEM,
 	},
-	
+	/* ISIF Linearization table 1 */
 	{
 		.start          = 0x1C7C400,
 		.end            = 0x1C7C400 + 0x2ff,
@@ -1241,7 +1245,7 @@ static int __init dm365_init_devices(void)
 	clk_add_alias(NULL, dev_name(&dm365_mdio_device.dev),
 		      NULL, &dm365_emac_device.dev);
 
-	
+	/* Add isif clock alias */
 	clk_add_alias("master", dm365_isif_dev.name, "vpss_master", NULL);
 	platform_device_register(&dm365_vpss_device);
 	platform_device_register(&dm365_isif_dev);

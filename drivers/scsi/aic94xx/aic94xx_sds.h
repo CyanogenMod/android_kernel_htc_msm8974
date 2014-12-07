@@ -54,10 +54,12 @@ enum {
 #define FLASH_DEV_ID_I28LV00TAT         0x3E
 #define FLASH_DEV_ID_UNKNOWN            0xFF
 
+/* status bit mask values */
 #define FLASH_STATUS_BIT_MASK_DQ6       0x40
 #define FLASH_STATUS_BIT_MASK_DQ5       0x20
 #define FLASH_STATUS_BIT_MASK_DQ2       0x04
 
+/* minimum value in micro seconds needed for checking status */
 #define FLASH_STATUS_ERASE_DELAY_COUNT  50
 #define FLASH_STATUS_WRITE_DELAY_COUNT  25
 
@@ -80,30 +82,30 @@ enum {
 #define FLASH_IN_PROGRESS               0x001000
 
 struct controller_id {
-	u32 vendor;     
-	u32 device;     
-	u32 sub_vendor; 
-	u32 sub_device; 
+	u32 vendor;     /* PCI Vendor ID */
+	u32 device;     /* PCI Device ID */
+	u32 sub_vendor; /* PCI Subvendor ID */
+	u32 sub_device; /* PCI Subdevice ID */
 };
 
 struct image_info {
-	u32 ImageId;       
-	u32 ImageOffset;   
-	u32 ImageLength;   
-	u32 ImageChecksum; 
-	u32 ImageVersion;  
+	u32 ImageId;       /* Identifies the image */
+	u32 ImageOffset;   /* Offset the beginning of the file */
+	u32 ImageLength;   /* length of the image */
+	u32 ImageChecksum; /* Image checksum */
+	u32 ImageVersion;  /* Version of the image, could be build number */
 };
 
 struct bios_file_header {
-	u8 signature[32]; 
-	u32 checksum;	  
-	u32 antidote;	  
-	struct controller_id contrl_id; 
-	u32 filelen;      
-	u32 chunk_num;	  
-	u32 total_chunks; 
-	u32 num_images;   
-	u32 build_num;    
+	u8 signature[32]; /* Signature/Cookie to identify the file */
+	u32 checksum;	  /*Entire file checksum with this field zero */
+	u32 antidote;	  /* Entire file checksum with this field 0xFFFFFFFF */
+	struct controller_id contrl_id; /*PCI id to identify the controller */
+	u32 filelen;      /*Length of the entire file*/
+	u32 chunk_num;	  /*The chunk/part number for multiple Image files */
+	u32 total_chunks; /*Total number of chunks/parts in the image file */
+	u32 num_images;   /* Number of images in the file */
+	u32 build_num;    /* Build number of this image */
 	struct image_info image_header;
 };
 

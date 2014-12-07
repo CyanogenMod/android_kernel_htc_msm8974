@@ -18,14 +18,14 @@ struct __attribute__((__packed__)) msm_thermal_ioctl {
 };
 
 enum {
-	
+	/*Set CPU Frequency*/
 	MSM_SET_CPU_MAX_FREQ = 0x00,
 	MSM_SET_CPU_MIN_FREQ = 0x01,
 
 	MSM_CMD_MAX_NR,
 };
 
-#define MSM_THERMAL_MAGIC_NUM 0xCA 
+#define MSM_THERMAL_MAGIC_NUM 0xCA /*Unique magic number*/
 
 #define MSM_THERMAL_SET_CPU_MAX_FREQUENCY _IOW(MSM_THERMAL_MAGIC_NUM,\
 		MSM_SET_CPU_MAX_FREQ, struct msm_thermal_ioctl)

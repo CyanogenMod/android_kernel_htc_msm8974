@@ -49,18 +49,18 @@ enum {
 	sis_180			= 0,
 	SIS_SCR_PCI_BAR		= 5,
 
-	
-	SIS_GENCTL		= 0x54, 
-	SIS_SCR_BASE		= 0xc0, 
-	SIS180_SATA1_OFS	= 0x10, 
-	SIS182_SATA1_OFS	= 0x20, 
-	SIS_PMR			= 0x90, 
+	/* PCI configuration registers */
+	SIS_GENCTL		= 0x54, /* IDE General Control register */
+	SIS_SCR_BASE		= 0xc0, /* sata0 phy SCR registers */
+	SIS180_SATA1_OFS	= 0x10, /* offset from sata0->sata1 phy regs */
+	SIS182_SATA1_OFS	= 0x20, /* offset from sata0->sata1 phy regs */
+	SIS_PMR			= 0x90, /* port mapping register */
 	SIS_PMR_COMBINED	= 0x30,
 
-	
-	SIS_FLAG_CFGSCR		= (1 << 30), 
+	/* random bits */
+	SIS_FLAG_CFGSCR		= (1 << 30), /* host flag: SCRs via PCI cfg */
 
-	GENCTL_IOMAPPED_SCR	= (1 << 26), 
+	GENCTL_IOMAPPED_SCR	= (1 << 26), /* if set, SCRs are in IO space */
 };
 
 static int sis_init_one(struct pci_dev *pdev, const struct pci_device_id *ent);
@@ -68,14 +68,14 @@ static int sis_scr_read(struct ata_link *link, unsigned int sc_reg, u32 *val);
 static int sis_scr_write(struct ata_link *link, unsigned int sc_reg, u32 val);
 
 static const struct pci_device_id sis_pci_tbl[] = {
-	{ PCI_VDEVICE(SI, 0x0180), sis_180 },	
-	{ PCI_VDEVICE(SI, 0x0181), sis_180 },	
-	{ PCI_VDEVICE(SI, 0x0182), sis_180 },	
-	{ PCI_VDEVICE(SI, 0x0183), sis_180 },	
-	{ PCI_VDEVICE(SI, 0x1182), sis_180 },	
-	{ PCI_VDEVICE(SI, 0x1183), sis_180 },	
+	{ PCI_VDEVICE(SI, 0x0180), sis_180 },	/* SiS 964/180 */
+	{ PCI_VDEVICE(SI, 0x0181), sis_180 },	/* SiS 964/180 */
+	{ PCI_VDEVICE(SI, 0x0182), sis_180 },	/* SiS 965/965L */
+	{ PCI_VDEVICE(SI, 0x0183), sis_180 },	/* SiS 965/965L */
+	{ PCI_VDEVICE(SI, 0x1182), sis_180 },	/* SiS 966/680 */
+	{ PCI_VDEVICE(SI, 0x1183), sis_180 },	/* SiS 966/966L/968/680 */
 
-	{ }	
+	{ }	/* terminate list */
 };
 
 static struct pci_driver sis_pci_driver = {
@@ -144,7 +144,7 @@ static u32 sis_scr_cfg_read(struct ata_link *link,
 	struct pci_dev *pdev = to_pci_dev(link->ap->host->dev);
 	unsigned int cfg_addr = get_scr_cfg_addr(link, sc_reg);
 
-	if (sc_reg == SCR_ERROR) 
+	if (sc_reg == SCR_ERROR) /* doesn't exist in PCI cfg space */
 		return -EINVAL;
 
 	pci_read_config_dword(pdev, cfg_addr, val);
@@ -207,11 +207,14 @@ static int sis_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	if (rc)
 		return rc;
 
-	
+	/* check and see if the SCRs are in IO space or PCI cfg space */
 	pci_read_config_dword(pdev, SIS_GENCTL, &genctl);
 	if ((genctl & GENCTL_IOMAPPED_SCR) == 0)
 		pi.flags |= SIS_FLAG_CFGSCR;
 
+	/* if hardware thinks SCRs are in IO space, but there are
+	 * no IO resources assigned, change to PCI cfg space.
+	 */
 	if ((!(pi.flags & SIS_FLAG_CFGSCR)) &&
 	    ((pci_resource_start(pdev, SIS_SCR_PCI_BAR) == 0) ||
 	     (pci_resource_len(pdev, SIS_SCR_PCI_BAR) < 128))) {
@@ -225,7 +228,7 @@ static int sis_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 	case 0x0180:
 	case 0x0181:
 
-		
+		/* The PATA-handling is provided by pata_sis */
 		switch (pmr & 0x30) {
 		case 0x10:
 			ppi[1] = &sis_info133_for_sata;

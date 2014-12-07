@@ -30,28 +30,47 @@
 #include <linux/timer.h>
 #include <linux/jiffies.h>
 
-#include <asm/param.h>  
+#include <asm/param.h>  /* for HZ */
 
 #include <net/irda/irda.h>
 
+/* A few forward declarations (to make compiler happy) */
 struct irlmp_cb;
 struct irlap_cb;
 struct lsap_cb;
 struct lap_cb;
 
-#define POLL_TIMEOUT        (450*HZ/1000)    
-#define FINAL_TIMEOUT       (500*HZ/1000)    
+/* 
+ *  Timeout definitions, some defined in IrLAP 6.13.5 - p. 92
+ */
+#define POLL_TIMEOUT        (450*HZ/1000)    /* Must never exceed 500 ms */
+#define FINAL_TIMEOUT       (500*HZ/1000)    /* Must never exceed 500 ms */
 
+/* 
+ *  Normally twice of p-timer. Note 3, IrLAP 6.3.11.2 - p. 60 suggests
+ *  at least twice duration of the P-timer.
+ */
 #define WD_TIMEOUT          (POLL_TIMEOUT*2)
 
-#define MEDIABUSY_TIMEOUT   (500*HZ/1000)    
-#define SMALLBUSY_TIMEOUT   (100*HZ/1000)    
+#define MEDIABUSY_TIMEOUT   (500*HZ/1000)    /* 500 msec */
+#define SMALLBUSY_TIMEOUT   (100*HZ/1000)    /* 100 msec - IrLAP 6.13.4 */
 
+/*
+ *  Slot timer must never exceed 85 ms, and must always be at least 25 ms, 
+ *  suggested to  75-85 msec by IrDA lite. This doesn't work with a lot of
+ *  devices, and other stackes uses a lot more, so it's best we do it as well
+ *  (Note : this is the default value and sysctl overides it - Jean II)
+ */
 #define SLOT_TIMEOUT            (90*HZ/1000)
 
-#define XIDEXTRA_TIMEOUT        (34*HZ/1000)  
+/* 
+ *  The latest discovery frame (XID) is longer due to the extra discovery
+ *  information (hints, device name...). This is its extra length.
+ *  We use that when setting the query timeout. Jean II
+ */
+#define XIDEXTRA_TIMEOUT        (34*HZ/1000)  /* 34 msec */
 
-#define WATCHDOG_TIMEOUT        (20*HZ)       
+#define WATCHDOG_TIMEOUT        (20*HZ)       /* 20 sec */
 
 typedef void (*TIMER_CALLBACK)(void *);
 
@@ -61,6 +80,9 @@ static inline void irda_start_timer(struct timer_list *ptimer, int timeout,
 	ptimer->function = (void (*)(unsigned long)) callback;
 	ptimer->data = (unsigned long) data;
 	
+	/* Set new value for timer (update or add timer).
+	 * We use mod_timer() because it's more efficient and also
+	 * safer with respect to race conditions - Jean II */
 	mod_timer(ptimer, jiffies + timeout);
 }
 

@@ -28,9 +28,26 @@
 #ifndef __CVMX_PIP_DEFS_H__
 #define __CVMX_PIP_DEFS_H__
 
+/*
+ * Enumeration representing the amount of packet processing
+ * and validation performed by the input hardware.
+ */
 enum cvmx_pip_port_parse_mode {
+	/*
+	 * Packet input doesn't perform any processing of the input
+	 * packet.
+	 */
 	CVMX_PIP_PORT_CFG_MODE_NONE = 0ull,
+	/*
+	 * Full packet processing is performed with pointer starting
+	 * at the L2 (ethernet MAC) header.
+	 */
 	CVMX_PIP_PORT_CFG_MODE_SKIPL2 = 1ull,
+	/*
+	 * Input packets are assumed to be IP.  Results from non IP
+	 * packets is undefined. Pointers reference the beginning of
+	 * the IP header.
+	 */
 	CVMX_PIP_PORT_CFG_MODE_SKIPIP = 2ull
 };
 

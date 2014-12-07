@@ -42,7 +42,7 @@
 #include "mux.h"
 #include "prm.h"
 
-#define OMAP_MUX_BASE_OFFSET		0x30	
+#define OMAP_MUX_BASE_OFFSET		0x30	/* Offset from CTRL_BASE */
 #define OMAP_MUX_BASE_SZ		0x5ca
 
 struct omap_mux_entry {
@@ -183,11 +183,11 @@ static int __init _omap_mux_get_by_name(struct omap_mux_partition *partition,
 		mux = &e->mux;
 		m0_entry = mux->muxnames[0];
 
-		
+		/* First check for full name in mode0.muxmode format */
 		if (mode0_len && strncmp(muxname, m0_entry, mode0_len))
 			continue;
 
-		
+		/* Then check for muxmode only */
 		for (i = 0; i < OMAP_MUX_NR_MODES; i++) {
 			char *mode_cur = mux->muxnames[i];
 
@@ -318,6 +318,9 @@ omap_hwmod_mux_init(struct omap_device_pad *bpads, int nr_pads)
 	if (!nr_pads_dynamic)
 		return hmux;
 
+	/*
+	 * Add pads that need dynamic muxing into a separate list
+	 */
 
 	hmux->nr_pads_dynamic = nr_pads_dynamic;
 	hmux->pads_dynamic = kzalloc(sizeof(struct omap_device_pad *) *
@@ -352,6 +355,17 @@ err1:
 	return NULL;
 }
 
+/**
+ * omap_hwmod_mux_scan_wakeups - omap hwmod scan wakeup pads
+ * @hmux: Pads for a hwmod
+ * @mpu_irqs: MPU irq array for a hwmod
+ *
+ * Scans the wakeup status of pads for a single hwmod.  If an irq
+ * array is defined for this mux, the parser will call the registered
+ * ISRs for corresponding pads, otherwise the parser will stop at the
+ * first wakeup active pad and return.  Returns true if there is a
+ * pending and non-served wakeup event for the mux, otherwise false.
+ */
 static bool omap_hwmod_mux_scan_wakeups(struct omap_hwmod_mux_info *hmux,
 		struct omap_hwmod_irq_info *mpu_irqs)
 {
@@ -374,7 +388,7 @@ static bool omap_hwmod_mux_scan_wakeups(struct omap_hwmod_mux_info *hmux,
 			return true;
 
 		irq = hmux->irqs[i];
-		
+		/* make sure we only handle each irq once */
 		if (handled_irqs & 1 << irq)
 			continue;
 
@@ -386,6 +400,12 @@ static bool omap_hwmod_mux_scan_wakeups(struct omap_hwmod_mux_info *hmux,
 	return false;
 }
 
+/**
+ * _omap_hwmod_mux_handle_irq - Process wakeup events for a single hwmod
+ *
+ * Checks a single hwmod for every wakeup capable pad to see if there is an
+ * active wakeup event. If this is the case, call the corresponding ISR.
+ */
 static int _omap_hwmod_mux_handle_irq(struct omap_hwmod *oh, void *data)
 {
 	if (!oh->mux || !oh->mux->enabled)
@@ -395,17 +415,24 @@ static int _omap_hwmod_mux_handle_irq(struct omap_hwmod *oh, void *data)
 	return 0;
 }
 
+/**
+ * omap_hwmod_mux_handle_irq - Process pad wakeup irqs.
+ *
+ * Calls a function for each registered omap_hwmod to check
+ * pad wakeup statuses.
+ */
 static irqreturn_t omap_hwmod_mux_handle_irq(int irq, void *unused)
 {
 	omap_hwmod_for_each(_omap_hwmod_mux_handle_irq, NULL);
 	return IRQ_HANDLED;
 }
 
+/* Assumes the calling function takes care of locking */
 void omap_hwmod_mux(struct omap_hwmod_mux_info *hmux, u8 state)
 {
 	int i;
 
-	
+	/* Runtime idling of dynamic pads */
 	if (state == _HWMOD_STATE_IDLE && hmux->enabled) {
 		for (i = 0; i < hmux->nr_pads_dynamic; i++) {
 			struct omap_device_pad *pad = hmux->pads_dynamic[i];
@@ -419,7 +446,7 @@ void omap_hwmod_mux(struct omap_hwmod_mux_info *hmux, u8 state)
 		return;
 	}
 
-	
+	/* Runtime enabling of dynamic pads */
 	if ((state == _HWMOD_STATE_ENABLED) && hmux->pads_dynamic
 					&& hmux->enabled) {
 		for (i = 0; i < hmux->nr_pads_dynamic; i++) {
@@ -434,7 +461,7 @@ void omap_hwmod_mux(struct omap_hwmod_mux_info *hmux, u8 state)
 		return;
 	}
 
-	
+	/* Enabling or disabling of all pads */
 	for (i = 0; i < hmux->nr_pads; i++) {
 		struct omap_device_pad *pad = &hmux->pads[i];
 		int flags, val = -EINVAL;
@@ -448,7 +475,7 @@ void omap_hwmod_mux(struct omap_hwmod_mux_info *hmux, u8 state)
 					pad->name, val);
 			break;
 		case _HWMOD_STATE_DISABLED:
-			
+			/* Use safe mode unless OMAP_DEVICE_PAD_REMUX */
 			if (flags & OMAP_DEVICE_PAD_REMUX)
 				val = pad->off;
 			else
@@ -457,7 +484,7 @@ void omap_hwmod_mux(struct omap_hwmod_mux_info *hmux, u8 state)
 					pad->name, val);
 			break;
 		default:
-			
+			/* Nothing to be done */
 			break;
 		};
 
@@ -483,6 +510,7 @@ void omap_hwmod_mux(struct omap_hwmod_mux_info *hmux, u8 state)
 		flags[i] =  #mask;				\
 	}
 
+/* REVISIT: Add checking for non-optimal mux settings */
 static inline void omap_mux_decode(struct seq_file *s, u16 val)
 {
 	char *flags[OMAP_MUX_MAX_NR_FLAGS];
@@ -555,7 +583,7 @@ static int omap_mux_dbg_board_show(struct seq_file *s, void *unused)
 		if (!m0_name)
 			continue;
 
-		
+		/* REVISIT: Needs to be updated if mode0 names get longer */
 		for (i = 0; i < OMAP_MUX_DEFNAME_LEN; i++) {
 			if (m0_name[i] == '\0') {
 				m0_def[i] = m0_name[i];
@@ -568,6 +596,10 @@ static int omap_mux_dbg_board_show(struct seq_file *s, void *unused)
 		if (mode != 0)
 			seq_printf(s, "/* %s */\n", m->muxnames[mode]);
 
+		/*
+		 * XXX: Might be revisited to support differences across
+		 * same OMAP generation.
+		 */
 		seq_printf(s, "OMAP%d_MUX(%s, ", omap_gen, m0_def);
 		omap_mux_decode(s, val);
 		seq_printf(s, "),\n");
@@ -739,7 +771,7 @@ static void __init omap_mux_dbg_init(void)
 static inline void omap_mux_dbg_init(void)
 {
 }
-#endif	
+#endif	/* CONFIG_DEBUG_FS */
 
 static void __init omap_mux_free_names(struct omap_mux *m)
 {
@@ -755,6 +787,7 @@ static void __init omap_mux_free_names(struct omap_mux *m)
 
 }
 
+/* Free all data except for GPIO pins unless CONFIG_DEBUG_FS is set */
 static int __init omap_mux_late_init(void)
 {
 	struct omap_mux_partition *partition;
@@ -839,14 +872,14 @@ static void __init omap_mux_package_init_balls(struct omap_ball *b,
 	}
 }
 
-#else	
+#else	/* CONFIG_DEBUG_FS */
 
 static inline void omap_mux_package_init_balls(struct omap_ball *b,
 					struct omap_mux *superset)
 {
 }
 
-#endif	
+#endif	/* CONFIG_DEBUG_FS */
 
 static int __init omap_mux_setup(char *options)
 {
@@ -859,6 +892,12 @@ static int __init omap_mux_setup(char *options)
 }
 __setup("omap_mux=", omap_mux_setup);
 
+/*
+ * Note that the omap_mux=some.signal1=0x1234,some.signal2=0x1234
+ * cmdline options only override the bootloader values.
+ * During development, please enable CONFIG_DEBUG_FS, and use the
+ * signal specific entries under debugfs.
+ */
 static void __init omap_mux_set_cmdline_signals(void)
 {
 	char *options, *next_opt, *token;
@@ -924,7 +963,7 @@ free:
 
 }
 
-#endif	
+#endif	/* CONFIG_OMAP_MUX */
 
 static struct omap_mux *omap_mux_get_by_gpio(
 				struct omap_mux_partition *partition,
@@ -944,6 +983,7 @@ static struct omap_mux *omap_mux_get_by_gpio(
 	return ret;
 }
 
+/* Needed for dynamic muxing of GPIO pins for off-idle */
 u16 omap_mux_get_gpio(int gpio)
 {
 	struct omap_mux_partition *partition;
@@ -961,6 +1001,7 @@ u16 omap_mux_get_gpio(int gpio)
 	return OMAP_MUX_TERMINATOR;
 }
 
+/* Needed for dynamic muxing of GPIO pins for off-idle */
 void omap_mux_set_gpio(u16 val, int gpio)
 {
 	struct omap_mux_partition *partition;
@@ -1006,6 +1047,11 @@ static struct omap_mux * __init omap_mux_list_add(
 	return m;
 }
 
+/*
+ * Note if CONFIG_OMAP_MUX is not selected, we will only initialize
+ * the GPIO to mux offset mapping that is needed for dynamic muxing
+ * of GPIO pins for off-idle.
+ */
 static void __init omap_mux_init_list(struct omap_mux_partition *partition,
 				      struct omap_mux *superset)
 {
@@ -1018,7 +1064,7 @@ static void __init omap_mux_init_list(struct omap_mux_partition *partition,
 			continue;
 		}
 #else
-		
+		/* Skip pins that are not muxed as GPIO by bootloader */
 		if (!OMAP_MODE_GPIO(omap_mux_read(partition,
 				    superset->reg_offset))) {
 			superset++;

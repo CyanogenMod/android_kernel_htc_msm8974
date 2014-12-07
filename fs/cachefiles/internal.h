@@ -23,99 +23,132 @@ extern unsigned cachefiles_debug;
 #define CACHEFILES_DEBUG_KLEAVE	2
 #define CACHEFILES_DEBUG_KDEBUG	4
 
+/*
+ * node records
+ */
 struct cachefiles_object {
-	struct fscache_object		fscache;	
-	struct cachefiles_lookup_data	*lookup_data;	
-	struct dentry			*dentry;	
-	struct dentry			*backer;	
-	loff_t				i_size;		
+	struct fscache_object		fscache;	/* fscache handle */
+	struct cachefiles_lookup_data	*lookup_data;	/* cached lookup data */
+	struct dentry			*dentry;	/* the file/dir representing this object */
+	struct dentry			*backer;	/* backing file */
+	loff_t				i_size;		/* object size */
 	unsigned long			flags;
-#define CACHEFILES_OBJECT_ACTIVE	0		
-#define CACHEFILES_OBJECT_BURIED	1		
-	atomic_t			usage;		
-	uint8_t				type;		
-	uint8_t				new;		
+#define CACHEFILES_OBJECT_ACTIVE	0		/* T if marked active */
+#define CACHEFILES_OBJECT_BURIED	1		/* T if preemptively buried */
+	atomic_t			usage;		/* object usage count */
+	uint8_t				type;		/* object type */
+	uint8_t				new;		/* T if object new */
 	spinlock_t			work_lock;
-	struct rb_node			active_node;	
+	struct rb_node			active_node;	/* link in active tree (dentry is key) */
 };
 
 extern struct kmem_cache *cachefiles_object_jar;
 
+/*
+ * Cache files cache definition
+ */
 struct cachefiles_cache {
-	struct fscache_cache		cache;		
-	struct vfsmount			*mnt;		
-	struct dentry			*graveyard;	
-	struct file			*cachefilesd;	
-	const struct cred		*cache_cred;	
-	struct mutex			daemon_mutex;	
-	wait_queue_head_t		daemon_pollwq;	
-	struct rb_root			active_nodes;	
-	rwlock_t			active_lock;	
-	atomic_t			gravecounter;	
-	unsigned			frun_percent;	
-	unsigned			fcull_percent;	
-	unsigned			fstop_percent;	
-	unsigned			brun_percent;	
-	unsigned			bcull_percent;	
-	unsigned			bstop_percent;	
-	unsigned			bsize;		
-	unsigned			bshift;		
-	uint64_t			frun;		
-	uint64_t			fcull;		
-	uint64_t			fstop;		
-	sector_t			brun;		
-	sector_t			bcull;		
-	sector_t			bstop;		
+	struct fscache_cache		cache;		/* FS-Cache record */
+	struct vfsmount			*mnt;		/* mountpoint holding the cache */
+	struct dentry			*graveyard;	/* directory into which dead objects go */
+	struct file			*cachefilesd;	/* manager daemon handle */
+	const struct cred		*cache_cred;	/* security override for accessing cache */
+	struct mutex			daemon_mutex;	/* command serialisation mutex */
+	wait_queue_head_t		daemon_pollwq;	/* poll waitqueue for daemon */
+	struct rb_root			active_nodes;	/* active nodes (can't be culled) */
+	rwlock_t			active_lock;	/* lock for active_nodes */
+	atomic_t			gravecounter;	/* graveyard uniquifier */
+	unsigned			frun_percent;	/* when to stop culling (% files) */
+	unsigned			fcull_percent;	/* when to start culling (% files) */
+	unsigned			fstop_percent;	/* when to stop allocating (% files) */
+	unsigned			brun_percent;	/* when to stop culling (% blocks) */
+	unsigned			bcull_percent;	/* when to start culling (% blocks) */
+	unsigned			bstop_percent;	/* when to stop allocating (% blocks) */
+	unsigned			bsize;		/* cache's block size */
+	unsigned			bshift;		/* min(ilog2(PAGE_SIZE / bsize), 0) */
+	uint64_t			frun;		/* when to stop culling */
+	uint64_t			fcull;		/* when to start culling */
+	uint64_t			fstop;		/* when to stop allocating */
+	sector_t			brun;		/* when to stop culling */
+	sector_t			bcull;		/* when to start culling */
+	sector_t			bstop;		/* when to stop allocating */
 	unsigned long			flags;
-#define CACHEFILES_READY		0	
-#define CACHEFILES_DEAD			1	
-#define CACHEFILES_CULLING		2	
-#define CACHEFILES_STATE_CHANGED	3	
-	char				*rootdirname;	
-	char				*secctx;	
-	char				*tag;		
+#define CACHEFILES_READY		0	/* T if cache prepared */
+#define CACHEFILES_DEAD			1	/* T if cache dead */
+#define CACHEFILES_CULLING		2	/* T if cull engaged */
+#define CACHEFILES_STATE_CHANGED	3	/* T if state changed (poll trigger) */
+	char				*rootdirname;	/* name of cache root directory */
+	char				*secctx;	/* LSM security context */
+	char				*tag;		/* cache binding tag */
 };
 
+/*
+ * backing file read tracking
+ */
 struct cachefiles_one_read {
-	wait_queue_t			monitor;	
-	struct page			*back_page;	
-	struct page			*netfs_page;	
-	struct fscache_retrieval	*op;		
-	struct list_head		op_link;	
+	wait_queue_t			monitor;	/* link into monitored waitqueue */
+	struct page			*back_page;	/* backing file page we're waiting for */
+	struct page			*netfs_page;	/* netfs page we're going to fill */
+	struct fscache_retrieval	*op;		/* retrieval op covering this */
+	struct list_head		op_link;	/* link in op's todo list */
 };
 
+/*
+ * backing file write tracking
+ */
 struct cachefiles_one_write {
-	struct page			*netfs_page;	
+	struct page			*netfs_page;	/* netfs page to copy */
 	struct cachefiles_object	*object;
-	struct list_head		obj_link;	
+	struct list_head		obj_link;	/* link in object's lists */
 	fscache_rw_complete_t		end_io_func;
 	void				*context;
 };
 
+/*
+ * auxiliary data xattr buffer
+ */
 struct cachefiles_xattr {
 	uint16_t			len;
 	uint8_t				type;
 	uint8_t				data[];
 };
 
+/*
+ * note change of state for daemon
+ */
 static inline void cachefiles_state_changed(struct cachefiles_cache *cache)
 {
 	set_bit(CACHEFILES_STATE_CHANGED, &cache->flags);
 	wake_up_all(&cache->daemon_pollwq);
 }
 
+/*
+ * bind.c
+ */
 extern int cachefiles_daemon_bind(struct cachefiles_cache *cache, char *args);
 extern void cachefiles_daemon_unbind(struct cachefiles_cache *cache);
 
+/*
+ * daemon.c
+ */
 extern const struct file_operations cachefiles_daemon_fops;
 
 extern int cachefiles_has_space(struct cachefiles_cache *cache,
 				unsigned fnr, unsigned bnr);
 
+/*
+ * interface.c
+ */
 extern const struct fscache_cache_ops cachefiles_cache_ops;
 
+/*
+ * key.c
+ */
 extern char *cachefiles_cook_key(const u8 *raw, int keylen, uint8_t type);
 
+/*
+ * namei.c
+ */
 extern int cachefiles_delete_object(struct cachefiles_cache *cache,
 				    struct cachefiles_object *object);
 extern int cachefiles_walk_to_object(struct cachefiles_object *parent,
@@ -132,6 +165,9 @@ extern int cachefiles_cull(struct cachefiles_cache *cache, struct dentry *dir,
 extern int cachefiles_check_in_use(struct cachefiles_cache *cache,
 				   struct dentry *dir, char *filename);
 
+/*
+ * proc.c
+ */
 #ifdef CONFIG_CACHEFILES_HISTOGRAM
 extern atomic_t cachefiles_lookup_histogram[HZ];
 extern atomic_t cachefiles_mkdir_histogram[HZ];
@@ -154,6 +190,9 @@ void cachefiles_hist(atomic_t histogram[], unsigned long start_jif)
 #define cachefiles_hist(hist, start_jif) do {} while (0)
 #endif
 
+/*
+ * rdwr.c
+ */
 extern int cachefiles_read_or_alloc_page(struct fscache_retrieval *,
 					 struct page *, gfp_t);
 extern int cachefiles_read_or_alloc_pages(struct fscache_retrieval *,
@@ -166,6 +205,9 @@ extern int cachefiles_allocate_pages(struct fscache_retrieval *,
 extern int cachefiles_write_page(struct fscache_storage *, struct page *);
 extern void cachefiles_uncache_page(struct fscache_object *, struct page *);
 
+/*
+ * security.c
+ */
 extern int cachefiles_get_security_ID(struct cachefiles_cache *cache);
 extern int cachefiles_determine_cache_security(struct cachefiles_cache *cache,
 					       struct dentry *root,
@@ -183,6 +225,9 @@ static inline void cachefiles_end_secure(struct cachefiles_cache *cache,
 	revert_creds(saved_cred);
 }
 
+/*
+ * xattr.c
+ */
 extern int cachefiles_check_object_type(struct cachefiles_object *object);
 extern int cachefiles_set_object_xattr(struct cachefiles_object *object,
 				       struct cachefiles_xattr *auxdata);
@@ -194,6 +239,9 @@ extern int cachefiles_remove_object_xattr(struct cachefiles_cache *cache,
 					  struct dentry *dentry);
 
 
+/*
+ * error handling
+ */
 #define kerror(FMT, ...) printk(KERN_ERR "CacheFiles: "FMT"\n", ##__VA_ARGS__)
 
 #define cachefiles_io_error(___cache, FMT, ...)		\
@@ -213,6 +261,9 @@ do {									\
 } while (0)
 
 
+/*
+ * debug tracing
+ */
 #define dbgprintk(FMT, ...) \
 	printk(KERN_DEBUG "[%-6.6s] "FMT"\n", current->comm, ##__VA_ARGS__)
 
@@ -251,7 +302,7 @@ do {							\
 #define _debug(FMT, ...) no_printk(FMT, ##__VA_ARGS__)
 #endif
 
-#if 1 
+#if 1 /* defined(__KDEBUGALL) */
 
 #define ASSERT(X)							\
 do {									\

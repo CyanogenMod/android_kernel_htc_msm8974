@@ -36,6 +36,7 @@
 #include <linux/msm-charger.h>
 
 #define DRIVER_VERSION			"1.1.0"
+/* Bq27520 standard data commands */
 #define BQ27520_REG_CNTL		0x00
 #define BQ27520_REG_AR			0x02
 #define BQ27520_REG_ARTTE		0x04
@@ -67,6 +68,7 @@
 #define BQ27520_FLAG_BAT_DET		BIT(3)
 #define BQ27520_CS_DLOGEN		BIT(15)
 #define BQ27520_CS_SS		    BIT(13)
+/* Control subcommands */
 #define BQ27520_SUBCMD_CTNL_STATUS  0x0000
 #define BQ27520_SUBCMD_DEVCIE_TYPE  0x0001
 #define BQ27520_SUBCMD_FW_VER  0x0002
@@ -98,6 +100,9 @@
 #define BQ27520_POLLING_STATUS ((HZ)*3)
 #define BQ27520_COULOMB_POLL ((HZ)*30)
 
+/* If the system has several batteries we need a different name for each
+ * of them...
+ */
 static DEFINE_IDR(battery_id);
 static DEFINE_MUTEX(battery_mutex);
 
@@ -114,6 +119,9 @@ struct bq27520_device_info {
 	struct i2c_client			*client;
 	const struct bq27520_platform_data	*pdata;
 	struct work_struct			counter;
+	/* 300ms delay is needed after bq27520 is powered up
+	 * and before any successful I2C transaction
+	 */
 	struct  delayed_work			hw_config;
 	uint32_t				irq;
 };
@@ -127,6 +135,10 @@ enum {
 };
 
 struct bq27520_status {
+	/* Informations owned and maintained by Bq27520 driver, updated
+	 * by poller or SOC_INT interrupt, decoupling from I/Oing
+	 * hardware directly
+	 */
 	int			status[NUM_OF_STATUS];
 	spinlock_t		lock;
 	struct delayed_work	poller;
@@ -135,8 +147,8 @@ struct bq27520_status {
 static struct bq27520_status current_battery_status;
 static struct bq27520_device_info *bq27520_di;
 static int coulomb_counter;
-static spinlock_t lock; 
-static struct timer_list timer; 
+static spinlock_t lock; /* protect access to coulomb_counter */
+static struct timer_list timer; /* charge counter timer every 30 secs */
 
 static int bq27520_i2c_txsubcmd(u8 reg, unsigned short subcmd,
 		struct bq27520_device_info *di);
@@ -147,6 +159,10 @@ static int bq27520_read(u8 reg, int *rt_value, int b_single,
 	return di->bus->read(reg, rt_value, b_single, di);
 }
 
+/*
+ * Return the battery temperature in tenths of degree Celsius
+ * Or < 0 if something fails.
+ */
 static int bq27520_battery_temperature(struct bq27520_device_info *di)
 {
 	int ret, temp = 0;
@@ -160,6 +176,10 @@ static int bq27520_battery_temperature(struct bq27520_device_info *di)
 	return temp + ZERO_DEGREE_CELSIUS_IN_TENTH_KELVIN;
 }
 
+/*
+ * Return the battery Voltage in milivolts
+ * Or < 0 if something fails.
+ */
 static int bq27520_battery_voltage(struct bq27520_device_info *di)
 {
 	int ret, volt = 0;
@@ -173,6 +193,10 @@ static int bq27520_battery_voltage(struct bq27520_device_info *di)
 	return volt;
 }
 
+/*
+ * Return the battery Relative State-of-Charge
+ * Or < 0 if something fails.
+ */
 static int bq27520_battery_rsoc(struct bq27520_device_info *di)
 {
 	int ret, rsoc = 0;
@@ -194,6 +218,9 @@ static void bq27520_cntl_cmd(struct bq27520_device_info *di,
 	bq27520_i2c_txsubcmd(BQ27520_REG_CNTL, subcmd, di);
 }
 
+/*
+ * i2c specific code
+ */
 static int bq27520_i2c_txsubcmd(u8 reg, unsigned short subcmd,
 		struct bq27520_device_info *di)
 {
@@ -260,6 +287,9 @@ static void bq27520_coulomb_counter_work(struct work_struct *work)
 
 	di = container_of(work, struct bq27520_device_info, counter);
 
+	/* retrieve 30 values from FIFO of coulomb data logging buffer
+	 * and average over time
+	 */
 	do {
 		ret = bq27520_read(BQ27520_REG_LOGBUF, &temp, 0, di);
 		if (ret < 0)
@@ -368,6 +398,9 @@ static void update_current_battery_status(int data)
 	spin_unlock_irqrestore(&current_battery_status.lock, flag);
 }
 
+/* only if battery charging satus changes then notify msm_charger. otherwise
+ * only refresh current_batter_status
+ */
 static int if_notify_msm_charger(int *data)
 {
 	int ret = 0, flags = 0, status = 0;
@@ -420,6 +453,9 @@ static void bq27520_hw_config(struct work_struct *work)
 		dev_err(di->dev, "Failed to config Bq27520 ret = %d\n", ret);
 		return;
 	}
+	/* bq27520 is ready for access, update current_battery_status by reading
+	 * from hardware
+	 */
 	if_notify_msm_charger(&status);
 	update_current_battery_status(status);
 	msm_battery_gauge_register(&bq27520_batt_gauge);
@@ -427,6 +463,9 @@ static void bq27520_hw_config(struct work_struct *work)
 
 	enable_irq(di->irq);
 
+	/* poll battery status every 3 seconds, if charging status changes,
+	 * notify msm_charger
+	 */
 	schedule_delayed_work(&current_battery_status.poller,
 				BQ27520_POLLING_STATUS);
 
@@ -546,7 +585,7 @@ static ssize_t bq27520_read_subcmd(struct device *dev,
 		 subcmd == BQ27520_SUBCMD_HW_VER ||
 		 subcmd == BQ27520_SUBCMD_CHEM_ID) {
 
-		bq27520_cntl_cmd(di, subcmd);
+		bq27520_cntl_cmd(di, subcmd);/* Retrieve Chip status */
 		udelay(66);
 		ret = bq27520_read(BQ27520_REG_CNTL, &temp, 0, di);
 
@@ -610,7 +649,7 @@ static int bq27520_power(bool enable, struct bq27520_device_info *di)
 
 	platdata = di->pdata;
 	if (enable) {
-		
+		/* switch on Vreg_S3 */
 		rc = regulator_enable(vreg_bq27520);
 		if (rc < 0) {
 			dev_err(di->dev, "%s: vreg %s %s failed (%d)\n",
@@ -618,7 +657,7 @@ static int bq27520_power(bool enable, struct bq27520_device_info *di)
 			goto vreg_fail;
 		}
 
-		
+		/* Battery gauge enable and switch on onchip 2.5V LDO */
 		rc = gpio_request(platdata->chip_en, "GAUGE_EN");
 		if (rc) {
 			dev_err(di->dev, "%s: fail to request gpio %d (%d)\n",
@@ -649,10 +688,10 @@ static int bq27520_power(bool enable, struct bq27520_device_info *di)
 	} else {
 		free_irq(di->irq, di);
 		gpio_free(platdata->soc_int);
-		
+		/* switch off on-chip 2.5V LDO and disable Battery gauge */
 		gpio_set_value(platdata->chip_en, 0);
 		gpio_free(platdata->chip_en);
-		
+		/* switch off Vreg_S3 */
 		rc = regulator_disable(vreg_bq27520);
 		if (rc < 0) {
 			dev_err(di->dev, "%s: vreg %s %s failed (%d)\n",
@@ -685,7 +724,7 @@ static int bq27520_dev_setup(bool enable, struct bq27520_device_info *di)
 
 	platdata = di->pdata;
 	if (enable) {
-		
+		/* enable and set voltage Vreg_S3 */
 		vreg_bq27520 = regulator_get(NULL,
 				platdata->vreg_name);
 		if (IS_ERR(vreg_bq27520)) {
@@ -725,7 +764,7 @@ static int bq27520_battery_probe(struct i2c_client *client,
 
 	pdata = client->dev.platform_data;
 
-	
+	/* Get new ID for the new battery device */
 	retval = idr_pre_get(&battery_id, GFP_KERNEL);
 	if (retval == 0)
 		return -ENOMEM;
@@ -898,7 +937,7 @@ static int __init bq27520_battery_init(void)
 {
 	int ret;
 
-	
+	/* initialize current_battery_status, and register with msm-charger */
 	init_battery_status();
 
 	ret = i2c_add_driver(&bq27520_battery_driver);

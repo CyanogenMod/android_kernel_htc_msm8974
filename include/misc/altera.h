@@ -44,6 +44,6 @@ static inline int altera_init(struct altera_config *config,
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return 0;
 }
-#endif 
+#endif /* CONFIG_ALTERA_STAPL */
 
-#endif 
+#endif /* _ALTERA_H_ */

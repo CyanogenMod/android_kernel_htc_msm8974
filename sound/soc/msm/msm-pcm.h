@@ -41,18 +41,20 @@
 #define BUFSZ			(960 * 5)
 #define PLAYBACK_DMASZ 		(BUFSZ * 2)
 
-#define MSM_PLAYBACK_DEFAULT_VOLUME 0 
+#define MSM_PLAYBACK_DEFAULT_VOLUME 0 /* 0dB */
 #define MSM_PLAYBACK_DEFAULT_PAN 0
 
 #define USE_FORMATS             SNDRV_PCM_FMTBIT_S16_LE
 #define USE_CHANNELS_MIN        1
 #define USE_CHANNELS_MAX        2
+/* Support unconventional sample rates 12000, 24000 as well */
 #define USE_RATE                \
 			(SNDRV_PCM_RATE_8000_48000 | SNDRV_PCM_RATE_KNOT)
 #define USE_RATE_MIN            8000
 #define USE_RATE_MAX            48000
 #define MAX_BUFFER_PLAYBACK_SIZE \
 				(4800*4)
+/* 2048 frames (Mono), 1024 frames (Stereo) */
 #define CAPTURE_SIZE		4096
 #define MAX_BUFFER_CAPTURE_SIZE (4096*4)
 #define MAX_PERIOD_SIZE         BUFSZ
@@ -64,6 +66,7 @@
 #define MIN_DB			(-50)
 #define PCMPLAYBACK_DECODERID   5
 
+/* 0xFFFFFFFF Indicates not to be used for audio data copy */
 #define	BUF_INVALID_LEN		0xFFFFFFFF
 
 extern int copy_count;
@@ -71,7 +74,7 @@ extern int intcnt;
 
 struct msm_volume {
 	bool update;
-	int volume; 
+	int volume; /* Volume parameter, in dB Scale */
 	int pan;
 };
 
@@ -104,6 +107,9 @@ struct audio_locks {
 extern struct audio_locks the_locks;
 
 struct msm_audio_event_callbacks {
+	/* event is called from interrupt context when a message
+	 * arrives from the DSP.
+	*/
 	void (*playback)(void *);
 	void (*capture)(void *);
 };
@@ -115,10 +121,10 @@ struct msm_audio {
 
 	uint8_t out_head;
 	uint8_t out_tail;
-	uint8_t out_needed; 
+	uint8_t out_needed; /* number of buffers the dsp is waiting for */
 	atomic_t out_bytes;
 
-	
+	/* configuration to use on next enable */
 	uint32_t out_sample_rate;
 	uint32_t out_channel_mode;
 	uint32_t out_weight;
@@ -128,33 +134,35 @@ struct msm_audio {
 	struct snd_pcm_substream *playback_substream;
 	struct snd_pcm_substream *capture_substream;
 
-	
+	/* data allocated for various buffers */
 	char *data;
 	dma_addr_t phys;
 
 	unsigned int pcm_size;
 	unsigned int pcm_count;
-	unsigned int pcm_irq_pos;       
-	unsigned int pcm_buf_pos;       
+	unsigned int pcm_irq_pos;       /* IRQ position */
+	unsigned int pcm_buf_pos;       /* position in buffer */
 
 	struct msm_adsp_module *audpre;
 	struct msm_adsp_module *audrec;
 
-	
+	/* configuration to use on next enable */
 	uint32_t samp_rate;
 	uint32_t channel_mode;
-	uint32_t buffer_size; 
-	uint32_t type; 
+	uint32_t buffer_size; /* 2048 for mono, 4096 for stereo */
+	uint32_t type; /* 0 for PCM ,1 for AAC */
 	uint32_t dsp_cnt;
-	uint32_t in_head; 
-	uint32_t in_tail; 
-	uint32_t in_count; 
+	uint32_t in_head; /* next buffer dsp will write */
+	uint32_t in_tail; /* next buffer read() will read */
+	uint32_t in_count; /* number of buffers available to read() */
 
 	unsigned short samp_rate_index;
 
-	
+	/* audpre settings */
 	audpreproc_cmd_cfg_agc_params tx_agc_cfg;
 	audpreproc_cmd_cfg_ns_params ns_cfg;
+	/* For different sample rate, the coeff might be different. *
+	* All the coeff should be passed from user space           */
 	audpreproc_cmd_cfg_iir_tuning_filter_params iir_cfg;
 
 	struct  msm_audio_event_callbacks *ops;
@@ -163,7 +171,7 @@ struct msm_audio {
 	int opened;
 	int enabled;
 	int running;
-	int stopped; 
+	int stopped; /* set when stopped, cleared on flush */
 	int eos_ack;
 	int mmap_flag;
 	int period;
@@ -171,6 +179,7 @@ struct msm_audio {
 
 
 
+/* platform data */
 extern int alsa_dsp_send_buffer(struct msm_audio *prtd,
 			unsigned idx, unsigned len);
 extern int audio_dsp_out_enable(struct msm_audio *prtd, int yes);
@@ -192,4 +201,4 @@ int msm_audio_volume_update(unsigned id,
 extern struct audio_locks the_locks;
 extern struct msm_volume msm_vol_ctl;
 
-#endif 
+#endif /*_MSM_PCM_H*/

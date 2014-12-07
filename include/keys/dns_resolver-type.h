@@ -20,4 +20,4 @@ extern int request_dns_resolver_key(const char *description,
 				    const char *callout_info,
 				    char **data);
 
-#endif 
+#endif /* _KEYS_DNS_RESOLVER_TYPE_H */

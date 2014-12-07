@@ -9,6 +9,14 @@
 #include <asm/desc.h>
 #include <asm/i387.h>
 
+/*
+ * Image of the saved processor state, used by the low level ACPI suspend to
+ * RAM code and by the low level hibernation code.
+ *
+ * If you modify it, fix arch/x86/kernel/acpi/wakeup_64.S and make sure that
+ * __save/__restore_processor_state(), defined in arch/x86/kernel/suspend_64.c,
+ * still work as required.
+ */
 struct saved_context {
 	struct pt_regs regs;
 	u16 ds, es, fs, gs, ss;
@@ -33,8 +41,9 @@ struct saved_context {
 #define loaddebug(thread,register) \
 	set_debugreg((thread)->debugreg##register, register)
 
+/* routines for saving/restoring kernel state */
 extern int acpi_save_state_mem(void);
 extern char core_restore_code;
 extern char restore_registers;
 
-#endif 
+#endif /* _ASM_X86_SUSPEND_64_H */

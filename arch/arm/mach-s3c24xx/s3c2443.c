@@ -77,7 +77,7 @@ int __init s3c2443_init(void)
 	s3c_adc_setname("s3c2443-adc");
 	s3c_rtc_setname("s3c2443-rtc");
 
-	
+	/* change WDT IRQ number */
 	s3c_device_wdt.resource[1].start = IRQ_S3C2443_WDT;
 	s3c_device_wdt.resource[1].end   = IRQ_S3C2443_WDT;
 
@@ -89,6 +89,11 @@ void __init s3c2443_init_uarts(struct s3c2410_uartcfg *cfg, int no)
 	s3c24xx_init_uartdevs("s3c2440-uart", s3c2410_uart_resources, cfg, no);
 }
 
+/* s3c2443_map_io
+ *
+ * register the standard cpu IO areas, and any passed in from the
+ * machine specific initialisation.
+ */
 
 void __init s3c2443_map_io(void)
 {
@@ -98,6 +103,11 @@ void __init s3c2443_map_io(void)
 	iotable_init(s3c2443_iodesc, ARRAY_SIZE(s3c2443_iodesc));
 }
 
+/* need to register the subsystem before we actually register the device, and
+ * we also need to ensure that it has been initialised before any of the
+ * drivers even try to use it (even if not on an s3c2443 based system)
+ * as a driver which may support both 2443 and 2440 may try and use it.
+*/
 
 static int __init s3c2443_core_init(void)
 {

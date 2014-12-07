@@ -44,6 +44,7 @@
 #define PRCM_ACK_MB6_HEADER (_PRCM_MB_HEADER + 0xe)
 #define PRCM_ACK_MB7_HEADER (_PRCM_MB_HEADER + 0xf)
 
+/* Req Mailboxes */
 #define PRCM_REQ_MB0 (tcdm_base + 0xFD8)
 #define PRCM_REQ_MB1 (tcdm_base + 0xFCC)
 #define PRCM_REQ_MB2 (tcdm_base + 0xFC4)
@@ -53,6 +54,7 @@
 #define PRCM_REQ_MB6 (tcdm_base + 0xF8C)
 #define PRCM_REQ_MB7 (tcdm_base + 0xF84)
 
+/* Ack Mailboxes */
 #define PRCM_ACK_MB0 (tcdm_base + 0xF38)
 #define PRCM_ACK_MB1 (tcdm_base + 0xF30)
 #define PRCM_ACK_MB2 (tcdm_base + 0xF24)
@@ -67,25 +69,29 @@ enum mb_return_code {
 	RC_FAIL,
 };
 
+/* Mailbox 0 headers. */
 enum mb0_header {
-	
+	/* request */
 	RMB0H_PWR_STATE_TRANS = 1,
 	RMB0H_WAKE_UP_CFG,
 	RMB0H_RD_WAKE_UP_ACK,
-	
+	/* acknowledge */
 	AMB0H_WAKE_UP = 1,
 };
 
+/* Mailbox 5 headers. */
 enum mb5_header {
 	MB5H_I2C_WRITE = 1,
 	MB5H_I2C_READ,
 };
 
+/* Request mailbox 5 fields. */
 #define PRCM_REQ_MB5_I2C_SLAVE (PRCM_REQ_MB5 + 0)
 #define PRCM_REQ_MB5_I2C_REG (PRCM_REQ_MB5 + 1)
 #define PRCM_REQ_MB5_I2C_SIZE (PRCM_REQ_MB5 + 2)
 #define PRCM_REQ_MB5_I2C_DATA (PRCM_REQ_MB5 + 4)
 
+/* Acknowledge mailbox 5 fields. */
 #define PRCM_ACK_MB5_RETURN_CODE (PRCM_ACK_MB5 + 0)
 #define PRCM_ACK_MB5_I2C_DATA (PRCM_ACK_MB5 + 4)
 
@@ -93,10 +99,15 @@ enum mb5_header {
 #define MBOX_BIT BIT
 #define ALL_MBOX_BITS (MBOX_BIT(NUM_MB) - 1)
 
+/*
+* Used by MCDE to setup all necessary PRCMU registers
+*/
 #define PRCMU_RESET_DSIPLL			0x00004000
 #define PRCMU_UNCLAMP_DSIPLL			0x00400800
 
+/* HDMI CLK MGT PLLSW=001 (PLLSOC0), PLLDIV=0x8, = 50 Mhz*/
 #define PRCMU_DSI_CLOCK_SETTING			0x00000128
+/* TVCLK_MGT PLLSW=001 (PLLSOC0) PLLDIV=0x13, = 19.05 MHZ */
 #define PRCMU_DSI_LP_CLOCK_SETTING		0x00000135
 #define PRCMU_PLLDSI_FREQ_SETTING		0x00020121
 #define PRCMU_DSI_PLLOUT_SEL_SETTING		0x00000002
@@ -113,10 +124,20 @@ enum mb5_header {
 
 #define PRCMU_PLLDSI_LOCKP_LOCKED		0x3
 
+/*
+ * mb0_transfer - state needed for mailbox 0 communication.
+ * @lock:		The transaction lock.
+ */
 static struct {
 	spinlock_t lock;
 } mb0_transfer;
 
+/*
+ * mb5_transfer - state needed for mailbox 5 communication.
+ * @lock:	The transaction lock.
+ * @work:	The transaction completion structure.
+ * @ack:	Reply ("acknowledge") data.
+ */
 static struct {
 	struct mutex lock;
 	struct completion work;
@@ -127,8 +148,19 @@ static struct {
 	} ack;
 } mb5_transfer;
 
+/* PRCMU TCDM base IO address. */
 static __iomem void *tcdm_base;
 
+/**
+ * db5500_prcmu_abb_read() - Read register value(s) from the ABB.
+ * @slave:	The I2C slave address.
+ * @reg:	The (start) register address.
+ * @value:	The read out value(s).
+ * @size:	The number of registers to read.
+ *
+ * Reads register value(s) from the ABB.
+ * @size has to be <= 4.
+ */
 int db5500_prcmu_abb_read(u8 slave, u8 reg, u8 *value, u8 size)
 {
 	int r;
@@ -160,6 +192,16 @@ int db5500_prcmu_abb_read(u8 slave, u8 reg, u8 *value, u8 size)
 	return r;
 }
 
+/**
+ * db5500_prcmu_abb_write() - Write register value(s) to the ABB.
+ * @slave:	The I2C slave address.
+ * @reg:	The (start) register address.
+ * @value:	The value(s) to write.
+ * @size:	The number of registers to write.
+ *
+ * Writes register value(s) to the ABB.
+ * @size has to be <= 4.
+ */
 int db5500_prcmu_abb_write(u8 slave, u8 reg, u8 *value, u8 size)
 {
 	int r;
@@ -195,20 +237,20 @@ int db5500_prcmu_enable_dsipll(void)
 {
 	int i;
 
-	
+	/* Enable DSIPLL_RESETN resets */
 	writel(PRCMU_RESET_DSIPLL, PRCM_APE_RESETN_CLR);
-	
+	/* Unclamp DSIPLL in/out */
 	writel(PRCMU_UNCLAMP_DSIPLL, PRCM_MMIP_LS_CLAMP_CLR);
-	
+	/* Set DSI PLL FREQ */
 	writel(PRCMU_PLLDSI_FREQ_SETTING, PRCM_PLLDSI_FREQ);
 	writel(PRCMU_DSI_PLLOUT_SEL_SETTING,
 		PRCM_DSI_PLLOUT_SEL);
-	
+	/* Enable Escape clocks */
 	writel(PRCMU_ENABLE_ESCAPE_CLOCK_DIV, PRCM_DSITVCLK_DIV);
 
-	
+	/* Start DSI PLL */
 	writel(PRCMU_ENABLE_PLLDSI, PRCM_PLLDSI_ENABLE);
-	
+	/* Reset DSI PLL */
 	writel(PRCMU_DSI_RESET_SW, PRCM_DSI_SW_RESET);
 	for (i = 0; i < 10; i++) {
 		if ((readl(PRCM_PLLDSI_LOCKP) &
@@ -216,26 +258,26 @@ int db5500_prcmu_enable_dsipll(void)
 			break;
 		udelay(100);
 	}
-	
+	/* Release DSIPLL_RESETN */
 	writel(PRCMU_RESET_DSIPLL, PRCM_APE_RESETN_SET);
 	return 0;
 }
 
 int db5500_prcmu_disable_dsipll(void)
 {
-	
+	/* Disable dsi pll */
 	writel(PRCMU_DISABLE_PLLDSI, PRCM_PLLDSI_ENABLE);
-	
+	/* Disable  escapeclock */
 	writel(PRCMU_DISABLE_ESCAPE_CLOCK_DIV, PRCM_DSITVCLK_DIV);
 	return 0;
 }
 
 int db5500_prcmu_set_display_clocks(void)
 {
-	
-	
+	/* HDMI and TVCLK Should be handled somewhere else */
+	/* PLLDIV=8, PLLSW=2, CLKEN=1 */
 	writel(PRCMU_DSI_CLOCK_SETTING, PRCM_HDMICLK_MGT);
-	
+	/* PLLDIV=14, PLLSW=2, CLKEN=1 */
 	writel(PRCMU_DSI_LP_CLOCK_SETTING, PRCM_TVCLK_MGT);
 	return 0;
 }
@@ -383,6 +425,10 @@ void __init db5500_prcmu_early_init(void)
 	init_completion(&mb5_transfer.work);
 }
 
+/**
+ * prcmu_fw_init - arch init call for the Linux PRCMU fw init logic
+ *
+ */
 int __init db5500_prcmu_init(void)
 {
 	int r = 0;
@@ -390,7 +436,7 @@ int __init db5500_prcmu_init(void)
 	if (ux500_is_svp() || !cpu_is_u5500())
 		return -ENODEV;
 
-	
+	/* Clean up the mailbox interrupts after pre-kernel code. */
 	writel(ALL_MBOX_BITS, PRCM_ARM_IT1_CLR);
 
 	r = request_threaded_irq(IRQ_DB5500_PRCMU1, prcmu_irq_handler,

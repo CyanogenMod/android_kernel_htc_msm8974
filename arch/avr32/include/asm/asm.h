@@ -40,7 +40,7 @@
 	andl	\reg, ~(THREAD_SIZE - 1) & 0xffff
 	.endm
 
-	
+	/* Save and restore registers */
 	.macro	save_min sr, tmp=lr
 	pushm	lr
 	mfsr	\tmp, \sr
@@ -84,7 +84,7 @@
 	ldmts	sp++, r0,r1,r2,r3,r4,r5,r6,r7,r8,r9,r10,r11,r12,sp,lr
 	.endm
 
-	
+	/* uaccess macros */
 	.macro branch_if_kernel scratch, label
 	get_thread_info \scratch
 	ld.w	\scratch, \scratch[TI_flags]
@@ -99,4 +99,4 @@
 	retmi	\ret
 	.endm
 
-#endif 
+#endif /* __ASM_AVR32_ASM_H__ */

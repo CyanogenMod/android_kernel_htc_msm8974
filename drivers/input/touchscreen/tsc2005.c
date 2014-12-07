@@ -31,12 +31,32 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/tsc2005.h>
 
+/*
+ * The touchscreen interface operates as follows:
+ *
+ * 1) Pen is pressed against the touchscreen.
+ * 2) TSC2005 performs AD conversion.
+ * 3) After the conversion is done TSC2005 drives DAV line down.
+ * 4) GPIO IRQ is received and tsc2005_irq_thread() is scheduled.
+ * 5) tsc2005_irq_thread() queues up an spi transfer to fetch the x, y, z1, z2
+ *    values.
+ * 6) tsc2005_irq_thread() reports coordinates to input layer and sets up
+ *    tsc2005_penup_timer() to be called after TSC2005_PENUP_TIME_MS (40ms).
+ * 7) When the penup timer expires, there have not been touch or DAV interrupts
+ *    during the last 40ms which means the pen has been lifted.
+ *
+ * ESD recovery via a hardware reset is done if the TSC2005 doesn't respond
+ * after a configurable period (in ms) of activity. If esd_timeout is 0, the
+ * watchdog is disabled.
+ */
 
+/* control byte 1 */
 #define TSC2005_CMD			0x80
 #define TSC2005_CMD_NORMAL		0x00
 #define TSC2005_CMD_STOP		0x01
 #define TSC2005_CMD_12BIT		0x04
 
+/* control byte 0 */
 #define TSC2005_REG_READ		0x0001
 #define TSC2005_REG_PND0		0x0002
 #define TSC2005_REG_X			0x0000
@@ -48,6 +68,7 @@
 #define TSC2005_REG_CFR1		0x0068
 #define TSC2005_REG_CFR2		0x0070
 
+/* configuration register 0 */
 #define TSC2005_CFR0_PRECHARGE_276US	0x0040
 #define TSC2005_CFR0_STABTIME_1MS	0x0300
 #define TSC2005_CFR0_CLOCK_1MHZ		0x1000
@@ -59,11 +80,14 @@
 					 TSC2005_CFR0_PRECHARGE_276US | \
 					 TSC2005_CFR0_PENMODE)
 
+/* bits common to both read and write of configuration register 0 */
 #define	TSC2005_CFR0_RW_MASK		0x3fff
 
+/* configuration register 1 */
 #define TSC2005_CFR1_BATCHDELAY_4MS	0x0003
 #define TSC2005_CFR1_INITVALUE		TSC2005_CFR1_BATCHDELAY_4MS
 
+/* configuration register 2 */
 #define TSC2005_CFR2_MAVE_Z		0x0004
 #define TSC2005_CFR2_MAVE_Y		0x0008
 #define TSC2005_CFR2_MAVE_X		0x0010
@@ -99,7 +123,7 @@ struct tsc2005 {
 
 	struct mutex		mutex;
 
-	
+	/* raw copy of previous x,y,z */
 	int			in_x;
 	int			in_y;
 	int                     in_z1;
@@ -234,7 +258,7 @@ static irqreturn_t tsc2005_irq_thread(int irq, void *_ts)
 	u32 z1, z2;
 	int error;
 
-	
+	/* read the coordinates */
 	error = spi_sync(ts->spi, &ts->spi_read_msg);
 	if (unlikely(error))
 		goto out;
@@ -244,26 +268,34 @@ static irqreturn_t tsc2005_irq_thread(int irq, void *_ts)
 	z1 = ts->spi_z1.spi_rx;
 	z2 = ts->spi_z2.spi_rx;
 
-	
+	/* validate position */
 	if (unlikely(x > MAX_12BIT || y > MAX_12BIT))
 		goto out;
 
-	
+	/* Skip reading if the pressure components are out of range */
 	if (unlikely(z1 == 0 || z2 > MAX_12BIT || z1 >= z2))
 		goto out;
 
+       /*
+	* Skip point if this is a pen down with the exact same values as
+	* the value before pen-up - that implies SPI fed us stale data
+	*/
 	if (!ts->pen_down &&
 	    ts->in_x == x && ts->in_y == y &&
 	    ts->in_z1 == z1 && ts->in_z2 == z2) {
 		goto out;
 	}
 
+	/*
+	 * At this point we are happy we have a valid and useful reading.
+	 * Remember it for later comparisons. We may now begin downsampling.
+	 */
 	ts->in_x = x;
 	ts->in_y = y;
 	ts->in_z1 = z1;
 	ts->in_z2 = z2;
 
-	
+	/* Compute touch pressure resistance using equation #1 */
 	pressure = x * (z2 - z1) / z1;
 	pressure = pressure * ts->x_plate_ohm / 4096;
 	if (unlikely(pressure > MAX_12BIT))
@@ -305,6 +337,7 @@ static void tsc2005_stop_scan(struct tsc2005 *ts)
 	tsc2005_cmd(ts, TSC2005_CMD_STOP);
 }
 
+/* must be called with ts->mutex held */
 static void __tsc2005_disable(struct tsc2005 *ts)
 {
 	tsc2005_stop_scan(ts);
@@ -317,6 +350,7 @@ static void __tsc2005_disable(struct tsc2005 *ts)
 	enable_irq(ts->spi->irq);
 }
 
+/* must be called with ts->mutex held */
 static void __tsc2005_enable(struct tsc2005 *ts)
 {
 	tsc2005_start_scan(ts);
@@ -344,6 +378,9 @@ static ssize_t tsc2005_selftest_show(struct device *dev,
 
 	mutex_lock(&ts->mutex);
 
+	/*
+	 * Test TSC2005 communications via temp high register.
+	 */
 	__tsc2005_disable(ts);
 
 	error = tsc2005_read(ts, TSC2005_REG_TEMP_HIGH, &temp_high_orig);
@@ -376,15 +413,15 @@ static ssize_t tsc2005_selftest_show(struct device *dev,
 		success = false;
 	}
 
-	
+	/* hardware reset */
 	ts->set_reset(false);
-	usleep_range(100, 500); 
+	usleep_range(100, 500); /* only 10us required */
 	ts->set_reset(true);
 
 	if (!success)
 		goto out;
 
-	
+	/* test that the reset really happened */
 	error = tsc2005_read(ts, TSC2005_REG_TEMP_HIGH, &temp_high);
 	if (error) {
 		dev_warn(dev, "selftest failed: read error %d after reset\n",
@@ -441,6 +478,11 @@ static void tsc2005_esd_work(struct work_struct *work)
 	u16 r;
 
 	if (!mutex_trylock(&ts->mutex)) {
+		/*
+		 * If the mutex is taken, it means that disable or enable is in
+		 * progress. In that case just reschedule the work. If the work
+		 * is not needed, it will be canceled by disable.
+		 */
 		goto reschedule;
 	}
 
@@ -448,13 +490,18 @@ static void tsc2005_esd_work(struct work_struct *work)
 				  msecs_to_jiffies(ts->esd_timeout)))
 		goto out;
 
-	
+	/* We should be able to read register without disabling interrupts. */
 	error = tsc2005_read(ts, TSC2005_REG_CFR0, &r);
 	if (!error &&
 	    !((r ^ TSC2005_CFR0_INITVALUE) & TSC2005_CFR0_RW_MASK)) {
 		goto out;
 	}
 
+	/*
+	 * If we could not read our known value from configuration register 0
+	 * then we should reset the controller as if from power-up and start
+	 * scanning again.
+	 */
 	dev_info(&ts->spi->dev, "TSC2005 not responding - resetting\n");
 
 	disable_irq(ts->spi->irq);
@@ -463,7 +510,7 @@ static void tsc2005_esd_work(struct work_struct *work)
 	tsc2005_update_pen_state(ts, 0, 0, 0);
 
 	ts->set_reset(false);
-	usleep_range(100, 500); 
+	usleep_range(100, 500); /* only 10us required */
 	ts->set_reset(true);
 
 	enable_irq(ts->spi->irq);
@@ -472,7 +519,7 @@ static void tsc2005_esd_work(struct work_struct *work)
 out:
 	mutex_unlock(&ts->mutex);
 reschedule:
-	
+	/* re-arm the watchdog */
 	schedule_delayed_work(&ts->esd_work,
 			      round_jiffies_relative(
 					msecs_to_jiffies(ts->esd_timeout)));
@@ -599,7 +646,7 @@ static int __devinit tsc2005_probe(struct spi_device *spi)
 
 	input_set_drvdata(input_dev, ts);
 
-	
+	/* Ensure the touchscreen is off */
 	tsc2005_stop_scan(ts);
 
 	error = request_threaded_irq(spi->irq, NULL, tsc2005_irq_thread,

@@ -1,3 +1,6 @@
+/*
+ * Intel AGPGART routines.
+ */
 
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -63,6 +66,8 @@ static int intel_815_fetch_size(void)
 {
 	u8 temp;
 
+	/* Intel 815 chipsets have a _weird_ APSIZE register with only
+	 * one non-reserved bit, so mask the others out ... */
 	pci_read_config_byte(agp_bridge->dev, INTEL_APSIZE, &temp);
 	temp &= (1 << 3);
 
@@ -118,24 +123,24 @@ static int intel_configure(void)
 
 	current_size = A_SIZE_16(agp_bridge->current_size);
 
-	
+	/* aperture size */
 	pci_write_config_word(agp_bridge->dev, INTEL_APSIZE, current_size->size_value);
 
-	
+	/* address to map to */
 	pci_read_config_dword(agp_bridge->dev, AGP_APBASE, &temp);
 	agp_bridge->gart_bus_addr = (temp & PCI_BASE_ADDRESS_MEM_MASK);
 
-	
+	/* attbase - aperture base */
 	pci_write_config_dword(agp_bridge->dev, INTEL_ATTBASE, agp_bridge->gatt_bus_addr);
 
-	
+	/* agpctrl */
 	pci_write_config_dword(agp_bridge->dev, INTEL_AGPCTRL, 0x2280);
 
-	
+	/* paccfg/nbxcfg */
 	pci_read_config_word(agp_bridge->dev, INTEL_NBXCFG, &temp2);
 	pci_write_config_word(agp_bridge->dev, INTEL_NBXCFG,
 			(temp2 & ~(1 << 10)) | (1 << 9));
-	
+	/* clear any possible error conditions */
 	pci_write_config_byte(agp_bridge->dev, INTEL_ERRSTS + 1, 7);
 	return 0;
 }
@@ -146,7 +151,9 @@ static int intel_815_configure(void)
 	u8 temp2;
 	struct aper_size_info_8 *current_size;
 
-	
+	/* attbase - aperture base */
+	/* the Intel 815 chipset spec. says that bits 29-31 in the
+	* ATTBASE register are reserved -> try not to write them */
 	if (agp_bridge->gatt_bus_addr & INTEL_815_ATTBASE_MASK) {
 		dev_emerg(&agp_bridge->dev->dev, "gatt bus addr too high");
 		return -EINVAL;
@@ -154,11 +161,11 @@ static int intel_815_configure(void)
 
 	current_size = A_SIZE_8(agp_bridge->current_size);
 
-	
+	/* aperture size */
 	pci_write_config_byte(agp_bridge->dev, INTEL_APSIZE,
 			current_size->size_value);
 
-	
+	/* address to map to */
 	pci_read_config_dword(agp_bridge->dev, AGP_APBASE, &temp);
 	agp_bridge->gart_bus_addr = (temp & PCI_BASE_ADDRESS_MEM_MASK);
 
@@ -167,15 +174,15 @@ static int intel_815_configure(void)
 	addr |= agp_bridge->gatt_bus_addr;
 	pci_write_config_dword(agp_bridge->dev, INTEL_ATTBASE, addr);
 
-	
+	/* agpctrl */
 	pci_write_config_dword(agp_bridge->dev, INTEL_AGPCTRL, 0x0000);
 
-	
+	/* apcont */
 	pci_read_config_byte(agp_bridge->dev, INTEL_815_APCONT, &temp2);
 	pci_write_config_byte(agp_bridge->dev, INTEL_815_APCONT, temp2 | (1 << 1));
 
-	
-	
+	/* clear any possible error conditions */
+	/* Oddness : this chipset seems to have no ERRSTS register ! */
 	return 0;
 }
 
@@ -206,25 +213,25 @@ static int intel_820_configure(void)
 
 	current_size = A_SIZE_8(agp_bridge->current_size);
 
-	
+	/* aperture size */
 	pci_write_config_byte(agp_bridge->dev, INTEL_APSIZE, current_size->size_value);
 
-	
+	/* address to map to */
 	pci_read_config_dword(agp_bridge->dev, AGP_APBASE, &temp);
 	agp_bridge->gart_bus_addr = (temp & PCI_BASE_ADDRESS_MEM_MASK);
 
-	
+	/* attbase - aperture base */
 	pci_write_config_dword(agp_bridge->dev, INTEL_ATTBASE, agp_bridge->gatt_bus_addr);
 
-	
+	/* agpctrl */
 	pci_write_config_dword(agp_bridge->dev, INTEL_AGPCTRL, 0x0000);
 
-	
-	
-	
+	/* global enable aperture access */
+	/* This flag is not accessed through MCHCFG register as in */
+	/* i850 chipset. */
 	pci_read_config_byte(agp_bridge->dev, INTEL_I820_RDCR, &temp2);
 	pci_write_config_byte(agp_bridge->dev, INTEL_I820_RDCR, temp2 | (1 << 1));
-	
+	/* clear any possible AGP-related error conditions */
 	pci_write_config_word(agp_bridge->dev, INTEL_I820_ERRSTS, 0x001c);
 	return 0;
 }
@@ -237,23 +244,23 @@ static int intel_840_configure(void)
 
 	current_size = A_SIZE_8(agp_bridge->current_size);
 
-	
+	/* aperture size */
 	pci_write_config_byte(agp_bridge->dev, INTEL_APSIZE, current_size->size_value);
 
-	
+	/* address to map to */
 	pci_read_config_dword(agp_bridge->dev, AGP_APBASE, &temp);
 	agp_bridge->gart_bus_addr = (temp & PCI_BASE_ADDRESS_MEM_MASK);
 
-	
+	/* attbase - aperture base */
 	pci_write_config_dword(agp_bridge->dev, INTEL_ATTBASE, agp_bridge->gatt_bus_addr);
 
-	
+	/* agpctrl */
 	pci_write_config_dword(agp_bridge->dev, INTEL_AGPCTRL, 0x0000);
 
-	
+	/* mcgcfg */
 	pci_read_config_word(agp_bridge->dev, INTEL_I840_MCHCFG, &temp2);
 	pci_write_config_word(agp_bridge->dev, INTEL_I840_MCHCFG, temp2 | (1 << 9));
-	
+	/* clear any possible error conditions */
 	pci_write_config_word(agp_bridge->dev, INTEL_I840_ERRSTS, 0xc000);
 	return 0;
 }
@@ -266,29 +273,29 @@ static int intel_845_configure(void)
 
 	current_size = A_SIZE_8(agp_bridge->current_size);
 
-	
+	/* aperture size */
 	pci_write_config_byte(agp_bridge->dev, INTEL_APSIZE, current_size->size_value);
 
 	if (agp_bridge->apbase_config != 0) {
 		pci_write_config_dword(agp_bridge->dev, AGP_APBASE,
 				       agp_bridge->apbase_config);
 	} else {
-		
+		/* address to map to */
 		pci_read_config_dword(agp_bridge->dev, AGP_APBASE, &temp);
 		agp_bridge->gart_bus_addr = (temp & PCI_BASE_ADDRESS_MEM_MASK);
 		agp_bridge->apbase_config = temp;
 	}
 
-	
+	/* attbase - aperture base */
 	pci_write_config_dword(agp_bridge->dev, INTEL_ATTBASE, agp_bridge->gatt_bus_addr);
 
-	
+	/* agpctrl */
 	pci_write_config_dword(agp_bridge->dev, INTEL_AGPCTRL, 0x0000);
 
-	
+	/* agpm */
 	pci_read_config_byte(agp_bridge->dev, INTEL_I845_AGPM, &temp2);
 	pci_write_config_byte(agp_bridge->dev, INTEL_I845_AGPM, temp2 | (1 << 1));
-	
+	/* clear any possible error conditions */
 	pci_write_config_word(agp_bridge->dev, INTEL_I845_ERRSTS, 0x001c);
 	return 0;
 }
@@ -301,23 +308,23 @@ static int intel_850_configure(void)
 
 	current_size = A_SIZE_8(agp_bridge->current_size);
 
-	
+	/* aperture size */
 	pci_write_config_byte(agp_bridge->dev, INTEL_APSIZE, current_size->size_value);
 
-	
+	/* address to map to */
 	pci_read_config_dword(agp_bridge->dev, AGP_APBASE, &temp);
 	agp_bridge->gart_bus_addr = (temp & PCI_BASE_ADDRESS_MEM_MASK);
 
-	
+	/* attbase - aperture base */
 	pci_write_config_dword(agp_bridge->dev, INTEL_ATTBASE, agp_bridge->gatt_bus_addr);
 
-	
+	/* agpctrl */
 	pci_write_config_dword(agp_bridge->dev, INTEL_AGPCTRL, 0x0000);
 
-	
+	/* mcgcfg */
 	pci_read_config_word(agp_bridge->dev, INTEL_I850_MCHCFG, &temp2);
 	pci_write_config_word(agp_bridge->dev, INTEL_I850_MCHCFG, temp2 | (1 << 9));
-	
+	/* clear any possible AGP-related error conditions */
 	pci_write_config_word(agp_bridge->dev, INTEL_I850_ERRSTS, 0x001c);
 	return 0;
 }
@@ -330,23 +337,23 @@ static int intel_860_configure(void)
 
 	current_size = A_SIZE_8(agp_bridge->current_size);
 
-	
+	/* aperture size */
 	pci_write_config_byte(agp_bridge->dev, INTEL_APSIZE, current_size->size_value);
 
-	
+	/* address to map to */
 	pci_read_config_dword(agp_bridge->dev, AGP_APBASE, &temp);
 	agp_bridge->gart_bus_addr = (temp & PCI_BASE_ADDRESS_MEM_MASK);
 
-	
+	/* attbase - aperture base */
 	pci_write_config_dword(agp_bridge->dev, INTEL_ATTBASE, agp_bridge->gatt_bus_addr);
 
-	
+	/* agpctrl */
 	pci_write_config_dword(agp_bridge->dev, INTEL_AGPCTRL, 0x0000);
 
-	
+	/* mcgcfg */
 	pci_read_config_word(agp_bridge->dev, INTEL_I860_MCHCFG, &temp2);
 	pci_write_config_word(agp_bridge->dev, INTEL_I860_MCHCFG, temp2 | (1 << 9));
-	
+	/* clear any possible AGP-related error conditions */
 	pci_write_config_word(agp_bridge->dev, INTEL_I860_ERRSTS, 0xf700);
 	return 0;
 }
@@ -359,23 +366,23 @@ static int intel_830mp_configure(void)
 
 	current_size = A_SIZE_8(agp_bridge->current_size);
 
-	
+	/* aperture size */
 	pci_write_config_byte(agp_bridge->dev, INTEL_APSIZE, current_size->size_value);
 
-	
+	/* address to map to */
 	pci_read_config_dword(agp_bridge->dev, AGP_APBASE, &temp);
 	agp_bridge->gart_bus_addr = (temp & PCI_BASE_ADDRESS_MEM_MASK);
 
-	
+	/* attbase - aperture base */
 	pci_write_config_dword(agp_bridge->dev, INTEL_ATTBASE, agp_bridge->gatt_bus_addr);
 
-	
+	/* agpctrl */
 	pci_write_config_dword(agp_bridge->dev, INTEL_AGPCTRL, 0x0000);
 
-	
+	/* gmch */
 	pci_read_config_word(agp_bridge->dev, INTEL_NBXCFG, &temp2);
 	pci_write_config_word(agp_bridge->dev, INTEL_NBXCFG, temp2 | (1 << 9));
-	
+	/* clear any possible AGP-related error conditions */
 	pci_write_config_word(agp_bridge->dev, INTEL_I830_ERRSTS, 0x1c);
 	return 0;
 }
@@ -388,26 +395,27 @@ static int intel_7505_configure(void)
 
 	current_size = A_SIZE_8(agp_bridge->current_size);
 
-	
+	/* aperture size */
 	pci_write_config_byte(agp_bridge->dev, INTEL_APSIZE, current_size->size_value);
 
-	
+	/* address to map to */
 	pci_read_config_dword(agp_bridge->dev, AGP_APBASE, &temp);
 	agp_bridge->gart_bus_addr = (temp & PCI_BASE_ADDRESS_MEM_MASK);
 
-	
+	/* attbase - aperture base */
 	pci_write_config_dword(agp_bridge->dev, INTEL_ATTBASE, agp_bridge->gatt_bus_addr);
 
-	
+	/* agpctrl */
 	pci_write_config_dword(agp_bridge->dev, INTEL_AGPCTRL, 0x0000);
 
-	
+	/* mchcfg */
 	pci_read_config_word(agp_bridge->dev, INTEL_I7505_MCHCFG, &temp2);
 	pci_write_config_word(agp_bridge->dev, INTEL_I7505_MCHCFG, temp2 | (1 << 9));
 
 	return 0;
 }
 
+/* Setup function */
 static const struct gatt_mask intel_generic_masks[] =
 {
 	{.mask = 0x00000017, .type = 0}
@@ -692,6 +700,10 @@ static const struct agp_bridge_driver intel_7505_driver = {
 	.agp_type_to_mask_type  = agp_generic_type_to_mask_type,
 };
 
+/* Table to describe Intel GMCH and AGP/PCIE GART drivers.  At least one of
+ * driver and gmch_driver must be non-null, and find_gmch will determine
+ * which one should be used if a gmch_chip_id is present.
+ */
 static const struct intel_agp_driver_description {
 	unsigned int chip_id;
 	char *name;
@@ -739,6 +751,9 @@ static int __devinit agp_intel_probe(struct pci_dev *pdev,
 		goto found_gmch;
 
 	for (i = 0; intel_agp_chipsets[i].name != NULL; i++) {
+		/* In case that multiple models of gfx chip may
+		   stand on same host bridge type, this can be
+		   sure we detect the right IGD. */
 		if (pdev->device == intel_agp_chipsets[i].chip_id) {
 			bridge->driver = intel_agp_chipsets[i].driver;
 			break;
@@ -758,6 +773,16 @@ static int __devinit agp_intel_probe(struct pci_dev *pdev,
 
 	dev_info(&pdev->dev, "Intel %s Chipset\n", intel_agp_chipsets[i].name);
 
+	/*
+	* The following fixes the case where the BIOS has "forgotten" to
+	* provide an address range for the GART.
+	* 20030610 - hamish@zot.org
+	* This happens before pci_enable_device() intentionally;
+	* calling pci_enable_device() before assigning the resource
+	* will result in the GART being disabled on machines with such
+	* BIOSs (the GART ends up with a BAR starting at 0, which
+	* conflicts a lot of other devices).
+	*/
 	r = &pdev->resource[0];
 	if (!r->start && r->end) {
 		if (pci_assign_resource(pdev, 0)) {
@@ -767,13 +792,18 @@ static int __devinit agp_intel_probe(struct pci_dev *pdev,
 		}
 	}
 
+	/*
+	* If the device has not been properly setup, the following will catch
+	* the problem and should stop the system from crashing.
+	* 20030610 - hamish@zot.org
+	*/
 	if (pci_enable_device(pdev)) {
 		dev_err(&pdev->dev, "can't enable PCI device\n");
 		agp_put_bridge(bridge);
 		return -ENODEV;
 	}
 
-	
+	/* Fill in the mode register */
 	if (cap_ptr) {
 		pci_read_config_dword(pdev,
 				bridge->capndx+PCI_AGP_STATUS,
@@ -820,7 +850,7 @@ static struct pci_device_id agp_intel_pci_table[] = {
 	.subvendor	= PCI_ANY_ID,			\
 	.subdevice	= PCI_ANY_ID,			\
 	}
-	ID(PCI_DEVICE_ID_INTEL_82441), 
+	ID(PCI_DEVICE_ID_INTEL_82441), /* for HAS2 support */
 	ID(PCI_DEVICE_ID_INTEL_82443LX_0),
 	ID(PCI_DEVICE_ID_INTEL_82443BX_0),
 	ID(PCI_DEVICE_ID_INTEL_82443GX_0),

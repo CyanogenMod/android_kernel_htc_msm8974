@@ -166,8 +166,8 @@ struct wpan_phy *wpan_phy_alloc(size_t priv_size)
 
 	phy->dev.class = &wpan_phy_class;
 
-	phy->current_channel = -1; 
-	phy->current_page = 0; 
+	phy->current_channel = -1; /* not initialised */
+	phy->current_page = 0; /* for compatibility */
 
 	return phy;
 

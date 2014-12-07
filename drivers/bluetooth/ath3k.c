@@ -57,33 +57,35 @@ struct ath3k_version {
 };
 
 static struct usb_device_id ath3k_table[] = {
-	
+	/* Atheros AR3011 */
 	{ USB_DEVICE(0x0CF3, 0x3000) },
 
-	
+	/* Atheros AR3011 with sflash firmware*/
 	{ USB_DEVICE(0x0CF3, 0x3002) },
 
-	
+	/* Atheros AR9285 Malbec with sflash firmware */
 	{ USB_DEVICE(0x03F0, 0x311D) },
 
-	
+	/* Atheros AR3012 with sflash firmware*/
 	{ USB_DEVICE(0x0CF3, 0x3004) },
 
-	
+	/* Atheros AR5BBU12 with sflash firmware */
 	{ USB_DEVICE(0x0489, 0xE02C) },
 
-	{ }	
+	{ }	/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, ath3k_table);
 
 #define BTUSB_ATH3012		0x80
+/* This table is to load patch and sysconfig files
+ * for AR3012 */
 static struct usb_device_id ath3k_blist_tbl[] = {
 
-	
+	/* Atheros AR3012 with sflash firmware*/
 	{ USB_DEVICE(0x0cf3, 0x3004), .driver_info = BTUSB_ATH3012 },
 
-	{ }	
+	{ }	/* Terminating entry */
 };
 
 #define USB_REQ_DFU_DNLOAD	1
@@ -362,7 +364,7 @@ static int ath3k_probe(struct usb_interface *intf,
 	if (intf->cur_altsetting->desc.bInterfaceNumber != 0)
 		return -ENODEV;
 
-	
+	/* match device ID in ath3k blacklist table */
 	if (!id->driver_info) {
 		const struct usb_device_id *match;
 		match = usb_match_id(intf, ath3k_blist_tbl);
@@ -370,10 +372,10 @@ static int ath3k_probe(struct usb_interface *intf,
 			id = match;
 	}
 
-	
+	/* load patch and sysconfig files for AR3012 */
 	if (id->driver_info & BTUSB_ATH3012) {
 
-		
+		/* New firmware with patch and sysconfig files already loaded */
 		if (le16_to_cpu(udev->descriptor.bcdDevice) > 0x0001)
 			return -ENODEV;
 

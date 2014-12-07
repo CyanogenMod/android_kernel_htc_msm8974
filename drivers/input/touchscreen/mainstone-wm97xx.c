@@ -38,10 +38,10 @@
 #include <asm/mach-types.h>
 
 struct continuous {
-	u16 id;    
-	u8 code;   
-	u8 reads;  
-	u32 speed; 
+	u16 id;    /* codec id */
+	u8 code;   /* continuous code */
+	u8 reads;  /* number of coord reads per read cycle */
+	u32 speed; /* number of coords per second */
 };
 
 #define WM_READS(sp) ((sp / HZ) + 1)
@@ -61,27 +61,48 @@ static const struct continuous cinfo[] = {
 	{WM9713_ID2, 3, WM_READS(188), 188},
 };
 
+/* continuous speed index */
 static int sp_idx;
 static u16 last, tries;
 static int irq;
 
+/*
+ * Pen sampling frequency (Hz) in continuous mode.
+ */
 static int cont_rate = 200;
 module_param(cont_rate, int, 0);
 MODULE_PARM_DESC(cont_rate, "Sampling rate in continuous mode (Hz)");
 
+/*
+ * Pen down detection.
+ *
+ * This driver can either poll or use an interrupt to indicate a pen down
+ * event. If the irq request fails then it will fall back to polling mode.
+ */
 static int pen_int;
 module_param(pen_int, int, 0);
 MODULE_PARM_DESC(pen_int, "Pen down detection (1 = interrupt, 0 = polling)");
 
+/*
+ * Pressure readback.
+ *
+ * Set to 1 to read back pen down pressure
+ */
 static int pressure;
 module_param(pressure, int, 0);
 MODULE_PARM_DESC(pressure, "Pressure readback (1 = pressure, 0 = no pressure)");
 
+/*
+ * AC97 touch data slot.
+ *
+ * Touch screen readback data ac97 slot
+ */
 static int ac97_touch_slot = 5;
 module_param(ac97_touch_slot, int, 0);
 MODULE_PARM_DESC(ac97_touch_slot, "Touch screen data slot AC97 number");
 
 
+/* flush AC97 slot 5 FIFO on pxa machines */
 #ifdef CONFIG_PXA27x
 static void wm97xx_acc_pen_up(struct wm97xx *wm)
 {
@@ -107,6 +128,11 @@ static int wm97xx_acc_pen_down(struct wm97xx *wm)
 	u16 x, y, p = 0x100 | WM97XX_ADCSEL_PRES;
 	int reads = 0;
 
+	/* When the AC97 queue has been drained we need to allow time
+	 * to buffer up samples otherwise we end up spinning polling
+	 * for samples.  The controller can't have a suitably low
+	 * threshold set to use the notifications it gives.
+	 */
 	schedule_timeout_uninterruptible(1);
 
 	if (tries > 5) {
@@ -130,13 +156,13 @@ static int wm97xx_acc_pen_down(struct wm97xx *wm)
 		dev_dbg(wm->dev, "Raw coordinates: x=%x, y=%x, p=%x\n",
 			x, y, p);
 
-		
+		/* are samples valid */
 		if ((x & WM97XX_ADCSEL_MASK) != WM97XX_ADCSEL_X ||
 		    (y & WM97XX_ADCSEL_MASK) != WM97XX_ADCSEL_Y ||
 		    (p & WM97XX_ADCSEL_MASK) != WM97XX_ADCSEL_PRES)
 			goto up;
 
-		
+		/* coordinate is good */
 		tries = 0;
 		input_report_abs(wm->input_dev, ABS_X, x & 0xfff);
 		input_report_abs(wm->input_dev, ABS_Y, y & 0xfff);
@@ -153,11 +179,11 @@ static int wm97xx_acc_startup(struct wm97xx *wm)
 {
 	int idx = 0, ret = 0;
 
-	
+	/* check we have a codec */
 	if (wm->ac97 == NULL)
 		return -ENODEV;
 
-	
+	/* Go you big red fire engine */
 	for (idx = 0; idx < ARRAY_SIZE(cinfo); idx++) {
 		if (wm->id != cinfo[idx].id)
 			continue;
@@ -171,10 +197,12 @@ static int wm97xx_acc_startup(struct wm97xx *wm)
 		 "mainstone accelerated touchscreen driver, %d samples/sec\n",
 		 cinfo[sp_idx].speed);
 
-	
+	/* IRQ driven touchscreen is used on Palm hardware */
 	if (machine_is_palmt5() || machine_is_palmtx() || machine_is_palmld()) {
 		pen_int = 1;
 		irq = 27;
+		/* There is some obscure mutant of WM9712 interbred with WM9713
+		 * used on Palm HW */
 		wm->variant = WM97xx_WM1613;
 	} else if (machine_is_mainstone() && pen_int)
 		irq = 4;
@@ -192,17 +220,17 @@ static int wm97xx_acc_startup(struct wm97xx *wm)
 
 		wm->pen_irq = gpio_to_irq(irq);
 		irq_set_irq_type(wm->pen_irq, IRQ_TYPE_EDGE_BOTH);
-	} else 
+	} else /* pen irq not supported */
 		pen_int = 0;
 
-	
+	/* codec specific irq config */
 	if (pen_int) {
 		switch (wm->id) {
 		case WM9705_ID2:
 			break;
 		case WM9712_ID2:
 		case WM9713_ID2:
-			
+			/* use PEN_DOWN GPIO 13 to assert IRQ on GPIO line 2 */
 			wm97xx_config_gpio(wm, WM97XX_GPIO_13, WM97XX_GPIO_IN,
 					   WM97XX_GPIO_POL_HIGH,
 					   WM97XX_GPIO_STICKY,
@@ -226,7 +254,7 @@ out:
 
 static void wm97xx_acc_shutdown(struct wm97xx *wm)
 {
-	
+	/* codec specific deconfig */
 	if (pen_int) {
 		if (irq)
 			gpio_free(irq);
@@ -276,6 +304,7 @@ static struct platform_driver mainstone_wm97xx_driver = {
 };
 module_platform_driver(mainstone_wm97xx_driver);
 
+/* Module information */
 MODULE_AUTHOR("Liam Girdwood <lrg@slimlogic.co.uk>");
 MODULE_DESCRIPTION("wm97xx continuous touch driver for mainstone");
 MODULE_LICENSE("GPL");

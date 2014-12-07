@@ -19,6 +19,8 @@
 #include <linux/bcd.h>
 #include <linux/rtc.h>
 
+/* Register map */
+/* control section */
 #define RV3029C2_ONOFF_CTRL		0x00
 #define RV3029C2_IRQ_CTRL		0x01
 #define RV3029C2_IRQ_CTRL_AIE		(1 << 0)
@@ -33,17 +35,19 @@
 #define RV3029C2_RST_CTRL		0x04
 #define RV3029C2_CONTROL_SECTION_LEN	0x05
 
+/* watch section */
 #define RV3029C2_W_SEC			0x08
 #define RV3029C2_W_MINUTES		0x09
 #define RV3029C2_W_HOURS		0x0A
-#define RV3029C2_REG_HR_12_24		(1<<6)  
-#define RV3029C2_REG_HR_PM		(1<<5)  
+#define RV3029C2_REG_HR_12_24		(1<<6)  /* 24h/12h mode */
+#define RV3029C2_REG_HR_PM		(1<<5)  /* PM/AM bit in 12h mode */
 #define RV3029C2_W_DATE			0x0B
 #define RV3029C2_W_DAYS			0x0C
 #define RV3029C2_W_MONTHS		0x0D
 #define RV3029C2_W_YEARS		0x0E
 #define RV3029C2_WATCH_SECTION_LEN	0x07
 
+/* alarm section */
 #define RV3029C2_A_SC			0x10
 #define RV3029C2_A_MN			0x11
 #define RV3029C2_A_HR			0x12
@@ -53,23 +57,28 @@
 #define RV3029C2_A_YR			0x16
 #define RV3029C2_ALARM_SECTION_LEN	0x07
 
+/* timer section */
 #define RV3029C2_TIMER_LOW		0x18
 #define RV3029C2_TIMER_HIGH		0x19
 
+/* temperature section */
 #define RV3029C2_TEMP_PAGE		0x20
 
+/* eeprom data section */
 #define RV3029C2_E2P_EEDATA1		0x28
 #define RV3029C2_E2P_EEDATA2		0x29
 
+/* eeprom control section */
 #define RV3029C2_CONTROL_E2P_EECTRL	0x30
-#define RV3029C2_TRICKLE_1K		(1<<0)  
-#define RV3029C2_TRICKLE_5K		(1<<1)  
-#define RV3029C2_TRICKLE_20K		(1<<2)  
-#define RV3029C2_TRICKLE_80K		(1<<3)  
+#define RV3029C2_TRICKLE_1K		(1<<0)  /*  1K resistance */
+#define RV3029C2_TRICKLE_5K		(1<<1)  /*  5K resistance */
+#define RV3029C2_TRICKLE_20K		(1<<2)  /* 20K resistance */
+#define RV3029C2_TRICKLE_80K		(1<<3)  /* 80K resistance */
 #define RV3029C2_CONTROL_E2P_XTALOFFSET	0x31
 #define RV3029C2_CONTROL_E2P_QCOEF	0x32
 #define RV3029C2_CONTROL_E2P_TURNOVER	0x33
 
+/* user ram section */
 #define RV3029C2_USR1_RAM_PAGE		0x38
 #define RV3029C2_USR1_SECTION_LEN	0x04
 #define RV3029C2_USR2_RAM_PAGE		0x3C
@@ -153,15 +162,15 @@ rv3029c2_i2c_read_time(struct i2c_client *client, struct rtc_time *tm)
 	tm->tm_sec = bcd2bin(regs[RV3029C2_W_SEC-RV3029C2_W_SEC]);
 	tm->tm_min = bcd2bin(regs[RV3029C2_W_MINUTES-RV3029C2_W_SEC]);
 
-	
+	/* HR field has a more complex interpretation */
 	{
 		const u8 _hr = regs[RV3029C2_W_HOURS-RV3029C2_W_SEC];
 		if (_hr & RV3029C2_REG_HR_12_24) {
-			
+			/* 12h format */
 			tm->tm_hour = bcd2bin(_hr & 0x1f);
-			if (_hr & RV3029C2_REG_HR_PM)	
+			if (_hr & RV3029C2_REG_HR_PM)	/* PM flag set */
 				tm->tm_hour += 12;
-		} else 
+		} else /* 24h format */
 			tm->tm_hour = bcd2bin(_hr & 0x3f);
 	}
 
@@ -223,7 +232,7 @@ static int rv3029c2_rtc_i2c_alarm_set_irq(struct i2c_client *client,
 	int ret;
 	u8 buf[1];
 
-	
+	/* enable AIE irq */
 	ret = rv3029c2_i2c_read_regs(client, RV3029C2_IRQ_CTRL,	buf, 1);
 	if (ret < 0) {
 		dev_err(&client->dev, "can't read INT reg\n");
@@ -250,6 +259,11 @@ static int rv3029c2_rtc_i2c_set_alarm(struct i2c_client *client,
 	int ret;
 	u8 regs[8];
 
+	/*
+	 * The clock has an 8 bit wide bcd-coded register (they never learn)
+	 * for the year. tm_year is an offset from 1900 and we are interested
+	 * in the 2000-2099 range, so any value less than 100 is invalid.
+	*/
 	if (tm->tm_year < 100)
 		return -EINVAL;
 
@@ -274,7 +288,7 @@ static int rv3029c2_rtc_i2c_set_alarm(struct i2c_client *client,
 	if (alarm->enabled) {
 		u8 buf[1];
 
-		
+		/* clear AF flag */
 		ret = rv3029c2_i2c_read_regs(client, RV3029C2_IRQ_FLAGS,
 						buf, 1);
 		if (ret < 0) {
@@ -288,14 +302,14 @@ static int rv3029c2_rtc_i2c_set_alarm(struct i2c_client *client,
 			dev_err(&client->dev, "can't set alarm flag\n");
 			return ret;
 		}
-		
+		/* enable AIE irq */
 		ret = rv3029c2_rtc_i2c_alarm_set_irq(client, 1);
 		if (ret)
 			return ret;
 
 		dev_dbg(&client->dev, "alarm IRQ armed\n");
 	} else {
-		
+		/* disable AIE irq */
 		ret = rv3029c2_rtc_i2c_alarm_set_irq(client, 1);
 		if (ret)
 			return ret;
@@ -317,6 +331,11 @@ rv3029c2_i2c_set_time(struct i2c_client *client, struct rtc_time const *tm)
 	u8 regs[8];
 	int ret;
 
+	/*
+	 * The clock has an 8 bit wide bcd-coded register (they never learn)
+	 * for the year. tm_year is an offset from 1900 and we are interested
+	 * in the 2000-2099 range, so any value less than 100 is invalid.
+	*/
 	if (tm->tm_year < 100)
 		return -EINVAL;
 
@@ -338,7 +357,7 @@ rv3029c2_i2c_set_time(struct i2c_client *client, struct rtc_time const *tm)
 		dev_err(&client->dev, "%s: reading SR failed\n", __func__);
 		return ret;
 	}
-	
+	/* clear PON bit */
 	ret = rv3029c2_i2c_set_sr(client, (regs[0] & ~RV3029C2_STATUS_PON));
 	if (ret < 0) {
 		dev_err(&client->dev, "%s: reading SR failed\n", __func__);

@@ -49,13 +49,13 @@ DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 		if (debug) printk(KERN_DEBUG args); \
 	} while (0)
 
-#define IF_FREQUENCYx6 217    
+#define IF_FREQUENCYx6 217    /* 6 * 36.16666666667MHz */
 
 static void dvb_bt8xx_task(unsigned long data)
 {
 	struct dvb_bt8xx_card *card = (struct dvb_bt8xx_card *)data;
 
-	
+	//printk("%d ", card->bt->finished_block);
 
 	while (card->bt->last_block != card->bt->finished_block) {
 		(card->bt->TS_Size ? dvb_dmx_swfilter_204 : dvb_dmx_swfilter)
@@ -122,7 +122,7 @@ static struct bt878 __devinit *dvb_bt8xx_878_match(unsigned int bttv_nr, struct 
 {
 	unsigned int card_nr;
 
-	
+	/* Hmm, n squared. Hope n is small */
 	for (card_nr = 0; card_nr < bt878_num; card_nr++)
 		if (is_pci_slot_eq(bt878[card_nr].dev, bttv_pci_dev))
 			return &bt878[card_nr];
@@ -206,21 +206,25 @@ static int cx24108_tuner_set_params(struct dvb_frontend *fe)
 		0x00102000,0x00104000,0x00108000,0x00110000,
 		0x00120000,0x00140000};
 
-	#define XTAL 1011100 
+	#define XTAL 1011100 /* Hz, really 1.0111 MHz and a /10 prescaler */
 	dprintk("cx24108 debug: entering SetTunerFreq, freq=%d\n", freq);
 
-	
+	/* This is really the bit driving the tuner chip cx24108 */
 
 	if (freq<950000)
-		freq = 950000; 
+		freq = 950000; /* kHz */
 	else if (freq>2150000)
-		freq = 2150000; 
+		freq = 2150000; /* satellite IF is 950..2150MHz */
 
-	
+	/* decide which VCO to use for the input frequency */
 	for(i = 1; (i < ARRAY_SIZE(osci) - 1) && (osci[i] < freq); i++);
 	dprintk("cx24108 debug: select vco #%d (f=%d)\n", i, freq);
 	band=bandsel[i];
-	
+	/* the gain values must be set by SetSymbolrate */
+	/* compute the pll divider needed, from Conexant data sheet,
+	   resolved for (n*32+a), remember f(vco) is f(receive) *2 or *4,
+	   depending on the divider bit. It is set to /4 on the 2 lowest
+	   bands  */
 	n=((i<=2?2:1)*freq*10L)/(XTAL/100);
 	a=n%32; n/=32; if(a==0) n--;
 	pump=(freq<(osci[i-1]+osci[i])/2);
@@ -228,12 +232,16 @@ static int cx24108_tuner_set_params(struct dvb_frontend *fe)
 	    ((pump?1:2)<<(14+11))|
 	    ((n&0x1ff)<<(5+11))|
 	    ((a&0x1f)<<11);
+	/* everything is shifted left 11 bits to left-align the bits in the
+	   32bit word. Output to the tuner goes MSB-aligned, after all */
 	dprintk("cx24108 debug: pump=%d, n=%d, a=%d\n", pump, n, a);
 	cx24110_pll_write(fe,band);
+	/* set vga and vca to their widest-band settings, as a precaution.
+	   SetSymbolrate might not be called to set this up */
 	cx24110_pll_write(fe,0x500c0000);
 	cx24110_pll_write(fe,0x83f1f800);
 	cx24110_pll_write(fe,pll);
-	
+	//writereg(client,0x56,0x7f);
 
 	return 0;
 }
@@ -242,8 +250,8 @@ static int pinnsat_tuner_init(struct dvb_frontend* fe)
 {
 	struct dvb_bt8xx_card *card = fe->dvb->priv;
 
-	bttv_gpio_enable(card->bttv_nr, 1, 1);  
-	bttv_write_gpio(card->bttv_nr, 1, 1);   
+	bttv_gpio_enable(card->bttv_nr, 1, 1);  /* output */
+	bttv_write_gpio(card->bttv_nr, 1, 1);   /* relay on */
 
 	return 0;
 }
@@ -252,7 +260,7 @@ static int pinnsat_tuner_sleep(struct dvb_frontend* fe)
 {
 	struct dvb_bt8xx_card *card = fe->dvb->priv;
 
-	bttv_write_gpio(card->bttv_nr, 1, 0);   
+	bttv_write_gpio(card->bttv_nr, 1, 0);   /* relay off */
 
 	return 0;
 }
@@ -414,7 +422,7 @@ static int or51211_request_firmware(struct dvb_frontend* fe, const struct firmwa
 static void or51211_setmode(struct dvb_frontend * fe, int mode)
 {
 	struct dvb_bt8xx_card *bt = fe->dvb->priv;
-	bttv_write_gpio(bt->bttv_nr, 0x0002, mode);   
+	bttv_write_gpio(bt->bttv_nr, 0x0002, mode);   /* Reset */
 	msleep(20);
 }
 
@@ -422,15 +430,24 @@ static void or51211_reset(struct dvb_frontend * fe)
 {
 	struct dvb_bt8xx_card *bt = fe->dvb->priv;
 
-	
+	/* RESET DEVICE
+	 * reset is controlled by GPIO-0
+	 * when set to 0 causes reset and when to 1 for normal op
+	 * must remain reset for 128 clock cycles on a 50Mhz clock
+	 * also PRM1 PRM2 & PRM4 are controlled by GPIO-1,GPIO-2 & GPIO-4
+	 * We assume that the reset has be held low long enough or we
+	 * have been reset by a power on.  When the driver is unloaded
+	 * reset set to 0 so if reloaded we have been reset.
+	 */
+	/* reset & PRM1,2&4 are outputs */
 	int ret = bttv_gpio_enable(bt->bttv_nr, 0x001F, 0x001F);
 	if (ret != 0)
 		printk(KERN_WARNING "or51211: Init Error - Can't Reset DVR (%i)\n", ret);
-	bttv_write_gpio(bt->bttv_nr, 0x001F, 0x0000);   
+	bttv_write_gpio(bt->bttv_nr, 0x001F, 0x0000);   /* Reset */
 	msleep(20);
-	
+	/* Now set for normal operation */
 	bttv_write_gpio(bt->bttv_nr, 0x0001F, 0x0001);
-	
+	/* wait for operation to begin */
 	msleep(500);
 }
 
@@ -533,17 +550,23 @@ static int digitv_alps_tded4_tuner_calc_regs(struct dvb_frontend *fe,  u8 *pllbu
 
 static void digitv_alps_tded4_reset(struct dvb_bt8xx_card *bt)
 {
+	/*
+	 * Reset the frontend, must be called before trying
+	 * to initialise the MT352 or mt352_attach
+	 * will fail. Same goes for the nxt6000 frontend.
+	 *
+	 */
 
 	int ret = bttv_gpio_enable(bt->bttv_nr, 0x08, 0x08);
 	if (ret != 0)
 		printk(KERN_WARNING "digitv_alps_tded4: Init Error - Can't Reset DVR (%i)\n", ret);
 
-	
-	bttv_write_gpio(bt->bttv_nr, 0x08, 0x08); 
-	bttv_write_gpio(bt->bttv_nr, 0x08, 0x00); 
+	/* Pulse the reset line */
+	bttv_write_gpio(bt->bttv_nr, 0x08, 0x08); /* High */
+	bttv_write_gpio(bt->bttv_nr, 0x08, 0x00); /* Low  */
 	msleep(100);
 
-	bttv_write_gpio(bt->bttv_nr, 0x08, 0x08); 
+	bttv_write_gpio(bt->bttv_nr, 0x08, 0x08); /* High */
 }
 
 static struct mt352_config digitv_alps_tded4_config = {
@@ -554,19 +577,19 @@ static struct mt352_config digitv_alps_tded4_config = {
 static struct lgdt330x_config tdvs_tua6034_config = {
 	.demod_address    = 0x0e,
 	.demod_chip       = LGDT3303,
-	.serial_mpeg      = 0x40, 
+	.serial_mpeg      = 0x40, /* TPSERIAL for 3303 in TOP_CONTROL */
 };
 
 static void lgdt330x_reset(struct dvb_bt8xx_card *bt)
 {
-	
+	/* Set pin 27 of the lgdt3303 chip high to reset the frontend */
 
-	
-	bttv_write_gpio(bt->bttv_nr, 0x00e00007, 0x00000001); 
-	bttv_write_gpio(bt->bttv_nr, 0x00e00007, 0x00000000); 
+	/* Pulse the reset line */
+	bttv_write_gpio(bt->bttv_nr, 0x00e00007, 0x00000001); /* High */
+	bttv_write_gpio(bt->bttv_nr, 0x00e00007, 0x00000000); /* Low  */
 	msleep(100);
 
-	bttv_write_gpio(bt->bttv_nr, 0x00e00007, 0x00000001); 
+	bttv_write_gpio(bt->bttv_nr, 0x00e00007, 0x00000001); /* High */
 	msleep(100);
 }
 
@@ -601,8 +624,12 @@ static void frontend_init(struct dvb_bt8xx_card *card, u32 type)
 		break;
 
 	case BTTV_BOARD_NEBULA_DIGITV:
+		/*
+		 * It is possible to determine the correct frontend using the I2C bus (see the Nebula SDK);
+		 * this would be a cleaner solution than trying each frontend in turn.
+		 */
 
-		
+		/* Old Nebula (marked (c)2003 on high profile pci card) has nxt6000 demod */
 		digitv_alps_tded4_reset(card);
 		card->fe = dvb_attach(nxt6000_attach, &vp3021_alps_tded4_config, card->i2c_adapter);
 		if (card->fe != NULL) {
@@ -611,7 +638,7 @@ static void frontend_init(struct dvb_bt8xx_card *card, u32 type)
 			break;
 		}
 
-		
+		/* New Nebula (marked (c)2005 on low profile pci card) has mt352 demod */
 		digitv_alps_tded4_reset(card);
 		card->fe = dvb_attach(mt352_attach, &digitv_alps_tded4_config, card->i2c_adapter);
 
@@ -638,24 +665,24 @@ static void frontend_init(struct dvb_bt8xx_card *card, u32 type)
 		break;
 
 	case BTTV_BOARD_TWINHAN_DST:
-		
+		/*	DST is not a frontend driver !!!		*/
 		state = kmalloc(sizeof (struct dst_state), GFP_KERNEL);
 		if (!state) {
 			pr_err("No memory\n");
 			break;
 		}
-		
+		/*	Setup the Card					*/
 		state->config = &dst_config;
 		state->i2c = card->i2c_adapter;
 		state->bt = card->bt;
 		state->dst_ca = NULL;
-		
+		/*	DST is not a frontend, attaching the ASIC	*/
 		if (dvb_attach(dst_attach, state, &card->dvb_adapter) == NULL) {
 			pr_err("%s: Could not find a Twinhan DST\n", __func__);
 			break;
 		}
-		
-		
+		/*	Attach other DST peripherals if any		*/
+		/*	Conditional Access device			*/
 		card->fe = &state->frontend;
 		if (state->dst_hw_cap & DST_TYPE_HAS_CA)
 			dvb_attach(dst_ca_attach, state, &card->dvb_adapter);
@@ -801,6 +828,8 @@ static int __devinit dvb_bt8xx_probe(struct bttv_sub_device *sub)
 	switch(sub->core->type) {
 	case BTTV_BOARD_PINNACLESAT:
 		card->gpio_mode = 0x0400c060;
+		/* should be: BT878_A_GAIN=0,BT878_A_PWRDN,BT878_DA_DPM,BT878_DA_SBR,
+			      BT878_DA_IOM=1,BT878_DA_APP to enable serial highspeed mode. */
 		card->op_sync_orin = BT878_RISC_SYNC_MASK;
 		card->irq_err_ignore = BT878_AFBUS | BT878_AFDSR;
 		break;
@@ -809,6 +838,9 @@ static int __devinit dvb_bt8xx_probe(struct bttv_sub_device *sub)
 		card->gpio_mode = 0x0400C060;
 		card->op_sync_orin = BT878_RISC_SYNC_MASK;
 		card->irq_err_ignore = BT878_AFBUS | BT878_AFDSR;
+		/* 26, 15, 14, 6, 5
+		 * A_PWRDN  DA_DPM DA_SBR DA_IOM_DA
+		 * DA_APP(parallel) */
 		break;
 
 	case BTTV_BOARD_DVICO_FUSIONHDTV_5_LITE:
@@ -822,14 +854,14 @@ static int __devinit dvb_bt8xx_probe(struct bttv_sub_device *sub)
 		card->gpio_mode = (1 << 26) | (1 << 14) | (1 << 5);
 		card->op_sync_orin = BT878_RISC_SYNC_MASK;
 		card->irq_err_ignore = BT878_AFBUS | BT878_AFDSR;
-		
+		/* A_PWRDN DA_SBR DA_APP (high speed serial) */
 		break;
 
-	case BTTV_BOARD_AVDVBT_771: 
+	case BTTV_BOARD_AVDVBT_771: //case 0x07711461:
 		card->gpio_mode = 0x0400402B;
 		card->op_sync_orin = BT878_RISC_SYNC_MASK;
 		card->irq_err_ignore = BT878_AFBUS | BT878_AFDSR;
-		
+		/* A_PWRDN DA_SBR  DA_APP[0] PKTP=10 RISC_ENABLE FIFO_ENABLE*/
 		break;
 
 	case BTTV_BOARD_TWINHAN_DST:
@@ -837,6 +869,17 @@ static int __devinit dvb_bt8xx_probe(struct bttv_sub_device *sub)
 		card->op_sync_orin = BT878_RISC_SYNC_MASK;
 		card->irq_err_ignore = BT878_APABORT | BT878_ARIPERR |
 				       BT878_APPERR | BT878_AFBUS;
+		/* 25,21,14,11,10,9,8,3,2 then
+		 * 0x33 = 5,4,1,0
+		 * A_SEL=SML, DA_MLB, DA_SBR,
+		 * DA_SDR=f, fifo trigger = 32 DWORDS
+		 * IOM = 0 == audio A/D
+		 * DPM = 0 == digital audio mode
+		 * == async data parallel port
+		 * then 0x33 (13 is set by start_capture)
+		 * DA_APP = async data parallel port,
+		 * ACAP_EN = 1,
+		 * RISC+FIFO ENABLE */
 		break;
 
 	case BTTV_BOARD_PC_HDTV:
@@ -907,6 +950,11 @@ static struct bttv_sub_driver driver = {
 	},
 	.probe		= dvb_bt8xx_probe,
 	.remove		= dvb_bt8xx_remove,
+	/* FIXME:
+	 * .shutdown	= dvb_bt8xx_shutdown,
+	 * .suspend	= dvb_bt8xx_suspend,
+	 * .resume	= dvb_bt8xx_resume,
+	 */
 };
 
 static int __init dvb_bt8xx_init(void)

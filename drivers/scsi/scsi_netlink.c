@@ -46,6 +46,7 @@ struct scsi_nl_transport {
 	int flags;
 };
 
+/* flags values (bit flags) */
 #define HANDLER_DELETING		0x1
 
 static struct scsi_nl_transport transports[SCSI_NL_MAX_TRANSPORTS] =
@@ -66,6 +67,15 @@ struct scsi_nl_drvr {
 
 
 
+/**
+ * scsi_nl_rcv_msg - Receive message handler.
+ * @skb:		socket receive buffer
+ *
+ * Description: Extracts message from a receive buffer.
+ *    Validates message header and calls appropriate transport message handler
+ *
+ *
+ **/
 static void
 scsi_nl_rcv_msg(struct sk_buff *skb)
 {
@@ -113,6 +123,9 @@ scsi_nl_rcv_msg(struct sk_buff *skb)
 			goto next_msg;
 		}
 
+		/*
+		 * Deliver message to the appropriate transport
+		 */
 		spin_lock_irqsave(&scsi_nl_lock, flags);
 
 		tport = hdr->transport;
@@ -138,6 +151,13 @@ next_msg:
 }
 
 
+/**
+ * scsi_nl_rcv_event - Event handler for a netlink socket.
+ * @this:		event notifier block
+ * @event:		event type
+ * @ptr:		event payload
+ *
+ **/
 static int
 scsi_nl_rcv_event(struct notifier_block *this, unsigned long event, void *ptr)
 {
@@ -152,6 +172,9 @@ scsi_nl_rcv_event(struct notifier_block *this, unsigned long event, void *ptr)
 	spin_lock_irqsave(&scsi_nl_lock, flags);
 	scsi_nl_state |= STATE_EHANDLER_BSY;
 
+	/*
+	 * Pass event on to any transports that may be listening
+	 */
 	for (tport = 0; tport < SCSI_NL_MAX_TRANSPORTS; tport++) {
 		if (!(transports[tport].flags & HANDLER_DELETING) &&
 		    (transports[tport].event_handler)) {
@@ -161,6 +184,9 @@ scsi_nl_rcv_event(struct notifier_block *this, unsigned long event, void *ptr)
 		}
 	}
 
+	/*
+	 * Pass event on to any drivers that may be listening
+	 */
 	list_for_each_entry(driver, &scsi_nl_drivers, next) {
 		if (!(driver->flags & HANDLER_DELETING) &&
 		    (driver->devt_handler)) {
@@ -181,7 +207,14 @@ static struct notifier_block scsi_netlink_notifier = {
 };
 
 
+/*
+ * GENERIC SCSI transport receive and event handlers
+ */
 
+/**
+ * scsi_generic_msg_handler - receive message handler for GENERIC transport messages
+ * @skb:		socket receive buffer
+ **/
 static int
 scsi_generic_msg_handler(struct sk_buff *skb)
 {
@@ -199,7 +232,7 @@ scsi_generic_msg_handler(struct sk_buff *skb)
 		{
 		struct scsi_nl_host_vendor_msg *msg = NLMSG_DATA(nlh);
 
-		
+		/* Locate the driver that corresponds to the message */
 		spin_lock_irqsave(&scsi_nl_lock, flags);
 		match = 0;
 		list_for_each_entry(driver, &scsi_nl_drivers, next) {
@@ -225,29 +258,29 @@ scsi_generic_msg_handler(struct sk_buff *skb)
 		spin_unlock_irqrestore(&scsi_nl_lock, flags);
 
 
-		
+		/* if successful, scsi_host_lookup takes a shost reference */
 		shost = scsi_host_lookup(msg->host_no);
 		if (!shost) {
 			err = -ENODEV;
 			goto driver_exit;
 		}
 
-		
+		/* is this host owned by the vendor ? */
 		if (shost->hostt != driver->hostt) {
 			err = -EINVAL;
 			goto vendormsg_put;
 		}
 
-		
+		/* pass message on to the driver */
 		err = driver->dmsg_handler(shost, (void *)&msg[1],
 					 msg->vmsg_datalen, pid);
 
 vendormsg_put:
-		
+		/* release reference by scsi_host_lookup */
 		scsi_host_put(shost);
 
 driver_exit:
-		
+		/* release our own reference on the registration object */
 		spin_lock_irqsave(&scsi_nl_lock, flags);
 		driver->refcnt--;
 		spin_unlock_irqrestore(&scsi_nl_lock, flags);
@@ -267,6 +300,15 @@ rcv_exit:
 }
 
 
+/**
+ * scsi_nl_add_transport -
+ *    Registers message and event handlers for a transport. Enables
+ *    receipt of netlink messages and events to a transport.
+ *
+ * @tport:		transport registering handlers
+ * @msg_handler:	receive message handler callback
+ * @event_handler:	receive event handler callback
+ **/
 int
 scsi_nl_add_transport(u8 tport,
 	int (*msg_handler)(struct sk_buff *),
@@ -304,6 +346,13 @@ register_out:
 EXPORT_SYMBOL_GPL(scsi_nl_add_transport);
 
 
+/**
+ * scsi_nl_remove_transport -
+ *    Disable transport receiption of messages and events
+ *
+ * @tport:		transport deregistering handlers
+ *
+ **/
 void
 scsi_nl_remove_transport(u8 tport)
 {
@@ -336,6 +385,20 @@ scsi_nl_remove_transport(u8 tport)
 EXPORT_SYMBOL_GPL(scsi_nl_remove_transport);
 
 
+/**
+ * scsi_nl_add_driver -
+ *    A driver is registering its interfaces for SCSI netlink messages
+ *
+ * @vendor_id:          A unique identification value for the driver.
+ * @hostt:		address of the driver's host template. Used
+ *			to verify an shost is bound to the driver
+ * @nlmsg_handler:	receive message handler callback
+ * @nlevt_handler:	receive event handler callback
+ *
+ * Returns:
+ *   0 on Success
+ *   error result otherwise
+ **/
 int
 scsi_nl_add_driver(u64 vendor_id, struct scsi_host_template *hostt,
 	int (*nlmsg_handler)(struct Scsi_Host *shost, void *payload,
@@ -371,6 +434,12 @@ scsi_nl_add_driver(u64 vendor_id, struct scsi_host_template *hostt,
 EXPORT_SYMBOL_GPL(scsi_nl_add_driver);
 
 
+/**
+ * scsi_nl_remove_driver -
+ *    An driver is unregistering with the SCSI netlink messages
+ *
+ * @vendor_id:          The unique identification value for the driver.
+ **/
 void
 scsi_nl_remove_driver(u64 vendor_id)
 {
@@ -408,6 +477,11 @@ scsi_nl_remove_driver(u64 vendor_id)
 EXPORT_SYMBOL_GPL(scsi_nl_remove_driver);
 
 
+/**
+ * scsi_netlink_init - Called by SCSI subsystem to initialize
+ * 	the SCSI transport netlink interface
+ *
+ **/
 void
 scsi_netlink_init(void)
 {
@@ -432,7 +506,7 @@ scsi_netlink_init(void)
 		return;
 	}
 
-	
+	/* Register the entry points for the generic SCSI transport */
 	error = scsi_nl_add_transport(SCSI_NL_TRANSPORT,
 				scsi_generic_msg_handler, NULL);
 	if (error)
@@ -442,6 +516,10 @@ scsi_netlink_init(void)
 }
 
 
+/**
+ * scsi_netlink_exit - Called by SCSI subsystem to disable the SCSI transport netlink interface
+ *
+ **/
 void
 scsi_netlink_exit(void)
 {
@@ -456,7 +534,19 @@ scsi_netlink_exit(void)
 }
 
 
+/*
+ * Exported Interfaces
+ */
 
+/**
+ * scsi_nl_send_transport_msg -
+ *    Generic function to send a single message from a SCSI transport to
+ *    a single process
+ *
+ * @pid:		receiving pid
+ * @hdr:		message payload
+ *
+ **/
 void
 scsi_nl_send_transport_msg(u32 pid, struct scsi_nl_hdr *hdr)
 {
@@ -495,7 +585,7 @@ scsi_nl_send_transport_msg(u32 pid, struct scsi_nl_hdr *hdr)
 	err = nlmsg_unicast(scsi_nl_sock, skb, pid);
 	if (err < 0) {
 		fn = "nlmsg_unicast";
-		
+		/* nlmsg_unicast already kfree_skb'd */
 		goto msg_fail;
 	}
 
@@ -514,6 +604,23 @@ msg_fail:
 EXPORT_SYMBOL_GPL(scsi_nl_send_transport_msg);
 
 
+/**
+ * scsi_nl_send_vendor_msg - called to send a shost vendor unique message
+ *                      to a specific process id.
+ *
+ * @pid:		process id of the receiver
+ * @host_no:		host # sending the message
+ * @vendor_id:		unique identifier for the driver's vendor
+ * @data_len:		amount, in bytes, of vendor unique payload data
+ * @data_buf:		pointer to vendor unique data buffer
+ *
+ * Returns:
+ *   0 on successful return
+ *   otherwise, failing error code
+ *
+ * Notes:
+ *	This routine assumes no locks are held on entry.
+ */
 int
 scsi_nl_send_vendor_msg(u32 pid, unsigned short host_no, u64 vendor_id,
 			 char *data_buf, u32 data_len)
@@ -550,12 +657,12 @@ scsi_nl_send_vendor_msg(u32 pid, unsigned short host_no, u64 vendor_id,
 				SCSI_NL_SHOST_VENDOR, len);
 	msg->vendor_id = vendor_id;
 	msg->host_no = host_no;
-	msg->vmsg_datalen = data_len;	
+	msg->vmsg_datalen = data_len;	/* bytes */
 	memcpy(&msg[1], data_buf, data_len);
 
 	err = nlmsg_unicast(scsi_nl_sock, skb, pid);
 	if (err)
-		
+		/* nlmsg_multicast already kfree_skb'd */
 		goto send_vendor_fail;
 
 	return 0;

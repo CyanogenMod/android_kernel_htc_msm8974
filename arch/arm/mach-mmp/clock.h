@@ -18,9 +18,9 @@ struct clkops {
 struct clk {
 	const struct clkops	*ops;
 
-	void __iomem	*clk_rst;	
-	int		fnclksel;	
-	uint32_t	enable_val;	
+	void __iomem	*clk_rst;	/* clock reset control register */
+	int		fnclksel;	/* functional clock select (APBC) */
+	uint32_t	enable_val;	/* value for clock enable (APMU) */
 	unsigned long	rate;
 	int		enabled;
 };

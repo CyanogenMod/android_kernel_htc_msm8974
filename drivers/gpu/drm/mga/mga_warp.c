@@ -43,7 +43,7 @@
 MODULE_FIRMWARE(FIRMWARE_G200);
 MODULE_FIRMWARE(FIRMWARE_G400);
 
-#define MGA_WARP_CODE_ALIGN		256	
+#define MGA_WARP_CODE_ALIGN		256	/* in bytes */
 
 #define WARP_UCODE_SIZE(size)		ALIGN(size, MGA_WARP_CODE_ALIGN)
 
@@ -138,6 +138,8 @@ int mga_warp_init(drm_mga_private_t *dev_priv)
 {
 	u32 wmisc;
 
+	/* FIXME: Get rid of these damned magic numbers...
+	 */
 	switch (dev_priv->chipset) {
 	case MGA_CARD_TYPE_G400:
 	case MGA_CARD_TYPE_G550:

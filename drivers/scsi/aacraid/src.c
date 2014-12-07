@@ -55,12 +55,12 @@ static irqreturn_t aac_src_intr_message(int irq, void *dev_id)
 	bellbits = src_readl(dev, MUnit.ODR_R);
 	if (bellbits & PmDoorBellResponseSent) {
 		bellbits = PmDoorBellResponseSent;
-		
+		/* handle async. status */
 		our_interrupt = 1;
 		index = dev->host_rrq_idx;
 		if (dev->host_rrq[index] == 0) {
 			u32 old_index = index;
-			
+			/* adjust index */
 			do {
 				index++;
 				if (index == dev->scsi_host_ptr->can_queue +
@@ -73,9 +73,9 @@ static irqreturn_t aac_src_intr_message(int irq, void *dev_id)
 		}
 		for (;;) {
 			isFastResponse = 0;
-			
+			/* remove toggle bit (31) */
 			handle = (dev->host_rrq[index] & 0x7fffffff);
-			
+			/* check fast response bit (30) */
 			if (handle & 0x40000000)
 				isFastResponse = 1;
 			handle &= 0x0000ffff;
@@ -94,7 +94,7 @@ static irqreturn_t aac_src_intr_message(int irq, void *dev_id)
 		bellbits_shifted = (bellbits >> SRC_ODR_SHIFT);
 		if (bellbits_shifted & DoorBellAifPending) {
 			our_interrupt = 1;
-			
+			/* handle AIF */
 			aac_intr_normal(dev, 0, 2, 0, NULL);
 		} else if (bellbits_shifted & OUTBOUNDDOORBELL_0) {
 			unsigned long sflags;
@@ -138,18 +138,36 @@ static irqreturn_t aac_src_intr_message(int irq, void *dev_id)
 	return IRQ_NONE;
 }
 
+/**
+ *	aac_src_disable_interrupt	-	Disable interrupts
+ *	@dev: Adapter
+ */
 
 static void aac_src_disable_interrupt(struct aac_dev *dev)
 {
 	src_writel(dev, MUnit.OIMR, dev->OIMR = 0xffffffff);
 }
 
+/**
+ *	aac_src_enable_interrupt_message	-	Enable interrupts
+ *	@dev: Adapter
+ */
 
 static void aac_src_enable_interrupt_message(struct aac_dev *dev)
 {
 	src_writel(dev, MUnit.OIMR, dev->OIMR = 0xfffffff8);
 }
 
+/**
+ *	src_sync_cmd	-	send a command and wait
+ *	@dev: Adapter
+ *	@command: Command to execute
+ *	@p1: first parameter
+ *	@ret: adapter status
+ *
+ *	This routine will send a synchronous command to the adapter and wait
+ *	for its	completion.
+ */
 
 static int src_sync_cmd(struct aac_dev *dev, u32 command,
 	u32 p1, u32 p2, u32 p3, u32 p4, u32 p5, u32 p6,
@@ -158,37 +176,74 @@ static int src_sync_cmd(struct aac_dev *dev, u32 command,
 	unsigned long start;
 	int ok;
 
+	/*
+	 *	Write the command into Mailbox 0
+	 */
 	writel(command, &dev->IndexRegs->Mailbox[0]);
+	/*
+	 *	Write the parameters into Mailboxes 1 - 6
+	 */
 	writel(p1, &dev->IndexRegs->Mailbox[1]);
 	writel(p2, &dev->IndexRegs->Mailbox[2]);
 	writel(p3, &dev->IndexRegs->Mailbox[3]);
 	writel(p4, &dev->IndexRegs->Mailbox[4]);
 
+	/*
+	 *	Clear the synch command doorbell to start on a clean slate.
+	 */
 	src_writel(dev, MUnit.ODR_C, OUTBOUNDDOORBELL_0 << SRC_ODR_SHIFT);
 
+	/*
+	 *	Disable doorbell interrupts
+	 */
 	src_writel(dev, MUnit.OIMR, dev->OIMR = 0xffffffff);
 
+	/*
+	 *	Force the completion of the mask register write before issuing
+	 *	the interrupt.
+	 */
 	src_readl(dev, MUnit.OIMR);
 
+	/*
+	 *	Signal that there is a new synch command
+	 */
 	src_writel(dev, MUnit.IDR, INBOUNDDOORBELL_0 << SRC_IDR_SHIFT);
 
 	if (!dev->sync_mode || command != SEND_SYNCHRONOUS_FIB) {
 		ok = 0;
 		start = jiffies;
 
+		/*
+		 *	Wait up to 5 minutes
+		 */
 		while (time_before(jiffies, start+300*HZ)) {
-			udelay(5);	
+			udelay(5);	/* Delay 5 microseconds to let Mon960 get info. */
+			/*
+			 *	Mon960 will set doorbell0 bit when it has completed the command.
+			 */
 			if ((src_readl(dev, MUnit.ODR_R) >> SRC_ODR_SHIFT) & OUTBOUNDDOORBELL_0) {
+				/*
+				 *	Clear the doorbell.
+				 */
 				src_writel(dev, MUnit.ODR_C, OUTBOUNDDOORBELL_0 << SRC_ODR_SHIFT);
 				ok = 1;
 				break;
 			}
+			/*
+			 *	Yield the processor in case we are slow
+			 */
 			msleep(1);
 		}
 		if (unlikely(ok != 1)) {
+			/*
+			 *	Restore interrupt mask even though we timed out
+			 */
 			aac_adapter_enable_int(dev);
 			return -ETIMEDOUT;
 		}
+		/*
+		 *	Pull the synch status from Mailbox 0.
+		 */
 		if (status)
 			*status = readl(&dev->IndexRegs->Mailbox[0]);
 		if (r1)
@@ -200,13 +255,25 @@ static int src_sync_cmd(struct aac_dev *dev, u32 command,
 		if (r4)
 			*r4 = readl(&dev->IndexRegs->Mailbox[4]);
 
+		/*
+		 *	Clear the synch command doorbell.
+		 */
 		src_writel(dev, MUnit.ODR_C, OUTBOUNDDOORBELL_0 << SRC_ODR_SHIFT);
 	}
 
+	/*
+	 *	Restore interrupt mask
+	 */
 	aac_adapter_enable_int(dev);
 	return 0;
 }
 
+/**
+ *	aac_src_interrupt_adapter	-	interrupt adapter
+ *	@dev: Adapter
+ *
+ *	Send an interrupt to the i960 and breakpoint it.
+ */
 
 static void aac_src_interrupt_adapter(struct aac_dev *dev)
 {
@@ -215,6 +282,14 @@ static void aac_src_interrupt_adapter(struct aac_dev *dev)
 		NULL, NULL, NULL, NULL, NULL);
 }
 
+/**
+ *	aac_src_notify_adapter		-	send an event to the adapter
+ *	@dev: Adapter
+ *	@event: Event to send
+ *
+ *	Notify the i960 that something it probably cares about has
+ *	happened.
+ */
 
 static void aac_src_notify_adapter(struct aac_dev *dev, u32 event)
 {
@@ -250,6 +325,12 @@ static void aac_src_notify_adapter(struct aac_dev *dev, u32 event)
 	}
 }
 
+/**
+ *	aac_src_start_adapter		-	activate adapter
+ *	@dev:	Adapter
+ *
+ *	Start up processing on an i960 based AAC adapter
+ */
 
 static void aac_src_start_adapter(struct aac_dev *dev)
 {
@@ -258,25 +339,50 @@ static void aac_src_start_adapter(struct aac_dev *dev)
 	init = dev->init;
 	init->HostElapsedSeconds = cpu_to_le32(get_seconds());
 
-	
+	/* We can only use a 32 bit address here */
 	src_sync_cmd(dev, INIT_STRUCT_BASE_ADDRESS, (u32)(ulong)dev->init_pa,
 	  0, 0, 0, 0, 0, NULL, NULL, NULL, NULL, NULL);
 }
 
+/**
+ *	aac_src_check_health
+ *	@dev: device to check if healthy
+ *
+ *	Will attempt to determine if the specified adapter is alive and
+ *	capable of handling requests, returning 0 if alive.
+ */
 static int aac_src_check_health(struct aac_dev *dev)
 {
 	u32 status = src_readl(dev, MUnit.OMR);
 
+	/*
+	 *	Check to see if the board failed any self tests.
+	 */
 	if (unlikely(status & SELF_TEST_FAILED))
 		return -1;
 
+	/*
+	 *	Check to see if the board panic'd.
+	 */
 	if (unlikely(status & KERNEL_PANIC))
 		return (status >> 16) & 0xFF;
+	/*
+	 *	Wait for the adapter to be up and running.
+	 */
 	if (unlikely(!(status & KERNEL_UP_AND_RUNNING)))
 		return -3;
+	/*
+	 *	Everything is OK
+	 */
 	return 0;
 }
 
+/**
+ *	aac_src_deliver_message
+ *	@fib: fib to issue
+ *
+ *	Will send a fib, returning 0 if successful.
+ */
 static int aac_src_deliver_message(struct fib *fib)
 {
 	struct aac_dev *dev = fib->dev;
@@ -290,13 +396,13 @@ static int aac_src_deliver_message(struct fib *fib)
 	q->numpending++;
 	spin_unlock_irqrestore(q->lock, qflags);
 
-	
+	/* Calculate the amount to the fibsize bits */
 	fibsize = (sizeof(struct aac_fib_xporthdr) +
 		fib->hw_fib_va->header.Size + 127) / 128 - 1;
 	if (fibsize > (ALIGN32 - 1))
 		fibsize = ALIGN32 - 1;
 
-    
+    /* Fill XPORT header */
 	pFibX = (struct aac_fib_xporthdr *)
 		((unsigned char *)fib->hw_fib_va -
 		sizeof(struct aac_fib_xporthdr));
@@ -310,6 +416,11 @@ static int aac_src_deliver_message(struct fib *fib)
 	return 0;
 }
 
+/**
+ *	aac_src_ioremap
+ *	@size: mapping resize request
+ *
+ */
 static int aac_src_ioremap(struct aac_dev *dev, u32 size)
 {
 	if (!size) {
@@ -334,6 +445,11 @@ static int aac_src_ioremap(struct aac_dev *dev, u32 size)
 	return 0;
 }
 
+/**
+ *  aac_srcv_ioremap
+ *	@size: mapping resize request
+ *
+ */
 static int aac_srcv_ioremap(struct aac_dev *dev, u32 size)
 {
 	if (!size) {
@@ -364,7 +480,7 @@ static int aac_src_restart_adapter(struct aac_dev *dev, int bled)
 		if (dev->supplement_adapter_info.SupportedOptions2 &
 			AAC_OPTION_DOORBELL_RESET) {
 			src_writel(dev, MUnit.IDR, reset_mask);
-			msleep(5000); 
+			msleep(5000); /* Delay 5 seconds */
 		}
 	}
 
@@ -377,6 +493,11 @@ static int aac_src_restart_adapter(struct aac_dev *dev, int bled)
 	return 0;
 }
 
+/**
+ *	aac_src_select_comm	-	Select communications method
+ *	@dev: Adapter
+ *	@comm: communications method
+ */
 int aac_src_select_comm(struct aac_dev *dev, int comm)
 {
 	switch (comm) {
@@ -391,6 +512,11 @@ int aac_src_select_comm(struct aac_dev *dev, int comm)
 	return 0;
 }
 
+/**
+ *  aac_src_init	-	initialize an Cardinal Frey Bar card
+ *  @dev: device to configure
+ *
+ */
 
 int aac_src_init(struct aac_dev *dev)
 {
@@ -409,30 +535,42 @@ int aac_src_init(struct aac_dev *dev)
 		goto error_iounmap;
 	}
 
-	
+	/* Failure to reset here is an option ... */
 	dev->a_ops.adapter_sync_cmd = src_sync_cmd;
 	dev->a_ops.adapter_enable_int = aac_src_disable_interrupt;
 	if ((aac_reset_devices || reset_devices) &&
 		!aac_src_restart_adapter(dev, 0))
 		++restart;
+	/*
+	 *	Check to see if the board panic'd while booting.
+	 */
 	status = src_readl(dev, MUnit.OMR);
 	if (status & KERNEL_PANIC) {
 		if (aac_src_restart_adapter(dev, aac_src_check_health(dev)))
 			goto error_iounmap;
 		++restart;
 	}
+	/*
+	 *	Check to see if the board failed any self tests.
+	 */
 	status = src_readl(dev, MUnit.OMR);
 	if (status & SELF_TEST_FAILED) {
 		printk(KERN_ERR "%s%d: adapter self-test failed.\n",
 			dev->name, instance);
 		goto error_iounmap;
 	}
+	/*
+	 *	Check to see if the monitor panic'd while booting.
+	 */
 	if (status & MONITOR_PANIC) {
 		printk(KERN_ERR "%s%d: adapter monitor panic.\n",
 			dev->name, instance);
 		goto error_iounmap;
 	}
 	start = jiffies;
+	/*
+	 *	Wait for the adapter to be up and running. Wait up to 3 minutes
+	 */
 	while (!((status = src_readl(dev, MUnit.OMR)) &
 		KERNEL_UP_AND_RUNNING)) {
 		if ((restart &&
@@ -457,6 +595,9 @@ int aac_src_init(struct aac_dev *dev)
 	}
 	if (restart && aac_commit)
 		aac_commit = 1;
+	/*
+	 *	Fill in the common function dispatch table.
+	 */
 	dev->a_ops.adapter_interrupt = aac_src_interrupt_adapter;
 	dev->a_ops.adapter_disable_int = aac_src_disable_interrupt;
 	dev->a_ops.adapter_notify = aac_src_notify_adapter;
@@ -464,6 +605,10 @@ int aac_src_init(struct aac_dev *dev)
 	dev->a_ops.adapter_check_health = aac_src_check_health;
 	dev->a_ops.adapter_restart = aac_src_restart_adapter;
 
+	/*
+	 *	First clear out all interrupts.  Then enable the one's that we
+	 *	can handle.
+	 */
 	aac_adapter_comm(dev, AAC_COMM_MESSAGE);
 	aac_adapter_disable_int(dev);
 	src_writel(dev, MUnit.ODR_C, 0xffffffff);
@@ -493,6 +638,10 @@ int aac_src_init(struct aac_dev *dev)
 	aac_adapter_enable_int(dev);
 
 	if (!dev->sync_mode) {
+		/*
+		 * Tell the adapter that all is configured, and it can
+		 * start accepting requests
+		 */
 		aac_src_start_adapter(dev);
 	}
 	return 0;
@@ -502,6 +651,11 @@ error_iounmap:
 	return -1;
 }
 
+/**
+ *  aac_srcv_init	-	initialize an SRCv card
+ *  @dev: device to configure
+ *
+ */
 
 int aac_srcv_init(struct aac_dev *dev)
 {
@@ -520,28 +674,40 @@ int aac_srcv_init(struct aac_dev *dev)
 		goto error_iounmap;
 	}
 
-	
+	/* Failure to reset here is an option ... */
 	dev->a_ops.adapter_sync_cmd = src_sync_cmd;
 	dev->a_ops.adapter_enable_int = aac_src_disable_interrupt;
 	if ((aac_reset_devices || reset_devices) &&
 		!aac_src_restart_adapter(dev, 0))
 		++restart;
+	/*
+	 *	Check to see if the board panic'd while booting.
+	 */
 	status = src_readl(dev, MUnit.OMR);
 	if (status & KERNEL_PANIC) {
 		if (aac_src_restart_adapter(dev, aac_src_check_health(dev)))
 			goto error_iounmap;
 		++restart;
 	}
+	/*
+	 *	Check to see if the board failed any self tests.
+	 */
 	status = src_readl(dev, MUnit.OMR);
 	if (status & SELF_TEST_FAILED) {
 		printk(KERN_ERR "%s%d: adapter self-test failed.\n", dev->name, instance);
 		goto error_iounmap;
 	}
+	/*
+	 *	Check to see if the monitor panic'd while booting.
+	 */
 	if (status & MONITOR_PANIC) {
 		printk(KERN_ERR "%s%d: adapter monitor panic.\n", dev->name, instance);
 		goto error_iounmap;
 	}
 	start = jiffies;
+	/*
+	 *	Wait for the adapter to be up and running. Wait up to 3 minutes
+	 */
 	while (!((status = src_readl(dev, MUnit.OMR)) & KERNEL_UP_AND_RUNNING)) {
 		if ((restart &&
 		  (status & (KERNEL_PANIC|SELF_TEST_FAILED|MONITOR_PANIC))) ||
@@ -564,6 +730,9 @@ int aac_srcv_init(struct aac_dev *dev)
 	}
 	if (restart && aac_commit)
 		aac_commit = 1;
+	/*
+	 *	Fill in the common function dispatch table.
+	 */
 	dev->a_ops.adapter_interrupt = aac_src_interrupt_adapter;
 	dev->a_ops.adapter_disable_int = aac_src_disable_interrupt;
 	dev->a_ops.adapter_notify = aac_src_notify_adapter;
@@ -571,6 +740,10 @@ int aac_srcv_init(struct aac_dev *dev)
 	dev->a_ops.adapter_check_health = aac_src_check_health;
 	dev->a_ops.adapter_restart = aac_src_restart_adapter;
 
+	/*
+	 *	First clear out all interrupts.  Then enable the one's that we
+	 *	can handle.
+	 */
 	aac_adapter_comm(dev, AAC_COMM_MESSAGE);
 	aac_adapter_disable_int(dev);
 	src_writel(dev, MUnit.ODR_C, 0xffffffff);
@@ -596,6 +769,10 @@ int aac_srcv_init(struct aac_dev *dev)
 	aac_adapter_enable_int(dev);
 
 	if (!dev->sync_mode) {
+		/*
+		 * Tell the adapter that all is configured, and it can
+		 * start accepting requests
+		 */
 		aac_src_start_adapter(dev);
 	}
 	return 0;

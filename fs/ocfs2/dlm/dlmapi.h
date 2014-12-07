@@ -30,55 +30,64 @@
 struct dlm_lock;
 struct dlm_ctxt;
 
+/* NOTE: changes made to this enum should be reflected in dlmdebug.c */
 enum dlm_status {
-	DLM_NORMAL = 0,           
-	DLM_GRANTED,              
-	DLM_DENIED,               
-	DLM_DENIED_NOLOCKS,       
-	DLM_WORKING,              
-	DLM_BLOCKED,              
-	DLM_BLOCKED_ORPHAN,       
-	DLM_DENIED_GRACE_PERIOD,  
-	DLM_SYSERR,               
-	DLM_NOSUPPORT,            
-	DLM_CANCELGRANT,          
-	DLM_IVLOCKID,             
-	DLM_SYNC,                 
-	DLM_BADTYPE,              
-	DLM_BADRESOURCE,          
-	DLM_MAXHANDLES,           
-	DLM_NOCLINFO,             
-	DLM_NOLOCKMGR,            
-	DLM_NOPURGED,             
-	DLM_BADARGS,              
-	DLM_VOID,                 
-	DLM_NOTQUEUED,            
-	DLM_IVBUFLEN,             
-	DLM_CVTUNGRANT,           
-	DLM_BADPARAM,             
-	DLM_VALNOTVALID,          
-	DLM_REJECTED,             
-	DLM_ABORT,                
-	DLM_CANCEL,               
-	DLM_IVRESHANDLE,          
-	DLM_DEADLOCK,             
-	DLM_DENIED_NOASTS,        
-	DLM_FORWARD,              
-	DLM_TIMEOUT,              
-	DLM_IVGROUPID,            
-	DLM_VERS_CONFLICT,        
-	DLM_BAD_DEVICE_PATH,      
-	DLM_NO_DEVICE_PERMISSION, 
-	DLM_NO_CONTROL_DEVICE,    
+	DLM_NORMAL = 0,           /*  0: request in progress */
+	DLM_GRANTED,              /*  1: request granted */
+	DLM_DENIED,               /*  2: request denied */
+	DLM_DENIED_NOLOCKS,       /*  3: request denied, out of system resources */
+	DLM_WORKING,              /*  4: async request in progress */
+	DLM_BLOCKED,              /*  5: lock request blocked */
+	DLM_BLOCKED_ORPHAN,       /*  6: lock request blocked by a orphan lock*/
+	DLM_DENIED_GRACE_PERIOD,  /*  7: topological change in progress */
+	DLM_SYSERR,               /*  8: system error */
+	DLM_NOSUPPORT,            /*  9: unsupported */
+	DLM_CANCELGRANT,          /* 10: can't cancel convert: already granted */
+	DLM_IVLOCKID,             /* 11: bad lockid */
+	DLM_SYNC,                 /* 12: synchronous request granted */
+	DLM_BADTYPE,              /* 13: bad resource type */
+	DLM_BADRESOURCE,          /* 14: bad resource handle */
+	DLM_MAXHANDLES,           /* 15: no more resource handles */
+	DLM_NOCLINFO,             /* 16: can't contact cluster manager */
+	DLM_NOLOCKMGR,            /* 17: can't contact lock manager */
+	DLM_NOPURGED,             /* 18: can't contact purge daemon */
+	DLM_BADARGS,              /* 19: bad api args */
+	DLM_VOID,                 /* 20: no status */
+	DLM_NOTQUEUED,            /* 21: NOQUEUE was specified and request failed */
+	DLM_IVBUFLEN,             /* 22: invalid resource name length */
+	DLM_CVTUNGRANT,           /* 23: attempted to convert ungranted lock */
+	DLM_BADPARAM,             /* 24: invalid lock mode specified */
+	DLM_VALNOTVALID,          /* 25: value block has been invalidated */
+	DLM_REJECTED,             /* 26: request rejected, unrecognized client */
+	DLM_ABORT,                /* 27: blocked lock request cancelled */
+	DLM_CANCEL,               /* 28: conversion request cancelled */
+	DLM_IVRESHANDLE,          /* 29: invalid resource handle */
+	DLM_DEADLOCK,             /* 30: deadlock recovery refused this request */
+	DLM_DENIED_NOASTS,        /* 31: failed to allocate AST */
+	DLM_FORWARD,              /* 32: request must wait for primary's response */
+	DLM_TIMEOUT,              /* 33: timeout value for lock has expired */
+	DLM_IVGROUPID,            /* 34: invalid group specification */
+	DLM_VERS_CONFLICT,        /* 35: version conflicts prevent request handling */
+	DLM_BAD_DEVICE_PATH,      /* 36: Locks device does not exist or path wrong */
+	DLM_NO_DEVICE_PERMISSION, /* 37: Client has insufficient pers for device */
+	DLM_NO_CONTROL_DEVICE,    /* 38: Cannot set options on opened device */
 
-	DLM_RECOVERING,           
-	DLM_MIGRATING,            
-	DLM_MAXSTATS,             
+	DLM_RECOVERING,           /* 39: extension, allows caller to fail a lock
+				     request if it is being recovered */
+	DLM_MIGRATING,            /* 40: extension, allows caller to fail a lock
+				     request if it is being migrated */
+	DLM_MAXSTATS,             /* 41: upper limit for return code validation */
 };
 
+/* for pretty-printing dlm_status error messages */
 const char *dlm_errmsg(enum dlm_status err);
+/* for pretty-printing dlm_status error names */
 const char *dlm_errname(enum dlm_status err);
 
+/* Eventually the DLM will use standard errno values, but in the
+ * meantime this lets us track dlm errors as they bubble up. When we
+ * bring its error reporting into line with the rest of the stack,
+ * these can just be replaced with calls to mlog_errno. */
 #define dlm_error(st) do {						\
 	if ((st) != DLM_RECOVERING &&					\
 	    (st) != DLM_MIGRATING &&					\
@@ -97,6 +106,8 @@ const char *dlm_errname(enum dlm_status err);
 
 #define DLM_LVB_LEN  64
 
+/* Callers are only allowed access to the lvb and status members of
+ * this struct. */
 struct dlm_lockstatus {
 	enum dlm_status status;
 	u32 flags;
@@ -104,49 +115,62 @@ struct dlm_lockstatus {
 	char lvb[DLM_LVB_LEN];
 };
 
-#define LKM_IVMODE      (-1)            
-#define LKM_NLMODE      0               
-#define LKM_CRMODE      1               
-#define LKM_CWMODE      2               
-#define LKM_PRMODE      3               
-#define LKM_PWMODE      4               
-#define LKM_EXMODE      5               
+/* Valid lock modes. */
+#define LKM_IVMODE      (-1)            /* invalid mode */
+#define LKM_NLMODE      0               /* null lock */
+#define LKM_CRMODE      1               /* concurrent read    unsupported */
+#define LKM_CWMODE      2               /* concurrent write   unsupported */
+#define LKM_PRMODE      3               /* protected read */
+#define LKM_PWMODE      4               /* protected write    unsupported */
+#define LKM_EXMODE      5               /* exclusive */
 #define LKM_MAXMODE     5
 #define LKM_MODEMASK    0xff
 
-#define LKM_ORPHAN       0x00000010  
-#define LKM_PARENTABLE   0x00000020  
-#define LKM_BLOCK        0x00000040  
-#define LKM_LOCAL        0x00000080  
-#define LKM_VALBLK       0x00000100  
-#define LKM_NOQUEUE      0x00000200  
-#define LKM_CONVERT      0x00000400  
-#define LKM_NODLCKWT     0x00000800  
-#define LKM_UNLOCK       0x00001000  
-#define LKM_CANCEL       0x00002000  
-#define LKM_DEQALL       0x00004000  
-#define LKM_INVVALBLK    0x00008000  
-#define LKM_SYNCSTS      0x00010000  
-#define LKM_TIMEOUT      0x00020000  
-#define LKM_SNGLDLCK     0x00040000  
-#define LKM_FINDLOCAL    0x00080000  
-#define LKM_PROC_OWNED   0x00100000  
-#define LKM_XID          0x00200000  
-#define LKM_XID_CONFLICT 0x00400000  
-#define LKM_FORCE        0x00800000  
-#define LKM_REVVALBLK    0x01000000  
-#define LKM_UNUSED1      0x00000001  
-#define LKM_UNUSED2      0x00000002  
-#define LKM_UNUSED3      0x00000004  
-#define LKM_UNUSED4      0x00000008  
-#define LKM_UNUSED5      0x02000000  
-#define LKM_UNUSED6      0x04000000  
-#define LKM_UNUSED7      0x08000000  
+/* Flags passed to dlmlock and dlmunlock:
+ * reserved: flags used by the "real" dlm
+ * only a few are supported by this dlm
+ * (U) = unsupported by ocfs2 dlm */
+#define LKM_ORPHAN       0x00000010  /* this lock is orphanable (U) */
+#define LKM_PARENTABLE   0x00000020  /* this lock was orphaned (U) */
+#define LKM_BLOCK        0x00000040  /* blocking lock request (U) */
+#define LKM_LOCAL        0x00000080  /* local lock request */
+#define LKM_VALBLK       0x00000100  /* lock value block request */
+#define LKM_NOQUEUE      0x00000200  /* non blocking request */
+#define LKM_CONVERT      0x00000400  /* conversion request */
+#define LKM_NODLCKWT     0x00000800  /* this lock wont deadlock (U) */
+#define LKM_UNLOCK       0x00001000  /* deallocate this lock */
+#define LKM_CANCEL       0x00002000  /* cancel conversion request */
+#define LKM_DEQALL       0x00004000  /* remove all locks held by proc (U) */
+#define LKM_INVVALBLK    0x00008000  /* invalidate lock value block */
+#define LKM_SYNCSTS      0x00010000  /* return synchronous status if poss (U) */
+#define LKM_TIMEOUT      0x00020000  /* lock request contains timeout (U) */
+#define LKM_SNGLDLCK     0x00040000  /* request can self-deadlock (U) */
+#define LKM_FINDLOCAL    0x00080000  /* find local lock request (U) */
+#define LKM_PROC_OWNED   0x00100000  /* owned by process, not group (U) */
+#define LKM_XID          0x00200000  /* use transaction id for deadlock (U) */
+#define LKM_XID_CONFLICT 0x00400000  /* do not allow lock inheritance (U) */
+#define LKM_FORCE        0x00800000  /* force unlock flag */
+#define LKM_REVVALBLK    0x01000000  /* temporary solution: re-validate
+					lock value block (U) */
+/* unused */
+#define LKM_UNUSED1      0x00000001  /* unused */
+#define LKM_UNUSED2      0x00000002  /* unused */
+#define LKM_UNUSED3      0x00000004  /* unused */
+#define LKM_UNUSED4      0x00000008  /* unused */
+#define LKM_UNUSED5      0x02000000  /* unused */
+#define LKM_UNUSED6      0x04000000  /* unused */
+#define LKM_UNUSED7      0x08000000  /* unused */
 
-#define LKM_MIGRATION    0x10000000  
-#define LKM_PUT_LVB      0x20000000  
-#define LKM_GET_LVB      0x40000000  
-#define LKM_RECOVERY     0x80000000  
+/* ocfs2 extensions: internal only
+ * should never be used by caller */
+#define LKM_MIGRATION    0x10000000  /* extension: lockres is to be migrated
+					to another node */
+#define LKM_PUT_LVB      0x20000000  /* extension: lvb is being passed
+					should be applied to lockres */
+#define LKM_GET_LVB      0x40000000  /* extension: lvb should be copied
+					from lockres when lock is granted */
+#define LKM_RECOVERY     0x80000000  /* extension: flag for recovery lock
+					used to avoid recovery rwsem */
 
 
 typedef void (dlm_astlockfunc_t)(void *);
@@ -193,4 +217,4 @@ void dlm_register_eviction_cb(struct dlm_ctxt *dlm,
 			      struct dlm_eviction_cb *cb);
 void dlm_unregister_eviction_cb(struct dlm_eviction_cb *cb);
 
-#endif 
+#endif /* DLMAPI_H */

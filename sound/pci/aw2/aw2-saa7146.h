@@ -39,6 +39,7 @@ struct snd_aw2_saa7146_cb_param {
 	void *p_callback_param;
 };
 
+/* definition of the chip-specific record */
 
 struct snd_aw2_saa7146 {
 	void __iomem *base_addr;

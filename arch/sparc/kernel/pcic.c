@@ -17,7 +17,7 @@
 #include <linux/slab.h>
 #include <linux/jiffies.h>
 
-#include <asm/swift.h> 
+#include <asm/swift.h> /* for cache flushing. */
 #include <asm/io.h>
 
 #include <linux/ctype.h>
@@ -38,12 +38,27 @@
 
 #include "irq.h"
 
+/*
+ * I studied different documents and many live PROMs both from 2.30
+ * family and 3.xx versions. I came to the amazing conclusion: there is
+ * absolutely no way to route interrupts in IIep systems relying on
+ * information which PROM presents. We must hardcode interrupt routing
+ * schematics. And this actually sucks.   -- zaitcev 1999/05/12
+ *
+ * To find irq for a device we determine which routing map
+ * is in effect or, in other words, on which machine we are running.
+ * We use PROM name for this although other techniques may be used
+ * in special cases (Gleb reports a PROMless IIep based system).
+ * Once we know the map we take device configuration address and
+ * find PCIC pin number where INT line goes. Then we may either program
+ * preferred irq into the PCIC or supply the preexisting irq to the device.
+ */
 struct pcic_ca2irq {
-	unsigned char busno;		
-	unsigned char devfn;		
-	unsigned char pin;		
-	unsigned char irq;		
-	unsigned int force;		
+	unsigned char busno;		/* PCI bus number */
+	unsigned char devfn;		/* Configuration address */
+	unsigned char pin;		/* PCIC external interrupt pin */
+	unsigned char irq;		/* Preferred IRQ (mappable in PCIC) */
+	unsigned int force;		/* Enforce preferred IRQ */
 };
 
 struct pcic_sn2list {
@@ -52,47 +67,97 @@ struct pcic_sn2list {
 	int mapdim;
 };
 
-static struct pcic_ca2irq pcic_i_je1a[] = {	
-	{ 0, 0x00, 2, 12, 0 },		
-	{ 0, 0x01, 1,  6, 1 },		
-	{ 0, 0x80, 0,  7, 0 },		
+/*
+ * JavaEngine-1 apparently has different versions.
+ *
+ * According to communications with Sun folks, for P2 build 501-4628-03:
+ * pin 0 - parallel, audio;
+ * pin 1 - Ethernet;
+ * pin 2 - su;
+ * pin 3 - PS/2 kbd and mouse.
+ *
+ * OEM manual (805-1486):
+ * pin 0: Ethernet
+ * pin 1: All EBus
+ * pin 2: IGA (unused)
+ * pin 3: Not connected
+ * OEM manual says that 501-4628 & 501-4811 are the same thing,
+ * only the latter has NAND flash in place.
+ *
+ * So far unofficial Sun wins over the OEM manual. Poor OEMs...
+ */
+static struct pcic_ca2irq pcic_i_je1a[] = {	/* 501-4811-03 */
+	{ 0, 0x00, 2, 12, 0 },		/* EBus: hogs all */
+	{ 0, 0x01, 1,  6, 1 },		/* Happy Meal */
+	{ 0, 0x80, 0,  7, 0 },		/* IGA (unused) */
 };
 
+/* XXX JS-E entry is incomplete - PCI Slot 2 address (pin 7)? */
 static struct pcic_ca2irq pcic_i_jse[] = {
-	{ 0, 0x00, 0, 13, 0 },		
-	{ 0, 0x01, 1,  6, 0 },		
-	{ 0, 0x08, 2,  9, 0 },		
-	{ 0, 0x10, 6,  8, 0 },		
-	{ 0, 0x18, 7, 12, 0 },		
-	{ 0, 0x38, 4,  9, 0 },		
-	{ 0, 0x80, 5, 11, 0 },		
-	
-	{ 0, 0xA0, 4,  9, 0 },		
+	{ 0, 0x00, 0, 13, 0 },		/* Ebus - serial and keyboard */
+	{ 0, 0x01, 1,  6, 0 },		/* hme */
+	{ 0, 0x08, 2,  9, 0 },		/* VGA - we hope not used :) */
+	{ 0, 0x10, 6,  8, 0 },		/* PCI INTA# in Slot 1 */
+	{ 0, 0x18, 7, 12, 0 },		/* PCI INTA# in Slot 2, shared w. RTC */
+	{ 0, 0x38, 4,  9, 0 },		/* All ISA devices. Read 8259. */
+	{ 0, 0x80, 5, 11, 0 },		/* EIDE */
+	/* {0,0x88, 0,0,0} - unknown device... PMU? Probably no interrupt. */
+	{ 0, 0xA0, 4,  9, 0 },		/* USB */
+	/*
+	 * Some pins belong to non-PCI devices, we hardcode them in drivers.
+	 * sun4m timers - irq 10, 14
+	 * PC style RTC - pin 7, irq 4 ?
+	 * Smart card, Parallel - pin 4 shared with USB, ISA
+	 * audio - pin 3, irq 5 ?
+	 */
 };
 
+/* SPARCengine-6 was the original release name of CP1200.
+ * The documentation differs between the two versions
+ */
 static struct pcic_ca2irq pcic_i_se6[] = {
-	{ 0, 0x08, 0,  2, 0 },		
-	{ 0, 0x01, 1,  6, 0 },		
-	{ 0, 0x00, 3, 13, 0 },		
+	{ 0, 0x08, 0,  2, 0 },		/* SCSI	*/
+	{ 0, 0x01, 1,  6, 0 },		/* HME	*/
+	{ 0, 0x00, 3, 13, 0 },		/* EBus	*/
 };
 
+/*
+ * Krups (courtesy of Varol Kaptan)
+ * No documentation available, but it was easy to guess
+ * because it was very similar to Espresso.
+ *  
+ * pin 0 - kbd, mouse, serial;
+ * pin 1 - Ethernet;
+ * pin 2 - igs (we do not use it);
+ * pin 3 - audio;
+ * pin 4,5,6 - unused;
+ * pin 7 - RTC (from P2 onwards as David B. says).
+ */
 static struct pcic_ca2irq pcic_i_jk[] = {
-	{ 0, 0x00, 0, 13, 0 },		
-	{ 0, 0x01, 1,  6, 0 },		
+	{ 0, 0x00, 0, 13, 0 },		/* Ebus - serial and keyboard */
+	{ 0, 0x01, 1,  6, 0 },		/* hme */
 };
 
+/*
+ * Several entries in this list may point to the same routing map
+ * as several PROMs may be installed on the same physical board.
+ */
 #define SN2L_INIT(name, map)	\
   { name, map, ARRAY_SIZE(map) }
 
 static struct pcic_sn2list pcic_known_sysnames[] = {
-	SN2L_INIT("SUNW,JavaEngine1", pcic_i_je1a),	
-	SN2L_INIT("SUNW,JS-E", pcic_i_jse),	
-	SN2L_INIT("SUNW,SPARCengine-6", pcic_i_se6), 
-	SN2L_INIT("SUNW,JS-NC", pcic_i_jk),	
-	SN2L_INIT("SUNW,JSIIep", pcic_i_jk),	
+	SN2L_INIT("SUNW,JavaEngine1", pcic_i_je1a),	/* JE1, PROM 2.32 */
+	SN2L_INIT("SUNW,JS-E", pcic_i_jse),	/* PROLL JavaStation-E */
+	SN2L_INIT("SUNW,SPARCengine-6", pcic_i_se6), /* SPARCengine-6/CP-1200 */
+	SN2L_INIT("SUNW,JS-NC", pcic_i_jk),	/* PROLL JavaStation-NC */
+	SN2L_INIT("SUNW,JSIIep", pcic_i_jk),	/* OBP JavaStation-NC */
 	{ NULL, NULL, 0 }
 };
 
+/*
+ * Only one PCIC per IIep,
+ * and since we have no SMP IIep, only one per system.
+ */
 static int pcic0_up;
 static struct linux_pcic pcic0;
 
@@ -100,6 +165,7 @@ void __iomem *pcic_regs;
 volatile int pcic_speculative;
 volatile int pcic_trapped;
 
+/* forward */
 unsigned int pcic_build_device_irq(struct platform_device *op,
                                    unsigned int real_irq);
 
@@ -114,12 +180,12 @@ static int pcic_read_config_dword(unsigned int busno, unsigned int devfn,
 	pcic = &pcic0;
 
 	local_irq_save(flags);
-#if 0 
+#if 0 /* does not fail here */
 	pcic_speculative = 1;
 	pcic_trapped = 0;
 #endif
 	writel(CONFIG_CMD(busno, devfn, where), pcic->pcic_config_space_addr);
-#if 0 
+#if 0 /* does not fail here */
 	nop();
 	if (pcic_trapped) {
 		local_irq_restore(flags);
@@ -211,6 +277,11 @@ static struct pci_ops pcic_ops = {
 	.write =	pcic_write_config,
 };
 
+/*
+ * On sparc64 pcibios_init() calls pci_controller_probe().
+ * We want PCIC probed little ahead so that interrupt controller
+ * would be operational.
+ */
 int __init pcic_probe(void)
 {
 	struct linux_pcic *pcic;
@@ -230,6 +301,9 @@ int __init pcic_probe(void)
 	node = prom_searchsiblings (node, "pci");
 	if (node == 0)
 		return -ENODEV;
+	/*
+	 * Map in PCIC register set, config space, and IO base
+	 */
 	err = prom_getproperty(node, "reg", (char*)regs, sizeof(regs));
 	if (err == 0 || err == -1) {
 		prom_printf("PCIC: Error, cannot get PCIC registers "
@@ -261,6 +335,10 @@ int __init pcic_probe(void)
 		prom_halt();
 	}
 
+	/*
+	 * Docs say three least significant bits in address and data
+	 * must be the same. Thus, we need adjust size of data.
+	 */
 	pcic->pcic_res_cfg_data.name = "pcic_cfg_data";
 	if ((pcic->pcic_config_space_data =
 	    ioremap(regs[3].phys_addr, regs[3].reg_size * 2)) == 0) {
@@ -298,6 +376,9 @@ int __init pcic_probe(void)
 		pcic->pcic_imdim = p->mapdim;
 	}
 	if (pcic->pcic_imap == NULL) {
+		/*
+		 * We do not panic here for the sake of embedded systems.
+		 */
 		printk("PCIC: System %s is unknown, cannot route interrupts\n",
 		    namebuf);
 	}
@@ -310,7 +391,7 @@ static void __init pcic_pbm_scan_bus(struct linux_pcic *pcic)
 	struct linux_pbm_info *pbm = &pcic->pbm;
 
 	pbm->pci_bus = pci_scan_bus(pbm->pci_first_busno, &pcic_ops, pbm);
-#if 0 
+#if 0 /* deadwood transplanted from sparc64 */
 	pci_fill_in_pbm_cookies(pbm->pci_bus, pbm, pbm->prom_node);
 	pci_record_assignments(pbm, pbm->pci_bus);
 	pci_assign_unassigned(pbm, pbm->pci_bus);
@@ -318,17 +399,32 @@ static void __init pcic_pbm_scan_bus(struct linux_pcic *pcic)
 #endif
 }
 
+/*
+ * Main entry point from the PCI subsystem.
+ */
 static int __init pcic_init(void)
 {
 	struct linux_pcic *pcic;
 
+	/*
+	 * PCIC should be initialized at start of the timer.
+	 * So, here we report the presence of PCIC and do some magic passes.
+	 */
 	if(!pcic0_up)
 		return 0;
 	pcic = &pcic0;
 
+	/*
+	 *      Switch off IOTLB translation.
+	 */
 	writeb(PCI_DVMA_CONTROL_IOTLB_DISABLE, 
 	       pcic->pcic_regs+PCI_DVMA_CONTROL);
 
+	/*
+	 *      Increase mapped size for PCI memory space (DMA access).
+	 *      Should be done in that order (size first, address second).
+	 *      Why we couldn't set up 4GB and forget about it? XXX
+	 */
 	writel(0xF0000000UL, pcic->pcic_regs+PCI_SIZE_0);
 	writel(0+PCI_BASE_ADDRESS_SPACE_MEMORY, 
 	       pcic->pcic_regs+PCI_BASE_ADDRESS_0);
@@ -384,16 +480,40 @@ static void pcic_map_pci_device(struct linux_pcic *pcic,
 
 	for (j = 0; j < 6; j++) {
 		address = dev->resource[j].start;
-		if (address == 0) break;	
+		if (address == 0) break;	/* are sequential */
 		flags = dev->resource[j].flags;
 		if ((flags & IORESOURCE_IO) != 0) {
 			if (address < 0x10000) {
+				/*
+				 * A device responds to I/O cycles on PCI.
+				 * We generate these cycles with memory
+				 * access into the fixed map (phys 0x30000000).
+				 *
+				 * Since a device driver does not want to
+				 * do ioremap() before accessing PC-style I/O,
+				 * we supply virtual, ready to access address.
+				 *
+				 * Note that request_region()
+				 * works for these devices.
+				 *
+				 * XXX Neat trick, but it's a *bad* idea
+				 * to shit into regions like that.
+				 * What if we want to allocate one more
+				 * PCI base address...
+				 */
 				dev->resource[j].start =
 				    pcic->pcic_io + address;
-				dev->resource[j].end = 1;  
+				dev->resource[j].end = 1;  /* XXX */
 				dev->resource[j].flags =
 				    (flags & ~IORESOURCE_IO) | IORESOURCE_MEM;
 			} else {
+				/*
+				 * OOPS... PCI Spec allows this. Sun does
+				 * not have any devices getting above 64K
+				 * so it must be user with a weird I/O
+				 * board in a PCI slot. We must remap it
+				 * under 64K but it is not done yet. XXX
+				 */
 				printk("PCIC: Skipping I/O space at 0x%lx, "
 				    "this will Oops if a driver attaches "
 				    "device '%s' at %02x:%02x)\n", address,
@@ -440,13 +560,16 @@ pcic_fill_irq(struct linux_pcic *pcic, struct pci_dev *dev, int node)
 	} else if (i >= 4 && i < 8) {
 		ivec = readw(pcic->pcic_regs+PCI_INT_SELECT_HI);
 		real_irq = ivec >> ((i-4) << 2) & 0xF;
-	} else {					
+	} else {					/* Corrupted map */
 		printk("PCIC: BAD PIN %d\n", i); for (;;) {}
 	}
- 
+/* P3 */ /* printk("PCIC: device %s pin %d ivec 0x%x irq %x\n", namebuf, i, ivec, dev->irq); */
 
+	/* real_irq means PROM did not bother to program the upper
+	 * half of PCIC. This happens on JS-E with PROM 3.11, for instance.
+	 */
 	if (real_irq == 0 || p->force) {
-		if (p->irq == 0 || p->irq >= 15) {	
+		if (p->irq == 0 || p->irq >= 15) {	/* Corrupted map */
 			printk("PCIC: BAD IRQ %d\n", p->irq); for (;;) {}
 		}
 		printk("PCIC: setting irq %d at pin %d for device %02x:%02x\n",
@@ -469,13 +592,16 @@ pcic_fill_irq(struct linux_pcic *pcic, struct pci_dev *dev, int node)
 	dev->irq = pcic_build_device_irq(NULL, real_irq);
 }
 
+/*
+ * Normally called from {do_}pci_scan_bus...
+ */
 void __devinit pcibios_fixup_bus(struct pci_bus *bus)
 {
 	struct pci_dev *dev;
 	int i, has_io, has_mem;
 	unsigned int cmd;
 	struct linux_pcic *pcic;
-	
+	/* struct linux_pbm_info* pbm = &pcic->pbm; */
 	int node;
 	struct pcidev_cookie *pcp;
 
@@ -485,6 +611,9 @@ void __devinit pcibios_fixup_bus(struct pci_bus *bus)
 	}
 	pcic = &pcic0;
 
+	/*
+	 * Next crud is an equivalent of pbm = pcic_bus_to_pbm(bus);
+	 */
 	if (bus->number != 0) {
 		printk("pcibios_fixup_bus: nonzero bus 0x%x\n", bus->number);
 		return;
@@ -492,6 +621,14 @@ void __devinit pcibios_fixup_bus(struct pci_bus *bus)
 
 	list_for_each_entry(dev, &bus->devices, bus_list) {
 
+		/*
+		 * Comment from i386 branch:
+		 *     There are buggy BIOSes that forget to enable I/O and memory
+		 *     access to PCI devices. We try to fix this, but we need to
+		 *     be sure that the BIOS didn't forget to assign an address
+		 *     to the device. [mj]
+		 * OBP is a case of such BIOS :-)
+		 */
 		has_io = has_mem = 0;
 		for(i=0; i<6; i++) {
 			unsigned long f = dev->resource[i].flags;
@@ -520,13 +657,13 @@ void __devinit pcibios_fixup_bus(struct pci_bus *bus)
 		if(node == 0)
 			node = -1;
 
-		
+		/* cookies */
 		pcp = pci_devcookie_alloc();
 		pcp->pbm = &pcic->pbm;
 		pcp->prom_node = of_find_node_by_phandle(node);
 		dev->sysdata = pcp;
 
-		
+		/* fixing I/O to look like memory */
 		if ((dev->class>>16) != PCI_BASE_CLASS_BRIDGE)
 			pcic_map_pci_device(pcic, dev, node);
 
@@ -534,6 +671,9 @@ void __devinit pcibios_fixup_bus(struct pci_bus *bus)
 	}
 }
 
+/*
+ * pcic_pin_to_irq() is exported to bus probing code
+ */
 unsigned int
 pcic_pin_to_irq(unsigned int pin, const char *name)
 {
@@ -547,14 +687,15 @@ pcic_pin_to_irq(unsigned int pin, const char *name)
 	} else if (pin < 8) {
 		ivec = readw(pcic->pcic_regs+PCI_INT_SELECT_HI);
 		irq = ivec >> ((pin-4) << 2) & 0xF;
-	} else {					
+	} else {					/* Corrupted map */
 		printk("PCIC: BAD PIN %d FOR %s\n", pin, name);
-		for (;;) {}	
+		for (;;) {}	/* XXX Cannot panic properly in case of PROLL */
 	}
- 
+/* P3 */ /* printk("PCIC: dev %s pin %d ivec 0x%x irq %x\n", name, pin, ivec, irq); */
 	return irq;
 }
 
+/* Makes compiler happy */
 static volatile int pcic_timer_dummy;
 
 static void pcic_clear_clock_irq(void)
@@ -572,11 +713,15 @@ static irqreturn_t pcic_timer_handler (int irq, void *h)
 	return IRQ_HANDLED;
 }
 
-#define USECS_PER_JIFFY  10000  
+#define USECS_PER_JIFFY  10000  /* We have 100HZ "standard" timer for sparc */
 #define TICK_TIMER_LIMIT ((100*1000000/4)/100)
 
 u32 pci_gettimeoffset(void)
 {
+	/*
+	 * We divide all by 100
+	 * to have microsecond resolution and to avoid overflow
+	 */
 	unsigned long count =
 	    readl(pcic0.pcic_regs+PCI_SYS_COUNTER) & ~PCI_SYS_COUNTER_OVERFLOW;
 	count = ((count/100)*USECS_PER_JIFFY) / (TICK_TIMER_LIMIT/100);
@@ -596,7 +741,7 @@ void __init pci_time_init(void)
 	btfixup();
 
 	writel (TICK_TIMER_LIMIT, pcic->pcic_regs+PCI_SYS_LIMIT);
-	
+	/* PROM should set appropriate irq */
 	v = readb(pcic->pcic_regs+PCI_COUNTER_IRQ);
 	timer_irq = PCI_COUNTER_IRQ_SYS(v);
 	writel (PCI_COUNTER_IRQ_SET(timer_irq, 0),
@@ -618,6 +763,9 @@ static void watchdog_reset() {
 }
 #endif
 
+/*
+ * Other archs parse arguments here.
+ */
 char * __devinit pcibios_setup(char *str)
 {
 	return str;
@@ -634,12 +782,19 @@ int pcibios_enable_device(struct pci_dev *pdev, int mask)
 	return 0;
 }
 
+/*
+ * NMI
+ */
 void pcic_nmi(unsigned int pend, struct pt_regs *regs)
 {
 
 	pend = flip_dword(pend);
 
 	if (!pcic_speculative || (pend & PCI_SYS_INT_PENDING_PIO) == 0) {
+		/*
+		 * XXX On CP-1200 PCI #SERR may happen, we do not know
+		 * what to do about it yet.
+		 */
 		printk("Aiee, NMI pend 0x%x pc 0x%x spec %d, hanging\n",
 		    pend, (int)regs->pc, pcic_speculative);
 		for (;;) { }
@@ -731,13 +886,22 @@ int pcibios_assign_resource(struct pci_dev *pdev, int resource)
 	return -ENXIO;
 }
 
+/*
+ * This probably belongs here rather than ioport.c because
+ * we do not want this crud linked into SBus kernels.
+ * Also, think for a moment about likes of floppy.c that
+ * include architecture specific parts. They may want to redefine ins/outs.
+ *
+ * We do not use horrible macros here because we want to
+ * advance pointer by sizeof(size).
+ */
 void outsb(unsigned long addr, const void *src, unsigned long count)
 {
 	while (count) {
 		count -= 1;
 		outb(*(const char *)src, addr);
 		src += 1;
-		
+		/* addr += 1; */
 	}
 }
 EXPORT_SYMBOL(outsb);
@@ -748,7 +912,7 @@ void outsw(unsigned long addr, const void *src, unsigned long count)
 		count -= 2;
 		outw(*(const short *)src, addr);
 		src += 2;
-		
+		/* addr += 2; */
 	}
 }
 EXPORT_SYMBOL(outsw);
@@ -759,7 +923,7 @@ void outsl(unsigned long addr, const void *src, unsigned long count)
 		count -= 4;
 		outl(*(const long *)src, addr);
 		src += 4;
-		
+		/* addr += 4; */
 	}
 }
 EXPORT_SYMBOL(outsl);
@@ -770,7 +934,7 @@ void insb(unsigned long addr, void *dst, unsigned long count)
 		count -= 1;
 		*(unsigned char *)dst = inb(addr);
 		dst += 1;
-		
+		/* addr += 1; */
 	}
 }
 EXPORT_SYMBOL(insb);
@@ -781,7 +945,7 @@ void insw(unsigned long addr, void *dst, unsigned long count)
 		count -= 2;
 		*(unsigned short *)dst = inw(addr);
 		dst += 2;
-		
+		/* addr += 2; */
 	}
 }
 EXPORT_SYMBOL(insw);
@@ -790,9 +954,12 @@ void insl(unsigned long addr, void *dst, unsigned long count)
 {
 	while (count) {
 		count -= 4;
+		/*
+		 * XXX I am sure we are in for an unaligned trap here.
+		 */
 		*(unsigned long *)dst = inl(addr);
 		dst += 4;
-		
+		/* addr += 4; */
 	}
 }
 EXPORT_SYMBOL(insl);

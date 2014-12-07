@@ -28,6 +28,9 @@
 #include <asm/syscalls.h>
 #include <asm/cacheflush.h>
 
+/* Clone a task - this clones the calling program thread.
+ * This is called indirectly via a small wrapper
+ */
 asmlinkage long __sys_clone(unsigned long clone_flags, unsigned long newsp,
 			 void __user *parent_tid, void __user *child_tid,
 			 struct pt_regs *regs)
@@ -39,6 +42,9 @@ asmlinkage long __sys_clone(unsigned long clone_flags, unsigned long newsp,
 			parent_tid, child_tid);
 }
 
+/* sys_execve() executes a new program.
+ * This is called indirectly via a small wrapper
+ */
 asmlinkage long __sys_execve(const char __user *filename,
 			  const char __user *const __user *argv,
 			  const char __user *const __user *envp,
@@ -71,15 +77,22 @@ int kernel_execve(const char *filename,
 	if (ret < 0)
 		goto out;
 
+	/*
+	 * Save argc to the register structure for userspace.
+	 */
 	regs.UCreg_00 = ret;
 
+	/*
+	 * We were successful.  We won't be returning to our caller, but
+	 * instead to user space by manipulating the kernel stack.
+	 */
 	asm("add	r0, %0, %1\n\t"
 		"mov	r1, %2\n\t"
 		"mov	r2, %3\n\t"
-		"mov	r22, #0\n\t"	
-		"mov	r23, %0\n\t"	
-		"b.l	memmove\n\t"	
-		"mov	sp, r0\n\t"	
+		"mov	r22, #0\n\t"	/* not a syscall */
+		"mov	r23, %0\n\t"	/* thread structure */
+		"b.l	memmove\n\t"	/* copy regs to top of stack */
+		"mov	sp, r0\n\t"	/* reposition stack pointer */
 		"b	ret_to_user"
 		:
 		: "r" (current_thread_info()),
@@ -93,6 +106,7 @@ int kernel_execve(const char *filename,
 }
 EXPORT_SYMBOL(kernel_execve);
 
+/* Note: used by the compat code even in 64-bit Linux. */
 SYSCALL_DEFINE6(mmap2, unsigned long, addr, unsigned long, len,
 		unsigned long, prot, unsigned long, flags,
 		unsigned long, fd, unsigned long, off_4k)
@@ -101,9 +115,11 @@ SYSCALL_DEFINE6(mmap2, unsigned long, addr, unsigned long, len,
 			      off_4k);
 }
 
+/* Provide the actual syscall number to call mapping. */
 #undef __SYSCALL
 #define __SYSCALL(nr, call)	[nr] = (call),
 
+/* Note that we don't include <linux/unistd.h> but <asm/unistd.h> */
 void *sys_call_table[__NR_syscalls] = {
 	[0 ... __NR_syscalls-1] = sys_ni_syscall,
 #include <asm/unistd.h>

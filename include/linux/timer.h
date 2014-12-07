@@ -10,6 +10,10 @@
 struct tvec_base;
 
 struct timer_list {
+	/*
+	 * All fields that change during normal runtime grouped to the
+	 * same cacheline
+	 */
 	struct list_head entry;
 	unsigned long expires;
 	struct tvec_base *base;
@@ -32,12 +36,28 @@ struct timer_list {
 extern struct tvec_base boot_tvec_bases;
 
 #ifdef CONFIG_LOCKDEP
+/*
+ * NB: because we have to copy the lockdep_map, setting the lockdep_map key
+ * (second argument) here is required, otherwise it could be initialised to
+ * the copy of the lockdep_map later! We use the pointer to and the string
+ * "<file>:<line>" as the key resp. the name of the lockdep_map.
+ */
 #define __TIMER_LOCKDEP_MAP_INITIALIZER(_kn)				\
 	.lockdep_map = STATIC_LOCKDEP_MAP_INIT(_kn, &_kn),
 #else
 #define __TIMER_LOCKDEP_MAP_INITIALIZER(_kn)
 #endif
 
+/*
+ * Note that all tvec_bases are 2 byte aligned and lower bit of
+ * base in timer_list is guaranteed to be zero. Use the LSB to
+ * indicate whether the timer is deferrable.
+ *
+ * A deferrable timer will work normally when the system is busy, but
+ * will not cause a CPU to come out of idle just to service it; instead,
+ * the timer will be serviced when the CPU eventually wakes up with a
+ * subsequent non-deferrable timer.
+ */
 #define TBASE_DEFERRABLE_FLAG		(0x1)
 
 #define TIMER_INITIALIZER(_function, _expires, _data) {		\
@@ -171,6 +191,16 @@ extern void setup_deferrable_timer_on_stack_key(struct timer_list *timer,
 						void (*function)(unsigned long),
 						unsigned long data);
 
+/**
+ * timer_pending - is a timer pending?
+ * @timer: the timer in question
+ *
+ * timer_pending will tell whether a given timer is currently pending,
+ * or not. Callers must ensure serialization wrt. other operations done
+ * to this timer, eg. interrupt contexts, or other CPUs on SMP.
+ *
+ * return value: 1 if the timer is pending, 0 if not.
+ */
 static inline int timer_pending(const struct timer_list * timer)
 {
 	return timer->entry.next != NULL;
@@ -186,10 +216,22 @@ extern void set_timer_slack(struct timer_list *time, int slack_hz);
 
 #define TIMER_NOT_PINNED	0
 #define TIMER_PINNED		1
+/*
+ * The jiffies value which is added to now, when there is no timer
+ * in the timer wheel:
+ */
 #define NEXT_TIMER_MAX_DELTA	((1UL << 30) - 1)
 
+/*
+ * Return when the next timer-wheel timeout occurs (in absolute jiffies),
+ * locks the timer base and does the comparison against the given
+ * jiffie.
+ */
 extern unsigned long get_next_timer_interrupt(unsigned long now);
 
+/*
+ * Timer-statistics info:
+ */
 #ifdef CONFIG_TIMER_STATS
 
 extern int timer_stats_active;

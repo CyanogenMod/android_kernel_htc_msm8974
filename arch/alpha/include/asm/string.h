@@ -3,12 +3,19 @@
 
 #ifdef __KERNEL__
 
+/*
+ * GCC of any recent vintage doesn't do stupid things with bcopy.
+ * EGCS 1.1 knows all about expanding memcpy inline, others don't.
+ *
+ * Similarly for a memset with data = 0.
+ */
 
 #define __HAVE_ARCH_MEMCPY
 extern void * memcpy(void *, const void *, size_t);
 #define __HAVE_ARCH_MEMMOVE
 extern void * memmove(void *, const void *, size_t);
 
+/* For backward compatibility with modules.  Unused otherwise.  */
 extern void * __memcpy(void *, const void *, size_t);
 
 #define memcpy __builtin_memcpy
@@ -42,6 +49,9 @@ extern size_t strlen(const char *);
 #define __HAVE_ARCH_MEMCHR
 extern void * memchr(const void *, int, size_t);
 
+/* The following routine is like memset except that it writes 16-bit
+   aligned values.  The DEST and COUNT parameters must be even for 
+   correct operation.  */
 
 #define __HAVE_ARCH_MEMSETW
 extern void * __memsetw(void *dest, unsigned short, size_t count);
@@ -51,6 +61,6 @@ extern void * __memsetw(void *dest, unsigned short, size_t count);
  ? __constant_c_memset((s),0x0001000100010001UL*(unsigned short)(c),(n)) \
  : __memsetw((s),(c),(n)))
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ALPHA_STRING_H__ */

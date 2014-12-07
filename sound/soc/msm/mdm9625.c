@@ -29,8 +29,13 @@
 #include "../codecs/wcd9320.h"
 #include <linux/io.h>
 
+/* Spk control */
 #define MDM9625_SPK_ON 1
 
+/* MDM9625 run Taiko at 12.288 Mhz.
+ * At present MDM supports 12.288mhz
+ * only. Taiko supports 9.6 MHz also.
+ */
 #define MDM_MCLK_CLK_12P288MHZ 12288000
 #define MDM_MCLK_CLK_9P6HZ 9600000
 #define MDM_IBIT_CLK_DIV_1P56MHZ 7
@@ -45,8 +50,10 @@
 #define I2S_PCM_SEL 1
 #define I2S_PCM_SEL_OFFSET 1
 
+/* Machine driver Name*/
 #define MDM9625_MACHINE_DRV_NAME "mdm9625-asoc-taiko"
 
+/* I2S GPIO */
 struct msm_i2s_gpio {
 	unsigned gpio_no;
 	const char *gpio_name;
@@ -164,7 +171,7 @@ static int mdm9625_set_gpio(struct snd_pcm_substream *substream,
 		if (rtn) {
 			pr_err("%s: Failed to request gpio %d\n",
 				__func__, pin_data->gpio_no);
-			
+			/* Release all the GPIO on failure */
 			for (j = i; j >= 0; j--)
 				gpio_free(pin_data->gpio_no);
 			goto err;
@@ -302,6 +309,10 @@ static int mdm9625_mi2s_startup(struct snd_pcm_substream *substream)
 			pr_err("set format for codec dai failed\n");
 			return ret;
 		}
+		/* This sets the CONFIG PARAMETER WS_SRC.
+		 * 1 means internal clock master mode.
+		 * 0 means external clock slave mode.
+		 */
 		ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_CBS_CFS);
 		if (ret < 0)
 			pr_err("set fmt cpu dai failed\n");
@@ -633,6 +644,9 @@ static int mdm9625_mi2s_audrx_init(struct snd_soc_pcm_runtime *rtd)
 	snd_soc_dapm_new_controls(dapm, mdm9625_dapm_widgets,
 				  ARRAY_SIZE(mdm9625_dapm_widgets));
 
+	/* After DAPM Enable pins alawys
+	 * DAPM SYNC needs to be called.
+	 */
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Bottom Pos");
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Bottom Neg");
 	snd_soc_dapm_enable_pin(dapm, "Ext Spk Top Pos");
@@ -736,8 +750,9 @@ static struct snd_soc_ops mdm9625_auxpcm_be_ops = {
 	.shutdown = mdm9625_auxpcm_snd_shutdown,
 };
 
+/* Digital audio interface connects codec <---> CPU */
 static struct snd_soc_dai_link mdm9625_dai[] = {
-	
+	/* FrontEnd DAI Links */
 	{
 		.name = "MDM9625 Media1",
 		.stream_name = "MultiMedia1",
@@ -749,7 +764,7 @@ static struct snd_soc_dai_link mdm9625_dai[] = {
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 		.ignore_suspend = 1,
-		
+		/* This dainlink has playback support */
 		.ignore_pmdown_time = 1,
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA1
 	},
@@ -764,7 +779,7 @@ static struct snd_soc_dai_link mdm9625_dai[] = {
 		.trigger = {SND_SOC_DPCM_TRIGGER_POST,
 			    SND_SOC_DPCM_TRIGGER_POST},
 		.ignore_suspend = 1,
-		
+		/* this dainlink has playback support */
 		.ignore_pmdown_time = 1,
 		.be_id = MSM_FRONTEND_DAI_MULTIMEDIA2,
 	},
@@ -779,7 +794,7 @@ static struct snd_soc_dai_link mdm9625_dai[] = {
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 		.ignore_suspend = 1,
-		
+		/* This dainlink has VOIP support */
 		.ignore_pmdown_time = 1,
 		.be_id = MSM_FRONTEND_DAI_VOIP,
 	},
@@ -795,7 +810,7 @@ static struct snd_soc_dai_link mdm9625_dai[] = {
 			    SND_SOC_DPCM_TRIGGER_POST},
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
-		
+		/* This dainlink has Voice support */
 		.ignore_pmdown_time = 1,
 		.be_id = MSM_FRONTEND_DAI_CS_VOICE,
 	},
@@ -810,7 +825,7 @@ static struct snd_soc_dai_link mdm9625_dai[] = {
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
 		.ignore_pmdown_time = 1,
-		 
+		 /* This dainlink has MI2S support */
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
 	},
@@ -824,7 +839,7 @@ static struct snd_soc_dai_link mdm9625_dai[] = {
 			    SND_SOC_DPCM_TRIGGER_POST},
 		.no_host_mode = SND_SOC_DAI_LINK_NO_HOST,
 		.ignore_suspend = 1,
-		
+		/* this dainlink has playback support */
 		.ignore_pmdown_time = 1,
 		.codec_dai_name = "snd-soc-dummy-dai",
 		.codec_name = "snd-soc-dummy",
@@ -837,7 +852,7 @@ static struct snd_soc_dai_link mdm9625_dai[] = {
 		.codec_dai_name = "msm-stub-rx",
 		.platform_name  = "msm-pcm-afe",
 		.ignore_suspend = 1,
-		
+		/* this dainlink has playback support */
 		.ignore_pmdown_time = 1,
 	},
 	{
@@ -872,7 +887,7 @@ static struct snd_soc_dai_link mdm9625_dai[] = {
 		.codec_dai_name = "msm-stub-tx",
 		.ignore_suspend = 1,
 	},
-	
+	/* Backend DAI Links */
 	{
 		.name = LPASS_BE_MI2S_RX,
 		.stream_name = "MI2S Playback",
@@ -930,7 +945,7 @@ static struct snd_soc_dai_link mdm9625_dai[] = {
 		.be_hw_params_fixup = mdm9625_auxpcm_be_params_fixup,
 		.ops = &mdm9625_auxpcm_be_ops,
 		.ignore_pmdown_time = 1,
-		
+		/* this dainlink has playback support */
 	},
 	{
 		.name = LPASS_BE_AUXPCM_TX,
@@ -944,7 +959,7 @@ static struct snd_soc_dai_link mdm9625_dai[] = {
 		.be_hw_params_fixup = mdm9625_auxpcm_be_params_fixup,
 		.ops = &mdm9625_auxpcm_be_ops,
 	},
-	
+	/* Incall Record Uplink BACK END DAI Link */
 	{
 		.name = LPASS_BE_INCALL_RECORD_TX,
 		.stream_name = "Voice Uplink Capture",
@@ -957,7 +972,7 @@ static struct snd_soc_dai_link mdm9625_dai[] = {
 		.be_hw_params_fixup = mdm9625_be_hw_params_fixup,
 		.ignore_suspend = 1,
 	},
-	
+	/* Incall Record Downlink BACK END DAI Link */
 	{
 		.name = LPASS_BE_INCALL_RECORD_RX,
 		.stream_name = "Voice Downlink Capture",
@@ -970,7 +985,7 @@ static struct snd_soc_dai_link mdm9625_dai[] = {
 		.be_hw_params_fixup = mdm9625_be_hw_params_fixup,
 		.ignore_suspend = 1,
 	},
-	
+	/* Incall Music BACK END DAI Link */
 	{
 		.name = LPASS_BE_VOICE_PLAYBACK_TX,
 		.stream_name = "Voice Farend Playback",
@@ -1121,7 +1136,7 @@ static __devinit int mdm9625_asoc_machine_probe(struct platform_device *pdev)
 			pdev->dev.of_node->full_name);
 		goto err;
 	}
-	
+	/* At present only 12.288MHz is supported on MDM. */
 	if (q6afe_check_osr_clk_freq(pdata->mclk_freq)) {
 		dev_err(&pdev->dev, "unsupported taiko mclk freq %u\n",
 			pdata->mclk_freq);

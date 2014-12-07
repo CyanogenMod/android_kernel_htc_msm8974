@@ -15,6 +15,7 @@
 #include <asm/io.h>
 #include <asm/txx9/smsc_fdc37m81x.h>
 
+/* Common Registers */
 #define SMSC_FDC37M81X_CONFIG_INDEX  0x00
 #define SMSC_FDC37M81X_CONFIG_DATA   0x01
 #define SMSC_FDC37M81X_CONF          0x02
@@ -33,11 +34,13 @@
 #define SMSC_FDC37M81X_TEST2         0x2E
 #define SMSC_FDC37M81X_TEST3         0x2F
 
+/* Logical device numbers */
 #define SMSC_FDC37M81X_FDD           0x00
 #define SMSC_FDC37M81X_SERIAL1       0x04
 #define SMSC_FDC37M81X_SERIAL2       0x05
 #define SMSC_FDC37M81X_KBD           0x07
 
+/* Logical device Config Registers */
 #define SMSC_FDC37M81X_ACTIVE        0x30
 #define SMSC_FDC37M81X_BASEADDR0     0x60
 #define SMSC_FDC37M81X_BASEADDR1     0x61
@@ -45,6 +48,7 @@
 #define SMSC_FDC37M81X_INT2          0x72
 #define SMSC_FDC37M81X_MODE          0xF0
 
+/* Chip Config Values */
 #define SMSC_FDC37M81X_CONFIG_ENTER  0x55
 #define SMSC_FDC37M81X_CONFIG_EXIT   0xaa
 #define SMSC_FDC37M81X_CHIP_ID       0x4d

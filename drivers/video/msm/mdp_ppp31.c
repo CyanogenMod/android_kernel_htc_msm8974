@@ -237,6 +237,8 @@ static void scale_params(uint32_t dim_in, uint32_t dim_out, uint32_t scaler,
 	*phase_init = 0;
 
 	if (dst == 1) {
+		/* if destination is 1 pixel wide, the value of phase_step
+		 * is unimportant. */
 		*phase_step = (uint32_t) (src << SCALER_PHASE_BITS);
 		if (scaler == MDP_PPP_SCALER_FIR)
 			*phase_init =
@@ -247,7 +249,7 @@ static void scale_params(uint32_t dim_in, uint32_t dim_out, uint32_t scaler,
 	if (scaler == MDP_PPP_SCALER_FIR) {
 		numer = (src - 1) << SCALER_PHASE_BITS;
 		denom = dst - 1;
-		
+		/* we want to round up the result*/
 		numer += denom - 1;
 	} else {
 		numer = src << SCALER_PHASE_BITS;
@@ -282,7 +284,7 @@ int mdp_ppp_cfg_scale(const struct mdp_info *mdp, struct ppp_regs *regs,
 	uint32_t y_fac;
 	uint32_t scaler_x = MDP_PPP_SCALER_FIR;
 	uint32_t scaler_y = MDP_PPP_SCALER_FIR;
-	
+	// Don't use pixel repeat mode, it looks bad
 	int use_pr = 0;
 	int x_idx;
 	int y_idx;
@@ -293,7 +295,7 @@ int mdp_ppp_cfg_scale(const struct mdp_info *mdp, struct ppp_regs *regs,
 	x_fac = (dst_rect->w * 100) / src_rect->w;
 	y_fac = (dst_rect->h * 100) / src_rect->h;
 
-	
+	/* if down-scaling by a factor smaller than 1/4, use M/N */
 	scaler_x = x_fac <= 25 ? MDP_PPP_SCALER_MN : MDP_PPP_SCALER_FIR;
 	scaler_y = y_fac <= 25 ? MDP_PPP_SCALER_MN : MDP_PPP_SCALER_FIR;
 	scale_params(src_rect->w, dst_rect->w, scaler_x, &regs->phasex_init,
@@ -307,7 +309,7 @@ int mdp_ppp_cfg_scale(const struct mdp_info *mdp, struct ppp_regs *regs,
 	load_table(mdp, y_idx, use_pr);
 
 	regs->scale_cfg = 0;
-	
+	// Enable SVI when source or destination is YUV
 	if (!IS_RGB(src_format) && !IS_RGB(dst_format))
 		regs->scale_cfg |= (1 << 6);
 	regs->scale_cfg |= (mdp_scale_tbl[x_idx].set << 2) |

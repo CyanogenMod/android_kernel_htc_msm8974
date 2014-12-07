@@ -15,11 +15,13 @@
 
 #include <linux/types.h>
 
+/* Constant declarations */
 #define SDMX_MAX_SESSIONS  (4)
 #define SDMX_LOOPBACK_PID  (0x2000)
 
 #define SDMX_MAX_PHYSICAL_CHUNKS (10)
 
+/* Filter-level error indicators */
 #define SDMX_FILTER_SUCCESS                       (0)
 #define SDMX_FILTER_ERR_MD_BUF_FULL               BIT(0)
 #define SDMX_FILTER_ERR_D_BUF_FULL                BIT(1)
@@ -41,14 +43,17 @@
 #define SDMX_FILTER_ERR_SECURITY_FAULT            BIT(17)
 #define SDMX_FILTER_ERR_IN_NS_BUFFER              BIT(18)
 
+/* Filter-level status indicators */
 #define SDMX_FILTER_STATUS_EOS                    BIT(0)
 #define SDMX_FILTER_STATUS_WR_PTR_CHANGED         BIT(1)
 
+/* Filter-level flags */
 #define SDMX_FILTER_FLAG_VERIFY_SECTION_CRC	BIT(0)
 
 #define SDMX_INVALID_SESSION_HANDLE		(-1)
 #define SDMX_INVALID_FILTER_HANDLE		(-1)
 
+/* Input flags */
 #define SDMX_INPUT_FLAG_EOS		BIT(0)
 #define SDMX_INPUT_FLAG_DBG_ENABLE	BIT(1)
 
@@ -103,11 +108,11 @@ enum sdmx_status {
 };
 
 enum sdmx_filter {
-	SDMX_PES_FILTER,		
-	SDMX_SEPARATED_PES_FILTER,	
-	SDMX_SECTION_FILTER,		
-	SDMX_PCR_FILTER,		
-	SDMX_RAW_FILTER,		
+	SDMX_PES_FILTER,		/* Other PES */
+	SDMX_SEPARATED_PES_FILTER,	/* Separated PES (for decoder) */
+	SDMX_SECTION_FILTER,		/* Section */
+	SDMX_PCR_FILTER,		/* PCR */
+	SDMX_RAW_FILTER,		/* Recording */
 };
 
 enum sdmx_raw_out_format {
@@ -117,77 +122,92 @@ enum sdmx_raw_out_format {
 };
 
 struct sdmx_session_dbg_counters {
-	
+	/* Total number of TS-packets input to SDMX. */
 	u32 ts_pkt_in;
 
-	
+	/* Total number of TS-packets filtered out by SDMX. */
 	u32 ts_pkt_out;
 };
 
 struct sdmx_filter_dbg_counters {
 	int filter_handle;
 
-	
+	/* Number of TS-packets filtered. */
 	u32 ts_pkt_count;
 
-	
+	/* Number of TS-packets with adaptation field only (no payload). */
 	u32 ts_pkt_no_payload;
 
-	
+	/* Number of TS-packets with the discontinuity indicator set. */
 	u32 ts_pkt_discont;
 
-	
+	/* Number of duplicate TS-packets detected. */
 	u32 ts_pkt_dup;
 
-	
+	/* Number of packets not decrypted because the key wasn't ready. */
 	u32 ts_pkt_key_not_ready;
 };
 
 struct sdmx_pes_counters {
-	
+	/* Number of TS packets with the TEI flag set */
 	u32 transport_err_count;
 
-	
+	/* Number of TS packets with continuity counter errors */
 	u32 continuity_err_count;
 
-	
+	/* Number of TS packets composing this PES frame */
 	u32 pes_ts_count;
 
-	
+	/* Number of TS packets dropped due to full buffer */
 	u32 drop_count;
 };
 
 struct sdmx_buff_descr {
-	
+	/* Physical address where buffer starts */
 	void *base_addr;
 
-	
+	/* Size of buffer */
 	u32 size;
 };
 
 struct sdmx_data_buff_descr {
-	
+	/* Physical chunks of the buffer */
 	struct sdmx_buff_descr buff_chunks[SDMX_MAX_PHYSICAL_CHUNKS];
 
-	
+	/* Length of buffer */
 	u32 length;
 };
 
+/*
+ * Data payload residing in the data buffers is described using this meta-data
+ * header. The meta data header specifies where the payload is located in the
+ * data buffer and how big it is.
+ * The meta data header optionally carries additional relevant meta data
+ * immediately following the meta-data header.
+ */
 struct sdmx_metadata_header {
+	/*
+	 * Payload start offset inside data buffer. In case data is managed
+	 * as a linear buffer group, this specifies buffer index.
+	 */
 	u32 payload_start;
 
-	
+	/* Payload length */
 	u32 payload_length;
 
-	
+	/* Number of meta data bytes immediately following this header */
 	u32 metadata_length;
 };
 
 
 struct sdmx_filter_status {
-	
+	/* Secure demux filter handle */
 	int filter_handle;
 
+	/*
+	 * Number of pending bytes in filter's output data buffer.
+	 * For linear buffer mode, this is number of buffers pending.
+	 */
 	u32 data_fill_count;
 
 	/*
@@ -196,16 +216,16 @@ struct sdmx_filter_status {
 	 */
 	u32 data_write_offset;
 
-	
+	/* Number of pending bytes in filter's output meta data buffer */
 	u32 metadata_fill_count;
 
 	/* Offset in meta data buffer for next metadata header to be written */
 	u32 metadata_write_offset;
 
-	
+	/* Errors (bitmap) reported by secure demux for this filter */
 	u32 error_indicators;
 
-	
+	/* General status (bitmap) reported by secure demux for this filter */
 	u32 status_indicators;
 };
 
@@ -249,4 +269,4 @@ int sdmx_reset_dbg_counters(int session_handle);
 
 int sdmx_set_log_level(int session_handle, enum sdmx_log_level level);
 
-#endif 
+#endif /* _MPQ_SDMX_H */

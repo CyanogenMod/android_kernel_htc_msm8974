@@ -1,3 +1,22 @@
+/* parport_sunbpp.c: Parallel-port routines for SBUS
+ * 
+ * Author: Derrick J. Brashear <shadow@dementia.org>
+ *
+ * based on work by:
+ *          Phil Blundell <philb@gnu.org>
+ *          Tim Waugh <tim@cyberelk.demon.co.uk>
+ *	    Jose Renau <renau@acm.org>
+ *          David Campbell <campbell@tirian.che.curtin.edu.au>
+ *          Grant Guenther <grant@torque.net>
+ *          Eddie C. Dost <ecd@skynet.be>
+ *          Stephen Williams (steve@icarus.com)
+ *          Gus Baldauf (gbaldauf@ix.netcom.com)
+ *          Peter Zaitcev
+ *          Tom Dyas
+ *
+ * Updated to new SBUS device framework: David S. Miller <davem@davemloft.net>
+ * 
+ */
 
 #include <linux/string.h>
 #include <linux/module.h>
@@ -16,8 +35,8 @@
 #include <linux/interrupt.h>
 
 #include <asm/io.h>
-#include <asm/oplib.h>           
-#include <asm/dma.h>             
+#include <asm/oplib.h>           /* OpenProm Library */
+#include <asm/dma.h>             /* BPP uses LSI 64854 for DMA */
 #include <asm/irq.h>
 #include <asm/sunbpp.h>
 

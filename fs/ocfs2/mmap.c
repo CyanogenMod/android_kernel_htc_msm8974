@@ -73,11 +73,34 @@ static int __ocfs2_page_mkwrite(struct file *file, struct buffer_head *di_bh,
 
 	last_index = (size - 1) >> PAGE_CACHE_SHIFT;
 
+	/*
+	 * There are cases that lead to the page no longer bebongs to the
+	 * mapping.
+	 * 1) pagecache truncates locally due to memory pressure.
+	 * 2) pagecache truncates when another is taking EX lock against 
+	 * inode lock. see ocfs2_data_convert_worker.
+	 * 
+	 * The i_size check doesn't catch the case where nodes truncated and
+	 * then re-extended the file. We'll re-check the page mapping after
+	 * taking the page lock inside of ocfs2_write_begin_nolock().
+	 *
+	 * Let VM retry with these cases.
+	 */
 	if ((page->mapping != inode->i_mapping) ||
 	    (!PageUptodate(page)) ||
 	    (page_offset(page) >= size))
 		goto out;
 
+	/*
+	 * Call ocfs2_write_begin() and ocfs2_write_end() to take
+	 * advantage of the allocation code there. We pass a write
+	 * length of the whole page (chopped to i_size) to make sure
+	 * the whole thing is allocated.
+	 *
+	 * Since we know the page is up to date, we don't have to
+	 * worry about ocfs2_write_begin() skipping some buffer reads
+	 * because the "write" would invalidate their data.
+	 */
 	if (page->index == last_index)
 		len = ((size - 1) & ~PAGE_CACHE_MASK) + 1;
 
@@ -115,12 +138,22 @@ static int ocfs2_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
 
 	ocfs2_block_signals(&oldset);
 
+	/*
+	 * The cluster locks taken will block a truncate from another
+	 * node. Taking the data lock will also ensure that we don't
+	 * attempt page truncation as part of a downconvert.
+	 */
 	ret = ocfs2_inode_lock(inode, &di_bh, 1);
 	if (ret < 0) {
 		mlog_errno(ret);
 		goto out;
 	}
 
+	/*
+	 * The alloc sem should be enough to serialize with
+	 * ocfs2_truncate_file() changing i_size as well as any thread
+	 * modifying the inode btree.
+	 */
 	down_write(&OCFS2_I(inode)->ip_alloc_sem);
 
 	ret = __ocfs2_page_mkwrite(vma->vm_file, di_bh, page);

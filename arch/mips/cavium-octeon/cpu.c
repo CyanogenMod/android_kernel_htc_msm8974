@@ -35,10 +35,10 @@ static int cnmips_cu2_call(struct notifier_block *nfb, unsigned long action,
 		write_c0_status(status & ~ST0_CU2);
 		local_irq_restore(flags);
 
-		return NOTIFY_BAD;	
+		return NOTIFY_BAD;	/* Don't call default notifier */
 	}
 
-	return NOTIFY_OK;		
+	return NOTIFY_OK;		/* Let default notifier send signals */
 }
 
 static int __init cnmips_cu2_setup(void)

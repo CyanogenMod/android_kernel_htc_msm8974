@@ -70,12 +70,14 @@ static int ether1_close(struct net_device *dev);
 static void ether1_setmulticastlist(struct net_device *dev);
 static void ether1_timeout(struct net_device *dev);
 
+/* ------------------------------------------------------------------------- */
 
 static char version[] __devinitdata = "ether1 ethernet driver (c) 2000 Russell King v1.07\n";
 
 #define BUS_16 16
 #define BUS_8  8
 
+/* ------------------------------------------------------------------------- */
 
 #define DISABLEIRQS 1
 #define NORMALIRQS  0
@@ -113,6 +115,15 @@ ether1_outw_p (struct net_device *dev, unsigned short val, int addr, int svflgs)
 		local_irq_restore (flags);
 }
 
+/*
+ * Some inline assembler to allow fast transfers on to/off of the card.
+ * Since this driver depends on some features presented by the ARM
+ * specific architecture, and that you can't configure this driver
+ * without specifiing ARM mode, this is not a problem.
+ *
+ * This routine is essentially an optimised memcpy from the card's
+ * onboard RAM to kernel memory.
+ */
 static void
 ether1_writebuffer (struct net_device *dev, void *data, unsigned int start, unsigned int length)
 {
@@ -311,7 +322,12 @@ ether1_init_2(struct net_device *dev)
 	return 0;
 }
 
+/*
+ * These are the structures that are loaded into the ether RAM card to
+ * initialise the 82586
+ */
 
+/* at 0x0100 */
 #define NOP_ADDR	(TX_AREA_START)
 #define NOP_SIZE	(0x06)
 static nop_t  init_nop  = {
@@ -320,6 +336,7 @@ static nop_t  init_nop  = {
 	NOP_ADDR
 };
 
+/* at 0x003a */
 #define TDR_ADDR	(0x003a)
 #define TDR_SIZE	(0x08)
 static tdr_t  init_tdr	= {
@@ -329,6 +346,7 @@ static tdr_t  init_tdr	= {
 	0
 };
 
+/* at 0x002e */
 #define MC_ADDR		(0x002e)
 #define MC_SIZE		(0x0c)
 static mc_t   init_mc   = {
@@ -339,6 +357,7 @@ static mc_t   init_mc   = {
 	{ { 0, } }
 };
 
+/* at 0x0022 */
 #define SA_ADDR		(0x0022)
 #define SA_SIZE		(0x0c)
 static sa_t   init_sa   = {
@@ -348,6 +367,7 @@ static sa_t   init_sa   = {
 	{ 0, }
 };
 
+/* at 0x0010 */
 #define CFG_ADDR	(0x0010)
 #define CFG_SIZE	(0x12)
 static cfg_t  init_cfg  = {
@@ -365,6 +385,7 @@ static cfg_t  init_cfg  = {
 	0,
 };
 
+/* at 0x0000 */
 #define SCB_ADDR	(0x0000)
 #define SCB_SIZE	(0x10)
 static scb_t  init_scb  = {
@@ -378,6 +399,7 @@ static scb_t  init_scb  = {
 	0
 };
 
+/* at 0xffee */
 #define ISCP_ADDR	(0xffee)
 #define ISCP_SIZE	(0x08)
 static iscp_t init_iscp = {
@@ -387,6 +409,7 @@ static iscp_t init_iscp = {
 	0x0000
 };
 
+/* at 0xfff6 */
 #define SCP_ADDR	(0xfff6)
 #define SCP_SIZE	(0x0a)
 static scp_t  init_scp  = {
@@ -431,7 +454,7 @@ ether1_init_for_open (struct net_device *dev)
 	for (i = 0; i < 6; i++)
 		init_sa.sa_addr[i] = dev->dev_addr[i];
 
-	
+	/* load data structures into ether1 RAM */
 	ether1_writebuffer (dev, &init_scp,  SCP_ADDR,  SCP_SIZE);
 	ether1_writebuffer (dev, &init_iscp, ISCP_ADDR, ISCP_SIZE);
 	ether1_writebuffer (dev, &init_scb,  SCB_ADDR,  SCB_SIZE);
@@ -447,6 +470,12 @@ ether1_init_for_open (struct net_device *dev)
 		return 1;
 	}
 
+	/*
+	 * setup circularly linked list of { rfd, rbd, buffer }, with
+	 * all rfds circularly linked, rbds circularly linked.
+	 * First rfd is linked to scp, first rbd is linked to first
+	 * rfd.  Last rbd has a suspend command.
+	 */
 	addr = RX_AREA_START;
 	do {
 		next = addr + RFD_SIZE + RBD_SIZE + ETH_FRAME_LEN + 10;
@@ -476,14 +505,14 @@ ether1_init_for_open (struct net_device *dev)
 	priv(dev)->tx_tail = TDR_ADDR;
 	priv(dev)->rx_head = RX_AREA_START;
 
-	
+	/* release reset & give 586 a prod */
 	priv(dev)->resetting = 1;
 	priv(dev)->initialising = 1;
 	writeb(CTRL_RST, REG_CONTROL);
 	writeb(0, REG_CONTROL);
 	writeb(CTRL_CA, REG_CONTROL);
 
-	
+	/* 586 should now unset iscp.busy */
 	timeout = jiffies + HZ/2;
 	while (ether1_readw(dev, ISCP_ADDR, iscp_t, iscp_busy, DISABLEIRQS) == 1) {
 		if (time_after(jiffies, timeout)) {
@@ -492,7 +521,7 @@ ether1_init_for_open (struct net_device *dev)
 		}
 	}
 
-	
+	/* check status of commands that we issued */
 	timeout += HZ/10;
 	while (((status = ether1_readw(dev, CFG_ADDR, cfg_t, cfg_status, DISABLEIRQS))
 			& STAT_COMPLETE) == 0) {
@@ -579,6 +608,7 @@ ether1_init_for_open (struct net_device *dev)
 	return failures ? 1 : 0;
 }
 
+/* ------------------------------------------------------------------------- */
 
 static int
 ether1_txalloc (struct net_device *dev, int size)
@@ -668,6 +698,9 @@ ether1_sendpacket (struct sk_buff *skb, struct net_device *dev)
 			goto out;
 	}
 
+	/*
+	 * insert packet followed by a nop
+	 */
 	txaddr = ether1_txalloc (dev, TX_SIZE);
 	tbdaddr = ether1_txalloc (dev, TBD_SIZE);
 	dataddr = ether1_txalloc (dev, skb->len);
@@ -693,14 +726,14 @@ ether1_sendpacket (struct sk_buff *skb, struct net_device *dev)
 	tmp = priv(dev)->tx_link;
 	priv(dev)->tx_link = nopaddr;
 
-	
+	/* now reset the previous nop pointer */
 	ether1_writew(dev, txaddr, tmp, nop_t, nop_link, NORMALIRQS);
 
 	local_irq_restore(flags);
 
-	
+	/* handle transmit */
 
-	
+	/* check to see if we have room for a full sized ether frame */
 	tmp = priv(dev)->tx_head;
 	tst = ether1_txalloc (dev, TX_SIZE + TBD_SIZE + NOP_SIZE + ETH_FRAME_LEN);
 	priv(dev)->tx_head = tmp;
@@ -726,7 +759,7 @@ again:
 
 	switch (nop.nop_command & CMD_MASK) {
 	case CMD_TDR:
-		
+		/* special case */
 		if (ether1_readw(dev, SCB_ADDR, scb_t, scb_cbl_offset, NORMALIRQS)
 				!= (unsigned short)I82586_NULL) {
 			ether1_writew(dev, SCB_CMDCUCSTART | SCB_CMDRXSTART, SCB_ADDR, scb_t,
@@ -852,7 +885,7 @@ ether1_recv_done (struct net_device *dev)
 		}
 
 		nexttail = ether1_readw(dev, priv(dev)->rx_tail, rfd_t, rfd_link, NORMALIRQS);
-		
+		/* nexttail should be rx_head */
 		if (nexttail != priv(dev)->rx_head)
 			printk(KERN_ERR "%s: receiver buffer chaining error (%04X != %04X)\n",
 				dev->name, nexttail, priv(dev)->rx_head);
@@ -902,7 +935,7 @@ ether1_interrupt (int irq, void *dev_id)
 				printk (KERN_WARNING "%s: RU went not ready: RU suspended\n", dev->name);
 				ether1_writew(dev, SCB_CMDRXRESUME, SCB_ADDR, scb_t, scb_command, NORMALIRQS);
 				writeb(CTRL_CA, REG_CONTROL);
-				dev->stats.rx_dropped++;	
+				dev->stats.rx_dropped++;	/* we suspended due to lack of buffer space */
 			} else
 				printk(KERN_WARNING "%s: RU went not ready: %04X\n", dev->name,
 					ether1_readw(dev, SCB_ADDR, scb_t, scb_status, NORMALIRQS));
@@ -925,11 +958,19 @@ ether1_close (struct net_device *dev)
 	return 0;
 }
 
+/*
+ * Set or clear the multicast filter for this adaptor.
+ * num_addrs == -1	Promiscuous mode, receive all packets.
+ * num_addrs == 0	Normal mode, clear multicast list.
+ * num_addrs > 0	Multicast mode, receive normal and MC packets, and do
+ *			best-effort filtering.
+ */
 static void
 ether1_setmulticastlist (struct net_device *dev)
 {
 }
 
+/* ------------------------------------------------------------------------- */
 
 static void __devinit ether1_banner(void)
 {

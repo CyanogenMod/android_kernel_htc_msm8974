@@ -1,3 +1,5 @@
+/* Intel Professional Workstation/panther ethernet driver */
+/* lp486e.c: A panther 82596 ethernet driver for linux. */
 /*
     History and copyrights:
 
@@ -32,6 +34,27 @@
     Present version
 	aeb@cwi.nl
 */
+/*
+    There are currently two motherboards that I know of in the
+    professional workstation. The only one that I know is the
+    intel panther motherboard. -- ard
+*/
+/*
+The pws is equipped with an intel 82596. This is a very intelligent controller
+which runs its own micro-code. Communication with the hostprocessor is done
+through linked lists of commands and buffers in the hostprocessors memory.
+A complete description of the 82596 is available from intel. Search for
+a file called "29021806.pdf". It is a complete description of the chip itself.
+To use it for the pws some additions are needed regarding generation of
+the PORT and CA signal, and the interrupt glue needed for a pc.
+I/O map:
+PORT  SIZE ACTION MEANING
+0xCB0    2 WRITE  Lower 16 bits for PORT command
+0xCB2    2 WRITE  Upper 16 bits for PORT command, and issue of PORT command
+0xCB4    1 WRITE  Generation of CA signal
+0xCB8    1 WRITE  Clear interrupt glue
+All other communication is through memory!
+*/
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -52,6 +75,7 @@
 
 #define DRV_NAME "lp486e"
 
+/* debug print flags */
 #define LOG_SRCDST    0x80000000
 #define LOG_STATINT   0x40000000
 #define LOG_STARTINT  0x20000000
@@ -69,11 +93,11 @@ static const char * const medianame[] = {
 
 #define I596_NULL (0xffffffff)
 
-#define CMD_EOL		0x8000	
-#define CMD_SUSP	0x4000	
-#define CMD_INTR	0x2000	
+#define CMD_EOL		0x8000	/* The last command of the list, stop. */
+#define CMD_SUSP	0x4000	/* Suspend after doing cmd. */
+#define CMD_INTR	0x2000	/* Interrupt after doing cmd. */
 
-#define CMD_FLEX	0x0008	
+#define CMD_FLEX	0x0008	/* Enable flexible memory model */
 
 enum commands {
 	CmdNOP = 0,
@@ -91,15 +115,21 @@ static const char *CUcmdnames[8] = { "NOP", "IASetup", "Configure", "MulticastLi
 				     "Tx", "TDR", "Dump", "Diagnose" };
 #endif
 
-#define	STAT_CX		0x8000	
-#define	STAT_FR		0x4000	
-#define	STAT_CNA	0x2000	
-#define	STAT_RNR	0x1000	
+/* Status word bits */
+#define	STAT_CX		0x8000	/* The CU finished executing a command
+				   with the Interrupt bit set */
+#define	STAT_FR		0x4000	/* The RU finished receiving a frame */
+#define	STAT_CNA	0x2000	/* The CU left the active state */
+#define	STAT_RNR	0x1000	/* The RU left the active state */
 #define STAT_ACK	(STAT_CX | STAT_FR | STAT_CNA | STAT_RNR)
-#define	STAT_CUS	0x0700	
-#define STAT_RUS	0x00f0	
-#define	STAT_T		0x0008	
-#define	STAT_ZERO	0x0807	
+#define	STAT_CUS	0x0700	/* Status of CU: 0: idle, 1: suspended,
+				   2: active, 3-7: unused */
+#define STAT_RUS	0x00f0	/* Status of RU: 0: idle, 1: suspended,
+				   2: no resources, 4: ready,
+				   10: no resources due to no more RBDs,
+				   12: no more RBDs, other: unused */
+#define	STAT_T		0x0008	/* Bus throttle timers loaded */
+#define	STAT_ZERO	0x0807	/* Always zero */
 
 #if 0
 static char *CUstates[8] = {
@@ -148,6 +178,7 @@ i596_out_status(int status) {
 }
 #endif
 
+/* Command word bits */
 #define ACK_CX		0x8000
 #define ACK_FR		0x4000
 #define ACK_CNA		0x2000
@@ -175,15 +206,16 @@ pa_to_va(phys_addr x) {
 	return (x == I596_NULL) ? NULL : bus_to_virt(x);
 }
 
-#define CMD_STAT_C	0x8000	
-#define CMD_STAT_B	0x4000	
-#define CMD_STAT_OK	0x2000	
-#define CMD_STAT_A	0x1000	
+/* status bits for cmd */
+#define CMD_STAT_C	0x8000	/* CU command complete */
+#define CMD_STAT_B	0x4000	/* CU command in progress */
+#define CMD_STAT_OK	0x2000	/* CU command completed without errors */
+#define CMD_STAT_A	0x1000	/* CU command abnormally terminated */
 
-struct i596_cmd {		
+struct i596_cmd {		/* 8 bytes */
 	unsigned short status;
 	unsigned short command;
-	phys_addr pa_next;	
+	phys_addr pa_next;	/* va_to_pa(struct i596_cmd *next) */
 };
 
 #define EOF		0x8000
@@ -192,38 +224,41 @@ struct i596_cmd {
 struct i596_tbd {
 	unsigned short size;
 	unsigned short pad;
-	phys_addr pa_next;	
-	phys_addr pa_data;	
+	phys_addr pa_next;	/* va_to_pa(struct i596_tbd *next) */
+	phys_addr pa_data;	/* va_to_pa(char *data) */
 	struct sk_buff *skb;
 };
 
 struct tx_cmd {
 	struct i596_cmd cmd;
-	phys_addr pa_tbd;	
+	phys_addr pa_tbd;	/* va_to_pa(struct i596_tbd *tbd) */
 	unsigned short size;
 	unsigned short pad;
 };
 
-#define RFD_STAT_C	0x8000	
-#define RFD_STAT_B	0x4000	
-#define RFD_STAT_OK	0x2000	
+/* status bits for rfd */
+#define RFD_STAT_C	0x8000	/* Frame reception complete */
+#define RFD_STAT_B	0x4000	/* Frame reception in progress */
+#define RFD_STAT_OK	0x2000	/* Frame received without errors */
 #define RFD_STATUS	0x1fff
 #define RFD_LENGTH_ERR	0x1000
 #define RFD_CRC_ERR	0x0800
 #define RFD_ALIGN_ERR	0x0400
 #define RFD_NOBUFS_ERR	0x0200
-#define RFD_DMA_ERR	0x0100	
+#define RFD_DMA_ERR	0x0100	/* DMA overrun failure to acquire system bus */
 #define RFD_SHORT_FRAME_ERR	0x0080
 #define RFD_NOEOP_ERR	0x0040
 #define RFD_TRUNC_ERR	0x0020
-#define RFD_MULTICAST  0x0002	
+#define RFD_MULTICAST  0x0002	/* 0: destination had our address
+				   1: destination was broadcast/multicast */
 #define RFD_COLLISION  0x0001
 
+/* receive frame descriptor */
 struct i596_rfd {
 	unsigned short stat;
 	unsigned short cmd;
-	phys_addr pa_next;	
-	phys_addr pa_rbd;	
+	phys_addr pa_next;	/* va_to_pa(struct i596_rfd *next) */
+	phys_addr pa_rbd;	/* va_to_pa(struct i596_rbd *rbd) */
 	unsigned short count;
 	unsigned short size;
 	char data[1532];
@@ -235,14 +270,15 @@ struct i596_rfd {
 #define RBD_EOF		0x8000
 #define RBD_F		0x4000
 
+/* receive buffer descriptor */
 struct i596_rbd {
 	unsigned short size;
 	unsigned short pad;
-	phys_addr pa_next;	
-	phys_addr pa_data;	
-	phys_addr pa_prev;	
+	phys_addr pa_next;	/* va_to_pa(struct i596_tbd *next) */
+	phys_addr pa_data;	/* va_to_pa(char *data) */
+	phys_addr pa_prev;	/* va_to_pa(struct i596_tbd *prev) */
 
-	
+	/* Driver private part */
 	struct sk_buff *skb;
 };
 
@@ -250,51 +286,61 @@ struct i596_rbd {
 #define RX_SKBSIZE (ETH_FRAME_LEN+10)
 #define RX_RBD_SIZE 32
 
+/* System Control Block - 40 bytes */
 struct i596_scb {
-	u16 status;		
-	u16 command;		
-	phys_addr pa_cmd;	
-	phys_addr pa_rfd;	
-	u32 crc_err;		
-	u32 align_err;		
-	u32 resource_err;	
-	u32 over_err;		
-	u32 rcvdt_err;		
-	u32 short_err;		
-	u16 t_on;		
-	u16 t_off;		
+	u16 status;		/* 0 */
+	u16 command;		/* 2 */
+	phys_addr pa_cmd;	/* 4 - va_to_pa(struct i596_cmd *cmd) */
+	phys_addr pa_rfd;	/* 8 - va_to_pa(struct i596_rfd *rfd) */
+	u32 crc_err;		/* 12 */
+	u32 align_err;		/* 16 */
+	u32 resource_err;	/* 20 */
+	u32 over_err;		/* 24 */
+	u32 rcvdt_err;		/* 28 */
+	u32 short_err;		/* 32 */
+	u16 t_on;		/* 36 */
+	u16 t_off;		/* 38 */
 };
 
+/* Intermediate System Configuration Pointer - 8 bytes */
 struct i596_iscp {
-	u32 busy;		
-	phys_addr pa_scb;	
+	u32 busy;		/* 0 */
+	phys_addr pa_scb;	/* 4 - va_to_pa(struct i596_scb *scb) */
 };
 
+/* System Configuration Pointer - 12 bytes */
 struct i596_scp {
-	u32 sysbus;		
-	u32 pad;		
-	phys_addr pa_iscp;	
+	u32 sysbus;		/* 0 */
+	u32 pad;		/* 4 */
+	phys_addr pa_iscp;	/* 8 - va_to_pa(struct i596_iscp *iscp) */
 };
 
+/* Selftest and dump results - needs 16-byte alignment */
+/*
+ * The size of the dump area is 304 bytes. When the dump is executed
+ * by the Port command an extra word will be appended to the dump area.
+ * The extra word is a copy of the Dump status word (containing the
+ * C, B, OK bits). [I find 0xa006, with a0 for C+OK and 6 for dump]
+ */
 struct i596_dump {
-	u16 dump[153];		
+	u16 dump[153];		/* (304 = 130h) + 2 bytes */
 };
 
-struct i596_private {		
-	struct i596_scp scp;	
-	struct i596_iscp iscp;	
-	struct i596_scb scb;	
-	u32 dummy;		
-	struct i596_dump dump;	
+struct i596_private {		/* aligned to a 16-byte boundary */
+	struct i596_scp scp;	/* 0 - needs 16-byte alignment */
+	struct i596_iscp iscp;	/* 12 */
+	struct i596_scb scb;	/* 20 */
+	u32 dummy;		/* 60 */
+	struct i596_dump dump;	/* 64 - needs 16-byte alignment */
 
 	struct i596_cmd set_add;
-	char eth_addr[8];	
+	char eth_addr[8];	/* directly follows set_add */
 
 	struct i596_cmd set_conf;
-	char i596_config[16];	
+	char i596_config[16];	/* directly follows set_conf */
 
 	struct i596_cmd tdr;
-	unsigned long tdr_stat;	
+	unsigned long tdr_stat;	/* directly follows tdr */
 
 	int last_restart;
 	struct i596_rbd *rbd_list;
@@ -308,20 +354,26 @@ struct i596_private {
 };
 
 static char init_setup[14] = {
-	0x8E,	
-	0xC8,	
-	0x40,	
-	0x2E,	
-	0x00,	
-	0x60,	
-	0x00,	
-	0xf2,	
-	0x00,	
-	0x00,	
-	0x40,	
-	0xff,	
-	0x00,	
-	0x7f	
+	0x8E,	/* length 14 bytes, prefetch on */
+	0xC8,	/* default: fifo to 8, monitor off */
+	0x40,	/* default: don't save bad frames (apricot.c had 0x80) */
+	0x2E,	/* (default is 0x26)
+		   No source address insertion, 8 byte preamble */
+	0x00,	/* default priority and backoff */
+	0x60,	/* default interframe spacing */
+	0x00,	/* default slot time LSB */
+	0xf2,	/* default slot time and nr of retries */
+	0x00,	/* default various bits
+		   (0: promiscuous mode, 1: broadcast disable,
+		    2: encoding mode, 3: transmit on no CRS,
+		    4: no CRC insertion, 5: CRC type,
+		    6: bit stuffing, 7: padding) */
+	0x00,	/* default carrier sense and collision detect */
+	0x40,	/* default minimum frame length */
+	0xff,	/* (default is 0xff, and that is what apricot.c has;
+		   elp486.c has 0xfb: Enable crc append in memory.) */
+	0x00,	/* default: not full duplex */
+	0x7f	/* (default is 0x3f) multi IA */
 };
 
 static int i596_open(struct net_device *dev);
@@ -357,7 +409,7 @@ init_rx_bufs(struct net_device *dev, int num) {
 	struct i596_private *lp;
 	struct i596_rfd *rfd;
 	int i;
-	
+	// struct i596_rbd *rbd;
 
 	lp = netdev_priv(dev);
 	lp->scb.pa_rfd = I596_NULL;
@@ -431,14 +483,15 @@ remove_rx_bufs(struct net_device *dev) {
 #endif
 }
 
-#define PORT_RESET              0x00    
-#define PORT_SELFTEST           0x01    
-#define PORT_ALTSCP             0x02    
-#define PORT_DUMP               0x03    
+#define PORT_RESET              0x00    /* reset 82596 */
+#define PORT_SELFTEST           0x01    /* selftest */
+#define PORT_ALTSCP             0x02    /* alternate SCB address */
+#define PORT_DUMP               0x03    /* dump */
 
-#define IOADDR	0xcb0		
-#define IRQ	10		
+#define IOADDR	0xcb0		/* real constant */
+#define IRQ	10		/* default IRQ - can be changed by ECU */
 
+/* The 82596 requires two 16-bit write cycles for a port command */
 static inline void
 PORT(phys_addr a, unsigned int cmd) {
 	if (a & 0xf)
@@ -459,6 +512,7 @@ CLEAR_INT(void) {
 }
 
 #if 0
+/* selftest or dump */
 static void
 i596_port_do(struct net_device *dev, int portcmd, char *cmdname) {
 	struct i596_private *lp = netdev_priv(dev);
@@ -469,7 +523,7 @@ i596_port_do(struct net_device *dev, int portcmd, char *cmdname) {
 	outp = &(lp->dump.dump[0]);
 
 	PORT(va_to_pa(outp), portcmd);
-	mdelay(30);             
+	mdelay(30);             /* random, unmotivated */
 
 	printk("lp486e i82596 %s result:\n", cmdname);
 	for (m = ARRAY_SIZE(lp->dump.dump); m && lp->dump.dump[m-1] == 0; m--)
@@ -488,35 +542,65 @@ i596_scp_setup(struct net_device *dev) {
 	struct i596_private *lp = netdev_priv(dev);
 	int boguscnt;
 
-	
-	lp->scp.sysbus = 0x00440000; 		
-	lp->scp.pad = 0;			
+	/* Setup SCP, ISCP, SCB */
+	/*
+	 * sysbus bits:
+	 *  only a single byte is significant - here 0x44
+	 *  0x80: big endian mode (details depend on stepping)
+	 *  0x40: 1
+	 *  0x20: interrupt pin is active low
+	 *  0x10: lock function disabled
+	 *  0x08: external triggering of bus throttle timers
+	 *  0x06: 00: 82586 compat mode, 01: segmented mode, 10: linear mode
+	 *  0x01: unused
+	 */
+	lp->scp.sysbus = 0x00440000; 		/* linear mode */
+	lp->scp.pad = 0;			/* must be zero */
 	lp->scp.pa_iscp = va_to_pa(&(lp->iscp));
 
+	/*
+	 * The CPU sets the ISCP to 1 before it gives the first CA()
+	 */
 	lp->iscp.busy = 0x0001;
 	lp->iscp.pa_scb = va_to_pa(&(lp->scb));
 
 	lp->scb.command = 0;
 	lp->scb.status = 0;
 	lp->scb.pa_cmd = I596_NULL;
-	
+	/* lp->scb.pa_rfd has been initialised already */
 
 	lp->last_cmd = jiffies;
 	lp->cmd_backlog = 0;
 	lp->cmd_head = NULL;
 
-	PORT(0, PORT_RESET);	
+	/*
+	 * Reset the 82596.
+	 * We need to wait 10 systemclock cycles, and
+	 * 5 serial clock cycles.
+	 */
+	PORT(0, PORT_RESET);	/* address part ignored */
 	udelay(100);
 
-	PORT(va_to_pa(&lp->scp), PORT_ALTSCP);	
+	/*
+	 * Before the CA signal is asserted, the default SCP address
+	 * (0x00fffff4) can be changed to a 16-byte aligned value
+	 */
+	PORT(va_to_pa(&lp->scp), PORT_ALTSCP);	/* change the scp address */
 
+	/*
+	 * The initialization procedure begins when a
+	 * Channel Attention signal is asserted after a reset.
+	 */
 
 	CA();
 
+	/*
+	 * The ISCP busy is cleared by the 82596 after the SCB address is read.
+	 */
 	boguscnt = 100;
 	while (lp->iscp.busy) {
 		if (--boguscnt == 0) {
-			
+			/* No i82596 present? */
 			printk("%s: i82596 initialization timed out\n",
 			       dev->name);
 			return 1;
@@ -524,7 +608,7 @@ i596_scp_setup(struct net_device *dev) {
 		udelay(5);
 		barrier();
 	}
-	
+	/* I find here boguscnt==100, so no delay was required. */
 
 	return 0;
 }
@@ -564,12 +648,13 @@ init_i596(struct net_device *dev) {
 	return 0;
 }
 
+/* Receive a single frame */
 static inline int
 i596_rx_one(struct net_device *dev, struct i596_private *lp,
 	    struct i596_rfd *rfd, int *frames) {
 
 	if (rfd->stat & RFD_STAT_OK) {
-		
+		/* a good frame */
 		int pkt_len = (rfd->count & 0x3fff);
 		struct sk_buff *skb = netdev_alloc_skb(dev, pkt_len);
 
@@ -632,9 +717,9 @@ i596_rx(struct net_device *dev) {
 			printk("SF:%p-%04x\n", rfd, rfd->stat);
 #endif
 		if (!(rfd->stat & RFD_STAT_C))
-			break;		
+			break;		/* next one not ready */
 		if (i596_rx_one(dev, lp, rfd, &frames))
-			break;		
+			break;		/* out of memory */
 		rfd->cmd = CMD_EOL;
 		lp->rx_tail->cmd = 0;
 		lp->rx_tail = rfd;
@@ -674,7 +759,7 @@ i596_cleanup_cmd(struct net_device *dev) {
 				break;
 			}
 			case CmdMulticastList: {
-				
+				// unsigned short count = *((unsigned short *) (ptr + 1));
 
 				cmd->pa_next = I596_NULL;
 				kfree((unsigned char *)cmd);
@@ -705,7 +790,7 @@ static void i596_reset(struct net_device *dev, struct i596_private *lp, int ioad
 	CA();
 	barrier();
 
-	
+	/* wait for shutdown */
 	if (lp->scb.command && i596_timeout(dev, "i596_reset(2)", 400))
 		;
 
@@ -713,7 +798,7 @@ static void i596_reset(struct net_device *dev, struct i596_private *lp, int ioad
 	i596_rx(dev);
 
 	netif_start_queue(dev);
-	
+	/*dev_kfree_skb(skb, FREE_WRITE);*/
 	init_i596(dev);
 }
 
@@ -773,7 +858,7 @@ static int i596_open(struct net_device *dev)
 	}
 	netif_start_queue(dev);
 	init_i596(dev);
-	return 0;			
+	return 0;			/* Always succeed */
 }
 
 static netdev_tx_t i596_start_xmit (struct sk_buff *skb, struct net_device *dev) {
@@ -825,18 +910,18 @@ i596_tx_timeout (struct net_device *dev) {
 	struct i596_private *lp = netdev_priv(dev);
 	int ioaddr = dev->base_addr;
 
-	
+	/* Transmitter timeout, serious problems. */
 	printk(KERN_WARNING "%s: transmit timed out, status resetting.\n", dev->name);
 	dev->stats.tx_errors++;
 
-	
+	/* Try to restart the adaptor */
 	if (lp->last_restart == dev->stats.tx_packets) {
 		printk ("Resetting board.\n");
 
-		
+		/* Shutdown and restart */
 		i596_reset (dev, lp, ioaddr);
 	} else {
-		
+		/* Issue a channel attention signal */
 		printk ("Kicking board.\n");
 		lp->scb.command = (CUC_START | RX_START);
 		CA();
@@ -894,6 +979,9 @@ static int __init lp486e_probe(struct net_device *dev) {
 	lp = netdev_priv(dev);
 	spin_lock_init(&lp->cmd_lock);
 
+	/*
+	 * Do we really have this thing?
+	 */
 	if (i596_scp_setup(dev)) {
 		ret = -ENODEV;
 		goto err_out_kfree;
@@ -903,6 +991,16 @@ static int __init lp486e_probe(struct net_device *dev) {
 	dev->irq = IRQ;
 
 
+	/*
+	 * How do we find the ethernet address? I don't know.
+	 * One possibility is to look at the EISA configuration area
+	 * [0xe8000-0xe9fff]. This contains the ethernet address
+	 * but not at a fixed address - things depend on setup options.
+	 *
+	 * If we find no address, or the wrong address, use
+	 *   ifconfig eth0 hw ether a1:a2:a3:a4:a5:a6
+	 * with the value found in the BIOS setup.
+	 */
 	bios = bus_to_virt(0xe8000);
 	for (j = 0; j < 0x2000; j++) {
 		if (bios[j] == 0 && bios[j+1] == 0xaa && bios[j+2] == 0) {
@@ -922,12 +1020,12 @@ static int __init lp486e_probe(struct net_device *dev) {
 		printk(" %2.2X", dev->dev_addr[i] = eth_addr[i]);
 	printk("\n");
 
-	
+	/* The LP486E-specific entries in the device structure. */
 	dev->netdev_ops = &i596_netdev_ops;
 	dev->watchdog_timeo = 5*HZ;
 
 #if 0
-	
+	/* selftest reports 0x320925ae - don't know what that means */
 	i596_port_do(dev, PORT_SELFTEST, "selftest");
 	i596_port_do(dev, PORT_DUMP, "dump");
 #endif
@@ -1055,9 +1153,20 @@ i596_interrupt(int irq, void *dev_instance)
 	unsigned short status, ack_cmd = 0;
 	int frames_in = 0;
 
+	/*
+	 * The 82596 examines the command, performs the required action,
+	 * and then clears the SCB command word.
+	 */
 	if (lp->scb.command && i596_timeout(dev, "interrupt", 40))
 		;
 
+	/*
+	 * The status word indicates the status of the 82596.
+	 * It is modified only by the 82596.
+	 *
+	 * [So, we must not clear it. I find often status 0xffff,
+	 *  which is not one of the values allowed by the docs.]
+	 */
 	status = lp->scb.status;
 #if 0
 	if (i596_debug) {
@@ -1065,6 +1174,8 @@ i596_interrupt(int irq, void *dev_instance)
 		i596_out_status(status);
 	}
 #endif
+	/* Impossible, but it happens - perhaps when we get
+	   a receive interrupt but scb.pa_rfd is I596_NULL. */
 	if (status == 0xffff) {
 		printk("%s: i596_interrupt: got status 0xffff\n", dev->name);
 		goto out;
@@ -1076,7 +1187,7 @@ i596_interrupt(int irq, void *dev_instance)
 		i596_handle_CU_completion(dev, lp, status, &ack_cmd);
 
 	if (status & (STAT_FR | STAT_RNR)) {
-		
+		/* Restart the receive unit when it got inactive somehow */
 		if ((status & STAT_RNR) && netif_running(dev))
 			ack_cmd |= RX_START;
 
@@ -1087,7 +1198,11 @@ i596_interrupt(int irq, void *dev_instance)
 		}
 	}
 
-	
+	/* acknowledge the interrupt */
+	/*
+	if ((lp->scb.pa_cmd != I596_NULL) && netif_running(dev))
+		ack_cmd |= CUC_START;
+	*/
 
 	if (lp->scb.command && i596_timeout(dev, "i596 interrupt", 100))
 		;
@@ -1124,6 +1239,9 @@ static int i596_close(struct net_device *dev) {
 	return 0;
 }
 
+/*
+*	Set or clear the multicast filter for this adaptor.
+*/
 
 static void set_multicast_list(struct net_device *dev) {
 	struct i596_private *lp = netdev_priv(dev);
@@ -1178,6 +1296,9 @@ static int io = IOADDR;
 static int irq = IRQ;
 
 module_param(debug, int, 0);
+//module_param(max_interrupt_work, int, 0);
+//module_param(reverse_probe, int, 0);
+//module_param(rx_copybreak, int, 0);
 module_param(options, int, 0);
 module_param(full_duplex, int, 0);
 

@@ -23,114 +23,134 @@
 #include "ak4671.h"
 
 
+/* codec private data */
 struct ak4671_priv {
 	enum snd_soc_control_type control_type;
 };
 
+/* ak4671 register cache & default register settings */
 static const u8 ak4671_reg[AK4671_CACHEREGNUM] = {
-	0x00,	
-	0xf6,	
-	0x00,	
-	0x02,	
-	0x00,	
-	0x55,	
-	0x00,	
-	0x00,	
-	0xb5,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x80,	
-	0x91,	
-	0x91,	
-	0xe1,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x02,	
-	0x01,	
-	0x18,	
-	0x18,	
-	0x00,	
-	0x02,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0xa9,	
-	0x1f,	
-	0xad,	
-	0x20,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x88,	
-	0x88,	
-	0x08,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x18,	
-	0x18,	
-	0x00,	
-	0x00,	
-	0x00,	
+	0x00,	/* AK4671_AD_DA_POWER_MANAGEMENT	(0x00)	*/
+	0xf6,	/* AK4671_PLL_MODE_SELECT0		(0x01)	*/
+	0x00,	/* AK4671_PLL_MODE_SELECT1		(0x02)	*/
+	0x02,	/* AK4671_FORMAT_SELECT			(0x03)	*/
+	0x00,	/* AK4671_MIC_SIGNAL_SELECT		(0x04)	*/
+	0x55,	/* AK4671_MIC_AMP_GAIN			(0x05)	*/
+	0x00,	/* AK4671_MIXING_POWER_MANAGEMENT0	(0x06)	*/
+	0x00,	/* AK4671_MIXING_POWER_MANAGEMENT1	(0x07)	*/
+	0xb5,	/* AK4671_OUTPUT_VOLUME_CONTROL		(0x08)	*/
+	0x00,	/* AK4671_LOUT1_SIGNAL_SELECT		(0x09)	*/
+	0x00,	/* AK4671_ROUT1_SIGNAL_SELECT		(0x0a)	*/
+	0x00,	/* AK4671_LOUT2_SIGNAL_SELECT		(0x0b)	*/
+	0x00,	/* AK4671_ROUT2_SIGNAL_SELECT		(0x0c)	*/
+	0x00,	/* AK4671_LOUT3_SIGNAL_SELECT		(0x0d)	*/
+	0x00,	/* AK4671_ROUT3_SIGNAL_SELECT		(0x0e)	*/
+	0x00,	/* AK4671_LOUT1_POWER_MANAGERMENT	(0x0f)	*/
+	0x00,	/* AK4671_LOUT2_POWER_MANAGERMENT	(0x10)	*/
+	0x80,	/* AK4671_LOUT3_POWER_MANAGERMENT	(0x11)	*/
+	0x91,	/* AK4671_LCH_INPUT_VOLUME_CONTROL	(0x12)	*/
+	0x91,	/* AK4671_RCH_INPUT_VOLUME_CONTROL	(0x13)	*/
+	0xe1,	/* AK4671_ALC_REFERENCE_SELECT		(0x14)	*/
+	0x00,	/* AK4671_DIGITAL_MIXING_CONTROL	(0x15)	*/
+	0x00,	/* AK4671_ALC_TIMER_SELECT		(0x16)	*/
+	0x00,	/* AK4671_ALC_MODE_CONTROL		(0x17)	*/
+	0x02,	/* AK4671_MODE_CONTROL1			(0x18)	*/
+	0x01,	/* AK4671_MODE_CONTROL2			(0x19)	*/
+	0x18,	/* AK4671_LCH_OUTPUT_VOLUME_CONTROL	(0x1a)	*/
+	0x18,	/* AK4671_RCH_OUTPUT_VOLUME_CONTROL	(0x1b)	*/
+	0x00,	/* AK4671_SIDETONE_A_CONTROL		(0x1c)	*/
+	0x02,	/* AK4671_DIGITAL_FILTER_SELECT		(0x1d)	*/
+	0x00,	/* AK4671_FIL3_COEFFICIENT0		(0x1e)	*/
+	0x00,	/* AK4671_FIL3_COEFFICIENT1		(0x1f)	*/
+	0x00,	/* AK4671_FIL3_COEFFICIENT2		(0x20)	*/
+	0x00,	/* AK4671_FIL3_COEFFICIENT3		(0x21)	*/
+	0x00,	/* AK4671_EQ_COEFFICIENT0		(0x22)	*/
+	0x00,	/* AK4671_EQ_COEFFICIENT1		(0x23)	*/
+	0x00,	/* AK4671_EQ_COEFFICIENT2		(0x24)	*/
+	0x00,	/* AK4671_EQ_COEFFICIENT3		(0x25)	*/
+	0x00,	/* AK4671_EQ_COEFFICIENT4		(0x26)	*/
+	0x00,	/* AK4671_EQ_COEFFICIENT5		(0x27)	*/
+	0xa9,	/* AK4671_FIL1_COEFFICIENT0		(0x28)	*/
+	0x1f,	/* AK4671_FIL1_COEFFICIENT1		(0x29)	*/
+	0xad,	/* AK4671_FIL1_COEFFICIENT2		(0x2a)	*/
+	0x20,	/* AK4671_FIL1_COEFFICIENT3		(0x2b)	*/
+	0x00,	/* AK4671_FIL2_COEFFICIENT0		(0x2c)	*/
+	0x00,	/* AK4671_FIL2_COEFFICIENT1		(0x2d)	*/
+	0x00,	/* AK4671_FIL2_COEFFICIENT2		(0x2e)	*/
+	0x00,	/* AK4671_FIL2_COEFFICIENT3		(0x2f)	*/
+	0x00,	/* AK4671_DIGITAL_FILTER_SELECT2	(0x30)	*/
+	0x00,	/* this register not used			*/
+	0x00,	/* AK4671_E1_COEFFICIENT0		(0x32)	*/
+	0x00,	/* AK4671_E1_COEFFICIENT1		(0x33)	*/
+	0x00,	/* AK4671_E1_COEFFICIENT2		(0x34)	*/
+	0x00,	/* AK4671_E1_COEFFICIENT3		(0x35)	*/
+	0x00,	/* AK4671_E1_COEFFICIENT4		(0x36)	*/
+	0x00,	/* AK4671_E1_COEFFICIENT5		(0x37)	*/
+	0x00,	/* AK4671_E2_COEFFICIENT0		(0x38)	*/
+	0x00,	/* AK4671_E2_COEFFICIENT1		(0x39)	*/
+	0x00,	/* AK4671_E2_COEFFICIENT2		(0x3a)	*/
+	0x00,	/* AK4671_E2_COEFFICIENT3		(0x3b)	*/
+	0x00,	/* AK4671_E2_COEFFICIENT4		(0x3c)	*/
+	0x00,	/* AK4671_E2_COEFFICIENT5		(0x3d)	*/
+	0x00,	/* AK4671_E3_COEFFICIENT0		(0x3e)	*/
+	0x00,	/* AK4671_E3_COEFFICIENT1		(0x3f)	*/
+	0x00,	/* AK4671_E3_COEFFICIENT2		(0x40)	*/
+	0x00,	/* AK4671_E3_COEFFICIENT3		(0x41)	*/
+	0x00,	/* AK4671_E3_COEFFICIENT4		(0x42)	*/
+	0x00,	/* AK4671_E3_COEFFICIENT5		(0x43)	*/
+	0x00,	/* AK4671_E4_COEFFICIENT0		(0x44)	*/
+	0x00,	/* AK4671_E4_COEFFICIENT1		(0x45)	*/
+	0x00,	/* AK4671_E4_COEFFICIENT2		(0x46)	*/
+	0x00,	/* AK4671_E4_COEFFICIENT3		(0x47)	*/
+	0x00,	/* AK4671_E4_COEFFICIENT4		(0x48)	*/
+	0x00,	/* AK4671_E4_COEFFICIENT5		(0x49)	*/
+	0x00,	/* AK4671_E5_COEFFICIENT0		(0x4a)	*/
+	0x00,	/* AK4671_E5_COEFFICIENT1		(0x4b)	*/
+	0x00,	/* AK4671_E5_COEFFICIENT2		(0x4c)	*/
+	0x00,	/* AK4671_E5_COEFFICIENT3		(0x4d)	*/
+	0x00,	/* AK4671_E5_COEFFICIENT4		(0x4e)	*/
+	0x00,	/* AK4671_E5_COEFFICIENT5		(0x4f)	*/
+	0x88,	/* AK4671_EQ_CONTROL_250HZ_100HZ	(0x50)	*/
+	0x88,	/* AK4671_EQ_CONTROL_3500HZ_1KHZ	(0x51)	*/
+	0x08,	/* AK4671_EQ_CONTRO_10KHZ		(0x52)	*/
+	0x00,	/* AK4671_PCM_IF_CONTROL0		(0x53)	*/
+	0x00,	/* AK4671_PCM_IF_CONTROL1		(0x54)	*/
+	0x00,	/* AK4671_PCM_IF_CONTROL2		(0x55)	*/
+	0x18,	/* AK4671_DIGITAL_VOLUME_B_CONTROL	(0x56)	*/
+	0x18,	/* AK4671_DIGITAL_VOLUME_C_CONTROL	(0x57)	*/
+	0x00,	/* AK4671_SIDETONE_VOLUME_CONTROL	(0x58)	*/
+	0x00,	/* AK4671_DIGITAL_MIXING_CONTROL2	(0x59)	*/
+	0x00,	/* AK4671_SAR_ADC_CONTROL		(0x5a)	*/
 };
 
+/*
+ * LOUT1/ROUT1 output volume control:
+ * from -24 to 6 dB in 6 dB steps (mute instead of -30 dB)
+ */
 static DECLARE_TLV_DB_SCALE(out1_tlv, -3000, 600, 1);
 
+/*
+ * LOUT2/ROUT2 output volume control:
+ * from -33 to 6 dB in 3 dB steps (mute instead of -33 dB)
+ */
 static DECLARE_TLV_DB_SCALE(out2_tlv, -3300, 300, 1);
 
+/*
+ * LOUT3/ROUT3 output volume control:
+ * from -6 to 3 dB in 3 dB steps
+ */
 static DECLARE_TLV_DB_SCALE(out3_tlv, -600, 300, 0);
 
+/*
+ * Mic amp gain control:
+ * from -15 to 30 dB in 3 dB steps
+ * REVISIT: The actual min value(0x01) is -12 dB and the reg value 0x00 is not
+ * available
+ */
 static DECLARE_TLV_DB_SCALE(mic_amp_tlv, -1500, 300, 0);
 
 static const struct snd_kcontrol_new ak4671_snd_controls[] = {
-	
+	/* Common playback gain controls */
 	SOC_SINGLE_TLV("Line Output1 Playback Volume",
 			AK4671_OUTPUT_VOLUME_CONTROL, 0, 0x6, 0, out1_tlv),
 	SOC_SINGLE_TLV("Headphone Output2 Playback Volume",
@@ -138,11 +158,12 @@ static const struct snd_kcontrol_new ak4671_snd_controls[] = {
 	SOC_SINGLE_TLV("Line Output3 Playback Volume",
 			AK4671_LOUT3_POWER_MANAGERMENT, 6, 0x3, 0, out3_tlv),
 
-	
+	/* Common capture gain controls */
 	SOC_DOUBLE_TLV("Mic Amp Capture Volume",
 			AK4671_MIC_AMP_GAIN, 0, 4, 0xf, 0, mic_amp_tlv),
 };
 
+/* event handlers */
 static int ak4671_out2_event(struct snd_soc_dapm_widget *w,
 		struct snd_kcontrol *kcontrol, int event)
 {
@@ -162,6 +183,7 @@ static int ak4671_out2_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+/* Output Mixers */
 static const struct snd_kcontrol_new ak4671_lout1_mixer_controls[] = {
 	SOC_DAPM_SINGLE("DACL", AK4671_LOUT1_SIGNAL_SELECT, 0, 1, 0),
 	SOC_DAPM_SINGLE("LINL1", AK4671_LOUT1_SIGNAL_SELECT, 1, 1, 0),
@@ -216,6 +238,7 @@ static const struct snd_kcontrol_new ak4671_rout3_mixer_controls[] = {
 	SOC_DAPM_SINGLE("LOOPSR", AK4671_ROUT3_SIGNAL_SELECT, 5, 1, 0),
 };
 
+/* Input MUXs */
 static const char *ak4671_lin_mux_texts[] =
 		{"LIN1", "LIN2", "LIN3", "LIN4"};
 static const struct soc_enum ak4671_lin_mux_enum =
@@ -235,7 +258,7 @@ static const struct snd_kcontrol_new ak4671_rin_mux_control =
 	SOC_DAPM_ENUM("Route", ak4671_rin_mux_enum);
 
 static const struct snd_soc_dapm_widget ak4671_dapm_widgets[] = {
-	
+	/* Inputs */
 	SND_SOC_DAPM_INPUT("LIN1"),
 	SND_SOC_DAPM_INPUT("RIN1"),
 	SND_SOC_DAPM_INPUT("LIN2"),
@@ -245,7 +268,7 @@ static const struct snd_soc_dapm_widget ak4671_dapm_widgets[] = {
 	SND_SOC_DAPM_INPUT("LIN4"),
 	SND_SOC_DAPM_INPUT("RIN4"),
 
-	
+	/* Outputs */
 	SND_SOC_DAPM_OUTPUT("LOUT1"),
 	SND_SOC_DAPM_OUTPUT("ROUT1"),
 	SND_SOC_DAPM_OUTPUT("LOUT2"),
@@ -253,19 +276,19 @@ static const struct snd_soc_dapm_widget ak4671_dapm_widgets[] = {
 	SND_SOC_DAPM_OUTPUT("LOUT3"),
 	SND_SOC_DAPM_OUTPUT("ROUT3"),
 
-	
+	/* DAC */
 	SND_SOC_DAPM_DAC("DAC Left", "Left HiFi Playback",
 			AK4671_AD_DA_POWER_MANAGEMENT, 6, 0),
 	SND_SOC_DAPM_DAC("DAC Right", "Right HiFi Playback",
 			AK4671_AD_DA_POWER_MANAGEMENT, 7, 0),
 
-	
+	/* ADC */
 	SND_SOC_DAPM_ADC("ADC Left", "Left HiFi Capture",
 			AK4671_AD_DA_POWER_MANAGEMENT, 4, 0),
 	SND_SOC_DAPM_ADC("ADC Right", "Right HiFi Capture",
 			AK4671_AD_DA_POWER_MANAGEMENT, 5, 0),
 
-	
+	/* PGA */
 	SND_SOC_DAPM_PGA("LOUT2 Mix Amp",
 			AK4671_LOUT2_POWER_MANAGERMENT, 5, 0, NULL, 0),
 	SND_SOC_DAPM_PGA("ROUT2 Mix Amp",
@@ -288,7 +311,7 @@ static const struct snd_soc_dapm_widget ak4671_dapm_widgets[] = {
 	SND_SOC_DAPM_PGA("RIN4 Mixing Circuit",
 			AK4671_MIXING_POWER_MANAGEMENT1, 7, 0, NULL, 0),
 
-	
+	/* Output Mixers */
 	SND_SOC_DAPM_MIXER("LOUT1 Mixer", AK4671_LOUT1_POWER_MANAGERMENT, 0, 0,
 			&ak4671_lout1_mixer_controls[0],
 			ARRAY_SIZE(ak4671_lout1_mixer_controls)),
@@ -312,16 +335,16 @@ static const struct snd_soc_dapm_widget ak4671_dapm_widgets[] = {
 			&ak4671_rout3_mixer_controls[0],
 			ARRAY_SIZE(ak4671_rout3_mixer_controls)),
 
-	
+	/* Input MUXs */
 	SND_SOC_DAPM_MUX("LIN MUX", AK4671_AD_DA_POWER_MANAGEMENT, 2, 0,
 			&ak4671_lin_mux_control),
 	SND_SOC_DAPM_MUX("RIN MUX", AK4671_AD_DA_POWER_MANAGEMENT, 3, 0,
 			&ak4671_rin_mux_control),
 
-	
+	/* Mic Power */
 	SND_SOC_DAPM_MICBIAS("Mic Bias", AK4671_AD_DA_POWER_MANAGEMENT, 1, 0),
 
-	
+	/* Supply */
 	SND_SOC_DAPM_SUPPLY("PMPLL", AK4671_PLL_MODE_SELECT1, 0, 0, NULL, 0),
 };
 
@@ -331,7 +354,7 @@ static const struct snd_soc_dapm_route ak4671_intercon[] = {
 	{"ADC Left", "NULL", "PMPLL"},
 	{"ADC Right", "NULL", "PMPLL"},
 
-	
+	/* Outputs */
 	{"LOUT1", "NULL", "LOUT1 Mixer"},
 	{"ROUT1", "NULL", "ROUT1 Mixer"},
 	{"LOUT2", "NULL", "LOUT2 Mix Amp"},
@@ -348,7 +371,7 @@ static const struct snd_soc_dapm_route ak4671_intercon[] = {
 	{"LOUT3 Mixer", "DACSL", "DAC Left"},
 	{"ROUT3 Mixer", "DACSR", "DAC Right"},
 
-	
+	/* Inputs */
 	{"LIN MUX", "LIN1", "LIN1"},
 	{"LIN MUX", "LIN2", "LIN2"},
 	{"LIN MUX", "LIN3", "LIN3"},
@@ -367,7 +390,7 @@ static const struct snd_soc_dapm_route ak4671_intercon[] = {
 	{"ADC Left", "NULL", "LIN MUX"},
 	{"ADC Right", "NULL", "RIN MUX"},
 
-	
+	/* Analog Loops */
 	{"LIN1 Mixing Circuit", "NULL", "LIN1"},
 	{"RIN1 Mixing Circuit", "NULL", "RIN1"},
 	{"LIN2 Mixing Circuit", "NULL", "LIN2"},
@@ -505,7 +528,7 @@ static int ak4671_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 	u8 mode;
 	u8 format;
 
-	
+	/* set master/slave audio interface */
 	mode = snd_soc_read(codec, AK4671_PLL_MODE_SELECT1);
 
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
@@ -519,7 +542,7 @@ static int ak4671_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 		return -EINVAL;
 	}
 
-	
+	/* interface format */
 	format = snd_soc_read(codec, AK4671_FORMAT_SELECT);
 	format &= ~AK4671_DIF;
 
@@ -539,7 +562,7 @@ static int ak4671_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 		return -EINVAL;
 	}
 
-	
+	/* set mode and format */
 	snd_soc_write(codec, AK4671_PLL_MODE_SELECT1, mode);
 	snd_soc_write(codec, AK4671_FORMAT_SELECT, format);
 

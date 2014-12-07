@@ -29,25 +29,30 @@
 
 #define EPM_ADC_DRIVER_NAME		"epm_adc"
 #define EPM_ADC_MAX_FNAME		20
-#define EPM_ADC_CONVERSION_DELAY	100 
+#define EPM_ADC_CONVERSION_DELAY	100 /* milliseconds */
+/* Command Bits */
 #define EPM_ADC_ADS_SPI_BITS_PER_WORD	8
 #define EPM_ADC_ADS_DATA_READ_CMD	(0x1 << 5)
 #define EPM_ADC_ADS_REG_READ_CMD	(0x2 << 5)
 #define EPM_ADC_ADS_REG_WRITE_CMD	(0x3 << 5)
 #define EPM_ADC_ADS_PULSE_CONVERT_CMD	(0x4 << 5)
 #define EPM_ADC_ADS_MULTIPLE_REG_ACCESS	(0x1 << 4)
+/* Register map */
 #define EPM_ADC_ADS_CONFIG0_REG_ADDR	0x0
 #define EPM_ADC_ADS_CONFIG1_REG_ADDR	0x1
 #define EPM_ADC_ADS_MUXSG0_REG_ADDR	0x4
 #define EPM_ADC_ADS_MUXSG1_REG_ADDR	0x5
+/* Register map default data */
 #define EPM_ADC_ADS_REG0_DEFAULT	0x2
 #define EPM_ADC_ADS_REG1_DEFAULT	0x52
 #define EPM_ADC_ADS_CHANNEL_DATA_CHID	0x1f
+/* Channel ID */
 #define EPM_ADC_ADS_CHANNEL_OFFSET	0x18
 #define EPM_ADC_ADS_CHANNEL_VCC		0x1a
 #define EPM_ADC_ADS_CHANNEL_TEMP	0x1b
 #define EPM_ADC_ADS_CHANNEL_GAIN	0x1c
 #define EPM_ADC_ADS_CHANNEL_REF		0x1d
+/* Scaling data co-efficients */
 #define EPM_ADC_SCALE_MILLI		1000
 #define EPM_ADC_SCALE_CODE_VOLTS	3072
 #define EPM_ADC_SCALE_CODE_GAIN		30720
@@ -64,6 +69,7 @@
 #define GPIO_EPM_MARKER2		96
 #define EPM_ADC_CONVERSION_TIME_MIN	50000
 #define EPM_ADC_CONVERSION_TIME_MAX	51000
+/* PSoc Commands */
 #define EPM_PSOC_INIT_CMD				0x1
 #define EPM_PSOC_INIT_RESPONSE_CMD			0x2
 #define EPM_PSOC_CHANNEL_ENABLE_DISABLE_CMD		0x5
@@ -530,12 +536,12 @@ static int epm_adc_ads_scale_result(struct epm_adc_drv *epm_adc,
 					conv->channel_idx;
 	int64_t adc_scaled_data = 0;
 
-	
+	/* Get the channel number */
 	channel_num = (adc_raw_data[0] & EPM_ADC_ADS_CHANNEL_DATA_CHID);
 	sign_bit    = 1;
-	
+	/* This is the 16-bit raw data */
 	adc_scaled_data = ((adc_raw_data[1] << 8) | adc_raw_data[2]);
-	
+	/* Obtain the internal system reading */
 	if (channel_num == EPM_ADC_ADS_CHANNEL_VCC) {
 		adc_scaled_data *= EPM_ADC_SCALE_MILLI;
 		do_div(adc_scaled_data, EPM_ADC_SCALE_CODE_VOLTS);
@@ -545,16 +551,21 @@ static int epm_adc_ads_scale_result(struct epm_adc_drv *epm_adc,
 		adc_scaled_data *= EPM_ADC_SCALE_MILLI;
 		do_div(adc_scaled_data, EPM_ADC_SCALE_CODE_VOLTS);
 	} else if (channel_num == EPM_ADC_ADS_CHANNEL_TEMP) {
-		
-		
+		/* Convert Code to micro-volts */
+		/* Use this formula to get the temperature reading */
 		adc_scaled_data -= EPM_ADC_TEMP_TO_DEGC_COEFF;
 		do_div(adc_scaled_data, EPM_ADC_TEMP_SENSOR_COEFF);
 	} else if (channel_num == EPM_ADC_ADS_CHANNEL_OFFSET) {
-		
+		/* The offset should be zero */
 		pr_debug("%s: ADC Channel Offset\n", __func__);
 		return -EFAULT;
 	} else {
 		channel_num -= EPM_ADC_CHANNEL_AIN_OFFSET;
+		/*
+		 * Conversion for the adc channels.
+		 * mvVRef is in milli-volts and resistorvalue is in micro-ohms.
+		 * Hence, I = V/R gives us current in kilo-amps.
+		 */
 		if (adc_scaled_data & EPM_ADC_MAX_NEGATIVE_SCALE_CODE) {
 			sign_bit = -1;
 			adc_scaled_data = (~adc_scaled_data
@@ -562,20 +573,20 @@ static int epm_adc_ads_scale_result(struct epm_adc_drv *epm_adc,
 		}
 		if (adc_scaled_data != 0) {
 			adc_scaled_data *= EPM_ADC_SCALE_FACTOR;
-			 
+			 /* Device is calibrated for 1LSB = VREF/7800h.*/
 			adc_scaled_data *= EPM_ADC_MILLI_VOLTS_SOURCE;
 			do_div(adc_scaled_data, EPM_ADC_VREF_CODE);
-			 
+			 /* Data will now be in micro-volts.*/
 			adc_scaled_data *= EPM_ADC_SCALE_MILLI;
-			 
+			 /* Divide by amplifier gain value.*/
 			do_div(adc_scaled_data, pdata->channel[chan_idx].gain);
-			 
+			 /* Data will now be in nano-volts.*/
 			do_div(adc_scaled_data, EPM_ADC_SCALE_FACTOR);
 			adc_scaled_data *= EPM_ADC_SCALE_MILLI;
-			 
+			 /* Data is now in micro-amps.*/
 			do_div(adc_scaled_data,
 				pdata->channel[chan_idx].resistorvalue);
-			 
+			 /* Set the sign bit for lekage current. */
 			adc_scaled_data *= sign_bit;
 		}
 	}
@@ -595,7 +606,7 @@ static int epm_psoc_scale_result(int16_t result, uint32_t index)
 			neg = 1;
 			result = result & 0x7ff;
 		}
-		
+		/* result = (2.048V * code)/(4096 * gain * rsense) */
 		result_cur = ((EPM_PSOC_VREF_VOLTAGE * result)/
 				EPM_PSOC_MAX_ADC_CODE_12_BIT);
 
@@ -609,7 +620,7 @@ static int epm_psoc_scale_result(int16_t result, uint32_t index)
 			neg = 1;
 			result = result & 0x7fff;
 		}
-		
+		/* result = (2.048V * code)/(32767 * gain * rsense) */
 		result_cur = (((EPM_PSOC_VREF_VOLTAGE * (int) result)/
 				EPM_PSOC_MAX_ADC_CODE_15_BIT) * 1000);
 
@@ -640,27 +651,27 @@ static int epm_adc_blocking_conversion(struct epm_adc_drv *epm_adc,
 	}
 
 	if (conv->channel_idx < pdata->chan_per_mux) {
-		
+		/* Reset MUXSG1_REGISTER */
 		rc = epm_adc_ads_spi_write(epm_adc, EPM_ADC_ADS_MUXSG1_REG_ADDR,
 							0x0);
 		if (rc)
 			goto conv_err;
 
 		mux_chan_idx = 1 << conv->channel_idx;
-		
+		/* Select Channel index in MUXSG0_REGISTER */
 		rc = epm_adc_ads_spi_write(epm_adc, EPM_ADC_ADS_MUXSG0_REG_ADDR,
 				mux_chan_idx);
 		if (rc)
 			goto conv_err;
 	} else {
-		
+		/* Reset MUXSG0_REGISTER */
 		rc = epm_adc_ads_spi_write(epm_adc, EPM_ADC_ADS_MUXSG0_REG_ADDR,
 							0x0);
 		if (rc)
 			goto conv_err;
 
 		mux_chan_idx = 1 << (conv->channel_idx - pdata->chan_per_mux);
-		
+		/* Select Channel index in MUXSG1_REGISTER */
 		rc = epm_adc_ads_spi_write(epm_adc, EPM_ADC_ADS_MUXSG1_REG_ADDR,
 				mux_chan_idx);
 		if (rc)

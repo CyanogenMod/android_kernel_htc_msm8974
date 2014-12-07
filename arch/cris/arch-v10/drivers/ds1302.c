@@ -31,12 +31,18 @@
 
 #include "i2c.h"
 
-#define RTC_MAJOR_NR 121 
+#define RTC_MAJOR_NR 121 /* local major, change later */
 
 static DEFINE_MUTEX(ds1302_mutex);
 static const char ds1302_name[] = "ds1302";
 
+/* The DS1302 might be connected to different bits on different products. 
+ * It has three signals - SDA, SCL and RST. RST and SCL are always outputs,
+ * but SDA can have a selected direction.
+ * For now, only PORT_PB is hardcoded.
+ */
 
+/* The RST bit may be on either the Generic Port or Port PB. */
 #ifdef CONFIG_ETRAX_DS1302_RST_ON_GENERIC_PORT
 #define TK_RST_OUT(x) REG_SHADOW_SET(R_PORT_G_DATA,  port_g_data_shadow,  CONFIG_ETRAX_DS1302_RSTBIT, x)
 #define TK_RST_DIR(x)
@@ -50,27 +56,33 @@ static const char ds1302_name[] = "ds1302";
 #define TK_SCL_OUT(x) REG_SHADOW_SET(R_PORT_PB_DATA, port_pb_data_shadow, CONFIG_ETRAX_DS1302_SCLBIT, x)
 
 #define TK_SDA_IN()   ((*R_PORT_PB_READ >> CONFIG_ETRAX_DS1302_SDABIT) & 1)
+/* 1 is out, 0 is in */
 #define TK_SDA_DIR(x) REG_SHADOW_SET(R_PORT_PB_DIR,  port_pb_dir_shadow,  CONFIG_ETRAX_DS1302_SDABIT, x)
 #define TK_SCL_DIR(x) REG_SHADOW_SET(R_PORT_PB_DIR,  port_pb_dir_shadow,  CONFIG_ETRAX_DS1302_SCLBIT, x)
 
 
+/*
+ * The reason for tempudelay and not udelay is that loops_per_usec
+ * (used in udelay) is not set when functions here are called from time.c 
+ */
 
 static void tempudelay(int usecs) 
 {
 	volatile int loops;
 
 	for(loops = usecs * 12; loops > 0; loops--)
-		;	
+		/* nothing */;	
 }
 
 
+/* Send 8 bits. */
 static void
 out_byte(unsigned char x) 
 {
 	int i;
 	TK_SDA_DIR(1);
 	for (i = 8; i--;) {
-		
+		/* The chip latches incoming bits on the rising edge of SCL. */
 		TK_SCL_OUT(0);
 		TK_SDA_OUT(x & 1);
 		tempudelay(1);
@@ -87,6 +99,9 @@ in_byte(void)
 	unsigned char x = 0;
 	int i;
 
+	/* Read byte. Bits come LSB first, on the falling edge of SCL.
+	 * Assume SDA is in input direction already.
+	 */
 	TK_SDA_DIR(0);
 
 	for (i = 8; i--;) {
@@ -101,6 +116,7 @@ in_byte(void)
 	return x;
 }
 
+/* Prepares for a transaction by de-activating RST (active-low). */
 
 static void
 start(void) 
@@ -112,6 +128,7 @@ start(void)
 	TK_RST_OUT(1);	
 }
 
+/* Ends a transaction by taking RST active again. */
 
 static void
 stop(void) 
@@ -120,28 +137,31 @@ stop(void)
 	TK_RST_OUT(0);
 }
 
+/* Enable writing. */
 
 static void
 ds1302_wenable(void) 
 {
 	start(); 	
-	out_byte(0x8e); 
-	out_byte(0x00); 
+	out_byte(0x8e); /* Write control register  */
+	out_byte(0x00); /* Disable write protect bit 7 = 0 */
 	stop();
 }
 
+/* Disable writing. */
 
 static void
 ds1302_wdisable(void) 
 {
 	start();
-	out_byte(0x8e); 
-	out_byte(0x80); 
+	out_byte(0x8e); /* Write control register  */
+	out_byte(0x80); /* Disable write protect bit 7 = 0 */
 	stop();
 }
 
 
 
+/* Read a byte from the selected register in the DS1302. */
 
 unsigned char
 ds1302_readreg(int reg) 
@@ -149,13 +169,14 @@ ds1302_readreg(int reg)
 	unsigned char x;
 
 	start();
-	out_byte(0x81 | (reg << 1)); 
+	out_byte(0x81 | (reg << 1)); /* read register */
 	x = in_byte();
 	stop();
 
 	return x;
 }
 
+/* Write a byte to the selected register. */
 
 void
 ds1302_writereg(int reg, unsigned char val) 
@@ -172,7 +193,7 @@ ds1302_writereg(int reg, unsigned char val)
 	if (do_writereg) {
 		ds1302_wenable();
 		start();
-		out_byte(0x80 | (reg << 1)); 
+		out_byte(0x80 | (reg << 1)); /* write register */
 		out_byte(val);
 		stop();
 		ds1302_wdisable();
@@ -202,6 +223,10 @@ get_rtc_time(struct rtc_time *rtc_tm)
 	rtc_tm->tm_mon = bcd2bin(rtc_tm->tm_mon);
 	rtc_tm->tm_year = bcd2bin(rtc_tm->tm_year);
 
+	/*
+	 * Account for differences between how the RTC uses the values
+	 * and how they are defined in a struct rtc_time;
+	 */
 
 	if (rtc_tm->tm_year <= 69)
 		rtc_tm->tm_year += 100;
@@ -212,13 +237,14 @@ get_rtc_time(struct rtc_time *rtc_tm)
 static unsigned char days_in_mo[] = 
     {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
+/* ioctl that supports RTC_RD_TIME and RTC_SET_TIME (read and set time/date). */
 
 static int rtc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	unsigned long flags;
 
 	switch(cmd) {
-		case RTC_RD_TIME:	
+		case RTC_RD_TIME:	/* read the time/date from RTC	*/
 		{
 			struct rtc_time rtc_tm;
 						
@@ -229,7 +255,7 @@ static int rtc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			return 0;
 		}
 
-		case RTC_SET_TIME:	
+		case RTC_SET_TIME:	/* set the RTC */
 		{
 			struct rtc_time rtc_tm;
 			unsigned char mon, day, hrs, min, sec, leap_yr;
@@ -242,7 +268,7 @@ static int rtc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				return -EFAULT;
 
 			yrs = rtc_tm.tm_year + 1900;
-			mon = rtc_tm.tm_mon + 1;   
+			mon = rtc_tm.tm_mon + 1;   /* tm_mon starts at zero */
 			day = rtc_tm.tm_mday;
 			hrs = rtc_tm.tm_hour;
 			min = rtc_tm.tm_min;
@@ -264,9 +290,9 @@ static int rtc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				return -EINVAL;
 
 			if (yrs >= 2000)
-				yrs -= 2000;	
+				yrs -= 2000;	/* RTC (0, 1, ... 69) */
 			else
-				yrs -= 1900;	
+				yrs -= 1900;	/* RTC (70, 71, ... 99) */
 
 			sec = bin2bcd(sec);
 			min = bin2bcd(min);
@@ -284,10 +310,15 @@ static int rtc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			CMOS_WRITE(sec, RTC_SECONDS);
 			local_irq_restore(flags);
 
+			/* Notice that at this point, the RTC is updated but
+			 * the kernel is still running with the old time.
+			 * You need to set that separately with settimeofday
+			 * or adjtimex.
+			 */
 			return 0;
 		}
 
-		case RTC_SET_CHARGE: 
+		case RTC_SET_CHARGE: /* set the RTC TRICKLE CHARGE register */
 		{
 			int tcs_val;
 
@@ -303,12 +334,18 @@ static int rtc_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		}
 		case RTC_VL_READ:
 		{
+			/* TODO:
+			 * Implement voltage low detection support
+			 */
 			printk(KERN_WARNING "DS1302: RTC Voltage Low detection"
 			       " is not supported\n");
 			return 0;
 		}
 		case RTC_VL_CLR:
 		{
+			/* TODO:
+			 * Nothing to do since Voltage Low detection is not supported
+			 */
 			return 0;
 		}
 		default:
@@ -334,6 +371,10 @@ print_rtc_status(void)
 
 	get_rtc_time(&tm);
 
+	/*
+	 * There is no way to tell if the luser has the RTC set for local
+	 * time or for Universal Standard Time (GMT). Probably local though.
+	 */
 
 	printk(KERN_INFO "rtc_time\t: %02d:%02d:%02d\n",
 	       tm.tm_hour, tm.tm_min, tm.tm_sec);
@@ -341,6 +382,7 @@ print_rtc_status(void)
 	       tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday);
 }
 
+/* The various file operations we support. */
 
 static const struct file_operations rtc_fops = {
 	.owner		= THIS_MODULE,
@@ -348,6 +390,7 @@ static const struct file_operations rtc_fops = {
 	.llseek		= noop_llseek,
 }; 
 
+/* Probe for the chip by writing something to its RAM and try reading it back. */
 
 #define MAGIC_PATTERN 0x42
 
@@ -360,14 +403,14 @@ ds1302_probe(void)
 	TK_SCL_DIR(1);
 	TK_SDA_DIR(0);
 	
-	
+	/* Try to talk to timekeeper. */
 
 	ds1302_wenable();  
 	start();
-	out_byte(0xc0); 	
-	out_byte(MAGIC_PATTERN); 
+	out_byte(0xc0); /* write RAM byte 0 */	
+	out_byte(MAGIC_PATTERN); /* write something magic */
 	start();
-	out_byte(0xc1); 
+	out_byte(0xc1); /* read RAM byte 0 */
 
 	if((res = in_byte()) == MAGIC_PATTERN) {
 		stop();
@@ -394,6 +437,7 @@ ds1302_probe(void)
 }
 
 
+/* Just probe for the RTC and register the device to handle the ioctl needed. */
 
 int __init
 ds1302_init(void) 
@@ -405,6 +449,20 @@ ds1302_init(void)
 	if (!ds1302_probe()) {
 #ifdef CONFIG_ETRAX_DS1302_RST_ON_GENERIC_PORT
 #if CONFIG_ETRAX_DS1302_RSTBIT == 27
+		/*
+		 * The only way to set g27 to output is to enable ATA.
+		 *
+		 * Make sure that R_GEN_CONFIG is setup correct.
+		 */
+		/* Allocating the ATA interface will grab almost all
+		 * pins in I/O groups a, b, c and d.  A consequence of
+		 * allocating the ATA interface is that the fixed
+		 * interfaces shared RAM, parallel port 0, parallel
+		 * port 1, parallel port W, SCSI-8 port 0, SCSI-8 port
+		 * 1, SCSI-W, serial port 2, serial port 3,
+		 * synchronous serial port 3 and USB port 2 and almost
+		 * all GPIO pins on port g cannot be used.
+		 */
 		if (cris_request_io_interface(if_ata, "ds1302/ATA")) {
 			printk(KERN_WARNING "ds1302: Failed to get IO interface\n");
 			return -1;
@@ -419,7 +477,7 @@ ds1302_init(void)
 			return -1;
 		}
 
-		
+		/* Set the direction of this bit to out. */
 		genconfig_shadow = ((genconfig_shadow &
  				     ~IO_MASK(R_GEN_CONFIG, g0dir)) |
  				   (IO_STATE(R_GEN_CONFIG, g0dir, out)));
@@ -434,10 +492,10 @@ ds1302_init(void)
 		return -1;
 #endif
   	}
-	
+	/* Initialise trickle charger */
 	ds1302_writereg(RTC_TRICKLECHARGER,
 			RTC_TCR_PATTERN |(CONFIG_ETRAX_DS1302_TRICKLE_CHARGE & 0x0F));
-        
+        /* Start clock by resetting CLOCK_HALT */
 	ds1302_writereg(RTC_SECONDS, (ds1302_readreg(RTC_SECONDS) & 0x7F));
 	return 0;
 }

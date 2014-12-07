@@ -15,17 +15,17 @@
 #include <linux/errno.h>
 #include <linux/bcd.h>
 
-#define BQ32K_SECONDS		0x00	
-#define BQ32K_SECONDS_MASK	0x7F	
-#define BQ32K_STOP		0x80	
+#define BQ32K_SECONDS		0x00	/* Seconds register address */
+#define BQ32K_SECONDS_MASK	0x7F	/* Mask over seconds value */
+#define BQ32K_STOP		0x80	/* Oscillator Stop flat */
 
-#define BQ32K_MINUTES		0x01	
-#define BQ32K_MINUTES_MASK	0x7F	
-#define BQ32K_OF		0x80	
+#define BQ32K_MINUTES		0x01	/* Minutes register address */
+#define BQ32K_MINUTES_MASK	0x7F	/* Mask over minutes value */
+#define BQ32K_OF		0x80	/* Oscillator Failure flag */
 
-#define BQ32K_HOURS_MASK	0x3F	
-#define BQ32K_CENT		0x40	
-#define BQ32K_CENT_EN		0x80	
+#define BQ32K_HOURS_MASK	0x3F	/* Mask over hours value */
+#define BQ32K_CENT		0x40	/* Century flag */
+#define BQ32K_CENT_EN		0x80	/* Century flag enable bit */
 
 struct bq32k_regs {
 	uint8_t		seconds;
@@ -133,7 +133,7 @@ static int bq32k_probe(struct i2c_client *client,
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C))
 		return -ENODEV;
 
-	
+	/* Check Oscillator Stop flag */
 	error = bq32k_read(dev, &reg, BQ32K_SECONDS, 1);
 	if (!error && (reg & BQ32K_STOP)) {
 		dev_warn(dev, "Oscillator was halted. Restarting...\n");
@@ -143,7 +143,7 @@ static int bq32k_probe(struct i2c_client *client,
 	if (error)
 		return error;
 
-	
+	/* Check Oscillator Failure flag */
 	error = bq32k_read(dev, &reg, BQ32K_MINUTES, 1);
 	if (!error && (reg & BQ32K_OF)) {
 		dev_warn(dev, "Oscillator Failure. Check RTC battery.\n");

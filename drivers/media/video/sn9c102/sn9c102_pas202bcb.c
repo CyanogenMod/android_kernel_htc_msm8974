@@ -299,15 +299,19 @@ int sn9c102_probe_pas202bcb(struct sn9c102_device* cam)
 	int r0 = 0, r1 = 0, err = 0;
 	unsigned int pid = 0;
 
+	/*
+	 *  Minimal initialization to enable the I2C communication
+	 *  NOTE: do NOT change the values!
+	 */
 	switch (sn9c102_get_bridge(cam)) {
 	case BRIDGE_SN9C101:
 	case BRIDGE_SN9C102:
 		err = sn9c102_write_const_regs(cam,
-					       {0x01, 0x01}, 
-					       {0x40, 0x01}, 
-					       {0x28, 0x17});
+					       {0x01, 0x01}, /* power down */
+					       {0x40, 0x01}, /* power on */
+					       {0x28, 0x17});/* clock 24 MHz */
 		break;
-	case BRIDGE_SN9C103: 
+	case BRIDGE_SN9C103: /* do _not_ change anything! */
 		err = sn9c102_write_const_regs(cam, {0x09, 0x01}, {0x44, 0x01},
 					       {0x44, 0x02}, {0x29, 0x17});
 		break;

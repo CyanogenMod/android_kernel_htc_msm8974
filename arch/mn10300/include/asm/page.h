@@ -11,13 +11,15 @@
 #ifndef _ASM_PAGE_H
 #define _ASM_PAGE_H
 
+/* PAGE_SHIFT determines the page size */
 #define PAGE_SHIFT	12
 
 #ifndef __ASSEMBLY__
 #define PAGE_SIZE	(1UL << PAGE_SHIFT)
 #define PAGE_MASK	(~(PAGE_SIZE - 1))
 #else
-#define PAGE_SIZE	+(1 << PAGE_SHIFT)	
+#define PAGE_SIZE	+(1 << PAGE_SHIFT)	/* unary plus marks an
+						 * immediate val not an addr */
 #define PAGE_MASK	+(~(PAGE_SIZE - 1))
 #endif
 
@@ -30,6 +32,9 @@
 #define clear_user_page(addr, vaddr, page)	clear_page(addr)
 #define copy_user_page(vto, vfrom, vaddr, to)	copy_page(vto, vfrom)
 
+/*
+ * These are used to make use of C type-checking..
+ */
 typedef struct { unsigned long pte; } pte_t;
 typedef struct { unsigned long pgd; } pgd_t;
 typedef struct { unsigned long pgprot; } pgprot_t;
@@ -54,11 +59,21 @@ typedef struct page *pgtable_t;
 
 #include <asm-generic/pgtable-nopmd.h>
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
+/*
+ * This handles the memory map.. We could make this a config
+ * option, but too many people screw it up, and too few need
+ * it.
+ *
+ * A __PAGE_OFFSET of 0xC0000000 means that the kernel has
+ * a virtual address space of one gigabyte, which limits the
+ * amount of physical memory you can use to about 950MB.
+ */
 
 #ifndef __ASSEMBLY__
 
+/* Pure 2^n version of get_order */
 static inline int get_order(unsigned long size) __attribute__((const));
 static inline int get_order(unsigned long size)
 {
@@ -73,13 +88,18 @@ static inline int get_order(unsigned long size)
 	return order;
 }
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #include <asm/page_offset.h>
 
 #define __PAGE_OFFSET		(PAGE_OFFSET_RAW)
 #define PAGE_OFFSET		((unsigned long) __PAGE_OFFSET)
 
+/*
+ * main RAM and kernel working space are coincident at 0x90000000, but to make
+ * life more interesting, there's also an uncached virtual shadow at 0xb0000000
+ * - these mappings are fixed in the MMU
+ */
 #define __pfn_disp		(CONFIG_KERNEL_RAM_BASE_ADDRESS >> PAGE_SHIFT)
 
 #define __pa(x)			((unsigned long)(x))
@@ -103,6 +123,6 @@ static inline int get_order(unsigned long size)
 	((current->personality & READ_IMPLIES_EXEC) ? VM_EXEC : 0) | \
 		 VM_MAYREAD | VM_MAYWRITE | VM_MAYEXEC)
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_PAGE_H */

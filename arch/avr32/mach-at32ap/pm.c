@@ -31,6 +31,10 @@ static struct vm_struct	*pm_sram_area;
 static void (*avr32_pm_enter_standby)(unsigned long sdramc_base);
 static void (*avr32_pm_enter_str)(unsigned long sdramc_base);
 
+/*
+ * Must be called with interrupts disabled. Exceptions will be masked
+ * on return (i.e. all exceptions will be "unrecoverable".)
+ */
 static void *avr32_pm_map_sram(void)
 {
 	unsigned long	vaddr;
@@ -41,6 +45,10 @@ static void *avr32_pm_map_sram(void)
 	vaddr = (unsigned long)pm_sram_area->addr;
 	page_addr = pm_sram_start & PAGE_MASK;
 
+	/*
+	 * Mask exceptions and grab the first TLB entry. We won't be
+	 * needing it while sleeping.
+	 */
 	asm volatile("ssrf	%0" : : "i"(SYSREG_EM_OFFSET) : "memory");
 
 	mmucr = sysreg_read(MMUCR);
@@ -58,29 +66,33 @@ static void *avr32_pm_map_sram(void)
 	return (void *)(vaddr + pm_sram_start - page_addr);
 }
 
+/*
+ * Must be called with interrupts disabled. Exceptions will be
+ * unmasked on return.
+ */
 static void avr32_pm_unmap_sram(void)
 {
 	u32	mmucr;
 	u32	tlbehi;
 	u32	tlbarlo;
 
-	
+	/* Going to update TLB entry at index 0 */
 	mmucr = sysreg_read(MMUCR);
 	tlbehi = sysreg_read(TLBEHI);
 	sysreg_write(MMUCR, SYSREG_BFINS(DRP, 0, mmucr));
 
-	
+	/* Clear the "valid" bit */
 	tlbehi = SYSREG_BF(ASID, SYSREG_BFEXT(ASID, tlbehi));
 	sysreg_write(TLBEHI, tlbehi);
 
-	
+	/* Mark it as "not accessed" */
 	tlbarlo = sysreg_read(TLBARLO);
 	sysreg_write(TLBARLO, tlbarlo | 0x80000000U);
 
-	
+	/* Update the TLB */
 	__builtin_tlbw();
 
-	
+	/* Unmask exceptions */
 	asm volatile("csrf	%0" : : "i"(SYSREG_EM_OFFSET) : "memory");
 }
 
@@ -107,16 +119,20 @@ static int avr32_pm_enter(suspend_state_t state)
 	case PM_SUSPEND_STANDBY:
 		sram = avr32_pm_map_sram();
 
-		
+		/* Switch to in-sram exception handlers */
 		evba_saved = sysreg_read(EVBA);
 		sysreg_write(EVBA, (unsigned long)sram);
 
+		/*
+		 * Save the LPR register so that we can re-enable
+		 * SDRAM Low Power mode on resume.
+		 */
 		lpr_saved = sdramc_readl(LPR);
 		pr_debug("%s: Entering standby...\n", __func__);
 		avr32_pm_enter_standby(SDRAMC_BASE);
 		sdramc_writel(LPR, lpr_saved);
 
-		
+		/* Switch back to regular exception handlers */
 		sysreg_write(EVBA, evba_saved);
 
 		avr32_pm_unmap_sram();
@@ -125,16 +141,20 @@ static int avr32_pm_enter(suspend_state_t state)
 	case PM_SUSPEND_MEM:
 		sram = avr32_pm_map_sram();
 
-		
+		/* Switch to in-sram exception handlers */
 		evba_saved = sysreg_read(EVBA);
 		sysreg_write(EVBA, (unsigned long)sram);
 
+		/*
+		 * Save the LPR register so that we can re-enable
+		 * SDRAM Low Power mode on resume.
+		 */
 		lpr_saved = sdramc_readl(LPR);
 		pr_debug("%s: Entering suspend-to-ram...\n", __func__);
 		avr32_pm_enter_str(SDRAMC_BASE);
 		sdramc_writel(LPR, lpr_saved);
 
-		
+		/* Switch back to regular exception handlers */
 		sysreg_write(EVBA, evba_saved);
 
 		avr32_pm_unmap_sram();
@@ -177,6 +197,10 @@ static int __init avr32_pm_init(void)
 	extern u8 pm_sram_end[];
 	void *dst;
 
+	/*
+	 * To keep things simple, we depend on not needing more than a
+	 * single page.
+	 */
 	pm_sram_size = avr32_pm_offset(pm_sram_end);
 	if (pm_sram_size > PAGE_SIZE)
 		goto err;
@@ -185,7 +209,7 @@ static int __init avr32_pm_init(void)
 	if (!pm_sram_start)
 		goto err_alloc_sram;
 
-	
+	/* Grab a virtual area we can use later on. */
 	pm_sram_area = get_vm_area(pm_sram_size, VM_IOREMAP);
 	if (!pm_sram_area)
 		goto err_vm_area;

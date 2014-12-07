@@ -52,7 +52,7 @@ static const struct address_space_operations configfs_aops = {
 
 static struct backing_dev_info configfs_backing_dev_info = {
 	.name		= "configfs",
-	.ra_pages	= 0,	
+	.ra_pages	= 0,	/* No readahead */
 	.capabilities	= BDI_CAP_NO_ACCT_AND_WRITEBACK,
 };
 
@@ -73,18 +73,18 @@ int configfs_setattr(struct dentry * dentry, struct iattr * iattr)
 
 	sd_iattr = sd->s_iattr;
 	if (!sd_iattr) {
-		
+		/* setting attributes for the first time, allocate now */
 		sd_iattr = kzalloc(sizeof(struct iattr), GFP_KERNEL);
 		if (!sd_iattr)
 			return -ENOMEM;
-		
+		/* assign default attributes */
 		sd_iattr->ia_mode = sd->s_mode;
 		sd_iattr->ia_uid = 0;
 		sd_iattr->ia_gid = 0;
 		sd_iattr->ia_atime = sd_iattr->ia_mtime = sd_iattr->ia_ctime = CURRENT_TIME;
 		sd->s_iattr = sd_iattr;
 	}
-	
+	/* attributes were changed atleast once in past */
 
 	error = simple_setattr(dentry, iattr);
 	if (error)
@@ -141,6 +141,10 @@ struct inode *configfs_new_inode(umode_t mode, struct configfs_dirent *sd,
 		inode->i_op = &configfs_inode_operations;
 
 		if (sd->s_iattr) {
+			/* sysfs_dirent has non-default attributes
+			 * get them for the new inode from persistent copy
+			 * in sysfs_dirent
+			 */
 			set_inode_attr(inode, sd->s_iattr);
 		} else
 			set_default_inode_attr(inode, mode);
@@ -160,6 +164,10 @@ static void configfs_set_inode_lock_class(struct configfs_dirent *sd,
 			lockdep_set_class(&inode->i_mutex,
 					  &default_group_class[depth - 1]);
 		} else {
+			/*
+			 * In practice the maximum level of locking depth is
+			 * already reached. Just inform about possible reasons.
+			 */
 			printk(KERN_INFO "configfs: Too many levels of inodes"
 			       " for the locking correctness validator.\n");
 			printk(KERN_INFO "Spurious warnings may appear.\n");
@@ -167,14 +175,14 @@ static void configfs_set_inode_lock_class(struct configfs_dirent *sd,
 	}
 }
 
-#else 
+#else /* CONFIG_LOCKDEP */
 
 static void configfs_set_inode_lock_class(struct configfs_dirent *sd,
 					  struct inode *inode)
 {
 }
 
-#endif 
+#endif /* CONFIG_LOCKDEP */
 
 int configfs_create(struct dentry * dentry, umode_t mode, int (*init)(struct inode *))
 {
@@ -207,17 +215,20 @@ int configfs_create(struct dentry * dentry, umode_t mode, int (*init)(struct ino
 	}
 	d_instantiate(dentry, inode);
 	if (S_ISDIR(mode) || S_ISLNK(mode))
-		dget(dentry);  
+		dget(dentry);  /* pin link and directory dentries in core */
 	return error;
 }
 
+/*
+ * Get the name for corresponding element represented by the given configfs_dirent
+ */
 const unsigned char * configfs_get_name(struct configfs_dirent *sd)
 {
 	struct configfs_attribute *attr;
 
 	BUG_ON(!sd || !sd->s_element);
 
-	
+	/* These always have a dentry, so use that */
 	if (sd->s_type & (CONFIGFS_DIR | CONFIGFS_ITEM_LINK))
 		return sd->s_dentry->d_name.name;
 
@@ -229,6 +240,10 @@ const unsigned char * configfs_get_name(struct configfs_dirent *sd)
 }
 
 
+/*
+ * Unhashes the dentry corresponding to given configfs_dirent
+ * Called with parent inode's i_mutex held.
+ */
 void configfs_drop_dentry(struct configfs_dirent * sd, struct dentry * parent)
 {
 	struct dentry * dentry = sd->s_dentry;
@@ -251,7 +266,7 @@ void configfs_hash_and_remove(struct dentry * dir, const char * name)
 	struct configfs_dirent * parent_sd = dir->d_fsdata;
 
 	if (dir->d_inode == NULL)
-		
+		/* no inode means this hasn't been made visible yet */
 		return;
 
 	mutex_lock(&dir->d_inode->i_mutex);

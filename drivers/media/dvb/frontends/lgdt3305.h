@@ -49,22 +49,22 @@ enum lgdt_demod_chip_type {
 struct lgdt3305_config {
 	u8 i2c_addr;
 
-	
+	/* user defined IF frequency in KHz */
 	u16 qam_if_khz;
 	u16 vsb_if_khz;
 
-	
-	u16 usref_8vsb;   
-	u16 usref_qam64;  
-	u16 usref_qam256; 
+	/* AGC Power reference - defaults are used if left unset */
+	u16 usref_8vsb;   /* default: 0x32c4 */
+	u16 usref_qam64;  /* default: 0x5400 */
+	u16 usref_qam256; /* default: 0x2a80 */
 
-	
+	/* disable i2c repeater - 0:repeater enabled 1:repeater disabled */
 	unsigned int deny_i2c_rptr:1;
 
-	
+	/* spectral inversion - 0:disabled 1:enabled */
 	unsigned int spectral_inversion:1;
 
-	
+	/* use RF AGC loop - 0:disabled 1:enabled */
 	unsigned int rf_agc_loop:1;
 
 	enum lgdt3305_mpeg_mode mpeg_mode;
@@ -86,6 +86,6 @@ struct dvb_frontend *lgdt3305_attach(const struct lgdt3305_config *config,
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_DVB_LGDT3305 */
 
-#endif 
+#endif /* _LGDT3305_H_ */

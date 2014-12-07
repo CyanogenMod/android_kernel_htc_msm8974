@@ -44,13 +44,18 @@ enum cxgbi_dbg_flag {
 			pr_info(fmt, ##__VA_ARGS__); \
 	} while (0)
 
+/* max. connections per adapter */
 #define CXGBI_MAX_CONN		16384
 
+/* always allocate rooms for AHS */
 #define SKB_TX_ISCSI_PDU_HEADER_MAX	\
 	(sizeof(struct iscsi_hdr) + ISCSI_MAX_AHS_SIZE)
 
-#define	ISCSI_PDU_NONPAYLOAD_LEN	312 
+#define	ISCSI_PDU_NONPAYLOAD_LEN	312 /* bhs(48) + ahs(256) + digest(8)*/
 
+/*
+ * align pdu size to multiple of 512 for better performance
+ */
 #define cxgbi_align_pdu_size(n) do { n = (n) & (~511); } while (0)
 
 #define ULP2_MODE_ISCSI		2
@@ -59,17 +64,25 @@ enum cxgbi_dbg_flag {
 #define ULP2_MAX_PDU_PAYLOAD	\
 	(ULP2_MAX_PKT_SIZE - ISCSI_PDU_NONPAYLOAD_LEN)
 
+/*
+ * For iscsi connections HW may inserts digest bytes into the pdu. Those digest
+ * bytes are not sent by the host but are part of the TCP payload and therefore
+ * consume TCP sequence space.
+ */
 static const unsigned int ulp2_extra_len[] = { 0, 4, 4, 8 };
 static inline unsigned int cxgbi_ulp_extra_len(int submode)
 {
 	return ulp2_extra_len[submode & 3];
 }
 
+/*
+ * struct pagepod_hdr, pagepod - pagepod format
+ */
 
-#define CPL_RX_DDP_STATUS_DDP_SHIFT	16 
-#define CPL_RX_DDP_STATUS_PAD_SHIFT	19 
-#define CPL_RX_DDP_STATUS_HCRC_SHIFT	20 
-#define CPL_RX_DDP_STATUS_DCRC_SHIFT	21 
+#define CPL_RX_DDP_STATUS_DDP_SHIFT	16 /* ddp'able */
+#define CPL_RX_DDP_STATUS_PAD_SHIFT	19 /* pad error */
+#define CPL_RX_DDP_STATUS_HCRC_SHIFT	20 /* hcrc error */
+#define CPL_RX_DDP_STATUS_DCRC_SHIFT	21 /* dcrc error */
 
 struct cxgbi_pagepod_hdr {
 	u32 vld_tid;
@@ -123,14 +136,14 @@ struct cxgbi_ddp_info {
 #define DDP_PGIDX_MAX		4
 #define DDP_THRESHOLD		2048
 
-#define PPOD_PAGES_SHIFT	2       
+#define PPOD_PAGES_SHIFT	2       /*  4 pages per pod */
 
-#define PPOD_SIZE               sizeof(struct cxgbi_pagepod)  
+#define PPOD_SIZE               sizeof(struct cxgbi_pagepod)  /*  64 */
 #define PPOD_SIZE_SHIFT         6
 
-#define ULPMEM_DSGL_MAX_NPPODS	16	
-#define ULPMEM_IDATA_MAX_NPPODS	4	
-#define PCIE_MEMWIN_MAX_NPPODS	16	
+#define ULPMEM_DSGL_MAX_NPPODS	16	/*  1024/PPOD_SIZE */
+#define ULPMEM_IDATA_MAX_NPPODS	4	/*  256/PPOD_SIZE */
+#define PCIE_MEMWIN_MAX_NPPODS	16	/*  1024/PPOD_SIZE */
 
 #define PPOD_COLOR_SHIFT	0
 #define PPOD_COLOR(x)		((x) << PPOD_COLOR_SHIFT)
@@ -148,6 +161,11 @@ struct cxgbi_ddp_info {
 #define PPOD_VALID(x)		((x) << PPOD_VALID_SHIFT)
 #define PPOD_VALID_FLAG		PPOD_VALID(1U)
 
+/*
+ * sge_opaque_hdr -
+ * Opaque version of structure the SGE stores at skb->head of TX_DATA packets
+ * and for which we must reserve space.
+ */
 struct sge_opaque_hdr {
 	void *dev;
 	dma_addr_t addr[MAX_SKB_FRAGS + 1];
@@ -202,6 +220,9 @@ struct cxgbi_sock {
 	u32 write_seq;
 };
 
+/*
+ * connection states
+ */
 enum cxgbi_sock_states{
 	CTP_CLOSED,
 	CTP_CONNECTING,
@@ -214,15 +235,18 @@ enum cxgbi_sock_states{
 	CTP_ABORTING,
 };
 
+/*
+ * Connection flags -- many to track some close related events.
+ */
 enum cxgbi_sock_flags {
-	CTPF_ABORT_RPL_RCVD,	
-	CTPF_ABORT_REQ_RCVD,	
-	CTPF_ABORT_RPL_PENDING,	
-	CTPF_TX_DATA_SENT,	
-	CTPF_ACTIVE_CLOSE_NEEDED,
-	CTPF_HAS_ATID,		
-	CTPF_HAS_TID,		
-	CTPF_OFFLOAD_DOWN,	
+	CTPF_ABORT_RPL_RCVD,	/*received one ABORT_RPL_RSS message */
+	CTPF_ABORT_REQ_RCVD,	/*received one ABORT_REQ_RSS message */
+	CTPF_ABORT_RPL_PENDING,	/* expecting an abort reply */
+	CTPF_TX_DATA_SENT,	/* already sent a TX_DATA WR */
+	CTPF_ACTIVE_CLOSE_NEEDED,/* need to be closed */
+	CTPF_HAS_ATID,		/* reserved atid */
+	CTPF_HAS_TID,		/* reserved hw tid */
+	CTPF_OFFLOAD_DOWN,	/* offload function off */
 };
 
 struct cxgbi_skb_rx_cb {
@@ -236,15 +260,15 @@ struct cxgbi_skb_tx_cb {
 };
 
 enum cxgbi_skcb_flags {
-	SKCBF_TX_NEED_HDR,	
-	SKCBF_RX_COALESCED,	
-	SKCBF_RX_HDR,		
-	SKCBF_RX_DATA,		
-	SKCBF_RX_STATUS,	
-	SKCBF_RX_DATA_DDPD,	
-	SKCBF_RX_HCRC_ERR,	
-	SKCBF_RX_DCRC_ERR,	
-	SKCBF_RX_PAD_ERR,	
+	SKCBF_TX_NEED_HDR,	/* packet needs a header */
+	SKCBF_RX_COALESCED,	/* received whole pdu */
+	SKCBF_RX_HDR,		/* received pdu header */
+	SKCBF_RX_DATA,		/* received pdu payload */
+	SKCBF_RX_STATUS,	/* received ddp status */
+	SKCBF_RX_DATA_DDPD,	/* pdu payload ddp'd */
+	SKCBF_RX_HCRC_ERR,	/* header digest error */
+	SKCBF_RX_DCRC_ERR,	/* data digest error */
+	SKCBF_RX_PAD_ERR,	/* padding byte error */
 };
 
 struct cxgbi_skb_cb {
@@ -388,6 +412,12 @@ static inline struct sk_buff *alloc_wr(int wrlen, int dlen, gfp_t gfp)
 }
 
 
+/*
+ * The number of WRs needed for an skb depends on the number of fragments
+ * in the skb and whether it has any payload in its main body.  This maps the
+ * length of the gather list represented by an skb into the # of necessary WRs.
+ * The extra two fragments are for iscsi bhs and payload padding.
+ */
 #define SKB_WR_LIST_SIZE	 (MAX_SKB_FRAGS + 2)
 
 static inline void cxgbi_sock_reset_wr_list(struct cxgbi_sock *csk)
@@ -399,6 +429,12 @@ static inline void cxgbi_sock_enqueue_wr(struct cxgbi_sock *csk,
 					  struct sk_buff *skb)
 {
 	cxgbi_skcb_tx_wr_next(skb) = NULL;
+	/*
+	 * We want to take an extra reference since both us and the driver
+	 * need to free the packet before it's really freed. We know there's
+	 * just one user currently so we use atomic_set rather than skb_get
+	 * to avoid the atomic op.
+	 */
 	atomic_set(&skb->users, 2);
 
 	if (!csk->wr_pending_head)
@@ -453,7 +489,7 @@ void cxgbi_sock_free_cpl_skbs(struct cxgbi_sock *);
 
 struct cxgbi_hba {
 	struct net_device *ndev;
-	struct net_device *vdev;	
+	struct net_device *vdev;	/* vlan dev */
 	struct Scsi_Host *shost;
 	struct cxgbi_device *cdev;
 	__be32 ipv4addr;
@@ -491,7 +527,7 @@ struct cxgbi_device {
 	unsigned int rcv_win;
 	unsigned int rx_credit_thres;
 	unsigned int skb_tx_rsvd;
-	unsigned int skb_rx_extra;	
+	unsigned int skb_rx_extra;	/* for msg coalesced mode */
 	unsigned int tx_max_size;
 	unsigned int rx_max_size;
 	struct cxgbi_ports_map pmap;
@@ -704,4 +740,4 @@ void cxgbi_ddp_page_size_factor(int *);
 void cxgbi_ddp_ppod_clear(struct cxgbi_pagepod *);
 void cxgbi_ddp_ppod_set(struct cxgbi_pagepod *, struct cxgbi_pagepod_hdr *,
 			struct cxgbi_gather_list *, unsigned int);
-#endif	
+#endif	/*__LIBCXGBI_H__*/

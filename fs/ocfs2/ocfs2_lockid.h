@@ -26,6 +26,12 @@
 #ifndef OCFS2_LOCKID_H
 #define OCFS2_LOCKID_H
 
+/* lock ids are made up in the following manner:
+ * name[0]     --> type
+ * name[1-6]   --> 6 pad characters, reserved for now
+ * name[7-22]  --> block number, expressed in hex as 16 chars
+ * name[23-30] --> i_generation, expressed in hex 8 chars
+ * name[31]    --> '\0' */
 #define OCFS2_LOCK_ID_MAX_LEN  32
 #define OCFS2_LOCK_ID_PAD "000000"
 
@@ -99,6 +105,8 @@ static char *ocfs2_lock_type_strings[] = {
 	[OCFS2_LOCK_TYPE_DATA] = "Data",
 	[OCFS2_LOCK_TYPE_SUPER] = "Super",
 	[OCFS2_LOCK_TYPE_RENAME] = "Rename",
+	/* Need to differntiate from [R]ename.. serializing writes is the
+	 * important job it does, anyway. */
 	[OCFS2_LOCK_TYPE_RW] = "Write/Read",
 	[OCFS2_LOCK_TYPE_DENTRY] = "Dentry",
 	[OCFS2_LOCK_TYPE_OPEN] = "Open",
@@ -117,4 +125,4 @@ static inline const char *ocfs2_lock_type_string(enum ocfs2_lock_type type)
 	return ocfs2_lock_type_strings[type];
 }
 
-#endif  
+#endif  /* OCFS2_LOCKID_H */

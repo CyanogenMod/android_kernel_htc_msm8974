@@ -38,7 +38,7 @@
     defined(CONFIG_MIPS_PB1500)
 #define ALCHEMY_BOARD_DEFAULT_MEMSIZE	0x04000000
 
-#else	
+#else	/* Au1550/Au1200-based develboards */
 #define ALCHEMY_BOARD_DEFAULT_MEMSIZE	0x08000000
 #endif
 

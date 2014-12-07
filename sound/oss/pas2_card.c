@@ -1,3 +1,8 @@
+/*
+ * sound/oss/pas2_card.c
+ *
+ * Detection routine for the Pro Audio Spectrum cards.
+ */
 
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -25,6 +30,10 @@ static unsigned char sb_dma_bits[] = {
 	0x00, 0x40, 0x80, 0xC0, 0, 0, 0, 0
 };
 
+/*
+ * The Address Translation code is used to convert I/O register addresses to
+ * be relative to the given base -register
+ */
 
 int      	pas_translate_code = 0;
 static int      pas_intr_mask;
@@ -59,6 +68,11 @@ static char    *pas_model_names[] = {
 	"Pro AudioSpectrum 16D"
 };
 
+/*
+ * pas_read() and pas_write() are equivalents of inb and outb 
+ * These routines perform the I/O address translation required
+ * to support other than the default base address
+ */
 
 extern void     mix_write(unsigned char data, int ioaddr);
 
@@ -72,13 +86,14 @@ void pas_write(unsigned char data, int ioaddr)
 	outb((data), ioaddr + pas_translate_code);
 }
 
+/******************* Begin of the Interrupt Handler ********************/
 
 static irqreturn_t pasintr(int irq, void *dev_id)
 {
 	int             status;
 
 	status = pas_read(0x0B89);
-	pas_write(status, 0x0B89);	
+	pas_write(status, 0x0B89);	/* Clear interrupt */
 
 	if (status & 0x08)
 	{
@@ -115,12 +130,14 @@ int pas_remove_intr(int mask)
 	return 0;
 }
 
+/******************* End of the Interrupt handler **********************/
 
+/******************* Begin of the Initialization Code ******************/
 
 static int __init config_pas_hw(struct address_info *hw_config)
 {
 	char            ok = 1;
-	unsigned        int_ptrs;	
+	unsigned        int_ptrs;	/* scsi/sound interrupt pointers */
 
 	pas_irq = hw_config->irq;
 
@@ -134,8 +151,10 @@ static int __init config_pas_hw(struct address_info *hw_config)
 
 	pas_write(0x80 | 0x40 | 0x20 | 1, 0x0B8A);
 	pas_write(0x80 | 0x20 | 0x10 | 0x08 | 0x01, 0xF8A);
-	pas_write(0x01 | 0x02 | 0x04 | 0x10	
- , 0xB88);
+	pas_write(0x01 | 0x02 | 0x04 | 0x10	/*
+						 * |
+						 * 0x80
+						 */ , 0xB88);
 
 	pas_write(0x80 | (joystick ? 0x40 : 0), 0xF388);
 
@@ -192,6 +211,10 @@ static int __init config_pas_hw(struct address_info *hw_config)
 		}
 	}
 
+	/*
+	 * This fixes the timing problems of the PAS due to the Symphony chipset
+	 * as per Media Vision.  Only define this if your PAS doesn't work correctly.
+	 */
 
 	if(symphony)
 	{
@@ -202,10 +225,13 @@ static int __init config_pas_hw(struct address_info *hw_config)
 	if(broken_bus_clock)
 		pas_write(0x01 | 0x10 | 0x20 | 0x04, 0x8388);
 	else
+		/*
+		 * pas_write(0x01, 0x8388);
+		 */
 		pas_write(0x01 | 0x10 | 0x20, 0x8388);
 
-	pas_write(0x18, 0x838A);	
-	pas_write(0x20 | 0x01, 0x0B8A);		
+	pas_write(0x18, 0x838A);	/* ??? */
+	pas_write(0x20 | 0x01, 0x0B8A);		/* Mute off, filter = 17.897 kHz */
 	pas_write(8, 0xBF8A);
 
 	mix_write(0x80 | 5, 0x078B);
@@ -219,9 +245,17 @@ static int __init config_pas_hw(struct address_info *hw_config)
 		{
 			unsigned char   irq_dma;
 
+			/*
+			 * Turn on Sound Blaster compatibility
+			 * bit 1 = SB emulation
+			 * bit 0 = MPU401 emulation (CDPC only :-( )
+			 */
 			
 			pas_write(0x02, 0xF788);
 
+			/*
+			 * "Emulation address"
+			 */
 			
 			pas_write((sb_config->io_base >> 4) & 0x0f, 0xF789);
 			pas_sb_base = sb_config->io_base;
@@ -251,17 +285,28 @@ static int __init detect_pas_hw(struct address_info *hw_config)
 {
 	unsigned char   board_id, foo;
 
+	/*
+	 * WARNING: Setting an option like W:1 or so that disables warm boot reset
+	 * of the card will screw up this detect code something fierce. Adding code
+	 * to handle this means possibly interfering with other cards on the bus if
+	 * you have something on base port 0x388. SO be forewarned.
+	 */
 
-	outb((0xBC), 0x9A01);	
-	outb((hw_config->io_base >> 2), 0x9A01);	
+	outb((0xBC), 0x9A01);	/* Activate first board */
+	outb((hw_config->io_base >> 2), 0x9A01);	/* Set base address */
 	pas_translate_code = hw_config->io_base - 0x388;
-	pas_write(1, 0xBF88);	
+	pas_write(1, 0xBF88);	/* Select one wait states */
 
 	board_id = pas_read(0x0B8B);
 
 	if (board_id == 0xff)
 		return 0;
 
+	/*
+	 * We probably have a PAS-series board, now check for a PAS16-series board
+	 * by trying to change the board revision bits. PAS16-series hardware won't
+	 * let you do this - the bits are read-only.
+	 */
 
 	foo = board_id ^ 0xe0;
 
@@ -328,7 +373,7 @@ static void __exit unload_pas(struct address_info *hw_config)
 static int __initdata io	= -1;
 static int __initdata irq	= -1;
 static int __initdata dma	= -1;
-static int __initdata dma16	= -1;	
+static int __initdata dma16	= -1;	/* Set this for modules that need it */
 
 static int __initdata sb_io	= 0;
 static int __initdata sb_irq	= -1;
@@ -388,7 +433,7 @@ module_exit(cleanup_pas2);
 #ifndef MODULE
 static int __init setup_pas2(char *str)
 {
-	
+	/* io, irq, dma, dma2, sb_io, sb_irq, sb_dma, sb_dma2 */
 	int ints[9];
 	
 	str = get_options(str, ARRAY_SIZE(ints), ints);

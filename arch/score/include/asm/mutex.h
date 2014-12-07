@@ -3,4 +3,4 @@
 
 #include <asm-generic/mutex-dec.h>
 
-#endif 
+#endif /* _ASM_SCORE_MUTEX_H */

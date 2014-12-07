@@ -36,6 +36,7 @@
 #ifdef IPA_DEBUG
 #define IPADBG(fmt, args...) \
 	pr_err(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args)
+/*	pr_debug(DRV_NAME " %s:%d " fmt, __func__, __LINE__, ## args) */
 #else
 #define IPADBG(fmt, args...)
 #endif
@@ -126,6 +127,11 @@
 	(((start_ofst) + 127) & ~127)
 #define IPA_RT_FLT_HW_RULE_BUF_SIZE	(128)
 
+/**
+ * enum ipa_sys_pipe - 5 A5-IPA pipes
+ *
+ * 5 A5-IPA pipes (all system mode)
+ */
 enum ipa_sys_pipe {
 	IPA_A5_UNUSED,
 	IPA_A5_CMD,
@@ -135,6 +141,11 @@ enum ipa_sys_pipe {
 	IPA_A5_SYS_MAX
 };
 
+/**
+ * enum ipa_operating_mode - IPA operating mode
+ *
+ * IPA operating mode
+ */
 enum ipa_operating_mode {
 	IPA_MODE_USB_DONGLE,
 	IPA_MODE_MSM,
@@ -145,12 +156,27 @@ enum ipa_operating_mode {
 	IPA_MODE_MAX
 };
 
+/**
+ * struct ipa_mem_buffer - IPA memory buffer
+ * @base: base
+ * @phys_base: physical base address
+ * @size: size of memory buffer
+ */
 struct ipa_mem_buffer {
 	void *base;
 	dma_addr_t phys_base;
 	u32 size;
 };
 
+/**
+ * struct ipa_flt_entry - IPA filtering table entry
+ * @link: entry's link in global filtering enrties list
+ * @rule: filter rule
+ * @cookie: cookie used for validity check
+ * @tbl: filter table
+ * @rt_tbl: routing table
+ * @hw_len: entry's size
+ */
 struct ipa_flt_entry {
 	struct list_head link;
 	struct ipa_flt_rule rule;
@@ -160,6 +186,21 @@ struct ipa_flt_entry {
 	u32 hw_len;
 };
 
+/**
+ * struct ipa_rt_tbl - IPA routing table
+ * @link: table's link in global routing tables list
+ * @head_rt_rule_list: head of routing rules list
+ * @name: routing table name
+ * @idx: routing table index
+ * @rule_cnt: number of rules in routing table
+ * @ref_cnt: reference counter of raouting table
+ * @set: collection of routing tables
+ * @cookie: cookie used for validity check
+ * @in_sys: flag indicating if the table is located in system memory
+ * @sz: the size of the routing table
+ * @curr_mem: current routing tables block in sys memory
+ * @prev_mem: previous routing table block in sys memory
+ */
 struct ipa_rt_tbl {
 	struct list_head link;
 	struct list_head head_rt_rule_list;
@@ -175,6 +216,17 @@ struct ipa_rt_tbl {
 	struct ipa_mem_buffer prev_mem;
 };
 
+/**
+ * struct ipa_hdr_entry - IPA header table entry
+ * @link: entry's link in global header table entries list
+ * @hdr: the header
+ * @hdr_len: header length
+ * @name: name of header table entry
+ * @is_partial: flag indicating if header table entry is partial
+ * @offset_entry: entry's offset
+ * @cookie: cookie used for validity check
+ * @ref_cnt: reference counter of raouting table
+ */
 struct ipa_hdr_entry {
 	struct list_head link;
 	u8 hdr[IPA_HDR_MAX_SIZE];
@@ -186,12 +238,26 @@ struct ipa_hdr_entry {
 	u32 ref_cnt;
 };
 
+/**
+ * struct ipa_hdr_offset_entry - IPA header offset entry
+ * @link: entry's link in global header offset entries list
+ * @offset: the offset
+ * @bin: bin
+ */
 struct ipa_hdr_offset_entry {
 	struct list_head link;
 	u32 offset;
 	u32 bin;
 };
 
+/**
+ * struct ipa_hdr_tbl - IPA header table
+ * @head_hdr_entry_list: header entries list
+ * @head_offset_list: header offset list
+ * @head_free_offset_list: header free offset list
+ * @hdr_cnt: number of headers
+ * @end: the last header index
+ */
 struct ipa_hdr_tbl {
 	struct list_head head_hdr_entry_list;
 	struct list_head head_offset_list[IPA_HDR_BIN_MAX];
@@ -200,6 +266,16 @@ struct ipa_hdr_tbl {
 	u32 end;
 };
 
+/**
+ * struct ipa_flt_tbl - IPA filter table
+ * @head_flt_rule_list: filter rules list
+ * @rule_cnt: number of filter rules
+ * @in_sys: flag indicating if filter table is located in system memory
+ * @sz: the size of the filter table
+ * @end: the last header index
+ * @curr_mem: current filter tables block in sys memory
+ * @prev_mem: previous filter table block in sys memory
+ */
 struct ipa_flt_tbl {
 	struct list_head head_flt_rule_list;
 	u32 rule_cnt;
@@ -209,6 +285,15 @@ struct ipa_flt_tbl {
 	struct ipa_mem_buffer prev_mem;
 };
 
+/**
+ * struct ipa_rt_entry - IPA routing table entry
+ * @link: entry's link in global routing table entries list
+ * @rule: routing rule
+ * @cookie: cookie used for validity check
+ * @tbl: routing table
+ * @hdr: header table
+ * @hw_len: the length of the table
+ */
 struct ipa_rt_entry {
 	struct list_head link;
 	struct ipa_rt_rule rule;
@@ -218,16 +303,47 @@ struct ipa_rt_entry {
 	u32 hw_len;
 };
 
+/**
+ * struct ipa_rt_tbl_set - collection of routing tables
+ * @head_rt_tbl_list: collection of routing tables
+ * @tbl_cnt: number of routing tables
+ */
 struct ipa_rt_tbl_set {
 	struct list_head head_rt_tbl_list;
 	u32 tbl_cnt;
 };
 
+/**
+ * struct ipa_tree_node - handle database entry
+ * @node: RB node
+ * @hdl: handle
+ */
 struct ipa_tree_node {
 	struct rb_node node;
 	u32 hdl;
 };
 
+/**
+ * struct ipa_ep_context - IPA end point context
+ * @valid: flag indicating id EP context is valid
+ * @client: EP client type
+ * @ep_hdl: EP's client SPS handle
+ * @cfg: EP cionfiguration
+ * @dst_pipe_index: destination pipe index
+ * @rt_tbl_idx: routing table index
+ * @connect: SPS connect
+ * @priv: user provided information which will forwarded once the user is
+ *        notified for new data avail
+ * @client_notify: user provided CB for EP events notification, the event is
+ *                 data revived.
+ * @desc_fifo_in_pipe_mem: flag indicating if descriptors FIFO uses pipe memory
+ * @data_fifo_in_pipe_mem: flag indicating if data FIFO uses pipe memory
+ * @desc_fifo_pipe_mem_ofst: descriptors FIFO pipe memory offset
+ * @data_fifo_pipe_mem_ofst: data FIFO pipe memory offset
+ * @desc_fifo_client_allocated: if descriptors FIFO was allocated by a client
+ * @data_fifo_client_allocated: if data FIFO was allocated by a client
+ * @suspended: valid for B2B pipes, whether IPA EP is suspended
+ */
 struct ipa_ep_context {
 	int valid;
 	enum ipa_client_type client;
@@ -249,6 +365,16 @@ struct ipa_ep_context {
 	bool suspended;
 };
 
+/**
+ * struct ipa_sys_context - IPA endpoint context for system to BAM pipes
+ * @head_desc_list: header descriptors list
+ * @len: the size of the above list
+ * @spinlock: protects the list and its size
+ * @event: used to request CALLBACK mode from SPS driver
+ * @ep: IPA EP context
+ *
+ * IPA context specific to the system-bam pipes a.k.a LAN IN/OUT and WAN
+ */
 struct ipa_sys_context {
 	struct list_head head_desc_list;
 	u32 len;
@@ -259,12 +385,36 @@ struct ipa_sys_context {
 	struct delayed_work switch_to_intr_work;
 };
 
+/**
+ * enum ipa_desc_type - IPA decriptors type
+ *
+ * IPA decriptors type, IPA supports DD and ICD but no CD
+ */
 enum ipa_desc_type {
 	IPA_DATA_DESC,
 	IPA_DATA_DESC_SKB,
 	IPA_IMM_CMD_DESC
 };
 
+/**
+ * struct ipa_tx_pkt_wrapper - IPA Tx packet wrapper
+ * @type: specify if this packet is for the skb or immediate command
+ * @mem: memory buffer used by this Tx packet
+ * @work: work struct for current Tx packet
+ * @link: linked to the wrappers on that pipe
+ * @callback: IPA client provided callback
+ * @user1: cookie1 for above callback
+ * @user2: cookie2 for above callback
+ * @sys: corresponding IPA sys context
+ * @mult: valid only for first of a "multiple" transfer,
+ * holds info for the "sps_transfer" buffer
+ * @cnt: 1 for single transfers,
+ * >1 and <0xFFFF for first of a "multiple" tranfer,
+ * 0xFFFF for last desc, 0 for rest of "multiple' transfer
+ * @bounce: va of bounce buffer
+ *
+ * This struct can wrap both data packet and immediate command packet.
+ */
 struct ipa_tx_pkt_wrapper {
 	enum ipa_desc_type type;
 	struct ipa_mem_buffer mem;
@@ -279,6 +429,18 @@ struct ipa_tx_pkt_wrapper {
 	void *bounce;
 };
 
+/**
+ * struct ipa_desc - IPA descriptor
+ * @type: skb or immediate command or plain old data
+ * @pyld: points to skb
+ * or kmalloc'ed immediate command parameters/plain old data
+ * @len: length of the pyld
+ * @opcode: for immediate commands
+ * @callback: IPA client provided completion callback
+ * @user1: cookie1 for above callback
+ * @user2: cookie2 for above callback
+ * @xfer_done: completion object for sync completion
+ */
 struct ipa_desc {
 	enum ipa_desc_type type;
 	void *pyld;
@@ -290,6 +452,13 @@ struct ipa_desc {
 	struct completion xfer_done;
 };
 
+/**
+ * struct ipa_rx_pkt_wrapper - IPA Rx packet wrapper
+ * @skb: skb
+ * @dma_address: DMA address of this Rx packet
+ * @link: linked to the Rx packets on that pipe
+ * @len: how many bytes are copied into skb's flat buffer
+ */
 struct ipa_rx_pkt_wrapper {
 	struct sk_buff *skb;
 	dma_addr_t dma_address;
@@ -297,6 +466,28 @@ struct ipa_rx_pkt_wrapper {
 	u32 len;
 };
 
+/**
+ * struct ipa_nat_mem - IPA NAT memory description
+ * @class: pointer to the struct class
+ * @dev: the dev_t of the device
+ * @cdev: cdev of the device
+ * @dev_num: device number
+ * @vaddr: virtual address
+ * @dma_handle: DMA handle
+ * @size: NAT memory size
+ * @is_mapped: flag indicating if NAT memory is mapped
+ * @is_sys_mem: flag indicating if NAT memory is sys memory
+ * @is_dev_init: flag indicating if NAT device is initialized
+ * @lock: NAT memory mutex
+ * @nat_base_address: nat table virutal address
+ * @ipv4_rules_addr: base nat table address
+ * @ipv4_expansion_rules_addr: expansion table address
+ * @index_table_addr: index table address
+ * @index_table_expansion_addr: index expansion table address
+ * @size_base_tables: base table size
+ * @size_expansion_tables: expansion table size
+ * @public_ip_addr: ip address of nat table
+ */
 struct ipa_nat_mem {
 	struct class *class;
 	struct device *dev;
@@ -319,6 +510,13 @@ struct ipa_nat_mem {
 	u32 public_ip_addr;
 };
 
+/**
+ * enum ipa_hw_type - IPA hardware version type
+ * @IPA_HW_None: IPA hardware version not defined
+ * @IPA_HW_v1_0: IPA hardware version 1.0, corresponding to ELAN 1.0
+ * @IPA_HW_v1_1: IPA hardware version 1.1, corresponding to ELAN 2.0
+ * @IPA_HW_v2_0: IPA hardware version 2.0
+ */
 enum ipa_hw_type {
 	IPA_HW_None = 0,
 	IPA_HW_v1_0 = 1,
@@ -326,6 +524,12 @@ enum ipa_hw_type {
 	IPA_HW_v2_0 = 3
 };
 
+/**
+ * enum ipa_hw_mode - IPA hardware mode
+ * @IPA_HW_Normal: Regular IPA hardware
+ * @IPA_HW_Virtual: IPA hardware supporting virtual memory allocation
+ * @IPA_HW_PCIE: IPA hardware supporting memory allocation over PCIE Bridge
+ */
 enum ipa_hw_mode {
 	IPA_HW_MODE_NORMAL  = 0,
 	IPA_HW_MODE_VIRTUAL = 1,
@@ -354,6 +558,64 @@ struct ipa_stats {
 	u32 a2_power_apps_acks;
 };
 
+/**
+ * struct ipa_context - IPA context
+ * @class: pointer to the struct class
+ * @dev_num: device number
+ * @dev: the dev_t of the device
+ * @cdev: cdev of the device
+ * @bam_handle: IPA driver's BAM handle
+ * @ep: list of all end points
+ * @flt_tbl: list of all IPA filter tables
+ * @mode: IPA operating mode
+ * @mmio: iomem
+ * @ipa_wrapper_base: IPA wrapper base address
+ * @glob_flt_tbl: global filter table
+ * @hdr_tbl: IPA header table
+ * @rt_tbl_set: list of routing tables each of which is a list of rules
+ * @reap_rt_tbl_set: list of sys mem routing tables waiting to be reaped
+ * @flt_rule_cache: filter rule cache
+ * @rt_rule_cache: routing rule cache
+ * @hdr_cache: header cache
+ * @hdr_offset_cache: header offset cache
+ * @rt_tbl_cache: routing table cache
+ * @tx_pkt_wrapper_cache: Tx packets cache
+ * @rx_pkt_wrapper_cache: Rx packets cache
+ * @tree_node_cache: tree nodes cache
+ * @rt_idx_bitmap: routing table index bitmap
+ * @lock: this does NOT protect the linked lists within ipa_sys_context
+ * @sys: IPA sys context for system-bam pipes
+ * @rx_wq: Rx packets work queue
+ * @tx_wq: Tx packets work queue
+ * @smem_sz: shared memory size
+ * @hdr_hdl_tree: header handles tree
+ * @rt_rule_hdl_tree: routing rule handles tree
+ * @rt_tbl_hdl_tree: routing table handles tree
+ * @flt_rule_hdl_tree: filtering rule handles tree
+ * @nat_mem: NAT memory
+ * @excp_hdr_hdl: exception header handle
+ * @dflt_v4_rt_rule_hdl: default v4 routing rule handle
+ * @dflt_v6_rt_rule_hdl: default v6 routing rule handle
+ * @polling_mode: 1 - pure polling mode; 0 - interrupt+polling mode
+ * @aggregation_type: aggregation type used on USB client endpoint
+ * @aggregation_byte_limit: aggregation byte limit used on USB client endpoint
+ * @aggregation_time_limit: aggregation time limit used on USB client endpoint
+ * @curr_polling_state: current polling state
+ * @poll_work: polling work
+ * @hdr_tbl_lcl: where hdr tbl resides 1-local, 0-system
+ * @hdr_mem: header memory
+ * @ip4_rt_tbl_lcl: where ip4 rt tables reside 1-local; 0-system
+ * @ip6_rt_tbl_lcl: where ip6 rt tables reside 1-local; 0-system
+ * @ip4_flt_tbl_lcl: where ip4 flt tables reside 1-local; 0-system
+ * @ip6_flt_tbl_lcl: where ip6 flt tables reside 1-local; 0-system
+ * @empty_rt_tbl_mem: empty routing tables memory
+ * @pipe_mem_pool: pipe memory pool
+ * @dma_pool: special purpose DMA pool
+ * @ipa_hw_type: type of IPA HW type (e.g. IPA 1.0, IPA 1.1 etc')
+ * @ipa_hw_mode: mode of IPA HW mode (e.g. Normal, Virtual or over PCIe)
+ *
+ * IPA context - holds all relevant info about IPA driver and its state
+ */
 struct ipa_context {
 	struct class *class;
 	dev_t dev_num;
@@ -418,11 +680,18 @@ struct ipa_context {
 	wait_queue_head_t msg_waitq;
 	enum ipa_hw_type ipa_hw_type;
 	enum ipa_hw_mode ipa_hw_mode;
-	
+	/* featurize if memory footprint becomes a concern */
 	struct ipa_stats stats;
 	void *smem_pipe_mem;
 };
 
+/**
+ * struct ipa_route - IPA route
+ * @route_dis: route disable
+ * @route_def_pipe: route default pipe
+ * @route_def_hdr_table: route default header table
+ * @route_def_hdr_ofst: route default header offset table
+ */
 struct ipa_route {
 	u32 route_dis;
 	u32 route_def_pipe;
@@ -430,17 +699,38 @@ struct ipa_route {
 	u32 route_def_hdr_ofst;
 };
 
+/**
+ * enum ipa_pipe_mem_type - IPA pipe memory type
+ * @IPA_SPS_PIPE_MEM: Default, SPS dedicated pipe memory
+ * @IPA_PRIVATE_MEM: IPA's private memory
+ * @IPA_SYSTEM_MEM: System RAM, requires allocation
+ */
 enum ipa_pipe_mem_type {
 	IPA_SPS_PIPE_MEM = 0,
 	IPA_PRIVATE_MEM  = 1,
 	IPA_SYSTEM_MEM   = 2,
 };
 
+/**
+ * enum a2_mux_pipe_direction - IPA-A2 pipe direction
+ */
 enum a2_mux_pipe_direction {
 	A2_TO_IPA = 0,
 	IPA_TO_A2 = 1
 };
 
+/**
+ * struct a2_mux_pipe_connection - A2 MUX pipe connection
+ * @src_phy_addr: source physical address
+ * @src_pipe_index: source pipe index
+ * @dst_phy_addr: destination physical address
+ * @dst_pipe_index: destination pipe index
+ * @mem_type: pipe memory type
+ * @data_fifo_base_offset: data FIFO base offset
+ * @data_fifo_size: data FIFO size
+ * @desc_fifo_base_offset: descriptors FIFO base offset
+ * @desc_fifo_size: descriptors FIFO size
+ */
 struct a2_mux_pipe_connection {
 	int			src_phy_addr;
 	int			src_pipe_index;
@@ -571,4 +861,4 @@ void wwan_cleanup(void);
 
 int teth_bridge_driver_init(void);
 
-#endif 
+#endif /* _IPA_I_H_ */

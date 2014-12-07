@@ -17,6 +17,9 @@
 #include "driver.h"
 
 struct usb_line6_podhd {
+	/**
+		Generic Line6 USB data.
+	*/
 	struct usb_line6 line6;
 };
 
@@ -24,4 +27,4 @@ extern void line6_podhd_disconnect(struct usb_interface *interface);
 extern int line6_podhd_init(struct usb_interface *interface,
 			    struct usb_line6_podhd *podhd);
 
-#endif 
+#endif /* PODHD_H */

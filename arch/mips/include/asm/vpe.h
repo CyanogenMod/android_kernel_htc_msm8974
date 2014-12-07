@@ -34,4 +34,4 @@ extern int vpe_getuid(int index);
 extern int vpe_getgid(int index);
 extern char *vpe_getcwd(int index);
 
-#endif 
+#endif /* _ASM_VPE_H */

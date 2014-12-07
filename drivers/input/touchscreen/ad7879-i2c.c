@@ -6,7 +6,7 @@
  * Licensed under the GPL-2 or later.
  */
 
-#include <linux/input.h>	
+#include <linux/input.h>	/* BUS_I2C */
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/types.h>
@@ -14,8 +14,11 @@
 
 #include "ad7879.h"
 
-#define AD7879_DEVID		0x79	
+#define AD7879_DEVID		0x79	/* AD7879-1/AD7889-1 */
 
+/* All registers are word-sized.
+ * AD7879 uses a high-byte first convention.
+ */
 static int ad7879_i2c_read(struct device *dev, u8 reg)
 {
 	struct i2c_client *client = to_i2c_client(dev);

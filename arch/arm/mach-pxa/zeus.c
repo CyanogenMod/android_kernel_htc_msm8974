@@ -51,23 +51,26 @@
 
 #include "generic.h"
 
+/*
+ * Interrupt handling
+ */
 
 static unsigned long zeus_irq_enabled_mask;
 static const int zeus_isa_irqs[] = { 3, 4, 5, 6, 7, 10, 11, 12, };
 static const int zeus_isa_irq_map[] = {
-	0,		
-	0,		
-	0,		
-	1 << 0,		
-	1 << 1,		
-	1 << 2,		
-	1 << 3,		
-	1 << 4,		
-	0,		
-	0,		
-	1 << 5,		
-	1 << 6,		
-	1 << 7,		
+	0,		/* ISA irq #0, invalid */
+	0,		/* ISA irq #1, invalid */
+	0,		/* ISA irq #2, invalid */
+	1 << 0,		/* ISA irq #3 */
+	1 << 1,		/* ISA irq #4 */
+	1 << 2,		/* ISA irq #5 */
+	1 << 3,		/* ISA irq #6 */
+	1 << 4,		/* ISA irq #7 */
+	0,		/* ISA irq #8, invalid */
+	0,		/* ISA irq #9, invalid */
+	1 << 5,		/* ISA irq #10 */
+	1 << 6,		/* ISA irq #11 */
+	1 << 7,		/* ISA irq #12 */
 };
 
 static inline int zeus_irq_to_bitmask(unsigned int irq)
@@ -106,6 +109,8 @@ static void zeus_irq_handler(unsigned int irq, struct irq_desc *desc)
 
 	pending = zeus_irq_pending();
 	do {
+		/* we're in a chained irq handler,
+		 * so ack the interrupt by hand */
 		desc->irq_data.chip->irq_ack(&desc->irq_data);
 
 		if (likely(pending)) {
@@ -130,6 +135,8 @@ static void __init zeus_init_irq(void)
 
 	pxa27x_init_irq();
 
+	/* Peripheral IRQs. It would be nice to move those inside driver
+	   configuration, but it is not supported at the moment. */
 	irq_set_irq_type(gpio_to_irq(ZEUS_AC97_GPIO), IRQ_TYPE_EDGE_RISING);
 	irq_set_irq_type(gpio_to_irq(ZEUS_WAKEUP_GPIO), IRQ_TYPE_EDGE_RISING);
 	irq_set_irq_type(gpio_to_irq(ZEUS_PTT_GPIO), IRQ_TYPE_EDGE_RISING);
@@ -137,7 +144,7 @@ static void __init zeus_init_irq(void)
 			 IRQ_TYPE_EDGE_FALLING);
 	irq_set_irq_type(gpio_to_irq(ZEUS_CAN_GPIO), IRQ_TYPE_EDGE_FALLING);
 
-	
+	/* Setup ISA IRQs */
 	for (level = 0; level < ARRAY_SIZE(zeus_isa_irqs); level++) {
 		isa_irq = zeus_bit_to_irq(level);
 		irq_set_chip_and_handler(isa_irq, &zeus_irq_chip,
@@ -150,14 +157,18 @@ static void __init zeus_init_irq(void)
 }
 
 
+/*
+ * Platform devices
+ */
 
+/* Flash */
 static struct resource zeus_mtd_resources[] = {
-	[0] = { 
+	[0] = { /* NOR Flash (up to 64MB) */
 		.start	= ZEUS_FLASH_PHYS,
 		.end	= ZEUS_FLASH_PHYS + SZ_64M - 1,
 		.flags	= IORESOURCE_MEM,
 	},
-	[1] = { 
+	[1] = { /* SRAM */
 		.start	= ZEUS_SRAM_PHYS,
 		.end	= ZEUS_SRAM_PHYS + SZ_512K - 1,
 		.flags	= IORESOURCE_MEM,
@@ -184,6 +195,7 @@ static struct platform_device zeus_mtd_devices[] = {
 	},
 };
 
+/* Serial */
 static struct resource zeus_serial_resources[] = {
 	{
 		.start	= 0x10000000,
@@ -218,9 +230,9 @@ static struct resource zeus_serial_resources[] = {
 };
 
 static struct plat_serial8250_port serial_platform_data[] = {
-	
-	
-	{ 
+	/* External UARTs */
+	/* FIXME: Shared IRQs on COM1-COM4 will not work properly on v1i1 hardware. */
+	{ /* COM1 */
 		.mapbase	= 0x10000000,
 		.irq		= PXA_GPIO_TO_IRQ(ZEUS_UARTA_GPIO),
 		.irqflags	= IRQF_TRIGGER_RISING,
@@ -229,7 +241,7 @@ static struct plat_serial8250_port serial_platform_data[] = {
 		.flags		= UPF_IOREMAP | UPF_BOOT_AUTOCONF | UPF_SKIP_TEST,
 		.iotype		= UPIO_MEM,
 	},
-	{ 
+	{ /* COM2 */
 		.mapbase	= 0x10800000,
 		.irq		= PXA_GPIO_TO_IRQ(ZEUS_UARTB_GPIO),
 		.irqflags	= IRQF_TRIGGER_RISING,
@@ -238,7 +250,7 @@ static struct plat_serial8250_port serial_platform_data[] = {
 		.flags		= UPF_IOREMAP | UPF_BOOT_AUTOCONF | UPF_SKIP_TEST,
 		.iotype		= UPIO_MEM,
 	},
-	{ 
+	{ /* COM3 */
 		.mapbase	= 0x11000000,
 		.irq		= PXA_GPIO_TO_IRQ(ZEUS_UARTC_GPIO),
 		.irqflags	= IRQF_TRIGGER_RISING,
@@ -247,7 +259,7 @@ static struct plat_serial8250_port serial_platform_data[] = {
 		.flags		= UPF_IOREMAP | UPF_BOOT_AUTOCONF | UPF_SKIP_TEST,
 		.iotype		= UPIO_MEM,
 	},
-	{ 
+	{ /* COM4 */
 		.mapbase	= 0x11800000,
 		.irq		= PXA_GPIO_TO_IRQ(ZEUS_UARTD_GPIO),
 		.irqflags	= IRQF_TRIGGER_RISING,
@@ -256,8 +268,8 @@ static struct plat_serial8250_port serial_platform_data[] = {
 		.flags		= UPF_IOREMAP | UPF_BOOT_AUTOCONF | UPF_SKIP_TEST,
 		.iotype		= UPIO_MEM,
 	},
-	
-	{ 
+	/* Internal UARTs */
+	{ /* FFUART */
 		.membase	= (void *)&FFUART,
 		.mapbase	= __PREG(FFUART),
 		.irq		= IRQ_FFUART,
@@ -266,7 +278,7 @@ static struct plat_serial8250_port serial_platform_data[] = {
 		.flags		= UPF_BOOT_AUTOCONF | UPF_SKIP_TEST,
 		.iotype		= UPIO_MEM,
 	},
-	{ 
+	{ /* BTUART */
 		.membase	= (void *)&BTUART,
 		.mapbase	= __PREG(BTUART),
 		.irq		= IRQ_BTUART,
@@ -275,7 +287,7 @@ static struct plat_serial8250_port serial_platform_data[] = {
 		.flags		= UPF_BOOT_AUTOCONF | UPF_SKIP_TEST,
 		.iotype		= UPIO_MEM,
 	},
-	{ 
+	{ /* STUART */
 		.membase	= (void *)&STUART,
 		.mapbase	= __PREG(STUART),
 		.irq		= IRQ_STUART,
@@ -297,6 +309,7 @@ static struct platform_device zeus_serial_device = {
 	.resource	= zeus_serial_resources,
 };
 
+/* Ethernet */
 static struct resource zeus_dm9k0_resource[] = {
 	[0] = {
 		.start = ZEUS_ETH0_PHYS,
@@ -357,6 +370,7 @@ static struct platform_device zeus_dm9k1_device = {
 	}
 };
 
+/* External SRAM */
 static struct resource zeus_sram_resource = {
 	.start		= ZEUS_SRAM_PHYS,
 	.end		= ZEUS_SRAM_PHYS + ZEUS_SRAM_SIZE * 2 - 1,
@@ -370,11 +384,13 @@ static struct platform_device zeus_sram_device = {
 	.resource	= &zeus_sram_resource,
 };
 
+/* SPI interface on SSP3 */
 static struct pxa2xx_spi_master pxa2xx_spi_ssp3_master_info = {
 	.num_chipselect = 1,
 	.enable_dma     = 1,
 };
 
+/* CAN bus on SPI */
 static int zeus_mcp2515_setup(struct spi_device *sdev)
 {
 	int err;
@@ -416,6 +432,7 @@ static struct spi_board_info zeus_spi_board_info[] = {
 	},
 };
 
+/* Leds */
 static struct gpio_led zeus_leds[] = {
 	[0] = {
 		.name		 = "zeus:yellow:1",
@@ -501,17 +518,21 @@ static struct platform_device *zeus_devices[] __initdata = {
 	&zeus_max6369_device,
 };
 
+/* AC'97 */
 static pxa2xx_audio_ops_t zeus_ac97_info = {
 	.reset_gpio = 95,
 };
 
 
+/*
+ * USB host
+ */
 
 static int zeus_ohci_init(struct device *dev)
 {
 	int err;
 
-	
+	/* Switch on port 2. */
 	if ((err = gpio_request(ZEUS_USB2_PWREN_GPIO, "USB2_PWREN"))) {
 		dev_err(dev, "Can't request USB2_PWREN\n");
 		return err;
@@ -523,7 +544,7 @@ static int zeus_ohci_init(struct device *dev)
 		return err;
 	}
 
-	
+	/* Port 2 is shared between host and client interface. */
 	UP2OCR = UP2OCR_HXOE | UP2OCR_HXS | UP2OCR_DMPDE | UP2OCR_DPPDE;
 
 	return 0;
@@ -531,18 +552,23 @@ static int zeus_ohci_init(struct device *dev)
 
 static void zeus_ohci_exit(struct device *dev)
 {
-	
+	/* Power-off port 2 */
 	gpio_direction_output(ZEUS_USB2_PWREN_GPIO, 0);
 	gpio_free(ZEUS_USB2_PWREN_GPIO);
 }
 
 static struct pxaohci_platform_data zeus_ohci_platform_data = {
 	.port_mode	= PMM_NPS_MODE,
+	/* Clear Power Control Polarity Low and set Power Sense
+	 * Polarity Low. Supply power to USB ports. */
 	.flags		= ENABLE_PORT_ALL | POWER_SENSE_LOW,
 	.init		= zeus_ohci_init,
 	.exit		= zeus_ohci_exit,
 };
 
+/*
+ * Flat Panel
+ */
 
 static void zeus_lcd_power(int on, struct fb_var_screeninfo *si)
 {
@@ -609,6 +635,12 @@ static struct pxafb_mach_info zeus_fb_info = {
 	.pxafb_backlight_power	= zeus_backlight_power,
 };
 
+/*
+ * MMC/SD Device
+ *
+ * The card detect interrupt isn't debounced so we delay it by 250ms
+ * to give the card a chance to fully insert/eject.
+ */
 
 static struct pxamci_platform_data zeus_mci_platform_data = {
 	.ocr_mask		= MMC_VDD_32_33|MMC_VDD_33_34,
@@ -619,6 +651,9 @@ static struct pxamci_platform_data zeus_mci_platform_data = {
 	.gpio_power             = -1
 };
 
+/*
+ * USB Device Controller
+ */
 static void zeus_udc_command(int cmd)
 {
 	switch (cmd) {
@@ -651,7 +686,7 @@ static void zeus_power_off(void)
 #ifdef CONFIG_APM_EMULATION
 static void zeus_get_power_status(struct apm_power_info *info)
 {
-	
+	/* Power supply is always present */
 	info->ac_line_status	= APM_AC_ONLINE;
 	info->battery_status	= APM_BATTERY_STATUS_NOT_PRESENT;
 	info->battery_flag	= APM_BATTERY_FLAG_NOT_PRESENT;
@@ -727,7 +762,7 @@ static struct i2c_board_info __initdata zeus_i2c_devices[] = {
 };
 
 static mfp_cfg_t zeus_pin_config[] __initdata = {
-	
+	/* AC97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
@@ -773,11 +808,18 @@ static mfp_cfg_t zeus_pin_config[] __initdata = {
 	GPIO55_nPREG,
 	GPIO56_nPWAIT,
 	GPIO57_nIOIS16,
-	GPIO36_GPIO,		
-	GPIO97_GPIO,		
-	GPIO99_GPIO,		
+	GPIO36_GPIO,		/* CF CD */
+	GPIO97_GPIO,		/* CF PWREN */
+	GPIO99_GPIO,		/* CF RDY */
 };
 
+/*
+ * DM9k MSCx settings:	SRAM, 16 bits
+ *			17 cycles delay first access
+ *			 5 cycles delay next access
+ *			13 cycles recovery time
+ *			faster device
+ */
 #define DM9K_MSC_VALUE		0xe4c9
 
 static void __init zeus_init(void)
@@ -788,7 +830,7 @@ static void __init zeus_init(void)
 	system_rev = __raw_readw(ZEUS_CPLD_VERSION);
 	pr_info("Zeus CPLD V%dI%d\n", (system_rev & 0xf0) >> 4, (system_rev & 0x0f));
 
-	
+	/* Fix timings for dm9000s (CS1/CS2)*/
 	msc0 = (__raw_readl(MSC0) & 0x0000ffff) | (dm9000_msc << 16);
 	msc1 = (__raw_readl(MSC1) & 0xffff0000) | dm9000_msc;
 	__raw_writel(msc0, MSC0);
@@ -850,17 +892,19 @@ static void __init zeus_map_io(void)
 
 	iotable_init(zeus_io_desc, ARRAY_SIZE(zeus_io_desc));
 
-	
+	/* Clear PSPR to ensure a full restart on wake-up. */
 	PMCR = PSPR = 0;
 
-	
+	/* enable internal 32.768Khz oscillator (ignore OSCC_OOK) */
 	OSCC |= OSCC_OON;
 
+	/* Some clock cycles later (from OSCC_ON), programme PCFR (OPDE...).
+	 * float chip selects and PCMCIA */
 	PCFR = PCFR_OPDE | PCFR_DC_EN | PCFR_FS | PCFR_FP;
 }
 
 MACHINE_START(ARCOM_ZEUS, "Arcom/Eurotech ZEUS")
-	
+	/* Maintainer: Marc Zyngier <maz@misterjones.org> */
 	.atag_offset	= 0x100,
 	.map_io		= zeus_map_io,
 	.nr_irqs	= ZEUS_NR_IRQS,

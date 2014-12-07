@@ -4,13 +4,27 @@
 #include <linux/types.h>
 #include <asm/compiler.h>
 
+/*
+ * TSUNAMI/TYPHOON are the internal names for the core logic chipset which
+ * provides memory controller and PCI access for the 21264 based systems.
+ *
+ * This file is based on:
+ *
+ * Tsunami System Programmers Manual
+ * Preliminary, Chapters 2-5
+ *
+ */
 
+/* XXX: Do we need to conditionalize on this?  */
 #ifdef USE_48_BIT_KSEG
 #define TS_BIAS 0x80000000000UL
 #else
 #define TS_BIAS 0x10000000000UL
 #endif
 
+/*
+ * CChip, DChip, and PChip registers
+ */
 
 typedef struct {
 	volatile unsigned long csr __attribute__((aligned(64)));
@@ -31,8 +45,8 @@ typedef struct {
 	tsunami_64	dir1;
 	tsunami_64	drir;
 	tsunami_64	prben;
-	tsunami_64	iic;	
-	tsunami_64	wdr;	
+	tsunami_64	iic;	/* a.k.a. iic0 */
+	tsunami_64	wdr;	/* a.k.a. iic1 */
 	tsunami_64	mpr0;
 	tsunami_64	mpr1;
 	tsunami_64	mpr2;
@@ -77,6 +91,9 @@ typedef struct {
 #define TSUNAMI_pchip1 ((tsunami_pchip *)(IDENT_ADDR+TS_BIAS+0x380000000UL))
 extern int TSUNAMI_bootcpu;
 
+/*
+ * TSUNAMI Pchip Error register.
+ */
 
 #define perror_m_lost 0x1
 #define perror_m_serr 0x2
@@ -118,6 +135,9 @@ union TPchipPERROR {
 	int perror_q_whole [2];
 };                       
 
+/*
+ * TSUNAMI Pchip Window Space Base Address register.
+ */
 #define wsba_m_ena 0x1                
 #define wsba_m_sg 0x2
 #define wsba_m_ptp 0x4
@@ -135,6 +155,9 @@ union TPchipWSBA {
 	int wsba_q_whole [2];
 };
 
+/*
+ * TSUNAMI Pchip Control Register
+ */
 #define pctl_m_fdsc 0x1
 #define pctl_m_fbtb 0x2
 #define pctl_m_thdis 0x4
@@ -190,6 +213,9 @@ union TPchipPCTL {
 	int pctl_q_whole [2];
 };
 
+/*
+ * TSUNAMI Pchip Error Mask Register.
+ */
 #define perrmask_m_lost 0x1
 #define perrmask_m_serr 0x2
 #define perrmask_m_perr 0x4
@@ -223,6 +249,9 @@ union TPchipPERRMASK {
 	int perrmask_q_whole [2];
 };                       
 
+/*
+ * Memory spaces:
+ */
 #define TSUNAMI_HOSE(h)		(((unsigned long)(h)) << 33)
 #define TSUNAMI_BASE		(IDENT_ADDR + TS_BIAS)
 
@@ -231,17 +260,27 @@ union TPchipPERRMASK {
 #define TSUNAMI_IO(h)		(TSUNAMI_BASE+TSUNAMI_HOSE(h) + 0x1FC000000UL)
 #define TSUNAMI_CONF(h)		(TSUNAMI_BASE+TSUNAMI_HOSE(h) + 0x1FE000000UL)
 
-#define TSUNAMI_IACK_SC		_TSUNAMI_IACK_SC(0) 
+#define TSUNAMI_IACK_SC		_TSUNAMI_IACK_SC(0) /* hack! */
 
 
+/* 
+ * The canonical non-remaped I/O and MEM addresses have these values
+ * subtracted out.  This is arranged so that folks manipulating ISA
+ * devices can use their familiar numbers and have them map to bus 0.
+ */
 
 #define TSUNAMI_IO_BIAS          TSUNAMI_IO(0)
 #define TSUNAMI_MEM_BIAS         TSUNAMI_MEM(0)
 
+/* The IO address space is larger than 0xffff */
 #define TSUNAMI_IO_SPACE	(TSUNAMI_CONF(0) - TSUNAMI_IO(0))
 
+/* Offset between ram physical addresses and pci64 DAC bus addresses.  */
 #define TSUNAMI_DAC_OFFSET	(1UL << 40)
 
+/*
+ * Data structure for handling TSUNAMI machine checks:
+ */
 struct el_TSUNAMI_sysdata_mcheck {
 };
 
@@ -253,7 +292,16 @@ struct el_TSUNAMI_sysdata_mcheck {
 #define __IO_EXTERN_INLINE
 #endif
 
+/*
+ * I/O functions:
+ *
+ * TSUNAMI, the 21??? PCI/memory support chipset for the EV6 (21264)
+ * can only use linear accesses to get at PCI memory and I/O spaces.
+ */
 
+/*
+ * Memory functions.  all accesses are done through linear space.
+ */
 extern void __iomem *tsunami_ioportmap(unsigned long addr);
 extern void __iomem *tsunami_ioremap(unsigned long addr, unsigned long size);
 __EXTERN_INLINE int tsunami_is_ioaddr(unsigned long addr)
@@ -281,6 +329,6 @@ __EXTERN_INLINE int tsunami_is_mmio(const volatile void __iomem *xaddr)
 #undef __IO_EXTERN_INLINE
 #endif
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ALPHA_TSUNAMI__H__ */

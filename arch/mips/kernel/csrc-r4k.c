@@ -27,7 +27,7 @@ int __init init_r4k_clocksource(void)
 	if (!cpu_has_counter || !mips_hpt_frequency)
 		return -ENXIO;
 
-	
+	/* Calculate a somewhat reasonable rating value */
 	clocksource_mips.rating = 200 + mips_hpt_frequency / 10000000;
 
 	clocksource_register_hz(&clocksource_mips, mips_hpt_frequency);

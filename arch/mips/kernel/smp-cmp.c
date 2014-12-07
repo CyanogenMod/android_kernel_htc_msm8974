@@ -56,6 +56,10 @@ static void ipi_resched(unsigned int cpu)
 	gic_send_ipi(plat_ipi_resched_int_xlate(cpu));
 }
 
+/*
+ * FIXME: This isn't restricted to CMP
+ * The SMVP kernel could use GIC interrupts if available
+ */
 void cmp_send_ipi_single(int cpu, unsigned int action)
 {
 	unsigned long flags;
@@ -87,11 +91,11 @@ static void cmp_init_secondary(void)
 {
 	struct cpuinfo_mips *c = &current_cpu_data;
 
-	
+	/* Assume GIC is present */
 	change_c0_status(ST0_IM, STATUSF_IP3 | STATUSF_IP4 | STATUSF_IP6 |
 				 STATUSF_IP7);
 
-	
+	/* Enable per-cpu interrupts: platform specific */
 
 	c->core = (read_c0_ebase() >> 1) & 0xff;
 #if defined(CONFIG_MIPS_MT_SMP) || defined(CONFIG_MIPS_MT_SMTC)
@@ -106,14 +110,14 @@ static void cmp_smp_finish(void)
 {
 	pr_debug("SMPCMP: CPU%d: %s\n", smp_processor_id(), __func__);
 
-	
+	/* CDFIXME: remove this? */
 	write_c0_compare(read_c0_count() + (8 * mips_hpt_frequency / HZ));
 
 #ifdef CONFIG_MIPS_MT_FPAFF
-	
+	/* If we have an FPU, enroll ourselves in the FPU-full mask */
 	if (cpu_has_fpu)
 		cpu_set(smp_processor_id(), mt_fpu_cpumask);
-#endif 
+#endif /* CONFIG_MIPS_MT_FPAFF */
 
 	local_irq_enable();
 }
@@ -123,6 +127,12 @@ static void cmp_cpus_done(void)
 	pr_debug("SMPCMP: CPU%d: %s\n", smp_processor_id(), __func__);
 }
 
+/*
+ * Setup the PC, SP, and GP of a secondary processor and start it running
+ * smp_bootstrap is the place to resume from
+ * __KSTK_TOS(idle) is apparently the stack pointer
+ * (unsigned long)idle->thread_info the gp
+ */
 static void cmp_boot_secondary(int cpu, struct task_struct *idle)
 {
 	struct thread_info *gp = task_thread_info(idle);
@@ -134,7 +144,7 @@ static void cmp_boot_secondary(int cpu, struct task_struct *idle)
 		__func__, cpu);
 
 #if 0
-	
+	/* Needed? */
 	flush_icache_range((unsigned long)gp,
 			   (unsigned long)(gp + sizeof(struct thread_info)));
 #endif
@@ -142,6 +152,9 @@ static void cmp_boot_secondary(int cpu, struct task_struct *idle)
 	amon_cpu_start(cpu, pc, sp, (unsigned long)gp, a0);
 }
 
+/*
+ * Common setup before any secondaries are started
+ */
 void __init cmp_smp_setup(void)
 {
 	int i;
@@ -150,10 +163,10 @@ void __init cmp_smp_setup(void)
 	pr_debug("SMPCMP: CPU%d: %s\n", smp_processor_id(), __func__);
 
 #ifdef CONFIG_MIPS_MT_FPAFF
-	
+	/* If we have an FPU, enroll ourselves in the FPU-full mask */
 	if (cpu_has_fpu)
 		cpu_set(0, mt_fpu_cpumask);
-#endif 
+#endif /* CONFIG_MIPS_MT_FPAFF */
 
 	for (i = 1; i < NR_CPUS; i++) {
 		if (amon_cpu_avail(i)) {
@@ -177,6 +190,10 @@ void __init cmp_prepare_cpus(unsigned int max_cpus)
 	pr_debug("SMPCMP: CPU%d: %s max_cpus=%d\n",
 		 smp_processor_id(), __func__, max_cpus);
 
+	/*
+	 * FIXME: some of these options are per-system, some per-core and
+	 * some per-cpu
+	 */
 	mips_mt_set_cpuoptions();
 }
 

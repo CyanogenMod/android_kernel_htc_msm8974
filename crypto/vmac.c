@@ -16,6 +16,13 @@
  * Place - Suite 330, Boston, MA 02111-1307 USA.
  */
 
+/* --------------------------------------------------------------------------
+ * VMAC and VHASH Implementation by Ted Krovetz (tdk@acm.org) and Wei Dai.
+ * This implementation is herby placed in the public domain.
+ * The authors offers no warranty. Use at your own risk.
+ * Please send bug reports to the authors.
+ * Last modified: 17 APR 08, 1700 PDT
+ * ----------------------------------------------------------------------- */
 
 #include <linux/init.h>
 #include <linux/types.h>
@@ -27,14 +34,17 @@
 #include <crypto/vmac.h>
 #include <crypto/internal/hash.h>
 
+/*
+ * Constants and masks
+ */
 #define UINT64_C(x) x##ULL
-const u64 p64   = UINT64_C(0xfffffffffffffeff);  
-const u64 m62   = UINT64_C(0x3fffffffffffffff);  
-const u64 m63   = UINT64_C(0x7fffffffffffffff);  
-const u64 m64   = UINT64_C(0xffffffffffffffff);  
-const u64 mpoly = UINT64_C(0x1fffffff1fffffff);  
+const u64 p64   = UINT64_C(0xfffffffffffffeff);  /* 2^64 - 257 prime  */
+const u64 m62   = UINT64_C(0x3fffffffffffffff);  /* 62-bit mask       */
+const u64 m63   = UINT64_C(0x7fffffffffffffff);  /* 63-bit mask       */
+const u64 m64   = UINT64_C(0xffffffffffffffff);  /* 64-bit mask       */
+const u64 mpoly = UINT64_C(0x1fffffff1fffffff);  /* Poly key mask     */
 
-#define pe64_to_cpup le64_to_cpup		
+#define pe64_to_cpup le64_to_cpup		/* Prefer little endian */
 
 #ifdef __LITTLE_ENDIAN
 #define INDEX_HIGH 1
@@ -64,7 +74,7 @@ const u64 mpoly = UINT64_C(0x1fffffff1fffffff);
 
 #define MUL32(i1, i2)	((u64)(u32)(i1)*(u32)(i2))
 
-#define PMUL64(rh, rl, i1, i2)		\
+#define PMUL64(rh, rl, i1, i2)	/* Assumes m doesn't overflow */	\
 	do {								\
 		u64 _i1 = (i1), _i2 = (i2);				\
 		u64 m = MUL32(_i1, _i2>>32) + MUL32(_i1>>32, _i2);	\
@@ -84,6 +94,17 @@ const u64 mpoly = UINT64_C(0x1fffffff1fffffff);
 		ADD128(rh, rl, (m2 >> 32), (m2 << 32));			\
 	} while (0)
 
+/*
+ * For highest performance the L1 NH and L2 polynomial hashes should be
+ * carefully implemented to take advantage of one's target architecture.
+ * Here these two hash functions are defined multiple time; once for
+ * 64-bit architectures, once for 32-bit SSE2 architectures, and once
+ * for the rest (32-bit) architectures.
+ * For each, nh_16 *must* be defined (works on multiples of 16 bytes).
+ * Optionally, nh_vmac_nhbytes can be defined (for multiples of
+ * VMAC_NHBYTES), and nh_16_2 and nh_vmac_nhbytes_2 (versions that do two
+ * NH computations at once).
+ */
 
 #ifdef CONFIG_64BIT
 
@@ -112,7 +133,7 @@ const u64 mpoly = UINT64_C(0x1fffffff1fffffff);
 		}							\
 	} while (0)
 
-#if (VMAC_NHBYTES >= 64) 
+#if (VMAC_NHBYTES >= 64) /* These versions do 64-bytes of message at a time */
 #define nh_vmac_nhbytes(mp, kp, nw, rh, rl)				\
 	do {								\
 		int i; u64 th, tl;					\
@@ -169,27 +190,27 @@ const u64 mpoly = UINT64_C(0x1fffffff1fffffff);
 #define poly_step(ah, al, kh, kl, mh, ml)				\
 	do {								\
 		u64 t1h, t1l, t2h, t2l, t3h, t3l, z = 0;		\
-			\
+		/* compute ab*cd, put bd into result registers */	\
 		PMUL64(t3h, t3l, al, kh);				\
 		PMUL64(t2h, t2l, ah, kl);				\
 		PMUL64(t1h, t1l, ah, 2*kh);				\
 		PMUL64(ah, al, al, kl);					\
-						\
+		/* add 2 * ac to result */				\
 		ADD128(ah, al, t1h, t1l);				\
-						\
+		/* add together ad + bc */				\
 		ADD128(t2h, t2l, t3h, t3l);				\
-				\
-			\
+		/* now (ah,al), (t2l,2*t2h) need summing */		\
+		/* first add the high registers, carrying into t2h */	\
 		ADD128(t2h, ah, z, t2l);				\
-					\
+		/* double t2h and add top bit of ah */			\
 		t2h = 2 * t2h + (ah >> 63);				\
 		ah &= m63;						\
-						\
+		/* now add the low registers */				\
 		ADD128(ah, al, mh, ml);					\
 		ADD128(ah, al, z, t2h);					\
 	} while (0)
 
-#else 
+#else /* ! CONFIG_64BIT */
 
 #ifndef nh_16
 #define nh_16(mp, kp, nw, rh, rl)					\
@@ -275,8 +296,9 @@ static void poly_step_func(u64 *ahi, u64 *alo,
 #define poly_step(ah, al, kh, kl, mh, ml)				\
 	poly_step_func(&(ah), &(al), &(kh), &(kl), &(mh), &(ml))
 
-#endif  
+#endif  /* end of specialized NH and poly definitions */
 
+/* At least nh_16 is defined. Defined others as needed here */
 #ifndef nh_16_2
 #define nh_16_2(mp, kp, nw, rh, rl, rh2, rl2)				\
 	do { 								\
@@ -307,29 +329,29 @@ static u64 l3hash(u64 p1, u64 p2, u64 k1, u64 k2, u64 len)
 {
 	u64 rh, rl, t, z = 0;
 
-	
+	/* fully reduce (p1,p2)+(len,0) mod p127 */
 	t = p1 >> 63;
 	p1 &= m63;
 	ADD128(p1, p2, len, t);
-	
+	/* At this point, (p1,p2) is at most 2^127+(len<<64) */
 	t = (p1 > m63) + ((p1 == m63) && (p2 == m64));
 	ADD128(p1, p2, z, t);
 	p1 &= m63;
 
-	
+	/* compute (p1,p2)/(2^64-2^32) and (p1,p2)%(2^64-2^32) */
 	t = p1 + (p2 >> 32);
 	t += (t >> 32);
 	t += (u32)t > 0xfffffffeu;
 	p1 += (t >> 32);
 	p2 += (p1 << 32);
 
-	
+	/* compute (p1+k1)%p64 and (p2+k2)%p64 */
 	p1 += k1;
 	p1 += (0 - (p1 < k1)) & 257;
 	p2 += k2;
 	p2 += (0 - (p2 < k2)) & 257;
 
-	
+	/* compute (p1+k1)*(p2+k2)%p64 */
 	MUL64(rh, rl, p1, p2);
 	t = rh >> 56;
 	ADD128(t, rl, z, rh);
@@ -343,7 +365,7 @@ static u64 l3hash(u64 p1, u64 p2, u64 k1, u64 k2, u64 len)
 }
 
 static void vhash_update(const unsigned char *m,
-			unsigned int mbytes, 
+			unsigned int mbytes, /* Pos multiple of VMAC_NHBYTES */
 			struct vmac_ctx *ctx)
 {
 	u64 rh, rl, *mptr;
@@ -354,7 +376,7 @@ static void vhash_update(const unsigned char *m,
 	u64 pkl = ctx->polykey[1];
 
 	mptr = (u64 *)m;
-	i = mbytes / VMAC_NHBYTES;  
+	i = mbytes / VMAC_NHBYTES;  /* Must be non-zero */
 
 	ch = ctx->polytmp[0];
 	cl = ctx->polytmp[1];
@@ -408,7 +430,7 @@ static u64 vhash(unsigned char m[], unsigned int mbytes,
 		ADD128(ch, cl, pkh, pkl);
 		mptr += (VMAC_NHBYTES/sizeof(u64));
 		goto do_l3;
-	} else {
+	} else {/* Empty String */
 		ch = pkh; cl = pkl;
 		goto do_l3;
 	}
@@ -467,7 +489,7 @@ static int vmac_set_key(unsigned char user_key[], struct vmac_ctx_t *ctx)
 	if (err)
 		return err;
 
-	
+	/* Fill nh key */
 	((unsigned char *)in)[0] = 0x80;
 	for (i = 0; i < sizeof(ctx->__vmac_ctx.nhkey)/8; i += 2) {
 		crypto_cipher_encrypt_one(ctx->child,
@@ -477,7 +499,7 @@ static int vmac_set_key(unsigned char user_key[], struct vmac_ctx_t *ctx)
 		((unsigned char *)in)[15] += 1;
 	}
 
-	
+	/* Fill poly key */
 	((unsigned char *)in)[0] = 0xC0;
 	in[1] = 0;
 	for (i = 0; i < sizeof(ctx->__vmac_ctx.polykey)/8; i += 2) {
@@ -492,7 +514,7 @@ static int vmac_set_key(unsigned char user_key[], struct vmac_ctx_t *ctx)
 		((unsigned char *)in)[15] += 1;
 	}
 
-	
+	/* Fill ip key */
 	((unsigned char *)in)[0] = 0xE0;
 	in[1] = 0;
 	for (i = 0; i < sizeof(ctx->__vmac_ctx.l3key)/8; i += 2) {
@@ -506,9 +528,9 @@ static int vmac_set_key(unsigned char user_key[], struct vmac_ctx_t *ctx)
 			|| ctx->__vmac_ctx.l3key[i+1] >= p64);
 	}
 
-	
-	ctx->__vmac_ctx.cached_nonce[0] = (u64)-1; 
-	ctx->__vmac_ctx.cached_nonce[1] = (u64)0;  
+	/* Invalidate nonce/aes cache and reset other elements */
+	ctx->__vmac_ctx.cached_nonce[0] = (u64)-1; /* Ensure illegal nonce */
+	ctx->__vmac_ctx.cached_nonce[1] = (u64)0;  /* Ensure illegal nonce */
 	ctx->__vmac_ctx.first_block_processed = 0;
 
 	return err;

@@ -12,6 +12,7 @@
 #ifndef ___ASM_ARCH_REGS_IRQ_H
 #define ___ASM_ARCH_REGS_IRQ_H
 
+/* interrupt controller */
 
 #define S3C2410_IRQREG(x)   ((x) + S3C24XX_VA_IRQ)
 #define S3C2410_EINTREG(x)  ((x) + S3C24XX_VA_GPIO)
@@ -36,6 +37,10 @@
 #define S3C2416_PRIORITY_MODE2		S3C2410_IRQREG(0x070)
 #define S3C2416_PRIORITY_UPDATE2	S3C2410_IRQREG(0x074)
 
+/* mask: 0=enable, 1=disable
+ * 1 bit EINT, 4=EINT4, 23=EINT23
+ * EINT0,1,2,3 are not handled here.
+*/
 
 #define S3C2410_EINTMASK       S3C2410_EINTREG(0x0A4)
 #define S3C2410_EINTPEND       S3C2410_EINTREG(0X0A8)
@@ -45,4 +50,4 @@
 #define S3C24XX_EINTMASK       S3C24XX_EINTREG(0x0A4)
 #define S3C24XX_EINTPEND       S3C24XX_EINTREG(0X0A8)
 
-#endif 
+#endif /* ___ASM_ARCH_REGS_IRQ_H */

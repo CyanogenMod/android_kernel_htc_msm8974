@@ -13,6 +13,10 @@
 
 #include <linux/apm_bios.h>
 
+/*
+ * This structure gets filled in by the machine specific 'get_power_status'
+ * implementation.  Any fields which are not set default to a safe value.
+ */
 struct apm_power_info {
 	unsigned char	ac_line_status;
 #define APM_AC_OFFLINE			0
@@ -45,8 +49,14 @@ struct apm_power_info {
 
 };
 
+/*
+ * This allows machines to provide their own "apm get power status" function.
+ */
 extern void (*apm_get_power_status)(struct apm_power_info *);
 
+/*
+ * Queue an event (APM_SYS_SUSPEND or APM_CRITICAL_SUSPEND)
+ */
 void apm_queue_event(apm_event_t event);
 
-#endif 
+#endif /* __LINUX_APM_EMULATION_H */

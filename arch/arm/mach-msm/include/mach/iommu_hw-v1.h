@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -16,21 +16,25 @@
 #define CTX_SHIFT  12
 #define CTX_OFFSET 0x8000
 
-#define GET_GLOBAL_REG(reg, base) (readl_relaxed((base) + (reg)))
-#define GET_CTX_REG(reg, base, ctx) \
-	(readl_relaxed((base) + CTX_OFFSET + (reg) + ((ctx) << CTX_SHIFT)))
-#define GET_CTX_REG_L(reg, base, ctx) \
-	(readll_relaxed((base) + CTX_OFFSET + (reg) + ((ctx) << CTX_SHIFT)))
+#define CTX_REG(reg, base, ctx) \
+	((base) + CTX_OFFSET + (reg) + ((ctx) << CTX_SHIFT))
+#define GLB_REG(reg, base) \
+	((base) + (reg))
+
+#define GET_GLOBAL_REG(reg, base) (readl_relaxed(GLB_REG(reg, base)))
+#define GET_CTX_REG(reg, base, ctx) (readl_relaxed(CTX_REG(reg, base, ctx)))
+#define GET_CTX_REG_L(reg, base, ctx) (readll_relaxed(CTX_REG(reg, base, ctx)))
 
 #define SET_GLOBAL_REG(reg, base, val)	writel_relaxed((val), ((base) + (reg)))
 
 #define SET_CTX_REG(reg, base, ctx, val) \
-	writel_relaxed((val), \
-		((base) + CTX_OFFSET + (reg) + ((ctx) << CTX_SHIFT)))
+	writel_relaxed((val), (CTX_REG(reg, base, ctx)))
 
+/* Wrappers for numbered registers */
 #define SET_GLOBAL_REG_N(b, n, r, v) SET_GLOBAL_REG((b), ((r) + (n << 2)), (v))
 #define GET_GLOBAL_REG_N(b, n, r)    GET_GLOBAL_REG((b), ((r) + (n << 2)))
 
+/* Field wrappers */
 #define GET_GLOBAL_FIELD(b, r, F) \
 	GET_FIELD(((b) + (r)), r##_##F##_MASK, r##_##F##_SHIFT)
 #define GET_CONTEXT_FIELD(b, c, r, F) \
@@ -43,6 +47,7 @@
 	SET_FIELD(((b) + CTX_OFFSET + (r) + ((c) << CTX_SHIFT)), \
 			r##_##F##_MASK, r##_##F##_SHIFT, (v))
 
+/* Wrappers for numbered field registers */
 #define SET_GLOBAL_FIELD_N(b, n, r, F, v) \
 	SET_FIELD(((b) + ((n) << 2) + (r)), r##_##F##_MASK, r##_##F##_SHIFT, v)
 #define GET_GLOBAL_FIELD_N(b, n, r, F) \
@@ -58,6 +63,7 @@ do { \
 } while (0)
 
 
+/* Global register space 0 setters / getters */
 #define SET_CR0(b, v)            SET_GLOBAL_REG(CR0, (b), (v))
 #define SET_SCR1(b, v)           SET_GLOBAL_REG(SCR1, (b), (v))
 #define SET_CR2(b, v)            SET_GLOBAL_REG(CR2, (b), (v))
@@ -134,24 +140,33 @@ do { \
 #define GET_SMR_N(b, N)          GET_GLOBAL_REG_N(SMR, N, (b))
 #define GET_S2CR_N(b, N)         GET_GLOBAL_REG_N(S2CR, N, (b))
 
+/* Global register space 1 setters / getters */
 #define SET_CBAR_N(b, N, v)      SET_GLOBAL_REG_N(CBAR, N, (b), (v))
 #define SET_CBFRSYNRA_N(b, N, v) SET_GLOBAL_REG_N(CBFRSYNRA, N, (b), (v))
 
 #define GET_CBAR_N(b, N)         GET_GLOBAL_REG_N(CBAR, N, (b))
 #define GET_CBFRSYNRA_N(b, N)    GET_GLOBAL_REG_N(CBFRSYNRA, N, (b))
 
+/* Implementation defined register setters/getters */
 #define SET_MICRO_MMU_CTRL_HALT_REQ(b, v) \
 				SET_GLOBAL_FIELD(b, MICRO_MMU_CTRL, HALT_REQ, v)
 #define GET_MICRO_MMU_CTRL_IDLE(b) \
 				GET_GLOBAL_FIELD(b, MICRO_MMU_CTRL, IDLE)
+#define SET_MICRO_MMU_CTRL_RESERVED(b, v) \
+				SET_GLOBAL_FIELD(b, MICRO_MMU_CTRL, RESERVED, v)
+
+#define MMU_CTRL_IDLE (MICRO_MMU_CTRL_IDLE_MASK << MICRO_MMU_CTRL_IDLE_SHIFT)
+
 #define SET_PREDICTIONDIS0(b, v) SET_GLOBAL_REG(PREDICTIONDIS0, (b), (v))
 #define SET_PREDICTIONDIS1(b, v) SET_GLOBAL_REG(PREDICTIONDIS1, (b), (v))
 #define SET_S1L1BFBLP0(b, v)     SET_GLOBAL_REG(S1L1BFBLP0, (b), (v))
 
+/* SSD register setters/getters */
 #define SET_SSDR_N(b, N, v)      SET_GLOBAL_REG_N(SSDR_N, N, (b), (v))
 
 #define GET_SSDR_N(b, N)         GET_GLOBAL_REG_N(SSDR_N, N, (b))
 
+/* Context bank register setters/getters */
 #define SET_SCTLR(b, c, v)       SET_CTX_REG(CB_SCTLR, (b), (c), (v))
 #define SET_ACTLR(b, c, v)       SET_CTX_REG(CB_ACTLR, (b), (c), (v))
 #define SET_RESUME(b, c, v)      SET_CTX_REG(CB_RESUME, (b), (c), (v))
@@ -210,6 +225,8 @@ do { \
 #define GET_ATS1UW(b, c)         GET_CTX_REG(CB_ATS1UW, (b), (c))
 #define GET_ATSR(b, c)           GET_CTX_REG(CB_ATSR, (b), (c))
 
+/* Global Register field setters / getters */
+/* Configuration Register: CR0/NSCR0 */
 #define SET_CR0_NSCFG(b, v)        SET_GLOBAL_FIELD(b, CR0, NSCFG, v)
 #define SET_CR0_WACFG(b, v)        SET_GLOBAL_FIELD(b, CR0, WACFG, v)
 #define SET_CR0_RACFG(b, v)        SET_GLOBAL_FIELD(b, CR0, RACFG, v)
@@ -258,66 +275,78 @@ do { \
 #define GET_CR0_GFRE(b)            GET_GLOBAL_FIELD(b, CR0, GFRE)
 #define GET_CR0_CLIENTPD(b)        GET_GLOBAL_FIELD(b, CR0, CLIENTPD)
 
+/* Configuration Register: CR2 */
 #define SET_CR2_BPVMID(b, v)     SET_GLOBAL_FIELD(b, CR2, BPVMID, v)
 
 #define GET_CR2_BPVMID(b)        GET_GLOBAL_FIELD(b, CR2, BPVMID)
 
+/* Global Address Translation, Stage 1, Privileged Read: GATS1PR */
 #define SET_GATS1PR_ADDR(b, v)   SET_GLOBAL_FIELD(b, GATS1PR, ADDR, v)
 #define SET_GATS1PR_NDX(b, v)    SET_GLOBAL_FIELD(b, GATS1PR, NDX, v)
 
 #define GET_GATS1PR_ADDR(b)      GET_GLOBAL_FIELD(b, GATS1PR, ADDR)
 #define GET_GATS1PR_NDX(b)       GET_GLOBAL_FIELD(b, GATS1PR, NDX)
 
+/* Global Address Translation, Stage 1, Privileged Write: GATS1PW */
 #define SET_GATS1PW_ADDR(b, v)   SET_GLOBAL_FIELD(b, GATS1PW, ADDR, v)
 #define SET_GATS1PW_NDX(b, v)    SET_GLOBAL_FIELD(b, GATS1PW, NDX, v)
 
 #define GET_GATS1PW_ADDR(b)      GET_GLOBAL_FIELD(b, GATS1PW, ADDR)
 #define GET_GATS1PW_NDX(b)       GET_GLOBAL_FIELD(b, GATS1PW, NDX)
 
+/* Global Address Translation, Stage 1, User Read: GATS1UR */
 #define SET_GATS1UR_ADDR(b, v)   SET_GLOBAL_FIELD(b, GATS1UR, ADDR, v)
 #define SET_GATS1UR_NDX(b, v)    SET_GLOBAL_FIELD(b, GATS1UR, NDX, v)
 
 #define GET_GATS1UR_ADDR(b)      GET_GLOBAL_FIELD(b, GATS1UR, ADDR)
 #define GET_GATS1UR_NDX(b)       GET_GLOBAL_FIELD(b, GATS1UR, NDX)
 
+/* Global Address Translation, Stage 1, User Read: GATS1UW */
 #define SET_GATS1UW_ADDR(b, v)   SET_GLOBAL_FIELD(b, GATS1UW, ADDR, v)
 #define SET_GATS1UW_NDX(b, v)    SET_GLOBAL_FIELD(b, GATS1UW, NDX, v)
 
 #define GET_GATS1UW_ADDR(b)      GET_GLOBAL_FIELD(b, GATS1UW, ADDR)
 #define GET_GATS1UW_NDX(b)       GET_GLOBAL_FIELD(b, GATS1UW, NDX)
 
+/* Global Address Translation, Stage 1 and 2, Privileged Read: GATS12PR */
 #define SET_GATS12PR_ADDR(b, v)  SET_GLOBAL_FIELD(b, GATS12PR, ADDR, v)
 #define SET_GATS12PR_NDX(b, v)   SET_GLOBAL_FIELD(b, GATS12PR, NDX, v)
 
 #define GET_GATS12PR_ADDR(b)     GET_GLOBAL_FIELD(b, GATS12PR, ADDR)
 #define GET_GATS12PR_NDX(b)      GET_GLOBAL_FIELD(b, GATS12PR, NDX)
 
+/* Global Address Translation, Stage 1, Privileged Write: GATS1PW */
 #define SET_GATS12PW_ADDR(b, v)  SET_GLOBAL_FIELD(b, GATS12PW, ADDR, v)
 #define SET_GATS12PW_NDX(b, v)   SET_GLOBAL_FIELD(b, GATS12PW, NDX, v)
 
 #define GET_GATS12PW_ADDR(b)     GET_GLOBAL_FIELD(b, GATS12PW, ADDR)
 #define GET_GATS12PW_NDX(b)      GET_GLOBAL_FIELD(b, GATS12PW, NDX)
 
+/* Global Address Translation, Stage 1, User Read: GATS1UR */
 #define SET_GATS12UR_ADDR(b, v)  SET_GLOBAL_FIELD(b, GATS12UR, ADDR, v)
 #define SET_GATS12UR_NDX(b, v)   SET_GLOBAL_FIELD(b, GATS12UR, NDX, v)
 
 #define GET_GATS12UR_ADDR(b)     GET_GLOBAL_FIELD(b, GATS12UR, ADDR)
 #define GET_GATS12UR_NDX(b)      GET_GLOBAL_FIELD(b, GATS12UR, NDX)
 
+/* Global Address Translation, Stage 1, User Read: GATS1UW */
 #define SET_GATS12UW_ADDR(b, v)  SET_GLOBAL_FIELD(b, GATS12UW, ADDR, v)
 #define SET_GATS12UW_NDX(b, v)   SET_GLOBAL_FIELD(b, GATS12UW, NDX, v)
 
 #define GET_GATS12UW_ADDR(b)     GET_GLOBAL_FIELD(b, GATS12UW, ADDR)
 #define GET_GATS12UW_NDX(b)      GET_GLOBAL_FIELD(b, GATS12UW, NDX)
 
+/* Global Address Translation Status Register: GATSR */
 #define SET_GATSR_ACTIVE(b, v)   SET_GLOBAL_FIELD(b, GATSR, ACTIVE, v)
 
 #define GET_GATSR_ACTIVE(b)      GET_GLOBAL_FIELD(b, GATSR, ACTIVE)
 
+/* Global Fault Address Register: GFAR */
 #define SET_GFAR_FADDR(b, v)     SET_GLOBAL_FIELD(b, GFAR, FADDR, v)
 
 #define GET_GFAR_FADDR(b)        GET_GLOBAL_FIELD(b, GFAR, FADDR)
 
+/* Global Fault Status Register: GFSR */
 #define SET_GFSR_ICF(b, v)        SET_GLOBAL_FIELD(b, GFSR, ICF, v)
 #define SET_GFSR_USF(b, v)        SET_GLOBAL_FIELD(b, GFSR, USF, v)
 #define SET_GFSR_SMCF(b, v)       SET_GLOBAL_FIELD(b, GFSR, SMCF, v)
@@ -338,6 +367,7 @@ do { \
 #define GET_GFSR_PF(b)            GET_GLOBAL_FIELD(b, GFSR, PF)
 #define GET_GFSR_MULTI(b)         GET_GLOBAL_FIELD(b, GFSR, MULTI)
 
+/* Global Fault Syndrome Register 0: GFSYNR0 */
 #define SET_GFSYNR0_NESTED(b, v)  SET_GLOBAL_FIELD(b, GFSYNR0, NESTED, v)
 #define SET_GFSYNR0_WNR(b, v)     SET_GLOBAL_FIELD(b, GFSYNR0, WNR, v)
 #define SET_GFSYNR0_PNU(b, v)     SET_GLOBAL_FIELD(b, GFSYNR0, PNU, v)
@@ -352,10 +382,12 @@ do { \
 #define GET_GFSYNR0_NSSTATE(b)    GET_GLOBAL_FIELD(b, GFSYNR0, NSSTATE)
 #define GET_GFSYNR0_NSATTR(b)     GET_GLOBAL_FIELD(b, GFSYNR0, NSATTR)
 
+/* Global Fault Syndrome Register 1: GFSYNR1 */
 #define SET_GFSYNR1_SID(b, v)     SET_GLOBAL_FIELD(b, GFSYNR1, SID, v)
 
 #define GET_GFSYNR1_SID(b)        GET_GLOBAL_FIELD(b, GFSYNR1, SID)
 
+/* Global Physical Address Register: GPAR */
 #define SET_GPAR_F(b, v)          SET_GLOBAL_FIELD(b, GPAR, F, v)
 #define SET_GPAR_SS(b, v)         SET_GLOBAL_FIELD(b, GPAR, SS, v)
 #define SET_GPAR_OUTER(b, v)      SET_GLOBAL_FIELD(b, GPAR, OUTER, v)
@@ -388,6 +420,7 @@ do { \
 #define GET_GPAR_TLBLKF(b)        GET_GLOBAL_FIELD(b, GPAR, TLBLKF)
 #define GET_GPAR_UCBF(b)          GET_GLOBAL_FIELD(b, GPAR, UCBF)
 
+/* Identification Register: IDR0 */
 #define SET_IDR0_NUMSMRG(b, v)    SET_GLOBAL_FIELD(b, IDR0, NUMSMRG, v)
 #define SET_IDR0_NUMSIDB(b, v)    SET_GLOBAL_FIELD(b, IDR0, NUMSIDB, v)
 #define SET_IDR0_BTM(b, v)        SET_GLOBAL_FIELD(b, IDR0, BTM, v)
@@ -412,6 +445,7 @@ do { \
 #define GET_IDR0_S1TS(b)          GET_GLOBAL_FIELD(b, IDR0, S1TS)
 #define GET_IDR0_SES(b)           GET_GLOBAL_FIELD(b, IDR0, SES)
 
+/* Identification Register: IDR1 */
 #define SET_IDR1_NUMCB(b, v)       SET_GLOBAL_FIELD(b, IDR1, NUMCB, v)
 #define SET_IDR1_NUMSSDNDXB(b, v)  SET_GLOBAL_FIELD(b, IDR1, NUMSSDNDXB, v)
 #define SET_IDR1_SSDTP(b, v)       SET_GLOBAL_FIELD(b, IDR1, SSDTP, v)
@@ -428,18 +462,21 @@ do { \
 #define GET_IDR1_NUMPAGENDXB(b)    GET_GLOBAL_FIELD(b, IDR1, NUMPAGENDXB)
 #define GET_IDR1_PAGESIZE(b)       GET_GLOBAL_FIELD(b, IDR1, PAGESIZE)
 
+/* Identification Register: IDR2 */
 #define SET_IDR2_IAS(b, v)       SET_GLOBAL_FIELD(b, IDR2, IAS, v)
 #define SET_IDR2_OAS(b, v)       SET_GLOBAL_FIELD(b, IDR2, OAS, v)
 
 #define GET_IDR2_IAS(b)          GET_GLOBAL_FIELD(b, IDR2, IAS)
 #define GET_IDR2_OAS(b)          GET_GLOBAL_FIELD(b, IDR2, OAS)
 
+/* Identification Register: IDR7 */
 #define SET_IDR7_MINOR(b, v)     SET_GLOBAL_FIELD(b, IDR7, MINOR, v)
 #define SET_IDR7_MAJOR(b, v)     SET_GLOBAL_FIELD(b, IDR7, MAJOR, v)
 
 #define GET_IDR7_MINOR(b)        GET_GLOBAL_FIELD(b, IDR7, MINOR)
 #define GET_IDR7_MAJOR(b)        GET_GLOBAL_FIELD(b, IDR7, MAJOR)
 
+/* Stream to Context Register: S2CR_N */
 #define SET_S2CR_CBNDX(b, n, v)   SET_GLOBAL_FIELD_N(b, n, S2CR, CBNDX, v)
 #define SET_S2CR_SHCFG(b, n, v)   SET_GLOBAL_FIELD_N(b, n, S2CR, SHCFG, v)
 #define SET_S2CR_MTCFG(b, n, v)   SET_GLOBAL_FIELD_N(b, n, S2CR, MTCFG, v)
@@ -472,6 +509,7 @@ do { \
 #define GET_S2CR_BSU(b, n)        GET_GLOBAL_FIELD_N(b, n, S2CR, BSU)
 #define GET_S2CR_FB(b, n)         GET_GLOBAL_FIELD_N(b, n, S2CR, FB)
 
+/* Stream Match Register: SMR_N */
 #define SET_SMR_ID(b, n, v)       SET_GLOBAL_FIELD_N(b, n, SMR, ID, v)
 #define SET_SMR_MASK(b, n, v)     SET_GLOBAL_FIELD_N(b, n, SMR, MASK, v)
 #define SET_SMR_VALID(b, n, v)    SET_GLOBAL_FIELD_N(b, n, SMR, VALID, v)
@@ -480,20 +518,25 @@ do { \
 #define GET_SMR_MASK(b, n)        GET_GLOBAL_FIELD_N(b, n, SMR, MASK)
 #define GET_SMR_VALID(b, n)       GET_GLOBAL_FIELD_N(b, n, SMR, VALID)
 
+/* Global TLB Status: TLBGSTATUS */
 #define SET_TLBGSTATUS_GSACTIVE(b, v) \
 				SET_GLOBAL_FIELD(b, TLBGSTATUS, GSACTIVE, v)
 
 #define GET_TLBGSTATUS_GSACTIVE(b)    \
 				GET_GLOBAL_FIELD(b, TLBGSTATUS, GSACTIVE)
 
+/* Invalidate Hyp TLB by VA: TLBIVAH */
 #define SET_TLBIVAH_ADDR(b, v)  SET_GLOBAL_FIELD(b, TLBIVAH, ADDR, v)
 
 #define GET_TLBIVAH_ADDR(b)     GET_GLOBAL_FIELD(b, TLBIVAH, ADDR)
 
+/* Invalidate TLB by VMID: TLBIVMID */
 #define SET_TLBIVMID_VMID(b, v) SET_GLOBAL_FIELD(b, TLBIVMID, VMID, v)
 
 #define GET_TLBIVMID_VMID(b)    GET_GLOBAL_FIELD(b, TLBIVMID, VMID)
 
+/* Global Register Space 1 Field setters/getters*/
+/* Context Bank Attribute Register: CBAR_N */
 #define SET_CBAR_VMID(b, n, v)     SET_GLOBAL_FIELD_N(b, n, CBAR, VMID, v)
 #define SET_CBAR_CBNDX(b, n, v)    SET_GLOBAL_FIELD_N(b, n, CBAR, CBNDX, v)
 #define SET_CBAR_BPSHCFG(b, n, v)  SET_GLOBAL_FIELD_N(b, n, CBAR, BPSHCFG, v)
@@ -518,10 +561,12 @@ do { \
 #define GET_CBAR_WACFG(b, n)       GET_GLOBAL_FIELD_N(b, n, CBAR, WACFG)
 #define GET_CBAR_IRPTNDX(b, n)     GET_GLOBAL_FIELD_N(b, n, CBAR, IRPTNDX)
 
+/* Context Bank Fault Restricted Syndrome Register A: CBFRSYNRA_N */
 #define SET_CBFRSYNRA_SID(b, n, v) SET_GLOBAL_FIELD_N(b, n, CBFRSYNRA, SID, v)
 
 #define GET_CBFRSYNRA_SID(b, n)    GET_GLOBAL_FIELD_N(b, n, CBFRSYNRA, SID)
 
+/* Stage 1 Context Bank Format Fields */
 #define SET_CB_ACTLR_REQPRIORITY (b, c, v) \
 		SET_CONTEXT_FIELD(b, c, CB_ACTLR, REQPRIORITY, v)
 #define SET_CB_ACTLR_REQPRIORITYCFG(b, c, v) \
@@ -544,26 +589,32 @@ do { \
 #define GET_CB_ACTLR_BPRCISH(b, c)  GET_CONTEXT_FIELD(b, c, CB_ACTLR, BPRCISH)
 #define GET_CB_ACTLR_BPRCNSH(b, c)  GET_CONTEXT_FIELD(b, c, CB_ACTLR, BPRCNSH)
 
+/* Address Translation, Stage 1, Privileged Read: CB_ATS1PR */
 #define SET_CB_ATS1PR_ADDR(b, c, v) SET_CONTEXT_FIELD(b, c, CB_ATS1PR, ADDR, v)
 
 #define GET_CB_ATS1PR_ADDR(b, c)    GET_CONTEXT_FIELD(b, c, CB_ATS1PR, ADDR)
 
+/* Address Translation, Stage 1, Privileged Write: CB_ATS1PW */
 #define SET_CB_ATS1PW_ADDR(b, c, v) SET_CONTEXT_FIELD(b, c, CB_ATS1PW, ADDR, v)
 
 #define GET_CB_ATS1PW_ADDR(b, c)    GET_CONTEXT_FIELD(b, c, CB_ATS1PW, ADDR)
 
+/* Address Translation, Stage 1, User Read: CB_ATS1UR */
 #define SET_CB_ATS1UR_ADDR(b, c, v) SET_CONTEXT_FIELD(b, c, CB_ATS1UR, ADDR, v)
 
 #define GET_CB_ATS1UR_ADDR(b, c)    GET_CONTEXT_FIELD(b, c, CB_ATS1UR, ADDR)
 
+/* Address Translation, Stage 1, User Write: CB_ATS1UW */
 #define SET_CB_ATS1UW_ADDR(b, c, v) SET_CONTEXT_FIELD(b, c, CB_ATS1UW, ADDR, v)
 
 #define GET_CB_ATS1UW_ADDR(b, c)    GET_CONTEXT_FIELD(b, c, CB_ATS1UW, ADDR)
 
+/* Address Translation Status Register: CB_ATSR */
 #define SET_CB_ATSR_ACTIVE(b, c, v) SET_CONTEXT_FIELD(b, c, CB_ATSR, ACTIVE, v)
 
 #define GET_CB_ATSR_ACTIVE(b, c)    GET_CONTEXT_FIELD(b, c, CB_ATSR, ACTIVE)
 
+/* Context ID Register: CB_CONTEXTIDR */
 #define SET_CB_CONTEXTIDR_ASID(b, c, v) \
 			SET_CONTEXT_FIELD(b, c, CB_CONTEXTIDR, ASID, v)
 #define SET_CB_CONTEXTIDR_PROCID(b, c, v) \
@@ -574,10 +625,12 @@ do { \
 #define GET_CB_CONTEXTIDR_PROCID(b, c)    \
 			GET_CONTEXT_FIELD(b, c, CB_CONTEXTIDR, PROCID)
 
+/* Fault Address Register: CB_FAR */
 #define SET_CB_FAR_FADDR(b, c, v) SET_CONTEXT_FIELD(b, c, CB_FAR, FADDR, v)
 
 #define GET_CB_FAR_FADDR(b, c)    GET_CONTEXT_FIELD(b, c, CB_FAR, FADDR)
 
+/* Fault Status Register: CB_FSR */
 #define SET_CB_FSR_TF(b, c, v)     SET_CONTEXT_FIELD(b, c, CB_FSR, TF, v)
 #define SET_CB_FSR_AFF(b, c, v)    SET_CONTEXT_FIELD(b, c, CB_FSR, AFF, v)
 #define SET_CB_FSR_PF(b, c, v)     SET_CONTEXT_FIELD(b, c, CB_FSR, PF, v)
@@ -596,6 +649,7 @@ do { \
 #define GET_CB_FSR_SS(b, c)        GET_CONTEXT_FIELD(b, c, CB_FSR, SS)
 #define GET_CB_FSR_MULTI(b, c)     GET_CONTEXT_FIELD(b, c, CB_FSR, MULTI)
 
+/* Fault Syndrome Register 0: CB_FSYNR0 */
 #define SET_CB_FSYNR0_PLVL(b, c, v) SET_CONTEXT_FIELD(b, c, CB_FSYNR0, PLVL, v)
 #define SET_CB_FSYNR0_S1PTWF(b, c, v) \
 				SET_CONTEXT_FIELD(b, c, CB_FSYNR0, S1PTWF, v)
@@ -628,6 +682,7 @@ do { \
 #define GET_CB_FSYNR0_S1CBNDX(b, c)    \
 				GET_CONTEXT_FIELD(b, c, CB_FSYNR0, S1CBNDX)
 
+/* Normal Memory Remap Register: CB_NMRR */
 #define SET_CB_NMRR_IR0(b, c, v)    SET_CONTEXT_FIELD(b, c, CB_NMRR, IR0, v)
 #define SET_CB_NMRR_IR1(b, c, v)    SET_CONTEXT_FIELD(b, c, CB_NMRR, IR1, v)
 #define SET_CB_NMRR_IR2(b, c, v)    SET_CONTEXT_FIELD(b, c, CB_NMRR, IR2, v)
@@ -660,6 +715,7 @@ do { \
 #define GET_CB_NMRR_OR4(b, c)       GET_CONTEXT_FIELD(b, c, CB_NMRR, OR4)
 #define GET_CB_NMRR_OR5(b, c)       GET_CONTEXT_FIELD(b, c, CB_NMRR, OR5)
 
+/* Physical Address Register: CB_PAR */
 #define SET_CB_PAR_F(b, c, v)       SET_CONTEXT_FIELD(b, c, CB_PAR, F, v)
 #define SET_CB_PAR_SS(b, c, v)      SET_CONTEXT_FIELD(b, c, CB_PAR, SS, v)
 #define SET_CB_PAR_OUTER(b, c, v)   SET_CONTEXT_FIELD(b, c, CB_PAR, OUTER, v)
@@ -694,6 +750,7 @@ do { \
 #define GET_CB_PAR_PLVL(b, c)       GET_CONTEXT_FIELD(b, c, CB_PAR, PLVL)
 #define GET_CB_PAR_STAGE(b, c)      GET_CONTEXT_FIELD(b, c, CB_PAR, STAGE)
 
+/* Primary Region Remap Register: CB_PRRR */
 #define SET_CB_PRRR_TR0(b, c, v)    SET_CONTEXT_FIELD(b, c, CB_PRRR, TR0, v)
 #define SET_CB_PRRR_TR1(b, c, v)    SET_CONTEXT_FIELD(b, c, CB_PRRR, TR1, v)
 #define SET_CB_PRRR_TR2(b, c, v)    SET_CONTEXT_FIELD(b, c, CB_PRRR, TR2, v)
@@ -736,10 +793,12 @@ do { \
 #define GET_CB_PRRR_NOS6(b, c)      GET_CONTEXT_FIELD(b, c, CB_PRRR, NOS6)
 #define GET_CB_PRRR_NOS7(b, c)      GET_CONTEXT_FIELD(b, c, CB_PRRR, NOS7)
 
+/* Transaction Resume: CB_RESUME */
 #define SET_CB_RESUME_TNR(b, c, v)  SET_CONTEXT_FIELD(b, c, CB_RESUME, TNR, v)
 
 #define GET_CB_RESUME_TNR(b, c)     GET_CONTEXT_FIELD(b, c, CB_RESUME, TNR)
 
+/* System Control Register: CB_SCTLR */
 #define SET_CB_SCTLR_M(b, c, v)     SET_CONTEXT_FIELD(b, c, CB_SCTLR, M, v)
 #define SET_CB_SCTLR_TRE(b, c, v)   SET_CONTEXT_FIELD(b, c, CB_SCTLR, TRE, v)
 #define SET_CB_SCTLR_AFE(b, c, v)   SET_CONTEXT_FIELD(b, c, CB_SCTLR, AFE, v)
@@ -786,26 +845,31 @@ do { \
 #define GET_CB_SCTLR_WACFG(b, c)    GET_CONTEXT_FIELD(b, c, CB_SCTLR, WACFG)
 #define GET_CB_SCTLR_NSCFG(b, c)    GET_CONTEXT_FIELD(b, c, CB_SCTLR, NSCFG)
 
+/* Invalidate TLB by ASID: CB_TLBIASID */
 #define SET_CB_TLBIASID_ASID(b, c, v) \
 				SET_CONTEXT_FIELD(b, c, CB_TLBIASID, ASID, v)
 
 #define GET_CB_TLBIASID_ASID(b, c)    \
 				GET_CONTEXT_FIELD(b, c, CB_TLBIASID, ASID)
 
+/* Invalidate TLB by VA: CB_TLBIVA */
 #define SET_CB_TLBIVA_ASID(b, c, v) SET_CONTEXT_FIELD(b, c, CB_TLBIVA, ASID, v)
 #define SET_CB_TLBIVA_VA(b, c, v)   SET_CONTEXT_FIELD(b, c, CB_TLBIVA, VA, v)
 
 #define GET_CB_TLBIVA_ASID(b, c)    GET_CONTEXT_FIELD(b, c, CB_TLBIVA, ASID)
 #define GET_CB_TLBIVA_VA(b, c)      GET_CONTEXT_FIELD(b, c, CB_TLBIVA, VA)
 
+/* Invalidate TLB by VA, All ASID: CB_TLBIVAA */
 #define SET_CB_TLBIVAA_VA(b, c, v)  SET_CONTEXT_FIELD(b, c, CB_TLBIVAA, VA, v)
 
 #define GET_CB_TLBIVAA_VA(b, c)     GET_CONTEXT_FIELD(b, c, CB_TLBIVAA, VA)
 
+/* Invalidate TLB by VA, All ASID, Last Level: CB_TLBIVAAL */
 #define SET_CB_TLBIVAAL_VA(b, c, v) SET_CONTEXT_FIELD(b, c, CB_TLBIVAAL, VA, v)
 
 #define GET_CB_TLBIVAAL_VA(b, c)    GET_CONTEXT_FIELD(b, c, CB_TLBIVAAL, VA)
 
+/* Invalidate TLB by VA, Last Level: CB_TLBIVAL */
 #define SET_CB_TLBIVAL_ASID(b, c, v) \
 			SET_CONTEXT_FIELD(b, c, CB_TLBIVAL, ASID, v)
 #define SET_CB_TLBIVAL_VA(b, c, v)   SET_CONTEXT_FIELD(b, c, CB_TLBIVAL, VA, v)
@@ -814,12 +878,14 @@ do { \
 			GET_CONTEXT_FIELD(b, c, CB_TLBIVAL, ASID)
 #define GET_CB_TLBIVAL_VA(b, c)      GET_CONTEXT_FIELD(b, c, CB_TLBIVAL, VA)
 
+/* TLB Status: CB_TLBSTATUS */
 #define SET_CB_TLBSTATUS_SACTIVE(b, c, v) \
 			SET_CONTEXT_FIELD(b, c, CB_TLBSTATUS, SACTIVE, v)
 
 #define GET_CB_TLBSTATUS_SACTIVE(b, c)    \
 			GET_CONTEXT_FIELD(b, c, CB_TLBSTATUS, SACTIVE)
 
+/* Translation Table Base Control Register: CB_TTBCR */
 #define SET_CB_TTBCR_T0SZ(b, c, v)   SET_CONTEXT_FIELD(b, c, CB_TTBCR, T0SZ, v)
 #define SET_CB_TTBCR_PD0(b, c, v)    SET_CONTEXT_FIELD(b, c, CB_TTBCR, PD0, v)
 #define SET_CB_TTBCR_PD1(b, c, v)    SET_CONTEXT_FIELD(b, c, CB_TTBCR, PD1, v)
@@ -838,6 +904,7 @@ do { \
 			GET_CONTEXT_FIELD(b, c, CB_TTBCR, NSCFG1)
 #define GET_CB_TTBCR_EAE(b, c)       GET_CONTEXT_FIELD(b, c, CB_TTBCR, EAE)
 
+/* Translation Table Base Register 0: CB_TTBR */
 #define SET_CB_TTBR0_IRGN1(b, c, v) SET_CONTEXT_FIELD(b, c, CB_TTBR0, IRGN1, v)
 #define SET_CB_TTBR0_S(b, c, v)     SET_CONTEXT_FIELD(b, c, CB_TTBR0, S, v)
 #define SET_CB_TTBR0_RGN(b, c, v)   SET_CONTEXT_FIELD(b, c, CB_TTBR0, RGN, v)
@@ -852,6 +919,7 @@ do { \
 #define GET_CB_TTBR0_IRGN0(b, c)    GET_CONTEXT_FIELD(b, c, CB_TTBR0, IRGN0)
 #define GET_CB_TTBR0_ADDR(b, c)     GET_CONTEXT_FIELD(b, c, CB_TTBR0, ADDR)
 
+/* Translation Table Base Register 1: CB_TTBR1 */
 #define SET_CB_TTBR1_IRGN1(b, c, v) SET_CONTEXT_FIELD(b, c, CB_TTBR1, IRGN1, v)
 #define SET_CB_TTBR1_0S(b, c, v)    SET_CONTEXT_FIELD(b, c, CB_TTBR1, S, v)
 #define SET_CB_TTBR1_RGN(b, c, v)   SET_CONTEXT_FIELD(b, c, CB_TTBR1, RGN, v)
@@ -866,6 +934,7 @@ do { \
 #define GET_CB_TTBR1_IRGN0(b, c)    GET_CONTEXT_FIELD(b, c, CB_TTBR1, IRGN0)
 #define GET_CB_TTBR1_ADDR(b, c)     GET_CONTEXT_FIELD(b, c, CB_TTBR1, ADDR)
 
+/* Global Register Space 0 */
 #define CR0		(0x0000)
 #define SCR1		(0x0004)
 #define CR2		(0x0008)
@@ -904,14 +973,17 @@ do { \
 #define SMR		(0x0800)
 #define S2CR		(0x0C00)
 
+/* Global Register Space 1 */
 #define CBAR		(0x1000)
 #define CBFRSYNRA	(0x1400)
 
+/* Implementation defined Register Space */
 #define MICRO_MMU_CTRL	(0x2000)
 #define PREDICTIONDIS0	(0x204C)
 #define PREDICTIONDIS1	(0x2050)
 #define S1L1BFBLP0	(0x215C)
 
+/* Performance Monitoring Register Space */
 #define PMEVCNTR_N	(0x3000)
 #define PMEVTYPER_N	(0x3400)
 #define PMCGCR_N	(0x3800)
@@ -929,8 +1001,10 @@ do { \
 #define PMAUTHSTATUS	(0x3FB8)
 #define PMDEVTYPE	(0x3FCC)
 
+/* Secure Status Determination Address Space */
 #define SSDR_N		(0x4000)
 
+/* Stage 1 Context Bank Format */
 #define CB_SCTLR	(0x000)
 #define CB_ACTLR	(0x004)
 #define CB_RESUME	(0x008)
@@ -973,6 +1047,8 @@ do { \
 #define CB_PMOVSSET	(0xF58)
 #define CB_PMAUTHSTATUS	(0xFB8)
 
+/* Global Register Fields */
+/* Configuration Register: CR0 */
 #define CR0_NSCFG         (CR0_NSCFG_MASK         << CR0_NSCFG_SHIFT)
 #define CR0_WACFG         (CR0_WACFG_MASK         << CR0_WACFG_SHIFT)
 #define CR0_RACFG         (CR0_RACFG_MASK         << CR0_RACFG_SHIFT)
@@ -994,36 +1070,48 @@ do { \
 #define CR0_GFRE          (CR0_GFRE_MASK          << CR0_GFRE_SHIFT)
 #define CR0_CLIENTPD      (CR0_CLIENTPD_MASK      << CR0_CLIENTPD_SHIFT)
 
+/* Configuration Register: CR2 */
 #define CR2_BPVMID        (CR2_BPVMID_MASK << CR2_BPVMID_SHIFT)
 
+/* Global Address Translation, Stage 1, Privileged Read: GATS1PR */
 #define GATS1PR_ADDR  (GATS1PR_ADDR_MASK  << GATS1PR_ADDR_SHIFT)
 #define GATS1PR_NDX   (GATS1PR_NDX_MASK   << GATS1PR_NDX_SHIFT)
 
+/* Global Address Translation, Stage 1, Privileged Write: GATS1PW */
 #define GATS1PW_ADDR  (GATS1PW_ADDR_MASK  << GATS1PW_ADDR_SHIFT)
 #define GATS1PW_NDX   (GATS1PW_NDX_MASK   << GATS1PW_NDX_SHIFT)
 
+/* Global Address Translation, Stage 1, User Read: GATS1UR */
 #define GATS1UR_ADDR  (GATS1UR_ADDR_MASK  << GATS1UR_ADDR_SHIFT)
 #define GATS1UR_NDX   (GATS1UR_NDX_MASK   << GATS1UR_NDX_SHIFT)
 
+/* Global Address Translation, Stage 1, User Write: GATS1UW */
 #define GATS1UW_ADDR  (GATS1UW_ADDR_MASK  << GATS1UW_ADDR_SHIFT)
 #define GATS1UW_NDX   (GATS1UW_NDX_MASK   << GATS1UW_NDX_SHIFT)
 
+/* Global Address Translation, Stage 1 and 2, Privileged Read: GATS1PR */
 #define GATS12PR_ADDR (GATS12PR_ADDR_MASK << GATS12PR_ADDR_SHIFT)
 #define GATS12PR_NDX  (GATS12PR_NDX_MASK  << GATS12PR_NDX_SHIFT)
 
+/* Global Address Translation, Stage 1 and 2, Privileged Write: GATS1PW */
 #define GATS12PW_ADDR (GATS12PW_ADDR_MASK << GATS12PW_ADDR_SHIFT)
 #define GATS12PW_NDX  (GATS12PW_NDX_MASK  << GATS12PW_NDX_SHIFT)
 
+/* Global Address Translation, Stage 1 and 2, User Read: GATS1UR */
 #define GATS12UR_ADDR (GATS12UR_ADDR_MASK << GATS12UR_ADDR_SHIFT)
 #define GATS12UR_NDX  (GATS12UR_NDX_MASK  << GATS12UR_NDX_SHIFT)
 
+/* Global Address Translation, Stage 1 and 2, User Write: GATS1UW */
 #define GATS12UW_ADDR (GATS12UW_ADDR_MASK << GATS12UW_ADDR_SHIFT)
 #define GATS12UW_NDX  (GATS12UW_NDX_MASK  << GATS12UW_NDX_SHIFT)
 
+/* Global Address Translation Status Register: GATSR */
 #define GATSR_ACTIVE  (GATSR_ACTIVE_MASK  << GATSR_ACTIVE_SHIFT)
 
+/* Global Fault Address Register: GFAR */
 #define GFAR_FADDR    (GFAR_FADDR_MASK << GFAR_FADDR_SHIFT)
 
+/* Global Fault Status Register: GFSR */
 #define GFSR_ICF      (GFSR_ICF_MASK   << GFSR_ICF_SHIFT)
 #define GFSR_USF      (GFSR_USF_MASK   << GFSR_USF_SHIFT)
 #define GFSR_SMCF     (GFSR_SMCF_MASK  << GFSR_SMCF_SHIFT)
@@ -1034,6 +1122,7 @@ do { \
 #define GFSR_PF       (GFSR_PF_MASK    << GFSR_PF_SHIFT)
 #define GFSR_MULTI    (GFSR_MULTI_MASK << GFSR_MULTI_SHIFT)
 
+/* Global Fault Syndrome Register 0: GFSYNR0 */
 #define GFSYNR0_NESTED  (GFSYNR0_NESTED_MASK  << GFSYNR0_NESTED_SHIFT)
 #define GFSYNR0_WNR     (GFSYNR0_WNR_MASK     << GFSYNR0_WNR_SHIFT)
 #define GFSYNR0_PNU     (GFSYNR0_PNU_MASK     << GFSYNR0_PNU_SHIFT)
@@ -1041,8 +1130,10 @@ do { \
 #define GFSYNR0_NSSTATE (GFSYNR0_NSSTATE_MASK << GFSYNR0_NSSTATE_SHIFT)
 #define GFSYNR0_NSATTR  (GFSYNR0_NSATTR_MASK  << GFSYNR0_NSATTR_SHIFT)
 
+/* Global Fault Syndrome Register 1: GFSYNR1 */
 #define GFSYNR1_SID     (GFSYNR1_SID_MASK     << GFSYNR1_SID_SHIFT)
 
+/* Global Physical Address Register: GPAR */
 #define GPAR_F          (GPAR_F_MASK      << GPAR_F_SHIFT)
 #define GPAR_SS         (GPAR_SS_MASK     << GPAR_SS_SHIFT)
 #define GPAR_OUTER      (GPAR_OUTER_MASK  << GPAR_OUTER_SHIFT)
@@ -1059,6 +1150,7 @@ do { \
 #define GPAR_TLBLKF     (GPAR_TLBLKF_MASK << GPAR_TLBLKF_SHIFT)
 #define GPAR_UCBF       (GPAR_UCBF_MASK   << GFAR_UCBF_SHIFT)
 
+/* Identification Register: IDR0 */
 #define IDR0_NUMSMRG    (IDR0_NUMSMRG_MASK  << IDR0_NUMSMGR_SHIFT)
 #define IDR0_NUMSIDB    (IDR0_NUMSIDB_MASK  << IDR0_NUMSIDB_SHIFT)
 #define IDR0_BTM        (IDR0_BTM_MASK      << IDR0_BTM_SHIFT)
@@ -1071,6 +1163,7 @@ do { \
 #define IDR0_S1TS       (IDR0_S1TS_MASK     << IDR0_S1TS_SHIFT)
 #define IDR0_SES        (IDR0_SES_MASK      << IDR0_SES_SHIFT)
 
+/* Identification Register: IDR1 */
 #define IDR1_NUMCB       (IDR1_NUMCB_MASK       << IDR1_NUMCB_SHIFT)
 #define IDR1_NUMSSDNDXB  (IDR1_NUMSSDNDXB_MASK  << IDR1_NUMSSDNDXB_SHIFT)
 #define IDR1_SSDTP       (IDR1_SSDTP_MASK       << IDR1_SSDTP_SHIFT)
@@ -1079,12 +1172,15 @@ do { \
 #define IDR1_NUMPAGENDXB (IDR1_NUMPAGENDXB_MASK << IDR1_NUMPAGENDXB_SHIFT)
 #define IDR1_PAGESIZE    (IDR1_PAGESIZE_MASK    << IDR1_PAGESIZE_SHIFT)
 
+/* Identification Register: IDR2 */
 #define IDR2_IAS         (IDR2_IAS_MASK << IDR2_IAS_SHIFT)
 #define IDR1_OAS         (IDR2_OAS_MASK << IDR2_OAS_SHIFT)
 
+/* Identification Register: IDR7 */
 #define IDR7_MINOR       (IDR7_MINOR_MASK << IDR7_MINOR_SHIFT)
 #define IDR7_MAJOR       (IDR7_MAJOR_MASK << IDR7_MAJOR_SHIFT)
 
+/* Stream to Context Register: S2CR */
 #define S2CR_CBNDX        (S2CR_CBNDX_MASK         << S2cR_CBNDX_SHIFT)
 #define S2CR_SHCFG        (S2CR_SHCFG_MASK         << s2CR_SHCFG_SHIFT)
 #define S2CR_MTCFG        (S2CR_MTCFG_MASK         << S2CR_MTCFG_SHIFT)
@@ -1100,16 +1196,21 @@ do { \
 #define S2CR_BSU          (S2CR_BSU_MASK           << S2CR_BSU_SHIFT)
 #define S2CR_FB           (S2CR_FB_MASK            << S2CR_FB_SHIFT)
 
+/* Stream Match Register: SMR */
 #define SMR_ID            (SMR_ID_MASK    << SMR_ID_SHIFT)
 #define SMR_MASK          (SMR_MASK_MASK  << SMR_MASK_SHIFT)
 #define SMR_VALID         (SMR_VALID_MASK << SMR_VALID_SHIFT)
 
+/* Global TLB Status: TLBGSTATUS */
 #define TLBGSTATUS_GSACTIVE (TLBGSTATUS_GSACTIVE_MASK << \
 					TLBGSTATUS_GSACTIVE_SHIFT)
+/* Invalidate Hyp TLB by VA: TLBIVAH */
 #define TLBIVAH_ADDR  (TLBIVAH_ADDR_MASK << TLBIVAH_ADDR_SHIFT)
 
+/* Invalidate TLB by VMID: TLBIVMID */
 #define TLBIVMID_VMID (TLBIVMID_VMID_MASK << TLBIVMID_VMID_SHIFT)
 
+/* Context Bank Attribute Register: CBAR */
 #define CBAR_VMID       (CBAR_VMID_MASK    << CBAR_VMID_SHIFT)
 #define CBAR_CBNDX      (CBAR_CBNDX_MASK   << CBAR_CBNDX_SHIFT)
 #define CBAR_BPSHCFG    (CBAR_BPSHCFG_MASK << CBAR_BPSHCFG_SHIFT)
@@ -1122,9 +1223,13 @@ do { \
 #define CBAR_WACFG      (CBAR_WACFG_MASK   << CBAR_WACFG_SHIFT)
 #define CBAR_IRPTNDX    (CBAR_IRPTNDX_MASK << CBAR_IRPTNDX_SHIFT)
 
+/* Context Bank Fault Restricted Syndrome Register A: CBFRSYNRA */
 #define CBFRSYNRA_SID   (CBFRSYNRA_SID_MASK << CBFRSYNRA_SID_SHIFT)
 
+/* Performance Monitoring Register Fields */
 
+/* Stage 1 Context Bank Format Fields */
+/* Auxiliary Control Register: CB_ACTLR */
 #define CB_ACTLR_REQPRIORITY \
 		(CB_ACTLR_REQPRIORITY_MASK << CB_ACTLR_REQPRIORITY_SHIFT)
 #define CB_ACTLR_REQPRIORITYCFG \
@@ -1134,23 +1239,31 @@ do { \
 #define CB_ACTLR_BPRCISH (CB_ACTLR_BPRCISH_MASK << CB_ACTLR_BPRCISH_SHIFT)
 #define CB_ACTLR_BPRCNSH (CB_ACTLR_BPRCNSH_MASK << CB_ACTLR_BPRCNSH_SHIFT)
 
+/* Address Translation, Stage 1, Privileged Read: CB_ATS1PR */
 #define CB_ATS1PR_ADDR  (CB_ATS1PR_ADDR_MASK << CB_ATS1PR_ADDR_SHIFT)
 
+/* Address Translation, Stage 1, Privileged Write: CB_ATS1PW */
 #define CB_ATS1PW_ADDR  (CB_ATS1PW_ADDR_MASK << CB_ATS1PW_ADDR_SHIFT)
 
+/* Address Translation, Stage 1, User Read: CB_ATS1UR */
 #define CB_ATS1UR_ADDR  (CB_ATS1UR_ADDR_MASK << CB_ATS1UR_ADDR_SHIFT)
 
+/* Address Translation, Stage 1, User Write: CB_ATS1UW */
 #define CB_ATS1UW_ADDR  (CB_ATS1UW_ADDR_MASK << CB_ATS1UW_ADDR_SHIFT)
 
+/* Address Translation Status Register: CB_ATSR */
 #define CB_ATSR_ACTIVE  (CB_ATSR_ACTIVE_MASK << CB_ATSR_ACTIVE_SHIFT)
 
+/* Context ID Register: CB_CONTEXTIDR */
 #define CB_CONTEXTIDR_ASID    (CB_CONTEXTIDR_ASID_MASK << \
 				CB_CONTEXTIDR_ASID_SHIFT)
 #define CB_CONTEXTIDR_PROCID  (CB_CONTEXTIDR_PROCID_MASK << \
 				CB_CONTEXTIDR_PROCID_SHIFT)
 
+/* Fault Address Register: CB_FAR */
 #define CB_FAR_FADDR  (CB_FAR_FADDR_MASK << CB_FAR_FADDR_SHIFT)
 
+/* Fault Status Register: CB_FSR */
 #define CB_FSR_TF     (CB_FSR_TF_MASK     << CB_FSR_TF_SHIFT)
 #define CB_FSR_AFF    (CB_FSR_AFF_MASK    << CB_FSR_AFF_SHIFT)
 #define CB_FSR_PF     (CB_FSR_PF_MASK     << CB_FSR_PF_SHIFT)
@@ -1160,6 +1273,7 @@ do { \
 #define CB_FSR_SS     (CB_FSR_SS_MASK     << CB_FSR_SS_SHIFT)
 #define CB_FSR_MULTI  (CB_FSR_MULTI_MASK  << CB_FSR_MULTI_SHIFT)
 
+/* Fault Syndrome Register 0: CB_FSYNR0 */
 #define CB_FSYNR0_PLVL     (CB_FSYNR0_PLVL_MASK    << CB_FSYNR0_PLVL_SHIFT)
 #define CB_FSYNR0_S1PTWF   (CB_FSYNR0_S1PTWF_MASK  << CB_FSYNR0_S1PTWF_SHIFT)
 #define CB_FSYNR0_WNR      (CB_FSYNR0_WNR_MASK     << CB_FSYNR0_WNR_SHIFT)
@@ -1172,6 +1286,7 @@ do { \
 #define CB_FSYNR0_AFR      (CB_FSYNR0_AFR_MASK     << CB_FSYNR0_AFR_SHIFT)
 #define CB_FSYNR0_S1CBNDX  (CB_FSYNR0_S1CBNDX_MASK << CB_FSYNR0_S1CBNDX_SHIFT)
 
+/* Normal Memory Remap Register: CB_NMRR */
 #define CB_NMRR_IR0        (CB_NMRR_IR0_MASK   << CB_NMRR_IR0_SHIFT)
 #define CB_NMRR_IR1        (CB_NMRR_IR1_MASK   << CB_NMRR_IR1_SHIFT)
 #define CB_NMRR_IR2        (CB_NMRR_IR2_MASK   << CB_NMRR_IR2_SHIFT)
@@ -1189,6 +1304,7 @@ do { \
 #define CB_NMRR_OR6        (CB_NMRR_OR6_MASK   << CB_NMRR_OR6_SHIFT)
 #define CB_NMRR_OR7        (CB_NMRR_OR7_MASK   << CB_NMRR_OR7_SHIFT)
 
+/* Physical Address Register: CB_PAR */
 #define CB_PAR_F           (CB_PAR_F_MASK      << CB_PAR_F_SHIFT)
 #define CB_PAR_SS          (CB_PAR_SS_MASK     << CB_PAR_SS_SHIFT)
 #define CB_PAR_OUTER       (CB_PAR_OUTER_MASK  << CB_PAR_OUTER_SHIFT)
@@ -1207,6 +1323,7 @@ do { \
 #define CB_PAR_PLVL        (CB_PAR_PLVL_MASK   << CB_PAR_PLVL_SHIFT)
 #define CB_PAR_STAGE       (CB_PAR_STAGE_MASK  << CB_PAR_STAGE_SHIFT)
 
+/* Primary Region Remap Register: CB_PRRR */
 #define CB_PRRR_TR0        (CB_PRRR_TR0_MASK   << CB_PRRR_TR0_SHIFT)
 #define CB_PRRR_TR1        (CB_PRRR_TR1_MASK   << CB_PRRR_TR1_SHIFT)
 #define CB_PRRR_TR2        (CB_PRRR_TR2_MASK   << CB_PRRR_TR2_SHIFT)
@@ -1228,8 +1345,10 @@ do { \
 #define CB_PRRR_NOS6       (CB_PRRR_NOS6_MASK  << CB_PRRR_NOS6_SHIFT)
 #define CB_PRRR_NOS7       (CB_PRRR_NOS7_MASK  << CB_PRRR_NOS7_SHIFT)
 
+/* Transaction Resume: CB_RESUME */
 #define CB_RESUME_TNR      (CB_RESUME_TNR_MASK << CB_RESUME_TNR_SHIFT)
 
+/* System Control Register: CB_SCTLR */
 #define CB_SCTLR_M           (CB_SCTLR_M_MASK       << CB_SCTLR_M_SHIFT)
 #define CB_SCTLR_TRE         (CB_SCTLR_TRE_MASK     << CB_SCTLR_TRE_SHIFT)
 #define CB_SCTLR_AFE         (CB_SCTLR_AFE_MASK     << CB_SCTLR_AFE_SHIFT)
@@ -1251,21 +1370,28 @@ do { \
 #define CB_SCTLR_WACFG       (CB_SCTLR_WACFG_MASK   << CB_SCTLR_WACFG_SHIFT)
 #define CB_SCTLR_NSCFG       (CB_SCTLR_NSCFG_MASK   << CB_SCTLR_NSCFG_SHIFT)
 
+/* Invalidate TLB by ASID: CB_TLBIASID */
 #define CB_TLBIASID_ASID     (CB_TLBIASID_ASID_MASK << CB_TLBIASID_ASID_SHIFT)
 
+/* Invalidate TLB by VA: CB_TLBIVA */
 #define CB_TLBIVA_ASID       (CB_TLBIVA_ASID_MASK   << CB_TLBIVA_ASID_SHIFT)
 #define CB_TLBIVA_VA         (CB_TLBIVA_VA_MASK     << CB_TLBIVA_VA_SHIFT)
 
+/* Invalidate TLB by VA, All ASID: CB_TLBIVAA */
 #define CB_TLBIVAA_VA        (CB_TLBIVAA_VA_MASK    << CB_TLBIVAA_VA_SHIFT)
 
+/* Invalidate TLB by VA, All ASID, Last Level: CB_TLBIVAAL */
 #define CB_TLBIVAAL_VA       (CB_TLBIVAAL_VA_MASK   << CB_TLBIVAAL_VA_SHIFT)
 
+/* Invalidate TLB by VA, Last Level: CB_TLBIVAL */
 #define CB_TLBIVAL_ASID      (CB_TLBIVAL_ASID_MASK  << CB_TLBIVAL_ASID_SHIFT)
 #define CB_TLBIVAL_VA        (CB_TLBIVAL_VA_MASK    << CB_TLBIVAL_VA_SHIFT)
 
+/* TLB Status: CB_TLBSTATUS */
 #define CB_TLBSTATUS_SACTIVE (CB_TLBSTATUS_SACTIVE_MASK << \
 						CB_TLBSTATUS_SACTIVE_SHIFT)
 
+/* Translation Table Base Control Register: CB_TTBCR */
 #define CB_TTBCR_T0SZ        (CB_TTBCR_T0SZ_MASK    << CB_TTBCR_T0SZ_SHIFT)
 #define CB_TTBCR_PD0         (CB_TTBCR_PD0_MASK     << CB_TTBCR_PD0_SHIFT)
 #define CB_TTBCR_PD1         (CB_TTBCR_PD1_MASK     << CB_TTBCR_PD1_SHIFT)
@@ -1273,6 +1399,7 @@ do { \
 #define CB_TTBCR_NSCFG1      (CB_TTBCR_NSCFG1_MASK  << CB_TTBCR_NSCFG1_SHIFT)
 #define CB_TTBCR_EAE         (CB_TTBCR_EAE_MASK     << CB_TTBCR_EAE_SHIFT)
 
+/* Translation Table Base Register 0: CB_TTBR0 */
 #define CB_TTBR0_IRGN1       (CB_TTBR0_IRGN1_MASK   << CB_TTBR0_IRGN1_SHIFT)
 #define CB_TTBR0_S           (CB_TTBR0_S_MASK       << CB_TTBR0_S_SHIFT)
 #define CB_TTBR0_RGN         (CB_TTBR0_RGN_MASK     << CB_TTBR0_RGN_SHIFT)
@@ -1280,6 +1407,7 @@ do { \
 #define CB_TTBR0_IRGN0       (CB_TTBR0_IRGN0_MASK   << CB_TTBR0_IRGN0_SHIFT)
 #define CB_TTBR0_ADDR        (CB_TTBR0_ADDR_MASK    << CB_TTBR0_ADDR_SHIFT)
 
+/* Translation Table Base Register 1: CB_TTBR1 */
 #define CB_TTBR1_IRGN1       (CB_TTBR1_IRGN1_MASK   << CB_TTBR1_IRGN1_SHIFT)
 #define CB_TTBR1_S           (CB_TTBR1_S_MASK       << CB_TTBR1_S_SHIFT)
 #define CB_TTBR1_RGN         (CB_TTBR1_RGN_MASK     << CB_TTBR1_RGN_SHIFT)
@@ -1287,6 +1415,8 @@ do { \
 #define CB_TTBR1_IRGN0       (CB_TTBR1_IRGN0_MASK   << CB_TTBR1_IRGN0_SHIFT)
 #define CB_TTBR1_ADDR        (CB_TTBR1_ADDR_MASK    << CB_TTBR1_ADDR_SHIFT)
 
+/* Global Register Masks */
+/* Configuration Register 0 */
 #define CR0_NSCFG_MASK          0x03
 #define CR0_WACFG_MASK          0x03
 #define CR0_RACFG_MASK          0x03
@@ -1316,36 +1446,48 @@ do { \
 #define CR0_CLIENTPD_MASK       0x01
 #define NSCR0_CLIENTPD_MASK     0x01
 
+/* Configuration Register 2 */
 #define CR2_BPVMID_MASK         0xFF
 
+/* Global Address Translation, Stage 1, Privileged Read: GATS1PR */
 #define GATS1PR_ADDR_MASK       0xFFFFF
 #define GATS1PR_NDX_MASK        0xFF
 
+/* Global Address Translation, Stage 1, Privileged Write: GATS1PW */
 #define GATS1PW_ADDR_MASK       0xFFFFF
 #define GATS1PW_NDX_MASK        0xFF
 
+/* Global Address Translation, Stage 1, User Read: GATS1UR */
 #define GATS1UR_ADDR_MASK       0xFFFFF
 #define GATS1UR_NDX_MASK        0xFF
 
+/* Global Address Translation, Stage 1, User Write: GATS1UW */
 #define GATS1UW_ADDR_MASK       0xFFFFF
 #define GATS1UW_NDX_MASK        0xFF
 
+/* Global Address Translation, Stage 1 and 2, Privileged Read: GATS1PR */
 #define GATS12PR_ADDR_MASK      0xFFFFF
 #define GATS12PR_NDX_MASK       0xFF
 
+/* Global Address Translation, Stage 1 and 2, Privileged Write: GATS1PW */
 #define GATS12PW_ADDR_MASK      0xFFFFF
 #define GATS12PW_NDX_MASK       0xFF
 
+/* Global Address Translation, Stage 1 and 2, User Read: GATS1UR */
 #define GATS12UR_ADDR_MASK      0xFFFFF
 #define GATS12UR_NDX_MASK       0xFF
 
+/* Global Address Translation, Stage 1 and 2, User Write: GATS1UW */
 #define GATS12UW_ADDR_MASK      0xFFFFF
 #define GATS12UW_NDX_MASK       0xFF
 
+/* Global Address Translation Status Register: GATSR */
 #define GATSR_ACTIVE_MASK       0x01
 
+/* Global Fault Address Register: GFAR */
 #define GFAR_FADDR_MASK         0xFFFFFFFF
 
+/* Global Fault Status Register: GFSR */
 #define GFSR_ICF_MASK           0x01
 #define GFSR_USF_MASK           0x01
 #define GFSR_SMCF_MASK          0x01
@@ -1356,6 +1498,7 @@ do { \
 #define GFSR_PF_MASK            0x01
 #define GFSR_MULTI_MASK         0x01
 
+/* Global Fault Syndrome Register 0: GFSYNR0 */
 #define GFSYNR0_NESTED_MASK     0x01
 #define GFSYNR0_WNR_MASK        0x01
 #define GFSYNR0_PNU_MASK        0x01
@@ -1363,9 +1506,11 @@ do { \
 #define GFSYNR0_NSSTATE_MASK    0x01
 #define GFSYNR0_NSATTR_MASK     0x01
 
+/* Global Fault Syndrome Register 1: GFSYNR1 */
 #define GFSYNR1_SID_MASK        0x7FFF
 #define GFSYNr1_SSD_IDX_MASK    0x7FFF
 
+/* Global Physical Address Register: GPAR */
 #define GPAR_F_MASK             0x01
 #define GPAR_SS_MASK            0x01
 #define GPAR_OUTER_MASK         0x03
@@ -1382,6 +1527,7 @@ do { \
 #define GPAR_TLBLKF_MASK        0x01
 #define GPAR_UCBF_MASK          0x01
 
+/* Identification Register: IDR0 */
 #define IDR0_NUMSMRG_MASK       0xFF
 #define IDR0_NUMSIDB_MASK       0x0F
 #define IDR0_BTM_MASK           0x01
@@ -1394,6 +1540,7 @@ do { \
 #define IDR0_S1TS_MASK          0x01
 #define IDR0_SES_MASK           0x01
 
+/* Identification Register: IDR1 */
 #define IDR1_NUMCB_MASK         0xFF
 #define IDR1_NUMSSDNDXB_MASK    0x0F
 #define IDR1_SSDTP_MASK         0x01
@@ -1402,12 +1549,15 @@ do { \
 #define IDR1_NUMPAGENDXB_MASK   0x07
 #define IDR1_PAGESIZE_MASK      0x01
 
+/* Identification Register: IDR2 */
 #define IDR2_IAS_MASK           0x0F
 #define IDR2_OAS_MASK           0x0F
 
+/* Identification Register: IDR7 */
 #define IDR7_MINOR_MASK         0x0F
 #define IDR7_MAJOR_MASK         0x0F
 
+/* Stream to Context Register: S2CR */
 #define S2CR_CBNDX_MASK         0xFF
 #define S2CR_SHCFG_MASK         0x03
 #define S2CR_MTCFG_MASK         0x01
@@ -1423,16 +1573,22 @@ do { \
 #define S2CR_BSU_MASK           0x03
 #define S2CR_FB_MASK            0x01
 
+/* Stream Match Register: SMR */
 #define SMR_ID_MASK             0x7FFF
 #define SMR_MASK_MASK           0x7FFF
 #define SMR_VALID_MASK          0x01
 
+/* Global TLB Status: TLBGSTATUS */
 #define TLBGSTATUS_GSACTIVE_MASK 0x01
 
+/* Invalidate Hyp TLB by VA: TLBIVAH */
 #define TLBIVAH_ADDR_MASK       0xFFFFF
 
+/* Invalidate TLB by VMID: TLBIVMID */
 #define TLBIVMID_VMID_MASK      0xFF
 
+/* Global Register Space 1 Mask */
+/* Context Bank Attribute Register: CBAR */
 #define CBAR_VMID_MASK          0xFF
 #define CBAR_CBNDX_MASK         0x03
 #define CBAR_BPSHCFG_MASK       0x03
@@ -1445,11 +1601,15 @@ do { \
 #define CBAR_WACFG_MASK         0x03
 #define CBAR_IRPTNDX_MASK       0xFF
 
+/* Context Bank Fault Restricted Syndrome Register A: CBFRSYNRA */
 #define CBFRSYNRA_SID_MASK      0x7FFF
 
+/* Implementation defined register space masks */
 #define MICRO_MMU_CTRL_HALT_REQ_MASK          0x01
 #define MICRO_MMU_CTRL_IDLE_MASK              0x01
 
+/* Stage 1 Context Bank Format Masks */
+/* Auxiliary Control Register: CB_ACTLR */
 #define CB_ACTLR_REQPRIORITY_MASK    0x3
 #define CB_ACTLR_REQPRIORITYCFG_MASK 0x1
 #define CB_ACTLR_PRIVCFG_MASK        0x3
@@ -1457,21 +1617,29 @@ do { \
 #define CB_ACTLR_BPRCISH_MASK        0x1
 #define CB_ACTLR_BPRCNSH_MASK        0x1
 
+/* Address Translation, Stage 1, Privileged Read: CB_ATS1PR */
 #define CB_ATS1PR_ADDR_MASK     0xFFFFF
 
+/* Address Translation, Stage 1, Privileged Write: CB_ATS1PW */
 #define CB_ATS1PW_ADDR_MASK     0xFFFFF
 
+/* Address Translation, Stage 1, User Read: CB_ATS1UR */
 #define CB_ATS1UR_ADDR_MASK     0xFFFFF
 
+/* Address Translation, Stage 1, User Write: CB_ATS1UW */
 #define CB_ATS1UW_ADDR_MASK     0xFFFFF
 
+/* Address Translation Status Register: CB_ATSR */
 #define CB_ATSR_ACTIVE_MASK     0x01
 
+/* Context ID Register: CB_CONTEXTIDR */
 #define CB_CONTEXTIDR_ASID_MASK   0xFF
 #define CB_CONTEXTIDR_PROCID_MASK 0xFFFFFF
 
+/* Fault Address Register: CB_FAR */
 #define CB_FAR_FADDR_MASK       0xFFFFFFFF
 
+/* Fault Status Register: CB_FSR */
 #define CB_FSR_TF_MASK          0x01
 #define CB_FSR_AFF_MASK         0x01
 #define CB_FSR_PF_MASK          0x01
@@ -1481,6 +1649,7 @@ do { \
 #define CB_FSR_SS_MASK          0x01
 #define CB_FSR_MULTI_MASK       0x01
 
+/* Fault Syndrome Register 0: CB_FSYNR0 */
 #define CB_FSYNR0_PLVL_MASK     0x03
 #define CB_FSYNR0_S1PTWF_MASK   0x01
 #define CB_FSYNR0_WNR_MASK      0x01
@@ -1493,6 +1662,7 @@ do { \
 #define CB_FSYNR0_AFR_MASK      0x01
 #define CB_FSYNR0_S1CBNDX_MASK  0xFF
 
+/* Normal Memory Remap Register: CB_NMRR */
 #define CB_NMRR_IR0_MASK        0x03
 #define CB_NMRR_IR1_MASK        0x03
 #define CB_NMRR_IR2_MASK        0x03
@@ -1510,6 +1680,7 @@ do { \
 #define CB_NMRR_OR6_MASK        0x03
 #define CB_NMRR_OR7_MASK        0x03
 
+/* Physical Address Register: CB_PAR */
 #define CB_PAR_F_MASK           0x01
 #define CB_PAR_SS_MASK          0x01
 #define CB_PAR_OUTER_MASK       0x03
@@ -1528,6 +1699,7 @@ do { \
 #define CB_PAR_PLVL_MASK        0x03ULL
 #define CB_PAR_STAGE_MASK       0x01ULL
 
+/* Primary Region Remap Register: CB_PRRR */
 #define CB_PRRR_TR0_MASK        0x03
 #define CB_PRRR_TR1_MASK        0x03
 #define CB_PRRR_TR2_MASK        0x03
@@ -1549,8 +1721,10 @@ do { \
 #define CB_PRRR_NOS6_MASK       0x01
 #define CB_PRRR_NOS7_MASK       0x01
 
+/* Transaction Resume: CB_RESUME */
 #define CB_RESUME_TNR_MASK      0x01
 
+/* System Control Register: CB_SCTLR */
 #define CB_SCTLR_M_MASK            0x01
 #define CB_SCTLR_TRE_MASK          0x01
 #define CB_SCTLR_AFE_MASK          0x01
@@ -1571,20 +1745,27 @@ do { \
 #define CB_SCTLR_WACFG_MASK        0x03
 #define CB_SCTLR_NSCFG_MASK        0x03
 
+/* Invalidate TLB by ASID: CB_TLBIASID */
 #define CB_TLBIASID_ASID_MASK      0xFF
 
+/* Invalidate TLB by VA: CB_TLBIVA */
 #define CB_TLBIVA_ASID_MASK        0xFF
 #define CB_TLBIVA_VA_MASK          0xFFFFF
 
+/* Invalidate TLB by VA, All ASID: CB_TLBIVAA */
 #define CB_TLBIVAA_VA_MASK         0xFFFFF
 
+/* Invalidate TLB by VA, All ASID, Last Level: CB_TLBIVAAL */
 #define CB_TLBIVAAL_VA_MASK        0xFFFFF
 
+/* Invalidate TLB by VA, Last Level: CB_TLBIVAL */
 #define CB_TLBIVAL_ASID_MASK       0xFF
 #define CB_TLBIVAL_VA_MASK         0xFFFFF
 
+/* TLB Status: CB_TLBSTATUS */
 #define CB_TLBSTATUS_SACTIVE_MASK  0x01
 
+/* Translation Table Base Control Register: CB_TTBCR */
 #define CB_TTBCR_T0SZ_MASK         0x07
 #define CB_TTBCR_PD0_MASK          0x01
 #define CB_TTBCR_PD1_MASK          0x01
@@ -1592,6 +1773,7 @@ do { \
 #define CB_TTBCR_NSCFG1_MASK       0x01
 #define CB_TTBCR_EAE_MASK          0x01
 
+/* Translation Table Base Register 0/1: CB_TTBR */
 #define CB_TTBR0_IRGN1_MASK        0x01
 #define CB_TTBR0_S_MASK            0x01
 #define CB_TTBR0_RGN_MASK          0x01
@@ -1606,6 +1788,8 @@ do { \
 #define CB_TTBR1_IRGN0_MASK        0X1
 #define CB_TTBR1_ADDR_MASK         0xFFFFFF
 
+/* Global Register Shifts */
+/* Configuration Register: CR0 */
 #define CR0_NSCFG_SHIFT            28
 #define CR0_WACFG_SHIFT            26
 #define CR0_RACFG_SHIFT            24
@@ -1635,36 +1819,48 @@ do { \
 #define CR0_CLIENTPD_SHIFT         0
 #define NSCR0_CLIENTPD_SHIFT       0
 
+/* Configuration Register: CR2 */
 #define CR2_BPVMID_SHIFT           0
 
+/* Global Address Translation, Stage 1, Privileged Read: GATS1PR */
 #define GATS1PR_ADDR_SHIFT         12
 #define GATS1PR_NDX_SHIFT          0
 
+/* Global Address Translation, Stage 1, Privileged Write: GATS1PW */
 #define GATS1PW_ADDR_SHIFT         12
 #define GATS1PW_NDX_SHIFT          0
 
+/* Global Address Translation, Stage 1, User Read: GATS1UR */
 #define GATS1UR_ADDR_SHIFT         12
 #define GATS1UR_NDX_SHIFT          0
 
+/* Global Address Translation, Stage 1, User Write: GATS1UW */
 #define GATS1UW_ADDR_SHIFT         12
 #define GATS1UW_NDX_SHIFT          0
 
+/* Global Address Translation, Stage 1 and 2, Privileged Read: GATS12PR */
 #define GATS12PR_ADDR_SHIFT        12
 #define GATS12PR_NDX_SHIFT         0
 
+/* Global Address Translation, Stage 1 and 2, Privileged Write: GATS12PW */
 #define GATS12PW_ADDR_SHIFT        12
 #define GATS12PW_NDX_SHIFT         0
 
+/* Global Address Translation, Stage 1 and 2, User Read: GATS12UR */
 #define GATS12UR_ADDR_SHIFT        12
 #define GATS12UR_NDX_SHIFT         0
 
+/* Global Address Translation, Stage 1 and 2, User Write: GATS12UW */
 #define GATS12UW_ADDR_SHIFT        12
 #define GATS12UW_NDX_SHIFT         0
 
+/* Global Address Translation Status Register: GATSR */
 #define GATSR_ACTIVE_SHIFT         0
 
+/* Global Fault Address Register: GFAR */
 #define GFAR_FADDR_SHIFT           0
 
+/* Global Fault Status Register: GFSR */
 #define GFSR_ICF_SHIFT             0
 #define GFSR_USF_SHIFT             1
 #define GFSR_SMCF_SHIFT            2
@@ -1675,6 +1871,7 @@ do { \
 #define GFSR_PF_SHIFT              7
 #define GFSR_MULTI_SHIFT           31
 
+/* Global Fault Syndrome Register 0: GFSYNR0 */
 #define GFSYNR0_NESTED_SHIFT       0
 #define GFSYNR0_WNR_SHIFT          1
 #define GFSYNR0_PNU_SHIFT          2
@@ -1682,8 +1879,10 @@ do { \
 #define GFSYNR0_NSSTATE_SHIFT      4
 #define GFSYNR0_NSATTR_SHIFT       5
 
+/* Global Fault Syndrome Register 1: GFSYNR1 */
 #define GFSYNR1_SID_SHIFT          0
 
+/* Global Physical Address Register: GPAR */
 #define GPAR_F_SHIFT               0
 #define GPAR_SS_SHIFT              1
 #define GPAR_OUTER_SHIFT           2
@@ -1700,6 +1899,7 @@ do { \
 #define GPAR_TLBLKF_SHIFT          6
 #define GFAR_UCBF_SHIFT            30
 
+/* Identification Register: IDR0 */
 #define IDR0_NUMSMRG_SHIFT         0
 #define IDR0_NUMSIDB_SHIFT         9
 #define IDR0_BTM_SHIFT             13
@@ -1712,6 +1912,7 @@ do { \
 #define IDR0_S1TS_SHIFT            30
 #define IDR0_SES_SHIFT             31
 
+/* Identification Register: IDR1 */
 #define IDR1_NUMCB_SHIFT           0
 #define IDR1_NUMSSDNDXB_SHIFT      8
 #define IDR1_SSDTP_SHIFT           12
@@ -1720,12 +1921,15 @@ do { \
 #define IDR1_NUMPAGENDXB_SHIFT     28
 #define IDR1_PAGESIZE_SHIFT        31
 
+/* Identification Register: IDR2 */
 #define IDR2_IAS_SHIFT             0
 #define IDR2_OAS_SHIFT             4
 
+/* Identification Register: IDR7 */
 #define IDR7_MINOR_SHIFT           0
 #define IDR7_MAJOR_SHIFT           4
 
+/* Stream to Context Register: S2CR */
 #define S2CR_CBNDX_SHIFT           0
 #define s2CR_SHCFG_SHIFT           8
 #define S2CR_MTCFG_SHIFT           11
@@ -1741,16 +1945,21 @@ do { \
 #define S2CR_BSU_SHIFT             24
 #define S2CR_FB_SHIFT              26
 
+/* Stream Match Register: SMR */
 #define SMR_ID_SHIFT               0
 #define SMR_MASK_SHIFT             16
 #define SMR_VALID_SHIFT            31
 
+/* Global TLB Status: TLBGSTATUS */
 #define TLBGSTATUS_GSACTIVE_SHIFT  0
 
+/* Invalidate Hyp TLB by VA: TLBIVAH */
 #define TLBIVAH_ADDR_SHIFT         12
 
+/* Invalidate TLB by VMID: TLBIVMID */
 #define TLBIVMID_VMID_SHIFT        0
 
+/* Context Bank Attribute Register: CBAR */
 #define CBAR_VMID_SHIFT            0
 #define CBAR_CBNDX_SHIFT           8
 #define CBAR_BPSHCFG_SHIFT         8
@@ -1763,11 +1972,15 @@ do { \
 #define CBAR_WACFG_SHIFT           22
 #define CBAR_IRPTNDX_SHIFT         24
 
+/* Context Bank Fault Restricted Syndrome Register A: CBFRSYNRA */
 #define CBFRSYNRA_SID_SHIFT        0
 
+/* Implementation defined register space shift */
 #define MICRO_MMU_CTRL_HALT_REQ_SHIFT         0x02
 #define MICRO_MMU_CTRL_IDLE_SHIFT             0x03
 
+/* Stage 1 Context Bank Format Shifts */
+/* Auxiliary Control Register: CB_ACTLR */
 #define CB_ACTLR_REQPRIORITY_SHIFT     0
 #define CB_ACTLR_REQPRIORITYCFG_SHIFT  4
 #define CB_ACTLR_PRIVCFG_SHIFT         8
@@ -1775,21 +1988,29 @@ do { \
 #define CB_ACTLR_BPRCISH_SHIFT         29
 #define CB_ACTLR_BPRCNSH_SHIFT         30
 
+/* Address Translation, Stage 1, Privileged Read: CB_ATS1PR */
 #define CB_ATS1PR_ADDR_SHIFT       12
 
+/* Address Translation, Stage 1, Privileged Write: CB_ATS1PW */
 #define CB_ATS1PW_ADDR_SHIFT       12
 
+/* Address Translation, Stage 1, User Read: CB_ATS1UR */
 #define CB_ATS1UR_ADDR_SHIFT       12
 
+/* Address Translation, Stage 1, User Write: CB_ATS1UW */
 #define CB_ATS1UW_ADDR_SHIFT       12
 
+/* Address Translation Status Register: CB_ATSR */
 #define CB_ATSR_ACTIVE_SHIFT       0
 
+/* Context ID Register: CB_CONTEXTIDR */
 #define CB_CONTEXTIDR_ASID_SHIFT   0
 #define CB_CONTEXTIDR_PROCID_SHIFT 8
 
+/* Fault Address Register: CB_FAR */
 #define CB_FAR_FADDR_SHIFT         0
 
+/* Fault Status Register: CB_FSR */
 #define CB_FSR_TF_SHIFT            1
 #define CB_FSR_AFF_SHIFT           2
 #define CB_FSR_PF_SHIFT            3
@@ -1799,6 +2020,7 @@ do { \
 #define CB_FSR_SS_SHIFT            30
 #define CB_FSR_MULTI_SHIFT         31
 
+/* Fault Syndrome Register 0: CB_FSYNR0 */
 #define CB_FSYNR0_PLVL_SHIFT       0
 #define CB_FSYNR0_S1PTWF_SHIFT     3
 #define CB_FSYNR0_WNR_SHIFT        4
@@ -1811,6 +2033,7 @@ do { \
 #define CB_FSYNR0_AFR_SHIFT        11
 #define CB_FSYNR0_S1CBNDX_SHIFT    16
 
+/* Normal Memory Remap Register: CB_NMRR */
 #define CB_NMRR_IR0_SHIFT          0
 #define CB_NMRR_IR1_SHIFT          2
 #define CB_NMRR_IR2_SHIFT          4
@@ -1828,6 +2051,7 @@ do { \
 #define CB_NMRR_OR6_SHIFT          28
 #define CB_NMRR_OR7_SHIFT          30
 
+/* Physical Address Register: CB_PAR */
 #define CB_PAR_F_SHIFT             0
 #define CB_PAR_SS_SHIFT            1
 #define CB_PAR_OUTER_SHIFT         2
@@ -1846,6 +2070,7 @@ do { \
 #define CB_PAR_PLVL_SHIFT          32
 #define CB_PAR_STAGE_SHIFT         35
 
+/* Primary Region Remap Register: CB_PRRR */
 #define CB_PRRR_TR0_SHIFT          0
 #define CB_PRRR_TR1_SHIFT          2
 #define CB_PRRR_TR2_SHIFT          4
@@ -1867,8 +2092,10 @@ do { \
 #define CB_PRRR_NOS6_SHIFT         30
 #define CB_PRRR_NOS7_SHIFT         31
 
+/* Transaction Resume: CB_RESUME */
 #define CB_RESUME_TNR_SHIFT        0
 
+/* System Control Register: CB_SCTLR */
 #define CB_SCTLR_M_SHIFT            0
 #define CB_SCTLR_TRE_SHIFT          1
 #define CB_SCTLR_AFE_SHIFT          2
@@ -1889,20 +2116,27 @@ do { \
 #define CB_SCTLR_WACFG_SHIFT        26
 #define CB_SCTLR_NSCFG_SHIFT        28
 
+/* Invalidate TLB by ASID: CB_TLBIASID */
 #define CB_TLBIASID_ASID_SHIFT      0
 
+/* Invalidate TLB by VA: CB_TLBIVA */
 #define CB_TLBIVA_ASID_SHIFT        0
 #define CB_TLBIVA_VA_SHIFT          12
 
+/* Invalidate TLB by VA, All ASID: CB_TLBIVAA */
 #define CB_TLBIVAA_VA_SHIFT         12
 
+/* Invalidate TLB by VA, All ASID, Last Level: CB_TLBIVAAL */
 #define CB_TLBIVAAL_VA_SHIFT        12
 
+/* Invalidate TLB by VA, Last Level: CB_TLBIVAL */
 #define CB_TLBIVAL_ASID_SHIFT       0
 #define CB_TLBIVAL_VA_SHIFT         12
 
+/* TLB Status: CB_TLBSTATUS */
 #define CB_TLBSTATUS_SACTIVE_SHIFT  0
 
+/* Translation Table Base Control Register: CB_TTBCR */
 #define CB_TTBCR_T0SZ_SHIFT         0
 #define CB_TTBCR_PD0_SHIFT          4
 #define CB_TTBCR_PD1_SHIFT          5
@@ -1910,6 +2144,7 @@ do { \
 #define CB_TTBCR_NSCFG1_SHIFT       30
 #define CB_TTBCR_EAE_SHIFT          31
 
+/* Translation Table Base Register 0/1: CB_TTBR */
 #define CB_TTBR0_IRGN1_SHIFT        0
 #define CB_TTBR0_S_SHIFT            1
 #define CB_TTBR0_RGN_SHIFT          3

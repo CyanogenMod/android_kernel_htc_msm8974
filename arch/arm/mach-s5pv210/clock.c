@@ -1077,6 +1077,7 @@ static struct clk *clk_cdev[] = {
 	&clk_hsmmc3,
 };
 
+/* Clock initialisation code */
 static struct clksrc_clk *sysclks[] = {
 	&clk_mout_apll,
 	&clk_mout_epll,
@@ -1129,7 +1130,7 @@ static int s5pv210_epll_set_rate(struct clk *clk, unsigned long rate)
 	unsigned int epll_con, epll_con_k;
 	unsigned int i;
 
-	
+	/* Return if nothing changed */
 	if (clk->rate == rate)
 		return 0;
 
@@ -1190,7 +1191,7 @@ static int s5pv210_vpll_set_rate(struct clk *clk, unsigned long rate)
 	unsigned int vpll_con;
 	unsigned int i;
 
-	
+	/* Return if nothing changed */
 	if (clk->rate == rate)
 		return 0;
 
@@ -1218,7 +1219,7 @@ static int s5pv210_vpll_set_rate(struct clk *clk, unsigned long rate)
 
 	__raw_writel(vpll_con, S5P_VPLL_CON);
 
-	
+	/* Wait for VPLL lock */
 	while (!(__raw_readl(S5P_VPLL_CON) & (1 << PLL90XX_LOCKED_SHIFT)))
 		continue;
 
@@ -1248,7 +1249,7 @@ void __init_or_cpufreq s5pv210_setup_clocks(void)
 	unsigned int ptr;
 	u32 clkdiv0, clkdiv1;
 
-	
+	/* Set functions for clk_fout_epll */
 	clk_fout_epll.enable = s5p_epll_enable;
 	clk_fout_epll.ops = &s5pv210_epll_ops;
 

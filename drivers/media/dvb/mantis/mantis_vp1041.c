@@ -44,7 +44,7 @@
 
 static const struct stb0899_s1_reg vp1041_stb0899_s1_init_1[] = {
 
-	
+	/* 0x0000000b, *//* SYSREG */
 	{ STB0899_DEV_ID		, 0x30 },
 	{ STB0899_DISCNTRL1		, 0x32 },
 	{ STB0899_DISCNTRL2     	, 0x80 },
@@ -54,7 +54,7 @@ static const struct stb0899_s1_reg vp1041_stb0899_s1_init_1[] = {
 	{ STB0899_DISSTATUS		, 0x20 },
 	{ STB0899_DISF22        	, 0x99 },
 	{ STB0899_DISF22RX      	, 0xa8 },
-	
+	/* SYSREG ? */
 	{ STB0899_ACRPRESC      	, 0x11 },
 	{ STB0899_ACRDIV1       	, 0x0a },
 	{ STB0899_ACRDIV2       	, 0x05 },
@@ -102,9 +102,9 @@ static const struct stb0899_s1_reg vp1041_stb0899_s1_init_1[] = {
 	{ STB0899_GPIO20CFG     	, 0x82 },
 	{ STB0899_SDATCFG       	, 0xb8 },
 	{ STB0899_SCLTCFG       	, 0xba },
-	{ STB0899_AGCRFCFG      	, 0x1c }, 
-	{ STB0899_GPIO22        	, 0x82 }, 
-	{ STB0899_GPIO21        	, 0x91 }, 
+	{ STB0899_AGCRFCFG      	, 0x1c }, /* 0x11 */
+	{ STB0899_GPIO22        	, 0x82 }, /* AGCBB2CFG */
+	{ STB0899_GPIO21        	, 0x91 }, /* AGCBB1CFG */
 	{ STB0899_DIRCLKCFG     	, 0x82 },
 	{ STB0899_CLKOUT27CFG   	, 0x7e },
 	{ STB0899_STDBYCFG      	, 0x82 },
@@ -119,8 +119,8 @@ static const struct stb0899_s1_reg vp1041_stb0899_s1_init_1[] = {
 	{ STB0899_GPIO37CFG		, 0x82 },
 	{ STB0899_GPIO38CFG		, 0x82 },
 	{ STB0899_GPIO39CFG		, 0x82 },
-	{ STB0899_NCOARSE       	, 0x17 }, 
-	{ STB0899_SYNTCTRL      	, 0x02 }, 
+	{ STB0899_NCOARSE       	, 0x17 }, /* 0x15 = 27 Mhz Clock, F/3 = 198MHz, F/6 = 99MHz */
+	{ STB0899_SYNTCTRL      	, 0x02 }, /* 0x00 = CLK from CLKI, 0x02 = CLK from XTALI */
 	{ STB0899_FILTCTRL      	, 0x00 },
 	{ STB0899_SYSCTRL       	, 0x01 },
 	{ STB0899_STOPCLK1      	, 0x20 },
@@ -202,14 +202,14 @@ static const struct stb0899_s1_reg vp1041_stb0899_s1_init_3[] = {
 	{ STB0899_VTH78         	, 0x24 },
 	{ STB0899_PRVIT         	, 0xff },
 	{ STB0899_VITSYNC       	, 0x19 },
-	{ STB0899_RSULC         	, 0xb1 }, 
+	{ STB0899_RSULC         	, 0xb1 }, /* DVB = 0xb1, DSS = 0xa1 */
 	{ STB0899_TSULC         	, 0x42 },
 	{ STB0899_RSLLC         	, 0x41 },
 	{ STB0899_TSLPL			, 0x12 },
 	{ STB0899_TSCFGH        	, 0x0c },
 	{ STB0899_TSCFGM        	, 0x00 },
 	{ STB0899_TSCFGL        	, 0x00 },
-	{ STB0899_TSOUT			, 0x69 }, 
+	{ STB0899_TSOUT			, 0x69 }, /* 0x0d for CAM */
 	{ STB0899_RSSYNCDEL     	, 0x00 },
 	{ STB0899_TSINHDELH     	, 0x02 },
 	{ STB0899_TSINHDELM		, 0x00 },
@@ -270,10 +270,10 @@ struct stb0899_config vp1041_stb0899_config = {
 	.init_s2_fec		= stb0899_s2_init_4,
 	.init_tst		= stb0899_s1_init_5,
 
-	.demod_address 		= 0x68, 
+	.demod_address 		= 0x68, /*  0xd0 >> 1 */
 
 	.xtal_freq		= 27000000,
-	.inversion		= IQ_SWAP_ON, 
+	.inversion		= IQ_SWAP_ON, /* 1 */
 
 	.lo_clk			= 76500000,
 	.hi_clk			= 99000000,

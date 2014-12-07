@@ -35,12 +35,17 @@ struct mtd_info_wrapper {
 	struct nand_chip chip;
 };
 
+/* Bitmask for control pins */
 #define PIN_BITMASK ((1 << CE_BIT) | (1 << CLE_BIT) | (1 << ALE_BIT))
 
+/* Bitmask for mtd nand control bits */
 #define CTRL_BITMASK (NAND_NCE | NAND_CLE | NAND_ALE)
 
 
 static struct mtd_info *crisv32_mtd;
+/*
+ *	hardware specific access to control-lines
+ */
 static void crisv32_hwcontrol(struct mtd_info *mtd, int cmd,
 			      unsigned int ctrl)
 {
@@ -50,7 +55,7 @@ static void crisv32_hwcontrol(struct mtd_info *mtd, int cmd,
 
 	local_irq_save(flags);
 
-	
+	/* control bits change */
 	if (ctrl & NAND_CTRL_CHANGE) {
 		dout = REG_RD(gio, regi_gio, rw_pa_dout);
 		dout.data &= ~PIN_BITMASK;
@@ -58,9 +63,11 @@ static void crisv32_hwcontrol(struct mtd_info *mtd, int cmd,
 #if (CE_BIT == 4 && NAND_NCE == 1 &&  \
      CLE_BIT == 5 && NAND_CLE == 2 && \
      ALE_BIT == 6 && NAND_ALE == 4)
+		/* Pins in same order as control bits, but shifted.
+		 * Optimize for this case; works for 2.6.18 */
 		dout.data |= ((ctrl & CTRL_BITMASK) ^ NAND_NCE) << CE_BIT;
 #else
-		
+		/* the slow way */
 		if (!(ctrl & NAND_NCE))
 			dout.data |= (1 << CE_BIT);
 		if (ctrl & NAND_CLE)
@@ -71,19 +78,25 @@ static void crisv32_hwcontrol(struct mtd_info *mtd, int cmd,
 		REG_WR(gio, regi_gio, rw_pa_dout, dout);
 	}
 
-	
+	/* command to chip */
 	if (cmd != NAND_CMD_NONE)
 		writeb(cmd, this->IO_ADDR_W);
 
 	local_irq_restore(flags);
 }
 
+/*
+*	read device ready pin
+*/
 static int crisv32_device_ready(struct mtd_info *mtd)
 {
 	reg_gio_r_pa_din din = REG_RD(gio, regi_gio, r_pa_din);
 	return ((din.data & (1 << BY_BIT)) >> BY_BIT);
 }
 
+/*
+ * Main initialization routine
+ */
 struct mtd_info *__init crisv32_nand_flash_probe(void)
 {
 	void __iomem *read_cs;
@@ -96,7 +109,7 @@ struct mtd_info *__init crisv32_nand_flash_probe(void)
 	struct nand_chip *this;
 	int err = 0;
 
-	
+	/* Allocate memory for MTD device structure and private data */
 	wrapper = kzalloc(sizeof(struct mtd_info_wrapper), GFP_KERNEL);
 	if (!wrapper) {
 		printk(KERN_ERR "Unable to allocate CRISv32 NAND MTD "
@@ -114,7 +127,7 @@ struct mtd_info *__init crisv32_nand_flash_probe(void)
 		goto out_mtd;
 	}
 
-	
+	/* Get pointer to private data */
 	this = &wrapper->chip;
 	crisv32_mtd = &wrapper->info;
 
@@ -128,22 +141,22 @@ struct mtd_info *__init crisv32_nand_flash_probe(void)
 	bif_cfg.gated_csp1 = regk_bif_core_wr;
 	REG_WR(bif_core, regi_bif_core, rw_grp3_cfg, bif_cfg);
 
-	
+	/* Link the private data with the MTD structure */
 	crisv32_mtd->priv = this;
 
-	
+	/* Set address of NAND IO lines */
 	this->IO_ADDR_R = read_cs;
 	this->IO_ADDR_W = write_cs;
 	this->cmd_ctrl = crisv32_hwcontrol;
 	this->dev_ready = crisv32_device_ready;
-	
+	/* 20 us command delay time */
 	this->chip_delay = 20;
 	this->ecc.mode = NAND_ECC_SOFT;
 
-	
-	
+	/* Enable the following for a flash based bad block table */
+	/* this->bbt_options = NAND_BBT_USE_FLASH; */
 
-	
+	/* Scan to find existence of the device */
 	if (nand_scan(crisv32_mtd, 1)) {
 		err = -ENXIO;
 		goto out_ior;

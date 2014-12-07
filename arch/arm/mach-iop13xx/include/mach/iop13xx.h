@@ -2,6 +2,7 @@
 #define _IOP13XX_HW_H_
 
 #ifndef __ASSEMBLY__
+/* The ATU offsets can change based on the strapping */
 extern u32 iop13xx_atux_pmmr_offset;
 extern u32 iop13xx_atue_pmmr_offset;
 void iop13xx_init_early(void);
@@ -12,6 +13,7 @@ void iop13xx_add_tpmi_devices(void);
 void iop13xx_init_irq(void);
 void iop13xx_restart(char, const char *);
 
+/* CPUID CP6 R0 Page 0 */
 static inline int iop13xx_cpu_id(void)
 {
 	int id;
@@ -19,6 +21,7 @@ static inline int iop13xx_cpu_id(void)
 	return id;
 }
 
+/* WDTCR CP6 R7 Page 9 */
 static inline u32 read_wdtcr(void)
 {
 	u32 val;
@@ -30,6 +33,7 @@ static inline void write_wdtcr(u32 val)
 	asm volatile("mcr p6, 0, %0, c7, c9, 0"::"r" (val));
 }
 
+/* WDTSR CP6 R8 Page 9 */
 static inline u32 read_wdtsr(void)
 {
 	u32 val;
@@ -41,6 +45,7 @@ static inline void write_wdtsr(u32 val)
 	asm volatile("mcr p6, 0, %0, c8, c9, 0"::"r" (val));
 }
 
+/* RCSR - Reset Cause Status Register  */
 static inline u32 read_rcsr(void)
 {
 	u32 val;
@@ -51,13 +56,26 @@ static inline u32 read_rcsr(void)
 extern unsigned long get_iop_tick_rate(void);
 #endif
 
-#define IOP13XX_MAX_RAM_SIZE    0x80000000UL  
+/*
+ * IOP13XX I/O and Mem space regions for PCI autoconfiguration
+ */
+#define IOP13XX_MAX_RAM_SIZE    0x80000000UL  /* 2GB */
 #define IOP13XX_PCI_OFFSET	 IOP13XX_MAX_RAM_SIZE
 
+/* PCI MAP
+ * bus range		cpu phys	cpu virt	note
+ * 0x0000.0000 + 2GB	(n/a)		(n/a)		inbound, 1:1 mapping with Physical RAM
+ * 0x8000.0000 + 928M	0x1.8000.0000   (ioremap)	PCIX outbound memory window
+ * 0x8000.0000 + 928M	0x2.8000.0000   (ioremap)	PCIE outbound memory window
+ *
+ * IO MAP
+ * 0x1000 + 64K	0x0.fffb.1000	0xfec6.1000	PCIX outbound i/o window
+ * 0x1000 + 64K	0x0.fffd.1000	0xfed7.1000	PCIE outbound i/o window
+ */
 #define IOP13XX_PCIX_IO_WINDOW_SIZE   0x10000UL
 #define IOP13XX_PCIX_LOWER_IO_PA      0xfffb0000UL
 #define IOP13XX_PCIX_LOWER_IO_VA      0xfec60000UL
-#define IOP13XX_PCIX_LOWER_IO_BA      0x0UL 
+#define IOP13XX_PCIX_LOWER_IO_BA      0x0UL /* OIOTVR */
 #define IOP13XX_PCIX_IO_BUS_OFFSET    0x1000UL
 #define IOP13XX_PCIX_UPPER_IO_PA      (IOP13XX_PCIX_LOWER_IO_PA +\
 				       IOP13XX_PCIX_IO_WINDOW_SIZE - 1)
@@ -84,10 +102,11 @@ extern unsigned long get_iop_tick_rate(void);
 #define IOP13XX_PCIX_MEM_OFFSET        (IOP13XX_PCIX_MEM_COOKIE -\
 					IOP13XX_PCIX_LOWER_MEM_BA)
 
+/* PCI-E ranges */
 #define IOP13XX_PCIE_IO_WINDOW_SIZE   	 0x10000UL
 #define IOP13XX_PCIE_LOWER_IO_PA      	 0xfffd0000UL
 #define IOP13XX_PCIE_LOWER_IO_VA      	 0xfed70000UL
-#define IOP13XX_PCIE_LOWER_IO_BA      	 0x0UL  
+#define IOP13XX_PCIE_LOWER_IO_BA      	 0x0UL  /* OIOTVR */
 #define IOP13XX_PCIE_IO_BUS_OFFSET	 0x1000UL
 #define IOP13XX_PCIE_UPPER_IO_PA      	 (IOP13XX_PCIE_LOWER_IO_PA +\
 					 IOP13XX_PCIE_IO_WINDOW_SIZE - 1)
@@ -109,6 +128,7 @@ extern unsigned long get_iop_tick_rate(void);
 #define IOP13XX_PCIE_UPPER_MEM_BA     	 (IOP13XX_PCIE_LOWER_MEM_BA +\
 					 IOP13XX_PCIE_MEM_WINDOW_SIZE - 1)
 
+/* All 0xc000.0000 - 0xfdff.ffff addresses belong to PCIe */
 #define IOP13XX_PCIE_MEM_COOKIE       	 0xc0000000UL
 #define IOP13XX_PCIE_LOWER_MEM_RA     	 IOP13XX_PCIE_MEM_COOKIE
 #define IOP13XX_PCIE_UPPER_MEM_RA     	 (IOP13XX_PCIE_LOWER_MEM_RA +\
@@ -116,6 +136,7 @@ extern unsigned long get_iop_tick_rate(void);
 #define IOP13XX_PCIE_MEM_OFFSET       	 (IOP13XX_PCIE_MEM_COOKIE -\
 					 IOP13XX_PCIE_LOWER_MEM_BA)
 
+/* PBI Ranges */
 #define IOP13XX_PBI_LOWER_MEM_PA	  0xf0000000UL
 #define IOP13XX_PBI_MEM_WINDOW_SIZE	  0x04000000UL
 #define IOP13XX_PBI_MEM_COOKIE		  0xfa000000UL
@@ -123,8 +144,11 @@ extern unsigned long get_iop_tick_rate(void);
 #define IOP13XX_PBI_UPPER_MEM_RA	  (IOP13XX_PBI_LOWER_MEM_RA +\
 					  IOP13XX_PBI_MEM_WINDOW_SIZE - 1)
 
-#define IOP13XX_PMMR_PHYS_MEM_BASE	   0xffd80000UL  
-#define IOP13XX_PMMR_VIRT_MEM_BASE	   0xfee80000UL  
+/*
+ * IOP13XX chipset registers
+ */
+#define IOP13XX_PMMR_PHYS_MEM_BASE	   0xffd80000UL  /* PMMR phys. address */
+#define IOP13XX_PMMR_VIRT_MEM_BASE	   0xfee80000UL  /* PMMR phys. address */
 #define IOP13XX_PMMR_MEM_WINDOW_SIZE	   0x80000
 #define IOP13XX_PMMR_UPPER_MEM_VA	   (IOP13XX_PMMR_VIRT_MEM_BASE +\
 					   IOP13XX_PMMR_MEM_WINDOW_SIZE - 1)
@@ -144,6 +168,7 @@ extern unsigned long get_iop_tick_rate(void);
 #define IOP13XX_REG_ADDR8_PHYS(reg)       (IOP13XX_PMMR_PHYS_MEM_BASE + (reg))
 #define IOP13XX_PMMR_SIZE		   0x00080000
 
+/*=================== Defines for Platform Devices =====================*/
 #define IOP13XX_UART0_PHYS  (IOP13XX_PMMR_PHYS_MEM_BASE | 0x00002300)
 #define IOP13XX_UART1_PHYS  (IOP13XX_PMMR_PHYS_MEM_BASE | 0x00002340)
 #define IOP13XX_UART0_VIRT  (IOP13XX_PMMR_VIRT_MEM_BASE | 0x00002300)
@@ -156,25 +181,34 @@ extern unsigned long get_iop_tick_rate(void);
 #define IOP13XX_I2C1_VIRT   (IOP13XX_PMMR_VIRT_MEM_BASE | 0x00002520)
 #define IOP13XX_I2C2_VIRT   (IOP13XX_PMMR_VIRT_MEM_BASE | 0x00002540)
 
+/* ATU selection flags */
+/* IOP13XX_INIT_ATU_DEFAULT = Rely on CONFIG_IOP13XX_ATU* */
 #define IOP13XX_INIT_ATU_DEFAULT     (0)
 #define IOP13XX_INIT_ATU_ATUX	      (1 << 0)
 #define IOP13XX_INIT_ATU_ATUE	      (1 << 1)
 #define IOP13XX_INIT_ATU_NONE	      (1 << 2)
 
+/* UART selection flags */
+/* IOP13XX_INIT_UART_DEFAULT = Rely on CONFIG_IOP13XX_UART* */
 #define IOP13XX_INIT_UART_DEFAULT    (0)
 #define IOP13XX_INIT_UART_0	      (1 << 0)
 #define IOP13XX_INIT_UART_1	      (1 << 1)
 
+/* I2C selection flags */
+/* IOP13XX_INIT_I2C_DEFAULT = Rely on CONFIG_IOP13XX_I2C* */
 #define IOP13XX_INIT_I2C_DEFAULT     (0)
 #define IOP13XX_INIT_I2C_0	      (1 << 0)
 #define IOP13XX_INIT_I2C_1	      (1 << 1)
 #define IOP13XX_INIT_I2C_2	      (1 << 2)
 
+/* ADMA selection flags */
+/* INIT_ADMA_DEFAULT = Rely on CONFIG_IOP13XX_ADMA* */
 #define IOP13XX_INIT_ADMA_DEFAULT     (0)
 #define IOP13XX_INIT_ADMA_0           (1 << 0)
 #define IOP13XX_INIT_ADMA_1           (1 << 1)
 #define IOP13XX_INIT_ADMA_2           (1 << 2)
 
+/* Platform devices */
 #define IQ81340_NUM_UART     		2
 #define IQ81340_NUM_I2C      		3
 #define IQ81340_NUM_PHYS_MAP_FLASH	1
@@ -184,6 +218,7 @@ extern unsigned long get_iop_tick_rate(void);
 				IQ81340_NUM_PHYS_MAP_FLASH + \
 				IQ81340_NUM_ADMA)
 
+/*========================== PMMR offsets for key registers ============*/
 #define IOP13XX_ATU0_PMMR_OFFSET   	0x00048000
 #define IOP13XX_ATU1_PMMR_OFFSET   	0x0004c000
 #define IOP13XX_ATU2_PMMR_OFFSET   	0x0004d000
@@ -195,7 +230,7 @@ extern unsigned long get_iop_tick_rate(void);
 #define IOP13XX_ESSR0_PMMR_OFFSET  	0x00002188
 #define IOP13XX_ESSR0			IOP13XX_REG_ADDR32(0x00002188)
 
-#define IOP13XX_ESSR0_IFACE_MASK   	0x00004000  
+#define IOP13XX_ESSR0_IFACE_MASK   	0x00004000  /* Interface PCI-X / PCI-E */
 #define IOP13XX_CONTROLLER_ONLY    	(1 << 14)
 #define IOP13XX_INTERFACE_SEL_PCIX 	(1 << 15)
 
@@ -223,6 +258,7 @@ extern unsigned long get_iop_tick_rate(void);
 #define IOP13XX_PMONEN			(IOP13XX_PMMR_VIRT_MEM_BASE + 0x4E040)
 #define IOP13XX_PMONSTAT		(IOP13XX_PMMR_VIRT_MEM_BASE + 0x4E044)
 
+/*================================ATU===================================*/
 #define IOP13XX_ATUX_OFFSET(ofs)	IOP13XX_REG_ADDR32(\
 					iop13xx_atux_pmmr_offset + (ofs))
 
@@ -420,7 +456,9 @@ extern unsigned long get_iop_tick_rate(void);
 #define IOP13XX_ATUE_OUMBAR_ENABLE  		(0x80000000)
 #define IOP13XX_ATU_OUMBAR_FUNC_NUM  		(28)
 #define IOP13XX_ATU_OUMBAR_FUNC_NUM_MASK  	(0x7)
+/*=======================================================================*/
 
+/*============================MESSAGING UNIT=============================*/
 #define IOP13XX_MU_OFFSET(ofs)	IOP13XX_REG_ADDR32(IOP13XX_MU_PMMR_OFFSET +\
 							(ofs))
 
@@ -446,10 +484,13 @@ extern unsigned long get_iop_tick_rate(void);
 #define IOP13XX_MU_BASE_PCI	(0xff000000)
 #define IOP13XX_MU_MIMR_PCI	(IOP13XX_MU_BASE_PCI + 0x48)
 #define IOP13XX_MU_MIMR_CORE_SELECT (15)
+/*=======================================================================*/
 
+/*==============================ADMA UNITS===============================*/
 #define IOP13XX_ADMA_PHYS_BASE(chan)	IOP13XX_REG_ADDR32_PHYS((chan << 9))
 #define IOP13XX_ADMA_UPPER_PA(chan)	(IOP13XX_ADMA_PHYS_BASE(chan) + 0xc0)
 
+/*==============================XSI BRIDGE===============================*/
 #define IOP13XX_XBG_BECSR		IOP13XX_REG_ADDR32(0x178c)
 #define IOP13XX_XBG_BERAR		IOP13XX_REG_ADDR32(0x1790)
 #define IOP13XX_XBG_BERUAR		IOP13XX_REG_ADDR32(0x1794)
@@ -461,6 +502,7 @@ extern unsigned long get_iop_tick_rate(void);
 					IOP13XX_PMMR_VIRT_TO_PHYS(\
 					IOP13XX_ATUX_OCCDR))\
 					&& (__raw_readl(IOP13XX_XBG_BECSR) & 1))
+/*=======================================================================*/
 
 #define IOP13XX_PBI_OFFSET(ofs) IOP13XX_REG_ADDR32(IOP13XX_PBI_PMMR_OFFSET +\
 							(ofs))
@@ -474,12 +516,13 @@ extern unsigned long get_iop_tick_rate(void);
 
 #define IOP13XX_PROCESSOR_FREQ		IOP13XX_REG_ADDR32(0x2180)
 
+/* Watchdog timer definitions */
 #define IOP_WDTCR_EN_ARM  	0x1e1e1e1e
 #define IOP_WDTCR_EN      	0xe1e1e1e1
 #define IOP_WDTCR_DIS_ARM 	0x1f1f1f1f
 #define IOP_WDTCR_DIS     	0xf1f1f1f1
-#define IOP_RCSR_WDT		(1 << 5) 
-#define IOP13XX_WDTSR_WRITE_EN	(1 << 31) 
+#define IOP_RCSR_WDT		(1 << 5) /* reset caused by watchdog timer */
+#define IOP13XX_WDTSR_WRITE_EN	(1 << 31) /* used to speed up reset requests */
 #define IOP13XX_WDTCR_IB_RESET	(1 << 0)
 
-#endif 
+#endif /* _IOP13XX_HW_H_ */

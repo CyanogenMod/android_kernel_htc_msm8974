@@ -51,7 +51,7 @@ static inline int futex_atomic_op_inuser(int encoded_op, u32 __user *uaddr)
 		return -EFAULT;
 
 #if defined(CONFIG_X86_32) && !defined(CONFIG_X86_BSWAP)
-	
+	/* Real i386 machines can only support FUTEX_OP_SET */
 	if (op != FUTEX_OP_SET && boot_cpu_data.x86 == 3)
 		return -ENOSYS;
 #endif
@@ -114,7 +114,7 @@ static inline int futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 	int ret = 0;
 
 #if defined(CONFIG_X86_32) && !defined(CONFIG_X86_BSWAP)
-	
+	/* Real i386 machines have no cmpxchg instruction */
 	if (boot_cpu_data.x86 == 3)
 		return -ENOSYS;
 #endif
@@ -138,4 +138,4 @@ static inline int futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 }
 
 #endif
-#endif 
+#endif /* _ASM_X86_FUTEX_H */

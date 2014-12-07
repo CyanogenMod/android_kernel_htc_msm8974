@@ -48,23 +48,26 @@
 #include <sound/ac97_codec.h>
 #include <sound/opl3.h>
 
+/* snd_als300_set_irq_flag */
 #define IRQ_DISABLE		0
 #define IRQ_ENABLE		1
 
+/* I/O port layout */
 #define AC97_ACCESS		0x00
 #define AC97_READ		0x04
 #define AC97_STATUS		0x06
 #define   AC97_DATA_AVAIL		(1<<6)
 #define   AC97_BUSY			(1<<7)
-#define ALS300_IRQ_STATUS	0x07		
+#define ALS300_IRQ_STATUS	0x07		/* ALS300 Only */
 #define   IRQ_PLAYBACK			(1<<3)
 #define   IRQ_CAPTURE			(1<<2)
 #define GCR_DATA		0x08
 #define GCR_INDEX		0x0C
-#define ALS300P_DRAM_IRQ_STATUS	0x0D		
-#define MPU_IRQ_STATUS		0x0E		
-#define ALS300P_IRQ_STATUS	0x0F		
+#define ALS300P_DRAM_IRQ_STATUS	0x0D		/* ALS300+ Only */
+#define MPU_IRQ_STATUS		0x0E		/* ALS300 Rev. E+, ALS300+ */
+#define ALS300P_IRQ_STATUS	0x0F		/* ALS300+ Only */
 
+/* General Control Registers */
 #define PLAYBACK_START		0x80
 #define PLAYBACK_END		0x81
 #define PLAYBACK_CONTROL	0x82
@@ -138,7 +141,7 @@ struct snd_als300 {
 
 	int irq;
 
-	int chip_type; 
+	int chip_type; /* ALS300 or ALS300+ */
 
 	char revision;	
 };
@@ -170,11 +173,15 @@ static inline void snd_als300_gcr_write(unsigned long port,
 	outl(val, port+GCR_DATA);
 }
 
+/* Enable/Disable Interrupts */
 static void snd_als300_set_irq_flag(struct snd_als300 *chip, int cmd)
 {
 	u32 tmp = snd_als300_gcr_read(chip->port, MISC_CONTROL);
 	snd_als300_dbgcallenter();
 
+	/* boolean XOR check, since old vs. new hardware have
+	   directly reversed bit setting for ENABLE and DISABLE.
+	   ALS300+ acts like newer versions of ALS300 */
 	if (((chip->revision > 5 || chip->chip_type == DEVICE_ALS300_PLUS) ^
 						(cmd == IRQ_ENABLE)) == 0)
 		tmp |= IRQ_SET_BIT;
@@ -210,10 +217,10 @@ static irqreturn_t snd_als300_interrupt(int irq, void *dev_id)
 	struct snd_als300_substream_data *data;
 
 	status = inb(chip->port+ALS300_IRQ_STATUS);
-	if (!status) 
+	if (!status) /* shared IRQ, for different device?? Exit ASAP! */
 		return IRQ_NONE;
 
-	
+	/* ACK everything ASAP */
 	outb(status, chip->port+ALS300_IRQ_STATUS);
 	if (status & IRQ_PLAYBACK) {
 		if (chip->pcm && chip->playback_substream) {
@@ -244,7 +251,7 @@ static irqreturn_t snd_als300plus_interrupt(int irq, void *dev_id)
 	mpu = inb(chip->port+MPU_IRQ_STATUS);
 	dram = inb(chip->port+ALS300P_DRAM_IRQ_STATUS);
 
-	
+	/* shared IRQ, for different device?? Exit ASAP! */
 	if ((general == 0) && ((mpu & 0x80) == 0) && ((dram & 0x01) == 0))
 		return IRQ_NONE;
 
@@ -266,6 +273,8 @@ static irqreturn_t snd_als300plus_interrupt(int irq, void *dev_id)
 			snd_als300_dbgplay("IRQ_CAPTURE\n");
 		}
 	}
+	/* FIXME: Ack other interrupt types. Not important right now as
+	 * those other devices aren't enabled. */
 	return IRQ_HANDLED;
 }
 
@@ -333,6 +342,13 @@ static int snd_als300_ac97(struct snd_als300 *chip)
 	return snd_ac97_mixer(bus, &ac97, &chip->ac97);
 }
 
+/* hardware definition
+ *
+ * In AC97 mode, we always use 48k/16bit/stereo.
+ * Any request to change data type is ignored by
+ * the card when it is running outside of legacy
+ * mode.
+ */
 static struct snd_pcm_hardware snd_als300_playback_hw =
 {
 	.info =			(SNDRV_PCM_INFO_MMAP |
@@ -461,12 +477,12 @@ static int snd_als300_playback_prepare(struct snd_pcm_substream *substream)
 	snd_als300_dbgplay("Period bytes: %d Buffer bytes %d\n",
 						period_bytes, buffer_bytes);
 	
-	
+	/* set block size */
 	tmp &= 0xffff0000;
 	tmp |= period_bytes - 1;
 	snd_als300_gcr_write(chip->port, PLAYBACK_CONTROL, tmp);
 
-	
+	/* set dma area */
 	snd_als300_gcr_write(chip->port, PLAYBACK_START,
 					runtime->dma_addr);
 	snd_als300_gcr_write(chip->port, PLAYBACK_END,
@@ -492,11 +508,11 @@ static int snd_als300_capture_prepare(struct snd_pcm_substream *substream)
 	snd_als300_dbgplay("Period bytes: %d Buffer bytes %d\n", period_bytes,
 							buffer_bytes);
 
-	
+	/* set block size */
 	tmp &= 0xffff0000;
 	tmp |= period_bytes - 1;
 
-	
+	/* set dma area */
 	snd_als300_gcr_write(chip->port, RECORD_CONTROL, tmp);
 	snd_als300_gcr_write(chip->port, RECORD_START,
 					runtime->dma_addr);
@@ -615,13 +631,13 @@ static int __devinit snd_als300_new_pcm(struct snd_als300 *chip)
 	strcpy(pcm->name, "ALS300");
 	chip->pcm = pcm;
 
-	
+	/* set operators */
 	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_PLAYBACK,
 				&snd_als300_playback_ops);
 	snd_pcm_set_ops(pcm, SNDRV_PCM_STREAM_CAPTURE,
 				&snd_als300_capture_ops);
 
-	
+	/* pre-allocation of buffers */
 	snd_pcm_lib_preallocate_pages_for_all(pcm, SNDRV_DMA_TYPE_DEV,
 	snd_dma_pci_data(chip->pci), 64*1024, 64*1024);
 	snd_als300_dbgcallleave();
@@ -637,23 +653,25 @@ static void snd_als300_init(struct snd_als300 *chip)
 	spin_lock_irqsave(&chip->reg_lock, flags);
 	chip->revision = (snd_als300_gcr_read(chip->port, MISC_CONTROL) >> 16)
 								& 0x0000000F;
-	
+	/* Setup DRAM */
 	tmp = snd_als300_gcr_read(chip->port, DRAM_WRITE_CONTROL);
 	snd_als300_gcr_write(chip->port, DRAM_WRITE_CONTROL,
 						(tmp | DRAM_MODE_2)
 						& ~WRITE_TRANS_START);
 
-	
+	/* Enable IRQ output */
 	snd_als300_set_irq_flag(chip, IRQ_ENABLE);
 
+	/* Unmute hardware devices so their outputs get routed to
+	 * the onboard mixer */
 	tmp = snd_als300_gcr_read(chip->port, MISC_CONTROL);
 	snd_als300_gcr_write(chip->port, MISC_CONTROL,
 			tmp | VMUTE_NORMAL | MMUTE_NORMAL);
 
-	
+	/* Reset volumes */
 	snd_als300_gcr_write(chip->port, MUS_VOC_VOL, 0);
 
-	
+	/* Make sure playback transfer is stopped */
 	tmp = snd_als300_gcr_read(chip->port, PLAYBACK_CONTROL);
 	snd_als300_gcr_write(chip->port, PLAYBACK_CONTROL,
 			tmp & ~TRANSFER_START);
@@ -816,6 +834,8 @@ static int __devinit snd_als300_probe(struct pci_dev *pci,
 
 	strcpy(card->driver, "ALS300");
 	if (chip->chip_type == DEVICE_ALS300_PLUS)
+		/* don't know much about ALS300+ yet
+		 * print revision number for now */
 		sprintf(card->shortname, "ALS300+ (Rev. %d)", chip->revision);
 	else
 		sprintf(card->shortname, "ALS300 (Rev. %c)", 'A' +

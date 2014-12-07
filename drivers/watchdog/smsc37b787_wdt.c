@@ -61,6 +61,8 @@
 #include <linux/uaccess.h>
 
 
+/* enable support for minutes as units? */
+/* (does not always work correctly, so disabled by default!) */
 #define SMSC_SUPPORT_MINUTES
 #undef SMSC_SUPPORT_MINUTES
 
@@ -75,17 +77,19 @@
 #define IOPORT_SIZE     2
 #define IODEV_NO	8
 
-static int unit = UNIT_SECOND;	
-static int timeout = 60;	
-static unsigned long timer_enabled;   
+static int unit = UNIT_SECOND;	/* timer's unit */
+static int timeout = 60;	/* timeout value: default is 60 "units" */
+static unsigned long timer_enabled;   /* is the timer enabled? */
 
-static char expect_close;       
+static char expect_close;       /* is the close expected? */
 
-static DEFINE_SPINLOCK(io_lock);
+static DEFINE_SPINLOCK(io_lock);/* to guard the watchdog from io races */
 
 static bool nowayout = WATCHDOG_NOWAYOUT;
 
+/* -- Low level function ----------------------------------------*/
 
+/* unlock the IO chip */
 
 static inline void open_io_config(void)
 {
@@ -94,61 +98,121 @@ static inline void open_io_config(void)
 	outb(0x55, IOPORT);
 }
 
+/* lock the IO chip */
 static inline void close_io_config(void)
 {
 	outb(0xAA, IOPORT);
 }
 
+/* select the IO device */
 static inline void select_io_device(unsigned char devno)
 {
 	outb(0x07, IOPORT);
 	outb(devno, IOPORT+1);
 }
 
+/* write to the control register */
 static inline void write_io_cr(unsigned char reg, unsigned char data)
 {
 	outb(reg, IOPORT);
 	outb(data, IOPORT+1);
 }
 
+/* read from the control register */
 static inline char read_io_cr(unsigned char reg)
 {
 	outb(reg, IOPORT);
 	return inb(IOPORT+1);
 }
 
+/* -- Medium level functions ------------------------------------*/
 
 static inline void gpio_bit12(unsigned char reg)
 {
+	/* -- General Purpose I/O Bit 1.2 --
+	 * Bit 0,   In/Out: 0 = Output, 1 = Input
+	 * Bit 1,   Polarity: 0 = No Invert, 1 = Invert
+	 * Bit 2,   Group Enable Intr.: 0 = Disable, 1 = Enable
+	 * Bit 3/4, Function select: 00 = GPI/O, 01 = WDT, 10 = P17,
+	 *                           11 = Either Edge Triggered Intr. 2
+	 * Bit 5/6  (Reserved)
+	 * Bit 7,   Output Type: 0 = Push Pull Bit, 1 = Open Drain
+	 */
 	write_io_cr(0xE2, reg);
 }
 
 static inline void gpio_bit13(unsigned char reg)
 {
+	/* -- General Purpose I/O Bit 1.3 --
+	 * Bit 0,  In/Out: 0 = Output, 1 = Input
+	 * Bit 1,  Polarity: 0 = No Invert, 1 = Invert
+	 * Bit 2,  Group Enable Intr.: 0 = Disable, 1 = Enable
+	 * Bit 3,  Function select: 0 = GPI/O, 1 = LED
+	 * Bit 4-6 (Reserved)
+	 * Bit 7,  Output Type: 0 = Push Pull Bit, 1 = Open Drain
+	 */
 	write_io_cr(0xE3, reg);
 }
 
 static inline void wdt_timer_units(unsigned char new_units)
 {
+	/* -- Watchdog timer units --
+	 * Bit 0-6 (Reserved)
+	 * Bit 7,  WDT Time-out Value Units Select
+	 *         (0 = Minutes, 1 = Seconds)
+	 */
 	write_io_cr(0xF1, new_units);
 }
 
 static inline void wdt_timeout_value(unsigned char new_timeout)
 {
+	/* -- Watchdog Timer Time-out Value --
+	 * Bit 0-7 Binary coded units (0=Disabled, 1..255)
+	 */
 	write_io_cr(0xF2, new_timeout);
 }
 
 static inline void wdt_timer_conf(unsigned char conf)
 {
+	/* -- Watchdog timer configuration --
+	 * Bit 0   Joystick enable: 0* = No Reset, 1 = Reset WDT upon
+	 *							Gameport I/O
+	 * Bit 1   Keyboard enable: 0* = No Reset, 1 = Reset WDT upon KBD Intr.
+	 * Bit 2   Mouse enable: 0* = No Reset, 1 = Reset WDT upon Mouse Intr
+	 * Bit 3   Reset the timer
+	 *         (Wrong in SMsC documentation? Given as: PowerLED Timout
+	 *							Enabled)
+	 * Bit 4-7 WDT Interrupt Mapping: (0000* = Disabled,
+	 *            0001=IRQ1, 0010=(Invalid), 0011=IRQ3 to 1111=IRQ15)
+	 */
 	write_io_cr(0xF3, conf);
 }
 
 static inline void wdt_timer_ctrl(unsigned char reg)
 {
+	/* -- Watchdog timer control --
+	 * Bit 0   Status Bit: 0 = Timer counting, 1 = Timeout occurred
+	 * Bit 1   Power LED Toggle: 0 = Disable Toggle, 1 = Toggle at 1 Hz
+	 * Bit 2   Force Timeout: 1 = Forces WD timeout event (self-cleaning)
+	 * Bit 3   P20 Force Timeout enabled:
+	 *          0 = P20 activity does not generate the WD timeout event
+	 *          1 = P20 Allows rising edge of P20, from the keyboard
+	 *              controller, to force the WD timeout event.
+	 * Bit 4   (Reserved)
+	 * -- Soft power management --
+	 * Bit 5   Stop Counter: 1 = Stop software power down counter
+	 *            set via register 0xB8, (self-cleaning)
+	 *            (Upon read: 0 = Counter running, 1 = Counter stopped)
+	 * Bit 6   Restart Counter: 1 = Restart software power down counter
+	 *            set via register 0xB8, (self-cleaning)
+	 * Bit 7   SPOFF: 1 = Force software power down (self-cleaning)
+	 */
 	write_io_cr(0xF4, reg);
 }
 
+/* -- Higher level functions ------------------------------------*/
 
+/* initialize watchdog */
 
 static void wb_smsc_wdt_initialize(void)
 {
@@ -158,30 +222,32 @@ static void wb_smsc_wdt_initialize(void)
 	open_io_config();
 	select_io_device(IODEV_NO);
 
-	
-	gpio_bit13(0x08);  
-	gpio_bit12(0x0A);  
-	
+	/* enable the watchdog */
+	gpio_bit13(0x08);  /* Select pin 80 = LED not GPIO */
+	gpio_bit12(0x0A);  /* Set pin 79 = WDT not
+			      GPIO/Output/Polarity=Invert */
+	/* disable the timeout */
 	wdt_timeout_value(0);
 
-	
+	/* reset control register */
 	wdt_timer_ctrl(0x00);
 
-	
+	/* reset configuration register */
 	wdt_timer_conf(0x00);
 
-	
+	/* read old (timer units) register */
 	old = read_io_cr(0xF1) & 0x7F;
 	if (unit == UNIT_SECOND)
-		old |= 0x80;	
+		old |= 0x80;	/* set to seconds */
 
-	
+	/* set the watchdog timer units */
 	wdt_timer_units(old);
 
 	close_io_config();
 	spin_unlock(&io_lock);
 }
 
+/* shutdown the watchdog */
 
 static void wb_smsc_wdt_shutdown(void)
 {
@@ -189,23 +255,24 @@ static void wb_smsc_wdt_shutdown(void)
 	open_io_config();
 	select_io_device(IODEV_NO);
 
-	
+	/* disable the watchdog */
 	gpio_bit13(0x09);
 	gpio_bit12(0x09);
 
-	
+	/* reset watchdog config register */
 	wdt_timer_conf(0x00);
 
-	
+	/* reset watchdog control register */
 	wdt_timer_ctrl(0x00);
 
-	
+	/* disable timeout */
 	wdt_timeout_value(0x00);
 
 	close_io_config();
 	spin_unlock(&io_lock);
 }
 
+/* set timeout => enable watchdog */
 
 static void wb_smsc_wdt_set_timeout(unsigned char new_timeout)
 {
@@ -213,16 +280,17 @@ static void wb_smsc_wdt_set_timeout(unsigned char new_timeout)
 	open_io_config();
 	select_io_device(IODEV_NO);
 
-	
+	/* set Power LED to blink, if we enable the timeout */
 	wdt_timer_ctrl((new_timeout == 0) ? 0x00 : 0x02);
 
-	
+	/* set timeout value */
 	wdt_timeout_value(new_timeout);
 
 	close_io_config();
 	spin_unlock(&io_lock);
 }
 
+/* get timeout */
 
 static unsigned char wb_smsc_wdt_get_timeout(void)
 {
@@ -238,20 +306,23 @@ static unsigned char wb_smsc_wdt_get_timeout(void)
 	return set_timeout;
 }
 
+/* disable watchdog */
 
 static void wb_smsc_wdt_disable(void)
 {
-	
+	/* set the timeout to 0 to disable the watchdog */
 	wb_smsc_wdt_set_timeout(0);
 }
 
+/* enable watchdog by setting the current timeout */
 
 static void wb_smsc_wdt_enable(void)
 {
-	
+	/* set the current timeout... */
 	wb_smsc_wdt_set_timeout(timeout);
 }
 
+/* reset the timer */
 
 static void wb_smsc_wdt_reset_timer(void)
 {
@@ -259,7 +330,7 @@ static void wb_smsc_wdt_reset_timer(void)
 	open_io_config();
 	select_io_device(IODEV_NO);
 
-	
+	/* reset the timer */
 	wdt_timeout_value(timeout);
 	wdt_timer_conf(0x08);
 
@@ -267,6 +338,7 @@ static void wb_smsc_wdt_reset_timer(void)
 	spin_unlock(&io_lock);
 }
 
+/* return, if the watchdog is enabled (timeout is set...) */
 
 static int wb_smsc_wdt_status(void)
 {
@@ -274,11 +346,13 @@ static int wb_smsc_wdt_status(void)
 }
 
 
+/* -- File operations -------------------------------------------*/
 
+/* open => enable watchdog and set initial timeout */
 
 static int wb_smsc_wdt_open(struct inode *inode, struct file *file)
 {
-	
+	/* /dev/watchdog can only be opened once */
 
 	if (test_and_set_bit(0, &timer_enabled))
 		return -EBUSY;
@@ -286,7 +360,7 @@ static int wb_smsc_wdt_open(struct inode *inode, struct file *file)
 	if (nowayout)
 		__module_get(THIS_MODULE);
 
-	
+	/* Reload and activate timer */
 	wb_smsc_wdt_enable();
 
 	pr_info("Watchdog enabled. Timeout set to %d %s\n",
@@ -295,10 +369,11 @@ static int wb_smsc_wdt_open(struct inode *inode, struct file *file)
 	return nonseekable_open(inode, file);
 }
 
+/* close => shut off the timer */
 
 static int wb_smsc_wdt_release(struct inode *inode, struct file *file)
 {
-	
+	/* Shut off the timer. */
 
 	if (expect_close == 42) {
 		wb_smsc_wdt_disable();
@@ -313,18 +388,21 @@ static int wb_smsc_wdt_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* write => update the timer to keep the machine alive */
 
 static ssize_t wb_smsc_wdt_write(struct file *file, const char __user *data,
 				 size_t len, loff_t *ppos)
 {
-	
+	/* See if we got the magic character 'V' and reload the timer */
 	if (len) {
 		if (!nowayout) {
 			size_t i;
 
-			
+			/* reset expect flag */
 			expect_close = 0;
 
+			/* scan to see whether or not we got the
+			   magic character */
 			for (i = 0; i != len; i++) {
 				char c;
 				if (get_user(c, data + i))
@@ -334,12 +412,13 @@ static ssize_t wb_smsc_wdt_write(struct file *file, const char __user *data,
 			}
 		}
 
-		
+		/* someone wrote to us, we should reload the timer */
 		wb_smsc_wdt_reset_timer();
 	}
 	return len;
 }
 
+/* ioctl => control interface */
 
 static long wb_smsc_wdt_ioctl(struct file *file,
 					unsigned int cmd, unsigned long arg)
@@ -392,14 +471,14 @@ static long wb_smsc_wdt_ioctl(struct file *file,
 	case WDIOC_SETTIMEOUT:
 		if (get_user(new_timeout, uarg.i))
 			return -EFAULT;
-		
+		/* the API states this is given in secs */
 		if (unit == UNIT_MINUTE)
 			new_timeout /= 60;
 		if (new_timeout < 0 || new_timeout > MAX_TIMEOUT)
 			return -EINVAL;
 		timeout = new_timeout;
 		wb_smsc_wdt_set_timeout(timeout);
-		
+		/* fall through and return the new timeout... */
 	case WDIOC_GETTIMEOUT:
 		new_timeout = timeout;
 		if (unit == UNIT_MINUTE)
@@ -410,18 +489,20 @@ static long wb_smsc_wdt_ioctl(struct file *file,
 	}
 }
 
+/* -- Notifier funtions -----------------------------------------*/
 
 static int wb_smsc_wdt_notify_sys(struct notifier_block *this,
 					unsigned long code, void *unused)
 {
 	if (code == SYS_DOWN || code == SYS_HALT) {
-		
+		/* set timeout to 0, to avoid possible race-condition */
 		timeout = 0;
 		wb_smsc_wdt_disable();
 	}
 	return NOTIFY_DONE;
 }
 
+/* -- Module's structures ---------------------------------------*/
 
 static const struct file_operations wb_smsc_wdt_fops = {
 	.owner	  = THIS_MODULE,
@@ -442,7 +523,9 @@ static struct miscdevice wb_smsc_wdt_miscdev = {
 	.fops		= &wb_smsc_wdt_fops,
 };
 
+/* -- Module init functions -------------------------------------*/
 
+/* module's "constructor" */
 
 static int __init wb_smsc_wdt_init(void)
 {
@@ -457,11 +540,11 @@ static int __init wb_smsc_wdt_init(void)
 		goto out_pnp;
 	}
 
-	
+	/* set new maximum, if it's too big */
 	if (timeout > MAX_TIMEOUT)
 		timeout = MAX_TIMEOUT;
 
-	
+	/* init the watchdog timer */
 	wb_smsc_wdt_initialize();
 
 	ret = register_reboot_notifier(&wb_smsc_wdt_notifier);
@@ -477,7 +560,7 @@ static int __init wb_smsc_wdt_init(void)
 		goto out_rbt;
 	}
 
-	
+	/* output info */
 	pr_info("Timeout set to %d %s\n",
 		timeout, (unit == UNIT_SECOND) ? "second(s)" : "minute(s)");
 	pr_info("Watchdog initialized and sleeping (nowayout=%d)...\n",
@@ -495,10 +578,11 @@ out_pnp:
 	goto out_clean;
 }
 
+/* module's "destructor" */
 
 static void __exit wb_smsc_wdt_exit(void)
 {
-	
+	/* Stop the timer before we leave */
 	if (!nowayout) {
 		wb_smsc_wdt_shutdown();
 		pr_info("Watchdog disabled\n");

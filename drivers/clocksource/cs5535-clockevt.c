@@ -25,20 +25,44 @@ static int timer_irq;
 module_param_named(irq, timer_irq, int, 0644);
 MODULE_PARM_DESC(irq, "Which IRQ to use for the clock source MFGPT ticks.");
 
+/*
+ * We are using the 32.768kHz input clock - it's the only one that has the
+ * ranges we find desirable.  The following table lists the suitable
+ * divisors and the associated Hz, minimum interval and the maximum interval:
+ *
+ *  Divisor   Hz      Min Delta (s)  Max Delta (s)
+ *   1        32768   .00048828125      2.000
+ *   2        16384   .0009765625       4.000
+ *   4         8192   .001953125        8.000
+ *   8         4096   .00390625        16.000
+ *   16        2048   .0078125         32.000
+ *   32        1024   .015625          64.000
+ *   64         512   .03125          128.000
+ *  128         256   .0625           256.000
+ *  256         128   .125            512.000
+ */
 
 static unsigned int cs5535_tick_mode = CLOCK_EVT_MODE_SHUTDOWN;
 static struct cs5535_mfgpt_timer *cs5535_event_clock;
 
+/* Selected from the table above */
 
 #define MFGPT_DIVISOR 16
-#define MFGPT_SCALE  4     
+#define MFGPT_SCALE  4     /* divisor = 2^(scale) */
 #define MFGPT_HZ  (32768 / MFGPT_DIVISOR)
 #define MFGPT_PERIODIC (MFGPT_HZ / HZ)
 
+/*
+ * The MFPGT timers on the CS5536 provide us with suitable timers to use
+ * as clock event sources - not as good as a HPET or APIC, but certainly
+ * better than the PIT.  This isn't a general purpose MFGPT driver, but
+ * a simplified one designed specifically to act as a clock event source.
+ * For full details about the MFGPT, please consult the CS5536 data sheet.
+ */
 
 static void disable_timer(struct cs5535_mfgpt_timer *timer)
 {
-	
+	/* avoid races by clearing CMP1 and CMP2 unconditionally */
 	cs5535_mfgpt_write(timer, MFGPT_REG_SETUP,
 			(uint16_t) ~MFGPT_SETUP_CNTEN | MFGPT_SETUP_CMP1 |
 				MFGPT_SETUP_CMP2);
@@ -83,20 +107,20 @@ static irqreturn_t mfgpt_tick(int irq, void *dev_id)
 {
 	uint16_t val = cs5535_mfgpt_read(cs5535_event_clock, MFGPT_REG_SETUP);
 
-	
+	/* See if the interrupt was for us */
 	if (!(val & (MFGPT_SETUP_SETUP | MFGPT_SETUP_CMP2 | MFGPT_SETUP_CMP1)))
 		return IRQ_NONE;
 
-	
+	/* Turn off the clock (and clear the event) */
 	disable_timer(cs5535_event_clock);
 
 	if (cs5535_tick_mode == CLOCK_EVT_MODE_SHUTDOWN)
 		return IRQ_HANDLED;
 
-	
+	/* Clear the counter */
 	cs5535_mfgpt_write(cs5535_event_clock, MFGPT_REG_COUNTER, 0);
 
-	
+	/* Restart the clock in periodic mode */
 
 	if (cs5535_tick_mode == CLOCK_EVT_MODE_PERIODIC)
 		cs5535_mfgpt_write(cs5535_event_clock, MFGPT_REG_SETUP,
@@ -125,26 +149,26 @@ static int __init cs5535_mfgpt_init(void)
 	}
 	cs5535_event_clock = timer;
 
-	
+	/* Set up the IRQ on the MFGPT side */
 	if (cs5535_mfgpt_setup_irq(timer, MFGPT_CMP2, &timer_irq)) {
 		printk(KERN_ERR DRV_NAME ": Could not set up IRQ %d\n",
 				timer_irq);
 		goto err_timer;
 	}
 
-	
+	/* And register it with the kernel */
 	ret = setup_irq(timer_irq, &mfgptirq);
 	if (ret) {
 		printk(KERN_ERR DRV_NAME ": Unable to set up the interrupt.\n");
 		goto err_irq;
 	}
 
-	
+	/* Set the clock scale and enable the event mode for CMP2 */
 	val = MFGPT_SCALE | (3 << 8);
 
 	cs5535_mfgpt_write(cs5535_event_clock, MFGPT_REG_SETUP, val);
 
-	
+	/* Set up the clock event */
 	cs5535_clockevent.mult = div_sc(MFGPT_HZ, NSEC_PER_SEC,
 			cs5535_clockevent.shift);
 	cs5535_clockevent.min_delta_ns = clockevent_delta2ns(0xF,

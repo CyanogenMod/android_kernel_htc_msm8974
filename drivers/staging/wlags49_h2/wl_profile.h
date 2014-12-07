@@ -64,9 +64,15 @@
 
 
 
+/*******************************************************************************
+ *  constant definitions
+ ******************************************************************************/
 #define ROOT_CONFIG_FILENAME "/etc/agere/iwconfig-"
 
 
+/*******************************************************************************
+ *  function prototypes
+ ******************************************************************************/
 void parse_config( struct net_device *dev );
 
 int readline( int filedesc, char *buffer );
@@ -78,4 +84,4 @@ int parse_mac_address( char *value, u_char *byte_array );
 void ParseConfigLine( char *pszLine, char **ppszLVal, char **ppszRVal );
 
 
-#endif  
+#endif  // __WL_PROFILE_H__

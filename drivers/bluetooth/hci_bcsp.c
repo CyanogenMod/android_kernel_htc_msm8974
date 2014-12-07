@@ -58,14 +58,14 @@ static int hciextn = 1;
 #define BCSP_LE_PKT	0x06
 
 struct bcsp_struct {
-	struct sk_buff_head unack;	
-	struct sk_buff_head rel;	
-	struct sk_buff_head unrel;	
+	struct sk_buff_head unack;	/* Unack'ed packets queue */
+	struct sk_buff_head rel;	/* Reliable packets queue */
+	struct sk_buff_head unrel;	/* Unreliable packets queue */
 
 	unsigned long rx_count;
 	struct	sk_buff *rx_skb;
-	u8	rxseq_txack;		
-	u8	rxack;			
+	u8	rxseq_txack;		/* rxseq == txack. */
+	u8	rxack;			/* Last packet sent by us that the peer ack'ed */
 	struct	timer_list tbcsp;
 
 	enum {
@@ -83,13 +83,16 @@ struct bcsp_struct {
 
 	u8	use_crc;
 	u16	message_crc;
-	u8	txack_req;		
+	u8	txack_req;		/* Do we need to send ack's to the peer? */
 
-	
+	/* Reliable packet sequence number - used to assign seq to each rel pkt. */
 	u8	msgq_txseq;
 };
 
+/* ---- BCSP CRC calculation ---- */
 
+/* Table for calculating CRC for polynomial 0x1021, LSB processed first,
+initial value 0xffff, bits shifted in reverse order. */
 
 static const u16 crc_table[] = {
 	0x0000, 0x1081, 0x2102, 0x3183,
@@ -98,8 +101,16 @@ static const u16 crc_table[] = {
 	0xc60c, 0xd68d, 0xe70e, 0xf78f
 };
 
+/* Initialise the crc calculator */
 #define BCSP_CRC_INIT(x) x = 0xffff
 
+/*
+   Update crc with next data byte
+
+   Implementation note
+        The data byte is treated as two nibbles.  The crc is generated
+        in reverse, i.e., bits are fed into the register from the top.
+*/
 static void bcsp_crc_update(u16 *crc, u8 d)
 {
 	u16 reg = *crc;
@@ -110,6 +121,7 @@ static void bcsp_crc_update(u16 *crc, u8 d)
 	*crc = reg;
 }
 
+/* ---- BCSP core ---- */
 
 static void bcsp_slip_msgdelim(struct sk_buff *skb)
 {
@@ -174,24 +186,24 @@ static struct sk_buff *bcsp_prepare_pkt(struct bcsp_struct *bcsp, u8 *data,
 
 	switch (pkt_type) {
 	case HCI_ACLDATA_PKT:
-		chan = 6;	
-		rel = 1;	
+		chan = 6;	/* BCSP ACL channel */
+		rel = 1;	/* reliable channel */
 		break;
 	case HCI_COMMAND_PKT:
-		chan = 5;	
-		rel = 1;	
+		chan = 5;	/* BCSP cmd/evt channel */
+		rel = 1;	/* reliable channel */
 		break;
 	case HCI_SCODATA_PKT:
-		chan = 7;	
-		rel = 0;	
+		chan = 7;	/* BCSP SCO channel */
+		rel = 0;	/* unreliable channel */
 		break;
 	case BCSP_LE_PKT:
-		chan = 1;	
-		rel = 0;	
+		chan = 1;	/* BCSP LE channel */
+		rel = 0;	/* unreliable channel */
 		break;
 	case BCSP_ACK_PKT:
-		chan = 0;	
-		rel = 0;	
+		chan = 0;	/* BCSP internal channel */
+		rel = 0;	/* unreliable channel */
 		break;
 	default:
 		BT_ERR("Unknown packet type");
@@ -201,7 +213,7 @@ static struct sk_buff *bcsp_prepare_pkt(struct bcsp_struct *bcsp, u8 *data,
 	if (hciextn && chan == 5) {
 		__le16 opcode = ((struct hci_command_hdr *)data)->opcode;
 
-		
+		/* Vendor specific commands */
 		if (hci_opcode_ogf(__le16_to_cpu(opcode)) == 0x3f) {
 			u8 desc = *(data + HCI_COMMAND_HDR_SIZE);
 			if ((desc & 0xf0) == 0xc0) {
@@ -212,6 +224,10 @@ static struct sk_buff *bcsp_prepare_pkt(struct bcsp_struct *bcsp, u8 *data,
 		}
 	}
 
+	/* Max len of packet: (original len +4(bcsp hdr) +2(crc))*2
+	   (because bytes 0xc0 and 0xdb are escaped, worst case is
+	   when the packet is all made of 0xc0 and 0xdb :) )
+	   + 2 (0xc0 delimiters at start and end). */
 
 	nskb = alloc_skb((len + 6) * 2 + 2, GFP_ATOMIC);
 	if (!nskb)
@@ -238,7 +254,7 @@ static struct sk_buff *bcsp_prepare_pkt(struct bcsp_struct *bcsp, u8 *data,
 	hdr[2] = len >> 4;
 	hdr[3] = ~(hdr[0] + hdr[1] + hdr[2]);
 
-	
+	/* Put BCSP header */
 	for (i = 0; i < 4; i++) {
 		bcsp_slip_one_byte(nskb, hdr[i]);
 
@@ -246,7 +262,7 @@ static struct sk_buff *bcsp_prepare_pkt(struct bcsp_struct *bcsp, u8 *data,
 			bcsp_crc_update(&bcsp_txmsg_crc, hdr[i]);
 	}
 
-	
+	/* Put payload */
 	for (i = 0; i < len; i++) {
 		bcsp_slip_one_byte(nskb, data[i]);
 
@@ -254,7 +270,7 @@ static struct sk_buff *bcsp_prepare_pkt(struct bcsp_struct *bcsp, u8 *data,
 			bcsp_crc_update(&bcsp_txmsg_crc, data[i]);
 	}
 
-	
+	/* Put CRC */
 	if (bcsp->use_crc) {
 		bcsp_txmsg_crc = bitrev16(bcsp_txmsg_crc);
 		bcsp_slip_one_byte(nskb, (u8) ((bcsp_txmsg_crc >> 8) & 0x00ff));
@@ -265,12 +281,15 @@ static struct sk_buff *bcsp_prepare_pkt(struct bcsp_struct *bcsp, u8 *data,
 	return nskb;
 }
 
+/* This is a rewrite of pkt_avail in ABCSP */
 static struct sk_buff *bcsp_dequeue(struct hci_uart *hu)
 {
 	struct bcsp_struct *bcsp = hu->priv;
 	unsigned long flags;
 	struct sk_buff *skb;
 	
+	/* First of all, check for unreliable messages in the queue,
+	   since they have priority */
 
 	if ((skb = skb_dequeue(&bcsp->unrel)) != NULL) {
 		struct sk_buff *nskb = bcsp_prepare_pkt(bcsp, skb->data, skb->len, bt_cb(skb)->pkt_type);
@@ -283,6 +302,9 @@ static struct sk_buff *bcsp_dequeue(struct hci_uart *hu)
 		}
 	}
 
+	/* Now, try to send a reliable pkt. We can only send a
+	   reliable packet if the number of packets sent but not yet ack'ed
+	   is < than the winsize */
 
 	spin_lock_irqsave_nested(&bcsp->unack.lock, flags, SINGLE_DEPTH_NESTING);
 
@@ -301,13 +323,18 @@ static struct sk_buff *bcsp_dequeue(struct hci_uart *hu)
 
 	spin_unlock_irqrestore(&bcsp->unack.lock, flags);
 
+	/* We could not send a reliable packet, either because there are
+	   none or because there are too many unack'ed pkts. Did we receive
+	   any packets we have not acknowledged yet ? */
 
 	if (bcsp->txack_req) {
+		/* if so, craft an empty ACK pkt and send it on BCSP unreliable
+		   channel 0 */
 		struct sk_buff *nskb = bcsp_prepare_pkt(bcsp, NULL, 0, BCSP_ACK_PKT);
 		return nskb;
 	}
 
-	
+	/* We have nothing to send */
 	return NULL;
 }
 
@@ -317,6 +344,7 @@ static int bcsp_flush(struct hci_uart *hu)
 	return 0;
 }
 
+/* Remove ack'ed packets */
 static void bcsp_pkt_cull(struct bcsp_struct *bcsp)
 {
 	struct sk_buff *skb, *tmp;
@@ -362,6 +390,9 @@ static void bcsp_pkt_cull(struct bcsp_struct *bcsp)
 		BT_ERR("Removed only %u out of %u pkts", i, pkts_to_be_removed);
 }
 
+/* Handle BCSP link-establishment packets. When we
+   detect a "sync" packet, symptom that the BT module has reset,
+   we do nothing :) (yet) */
 static void bcsp_handle_le_pkt(struct hci_uart *hu)
 {
 	struct bcsp_struct *bcsp = hu->priv;
@@ -369,7 +400,7 @@ static void bcsp_handle_le_pkt(struct hci_uart *hu)
 	u8 conf_rsp_pkt[4] = { 0xde, 0xad, 0xd0, 0xd0 };
 	u8 sync_pkt[4]     = { 0xda, 0xdc, 0xed, 0xed };
 
-	
+	/* spot "conf" pkts and reply with a "conf rsp" pkt */
 	if (bcsp->rx_skb->data[1] >> 4 == 4 && bcsp->rx_skb->data[2] == 0 &&
 			!memcmp(&bcsp->rx_skb->data[4], conf_pkt, 4)) {
 		struct sk_buff *nskb = alloc_skb(4, GFP_ATOMIC);
@@ -383,7 +414,7 @@ static void bcsp_handle_le_pkt(struct hci_uart *hu)
 		skb_queue_head(&bcsp->unrel, nskb);
 		hci_uart_tx_wakeup(hu);
 	}
-	
+	/* Spot "sync" pkts. If we find one...disaster! */
 	else if (bcsp->rx_skb->data[1] >> 4 == 4 && bcsp->rx_skb->data[2] == 0 &&
 			!memcmp(&bcsp->rx_skb->data[4], sync_pkt, 4)) {
 		BT_ERR("Found a LE sync pkt, card has reset");
@@ -444,13 +475,13 @@ static void bcsp_complete_rx_pkt(struct hci_uart *hu)
 	struct bcsp_struct *bcsp = hu->priv;
 	int pass_up;
 
-	if (bcsp->rx_skb->data[0] & 0x80) {	
+	if (bcsp->rx_skb->data[0] & 0x80) {	/* reliable pkt */
 		BT_DBG("Received seqno %u from card", bcsp->rxseq_txack);
 		bcsp->rxseq_txack++;
 		bcsp->rxseq_txack %= 0x8;
 		bcsp->txack_req    = 1;
 
-		
+		/* If needed, transmit an ack pkt */
 		hci_uart_tx_wakeup(hu);
 	}
 
@@ -502,7 +533,7 @@ static void bcsp_complete_rx_pkt(struct hci_uart *hu)
 		} else
 			kfree_skb(bcsp->rx_skb);
 	} else {
-		
+		/* Pull out BCSP hdr */
 		skb_pull(bcsp->rx_skb, 4);
 
 		hci_recv_frame(bcsp->rx_skb);
@@ -517,6 +548,7 @@ static u16 bscp_get_crc(struct bcsp_struct *bcsp)
 	return get_unaligned_be16(&bcsp->rx_skb->data[bcsp->rx_skb->len - 2]);
 }
 
+/* Recv data */
 static int bcsp_recv(struct hci_uart *hu, void *data, int count)
 {
 	struct bcsp_struct *bcsp = hu->priv;
@@ -550,7 +582,7 @@ static int bcsp_recv(struct hci_uart *hu, void *data, int count)
 				bcsp->rx_count = 0;
 				continue;
 			}
-			if (bcsp->rx_skb->data[0] & 0x80	
+			if (bcsp->rx_skb->data[0] & 0x80	/* reliable pkt */
 			    		&& (bcsp->rx_skb->data[0] & 0x07) != bcsp->rxseq_txack) {
 				BT_ERR ("Out-of-order packet arrived, got %u expected %u",
 					bcsp->rx_skb->data[0] & 0x07, bcsp->rxseq_txack);
@@ -562,11 +594,11 @@ static int bcsp_recv(struct hci_uart *hu, void *data, int count)
 			}
 			bcsp->rx_state = BCSP_W4_DATA;
 			bcsp->rx_count = (bcsp->rx_skb->data[1] >> 4) + 
-					(bcsp->rx_skb->data[2] << 4);	
+					(bcsp->rx_skb->data[2] << 4);	/* May be 0 */
 			continue;
 
 		case BCSP_W4_DATA:
-			if (bcsp->rx_skb->data[0] & 0x40) {	
+			if (bcsp->rx_skb->data[0] & 0x40) {	/* pkt with crc */
 				bcsp->rx_state = BCSP_W4_CRC;
 				bcsp->rx_count = 2;
 			} else
@@ -594,7 +626,7 @@ static int bcsp_recv(struct hci_uart *hu, void *data, int count)
 				bcsp->rx_state = BCSP_W4_PKT_START;
 				break;
 			default:
-				
+				/*BT_ERR("Ignoring byte %02x", *ptr);*/
 				break;
 			}
 			ptr++; count--;
@@ -612,6 +644,9 @@ static int bcsp_recv(struct hci_uart *hu, void *data, int count)
 				bcsp->rx_esc_state = BCSP_ESCSTATE_NOESC;
 				BCSP_CRC_INIT(bcsp->message_crc);
 
+				/* Do not increment ptr or decrement count
+				 * Allocate packet. Max len of a BCSP pkt= 
+				 * 0xFFF (payload) +4 (header) +2 (crc) */
 
 				bcsp->rx_skb = bt_skb_alloc(0x1005, GFP_ATOMIC);
 				if (!bcsp->rx_skb) {
@@ -629,7 +664,7 @@ static int bcsp_recv(struct hci_uart *hu, void *data, int count)
 	return count;
 }
 
-	
+	/* Arrange to retransmit all messages in the relq. */
 static void bcsp_timed_event(unsigned long arg)
 {
 	struct hci_uart *hu = (struct hci_uart *) arg;

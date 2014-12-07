@@ -29,23 +29,24 @@
 #include <linux/spi/spi.h>
 #include <linux/spi/flash.h>
 
+/* Erases can take up to 3 seconds! */
 #define MAX_READY_WAIT_JIFFIES	msecs_to_jiffies(3000)
 
-#define SST25L_CMD_WRSR		0x01	
-#define SST25L_CMD_WRDI		0x04	
-#define SST25L_CMD_RDSR		0x05	
-#define SST25L_CMD_WREN		0x06	
-#define SST25L_CMD_READ		0x03	
+#define SST25L_CMD_WRSR		0x01	/* Write status register */
+#define SST25L_CMD_WRDI		0x04	/* Write disable */
+#define SST25L_CMD_RDSR		0x05	/* Read status register */
+#define SST25L_CMD_WREN		0x06	/* Write enable */
+#define SST25L_CMD_READ		0x03	/* High speed read */
 
-#define SST25L_CMD_EWSR		0x50	
-#define SST25L_CMD_SECTOR_ERASE	0x20	
-#define SST25L_CMD_READ_ID	0x90	
-#define SST25L_CMD_AAI_PROGRAM	0xaf	
+#define SST25L_CMD_EWSR		0x50	/* Enable write status register */
+#define SST25L_CMD_SECTOR_ERASE	0x20	/* Erase sector */
+#define SST25L_CMD_READ_ID	0x90	/* Read device ID */
+#define SST25L_CMD_AAI_PROGRAM	0xaf	/* Auto address increment */
 
-#define SST25L_STATUS_BUSY	(1 << 0)	
-#define SST25L_STATUS_WREN	(1 << 1)	
-#define SST25L_STATUS_BP0	(1 << 2)	
-#define SST25L_STATUS_BP1	(1 << 3)	
+#define SST25L_STATUS_BUSY	(1 << 0)	/* Chip is busy */
+#define SST25L_STATUS_WREN	(1 << 1)	/* Write enabled */
+#define SST25L_STATUS_BP0	(1 << 2)	/* Block protection 0 */
+#define SST25L_STATUS_BP1	(1 << 3)	/* Block protection 1 */
 
 struct sst25l_flash {
 	struct spi_device	*spi;
@@ -173,7 +174,7 @@ static int sst25l_erase(struct mtd_info *mtd, struct erase_info *instr)
 	uint32_t addr, end;
 	int err;
 
-	
+	/* Sanity checks */
 	if ((uint32_t)instr->len % mtd->erasesize)
 		return -EINVAL;
 
@@ -237,7 +238,7 @@ static int sst25l_read(struct mtd_info *mtd, loff_t from, size_t len,
 
 	mutex_lock(&flash->lock);
 
-	
+	/* Wait for previous write/erase to complete */
 	ret = sst25l_wait_till_ready(flash);
 	if (ret) {
 		mutex_unlock(&flash->lock);
@@ -274,7 +275,7 @@ static int sst25l_write(struct mtd_info *mtd, loff_t to, size_t len,
 		if (ret)
 			goto out;
 
-		
+		/* Write the first byte of the page */
 		command[0] = SST25L_CMD_AAI_PROGRAM;
 		command[1] = (to + i) >> 16;
 		command[2] = (to + i) >> 8;
@@ -285,6 +286,10 @@ static int sst25l_write(struct mtd_info *mtd, loff_t to, size_t len,
 			goto out;
 		copied++;
 
+		/*
+		 * Write the remaining bytes using auto address
+		 * increment mode
+		 */
 		bytes = min_t(uint32_t, mtd->writesize, len - i);
 		for (j = 1; j < bytes; j++, copied++) {
 			ret = sst25l_wait_till_ready(flash);

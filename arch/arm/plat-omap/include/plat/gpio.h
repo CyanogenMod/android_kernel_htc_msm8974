@@ -32,6 +32,10 @@
 
 #define OMAP1_MPUIO_BASE			0xfffb5000
 
+/*
+ * These are the omap15xx/16xx offsets. The omap7xx offset are
+ * OMAP_MPUIO_ / 2 offsets below.
+ */
 #define OMAP_MPUIO_INPUT_LATCH		0x00
 #define OMAP_MPUIO_OUTPUT		0x04
 #define OMAP_MPUIO_IO_CNTL		0x08
@@ -48,6 +52,9 @@
 
 #define OMAP34XX_NR_GPIOS		6
 
+/*
+ * OMAP1510 GPIO registers
+ */
 #define OMAP1510_GPIO_DATA_INPUT	0x00
 #define OMAP1510_GPIO_DATA_OUTPUT	0x04
 #define OMAP1510_GPIO_DIR_CONTROL	0x08
@@ -58,6 +65,9 @@
 
 #define OMAP1510_IH_GPIO_BASE		64
 
+/*
+ * OMAP1610 specific GPIO registers
+ */
 #define OMAP1610_GPIO_REVISION		0x0000
 #define OMAP1610_GPIO_SYSCONFIG		0x0010
 #define OMAP1610_GPIO_SYSSTATUS		0x0014
@@ -76,6 +86,9 @@
 #define OMAP1610_GPIO_SET_WAKEUPENA	0x00e8
 #define OMAP1610_GPIO_SET_DATAOUT	0x00f0
 
+/*
+ * OMAP7XX specific GPIO registers
+ */
 #define OMAP7XX_GPIO_DATA_INPUT		0x00
 #define OMAP7XX_GPIO_DATA_OUTPUT	0x04
 #define OMAP7XX_GPIO_DIR_CONTROL	0x08
@@ -83,6 +96,9 @@
 #define OMAP7XX_GPIO_INT_MASK		0x10
 #define OMAP7XX_GPIO_INT_STATUS		0x14
 
+/*
+ * omap2+ specific GPIO registers
+ */
 #define OMAP24XX_GPIO_REVISION		0x0000
 #define OMAP24XX_GPIO_IRQSTATUS1	0x0018
 #define OMAP24XX_GPIO_IRQSTATUS2	0x0028
@@ -143,8 +159,8 @@
 #define OMAP_GPIO_IS_MPUIO(nr)	((nr) >= OMAP_MAX_GPIO_LINES)
 
 struct omap_gpio_dev_attr {
-	int bank_width;		
-	bool dbck_flag;		
+	int bank_width;		/* GPIO bank width */
+	bool dbck_flag;		/* dbck required or not - True for OMAP3&4 */
 };
 
 struct omap_gpio_reg_offs {
@@ -179,16 +195,16 @@ struct omap_gpio_reg_offs {
 struct omap_gpio_platform_data {
 	u16 virtual_irq_start;
 	int bank_type;
-	int bank_width;		
-	int bank_stride;	
-	bool dbck_flag;		
-	bool loses_context;	
-	bool is_mpuio;		
+	int bank_width;		/* GPIO bank width */
+	int bank_stride;	/* Only needed for omap1 MPUIO */
+	bool dbck_flag;		/* dbck required or not - True for OMAP3&4 */
+	bool loses_context;	/* whether the bank would ever lose context */
+	bool is_mpuio;		/* whether the bank is of type MPUIO */
 	u32 non_wakeup_gpios;
 
 	struct omap_gpio_reg_offs *regs;
 
-	
+	/* Return context loss count due to PM states changing */
 	int (*get_context_loss_count)(struct device *dev);
 };
 
@@ -196,7 +212,14 @@ extern void omap2_gpio_prepare_for_idle(int off_mode);
 extern void omap2_gpio_resume_after_idle(void);
 extern void omap_set_gpio_debounce(int gpio, int enable);
 extern void omap_set_gpio_debounce_time(int gpio, int enable);
+/*-------------------------------------------------------------------------*/
 
+/*
+ * Wrappers for "new style" GPIO calls, using the new infrastructure
+ * which lets us plug in FPGA, I2C, and other implementations.
+ *
+ * The original OMAP-specific calls should eventually be removed.
+ */
 
 #include <linux/errno.h>
 #include <asm-generic/gpio.h>

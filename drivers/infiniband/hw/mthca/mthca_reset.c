@@ -55,8 +55,20 @@ int mthca_reset(struct mthca_dev *mdev)
 #define MTHCA_RESET_OFFSET 0xf0010
 #define MTHCA_RESET_VALUE  swab32(1)
 
+	/*
+	 * Reset the chip.  This is somewhat ugly because we have to
+	 * save off the PCI header before reset and then restore it
+	 * after the chip reboots.  We skip config space offsets 22
+	 * and 23 since those have a special meaning.
+	 *
+	 * To make matters worse, for Tavor (PCI-X HCA) we have to
+	 * find the associated bridge device and save off its PCI
+	 * header as well.
+	 */
 
 	if (!(mdev->mthca_flags & MTHCA_FLAG_PCIE)) {
+		/* Look for the bridge -- its device ID will be 2 more
+		   than HCA's device ID. */
 		while ((bridge = pci_get_device(mdev->pdev->vendor,
 						mdev->pdev->device + 2,
 						bridge)) != NULL) {
@@ -69,13 +81,18 @@ int mthca_reset(struct mthca_dev *mdev)
 		}
 
 		if (!bridge) {
+			/*
+			 * Didn't find a bridge for a Tavor device --
+			 * assume we're in no-bridge mode and hope for
+			 * the best.
+			 */
 			mthca_warn(mdev, "No bridge found for %s\n",
 				  pci_name(mdev->pdev));
 		}
 
 	}
 
-	
+	/* For Arbel do we need to save off the full 4K PCI Express header?? */
 	hca_header = kmalloc(256, GFP_KERNEL);
 	if (!hca_header) {
 		err = -ENOMEM;
@@ -126,7 +143,7 @@ int mthca_reset(struct mthca_dev *mdev)
 		}
 	}
 
-	
+	/* actually hit reset */
 	{
 		void __iomem *reset = ioremap(pci_resource_start(mdev->pdev, 0) +
 					      MTHCA_RESET_OFFSET, 4);
@@ -142,10 +159,10 @@ int mthca_reset(struct mthca_dev *mdev)
 		iounmap(reset);
 	}
 
-	
+	/* Docs say to wait one second before accessing device */
 	msleep(1000);
 
-	
+	/* Now wait for PCI device to start responding again */
 	{
 		u32 v;
 		int c = 0;
@@ -171,7 +188,7 @@ int mthca_reset(struct mthca_dev *mdev)
 	}
 
 good:
-	
+	/* Now restore the PCI headers */
 	if (bridge) {
 		if (pci_write_config_dword(bridge, bridge_pcix_cap + 0x8,
 				 bridge_header[(bridge_pcix_cap + 0x8) / 4])) {
@@ -187,6 +204,10 @@ good:
 				  "split transaction control, aborting.\n");
 			goto out;
 		}
+		/*
+		 * Bridge control register is at 0x3e, so we'll
+		 * naturally restore it last in this loop.
+		 */
 		for (i = 0; i < 16; ++i) {
 			if (i * 4 == PCI_COMMAND)
 				continue;

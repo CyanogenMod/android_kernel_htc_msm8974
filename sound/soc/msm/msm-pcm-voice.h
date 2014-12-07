@@ -35,4 +35,4 @@ struct msm_voice {
 	int capture_start;
 };
 
-#endif 
+#endif /*_MSM_PCM_VOICE_H*/

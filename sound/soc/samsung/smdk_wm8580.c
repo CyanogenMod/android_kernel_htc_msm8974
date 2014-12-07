@@ -19,7 +19,13 @@
 #include "../codecs/wm8580.h"
 #include "i2s.h"
 
+/*
+ * Default CFG switch settings to use this driver:
+ *
+ *   SMDK6410: Set CFG1 1-3 Off, CFG2 1-4 On
+ */
 
+/* SMDK has a 12MHZ crystal attached to WM8580 */
 #define SMDK_WM8580_FREQ 12000000
 
 static int smdk_hw_params(struct snd_pcm_substream *substream,
@@ -44,6 +50,13 @@ static int smdk_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
+	/* The Fvco for WM8580 PLLs must fall within [90,100]MHz.
+	 * This criterion can't be met if we request PLL output
+	 * as {8000x256, 64000x256, 11025x256}Hz.
+	 * As a wayout, we rather change rfs to a minimum value that
+	 * results in (params_rate(params) * rfs), and itself, acceptable
+	 * to both - the CODEC and the CPU.
+	 */
 	switch (params_rate(params)) {
 	case 16000:
 	case 22050:
@@ -66,21 +79,21 @@ static int smdk_hw_params(struct snd_pcm_substream *substream,
 	}
 	pll_out = params_rate(params) * rfs;
 
-	
+	/* Set the Codec DAI configuration */
 	ret = snd_soc_dai_set_fmt(codec_dai, SND_SOC_DAIFMT_I2S
 					 | SND_SOC_DAIFMT_NB_NF
 					 | SND_SOC_DAIFMT_CBM_CFM);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Set the AP DAI configuration */
 	ret = snd_soc_dai_set_fmt(cpu_dai, SND_SOC_DAIFMT_I2S
 					 | SND_SOC_DAIFMT_NB_NF
 					 | SND_SOC_DAIFMT_CBM_CFM);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Set WM8580 to drive MCLK from its PLLA */
 	ret = snd_soc_dai_set_clkdiv(codec_dai, WM8580_MCLK,
 					WM8580_CLKSRC_PLLA);
 	if (ret < 0)
@@ -99,10 +112,14 @@ static int smdk_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/*
+ * SMDK WM8580 DAI operations.
+ */
 static struct snd_soc_ops smdk_ops = {
 	.hw_params = smdk_hw_params,
 };
 
+/* SMDK Playback widgets */
 static const struct snd_soc_dapm_widget smdk_wm8580_dapm_widgets[] = {
 	SND_SOC_DAPM_HP("Front", NULL),
 	SND_SOC_DAPM_HP("Center+Sub", NULL),
@@ -112,23 +129,24 @@ static const struct snd_soc_dapm_widget smdk_wm8580_dapm_widgets[] = {
 	SND_SOC_DAPM_LINE("LineIn", NULL),
 };
 
+/* SMDK-PAIFTX connections */
 static const struct snd_soc_dapm_route smdk_wm8580_audio_map[] = {
-	
+	/* MicIn feeds AINL */
 	{"AINL", NULL, "MicIn"},
 
-	
+	/* LineIn feeds AINL/R */
 	{"AINL", NULL, "LineIn"},
 	{"AINR", NULL, "LineIn"},
 
-	
+	/* Front Left/Right are fed VOUT1L/R */
 	{"Front", NULL, "VOUT1L"},
 	{"Front", NULL, "VOUT1R"},
 
-	
+	/* Center/Sub are fed VOUT2L/R */
 	{"Center+Sub", NULL, "VOUT2L"},
 	{"Center+Sub", NULL, "VOUT2R"},
 
-	
+	/* Rear Left/Right are fed VOUT3L/R */
 	{"Rear", NULL, "VOUT3L"},
 	{"Rear", NULL, "VOUT3R"},
 };
@@ -138,6 +156,9 @@ static int smdk_wm8580_init_paiftx(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_codec *codec = rtd->codec;
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 
+	/* Enabling the microphone requires the fitting of a 0R
+	 * resistor to connect the line from the microphone jack.
+	 */
 	snd_soc_dapm_disable_pin(dapm, "MicIn");
 
 	return 0;
@@ -150,7 +171,7 @@ enum {
 };
 
 static struct snd_soc_dai_link smdk_dai[] = {
-	[PRI_PLAYBACK] = { 
+	[PRI_PLAYBACK] = { /* Primary Playback i/f */
 		.name = "WM8580 PAIF RX",
 		.stream_name = "Playback",
 		.cpu_dai_name = "samsung-i2s.0",
@@ -159,7 +180,7 @@ static struct snd_soc_dai_link smdk_dai[] = {
 		.codec_name = "wm8580.0-001b",
 		.ops = &smdk_ops,
 	},
-	[PRI_CAPTURE] = { 
+	[PRI_CAPTURE] = { /* Primary Capture i/f */
 		.name = "WM8580 PAIF TX",
 		.stream_name = "Capture",
 		.cpu_dai_name = "samsung-i2s.0",
@@ -169,7 +190,7 @@ static struct snd_soc_dai_link smdk_dai[] = {
 		.init = smdk_wm8580_init_paiftx,
 		.ops = &smdk_ops,
 	},
-	[SEC_PLAYBACK] = { 
+	[SEC_PLAYBACK] = { /* Sec_Fifo Playback i/f */
 		.name = "Sec_FIFO TX",
 		.stream_name = "Playback",
 		.cpu_dai_name = "samsung-i2s.x",
@@ -202,7 +223,7 @@ static int __init smdk_audio_init(void)
 	if (machine_is_smdkc100()
 			|| machine_is_smdkv210() || machine_is_smdkc110()) {
 		smdk.num_links = 3;
-		
+		/* Secondary is at offset SAMSUNG_I2S_SECOFF from Primary */
 		str = (char *)smdk_dai[SEC_PLAYBACK].cpu_dai_name;
 		str[strlen(str) - 1] = '0' + SAMSUNG_I2S_SECOFF;
 	} else if (machine_is_smdk6410()) {

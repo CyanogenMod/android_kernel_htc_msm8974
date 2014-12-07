@@ -34,6 +34,7 @@
 #include "envy24ht.h"
 #include "maya44.h"
 
+/* WM8776 register indexes */
 #define WM8776_REG_HEADPHONE_L		0x00
 #define WM8776_REG_HEADPHONE_R		0x01
 #define WM8776_REG_HEADPHONE_MASTER	0x02
@@ -61,6 +62,7 @@
 
 #define WM8776_NUM_REGS			0x18
 
+/* clock ratio identifiers for snd_wm8776_set_rate() */
 #define WM8776_CLOCK_RATIO_128FS	0
 #define WM8776_CLOCK_RATIO_192FS	1
 #define WM8776_CLOCK_RATIO_256FS	2
@@ -85,15 +87,23 @@ struct snd_maya44 {
 };
 
 
+/* write the given register and save the data to the cache */
 static void wm8776_write(struct snd_ice1712 *ice, struct snd_wm8776 *wm,
 			 unsigned char reg, unsigned short val)
 {
+	/*
+	 * WM8776 registers are up to 9 bits wide, bit 8 is placed in the LSB
+	 * of the address field
+	 */
 	snd_vt1724_write_i2c(ice, wm->addr,
 			     (reg << 1) | ((val >> 8) & 1),
 			     val & 0xff);
 	wm->regs[reg] = val;
 }
 
+/*
+ * update the given register with and/or mask and save the data to the cache
+ */
 static int wm8776_write_bits(struct snd_ice1712 *ice, struct snd_wm8776 *wm,
 			     unsigned char reg,
 			     unsigned short mask, unsigned short val)
@@ -107,15 +117,18 @@ static int wm8776_write_bits(struct snd_ice1712 *ice, struct snd_wm8776 *wm,
 }
 
 
+/*
+ * WM8776 volume controls
+ */
 
 struct maya_vol_info {
-	unsigned int maxval;		
-	unsigned char regs[2];		
-	unsigned short mask;		
-	unsigned short offset;		
-	unsigned short mute;		
-	unsigned short update;		
-	unsigned char mux_bits[2];	
+	unsigned int maxval;		/* volume range: 0..maxval */
+	unsigned char regs[2];		/* left and right registers */
+	unsigned short mask;		/* value mask */
+	unsigned short offset;		/* zero-value offset */
+	unsigned short mute;		/* mute bit */
+	unsigned short update;		/* update bits */
+	unsigned char mux_bits[2];	/* extra bits for ADC mute */
 };
 
 static struct maya_vol_info vol_info[WM_NUM_VOLS] = {
@@ -125,7 +138,7 @@ static struct maya_vol_info vol_info[WM_NUM_VOLS] = {
 		.mask = 0x7f,
 		.offset = 0x30,
 		.mute = 0x00,
-		.update = 0x180,	
+		.update = 0x180,	/* update and zero-cross enable */
 	},
 	[WM_VOL_DAC] = {
 		.maxval = 255,
@@ -133,7 +146,7 @@ static struct maya_vol_info vol_info[WM_NUM_VOLS] = {
 		.mask = 0xff,
 		.offset = 0x01,
 		.mute = 0x00,
-		.update = 0x100,	
+		.update = 0x100,	/* zero-cross enable */
 	},
 	[WM_VOL_ADC] = {
 		.maxval = 91,
@@ -141,13 +154,19 @@ static struct maya_vol_info vol_info[WM_NUM_VOLS] = {
 		.mask = 0xff,
 		.offset = 0xa5,
 		.mute = 0xa5,
-		.update = 0x100,	
-		.mux_bits = { 0x80, 0x40 }, 
+		.update = 0x100,	/* update */
+		.mux_bits = { 0x80, 0x40 }, /* ADCMUX bits */
 	},
 };
 
+/*
+ * dB tables
+ */
+/* headphone output: mute, -73..+6db (1db step) */
 static const DECLARE_TLV_DB_SCALE(db_scale_hp, -7400, 100, 1);
+/* DAC output: mute, -127..0db (0.5db step) */
 static const DECLARE_TLV_DB_SCALE(db_scale_dac, -12750, 50, 1);
+/* ADC gain: mute, -21..+24db (0.5db step) */
 static const DECLARE_TLV_DB_SCALE(db_scale_adc, -2100, 50, 1);
 
 static int maya_vol_info(struct snd_kcontrol *kcontrol,
@@ -213,6 +232,9 @@ static int maya_vol_put(struct snd_kcontrol *kcontrol,
 	return changed;
 }
 
+/*
+ * WM8776 switch controls
+ */
 
 #define COMPOSE_SW_VAL(idx, reg, mask)	((idx) | ((reg) << 8) | ((mask) << 16))
 #define GET_SW_VAL_IDX(val)	((val) & 0xff)
@@ -257,11 +279,17 @@ static int maya_sw_put(struct snd_kcontrol *kcontrol,
 	return changed;
 }
 
+/*
+ * GPIO pins (known ones for maya44)
+ */
 #define GPIO_PHANTOM_OFF	2
 #define GPIO_MIC_RELAY		4
 #define GPIO_SPDIF_IN_INV	5
 #define GPIO_MUST_BE_0		7
 
+/*
+ * GPIO switch controls
+ */
 
 #define COMPOSE_GPIO_VAL(shift, inv)	((shift) | ((inv) << 8))
 #define GET_GPIO_VAL_SHIFT(val)		((val) & 0xff)
@@ -313,9 +341,13 @@ static int maya_gpio_sw_put(struct snd_kcontrol *kcontrol,
 	return changed;
 }
 
+/*
+ * capture source selection
+ */
 
-#define MAYA_LINE_IN	1	
-#define MAYA_MIC_IN	3	
+/* known working input slots (0-4) */
+#define MAYA_LINE_IN	1	/* in-2 */
+#define MAYA_MIC_IN	3	/* in-4 */
 
 static void wm8776_select_input(struct snd_maya44 *chip, int idx, int line)
 {
@@ -368,11 +400,15 @@ static int maya_rec_src_put(struct snd_kcontrol *kcontrol,
 	return changed;
 }
 
+/*
+ * Maya44 routing switch settings have different meanings than the standard
+ * ice1724 switches as defined in snd_vt1724_pro_route_info (ice1724.c).
+ */
 static int maya_pb_route_info(struct snd_kcontrol *kcontrol,
 			      struct snd_ctl_elem_info *uinfo)
 {
 	static char *texts[] = {
-		"PCM Out", 
+		"PCM Out", /* 0 */
 		"Input 1", "Input 2", "Input 3", "Input 4"
 	};
 
@@ -415,6 +451,9 @@ static int maya_pb_route_put(struct snd_kcontrol *kcontrol,
 }
 
 
+/*
+ * controls to be added
+ */
 
 static struct snd_kcontrol_new maya_controls[] __devinitdata = {
 	{
@@ -502,7 +541,7 @@ static struct snd_kcontrol_new maya_controls[] __devinitdata = {
 		.info = maya_pb_route_info,
 		.get = maya_pb_route_get,
 		.put = maya_pb_route_put,
-		.count = 4,  
+		.count = 4,  /* FIXME: do controls 5-9 have any meaning? */
 	},
 };
 
@@ -520,28 +559,35 @@ static int __devinit maya44_add_controls(struct snd_ice1712 *ice)
 }
 
 
+/*
+ * initialize a wm8776 chip
+ */
 static void __devinit wm8776_init(struct snd_ice1712 *ice,
 				  struct snd_wm8776 *wm, unsigned int addr)
 {
 	static const unsigned short inits_wm8776[] = {
-		0x02, 0x100, 
-		0x05, 0x100, 
-		0x06, 0x000, 
-		0x07, 0x091, 
-		0x08, 0x000, 
-		0x09, 0x000, 
-		0x0a, 0x022, 
-		0x0b, 0x022, 
-		0x0c, 0x042, 
-		0x0d, 0x000, 
-		0x0e, 0x100, 
-		0x0f, 0x100, 
-			     
-		0x11, 0x000, 
-			     
-			     
-		0x15, 0x000, 
-		0x16, 0x001, 
+		0x02, 0x100, /* R2: headphone L+R muted + update */
+		0x05, 0x100, /* R5: DAC output L+R muted + update */
+		0x06, 0x000, /* R6: DAC output phase normal */
+		0x07, 0x091, /* R7: DAC enable zero cross detection,
+				normal output */
+		0x08, 0x000, /* R8: DAC soft mute off */
+		0x09, 0x000, /* R9: no deemph, DAC zero detect disabled */
+		0x0a, 0x022, /* R10: DAC I2C mode, std polarities, 24bit */
+		0x0b, 0x022, /* R11: ADC I2C mode, std polarities, 24bit,
+				highpass filter enabled */
+		0x0c, 0x042, /* R12: ADC+DAC slave, ADC+DAC 44,1kHz */
+		0x0d, 0x000, /* R13: all power up */
+		0x0e, 0x100, /* R14: ADC left muted,
+				enable zero cross detection */
+		0x0f, 0x100, /* R15: ADC right muted,
+				enable zero cross detection */
+			     /* R16: ALC...*/
+		0x11, 0x000, /* R17: disable ALC */
+			     /* R18: ALC...*/
+			     /* R19: noise gate...*/
+		0x15, 0x000, /* R21: ADC input mux init, mute all inputs */
+		0x16, 0x001, /* R22: output mux, select DAC */
 		0xff, 0xff
 	};
 
@@ -550,7 +596,7 @@ static void __devinit wm8776_init(struct snd_ice1712 *ice,
 	unsigned short data;
 
 	wm->addr = addr;
-	
+	/* enable DAC output; mute bypass, aux & all inputs */
 	wm->switch_bits = (1 << WM_SW_DAC);
 
 	ptr = inits_wm8776;
@@ -562,6 +608,13 @@ static void __devinit wm8776_init(struct snd_ice1712 *ice,
 }
 
 
+/*
+ * change the rate on the WM8776 codecs.
+ * this assumes that the VT17xx's rate is changed by the calling function.
+ * NOTE: even though the WM8776's are running in slave mode and rate
+ * selection is automatic, we need to call snd_wm8776_set_rate() here
+ * to make sure some flags are set correctly.
+ */
 static void set_rate(struct snd_ice1712 *ice, unsigned int rate)
 {
 	struct snd_maya44 *chip = ice->spec;
@@ -591,13 +644,19 @@ static void set_rate(struct snd_ice1712 *ice, unsigned int rate)
 		ratio = WM8776_CLOCK_RATIO_768FS;
 		break;
 	case 0:
-		
+		/* no hint - S/PDIF input is master, simply return */
 		return;
 	default:
 		snd_BUG();
 		return;
 	}
 
+	/*
+	 * this currently sets the same rate for ADC and DAC, but limits
+	 * ADC rate to 256X (96kHz). For 256X mode (96kHz), this sets ADC
+	 * oversampling to 64x, as recommended by WM8776 datasheet.
+	 * Setting the rate is not really necessary in slave mode.
+	 */
 	adc_ratio = ratio;
 	if (adc_ratio < WM8776_CLOCK_RATIO_256FS)
 		adc_ratio = WM8776_CLOCK_RATIO_256FS;
@@ -615,11 +674,15 @@ static void set_rate(struct snd_ice1712 *ice, unsigned int rate)
 	mutex_unlock(&chip->mutex);
 }
 
+/*
+ * supported sample rates (to override the default one)
+ */
 
 static unsigned int rates[] = {
 	32000, 44100, 48000, 64000, 88200, 96000, 176400, 192000
 };
 
+/* playback rates: 32..192 kHz */
 static struct snd_pcm_hw_constraint_list dac_rates = {
 	.count = ARRAY_SIZE(rates),
 	.list = rates,
@@ -627,10 +690,16 @@ static struct snd_pcm_hw_constraint_list dac_rates = {
 };
 
 
+/*
+ * chip addresses on I2C bus
+ */
 static unsigned char wm8776_addr[2] __devinitdata = {
-	0x34, 0x36, 
+	0x34, 0x36, /* codec 0 & 1 */
 };
 
+/*
+ * initialize the chip
+ */
 static int __devinit maya44_init(struct snd_ice1712 *ice)
 {
 	int i;
@@ -643,7 +712,7 @@ static int __devinit maya44_init(struct snd_ice1712 *ice)
 	chip->ice = ice;
 	ice->spec = chip;
 
-	
+	/* initialise codecs */
 	ice->num_total_dacs = 4;
 	ice->num_total_adcs = 4;
 	ice->akm_codecs = 0;
@@ -653,44 +722,49 @@ static int __devinit maya44_init(struct snd_ice1712 *ice)
 		wm8776_select_input(chip, i, MAYA_LINE_IN);
 	}
 
-	
+	/* set card specific rates */
 	ice->hw_rates = &dac_rates;
 
-	
+	/* register change rate notifier */
 	ice->gpio.set_pro_rate = set_rate;
 
-	
+	/* RDMA1 (2nd input channel) is used for ADC by default */
 	ice->force_rdma1 = 1;
 
-	
+	/* have an own routing control */
 	ice->own_routing = 1;
 
 	return 0;
 }
 
 
+/*
+ * Maya44 boards don't provide the EEPROM data except for the vendor IDs.
+ * hence the driver needs to sets up it properly.
+ */
 
 static unsigned char maya44_eeprom[] __devinitdata = {
 	[ICE_EEP2_SYSCONF]     = 0x45,
-		
+		/* clock xin1=49.152MHz, mpu401, 2 stereo ADCs+DACs */
 	[ICE_EEP2_ACLINK]      = 0x80,
-		
+		/* I2S */
 	[ICE_EEP2_I2S]         = 0xf8,
-		
+		/* vol, 96k, 24bit, 192k */
 	[ICE_EEP2_SPDIF]       = 0xc3,
-		
+		/* enable spdif out, spdif out supp, spdif-in, ext spdif out */
 	[ICE_EEP2_GPIO_DIR]    = 0xff,
 	[ICE_EEP2_GPIO_DIR1]   = 0xff,
 	[ICE_EEP2_GPIO_DIR2]   = 0xff,
-	[ICE_EEP2_GPIO_MASK]   = 0,
-	[ICE_EEP2_GPIO_MASK1]  = 0,
-	[ICE_EEP2_GPIO_MASK2]  = 0,
+	[ICE_EEP2_GPIO_MASK]   = 0/*0x9f*/,
+	[ICE_EEP2_GPIO_MASK1]  = 0/*0xff*/,
+	[ICE_EEP2_GPIO_MASK2]  = 0/*0x7f*/,
 	[ICE_EEP2_GPIO_STATE]  = (1 << GPIO_PHANTOM_OFF) |
 			(1 << GPIO_SPDIF_IN_INV),
 	[ICE_EEP2_GPIO_STATE1] = 0x00,
 	[ICE_EEP2_GPIO_STATE2] = 0x00,
 };
 
+/* entry point */
 struct snd_ice1712_card_info snd_vt1724_maya44_cards[] __devinitdata = {
 	{
 		.subvendor = VT1724_SUBDEVICE_MAYA44,
@@ -701,5 +775,5 @@ struct snd_ice1712_card_info snd_vt1724_maya44_cards[] __devinitdata = {
 		.eeprom_size = sizeof(maya44_eeprom),
 		.eeprom_data = maya44_eeprom,
 	},
-	{ } 
+	{ } /* terminator */
 };

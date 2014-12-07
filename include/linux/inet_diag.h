@@ -3,11 +3,13 @@
 
 #include <linux/types.h>
 
+/* Just some random number */
 #define TCPDIAG_GETSOCK 18
 #define DCCPDIAG_GETSOCK 19
 
 #define INET_DIAG_GETSOCK_MAX 24
 
+/* Socket identity */
 struct inet_diag_sockid {
 	__be16	idiag_sport;
 	__be16	idiag_dport;
@@ -18,17 +20,18 @@ struct inet_diag_sockid {
 #define INET_DIAG_NOCOOKIE (~0U)
 };
 
+/* Request structure */
 
 struct inet_diag_req {
-	__u8	idiag_family;		
+	__u8	idiag_family;		/* Family of addresses. */
 	__u8	idiag_src_len;
 	__u8	idiag_dst_len;
-	__u8	idiag_ext;		
+	__u8	idiag_ext;		/* Query extended information */
 
 	struct inet_diag_sockid id;
 
-	__u32	idiag_states;		
-	__u32	idiag_dbs;		
+	__u32	idiag_states;		/* States to dump */
+	__u32	idiag_dbs;		/* Tables to dump (NI) */
 };
 
 struct inet_diag_req_v2 {
@@ -47,6 +50,11 @@ enum {
 
 #define INET_DIAG_REQ_MAX INET_DIAG_REQ_BYTECODE
 
+/* Bytecode is sequence of 4 byte commands followed by variable arguments.
+ * All the commands identified by "code" are conditional jumps forward:
+ * to offset cc+"yes" or to offset cc+"no". "yes" is supposed to be
+ * length of the command and its arguments.
+ */
  
 struct inet_diag_bc_op {
 	unsigned char	code;
@@ -73,6 +81,8 @@ struct inet_diag_hostcond {
 	__be32	addr[0];
 };
 
+/* Base info structure. It contains socket identity (addrs/ports/cookie)
+ * and, alas, the information shown by netstat. */
 struct inet_diag_msg {
 	__u8	idiag_family;
 	__u8	idiag_state;
@@ -88,6 +98,7 @@ struct inet_diag_msg {
 	__u32	idiag_inode;
 };
 
+/* Extensions */
 
 enum {
 	INET_DIAG_NONE,
@@ -103,6 +114,7 @@ enum {
 #define INET_DIAG_MAX INET_DIAG_SKMEMINFO
 
 
+/* INET_DIAG_MEM */
 
 struct inet_diag_meminfo {
 	__u32	idiag_rmem;
@@ -111,6 +123,7 @@ struct inet_diag_meminfo {
 	__u32	idiag_tmem;
 };
 
+/* INET_DIAG_VEGASINFO */
 
 struct tcpvegas_info {
 	__u32	tcpv_enabled;
@@ -159,6 +172,6 @@ int inet_diag_bc_sk(const struct nlattr *_bc, struct sock *sk);
 
 extern int  inet_diag_register(const struct inet_diag_handler *handler);
 extern void inet_diag_unregister(const struct inet_diag_handler *handler);
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _INET_DIAG_H_ */

@@ -22,6 +22,7 @@
 #include <linux/earlysuspend.h>
 
 #define FLASHLIGHT_NAME "flashlight"
+#define FLASHLIGHT_NAME_FRONT "flashlight_front"
 
 #define FLASHLIGHT_OFF   0
 #define FLASHLIGHT_TORCH 1
@@ -36,6 +37,7 @@ enum flashlight_mode_flags {
 	FL_MODE_PRE_FLASH,
 	FL_MODE_TORCH_LED_A,
 	FL_MODE_TORCH_LED_B,
+	FL_MODE_TORCH_LEVEL_0,
 	FL_MODE_TORCH_LEVEL_1,
 	FL_MODE_TORCH_LEVEL_2,
 	FL_MODE_CAMERA_EFFECT_FLASH,
@@ -72,7 +74,7 @@ enum flashlight_brightness_attribute_definition
     FBAD_FULL       = 255, 
 };
 
-#ifdef CONFIG_FLASHLIGHT_TPS61310
+#if defined(CONFIG_FLASHLIGHT_TPS61310) ||defined(CONFIG_FLASHLIGHT_TPS61310_FRONT)
 struct TPS61310_flashlight_platform_data {
 	void (*gpio_init) (void);
 	uint32_t flash_duration_ms;
@@ -86,9 +88,42 @@ struct TPS61310_flashlight_platform_data {
 	uint32_t power_save; 
 	uint32_t power_save_2;
 };
+#endif
+
+#ifdef CONFIG_FLASHLIGHT_TPS61310
 int tps61310_flashlight_control(int mode);
 int tps61310_flashlight_mode(int mode);
 int tps61310_flashlight_mode2(int mode2, int mode13);
 #endif
+
+#ifdef CONFIG_FLASHLIGHT_TPS61310_FRONT
+int tps61310_flashlight_mode2_front(int mode2, int mode13);
+int tps61310_flashlight_torch_front(int led2, int led13);
+#endif
+
+#ifdef CONFIG_FLASHLIGHT_LM3643
+struct LM3643_flashlight_platform_data {
+	void (*gpio_init) (void);
+	uint32_t flash_duration_ms;
+	uint32_t led_count; 
+	uint32_t lm3643_hwen;
+	uint32_t lm3643_strobe;
+	uint32_t lm3643_torch;
+	uint32_t lm3643_reset;
+	uint8_t mode_pin_suspend_state_low;
+	uint32_t enable_FLT_1500mA;
+	uint32_t disable_tx_mask;
+	uint32_t power_save; 
+	uint32_t power_save_2;
+};
+int lm3643_flashlight_flash(int led1,int led2);
+int lm3643_flashlight_torch(int led1, int led2);
+#endif
+
+#ifdef CONFIG_FRONT_FLASHLIGHT_COMMON
+extern int (*htc_flashlight_flash)(int ,int);
+extern int (*htc_flashlight_torch)(int ,int);
+#endif
+
 #undef __HTC_FLASHLIGHT_H
 #endif

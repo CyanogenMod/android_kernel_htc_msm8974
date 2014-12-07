@@ -4,6 +4,9 @@
 #include <linux/ceph/types.h>
 #include <linux/ceph/buffer.h>
 
+/*
+ * cryptographic secret
+ */
 struct ceph_crypto_key {
 	int type;
 	struct ceph_timespec created;
@@ -24,6 +27,7 @@ extern int ceph_crypto_key_decode(struct ceph_crypto_key *key,
 				  void **p, void *end);
 extern int ceph_crypto_key_unarmor(struct ceph_crypto_key *key, const char *in);
 
+/* crypto.c */
 extern int ceph_decrypt(struct ceph_crypto_key *secret,
 			void *dst, size_t *dst_len,
 			const void *src, size_t src_len);
@@ -41,6 +45,7 @@ extern int ceph_encrypt2(struct ceph_crypto_key *secret,
 extern int ceph_crypto_init(void);
 extern void ceph_crypto_shutdown(void);
 
+/* armor.c */
 extern int ceph_armor(char *dst, const char *src, const char *end);
 extern int ceph_unarmor(char *dst, const char *src, const char *end);
 

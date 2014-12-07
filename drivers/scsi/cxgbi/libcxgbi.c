@@ -24,7 +24,7 @@
 #include <linux/inet.h>
 #include <net/dst.h>
 #include <net/route.h>
-#include <linux/inetdevice.h>	
+#include <linux/inetdevice.h>	/* ip_dev_find */
 #include <linux/module.h>
 #include <net/tcp.h>
 
@@ -46,6 +46,10 @@ module_param(dbg_level, uint, 0644);
 MODULE_PARM_DESC(dbg_level, "libiscsi debug level (default=0)");
 
 
+/*
+ * cxgbi device management
+ * maintains a list of the cxgbi devices
+ */
 static LIST_HEAD(cdev_list);
 static DEFINE_MUTEX(cdev_mutex);
 
@@ -296,6 +300,20 @@ err_out:
 }
 EXPORT_SYMBOL_GPL(cxgbi_hbas_add);
 
+/*
+ * iSCSI offload
+ *
+ * - source port management
+ *   To find a free source port in the port allocation map we use a very simple
+ *   rotor scheme to look for the next free port.
+ *
+ *   If a source port has been specified make sure that it doesn't collide with
+ *   our normal source port allocation map.  If it's outside the range of our
+ *   allocation/deallocation scheme just let them use it.
+ *
+ *   If the source port is outside our allocation range, the caller is
+ *   responsible for keeping track of their port usage.
+ */
 static int sock_get_port(struct cxgbi_sock *csk)
 {
 	struct cxgbi_device *cdev = csk->cdev;
@@ -345,7 +363,7 @@ static int sock_get_port(struct cxgbi_sock *csk)
 	} while (idx != start);
 	spin_unlock_bh(&pmap->lock);
 
-	
+	/* should not happen */
 	pr_warn("cdev 0x%p, p#%u %s, next %u?\n",
 		cdev, csk->port_id, cdev->ports[csk->port_id]->name,
 		pmap->next);
@@ -383,6 +401,9 @@ static void sock_put_port(struct cxgbi_sock *csk)
 	}
 }
 
+/*
+ * iscsi tcp connection
+ */
 void cxgbi_sock_free_cpl_skbs(struct cxgbi_sock *csk)
 {
 	if (csk->cpl_close) {
@@ -914,6 +935,16 @@ out_err:
 	goto done;
 }
 
+/*
+ * Direct Data Placement -
+ * Directly place the iSCSI Data-In or Data-Out PDU's payload into pre-posted
+ * final destination host-memory buffers based on the Initiator Task Tag (ITT)
+ * in Data-In or Target Task Tag (TTT) in Data-Out PDUs.
+ * The host memory address is programmed into h/w in the format of pagepod
+ * entries.
+ * The location of the pagepod entry is encoded into ddp tag which is used as
+ * the base for ITT/TTT.
+ */
 
 static unsigned char ddp_page_order[DDP_PGIDX_MAX] = {0, 1, 2, 4};
 static unsigned char ddp_page_shift[DDP_PGIDX_MAX] = {12, 13, 14, 16};
@@ -922,6 +953,9 @@ static unsigned char page_idx = DDP_PGIDX_MAX;
 static unsigned char sw_tag_idx_bits;
 static unsigned char sw_tag_age_bits;
 
+/*
+ * Direct-Data Placement page size adjustment
+ */
 static int ddp_adjust_page_table(void)
 {
 	int i;
@@ -937,7 +971,7 @@ static int ddp_adjust_page_table(void)
 	order = get_order(1UL << PAGE_SHIFT);
 
 	for (i = 0; i < DDP_PGIDX_MAX; i++) {
-		
+		/* first is the kernel page size, then just doubling */
 		ddp_page_order[i] = order - base_order + i;
 		ddp_page_shift[i] = PAGE_SHIFT + i;
 	}
@@ -982,6 +1016,9 @@ void cxgbi_ddp_page_size_factor(int *pgsz_factor)
 }
 EXPORT_SYMBOL_GPL(cxgbi_ddp_page_size_factor);
 
+/*
+ * DDP setup & teardown
+ */
 
 void cxgbi_ddp_ppod_set(struct cxgbi_pagepod *ppod,
 			struct cxgbi_pagepod_hdr *hdr,
@@ -1010,7 +1047,7 @@ static inline int ddp_find_unused_entries(struct cxgbi_ddp_info *ddp,
 {
 	unsigned int i, j, k;
 
-	
+	/*  not enough entries */
 	if ((max - start) < count) {
 		log_debug(1 << CXGBI_DBG_DDP,
 			"NOT enough entries %u+%u < %u.\n", start, count, max);
@@ -1139,6 +1176,10 @@ static struct cxgbi_gather_list *ddp_make_gl(unsigned int xferlen,
 		if (sgpage == page && sg->offset == sgoffset + sglen)
 			sglen += sg->length;
 		else {
+			/*  make sure the sgl is fit for ddp:
+			 *  each has the same page size, and
+			 *  all of the middle pages are used completely
+			 */
 			if ((j && sgoffset) || ((i != sgcnt - 1) &&
 			    ((sglen + sgoffset) & ~PAGE_MASK))) {
 				log_debug(1 << CXGBI_DBG_DDP,
@@ -1392,6 +1433,9 @@ int cxgbi_ddp_init(struct cxgbi_device *cdev,
 }
 EXPORT_SYMBOL_GPL(cxgbi_ddp_init);
 
+/*
+ * APIs interacting with open-iscsi libraries
+ */
 
 static unsigned char padding[4];
 
@@ -1441,7 +1485,7 @@ static int task_reserve_itt(struct iscsi_task *task, itt_t *hdr_itt)
 
 	if (err < 0)
 		tag = cxgbi_set_non_ddp_tag(tformat, sw_tag);
-	
+	/*  the itt need to sent in big-endian order */
 	*hdr_itt = (__force itt_t)htonl(tag);
 
 	log_debug(1 << CXGBI_DBG_DDP,
@@ -1483,6 +1527,9 @@ void cxgbi_conn_tx_open(struct cxgbi_sock *csk)
 }
 EXPORT_SYMBOL_GPL(cxgbi_conn_tx_open);
 
+/*
+ * pdu receive, interact with libiscsi_tcp
+ */
 static inline int read_pdu_skb(struct iscsi_conn *conn,
 			       struct sk_buff *skb,
 			       unsigned int offset,
@@ -1501,11 +1548,15 @@ static inline int read_pdu_skb(struct iscsi_conn *conn,
 		log_debug(1 << CXGBI_DBG_PDU_RX,
 			"skb 0x%p, off %u, %d, TCP_SUSPEND, rc %d.\n",
 			skb, offset, offloaded, bytes_read);
-		
+		/* no transfer - just have caller flush queue */
 		return bytes_read;
 	case ISCSI_TCP_SKB_DONE:
 		pr_info("skb 0x%p, off %u, %d, TCP_SKB_DONE.\n",
 			skb, offset, offloaded);
+		/*
+		 * pdus should always fit in the skb and we should get
+		 * segment done notifcation.
+		 */
 		iscsi_conn_printk(KERN_ERR, conn, "Invalid pdu or skb.");
 		return -EFAULT;
 	case ISCSI_TCP_SEGMENT_DONE:
@@ -1566,7 +1617,7 @@ static int skb_read_pdu_data(struct iscsi_conn *conn, struct sk_buff *lskb,
 	if (iscsi_tcp_recv_segment_is_hdr(tcp_conn))
 		return 0;
 
-	
+	/* coalesced, add header digest length */
 	if (lskb == skb && conn->hdrdgst_en)
 		offset += ISCSI_DIGEST_SIZE;
 
@@ -1810,7 +1861,7 @@ int cxgbi_conn_alloc_pdu(struct iscsi_task *task, u8 opcode)
 	    (opcode == ISCSI_OP_SCSI_DATA_OUT ||
 	     (opcode == ISCSI_OP_SCSI_CMD &&
 	      (scsi_bidi_cmnd(sc) || sc->sc_data_direction == DMA_TO_DEVICE))))
-		
+		/* data could goes into skb head */
 		headroom += min_t(unsigned int,
 				SKB_MAX_HEAD(cdev->skb_tx_rsvd),
 				conn->max_xmit_dlength);
@@ -1825,9 +1876,9 @@ int cxgbi_conn_alloc_pdu(struct iscsi_task *task, u8 opcode)
 
 	skb_reserve(tdata->skb, cdev->skb_tx_rsvd);
 	task->hdr = (struct iscsi_hdr *)tdata->skb->data;
-	task->hdr_max = SKB_TX_ISCSI_PDU_HEADER_MAX; 
+	task->hdr_max = SKB_TX_ISCSI_PDU_HEADER_MAX; /* BHS + AHS */
 
-	
+	/* data_out uses scsi_cmd's itt */
 	if (opcode != ISCSI_OP_SCSI_DATA_OUT)
 		task_reserve_itt(task, &task->hdr->itt);
 
@@ -1903,7 +1954,7 @@ int cxgbi_conn_init_pdu(struct iscsi_task *task, unsigned int offset,
 			char *dst = skb->data + task->hdr_len;
 			struct page_frag *frag = tdata->frags;
 
-			
+			/* data fits in the skb's headroom */
 			for (i = 0; i < tdata->nr_frags; i++, frag++) {
 				char *src = kmap_atomic(frag->page);
 
@@ -1917,7 +1968,7 @@ int cxgbi_conn_init_pdu(struct iscsi_task *task, unsigned int offset,
 			}
 			skb_put(skb, count + padlen);
 		} else {
-			
+			/* data fit into frag_list */
 			for (i = 0; i < tdata->nr_frags; i++) {
 				__skb_fill_page_desc(skb, i,
 						tdata->frags[i].page,
@@ -1996,7 +2047,7 @@ int cxgbi_conn_xmit_pdu(struct iscsi_task *task)
 		log_debug(1 << CXGBI_DBG_PDU_TX,
 			"task 0x%p, skb 0x%p, len %u/%u, %d EAGAIN.\n",
 			task, skb, skb->len, skb->data_len, err);
-		
+		/* reset skb to send when we are called again */
 		tdata->skb = skb;
 		return err;
 	}
@@ -2019,7 +2070,7 @@ void cxgbi_cleanup_task(struct iscsi_task *task)
 		"task 0x%p, skb 0x%p, itt 0x%x.\n",
 		task, tdata->skb, task->hdr_itt);
 
-	
+	/*  never reached the xmit task callout */
 	if (tdata->skb)
 		__kfree_skb(tdata->skb);
 	memset(tdata, 0, sizeof(*tdata));
@@ -2209,7 +2260,7 @@ int cxgbi_bind_conn(struct iscsi_cls_session *cls_session,
 	if (!ep)
 		return -EINVAL;
 
-	
+	/*  setup ddp pagesize */
 	cep = ep->dd_data;
 	csk = cep->csk;
 	err = csk->cdev->csk_ddp_setup_pgidx(csk, csk->tid, page_idx, 0);
@@ -2220,7 +2271,7 @@ int cxgbi_bind_conn(struct iscsi_cls_session *cls_session,
 	if (err)
 		return -EINVAL;
 
-	
+	/*  calculate the tag idx bits needed for this conn based on cmds_max */
 	cconn->task_idx_bits = (__ilog2_u32(conn->session->cmds_max - 1)) + 1;
 
 	write_lock_bh(&csk->callback_lock);
@@ -2236,7 +2287,7 @@ int cxgbi_bind_conn(struct iscsi_cls_session *cls_session,
 	log_debug(1 << CXGBI_DBG_ISCSI,
 		"cls 0x%p,0x%p, ep 0x%p, cconn 0x%p, csk 0x%p.\n",
 		cls_session, cls_conn, ep, cconn, csk);
-	
+	/*  init recv engine */
 	iscsi_tcp_hdr_recv_prep(tcp_conn);
 
 	return 0;

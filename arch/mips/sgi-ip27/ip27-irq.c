@@ -36,12 +36,31 @@
 #include <asm/sn/hub.h>
 #include <asm/sn/intr.h>
 
+/*
+ * Linux has a controller-independent x86 interrupt architecture.
+ * every controller has a 'controller-template', that is used
+ * by the main code to do the right thing. Each driver-visible
+ * interrupt source is transparently wired to the appropriate
+ * controller. Thus drivers need not be aware of the
+ * interrupt-controller.
+ *
+ * Various interrupt controllers we handle: 8259 PIC, SMP IO-APIC,
+ * PIIX4's internal 8259 PIC and SGI's Visual Workstation Cobalt (IO-)APIC.
+ * (IO-APICs assumed to be messaging to Pentium local-APICs)
+ *
+ * the code is designed to be easily extended with new/different
+ * interrupt controllers, without having to do assembly magic.
+ */
 
 extern asmlinkage void ip27_irq(void);
 
 extern struct bridge_controller *irq_to_bridge[];
 extern int irq_to_slot[];
 
+/*
+ * use these macros to get the encoded nasid and widget id
+ * from the irq value
+ */
 #define IRQ_TO_BRIDGE(i)		irq_to_bridge[(i)]
 #define	SLOT_FROM_PCI_IRQ(i)		irq_to_slot[i]
 
@@ -79,6 +98,9 @@ static inline int find_level(cpuid_t *cpunum, int irq)
 	panic("Could not identify cpu/level for irq %d", irq);
 }
 
+/*
+ * Find first bit set
+ */
 static int ms1bit(unsigned long x)
 {
 	int b = 0, s;
@@ -92,6 +114,17 @@ static int ms1bit(unsigned long x)
 	return b;
 }
 
+/*
+ * This code is unnecessarily complex, because we do
+ * intr enabling. Basically, once we grab the set of intrs we need
+ * to service, we must mask _all_ these interrupts; firstly, to make
+ * sure the same intr does not intr again, causing recursion that
+ * can lead to stack overflow. Secondly, we can not just mask the
+ * one intr we are do_IRQing, because the non-masked intrs in the
+ * first set might intr again, causing multiple servicings of the
+ * same intr. This effect is mostly seen for intercpu intrs.
+ * Kanoj 05.13.00
+ */
 
 static void ip27_do_irq_mask0(void)
 {
@@ -101,11 +134,11 @@ static void ip27_do_irq_mask0(void)
 	int pi_int_mask0 =
 		(cputoslice(cpu) == 0) ?  PI_INT_MASK0_A : PI_INT_MASK0_B;
 
-	
+	/* copied from Irix intpend0() */
 	pend0 = LOCAL_HUB_L(PI_INT_PEND0);
 	mask0 = LOCAL_HUB_L(pi_int_mask0);
 
-	pend0 &= mask0;		
+	pend0 &= mask0;		/* Pick intrs we should look at */
 	if (!pend0)
 		return;
 
@@ -126,7 +159,7 @@ static void ip27_do_irq_mask0(void)
 	} else
 #endif
 	{
-		
+		/* "map" swlevel to irq */
 		struct slice_data *si = cpu_data[cpu].data;
 
 		irq = si->level_to_irq[swlevel];
@@ -144,16 +177,16 @@ static void ip27_do_irq_mask1(void)
 	int pi_int_mask1 = (cputoslice(cpu) == 0) ?  PI_INT_MASK1_A : PI_INT_MASK1_B;
 	struct slice_data *si = cpu_data[cpu].data;
 
-	
+	/* copied from Irix intpend0() */
 	pend1 = LOCAL_HUB_L(PI_INT_PEND1);
 	mask1 = LOCAL_HUB_L(pi_int_mask1);
 
-	pend1 &= mask1;		
+	pend1 &= mask1;		/* Pick intrs we should look at */
 	if (!pend1)
 		return;
 
 	swlevel = ms1bit(pend1);
-	
+	/* "map" swlevel to irq */
 	irq = si->level_to_irq[swlevel];
 	LOCAL_HUB_CLR_INTR(swlevel);
 	do_IRQ(irq);
@@ -207,6 +240,7 @@ static int intr_disconnect_level(int cpu, int bit)
 	return 0;
 }
 
+/* Startup one of the (PCI ...) IRQs routes over a bridge.  */
 static unsigned int startup_bridge_irq(struct irq_data *d)
 {
 	struct bridge_controller *bc;
@@ -220,13 +254,28 @@ static unsigned int startup_bridge_irq(struct irq_data *d)
 	bridge = bc->base;
 
 	pr_debug("bridge_startup(): irq= 0x%x  pin=%d\n", d->irq, pin);
+	/*
+	 * "map" irq to a swlevel greater than 6 since the first 6 bits
+	 * of INT_PEND0 are taken
+	 */
 	swlevel = find_level(&cpu, d->irq);
 	bridge->b_int_addr[pin].addr = (0x20000 | swlevel | (bc->nasid << 8));
 	bridge->b_int_enable |= (1 << pin);
-	bridge->b_int_enable |= 0x7ffffe00;	
+	bridge->b_int_enable |= 0x7ffffe00;	/* more stuff in int_enable */
 
+	/*
+	 * Enable sending of an interrupt clear packt to the hub on a high to
+	 * low transition of the interrupt pin.
+	 *
+	 * IRIX sets additional bits in the address which are documented as
+	 * reserved in the bridge docs.
+	 */
 	bridge->b_int_mode |= (1UL << pin);
 
+	/*
+	 * We assume the bridge to have a 1:1 mapping between devices
+	 * (slots) and intr pins.
+	 */
 	device = bridge->b_int_device;
 	device &= ~(7 << (pin*3));
 	device |= (pin << (pin*3));
@@ -236,9 +285,10 @@ static unsigned int startup_bridge_irq(struct irq_data *d)
 
 	intr_connect_level(cpu, swlevel);
 
-        return 0;       
+        return 0;       /* Never anything pending.  */
 }
 
+/* Shutdown one of the (PCI ...) IRQs routes over a bridge.  */
 static void shutdown_bridge_irq(struct irq_data *d)
 {
 	struct bridge_controller *bc = IRQ_TO_BRIDGE(d->irq);
@@ -249,6 +299,10 @@ static void shutdown_bridge_irq(struct irq_data *d)
 	pr_debug("bridge_shutdown: irq 0x%x\n", d->irq);
 	pin = SLOT_FROM_PCI_IRQ(d->irq);
 
+	/*
+	 * map irq to a swlevel greater than 6 since the first 6 bits
+	 * of INT_PEND0 are taken
+	 */
 	swlevel = find_level(&cpu, d->irq);
 	intr_disconnect_level(cpu, swlevel);
 
@@ -261,7 +315,7 @@ static inline void enable_bridge_irq(struct irq_data *d)
 	cpuid_t cpu;
 	int swlevel;
 
-	swlevel = find_level(&cpu, d->irq);	
+	swlevel = find_level(&cpu, d->irq);	/* Criminal offence */
 	intr_connect_level(cpu, swlevel);
 }
 
@@ -270,7 +324,7 @@ static inline void disable_bridge_irq(struct irq_data *d)
 	cpuid_t cpu;
 	int swlevel;
 
-	swlevel = find_level(&cpu, d->irq);	
+	swlevel = find_level(&cpu, d->irq);	/* Criminal offence */
 	intr_disconnect_level(cpu, swlevel);
 }
 
@@ -296,6 +350,10 @@ int request_bridge_irq(struct bridge_controller *bc)
 	if (irq < 0)
 		return irq;
 
+	/*
+	 * "map" irq to a swlevel greater than 6 since the first 6 bits
+	 * of INT_PEND0 are taken
+	 */
 	cpu = bc->irq_cpu;
 	swlevel = alloc_level(cpu, irq);
 	if (unlikely(swlevel < 0)) {
@@ -304,7 +362,7 @@ int request_bridge_irq(struct bridge_controller *bc)
 		return -EAGAIN;
 	}
 
-	
+	/* Make sure it's not already pending when we connect it. */
 	nasid = COMPACT_TO_NASID_NODEID(cpu_to_node(cpu));
 	REMOTE_HUB_CLR_INTR(nasid, swlevel);
 
@@ -322,9 +380,9 @@ asmlinkage void plat_irq_dispatch(void)
 
 	if (pending & CAUSEF_IP4)
 		do_IRQ(rt_timer_irq);
-	else if (pending & CAUSEF_IP2)	
+	else if (pending & CAUSEF_IP2)	/* PI_INT_PEND_0 or CC_PEND_{A|B} */
 		ip27_do_irq_mask0();
-	else if (pending & CAUSEF_IP3)	
+	else if (pending & CAUSEF_IP3)	/* PI_INT_PEND_1 */
 		ip27_do_irq_mask1();
 	else if (pending & CAUSEF_IP5)
 		ip27_prof_timer();

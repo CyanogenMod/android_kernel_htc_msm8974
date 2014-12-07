@@ -53,4 +53,4 @@
 #define cpu_dcache_line_size()	32
 #define cpu_icache_line_size()	32
 
-#endif 
+#endif /* __ASM_MACH_ATH79_CPU_FEATURE_OVERRIDES_H */

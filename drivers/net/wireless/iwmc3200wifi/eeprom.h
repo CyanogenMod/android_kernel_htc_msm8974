@@ -91,7 +91,9 @@ enum {
 #define IWM_EEPROM_SKU_CAP_11N_ENABLE           (1 << 6)
 
 #define IWM_EEPROM_FAT_CHANNELS 20
+/* 2.4 gHz FAT primary channels: 1, 2, 3, 4, 5, 6, 7, 8, 9 */
 #define IWM_EEPROM_FAT_CHANNELS_24 9
+/* 5.2 gHz FAT primary channels: 36,44,52,60,100,108,116,124,132,149,157 */
 #define IWM_EEPROM_FAT_CHANNELS_52 11
 
 #define IWM_EEPROM_FAT_CHANNEL_ENABLED (1 << 0)

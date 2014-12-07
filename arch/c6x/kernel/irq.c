@@ -96,12 +96,12 @@ void __init init_IRQ(void)
 {
 	struct device_node *np;
 
-	
+	/* Mask all priority IRQs */
 	and_creg(IER, ~0xfff0);
 
 	np = of_find_compatible_node(NULL, NULL, "ti,c64x+core-pic");
 	if (np != NULL) {
-		
+		/* create the core host */
 		core_domain = irq_domain_add_legacy(np, NR_PRIORITY_IRQS,
 						    0, 0, &core_domain_ops,
 						    NULL);
@@ -112,10 +112,10 @@ void __init init_IRQ(void)
 
 	printk(KERN_INFO "Core interrupt controller initialized\n");
 
-	
+	/* now we're ready for other SoC controllers */
 	megamod_pic_init();
 
-	
+	/* Clear all general IRQ flags */
 	set_creg(ICR, 0xfff0);
 }
 

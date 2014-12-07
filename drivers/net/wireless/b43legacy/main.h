@@ -37,9 +37,11 @@
 
 #define P4D_BYT3S(magic, nr_bytes)	u8 __p4dding##magic[nr_bytes]
 #define P4D_BYTES(line, nr_bytes)	P4D_BYT3S(line, nr_bytes)
+/* Magic helper macro to pad structures. Ignore those above. It's magic. */
 #define PAD_BYTES(nr_bytes)		P4D_BYTES(__LINE__ , (nr_bytes))
 
 
+/* Lightweight function to convert a frequency (in Mhz) to a channel number. */
 static inline
 u8 b43legacy_freq_to_channel_bg(int freq)
 {
@@ -59,6 +61,7 @@ u8 b43legacy_freq_to_channel(struct b43legacy_wldev *dev,
 	return b43legacy_freq_to_channel_bg(freq);
 }
 
+/* Lightweight function to convert a channel number to a frequency (in Mhz). */
 static inline
 int b43legacy_channel_to_freq_bg(u8 channel)
 {
@@ -121,4 +124,4 @@ void b43legacy_mac_enable(struct b43legacy_wldev *dev);
 void b43legacy_controller_restart(struct b43legacy_wldev *dev,
 				  const char *reason);
 
-#endif 
+#endif /* B43legacy_MAIN_H_ */

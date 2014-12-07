@@ -59,18 +59,26 @@
  *
  ******************************************************************************/
 
+/* Only include this file if USE_PROFILE is defined */
 #ifdef USE_PROFILE
 
 
 
 
+/*******************************************************************************
+ *  constant definitions
+ ******************************************************************************/
 
 
+/* Allow support for calling system fcns to parse config file */
 #define __KERNEL_SYSCALLS__
 
 
 
 
+/*******************************************************************************
+ * include files
+ ******************************************************************************/
 #include <wl_version.h>
 
 #include <linux/netdevice.h>
@@ -83,6 +91,7 @@
 
 #include <debug.h>
 #include <hcf.h>
+/* #include <hcfdef.h> */
 
 #include <wl_if.h>
 #include <wl_internal.h>
@@ -92,7 +101,11 @@
 #include <wl_profile.h>
 
 
+/*******************************************************************************
+ * global variables
+ ******************************************************************************/
 
+/* Definition needed to prevent unresolved external in unistd.h */
 static int errno;
 
 #if DBG
@@ -105,75 +118,102 @@ int parse_yes_no(char *value);
 
 int parse_yes_no(char *value)
 {
-int rc = 0;										
+int rc = 0;										/* default to NO for invalid parameters */
 
 	if (strlen(value) == 1) {
 		if ((value[0] | ('Y'^'y')) == 'y')
 			rc = 1;
-	
-		
-		
+	/* } else { */
+		/* this should not be debug time info, it is an enduser data entry error ;? */
+		/* DBG_WARNING(DbgInfo, "%s invalid; will be ignored\n", PARM_NAME_MICROWAVE_ROBUSTNESS); */
 	}
 	return rc;
-} 
+} /* parse_yes_no */
 
 
+/*******************************************************************************
+ *	parse_config()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      This function opens the device's config file and parses the options from
+ *   it, so that it can properly configure itself. If no configuration file
+ *   or configuration is present, then continue to use the options already
+ *   parsed from config.opts or wireless.opts.
+ *
+ *  PARAMETERS:
+ *
+ *      dev - a pointer to the device's net_device structure
+ *
+ *  RETURNS:
+ *
+ *      N/A
+ *
+ ******************************************************************************/
 void parse_config(struct net_device *dev)
 {
 	int				    file_desc;
-#if 0 
+#if 0 /* BIN_DL */
 	int				rc;
 	char				*cp = NULL;
-#endif 
+#endif /* BIN_DL */
 	char                buffer[MAX_LINE_SIZE];
 	char                filename[MAX_LINE_SIZE];
 	mm_segment_t	    fs;
 	struct wl_private   *wvlan_config = NULL;
 	ENCSTRCT            sEncryption;
-	
+	/*------------------------------------------------------------------------*/
 
 	DBG_FUNC("parse_config");
 	DBG_ENTER(DbgInfo);
 
-	
+	/* Get the wavelan specific info for this device */
 	wvlan_config = dev->priv;
 	if (wvlan_config == NULL) {
 		DBG_ERROR(DbgInfo, "Wavelan specific info struct not present?\n");
 		return;
 	}
 
-	
+	/* setup the default encryption string */
 	strcpy(wvlan_config->szEncryption, DEF_CRYPT_STR);
 
-	
+	/* Obtain a user-space process context, storing the original context */
 	fs = get_fs();
 	set_fs(get_ds());
 
-	
+	/* Determine the filename for this device and attempt to open it */
 	sprintf(filename, "%s%s", ROOT_CONFIG_FILENAME, dev->name);
 	file_desc = open(filename, O_RDONLY, 0);
 	if (file_desc != -1) {
 		DBG_TRACE(DbgInfo, "Wireless config file found. Parsing options...\n");
 
-		
+		/* Read out the options */
 		while (readline(file_desc, buffer))
 			translate_option(buffer, wvlan_config);
-		
-		close(file_desc);	
+		/* Close the file */
+		close(file_desc);	/* ;?even if file_desc == -1 ??? */
 	} else {
 		DBG_TRACE(DbgInfo, "No iwconfig file found for this device; "
 				   "config.opts or wireless.opts will be used\n");
 	}
-	
+	/* Return to the original context */
 	set_fs(fs);
 
-	
+	/* convert the WEP keys, if read in as key1, key2, type of data */
 	if (wvlan_config->EnableEncryption) {
 		memset(&sEncryption, 0, sizeof(sEncryption));
 
 		wl_wep_decode(CRYPT_CODE, &sEncryption,
 						   wvlan_config->szEncryption);
 
+		/* the Linux driver likes to use 1-4 for the key IDs, and then
+		   convert to 0-3 when sending to the card.  The Windows code
+		   base used 0-3 in the API DLL, which was ported to Linux.  For
+		   the sake of the user experience, we decided to keep 0-3 as the
+		   numbers used in the DLL; and will perform the +1 conversion here.
+		   We could have converted  the entire Linux driver, but this is
+		   less obtrusive.  This may be a "todo" to convert the whole driver */
 		sEncryption.wEnabled = wvlan_config->EnableEncryption;
 		sEncryption.wTxKeyID = wvlan_config->TransmitKeyID - 1;
 
@@ -186,7 +226,7 @@ void parse_config(struct net_device *dev)
 						 sizeof(sEncryption));
 	}
 
-	
+	/* decode the encryption string for the call to wl_commit() */
 	wl_wep_decode(CRYPT_CODE, &sEncryption, wvlan_config->szEncryption);
 
 	wvlan_config->TransmitKeyID    = sEncryption.wTxKeyID + 1;
@@ -195,19 +235,19 @@ void parse_config(struct net_device *dev)
 	memcpy(&wvlan_config->DefaultKeys, &sEncryption.EncStr,
 			sizeof(CFG_DEFAULT_KEYS_STRCT));
 
-#if 0 
-		
+#if 0 /* BIN_DL */
+		/* Obtain a user-space process context, storing the original context */
 		fs = get_fs();
 		set_fs(get_ds());
 
-		
-		strcpy(filename, "/etc/agere/fw.bin");
-		file_desc = open(filename, 0, 0);
+		/* ;?just to fake something */
+		strcpy(/*wvlan_config->fw_image_*/filename, "/etc/agere/fw.bin");
+		file_desc = open(/*wvlan_config->fw_image_*/filename, 0, 0);
 		if (file_desc == -1) {
 			DBG_ERROR(DbgInfo, "No image file found\n");
 		} else {
 			DBG_TRACE(DbgInfo, "F/W image file found\n");
-#define DHF_ALLOC_SIZE 96000			
+#define DHF_ALLOC_SIZE 96000			/* just below 96K, let's hope it suffices for now and for the future */
 			cp = vmalloc(DHF_ALLOC_SIZE);
 			if (cp == NULL) {
 				DBG_ERROR(DbgInfo, "error in vmalloc\n");
@@ -229,22 +269,44 @@ void parse_config(struct net_device *dev)
 			}
 			close(file_desc);
 		}
-		set_fs(fs);			
-#endif 
+		set_fs(fs);			/* Return to the original context */
+#endif /* BIN_DL */
 
 	DBG_LEAVE(DbgInfo);
 	return;
-} 
+} /* parse_config */
 
+/*******************************************************************************
+ *	readline()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      This function reads in data from a given file one line at a time,
+ *   converting the detected newline character '\n' to a null '\0'. Note that
+ *   the file descriptor must be valid before calling this function.
+ *
+ *  PARAMETERS:
+ *
+ *      filedesc    - the file descriptor for the open configuration file
+ *      buffer      - a buffer pointer, passed in by the caller, to which the
+ *                    line will be stored.
+ *
+ *  RETURNS:
+ *
+ *      the number of bytes read
+ *      -1 on error
+ *
+ ******************************************************************************/
 int readline(int filedesc, char *buffer)
 {
 	int result = -1;
 	int bytes_read = 0;
-	
+	/*------------------------------------------------------------------------*/
 
-	
+	/* Make sure the file descriptor is good */
 	if (filedesc != -1) {
-		
+		/* Read in from the file byte by byte until a newline is reached */
 		while ((result = read(filedesc, &buffer[bytes_read], 1)) == 1) {
 			if (buffer[bytes_read] == '\n') {
 				buffer[bytes_read] = '\0';
@@ -255,13 +317,34 @@ int readline(int filedesc, char *buffer)
 		}
 	}
 
-	
+	/* Return the number of bytes read */
 	if (result == -1)
 		return result;
 	else
 		return bytes_read;
-} 
+} /* readline */
+/*============================================================================*/
 
+/*******************************************************************************
+ *	translate_option()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      This function takes a line read in from the config file and parses out
+ *   the key/value pairs. It then determines which key has been parsed and sets
+ *   the card's configuration based on the value given.
+ *
+ *  PARAMETERS:
+ *
+ *      buffer - a buffer containing a line to translate
+ *      config - a pointer to the device's private adapter structure
+ *
+ *  RETURNS:
+ *
+ *      N/A
+ *
+ ******************************************************************************/
 void translate_option(char *buffer, struct wl_private *lp)
 {
 	unsigned int value_convert = 0;
@@ -269,7 +352,7 @@ void translate_option(char *buffer, struct wl_private *lp)
 	char *key = NULL;
 	char *value = NULL;
 	u_char mac_value[ETH_ALEN];
-	
+	/*------------------------------------------------------------------------*/
 
 	DBG_FUNC("translate_option");
 
@@ -283,21 +366,26 @@ void translate_option(char *buffer, struct wl_private *lp)
 	if (key == NULL || value == NULL)
 		return;
 
-	
+	/* Determine which key it is and perform the appropriate action */
 
-	
+	/* Configuration parameters used in all scenarios */
 #if DBG
+	/* handle DebugFlag as early as possible so it starts its influence as early
+	 * as possible
+	 */
 	if (strcmp(key, PARM_NAME_DEBUG_FLAG) == 0) {
-		if (DebugFlag == ~0) {			
-			if (DbgInfo->DebugFlag == 0) {	
+		if (DebugFlag == ~0) {			/* if DebugFlag is not specified on the command line */
+			if (DbgInfo->DebugFlag == 0) {	/* if pc_debug did not set DebugFlag (i.e.pc_debug is
+											 * not specified or specified outside the 4-8 range
+											 */
 				DbgInfo->DebugFlag |= DBG_DEFAULTS;
 			}
 		} else {
-			DbgInfo->DebugFlag = simple_strtoul(value, NULL, 0); 
+			DbgInfo->DebugFlag = simple_strtoul(value, NULL, 0); /* ;?DebugFlag; */
 		}
-		DbgInfo->DebugFlag = simple_strtoul(value, NULL, 0); 
+		DbgInfo->DebugFlag = simple_strtoul(value, NULL, 0); /* ;?Delete ASAP */
 	}
-#endif 
+#endif /* DBG */
 	if (strcmp(key, PARM_NAME_AUTH_KEY_MGMT_SUITE) == 0) {
 		DBG_TRACE(DbgInfo, "%s, value: %s\n", PARM_NAME_AUTH_KEY_MGMT_SUITE, value);
 
@@ -327,7 +415,7 @@ void translate_option(char *buffer, struct wl_private *lp)
 
 		memset(lp->NetworkName, 0, (PARM_MAX_NAME_LEN + 1));
 
-		
+		/* Make sure the value isn't too long */
 		string_length = strlen(value);
 		if (string_length > PARM_MAX_NAME_LEN) {
 			DBG_WARNING(DbgInfo, "SSID too long; will be truncated\n");
@@ -340,7 +428,7 @@ void translate_option(char *buffer, struct wl_private *lp)
 	else if (strcmp(key, PARM_NAME_DOWNLOAD_FIRMWARE) == 0) {
 		DBG_TRACE(DbgInfo, "DOWNLOAD_FIRMWARE, value: %s\n", value);
 		memset(lp->fw_image_filename, 0, (MAX_LINE_SIZE + 1));
-		
+		/* Make sure the value isn't too long */
 		string_length = strlen(value);
 		if (string_length > MAX_LINE_SIZE)
 			DBG_WARNING(DbgInfo, "F/W image file name too long; will be ignored\n");
@@ -361,7 +449,7 @@ void translate_option(char *buffer, struct wl_private *lp)
 
 		memset(lp->szEncryption, 0, sizeof(lp->szEncryption));
 
-		
+		/* Make sure the value isn't too long */
 		string_length = strlen(value);
 		if (string_length > sizeof(lp->szEncryption)) {
 			DBG_WARNING(DbgInfo, "%s too long; will be truncated\n", PARM_NAME_ENCRYPTION);
@@ -410,7 +498,7 @@ void translate_option(char *buffer, struct wl_private *lp)
 			 DBG_WARNING(DbgInfo, "%s invalid; will be ignored\n", PARM_NAME_KEY4);
 		}
 	}
-	
+	/* New Parameters for WARP */
 	else if (strcmp(key, PARM_NAME_LOAD_BALANCING) == 0) {
 		DBG_TRACE(DbgInfo, "%s, value: %s\n", PARM_NAME_LOAD_BALANCING, value);
 		lp->loadBalancing = parse_yes_no(value);
@@ -445,7 +533,7 @@ void translate_option(char *buffer, struct wl_private *lp)
 
 		memset(lp->StationName, 0, (PARM_MAX_NAME_LEN + 1));
 
-		
+		/* Make sure the value isn't too long */
 		string_length = strlen(value);
 		if (string_length > PARM_MAX_NAME_LEN) {
 			DBG_WARNING(DbgInfo, "%s too long; will be truncated\n", PARM_NAME_OWN_NAME);
@@ -511,12 +599,13 @@ void translate_option(char *buffer, struct wl_private *lp)
 			DBG_WARNING(DbgInfo, "%s invalid; will be ignored\n", PARM_NAME_TX_POW_LEVEL);
 	}
 
-	
+	/* Need to add? : Country code, Short/Long retry */
 
-	
-#if 1 
+	/* Configuration parameters specific to STA mode */
+#if 1 /* ;? (HCF_TYPE) & HCF_TYPE_STA */
+/* ;?seems reasonable that even an AP-only driver could afford this small additional footprint */
 	if (CNV_INT_TO_LITTLE(lp->hcfCtx.IFB_FWIdentity.comp_id) == COMP_ID_FW_STA) {
-					
+					/* ;?should we return an error status in AP mode */
 		if (strcmp(key, PARM_NAME_PORT_TYPE) == 0) {
 			DBG_TRACE(DbgInfo, "%s, value: %s\n", PARM_NAME_PORT_TYPE, value);
 
@@ -528,11 +617,15 @@ void translate_option(char *buffer, struct wl_private *lp)
 		} else if (strcmp(key, PARM_NAME_PM_ENABLED) == 0) {
 			DBG_TRACE(DbgInfo, "%s, value: %s\n", PARM_NAME_PM_ENABLED, value);
 			value_convert = simple_strtoul(value, NULL, 0);
+	/* ;? how about wl_main.c containing
+	 * VALID_PARAM(PARM_PM_ENABLED <= WVLAN_PM_STATE_STANDARD ||
+	 *					 (PARM_PM_ENABLED & 0x7FFF) <= WVLAN_PM_STATE_STANDARD);
+	 */
 			if ((value_convert & 0x7FFF) <= PARM_MAX_PM_ENABLED) {
 				lp->PMEnabled = value_convert;
 			} else {
 				DBG_WARNING(DbgInfo, "%s invalid; will be ignored\n", PARM_NAME_PM_ENABLED);
-				
+				/* ;?this is a data entry error, hence not a DBG_WARNING */
 			}
 		} else if (strcmp(key, PARM_NAME_CREATE_IBSS) == 0) {
 			DBG_TRACE(DbgInfo, "%s, value: %s\n", PARM_NAME_CREATE_IBSS, value);
@@ -592,13 +685,13 @@ void translate_option(char *buffer, struct wl_private *lp)
 				DBG_WARNING(DbgInfo, "%s invalid; will be ignored\n", PARM_NAME_CONNECTION_CONTROL);
 		}
 
-		
+		/* Need to add? : Probe Data Rate */
 	}
-#endif  
+#endif  /* (HCF_TYPE) & HCF_TYPE_STA */
 
-	
-#if 1 
-		
+	/* Configuration parameters specific to AP mode */
+#if 1 /* ;? (HCF_TYPE) & HCF_TYPE_AP */
+		/* ;?should we restore this to allow smaller memory footprint */
 	if (CNV_INT_TO_LITTLE(lp->hcfCtx.IFB_FWIdentity.comp_id) == COMP_ID_FW_AP) {
 		if (strcmp(key, PARM_NAME_OWN_DTIM_PERIOD) == 0) {
 			DBG_TRACE(DbgInfo, "%s, value: %s\n", PARM_NAME_OWN_DTIM_PERIOD, value);
@@ -778,25 +871,46 @@ void translate_option(char *buffer, struct wl_private *lp)
 			else
 				DBG_WARNING(DbgInfo, "%s invalid; will be ignored\n", PARM_NAME_WDS_ADDRESS6);
 		}
-#endif  
+#endif  /* USE_WDS */
 	}
-#endif  
+#endif  /* (HCF_TYPE) & HCF_TYPE_AP */
 
 	return;
-} 
+} /* translate_option */
+/*============================================================================*/
 
+/*******************************************************************************
+ *	parse_mac_address()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      This function will parse a mac address string and convert it to a byte
+ *   array.
+ *
+ *  PARAMETERS:
+ *
+ *      value       - the MAC address, represented as a string
+ *      byte_array  - the MAC address, represented as a byte array of length
+ *                    ETH_ALEN
+ *
+ *  RETURNS:
+ *
+ *      The number of bytes in the final MAC address, should equal to ETH_ALEN.
+ *
+ ******************************************************************************/
 int parse_mac_address(char *value, u_char *byte_array)
 {
 	int     value_offset = 0;
 	int     array_offset = 0;
 	int     field_offset = 0;
 	char    byte_field[3];
-	
+	/*------------------------------------------------------------------------*/
 
 	memset(byte_field, '\0', 3);
 
 	while (value[value_offset] != '\0') {
-		
+		/* Skip over the colon chars seperating the bytes, if they exist */
 		if (value[value_offset] == ':') {
 			value_offset++;
 			continue;
@@ -806,7 +920,7 @@ int parse_mac_address(char *value, u_char *byte_array)
 		field_offset++;
 		value_offset++;
 
-		
+		/* Once the byte_field is filled, convert it and store it */
 		if (field_offset == 2) {
 			byte_field[field_offset] = '\0';
 			byte_array[array_offset] = simple_strtoul(byte_field, NULL, 16);
@@ -818,40 +932,63 @@ int parse_mac_address(char *value, u_char *byte_array)
 	/* Use the array_offset as a check; 6 bytes should be written to the
 	   byte_array */
 	return array_offset;
-} 
+} /* parse_mac_address */
+/*============================================================================*/
 
+/*******************************************************************************
+ *	ParseConfigLine()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Parses a line from the configuration file into an L-val and an R-val,
+ *  representing a key/value pair.
+ *
+ *  PARAMETERS:
+ *
+ *      pszLine     - the line from the config file to parse
+ *      ppszLVal    - the resulting L-val (Key)
+ *      ppszRVal    - the resulting R-val (Value)
+ *
+ *  RETURNS:
+ *
+ *      N/A
+ *
+ ******************************************************************************/
 void ParseConfigLine(char *pszLine, char **ppszLVal, char **ppszRVal)
 {
 	int i;
 	int size;
-	
+	/*------------------------------------------------------------------------*/
 
 	DBG_FUNC("ParseConfigLine");
 	DBG_ENTER(DbgInfo);
 
-	
+	/* get a snapshot of our string size */
 	size      = strlen(pszLine);
 	*ppszLVal = NULL;
 	*ppszRVal = NULL;
 
-	if (pszLine[0] != '#' &&							
-		 pszLine[0] != '\n' &&							
-		 !(pszLine[0] == '\r' && pszLine[1] == '\n')	
+	if (pszLine[0] != '#' &&							/* skip the line if it is a comment */
+		 pszLine[0] != '\n' &&							/* if it's an empty UNIX line, do nothing */
+		 !(pszLine[0] == '\r' && pszLine[1] == '\n')	/* if it's an empty MS-DOS line, do nothing */
 	   ) {
-		
+		/* advance past any whitespace, and assign the L-value */
 		for (i = 0; i < size; i++) {
 			if (pszLine[i] != ' ') {
 				*ppszLVal = &pszLine[i];
 				break;
 			}
 		}
-		
+		/* advance to the end of the l-value*/
 		for (i++; i < size; i++) {
 			if (pszLine[i] == ' ' || pszLine[i] == '=') {
 				pszLine[i] = '\0';
 				break;
 			}
 		}
+		/* make any whitespace and the equal sign a NULL character, and
+		   advance to the R-Value */
 		for (i++; i < size; i++) {
 			if (pszLine[i] == ' ' || pszLine[i] == '=') {
 				pszLine[i] = '\0';
@@ -860,7 +997,7 @@ void ParseConfigLine(char *pszLine, char **ppszLVal, char **ppszRVal)
 			*ppszRVal = &pszLine[i];
 			break;
 		}
-		
+		/* make the line ending character(s) a NULL */
 		for (i++; i < size; i++) {
 			if (pszLine[i] == '\n')
 				pszLine[i] = '\0';
@@ -869,6 +1006,7 @@ void ParseConfigLine(char *pszLine, char **ppszLVal, char **ppszRVal)
 		}
 	}
 	DBG_LEAVE(DbgInfo);
-} 
+} /* ParseConfigLine */
+/*============================================================================*/
 
-#endif  
+#endif  /* USE_PROFILE */

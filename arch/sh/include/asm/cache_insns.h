@@ -8,4 +8,4 @@
 # include "cache_insns_64.h"
 #endif
 
-#endif 
+#endif /* __ASM_SH_CACHE_INSNS_H */

@@ -31,12 +31,14 @@
 #define DRV_NAME		"fsl_viu"
 #define VIU_VERSION		"0.5.1"
 
-#define BUFFER_TIMEOUT		msecs_to_jiffies(500)  
+#define BUFFER_TIMEOUT		msecs_to_jiffies(500)  /* 0.5 seconds */
 
-#define	VIU_VID_MEM_LIMIT	4	
+#define	VIU_VID_MEM_LIMIT	4	/* Video memory limit, in Mb */
 
+/* I2C address of video decoder chip is 0x4A */
 #define VIU_VIDEO_DECODER_ADDR	0x25
 
+/* supported controls */
 static struct v4l2_queryctrl viu_qctrl[] = {
 	{
 		.id            = V4L2_CID_BRIGHTNESS,
@@ -87,9 +89,12 @@ static int info_level;
 			printk(KERN_DEBUG "viu: " fmt , ## arg);	\
 	} while (0)
 
+/*
+ * Basic structures
+ */
 struct viu_fmt {
 	char  name[32];
-	u32   fourcc;		
+	u32   fourcc;		/* v4l2 format id */
 	u32   pixelformat;
 	int   depth;
 };
@@ -111,8 +116,9 @@ static struct viu_fmt formats[] = {
 struct viu_dev;
 struct viu_buf;
 
+/* buffer for one video frame */
 struct viu_buf {
-	
+	/* common v4l buffer stuff -- must be first */
 	struct videobuf_buffer vb;
 	struct viu_fmt *fmt;
 };
@@ -153,7 +159,7 @@ struct viu_dev {
 	int			users;
 
 	struct device		*dev;
-	
+	/* various device info */
 	struct video_device	*vdev;
 	struct viu_dmaqueue	vidq;
 	enum v4l2_field		capfield;
@@ -161,26 +167,26 @@ struct viu_dev {
 	int			first;
 	int			dma_done;
 
-	
+	/* Hardware register area */
 	struct viu_reg		*vr;
 
-	
+	/* Interrupt vector */
 	int			irq;
 	struct viu_status	irqs;
 
-	
+	/* video overlay */
 	struct v4l2_framebuffer	ovbuf;
 	struct viu_fmt		*ovfmt;
 	unsigned int		ovenable;
 	enum v4l2_field		ovfield;
 
-	
+	/* crop */
 	struct v4l2_rect	crop_current;
 
-	
+	/* clock pointer */
 	struct clk		*clk;
 
-	
+	/* decoder */
 	struct v4l2_subdev	*decoder;
 
 	v4l2_std_id		std;
@@ -189,15 +195,15 @@ struct viu_dev {
 struct viu_fh {
 	struct viu_dev		*dev;
 
-	
+	/* video capture */
 	struct videobuf_queue	vb_vidq;
-	spinlock_t		vbq_lock; 
+	spinlock_t		vbq_lock; /* spinlock for the videobuf queue */
 
-	
+	/* video overlay */
 	struct v4l2_window	win;
 	struct v4l2_clip	clips[1];
 
-	
+	/* video capture */
 	struct viu_fmt		*fmt;
 	int			width, height, sizeimage;
 	enum v4l2_buf_type	type;
@@ -205,43 +211,49 @@ struct viu_fh {
 
 static struct viu_reg reg_val;
 
+/*
+ * Macro definitions of VIU registers
+ */
 
+/* STATUS_CONFIG register */
 enum status_config {
 	SOFT_RST		= 1 << 0,
 
-	ERR_MASK		= 0x0f << 4,	
-	ERR_NO			= 0x00,		
-	ERR_DMA_V		= 0x01 << 4,	
-	ERR_DMA_VB		= 0x02 << 4,	
-	ERR_LINE_TOO_LONG	= 0x04 << 4,	
-	ERR_TOO_MANG_LINES	= 0x05 << 4,	
-	ERR_LINE_TOO_SHORT	= 0x06 << 4,	
-	ERR_NOT_ENOUGH_LINE	= 0x07 << 4,	
-	ERR_FIFO_OVERFLOW	= 0x08 << 4,	
-	ERR_FIFO_UNDERFLOW	= 0x09 << 4,	
-	ERR_1bit_ECC		= 0x0a << 4,	
-	ERR_MORE_ECC		= 0x0b << 4,	
+	ERR_MASK		= 0x0f << 4,	/* Error code mask */
+	ERR_NO			= 0x00,		/* No error */
+	ERR_DMA_V		= 0x01 << 4,	/* DMA in vertical active */
+	ERR_DMA_VB		= 0x02 << 4,	/* DMA in vertical blanking */
+	ERR_LINE_TOO_LONG	= 0x04 << 4,	/* Line too long */
+	ERR_TOO_MANG_LINES	= 0x05 << 4,	/* Too many lines in field */
+	ERR_LINE_TOO_SHORT	= 0x06 << 4,	/* Line too short */
+	ERR_NOT_ENOUGH_LINE	= 0x07 << 4,	/* Not enough lines in field */
+	ERR_FIFO_OVERFLOW	= 0x08 << 4,	/* FIFO overflow */
+	ERR_FIFO_UNDERFLOW	= 0x09 << 4,	/* FIFO underflow */
+	ERR_1bit_ECC		= 0x0a << 4,	/* One bit ECC error */
+	ERR_MORE_ECC		= 0x0b << 4,	/* Two/more bits ECC error */
 
-	INT_FIELD_EN		= 0x01 << 8,	
-	INT_VSYNC_EN		= 0x01 << 9,	
-	INT_HSYNC_EN		= 0x01 << 10,	
-	INT_VSTART_EN		= 0x01 << 11,	
-	INT_DMA_END_EN		= 0x01 << 12,	
-	INT_ERROR_EN		= 0x01 << 13,	
-	INT_ECC_EN		= 0x01 << 14,	
+	INT_FIELD_EN		= 0x01 << 8,	/* Enable field interrupt */
+	INT_VSYNC_EN		= 0x01 << 9,	/* Enable vsync interrupt */
+	INT_HSYNC_EN		= 0x01 << 10,	/* Enable hsync interrupt */
+	INT_VSTART_EN		= 0x01 << 11,	/* Enable vstart interrupt */
+	INT_DMA_END_EN		= 0x01 << 12,	/* Enable DMA end interrupt */
+	INT_ERROR_EN		= 0x01 << 13,	/* Enable error interrupt */
+	INT_ECC_EN		= 0x01 << 14,	/* Enable ECC interrupt */
 
-	INT_FIELD_STATUS	= 0x01 << 16,	
-	INT_VSYNC_STATUS	= 0x01 << 17,	
-	INT_HSYNC_STATUS	= 0x01 << 18,	
-	INT_VSTART_STATUS	= 0x01 << 19,	
-	INT_DMA_END_STATUS	= 0x01 << 20,	
-	INT_ERROR_STATUS	= 0x01 << 21,	
+	INT_FIELD_STATUS	= 0x01 << 16,	/* field interrupt status */
+	INT_VSYNC_STATUS	= 0x01 << 17,	/* vsync interrupt status */
+	INT_HSYNC_STATUS	= 0x01 << 18,	/* hsync interrupt status */
+	INT_VSTART_STATUS	= 0x01 << 19,	/* vstart interrupt status */
+	INT_DMA_END_STATUS	= 0x01 << 20,	/* DMA end interrupt status */
+	INT_ERROR_STATUS	= 0x01 << 21,	/* error interrupt status */
 
-	DMA_ACT			= 0x01 << 27,	
-	FIELD_NO		= 0x01 << 28,	
-	DITHER_ON		= 0x01 << 29,	
-	ROUND_ON		= 0x01 << 30,	
-	MODE_32BIT		= 0x01 << 31,	
+	DMA_ACT			= 0x01 << 27,	/* Enable DMA transfer */
+	FIELD_NO		= 0x01 << 28,	/* Field number */
+	DITHER_ON		= 0x01 << 29,	/* Dithering is on */
+	ROUND_ON		= 0x01 << 30,	/* Round is on */
+	MODE_32BIT		= 0x01 << 31,	/* Data in RGBa888,
+						 * 0 in RGB565
+						 */
 };
 
 #define norm_maxw()	720
@@ -274,7 +286,7 @@ void viu_start_dma(struct viu_dev *dev)
 
 	dev->field = 0;
 
-	
+	/* Enable DMA operation */
 	out_be32(&vr->status_cfg, SOFT_RST);
 	out_be32(&vr->status_cfg, INT_FIELD_EN);
 }
@@ -287,7 +299,7 @@ void viu_stop_dma(struct viu_dev *dev)
 
 	out_be32(&vr->status_cfg, 0);
 
-	
+	/* Clear pending interrupts */
 	status_cfg = in_be32(&vr->status_cfg);
 	if (status_cfg & 0x3f0000)
 		out_be32(&vr->status_cfg, status_cfg & 0x3f0000);
@@ -300,11 +312,11 @@ void viu_stop_dma(struct viu_dev *dev)
 		} while (cnt--);
 
 		if (cnt < 0) {
-			
+			/* timed out, issue soft reset */
 			out_be32(&vr->status_cfg, SOFT_RST);
 			out_be32(&vr->status_cfg, 0);
 		} else {
-			
+			/* clear DMA_END and other pending irqs */
 			out_be32(&vr->status_cfg, status_cfg & 0x3f0000);
 		}
 	}
@@ -324,7 +336,7 @@ static int restart_video_queue(struct viu_dmaqueue *vidq)
 
 		viu_stop_dma(vidq->dev);
 
-		
+		/* cancel all outstanding capture requests */
 		list_for_each_entry_safe(buf, prev, &vidq->active, vb.queue) {
 			list_del(&buf->vb.queue);
 			buf->vb.state = VIDEOBUF_ERROR;
@@ -384,6 +396,9 @@ static void viu_vid_timeout(unsigned long data)
 	restart_video_queue(vidq);
 }
 
+/*
+ * Videobuf operations
+ */
 static int buffer_setup(struct videobuf_queue *vq, unsigned int *count,
 			unsigned int *size)
 {
@@ -423,13 +438,13 @@ inline int buffer_activate(struct viu_dev *dev, struct viu_buf *buf)
 	struct viu_reg *vr = dev->vr;
 	int bpp;
 
-	
+	/* setup the DMA base address */
 	reg_val.field_base_addr = videobuf_to_dma_contig(&buf->vb);
 
 	dprintk(1, "buffer_activate [%p/%d]: dma addr 0x%lx\n",
 		buf, buf->vb.i, (unsigned long)reg_val.field_base_addr);
 
-	
+	/* interlace is on by default, set horizontal DMA increment */
 	reg_val.status_cfg = 0;
 	bpp = buf->fmt->depth >> 3;
 	switch (bpp) {
@@ -447,7 +462,7 @@ inline int buffer_activate(struct viu_dev *dev, struct viu_buf *buf)
 		return -EINVAL;
 	}
 
-	
+	/* setup picture_count register */
 	reg_val.picture_count = (buf->vb.height / 2) << 16 |
 				buf->vb.width;
 
@@ -456,7 +471,7 @@ inline int buffer_activate(struct viu_dev *dev, struct viu_buf *buf)
 	buf->vb.state = VIDEOBUF_ACTIVE;
 	dev->capfield = buf->vb.field;
 
-	
+	/* reset dma increment if needed */
 	if (!V4L2_FIELD_HAS_BOTH(buf->vb.field))
 		reg_val.dma_inc = 0;
 
@@ -581,6 +596,9 @@ static struct videobuf_queue_ops viu_video_qops = {
 	.buf_release    = buffer_release,
 };
 
+/*
+ * IOCTL vidioc handling
+ */
 static int vidioc_querycap(struct file *file, void *priv,
 			   struct v4l2_capability *cap)
 {
@@ -750,11 +768,11 @@ static int viu_setup_preview(struct viu_dev *dev, struct viu_fh *fh)
 
 	reg_val.status_cfg = 0;
 
-	
+	/* setup window */
 	reg_val.picture_count = (fh->win.w.height / 2) << 16 |
 				fh->win.w.width;
 
-	
+	/* setup color depth and dma increment */
 	bpp = dev->ovfmt->depth / 8;
 	switch (bpp) {
 	case 2:
@@ -777,7 +795,7 @@ static int viu_setup_preview(struct viu_dev *dev, struct viu_fh *fh)
 
 	reg_val.status_cfg |= DMA_ACT | INT_DMA_END_EN | INT_FIELD_EN;
 
-	
+	/* setup the base address of the overlay buffer */
 	reg_val.field_base_addr = (u32)dev->ovbuf.base;
 
 	return 0;
@@ -820,7 +838,7 @@ static int vidioc_overlay(struct file *file, void *priv, unsigned int on)
 		viu_activate_overlay(dev->vr);
 		dev->ovenable = 1;
 
-		
+		/* start dma */
 		viu_start_dma(dev);
 		spin_unlock_irqrestore(&dev->slock, flags);
 	} else {
@@ -852,12 +870,12 @@ int vidioc_s_fbuf(struct file *file, void *priv, struct v4l2_framebuffer *arg)
 	if (!capable(CAP_SYS_ADMIN) && !capable(CAP_SYS_RAWIO))
 		return -EPERM;
 
-	
+	/* check args */
 	fmt = format_by_fourcc(fb->fmt.pixelformat);
 	if (fmt == NULL)
 		return -EINVAL;
 
-	
+	/* ok, accept it */
 	dev->ovbuf = *fb;
 	dev->ovfmt = fmt;
 	if (dev->ovbuf.fmt.bytesperline == 0) {
@@ -958,6 +976,7 @@ static int vidioc_g_std(struct file *file, void *priv, v4l2_std_id *std_id)
 	return 0;
 }
 
+/* only one input in this driver */
 static int vidioc_enum_input(struct file *file, void *priv,
 					struct v4l2_input *inp)
 {
@@ -989,6 +1008,7 @@ static int vidioc_s_input(struct file *file, void *priv, unsigned int i)
 	return 0;
 }
 
+/* Controls */
 static int vidioc_queryctrl(struct file *file, void *priv,
 				struct v4l2_queryctrl *qc)
 {
@@ -1039,7 +1059,7 @@ inline void viu_activate_next_buf(struct viu_dev *dev,
 	struct viu_dmaqueue *vidq = viuq;
 	struct viu_buf *buf;
 
-	
+	/* launch another DMA operation for an active/queued buffer */
 	if (!list_empty(&vidq->active)) {
 		buf = list_entry(vidq->active.next, struct viu_buf,
 					vb.queue);
@@ -1133,7 +1153,7 @@ static void viu_capture_intr(struct viu_dev *dev, u32 status)
 			return;
 		}
 
-		
+		/* setup buffer address for next dma operation */
 		if (!list_empty(&vidq->active)) {
 			u32 addr = reg_val.field_base_addr;
 
@@ -1168,7 +1188,7 @@ static void viu_capture_intr(struct viu_dev *dev, u32 status)
 			buf->vb.field_count++;
 			wake_up(&buf->vb.done);
 		}
-		
+		/* activate next dma buffer */
 		viu_activate_next_buf(dev, vidq);
 	}
 }
@@ -1188,7 +1208,7 @@ static irqreturn_t viu_intr(int irq, void *dev_id)
 		if (error)
 			dprintk(1, "Err: error(%d), times:%d!\n",
 				error >> 4, dev->irqs.error_irq);
-		
+		/* Clear interrupt error bit and error flags */
 		out_be32(&vr->status_cfg,
 			 (status & 0xffc0ffff) | INT_ERROR_STATUS);
 	}
@@ -1218,7 +1238,7 @@ static irqreturn_t viu_intr(int irq, void *dev_id)
 			dev->irqs.vsync_irq);
 	}
 
-	
+	/* clear all pending irqs */
 	status = in_be32(&vr->status_cfg);
 	out_be32(&vr->status_cfg,
 		 (status & 0xffc0ffff) | (status & INT_ALL_STATUS));
@@ -1228,11 +1248,14 @@ static irqreturn_t viu_intr(int irq, void *dev_id)
 		return IRQ_HANDLED;
 	}
 
-	
+	/* Capture mode */
 	viu_capture_intr(dev, status);
 	return IRQ_HANDLED;
 }
 
+/*
+ * File operations for the device
+ */
 static int viu_open(struct file *file)
 {
 	struct video_device *vdev = video_devdata(file);
@@ -1256,7 +1279,7 @@ static int viu_open(struct file *file)
 	dprintk(1, "open minor=%d type=%s users=%d\n", minor,
 		v4l2_type_names[V4L2_BUF_TYPE_VIDEO_CAPTURE], dev->users);
 
-	
+	/* allocate and initialize per filehandle data */
 	fh = kzalloc(sizeof(*fh), GFP_KERNEL);
 	if (!fh) {
 		dev->users--;
@@ -1273,7 +1296,7 @@ static int viu_open(struct file *file)
 	dev->crop_current.width  = fh->width;
 	dev->crop_current.height = fh->height;
 
-	
+	/* Put all controls at a sane state */
 	for (i = 0; i < ARRAY_SIZE(viu_qctrl); i++)
 		qctl_regs[i] = viu_qctrl[i].default_value;
 
@@ -1391,7 +1414,7 @@ static struct v4l2_file_operations viu_fops = {
 	.release	= viu_release,
 	.read		= viu_read,
 	.poll		= viu_poll,
-	.unlocked_ioctl	= video_ioctl2, 
+	.unlocked_ioctl	= video_ioctl2, /* V4L2 ioctl handler */
 	.mmap		= viu_mmap,
 };
 
@@ -1457,7 +1480,7 @@ static int __devinit viu_of_probe(struct platform_device *op)
 		return -EINVAL;
 	}
 
-	
+	/* request mem region */
 	if (!devm_request_mem_region(&op->dev, r.start,
 				     sizeof(struct viu_reg), DRV_NAME)) {
 		dev_err(&op->dev, "Error while requesting mem region\n");
@@ -1465,7 +1488,7 @@ static int __devinit viu_of_probe(struct platform_device *op)
 		goto err;
 	}
 
-	
+	/* remap registers */
 	viu_regs = devm_ioremap(&op->dev, r.start, sizeof(struct viu_reg));
 	if (!viu_regs) {
 		dev_err(&op->dev, "Can't map register set\n");
@@ -1473,7 +1496,7 @@ static int __devinit viu_of_probe(struct platform_device *op)
 		goto err;
 	}
 
-	
+	/* Prepare our private structure */
 	viu_dev = devm_kzalloc(&op->dev, sizeof(struct viu_dev), GFP_ATOMIC);
 	if (!viu_dev) {
 		dev_err(&op->dev, "Can't allocate private structure\n");
@@ -1485,7 +1508,7 @@ static int __devinit viu_of_probe(struct platform_device *op)
 	viu_dev->irq = viu_irq;
 	viu_dev->dev = &op->dev;
 
-	
+	/* init video dma queues */
 	INIT_LIST_HEAD(&viu_dev->vidq.active);
 	INIT_LIST_HEAD(&viu_dev->vidq.queued);
 
@@ -1506,7 +1529,7 @@ static int __devinit viu_of_probe(struct platform_device *op)
 	init_timer(&viu_dev->vidq.timeout);
 	viu_dev->first = 1;
 
-	
+	/* Allocate memory for video device */
 	vdev = video_device_alloc();
 	if (vdev == NULL) {
 		ret = -ENOMEM;
@@ -1519,7 +1542,7 @@ static int __devinit viu_of_probe(struct platform_device *op)
 
 	viu_dev->vdev = vdev;
 
-	
+	/* initialize locks */
 	mutex_init(&viu_dev->lock);
 	viu_dev->vdev->lock = &viu_dev->lock;
 	spin_lock_init(&viu_dev->slock);
@@ -1534,7 +1557,7 @@ static int __devinit viu_of_probe(struct platform_device *op)
 		goto err_vdev;
 	}
 
-	
+	/* enable VIU clock */
 	viu_dev->clk = clk_get(&op->dev, "viu_clk");
 	if (IS_ERR(viu_dev->clk)) {
 		dev_err(&op->dev, "failed to find the clock module!\n");
@@ -1544,10 +1567,10 @@ static int __devinit viu_of_probe(struct platform_device *op)
 		clk_enable(viu_dev->clk);
 	}
 
-	
+	/* reset VIU module */
 	viu_reset(viu_dev->vr);
 
-	
+	/* install interrupt handler */
 	if (request_irq(viu_dev->irq, viu_intr, 0, "viu", (void *)viu_dev)) {
 		dev_err(&op->dev, "Request VIU IRQ failed.\n");
 		ret = -ENODEV;
@@ -1613,6 +1636,9 @@ static int viu_resume(struct platform_device *op)
 }
 #endif
 
+/*
+ * Initialization and module stuff
+ */
 static struct of_device_id mpc512x_viu_of_match[] = {
 	{
 		.compatible = "fsl,mpc5121-viu",

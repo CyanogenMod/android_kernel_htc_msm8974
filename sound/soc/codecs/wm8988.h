@@ -14,6 +14,7 @@
 #ifndef _WM8988_H
 #define _WM8988_H
 
+/* WM8988 register space */
 
 #define WM8988_LINVOL    0x00
 #define WM8988_RINVOL    0x01

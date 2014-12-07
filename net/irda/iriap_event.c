@@ -68,12 +68,12 @@ static void state_r_returning    (struct iriap_cb *self, IRIAP_EVENT event,
 
 static void (*iriap_state[])(struct iriap_cb *self, IRIAP_EVENT event,
 			     struct sk_buff *skb) = {
-	
+	/* Client FSM */
 	state_s_disconnect,
 	state_s_connecting,
 	state_s_call,
 
-	
+	/* S-Call FSM */
 	state_s_make_call,
 	state_s_calling,
 	state_s_outstanding,
@@ -81,11 +81,11 @@ static void (*iriap_state[])(struct iriap_cb *self, IRIAP_EVENT event,
 	state_s_wait_for_call,
 	state_s_wait_active,
 
-	
+	/* Server FSM */
 	state_r_disconnect,
 	state_r_call,
 
-	
+	/* R-Connect FSM */
 	state_r_waiting,
 	state_r_wait_active,
 	state_r_receiving,
@@ -162,6 +162,12 @@ void iriap_do_r_connect_event(struct iriap_cb *self, IRIAP_EVENT event,
 }
 
 
+/*
+ * Function state_s_disconnect (event, skb)
+ *
+ *    S-Disconnect, The device has no LSAP connection to a particular
+ *    remote device.
+ */
 static void state_s_disconnect(struct iriap_cb *self, IRIAP_EVENT event,
 			       struct sk_buff *skb)
 {
@@ -172,6 +178,8 @@ static void state_s_disconnect(struct iriap_cb *self, IRIAP_EVENT event,
 	case IAP_CALL_REQUEST_GVBC:
 		iriap_next_client_state(self, S_CONNECTING);
 		IRDA_ASSERT(self->request_skb == NULL, return;);
+		/* Don't forget to refcount it -
+		 * see iriap_getvaluebyclass_request(). */
 		skb_get(skb);
 		self->request_skb = skb;
 		iriap_connect_request(self);
@@ -184,6 +192,12 @@ static void state_s_disconnect(struct iriap_cb *self, IRIAP_EVENT event,
 	}
 }
 
+/*
+ * Function state_s_connecting (self, event, skb)
+ *
+ *    S-Connecting
+ *
+ */
 static void state_s_connecting(struct iriap_cb *self, IRIAP_EVENT event,
 			       struct sk_buff *skb)
 {
@@ -192,12 +206,15 @@ static void state_s_connecting(struct iriap_cb *self, IRIAP_EVENT event,
 
 	switch (event) {
 	case IAP_LM_CONNECT_CONFIRM:
+		/*
+		 *  Jump to S-Call FSM
+		 */
 		iriap_do_call_event(self, IAP_CALL_REQUEST, skb);
-		
+		/* iriap_call_request(self, 0,0,0); */
 		iriap_next_client_state(self, S_CALL);
 		break;
 	case IAP_LM_DISCONNECT_INDICATION:
-		
+		/* Abort calls */
 		iriap_next_call_state(self, S_MAKE_CALL);
 		iriap_next_client_state(self, S_DISCONNECT);
 		break;
@@ -207,6 +224,13 @@ static void state_s_connecting(struct iriap_cb *self, IRIAP_EVENT event,
 	}
 }
 
+/*
+ * Function state_s_call (self, event, skb)
+ *
+ *    S-Call, The device can process calls to a specific remote
+ *    device. Whenever the LSAP connection is disconnected, this state
+ *    catches that event and clears up
+ */
 static void state_s_call(struct iriap_cb *self, IRIAP_EVENT event,
 			 struct sk_buff *skb)
 {
@@ -214,7 +238,7 @@ static void state_s_call(struct iriap_cb *self, IRIAP_EVENT event,
 
 	switch (event) {
 	case IAP_LM_DISCONNECT_INDICATION:
-		
+		/* Abort calls */
 		iriap_next_call_state(self, S_MAKE_CALL);
 		iriap_next_client_state(self, S_DISCONNECT);
 		break;
@@ -224,6 +248,12 @@ static void state_s_call(struct iriap_cb *self, IRIAP_EVENT event,
 	}
 }
 
+/*
+ * Function state_s_make_call (event, skb)
+ *
+ *    S-Make-Call
+ *
+ */
 static void state_s_make_call(struct iriap_cb *self, IRIAP_EVENT event,
 			      struct sk_buff *skb)
 {
@@ -233,7 +263,7 @@ static void state_s_make_call(struct iriap_cb *self, IRIAP_EVENT event,
 
 	switch (event) {
 	case IAP_CALL_REQUEST:
-		
+		/* Already refcounted - see state_s_disconnect() */
 		tx_skb = self->request_skb;
 		self->request_skb = NULL;
 
@@ -246,12 +276,24 @@ static void state_s_make_call(struct iriap_cb *self, IRIAP_EVENT event,
 	}
 }
 
+/*
+ * Function state_s_calling (event, skb)
+ *
+ *    S-Calling
+ *
+ */
 static void state_s_calling(struct iriap_cb *self, IRIAP_EVENT event,
 			    struct sk_buff *skb)
 {
 	IRDA_DEBUG(0, "%s(), Not implemented\n", __func__);
 }
 
+/*
+ * Function state_s_outstanding (event, skb)
+ *
+ *    S-Outstanding, The device is waiting for a response to a command
+ *
+ */
 static void state_s_outstanding(struct iriap_cb *self, IRIAP_EVENT event,
 				struct sk_buff *skb)
 {
@@ -259,8 +301,8 @@ static void state_s_outstanding(struct iriap_cb *self, IRIAP_EVENT event,
 
 	switch (event) {
 	case IAP_RECV_F_LST:
-		
-		
+		/*iriap_send_ack(self);*/
+		/*LM_Idle_request(idle); */
 
 		iriap_next_call_state(self, S_WAIT_FOR_CALL);
 		break;
@@ -270,12 +312,23 @@ static void state_s_outstanding(struct iriap_cb *self, IRIAP_EVENT event,
 	}
 }
 
+/*
+ * Function state_s_replying (event, skb)
+ *
+ *    S-Replying, The device is collecting a multiple part response
+ */
 static void state_s_replying(struct iriap_cb *self, IRIAP_EVENT event,
 			     struct sk_buff *skb)
 {
 	IRDA_DEBUG(0, "%s(), Not implemented\n", __func__);
 }
 
+/*
+ * Function state_s_wait_for_call (event, skb)
+ *
+ *    S-Wait-for-Call
+ *
+ */
 static void state_s_wait_for_call(struct iriap_cb *self, IRIAP_EVENT event,
 				  struct sk_buff *skb)
 {
@@ -283,13 +336,30 @@ static void state_s_wait_for_call(struct iriap_cb *self, IRIAP_EVENT event,
 }
 
 
+/*
+ * Function state_s_wait_active (event, skb)
+ *
+ *    S-Wait-Active
+ *
+ */
 static void state_s_wait_active(struct iriap_cb *self, IRIAP_EVENT event,
 				struct sk_buff *skb)
 {
 	IRDA_DEBUG(0, "%s(), Not implemented\n", __func__);
 }
 
+/**************************************************************************
+ *
+ *  Server FSM
+ *
+ **************************************************************************/
 
+/*
+ * Function state_r_disconnect (self, event, skb)
+ *
+ *    LM-IAS server is disconnected (not processing any requests!)
+ *
+ */
 static void state_r_disconnect(struct iriap_cb *self, IRIAP_EVENT event,
 			       struct sk_buff *skb)
 {
@@ -303,14 +373,18 @@ static void state_r_disconnect(struct iriap_cb *self, IRIAP_EVENT event,
 			return;
 		}
 
-		
+		/* Reserve space for MUX_CONTROL and LAP header */
 		skb_reserve(tx_skb, LMP_MAX_HEADER);
 
 		irlmp_connect_response(self->lsap, tx_skb);
-		
+		/*LM_Idle_request(idle); */
 
 		iriap_next_server_state(self, R_CALL);
 
+		/*
+		 *  Jump to R-Connect FSM, we skip R-Waiting since we do not
+		 *  care about LM_Idle_request()!
+		 */
 		iriap_next_r_connect_state(self, R_RECEIVING);
 		break;
 	default:
@@ -319,6 +393,9 @@ static void state_r_disconnect(struct iriap_cb *self, IRIAP_EVENT event,
 	}
 }
 
+/*
+ * Function state_r_call (self, event, skb)
+ */
 static void state_r_call(struct iriap_cb *self, IRIAP_EVENT event,
 			 struct sk_buff *skb)
 {
@@ -326,7 +403,7 @@ static void state_r_call(struct iriap_cb *self, IRIAP_EVENT event,
 
 	switch (event) {
 	case IAP_LM_DISCONNECT_INDICATION:
-		
+		/* Abort call */
 		iriap_next_server_state(self, R_DISCONNECT);
 		iriap_next_r_connect_state(self, R_WAITING);
 		break;
@@ -336,7 +413,13 @@ static void state_r_call(struct iriap_cb *self, IRIAP_EVENT event,
 	}
 }
 
+/*
+ *  R-Connect FSM
+ */
 
+/*
+ * Function state_r_waiting (self, event, skb)
+ */
 static void state_r_waiting(struct iriap_cb *self, IRIAP_EVENT event,
 			    struct sk_buff *skb)
 {
@@ -349,6 +432,12 @@ static void state_r_wait_active(struct iriap_cb *self, IRIAP_EVENT event,
 	IRDA_DEBUG(0, "%s(), Not implemented\n", __func__);
 }
 
+/*
+ * Function state_r_receiving (self, event, skb)
+ *
+ *    We are receiving a command
+ *
+ */
 static void state_r_receiving(struct iriap_cb *self, IRIAP_EVENT event,
 			      struct sk_buff *skb)
 {
@@ -366,6 +455,12 @@ static void state_r_receiving(struct iriap_cb *self, IRIAP_EVENT event,
 	}
 }
 
+/*
+ * Function state_r_execute (self, event, skb)
+ *
+ *    The server is processing the request
+ *
+ */
 static void state_r_execute(struct iriap_cb *self, IRIAP_EVENT event,
 			    struct sk_buff *skb)
 {
@@ -377,8 +472,14 @@ static void state_r_execute(struct iriap_cb *self, IRIAP_EVENT event,
 
 	switch (event) {
 	case IAP_CALL_RESPONSE:
+		/*
+		 *  Since we don't implement the Waiting state, we return
+		 *  to state Receiving instead, DB.
+		 */
 		iriap_next_r_connect_state(self, R_RECEIVING);
 
+		/* Don't forget to refcount it - see
+		 * iriap_getvaluebyclass_response(). */
 		skb_get(skb);
 
 		irlmp_data_request(self->lsap, skb);

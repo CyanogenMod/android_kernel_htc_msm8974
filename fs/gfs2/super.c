@@ -133,6 +133,8 @@ int gfs2_mount_args(struct gfs2_args *args, char *options)
 	substring_t tmp[MAX_OPT_ARGS];
 	int rv;
 
+	/* Split the options into tokens with the "," character and
+	   process them */
 
 	while (1) {
 		o = strsep(&options, ",");
@@ -159,13 +161,13 @@ int gfs2_mount_args(struct gfs2_args *args, char *options)
 			args->ar_spectator = 1;
 			break;
 		case Opt_ignore_local_fs:
-			
+			/* Retained for backwards compat only */
 			break;
 		case Opt_localflocks:
 			args->ar_localflocks = 1;
 			break;
 		case Opt_localcaching:
-			
+			/* Retained for backwards compat only */
 			break;
 		case Opt_debug:
 			if (args->ar_errors == GFS2_ERRORS_PANIC) {
@@ -179,7 +181,7 @@ int gfs2_mount_args(struct gfs2_args *args, char *options)
 			args->ar_debug = 0;
 			break;
 		case Opt_upgrade:
-			
+			/* Retained for backwards compat only */
 			break;
 		case Opt_acl:
 			args->ar_posix_acl = 1;
@@ -275,6 +277,11 @@ int gfs2_mount_args(struct gfs2_args *args, char *options)
 	return 0;
 }
 
+/**
+ * gfs2_jindex_free - Clear all the journal index information
+ * @sdp: The GFS2 superblock
+ *
+ */
 
 void gfs2_jindex_free(struct gfs2_sbd *sdp)
 {
@@ -352,6 +359,12 @@ int gfs2_jdesc_check(struct gfs2_jdesc *jd)
 	return 0;
 }
 
+/**
+ * gfs2_make_fs_rw - Turn a Read-Only FS into a Read-Write one
+ * @sdp: the filesystem
+ *
+ * Returns: errno
+ */
 
 int gfs2_make_fs_rw(struct gfs2_sbd *sdp)
 {
@@ -377,7 +390,7 @@ int gfs2_make_fs_rw(struct gfs2_sbd *sdp)
 		goto fail;
 	}
 
-	
+	/*  Initialize some head of the log stuff  */
 	sdp->sd_log_sequence = head.lh_sequence + 1;
 	gfs2_log_pointers_init(sdp, head.lh_blkno);
 
@@ -576,6 +589,15 @@ struct lfcc {
 	struct gfs2_holder gh;
 };
 
+/**
+ * gfs2_lock_fs_check_clean - Stop all writes to the FS and check that all
+ *                            journals are clean
+ * @sdp: the file system
+ * @state: the state to put the transaction lock into
+ * @t_gh: the hold on the transaction lock
+ *
+ * Returns: errno
+ */
 
 static int gfs2_lock_fs_check_clean(struct gfs2_sbd *sdp,
 				    struct gfs2_holder *t_gh)
@@ -631,6 +653,16 @@ out:
 	return error;
 }
 
+/**
+ * gfs2_freeze_fs - freezes the file system
+ * @sdp: the file system
+ *
+ * This function flushes data and meta data for all machines by
+ * acquiring the transaction log exclusively.  All journals are
+ * ensured to be in a clean state as well.
+ *
+ * Returns: errno
+ */
 
 int gfs2_freeze_fs(struct gfs2_sbd *sdp)
 {
@@ -649,6 +681,15 @@ int gfs2_freeze_fs(struct gfs2_sbd *sdp)
 	return error;
 }
 
+/**
+ * gfs2_unfreeze_fs - unfreezes the file system
+ * @sdp: the file system
+ *
+ * This function allows the file system to proceed by unlocking
+ * the exclusively held transaction lock.  Other GFS2 nodes are
+ * now free to acquire the lock shared and go on with their lives.
+ *
+ */
 
 void gfs2_unfreeze_fs(struct gfs2_sbd *sdp)
 {
@@ -697,6 +738,13 @@ void gfs2_dinode_out(const struct gfs2_inode *ip, void *buf)
 	str->di_ctime_nsec = cpu_to_be32(ip->i_inode.i_ctime.tv_nsec);
 }
 
+/**
+ * gfs2_write_inode - Make sure the inode is stable on the disk
+ * @inode: The inode
+ * @wbc: The writeback control structure
+ *
+ * Returns: errno
+ */
 
 static int gfs2_write_inode(struct inode *inode, struct writeback_control *wbc)
 {
@@ -719,6 +767,18 @@ static int gfs2_write_inode(struct inode *inode, struct writeback_control *wbc)
 	return ret;
 }
 
+/**
+ * gfs2_dirty_inode - check for atime updates
+ * @inode: The inode in question
+ * @flags: The type of dirty
+ *
+ * Unfortunately it can be called under any combination of inode
+ * glock and transaction lock, so we have to check carefully.
+ *
+ * At the moment this deals only with atime - it should be possible
+ * to expand that role in future, once a review of the locking has
+ * been carried out.
+ */
 
 static void gfs2_dirty_inode(struct inode *inode, int flags)
 {
@@ -765,6 +825,12 @@ out:
 		gfs2_glock_dq_uninit(&gh);
 }
 
+/**
+ * gfs2_make_fs_ro - Turn a Read-Write FS into a Read-Only one
+ * @sdp: the filesystem
+ *
+ * Returns: errno
+ */
 
 static int gfs2_make_fs_ro(struct gfs2_sbd *sdp)
 {
@@ -799,6 +865,11 @@ static int gfs2_umount_recovery_wait(void *word)
 	return 0;
 }
 
+/**
+ * gfs2_put_super - Unmount the filesystem
+ * @sb: The VFS superblock
+ *
+ */
 
 static void gfs2_put_super(struct super_block *sb)
 {
@@ -806,18 +877,18 @@ static void gfs2_put_super(struct super_block *sb)
 	int error;
 	struct gfs2_jdesc *jd;
 
-	
+	/*  Unfreeze the filesystem, if we need to  */
 
 	mutex_lock(&sdp->sd_freeze_lock);
 	if (sdp->sd_freeze_count)
 		gfs2_glock_dq_uninit(&sdp->sd_freeze_gh);
 	mutex_unlock(&sdp->sd_freeze_lock);
 
-	
+	/* No more recovery requests */
 	set_bit(SDF_NORECOVERY, &sdp->sd_flags);
 	smp_mb();
 
-	
+	/* Wait on outstanding recovery */
 restart:
 	spin_lock(&sdp->sd_jindex_spin);
 	list_for_each_entry(jd, &sdp->sd_jindex_list, jd_list) {
@@ -838,9 +909,9 @@ restart:
 		if (error)
 			gfs2_io_error(sdp);
 	}
-	
+	/*  At this point, we're through modifying the disk  */
 
-	
+	/*  Release stuff  */
 
 	iput(sdp->sd_jindex);
 	iput(sdp->sd_statfs_inode);
@@ -862,15 +933,21 @@ restart:
 	gfs2_glock_dq_uninit(&sdp->sd_live_gh);
 	gfs2_clear_rgrpd(sdp);
 	gfs2_jindex_free(sdp);
-	
+	/*  Take apart glock structures and buffer lists  */
 	gfs2_gl_hash_clear(sdp);
-	
+	/*  Unmount the locking protocol  */
 	gfs2_lm_unmount(sdp);
 
-	
+	/*  At this point, we're through participating in the lockspace  */
 	gfs2_sys_fs_del(sdp);
 }
 
+/**
+ * gfs2_sync_fs - sync the filesystem
+ * @sb: the superblock
+ *
+ * Flushes the log to disk.
+ */
 
 static int gfs2_sync_fs(struct super_block *sb, int wait)
 {
@@ -880,6 +957,11 @@ static int gfs2_sync_fs(struct super_block *sb, int wait)
 	return 0;
 }
 
+/**
+ * gfs2_freeze - prevent further writes to the filesystem
+ * @sb: the VFS structure for the filesystem
+ *
+ */
 
 static int gfs2_freeze(struct super_block *sb)
 {
@@ -910,6 +992,11 @@ static int gfs2_freeze(struct super_block *sb)
 	return 0;
 }
 
+/**
+ * gfs2_unfreeze - reallow writes to the filesystem
+ * @sb: the VFS structure for the filesystem
+ *
+ */
 
 static int gfs2_unfreeze(struct super_block *sb)
 {
@@ -917,6 +1004,13 @@ static int gfs2_unfreeze(struct super_block *sb)
 	return 0;
 }
 
+/**
+ * statfs_fill - fill in the sg for a given RG
+ * @rgd: the RG
+ * @sc: the sc structure
+ *
+ * Returns: 0 on success, -ESTALE if the LVB is invalid
+ */
 
 static int statfs_slow_fill(struct gfs2_rgrpd *rgd,
 			    struct gfs2_statfs_change_host *sc)
@@ -928,6 +1022,18 @@ static int statfs_slow_fill(struct gfs2_rgrpd *rgd,
 	return 0;
 }
 
+/**
+ * gfs2_statfs_slow - Stat a filesystem using asynchronous locking
+ * @sdp: the filesystem
+ * @sc: the sc info that will be returned
+ *
+ * Any error (other than a signal) will cause this routine to fall back
+ * to the synchronous version.
+ *
+ * FIXME: This really shouldn't busy wait like this.
+ *
+ * Returns: errno
+ */
 
 static int gfs2_statfs_slow(struct gfs2_sbd *sdp, struct gfs2_statfs_change_host *sc)
 {
@@ -989,6 +1095,13 @@ static int gfs2_statfs_slow(struct gfs2_sbd *sdp, struct gfs2_statfs_change_host
 	return error;
 }
 
+/**
+ * gfs2_statfs_i - Do a statfs
+ * @sdp: the filesystem
+ * @sg: the sg structure
+ *
+ * Returns: errno
+ */
 
 static int gfs2_statfs_i(struct gfs2_sbd *sdp, struct gfs2_statfs_change_host *sc)
 {
@@ -1014,6 +1127,13 @@ static int gfs2_statfs_i(struct gfs2_sbd *sdp, struct gfs2_statfs_change_host *s
 	return 0;
 }
 
+/**
+ * gfs2_statfs - Gather and return stats about the filesystem
+ * @sb: The superblock
+ * @statfsbuf: The buffer
+ *
+ * Returns: 0 on success or error code
+ */
 
 static int gfs2_statfs(struct dentry *dentry, struct kstatfs *buf)
 {
@@ -1046,11 +1166,19 @@ static int gfs2_statfs(struct dentry *dentry, struct kstatfs *buf)
 	return 0;
 }
 
+/**
+ * gfs2_remount_fs - called when the FS is remounted
+ * @sb:  the filesystem
+ * @flags:  the remount flags
+ * @data:  extra data passed in (not used right now)
+ *
+ * Returns: errno
+ */
 
 static int gfs2_remount_fs(struct super_block *sb, int *flags, char *data)
 {
 	struct gfs2_sbd *sdp = sb->s_fs_info;
-	struct gfs2_args args = sdp->sd_args; 
+	struct gfs2_args args = sdp->sd_args; /* Default to current settings */
 	struct gfs2_tune *gt = &sdp->sd_tune;
 	int error;
 
@@ -1066,13 +1194,13 @@ static int gfs2_remount_fs(struct super_block *sb, int *flags, char *data)
 	if (error)
 		return error;
 
-	
+	/* Not allowed to change locking details */
 	if (strcmp(args.ar_lockproto, sdp->sd_args.ar_lockproto) ||
 	    strcmp(args.ar_locktable, sdp->sd_args.ar_locktable) ||
 	    strcmp(args.ar_hostdata, sdp->sd_args.ar_hostdata))
 		return -EINVAL;
 
-	
+	/* Some flags must not be changed */
 	if (args_neq(&args, &sdp->sd_args, spectator) ||
 	    args_neq(&args, &sdp->sd_args, localflocks) ||
 	    args_neq(&args, &sdp->sd_args, meta))
@@ -1116,6 +1244,20 @@ static int gfs2_remount_fs(struct super_block *sb, int *flags, char *data)
 	return 0;
 }
 
+/**
+ * gfs2_drop_inode - Drop an inode (test for remote unlink)
+ * @inode: The inode to drop
+ *
+ * If we've received a callback on an iopen lock then its because a
+ * remote node tried to deallocate the inode but failed due to this node
+ * still having the inode open. Here we mark the link count zero
+ * since we know that it must have reached zero if the GLF_DEMOTE flag
+ * is set on the iopen glock. If we didn't do a disk read since the
+ * remote node removed the final link then we might otherwise miss
+ * this event. This check ensures that this node will deallocate the
+ * inode's blocks, or alternatively pass the baton on to another
+ * node for later deallocation.
+ */
 
 static int gfs2_drop_inode(struct inode *inode)
 {
@@ -1139,6 +1281,13 @@ static int is_ancestor(const struct dentry *d1, const struct dentry *d2)
 	return 0;
 }
 
+/**
+ * gfs2_show_options - Show mount options for /proc/mounts
+ * @s: seq_file structure
+ * @root: root of this (sub)tree
+ *
+ * Returns: 0 on success or error code
+ */
 
 static int gfs2_show_options(struct seq_file *s, struct dentry *root)
 {
@@ -1299,6 +1448,26 @@ out:
 	return error;
 }
 
+/**
+ * gfs2_evict_inode - Remove an inode from cache
+ * @inode: The inode to evict
+ *
+ * There are three cases to consider:
+ * 1. i_nlink == 0, we are final opener (and must deallocate)
+ * 2. i_nlink == 0, we are not the final opener (and cannot deallocate)
+ * 3. i_nlink > 0
+ *
+ * If the fs is read only, then we have to treat all cases as per #3
+ * since we are unable to do any deallocation. The inode will be
+ * deallocated by the next read/write node to attempt an allocation
+ * in the same resource group
+ *
+ * We have to (at the moment) hold the inodes main lock to cover
+ * the gap between unlocking the shared lock on the iopen lock and
+ * taking the exclusive lock. I'd rather do a shared -> exclusive
+ * conversion on the iopen lock, but we can change that later. This
+ * is safe, just less efficient.
+ */
 
 static void gfs2_evict_inode(struct inode *inode)
 {
@@ -1311,7 +1480,7 @@ static void gfs2_evict_inode(struct inode *inode)
 	if (inode->i_nlink || (sb->s_flags & MS_RDONLY))
 		goto out;
 
-	
+	/* Must not read inode block until block type has been verified */
 	error = gfs2_glock_nq_init(ip->i_gl, LM_ST_EXCLUSIVE, GL_SKIP, &gh);
 	if (unlikely(error)) {
 		gfs2_glock_dq_uninit(&ip->i_iopen_gh);
@@ -1337,7 +1506,7 @@ static void gfs2_evict_inode(struct inode *inode)
 	if (error)
 		goto out_truncate;
 
-	
+	/* Case 1 starts here */
 
 	if (S_ISDIR(inode->i_mode) &&
 	    (ip->i_diskflags & GFS2_DIF_EXHASH)) {
@@ -1366,16 +1535,16 @@ out_truncate:
 	write_inode_now(inode, 1);
 	gfs2_ail_flush(ip->i_gl, 0);
 
-	
+	/* Case 2 starts here */
 	error = gfs2_trans_begin(sdp, 0, sdp->sd_jdesc->jd_blocks);
 	if (error)
 		goto out_unlock;
-	
+	/* Needs to be done before glock release & also in a transaction */
 	truncate_inode_pages(&inode->i_data, 0);
 	gfs2_trans_end(sdp);
 
 out_unlock:
-	
+	/* Error path for case 1 */
 	if (test_bit(HIF_HOLDER, &ip->i_iopen_gh.gh_iflags))
 		gfs2_glock_dq(&ip->i_iopen_gh);
 	gfs2_holder_uninit(&ip->i_iopen_gh);
@@ -1383,7 +1552,7 @@ out_unlock:
 	if (error && error != GLR_TRYFAILED && error != -EROFS)
 		fs_warn(sdp, "gfs2_evict_inode: %d\n", error);
 out:
-	
+	/* Case 3 starts here */
 	truncate_inode_pages(&inode->i_data, 0);
 	end_writeback(inode);
 	gfs2_dir_hash_inval(ip);

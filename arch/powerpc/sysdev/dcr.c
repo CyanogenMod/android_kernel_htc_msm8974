@@ -95,7 +95,7 @@ void dcr_unmap_generic(dcr_host_t host, unsigned int dcr_c)
 		dcr_unmap_native(host.host.native, dcr_c);
 	else if (host.type == DCR_HOST_MMIO)
 		dcr_unmap_mmio(host.host.mmio, dcr_c);
-	else 
+	else /* host.type == DCR_HOST_INVALID */
 		WARN_ON(true);
 }
 EXPORT_SYMBOL_GPL(dcr_unmap_generic);
@@ -106,7 +106,7 @@ u32 dcr_read_generic(dcr_host_t host, unsigned int dcr_n)
 		return dcr_read_native(host.host.native, dcr_n);
 	else if (host.type == DCR_HOST_MMIO)
 		return dcr_read_mmio(host.host.mmio, dcr_n);
-	else 
+	else /* host.type == DCR_HOST_INVALID */
 		WARN_ON(true);
 	return 0;
 }
@@ -118,12 +118,12 @@ void dcr_write_generic(dcr_host_t host, unsigned int dcr_n, u32 value)
 		dcr_write_native(host.host.native, dcr_n, value);
 	else if (host.type == DCR_HOST_MMIO)
 		dcr_write_mmio(host.host.mmio, dcr_n, value);
-	else 
+	else /* host.type == DCR_HOST_INVALID */
 		WARN_ON(true);
 }
 EXPORT_SYMBOL_GPL(dcr_write_generic);
 
-#endif 
+#endif /* defined(CONFIG_PPC_DCR_NATIVE) && defined(CONFIG_PPC_DCR_MMIO) */
 
 unsigned int dcr_resource_start(const struct device_node *np,
 				unsigned int index)
@@ -165,18 +165,18 @@ u64 of_translate_dcr_address(struct device_node *dev,
 	if (dp == NULL)
 		return OF_BAD_ADDR;
 
-	
+	/* Stride is not properly defined yet, default to 0x10 for Axon */
 	p = of_get_property(dp, "dcr-mmio-stride", NULL);
 	stride = (p == NULL) ? 0x10 : *p;
 
-	
+	/* XXX FIXME: Which property name is to use of the 2 following ? */
 	p = of_get_property(dp, "dcr-mmio-range", NULL);
 	if (p == NULL)
 		p = of_get_property(dp, "dcr-mmio-space", NULL);
 	if (p == NULL)
 		goto done;
 
-	
+	/* Maybe could do some better range checking here */
 	ret = of_translate_address(dp, p);
 	if (ret != OF_BAD_ADDR)
 		ret += (u64)(stride) * (u64)dcr_n;
@@ -226,9 +226,9 @@ void dcr_unmap_mmio(dcr_host_mmio_t host, unsigned int dcr_c)
 }
 EXPORT_SYMBOL_GPL(dcr_unmap_mmio);
 
-#endif 
+#endif /* defined(CONFIG_PPC_DCR_MMIO) */
 
 #ifdef CONFIG_PPC_DCR_NATIVE
 DEFINE_SPINLOCK(dcr_ind_lock);
-#endif	
+#endif	/* defined(CONFIG_PPC_DCR_NATIVE) */
 

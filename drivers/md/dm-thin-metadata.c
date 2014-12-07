@@ -14,6 +14,63 @@
 #include <linux/device-mapper.h>
 #include <linux/workqueue.h>
 
+/*--------------------------------------------------------------------------
+ * As far as the metadata goes, there is:
+ *
+ * - A superblock in block zero, taking up fewer than 512 bytes for
+ *   atomic writes.
+ *
+ * - A space map managing the metadata blocks.
+ *
+ * - A space map managing the data blocks.
+ *
+ * - A btree mapping our internal thin dev ids onto struct disk_device_details.
+ *
+ * - A hierarchical btree, with 2 levels which effectively maps (thin
+ *   dev id, virtual block) -> block_time.  Block time is a 64-bit
+ *   field holding the time in the low 24 bits, and block in the top 48
+ *   bits.
+ *
+ * BTrees consist solely of btree_nodes, that fill a block.  Some are
+ * internal nodes, as such their values are a __le64 pointing to other
+ * nodes.  Leaf nodes can store data of any reasonable size (ie. much
+ * smaller than the block size).  The nodes consist of the header,
+ * followed by an array of keys, followed by an array of values.  We have
+ * to binary search on the keys so they're all held together to help the
+ * cpu cache.
+ *
+ * Space maps have 2 btrees:
+ *
+ * - One maps a uint64_t onto a struct index_entry.  Which points to a
+ *   bitmap block, and has some details about how many free entries there
+ *   are etc.
+ *
+ * - The bitmap blocks have a header (for the checksum).  Then the rest
+ *   of the block is pairs of bits.  With the meaning being:
+ *
+ *   0 - ref count is 0
+ *   1 - ref count is 1
+ *   2 - ref count is 2
+ *   3 - ref count is higher than 2
+ *
+ * - If the count is higher than 2 then the ref count is entered in a
+ *   second btree that directly maps the block_address to a uint32_t ref
+ *   count.
+ *
+ * The space map metadata variant doesn't have a bitmaps btree.  Instead
+ * it has one single blocks worth of index_entries.  This avoids
+ * recursive issues with the bitmap btree needing to allocate space in
+ * order to insert.  With a small data block size such as 64k the
+ * metadata support data devices that are hundreds of terrabytes.
+ *
+ * The space maps allocate space linearly from front to back.  Space that
+ * is freed in a transaction is never recycled within that transaction.
+ * To try and avoid fragmenting _free_ space the allocator always goes
+ * back and fills in gaps.
+ *
+ * All metadata io is in THIN_METADATA_BLOCK_SIZE sized/aligned chunks
+ * from the block manager.
+ *--------------------------------------------------------------------------*/
 
 #define DM_MSG_PREFIX   "thin metadata"
 
@@ -23,12 +80,16 @@
 #define THIN_METADATA_CACHE_SIZE 64
 #define SECTOR_TO_BLOCK_SHIFT 3
 
+/* This should be plenty */
 #define SPACE_MAP_ROOT_SIZE 128
 
+/*
+ * Little endian on-disk superblock and device details.
+ */
 struct thin_disk_superblock {
-	__le32 csum;	
+	__le32 csum;	/* Checksum of superblock except for this field. */
 	__le32 flags;
-	__le64 blocknr;	
+	__le64 blocknr;	/* This block number, dm_block_t. */
 
 	__u8 uuid[16];
 	__le64 magic;
@@ -37,18 +98,27 @@ struct thin_disk_superblock {
 
 	__le64 trans_id;
 
+	/*
+	 * Root held by userspace transactions.
+	 */
 	__le64 held_root;
 
 	__u8 data_space_map_root[SPACE_MAP_ROOT_SIZE];
 	__u8 metadata_space_map_root[SPACE_MAP_ROOT_SIZE];
 
+	/*
+	 * 2-level btree mapping (dev_id, (dev block, time)) -> data block
+	 */
 	__le64 data_mapping_root;
 
+	/*
+	 * Device detail root mapping dev_id -> device_details
+	 */
 	__le64 device_details_root;
 
-	__le32 data_block_size;		
+	__le32 data_block_size;		/* In 512-byte sectors. */
 
-	__le32 metadata_block_size;	
+	__le32 metadata_block_size;	/* In 512-byte sectors. */
 	__le64 metadata_nr_blocks;
 
 	__le32 compat_flags;
@@ -58,7 +128,7 @@ struct thin_disk_superblock {
 
 struct disk_device_details {
 	__le64 mapped_blocks;
-	__le64 transaction_id;		
+	__le64 transaction_id;		/* When created. */
 	__le32 creation_time;
 	__le32 snapshotted_time;
 } __packed;
@@ -73,14 +143,31 @@ struct dm_pool_metadata {
 	struct dm_transaction_manager *tm;
 	struct dm_transaction_manager *nb_tm;
 
+	/*
+	 * Two-level btree.
+	 * First level holds thin_dev_t.
+	 * Second level holds mappings.
+	 */
 	struct dm_btree_info info;
 
+	/*
+	 * Non-blocking version of the above.
+	 */
 	struct dm_btree_info nb_info;
 
+	/*
+	 * Just the top level for deleting whole devices.
+	 */
 	struct dm_btree_info tl_info;
 
+	/*
+	 * Just the bottom level for creating new devices.
+	 */
 	struct dm_btree_info bl_info;
 
+	/*
+	 * Describes the device details btree.
+	 */
 	struct dm_btree_info details_info;
 
 	struct rw_semaphore root_lock;
@@ -107,6 +194,9 @@ struct dm_thin_device {
 	uint32_t snapshotted_time;
 };
 
+/*----------------------------------------------------------------
+ * superblock validator
+ *--------------------------------------------------------------*/
 
 #define SUPERBLOCK_CSUM_XOR 160774
 
@@ -161,6 +251,9 @@ static struct dm_block_validator sb_validator = {
 	.check = sb_check
 };
 
+/*----------------------------------------------------------------
+ * Methods for the btree value types
+ *--------------------------------------------------------------*/
 
 static uint64_t pack_block_time(dm_block_t b, uint32_t t)
 {
@@ -243,6 +336,7 @@ static int subtree_equal(void *context, void *value1_le, void *value2_le)
 	return v1_le == v2_le;
 }
 
+/*----------------------------------------------------------------*/
 
 static int superblock_all_zeroes(struct dm_block_manager *bm, int *result)
 {
@@ -252,6 +346,9 @@ static int superblock_all_zeroes(struct dm_block_manager *bm, int *result)
 	__le64 *data_le, zero = cpu_to_le64(0);
 	unsigned block_size = dm_bm_block_size(bm) / sizeof(__le64);
 
+	/*
+	 * We can't use a validator here - it may be all zeroes.
+	 */
 	r = dm_bm_read_lock(bm, THIN_SUPERBLOCK_LOCATION, NULL, &b);
 	if (r)
 		return r;
@@ -396,8 +493,15 @@ static int __begin_transaction(struct dm_pool_metadata *pmd)
 	struct thin_disk_superblock *disk_super;
 	struct dm_block *sblock;
 
+	/*
+	 * __maybe_commit_transaction() resets these
+	 */
 	WARN_ON(pmd->need_commit);
 
+	/*
+	 * We re-read the superblock every time.  Shouldn't need to do this
+	 * really.
+	 */
 	r = dm_bm_read_lock(pmd->bm, THIN_SUPERBLOCK_LOCATION,
 			    &sb_validator, &sblock);
 	if (r)
@@ -420,6 +524,9 @@ static int __begin_transaction(struct dm_pool_metadata *pmd)
 		goto out;
 	}
 
+	/*
+	 * Check for read-only metadata to skip the following RDWR checks.
+	 */
 	if (get_disk_ro(pmd->bdev->bd_disk))
 		goto out;
 
@@ -475,11 +582,17 @@ static int __write_changed_details(struct dm_pool_metadata *pmd)
 
 static int __commit_transaction(struct dm_pool_metadata *pmd)
 {
+	/*
+	 * FIXME: Associated pool should be made read-only on failure.
+	 */
 	int r;
 	size_t metadata_len, data_len;
 	struct thin_disk_superblock *disk_super;
 	struct dm_block *sblock;
 
+	/*
+	 * We need to know if the thin_disk_superblock exceeds a 512-byte sector.
+	 */
 	BUILD_BUG_ON(sizeof(struct thin_disk_superblock) > 512);
 
 	r = __write_changed_details(pmd);
@@ -556,6 +669,11 @@ struct dm_pool_metadata *dm_pool_metadata_open(struct block_device *bdev,
 		return ERR_PTR(-ENOMEM);
 	}
 
+	/*
+	 * Max hex locks:
+	 *  3 for btree insert +
+	 *  2 for btree lookup used within space map
+	 */
 	bm = dm_block_manager_create(bdev, THIN_METADATA_BLOCK_SIZE,
 				     THIN_METADATA_CACHE_SIZE, 5);
 	if (!bm) {
@@ -587,6 +705,9 @@ struct dm_pool_metadata *dm_pool_metadata_open(struct block_device *bdev,
 		return pmd;
 	}
 
+	/*
+	 * Create.
+	 */
 	r = dm_bm_write_lock(pmd->bm, THIN_SUPERBLOCK_LOCATION,
 			     &sb_validator, &sblock);
 	if (r)
@@ -672,6 +793,11 @@ int dm_pool_metadata_close(struct dm_pool_metadata *pmd)
 	return 0;
 }
 
+/*
+ * __open_device: Returns @td corresponding to device with id @dev,
+ * creating it if @create is set and incrementing @td->open_count.
+ * On failure, @td is undefined.
+ */
 static int __open_device(struct dm_pool_metadata *pmd,
 			 dm_thin_id dev, int create,
 			 struct dm_thin_device **td)
@@ -681,8 +807,14 @@ static int __open_device(struct dm_pool_metadata *pmd,
 	uint64_t key = dev;
 	struct disk_device_details details_le;
 
+	/*
+	 * If the device is already open, return it.
+	 */
 	list_for_each_entry(td2, &pmd->thin_devices, list)
 		if (td2->id == dev) {
+			/*
+			 * May not create an already-open device.
+			 */
 			if (create)
 				return -EEXIST;
 
@@ -691,12 +823,18 @@ static int __open_device(struct dm_pool_metadata *pmd,
 			return 0;
 		}
 
+	/*
+	 * Check the device exists.
+	 */
 	r = dm_btree_lookup(&pmd->details_info, pmd->details_root,
 			    &key, &details_le);
 	if (r) {
 		if (r != -ENODATA || !create)
 			return r;
 
+		/*
+		 * Create new device.
+		 */
 		changed = 1;
 		details_le.mapped_blocks = 0;
 		details_le.transaction_id = cpu_to_le64(pmd->trans_id);
@@ -742,10 +880,16 @@ static int __create_thin(struct dm_pool_metadata *pmd,
 	if (!r)
 		return -EEXIST;
 
+	/*
+	 * Create an empty btree for the mappings.
+	 */
 	r = dm_btree_empty(&pmd->bl_info, &dev_root);
 	if (r)
 		return r;
 
+	/*
+	 * Insert it into the main mapping tree.
+	 */
 	value = cpu_to_le64(dev_root);
 	__dm_bless_for_disk(&value);
 	r = dm_btree_insert(&pmd->tl_info, pmd->root, &key, &value, &pmd->root);
@@ -807,22 +951,22 @@ static int __create_snap(struct dm_pool_metadata *pmd,
 	struct disk_device_details details_le;
 	__le64 value;
 
-	
+	/* check this device is unused */
 	r = dm_btree_lookup(&pmd->details_info, pmd->details_root,
 			    &dev_key, &details_le);
 	if (!r)
 		return -EEXIST;
 
-	
+	/* find the mapping tree for the origin */
 	r = dm_btree_lookup(&pmd->tl_info, pmd->root, &key, &value);
 	if (r)
 		return r;
 	origin_root = le64_to_cpu(value);
 
-	
+	/* clone the origin, an inc will do */
 	dm_tm_inc(pmd->tm, origin_root);
 
-	
+	/* insert into the main mapping tree */
 	value = cpu_to_le64(origin_root);
 	__dm_bless_for_disk(&value);
 	key = dev;
@@ -872,7 +1016,7 @@ static int __delete_device(struct dm_pool_metadata *pmd, dm_thin_id dev)
 	uint64_t key = dev;
 	struct dm_thin_device *td;
 
-	
+	/* TODO: failure should mark the transaction invalid */
 	r = __open_device(pmd, dev, 0, &td);
 	if (r)
 		return r;
@@ -1125,6 +1269,9 @@ int dm_pool_commit_metadata(struct dm_pool_metadata *pmd)
 	if (r <= 0)
 		goto out;
 
+	/*
+	 * Open the next transaction.
+	 */
 	r = __begin_transaction(pmd);
 out:
 	up_write(&pmd->root_lock);

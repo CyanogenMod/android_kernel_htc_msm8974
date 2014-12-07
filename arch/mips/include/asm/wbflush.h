@@ -23,12 +23,12 @@ extern void wbflush_setup(void);
 		__wbflush();		\
 	} while (0)
 
-#else 
+#else /* !CONFIG_CPU_HAS_WB */
 
 #define wbflush_setup() do { } while (0)
 
 #define wbflush() fast_iob()
 
-#endif 
+#endif /* !CONFIG_CPU_HAS_WB */
 
-#endif 
+#endif /* _ASM_WBFLUSH_H */

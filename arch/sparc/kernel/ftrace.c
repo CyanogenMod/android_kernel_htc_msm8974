@@ -118,8 +118,12 @@ int ftrace_disable_ftrace_graph_caller(void)
 	return ftrace_modify_code(ip, old, new);
 }
 
-#endif 
+#endif /* !CONFIG_DYNAMIC_FTRACE */
 
+/*
+ * Hook the return address and push it in the stack of return addrs
+ * in current thread info.
+ */
 unsigned long prepare_ftrace_return(unsigned long parent,
 				    unsigned long self_addr,
 				    unsigned long frame_pointer)
@@ -136,7 +140,7 @@ unsigned long prepare_ftrace_return(unsigned long parent,
 
 	trace.func = self_addr;
 
-	
+	/* Only trace if the calling function expects to */
 	if (!ftrace_graph_entry(&trace)) {
 		current->curr_ret_stack--;
 		return parent + 8UL;
@@ -144,4 +148,4 @@ unsigned long prepare_ftrace_return(unsigned long parent,
 
 	return return_hooker;
 }
-#endif 
+#endif /* CONFIG_FUNCTION_GRAPH_TRACER */

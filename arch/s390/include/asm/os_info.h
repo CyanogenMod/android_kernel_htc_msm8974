@@ -9,7 +9,7 @@
 
 #define OS_INFO_VERSION_MAJOR	1
 #define OS_INFO_VERSION_MINOR	1
-#define OS_INFO_MAGIC		0x4f53494e464f535aULL 
+#define OS_INFO_MAGIC		0x4f53494e464f535aULL /* OSINFOSZ */
 
 #define OS_INFO_VMCOREINFO	0
 #define OS_INFO_REIPL_BLOCK	1
@@ -47,4 +47,4 @@ static inline void *os_info_old_entry(int nr, unsigned long *size)
 }
 #endif
 
-#endif 
+#endif /* _ASM_S390_OS_INFO_H */

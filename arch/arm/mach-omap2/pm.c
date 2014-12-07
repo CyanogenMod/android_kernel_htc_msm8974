@@ -32,6 +32,10 @@
 
 static struct omap_device_pm_latency *pm_lats;
 
+/*
+ * omap_pm_suspend: points to a function that does the SoC-specific
+ * suspend work
+ */
 int (*omap_pm_suspend)(void);
 
 static int __init _init_omap_device(char *name)
@@ -52,6 +56,9 @@ static int __init _init_omap_device(char *name)
 	return 0;
 }
 
+/*
+ * Build omap_devices for processors and bus.
+ */
 static void __init omap2_init_processor_devices(void)
 {
 	_init_omap_device("mpu");
@@ -67,6 +74,7 @@ static void __init omap2_init_processor_devices(void)
 	}
 }
 
+/* Types of sleep_switch used in omap_set_pwrdm_state */
 #define FORCEWAKEUP_SWITCH	0
 #define LOWPOWERSTATE_SWITCH	1
 
@@ -80,6 +88,10 @@ int __init omap_pm_clkdms_setup(struct clockdomain *clkdm, void *unused)
 	return 0;
 }
 
+/*
+ * This sets pwrdm state (other than mpu & core. Currently only ON &
+ * RET are supported.
+ */
 int omap_set_pwrdm_state(struct powerdomain *pwrdm, u32 pwrst)
 {
 	u8 curr_pwrst, next_pwrst;
@@ -134,6 +146,14 @@ int omap_set_pwrdm_state(struct powerdomain *pwrdm, u32 pwrst)
 
 
 
+/*
+ * This API is to be called during init to set the various voltage
+ * domains to the voltage as per the opp table. Typically we boot up
+ * at the nominal voltage. So this function finds out the rate of
+ * the clock associated with the voltage domain, finds out the correct
+ * opp entry and sets the voltage domain to the voltage specified
+ * in the opp entry
+ */
 static int __init omap2_set_init_voltage(char *vdd_name, char *clk_name,
 					 const char *oh_name)
 {
@@ -202,7 +222,7 @@ static int omap_pm_enter(suspend_state_t suspend_state)
 	int ret = 0;
 
 	if (!omap_pm_suspend)
-		return -ENOENT; 
+		return -ENOENT; /* XXX doublecheck */
 
 	switch (suspend_state) {
 	case PM_SUSPEND_STANDBY:
@@ -244,7 +264,7 @@ static const struct platform_suspend_ops omap_pm_ops = {
 	.valid		= suspend_valid_only_mem,
 };
 
-#endif 
+#endif /* CONFIG_SUSPEND */
 
 static void __init omap3_init_voltages(void)
 {
@@ -277,18 +297,23 @@ postcore_initcall(omap2_common_pm_init);
 
 static int __init omap2_common_pm_late_init(void)
 {
+	/*
+	 * In the case of DT, the PMIC and SR initialization will be done using
+	 * a completely different mechanism.
+	 * Disable this part if a DT blob is available.
+	 */
 	if (of_have_populated_dt())
 		return 0;
 
-	
+	/* Init the voltage layer */
 	omap_pmic_late_init();
 	omap_voltage_late_init();
 
-	
+	/* Initialize the voltages */
 	omap3_init_voltages();
 	omap4_init_voltages();
 
-	
+	/* Smartreflex device init */
 	omap_devinit_smartreflex();
 
 #ifdef CONFIG_SUSPEND

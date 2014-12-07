@@ -41,6 +41,7 @@
 #include "dss.h"
 #include "dss_features.h"
 
+/* Venc registers */
 #define VENC_REV_ID				0x00
 #define VENC_STATUS				0x04
 #define VENC_F_CONTROL				0x08
@@ -128,12 +129,13 @@ struct venc_config {
 	u32 gen_ctrl;
 };
 
+/* from TRM */
 static const struct venc_config venc_config_pal_trm = {
 	.f_control				= 0,
 	.vidout_ctrl				= 1,
 	.sync_ctrl				= 0x40,
-	.llen					= 0x35F, 
-	.flens					= 0x270, 
+	.llen					= 0x35F, /* 863 */
+	.flens					= 0x270, /* 624 */
 	.hfltr_ctrl				= 0,
 	.cc_carr_wss_carr			= 0x2F7225ED,
 	.c_phase				= 0,
@@ -172,6 +174,7 @@ static const struct venc_config venc_config_pal_trm = {
 	.gen_ctrl				= 0x00FF0000,
 };
 
+/* from TRM */
 static const struct venc_config venc_config_ntsc_trm = {
 	.f_control				= 0,
 	.vidout_ctrl				= 1,
@@ -375,8 +378,8 @@ static void venc_reset(void)
 	}
 
 #ifdef CONFIG_OMAP2_DSS_SLEEP_AFTER_VENC_RESET
-	
-	
+	/* the magical sleep that makes things work */
+	/* XXX more info? What bug this circumvents? */
 	msleep(20);
 #endif
 }
@@ -429,7 +432,7 @@ static int venc_power_on(struct omap_dss_device *dssdev)
 
 	if (dssdev->phy.venc.type == OMAP_DSS_VENC_TYPE_COMPOSITE)
 		l |= 1 << 1;
-	else 
+	else /* S-Video */
 		l |= (1 << 0) | (1 << 2);
 
 	if (dssdev->phy.venc.invert_polarity == false)
@@ -478,10 +481,11 @@ static void venc_power_off(struct omap_dss_device *dssdev)
 
 unsigned long venc_get_pixel_clock(void)
 {
-	
+	/* VENC Pixel Clock in Mhz */
 	return 13500000;
 }
 
+/* driver */
 static int venc_panel_probe(struct omap_dss_device *dssdev)
 {
 	dssdev->panel.timings = omap_dss_pal_timings;
@@ -546,7 +550,7 @@ static void venc_panel_disable(struct omap_dss_device *dssdev)
 		goto end;
 
 	if (dssdev->state == OMAP_DSS_DISPLAY_SUSPENDED) {
-		
+		/* suspended is the same as disabled with venc */
 		dssdev->state = OMAP_DSS_DISPLAY_DISABLED;
 		goto end;
 	}
@@ -584,13 +588,13 @@ static void venc_set_timings(struct omap_dss_device *dssdev,
 {
 	DSSDBG("venc_set_timings\n");
 
-	
+	/* Reset WSS data when the TV standard changes. */
 	if (memcmp(&dssdev->panel.timings, timings, sizeof(*timings)))
 		venc.wss_data = 0;
 
 	dssdev->panel.timings = *timings;
 	if (dssdev->state == OMAP_DSS_DISPLAY_ACTIVE) {
-		
+		/* turn the venc off and on to get new timings to use */
 		venc_panel_disable(dssdev);
 		venc_panel_enable(dssdev);
 	}
@@ -612,7 +616,7 @@ static int venc_check_timings(struct omap_dss_device *dssdev,
 
 static u32 venc_get_wss(struct omap_dss_device *dssdev)
 {
-	
+	/* Invert due to VENC_L21_WC_CTL:INV=1 */
 	return (venc.wss_data >> 8) ^ 0xfffff;
 }
 
@@ -627,7 +631,7 @@ static int venc_set_wss(struct omap_dss_device *dssdev,	u32 wss)
 
 	config = venc_timings_to_config(&dssdev->panel.timings);
 
-	
+	/* Invert due to VENC_L21_WC_CTL:INV=1 */
 	venc.wss_data = (wss ^ 0xfffff) << 8;
 
 	r = venc_runtime_get();
@@ -669,6 +673,7 @@ static struct omap_dss_driver venc_driver = {
 		.owner  = THIS_MODULE,
 	},
 };
+/* driver end */
 
 int venc_init_display(struct omap_dss_device *dssdev)
 {
@@ -774,6 +779,7 @@ static void venc_put_clocks(void)
 		clk_put(venc.tv_dac_clk);
 }
 
+/* VENC HW IP initialisation */
 static int omap_venchw_probe(struct platform_device *pdev)
 {
 	u8 rev_id;

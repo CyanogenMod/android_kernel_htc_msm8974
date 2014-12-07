@@ -23,6 +23,10 @@
 #define AR_MIBC_CMC		0x00000004
 #define AR_MIBC_MCS		0x00000008
 
+/*
+ * BSSID mask registers. See ath_hw_set_bssid_mask()
+ * for detailed documentation about these registers.
+ */
 #define AR_BSSMSKL		0x80e0
 #define AR_BSSMSKU		0x80e4
 
@@ -54,4 +58,4 @@
 #define AR_KEYTABLE_MAC0(_n)    (AR_KEYTABLE(_n) + 24)
 #define AR_KEYTABLE_MAC1(_n)    (AR_KEYTABLE(_n) + 28)
 
-#endif 
+#endif /* ATH_REGISTERS_H */

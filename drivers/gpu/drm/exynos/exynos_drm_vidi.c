@@ -25,6 +25,7 @@
 #include "exynos_drm_crtc.h"
 #include "exynos_drm_encoder.h"
 
+/* vidi has totally three virtual windows. */
 #define WINDOWS_NR		3
 
 #define get_vidi_context(dev)	platform_get_drvdata(to_platform_device(dev))
@@ -40,7 +41,7 @@ struct vidi_win_data {
 	dma_addr_t		dma_addr;
 	void __iomem		*vaddr;
 	unsigned int		buf_offsize;
-	unsigned int		line_size;	
+	unsigned int		line_size;	/* bytes */
 	bool			enabled;
 };
 
@@ -92,6 +93,10 @@ static bool vidi_display_is_connected(struct device *dev)
 
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
+	/*
+	 * connection request would come from user side
+	 * to do hotplug through specific ioctl.
+	 */
 	return ctx->connected ? true : false;
 }
 
@@ -103,6 +108,10 @@ static int vidi_get_edid(struct device *dev, struct drm_connector *connector,
 
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
+	/*
+	 * the edid data comes from user side and it would be set
+	 * to ctx->raw_edid through specific ioctl.
+	 */
 	if (!ctx->raw_edid) {
 		DRM_DEBUG_KMS("raw_edid is null.\n");
 		return -EFAULT;
@@ -117,7 +126,7 @@ static int vidi_get_edid(struct device *dev, struct drm_connector *connector,
 	memcpy(raw_edid, ctx->raw_edid, min((1 + ctx->raw_edid->extensions)
 						* EDID_LENGTH, len));
 
-	
+	/* attach the edid data to connector. */
 	connector->display_info.raw_edid = (char *)raw_edid;
 
 	memcpy(edid, ctx->raw_edid, min((1 + ctx->raw_edid->extensions)
@@ -130,7 +139,7 @@ static void *vidi_get_panel(struct device *dev)
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	
+	/* TODO. */
 
 	return NULL;
 }
@@ -139,7 +148,7 @@ static int vidi_check_timing(struct device *dev, void *timing)
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	
+	/* TODO. */
 
 	return 0;
 }
@@ -148,7 +157,7 @@ static int vidi_display_power_on(struct device *dev, int mode)
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	
+	/* TODO */
 
 	return 0;
 }
@@ -172,12 +181,12 @@ static void vidi_dpms(struct device *subdrv_dev, int mode)
 
 	switch (mode) {
 	case DRM_MODE_DPMS_ON:
-		
+		/* TODO. */
 		break;
 	case DRM_MODE_DPMS_STANDBY:
 	case DRM_MODE_DPMS_SUSPEND:
 	case DRM_MODE_DPMS_OFF:
-		
+		/* TODO. */
 		break;
 	default:
 		DRM_DEBUG_KMS("unspecified mode %d\n", mode);
@@ -296,6 +305,10 @@ static void vidi_win_mode_set(struct device *dev,
 				(overlay->bpp >> 3);
 	win_data->line_size = overlay->crtc_width * (overlay->bpp >> 3);
 
+	/*
+	 * some parts of win_data should be transferred to user side
+	 * through specific ioctl.
+	 */
 
 	DRM_DEBUG_KMS("offset_x = %d, offset_y = %d\n",
 			win_data->offset_x, win_data->offset_y);
@@ -352,7 +365,7 @@ static void vidi_win_disable(struct device *dev, int zpos)
 	win_data = &ctx->win_data[win];
 	win_data->enabled = false;
 
-	
+	/* TODO. */
 }
 
 static struct exynos_drm_overlay_ops vidi_overlay_ops = {
@@ -380,7 +393,7 @@ static void vidi_finish_pageflip(struct drm_device *drm_dev, int crtc)
 
 	list_for_each_entry_safe(e, t, &dev_priv->pageflip_event_list,
 			base.link) {
-		
+		/* if event's pipe isn't same as crtc then ignore it. */
 		if (crtc != e->pipe)
 			continue;
 
@@ -396,9 +409,17 @@ static void vidi_finish_pageflip(struct drm_device *drm_dev, int crtc)
 	}
 
 	if (is_checked) {
+		/*
+		 * call drm_vblank_put only in case that drm_vblank_get was
+		 * called.
+		 */
 		if (atomic_read(&drm_dev->vblank_refcount[crtc]) > 0)
 			drm_vblank_put(drm_dev, crtc);
 
+		/*
+		 * don't off vblank if vblank_disable_allowed is 1,
+		 * because vblank would be off by timer handler.
+		 */
 		if (!drm_dev->vblank_disable_allowed)
 			drm_vblank_off(drm_dev, crtc);
 	}
@@ -416,7 +437,7 @@ static void vidi_fake_vblank_handler(struct work_struct *work)
 	if (manager->pipe < 0)
 		return;
 
-	
+	/* refresh rate is about 50Hz. */
 	usleep_range(16000, 20000);
 
 	drm_handle_vblank(subdrv->drm_dev, manager->pipe);
@@ -427,8 +448,21 @@ static int vidi_subdrv_probe(struct drm_device *drm_dev, struct device *dev)
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
+	/*
+	 * enable drm irq mode.
+	 * - with irq_enabled = 1, we can use the vblank feature.
+	 *
+	 * P.S. note that we wouldn't use drm irq handler but
+	 *	just specific driver own one instead because
+	 *	drm framework supports only one irq handler.
+	 */
 	drm_dev->irq_enabled = 1;
 
+	/*
+	 * with vblank_disable_allowed = 1, vblank interrupt will be disabled
+	 * by drm timer once a current process gives up ownership of
+	 * vblank event.(after drm_vblank_put function is called)
+	 */
 	drm_dev->vblank_disable_allowed = 1;
 
 	return 0;
@@ -438,7 +472,7 @@ static void vidi_subdrv_remove(struct drm_device *drm_dev)
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	
+	/* TODO. */
 }
 
 static int vidi_power_on(struct vidi_context *ctx, bool enable)
@@ -454,7 +488,7 @@ static int vidi_power_on(struct vidi_context *ctx, bool enable)
 	if (enable) {
 		ctx->suspended = false;
 
-		
+		/* if vblank was enabled status, enable it again. */
 		if (test_and_clear_bit(0, &ctx->irq_flags))
 			vidi_enable_vblank(dev);
 
@@ -580,7 +614,7 @@ static int __devinit vidi_probe(struct platform_device *pdev)
 
 	INIT_WORK(&ctx->work, vidi_fake_vblank_handler);
 
-	
+	/* for test */
 	ctx->raw_edid = (struct edid *)fake_edid_info;
 
 	subdrv = &ctx->subdrv;

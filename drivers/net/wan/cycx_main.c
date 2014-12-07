@@ -42,16 +42,16 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/stddef.h>	
-#include <linux/errno.h>	
-#include <linux/string.h>	
-#include <linux/slab.h>		
-#include <linux/kernel.h>	
-#include <linux/module.h>	
-#include <linux/ioport.h>	
-#include <linux/wanrouter.h>	
-#include <linux/cyclomx.h>	
-#include <linux/init.h>         
+#include <linux/stddef.h>	/* offsetof(), etc. */
+#include <linux/errno.h>	/* return codes */
+#include <linux/string.h>	/* inline memset(), etc. */
+#include <linux/slab.h>		/* kmalloc(), kfree() */
+#include <linux/kernel.h>	/* printk(), and other useful stuff */
+#include <linux/module.h>	/* support for loadable modules */
+#include <linux/ioport.h>	/* request_region(), release_region() */
+#include <linux/wanrouter.h>	/* WAN router definitions */
+#include <linux/cyclomx.h>	/* cyclomx common user API definitions */
+#include <linux/init.h>         /* __init (when not using as a module) */
 #include <linux/interrupt.h>
 
 unsigned int cycx_debug;
@@ -62,28 +62,49 @@ MODULE_LICENSE("GPL");
 module_param(cycx_debug, int, 0);
 MODULE_PARM_DESC(cycx_debug, "cyclomx debug level");
 
+/* Defines & Macros */
 
-#define	CYCX_DRV_VERSION	0	
-#define	CYCX_DRV_RELEASE	11	
-#define	CYCX_MAX_CARDS		1	
+#define	CYCX_DRV_VERSION	0	/* version number */
+#define	CYCX_DRV_RELEASE	11	/* release (minor version) number */
+#define	CYCX_MAX_CARDS		1	/* max number of adapters */
 
 #define	CONFIG_CYCX_CARDS 1
 
+/* Function Prototypes */
 
+/* WAN link driver entry points */
 static int cycx_wan_setup(struct wan_device *wandev, wandev_conf_t *conf);
 static int cycx_wan_shutdown(struct wan_device *wandev);
 
+/* Miscellaneous functions */
 static irqreturn_t cycx_isr(int irq, void *dev_id);
 
+/* Global Data
+ * Note: All data must be explicitly initialized!!!
+ */
 
+/* private data */
 static const char cycx_drvname[] = "cyclomx";
 static const char cycx_fullname[] = "CYCLOM 2X(tm) Sync Card Driver";
 static const char cycx_copyright[] = "(c) 1998-2003 Arnaldo Carvalho de Melo "
 			  "<acme@conectiva.com.br>";
 static int cycx_ncards = CONFIG_CYCX_CARDS;
-static struct cycx_device *cycx_card_array;	
+static struct cycx_device *cycx_card_array;	/* adapter data space */
 
+/* Kernel Loadable Module Entry Points */
 
+/*
+ * Module 'insert' entry point.
+ * o print announcement
+ * o allocate adapter data space
+ * o initialize static data
+ * o register all cards with WAN router
+ * o calibrate Cyclom 2X shared memory access delay.
+ *
+ * Return:	0	Ok
+ *		< 0	error.
+ * Context:	process
+ */
 static int __init cycx_init(void)
 {
 	int cnt, err = -ENOMEM;
@@ -92,7 +113,7 @@ static int __init cycx_init(void)
 		cycx_fullname, CYCX_DRV_VERSION, CYCX_DRV_RELEASE,
 		cycx_copyright);
 
-	
+	/* Verify number of cards and allocate adapter data space */
 	cycx_ncards = min_t(int, cycx_ncards, CYCX_MAX_CARDS);
 	cycx_ncards = max_t(int, cycx_ncards, 1);
 	cycx_card_array = kcalloc(cycx_ncards, sizeof(struct cycx_device), GFP_KERNEL);
@@ -100,7 +121,7 @@ static int __init cycx_init(void)
 		goto out;
 
 
-	
+	/* Register adapters with WAN router */
 	for (cnt = 0; cnt < cycx_ncards; ++cnt) {
 		struct cycx_device *card = &cycx_card_array[cnt];
 		struct wan_device *wandev = &card->wandev;
@@ -126,10 +147,15 @@ static int __init cycx_init(void)
 		goto out;
 	}
 	err = 0;
-	cycx_ncards = cnt;	
+	cycx_ncards = cnt;	/* adjust actual number of cards */
 out:	return err;
 }
 
+/*
+ * Module 'remove' entry point.
+ * o unregister all adapters from the WAN router
+ * o release all remaining system resources
+ */
 static void __exit cycx_exit(void)
 {
 	int i = 0;
@@ -142,13 +168,26 @@ static void __exit cycx_exit(void)
 	kfree(cycx_card_array);
 }
 
+/* WAN Device Driver Entry Points */
+/*
+ * Setup/configure WAN link driver.
+ * o check adapter state
+ * o make sure firmware is present in configuration
+ * o allocate interrupt vector
+ * o setup Cyclom 2X hardware
+ * o call appropriate routine to perform protocol-specific initialization
+ *
+ * This function is called when router handles ROUTER_SETUP IOCTL. The
+ * configuration structure is in kernel memory (including extended data, if
+ * any).
+ */
 static int cycx_wan_setup(struct wan_device *wandev, wandev_conf_t *conf)
 {
 	int rc = -EFAULT;
 	struct cycx_device *card;
 	int irq;
 
-	
+	/* Sanity checks */
 
 	if (!wandev || !wandev->private || !conf)
 		goto out;
@@ -170,15 +209,15 @@ static int cycx_wan_setup(struct wan_device *wandev, wandev_conf_t *conf)
 		goto out;
 	}
 
-	
-	irq = conf->irq == 2 ? 9 : conf->irq;	
+	/* Allocate IRQ */
+	irq = conf->irq == 2 ? 9 : conf->irq;	/* IRQ2 -> IRQ9 */
 
 	if (request_irq(irq, cycx_isr, 0, wandev->name, card)) {
 		pr_err("%s: can't reserve IRQ %d!\n", wandev->name, irq);
 		goto out;
 	}
 
-	
+	/* Configure hardware, load firmware, etc. */
 	memset(&card->hw, 0, sizeof(card->hw));
 	card->hw.irq	 = irq;
 	card->hw.dpmsize = CYCX_WINDOWSIZE;
@@ -190,7 +229,7 @@ static int cycx_wan_setup(struct wan_device *wandev, wandev_conf_t *conf)
 	if (rc)
 		goto out_irq;
 
-	
+	/* Initialize WAN device data space */
 	wandev->irq       = irq;
 	wandev->dma       = wandev->ioport = 0;
 	wandev->maddr     = (unsigned long)card->hw.dpmbase;
@@ -198,7 +237,7 @@ static int cycx_wan_setup(struct wan_device *wandev, wandev_conf_t *conf)
 	wandev->hw_opt[2] = 0;
 	wandev->hw_opt[3] = card->hw.fwid;
 
-	
+	/* Protocol-specific initialization */
 	switch (card->hw.fwid) {
 #ifdef CONFIG_CYCLOMX_X25
 	case CFID_X25_2X:
@@ -223,12 +262,20 @@ out_irq:
 	goto out;
 }
 
+/*
+ * Shut down WAN link driver.
+ * o shut down adapter hardware
+ * o release system resources.
+ *
+ * This function is called by the router when device is being unregistered or
+ * when it handles ROUTER_DOWN IOCTL.
+ */
 static int cycx_wan_shutdown(struct wan_device *wandev)
 {
 	int ret = -EFAULT;
 	struct cycx_device *card;
 
-	
+	/* sanity checks */
 	if (!wandev || !wandev->private)
 		goto out;
 
@@ -244,6 +291,12 @@ static int cycx_wan_shutdown(struct wan_device *wandev)
 out:	return ret;
 }
 
+/* Miscellaneous */
+/*
+ * Cyclom 2X Interrupt Service Routine.
+ * o acknowledge Cyclom 2X hardware interrupt.
+ * o call protocol-specific interrupt service routine, if any.
+ */
 static irqreturn_t cycx_isr(int irq, void *dev_id)
 {
 	struct cycx_device *card = dev_id;
@@ -264,6 +317,7 @@ out:
 	return IRQ_NONE;
 }
 
+/* Set WAN device state.  */
 void cycx_set_state(struct cycx_device *card, int state)
 {
 	unsigned long flags;

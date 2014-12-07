@@ -29,16 +29,17 @@
 #ifndef __DATARATE_H__
 #define __DATARATE_H__
 
+/*---------------------  Export Definitions -------------------------*/
 
-#define FALLBACK_PKT_COLLECT_TR_H  50   
-#define FALLBACK_PKT_COLLECT_TR_L  10   
-#define FALLBACK_POLL_SECOND       5    
-#define FALLBACK_RECOVER_SECOND    30   
-#define FALLBACK_THRESHOLD         15   
-#define UPGRADE_THRESHOLD          5    
-#define UPGRADE_CNT_THRD           3    
-#define RETRY_TIMES_THRD_H         2    
-#define RETRY_TIMES_THRD_L         1    
+#define FALLBACK_PKT_COLLECT_TR_H  50   // pkts
+#define FALLBACK_PKT_COLLECT_TR_L  10   // pkts
+#define FALLBACK_POLL_SECOND       5    // 5 sec
+#define FALLBACK_RECOVER_SECOND    30   // 30 sec
+#define FALLBACK_THRESHOLD         15   // percent
+#define UPGRADE_THRESHOLD          5    // percent
+#define UPGRADE_CNT_THRD           3    // times
+#define RETRY_TIMES_THRD_H         2    // times
+#define RETRY_TIMES_THRD_L         1    // times
 
 
 #define RATE_1M         0
@@ -56,11 +57,15 @@
 #define RATE_AUTO      12
 #define MAX_RATE       12
 
+/*---------------------  Export Classes  ----------------------------*/
+
+/*---------------------  Export Variables  --------------------------*/
 
 
+/*---------------------  Export Types  ------------------------------*/
 
 
-
+/*---------------------  Export Functions  --------------------------*/
 
 
 
@@ -101,4 +106,4 @@ DATARATEbyGetRateIdx(
      BYTE byRate
     );
 
-#endif 
+#endif /* __DATARATE_H__ */

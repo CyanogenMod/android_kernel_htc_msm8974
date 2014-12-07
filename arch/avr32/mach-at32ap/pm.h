@@ -1,6 +1,10 @@
+/*
+ * Register definitions for the Power Manager (PM)
+ */
 #ifndef __ARCH_AVR32_MACH_AT32AP_PM_H__
 #define __ARCH_AVR32_MACH_AT32AP_PM_H__
 
+/* PM register offsets */
 #define PM_MCCTRL				0x0000
 #define PM_CKSEL				0x0004
 #define PM_CPU_MASK				0x0008
@@ -17,6 +21,7 @@
 #define PM_GCCTRL(x)				(0x0060 + 4 * (x))
 #define PM_RCAUSE				0x00c0
 
+/* Bitfields in CKSEL */
 #define PM_CPUSEL_OFFSET			0
 #define PM_CPUSEL_SIZE				3
 #define PM_CPUDIV_OFFSET			7
@@ -34,6 +39,7 @@
 #define PM_PBBDIV_OFFSET			31
 #define PM_PBBDIV_SIZE				1
 
+/* Bitfields in PLL0 */
 #define PM_PLLEN_OFFSET				0
 #define PM_PLLEN_SIZE				1
 #define PM_PLLOSC_OFFSET			1
@@ -49,6 +55,7 @@
 #define PM_PLLTEST_OFFSET			31
 #define PM_PLLTEST_SIZE				1
 
+/* Bitfields in ICR */
 #define PM_LOCK0_OFFSET				0
 #define PM_LOCK0_SIZE				1
 #define PM_LOCK1_OFFSET				1
@@ -60,6 +67,7 @@
 #define PM_MSKRDY_OFFSET			6
 #define PM_MSKRDY_SIZE				1
 
+/* Bitfields in GCCTRL0 */
 #define PM_OSCSEL_OFFSET			0
 #define PM_OSCSEL_SIZE				1
 #define PM_PLLSEL_OFFSET			1
@@ -71,6 +79,7 @@
 #define PM_DIV_OFFSET				8
 #define PM_DIV_SIZE				8
 
+/* Bitfields in RCAUSE */
 #define PM_POR_OFFSET				0
 #define PM_POR_SIZE				1
 #define PM_EXT_OFFSET				2
@@ -80,6 +89,7 @@
 #define PM_NTAE_OFFSET				4
 #define PM_NTAE_SIZE				1
 
+/* Bit manipulation macros */
 #define PM_BIT(name)					\
 	(1 << PM_##name##_OFFSET)
 #define PM_BF(name,value)				\
@@ -93,9 +103,10 @@
 		    << PM_##name##_OFFSET))		\
 	 | PM_BF(name,value))
 
+/* Register access macros */
 #define pm_readl(reg)							\
 	__raw_readl((void __iomem __force *)PM_BASE + PM_##reg)
 #define pm_writel(reg,value)						\
 	__raw_writel((value), (void __iomem __force *)PM_BASE + PM_##reg)
 
-#endif 
+#endif /* __ARCH_AVR32_MACH_AT32AP_PM_H__ */

@@ -158,6 +158,8 @@ int iwl_send_add_sta(struct iwl_priv *priv,
 
 	if (ret || (flags & CMD_ASYNC))
 		return ret;
+	/*else the command was successfully sent in SYNC mode, need to free
+	 * the reply page */
 
 	iwl_free_resp(&cmd);
 
@@ -257,6 +259,11 @@ static void iwl_set_ht_add_station(struct iwl_priv *priv, u8 index,
 	priv->stations[index].sta.station_flags |= flags;
 }
 
+/**
+ * iwl_prep_station - Prepare station information for addition
+ *
+ * should be called with sta_lock held
+ */
 u8 iwl_prep_station(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 		    const u8 *addr, bool is_ap, struct ieee80211_sta *sta)
 {
@@ -281,9 +288,18 @@ u8 iwl_prep_station(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 				sta_id = i;
 		}
 
+	/*
+	 * These two conditions have the same outcome, but keep them
+	 * separate
+	 */
 	if (unlikely(sta_id == IWL_INVALID_STATION))
 		return sta_id;
 
+	/*
+	 * uCode is not able to deal with multiple requests to add a
+	 * station. Keep track if one is in progress so that we do not send
+	 * another.
+	 */
 	if (priv->stations[sta_id].used & IWL_STA_UCODE_INPROGRESS) {
 		IWL_DEBUG_INFO(priv, "STA %d already in process of being "
 			       "added.\n", sta_id);
@@ -304,7 +320,7 @@ u8 iwl_prep_station(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 			sta_id, addr);
 	priv->num_stations++;
 
-	
+	/* Set up the REPLY_ADD_STA command to send to device */
 	memset(&station->sta, 0, sizeof(struct iwl_addsta_cmd));
 	memcpy(station->sta.sta.addr, addr, ETH_ALEN);
 	station->sta.mode = 0;
@@ -319,6 +335,11 @@ u8 iwl_prep_station(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 		sta_priv->ctx = ctx;
 	}
 
+	/*
+	 * OK to call unconditionally, since local stations (IBSS BSSID
+	 * STA and broadcast STA) pass in a NULL sta, and mac80211
+	 * doesn't allow HT IBSS.
+	 */
 	iwl_set_ht_add_station(priv, sta_id, sta, ctx);
 
 	return sta_id;
@@ -327,6 +348,9 @@ u8 iwl_prep_station(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 
 #define STA_WAIT_TIMEOUT (HZ/2)
 
+/**
+ * iwl_add_station_common -
+ */
 int iwl_add_station_common(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 			   const u8 *addr, bool is_ap,
 			   struct ieee80211_sta *sta, u8 *sta_id_r)
@@ -345,6 +369,11 @@ int iwl_add_station_common(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 		return -EINVAL;
 	}
 
+	/*
+	 * uCode is not able to deal with multiple requests to add a
+	 * station. Keep track if one is in progress so that we do not send
+	 * another.
+	 */
 	if (priv->stations[sta_id].used & IWL_STA_UCODE_INPROGRESS) {
 		IWL_DEBUG_INFO(priv, "STA %d already in process of being "
 			       "added.\n", sta_id);
@@ -365,7 +394,7 @@ int iwl_add_station_common(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 	       sizeof(struct iwl_addsta_cmd));
 	spin_unlock_bh(&priv->sta_lock);
 
-	
+	/* Add station to device's station table */
 	ret = iwl_send_add_sta(priv, &sta_cmd, CMD_SYNC);
 	if (ret) {
 		spin_lock_bh(&priv->sta_lock);
@@ -379,11 +408,14 @@ int iwl_add_station_common(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 	return ret;
 }
 
+/**
+ * iwl_sta_ucode_deactivate - deactivate ucode status for a station
+ */
 static void iwl_sta_ucode_deactivate(struct iwl_priv *priv, u8 sta_id)
 {
 	lockdep_assert_held(&priv->sta_lock);
 
-	
+	/* Ucode must be active and driver must be non active */
 	if ((priv->stations[sta_id].used &
 	     (IWL_STA_UCODE_ACTIVE | IWL_STA_DRIVER_ACTIVE)) !=
 	      IWL_STA_UCODE_ACTIVE)
@@ -450,6 +482,9 @@ static int iwl_send_remove_station(struct iwl_priv *priv,
 	return ret;
 }
 
+/**
+ * iwl_remove_station - Remove driver's knowledge of station.
+ */
 int iwl_remove_station(struct iwl_priv *priv, const u8 sta_id,
 		       const u8 *addr)
 {
@@ -459,6 +494,11 @@ int iwl_remove_station(struct iwl_priv *priv, const u8 sta_id,
 		IWL_DEBUG_INFO(priv,
 			"Unable to remove station %pM, device not ready.\n",
 			addr);
+		/*
+		 * It is typical for stations to be removed when we are
+		 * going down. Return success since device will be down
+		 * soon anyway
+		 */
 		return 0;
 	}
 
@@ -541,6 +581,14 @@ void iwl_deactivate_station(struct iwl_priv *priv, const u8 sta_id,
 	spin_unlock_bh(&priv->sta_lock);
 }
 
+/**
+ * iwl_clear_ucode_stations - clear ucode station table bits
+ *
+ * This function clears all the bits in the driver indicating
+ * which stations are active in the ucode. Call when something
+ * other than explicit station management would cause this in
+ * the ucode, e.g. unassociated RXON.
+ */
 void iwl_clear_ucode_stations(struct iwl_priv *priv,
 			      struct iwl_rxon_context *ctx)
 {
@@ -568,6 +616,14 @@ void iwl_clear_ucode_stations(struct iwl_priv *priv,
 			       "No active stations found to be cleared\n");
 }
 
+/**
+ * iwl_restore_stations() - Restore driver known stations to device
+ *
+ * All stations considered active by driver, but not present in ucode, is
+ * restored.
+ *
+ * Function sleeps.
+ */
 void iwl_restore_stations(struct iwl_priv *priv, struct iwl_rxon_context *ctx)
 {
 	struct iwl_addsta_cmd sta_cmd;
@@ -623,6 +679,10 @@ void iwl_restore_stations(struct iwl_priv *priv, struct iwl_rxon_context *ctx)
 						~IWL_STA_UCODE_INPROGRESS;
 				spin_unlock_bh(&priv->sta_lock);
 			}
+			/*
+			 * Rate scaling has already been initialized, send
+			 * current LQ command
+			 */
 			if (send_lq)
 				iwl_send_lq_cmd(priv, ctx, &lq,
 						CMD_SYNC, true);
@@ -691,6 +751,17 @@ static inline void iwl_dump_lq_cmd(struct iwl_priv *priv,
 }
 #endif
 
+/**
+ * is_lq_table_valid() - Test one aspect of LQ cmd for validity
+ *
+ * It sometimes happens when a HT rate has been in use and we
+ * loose connectivity with AP then mac80211 will first tell us that the
+ * current channel is not HT anymore before removing the station. In such a
+ * scenario the RXON flags will be updated to indicate we are not
+ * communicating HT anymore, but the LQ command may still contain HT rates.
+ * Test for this to prevent driver from sending LQ command between the time
+ * RXON flags are updated and when LQ command is updated.
+ */
 static bool is_lq_table_valid(struct iwl_priv *priv,
 			      struct iwl_rxon_context *ctx,
 			      struct iwl_link_quality_cmd *lq)
@@ -714,6 +785,16 @@ static bool is_lq_table_valid(struct iwl_priv *priv,
 	return true;
 }
 
+/**
+ * iwl_send_lq_cmd() - Send link quality command
+ * @init: This command is sent as part of station initialization right
+ *        after station has been added.
+ *
+ * The link quality command is sent as the last step of station creation.
+ * This is the special case in which init is set and we call a callback in
+ * this case to clear the state indicating that station creation is in
+ * progress.
+ */
 int iwl_send_lq_cmd(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 		    struct iwl_link_quality_cmd *lq, u8 flags, bool init)
 {
@@ -771,6 +852,8 @@ void iwl_sta_fill_lq(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 
 	memset(link_cmd, 0, sizeof(*link_cmd));
 
+	/* Set up the rate scaling to start at selected rate, fall back
+	 * all the way down to 1M in IEEE order, and then spin on 1M */
 	if (priv->band == IEEE80211_BAND_5GHZ)
 		r = IWL_RATE_6M_INDEX;
 	else if (ctx && ctx->vif && ctx->vif->p2p)
@@ -825,6 +908,11 @@ iwl_sta_alloc_lq(struct iwl_priv *priv, struct iwl_rxon_context *ctx,
 	return link_cmd;
 }
 
+/*
+ * iwlagn_add_bssid_station - Add the special IBSS BSSID station
+ *
+ * Function sleeps.
+ */
 int iwlagn_add_bssid_station(struct iwl_priv *priv,
 			     struct iwl_rxon_context *ctx,
 			     const u8 *addr, u8 *sta_id_r)
@@ -849,7 +937,7 @@ int iwlagn_add_bssid_station(struct iwl_priv *priv,
 	priv->stations[sta_id].used |= IWL_STA_LOCAL;
 	spin_unlock_bh(&priv->sta_lock);
 
-	
+	/* Set up default rate scaling table in device's station table */
 	link_cmd = iwl_sta_alloc_lq(priv, ctx, sta_id);
 	if (!link_cmd) {
 		IWL_ERR(priv,
@@ -869,6 +957,13 @@ int iwlagn_add_bssid_station(struct iwl_priv *priv,
 	return 0;
 }
 
+/*
+ * static WEP keys
+ *
+ * For each context, the device has a table of 4 static WEP keys
+ * (one for each key index) that is updated with the following
+ * commands.
+ */
 
 static int iwl_send_static_wepkey_cmd(struct iwl_priv *priv,
 				      struct iwl_rxon_context *ctx,
@@ -940,7 +1035,7 @@ int iwl_remove_default_wep_key(struct iwl_priv *priv,
 	if (iwl_is_rfkill(priv)) {
 		IWL_DEBUG_WEP(priv,
 			"Not sending REPLY_WEPKEY command due to RFKILL.\n");
-		
+		/* but keys in device are clear anyway so return success */
 		return 0;
 	}
 	ret = iwl_send_static_wepkey_cmd(priv, ctx, 1);
@@ -978,6 +1073,20 @@ int iwl_set_default_wep_key(struct iwl_priv *priv,
 	return ret;
 }
 
+/*
+ * dynamic (per-station) keys
+ *
+ * The dynamic keys are a little more complicated. The device has
+ * a key cache of up to STA_KEY_MAX_NUM/STA_KEY_MAX_NUM_PAN keys.
+ * These are linked to stations by a table that contains an index
+ * into the key table for each station/key index/{mcast,unicast},
+ * i.e. it's basically an array of pointers like this:
+ *	key_offset_t key_mapping[NUM_STATIONS][4][2];
+ * (it really works differently, but you can think of it as such)
+ *
+ * The key uploading and linking happens in the same command, the
+ * add station command with STA_MODIFY_KEY_MASK.
+ */
 
 static u8 iwlagn_key_sta_id(struct iwl_priv *priv,
 			    struct ieee80211_vif *vif,
@@ -988,6 +1097,11 @@ static u8 iwlagn_key_sta_id(struct iwl_priv *priv,
 	if (sta)
 		return iwl_sta_id(sta);
 
+	/*
+	 * The device expects GTKs for station interfaces to be
+	 * installed as GTKs for the AP station. If we have no
+	 * station ID, then use the ap_sta_id in that case.
+	 */
 	if (vif->type == NL80211_IFTYPE_STATION && vif_priv->ctx)
 		return vif_priv->ctx->ap_sta_id;
 
@@ -1024,7 +1138,7 @@ static int iwlagn_send_sta_key(struct iwl_priv *priv,
 		break;
 	case WLAN_CIPHER_SUITE_WEP104:
 		key_flags |= STA_KEY_FLG_KEY_SIZE_MSK;
-		
+		/* fall through */
 	case WLAN_CIPHER_SUITE_WEP40:
 		key_flags |= STA_KEY_FLG_WEP;
 		memcpy(&sta_cmd.key.key[3], keyconf->key, keyconf->keylen);
@@ -1037,7 +1151,7 @@ static int iwlagn_send_sta_key(struct iwl_priv *priv,
 	if (!(keyconf->flags & IEEE80211_KEY_FLAG_PAIRWISE))
 		key_flags |= STA_KEY_MULTICAST_MSK;
 
-	
+	/* key pointer (offset) */
 	sta_cmd.key.key_offset = keyconf->hw_key_idx;
 
 	sta_cmd.key.key_flags = key_flags;
@@ -1058,6 +1172,8 @@ void iwl_update_tkip_key(struct iwl_priv *priv,
 		return;
 
 	if (iwl_scan_cancel(priv)) {
+		/* cancel scan failed, just live w/ bad key and rely
+		   briefly on SW decryption */
 		return;
 	}
 
@@ -1074,7 +1190,7 @@ int iwl_remove_dynamic_key(struct iwl_priv *priv,
 	u8 sta_id = iwlagn_key_sta_id(priv, ctx->vif, sta);
 	__le16 key_flags;
 
-	
+	/* if station isn't there, neither is the key */
 	if (sta_id == IWL_INVALID_STATION)
 		return -ENOENT;
 
@@ -1139,10 +1255,10 @@ int iwl_set_dynamic_key(struct iwl_priv *priv,
 	case WLAN_CIPHER_SUITE_TKIP:
 		if (sta)
 			addr = sta->addr;
-		else 
+		else /* station mode case only */
 			addr = ctx->active.bssid_addr;
 
-		
+		/* pre-fill phase 1 key into device cache */
 		ieee80211_get_key_rx_seq(keyconf, 0, &seq);
 		ieee80211_get_tkip_rx_p1k(keyconf, addr, seq.tkip.iv32, p1k);
 		ret = iwlagn_send_sta_key(priv, keyconf, sta_id,
@@ -1171,6 +1287,13 @@ int iwl_set_dynamic_key(struct iwl_priv *priv,
 	return ret;
 }
 
+/**
+ * iwlagn_alloc_bcast_station - add broadcast station into driver's station table.
+ *
+ * This adds the broadcast station into the driver's station table
+ * and marks it driver active, so that it will be restored to the
+ * device at the next best time.
+ */
 int iwlagn_alloc_bcast_station(struct iwl_priv *priv,
 			       struct iwl_rxon_context *ctx)
 {
@@ -1204,6 +1327,12 @@ int iwlagn_alloc_bcast_station(struct iwl_priv *priv,
 	return 0;
 }
 
+/**
+ * iwl_update_bcast_station - update broadcast station's LQ command
+ *
+ * Only used by iwlagn. Placed here to have all bcast station management
+ * code together.
+ */
 int iwl_update_bcast_station(struct iwl_priv *priv,
 			     struct iwl_rxon_context *ctx)
 {
@@ -1241,13 +1370,16 @@ int iwl_update_bcast_stations(struct iwl_priv *priv)
 	return ret;
 }
 
+/**
+ * iwl_sta_tx_modify_enable_tid - Enable Tx for this TID in station table
+ */
 int iwl_sta_tx_modify_enable_tid(struct iwl_priv *priv, int sta_id, int tid)
 {
 	struct iwl_addsta_cmd sta_cmd;
 
 	lockdep_assert_held(&priv->mutex);
 
-	
+	/* Remove "disable" flag, to enable Tx for this TID */
 	spin_lock_bh(&priv->sta_lock);
 	priv->stations[sta_id].sta.sta.modify_mask = STA_MODIFY_TID_DISABLE_TX;
 	priv->stations[sta_id].sta.tid_disable_tx &= cpu_to_le16(~(1 << tid));

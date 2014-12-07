@@ -67,6 +67,8 @@
 #include "valkyriefb.h"
 
 #ifdef CONFIG_MAC
+/* We don't yet have functions to read the PRAM... perhaps we can
+   adapt them from the PPC code? */
 static int default_vmode = VMODE_CHOOSE;
 static int default_cmode = CMODE_8;
 #else
@@ -99,6 +101,9 @@ struct fb_info_valkyrie {
 	u32			pseudo_palette[16];
 };
 
+/*
+ * Exported functions
+ */
 int valkyriefb_init(void);
 int valkyriefb_setup(char*);
 
@@ -129,6 +134,7 @@ static struct fb_ops valkyriefb_ops = {
 	.fb_imageblit	= cfb_imageblit,
 };
 
+/* Sets the video mode according to info->var */
 static int valkyriefb_set_par(struct fb_info *info)
 {
 	struct fb_info_valkyrie *p = (struct fb_info_valkyrie *) info;
@@ -142,18 +148,18 @@ static int valkyriefb_set_par(struct fb_info *info)
 
 	valkyrie_par_to_fix(par, &info->fix);
 
-	
+	/* Reset the valkyrie */
 	out_8(&valkyrie_regs->status.r, 0);
 	udelay(100);
 
-	
+	/* Initialize display timing registers */
 	init = par->init;
 	out_8(&valkyrie_regs->mode.r, init->mode | 0x80);
 	out_8(&valkyrie_regs->depth.r, par->cmode + 3);
 	set_valkyrie_clock(init->clock_params);
 	udelay(100);
 
-	
+	/* Turn on display */
 	out_8(&valkyrie_regs->mode.r, init->mode);
 
 	return 0;
@@ -177,6 +183,16 @@ valkyriefb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 	return 0;
 }
 
+/*
+ *  Blank the screen if blank_mode != 0, else unblank. If blank_mode == NULL
+ *  then the caller blanks by setting the CLUT (Color Look Up Table) to all
+ *  black. Return 0 if blanking succeeded, != 0 if un-/blanking failed due
+ *  to e.g. a video mode which doesn't support it. Implements VESA suspend
+ *  and powerdown modes on hardware that supports disabling hsync/vsync:
+ *    blank_mode == 2: suspend vsync
+ *    blank_mode == 3: suspend hsync
+ *    blank_mode == 4: powerdown
+ */
 static int valkyriefb_blank(int blank_mode, struct fb_info *info)
 {
 	struct fb_info_valkyrie *p = (struct fb_info_valkyrie *) info;
@@ -187,13 +203,18 @@ static int valkyriefb_blank(int blank_mode, struct fb_info *info)
 		return 1;
 
 	switch (blank_mode) {
-	case FB_BLANK_UNBLANK:			
+	case FB_BLANK_UNBLANK:			/* unblank */
 		out_8(&p->valkyrie_regs->mode.r, init->mode);
 		break;
 	case FB_BLANK_NORMAL:
-		return 1;	
+		return 1;	/* get caller to set CLUT to all black */
 	case FB_BLANK_VSYNC_SUSPEND:
 	case FB_BLANK_HSYNC_SUSPEND:
+		/*
+		 * [kps] Value extracted from MacOS. I don't know
+		 * whether this bit disables hsync or vsync, or
+		 * whether the hardware can do the other as well.
+		 */
 		out_8(&p->valkyrie_regs->mode.r, init->mode | 0x40);
 		break;
 	case FB_BLANK_POWERDOWN:
@@ -216,10 +237,10 @@ static int valkyriefb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	green >>= 8;
 	blue >>= 8;
 
-	
+	/* tell clut which address to fill */
 	out_8(&p->cmap_regs->addr, regno);
 	udelay(1);
-	
+	/* send one color channel at a time */
 	out_8(&cmap_regs->lut, red);
 	out_8(&cmap_regs->lut, green);
 	out_8(&cmap_regs->lut, blue);
@@ -261,7 +282,7 @@ static void __init valkyrie_choose_mode(struct fb_info_valkyrie *p)
 	p->sense = read_valkyrie_sense(p);
 	printk(KERN_INFO "Monitor sense value = 0x%x\n", p->sense);
 
-	
+	/* Try to pick a video mode out of NVRAM if we have one. */
 #if !defined(CONFIG_MAC) && defined(CONFIG_NVRAM)
 	if (default_vmode == VMODE_NVRAM) {
 		default_vmode = nvram_read_byte(NV_VMODE);
@@ -280,6 +301,9 @@ static void __init valkyrie_choose_mode(struct fb_info_valkyrie *p)
 		default_cmode = nvram_read_byte(NV_CMODE);
 #endif
 
+	/*
+	 * Reduce the pixel size if we don't have enough VRAM or bandwidth.
+	 */
 	if (default_cmode < CMODE_8 || default_cmode > CMODE_16
 	    || valkyrie_reg_init[default_vmode-1]->pitch[default_cmode] == 0
 	    || valkyrie_vram_reqd(default_vmode, default_cmode) > p->total_vram)
@@ -304,15 +328,15 @@ int __init valkyriefb_init(void)
 	if (!MACH_IS_MAC)
 		return -ENODEV;
 	if (!(mac_bi_data.id == MAC_MODEL_Q630
-	      
+	      /* I'm not sure about this one */
 	    || mac_bi_data.id == MAC_MODEL_P588))
 		return -ENODEV;
 
-	
+	/* Hardcoded addresses... welcome to 68k Macintosh country :-) */
 	frame_buffer_phys = 0xf9000000;
 	cmap_regs_phys = 0x50f24000;
-	flags = IOMAP_NOCACHE_SER; 
-#else 
+	flags = IOMAP_NOCACHE_SER; /* IOMAP_WRITETHROUGH?? */
+#else /* ppc (!CONFIG_MAC) */
 	{
 		struct device_node *dp;
 		struct resource r;
@@ -330,13 +354,13 @@ int __init valkyriefb_init(void)
 		cmap_regs_phys = r.start + 0x304000;
 		flags = _PAGE_WRITETHRU;
 	}
-#endif 
+#endif /* ppc (!CONFIG_MAC) */
 
 	p = kzalloc(sizeof(*p), GFP_ATOMIC);
 	if (p == 0)
 		return -ENOMEM;
 
-	
+	/* Map in frame buffer and registers */
 	if (!request_mem_region(frame_buffer_phys, 0x100000, "valkyriefb")) {
 		kfree(p);
 		return 0;
@@ -362,7 +386,7 @@ int __init valkyriefb_init(void)
 		goto out_free;
 	valkyrie_init_fix(&p->info.fix, p);
 	if (valkyriefb_set_par(&p->info))
-		
+		/* "can't happen" */
 		printk(KERN_ERR "valkyriefb: can't set default video mode\n");
 
 	if ((err = register_framebuffer(&p->info)) != 0)
@@ -384,22 +408,25 @@ int __init valkyriefb_init(void)
 	return err;
 }
 
+/*
+ * Get the monitor sense value.
+ */
 static int read_valkyrie_sense(struct fb_info_valkyrie *p)
 {
 	int sense, in;
 
-	out_8(&p->valkyrie_regs->msense.r, 0);   
+	out_8(&p->valkyrie_regs->msense.r, 0);   /* release all lines */
 	__delay(20000);
 	sense = ((in = in_8(&p->valkyrie_regs->msense.r)) & 0x70) << 4;
-	
-	out_8(&p->valkyrie_regs->msense.r, 4);   
+	/* drive each sense line low in turn and collect the other 2 */
+	out_8(&p->valkyrie_regs->msense.r, 4);   /* drive A low */
 	__delay(20000);
 	sense |= ((in = in_8(&p->valkyrie_regs->msense.r)) & 0x30);
-	out_8(&p->valkyrie_regs->msense.r, 2);   
+	out_8(&p->valkyrie_regs->msense.r, 2);   /* drive B low */
 	__delay(20000);
 	sense |= ((in = in_8(&p->valkyrie_regs->msense.r)) & 0x40) >> 3;
 	sense |= (in & 0x10) >> 2;
-	out_8(&p->valkyrie_regs->msense.r, 1);   
+	out_8(&p->valkyrie_regs->msense.r, 1);   /* drive C low */
 	__delay(20000);
 	sense |= ((in = in_8(&p->valkyrie_regs->msense.r)) & 0x60) >> 5;
 
@@ -408,7 +435,31 @@ static int read_valkyrie_sense(struct fb_info_valkyrie *p)
 	return sense;
 }
 
+/*
+ * This routine takes a user-supplied var,
+ * and picks the best vmode/cmode from it.
+ */
 
+/* [bkn] I did a major overhaul of this function.
+ *
+ * Much of the old code was "swiped by jonh from atyfb.c". Because
+ * macmodes has mac_var_to_vmode, I felt that it would be better to
+ * rework this function to use that, instead of reinventing the wheel to
+ * add support for vmode 17. This was reinforced by the fact that
+ * the previously swiped atyfb.c code is no longer there.
+ *
+ * So, I swiped and adapted platinum_var_to_par (from platinumfb.c), replacing
+ * most, but not all, of the old code in the process. One side benefit of
+ * swiping the platinumfb code is that we now have more comprehensible error
+ * messages when a vmode/cmode switch fails. (Most of the error messages are
+ * platinumfb.c, but I added two of my own, and I also changed some commas
+ * into colons to make the messages more consistent with other Linux error
+ * messages.) In addition, I think the new code *might* fix some vmode-
+ * switching oddities, but I'm not sure.
+ *
+ * There may be some more opportunities for cleanup in here, but this is a
+ * good start...
+ */
 
 static int valkyrie_var_to_par(struct fb_var_screeninfo *var,
 	struct fb_par_valkyrie *par, const struct fb_info *fb_info)
@@ -423,7 +474,7 @@ static int valkyrie_var_to_par(struct fb_var_screeninfo *var,
 		return -EINVAL;
 	}
 
-	
+	/* Check if we know about the wanted video mode */
 	if (vmode < 1 || vmode > VMODE_MAX || !valkyrie_reg_init[vmode-1]) {
 		printk(KERN_ERR "valkyriefb: vmode %d not valid.\n", vmode);
 		return -EINVAL;
@@ -480,6 +531,7 @@ static void valkyrie_init_fix(struct fb_fix_screeninfo *fix, struct fb_info_valk
 	
 }
 
+/* Fix must already be inited above */
 static void valkyrie_par_to_fix(struct fb_par_valkyrie *par,
 	struct fb_fix_screeninfo *fix)
 {
@@ -487,7 +539,7 @@ static void valkyrie_par_to_fix(struct fb_par_valkyrie *par,
 	fix->visual = (par->cmode == CMODE_8) ?
 		FB_VISUAL_PSEUDOCOLOR : FB_VISUAL_DIRECTCOLOR;
 	fix->line_length = par->vxres << par->cmode;
-		
+		/* ywrapstep, xpanstep, ypanstep */
 }
 
 static int __init valkyrie_init_info(struct fb_info *info,
@@ -502,6 +554,9 @@ static int __init valkyrie_init_info(struct fb_info *info,
 }
 
 
+/*
+ * Parse user specified options (`video=valkyriefb:')
+ */
 int __init valkyriefb_setup(char *options)
 {
 	char *this_opt;

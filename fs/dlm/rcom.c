@@ -79,6 +79,9 @@ static void set_rcom_status(struct dlm_ls *ls, struct rcom_status *rs,
 	rs->rs_flags = cpu_to_le32(flags);
 }
 
+/* When replying to a status request, a node also sends back its
+   configuration values.  The requesting node then checks that the remote
+   node is configured the same way as itself. */
 
 static void set_rcom_config(struct dlm_ls *ls, struct rcom_config *rf,
 			    uint32_t num_slots)
@@ -129,6 +132,16 @@ static void disallow_sync_reply(struct dlm_ls *ls)
 	spin_unlock(&ls->ls_rcom_spin);
 }
 
+/*
+ * low nodeid gathers one slot value at a time from each node.
+ * it sets need_slots=0, and saves rf_our_slot returned from each
+ * rcom_config.
+ *
+ * other nodes gather all slot values at once from the low nodeid.
+ * they set need_slots=1, and ignore the rf_our_slot returned from each
+ * rcom_config.  they use the rf_num_slots returned from the low
+ * node's rcom_config.
+ */
 
 int dlm_rcom_status(struct dlm_ls *ls, int nodeid, uint32_t status_flags)
 {
@@ -164,7 +177,7 @@ int dlm_rcom_status(struct dlm_ls *ls, int nodeid, uint32_t status_flags)
 	rc = ls->ls_recover_buf;
 
 	if (rc->rc_result == -ESRCH) {
-		
+		/* we pretend the remote lockspace exists with 0 status */
 		log_debug(ls, "remote node %d not ready", nodeid);
 		rc->rc_result = 0;
 		error = 0;
@@ -172,7 +185,7 @@ int dlm_rcom_status(struct dlm_ls *ls, int nodeid, uint32_t status_flags)
 		error = check_rcom_config(ls, rc, nodeid);
 	}
 
-	
+	/* the caller looks at rc_result for the remote recovery status */
  out:
 	return error;
 }
@@ -380,6 +393,8 @@ static void pack_rcom_lock(struct dlm_rsb *r, struct dlm_lkb *lkb,
 	rl->rl_namelen = cpu_to_le16(r->res_length);
 	memcpy(rl->rl_name, r->res_name, r->res_length);
 
+	/* FIXME: might we have an lvb without DLM_LKF_VALBLK set ?
+	   If so, receive_rcom_lock_args() won't take this copy. */
 
 	if (lkb->lkb_lvbptr)
 		memcpy(rl->rl_lvb, lkb->lkb_lvbptr, r->res_ls->ls_lvblen);
@@ -409,6 +424,7 @@ int dlm_send_rcom_lock(struct dlm_rsb *r, struct dlm_lkb *lkb)
 	return error;
 }
 
+/* needs at least dlm_rcom + rcom_lock */
 static void receive_rcom_lock(struct dlm_ls *ls, struct dlm_rcom *rc_in)
 {
 	struct dlm_rcom *rc;
@@ -422,6 +438,8 @@ static void receive_rcom_lock(struct dlm_ls *ls, struct dlm_rcom *rc_in)
 	if (error)
 		return;
 
+	/* We send back the same rcom_lock struct we received, but
+	   dlm_recover_master_copy() has filled in rl_remid and rl_result */
 
 	memcpy(rc->rc_buf, rc_in->rc_buf, sizeof(struct rcom_lock));
 	rc->rc_id = rc_in->rc_id;
@@ -430,6 +448,8 @@ static void receive_rcom_lock(struct dlm_ls *ls, struct dlm_rcom *rc_in)
 	send_rcom(ls, mh, rc);
 }
 
+/* If the lockspace doesn't exist then still send a status message
+   back; it's possible that it just doesn't have its global_id yet. */
 
 int dlm_send_ls_not_ready(int nodeid, struct dlm_rcom *rc_in)
 {
@@ -491,6 +511,8 @@ static int is_old_reply(struct dlm_ls *ls, struct dlm_rcom *rc)
 	return rv;
 }
 
+/* Called by dlm_recv; corresponds to dlm_receive_message() but special
+   recovery-only comms are sent through here. */
 
 void dlm_receive_rcom(struct dlm_ls *ls, struct dlm_rcom *rc, int nodeid)
 {

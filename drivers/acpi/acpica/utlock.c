@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Module Name: utlock - Reader/Writer lock interfaces
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -42,6 +47,18 @@
 #define _COMPONENT          ACPI_UTILITIES
 ACPI_MODULE_NAME("utlock")
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_create_rw_lock
+ *              acpi_ut_delete_rw_lock
+ *
+ * PARAMETERS:  Lock                - Pointer to a valid RW lock
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Reader/writer lock creation and deletion interfaces.
+ *
+ ******************************************************************************/
 acpi_status acpi_ut_create_rw_lock(struct acpi_rw_lock *lock)
 {
 	acpi_status status;
@@ -67,6 +84,23 @@ void acpi_ut_delete_rw_lock(struct acpi_rw_lock *lock)
 	lock->writer_mutex = NULL;
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_acquire_read_lock
+ *              acpi_ut_release_read_lock
+ *
+ * PARAMETERS:  Lock                - Pointer to a valid RW lock
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Reader interfaces for reader/writer locks. On acquisition,
+ *              only the first reader acquires the write mutex. On release,
+ *              only the last reader releases the write mutex. Although this
+ *              algorithm can in theory starve writers, this should not be a
+ *              problem with ACPICA since the subsystem is infrequently used
+ *              in comparison to (for example) an I/O system.
+ *
+ ******************************************************************************/
 
 acpi_status acpi_ut_acquire_read_lock(struct acpi_rw_lock *lock)
 {
@@ -77,7 +111,7 @@ acpi_status acpi_ut_acquire_read_lock(struct acpi_rw_lock *lock)
 		return status;
 	}
 
-	
+	/* Acquire the write lock only for the first reader */
 
 	lock->num_readers++;
 	if (lock->num_readers == 1) {
@@ -99,7 +133,7 @@ acpi_status acpi_ut_release_read_lock(struct acpi_rw_lock *lock)
 		return status;
 	}
 
-	
+	/* Release the write lock only for the very last reader */
 
 	lock->num_readers--;
 	if (lock->num_readers == 0) {
@@ -110,6 +144,21 @@ acpi_status acpi_ut_release_read_lock(struct acpi_rw_lock *lock)
 	return status;
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_acquire_write_lock
+ *              acpi_ut_release_write_lock
+ *
+ * PARAMETERS:  Lock                - Pointer to a valid RW lock
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Writer interfaces for reader/writer locks. Simply acquire or
+ *              release the writer mutex associated with the lock. Acquisition
+ *              of the lock is fully exclusive and will block all readers and
+ *              writers until it is released.
+ *
+ ******************************************************************************/
 
 acpi_status acpi_ut_acquire_write_lock(struct acpi_rw_lock *lock)
 {

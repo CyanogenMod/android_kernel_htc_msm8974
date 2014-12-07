@@ -23,6 +23,7 @@ MODULE_LICENSE("GPL");
 #define DELL_LED_BIOS_GUID "F6E4FE6E-909D-47cb-8BAB-C9F6F2F8D396"
 MODULE_ALIAS("wmi:" DELL_LED_BIOS_GUID);
 
+/* Error Result Codes: */
 #define INVALID_DEVICE_ID	250
 #define INVALID_PARAMETER	251
 #define INVALID_BUFFER		252
@@ -30,8 +31,10 @@ MODULE_ALIAS("wmi:" DELL_LED_BIOS_GUID);
 #define UNSUPPORTED_COMMAND	254
 #define UNSPECIFIED_ERROR	255
 
+/* Device ID */
 #define DEVICE_ID_PANEL_BACK	1
 
+/* LED Commands */
 #define CMD_LED_ON	16
 #define CMD_LED_OFF	17
 #define CMD_LED_BLINK	18
@@ -98,33 +101,33 @@ static int dell_led_perform_fn(u8 length,
 
 static int led_on(void)
 {
-	return dell_led_perform_fn(3,	
-		INTERFACE_ERROR,	
-		DEVICE_ID_PANEL_BACK,	
-		CMD_LED_ON,		
-		0,			
-		0);			
+	return dell_led_perform_fn(3,	/* Length of command */
+		INTERFACE_ERROR,	/* Init to  INTERFACE_ERROR */
+		DEVICE_ID_PANEL_BACK,	/* Device ID */
+		CMD_LED_ON,		/* Command */
+		0,			/* not used */
+		0);			/* not used */
 }
 
 static int led_off(void)
 {
-	return dell_led_perform_fn(3,	
-		INTERFACE_ERROR,	
-		DEVICE_ID_PANEL_BACK,	
-		CMD_LED_OFF,		
-		0,			
-		0);			
+	return dell_led_perform_fn(3,	/* Length of command */
+		INTERFACE_ERROR,	/* Init to  INTERFACE_ERROR */
+		DEVICE_ID_PANEL_BACK,	/* Device ID */
+		CMD_LED_OFF,		/* Command */
+		0,			/* not used */
+		0);			/* not used */
 }
 
 static int led_blink(unsigned char on_eighths,
 		unsigned char off_eighths)
 {
-	return dell_led_perform_fn(5,	
-		INTERFACE_ERROR,	
-		DEVICE_ID_PANEL_BACK,	
-		CMD_LED_BLINK,		
-		on_eighths,		
-		off_eighths);		
+	return dell_led_perform_fn(5,	/* Length of command */
+		INTERFACE_ERROR,	/* Init to  INTERFACE_ERROR */
+		DEVICE_ID_PANEL_BACK,	/* Device ID */
+		CMD_LED_BLINK,		/* Command */
+		on_eighths,		/* blink on in eigths of a second */
+		off_eighths);		/* blink off in eights of a second */
 }
 
 static void dell_led_set(struct led_classdev *led_cdev,
@@ -143,6 +146,8 @@ static int dell_led_blink(struct led_classdev *led_cdev,
 	unsigned long on_eighths;
 	unsigned long off_eighths;
 
+	/* The Dell LED delay is based on 125ms intervals.
+	   Need to round up to next interval. */
 
 	on_eighths = (*delay_on + 124) / 125;
 	if (0 == on_eighths)

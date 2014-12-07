@@ -67,7 +67,7 @@ ebt_ip6_mt(const struct sk_buff *skb, struct xt_action_param *par)
 					EBT_IP6_SPORT | EBT_IP6_ICMP6)))
 			return true;
 
-		
+		/* min icmpv6 headersize is 4, so sizeof(_pkthdr) is ok. */
 		pptr = skb_header_pointer(skb, offset_ph, sizeof(_pkthdr),
 					  &_pkthdr);
 		if (pptr == NULL)

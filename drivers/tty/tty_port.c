@@ -1,3 +1,6 @@
+/*
+ * Tty port functions
+ */
 
 #include <linux/types.h>
 #include <linux/errno.h>
@@ -32,7 +35,7 @@ EXPORT_SYMBOL(tty_port_init);
 
 int tty_port_alloc_xmit_buf(struct tty_port *port)
 {
-	
+	/* We may sleep in get_zeroed_page() */
 	mutex_lock(&port->buf_mutex);
 	if (port->xmit_buf == NULL)
 		port->xmit_buf = (unsigned char *)get_zeroed_page(GFP_KERNEL);
@@ -72,6 +75,13 @@ void tty_port_put(struct tty_port *port)
 }
 EXPORT_SYMBOL(tty_port_put);
 
+/**
+ *	tty_port_tty_get	-	get a tty reference
+ *	@port: tty port
+ *
+ *	Return a refcount protected tty instance or NULL if the port is not
+ *	associated with a tty (eg due to close or hangup)
+ */
 
 struct tty_struct *tty_port_tty_get(struct tty_port *port)
 {
@@ -85,6 +95,14 @@ struct tty_struct *tty_port_tty_get(struct tty_port *port)
 }
 EXPORT_SYMBOL(tty_port_tty_get);
 
+/**
+ *	tty_port_tty_set	-	set the tty of a port
+ *	@port: tty port
+ *	@tty: the tty
+ *
+ *	Associate the port and tty pair. Manages any internal refcounts.
+ *	Pass NULL to deassociate a port
+ */
 
 void tty_port_tty_set(struct tty_port *port, struct tty_struct *tty)
 {
@@ -107,6 +125,13 @@ static void tty_port_shutdown(struct tty_port *port)
 	mutex_unlock(&port->mutex);
 }
 
+/**
+ *	tty_port_hangup		-	hangup helper
+ *	@port: tty port
+ *
+ *	Perform port level tty hangup flag and count changes. Drop the tty
+ *	reference.
+ */
 
 void tty_port_hangup(struct tty_port *port)
 {
@@ -127,6 +152,14 @@ void tty_port_hangup(struct tty_port *port)
 }
 EXPORT_SYMBOL(tty_port_hangup);
 
+/**
+ *	tty_port_carrier_raised	-	carrier raised check
+ *	@port: tty port
+ *
+ *	Wrapper for the carrier detect logic. For the moment this is used
+ *	to hide some internal details. This will eventually become entirely
+ *	internal to the tty port.
+ */
 
 int tty_port_carrier_raised(struct tty_port *port)
 {
@@ -136,6 +169,14 @@ int tty_port_carrier_raised(struct tty_port *port)
 }
 EXPORT_SYMBOL(tty_port_carrier_raised);
 
+/**
+ *	tty_port_raise_dtr_rts	-	Raise DTR/RTS
+ *	@port: tty port
+ *
+ *	Wrapper for the DTR/RTS raise logic. For the moment this is used
+ *	to hide some internal details. This will eventually become entirely
+ *	internal to the tty port.
+ */
 
 void tty_port_raise_dtr_rts(struct tty_port *port)
 {
@@ -144,6 +185,14 @@ void tty_port_raise_dtr_rts(struct tty_port *port)
 }
 EXPORT_SYMBOL(tty_port_raise_dtr_rts);
 
+/**
+ *	tty_port_lower_dtr_rts	-	Lower DTR/RTS
+ *	@port: tty port
+ *
+ *	Wrapper for the DTR/RTS raise logic. For the moment this is used
+ *	to hide some internal details. This will eventually become entirely
+ *	internal to the tty port.
+ */
 
 void tty_port_lower_dtr_rts(struct tty_port *port)
 {
@@ -152,6 +201,25 @@ void tty_port_lower_dtr_rts(struct tty_port *port)
 }
 EXPORT_SYMBOL(tty_port_lower_dtr_rts);
 
+/**
+ *	tty_port_block_til_ready	-	Waiting logic for tty open
+ *	@port: the tty port being opened
+ *	@tty: the tty device being bound
+ *	@filp: the file pointer of the opener
+ *
+ *	Implement the core POSIX/SuS tty behaviour when opening a tty device.
+ *	Handles:
+ *		- hangup (both before and during)
+ *		- non blocking open
+ *		- rts/dtr/dcd
+ *		- signals
+ *		- port flags and counts
+ *
+ *	The passed tty_port must implement the carrier_raised method if it can
+ *	do carrier detect and the dtr_rts method if it supports software
+ *	management of these lines. Note that the dtr/rts raise is done each
+ *	iteration as a hangup may have previously dropped them while we wait.
+ */
 
 int tty_port_block_til_ready(struct tty_port *port,
 				struct tty_struct *tty, struct file *filp)
@@ -160,7 +228,7 @@ int tty_port_block_til_ready(struct tty_port *port,
 	unsigned long flags;
 	DEFINE_WAIT(wait);
 
-	
+	/* block if port is in the process of being closed */
 	if (tty_hung_up_p(filp) || port->flags & ASYNC_CLOSING) {
 		wait_event_interruptible_tty(port->close_wait,
 				!(port->flags & ASYNC_CLOSING));
@@ -170,12 +238,14 @@ int tty_port_block_til_ready(struct tty_port *port,
 			return -ERESTARTSYS;
 	}
 
+	/* if non-blocking mode is set we can pass directly to open unless
+	   the port has just hung up or is in another error state */
 	if (tty->flags & (1 << TTY_IO_ERROR)) {
 		port->flags |= ASYNC_NORMAL_ACTIVE;
 		return 0;
 	}
 	if (filp->f_flags & O_NONBLOCK) {
-		
+		/* Indicate we are open */
 		if (tty->termios->c_cflag & CBAUD)
 			tty_port_raise_dtr_rts(port);
 		port->flags |= ASYNC_NORMAL_ACTIVE;
@@ -185,10 +255,13 @@ int tty_port_block_til_ready(struct tty_port *port,
 	if (C_CLOCAL(tty))
 		do_clocal = 1;
 
+	/* Block waiting until we can proceed. We may need to wait for the
+	   carrier, but we must also wait for any close that is in progress
+	   before the next open may complete */
 
 	retval = 0;
 
-	
+	/* The port lock protects the port counts */
 	spin_lock_irqsave(&port->lock, flags);
 	if (!tty_hung_up_p(filp))
 		port->count--;
@@ -196,11 +269,13 @@ int tty_port_block_til_ready(struct tty_port *port,
 	spin_unlock_irqrestore(&port->lock, flags);
 
 	while (1) {
-		
+		/* Indicate we are open */
 		if (tty->termios->c_cflag & CBAUD)
 			tty_port_raise_dtr_rts(port);
 
 		prepare_to_wait(&port->open_wait, &wait, TASK_INTERRUPTIBLE);
+		/* Check for a hangup or uninitialised port.
+							Return accordingly */
 		if (tty_hung_up_p(filp) || !(port->flags & ASYNC_INITIALIZED)) {
 			if (port->flags & ASYNC_HUP_NOTIFY)
 				retval = -EAGAIN;
@@ -208,6 +283,12 @@ int tty_port_block_til_ready(struct tty_port *port,
 				retval = -ERESTARTSYS;
 			break;
 		}
+		/*
+		 * Probe the carrier. For devices with no carrier detect
+		 * tty_port_carrier_raised will always return true.
+		 * Never ask drivers if CLOCAL is set, this causes troubles
+		 * on some hardware.
+		 */
 		if (!(port->flags & ASYNC_CLOSING) &&
 				(do_clocal || tty_port_carrier_raised(port)))
 			break;
@@ -221,6 +302,8 @@ int tty_port_block_til_ready(struct tty_port *port,
 	}
 	finish_wait(&port->open_wait, &wait);
 
+	/* Update counts. A parallel hangup will have set count to zero and
+	   we must not mess that up further */
 	spin_lock_irqsave(&port->lock, flags);
 	if (!tty_hung_up_p(filp))
 		port->count++;
@@ -264,7 +347,7 @@ int tty_port_close_start(struct tty_port *port,
 	set_bit(ASYNCB_CLOSING, &port->flags);
 	tty->closing = 1;
 	spin_unlock_irqrestore(&port->lock, flags);
-	
+	/* Don't block on a stalled port, just pull the chain */
 	if (tty->flow_stopped)
 		tty_driver_flush_buffer(tty);
 	if (test_bit(ASYNCB_INITIALIZED, &port->flags) &&
@@ -281,12 +364,17 @@ int tty_port_close_start(struct tty_port *port,
 			timeout = 2 * HZ;
 		schedule_timeout_interruptible(timeout);
 	}
-	
+	/* Flush the ldisc buffering */
 	tty_ldisc_flush(tty);
 
+	/* Drop DTR/RTS if HUPCL is set. This causes any attached modem to
+	   hang up the line */
 	if (tty->termios->c_cflag & HUPCL)
 		tty_port_lower_dtr_rts(port);
 
+	/* Don't call port->drop for the last reference. Callers will want
+	   to drop the last active reference in ->shutdown() or the tty
+	   shutdown path */
 	return 1;
 }
 EXPORT_SYMBOL(tty_port_close_start);
@@ -334,6 +422,11 @@ int tty_port_open(struct tty_port *port, struct tty_struct *tty,
 	spin_unlock_irq(&port->lock);
 	tty_port_tty_set(port, tty);
 
+	/*
+	 * Do the device-specific open only if the hardware isn't
+	 * already initialized. Serialize open and shutdown using the
+	 * port mutex.
+	 */
 
 	mutex_lock(&port->mutex);
 

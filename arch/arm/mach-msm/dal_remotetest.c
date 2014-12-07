@@ -10,6 +10,9 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * DAL remote test device test suite.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -111,7 +114,7 @@ static int remotetest_exec(int dest, u64 *val)
 	uint32_t ouint;
 	uint32_t oalen;
 
-	
+	/* test daldevice_attach */
 	ret = daldevice_attach(REMOTE_UNITTEST_DEVICEID, NULL,
 			       dest, &dev_handle);
 	if (ret) {
@@ -120,18 +123,18 @@ static int remotetest_exec(int dest, u64 *val)
 		return 0;
 	}
 
-	
+	/* test remote_unittest_0 */
 	ret = remote_unittest_0(dev_handle, REMOTE_UNITTEST_INARG_1);
 	if (ret)
 		rpc_error(0);
 
-	
+	/* test remote_unittest_1 */
 	ret = remote_unittest_1(dev_handle, REMOTE_UNITTEST_INARG_1,
 				REMOTE_UNITTEST_INARG_2);
 	if (ret)
 		rpc_error(1);
 
-	
+	/* test remote_unittest_2 */
 	ouint = 0;
 	ret = remote_unittest_2(dev_handle, REMOTE_UNITTEST_INARG_1, &ouint);
 	if (ret)
@@ -139,14 +142,14 @@ static int remotetest_exec(int dest, u64 *val)
 	else if (ouint != REMOTE_UNITTEST_OUTARG_1)
 		verify_error(2, "ouint");
 
-	
+	/* test remote_unittest_3 */
 	ret = remote_unittest_3(dev_handle, REMOTE_UNITTEST_INARG_1,
 				REMOTE_UNITTEST_INARG_2,
 				REMOTE_UNITTEST_INARG_3);
 	if (ret)
 		rpc_error(3);
 
-	
+	/* test remote_unittest_4 */
 	ouint = 0;
 	ret = remote_unittest_4(dev_handle, REMOTE_UNITTEST_INARG_1,
 				REMOTE_UNITTEST_INARG_2, &ouint);
@@ -155,20 +158,20 @@ static int remotetest_exec(int dest, u64 *val)
 	else if (ouint != REMOTE_UNITTEST_OUTARG_1)
 		verify_error(4, "ouint");
 
-	
+	/* test remote_unittest_5 */
 	init_data(&in_data);
 	ret = remote_unittest_5(dev_handle, &in_data, sizeof(in_data));
 	if (ret)
 		rpc_error(5);
 
-	
+	/* test remote_unittest_6 */
 	init_data(&in_data);
 	ret = remote_unittest_6(dev_handle, REMOTE_UNITTEST_INARG_1,
 				&in_data.test, sizeof(in_data.test));
 	if (ret)
 		rpc_error(6);
 
-	
+	/* test remote_unittest_7 */
 	init_data(&in_data);
 	memset(&out_data, 0, sizeof(out_data));
 	ret = remote_unittest_7(dev_handle, &in_data, sizeof(in_data),
@@ -181,7 +184,7 @@ static int remotetest_exec(int dest, u64 *val)
 	else if (verify_uint32_buffer(out_data.test))
 		verify_error(7, "obuf");
 
-	
+	/* test remote_unittest_8 */
 	init_bytebuf(in_bytebuf);
 	memset(&out_data, 0, sizeof(out_data));
 	ret = remote_unittest_8(dev_handle, in_bytebuf, sizeof(in_bytebuf),
@@ -191,7 +194,7 @@ static int remotetest_exec(int dest, u64 *val)
 	else if (verify_data(&out_data))
 		verify_error(8, "obuf");
 
-	
+	/* test remote_unittest_9 */
 	memset(&out_bytebuf, 0, sizeof(out_bytebuf));
 	ret = remote_unittest_9(dev_handle, out_bytebuf, sizeof(out_bytebuf));
 	if (ret)
@@ -199,7 +202,7 @@ static int remotetest_exec(int dest, u64 *val)
 	else if (verify_bytebuf(out_bytebuf))
 		verify_error(9, "obuf");
 
-	
+	/* test remote_unittest_10 */
 	init_bytebuf(in_bytebuf);
 	memset(&out_bytebuf, 0, sizeof(out_bytebuf));
 	ret = remote_unittest_10(dev_handle, REMOTE_UNITTEST_INARG_1,
@@ -212,7 +215,7 @@ static int remotetest_exec(int dest, u64 *val)
 	else if (verify_bytebuf(out_bytebuf))
 		verify_error(10, "obuf");
 
-	
+	/* test remote_unittest_11 */
 	memset(&out_bytebuf, 0, sizeof(out_bytebuf));
 	ret = remote_unittest_11(dev_handle, REMOTE_UNITTEST_INARG_1,
 				 out_bytebuf, sizeof(out_bytebuf));
@@ -221,7 +224,7 @@ static int remotetest_exec(int dest, u64 *val)
 	else if (verify_bytebuf(out_bytebuf))
 		verify_error(11, "obuf");
 
-	
+	/* test remote_unittest_12 */
 	memset(&out_bytebuf, 0, sizeof(out_bytebuf));
 	ret = remote_unittest_12(dev_handle, REMOTE_UNITTEST_INARG_1,
 				 out_bytebuf, sizeof(out_bytebuf), &oalen);
@@ -232,7 +235,7 @@ static int remotetest_exec(int dest, u64 *val)
 	else if (verify_bytebuf(out_bytebuf))
 		verify_error(12, "obuf");
 
-	
+	/* test remote_unittest_13 */
 	init_data(&in_data);
 	memset(&out_data, 0, sizeof(out_data));
 	ret = remote_unittest_13(dev_handle, in_data.test, sizeof(in_data.test),
@@ -243,7 +246,7 @@ static int remotetest_exec(int dest, u64 *val)
 	else if (verify_data(&out_data))
 		verify_error(13, "obuf");
 
-	
+	/* test remote_unittest_14 */
 	init_data(&in_data);
 	memset(out_bytebuf, 0, sizeof(out_bytebuf));
 	memset(out_bytebuf2, 0, sizeof(out_bytebuf2));
@@ -260,7 +263,7 @@ static int remotetest_exec(int dest, u64 *val)
 	else if (verify_bytebuf(out_bytebuf2))
 		verify_error(14, "obuf2");
 
-	
+	/* test remote_unittest_15 */
 	init_data(&in_data);
 	memset(out_bytebuf, 0, sizeof(out_bytebuf));
 	memset(&out_data, 0, sizeof(out_data));
@@ -278,7 +281,7 @@ static int remotetest_exec(int dest, u64 *val)
 	else if (verify_data(&out_data))
 		verify_error(15, "obuf2");
 
-	
+	/* test setting up asynch events */
 	event_handles[0] = dalrpc_alloc_event(dev_handle);
 	event_handles[1] = dalrpc_alloc_event(dev_handle);
 	event_handles[2] = dalrpc_alloc_event(dev_handle);
@@ -292,7 +295,7 @@ static int remotetest_exec(int dest, u64 *val)
 		       __func__, ret);
 	}
 
-	
+	/* test event */
 	ret = remote_unittest_eventtrig(dev_handle,
 					REMOTE_UNITTEST_REGULAR_EVENT);
 	if (ret) {
@@ -307,7 +310,7 @@ static int remotetest_exec(int dest, u64 *val)
 		       __func__, ret);
 	}
 
-	
+	/* test event again */
 	ret = remote_unittest_eventtrig(dev_handle,
 					REMOTE_UNITTEST_REGULAR_EVENT);
 	if (ret) {
@@ -322,7 +325,7 @@ static int remotetest_exec(int dest, u64 *val)
 		       __func__, ret);
 	}
 
-	
+	/* test callback */
 	ret = remote_unittest_eventtrig(dev_handle,
 					REMOTE_UNITTEST_CALLBACK_EVENT);
 	if (ret) {
@@ -338,7 +341,7 @@ static int remotetest_exec(int dest, u64 *val)
 	dalrpc_dealloc_event(dev_handle, event_handles[1]);
 	dalrpc_dealloc_event(dev_handle, event_handles[2]);
 
-	
+	/* test daldevice_detach */
 	ret = daldevice_detach(dev_handle);
 	if (ret) {
 		errmask |= (1 << 22);

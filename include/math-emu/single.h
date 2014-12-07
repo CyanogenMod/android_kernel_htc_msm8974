@@ -40,6 +40,8 @@
 #define _FP_IMPLBIT_S		((_FP_W_TYPE)1 << (_FP_FRACBITS_S-1))
 #define _FP_OVERFLOW_S		((_FP_W_TYPE)1 << (_FP_WFRACBITS_S))
 
+/* The implementation of _FP_MUL_MEAT_S and _FP_DIV_MEAT_S should be
+   chosen by the target machine.  */
 
 union _FP_UNION_S
 {
@@ -111,4 +113,4 @@ union _FP_UNION_S
 #define _FP_FRAC_HIGH_S(X)	_FP_FRAC_HIGH_1(X)
 #define _FP_FRAC_HIGH_RAW_S(X)	_FP_FRAC_HIGH_1(X)
 
-#endif 
+#endif /* __MATH_EMU_SINGLE_H__ */

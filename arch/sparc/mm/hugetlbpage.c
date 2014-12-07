@@ -18,6 +18,9 @@
 #include <asm/cacheflush.h>
 #include <asm/mmu_context.h>
 
+/* Slightly simplified from the non-hugepage variant because by
+ * definition we don't have to worry about any page coloring stuff
+ */
 #define VA_EXCLUDE_START (0x0000080000000000UL - (1UL << 32UL))
 #define VA_EXCLUDE_END   (0xfffff80000000000UL + (1UL << 32UL))
 
@@ -50,7 +53,7 @@ full_search:
 	addr = ALIGN(addr, HPAGE_SIZE);
 
 	for (vma = find_vma(mm, addr); ; vma = vma->vm_next) {
-		
+		/* At this point:  (!vma || addr < vma->vm_end). */
 		if (addr < VA_EXCLUDE_START &&
 		    (addr + len) >= VA_EXCLUDE_START) {
 			addr = VA_EXCLUDE_END;
@@ -65,6 +68,9 @@ full_search:
 			return -ENOMEM;
 		}
 		if (likely(!vma || addr + len <= vma->vm_start)) {
+			/*
+			 * Remember the place where we stopped the search:
+			 */
 			mm->free_area_cache = addr + len;
 			return addr;
 		}
@@ -85,23 +91,23 @@ hugetlb_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 	struct mm_struct *mm = current->mm;
 	unsigned long addr = addr0;
 
-	
+	/* This should only ever run for 32-bit processes.  */
 	BUG_ON(!test_thread_flag(TIF_32BIT));
 
-	
+	/* check if free_area_cache is useful for us */
 	if (len <= mm->cached_hole_size) {
  	        mm->cached_hole_size = 0;
  		mm->free_area_cache = mm->mmap_base;
  	}
 
-	
+	/* either no address requested or can't fit in requested address hole */
 	addr = mm->free_area_cache & HPAGE_MASK;
 
-	
+	/* make sure it can fit in the remaining address space */
 	if (likely(addr > len)) {
 		vma = find_vma(mm, addr-len);
 		if (!vma || addr <= vma->vm_start) {
-			
+			/* remember the address as a hint for next time */
 			return (mm->free_area_cache = addr-len);
 		}
 	}
@@ -112,24 +118,38 @@ hugetlb_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 	addr = (mm->mmap_base-len) & HPAGE_MASK;
 
 	do {
+		/*
+		 * Lookup failure means no vma is above this address,
+		 * else if new region fits below vma->vm_start,
+		 * return with success:
+		 */
 		vma = find_vma(mm, addr);
 		if (likely(!vma || addr+len <= vma->vm_start)) {
-			
+			/* remember the address as a hint for next time */
 			return (mm->free_area_cache = addr);
 		}
 
- 		
+ 		/* remember the largest hole we saw so far */
  		if (addr + mm->cached_hole_size < vma->vm_start)
  		        mm->cached_hole_size = vma->vm_start - addr;
 
-		
+		/* try just below the current vma->vm_start */
 		addr = (vma->vm_start-len) & HPAGE_MASK;
 	} while (likely(len < vma->vm_start));
 
 bottomup:
+	/*
+	 * A failed mmap() very likely causes application failure,
+	 * so fall back to the bottom-up function here. This scenario
+	 * can happen with large stack limits and large mmap()
+	 * allocations.
+	 */
 	mm->cached_hole_size = ~0UL;
   	mm->free_area_cache = TASK_UNMAPPED_BASE;
 	addr = arch_get_unmapped_area(filp, addr0, len, pgoff, flags);
+	/*
+	 * Restore the topdown base:
+	 */
 	mm->free_area_cache = mm->mmap_base;
 	mm->cached_hole_size = ~0UL;
 
@@ -181,6 +201,11 @@ pte_t *huge_pte_alloc(struct mm_struct *mm,
 	pmd_t *pmd;
 	pte_t *pte = NULL;
 
+	/* We must align the address, because our caller will run
+	 * set_huge_pte_at() on whatever we return, which writes out
+	 * all of the sub-ptes for the hugepage range.  So we have
+	 * to give it the first such sub-pte.
+	 */
 	addr &= HPAGE_MASK;
 
 	pgd = pgd_offset(mm, addr);
@@ -298,6 +323,9 @@ void hugetlb_prefault_arch_hook(struct mm_struct *mm)
 	tsb_context_switch(mm);
 	smp_tsb_sync(mm);
 
+	/* On UltraSPARC-III+ and later, configure the second half of
+	 * the Data-TLB for huge pages.
+	 */
 	if (tlb_type == cheetah_plus) {
 		unsigned long ctx;
 
@@ -308,8 +336,17 @@ void hugetlb_prefault_arch_hook(struct mm_struct *mm)
 		ctx |= CTX_PGSZ_HUGE << CTX_PGSZ1_SHIFT;
 
 		if (ctx != mm->context.sparc64_ctx_val) {
+			/* When changing the page size fields, we
+			 * must perform a context flush so that no
+			 * stale entries match.  This flush must
+			 * occur with the original context register
+			 * settings.
+			 */
 			do_flush_tlb_mm(mm);
 
+			/* Reload the context register of all processors
+			 * also executing in this address space.
+			 */
 			mm->context.sparc64_ctx_val = ctx;
 			on_each_cpu(context_reload, mm, 0);
 		}

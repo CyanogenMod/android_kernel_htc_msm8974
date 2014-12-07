@@ -10,12 +10,12 @@ extern const struct pcr_ops *pcr_ops;
 extern void deferred_pcr_work_irq(int irq, struct pt_regs *regs);
 extern void schedule_deferred_pcr_work(void);
 
-#define PCR_PIC_PRIV		0x00000001 
-#define PCR_STRACE		0x00000002 
-#define PCR_UTRACE		0x00000004 
-#define PCR_N2_HTRACE		0x00000008 
-#define PCR_N2_TOE_OV0		0x00000010 
-#define PCR_N2_TOE_OV1		0x00000020 
+#define PCR_PIC_PRIV		0x00000001 /* PIC access is privileged */
+#define PCR_STRACE		0x00000002 /* Trace supervisor events  */
+#define PCR_UTRACE		0x00000004 /* Trace user events        */
+#define PCR_N2_HTRACE		0x00000008 /* Trace hypervisor events  */
+#define PCR_N2_TOE_OV0		0x00000010 /* Trap if PIC 0 overflows  */
+#define PCR_N2_TOE_OV1		0x00000020 /* Trap if PIC 1 overflows  */
 #define PCR_N2_MASK0		0x00003fc0
 #define PCR_N2_MASK0_SHIFT	6
 #define PCR_N2_SL0		0x0003c000
@@ -29,6 +29,11 @@ extern void schedule_deferred_pcr_work(void);
 
 extern unsigned int picl_shift;
 
+/* In order to commonize as much of the implementation as
+ * possible, we use PICH as our counter.  Mostly this is
+ * to accommodate Niagara-1 which can only count insn cycles
+ * in PICH.
+ */
 static inline u64 picl_value(unsigned int nmi_hz)
 {
 	u32 delta = local_cpu_data().clock_tick / (nmi_hz << picl_shift);
@@ -40,4 +45,4 @@ extern u64 pcr_enable;
 
 extern int pcr_arch_init(void);
 
-#endif 
+#endif /* __PCR_H */

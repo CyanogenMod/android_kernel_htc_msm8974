@@ -80,6 +80,9 @@ static void __init rd88f6281_init(void)
 {
 	u32 dev, rev;
 
+	/*
+	 * Basic setup. Needs to be called early.
+	 */
 	kirkwood_init();
 	kirkwood_mpp_conf(rd88f6281_mpp_config);
 
@@ -111,7 +114,7 @@ static int __init rd88f6281_pci_init(void)
 subsys_initcall(rd88f6281_pci_init);
 
 MACHINE_START(RD88F6281, "Marvell RD-88F6281 Reference Board")
-	
+	/* Maintainer: Saeed Bishara <saeed@marvell.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= rd88f6281_init,
 	.map_io		= kirkwood_map_io,

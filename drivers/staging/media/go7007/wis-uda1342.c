@@ -26,7 +26,7 @@
 
 static int write_reg(struct i2c_client *client, int reg, int value)
 {
-	
+	/* UDA1342 wants MSB first, but SMBus sends LSB first */
 	i2c_smbus_write_word_data(client, reg, swab16(value));
 	return 0;
 }
@@ -41,10 +41,10 @@ static int wis_uda1342_command(struct i2c_client *client,
 
 		switch (*inp) {
 		case TVAUDIO_INPUT_TUNER:
-			write_reg(client, 0x00, 0x1441); 
+			write_reg(client, 0x00, 0x1441); /* select input 2 */
 			break;
 		case TVAUDIO_INPUT_EXTERN:
-			write_reg(client, 0x00, 0x1241); 
+			write_reg(client, 0x00, 0x1241); /* select input 1 */
 			break;
 		default:
 			printk(KERN_ERR "wis-uda1342: input %d not supported\n",
@@ -71,8 +71,8 @@ static int wis_uda1342_probe(struct i2c_client *client,
 		"wis-uda1342: initializing UDA1342 at address %d on %s\n",
 		client->addr, adapter->name);
 
-	write_reg(client, 0x00, 0x8000); 
-	write_reg(client, 0x00, 0x1241); 
+	write_reg(client, 0x00, 0x8000); /* reset registers */
+	write_reg(client, 0x00, 0x1241); /* select input 1 */
 
 	return 0;
 }

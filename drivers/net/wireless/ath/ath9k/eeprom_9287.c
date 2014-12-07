@@ -375,21 +375,21 @@ static void ar9287_eeprom_olpc_set_pdadcs(struct ath_hw *ah,
 	u32 tmpVal;
 	u32 a;
 
-	
+	/* Enable OLPC for chain 0 */
 
 	tmpVal = REG_READ(ah, 0xa270);
 	tmpVal = tmpVal & 0xFCFFFFFF;
 	tmpVal = tmpVal | (0x3 << 24);
 	REG_WRITE(ah, 0xa270, tmpVal);
 
-	
+	/* Enable OLPC for chain 1 */
 
 	tmpVal = REG_READ(ah, 0xb270);
 	tmpVal = tmpVal & 0xFCFFFFFF;
 	tmpVal = tmpVal | (0x3 << 24);
 	REG_WRITE(ah, 0xb270, tmpVal);
 
-	
+	/* Write the OLPC ref power for chain 0 */
 
 	if (chain == 0) {
 		tmpVal = REG_READ(ah, 0xa398);
@@ -399,7 +399,7 @@ static void ar9287_eeprom_olpc_set_pdadcs(struct ath_hw *ah,
 		REG_WRITE(ah, 0xa398, tmpVal);
 	}
 
-	
+	/* Write the OLPC ref power for chain 1 */
 
 	if (chain == 1) {
 		tmpVal = REG_READ(ah, 0xb398);
@@ -447,7 +447,7 @@ static void ath9k_hw_set_ar9287_power_cal_table(struct ath_hw *ah,
 
 	numXpdGain = 0;
 
-	
+	/* Calculate the value of xpdgains from the xpdGain Mask */
 	for (i = 1; i <= AR5416_PD_GAINS_IN_MASK; i++) {
 		if ((xpdMask >> (AR5416_PD_GAINS_IN_MASK - i)) & 1) {
 			if (numXpdGain >= AR5416_NUM_PD_GAINS)
@@ -593,6 +593,10 @@ static void ath9k_hw_set_ar9287_power_per_rate_table(struct ath_hw *ah,
 	ath9k_hw_get_channel_centers(ah, chan, &centers);
 	scaledPower = powerLimit - antenna_reduction;
 
+	/*
+	 * Reduce scaled Power by number of chains active
+	 * to get the per chain tx power level.
+	 */
 	switch (ar5416_get_ntxchains(tx_chainmask)) {
 	case 1:
 		break;
@@ -611,8 +615,11 @@ static void ath9k_hw_set_ar9287_power_per_rate_table(struct ath_hw *ah,
 	}
 	scaledPower = max((u16)0, scaledPower);
 
+	/*
+	 * Get TX power from EEPROM.
+	 */
 	if (IS_CHAN_2GHZ(chan))	{
-		
+		/* CTL_11B, CTL_11G, CTL_2GHT20 */
 		numCtlModes =
 			ARRAY_SIZE(ctlModesFor11g) - SUB_NUM_CTL_MODES_AT_2G_40;
 
@@ -632,7 +639,7 @@ static void ath9k_hw_set_ar9287_power_per_rate_table(struct ath_hw *ah,
 					   &targetPowerHt20, 8, false);
 
 		if (IS_CHAN_HT40(chan))	{
-			
+			/* All 2G CTLs */
 			numCtlModes = ARRAY_SIZE(ctlModesFor11g);
 			ath9k_hw_get_target_powers(ah, chan,
 						   pEepData->calTargetPower2GHT40,
@@ -661,10 +668,14 @@ static void ath9k_hw_set_ar9287_power_per_rate_table(struct ath_hw *ah,
 			freq = centers.ctl_center;
 
 		twiceMaxEdgePower = MAX_RATE_POWER;
-		
+		/* Walk through the CTL indices stored in EEPROM */
 		for (i = 0; (i < AR9287_NUM_CTLS) && pEepData->ctlIndex[i]; i++) {
 			struct cal_ctl_edges *pRdEdgesPower;
 
+			/*
+			 * Compare test group from regulatory channel list
+			 * with test mode from pCtlMode list
+			 */
 			if (CMP_CTL || CMP_NO_CTL) {
 				rep = &(pEepData->ctlData[i]);
 				pRdEdgesPower =
@@ -687,7 +698,7 @@ static void ath9k_hw_set_ar9287_power_per_rate_table(struct ath_hw *ah,
 
 		minCtlPower = (u8)min(twiceMaxEdgePower, scaledPower);
 
-		
+		/* Apply ctl mode to correct target power set */
 		switch (pCtlMode[ctlMode]) {
 		case CTL_11B:
 			for (i = 0; i < ARRAY_SIZE(targetPowerCck.tPow2x); i++) {
@@ -736,7 +747,7 @@ static void ath9k_hw_set_ar9287_power_per_rate_table(struct ath_hw *ah,
 		}
 	}
 
-	
+	/* Now set the rates array */
 
 	ratesArray[rate6mb] =
 	ratesArray[rate9mb] =
@@ -823,7 +834,7 @@ static void ath9k_hw_ar9287_set_txpower(struct ath_hw *ah,
 
 	ENABLE_REGWRITE_BUFFER(ah);
 
-	
+	/* OFDM power per rate */
 	REG_WRITE(ah, AR_PHY_POWER_TX_RATE1,
 		  ATH9K_POW_SM(ratesArray[rate18mb], 24)
 		  | ATH9K_POW_SM(ratesArray[rate12mb], 16)
@@ -836,7 +847,7 @@ static void ath9k_hw_ar9287_set_txpower(struct ath_hw *ah,
 		  | ATH9K_POW_SM(ratesArray[rate36mb], 8)
 		  | ATH9K_POW_SM(ratesArray[rate24mb], 0));
 
-	
+	/* CCK power per rate */
 	if (IS_CHAN_2GHZ(chan))	{
 		REG_WRITE(ah, AR_PHY_POWER_TX_RATE3,
 			  ATH9K_POW_SM(ratesArray[rate2s], 24)
@@ -850,7 +861,7 @@ static void ath9k_hw_ar9287_set_txpower(struct ath_hw *ah,
 			  | ATH9K_POW_SM(ratesArray[rate5_5l], 0));
 	}
 
-	
+	/* HT20 power per rate */
 	REG_WRITE(ah, AR_PHY_POWER_TX_RATE5,
 		  ATH9K_POW_SM(ratesArray[rateHt20_3], 24)
 		  | ATH9K_POW_SM(ratesArray[rateHt20_2], 16)
@@ -863,7 +874,7 @@ static void ath9k_hw_ar9287_set_txpower(struct ath_hw *ah,
 		  | ATH9K_POW_SM(ratesArray[rateHt20_5], 8)
 		  | ATH9K_POW_SM(ratesArray[rateHt20_4], 0));
 
-	
+	/* HT40 power per rate */
 	if (IS_CHAN_HT40(chan))	{
 		if (ath9k_hw_ar9287_get_eeprom(ah, EEP_OL_PWRCTRL)) {
 			REG_WRITE(ah, AR_PHY_POWER_TX_RATE7,
@@ -899,7 +910,7 @@ static void ath9k_hw_ar9287_set_txpower(struct ath_hw *ah,
 						 ht40PowerIncForPdadc, 0));
 		}
 
-		
+		/* Dup/Ext power per rate */
 		REG_WRITE(ah, AR_PHY_POWER_TX_RATE9,
 			  ATH9K_POW_SM(ratesArray[rateExtOfdm], 24)
 			  | ATH9K_POW_SM(ratesArray[rateExtCck], 16)

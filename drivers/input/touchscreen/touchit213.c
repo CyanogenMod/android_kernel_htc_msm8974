@@ -29,17 +29,51 @@ MODULE_AUTHOR("Claudio Nieder <private@claudio.ch>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
+/*
+ * Definitions & global arrays.
+ */
 
+/*
+ * Data is received through COM1 at 9600bit/s,8bit,no parity in packets
+ * of 5 byte each.
+ *
+ *   +--------+   +--------+   +--------+   +--------+   +--------+
+ *   |1000000p|   |0xxxxxxx|   |0xxxxxxx|   |0yyyyyyy|   |0yyyyyyy|
+ *   +--------+   +--------+   +--------+   +--------+   +--------+
+ *                    MSB          LSB          MSB          LSB
+ *
+ * The value of p is 1 as long as the screen is touched and 0 when
+ * reporting the location where touching stopped, e.g. where the pen was
+ * lifted from the screen.
+ *
+ * When holding the screen in landscape mode as the BIOS text output is
+ * presented, x is the horizontal axis with values growing from left to
+ * right and y is the vertical axis with values growing from top to
+ * bottom.
+ *
+ * When holding the screen in portrait mode with the Sahara logo in its
+ * correct position, x ist the vertical axis with values growing from
+ * top to bottom and y is the horizontal axis with values growing from
+ * right to left.
+ */
 
 #define T213_FORMAT_TOUCH_BIT	0x01
 #define T213_FORMAT_STATUS_BYTE	0x80
 #define T213_FORMAT_STATUS_MASK	~T213_FORMAT_TOUCH_BIT
 
+/*
+ * On my Sahara Touch-IT 213 I have observed x values from 0 to 0x7f0
+ * and y values from 0x1d to 0x7e9, so the actual measurement is
+ * probably done with an 11 bit precision.
+ */
 #define T213_MIN_XC 0
 #define T213_MAX_XC 0x07ff
 #define T213_MIN_YC 0
 #define T213_MAX_YC 0x07ff
 
+/*
+ * Per-touchscreen data.
+ */
 
 struct touchit213 {
 	struct input_dev *dev;
@@ -82,6 +116,9 @@ static irqreturn_t touchit213_interrupt(struct serio *serio,
 	return IRQ_HANDLED;
 }
 
+/*
+ * touchit213_disconnect() is the opposite of touchit213_connect()
+ */
 
 static void touchit213_disconnect(struct serio *serio)
 {
@@ -95,6 +132,11 @@ static void touchit213_disconnect(struct serio *serio)
 	kfree(touchit213);
 }
 
+/*
+ * touchit213_connect() is the routine that is called when someone adds a
+ * new serio device that supports the Touchright protocol and registers it as
+ * an input device.
+ */
 
 static int touchit213_connect(struct serio *serio, struct serio_driver *drv)
 {
@@ -147,6 +189,9 @@ static int touchit213_connect(struct serio *serio, struct serio_driver *drv)
 	return err;
 }
 
+/*
+ * The serio driver structure.
+ */
 
 static struct serio_device_id touchit213_serio_ids[] = {
 	{
@@ -171,6 +216,9 @@ static struct serio_driver touchit213_drv = {
 	.disconnect	= touchit213_disconnect,
 };
 
+/*
+ * The functions for inserting/removing us as a module.
+ */
 
 static int __init touchit213_init(void)
 {

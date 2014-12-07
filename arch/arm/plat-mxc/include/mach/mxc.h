@@ -176,4 +176,4 @@ extern struct cpu_op *(*get_cpu_op)(int *op);
 #define cpu_is_mx3()	(cpu_is_mx31() || cpu_is_mx35())
 #define cpu_is_mx2()	(cpu_is_mx21() || cpu_is_mx27())
 
-#endif 
+#endif /*  __ASM_ARCH_MXC_H__ */

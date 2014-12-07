@@ -93,6 +93,13 @@ struct vmw_resource *vmw_resource_reference(struct vmw_resource *res)
 }
 
 
+/**
+ * vmw_resource_release_id - release a resource id to the id manager.
+ *
+ * @res: Pointer to the resource.
+ *
+ * Release the resource id to the resource id manager and set it to -1
+ */
 static void vmw_resource_release_id(struct vmw_resource *res)
 {
 	struct vmw_private *dev_priv = res->dev_priv;
@@ -143,6 +150,15 @@ void vmw_resource_unreference(struct vmw_resource **p_res)
 }
 
 
+/**
+ * vmw_resource_alloc_id - release a resource id to the id manager.
+ *
+ * @dev_priv: Pointer to the device private structure.
+ * @res: Pointer to the resource.
+ *
+ * Allocate the lowest free resource from the resource manager, and set
+ * @res->id to that id. Returns 0 on success and -ENOMEM on failure.
+ */
 static int vmw_resource_alloc_id(struct vmw_private *dev_priv,
 				 struct vmw_resource *res)
 {
@@ -190,6 +206,18 @@ static int vmw_resource_init(struct vmw_private *dev_priv,
 		return vmw_resource_alloc_id(dev_priv, res);
 }
 
+/**
+ * vmw_resource_activate
+ *
+ * @res:        Pointer to the newly created resource
+ * @hw_destroy: Destroy function. NULL if none.
+ *
+ * Activate a resource after the hardware has been made aware of it.
+ * Set tye destroy function to @destroy. Typically this frees the
+ * resource and destroys the hardware resources associated with it.
+ * Activate basically means that the function vmw_resource_lookup will
+ * find it.
+ */
 
 static void vmw_resource_activate(struct vmw_resource *res,
 				  void (*hw_destroy) (struct vmw_resource *))
@@ -221,6 +249,9 @@ struct vmw_resource *vmw_resource_lookup(struct vmw_private *dev_priv,
 	return res;
 }
 
+/**
+ * Context management:
+ */
 
 static void vmw_hw_context_destroy(struct vmw_resource *res)
 {
@@ -310,6 +341,9 @@ struct vmw_resource *vmw_context_alloc(struct vmw_private *dev_priv)
 	return (ret == 0) ? res : NULL;
 }
 
+/**
+ * User-space context management:
+ */
 
 static void vmw_user_context_free(struct vmw_resource *res)
 {
@@ -322,6 +356,10 @@ static void vmw_user_context_free(struct vmw_resource *res)
 			    vmw_user_context_size);
 }
 
+/**
+ * This function is called when user space has no more references on the
+ * base object. It releases the base-object's reference on the resource object.
+ */
 
 static void vmw_user_context_base_release(struct ttm_base_object **p_base)
 {
@@ -378,6 +416,10 @@ int vmw_context_define_ioctl(struct drm_device *dev, void *data,
 	int ret;
 
 
+	/*
+	 * Approximate idr memory usage with 128 bytes. It will be limited
+	 * by maximum number_of contexts anyway.
+	 */
 
 	if (unlikely(vmw_user_context_size == 0))
 		vmw_user_context_size = ttm_round_pot(sizeof(*ctx)) + 128;
@@ -408,6 +450,9 @@ int vmw_context_define_ioctl(struct drm_device *dev, void *data,
 	ctx->base.shareable = false;
 	ctx->base.tfile = NULL;
 
+	/*
+	 * From here on, the destructor takes over resource freeing.
+	 */
 
 	ret = vmw_context_init(dev_priv, res, vmw_user_context_free);
 	if (unlikely(ret != 0))
@@ -460,6 +505,19 @@ struct vmw_bpp {
 	uint8_t s_bpp;
 };
 
+/*
+ * Size table for the supported SVGA3D surface formats. It consists of
+ * two values. The bpp value and the s_bpp value which is short for
+ * "stride bits per pixel" The values are given in such a way that the
+ * minimum stride for the image is calculated using
+ *
+ * min_stride = w*s_bpp
+ *
+ * and the total memory requirement for the image is
+ *
+ * h*min_stride*bpp/s_bpp
+ *
+ */
 static const struct vmw_bpp vmw_sf_bpp[] = {
 	[SVGA3D_FORMAT_INVALID] = {0, 0},
 	[SVGA3D_X8R8G8B8] = {32, 32},
@@ -514,6 +572,9 @@ static const struct vmw_bpp vmw_sf_bpp[] = {
 };
 
 
+/**
+ * Surface management.
+ */
 
 struct vmw_surface_dma {
 	SVGA3dCmdHeader header;
@@ -533,12 +594,28 @@ struct vmw_surface_destroy {
 };
 
 
+/**
+ * vmw_surface_dma_size - Compute fifo size for a dma command.
+ *
+ * @srf: Pointer to a struct vmw_surface
+ *
+ * Computes the required size for a surface dma command for backup or
+ * restoration of the surface represented by @srf.
+ */
 static inline uint32_t vmw_surface_dma_size(const struct vmw_surface *srf)
 {
 	return srf->num_sizes * sizeof(struct vmw_surface_dma);
 }
 
 
+/**
+ * vmw_surface_define_size - Compute fifo size for a surface define command.
+ *
+ * @srf: Pointer to a struct vmw_surface
+ *
+ * Computes the required size for a surface define command for the definition
+ * of the surface represented by @srf.
+ */
 static inline uint32_t vmw_surface_define_size(const struct vmw_surface *srf)
 {
 	return sizeof(struct vmw_surface_define) + srf->num_sizes *
@@ -546,11 +623,23 @@ static inline uint32_t vmw_surface_define_size(const struct vmw_surface *srf)
 }
 
 
+/**
+ * vmw_surface_destroy_size - Compute fifo size for a surface destroy command.
+ *
+ * Computes the required size for a surface destroy command for the destruction
+ * of a hw surface.
+ */
 static inline uint32_t vmw_surface_destroy_size(void)
 {
 	return sizeof(struct vmw_surface_destroy);
 }
 
+/**
+ * vmw_surface_destroy_encode - Encode a surface_destroy command.
+ *
+ * @id: The surface id
+ * @cmd_space: Pointer to memory area in which the commands should be encoded.
+ */
 static void vmw_surface_destroy_encode(uint32_t id,
 				       void *cmd_space)
 {
@@ -562,6 +651,12 @@ static void vmw_surface_destroy_encode(uint32_t id,
 	cmd->body.sid = id;
 }
 
+/**
+ * vmw_surface_define_encode - Encode a surface_define command.
+ *
+ * @srf: Pointer to a struct vmw_surface object.
+ * @cmd_space: Pointer to memory area in which the commands should be encoded.
+ */
 static void vmw_surface_define_encode(const struct vmw_surface *srf,
 				      void *cmd_space)
 {
@@ -594,6 +689,15 @@ static void vmw_surface_define_encode(const struct vmw_surface *srf,
 }
 
 
+/**
+ * vmw_surface_dma_encode - Encode a surface_dma command.
+ *
+ * @srf: Pointer to a struct vmw_surface object.
+ * @cmd_space: Pointer to memory area in which the commands should be encoded.
+ * @ptr: Pointer to an SVGAGuestPtr indicating where the surface contents
+ * should be placed or read from.
+ * @to_surface: Boolean whether to DMA to the surface or from the surface.
+ */
 static void vmw_surface_dma_encode(struct vmw_surface *srf,
 				   void *cmd_space,
 				   const SVGAGuestPtr *ptr,
@@ -663,6 +767,11 @@ static void vmw_hw_surface_destroy(struct vmw_resource *res)
 		vmw_surface_destroy_encode(res->id, cmd);
 		vmw_fifo_commit(dev_priv, vmw_surface_destroy_size());
 
+		/*
+		 * used_memory_size_atomic, or separate lock
+		 * to avoid taking dev_priv::cmdbuf_mutex in
+		 * the destroy path.
+		 */
 
 		mutex_lock(&dev_priv->cmdbuf_mutex);
 		srf = container_of(res, struct vmw_surface, res);
@@ -686,6 +795,20 @@ void vmw_surface_res_free(struct vmw_resource *res)
 }
 
 
+/**
+ * vmw_surface_do_validate - make a surface available to the device.
+ *
+ * @dev_priv: Pointer to a device private struct.
+ * @srf: Pointer to a struct vmw_surface.
+ *
+ * If the surface doesn't have a hw id, allocate one, and optionally
+ * DMA the backed up surface contents to the device.
+ *
+ * Returns -EBUSY if there wasn't sufficient device resources to
+ * complete the validation. Retry after freeing up resources.
+ *
+ * May return other errors if the kernel is out of guest resources.
+ */
 int vmw_surface_do_validate(struct vmw_private *dev_priv,
 			    struct vmw_surface *srf)
 {
@@ -703,6 +826,9 @@ int vmw_surface_do_validate(struct vmw_private *dev_priv,
 		     dev_priv->memory_size))
 		return -EBUSY;
 
+	/*
+	 * Reserve- and validate the backup DMA bo.
+	 */
 
 	if (srf->backup) {
 		INIT_LIST_HEAD(&val_list);
@@ -720,6 +846,9 @@ int vmw_surface_do_validate(struct vmw_private *dev_priv,
 			goto out_no_validate;
 	}
 
+	/*
+	 * Alloc id for the resource.
+	 */
 
 	ret = vmw_resource_alloc_id(dev_priv, res);
 	if (unlikely(ret != 0)) {
@@ -732,6 +861,9 @@ int vmw_surface_do_validate(struct vmw_private *dev_priv,
 	}
 
 
+	/*
+	 * Encode surface define- and dma commands.
+	 */
 
 	submit_size = vmw_surface_define_size(srf);
 	if (srf->backup)
@@ -756,6 +888,9 @@ int vmw_surface_do_validate(struct vmw_private *dev_priv,
 
 	vmw_fifo_commit(dev_priv, submit_size);
 
+	/*
+	 * Create a fence object and fence the backup buffer.
+	 */
 
 	if (srf->backup) {
 		struct vmw_fence_obj *fence;
@@ -769,6 +904,9 @@ int vmw_surface_do_validate(struct vmw_private *dev_priv,
 		ttm_bo_unref(&srf->backup);
 	}
 
+	/*
+	 * Surface memory usage accounting.
+	 */
 
 	dev_priv->used_memory_size += srf->backup_size;
 
@@ -786,6 +924,15 @@ out_no_reserve:
 	return ret;
 }
 
+/**
+ * vmw_surface_evict - Evict a hw surface.
+ *
+ * @dev_priv: Pointer to a device private struct.
+ * @srf: Pointer to a struct vmw_surface
+ *
+ * DMA the contents of a hw surface to a backup guest buffer object,
+ * and destroy the hw surface, releasing its id.
+ */
 int vmw_surface_evict(struct vmw_private *dev_priv,
 		      struct vmw_surface *srf)
 {
@@ -800,6 +947,9 @@ int vmw_surface_evict(struct vmw_private *dev_priv,
 
 	BUG_ON(res->id == -1);
 
+	/*
+	 * Create a surface backup buffer object.
+	 */
 
 	if (!srf->backup) {
 		ret = ttm_bo_create(&dev_priv->bdev, srf->backup_size,
@@ -810,6 +960,9 @@ int vmw_surface_evict(struct vmw_private *dev_priv,
 			return ret;
 	}
 
+	/*
+	 * Reserve- and validate the backup DMA bo.
+	 */
 
 	INIT_LIST_HEAD(&val_list);
 	val_buf.bo = ttm_bo_reference(srf->backup);
@@ -826,6 +979,9 @@ int vmw_surface_evict(struct vmw_private *dev_priv,
 		goto out_no_validate;
 
 
+	/*
+	 * Encode the dma- and surface destroy commands.
+	 */
 
 	submit_size = vmw_surface_dma_size(srf) + vmw_surface_destroy_size();
 	cmd = vmw_fifo_reserve(dev_priv, submit_size);
@@ -842,9 +998,15 @@ int vmw_surface_evict(struct vmw_private *dev_priv,
 	vmw_surface_destroy_encode(res->id, cmd);
 	vmw_fifo_commit(dev_priv, submit_size);
 
+	/*
+	 * Surface memory usage accounting.
+	 */
 
 	dev_priv->used_memory_size -= srf->backup_size;
 
+	/*
+	 * Create a fence object and fence the DMA buffer.
+	 */
 
 	(void) vmw_execbuf_fence_commands(NULL, dev_priv,
 					  &fence, NULL);
@@ -853,6 +1015,9 @@ int vmw_surface_evict(struct vmw_private *dev_priv,
 		vmw_fence_obj_unreference(&fence);
 	ttm_bo_unref(&val_buf.bo);
 
+	/*
+	 * Release the surface ID.
+	 */
 
 	vmw_resource_release_id(res);
 
@@ -869,6 +1034,19 @@ out_no_reserve:
 }
 
 
+/**
+ * vmw_surface_validate - make a surface available to the device, evicting
+ * other surfaces if needed.
+ *
+ * @dev_priv: Pointer to a device private struct.
+ * @srf: Pointer to a struct vmw_surface.
+ *
+ * Try to validate a surface and if it fails due to limited device resources,
+ * repeatedly try to evict other surfaces until the request can be
+ * acommodated.
+ *
+ * May return errors if out of resources.
+ */
 int vmw_surface_validate(struct vmw_private *dev_priv,
 			 struct vmw_surface *srf)
 {
@@ -915,6 +1093,14 @@ int vmw_surface_validate(struct vmw_private *dev_priv,
 }
 
 
+/**
+ * vmw_surface_remove_from_lists - Remove surface resources from lookup lists
+ *
+ * @res: Pointer to a struct vmw_resource embedded in a struct vmw_surface
+ *
+ * As part of the resource destruction, remove the surface from any
+ * lookup lists.
+ */
 static void vmw_surface_remove_from_lists(struct vmw_resource *res)
 {
 	struct vmw_surface *srf = container_of(res, struct vmw_surface, res);
@@ -938,6 +1124,10 @@ int vmw_surface_init(struct vmw_private *dev_priv,
 	if (unlikely(ret != 0))
 		res_free(res);
 
+	/*
+	 * The surface won't be visible to hardware until a
+	 * surface validate.
+	 */
 
 	(void) vmw_3d_resource_inc(dev_priv, false);
 	vmw_resource_activate(res, vmw_hw_surface_destroy);
@@ -961,6 +1151,19 @@ static void vmw_user_surface_free(struct vmw_resource *res)
 	ttm_mem_global_free(vmw_mem_glob(dev_priv), size);
 }
 
+/**
+ * vmw_resource_unreserve - unreserve resources previously reserved for
+ * command submission.
+ *
+ * @list_head: list of resources to unreserve.
+ *
+ * Currently only surfaces are considered, and unreserving a surface
+ * means putting it back on the device's surface lru list,
+ * so that it can be evicted if necessary.
+ * This function traverses the resource list and
+ * checks whether resources are surfaces, and in that case puts them back
+ * on the device's surface LRU list.
+ */
 void vmw_resource_unreserve(struct list_head *list)
 {
 	struct vmw_resource *res;
@@ -987,6 +1190,11 @@ void vmw_resource_unreserve(struct list_head *list)
 		write_unlock(lock);
 }
 
+/**
+ * Helper function that looks either a surface or dmabuf.
+ *
+ * The pointer this pointed at by out_surf and out_buf needs to be null.
+ */
 int vmw_user_lookup_handle(struct vmw_private *dev_priv,
 			   struct ttm_object_file *tfile,
 			   uint32_t handle,
@@ -1190,7 +1398,7 @@ int vmw_surface_define_ioctl(struct drm_device *dev, void *data,
 	    srf->sizes[0].height == 64 &&
 	    srf->format == SVGA3D_A8R8G8B8) {
 
-		
+		/* allocate image area and clear it */
 		srf->snooper.image = kzalloc(64 * 64 * 4, GFP_KERNEL);
 		if (!srf->snooper.image) {
 			DRM_ERROR("Failed to allocate cursor_image\n");
@@ -1205,6 +1413,10 @@ int vmw_surface_define_ioctl(struct drm_device *dev, void *data,
 	user_srf->base.shareable = false;
 	user_srf->base.tfile = NULL;
 
+	/**
+	 * From this point, the generic resource management functions
+	 * destroy the object on failure.
+	 */
 
 	ret = vmw_surface_init(dev_priv, srf, vmw_user_surface_free);
 	if (unlikely(ret != 0))
@@ -1316,11 +1528,18 @@ int vmw_surface_check(struct vmw_private *dev_priv,
 	ret = 0;
 
 out_bad_surface:
+	/**
+	 * FIXME: May deadlock here when called from the
+	 * command parsing code.
+	 */
 
 	ttm_base_object_unref(&base);
 	return ret;
 }
 
+/**
+ * Buffer management.
+ */
 void vmw_dmabuf_bo_free(struct ttm_buffer_object *bo)
 {
 	struct vmw_dma_buffer *vmw_bo = vmw_dma_buffer(bo);
@@ -1487,6 +1706,9 @@ int vmw_user_dmabuf_lookup(struct ttm_object_file *tfile,
 	return 0;
 }
 
+/*
+ * Stream management
+ */
 
 static void vmw_stream_destroy(struct vmw_resource *res)
 {
@@ -1531,6 +1753,9 @@ static int vmw_stream_init(struct vmw_private *dev_priv,
 	return 0;
 }
 
+/**
+ * User-space context management:
+ */
 
 static void vmw_user_stream_free(struct vmw_resource *res)
 {
@@ -1543,6 +1768,10 @@ static void vmw_user_stream_free(struct vmw_resource *res)
 			    vmw_user_stream_size);
 }
 
+/**
+ * This function is called when user space has no more references on the
+ * base object. It releases the base-object's reference on the resource object.
+ */
 
 static void vmw_user_stream_base_release(struct ttm_base_object **p_base)
 {
@@ -1598,6 +1827,10 @@ int vmw_stream_claim_ioctl(struct drm_device *dev, void *data,
 	struct vmw_master *vmaster = vmw_master(file_priv->master);
 	int ret;
 
+	/*
+	 * Approximate idr memory usage with 128 bytes. It will be limited
+	 * by maximum number_of streams anyway?
+	 */
 
 	if (unlikely(vmw_user_stream_size == 0))
 		vmw_user_stream_size = ttm_round_pot(sizeof(*stream)) + 128;
@@ -1629,6 +1862,9 @@ int vmw_stream_claim_ioctl(struct drm_device *dev, void *data,
 	stream->base.shareable = false;
 	stream->base.tfile = NULL;
 
+	/*
+	 * From here on, the destructor takes over resource freeing.
+	 */
 
 	ret = vmw_stream_init(dev_priv, &stream->stream, vmw_user_stream_free);
 	if (unlikely(ret != 0))

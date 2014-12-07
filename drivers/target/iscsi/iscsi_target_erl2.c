@@ -31,6 +31,9 @@
 #include "iscsi_target_erl2.h"
 #include "iscsi_target.h"
 
+/*
+ *	FIXME: Does RData SNACK apply here as well?
+ */
 void iscsit_create_conn_recovery_datain_values(
 	struct iscsi_cmd *cmd,
 	u32 exp_data_sn)
@@ -201,6 +204,9 @@ int iscsit_remove_inactive_connection_recovery_entry(
 	return 0;
 }
 
+/*
+ *	Called with cr->conn_recovery_cmd_lock help.
+ */
 int iscsit_remove_cmd_from_connection_recovery(
 	struct iscsi_cmd *cmd,
 	struct iscsi_session *sess)
@@ -315,6 +321,12 @@ int iscsit_prepare_cmds_for_realligance(struct iscsi_conn *conn)
 	struct iscsi_cmd *cmd, *cmd_tmp;
 	struct iscsi_conn_recovery *cr;
 
+	/*
+	 * Allocate an struct iscsi_conn_recovery for this connection.
+	 * Each struct iscsi_cmd contains an struct iscsi_conn_recovery pointer
+	 * (struct iscsi_cmd->cr) so we need to allocate this before preparing the
+	 * connection's command list for connection recovery.
+	 */
 	cr = kzalloc(sizeof(struct iscsi_conn_recovery), GFP_KERNEL);
 	if (!cr) {
 		pr_err("Unable to allocate memory for"
@@ -324,6 +336,15 @@ int iscsit_prepare_cmds_for_realligance(struct iscsi_conn *conn)
 	INIT_LIST_HEAD(&cr->cr_list);
 	INIT_LIST_HEAD(&cr->conn_recovery_cmd_list);
 	spin_lock_init(&cr->conn_recovery_cmd_lock);
+	/*
+	 * Only perform connection recovery on ISCSI_OP_SCSI_CMD or
+	 * ISCSI_OP_NOOP_OUT opcodes.  For all other opcodes call
+	 * list_del(&cmd->i_list); to release the command to the
+	 * session pool and remove it from the connection's list.
+	 *
+	 * Also stop the DataOUT timer, which will be restarted after
+	 * sending the TMR response.
+	 */
 	spin_lock_bh(&conn->cmd_lock);
 	list_for_each_entry_safe(cmd, cmd_tmp, &conn->conn_cmd_list, i_list) {
 
@@ -341,6 +362,17 @@ int iscsit_prepare_cmds_for_realligance(struct iscsi_conn *conn)
 			continue;
 		}
 
+		/*
+		 * Special case where commands greater than or equal to
+		 * the session's ExpCmdSN are attached to the connection
+		 * list but not to the out of order CmdSN list.  The one
+		 * obvious case is when a command with immediate data
+		 * attached must only check the CmdSN against ExpCmdSN
+		 * after the data is received.  The special case below
+		 * is when the connection fails before data is received,
+		 * but also may apply to other PDUs, so it has been
+		 * made generic here.
+		 */
 		if (!(cmd->cmd_flags & ICF_OOO_CMDSN) && !cmd->immediate_cmd &&
 		     (cmd->cmd_sn >= conn->sess->exp_cmd_sn)) {
 			list_del(&cmd->i_list);
@@ -371,6 +403,9 @@ int iscsit_prepare_cmds_for_realligance(struct iscsi_conn *conn)
 		iscsit_free_all_datain_reqs(cmd);
 
 		transport_wait_for_tasks(&cmd->se_cmd);
+		/*
+		 * Add the struct iscsi_cmd to the connection recovery cmd list
+		 */
 		spin_lock(&cr->conn_recovery_cmd_lock);
 		list_add_tail(&cmd->i_list, &cr->conn_recovery_cmd_list);
 		spin_unlock(&cr->conn_recovery_cmd_lock);
@@ -380,6 +415,9 @@ int iscsit_prepare_cmds_for_realligance(struct iscsi_conn *conn)
 		cmd->conn = NULL;
 	}
 	spin_unlock_bh(&conn->cmd_lock);
+	/*
+	 * Fill in the various values in the preallocated struct iscsi_conn_recovery.
+	 */
 	cr->cid = conn->cid;
 	cr->cmd_count = cmd_count;
 	cr->maxrecvdatasegmentlength = conn->conn_ops->MaxRecvDataSegmentLength;

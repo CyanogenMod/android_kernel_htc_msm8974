@@ -8,4 +8,4 @@
 #define ARCH_DMA_MINALIGN	128
 #endif
 
-#endif 
+#endif /* __ASM_MACH_IP32_KMALLOC_H */

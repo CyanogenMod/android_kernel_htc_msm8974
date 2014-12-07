@@ -32,16 +32,24 @@ struct ocfs2_dx_hinfo {
 };
 
 struct ocfs2_dir_lookup_result {
-	struct buffer_head		*dl_leaf_bh;	
-	struct ocfs2_dir_entry		*dl_entry;	
+	struct buffer_head		*dl_leaf_bh;	/* Unindexed leaf
+							 * block */
+	struct ocfs2_dir_entry		*dl_entry;	/* Target dirent in
+							 * unindexed leaf */
 
-	struct buffer_head		*dl_dx_root_bh;	
+	struct buffer_head		*dl_dx_root_bh;	/* Root of indexed
+							 * tree */
 
-	struct buffer_head		*dl_dx_leaf_bh;	
-	struct ocfs2_dx_entry		*dl_dx_entry;	
-	struct ocfs2_dx_hinfo		dl_hinfo;	
+	struct buffer_head		*dl_dx_leaf_bh;	/* Indexed leaf block */
+	struct ocfs2_dx_entry		*dl_dx_entry;	/* Target dx_entry in
+							 * indexed leaf */
+	struct ocfs2_dx_hinfo		dl_hinfo;	/* Name hash results */
 
-	struct buffer_head		*dl_prev_leaf_bh;
+	struct buffer_head		*dl_prev_leaf_bh;/* Previous entry in
+							  * dir free space
+							  * list. NULL if
+							  * previous entry is
+							  * dx root block. */
 };
 
 void ocfs2_free_dir_lookup_result(struct ocfs2_dir_lookup_result *res);
@@ -106,4 +114,4 @@ int ocfs2_dx_dir_truncate(struct inode *dir, struct buffer_head *di_bh);
 
 struct ocfs2_dir_block_trailer *ocfs2_dir_trailer_from_size(int blocksize,
 							    void *data);
-#endif 
+#endif /* OCFS2_DIR_H */

@@ -21,4 +21,4 @@ extern struct task_struct *_switch_to(struct thread_info *prev,
 					task_thread_info(next));	\
 	} while (0)
 
-#endif 
+#endif /* _ASM_MICROBLAZE_SWITCH_TO_H */

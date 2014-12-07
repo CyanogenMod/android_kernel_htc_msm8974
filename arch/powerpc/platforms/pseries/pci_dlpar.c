@@ -64,12 +64,18 @@ pcibios_find_pci_bus(struct device_node *dn)
 }
 EXPORT_SYMBOL_GPL(pcibios_find_pci_bus);
 
+/**
+ * pcibios_remove_pci_devices - remove all devices under this bus
+ *
+ * Remove all of the PCI devices under this bus both from the
+ * linux pci device tree, and from the powerpc EEH address cache.
+ */
 void pcibios_remove_pci_devices(struct pci_bus *bus)
 {
  	struct pci_dev *dev, *tmp;
 	struct pci_bus *child_bus;
 
-	
+	/* First go down child busses */
 	list_for_each_entry(child_bus, &bus->children, node)
 		pcibios_remove_pci_devices(child_bus);
 
@@ -83,6 +89,16 @@ void pcibios_remove_pci_devices(struct pci_bus *bus)
 }
 EXPORT_SYMBOL_GPL(pcibios_remove_pci_devices);
 
+/**
+ * pcibios_add_pci_devices - adds new pci devices to bus
+ *
+ * This routine will find and fixup new pci devices under
+ * the indicated bus. This routine presumes that there
+ * might already be some devices under this bridge, so
+ * it carefully tries to add only new devices.  (And that
+ * is how this routine differs from other, similar pcibios
+ * routines.)
+ */
 void pcibios_add_pci_devices(struct pci_bus * bus)
 {
 	int slotno, num, mode, pass, max;
@@ -96,10 +112,10 @@ void pcibios_add_pci_devices(struct pci_bus * bus)
 		mode = ppc_md.pci_probe_mode(bus);
 
 	if (mode == PCI_PROBE_DEVTREE) {
-		
+		/* use ofdt-based probe */
 		of_rescan_bus(dn, bus);
 	} else if (mode == PCI_PROBE_NORMAL) {
-		
+		/* use legacy probe */
 		slotno = PCI_SLOT(PCI_DN(dn->child)->devfn);
 		num = pci_scan_slot(bus, PCI_DEVFN(slotno, 0));
 		if (!num)
@@ -131,7 +147,7 @@ struct pci_controller * __devinit init_phb_dynamic(struct device_node *dn)
 
 	pci_devs_phb_init_dynamic(phb);
 
-	
+	/* Create EEH devices for the PHB */
 	eeh_dev_phb_init_dynamic(phb);
 
 	if (dn->child)
@@ -144,6 +160,7 @@ struct pci_controller * __devinit init_phb_dynamic(struct device_node *dn)
 }
 EXPORT_SYMBOL_GPL(init_phb_dynamic);
 
+/* RPA-specific bits for removing PHBs */
 int remove_phb_dynamic(struct pci_controller *phb)
 {
 	struct pci_bus *b = phb->bus;
@@ -153,10 +170,13 @@ int remove_phb_dynamic(struct pci_controller *phb)
 	pr_debug("PCI: Removing PHB %04x:%02x...\n",
 		 pci_domain_nr(b), b->number);
 
-	
+	/* We cannot to remove a root bus that has children */
 	if (!(list_empty(&b->children) && list_empty(&b->devices)))
 		return -EBUSY;
 
+	/* We -know- there aren't any child devices anymore at this stage
+	 * and thus, we can safely unmap the IO space as it's not in use
+	 */
 	res = &phb->io_resource;
 	if (res->flags & IORESOURCE_IO) {
 		rc = pcibios_unmap_io_space(b);
@@ -167,16 +187,16 @@ int remove_phb_dynamic(struct pci_controller *phb)
 		}
 	}
 
-	
+	/* Unregister the bridge device from sysfs and remove the PCI bus */
 	device_unregister(b->bridge);
 	phb->bus = NULL;
 	pci_remove_bus(b);
 
-	
+	/* Now release the IO resource */
 	if (res->flags & IORESOURCE_IO)
 		release_resource(res);
 
-	
+	/* Release memory resources */
 	for (i = 0; i < 3; ++i) {
 		res = &phb->mem_resources[i];
 		if (!(res->flags & IORESOURCE_MEM))
@@ -184,7 +204,7 @@ int remove_phb_dynamic(struct pci_controller *phb)
 		release_resource(res);
 	}
 
-	
+	/* Free pci_controller data structure */
 	pcibios_free_controller(phb);
 
 	return 0;

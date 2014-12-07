@@ -48,6 +48,10 @@ static int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Debug level (0-1)");
 
+/*
+ * Generic i2c probe
+ * concerning the addresses: i2c wants 7 bit (without the r/w bit), so '>>1'
+ */
 
 struct saa717x_state {
 	struct v4l2_subdev sd;
@@ -79,15 +83,18 @@ static inline struct v4l2_subdev *to_sd(struct v4l2_ctrl *ctrl)
 	return &container_of(ctrl->handler, struct saa717x_state, hdl)->sd;
 }
 
+/* ----------------------------------------------------------------------- */
 
-#define TUNER_AUDIO_MONO   	0  
-#define TUNER_AUDIO_STEREO 	1  
-#define TUNER_AUDIO_LANG1  	2  
-#define TUNER_AUDIO_LANG2  	3  
+/* for audio mode */
+#define TUNER_AUDIO_MONO   	0  /* LL */
+#define TUNER_AUDIO_STEREO 	1  /* LR */
+#define TUNER_AUDIO_LANG1  	2  /* LL */
+#define TUNER_AUDIO_LANG2  	3  /* RR */
 
 #define SAA717X_NTSC_WIDTH   	(704)
 #define SAA717X_NTSC_HEIGHT  	(480)
 
+/* ----------------------------------------------------------------------- */
 
 static int saa717x_write(struct v4l2_subdev *sd, u32 reg, u32 value)
 {
@@ -109,7 +116,7 @@ static int saa717x_write(struct v4l2_subdev *sd, u32 reg, u32 value)
 	} else {
 		mm1[2] = value & 0xff;
 	}
-	msg.len = fw_addr ? 5 : 3; 
+	msg.len = fw_addr ? 5 : 3; /* Long Registers have *only* three bytes! */
 	msg.buf = mm1;
 	v4l2_dbg(2, debug, sd, "wrote:  reg 0x%03x=%08x\n", reg, value);
 	return i2c_transfer(adap, &msg, 1) == 1;
@@ -140,7 +147,7 @@ static u32 saa717x_read(struct v4l2_subdev *sd, u32 reg)
 	mm1[1] = reg & 0xff;
 	msgs[0].len = 2;
 	msgs[0].buf = mm1;
-	msgs[1].len = fw_addr ? 3 : 1; 
+	msgs[1].len = fw_addr ? 3 : 1; /* Multibyte Registers contains *only* 3 bytes */
 	msgs[1].buf = mm2;
 	i2c_transfer(adap, msgs, 2);
 
@@ -153,78 +160,79 @@ static u32 saa717x_read(struct v4l2_subdev *sd, u32 reg)
 	return value;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static u32 reg_init_initialize[] =
 {
-	
-	0x101, 0x008, 
+	/* from linux driver */
+	0x101, 0x008, /* Increment delay */
 
-	0x103, 0x000, 
-	0x104, 0x090, 
-	0x105, 0x090, 
-	0x106, 0x0eb, 
-	0x107, 0x0e0, 
-	0x109, 0x055, 
+	0x103, 0x000, /* Analog input control 2 */
+	0x104, 0x090, /* Analog input control 3 */
+	0x105, 0x090, /* Analog input control 4 */
+	0x106, 0x0eb, /* Horizontal sync start */
+	0x107, 0x0e0, /* Horizontal sync stop */
+	0x109, 0x055, /* Luminance control */
 
-	0x10f, 0x02a, 
-	0x110, 0x000, 
+	0x10f, 0x02a, /* Chroma gain control */
+	0x110, 0x000, /* Chroma control 2 */
 
-	0x114, 0x045, 
+	0x114, 0x045, /* analog/ADC */
 
-	0x118, 0x040, 
-	0x119, 0x080, 
+	0x118, 0x040, /* RAW data gain */
+	0x119, 0x080, /* RAW data offset */
 
-	0x044, 0x000, 
-	0x045, 0x000, 
-	0x046, 0x0cf, 
-	0x047, 0x002, 
+	0x044, 0x000, /* VBI horizontal input window start (L) TASK A */
+	0x045, 0x000, /* VBI horizontal input window start (H) TASK A */
+	0x046, 0x0cf, /* VBI horizontal input window stop (L) TASK A */
+	0x047, 0x002, /* VBI horizontal input window stop (H) TASK A */
 
-	0x049, 0x000, 
+	0x049, 0x000, /* VBI vertical input window start (H) TASK A */
 
-	0x04c, 0x0d0, 
-	0x04d, 0x002, 
+	0x04c, 0x0d0, /* VBI horizontal output length (L) TASK A */
+	0x04d, 0x002, /* VBI horizontal output length (H) TASK A */
 
-	0x064, 0x080, 
-	0x065, 0x040, 
-	0x066, 0x040, 
-	
-	0x068, 0x000, 
-	0x069, 0x004, 
-	0x06a, 0x000, 
+	0x064, 0x080, /* Lumina brightness TASK A */
+	0x065, 0x040, /* Luminance contrast TASK A */
+	0x066, 0x040, /* Chroma saturation TASK A */
+	/* 067H: Reserved */
+	0x068, 0x000, /* VBI horizontal scaling increment (L) TASK A */
+	0x069, 0x004, /* VBI horizontal scaling increment (H) TASK A */
+	0x06a, 0x000, /* VBI phase offset TASK A */
 
-	0x06e, 0x000, 
-	0x06f, 0x000, 
+	0x06e, 0x000, /* Horizontal phase offset Luma TASK A */
+	0x06f, 0x000, /* Horizontal phase offset Chroma TASK A */
 
-	0x072, 0x000, 
+	0x072, 0x000, /* Vertical filter mode TASK A */
 
-	0x084, 0x000, 
-	0x085, 0x000, 
-	0x086, 0x0cf, 
-	0x087, 0x002, 
+	0x084, 0x000, /* VBI horizontal input window start (L) TAKS B */
+	0x085, 0x000, /* VBI horizontal input window start (H) TAKS B */
+	0x086, 0x0cf, /* VBI horizontal input window stop (L) TAKS B */
+	0x087, 0x002, /* VBI horizontal input window stop (H) TAKS B */
 
-	0x089, 0x000, 
+	0x089, 0x000, /* VBI vertical input window start (H) TAKS B */
 
-	0x08c, 0x0d0, 
-	0x08d, 0x002, 
+	0x08c, 0x0d0, /* VBI horizontal output length (L) TASK B */
+	0x08d, 0x002, /* VBI horizontal output length (H) TASK B */
 
-	0x0a4, 0x080, 
-	0x0a5, 0x040, 
-	0x0a6, 0x040, 
-	
-	0x0a8, 0x000, 
-	0x0a9, 0x004, 
-	0x0aa, 0x000, 
+	0x0a4, 0x080, /* Lumina brightness TASK B */
+	0x0a5, 0x040, /* Luminance contrast TASK B */
+	0x0a6, 0x040, /* Chroma saturation TASK B */
+	/* 0A7H reserved */
+	0x0a8, 0x000, /* VBI horizontal scaling increment (L) TASK B */
+	0x0a9, 0x004, /* VBI horizontal scaling increment (H) TASK B */
+	0x0aa, 0x000, /* VBI phase offset TASK B */
 
-	0x0ae, 0x000, 
-	0x0af, 0x000, 
+	0x0ae, 0x000, /* Horizontal phase offset Luma TASK B */
+	0x0af, 0x000, /*Horizontal phase offset Chroma TASK B */
 
-	0x0b2, 0x000, 
+	0x0b2, 0x000, /* Vertical filter mode TASK B */
 
-	0x00c, 0x000, 
-	0x00d, 0x000, 
-	0x00e, 0x000, 
+	0x00c, 0x000, /* Start point GREEN path */
+	0x00d, 0x000, /* Start point BLUE path */
+	0x00e, 0x000, /* Start point RED path */
 
-	0x010, 0x010, 
+	0x010, 0x010, /* GREEN path gamma curve --- */
 	0x011, 0x020,
 	0x012, 0x030,
 	0x013, 0x040,
@@ -239,9 +247,9 @@ static u32 reg_init_initialize[] =
 	0x01c, 0x0d0,
 	0x01d, 0x0e0,
 	0x01e, 0x0f0,
-	0x01f, 0x0ff, 
+	0x01f, 0x0ff, /* --- GREEN path gamma curve */
 
-	0x020, 0x010, 
+	0x020, 0x010, /* BLUE path gamma curve --- */
 	0x021, 0x020,
 	0x022, 0x030,
 	0x023, 0x040,
@@ -256,9 +264,9 @@ static u32 reg_init_initialize[] =
 	0x02c, 0x0d0,
 	0x02d, 0x0e0,
 	0x02e, 0x0f0,
-	0x02f, 0x0ff, 
+	0x02f, 0x0ff, /* --- BLUE path gamma curve */
 
-	0x030, 0x010, 
+	0x030, 0x010, /* RED path gamma curve --- */
 	0x031, 0x020,
 	0x032, 0x030,
 	0x033, 0x040,
@@ -273,56 +281,56 @@ static u32 reg_init_initialize[] =
 	0x03c, 0x0d0,
 	0x03d, 0x0e0,
 	0x03e, 0x0f0,
-	0x03f, 0x0ff, 
+	0x03f, 0x0ff, /* --- RED path gamma curve */
 
-	0x109, 0x085, 
+	0x109, 0x085, /* Luminance control  */
 
-	
-	0x584, 0x000, 
-	0x585, 0x000, 
-	0x586, 0x003, 
-	0x588, 0x0ff, 
-	0x589, 0x00f, 
-	0x58a, 0x000, 
-	0x58b, 0x000, 
-	0x58c, 0x010, 
-	0x58d, 0x032, 
-	0x58e, 0x054, 
-	0x58f, 0x023, 
-	0x590, 0x000, 
+	/**** from app start ****/
+	0x584, 0x000, /* AGC gain control */
+	0x585, 0x000, /* Program count */
+	0x586, 0x003, /* Status reset */
+	0x588, 0x0ff, /* Number of audio samples (L) */
+	0x589, 0x00f, /* Number of audio samples (M) */
+	0x58a, 0x000, /* Number of audio samples (H) */
+	0x58b, 0x000, /* Audio select */
+	0x58c, 0x010, /* Audio channel assign1 */
+	0x58d, 0x032, /* Audio channel assign2 */
+	0x58e, 0x054, /* Audio channel assign3 */
+	0x58f, 0x023, /* Audio format */
+	0x590, 0x000, /* SIF control */
 
-	0x595, 0x000, 
-	0x596, 0x000, 
-	0x597, 0x000, 
+	0x595, 0x000, /* ?? */
+	0x596, 0x000, /* ?? */
+	0x597, 0x000, /* ?? */
 
-	0x464, 0x00, 
+	0x464, 0x00, /* Digital input crossbar1 */
 
-	0x46c, 0xbbbb10, 
-	0x470, 0x101010, 
+	0x46c, 0xbbbb10, /* Digital output selection1-3 */
+	0x470, 0x101010, /* Digital output selection4-6 */
 
-	0x478, 0x00, 
+	0x478, 0x00, /* Sound feature control */
 
-	0x474, 0x18, 
+	0x474, 0x18, /* Softmute control */
 
-	0x454, 0x0425b9, 
-	0x454, 0x042539, 
+	0x454, 0x0425b9, /* Sound Easy programming(reset) */
+	0x454, 0x042539, /* Sound Easy programming(reset) */
 
 
-	
-	0x042, 0x003, 
+	/**** common setting( of DVD play, including scaler commands) ****/
+	0x042, 0x003, /* Data path configuration for VBI (TASK A) */
 
-	0x082, 0x003, 
+	0x082, 0x003, /* Data path configuration for VBI (TASK B) */
 
-	0x108, 0x0f8, 
-	0x2a9, 0x0fd, 
-	0x102, 0x089, 
-	0x111, 0x000, 
+	0x108, 0x0f8, /* Sync control */
+	0x2a9, 0x0fd, /* ??? */
+	0x102, 0x089, /* select video input "mode 9" */
+	0x111, 0x000, /* Mode/delay control */
 
-	0x10e, 0x00a, 
+	0x10e, 0x00a, /* Chroma control 1 */
 
-	0x594, 0x002, 
+	0x594, 0x002, /* SIF, analog I/O select */
 
-	0x454, 0x0425b9, 
+	0x454, 0x0425b9, /* Sound  */
 	0x454, 0x042539,
 
 	0x111, 0x000,
@@ -625,46 +633,63 @@ static u32 reg_init_initialize[] =
 	0, 0
 };
 
+/* Tuner */
 static u32 reg_init_tuner_input[] = {
-	0x108, 0x0f8, 
-	0x111, 0x000, 
-	0x10e, 0x00a, 
+	0x108, 0x0f8, /* Sync control */
+	0x111, 0x000, /* Mode/delay control */
+	0x10e, 0x00a, /* Chroma control 1 */
 	0, 0
 };
 
+/* Composite */
 static u32 reg_init_composite_input[] = {
-	0x108, 0x0e8, 
-	0x111, 0x000, 
-	0x10e, 0x04a, 
+	0x108, 0x0e8, /* Sync control */
+	0x111, 0x000, /* Mode/delay control */
+	0x10e, 0x04a, /* Chroma control 1 */
 	0, 0
 };
 
+/* S-Video */
 static u32 reg_init_svideo_input[] = {
-	0x108, 0x0e8, 
-	0x111, 0x000, 
-	0x10e, 0x04a, 
+	0x108, 0x0e8, /* Sync control */
+	0x111, 0x000, /* Mode/delay control */
+	0x10e, 0x04a, /* Chroma control 1 */
 	0, 0
 };
 
 static u32 reg_set_audio_template[4][2] =
 {
-	{ 
+	{ /* for MONO
+		tadachi 6/29 DMA audio output select?
+		Register 0x46c
+		7-4: DMA2, 3-0: DMA1 ch. DMA4, DMA3 DMA2, DMA1
+		0: MAIN left,  1: MAIN right
+		2: AUX1 left,  3: AUX1 right
+		4: AUX2 left,  5: AUX2 right
+		6: DPL left,   7: DPL  right
+		8: DPL center, 9: DPL surround
+		A: monitor output, B: digital sense */
 		0xbbbb00,
 
+		/* tadachi 6/29 DAC and I2S output select?
+		   Register 0x470
+		   7-4:DAC right ch. 3-0:DAC left ch.
+		   I2S1 right,left  I2S2 right,left */
 		0x00,
 	},
-	{ 
+	{ /* for STEREO */
 		0xbbbb10, 0x101010,
 	},
-	{ 
+	{ /* for LANG1 */
 		0xbbbb00, 0x00,
 	},
-	{ 
+	{ /* for LANG2/SAP */
 		0xbbbb11, 0x111111,
 	}
 };
 
 
+/* Get detected audio flags (from saa7134 driver) */
 static void get_inf_dev_status(struct v4l2_subdev *sd,
 		int *dual_flag, int *stereo_flag)
 {
@@ -701,9 +726,9 @@ static void get_inf_dev_status(struct v4l2_subdev *sd,
 
 	*dual_flag = *stereo_flag = 0;
 
-	
+	/* (demdec status: 0x528) */
 
-	
+	/* read current status */
 	reg_data3 = saa717x_read(sd, 0x0528);
 
 	v4l2_dbg(1, debug, sd, "tvaudio thread status: 0x%x [%s%s%s]\n",
@@ -741,6 +766,7 @@ static void get_inf_dev_status(struct v4l2_subdev *sd,
 	}
 }
 
+/* regs write to set audio mode */
 static void set_audio_mode(struct v4l2_subdev *sd, int audio_mode)
 {
 	v4l2_dbg(1, debug, sd, "writing registers to set audio mode by set %d\n",
@@ -750,28 +776,29 @@ static void set_audio_mode(struct v4l2_subdev *sd, int audio_mode)
 	saa717x_write(sd, 0x470, reg_set_audio_template[audio_mode][1]);
 }
 
+/* write regs to set audio volume, bass and treble */
 static int set_audio_regs(struct v4l2_subdev *sd,
 		struct saa717x_state *decoder)
 {
-	u8 mute = 0xac; 
+	u8 mute = 0xac; /* -84 dB */
 	u32 val;
 	unsigned int work_l, work_r;
 
-	
+	/* set SIF analog I/O select */
 	saa717x_write(sd, 0x0594, decoder->audio_input);
 	v4l2_dbg(1, debug, sd, "set audio input %d\n",
 			decoder->audio_input);
 
-	
+	/* normalize ( 65535 to 0 -> 24 to -40 (not -84)) */
 	work_l = (min(65536 - decoder->audio_main_balance, 32768) * decoder->audio_main_volume) / 32768;
 	work_r = (min(decoder->audio_main_balance, (u16)32768) * decoder->audio_main_volume) / 32768;
 	decoder->audio_main_vol_l = (long)work_l * (24 - (-40)) / 65535 - 40;
 	decoder->audio_main_vol_r = (long)work_r * (24 - (-40)) / 65535 - 40;
 
-	
-	
-	
-	
+	/* set main volume */
+	/* main volume L[7-0],R[7-0],0x00  24=24dB,-83dB, -84(mute) */
+	/*    def:0dB->6dB(MPG600GR) */
+	/* if mute is on, set mute */
 	if (decoder->audio_main_mute) {
 		val = mute | (mute << 8);
 	} else {
@@ -781,13 +808,14 @@ static int set_audio_regs(struct v4l2_subdev *sd,
 
 	saa717x_write(sd, 0x480, val);
 
-	
+	/* set bass and treble */
 	val = decoder->audio_main_bass & 0x1f;
 	val |= (decoder->audio_main_treble & 0x1f) << 5;
 	saa717x_write(sd, 0x488, val);
 	return 0;
 }
 
+/********** scaling staff ***********/
 static void set_h_prescale(struct v4l2_subdev *sd,
 		int task, int prescale)
 {
@@ -798,7 +826,7 @@ static void set_h_prescale(struct v4l2_subdev *sd,
 		int xdcg;
 		int vpfy;
 	} vals[] = {
-		
+		/* XPSC XACL XC2_1 XDCG VPFY */
 		{    1,   0,    0,    0,   0 },
 		{    2,   2,    1,    2,   2 },
 		{    3,   4,    1,    3,   2 },
@@ -820,26 +848,27 @@ static void set_h_prescale(struct v4l2_subdev *sd,
 	if (i == count)
 		return;
 
-	
+	/* horizonal prescaling */
 	saa717x_write(sd, 0x60 + task_shift, vals[i].xpsc);
-	
+	/* accumulation length */
 	saa717x_write(sd, 0x61 + task_shift, vals[i].xacl);
-	
+	/* level control */
 	saa717x_write(sd, 0x62 + task_shift,
 			(vals[i].xc2_1 << 3) | vals[i].xdcg);
-	
+	/*FIR prefilter control */
 	saa717x_write(sd, 0x63 + task_shift,
 			(vals[i].vpfy << 2) | vals[i].vpfy);
 }
 
+/********** scaling staff ***********/
 static void set_v_scale(struct v4l2_subdev *sd, int task, int yscale)
 {
 	int task_shift;
 
 	task_shift = task * 0x40;
-	
+	/* Vertical scaling ratio (LOW) */
 	saa717x_write(sd, 0x70 + task_shift, yscale & 0xff);
-	
+	/* Vertical scaling ratio (HI) */
 	saa717x_write(sd, 0x71 + task_shift, yscale >> 8);
 }
 
@@ -896,13 +925,13 @@ static int saa717x_s_video_routing(struct v4l2_subdev *sd,
 				   u32 input, u32 output, u32 config)
 {
 	struct saa717x_state *decoder = to_state(sd);
-	int is_tuner = input & 0x80;  
+	int is_tuner = input & 0x80;  /* tuner input flag */
 
 	input &= 0x7f;
 
 	v4l2_dbg(1, debug, sd, "decoder set input (%d)\n", input);
-	
-	
+	/* inputs from 0-9 are available*/
+	/* saa717x have mode0-mode9 but mode5 is reserved. */
 	if (input > 9 || input == 5)
 		return -EINVAL;
 
@@ -914,24 +943,26 @@ static int saa717x_s_video_routing(struct v4l2_subdev *sd,
 				input_line >= 6 ? "S-Video" : "Composite",
 				input_line);
 
-		
+		/* select mode */
 		saa717x_write(sd, 0x102,
 				(saa717x_read(sd, 0x102) & 0xf0) |
 				input_line);
 
-		
+		/* bypass chrominance trap for modes 6..9 */
 		saa717x_write(sd, 0x109,
 				(saa717x_read(sd, 0x109) & 0x7f) |
 				(input_line < 6 ? 0x0 : 0x80));
 
-		
+		/* change audio_mode */
 		if (is_tuner) {
-			
+			/* tuner */
 			set_audio_mode(sd, decoder->tuner_audio_mode);
 		} else {
+			/* Force to STEREO mode if Composite or
+			 * S-Video were chosen */
 			set_audio_mode(sd, TUNER_AUDIO_STEREO);
 		}
-		
+		/* change initialize procedure (Composite/S-Video) */
 		if (is_tuner)
 			saa717x_write_regs(sd, reg_init_tuner_input);
 		else if (input_line >= 6)
@@ -981,7 +1012,7 @@ static int saa717x_s_mbus_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt 
 	if (fmt->code != V4L2_MBUS_FMT_FIXED)
 		return -EINVAL;
 
-	
+	/* FIXME need better bounds checking here */
 	if (fmt->width < 1 || fmt->width > 1440)
 		return -EINVAL;
 	if (fmt->height < 1 || fmt->height > 960)
@@ -990,45 +1021,45 @@ static int saa717x_s_mbus_fmt(struct v4l2_subdev *sd, struct v4l2_mbus_framefmt 
 	fmt->field = V4L2_FIELD_INTERLACED;
 	fmt->colorspace = V4L2_COLORSPACE_SMPTE170M;
 
-	
-	
+	/* scaling setting */
+	/* NTSC and interlace only */
 	prescale = SAA717X_NTSC_WIDTH / fmt->width;
 	if (prescale == 0)
 		prescale = 1;
 	h_scale = 1024 * SAA717X_NTSC_WIDTH / prescale / fmt->width;
-	
+	/* interlace */
 	v_scale = 512 * 2 * SAA717X_NTSC_HEIGHT / fmt->height;
 
-	
+	/* Horizontal prescaling etc */
 	set_h_prescale(sd, 0, prescale);
 	set_h_prescale(sd, 1, prescale);
 
-	
-	
+	/* Horizontal scaling increment */
+	/* TASK A */
 	saa717x_write(sd, 0x6C, (u8)(h_scale & 0xFF));
 	saa717x_write(sd, 0x6D, (u8)((h_scale >> 8) & 0xFF));
-	
+	/* TASK B */
 	saa717x_write(sd, 0xAC, (u8)(h_scale & 0xFF));
 	saa717x_write(sd, 0xAD, (u8)((h_scale >> 8) & 0xFF));
 
-	
+	/* Vertical prescaling etc */
 	set_v_scale(sd, 0, v_scale);
 	set_v_scale(sd, 1, v_scale);
 
-	
-	
-	
+	/* set video output size */
+	/* video number of pixels at output */
+	/* TASK A */
 	saa717x_write(sd, 0x5C, (u8)(fmt->width & 0xFF));
 	saa717x_write(sd, 0x5D, (u8)((fmt->width >> 8) & 0xFF));
-	
+	/* TASK B */
 	saa717x_write(sd, 0x9C, (u8)(fmt->width & 0xFF));
 	saa717x_write(sd, 0x9D, (u8)((fmt->width >> 8) & 0xFF));
 
-	
-	
+	/* video number of lines at output */
+	/* TASK A */
 	saa717x_write(sd, 0x5E, (u8)(fmt->height & 0xFF));
 	saa717x_write(sd, 0x5F, (u8)((fmt->height >> 8) & 0xFF));
-	
+	/* TASK B */
 	saa717x_write(sd, 0x9E, (u8)(fmt->height & 0xFF));
 	saa717x_write(sd, 0x9F, (u8)((fmt->height >> 8) & 0xFF));
 	return 0;
@@ -1059,7 +1090,7 @@ static int saa717x_s_audio_routing(struct v4l2_subdev *sd,
 {
 	struct saa717x_state *decoder = to_state(sd);
 
-	if (input < 3) { 
+	if (input < 3) { /* FIXME! --tadachi */
 		decoder->audio_input = input;
 		v4l2_dbg(1, debug, sd,
 				"set decoder audio input to %d\n",
@@ -1081,6 +1112,7 @@ static int saa717x_s_stream(struct v4l2_subdev *sd, int enable)
 	return 0;
 }
 
+/* change audio mode */
 static int saa717x_s_tuner(struct v4l2_subdev *sd, struct v4l2_tuner *vt)
 {
 	struct saa717x_state *decoder = to_state(sd);
@@ -1109,8 +1141,8 @@ static int saa717x_s_tuner(struct v4l2_subdev *sd, struct v4l2_tuner *vt)
 	v4l2_dbg(1, debug, sd, "change audio mode to %s\n",
 			mes[audio_mode]);
 	decoder->tuner_audio_mode = audio_mode;
-	
-	
+	/* The registers are not changed here. */
+	/* See DECODER_ENABLE_OUTPUT section. */
 	set_audio_mode(sd, decoder->tuner_audio_mode);
 	return 0;
 }
@@ -1127,13 +1159,13 @@ static int saa717x_g_tuner(struct v4l2_subdev *sd, struct v4l2_tuner *vt)
 	v4l2_dbg(1, debug, sd, "DETECT==st:%d dual:%d\n",
 			stereo_f, dual_f);
 
-	
+	/* mono */
 	if ((dual_f == 0) && (stereo_f == 0)) {
 		vt->rxsubchans = V4L2_TUNER_SUB_MONO;
 		v4l2_dbg(1, debug, sd, "DETECT==MONO\n");
 	}
 
-	
+	/* stereo */
 	if (stereo_f == 1) {
 		if (vt->audmode == V4L2_TUNER_MODE_STEREO ||
 				vt->audmode == V4L2_TUNER_MODE_LANG1) {
@@ -1145,7 +1177,7 @@ static int saa717x_g_tuner(struct v4l2_subdev *sd, struct v4l2_tuner *vt)
 		}
 	}
 
-	
+	/* dual */
 	if (dual_f == 1) {
 		if (vt->audmode == V4L2_TUNER_MODE_LANG2) {
 			vt->rxsubchans = V4L2_TUNER_SUB_LANG2 | V4L2_TUNER_SUB_MONO;
@@ -1166,6 +1198,7 @@ static int saa717x_log_status(struct v4l2_subdev *sd)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct v4l2_ctrl_ops saa717x_ctrl_ops = {
 	.s_ctrl = saa717x_s_ctrl,
@@ -1210,9 +1243,12 @@ static const struct v4l2_subdev_ops saa717x_ops = {
 	.video = &saa717x_video_ops,
 };
 
+/* ----------------------------------------------------------------------- */
 
 
+/* i2c implementation */
 
+/* ----------------------------------------------------------------------- */
 static int saa717x_probe(struct i2c_client *client,
 			 const struct i2c_device_id *did)
 {
@@ -1222,7 +1258,7 @@ static int saa717x_probe(struct i2c_client *client,
 	u8 id = 0;
 	char *p = "";
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -EIO;
 
@@ -1256,7 +1292,7 @@ static int saa717x_probe(struct i2c_client *client,
 
 	hdl = &decoder->hdl;
 	v4l2_ctrl_handler_init(hdl, 9);
-	
+	/* add in ascending ID order */
 	v4l2_ctrl_new_std(hdl, &saa717x_ctrl_ops,
 			V4L2_CID_BRIGHTNESS, 0, 255, 1, 128);
 	v4l2_ctrl_new_std(hdl, &saa717x_ctrl_ops,
@@ -1288,20 +1324,20 @@ static int saa717x_probe(struct i2c_client *client,
 	decoder->input = -1;
 	decoder->enable = 1;
 
-	
-	decoder->playback = 0;	
-	decoder->audio = 1; 
+	/* FIXME!! */
+	decoder->playback = 0;	/* initially capture mode used */
+	decoder->audio = 1; /* DECODER_AUDIO_48_KHZ */
 
-	decoder->audio_input = 2; 
+	decoder->audio_input = 2; /* FIXME!! */
 
 	decoder->tuner_audio_mode = TUNER_AUDIO_STEREO;
-	
+	/* set volume, bass and treble */
 	decoder->audio_main_vol_l = 6;
 	decoder->audio_main_vol_r = 6;
 
 	v4l2_dbg(1, debug, sd, "writing init values\n");
 
-	
+	/* FIXME!! */
 	saa717x_write_regs(sd, reg_init_initialize);
 
 	v4l2_ctrl_handler_setup(hdl);
@@ -1321,6 +1357,7 @@ static int saa717x_remove(struct i2c_client *client)
 	return 0;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct i2c_device_id saa717x_id[] = {
 	{ "saa717x", 0 },

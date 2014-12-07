@@ -1,5 +1,19 @@
+/**********************************************************************
+* 			LEAKYBUCKET.C
+*	This file contains the routines related to Leaky Bucket Algorithm.
+***********************************************************************/
 #include "headers.h"
 
+/*********************************************************************
+* Function    - UpdateTokenCount()
+*
+* Description - This function calculates the token count for each
+*				channel and updates the same in Adapter strucuture.
+*
+* Parameters  - Adapter: Pointer to the Adapter structure.
+*
+* Returns     - None
+**********************************************************************/
 
 static VOID UpdateTokenCount(register PMINI_ADAPTER Adapter)
 {
@@ -47,10 +61,24 @@ static VOID UpdateTokenCount(register PMINI_ADAPTER Adapter)
 }
 
 
+/*********************************************************************
+* Function    - IsPacketAllowedForFlow()
+*
+* Description - This function checks whether the given packet from the
+*				specified queue can be allowed for transmission by
+*				checking the token count.
+*
+* Parameters  - Adapter	      :	Pointer to the Adpater structure.
+* 			  - iQIndex	      :	The queue Identifier.
+* 			  - ulPacketLength:	Number of bytes to be transmitted.
+*
+* Returns     - The number of bytes allowed for transmission.
+*
+***********************************************************************/
 static ULONG GetSFTokenCount(PMINI_ADAPTER Adapter, PacketInfo *psSF)
 {
 	BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, TOKEN_COUNTS, DBG_LVL_ALL, "IsPacketAllowedForFlow ===>");
-	
+	/* Validate the parameters */
 	if(NULL == Adapter || (psSF < Adapter->PackInfo &&
 		(uintptr_t)psSF > (uintptr_t) &Adapter->PackInfo[HiPriority]))
 	{
@@ -79,9 +107,14 @@ static ULONG GetSFTokenCount(PMINI_ADAPTER Adapter, PacketInfo *psSF)
 	return 0;
 }
 
-static INT SendPacketFromQueue(PMINI_ADAPTER Adapter,
-			       PacketInfo *psSF,		
-			       struct sk_buff*  Packet)	
+/**
+@ingroup tx_functions
+This function despatches packet from the specified queue.
+@return Zero(success) or Negative value(failure)
+*/
+static INT SendPacketFromQueue(PMINI_ADAPTER Adapter,/**<Logical Adapter*/
+			       PacketInfo *psSF,		/**<Queue identifier*/
+			       struct sk_buff*  Packet)	/**<Pointer to the packet to be sent*/
 {
 	INT  	Status=STATUS_FAILURE;
 	UINT uiIndex =0,PktLen = 0;
@@ -97,7 +130,7 @@ static INT SendPacketFromQueue(PMINI_ADAPTER Adapter,
 	{
 		psSF->liDrainCalculated = jiffies;
 	}
-	
+	///send the packet to the fifo..
 	PktLen = Packet->len;
 	Status = SetupNextSend(Adapter, Packet, psSF->usVCID_Value);
 	if(Status == 0)
@@ -111,6 +144,18 @@ static INT SendPacketFromQueue(PMINI_ADAPTER Adapter,
 	return Status;
 }
 
+/************************************************************************
+* Function    - CheckAndSendPacketFromIndex()
+*
+* Description - This function dequeues the data/control packet from the
+*				specified queue for transmission.
+*
+* Parameters  - Adapter : Pointer to the driver control structure.
+* 			  - iQIndex : The queue Identifier.
+*
+* Returns     - None.
+*
+****************************************************************************/
 static VOID CheckAndSendPacketFromIndex(PMINI_ADAPTER Adapter, PacketInfo *psSF)
 {
 	struct sk_buff	*QueuePacket=NULL;
@@ -120,16 +165,16 @@ static VOID CheckAndSendPacketFromIndex(PMINI_ADAPTER Adapter, PacketInfo *psSF)
 
 
 	BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, TX_PACKETS, DBG_LVL_ALL, "%zd ====>", (psSF-Adapter->PackInfo));
-	if((psSF != &Adapter->PackInfo[HiPriority]) && Adapter->LinkUpStatus && atomic_read(&psSF->uiPerSFTxResourceCount))
+	if((psSF != &Adapter->PackInfo[HiPriority]) && Adapter->LinkUpStatus && atomic_read(&psSF->uiPerSFTxResourceCount))//Get data packet
   	{
 		if(!psSF->ucDirection )
 			return;
 
 		BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, TX_PACKETS, DBG_LVL_ALL, "UpdateTokenCount ");
 		if(Adapter->IdleMode || Adapter->bPreparingForLowPowerMode)
-			return;	
+			return;	/* in idle mode */
 
-		
+		// Check for Free Descriptors
 		if(atomic_read(&Adapter->CurrNumFreeTxDesc) <= MINIMUM_PENDING_DESCRIPTORS)
 		{
 			BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, TX_PACKETS, DBG_LVL_ALL, " No Free Tx Descriptor(%d) is available for Data pkt..",atomic_read(&Adapter->CurrNumFreeTxDesc));
@@ -168,9 +213,9 @@ static VOID CheckAndSendPacketFromIndex(PMINI_ADAPTER Adapter, PacketInfo *psSF)
 				BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, TX_PACKETS, DBG_LVL_ALL, "For Queue: %zd\n", psSF-Adapter->PackInfo);
 				BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, TX_PACKETS, DBG_LVL_ALL, "\nAvailable Tokens = %d required = %d\n",
 					psSF->uiCurrentTokenCount, iPacketLen);
-				
-				
-				
+				//this part indicates that because of non-availability of the tokens
+				//pkt has not been send out hence setting the pending flag indicating the host to send it out
+				//first next iteration  .
 				psSF->uiPendedLast = TRUE;
 				spin_unlock_bh(&psSF->SFQueueLock);
 			}
@@ -218,6 +263,16 @@ static VOID CheckAndSendPacketFromIndex(PMINI_ADAPTER Adapter, PacketInfo *psSF)
 }
 
 
+/*******************************************************************
+* Function    - transmit_packets()
+*
+* Description - This function transmits the packets from different
+*				queues, if free descriptors are available on target.
+*
+* Parameters  - Adapter:  Pointer to the Adapter structure.
+*
+* Returns     - None.
+********************************************************************/
 VOID transmit_packets(PMINI_ADAPTER Adapter)
 {
 	UINT 	uiPrevTotalCount = 0;
@@ -266,7 +321,7 @@ VOID transmit_packets(PMINI_ADAPTER Adapter)
 	while(uiPrevTotalCount > 0 && !Adapter->device_removed)
 	{
 		exit_flag = TRUE ;
-			
+			//second iteration to parse non-pending queues
 		for(iIndex=HiPriority;iIndex>=0;iIndex--)
 		{
 			if( !uiPrevTotalCount || (TRUE == Adapter->device_removed))
@@ -290,7 +345,7 @@ VOID transmit_packets(PMINI_ADAPTER Adapter)
 		}
 		if(exit_flag == TRUE )
 		    break ;
-	}
+	}/* end of inner while loop */
 
 	update_per_cid_rx  (Adapter);
 	Adapter->txtransmit_running = 0;

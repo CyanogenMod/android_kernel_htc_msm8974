@@ -35,48 +35,77 @@
 
 #define EDAC_MOD_STR    "i82443bxgx_edac"
 
+/* The 82443BX supports SDRAM, or EDO (EDO for mobile only), "Memory
+ * Size: 8 MB to 512 MB (1GB with Registered DIMMs) with eight memory
+ * rows" "The 82443BX supports multiple-bit error detection and
+ * single-bit error correction when ECC mode is enabled and
+ * single/multi-bit error detection when correction is disabled.
+ * During writes to the DRAM, the 82443BX generates ECC for the data
+ * on a QWord basis. Partial QWord writes require a read-modify-write
+ * cycle when ECC is enabled."
+*/
 
+/* "Additionally, the 82443BX ensures that the data is corrected in
+ * main memory so that accumulation of errors is prevented. Another
+ * error within the same QWord would result in a double-bit error
+ * which is unrecoverable. This is known as hardware scrubbing since
+ * it requires no software intervention to correct the data in memory."
+ */
 
+/* [Also see page 100 (section 4.3), "DRAM Interface"]
+ * [Also see page 112 (section 4.6.1.4), ECC]
+ */
 
 #define I82443BXGX_NR_CSROWS 8
 #define I82443BXGX_NR_CHANS  1
 #define I82443BXGX_NR_DIMMS  4
 
-#define I82443BXGX_NBXCFG 0x50	
-#define I82443BXGX_NBXCFG_OFFSET_NON_ECCROW 24	
-#define I82443BXGX_NBXCFG_OFFSET_DRAM_FREQ 12	
+/* 82443 PCI Device 0 */
+#define I82443BXGX_NBXCFG 0x50	/* 32bit register starting at this PCI
+				 * config space offset */
+#define I82443BXGX_NBXCFG_OFFSET_NON_ECCROW 24	/* Array of bits, zero if
+						 * row is non-ECC */
+#define I82443BXGX_NBXCFG_OFFSET_DRAM_FREQ 12	/* 2 bits,00=100MHz,10=66 MHz */
 
-#define I82443BXGX_NBXCFG_OFFSET_DRAM_INTEGRITY 7	
-#define I82443BXGX_NBXCFG_INTEGRITY_NONE   0x0	
-#define I82443BXGX_NBXCFG_INTEGRITY_EC     0x1	
-#define I82443BXGX_NBXCFG_INTEGRITY_ECC    0x2	
-#define I82443BXGX_NBXCFG_INTEGRITY_SCRUB  0x3	
+#define I82443BXGX_NBXCFG_OFFSET_DRAM_INTEGRITY 7	/* 2 bits:       */
+#define I82443BXGX_NBXCFG_INTEGRITY_NONE   0x0	/* 00 = Non-ECC */
+#define I82443BXGX_NBXCFG_INTEGRITY_EC     0x1	/* 01 = EC (only) */
+#define I82443BXGX_NBXCFG_INTEGRITY_ECC    0x2	/* 10 = ECC */
+#define I82443BXGX_NBXCFG_INTEGRITY_SCRUB  0x3	/* 11 = ECC + HW Scrub */
 
 #define I82443BXGX_NBXCFG_OFFSET_ECC_DIAG_ENABLE  6
 
-#define I82443BXGX_EAP   0x80	
-#define I82443BXGX_EAP_OFFSET_EAP  12	
-#define I82443BXGX_EAP_OFFSET_MBE  BIT(1)	
-#define I82443BXGX_EAP_OFFSET_SBE  BIT(0)	
+/* 82443 PCI Device 0 */
+#define I82443BXGX_EAP   0x80	/* 32bit register starting at this PCI
+				 * config space offset, Error Address
+				 * Pointer Register */
+#define I82443BXGX_EAP_OFFSET_EAP  12	/* High 20 bits of error address */
+#define I82443BXGX_EAP_OFFSET_MBE  BIT(1)	/* Err at EAP was multi-bit (W1TC) */
+#define I82443BXGX_EAP_OFFSET_SBE  BIT(0)	/* Err at EAP was single-bit (W1TC) */
 
-#define I82443BXGX_ERRCMD  0x90	
-#define I82443BXGX_ERRCMD_OFFSET_SERR_ON_MBE BIT(1)	
-#define I82443BXGX_ERRCMD_OFFSET_SERR_ON_SBE BIT(0)	
+#define I82443BXGX_ERRCMD  0x90	/* 8bit register starting at this PCI
+				 * config space offset. */
+#define I82443BXGX_ERRCMD_OFFSET_SERR_ON_MBE BIT(1)	/* 1 = enable */
+#define I82443BXGX_ERRCMD_OFFSET_SERR_ON_SBE BIT(0)	/* 1 = enable */
 
-#define I82443BXGX_ERRSTS  0x91	
-#define I82443BXGX_ERRSTS_OFFSET_MBFRE 5	
-#define I82443BXGX_ERRSTS_OFFSET_MEF   BIT(4)	
-#define I82443BXGX_ERRSTS_OFFSET_SBFRE 1	
-#define I82443BXGX_ERRSTS_OFFSET_SEF   BIT(0)	
+#define I82443BXGX_ERRSTS  0x91	/* 16bit register starting at this PCI
+				 * config space offset. */
+#define I82443BXGX_ERRSTS_OFFSET_MBFRE 5	/* 3 bits - first err row multibit */
+#define I82443BXGX_ERRSTS_OFFSET_MEF   BIT(4)	/* 1 = MBE occurred */
+#define I82443BXGX_ERRSTS_OFFSET_SBFRE 1	/* 3 bits - first err row singlebit */
+#define I82443BXGX_ERRSTS_OFFSET_SEF   BIT(0)	/* 1 = SBE occurred */
 
-#define I82443BXGX_DRAMC 0x57	
-#define I82443BXGX_DRAMC_OFFSET_DT 3	
-#define I82443BXGX_DRAMC_DRAM_IS_EDO 0	
-#define I82443BXGX_DRAMC_DRAM_IS_SDRAM 1	
-#define I82443BXGX_DRAMC_DRAM_IS_RSDRAM 2	
+#define I82443BXGX_DRAMC 0x57	/* 8bit register starting at this PCI
+				 * config space offset. */
+#define I82443BXGX_DRAMC_OFFSET_DT 3	/* 2 bits, DRAM Type */
+#define I82443BXGX_DRAMC_DRAM_IS_EDO 0	/* 00 = EDO */
+#define I82443BXGX_DRAMC_DRAM_IS_SDRAM 1	/* 01 = SDRAM */
+#define I82443BXGX_DRAMC_DRAM_IS_RSDRAM 2	/* 10 = Registered SDRAM */
 
-#define I82443BXGX_DRB 0x60	
+#define I82443BXGX_DRB 0x60	/* 8x 8bit registers starting at this PCI
+				 * config space offset. */
 
+/* FIXME - don't poll when ECC disabled? */
 
 struct i82443bxgx_edacmc_error_info {
 	u32 eap;
@@ -84,7 +113,9 @@ struct i82443bxgx_edacmc_error_info {
 
 static struct edac_pci_ctl_info *i82443bxgx_pci;
 
-static struct pci_dev *mci_pdev;	
+static struct pci_dev *mci_pdev;	/* init dev: in case that AGP code has
+					 * already registered driver
+					 */
 
 static int i82443bxgx_registered = 1;
 
@@ -96,13 +127,13 @@ static void i82443bxgx_edacmc_get_error_info(struct mem_ctl_info *mci,
 	pdev = to_pci_dev(mci->dev);
 	pci_read_config_dword(pdev, I82443BXGX_EAP, &info->eap);
 	if (info->eap & I82443BXGX_EAP_OFFSET_SBE)
-		
+		/* Clear error to allow next error to be reported [p.61] */
 		pci_write_bits32(pdev, I82443BXGX_EAP,
 				 I82443BXGX_EAP_OFFSET_SBE,
 				 I82443BXGX_EAP_OFFSET_SBE);
 
 	if (info->eap & I82443BXGX_EAP_OFFSET_MBE)
-		
+		/* Clear error to allow next error to be reported [p.61] */
 		pci_write_bits32(pdev, I82443BXGX_EAP,
 				 I82443BXGX_EAP_OFFSET_MBE,
 				 I82443BXGX_EAP_OFFSET_MBE);
@@ -116,6 +147,8 @@ static int i82443bxgx_edacmc_process_error_info(struct mem_ctl_info *mci,
 	int error_found = 0;
 	u32 eapaddr, page, pageoffset;
 
+	/* bits 30:12 hold the 4kb block in which the error occurred
+	 * [p.61] */
 	eapaddr = (info->eap & 0xfffff000);
 	page = eapaddr >> PAGE_SHIFT;
 	pageoffset = eapaddr - (page << PAGE_SHIFT);
@@ -124,6 +157,8 @@ static int i82443bxgx_edacmc_process_error_info(struct mem_ctl_info *mci,
 		error_found = 1;
 		if (handle_errors)
 			edac_mc_handle_ce(mci, page, pageoffset,
+				/* 440BX/GX don't make syndrome information
+				 * available */
 				0, edac_mc_find_csrow_by_page(mci, page), 0,
 				mci->ctl_name);
 	}
@@ -166,29 +201,29 @@ static void i82443bxgx_init_csrows(struct mem_ctl_info *mci,
 		debugf1("MC%d: %s: %s() Row=%d DRB = %#0x\n",
 			mci->mc_idx, __FILE__, __func__, index, drbar);
 		row_high_limit = ((u32) drbar << 23);
-		
+		/* find the DRAM Chip Select Base address and mask */
 		debugf1("MC%d: %s: %s() Row=%d, "
 			"Boundary Address=%#0x, Last = %#0x\n",
 			mci->mc_idx, __FILE__, __func__, index, row_high_limit,
 			row_high_limit_last);
 
-		
+		/* 440GX goes to 2GB, represented with a DRB of 0. */
 		if (row_high_limit_last && !row_high_limit)
 			row_high_limit = 1UL << 31;
 
-		
+		/* This row is empty [p.49] */
 		if (row_high_limit == row_high_limit_last)
 			continue;
 		row_base = row_high_limit_last;
 		csrow->first_page = row_base >> PAGE_SHIFT;
 		csrow->last_page = (row_high_limit >> PAGE_SHIFT) - 1;
 		csrow->nr_pages = csrow->last_page - csrow->first_page + 1;
-		
+		/* EAP reports in 4kilobyte granularity [61] */
 		csrow->grain = 1 << 12;
 		csrow->mtype = mtype;
-		
+		/* I don't think 440BX can tell you device type? FIXME? */
 		csrow->dtype = DEV_UNKNOWN;
-		
+		/* Mode is global to all rows on 440BX */
 		csrow->edac_mode = edac_mode;
 		row_high_limit_last = row_high_limit;
 	}
@@ -204,6 +239,9 @@ static int i82443bxgx_edacmc_probe1(struct pci_dev *pdev, int dev_idx)
 
 	debugf0("MC: %s: %s()\n", __FILE__, __func__);
 
+	/* Something is really hosed if PCI config space reads from
+	 * the MC aren't working.
+	 */
 	if (pci_read_config_dword(pdev, I82443BXGX_NBXCFG, &nbxcfg))
 		return -EIO;
 
@@ -266,6 +304,9 @@ static int i82443bxgx_edacmc_probe1(struct pci_dev *pdev, int dev_idx)
 
 	i82443bxgx_init_csrows(mci, pdev, edac_mode, mtype);
 
+	/* Many BIOSes don't clear error flags on boot, so do this
+	 * here, or we get "phantom" errors occurring at module-load
+	 * time. */
 	pci_write_bits32(pdev, I82443BXGX_EAP,
 			(I82443BXGX_EAP_OFFSET_SBE |
 				I82443BXGX_EAP_OFFSET_MBE),
@@ -284,7 +325,7 @@ static int i82443bxgx_edacmc_probe1(struct pci_dev *pdev, int dev_idx)
 		goto fail;
 	}
 
-	
+	/* allocating generic PCI control info */
 	i82443bxgx_pci = edac_pci_create_generic_ctl(&pdev->dev, EDAC_MOD_STR);
 	if (!i82443bxgx_pci) {
 		printk(KERN_WARNING
@@ -305,6 +346,7 @@ fail:
 
 EXPORT_SYMBOL_GPL(i82443bxgx_edacmc_probe1);
 
+/* returns count (>= 0), or negative on error */
 static int __devinit i82443bxgx_edacmc_init_one(struct pci_dev *pdev,
 						const struct pci_device_id *ent)
 {
@@ -312,7 +354,7 @@ static int __devinit i82443bxgx_edacmc_init_one(struct pci_dev *pdev,
 
 	debugf0("MC: %s: %s()\n", __FILE__, __func__);
 
-	
+	/* don't need to call pci_enable_device() */
 	rc = i82443bxgx_edacmc_probe1(pdev, ent->driver_data);
 
 	if (mci_pdev == NULL)
@@ -343,7 +385,7 @@ static DEFINE_PCI_DEVICE_TABLE(i82443bxgx_pci_tbl) = {
 	{PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82443BX_2)},
 	{PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82443GX_0)},
 	{PCI_DEVICE(PCI_VENDOR_ID_INTEL, PCI_DEVICE_ID_INTEL_82443GX_2)},
-	{0,}			
+	{0,}			/* 0 terminated list. */
 };
 
 MODULE_DEVICE_TABLE(pci, i82443bxgx_pci_tbl);
@@ -358,7 +400,7 @@ static struct pci_driver i82443bxgx_edacmc_driver = {
 static int __init i82443bxgx_edacmc_init(void)
 {
 	int pci_rc;
-       
+       /* Ensure that the OPSTATE is set correctly for POLL or NMI */
        opstate_init();
 
 	pci_rc = pci_register_driver(&i82443bxgx_edacmc_driver);

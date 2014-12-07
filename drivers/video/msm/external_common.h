@@ -21,7 +21,7 @@
 #define DEV_DBG(args...)	pr_debug(DEV_DBG_PREFIX args)
 #else
 #define DEV_DBG(args...)	(void)0
-#endif 
+#endif /* DEBUG */
 #define DEV_INFO(args...)	dev_info(external_common_state->dev, args)
 #define DEV_WARN(args...)	dev_warn(external_common_state->dev, args)
 #define DEV_ERR(args...)	dev_err(external_common_state->dev, args)
@@ -33,6 +33,7 @@
 #define TVOUT_VFRMT_PAL_M_720x480i		3
 #define TVOUT_VFRMT_PAL_N_720x480i		4
 #elif defined(CONFIG_FB_MSM_HDMI_COMMON)
+/* all video formats defined by EIA CEA 861D */
 #define HDMI_VFRMT_640x480p60_4_3	0
 #define HDMI_VFRMT_720x480p60_4_3	1
 #define HDMI_VFRMT_720x480p60_16_9	2
@@ -110,8 +111,11 @@
 #define HDMI_VFRMT_1440x480i240_16_9	HDMI_VFRMT_720x480i240_16_9
 #define HDMI_VFRMT_FORCE_32BIT		0x7FFFFFFF
 
+/* Video Identification Codes from 65-127 are reserved for the future */
 #define HDMI_VFRMT_END			127
 
+/* VESA DMT TIMINGS */
+/* DMT ID: 23h, STD code: (81h, 80h), also a part of Established Timing III */
 #define HDMI_VFRMT_1280x1024p60_5_4	(HDMI_VFRMT_END + 1)
 #define DMT_VFRMT_END                   HDMI_VFRMT_1280x1024p60_5_4
 
@@ -132,9 +136,9 @@ struct hdmi_disp_mode_timing_type {
 	uint32	pulse_width_v;
 	uint32	back_porch_v;
 	boolean	active_low_v;
-	
+	/* Must divide by 1000 to get the actual frequency in MHZ */
 	uint32	pixel_freq;
-	
+	/* Must divide by 1000 to get the actual frequency in HZ */
 	uint32	refresh_rate;
 	boolean	interlaced;
 	boolean	supported;
@@ -195,9 +199,14 @@ struct hdmi_disp_mode_timing_type {
 	{HDMI_VFRMT_1280x1024p60_5_4,   1280,  48,  112,  248,  FALSE, \
 	 1024, 1, 3, 38, FALSE, 108000, 60000, FALSE, TRUE}
 
+/* A lookup table for all the supported display modes by the HDMI
+ * hardware and driver.  Use HDMI_SETUP_LUT in the module init to
+ * setup the LUT with the supported modes. */
 extern struct hdmi_disp_mode_timing_type
 	hdmi_common_supported_video_mode_lut[HDMI_VFRMT_MAX];
 
+/* Structure that encapsulates all the supported display modes by the HDMI sink
+ * device */
 struct hdmi_disp_mode_list_type {
 	uint32	disp_mode_list[HDMI_VFRMT_MAX];
 #define TOP_AND_BOTTOM		0x10
@@ -210,6 +219,11 @@ struct hdmi_disp_mode_list_type {
 };
 #endif
 
+/*
+ * As per the CEA-861E spec, there can be a total of 10 short audio
+ * descriptors with each SAD being 3 bytes long.
+ * Thus, the maximum length of the audio data block would be 30 bytes
+ */
 #define MAX_AUDIO_DATA_BLOCK_SIZE	30
 #define MAX_SPKR_ALLOC_DATA_BLOCK_SIZE	3
 
@@ -249,6 +263,7 @@ struct external_common_state_type {
 #endif
 };
 
+/* The external interface driver needs to initialize the common state. */
 extern struct external_common_state_type *external_common_state;
 extern struct mutex external_common_state_hpd_mutex;
 extern struct mutex hdmi_msm_state_mutex;
@@ -280,4 +295,4 @@ ssize_t video_3d_format_2string(uint32 format, char *buf);
 int external_common_state_create(struct platform_device *pdev);
 void external_common_state_remove(void);
 
-#endif 
+#endif /* __EXTERNAL_COMMON_H__ */

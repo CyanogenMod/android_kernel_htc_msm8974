@@ -22,6 +22,10 @@
 #include <linux/mfd/abx500.h>
 #include <linux/mfd/ab8500/gpio.h>
 
+/*
+ * GPIO registers offset
+ * Bank: 0x10
+ */
 #define AB8500_GPIO_SEL1_REG	0x00
 #define AB8500_GPIO_SEL2_REG	0x01
 #define AB8500_GPIO_SEL3_REG	0x02
@@ -79,6 +83,10 @@ struct ab8500_gpio {
 	u16 rising;
 	u16 falling;
 };
+/**
+ * to_ab8500_gpio() - get the pointer to ab8500_gpio
+ * @chip:	Member of the structure ab8500_gpio
+ */
 static inline struct ab8500_gpio *to_ab8500_gpio(struct gpio_chip *chip)
 {
 	return container_of(chip, struct ab8500_gpio, chip);
@@ -98,6 +106,11 @@ static int ab8500_gpio_set_bits(struct gpio_chip *chip, u8 reg,
 		dev_err(ab8500_gpio->dev, "%s write failed\n", __func__);
 	return ret;
 }
+/**
+ * ab8500_gpio_get() - Get the particular GPIO value
+ * @chip: Gpio device
+ * @offset: GPIO number to read
+ */
 static int ab8500_gpio_get(struct gpio_chip *chip, unsigned offset)
 {
 	struct ab8500_gpio *ab8500_gpio = to_ab8500_gpio(chip);
@@ -118,7 +131,7 @@ static void ab8500_gpio_set(struct gpio_chip *chip, unsigned offset, int val)
 {
 	struct ab8500_gpio *ab8500_gpio = to_ab8500_gpio(chip);
 	int ret;
-	
+	/* Write the data */
 	ret = ab8500_gpio_set_bits(chip, AB8500_GPIO_OUT1_REG, offset, 1);
 	if (ret < 0)
 		dev_err(ab8500_gpio->dev, "%s write failed\n", __func__);
@@ -128,27 +141,35 @@ static int ab8500_gpio_direction_output(struct gpio_chip *chip, unsigned offset,
 					int val)
 {
 	int ret;
-	
+	/* set direction as output */
 	ret = ab8500_gpio_set_bits(chip, AB8500_GPIO_DIR1_REG, offset, 1);
 	if (ret < 0)
 		return ret;
-	
+	/* disable pull down */
 	ret = ab8500_gpio_set_bits(chip, AB8500_GPIO_PUD1_REG, offset, 1);
 	if (ret < 0)
 		return ret;
-	
+	/* set the output as 1 or 0 */
 	return ab8500_gpio_set_bits(chip, AB8500_GPIO_OUT1_REG, offset, val);
 
 }
 
 static int ab8500_gpio_direction_input(struct gpio_chip *chip, unsigned offset)
 {
-	
+	/* set the register as input */
 	return ab8500_gpio_set_bits(chip, AB8500_GPIO_DIR1_REG, offset, 0);
 }
 
 static int ab8500_gpio_to_irq(struct gpio_chip *chip, unsigned offset)
 {
+	/*
+	 * Only some GPIOs are interrupt capable, and they are
+	 * organized in discontiguous clusters:
+	 *
+	 *	GPIO6 to GPIO13
+	 *	GPIO24 and GPIO25
+	 *	GPIO36 to GPIO41
+	 */
 	static struct ab8500_gpio_irq_cluster {
 		int start;
 		int end;
@@ -167,7 +188,7 @@ static int ab8500_gpio_to_irq(struct gpio_chip *chip, unsigned offset)
 		if (offset >= cluster->start && offset <= cluster->end)
 			return base + offset - cluster->start;
 
-		
+		/* Advance by the number of gpios in this cluster */
 		base += cluster->end - cluster->start + 1;
 	}
 
@@ -222,6 +243,9 @@ static unsigned int falling_to_irq(unsigned int irq, void *dev)
 
 }
 
+/*
+ * IRQ handler
+ */
 
 static irqreturn_t handle_rising(int irq, void *dev)
 {
@@ -405,8 +429,14 @@ static int __devinit ab8500_gpio_probe(struct platform_device *pdev)
 	ab8500_gpio->chip.dev = &pdev->dev;
 	ab8500_gpio->chip.base = pdata->gpio_base;
 	ab8500_gpio->irq_base = pdata->irq_base;
-	
+	/* initialize the lock */
 	mutex_init(&ab8500_gpio->lock);
+	/*
+	 * AB8500 core will handle and clear the IRQ
+	 * configre GPIO based on config-reg value.
+	 * These values are for selecting the PINs as
+	 * GPIO or alternate function
+	 */
 	for (i = AB8500_GPIO_SEL1_REG; i <= AB8500_GPIO_SEL6_REG; i++)	{
 		ret = abx500_set_register_interruptible(ab8500_gpio->dev,
 				AB8500_MISC, i,
@@ -440,6 +470,10 @@ out_free:
 	return ret;
 }
 
+/*
+ * ab8500_gpio_remove() - remove Ab8500-gpio driver
+ * @pdev :	Platform device registered
+ */
 static int __devexit ab8500_gpio_remove(struct platform_device *pdev)
 {
 	struct ab8500_gpio *ab8500_gpio = platform_get_drvdata(pdev);

@@ -45,10 +45,10 @@
 #define DCSR_STRTB	(1 << 6)
 #define DCSR_BIU	(1 << 7)
 
-#define DDAR_RW		(1 << 0)	
-#define DDAR_E		(1 << 1)	
-#define DDAR_BS		(1 << 2)	
-#define DDAR_DW		(1 << 3)	
+#define DDAR_RW		(1 << 0)	/* 0 = W, 1 = R */
+#define DDAR_E		(1 << 1)	/* 0 = LE, 1 = BE */
+#define DDAR_BS		(1 << 2)	/* 0 = BS4, 1 = BS8 */
+#define DDAR_DW		(1 << 3)	/* 0 = 8b, 1 = 16b */
 #define DDAR_Ser0UDCTr	(0x0 << 4)
 #define DDAR_Ser0UDCRc	(0x1 << 4)
 #define DDAR_Ser1SDLCTr	(0x2 << 4)
@@ -76,7 +76,7 @@ struct sa11x0_dma_desc {
 	u32			ddar;
 	size_t			size;
 
-	
+	/* maybe protected by c->lock */
 	struct list_head	node;
 	unsigned		sglen;
 	struct sa11x0_dma_sg	sg[0];
@@ -89,13 +89,13 @@ struct sa11x0_dma_chan {
 	spinlock_t		lock;
 	dma_cookie_t		lc;
 
-	
+	/* protected by c->lock */
 	struct sa11x0_dma_phy	*phy;
 	enum dma_status		status;
 	struct list_head	desc_submitted;
 	struct list_head	desc_issued;
 
-	
+	/* protected by d->lock */
 	struct list_head	node;
 
 	u32			ddar;
@@ -109,7 +109,7 @@ struct sa11x0_dma_phy {
 
 	struct sa11x0_dma_chan	*vchan;
 
-	
+	/* Protected by c->lock */
 	unsigned		sg_load;
 	struct sa11x0_dma_desc	*txd_load;
 	unsigned		sg_done;
@@ -178,13 +178,18 @@ static void noinline sa11x0_dma_start_sg(struct sa11x0_dma_phy *p,
 
 	dcsr = readl_relaxed(base + DMA_DCSR_R);
 
-	
+	/* Don't try to load the next transfer if both buffers are started */
 	if ((dcsr & (DCSR_STRTA | DCSR_STRTB)) == (DCSR_STRTA | DCSR_STRTB))
 		return;
 
 	if (p->sg_load == txd->sglen) {
 		struct sa11x0_dma_desc *txn = sa11x0_dma_next_desc(c);
 
+		/*
+		 * We have reached the end of the current descriptor.
+		 * Peek at the next descriptor, and if compatible with
+		 * the current, start processing it.
+		 */
 		if (txn && txn->ddar == txd->ddar) {
 			txd = txn;
 			sa11x0_dma_start_desc(p, txn);
@@ -196,7 +201,7 @@ static void noinline sa11x0_dma_start_sg(struct sa11x0_dma_phy *p,
 
 	sg = &txd->sg[p->sg_load++];
 
-	
+	/* Select buffer to load according to channel status */
 	if (((dcsr & (DCSR_BIU | DCSR_STRTB)) == (DCSR_BIU | DCSR_STRTB)) ||
 	    ((dcsr & (DCSR_BIU | DCSR_STRTA)) == 0)) {
 		dbsx = DMA_DBSA;
@@ -255,7 +260,7 @@ static irqreturn_t sa11x0_dma_irq(int irq, void *dev_id)
 	if (!(dcsr & (DCSR_ERROR | DCSR_DONEA | DCSR_DONEB)))
 		return IRQ_NONE;
 
-	
+	/* Clear reported status bits */
 	writel_relaxed(dcsr & (DCSR_ERROR | DCSR_DONEA | DCSR_DONEB),
 		p->base + DMA_DCSR_C);
 
@@ -276,6 +281,13 @@ static irqreturn_t sa11x0_dma_irq(int irq, void *dev_id)
 		unsigned long flags;
 
 		spin_lock_irqsave(&c->lock, flags);
+		/*
+		 * Now that we're holding the lock, check that the vchan
+		 * really is associated with this pchan before touching the
+		 * hardware.  This should always succeed, because we won't
+		 * change p->vchan or c->phy while the channel is actively
+		 * transferring.
+		 */
 		if (c->phy == p) {
 			if (dcsr & DCSR_DONEA)
 				sa11x0_dma_complete(p, c);
@@ -292,7 +304,7 @@ static void sa11x0_dma_start_txd(struct sa11x0_dma_chan *c)
 {
 	struct sa11x0_dma_desc *txd = sa11x0_dma_next_desc(c);
 
-	
+	/* If the issued list is empty, we have no further txds to process */
 	if (txd) {
 		struct sa11x0_dma_phy *p = c->phy;
 
@@ -300,16 +312,16 @@ static void sa11x0_dma_start_txd(struct sa11x0_dma_chan *c)
 		p->txd_done = txd;
 		p->sg_done = 0;
 
-		
+		/* The channel should not have any transfers started */
 		WARN_ON(readl_relaxed(p->base + DMA_DCSR_R) &
 				      (DCSR_STRTA | DCSR_STRTB));
 
-		
+		/* Clear the run and start bits before changing DDAR */
 		writel_relaxed(DCSR_RUN | DCSR_STRTA | DCSR_STRTB,
 			       p->base + DMA_DCSR_C);
 		writel_relaxed(txd->ddar, p->base + DMA_DDAR);
 
-		
+		/* Try to start both buffers */
 		sa11x0_dma_start_sg(p, c);
 		sa11x0_dma_start_sg(p, c);
 	}
@@ -326,7 +338,7 @@ static void sa11x0_dma_tasklet(unsigned long arg)
 
 	dev_dbg(d->slave.dev, "tasklet enter\n");
 
-	
+	/* Get the completed tx descriptors */
 	spin_lock_irq(&d->lock);
 	list_splice_init(&d->desc_complete, &head);
 	spin_unlock_irq(&d->lock);
@@ -343,10 +355,10 @@ static void sa11x0_dma_tasklet(unsigned long arg)
 			if (!p->txd_done)
 				sa11x0_dma_start_txd(c);
 			if (!p->txd_done) {
-				
+				/* No current txd associated with this channel */
 				dev_dbg(d->slave.dev, "pchan %u: free\n", p->num);
 
-				
+				/* Mark this channel free */
 				c->phy = NULL;
 				p->vchan = NULL;
 			}
@@ -365,7 +377,7 @@ static void sa11x0_dma_tasklet(unsigned long arg)
 
 			pch_alloc |= 1 << pch;
 
-			
+			/* Mark this channel allocated */
 			p->vchan = c;
 
 			dev_dbg(d->slave.dev, "pchan %u: alloc vchan %p\n", pch, c);
@@ -386,7 +398,7 @@ static void sa11x0_dma_tasklet(unsigned long arg)
 		}
 	}
 
-	
+	/* Now free the completed tx descriptor, and call their callbacks */
 	list_for_each_entry_safe(txd, txn, &head, node) {
 		dma_async_tx_callback callback = txd->tx.callback;
 		void *callback_param = txd->tx.callback_param;
@@ -524,6 +536,11 @@ static enum dma_status sa11x0_dma_tx_status(struct dma_chan *chan,
 	return ret;
 }
 
+/*
+ * Move pending txds to the issued list, and re-init pending list.
+ * If not already pending, add this channel to the list of pending
+ * channels and trigger the tasklet to run.
+ */
 static void sa11x0_dma_issue_pending(struct dma_chan *chan)
 {
 	struct sa11x0_dma_chan *c = to_sa11x0_dma_chan(chan);
@@ -576,14 +593,14 @@ static struct dma_async_tx_descriptor *sa11x0_dma_prep_slave_sg(
 	unsigned i, j = sglen;
 	size_t size = 0;
 
-	
+	/* SA11x0 channels can only operate in their native direction */
 	if (dir != (c->ddar & DDAR_RW ? DMA_DEV_TO_MEM : DMA_MEM_TO_DEV)) {
 		dev_err(chan->device->dev, "vchan %p: bad DMA direction: DDAR:%08x dir:%u\n",
 			c, c->ddar, dir);
 		return NULL;
 	}
 
-	
+	/* Do not allow zero-sized txds */
 	if (sglen == 0)
 		return NULL;
 
@@ -616,6 +633,12 @@ static struct dma_async_tx_descriptor *sa11x0_dma_prep_slave_sg(
 		do {
 			unsigned tlen = len;
 
+			/*
+			 * Check whether the transfer will fit.  If not, try
+			 * to split the transfer up such that we end up with
+			 * equal chunks - but make sure that we preserve the
+			 * alignment.  This avoids small segments.
+			 */
 			if (tlen > DMA_MAX_SIZE) {
 				unsigned mult = DIV_ROUND_UP(tlen,
 					DMA_MAX_SIZE & ~DMA_ALIGN);
@@ -696,7 +719,7 @@ static int sa11x0_dma_control(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
 
 	case DMA_TERMINATE_ALL:
 		dev_dbg(d->slave.dev, "vchan %p: terminate all\n", c);
-		
+		/* Clear the tx descriptor lists */
 		spin_lock_irqsave(&c->lock, flags);
 		list_splice_tail_init(&c->desc_submitted, &head);
 		list_splice_tail_init(&c->desc_issued, &head);
@@ -706,7 +729,7 @@ static int sa11x0_dma_control(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
 			struct sa11x0_dma_desc *txd, *txn;
 
 			dev_dbg(d->slave.dev, "pchan %u: terminating\n", p->num);
-			
+			/* vchan is assigned to a pchan - stop the channel */
 			writel(DCSR_RUN | DCSR_IE |
 				DCSR_STRTA | DCSR_DONEA |
 				DCSR_STRTB | DCSR_DONEB,

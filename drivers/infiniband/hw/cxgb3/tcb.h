@@ -629,4 +629,4 @@
 #define S_TF_RX_FLOW_CONTROL_DISABLE    48
 #define V_TF_RX_FLOW_CONTROL_DISABLE(x) ((x) << S_TF_RX_FLOW_CONTROL_DISABLE)
 
-#endif 
+#endif /* _TCB_DEFS_H */

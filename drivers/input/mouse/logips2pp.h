@@ -18,6 +18,6 @@ inline int ps2pp_init(struct psmouse *psmouse, bool set_properties)
 {
 	return -ENOSYS;
 }
-#endif 
+#endif /* CONFIG_MOUSE_PS2_LOGIPS2PP */
 
 #endif

@@ -22,6 +22,13 @@
 #include <asm/memory.h>
 #include <asm/suspend.h>
 
+/*
+ * GCC 3.0, 3.1: general bad code generation.
+ * GCC 3.2.0: incorrect function argument offset calculation.
+ * GCC 3.2.x: miscompiles NEW_AUX_ENT in fs/binfmt_elf.c
+ *	(http://gcc.gnu.org/PR8896) and incorrect structure
+ *		initialisation in fs/jffs2/erase.c
+ */
 #if (__GNUC__ < 4)
 #error Your compiler should upgrade to uc4
 #error	Known good compilers: 4.2.2

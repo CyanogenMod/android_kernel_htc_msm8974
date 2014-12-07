@@ -3,4 +3,4 @@
 
 #include <asm-generic/ioctls.h>
 
-#endif 
+#endif /* __ARCH_M32R_IOCTLS_H__ */

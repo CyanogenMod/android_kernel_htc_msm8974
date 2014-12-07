@@ -29,15 +29,21 @@
 
 #include "ctree.h"
 
+/* types of the delayed item */
 #define BTRFS_DELAYED_INSERTION_ITEM	1
 #define BTRFS_DELAYED_DELETION_ITEM	2
 
 struct btrfs_delayed_root {
 	spinlock_t lock;
 	struct list_head node_list;
+	/*
+	 * Used for delayed nodes which is waiting to be dealt with by the
+	 * worker. If the delayed node is inserted into the work queue, we
+	 * drop it from this list.
+	 */
 	struct list_head prepare_list;
-	atomic_t items;		
-	int nodes;		
+	atomic_t items;		/* for delayed items */
+	int nodes;		/* for delayed nodes */
 	wait_queue_head_t wait;
 };
 
@@ -45,8 +51,12 @@ struct btrfs_delayed_node {
 	u64 inode_id;
 	u64 bytes_reserved;
 	struct btrfs_root *root;
-	
+	/* Used to add the node into the delayed root's node list. */
 	struct list_head n_list;
+	/*
+	 * Used to add the node into the prepare list, the nodes in this list
+	 * is waiting to be dealt with by the async worker.
+	 */
 	struct list_head p_list;
 	struct rb_root ins_root;
 	struct rb_root del_root;
@@ -62,8 +72,8 @@ struct btrfs_delayed_node {
 struct btrfs_delayed_item {
 	struct rb_node rb_node;
 	struct btrfs_key key;
-	struct list_head tree_list;	
-	struct list_head readdir_list;	
+	struct list_head tree_list;	/* used for batch insert/delete items */
+	struct list_head readdir_list;	/* used for readdir items */
 	u64 bytes_reserved;
 	struct btrfs_delayed_node *delayed_node;
 	atomic_t refs;
@@ -102,6 +112,7 @@ void btrfs_balance_delayed_items(struct btrfs_root *root);
 
 int btrfs_commit_inode_delayed_items(struct btrfs_trans_handle *trans,
 				     struct inode *inode);
+/* Used for evicting the inode. */
 void btrfs_remove_delayed_node(struct inode *inode);
 void btrfs_kill_delayed_inode_items(struct inode *inode);
 
@@ -110,8 +121,10 @@ int btrfs_delayed_update_inode(struct btrfs_trans_handle *trans,
 			       struct btrfs_root *root, struct inode *inode);
 int btrfs_fill_inode(struct inode *inode, u32 *rdev);
 
+/* Used for drop dead root */
 void btrfs_kill_all_delayed_nodes(struct btrfs_root *root);
 
+/* Used for readdir() */
 void btrfs_get_delayed_items(struct inode *inode, struct list_head *ins_list,
 			     struct list_head *del_list);
 void btrfs_put_delayed_items(struct list_head *ins_list,
@@ -122,9 +135,11 @@ int btrfs_readdir_delayed_dir_index(struct file *filp, void *dirent,
 				    filldir_t filldir,
 				    struct list_head *ins_list);
 
+/* for init */
 int __init btrfs_delayed_inode_init(void);
 void btrfs_delayed_inode_exit(void);
 
+/* for debugging */
 void btrfs_assert_delayed_root_empty(struct btrfs_root *root);
 
 #endif

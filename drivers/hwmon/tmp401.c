@@ -20,6 +20,13 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*
+ * Driver for the Texas Instruments TMP401 SMBUS temperature sensor IC.
+ *
+ * Note this IC is in some aspect similar to the LM90, but it has quite a
+ * few differences too, for example the local temp has a higher resolution
+ * and thus has 16 bits registers for its value and limit instead of 8 bits.
+ */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -32,10 +39,15 @@
 #include <linux/mutex.h>
 #include <linux/sysfs.h>
 
+/* Addresses to scan */
 static const unsigned short normal_i2c[] = { 0x4c, I2C_CLIENT_END };
 
 enum chips { tmp401, tmp411 };
 
+/*
+ * The TMP401 registers, note some registers have different addresses for
+ * reading and writing
+ */
 #define TMP401_STATUS				0x02
 #define TMP401_CONFIG_READ			0x03
 #define TMP401_CONFIG_WRITE			0x09
@@ -55,6 +67,7 @@ static const u8 TMP401_TEMP_LOW_LIMIT_LSB[2]		= { 0x17, 0x14 };
 static const u8 TMP401_TEMP_HIGH_LIMIT_MSB_READ[2]	= { 0x05, 0x07 };
 static const u8 TMP401_TEMP_HIGH_LIMIT_MSB_WRITE[2]	= { 0x0B, 0x0D };
 static const u8 TMP401_TEMP_HIGH_LIMIT_LSB[2]		= { 0x16, 0x13 };
+/* These are called the THERM limit / hysteresis / mask in the datasheet */
 static const u8 TMP401_TEMP_CRIT_LIMIT[2]		= { 0x20, 0x19 };
 
 static const u8 TMP411_TEMP_LOWEST_MSB[2]		= { 0x30, 0x34 };
@@ -62,6 +75,7 @@ static const u8 TMP411_TEMP_LOWEST_LSB[2]		= { 0x31, 0x35 };
 static const u8 TMP411_TEMP_HIGHEST_MSB[2]		= { 0x32, 0x36 };
 static const u8 TMP411_TEMP_HIGHEST_LSB[2]		= { 0x33, 0x37 };
 
+/* Flags */
 #define TMP401_CONFIG_RANGE		0x04
 #define TMP401_CONFIG_SHUTDOWN		0x40
 #define TMP401_STATUS_LOCAL_CRIT		0x01
@@ -72,10 +86,14 @@ static const u8 TMP411_TEMP_HIGHEST_LSB[2]		= { 0x33, 0x37 };
 #define TMP401_STATUS_LOCAL_LOW		0x20
 #define TMP401_STATUS_LOCAL_HIGH		0x40
 
+/* Manufacturer / Device ID's */
 #define TMP401_MANUFACTURER_ID			0x55
 #define TMP401_DEVICE_ID			0x11
 #define TMP411_DEVICE_ID			0x12
 
+/*
+ * Driver data (common to all clients)
+ */
 
 static const struct i2c_device_id tmp401_id[] = {
 	{ "tmp401", tmp401 },
@@ -84,15 +102,18 @@ static const struct i2c_device_id tmp401_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, tmp401_id);
 
+/*
+ * Client data (each client gets its own)
+ */
 
 struct tmp401_data {
 	struct device *hwmon_dev;
 	struct mutex update_lock;
-	char valid; 
-	unsigned long last_updated; 
+	char valid; /* zero until following fields are valid */
+	unsigned long last_updated; /* in jiffies */
 	enum chips kind;
 
-	
+	/* register values */
 	u8 status;
 	u8 config;
 	u16 temp[2];
@@ -104,6 +125,9 @@ struct tmp401_data {
 	u16 temp_highest[2];
 };
 
+/*
+ * Sysfs attr show / store functions
+ */
 
 static int tmp401_register_to_temp(u16 reg, u8 config)
 {
@@ -153,6 +177,10 @@ static struct tmp401_data *tmp401_update_device_reg16(
 	int i;
 
 	for (i = 0; i < 2; i++) {
+		/*
+		 * High byte must be read first immediately followed
+		 * by the low byte
+		 */
 		data->temp[i] = i2c_smbus_read_byte_data(client,
 			TMP401_TEMP_MSB[i]) << 8;
 		data->temp[i] |= i2c_smbus_read_byte_data(client,
@@ -409,6 +437,11 @@ static ssize_t store_temp_crit_hyst(struct device *dev, struct device_attribute
 	return count;
 }
 
+/*
+ * Resets the historical measurements of minimum and maximum temperatures.
+ * This is done by writing any value to any of the minimum/maximum registers
+ * (0x30-0x37).
+ */
 static ssize_t reset_temp_history(struct device *dev,
 	struct device_attribute	*devattr, const char *buf, size_t count)
 {
@@ -462,6 +495,13 @@ static struct sensor_device_attribute tmp401_attr[] = {
 		    TMP401_STATUS_REMOTE_CRIT),
 };
 
+/*
+ * Additional features of the TMP411 chip.
+ * The TMP411 stores the minimum and maximum
+ * temperature measured since power-on, chip-reset, or
+ * minimum and maximum register reset for both the local
+ * and remote channels.
+ */
 static struct sensor_device_attribute tmp411_attr[] = {
 	SENSOR_ATTR(temp1_highest, S_IRUGO, show_temp_highest, NULL, 0),
 	SENSOR_ATTR(temp1_lowest, S_IRUGO, show_temp_lowest, NULL, 0),
@@ -470,15 +510,18 @@ static struct sensor_device_attribute tmp411_attr[] = {
 	SENSOR_ATTR(temp_reset_history, S_IWUSR, NULL, reset_temp_history, 0),
 };
 
+/*
+ * Begin non sysfs callback code (aka Real code)
+ */
 
 static void tmp401_init_client(struct i2c_client *client)
 {
 	int config, config_orig;
 
-	
+	/* Set the conversion rate to 2 Hz */
 	i2c_smbus_write_byte_data(client, TMP401_CONVERSION_RATE_WRITE, 5);
 
-	
+	/* Start conversions (disable shutdown if necessary) */
 	config = i2c_smbus_read_byte_data(client, TMP401_CONFIG_READ);
 	if (config < 0) {
 		dev_warn(&client->dev, "Initialization failed!\n");
@@ -502,7 +545,7 @@ static int tmp401_detect(struct i2c_client *client,
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -ENODEV;
 
-	
+	/* Detect and identify the chip */
 	reg = i2c_smbus_read_byte_data(client, TMP401_MANUFACTURER_ID_REG);
 	if (reg != TMP401_MANUFACTURER_ID)
 		return -ENODEV;
@@ -525,7 +568,7 @@ static int tmp401_detect(struct i2c_client *client,
 		return -ENODEV;
 
 	reg = i2c_smbus_read_byte_data(client, TMP401_CONVERSION_RATE_READ);
-	
+	/* Datasheet says: 0x1-0x6 */
 	if (reg > 15)
 		return -ENODEV;
 
@@ -570,10 +613,10 @@ static int tmp401_probe(struct i2c_client *client,
 	mutex_init(&data->update_lock);
 	data->kind = id->driver_data;
 
-	
+	/* Initialize the TMP401 chip */
 	tmp401_init_client(client);
 
-	
+	/* Register sysfs hooks */
 	for (i = 0; i < ARRAY_SIZE(tmp401_attr); i++) {
 		err = device_create_file(&client->dev,
 					 &tmp401_attr[i].dev_attr);
@@ -581,7 +624,7 @@ static int tmp401_probe(struct i2c_client *client,
 			goto exit_remove;
 	}
 
-	
+	/* Register additional tmp411 sysfs hooks */
 	if (data->kind == tmp411) {
 		for (i = 0; i < ARRAY_SIZE(tmp411_attr); i++) {
 			err = device_create_file(&client->dev,
@@ -603,7 +646,7 @@ static int tmp401_probe(struct i2c_client *client,
 	return 0;
 
 exit_remove:
-	tmp401_remove(client); 
+	tmp401_remove(client); /* will also free data for us */
 	return err;
 }
 

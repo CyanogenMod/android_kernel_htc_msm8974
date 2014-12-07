@@ -64,6 +64,9 @@ static void __cpuinit per_hub_init(cnodeid_t cnode)
 
 	if (test_and_set_bit(cnode, hub_init_mask))
 		return;
+	/*
+	 * Set CRB timeout at 5ms, (< PI timeout of 10ms)
+	 */
 	REMOTE_HUB_S(nasid, IIO_ICTP, 0x800);
 	REMOTE_HUB_S(nasid, IIO_ICTO, 0xff);
 
@@ -71,6 +74,10 @@ static void __cpuinit per_hub_init(cnodeid_t cnode)
 	xtalk_probe_node(cnode);
 
 #ifdef CONFIG_REPLICATE_EXHANDLERS
+	/*
+	 * If this is not a headless node initialization,
+	 * copy over the caliased exception handlers.
+	 */
 	if (get_compact_nodeid() == cnode) {
 		extern char except_vec2_generic, except_vec3_generic;
 		extern void build_tlb_refill_handler(void);
@@ -84,6 +91,11 @@ static void __cpuinit per_hub_init(cnodeid_t cnode)
 	}
 #endif
 
+	/*
+	 * Some interrupts are reserved by hardware or by software convention.
+	 * Mark these as reserved right away so they won't be used accidentally
+	 * later.
+	 */
 	for (i = 0; i <= BASE_PCI_IRQ; i++) {
 		__set_bit(i, hub->irq_alloc_mask);
 		LOCAL_HUB_CLR_INTR(INT_PEND0_BASELVL + i);
@@ -117,17 +129,24 @@ void __cpuinit per_cpu_init(void)
 	for (i = 0; i < LEVELS_PER_SLICE; i++)
 		si->level_to_irq[i] = -1;
 
+	/*
+	 * We use this so we can find the local hub's data as fast as only
+	 * possible.
+	 */
 	cpu_data[cpu].data = si;
 
 	cpu_time_init();
 	install_ipi();
 
-	
+	/* Install our NMI handler if symmon hasn't installed one. */
 	install_cpu_nmi_handler(cputoslice(cpu));
 
 	set_c0_status(SRB_DEV0 | SRB_DEV1);
 }
 
+/*
+ * get_nasid() returns the physical node id number of the caller.
+ */
 nasid_t
 get_nasid(void)
 {
@@ -135,6 +154,9 @@ get_nasid(void)
 	                 >> NSRI_NODEID_SHFT);
 }
 
+/*
+ * Map the physical node id to a virtual node id (virtual node ids are contiguous).
+ */
 cnodeid_t get_compact_nodeid(void)
 {
 	return NASID_TO_COMPACT_NODEID(get_nasid());
@@ -160,6 +182,9 @@ void __init plat_mem_setup(void)
 
 	ip27_reboot_setup();
 
+	/*
+	 * hub_rtc init and cpu clock intr enabled for later calibrate_delay.
+	 */
 	nid = get_nasid();
 	printk("IP27: Running on node %d.\n", nid);
 
@@ -175,6 +200,10 @@ void __init plat_mem_setup(void)
 	       p ? "a" : "no",
 	       e ? ", CPU is running" : "");
 
+	/*
+	 * Try to catch kernel missconfigurations and give user an
+	 * indication what option to select.
+	 */
 	n_mode = LOCAL_HUB_L(NI_STATUS_REV_ID) & NSRI_MORENODES_MASK;
 	printk("Machine is in %c mode.\n", n_mode ? 'N' : 'M');
 #ifdef CONFIG_SGI_SN_N_MODE

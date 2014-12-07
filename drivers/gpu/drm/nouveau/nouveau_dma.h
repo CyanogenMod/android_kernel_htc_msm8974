@@ -34,8 +34,19 @@
 void nv50_dma_push(struct nouveau_channel *, struct nouveau_bo *,
 		   int delta, int length);
 
+/*
+ * There's a hw race condition where you can't jump to your PUT offset,
+ * to avoid this we jump to offset + SKIPS and fill the difference with
+ * NOPs.
+ *
+ * xf86-video-nv configures the DMA fetch size to 32 bytes, and uses
+ * a SKIPS value of 8.  Lets assume that the race condition is to do
+ * with writing into the fetch area, we configure a fetch size of 128
+ * bytes so we need a larger SKIPS value.
+ */
 #define NOUVEAU_DMA_SKIPS (128 / 4)
 
+/* Hardcoded object assignments to subchannels (subchannel id). */
 enum {
 	NvSubM2MF	= 0,
 	NvSubSw		= 1,
@@ -45,6 +56,7 @@ enum {
 	NvSubImageBlit  = 4
 };
 
+/* Object handles. */
 enum {
 	NvM2MF		= 0x80000001,
 	NvDmaFB		= 0x80000002,
@@ -62,7 +74,7 @@ enum {
 	NvEvoSema0	= 0x80000010,
 	NvEvoSema1	= 0x80000011,
 
-	
+	/* G80+ display objects */
 	NvEvoVRAM	= 0x01000000,
 	NvEvoFB16	= 0x01000001,
 	NvEvoFB32	= 0x01000002,

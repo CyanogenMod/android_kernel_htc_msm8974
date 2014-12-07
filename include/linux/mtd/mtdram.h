@@ -5,4 +5,4 @@
 int mtdram_init_device(struct mtd_info *mtd, void *mapped_address,
 			unsigned long size, char *name);
 
-#endif 
+#endif /* __MTD_MTDRAM_H__ */

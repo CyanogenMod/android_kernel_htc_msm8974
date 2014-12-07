@@ -91,7 +91,7 @@ static int init_level3_page(struct kimage *image, pud_t *level3p,
 		set_pud(level3p++, __pud(__pa(level2p) | _KERNPG_TABLE));
 		addr += PUD_SIZE;
 	}
-	
+	/* clear the unused entries */
 	while (addr < end_addr) {
 		pud_clear(level3p++);
 		addr += PUD_SIZE;
@@ -126,7 +126,7 @@ static int init_level4_page(struct kimage *image, pgd_t *level4p,
 		set_pgd(level4p++, __pgd(__pa(level3p) | _KERNPG_TABLE));
 		addr += PGDIR_SIZE;
 	}
-	
+	/* clear the unused entries */
 	while (addr < end_addr) {
 		pgd_clear(level4p++);
 		addr += PGDIR_SIZE;
@@ -193,6 +193,10 @@ static int init_pgtable(struct kimage *image, unsigned long start_pgtable)
 	result = init_level4_page(image, level4p, 0, max_pfn << PAGE_SHIFT);
 	if (result)
 		return result;
+	/*
+	 * image->start may be outside 0 ~ max_pfn, for example when
+	 * jump back to original kernel from kexeced kernel
+	 */
 	result = init_one_level2_page(image, level4p, image->start);
 	if (result)
 		return result;
@@ -203,7 +207,7 @@ static void set_idt(void *newidt, u16 limit)
 {
 	struct desc_ptr curidt;
 
-	
+	/* x86-64 supports unaliged loads & stores */
 	curidt.size    = limit;
 	curidt.address = (unsigned long)newidt;
 
@@ -218,7 +222,7 @@ static void set_gdt(void *newgdt, u16 limit)
 {
 	struct desc_ptr curgdt;
 
-	
+	/* x86-64 supports unaligned loads & stores */
 	curgdt.size    = limit;
 	curgdt.address = (unsigned long)newgdt;
 
@@ -245,10 +249,10 @@ int machine_kexec_prepare(struct kimage *image)
 	unsigned long start_pgtable;
 	int result;
 
-	
+	/* Calculate the offsets */
 	start_pgtable = page_to_pfn(image->control_code_page) << PAGE_SHIFT;
 
-	
+	/* Setup the identity mapped 64bit page table */
 	result = init_pgtable(image, start_pgtable);
 	if (result)
 		return result;
@@ -261,6 +265,10 @@ void machine_kexec_cleanup(struct kimage *image)
 	free_transition_pgtable(image);
 }
 
+/*
+ * Do not allocate memory (or fail in any way) in machine_kexec().
+ * We are past the point of no return, committed to rebooting now.
+ */
 void machine_kexec(struct kimage *image)
 {
 	unsigned long page_list[PAGES_NR];
@@ -274,12 +282,19 @@ void machine_kexec(struct kimage *image)
 
 	save_ftrace_enabled = __ftrace_enabled_save();
 
-	
+	/* Interrupts aren't acceptable while we reboot */
 	local_irq_disable();
 	hw_breakpoint_disable();
 
 	if (image->preserve_context) {
 #ifdef CONFIG_X86_IO_APIC
+		/*
+		 * We need to put APICs in legacy mode so that we can
+		 * get timer interrupts in second kernel. kexec/kdump
+		 * paths already have calls to disable_IO_APIC() in
+		 * one form or other. kexec jump path also need
+		 * one.
+		 */
 		disable_IO_APIC();
 #endif
 	}
@@ -296,11 +311,25 @@ void machine_kexec(struct kimage *image)
 		page_list[PA_SWAP_PAGE] = (page_to_pfn(image->swap_page)
 						<< PAGE_SHIFT);
 
+	/*
+	 * The segment registers are funny things, they have both a
+	 * visible and an invisible part.  Whenever the visible part is
+	 * set to a specific selector, the invisible part is loaded
+	 * with from a table in memory.  At no other time is the
+	 * descriptor table in memory accessed.
+	 *
+	 * I take advantage of this here by force loading the
+	 * segments, before I zap the gdt with an invalid value.
+	 */
 	load_segments();
+	/*
+	 * The gdt & idt are now invalid.
+	 * If you want to load them you must set up your own idt & gdt.
+	 */
 	set_gdt(phys_to_virt(0), 0);
 	set_idt(phys_to_virt(0), 0);
 
-	
+	/* now call it */
 	image->start = relocate_kernel((unsigned long)image->head,
 				       (unsigned long)page_list,
 				       image->start,

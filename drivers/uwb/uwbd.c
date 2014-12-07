@@ -75,13 +75,30 @@
 
 #include "uwb-internal.h"
 
+/*
+ * UWBD Event handler function signature
+ *
+ * Return !0 if the event needs not to be freed (ie the handler
+ * takes/took care of it). 0 means the daemon code will free the
+ * event.
+ *
+ * @evt->rc is already referenced and guaranteed to exist. See
+ * uwb_evt_handle().
+ */
 typedef int (*uwbd_evt_handler_f)(struct uwb_event *);
 
+/**
+ * Properties of a UWBD event
+ *
+ * @handler:    the function that will handle this event
+ * @name:       text name of event
+ */
 struct uwbd_event {
 	uwbd_evt_handler_f handler;
 	const char *name;
 };
 
+/* Table of handlers for and properties of the UWBD Radio Control Events */
 static struct uwbd_event uwbd_urc_events[] = {
 	[UWB_RC_EVT_IE_RCV] = {
 		.handler = uwbd_evt_handle_rc_ie_rcv,
@@ -125,6 +142,7 @@ struct uwbd_evt_type_handler {
 	size_t size;
 };
 
+/* Table of handlers for each UWBD Event type. */
 static struct uwbd_evt_type_handler uwbd_urc_evt_type_handlers[] = {
 	[UWB_RC_CET_GENERAL] = {
 		.name        = "URC",
@@ -140,6 +158,23 @@ static const struct uwbd_event uwbd_message_handlers[] = {
 	},
 };
 
+/*
+ * Handle an URC event passed to the UWB Daemon
+ *
+ * @evt: the event to handle
+ * @returns: 0 if the event can be kfreed, !0 on the contrary
+ *           (somebody else took ownership) [coincidentally, returning
+ *           a <0 errno code will free it :)].
+ *
+ * Looks up the two indirection tables (one for the type, one for the
+ * subtype) to decide which function handles it and then calls the
+ * handler.
+ *
+ * The event structure passed to the event handler has the radio
+ * controller in @evt->rc referenced. The reference will be dropped
+ * once the handler returns, so if it needs it for longer (async),
+ * it'll need to take another one.
+ */
 static
 int uwbd_event_handle_urc(struct uwb_event *evt)
 {
@@ -214,9 +249,21 @@ static void uwbd_event_handle(struct uwb_event *evt)
 		}
 	}
 
-	__uwb_rc_put(rc);	
+	__uwb_rc_put(rc);	/* for the __uwb_rc_get() in uwb_rc_notif_cb() */
 }
 
+/**
+ * UWB Daemon
+ *
+ * Listens to all UWB notifications and takes care to track the state
+ * of the UWB neighbourhood for the kernel. When we do a run, we
+ * spinlock, move the list to a private copy and release the
+ * lock. Hold it as little as possible. Not a conflict: it is
+ * guaranteed we own the events in the private list.
+ *
+ * FIXME: should change so we don't have a 1HZ timer all the time, but
+ *        only if there are devices.
+ */
 static int uwbd(void *param)
 {
 	struct uwb_rc *rc = param;
@@ -247,12 +294,13 @@ static int uwbd(void *param)
 			kfree(evt);
 		}
 
-		uwb_beca_purge(rc);	
+		uwb_beca_purge(rc);	/* Purge devices that left */
 	}
 	return 0;
 }
 
 
+/** Start the UWB daemon */
 void uwbd_start(struct uwb_rc *rc)
 {
 	rc->uwbd.task = kthread_run(uwbd, rc, "uwbd");
@@ -263,12 +311,25 @@ void uwbd_start(struct uwb_rc *rc)
 		rc->uwbd.pid = rc->uwbd.task->pid;
 }
 
+/* Stop the UWB daemon and free any unprocessed events */
 void uwbd_stop(struct uwb_rc *rc)
 {
 	kthread_stop(rc->uwbd.task);
 	uwbd_flush(rc);
 }
 
+/*
+ * Queue an event for the management daemon
+ *
+ * When some lower layer receives an event, it uses this function to
+ * push it forward to the UWB daemon.
+ *
+ * Once you pass the event, you don't own it any more, but the daemon
+ * does. It will uwb_event_free() it when done, so make sure you
+ * uwb_event_alloc()ed it or bad things will happen.
+ *
+ * If the daemon is not running, we just free the event.
+ */
 void uwbd_event_queue(struct uwb_event *evt)
 {
 	struct uwb_rc *rc = evt->rc;

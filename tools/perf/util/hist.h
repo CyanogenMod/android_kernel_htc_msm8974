@@ -11,6 +11,18 @@ struct hist_entry;
 struct addr_location;
 struct symbol;
 
+/*
+ * The kernel collects the number of events it couldn't send in a stretch and
+ * when possible sends this number in a PERF_RECORD_LOST event. The number of
+ * such "chunks" of lost events is stored in .nr_events[PERF_EVENT_LOST] while
+ * total_lost tells exactly how many events the kernel in fact lost, i.e. it is
+ * the sum of all struct lost_event.lost fields reported.
+ *
+ * The total_period is needed because by default auto-freq is used, so
+ * multipling nr_events[PERF_EVENT_SAMPLE] by a frequency isn't possible to get
+ * the total number of low level events, it is necessary to to sum all struct
+ * sample_event.period and stash the result in total_period.
+ */
 struct events_stats {
 	u64 total_period;
 	u64 total_lost;
@@ -35,7 +47,7 @@ enum hist_column {
 	HISTC_SYMBOL_TO,
 	HISTC_DSO_FROM,
 	HISTC_DSO_TO,
-	HISTC_NR_COLS, 
+	HISTC_NR_COLS, /* Last entry */
 };
 
 struct thread;
@@ -55,7 +67,7 @@ struct hists {
 	struct events_stats	stats;
 	u64			event_stream;
 	u16			col_len[HISTC_NR_COLS];
-	
+	/* Best would be to reuse the session callchain cursor */
 	struct callchain_cursor	callchain_cursor;
 };
 
@@ -154,4 +166,4 @@ int perf_evlist__gtk_browse_hists(struct perf_evlist *evlist, const char *help,
 
 unsigned int hists__sort_list_width(struct hists *self);
 
-#endif	
+#endif	/* __PERF_HIST_H */

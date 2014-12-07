@@ -53,6 +53,11 @@ do {								\
 #define read_can_lock(rwlock)		arch_read_can_lock(&(rwlock)->raw_lock)
 #define write_can_lock(rwlock)		arch_write_can_lock(&(rwlock)->raw_lock)
 
+/*
+ * Define the various rw_lock methods.  Note we define these
+ * regardless of whether CONFIG_SMP or CONFIG_PREEMPT are set. The various
+ * methods are defined as nops in the case they are not required.
+ */
 #define read_trylock(lock)	__cond_lock(lock, _raw_read_trylock(lock))
 #define write_trylock(lock)	__cond_lock(lock, _raw_write_trylock(lock))
 
@@ -117,4 +122,4 @@ do {								\
 	1 : ({ local_irq_restore(flags); 0; }); \
 })
 
-#endif 
+#endif /* __LINUX_RWLOCK_H */

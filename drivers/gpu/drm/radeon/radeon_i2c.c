@@ -35,6 +35,10 @@ extern int radeon_atom_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 				   struct i2c_msg *msgs, int num);
 extern u32 radeon_atom_hw_i2c_func(struct i2c_adapter *adap);
 
+/**
+ * radeon_ddc_probe
+ *
+ */
 bool radeon_ddc_probe(struct radeon_connector *radeon_connector)
 {
 	u8 out = 0x0;
@@ -55,20 +59,28 @@ bool radeon_ddc_probe(struct radeon_connector *radeon_connector)
 		}
 	};
 
-	
+	/* on hw with routers, select right port */
 	if (radeon_connector->router.ddc_valid)
 		radeon_router_select_ddc_port(radeon_connector);
 
 	ret = i2c_transfer(&radeon_connector->ddc_bus->adapter, msgs, 2);
 	if (ret != 2)
-		
+		/* Couldn't find an accessible DDC on this connector */
 		return false;
+	/* Probe also for valid EDID header
+	 * EDID header starts with:
+	 * 0x00,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0x00.
+	 * Only the first 6 bytes must be valid as
+	 * drm_edid_block_valid() can fix the last 2 bytes */
 	if (drm_edid_header_is_valid(buf) < 6) {
+		/* Couldn't find an accessible EDID on this
+		 * connector */
 		return false;
 	}
 	return true;
 }
 
+/* bit banging i2c */
 
 static int pre_xfer(struct i2c_adapter *i2c_adap)
 {
@@ -77,6 +89,10 @@ static int pre_xfer(struct i2c_adapter *i2c_adap)
 	struct radeon_i2c_bus_rec *rec = &i2c->rec;
 	uint32_t temp;
 
+	/* RV410 appears to have a bug where the hw i2c in reset
+	 * holds the i2c port in a bad state - switch hw i2c away before
+	 * doing DDC - do this for all r200s/r300s/r400s for safety sake
+	 */
 	if (rec->hw_capable) {
 		if ((rdev->family >= CHIP_R200) && !ASIC_IS_AVIVO(rdev)) {
 			u32 reg;
@@ -101,28 +117,28 @@ static int pre_xfer(struct i2c_adapter *i2c_adap)
 		}
 	}
 
-	
+	/* switch the pads to ddc mode */
 	if (ASIC_IS_DCE3(rdev) && rec->hw_capable) {
 		temp = RREG32(rec->mask_clk_reg);
 		temp &= ~(1 << 16);
 		WREG32(rec->mask_clk_reg, temp);
 	}
 
-	
+	/* clear the output pin values */
 	temp = RREG32(rec->a_clk_reg) & ~rec->a_clk_mask;
 	WREG32(rec->a_clk_reg, temp);
 
 	temp = RREG32(rec->a_data_reg) & ~rec->a_data_mask;
 	WREG32(rec->a_data_reg, temp);
 
-	
+	/* set the pins to input */
 	temp = RREG32(rec->en_clk_reg) & ~rec->en_clk_mask;
 	WREG32(rec->en_clk_reg, temp);
 
 	temp = RREG32(rec->en_data_reg) & ~rec->en_data_mask;
 	WREG32(rec->en_data_reg, temp);
 
-	
+	/* mask the gpio pins for software use */
 	temp = RREG32(rec->mask_clk_reg) | rec->mask_clk_mask;
 	WREG32(rec->mask_clk_reg, temp);
 	temp = RREG32(rec->mask_clk_reg);
@@ -141,7 +157,7 @@ static void post_xfer(struct i2c_adapter *i2c_adap)
 	struct radeon_i2c_bus_rec *rec = &i2c->rec;
 	uint32_t temp;
 
-	
+	/* unmask the gpio pins for software use */
 	temp = RREG32(rec->mask_clk_reg) & ~rec->mask_clk_mask;
 	WREG32(rec->mask_clk_reg, temp);
 	temp = RREG32(rec->mask_clk_reg);
@@ -158,7 +174,7 @@ static int get_clock(void *i2c_priv)
 	struct radeon_i2c_bus_rec *rec = &i2c->rec;
 	uint32_t val;
 
-	
+	/* read the value off the pin */
 	val = RREG32(rec->y_clk_reg);
 	val &= rec->y_clk_mask;
 
@@ -173,7 +189,7 @@ static int get_data(void *i2c_priv)
 	struct radeon_i2c_bus_rec *rec = &i2c->rec;
 	uint32_t val;
 
-	
+	/* read the value off the pin */
 	val = RREG32(rec->y_data_reg);
 	val &= rec->y_data_mask;
 
@@ -187,7 +203,7 @@ static void set_clock(void *i2c_priv, int clock)
 	struct radeon_i2c_bus_rec *rec = &i2c->rec;
 	uint32_t val;
 
-	
+	/* set pin direction */
 	val = RREG32(rec->en_clk_reg) & ~rec->en_clk_mask;
 	val |= clock ? 0 : rec->en_clk_mask;
 	WREG32(rec->en_clk_reg, val);
@@ -200,12 +216,13 @@ static void set_data(void *i2c_priv, int data)
 	struct radeon_i2c_bus_rec *rec = &i2c->rec;
 	uint32_t val;
 
-	
+	/* set pin direction */
 	val = RREG32(rec->en_data_reg) & ~rec->en_data_mask;
 	val |= data ? 0 : rec->en_data_mask;
 	WREG32(rec->en_data_reg, val);
 }
 
+/* hw i2c */
 
 static u32 radeon_get_i2c_prescale(struct radeon_device *rdev)
 {
@@ -249,7 +266,7 @@ static u32 radeon_get_i2c_prescale(struct radeon_device *rdev)
 	case CHIP_RS600:
 	case CHIP_RS690:
 	case CHIP_RS740:
-		
+		/* todo */
 		break;
 	case CHIP_RV515:
 	case CHIP_R520:
@@ -267,7 +284,7 @@ static u32 radeon_get_i2c_prescale(struct radeon_device *rdev)
 	case CHIP_RV610:
 	case CHIP_RV630:
 	case CHIP_RV670:
-		
+		/* todo */
 		break;
 	case CHIP_RV620:
 	case CHIP_RV635:
@@ -277,14 +294,14 @@ static u32 radeon_get_i2c_prescale(struct radeon_device *rdev)
 	case CHIP_RV730:
 	case CHIP_RV710:
 	case CHIP_RV740:
-		
+		/* todo */
 		break;
 	case CHIP_CEDAR:
 	case CHIP_REDWOOD:
 	case CHIP_JUNIPER:
 	case CHIP_CYPRESS:
 	case CHIP_HEMLOCK:
-		
+		/* todo */
 		break;
 	default:
 		DRM_ERROR("i2c: unhandled radeon chip\n");
@@ -294,6 +311,9 @@ static u32 radeon_get_i2c_prescale(struct radeon_device *rdev)
 }
 
 
+/* hw i2c engine for r1xx-4xx hardware
+ * hw can buffer up to 15 bytes
+ */
 static int r100_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 			    struct i2c_msg *msgs, int num)
 {
@@ -307,7 +327,7 @@ static int r100_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 	u32 tmp, reg;
 
 	mutex_lock(&rdev->dc_hw_i2c_mutex);
-	
+	/* take the pm lock since we need a constant sclk */
 	mutex_lock(&rdev->pm.mutex);
 
 	prescale = radeon_get_i2c_prescale(rdev);
@@ -341,7 +361,7 @@ static int r100_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 		case CHIP_RS300:
 			switch (rec->mask_clk_reg) {
 			case RADEON_GPIO_DVI_DDC:
-				
+				/* no gpio select bit */
 				break;
 			default:
 				DRM_ERROR("gpio not supported with hw i2c\n");
@@ -350,7 +370,7 @@ static int r100_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 			}
 			break;
 		case CHIP_R200:
-			
+			/* only bit 4 on r200 */
 			switch (rec->mask_clk_reg) {
 			case RADEON_GPIO_DVI_DDC:
 				reg |= R200_DVI_I2C_PIN_SEL(R200_SEL_DDC1);
@@ -366,7 +386,7 @@ static int r100_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 			break;
 		case CHIP_RV250:
 		case CHIP_RV280:
-			
+			/* bits 3 and 4 */
 			switch (rec->mask_clk_reg) {
 			case RADEON_GPIO_DVI_DDC:
 				reg |= R200_DVI_I2C_PIN_SEL(R200_SEL_DDC1);
@@ -385,7 +405,7 @@ static int r100_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 			break;
 		case CHIP_R300:
 		case CHIP_R350:
-			
+			/* only bit 4 on r300/r350 */
 			switch (rec->mask_clk_reg) {
 			case RADEON_GPIO_VGA_DDC:
 				reg |= R200_DVI_I2C_PIN_SEL(R200_SEL_DDC1);
@@ -406,7 +426,7 @@ static int r100_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 		case CHIP_RV410:
 		case CHIP_RS400:
 		case CHIP_RS480:
-			
+			/* bits 3 and 4 */
 			switch (rec->mask_clk_reg) {
 			case RADEON_GPIO_VGA_DDC:
 				reg |= R200_DVI_I2C_PIN_SEL(R200_SEL_DDC1);
@@ -431,7 +451,7 @@ static int r100_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 		}
 	}
 
-	
+	/* check for bus probe */
 	p = &msgs[0];
 	if ((num == 1) && (p->len == 0)) {
 		WREG32(i2c_cntl_0, (RADEON_I2C_DONE |
@@ -544,6 +564,9 @@ done:
 	return ret;
 }
 
+/* hw i2c engine for r5xx hardware
+ * hw can buffer up to 15 bytes
+ */
 static int r500_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 			    struct i2c_msg *msgs, int num)
 {
@@ -557,12 +580,12 @@ static int r500_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 	u32 saved1, saved2;
 
 	mutex_lock(&rdev->dc_hw_i2c_mutex);
-	
+	/* take the pm lock since we need a constant sclk */
 	mutex_lock(&rdev->pm.mutex);
 
 	prescale = radeon_get_i2c_prescale(rdev);
 
-	
+	/* clear gpio mask bits */
 	tmp = RREG32(rec->mask_clk_reg);
 	tmp &= ~rec->mask_clk_mask;
 	WREG32(rec->mask_clk_reg, tmp);
@@ -573,7 +596,7 @@ static int r500_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 	WREG32(rec->mask_data_reg, tmp);
 	tmp = RREG32(rec->mask_data_reg);
 
-	
+	/* clear pin values */
 	tmp = RREG32(rec->a_clk_reg);
 	tmp &= ~rec->a_clk_mask;
 	WREG32(rec->a_clk_reg, tmp);
@@ -584,7 +607,7 @@ static int r500_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 	WREG32(rec->a_data_reg, tmp);
 	tmp = RREG32(rec->a_data_reg);
 
-	
+	/* set the pins to input */
 	tmp = RREG32(rec->en_clk_reg);
 	tmp &= ~rec->en_clk_mask;
 	WREG32(rec->en_clk_reg, tmp);
@@ -595,7 +618,7 @@ static int r500_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 	WREG32(rec->en_data_reg, tmp);
 	tmp = RREG32(rec->en_data_reg);
 
-	
+	/* */
 	tmp = RREG32(RADEON_BIOS_6_SCRATCH);
 	WREG32(RADEON_BIOS_6_SCRATCH, tmp | ATOM_S6_HW_I2C_BUSY_STATE);
 	saved1 = RREG32(AVIVO_DC_I2C_CONTROL1);
@@ -631,7 +654,7 @@ static int r500_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 		goto done;
 	}
 
-	
+	/* check for bus probe */
 	p = &msgs[0];
 	if ((num == 1) && (p->len == 0)) {
 		WREG32(AVIVO_DC_I2C_STATUS1, (AVIVO_DC_I2C_DONE |
@@ -809,7 +832,7 @@ static int radeon_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 	case CHIP_RS600:
 	case CHIP_RS690:
 	case CHIP_RS740:
-		
+		/* XXX fill in hw i2c implementation */
 		break;
 	case CHIP_RV515:
 	case CHIP_R520:
@@ -826,7 +849,7 @@ static int radeon_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 	case CHIP_RV610:
 	case CHIP_RV630:
 	case CHIP_RV670:
-		
+		/* XXX fill in hw i2c implementation */
 		break;
 	case CHIP_RV620:
 	case CHIP_RV635:
@@ -836,14 +859,14 @@ static int radeon_hw_i2c_xfer(struct i2c_adapter *i2c_adap,
 	case CHIP_RV730:
 	case CHIP_RV710:
 	case CHIP_RV740:
-		
+		/* XXX fill in hw i2c implementation */
 		break;
 	case CHIP_CEDAR:
 	case CHIP_REDWOOD:
 	case CHIP_JUNIPER:
 	case CHIP_CYPRESS:
 	case CHIP_HEMLOCK:
-		
+		/* XXX fill in hw i2c implementation */
 		break;
 	default:
 		DRM_ERROR("i2c: unhandled radeon chip\n");
@@ -877,7 +900,7 @@ struct radeon_i2c_chan *radeon_i2c_create(struct drm_device *dev,
 	struct radeon_i2c_chan *i2c;
 	int ret;
 
-	
+	/* don't add the mm_i2c bus unless hw_i2c is enabled */
 	if (rec->mm_i2c && (radeon_hw_i2c == 0))
 		return NULL;
 
@@ -896,7 +919,7 @@ struct radeon_i2c_chan *radeon_i2c_create(struct drm_device *dev,
 	     radeon_hw_i2c &&
 	     ((rdev->family <= CHIP_RS480) ||
 	      ((rdev->family >= CHIP_RV515) && (rdev->family <= CHIP_R580))))) {
-		
+		/* set the radeon hw i2c adapter */
 		snprintf(i2c->adapter.name, sizeof(i2c->adapter.name),
 			 "Radeon i2c hw bus %s", name);
 		i2c->adapter.algo = &radeon_i2c_algo;
@@ -908,7 +931,7 @@ struct radeon_i2c_chan *radeon_i2c_create(struct drm_device *dev,
 	} else if (rec->hw_capable &&
 		   radeon_hw_i2c &&
 		   ASIC_IS_DCE3(rdev)) {
-		
+		/* hw i2c using atom */
 		snprintf(i2c->adapter.name, sizeof(i2c->adapter.name),
 			 "Radeon i2c hw bus %s", name);
 		i2c->adapter.algo = &radeon_atom_i2c_algo;
@@ -918,7 +941,7 @@ struct radeon_i2c_chan *radeon_i2c_create(struct drm_device *dev,
 			goto out_free;
 		}
 	} else {
-		
+		/* set the radeon bit adapter */
 		snprintf(i2c->adapter.name, sizeof(i2c->adapter.name),
 			 "Radeon i2c bit bus %s", name);
 		i2c->adapter.algo_data = &i2c->algo.bit;
@@ -929,7 +952,7 @@ struct radeon_i2c_chan *radeon_i2c_create(struct drm_device *dev,
 		i2c->algo.bit.getsda = get_data;
 		i2c->algo.bit.getscl = get_clock;
 		i2c->algo.bit.udelay = 10;
-		i2c->algo.bit.timeout = usecs_to_jiffies(2200);	
+		i2c->algo.bit.timeout = usecs_to_jiffies(2200);	/* from VESA */
 		i2c->algo.bit.data = i2c;
 		ret = i2c_bit_add_bus(&i2c->adapter);
 		if (ret) {
@@ -988,6 +1011,7 @@ void radeon_i2c_destroy(struct radeon_i2c_chan *i2c)
 	kfree(i2c);
 }
 
+/* Add the default buses */
 void radeon_i2c_init(struct radeon_device *rdev)
 {
 	if (rdev->is_atom_bios)
@@ -996,6 +1020,7 @@ void radeon_i2c_init(struct radeon_device *rdev)
 		radeon_combios_i2c_init(rdev);
 }
 
+/* remove all the buses */
 void radeon_i2c_fini(struct radeon_device *rdev)
 {
 	int i;
@@ -1008,6 +1033,7 @@ void radeon_i2c_fini(struct radeon_device *rdev)
 	}
 }
 
+/* Add additional buses */
 void radeon_i2c_add(struct radeon_device *rdev,
 		    struct radeon_i2c_bus_rec *rec,
 		    const char *name)
@@ -1023,6 +1049,7 @@ void radeon_i2c_add(struct radeon_device *rdev,
 	}
 }
 
+/* looks up bus based on id */
 struct radeon_i2c_chan *radeon_i2c_lookup(struct radeon_device *rdev,
 					  struct radeon_i2c_bus_rec *i2c_bus)
 {
@@ -1097,6 +1124,7 @@ void radeon_i2c_put_byte(struct radeon_i2c_chan *i2c_bus,
 			  addr, val);
 }
 
+/* ddc router switching */
 void radeon_router_select_ddc_port(struct radeon_connector *radeon_connector)
 {
 	u8 val;
@@ -1124,6 +1152,7 @@ void radeon_router_select_ddc_port(struct radeon_connector *radeon_connector)
 			    0x1, val);
 }
 
+/* clock/data router switching */
 void radeon_router_select_cd_port(struct radeon_connector *radeon_connector)
 {
 	u8 val;

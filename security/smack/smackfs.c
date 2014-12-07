@@ -29,35 +29,68 @@
 #include <linux/audit.h>
 #include "smack.h"
 
+/*
+ * smackfs pseudo filesystem.
+ */
 
 enum smk_inos {
 	SMK_ROOT_INO	= 2,
-	SMK_LOAD	= 3,	
-	SMK_CIPSO	= 4,	
-	SMK_DOI		= 5,	
-	SMK_DIRECT	= 6,	
-	SMK_AMBIENT	= 7,	
-	SMK_NETLBLADDR	= 8,	
-	SMK_ONLYCAP	= 9,	
-	SMK_LOGGING	= 10,	
-	SMK_LOAD_SELF	= 11,	
-	SMK_ACCESSES	= 12,	
+	SMK_LOAD	= 3,	/* load policy */
+	SMK_CIPSO	= 4,	/* load label -> CIPSO mapping */
+	SMK_DOI		= 5,	/* CIPSO DOI */
+	SMK_DIRECT	= 6,	/* CIPSO level indicating direct label */
+	SMK_AMBIENT	= 7,	/* internet ambient label */
+	SMK_NETLBLADDR	= 8,	/* single label hosts */
+	SMK_ONLYCAP	= 9,	/* the only "capable" label */
+	SMK_LOGGING	= 10,	/* logging */
+	SMK_LOAD_SELF	= 11,	/* task specific rules */
+	SMK_ACCESSES	= 12,	/* access policy */
 };
 
+/*
+ * List locks
+ */
 static DEFINE_MUTEX(smack_list_lock);
 static DEFINE_MUTEX(smack_cipso_lock);
 static DEFINE_MUTEX(smack_ambient_lock);
 static DEFINE_MUTEX(smk_netlbladdr_lock);
 
+/*
+ * This is the "ambient" label for network traffic.
+ * If it isn't somehow marked, use this.
+ * It can be reset via smackfs/ambient
+ */
 char *smack_net_ambient = smack_known_floor.smk_known;
 
+/*
+ * This is the level in a CIPSO header that indicates a
+ * smack label is contained directly in the category set.
+ * It can be reset via smackfs/direct
+ */
 int smack_cipso_direct = SMACK_CIPSO_DIRECT_DEFAULT;
 
+/*
+ * Unless a process is running with this label even
+ * having CAP_MAC_OVERRIDE isn't enough to grant
+ * privilege to violate MAC policy. If no label is
+ * designated (the NULL case) capabilities apply to
+ * everyone. It is expected that the hat (^) label
+ * will be used if any label is used.
+ */
 char *smack_onlycap;
 
+/*
+ * Certain IP addresses may be designated as single label hosts.
+ * Packets are sent there unlabeled, but only from tasks that
+ * can write to the specified label.
+ */
 
 LIST_HEAD(smk_netlbladdr_list);
 
+/*
+ * Rule lists are maintained for each label.
+ * This master list is just for reading /smack/load.
+ */
 struct smack_master_list {
 	struct list_head	list;
 	struct smack_rule	*smk_rule;
@@ -69,10 +102,22 @@ static int smk_cipso_doi_value = SMACK_CIPSO_DOI_DEFAULT;
 
 const char *smack_cipso_option = SMACK_CIPSO_OPTION;
 
+/*
+ * Values for parsing cipso rules
+ * SMK_DIGITLEN: Length of a digit field in a rule.
+ * SMK_CIPSOMIN: Minimum possible cipso rule length.
+ * SMK_CIPSOMAX: Maximum possible cipso rule length.
+ */
 #define SMK_DIGITLEN 4
 #define SMK_CIPSOMIN (SMK_LABELLEN + 2 * SMK_DIGITLEN)
 #define SMK_CIPSOMAX (SMK_CIPSOMIN + SMACK_CIPSO_MAXCATNUM * SMK_DIGITLEN)
 
+/*
+ * Values for parsing MAC rules
+ * SMK_ACCESS: Maximum possible combination of access permissions
+ * SMK_ACCESSLEN: Maximum length for a rule access field
+ * SMK_LOADLEN: Smack rule length
+ */
 #define SMK_OACCESS	"rwxa"
 #define SMK_ACCESS	"rwxat"
 #define SMK_OACCESSLEN	(sizeof(SMK_OACCESS) - 1)
@@ -80,6 +125,10 @@ const char *smack_cipso_option = SMACK_CIPSO_OPTION;
 #define SMK_OLOADLEN	(SMK_LABELLEN + SMK_LABELLEN + SMK_OACCESSLEN)
 #define SMK_LOADLEN	(SMK_LABELLEN + SMK_LABELLEN + SMK_ACCESSLEN)
 
+/**
+ * smk_netlabel_audit_set - fill a netlbl_audit struct
+ * @nap: structure to fill
+ */
 static void smk_netlabel_audit_set(struct netlbl_audit *nap)
 {
 	nap->loginuid = audit_get_loginuid(current);
@@ -87,9 +136,29 @@ static void smk_netlabel_audit_set(struct netlbl_audit *nap)
 	nap->secid = smack_to_secid(smk_of_current());
 }
 
+/*
+ * Values for parsing single label host rules
+ * "1.2.3.4 X"
+ * "192.168.138.129/32 abcdefghijklmnopqrstuvw"
+ */
 #define SMK_NETLBLADDRMIN	9
 #define SMK_NETLBLADDRMAX	42
 
+/**
+ * smk_set_access - add a rule to the rule list
+ * @srp: the new rule to add
+ * @rule_list: the list of rules
+ * @rule_lock: the rule list lock
+ *
+ * Looks through the current subject/object/access list for
+ * the subject/object pair and replaces the access that was
+ * there. If the pair isn't found add it with the specified
+ * access.
+ *
+ * Returns 1 if a rule was found to exist already, 0 if it is new
+ * Returns 0 if nothing goes wrong or -ENOMEM if it fails
+ * during the allocation of the new pair to add.
+ */
 static int smk_set_access(struct smack_rule *srp, struct list_head *rule_list,
 				struct mutex *rule_lock)
 {
@@ -98,6 +167,10 @@ static int smk_set_access(struct smack_rule *srp, struct list_head *rule_list,
 
 	mutex_lock(rule_lock);
 
+	/*
+	 * Because the object label is less likely to match
+	 * than the subject label check it first
+	 */
 	list_for_each_entry_rcu(sp, rule_list, list) {
 		if (sp->smk_object == srp->smk_object &&
 		    sp->smk_subject == srp->smk_subject) {
@@ -114,6 +187,12 @@ static int smk_set_access(struct smack_rule *srp, struct list_head *rule_list,
 	return found;
 }
 
+/**
+ * smk_parse_rule - parse Smack rule from load string
+ * @data: string to be parsed whose size is SMK_LOADLEN
+ * @rule: Smack rule
+ * @import: if non-zero, import labels
+ */
 static int smk_parse_rule(const char *data, struct smack_rule *rule, int import)
 {
 	char smack[SMK_LABELLEN];
@@ -201,6 +280,23 @@ static int smk_parse_rule(const char *data, struct smack_rule *rule, int import)
 	return 0;
 }
 
+/**
+ * smk_write_load_list - write() for any /smack/load
+ * @file: file pointer, not actually used
+ * @buf: where to get the data from
+ * @count: bytes sent
+ * @ppos: where to start - must be 0
+ * @rule_list: the list of rules to write to
+ * @rule_lock: lock for the rule list
+ *
+ * Get one smack access rule from above.
+ * The format is exactly:
+ *     char subject[SMK_LABELLEN]
+ *     char object[SMK_LABELLEN]
+ *     char access[SMK_ACCESSLEN]
+ *
+ * writes must be SMK_LABELLEN+SMK_LABELLEN+SMK_ACCESSLEN bytes.
+ */
 static ssize_t smk_write_load_list(struct file *file, const char __user *buf,
 				size_t count, loff_t *ppos,
 				struct list_head *rule_list,
@@ -213,8 +309,15 @@ static ssize_t smk_write_load_list(struct file *file, const char __user *buf,
 	int rc = -EINVAL;
 	int load = 0;
 
+	/*
+	 * No partial writes.
+	 * Enough data must be present.
+	 */
 	if (*ppos != 0)
 		return -EINVAL;
+	/*
+	 * Minor hack for backward compatibility
+	 */
 	if (count < (SMK_OLOADLEN) || count > SMK_LOADLEN)
 		return -EINVAL;
 
@@ -227,6 +330,9 @@ static ssize_t smk_write_load_list(struct file *file, const char __user *buf,
 		goto out;
 	}
 
+	/*
+	 * More on the minor hack for backward compatibility
+	 */
 	if (count == (SMK_OLOADLEN))
 		data[SMK_OLOADLEN] = '-';
 
@@ -247,6 +353,12 @@ static ssize_t smk_write_load_list(struct file *file, const char __user *buf,
 	}
 
 	rc = count;
+	/*
+	 * If this is "load" as opposed to "load-self" and a new rule
+	 * it needs to get added for reporting.
+	 * smk_set_access returns true if there was already a rule
+	 * for the subject/object pair, and false if it was new.
+	 */
 	if (load && !smk_set_access(rule, rule_list, rule_lock)) {
 		smlp = kzalloc(sizeof(*smlp), GFP_KERNEL);
 		if (smlp != NULL) {
@@ -264,12 +376,18 @@ out:
 	return rc;
 }
 
+/*
+ * Core logic for smackfs seq list operations.
+ */
 
 static void *smk_seq_start(struct seq_file *s, loff_t *pos,
 				struct list_head *head)
 {
 	struct list_head *list;
 
+	/*
+	 * This is 0 the first time through.
+	 */
 	if (s->index == 0)
 		s->private = head;
 
@@ -300,9 +418,12 @@ static void *smk_seq_next(struct seq_file *s, void *v, loff_t *pos,
 
 static void smk_seq_stop(struct seq_file *s, void *v)
 {
-	
+	/* No-op */
 }
 
+/*
+ * Seq_file read operations for /smack/load
+ */
 
 static void *load_seq_start(struct seq_file *s, loff_t *pos)
 {
@@ -351,15 +472,35 @@ static const struct seq_operations load_seq_ops = {
 	.stop  = smk_seq_stop,
 };
 
+/**
+ * smk_open_load - open() for /smack/load
+ * @inode: inode structure representing file
+ * @file: "load" file pointer
+ *
+ * For reading, use load_seq_* seq_file reading operations.
+ */
 static int smk_open_load(struct inode *inode, struct file *file)
 {
 	return seq_open(file, &load_seq_ops);
 }
 
+/**
+ * smk_write_load - write() for /smack/load
+ * @file: file pointer, not actually used
+ * @buf: where to get the data from
+ * @count: bytes sent
+ * @ppos: where to start - must be 0
+ *
+ */
 static ssize_t smk_write_load(struct file *file, const char __user *buf,
 			      size_t count, loff_t *ppos)
 {
 
+	/*
+	 * Must have privilege.
+	 * No partial writes.
+	 * Enough data must be present.
+	 */
 	if (!capable(CAP_MAC_ADMIN))
 		return -EPERM;
 
@@ -374,6 +515,9 @@ static const struct file_operations smk_load_ops = {
 	.release        = seq_release,
 };
 
+/**
+ * smk_cipso_doi - initialize the CIPSO domain
+ */
 static void smk_cipso_doi(void)
 {
 	int rc;
@@ -413,6 +557,10 @@ static void smk_cipso_doi(void)
 	}
 }
 
+/**
+ * smk_unlbl_ambient - initialize the unlabeled domain
+ * @oldambient: previous domain string
+ */
 static void smk_unlbl_ambient(char *oldambient)
 {
 	int rc;
@@ -434,6 +582,9 @@ static void smk_unlbl_ambient(char *oldambient)
 		       __func__, __LINE__, rc);
 }
 
+/*
+ * Seq_file read operations for /smack/cipso
+ */
 
 static void *cipso_seq_start(struct seq_file *s, loff_t *pos)
 {
@@ -445,6 +596,10 @@ static void *cipso_seq_next(struct seq_file *s, void *v, loff_t *pos)
 	return smk_seq_next(s, v, pos, &smack_known_list);
 }
 
+/*
+ * Print cipso labels in format:
+ * label level[/cat[,cat]]
+ */
 static int cipso_seq_show(struct seq_file *s, void *v)
 {
 	struct list_head  *list = v;
@@ -484,6 +639,14 @@ static const struct seq_operations cipso_seq_ops = {
 	.stop  = smk_seq_stop,
 };
 
+/**
+ * smk_open_cipso - open() for /smack/cipso
+ * @inode: inode structure representing file
+ * @file: "cipso" file pointer
+ *
+ * Connect our cipso_seq_* operations with /smack/cipso
+ * file_operations
+ */
 static int smk_open_cipso(struct inode *inode, struct file *file)
 {
 	return seq_open(file, &cipso_seq_ops);
@@ -514,6 +677,11 @@ static ssize_t smk_write_cipso(struct file *file, const char __user *buf,
 	int ret;
 	int i;
 
+	/*
+	 * Must have privilege.
+	 * No partial writes.
+	 * Enough data must be present.
+	 */
 	if (!capable(CAP_MAC_ADMIN))
 		return -EPERM;
 	if (*ppos != 0)
@@ -530,13 +698,17 @@ static ssize_t smk_write_cipso(struct file *file, const char __user *buf,
 		goto unlockedout;
 	}
 
-	
+	/* labels cannot begin with a '-' */
 	if (data[0] == '-') {
 		rc = -EINVAL;
 		goto unlockedout;
 	}
 	data[count] = '\0';
 	rule = data;
+	/*
+	 * Only allow one writer at a time. Writes should be
+	 * quite rare and small in any case.
+	 */
 	mutex_lock(&smack_cipso_lock);
 
 	skp = smk_import_entry(rule, 0);
@@ -603,6 +775,9 @@ static const struct file_operations smk_cipso_ops = {
 	.release        = seq_release,
 };
 
+/*
+ * Seq_file read operations for /smack/netlabel
+ */
 
 static void *netlbladdr_seq_start(struct seq_file *s, loff_t *pos)
 {
@@ -615,6 +790,9 @@ static void *netlbladdr_seq_next(struct seq_file *s, void *v, loff_t *pos)
 }
 #define BEBITS	(sizeof(__be32) * 8)
 
+/*
+ * Print host/label pairs
+ */
 static int netlbladdr_seq_show(struct seq_file *s, void *v)
 {
 	struct list_head *list = v;
@@ -639,11 +817,28 @@ static const struct seq_operations netlbladdr_seq_ops = {
 	.stop  = smk_seq_stop,
 };
 
+/**
+ * smk_open_netlbladdr - open() for /smack/netlabel
+ * @inode: inode structure representing file
+ * @file: "netlabel" file pointer
+ *
+ * Connect our netlbladdr_seq_* operations with /smack/netlabel
+ * file_operations
+ */
 static int smk_open_netlbladdr(struct inode *inode, struct file *file)
 {
 	return seq_open(file, &netlbladdr_seq_ops);
 }
 
+/**
+ * smk_netlbladdr_insert
+ * @new : netlabel to insert
+ *
+ * This helper insert netlabel in the smack_netlbladdrs list
+ * sorted by netmask length (longest to smallest)
+ * locked by &smk_netlbladdr_lock in smk_write_netlbladdr
+ *
+ */
 static void smk_netlbladdr_insert(struct smk_netlbladdr *new)
 {
 	struct smk_netlbladdr *m, *m_next;
@@ -656,7 +851,7 @@ static void smk_netlbladdr_insert(struct smk_netlbladdr *new)
 	m = list_entry_rcu(smk_netlbladdr_list.next,
 			   struct smk_netlbladdr, list);
 
-	
+	/* the comparison '>' is a bit hacky, but works */
 	if (new->smk_mask.s_addr > m->smk_mask.s_addr) {
 		list_add_rcu(&new->list, &smk_netlbladdr_list);
 		return;
@@ -705,6 +900,13 @@ static ssize_t smk_write_netlbladdr(struct file *file, const char __user *buf,
 	__be32 nsa;
 	u32 temp_mask;
 
+	/*
+	 * Must have privilege.
+	 * No partial writes.
+	 * Enough data must be present.
+	 * "<addr/mask, as a.b.c.d/e><space><label>"
+	 * "<addr, as a.b.c.d><space><label>"
+	 */
 	if (!capable(CAP_MAC_ADMIN))
 		return -EPERM;
 	if (*ppos != 0)
@@ -728,13 +930,13 @@ static ssize_t smk_write_netlbladdr(struct file *file, const char __user *buf,
 	if (m > BEBITS)
 		return -EINVAL;
 
-	
+	/* if smack begins with '-', its an option, don't import it */
 	if (smack[0] != '-') {
 		sp = smk_import(smack, 0);
 		if (sp == NULL)
 			return -EINVAL;
 	} else {
-		
+		/* check known options */
 		if (strcmp(smack, smack_cipso_option) == 0)
 			sp = (char *)smack_cipso_option;
 		else
@@ -748,10 +950,14 @@ static ssize_t smk_write_netlbladdr(struct file *file, const char __user *buf,
 	mask.s_addr = cpu_to_be32(temp_mask);
 
 	newname.sin_addr.s_addr &= mask.s_addr;
+	/*
+	 * Only allow one writer at a time. Writes should be
+	 * quite rare and small in any case.
+	 */
 	mutex_lock(&smk_netlbladdr_lock);
 
 	nsa = newname.sin_addr.s_addr;
-	
+	/* try to find if the prefix is already in the list */
 	found = 0;
 	list_for_each_entry_rcu(skp, &smk_netlbladdr_list, list) {
 		if (skp->smk_host.sin_addr.s_addr == nsa &&
@@ -774,6 +980,8 @@ static ssize_t smk_write_netlbladdr(struct file *file, const char __user *buf,
 			smk_netlbladdr_insert(skp);
 		}
 	} else {
+		/* we delete the unlabeled entry, only if the previous label
+		 * wasn't the special CIPSO option */
 		if (skp->smk_label != smack_cipso_option)
 			rc = netlbl_cfg_unlbl_static_del(&init_net, NULL,
 					&skp->smk_host.sin_addr, &skp->smk_mask,
@@ -783,6 +991,11 @@ static ssize_t smk_write_netlbladdr(struct file *file, const char __user *buf,
 		skp->smk_label = sp;
 	}
 
+	/*
+	 * Now tell netlabel about the single label nature of
+	 * this host so that incoming packets get labeled.
+	 * but only if we didn't get the special CIPSO option
+	 */
 	if (rc == 0 && sp != smack_cipso_option)
 		rc = netlbl_cfg_unlbl_static_add(&init_net, NULL,
 			&skp->smk_host.sin_addr, &skp->smk_mask, PF_INET,
@@ -804,6 +1017,15 @@ static const struct file_operations smk_netlbladdr_ops = {
 	.release        = seq_release,
 };
 
+/**
+ * smk_read_doi - read() for /smack/doi
+ * @filp: file pointer, not actually used
+ * @buf: where to put the result
+ * @count: maximum to send along
+ * @ppos: where to start
+ *
+ * Returns number of bytes read or error code, as appropriate
+ */
 static ssize_t smk_read_doi(struct file *filp, char __user *buf,
 			    size_t count, loff_t *ppos)
 {
@@ -861,6 +1083,15 @@ static const struct file_operations smk_doi_ops = {
 	.llseek		= default_llseek,
 };
 
+/**
+ * smk_read_direct - read() for /smack/direct
+ * @filp: file pointer, not actually used
+ * @buf: where to put the result
+ * @count: maximum to send along
+ * @ppos: where to start
+ *
+ * Returns number of bytes read or error code, as appropriate
+ */
 static ssize_t smk_read_direct(struct file *filp, char __user *buf,
 			       size_t count, loff_t *ppos)
 {
@@ -916,6 +1147,15 @@ static const struct file_operations smk_direct_ops = {
 	.llseek		= default_llseek,
 };
 
+/**
+ * smk_read_ambient - read() for /smack/ambient
+ * @filp: file pointer, not actually used
+ * @buf: where to put the result
+ * @cn: maximum to send along
+ * @ppos: where to start
+ *
+ * Returns number of bytes read or error code, as appropriate
+ */
 static ssize_t smk_read_ambient(struct file *filp, char __user *buf,
 				size_t cn, loff_t *ppos)
 {
@@ -924,6 +1164,10 @@ static ssize_t smk_read_ambient(struct file *filp, char __user *buf,
 
 	if (*ppos != 0)
 		return 0;
+	/*
+	 * Being careful to avoid a problem in the case where
+	 * smack_net_ambient gets changed in midstream.
+	 */
 	mutex_lock(&smack_ambient_lock);
 
 	asize = strlen(smack_net_ambient) + 1;
@@ -985,6 +1229,15 @@ static const struct file_operations smk_ambient_ops = {
 	.llseek		= default_llseek,
 };
 
+/**
+ * smk_read_onlycap - read() for /smack/onlycap
+ * @filp: file pointer, not actually used
+ * @buf: where to put the result
+ * @cn: maximum to send along
+ * @ppos: where to start
+ *
+ * Returns number of bytes read or error code, as appropriate
+ */
 static ssize_t smk_read_onlycap(struct file *filp, char __user *buf,
 				size_t cn, loff_t *ppos)
 {
@@ -1024,6 +1277,11 @@ static ssize_t smk_write_onlycap(struct file *file, const char __user *buf,
 	if (!capable(CAP_MAC_ADMIN))
 		return -EPERM;
 
+	/*
+	 * This can be done using smk_access() but is done
+	 * explicitly for clarity. The smk_access() implementation
+	 * would use smk_access(smack_onlycap, MAY_WRITE)
+	 */
 	if (smack_onlycap != NULL && smack_onlycap != sp)
 		return -EPERM;
 
@@ -1033,6 +1291,13 @@ static ssize_t smk_write_onlycap(struct file *file, const char __user *buf,
 	if (copy_from_user(in, buf, count) != 0)
 		return -EFAULT;
 
+	/*
+	 * Should the null string be passed in unset the onlycap value.
+	 * This seems like something to be careful with as usually
+	 * smk_import only expects to return NULL for errors. It
+	 * is usually the case that a nullstring or "\n" would be
+	 * bad to pass to smk_import but in fact this is useful here.
+	 */
 	smack_onlycap = smk_import(in, count);
 
 	return count;
@@ -1044,6 +1309,15 @@ static const struct file_operations smk_onlycap_ops = {
 	.llseek		= default_llseek,
 };
 
+/**
+ * smk_read_logging - read() for /smack/logging
+ * @filp: file pointer, not actually used
+ * @buf: where to put the result
+ * @cn: maximum to send along
+ * @ppos: where to start
+ *
+ * Returns number of bytes read or error code, as appropriate
+ */
 static ssize_t smk_read_logging(struct file *filp, char __user *buf,
 				size_t count, loff_t *ppos)
 {
@@ -1100,6 +1374,9 @@ static const struct file_operations smk_logging_ops = {
 	.llseek		= default_llseek,
 };
 
+/*
+ * Seq_file read operations for /smack/load-self
+ */
 
 static void *load_self_seq_start(struct seq_file *s, loff_t *pos)
 {
@@ -1152,11 +1429,26 @@ static const struct seq_operations load_self_seq_ops = {
 };
 
 
+/**
+ * smk_open_load_self - open() for /smack/load-self
+ * @inode: inode structure representing file
+ * @file: "load" file pointer
+ *
+ * For reading, use load_seq_* seq_file reading operations.
+ */
 static int smk_open_load_self(struct inode *inode, struct file *file)
 {
 	return seq_open(file, &load_self_seq_ops);
 }
 
+/**
+ * smk_write_load_self - write() for /smack/load-self
+ * @file: file pointer, not actually used
+ * @buf: where to get the data from
+ * @count: bytes sent
+ * @ppos: where to start - must be 0
+ *
+ */
 static ssize_t smk_write_load_self(struct file *file, const char __user *buf,
 			      size_t count, loff_t *ppos)
 {
@@ -1174,6 +1466,13 @@ static const struct file_operations smk_load_self_ops = {
 	.release        = seq_release,
 };
 
+/**
+ * smk_write_access - handle access check transaction
+ * @file: file pointer
+ * @buf: data from user space
+ * @count: bytes sent
+ * @ppos: where to start - must be 0
+ */
 static ssize_t smk_write_access(struct file *file, const char __user *buf,
 				size_t count, loff_t *ppos)
 {
@@ -1204,6 +1503,16 @@ static const struct file_operations smk_access_ops = {
 	.llseek		= generic_file_llseek,
 };
 
+/**
+ * smk_fill_super - fill the /smackfs superblock
+ * @sb: the empty superblock
+ * @data: unused
+ * @silent: unused
+ *
+ * Fill in the well known entries for /smack
+ *
+ * Returns 0 on success, an error code on failure
+ */
 static int smk_fill_super(struct super_block *sb, void *data, int silent)
 {
 	int rc;
@@ -1230,7 +1539,7 @@ static int smk_fill_super(struct super_block *sb, void *data, int silent)
 			"load-self", &smk_load_self_ops, S_IRUGO|S_IWUGO},
 		[SMK_ACCESSES] = {
 			"access", &smk_access_ops, S_IRUGO|S_IWUGO},
-		
+		/* last one */
 			{""}
 	};
 
@@ -1247,6 +1556,17 @@ static int smk_fill_super(struct super_block *sb, void *data, int silent)
 	return 0;
 }
 
+/**
+ * smk_mount - get the smackfs superblock
+ * @fs_type: passed along without comment
+ * @flags: passed along without comment
+ * @dev_name: passed along without comment
+ * @data: passed along without comment
+ *
+ * Just passes everything along.
+ *
+ * Returns what the lower level code does.
+ */
 static struct dentry *smk_mount(struct file_system_type *fs_type,
 		      int flags, const char *dev_name, void *data)
 {
@@ -1261,6 +1581,19 @@ static struct file_system_type smk_fs_type = {
 
 static struct vfsmount *smackfs_mount;
 
+/**
+ * init_smk_fs - get the smackfs superblock
+ *
+ * register the smackfs
+ *
+ * Do not register smackfs if Smack wasn't enabled
+ * on boot. We can not put this method normally under the
+ * smack_init() code path since the security subsystem get
+ * initialized before the vfs caches.
+ *
+ * Returns true if we were not chosen on boot or if
+ * we were chosen and filesystem registration succeeded.
+ */
 static int __init init_smk_fs(void)
 {
 	int err;

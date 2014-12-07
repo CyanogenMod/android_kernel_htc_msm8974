@@ -44,27 +44,27 @@ titan_parse_c_misc(u64 c_misc, int print)
 
 	nxs = EXTRACT(c_misc, TITAN__CCHIP_MISC__NXS);
 	switch(nxs) {
-	case 0:	
-	case 1:	
-	case 2:	
-	case 3:	
+	case 0:	/* CPU 0 */
+	case 1:	/* CPU 1 */
+	case 2:	/* CPU 2 */
+	case 3:	/* CPU 3 */
 		src = "CPU";
-		
+		/* num is already the CPU number */
 		break;
-	case 4:	
-	case 5:	
+	case 4:	/* Pchip 0 */
+	case 5:	/* Pchip 1 */
 		src = "Pchip";
 		nxs -= 4;
 		break;
-	default:
+	default:/* reserved */
 		src = "Unknown, NXS =";
-		
+		/* leave num untouched */
 		break;
 	}
 
 	printk("%s    Non-existent memory access from: %s %d\n", 
 	       err_print_prefix, src, nxs);
-#endif 
+#endif /* CONFIG_VERBOSE_MCHECK */
 
 	return status;
 }
@@ -81,7 +81,7 @@ titan_parse_p_serror(int which, u64 serror, int print)
 	static const char * const serror_cmd[] = {
 		"DMA Read", "DMA RMW", "SGTE Read", "Reserved"
 	};
-#endif 
+#endif /* CONFIG_VERBOSE_MCHECK */
 
 #define TITAN__PCHIP_SERROR__LOST_UECC	(1UL << 0)
 #define TITAN__PCHIP_SERROR__UECC	(1UL << 1)
@@ -131,7 +131,7 @@ titan_parse_p_serror(int which, u64 serror, int print)
 		       err_print_prefix);
 	if (serror & TITAN__PCHIP_SERROR__LOST_CRE)
 		printk("%s    Lost Correctable ECC Error\n", err_print_prefix);
-#endif 
+#endif /* CONFIG_VERBOSE_MCHECK */
 
 	return status;
 }
@@ -154,7 +154,7 @@ titan_parse_p_perror(int which, int port, u64 perror, int print)
 		"Memory Read Multiple",	"Dual Address Cycle",
 		"Memory Read Line",	"Memory Write and Invalidate"
 	};
-#endif 
+#endif /* CONFIG_VERBOSE_MCHECK */
 
 #define TITAN__PCHIP_PERROR__LOST	(1UL << 0)
 #define TITAN__PCHIP_PERROR__SERR	(1UL << 1)
@@ -191,6 +191,31 @@ titan_parse_p_perror(int which, int port, u64 perror, int print)
 	cmd = EXTRACT(perror, TITAN__PCHIP_PERROR__CMD);
 	addr = EXTRACT(perror, TITAN__PCHIP_PERROR__ADDR) << 2;
 
+	/*
+	 * Initializing the BIOS on a video card on a bus without
+	 * a south bridge (subtractive decode agent) can result in 
+	 * master aborts as the BIOS probes the capabilities of the
+	 * card. XFree86 does such initialization. If the error
+	 * is a master abort (No DevSel as PCI Master) and the command
+	 * is an I/O read or write below the address where we start
+	 * assigning PCI I/O spaces (SRM uses 0x1000), then mark the
+	 * error as dismissable so starting XFree86 doesn't result
+	 * in a series of uncorrectable errors being reported. Also
+	 * dismiss master aborts to VGA frame buffer space
+	 * (0xA0000 - 0xC0000) and legacy BIOS space (0xC0000 - 0x100000)
+	 * for the same reason.
+	 *
+	 * Also mark the error dismissible if it looks like the right
+	 * error but only the Lost bit is set. Since the BIOS initialization
+	 * can cause multiple master aborts and the error interrupt can
+	 * be handled on a different CPU than the BIOS code is run on,
+	 * it is possible for a second master abort to occur between the
+	 * time the PALcode reads PERROR and the time it writes PERROR
+	 * to acknowledge the error. If this timing happens, a second
+	 * error will be signalled after the first, and if no additional
+	 * errors occur, will look like a Lost error with no additional 
+	 * errors on the same transaction as the previous error.
+	 */
 	if (((perror & TITAN__PCHIP_PERROR__NDS) || 
 	     ((perror & TITAN__PCHIP_PERROR__ERRMASK) == 
 	      TITAN__PCHIP_PERROR__LOST)) &&
@@ -240,7 +265,7 @@ titan_parse_p_perror(int which, int port, u64 perror, int print)
 		printk("%s      Dual Address Cycle\n", err_print_prefix);
 	if (perror & TITAN__PCHIP_PERROR__MWIN)
 		printk("%s      Hit in Monster Window\n", err_print_prefix);
-#endif 
+#endif /* CONFIG_VERBOSE_MCHECK */
 
 	return status;
 }
@@ -259,7 +284,7 @@ titan_parse_p_agperror(int which, u64 agperror, int print)
 		"Reserved",		"Reserved",
 		"Flush",		"Fence"
 	};
-#endif 
+#endif /* CONFIG_VERBOSE_MCHECK */
 
 #define TITAN__PCHIP_AGPERROR__LOST	(1UL << 0)
 #define TITAN__PCHIP_AGPERROR__LPQFULL	(1UL << 1)
@@ -323,7 +348,7 @@ titan_parse_p_agperror(int which, u64 agperror, int print)
 		printk("%s      Dual Address Cycle\n", err_print_prefix);
 	if (agperror & TITAN__PCHIP_AGPERROR__MWIN)
 		printk("%s      Hit in Monster Window\n", err_print_prefix);
-#endif 
+#endif /* CONFIG_VERBOSE_MCHECK */
 
 	return status;
 }	
@@ -368,22 +393,52 @@ titan_machine_check(unsigned long vector, unsigned long la_ptr)
 		((unsigned long)mchk_header + mchk_header->sys_offset);
 	u64 irqmask;
 
+	/*
+	 * Mask of Titan interrupt sources which are reported as machine checks
+	 *
+	 * 63 - CChip Error
+	 * 62 - PChip 0 H_Error
+	 * 61 - PChip 1 H_Error
+	 * 60 - PChip 0 C_Error
+	 * 59 - PChip 1 C_Error
+	 */
 #define TITAN_MCHECK_INTERRUPT_MASK	0xF800000000000000UL
 
+	/*
+	 * Sync the processor
+	 */
 	mb();
 	draina();
 	
+	/*
+	 * Only handle system errors here 
+	 */
 	if ((vector != SCB_Q_SYSMCHK) && (vector != SCB_Q_SYSERR)) {
 		ev6_machine_check(vector, la_ptr);
 		return;
 	}
 
+	/* 
+	 * It's a system error, handle it here
+	 *
+	 * The PALcode has already cleared the error, so just parse it
+	 */
 	
+	/* 
+	 * Parse the logout frame without printing first. If the only error(s)
+	 * found are classified as "dismissable", then just dismiss them and
+	 * don't print any message
+	 */
 	if (titan_process_logout_frame(mchk_header, 0) != 
 	    MCHK_DISPOSITION_DISMISS) {
 		char *saved_err_prefix = err_print_prefix;
 		err_print_prefix = KERN_CRIT;
 
+		/*
+		 * Either a nondismissable error was detected or no
+		 * recognized error was detected  in the logout frame 
+		 * -- report the error in either case
+		 */
 		printk("%s"
 		       "*System %s Error (Vector 0x%x) reported on CPU %d:\n", 
 		       err_print_prefix,
@@ -394,19 +449,29 @@ titan_machine_check(unsigned long vector, unsigned long la_ptr)
 		titan_process_logout_frame(mchk_header, alpha_verbose_mcheck);
 		if (alpha_verbose_mcheck)
 			dik_show_regs(get_irq_regs(), NULL);
-#endif 
+#endif /* CONFIG_VERBOSE_MCHECK */
 
 		err_print_prefix = saved_err_prefix;
 
+		/*
+		 * Convert any pending interrupts which report as system
+		 * machine checks to interrupts
+		 */
 		irqmask = tmchk->c_dirx & TITAN_MCHECK_INTERRUPT_MASK;
 		titan_dispatch_irqs(irqmask);
 	}	
 
 
+	/* 
+	 * Release the logout frame 
+	 */
 	wrmces(0x7);
 	mb();
 }
 
+/*
+ * Subpacket Annotations
+ */
 static char *el_titan_pchip0_extended_annotation[] = {
 	"Subpacket Header", 	"P0_SCTL",	"P0_SERREN",
 	"P0_APCTL",		"P0_APERREN",	"P0_AGPERREN",
@@ -516,6 +581,9 @@ titan_register_error_handlers(void)
 }
 
 
+/*
+ * Privateer
+ */
 
 static int
 privateer_process_680_frame(struct el_common *mchk_header, int print)
@@ -526,12 +594,12 @@ privateer_process_680_frame(struct el_common *mchk_header, int print)
 		(struct el_PRIVATEER_envdata_mcheck *)
 		((unsigned long)mchk_header + mchk_header->sys_offset);
 
-	
+	/* TODO - categorize errors, for now, no error */
 
 	if (!print)
 		return status;
 
-	
+	/* TODO - decode instead of just dumping... */
 	printk("%s  Summary Flags:         %016llx\n"
  	         "  CChip DIRx:            %016llx\n"
 		 "  System Management IR:  %016llx\n"
@@ -553,7 +621,7 @@ privateer_process_680_frame(struct el_common *mchk_header, int print)
 	       emchk->temp_warn,
 	       emchk->fan_ctrl,
 	       emchk->code);
-#endif 
+#endif /* CONFIG_VERBOSE_MCHECK */
 
 	return status;
 }
@@ -565,20 +633,32 @@ privateer_process_logout_frame(struct el_common *mchk_header, int print)
 		(struct el_common_EV6_mcheck *)mchk_header;
 	int status = MCHK_DISPOSITION_UNKNOWN_ERROR;
 
-#define PRIVATEER_MCHK__CORR_ECC		0x86	
-#define PRIVATEER_MCHK__DC_TAG_PERR		0x9E	
-#define PRIVATEER_MCHK__PAL_BUGCHECK		0x8E	
-#define PRIVATEER_MCHK__OS_BUGCHECK		0x90	
-#define PRIVATEER_MCHK__PROC_HRD_ERR		0x98	
-#define PRIVATEER_MCHK__ISTREAM_CMOV_PRX	0xA0	
-#define PRIVATEER_MCHK__ISTREAM_CMOV_FLT	0xA2	
-#define PRIVATEER_MCHK__SYS_HRD_ERR		0x202	
-#define PRIVATEER_MCHK__SYS_CORR_ERR		0x204	
-#define PRIVATEER_MCHK__SYS_ENVIRON		0x206	
+	/*
+	 * Machine check codes
+	 */
+#define PRIVATEER_MCHK__CORR_ECC		0x86	/* 630 */
+#define PRIVATEER_MCHK__DC_TAG_PERR		0x9E	/* 630 */
+#define PRIVATEER_MCHK__PAL_BUGCHECK		0x8E	/* 670 */
+#define PRIVATEER_MCHK__OS_BUGCHECK		0x90	/* 670 */
+#define PRIVATEER_MCHK__PROC_HRD_ERR		0x98	/* 670 */
+#define PRIVATEER_MCHK__ISTREAM_CMOV_PRX	0xA0	/* 670 */
+#define PRIVATEER_MCHK__ISTREAM_CMOV_FLT	0xA2	/* 670 */
+#define PRIVATEER_MCHK__SYS_HRD_ERR		0x202	/* 660 */
+#define PRIVATEER_MCHK__SYS_CORR_ERR		0x204	/* 620 */
+#define PRIVATEER_MCHK__SYS_ENVIRON		0x206	/* 680 */
 
 	switch(ev6mchk->MCHK_Code) {
+	/*
+	 * Vector 630 - Processor, Correctable
+	 */
 	case PRIVATEER_MCHK__CORR_ECC:
 	case PRIVATEER_MCHK__DC_TAG_PERR:
+		/*
+		 * Fall through to vector 670 for processing...
+		 */
+	/*
+	 * Vector 670 - Processor, Uncorrectable
+	 */
 	case PRIVATEER_MCHK__PAL_BUGCHECK:
 	case PRIVATEER_MCHK__OS_BUGCHECK:
 	case PRIVATEER_MCHK__PROC_HRD_ERR:
@@ -587,15 +667,30 @@ privateer_process_logout_frame(struct el_common *mchk_header, int print)
 		status |= ev6_process_logout_frame(mchk_header, print);
 		break;
 
+	/*
+	 * Vector 620 - System, Correctable
+	 */
 	case PRIVATEER_MCHK__SYS_CORR_ERR:
+		/*
+		 * Fall through to vector 660 for processing...
+		 */
+	/*
+	 * Vector 660 - System, Uncorrectable
+	 */
 	case PRIVATEER_MCHK__SYS_HRD_ERR:
 		status |= titan_process_logout_frame(mchk_header, print);
 		break;
 
-	case PRIVATEER_MCHK__SYS_ENVIRON:	
+	/* 
+	 * Vector 680 - System, Environmental
+	 */
+	case PRIVATEER_MCHK__SYS_ENVIRON:	/* System, Environmental */
 		status |= privateer_process_680_frame(mchk_header, print);
 		break;
 
+	/* 
+	 * Unknown
+	 */
 	default:
 		status |= MCHK_DISPOSITION_REPORT;
 		if (print) {
@@ -622,12 +717,23 @@ privateer_machine_check(unsigned long vector, unsigned long la_ptr)
 #define PRIVATEER_680_INTERRUPT_MASK		(0xE00UL)
 #define PRIVATEER_HOTPLUG_INTERRUPT_MASK	(0xE00UL)
 
+	/*
+	 * Sync the processor.
+	 */
 	mb();
 	draina();
 
+	/* 
+	 * Only handle system events here.
+	 */
 	if (vector != SCB_Q_SYSEVENT) 
 		return titan_machine_check(vector, la_ptr);
 
+	/*
+	 * Report the event - System Events should be reported even if no
+	 * error is indicated since the event could indicate the return
+	 * to normal status.
+	 */
 	err_print_prefix = KERN_CRIT;
 	printk("%s*System Event (Vector 0x%x) reported on CPU %d:\n", 
 	       err_print_prefix,
@@ -635,10 +741,20 @@ privateer_machine_check(unsigned long vector, unsigned long la_ptr)
 	privateer_process_680_frame(mchk_header, 1);
 	err_print_prefix = saved_err_prefix;
 	
+	/* 
+	 * Convert any pending interrupts which report as 680 machine
+	 * checks to interrupts.
+	 */
 	irqmask = tmchk->c_dirx & PRIVATEER_680_INTERRUPT_MASK;
 
+	/*
+	 * Dispatch the interrupt(s).
+	 */
 	titan_dispatch_irqs(irqmask);
 
+	/* 
+	 * Release the logout frame.
+	 */
 	wrmces(0x7);
 	mb();
 }

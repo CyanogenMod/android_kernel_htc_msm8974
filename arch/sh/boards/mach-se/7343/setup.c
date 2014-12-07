@@ -110,7 +110,7 @@ static struct resource usb_resources[] = {
 		.flags  = IORESOURCE_MEM,
 	},
 	[2] = {
-		
+		/* Filled in later */
 		.flags  = IORESOURCE_IRQ,
 	},
 };
@@ -144,7 +144,7 @@ static struct platform_device *sh7343se_platform_devices[] __initdata = {
 
 static int __init sh7343se_devices_setup(void)
 {
-	
+	/* Wire-up dynamic vectors */
 	serial_platform_data[0].irq = se7343_fpga_irq[SE7343_FPGA_IRQ_UARTA];
 	serial_platform_data[1].irq = se7343_fpga_irq[SE7343_FPGA_IRQ_UARTB];
 
@@ -156,16 +156,22 @@ static int __init sh7343se_devices_setup(void)
 }
 device_initcall(sh7343se_devices_setup);
 
+/*
+ * Initialize the board
+ */
 static void __init sh7343se_setup(char **cmdline_p)
 {
-	__raw_writew(0xf900, FPGA_OUT);	
+	__raw_writew(0xf900, FPGA_OUT);	/* FPGA */
 
-	__raw_writew(0x0002, PORT_PECR);	
+	__raw_writew(0x0002, PORT_PECR);	/* PORT E 1 = IRQ5 */
 	__raw_writew(0x0020, PORT_PSELD);
 
 	printk(KERN_INFO "MS7343CP01 Setup...done\n");
 }
 
+/*
+ * The Machine Vector
+ */
 static struct sh_machine_vector mv_7343se __initmv = {
 	.mv_name = "SolutionEngine 7343",
 	.mv_setup = sh7343se_setup,

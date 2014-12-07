@@ -59,6 +59,10 @@ indirect_read_config(struct pci_bus *bus, unsigned int devfn, int offset,
 		out_le32(hose->cfg_addr, (0x80000000 | (bus_no << 16) |
 			 (devfn << 8) | reg | cfg_type));
 
+	/*
+	 * Note: the caller has already checked that offset is
+	 * suitably aligned and that len is 1, 2 or 4.
+	 */
 	cfg_data = hose->cfg_data + (offset & 3);
 	switch (len) {
 	case 1:
@@ -113,18 +117,22 @@ indirect_write_config(struct pci_bus *bus, unsigned int devfn, int offset,
 		out_le32(hose->cfg_addr, (0x80000000 | (bus_no << 16) |
 			 (devfn << 8) | reg | cfg_type));
 
-	
+	/* suppress setting of PCI_PRIMARY_BUS */
 	if (hose->indirect_type & PPC_INDIRECT_TYPE_SURPRESS_PRIMARY_BUS)
 		if ((offset == PCI_PRIMARY_BUS) &&
 			(bus->number == hose->first_busno))
 		val &= 0xffffff00;
 
-	
+	/* Workaround for PCI_28 Errata in 440EPx/GRx */
 	if ((hose->indirect_type & PPC_INDIRECT_TYPE_BROKEN_MRM) &&
 			offset == PCI_CACHE_LINE_SIZE) {
 		val = 0;
 	}
 
+	/*
+	 * Note: the caller has already checked that offset is
+	 * suitably aligned and that len is 1, 2 or 4.
+	 */
 	cfg_data = hose->cfg_data + (offset & 3);
 	switch (len) {
 	case 1:

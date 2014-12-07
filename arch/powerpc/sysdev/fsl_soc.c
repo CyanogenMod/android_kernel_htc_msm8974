@@ -40,7 +40,7 @@
 #include <sysdev/fsl_soc.h>
 #include <mm/mmu_decl.h>
 #include <asm/cpm2.h>
-#include <asm/fsl_hcalls.h>	
+#include <asm/fsl_hcalls.h>	/* For the Freescale hypervisor */
 
 extern void init_fcc_ioports(struct fs_platform_info*);
 extern void init_fec_ioports(struct fs_platform_info*);
@@ -127,7 +127,7 @@ u32 get_brgfreq(void)
 		return brgfreq;
 	}
 
-	
+	/* Legacy device binding -- will go away when no users are left. */
 	node = of_find_node_by_type(NULL, "cpm");
 	if (!node)
 		node = of_find_compatible_node(NULL, NULL, "fsl,qe");
@@ -176,7 +176,7 @@ u32 get_baudrate(void)
 }
 
 EXPORT_SYMBOL(get_baudrate);
-#endif 
+#endif /* CONFIG_CPM2 */
 
 #ifdef CONFIG_FIXED_PHY
 static int __init of_add_fixed_phys(void)
@@ -207,7 +207,7 @@ static int __init of_add_fixed_phys(void)
 	return 0;
 }
 arch_initcall(of_add_fixed_phys);
-#endif 
+#endif /* CONFIG_FIXED_PHY */
 
 #if defined(CONFIG_FSL_SOC_BOOKE) || defined(CONFIG_PPC_86xx)
 static __be32 __iomem *rstcr;
@@ -241,8 +241,8 @@ void fsl_rstcr_restart(char *cmd)
 {
 	local_irq_disable();
 	if (rstcr)
-		
-		out_be32(rstcr, 0x2);	
+		/* set reset control register */
+		out_be32(rstcr, 0x2);	/* HRESET_REQ */
 
 	while (1) ;
 }
@@ -253,12 +253,26 @@ struct platform_diu_data_ops diu_ops;
 EXPORT_SYMBOL(diu_ops);
 #endif
 
+/*
+ * Restart the current partition
+ *
+ * This function should be assigned to the ppc_md.restart function pointer,
+ * to initiate a partition restart when we're running under the Freescale
+ * hypervisor.
+ */
 void fsl_hv_restart(char *cmd)
 {
 	pr_info("hv restart\n");
 	fh_partition_restart(-1);
 }
 
+/*
+ * Halt the current partition
+ *
+ * This function should be assigned to the ppc_md.power_off and ppc_md.halt
+ * function pointers, to shut down the partition when we're running under
+ * the Freescale hypervisor.
+ */
 void fsl_hv_halt(void)
 {
 	pr_info("hv exit\n");

@@ -26,22 +26,26 @@
 
 #include <asm/ps3.h>
 
+/* htab */
 
 void __init ps3_hpte_init(unsigned long htab_size);
 void __init ps3_map_htab(void);
 
+/* mm */
 
 void __init ps3_mm_init(void);
 void __init ps3_mm_vas_create(unsigned long* htab_size);
 void ps3_mm_vas_destroy(void);
 void ps3_mm_shutdown(void);
 
+/* irq */
 
 void ps3_init_IRQ(void);
 void ps3_shutdown_IRQ(int cpu);
 void __init ps3_register_ipi_debug_brk(unsigned int cpu, unsigned int virq);
 void __init ps3_register_ipi_irq(unsigned int cpu, unsigned int virq);
 
+/* smp */
 
 void smp_init_ps3(void);
 #ifdef CONFIG_SMP
@@ -50,16 +54,19 @@ void ps3_smp_cleanup_cpu(int cpu);
 static inline void ps3_smp_cleanup_cpu(int cpu) { }
 #endif
 
+/* time */
 
 void __init ps3_calibrate_decr(void);
 unsigned long __init ps3_get_boot_time(void);
 void ps3_get_rtc_time(struct rtc_time *time);
 int ps3_set_rtc_time(struct rtc_time *time);
 
+/* os area */
 
 void __init ps3_os_area_save_params(void);
 void __init ps3_os_area_init(void);
 
+/* spu */
 
 #if defined(CONFIG_SPU_BASE)
 void ps3_spu_set_platform (void);
@@ -67,6 +74,7 @@ void ps3_spu_set_platform (void);
 static inline void ps3_spu_set_platform (void) {}
 #endif
 
+/* repository bus info */
 
 enum ps3_bus_type {
 	PS3_BUS_TYPE_SB = 4,
@@ -74,12 +82,12 @@ enum ps3_bus_type {
 };
 
 enum ps3_dev_type {
-	PS3_DEV_TYPE_STOR_DISK = TYPE_DISK,	
+	PS3_DEV_TYPE_STOR_DISK = TYPE_DISK,	/* 0 */
 	PS3_DEV_TYPE_SB_GELIC = 3,
 	PS3_DEV_TYPE_SB_USB = 4,
-	PS3_DEV_TYPE_STOR_ROM = TYPE_ROM,	
+	PS3_DEV_TYPE_STOR_ROM = TYPE_ROM,	/* 5 */
 	PS3_DEV_TYPE_SB_GPIO = 6,
-	PS3_DEV_TYPE_STOR_FLASH = TYPE_RBC,	
+	PS3_DEV_TYPE_STOR_FLASH = TYPE_RBC,	/* 14 */
 };
 
 int ps3_repository_read_bus_str(unsigned int bus_index, const char *bus_str,
@@ -90,6 +98,7 @@ int ps3_repository_read_bus_type(unsigned int bus_index,
 int ps3_repository_read_bus_num_dev(unsigned int bus_index,
 	unsigned int *num_dev);
 
+/* repository bus device info */
 
 enum ps3_interrupt_type {
 	PS3_INTERRUPT_TYPE_EVENT_PORT = 2,
@@ -123,6 +132,7 @@ int ps3_repository_read_dev_reg(unsigned int bus_index,
 	unsigned int dev_index, unsigned int reg_index,
 	enum ps3_reg_type *reg_type, u64 *bus_addr, u64 *len);
 
+/* repository bus enumerators */
 
 struct ps3_repository_device {
 	unsigned int bus_index;
@@ -145,6 +155,7 @@ int ps3_repository_find_interrupt(const struct ps3_repository_device *repo,
 int ps3_repository_find_reg(const struct ps3_repository_device *repo,
 	enum ps3_reg_type reg_type, u64 *bus_addr, u64 *len);
 
+/* repository block device info */
 
 int ps3_repository_read_stor_dev_port(unsigned int bus_index,
 	unsigned int dev_index, u64 *port);
@@ -168,6 +179,7 @@ int ps3_repository_read_stor_dev_region(unsigned int bus_index,
 	unsigned int dev_index, unsigned int region_index,
 	unsigned int *region_id, u64 *region_start, u64 *region_size);
 
+/* repository logical pu and memory info */
 
 int ps3_repository_read_num_pu(u64 *num_pu);
 int ps3_repository_read_pu_id(unsigned int pu_index, u64 *pu_id);
@@ -177,6 +189,7 @@ int ps3_repository_read_region_total(u64 *region_total);
 int ps3_repository_read_mm_info(u64 *rm_base, u64 *rm_size,
 	u64 *region_total);
 
+/* repository pme info */
 
 int ps3_repository_read_num_be(unsigned int *num_be);
 int ps3_repository_read_be_node_id(unsigned int be_index, u64 *node_id);
@@ -184,16 +197,26 @@ int ps3_repository_read_be_id(u64 node_id, u64 *be_id);
 int ps3_repository_read_tb_freq(u64 node_id, u64 *tb_freq);
 int ps3_repository_read_be_tb_freq(unsigned int be_index, u64 *tb_freq);
 
+/* repository performance monitor info */
 
 int ps3_repository_read_lpm_privileges(unsigned int be_index, u64 *lpar,
 	u64 *rights);
 
+/* repository 'Other OS' area */
 
 int ps3_repository_read_boot_dat_addr(u64 *lpar_addr);
 int ps3_repository_read_boot_dat_size(unsigned int *size);
 int ps3_repository_read_boot_dat_info(u64 *lpar_addr, unsigned int *size);
 
+/* repository spu info */
 
+/**
+ * enum spu_resource_type - Type of spu resource.
+ * @spu_resource_type_shared: Logical spu is shared with other partions.
+ * @spu_resource_type_exclusive: Logical spu is not shared with other partions.
+ *
+ * Returned by ps3_repository_read_spu_resource_id().
+ */
 
 enum ps3_spu_resource_type {
 	PS3_SPU_RESOURCE_TYPE_SHARED = 0,
@@ -205,6 +228,7 @@ int ps3_repository_read_num_spu_resource_id(unsigned int *num_resource_id);
 int ps3_repository_read_spu_resource_id(unsigned int res_index,
 	enum ps3_spu_resource_type* resource_type, unsigned int *resource_id);
 
+/* repository vuart info */
 
 int ps3_repository_read_vuart_av_port(unsigned int *port);
 int ps3_repository_read_vuart_sysmgr_port(unsigned int *port);

@@ -40,11 +40,12 @@
 #define PERIOD_OFFSET(buf_addr, period_num, period_bytes) \
 				((buf_addr) + ((period_num) * (period_bytes)))
 
-#define RWF_STM_RD		0x01		
-#define RWF_STM_WT		0x02		
+#define RWF_STM_RD		0x01		/* Read in progress */
+#define RWF_STM_WT		0x02		/* Write in progress */
 
 struct siu_port *siu_ports[SIU_PORT_NUM];
 
+/* transfersize is number of u32 dma transfers per period */
 static int siu_pcm_stmwrite_stop(struct siu_port *port_info)
 {
 	struct siu_info *info = siu_i2s_data;
@@ -55,13 +56,13 @@ static int siu_pcm_stmwrite_stop(struct siu_port *port_info)
 	if (!siu_stream->rw_flg)
 		return -EPERM;
 
-	
+	/* output FIFO disable */
 	stfifo = siu_read32(base + SIU_STFIFO);
 	siu_write32(base + SIU_STFIFO, stfifo & ~0x0c180c18);
 	pr_debug("%s: STFIFO %x -> %x\n", __func__,
 		 stfifo, stfifo & ~0x0c180c18);
 
-	
+	/* during stmwrite clear */
 	siu_stream->rw_flg = 0;
 
 	return 0;
@@ -74,13 +75,13 @@ static int siu_pcm_stmwrite_start(struct siu_port *port_info)
 	if (siu_stream->rw_flg)
 		return -EPERM;
 
-	
+	/* Current period in buffer */
 	port_info->playback.cur_period = 0;
 
-	
+	/* during stmwrite flag set */
 	siu_stream->rw_flg = RWF_STM_WT;
 
-	
+	/* DMA transfer start */
 	tasklet_schedule(&siu_stream->tasklet);
 
 	return 0;
@@ -93,7 +94,7 @@ static void siu_dma_tx_complete(void *arg)
 	if (!siu_stream->rw_flg)
 		return;
 
-	
+	/* Update completed period count */
 	if (++siu_stream->cur_period >=
 	    GET_MAX_PERIODS(siu_stream->buf_bytes,
 			    siu_stream->period_bytes))
@@ -106,7 +107,7 @@ static void siu_dma_tx_complete(void *arg)
 
 	tasklet_schedule(&siu_stream->tasklet);
 
-	
+	/* Notify alsa: a period is done */
 	snd_pcm_period_elapsed(siu_stream->substream);
 }
 
@@ -149,7 +150,7 @@ static int siu_pcm_wr_set(struct siu_port *port_info,
 
 	dma_async_issue_pending(siu_stream->chan);
 
-	
+	/* only output FIFO enable */
 	stfifo = siu_read32(base + SIU_STFIFO);
 	siu_write32(base + SIU_STFIFO, stfifo | (port_info->stfifo & 0x0c180c18));
 	dev_dbg(dev, "%s: STFIFO %x -> %x\n", __func__,
@@ -199,7 +200,7 @@ static int siu_pcm_rd_set(struct siu_port *port_info,
 
 	dma_async_issue_pending(siu_stream->chan);
 
-	
+	/* only input FIFO enable */
 	stfifo = siu_read32(base + SIU_STFIFO);
 	siu_write32(base + SIU_STFIFO, siu_read32(base + SIU_STFIFO) |
 		    (port_info->stfifo & 0x13071307));
@@ -237,7 +238,7 @@ static void siu_io_tasklet(unsigned long data)
 				     siu_stream->period_bytes);
 		count = siu_stream->period_bytes;
 
-		
+		/* DMA transfer start */
 		siu_pcm_rd_set(port_info, buff, count);
 	} else {
 		siu_pcm_wr_set(port_info,
@@ -248,6 +249,7 @@ static void siu_io_tasklet(unsigned long data)
 	}
 }
 
+/* Capture */
 static int siu_pcm_stmread_start(struct siu_port *port_info)
 {
 	struct siu_stream *siu_stream = &port_info->capture;
@@ -257,10 +259,10 @@ static int siu_pcm_stmread_start(struct siu_port *port_info)
 	if (siu_stream->rw_flg)
 		return -EPERM;
 
-	
+	/* Current period in buffer */
 	siu_stream->cur_period = 0;
 
-	
+	/* during stmread flag set */
 	siu_stream->rw_flg = RWF_STM_RD;
 
 	tasklet_schedule(&siu_stream->tasklet);
@@ -279,13 +281,13 @@ static int siu_pcm_stmread_stop(struct siu_port *port_info)
 	if (!siu_stream->rw_flg)
 		return -EPERM;
 
-	
+	/* input FIFO disable */
 	stfifo = siu_read32(base + SIU_STFIFO);
 	siu_write32(base + SIU_STFIFO, stfifo & ~0x13071307);
 	dev_dbg(dev, "%s: STFIFO %x -> %x\n", __func__,
 		stfifo, stfifo & ~0x13071307);
 
-	
+	/* during stmread flag clear */
 	siu_stream->rw_flg = 0;
 
 	return 0;
@@ -339,7 +341,7 @@ static bool filter(struct dma_chan *chan, void *slave)
 
 static int siu_pcm_open(struct snd_pcm_substream *ss)
 {
-	
+	/* Playback / Capture */
 	struct snd_soc_pcm_runtime *rtd = ss->private_data;
 	struct siu_platform *pdata = rtd->platform->dev->platform_data;
 	struct siu_info *info = siu_i2s_data;
@@ -368,7 +370,7 @@ static int siu_pcm_open(struct snd_pcm_substream *ss)
 	}
 
 	param->dma_dev = pdata->dma_dev;
-	
+	/* Get DMA channel */
 	siu_stream->chan = dma_request_channel(mask, filter, param);
 	if (!siu_stream->chan) {
 		dev_err(dev, "DMA channel allocation failed!\n");
@@ -424,7 +426,7 @@ static int siu_pcm_prepare(struct snd_pcm_substream *ss)
 	dev_dbg(dev, "%s: port=%d, %d channels, period=%u bytes\n", __func__,
 		info->port_id, rt->channels, siu_stream->period_bytes);
 
-	
+	/* We only support buffers that are multiples of the period */
 	if (siu_stream->buf_bytes % siu_stream->period_bytes) {
 		dev_err(dev, "%s() - buffer=%d not multiple of period=%d\n",
 		       __func__, siu_stream->buf_bytes,
@@ -486,6 +488,10 @@ static int siu_pcm_trigger(struct snd_pcm_substream *ss, int cmd)
 	return ret;
 }
 
+/*
+ * So far only resolution of one period is supported, subject to extending the
+ * dmangine API
+ */
 static snd_pcm_uframes_t siu_pcm_pointer_dma(struct snd_pcm_substream *ss)
 {
 	struct device *dev = ss->pcm->card->dev;
@@ -501,6 +507,10 @@ static snd_pcm_uframes_t siu_pcm_pointer_dma(struct snd_pcm_substream *ss)
 	else
 		siu_stream = &port_info->capture;
 
+	/*
+	 * ptr is the offset into the buffer where the dma is currently at. We
+	 * check if the dma buffer has just wrapped.
+	 */
 	ptr = PERIOD_OFFSET(rt->dma_addr,
 			    siu_stream->cur_period,
 			    siu_stream->period_bytes) - rt->dma_addr;
@@ -519,7 +529,7 @@ static snd_pcm_uframes_t siu_pcm_pointer_dma(struct snd_pcm_substream *ss)
 
 static int siu_pcm_new(struct snd_soc_pcm_runtime *rtd)
 {
-	
+	/* card->dev == socdev->dev, see snd_soc_new_pcms() */
 	struct snd_card *card = rtd->card->snd_card;
 	struct snd_pcm *pcm = rtd->pcm;
 	struct siu_info *info = siu_i2s_data;
@@ -527,12 +537,18 @@ static int siu_pcm_new(struct snd_soc_pcm_runtime *rtd)
 	int ret;
 	int i;
 
-	
+	/* pdev->id selects between SIUA and SIUB */
 	if (pdev->id < 0 || pdev->id >= SIU_PORT_NUM)
 		return -EINVAL;
 
 	info->port_id = pdev->id;
 
+	/*
+	 * While the siu has 2 ports, only one port can be on at a time (only 1
+	 * SPB). So far all the boards using the siu had only one of the ports
+	 * wired to a codec. To simplify things, we only register one port with
+	 * alsa. In case both ports are needed, it should be changed here
+	 */
 	for (i = pdev->id; i < pdev->id + 1; i++) {
 		struct siu_port **port_info = &siu_ports[i];
 
@@ -552,7 +568,7 @@ static int siu_pcm_new(struct snd_soc_pcm_runtime *rtd)
 
 		(*port_info)->pcm = pcm;
 
-		
+		/* IO tasklets */
 		tasklet_init(&(*port_info)->playback.tasklet, siu_io_tasklet,
 			     (unsigned long)&(*port_info)->playback);
 		tasklet_init(&(*port_info)->capture.tasklet, siu_io_tasklet,

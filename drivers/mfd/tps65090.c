@@ -31,9 +31,11 @@
 #define NUM_INT_REG 2
 #define TOTAL_NUM_REG 0x18
 
+/* interrupt status registers */
 #define TPS65090_INT_STS	0x0
 #define TPS65090_INT_STS2	0x1
 
+/* interrupt mask registers */
 #define TPS65090_INT_MSK	0x2
 #define TPS65090_INT_MSK2	0x3
 
@@ -179,7 +181,7 @@ static irqreturn_t tps65090_irq(int irq, void *data)
 			return IRQ_NONE;
 		}
 		if (status) {
-			
+			/* Ack only those interrupts which are not masked */
 			status &= (~mask);
 			ret = tps65090_write(tps65090->dev,
 					TPS65090_INT_STS + i, status);

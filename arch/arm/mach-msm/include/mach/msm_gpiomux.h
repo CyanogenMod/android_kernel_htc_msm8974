@@ -15,8 +15,10 @@
 
 #ifdef CONFIG_MSM_GPIOMUX
 
+/* Increment a gpio's reference count, possibly activating the line. */
 int __must_check msm_gpiomux_get(unsigned gpio);
 
+/* Decrement a gpio's reference count, possibly suspending the line. */
 int msm_gpiomux_put(unsigned gpio);
 
 #else
@@ -33,4 +35,4 @@ static inline int msm_gpiomux_put(unsigned gpio)
 
 #endif
 
-#endif 
+#endif /* _LINUX_MSM_GPIOMUX_H */

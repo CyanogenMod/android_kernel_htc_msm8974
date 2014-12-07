@@ -34,7 +34,7 @@ struct aat2870_regulator {
 	struct aat2870_data *aat2870;
 	struct regulator_desc desc;
 
-	const int *voltages; 
+	const int *voltages; /* uV */
 
 	int min_uV;
 	int max_uV;

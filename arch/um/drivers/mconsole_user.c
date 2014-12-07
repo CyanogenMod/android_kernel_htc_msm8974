@@ -13,6 +13,12 @@
 #include "mconsole.h"
 
 static struct mconsole_command commands[] = {
+	/*
+	 * With uts namespaces, uts information becomes process-specific, so
+	 * we need a process context.  If we try handling this in interrupt
+	 * context, we may hit an exiting process without a valid uts
+	 * namespace.
+	 */
 	{ "version", mconsole_version, MCONSOLE_PROC },
 	{ "halt", mconsole_halt, MCONSOLE_PROC },
 	{ "reboot", mconsole_reboot, MCONSOLE_PROC },
@@ -28,6 +34,7 @@ static struct mconsole_command commands[] = {
 	{ "stack", mconsole_stack, MCONSOLE_INTR },
 };
 
+/* Initialized in mconsole_init, which is an initcall */
 char mconsole_socket_name[256];
 
 static int mconsole_reply_v0(struct mc_request *req, char *reply)
@@ -82,7 +89,7 @@ int mconsole_get_request(int fd, struct mc_request *req)
 	req->originating_fd = fd;
 
 	if (req->request.magic != MCONSOLE_MAGIC) {
-		
+		/* Unversioned request */
 		len = MIN(sizeof(req->request.data) - 1,
 			  strlen((char *) &req->request));
 		memmove(req->request.data, &req->request, len);
@@ -119,13 +126,18 @@ int mconsole_get_request(int fd, struct mc_request *req)
 int mconsole_reply_len(struct mc_request *req, const char *str, int total,
 		       int err, int more)
 {
+	/*
+	 * XXX This is a stack consumption problem.  It'd be nice to
+	 * make it global and serialize access to it, but there are a
+	 * ton of callers to this function.
+	 */
 	struct mconsole_reply reply;
 	int len, n;
 
 	do {
 		reply.err = err;
 
-		
+		/* err can only be true on the first packet */
 		err = 0;
 
 		len = MIN(total, MCONSOLE_MAX_DATA - 1);

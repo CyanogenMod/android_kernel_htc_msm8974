@@ -23,48 +23,67 @@
  Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  *
  */
-#ifndef __DIVA_XDI_COMMON_IO_H_INC__ 
+#ifndef __DIVA_XDI_COMMON_IO_H_INC__ /* { */
 #define __DIVA_XDI_COMMON_IO_H_INC__
+/*
+  maximum = 16 adapters
+*/
 #define DI_MAX_LINKS    MAX_ADAPTER
 #define ISDN_MAX_NUM_LEN 60
+/* --------------------------------------------------------------------------
+   structure for quadro card management (obsolete for
+   systems that do provide per card load event)
+   -------------------------------------------------------------------------- */
 typedef struct {
 	dword         Num;
 	DEVICE_NAME   DeviceName[4];
 	PISDN_ADAPTER QuadroAdapter[4];
 } ADAPTER_LIST_ENTRY, *PADAPTER_LIST_ENTRY;
+/* --------------------------------------------------------------------------
+   Special OS memory support structures
+   -------------------------------------------------------------------------- */
 #define MAX_MAPPED_ENTRIES 8
 typedef struct {
 	void *Address;
 	dword    Length;
 } ADAPTER_MEMORY;
+/* --------------------------------------------------------------------------
+   Configuration of XDI clients carried by XDI
+   -------------------------------------------------------------------------- */
 #define DIVA_XDI_CAPI_CFG_1_DYNAMIC_L1_ON      0x01
 #define DIVA_XDI_CAPI_CFG_1_GROUP_POPTIMIZATION_ON 0x02
 typedef struct _diva_xdi_capi_cfg {
 	byte cfg_1;
 } diva_xdi_capi_cfg_t;
+/* --------------------------------------------------------------------------
+   Main data structure kept per adapter
+   -------------------------------------------------------------------------- */
 struct _ISDN_ADAPTER {
 	void (*DIRequest)(PISDN_ADAPTER, ENTITY *);
-	int State; 
+	int State; /* from NT4 1.srv, a good idea, but  a poor achievement */
 	int Initialized;
 	int RegisteredWithDidd;
-	int Unavailable;  
+	int Unavailable;  /* callback function possible? */
 	int ResourcesClaimed;
 	int PnpBiosConfigUsed;
 	dword Logging;
 	dword features;
 	char ProtocolIdString[80];
+	/*
+	  remember mapped memory areas
+	*/
 	ADAPTER_MEMORY MappedMemory[MAX_MAPPED_ENTRIES];
 	CARD_PROPERTIES Properties;
 	dword cardType;
-	dword protocol_id;       
-	char protocol_name[8];  
+	dword protocol_id;       /* configured protocol identifier */
+	char protocol_name[8];  /* readable name of protocol */
 	dword BusType;
 	dword BusNumber;
 	dword slotNumber;
 	dword slotId;
-	dword ControllerNumber;  
-	PISDN_ADAPTER MultiMaster;       
-	PADAPTER_LIST_ENTRY QuadroList;        
+	dword ControllerNumber;  /* for QUADRO cards only */
+	PISDN_ADAPTER MultiMaster;       /* for 4-BRI card only - use MultiMaster or QuadroList */
+	PADAPTER_LIST_ENTRY QuadroList;        /* for QUADRO card  only */
 	PDEVICE_OBJECT DeviceObject;
 	dword DeviceId;
 	diva_os_adapter_irq_info_t irq_info;
@@ -73,9 +92,9 @@ struct _ISDN_ADAPTER {
 	dword DspCodeBaseAddr;
 	dword MaxDspCodeSize;
 	dword downloadAddr;
-	dword DspCodeBaseAddrTable[4]; 
-	dword MaxDspCodeSizeTable[4]; 
-	dword downloadAddrTable[4]; 
+	dword DspCodeBaseAddrTable[4]; /* add. for MultiMaster */
+	dword MaxDspCodeSizeTable[4]; /* add. for MultiMaster */
+	dword downloadAddrTable[4]; /* add. for MultiMaster */
 	dword MemoryBase;
 	dword MemorySize;
 	byte __iomem *Address;
@@ -92,11 +111,11 @@ struct _ISDN_ADAPTER {
 	byte Name[32];
 	dword serialNo;
 	dword ANum;
-	dword ArchiveType; 
-	char *ProtocolSuffix; 
+	dword ArchiveType; /* ARCHIVE_TYPE_NONE ..._SINGLE ..._USGEN ..._MULTI */
+	char *ProtocolSuffix; /* internal protocolfile table */
 	char Archive[32];
 	char Protocol[32];
-	char AddDownload[32]; 
+	char AddDownload[32]; /* Dsp- or other additional download files */
 	char Oad1[ISDN_MAX_NUM_LEN];
 	char Osa1[ISDN_MAX_NUM_LEN];
 	char Oad2[ISDN_MAX_NUM_LEN];
@@ -104,24 +123,24 @@ struct _ISDN_ADAPTER {
 	char Spid1[ISDN_MAX_NUM_LEN];
 	char Spid2[ISDN_MAX_NUM_LEN];
 	byte nosig;
-	byte BriLayer2LinkCount; 
+	byte BriLayer2LinkCount; /* amount of TEI's that adapter will support in P2MP mode */
 	dword Channels;
 	dword tei;
 	dword nt2;
 	dword TerminalCount;
 	dword WatchDog;
 	dword Permanent;
-	dword BChMask; 
+	dword BChMask; /* B channel mask for unchannelized modes */
 	dword StableL2;
 	dword DidLen;
 	dword NoOrderCheck;
-	dword ForceLaw; 
+	dword ForceLaw; /* VoiceCoding - default:0, a-law: 1, my-law: 2 */
 	dword SigFlags;
 	dword LowChannel;
 	dword NoHscx30;
 	dword ProtVersion;
 	dword crc4;
-	dword L1TristateOrQsig; 
+	dword L1TristateOrQsig; /* enable Layer 1 Tristate (bit 2)Or Qsig params (bit 0,1)*/
 	dword InitialDspInfo;
 	dword ModemGuardTone;
 	dword ModemMinSpeed;
@@ -147,7 +166,7 @@ struct _ISDN_ADAPTER {
 	byte PiafsLinkTurnaroundInFrames;
 	byte DiscAfterProgress;
 	byte AniDniLimiter[3];
-	byte TxAttenuation;  
+	byte TxAttenuation;  /* PRI/E1 only: attenuate TX signal */
 	word QsigFeatures;
 	dword GenerateRingtone;
 	dword SupplementaryServicesFeatures;
@@ -161,23 +180,23 @@ struct _ISDN_ADAPTER {
 	word ModemEyeSetup;
 	byte R2CtryLength;
 	byte CCBSRelTimer;
-	byte *PcCfgBufferFile;
-	byte *PcCfgBuffer; 
-	diva_os_dump_file_t dump_file; 
-	diva_os_board_trace_t board_trace; 
+	byte *PcCfgBufferFile;/* flexible parameter via file */
+	byte *PcCfgBuffer; /* flexible parameter via multistring */
+	diva_os_dump_file_t dump_file; /* dump memory to file at lowest irq level */
+	diva_os_board_trace_t board_trace; /* traces from the board */
 	diva_os_spin_lock_t isr_spin_lock;
 	diva_os_spin_lock_t data_spin_lock;
 	diva_os_soft_isr_t req_soft_isr;
 	diva_os_soft_isr_t isr_soft_isr;
 	diva_os_atomic_t  in_dpc;
-	PBUFFER RBuffer;        
+	PBUFFER RBuffer;        /* Copy of receive lookahead buffer */
 	word e_max;
 	word e_count;
 	E_INFO *e_tbl;
-	word assign;         
-	word head;           
-	word tail;           
-	ADAPTER a;             
+	word assign;         /* list of pending ASSIGNs  */
+	word head;           /* head of request queue    */
+	word tail;           /* tail of request queue    */
+	ADAPTER a;             /* not a separate structure */
 	void (*out)(ADAPTER *a);
 	byte (*dpc)(ADAPTER *a);
 	byte (*tst_irq)(ADAPTER *a);
@@ -193,7 +212,7 @@ struct _ISDN_ADAPTER {
 	dword (*DetectDsps)(PISDN_ADAPTER);
 	void (*os_trap_nfy_Fnc)(PISDN_ADAPTER, dword);
 	diva_os_isr_callback_t diva_isr_handler;
-	dword sdram_bar;  
+	dword sdram_bar;  /* must be 32 bit */
 	dword fpga_features;
 	volatile int pcm_pending;
 	volatile void *pcm_data;
@@ -206,11 +225,17 @@ struct _ISDN_ADAPTER {
 	const byte *cfg_lib_memory_init;
 	dword cfg_lib_memory_init_length;
 };
+/* ---------------------------------------------------------------------
+   Entity table
+   --------------------------------------------------------------------- */
 struct e_info_s {
 	ENTITY *e;
-	byte          next;                   
-	word          assign_ref;             
+	byte          next;                   /* chaining index           */
+	word          assign_ref;             /* assign reference         */
 };
+/* ---------------------------------------------------------------------
+   S-cards shared ram structure for loading
+   --------------------------------------------------------------------- */
 struct s_load {
 	byte ctrl;
 	byte card;
@@ -226,11 +251,17 @@ struct s_load {
 };
 #define PR_RAM  ((struct pr_ram *)0)
 #define RAM ((struct dual *)0)
+/* ---------------------------------------------------------------------
+   platform specific conversions
+   --------------------------------------------------------------------- */
 extern void *PTR_P(ADAPTER *a, ENTITY *e, void *P);
 extern void *PTR_X(ADAPTER *a, ENTITY *e);
 extern void *PTR_R(ADAPTER *a, ENTITY *e);
 extern void CALLBACK(ADAPTER *a, ENTITY *e);
 extern void set_ram(void **adr_ptr);
+/* ---------------------------------------------------------------------
+   ram access functions for io mapped cards
+   --------------------------------------------------------------------- */
 byte io_in(ADAPTER *a, void *adr);
 word io_inw(ADAPTER *a, void *adr);
 void io_in_buffer(ADAPTER *a, void *adr, void *P, word length);
@@ -243,6 +274,9 @@ void bri_in_buffer(PISDN_ADAPTER IoAdapter, dword Pos,
 		   void *Buf, dword Len);
 int bri_out_buffer(PISDN_ADAPTER IoAdapter, dword Pos,
 		   void *Buf, dword Len, int Verify);
+/* ---------------------------------------------------------------------
+   ram access functions for memory mapped cards
+   --------------------------------------------------------------------- */
 byte mem_in(ADAPTER *a, void *adr);
 word mem_inw(ADAPTER *a, void *adr);
 void mem_in_buffer(ADAPTER *a, void *adr, void *P, word length);
@@ -253,10 +287,16 @@ void mem_out_buffer(ADAPTER *a, void *adr, void *P, word length);
 void mem_inc(ADAPTER *a, void *adr);
 void mem_in_dw(ADAPTER *a, void *addr, dword *data, int dwords);
 void mem_out_dw(ADAPTER *a, void *addr, const dword *data, int dwords);
+/* ---------------------------------------------------------------------
+   functions exported by io.c
+   --------------------------------------------------------------------- */
 extern IDI_CALL Requests[MAX_ADAPTER];
 extern void     DIDpcRoutine(struct _diva_os_soft_isr *psoft_isr,
 			     void *context);
 extern void     request(PISDN_ADAPTER, ENTITY *);
+/* ---------------------------------------------------------------------
+   trapFn helpers, used to recover debug trace from dead card
+   --------------------------------------------------------------------- */
 typedef struct {
 	word *buf;
 	word  cnt;
@@ -264,4 +304,5 @@ typedef struct {
 } Xdesc;
 extern void dump_trap_frame(PISDN_ADAPTER IoAdapter, byte __iomem *exception);
 extern void dump_xlog_buffer(PISDN_ADAPTER IoAdapter, Xdesc *xlogDesc);
-#endif  
+/* --------------------------------------------------------------------- */
+#endif  /* } __DIVA_XDI_COMMON_IO_H_INC__ */

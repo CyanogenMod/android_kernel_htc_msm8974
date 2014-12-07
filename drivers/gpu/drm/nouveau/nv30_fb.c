@@ -84,15 +84,15 @@ nv30_fb_init(struct drm_device *dev)
 
 	pfb->num_tiles = NV10_PFB_TILE__SIZE;
 
-	
+	/* Turn all the tiling regions off. */
 	for (i = 0; i < pfb->num_tiles; i++)
 		pfb->set_tile_region(dev, i);
 
-	
+	/* Init the memory timing regs at 0x10037c/0x1003ac */
 	if (dev_priv->chipset == 0x30 ||
 	    dev_priv->chipset == 0x31 ||
 	    dev_priv->chipset == 0x35) {
-		
+		/* Related to ROP count */
 		int n = (dev_priv->chipset == 0x31 ? 2 : 4);
 		int l = nv_rd32(dev, 0x1003d0);
 

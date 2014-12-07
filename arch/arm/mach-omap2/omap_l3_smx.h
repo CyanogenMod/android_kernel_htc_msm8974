@@ -24,6 +24,7 @@
 #ifndef __ARCH_ARM_MACH_OMAP2_L3_INTERCONNECT_3XXX_H
 #define __ARCH_ARM_MACH_OMAP2_L3_INTERCONNECT_3XXX_H
 
+/* Register definitions. All 64-bit wide */
 #define L3_COMPONENT			0x000
 #define L3_CORE				0x018
 #define L3_AGENT_CONTROL		0x020
@@ -35,6 +36,7 @@
 
 #define L3_ERROR_LOG_ADDR		0x060
 
+/* Register definitions for Sideband Interconnect */
 #define L3_SI_CONTROL			0x020
 #define L3_SI_FLAG_STATUS_0		0x510
 
@@ -120,10 +122,12 @@ static const u64 shift = 1;
 #define L3_PM_WRITE_PERMISSION(n)	(0x058 + (0x020 * n))
 #define L3_PM_ADDR_MATCH(n)		(0x060 + (0x020 * n))
 
+/* L3 error log bit fields. Common for IA and TA */
 #define L3_ERROR_LOG_CODE		24
 #define L3_ERROR_LOG_INITID		8
 #define L3_ERROR_LOG_CMD		0
 
+/* L3 agent status bit fields. */
 #define L3_AGENT_STATUS_CLEAR_IA	0x10000000
 #define L3_AGENT_STATUS_CLEAR_TA	0x01000000
 
@@ -132,46 +136,46 @@ static const u64 shift = 1;
 #define L3_DEBUG_ERROR			0x1
 
 enum omap3_l3_initiator_id {
-	
+	/* LCD has 1 ID */
 	OMAP_L3_LCD = 29,
-	
+	/* SAD2D has 1 ID */
 	OMAP_L3_SAD2D = 28,
-	
+	/* MPU has 5 IDs */
 	OMAP_L3_IA_MPU_SS_1 = 27,
 	OMAP_L3_IA_MPU_SS_2 = 26,
 	OMAP_L3_IA_MPU_SS_3 = 25,
 	OMAP_L3_IA_MPU_SS_4 = 24,
 	OMAP_L3_IA_MPU_SS_5 = 23,
-	
+	/* IVA2.2 SS has 3 IDs*/
 	OMAP_L3_IA_IVA_SS_1 = 22,
 	OMAP_L3_IA_IVA_SS_2 = 21,
 	OMAP_L3_IA_IVA_SS_3 = 20,
-	
+	/* IVA 2.2 SS DMA has 6 IDS */
 	OMAP_L3_IA_IVA_SS_DMA_1 = 19,
 	OMAP_L3_IA_IVA_SS_DMA_2 = 18,
 	OMAP_L3_IA_IVA_SS_DMA_3 = 17,
 	OMAP_L3_IA_IVA_SS_DMA_4 = 16,
 	OMAP_L3_IA_IVA_SS_DMA_5 = 15,
 	OMAP_L3_IA_IVA_SS_DMA_6 = 14,
-	
+	/* SGX has 1 ID */
 	OMAP_L3_IA_SGX = 13,
-	
+	/* CAM has 3 ID */
 	OMAP_L3_IA_CAM_1 = 12,
 	OMAP_L3_IA_CAM_2 = 11,
 	OMAP_L3_IA_CAM_3 = 10,
-	
+	/* DAP has 1 ID */
 	OMAP_L3_IA_DAP = 9,
-	
+	/* SDMA WR has 2 IDs */
 	OMAP_L3_SDMA_WR_1 = 8,
 	OMAP_L3_SDMA_WR_2 = 7,
-	
+	/* SDMA RD has 4 IDs */
 	OMAP_L3_SDMA_RD_1 = 6,
 	OMAP_L3_SDMA_RD_2 = 5,
 	OMAP_L3_SDMA_RD_3 = 4,
 	OMAP_L3_SDMA_RD_4 = 3,
-	
+	/* HSUSB OTG has 1 ID */
 	OMAP_L3_USBOTG = 2,
-	
+	/* HSUSB HOST has 1 ID */
 	OMAP_L3_USBHOST = 1,
 };
 
@@ -181,80 +185,81 @@ enum omap3_l3_code {
 	OMAP_L3_CODE_ADDR_HOLE = 2,
 	OMAP_L3_CODE_PROTECT_VIOLATION = 3,
 	OMAP_L3_CODE_IN_BAND_ERR = 4,
-	
+	/* codes 5 and 6 are reserved */
 	OMAP_L3_CODE_REQ_TOUT_NOT_ACCEPT = 7,
 	OMAP_L3_CODE_REQ_TOUT_NO_RESP = 8,
-	
+	/* codes 9 - 15 are also reserved */
 };
 
 struct omap3_l3 {
 	struct device *dev;
 	struct clk *ick;
 
-	
+	/* memory base*/
 	void __iomem *rt;
 
 	int debug_irq;
 	int app_irq;
 
-	
+	/* true when and inband functional error occurs */
 	unsigned inband:1;
 };
 
+/* offsets for l3 agents in order with the Flag status register */
 static unsigned int omap3_l3_app_bases[] = {
-	
+	/* MPU IA */
 	0x1400,
 	0x1400,
 	0x1400,
-	
+	/* RESERVED */
 	0,
 	0,
 	0,
-	
+	/* IVA 2.2 IA */
 	0x1800,
 	0x1800,
 	0x1800,
-	
+	/* SGX IA */
 	0x1c00,
 	0x1c00,
-	
+	/* RESERVED */
 	0,
-	
+	/* CAMERA IA */
 	0x5800,
 	0x5800,
 	0x5800,
-	
+	/* DISPLAY IA */
 	0x5400,
 	0x5400,
-	
+	/* RESERVED */
 	0,
-	
+	/*SDMA RD IA */
 	0x4c00,
 	0x4c00,
-	
+	/* RESERVED */
 	0,
-	
+	/* SDMA WR IA */
 	0x5000,
 	0x5000,
-	
+	/* RESERVED */
 	0,
-	
+	/* USB OTG IA */
 	0x4400,
 	0x4400,
 	0x4400,
-	
+	/* USB HOST IA */
 	0x4000,
 	0x4000,
-	
+	/* RESERVED */
 	0,
 	0,
 	0,
 	0,
-	
+	/* SAD2D IA */
 	0x3000,
 	0x3000,
 	0x3000,
-	
+	/* RESERVED */
 	0,
 	0,
 	0,
@@ -267,53 +272,53 @@ static unsigned int omap3_l3_app_bases[] = {
 	0,
 	0,
 	0,
-	
+	/* SMA TA */
 	0x2000,
-	
+	/* GPMC TA */
 	0x2400,
-	
+	/* OCM RAM TA */
 	0x2800,
-	
+	/* OCM ROM TA */
 	0x2C00,
-	
+	/* L4 CORE TA */
 	0x6800,
-	
+	/* L4 PER TA */
 	0x6c00,
-	
+	/* IVA 2.2 TA */
 	0x6000,
-	
+	/* SGX TA */
 	0x6400,
-	
+	/* L4 EMU TA */
 	0x7000,
-	
+	/* GPMC TA */
 	0x2400,
-	
+	/* L4 CORE TA */
 	0x6800,
-	
+	/* L4 PER TA */
 	0x6c00,
-	
+	/* L4 EMU TA */
 	0x7000,
-	
+	/* MAD2D TA */
 	0x3400,
-	
+	/* RESERVED */
 	0,
 	0,
 };
 
 static unsigned int omap3_l3_debug_bases[] = {
-	
+	/* MPU DATA IA */
 	0x1400,
-	
+	/* RESERVED */
 	0,
 	0,
-	
+	/* DAP IA */
 	0x5c00,
 	0x5c00,
-	
+	/* RESERVED */
 	0,
-	
+	/* IVA 2.2 IA */
 	0x1800,
-	
+	/* REST RESERVED */
 };
 
 static u32 *omap3_l3_bases[] = {
@@ -321,6 +326,10 @@ static u32 *omap3_l3_bases[] = {
 	omap3_l3_debug_bases,
 };
 
+/*
+ * REVISIT define __raw_readll/__raw_writell here, but move them to
+ * <asm/io.h> at some point
+ */
 #define __raw_writell(v, a)	(__chk_io_ptr(a), \
 				*(volatile u64 __force *)(a) = (v))
 #define __raw_readll(a)		(__chk_io_ptr(a), \

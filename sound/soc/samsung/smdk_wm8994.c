@@ -11,8 +11,29 @@
 #include <sound/pcm_params.h>
 #include <linux/module.h>
 
+ /*
+  * Default CFG switch settings to use this driver:
+  *	SMDKV310: CFG5-1000, CFG7-111111
+  */
 
+ /*
+  * Configure audio route as :-
+  * $ amixer sset 'DAC1' on,on
+  * $ amixer sset 'Right Headphone Mux' 'DAC'
+  * $ amixer sset 'Left Headphone Mux' 'DAC'
+  * $ amixer sset 'DAC1R Mixer AIF1.1' on
+  * $ amixer sset 'DAC1L Mixer AIF1.1' on
+  * $ amixer sset 'IN2L' on
+  * $ amixer sset 'IN2L PGA IN2LN' on
+  * $ amixer sset 'MIXINL IN2L' on
+  * $ amixer sset 'AIF1ADC1L Mixer ADC/DMIC' on
+  * $ amixer sset 'IN2R' on
+  * $ amixer sset 'IN2R PGA IN2RN' on
+  * $ amixer sset 'MIXINR IN2R' on
+  * $ amixer sset 'AIF1ADC1R Mixer ADC/DMIC' on
+  */
 
+/* SMDK has a 16.934MHZ crystal attached to WM8994 */
 #define SMDK_WM8994_FREQ 16934000
 
 static int smdk_hw_params(struct snd_pcm_substream *substream,
@@ -24,7 +45,7 @@ static int smdk_hw_params(struct snd_pcm_substream *substream,
 	unsigned int pll_out;
 	int ret;
 
-	
+	/* AIF1CLK should be >=3MHz for optimal performance */
 	if (params_format(params) == SNDRV_PCM_FORMAT_S24_LE)
 		pll_out = params_rate(params) * 384;
 	else if (params_rate(params) == 8000 || params_rate(params) == 11025)
@@ -57,6 +78,9 @@ static int smdk_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/*
+ * SMDK WM8994 DAI operations.
+ */
 static struct snd_soc_ops smdk_ops = {
 	.hw_params = smdk_hw_params,
 };
@@ -66,19 +90,19 @@ static int smdk_wm8994_init_paiftx(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_codec *codec = rtd->codec;
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 
-	
+	/* HeadPhone */
 	snd_soc_dapm_enable_pin(dapm, "HPOUT1R");
 	snd_soc_dapm_enable_pin(dapm, "HPOUT1L");
 
-	
+	/* MicIn */
 	snd_soc_dapm_enable_pin(dapm, "IN1LN");
 	snd_soc_dapm_enable_pin(dapm, "IN1RN");
 
-	
+	/* LineIn */
 	snd_soc_dapm_enable_pin(dapm, "IN2LN");
 	snd_soc_dapm_enable_pin(dapm, "IN2RN");
 
-	
+	/* Other pins NC */
 	snd_soc_dapm_nc_pin(dapm, "HPOUT2P");
 	snd_soc_dapm_nc_pin(dapm, "HPOUT2N");
 	snd_soc_dapm_nc_pin(dapm, "SPKOUTLN");
@@ -98,7 +122,7 @@ static int smdk_wm8994_init_paiftx(struct snd_soc_pcm_runtime *rtd)
 }
 
 static struct snd_soc_dai_link smdk_dai[] = {
-	{ 
+	{ /* Primary DAI i/f */
 		.name = "WM8994 AIF1",
 		.stream_name = "Pri_Dai",
 		.cpu_dai_name = "samsung-i2s.0",
@@ -107,7 +131,7 @@ static struct snd_soc_dai_link smdk_dai[] = {
 		.codec_name = "wm8994-codec",
 		.init = smdk_wm8994_init_paiftx,
 		.ops = &smdk_ops,
-	}, { 
+	}, { /* Sec_Fifo Playback i/f */
 		.name = "Sec_FIFO TX",
 		.stream_name = "Sec_Dai",
 		.cpu_dai_name = "samsung-i2s.4",

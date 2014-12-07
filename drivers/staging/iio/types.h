@@ -11,7 +11,7 @@
 #define _IIO_TYPES_H_
 
 enum iio_chan_type {
-	
+	/* real channel types */
 	IIO_VOLTAGE,
 	IIO_CURRENT,
 	IIO_POWER,
@@ -50,4 +50,4 @@ enum iio_modifier {
 #define IIO_VAL_INT_PLUS_MICRO 2
 #define IIO_VAL_INT_PLUS_NANO 3
 
-#endif 
+#endif /* _IIO_TYPES_H_ */

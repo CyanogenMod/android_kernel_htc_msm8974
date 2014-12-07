@@ -80,7 +80,7 @@ enum t3_wr_opcode {
 } __attribute__ ((packed));
 
 enum t3_rdma_opcode {
-	T3_RDMA_WRITE,		
+	T3_RDMA_WRITE,		/* IETF RDMAP v1.0 ... */
 	T3_READ_REQ,
 	T3_READ_RESP,
 	T3_SEND,
@@ -88,7 +88,7 @@ enum t3_rdma_opcode {
 	T3_SEND_WITH_SE,
 	T3_SEND_WITH_SE_INV,
 	T3_TERMINATE,
-	T3_RDMA_INIT,		
+	T3_RDMA_INIT,		/* CHELSIO RI specific ... */
 	T3_BIND_MW,
 	T3_FAST_REGISTER,
 	T3_LOCAL_INV,
@@ -115,6 +115,7 @@ static inline enum t3_rdma_opcode wr2opcode(enum t3_wr_opcode wrop)
 }
 
 
+/* Work request id */
 union t3_wrid {
 	struct {
 		u32 hi;
@@ -162,36 +163,40 @@ struct t3_sge {
 	__be64 to;
 };
 
+/* If num_sgle is zero, flit 5+ contains immediate data.*/
 struct t3_send_wr {
-	struct fw_riwrh wrh;	
-	union t3_wrid wrid;	
+	struct fw_riwrh wrh;	/* 0 */
+	union t3_wrid wrid;	/* 1 */
 
-	u8 rdmaop;		
+	u8 rdmaop;		/* 2 */
 	u8 reserved[3];
 	__be32 rem_stag;
-	__be32 plen;		
+	__be32 plen;		/* 3 */
 	__be32 num_sgle;
-	struct t3_sge sgl[T3_MAX_SGE];	
+	struct t3_sge sgl[T3_MAX_SGE];	/* 4+ */
 };
 
 #define T3_MAX_FASTREG_DEPTH 10
 #define T3_MAX_FASTREG_FRAG 10
 
 struct t3_fastreg_wr {
-	struct fw_riwrh wrh;	
-	union t3_wrid wrid;	
-	__be32 stag;		
+	struct fw_riwrh wrh;	/* 0 */
+	union t3_wrid wrid;	/* 1 */
+	__be32 stag;		/* 2 */
 	__be32 len;
-	__be32 va_base_hi;	
+	__be32 va_base_hi;	/* 3 */
 	__be32 va_base_lo_fbo;
-	__be32 page_type_perms; 
+	__be32 page_type_perms; /* 4 */
 	__be32 reserved1;
-	__be64 pbl_addrs[0];	
+	__be64 pbl_addrs[0];	/* 5+ */
 };
 
+/*
+ * If a fastreg wr spans multiple wqes, then the 2nd fragment look like this.
+ */
 struct t3_pbl_frag {
-	struct fw_riwrh wrh;	
-	__be64 pbl_addrs[14];	
+	struct fw_riwrh wrh;	/* 0 */
+	__be64 pbl_addrs[14];	/* 1..14 */
 };
 
 #define S_FR_PAGE_COUNT		24
@@ -215,76 +220,76 @@ struct t3_pbl_frag {
 #define G_FR_PERMS(x)		((((x) >> S_FR_PERMS)) & M_FR_PERMS)
 
 struct t3_local_inv_wr {
-	struct fw_riwrh wrh;	
-	union t3_wrid wrid;	
-	__be32 stag;		
+	struct fw_riwrh wrh;	/* 0 */
+	union t3_wrid wrid;	/* 1 */
+	__be32 stag;		/* 2 */
 	__be32 reserved;
 };
 
 struct t3_rdma_write_wr {
-	struct fw_riwrh wrh;	
-	union t3_wrid wrid;	
-	u8 rdmaop;		
+	struct fw_riwrh wrh;	/* 0 */
+	union t3_wrid wrid;	/* 1 */
+	u8 rdmaop;		/* 2 */
 	u8 reserved[3];
 	__be32 stag_sink;
-	__be64 to_sink;		
-	__be32 plen;		
+	__be64 to_sink;		/* 3 */
+	__be32 plen;		/* 4 */
 	__be32 num_sgle;
-	struct t3_sge sgl[T3_MAX_SGE];	
+	struct t3_sge sgl[T3_MAX_SGE];	/* 5+ */
 };
 
 struct t3_rdma_read_wr {
-	struct fw_riwrh wrh;	
-	union t3_wrid wrid;	
-	u8 rdmaop;		
+	struct fw_riwrh wrh;	/* 0 */
+	union t3_wrid wrid;	/* 1 */
+	u8 rdmaop;		/* 2 */
 	u8 local_inv;
 	u8 reserved[2];
 	__be32 rem_stag;
-	__be64 rem_to;		
-	__be32 local_stag;	
+	__be64 rem_to;		/* 3 */
+	__be32 local_stag;	/* 4 */
 	__be32 local_len;
-	__be64 local_to;	
+	__be64 local_to;	/* 5 */
 };
 
 struct t3_bind_mw_wr {
-	struct fw_riwrh wrh;	
-	union t3_wrid wrid;	
-	u16 reserved;		
+	struct fw_riwrh wrh;	/* 0 */
+	union t3_wrid wrid;	/* 1 */
+	u16 reserved;		/* 2 */
 	u8 type;
 	u8 perms;
 	__be32 mr_stag;
-	__be32 mw_stag;		
+	__be32 mw_stag;		/* 3 */
 	__be32 mw_len;
-	__be64 mw_va;		
-	__be32 mr_pbl_addr;	
+	__be64 mw_va;		/* 4 */
+	__be32 mr_pbl_addr;	/* 5 */
 	u8 reserved2[3];
 	u8 mr_pagesz;
 };
 
 struct t3_receive_wr {
-	struct fw_riwrh wrh;	
-	union t3_wrid wrid;	
+	struct fw_riwrh wrh;	/* 0 */
+	union t3_wrid wrid;	/* 1 */
 	u8 pagesz[T3_MAX_SGE];
-	__be32 num_sgle;		
-	struct t3_sge sgl[T3_MAX_SGE];	
+	__be32 num_sgle;		/* 2 */
+	struct t3_sge sgl[T3_MAX_SGE];	/* 3+ */
 	__be32 pbl_addr[T3_MAX_SGE];
 };
 
 struct t3_bypass_wr {
 	struct fw_riwrh wrh;
-	union t3_wrid wrid;	
+	union t3_wrid wrid;	/* 1 */
 };
 
 struct t3_modify_qp_wr {
-	struct fw_riwrh wrh;	
-	union t3_wrid wrid;	
-	__be32 flags;		
-	__be32 quiesce;		
-	__be32 max_ird;		
-	__be32 max_ord;		
-	__be64 sge_cmd;		
-	__be64 ctx1;		
-	__be64 ctx0;		
+	struct fw_riwrh wrh;	/* 0 */
+	union t3_wrid wrid;	/* 1 */
+	__be32 flags;		/* 2 */
+	__be32 quiesce;		/* 2 */
+	__be32 max_ird;		/* 3 */
+	__be32 max_ord;		/* 3 */
+	__be64 sge_cmd;		/* 4 */
+	__be64 ctx1;		/* 5 */
+	__be64 ctx0;		/* 6 */
 };
 
 enum t3_modify_qp_flags {
@@ -350,23 +355,23 @@ struct t3_rdma_init_attr {
 };
 
 struct t3_rdma_init_wr {
-	struct fw_riwrh wrh;	
-	union t3_wrid wrid;	
-	__be32 qpid;		
+	struct fw_riwrh wrh;	/* 0 */
+	union t3_wrid wrid;	/* 1 */
+	__be32 qpid;		/* 2 */
 	__be32 pdid;
-	__be32 scqid;		
+	__be32 scqid;		/* 3 */
 	__be32 rcqid;
-	__be32 rq_addr;		
+	__be32 rq_addr;		/* 4 */
 	__be32 rq_size;
-	u8 mpaattrs;		
+	u8 mpaattrs;		/* 5 */
 	u8 qpcaps;
 	__be16 ulpdu_size;
 	__be16 flags_rtr_type;
 	__be16 rqe_count;
-	__be32 ord;		
+	__be32 ord;		/* 6 */
 	__be32 ird;
-	__be64 qp_dma_addr;	
-	__be32 qp_dma_size;	
+	__be64 qp_dma_addr;	/* 7 */
+	__be32 qp_dma_size;	/* 8 */
 	__be32 irs;
 };
 
@@ -430,15 +435,19 @@ static inline void build_fw_riwrh(struct fw_riwrh *wqe, enum t3_wr_opcode op,
 	wqe->gen_tid_len = cpu_to_be32(V_FW_RIWR_GEN(genbit) |
 				       V_FW_RIWR_TID(tid) |
 				       V_FW_RIWR_LEN(len));
-	
+	/* 2nd gen bit... */
 	((union t3_wr *)wqe)->genbit.genbit = cpu_to_be64(genbit);
 }
 
+/*
+ * T3 ULP2_TX commands
+ */
 enum t3_utx_mem_op {
 	T3_UTX_MEM_READ = 2,
 	T3_UTX_MEM_WRITE = 3
 };
 
+/* T3 MC7 RDMA TPT entry format */
 
 enum tpt_mem_type {
 	TPT_NON_SHARED_MR = 0x0,
@@ -538,6 +547,9 @@ struct tpt_entry {
 #define V_TPT_PBL_SIZE(x)	((x) << S_TPT_PBL_SIZE)
 #define G_TPT_PBL_SIZE(x)	(((x) >> S_TPT_PBL_SIZE) & M_TPT_PBL_SIZE)
 
+/*
+ * CQE defs
+ */
 struct t3_cqe {
 	__be32 header;
 	__be32 len;
@@ -606,54 +618,57 @@ struct t3_cqe {
 
 #define CQE_LEN(x)        (be32_to_cpu((x).len))
 
+/* used for RQ completion processing */
 #define CQE_WRID_STAG(x)  (be32_to_cpu((x).u.rcqe.stag))
 #define CQE_WRID_MSN(x)   (be32_to_cpu((x).u.rcqe.msn))
 
+/* used for SQ completion processing */
 #define CQE_WRID_SQ_WPTR(x)	((x).u.scqe.wrid_hi)
 #define CQE_WRID_WPTR(x)	((x).u.scqe.wrid_low)
 
+/* generic accessor macros */
 #define CQE_WRID_HI(x)		((x).u.scqe.wrid_hi)
 #define CQE_WRID_LOW(x)		((x).u.scqe.wrid_low)
 
 #define TPT_ERR_SUCCESS                     0x0
-#define TPT_ERR_STAG                        0x1	 
-						 
-						 
-#define TPT_ERR_PDID                        0x2	 
-#define TPT_ERR_QPID                        0x3	 
-#define TPT_ERR_ACCESS                      0x4	 
-#define TPT_ERR_WRAP                        0x5	 
-#define TPT_ERR_BOUND                       0x6	 
-#define TPT_ERR_INVALIDATE_SHARED_MR        0x7	 
-						 
-#define TPT_ERR_INVALIDATE_MR_WITH_MW_BOUND 0x8	 
-						 
-#define TPT_ERR_ECC                         0x9	 
-#define TPT_ERR_ECC_PSTAG                   0xA	 
-						 
-						 
-#define TPT_ERR_PBL_ADDR_BOUND              0xB	 
-						 
-#define TPT_ERR_SWFLUSH			    0xC	 
-#define TPT_ERR_CRC                         0x10 
-#define TPT_ERR_MARKER                      0x11 
-#define TPT_ERR_PDU_LEN_ERR                 0x12 
-#define TPT_ERR_OUT_OF_RQE                  0x13 
-#define TPT_ERR_DDP_VERSION                 0x14 
-#define TPT_ERR_RDMA_VERSION                0x15 
-#define TPT_ERR_OPCODE                      0x16 
-#define TPT_ERR_DDP_QUEUE_NUM               0x17 
-#define TPT_ERR_MSN                         0x18 
-#define TPT_ERR_TBIT                        0x19 
-#define TPT_ERR_MO                          0x1A 
-						 
+#define TPT_ERR_STAG                        0x1	 /* STAG invalid: either the */
+						 /* STAG is offlimt, being 0, */
+						 /* or STAG_key mismatch */
+#define TPT_ERR_PDID                        0x2	 /* PDID mismatch */
+#define TPT_ERR_QPID                        0x3	 /* QPID mismatch */
+#define TPT_ERR_ACCESS                      0x4	 /* Invalid access right */
+#define TPT_ERR_WRAP                        0x5	 /* Wrap error */
+#define TPT_ERR_BOUND                       0x6	 /* base and bounds voilation */
+#define TPT_ERR_INVALIDATE_SHARED_MR        0x7	 /* attempt to invalidate a  */
+						 /* shared memory region */
+#define TPT_ERR_INVALIDATE_MR_WITH_MW_BOUND 0x8	 /* attempt to invalidate a  */
+						 /* shared memory region */
+#define TPT_ERR_ECC                         0x9	 /* ECC error detected */
+#define TPT_ERR_ECC_PSTAG                   0xA	 /* ECC error detected when  */
+						 /* reading PSTAG for a MW  */
+						 /* Invalidate */
+#define TPT_ERR_PBL_ADDR_BOUND              0xB	 /* pbl addr out of bounds:  */
+						 /* software error */
+#define TPT_ERR_SWFLUSH			    0xC	 /* SW FLUSHED */
+#define TPT_ERR_CRC                         0x10 /* CRC error */
+#define TPT_ERR_MARKER                      0x11 /* Marker error */
+#define TPT_ERR_PDU_LEN_ERR                 0x12 /* invalid PDU length */
+#define TPT_ERR_OUT_OF_RQE                  0x13 /* out of RQE */
+#define TPT_ERR_DDP_VERSION                 0x14 /* wrong DDP version */
+#define TPT_ERR_RDMA_VERSION                0x15 /* wrong RDMA version */
+#define TPT_ERR_OPCODE                      0x16 /* invalid rdma opcode */
+#define TPT_ERR_DDP_QUEUE_NUM               0x17 /* invalid ddp queue number */
+#define TPT_ERR_MSN                         0x18 /* MSN error */
+#define TPT_ERR_TBIT                        0x19 /* tag bit not set correctly */
+#define TPT_ERR_MO                          0x1A /* MO not 0 for TERMINATE  */
+						 /* or READ_REQ */
 #define TPT_ERR_MSN_GAP                     0x1B
 #define TPT_ERR_MSN_RANGE                   0x1C
 #define TPT_ERR_IRD_OVERFLOW                0x1D
-#define TPT_ERR_RQE_ADDR_BOUND              0x1E 
-						 
-#define TPT_ERR_INTERNAL_ERR                0x1F 
-						 
+#define TPT_ERR_RQE_ADDR_BOUND              0x1E /* RQE addr out of bounds:  */
+						 /* software error */
+#define TPT_ERR_INTERNAL_ERR                0x1F /* internal error (opcode  */
+						 /* mismatch) */
 
 struct t3_swsq {
 	__u64			wr_id;
@@ -670,27 +685,30 @@ struct t3_swrq {
 	__u32			pbl_addr;
 };
 
+/*
+ * A T3 WQ implements both the SQ and RQ.
+ */
 struct t3_wq {
-	union t3_wr *queue;		
-	dma_addr_t dma_addr;		
-	DEFINE_DMA_UNMAP_ADDR(mapping); 
-	u32 error;			
+	union t3_wr *queue;		/* DMA accessible memory */
+	dma_addr_t dma_addr;		/* DMA address for HW */
+	DEFINE_DMA_UNMAP_ADDR(mapping); /* unmap kruft */
+	u32 error;			/* 1 once we go to ERROR */
 	u32 qpid;
-	u32 wptr;			
-	u32 size_log2;			
-	struct t3_swsq *sq;		
-	struct t3_swsq *oldest_read;	
-	u32 sq_wptr;			
-	u32 sq_rptr;			
-	u32 sq_size_log2;		
-	struct t3_swrq *rq;		
-	u32 rq_wptr;			
-	u32 rq_rptr;			
-	struct t3_swrq *rq_oldest_wr;	
-	u32 rq_size_log2;		
-	u32 rq_addr;			
-	void __iomem *doorbell;		
-	u64 udb;			
+	u32 wptr;			/* idx to next available WR slot */
+	u32 size_log2;			/* total wq size */
+	struct t3_swsq *sq;		/* SW SQ */
+	struct t3_swsq *oldest_read;	/* tracks oldest pending read */
+	u32 sq_wptr;			/* sq_wptr - sq_rptr == count of */
+	u32 sq_rptr;			/* pending wrs */
+	u32 sq_size_log2;		/* sq size */
+	struct t3_swrq *rq;		/* SW RQ (holds consumer wr_ids */
+	u32 rq_wptr;			/* rq_wptr - rq_rptr == count of */
+	u32 rq_rptr;			/* pending wrs */
+	struct t3_swrq *rq_oldest_wr;	/* oldest wr on the SW RQ */
+	u32 rq_size_log2;		/* rq size */
+	u32 rq_addr;			/* rq adapter address */
+	void __iomem *doorbell;		/* kernel db */
+	u64 udb;			/* user db if any */
 	struct cxio_rdev *rdev;
 };
 

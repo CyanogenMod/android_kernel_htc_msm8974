@@ -47,6 +47,10 @@
 #define CH_ALERT(adap, fmt, ...) \
 	dev_printk(KERN_ALERT, &adap->pdev->dev, fmt, ## __VA_ARGS__)
 
+/*
+ * More powerful macro that selectively prints messages based on msg_enable.
+ * For info and debugging messages.
+ */
 #define CH_MSG(adapter, level, category, fmt, ...) do { \
 	if ((adapter)->msg_enable & NETIF_MSG_##category) \
 		dev_printk(KERN_##level, &adapter->pdev->dev, fmt, \
@@ -60,18 +64,19 @@
 # define CH_DBG(adapter, category, fmt, ...)
 #endif
 
+/* Additional NETIF_MSG_* categories */
 #define NETIF_MSG_MMIO 0x8000000
 
 enum {
-	MAX_NPORTS = 2,		
-	MAX_FRAME_SIZE = 10240,	
-	EEPROMSIZE = 8192,	
-	SERNUM_LEN     = 16,    
-	RSS_TABLE_SIZE = 64,	
-	TCB_SIZE = 128,		
-	NMTUS = 16,		
-	NCCTRL_WIN = 32,	
-	PROTO_SRAM_LINES = 128, 
+	MAX_NPORTS = 2,		/* max # of ports */
+	MAX_FRAME_SIZE = 10240,	/* max MAC frame size, including header + FCS */
+	EEPROMSIZE = 8192,	/* Serial EEPROM size */
+	SERNUM_LEN     = 16,    /* Serial # length */
+	RSS_TABLE_SIZE = 64,	/* size of RSS lookup and mapping tables */
+	TCB_SIZE = 128,		/* TCB size */
+	NMTUS = 16,		/* size of MTU table */
+	NCCTRL_WIN = 32,	/* # of congestion control windows */
+	PROTO_SRAM_LINES = 128, /* size of TP sram */
 };
 
 #define MAX_RX_COALESCING_LEN 12288U
@@ -86,12 +91,12 @@ enum {
 	SUPPORTED_IRQ      = 1 << 24
 };
 
-enum {				
+enum {				/* adapter interrupt-maintained statistics */
 	STAT_ULP_CH0_PBL_OOB,
 	STAT_ULP_CH1_PBL_OOB,
 	STAT_PCI_CORR_ECC,
 
-	IRQ_NUM_STATS		
+	IRQ_NUM_STATS		/* keep last */
 };
 
 #define TP_VERSION_MAJOR	1
@@ -117,12 +122,12 @@ enum {
 	    (((x) >> S_TP_VERSION_MICRO) & M_TP_VERSION_MICRO)
 
 enum {
-	SGE_QSETS = 8,		
-	SGE_RXQ_PER_SET = 2,	
-	SGE_TXQ_PER_SET = 3	
+	SGE_QSETS = 8,		/* # of SGE Tx/Rx/RspQ sets */
+	SGE_RXQ_PER_SET = 2,	/* # of Rx queues per set */
+	SGE_TXQ_PER_SET = 3	/* # of Tx queues per set */
 };
 
-enum sge_context_type {		
+enum sge_context_type {		/* SGE egress context types */
 	SGE_CNTXT_RDMA = 0,
 	SGE_CNTXT_ETH = 2,
 	SGE_CNTXT_OFLD = 4,
@@ -130,16 +135,17 @@ enum sge_context_type {
 };
 
 enum {
-	AN_PKT_SIZE = 32,	
-	IMMED_PKT_SIZE = 48	
+	AN_PKT_SIZE = 32,	/* async notification packet size */
+	IMMED_PKT_SIZE = 48	/* packet size for immediate data */
 };
 
-struct sg_ent {			
+struct sg_ent {			/* SGE scatter/gather entry */
 	__be32 len[2];
 	__be64 addr[2];
 };
 
 #ifndef SGE_NUM_GENBITS
+/* Must be 1 or 2 */
 # define SGE_NUM_GENBITS 2
 #endif
 
@@ -158,14 +164,14 @@ struct mdio_ops {
 };
 
 struct adapter_info {
-	unsigned char nports0;        
-	unsigned char nports1;        
-	unsigned char phy_base_addr;	
-	unsigned int gpio_out;	
-	unsigned char gpio_intr[MAX_NPORTS]; 
-	unsigned long caps;	
-	const struct mdio_ops *mdio_ops;	
-	const char *desc;	
+	unsigned char nports0;        /* # of ports on channel 0 */
+	unsigned char nports1;        /* # of ports on channel 1 */
+	unsigned char phy_base_addr;	/* MDIO PHY base address */
+	unsigned int gpio_out;	/* GPIO output settings */
+	unsigned char gpio_intr[MAX_NPORTS]; /* GPIO PHY IRQ pins */
+	unsigned long caps;	/* adapter capabilities */
+	const struct mdio_ops *mdio_ops;	/* MDIO operations */
+	const char *desc;	/* product description */
 };
 
 struct mc5_stats {
@@ -186,23 +192,23 @@ struct mc7_stats {
 };
 
 struct mac_stats {
-	u64 tx_octets;		
-	u64 tx_octets_bad;	
-	u64 tx_frames;		
-	u64 tx_mcast_frames;	
-	u64 tx_bcast_frames;	
-	u64 tx_pause;		
-	u64 tx_deferred;	
-	u64 tx_late_collisions;	
-	u64 tx_total_collisions;	
-	u64 tx_excess_collisions;	
-	u64 tx_underrun;	
-	u64 tx_len_errs;	
-	u64 tx_mac_internal_errs;	
-	u64 tx_excess_deferral;	
-	u64 tx_fcs_errs;	
+	u64 tx_octets;		/* total # of octets in good frames */
+	u64 tx_octets_bad;	/* total # of octets in error frames */
+	u64 tx_frames;		/* all good frames */
+	u64 tx_mcast_frames;	/* good multicast frames */
+	u64 tx_bcast_frames;	/* good broadcast frames */
+	u64 tx_pause;		/* # of transmitted pause frames */
+	u64 tx_deferred;	/* frames with deferred transmissions */
+	u64 tx_late_collisions;	/* # of late collisions */
+	u64 tx_total_collisions;	/* # of total collisions */
+	u64 tx_excess_collisions;	/* frame errors from excessive collissions */
+	u64 tx_underrun;	/* # of Tx FIFO underruns */
+	u64 tx_len_errs;	/* # of Tx length errors */
+	u64 tx_mac_internal_errs;	/* # of internal MAC errors on Tx */
+	u64 tx_excess_deferral;	/* # of frames with excessive deferral */
+	u64 tx_fcs_errs;	/* # of frames with bad FCS */
 
-	u64 tx_frames_64;	
+	u64 tx_frames_64;	/* # of Tx frames in a particular range */
 	u64 tx_frames_65_127;
 	u64 tx_frames_128_255;
 	u64 tx_frames_256_511;
@@ -210,24 +216,24 @@ struct mac_stats {
 	u64 tx_frames_1024_1518;
 	u64 tx_frames_1519_max;
 
-	u64 rx_octets;		
-	u64 rx_octets_bad;	
-	u64 rx_frames;		
-	u64 rx_mcast_frames;	
-	u64 rx_bcast_frames;	
-	u64 rx_pause;		
-	u64 rx_fcs_errs;	
-	u64 rx_align_errs;	
-	u64 rx_symbol_errs;	
-	u64 rx_data_errs;	
-	u64 rx_sequence_errs;	
-	u64 rx_runt;		
-	u64 rx_jabber;		
-	u64 rx_short;		
-	u64 rx_too_long;	
-	u64 rx_mac_internal_errs;	
+	u64 rx_octets;		/* total # of octets in good frames */
+	u64 rx_octets_bad;	/* total # of octets in error frames */
+	u64 rx_frames;		/* all good frames */
+	u64 rx_mcast_frames;	/* good multicast frames */
+	u64 rx_bcast_frames;	/* good broadcast frames */
+	u64 rx_pause;		/* # of received pause frames */
+	u64 rx_fcs_errs;	/* # of received frames with bad FCS */
+	u64 rx_align_errs;	/* alignment errors */
+	u64 rx_symbol_errs;	/* symbol errors */
+	u64 rx_data_errs;	/* data errors */
+	u64 rx_sequence_errs;	/* sequence errors */
+	u64 rx_runt;		/* # of runt frames */
+	u64 rx_jabber;		/* # of jabber frames */
+	u64 rx_short;		/* # of short frames */
+	u64 rx_too_long;	/* # of oversized frames */
+	u64 rx_mac_internal_errs;	/* # of internal MAC errors on Rx */
 
-	u64 rx_frames_64;	
+	u64 rx_frames_64;	/* # of Rx frames in a particular range */
 	u64 rx_frames_65_127;
 	u64 rx_frames_128_255;
 	u64 rx_frames_256_511;
@@ -235,7 +241,7 @@ struct mac_stats {
 	u64 rx_frames_1024_1518;
 	u64 rx_frames_1519_max;
 
-	u64 rx_cong_drops;	
+	u64 rx_cong_drops;	/* # of Rx drops due to SGE congestion */
 
 	unsigned long tx_fifo_parity_err;
 	unsigned long rx_fifo_parity_err;
@@ -245,10 +251,10 @@ struct mac_stats {
 	unsigned long xaui_pcs_ctc_err;
 	unsigned long xaui_pcs_align_change;
 
-	unsigned long num_toggled; 
-	unsigned long num_resets;  
+	unsigned long num_toggled; /* # times toggled TxEn due to stuck TX */
+	unsigned long num_resets;  /* # times reset due to stuck TX */
 
-	unsigned long link_faults;  
+	unsigned long link_faults;  /* # detected link faults */
 };
 
 struct tp_mib_stats {
@@ -296,52 +302,55 @@ struct tp_mib_stats {
 };
 
 struct tp_params {
-	unsigned int nchan;	
-	unsigned int pmrx_size;	
-	unsigned int pmtx_size;	
-	unsigned int cm_size;	
-	unsigned int chan_rx_size;	
-	unsigned int chan_tx_size;	
-	unsigned int rx_pg_size;	
-	unsigned int tx_pg_size;	
-	unsigned int rx_num_pgs;	
-	unsigned int tx_num_pgs;	
-	unsigned int ntimer_qs;	
+	unsigned int nchan;	/* # of channels */
+	unsigned int pmrx_size;	/* total PMRX capacity */
+	unsigned int pmtx_size;	/* total PMTX capacity */
+	unsigned int cm_size;	/* total CM capacity */
+	unsigned int chan_rx_size;	/* per channel Rx size */
+	unsigned int chan_tx_size;	/* per channel Tx size */
+	unsigned int rx_pg_size;	/* Rx page size */
+	unsigned int tx_pg_size;	/* Tx page size */
+	unsigned int rx_num_pgs;	/* # of Rx pages */
+	unsigned int tx_num_pgs;	/* # of Tx pages */
+	unsigned int ntimer_qs;	/* # of timer queues */
 };
 
-struct qset_params {		
-	unsigned int polling;	
-	unsigned int coalesce_usecs;	
-	unsigned int rspq_size;	
-	unsigned int fl_size;	
-	unsigned int jumbo_size;	
-	unsigned int txq_size[SGE_TXQ_PER_SET];	
-	unsigned int cong_thres;	
-	unsigned int vector;		
+struct qset_params {		/* SGE queue set parameters */
+	unsigned int polling;	/* polling/interrupt service for rspq */
+	unsigned int coalesce_usecs;	/* irq coalescing timer */
+	unsigned int rspq_size;	/* # of entries in response queue */
+	unsigned int fl_size;	/* # of entries in regular free list */
+	unsigned int jumbo_size;	/* # of entries in jumbo free list */
+	unsigned int txq_size[SGE_TXQ_PER_SET];	/* Tx queue sizes */
+	unsigned int cong_thres;	/* FL congestion threshold */
+	unsigned int vector;		/* Interrupt (line or vector) number */
 };
 
 struct sge_params {
-	unsigned int max_pkt_size;	
+	unsigned int max_pkt_size;	/* max offload pkt size */
 	struct qset_params qset[SGE_QSETS];
 };
 
 struct mc5_params {
-	unsigned int mode;	
-	unsigned int nservers;	
-	unsigned int nfilters;	
-	unsigned int nroutes;	
+	unsigned int mode;	/* selects MC5 width */
+	unsigned int nservers;	/* size of server region */
+	unsigned int nfilters;	/* size of filter region */
+	unsigned int nroutes;	/* size of routing region */
 };
 
+/* Default MC5 region sizes */
 enum {
 	DEFAULT_NSERVERS = 512,
 	DEFAULT_NFILTERS = 128
 };
 
+/* MC5 modes, these must be non-0 */
 enum {
 	MC5_MODE_144_BIT = 1,
 	MC5_MODE_72_BIT = 2
 };
 
+/* MC5 min active region size */
 enum { MC5_MIN_TIDS = 16 };
 
 struct vpd_params {
@@ -384,15 +393,15 @@ struct adapter_params {
 	unsigned short a_wnd[NCCTRL_WIN];
 	unsigned short b_wnd[NCCTRL_WIN];
 
-	unsigned int nports;	
-	unsigned int chan_map;  
-	unsigned int stats_update_period;	
-	unsigned int linkpoll_period;	
-	unsigned int rev;	
+	unsigned int nports;	/* # of ethernet ports */
+	unsigned int chan_map;  /* bitmap of in-use Tx channels */
+	unsigned int stats_update_period;	/* MAC stats accumulation period */
+	unsigned int linkpoll_period;	/* link poll period in 0.1s */
+	unsigned int rev;	/* chip revision */
 	unsigned int offload;
 };
 
-enum {					    
+enum {					    /* chip revisions */
 	T3_REV_A  = 0,
 	T3_REV_B  = 2,
 	T3_REV_B2 = 3,
@@ -417,16 +426,16 @@ struct trace_params {
 };
 
 struct link_config {
-	unsigned int supported;	
-	unsigned int advertising;	
-	unsigned short requested_speed;	
-	unsigned short speed;	
-	unsigned char requested_duplex;	
-	unsigned char duplex;	
-	unsigned char requested_fc;	
-	unsigned char fc;	
-	unsigned char autoneg;	
-	unsigned int link_ok;	
+	unsigned int supported;	/* link capabilities */
+	unsigned int advertising;	/* advertised capabilities */
+	unsigned short requested_speed;	/* speed user has requested */
+	unsigned short speed;	/* actual link speed */
+	unsigned char requested_duplex;	/* duplex user has requested */
+	unsigned char duplex;	/* actual link duplex */
+	unsigned char requested_fc;	/* flow control user has requested */
+	unsigned char fc;	/* actual link flow control */
+	unsigned char autoneg;	/* autonegotiating? */
+	unsigned int link_ok;	/* link up? */
 };
 
 #define SPEED_INVALID   0xffff
@@ -447,12 +456,12 @@ static inline unsigned int t3_mc5_size(const struct mc5 *p)
 }
 
 struct mc7 {
-	struct adapter *adapter;	
-	unsigned int size;	
-	unsigned int width;	
-	unsigned int offset;	
-	const char *name;	
-	struct mc7_stats stats;	
+	struct adapter *adapter;	/* backpointer to adapter */
+	unsigned int size;	/* memory size in bytes */
+	unsigned int width;	/* MC7 interface width */
+	unsigned int offset;	/* register address offset for MC7 instance */
+	const char *name;	/* name of MC7 instance */
+	struct mc7_stats stats;	/* MC7 statistics */
 };
 
 static inline unsigned int t3_mc7_size(const struct mc7 *p)
@@ -463,7 +472,7 @@ static inline unsigned int t3_mc7_size(const struct mc7 *p)
 struct cmac {
 	struct adapter *adapter;
 	unsigned int offset;
-	unsigned int nucast;	
+	unsigned int nucast;	/* # of address filters for unicast MACs */
 	unsigned int tx_tcnt;
 	unsigned int tx_xcnt;
 	u64 tx_mcnt;
@@ -482,17 +491,20 @@ enum {
 	MAC_RXFIFO_SIZE = 32768
 };
 
+/* PHY loopback direction */
 enum {
 	PHY_LOOPBACK_TX = 1,
 	PHY_LOOPBACK_RX = 2
 };
 
+/* PHY interrupt types */
 enum {
 	cphy_cause_link_change = 1,
 	cphy_cause_fifo_error = 2,
 	cphy_cause_module_change = 4,
 };
 
+/* PHY module types */
 enum {
 	phy_modtype_none,
 	phy_modtype_sr,
@@ -503,6 +515,7 @@ enum {
 	phy_modtype_unknown
 };
 
+/* PHY operations */
 struct cphy_ops {
 	int (*reset)(struct cphy *phy, int wait);
 
@@ -530,21 +543,23 @@ enum {
 	EDC_TWX_AEL2005_SIZE = 1464,
 	EDC_TWX_AEL2020 = 2,
 	EDC_TWX_AEL2020_SIZE = 1628,
-	EDC_MAX_SIZE = EDC_TWX_AEL2020_SIZE, 
+	EDC_MAX_SIZE = EDC_TWX_AEL2020_SIZE, /* Max cache size */
 };
 
+/* A PHY instance */
 struct cphy {
-	u8 modtype;			
-	short priv;			
-	unsigned int caps;		
-	struct adapter *adapter;	
-	const char *desc;		
-	unsigned long fifo_errors;	
-	const struct cphy_ops *ops;	
+	u8 modtype;			/* PHY module type */
+	short priv;			/* scratch pad */
+	unsigned int caps;		/* PHY capabilities */
+	struct adapter *adapter;	/* associated adapter */
+	const char *desc;		/* PHY description */
+	unsigned long fifo_errors;	/* FIFO over/under-flows */
+	const struct cphy_ops *ops;	/* PHY operations */
 	struct mdio_if_info mdio;
-	u16 phy_cache[EDC_MAX_SIZE];	
+	u16 phy_cache[EDC_MAX_SIZE];	/* EDC cache */
 };
 
+/* Convenience MDIO read/write wrappers */
 static inline int t3_mdio_read(struct cphy *phy, int mmd, int reg,
 			       unsigned int *valp)
 {
@@ -560,6 +575,7 @@ static inline int t3_mdio_write(struct cphy *phy, int mmd, int reg,
 				    reg, val);
 }
 
+/* Convenience initializer */
 static inline void cphy_init(struct cphy *phy, struct adapter *adapter,
 			     int phy_addr, struct cphy_ops *phy_ops,
 			     const struct mdio_ops *mdio_ops,
@@ -578,6 +594,7 @@ static inline void cphy_init(struct cphy *phy, struct adapter *adapter,
 	}
 }
 
+/* Accumulate MAC statistics every 180 seconds.  For 1G we multiply by 10. */
 #define MAC_STATS_ACCUM_SECS 180
 
 #define XGM_REG(reg_addr, idx) \
@@ -755,4 +772,4 @@ int t3_xaui_direct_phy_prep(struct cphy *phy, struct adapter *adapter,
 			    int phy_addr, const struct mdio_ops *mdio_ops);
 int t3_aq100x_phy_prep(struct cphy *phy, struct adapter *adapter,
 			    int phy_addr, const struct mdio_ops *mdio_ops);
-#endif				
+#endif				/* __CHELSIO_COMMON_H */

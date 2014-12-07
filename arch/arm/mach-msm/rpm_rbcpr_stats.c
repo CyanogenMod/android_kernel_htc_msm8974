@@ -259,7 +259,7 @@ static int msm_rpmrbcpr_file_read(struct file *file, char __user *bufu,
 	}
 
 	if (*ppos > pdata->len || !pdata->len) {
-		
+		/* Read RPM stats */
 		status_counter = readl_relaxed(pdata->regbase +
 			offsetof(struct msm_rpmrbcpr_stats, status_count));
 		if (status_counter != rbcpr_stats.status_count) {
@@ -272,7 +272,7 @@ static int msm_rpmrbcpr_file_read(struct file *file, char __user *bufu,
 				&rbcpr_design_data, pdata->buf);
 		*ppos = 0;
 	}
-	
+	/* copy to user data */
 	ret = simple_read_from_buffer(bufu, count, ppos, pdata->buf,
 					pdata->len);
 	return ret;

@@ -10,6 +10,8 @@ static int gpu_fault_no_panic_set(void *data, u64 val)
 {
 	struct kgsl_device *device = data;
 	device->gpu_fault_no_panic = val;
+	printk("kgsl: %s: gpu_fault_no_panic = %d\n",
+		__FUNCTION__, device->gpu_fault_no_panic);
 	return 0;
 }
 
@@ -17,6 +19,8 @@ static int gpu_fault_no_panic_get(void *data, u64 *val)
 {
 	struct kgsl_device *device = data;
 	*val = device->gpu_fault_no_panic;
+	printk("kgsl: %s: gpu_fault_no_panic = %d\n",
+		__FUNCTION__, device->gpu_fault_no_panic);
 	return 0;
 }
 
@@ -87,11 +91,7 @@ int kgsl_driver_htc_init(struct kgsl_driver_htc_priv *priv)
 
 int kgsl_device_htc_init(struct kgsl_device *device)
 {
-#ifdef CONFIG_MSM_KGSL_DEFAULT_GPU_HUNG_NO_PANIC
-	device->gpu_fault_no_panic = 1;
-#else
-	device->gpu_fault_no_panic = 0;
-#endif
+	device->gpu_fault_no_panic = CONFIG_MSM_KGSL_DEFAULT_GPU_HUNG_NO_PANIC;
 
 	if (!device->d_debugfs || IS_ERR(device->d_debugfs))
 		return 1;
@@ -208,13 +208,19 @@ static int adreno_kill_suspect(struct kgsl_device *device, int pid)
 }
 #endif
 
-void adreno_fault_panic(struct kgsl_device *device, unsigned int pid) {
+void adreno_fault_panic(struct kgsl_device *device, unsigned int pid, int fault) {
+
+	char fault_string[512];
+
+	if (device->gpu_fault_no_panic > 0)
+		device->gpu_fault_no_panic--;
 
 	if(device->gpu_fault_no_panic)
 		return;
 
 	if (board_mfg_mode() || adreno_kill_suspect(device, pid)) {
+		snprintf(fault_string, sizeof(fault_string), "Recoverable GPU Hang (0x%x)", fault);
 		msleep(10000);
-		panic("Recoverable GPU Hang");
+		panic(fault_string);
 	}
 }

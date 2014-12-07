@@ -56,12 +56,12 @@ struct channel_path;
 struct css_chsc_char {
 	u64 res;
 	u64 : 20;
-	u32 secm : 1; 
+	u32 secm : 1; /* bit 84 */
 	u32 : 1;
-	u32 scmc : 1; 
+	u32 scmc : 1; /* bit 86 */
 	u32 : 20;
-	u32 scssc : 1;  
-	u32 scsscf : 1; 
+	u32 scssc : 1;  /* bit 107 */
+	u32 scsscf : 1; /* bit 108 */
 	u32 : 19;
 }__attribute__((packed));
 

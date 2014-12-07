@@ -56,10 +56,10 @@ static void xlp_enable_secondary_cores(void)
 	uint32_t core, value, coremask, syscoremask;
 	int count;
 
-	
+	/* read cores in reset from SYS block */
 	syscoremask = nlm_read_sys_reg(nlm_sys_base, SYS_CPU_RESET);
 
-	
+	/* update user specified */
 	nlm_coremask = nlm_coremask & (syscoremask | 1);
 
 	for (core = 1; core < 8; core++) {
@@ -67,17 +67,17 @@ static void xlp_enable_secondary_cores(void)
 		if ((nlm_coremask & coremask) == 0)
 			continue;
 
-		
+		/* Enable CPU clock */
 		value = nlm_read_sys_reg(nlm_sys_base, SYS_CORE_DFS_DIS_CTRL);
 		value &= ~coremask;
 		nlm_write_sys_reg(nlm_sys_base, SYS_CORE_DFS_DIS_CTRL, value);
 
-		
+		/* Remove CPU Reset */
 		value = nlm_read_sys_reg(nlm_sys_base, SYS_CPU_RESET);
 		value &= ~coremask;
 		nlm_write_sys_reg(nlm_sys_base, SYS_CPU_RESET, value);
 
-		
+		/* Poll for CPU to mark itself coherent */
 		count = 100000;
 		do {
 			value = nlm_read_sys_reg(nlm_sys_base,
@@ -91,8 +91,12 @@ static void xlp_enable_secondary_cores(void)
 
 void xlp_wakeup_secondary_cpus(void)
 {
+	/*
+	 * In case of u-boot, the secondaries are in reset
+	 * first wakeup core 0 threads
+	 */
 	xlp_boot_core0_siblings();
 
-	
+	/* now get other cores out of reset */
 	xlp_enable_secondary_cores();
 }

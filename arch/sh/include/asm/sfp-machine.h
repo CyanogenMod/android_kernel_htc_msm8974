@@ -50,6 +50,10 @@
 
 #define _FP_KEEPNANFRACP 1
 
+/*
+ * If one NaN is signaling and the other is not,
+ * we choose that one, otherwise we choose X.
+ */
 #define _FP_CHOOSENAN(fs, wc, R, X, Y, OP)                      \
   do {                                                          \
     if ((_FP_FRAC_HIGH_RAW_##fs(X) & _FP_QNANBIT_##fs)          \
@@ -66,8 +70,10 @@
     R##_c = FP_CLS_NAN;                                         \
   } while (0)
 
-#define FP_DENORM_ZERO		1
+//#define FP_ROUNDMODE		FPSCR_RM
+#define FP_DENORM_ZERO		1/*FPSCR_DN*/
 
+/* Exception flags. */
 #define FP_EX_INVALID		(1<<4)
 #define FP_EX_DIVZERO		(1<<3)
 #define FP_EX_OVERFLOW		(1<<2)

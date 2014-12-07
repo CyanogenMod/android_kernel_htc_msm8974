@@ -64,6 +64,26 @@ static int ipv6_print_tuple(struct seq_file *s,
 			  tuple->src.u3.ip6, tuple->dst.u3.ip6);
 }
 
+/*
+ * Based on ipv6_skip_exthdr() in net/ipv6/exthdr.c
+ *
+ * This function parses (probably truncated) exthdr set "hdr"
+ * of length "len". "nexthdrp" initially points to some place,
+ * where type of the first header can be found.
+ *
+ * It skips all well-known exthdrs, and returns pointer to the start
+ * of unparsable area i.e. the first header with unknown type.
+ * if success, *nexthdr is updated by type/protocol of this header.
+ *
+ * NOTES: - it may return pointer pointing beyond end of packet,
+ *          if the last recognized header is truncated in the middle.
+ *        - if packet is truncated, so that all parsed headers are skipped,
+ *          it returns -1.
+ *        - if packet is fragmented, return pointer of the fragment header.
+ *        - ESP is unparsable for now and considered like
+ *          normal payload protocol.
+ *        - Note also special handling of AUTH header. Thanks to IPsec wizards.
+ */
 
 static int nf_ct_ipv6_skip_exthdr(const struct sk_buff *skb, int start,
 				  u8 *nexthdrp, int len)
@@ -109,6 +129,10 @@ static int ipv6_get_l4proto(const struct sk_buff *skb, unsigned int nhoff,
 		return -NF_ACCEPT;
 	}
 	protoff = nf_ct_ipv6_skip_exthdr(skb, extoff, &pnum, skb->len - extoff);
+	/*
+	 * (protoff == skb->len) mean that the packet doesn't have no data
+	 * except of IPv6 & ext headers. but it's tracked anyway. - YK
+	 */
 	if ((protoff < 0) || (protoff > skb->len)) {
 		pr_debug("ip6_conntrack_core: can't find proto in pkt\n");
 		return -NF_ACCEPT;
@@ -134,7 +158,7 @@ static unsigned int ipv6_confirm(unsigned int hooknum,
 	unsigned char pnum = ipv6_hdr(skb)->nexthdr;
 
 
-	
+	/* This is where we call the helper: as the packet goes out. */
 	ct = nf_ct_get(skb, &ctinfo);
 	if (!ct || ctinfo == IP_CT_RELATED_REPLY)
 		goto out;
@@ -142,7 +166,7 @@ static unsigned int ipv6_confirm(unsigned int hooknum,
 	help = nfct_help(ct);
 	if (!help)
 		goto out;
-	
+	/* rcu_read_lock()ed by nf_hook_slow */
 	helper = rcu_dereference(help->helper);
 	if (!helper)
 		goto out;
@@ -161,7 +185,7 @@ static unsigned int ipv6_confirm(unsigned int hooknum,
 		return ret;
 	}
 out:
-	
+	/* We've seen it coming out the other side: confirm it */
 	return nf_conntrack_confirm(skb);
 }
 
@@ -172,9 +196,9 @@ static unsigned int __ipv6_conntrack_in(struct net *net,
 {
 	struct sk_buff *reasm = skb->nfct_reasm;
 
-	
+	/* This packet is fragmented and has reassembled packet. */
 	if (reasm) {
-		
+		/* Reassembled packet isn't parsed yet ? */
 		if (!reasm->nfct) {
 			unsigned int ret;
 
@@ -206,7 +230,7 @@ static unsigned int ipv6_conntrack_local(unsigned int hooknum,
 					 const struct net_device *out,
 					 int (*okfn)(struct sk_buff *))
 {
-	
+	/* root is playing with raw sockets. */
 	if (skb->len < sizeof(struct ipv6hdr)) {
 		if (net_ratelimit())
 			pr_notice("ipv6_conntrack_local: packet too short\n");

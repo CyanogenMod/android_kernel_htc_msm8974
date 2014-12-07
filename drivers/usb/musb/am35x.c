@@ -37,10 +37,15 @@
 
 #include "musb_core.h"
 
+/*
+ * AM35x specific definitions
+ */
+/* USB 2.0 OTG module registers */
 #define USB_REVISION_REG	0x00
 #define USB_CTRL_REG		0x04
 #define USB_STAT_REG		0x08
 #define USB_EMULATION_REG	0x0c
+/* 0x10 Reserved */
 #define USB_AUTOREQ_REG		0x14
 #define USB_SRP_FIX_TIME_REG	0x18
 #define USB_TEARDOWN_REG	0x1c
@@ -58,17 +63,20 @@
 #define CORE_INTR_MASK_SET_REG	0x50
 #define CORE_INTR_MASK_CLEAR_REG 0x54
 #define CORE_INTR_SRC_MASKED_REG 0x58
+/* 0x5c Reserved */
 #define USB_END_OF_INTR_REG	0x60
 
+/* Control register bits */
 #define AM35X_SOFT_RESET_MASK	1
 
+/* USB interrupt register bits */
 #define AM35X_INTR_USB_SHIFT	16
 #define AM35X_INTR_USB_MASK	(0x1ff << AM35X_INTR_USB_SHIFT)
 #define AM35X_INTR_DRVVBUS	0x100
 #define AM35X_INTR_RX_SHIFT	16
 #define AM35X_INTR_TX_SHIFT	0
-#define AM35X_TX_EP_MASK	0xffff		
-#define AM35X_RX_EP_MASK	0xfffe		
+#define AM35X_TX_EP_MASK	0xffff		/* EP0 + 15 Tx EPs */
+#define AM35X_RX_EP_MASK	0xfffe		/* 15 Rx EPs */
 #define AM35X_TX_INTR_MASK	(AM35X_TX_EP_MASK << AM35X_INTR_TX_SHIFT)
 #define AM35X_RX_INTR_MASK	(AM35X_RX_EP_MASK << AM35X_INTR_RX_SHIFT)
 
@@ -82,24 +90,30 @@ struct am35x_glue {
 };
 #define glue_to_musb(g)		platform_get_drvdata(g->musb)
 
+/*
+ * am35x_musb_enable - enable interrupts
+ */
 static void am35x_musb_enable(struct musb *musb)
 {
 	void __iomem *reg_base = musb->ctrl_base;
 	u32 epmask;
 
-	
+	/* Workaround: setup IRQs through both register sets. */
 	epmask = ((musb->epmask & AM35X_TX_EP_MASK) << AM35X_INTR_TX_SHIFT) |
 	       ((musb->epmask & AM35X_RX_EP_MASK) << AM35X_INTR_RX_SHIFT);
 
 	musb_writel(reg_base, EP_INTR_MASK_SET_REG, epmask);
 	musb_writel(reg_base, CORE_INTR_MASK_SET_REG, AM35X_INTR_USB_MASK);
 
-	
+	/* Force the DRVVBUS IRQ so we can start polling for ID change. */
 	if (is_otg_enabled(musb))
 		musb_writel(reg_base, CORE_INTR_SRC_SET_REG,
 			    AM35X_INTR_DRVVBUS << AM35X_INTR_USB_SHIFT);
 }
 
+/*
+ * am35x_musb_disable - disable HDRC and flush interrupts
+ */
 static void am35x_musb_disable(struct musb *musb)
 {
 	void __iomem *reg_base = musb->ctrl_base;
@@ -129,6 +143,10 @@ static void otg_timer(unsigned long _musb)
 	u8			devctl;
 	unsigned long		flags;
 
+	/*
+	 * We poll because AM35x's won't expose several OTG-critical
+	 * status change events (from the transceiver) otherwise.
+	 */
 	devctl = musb_readb(mregs, MUSB_DEVCTL);
 	dev_dbg(musb->controller, "Poll devctl %02x (%s)\n", devctl,
 		otg_state_string(musb->xceiv->state));
@@ -179,7 +197,7 @@ static void am35x_musb_try_idle(struct musb *musb, unsigned long timeout)
 	if (timeout == 0)
 		timeout = jiffies + msecs_to_jiffies(3);
 
-	
+	/* Never idle if active, or when VBUS timeout is not set as host */
 	if (musb->is_active || (musb->a_wait_bcon == 0 &&
 				musb->xceiv->state == OTG_STATE_A_WAIT_BCON)) {
 		dev_dbg(musb->controller, "%s active, deleting timer\n",
@@ -215,7 +233,7 @@ static irqreturn_t am35x_musb_interrupt(int irq, void *hci)
 
 	spin_lock_irqsave(&musb->lock, flags);
 
-	
+	/* Get endpoint interrupts */
 	epintr = musb_readl(reg_base, EP_INTR_SRC_MASKED_REG);
 
 	if (epintr) {
@@ -227,7 +245,7 @@ static irqreturn_t am35x_musb_interrupt(int irq, void *hci)
 			(epintr & AM35X_TX_INTR_MASK) >> AM35X_INTR_TX_SHIFT;
 	}
 
-	
+	/* Get usb core interrupts */
 	usbintr = musb_readl(reg_base, CORE_INTR_SRC_MASKED_REG);
 	if (!usbintr && !epintr)
 		goto eoi;
@@ -238,6 +256,14 @@ static irqreturn_t am35x_musb_interrupt(int irq, void *hci)
 		musb->int_usb =
 			(usbintr & AM35X_INTR_USB_MASK) >> AM35X_INTR_USB_SHIFT;
 	}
+	/*
+	 * DRVVBUS IRQs are the only proxy we have (a very poor one!) for
+	 * AM35x's missing ID change IRQ.  We need an ID change IRQ to
+	 * switch appropriately between halves of the OTG state machine.
+	 * Managing DEVCTL.SESSION per Mentor docs requires that we know its
+	 * value but DEVCTL.BDEVICE is invalid without DEVCTL.SESSION set.
+	 * Also, DRVVBUS pulses for SRP (but not at 5V) ...
+	 */
 	if (usbintr & (AM35X_INTR_DRVVBUS << AM35X_INTR_USB_SHIFT)) {
 		int drvvbus = musb_readl(reg_base, USB_STAT_REG);
 		void __iomem *mregs = musb->mregs;
@@ -247,6 +273,17 @@ static irqreturn_t am35x_musb_interrupt(int irq, void *hci)
 		err = is_host_enabled(musb) && (musb->int_usb &
 						MUSB_INTR_VBUSERROR);
 		if (err) {
+			/*
+			 * The Mentor core doesn't debounce VBUS as needed
+			 * to cope with device connect current spikes. This
+			 * means it's not uncommon for bus-powered devices
+			 * to get VBUS errors during enumeration.
+			 *
+			 * This is a workaround, but newer RTL from Mentor
+			 * seems to allow a better one: "re"-starting sessions
+			 * without waiting for VBUS to stop registering in
+			 * devctl.
+			 */
 			musb->int_usb &= ~MUSB_INTR_VBUSERROR;
 			musb->xceiv->state = OTG_STATE_A_WAIT_VFALL;
 			mod_timer(&otg_workaround, jiffies + POLL_SECONDS * HZ);
@@ -265,7 +302,7 @@ static irqreturn_t am35x_musb_interrupt(int irq, void *hci)
 			portstate(musb->port1_status &= ~USB_PORT_STAT_POWER);
 		}
 
-		
+		/* NOTE: this must complete power-on within 100 ms. */
 		dev_dbg(musb->controller, "VBUS %s (%s)%s, devctl %02x\n",
 				drvvbus ? "on" : "off",
 				otg_state_string(musb->xceiv->state),
@@ -280,14 +317,14 @@ static irqreturn_t am35x_musb_interrupt(int irq, void *hci)
 eoi:
 	/* EOI needs to be written for the IRQ to be re-asserted. */
 	if (ret == IRQ_HANDLED || epintr || usbintr) {
-		
+		/* clear level interrupt */
 		if (data->clear_irq)
 			data->clear_irq();
-		
+		/* write EOI */
 		musb_writel(reg_base, USB_END_OF_INTR_REG, 0);
 	}
 
-	
+	/* Poll for ID change */
 	if (is_otg_enabled(musb) && musb->xceiv->state == OTG_STATE_B_IDLE)
 		mod_timer(&otg_workaround, jiffies + POLL_SECONDS * HZ);
 
@@ -321,7 +358,7 @@ static int am35x_musb_init(struct musb *musb)
 
 	musb->mregs += USB_MENTOR_CORE_OFFSET;
 
-	
+	/* Returns zero if e.g. not clocked */
 	rev = musb_readl(reg_base, USB_REVISION_REG);
 	if (!rev)
 		return -ENODEV;
@@ -334,14 +371,14 @@ static int am35x_musb_init(struct musb *musb)
 	if (is_host_enabled(musb))
 		setup_timer(&otg_workaround, otg_timer, (unsigned long) musb);
 
-	
+	/* Reset the musb */
 	if (data->reset)
 		data->reset();
 
-	
+	/* Reset the controller */
 	musb_writel(reg_base, USB_CTRL_REG, AM35X_SOFT_RESET_MASK);
 
-	
+	/* Start the on-chip PHY and its PLL. */
 	if (data->set_phy_power)
 		data->set_phy_power(1);
 
@@ -349,7 +386,7 @@ static int am35x_musb_init(struct musb *musb)
 
 	musb->isr = am35x_musb_interrupt;
 
-	
+	/* clear level interrupt */
 	if (data->clear_irq)
 		data->clear_irq();
 
@@ -365,7 +402,7 @@ static int am35x_musb_exit(struct musb *musb)
 	if (is_host_enabled(musb))
 		del_timer_sync(&otg_workaround);
 
-	
+	/* Shutdown the on-chip PHY and its PLL. */
 	if (data->set_phy_power)
 		data->set_phy_power(0);
 
@@ -375,18 +412,23 @@ static int am35x_musb_exit(struct musb *musb)
 	return 0;
 }
 
+/* AM35x supports only 32bit read operation */
 void musb_read_fifo(struct musb_hw_ep *hw_ep, u16 len, u8 *dst)
 {
 	void __iomem *fifo = hw_ep->fifo;
 	u32		val;
 	int		i;
 
-	
+	/* Read for 32bit-aligned destination address */
 	if (likely((0x03 & (unsigned long) dst) == 0) && len >= 4) {
 		readsl(fifo, dst, len >> 2);
 		dst += len & ~0x03;
 		len &= 0x03;
 	}
+	/*
+	 * Now read the remaining 1 to 3 byte or complete length if
+	 * unaligned address.
+	 */
 	if (len > 4) {
 		for (i = 0; i < (len >> 2); i++) {
 			*(u32 *) dst = musb_readl(fifo, 0);
@@ -542,7 +584,7 @@ static int am35x_suspend(struct device *dev)
 	struct musb_hdrc_platform_data *plat = dev->platform_data;
 	struct omap_musb_board_data *data = plat->board_data;
 
-	
+	/* Shutdown the on-chip PHY and its PLL. */
 	if (data->set_phy_power)
 		data->set_phy_power(0);
 
@@ -559,7 +601,7 @@ static int am35x_resume(struct device *dev)
 	struct omap_musb_board_data *data = plat->board_data;
 	int			ret;
 
-	
+	/* Start the on-chip PHY and its PLL. */
 	if (data->set_phy_power)
 		data->set_phy_power(1);
 

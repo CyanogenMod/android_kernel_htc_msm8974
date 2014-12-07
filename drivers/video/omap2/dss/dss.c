@@ -148,15 +148,15 @@ void dss_sdi_init(u8 datapairs)
 	BUG_ON(datapairs > 3 || datapairs < 1);
 
 	l = dss_read_reg(DSS_SDI_CONTROL);
-	l = FLD_MOD(l, 0xf, 19, 15);		
-	l = FLD_MOD(l, datapairs-1, 3, 2);	
-	l = FLD_MOD(l, 2, 1, 0);		
+	l = FLD_MOD(l, 0xf, 19, 15);		/* SDI_PDIV */
+	l = FLD_MOD(l, datapairs-1, 3, 2);	/* SDI_PRSEL */
+	l = FLD_MOD(l, 2, 1, 0);		/* SDI_BWSEL */
 	dss_write_reg(DSS_SDI_CONTROL, l);
 
 	l = dss_read_reg(DSS_PLL_CONTROL);
-	l = FLD_MOD(l, 0x7, 25, 22);	
-	l = FLD_MOD(l, 0xb, 16, 11);	
-	l = FLD_MOD(l, 0xb4, 10, 1);	
+	l = FLD_MOD(l, 0x7, 25, 22);	/* SDI_PLL_FREQSEL */
+	l = FLD_MOD(l, 0xb, 16, 11);	/* SDI_PLL_REGN */
+	l = FLD_MOD(l, 0xb4, 10, 1);	/* SDI_PLL_REGM */
 	dss_write_reg(DSS_PLL_CONTROL, l);
 }
 
@@ -166,14 +166,14 @@ int dss_sdi_enable(void)
 
 	dispc_pck_free_enable(1);
 
-	
-	REG_FLD_MOD(DSS_PLL_CONTROL, 1, 18, 18); 
-	udelay(1);	
+	/* Reset SDI PLL */
+	REG_FLD_MOD(DSS_PLL_CONTROL, 1, 18, 18); /* SDI_PLL_SYSRESET */
+	udelay(1);	/* wait 2x PCLK */
 
-	
-	REG_FLD_MOD(DSS_PLL_CONTROL, 1, 28, 28); 
+	/* Lock SDI PLL */
+	REG_FLD_MOD(DSS_PLL_CONTROL, 1, 28, 28); /* SDI_PLL_GOBIT */
 
-	
+	/* Waiting for PLL lock request to complete */
 	timeout = jiffies + msecs_to_jiffies(500);
 	while (dss_read_reg(DSS_SDI_STATUS) & (1 << 6)) {
 		if (time_after_eq(jiffies, timeout)) {
@@ -182,10 +182,10 @@ int dss_sdi_enable(void)
 		}
 	}
 
-	
+	/* Clearing PLL_GO bit */
 	REG_FLD_MOD(DSS_PLL_CONTROL, 0, 28, 28);
 
-	
+	/* Waiting for PLL to lock */
 	timeout = jiffies + msecs_to_jiffies(500);
 	while (!(dss_read_reg(DSS_SDI_STATUS) & (1 << 5))) {
 		if (time_after_eq(jiffies, timeout)) {
@@ -196,7 +196,7 @@ int dss_sdi_enable(void)
 
 	dispc_lcd_enable_signal(1);
 
-	
+	/* Waiting for SDI reset to complete */
 	timeout = jiffies + msecs_to_jiffies(500);
 	while (!(dss_read_reg(DSS_SDI_STATUS) & (1 << 2))) {
 		if (time_after_eq(jiffies, timeout)) {
@@ -210,8 +210,8 @@ int dss_sdi_enable(void)
  err2:
 	dispc_lcd_enable_signal(0);
  err1:
-	
-	REG_FLD_MOD(DSS_PLL_CONTROL, 0, 18, 18); 
+	/* Reset SDI PLL */
+	REG_FLD_MOD(DSS_PLL_CONTROL, 0, 18, 18); /* SDI_PLL_SYSRESET */
 
 	dispc_pck_free_enable(0);
 
@@ -224,8 +224,8 @@ void dss_sdi_disable(void)
 
 	dispc_pck_free_enable(0);
 
-	
-	REG_FLD_MOD(DSS_PLL_CONTROL, 0, 18, 18); 
+	/* Reset SDI PLL */
+	REG_FLD_MOD(DSS_PLL_CONTROL, 0, 18, 18); /* SDI_PLL_SYSRESET */
 }
 
 const char *dss_get_generic_clk_source_name(enum omap_dss_clk_source clk_src)
@@ -326,7 +326,7 @@ void dss_select_dispc_clk_source(enum omap_dss_clk_source clk_src)
 
 	dss_feat_get_reg_field(FEAT_REG_DISPC_CLK_SWITCH, &start, &end);
 
-	REG_FLD_MOD(DSS_CONTROL, b, start, end);	
+	REG_FLD_MOD(DSS_CONTROL, b, start, end);	/* DISPC_CLK_SWITCH */
 
 	dss.dispc_clk_source = clk_src;
 }
@@ -357,7 +357,7 @@ void dss_select_dsi_clk_source(int dsi_module,
 		BUG();
 	}
 
-	REG_FLD_MOD(DSS_CONTROL, b, 1, 1);	
+	REG_FLD_MOD(DSS_CONTROL, b, 1, 1);	/* DSI_CLK_SWITCH */
 
 	dss.dsi_clk_source[dsi_module] = clk_src;
 }
@@ -392,7 +392,7 @@ void dss_select_lcd_clk_source(enum omap_channel channel,
 	}
 
 	pos = channel == OMAP_DSS_CHANNEL_LCD ? 0 : 12;
-	REG_FLD_MOD(DSS_CONTROL, b, pos, pos);	
+	REG_FLD_MOD(DSS_CONTROL, b, pos, pos);	/* LCDx_CLK_SWITCH */
 
 	ix = channel == OMAP_DSS_CHANNEL_LCD ? 0 : 1;
 	dss.lcd_clk_source[ix] = clk_src;
@@ -414,10 +414,13 @@ enum omap_dss_clk_source dss_get_lcd_clk_source(enum omap_channel channel)
 		int ix = channel == OMAP_DSS_CHANNEL_LCD ? 0 : 1;
 		return dss.lcd_clk_source[ix];
 	} else {
+		/* LCD_CLK source is the same as DISPC_FCLK source for
+		 * OMAP2 and OMAP3 */
 		return dss.dispc_clk_source;
 	}
 }
 
+/* calculate clock rates using dividers in cinfo */
 int dss_calc_clock_rates(struct dss_clock_info *cinfo)
 {
 	if (dss.dpll4_m4_ck) {
@@ -537,7 +540,7 @@ retry:
 
 	if (dss.dpll4_m4_ck == NULL) {
 		struct dispc_clock_info cur_dispc;
-		
+		/* XXX can we change the clock on omap2? */
 		fck = clk_get_rate(dss.dss_clk);
 		fck_div = 1;
 
@@ -626,18 +629,18 @@ void dss_set_venc_output(enum omap_dss_venc_type type)
 	else
 		BUG();
 
-	
+	/* venc out selection. 0 = comp, 1 = svideo */
 	REG_FLD_MOD(DSS_CONTROL, l, 6, 6);
 }
 
 void dss_set_dac_pwrdn_bgz(bool enable)
 {
-	REG_FLD_MOD(DSS_CONTROL, enable, 5, 5);	
+	REG_FLD_MOD(DSS_CONTROL, enable, 5, 5);	/* DAC Power-Down Control */
 }
 
 void dss_select_hdmi_venc_clk_source(enum dss_hdmi_venc_clk_source_select hdmi)
 {
-	REG_FLD_MOD(DSS_CONTROL, hdmi, 15, 15);	
+	REG_FLD_MOD(DSS_CONTROL, hdmi, 15, 15);	/* VENC_HDMI_SWITCH */
 }
 
 enum dss_hdmi_venc_clk_source_select dss_get_hdmi_venc_clk_source(void)
@@ -679,7 +682,7 @@ static int dss_get_clocks(void)
 			r = PTR_ERR(clk);
 			goto err;
 		}
-	} else { 
+	} else { /* omap24xx */
 		clk = NULL;
 	}
 
@@ -724,6 +727,7 @@ void dss_runtime_put(void)
 	WARN_ON(r < 0);
 }
 
+/* DEBUGFS */
 #if defined(CONFIG_DEBUG_FS) && defined(CONFIG_OMAP2_DSS_DEBUG_SUPPORT)
 void dss_debug_dump_clocks(struct seq_file *s)
 {
@@ -735,6 +739,7 @@ void dss_debug_dump_clocks(struct seq_file *s)
 }
 #endif
 
+/* DSS HW IP initialisation */
 static int omap_dsshw_probe(struct platform_device *pdev)
 {
 	struct resource *dss_mem;
@@ -766,13 +771,13 @@ static int omap_dsshw_probe(struct platform_device *pdev)
 	if (r)
 		goto err_runtime_get;
 
-	
+	/* Select DPLL */
 	REG_FLD_MOD(DSS_CONTROL, 0, 0, 0);
 
 #ifdef CONFIG_OMAP2_DSS_VENC
-	REG_FLD_MOD(DSS_CONTROL, 1, 4, 4);	
-	REG_FLD_MOD(DSS_CONTROL, 1, 3, 3);	
-	REG_FLD_MOD(DSS_CONTROL, 0, 2, 2);	
+	REG_FLD_MOD(DSS_CONTROL, 1, 4, 4);	/* venc dac demen */
+	REG_FLD_MOD(DSS_CONTROL, 1, 3, 3);	/* venc clock 4x enable */
+	REG_FLD_MOD(DSS_CONTROL, 0, 2, 2);	/* venc clock mode = normal */
 #endif
 	dss.dsi_clk_source[0] = OMAP_DSS_CLK_SRC_FCK;
 	dss.dsi_clk_source[1] = OMAP_DSS_CLK_SRC_FCK;

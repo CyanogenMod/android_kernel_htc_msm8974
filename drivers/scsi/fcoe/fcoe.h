@@ -37,13 +37,13 @@
 
 #define FCOE_MAX_OUTSTANDING_COMMANDS	1024
 
-#define FCOE_MIN_XID		0x0000	
-#define FCOE_MAX_XID		0x0FFF	
+#define FCOE_MIN_XID		0x0000	/* the min xid supported by fcoe_sw */
+#define FCOE_MAX_XID		0x0FFF	/* the max xid supported by fcoe_sw */
 
 extern unsigned int fcoe_debug_logging;
 
-#define FCOE_LOGGING	    0x01 
-#define FCOE_NETDEV_LOGGING 0x02 
+#define FCOE_LOGGING	    0x01 /* General logging, not categorized */
+#define FCOE_NETDEV_LOGGING 0x02 /* Netdevice logging */
 
 #define FCOE_CHECK_LOGGING(LEVEL, CMD)					\
 do {                                                            	\
@@ -62,6 +62,17 @@ do {                                                            	\
 			   printk(KERN_INFO "fcoe: %s: " fmt,	\
 				  netdev->name, ##args);)
 
+/**
+ * struct fcoe_interface - A FCoE interface
+ * @list:	      Handle for a list of FCoE interfaces
+ * @netdev:	      The associated net device
+ * @fcoe_packet_type: FCoE packet type
+ * @fip_packet_type:  FIP packet type
+ * @ctlr:	      The FCoE controller (for FIP)
+ * @oem:	      The offload exchange manager for all local port
+ *		      instances associated with this port
+ * This structure is 1:1 with a net devive.
+ */
 struct fcoe_interface {
 	struct list_head   list;
 	struct net_device  *netdev;
@@ -74,10 +85,14 @@ struct fcoe_interface {
 
 #define fcoe_from_ctlr(fip) container_of(fip, struct fcoe_interface, ctlr)
 
+/**
+ * fcoe_netdev() - Return the net device associated with a local port
+ * @lport: The local port to get the net device from
+ */
 static inline struct net_device *fcoe_netdev(const struct fc_lport *lport)
 {
 	return ((struct fcoe_interface *)
 			((struct fcoe_port *)lport_priv(lport))->priv)->netdev;
 }
 
-#endif 
+#endif /* _FCOE_H_ */

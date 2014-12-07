@@ -18,6 +18,11 @@
  *
  */
 
+/*
+ * Datasheets:
+ * http://focus.ti.com/docs/prod/folders/print/bq27000.html
+ * http://focus.ti.com/docs/prod/folders/print/bq27500.html
+ */
 
 #include <linux/module.h>
 #include <linux/param.h>
@@ -42,27 +47,27 @@
 #define BQ27x00_REG_TTE			0x16
 #define BQ27x00_REG_TTF			0x18
 #define BQ27x00_REG_TTECP		0x26
-#define BQ27x00_REG_NAC			0x0C 
-#define BQ27x00_REG_LMD			0x12 
-#define BQ27x00_REG_CYCT		0x2A 
-#define BQ27x00_REG_AE			0x22 
+#define BQ27x00_REG_NAC			0x0C /* Nominal available capacity */
+#define BQ27x00_REG_LMD			0x12 /* Last measured discharge */
+#define BQ27x00_REG_CYCT		0x2A /* Cycle count total */
+#define BQ27x00_REG_AE			0x22 /* Available energy */
 
-#define BQ27000_REG_RSOC		0x0B 
-#define BQ27000_REG_ILMD		0x76 
-#define BQ27000_FLAG_EDVF		BIT(0) 
-#define BQ27000_FLAG_EDV1		BIT(1) 
-#define BQ27000_FLAG_CI			BIT(4) 
+#define BQ27000_REG_RSOC		0x0B /* Relative State-of-Charge */
+#define BQ27000_REG_ILMD		0x76 /* Initial last measured discharge */
+#define BQ27000_FLAG_EDVF		BIT(0) /* Final End-of-Discharge-Voltage flag */
+#define BQ27000_FLAG_EDV1		BIT(1) /* First End-of-Discharge-Voltage flag */
+#define BQ27000_FLAG_CI			BIT(4) /* Capacity Inaccurate flag */
 #define BQ27000_FLAG_FC			BIT(5)
-#define BQ27000_FLAG_CHGS		BIT(7) 
+#define BQ27000_FLAG_CHGS		BIT(7) /* Charge state flag */
 
 #define BQ27500_REG_SOC			0x2C
-#define BQ27500_REG_DCAP		0x3C 
+#define BQ27500_REG_DCAP		0x3C /* Design capacity */
 #define BQ27500_FLAG_DSC		BIT(0)
-#define BQ27500_FLAG_SOCF		BIT(1) 
-#define BQ27500_FLAG_SOC1		BIT(2) 
+#define BQ27500_FLAG_SOCF		BIT(1) /* State-of-Charge threshold final */
+#define BQ27500_FLAG_SOC1		BIT(2) /* State-of-Charge threshold 1 */
 #define BQ27500_FLAG_FC			BIT(9)
 
-#define BQ27000_RS			20 
+#define BQ27000_RS			20 /* Resistor sense */
 
 struct bq27x00_device_info;
 struct bq27x00_access_methods {
@@ -125,6 +130,9 @@ module_param(poll_interval, uint, 0644);
 MODULE_PARM_DESC(poll_interval, "battery poll interval in seconds - " \
 				"0 disables polling");
 
+/*
+ * Common code for BQ27x00 devices
+ */
 
 static inline int bq27x00_read(struct bq27x00_device_info *di, u8 reg,
 		bool single)
@@ -132,6 +140,10 @@ static inline int bq27x00_read(struct bq27x00_device_info *di, u8 reg,
 	return di->bus.read(di, reg, single);
 }
 
+/*
+ * Return the battery Relative State-of-Charge
+ * Or < 0 if something fails.
+ */
 static int bq27x00_battery_read_rsoc(struct bq27x00_device_info *di)
 {
 	int rsoc;
@@ -147,6 +159,10 @@ static int bq27x00_battery_read_rsoc(struct bq27x00_device_info *di)
 	return rsoc;
 }
 
+/*
+ * Return a battery charge value in µAh
+ * Or < 0 if something fails.
+ */
 static int bq27x00_battery_read_charge(struct bq27x00_device_info *di, u8 reg)
 {
 	int charge;
@@ -166,16 +182,28 @@ static int bq27x00_battery_read_charge(struct bq27x00_device_info *di, u8 reg)
 	return charge;
 }
 
+/*
+ * Return the battery Nominal available capaciy in µAh
+ * Or < 0 if something fails.
+ */
 static inline int bq27x00_battery_read_nac(struct bq27x00_device_info *di)
 {
 	return bq27x00_battery_read_charge(di, BQ27x00_REG_NAC);
 }
 
+/*
+ * Return the battery Last measured discharge in µAh
+ * Or < 0 if something fails.
+ */
 static inline int bq27x00_battery_read_lmd(struct bq27x00_device_info *di)
 {
 	return bq27x00_battery_read_charge(di, BQ27x00_REG_LMD);
 }
 
+/*
+ * Return the battery Initial last measured discharge in µAh
+ * Or < 0 if something fails.
+ */
 static int bq27x00_battery_read_ilmd(struct bq27x00_device_info *di)
 {
 	int ilmd;
@@ -198,6 +226,10 @@ static int bq27x00_battery_read_ilmd(struct bq27x00_device_info *di)
 	return ilmd;
 }
 
+/*
+ * Return the battery Available energy in µWh
+ * Or < 0 if something fails.
+ */
 static int bq27x00_battery_read_energy(struct bq27x00_device_info *di)
 {
 	int ae;
@@ -216,6 +248,10 @@ static int bq27x00_battery_read_energy(struct bq27x00_device_info *di)
 	return ae;
 }
 
+/*
+ * Return the battery temperature in tenths of degree Celsius
+ * Or < 0 if something fails.
+ */
 static int bq27x00_battery_read_temperature(struct bq27x00_device_info *di)
 {
 	int temp;
@@ -234,6 +270,10 @@ static int bq27x00_battery_read_temperature(struct bq27x00_device_info *di)
 	return temp;
 }
 
+/*
+ * Return the battery Cycle count total
+ * Or < 0 if something fails.
+ */
 static int bq27x00_battery_read_cyct(struct bq27x00_device_info *di)
 {
 	int cyct;
@@ -245,6 +285,10 @@ static int bq27x00_battery_read_cyct(struct bq27x00_device_info *di)
 	return cyct;
 }
 
+/*
+ * Read a time register.
+ * Return < 0 if something fails.
+ */
 static int bq27x00_battery_read_time(struct bq27x00_device_info *di, u8 reg)
 {
 	int tval;
@@ -288,7 +332,7 @@ static void bq27x00_update(struct bq27x00_device_info *di)
 		cache.temperature = bq27x00_battery_read_temperature(di);
 		cache.cycle_count = bq27x00_battery_read_cyct(di);
 
-		
+		/* We only have to read charge design full once */
 		if (di->charge_design_full <= 0)
 			di->charge_design_full = bq27x00_battery_read_ilmd(di);
 	}
@@ -309,12 +353,17 @@ static void bq27x00_battery_poll(struct work_struct *work)
 	bq27x00_update(di);
 
 	if (poll_interval > 0) {
-		
+		/* The timer does not have to be accurate. */
 		set_timer_slack(&di->work.timer, poll_interval * HZ / 4);
 		schedule_delayed_work(&di->work, poll_interval * HZ);
 	}
 }
 
+/*
+ * Return the battery average current in µA
+ * Note that current can be negative signed as well
+ * Or 0 if something fails.
+ */
 static int bq27x00_battery_current(struct bq27x00_device_info *di,
 	union power_supply_propval *val)
 {
@@ -328,7 +377,7 @@ static int bq27x00_battery_current(struct bq27x00_device_info *di,
 	}
 
 	if (di->chip == BQ27500) {
-		
+		/* bq27500 returns signed value */
 		val->intval = (int)((s16)curr) * 1000;
 	} else {
 		flags = bq27x00_read(di, BQ27x00_REG_FLAGS, false);
@@ -401,6 +450,10 @@ static int bq27x00_battery_capacity_level(struct bq27x00_device_info *di,
 	return 0;
 }
 
+/*
+ * Return the battery Voltage in milivolts
+ * Or < 0 if something fails.
+ */
 static int bq27x00_battery_voltage(struct bq27x00_device_info *di,
 	union power_supply_propval *val)
 {
@@ -540,6 +593,12 @@ static int bq27x00_powersupply_init(struct bq27x00_device_info *di)
 
 static void bq27x00_powersupply_unregister(struct bq27x00_device_info *di)
 {
+	/*
+	 * power_supply_unregister call bq27x00_battery_get_property which
+	 * call bq27x00_battery_poll.
+	 * Make sure that bq27x00_battery_poll will not call
+	 * schedule_delayed_work again after unregister (which cause OOPS).
+	 */
 	poll_interval = 0;
 
 	cancel_delayed_work_sync(&di->work);
@@ -550,8 +609,12 @@ static void bq27x00_powersupply_unregister(struct bq27x00_device_info *di)
 }
 
 
+/* i2c specific code */
 #ifdef CONFIG_BATTERY_BQ27X00_I2C
 
+/* If the system has several batteries we need a different name for each
+ * of them...
+ */
 static DEFINE_IDR(battery_id);
 static DEFINE_MUTEX(battery_mutex);
 
@@ -597,7 +660,7 @@ static int bq27x00_battery_probe(struct i2c_client *client,
 	int num;
 	int retval = 0;
 
-	
+	/* Get new ID for the new battery device */
 	retval = idr_pre_get(&battery_id, GFP_KERNEL);
 	if (retval == 0)
 		return -ENOMEM;
@@ -664,7 +727,7 @@ static int bq27x00_battery_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id bq27x00_id[] = {
-	{ "bq27200", BQ27000 },	
+	{ "bq27200", BQ27000 },	/* bq27200 is same as bq27000, but with i2c */
 	{ "bq27500", BQ27500 },
 	{},
 };
@@ -700,6 +763,7 @@ static inline void bq27x00_battery_i2c_exit(void) {};
 
 #endif
 
+/* platform specific code */
 #ifdef CONFIG_BATTERY_BQ27X00_PLATFORM
 
 static int bq27000_read_platform(struct bq27x00_device_info *di, u8 reg,
@@ -712,6 +776,8 @@ static int bq27000_read_platform(struct bq27x00_device_info *di, u8 reg,
 	int temp;
 
 	if (!single) {
+		/* Make sure the value has not changed in between reading the
+		 * lower and the upper part */
 		upper = pdata->read(dev, reg + 1);
 		do {
 			temp = upper;
@@ -819,6 +885,9 @@ static inline void bq27x00_battery_platform_exit(void) {};
 
 #endif
 
+/*
+ * Module stuff
+ */
 
 static int __init bq27x00_battery_init(void)
 {

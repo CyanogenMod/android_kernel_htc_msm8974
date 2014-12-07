@@ -14,13 +14,31 @@
  */
 
 #ifndef __ASSEMBLY__
-#define M32700UT_LAN_BASE	(0x10000000 )
+/*
+ * C functions use non-cache address.
+ */
+#define M32700UT_LAN_BASE	(0x10000000 /* + NONCACHE_OFFSET */)
 #else
 #define M32700UT_LAN_BASE	(0x10000000 + NONCACHE_OFFSET)
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#define M32700UT_LAN_IRQ_LAN	(M32700UT_LAN_PLD_IRQ_BASE + 1)	
-#define M32700UT_LAN_IRQ_I2C	(M32700UT_LAN_PLD_IRQ_BASE + 3)	
+/* ICU
+ *  ICUISTS:	status register
+ *  ICUIREQ0: 	request register
+ *  ICUIREQ1: 	request register
+ *  ICUCR3:	control register for CFIREQ# interrupt
+ *  ICUCR4:	control register for CFC Card insert interrupt
+ *  ICUCR5:	control register for CFC Card eject interrupt
+ *  ICUCR6:	control register for external interrupt
+ *  ICUCR11:	control register for MMC Card insert/eject interrupt
+ *  ICUCR13:	control register for SC error interrupt
+ *  ICUCR14:	control register for SC receive interrupt
+ *  ICUCR15:	control register for SC send interrupt
+ *  ICUCR16:	control register for SIO0 receive interrupt
+ *  ICUCR17:	control register for SIO0 send interrupt
+ */
+#define M32700UT_LAN_IRQ_LAN	(M32700UT_LAN_PLD_IRQ_BASE + 1)	/* LAN */
+#define M32700UT_LAN_IRQ_I2C	(M32700UT_LAN_PLD_IRQ_BASE + 3)	/* I2C */
 
 #define M32700UT_LAN_ICUISTS	__reg16(M32700UT_LAN_BASE + 0xc0002)
 #define M32700UT_LAN_ICUISTS_VECB_MASK	(0xf000)
@@ -31,6 +49,9 @@
 #define M32700UT_LAN_ICUCR1	__reg16(M32700UT_LAN_BASE + 0xc0010)
 #define M32700UT_LAN_ICUCR3	__reg16(M32700UT_LAN_BASE + 0xc0014)
 
+/*
+ * AR register on PLD
+ */
 #define ARVCR0		__reg32(M32700UT_LAN_BASE + 0x40000)
 #define ARVCR0_VDS		0x00080000
 #define ARVCR0_RST		0x00010000
@@ -41,11 +62,24 @@
 #define ARVHCOUNT	__reg32(M32700UT_LAN_BASE + 0x40008)
 #define ARDATA		__reg32(M32700UT_LAN_BASE + 0x40010)
 #define ARINTSEL	__reg32(M32700UT_LAN_BASE + 0x40014)
-#define ARINTSEL_INT3		0x10000000	
-#define ARDATA32	__reg32(M32700UT_LAN_BASE + 0x04040010)	
+#define ARINTSEL_INT3		0x10000000	/* CPU INT3 */
+#define ARDATA32	__reg32(M32700UT_LAN_BASE + 0x04040010)	// Block 5
+/*
+#define ARINTSEL_SEL2		0x00002000
+#define ARINTSEL_SEL3		0x00001000
+#define ARINTSEL_SEL6		0x00000200
+#define ARINTSEL_SEL7		0x00000100
+#define ARINTSEL_SEL9		0x00000040
+#define ARINTSEL_SEL10		0x00000020
+#define ARINTSEL_SEL11		0x00000010
+#define ARINTSEL_SEL12		0x00000008
+*/
 
+/*
+ * I2C register on PLD
+ */
 #define PLDI2CCR	__reg32(M32700UT_LAN_BASE + 0x40040)
-#define	PLDI2CCR_ES0		0x00000001	
+#define	PLDI2CCR_ES0		0x00000001	/* enable I2C interface */
 #define PLDI2CMOD	__reg32(M32700UT_LAN_BASE + 0x40044)
 #define PLDI2CMOD_ACKCLK	0x00000200
 #define PLDI2CMOD_DTWD		0x00000100
@@ -64,6 +98,6 @@
 #define PLDI2CSTS	__reg32(M32700UT_LAN_BASE + 0x40064)
 #define PLDI2CSTS_TRX		0x00000020
 #define PLDI2CSTS_BB		0x00000010
-#define PLDI2CSTS_NOACK		0x00000001	
+#define PLDI2CSTS_NOACK		0x00000001	/* 0:ack, 1:noack */
 
-#endif 
+#endif /* _M32700UT_M32700UT_LAN_H */

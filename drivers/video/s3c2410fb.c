@@ -41,6 +41,7 @@
 
 #include "s3c2410fb.h"
 
+/* Debugging stuff */
 #ifdef CONFIG_FB_S3C2410_DEBUG
 static int debug	= 1;
 #else
@@ -49,12 +50,17 @@ static int debug;
 
 #define dprintk(msg...)	if (debug) printk(KERN_DEBUG "s3c2410fb: " msg);
 
+/* useful functions */
 
 static int is_s3c2412(struct s3c2410fb_info *fbi)
 {
 	return (fbi->drv_type == DRV_S3C2412);
 }
 
+/* s3c2410fb_set_lcdaddr
+ *
+ * initialise lcd controller address pointers
+ */
 static void s3c2410fb_set_lcdaddr(struct fb_info *info)
 {
 	unsigned long saddr1, saddr2, saddr3;
@@ -78,21 +84,35 @@ static void s3c2410fb_set_lcdaddr(struct fb_info *info)
 	writel(saddr3, regs + S3C2410_LCDSADDR3);
 }
 
+/* s3c2410fb_calc_pixclk()
+ *
+ * calculate divisor for clk->pixclk
+ */
 static unsigned int s3c2410fb_calc_pixclk(struct s3c2410fb_info *fbi,
 					  unsigned long pixclk)
 {
 	unsigned long clk = fbi->clk_rate;
 	unsigned long long div;
 
+	/* pixclk is in picoseconds, our clock is in Hz
+	 *
+	 * Hz -> picoseconds is / 10^-12
+	 */
 
 	div = (unsigned long long)clk * pixclk;
-	div >>= 12;			
-	do_div(div, 625 * 625UL * 625); 
+	div >>= 12;			/* div / 2^12 */
+	do_div(div, 625 * 625UL * 625); /* div / 5^12 */
 
 	dprintk("pixclk %ld, divisor is %ld\n", pixclk, (long)div);
 	return div;
 }
 
+/*
+ *	s3c2410fb_check_var():
+ *	Get the video params out of 'var'. If a value doesn't fit, round it up,
+ *	if it's too big, return -EINVAL.
+ *
+ */
 static int s3c2410fb_check_var(struct fb_var_screeninfo *var,
 			       struct fb_info *info)
 {
@@ -106,8 +126,8 @@ static int s3c2410fb_check_var(struct fb_var_screeninfo *var,
 
 	dprintk("check_var(var=%p, info=%p)\n", var, info);
 
-	
-	
+	/* validate x/y resolution */
+	/* choose default mode if possible */
 	if (var->yres == default_display->yres &&
 	    var->xres == default_display->xres &&
 	    var->bits_per_pixel == default_display->bpp)
@@ -128,13 +148,13 @@ static int s3c2410fb_check_var(struct fb_var_screeninfo *var,
 		return -EINVAL;
 	}
 
-	
+	/* it is always the size as the display */
 	var->xres_virtual = display->xres;
 	var->yres_virtual = display->yres;
 	var->height = display->height;
 	var->width = display->width;
 
-	
+	/* copy lcd settings */
 	var->pixclock = display->pixclock;
 	var->left_margin = display->left_margin;
 	var->right_margin = display->right_margin;
@@ -144,12 +164,12 @@ static int s3c2410fb_check_var(struct fb_var_screeninfo *var,
 	var->hsync_len = display->hsync_len;
 
 	fbi->regs.lcdcon5 = display->lcdcon5;
-	
+	/* set display type */
 	fbi->regs.lcdcon1 = display->type;
 
 	var->transp.offset = 0;
 	var->transp.length = 0;
-	
+	/* set r/g/b positions */
 	switch (var->bits_per_pixel) {
 	case 1:
 	case 2:
@@ -161,7 +181,7 @@ static int s3c2410fb_check_var(struct fb_var_screeninfo *var,
 		break;
 	case 8:
 		if (display->type != S3C2410_LCDCON1_TFT) {
-			
+			/* 8 bpp 332 */
 			var->red.length		= 3;
 			var->red.offset		= 5;
 			var->green.length	= 3;
@@ -176,7 +196,7 @@ static int s3c2410fb_check_var(struct fb_var_screeninfo *var,
 		}
 		break;
 	case 12:
-		
+		/* 12 bpp 444 */
 		var->red.length		= 4;
 		var->red.offset		= 8;
 		var->green.length	= 4;
@@ -188,7 +208,7 @@ static int s3c2410fb_check_var(struct fb_var_screeninfo *var,
 	default:
 	case 16:
 		if (display->lcdcon5 & S3C2410_LCDCON5_FRM565) {
-			
+			/* 16 bpp, 565 format */
 			var->red.offset		= 11;
 			var->green.offset	= 5;
 			var->blue.offset	= 0;
@@ -196,7 +216,7 @@ static int s3c2410fb_check_var(struct fb_var_screeninfo *var,
 			var->green.length	= 6;
 			var->blue.length	= 5;
 		} else {
-			
+			/* 16 bpp, 5551 format */
 			var->red.offset		= 11;
 			var->green.offset	= 6;
 			var->blue.offset	= 1;
@@ -206,7 +226,7 @@ static int s3c2410fb_check_var(struct fb_var_screeninfo *var,
 		}
 		break;
 	case 32:
-		
+		/* 24 bpp 888 and 8 dummy */
 		var->red.length		= 8;
 		var->red.offset		= 16;
 		var->green.length	= 8;
@@ -218,6 +238,10 @@ static int s3c2410fb_check_var(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/* s3c2410fb_calculate_stn_lcd_regs
+ *
+ * calculate register values from var settings
+ */
 static void s3c2410fb_calculate_stn_lcd_regs(const struct fb_info *info,
 					     struct s3c2410fb_hw *regs)
 {
@@ -251,11 +275,11 @@ static void s3c2410fb_calculate_stn_lcd_regs(const struct fb_info *info,
 		break;
 
 	default:
-		
+		/* invalid pixel depth */
 		dev_err(fbi->dev, "invalid bpp %d\n",
 			var->bits_per_pixel);
 	}
-	
+	/* update X/Y info */
 	dprintk("setting horz: lft=%d, rt=%d, sync=%d\n",
 		var->left_margin, var->right_margin, var->hsync_len);
 
@@ -274,6 +298,10 @@ static void s3c2410fb_calculate_stn_lcd_regs(const struct fb_info *info,
 	regs->lcdcon4 = S3C2410_LCDCON4_WLH(wlh);
 }
 
+/* s3c2410fb_calculate_tft_lcd_regs
+ *
+ * calculate register values from var settings
+ */
 static void s3c2410fb_calculate_tft_lcd_regs(const struct fb_info *info,
 					     struct s3c2410fb_hw *regs)
 {
@@ -308,11 +336,11 @@ static void s3c2410fb_calculate_tft_lcd_regs(const struct fb_info *info,
 				   S3C2410_LCDCON5_BPP24BL);
 		break;
 	default:
-		
+		/* invalid pixel depth */
 		dev_err(fbi->dev, "invalid bpp %d\n",
 			var->bits_per_pixel);
 	}
-	
+	/* update X/Y info */
 	dprintk("setting vert: up=%d, low=%d, sync=%d\n",
 		var->upper_margin, var->lower_margin, var->vsync_len);
 
@@ -331,6 +359,11 @@ static void s3c2410fb_calculate_tft_lcd_regs(const struct fb_info *info,
 	regs->lcdcon4 = S3C2410_LCDCON4_HSPW(var->hsync_len - 1);
 }
 
+/* s3c2410fb_activate_var
+ *
+ * activate (set) the controller from the given framebuffer
+ * information
+ */
 static void s3c2410fb_activate_var(struct fb_info *info)
 {
 	struct s3c2410fb_info *fbi = info->par;
@@ -358,7 +391,7 @@ static void s3c2410fb_activate_var(struct fb_info *info)
 
 	fbi->regs.lcdcon1 |=  S3C2410_LCDCON1_CLKVAL(clkdiv);
 
-	
+	/* write new registers */
 
 	dprintk("new register set:\n");
 	dprintk("lcdcon[1] = 0x%08lx\n", fbi->regs.lcdcon1);
@@ -374,13 +407,18 @@ static void s3c2410fb_activate_var(struct fb_info *info)
 	writel(fbi->regs.lcdcon4, regs + S3C2410_LCDCON4);
 	writel(fbi->regs.lcdcon5, regs + S3C2410_LCDCON5);
 
-	
+	/* set lcd address pointers */
 	s3c2410fb_set_lcdaddr(info);
 
 	fbi->regs.lcdcon1 |= S3C2410_LCDCON1_ENVID,
 	writel(fbi->regs.lcdcon1, regs + S3C2410_LCDCON1);
 }
 
+/*
+ *      s3c2410fb_set_par - Alters the hardware state.
+ *      @info: frame buffer structure that represents a single frame buffer
+ *
+ */
 static int s3c2410fb_set_par(struct fb_info *info)
 {
 	struct fb_var_screeninfo *var = &info->var;
@@ -401,7 +439,7 @@ static int s3c2410fb_set_par(struct fb_info *info)
 
 	info->fix.line_length = (var->xres_virtual * var->bits_per_pixel) / 8;
 
-	
+	/* activate this new configuration */
 
 	s3c2410fb_activate_var(info);
 	return 0;
@@ -421,7 +459,7 @@ static void schedule_palette_update(struct s3c2410fb_info *fbi,
 	if (!fbi->palette_ready) {
 		fbi->palette_ready = 1;
 
-		
+		/* enable IRQ */
 		irqen = readl(irq_base + S3C24XX_LCDINTMSK);
 		irqen &= ~S3C2410_LCDINT_FRSYNC;
 		writel(irqen, irq_base + S3C24XX_LCDINTMSK);
@@ -430,6 +468,7 @@ static void schedule_palette_update(struct s3c2410fb_info *fbi,
 	local_irq_restore(flags);
 }
 
+/* from pxafb.c */
 static inline unsigned int chan_to_field(unsigned int chan,
 					 struct fb_bitfield *bf)
 {
@@ -446,10 +485,12 @@ static int s3c2410fb_setcolreg(unsigned regno,
 	void __iomem *regs = fbi->io;
 	unsigned int val;
 
+	/* dprintk("setcol: regno=%d, rgb=%d,%d,%d\n",
+		   regno, red, green, blue); */
 
 	switch (info->fix.visual) {
 	case FB_VISUAL_TRUECOLOR:
-		
+		/* true-colour, use pseudo-palette */
 
 		if (regno < 16) {
 			u32 *pal = info->pseudo_palette;
@@ -464,7 +505,7 @@ static int s3c2410fb_setcolreg(unsigned regno,
 
 	case FB_VISUAL_PSEUDOCOLOR:
 		if (regno < 256) {
-			
+			/* currently assume RGB 5-6-5 mode */
 
 			val  = (red   >>  0) & 0xf800;
 			val |= (green >>  5) & 0x07e0;
@@ -477,12 +518,16 @@ static int s3c2410fb_setcolreg(unsigned regno,
 		break;
 
 	default:
-		return 1;	
+		return 1;	/* unknown type */
 	}
 
 	return 0;
 }
 
+/* s3c2410fb_lcd_enable
+ *
+ * shutdown the lcd controller
+ */
 static void s3c2410fb_lcd_enable(struct s3c2410fb_info *fbi, int enable)
 {
 	unsigned long flags;
@@ -500,6 +545,19 @@ static void s3c2410fb_lcd_enable(struct s3c2410fb_info *fbi, int enable)
 }
 
 
+/*
+ *      s3c2410fb_blank
+ *	@blank_mode: the blank mode we want.
+ *	@info: frame buffer structure that represents a single frame buffer
+ *
+ *	Blank the screen if blank_mode != 0, else unblank. Return 0 if
+ *	blanking succeeded, != 0 if un-/blanking failed due to e.g. a
+ *	video mode which doesn't support it. Implements VESA suspend
+ *	and powerdown modes on hardware that supports disabling hsync/vsync:
+ *
+ *	Returns negative errno on error, or zero on success.
+ *
+ */
 static int s3c2410fb_blank(int blank_mode, struct fb_info *info)
 {
 	struct s3c2410fb_info *fbi = info->par;
@@ -565,6 +623,14 @@ static struct fb_ops s3c2410fb_ops = {
 	.fb_imageblit	= cfb_imageblit,
 };
 
+/*
+ * s3c2410fb_map_video_memory():
+ *	Allocates the DRAM memory for the frame buffer.  This buffer is
+ *	remapped into a non-cached, non-buffered, memory region to
+ *	allow palette and pixel writes to occur without flushing the
+ *	cache.  Once this area is remapped, all virtual memory
+ *	access to the video memory should occur at the new region.
+ */
 static int __devinit s3c2410fb_map_video_memory(struct fb_info *info)
 {
 	struct s3c2410fb_info *fbi = info->par;
@@ -577,7 +643,7 @@ static int __devinit s3c2410fb_map_video_memory(struct fb_info *info)
 						   &map_dma, GFP_KERNEL);
 
 	if (info->screen_base) {
-		
+		/* prevent initial garbage on screen */
 		dprintk("map_video_memory: clear %p:%08x\n",
 			info->screen_base, map_size);
 		memset(info->screen_base, 0x00, map_size);
@@ -608,6 +674,9 @@ static inline void modify_gpio(void __iomem *reg,
 	writel(tmp | set, reg);
 }
 
+/*
+ * s3c2410fb_init_registers - Initialise all LCD-related registers
+ */
 static int s3c2410fb_init_registers(struct fb_info *info)
 {
 	struct s3c2410fb_info *fbi = info->par;
@@ -625,11 +694,11 @@ static int s3c2410fb_init_registers(struct fb_info *info)
 		lpcsel = regs + S3C2410_LPCSEL;
 	}
 
-	
+	/* Initialise LCD with values from haret */
 
 	local_irq_save(flags);
 
-	
+	/* modify the gpio(s) with interrupts set (bjd) */
 
 	modify_gpio(S3C2410_GPCUP,  mach_info->gpcup,  mach_info->gpcup_mask);
 	modify_gpio(S3C2410_GPCCON, mach_info->gpccon, mach_info->gpccon_mask);
@@ -643,7 +712,7 @@ static int s3c2410fb_init_registers(struct fb_info *info)
 
 	dprintk("replacing TPAL %08x\n", readl(tpal));
 
-	
+	/* ensure temporary palette disabled */
 	writel(0x00, tpal);
 
 	return 0;
@@ -663,11 +732,15 @@ static void s3c2410fb_write_palette(struct s3c2410fb_info *fbi)
 
 		writel(ent, regs + S3C2410_TFTPAL(i));
 
+		/* it seems the only way to know exactly
+		 * if the palette wrote ok, is to check
+		 * to see if the value verifies ok
+		 */
 
 		if (readw(regs + S3C2410_TFTPAL(i)) == ent)
 			fbi->palette_buffer[i] = PALETTE_BUFF_CLEAR;
 		else
-			fbi->palette_ready = 1;   
+			fbi->palette_ready = 1;   /* retry */
 	}
 }
 
@@ -700,7 +773,7 @@ static int s3c2410fb_cpufreq_transition(struct notifier_block *nb,
 	info = container_of(nb, struct s3c2410fb_info, freq_transition);
 	fbinfo = platform_get_drvdata(to_platform_device(info->dev));
 
-	
+	/* work out change, <0 for speed-up */
 	delta_f = info->clk_rate - clk_get_rate(info->clk);
 
 	if ((val == CPUFREQ_POSTCHANGE && delta_f > 0) ||
@@ -816,7 +889,7 @@ static int __devinit s3c24xxfb_probe(struct platform_device *pdev,
 
 	strcpy(fbinfo->fix.id, driver_name);
 
-	
+	/* Stop the video */
 	lcdcon1 = readl(info->io + S3C2410_LCDCON1);
 	writel(lcdcon1 & ~S3C2410_LCDCON1_ENVID, info->io + S3C2410_LCDCON1);
 
@@ -860,7 +933,7 @@ static int __devinit s3c24xxfb_probe(struct platform_device *pdev,
 
 	info->clk_rate = clk_get_rate(info->clk);
 
-	
+	/* find maximum required memory size for display */
 	for (i = 0; i < mach_info->num_displays; i++) {
 		unsigned long smem_len = mach_info->displays[i].xres;
 
@@ -871,7 +944,7 @@ static int __devinit s3c24xxfb_probe(struct platform_device *pdev,
 			fbinfo->fix.smem_len = smem_len;
 	}
 
-	
+	/* Initialize video memory */
 	ret = s3c2410fb_map_video_memory(fbinfo);
 	if (ret) {
 		printk(KERN_ERR "Failed to allocate video RAM: %d\n", ret);
@@ -902,7 +975,7 @@ static int __devinit s3c24xxfb_probe(struct platform_device *pdev,
 		goto free_cpufreq;
 	}
 
-	
+	/* create device files */
 	ret = device_create_file(&pdev->dev, &dev_attr_debug);
 	if (ret)
 		printk(KERN_ERR "failed to add debug attribute\n");
@@ -942,6 +1015,9 @@ static int __devinit s3c2412fb_probe(struct platform_device *pdev)
 }
 
 
+/*
+ *  Cleanup
+ */
 static int __devexit s3c2410fb_remove(struct platform_device *pdev)
 {
 	struct fb_info *fbinfo = platform_get_drvdata(pdev);
@@ -977,6 +1053,7 @@ static int __devexit s3c2410fb_remove(struct platform_device *pdev)
 
 #ifdef CONFIG_PM
 
+/* suspend and resume support for the lcd controller */
 static int s3c2410fb_suspend(struct platform_device *dev, pm_message_t state)
 {
 	struct fb_info	   *fbinfo = platform_get_drvdata(dev);
@@ -984,6 +1061,9 @@ static int s3c2410fb_suspend(struct platform_device *dev, pm_message_t state)
 
 	s3c2410fb_lcd_enable(info, 0);
 
+	/* sleep before disabling the clock, we need to ensure
+	 * the LCD DMA engine is not going to get back on the bus
+	 * before the clock goes off again (bjd) */
 
 	usleep_range(1000, 1000);
 	clk_disable(info->clk);
@@ -1001,7 +1081,7 @@ static int s3c2410fb_resume(struct platform_device *dev)
 
 	s3c2410fb_init_registers(fbinfo);
 
-	
+	/* re-activate our display after resume */
 	s3c2410fb_activate_var(fbinfo);
 	s3c2410fb_blank(FB_BLANK_UNBLANK, fbinfo);
 

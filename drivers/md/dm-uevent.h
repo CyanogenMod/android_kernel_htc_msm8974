@@ -54,6 +54,6 @@ static inline void dm_path_uevent(enum dm_uevent_type event_type,
 {
 }
 
-#endif	
+#endif	/* CONFIG_DM_UEVENT */
 
-#endif	
+#endif	/* DM_UEVENT_H */

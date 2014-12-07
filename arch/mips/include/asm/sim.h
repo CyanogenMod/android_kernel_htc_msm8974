@@ -41,7 +41,7 @@ __asm__(								\
 
 #define nabi_no_regargs
 
-#endif 
+#endif /* CONFIG_32BIT */
 
 #ifdef CONFIG_64BIT
 
@@ -77,6 +77,6 @@ __asm__(								\
 	unsigned long __dummy6,						\
 	unsigned long __dummy7,
 
-#endif 
+#endif /* CONFIG_64BIT */
 
-#endif 
+#endif /* _ASM_SIM_H */

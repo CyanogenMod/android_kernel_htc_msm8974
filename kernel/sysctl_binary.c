@@ -64,10 +64,10 @@ static const struct bin_table bin_pty_table[] = {
 static const struct bin_table bin_kern_table[] = {
 	{ CTL_STR,	KERN_OSTYPE,			"ostype" },
 	{ CTL_STR,	KERN_OSRELEASE,			"osrelease" },
-	
+	/* KERN_OSREV not used */
 	{ CTL_STR,	KERN_VERSION,			"version" },
-	
-	
+	/* KERN_SECUREMASK not used */
+	/* KERN_PROF not used */
 	{ CTL_STR,	KERN_NODENAME,			"hostname" },
 	{ CTL_STR,	KERN_DOMAINNAME,		"domainname" },
 
@@ -78,23 +78,23 @@ static const struct bin_table bin_kern_table[] = {
 	{ CTL_INT,	KERN_CTLALTDEL,			"ctrl-alt-del" },
 	{ CTL_INT,	KERN_PRINTK,			"printk" },
 
-	
-	
-	
+	/* KERN_NAMETRANS not used */
+	/* KERN_PPC_HTABRECLAIM not used */
+	/* KERN_PPC_ZEROPAGED not used */
 	{ CTL_INT,	KERN_PPC_POWERSAVE_NAP,		"powersave-nap" },
 
 	{ CTL_STR,	KERN_MODPROBE,			"modprobe" },
 	{ CTL_INT,	KERN_SG_BIG_BUFF,		"sg-big-buff" },
 	{ CTL_INT,	KERN_ACCT,			"acct" },
-	
+	/* KERN_PPC_L2CR "l2cr" no longer used */
 
-	
-	
+	/* KERN_RTSIGNR not used */
+	/* KERN_RTSIGMAX not used */
 
 	{ CTL_ULONG,	KERN_SHMMAX,			"shmmax" },
 	{ CTL_INT,	KERN_MSGMAX,			"msgmax" },
 	{ CTL_INT,	KERN_MSGMNB,			"msgmnb" },
-	
+	/* KERN_MSGPOOL not used*/
 	{ CTL_INT,	KERN_SYSRQ,			"sysrq" },
 	{ CTL_INT,	KERN_MAX_THREADS,		"threads-max" },
 	{ CTL_DIR,	KERN_RANDOM,			"random",	bin_random_table },
@@ -112,7 +112,7 @@ static const struct bin_table bin_kern_table[] = {
 
 	{ CTL_INT,	KERN_S390_USER_DEBUG_LOGGING,	"userprocess_debug" },
 	{ CTL_INT,	KERN_CORE_USES_PID,		"core_uses_pid" },
-	
+	/* KERN_TAINTED "tainted" no longer used */
 	{ CTL_INT,	KERN_CADPID,			"cad_pid" },
 	{ CTL_INT,	KERN_PIDMAX,			"pid_max" },
 	{ CTL_STR,	KERN_CORE_PATTERN,		"core_pattern" },
@@ -126,13 +126,13 @@ static const struct bin_table bin_kern_table[] = {
 	{ CTL_DIR,	KERN_PTY,			"pty",		bin_pty_table },
 	{ CTL_INT,	KERN_NGROUPS_MAX,		"ngroups_max" },
 	{ CTL_INT,	KERN_SPARC_SCONS_PWROFF,	"scons-poweroff" },
-	
+	/* KERN_HZ_TIMER "hz_timer" no longer used */
 	{ CTL_INT,	KERN_UNKNOWN_NMI_PANIC,		"unknown_nmi_panic" },
 	{ CTL_INT,	KERN_BOOTLOADER_TYPE,		"bootloader_type" },
 	{ CTL_INT,	KERN_RANDOMIZE,			"randomize_va_space" },
 
 	{ CTL_INT,	KERN_SPIN_RETRY,		"spin_retry" },
-	
+	/* KERN_ACPI_VIDEO_FLAGS "acpi_video_flags" no longer used */
 	{ CTL_INT,	KERN_IA64_UNALIGNED,		"ignore-unaligned-usertrap" },
 	{ CTL_INT,	KERN_COMPAT_LOG,		"compat-log" },
 	{ CTL_INT,	KERN_MAX_LOCK_DEPTH,		"max_lock_depth" },
@@ -147,12 +147,12 @@ static const struct bin_table bin_vm_table[] = {
 	{ CTL_INT,	VM_PAGE_CLUSTER,		"page-cluster" },
 	{ CTL_INT,	VM_DIRTY_BACKGROUND,		"dirty_background_ratio" },
 	{ CTL_INT,	VM_DIRTY_RATIO,			"dirty_ratio" },
-	
-	
+	/* VM_DIRTY_WB_CS "dirty_writeback_centisecs" no longer used */
+	/* VM_DIRTY_EXPIRE_CS "dirty_expire_centisecs" no longer used */
 	{ CTL_INT,	VM_NR_PDFLUSH_THREADS,		"nr_pdflush_threads" },
 	{ CTL_INT,	VM_OVERCOMMIT_RATIO,		"overcommit_ratio" },
-	
-	
+	/* VM_PAGEBUF unused */
+	/* VM_HUGETLB_PAGES "nr_hugepages" no longer used */
 	{ CTL_INT,	VM_SWAPPINESS,			"swappiness" },
 	{ CTL_INT,	VM_LOWMEM_RESERVE_RATIO,	"lowmem_reserve_ratio" },
 	{ CTL_INT,	VM_MIN_FREE_KBYTES,		"min_free_kbytes" },
@@ -162,7 +162,7 @@ static const struct bin_table bin_vm_table[] = {
 	{ CTL_INT,	VM_HUGETLB_GROUP,		"hugetlb_shm_group" },
 	{ CTL_INT,	VM_VFS_CACHE_PRESSURE,	"vfs_cache_pressure" },
 	{ CTL_INT,	VM_LEGACY_VA_LAYOUT,		"legacy_va_layout" },
-	
+	/* VM_SWAP_TOKEN_TIMEOUT unused */
 	{ CTL_INT,	VM_DROP_PAGECACHE,		"drop_caches" },
 	{ CTL_INT,	VM_PERCPU_PAGELIST_FRACTION,	"percpu_pagelist_fraction" },
 	{ CTL_INT,	VM_ZONE_RECLAIM_MODE,		"zone_reclaim_mode" },
@@ -179,18 +179,18 @@ static const struct bin_table bin_net_core_table[] = {
 	{ CTL_INT,	NET_CORE_RMEM_MAX,	"rmem_max" },
 	{ CTL_INT,	NET_CORE_WMEM_DEFAULT,	"wmem_default" },
 	{ CTL_INT,	NET_CORE_RMEM_DEFAULT,	"rmem_default" },
-	
+	/* NET_CORE_DESTROY_DELAY unused */
 	{ CTL_INT,	NET_CORE_MAX_BACKLOG,	"netdev_max_backlog" },
-	
+	/* NET_CORE_FASTROUTE unused */
 	{ CTL_INT,	NET_CORE_MSG_COST,	"message_cost" },
 	{ CTL_INT,	NET_CORE_MSG_BURST,	"message_burst" },
 	{ CTL_INT,	NET_CORE_OPTMEM_MAX,	"optmem_max" },
-	
-	
-	
-	
-	
-	
+	/* NET_CORE_HOT_LIST_LENGTH unused */
+	/* NET_CORE_DIVERT_VERSION unused */
+	/* NET_CORE_NO_CONG_THRESH unused */
+	/* NET_CORE_NO_CONG unused */
+	/* NET_CORE_LO_CONG unused */
+	/* NET_CORE_MOD_CONG unused */
 	{ CTL_INT,	NET_CORE_DEV_WEIGHT,	"dev_weight" },
 	{ CTL_INT,	NET_CORE_SOMAXCONN,	"somaxconn" },
 	{ CTL_INT,	NET_CORE_BUDGET,	"netdev_budget" },
@@ -201,22 +201,22 @@ static const struct bin_table bin_net_core_table[] = {
 };
 
 static const struct bin_table bin_net_unix_table[] = {
-	
-	
+	/* NET_UNIX_DESTROY_DELAY unused */
+	/* NET_UNIX_DELETE_DELAY unused */
 	{ CTL_INT,	NET_UNIX_MAX_DGRAM_QLEN,	"max_dgram_qlen" },
 	{}
 };
 
 static const struct bin_table bin_net_ipv4_route_table[] = {
 	{ CTL_INT,	NET_IPV4_ROUTE_FLUSH,			"flush" },
-	
-	
+	/* NET_IPV4_ROUTE_MIN_DELAY "min_delay" no longer used */
+	/* NET_IPV4_ROUTE_MAX_DELAY "max_delay" no longer used */
 	{ CTL_INT,	NET_IPV4_ROUTE_GC_THRESH,		"gc_thresh" },
 	{ CTL_INT,	NET_IPV4_ROUTE_MAX_SIZE,		"max_size" },
 	{ CTL_INT,	NET_IPV4_ROUTE_GC_MIN_INTERVAL,		"gc_min_interval" },
 	{ CTL_INT,	NET_IPV4_ROUTE_GC_MIN_INTERVAL_MS,	"gc_min_interval_ms" },
 	{ CTL_INT,	NET_IPV4_ROUTE_GC_TIMEOUT,		"gc_timeout" },
-	
+	/* NET_IPV4_ROUTE_GC_INTERVAL "gc_interval" no longer used */
 	{ CTL_INT,	NET_IPV4_ROUTE_REDIRECT_LOAD,		"redirect_load" },
 	{ CTL_INT,	NET_IPV4_ROUTE_REDIRECT_NUMBER,		"redirect_number" },
 	{ CTL_INT,	NET_IPV4_ROUTE_REDIRECT_SILENCE,	"redirect_silence" },
@@ -268,15 +268,15 @@ static const struct bin_table bin_net_neigh_vars_table[] = {
 	{ CTL_INT,	NET_NEIGH_MCAST_SOLICIT,	"mcast_solicit" },
 	{ CTL_INT,	NET_NEIGH_UCAST_SOLICIT,	"ucast_solicit" },
 	{ CTL_INT,	NET_NEIGH_APP_SOLICIT,		"app_solicit" },
-	
+	/* NET_NEIGH_RETRANS_TIME "retrans_time" no longer used */
 	{ CTL_INT,	NET_NEIGH_REACHABLE_TIME,	"base_reachable_time" },
 	{ CTL_INT,	NET_NEIGH_DELAY_PROBE_TIME,	"delay_first_probe_time" },
 	{ CTL_INT,	NET_NEIGH_GC_STALE_TIME,	"gc_stale_time" },
 	{ CTL_INT,	NET_NEIGH_UNRES_QLEN,		"unres_qlen" },
 	{ CTL_INT,	NET_NEIGH_PROXY_QLEN,		"proxy_qlen" },
-	
-	
-	
+	/* NET_NEIGH_ANYCAST_DELAY "anycast_delay" no longer used */
+	/* NET_NEIGH_PROXY_DELAY "proxy_delay" no longer used */
+	/* NET_NEIGH_LOCKTIME "locktime" no longer used */
 	{ CTL_INT,	NET_NEIGH_GC_INTERVAL,		"gc_interval" },
 	{ CTL_INT,	NET_NEIGH_GC_THRESH1,		"gc_thresh1" },
 	{ CTL_INT,	NET_NEIGH_GC_THRESH2,		"gc_thresh2" },
@@ -295,34 +295,34 @@ static const struct bin_table bin_net_neigh_table[] = {
 static const struct bin_table bin_net_ipv4_netfilter_table[] = {
 	{ CTL_INT,	NET_IPV4_NF_CONNTRACK_MAX,		"ip_conntrack_max" },
 
-	
-	
-	
-	
-	
-	
-	
-	
+	/* NET_IPV4_NF_CONNTRACK_TCP_TIMEOUT_SYN_SENT "ip_conntrack_tcp_timeout_syn_sent" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_TCP_TIMEOUT_SYN_RECV "ip_conntrack_tcp_timeout_syn_recv" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_TCP_TIMEOUT_ESTABLISHED "ip_conntrack_tcp_timeout_established" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_TCP_TIMEOUT_FIN_WAIT "ip_conntrack_tcp_timeout_fin_wait" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_TCP_TIMEOUT_CLOSE_WAIT	"ip_conntrack_tcp_timeout_close_wait" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_TCP_TIMEOUT_LAST_ACK "ip_conntrack_tcp_timeout_last_ack" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_TCP_TIMEOUT_TIME_WAIT "ip_conntrack_tcp_timeout_time_wait" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_TCP_TIMEOUT_CLOSE "ip_conntrack_tcp_timeout_close" no longer used */
 
-	
-	
-	
-	
+	/* NET_IPV4_NF_CONNTRACK_UDP_TIMEOUT "ip_conntrack_udp_timeout" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_UDP_TIMEOUT_STREAM "ip_conntrack_udp_timeout_stream" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_ICMP_TIMEOUT "ip_conntrack_icmp_timeout" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_GENERIC_TIMEOUT "ip_conntrack_generic_timeout" no longer used */
 
 	{ CTL_INT,	NET_IPV4_NF_CONNTRACK_BUCKETS,		"ip_conntrack_buckets" },
 	{ CTL_INT,	NET_IPV4_NF_CONNTRACK_LOG_INVALID,	"ip_conntrack_log_invalid" },
-	
+	/* NET_IPV4_NF_CONNTRACK_TCP_TIMEOUT_MAX_RETRANS "ip_conntrack_tcp_timeout_max_retrans" no longer used */
 	{ CTL_INT,	NET_IPV4_NF_CONNTRACK_TCP_LOOSE,	"ip_conntrack_tcp_loose" },
 	{ CTL_INT,	NET_IPV4_NF_CONNTRACK_TCP_BE_LIBERAL,	"ip_conntrack_tcp_be_liberal" },
 	{ CTL_INT,	NET_IPV4_NF_CONNTRACK_TCP_MAX_RETRANS,	"ip_conntrack_tcp_max_retrans" },
 
-	
-	
-	
-	
-	
-	
-	
+	/* NET_IPV4_NF_CONNTRACK_SCTP_TIMEOUT_CLOSED "ip_conntrack_sctp_timeout_closed" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_SCTP_TIMEOUT_COOKIE_WAIT "ip_conntrack_sctp_timeout_cookie_wait" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_SCTP_TIMEOUT_COOKIE_ECHOED "ip_conntrack_sctp_timeout_cookie_echoed" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_SCTP_TIMEOUT_ESTABLISHED "ip_conntrack_sctp_timeout_established" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_SCTP_TIMEOUT_SHUTDOWN_SENT "ip_conntrack_sctp_timeout_shutdown_sent" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_SCTP_TIMEOUT_SHUTDOWN_RECD "ip_conntrack_sctp_timeout_shutdown_recd" no longer used */
+	/* NET_IPV4_NF_CONNTRACK_SCTP_TIMEOUT_SHUTDOWN_ACK_SENT "ip_conntrack_sctp_timeout_shutdown_ack_sent" no longer used */
 
 	{ CTL_INT,	NET_IPV4_NF_CONNTRACK_COUNT,		"ip_conntrack_count" },
 	{ CTL_INT,	NET_IPV4_NF_CONNTRACK_CHECKSUM,		"ip_conntrack_checksum" },
@@ -335,7 +335,7 @@ static const struct bin_table bin_net_ipv4_table[] = {
 	{ CTL_DIR,	NET_IPV4_CONF,		"conf",		bin_net_ipv4_conf_table },
 	{ CTL_DIR,	NET_IPV4_NEIGH,		"neigh",	bin_net_neigh_table },
 	{ CTL_DIR,	NET_IPV4_ROUTE,		"route",	bin_net_ipv4_route_table },
-	
+	/* NET_IPV4_FIB_HASH unused */
 	{ CTL_DIR,	NET_IPV4_NETFILTER,	"netfilter",	bin_net_ipv4_netfilter_table },
 
 	{ CTL_INT,	NET_IPV4_TCP_TIMESTAMPS,		"tcp_timestamps" },
@@ -343,7 +343,7 @@ static const struct bin_table bin_net_ipv4_table[] = {
 	{ CTL_INT,	NET_IPV4_TCP_SACK,			"tcp_sack" },
 	{ CTL_INT,	NET_IPV4_TCP_RETRANS_COLLAPSE,		"tcp_retrans_collapse" },
 	{ CTL_INT,	NET_IPV4_DEFAULT_TTL,			"ip_default_ttl" },
-	
+	/* NET_IPV4_AUTOCONFIG unused */
 	{ CTL_INT,	NET_IPV4_NO_PMTU_DISC,			"ip_no_pmtu_disc" },
 	{ CTL_INT,	NET_IPV4_NONLOCAL_BIND,			"ip_nonlocal_bind" },
 	{ CTL_INT,	NET_IPV4_TCP_SYN_RETRIES,		"tcp_syn_retries" },
@@ -399,7 +399,7 @@ static const struct bin_table bin_net_ipv4_table[] = {
 	{ CTL_INT,	NET_CIPSOV4_CACHE_BUCKET_SIZE,		"cipso_cache_bucket_size" },
 	{ CTL_INT,	NET_CIPSOV4_RBM_OPTFMT,			"cipso_rbm_optfmt" },
 	{ CTL_INT,	NET_CIPSOV4_RBM_STRICTVALID,		"cipso_rbm_strictvalid" },
-	
+	/* NET_TCP_AVAIL_CONG_CONTROL "tcp_available_congestion_control" no longer used */
 	{ CTL_STR,	NET_TCP_ALLOWED_CONG_CONTROL,		"tcp_allowed_congestion_control" },
 	{ CTL_INT,	NET_TCP_MAX_SSTHRESH,			"tcp_max_ssthresh" },
 
@@ -415,27 +415,27 @@ static const struct bin_table bin_net_ipv4_table[] = {
 	{ CTL_INT,	NET_IPV4_IPFRAG_TIME,			"ipfrag_time" },
 
 	{ CTL_INT,	NET_IPV4_IPFRAG_SECRET_INTERVAL,	"ipfrag_secret_interval" },
-	
+	/* NET_IPV4_IPFRAG_MAX_DIST "ipfrag_max_dist" no longer used */
 
-	{ CTL_INT,	2088 ,		"ip_queue_maxlen" },
+	{ CTL_INT,	2088 /* NET_IPQ_QMAX */,		"ip_queue_maxlen" },
 
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
+	/* NET_TCP_DEFAULT_WIN_SCALE unused */
+	/* NET_TCP_BIC_BETA unused */
+	/* NET_IPV4_TCP_MAX_KA_PROBES unused */
+	/* NET_IPV4_IP_MASQ_DEBUG unused */
+	/* NET_TCP_SYN_TAILDROP unused */
+	/* NET_IPV4_ICMP_SOURCEQUENCH_RATE unused */
+	/* NET_IPV4_ICMP_DESTUNREACH_RATE unused */
+	/* NET_IPV4_ICMP_TIMEEXCEED_RATE unused */
+	/* NET_IPV4_ICMP_PARAMPROB_RATE unused */
+	/* NET_IPV4_ICMP_ECHOREPLY_RATE unused */
+	/* NET_IPV4_ALWAYS_DEFRAG unused */
 	{}
 };
 
 static const struct bin_table bin_net_ipx_table[] = {
 	{ CTL_INT,	NET_IPX_PPROP_BROADCASTING,	"ipx_pprop_broadcasting" },
-	
+	/* NET_IPX_FORWARDING unused */
 	{}
 };
 
@@ -537,7 +537,7 @@ static const struct bin_table bin_net_ipv6_conf_table[] = {
 };
 
 static const struct bin_table bin_net_ipv6_route_table[] = {
-	
+	/* NET_IPV6_ROUTE_FLUSH	"flush"  no longer used */
 	{ CTL_INT,	NET_IPV6_ROUTE_GC_THRESH,		"gc_thresh" },
 	{ CTL_INT,	NET_IPV6_ROUTE_MAX_SIZE,		"max_size" },
 	{ CTL_INT,	NET_IPV6_ROUTE_GC_MIN_INTERVAL,		"gc_min_interval" },
@@ -566,7 +566,7 @@ static const struct bin_table bin_net_ipv6_table[] = {
 	{ CTL_INT,	NET_IPV6_IP6FRAG_TIME,		"ip6frag_time" },
 	{ CTL_INT,	NET_IPV6_IP6FRAG_SECRET_INTERVAL,	"ip6frag_secret_interval" },
 	{ CTL_INT,	NET_IPV6_MLD_MAX_MSF,		"mld_max_msf" },
-	{ CTL_INT,	2088 ,		"ip6_queue_maxlen" },
+	{ CTL_INT,	2088 /* IPQ_QMAX */,		"ip6_queue_maxlen" },
 	{}
 };
 
@@ -670,34 +670,34 @@ static const struct bin_table bin_net_llc_table[] = {
 
 static const struct bin_table bin_net_netfilter_table[] = {
 	{ CTL_INT,	NET_NF_CONNTRACK_MAX,			"nf_conntrack_max" },
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
+	/* NET_NF_CONNTRACK_TCP_TIMEOUT_SYN_SENT "nf_conntrack_tcp_timeout_syn_sent" no longer used */
+	/* NET_NF_CONNTRACK_TCP_TIMEOUT_SYN_RECV "nf_conntrack_tcp_timeout_syn_recv" no longer used */
+	/* NET_NF_CONNTRACK_TCP_TIMEOUT_ESTABLISHED "nf_conntrack_tcp_timeout_established" no longer used */
+	/* NET_NF_CONNTRACK_TCP_TIMEOUT_FIN_WAIT "nf_conntrack_tcp_timeout_fin_wait" no longer used */
+	/* NET_NF_CONNTRACK_TCP_TIMEOUT_CLOSE_WAIT "nf_conntrack_tcp_timeout_close_wait" no longer used */
+	/* NET_NF_CONNTRACK_TCP_TIMEOUT_LAST_ACK "nf_conntrack_tcp_timeout_last_ack" no longer used */
+	/* NET_NF_CONNTRACK_TCP_TIMEOUT_TIME_WAIT "nf_conntrack_tcp_timeout_time_wait" no longer used */
+	/* NET_NF_CONNTRACK_TCP_TIMEOUT_CLOSE "nf_conntrack_tcp_timeout_close" no longer used */
+	/* NET_NF_CONNTRACK_UDP_TIMEOUT	"nf_conntrack_udp_timeout" no longer used */
+	/* NET_NF_CONNTRACK_UDP_TIMEOUT_STREAM "nf_conntrack_udp_timeout_stream" no longer used */
+	/* NET_NF_CONNTRACK_ICMP_TIMEOUT "nf_conntrack_icmp_timeout" no longer used */
+	/* NET_NF_CONNTRACK_GENERIC_TIMEOUT "nf_conntrack_generic_timeout" no longer used */
 	{ CTL_INT,	NET_NF_CONNTRACK_BUCKETS,		"nf_conntrack_buckets" },
 	{ CTL_INT,	NET_NF_CONNTRACK_LOG_INVALID,		"nf_conntrack_log_invalid" },
-	
+	/* NET_NF_CONNTRACK_TCP_TIMEOUT_MAX_RETRANS "nf_conntrack_tcp_timeout_max_retrans" no longer used */
 	{ CTL_INT,	NET_NF_CONNTRACK_TCP_LOOSE,		"nf_conntrack_tcp_loose" },
 	{ CTL_INT,	NET_NF_CONNTRACK_TCP_BE_LIBERAL,	"nf_conntrack_tcp_be_liberal" },
 	{ CTL_INT,	NET_NF_CONNTRACK_TCP_MAX_RETRANS,	"nf_conntrack_tcp_max_retrans" },
-	
-	
-	
-	
-	
-	
-	
+	/* NET_NF_CONNTRACK_SCTP_TIMEOUT_CLOSED "nf_conntrack_sctp_timeout_closed" no longer used */
+	/* NET_NF_CONNTRACK_SCTP_TIMEOUT_COOKIE_WAIT "nf_conntrack_sctp_timeout_cookie_wait" no longer used */
+	/* NET_NF_CONNTRACK_SCTP_TIMEOUT_COOKIE_ECHOED "nf_conntrack_sctp_timeout_cookie_echoed" no longer used */
+	/* NET_NF_CONNTRACK_SCTP_TIMEOUT_ESTABLISHED "nf_conntrack_sctp_timeout_established" no longer used */
+	/* NET_NF_CONNTRACK_SCTP_TIMEOUT_SHUTDOWN_SENT "nf_conntrack_sctp_timeout_shutdown_sent" no longer used */
+	/* NET_NF_CONNTRACK_SCTP_TIMEOUT_SHUTDOWN_RECD "nf_conntrack_sctp_timeout_shutdown_recd" no longer used */
+	/* NET_NF_CONNTRACK_SCTP_TIMEOUT_SHUTDOWN_ACK_SENT "nf_conntrack_sctp_timeout_shutdown_ack_sent" no longer used */
 	{ CTL_INT,	NET_NF_CONNTRACK_COUNT,			"nf_conntrack_count" },
-	
-	
+	/* NET_NF_CONNTRACK_ICMPV6_TIMEOUT "nf_conntrack_icmpv6_timeout" no longer used */
+	/* NET_NF_CONNTRACK_FRAG6_TIMEOUT "nf_conntrack_frag6_timeout" no longer used */
 	{ CTL_INT,	NET_NF_CONNTRACK_FRAG6_LOW_THRESH,	"nf_conntrack_frag6_low_thresh" },
 	{ CTL_INT,	NET_NF_CONNTRACK_FRAG6_HIGH_THRESH,	"nf_conntrack_frag6_high_thresh" },
 	{ CTL_INT,	NET_NF_CONNTRACK_CHECKSUM,		"nf_conntrack_checksum" },
@@ -725,25 +725,25 @@ static const struct bin_table bin_net_irda_table[] = {
 
 static const struct bin_table bin_net_table[] = {
 	{ CTL_DIR,	NET_CORE,		"core",		bin_net_core_table },
-	
-	
+	/* NET_ETHER not used */
+	/* NET_802 not used */
 	{ CTL_DIR,	NET_UNIX,		"unix",		bin_net_unix_table },
 	{ CTL_DIR,	NET_IPV4,		"ipv4",		bin_net_ipv4_table },
 	{ CTL_DIR,	NET_IPX,		"ipx",		bin_net_ipx_table },
 	{ CTL_DIR,	NET_ATALK,		"appletalk",	bin_net_atalk_table },
 	{ CTL_DIR,	NET_NETROM,		"netrom",	bin_net_netrom_table },
 	{ CTL_DIR,	NET_AX25,		"ax25",		bin_net_ax25_table },
-	
+	/*  NET_BRIDGE "bridge" no longer used */
 	{ CTL_DIR,	NET_ROSE,		"rose",		bin_net_rose_table },
 	{ CTL_DIR,	NET_IPV6,		"ipv6",		bin_net_ipv6_table },
 	{ CTL_DIR,	NET_X25,		"x25",		bin_net_x25_table },
 	{ CTL_DIR,	NET_TR,			"token-ring",	bin_net_tr_table },
 	{ CTL_DIR,	NET_DECNET,		"decnet",	bin_net_decnet_table },
-	
+	/*  NET_ECONET not used */
 	{ CTL_DIR,	NET_SCTP,		"sctp",		bin_net_sctp_table },
 	{ CTL_DIR,	NET_LLC,		"llc",		bin_net_llc_table },
 	{ CTL_DIR,	NET_NETFILTER,		"netfilter",	bin_net_netfilter_table },
-	
+	/* NET_DCCP "dccp" no longer used */
 	{ CTL_DIR,	NET_IRDA,		"irda",		bin_net_irda_table },
 	{ CTL_INT,	2089,			"nf_conntrack_max" },
 	{}
@@ -802,14 +802,14 @@ static const struct bin_table bin_inotify_table[] = {
 static const struct bin_table bin_fs_table[] = {
 	{ CTL_INT,	FS_NRINODE,		"inode-nr" },
 	{ CTL_INT,	FS_STATINODE,		"inode-state" },
-	
-	
-	
-	
+	/* FS_MAXINODE unused */
+	/* FS_NRDQUOT unused */
+	/* FS_MAXDQUOT unused */
+	/* FS_NRFILE "file-nr" no longer used */
 	{ CTL_INT,	FS_MAXFILE,		"file-max" },
 	{ CTL_INT,	FS_DENTRY,		"dentry-state" },
-	
-	
+	/* FS_NRSUPER unused */
+	/* FS_MAXUPSER unused */
 	{ CTL_INT,	FS_OVERFLOWUID,		"overflowuid" },
 	{ CTL_INT,	FS_OVERFLOWGID,		"overflowgid" },
 	{ CTL_INT,	FS_LEASES,		"leases-enable" },
@@ -831,12 +831,12 @@ static const struct bin_table bin_ipmi_table[] = {
 };
 
 static const struct bin_table bin_mac_hid_files[] = {
-	
-	
+	/* DEV_MAC_HID_KEYBOARD_SENDS_LINUX_KEYCODES unused */
+	/* DEV_MAC_HID_KEYBOARD_LOCK_KEYCODES unused */
 	{ CTL_INT,	DEV_MAC_HID_MOUSE_BUTTON_EMULATION,	"mouse_button_emulation" },
 	{ CTL_INT,	DEV_MAC_HID_MOUSE_BUTTON2_KEYCODE,	"mouse_button2_keycode" },
 	{ CTL_INT,	DEV_MAC_HID_MOUSE_BUTTON3_KEYCODE,	"mouse_button3_keycode" },
-	
+	/* DEV_MAC_HID_ADB_MOUSE_SENDS_KEYCODES unused */
 	{}
 };
 
@@ -852,9 +852,9 @@ static const struct bin_table bin_scsi_table[] = {
 };
 
 static const struct bin_table bin_dev_table[] = {
-	
-	
-	
+	/* DEV_CDROM	"cdrom" no longer used */
+	/* DEV_HWMON unused */
+	/* DEV_PARPORT	"parport" no longer used */
 	{ CTL_DIR,	DEV_RAID,	"raid",		bin_raid_table },
 	{ CTL_DIR,	DEV_MAC_HID,	"mac_hid",	bin_mac_hid_files },
 	{ CTL_DIR,	DEV_SCSI,	"scsi",		bin_scsi_table },
@@ -876,16 +876,16 @@ static const struct bin_table bin_bus_table[] = {
 
 
 static const struct bin_table bin_s390dbf_table[] = {
-	{ CTL_INT,	5678 , "debug_stoppable" },
-	{ CTL_INT,	5679 ,	  "debug_active" },
+	{ CTL_INT,	5678 /* CTL_S390DBF_STOPPABLE */, "debug_stoppable" },
+	{ CTL_INT,	5679 /* CTL_S390DBF_ACTIVE */,	  "debug_active" },
 	{}
 };
 
 static const struct bin_table bin_sunrpc_table[] = {
-	
-	
-	
-	
+	/* CTL_RPCDEBUG	"rpc_debug"  no longer used */
+	/* CTL_NFSDEBUG "nfs_debug"  no longer used */
+	/* CTL_NFSDDEBUG "nfsd_debug" no longer used  */
+	/* CTL_NLMDEBUG "nlm_debug" no longer used */
 
 	{ CTL_INT,	CTL_SLOTTABLE_UDP,	"udp_slot_table_entries" },
 	{ CTL_INT,	CTL_SLOTTABLE_TCP,	"tcp_slot_table_entries" },
@@ -895,11 +895,11 @@ static const struct bin_table bin_sunrpc_table[] = {
 };
 
 static const struct bin_table bin_pm_table[] = {
-	
-	
-	{ CTL_INT,	2 ,		"cmode" },
-	{ CTL_INT,	3 ,		"p0" },
-	{ CTL_INT,	4 ,		"cm" },
+	/* frv specific */
+	/* 1 == CTL_PM_SUSPEND	"suspend"  no longer used" */
+	{ CTL_INT,	2 /* CTL_PM_CMODE */,		"cmode" },
+	{ CTL_INT,	3 /* CTL_PM_P0 */,		"p0" },
+	{ CTL_INT,	4 /* CTL_PM_CM */,		"cm" },
 	{}
 };
 
@@ -907,14 +907,14 @@ static const struct bin_table bin_root_table[] = {
 	{ CTL_DIR,	CTL_KERN,	"kernel",	bin_kern_table },
 	{ CTL_DIR,	CTL_VM,		"vm",		bin_vm_table },
 	{ CTL_DIR,	CTL_NET,	"net",		bin_net_table },
-	
+	/* CTL_PROC not used */
 	{ CTL_DIR,	CTL_FS,		"fs",		bin_fs_table },
-	
+	/* CTL_DEBUG "debug" no longer used */
 	{ CTL_DIR,	CTL_DEV,	"dev",		bin_dev_table },
 	{ CTL_DIR,	CTL_BUS,	"bus",		bin_bus_table },
 	{ CTL_DIR,	CTL_ABI,	"abi" },
-	
-	
+	/* CTL_CPU not used */
+	/* CTL_ARLAN "arlan" no longer used */
 	{ CTL_DIR,	CTL_S390DBF,	"s390dbf",	bin_s390dbf_table },
 	{ CTL_DIR,	CTL_SUNRPC,	"sunrpc",	bin_sunrpc_table },
 	{ CTL_DIR,	CTL_PM,		"pm",		bin_pm_table },
@@ -949,7 +949,7 @@ static ssize_t bin_string(struct file *file,
 		if (get_user(ch, lastp))
 			goto out;
 
-		
+		/* Trim off the trailing newline */
 		if (ch == '\n') {
 			result = -EFAULT;
 			if (put_user('\0', lastp))
@@ -1133,7 +1133,7 @@ static ssize_t bin_uuid(struct file *file,
 	mm_segment_t old_fs = get_fs();
 	ssize_t result, copied = 0;
 
-	
+	/* Only supports reads */
 	if (oldval && oldlen) {
 		loff_t pos = 0;
 		char buf[40], *str = buf;
@@ -1148,7 +1148,7 @@ static ssize_t bin_uuid(struct file *file,
 
 		buf[result] = '\0';
 
-		
+		/* Convert the uuid to from a string to binary */
 		for (i = 0; i < 16; i++) {
 			result = -EIO;
 			if (!isxdigit(str[0]) || !isxdigit(str[1]))
@@ -1195,7 +1195,7 @@ static ssize_t bin_dn_node_address(struct file *file,
 
 		buf[result] = '\0';
 
-		
+		/* Convert the decnet address to binary */
 		result = -EIO;
 		nodep = strchr(buf, '.') + 1;
 		if (!nodep)
@@ -1252,6 +1252,10 @@ static const struct bin_table *get_sysctl(const int *name, int nlen, char *path)
 	const struct bin_table *table = &bin_root_table[0];
 	int ctl_name;
 
+	/* The binary sysctl tables have a small maximum depth so
+	 * there is no danger of overflowing our path as it PATH_MAX
+	 * bytes long.
+	 */
 	memcpy(path, "sys/", 4);
 	path += 4;
 
@@ -1264,6 +1268,10 @@ repeat:
 	for ( ; table->convert; table++) {
 		int len = 0;
 
+		/*
+		 * For a wild card entry map from ifindex to network
+		 * device name.
+		 */
 		if (!table->ctl_name) {
 #ifdef CONFIG_NET
 			struct net *net = current->nsproxy->net_ns;
@@ -1275,7 +1283,7 @@ repeat:
 				dev_put(dev);
 			}
 #endif
-		
+		/* Use the well known sysctl number to proc name mapping */
 		} else if (ctl_name == table->ctl_name) {
 			len = strlen(table->procname);
 			memcpy(path, table->procname, len);
@@ -1327,7 +1335,7 @@ static ssize_t binary_sysctl(const int *name, int nlen,
 	if (IS_ERR(pathname))
 		goto out;
 
-	
+	/* How should the sysctl be accessed? */
 	if (oldval && oldlen && newval && newlen) {
 		flags = O_RDWR;
 	} else if (newval && newlen) {
@@ -1355,7 +1363,7 @@ out:
 }
 
 
-#else 
+#else /* CONFIG_SYSCTL_SYSCALL */
 
 static ssize_t binary_sysctl(const int *name, int nlen,
 	void __user *oldval, size_t oldlen, void __user *newval, size_t newlen)
@@ -1363,13 +1371,17 @@ static ssize_t binary_sysctl(const int *name, int nlen,
 	return -ENOSYS;
 }
 
-#endif 
+#endif /* CONFIG_SYSCTL_SYSCALL */
 
 
 static void deprecated_sysctl_warning(const int *name, int nlen)
 {
 	int i;
 
+	/*
+	 * CTL_KERN/KERN_VERSION is used by older glibc and cannot
+	 * ever go away.
+	 */
 	if (name[0] == CTL_KERN && name[1] == KERN_VERSION)
 		return;
 
@@ -1392,6 +1404,14 @@ static DECLARE_BITMAP(warn_once_bitmap, WARN_ONCE_HASH_SIZE);
 #define FNV32_OFFSET 2166136261U
 #define FNV32_PRIME 0x01000193
 
+/*
+ * Print each legacy sysctl (approximately) only once.
+ * To avoid making the tables non-const use a external
+ * hash-table instead.
+ * Worst case hash collision: 6, but very rarely.
+ * NOTE! We don't use the SMP-safe bit tests. We simply
+ * don't care enough.
+ */
 static void warn_on_bintable(const int *name, int nlen)
 {
 	int i;
@@ -1411,10 +1431,10 @@ static ssize_t do_sysctl(int __user *args_name, int nlen,
 	int name[CTL_MAXNAME];
 	int i;
 
-	
+	/* Check args->nlen. */
 	if (nlen < 0 || nlen > CTL_MAXNAME)
 		return -ENOTDIR;
-	
+	/* Read in the sysctl name for simplicity */
 	for (i = 0; i < nlen; i++)
 		if (get_user(name[i], args_name + i))
 			return -EFAULT;
@@ -1499,4 +1519,4 @@ asmlinkage long compat_sys_sysctl(struct compat_sysctl_args __user *args)
 	return result;
 }
 
-#endif 
+#endif /* CONFIG_COMPAT */

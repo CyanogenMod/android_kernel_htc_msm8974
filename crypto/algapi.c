@@ -187,7 +187,7 @@ static struct crypto_larval *__crypto_register_alg(struct crypto_alg *alg)
 
 	INIT_LIST_HEAD(&alg->cra_users);
 
-	
+	/* No cheating! */
 	alg->cra_flags &= ~CRYPTO_ALG_TESTED;
 
 	ret = -EEXIST;
@@ -278,6 +278,11 @@ found:
 		if (crypto_is_larval(q)) {
 			struct crypto_larval *larval = (void *)q;
 
+			/*
+			 * Check to see if either our generic name or
+			 * specific name can satisfy the name requested
+			 * by the larval entry q.
+			 */
 			if (strcmp(alg->cra_name, q->cra_name) &&
 			    strcmp(alg->cra_driver_name, q->cra_name))
 				continue;

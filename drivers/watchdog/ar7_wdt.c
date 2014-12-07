@@ -74,9 +74,12 @@ static unsigned long wdt_is_open;
 static unsigned expect_close;
 static DEFINE_SPINLOCK(wdt_lock);
 
+/* XXX currently fixed, allows max margin ~68.72 secs */
 #define prescale_value 0xffff
 
+/* Resource of the WDT registers */
 static struct resource *ar7_regs_wdt;
+/* Pointer to the remapped WDT IO space */
 static struct ar7_wdt *ar7_wdt;
 
 static struct clk *vbus_clk;
@@ -168,7 +171,7 @@ static void ar7_wdt_disable_wdt(void)
 
 static int ar7_wdt_open(struct inode *inode, struct file *file)
 {
-	
+	/* only allow one at a time */
 	if (test_and_set_bit(0, &wdt_is_open))
 		return -EBUSY;
 	ar7_wdt_enable_wdt();
@@ -190,7 +193,7 @@ static int ar7_wdt_release(struct inode *inode, struct file *file)
 static ssize_t ar7_wdt_write(struct file *file, const char *data,
 			     size_t len, loff_t *ppos)
 {
-	
+	/* check for a magic close character */
 	if (len) {
 		size_t i;
 

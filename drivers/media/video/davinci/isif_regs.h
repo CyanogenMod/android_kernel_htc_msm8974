@@ -18,6 +18,7 @@
 #ifndef _ISIF_REGS_H
 #define _ISIF_REGS_H
 
+/* ISIF registers relative offsets */
 #define SYNCEN					0x00
 #define MODESET					0x04
 #define HDW					0x08
@@ -53,6 +54,9 @@
 #define CGAMMAWD				0x80
 #define REC656IF				0x84
 #define CCDCFG					0x88
+/*****************************************************
+* Defect Correction registers
+*****************************************************/
 #define DFCCTL					0x8c
 #define VDFSATLV				0x90
 #define DFCMEMCTL				0x94
@@ -61,6 +65,9 @@
 #define DFCMEM2					0xa0
 #define DFCMEM3					0xa4
 #define DFCMEM4					0xa8
+/****************************************************
+* Black Clamp registers
+****************************************************/
 #define CLAMPCFG				0xac
 #define CLDCOFST				0xb0
 #define CLSV					0xb4
@@ -72,6 +79,9 @@
 #define CLVWIN1					0xcc
 #define CLVWIN2					0xd0
 #define CLVWIN3					0xd4
+/****************************************************
+* Lense Shading Correction
+****************************************************/
 #define DATAHOFST				0xd8
 #define DATAVOFST				0xdc
 #define LSCHVAL					0xe0
@@ -87,6 +97,9 @@
 #define TWODLSCOROF				0x108
 #define TWODLSCIRQEN				0x10c
 #define TWODLSCIRQST				0x110
+/****************************************************
+* Data formatter
+****************************************************/
 #define FMTCFG					0x114
 #define FMTPLEN					0x118
 #define FMTSPH					0x11c
@@ -96,6 +109,7 @@
 #define FMTRLEN					0x12c
 #define FMTHCNT					0x130
 #define FMTAPTR_BASE				0x134
+/* Below macro for addresses FMTAPTR0 - FMTAPTR15 */
 #define FMTAPTR(i)			(FMTAPTR_BASE + (i * 4))
 #define FMTPGMVF0				0x174
 #define FMTPGMVF1				0x178
@@ -109,6 +123,9 @@
 #define FMTPGMAPS5				0x198
 #define FMTPGMAPS6				0x19c
 #define FMTPGMAPS7				0x1a0
+/************************************************
+* Color Space Converter
+************************************************/
 #define CSCCTL					0x1a4
 #define CSCM0					0x1a8
 #define CSCM1					0x1ac
@@ -132,12 +149,14 @@
 #define OBVAL7					0x1f4
 #define CLKCTL					0x1f8
 
+/* Masks & Shifts below */
 #define START_PX_HOR_MASK			0x7FFF
 #define NUM_PX_HOR_MASK				0x7FFF
 #define START_VER_ONE_MASK			0x7FFF
 #define START_VER_TWO_MASK			0x7FFF
 #define NUM_LINES_VER				0x7FFF
 
+/* gain - offset masks */
 #define GAIN_INTEGER_SHIFT			9
 #define OFFSET_MASK				0xFFF
 #define GAIN_SDRAM_EN_SHIFT			12
@@ -148,8 +167,10 @@
 #define OFST_H3A_EN_SHIFT			10
 #define GAIN_OFFSET_EN_MASK			0x7700
 
+/* Culling */
 #define CULL_PAT_EVEN_LINE_SHIFT		8
 
+/* CCDCFG register */
 #define ISIF_YCINSWP_RAW			(0x00 << 4)
 #define ISIF_YCINSWP_YCBCR			(0x01 << 4)
 #define ISIF_CCDCFG_FIDMD_LATCH_VSYNC		(0x00 << 6)
@@ -165,6 +186,7 @@
 #define ISIF_PIX_ORDER_SHIFT			11
 #define ISIF_BW656_ENABLE			(0x01 << 5)
 
+/* MODESET registers */
 #define ISIF_VDHDOUT_INPUT			(0x00 << 0)
 #define ISIF_INPUT_SHIFT			12
 #define ISIF_RAW_INPUT_MODE			0
@@ -180,17 +202,21 @@
 #define ISIF_LPF_SHIFT				14
 #define ISIF_LPF_MASK				1
 
+/* GAMMAWD registers */
 #define ISIF_ALAW_GAMA_WD_MASK			0xF
 #define ISIF_ALAW_GAMA_WD_SHIFT			1
 #define ISIF_ALAW_ENABLE			1
 #define ISIF_GAMMAWD_CFA_SHIFT			5
 
+/* HSIZE registers */
 #define ISIF_HSIZE_FLIP_MASK			1
 #define ISIF_HSIZE_FLIP_SHIFT			12
 
+/* MISC registers */
 #define ISIF_DPCM_EN_SHIFT			12
 #define ISIF_DPCM_PREDICTOR_SHIFT		13
 
+/* Black clamp related */
 #define ISIF_BC_MODE_COLOR_SHIFT		4
 #define ISIF_HORZ_BC_MODE_SHIFT			1
 #define ISIF_HORZ_BC_WIN_SEL_SHIFT		5
@@ -200,6 +226,7 @@
 #define	ISIF_VERT_BC_RST_VAL_SEL_SHIFT		4
 #define ISIF_VERT_BC_LINE_AVE_COEF_SHIFT	8
 
+/* VDFC registers */
 #define ISIF_VDFC_EN_SHIFT			4
 #define ISIF_VDFC_CORR_MOD_SHIFT		5
 #define ISIF_VDFC_CORR_WHOLE_LN_SHIFT		7
@@ -207,6 +234,7 @@
 #define ISIF_VDFC_POS_MASK			0x1FFF
 #define ISIF_DFCMEMCTL_DFCMARST_SHIFT		2
 
+/* CSC registers */
 #define ISIF_CSC_COEF_INTEG_MASK		7
 #define ISIF_CSC_COEF_DECIMAL_MASK		0x1f
 #define ISIF_CSC_COEF_INTEG_SHIFT		5
@@ -218,18 +246,22 @@
 #define ISIF_DF_NUMLINES			0x7FFF
 #define ISIF_DF_NUMPIX				0x1FFF
 
+/* Offsets for LSC/DFC/Gain */
 #define ISIF_DATA_H_OFFSET_MASK			0x1FFF
 #define ISIF_DATA_V_OFFSET_MASK			0x1FFF
 
+/* Linearization */
 #define ISIF_LIN_CORRSFT_SHIFT			4
 #define ISIF_LIN_SCALE_FACT_INTEG_SHIFT		10
 
 
+/* Pattern registers */
 #define ISIF_PG_EN				(1 << 3)
 #define ISIF_SEL_PG_SRC				(3 << 4)
 #define ISIF_PG_VD_POL_SHIFT			0
 #define ISIF_PG_HD_POL_SHIFT			1
 
+/*random other junk*/
 #define ISIF_SYNCEN_VDHDEN_MASK			(1 << 0)
 #define ISIF_SYNCEN_WEN_MASK			(1 << 1)
 #define ISIF_SYNCEN_WEN_SHIFT			1

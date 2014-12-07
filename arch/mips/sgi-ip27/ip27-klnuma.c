@@ -21,9 +21,14 @@
 
 static cpumask_t ktext_repmask;
 
+/*
+ * XXX - This needs to be much smarter about where it puts copies of the
+ * kernel.  For example, we should never put a copy on a headless node,
+ * and we should respect the topology of the machine.
+ */
 void __init setup_replication_mask(void)
 {
-	
+	/* Set only the master cnode's bit.  The master cnode is always 0. */
 	cpus_clear(ktext_repmask);
 	cpu_set(0, ktext_repmask);
 
@@ -37,12 +42,12 @@ void __init setup_replication_mask(void)
 		for_each_online_node(cnode) {
 			if (cnode == 0)
 				continue;
-			
+			/* Advertise that we have a copy of the kernel */
 			cpu_set(cnode, ktext_repmask);
 		}
 	}
 #endif
-	
+	/* Set up a GDA pointer to the replication mask. */
 	GDA->g_ktext_repmask = &ktext_repmask;
 }
 
@@ -63,6 +68,7 @@ static __init void set_ktext_source(nasid_t client_nasid, nasid_t server_nasid)
 	printk("REPLICATION: ON nasid %d, ktext from nasid %d, kdata from nasid %d\n", client_nasid, server_nasid, master_nasid);
 }
 
+/* XXX - When the BTE works, we should use it instead of this. */
 static __init void copy_kernel(nasid_t dest_nasid)
 {
 	unsigned long dest_kern_start, source_start, source_end, kern_size;
@@ -84,7 +90,7 @@ void __init replicate_kernel_text()
 
 	server_nasid = master_nasid;
 
-	
+	/* Record where the master node should get its kernel text */
 	set_ktext_source(master_nasid, master_nasid);
 
 	for_each_online_node(cnode) {
@@ -92,17 +98,22 @@ void __init replicate_kernel_text()
 			continue;
 		client_nasid = COMPACT_TO_NASID_NODEID(cnode);
 
-		
+		/* Check if this node should get a copy of the kernel */
 		if (cpu_isset(cnode, ktext_repmask)) {
 			server_nasid = client_nasid;
 			copy_kernel(server_nasid);
 		}
 
-		
+		/* Record where this node should get its kernel text */
 		set_ktext_source(client_nasid, server_nasid);
 	}
 }
 
+/*
+ * Return pfn of first free page of memory on a node. PROM may allocate
+ * data structures on the first couple of pages of the first slot of each
+ * node. If this is the case, getfirstfree(node) > getslotstart(node, 0).
+ */
 pfn_t node_getfirstfree(cnodeid_t cnode)
 {
 	unsigned long loadbase = REP_BASE;

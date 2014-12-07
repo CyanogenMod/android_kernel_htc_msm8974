@@ -49,10 +49,14 @@ nv20_fb_init_tile_region(struct drm_device *dev, int i, uint32_t addr,
 	tile->limit = max(1u, addr + size) - 1;
 	tile->pitch = pitch;
 
+	/* Allocate some of the on-die tag memory, used to store Z
+	 * compression meta-data (most likely just a bitmap determining
+	 * if a given tile is compressed or not).
+	 */
 	if (flags & NOUVEAU_GEM_TILE_ZETA) {
 		tile->tag_mem = nv20_fb_alloc_tag(dev, size / 256);
 		if (tile->tag_mem) {
-			
+			/* Enable Z compression */
 			tile->zcomp = tile->tag_mem->start;
 			if (dev_priv->chipset >= 0x25) {
 				if (bpp == 16)
@@ -122,7 +126,7 @@ nv20_fb_init(struct drm_device *dev)
 	else
 		drm_mm_init(&pfb->tag_heap, 0, 32 * 1024);
 
-	
+	/* Turn all the tiling regions off. */
 	pfb->num_tiles = NV10_PFB_TILE__SIZE;
 	for (i = 0; i < pfb->num_tiles; i++)
 		pfb->set_tile_region(dev, i);

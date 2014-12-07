@@ -11,10 +11,10 @@
 
 struct as5011_platform_data {
 	unsigned int button_gpio;
-	unsigned int axis_irq; 
+	unsigned int axis_irq; /* irq number */
 	unsigned long axis_irqflags;
-	char xp, xn; 
-	char yp, yn; 
+	char xp, xn; /* threshold for x axis */
+	char yp, yn; /* threshold for y axis */
 };
 
-#endif 
+#endif /* _AS5011_H */

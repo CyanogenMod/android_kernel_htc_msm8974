@@ -55,6 +55,7 @@ static int uinput_dev_event(struct input_dev *dev, unsigned int type, unsigned i
 	return 0;
 }
 
+/* Atomically allocate an ID for the given request. Returns 0 on success. */
 static int uinput_request_alloc_id(struct uinput_device *udev, struct uinput_request *request)
 {
 	int id;
@@ -77,7 +78,7 @@ static int uinput_request_alloc_id(struct uinput_device *udev, struct uinput_req
 
 static struct uinput_request *uinput_request_find(struct uinput_device *udev, int id)
 {
-	
+	/* Find an input request, by ID. Returns NULL if the ID isn't valid. */
 	if (id >= UINPUT_NUM_REQUESTS || id < 0)
 		return NULL;
 
@@ -86,14 +87,14 @@ static struct uinput_request *uinput_request_find(struct uinput_device *udev, in
 
 static inline int uinput_request_reserve_slot(struct uinput_device *udev, struct uinput_request *request)
 {
-	
+	/* Allocate slot. If none are available right away, wait. */
 	return wait_event_interruptible(udev->requests_waitq,
 					!uinput_request_alloc_id(udev, request));
 }
 
 static void uinput_request_done(struct uinput_device *udev, struct uinput_request *request)
 {
-	
+	/* Mark slot as available */
 	udev->requests[request->id] = NULL;
 	wake_up(&udev->requests_waitq);
 
@@ -117,7 +118,7 @@ static int uinput_request_submit(struct uinput_device *udev, struct uinput_reque
 		goto out;
 	}
 
-	
+	/* Tell our userspace app about this new request by queueing an input event */
 	uinput_dev_event(udev->dev, EV_UINPUT, request->code, request->id);
 
  out:
@@ -125,6 +126,10 @@ static int uinput_request_submit(struct uinput_device *udev, struct uinput_reque
 	return retval;
 }
 
+/*
+ * Fail all ouitstanding requests so handlers don't wait for the userspace
+ * to finish processing them.
+ */
 static void uinput_flush_requests(struct uinput_device *udev)
 {
 	struct uinput_request *request;
@@ -164,6 +169,13 @@ static int uinput_dev_upload_effect(struct input_dev *dev, struct ff_effect *eff
 	struct uinput_request request;
 	int retval;
 
+	/*
+	 * uinput driver does not currently support periodic effects with
+	 * custom waveform since it does not have a way to pass buffer of
+	 * samples (custom_data) to userspace. If ever there is a device
+	 * supporting custom waveforms we would need to define an additional
+	 * ioctl (UI_UPLOAD_SAMPLES) but for now we just bail out.
+	 */
 	if (effect->type == FF_PERIODIC &&
 			effect->u.periodic.waveform == FF_CUSTOM)
 		return -EINVAL;
@@ -359,7 +371,7 @@ static int uinput_setup_device(struct uinput_device *udev, const char __user *bu
 
 	udev->ff_effects_max = user_dev->ff_effects_max;
 
-	
+	/* Ensure name is filled in */
 	if (!user_dev->name[0]) {
 		retval = -EINVAL;
 		goto exit;
@@ -385,6 +397,8 @@ static int uinput_setup_device(struct uinput_device *udev, const char __user *bu
 		input_abs_set_flat(dev, i, user_dev->absflat[i]);
 	}
 
+	/* check if absmin/absmax/absfuzz/absflat are filled as
+	 * told in Documentation/input/input-programming.txt */
 	if (test_bit(EV_ABS, dev->evbit)) {
 		retval = uinput_validate_absbits(dev);
 		if (retval < 0)
@@ -516,6 +530,12 @@ static int uinput_ff_upload_to_user(char __user *buffer,
 
 		ff_up_compat.request_id = ff_up->request_id;
 		ff_up_compat.retval = ff_up->retval;
+		/*
+		 * It so happens that the pointer that gives us the trouble
+		 * is the last field in the structure. Since we don't support
+		 * custom waveforms in uinput anyway we can just copy the whole
+		 * thing (to the compat size) and ignore the pointer.
+		 */
 		memcpy(&ff_up_compat.effect, &ff_up->effect,
 			sizeof(struct ff_effect_compat));
 		memcpy(&ff_up_compat.old, &ff_up->old,

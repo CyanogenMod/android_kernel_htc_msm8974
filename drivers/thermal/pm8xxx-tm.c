@@ -11,6 +11,9 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * Qualcomm PMIC PM8xxx Thermal Manager driver
+ */
 
 #define pr_fmt(fmt) "%s: " fmt, __func__
 
@@ -29,6 +32,7 @@
 #include <linux/mfd/pm8xxx/pm8xxx-adc.h>
 #include <linux/msm_adc.h>
 
+/* Register TEMP_ALARM_CTRL bits */
 #define TEMP_ALARM_CTRL_ST3_SD		0x80
 #define TEMP_ALARM_CTRL_ST2_SD		0x40
 #define TEMP_ALARM_CTRL_STATUS_MASK	0x30
@@ -39,12 +43,13 @@
 #define TEMP_ALARM_CTRL_OVRD_ST2	0x01
 #define TEMP_ALARM_CTRL_OVRD_MASK	0x03
 
-#define TEMP_STAGE_STEP			20000	
+#define TEMP_STAGE_STEP			20000	/* Stage step: 20.000 C */
 #define TEMP_STAGE_HYSTERESIS		2000
 
-#define TEMP_THRESH_MIN			105000	
-#define TEMP_THRESH_STEP		5000	
+#define TEMP_THRESH_MIN			105000	/* Threshold Min: 105 C */
+#define TEMP_THRESH_STEP		5000	/* Threshold step: 5 C */
 
+/* Register TEMP_ALARM_PWM bits */
 #define TEMP_ALARM_PWM_EN_MASK		0xC0
 #define TEMP_ALARM_PWM_EN_NEVER		0x00
 #define TEMP_ALARM_PWM_EN_SLEEP_B	0x40
@@ -55,6 +60,7 @@
 #define TEMP_ALARM_PWM_PER_DIV_MASK	0x07
 #define TEMP_ALARM_PWM_PER_DIV_SHIFT	0
 
+/* Trips: from critical to less critical */
 #define TRIP_STAGE3			0
 #define TRIP_STAGE2			1
 #define TRIP_STAGE1			2
@@ -80,6 +86,7 @@ enum pmic_thermal_override_mode {
 	SOFTWARE_OVERRIDE_ENABLED,
 };
 
+/* Delay between TEMP_STAT IRQ going high and status value changing in ms. */
 #define STATUS_REGISTER_DELAY_MS	40
 
 static inline int pm8xxx_tm_read_ctrl(struct pm8xxx_tm_chip *chip, u8 *reg)
@@ -145,6 +152,10 @@ pm8xxx_tm_shutdown_override(struct pm8xxx_tm_chip *chip,
 	return rc;
 }
 
+/*
+ * This function initializes the internal temperature value based on only the
+ * current thermal stage and threshold.
+ */
 static int pm8xxx_tm_init_temp_no_adc(struct pm8xxx_tm_chip *chip)
 {
 	int rc;
@@ -169,6 +180,10 @@ static int pm8xxx_tm_init_temp_no_adc(struct pm8xxx_tm_chip *chip)
 	return 0;
 }
 
+/*
+ * This function updates the internal temperature value based on the
+ * current thermal stage and threshold as well as the previous stage
+ */
 static int pm8xxx_tm_update_temp_no_adc(struct pm8xxx_tm_chip *chip)
 {
 	unsigned int stage;
@@ -185,12 +200,12 @@ static int pm8xxx_tm_update_temp_no_adc(struct pm8xxx_tm_chip *chip)
 			>> TEMP_ALARM_CTRL_THRESH_SHIFT;
 
 	if (stage > chip->stage) {
-		
+		/* increasing stage, use lower bound */
 		chip->temp = (stage - 1) * TEMP_STAGE_STEP
 				+ chip->thresh * TEMP_THRESH_STEP
 				+ TEMP_STAGE_HYSTERESIS + TEMP_THRESH_MIN;
 	} else if (stage < chip->stage) {
-		
+		/* decreasing stage, use upper bound */
 		chip->temp = stage * TEMP_STAGE_STEP
 				+ chip->thresh * TEMP_THRESH_STEP
 				- TEMP_STAGE_HYSTERESIS + TEMP_THRESH_MIN;
@@ -304,7 +319,7 @@ static int pm8xxx_tz_set_mode(struct thermal_zone_device *thermal,
 	if (!chip)
 		return -EINVAL;
 
-	
+	/* Mask software override requests if they are not allowed. */
 	if (!chip->cdata.allow_software_override)
 		mode = THERMAL_DEVICE_DISABLED;
 
@@ -429,7 +444,7 @@ static void pm8xxx_tm_work(struct work_struct *work)
 	if (rc < 0)
 		goto bail;
 
-	
+	/* Clear status bits. */
 	if (reg & (TEMP_ALARM_CTRL_ST2_SD | TEMP_ALARM_CTRL_ST3_SD)) {
 		reg &= ~(TEMP_ALARM_CTRL_ST2_SD | TEMP_ALARM_CTRL_ST3_SD
 			 | TEMP_ALARM_CTRL_STATUS_MASK);
@@ -464,7 +479,7 @@ static void pm8xxx_tm_work(struct work_struct *work)
 		pr_crit("%s: PMIC Temp Alarm - stage=%u, threshold=%u, temp=%lu mC\n",
 			chip->cdata.tm_name, stage, thresh, temp);
 
-		
+		/* Notify user space */
 		sysfs_notify(&chip->tz_dev->device.kobj, NULL, "type");
 	}
 
@@ -495,7 +510,7 @@ static int pm8xxx_tm_init_reg(struct pm8xxx_tm_chip *chip)
 			>> TEMP_ALARM_CTRL_STATUS_SHIFT;
 	chip->temp = 0;
 
-	
+	/* Use temperature threshold set 0: (105, 125, 145) */
 	chip->thresh = 0;
 	reg = (chip->thresh << TEMP_ALARM_CTRL_THRESH_SHIFT)
 		& TEMP_ALARM_CTRL_THRESH_MASK;
@@ -503,6 +518,15 @@ static int pm8xxx_tm_init_reg(struct pm8xxx_tm_chip *chip)
 	if (rc < 0)
 		return rc;
 
+	/*
+	 * Set the PMIC temperature alarm module to be always on.  This ensures
+	 * that die temperature monitoring is active even if CXO is disabled
+	 * (i.e. when sleep_b is low).  This is necessary since CXO can be
+	 * disabled while the system is still heavily loaded.  Also, using
+	 * the alway-on instead of PWM-enabled configurations ensures that the
+	 * die temperature can be measured by the PMIC ADC without reconfiguring
+	 * the temperature alarm module first.
+	 */
 	rc = pm8xxx_tm_write_pwm(chip, TEMP_ALARM_PWM_EN_ALWAYS);
 
 	return rc;
@@ -572,7 +596,7 @@ static int __devinit pm8xxx_tm_probe(struct platform_device *pdev)
 		goto err_free_chip;
 	}
 
-	
+	/* Select proper thermal zone ops functions based on ADC type. */
 	if (chip->cdata.adc_type == PM8XXX_TM_ADC_PM8XXX_ADC)
 		tz_ops = &pm8xxx_thermal_zone_ops_pm8xxx_adc;
 	else if (chip->cdata.adc_type == PM8XXX_TM_ADC_PM8058_ADC)
@@ -602,7 +626,7 @@ static int __devinit pm8xxx_tm_probe(struct platform_device *pdev)
 			goto err_free_tz;
 	}
 
-	
+	/* Start in HW control; switch to SW control when user changes mode. */
 	chip->mode = THERMAL_DEVICE_DISABLED;
 	thermal_zone_device_update(chip->tz_dev);
 
@@ -671,7 +695,7 @@ static int pm8xxx_tm_suspend(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct pm8xxx_tm_chip *chip = platform_get_drvdata(pdev);
 
-	
+	/* Clear override bits in suspend to allow hardware control */
 	pm8xxx_tm_shutdown_override(chip, SOFTWARE_OVERRIDE_DISABLED);
 
 	return 0;
@@ -682,7 +706,7 @@ static int pm8xxx_tm_resume(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct pm8xxx_tm_chip *chip = platform_get_drvdata(pdev);
 
-	
+	/* Override hardware actions so software can control */
 	if (chip->mode == THERMAL_DEVICE_ENABLED)
 		pm8xxx_tm_shutdown_override(chip, SOFTWARE_OVERRIDE_ENABLED);
 

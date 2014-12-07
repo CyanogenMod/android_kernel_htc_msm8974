@@ -309,6 +309,7 @@ static void s6e8ax0_display_cond(struct s6e8ax0 *lcd)
 		data_to_send, ARRAY_SIZE(data_to_send));
 }
 
+/* Gamma 2.2 Setting (200cd, 7500K, 10MPCD) */
 static void s6e8ax0_gamma_cond(struct s6e8ax0 *lcd)
 {
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
@@ -517,24 +518,25 @@ static void s6e8ax0_acl_off(struct s6e8ax0 *lcd)
 		data_to_send, ARRAY_SIZE(data_to_send));
 }
 
+/* Full white 50% reducing setting */
 static void s6e8ax0_acl_ctrl_set(struct s6e8ax0 *lcd)
 {
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
-	
+	/* Full white 50% reducing setting */
 	static const unsigned char cutoff_50[] = {
 		0xc1, 0x47, 0x53, 0x13, 0x53, 0x00, 0x00, 0x02, 0xcf,
 		0x00, 0x00, 0x04, 0xff,	0x00, 0x00, 0x00, 0x00, 0x00,
 		0x01, 0x08, 0x0f, 0x16, 0x1d, 0x24, 0x2a, 0x31, 0x38,
 		0x3f, 0x46
 	};
-	
+	/* Full white 45% reducing setting */
 	static const unsigned char cutoff_45[] = {
 		0xc1, 0x47, 0x53, 0x13, 0x53, 0x00, 0x00, 0x02, 0xcf,
 		0x00, 0x00, 0x04, 0xff,	0x00, 0x00, 0x00, 0x00, 0x00,
 		0x01, 0x07, 0x0d, 0x13, 0x19, 0x1f, 0x25, 0x2b, 0x31,
 		0x37, 0x3d
 	};
-	
+	/* Full white 40% reducing setting */
 	static const unsigned char cutoff_40[] = {
 		0xc1, 0x47, 0x53, 0x13, 0x53, 0x00, 0x00, 0x02, 0xcf,
 		0x00, 0x00, 0x04, 0xff,	0x00, 0x00, 0x00, 0x00, 0x00,
@@ -552,25 +554,25 @@ static void s6e8ax0_acl_ctrl_set(struct s6e8ax0 *lcd)
 				s6e8ax0_acl_on(lcd);
 		}
 		switch (lcd->gamma) {
-		case 0: 
+		case 0: /* 30cd */
 			s6e8ax0_acl_off(lcd);
 			lcd->cur_acl = 0;
 			break;
-		case 1 ... 3: 
+		case 1 ... 3: /* 50cd ~ 90cd */
 			ops->cmd_write(lcd_to_master(lcd),
 				MIPI_DSI_DCS_LONG_WRITE,
 				cutoff_40,
 				ARRAY_SIZE(cutoff_40));
 			lcd->cur_acl = 40;
 			break;
-		case 4 ... 7: 
+		case 4 ... 7: /* 120cd ~ 210cd */
 			ops->cmd_write(lcd_to_master(lcd),
 				MIPI_DSI_DCS_LONG_WRITE,
 				cutoff_45,
 				ARRAY_SIZE(cutoff_45));
 			lcd->cur_acl = 45;
 			break;
-		case 8 ... 10: 
+		case 8 ... 10: /* 220cd ~ 300cd */
 			ops->cmd_write(lcd_to_master(lcd),
 				MIPI_DSI_DCS_LONG_WRITE,
 				cutoff_50,
@@ -590,7 +592,7 @@ static void s6e8ax0_acl_ctrl_set(struct s6e8ax0 *lcd)
 static void s6e8ax0_read_id(struct s6e8ax0 *lcd, u8 *mtp_id)
 {
 	unsigned int ret;
-	unsigned int addr = 0xd1;	
+	unsigned int addr = 0xd1;	/* MTP ID */
 	struct mipi_dsim_master_ops *ops = lcd_to_master_ops(lcd);
 
 	ret = ops->cmd_read(lcd_to_master(lcd),
@@ -622,7 +624,7 @@ static int s6e8ax0_panel_init(struct s6e8ax0 *lcd)
 	s6e8ax0_acl_ctrl_set(lcd);
 	s6e8ax0_acl_on(lcd);
 
-	
+	/* if ID3 value is not 33h, branch private elvss mode */
 	msleep(lcd->ddi_pd->power_on_delay);
 
 	return 0;
@@ -636,7 +638,7 @@ static int s6e8ax0_update_gamma_ctrl(struct s6e8ax0 *lcd, int brightness)
 			s6e8ax0_22_gamma_table[brightness],
 			ARRAY_SIZE(s6e8ax0_22_gamma_table));
 
-	
+	/* update gamma table. */
 	s6e8ax0_gamma_update(lcd);
 	lcd->gamma = brightness;
 
@@ -663,7 +665,7 @@ static int s6e8ax0_set_power(struct lcd_device *ld, int power)
 	}
 
 	if ((power == FB_BLANK_UNBLANK) && ops->set_blank_mode) {
-		
+		/* LCD power on */
 		if ((POWER_IS_ON(power) && POWER_IS_OFF(lcd->power))
 			|| (POWER_IS_ON(power) && POWER_IS_NRM(lcd->power))) {
 			ret = ops->set_blank_mode(lcd_to_master(lcd), power);
@@ -671,7 +673,7 @@ static int s6e8ax0_set_power(struct lcd_device *ld, int power)
 				lcd->power = power;
 		}
 	} else if ((power == FB_BLANK_POWERDOWN) && ops->set_early_blank_mode) {
-		
+		/* LCD power off */
 		if ((POWER_IS_OFF(power) && POWER_IS_ON(lcd->power)) ||
 		(POWER_IS_ON(lcd->power) && POWER_IS_NRM(power))) {
 			ret = ops->set_early_blank_mode(lcd_to_master(lcd),
@@ -733,7 +735,7 @@ static void s6e8ax0_power_on(struct mipi_dsim_lcd_device *dsim_dev, int power)
 
 	msleep(lcd->ddi_pd->power_on_delay);
 
-	
+	/* lcd power on */
 	if (power)
 		s6e8ax0_regulator_enable(lcd);
 	else
@@ -741,7 +743,7 @@ static void s6e8ax0_power_on(struct mipi_dsim_lcd_device *dsim_dev, int power)
 
 	msleep(lcd->ddi_pd->reset_delay);
 
-	
+	/* lcd reset */
 	if (lcd->ddi_pd->reset)
 		lcd->ddi_pd->reset(lcd->ld);
 	msleep(5);

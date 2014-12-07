@@ -36,7 +36,7 @@
 
 struct pata_imx_priv {
 	struct clk *clk;
-	
+	/* timings/interrupt/control regs */
 	u8 *host_regs;
 	u32 ata_ctl;
 };
@@ -78,7 +78,7 @@ static struct ata_port_operations pata_imx_port_ops = {
 
 static void pata_imx_setup_port(struct ata_ioports *ioaddr)
 {
-	
+	/* Fixup the port shift for platforms that need it */
 	ioaddr->data_addr	= ioaddr->cmd_addr + (ATA_REG_DATA    << 2);
 	ioaddr->error_addr	= ioaddr->cmd_addr + (ATA_REG_ERR     << 2);
 	ioaddr->feature_addr	= ioaddr->cmd_addr + (ATA_REG_FEATURE << 2);
@@ -149,15 +149,15 @@ static int __devinit pata_imx_probe(struct platform_device *pdev)
 		(unsigned long long)io_res->start + PATA_IMX_DRIVE_DATA,
 		(unsigned long long)io_res->start + PATA_IMX_DRIVE_CONTROL);
 
-	
+	/* deassert resets */
 	__raw_writel(PATA_IMX_ATA_CTRL_FIFO_RST_B |
 			PATA_IMX_ATA_CTRL_ATA_RST_B,
 			priv->host_regs + PATA_IMX_ATA_CONTROL);
-	
+	/* enable interrupts */
 	__raw_writel(PATA_IMX_ATA_INTR_ATA_INTRQ2,
 			priv->host_regs + PATA_IMX_ATA_INT_EN);
 
-	
+	/* activate */
 	return ata_host_activate(host, irq, ata_sff_interrupt, 0,
 				&pata_imx_sht);
 

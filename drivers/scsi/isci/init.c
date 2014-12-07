@@ -93,6 +93,7 @@ static DEFINE_PCI_DEVICE_TABLE(isci_id_table) = {
 
 MODULE_DEVICE_TABLE(pci, isci_id_table);
 
+/* linux isci specific settings */
 
 unsigned char no_outbound_task_to = 2;
 module_param(no_outbound_task_to, byte, 0);
@@ -172,16 +173,16 @@ static struct scsi_host_template isci_sht = {
 
 static struct sas_domain_function_template isci_transport_ops  = {
 
-	
+	/* The class calls these to notify the LLDD of an event. */
 	.lldd_port_formed	= isci_port_formed,
 	.lldd_port_deformed	= isci_port_deformed,
 
-	
+	/* The class calls these when a device is found or gone. */
 	.lldd_dev_found		= isci_remote_device_found,
 	.lldd_dev_gone		= isci_remote_device_gone,
 
 	.lldd_execute_task	= isci_task_execute_task,
-	
+	/* Task Management Functions. Must be called from process context. */
 	.lldd_abort_task	= isci_task_abort_task,
 	.lldd_abort_task_set	= isci_task_abort_task_set,
 	.lldd_clear_aca		= isci_task_clear_aca,
@@ -190,24 +191,38 @@ static struct sas_domain_function_template isci_transport_ops  = {
 	.lldd_lu_reset		= isci_task_lu_reset,
 	.lldd_query_task	= isci_task_query_task,
 
-	
+	/* ata recovery called from ata-eh */
 	.lldd_ata_check_ready	= isci_ata_check_ready,
 
-	
+	/* Port and Adapter management */
 	.lldd_clear_nexus_port	= isci_task_clear_nexus_port,
 	.lldd_clear_nexus_ha	= isci_task_clear_nexus_ha,
 
-	
+	/* Phy management */
 	.lldd_control_phy	= isci_phy_control,
 
-	
+	/* GPIO support */
 	.lldd_write_gpio	= isci_gpio_write,
 };
 
 
+/******************************************************************************
+* P R O T E C T E D  M E T H O D S
+******************************************************************************/
 
 
 
+/**
+ * isci_register_sas_ha() - This method initializes various lldd
+ *    specific members of the sas_ha struct and calls the libsas
+ *    sas_register_ha() function.
+ * @isci_host: This parameter specifies the lldd specific wrapper for the
+ *    libsas sas_ha struct.
+ *
+ * This method returns an error code indicating sucess or failure. The user
+ * should check for possible memory allocation error return otherwise, a zero
+ * indicates success.
+ */
 static int isci_register_sas_ha(struct isci_host *isci_host)
 {
 	int i;
@@ -310,6 +325,10 @@ static int __devinit isci_pci_init(struct pci_dev *pdev)
 
 static int num_controllers(struct pci_dev *pdev)
 {
+	/* bar size alone can tell us if we are running with a dual controller
+	 * part, no need to trust revision ids that might be under broken firmware
+	 * control
+	 */
 	resource_size_t scu_bar_size = pci_resource_len(pdev, SCI_SCU_BAR*2);
 	resource_size_t smu_bar_size = pci_resource_len(pdev, SCI_SMU_BAR*2);
 
@@ -326,6 +345,10 @@ static int isci_setup_interrupts(struct pci_dev *pdev)
 	struct isci_host *ihost;
 	struct isci_pci_info *pci_info = to_pci_info(pdev);
 
+	/*
+	 *  Determine the number of vectors associated with this
+	 *  PCI function.
+	 */
 	num_msix = num_controllers(pdev) * SCI_NUM_MSI_X_INT;
 
 	for (i = 0; i < num_msix; i++)
@@ -341,7 +364,7 @@ static int isci_setup_interrupts(struct pci_dev *pdev)
 		irq_handler_t isr;
 
 		ihost = pci_info->hosts[id];
-		
+		/* odd numbered vectors are error interrupts */
 		if (i & 1)
 			isr = isci_error_isr;
 		else
@@ -468,6 +491,9 @@ static int __devinit isci_pci_probe(struct pci_dev *pdev, const struct pci_devic
 		source = "(firmware)";
 		orom = isci_request_firmware(pdev, fw);
 		if (!orom) {
+			/* TODO convert this to WARN_TAINT_ONCE once the
+			 * orom/efi parameter support is widely available
+			 */
 			dev_warn(&pdev->dev,
 				 "Loading user firmware failed, using default "
 				 "values\n");
@@ -498,7 +524,7 @@ static int __devinit isci_pci_probe(struct pci_dev *pdev, const struct pci_devic
 		}
 		pci_info->hosts[i] = h;
 
-		
+		/* turn on DIF support */
 		scsi_host_set_prot(h->shost,
 				   SHOST_DIF_TYPE1_PROTECTION |
 				   SHOST_DIF_TYPE2_PROTECTION |

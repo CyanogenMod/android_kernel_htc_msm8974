@@ -40,7 +40,14 @@
 #include "rts51x_transport.h"
 #include "trace.h"
 
+/***********************************************************************
+ * Scatter-gather transfer buffer access routines
+ ***********************************************************************/
 
+/* Copy a buffer of length buflen to/from the srb's transfer buffer.
+ * Update the **sgptr and *offset variables so that the next copy will
+ * pick up from where this one left off.
+ */
 
 unsigned int rts51x_access_sglist(unsigned char *buffer,
 				  unsigned int buflen, void *sglist,
@@ -50,10 +57,23 @@ unsigned int rts51x_access_sglist(unsigned char *buffer,
 	unsigned int cnt;
 	struct scatterlist *sg = (struct scatterlist *)*sgptr;
 
+	/* We have to go through the list one entry
+	 * at a time.  Each s-g entry contains some number of pages, and
+	 * each page has to be kmap()'ed separately.  If the page is already
+	 * in kernel-addressable memory then kmap() will return its address.
+	 * If the page is not directly accessible -- such as a user buffer
+	 * located in high memory -- then kmap() will map it to a temporary
+	 * position in the kernel's virtual address space.
+	 */
 
 	if (!sg)
 		sg = (struct scatterlist *)sglist;
 
+	/* This loop handles a single s-g list entry, which may
+	 * include multiple pages.  Find the initial page structure
+	 * and the starting offset within the page, and update
+	 * the *offset and **sgptr values for the next loop.
+	 */
 	cnt = 0;
 	while (cnt < buflen && sg) {
 		struct page *page = sg_page(sg) +
@@ -63,16 +83,19 @@ unsigned int rts51x_access_sglist(unsigned char *buffer,
 
 		if (sglen > buflen - cnt) {
 
-			
+			/* Transfer ends within this s-g entry */
 			sglen = buflen - cnt;
 			*offset += sglen;
 		} else {
 
-			
+			/* Transfer continues to next s-g entry */
 			*offset = 0;
 			sg = sg_next(sg);
 		}
 
+		/* Transfer the data for all the pages in this
+		 * s-g entry.  For each page: call kmap(), do the
+		 * transfer, and call kunmap() immediately after. */
 		while (sglen > 0) {
 			unsigned int plen = min(sglen, (unsigned int)
 						PAGE_SIZE - poff);
@@ -84,7 +107,7 @@ unsigned int rts51x_access_sglist(unsigned char *buffer,
 				memcpy(buffer + cnt, ptr + poff, plen);
 			kunmap(page);
 
-			
+			/* Start at the beginning of the next page */
 			poff = 0;
 			++page;
 			cnt += plen;
@@ -93,7 +116,7 @@ unsigned int rts51x_access_sglist(unsigned char *buffer,
 	}
 	*sgptr = sg;
 
-	
+	/* Return the amount actually transferred */
 	return cnt;
 }
 
@@ -106,6 +129,9 @@ unsigned int rts51x_access_xfer_buf(unsigned char *buffer,
 				    (void **)sgptr, offset, dir);
 }
 
+/* Store the contents of buffer into srb's transfer buffer and set the
+ * SCSI residue.
+ */
 void rts51x_set_xfer_buf(unsigned char *buffer,
 			 unsigned int buflen, struct scsi_cmnd *srb)
 {
@@ -132,6 +158,9 @@ void rts51x_get_xfer_buf(unsigned char *buffer,
 		scsi_set_resid(srb, scsi_bufflen(srb) - buflen);
 }
 
+/* This is the completion handler which will wake us up when an URB
+ * completes.
+ */
 static void urb_done_completion(struct urb *urb)
 {
 	struct completion *urb_done_ptr = urb->context;
@@ -140,6 +169,12 @@ static void urb_done_completion(struct urb *urb)
 		complete(urb_done_ptr);
 }
 
+/* This is the common part of the URB message submission code
+ *
+ * All URBs from the driver involved in handling a queued scsi
+ * command _must_ pass through this function (or something like it) for the
+ * abort mechanisms to work properly.
+ */
 static int rts51x_msg_common(struct rts51x_chip *chip, struct urb *urb,
 			     int timeout)
 {
@@ -148,19 +183,23 @@ static int rts51x_msg_common(struct rts51x_chip *chip, struct urb *urb,
 	long timeleft;
 	int status;
 
-	
+	/* don't submit URBs during abort processing */
 	if (test_bit(FLIDX_ABORTING, &rts51x->dflags))
 		TRACE_RET(chip, -EIO);
 
-	
+	/* set up data structures for the wakeup system */
 	init_completion(&urb_done);
 
-	
+	/* fill the common fields in the URB */
 	urb->context = &urb_done;
 	urb->actual_length = 0;
 	urb->error_count = 0;
 	urb->status = 0;
 
+	/* we assume that if transfer_buffer isn't us->iobuf then it
+	 * hasn't been mapped for DMA.  Yes, this is clunky, but it's
+	 * easier than always having the caller tell us whether the
+	 * transfer buffer has already been mapped. */
 	urb->transfer_flags = URB_NO_SETUP_DMA_MAP;
 	if (urb->transfer_buffer == rts51x->iobuf) {
 		urb->transfer_flags |= URB_NO_TRANSFER_DMA_MAP;
@@ -168,26 +207,28 @@ static int rts51x_msg_common(struct rts51x_chip *chip, struct urb *urb,
 	}
 	urb->setup_dma = rts51x->cr_dma;
 
-	
+	/* submit the URB */
 	status = usb_submit_urb(urb, GFP_NOIO);
 	if (status) {
-		
+		/* something went wrong */
 		TRACE_RET(chip, status);
 	}
 
+	/* since the URB has been submitted successfully, it's now okay
+	 * to cancel it */
 	set_bit(FLIDX_URB_ACTIVE, &rts51x->dflags);
 
-	
+	/* did an abort occur during the submission? */
 	if (test_bit(FLIDX_ABORTING, &rts51x->dflags)) {
 
-		
+		/* cancel the URB, if it hasn't been cancelled already */
 		if (test_and_clear_bit(FLIDX_URB_ACTIVE, &rts51x->dflags)) {
 			RTS51X_DEBUGP("-- cancelling URB\n");
 			usb_unlink_urb(urb);
 		}
 	}
 
-	
+	/* wait for the completion of the URB */
 	timeleft =
 	    wait_for_completion_interruptible_timeout(&urb_done,
 						      (timeout * HZ /
@@ -211,51 +252,62 @@ static int rts51x_msg_common(struct rts51x_chip *chip, struct urb *urb,
 	return status;
 }
 
+/*
+ * Interpret the results of a URB transfer
+ */
 static int interpret_urb_result(struct rts51x_chip *chip, unsigned int pipe,
 				unsigned int length, int result,
 				unsigned int partial)
 {
 	int retval = STATUS_SUCCESS;
 
+	/* RTS51X_DEBUGP("Status code %d; transferred %u/%u\n",
+				result, partial, length); */
 	switch (result) {
-		
+		/* no error code; did we send all the data? */
 	case 0:
 		if (partial != length) {
 			RTS51X_DEBUGP("-- short transfer\n");
 			TRACE_RET(chip, STATUS_TRANS_SHORT);
 		}
-		
+		/* RTS51X_DEBUGP("-- transfer complete\n"); */
 		return STATUS_SUCCESS;
-		
+		/* stalled */
 	case -EPIPE:
+		/* for control endpoints, (used by CB[I]) a stall indicates
+		 * a failed command */
 		if (usb_pipecontrol(pipe)) {
 			RTS51X_DEBUGP("-- stall on control pipe\n");
 			TRACE_RET(chip, STATUS_STALLED);
 		}
-		
+		/* for other sorts of endpoint, clear the stall */
 		RTS51X_DEBUGP("clearing endpoint halt for pipe 0x%x\n", pipe);
 		if (rts51x_clear_halt(chip, pipe) < 0)
 			TRACE_RET(chip, STATUS_ERROR);
 		retval = STATUS_STALLED;
 		TRACE_GOTO(chip, Exit);
 
+		/* babble - the device tried to send more than
+		 * we wanted to read */
 	case -EOVERFLOW:
 		RTS51X_DEBUGP("-- babble\n");
 		retval = STATUS_TRANS_LONG;
 		TRACE_GOTO(chip, Exit);
 
+		/* the transfer was cancelled by abort,
+		 * disconnect, or timeout */
 	case -ECONNRESET:
 		RTS51X_DEBUGP("-- transfer cancelled\n");
 		retval = STATUS_ERROR;
 		TRACE_GOTO(chip, Exit);
 
-		
+		/* short scatter-gather read transfer */
 	case -EREMOTEIO:
 		RTS51X_DEBUGP("-- short read transfer\n");
 		retval = STATUS_TRANS_SHORT;
 		TRACE_GOTO(chip, Exit);
 
-		
+		/* abort or disconnect in progress */
 	case -EIO:
 		RTS51X_DEBUGP("-- abort or disconnect in progress\n");
 		retval = STATUS_ERROR;
@@ -266,7 +318,7 @@ static int interpret_urb_result(struct rts51x_chip *chip, unsigned int pipe,
 		retval = STATUS_TIMEDOUT;
 		TRACE_GOTO(chip, Exit);
 
-		
+		/* the catch-all error case */
 	default:
 		RTS51X_DEBUGP("-- unknown error\n");
 		retval = STATUS_ERROR;
@@ -290,14 +342,14 @@ int rts51x_ctrl_transfer(struct rts51x_chip *chip, unsigned int pipe,
 	RTS51X_DEBUGP("%s: rq=%02x rqtype=%02x value=%04x index=%02x len=%u\n",
 		       __func__, request, requesttype, value, index, size);
 
-	
+	/* fill in the devrequest structure */
 	rts51x->cr->bRequestType = requesttype;
 	rts51x->cr->bRequest = request;
 	rts51x->cr->wValue = cpu_to_le16(value);
 	rts51x->cr->wIndex = cpu_to_le16(index);
 	rts51x->cr->wLength = cpu_to_le16(size);
 
-	
+	/* fill and submit the URB */
 	usb_fill_control_urb(rts51x->current_urb, rts51x->pusb_dev, pipe,
 			     (unsigned char *)rts51x->cr, data, size,
 			     urb_done_completion, NULL);
@@ -339,7 +391,7 @@ static void rts51x_sg_clean(struct usb_sg_request *io)
 		kfree(io->urbs);
 		io->urbs = NULL;
 	}
-#if 0 
+#if 0 /* LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 35) */
 	if (io->dev->dev.dma_mask != NULL)
 		usb_buffer_unmap_sg(io->dev, usb_pipein(io->pipe),
 				    io->sg, io->nents);
@@ -354,6 +406,16 @@ static void rts51x_sg_complete(struct urb *urb)
 
 	spin_lock(&io->lock);
 
+	/* In 2.5 we require hcds' endpoint queues not to progress after fault
+	* reports, until the completion callback (this!) returns.  That lets
+	* device driver code (like this routine) unlink queued urbs first,
+	* if it needs to, since the HC won't work on them at all.  So it's
+	* not possible for page N+1 to overwrite page N, and so on.
+	*
+	* That's only for "hard" faults; "soft" faults (unlinks) sometimes
+	* complete before the HCD can get requests away from hardware,
+	* though never during cleanup after a hard fault.
+	*/
 	if (io->status
 		&& (io->status != -ECONNRESET
 		|| status != -ECONNRESET)
@@ -364,7 +426,7 @@ static void rts51x_sg_complete(struct urb *urb)
 				usb_endpoint_num(&urb->ep->desc),
 				usb_urb_dir_in(urb) ? "in" : "out",
 				status, io->status);
-			
+			/* BUG (); */
 	}
 
 	if (io->status == 0 && status && status != -ECONNRESET) {
@@ -372,6 +434,10 @@ static void rts51x_sg_complete(struct urb *urb)
 
 		io->status = status;
 
+		/* the previous urbs, and this one, completed already.
+		* unlink pending urbs so they won't rx/tx bad data.
+		* careful: unlink can sometimes be synchronous...
+		*/
 		spin_unlock(&io->lock);
 		for (i = 0, found = 0; i < io->entries; i++) {
 			if (!io->urbs[i] || !io->urbs[i]->dev)
@@ -391,7 +457,7 @@ static void rts51x_sg_complete(struct urb *urb)
 	}
 	urb->dev = NULL;
 
-	
+	/* on the last completion, signal usb_sg_wait() */
 	io->bytes += urb->actual_length;
 	io->count--;
 	if (!io->count)
@@ -400,6 +466,8 @@ static void rts51x_sg_complete(struct urb *urb)
 	spin_unlock(&io->lock);
 }
 
+/* This function is ported from usb_sg_init, which can transfer
+ * sg list partially */
 int rts51x_sg_init_partial(struct usb_sg_request *io, struct usb_device *dev,
 	unsigned pipe, unsigned period, void *buf, struct scatterlist **sgptr,
 	unsigned int *offset, int nents, size_t length, gfp_t mem_flags)
@@ -422,21 +490,26 @@ int rts51x_sg_init_partial(struct usb_sg_request *io, struct usb_device *dev,
 	spin_lock_init(&io->lock);
 	io->dev = dev;
 	io->pipe = pipe;
-	io->sg = first_sg;  
+	io->sg = first_sg;  /* used by unmap */
 	io->nents = nents;
 
 	RTS51X_DEBUGP("Before map, sg address: 0x%x\n", (unsigned int)sg);
 	RTS51X_DEBUGP("Before map, dev address: 0x%x\n", (unsigned int)dev);
 
+	/* not all host controllers use DMA (like the mainstream pci ones);
+	* they can use PIO (sl811) or be software over another transport.
+	*/
 	dma = (dev->dev.dma_mask != NULL);
 	if (dma) {
+		/* map the whole sg list, because here we only know the
+		 * total nents */
 		io->entries = usb_buffer_map_sg(dev, usb_pipein(pipe),
 		first_sg, nents);
 	} else {
 		io->entries = nents;
 	}
 
-	
+	/* initialize all the urbs we'll use */
 	if (io->entries <= 0)
 		return io->entries;
 
@@ -480,7 +553,7 @@ int rts51x_sg_init_partial(struct usb_sg_request *io, struct usb_device *dev,
 			RTS51X_DEBUGP(" -- sg entry dma length = %d\n",
 						sg_dma_len(sg));
 		} else {
-			
+			/* hc may use _only_ transfer_buffer */
 			io->urbs[i]->transfer_buffer = sg_virt(sg) + *offset;
 			len = sg->length - *offset;
 			RTS51X_DEBUGP(" -- sg entry length = %d\n",
@@ -518,7 +591,7 @@ int rts51x_sg_init_partial(struct usb_sg_request *io, struct usb_device *dev,
 	RTS51X_DEBUGP("sg address stored in sgptr: 0x%x\n", (unsigned int)sg);
 	*sgptr = sg;
 
-	
+	/* transaction state */
 	io->count = io->entries;
 	io->status = 0;
 	io->bytes = 0;
@@ -543,7 +616,7 @@ int rts51x_sg_wait(struct usb_sg_request *io, int timeout)
 	int i;
 	int entries = io->entries;
 
-	
+	/* queue the urbs.  */
 	spin_lock_irq(&io->lock);
 	i = 0;
 	while (i < entries && !io->status) {
@@ -552,10 +625,13 @@ int rts51x_sg_wait(struct usb_sg_request *io, int timeout)
 		io->urbs[i]->dev = io->dev;
 		retval = usb_submit_urb(io->urbs[i], GFP_ATOMIC);
 
+		/* after we submit, let completions or cancelations fire;
+		 * we handshake using io->status.
+		 */
 		spin_unlock_irq(&io->lock);
 		switch (retval) {
-			
-		case -ENXIO:	
+			/* maybe we retrying will recover */
+		case -ENXIO:	/* hc didn't queue this one */
 		case -EAGAIN:
 		case -ENOMEM:
 			io->urbs[i]->dev = NULL;
@@ -563,12 +639,18 @@ int rts51x_sg_wait(struct usb_sg_request *io, int timeout)
 			yield();
 			break;
 
+			/* no error? continue immediately.
+			 *
+			 * NOTE: to work better with UHCI (4K I/O buffer may
+			 * need 3K of TDs) it may be good to limit how many
+			 * URBs are queued at once; N milliseconds?
+			 */
 		case 0:
 			++i;
 			cpu_relax();
 			break;
 
-			
+			/* fail any uncompleted urbs */
 		default:
 			io->urbs[i]->dev = NULL;
 			io->urbs[i]->status = retval;
@@ -604,6 +686,12 @@ int rts51x_sg_wait(struct usb_sg_request *io, int timeout)
 	return io->status;
 }
 
+/*
+ * Transfer a scatter-gather list via bulk transfer
+ *
+ * This function does basically the same thing as usb_stor_bulk_transfer_buf()
+ * above, but it uses the usbcore scatter-gather library.
+ */
 static int rts51x_bulk_transfer_sglist(struct rts51x_chip *chip,
 				       unsigned int pipe,
 				       struct scatterlist *sg, int num_sg,
@@ -612,11 +700,11 @@ static int rts51x_bulk_transfer_sglist(struct rts51x_chip *chip,
 {
 	int result;
 
-	
+	/* don't submit s-g requests during abort processing */
 	if (test_bit(FLIDX_ABORTING, &chip->usb->dflags))
 		TRACE_RET(chip, STATUS_ERROR);
 
-	
+	/* initialize the scatter-gather request block */
 	RTS51X_DEBUGP("%s: xfer %u bytes, %d entries\n", __func__,
 		       length, num_sg);
 	result =
@@ -627,24 +715,26 @@ static int rts51x_bulk_transfer_sglist(struct rts51x_chip *chip,
 		TRACE_RET(chip, STATUS_ERROR);
 	}
 
+	/* since the block has been initialized successfully, it's now
+	 * okay to cancel it */
 	set_bit(FLIDX_SG_ACTIVE, &chip->usb->dflags);
 
-	
+	/* did an abort occur during the submission? */
 	if (test_bit(FLIDX_ABORTING, &chip->usb->dflags)) {
 
-		
+		/* cancel the request, if it hasn't been cancelled already */
 		if (test_and_clear_bit(FLIDX_SG_ACTIVE, &chip->usb->dflags)) {
 			RTS51X_DEBUGP("-- cancelling sg request\n");
 			usb_sg_cancel(&chip->usb->current_sg);
 		}
 	}
 
-	
+	/* wait for the completion of the transfer */
 	result = rts51x_sg_wait(&chip->usb->current_sg, timeout);
 
 	clear_bit(FLIDX_SG_ACTIVE, &chip->usb->dflags);
 
-	
+	/* result = us->current_sg.status; */
 	if (act_len)
 		*act_len = chip->usb->current_sg.bytes;
 	return interpret_urb_result(chip, pipe, length, result,
@@ -658,11 +748,11 @@ static int rts51x_bulk_transfer_sglist_partial(struct rts51x_chip *chip,
 {
 	int result;
 
-	
+	/* don't submit s-g requests during abort processing */
 	if (test_bit(FLIDX_ABORTING, &chip->usb->dflags))
 		TRACE_RET(chip, STATUS_ERROR);
 
-	
+	/* initialize the scatter-gather request block */
 	RTS51X_DEBUGP("%s: xfer %u bytes, %d entries\n", __func__,
 			length, num_sg);
 	result = rts51x_sg_init_partial(&chip->usb->current_sg,
@@ -673,24 +763,26 @@ static int rts51x_bulk_transfer_sglist_partial(struct rts51x_chip *chip,
 		TRACE_RET(chip, STATUS_ERROR);
 	}
 
+	/* since the block has been initialized successfully, it's now
+	 * okay to cancel it */
 	set_bit(FLIDX_SG_ACTIVE, &chip->usb->dflags);
 
-	
+	/* did an abort occur during the submission? */
 	if (test_bit(FLIDX_ABORTING, &chip->usb->dflags)) {
 
-		
+		/* cancel the request, if it hasn't been cancelled already */
 		if (test_and_clear_bit(FLIDX_SG_ACTIVE, &chip->usb->dflags)) {
 			RTS51X_DEBUGP("-- cancelling sg request\n");
 			usb_sg_cancel(&chip->usb->current_sg);
 		}
 	}
 
-	
+	/* wait for the completion of the transfer */
 	result = rts51x_sg_wait(&chip->usb->current_sg, timeout);
 
 	clear_bit(FLIDX_SG_ACTIVE, &chip->usb->dflags);
 
-	
+	/* result = us->current_sg.status; */
 	if (act_len)
 		*act_len = chip->usb->current_sg.bytes;
 	return interpret_urb_result(chip, pipe, length, result,
@@ -703,12 +795,12 @@ int rts51x_bulk_transfer_buf(struct rts51x_chip *chip, unsigned int pipe,
 {
 	int result;
 
-	
+	/* fill and submit the URB */
 	usb_fill_bulk_urb(chip->usb->current_urb, chip->usb->pusb_dev, pipe,
 			  buf, length, urb_done_completion, NULL);
 	result = rts51x_msg_common(chip, chip->usb->current_urb, timeout);
 
-	
+	/* store the actual length of the data transferred */
 	if (act_len)
 		*act_len = chip->usb->current_urb->actual_length;
 	return interpret_urb_result(chip, pipe, length, result,
@@ -801,12 +893,14 @@ int rts51x_get_epc_status(struct rts51x_chip *chip, u16 *status)
 	if (!status)
 		TRACE_RET(chip, STATUS_ERROR);
 
-	
+	/* set up data structures for the wakeup system */
 	init_completion(&urb_done);
 
 	ep = chip->usb->pusb_dev->ep_in[usb_pipeendpoint(pipe)];
 
-	
+	/* fill and submit the URB */
+	/* We set interval to 1 here, so the polling interval is controlled
+	 * by our polling thread */
 	usb_fill_int_urb(chip->usb->intr_urb, chip->usb->pusb_dev, pipe,
 			 status, 2, urb_done_completion, &urb_done, 1);
 
@@ -855,7 +949,7 @@ void rts51x_invoke_transport(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 		} else {
 			if (RTS51X_CHK_STAT(chip, STAT_SS)
 			    || RTS51X_CHK_STAT(chip, STAT_SS_PRE)) {
-				
+				/* Wake up device */
 				RTS51X_DEBUGP("Try to wake up device\n");
 				chip->resume_from_scsi = 1;
 
@@ -874,7 +968,7 @@ void rts51x_invoke_transport(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 
 	result = rts51x_scsi_handler(srb, chip);
 
-	
+	/* if there is a transport error, reset and don't auto-sense */
 	if (result == TRANSPORT_ERROR) {
 		RTS51X_DEBUGP("-- transport indicates error, resetting\n");
 		srb->result = DID_ERROR << 16;
@@ -883,8 +977,13 @@ void rts51x_invoke_transport(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 
 	srb->result = SAM_STAT_GOOD;
 
+	/*
+	 * If we have a failure, we're going to do a REQUEST_SENSE
+	 * automatically.  Note that we differentiate between a command
+	 * "failure" and an "error" in the transport mechanism.
+	 */
 	if (result == TRANSPORT_FAILED) {
-		
+		/* set the result so the higher layers expect this data */
 		srb->result = SAM_STAT_CHECK_CONDITION;
 		memcpy(srb->sense_buffer,
 		       (unsigned char *)&(chip->sense_buffer[SCSI_LUN(srb)]),
@@ -893,6 +992,9 @@ void rts51x_invoke_transport(struct scsi_cmnd *srb, struct rts51x_chip *chip)
 
 	return;
 
+	/* Error and abort processing: try to resynchronize with the device
+	 * by issuing a port reset.  If that fails, try a class-specific
+	 * device reset. */
 Handle_Errors:
 	return;
 }

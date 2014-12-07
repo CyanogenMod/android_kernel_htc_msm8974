@@ -16,6 +16,16 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
   $
  */
+/**
+ * @defgroup
+ * @brief
+ *
+ * @{
+ * @file     mlos-kernel.c
+ * @brief
+ *
+ *
+ */
 
 #include "mlos.h"
 #include <linux/delay.h>
@@ -34,37 +44,37 @@ tMLError MLOSFree(void *ptr)
 
 tMLError MLOSCreateMutex(HANDLE *mutex)
 {
-	
+	/* @todo implement if needed */
 	return ML_ERROR_FEATURE_NOT_IMPLEMENTED;
 }
 
 tMLError MLOSLockMutex(HANDLE mutex)
 {
-	
+	/* @todo implement if needed */
 	return ML_ERROR_FEATURE_NOT_IMPLEMENTED;
 }
 
 tMLError MLOSUnlockMutex(HANDLE mutex)
 {
-	
+	/* @todo implement if needed */
 	return ML_ERROR_FEATURE_NOT_IMPLEMENTED;
 }
 
 tMLError MLOSDestroyMutex(HANDLE handle)
 {
-	
+	/* @todo implement if needed */
 	return ML_ERROR_FEATURE_NOT_IMPLEMENTED;
 }
 
 FILE *MLOSFOpen(char *filename)
 {
-	
+	/* @todo implement if needed */
 	return NULL;
 }
 
 void MLOSFClose(FILE *fp)
 {
-	
+	/* @todo implement if needed */
 }
 
 void MLOSSleep(int mSecs)
@@ -74,6 +84,6 @@ void MLOSSleep(int mSecs)
 
 unsigned long MLOSGetTickCount(void)
 {
-	
+	/* @todo implement if needed */
 	return ML_ERROR_FEATURE_NOT_IMPLEMENTED;
 }

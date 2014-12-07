@@ -38,6 +38,7 @@
 #define MII_DM9161_SCR_INIT	0x0610
 #define MII_DM9161_SCR_RMII	0x0100
 
+/* DM9161 Interrupt Register */
 #define MII_DM9161_INTR	0x15
 #define MII_DM9161_INTR_PEND		0x8000
 #define MII_DM9161_INTR_DPLX_MASK	0x0800
@@ -52,6 +53,7 @@
 (MII_DM9161_INTR_DPLX_MASK | MII_DM9161_INTR_SPD_MASK \
  | MII_DM9161_INTR_LINK_MASK | MII_DM9161_INTR_MASK)
 
+/* DM9161 10BT Configuration/Status */
 #define MII_DM9161_10BTCSR	0x12
 #define MII_DM9161_10BTCSR_INIT	0x7800
 
@@ -84,13 +86,13 @@ static int dm9161_config_aneg(struct phy_device *phydev)
 {
 	int err;
 
-	
+	/* Isolate the PHY */
 	err = phy_write(phydev, MII_BMCR, BMCR_ISOLATE);
 
 	if (err < 0)
 		return err;
 
-	
+	/* Configure the new settings */
 	err = genphy_config_aneg(phydev);
 
 	if (err < 0)
@@ -103,7 +105,7 @@ static int dm9161_config_init(struct phy_device *phydev)
 {
 	int err, temp;
 
-	
+	/* Isolate the PHY */
 	err = phy_write(phydev, MII_BMCR, BMCR_ISOLATE);
 
 	if (err < 0)
@@ -120,18 +122,18 @@ static int dm9161_config_init(struct phy_device *phydev)
 		return -EINVAL;
 	}
 
-	
+	/* Do not bypass the scrambler/descrambler */
 	err = phy_write(phydev, MII_DM9161_SCR, temp);
 	if (err < 0)
 		return err;
 
-	
+	/* Clear 10BTCSR to default */
 	err = phy_write(phydev, MII_DM9161_10BTCSR, MII_DM9161_10BTCSR_INIT);
 
 	if (err < 0)
 		return err;
 
-	
+	/* Reconnect the PHY, and enable Autonegotiation */
 	err = phy_write(phydev, MII_BMCR, BMCR_ANENABLE);
 
 	if (err < 0)

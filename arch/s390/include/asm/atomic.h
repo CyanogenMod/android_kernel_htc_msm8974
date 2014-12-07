@@ -182,7 +182,7 @@ static inline long long atomic64_cmpxchg(atomic64_t *v,
 
 #undef __CSG_LOOP
 
-#else 
+#else /* CONFIG_64BIT */
 
 typedef struct {
 	long long counter;
@@ -279,7 +279,7 @@ static inline void atomic64_clear_mask(unsigned long long mask, atomic64_t *v)
 	} while (atomic64_cmpxchg(v, old, new) != old);
 }
 
-#endif 
+#endif /* CONFIG_64BIT */
 
 static inline int atomic64_add_unless(atomic64_t *v, long long a, long long u)
 {
@@ -331,4 +331,4 @@ static inline long long atomic64_dec_if_positive(atomic64_t *v)
 #define smp_mb__before_atomic_inc()	smp_mb()
 #define smp_mb__after_atomic_inc()	smp_mb()
 
-#endif 
+#endif /* __ARCH_S390_ATOMIC__  */

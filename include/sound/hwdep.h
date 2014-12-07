@@ -27,6 +27,7 @@
 
 struct snd_hwdep;
 
+/* hwdep file ops; all ops can be NULL */
 struct snd_hwdep_ops {
 	long long (*llseek)(struct snd_hwdep *hw, struct file *file,
 			    long long offset, int orig);
@@ -70,12 +71,12 @@ struct snd_hwdep {
 	void (*private_free) (struct snd_hwdep *hwdep);
 
 	struct mutex open_mutex;
-	int used;			
-	unsigned int dsp_loaded;	
-	unsigned int exclusive:1;	
+	int used;			/* reference counter */
+	unsigned int dsp_loaded;	/* bit fields of loaded dsp indices */
+	unsigned int exclusive:1;	/* exclusive access mode */
 };
 
 extern int snd_hwdep_new(struct snd_card *card, char *id, int device,
 			 struct snd_hwdep **rhwdep);
 
-#endif 
+#endif /* __SOUND_HWDEP_H */

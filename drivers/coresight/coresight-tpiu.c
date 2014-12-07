@@ -115,7 +115,7 @@ static void tpiu_flush_and_stop(struct tpiu_drvdata *drvdata)
 	tpiu_writel(drvdata, ffcr, TPIU_FFCR);
 	ffcr |= BIT(6);
 	tpiu_writel(drvdata, ffcr, TPIU_FFCR);
-	
+	/* Ensure flush completes */
 	for (count = TIMEOUT_US; BVAL(tpiu_readl(drvdata, TPIU_FFCR), 6) != 0
 				&& count > 0; count--)
 		udelay(1);
@@ -815,7 +815,7 @@ static int __devinit tpiu_probe(struct platform_device *pdev)
 	if (ret)
 		return ret;
 
-	
+	/* Disable tpiu to support older targets that need this */
 	__tpiu_disable(drvdata);
 
 	clk_disable_unprepare(drvdata->clk);

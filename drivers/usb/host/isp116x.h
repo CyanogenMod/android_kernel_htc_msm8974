@@ -8,43 +8,55 @@
  * Copyright (C) 2004 David Brownell
  */
 
+/* us of 1ms frame */
 #define  MAX_LOAD_LIMIT		850
 
+/* Full speed: max # of bytes to transfer for a single urb
+   at a time must be < 1024 && must be multiple of 64.
+   832 allows transferring 4kiB within 5 frames. */
 #define MAX_TRANSFER_SIZE_FULLSPEED	832
 
+/* Low speed: there is no reason to schedule in very big
+   chunks; often the requested long transfers are for
+   string descriptors containing short strings. */
 #define MAX_TRANSFER_SIZE_LOWSPEED	64
 
+/* Bytetime (us), a rough indication of how much time it
+   would take to transfer a byte of useful data over USB */
 #define BYTE_TIME_FULLSPEED	1
 #define BYTE_TIME_LOWSPEED	20
 
+/* Buffer sizes */
 #define ISP116x_BUF_SIZE	4096
 #define ISP116x_ITL_BUFSIZE	0
 #define ISP116x_ATL_BUFSIZE	((ISP116x_BUF_SIZE) - 2*(ISP116x_ITL_BUFSIZE))
 
 #define ISP116x_WRITE_OFFSET	0x80
 
+/*------------ ISP116x registers/bits ------------*/
 #define	HCREVISION	0x00
 #define	HCCONTROL	0x01
-#define		HCCONTROL_HCFS	(3 << 6)	
+#define		HCCONTROL_HCFS	(3 << 6)	/* host controller
+						   functional state */
 #define		HCCONTROL_USB_RESET	(0 << 6)
 #define		HCCONTROL_USB_RESUME	(1 << 6)
 #define		HCCONTROL_USB_OPER	(2 << 6)
 #define		HCCONTROL_USB_SUSPEND	(3 << 6)
-#define		HCCONTROL_RWC	(1 << 9)	
-#define		HCCONTROL_RWE	(1 << 10)	
+#define		HCCONTROL_RWC	(1 << 9)	/* remote wakeup connected */
+#define		HCCONTROL_RWE	(1 << 10)	/* remote wakeup enable */
 #define	HCCMDSTAT	0x02
-#define		HCCMDSTAT_HCR	(1 << 0)	
-#define		HCCMDSTAT_SOC	(3 << 16)	
+#define		HCCMDSTAT_HCR	(1 << 0)	/* host controller reset */
+#define		HCCMDSTAT_SOC	(3 << 16)	/* scheduling overrun count */
 #define	HCINTSTAT	0x03
-#define		HCINT_SO	(1 << 0)	
-#define		HCINT_WDH	(1 << 1)	
-#define		HCINT_SF	(1 << 2)	
-#define		HCINT_RD	(1 << 3)	
-#define		HCINT_UE	(1 << 4)	
-#define		HCINT_FNO	(1 << 5)	
-#define		HCINT_RHSC	(1 << 6)	
-#define		HCINT_OC	(1 << 30)	
-#define		HCINT_MIE	(1 << 31)	
+#define		HCINT_SO	(1 << 0)	/* scheduling overrun */
+#define		HCINT_WDH	(1 << 1)	/* writeback of done_head */
+#define		HCINT_SF	(1 << 2)	/* start frame */
+#define		HCINT_RD	(1 << 3)	/* resume detect */
+#define		HCINT_UE	(1 << 4)	/* unrecoverable error */
+#define		HCINT_FNO	(1 << 5)	/* frame number overflow */
+#define		HCINT_RHSC	(1 << 6)	/* root hub status change */
+#define		HCINT_OC	(1 << 30)	/* ownership change */
+#define		HCINT_MIE	(1 << 31)	/* master interrupt enable */
 #define	HCINTENB	0x04
 #define	HCINTDIS	0x05
 #define	HCFMINTVL	0x0d
@@ -52,36 +64,44 @@
 #define	HCFMNUM		0x0f
 #define	HCLSTHRESH	0x11
 #define	HCRHDESCA	0x12
-#define		RH_A_NDP	(0x3 << 0)	
-#define		RH_A_PSM	(1 << 8)	
-#define		RH_A_NPS	(1 << 9)	
-#define		RH_A_DT		(1 << 10)	
-#define		RH_A_OCPM	(1 << 11)	
-#define		RH_A_NOCP	(1 << 12)	
-#define		RH_A_POTPGT	(0xff << 24)	
+#define		RH_A_NDP	(0x3 << 0)	/* # downstream ports */
+#define		RH_A_PSM	(1 << 8)	/* power switching mode */
+#define		RH_A_NPS	(1 << 9)	/* no power switching */
+#define		RH_A_DT		(1 << 10)	/* device type (mbz) */
+#define		RH_A_OCPM	(1 << 11)	/* overcurrent protection
+						   mode */
+#define		RH_A_NOCP	(1 << 12)	/* no overcurrent protection */
+#define		RH_A_POTPGT	(0xff << 24)	/* power on -> power good
+						   time */
 #define	HCRHDESCB	0x13
-#define		RH_B_DR		(0xffff << 0)	
-#define		RH_B_PPCM	(0xffff << 16)	
+#define		RH_B_DR		(0xffff << 0)	/* device removable flags */
+#define		RH_B_PPCM	(0xffff << 16)	/* port power control mask */
 #define	HCRHSTATUS	0x14
-#define		RH_HS_LPS	(1 << 0)	
-#define		RH_HS_OCI	(1 << 1)	
-#define		RH_HS_DRWE	(1 << 15)	
-#define		RH_HS_LPSC	(1 << 16)	
-#define		RH_HS_OCIC	(1 << 17)	
-#define		RH_HS_CRWE	(1 << 31)	
+#define		RH_HS_LPS	(1 << 0)	/* local power status */
+#define		RH_HS_OCI	(1 << 1)	/* over current indicator */
+#define		RH_HS_DRWE	(1 << 15)	/* device remote wakeup
+						   enable */
+#define		RH_HS_LPSC	(1 << 16)	/* local power status change */
+#define		RH_HS_OCIC	(1 << 17)	/* over current indicator
+						   change */
+#define		RH_HS_CRWE	(1 << 31)	/* clear remote wakeup
+						   enable */
 #define	HCRHPORT1	0x15
-#define		RH_PS_CCS	(1 << 0)	
-#define		RH_PS_PES	(1 << 1)	
-#define		RH_PS_PSS	(1 << 2)	
-#define		RH_PS_POCI	(1 << 3)	
-#define		RH_PS_PRS	(1 << 4)	
-#define		RH_PS_PPS	(1 << 8)	
-#define		RH_PS_LSDA	(1 << 9)	
-#define		RH_PS_CSC	(1 << 16)	
-#define		RH_PS_PESC	(1 << 17)	
-#define		RH_PS_PSSC	(1 << 18)	
-#define		RH_PS_OCIC	(1 << 19)	
-#define		RH_PS_PRSC	(1 << 20)	
+#define		RH_PS_CCS	(1 << 0)	/* current connect status */
+#define		RH_PS_PES	(1 << 1)	/* port enable status */
+#define		RH_PS_PSS	(1 << 2)	/* port suspend status */
+#define		RH_PS_POCI	(1 << 3)	/* port over current
+						   indicator */
+#define		RH_PS_PRS	(1 << 4)	/* port reset status */
+#define		RH_PS_PPS	(1 << 8)	/* port power status */
+#define		RH_PS_LSDA	(1 << 9)	/* low speed device attached */
+#define		RH_PS_CSC	(1 << 16)	/* connect status change */
+#define		RH_PS_PESC	(1 << 17)	/* port enable status change */
+#define		RH_PS_PSSC	(1 << 18)	/* port suspend status
+						   change */
+#define		RH_PS_OCIC	(1 << 19)	/* over current indicator
+						   change */
+#define		RH_PS_PRSC	(1 << 20)	/* port reset status change */
 #define		HCRHPORT_CLRMASK	(0x1f << 16)
 #define	HCRHPORT2	0x16
 #define	HCHWCFG		0x20
@@ -137,6 +157,7 @@
 #define	HCITLPORT	0x40
 #define	HCATLPORT	0x41
 
+/* Philips transfer descriptor */
 struct ptd {
 	u16 count;
 #define	PTD_COUNT_MSK	(0x3ff << 0)
@@ -160,6 +181,7 @@ struct ptd {
 #define	PTD_FMT_MSK	(1 << 7)
 } __attribute__ ((packed, aligned(2)));
 
+/* PTD accessor macros. */
 #define PTD_GET_COUNT(p)	(((p)->count & PTD_COUNT_MSK) >> 0)
 #define PTD_COUNT(v)		(((v) << 0) & PTD_COUNT_MSK)
 #define PTD_GET_TOGGLE(p)	(((p)->count & PTD_TOGGLE_MSK) >> 10)
@@ -187,6 +209,7 @@ struct ptd {
 #define PTD_GET_FMT(p)		(((p)->faddr & PTD_FMT_MSK) >> 7)
 #define PTD_FMT(v)		(((v) << 7) & PTD_FMT_MSK)
 
+/*  Hardware transfer status codes -- CC from ptd->count */
 #define TD_CC_NOERROR      0x00
 #define TD_CC_CRC          0x01
 #define TD_CC_BITSTUFFING  0x02
@@ -197,33 +220,35 @@ struct ptd {
 #define TD_UNEXPECTEDPID   0x07
 #define TD_DATAOVERRUN     0x08
 #define TD_DATAUNDERRUN    0x09
-    
+    /* 0x0A, 0x0B reserved for hardware */
 #define TD_BUFFEROVERRUN   0x0C
 #define TD_BUFFERUNDERRUN  0x0D
-    
+    /* 0x0E, 0x0F reserved for HCD */
 #define TD_NOTACCESSED     0x0F
 
+/* map PTD status codes (CC) to errno values */
 static const int cc_to_error[16] = {
-	 0,
-	 -EILSEQ,
-	 -EPROTO,
-	 -EILSEQ,
-	 -EPIPE,
-	 -ETIME,
-	 -EPROTO,
-	 -EPROTO,
-	 -EOVERFLOW,
-	 -EREMOTEIO,
-	 -EIO,
-	 -EIO,
-	 -ECOMM,
-	 -ENOSR,
-	 -EALREADY,
-	 -EALREADY
+	/* No  Error  */ 0,
+	/* CRC Error  */ -EILSEQ,
+	/* Bit Stuff  */ -EPROTO,
+	/* Data Togg  */ -EILSEQ,
+	/* Stall      */ -EPIPE,
+	/* DevNotResp */ -ETIME,
+	/* PIDCheck   */ -EPROTO,
+	/* UnExpPID   */ -EPROTO,
+	/* DataOver   */ -EOVERFLOW,
+	/* DataUnder  */ -EREMOTEIO,
+	/* (for hw)   */ -EIO,
+	/* (for hw)   */ -EIO,
+	/* BufferOver */ -ECOMM,
+	/* BuffUnder  */ -ENOSR,
+	/* (for HCD)  */ -EALREADY,
+	/* (for HCD)  */ -EALREADY
 };
 
+/*--------------------------------------------------------------*/
 
-#define	LOG2_PERIODIC_SIZE	5	
+#define	LOG2_PERIODIC_SIZE	5	/* arbitrary; this matches OHCI */
 #define	PERIODIC_SIZE		(1 << LOG2_PERIODIC_SIZE)
 
 struct isp116x {
@@ -237,25 +262,25 @@ struct isp116x {
 	struct dentry *dentry;
 	unsigned long stat1, stat2, stat4, stat8, stat16;
 
-	
-	u32 intenb;		
-	u16 irqenb;		
+	/* HC registers */
+	u32 intenb;		/* "OHCI" interrupts */
+	u16 irqenb;		/* uP interrupts */
 
-	
+	/* Root hub registers */
 	u32 rhdesca;
 	u32 rhdescb;
 	u32 rhstatus;
 
-	
+	/* async schedule: control, bulk */
 	struct list_head async;
 
-	
+	/* periodic schedule: int */
 	u16 load[PERIODIC_SIZE];
 	struct isp116x_ep *periodic[PERIODIC_SIZE];
 	unsigned periodic_count;
 	u16 fmindex;
 
-	
+	/* Schedule for the current frame */
 	struct isp116x_ep *atl_active;
 	int atl_buflen;
 	int atl_bufshrt;
@@ -282,20 +307,23 @@ struct isp116x_ep {
 	u8 epnum;
 	u8 nextpid;
 	u16 error_count;
-	u16 length;		
-	unsigned char *data;	
+	u16 length;		/* of current packet */
+	unsigned char *data;	/* to databuf */
+	/* queue of active EP's (the ones scheduled for the
+	   current frame) */
 	struct isp116x_ep *active;
 
-	
+	/* periodic schedule */
 	u16 period;
 	u16 branch;
 	u16 load;
 	struct isp116x_ep *next;
 
-	
+	/* async schedule */
 	struct list_head schedule;
 };
 
+/*-------------------------------------------------------------------------*/
 
 #ifdef DEBUG
 #define DBG(stuff...)		printk(KERN_DEBUG "116x: " stuff)
@@ -313,6 +341,7 @@ struct isp116x_ep {
 #define WARNING(stuff...)	printk(KERN_WARNING "116x: " stuff)
 #define INFO(stuff...)		printk(KERN_INFO "116x: " stuff)
 
+/* ------------------------------------------------- */
 
 #if defined(USE_PLATFORM_DELAY)
 #if defined(USE_NDELAY)
@@ -391,6 +420,9 @@ static inline u32 isp116x_read_data32(struct isp116x *isp116x)
 	return val;
 }
 
+/* Let's keep register access functions out of line. Hint:
+   we wait at least 150 ns at every access.
+*/
 static u16 isp116x_read_reg16(struct isp116x *isp116x, unsigned reg)
 {
 	isp116x_write_addr(isp116x, reg);
@@ -465,12 +497,18 @@ static void isp116x_write_reg32(struct isp116x *isp116x, unsigned reg,
 	isp116x_show_reg_##type(d, HCRDITL1LEN, s);	\
 }
 
+/*
+   Dump registers for debugfs.
+*/
 static inline void isp116x_show_regs_seq(struct isp116x *isp116x,
 					  struct seq_file *s)
 {
 	isp116x_show_regs(isp116x, seq, s);
 }
 
+/*
+   Dump registers to syslog.
+*/
 static inline void isp116x_show_regs_log(struct isp116x *isp116x)
 {
 	isp116x_show_regs(isp116x, log, NULL);
@@ -488,6 +526,7 @@ static inline void isp116x_show_regs_log(struct isp116x *isp116x)
 #define URB_NOTSHORT(urb) ({ (urb)->transfer_flags & URB_SHORT_NOT_OK ? \
 	"short_not_ok" : ""; })
 
+/* print debug info about the URB */
 static void urb_dbg(struct urb *urb, char *msg)
 {
 	unsigned int pipe;
@@ -507,7 +546,7 @@ static void urb_dbg(struct urb *urb, char *msg)
 
 #define  urb_dbg(urb,msg)   do{}while(0)
 
-#endif				
+#endif				/* ! defined(URB_TRACE) */
 
 #if defined(PTD_TRACE)
 
@@ -518,6 +557,10 @@ static void urb_dbg(struct urb *urb, char *msg)
 	default: __c = 'i'; break;		\
 	}; __c;})
 
+/*
+  Dump PTD info. The code documents the format
+  perfectly, right :)
+*/
 static inline void dump_ptd(struct ptd *ptd)
 {
 	printk(KERN_WARNING "td: %x %d%c%d %d,%d,%d  %x %x%x%x\n",
@@ -560,4 +603,4 @@ static inline void dump_ptd_in_data(struct ptd *ptd, u8 * buf)
 #define dump_ptd_in_data(ptd,buf)   do{}while(0)
 #define dump_ptd_out_data(ptd,buf)  do{}while(0)
 
-#endif				
+#endif				/* ! defined(PTD_TRACE) */

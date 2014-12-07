@@ -43,25 +43,29 @@ static struct usb_device_id as102_usb_id_table[] = {
 	{ USB_DEVICE(ELGATO_EYETV_DTT_USB_VID, ELGATO_EYETV_DTT_USB_PID) },
 	{ USB_DEVICE(NBOX_DVBT_DONGLE_USB_VID, NBOX_DVBT_DONGLE_USB_PID) },
 	{ USB_DEVICE(SKY_IT_DIGITAL_KEY_USB_VID, SKY_IT_DIGITAL_KEY_USB_PID) },
-	{ } 
+	{ } /* Terminating entry */
 };
 
+/* Note that this table must always have the same number of entries as the
+   as102_usb_id_table struct */
 static const char * const as102_device_names[] = {
 	AS102_REFERENCE_DESIGN,
 	AS102_PCTV_74E,
 	AS102_ELGATO_EYETV_DTT_NAME,
 	AS102_NBOX_DVBT_DONGLE_NAME,
 	AS102_SKY_IT_DIGITAL_KEY_NAME,
-	NULL 
+	NULL /* Terminating entry */
 };
 
+/* eLNA configuration: devices built on the reference design work best
+   with 0xA0, while custom designs seem to require 0xC0 */
 static uint8_t const as102_elna_cfg[] = {
 	0xA0,
 	0xC0,
 	0xC0,
 	0xA0,
 	0xA0,
-	0x00 
+	0x00 /* Terminating entry */
 };
 
 struct usb_driver as102_usb_driver = {
@@ -96,10 +100,10 @@ static int as102_usb_xfer_cmd(struct as10x_bus_adapter_t *bus_adap,
 				      AS102_USB_DEVICE_TX_CTRL_CMD,
 				      USB_DIR_OUT | USB_TYPE_VENDOR |
 				      USB_RECIP_DEVICE,
-				      bus_adap->cmd_xid, 
-				      0, 
+				      bus_adap->cmd_xid, /* value */
+				      0, /* index */
 				      send_buf, send_buf_len,
-				      USB_CTRL_SET_TIMEOUT );
+				      USB_CTRL_SET_TIMEOUT /* 200 */);
 		if (ret < 0) {
 			dprintk(debug, "usb_control_msg(send) failed, err %i\n",
 					ret);
@@ -122,10 +126,10 @@ static int as102_usb_xfer_cmd(struct as10x_bus_adapter_t *bus_adap,
 				      AS102_USB_DEVICE_RX_CTRL_CMD,
 				      USB_DIR_IN | USB_TYPE_VENDOR |
 				      USB_RECIP_DEVICE,
-				      bus_adap->cmd_xid, 
-				      0, 
+				      bus_adap->cmd_xid, /* value */
+				      0, /* index */
 				      recv_buf, recv_buf_len,
-				      USB_CTRL_GET_TIMEOUT );
+				      USB_CTRL_GET_TIMEOUT /* 200 */);
 		if (ret < 0) {
 			dprintk(debug, "usb_control_msg(recv) failed, err %i\n",
 					ret);
@@ -227,7 +231,7 @@ void as102_urb_stream_irq(struct urb *urb)
 			memset(urb->transfer_buffer, 0, AS102_USB_BUF_SIZE);
 	}
 
-	
+	/* is not stopped, re-submit urb */
 	if (as102_dev->streaming)
 		as102_submit_urb_stream(as102_dev, urb);
 }
@@ -265,7 +269,7 @@ static int as102_alloc_usb_stream_buffer(struct as102_dev_t *dev)
 
 	memset(dev->stream, 0, MAX_STREAM_URB * AS102_USB_BUF_SIZE);
 
-	
+	/* init urb buffers */
 	for (i = 0; i < MAX_STREAM_URB; i++) {
 		struct urb *urb;
 
@@ -331,21 +335,21 @@ static void as102_usb_disconnect(struct usb_interface *intf)
 
 	ENTER();
 
-	
+	/* extract as102_dev_t from usb_device private data */
 	as102_dev = usb_get_intfdata(intf);
 
-	
+	/* unregister dvb layer */
 	as102_dvb_unregister(as102_dev);
 
-	
+	/* free usb buffers */
 	as102_free_usb_stream_buffer(as102_dev);
 
 	usb_set_intfdata(intf, NULL);
 
-	
+	/* usb unregister device */
 	usb_deregister_dev(intf, &as102_usb_class_driver);
 
-	
+	/* decrement usage counter */
 	kref_put(&as102_dev->kref, as102_usb_release);
 
 	pr_info("%s: device has been disconnected\n", DRIVER_NAME);
@@ -362,7 +366,7 @@ static int as102_usb_probe(struct usb_interface *intf,
 
 	ENTER();
 
-	
+	/* This should never actually happen */
 	if ((sizeof(as102_usb_id_table) / sizeof(struct usb_device_id)) !=
 	    (sizeof(as102_device_names) / sizeof(const char *))) {
 		pr_err("Device names table invalid size");
@@ -375,7 +379,7 @@ static int as102_usb_probe(struct usb_interface *intf,
 		return -ENOMEM;
 	}
 
-	
+	/* Assign the user-friendly device name */
 	for (i = 0; i < (sizeof(as102_usb_id_table) /
 			 sizeof(struct usb_device_id)); i++) {
 		if (id == &as102_usb_id_table[i]) {
@@ -387,26 +391,26 @@ static int as102_usb_probe(struct usb_interface *intf,
 	if (as102_dev->name == NULL)
 		as102_dev->name = "Unknown AS102 device";
 
-	
+	/* set private callback functions */
 	as102_dev->bus_adap.ops = &as102_priv_ops;
 
-	
+	/* init cmd token for usb bus */
 	as102_dev->bus_adap.cmd = &as102_dev->bus_adap.token.usb.c;
 	as102_dev->bus_adap.rsp = &as102_dev->bus_adap.token.usb.r;
 
-	
+	/* init kernel device reference */
 	kref_init(&as102_dev->kref);
 
-	
+	/* store as102 device to usb_device private data */
 	usb_set_intfdata(intf, (void *) as102_dev);
 
-	
+	/* store in as102 device the usb_device pointer */
 	as102_dev->bus_adap.usb_dev = usb_get_dev(interface_to_usbdev(intf));
 
-	
+	/* we can register the device now, as it is ready */
 	ret = usb_register_dev(intf, &as102_usb_class_driver);
 	if (ret < 0) {
-		
+		/* something prevented us from registering this driver */
 		err("%s: usb_register_dev() failed (errno = %d)",
 		    __func__, ret);
 		goto failed;
@@ -414,12 +418,12 @@ static int as102_usb_probe(struct usb_interface *intf,
 
 	pr_info("%s: device has been detected\n", DRIVER_NAME);
 
-	
+	/* request buffer allocation for streaming */
 	ret = as102_alloc_usb_stream_buffer(as102_dev);
 	if (ret != 0)
 		goto failed;
 
-	
+	/* register dvb layer */
 	ret = as102_dvb_register(as102_dev);
 
 	LEAVE();
@@ -439,10 +443,10 @@ static int as102_open(struct inode *inode, struct file *file)
 
 	ENTER();
 
-	
+	/* read minor from inode */
 	minor = iminor(inode);
 
-	
+	/* fetch device from usb interface */
 	intf = usb_find_interface(&as102_usb_driver, minor);
 	if (intf == NULL) {
 		pr_err("%s: can't find device for minor %d\n",
@@ -451,17 +455,17 @@ static int as102_open(struct inode *inode, struct file *file)
 		goto exit;
 	}
 
-	
+	/* get our device */
 	dev = usb_get_intfdata(intf);
 	if (dev == NULL) {
 		ret = -EFAULT;
 		goto exit;
 	}
 
-	
+	/* save our device object in the file's private structure */
 	file->private_data = dev;
 
-	
+	/* increment our usage count for the device */
 	kref_get(&dev->kref);
 
 exit:
@@ -478,7 +482,7 @@ static int as102_release(struct inode *inode, struct file *file)
 
 	dev = file->private_data;
 	if (dev != NULL) {
-		
+		/* decrement the count on our device */
 		kref_put(&dev->kref, as102_usb_release);
 	}
 

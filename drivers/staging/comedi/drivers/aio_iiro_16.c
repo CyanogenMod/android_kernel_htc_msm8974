@@ -20,6 +20,19 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
 
+/*
+
+Driver: aio_iiro_16
+Description: Access I/O Products PC-104 IIRO16 Relay And Isolated Input Board
+Author: Zachary Ware <zach.ware@cctechnol.com>
+Devices:
+ [Access I/O] PC-104 AIO12-8
+Status: experimental
+
+Configuration Options:
+  [0] - I/O port base address
+
+*/
 
 #include "../comedidev.h"
 #include <linux/ioport.h>

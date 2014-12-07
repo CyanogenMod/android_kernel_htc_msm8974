@@ -26,102 +26,116 @@ struct tea5761_priv {
 	bool standby;
 };
 
+/*****************************************************************************/
 
+/***************************
+ * TEA5761HN I2C registers *
+ ***************************/
 
+/* INTREG - Read: bytes 0 and 1 / Write: byte 0 */
 
-	
+	/* first byte for reading */
 #define TEA5761_INTREG_IFFLAG		0x10
 #define TEA5761_INTREG_LEVFLAG		0x8
 #define TEA5761_INTREG_FRRFLAG		0x2
 #define TEA5761_INTREG_BLFLAG		0x1
 
-	
+	/* second byte for reading / byte for writing */
 #define TEA5761_INTREG_IFMSK		0x10
 #define TEA5761_INTREG_LEVMSK		0x8
 #define TEA5761_INTREG_FRMSK		0x2
 #define TEA5761_INTREG_BLMSK		0x1
 
+/* FRQSET - Read: bytes 2 and 3 / Write: byte 1 and 2 */
 
-	
-#define TEA5761_FRQSET_SEARCH_UP 0x80		
-#define TEA5761_FRQSET_SEARCH_MODE 0x40		
+	/* First byte */
+#define TEA5761_FRQSET_SEARCH_UP 0x80		/* 1=Station search from botton to up */
+#define TEA5761_FRQSET_SEARCH_MODE 0x40		/* 1=Search mode */
 
-	
+	/* Bits 0-5 for divider MSB */
 
-	
-	
+	/* Second byte */
+	/* Bits 0-7 for divider LSB */
 
+/* TNCTRL - Read: bytes 4 and 5 / Write: Bytes 3 and 4 */
 
-	
+	/* first byte */
 
-#define TEA5761_TNCTRL_PUPD_0	0x40	
-#define TEA5761_TNCTRL_BLIM	0X20	
-#define TEA5761_TNCTRL_SWPM	0x10	
-#define TEA5761_TNCTRL_IFCTC	0x08	
+#define TEA5761_TNCTRL_PUPD_0	0x40	/* Power UP/Power Down MSB */
+#define TEA5761_TNCTRL_BLIM	0X20	/* 1= Japan Frequencies, 0= European frequencies */
+#define TEA5761_TNCTRL_SWPM	0x10	/* 1= software port is FRRFLAG */
+#define TEA5761_TNCTRL_IFCTC	0x08	/* 1= IF count time 15.02 ms, 0= IF count time 2.02 ms */
 #define TEA5761_TNCTRL_AFM	0x04
-#define TEA5761_TNCTRL_SMUTE	0x02	
+#define TEA5761_TNCTRL_SMUTE	0x02	/* 1= Soft mute */
 #define TEA5761_TNCTRL_SNC	0x01
 
-	
+	/* second byte */
 
-#define TEA5761_TNCTRL_MU	0x80	
+#define TEA5761_TNCTRL_MU	0x80	/* 1=Hard mute */
 #define TEA5761_TNCTRL_SSL_1	0x40
 #define TEA5761_TNCTRL_SSL_0	0x20
 #define TEA5761_TNCTRL_HLSI	0x10
-#define TEA5761_TNCTRL_MST	0x08	
+#define TEA5761_TNCTRL_MST	0x08	/* 1 = mono */
 #define TEA5761_TNCTRL_SWP	0x04
-#define TEA5761_TNCTRL_DTC	0x02	
+#define TEA5761_TNCTRL_DTC	0x02	/* 1 = deemphasis 50 us, 0 = deemphasis 75 us */
 #define TEA5761_TNCTRL_AHLSI	0x01
 
-	
+/* FRQCHECK - Read: bytes 6 and 7  */
+	/* First byte */
 
-	
+	/* Bits 0-5 for divider MSB */
 
-	
-	
+	/* Second byte */
+	/* Bits 0-7 for divider LSB */
 
+/* TUNCHECK - Read: bytes 8 and 9  */
 
-	
-#define TEA5761_TUNCHECK_IF_MASK	0x7e	
+	/* First byte */
+#define TEA5761_TUNCHECK_IF_MASK	0x7e	/* IF count */
 #define TEA5761_TUNCHECK_TUNTO		0x01
 
-	
-#define TEA5761_TUNCHECK_LEV_MASK	0xf0	
+	/* Second byte */
+#define TEA5761_TUNCHECK_LEV_MASK	0xf0	/* Level Count */
 #define TEA5761_TUNCHECK_LD		0x08
 #define TEA5761_TUNCHECK_STEREO		0x04
 
+/* TESTREG - Read: bytes 10 and 11 / Write: bytes 5 and 6 */
 
-	
+	/* All zero = no test mode */
 
+/* MANID - Read: bytes 12 and 13 */
 
-	
-#define TEA5767_MANID_VERSION_MASK	0xf0	
-#define TEA5767_MANID_ID_MSB_MASK	0x0f	
+	/* First byte - should be 0x10 */
+#define TEA5767_MANID_VERSION_MASK	0xf0	/* Version = 1 */
+#define TEA5767_MANID_ID_MSB_MASK	0x0f	/* Manufacurer ID - should be 0 */
 
-	
+	/* Second byte - Should be 0x2b */
 
-#define TEA5767_MANID_ID_LSB_MASK	0xfe	
-#define TEA5767_MANID_IDAV		0x01	
+#define TEA5767_MANID_ID_LSB_MASK	0xfe	/* Manufacturer ID - should be 0x15 */
+#define TEA5767_MANID_IDAV		0x01	/* 1 = Chip has ID, 0 = Chip has no ID */
 
+/* Chip ID - Read: bytes 14 and 15 */
 
-	
+	/* First byte - should be 0x57 */
 
-	
+	/* Second byte - should be 0x61 */
 
+/*****************************************************************************/
 
-#define FREQ_OFFSET 0 
+#define FREQ_OFFSET 0 /* for TEA5767, it is 700 to give the right freq */
 static void tea5761_status_dump(unsigned char *buffer)
 {
 	unsigned int div, frq;
 
 	div = ((buffer[2] & 0x3f) << 8) | buffer[3];
 
-	frq = 1000 * (div * 32768 / 1000 + FREQ_OFFSET + 225) / 4;	
+	frq = 1000 * (div * 32768 / 1000 + FREQ_OFFSET + 225) / 4;	/* Freq in KHz */
 
 	printk(KERN_INFO "tea5761: Frequency %d.%03d KHz (divider = 0x%04x)\n",
 	       frq / 1000, frq % 1000, div);
 }
 
+/* Freq should be specifyed at 62.5 Hz */
 static int __set_radio_freq(struct dvb_frontend *fe,
 			    unsigned int freq,
 			    bool mono)
@@ -289,7 +303,7 @@ static int tea5761_get_frequency(struct dvb_frontend *fe, u32 *frequency)
 
 static struct dvb_tuner_ops tea5761_tuner_ops = {
 	.info = {
-		.name           = "tea5761", 
+		.name           = "tea5761", // Philips TEA5761HN FM Radio
 	},
 	.set_analog_params = set_radio_freq,
 	.sleep		   = set_radio_sleep,

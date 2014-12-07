@@ -39,6 +39,12 @@ static char *udl_vidreg_unlock(char *buf)
 	return udl_set_register(buf, 0xFF, 0xFF);
 }
 
+/*
+ * On/Off for driving the DisplayLink framebuffer to the display
+ *  0x00 H and V sync on
+ *  0x01 H and V sync off (screen blank but powered)
+ *  0x07 DPMS powerdown (requires modeset to come back)
+ */
 static char *udl_enable_hvsync(char *buf, bool enable)
 {
 	if (enable)
@@ -54,12 +60,16 @@ static char *udl_set_color_depth(char *buf, u8 selection)
 
 static char *udl_set_base16bpp(char *wrptr, u32 base)
 {
-	
+	/* the base pointer is 16 bits wide, 0x20 is hi byte. */
 	wrptr = udl_set_register(wrptr, 0x20, base >> 16);
 	wrptr = udl_set_register(wrptr, 0x21, base >> 8);
 	return udl_set_register(wrptr, 0x22, base);
 }
 
+/*
+ * DisplayLink HW has separate 16bpp and 8bpp framebuffers.
+ * In 24bpp modes, the low 323 RGB bits go in the 8bpp framebuffer
+ */
 static char *udl_set_base8bpp(char *wrptr, u32 base)
 {
 	wrptr = udl_set_register(wrptr, 0x26, base >> 16);
@@ -73,15 +83,28 @@ static char *udl_set_register_16(char *wrptr, u8 reg, u16 value)
 	return udl_set_register(wrptr, reg+1, value);
 }
 
+/*
+ * This is kind of weird because the controller takes some
+ * register values in a different byte order than other registers.
+ */
 static char *udl_set_register_16be(char *wrptr, u8 reg, u16 value)
 {
 	wrptr = udl_set_register(wrptr, reg, value);
 	return udl_set_register(wrptr, reg+1, value >> 8);
 }
 
+/*
+ * LFSR is linear feedback shift register. The reason we have this is
+ * because the display controller needs to minimize the clock depth of
+ * various counters used in the display path. So this code reverses the
+ * provided value into the lfsr16 value by counting backwards to get
+ * the value that needs to be set in the hardware comparator to get the
+ * same actual count. This makes sense once you read above a couple of
+ * times and think about it from a hardware perspective.
+ */
 static u16 udl_lfsr16(u16 actual_count)
 {
-	u32 lv = 0xFFFF; 
+	u32 lv = 0xFFFF; /* This is the lfsr value that the hw starts with */
 
 	while (actual_count--) {
 		lv =	 ((lv << 1) |
@@ -101,51 +124,73 @@ static char *udl_set_register_lfsr16(char *wrptr, u8 reg, u16 value)
 	return udl_set_register_16(wrptr, reg, udl_lfsr16(value));
 }
 
+/*
+ * This takes a standard fbdev screeninfo struct and all of its monitor mode
+ * details and converts them into the DisplayLink equivalent register commands.
+  ERR(vreg(dev,               0x00, (color_depth == 16) ? 0 : 1));
+  ERR(vreg_lfsr16(dev,        0x01, xDisplayStart));
+  ERR(vreg_lfsr16(dev,        0x03, xDisplayEnd));
+  ERR(vreg_lfsr16(dev,        0x05, yDisplayStart));
+  ERR(vreg_lfsr16(dev,        0x07, yDisplayEnd));
+  ERR(vreg_lfsr16(dev,        0x09, xEndCount));
+  ERR(vreg_lfsr16(dev,        0x0B, hSyncStart));
+  ERR(vreg_lfsr16(dev,        0x0D, hSyncEnd));
+  ERR(vreg_big_endian(dev,    0x0F, hPixels));
+  ERR(vreg_lfsr16(dev,        0x11, yEndCount));
+  ERR(vreg_lfsr16(dev,        0x13, vSyncStart));
+  ERR(vreg_lfsr16(dev,        0x15, vSyncEnd));
+  ERR(vreg_big_endian(dev,    0x17, vPixels));
+  ERR(vreg_little_endian(dev, 0x1B, pixelClock5KHz));
+
+  ERR(vreg(dev,               0x1F, 0));
+
+  ERR(vbuf(dev, WRITE_VIDREG_UNLOCK, DSIZEOF(WRITE_VIDREG_UNLOCK)));
+ */
 static char *udl_set_vid_cmds(char *wrptr, struct drm_display_mode *mode)
 {
 	u16 xds, yds;
 	u16 xde, yde;
 	u16 yec;
 
-	
+	/* x display start */
 	xds = mode->crtc_htotal - mode->crtc_hsync_start;
 	wrptr = udl_set_register_lfsr16(wrptr, 0x01, xds);
-	
+	/* x display end */
 	xde = xds + mode->crtc_hdisplay;
 	wrptr = udl_set_register_lfsr16(wrptr, 0x03, xde);
 
-	
+	/* y display start */
 	yds = mode->crtc_vtotal - mode->crtc_vsync_start;
 	wrptr = udl_set_register_lfsr16(wrptr, 0x05, yds);
-	
+	/* y display end */
 	yde = yds + mode->crtc_vdisplay;
 	wrptr = udl_set_register_lfsr16(wrptr, 0x07, yde);
 
-	
+	/* x end count is active + blanking - 1 */
 	wrptr = udl_set_register_lfsr16(wrptr, 0x09,
 					mode->crtc_htotal - 1);
 
-	
+	/* libdlo hardcodes hsync start to 1 */
 	wrptr = udl_set_register_lfsr16(wrptr, 0x0B, 1);
 
-	
+	/* hsync end is width of sync pulse + 1 */
 	wrptr = udl_set_register_lfsr16(wrptr, 0x0D,
 					mode->crtc_hsync_end - mode->crtc_hsync_start + 1);
 
-	
+	/* hpixels is active pixels */
 	wrptr = udl_set_register_16(wrptr, 0x0F, mode->hdisplay);
 
-	
+	/* yendcount is vertical active + vertical blanking */
 	yec = mode->crtc_vtotal;
 	wrptr = udl_set_register_lfsr16(wrptr, 0x11, yec);
 
-	
+	/* libdlo hardcodes vsync start to 0 */
 	wrptr = udl_set_register_lfsr16(wrptr, 0x13, 0);
 
-	
+	/* vsync end is width of vsync pulse */
 	wrptr = udl_set_register_lfsr16(wrptr, 0x15, mode->crtc_vsync_end - mode->crtc_vsync_start);
 
-	
+	/* vpixels is active pixels */
 	wrptr = udl_set_register_16(wrptr, 0x17, mode->crtc_vdisplay);
 
 	wrptr = udl_set_register_16be(wrptr, 0x1B,
@@ -245,13 +290,19 @@ static int udl_crtc_mode_set(struct drm_crtc *crtc,
 
 	buf = (char *)udl->mode_buf;
 
-	
+	/* for now we just clip 24 -> 16 - if we fix that fix this */
+	/*if  (crtc->fb->bits_per_pixel != 16)
+	  color_depth = 1; */
 
+	/* This first section has to do with setting the base address on the
+	* controller * associated with the display. There are 2 base
+	* pointers, currently, we only * use the 16 bpp segment.
+	*/
 	wrptr = udl_vidreg_lock(buf);
 	wrptr = udl_set_color_depth(wrptr, color_depth);
-	
+	/* set base for 16bpp segment to 0 */
 	wrptr = udl_set_base16bpp(wrptr, 0);
-	
+	/* set base for 8bpp segment to end of fb */
 	wrptr = udl_set_base8bpp(wrptr, 2 * mode->vdisplay * mode->hdisplay);
 
 	wrptr = udl_set_vid_cmds(wrptr, adjusted_mode);
@@ -265,7 +316,7 @@ static int udl_crtc_mode_set(struct drm_crtc *crtc,
 	}
 	udl->mode_buf_len = wrptr - buf;
 
-	
+	/* damage all of it */
 	udl_handle_damage(ufb, 0, 0, ufb->base.width, ufb->base.height);
 	return 0;
 }

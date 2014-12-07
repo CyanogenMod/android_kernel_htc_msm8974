@@ -34,6 +34,10 @@
 #include "ehea.h"
 #include "ehea_hw.h"
 
+/* Some abbreviations used here:
+ *
+ * hcp_*  - structures, variables and functions releated to Hypervisor Calls
+ */
 
 static inline u32 get_longbusy_msecs(int long_busy_ret_code)
 {
@@ -55,8 +59,10 @@ static inline u32 get_longbusy_msecs(int long_busy_ret_code)
 	}
 }
 
+/* Number of pages which can be registered at once by H_REGISTER_HEA_RPAGES */
 #define EHEA_MAX_RPAGE 512
 
+/* Notification Event Queue (NEQ) Entry bit masks */
 #define NEQE_EVENT_CODE		EHEA_BMASK_IBM(2, 7)
 #define NEQE_PORTNUM  		EHEA_BMASK_IBM(32, 47)
 #define NEQE_PORT_UP		EHEA_BMASK_IBM(16, 16)
@@ -64,10 +70,12 @@ static inline u32 get_longbusy_msecs(int long_busy_ret_code)
 #define NEQE_EXTSWITCH_PRIMARY	EHEA_BMASK_IBM(18, 18)
 #define NEQE_PLID		EHEA_BMASK_IBM(16, 47)
 
+/* Notification Event Codes */
 #define EHEA_EC_PORTSTATE_CHG	0x30
 #define EHEA_EC_ADAPTER_MALFUNC	0x32
 #define EHEA_EC_PORT_MALFUNC	0x33
 
+/* Notification Event Log Register (NELR) bit masks */
 #define NELR_PORT_MALFUNC	EHEA_BMASK_IBM(61, 61)
 #define NELR_ADAPTER_MALFUNC	EHEA_BMASK_IBM(62, 62)
 #define NELR_PORTSTATE_CHG	EHEA_BMASK_IBM(63, 63)
@@ -75,7 +83,7 @@ static inline u32 get_longbusy_msecs(int long_busy_ret_code)
 static inline void hcp_epas_ctor(struct h_epas *epas, u64 paddr_kernel,
 				 u64 paddr_user)
 {
-	
+	/* To support 64k pages we must round to 64k page boundary */
 	epas->kernel.addr = ioremap((paddr_kernel & PAGE_MASK), PAGE_SIZE) +
 			    (paddr_kernel & ~PAGE_MASK);
 	epas->user.addr = paddr_user;
@@ -91,15 +99,16 @@ static inline void hcp_epas_dtor(struct h_epas *epas)
 }
 
 struct hcp_modify_qp_cb0 {
-	u64 qp_ctl_reg;		
-	u32 max_swqe;		
-	u32 max_rwqe;		
-	u32 port_nb;		
-	u32 reserved0;		
-	u64 qp_aer;		
-	u64 qp_tenure;		
+	u64 qp_ctl_reg;		/* 00 */
+	u32 max_swqe;		/* 02 */
+	u32 max_rwqe;		/* 03 */
+	u32 port_nb;		/* 04 */
+	u32 reserved0;		/* 05 */
+	u64 qp_aer;		/* 06 */
+	u64 qp_tenure;		/* 08 */
 };
 
+/* Hcall Query/Modify Queue Pair Control Block 0 Selection Mask Bits */
 #define H_QPCB0_ALL             EHEA_BMASK_IBM(0, 5)
 #define H_QPCB0_QP_CTL_REG      EHEA_BMASK_IBM(0, 0)
 #define H_QPCB0_MAX_SWQE        EHEA_BMASK_IBM(1, 1)
@@ -108,27 +117,29 @@ struct hcp_modify_qp_cb0 {
 #define H_QPCB0_QP_AER          EHEA_BMASK_IBM(4, 4)
 #define H_QPCB0_QP_TENURE       EHEA_BMASK_IBM(5, 5)
 
-#define H_QP_CR_ENABLED		    0x8000000000000000ULL 
-							  
-#define H_QP_CR_STATE_RESET	    0x0000010000000000ULL 
-#define H_QP_CR_STATE_INITIALIZED   0x0000020000000000ULL 
-#define H_QP_CR_STATE_RDY2RCV	    0x0000030000000000ULL 
-#define H_QP_CR_STATE_RDY2SND	    0x0000050000000000ULL 
-#define H_QP_CR_STATE_ERROR	    0x0000800000000000ULL 
-#define H_QP_CR_RES_STATE 	    0x0000007F00000000ULL 
+/* Queue Pair Control Register Status Bits */
+#define H_QP_CR_ENABLED		    0x8000000000000000ULL /* QP enabled */
+							  /* QP States: */
+#define H_QP_CR_STATE_RESET	    0x0000010000000000ULL /*  Reset */
+#define H_QP_CR_STATE_INITIALIZED   0x0000020000000000ULL /*  Initialized */
+#define H_QP_CR_STATE_RDY2RCV	    0x0000030000000000ULL /*  Ready to recv */
+#define H_QP_CR_STATE_RDY2SND	    0x0000050000000000ULL /*  Ready to send */
+#define H_QP_CR_STATE_ERROR	    0x0000800000000000ULL /*  Error */
+#define H_QP_CR_RES_STATE 	    0x0000007F00000000ULL /* Resultant state */
 
 struct hcp_modify_qp_cb1 {
-	u32 qpn;		
-	u32 qp_asyn_ev_eq_nb;	
-	u64 sq_cq_handle;	
-	u64 rq_cq_handle;	
-	
-	u32 sgel_nb_sq;		
-	u32 sgel_nb_rq1;	
-	u32 sgel_nb_rq2;	
-	u32 sgel_nb_rq3;	
+	u32 qpn;		/* 00 */
+	u32 qp_asyn_ev_eq_nb;	/* 01 */
+	u64 sq_cq_handle;	/* 02 */
+	u64 rq_cq_handle;	/* 04 */
+	/* sgel = scatter gather element */
+	u32 sgel_nb_sq;		/* 06 */
+	u32 sgel_nb_rq1;	/* 07 */
+	u32 sgel_nb_rq2;	/* 08 */
+	u32 sgel_nb_rq3;	/* 09 */
 };
 
+/* Hcall Query/Modify Queue Pair Control Block 1 Selection Mask Bits */
 #define H_QPCB1_ALL             EHEA_BMASK_IBM(0, 7)
 #define H_QPCB1_QPN             EHEA_BMASK_IBM(0, 0)
 #define H_QPCB1_ASYN_EV_EQ_NB   EHEA_BMASK_IBM(1, 1)
@@ -140,42 +151,43 @@ struct hcp_modify_qp_cb1 {
 #define H_QPCB1_SGEL_NB_RQ3     EHEA_BMASK_IBM(7, 7)
 
 struct hcp_query_ehea {
-	u32 cur_num_qps;		
-	u32 cur_num_cqs;		
-	u32 cur_num_eqs;		
-	u32 cur_num_mrs;		
-	u32 auth_level;			
-	u32 max_num_qps;		
-	u32 max_num_cqs;		
-	u32 max_num_eqs;		
-	u32 max_num_mrs;		
-	u32 reserved0;			
-	u32 int_clock_freq;		
-	u32 max_num_pds;		
-	u32 max_num_addr_handles;	
-	u32 max_num_cqes;		
-	u32 max_num_wqes;		
-	u32 max_num_sgel_rq1wqe;	
-	u32 max_num_sgel_rq2wqe;	
-	u32 max_num_sgel_rq3wqe;	
-	u32 mr_page_size;		
-	u32 reserved1;			
-	u64 max_mr_size;		
-	u64 reserved2;			
-	u32 num_ports;			
-	u32 reserved3;			
-	u32 reserved4;			
-	u32 reserved5;			
-	u64 max_mc_mac;			
-	u64 ehea_cap;			
-	u32 max_isn_per_eq;		
-	u32 max_num_neq;		
-	u64 max_num_vlan_ids;		
-	u32 max_num_port_group;		
-	u32 max_num_phys_port;		
+	u32 cur_num_qps;		/* 00 */
+	u32 cur_num_cqs;		/* 01 */
+	u32 cur_num_eqs;		/* 02 */
+	u32 cur_num_mrs;		/* 03 */
+	u32 auth_level;			/* 04 */
+	u32 max_num_qps;		/* 05 */
+	u32 max_num_cqs;		/* 06 */
+	u32 max_num_eqs;		/* 07 */
+	u32 max_num_mrs;		/* 08 */
+	u32 reserved0;			/* 09 */
+	u32 int_clock_freq;		/* 10 */
+	u32 max_num_pds;		/* 11 */
+	u32 max_num_addr_handles;	/* 12 */
+	u32 max_num_cqes;		/* 13 */
+	u32 max_num_wqes;		/* 14 */
+	u32 max_num_sgel_rq1wqe;	/* 15 */
+	u32 max_num_sgel_rq2wqe;	/* 16 */
+	u32 max_num_sgel_rq3wqe;	/* 17 */
+	u32 mr_page_size;		/* 18 */
+	u32 reserved1;			/* 19 */
+	u64 max_mr_size;		/* 20 */
+	u64 reserved2;			/* 22 */
+	u32 num_ports;			/* 24 */
+	u32 reserved3;			/* 25 */
+	u32 reserved4;			/* 26 */
+	u32 reserved5;			/* 27 */
+	u64 max_mc_mac;			/* 28 */
+	u64 ehea_cap;			/* 30 */
+	u32 max_isn_per_eq;		/* 32 */
+	u32 max_num_neq;		/* 33 */
+	u64 max_num_vlan_ids;		/* 34 */
+	u32 max_num_port_group;		/* 36 */
+	u32 max_num_phys_port;		/* 37 */
 
 };
 
+/* Hcall Query/Modify Port Control Block defines */
 #define H_PORT_CB0	 0
 #define H_PORT_CB1	 1
 #define H_PORT_CB2	 2
@@ -198,18 +210,21 @@ struct hcp_ehea_port_cb0 {
 	u64 default_qpn_arr[16];
 };
 
-#define H_PORT_CB0_ALL		EHEA_BMASK_IBM(0, 7)    
-#define H_PORT_CB0_MAC		EHEA_BMASK_IBM(0, 0)    
-#define H_PORT_CB0_PRC		EHEA_BMASK_IBM(1, 1)    
-#define H_PORT_CB0_DEFQPNARRAY	EHEA_BMASK_IBM(7, 7)    
+/* Hcall Query/Modify Port Control Block 0 Selection Mask Bits */
+#define H_PORT_CB0_ALL		EHEA_BMASK_IBM(0, 7)    /* Set all bits */
+#define H_PORT_CB0_MAC		EHEA_BMASK_IBM(0, 0)    /* MAC address */
+#define H_PORT_CB0_PRC		EHEA_BMASK_IBM(1, 1)    /* Port Recv Control */
+#define H_PORT_CB0_DEFQPNARRAY	EHEA_BMASK_IBM(7, 7)    /* Default QPN Array */
 
-#define H_SPEED_10M_H	1	
-#define H_SPEED_10M_F	2	
-#define H_SPEED_100M_H	3	
-#define H_SPEED_100M_F	4	
-#define H_SPEED_1G_F	6	
-#define H_SPEED_10G_F	8	
+/*  Hcall Query Port: Returned port speed values */
+#define H_SPEED_10M_H	1	/*  10 Mbps, Half Duplex */
+#define H_SPEED_10M_F	2	/*  10 Mbps, Full Duplex */
+#define H_SPEED_100M_H	3	/* 100 Mbps, Half Duplex */
+#define H_SPEED_100M_F	4	/* 100 Mbps, Full Duplex */
+#define H_SPEED_1G_F	6	/*   1 Gbps, Full Duplex */
+#define H_SPEED_10G_F	8	/*  10 Gbps, Full Duplex */
 
+/* Port Receive Control Status Bits */
 #define PXLY_RC_VALID           EHEA_BMASK_IBM(49, 49)
 #define PXLY_RC_VLAN_XTRACT     EHEA_BMASK_IBM(50, 50)
 #define PXLY_RC_TCP_6_TUPLE     EHEA_BMASK_IBM(51, 51)
@@ -270,89 +285,90 @@ struct hcp_ehea_port_cb4 {
 	u32 ens_port_wrap;
 };
 
+/* Hcall Query/Modify Port Control Block 5 Selection Mask Bits */
 #define H_PORT_CB5_RCU		0x0001000000000000ULL
 #define PXS_RCU			EHEA_BMASK_IBM(61, 63)
 
 struct hcp_ehea_port_cb5 {
-	u64 prc;	        
-	u64 uaa;		
-	u64 macvc;		
-	u64 xpcsc;		
-	u64 xpcsp;		
-	u64 pcsid;		
-	u64 xpcsst;		
-	u64 pthlb;		
-	u64 pthrb;		
-	u64 pqu;		
-	u64 pqd;		
-	u64 prt;		
-	u64 wsth;		
-	u64 rcb;		
-	u64 rcm;		
-	u64 rcu;		
-	u64 macc;		
-	u64 pc;			
-	u64 pst;		
-	u64 ducqpn;		
-	u64 mcqpn;		
-	u64 mma;		
-	u64 pmc0h;		
-	u64 pmc0l;		
-	u64 lbc;		
+	u64 prc;	        /* 00 */
+	u64 uaa;		/* 01 */
+	u64 macvc;		/* 02 */
+	u64 xpcsc;		/* 03 */
+	u64 xpcsp;		/* 04 */
+	u64 pcsid;		/* 05 */
+	u64 xpcsst;		/* 06 */
+	u64 pthlb;		/* 07 */
+	u64 pthrb;		/* 08 */
+	u64 pqu;		/* 09 */
+	u64 pqd;		/* 10 */
+	u64 prt;		/* 11 */
+	u64 wsth;		/* 12 */
+	u64 rcb;		/* 13 */
+	u64 rcm;		/* 14 */
+	u64 rcu;		/* 15 */
+	u64 macc;		/* 16 */
+	u64 pc;			/* 17 */
+	u64 pst;		/* 18 */
+	u64 ducqpn;		/* 19 */
+	u64 mcqpn;		/* 20 */
+	u64 mma;		/* 21 */
+	u64 pmc0h;		/* 22 */
+	u64 pmc0l;		/* 23 */
+	u64 lbc;		/* 24 */
 };
 
 #define H_PORT_CB6_ALL  0xFFFFFE7FFFFF8000ULL
 
 struct hcp_ehea_port_cb6 {
-	u64 rxo;		
-	u64 rx64;		
-	u64 rx65;		
-	u64 rx128;		
-	u64 rx256;		
-	u64 rx512;		
-	u64 rx1024;		
-	u64 rxbfcs;		
-	u64 rxime;		
-	u64 rxrle;		
-	u64 rxorle;		
-	u64 rxftl;		
-	u64 rxjab;		
-	u64 rxse;		
-	u64 rxce;		
-	u64 rxrf;		
-	u64 rxfrag;		
-	u64 rxuoc;		
-	u64 rxcpf;		
-	u64 rxsb;		
-	u64 rxfd;		
-	u64 rxoerr;		
-	u64 rxaln;		
-	u64 ducqpn;		
-	u64 reserved0;		
-	u64 rxmcp;		
-	u64 rxbcp;		
-	u64 txmcp;		
-	u64 txbcp;		
-	u64 txo;		
-	u64 tx64;		
-	u64 tx65;		
-	u64 tx128;		
-	u64 tx256;		
-	u64 tx512;		
-	u64 tx1024;		
-	u64 txbfcs;		
-	u64 txcpf;		
-	u64 txlf;		
-	u64 txrf;		
-	u64 txime;		
-	u64 txsc;		
-	u64 txmc;		
-	u64 txsqe;		
-	u64 txdef;		
-	u64 txlcol;		
-	u64 txexcol;		
-	u64 txcse;		
-	u64 txbor;		
+	u64 rxo;		/* 00 */
+	u64 rx64;		/* 01 */
+	u64 rx65;		/* 02 */
+	u64 rx128;		/* 03 */
+	u64 rx256;		/* 04 */
+	u64 rx512;		/* 05 */
+	u64 rx1024;		/* 06 */
+	u64 rxbfcs;		/* 07 */
+	u64 rxime;		/* 08 */
+	u64 rxrle;		/* 09 */
+	u64 rxorle;		/* 10 */
+	u64 rxftl;		/* 11 */
+	u64 rxjab;		/* 12 */
+	u64 rxse;		/* 13 */
+	u64 rxce;		/* 14 */
+	u64 rxrf;		/* 15 */
+	u64 rxfrag;		/* 16 */
+	u64 rxuoc;		/* 17 */
+	u64 rxcpf;		/* 18 */
+	u64 rxsb;		/* 19 */
+	u64 rxfd;		/* 20 */
+	u64 rxoerr;		/* 21 */
+	u64 rxaln;		/* 22 */
+	u64 ducqpn;		/* 23 */
+	u64 reserved0;		/* 24 */
+	u64 rxmcp;		/* 25 */
+	u64 rxbcp;		/* 26 */
+	u64 txmcp;		/* 27 */
+	u64 txbcp;		/* 28 */
+	u64 txo;		/* 29 */
+	u64 tx64;		/* 30 */
+	u64 tx65;		/* 31 */
+	u64 tx128;		/* 32 */
+	u64 tx256;		/* 33 */
+	u64 tx512;		/* 34 */
+	u64 tx1024;		/* 35 */
+	u64 txbfcs;		/* 36 */
+	u64 txcpf;		/* 37 */
+	u64 txlf;		/* 38 */
+	u64 txrf;		/* 39 */
+	u64 txime;		/* 40 */
+	u64 txsc;		/* 41 */
+	u64 txmc;		/* 42 */
+	u64 txsqe;		/* 43 */
+	u64 txdef;		/* 44 */
+	u64 txlcol;		/* 45 */
+	u64 txexcol;		/* 46 */
+	u64 txcse;		/* 47 */
+	u64 txbor;		/* 48 */
 };
 
 #define H_PORT_CB7_DUCQPN 0x8000000000000000ULL
@@ -421,6 +437,7 @@ u64 ehea_h_register_smr(const u64 adapter_handle, const u64 orig_mr_handle,
 
 u64 ehea_h_query_ehea(const u64 adapter_handle, void *cb_addr);
 
+/* output param R5 */
 #define H_MEHEAPORT_CAT		EHEA_BMASK_IBM(40, 47)
 #define H_MEHEAPORT_PN		EHEA_BMASK_IBM(48, 63)
 
@@ -447,4 +464,4 @@ u64 ehea_h_reset_events(const u64 adapter_handle, const u64 neq_handle,
 u64 ehea_h_error_data(const u64 adapter_handle, const u64 ressource_handle,
 		      void *rblock);
 
-#endif	
+#endif	/* __EHEA_PHYP_H__ */

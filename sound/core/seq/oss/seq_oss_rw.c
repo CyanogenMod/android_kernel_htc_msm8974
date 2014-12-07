@@ -30,9 +30,15 @@
 #include "../seq_clientmgr.h"
 
 
+/*
+ * protoypes
+ */
 static int insert_queue(struct seq_oss_devinfo *dp, union evrec *rec, struct file *opt);
 
 
+/*
+ * read interface
+ */
 
 int
 snd_seq_oss_read(struct seq_oss_devinfo *dp, char __user *buf, int count)
@@ -82,6 +88,9 @@ snd_seq_oss_read(struct seq_oss_devinfo *dp, char __user *buf, int count)
 }
 
 
+/*
+ * write interface
+ */
 
 int
 snd_seq_oss_write(struct seq_oss_devinfo *dp, const char __user *buf, int count, struct file *opt)
@@ -99,18 +108,18 @@ snd_seq_oss_write(struct seq_oss_devinfo *dp, const char __user *buf, int count,
 			break;
 		}
 		if (rec.s.code == SEQ_FULLSIZE) {
-			
+			/* load patch */
 			if (result > 0) {
 				err = -EINVAL;
 				break;
 			}
 			fmt = (*(unsigned short *)rec.c) & 0xffff;
-			
+			/* FIXME the return value isn't correct */
 			return snd_seq_oss_synth_load_patch(dp, rec.s.dev,
 							    fmt, buf, 0, count);
 		}
 		if (ev_is_long(&rec)) {
-			
+			/* extended code */
 			if (rec.s.code == SEQ_EXTENDED &&
 			    dp->seq_mode == SNDRV_SEQ_OSS_MODE_MUSIC) {
 				err = -EINVAL;
@@ -119,7 +128,7 @@ snd_seq_oss_write(struct seq_oss_devinfo *dp, const char __user *buf, int count,
 			ev_size = LONG_EVENT_SIZE;
 			if (count < ev_size)
 				break;
-			
+			/* copy the reset 4 bytes */
 			if (copy_from_user(rec.c + SHORT_EVENT_SIZE,
 					   buf + SHORT_EVENT_SIZE,
 					   LONG_EVENT_SIZE - SHORT_EVENT_SIZE)) {
@@ -127,7 +136,7 @@ snd_seq_oss_write(struct seq_oss_devinfo *dp, const char __user *buf, int count,
 				break;
 			}
 		} else {
-			
+			/* old-type code */
 			if (dp->seq_mode == SNDRV_SEQ_OSS_MODE_MUSIC) {
 				err = -EINVAL;
 				break;
@@ -135,7 +144,7 @@ snd_seq_oss_write(struct seq_oss_devinfo *dp, const char __user *buf, int count,
 			ev_size = SHORT_EVENT_SIZE;
 		}
 
-		
+		/* insert queue */
 		if ((err = insert_queue(dp, &rec, opt)) < 0)
 			break;
 
@@ -147,24 +156,28 @@ snd_seq_oss_write(struct seq_oss_devinfo *dp, const char __user *buf, int count,
 }
 
 
+/*
+ * insert event record to write queue
+ * return: 0 = OK, non-zero = NG
+ */
 static int
 insert_queue(struct seq_oss_devinfo *dp, union evrec *rec, struct file *opt)
 {
 	int rc = 0;
 	struct snd_seq_event event;
 
-	
+	/* if this is a timing event, process the current time */
 	if (snd_seq_oss_process_timer_event(dp->timer, rec))
-		return 0; 
+		return 0; /* no need to insert queue */
 
-	
+	/* parse this event */
 	memset(&event, 0, sizeof(event));
-	
+	/* set dummy -- to be sure */
 	event.type = SNDRV_SEQ_EVENT_NOTEOFF;
 	snd_seq_oss_fill_addr(dp, &event, dp->addr.port, dp->addr.client);
 
 	if (snd_seq_oss_process_event(dp, rec, &event))
-		return 0; 
+		return 0; /* invalid event - no need to insert queue */
 
 	event.time.tick = snd_seq_oss_timer_cur_tick(dp->timer);
 	if (dp->timer->realtime || !dp->timer->running) {
@@ -179,19 +192,22 @@ insert_queue(struct seq_oss_devinfo *dp, union evrec *rec, struct file *opt)
 }
 		
 
+/*
+ * select / poll
+ */
   
 unsigned int
 snd_seq_oss_poll(struct seq_oss_devinfo *dp, struct file *file, poll_table * wait)
 {
 	unsigned int mask = 0;
 
-	
+	/* input */
 	if (dp->readq && is_read_mode(dp->file_mode)) {
 		if (snd_seq_oss_readq_poll(dp->readq, file, wait))
 			mask |= POLLIN | POLLRDNORM;
 	}
 
-	
+	/* output */
 	if (dp->writeq && is_write_mode(dp->file_mode)) {
 		if (snd_seq_kernel_client_write_poll(dp->cseq, file, wait))
 			mask |= POLLOUT | POLLWRNORM;

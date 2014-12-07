@@ -59,28 +59,28 @@
 #include "devices.h"
 
 static unsigned long corgi_pin_config[] __initdata = {
-	
-	GPIO78_nCS_2,	
-	GPIO80_nCS_4,	
+	/* Static Memory I/O */
+	GPIO78_nCS_2,	/* w100fb */
+	GPIO80_nCS_4,	/* scoop */
 
-	
+	/* SSP1 */
 	GPIO23_SSP1_SCLK,
 	GPIO25_SSP1_TXD,
 	GPIO26_SSP1_RXD,
-	GPIO24_GPIO,	
+	GPIO24_GPIO,	/* CORGI_GPIO_ADS7846_CS - SFRM as chip select */
 
-	
+	/* I2S */
 	GPIO28_I2S_BITCLK_OUT,
 	GPIO29_I2S_SDATA_IN,
 	GPIO30_I2S_SDATA_OUT,
 	GPIO31_I2S_SYNC,
 	GPIO32_I2S_SYSCLK,
 
-	
+	/* Infra-Red */
 	GPIO47_FICP_TXD,
 	GPIO46_FICP_RXD,
 
-	
+	/* FFUART */
 	GPIO40_FFUART_DTR,
 	GPIO41_FFUART_RTS,
 	GPIO39_FFUART_TXD,
@@ -88,7 +88,7 @@ static unsigned long corgi_pin_config[] __initdata = {
 	GPIO34_FFUART_RXD,
 	GPIO35_FFUART_CTS,
 
-	
+	/* PC Card */
 	GPIO48_nPOE,
 	GPIO49_nPWE,
 	GPIO50_nPIOR,
@@ -100,49 +100,52 @@ static unsigned long corgi_pin_config[] __initdata = {
 	GPIO56_nPWAIT,
 	GPIO57_nIOIS16,
 
-	
+	/* MMC */
 	GPIO6_MMC_CLK,
 	GPIO8_MMC_CS0,
 
-	
-	GPIO66_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO67_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO68_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO69_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO70_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO71_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO72_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO73_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO74_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO75_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO76_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO77_GPIO | MFP_LPM_DRIVE_HIGH,	
-	GPIO58_GPIO,	
-	GPIO59_GPIO,	
-	GPIO60_GPIO,	
-	GPIO61_GPIO,	
-	GPIO62_GPIO,	
-	GPIO63_GPIO,	
-	GPIO64_GPIO,	
-	GPIO65_GPIO,	
+	/* GPIO Matrix Keypad */
+	GPIO66_GPIO | MFP_LPM_DRIVE_HIGH,	/* column 0 */
+	GPIO67_GPIO | MFP_LPM_DRIVE_HIGH,	/* column 1 */
+	GPIO68_GPIO | MFP_LPM_DRIVE_HIGH,	/* column 2 */
+	GPIO69_GPIO | MFP_LPM_DRIVE_HIGH,	/* column 3 */
+	GPIO70_GPIO | MFP_LPM_DRIVE_HIGH,	/* column 4 */
+	GPIO71_GPIO | MFP_LPM_DRIVE_HIGH,	/* column 5 */
+	GPIO72_GPIO | MFP_LPM_DRIVE_HIGH,	/* column 6 */
+	GPIO73_GPIO | MFP_LPM_DRIVE_HIGH,	/* column 7 */
+	GPIO74_GPIO | MFP_LPM_DRIVE_HIGH,	/* column 8 */
+	GPIO75_GPIO | MFP_LPM_DRIVE_HIGH,	/* column 9 */
+	GPIO76_GPIO | MFP_LPM_DRIVE_HIGH,	/* column 10 */
+	GPIO77_GPIO | MFP_LPM_DRIVE_HIGH,	/* column 11 */
+	GPIO58_GPIO,	/* row 0 */
+	GPIO59_GPIO,	/* row 1 */
+	GPIO60_GPIO,	/* row 2 */
+	GPIO61_GPIO,	/* row 3 */
+	GPIO62_GPIO,	/* row 4 */
+	GPIO63_GPIO,	/* row 5 */
+	GPIO64_GPIO,	/* row 6 */
+	GPIO65_GPIO,	/* row 7 */
 
-	
-	GPIO9_GPIO,				
-	GPIO7_GPIO,				
-	GPIO11_GPIO | WAKEUP_ON_EDGE_BOTH,	
-	GPIO13_GPIO | MFP_LPM_KEEP_OUTPUT,	
-	GPIO21_GPIO,				
-	GPIO22_GPIO,				
-	GPIO33_GPIO,				
-	GPIO38_GPIO | MFP_LPM_KEEP_OUTPUT,	
-	GPIO43_GPIO | MFP_LPM_KEEP_OUTPUT,	
-	GPIO44_GPIO,				
+	/* GPIO */
+	GPIO9_GPIO,				/* CORGI_GPIO_nSD_DETECT */
+	GPIO7_GPIO,				/* CORGI_GPIO_nSD_WP */
+	GPIO11_GPIO | WAKEUP_ON_EDGE_BOTH,	/* CORGI_GPIO_MAIN_BAT_{LOW,COVER} */
+	GPIO13_GPIO | MFP_LPM_KEEP_OUTPUT,	/* CORGI_GPIO_LED_ORANGE */
+	GPIO21_GPIO,				/* CORGI_GPIO_ADC_TEMP */
+	GPIO22_GPIO,				/* CORGI_GPIO_IR_ON */
+	GPIO33_GPIO,				/* CORGI_GPIO_SD_PWR */
+	GPIO38_GPIO | MFP_LPM_KEEP_OUTPUT,	/* CORGI_GPIO_CHRG_ON */
+	GPIO43_GPIO | MFP_LPM_KEEP_OUTPUT,	/* CORGI_GPIO_CHRG_UKN */
+	GPIO44_GPIO,				/* CORGI_GPIO_HSYNC */
 
-	GPIO0_GPIO | WAKEUP_ON_EDGE_BOTH,	
-	GPIO1_GPIO | WAKEUP_ON_EDGE_RISE,	
-	GPIO3_GPIO | WAKEUP_ON_EDGE_BOTH,	
+	GPIO0_GPIO | WAKEUP_ON_EDGE_BOTH,	/* CORGI_GPIO_KEY_INT */
+	GPIO1_GPIO | WAKEUP_ON_EDGE_RISE,	/* CORGI_GPIO_AC_IN */
+	GPIO3_GPIO | WAKEUP_ON_EDGE_BOTH,	/* CORGI_GPIO_WAKEUP */
 };
 
+/*
+ * Corgi SCOOP Device
+ */
 static struct resource corgi_scoop_resources[] = {
 	[0] = {
 		.start		= 0x10800000,
@@ -288,6 +291,9 @@ static struct platform_device corgifb_device = {
 
 };
 
+/*
+ * Corgi Keyboard Device
+ */
 #define CORGI_KEY_CALENDER	KEY_F1
 #define CORGI_KEY_ADDRESS	KEY_F2
 #define CORGI_KEY_FN		KEY_F3
@@ -399,6 +405,9 @@ static struct platform_device corgikbd_device = {
 	},
 };
 
+/*
+ * Corgi LEDs
+ */
 static struct gpio_led corgi_gpio_leds[] = {
 	{
 		.name			= "corgi:amber:charge",
@@ -425,11 +434,20 @@ static struct platform_device corgiled_device = {
 	},
 };
 
+/*
+ * Corgi Audio
+ */
 static struct platform_device corgi_audio_device = {
 	.name	= "corgi-audio",
 	.id	= -1,
 };
 
+/*
+ * MMC/SD Device
+ *
+ * The card detect interrupt isn't debounced so we delay it by 250ms
+ * to give the card a chance to fully insert/eject.
+ */
 static struct pxamci_platform_data corgi_mci_platform_data = {
 	.detect_delay_ms	= 250,
 	.ocr_mask		= MMC_VDD_32_33|MMC_VDD_33_34,
@@ -439,14 +457,20 @@ static struct pxamci_platform_data corgi_mci_platform_data = {
 };
 
 
+/*
+ * Irda
+ */
 static struct pxaficp_platform_data corgi_ficp_platform_data = {
 	.gpio_pwdown		= CORGI_GPIO_IR_ON,
 	.transceiver_cap	= IR_SIRMODE | IR_OFF,
 };
 
 
+/*
+ * USB Device Controller
+ */
 static struct pxa2xx_udc_mach_info udc_info __initdata = {
-	
+	/* no connect GPIO; corgi can't tell connection status */
 	.gpio_pullup		= CORGI_GPIO_USB_PULLUP,
 };
 
@@ -636,7 +660,7 @@ static struct i2c_board_info __initdata corgi_i2c_devices[] = {
 static void corgi_poweroff(void)
 {
 	if (!machine_is_corgi())
-		
+		/* Green LED off tells the bootloader to halt */
 		gpio_set_value(CORGI_GPIO_LED_GREEN, 0);
 
 	pxa_restart('h', NULL);
@@ -645,7 +669,7 @@ static void corgi_poweroff(void)
 static void corgi_restart(char mode, const char *cmd)
 {
 	if (!machine_is_corgi())
-		
+		/* Green LED on tells the bootloader to reboot */
 		gpio_set_value(CORGI_GPIO_LED_GREEN, 1);
 
 	pxa_restart('h', cmd);
@@ -655,12 +679,12 @@ static void __init corgi_init(void)
 {
 	pm_power_off = corgi_poweroff;
 
-	
+	/* Stop 3.6MHz and drive HIGH to PCMCIA and CS */
 	PCFR |= PCFR_OPDE;
 
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(corgi_pin_config));
 
-	
+	/* allow wakeup from various GPIOs */
 	gpio_set_wake(CORGI_GPIO_KEY_INT, 1);
 	gpio_set_wake(CORGI_GPIO_WAKEUP, 1);
 	gpio_set_wake(CORGI_GPIO_AC_IN, 1);

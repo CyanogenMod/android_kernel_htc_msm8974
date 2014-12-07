@@ -27,4 +27,4 @@ extern char *sysfs_get_cpuidle_driver(void);
 extern int sysfs_get_sched(const char *smt_mc);
 extern int sysfs_set_sched(const char *smt_mc, int val);
 
-#endif 
+#endif /* __CPUPOWER_HELPERS_SYSFS_H__ */

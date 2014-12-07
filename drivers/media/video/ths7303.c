@@ -36,6 +36,7 @@ static int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Debug level 0-1");
 
+/* following function is used to set ths7303 */
 static int ths7303_setvalue(struct v4l2_subdev *sd, v4l2_std_id std)
 {
 	int err = 0;

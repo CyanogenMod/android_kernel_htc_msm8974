@@ -337,7 +337,7 @@ va1j5jf8007t_tune(struct dvb_frontend *fe,
 		}
 
 		state->tune_state = VA1J5JF8007T_TRACK;
-		
+		/* fall through */
 
 	case VA1J5JF8007T_TRACK:
 		*delay = 3 * HZ;

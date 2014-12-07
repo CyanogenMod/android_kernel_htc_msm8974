@@ -3,4 +3,4 @@
 
 #define COMMAND_LINE_SIZE	512
 
-#endif	
+#endif	/* __ASM_GENERIC_SETUP_H */

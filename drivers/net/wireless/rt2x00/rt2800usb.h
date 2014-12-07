@@ -22,17 +22,40 @@
 	59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+/*
+	Module: rt2800usb
+	Abstract: Data structures and registers for the rt2800usb module.
+	Supported chipsets: RT2800U.
+ */
 
 #ifndef RT2800USB_H
 #define RT2800USB_H
 
+/*
+ * 8051 firmware image.
+ */
 #define FIRMWARE_RT2870			"rt2870.bin"
 #define FIRMWARE_IMAGE_BASE		0x3000
 
+/*
+ * DMA descriptor defines.
+ */
 #define TXINFO_DESC_SIZE		(1 * sizeof(__le32))
 #define RXINFO_DESC_SIZE		(1 * sizeof(__le32))
 
+/*
+ * TX Info structure
+ */
 
+/*
+ * Word0
+ * WIV: Wireless Info Valid. 1: Driver filled WI,  0: DMA needs to copy WI
+ * QSEL: Select on-chip FIFO ID for 2nd-stage output scheduler.
+ *       0:MGMT, 1:HCCA 2:EDCA
+ * USB_DMA_NEXT_VALID: Used ONLY in USB bulk Aggregation, NextValid
+ * DMA_TX_BURST: used ONLY in USB bulk Aggregation.
+ *               Force USB DMA transmit frame from current selected endpoint
+ */
 #define TXINFO_W0_USB_DMA_TX_PKT_LEN	FIELD32(0x0000ffff)
 #define TXINFO_W0_WIV			FIELD32(0x01000000)
 #define TXINFO_W0_QSEL			FIELD32(0x06000000)
@@ -40,11 +63,30 @@
 #define TXINFO_W0_USB_DMA_NEXT_VALID	FIELD32(0x40000000)
 #define TXINFO_W0_USB_DMA_TX_BURST	FIELD32(0x80000000)
 
+/*
+ * RX Info structure
+ */
 
+/*
+ * Word 0
+ */
 
 #define RXINFO_W0_USB_DMA_RX_PKT_LEN	FIELD32(0x0000ffff)
 
+/*
+ * RX descriptor format for RX Ring.
+ */
 
+/*
+ * Word0
+ * UNICAST_TO_ME: This RX frame is unicast to me.
+ * MULTICAST: This is a multicast frame.
+ * BROADCAST: This is a broadcast frame.
+ * MY_BSS: this frame belongs to the same BSSID.
+ * CRC_ERROR: CRC error.
+ * CIPHER_ERROR: 0: decryption okay, 1:ICV error, 2:MIC error, 3:KEY not valid.
+ * AMSDU: rx with 802.3 header, not 802.11 header.
+ */
 
 #define RXD_W0_BA			FIELD32(0x00000001)
 #define RXD_W0_DATA			FIELD32(0x00000002)
@@ -67,4 +109,4 @@
 #define RXD_W0_LAST_AMSDU		FIELD32(0x00080000)
 #define RXD_W0_PLCP_SIGNAL		FIELD32(0xfff00000)
 
-#endif 
+#endif /* RT2800USB_H */

@@ -15,6 +15,10 @@
 #define _ADV7520_H_
 #define ADV7520_DRV_NAME 		"adv7520"
 
+/* Configure the 20-bit 'N' used with the CTS to
+regenerate the audio clock in the receiver
+Pixel clock: 74.25 Mhz, Audio sampling: 44.1 Khz -> N
+value = 6272 */
 #define ADV7520_AUDIO_CTS_20BIT_N   6272
 
 #endif

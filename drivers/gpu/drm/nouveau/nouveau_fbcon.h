@@ -65,5 +65,5 @@ void nouveau_fbcon_save_disable_accel(struct drm_device *dev);
 void nouveau_fbcon_restore_accel(struct drm_device *dev);
 
 void nouveau_fbcon_output_poll_changed(struct drm_device *dev);
-#endif 
+#endif /* __NV50_FBCON_H__ */
 

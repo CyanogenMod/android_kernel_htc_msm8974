@@ -15,4 +15,4 @@
 #undef DEF
 extern struct cpuidle_monitor *all_monitors[];
 
-#endif 
+#endif /* _CPUIDLE_IDLE_MONITORS_H_ */

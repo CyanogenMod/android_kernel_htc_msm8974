@@ -16,9 +16,9 @@
 #include <linux/mtd/map.h>
 
 struct vmu_cache {
-	unsigned char *buffer;		
-	unsigned int block;		
-	unsigned long jiffies_atc;	
+	unsigned char *buffer;		/* Cache */
+	unsigned int block;		/* Which block was cached */
+	unsigned long jiffies_atc;	/* When was it cached? */
 	int valid;
 };
 
@@ -51,8 +51,8 @@ struct memcard {
 };
 
 struct vmu_block {
-	unsigned int num; 
-	unsigned int ofs; 
+	unsigned int num; /* block number */
+	unsigned int ofs; /* block offset */
 };
 
 static struct vmu_block *ofs_to_block(unsigned long src_ofs,
@@ -87,6 +87,7 @@ failed:
 	return NULL;
 }
 
+/* Maple bus callback function for reads */
 static void vmu_blockread(struct mapleq *mq)
 {
 	struct maple_device *mdev;
@@ -94,7 +95,7 @@ static void vmu_blockread(struct mapleq *mq)
 
 	mdev = mq->dev;
 	card = maple_get_drvdata(mdev);
-	
+	/* copy the read in data */
 
 	if (unlikely(!card->blockread))
 		return;
@@ -104,6 +105,9 @@ static void vmu_blockread(struct mapleq *mq)
 
 }
 
+/* Interface with maple bus to read blocks
+ * caching the results so that other parts
+ * of the driver can access block reads */
 static int maple_vmu_read_block(unsigned int num, unsigned char *buf,
 	struct mtd_info *mtd)
 {
@@ -122,7 +126,7 @@ static int maple_vmu_read_block(unsigned int num, unsigned char *buf,
 	pcache = card->parts[partition].pcache;
 	pcache->valid = 0;
 
-	
+	/* prepare the cache for this block */
 	if (!pcache->buffer) {
 		pcache->buffer = kmalloc(card->blocklen, GFP_KERNEL);
 		if (!pcache->buffer) {
@@ -134,6 +138,11 @@ static int maple_vmu_read_block(unsigned int num, unsigned char *buf,
 		}
 	}
 
+	/*
+	* Reads may be phased - again the hardware spec
+	* supports this - though may not be any devices in
+	* the wild that implement it, but we will here
+	*/
 	for (x = 0; x < card->readcnt; x++) {
 		sendbuf = cpu_to_be32(partition << 24 | x << 16 | num);
 
@@ -161,10 +170,15 @@ static int maple_vmu_read_block(unsigned int num, unsigned char *buf,
 			MAPLE_FUNC_MEMCARD);
 		error = maple_add_packet(mdev, MAPLE_FUNC_MEMCARD,
 				MAPLE_COMMAND_BREAD, 2, &sendbuf);
-		
+		/* Very long timeouts seem to be needed when box is stressed */
 		wait = wait_event_interruptible_timeout(mdev->maple_wait,
 			(atomic_read(&mdev->busy) == 0 ||
 			atomic_read(&mdev->busy) == 2), HZ * 3);
+		/*
+		* MTD layer does not handle hotplugging well
+		* so have to return errors when VMU is unplugged
+		* in the middle of a read (busy == 2)
+		*/
 		if (error || atomic_read(&mdev->busy) == 2) {
 			if (atomic_read(&mdev->busy) == 2)
 				error = -ENXIO;
@@ -210,6 +224,7 @@ outB:
 	return error;
 }
 
+/* communicate with maple bus for phased writing */
 static int maple_vmu_write_block(unsigned int num, const unsigned char *buf,
 	struct mtd_info *mtd)
 {
@@ -234,6 +249,8 @@ static int maple_vmu_write_block(unsigned int num, const unsigned char *buf,
 	for (x = 0; x < card->writecnt; x++) {
 		sendbuf[0] = cpu_to_be32(partition << 24 | x << 16 | num);
 		memcpy(&sendbuf[1], buf + phaselen * x, phaselen);
+		/* wait until the device is not busy doing something else
+		* or 1 second - which ever is longer */
 		if (atomic_read(&mdev->busy) == 1) {
 			wait_event_interruptible_timeout(mdev->maple_wait,
 				atomic_read(&mdev->busy) == 0, HZ);
@@ -283,6 +300,7 @@ fail_nosendbuf:
 	return error;
 }
 
+/* mtd function to simulate reading byte by byte */
 static unsigned char vmu_flash_read_char(unsigned long ofs, int *retval,
 	struct mtd_info *mtd)
 {
@@ -330,6 +348,7 @@ finish:
 	return ret;
 }
 
+/* mtd higher order function to read flash */
 static int vmu_flash_read(struct mtd_info *mtd, loff_t from, size_t len,
 	size_t *retlen,  u_char *buf)
 {
@@ -351,31 +370,35 @@ static int vmu_flash_read(struct mtd_info *mtd, loff_t from, size_t len,
 		len = numblocks * card->blocklen - from;
 	if (len == 0)
 		return -EIO;
-	
+	/* Have we cached this bit already? */
 	pcache = card->parts[partition].pcache;
 	do {
 		vblock =  ofs_to_block(from + index, mtd, partition);
 		if (!vblock)
 			return -ENOMEM;
-		
+		/* Have we cached this and is the cache valid and timely? */
 		if (pcache->valid &&
 			time_before(jiffies, pcache->jiffies_atc + HZ) &&
 			(pcache->block == vblock->num)) {
-			
+			/* we have cached it, so do necessary copying */
 			leftover = card->blocklen - vblock->ofs;
 			if (vblock->ofs + len - index < card->blocklen) {
-				
+				/* only a bit of this block to copy */
 				memcpy(buf + index,
 					pcache->buffer + vblock->ofs,
 					len - index);
 				index = len;
 			} else {
-				
+				/* otherwise copy remainder of whole block */
 				memcpy(buf + index, pcache->buffer +
 					vblock->ofs, leftover);
 				index += leftover;
 			}
 		} else {
+			/*
+			* Not cached so read one byte -
+			* but cache the rest of the block
+			*/
 			cx = vmu_flash_read_char(from + index, &retval, mtd);
 			if (retval) {
 				*retlen = index;
@@ -429,7 +452,7 @@ static int vmu_flash_write(struct mtd_info *mtd, loff_t to, size_t len,
 	}
 
 	do {
-		
+		/* Read in the block we are to write to */
 		error = maple_vmu_read_block(vblock->num, buffer, mtd);
 		if (error)
 			goto fail_io;
@@ -442,9 +465,9 @@ static int vmu_flash_write(struct mtd_info *mtd, loff_t to, size_t len,
 				break;
 		} while (vblock->ofs < card->blocklen);
 
-		
+		/* write out new buffer */
 		error = maple_vmu_write_block(vblock->num, buffer, mtd);
-		
+		/* invalidate the cache */
 		pcache = card->parts[partition].pcache;
 		pcache->valid = 0;
 
@@ -471,9 +494,10 @@ failed:
 
 static void vmu_flash_sync(struct mtd_info *mtd)
 {
-	
+	/* Do nothing here */
 }
 
+/* Maple bus callback function to recursively query hardware details */
 static void vmu_queryblocks(struct mapleq *mq)
 {
 	struct maple_device *mdev;
@@ -538,6 +562,10 @@ static void vmu_queryblocks(struct mapleq *mq)
 	maple_getcond_callback(mdev, NULL, 0,
 		MAPLE_FUNC_MEMCARD);
 
+	/*
+	* Set up a recursive call to the (probably theoretical)
+	* second or more partition
+	*/
 	if (++card->partition < card->partitions) {
 		partnum = cpu_to_be32(card->partition << 24);
 		maple_getcond_callback(mdev, vmu_queryblocks, 0,
@@ -567,6 +595,7 @@ fail_name:
 	return;
 }
 
+/* Handles very basic info about the flash, queries for details */
 static int __devinit vmu_connect(struct maple_device *mdev)
 {
 	unsigned long test_flash_data, basic_flash_data;
@@ -575,6 +604,9 @@ static int __devinit vmu_connect(struct maple_device *mdev)
 	u32 partnum = 0;
 
 	test_flash_data = be32_to_cpu(mdev->devinfo.function);
+	/* Need to count how many bits are set - to find out which
+	 * function_data element has details of the memory card
+	 */
 	c = hweight_long(test_flash_data);
 
 	basic_flash_data = be32_to_cpu(mdev->devinfo.function_data[c - 1]);
@@ -593,6 +625,10 @@ static int __devinit vmu_connect(struct maple_device *mdev)
 
 	card->partition = 0;
 
+	/*
+	* Not sure there are actually any multi-partition devices in the
+	* real world, but the hardware supports them, so, so will we
+	*/
 	card->parts = kmalloc(sizeof(struct vmupart) * card->partitions,
 		GFP_KERNEL);
 	if (!card->parts) {
@@ -609,10 +645,15 @@ static int __devinit vmu_connect(struct maple_device *mdev)
 
 	maple_set_drvdata(mdev, card);
 
+	/*
+	* We want to trap meminfo not get cond
+	* so set interval to zero, but rely on maple bus
+	* driver to pass back the results of the meminfo
+	*/
 	maple_getcond_callback(mdev, vmu_queryblocks, 0,
 		MAPLE_FUNC_MEMCARD);
 
-	
+	/* Make sure we are clear to go */
 	if (atomic_read(&mdev->busy) == 1) {
 		wait_event_interruptible_timeout(mdev->maple_wait,
 			atomic_read(&mdev->busy) == 0, HZ);
@@ -626,6 +667,10 @@ static int __devinit vmu_connect(struct maple_device *mdev)
 
 	atomic_set(&mdev->busy, 1);
 
+	/*
+	* Set up the minfo call: vmu_queryblocks will handle
+	* the information passed back
+	*/
 	error = maple_add_packet(mdev, MAPLE_FUNC_MEMCARD,
 		MAPLE_COMMAND_GETMINFO, 2, &partnum);
 	if (error) {
@@ -664,6 +709,9 @@ static void __devexit vmu_disconnect(struct maple_device *mdev)
 	kfree(card);
 }
 
+/* Callback to handle eccentricities of both mtd subsystem
+ * and general flakyness of Dreamcast VMUs
+ */
 static int vmu_can_unload(struct maple_device *mdev)
 {
 	struct memcard *card;

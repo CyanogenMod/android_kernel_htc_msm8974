@@ -19,6 +19,17 @@
 
 #define HAL_BUFFER_MAX 0xb
 
+struct smem_client {
+        int mem_type;
+        void *clnt;
+        void *clnt_alloc;
+        void *clnt_import;
+        struct msm_vidc_platform_resources *res;
+	
+	struct msm_vidc_inst *inst;
+	
+};
+
 enum smem_type {
 	SMEM_ION,
 };

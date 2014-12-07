@@ -16,12 +16,12 @@ struct platform_device;
 struct clk;
 
 struct i2c_pnx_mif {
-	int			ret;		
-	int			mode;		
-	struct completion	complete;	
-	struct timer_list	timer;		
-	u8 *			buf;		
-	int			len;		
+	int			ret;		/* Return value */
+	int			mode;		/* Interface mode */
+	struct completion	complete;	/* I/O completion */
+	struct timer_list	timer;		/* Timeout */
+	u8 *			buf;		/* Data buffer */
+	int			len;		/* Length of data buffer */
 };
 
 struct i2c_pnx_algo_data {
@@ -39,4 +39,4 @@ struct i2c_pnx_data {
 	int irq;
 };
 
-#endif 
+#endif /* __I2C_PNX_H__ */

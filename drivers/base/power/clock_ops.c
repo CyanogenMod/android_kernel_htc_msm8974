@@ -32,6 +32,11 @@ struct pm_clock_entry {
 	enum pce_status status;
 };
 
+/**
+ * pm_clk_acquire - Acquire a device clock.
+ * @dev: Device whose clock is to be acquired.
+ * @ce: PM clock entry corresponding to the clock.
+ */
 static void pm_clk_acquire(struct device *dev, struct pm_clock_entry *ce)
 {
 	ce->clk = clk_get(dev, ce->con_id);
@@ -43,6 +48,14 @@ static void pm_clk_acquire(struct device *dev, struct pm_clock_entry *ce)
 	}
 }
 
+/**
+ * pm_clk_add - Start using a device clock for power management.
+ * @dev: Device whose clock is going to be used for power management.
+ * @con_id: Connection ID of the clock.
+ *
+ * Add the clock represented by @con_id to the list of clocks used for
+ * the power management of @dev.
+ */
 int pm_clk_add(struct device *dev, const char *con_id)
 {
 	struct pm_subsys_data *psd = dev_to_psd(dev);
@@ -75,6 +88,10 @@ int pm_clk_add(struct device *dev, const char *con_id)
 	return 0;
 }
 
+/**
+ * __pm_clk_remove - Destroy PM clock entry.
+ * @ce: PM clock entry to destroy.
+ */
 static void __pm_clk_remove(struct pm_clock_entry *ce)
 {
 	if (!ce)
@@ -92,6 +109,14 @@ static void __pm_clk_remove(struct pm_clock_entry *ce)
 	kfree(ce);
 }
 
+/**
+ * pm_clk_remove - Stop using a device clock for power management.
+ * @dev: Device whose clock should not be used for PM any more.
+ * @con_id: Connection ID of the clock.
+ *
+ * Remove the clock represented by @con_id from the list of clocks used for
+ * the power management of @dev.
+ */
 void pm_clk_remove(struct device *dev, const char *con_id)
 {
 	struct pm_subsys_data *psd = dev_to_psd(dev);
@@ -121,6 +146,13 @@ void pm_clk_remove(struct device *dev, const char *con_id)
 	__pm_clk_remove(ce);
 }
 
+/**
+ * pm_clk_init - Initialize a device's list of power management clocks.
+ * @dev: Device to initialize the list of PM clocks for.
+ *
+ * Initialize the lock and clock_list members of the device's pm_subsys_data
+ * object.
+ */
 void pm_clk_init(struct device *dev)
 {
 	struct pm_subsys_data *psd = dev_to_psd(dev);
@@ -128,12 +160,27 @@ void pm_clk_init(struct device *dev)
 		INIT_LIST_HEAD(&psd->clock_list);
 }
 
+/**
+ * pm_clk_create - Create and initialize a device's list of PM clocks.
+ * @dev: Device to create and initialize the list of PM clocks for.
+ *
+ * Allocate a struct pm_subsys_data object, initialize its lock and clock_list
+ * members and make the @dev's power.subsys_data field point to it.
+ */
 int pm_clk_create(struct device *dev)
 {
 	int ret = dev_pm_get_subsys_data(dev);
 	return ret < 0 ? ret : 0;
 }
 
+/**
+ * pm_clk_destroy - Destroy a device's list of power management clocks.
+ * @dev: Device to destroy the list of PM clocks for.
+ *
+ * Clear the @dev's power.subsys_data field, remove the list of clock entries
+ * from the struct pm_subsys_data object pointed to by it before and free
+ * that object.
+ */
 void pm_clk_destroy(struct device *dev)
 {
 	struct pm_subsys_data *psd = dev_to_psd(dev);
@@ -160,10 +207,14 @@ void pm_clk_destroy(struct device *dev)
 	}
 }
 
-#endif 
+#endif /* CONFIG_PM */
 
 #ifdef CONFIG_PM_RUNTIME
 
+/**
+ * pm_clk_suspend - Disable clocks in a device's PM clock list.
+ * @dev: Device to disable the clocks for.
+ */
 int pm_clk_suspend(struct device *dev)
 {
 	struct pm_subsys_data *psd = dev_to_psd(dev);
@@ -190,6 +241,10 @@ int pm_clk_suspend(struct device *dev)
 	return 0;
 }
 
+/**
+ * pm_clk_resume - Enable clocks in a device's PM clock list.
+ * @dev: Device to enable the clocks for.
+ */
 int pm_clk_resume(struct device *dev)
 {
 	struct pm_subsys_data *psd = dev_to_psd(dev);
@@ -215,6 +270,22 @@ int pm_clk_resume(struct device *dev)
 	return 0;
 }
 
+/**
+ * pm_clk_notify - Notify routine for device addition and removal.
+ * @nb: Notifier block object this function is a member of.
+ * @action: Operation being carried out by the caller.
+ * @data: Device the routine is being run for.
+ *
+ * For this function to work, @nb must be a member of an object of type
+ * struct pm_clk_notifier_block containing all of the requisite data.
+ * Specifically, the pm_domain member of that object is copied to the device's
+ * pm_domain field and its con_ids member is used to populate the device's list
+ * of PM clocks, depending on @action.
+ *
+ * If the device's pm_domain field is already populated with a value different
+ * from the one stored in the struct pm_clk_notifier_block object, the function
+ * does nothing.
+ */
 static int pm_clk_notify(struct notifier_block *nb,
 				 unsigned long action, void *data)
 {
@@ -257,10 +328,14 @@ static int pm_clk_notify(struct notifier_block *nb,
 	return 0;
 }
 
-#else 
+#else /* !CONFIG_PM_RUNTIME */
 
 #ifdef CONFIG_PM
 
+/**
+ * pm_clk_suspend - Disable clocks in a device's PM clock list.
+ * @dev: Device to disable the clocks for.
+ */
 int pm_clk_suspend(struct device *dev)
 {
 	struct pm_subsys_data *psd = dev_to_psd(dev);
@@ -269,7 +344,7 @@ int pm_clk_suspend(struct device *dev)
 
 	dev_dbg(dev, "%s()\n", __func__);
 
-	
+	/* If there is no driver, the clocks are already disabled. */
 	if (!psd || !dev->driver)
 		return 0;
 
@@ -283,6 +358,10 @@ int pm_clk_suspend(struct device *dev)
 	return 0;
 }
 
+/**
+ * pm_clk_resume - Enable clocks in a device's PM clock list.
+ * @dev: Device to enable the clocks for.
+ */
 int pm_clk_resume(struct device *dev)
 {
 	struct pm_subsys_data *psd = dev_to_psd(dev);
@@ -291,7 +370,7 @@ int pm_clk_resume(struct device *dev)
 
 	dev_dbg(dev, "%s()\n", __func__);
 
-	
+	/* If there is no driver, the clocks should remain disabled. */
 	if (!psd || !dev->driver)
 		return 0;
 
@@ -305,8 +384,13 @@ int pm_clk_resume(struct device *dev)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_PM */
 
+/**
+ * enable_clock - Enable a device clock.
+ * @dev: Device whose clock is to be enabled.
+ * @con_id: Connection ID of the clock.
+ */
 static void enable_clock(struct device *dev, const char *con_id)
 {
 	struct clk *clk;
@@ -319,6 +403,11 @@ static void enable_clock(struct device *dev, const char *con_id)
 	}
 }
 
+/**
+ * disable_clock - Disable a device clock.
+ * @dev: Device whose clock is to be disabled.
+ * @con_id: Connection ID of the clock.
+ */
 static void disable_clock(struct device *dev, const char *con_id)
 {
 	struct clk *clk;
@@ -331,6 +420,17 @@ static void disable_clock(struct device *dev, const char *con_id)
 	}
 }
 
+/**
+ * pm_clk_notify - Notify routine for device addition and removal.
+ * @nb: Notifier block object this function is a member of.
+ * @action: Operation being carried out by the caller.
+ * @data: Device the routine is being run for.
+ *
+ * For this function to work, @nb must be a member of an object of type
+ * struct pm_clk_notifier_block containing all of the requisite data.
+ * Specifically, the con_ids member of that object is used to enable or disable
+ * the device's clocks, depending on @action.
+ */
 static int pm_clk_notify(struct notifier_block *nb,
 				 unsigned long action, void *data)
 {
@@ -364,8 +464,18 @@ static int pm_clk_notify(struct notifier_block *nb,
 	return 0;
 }
 
-#endif 
+#endif /* !CONFIG_PM_RUNTIME */
 
+/**
+ * pm_clk_add_notifier - Add bus type notifier for power management clocks.
+ * @bus: Bus type to add the notifier to.
+ * @clknb: Notifier to be added to the given bus type.
+ *
+ * The nb member of @clknb is not expected to be initialized and its
+ * notifier_call member will be replaced with pm_clk_notify().  However,
+ * the remaining members of @clknb should be populated prior to calling this
+ * routine.
+ */
 void pm_clk_add_notifier(struct bus_type *bus,
 				 struct pm_clk_notifier_block *clknb)
 {

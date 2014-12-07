@@ -100,6 +100,7 @@ static void die_if_kernel(char *str, struct pt_regs *fp, int nr)
 }
 
 
+/* Internal exceptions */
 static struct exception_info iexcept_table[10] = {
 	{ "Oops - instruction fetch", SIGBUS, BUS_ADRERR },
 	{ "Oops - fetch packet", SIGBUS, BUS_ADRERR },
@@ -113,6 +114,7 @@ static struct exception_info iexcept_table[10] = {
 	{ "Oops - unknown exception", SIGILL, ILL_ILLOPC }
 };
 
+/* External exceptions */
 static struct exception_info eexcept_table[128] = {
 	{ "Oops - external exception", SIGBUS, BUS_ADRERR },
 	{ "Oops - external exception", SIGBUS, BUS_ADRERR },
@@ -267,6 +269,9 @@ static void do_trap(struct exception_info *except_info, struct pt_regs *regs)
 	force_sig_info(except_info->signo, &info, current);
 }
 
+/*
+ * Process an internal exception (non maskable)
+ */
 static int process_iexcept(struct pt_regs *regs)
 {
 	unsigned int iexcept_report = get_iexcept();
@@ -281,7 +286,7 @@ static int process_iexcept(struct pt_regs *regs)
 		iexcept_report &= ~(1 << iexcept_num);
 		set_iexcept(iexcept_report);
 		if (*(unsigned int *)regs->pc == BKPT_OPCODE) {
-			
+			/* This is a breakpoint */
 			struct exception_info bkpt_exception = {
 				"Oops - undefined instruction",
 				  SIGTRAP, TRAP_BRKPT
@@ -297,6 +302,9 @@ static int process_iexcept(struct pt_regs *regs)
 	return 0;
 }
 
+/*
+ * Process an external exception (maskable)
+ */
 static void process_eexcept(struct pt_regs *regs)
 {
 	int evt;
@@ -309,11 +317,14 @@ static void process_eexcept(struct pt_regs *regs)
 	ack_exception(EXCEPT_TYPE_EXC);
 }
 
+/*
+ * Main exception processing
+ */
 asmlinkage int process_exception(struct pt_regs *regs)
 {
 	unsigned int type;
 	unsigned int type_num;
-	unsigned int ie_num = 9; 
+	unsigned int ie_num = 9; /* default is unknown exception */
 
 	while ((type = get_except_type()) != 0) {
 		type_num = fls(type) - 1;
@@ -358,6 +369,14 @@ static void show_trace(unsigned long *stack, unsigned long *endstack)
 	i = 0;
 	while (stack + 1 <= endstack) {
 		addr = *stack++;
+		/*
+		 * If the address is either in the text segment of the
+		 * kernel, or in the region which contains vmalloc'ed
+		 * memory, it *may* be the address of a calling
+		 * routine; if so, print it so that someone tracing
+		 * down the cause of the crash will be able to figure
+		 * out the call path that was taken.
+		 */
 		if (__kernel_text_address(addr)) {
 #ifndef CONFIG_KALLSYMS
 			if (i % 5 == 0)
@@ -378,6 +397,8 @@ void show_stack(struct task_struct *task, unsigned long *stack)
 
 	if (!stack) {
 		if (task && task != current)
+			/* We know this is a kernel stack,
+			   so this is the start/end */
 			stack = (unsigned long *)thread_saved_ksp(task);
 		else
 			stack = (unsigned long *)&stack;

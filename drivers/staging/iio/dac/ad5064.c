@@ -47,6 +47,14 @@
 #define AD5064_LDAC_PWRDN_100K			0x2
 #define AD5064_LDAC_PWRDN_3STATE		0x3
 
+/**
+ * struct ad5064_chip_info - chip specific information
+ * @shared_vref:	whether the vref supply is shared between channels
+ * @internal_vref:	internal reference voltage. 0 if the chip has no internal
+ *			vref.
+ * @channel:		channel specification
+ * @num_channels:	number of channels
+ */
 
 struct ad5064_chip_info {
 	bool shared_vref;
@@ -55,6 +63,18 @@ struct ad5064_chip_info {
 	unsigned int num_channels;
 };
 
+/**
+ * struct ad5064_state - driver instance specific data
+ * @spi:		spi_device
+ * @chip_info:		chip model specific constants, available modes etc
+ * @vref_reg:		vref supply regulators
+ * @pwr_down:		whether channel is powered down
+ * @pwr_down_mode:	channel's current power down mode
+ * @dac_cache:		current DAC raw value (chip does not support readback)
+ * @use_internal_vref:	set to true if the internal reference voltage should be
+ *			used.
+ * @data:		spi transfer buffers
+ */
 
 struct ad5064_state {
 	struct spi_device		*spi;
@@ -65,6 +85,10 @@ struct ad5064_state {
 	unsigned int			dac_cache[AD5064_MAX_DAC_CHANNELS];
 	bool				use_internal_vref;
 
+	/*
+	 * DMA (thus cache coherency maintenance) requires the
+	 * transfer buffers to live in their own cache lines.
+	 */
 	__be32 data ____cacheline_aligned;
 };
 
@@ -514,7 +538,7 @@ static const struct spi_device_id ad5064_id[] = {
 	{"ad5666-2", ID_AD5666_2},
 	{"ad5668-1", ID_AD5668_1},
 	{"ad5668-2", ID_AD5668_2},
-	{"ad5668-3", ID_AD5668_2}, 
+	{"ad5668-3", ID_AD5668_2}, /* similar enough to ad5668-2 */
 	{}
 };
 MODULE_DEVICE_TABLE(spi, ad5064_id);

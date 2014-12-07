@@ -28,15 +28,25 @@
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
-#include <linux/module.h>	
-#include <linux/types.h>	
-#include <linux/errno.h>	
-#include <linux/kernel.h>	
-#include <linux/watchdog.h>	
-#include <linux/init.h>		
+#include <linux/module.h>	/* For EXPORT_SYMBOL/module stuff/... */
+#include <linux/types.h>	/* For standard types */
+#include <linux/errno.h>	/* For the -ENODEV/... values */
+#include <linux/kernel.h>	/* For printk/panic/... */
+#include <linux/watchdog.h>	/* For watchdog specific items */
+#include <linux/init.h>		/* For __init/__exit/... */
 
-#include "watchdog_dev.h"	
+#include "watchdog_dev.h"	/* For watchdog_dev_register/... */
 
+/**
+ * watchdog_register_device() - register a watchdog device
+ * @wdd: watchdog device
+ *
+ * Register a watchdog device with the kernel so that the
+ * watchdog timer can be accessed from userspace.
+ *
+ * A zero is returned on success and a negative errno code for
+ * failure.
+ */
 int watchdog_register_device(struct watchdog_device *wdd)
 {
 	int ret;
@@ -44,18 +54,27 @@ int watchdog_register_device(struct watchdog_device *wdd)
 	if (wdd == NULL || wdd->info == NULL || wdd->ops == NULL)
 		return -EINVAL;
 
-	
+	/* Mandatory operations need to be supported */
 	if (wdd->ops->start == NULL || wdd->ops->stop == NULL)
 		return -EINVAL;
 
+	/*
+	 * Check that we have valid min and max timeout values, if
+	 * not reset them both to 0 (=not used or unknown)
+	 */
 	if (wdd->min_timeout > wdd->max_timeout) {
 		pr_info("Invalid min and max timeout values, resetting to 0!\n");
 		wdd->min_timeout = 0;
 		wdd->max_timeout = 0;
 	}
 
+	/*
+	 * Note: now that all watchdog_device data has been verified, we
+	 * will not check this anymore in other functions. If data gets
+	 * corrupted in a later stage then we expect a kernel panic!
+	 */
 
-	
+	/* We only support 1 watchdog device via the /dev/watchdog interface */
 	ret = watchdog_dev_register(wdd);
 	if (ret) {
 		pr_err("error registering /dev/watchdog (err=%d)\n", ret);
@@ -66,6 +85,13 @@ int watchdog_register_device(struct watchdog_device *wdd)
 }
 EXPORT_SYMBOL_GPL(watchdog_register_device);
 
+/**
+ * watchdog_unregister_device() - unregister a watchdog device
+ * @wdd: watchdog device to unregister
+ *
+ * Unregister a watchdog device that was previously successfully
+ * registered with watchdog_register_device().
+ */
 void watchdog_unregister_device(struct watchdog_device *wdd)
 {
 	int ret;

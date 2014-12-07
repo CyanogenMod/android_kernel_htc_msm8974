@@ -15,6 +15,15 @@
 #include <net/dsa.h>
 #include "mv88e6xxx.h"
 
+/*
+ * If the switch's ADDR[4:0] strap pins are strapped to zero, it will
+ * use all 32 SMI bus addresses on its SMI bus, and all switch registers
+ * will be directly accessible on some {device address,register address}
+ * pair.  If the ADDR[4:0] pins are not strapped to zero, the switch
+ * will only respond to SMI transactions to that specific address, and
+ * an indirect addressing mechanism needs to be used to access its
+ * registers.
+ */
 static int mv88e6xxx_reg_wait_ready(struct mii_bus *bus, int sw_addr)
 {
 	int ret;
@@ -39,18 +48,30 @@ int __mv88e6xxx_reg_read(struct mii_bus *bus, int sw_addr, int addr, int reg)
 	if (sw_addr == 0)
 		return mdiobus_read(bus, addr, reg);
 
+	/*
+	 * Wait for the bus to become free.
+	 */
 	ret = mv88e6xxx_reg_wait_ready(bus, sw_addr);
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * Transmit the read command.
+	 */
 	ret = mdiobus_write(bus, sw_addr, 0, 0x9800 | (addr << 5) | reg);
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * Wait for the read command to complete.
+	 */
 	ret = mv88e6xxx_reg_wait_ready(bus, sw_addr);
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * Read the data.
+	 */
 	ret = mdiobus_read(bus, sw_addr, 1);
 	if (ret < 0)
 		return ret;
@@ -79,18 +100,30 @@ int __mv88e6xxx_reg_write(struct mii_bus *bus, int sw_addr, int addr,
 	if (sw_addr == 0)
 		return mdiobus_write(bus, addr, reg, val);
 
+	/*
+	 * Wait for the bus to become free.
+	 */
 	ret = mv88e6xxx_reg_wait_ready(bus, sw_addr);
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * Transmit the data to write.
+	 */
 	ret = mdiobus_write(bus, sw_addr, 1, val);
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * Transmit the write command.
+	 */
 	ret = mdiobus_write(bus, sw_addr, 0, 0x9400 | (addr << 5) | reg);
 	if (ret < 0)
 		return ret;
 
+	/*
+	 * Wait for the write command to complete.
+	 */
 	ret = mv88e6xxx_reg_wait_ready(bus, sw_addr);
 	if (ret < 0)
 		return ret;
@@ -113,6 +146,9 @@ int mv88e6xxx_reg_write(struct dsa_switch *ds, int addr, int reg, u16 val)
 
 int mv88e6xxx_config_prio(struct dsa_switch *ds)
 {
+	/*
+	 * Configure the IP ToS mapping registers.
+	 */
 	REG_WRITE(REG_GLOBAL, 0x10, 0x0000);
 	REG_WRITE(REG_GLOBAL, 0x11, 0x0000);
 	REG_WRITE(REG_GLOBAL, 0x12, 0x5555);
@@ -122,6 +158,9 @@ int mv88e6xxx_config_prio(struct dsa_switch *ds)
 	REG_WRITE(REG_GLOBAL, 0x16, 0xffff);
 	REG_WRITE(REG_GLOBAL, 0x17, 0xffff);
 
+	/*
+	 * Configure the IEEE 802.1p priority mapping register.
+	 */
 	REG_WRITE(REG_GLOBAL, 0x18, 0xfa41);
 
 	return 0;
@@ -144,8 +183,14 @@ int mv88e6xxx_set_addr_indirect(struct dsa_switch *ds, u8 *addr)
 	for (i = 0; i < 6; i++) {
 		int j;
 
+		/*
+		 * Write the MAC address byte.
+		 */
 		REG_WRITE(REG_GLOBAL2, 0x0d, 0x8000 | (i << 8) | addr[i]);
 
+		/*
+		 * Wait for the write to complete.
+		 */
 		for (j = 0; j < 16; j++) {
 			ret = REG_READ(REG_GLOBAL2, 0x0d);
 			if ((ret & 0x8000) == 0)
@@ -237,6 +282,12 @@ static int mv88e6xxx_ppu_access_get(struct dsa_switch *ds)
 
 	mutex_lock(&ps->ppu_mutex);
 
+	/*
+	 * If the PHY polling unit is enabled, disable it so that
+	 * we can access the PHY registers.  If it was already
+	 * disabled, cancel the timer that is going to re-enable
+	 * it.
+	 */
 	if (!ps->ppu_disabled) {
 	        ret = mv88e6xxx_ppu_disable(ds);
 	        if (ret < 0) {
@@ -256,6 +307,9 @@ static void mv88e6xxx_ppu_access_put(struct dsa_switch *ds)
 {
 	struct mv88e6xxx_priv_state *ps = (void *)(ds + 1);
 
+	/*
+	 * Schedule a timer to re-enable the PHY polling unit.
+	 */
 	mod_timer(&ps->ppu_timer, jiffies + msecs_to_jiffies(10));
 	mutex_unlock(&ps->ppu_mutex);
 }
@@ -377,8 +431,14 @@ static int mv88e6xxx_stats_snapshot(struct dsa_switch *ds, int port)
 {
 	int ret;
 
+	/*
+	 * Snapshot the hardware statistics counters for this port.
+	 */
 	REG_WRITE(REG_GLOBAL, 0x1d, 0xdc00 | port);
 
+	/*
+	 * Wait for the snapshotting to complete.
+	 */
 	ret = mv88e6xxx_stats_wait(ds);
 	if (ret < 0)
 		return ret;
@@ -442,6 +502,9 @@ void mv88e6xxx_get_ethtool_stats(struct dsa_switch *ds,
 		return;
 	}
 
+	/*
+	 * Read each of the counters.
+	 */
 	for (i = 0; i < nr_stats; i++) {
 		struct mv88e6xxx_hw_stat *s = stats + i;
 		u32 low;

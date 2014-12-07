@@ -34,10 +34,10 @@
 #include "devices-imx31.h"
 
 static unsigned int smartbot_pins[] = {
-	
+	/* UART1 */
 	MX31_PIN_CTS2__CTS2, MX31_PIN_RTS2__RTS2,
 	MX31_PIN_TXD2__TXD2, MX31_PIN_RXD2__RXD2,
-	
+	/* CSI */
 	MX31_PIN_CSI_D4__CSI_D4, MX31_PIN_CSI_D5__CSI_D5,
 	MX31_PIN_CSI_D6__CSI_D6, MX31_PIN_CSI_D7__CSI_D7,
 	MX31_PIN_CSI_D8__CSI_D8, MX31_PIN_CSI_D9__CSI_D9,
@@ -47,7 +47,7 @@ static unsigned int smartbot_pins[] = {
 	MX31_PIN_CSI_HSYNC__CSI_HSYNC, MX31_PIN_CSI_MCLK__CSI_MCLK,
 	MX31_PIN_CSI_PIXCLK__CSI_PIXCLK, MX31_PIN_CSI_VSYNC__CSI_VSYNC,
 	MX31_PIN_GPIO3_0__GPIO3_0, MX31_PIN_GPIO3_1__GPIO3_1,
-	
+	/* ENABLES */
 	MX31_PIN_DTR_DCE1__GPIO2_8, MX31_PIN_DSR_DCE1__GPIO2_9,
 	MX31_PIN_RI_DCE1__GPIO2_10, MX31_PIN_DCD_DCE1__GPIO2_11,
 };
@@ -80,7 +80,7 @@ static struct i2c_board_info smartbot_i2c_devices[] = {
 };
 
 static struct soc_camera_link base_iclink = {
-	.bus_id		= 0,		
+	.bus_id		= 0,		/* Must match with the camera ID */
 	.power		= smartbot_cam_power,
 	.reset		= smartbot_cam_reset,
 	.board_info	= &smartbot_i2c_devices[0],
@@ -178,6 +178,9 @@ static void smartbot_resets_init(void)
 		gpio_export(TRSLAT_SRC_CHOICE, false);
 	}
 }
+/*
+ * system init for baseboard usage. Will be called by mx31moboard init.
+ */
 void __init mx31moboard_smartbot_init(int board)
 {
 	printk(KERN_INFO "Initializing mx31smartbot peripherals\n");

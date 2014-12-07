@@ -386,12 +386,12 @@ static int msm_isp_stats_wait_for_cfg_done(struct vfe_device *vfe_dev)
 	atomic_set(&vfe_dev->stats_data.stats_update, 2);
 	if(g_subcam_no_ack == 1 && vfe_dev->pdev->id == g_subcam_vfe_intf)
 	{
-	        rc = wait_for_completion_interruptible_timeout(
+	        rc = wait_for_completion_timeout(
 	        &vfe_dev->stats_config_complete,
 	        msecs_to_jiffies(100));
 	}
 	else
-	rc = wait_for_completion_interruptible_timeout(
+	rc = wait_for_completion_timeout(
 		&vfe_dev->stats_config_complete,
 		msecs_to_jiffies(VFE_MAX_CFG_TIMEOUT));
 	if (rc == 0) {

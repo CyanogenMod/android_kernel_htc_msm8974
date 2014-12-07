@@ -63,7 +63,7 @@ struct sms_board_gpio_cfg {
 	int eeprom_wp;
 	int mrc_sense;
 	int mrc_pdn_resetn;
-	int mrc_gp0; 
+	int mrc_gp0; /* mrcs spi int */
 	int mrc_gp1;
 	int mrc_gp2;
 	int mrc_gp3;
@@ -75,9 +75,9 @@ struct sms_board {
 	enum sms_device_type_st type;
 	char *name, *fw[DEVICE_MODE_MAX];
 	struct sms_board_gpio_cfg board_cfg;
-	char *rc_codes;				
+	char *rc_codes;				/* Name of IR codes table */
 
-	
+	/* gpios */
 	int led_power, led_hi, led_lo, lna_ctrl, rf_switch;
 };
 
@@ -120,4 +120,4 @@ int sms_board_lna_control(struct smscore_device_t *coredev, int onoff);
 
 extern int sms_board_load_modules(int id);
 
-#endif 
+#endif /* __SMS_CARDS_H__ */

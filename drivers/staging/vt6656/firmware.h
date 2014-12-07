@@ -33,9 +33,13 @@
 #include "ttype.h"
 #include "device.h"
 
+/*---------------------  Export Definitions -------------------------*/
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 BOOL
 FIRMWAREbDownload(
@@ -52,4 +56,4 @@ FIRMWAREbCheckVersion(
      PSDevice pDevice
     );
 
-#endif 
+#endif /* __FIRMWARE_H__ */

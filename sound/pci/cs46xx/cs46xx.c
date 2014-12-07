@@ -19,6 +19,11 @@
  *
  */
 
+/*
+  NOTES:
+  - sometimes the sound is metallic and sibilant, unloading and 
+    reloading the module may solve this.
+*/
 
 #include <linux/pci.h>
 #include <linux/time.h>
@@ -39,9 +44,9 @@ MODULE_SUPPORTED_DEVICE("{{Cirrus Logic,Sound Fusion (CS4280)},"
 		"{Cirrus Logic,Sound Fusion (CS4624)},"
 		"{Cirrus Logic,Sound Fusion (CS4630)}}");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE_PNP;	/* Enable this card */
 static bool external_amp[SNDRV_CARDS];
 static bool thinkpad[SNDRV_CARDS];
 static bool mmap_valid[SNDRV_CARDS] = {[0 ... (SNDRV_CARDS - 1)] = 1};
@@ -60,9 +65,9 @@ module_param_array(mmap_valid, bool, NULL, 0444);
 MODULE_PARM_DESC(mmap_valid, "Support OSS mmap.");
 
 static DEFINE_PCI_DEVICE_TABLE(snd_cs46xx_ids) = {
-	{ PCI_VDEVICE(CIRRUS, 0x6001), 0, },   
-	{ PCI_VDEVICE(CIRRUS, 0x6003), 0, },   
-	{ PCI_VDEVICE(CIRRUS, 0x6004), 0, },   
+	{ PCI_VDEVICE(CIRRUS, 0x6001), 0, },   /* CS4280 */
+	{ PCI_VDEVICE(CIRRUS, 0x6003), 0, },   /* CS4612 */
+	{ PCI_VDEVICE(CIRRUS, 0x6004), 0, },   /* CS4615 */
 	{ 0, }
 };
 

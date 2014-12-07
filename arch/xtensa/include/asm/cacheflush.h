@@ -17,6 +17,32 @@
 #include <asm/processor.h>
 #include <asm/page.h>
 
+/*
+ * Lo-level routines for cache flushing.
+ *
+ * invalidate data or instruction cache:
+ *
+ * __invalidate_icache_all()
+ * __invalidate_icache_page(adr)
+ * __invalidate_dcache_page(adr)
+ * __invalidate_icache_range(from,size)
+ * __invalidate_dcache_range(from,size)
+ *
+ * flush data cache:
+ *
+ * __flush_dcache_page(adr)
+ *
+ * flush and invalidate data cache:
+ *
+ * __flush_invalidate_dcache_all()
+ * __flush_invalidate_dcache_page(adr)
+ * __flush_invalidate_dcache_range(from,size)
+ *
+ * specials for cache aliasing:
+ *
+ * __flush_invalidate_dcache_page_alias(vaddr,paddr)
+ * __invalidate_icache_page_alias(vaddr,paddr)
+ */
 
 extern void __invalidate_dcache_all(void);
 extern void __invalidate_icache_all(void);
@@ -52,6 +78,14 @@ static inline void __invalidate_icache_page_alias(unsigned long virt,
 						unsigned long phys) { }
 #endif
 
+/*
+ * We have physically tagged caches - nothing to do here -
+ * unless we have cache aliasing.
+ *
+ * Pages can get remapped. Because this might change the 'color' of that page,
+ * we have to flush the cache before the PTE is changed.
+ * (see also Documentation/cachetlb.txt)
+ */
 
 #if (DCACHE_WAY_SIZE > PAGE_SIZE)
 
@@ -89,12 +123,14 @@ extern void flush_cache_page(struct vm_area_struct*, unsigned long, unsigned lon
 
 #endif
 
+/* Ensure consistency between data and instruction cache. */
 #define flush_icache_range(start,end) 					\
 	do {								\
 		__flush_dcache_range(start, (end) - (start));		\
 		__invalidate_icache_range(start,(end) - (start));	\
 	} while (0)
 
+/* This is not required, see Documentation/cachetlb.txt */
 #define	flush_icache_page(vma,page)			do { } while (0)
 
 #define flush_dcache_mmap_lock(mapping)			do { } while (0)
@@ -216,5 +252,5 @@ static inline void flush_invalidate_dcache_unaligned(u32 addr, u32 size)
 	}
 }
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _XTENSA_CACHEFLUSH_H */

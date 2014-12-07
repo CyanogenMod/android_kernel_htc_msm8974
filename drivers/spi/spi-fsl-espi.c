@@ -24,15 +24,16 @@
 
 #include "spi-fsl-lib.h"
 
+/* eSPI Controller registers */
 struct fsl_espi_reg {
-	__be32 mode;		
-	__be32 event;		
-	__be32 mask;		
-	__be32 command;		
-	__be32 transmit;	
-	__be32 receive;		
-	u8 res[8];		
-	__be32 csmode[4];	
+	__be32 mode;		/* 0x000 - eSPI mode register */
+	__be32 event;		/* 0x004 - eSPI event register */
+	__be32 mask;		/* 0x008 - eSPI mask register */
+	__be32 command;		/* 0x00c - eSPI command register */
+	__be32 transmit;	/* 0x010 - eSPI transmit FIFO access register*/
+	__be32 receive;		/* 0x014 - eSPI receive FIFO access register*/
+	u8 res[8];		/* 0x018 - 0x01c reserved */
+	__be32 csmode[4];	/* 0x020 - 0x02c eSPI cs mode register */
 };
 
 struct fsl_espi_transfer {
@@ -45,11 +46,13 @@ struct fsl_espi_transfer {
 	int status;
 };
 
+/* eSPI Controller mode register definitions */
 #define SPMODE_ENABLE		(1 << 31)
 #define SPMODE_LOOP		(1 << 30)
 #define SPMODE_TXTHR(x)		((x) << 8)
 #define SPMODE_RXTHR(x)		((x) << 0)
 
+/* eSPI Controller CS mode register definitions */
 #define CSMODE_CI_INACTIVEHIGH	(1 << 31)
 #define CSMODE_CP_BEGIN_EDGECLK	(1 << 30)
 #define CSMODE_REV		(1 << 29)
@@ -61,21 +64,25 @@ struct fsl_espi_transfer {
 #define CSMODE_AFT(x)		((x) << 8)
 #define CSMODE_CG(x)		((x) << 3)
 
+/* Default mode/csmode for eSPI controller */
 #define SPMODE_INIT_VAL (SPMODE_TXTHR(4) | SPMODE_RXTHR(3))
 #define CSMODE_INIT_VAL (CSMODE_POL_1 | CSMODE_BEF(0) \
 		| CSMODE_AFT(0) | CSMODE_CG(1))
 
-#define	SPIE_NE		0x00000200	
-#define	SPIE_NF		0x00000100	
+/* SPIE register values */
+#define	SPIE_NE		0x00000200	/* Not empty */
+#define	SPIE_NF		0x00000100	/* Not full */
 
-#define	SPIM_NE		0x00000200	
-#define	SPIM_NF		0x00000100	
+/* SPIM register values */
+#define	SPIM_NE		0x00000200	/* Not empty */
+#define	SPIM_NF		0x00000100	/* Not full */
 #define SPIE_RXCNT(reg)     ((reg >> 24) & 0x3F)
 #define SPIE_TXCNT(reg)     ((reg >> 16) & 0x3F)
 
+/* SPCOM register values */
 #define SPCOM_CS(x)		((x) << 30)
 #define SPCOM_TRANLEN(x)	((x) << 0)
-#define	SPCOM_TRANLEN_MAX	0xFFFF	
+#define	SPCOM_TRANLEN_MAX	0xFFFF	/* Max transaction length */
 
 static void fsl_espi_change_mode(struct spi_device *spi)
 {
@@ -87,10 +94,10 @@ static void fsl_espi_change_mode(struct spi_device *spi)
 	u32 tmp;
 	unsigned long flags;
 
-	
+	/* Turn off IRQs locally to minimize time that SPI is disabled. */
 	local_irq_save(flags);
 
-	
+	/* Turn off SPI unit prior changing mode */
 	tmp = mpc8xxx_spi_read_reg(espi_mode);
 	mpc8xxx_spi_write_reg(espi_mode, tmp & ~SPMODE_ENABLE);
 	mpc8xxx_spi_write_reg(mode, cs->hw_mode);
@@ -134,11 +141,11 @@ static int fsl_espi_setup_transfer(struct spi_device *spi,
 		hz = t->speed_hz;
 	}
 
-	
+	/* spi_transfer level calls that work per-word */
 	if (!bits_per_word)
 		bits_per_word = spi->bits_per_word;
 
-	
+	/* Make sure its a bit width we support [4..16] */
 	if ((bits_per_word < 4) || (bits_per_word > 16))
 		return -EINVAL;
 
@@ -166,7 +173,7 @@ static int fsl_espi_setup_transfer(struct spi_device *spi,
 
 	bits_per_word = bits_per_word - 1;
 
-	
+	/* mask out bits we are going to set */
 	cs->hw_mode &= ~(CSMODE_LEN(0xF) | CSMODE_DIV16 | CSMODE_PM(0xF));
 
 	cs->hw_mode |= CSMODE_LEN(bits_per_word);
@@ -202,10 +209,10 @@ static int fsl_espi_cpu_bufs(struct mpc8xxx_spi *mspi, struct spi_transfer *t,
 
 	mspi->count = len;
 
-	
+	/* enable rx ints */
 	mpc8xxx_spi_write_reg(&reg_base->mask, SPIM_NE);
 
-	
+	/* transmit word */
 	word = mspi->get_tx(mspi);
 	mpc8xxx_spi_write_reg(&reg_base->transmit, word);
 
@@ -232,7 +239,7 @@ static int fsl_espi_bufs(struct spi_device *spi, struct spi_transfer *t)
 
 	INIT_COMPLETION(mpc8xxx_spi->done);
 
-	
+	/* Set SPCOM[CS] and SPCOM[TRANLEN] field */
 	if ((t->len - 1) > SPCOM_TRANLEN_MAX) {
 		dev_err(mpc8xxx_spi->dev, "Transaction length (%d)"
 				" beyond the SPCOM[TRANLEN] field\n", t->len);
@@ -247,7 +254,7 @@ static int fsl_espi_bufs(struct spi_device *spi, struct spi_transfer *t)
 
 	wait_for_completion(&mpc8xxx_spi->done);
 
-	
+	/* disable rx ints */
 	mpc8xxx_spi_write_reg(&reg_base->mask, 0);
 
 	return mpc8xxx_spi->count;
@@ -469,10 +476,10 @@ static int fsl_espi_setup(struct spi_device *spi)
 	mpc8xxx_spi = spi_master_get_devdata(spi->master);
 	reg_base = mpc8xxx_spi->reg_base;
 
-	hw_mode = cs->hw_mode; 
+	hw_mode = cs->hw_mode; /* Save original settings */
 	cs->hw_mode = mpc8xxx_spi_read_reg(
 			&reg_base->csmode[spi->chip_select]);
-	
+	/* mask out bits we are going to set */
 	cs->hw_mode &= ~(CSMODE_CP_BEGIN_EDGECLK | CSMODE_CI_INACTIVEHIGH
 			 | CSMODE_REV);
 
@@ -483,7 +490,7 @@ static int fsl_espi_setup(struct spi_device *spi)
 	if (!(spi->mode & SPI_LSB_FIRST))
 		cs->hw_mode |= CSMODE_REV;
 
-	
+	/* Handle the loop mode */
 	loop_mode = mpc8xxx_spi_read_reg(&reg_base->mode);
 	loop_mode &= ~SPMODE_LOOP;
 	if (spi->mode & SPI_LOOP)
@@ -492,7 +499,7 @@ static int fsl_espi_setup(struct spi_device *spi)
 
 	retval = fsl_espi_setup_transfer(spi, NULL);
 	if (retval < 0) {
-		cs->hw_mode = hw_mode; 
+		cs->hw_mode = hw_mode; /* Restore settings */
 		return retval;
 	}
 	return 0;
@@ -502,12 +509,12 @@ void fsl_espi_cpu_irq(struct mpc8xxx_spi *mspi, u32 events)
 {
 	struct fsl_espi_reg *reg_base = mspi->reg_base;
 
-	
+	/* We need handle RX first */
 	if (events & SPIE_NE) {
 		u32 rx_data, tmp;
 		u8 rx_data_8;
 
-		
+		/* Spin until RX is done */
 		while (SPIE_RXCNT(events) < min(4, mspi->len)) {
 			cpu_relax();
 			events = mpc8xxx_spi_read_reg(&reg_base->event);
@@ -535,7 +542,7 @@ void fsl_espi_cpu_irq(struct mpc8xxx_spi *mspi, u32 events)
 	if (!(events & SPIE_NF)) {
 		int ret;
 
-		
+		/* spin until TX is done */
 		ret = spin_event_timeout(((events = mpc8xxx_spi_read_reg(
 				&reg_base->event)) & SPIE_NF) == 0, 1000, 0);
 		if (!ret) {
@@ -544,7 +551,7 @@ void fsl_espi_cpu_irq(struct mpc8xxx_spi *mspi, u32 events)
 		}
 	}
 
-	
+	/* Clear the events */
 	mpc8xxx_spi_write_reg(&reg_base->event, events);
 
 	mspi->count -= 1;
@@ -564,7 +571,7 @@ static irqreturn_t fsl_espi_irq(s32 irq, void *context_data)
 	irqreturn_t ret = IRQ_NONE;
 	u32 events;
 
-	
+	/* Get interrupt events(tx/rx) */
 	events = mpc8xxx_spi_read_reg(&reg_base->event);
 	if (events)
 		ret = IRQ_HANDLED;
@@ -617,7 +624,7 @@ static struct spi_master * __devinit fsl_espi_probe(struct device *dev,
 
 	reg_base = mpc8xxx_spi->reg_base;
 
-	
+	/* Register for SPI Interrupt */
 	ret = request_irq(mpc8xxx_spi->irq, fsl_espi_irq,
 			  0, "fsl_espi", mpc8xxx_spi);
 	if (ret)
@@ -628,17 +635,17 @@ static struct spi_master * __devinit fsl_espi_probe(struct device *dev,
 		mpc8xxx_spi->tx_shift = 24;
 	}
 
-	
+	/* SPI controller initializations */
 	mpc8xxx_spi_write_reg(&reg_base->mode, 0);
 	mpc8xxx_spi_write_reg(&reg_base->mask, 0);
 	mpc8xxx_spi_write_reg(&reg_base->command, 0);
 	mpc8xxx_spi_write_reg(&reg_base->event, 0xffffffff);
 
-	
+	/* Init eSPI CS mode register */
 	for (i = 0; i < pdata->max_chipselect; i++)
 		mpc8xxx_spi_write_reg(&reg_base->csmode[i], CSMODE_INIT_VAL);
 
-	
+	/* Enable SPI interface */
 	regval = pdata->initial_spmode | SPMODE_INIT_VAL | SPMODE_ENABLE;
 
 	mpc8xxx_spi_write_reg(&reg_base->mode, regval);

@@ -22,6 +22,11 @@
 
 DEFINE_SPINLOCK(mq_lock);
 
+/*
+ * The next 2 defines are here bc this is the only file
+ * compiled when either CONFIG_SYSVIPC and CONFIG_POSIX_MQUEUE
+ * and not CONFIG_IPC_NS.
+ */
 struct ipc_namespace init_ipc_ns = {
 	.count		= ATOMIC_INIT(1),
 	.user_ns = &init_user_ns,
@@ -31,7 +36,7 @@ atomic_t nr_ipc_ns = ATOMIC_INIT(1);
 
 struct msg_msgseg {
 	struct msg_msgseg* next;
-	
+	/* the next part of the message follows immediately */
 };
 
 #define DATALEN_MSG	(PAGE_SIZE-sizeof(struct msg_msg))

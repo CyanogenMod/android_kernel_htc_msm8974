@@ -19,8 +19,12 @@
 #include <linux/elfcore.h>
 #include <asm/debugreg.h>
 
+/*
+ * fill in the user structure for an a.out core dump
+ */
 static inline void aout_dump_thread(struct pt_regs *regs, struct user *dump)
 {
+/* changed the size calculations - should hopefully work better. lbt */
 	dump->magic = CMAGIC;
 	dump->start_code = 0;
 	dump->start_stack = regs->sp & ~(PAGE_SIZE - 1);
@@ -56,6 +60,6 @@ static inline void aout_dump_thread(struct pt_regs *regs, struct user *dump)
 	dump->u_fpvalid = dump_fpu(regs, &dump->i387);
 }
 
-#endif 
-#endif 
-#endif 
+#endif /* CONFIG_X86_32 */
+#endif /* __KERNEL__ */
+#endif /* _ASM_X86_A_OUT_CORE_H */

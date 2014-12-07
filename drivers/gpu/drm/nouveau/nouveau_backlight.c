@@ -23,6 +23,12 @@
  *
  */
 
+/*
+ * Authors:
+ *  Matthew Garrett <mjg@redhat.com>
+ *
+ * Register locations derived from NVClock by Roderick Colenbrander
+ */
 
 #include <linux/backlight.h>
 #include <linux/acpi.h>

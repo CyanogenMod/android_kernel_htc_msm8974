@@ -83,6 +83,11 @@ static pte_t *lookup_pte(struct mm_struct *mm, unsigned long address)
 	return pte;
 }
 
+/*
+ * This routine handles page faults.  It determines the address,
+ * and the problem, and then passes it off to one of the appropriate
+ * routines.
+ */
 asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long writeaccess,
 			      unsigned long textaccess, unsigned long address)
 {
@@ -93,19 +98,33 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long writeaccess,
 	pte_t *pte;
 	int fault;
 
+	/* SIM
+	 * Note this is now called with interrupts still disabled
+	 * This is to cope with being called for a missing IO port
+	 * address with interrupts disabled. This should be fixed as
+	 * soon as we have a better 'fast path' miss handler.
+	 *
+	 * Plus take care how you try and debug this stuff.
+	 * For example, writing debug data to a port which you
+	 * have just faulted on is not going to work.
+	 */
 
 	tsk = current;
 	mm = tsk->mm;
 
-	
+	/* Not an IO address, so reenable interrupts */
 	local_irq_enable();
 
 	perf_sw_event(PERF_COUNT_SW_PAGE_FAULTS, 1, regs, address);
 
+	/*
+	 * If we're in an interrupt or have no user
+	 * context, we must not take the fault..
+	 */
 	if (in_atomic() || !mm)
 		goto no_context;
 
-	
+	/* TLB misses upon some cache flushes get done under cli() */
 	down_read(&mm->mmap_sem);
 
 	vma = find_vma(mm, address);
@@ -146,6 +165,10 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long writeaccess,
 #endif
 		goto bad_area;
 	}
+/*
+ * Ok, we have a good vm_area for this memory access, so
+ * we can handle it..
+ */
 good_area:
 	if (textaccess) {
 		if (!(vma->vm_flags & VM_EXEC))
@@ -160,6 +183,11 @@ good_area:
 		}
 	}
 
+	/*
+	 * If for any reason at all we couldn't handle the fault,
+	 * make sure we exit gracefully rather than endlessly redo
+	 * the fault.
+	 */
 	fault = handle_mm_fault(mm, vma, address, writeaccess ? FAULT_FLAG_WRITE : 0);
 	if (unlikely(fault & VM_FAULT_ERROR)) {
 		if (fault & VM_FAULT_OOM)
@@ -179,8 +207,15 @@ good_area:
 				     regs, address);
 	}
 
+	/* If we get here, the page fault has been handled.  Do the TLB refill
+	   now from the newly-setup PTE, to avoid having to fault again right
+	   away on the same instruction. */
 	pte = lookup_pte (mm, address);
 	if (!pte) {
+		/* From empirical evidence, we can get here, due to
+		   !pte_present(pte).  (e.g. if a swap-in occurs, and the page
+		   is swapped back out again before the process that wanted it
+		   gets rescheduled?) */
 		goto no_pte;
 	}
 
@@ -191,6 +226,10 @@ no_pte:
 	up_read(&mm->mmap_sem);
 	return;
 
+/*
+ * Something tried to access memory that isn't in our memory map..
+ * Fix it, but check if it's kernel or user first..
+ */
 bad_area:
 #ifdef DEBUG_FAULT
 	printk("fault:bad area\n");
@@ -201,6 +240,8 @@ bad_area:
 		static int count=0;
 		siginfo_t info;
 		if (count < 4) {
+			/* This is really to help debug faults when starting
+			 * usermode, so only need a few */
 			count++;
 			printk("user mode bad_area address=%08lx pid=%d (%s) pc=%08lx\n",
 				address, task_pid_nr(current), current->comm,
@@ -225,13 +266,18 @@ no_context:
 #ifdef DEBUG_FAULT
 	printk("fault:No context\n");
 #endif
-	
+	/* Are we prepared to handle this kernel fault?  */
 	fixup = search_exception_tables(regs->pc);
 	if (fixup) {
 		regs->pc = fixup->fixup;
 		return;
 	}
 
+/*
+ * Oops. The kernel tried to access some bad page. We'll have to
+ * terminate things with extreme prejudice.
+ *
+ */
 	if (address < PAGE_SIZE)
 		printk(KERN_ALERT "Unable to handle kernel NULL pointer dereference");
 	else
@@ -241,6 +287,10 @@ no_context:
 	die("Oops", regs, writeaccess);
 	do_exit(SIGKILL);
 
+/*
+ * We ran out of memory, or some other thing happened to us that made
+ * us unable to handle the page fault gracefully.
+ */
 out_of_memory:
 	up_read(&mm->mmap_sem);
 	if (!user_mode(regs))
@@ -252,12 +302,16 @@ do_sigbus:
 	printk("fault:Do sigbus\n");
 	up_read(&mm->mmap_sem);
 
+	/*
+	 * Send a sigbus, regardless of whether we were in kernel
+	 * or user mode.
+	 */
 	tsk->thread.address = address;
 	tsk->thread.error_code = writeaccess;
 	tsk->thread.trap_no = 14;
 	force_sig(SIGBUS, tsk);
 
-	
+	/* Kernel mode? Handle exceptions or die */
 	if (!user_mode(regs))
 		goto no_context;
 }
@@ -267,6 +321,9 @@ void local_flush_tlb_one(unsigned long asid, unsigned long page)
 	unsigned long long match, pteh=0, lpage;
 	unsigned long tlb;
 
+	/*
+	 * Sign-extend based on neff.
+	 */
 	lpage = neff_sign_extend(page);
 	match = (asid << PTEH_ASID_SHIFT) | PTEH_VALID;
 	match |= lpage;
@@ -327,7 +384,7 @@ void local_flush_tlb_range(struct vm_area_struct *vma, unsigned long start,
 
 	match = (cpu_asid(cpu, mm) << PTEH_ASID_SHIFT) | PTEH_VALID;
 
-	
+	/* Flush ITLB */
 	for_each_itlb_entry(tlb) {
 		asm volatile ("getcfg	%1, 0, %0"
 			      : "=r" (pteh)
@@ -340,7 +397,7 @@ void local_flush_tlb_range(struct vm_area_struct *vma, unsigned long start,
 			__flush_tlb_slot(tlb);
 	}
 
-	
+	/* Flush DTLB */
 	for_each_dtlb_entry(tlb) {
 		asm volatile ("getcfg	%1, 0, %0"
 			      : "=r" (pteh)
@@ -375,16 +432,16 @@ void local_flush_tlb_mm(struct mm_struct *mm)
 
 void local_flush_tlb_all(void)
 {
-	
+	/* Invalidate all, including shared pages, excluding fixed TLBs */
 	unsigned long flags, tlb;
 
 	local_irq_save(flags);
 
-	
+	/* Flush each ITLB entry */
 	for_each_itlb_entry(tlb)
 		__flush_tlb_slot(tlb);
 
-	
+	/* Flush each DTLB entry */
 	for_each_dtlb_entry(tlb)
 		__flush_tlb_slot(tlb);
 
@@ -393,7 +450,7 @@ void local_flush_tlb_all(void)
 
 void local_flush_tlb_kernel_range(unsigned long start, unsigned long end)
 {
-        
+        /* FIXME: Optimize this later.. */
         flush_tlb_all();
 }
 

@@ -18,9 +18,9 @@
 
 struct msm_hdmi_audio_edid_blk {
 	u8 *audio_data_blk;
-	unsigned int audio_data_blk_size; 
+	unsigned int audio_data_blk_size; /* in bytes */
 	u8 *spk_alloc_data_blk;
-	unsigned int spk_alloc_data_blk_size; 
+	unsigned int spk_alloc_data_blk_size; /* in bytes */
 };
 
 struct msm_hdmi_audio_codec_ops {
@@ -36,4 +36,4 @@ struct msm_hdmi_audio_codec_ops {
 int msm_hdmi_register_audio_codec(struct platform_device *pdev,
 	struct msm_hdmi_audio_codec_ops *ops);
 
-#endif 
+#endif /* __MSM_HDMI_AUDIO_CODEC_H__ */

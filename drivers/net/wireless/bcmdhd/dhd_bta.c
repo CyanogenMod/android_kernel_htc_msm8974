@@ -25,7 +25,7 @@
  */
 #ifndef WLBTAMP
 #error "WLBTAMP is not defined"
-#endif	
+#endif	/* WLBTAMP */
 
 #include <typedefs.h>
 #include <osl.h>
@@ -48,6 +48,7 @@
 #ifdef SEND_HCI_CMD_VIA_IOCTL
 #define BTA_HCI_CMD_MAX_LEN HCI_CMD_PREAMBLE_SIZE + HCI_CMD_DATA_SIZE
 
+/* Send HCI cmd via wl iovar HCI_cmd to the dongle. */
 int
 dhd_bta_docmd(dhd_pub_t *pub, void *cmd_buf, uint cmd_len)
 {
@@ -75,7 +76,7 @@ dhd_bta_docmd(dhd_pub_t *pub, void *cmd_buf, uint cmd_len)
 
 	return dhd_wl_ioctl(pub, &ioc, ioc.buf, ioc.len);
 }
-#else 
+#else /* !SEND_HCI_CMD_VIA_IOCTL */
 
 static void
 dhd_bta_flush_hcidata(dhd_pub_t *pub, uint16 llh)
@@ -92,7 +93,7 @@ dhd_bta_flush_hcidata(dhd_pub_t *pub, uint16 llh)
 
 	dhd_os_sdlock_txq(pub);
 
-	
+	/* Walk through the txq and toss all HCI ACL data packets */
 	PKTQ_PREC_ITER(q, prec) {
 		void *head_pkt = NULL;
 
@@ -141,6 +142,11 @@ dhd_bta_flush_hcidata(dhd_pub_t *pub, uint16 llh)
 	DHD_BTA(("dhd: flushed %u packet(s) for logical link %u...\n", count, llh));
 }
 
+/* Handle HCI cmd locally.
+ * Return 0: continue to send the cmd across SDIO
+ *        < 0: stop, fail
+ *        > 0: stop, succuess
+ */
 static int
 _dhd_bta_docmd(dhd_pub_t *pub, amp_hci_cmd_t *cmd)
 {
@@ -159,6 +165,7 @@ _dhd_bta_docmd(dhd_pub_t *pub, amp_hci_cmd_t *cmd)
 	return status;
 }
 
+/* Send HCI cmd encapsulated in BT-SIG frame via data channel to the dongle. */
 int
 dhd_bta_docmd(dhd_pub_t *pub, void *cmd_buf, uint cmd_len)
 {
@@ -178,7 +185,7 @@ dhd_bta_docmd(dhd_pub_t *pub, void *cmd_buf, uint cmd_len)
 	if ((len = (uint)cmd->plen + HCI_CMD_PREAMBLE_SIZE) > cmd_len) {
 		DHD_ERROR(("dhd_bta_docmd: malformed command, len %u cmd_len %u\n",
 		           len, cmd_len));
-		
+		/* return BCME_BADLEN; */
 	}
 
 	p = PKTGET(osh, pub->hdrlen + RFC1042_HDR_LEN + len, TRUE);
@@ -188,17 +195,17 @@ dhd_bta_docmd(dhd_pub_t *pub, void *cmd_buf, uint cmd_len)
 	}
 
 
-	
+	/* intercept and handle the HCI cmd locally */
 	if ((status = _dhd_bta_docmd(pub, cmd)) > 0)
 		return 0;
 	else if (status < 0)
 		return status;
 
-	
+	/* copy in HCI cmd */
 	PKTPULL(osh, p, pub->hdrlen + RFC1042_HDR_LEN);
 	bcopy(cmd, PKTDATA(osh, p), len);
 
-	
+	/* copy in partial Ethernet header with BT-SIG LLC/SNAP header */
 	PKTPUSH(osh, p, RFC1042_HDR_LEN);
 	eh = (struct ether_header *)PKTDATA(osh, p);
 	bzero(eh->ether_dhost, ETHER_ADDR_LEN);
@@ -211,8 +218,9 @@ dhd_bta_docmd(dhd_pub_t *pub, void *cmd_buf, uint cmd_len)
 
 	return dhd_sendpkt(pub, 0, p);
 }
-#endif 
+#endif /* !SEND_HCI_CMD_VIA_IOCTL */
 
+/* Send HCI ACL data to dongle via data channel */
 int
 dhd_bta_tx_hcidata(dhd_pub_t *pub, void *data_buf, uint data_len)
 {
@@ -231,7 +239,7 @@ dhd_bta_tx_hcidata(dhd_pub_t *pub, void *data_buf, uint data_len)
 	if ((len = (uint)ltoh16(data->dlen) + HCI_ACL_DATA_PREAMBLE_SIZE) > data_len) {
 		DHD_ERROR(("dhd_bta_tx_hcidata: malformed hci data, len %u data_len %u\n",
 		           len, data_len));
-		
+		/* return BCME_BADLEN; */
 	}
 
 	p = PKTGET(osh, pub->hdrlen + RFC1042_HDR_LEN + len, TRUE);
@@ -241,11 +249,11 @@ dhd_bta_tx_hcidata(dhd_pub_t *pub, void *data_buf, uint data_len)
 	}
 
 
-	
+	/* copy in HCI ACL data header and HCI ACL data */
 	PKTPULL(osh, p, pub->hdrlen + RFC1042_HDR_LEN);
 	bcopy(data, PKTDATA(osh, p), len);
 
-	
+	/* copy in partial Ethernet header with BT-SIG LLC/SNAP header */
 	PKTPUSH(osh, p, RFC1042_HDR_LEN);
 	eh = (struct ether_header *)PKTDATA(osh, p);
 	bzero(eh->ether_dhost, ETHER_ADDR_LEN);
@@ -258,6 +266,7 @@ dhd_bta_tx_hcidata(dhd_pub_t *pub, void *data_buf, uint data_len)
 	return dhd_sendpkt(pub, 0, p);
 }
 
+/* txcomplete callback */
 void
 dhd_bta_tx_hcidata_complete(dhd_pub_t *dhdp, void *txp, bool success)
 {
@@ -273,7 +282,7 @@ dhd_bta_tx_hcidata_complete(dhd_pub_t *dhdp, void *txp, bool success)
 
 	uint16 len = HCI_EVT_PREAMBLE_SIZE + sizeof(num_completed_data_blocks_evt_parms_t);
 
-	
+	/* update the event struct */
 	memset(&event, 0, sizeof(event));
 	event.version = hton16(BCM_EVENT_MSG_VERSION);
 	event.event_type = hton32(WLC_E_BTA_HCI_EVENT);
@@ -283,7 +292,7 @@ dhd_bta_tx_hcidata_complete(dhd_pub_t *dhdp, void *txp, bool success)
 	event.datalen = hton32(len);
 	event.flags = 0;
 
-	
+	/* generate Number of Completed Blocks event */
 	evt = (amp_hci_event_t *)data;
 	evt->ecode = HCI_Number_of_Completed_Data_Blocks;
 	evt->plen = sizeof(num_completed_data_blocks_evt_parms_t);
@@ -298,6 +307,7 @@ dhd_bta_tx_hcidata_complete(dhd_pub_t *dhdp, void *txp, bool success)
 	dhd_sendup_event_common(dhdp, &event, data);
 }
 
+/* event callback */
 void
 dhd_bta_doevt(dhd_pub_t *dhdp, void *data_buf, uint data_len)
 {

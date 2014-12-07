@@ -58,24 +58,24 @@ static struct platform_device msm_bt_power_device = {
 };
 
 static unsigned bt_config_pcm_on[] = {
-	
+	/*PCM_DOUT*/
 	GPIO_CFG(43, 1, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),
-	
+	/*PCM_DIN*/
 	GPIO_CFG(44, 1, GPIO_CFG_INPUT,  GPIO_CFG_NO_PULL, GPIO_CFG_2MA),
-	
+	/*PCM_SYNC*/
 	GPIO_CFG(45, 1, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),
-	
+	/*PCM_CLK*/
 	GPIO_CFG(46, 1, GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL, GPIO_CFG_2MA),
 };
 
 static unsigned bt_config_pcm_off[] = {
-	
+	/*PCM_DOUT*/
 	GPIO_CFG(43, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
-	
+	/*PCM_DIN*/
 	GPIO_CFG(44, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
-	
+	/*PCM_SYNC*/
 	GPIO_CFG(45, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
-	
+	/*PCM_CLK*/
 	GPIO_CFG(46, 0, GPIO_CFG_INPUT, GPIO_CFG_PULL_DOWN, GPIO_CFG_2MA),
 };
 
@@ -200,7 +200,7 @@ static int bahama_bt(int on)
 	}
 	};
 
-	u8 offset = 0; 
+	u8 offset = 0; /* index into bahama configs */
 	on = on ? 1 : 0;
 	version = marimba_read_bahama_ver(&config);
 	if (version < 0 || version == BAHAMA_VER_UNSUPPORTED) {
@@ -248,7 +248,7 @@ static int bahama_bt(int on)
 				__func__, (p+i)->reg,
 				value, (p+i)->mask);
 	}
-	
+	/* Update BT Status */
 	if (on)
 		marimba_set_bt_status(&config, true);
 	else
@@ -385,9 +385,9 @@ static unsigned int msm_bahama_core_config(int type)
 		int i;
 		struct marimba config = { .mod_id =  SLAVE_ID_BAHAMA};
 		const struct bahama_config_register v20_init[] = {
-			
-			{ 0xF4, 0x84, 0xFF }, 
-			{ 0xF0, 0x04, 0xFF } 
+			/* reg, value, mask */
+			{ 0xF4, 0x84, 0xFF }, /* AREG */
+			{ 0xF0, 0x04, 0xFF } /* DREG */
 		};
 		if (marimba_read_bahama_ver(&config) == BAHAMA_VER_2_0) {
 			for (i = 0; i < ARRAY_SIZE(v20_init); i++) {
@@ -435,8 +435,8 @@ static int bluetooth_power(int on)
 					__func__, rc);
 			goto exit;
 		}
-		
-		
+		/* UART GPIO configuration to be done by by UART module*/
+		/*Setup BT clocks*/
 		pr_debug("%s: Voting for the 19.2MHz clock\n", __func__);
 		bt_clock = msm_xo_get(MSM_XO_TCXO_A2, id);
 		if (IS_ERR(bt_clock)) {
@@ -452,7 +452,7 @@ static int bluetooth_power(int on)
 		}
 		msleep(20);
 
-		
+		/*I2C config for Bahama*/
 		pr_debug("%s: BT Turn On sequence in-progress.\n", __func__);
 		rc = bahama_bt(1);
 		if (rc < 0) {
@@ -461,7 +461,7 @@ static int bluetooth_power(int on)
 		}
 		msleep(20);
 
-		
+		/*setup BT PCM lines*/
 		pr_debug("%s: Configuring PCM lines.\n", __func__);
 		rc = config_pcm(BT_PCM_ON);
 		if (rc < 0) {
@@ -470,7 +470,14 @@ static int bluetooth_power(int on)
 			goto fail_i2c;
 		}
 		pr_debug("%s: BT Turn On complete.\n", __func__);
-		
+		/* TO DO - Enable PIN CTRL */
+		/*
+		rc = msm_xo_mode_vote(bt_clock, MSM_XO_MODE_PIN_CTRL);
+		if (rc < 0) {
+			pr_err("%s: Failed to vote for TCXO_A2 in PIN_CTRL\n",
+				__func__);
+			goto fail_xo_vote;
+		} */
 	} else {
 		pr_debug("%s: Turning BT Off.\n", __func__);
 		bt_state = marimba_get_bt_status(&config);

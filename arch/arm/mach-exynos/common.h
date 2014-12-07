@@ -52,4 +52,4 @@ void exynos4212_register_clocks(void);
 #define exynos4212_register_clocks()
 #endif
 
-#endif 
+#endif /* __ARCH_ARM_MACH_EXYNOS_COMMON_H */

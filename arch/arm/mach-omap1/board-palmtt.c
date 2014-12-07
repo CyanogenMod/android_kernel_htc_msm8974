@@ -246,7 +246,7 @@ static int palmtt_get_pendown_state(void)
 
 static const struct ads7846_platform_data palmtt_ts_info = {
 	.model			= 7846,
-	.vref_delay_usecs	= 100,	
+	.vref_delay_usecs	= 100,	/* internal, no capacitor */
 	.x_plate_ohms		= 419,
 	.y_plate_ohms		= 486,
 	.get_pendown_state	= palmtt_get_pendown_state,
@@ -254,11 +254,11 @@ static const struct ads7846_platform_data palmtt_ts_info = {
 
 static struct spi_board_info __initdata palmtt_boardinfo[] = {
 	{
-		
+		/* MicroWire (bus 2) CS0 has an ads7846e */
 		.modalias	= "ads7846",
 		.platform_data	= &palmtt_ts_info,
-		.max_speed_hz	= 120000	
-					* 26	,
+		.max_speed_hz	= 120000	/* max sample rate at 3V */
+					* 26	/* command + data + overhead */,
 		.bus_num	= 2,
 		.chip_select	= 0,
 	}
@@ -285,7 +285,7 @@ static void __init omap_mpu_wdt_mode(int mode) {
 
 static void __init omap_palmtt_init(void)
 {
-	
+	/* mux pins for uarts */
 	omap_cfg_reg(UART1_TX);
 	omap_cfg_reg(UART1_RTS);
 	omap_cfg_reg(UART2_TX);

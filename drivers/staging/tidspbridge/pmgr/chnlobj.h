@@ -23,16 +23,24 @@
 #include <dspbridge/chnldefs.h>
 #include <dspbridge/dspdefs.h>
 
+/*
+ *  This struct is the first field in a chnl_mgr struct. Other. implementation
+ *  specific fields follow this structure in memory.
+ */
 struct chnl_mgr_ {
-	
+	/* These must be the first fields in a chnl_mgr struct: */
 
-	
+	/* Function interface to Bridge driver. */
 	struct bridge_drv_interface *intf_fxns;
 };
 
+/*
+ *  This struct is the first field in a chnl_object struct. Other,
+ *  implementation specific fields follow this structure in memory.
+ */
 struct chnl_object_ {
-	
-	struct chnl_mgr_ *chnl_mgr_obj;	
+	/* These must be the first fields in a chnl_object struct: */
+	struct chnl_mgr_ *chnl_mgr_obj;	/* Pointer back to channel manager. */
 };
 
-#endif 
+#endif /* CHNLOBJ_ */

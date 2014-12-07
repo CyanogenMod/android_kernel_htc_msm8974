@@ -22,23 +22,24 @@
 #include "ath9k.h"
 
 static DEFINE_PCI_DEVICE_TABLE(ath_pci_id_table) = {
-	{ PCI_VDEVICE(ATHEROS, 0x0023) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0024) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0027) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0029) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x002A) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x002B) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x002C) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x002D) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x002E) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0030) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0032) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0033) }, 
-	{ PCI_VDEVICE(ATHEROS, 0x0034) }, 
+	{ PCI_VDEVICE(ATHEROS, 0x0023) }, /* PCI   */
+	{ PCI_VDEVICE(ATHEROS, 0x0024) }, /* PCI-E */
+	{ PCI_VDEVICE(ATHEROS, 0x0027) }, /* PCI   */
+	{ PCI_VDEVICE(ATHEROS, 0x0029) }, /* PCI   */
+	{ PCI_VDEVICE(ATHEROS, 0x002A) }, /* PCI-E */
+	{ PCI_VDEVICE(ATHEROS, 0x002B) }, /* PCI-E */
+	{ PCI_VDEVICE(ATHEROS, 0x002C) }, /* PCI-E 802.11n bonded out */
+	{ PCI_VDEVICE(ATHEROS, 0x002D) }, /* PCI   */
+	{ PCI_VDEVICE(ATHEROS, 0x002E) }, /* PCI-E */
+	{ PCI_VDEVICE(ATHEROS, 0x0030) }, /* PCI-E  AR9300 */
+	{ PCI_VDEVICE(ATHEROS, 0x0032) }, /* PCI-E  AR9485 */
+	{ PCI_VDEVICE(ATHEROS, 0x0033) }, /* PCI-E  AR9580 */
+	{ PCI_VDEVICE(ATHEROS, 0x0034) }, /* PCI-E  AR9462 */
 	{ 0 }
 };
 
 
+/* return bus cachesize in 4B word units */
 static void ath_pci_read_cachesize(struct ath_common *common, int *csz)
 {
 	struct ath_softc *sc = (struct ath_softc *) common->priv;
@@ -47,9 +48,14 @@ static void ath_pci_read_cachesize(struct ath_common *common, int *csz)
 	pci_read_config_byte(to_pci_dev(sc->dev), PCI_CACHE_LINE_SIZE, &u8tmp);
 	*csz = (int)u8tmp;
 
+	/*
+	 * This check was put in to avoid "unpleasant" consequences if
+	 * the bootrom has not fully initialized all PCI devices.
+	 * Sometimes the cache line size register is not set
+	 */
 
 	if (*csz == 0)
-		*csz = DEFAULT_CACHELINE >> 2;   
+		*csz = DEFAULT_CACHELINE >> 2;   /* Use the default size */
 }
 
 static bool ath_pci_eeprom_read(struct ath_common *common, u32 off, u16 *data)
@@ -97,6 +103,7 @@ static void ath_pci_extn_synch_enable(struct ath_common *common)
 	pci_write_config_byte(pdev, sc->sc_ah->caps.pcie_lcr_offset, lnkctl);
 }
 
+/* Need to be called after we discover btcoex capabilities */
 static void ath_pci_aspm_init(struct ath_common *common)
 {
 	struct ath_softc *sc = (struct ath_softc *) common->priv;
@@ -115,11 +122,15 @@ static void ath_pci_aspm_init(struct ath_common *common)
 		return;
 
 	if (ath9k_hw_get_btcoex_scheme(ah) != ATH_BTCOEX_CFG_NONE) {
-		
+		/* Bluetooth coexistance requires disabling ASPM. */
 		pci_read_config_byte(pdev, pos + PCI_EXP_LNKCTL, &aspm);
 		aspm &= ~(PCIE_LINK_STATE_L0S | PCIE_LINK_STATE_L1);
 		pci_write_config_byte(pdev, pos + PCI_EXP_LNKCTL, aspm);
 
+		/*
+		 * Both upstream and downstream PCIe components should
+		 * have the same ASPM settings.
+		 */
 		pos = pci_pcie_cap(parent);
 		pci_read_config_byte(parent, pos + PCI_EXP_LNKCTL, &aspm);
 		aspm &= ~(PCIE_LINK_STATE_L0S | PCIE_LINK_STATE_L1);
@@ -132,7 +143,7 @@ static void ath_pci_aspm_init(struct ath_common *common)
 	pci_read_config_byte(parent, pos +  PCI_EXP_LNKCTL, &aspm);
 	if (aspm & (PCIE_LINK_STATE_L0S | PCIE_LINK_STATE_L1)) {
 		ah->aspm_enabled = true;
-		
+		/* Initialize PCIe PM and SERDES registers. */
 		ath9k_hw_configpcipowersave(ah, false);
 	}
 }
@@ -171,15 +182,35 @@ static int ath_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 		goto err_dma;
 	}
 
+	/*
+	 * Cache line size is used to size and align various
+	 * structures used to communicate with the hardware.
+	 */
 	pci_read_config_byte(pdev, PCI_CACHE_LINE_SIZE, &csz);
 	if (csz == 0) {
+		/*
+		 * Linux 2.4.18 (at least) writes the cache line size
+		 * register as a 16-bit wide register which is wrong.
+		 * We must have this setup properly for rx buffer
+		 * DMA to work so force a reasonable value here if it
+		 * comes up zero.
+		 */
 		csz = L1_CACHE_BYTES / sizeof(u32);
 		pci_write_config_byte(pdev, PCI_CACHE_LINE_SIZE, csz);
 	}
+	/*
+	 * The default setting of latency timer yields poor results,
+	 * set it to the value used by other systems. It may be worth
+	 * tweaking this setting more.
+	 */
 	pci_write_config_byte(pdev, PCI_LATENCY_TIMER, 0xa8);
 
 	pci_set_master(pdev);
 
+	/*
+	 * Disable the RETRY_TIMEOUT register (0x41) to keep
+	 * PCI Tx retries from interfering with C3 CPU state.
+	 */
 	pci_read_config_dword(pdev, 0x40, &val);
 	if ((val & 0x0000ff00) != 0)
 		pci_write_config_dword(pdev, 0x40, val & 0xffff00ff);
@@ -213,7 +244,7 @@ static int ath_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 	sc->dev = &pdev->dev;
 	sc->mem = mem;
 
-	
+	/* Will be cleared in ath9k_start() */
 	sc->sc_flags |= SC_OP_INVALID;
 
 	ret = request_irq(pdev->irq, ath_isr, IRQF_SHARED, "ath9k", sc);
@@ -245,7 +276,7 @@ err_alloc_hw:
 err_iomap:
 	pci_release_region(pdev, 0);
 err_region:
-	
+	/* Nothing */
 err_dma:
 	pci_disable_device(pdev);
 	return ret;
@@ -276,6 +307,10 @@ static int ath_pci_suspend(struct device *device)
 	struct ieee80211_hw *hw = pci_get_drvdata(pdev);
 	struct ath_softc *sc = hw->priv;
 
+	/* The device has to be moved to FULLSLEEP forcibly.
+	 * Otherwise the chip never moved to full sleep,
+	 * when no interface is up.
+	 */
 	ath9k_hw_disable(sc->sc_ah);
 	ath9k_hw_setpower(sc->sc_ah, ATH9K_PM_FULL_SLEEP);
 
@@ -287,6 +322,11 @@ static int ath_pci_resume(struct device *device)
 	struct pci_dev *pdev = to_pci_dev(device);
 	u32 val;
 
+	/*
+	 * Suspend/Resume resets the PCI configuration space, so we have to
+	 * re-disable the RETRY_TIMEOUT register (0x41) to keep
+	 * PCI Tx retries from interfering with C3 CPU state
+	 */
 	pci_read_config_dword(pdev, 0x40, &val);
 	if ((val & 0x0000ff00) != 0)
 		pci_write_config_dword(pdev, 0x40, val & 0xffff00ff);
@@ -305,11 +345,11 @@ static const struct dev_pm_ops ath9k_pm_ops = {
 
 #define ATH9K_PM_OPS	(&ath9k_pm_ops)
 
-#else 
+#else /* !CONFIG_PM */
 
 #define ATH9K_PM_OPS	NULL
 
-#endif 
+#endif /* !CONFIG_PM */
 
 
 MODULE_DEVICE_TABLE(pci, ath_pci_id_table);

@@ -17,10 +17,14 @@
 #include <linux/user.h>
 #include <linux/elfcore.h>
 
+/*
+ * fill in the user structure for an a.out core dump
+ */
 static inline void aout_dump_thread(struct pt_regs *regs, struct user *dump)
 {
 	struct switch_stack *sw;
 
+/* changed the size calculations - should hopefully work better. lbt */
 	dump->magic = CMAGIC;
 	dump->start_code = 0;
 	dump->start_stack = rdusp() & ~(PAGE_SIZE - 1);
@@ -55,9 +59,9 @@ static inline void aout_dump_thread(struct pt_regs *regs, struct user *dump)
 	dump->regs.sr = regs->sr;
 	dump->regs.pc = regs->pc;
 	dump->regs.fmtvec = (regs->format << 12) | regs->vector;
-	
+	/* dump floating point stuff */
 	dump->u_fpvalid = dump_fpu (regs, &dump->m68kfp);
 }
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_A_OUT_CORE_H */

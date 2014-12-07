@@ -13,11 +13,14 @@
 #include <asm/rtc.h>
 #include <asm/busctl-regs.h>
 
+/*
+ * initialise the on-silicon processor peripherals
+ */
 asmlinkage void __init processor_init(void)
 {
 	int loop;
 
-	
+	/* set up the exception table first */
 	for (loop = 0x000; loop < 0x400; loop += 8)
 		__set_intr_stub(loop, __common_exception);
 
@@ -51,11 +54,11 @@ asmlinkage void __init processor_init(void)
 	mn10300_dcache_flush_inv();
 	mn10300_icache_inv();
 
-	
+	/* disable all interrupts and set to priority 6 (lowest) */
 	for (loop = 0; loop < NR_IRQS; loop++)
 		GxICR(loop) = GxICR_LEVEL_6 | GxICR_DETECT;
 
-	
+	/* clear the timers */
 	TM0MD	= 0;
 	TM1MD	= 0;
 	TM2MD	= 0;
@@ -74,6 +77,9 @@ asmlinkage void __init processor_init(void)
 	calibrate_clock();
 }
 
+/*
+ * determine the memory size and base from the memory controller regs
+ */
 void __init get_mem_info(unsigned long *mem_base, unsigned long *mem_size)
 {
 	unsigned long base, size;

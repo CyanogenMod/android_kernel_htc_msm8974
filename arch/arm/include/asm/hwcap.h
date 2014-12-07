@@ -1,10 +1,13 @@
 #ifndef __ASMARM_HWCAP_H
 #define __ASMARM_HWCAP_H
 
+/*
+ * HWCAP flags - for elf_hwcap (in kernel) and AT_HWCAP
+ */
 #define HWCAP_SWP	(1 << 0)
 #define HWCAP_HALF	(1 << 1)
 #define HWCAP_THUMB	(1 << 2)
-#define HWCAP_26BIT	(1 << 3)	
+#define HWCAP_26BIT	(1 << 3)	/* Play it safe */
 #define HWCAP_FAST_MULT	(1 << 4)
 #define HWCAP_FPA	(1 << 5)
 #define HWCAP_VFP	(1 << 6)
@@ -24,6 +27,10 @@
 
 #if defined(__KERNEL__)
 #if !defined(__ASSEMBLY__)
+/*
+ * This yields a mask that user programs can use to figure out what
+ * instruction set this cpu supports.
+ */
 #define ELF_HWCAP	(elf_hwcap)
 extern unsigned int elf_hwcap;
 #endif

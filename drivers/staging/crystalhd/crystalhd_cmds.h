@@ -27,6 +27,12 @@
 #ifndef _CRYSTALHD_CMDS_H_
 #define _CRYSTALHD_CMDS_H_
 
+/*
+ * NOTE:: This is the main interface file between the Linux layer
+ *        and the harware layer. This file will use the definitions
+ *        from _dts_glob and dts_defs etc.. which are defined for
+ *        windows.
+ */
 
 #include "crystalhd.h"
 

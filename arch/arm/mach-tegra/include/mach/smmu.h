@@ -60,4 +60,4 @@ enum smmu_hwgrp {
 #define HWG_VDE		(1 << HWGRP_VDE)
 #define HWG_VI		(1 << HWGRP_VI)
 
-#endif	
+#endif	/* MACH_SMMU_H */

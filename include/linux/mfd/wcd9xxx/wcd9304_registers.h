@@ -851,11 +851,13 @@
 #define SITAR_A_CDC_MBHC_DEBUG_CTL__POR			(0x00000000)
 #define SITAR_A_CDC_MBHC_SPARE			(0x3DF)
 #define SITAR_A_CDC_MBHC_SPARE__POR			(0x00000000)
+/* SLIMBUS Slave Registers */
 #define SITAR_SLIM_PGD_PORT_INT_EN0			 (0x30)
 #define SITAR_SLIM_PGD_PORT_INT_STATUS0                 (0x34)
 #define SITAR_SLIM_PGD_PORT_INT_CLR0			(0x38)
 #define SITAR_SLIM_PGD_PORT_INT_SOURCE0                 (0x60)
 
+/* Macros for Packing Register Writes into a U32 */
 #define SITAR_PACKED_REG_SIZE sizeof(u32)
 
 #define SITAR_CODEC_PACK_ENTRY(reg, mask, val) ((val & 0xff)|\

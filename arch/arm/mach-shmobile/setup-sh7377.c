@@ -38,6 +38,9 @@
 #include <asm/mach/time.h>
 
 static struct map_desc sh7377_io_desc[] __initdata = {
+	/* create a 1:1 entity map for 0xe6xxxxxx
+	 * used by CPGA, INTC and PFC.
+	 */
 	{
 		.virtual	= 0xe6000000,
 		.pfn		= __phys_to_pfn(0xe6000000),
@@ -51,6 +54,7 @@ void __init sh7377_map_io(void)
 	iotable_init(sh7377_io_desc, ARRAY_SIZE(sh7377_io_desc));
 }
 
+/* SCIFA0 */
 static struct plat_sci_port scif0_platform_data = {
 	.mapbase	= 0xe6c40000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -69,6 +73,7 @@ static struct platform_device scif0_device = {
 	},
 };
 
+/* SCIFA1 */
 static struct plat_sci_port scif1_platform_data = {
 	.mapbase	= 0xe6c50000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -87,6 +92,7 @@ static struct platform_device scif1_device = {
 	},
 };
 
+/* SCIFA2 */
 static struct plat_sci_port scif2_platform_data = {
 	.mapbase	= 0xe6c60000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -105,6 +111,7 @@ static struct platform_device scif2_device = {
 	},
 };
 
+/* SCIFA3 */
 static struct plat_sci_port scif3_platform_data = {
 	.mapbase	= 0xe6c70000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -123,6 +130,7 @@ static struct platform_device scif3_device = {
 	},
 };
 
+/* SCIFA4 */
 static struct plat_sci_port scif4_platform_data = {
 	.mapbase	= 0xe6c80000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -141,6 +149,7 @@ static struct platform_device scif4_device = {
 	},
 };
 
+/* SCIFA5 */
 static struct plat_sci_port scif5_platform_data = {
 	.mapbase	= 0xe6cb0000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -159,6 +168,7 @@ static struct platform_device scif5_device = {
 	},
 };
 
+/* SCIFA6 */
 static struct plat_sci_port scif6_platform_data = {
 	.mapbase	= 0xe6cc0000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -177,6 +187,7 @@ static struct platform_device scif6_device = {
 	},
 };
 
+/* SCIFB */
 static struct plat_sci_port scif7_platform_data = {
 	.mapbase	= 0xe6c30000,
 	.flags		= UPF_BOOT_AUTOCONF,
@@ -211,7 +222,7 @@ static struct resource cmt10_resources[] = {
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start	= evt2irq(0xb00), 
+		.start	= evt2irq(0xb00), /* CMT1_CMT10 */
 		.flags	= IORESOURCE_IRQ,
 	},
 };
@@ -226,6 +237,7 @@ static struct platform_device cmt10_device = {
 	.num_resources	= ARRAY_SIZE(cmt10_resources),
 };
 
+/* VPU */
 static struct uio_info vpu_platform_data = {
 	.name = "VPU5HG",
 	.version = "0",
@@ -251,6 +263,7 @@ static struct platform_device vpu_device = {
 	.num_resources	= ARRAY_SIZE(vpu_resources),
 };
 
+/* VEU0 */
 static struct uio_info veu0_platform_data = {
 	.name = "VEU0",
 	.version = "0",
@@ -276,6 +289,7 @@ static struct platform_device veu0_device = {
 	.num_resources	= ARRAY_SIZE(veu0_resources),
 };
 
+/* VEU1 */
 static struct uio_info veu1_platform_data = {
 	.name = "VEU1",
 	.version = "0",
@@ -301,6 +315,7 @@ static struct platform_device veu1_device = {
 	.num_resources	= ARRAY_SIZE(veu1_resources),
 };
 
+/* VEU2 */
 static struct uio_info veu2_platform_data = {
 	.name = "VEU2",
 	.version = "0",
@@ -326,6 +341,7 @@ static struct platform_device veu2_device = {
 	.num_resources	= ARRAY_SIZE(veu2_resources),
 };
 
+/* VEU3 */
 static struct uio_info veu3_platform_data = {
 	.name = "VEU3",
 	.version = "0",
@@ -351,6 +367,7 @@ static struct platform_device veu3_device = {
 	.num_resources	= ARRAY_SIZE(veu3_resources),
 };
 
+/* JPU */
 static struct uio_info jpu_platform_data = {
 	.name = "JPU",
 	.version = "0",
@@ -376,6 +393,7 @@ static struct platform_device jpu_device = {
 	.num_resources	= ARRAY_SIZE(jpu_resources),
 };
 
+/* SPU2DSP0 */
 static struct uio_info spu0_platform_data = {
 	.name = "SPU2DSP0",
 	.version = "0",
@@ -401,6 +419,7 @@ static struct platform_device spu0_device = {
 	.num_resources	= ARRAY_SIZE(spu0_resources),
 };
 
+/* SPU2DSP1 */
 static struct uio_info spu1_platform_data = {
 	.name = "SPU2DSP1",
 	.version = "0",
@@ -469,15 +488,15 @@ static void __init sh7377_earlytimer_init(void)
 
 void __init sh7377_add_early_devices(void)
 {
-	
+	/* enable clock to CMT1 */
 	__raw_writel(__raw_readl(SMSTPCR3) & ~SMSTPCR3_CMT1, SMSTPCR3);
 
 	early_platform_add_devices(sh7377_early_devices,
 				   ARRAY_SIZE(sh7377_early_devices));
 
-	
+	/* setup early console here as well */
 	shmobile_setup_console();
 
-	
+	/* override timer setup with soc-specific code */
 	shmobile_timer.init = sh7377_earlytimer_init;
 }

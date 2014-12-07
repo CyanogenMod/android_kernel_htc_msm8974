@@ -44,17 +44,20 @@
 #define R6XX_MAX_PIPES				8
 #define R6XX_MAX_PIPES_MASK			0xff
 
+/* PTE flags */
 #define PTE_VALID				(1 << 0)
 #define PTE_SYSTEM				(1 << 1)
 #define PTE_SNOOPED				(1 << 2)
 #define PTE_READABLE				(1 << 5)
 #define PTE_WRITEABLE				(1 << 6)
 
+/* tiling bits */
 #define     ARRAY_LINEAR_GENERAL              0x00000000
 #define     ARRAY_LINEAR_ALIGNED              0x00000001
 #define     ARRAY_1D_TILED_THIN1              0x00000002
 #define     ARRAY_2D_TILED_THIN1              0x00000004
 
+/* Registers */
 #define	ARB_POP						0x2418
 #define 	ENABLE_TC128					(1 << 30)
 #define	ARB_GDEC_RD_CNTL				0x246C
@@ -561,10 +564,10 @@
 
 #define IH_RB_CNTL                                        0x3e00
 #       define IH_RB_ENABLE                               (1 << 0)
-#       define IH_IB_SIZE(x)                              ((x) << 1) 
+#       define IH_IB_SIZE(x)                              ((x) << 1) /* log2 */
 #       define IH_RB_FULL_DRAIN_ENABLE                    (1 << 6)
 #       define IH_WPTR_WRITEBACK_ENABLE                   (1 << 8)
-#       define IH_WPTR_WRITEBACK_TIMER(x)                 ((x) << 9) 
+#       define IH_WPTR_WRITEBACK_TIMER(x)                 ((x) << 9) /* log2 */
 #       define IH_WPTR_OVERFLOW_ENABLE                    (1 << 16)
 #       define IH_WPTR_OVERFLOW_CLEAR                     (1 << 31)
 #define IH_RB_BASE                                        0x3e04
@@ -598,6 +601,7 @@
 #define RLC_UCODE_ADDR                                    0x3f2c
 #define RLC_UCODE_DATA                                    0x3f30
 
+/* new for TN */
 #define TN_RLC_SAVE_AND_RESTORE_BASE                      0x3f10
 #define TN_RLC_CLEAR_STATE_RESTORE_BASE                   0x3f20
 
@@ -687,6 +691,7 @@
 #       define AUX4_LS_DONE_INTERRUPT                     (1 << 12)
 #       define DIGA_DP_FAST_TRAINING_COMPLETE_INTERRUPT   (1 << 13)
 #       define DIGB_DP_FAST_TRAINING_COMPLETE_INTERRUPT   (1 << 14)
+/* DCE 3.2 */
 #       define AUX5_SW_DONE_INTERRUPT                     (1 << 15)
 #       define AUX5_LS_DONE_INTERRUPT                     (1 << 16)
 #       define AUX6_SW_DONE_INTERRUPT                     (1 << 17)
@@ -705,6 +710,7 @@
 #       define DACx_AUTODETECT_MODE_CONNECT               1
 #       define DACx_AUTODETECT_MODE_DISCONNECT            2
 #       define DACx_AUTODETECT_FRAME_TIME_COUNTER(x)      ((x) << 8)
+/* bit 18 = R/C, 17 = G/Y, 16 = B/Comp */
 #       define DACx_AUTODETECT_CHECK_MASK(x)              ((x) << 16)
 
 #define DCE3_DACA_AUTODETECT_INT_CONTROL                  0x7038
@@ -725,10 +731,12 @@
 #       define DC_HOT_PLUG_DETECTx_INT_STATUS             (1 << 0)
 #       define DC_HOT_PLUG_DETECTx_SENSE                  (1 << 1)
 
+/* DCE 3.0 */
 #define DC_HPD1_INT_STATUS                                0x7d00
 #define DC_HPD2_INT_STATUS                                0x7d0c
 #define DC_HPD3_INT_STATUS                                0x7d18
 #define DC_HPD4_INT_STATUS                                0x7d24
+/* DCE 3.2 */
 #define DC_HPD5_INT_STATUS                                0x7dc0
 #define DC_HPD6_INT_STATUS                                0x7df4
 #       define DC_HPDx_INT_STATUS                         (1 << 0)
@@ -741,10 +749,12 @@
 #       define DC_HOT_PLUG_DETECTx_INT_ACK                (1 << 0)
 #       define DC_HOT_PLUG_DETECTx_INT_POLARITY           (1 << 8)
 #       define DC_HOT_PLUG_DETECTx_INT_EN                 (1 << 16)
+/* DCE 3.0 */
 #define DC_HPD1_INT_CONTROL                               0x7d04
 #define DC_HPD2_INT_CONTROL                               0x7d10
 #define DC_HPD3_INT_CONTROL                               0x7d1c
 #define DC_HPD4_INT_CONTROL                               0x7d28
+/* DCE 3.2 */
 #define DC_HPD5_INT_CONTROL                               0x7dc4
 #define DC_HPD6_INT_CONTROL                               0x7df8
 #       define DC_HPDx_INT_ACK                            (1 << 0)
@@ -753,14 +763,17 @@
 #       define DC_HPDx_RX_INT_ACK                         (1 << 20)
 #       define DC_HPDx_RX_INT_EN                          (1 << 24)
 
+/* DCE 3.0 */
 #define DC_HPD1_CONTROL                                   0x7d08
 #define DC_HPD2_CONTROL                                   0x7d14
 #define DC_HPD3_CONTROL                                   0x7d20
 #define DC_HPD4_CONTROL                                   0x7d2c
+/* DCE 3.2 */
 #define DC_HPD5_CONTROL                                   0x7dc8
 #define DC_HPD6_CONTROL                                   0x7dfc
 #       define DC_HPDx_CONNECTION_TIMER(x)                ((x) << 0)
 #       define DC_HPDx_RX_INT_TIMER(x)                    ((x) << 16)
+/* DCE 3.2 */
 #       define DC_HPDx_EN                                 (1 << 28)
 
 #define D1GRPH_INTERRUPT_STATUS                           0x6158
@@ -772,9 +785,10 @@
 #       define DxGRPH_PFLIP_INT_MASK                      (1 << 0)
 #       define DxGRPH_PFLIP_INT_TYPE                      (1 << 8)
 
-#define PCIE_LC_TRAINING_CNTL                             0xa1 
+/* PCIE link stuff */
+#define PCIE_LC_TRAINING_CNTL                             0xa1 /* PCIE_P */
 #       define LC_POINT_7_PLUS_EN                         (1 << 6)
-#define PCIE_LC_LINK_WIDTH_CNTL                           0xa2 
+#define PCIE_LC_LINK_WIDTH_CNTL                           0xa2 /* PCIE_P */
 #       define LC_LINK_WIDTH_SHIFT                        0
 #       define LC_LINK_WIDTH_MASK                         0x7
 #       define LC_LINK_WIDTH_X0                           0
@@ -792,7 +806,7 @@
 #       define LC_SHORT_RECONFIG_EN                       (1 << 11)
 #       define LC_UPCONFIGURE_SUPPORT                     (1 << 12)
 #       define LC_UPCONFIGURE_DIS                         (1 << 13)
-#define PCIE_LC_SPEED_CNTL                                0xa4 
+#define PCIE_LC_SPEED_CNTL                                0xa4 /* PCIE_P */
 #       define LC_GEN2_EN_STRAP                           (1 << 0)
 #       define LC_TARGET_LINK_SPEED_OVERRIDE_EN           (1 << 1)
 #       define LC_FORCE_EN_HW_SPEED_CHANGE                (1 << 5)
@@ -806,10 +820,13 @@
 #       define LC_OTHER_SIDE_SUPPORTS_GEN2                (1 << 24)
 #define MM_CFGREGS_CNTL                                   0x544c
 #       define MM_WR_TO_CFG_EN                            (1 << 3)
-#define LINK_CNTL2                                        0x88 
+#define LINK_CNTL2                                        0x88 /* F0 */
 #       define TARGET_LINK_SPEED_MASK                     (0xf << 0)
 #       define SELECTABLE_DEEMPHASIS                      (1 << 6)
 
+/*
+ * PM4
+ */
 #define	PACKET_TYPE0	0
 #define	PACKET_TYPE1	1
 #define	PACKET_TYPE2	2
@@ -826,6 +843,7 @@
 			 (((op) & 0xFF) << 8) |				\
 			 ((n) & 0x3FFF) << 16)
 
+/* Packet 3 types */
 #define	PACKET3_NOP					0x10
 #define	PACKET3_INDIRECT_BUFFER_END			0x17
 #define	PACKET3_SET_PREDICATION				0x20
@@ -866,9 +884,25 @@
 #define	PACKET3_EVENT_WRITE				0x46
 #define		EVENT_TYPE(x)                           ((x) << 0)
 #define		EVENT_INDEX(x)                          ((x) << 8)
+                /* 0 - any non-TS event
+		 * 1 - ZPASS_DONE
+		 * 2 - SAMPLE_PIPELINESTAT
+		 * 3 - SAMPLE_STREAMOUTSTAT*
+		 * 4 - *S_PARTIAL_FLUSH
+		 * 5 - TS events
+		 */
 #define	PACKET3_EVENT_WRITE_EOP				0x47
 #define		DATA_SEL(x)                             ((x) << 29)
+                /* 0 - discard
+		 * 1 - send low 32bit data
+		 * 2 - send 64bit data
+		 * 3 - send 64bit counter value
+		 */
 #define		INT_SEL(x)                              ((x) << 24)
+                /* 0 - none
+		 * 1 - interrupt only (DATA_SEL = 0)
+		 * 2 - interrupt when data write is confirmed
+		 */
 #define	PACKET3_ONE_REG_WRITE				0x57
 #define	PACKET3_SET_CONFIG_REG				0x68
 #define		PACKET3_SET_CONFIG_REG_OFFSET			0x00008000

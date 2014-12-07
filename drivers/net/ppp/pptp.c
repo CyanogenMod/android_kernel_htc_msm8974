@@ -216,11 +216,11 @@ static int pptp_xmit(struct ppp_channel *chan, struct sk_buff *skb)
 	data = skb->data;
 	islcp = ((data[0] << 8) + data[1]) == PPP_LCP && 1 <= data[2] && data[2] <= 7;
 
-	
+	/* compress protocol field */
 	if ((opt->ppp_flags & SC_COMP_PROT) && data[0] == 0 && !islcp)
 		skb_pull(skb, 1);
 
-	
+	/* Put in the address/control bytes if necessary */
 	if ((opt->ppp_flags & SC_COMP_AC) == 0 || islcp) {
 		data = skb_push(skb, 2);
 		data[0] = PPP_ALLSTATIONS;
@@ -234,7 +234,7 @@ static int pptp_xmit(struct ppp_channel *chan, struct sk_buff *skb)
 	if (opt->ack_sent == seq_recv)
 		header_len -= sizeof(hdr->ack);
 
-	
+	/* Push down and install GRE header */
 	skb_push(skb, header_len);
 	hdr = (struct pptp_gre_header *)(skb->data);
 
@@ -246,14 +246,14 @@ static int pptp_xmit(struct ppp_channel *chan, struct sk_buff *skb)
 	hdr->flags      |= PPTP_GRE_FLAG_S;
 	hdr->seq         = htonl(++opt->seq_sent);
 	if (opt->ack_sent != seq_recv)	{
-		
+		/* send ack with this message */
 		hdr->ver |= PPTP_GRE_FLAG_A;
 		hdr->ack  = htonl(seq_recv);
 		opt->ack_sent = seq_recv;
 	}
 	hdr->payload_len = htons(len);
 
-	
+	/*	Push down and install the IP header. */
 
 	skb_reset_transport_header(skb);
 	skb_push(skb, sizeof(*iph));
@@ -309,7 +309,7 @@ static int pptp_rcv_core(struct sock *sk, struct sk_buff *skb)
 	header = (struct pptp_gre_header *)(skb->data);
 	headersize  = sizeof(*header);
 
-	
+	/* test if acknowledgement present */
 	if (PPTP_GRE_IS_A(header->ver)) {
 		__u32 ack;
 
@@ -317,32 +317,32 @@ static int pptp_rcv_core(struct sock *sk, struct sk_buff *skb)
 			goto drop;
 		header = (struct pptp_gre_header *)(skb->data);
 
-		
+		/* ack in different place if S = 0 */
 		ack = PPTP_GRE_IS_S(header->flags) ? header->ack : header->seq;
 
 		ack = ntohl(ack);
 
 		if (ack > opt->ack_recv)
 			opt->ack_recv = ack;
-		
+		/* also handle sequence number wrap-around  */
 		if (WRAPPED(ack, opt->ack_recv))
 			opt->ack_recv = ack;
 	} else {
 		headersize -= sizeof(header->ack);
 	}
-	
+	/* test if payload present */
 	if (!PPTP_GRE_IS_S(header->flags))
 		goto drop;
 
 	payload_len = ntohs(header->payload_len);
 	seq         = ntohl(header->seq);
 
-	
+	/* check for incomplete packet (length smaller than expected) */
 	if (!pskb_may_pull(skb, headersize + payload_len))
 		goto drop;
 
 	payload = skb->data + headersize;
-	
+	/* check for expected sequence number */
 	if (seq < opt->seq_recv + 1 || WRAPPED(opt->seq_recv, seq)) {
 		if ((payload[0] == PPP_ALLSTATIONS) && (payload[1] == PPP_UI) &&
 				(PPP_PROTOCOL(payload) == PPP_LCP) &&
@@ -354,14 +354,14 @@ allow_packet:
 		skb_pull(skb, headersize);
 
 		if (payload[0] == PPP_ALLSTATIONS && payload[1] == PPP_UI) {
-			
+			/* chop off address/control */
 			if (skb->len < 3)
 				goto drop;
 			skb_pull(skb, 2);
 		}
 
 		if ((*skb->data) & 1) {
-			
+			/* protocol is compressed */
 			skb_push(skb, 1)[0] = 0;
 		}
 
@@ -392,12 +392,12 @@ static int pptp_rcv(struct sk_buff *skb)
 
 	header = (struct pptp_gre_header *)skb->data;
 
-	if (ntohs(header->protocol) != PPTP_GRE_PROTO || 
-		PPTP_GRE_IS_C(header->flags) ||                
-		PPTP_GRE_IS_R(header->flags) ||                
-		!PPTP_GRE_IS_K(header->flags) ||               
-		(header->flags&0xF) != 0)                      
-		
+	if (ntohs(header->protocol) != PPTP_GRE_PROTO || /* PPTP-GRE protocol for PPTP */
+		PPTP_GRE_IS_C(header->flags) ||                /* flag C should be clear */
+		PPTP_GRE_IS_R(header->flags) ||                /* flag R should be clear */
+		!PPTP_GRE_IS_K(header->flags) ||               /* flag K should be set */
+		(header->flags&0xF) != 0)                      /* routing and recursion ctrl = 0 */
+		/* if invalid, discard this packet */
 		goto drop;
 
 	po = lookup_chan(htons(header->call_id), iph->saddr);
@@ -448,13 +448,13 @@ static int pptp_connect(struct socket *sock, struct sockaddr *uservaddr,
 		return -EALREADY;
 
 	lock_sock(sk);
-	
+	/* Check for already bound sockets */
 	if (sk->sk_state & PPPOX_CONNECTED) {
 		error = -EBUSY;
 		goto end;
 	}
 
-	
+	/* Check for already disconnected sockets, on attempts to disconnect */
 	if (sk->sk_state & PPPOX_DEAD) {
 		error = -EALREADY;
 		goto end;

@@ -26,6 +26,9 @@
 
 #include <asm/syscalls.h>
 
+/* These are secondary entry points as the primary entry points are defined in
+ * entry.S where we add the 'regs' parameter value
+ */
 
 asmlinkage long _sys_clone(unsigned long clone_flags, unsigned long newsp,
 			   int __user *parent_tid, int __user *child_tid,
@@ -33,8 +36,8 @@ asmlinkage long _sys_clone(unsigned long clone_flags, unsigned long newsp,
 {
 	long ret;
 
-	
-	
+	/* FIXME: Is alignment necessary? */
+	/* newsp = ALIGN(newsp, 4); */
 
 	if (!newsp)
 		newsp = regs->sp;

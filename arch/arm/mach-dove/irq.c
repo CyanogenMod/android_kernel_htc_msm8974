@@ -97,6 +97,9 @@ void __init dove_init_irq(void)
 	orion_irq_init(0, (void __iomem *)(IRQ_VIRT_BASE + IRQ_MASK_LOW_OFF));
 	orion_irq_init(32, (void __iomem *)(IRQ_VIRT_BASE + IRQ_MASK_HIGH_OFF));
 
+	/*
+	 * Initialize gpiolib for GPIOs 0-71.
+	 */
 	orion_gpio_init(0, 32, DOVE_GPIO_LO_VIRT_BASE, 0,
 			IRQ_DOVE_GPIO_START);
 	irq_set_chained_handler(IRQ_DOVE_GPIO_0_7, gpio_irq_handler);
@@ -111,6 +114,9 @@ void __init dove_init_irq(void)
 	orion_gpio_init(64, 8, DOVE_GPIO2_VIRT_BASE, 0,
 			IRQ_DOVE_GPIO_START + 64);
 
+	/*
+	 * Mask and clear PMU interrupts
+	 */
 	writel(0, PMU_INTERRUPT_MASK);
 	writel(0, PMU_INTERRUPT_CAUSE);
 

@@ -7,11 +7,21 @@
  * 2 of the License, or (at your option) any later version.
  */
 
-#include <linux/device.h>	
+#include <linux/device.h>	/* devres_*(), devm_ioremap_release() */
 #include <linux/gfp.h>
-#include <linux/io.h>		
-#include <linux/export.h>	
+#include <linux/io.h>		/* ioremap_prot() */
+#include <linux/export.h>	/* EXPORT_SYMBOL() */
 
+/**
+ * devm_ioremap_prot - Managed ioremap_prot()
+ * @dev: Generic device to remap IO address for
+ * @offset: BUS offset to map
+ * @size: Size of map
+ * @flags: Page flags
+ *
+ * Managed ioremap_prot().  Map is automatically unmapped on driver
+ * detach.
+ */
 void __iomem *devm_ioremap_prot(struct device *dev, resource_size_t offset,
 				 size_t size, unsigned long flags)
 {

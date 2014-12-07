@@ -48,7 +48,7 @@ static int afeb9260_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
 	int err;
 
-	
+	/* Set the codec system clock for DAC and ADC */
 	err =
 	    snd_soc_dai_set_sysclk(codec_dai, 0, CODEC_CLOCK, SND_SOC_CLOCK_IN);
 
@@ -92,6 +92,7 @@ static int afeb9260_tlv320aic23_init(struct snd_soc_pcm_runtime *rtd)
 	return 0;
 }
 
+/* Digital audio interface glue - connects codec <--> CPU */
 static struct snd_soc_dai_link afeb9260_dai = {
 	.name = "TLV320AIC23",
 	.stream_name = "AIC23",
@@ -105,6 +106,7 @@ static struct snd_soc_dai_link afeb9260_dai = {
 	.ops = &afeb9260_ops,
 };
 
+/* Audio machine driver */
 static struct snd_soc_card snd_soc_machine_afeb9260 = {
 	.name = "AFEB9260",
 	.owner = THIS_MODULE,

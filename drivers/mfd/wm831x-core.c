@@ -28,6 +28,9 @@
 #include <linux/mfd/wm831x/pmu.h>
 #include <linux/mfd/wm831x/regulator.h>
 
+/* Current settings - values are 2*2^(reg_val/4) microamps.  These are
+ * exported since they are used by multiple drivers.
+ */
 int wm831x_isinkv_values[WM831X_ISINK_MAX_ISEL + 1] = {
 	2,
 	2,
@@ -107,6 +110,13 @@ static int wm831x_reg_locked(struct wm831x *wm831x, unsigned short reg)
 	}
 }
 
+/**
+ * wm831x_reg_unlock: Unlock user keyed registers
+ *
+ * The WM831x has a user key preventing writes to particularly
+ * critical registers.  This function locks those registers,
+ * allowing writes to them.
+ */
 void wm831x_reg_lock(struct wm831x *wm831x)
 {
 	int ret;
@@ -126,11 +136,18 @@ void wm831x_reg_lock(struct wm831x *wm831x)
 }
 EXPORT_SYMBOL_GPL(wm831x_reg_lock);
 
+/**
+ * wm831x_reg_unlock: Unlock user keyed registers
+ *
+ * The WM831x has a user key preventing writes to particularly
+ * critical registers.  This function locks those registers,
+ * preventing spurious writes.
+ */
 int wm831x_reg_unlock(struct wm831x *wm831x)
 {
 	int ret;
 
-	
+	/* 0x9716 is the value required to unlock the registers */
 	ret = wm831x_reg_write(wm831x, WM831X_SECURITY_KEY, 0x9716);
 	if (ret == 0) {
 		dev_vdbg(wm831x->dev, "Registers unlocked\n");
@@ -491,6 +508,12 @@ static bool wm831x_reg_volatile(struct device *dev, unsigned int reg)
 	}
 }
 
+/**
+ * wm831x_reg_read: Read a single WM831x register.
+ *
+ * @wm831x: Device to read from.
+ * @reg: Register to read.
+ */
 int wm831x_reg_read(struct wm831x *wm831x, unsigned short reg)
 {
 	unsigned int val;
@@ -505,6 +528,14 @@ int wm831x_reg_read(struct wm831x *wm831x, unsigned short reg)
 }
 EXPORT_SYMBOL_GPL(wm831x_reg_read);
 
+/**
+ * wm831x_bulk_read: Read multiple WM831x registers
+ *
+ * @wm831x: Device to read from
+ * @reg: First register
+ * @count: Number of registers
+ * @buf: Buffer to fill.
+ */
 int wm831x_bulk_read(struct wm831x *wm831x, unsigned short reg,
 		     int count, u16 *buf)
 {
@@ -535,6 +566,13 @@ static int wm831x_write(struct wm831x *wm831x, unsigned short reg,
 	return 0;
 }
 
+/**
+ * wm831x_reg_write: Write a single WM831x register.
+ *
+ * @wm831x: Device to write to.
+ * @reg: Register to write to.
+ * @val: Value to write.
+ */
 int wm831x_reg_write(struct wm831x *wm831x, unsigned short reg,
 		     unsigned short val)
 {
@@ -550,6 +588,14 @@ int wm831x_reg_write(struct wm831x *wm831x, unsigned short reg,
 }
 EXPORT_SYMBOL_GPL(wm831x_reg_write);
 
+/**
+ * wm831x_set_bits: Set the value of a bitfield in a WM831x register
+ *
+ * @wm831x: Device to write to.
+ * @reg: Register to write to.
+ * @mask: Mask of bits to set.
+ * @val: Value to set (unshifted)
+ */
 int wm831x_set_bits(struct wm831x *wm831x, unsigned short reg,
 		    unsigned short mask, unsigned short val)
 {
@@ -1567,6 +1613,9 @@ struct regmap_config wm831x_regmap_config = {
 };
 EXPORT_SYMBOL_GPL(wm831x_regmap_config);
 
+/*
+ * Instantiate the generic non-control parts of the device.
+ */
 int wm831x_device_init(struct wm831x *wm831x, unsigned long id, int irq)
 {
 	struct wm831x_pdata *pdata = wm831x->dev->platform_data;
@@ -1607,6 +1656,9 @@ int wm831x_device_init(struct wm831x *wm831x, unsigned long id, int irq)
 		goto err;
 	}
 
+	/* Some engineering samples do not have the ID set, rely on
+	 * the device being registered correctly.
+	 */
 	if (ret == 0) {
 		dev_info(wm831x->dev, "Device is an engineering sample\n");
 		ret = id;
@@ -1679,11 +1731,14 @@ int wm831x_device_init(struct wm831x *wm831x, unsigned long id, int irq)
 		goto err;
 	}
 
+	/* This will need revisiting in future but is OK for all
+	 * current parts.
+	 */
 	if (parent != id)
 		dev_warn(wm831x->dev, "Device was registered as a WM%lx\n",
 			 id);
 
-	
+	/* Bootstrap the user key */
 	ret = wm831x_reg_read(wm831x, WM831X_SECURITY_KEY);
 	if (ret < 0) {
 		dev_err(wm831x->dev, "Failed to read security key: %d\n", ret);
@@ -1715,7 +1770,7 @@ int wm831x_device_init(struct wm831x *wm831x, unsigned long id, int irq)
 		}
 	}
 
-	
+	/* Multiply by 10 as we have many subdevices of the same type */
 	if (pdata && pdata->wm831x_num)
 		wm831x_num = pdata->wm831x_num * 10;
 	else
@@ -1727,7 +1782,7 @@ int wm831x_device_init(struct wm831x *wm831x, unsigned long id, int irq)
 
 	wm831x_auxadc_init(wm831x);
 
-	
+	/* The core device is up, instantiate the subdevices. */
 	switch (parent) {
 	case WM8310:
 		ret = mfd_add_devices(wm831x->dev, wm831x_num,
@@ -1765,7 +1820,7 @@ int wm831x_device_init(struct wm831x *wm831x, unsigned long id, int irq)
 		break;
 
 	default:
-		
+		/* If this happens the bus probe function is buggy */
 		BUG();
 	}
 
@@ -1774,6 +1829,9 @@ int wm831x_device_init(struct wm831x *wm831x, unsigned long id, int irq)
 		goto err_irq;
 	}
 
+	/* The RTC can only be used if the 32.768kHz crystal is
+	 * enabled; this can't be controlled by software at runtime.
+	 */
 	ret = wm831x_reg_read(wm831x, WM831X_CLOCK_CONTROL_2);
 	if (ret < 0) {
 		dev_err(wm831x->dev, "Failed to read clock status: %d\n", ret);
@@ -1793,7 +1851,7 @@ int wm831x_device_init(struct wm831x *wm831x, unsigned long id, int irq)
 	}
 
 	if (pdata && pdata->backlight) {
-		
+		/* Treat errors as non-critical */
 		ret = mfd_add_devices(wm831x->dev, wm831x_num, backlight_devs,
 				      ARRAY_SIZE(backlight_devs), NULL,
 				      wm831x->irq_base);
@@ -1834,6 +1892,11 @@ int wm831x_device_suspend(struct wm831x *wm831x)
 {
 	int reg, mask;
 
+	/* If the charger IRQs are a wake source then make sure we ack
+	 * them even if they're not actively being used (eg, no power
+	 * driver or no IRQ line wired up) then acknowledge the
+	 * interrupts otherwise suspend won't last very long.
+	 */
 	if (wm831x->charger_irq_wake) {
 		reg = wm831x_reg_read(wm831x, WM831X_INTERRUPT_STATUS_2_MASK);
 
@@ -1844,7 +1907,7 @@ int wm831x_device_suspend(struct wm831x *wm831x)
 			WM831X_CHG_TO_EINT | WM831X_CHG_MODE_EINT |
 			WM831X_CHG_START_EINT;
 
-		
+		/* If any of the interrupts are masked read the statuses */
 		if (reg & mask)
 			reg = wm831x_reg_read(wm831x,
 					      WM831X_INTERRUPT_STATUS_2);

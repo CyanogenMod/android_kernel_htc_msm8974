@@ -22,6 +22,9 @@ typedef unsigned long machreg_t;
 
 static arch_spinlock_t nmi_lock = __ARCH_SPIN_LOCK_UNLOCKED;
 
+/*
+ * Lets see what else we need to do here. Set up sp, gp?
+ */
 void nmi_dump(void)
 {
 	void cont_nmi_dump(void);
@@ -43,19 +46,26 @@ void install_cpu_nmi_handler(int slice)
 	nmi_addr->call_parm = 0;
 }
 
+/*
+ * Copy the cpu registers which have been saved in the IP27prom format
+ * into the eframe format for the node under consideration.
+ */
 
 void nmi_cpu_eframe_save(nasid_t nasid, int slice)
 {
 	struct reg_struct *nr;
 	int 		i;
 
-	
+	/* Get the pointer to the current cpu's register set. */
 	nr = (struct reg_struct *)
 		(TO_UNCAC(TO_NODE(nasid, IP27_NMI_KREGS_OFFSET)) +
 		slice * IP27_NMI_KREGS_CPU_SIZE);
 
 	printk("NMI nasid %d: slice %d\n", nasid, slice);
 
+	/*
+	 * Saved main processor registers
+	 */
 	for (i = 0; i < 32; ) {
 		if ((i % 4) == 0)
 			printk("$%2d   :", i);
@@ -69,6 +79,9 @@ void nmi_cpu_eframe_save(nasid_t nasid, int slice)
 	printk("Hi    : (value lost)\n");
 	printk("Lo    : (value lost)\n");
 
+	/*
+	 * Saved cp0 registers
+	 */
 	printk("epc   : %016lx %pS\n", nr->epc, (void *) nr->epc);
 	printk("%s\n", print_tainted());
 	printk("ErrEPC: %016lx %pS\n", nr->error_epc, (void *) nr->error_epc);
@@ -118,10 +131,10 @@ void nmi_dump_hub_irq(nasid_t nasid, int slice)
 {
 	hubreg_t mask0, mask1, pend0, pend1;
 
-	if (slice == 0) {				
+	if (slice == 0) {				/* Slice A */
 		mask0 = REMOTE_HUB_L(nasid, PI_INT_MASK0_A);
 		mask1 = REMOTE_HUB_L(nasid, PI_INT_MASK1_A);
-	} else {					
+	} else {					/* Slice B */
 		mask0 = REMOTE_HUB_L(nasid, PI_INT_MASK0_B);
 		mask1 = REMOTE_HUB_L(nasid, PI_INT_MASK1_B);
 	}
@@ -134,12 +147,16 @@ void nmi_dump_hub_irq(nasid_t nasid, int slice)
 	printk("\n\n");
 }
 
+/*
+ * Copy the cpu registers which have been saved in the IP27prom format
+ * into the eframe format for the node under consideration.
+ */
 void nmi_node_eframe_save(cnodeid_t  cnode)
 {
 	nasid_t nasid;
 	int slice;
 
-	
+	/* Make sure that we have a valid node */
 	if (cnode == CNODEID_NONE)
 		return;
 
@@ -147,13 +164,16 @@ void nmi_node_eframe_save(cnodeid_t  cnode)
 	if (nasid == INVALID_NASID)
 		return;
 
-	
+	/* Save the registers into eframe for each cpu */
 	for (slice = 0; slice < NODE_NUM_CPUS(slice); slice++) {
 		nmi_cpu_eframe_save(nasid, slice);
 		nmi_dump_hub_irq(nasid, slice);
 	}
 }
 
+/*
+ * Save the nmi cpu registers for all cpus in the system.
+ */
 void
 nmi_eframes_save(void)
 {
@@ -171,9 +191,24 @@ cont_nmi_dump(void)
 
 	atomic_inc(&nmied_cpus);
 #endif
+	/*
+	 * Only allow 1 cpu to proceed
+	 */
 	arch_spin_lock(&nmi_lock);
 
 #ifdef REAL_NMI_SIGNAL
+	/*
+	 * Wait up to 15 seconds for the other cpus to respond to the NMI.
+	 * If a cpu has not responded after 10 sec, send it 1 additional NMI.
+	 * This is for 2 reasons:
+	 *	- sometimes a MMSC fail to NMI all cpus.
+	 *	- on 512p SN0 system, the MMSC will only send NMIs to
+	 *	  half the cpus. Unfortunately, we don't know which cpus may be
+	 *	  NMIed - it depends on how the site chooses to configure.
+	 *
+	 * Note: it has been measure that it takes the MMSC up to 2.3 secs to
+	 * send NMIs to all cpus on a 256p system.
+	 */
 	for (i=0; i < 1500; i++) {
 		for_each_online_node(node)
 			if (NODEPDA(node)->dump_count == 0)
@@ -186,6 +221,10 @@ cont_nmi_dump(void)
 					cpu = cpumask_first(cpumask_of_node(node));
 					for (n=0; n < CNODE_NUM_CPUS(node); cpu++, n++) {
 						CPUMASK_SETB(nmied_cpus, cpu);
+						/*
+						 * cputonasid, cputoslice
+						 * needs kernel cpuid
+						 */
 						SEND_NMI((cputonasid(cpu)), (cputoslice(cpu)));
 					}
 				}
@@ -197,6 +236,9 @@ cont_nmi_dump(void)
 	while (atomic_read(&nmied_cpus) != num_online_cpus());
 #endif
 
+	/*
+	 * Save the nmi cpu registers for all cpu in the eframe format.
+	 */
 	nmi_eframes_save();
 	LOCAL_HUB_S(NI_PORT_RESET, NPR_PORTRESET | NPR_LOCALRESET);
 }

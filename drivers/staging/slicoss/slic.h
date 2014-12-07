@@ -33,9 +33,15 @@
  *
  **************************************************************************/
 
+/*
+ * FILENAME: slic.h
+ *
+ * This is the base set of header definitions for the SLICOSS driver.
+ */
 #ifndef __SLIC_DRIVER_H__
 #define __SLIC_DRIVER_H__
 
+/* firmware stuff */
 #define OASIS_UCODE_VERS_STRING	"1.2"
 #define OASIS_UCODE_VERS_DATE  	"2006/03/27 15:10:37"
 #define OASIS_UCODE_HOSTIF_ID  	3
@@ -91,20 +97,25 @@ struct slic_rcvbuf_info {
     u32     lasttime;
     u32     lastid;
 };
+/*
+ SLIC Handle structure.  Used to restrict handle values to
+ 32 bits by using an index rather than an address.
+ Simplifies ucode in 64-bit systems
+*/
 struct slic_handle_word {
 	union {
 		struct {
 			ushort      index;
-			ushort      bottombits; 
+			ushort      bottombits; /* to denote num bufs to card */
 		}  parts;
 		u32         whole;
 	}  handle;
 };
 
 struct slic_handle {
-    struct slic_handle_word  token;  
+    struct slic_handle_word  token;  /* token passed between host and card*/
     ushort                      type;
-    void *address;    
+    void *address;    /* actual address of the object*/
     ushort                      offset;
     struct slic_handle       *other_handle;
     struct slic_handle       *next;
@@ -131,7 +142,7 @@ struct slic_hostcmd {
     u32                    busy;
     u32                    cmdsize;
     ushort                     numbufs;
-    struct slic_handle    *pslic_handle;
+    struct slic_handle    *pslic_handle;/* handle associated with command */
     struct slic_hostcmd    *next;
     struct slic_hostcmd    *next_all;
 };
@@ -158,7 +169,7 @@ struct slic_cmdqueue {
 };
 
 #define SLIC_MAX_CARDS              32
-#define SLIC_MAX_PORTS              4        
+#define SLIC_MAX_PORTS              4        /* Max # of ports per card   */
 
 
 struct mcast_address {
@@ -217,6 +228,9 @@ struct mcast_address {
 #define SLIC_CARD_STATE(x)    ((x == CARD_UP) ? "UP" : "Down")
 
 struct slic_iface_stats {
+    /*
+     * Stats
+     */
     u64        xmt_bytes;
     u64        xmt_ucast;
     u64        xmt_mcast;
@@ -327,6 +341,10 @@ struct physcard {
     struct physcard *next;
     uint                adapters_allocd;
 
+ /*  the following is not currently needed
+    u32               bridge_busnum;
+    u32               bridge_cfg[NUM_CFG_SPACES][NUM_CFG_REG_ULONGS];
+ */
 };
 
 struct base_driver {
@@ -443,9 +461,12 @@ struct adapter {
     struct slic_cmdqueue     cmdq_done;
     struct slic_cmdqueue     cmdq_all;
     struct slic_cmdqmem      cmdqmem;
-    struct slic_handle slic_handles[SLIC_CMDQ_MAXCMDS+1]; 
-    struct slic_handle *pfree_slic_handles;          
-    struct slic_spinlock     handle_lock;           
+    /*
+     *  SLIC Handles
+    */
+    struct slic_handle slic_handles[SLIC_CMDQ_MAXCMDS+1]; /* Object handles*/
+    struct slic_handle *pfree_slic_handles;          /* Free object handles*/
+    struct slic_spinlock     handle_lock;           /* Object handle list lock*/
     ushort              slic_handle_ix;
 
     u32             xmitq_full;
@@ -513,4 +534,4 @@ struct adapter {
 #define SIOCSLICSETINTAGG        (SIOCDEVPRIVATE+10)
 #define SIOCSLICTRACEDUMP        (SIOCDEVPRIVATE+11)
 
-#endif 
+#endif /*  __SLIC_DRIVER_H__ */

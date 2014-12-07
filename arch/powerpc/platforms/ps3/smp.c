@@ -32,6 +32,9 @@
 #define DBG pr_debug
 #endif
 
+/**
+  * ps3_ipi_virqs - a per cpu array of virqs for ipi use
+  */
 
 #define MSG_COUNT 4
 static DEFINE_PER_CPU(unsigned int [MSG_COUNT], ps3_ipi_virqs);
@@ -65,6 +68,11 @@ static int __init ps3_smp_probe(void)
 
 		DBG(" -> %s:%d: (%d)\n", __func__, __LINE__, cpu);
 
+		/*
+		* Check assumptions on ps3_ipi_virqs[] indexing. If this
+		* check fails, then a different mapping of PPC_MSG_
+		* to index needs to be setup.
+		*/
 
 		BUILD_BUG_ON(PPC_MSG_CALL_FUNCTION    != 0);
 		BUILD_BUG_ON(PPC_MSG_RESCHEDULE       != 1);
@@ -104,7 +112,7 @@ void ps3_smp_cleanup_cpu(int cpu)
 	DBG(" -> %s:%d: (%d)\n", __func__, __LINE__, cpu);
 
 	for (i = 0; i < MSG_COUNT; i++) {
-		
+		/* Can't call free_irq from interrupt context. */
 		ps3_event_receive_port_destroy(virqs[i]);
 		virqs[i] = NO_IRQ;
 	}

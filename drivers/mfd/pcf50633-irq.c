@@ -108,6 +108,7 @@ static void pcf50633_irq_call_handler(struct pcf50633 *pcf, int irq)
 		pcf->irq_handler[irq].handler(irq, pcf->irq_handler[irq].data);
 }
 
+/* Maximum amount of time ONKEY is held before emergency action is taken */
 #define PCF50633_ONKEY1S_TIMEOUT 8
 
 static irqreturn_t pcf50633_irq(int irq, void *data)
@@ -116,18 +117,24 @@ static irqreturn_t pcf50633_irq(int irq, void *data)
 	int ret, i, j;
 	u8 pcf_int[5], chgstat;
 
-	
+	/* Read the 5 INT regs in one transaction */
 	ret = pcf50633_read_block(pcf, PCF50633_REG_INT1,
 						ARRAY_SIZE(pcf_int), pcf_int);
 	if (ret != ARRAY_SIZE(pcf_int)) {
 		dev_err(pcf->dev, "Error reading INT registers\n");
 
+		/*
+		 * If this doesn't ACK the interrupt to the chip, we'll be
+		 * called once again as we're level triggered.
+		 */
 		goto out;
 	}
 
-	
+	/* defeat 8s death from lowsys on A5 */
 	pcf50633_reg_write(pcf, PCF50633_REG_OOCSHDWN,  0x04);
 
+	/* We immediately read the usb and adapter status. We thus make sure
+	 * only of USBINS/USBREM IRQ handlers are called */
 	if (pcf_int[0] & (PCF50633_INT1_USBINS | PCF50633_INT1_USBREM)) {
 		chgstat = pcf50633_reg_read(pcf, PCF50633_REG_MBCS2);
 		if (chgstat & (0x3 << 4))
@@ -136,7 +143,7 @@ static irqreturn_t pcf50633_irq(int irq, void *data)
 			pcf_int[0] &= ~PCF50633_INT1_USBINS;
 	}
 
-	
+	/* Make sure only one of ADPINS or ADPREM is set */
 	if (pcf_int[0] & (PCF50633_INT1_ADPINS | PCF50633_INT1_ADPREM)) {
 		chgstat = pcf50633_reg_read(pcf, PCF50633_REG_MBCS2);
 		if (chgstat & (0x3 << 4))
@@ -149,6 +156,8 @@ static irqreturn_t pcf50633_irq(int irq, void *data)
 			"INT4=0x%02x INT5=0x%02x\n", pcf_int[0],
 			pcf_int[1], pcf_int[2], pcf_int[3], pcf_int[4]);
 
+	/* Some revisions of the chip don't have a 8s standby mode on
+	 * ONKEY1S press. We try to manually do it in such cases. */
 	if ((pcf_int[0] & PCF50633_INT1_SECOND) && pcf->onkey1s_held) {
 		dev_info(pcf->dev, "ONKEY1S held for %d secs\n",
 							pcf->onkey1s_held);
@@ -161,11 +170,11 @@ static irqreturn_t pcf50633_irq(int irq, void *data)
 		dev_info(pcf->dev, "ONKEY1S held\n");
 		pcf->onkey1s_held = 1 ;
 
-		
+		/* Unmask IRQ_SECOND */
 		pcf50633_reg_clear_bits(pcf, PCF50633_REG_INT1M,
 						PCF50633_INT1_SECOND);
 
-		
+		/* Unmask IRQ_ONKEYR */
 		pcf50633_reg_clear_bits(pcf, PCF50633_REG_INT2M,
 						PCF50633_INT2_ONKEYR);
 	}
@@ -173,7 +182,7 @@ static irqreturn_t pcf50633_irq(int irq, void *data)
 	if ((pcf_int[1] & PCF50633_INT2_ONKEYR) && pcf->onkey1s_held) {
 		pcf->onkey1s_held = 0;
 
-		
+		/* Mask SECOND and ONKEYR interrupts */
 		if (pcf->mask_regs[0] & PCF50633_INT1_SECOND)
 			pcf50633_reg_set_bit_mask(pcf,
 					PCF50633_REG_INT1M,
@@ -187,20 +196,22 @@ static irqreturn_t pcf50633_irq(int irq, void *data)
 					PCF50633_INT2_ONKEYR);
 	}
 
-	
+	/* Have we just resumed ? */
 	if (pcf->is_suspended) {
 		pcf->is_suspended = 0;
 
-		
+		/* Set the resume reason filtering out non resumers */
 		for (i = 0; i < ARRAY_SIZE(pcf_int); i++)
 			pcf->resume_reason[i] = pcf_int[i] &
 						pcf->pdata->resumers[i];
 
+		/* Make sure we don't pass on any ONKEY events to
+		 * userspace now */
 		pcf_int[1] &= ~(PCF50633_INT2_ONKEYR | PCF50633_INT2_ONKEYF);
 	}
 
 	for (i = 0; i < ARRAY_SIZE(pcf_int); i++) {
-		
+		/* Unset masked interrupts */
 		pcf_int[i] &= ~pcf->mask_regs[i];
 
 		for (j = 0; j < 8 ; j++)
@@ -221,9 +232,11 @@ int pcf50633_irq_suspend(struct pcf50633 *pcf)
 	u8 res[5];
 
 
+	/* Make sure our interrupt handlers are not called
+	 * henceforth */
 	disable_irq(pcf->irq);
 
-	
+	/* Save the masks */
 	ret = pcf50633_read_block(pcf, PCF50633_REG_INT1M,
 				ARRAY_SIZE(pcf->suspend_irq_masks),
 					pcf->suspend_irq_masks);
@@ -232,7 +245,7 @@ int pcf50633_irq_suspend(struct pcf50633 *pcf)
 		goto out;
 	}
 
-	
+	/* Write wakeup irq masks */
 	for (i = 0; i < ARRAY_SIZE(res); i++)
 		res[i] = ~pcf->pdata->resumers[i];
 
@@ -253,7 +266,7 @@ int pcf50633_irq_resume(struct pcf50633 *pcf)
 {
 	int ret;
 
-	
+	/* Write the saved mask registers */
 	ret = pcf50633_write_block(pcf, PCF50633_REG_INT1M,
 				ARRAY_SIZE(pcf->suspend_irq_masks),
 					pcf->suspend_irq_masks);
@@ -273,7 +286,7 @@ int pcf50633_irq_init(struct pcf50633 *pcf, int irq)
 
 	pcf->irq = irq;
 
-	
+	/* Enable all interrupts except RTC SECOND */
 	pcf->mask_regs[0] = 0x80;
 	pcf50633_reg_write(pcf, PCF50633_REG_INT1M, pcf->mask_regs[0]);
 	pcf50633_reg_write(pcf, PCF50633_REG_INT2M, 0x00);

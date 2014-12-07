@@ -43,4 +43,4 @@ int videobuf_to_pmem_contig(struct videobuf_buffer *buf);
 int videobuf_pmem_contig_free(struct videobuf_queue *q,
 			struct videobuf_buffer *buf);
 
-#endif 
+#endif /* _VIDEOBUF_PMEM_CONTIG_H */

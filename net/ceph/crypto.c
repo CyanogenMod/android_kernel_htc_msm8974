@@ -119,11 +119,23 @@ static int ceph_aes_encrypt(const void *key, int key_len,
 	ivsize = crypto_blkcipher_ivsize(tfm);
 
 	memcpy(iv, aes_iv, ivsize);
+	/*
+	print_hex_dump(KERN_ERR, "enc key: ", DUMP_PREFIX_NONE, 16, 1,
+		       key, key_len, 1);
+	print_hex_dump(KERN_ERR, "enc src: ", DUMP_PREFIX_NONE, 16, 1,
+			src, src_len, 1);
+	print_hex_dump(KERN_ERR, "enc pad: ", DUMP_PREFIX_NONE, 16, 1,
+			pad, zero_padding, 1);
+	*/
 	ret = crypto_blkcipher_encrypt(&desc, sg_out, sg_in,
 				     src_len + zero_padding);
 	crypto_free_blkcipher(tfm);
 	if (ret < 0)
 		pr_err("ceph_aes_crypt failed %d\n", ret);
+	/*
+	print_hex_dump(KERN_ERR, "enc out: ", DUMP_PREFIX_NONE, 16, 1,
+		       dst, *dst_len, 1);
+	*/
 	return 0;
 }
 
@@ -159,11 +171,25 @@ static int ceph_aes_encrypt2(const void *key, int key_len, void *dst,
 	ivsize = crypto_blkcipher_ivsize(tfm);
 
 	memcpy(iv, aes_iv, ivsize);
+	/*
+	print_hex_dump(KERN_ERR, "enc  key: ", DUMP_PREFIX_NONE, 16, 1,
+		       key, key_len, 1);
+	print_hex_dump(KERN_ERR, "enc src1: ", DUMP_PREFIX_NONE, 16, 1,
+			src1, src1_len, 1);
+	print_hex_dump(KERN_ERR, "enc src2: ", DUMP_PREFIX_NONE, 16, 1,
+			src2, src2_len, 1);
+	print_hex_dump(KERN_ERR, "enc  pad: ", DUMP_PREFIX_NONE, 16, 1,
+			pad, zero_padding, 1);
+	*/
 	ret = crypto_blkcipher_encrypt(&desc, sg_out, sg_in,
 				     src1_len + src2_len + zero_padding);
 	crypto_free_blkcipher(tfm);
 	if (ret < 0)
 		pr_err("ceph_aes_crypt2 failed %d\n", ret);
+	/*
+	print_hex_dump(KERN_ERR, "enc  out: ", DUMP_PREFIX_NONE, 16, 1,
+		       dst, *dst_len, 1);
+	*/
 	return 0;
 }
 
@@ -195,6 +221,12 @@ static int ceph_aes_decrypt(const void *key, int key_len,
 
 	memcpy(iv, aes_iv, ivsize);
 
+	/*
+	print_hex_dump(KERN_ERR, "dec key: ", DUMP_PREFIX_NONE, 16, 1,
+		       key, key_len, 1);
+	print_hex_dump(KERN_ERR, "dec  in: ", DUMP_PREFIX_NONE, 16, 1,
+		       src, src_len, 1);
+	*/
 
 	ret = crypto_blkcipher_decrypt(&desc, sg_out, sg_in, src_len);
 	crypto_free_blkcipher(tfm);
@@ -212,8 +244,12 @@ static int ceph_aes_decrypt(const void *key, int key_len,
 	} else {
 		pr_err("ceph_aes_decrypt got bad padding %d on src len %d\n",
 		       last_byte, (int)src_len);
-		return -EPERM;  
+		return -EPERM;  /* bad padding */
 	}
+	/*
+	print_hex_dump(KERN_ERR, "dec out: ", DUMP_PREFIX_NONE, 16, 1,
+		       dst, *dst_len, 1);
+	*/
 	return 0;
 }
 
@@ -247,6 +283,12 @@ static int ceph_aes_decrypt2(const void *key, int key_len,
 
 	memcpy(iv, aes_iv, ivsize);
 
+	/*
+	print_hex_dump(KERN_ERR, "dec  key: ", DUMP_PREFIX_NONE, 16, 1,
+		       key, key_len, 1);
+	print_hex_dump(KERN_ERR, "dec   in: ", DUMP_PREFIX_NONE, 16, 1,
+		       src, src_len, 1);
+	*/
 
 	ret = crypto_blkcipher_decrypt(&desc, sg_out, sg_in, src_len);
 	crypto_free_blkcipher(tfm);
@@ -266,7 +308,7 @@ static int ceph_aes_decrypt2(const void *key, int key_len,
 	} else {
 		pr_err("ceph_aes_decrypt got bad padding %d on src len %d\n",
 		       last_byte, (int)src_len);
-		return -EPERM;  
+		return -EPERM;  /* bad padding */
 	}
 
 	if (src_len < *dst1_len) {
@@ -275,6 +317,12 @@ static int ceph_aes_decrypt2(const void *key, int key_len,
 	} else {
 		*dst2_len = src_len - *dst1_len;
 	}
+	/*
+	print_hex_dump(KERN_ERR, "dec  out1: ", DUMP_PREFIX_NONE, 16, 1,
+		       dst1, *dst1_len, 1);
+	print_hex_dump(KERN_ERR, "dec  out2: ", DUMP_PREFIX_NONE, 16, 1,
+		       dst2, *dst2_len, 1);
+	*/
 
 	return 0;
 }
@@ -394,7 +442,7 @@ int ceph_key_instantiate(struct key *key, const void *data, size_t datalen)
 	if (!ckey)
 		goto err;
 
-	
+	/* TODO ceph_crypto_key_decode should really take const input */
 	p = (void *)data;
 	ret = ceph_crypto_key_decode(ckey, &p, (char*)data+datalen);
 	if (ret < 0)

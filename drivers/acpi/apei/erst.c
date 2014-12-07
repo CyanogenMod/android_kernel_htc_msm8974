@@ -41,6 +41,7 @@
 
 #define ERST_PFX "ERST: "
 
+/* ERST command status */
 #define ERST_STATUS_SUCCESS			0x0
 #define ERST_STATUS_NOT_ENOUGH_SPACE		0x1
 #define ERST_STATUS_HARDWARE_NOT_AVAILABLE	0x2
@@ -52,19 +53,25 @@
 	((struct acpi_whea_header *)((char *)(tab) +			\
 				     sizeof(struct acpi_table_erst)))
 
-#define SPIN_UNIT		100			
+#define SPIN_UNIT		100			/* 100ns */
+/* Firmware should respond within 1 milliseconds */
 #define FIRMWARE_TIMEOUT	(1 * NSEC_PER_MSEC)
-#define FIRMWARE_MAX_STALL	50			
+#define FIRMWARE_MAX_STALL	50			/* 50us */
 
 int erst_disable;
 EXPORT_SYMBOL_GPL(erst_disable);
 
 static struct acpi_table_erst *erst_tab;
 
+/* ERST Error Log Address Range atrributes */
 #define ERST_RANGE_RESERVED	0x0001
 #define ERST_RANGE_NVRAM	0x0002
 #define ERST_RANGE_SLOW		0x0004
 
+/*
+ * ERST Error Log Address Range, used as buffer for reading/writing
+ * error records.
+ */
 static struct erst_erange {
 	u64 base;
 	u64 size;
@@ -72,6 +79,14 @@ static struct erst_erange {
 	u32 attr;
 } erst_erange;
 
+/*
+ * Prevent ERST interpreter to run simultaneously, because the
+ * corresponding firmware implementation may not work properly when
+ * invoked simultaneously.
+ *
+ * It is used to provide exclusive accessing for ERST Error Log
+ * Address Range too.
+ */
 static DEFINE_RAW_SPINLOCK(erst_lock);
 
 static inline int erst_errno(int command_status)
@@ -254,7 +269,7 @@ static int erst_exec_move_data(struct apei_exec_context *ctx,
 	u64 offset;
 	void *src, *dst;
 
-	
+	/* ioremap does not work in interrupt context */
 	if (in_interrupt()) {
 		pr_warning(ERST_PFX
 			   "MOVE_DATA can not be used in interrupt context");
@@ -464,6 +479,7 @@ int erst_get_record_id_begin(int *pos)
 }
 EXPORT_SYMBOL_GPL(erst_get_record_id_begin);
 
+/* erst_record_id_cache.lock must be held by caller */
 static int __erst_record_id_cache_add_one(void)
 {
 	u64 id, prev_id, first_id;
@@ -482,7 +498,7 @@ retry:
 		return rc;
 	if (id == APEI_ERST_INVALID_RECORD_ID)
 		return 0;
-	
+	/* can not skip current ID, or loop back to first ID */
 	if (id == prev_id || id == first_id)
 		return 0;
 	if (first_id == APEI_ERST_INVALID_RECORD_ID)
@@ -494,7 +510,7 @@ retry:
 		if (entries[i] == id)
 			break;
 	}
-	
+	/* record id already in cache, try next */
 	if (i < erst_record_id_cache.len)
 		goto retry;
 	if (erst_record_id_cache.len >= erst_record_id_cache.size) {
@@ -532,6 +548,11 @@ retry:
 	return 1;
 }
 
+/*
+ * Get the record ID of an existing error record on the persistent
+ * storage. If there is no error record on the persistent storage, the
+ * returned record_id is APEI_ERST_INVALID_RECORD_ID.
+ */
 int erst_get_record_id_next(int *pos, u64 *record_id)
 {
 	int rc = 0;
@@ -540,7 +561,7 @@ int erst_get_record_id_next(int *pos, u64 *record_id)
 	if (erst_disable)
 		return -ENODEV;
 
-	
+	/* must be enclosed by erst_get_record_id_begin/end */
 	BUG_ON(!erst_record_id_cache.refcount);
 	BUG_ON(*pos < 0 || *pos > erst_record_id_cache.len);
 
@@ -549,18 +570,18 @@ int erst_get_record_id_next(int *pos, u64 *record_id)
 	for (; *pos < erst_record_id_cache.len; (*pos)++)
 		if (entries[*pos] != APEI_ERST_INVALID_RECORD_ID)
 			break;
-	
+	/* found next record id in cache */
 	if (*pos < erst_record_id_cache.len) {
 		*record_id = entries[*pos];
 		(*pos)++;
 		goto out_unlock;
 	}
 
-	
+	/* Try to add one more record ID to cache */
 	rc = __erst_record_id_cache_add_one();
 	if (rc < 0)
 		goto out_unlock;
-	
+	/* successfully add one new ID */
 	if (rc == 1) {
 		*record_id = erst_record_id_cache.entries[*pos];
 		(*pos)++;
@@ -576,6 +597,7 @@ out_unlock:
 }
 EXPORT_SYMBOL_GPL(erst_get_record_id_next);
 
+/* erst_record_id_cache.lock must be held by caller */
 static void __erst_record_id_cache_compact(void)
 {
 	int i, wpos = 0;
@@ -597,6 +619,11 @@ static void __erst_record_id_cache_compact(void)
 
 void erst_get_record_id_end(void)
 {
+	/*
+	 * erst_disable != 0 should be detected by invoker via the
+	 * return value of erst_get_record_id_begin/next, so this
+	 * function should not be called for erst_disable != 0.
+	 */
 	BUG_ON(erst_disable);
 
 	mutex_lock(&erst_record_id_cache.lock);
@@ -728,6 +755,7 @@ static int __erst_clear_from_storage(u64 record_id)
 	return erst_errno(val);
 }
 
+/* NVRAM ERST Error Log Address Range is not supported yet */
 static void pr_unimpl_nvram(void)
 {
 	if (printk_ratelimit())
@@ -737,7 +765,7 @@ static void pr_unimpl_nvram(void)
 
 static int __erst_write_to_nvram(const struct cper_record_header *record)
 {
-	
+	/* do not print message, because printk is not safe for NMI */
 	return -ENOSYS;
 }
 
@@ -780,7 +808,7 @@ int erst_write(const struct cper_record_header *record)
 		return -EBUSY;
 	memcpy(erst_erange.vaddr, record, record->record_length);
 	rcd_erange = erst_erange.vaddr;
-	
+	/* signature for serialization system */
 	memcpy(&rcd_erange->persistence_information, "ER", 2);
 
 	rc = __erst_write_to_storage(0);
@@ -824,6 +852,11 @@ static ssize_t __erst_read(u64 record_id, struct cper_record_header *record,
 	return len;
 }
 
+/*
+ * If return value > buflen, the buffer size is not big enough,
+ * else if return value < 0, something goes wrong,
+ * else everything is OK, and return value is record length
+ */
 ssize_t erst_read(u64 record_id, struct cper_record_header *record,
 		  size_t buflen)
 {
@@ -977,14 +1010,14 @@ skip:
 	if (rc)
 		goto out;
 
-	
+	/* no more record */
 	if (record_id == APEI_ERST_INVALID_RECORD_ID) {
 		rc = -EINVAL;
 		goto out;
 	}
 
 	len = erst_read(record_id, &rcd->hdr, rcd_len);
-	
+	/* The record may be cleared by others, try read next record */
 	if (len == -ENOENT)
 		goto skip;
 	else if (len < sizeof(*rcd)) {
@@ -1035,7 +1068,7 @@ static int erst_writer(enum pstore_type_id type, enum kmsg_dump_reason reason,
 	rcd->hdr.signature_end = CPER_SIG_END;
 	rcd->hdr.section_count = 1;
 	rcd->hdr.error_severity = CPER_SEV_FATAL;
-	
+	/* timestamp valid. platform_id, partition_id are invalid */
 	rcd->hdr.validation_bits = CPER_VALID_TIMESTAMP;
 	rcd->hdr.timestamp = get_seconds();
 	rcd->hdr.record_length = sizeof(*rcd) + size;
@@ -1047,7 +1080,7 @@ static int erst_writer(enum pstore_type_id type, enum kmsg_dump_reason reason,
 	rcd->sec_hdr.section_offset = sizeof(*rcd);
 	rcd->sec_hdr.section_length = size;
 	rcd->sec_hdr.revision = CPER_SEC_REV;
-	
+	/* fru_id and fru_text is invalid */
 	rcd->sec_hdr.validation_bits = 0;
 	rcd->sec_hdr.flags = CPER_SEC_PRIMARY;
 	switch (type) {

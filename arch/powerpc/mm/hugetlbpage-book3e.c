@@ -65,6 +65,10 @@ void book3e_hugetlb_preload(struct vm_area_struct *vma, unsigned long ea,
 	tsize = shift - 10;
 #endif
 
+	/*
+	 * We can't be interrupted while we're setting up the MAS
+	 * regusters or after we've confirmed that no tlb exists.
+	 */
 	local_irq_save(flags);
 
 	if (unlikely(book3e_tlb_exists(ea, mm->context.id))) {
@@ -75,11 +79,11 @@ void book3e_hugetlb_preload(struct vm_area_struct *vma, unsigned long ea,
 #ifdef CONFIG_PPC_FSL_BOOK3E
 	ncams = mfspr(SPRN_TLB1CFG) & TLBnCFG_N_ENTRY;
 
-	
+	/* We have to use the CAM(TLB1) on FSL parts for hugepages */
 	index = __get_cpu_var(next_tlbcam_idx);
 	mtspr(SPRN_MAS0, MAS0_ESEL(index) | MAS0_TLBSEL(1));
 
-	
+	/* Just round-robin the entries and wrap when we hit the end */
 	if (unlikely(index == ncams - 1))
 		__get_cpu_var(next_tlbcam_idx) = tlbcam_index;
 	else

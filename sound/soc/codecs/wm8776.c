@@ -35,16 +35,17 @@ enum wm8776_chip_type {
 	WM8776,
 };
 
+/* codec private data */
 struct wm8776_priv {
 	enum snd_soc_control_type control_type;
 	int sysclk[2];
 };
 
 static const u16 wm8776_reg[WM8776_CACHEREGNUM] = {
-	0x79, 0x79, 0x79, 0xff, 0xff,  
-	0xff, 0x00, 0x90, 0x00, 0x00,  
-	0x22, 0x22, 0x22, 0x08, 0xcf,  
-	0xcf, 0x7b, 0x00, 0x32, 0x00,  
+	0x79, 0x79, 0x79, 0xff, 0xff,  /* 4 */
+	0xff, 0x00, 0x90, 0x00, 0x00,  /* 9 */
+	0x22, 0x22, 0x22, 0x08, 0xcf,  /* 14 */
+	0xcf, 0x7b, 0x00, 0x32, 0x00,  /* 19 */
 	0xa6, 0x01, 0x01
 };
 
@@ -193,7 +194,7 @@ static int wm8776_set_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 		return -EINVAL;
 	}
 
-	
+	/* Finally, write out the values */
 	snd_soc_update_bits(codec, reg, 0xf, iface);
 	snd_soc_update_bits(codec, WM8776_MSTRCTRL, 0x180, master);
 
@@ -234,7 +235,7 @@ static int wm8776_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	
+	/* Set word length */
 	switch (snd_pcm_format_width(params_format(params))) {
 	case 16:
 		iface = 0;
@@ -254,7 +255,7 @@ static int wm8776_hw_params(struct snd_pcm_substream *substream,
 		return -EINVAL;
 	}
 
-	
+	/* Only need to set MCLK/LRCLK ratio if we're master */
 	if (snd_soc_read(codec, WM8776_MSTRCTRL) & master) {
 		for (i = 0; i < ARRAY_SIZE(mclk_ratios); i++) {
 			if (wm8776->sysclk[dai->driver->id] / params_rate(params)
@@ -314,7 +315,7 @@ static int wm8776_set_bias_level(struct snd_soc_codec *codec,
 		if (codec->dapm.bias_level == SND_SOC_BIAS_OFF) {
 			snd_soc_cache_sync(codec);
 
-			
+			/* Disable the global powerdown; DAPM does the rest */
 			snd_soc_update_bits(codec, WM8776_PWRDOWN, 1, 0);
 		}
 
@@ -412,12 +413,15 @@ static int wm8776_probe(struct snd_soc_codec *codec)
 
 	wm8776_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
+	/* Latch the update bits; right channel only since we always
+	 * update both. */
 	snd_soc_update_bits(codec, WM8776_HPRVOL, 0x100, 0x100);
 	snd_soc_update_bits(codec, WM8776_DACRVOL, 0x100, 0x100);
 
 	return ret;
 }
 
+/* power down chip */
 static int wm8776_remove(struct snd_soc_codec *codec)
 {
 	wm8776_set_bias_level(codec, SND_SOC_BIAS_OFF);
@@ -483,7 +487,7 @@ static struct spi_driver wm8776_spi_driver = {
 	.probe		= wm8776_spi_probe,
 	.remove		= __devexit_p(wm8776_spi_remove),
 };
-#endif 
+#endif /* CONFIG_SPI_MASTER */
 
 #if defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE)
 static __devinit int wm8776_i2c_probe(struct i2c_client *i2c,

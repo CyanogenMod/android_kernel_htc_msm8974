@@ -21,6 +21,10 @@ MODULE_PARM_DESC(nforce_wa, "Apply NForce chipset workaround "
 
 #define DMIX_WANTS_S16	1
 
+/*
+ * Call snd_pcm_period_elapsed in a tasklet
+ * This avoids spinlock messes and long-running irq contexts
+ */
 static void pcsp_call_pcm_elapsed(unsigned long priv)
 {
 	if (atomic_read(&pcsp_chip.timer_active)) {
@@ -33,6 +37,9 @@ static void pcsp_call_pcm_elapsed(unsigned long priv)
 
 static DECLARE_TASKLET(pcsp_pcm_tasklet, pcsp_call_pcm_elapsed, 0);
 
+/* write the port and returns the next expire time in ns;
+ * called at the trigger-start and in hrtimer callback
+ */
 static u64 pcsp_timer_update(struct snd_pcsp *chip)
 {
 	unsigned char timer_cnt, val;
@@ -52,7 +59,7 @@ static u64 pcsp_timer_update(struct snd_pcsp *chip)
 		return 0;
 
 	runtime = substream->runtime;
-	
+	/* assume it is mono! */
 	val = runtime->dma_area[chip->playback_ptr + chip->fmt_size - 1];
 	if (chip->is_signed)
 		val ^= 0x80;
@@ -84,7 +91,7 @@ static void pcsp_pointer_update(struct snd_pcsp *chip)
 	int periods_elapsed;
 	unsigned long flags;
 
-	
+	/* update the playback position */
 	substream = chip->playback_substream;
 	if (!substream)
 		return;
@@ -104,6 +111,8 @@ static void pcsp_pointer_update(struct snd_pcsp *chip)
 		periods_elapsed += buffer_bytes;
 	}
 	periods_elapsed /= period_bytes;
+	/* wrap the pointer _before_ calling snd_pcm_period_elapsed(),
+	 * or ALSA will BUG on us. */
 	chip->playback_ptr %= buffer_bytes;
 
 	if (periods_elapsed) {
@@ -152,7 +161,7 @@ static int pcsp_start_playing(struct snd_pcsp *chip)
 
 	raw_spin_lock(&i8253_lock);
 	chip->val61 = inb(0x61) | 0x03;
-	outb_p(0x92, 0x43);	
+	outb_p(0x92, 0x43);	/* binary, mode 1, LSB only, ch 2 */
 	raw_spin_unlock(&i8253_lock);
 	atomic_set(&chip->timer_active, 1);
 	chip->thalf = 0;
@@ -171,12 +180,15 @@ static void pcsp_stop_playing(struct snd_pcsp *chip)
 
 	atomic_set(&chip->timer_active, 0);
 	raw_spin_lock(&i8253_lock);
-	
-	outb_p(0xb6, 0x43);	
+	/* restore the timer */
+	outb_p(0xb6, 0x43);	/* binary, mode 3, LSB/MSB, ch 2 */
 	outb(chip->val61 & 0xFC, 0x61);
 	raw_spin_unlock(&i8253_lock);
 }
 
+/*
+ * Force to stop and sync the stream
+ */
 void pcsp_sync_stop(struct snd_pcsp *chip)
 {
 	local_irq_disable();

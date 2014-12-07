@@ -39,7 +39,7 @@
 enum {
 	PACKET_FIELD_DETAIL		= 0x01,
 	PACKET_FIELD_DATA_LENGTH	= 0x02,
-	
+	/* Marks the fields we print in transaction view. */
 	PACKET_FIELD_TRANSACTION	= 0x04,
 };
 
@@ -133,6 +133,7 @@ static const struct poptOption options[] = {
 	POPT_TABLEEND
 };
 
+/* Allow all ^C except the first to interrupt the program in the usual way. */
 static void
 sigint_handler(int signal_num)
 {
@@ -147,7 +148,7 @@ subaction_create(uint32_t *data, size_t length)
 {
 	struct subaction *sa;
 
-	
+	/* we put the ack in the subaction struct for easy access. */
 	sa = malloc(sizeof *sa - sizeof sa->packet + length);
 	sa->ack = data[length / 4 - 1];
 	sa->length = length;
@@ -232,7 +233,7 @@ handle_transaction(struct link_transaction *t)
 		if (protocol_decoders[i].decode(t))
 			break;
 
-	
+	/* HACK: decode only fcp right now. */
 	return;
 
 	decode_link_packet(&t->request->packet, t->request->length,
@@ -264,7 +265,7 @@ clear_pending_transaction_list(void)
 			      struct link_transaction, link);
 		list_remove(&t->link);
 		link_transaction_destroy(t);
-		
+		/* print unfinished transactions */
 	}
 }
 
@@ -318,11 +319,11 @@ struct packet_info {
 };
 
 struct packet_field {
-	const char *name; 
-	int offset;	
-			
-	int width;	
-	int flags;	
+	const char *name; /* Short name for field. */
+	int offset;	/* Location of field, specified in bits; */
+			/* negative means from end of packet.    */
+	int width;	/* Width of field, 0 means use data_length. */
+	int flags;	/* Show options. */
 	const char * const *value_names;
 };
 
@@ -503,12 +504,18 @@ handle_request_packet(uint32_t *data, size_t length)
 				 struct subaction, link);
 
 		if (!ACK_BUSY(prev->ack)) {
+			/*
+			 * error, we should only see ack_busy_* before the
+			 * ack_pending/ack_complete -- this is an ack_pending
+			 * instead (ack_complete would have finished the
+			 * transaction).
+			 */
 		}
 
 		if (prev->packet.common.tcode != sa->packet.common.tcode ||
 		    prev->packet.common.tlabel != sa->packet.common.tlabel) {
-			
-			
+			/* memcmp() ? */
+			/* error, these should match for retries. */
 		}
 	}
 
@@ -518,7 +525,7 @@ handle_request_packet(uint32_t *data, size_t length)
 	case ACK_COMPLETE:
 		if (p->common.tcode != TCODE_WRITE_QUADLET_REQUEST &&
 		    p->common.tcode != TCODE_WRITE_BLOCK_REQUEST)
-			;
+			/* error, unified transactions only allowed for write */;
 		list_remove(&t->link);
 		handle_transaction(t);
 		break;
@@ -531,14 +538,14 @@ handle_request_packet(uint32_t *data, size_t length)
 		break;
 
 	case ACK_PENDING:
-		
+		/* request subaction phase over, wait for response. */
 		break;
 
 	case ACK_BUSY_X:
 	case ACK_BUSY_A:
 	case ACK_BUSY_B:
-		
-		
+		/* ok, wait for retry. */
+		/* check that retry protocol is respected. */
 		break;
 	}
 
@@ -555,7 +562,7 @@ handle_response_packet(uint32_t *data, size_t length)
 	t = link_transaction_lookup(p->common.destination, p->common.source,
 			p->common.tlabel);
 	if (list_empty(&t->request_list)) {
-		
+		/* unsolicited response */
 	}
 
 	sa = subaction_create(data, length);
@@ -565,21 +572,29 @@ handle_response_packet(uint32_t *data, size_t length)
 		prev = list_tail(&t->response_list, struct subaction, link);
 
 		if (!ACK_BUSY(prev->ack)) {
+			/*
+			 * error, we should only see ack_busy_* before the
+			 * ack_pending/ack_complete
+			 */
 		}
 
 		if (prev->packet.common.tcode != sa->packet.common.tcode ||
 		    prev->packet.common.tlabel != sa->packet.common.tlabel) {
-			
-			
+			/* use memcmp() instead? */
+			/* error, these should match for retries. */
 		}
 	} else {
 		prev = list_tail(&t->request_list, struct subaction, link);
 		if (prev->ack != ACK_PENDING) {
+			/*
+			 * error, should not get response unless last request got
+			 * ack_pending.
+			 */
 		}
 
 		if (packet_info[prev->packet.common.tcode].response_tcode !=
 		    sa->packet.common.tcode) {
-			
+			/* error, tcode mismatch */
 		}
 	}
 
@@ -592,17 +607,17 @@ handle_response_packet(uint32_t *data, size_t length)
 	case ACK_TYPE_ERROR:
 		list_remove(&t->link);
 		handle_transaction(t);
-		
+		/* transaction complete, remove t from pending list. */
 		break;
 
 	case ACK_PENDING:
-		
+		/* error for responses. */
 		break;
 
 	case ACK_BUSY_X:
 	case ACK_BUSY_A:
 	case ACK_BUSY_B:
-		
+		/* no problem, wait for next retry */
 		break;
 	}
 
@@ -712,7 +727,7 @@ decode_link_packet(struct link_packet *packet, size_t length,
 			int high_width, low_width;
 
 			if ((offset & ~31) != ((offset + f->width - 1) & ~31)) {
-				
+				/* Bit field spans quadlet boundary. */
 				high_width = ((offset + 31) & ~31) - offset;
 				low_width = f->width - high_width;
 
@@ -752,6 +767,9 @@ print_packet(uint32_t *data, size_t length)
 	} else if (length == sizeof(struct phy_packet) && data[1] == ~data[2]) {
 		struct phy_packet *pp = (struct phy_packet *) data;
 
+		/* phy packet are 3 quadlets: the 1 quadlet payload,
+		 * the bitwise inverse of the payload and the snoop
+		 * mode ack */
 
 		switch (pp->common.identifier) {
 		case PHY_PACKET_CONFIGURATION:
@@ -865,19 +883,19 @@ set_input_mode(void)
 {
 	struct termios tattr;
 
-	
+	/* Make sure stdin is a terminal. */
 	if (!isatty(STDIN_FILENO)) {
 		fprintf(stderr, "Not a terminal.\n");
 		exit(EXIT_FAILURE);
 	}
 
-	
+	/* Save the terminal attributes so we can restore them later. */
 	tcgetattr(STDIN_FILENO, &saved_attributes);
 	atexit(reset_input_mode);
 
-	
+	/* Set the funny terminal modes. */
 	tcgetattr(STDIN_FILENO, &tattr);
-	tattr.c_lflag &= ~(ICANON|ECHO); 
+	tattr.c_lflag &= ~(ICANON|ECHO); /* Clear ICANON and ECHO. */
 	tattr.c_cc[VMIN] = 1;
 	tattr.c_cc[VTIME] = 0;
 	tcsetattr(STDIN_FILENO, TCSAFLUSH, &tattr);

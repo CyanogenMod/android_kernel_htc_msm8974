@@ -21,6 +21,7 @@
 #include <linux/phy.h>
 #include <linux/micrel_phy.h>
 
+/* general Interrupt control/status reg in vendor specific block. */
 #define MII_KSZPHY_INTCS			0x1B
 #define	KSZPHY_INTCS_JABBER			(1 << 15)
 #define	KSZPHY_INTCS_RECEIVE_ERR		(1 << 14)
@@ -33,7 +34,9 @@
 #define	KSZPHY_INTCS_ALL			(KSZPHY_INTCS_LINK_UP |\
 						KSZPHY_INTCS_LINK_DOWN)
 
+/* general PHY control reg in vendor specific block. */
 #define	MII_KSZPHY_CTRL			0x1F
+/* bitmap of PHY register to set interrupt mode */
 #define KSZPHY_CTRL_INT_ACTIVE_HIGH		(1 << 9)
 #define KSZ9021_CTRL_INT_ACTIVE_HIGH		(1 << 14)
 #define KS8737_CTRL_INT_ACTIVE_HIGH		(1 << 14)
@@ -41,7 +44,7 @@
 
 static int kszphy_ack_interrupt(struct phy_device *phydev)
 {
-	
+	/* bit[7..0] int status, which is a read and clear register. */
 	int rc;
 
 	rc = phy_read(phydev, MII_KSZPHY_INTCS);
@@ -61,7 +64,7 @@ static int kszphy_config_intr(struct phy_device *phydev)
 {
 	int temp, rc;
 
-	
+	/* set the interrupt pin active low */
 	temp = phy_read(phydev, MII_KSZPHY_CTRL);
 	temp &= ~KSZPHY_CTRL_INT_ACTIVE_HIGH;
 	phy_write(phydev, MII_KSZPHY_CTRL, temp);
@@ -73,7 +76,7 @@ static int ksz9021_config_intr(struct phy_device *phydev)
 {
 	int temp, rc;
 
-	
+	/* set the interrupt pin active low */
 	temp = phy_read(phydev, MII_KSZPHY_CTRL);
 	temp &= ~KSZ9021_CTRL_INT_ACTIVE_HIGH;
 	phy_write(phydev, MII_KSZPHY_CTRL, temp);
@@ -85,7 +88,7 @@ static int ks8737_config_intr(struct phy_device *phydev)
 {
 	int temp, rc;
 
-	
+	/* set the interrupt pin active low */
 	temp = phy_read(phydev, MII_KSZPHY_CTRL);
 	temp &= ~KS8737_CTRL_INT_ACTIVE_HIGH;
 	phy_write(phydev, MII_KSZPHY_CTRL, temp);

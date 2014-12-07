@@ -13,6 +13,65 @@
  *  published by the Free Software Foundation.
  */
 
+/*
+ * The legacy ABI and the new ARM EABI have different rules making some
+ * syscalls incompatible especially with structure arguments.
+ * Most notably, Eabi says 64-bit members should be 64-bit aligned instead of
+ * simply word aligned.  EABI also pads structures to the size of the largest
+ * member it contains instead of the invariant 32-bit.
+ *
+ * The following syscalls are affected:
+ *
+ * sys_stat64:
+ * sys_lstat64:
+ * sys_fstat64:
+ * sys_fstatat64:
+ *
+ *   struct stat64 has different sizes and some members are shifted
+ *   Compatibility wrappers are needed for them and provided below.
+ *
+ * sys_fcntl64:
+ *
+ *   struct flock64 has different sizes and some members are shifted
+ *   A compatibility wrapper is needed and provided below.
+ *
+ * sys_statfs64:
+ * sys_fstatfs64:
+ *
+ *   struct statfs64 has extra padding with EABI growing its size from
+ *   84 to 88.  This struct is now __attribute__((packed,aligned(4)))
+ *   with a small assembly wrapper to force the sz argument to 84 if it is 88
+ *   to avoid copying the extra padding over user space unexpecting it.
+ *
+ * sys_newuname:
+ *
+ *   struct new_utsname has no padding with EABI.  No problem there.
+ *
+ * sys_epoll_ctl:
+ * sys_epoll_wait:
+ *
+ *   struct epoll_event has its second member shifted also affecting the
+ *   structure size. Compatibility wrappers are needed and provided below.
+ *
+ * sys_ipc:
+ * sys_semop:
+ * sys_semtimedop:
+ *
+ *   struct sembuf loses its padding with EABI.  Since arrays of them are
+ *   used they have to be copyed to remove the padding. Compatibility wrappers
+ *   provided below.
+ *
+ * sys_bind:
+ * sys_connect:
+ * sys_sendmsg:
+ * sys_sendto:
+ * sys_socketcall:
+ *
+ *   struct sockaddr_un loses its padding with EABI.  Since the size of the
+ *   structure is used as a validation test in unix_mkname(), we need to
+ *   change the length argument to 110 whenever it is 112.  Compatibility
+ *   wrappers provided below.
+ */
 
 #include <linux/syscalls.h>
 #include <linux/errno.h>
@@ -139,7 +198,7 @@ asmlinkage long sys_oabi_fcntl64(unsigned int fd, unsigned int cmd,
 {
 	struct oabi_flock64 user;
 	struct flock64 kernel;
-	mm_segment_t fs = USER_DS; 
+	mm_segment_t fs = USER_DS; /* initialized to kill a warning */
 	unsigned long local_arg = arg;
 	int ret;
 
@@ -265,7 +324,7 @@ asmlinkage long sys_oabi_semtimedop(int semid,
 		tsops++;
 	}
 	if (timeout) {
-		
+		/* copy this as well before changing domain protection */
 		err |= copy_from_user(&local_timeout, timeout, sizeof(*timeout));
 		timeout = &local_timeout;
 	}
@@ -350,6 +409,15 @@ asmlinkage long sys_oabi_sendmsg(int fd, struct msghdr __user *msg, unsigned fla
 	    get_user(sa_family, &addr->sa_family) == 0 &&
 	    sa_family == AF_UNIX)
 	{
+		/*
+		 * HACK ALERT: there is a limit to how much backward bending
+		 * we should do for what is actually a transitional
+		 * compatibility layer.  This already has known flaws with
+		 * a few ioctls that we don't intend to fix.  Therefore
+		 * consider this blatent hack as another one... and take care
+		 * to run for cover.  In most cases it will "just work fine".
+		 * If it doesn't, well, tough.
+		 */
 		put_user(110, &msg->msg_namelen);
 	}
 	return sys_sendmsg(fd, msg, flags);

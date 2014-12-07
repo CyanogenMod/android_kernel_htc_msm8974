@@ -127,6 +127,19 @@ enum MWIFIEX_802_11_PRIVACY_FILTER {
 
 #define ISSUPP_11NENABLED(FwCapInfo) (FwCapInfo & BIT(11))
 
+/* dev_cap bitmap
+ * BIT
+ * 0-16		reserved
+ * 17		IEEE80211_HT_CAP_SUP_WIDTH_20_40
+ * 18-22	reserved
+ * 23		IEEE80211_HT_CAP_SGI_20
+ * 24		IEEE80211_HT_CAP_SGI_40
+ * 25		IEEE80211_HT_CAP_TX_STBC
+ * 26		IEEE80211_HT_CAP_RX_STBC
+ * 27-28	reserved
+ * 29		IEEE80211_HT_CAP_GRN_FLD
+ * 30-31	reserved
+ */
 #define ISSUPP_CHANWIDTH40(Dot11nDevCap) (Dot11nDevCap & BIT(17))
 #define ISSUPP_SHORTGI20(Dot11nDevCap) (Dot11nDevCap & BIT(23))
 #define ISSUPP_SHORTGI40(Dot11nDevCap) (Dot11nDevCap & BIT(24))
@@ -134,6 +147,15 @@ enum MWIFIEX_802_11_PRIVACY_FILTER {
 #define ISSUPP_RXSTBC(Dot11nDevCap) (Dot11nDevCap & BIT(26))
 #define ISSUPP_GREENFIELD(Dot11nDevCap) (Dot11nDevCap & BIT(29))
 
+/* httxcfg bitmap
+ * 0		reserved
+ * 1		20/40 Mhz enable(1)/disable(0)
+ * 2-3		reserved
+ * 4		green field enable(1)/disable(0)
+ * 5		short GI in 20 Mhz enable(1)/disable(0)
+ * 6		short GI in 40 Mhz enable(1)/disable(0)
+ * 7-15		reserved
+ */
 #define MWIFIEX_FW_DEF_HTTXCFG (BIT(1) | BIT(4) | BIT(5) | BIT(6))
 
 #define GET_RXMCSSUPP(DevMCSSupported) (DevMCSSupported & 0x0f)
@@ -337,6 +359,9 @@ struct rxpd {
 	u8 rx_rate;
 	s8 snr;
 	s8 nf;
+	/* Ht Info [Bit 0] RxRate format: LG=0, HT=1
+	 * [Bit 1]  HT Bandwidth: BW20 = 0, BW40 = 1
+	 * [Bit 2]  HT Guard Interval: LGI = 0, SGI = 1 */
 	u8 ht_info;
 	u8 reserved;
 } __packed;
@@ -526,7 +551,7 @@ struct host_cmd_ds_get_hw_spec {
 	__le32 fw_cap_info;
 	__le32 dot_11n_dev_cap;
 	u8 dev_mcs_support;
-	__le16 mp_end_port;	
+	__le16 mp_end_port;	/* SDIO only, reserved for other interfacces */
 	__le16 reserved_4;
 } __packed;
 
@@ -663,6 +688,11 @@ struct adhoc_bss_desc {
 	__le16 cap_info_bitmap;
 	u8 data_rates[HOSTCMD_SUPPORTED_RATES];
 
+	/*
+	 *  DO NOT ADD ANY FIELDS TO THIS STRUCTURE.
+	 *  It is used in the Adhoc join command and will cause a
+	 *  binary layout mismatch with the firmware
+	 */
 } __packed;
 
 struct host_cmd_ds_802_11_ad_hoc_join {
@@ -690,6 +720,9 @@ struct host_cmd_ds_802_11_get_log {
 
 struct host_cmd_ds_tx_rate_query {
 	u8 tx_rate;
+	/* Ht Info [Bit 0] RxRate format: LG=0, HT=1
+	 * [Bit 1]  HT Bandwidth: BW20 = 0, BW40 = 1
+	 * [Bit 2]  HT Guard Interval: LGI = 0, SGI = 1 */
 	u8 ht_info;
 } __packed;
 
@@ -790,15 +823,25 @@ struct mwifiex_bcn_param {
 #define MWIFIEX_MAX_SSID_LIST_LENGTH         10
 
 struct mwifiex_scan_cmd_config {
+	/*
+	 *  BSS mode to be sent in the firmware command
+	 */
 	u8 bss_mode;
 
-	
+	/* Specific BSSID used to filter scan results in the firmware */
 	u8 specific_bssid[ETH_ALEN];
 
-	
+	/* Length of TLVs sent in command starting at tlvBuffer */
 	u32 tlv_buf_len;
 
-	u8 tlv_buf[1];	
+	/*
+	 *  SSID TLV(s) and ChanList TLVs to be sent in the firmware command
+	 *
+	 *  TLV_TYPE_CHANLIST, mwifiex_ie_types_chan_list_param_set
+	 *  WLAN_EID_SSID, mwifiex_ie_types_ssid_param_set
+	 */
+	u8 tlv_buf[1];	/* SSID TLV(s) and ChanList TLVs are stored
+				   here */
 } __packed;
 
 struct mwifiex_user_scan_chan {
@@ -810,16 +853,19 @@ struct mwifiex_user_scan_chan {
 } __packed;
 
 struct mwifiex_user_scan_cfg {
+	/*
+	 *  BSS mode to be sent in the firmware command
+	 */
 	u8 bss_mode;
-	
+	/* Configure the number of probe requests for active chan scans */
 	u8 num_probes;
 	u8 reserved;
-	
+	/* BSSID filter sent in the firmware command to limit the results */
 	u8 specific_bssid[ETH_ALEN];
-	
+	/* SSID filter list used in the firmware to limit the scan results */
 	struct cfg80211_ssid *ssid_list;
 	u8 num_ssids;
-	
+	/* Variable number (fixed maximum) of channels to scan up */
 	struct mwifiex_user_scan_chan chan_list[MWIFIEX_USER_SCAN_CHAN_MAX];
 } __packed;
 
@@ -908,7 +954,7 @@ struct host_cmd_ds_11n_cfg {
 struct host_cmd_ds_txbuf_cfg {
 	__le16 action;
 	__le16 buff_size;
-	__le16 mp_end_port;	
+	__le16 mp_end_port;	/* SDIO only, reserved for other interfacces */
 	__le16 reserved3;
 } __packed;
 
@@ -949,6 +995,15 @@ struct ieee_types_wmm_ac_parameters {
 } __packed;
 
 struct ieee_types_wmm_parameter {
+	/*
+	 * WMM Parameter IE - Vendor Specific Header:
+	 *   element_id  [221/0xdd]
+	 *   Len         [24]
+	 *   Oui         [00:50:f2]
+	 *   OuiType     [2]
+	 *   OuiSubType  [1]
+	 *   Version     [1]
+	 */
 	struct ieee_types_vendor_header vend_hdr;
 	u8 qos_info_bitmap;
 	u8 reserved;
@@ -957,6 +1012,15 @@ struct ieee_types_wmm_parameter {
 
 struct ieee_types_wmm_info {
 
+	/*
+	 * WMM Info IE - Vendor Specific Header:
+	 *   element_id  [221/0xdd]
+	 *   Len         [7]
+	 *   Oui         [00:50:f2]
+	 *   OuiType     [2]
+	 *   OuiSubType  [0]
+	 *   Version     [1]
+	 */
 	struct ieee_types_vendor_header vend_hdr;
 
 	u8 qos_info_bitmap;
@@ -1059,25 +1123,25 @@ struct host_cmd_ds_set_bss_mode {
 } __packed;
 
 struct host_cmd_ds_pcie_details {
-	
+	/* TX buffer descriptor ring address */
 	u32 txbd_addr_lo;
 	u32 txbd_addr_hi;
-	
+	/* TX buffer descriptor ring count */
 	u32 txbd_count;
 
-	
+	/* RX buffer descriptor ring address */
 	u32 rxbd_addr_lo;
 	u32 rxbd_addr_hi;
-	
+	/* RX buffer descriptor ring count */
 	u32 rxbd_count;
 
-	
+	/* Event buffer descriptor ring address */
 	u32 evtbd_addr_lo;
 	u32 evtbd_addr_hi;
-	
+	/* Event buffer descriptor ring count */
 	u32 evtbd_count;
 
-	
+	/* Sleep cookie buffer physical address */
 	u32 sleep_cookie_addr_lo;
 	u32 sleep_cookie_addr_hi;
 } __packed;
@@ -1142,4 +1206,4 @@ struct mwifiex_opt_sleep_confirm {
 	__le16 action;
 	__le16 resp_ctrl;
 } __packed;
-#endif 
+#endif /* !_MWIFIEX_FW_H_ */

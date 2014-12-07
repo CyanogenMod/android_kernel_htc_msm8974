@@ -1,3 +1,8 @@
+/*
+ *	ACPI PATA driver
+ *
+ *	(c) 2007 Red Hat
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -22,6 +27,13 @@ struct pata_acpi {
 	unsigned long mask[2];
 };
 
+/**
+ *	pacpi_pre_reset	-	check for 40/80 pin
+ *	@ap: Port
+ *	@deadline: deadline jiffies for the operation
+ *
+ *	Perform the PATA port setup we need.
+ */
 
 static int pacpi_pre_reset(struct ata_link *link, unsigned long deadline)
 {
@@ -33,6 +45,12 @@ static int pacpi_pre_reset(struct ata_link *link, unsigned long deadline)
 	return ata_sff_prereset(link, deadline);
 }
 
+/**
+ *	pacpi_cable_detect	-	cable type detection
+ *	@ap: port to detect
+ *
+ *	Perform device specific cable detection
+ */
 
 static int pacpi_cable_detect(struct ata_port *ap)
 {
@@ -44,6 +62,14 @@ static int pacpi_cable_detect(struct ata_port *ap)
 		return ATA_CBL_PATA40;
 }
 
+/**
+ *	pacpi_discover_modes	-	filter non ACPI modes
+ *	@adev: ATA device
+ *	@mask: proposed modes
+ *
+ *	Try the modes available and see which ones the ACPI method will
+ *	set up sensibly. From this we get a mask of ACPI modes we can use
+ */
 
 static unsigned long pacpi_discover_modes(struct ata_port *ap, struct ata_device *adev)
 {
@@ -63,6 +89,14 @@ static unsigned long pacpi_discover_modes(struct ata_port *ap, struct ata_device
 	return xfer_mask;
 }
 
+/**
+ *	pacpi_mode_filter	-	mode filter for ACPI
+ *	@adev: device
+ *	@mask: mask of valid modes
+ *
+ *	Filter the valid mode list according to our own specific rules, in
+ *	this case the list of discovered valid modes obtained by ACPI probing
+ */
 
 static unsigned long pacpi_mode_filter(struct ata_device *adev, unsigned long mask)
 {
@@ -70,6 +104,11 @@ static unsigned long pacpi_mode_filter(struct ata_device *adev, unsigned long ma
 	return mask & acpi->mask[adev->devno];
 }
 
+/**
+ *	pacpi_set_piomode	-	set initial PIO mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ */
 
 static void pacpi_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -80,14 +119,19 @@ static void pacpi_set_piomode(struct ata_port *ap, struct ata_device *adev)
 	if (!(acpi->gtm.flags & 0x10))
 		unit = 0;
 
-	
+	/* Now stuff the nS values into the structure */
 	t = ata_timing_find_mode(adev->pio_mode);
 	acpi->gtm.drive[unit].pio = t->cycle;
 	ata_acpi_stm(ap, &acpi->gtm);
-	
+	/* See what mode we actually got */
 	ata_acpi_gtm(ap, &acpi->gtm);
 }
 
+/**
+ *	pacpi_set_dmamode	-	set initial DMA mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ */
 
 static void pacpi_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -98,7 +142,7 @@ static void pacpi_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 	if (!(acpi->gtm.flags & 0x10))
 		unit = 0;
 
-	
+	/* Now stuff the nS values into the structure */
 	t = ata_timing_find_mode(adev->dma_mode);
 	if (adev->dma_mode >= XFER_UDMA_0) {
 		acpi->gtm.drive[unit].dma = t->udma;
@@ -108,10 +152,18 @@ static void pacpi_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 		acpi->gtm.flags &= ~(1 << (2 * unit));
 	}
 	ata_acpi_stm(ap, &acpi->gtm);
-	
+	/* See what mode we actually got */
 	ata_acpi_gtm(ap, &acpi->gtm);
 }
 
+/**
+ *	pacpi_qc_issue	-	command issue
+ *	@qc: command pending
+ *
+ *	Called when the libata layer is about to issue a command. We wrap
+ *	this interface so that we can load the correct ATA timings if
+ *	necessary.
+ */
 
 static unsigned int pacpi_qc_issue(struct ata_queued_cmd *qc)
 {
@@ -131,6 +183,12 @@ static unsigned int pacpi_qc_issue(struct ata_queued_cmd *qc)
 	return ata_bmdma_qc_issue(qc);
 }
 
+/**
+ *	pacpi_port_start	-	port setup
+ *	@ap: ATA port being set up
+ *
+ *	Use the port_start hook to maintain private control structures
+ */
 
 static int pacpi_port_start(struct ata_port *ap)
 {
@@ -164,6 +222,19 @@ static struct ata_port_operations pacpi_ops = {
 };
 
 
+/**
+ *	pacpi_init_one - Register ACPI ATA PCI device with kernel services
+ *	@pdev: PCI device to register
+ *	@ent: Entry in pacpi_pci_tbl matching with @pdev
+ *
+ *	Called from kernel PCI layer.
+ *
+ *	LOCKING:
+ *	Inherited from PCI layer (may sleep).
+ *
+ *	RETURNS:
+ *	Zero on success, or -ERRNO value.
+ */
 
 static int pacpi_init_one (struct pci_dev *pdev, const struct pci_device_id *id)
 {
@@ -188,7 +259,7 @@ static int pacpi_init_one (struct pci_dev *pdev, const struct pci_device_id *id)
 
 static const struct pci_device_id pacpi_pci_tbl[] = {
 	{ PCI_ANY_ID,		PCI_ANY_ID,			   PCI_ANY_ID, PCI_ANY_ID, PCI_CLASS_STORAGE_IDE << 8, 0xFFFFFF00UL, 1},
-	{ }	
+	{ }	/* terminate list */
 };
 
 static struct pci_driver pacpi_pci_driver = {

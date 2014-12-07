@@ -29,7 +29,7 @@
 #define PB44_GPIO_LED_JUMP1	(PB44_GPIO_EXP_BASE + 9)
 #define PB44_GPIO_LED_JUMP2	(PB44_GPIO_EXP_BASE + 10)
 
-#define PB44_KEYS_POLL_INTERVAL		20	
+#define PB44_KEYS_POLL_INTERVAL		20	/* msecs */
 #define PB44_KEYS_DEBOUNCE_INTERVAL	(3 * PB44_KEYS_POLL_INTERVAL)
 
 static struct i2c_gpio_platform_data pb44_i2c_gpio_data = {

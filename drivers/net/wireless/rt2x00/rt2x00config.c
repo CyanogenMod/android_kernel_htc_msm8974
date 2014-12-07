@@ -18,6 +18,10 @@
 	59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+/*
+	Module: rt2x00lib
+	Abstract: rt2x00 generic configuration routines.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -52,6 +56,12 @@ void rt2x00lib_config_intf(struct rt2x00_dev *rt2x00dev,
 		break;
 	}
 
+	/*
+	 * Note that when NULL is passed as address we will send
+	 * 00:00:00:00:00 to the device to clear the address.
+	 * This will prevent the device being confused when it wants
+	 * to ACK frames or considers itself associated.
+	 */
 	memset(conf.mac, 0, sizeof(conf.mac));
 	if (mac)
 		memcpy(conf.mac, mac, ETH_ALEN);
@@ -90,11 +100,11 @@ void rt2x00lib_config_erp(struct rt2x00_dev *rt2x00dev,
 	erp.basic_rates = bss_conf->basic_rates;
 	erp.beacon_int = bss_conf->beacon_int;
 
-	
+	/* Update the AID, this is needed for dynamic PS support */
 	rt2x00dev->aid = bss_conf->assoc ? bss_conf->aid : 0;
 	rt2x00dev->last_beacon = bss_conf->last_tsf;
 
-	
+	/* Update global beacon interval time, this is needed for PS support */
 	rt2x00dev->beacon_int = bss_conf->beacon_int;
 
 	if (changed & BSS_CHANGED_HT)
@@ -110,6 +120,14 @@ void rt2x00lib_config_antenna(struct rt2x00_dev *rt2x00dev,
 	struct antenna_setup *def = &rt2x00dev->default_ant;
 	struct antenna_setup *active = &rt2x00dev->link.ant.active;
 
+	/*
+	 * When the caller tries to send the SW diversity,
+	 * we must update the ANTENNA_RX_DIVERSITY flag to
+	 * enable the antenna diversity in the link tuner.
+	 *
+	 * Secondly, we must guarentee we never send the
+	 * software antenna diversity command to the driver.
+	 */
 	if (!(ant->flags & ANTENNA_RX_DIVERSITY)) {
 		if (config.rx == ANTENNA_SW_DIVERSITY) {
 			ant->flags |= ANTENNA_RX_DIVERSITY;
@@ -134,9 +152,18 @@ void rt2x00lib_config_antenna(struct rt2x00_dev *rt2x00dev,
 	} else if (config.tx == ANTENNA_SW_DIVERSITY)
 		config.tx = active->tx;
 
+	/*
+	 * Antenna setup changes require the RX to be disabled,
+	 * else the changes will be ignored by the device.
+	 */
 	if (test_bit(DEVICE_STATE_ENABLED_RADIO, &rt2x00dev->flags))
 		rt2x00queue_stop_queue(rt2x00dev->rx);
 
+	/*
+	 * Write new antenna setup to device and reset the link tuner.
+	 * The latter is required since we need to recalibrate the
+	 * noise-sensitivity ratio for the new setup.
+	 */
 	rt2x00dev->ops->lib->config_ant(rt2x00dev, &config);
 
 	rt2x00link_reset_tuner(rt2x00dev, true);
@@ -154,8 +181,14 @@ static u16 rt2x00ht_center_channel(struct rt2x00_dev *rt2x00dev,
 	int center_channel;
 	u16 i;
 
+	/*
+	 * Initialize center channel to current channel.
+	 */
 	center_channel = spec->channels[conf->channel->hw_value].channel;
 
+	/*
+	 * Adjust center channel to HT40+ and HT40- operation.
+	 */
 	if (conf_is_ht40_plus(conf))
 		center_channel += 2;
 	else if (conf_is_ht40_minus(conf))
@@ -200,7 +233,7 @@ void rt2x00lib_config(struct rt2x00_dev *rt2x00dev,
 		       &rt2x00dev->spec.channels_info[hw_value],
 		       sizeof(libconf.channel));
 
-		
+		/* Used for VCO periodic calibration */
 		rt2x00dev->rf_channel = libconf.rf.channel;
 	}
 
@@ -208,8 +241,15 @@ void rt2x00lib_config(struct rt2x00_dev *rt2x00dev,
 	    (ieee80211_flags & IEEE80211_CONF_CHANGE_PS))
 		cancel_delayed_work_sync(&rt2x00dev->autowakeup_work);
 
+	/*
+	 * Start configuration.
+	 */
 	rt2x00dev->ops->lib->config(rt2x00dev, &libconf, ieee80211_flags);
 
+	/*
+	 * Some configuration changes affect the link quality
+	 * which means we need to reset the link tuner.
+	 */
 	if (ieee80211_flags & IEEE80211_CONF_CHANGE_CHANNEL)
 		rt2x00link_reset_tuner(rt2x00dev, false);
 

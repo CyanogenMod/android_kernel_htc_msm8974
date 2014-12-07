@@ -19,6 +19,11 @@
  */
 
 
+/*
+ * Driver implements own I2C-adapter for tuner I2C access. That's since chip
+ * have unusual I2C-gate control which closes gate automatically after each
+ * I2C transfer. Using own I2C adapter we can workaround that.
+ */
 
 #include "rtl2830_priv.h"
 
@@ -26,6 +31,7 @@ int rtl2830_debug;
 module_param_named(debug, rtl2830_debug, int, 0644);
 MODULE_PARM_DESC(debug, "Turn on/off frontend debugging (default:off).");
 
+/* write multiple hardware registers */
 static int rtl2830_wr(struct rtl2830_priv *priv, u8 reg, u8 *val, int len)
 {
 	int ret;
@@ -52,6 +58,7 @@ static int rtl2830_wr(struct rtl2830_priv *priv, u8 reg, u8 *val, int len)
 	return ret;
 }
 
+/* read multiple hardware registers */
 static int rtl2830_rd(struct rtl2830_priv *priv, u8 reg, u8 *val, int len)
 {
 	int ret;
@@ -79,13 +86,14 @@ static int rtl2830_rd(struct rtl2830_priv *priv, u8 reg, u8 *val, int len)
 	return ret;
 }
 
+/* write multiple registers */
 static int rtl2830_wr_regs(struct rtl2830_priv *priv, u16 reg, u8 *val, int len)
 {
 	int ret;
 	u8 reg2 = (reg >> 0) & 0xff;
 	u8 page = (reg >> 8) & 0xff;
 
-	
+	/* switch bank if needed */
 	if (page != priv->page) {
 		ret = rtl2830_wr(priv, 0x00, &page, 1);
 		if (ret)
@@ -97,13 +105,14 @@ static int rtl2830_wr_regs(struct rtl2830_priv *priv, u16 reg, u8 *val, int len)
 	return rtl2830_wr(priv, reg2, val, len);
 }
 
+/* read multiple registers */
 static int rtl2830_rd_regs(struct rtl2830_priv *priv, u16 reg, u8 *val, int len)
 {
 	int ret;
 	u8 reg2 = (reg >> 0) & 0xff;
 	u8 page = (reg >> 8) & 0xff;
 
-	
+	/* switch bank if needed */
 	if (page != priv->page) {
 		ret = rtl2830_wr(priv, 0x00, &page, 1);
 		if (ret)
@@ -115,18 +124,21 @@ static int rtl2830_rd_regs(struct rtl2830_priv *priv, u16 reg, u8 *val, int len)
 	return rtl2830_rd(priv, reg2, val, len);
 }
 
-#if 0 
+#if 0 /* currently not used */
+/* write single register */
 static int rtl2830_wr_reg(struct rtl2830_priv *priv, u16 reg, u8 val)
 {
 	return rtl2830_wr_regs(priv, reg, &val, 1);
 }
 #endif
 
+/* read single register */
 static int rtl2830_rd_reg(struct rtl2830_priv *priv, u16 reg, u8 *val)
 {
 	return rtl2830_rd_regs(priv, reg, val, 1);
 }
 
+/* write single register with mask */
 int rtl2830_wr_reg_mask(struct rtl2830_priv *priv, u16 reg, u8 val, u8 mask)
 {
 	int ret;
@@ -146,6 +158,7 @@ int rtl2830_wr_reg_mask(struct rtl2830_priv *priv, u16 reg, u8 val, u8 mask)
 	return rtl2830_wr_regs(priv, reg, &val, 1);
 }
 
+/* read single register with mask */
 int rtl2830_rd_reg_mask(struct rtl2830_priv *priv, u16 reg, u8 *val, u8 mask)
 {
 	int ret, i;
@@ -157,7 +170,7 @@ int rtl2830_rd_reg_mask(struct rtl2830_priv *priv, u16 reg, u8 *val, u8 mask)
 
 	tmp &= mask;
 
-	
+	/* find position of the first bit */
 	for (i = 0; i < 8; i++) {
 		if ((mask >> i) & 0x01)
 			break;
@@ -236,7 +249,7 @@ static int rtl2830_init(struct dvb_frontend *fe)
 	if_ctl = num & 0x3fffff;
 	dbg("%s: if_ctl=%08x", __func__, if_ctl);
 
-	ret = rtl2830_rd_reg_mask(priv, 0x119, &tmp, 0xc0); 
+	ret = rtl2830_rd_reg_mask(priv, 0x119, &tmp, 0xc0); /* b[7:6] */
 	if (ret)
 		goto err;
 
@@ -249,9 +262,9 @@ static int rtl2830_init(struct dvb_frontend *fe)
 	if (ret)
 		goto err;
 
-	
+	/* TODO: spec init */
 
-	
+	/* soft reset */
 	ret = rtl2830_wr_reg_mask(priv, 0x101, 0x04, 0x04);
 	if (ret)
 		goto err;
@@ -295,30 +308,30 @@ static int rtl2830_set_frontend(struct dvb_frontend *fe)
 		0x1f, 0xf0, 0x1f, 0xf0, 0x1f, 0xfa, 0x00, 0x17, 0x00, 0x41,
 		0x00, 0x64, 0x00, 0x67, 0x00, 0x38, 0x1f, 0xde, 0x1f, 0x7a,
 		0x1f, 0x47, 0x1f, 0x7c, 0x00, 0x30, 0x01, 0x4b, 0x02, 0x82,
-		0x03, 0x73, 0x03, 0xcf, 
+		0x03, 0x73, 0x03, 0xcf, /* 6 MHz */
 		}, {
 		0x1f, 0xfa, 0x1f, 0xda, 0x1f, 0xc1, 0x1f, 0xb3, 0x1f, 0xca,
 		0x00, 0x07, 0x00, 0x4d, 0x00, 0x6d, 0x00, 0x40, 0x1f, 0xca,
 		0x1f, 0x4d, 0x1f, 0x2a, 0x1f, 0xb2, 0x00, 0xec, 0x02, 0x7e,
-		0x03, 0xd0, 0x04, 0x53, 
+		0x03, 0xd0, 0x04, 0x53, /* 7 MHz */
 		}, {
 		0x00, 0x10, 0x00, 0x0e, 0x1f, 0xf7, 0x1f, 0xc9, 0x1f, 0xa0,
 		0x1f, 0xa6, 0x1f, 0xec, 0x00, 0x4e, 0x00, 0x7d, 0x00, 0x3a,
 		0x1f, 0x98, 0x1f, 0x10, 0x1f, 0x40, 0x00, 0x75, 0x02, 0x5f,
-		0x04, 0x24, 0x04, 0xdb, 
+		0x04, 0x24, 0x04, 0xdb, /* 8 MHz */
 		},
 	};
 	static u8 bw_params2[3][6] = {
-		{0xc3, 0x0c, 0x44, 0x33, 0x33, 0x30,}, 
-		{0xb8, 0xe3, 0x93, 0x99, 0x99, 0x98,}, 
-		{0xae, 0xba, 0xf3, 0x26, 0x66, 0x64,}, 
+		{0xc3, 0x0c, 0x44, 0x33, 0x33, 0x30,}, /* 6 MHz */
+		{0xb8, 0xe3, 0x93, 0x99, 0x99, 0x98,}, /* 7 MHz */
+		{0xae, 0xba, 0xf3, 0x26, 0x66, 0x64,}, /* 8 MHz */
 	};
 
 
 	dbg("%s: frequency=%d bandwidth_hz=%d inversion=%d", __func__,
 		c->frequency, c->bandwidth_hz, c->inversion);
 
-	
+	/* program tuner */
 	if (fe->ops.tuner_ops.set_params)
 		fe->ops.tuner_ops.set_params(fe);
 
@@ -341,12 +354,12 @@ static int rtl2830_set_frontend(struct dvb_frontend *fe)
 	if (ret)
 		goto err;
 
-	
+	/* 1/2 split I2C write */
 	ret = rtl2830_wr_regs(priv, 0x11c, &bw_params1[i][0], 17);
 	if (ret)
 		goto err;
 
-	
+	/* 2/2 split I2C write */
 	ret = rtl2830_wr_regs(priv, 0x12d, &bw_params1[i][17], 17);
 	if (ret)
 		goto err;
@@ -371,7 +384,7 @@ static int rtl2830_read_status(struct dvb_frontend *fe, fe_status_t *status)
 	if (priv->sleeping)
 		return 0;
 
-	ret = rtl2830_rd_reg_mask(priv, 0x351, &tmp, 0x78); 
+	ret = rtl2830_rd_reg_mask(priv, 0x351, &tmp, 0x78); /* [6:3] */
 	if (ret)
 		goto err;
 
@@ -426,7 +439,7 @@ static int rtl2830_tuner_i2c_xfer(struct i2c_adapter *i2c_adap,
 	struct rtl2830_priv *priv = i2c_get_adapdata(i2c_adap);
 	int ret;
 
-	
+	/* open i2c-gate */
 	ret = rtl2830_wr_reg_mask(priv, 0x101, 0x08, 0x08);
 	if (ret)
 		goto err;
@@ -468,25 +481,25 @@ struct dvb_frontend *rtl2830_attach(const struct rtl2830_config *cfg,
 	int ret = 0;
 	u8 tmp;
 
-	
+	/* allocate memory for the internal state */
 	priv = kzalloc(sizeof(struct rtl2830_priv), GFP_KERNEL);
 	if (priv == NULL)
 		goto err;
 
-	
+	/* setup the priv */
 	priv->i2c = i2c;
 	memcpy(&priv->cfg, cfg, sizeof(struct rtl2830_config));
 
-	
+	/* check if the demod is there */
 	ret = rtl2830_rd_reg(priv, 0x000, &tmp);
 	if (ret)
 		goto err;
 
-	
+	/* create dvb_frontend */
 	memcpy(&priv->fe.ops, &rtl2830_ops, sizeof(struct dvb_frontend_ops));
 	priv->fe.demodulator_priv = priv;
 
-	
+	/* create tuner i2c adapter */
 	strlcpy(priv->tuner_i2c_adapter.name, "RTL2830 tuner I2C adapter",
 		sizeof(priv->tuner_i2c_adapter.name));
 	priv->tuner_i2c_adapter.algo = &rtl2830_tuner_i2c_algo;

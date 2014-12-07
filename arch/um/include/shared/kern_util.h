@@ -43,6 +43,10 @@ extern void paging_init(void);
 extern void uml_cleanup(void);
 extern void do_uml_exitcalls(void);
 
+/*
+ * Are we disallowed to sleep? Used to choose between GFP_KERNEL and
+ * GFP_ATOMIC.
+ */
 extern int __cant_sleep(void);
 extern int get_current_pid(void);
 extern int copy_from_user_proc(void *to, void *from, int size);

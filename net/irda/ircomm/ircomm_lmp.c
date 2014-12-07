@@ -36,12 +36,18 @@
 #include <net/irda/irda.h>
 #include <net/irda/irlmp.h>
 #include <net/irda/iriap.h>
-#include <net/irda/irda_device.h>	
+#include <net/irda/irda_device.h>	/* struct irda_skb_cb */
 
 #include <net/irda/ircomm_event.h>
 #include <net/irda/ircomm_lmp.h>
 
 
+/*
+ * Function ircomm_lmp_connect_request (self, userdata)
+ *
+ *
+ *
+ */
 static int ircomm_lmp_connect_request(struct ircomm_cb *self,
 				      struct sk_buff *userdata,
 				      struct ircomm_info *info)
@@ -50,7 +56,7 @@ static int ircomm_lmp_connect_request(struct ircomm_cb *self,
 
 	IRDA_DEBUG(0, "%s()\n", __func__ );
 
-	
+	/* Don't forget to refcount it - should be NULL anyway */
 	if(userdata)
 		skb_get(userdata);
 
@@ -59,6 +65,12 @@ static int ircomm_lmp_connect_request(struct ircomm_cb *self,
 	return ret;
 }
 
+/*
+ * Function ircomm_lmp_connect_response (self, skb)
+ *
+ *
+ *
+ */
 static int ircomm_lmp_connect_response(struct ircomm_cb *self,
 				       struct sk_buff *userdata)
 {
@@ -66,19 +78,23 @@ static int ircomm_lmp_connect_response(struct ircomm_cb *self,
 
 	IRDA_DEBUG(0, "%s()\n", __func__ );
 
-	
+	/* Any userdata supplied? */
 	if (userdata == NULL) {
 		tx_skb = alloc_skb(LMP_MAX_HEADER, GFP_ATOMIC);
 		if (!tx_skb)
 			return -ENOMEM;
 
-		
+		/* Reserve space for MUX and LAP header */
 		skb_reserve(tx_skb, LMP_MAX_HEADER);
 	} else {
+		/*
+		 *  Check that the client has reserved enough space for
+		 *  headers
+		 */
 		IRDA_ASSERT(skb_headroom(userdata) >= LMP_MAX_HEADER,
 			    return -1;);
 
-		
+		/* Don't forget to refcount it - should be NULL anyway */
 		skb_get(userdata);
 		tx_skb = userdata;
 	}
@@ -100,11 +116,11 @@ static int ircomm_lmp_disconnect_request(struct ircomm_cb *self,
 		if (!tx_skb)
 			return -ENOMEM;
 
-		
+		/*  Reserve space for MUX and LAP header */
 		skb_reserve(tx_skb, LMP_MAX_HEADER);
 		userdata = tx_skb;
 	} else {
-		
+		/* Don't forget to refcount it - should be NULL anyway */
 		skb_get(userdata);
 	}
 
@@ -113,6 +129,13 @@ static int ircomm_lmp_disconnect_request(struct ircomm_cb *self,
 	return ret;
 }
 
+/*
+ * Function ircomm_lmp_flow_control (skb)
+ *
+ *    This function is called when a data frame we have sent to IrLAP has
+ *    been deallocated. We do this to make sure we don't flood IrLAP with
+ *    frames, since we are not using the IrTTP flow control mechanism
+ */
 static void ircomm_lmp_flow_control(struct sk_buff *skb)
 {
 	struct irda_skb_cb *cb;
@@ -147,6 +170,12 @@ static void ircomm_lmp_flow_control(struct sk_buff *skb)
 	}
 }
 
+/*
+ * Function ircomm_lmp_data_request (self, userdata)
+ *
+ *    Send data frame to peer device
+ *
+ */
 static int ircomm_lmp_data_request(struct ircomm_cb *self,
 				   struct sk_buff *skb,
 				   int not_used)
@@ -162,7 +191,7 @@ static int ircomm_lmp_data_request(struct ircomm_cb *self,
 
 	IRDA_DEBUG(4, "%s(), sending frame\n", __func__ );
 
-	
+	/* Don't forget to refcount it - see ircomm_tty_do_softint() */
 	skb_get(skb);
 
 	skb_orphan(skb);
@@ -178,12 +207,18 @@ static int ircomm_lmp_data_request(struct ircomm_cb *self,
 	ret = irlmp_data_request(self->lsap, skb);
 	if (ret) {
 		IRDA_ERROR("%s(), failed\n", __func__);
-		
+		/* irlmp_data_request already free the packet */
 	}
 
 	return ret;
 }
 
+/*
+ * Function ircomm_lmp_data_indication (instance, sap, skb)
+ *
+ *    Incoming data which we must deliver to the state machine, to check
+ *    we are still connected.
+ */
 static int ircomm_lmp_data_indication(void *instance, void *sap,
 				      struct sk_buff *skb)
 {
@@ -197,12 +232,19 @@ static int ircomm_lmp_data_indication(void *instance, void *sap,
 
 	ircomm_do_event(self, IRCOMM_LMP_DATA_INDICATION, skb, NULL);
 
-	
+	/* Drop reference count - see ircomm_tty_data_indication(). */
 	dev_kfree_skb(skb);
 
 	return 0;
 }
 
+/*
+ * Function ircomm_lmp_connect_confirm (instance, sap, qos, max_sdu_size,
+ *                                       max_header_size, skb)
+ *
+ *    Connection has been confirmed by peer device
+ *
+ */
 static void ircomm_lmp_connect_confirm(void *instance, void *sap,
 				       struct qos_info *qos,
 				       __u32 max_seg_size,
@@ -225,10 +267,17 @@ static void ircomm_lmp_connect_confirm(void *instance, void *sap,
 
 	ircomm_do_event(self, IRCOMM_LMP_CONNECT_CONFIRM, skb, &info);
 
-	
+	/* Drop reference count - see ircomm_tty_connect_confirm(). */
 	dev_kfree_skb(skb);
 }
 
+/*
+ * Function ircomm_lmp_connect_indication (instance, sap, qos, max_sdu_size,
+ *                                         max_header_size, skb)
+ *
+ *    Peer device wants to make a connection with us
+ *
+ */
 static void ircomm_lmp_connect_indication(void *instance, void *sap,
 					  struct qos_info *qos,
 					  __u32 max_seg_size,
@@ -251,10 +300,16 @@ static void ircomm_lmp_connect_indication(void *instance, void *sap,
 
 	ircomm_do_event(self, IRCOMM_LMP_CONNECT_INDICATION, skb, &info);
 
-	
+	/* Drop reference count - see ircomm_tty_connect_indication(). */
 	dev_kfree_skb(skb);
 }
 
+/*
+ * Function ircomm_lmp_disconnect_indication (instance, sap, reason, skb)
+ *
+ *    Peer device has closed the connection, or the link went down for some
+ *    other reason
+ */
 static void ircomm_lmp_disconnect_indication(void *instance, void *sap,
 					     LM_REASON reason,
 					     struct sk_buff *skb)
@@ -271,17 +326,23 @@ static void ircomm_lmp_disconnect_indication(void *instance, void *sap,
 
 	ircomm_do_event(self, IRCOMM_LMP_DISCONNECT_INDICATION, skb, &info);
 
-	
+	/* Drop reference count - see ircomm_tty_disconnect_indication(). */
 	if(skb)
 		dev_kfree_skb(skb);
 }
+/*
+ * Function ircomm_open_lsap (self)
+ *
+ *    Open LSAP. This function will only be used when using "raw" services
+ *
+ */
 int ircomm_open_lsap(struct ircomm_cb *self)
 {
 	notify_t notify;
 
 	IRDA_DEBUG(0, "%s()\n", __func__ );
 
-	
+	/* Register callbacks */
 	irda_notify_init(&notify);
 	notify.data_indication       = ircomm_lmp_data_indication;
 	notify.connect_confirm       = ircomm_lmp_connect_confirm;
@@ -297,6 +358,9 @@ int ircomm_open_lsap(struct ircomm_cb *self)
 	}
 	self->slsap_sel = self->lsap->slsap_sel;
 
+	/*
+	 *  Initialize the call-table for issuing commands
+	 */
 	self->issue.data_request       = ircomm_lmp_data_request;
 	self->issue.connect_request    = ircomm_lmp_connect_request;
 	self->issue.connect_response   = ircomm_lmp_connect_response;

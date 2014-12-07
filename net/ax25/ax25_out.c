@@ -38,6 +38,10 @@ ax25_cb *ax25_send_frame(struct sk_buff *skb, int paclen, ax25_address *src, ax2
 	ax25_dev *ax25_dev;
 	ax25_cb *ax25;
 
+	/*
+	 * Take the default packet length for the device if zero is
+	 * specified.
+	 */
 	if (paclen == 0) {
 		if ((ax25_dev = ax25_dev_ax25dev(dev)) == NULL)
 			return NULL;
@@ -45,9 +49,12 @@ ax25_cb *ax25_send_frame(struct sk_buff *skb, int paclen, ax25_address *src, ax2
 		paclen = ax25_dev->values[AX25_VALUES_PACLEN];
 	}
 
+	/*
+	 * Look for an existing connection.
+	 */
 	if ((ax25 = ax25_find_cb(src, dest, digi, dev)) != NULL) {
 		ax25_output(ax25, paclen, skb);
-		return ax25;		
+		return ax25;		/* It already existed */
 	}
 
 	if ((ax25_dev = ax25_dev_ax25dev(dev)) == NULL)
@@ -85,6 +92,10 @@ ax25_cb *ax25_send_frame(struct sk_buff *skb, int paclen, ax25_address *src, ax2
 #endif
 	}
 
+	/*
+	 * There is one ref for the state machine; a caller needs
+	 * one more to put it back, just like with the existing one.
+	 */
 	ax25_cb_hold(ax25);
 
 	ax25_cb_add(ax25);
@@ -95,11 +106,17 @@ ax25_cb *ax25_send_frame(struct sk_buff *skb, int paclen, ax25_address *src, ax2
 
 	ax25_output(ax25, paclen, skb);
 
-	return ax25;			
+	return ax25;			/* We had to create it */
 }
 
 EXPORT_SYMBOL(ax25_send_frame);
 
+/*
+ *	All outgoing AX.25 I frames pass via this routine. Therefore this is
+ *	where the fragmentation of frames takes place. If fragment is set to
+ *	zero then we are not allowed to do fragmentation, even if the frame
+ *	is too large.
+ */
 void ax25_output(ax25_cb *ax25, int paclen, struct sk_buff *skb)
 {
 	struct sk_buff *skbn;
@@ -114,17 +131,17 @@ void ax25_output(ax25_cb *ax25, int paclen, struct sk_buff *skb)
 
 	if ((skb->len - 1) > paclen) {
 		if (*skb->data == AX25_P_TEXT) {
-			skb_pull(skb, 1); 
+			skb_pull(skb, 1); /* skip PID */
 			ka9qfrag = 0;
 		} else {
-			paclen -= 2;	
+			paclen -= 2;	/* Allow for fragment control info */
 			ka9qfrag = 1;
 		}
 
 		fragno = skb->len / paclen;
 		if (skb->len % paclen == 0) fragno--;
 
-		frontlen = skb_headroom(skb);	
+		frontlen = skb_headroom(skb);	/* Address space + CTRL */
 
 		while (skb->len > 0) {
 			spin_lock_bh(&ax25_frag_lock);
@@ -165,12 +182,12 @@ void ax25_output(ax25_cb *ax25, int paclen, struct sk_buff *skb)
 			}
 
 			skb_pull(skb, len);
-			skb_queue_tail(&ax25->write_queue, skbn); 
+			skb_queue_tail(&ax25->write_queue, skbn); /* Throw it on the queue */
 		}
 
 		kfree_skb(skb);
 	} else {
-		skb_queue_tail(&ax25->write_queue, skb);	  
+		skb_queue_tail(&ax25->write_queue, skb);	  /* Throw it on the queue */
 	}
 
 	switch (ax25->ax25_dev->values[AX25_VALUES_PROTOCOL]) {
@@ -180,6 +197,10 @@ void ax25_output(ax25_cb *ax25, int paclen, struct sk_buff *skb)
 		break;
 
 #ifdef CONFIG_AX25_DAMA_SLAVE
+	/*
+	 * A DAMA slave is _required_ to work as normal AX.25L2V2
+	 * if no DAMA master is available.
+	 */
 	case AX25_PROTO_DAMA_SLAVE:
 		if (!ax25->ax25_dev->dama.slave) ax25_kick(ax25);
 		break;
@@ -187,6 +208,10 @@ void ax25_output(ax25_cb *ax25, int paclen, struct sk_buff *skb)
 	}
 }
 
+/*
+ *  This procedure is passed a buffer descriptor for an iframe. It builds
+ *  the rest of the control part of the frame and then writes it out.
+ */
 static void ax25_send_iframe(ax25_cb *ax25, struct sk_buff *skb, int poll_bit)
 {
 	unsigned char *frame;
@@ -238,7 +263,16 @@ void ax25_kick(ax25_cb *ax25)
 	if (start == end)
 		return;
 
+	/*
+	 * Transmit data until either we're out of data to send or
+	 * the window is full. Send a poll on the final I frame if
+	 * the window is filled.
+	 */
 
+	/*
+	 * Dequeue the frame and copy it.
+	 * Check for race with ax25_clear_queues().
+	 */
 	skb  = skb_dequeue(&ax25->write_queue);
 	if (!skb)
 		return;
@@ -257,6 +291,11 @@ void ax25_kick(ax25_cb *ax25)
 		next = (ax25->vs + 1) % ax25->modulus;
 		last = (next == end);
 
+		/*
+		 * Transmit the frame copy.
+		 * bke 960114: do not set the Poll bit on the last frame
+		 * in DAMA mode.
+		 */
 		switch (ax25->ax25_dev->values[AX25_VALUES_PROTOCOL]) {
 		case AX25_PROTO_STD_SIMPLEX:
 		case AX25_PROTO_STD_DUPLEX:
@@ -272,6 +311,9 @@ void ax25_kick(ax25_cb *ax25)
 
 		ax25->vs = next;
 
+		/*
+		 * Requeue the original data frame.
+		 */
 		skb_queue_tail(&ax25->ack_queue, skb);
 
 	} while (!last && (skb = skb_dequeue(&ax25->write_queue)) != NULL);
@@ -319,6 +361,10 @@ void ax25_transmit_buffer(ax25_cb *ax25, struct sk_buff *skb, int type)
 	ax25_queue_xmit(skb, ax25->ax25_dev->dev);
 }
 
+/*
+ *	A small shim to dev_queue_xmit to add the KISS control byte, and do
+ *	any packet forwarding in operation.
+ */
 void ax25_queue_xmit(struct sk_buff *skb, struct net_device *dev)
 {
 	unsigned char *ptr;
@@ -326,7 +372,7 @@ void ax25_queue_xmit(struct sk_buff *skb, struct net_device *dev)
 	skb->protocol = ax25_type_trans(skb, ax25_fwd_dev(dev));
 
 	ptr  = skb_push(skb, 1);
-	*ptr = 0x00;			
+	*ptr = 0x00;			/* KISS */
 
 	dev_queue_xmit(skb);
 }

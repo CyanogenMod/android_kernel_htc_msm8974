@@ -1,3 +1,7 @@
+/*
+ * List of powerpc syscalls. For the meaning of the _SPU suffix see
+ * arch/powerpc/platforms/cell/spu_callbacks.c
+ */
 
 SYSCALL(restart_syscall)
 SYSCALL(exit)

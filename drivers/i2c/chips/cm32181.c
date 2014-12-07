@@ -81,7 +81,7 @@ struct cm32181_info {
 
 	int ls_calibrate;
 	int ws_calibrate;
-	int (*power)(int, uint8_t); 
+	int (*power)(int, uint8_t); /* power to the chip */
 
 	uint32_t als_kadc;
 	uint32_t emmc_als_kadc;
@@ -90,7 +90,7 @@ struct cm32181_info {
 
 	struct wake_lock ls_wake_lock;
 	int lightsensor_opened;
-	uint8_t ALS_cmd_address; 
+	uint8_t ALS_cmd_address; // could be 0x48 or 0x10, specified in platform data and is determined by pin ADDR configuration
 
 	int current_lux_level;
 	uint16_t current_adc;
@@ -146,7 +146,7 @@ static int I2C_RxData(uint16_t slaveAddr, uint8_t cmd, uint8_t *rxData, int leng
 			break;
 
 		val = gpio_get_value(lpi->intr_pin);
-		
+		/*check intr GPIO when i2c error*/
 		if (loop_i == 0 || loop_i == I2C_RETRY_COUNT -1)
 			D("[LS][CM32181 error] %s, i2c err, slaveAddr 0x%x ISR gpio %d  = %d, record_init_fail %d \n",
 				__func__, slaveAddr, lpi->intr_pin, val, record_init_fail);
@@ -181,7 +181,7 @@ static int I2C_TxData(uint16_t slaveAddr, uint8_t *txData, int length)
 			break;
 
 		val = gpio_get_value(lpi->intr_pin);
-		
+		/*check intr GPIO when i2c error*/
 		if (loop_i == 0 || loop_i == I2C_RETRY_COUNT -1)
 			D("[LS][CM32181 error] %s, i2c err, slaveAddr 0x%x, value 0x%x, ISR gpio%d  = %d, record_init_fail %d\n",
 				__func__, slaveAddr, txData[0], lpi->intr_pin, val, record_init_fail);
@@ -216,7 +216,7 @@ static int _cm32181_I2C_Read_Word(uint16_t slaveAddr, uint8_t cmd, uint16_t *pda
 
 	*pdata = (buffer[1]<<8)|buffer[0];
 #if 0
-	
+	/* Debug use */
 	printk(KERN_DEBUG "[CM32181] %s: I2C_RxData[0x%x, 0x%x] = 0x%x\n",
 		__func__, slaveAddr, cmd, *pdata);
 #endif
@@ -228,7 +228,7 @@ static int _cm32181_I2C_Write_Word(uint16_t SlaveAddress, uint8_t cmd, uint16_t 
 	char buffer[3];
 	int ret = 0;
 #if 0
-	
+	/* Debug use */
 	printk(KERN_DEBUG
 	"[CM32181] %s: _cm32181_I2C_Write_Word[0x%x, 0x%x, 0x%x]\n",
 		__func__, SlaveAddress, cmd, data);
@@ -254,7 +254,7 @@ static int get_ls_adc_value(uint16_t *als_step, bool resume)
 	if (als_step == NULL)
 		return -EFAULT;
 
-	
+	/* Read ALS data: */
 	ret = _cm32181_I2C_Read_Word(lpi->ALS_cmd_address, ALS_DATA, als_step);
 	if (ret < 0) {
 		pr_err(
@@ -418,7 +418,7 @@ static long lightsensor_ioctl(struct file *file, unsigned int cmd,
 	int rc, val;
 	struct cm32181_info *lpi = lp_info;
 
-	
+	/*D("[CM32181] %s cmd %d\n", __func__, _IOC_NR(cmd));*/
 
 	switch (cmd) {
 	case LIGHTSENSOR_IOCTL_ENABLE:
@@ -700,7 +700,7 @@ check_interrupt_gpio:
 		D("[LS][CM32181] %s, initial fail_counter = %d\n", __func__, fail_counter);
 		if (record_init_fail == 0)
 			record_init_fail = 1;
-		return -ENOMEM;
+		return -ENOMEM;/*If devices without cm32181 chip and did not probe driver*/
 	}
 	lpi->ls_cmd = lpi->ls_cmd | CM32181_ALS_SD; 
 	ret = _cm32181_I2C_Write_Word(lpi->ALS_cmd_address, ALS_CMD, lpi->ls_cmd );
@@ -799,6 +799,7 @@ static int cm32181_parse_dt(struct device *dev, struct cm32181_platform_data *pd
 	int cali_size = 0;
 	unsigned char *cali_data = NULL;
 	int i = 0;
+//	uint32_t temp = 0;
 
 	D("[LS][cm32181] %s: +\n", __func__);
 
@@ -838,6 +839,7 @@ static int cm32181_parse_dt(struct device *dev, struct cm32181_platform_data *pd
 
 	pdata->intr = of_get_named_gpio_flags(dt, "cm32181,irq-gpio",
 				0, &pdata->irq_gpio_flags);
+//	pdata->lpm_power = cm3629_sr_lpm;
 	return 0;
 }
 
@@ -953,7 +955,7 @@ static int __devinit cm32181_probe(struct i2c_client *client,
 		goto err_create_ls_device;
 	}
 
-	
+	/* register the attributes */
 
         ret = device_create_file(lpi->ls_dev, &dev_attr_ls_adc);
 	if (ret)
@@ -1026,10 +1028,14 @@ static int control_and_report( struct cm32181_info *lpi, uint8_t mode, uint8_t c
 
 	while(1){
 		gpio_get_value(lpi->intr_pin);
+//		D("[LS][CM32181] %s, interrupt GPIO val = %d, fail_counter %d\n",
+//			__func__, val, fail_counter);
       	
 		val = gpio_get_value(lpi->intr_pin);
 		if( val == 0){
 			_cm32181_I2C_Read_Word(lpi->ALS_cmd_address, ALS_STATUS, &status);
+//			D("[LS][CM32181] %s, interrupt GPIO val = %d, status register = 0x%x, ret %d\n",
+//				__func__, val, status, ret);
 		}
 
 		lpi->ls_cmd &= ~CM32181_ALS_INT_EN;
@@ -1077,7 +1083,7 @@ static int control_and_report( struct cm32181_info *lpi, uint8_t mode, uint8_t c
 			    if (*(lpi->adc_table + i))
 				    break;
 		    }
-		    if (i == 9) {
+		    if (i == 9) {/*avoid  i = 10, because 'cali_table' of size is 10 */
 			    lux_level = i;
 			    break;
 		    }
@@ -1088,7 +1094,7 @@ static int control_and_report( struct cm32181_info *lpi, uint8_t mode, uint8_t c
 
 		lpi->ls_cmd |= CM32181_ALS_INT_EN;
 
-		
+		// set interrupt high/low threshold
                 set_lsensor_range(((i == 0) || (adc_value == 0)) ? 0 :
 				*(lpi->cali_table + (i - 1)) + 1,
 				*(lpi->cali_table + i));

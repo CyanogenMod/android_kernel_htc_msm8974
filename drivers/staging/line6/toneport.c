@@ -78,6 +78,12 @@ static struct line6_pcm_properties toneport_pcm_properties = {
 	.bytes_per_frame = 4
 };
 
+/*
+	For the led on Guitarport.
+	Brightness goes from 0x00 to 0x26. Set a value above this to have led
+	blink.
+	(void cmd_0x02(byte red, byte green)
+*/
 static int led_red = 0x00;
 static int led_green = 0x26;
 
@@ -98,7 +104,7 @@ static bool toneport_has_led(short product)
 	return
 	    (product == LINE6_DEVID_GUITARPORT) ||
 	    (product == LINE6_DEVID_TONEPORT_GX);
-	
+	/* add your device here if you are missing support for the LEDs */
 }
 
 static void toneport_update_led(struct device *dev)
@@ -169,6 +175,7 @@ static int toneport_send_cmd(struct usb_device *usbdev, int cmd1, int cmd2)
 	return 0;
 }
 
+/* monitor info callback */
 static int snd_toneport_monitor_info(struct snd_kcontrol *kcontrol,
 				     struct snd_ctl_elem_info *uinfo)
 {
@@ -179,6 +186,7 @@ static int snd_toneport_monitor_info(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+/* monitor get callback */
 static int snd_toneport_monitor_get(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
 {
@@ -187,6 +195,7 @@ static int snd_toneport_monitor_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+/* monitor put callback */
 static int snd_toneport_monitor_put(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_value *ucontrol)
 {
@@ -205,6 +214,7 @@ static int snd_toneport_monitor_put(struct snd_kcontrol *kcontrol,
 	return 1;
 }
 
+/* source info callback */
 static int snd_toneport_source_info(struct snd_kcontrol *kcontrol,
 				    struct snd_ctl_elem_info *uinfo)
 {
@@ -222,6 +232,7 @@ static int snd_toneport_source_info(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+/* source get callback */
 static int snd_toneport_source_get(struct snd_kcontrol *kcontrol,
 				   struct snd_ctl_elem_value *ucontrol)
 {
@@ -232,6 +243,7 @@ static int snd_toneport_source_get(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+/* source put callback */
 static int snd_toneport_source_put(struct snd_kcontrol *kcontrol,
 				   struct snd_ctl_elem_value *ucontrol)
 {
@@ -255,6 +267,7 @@ static void toneport_start_pcm(unsigned long arg)
 	line6_pcm_acquire(line6->line6pcm, LINE6_BITS_PCM_MONITOR);
 }
 
+/* control definition */
 static struct snd_kcontrol_new toneport_control_monitor = {
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name = "Monitor Playback Volume",
@@ -265,6 +278,7 @@ static struct snd_kcontrol_new toneport_control_monitor = {
 	.put = snd_toneport_monitor_put
 };
 
+/* source selector definition */
 static struct snd_kcontrol_new toneport_control_source = {
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
 	.name = "PCM Capture Source",
@@ -275,6 +289,9 @@ static struct snd_kcontrol_new toneport_control_source = {
 	.put = snd_toneport_source_put
 };
 
+/*
+	Toneport destructor.
+*/
 static void toneport_destruct(struct usb_interface *interface)
 {
 	struct usb_line6_toneport *toneport = usb_get_intfdata(interface);
@@ -284,20 +301,23 @@ static void toneport_destruct(struct usb_interface *interface)
 	line6_cleanup_audio(&toneport->line6);
 }
 
+/*
+	Setup Toneport device.
+*/
 static void toneport_setup(struct usb_line6_toneport *toneport)
 {
 	int ticks;
 	struct usb_line6 *line6 = &toneport->line6;
 	struct usb_device *usbdev = line6->usbdev;
 
-	
+	/* sync time on device with host: */
 	ticks = (int)get_seconds();
 	line6_write_data(line6, 0x80c6, &ticks, 4);
 
-	
+	/* enable device: */
 	toneport_send_cmd(usbdev, 0x0301, 0x0000);
 
-	
+	/* initialize source select: */
 	switch (usbdev->descriptor.idProduct) {
 	case LINE6_DEVID_TONEPORT_UX1:
 	case LINE6_DEVID_TONEPORT_UX2:
@@ -312,6 +332,9 @@ static void toneport_setup(struct usb_line6_toneport *toneport)
 		toneport_update_led(&usbdev->dev);
 }
 
+/*
+	 Try to init Toneport device.
+*/
 static int toneport_try_init(struct usb_interface *interface,
 			     struct usb_line6_toneport *toneport)
 {
@@ -322,24 +345,24 @@ static int toneport_try_init(struct usb_interface *interface,
 	if ((interface == NULL) || (toneport == NULL))
 		return -ENODEV;
 
-	
+	/* initialize audio system: */
 	err = line6_init_audio(line6);
 	if (err < 0)
 		return err;
 
-	
+	/* initialize PCM subsystem: */
 	err = line6_init_pcm(line6, &toneport_pcm_properties);
 	if (err < 0)
 		return err;
 
-	
+	/* register monitor control: */
 	err = snd_ctl_add(line6->card,
 			  snd_ctl_new1(&toneport_control_monitor,
 				       line6->line6pcm));
 	if (err < 0)
 		return err;
 
-	
+	/* register source select control: */
 	switch (usbdev->descriptor.idProduct) {
 	case LINE6_DEVID_TONEPORT_UX1:
 	case LINE6_DEVID_TONEPORT_UX2:
@@ -353,7 +376,7 @@ static int toneport_try_init(struct usb_interface *interface,
 			return err;
 	}
 
-	
+	/* register audio system: */
 	err = line6_register_audio(line6);
 	if (err < 0)
 		return err;
@@ -379,6 +402,9 @@ static int toneport_try_init(struct usb_interface *interface,
 	return 0;
 }
 
+/*
+	 Init Toneport device (and clean up in case of failure).
+*/
 int line6_toneport_init(struct usb_interface *interface,
 			struct usb_line6_toneport *toneport)
 {
@@ -390,11 +416,17 @@ int line6_toneport_init(struct usb_interface *interface,
 	return err;
 }
 
+/*
+	Resume Toneport device after reset.
+*/
 void line6_toneport_reset_resume(struct usb_line6_toneport *toneport)
 {
 	toneport_setup(toneport);
 }
 
+/*
+	Toneport device disconnected.
+*/
 void line6_toneport_disconnect(struct usb_interface *interface)
 {
 	struct usb_line6_toneport *toneport;

@@ -38,6 +38,7 @@
 #define __MEM_4K_RESOURCE(x) \
 	.res = {.start = (x), .end = (x) + SZ_4K - 1, .flags = IORESOURCE_MEM}
 
+/* The 8815 has 4 GPIO blocks, let's register them immediately */
 
 #define GPIO_RESOURCE(block)						\
 	{								\
@@ -76,7 +77,7 @@ static struct nmk_gpio_platform_data cpu8815_gpio[] = {
 		.first_gpio = 64,
 		.first_irq = NOMADIK_GPIO_TO_IRQ(64),
 	}, {
-		.name = "GPIO-96-127", 
+		.name = "GPIO-96-127", /* 124..127 not routed to pin */
 		.first_gpio = 96,
 		.first_irq = NOMADIK_GPIO_TO_IRQ(96),
 	}
@@ -120,6 +121,7 @@ static int __init cpu8815_init(void)
 }
 arch_initcall(cpu8815_init);
 
+/* All SoC devices live in the same area (see hardware.h) */
 static struct map_desc nomadik_io_desc[] __initdata = {
 	{
 		.virtual =	NOMADIK_IO_VIRTUAL,
@@ -127,7 +129,7 @@ static struct map_desc nomadik_io_desc[] __initdata = {
 		.length =	NOMADIK_IO_SIZE,
 		.type = 	MT_DEVICE,
 	}
-	
+	/* static ram and secured ram may be added later */
 };
 
 void __init cpu8815_map_io(void)
@@ -137,17 +139,24 @@ void __init cpu8815_map_io(void)
 
 void __init cpu8815_init_irq(void)
 {
-	
+	/* This modified VIC cell has two register blocks, at 0 and 0x20 */
 	vic_init(io_p2v(NOMADIK_IC_BASE + 0x00), IRQ_VIC_START +  0, ~0, 0);
 	vic_init(io_p2v(NOMADIK_IC_BASE + 0x20), IRQ_VIC_START + 32, ~0, 0);
 
+	/*
+	 * Init clocks here so that they are available for system timer
+	 * initialization.
+	 */
 	clk_init();
 }
 
+/*
+ * This function is called from the board init ("init_machine").
+ */
  void __init cpu8815_platform_init(void)
 {
 #ifdef CONFIG_CACHE_L2X0
-	
+	/* At full speed latency must be >=2, so 0x249 in low bits */
 	l2x0_init(io_p2v(NOMADIK_L2CC_BASE), 0x00730249, 0xfe000fff);
 #endif
 	 return;
@@ -157,8 +166,8 @@ void cpu8815_restart(char mode, const char *cmd)
 {
 	void __iomem *src_rstsr = io_p2v(NOMADIK_SRC_BASE + 0x18);
 
-	
+	/* FIXME: use egpio when implemented */
 
-	
+	/* Write anything to Reset status register */
 	writel(1, src_rstsr);
 }

@@ -72,7 +72,7 @@ nfs4_renew_state(struct work_struct *work)
 	lease = clp->cl_lease_time;
 	last = clp->cl_last_renewal;
 	now = jiffies;
-	
+	/* Are we close to a lease timeout? */
 	if (time_after(now, last + lease/3))
 		renew_flags |= NFS4_RENEW_TIMEOUT;
 	if (nfs_delegations_present(clp))
@@ -88,7 +88,7 @@ nfs4_renew_state(struct work_struct *work)
 			}
 			nfs_expire_all_delegations(clp);
 		} else {
-			
+			/* Queue an asynchronous RENEW. */
 			ops->sched_state_renewal(clp, cred, renew_flags);
 			put_rpccred(cred);
 			goto out_exp;
@@ -129,3 +129,8 @@ nfs4_kill_renewd(struct nfs_client *clp)
 	cancel_delayed_work_sync(&clp->cl_renewd);
 }
 
+/*
+ * Local variables:
+ *   c-basic-offset: 8
+ * End:
+ */

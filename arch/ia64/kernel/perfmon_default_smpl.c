@@ -50,6 +50,9 @@ default_validate(struct task_struct *task, unsigned int flags, int cpu, void *da
 
 	DPRINT(("[%d] validate flags=0x%x CPU%d\n", task_pid_nr(task), flags, cpu));
 
+	/*
+	 * must hold at least the buffer header + one minimally sized entry
+	 */
 	if (arg->buf_size < PFM_DEFAULT_SMPL_MIN_BUF_SIZE) return -EINVAL;
 
 	DPRINT(("buf_size=%lu\n", arg->buf_size));
@@ -62,6 +65,9 @@ default_get_size(struct task_struct *task, unsigned int flags, int cpu, void *da
 {
 	pfm_default_smpl_arg_t *arg = (pfm_default_smpl_arg_t *)data;
 
+	/*
+	 * size has been validated in default_validate
+	 */
 	*size = arg->buf_size;
 
 	return 0;
@@ -114,6 +120,9 @@ default_handler(struct task_struct *task, void *buf, pfm_ovfl_arg_t *arg, struct
 	ovfl_pmd    = arg->ovfl_pmd;
 	ovfl_notify = arg->ovfl_notify;
 
+	/*
+	 * precheck for sanity
+	 */
 	if ((last - cur) < PFM_DEFAULT_MAX_ENTRY_SIZE) goto full;
 
 	npmds = hweight64(arg->smpl_pmds[0]);
@@ -124,7 +133,7 @@ default_handler(struct task_struct *task, void *buf, pfm_ovfl_arg_t *arg, struct
 
 	entry_size = sizeof(*ent) + (npmds << 3);
 
-	
+	/* position for first pmd */
 	e = (unsigned long *)(ent+1);
 
 	hdr->hdr_count++;
@@ -137,10 +146,23 @@ default_handler(struct task_struct *task, void *buf, pfm_ovfl_arg_t *arg, struct
 			ovfl_pmd,
 			ovfl_notify, npmds));
 
+	/*
+	 * current = task running at the time of the overflow.
+	 *
+	 * per-task mode:
+	 * 	- this is usually the task being monitored.
+	 * 	  Under certain conditions, it might be a different task
+	 *
+	 * system-wide:
+	 * 	- this is not necessarily the task controlling the session
+	 */
 	ent->pid            = current->pid;
 	ent->ovfl_pmd  	    = ovfl_pmd;
-	ent->last_reset_val = arg->pmd_last_reset; 
+	ent->last_reset_val = arg->pmd_last_reset; //pmd[0].reg_last_reset_val;
 
+	/*
+	 * where did the fault happen (includes slot number)
+	 */
 	ent->ip = regs->cr_iip | ((regs->cr_ipsr >> 41) & 0x3);
 
 	ent->tstamp    = stamp;
@@ -148,6 +170,9 @@ default_handler(struct task_struct *task, void *buf, pfm_ovfl_arg_t *arg, struct
 	ent->set       = arg->active_set;
 	ent->tgid      = current->tgid;
 
+	/*
+	 * selectively store PMDs in increasing index number
+	 */
 	if (npmds) {
 		unsigned long *val = arg->smpl_pmds_values;
 		for(i=0; i < npmds; i++) {
@@ -155,22 +180,38 @@ default_handler(struct task_struct *task, void *buf, pfm_ovfl_arg_t *arg, struct
 		}
 	}
 
+	/*
+	 * update position for next entry
+	 */
 	hdr->hdr_cur_offs += entry_size;
 	cur               += entry_size;
 
+	/*
+	 * post check to avoid losing the last sample
+	 */
 	if ((last - cur) < PFM_DEFAULT_MAX_ENTRY_SIZE) goto full;
 
+	/*
+	 * keep same ovfl_pmds, ovfl_notify
+	 */
 	arg->ovfl_ctrl.bits.notify_user     = 0;
 	arg->ovfl_ctrl.bits.block_task      = 0;
 	arg->ovfl_ctrl.bits.mask_monitoring = 0;
-	arg->ovfl_ctrl.bits.reset_ovfl_pmds = 1; 
+	arg->ovfl_ctrl.bits.reset_ovfl_pmds = 1; /* reset before returning from interrupt handler */
 
 	return 0;
 full:
 	DPRINT_ovfl(("sampling buffer full free=%lu, count=%lu, ovfl_notify=%d\n", last-cur, hdr->hdr_count, ovfl_notify));
 
+	/*
+	 * increment number of buffer overflow.
+	 * important to detect duplicate set of samples.
+	 */
 	hdr->hdr_overflows++;
 
+	/*
+	 * if no notification requested, then we saturate the buffer
+	 */
 	if (ovfl_notify == 0) {
 		arg->ovfl_ctrl.bits.notify_user     = 0;
 		arg->ovfl_ctrl.bits.block_task      = 0;
@@ -178,11 +219,11 @@ full:
 		arg->ovfl_ctrl.bits.reset_ovfl_pmds = 0;
 	} else {
 		arg->ovfl_ctrl.bits.notify_user     = 1;
-		arg->ovfl_ctrl.bits.block_task      = 1; 
+		arg->ovfl_ctrl.bits.block_task      = 1; /* ignored for non-blocking context */
 		arg->ovfl_ctrl.bits.mask_monitoring = 1;
-		arg->ovfl_ctrl.bits.reset_ovfl_pmds = 0; 
+		arg->ovfl_ctrl.bits.reset_ovfl_pmds = 0; /* no reset now */
 	}
-	return -1; 
+	return -1; /* we are full, sorry */
 }
 
 static int
@@ -196,7 +237,7 @@ default_restart(struct task_struct *task, pfm_ovfl_ctrl_t *ctrl, void *buf, stru
 	hdr->hdr_cur_offs = sizeof(*hdr);
 
 	ctrl->bits.mask_monitoring = 0;
-	ctrl->bits.reset_ovfl_pmds = 1; 
+	ctrl->bits.reset_ovfl_pmds = 1; /* uses long-reset values */
 
 	return 0;
 }

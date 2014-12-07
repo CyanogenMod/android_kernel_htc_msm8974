@@ -66,6 +66,7 @@
 
 #define SAVAGEFB_VERSION "0.4.0_2.6"
 
+/* --------------------------------------------------------------------- */
 
 
 static char *mode_option __devinitdata = NULL;
@@ -79,13 +80,14 @@ MODULE_DESCRIPTION("FBDev driver for S3 Savage PCI/AGP Chips");
 #endif
 
 
+/* --------------------------------------------------------------------- */
 
 static void vgaHWSeqReset(struct savagefb_par *par, int start)
 {
 	if (start)
-		VGAwSEQ(0x00, 0x01, par);	
+		VGAwSEQ(0x00, 0x01, par);	/* Synchronous Reset */
 	else
-		VGAwSEQ(0x00, 0x03, par);	
+		VGAwSEQ(0x00, 0x03, par);	/* End Reset */
 }
 
 static void vgaHWProtect(struct savagefb_par *par, int on)
@@ -93,18 +95,24 @@ static void vgaHWProtect(struct savagefb_par *par, int on)
 	unsigned char tmp;
 
 	if (on) {
+		/*
+		 * Turn off screen and disable sequencer.
+		 */
 		tmp = VGArSEQ(0x01, par);
 
-		vgaHWSeqReset(par, 1);	        
-		VGAwSEQ(0x01, tmp | 0x20, par);
+		vgaHWSeqReset(par, 1);	        /* start synchronous reset */
+		VGAwSEQ(0x01, tmp | 0x20, par);/* disable the display */
 
 		VGAenablePalette(par);
 	} else {
+		/*
+		 * Reenable sequencer, then turn on screen.
+		 */
 
 		tmp = VGArSEQ(0x01, par);
 
-		VGAwSEQ(0x01, tmp & ~0x20, par);
-		vgaHWSeqReset(par, 0);	        
+		VGAwSEQ(0x01, tmp & ~0x20, par);/* reenable display */
+		vgaHWSeqReset(par, 0);	        /* clear synchronous reset */
 
 		VGAdisablePalette(par);
 	}
@@ -119,6 +127,8 @@ static void vgaHWRestore(struct savagefb_par  *par, struct savage_reg *reg)
 	for (i = 1; i < 5; i++)
 		VGAwSEQ(i, reg->Sequencer[i], par);
 
+	/* Ensure CRTC registers 0-7 are unlocked by clearing bit 7 or
+	   CRTC[17] */
 	VGAwCR(17, reg->CRTC[17] & ~0x80, par);
 
 	for (i = 0; i < 25; i++)
@@ -148,12 +158,18 @@ static void vgaHWInit(struct fb_var_screeninfo *var,
 	if (!(timings->sync & FB_SYNC_VERT_HIGH_ACT))
 		reg->MiscOutReg |= 0x80;
 
+	/*
+	 * Time Sequencer
+	 */
 	reg->Sequencer[0x00] = 0x00;
 	reg->Sequencer[0x01] = 0x01;
 	reg->Sequencer[0x02] = 0x0F;
-	reg->Sequencer[0x03] = 0x00;          
-	reg->Sequencer[0x04] = 0x0E;          
+	reg->Sequencer[0x03] = 0x00;          /* Font select */
+	reg->Sequencer[0x04] = 0x0E;          /* Misc */
 
+	/*
+	 * CRTC Controller
+	 */
 	reg->CRTC[0x00] = (timings->HTotal >> 3) - 5;
 	reg->CRTC[0x01] = (timings->HDisplay >> 3) - 1;
 	reg->CRTC[0x02] = (timings->HSyncStart >> 3) - 1;
@@ -192,19 +208,27 @@ static void vgaHWInit(struct fb_var_screeninfo *var,
 	reg->CRTC[0x17] = 0xc3;
 	reg->CRTC[0x18] = 0xff;
 
+	/*
+	 * are these unnecessary?
+	 * vgaHWHBlankKGA(mode, regp, 0, KGA_FIX_OVERSCAN|KGA_ENABLE_ON_ZERO);
+	 * vgaHWVBlankKGA(mode, regp, 0, KGA_FIX_OVERSCAN|KGA_ENABLE_ON_ZERO);
+	 */
 
+	/*
+	 * Graphics Display Controller
+	 */
 	reg->Graphics[0x00] = 0x00;
 	reg->Graphics[0x01] = 0x00;
 	reg->Graphics[0x02] = 0x00;
 	reg->Graphics[0x03] = 0x00;
 	reg->Graphics[0x04] = 0x00;
 	reg->Graphics[0x05] = 0x40;
-	reg->Graphics[0x06] = 0x05;   
+	reg->Graphics[0x06] = 0x05;   /* only map 64k VGA memory !!!! */
 	reg->Graphics[0x07] = 0x0F;
 	reg->Graphics[0x08] = 0xFF;
 
 
-	reg->Attribute[0x00]  = 0x00; 
+	reg->Attribute[0x00]  = 0x00; /* standard colormap translation */
 	reg->Attribute[0x01]  = 0x01;
 	reg->Attribute[0x02]  = 0x02;
 	reg->Attribute[0x03]  = 0x03;
@@ -227,8 +251,13 @@ static void vgaHWInit(struct fb_var_screeninfo *var,
 	reg->Attribute[0x14] = 0x00;
 }
 
+/* -------------------- Hardware specific routines ------------------------- */
 
+/*
+ * Hardware Acceleration for SavageFB
+ */
 
+/* Wait for fifo space */
 static void
 savage3D_waitfifo(struct savagefb_par *par, int space)
 {
@@ -253,6 +282,7 @@ savage2000_waitfifo(struct savagefb_par *par, int space)
 	while ((savage_in32(0x48C60, par) & 0x0000ffff) > slots);
 }
 
+/* Wait for idle accelerator */
 static void
 savage3D_waitidle(struct savagefb_par *par)
 {
@@ -284,16 +314,16 @@ SavageSetup2DEngine(struct savagefb_par  *par)
 	switch(par->chip) {
 	case S3_SAVAGE3D:
 	case S3_SAVAGE_MX:
-		
+		/* Disable BCI */
 		savage_out32(0x48C18, savage_in32(0x48C18, par) & 0x3FF0, par);
-		
+		/* Setup BCI command overflow buffer */
 		savage_out32(0x48C14,
 			     (par->cob_offset >> 11) | (par->cob_index << 29),
 			     par);
-		
+		/* Program shadow status update. */
 		savage_out32(0x48C10, 0x78207220, par);
 		savage_out32(0x48C0C, 0, par);
-		
+		/* Enable BCI and command overflow buffer */
 		savage_out32(0x48C18, savage_in32(0x48C18, par) | 0x0C, par);
 		break;
 	case S3_SAVAGE4:
@@ -301,52 +331,52 @@ SavageSetup2DEngine(struct savagefb_par  *par)
 	case S3_PROSAVAGE:
 	case S3_PROSAVAGEDDR:
 	case S3_SUPERSAVAGE:
-		
+		/* Disable BCI */
 		savage_out32(0x48C18, savage_in32(0x48C18, par) & 0x3FF0, par);
-		
+		/* Program shadow status update */
 		savage_out32(0x48C10, 0x00700040, par);
 		savage_out32(0x48C0C, 0, par);
-		
+		/* Enable BCI without the COB */
 		savage_out32(0x48C18, savage_in32(0x48C18, par) | 0x08, par);
 		break;
 	case S3_SAVAGE2000:
-		
+		/* Disable BCI */
 		savage_out32(0x48C18, 0, par);
-		
+		/* Setup BCI command overflow buffer */
 		savage_out32(0x48C18,
 			     (par->cob_offset >> 7) | (par->cob_index),
 			     par);
-		
+		/* Disable shadow status update */
 		savage_out32(0x48A30, 0, par);
-		
+		/* Enable BCI and command overflow buffer */
 		savage_out32(0x48C18, savage_in32(0x48C18, par) | 0x00280000,
 			     par);
 		break;
 	    default:
 		break;
 	}
-	
+	/* Turn on 16-bit register access. */
 	vga_out8(0x3d4, 0x31, par);
 	vga_out8(0x3d5, 0x0c, par);
 
-	
+	/* Set stride to use GBD. */
 	vga_out8(0x3d4, 0x50, par);
 	vga_out8(0x3d5, vga_in8(0x3d5, par) | 0xC1, par);
 
-	
+	/* Enable 2D engine. */
 	vga_out8(0x3d4, 0x40, par);
 	vga_out8(0x3d5, 0x01, par);
 
 	savage_out32(MONO_PAT_0, ~0, par);
 	savage_out32(MONO_PAT_1, ~0, par);
 
-	
-	savage_out32(0x8128, ~0, par); 
-	savage_out32(0x812C, ~0, par); 
+	/* Setup plane masks */
+	savage_out32(0x8128, ~0, par); /* enable all write planes */
+	savage_out32(0x812C, ~0, par); /* enable all read planes */
 	savage_out16(0x8134, 0x27, par);
 	savage_out16(0x8136, 0x07, par);
 
-	
+	/* Now set the GBD */
 	par->bci_ptr = 0;
 	par->SavageWaitFifo(par, 4);
 
@@ -355,6 +385,11 @@ SavageSetup2DEngine(struct savagefb_par  *par)
 	BCI_SEND(BCI_CMD_SETREG | (1 << 16) | BCI_GBD2);
 	BCI_SEND(GlobalBitmapDescriptor);
 
+	/*
+	 * I don't know why, sending this twice fixes the initial black screen,
+	 * prevents X from crashing at least in Toshiba laptops with SavageIX.
+	 * --Tony
+	 */
 	par->bci_ptr = 0;
 	par->SavageWaitFifo(par, 4);
 
@@ -399,7 +434,7 @@ static void SavageCalcClock(long freq, int min_m, int min_n1, int max_n1,
 		freq = freq_max / (1 << min_n2);
 	}
 
-	
+	/* work out suitable timings */
 	best_diff = freq;
 
 	for (n2=min_n2; n2<=max_n2; n2++) {
@@ -472,6 +507,7 @@ static int common_calc_clock(long freq, int min_m, int min_n1, int max_n1,
 }
 
 #ifdef SAVAGEFB_DEBUG
+/* This function is used to debug, it prints out the contents of s3 regs */
 
 static void SavagePrintRegs(struct savagefb_par *par)
 {
@@ -503,6 +539,7 @@ static void SavagePrintRegs(struct savagefb_par *par)
 }
 #endif
 
+/* --------------------------------------------------------------------- */
 
 static void savage_get_default_par(struct savagefb_par *par, struct savage_reg *reg)
 {
@@ -532,12 +569,12 @@ static void savage_get_default_par(struct savagefb_par *par, struct savage_reg *
 	vga_out8(0x3d4, 0x3a, par);
 	vga_out8(0x3d5, cr3a, par);
 
-	
+	/* unlock extended seq regs */
 	vga_out8(0x3c4, 0x08, par);
 	reg->SR08 = vga_in8(0x3c5, par);
 	vga_out8(0x3c5, 0x06, par);
 
-	
+	/* now save all the extended regs we need */
 	vga_out8(0x3d4, 0x31, par);
 	reg->CR31 = vga_in8(0x3d5, par);
 	vga_out8(0x3d4, 0x32, par);
@@ -588,7 +625,7 @@ static void savage_get_default_par(struct savagefb_par *par, struct savage_reg *
 	vga_out8(0x3d4, 0xb0, par);
 	reg->CRB0 = vga_in8(0x3d5, par) | 0x80;
 
-	
+	/* extended mode timing regs */
 	vga_out8(0x3d4, 0x3b, par);
 	reg->CR3B = vga_in8(0x3d5, par);
 	vga_out8(0x3d4, 0x3c, par);
@@ -602,7 +639,7 @@ static void savage_get_default_par(struct savagefb_par *par, struct savage_reg *
 	vga_out8(0x3d4, 0x65, par);
 	reg->CR65 = vga_in8(0x3d5, par);
 
-	
+	/* save seq extended regs for DCLK PLL programming */
 	vga_out8(0x3c4, 0x0e, par);
 	reg->SR0E = vga_in8(0x3c5, par);
 	vga_out8(0x3c4, 0x0f, par);
@@ -625,7 +662,7 @@ static void savage_get_default_par(struct savagefb_par *par, struct savage_reg *
 	vga_out8(0x3c4, 0x18, par);
 	reg->SR18 = vga_in8(0x3c5, par);
 
-	
+	/* Save flat panel expansion regsters. */
 	if (par->chip == S3_SAVAGE_MX) {
 		int i;
 
@@ -642,7 +679,7 @@ static void savage_get_default_par(struct savagefb_par *par, struct savage_reg *
 	cr3a = vga_in8(0x3d5, par);
 	vga_out8(0x3d5, cr3a | 0x80, par);
 
-	
+	/* now save MIU regs */
 	if (par->chip != S3_SAVAGE_MX) {
 		reg->MMPR0 = savage_in32(FIFO_CONTROL_REG, par);
 		reg->MMPR1 = savage_in32(MIU_CONTROL_REG, par);
@@ -685,12 +722,12 @@ static void savage_set_default_par(struct savagefb_par *par,
 	vga_out8(0x3d4, 0x3a, par);
 	vga_out8(0x3d5, cr3a, par);
 
-	
+	/* unlock extended seq regs */
 	vga_out8(0x3c4, 0x08, par);
 	vga_out8(0x3c5, reg->SR08, par);
 	vga_out8(0x3c5, 0x06, par);
 
-	
+	/* now restore all the extended regs we need */
 	vga_out8(0x3d4, 0x31, par);
 	vga_out8(0x3d5, reg->CR31, par);
 	vga_out8(0x3d4, 0x32, par);
@@ -741,7 +778,7 @@ static void savage_set_default_par(struct savagefb_par *par,
 	vga_out8(0x3d4, 0xb0, par);
 	vga_out8(0x3d5, reg->CRB0, par);
 
-	
+	/* extended mode timing regs */
 	vga_out8(0x3d4, 0x3b, par);
 	vga_out8(0x3d5, reg->CR3B, par);
 	vga_out8(0x3d4, 0x3c, par);
@@ -755,7 +792,7 @@ static void savage_set_default_par(struct savagefb_par *par,
 	vga_out8(0x3d4, 0x65, par);
 	vga_out8(0x3d5, reg->CR65, par);
 
-	
+	/* save seq extended regs for DCLK PLL programming */
 	vga_out8(0x3c4, 0x0e, par);
 	vga_out8(0x3c5, reg->SR0E, par);
 	vga_out8(0x3c4, 0x0f, par);
@@ -778,7 +815,7 @@ static void savage_set_default_par(struct savagefb_par *par,
 	vga_out8(0x3c4, 0x18, par);
 	vga_out8(0x3c5, reg->SR18, par);
 
-	
+	/* Save flat panel expansion regsters. */
 	if (par->chip == S3_SAVAGE_MX) {
 		int i;
 
@@ -795,7 +832,7 @@ static void savage_set_default_par(struct savagefb_par *par,
 	cr3a = vga_in8(0x3d5, par);
 	vga_out8(0x3d5, cr3a | 0x80, par);
 
-	
+	/* now save MIU regs */
 	if (par->chip != S3_SAVAGE_MX) {
 		savage_out32(FIFO_CONTROL_REG, reg->MMPR0, par);
 		savage_out32(MIU_CONTROL_REG, reg->MMPR1, par);
@@ -872,7 +909,7 @@ static int savagefb_check_var(struct fb_var_screeninfo   *var,
 	    !info->monspecs.dclkmax || !fb_validate_mode(var, info))
 		mode_valid = 1;
 
-	
+	/* calculate modeline if supported by monitor */
 	if (!mode_valid && info->monspecs.gtf) {
 		if (!fb_get_mode(FB_MAXTIMINGS, 0, var, info))
 			mode_valid = 1;
@@ -891,7 +928,7 @@ static int savagefb_check_var(struct fb_var_screeninfo   *var,
 	if (!mode_valid && info->monspecs.modedb_len)
 		return -EINVAL;
 
-	
+	/* Is the mode larger than the LCD panel? */
 	if (par->SavagePanelWidth &&
 	    (var->xres > par->SavagePanelWidth ||
 	     var->yres > par->SavagePanelHeight)) {
@@ -918,6 +955,8 @@ static int savagefb_check_var(struct fb_var_screeninfo   *var,
 			var->yres_virtual / 8;
 	}
 
+	/* we must round yres/xres down, we already rounded y/xres_virtual up
+	   if it was possible. We should return -EINVAL, but I disagree */
 	if (var->yres_virtual < var->yres)
 		var->yres = var->yres_virtual;
 	if (var->xres_virtual < var->xres)
@@ -936,7 +975,7 @@ static int savagefb_decode_var(struct fb_var_screeninfo   *var,
 			       struct savage_reg          *reg)
 {
 	struct xtimings timings;
-	int width, dclk, i, j; 
+	int width, dclk, i, j; /*, refresh; */
 	unsigned int m, n, r;
 	unsigned char tmp = 0;
 	unsigned int pixclock = var->pixclock;
@@ -945,7 +984,7 @@ static int savagefb_decode_var(struct fb_var_screeninfo   *var,
 
 	memset(&timings, 0, sizeof(timings));
 
-	if (!pixclock) pixclock = 10000;	
+	if (!pixclock) pixclock = 10000;	/* 10ns = 100MHz */
 	timings.Clock = 1000000000 / pixclock;
 	if (timings.Clock < 1) timings.Clock = 1;
 	timings.dblscan = var->vmode & FB_VMODE_DOUBLE;
@@ -971,9 +1010,13 @@ static int savagefb_decode_var(struct fb_var_screeninfo   *var,
 		timings.HTotal *= 2;
 	}
 
+	/*
+	 * This will allocate the datastructure and initialize all of the
+	 * generic VGA registers.
+	 */
 	vgaHWInit(var, par, &timings, reg);
 
-	
+	/* We need to set CR67 whether or not we use the BIOS. */
 
 	dclk = timings.Clock;
 	reg->CR67 = 0x00;
@@ -981,23 +1024,23 @@ static int savagefb_decode_var(struct fb_var_screeninfo   *var,
 	switch(var->bits_per_pixel) {
 	case 8:
 		if ((par->chip == S3_SAVAGE2000) && (dclk >= 230000))
-			reg->CR67 = 0x10;	
+			reg->CR67 = 0x10;	/* 8bpp, 2 pixels/clock */
 		else
-			reg->CR67 = 0x00;	
+			reg->CR67 = 0x00;	/* 8bpp, 1 pixel/clock */
 		break;
 	case 15:
 		if (S3_SAVAGE_MOBILE_SERIES(par->chip) ||
 		    ((par->chip == S3_SAVAGE2000) && (dclk >= 230000)))
-			reg->CR67 = 0x30;	
+			reg->CR67 = 0x30;	/* 15bpp, 2 pixel/clock */
 		else
-			reg->CR67 = 0x20;	
+			reg->CR67 = 0x20;	/* 15bpp, 1 pixels/clock */
 		break;
 	case 16:
 		if (S3_SAVAGE_MOBILE_SERIES(par->chip) ||
 		   ((par->chip == S3_SAVAGE2000) && (dclk >= 230000)))
-			reg->CR67 = 0x50;	
+			reg->CR67 = 0x50;	/* 16bpp, 2 pixel/clock */
 		else
-			reg->CR67 = 0x40;	
+			reg->CR67 = 0x40;	/* 16bpp, 1 pixels/clock */
 		break;
 	case 24:
 		reg->CR67 = 0x70;
@@ -1007,10 +1050,14 @@ static int savagefb_decode_var(struct fb_var_screeninfo   *var,
 		break;
 	}
 
+	/*
+	 * Either BIOS use is disabled, or we failed to find a suitable
+	 * match.  Fall back to traditional register-crunching.
+	 */
 
 	vga_out8(0x3d4, 0x3a, par);
 	tmp = vga_in8(0x3d5, par);
-	if (1 )
+	if (1 /*FIXME:psav->pci_burst*/)
 		reg->CR3A = (tmp & 0x7f) | 0x15;
 	else
 		reg->CR3A = tmp | 0x95;
@@ -1036,7 +1083,7 @@ static int savagefb_decode_var(struct fb_var_screeninfo   *var,
 	reg->MMPR3 = 0x08080810;
 
 	SavageCalcClock(dclk, 1, 1, 127, 0, 4, 180000, 360000, &m, &n, &r);
-	
+	/* m = 107; n = 4; r = 2; */
 
 	if (par->MCLK <= 0) {
 		reg->SR10 = 255;
@@ -1044,8 +1091,8 @@ static int savagefb_decode_var(struct fb_var_screeninfo   *var,
 	} else {
 		common_calc_clock(par->MCLK, 1, 1, 31, 0, 3, 135000, 270000,
 				   &reg->SR11, &reg->SR10);
-		
-		
+		/*      reg->SR10 = 80; // MCLK == 286000 */
+		/*      reg->SR11 = 125; */
 	}
 
 	reg->SR12 = (r << 6) | (n & 0x3f);
@@ -1062,7 +1109,7 @@ static int savagefb_decode_var(struct fb_var_screeninfo   *var,
 	else
 		reg->CR42 = 0x00;
 
-	reg->CR34 = 0x10; 
+	reg->CR34 = 0x10; /* display fifo */
 
 	i = ((((timings.HTotal >> 3) - 5) & 0x100) >> 8) |
 		((((timings.HDisplay >> 3) - 1) & 0x100) >> 7) |
@@ -1099,7 +1146,7 @@ static int savagefb_decode_var(struct fb_var_screeninfo   *var,
 	reg->CR90 = 0x80 | (width >> 8);
 	reg->MiscOutReg |= 0x0c;
 
-	
+	/* Set frame buffer description. */
 
 	if (var->bits_per_pixel <= 8)
 		reg->CR50 = 0;
@@ -1121,7 +1168,7 @@ static int savagefb_decode_var(struct fb_var_screeninfo   *var,
 	else if (var->xres_virtual == 1600)
 		reg->CR50 |= 0x81;
 	else
-		reg->CR50 |= 0xc1;	
+		reg->CR50 |= 0xc1;	/* Use GBD */
 
 	if (par->chip == S3_SAVAGE2000)
 		reg->CR33 = 0x08;
@@ -1149,7 +1196,11 @@ static int savagefb_decode_var(struct fb_var_screeninfo   *var,
 	return 0;
 }
 
+/* --------------------------------------------------------------------- */
 
+/*
+ *    Set a single color register. Return != 0 for invalid regno.
+ */
 static int savagefb_setcolreg(unsigned        regno,
 			      unsigned        red,
 			      unsigned        green,
@@ -1223,18 +1274,24 @@ static void savagefb_set_par_int(struct savagefb_par  *par, struct savage_reg *r
 
 	vgaHWProtect(par, 1);
 
+	/*
+	 * Some Savage/MX and /IX systems go nuts when trying to exit the
+	 * server after WindowMaker has displayed a gradient background.  I
+	 * haven't been able to find what causes it, but a non-destructive
+	 * switch to mode 3 here seems to eliminate the issue.
+	 */
 
 	VerticalRetraceWait(par);
 	vga_out8(0x3d4, 0x67, par);
 	cr67 = vga_in8(0x3d5, par);
-	vga_out8(0x3d5, cr67 & ~0x0c, par); 
+	vga_out8(0x3d5, cr67/*par->CR67*/ & ~0x0c, par); /* no STREAMS yet */
 
 	vga_out8(0x3d4, 0x23, par);
 	vga_out8(0x3d5, 0x00, par);
 	vga_out8(0x3d4, 0x26, par);
 	vga_out8(0x3d5, 0x00, par);
 
-	
+	/* restore extended regs */
 	vga_out8(0x3d4, 0x66, par);
 	vga_out8(0x3d5, reg->CR66, par);
 	vga_out8(0x3d4, 0x3a, par);
@@ -1250,7 +1307,7 @@ static void savagefb_set_par_int(struct savagefb_par  *par, struct savage_reg *r
 
 	vga_out16(0x3c4, 0x0608, par);
 
-	
+	/* Restore DCLK registers. */
 
 	vga_out8(0x3c4, 0x0e, par);
 	vga_out8(0x3c5, reg->SR0E, par);
@@ -1261,7 +1318,7 @@ static void savagefb_set_par_int(struct savagefb_par  *par, struct savage_reg *r
 	vga_out8(0x3c4, 0x15, par);
 	vga_out8(0x3c5, reg->SR15, par);
 
-	
+	/* Restore flat panel expansion regsters. */
 	if (par->chip == S3_SAVAGE_MX) {
 		int i;
 
@@ -1273,7 +1330,7 @@ static void savagefb_set_par_int(struct savagefb_par  *par, struct savage_reg *r
 
 	vgaHWRestore (par, reg);
 
-	
+	/* extended mode timing registers */
 	vga_out8(0x3d4, 0x53, par);
 	vga_out8(0x3d5, reg->CR53, par);
 	vga_out8(0x3d4, 0x5d, par);
@@ -1289,17 +1346,17 @@ static void savagefb_set_par_int(struct savagefb_par  *par, struct savage_reg *r
 	vga_out8(0x3d4, 0x65, par);
 	vga_out8(0x3d5, reg->CR65, par);
 
-	
+	/* restore the desired video mode with cr67 */
 	vga_out8(0x3d4, 0x67, par);
-	
+	/* following part not present in X11 driver */
 	cr67 = vga_in8(0x3d5, par) & 0xf;
 	vga_out8(0x3d5, 0x50 | cr67, par);
 	udelay(10000);
 	vga_out8(0x3d4, 0x67, par);
-	
+	/* end of part */
 	vga_out8(0x3d5, reg->CR67 & ~0x0c, par);
 
-	
+	/* other mode timing and extended regs */
 	vga_out8(0x3d4, 0x34, par);
 	vga_out8(0x3d5, reg->CR34, par);
 	vga_out8(0x3d4, 0x40, par);
@@ -1313,7 +1370,7 @@ static void savagefb_set_par_int(struct savagefb_par  *par, struct savage_reg *r
 	vga_out8(0x3d4, 0x51, par);
 	vga_out8(0x3d5, reg->CR51, par);
 
-	
+	/* memory timings */
 	vga_out8(0x3d4, 0x36, par);
 	vga_out8(0x3d5, reg->CR36, par);
 	vga_out8(0x3d4, 0x60, par);
@@ -1344,10 +1401,13 @@ static void savagefb_set_par_int(struct savagefb_par  *par, struct savage_reg *r
 	vga_out8(0x3d4, 0x32, par);
 	vga_out8(0x3d5, reg->CR32, par);
 
-	
+	/* unlock extended seq regs */
 	vga_out8(0x3c4, 0x08, par);
 	vga_out8(0x3c5, 0x06, par);
 
+	/* Restore extended sequencer regs for MCLK. SR10 == 255 indicates
+	 * that we should leave the default SR10 and SR11 values there.
+	 */
 	if (reg->SR10 != 255) {
 		vga_out8(0x3c4, 0x10, par);
 		vga_out8(0x3c5, reg->SR10, par);
@@ -1355,7 +1415,7 @@ static void savagefb_set_par_int(struct savagefb_par  *par, struct savage_reg *r
 		vga_out8(0x3c5, reg->SR11, par);
 	}
 
-	
+	/* restore extended seq regs for dclk */
 	vga_out8(0x3c4, 0x0e, par);
 	vga_out8(0x3c5, reg->SR0E, par);
 	vga_out8(0x3c4, 0x0f, par);
@@ -1369,7 +1429,7 @@ static void savagefb_set_par_int(struct savagefb_par  *par, struct savage_reg *r
 	vga_out8(0x3c4, 0x18, par);
 	vga_out8(0x3c5, reg->SR18, par);
 
-	
+	/* load new m, n pll values for dclk & mclk */
 	vga_out8(0x3c4, 0x15, par);
 	tmp = vga_in8(0x3c5, par) & ~0x21;
 
@@ -1384,7 +1444,7 @@ static void savagefb_set_par_int(struct savagefb_par  *par, struct savage_reg *r
 	vga_out8(0x3c4, 0x08, par);
 	vga_out8(0x3c5, reg->SR08, par);
 
-	
+	/* now write out cr67 in full, possibly starting STREAMS */
 	VerticalRetraceWait(par);
 	vga_out8(0x3d4, 0x67, par);
 	vga_out8(0x3d5, reg->CR67, par);
@@ -1418,7 +1478,7 @@ static void savagefb_set_par_int(struct savagefb_par  *par, struct savage_reg *r
 
 static void savagefb_update_start(struct savagefb_par *par, int base)
 {
-	
+	/* program the start address registers */
 	vga_out16(0x3d4, (base & 0x00ff00) | 0x0c, par);
 	vga_out16(0x3d4, ((base & 0x00ff) << 8) | 0x0d, par);
 	vga_out8(0x3d4, 0x69, par);
@@ -1463,7 +1523,7 @@ static int savagefb_set_par(struct fb_info *info)
 			par->dacSpeedBpp = par->clock[0];
 	}
 
-	
+	/* Set ramdac limits */
 	par->maxClock = par->dacSpeedBpp;
 	par->minClock = 10000;
 
@@ -1476,6 +1536,9 @@ static int savagefb_set_par(struct fb_info *info)
 	return 0;
 }
 
+/*
+ *    Pan or Wrap the Display
+ */
 static int savagefb_pan_display(struct fb_var_screeninfo *var,
 				struct fb_info           *info)
 {
@@ -1527,13 +1590,13 @@ static int savagefb_blank(int blank, struct fb_info *info)
 		switch(blank) {
 		case FB_BLANK_UNBLANK:
 		case FB_BLANK_NORMAL:
-			vga_out8(0x3c4, 0x31, par); 
+			vga_out8(0x3c4, 0x31, par); /* SR31 bit 4 - FP enable */
 			vga_out8(0x3c5, vga_in8(0x3c5, par) | 0x10, par);
 			break;
 		case FB_BLANK_VSYNC_SUSPEND:
 		case FB_BLANK_HSYNC_SUSPEND:
 		case FB_BLANK_POWERDOWN:
-			vga_out8(0x3c4, 0x31, par); 
+			vga_out8(0x3c4, 0x31, par); /* SR31 bit 4 - FP enable */
 			vga_out8(0x3c5, vga_in8(0x3c5, par) & ~0x10, par);
 			break;
 		}
@@ -1599,6 +1662,7 @@ static struct fb_ops savagefb_ops = {
 #endif
 };
 
+/* --------------------------------------------------------------------- */
 
 static struct fb_var_screeninfo __devinitdata savagefb_var800x600x8 = {
 	.accel_flags =	FB_ACCELF_TEXT,
@@ -1730,7 +1794,7 @@ static int __devinit savage_map_video(struct fb_info *info,
 				   MTRR_TYPE_WRCOMB, 1);
 #endif
 
-	
+	/* Clear framebuffer, it's all white in memory after boot */
 	memset_io(par->video.vbase, 0, par->video.len);
 
 	return 0;
@@ -1765,12 +1829,12 @@ static int savage_init_hw(struct savagefb_par *par)
 
 	DBG("savage_init_hw");
 
-	
+	/* unprotect CRTC[0-7] */
 	vga_out8(0x3d4, 0x11, par);
 	tmp = vga_in8(0x3d5, par);
 	vga_out8(0x3d5, tmp & 0x7f, par);
 
-	
+	/* unlock extended regs */
 	vga_out16(0x3d4, 0x4838, par);
 	vga_out16(0x3d4, 0xa039, par);
 	vga_out16(0x3c4, 0x0608, par);
@@ -1779,19 +1843,19 @@ static int savage_init_hw(struct savagefb_par *par)
 	tmp = vga_in8(0x3d5, par);
 	vga_out8(0x3d5, tmp & ~0x01, par);
 
-	
+	/* unlock sys regs */
 	vga_out8(0x3d4, 0x38, par);
 	vga_out8(0x3d5, 0x48, par);
 
-	
+	/* Unlock system registers. */
 	vga_out16(0x3d4, 0x4838, par);
 
-	
+	/* Next go on to detect amount of installed ram */
 
-	vga_out8(0x3d4, 0x36, par);            
-	config1 = vga_in8(0x3d5, par);    
+	vga_out8(0x3d4, 0x36, par);            /* for register CR36 (CONFG_REG1), */
+	config1 = vga_in8(0x3d5, par);    /* get amount of vram installed */
 
-	
+	/* Compute the amount of video memory and offscreen memory. */
 
 	switch  (par->chip) {
 	case S3_SAVAGE3D:
@@ -1799,11 +1863,17 @@ static int savage_init_hw(struct savagefb_par *par)
 		break;
 
 	case S3_SAVAGE4:
-		vga_out8(0x3d4, 0x68, par);	
+		/*
+		 * The Savage4 has one ugly special case to consider.  On
+		 * systems with 4 banks of 2Mx32 SDRAM, the BIOS says 4MB
+		 * when it really means 8MB.  Why do it the same when you
+		 * can do it different...
+		 */
+		vga_out8(0x3d4, 0x68, par);	/* memory control 1 */
 		if ((vga_in8(0x3d5, par) & 0xC0) == (0x01 << 6))
 			RamSavage4[1] = 8;
 
-		
+		/*FALLTHROUGH*/
 
 	case S3_SAVAGE2000:
 		videoRam = RamSavage4[(config1 & 0xE0) >> 5] * 1024;
@@ -1821,7 +1891,7 @@ static int savage_init_hw(struct savagefb_par *par)
 		break;
 
 	default:
-		
+		/* How did we get here? */
 		videoRam = 0;
 		break;
 	}
@@ -1830,34 +1900,38 @@ static int savage_init_hw(struct savagefb_par *par)
 
 	printk(KERN_INFO "savagefb: probed videoram:  %dk\n", videoRam);
 
-	
+	/* reset graphics engine to avoid memory corruption */
 	vga_out8(0x3d4, 0x66, par);
 	cr66 = vga_in8(0x3d5, par);
 	vga_out8(0x3d5, cr66 | 0x02, par);
 	udelay(10000);
 
 	vga_out8(0x3d4, 0x66, par);
-	vga_out8(0x3d5, cr66 & ~0x02, par);	
+	vga_out8(0x3d5, cr66 & ~0x02, par);	/* clear reset flag */
 	udelay(10000);
 
 
+	/*
+	 * reset memory interface, 3D engine, AGP master, PCI master,
+	 * master engine unit, motion compensation/LPB
+	 */
 	vga_out8(0x3d4, 0x3f, par);
 	cr3f = vga_in8(0x3d5, par);
 	vga_out8(0x3d5, cr3f | 0x08, par);
 	udelay(10000);
 
 	vga_out8(0x3d4, 0x3f, par);
-	vga_out8(0x3d5, cr3f & ~0x08, par);	
+	vga_out8(0x3d5, cr3f & ~0x08, par);	/* clear reset flags */
 	udelay(10000);
 
-	
+	/* Savage ramdac speeds */
 	par->numClocks = 4;
 	par->clock[0] = 250000;
 	par->clock[1] = 250000;
 	par->clock[2] = 220000;
 	par->clock[3] = 220000;
 
-	
+	/* detect current mclk */
 	vga_out8(0x3c4, 0x08, par);
 	sr8 = vga_in8(0x3c5, par);
 	vga_out8(0x3c5, 0x06, par);
@@ -1874,17 +1948,17 @@ static int savage_init_hw(struct savagefb_par *par)
 	printk(KERN_INFO "savagefb: Detected current MCLK value of %d kHz\n",
 		par->MCLK);
 
-	
+	/* check for DVI/flat panel */
 	dvi = 0;
 
 	if (par->chip == S3_SAVAGE4) {
 		unsigned char sr30 = 0x00;
 
 		vga_out8(0x3c4, 0x30, par);
-		
+		/* clear bit 1 */
 		vga_out8(0x3c5, vga_in8(0x3c5, par) & ~0x02, par);
 		sr30 = vga_in8(0x3c5, par);
-		if (sr30 & 0x02 ) {
+		if (sr30 & 0x02 /*0x04 */) {
 			dvi = 1;
 			printk("savagefb: Digital Flat Panel Detected\n");
 		}
@@ -1898,7 +1972,7 @@ static int savage_init_hw(struct savagefb_par *par)
 	else
 		par->display_type = DISP_CRT;
 
-	
+	/* Check LCD panel parrmation */
 
 	if (par->display_type == DISP_LCD) {
 		unsigned char cr6b = VGArCR(0x6b, par);
@@ -1910,8 +1984,17 @@ static int savage_init_hw(struct savagefb_par *par)
 
 		char * sTechnology = "Unknown";
 
+		/* OK, I admit it.  I don't know how to limit the max dot clock
+		 * for LCD panels of various sizes.  I thought I copied the
+		 * formula from the BIOS, but many users have parrmed me of
+		 * my folly.
+		 *
+		 * Instead, I'll abandon any attempt to automatically limit the
+		 * clock, and add an LCDClock option to XF86Config.  Some day,
+		 * I should come back to this.
+		 */
 
-		enum ACTIVE_DISPLAYS { 
+		enum ACTIVE_DISPLAYS { /* These are the bits in CR6B */
 			ActiveCRT = 0x01,
 			ActiveLCD = 0x02,
 			ActiveTV = 0x04,
@@ -1932,6 +2015,10 @@ static int savage_init_hw(struct savagefb_par *par)
 		       cr6b & ActiveLCD ? "and active" : "but not active");
 
 		if (cr6b & ActiveLCD) 	{
+			/*
+			 * If the LCD is active and panel expansion is enabled,
+			 * we probably want to kill the HW cursor.
+			 */
 
 			printk(KERN_INFO "savagefb: Limiting video mode to "
 				"%dx%d\n", panelX, panelY);
@@ -1947,11 +2034,15 @@ static int savage_init_hw(struct savagefb_par *par)
 	par->save = par->state;
 
 	if (S3_SAVAGE4_SERIES(par->chip)) {
+		/*
+		 * The Savage4 and ProSavage have COB coherency bugs which
+		 * render the buffer useless.  We disable it.
+		 */
 		par->cob_index = 2;
 		par->cob_size = 0x8000 << par->cob_index;
 		par->cob_offset = videoRambytes;
 	} else {
-		
+		/* We use 128kB for the COB on all chips. */
 
 		par->cob_index  = 7;
 		par->cob_size   = 0x400 << par->cob_index;
@@ -2065,7 +2156,7 @@ static int __devinit savage_init_fb_info(struct fb_info *info,
 	info->pseudo_palette = par->pseudo_palette;
 
 #if defined(CONFIG_FB_SAVAGE_ACCEL)
-	
+	/* FIFO size + padding for commands */
 	info->pixmap.addr = kcalloc(8, 1024, GFP_KERNEL);
 
 	err = -ENOMEM;
@@ -2085,6 +2176,7 @@ static int __devinit savage_init_fb_info(struct fb_info *info,
 	return err;
 }
 
+/* --------------------------------------------------------------------- */
 
 static int __devinit savagefb_probe(struct pci_dev* dev,
 				    const struct pci_device_id* id)
@@ -2121,7 +2213,7 @@ static int __devinit savagefb_probe(struct pci_dev* dev,
 		goto failed_mmio;
 
 	video_len = savage_init_hw(par);
-	
+	/* FIXME: can't be negative */
 	if (video_len < 0) {
 		err = video_len;
 		goto failed_mmio;
@@ -2142,7 +2234,7 @@ static int __devinit savagefb_probe(struct pci_dev* dev,
 				 &info->modelist);
 #endif
 	info->var = savagefb_var800x600x8;
-	
+	/* if a panel was detected, default to a CVT mode instead */
 	if (par->SavagePanelWidth) {
 		struct fb_videomode cvt_mode;
 
@@ -2150,6 +2242,8 @@ static int __devinit savagefb_probe(struct pci_dev* dev,
 		cvt_mode.xres = par->SavagePanelWidth;
 		cvt_mode.yres = par->SavagePanelHeight;
 		cvt_mode.refresh = 60;
+		/* FIXME: if we know there is only the panel
+		 * we can enable reduced blanking as well */
 		if (fb_find_mode_cvt(&cvt_mode, 0, 0))
 			printk(KERN_WARNING "No CVT mode found for panel\n");
 		else if (fb_find_mode(&info->var, info, NULL, NULL, 0,
@@ -2168,7 +2262,7 @@ static int __devinit savagefb_probe(struct pci_dev* dev,
 		savage_update_var(&info->var, mode);
 	}
 
-	
+	/* maximize virtual vertical length */
 	lpitch = info->var.xres_virtual*((info->var.bits_per_pixel + 7) >> 3);
 	info->var.yres_virtual = info->fix.smem_len/lpitch;
 
@@ -2176,6 +2270,10 @@ static int __devinit savagefb_probe(struct pci_dev* dev,
 		goto failed;
 
 #if defined(CONFIG_FB_SAVAGE_ACCEL)
+	/*
+	 * The clipping coordinates are masked with 0xFFF, so limit our
+	 * virtual resolutions to these sizes.
+	 */
 	if (info->var.yres_virtual > 0x1000)
 		info->var.yres_virtual = 0x1000;
 
@@ -2185,6 +2283,12 @@ static int __devinit savagefb_probe(struct pci_dev* dev,
 	savagefb_check_var(&info->var, info);
 	savagefb_set_fix(info);
 
+	/*
+	 * Calculate the hsync and vsync frequencies.  Note that
+	 * we split the 1e12 constant up so that we can preserve
+	 * the precision and fit the results into 32-bit registers.
+	 *  (1953125000 * 512 = 1e12)
+	 */
 	h_sync = 1953125000 / info->var.pixclock;
 	h_sync = h_sync * 512 / (info->var.xres + info->var.left_margin +
 				 info->var.right_margin +
@@ -2209,6 +2313,9 @@ static int __devinit savagefb_probe(struct pci_dev* dev,
 	printk(KERN_INFO "fb: S3 %s frame buffer device\n",
 	       info->fix.id);
 
+	/*
+	 * Our driver data
+	 */
 	pci_set_drvdata(dev, info);
 
 	return 0;
@@ -2238,6 +2345,11 @@ static void __devexit savagefb_remove(struct pci_dev *dev)
 	DBG("savagefb_remove");
 
 	if (info) {
+		/*
+		 * If unregister_framebuffer fails, then
+		 * we will be leaving hooks that could cause
+		 * oopsen laying around.
+		 */
 		if (unregister_framebuffer(info))
 			printk(KERN_WARNING "savagefb: danger danger! "
 			       "Oopsen imminent!\n");
@@ -2252,6 +2364,10 @@ static void __devexit savagefb_remove(struct pci_dev *dev)
 		pci_release_regions(dev);
 		framebuffer_release(info);
 
+		/*
+		 * Ensure that the driver data is no longer
+		 * valid.
+		 */
 		pci_set_drvdata(dev, NULL);
 	}
 }
@@ -2268,6 +2384,10 @@ static int savagefb_suspend(struct pci_dev *dev, pm_message_t mesg)
 	par->pm_state = mesg.event;
 	dev->dev.power.power_state = mesg;
 
+	/*
+	 * For PM_EVENT_FREEZE, do not power down so the console
+	 * can remain active.
+	 */
 	if (mesg.event == PM_EVENT_FREEZE)
 		return 0;
 
@@ -2298,6 +2418,10 @@ static int savagefb_resume(struct pci_dev* dev)
 
 	par->pm_state = PM_EVENT_ON;
 
+	/*
+	 * The adapter was not powered down coming back from a
+	 * PM_EVENT_FREEZE.
+	 */
 	if (cur_state == PM_EVENT_FREEZE) {
 		pci_set_power_state(dev, PCI_D0);
 		return 0;
@@ -2407,6 +2531,7 @@ static struct pci_driver savagefb_driver = {
 	.remove =   __devexit_p(savagefb_remove)
 };
 
+/* **************************** exit-time only **************************** */
 
 static void __exit savage_done(void)
 {
@@ -2415,6 +2540,7 @@ static void __exit savage_done(void)
 }
 
 
+/* ************************* init in-kernel code ************************** */
 
 static int __init savagefb_setup(char *options)
 {
@@ -2427,7 +2553,7 @@ static int __init savagefb_setup(char *options)
 	while ((this_opt = strsep(&options, ",")) != NULL) {
 		mode_option = this_opt;
 	}
-#endif 
+#endif /* !MODULE */
 	return 0;
 }
 

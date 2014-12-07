@@ -44,15 +44,15 @@
 static void jmr3927_machine_restart(char *command)
 {
 	local_irq_disable();
-#if 1	
+#if 1	/* Resetting PCI bus */
 	jmr3927_ioc_reg_out(0, JMR3927_IOC_RESET_ADDR);
 	jmr3927_ioc_reg_out(JMR3927_IOC_RESET_PCI, JMR3927_IOC_RESET_ADDR);
-	(void)jmr3927_ioc_reg_in(JMR3927_IOC_RESET_ADDR);	
+	(void)jmr3927_ioc_reg_in(JMR3927_IOC_RESET_ADDR);	/* flush WB */
 	mdelay(1);
 	jmr3927_ioc_reg_out(0, JMR3927_IOC_RESET_ADDR);
 #endif
 	jmr3927_ioc_reg_out(JMR3927_IOC_RESET_CPU, JMR3927_IOC_RESET_ADDR);
-	
+	/* fallback */
 	(*_machine_halt)();
 }
 
@@ -71,7 +71,7 @@ static void __init jmr3927_mem_setup(void)
 
 	_machine_restart = jmr3927_machine_restart;
 
-	
+	/* cache setup */
 	{
 		unsigned int conf;
 #ifdef DO_WRITE_THROUGH
@@ -91,10 +91,10 @@ static void __init jmr3927_mem_setup(void)
 		write_c0_cache(0);
 	}
 
-	
+	/* initialize board */
 	jmr3927_board_init();
 
-	tx3927_sio_init(0, 1 << 1); 
+	tx3927_sio_init(0, 1 << 1); /* ch1: noCTS */
 }
 
 static void __init jmr3927_pci_setup(void)
@@ -108,7 +108,7 @@ static void __init jmr3927_pci_setup(void)
 				      JMR3927_PCIIO, JMR3927_PCIIO_SIZE);
 	register_pci_controller(c);
 	if (!extarb) {
-		
+		/* Reset PCI Bus */
 		jmr3927_ioc_reg_out(0, JMR3927_IOC_RESET_ADDR);
 		udelay(100);
 		jmr3927_ioc_reg_out(JMR3927_IOC_RESET_PCI,
@@ -118,21 +118,21 @@ static void __init jmr3927_pci_setup(void)
 	}
 	tx3927_pcic_setup(c, JMR3927_SDRAM_SIZE, extarb);
 	tx3927_setup_pcierr_irq();
-#endif 
+#endif /* CONFIG_PCI */
 }
 
 static void __init jmr3927_board_init(void)
 {
 	txx9_cpu_clock = JMR3927_CORECLK;
-	
+	/* SDRAMC are configured by PROM */
 
-	
+	/* ROMC */
 	tx3927_romcptr->cr[1] = JMR3927_ROMCE1 | 0x00030048;
 	tx3927_romcptr->cr[2] = JMR3927_ROMCE2 | 0x000064c8;
 	tx3927_romcptr->cr[3] = JMR3927_ROMCE3 | 0x0003f698;
 	tx3927_romcptr->cr[5] = JMR3927_ROMCE5 | 0x0000f218;
 
-	
+	/* Pin selection */
 	tx3927_ccfgptr->pcfg &= ~TX3927_PCFG_SELALL;
 	tx3927_ccfgptr->pcfg |=
 		TX3927_PCFG_SELSIOC(0) | TX3927_PCFG_SELSIO_ALL |
@@ -140,14 +140,14 @@ static void __init jmr3927_board_init(void)
 
 	tx3927_setup();
 
-	
+	/* PIO[15:12] connected to LEDs */
 	__raw_writel(0x0000f000, &tx3927_pioptr->dir);
 	gpio_request(11, "dipsw1");
 	gpio_request(10, "dipsw2");
 
 	jmr3927_pci_setup();
 
-	
+	/* SIO0 DTR on */
 	jmr3927_ioc_reg_out(0, JMR3927_IOC_DTR_ADDR);
 
 	jmr3927_led_set(0);
@@ -160,6 +160,7 @@ static void __init jmr3927_board_init(void)
 	       jmr3927_dipsw3(), jmr3927_dipsw4());
 }
 
+/* This trick makes rtc-ds1742 driver usable as is. */
 static unsigned long jmr3927_swizzle_addr_b(unsigned long port)
 {
 	if ((port & 0xffff0000) != JMR3927_IOC_NVRAMB_ADDR)

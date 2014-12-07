@@ -1,3 +1,14 @@
+/*
+ * QNX6 file system, Linux implementation.
+ *
+ * Version : 1.0.0
+ *
+ * History :
+ *
+ * 01-02-2012 by Kai Bankett (chaosman@ontika.net) : first release.
+ * 16-02-2012 pagemap extension by Al Viro
+ *
+ */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -66,7 +77,7 @@ static int qnx6_get_block(struct inode *inode, sector_t iblock,
 
 	phys = qnx6_block_map(inode, iblock);
 	if (phys) {
-		
+		/* logical block is before EOF */
 		map_bh(bh, inode->i_sb, phys);
 	}
 	return 0;
@@ -92,6 +103,10 @@ static int qnx6_readpages(struct file *file, struct address_space *mapping,
 	return mpage_readpages(mapping, pages, nr_pages, qnx6_get_block);
 }
 
+/*
+ * returns the block number for the no-th element in the tree
+ * inodebits requred as there are multiple inodes in one inode block
+ */
 static unsigned qnx6_block_map(struct inode *inode, unsigned no)
 {
 	struct super_block *s = inode->i_sb;
@@ -158,6 +173,11 @@ static int qnx6_statfs(struct dentry *dentry, struct kstatfs *buf)
 	return 0;
 }
 
+/*
+ * Check the root directory of the filesystem to make sure
+ * it really _is_ a qnx6 filesystem, and to check the size
+ * of the directory entry.
+ */
 static const char *qnx6_checkroot(struct super_block *s)
 {
 	static char match_root[2][3] = {".\0\0", "..\0"};
@@ -171,7 +191,7 @@ static const char *qnx6_checkroot(struct super_block *s)
 	kmap(page);
 	dir_entry = page_address(page);
 	for (i = 0; i < 2; i++) {
-		
+		/* maximum 3 bytes - due to match_root limitation */
 		if (strncmp(dir_entry[i].de_fname, match_root[i], 3))
 			error = 1;
 	}
@@ -252,6 +272,8 @@ static struct buffer_head *qnx6_check_first_superblock(struct super_block *s,
 	struct buffer_head *bh;
 	struct qnx6_super_block *sb;
 
+	/* Check the superblock signatures
+	   start with the first superblock */
 	bh = sb_bread(s, offset);
 	if (!bh) {
 		printk(KERN_ERR "qnx6: unable to read the first superblock\n");
@@ -261,7 +283,7 @@ static struct buffer_head *qnx6_check_first_superblock(struct super_block *s,
 	if (fs32_to_cpu(sbi, sb->sb_magic) != QNX6_SUPER_MAGIC) {
 		sbi->s_bytesex = BYTESEX_BE;
 		if (fs32_to_cpu(sbi, sb->sb_magic) == QNX6_SUPER_MAGIC) {
-			
+			/* we got a big endian fs */
 			QNX6DEBUG((KERN_INFO "qnx6: fs got different"
 					" endianess.\n"));
 			return bh;
@@ -304,13 +326,13 @@ static int qnx6_fill_super(struct super_block *s, void *data, int silent)
 		return -ENOMEM;
 	s->s_fs_info = qs;
 
-	
+	/* Superblock always is 512 Byte long */
 	if (!sb_set_blocksize(s, QNX6_SUPERBLOCK_SIZE)) {
 		printk(KERN_ERR "qnx6: unable to set blocksize\n");
 		goto outnobh;
 	}
 
-	
+	/* parse the mount-options */
 	if (!qnx6_parse_options((char *) data, s)) {
 		printk(KERN_ERR "qnx6: invalid mount options.\n");
 		goto outnobh;
@@ -324,16 +346,18 @@ static int qnx6_fill_super(struct super_block *s, void *data, int silent)
 	}
 	sbi = QNX6_SB(s);
 	sbi->s_bytesex = BYTESEX_LE;
+	/* Check the superblock signatures
+	   start with the first superblock */
 	bh1 = qnx6_check_first_superblock(s,
 		bootblock_offset / QNX6_SUPERBLOCK_SIZE, silent);
 	if (!bh1) {
-		
+		/* try again without bootblock offset */
 		bh1 = qnx6_check_first_superblock(s, 0, silent);
 		if (!bh1) {
 			printk(KERN_ERR "qnx6: unable to read the first superblock\n");
 			goto outnobh;
 		}
-		
+		/* seems that no bootblock at partition start */
 		bootblock_offset = 0;
 	}
 	sb1 = (struct qnx6_super_block *)bh1->b_data;
@@ -342,35 +366,35 @@ static int qnx6_fill_super(struct super_block *s, void *data, int silent)
 	qnx6_superblock_debug(sb1, s);
 #endif
 
-	
+	/* checksum check - start at byte 8 and end at byte 512 */
 	if (fs32_to_cpu(sbi, sb1->sb_checksum) !=
 			crc32_be(0, (char *)(bh1->b_data + 8), 504)) {
 		printk(KERN_ERR "qnx6: superblock #1 checksum error\n");
 		goto out;
 	}
 
-	
+	/* set new blocksize */
 	if (!sb_set_blocksize(s, fs32_to_cpu(sbi, sb1->sb_blocksize))) {
 		printk(KERN_ERR "qnx6: unable to set blocksize\n");
 		goto out;
 	}
-	
+	/* blocksize invalidates bh - pull it back in */
 	brelse(bh1);
 	bh1 = sb_bread(s, bootblock_offset >> s->s_blocksize_bits);
 	if (!bh1)
 		goto outnobh;
 	sb1 = (struct qnx6_super_block *)bh1->b_data;
 
-	
+	/* calculate second superblock blocknumber */
 	offset = fs32_to_cpu(sbi, sb1->sb_num_blocks) +
 		(bootblock_offset >> s->s_blocksize_bits) +
 		(QNX6_SUPERBLOCK_AREA >> s->s_blocksize_bits);
 
-	
+	/* set bootblock offset */
 	sbi->s_blks_off = (bootblock_offset >> s->s_blocksize_bits) +
 			  (QNX6_SUPERBLOCK_AREA >> s->s_blocksize_bits);
 
-	
+	/* next the second superblock */
 	bh2 = sb_bread(s, offset);
 	if (!bh2) {
 		printk(KERN_ERR "qnx6: unable to read the second superblock\n");
@@ -384,7 +408,7 @@ static int qnx6_fill_super(struct super_block *s, void *data, int silent)
 		goto out;
 	}
 
-	
+	/* checksum check - start at byte 8 and end at byte 512 */
 	if (fs32_to_cpu(sbi, sb2->sb_checksum) !=
 				crc32_be(0, (char *)(bh2->b_data + 8), 504)) {
 		printk(KERN_ERR "qnx6: superblock #2 checksum error\n");
@@ -393,20 +417,20 @@ static int qnx6_fill_super(struct super_block *s, void *data, int silent)
 
 	if (fs64_to_cpu(sbi, sb1->sb_serial) >=
 					fs64_to_cpu(sbi, sb2->sb_serial)) {
-		
+		/* superblock #1 active */
 		sbi->sb_buf = bh1;
 		sbi->sb = (struct qnx6_super_block *)bh1->b_data;
 		brelse(bh2);
 		printk(KERN_INFO "qnx6: superblock #1 active\n");
 	} else {
-		
+		/* superblock #2 active */
 		sbi->sb_buf = bh2;
 		sbi->sb = (struct qnx6_super_block *)bh2->b_data;
 		brelse(bh1);
 		printk(KERN_INFO "qnx6: superblock #2 active\n");
 	}
 mmi_success:
-	
+	/* sanity check - limit maximum indirect pointer levels */
 	if (sb1->Inode.levels > QNX6_PTR_MAX_LEVELS) {
 		printk(KERN_ERR "qnx6: too many inode levels (max %i, sb %i)\n",
 			QNX6_PTR_MAX_LEVELS, sb1->Inode.levels);
@@ -420,9 +444,9 @@ mmi_success:
 	}
 	s->s_op = &qnx6_sops;
 	s->s_magic = QNX6_SUPER_MAGIC;
-	s->s_flags |= MS_RDONLY;        
+	s->s_flags |= MS_RDONLY;        /* Yup, read-only yet */
 
-	
+	/* ease the later tree level calculations */
 	sbi = QNX6_SB(s);
 	sbi->s_ptrbits = ilog2(s->s_blocksize / 4);
 	sbi->inodes = qnx6_private_inode(s, &sb1->Inode);
@@ -432,7 +456,7 @@ mmi_success:
 	if (!sbi->longfile)
 		goto out1;
 
-	
+	/* prefetch root inode */
 	root = qnx6_iget(s, QNX6_ROOT_INO);
 	if (IS_ERR(root)) {
 		printk(KERN_ERR "qnx6: get inode failed\n");
@@ -503,7 +527,7 @@ static struct inode *qnx6_private_inode(struct super_block *s,
 		inode->i_size = fs64_to_cpu(sbi, p->size);
 		memcpy(ei->di_block_ptr, p->ptr, sizeof(p->ptr));
 		ei->di_filelevels = p->levels;
-		inode->i_mode = S_IFREG | S_IRUSR; 
+		inode->i_mode = S_IFREG | S_IRUSR; /* probably wrong */
 		inode->i_mapping->a_ops = &qnx6_aops;
 	}
 	return inode;
@@ -560,7 +584,7 @@ struct inode *qnx6_iget(struct super_block *sb, unsigned ino)
 	inode->i_ctime.tv_sec   = fs32_to_cpu(sbi, raw_inode->di_ctime);
 	inode->i_ctime.tv_nsec = 0;
 
-	
+	/* calc blocks based on 512 byte blocksize */
 	inode->i_blocks = (inode->i_size + 511) >> 9;
 
 	memcpy(&ei->di_block_ptr, &raw_inode->di_block_ptr,

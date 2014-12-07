@@ -34,4 +34,4 @@ extern struct net_device *alloc_trdev(int sizeof_priv);
 
 #endif
 
-#endif	
+#endif	/* _LINUX_TRDEVICE_H */

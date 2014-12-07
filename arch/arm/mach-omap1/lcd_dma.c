@@ -34,11 +34,15 @@
 
 int omap_lcd_dma_running(void)
 {
+	/*
+	 * On OMAP1510, internal LCD controller will start the transfer
+	 * when it gets enabled, so assume DMA running if LCD enabled.
+	 */
 	if (cpu_is_omap15xx())
 		if (omap_readw(OMAP_LCDC_CONTROL) & OMAP_LCDC_CTRL_LCD_EN)
 			return 1;
 
-	
+	/* Check if LCD DMA is running */
 	if (cpu_is_omap16xx())
 		if (omap_readw(OMAP1610_DMA_LCD_CCR) & OMAP_DMA_CCR_EN)
 			return 1;
@@ -172,6 +176,8 @@ static void set_b1_regs(void)
 		if (!lcd_dma.mirror) {
 			top = PIXADDR(0, 0);
 			bottom = PIXADDR(lcd_dma.xres - 1, lcd_dma.yres - 1);
+			/* 1510 DMA requires the bottom address to be 2 more
+			 * than the actual last memory access location. */
 			if (cpu_is_omap15xx() &&
 				lcd_dma.data_type == OMAP_DMA_DATA_TYPE_S32)
 					bottom += 2;
@@ -233,7 +239,7 @@ static void set_b1_regs(void)
 		break;
 	default:
 		BUG();
-		return;	
+		return;	/* Suppress warning about uninitialized vars */
 	}
 
 	if (cpu_is_omap15xx()) {
@@ -245,7 +251,7 @@ static void set_b1_regs(void)
 		return;
 	}
 
-	
+	/* 1610 regs */
 	omap_writew(top >> 16, OMAP1610_DMA_LCD_TOP_B1_U);
 	omap_writew(top, OMAP1610_DMA_LCD_TOP_B1_L);
 	omap_writew(bottom >> 16, OMAP1610_DMA_LCD_BOT_B1_U);
@@ -260,10 +266,10 @@ static void set_b1_regs(void)
 	omap_writew(w, OMAP1610_DMA_LCD_CSDP);
 
 	w = omap_readw(OMAP1610_DMA_LCD_CTRL);
-	
+	/* Always set the source port as SDRAM for now*/
 	w &= ~(0x03 << 6);
 	if (lcd_dma.callback != NULL)
-		w |= 1 << 1;		
+		w |= 1 << 1;		/* Block interrupt enable */
 	else
 		w &= ~(1 << 1);
 	omap_writew(w, OMAP1610_DMA_LCD_CTRL);
@@ -273,7 +279,7 @@ static void set_b1_regs(void)
 		return;
 
 	w = omap_readw(OMAP1610_DMA_LCD_CCR);
-	
+	/* Set the double-indexed addressing mode */
 	w |= (0x03 << 12);
 	omap_writew(w, OMAP1610_DMA_LCD_CCR);
 
@@ -291,7 +297,7 @@ static irqreturn_t lcd_dma_irq_handler(int irq, void *dev_id)
 		printk(KERN_WARNING "Spurious LCD DMA IRQ\n");
 		return IRQ_NONE;
 	}
-	
+	/* Ack the IRQ */
 	w |= (1 << 3);
 	omap_writew(w, OMAP1610_DMA_LCD_CTRL);
 	lcd_dma.active = 0;
@@ -350,6 +356,11 @@ void omap_enable_lcd_dma(void)
 {
 	u16 w;
 
+	/*
+	 * Set the Enable bit only if an external controller is
+	 * connected. Otherwise the OMAP internal controller will
+	 * start the transfer when it gets enabled.
+	 */
 	if (cpu_is_omap15xx() || !lcd_dma.ext_ctrl)
 		return;
 
@@ -369,7 +380,7 @@ void omap_setup_lcd_dma(void)
 {
 	BUG_ON(lcd_dma.active);
 	if (!cpu_is_omap15xx()) {
-		
+		/* Set some reasonable defaults */
 		omap_writew(0x5440, OMAP1610_DMA_LCD_CCR);
 		omap_writew(0x9102, OMAP1610_DMA_LCD_CSDP);
 		omap_writew(0x0004, OMAP1610_DMA_LCD_LCH_CTRL);
@@ -379,9 +390,14 @@ void omap_setup_lcd_dma(void)
 		u16 w;
 
 		w = omap_readw(OMAP1610_DMA_LCD_CCR);
-		w |= 1 << 11;		
+		/*
+		 * If DMA was already active set the end_prog bit to have
+		 * the programmed register set loaded into the active
+		 * register set.
+		 */
+		w |= 1 << 11;		/* End_prog */
 		if (!lcd_dma.single_transfer)
-			w |= (3 << 8);	
+			w |= (3 << 8);	/* Auto_init, repeat */
 		omap_writew(w, OMAP1610_DMA_LCD_CCR);
 	}
 }
@@ -415,7 +431,7 @@ static int __init omap_init_lcd_dma(void)
 	if (cpu_is_omap16xx()) {
 		u16 w;
 
-		
+		/* this would prevent OMAP sleep */
 		w = omap_readw(OMAP1610_DMA_LCD_CTRL);
 		w &= ~(1 << 8);
 		omap_writew(w, OMAP1610_DMA_LCD_CTRL);

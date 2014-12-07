@@ -49,8 +49,10 @@ struct enic_msix_entry {
 	void *devid;
 };
 
+/* priv_flags */
 #define ENIC_SRIOV_ENABLED		(1 << 0)
 
+/* enic port profile set flags */
 #define ENIC_PORT_REQUEST_APPLIED	(1 << 0)
 #define ENIC_SET_REQUEST		(1 << 1)
 #define ENIC_SET_NAME			(1 << 2)
@@ -67,6 +69,7 @@ struct enic_port_profile {
 	u8 mac_addr[ETH_ALEN];
 };
 
+/* Per-instance private data structure */
 struct enic {
 	struct net_device *netdev;
 	struct pci_dev *pdev;
@@ -95,26 +98,26 @@ struct enic {
 #endif
 	struct enic_port_profile *pp;
 
-	
+	/* work queue cache line section */
 	____cacheline_aligned struct vnic_wq wq[ENIC_WQ_MAX];
 	spinlock_t wq_lock[ENIC_WQ_MAX];
 	unsigned int wq_count;
 	u16 loop_enable;
 	u16 loop_tag;
 
-	
+	/* receive queue cache line section */
 	____cacheline_aligned struct vnic_rq rq[ENIC_RQ_MAX];
 	unsigned int rq_count;
 	u64 rq_truncated_pkts;
 	u64 rq_bad_fcs;
 	struct napi_struct napi[ENIC_RQ_MAX];
 
-	
+	/* interrupt resource cache line section */
 	____cacheline_aligned struct vnic_intr intr[ENIC_INTR_MAX];
 	unsigned int intr_count;
-	u32 __iomem *legacy_pba;		
+	u32 __iomem *legacy_pba;		/* memory-mapped */
 
-	
+	/* completion queue cache line section */
 	____cacheline_aligned struct vnic_cq cq[ENIC_CQ_MAX];
 	unsigned int cq_count;
 };
@@ -129,4 +132,4 @@ int enic_sriov_enabled(struct enic *enic);
 int enic_is_valid_vf(struct enic *enic, int vf);
 int enic_is_dynamic(struct enic *enic);
 
-#endif 
+#endif /* _ENIC_H_ */

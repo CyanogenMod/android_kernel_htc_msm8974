@@ -11,8 +11,36 @@
 #ifndef _ASM_POWERPC_EXCEPTION_64E_H
 #define _ASM_POWERPC_EXCEPTION_64E_H
 
+/*
+ * SPRGs usage an other considerations...
+ *
+ * Since TLB miss and other standard exceptions can be interrupted by
+ * critical exceptions which can themselves be interrupted by machine
+ * checks, and since the two later can themselves cause a TLB miss when
+ * hitting the linear mapping for the kernel stacks, we need to be a bit
+ * creative on how we use SPRGs.
+ *
+ * The base idea is that we have one SRPG reserved for critical and one
+ * for machine check interrupts. Those are used to save a GPR that can
+ * then be used to get the PACA, and store as much context as we need
+ * to save in there. That includes saving the SPRGs used by the TLB miss
+ * handler for linear mapping misses and the associated SRR0/1 due to
+ * the above re-entrancy issue.
+ *
+ * So here's the current usage pattern. It's done regardless of which
+ * SPRGs are user-readable though, thus we might have to change some of
+ * this later. In order to do that more easily, we use special constants
+ * for naming them
+ *
+ * WARNING: Some of these SPRGs are user readable. We need to do something
+ * about it as some point by making sure they can't be used to leak kernel
+ * critical data
+ */
 
 
+/* We are out of SPRGs so we save some things in the PACA. The normal
+ * exception frame is smaller than the CRIT or MC one though
+ */
 #define EX_R1		(0 * 8)
 #define EX_CR		(1 * 8)
 #define EX_R10		(2 * 8)
@@ -20,6 +48,13 @@
 #define EX_R14		(4 * 8)
 #define EX_R15		(5 * 8)
 
+/*
+ * The TLB miss exception uses different slots.
+ *
+ * The bolted variant uses only the first six fields,
+ * which in combination with pgd and kernel_pgd fits in
+ * one 64-byte cache line.
+ */
 
 #define EX_TLB_R10	( 0 * 8)
 #define EX_TLB_R11	( 1 * 8)
@@ -29,8 +64,8 @@
 #define EX_TLB_CR	( 5 * 8)
 #define EX_TLB_R12	( 6 * 8)
 #define EX_TLB_R13	( 7 * 8)
-#define EX_TLB_DEAR	( 8 * 8) 
-#define EX_TLB_ESR	( 9 * 8) 
+#define EX_TLB_DEAR	( 8 * 8) /* Level 0 and 2 only */
+#define EX_TLB_ESR	( 9 * 8) /* Level 0 and 2 only */
 #define EX_TLB_SRR0	(10 * 8)
 #define EX_TLB_SRR1	(11 * 8)
 #ifdef CONFIG_BOOK3E_MMU_TLB_STATS
@@ -46,6 +81,18 @@
 	.globl exc_##label##_book3e;					\
 exc_##label##_book3e:
 
+/* TLB miss exception prolog
+ *
+ * This prolog handles re-entrancy (up to 3 levels supported in the PACA
+ * though we currently don't test for overflow). It provides you with a
+ * re-entrancy safe working space of r10...r16 and CR with r12 being used
+ * as the exception area pointer in the PACA for that level of re-entrancy
+ * and r13 containing the PACA pointer.
+ *
+ * SRR0 and SRR1 are saved, but DEAR and ESR are not, since they don't apply
+ * as-is for instruction exceptions. It's up to the actual exception code
+ * to save them as well if required.
+ */
 #define TLB_MISS_PROLOG							    \
 	mtspr	SPRN_SPRG_TLB_SCRATCH,r12;				    \
 	mfspr	r12,SPRN_SPRG_TLB_EXFRAME;				    \
@@ -68,6 +115,22 @@ exc_##label##_book3e:
 	std	r16,EX_TLB_SRR0(r12);					    \
 	TLB_MISS_PROLOG_STATS
 
+/* And these are the matching epilogs that restores things
+ *
+ * There are 3 epilogs:
+ *
+ * - SUCCESS       : Unwinds one level
+ * - ERROR         : restore from level 0 and reset
+ * - ERROR_SPECIAL : restore from current level and reset
+ *
+ * Normal errors use ERROR, that is, they restore the initial fault context
+ * and trigger a fault. However, there is a special case for linear mapping
+ * errors. Those should basically never happen, but if they do happen, we
+ * want the error to point out the context that did that linear mapping
+ * fault, not the initial level 0 (basically, we got a bogus PGF or something
+ * like that). For userland errors on the linear mapping, there is no
+ * difference since those are always level 0 anyway
+ */
 
 #define TLB_MISS_RESTORE(freg)						    \
 	ld	r14,EX_TLB_CR(r12);					    \
@@ -133,9 +196,9 @@ exc_##label##_book3e:
 61:	addi	r9,r13,MMSTAT_ISTATS+name;				    \
 62:	bl	.tlb_stat_inc;
 #define TLB_MISS_STATS_SAVE_INFO					    \
-	std	r14,EX_TLB_ESR(r12);	
+	std	r14,EX_TLB_ESR(r12);	/* save ESR */
 #define TLB_MISS_STATS_SAVE_INFO_BOLTED					    \
-	std	r14,PACA_EXTLB+EX_TLB_ESR(r13);	
+	std	r14,PACA_EXTLB+EX_TLB_ESR(r13);	/* save ESR */
 #else
 #define TLB_MISS_PROLOG_STATS
 #define TLB_MISS_RESTORE_STATS
@@ -154,5 +217,5 @@ exc_##label##_book3e:
 	ori	r3,r3,interrupt_base_book3e@l;	\
 	mtspr	SPRN_IVOR##vector_number,r3;
 
-#endif 
+#endif /* _ASM_POWERPC_EXCEPTION_64E_H */
 

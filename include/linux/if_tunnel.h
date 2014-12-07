@@ -41,6 +41,7 @@ struct ip_tunnel_parm {
 	struct iphdr		iph;
 };
 
+/* SIT-mode i_flags */
 #define	SIT_ISATAP	0x0001
 
 struct ip_tunnel_prl {
@@ -49,9 +50,10 @@ struct ip_tunnel_prl {
 	__u16			__reserved;
 	__u32			datalen;
 	__u32			__reserved2;
-	
+	/* data follows */
 };
 
+/* PRL flags */
 #define	PRL_DEFAULT		0x0001
 
 struct ip_tunnel_6rd {
@@ -78,4 +80,4 @@ enum {
 
 #define IFLA_GRE_MAX	(__IFLA_GRE_MAX - 1)
 
-#endif 
+#endif /* _IF_TUNNEL_H_ */

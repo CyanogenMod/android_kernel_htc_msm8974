@@ -23,7 +23,8 @@
 
 #include <asm/setup.h>
 
-#define ATAG_AKM8976	0x89768976 
+/* configuration tags specific to AKM8976 */
+#define ATAG_AKM8976	0x89768976 /* AKM8976 */
 
 #define MAX_CALI_SIZE	0x1000U
 

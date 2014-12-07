@@ -85,12 +85,19 @@ static void icp_hv_teardown_cpu(void)
 {
 	int cpu = smp_processor_id();
 
-	
+	/* Clear any pending IPI */
 	icp_hv_set_qirr(cpu, 0xff);
 }
 
 static void icp_hv_flush_ipi(void)
 {
+	/* We take the ipi irq but and never return so we
+	 * need to EOI the IPI, but want to leave our priority 0
+	 *
+	 * should we check all the other interrupts too?
+	 * should we be flagging idle loop instead?
+	 * or creating some task to be scheduled?
+	 */
 
 	icp_hv_set_xirr((0x00 << 24) | XICS_IPI);
 }
@@ -110,10 +117,10 @@ static unsigned int icp_hv_get_irq(void)
 		return irq;
 	}
 
-	
+	/* We don't have a linux mapping, so have rtas mask it. */
 	xics_mask_unknown_vec(vec);
 
-	
+	/* We might learn about it later, so EOI it */
 	icp_hv_set_xirr(xirr);
 
 	return NO_IRQ;
@@ -142,7 +149,7 @@ static irqreturn_t icp_hv_ipi_action(int irq, void *dev_id)
 	return smp_ipi_demux();
 }
 
-#endif 
+#endif /* CONFIG_SMP */
 
 static const struct icp_ops icp_hv_ops = {
 	.get_irq	= icp_hv_get_irq,

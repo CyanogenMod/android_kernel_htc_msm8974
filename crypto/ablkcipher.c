@@ -67,6 +67,9 @@ static inline void ablkcipher_queue_write(struct ablkcipher_walk *walk,
 	list_add_tail(&p->entry, &walk->buffers);
 }
 
+/* Get a spot of the specified length that does not straddle a page.
+ * The caller needs to ensure that there is enough space for this operation.
+ */
 static inline u8 *ablkcipher_get_spot(u8 *start, unsigned int len)
 {
 	u8 *end_page = (u8 *)(((unsigned long)(start + len - 1)) & PAGE_MASK);
@@ -560,13 +563,13 @@ static int crypto_givcipher_default(struct crypto_alg *alg, u32 type, u32 mask)
 	ptype.attr.rta_len = sizeof(ptype);
 	ptype.attr.rta_type = CRYPTOA_TYPE;
 	ptype.data.type = type | CRYPTO_ALG_GENIV;
-	
+	/* GENIV tells the template that we're making a default geniv. */
 	ptype.data.mask = mask | CRYPTO_ALG_GENIV;
 	tb[0] = &ptype.attr;
 
 	palg.attr.rta_len = sizeof(palg);
 	palg.attr.rta_type = CRYPTOA_ALG;
-	
+	/* Must use the exact name to locate ourselves. */
 	memcpy(palg.data.name, alg->cra_driver_name, CRYPTO_MAX_ALG_NAME);
 	tb[1] = &palg.attr;
 
@@ -596,7 +599,7 @@ static int crypto_givcipher_default(struct crypto_alg *alg, u32 type, u32 mask)
 		goto put_tmpl;
 	}
 
-	
+	/* Redo the lookup to use the instance we just registered. */
 	err = -EAGAIN;
 
 put_tmpl:

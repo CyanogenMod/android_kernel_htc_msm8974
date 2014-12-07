@@ -31,19 +31,19 @@ typedef int (snd_kcontrol_info_t) (struct snd_kcontrol * kcontrol, struct snd_ct
 typedef int (snd_kcontrol_get_t) (struct snd_kcontrol * kcontrol, struct snd_ctl_elem_value * ucontrol);
 typedef int (snd_kcontrol_put_t) (struct snd_kcontrol * kcontrol, struct snd_ctl_elem_value * ucontrol);
 typedef int (snd_kcontrol_tlv_rw_t)(struct snd_kcontrol *kcontrol,
-				    int op_flag, 
+				    int op_flag, /* 0=read,1=write,-1=command */
 				    unsigned int size,
 				    unsigned int __user *tlv);
 
 
 struct snd_kcontrol_new {
-	snd_ctl_elem_iface_t iface;	
-	unsigned int device;		
-	unsigned int subdevice;		
-	unsigned char *name;	
-	unsigned int index;		
-	unsigned int access;		
-	unsigned int count;		
+	snd_ctl_elem_iface_t iface;	/* interface identifier */
+	unsigned int device;		/* device/client number */
+	unsigned int subdevice;		/* subdevice (substream) number */
+	unsigned char *name;	/* ASCII name of item */
+	unsigned int index;		/* index of item */
+	unsigned int access;		/* access rights */
+	unsigned int count;		/* count of same elements */
 	snd_kcontrol_info_t *info;
 	snd_kcontrol_get_t *get;
 	snd_kcontrol_put_t *put;
@@ -55,14 +55,14 @@ struct snd_kcontrol_new {
 };
 
 struct snd_kcontrol_volatile {
-	struct snd_ctl_file *owner;	
-	unsigned int access;	
+	struct snd_ctl_file *owner;	/* locked */
+	unsigned int access;	/* access rights */
 };
 
 struct snd_kcontrol {
-	struct list_head list;		
+	struct list_head list;		/* list of controls */
 	struct snd_ctl_elem_id id;
-	unsigned int count;		
+	unsigned int count;		/* count of same elements */
 	snd_kcontrol_info_t *info;
 	snd_kcontrol_get_t *get;
 	snd_kcontrol_put_t *put;
@@ -73,13 +73,13 @@ struct snd_kcontrol {
 	unsigned long private_value;
 	void *private_data;
 	void (*private_free)(struct snd_kcontrol *kcontrol);
-	struct snd_kcontrol_volatile vd[0];	
+	struct snd_kcontrol_volatile vd[0];	/* volatile data */
 };
 
 #define snd_kcontrol(n) list_entry(n, struct snd_kcontrol, list)
 
 struct snd_kctl_event {
-	struct list_head list;	
+	struct list_head list;	/* list of events */
 	struct snd_ctl_elem_id id;
 	unsigned int mask;
 };
@@ -89,7 +89,7 @@ struct snd_kctl_event {
 struct pid;
 
 struct snd_ctl_file {
-	struct list_head list;		
+	struct list_head list;		/* list of all control files */
 	struct snd_card *card;
 	struct pid *pid;
 	int prefer_pcm_subdevice;
@@ -97,8 +97,8 @@ struct snd_ctl_file {
 	wait_queue_head_t change_sleep;
 	spinlock_t read_lock;
 	struct fasync_struct *fasync;
-	int subscribed;			
-	struct list_head events;	
+	int subscribed;			/* read interface is activated */
+	struct list_head events;	/* waiting events for read */
 };
 
 #define snd_ctl_file(n) list_entry(n, struct snd_ctl_file, list)
@@ -162,6 +162,9 @@ static inline struct snd_ctl_elem_id *snd_ctl_build_ioff(struct snd_ctl_elem_id 
 	return dst_id;
 }
 
+/*
+ * Frequently used control callbacks/helpers
+ */
 int snd_ctl_boolean_mono_info(struct snd_kcontrol *kcontrol,
 			      struct snd_ctl_elem_info *uinfo);
 int snd_ctl_boolean_stereo_info(struct snd_kcontrol *kcontrol,
@@ -169,18 +172,54 @@ int snd_ctl_boolean_stereo_info(struct snd_kcontrol *kcontrol,
 int snd_ctl_enum_info(struct snd_ctl_elem_info *info, unsigned int channels,
 		      unsigned int items, const char *const names[]);
 
+/*
+ * virtual master control
+ */
 struct snd_kcontrol *snd_ctl_make_virtual_master(char *name,
 						 const unsigned int *tlv);
 int _snd_ctl_add_slave(struct snd_kcontrol *master, struct snd_kcontrol *slave,
 		       unsigned int flags);
+/* optional flags for slave */
 #define SND_CTL_SLAVE_NEED_UPDATE	(1 << 0)
 
+/**
+ * snd_ctl_add_slave - Add a virtual slave control
+ * @master: vmaster element
+ * @slave: slave element to add
+ *
+ * Add a virtual slave control to the given master element created via
+ * snd_ctl_create_virtual_master() beforehand.
+ * Returns zero if successful or a negative error code.
+ *
+ * All slaves must be the same type (returning the same information
+ * via info callback).  The function doesn't check it, so it's your
+ * responsibility.
+ *
+ * Also, some additional limitations:
+ * at most two channels,
+ * logarithmic volume control (dB level) thus no linear volume,
+ * master can only attenuate the volume without gain
+ */
 static inline int
 snd_ctl_add_slave(struct snd_kcontrol *master, struct snd_kcontrol *slave)
 {
 	return _snd_ctl_add_slave(master, slave, 0);
 }
 
+/**
+ * snd_ctl_add_slave_uncached - Add a virtual slave control
+ * @master: vmaster element
+ * @slave: slave element to add
+ *
+ * Add a virtual slave control to the given master.
+ * Unlike snd_ctl_add_slave(), the element added via this function
+ * is supposed to have volatile values, and get callback is called
+ * at each time quried from the master.
+ *
+ * When the control peeks the hardware values directly and the value
+ * can be changed by other means than the put callback of the element,
+ * this function should be used to keep the value always up-to-date.
+ */
 static inline int
 snd_ctl_add_slave_uncached(struct snd_kcontrol *master,
 			   struct snd_kcontrol *slave)
@@ -193,9 +232,12 @@ int snd_ctl_add_vmaster_hook(struct snd_kcontrol *kctl,
 			     void *private_data);
 void snd_ctl_sync_vmaster_hook(struct snd_kcontrol *kctl);
 
+/*
+ * Helper functions for jack-detection controls
+ */
 struct snd_kcontrol *
 snd_kctl_jack_new(const char *name, int idx, void *private_data);
 void snd_kctl_jack_report(struct snd_card *card,
 			  struct snd_kcontrol *kctl, bool status);
 
-#endif	
+#endif	/* __SOUND_CONTROL_H */

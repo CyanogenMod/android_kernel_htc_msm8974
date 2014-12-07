@@ -1,3 +1,17 @@
+/*
+ * fs/isofs/export.c
+ *
+ *  (C) 2004  Paul Serice - The new inode scheme requires switching
+ *                          from iget() to iget5_locked() which means
+ *                          the NFS export operations have to be hand
+ *                          coded because the default routines rely on
+ *                          iget().
+ *
+ * The following files are helpful:
+ *
+ *     Documentation/filesystems/nfs/Exporting
+ *     fs/exportfs/expfs.c.
+ */
 
 #include "isofs.h"
 
@@ -21,6 +35,11 @@ isofs_export_iget(struct super_block *sb,
 	return d_obtain_alias(inode);
 }
 
+/* This function is surprisingly simple.  The trick is understanding
+ * that "child" is always a directory. So, to find its parent, you
+ * simply need to find its ".." entry, normalize its block and offset,
+ * and return the underlying inode.  See the comments for
+ * isofs_normalize_block_and_offset(). */
 static struct dentry *isofs_export_get_parent(struct dentry *child)
 {
 	unsigned long parent_block = 0;
@@ -31,7 +50,7 @@ static struct dentry *isofs_export_get_parent(struct dentry *child)
 	struct buffer_head * bh = NULL;
 	struct dentry *rv = NULL;
 
-	
+	/* "child" must always be a directory. */
 	if (!S_ISDIR(child_inode->i_mode)) {
 		printk(KERN_ERR "isofs: isofs_export_get_parent(): "
 		       "child is not a directory!\n");
@@ -39,6 +58,9 @@ static struct dentry *isofs_export_get_parent(struct dentry *child)
 		goto out;
 	}
 
+	/* It is an invariant that the directory offset is zero.  If
+	 * it is not zero, it means the directory failed to be
+	 * normalized for some reason. */
 	if (e_child_inode->i_iget5_offset != 0) {
 		printk(KERN_ERR "isofs: isofs_export_get_parent(): "
 		       "child directory not normalized!\n");
@@ -46,23 +68,26 @@ static struct dentry *isofs_export_get_parent(struct dentry *child)
 		goto out;
 	}
 
+	/* The child inode has been normalized such that its
+	 * i_iget5_block value points to the "." entry.  Fortunately,
+	 * the ".." entry is located in the same block. */
 	parent_block = e_child_inode->i_iget5_block;
 
-	
+	/* Get the block in question. */
 	bh = sb_bread(child_inode->i_sb, parent_block);
 	if (bh == NULL) {
 		rv = ERR_PTR(-EACCES);
 		goto out;
 	}
 
-	
+	/* This is the "." entry. */
 	de = (struct iso_directory_record*)bh->b_data;
 
-	
+	/* The ".." entry is always the second entry. */
 	parent_offset = (unsigned long)isonum_711(de->length);
 	de = (struct iso_directory_record*)(bh->b_data + parent_offset);
 
-	
+	/* Verify it is in fact the ".." entry. */
 	if ((isonum_711(de->name_len) != 1) || (de->name[0] != 1)) {
 		printk(KERN_ERR "isofs: Unable to find the \"..\" "
 		       "directory for NFS.\n");
@@ -70,7 +95,7 @@ static struct dentry *isofs_export_get_parent(struct dentry *child)
 		goto out;
 	}
 
-	
+	/* Normalize */
 	isofs_normalize_block_and_offset(de, &parent_block, &parent_offset);
 
 	rv = d_obtain_alias(isofs_iget(child_inode->i_sb, parent_block,
@@ -93,6 +118,12 @@ isofs_export_encode_fh(struct dentry *dentry,
 	int type = 1;
 	__u16 *fh16 = (__u16*)fh32;
 
+	/*
+	 * WARNING: max_len is 5 for NFSv2.  Because of this
+	 * limitation, we use the lower 16 bits of fh32[1] to hold the
+	 * offset of the inode and the upper 16 bits of fh32[1] to
+	 * hold the offset of the parent.
+	 */
 	if (connectable && (len < 5)) {
 		*max_len = 5;
 		return 255;
@@ -103,7 +134,7 @@ isofs_export_encode_fh(struct dentry *dentry,
 
 	len = 3;
 	fh32[0] = ei->i_iget5_block;
- 	fh16[2] = (__u16)ei->i_iget5_offset;  
+ 	fh16[2] = (__u16)ei->i_iget5_offset;  /* fh16 [sic] */
 	fh32[2] = inode->i_generation;
 	if (connectable && !S_ISDIR(inode->i_mode)) {
 		struct inode *parent;
@@ -112,7 +143,7 @@ isofs_export_encode_fh(struct dentry *dentry,
 		parent = dentry->d_parent->d_inode;
 		eparent = ISOFS_I(parent);
 		fh32[3] = eparent->i_iget5_block;
-		fh16[3] = (__u16)eparent->i_iget5_offset;  
+		fh16[3] = (__u16)eparent->i_iget5_offset;  /* fh16 [sic] */
 		fh32[4] = parent->i_generation;
 		spin_unlock(&dentry->d_lock);
 		len = 5;

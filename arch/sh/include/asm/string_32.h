@@ -126,6 +126,6 @@ extern void *memchr(const void *__s, int __c, size_t __n);
 #define __HAVE_ARCH_STRLEN
 extern size_t strlen(const char *);
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ASM_SH_STRING_H */

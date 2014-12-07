@@ -79,6 +79,10 @@ void shm_init_ns(struct ipc_namespace *ns)
 	ipc_init_ids(&shm_ids(ns));
 }
 
+/*
+ * Called with shm_ids.rw_mutex (writer) and the shp structure locked.
+ * Only shm_ids.rw_mutex remains locked on exit.
+ */
 static void do_shm_rmid(struct ipc_namespace *ns, struct kern_ipc_perm *ipcp)
 {
 	struct shmid_kernel *shp;
@@ -86,7 +90,7 @@ static void do_shm_rmid(struct ipc_namespace *ns, struct kern_ipc_perm *ipcp)
 
 	if (shp->shm_nattch){
 		shp->shm_perm.mode |= SHM_DEST;
-		
+		/* Do not find it any more */
 		shp->shm_perm.key = IPC_PRIVATE;
 		shm_unlock(shp);
 	} else
@@ -120,6 +124,10 @@ void __init shm_init (void)
 				IPC_SHM_IDS, sysvipc_shm_proc_show);
 }
 
+/*
+ * shm_lock_(check_) routines are called in the paths where the rw_mutex
+ * is not necessarily held.
+ */
 static inline struct shmid_kernel *shm_lock(struct ipc_namespace *ns, int id)
 {
 	struct kern_ipc_perm *ipcp = ipc_lock(&shm_ids(ns), id);
@@ -153,6 +161,7 @@ static inline void shm_rmid(struct ipc_namespace *ns, struct shmid_kernel *s)
 }
 
 
+/* This is called by fork, once for every shm attach. */
 static void shm_open(struct vm_area_struct *vma)
 {
 	struct file *file = vma->vm_file;
@@ -167,6 +176,15 @@ static void shm_open(struct vm_area_struct *vma)
 	shm_unlock(shp);
 }
 
+/*
+ * shm_destroy - free the struct shmid_kernel
+ *
+ * @ns: namespace
+ * @shp: struct to free
+ *
+ * It has to be called with shp and shm_ids.rw_mutex (writer) locked,
+ * but returns with shp unlocked and freed.
+ */
 static void shm_destroy(struct ipc_namespace *ns, struct shmid_kernel *shp)
 {
 	ns->shm_tot -= (shp->shm_segsz + PAGE_SIZE - 1) >> PAGE_SHIFT;
@@ -182,6 +200,16 @@ static void shm_destroy(struct ipc_namespace *ns, struct shmid_kernel *shp)
 	ipc_rcu_putref(shp);
 }
 
+/*
+ * shm_may_destroy - identifies whether shm segment should be destroyed now
+ *
+ * Returns true if and only if there are no active users of the segment and
+ * one of the following is true:
+ *
+ * 1) shmctl(id, IPC_RMID, NULL) was called for this shp
+ *
+ * 2) sysctl kernel.shm_rmid_forced is set to 1.
+ */
 static bool shm_may_destroy(struct ipc_namespace *ns, struct shmid_kernel *shp)
 {
 	return (shp->shm_nattch == 0) &&
@@ -189,6 +217,12 @@ static bool shm_may_destroy(struct ipc_namespace *ns, struct shmid_kernel *shp)
 		(shp->shm_perm.mode & SHM_DEST));
 }
 
+/*
+ * remove the attach descriptor vma.
+ * free memory for segment if it is marked destroyed.
+ * The descriptor has already been removed from the current->mm->mmap list
+ * and will later be kfree()d.
+ */
 static void shm_close(struct vm_area_struct *vma)
 {
 	struct file * file = vma->vm_file;
@@ -197,7 +231,7 @@ static void shm_close(struct vm_area_struct *vma)
 	struct ipc_namespace *ns = sfd->ns;
 
 	down_write(&shm_ids(ns).rw_mutex);
-	
+	/* remove from the list of attaches of the shm segment */
 	shp = shm_lock(ns, sfd->id);
 	BUG_ON(IS_ERR(shp));
 	shp->shm_lprid = task_tgid_vnr(current);
@@ -210,6 +244,7 @@ static void shm_close(struct vm_area_struct *vma)
 	up_write(&shm_ids(ns).rw_mutex);
 }
 
+/* Called with ns->shm_ids(ns).rw_mutex locked */
 static int shm_try_destroy_current(int id, void *p, void *data)
 {
 	struct ipc_namespace *ns = data;
@@ -219,8 +254,17 @@ static int shm_try_destroy_current(int id, void *p, void *data)
 	if (shp->shm_creator != current)
 		return 0;
 
+	/*
+	 * Mark it as orphaned to destroy the segment when
+	 * kernel.shm_rmid_forced is changed.
+	 * It is noop if the following shm_may_destroy() returns true.
+	 */
 	shp->shm_creator = NULL;
 
+	/*
+	 * Don't even try to destroy it.  If shm_rmid_forced=0 and IPC_RMID
+	 * is not set, it shouldn't be deleted here.
+	 */
 	if (!ns->shm_rmid_forced)
 		return 0;
 
@@ -231,12 +275,19 @@ static int shm_try_destroy_current(int id, void *p, void *data)
 	return 0;
 }
 
+/* Called with ns->shm_ids(ns).rw_mutex locked */
 static int shm_try_destroy_orphaned(int id, void *p, void *data)
 {
 	struct ipc_namespace *ns = data;
 	struct kern_ipc_perm *ipcp = p;
 	struct shmid_kernel *shp = container_of(ipcp, struct shmid_kernel, shm_perm);
 
+	/*
+	 * We want to destroy segments without users and with already
+	 * exit'ed originating process.
+	 *
+	 * As shp->* are changed under rw_mutex, it's safe to skip shp locking.
+	 */
 	if (shp->shm_creator != NULL)
 		return 0;
 
@@ -263,7 +314,7 @@ void exit_shm(struct task_struct *task)
 	if (shm_ids(ns).in_use == 0)
 		return;
 
-	
+	/* Destroy all already created segments, but not mapped yet */
 	down_write(&shm_ids(ns).rw_mutex);
 	if (shm_ids(ns).in_use)
 		idr_for_each(&shm_ids(ns).ipcs_idr, &shm_try_destroy_current, ns);
@@ -375,8 +426,8 @@ int is_file_shm_hugepages(struct file *file)
 }
 
 static const struct vm_operations_struct shm_vm_ops = {
-	.open	= shm_open,	
-	.close	= shm_close,	
+	.open	= shm_open,	/* callback for a new vm-area open */
+	.close	= shm_close,	/* callback for when the vm-area is released */
 	.fault	= shm_fault,
 #if defined(CONFIG_NUMA)
 	.set_policy = shm_set_policy,
@@ -384,6 +435,13 @@ static const struct vm_operations_struct shm_vm_ops = {
 #endif
 };
 
+/**
+ * newseg - Create a new shared memory segment
+ * @ns: namespace
+ * @params: ptr to the structure that contains key, size and shmflg
+ *
+ * Called with shm_ids.rw_mutex held as a writer.
+ */
 
 static int newseg(struct ipc_namespace *ns, struct ipc_params *params)
 {
@@ -421,12 +479,16 @@ static int newseg(struct ipc_namespace *ns, struct ipc_params *params)
 
 	sprintf (name, "SYSV%08x", key);
 	if (shmflg & SHM_HUGETLB) {
-		
+		/* hugetlb_file_setup applies strict accounting */
 		if (shmflg & SHM_NORESERVE)
 			acctflag = VM_NORESERVE;
 		file = hugetlb_file_setup(name, 0, size, acctflag,
 					&shp->mlock_user, HUGETLB_SHMFS_INODE);
 	} else {
+		/*
+		 * Do not allow no accounting for OVERCOMMIT_NEVER, even
+	 	 * if it's asked for.
+		 */
 		if  ((shmflg & SHM_NORESERVE) &&
 				sysctl_overcommit_memory != OVERCOMMIT_NEVER)
 			acctflag = VM_NORESERVE;
@@ -450,6 +512,10 @@ static int newseg(struct ipc_namespace *ns, struct ipc_params *params)
 	shp->shm_nattch = 0;
 	shp->shm_file = file;
 	shp->shm_creator = current;
+	/*
+	 * shmid gets reported as "inode#" in /proc/pid/maps.
+	 * proc-ps tools use this. Changing this will break them.
+	 */
 	file->f_dentry->d_inode->i_ino = shp->shm_perm.id;
 
 	ns->shm_tot += numpages;
@@ -467,6 +533,9 @@ no_file:
 	return error;
 }
 
+/*
+ * Called with shm_ids.rw_mutex and ipcp locked.
+ */
 static inline int shm_security(struct kern_ipc_perm *ipcp, int shmflg)
 {
 	struct shmid_kernel *shp;
@@ -475,6 +544,9 @@ static inline int shm_security(struct kern_ipc_perm *ipcp, int shmflg)
 	return security_shm_associate(shp, shmflg);
 }
 
+/*
+ * Called with shm_ids.rw_mutex and ipcp locked.
+ */
 static inline int shm_more_checks(struct kern_ipc_perm *ipcp,
 				struct ipc_params *params)
 {
@@ -584,6 +656,10 @@ static inline unsigned long copy_shminfo_to_user(void __user *buf, struct shminf
 	}
 }
 
+/*
+ * Calculate and add used RSS and swap pages of a shm.
+ * Called with shm_ids.rw_mutex held as a reader
+ */
 static void shm_add_rss_swap(struct shmid_kernel *shp,
 	unsigned long *rss_add, unsigned long *swp_add)
 {
@@ -608,6 +684,9 @@ static void shm_add_rss_swap(struct shmid_kernel *shp,
 	}
 }
 
+/*
+ * Called with shm_ids.rw_mutex held as a reader
+ */
 static void shm_get_stat(struct ipc_namespace *ns, unsigned long *rss,
 		unsigned long *swp)
 {
@@ -634,6 +713,11 @@ static void shm_get_stat(struct ipc_namespace *ns, unsigned long *rss,
 	}
 }
 
+/*
+ * This function handles some shmctl commands which require the rw_mutex
+ * to be held in write mode.
+ * NOTE: no locks must be held, the rw_mutex is taken inside this function.
+ */
 static int shmctl_down(struct ipc_namespace *ns, int shmid, int cmd,
 		       struct shmid_ds __user *buf, int version)
 {
@@ -689,7 +773,7 @@ SYSCALL_DEFINE3(shmctl, int, shmid, int, cmd, struct shmid_ds __user *, buf)
 	version = ipc_parse_version(&cmd);
 	ns = current->nsproxy->ipc_ns;
 
-	switch (cmd) { 
+	switch (cmd) { /* replace with proc interface ? */
 	case IPC_INFO:
 	{
 		struct shminfo64 shminfo;
@@ -824,7 +908,7 @@ SYSCALL_DEFINE3(shmctl, int, shmid, int, cmd, struct shmid_ds __user *, buf)
 			goto out_unlock;
 		}
 
-		
+		/* SHM_UNLOCK */
 		if (!(shp->shm_perm.mode & SHM_LOCKED))
 			goto out_unlock;
 		shmem_lock(shm_file, 0, shp->mlock_user);
@@ -850,6 +934,13 @@ out:
 	return err;
 }
 
+/*
+ * Fix shmaddr, allocate descriptor, map shm, add attach descriptor to lists.
+ *
+ * NOTE! Despite the name, this is NOT a direct system call entrypoint. The
+ * "raddr" thing points to kernel space, and there has to be a wrapper around
+ * this.
+ */
 long do_shmat(int shmid, char __user *shmaddr, int shmflg, ulong *raddr)
 {
 	struct shmid_kernel *shp;
@@ -872,7 +963,7 @@ long do_shmat(int shmid, char __user *shmaddr, int shmflg, ulong *raddr)
 	else if ((addr = (ulong)shmaddr)) {
 		if (addr & (SHMLBA-1)) {
 			if (shmflg & SHM_RND)
-				addr &= ~(SHMLBA-1);	   
+				addr &= ~(SHMLBA-1);	   /* round down */
 			else
 #ifndef __ARCH_FORCE_SHMLBA
 				if (addr & ~PAGE_MASK)
@@ -901,6 +992,10 @@ long do_shmat(int shmid, char __user *shmaddr, int shmflg, ulong *raddr)
 		acc_mode |= S_IXUGO;
 	}
 
+	/*
+	 * We cannot rely on the fs check since SYSV IPC does have an
+	 * additional creator id...
+	 */
 	ns = current->nsproxy->ipc_ns;
 	shp = shm_lock_check(ns, shmid);
 	if (IS_ERR(shp)) {
@@ -946,6 +1041,10 @@ long do_shmat(int shmid, char __user *shmaddr, int shmflg, ulong *raddr)
 		err = -EINVAL;
 		if (find_vma_intersection(current->mm, addr, addr + size))
 			goto invalid;
+		/*
+		 * If shm segment goes below stack, make sure there is some
+		 * space left for the stack to grow (at least 4 pages).
+		 */
 		if (addr < current->mm->start_stack &&
 		    addr > current->mm->start_stack - size - PAGE_SIZE * 5)
 			goto invalid;
@@ -998,6 +1097,10 @@ SYSCALL_DEFINE3(shmat, int, shmid, char __user *, shmaddr, int, shmflg)
 	return (long)ret;
 }
 
+/*
+ * detach and kill segment if marked destroyed.
+ * The work is done in shm_close.
+ */
 SYSCALL_DEFINE1(shmdt, char __user *, shmaddr)
 {
 	struct mm_struct *mm = current->mm;
@@ -1014,18 +1117,49 @@ SYSCALL_DEFINE1(shmdt, char __user *, shmaddr)
 
 	down_write(&mm->mmap_sem);
 
+	/*
+	 * This function tries to be smart and unmap shm segments that
+	 * were modified by partial mlock or munmap calls:
+	 * - It first determines the size of the shm segment that should be
+	 *   unmapped: It searches for a vma that is backed by shm and that
+	 *   started at address shmaddr. It records it's size and then unmaps
+	 *   it.
+	 * - Then it unmaps all shm vmas that started at shmaddr and that
+	 *   are within the initially determined size.
+	 * Errors from do_munmap are ignored: the function only fails if
+	 * it's called with invalid parameters or if it's called to unmap
+	 * a part of a vma. Both calls in this function are for full vmas,
+	 * the parameters are directly copied from the vma itself and always
+	 * valid - therefore do_munmap cannot fail. (famous last words?)
+	 */
+	/*
+	 * If it had been mremap()'d, the starting address would not
+	 * match the usual checks anyway. So assume all vma's are
+	 * above the starting address given.
+	 */
 	vma = find_vma(mm, addr);
 
 #ifdef CONFIG_MMU
 	while (vma) {
 		next = vma->vm_next;
 
+		/*
+		 * Check if the starting address would match, i.e. it's
+		 * a fragment created by mprotect() and/or munmap(), or it
+		 * otherwise it starts at this address with no hassles.
+		 */
 		if ((vma->vm_ops == &shm_vm_ops) &&
 			(vma->vm_start - addr)/PAGE_SIZE == vma->vm_pgoff) {
 
 
 			size = vma->vm_file->f_path.dentry->d_inode->i_size;
 			do_munmap(mm, vma->vm_start, vma->vm_end - vma->vm_start);
+			/*
+			 * We discovered the size of the shm segment, so
+			 * break out of here and fall through to the next
+			 * loop that uses the size information to stop
+			 * searching for matching vma's.
+			 */
 			retval = 0;
 			vma = next;
 			break;
@@ -1033,11 +1167,16 @@ SYSCALL_DEFINE1(shmdt, char __user *, shmaddr)
 		vma = next;
 	}
 
+	/*
+	 * We need look no further than the maximum address a fragment
+	 * could possibly have landed at. Also cast things to loff_t to
+	 * prevent overflows and make comparisons vs. equal-width types.
+	 */
 	size = PAGE_ALIGN(size);
 	while (vma && (loff_t)(vma->vm_end - addr) <= size) {
 		next = vma->vm_next;
 
-		
+		/* finding a matching vma now does not alter retval */
 		if ((vma->vm_ops == &shm_vm_ops) &&
 			(vma->vm_start - addr)/PAGE_SIZE == vma->vm_pgoff)
 
@@ -1045,7 +1184,9 @@ SYSCALL_DEFINE1(shmdt, char __user *, shmaddr)
 		vma = next;
 	}
 
-#else 
+#else /* CONFIG_MMU */
+	/* under NOMMU conditions, the exact address to be destroyed must be
+	 * given */
 	retval = -EINVAL;
 	if (vma->vm_start == addr && vma->vm_ops == &shm_vm_ops) {
 		do_munmap(mm, vma->vm_start, vma->vm_end - vma->vm_start);

@@ -11,4 +11,4 @@ void cuboot_init(unsigned long r4, unsigned long r5,
 		cuboot_init(r4, r5, r6, r7, bd.bi_memstart + bd.bi_memsize); \
 	} while (0)
 
-#endif 
+#endif /* _PPC_BOOT_CUBOOT_H_ */

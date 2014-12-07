@@ -48,7 +48,7 @@ static void tosa_ext_control(struct snd_soc_codec *codec)
 {
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 
-	
+	/* set up jack connection */
 	switch (tosa_jack_func) {
 	case TOSA_HP:
 		snd_soc_dapm_disable_pin(dapm, "Mic (Internal)");
@@ -82,7 +82,7 @@ static int tosa_startup(struct snd_pcm_substream *substream)
 
 	mutex_lock(&codec->mutex);
 
-	
+	/* check the jack status at stream startup */
 	tosa_ext_control(codec);
 
 	mutex_unlock(&codec->mutex);
@@ -134,6 +134,7 @@ static int tosa_set_spk(struct snd_kcontrol *kcontrol,
 	return 1;
 }
 
+/* tosa dapm event handlers */
 static int tosa_hp_event(struct snd_soc_dapm_widget *w,
 	struct snd_kcontrol *k, int event)
 {
@@ -141,6 +142,7 @@ static int tosa_hp_event(struct snd_soc_dapm_widget *w,
 	return 0;
 }
 
+/* tosa machine dapm widgets */
 static const struct snd_soc_dapm_widget tosa_dapm_widgets[] = {
 SND_SOC_DAPM_HP("Headphone Jack", tosa_hp_event),
 SND_SOC_DAPM_HP("Headset Jack", NULL),
@@ -148,22 +150,23 @@ SND_SOC_DAPM_MIC("Mic (Internal)", NULL),
 SND_SOC_DAPM_SPK("Speaker", NULL),
 };
 
+/* tosa audio map */
 static const struct snd_soc_dapm_route audio_map[] = {
 
-	
+	/* headphone connected to HPOUTL, HPOUTR */
 	{"Headphone Jack", NULL, "HPOUTL"},
 	{"Headphone Jack", NULL, "HPOUTR"},
 
-	
+	/* ext speaker connected to LOUT2, ROUT2 */
 	{"Speaker", NULL, "LOUT2"},
 	{"Speaker", NULL, "ROUT2"},
 
-	
+	/* internal mic is connected to mic1, mic2 differential - with bias */
 	{"MIC1", NULL, "Mic Bias"},
 	{"MIC2", NULL, "Mic Bias"},
 	{"Mic Bias", NULL, "Mic (Internal)"},
 
-	
+	/* headset is connected to HPOUTR, and LINEINR with bias */
 	{"Headset Jack", NULL, "HPOUTR"},
 	{"LINEINR", NULL, "Mic Bias"},
 	{"Mic Bias", NULL, "Headset Jack"},
@@ -193,17 +196,17 @@ static int tosa_ac97_init(struct snd_soc_pcm_runtime *rtd)
 	snd_soc_dapm_nc_pin(dapm, "OUT3");
 	snd_soc_dapm_nc_pin(dapm, "MONOOUT");
 
-	
+	/* add tosa specific controls */
 	err = snd_soc_add_codec_controls(codec, tosa_controls,
 				ARRAY_SIZE(tosa_controls));
 	if (err < 0)
 		return err;
 
-	
+	/* add tosa specific widgets */
 	snd_soc_dapm_new_controls(dapm, tosa_dapm_widgets,
 				  ARRAY_SIZE(tosa_dapm_widgets));
 
-	
+	/* set up tosa specific audio path audio_map */
 	snd_soc_dapm_add_routes(dapm, audio_map, ARRAY_SIZE(audio_map));
 
 	return 0;
@@ -279,6 +282,7 @@ static struct platform_driver tosa_driver = {
 
 module_platform_driver(tosa_driver);
 
+/* Module information */
 MODULE_AUTHOR("Richard Purdie");
 MODULE_DESCRIPTION("ALSA SoC Tosa");
 MODULE_LICENSE("GPL");

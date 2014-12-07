@@ -28,6 +28,7 @@
 
 #include <linux/mfd/pcf50633/core.h>
 
+/* Read a block of up to 32 regs  */
 int pcf50633_read_block(struct pcf50633 *pcf, u8 reg,
 					int nr_regs, u8 *data)
 {
@@ -41,6 +42,7 @@ int pcf50633_read_block(struct pcf50633 *pcf, u8 reg,
 }
 EXPORT_SYMBOL_GPL(pcf50633_read_block);
 
+/* Write a block of up to 32 regs  */
 int pcf50633_write_block(struct pcf50633 *pcf , u8 reg,
 					int nr_regs, u8 *data)
 {
@@ -79,6 +81,7 @@ int pcf50633_reg_clear_bits(struct pcf50633 *pcf, u8 reg, u8 val)
 }
 EXPORT_SYMBOL_GPL(pcf50633_reg_clear_bits);
 
+/* sysfs attributes */
 static ssize_t show_dump_regs(struct device *dev, struct device_attribute *attr,
 			    char *buf)
 {
@@ -86,13 +89,13 @@ static ssize_t show_dump_regs(struct device *dev, struct device_attribute *attr,
 	u8 dump[16];
 	int n, n1, idx = 0;
 	char *buf1 = buf;
-	static u8 address_no_read[] = { 
+	static u8 address_no_read[] = { /* must be ascending */
 		PCF50633_REG_INT1,
 		PCF50633_REG_INT2,
 		PCF50633_REG_INT3,
 		PCF50633_REG_INT4,
 		PCF50633_REG_INT5,
-		0 
+		0 /* terminator */
 	};
 
 	for (n = 0; n < 256; n += sizeof(dump)) {
@@ -137,7 +140,7 @@ static struct attribute *pcf_sysfs_entries[] = {
 };
 
 static struct attribute_group pcf_attr_group = {
-	.name	= NULL,			
+	.name	= NULL,			/* put in device directory */
 	.attrs	= pcf_sysfs_entries,
 };
 
@@ -233,7 +236,7 @@ static int __devinit pcf50633_probe(struct i2c_client *client,
 
 	pcf50633_irq_init(pcf, client->irq);
 
-	
+	/* Create sub devices */
 	pcf50633_client_dev_register(pcf, "pcf50633-input",
 						&pcf->input_pdev);
 	pcf50633_client_dev_register(pcf, "pcf50633-rtc",
@@ -305,7 +308,7 @@ static int __devexit pcf50633_remove(struct i2c_client *client)
 
 static const struct i2c_device_id pcf50633_id_table[] = {
 	{"pcf50633", 0x73},
-	{}
+	{/* end of list */}
 };
 MODULE_DEVICE_TABLE(i2c, pcf50633_id_table);
 

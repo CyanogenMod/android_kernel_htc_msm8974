@@ -11,6 +11,7 @@
 
 #include "dove.h"
 
+/* Macros below are required for compatibility with PXA AC'97 driver.	*/
 #define __REG(x)	(*((volatile u32 *)((x) - DOVE_SB_REGS_PHYS_BASE + \
 				DOVE_SB_REGS_VIRT_BASE)))
 #define __PREG(x)	(((u32)&(x)) - DOVE_SB_REGS_VIRT_BASE + \

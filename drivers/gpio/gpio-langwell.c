@@ -17,6 +17,11 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/* Supports:
+ * Moorestown platform Langwell chip.
+ * Medfield platform Penwell chip.
+ * Whitney point.
+ */
 
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -32,16 +37,29 @@
 #include <linux/slab.h>
 #include <linux/pm_runtime.h>
 
+/*
+ * Langwell chip has 64 pins and thus there are 2 32bit registers to control
+ * each feature, while Penwell chip has 96 pins for each block, and need 3 32bit
+ * registers to control them, so we only define the order here instead of a
+ * structure, to get a bit offset for a pin (use GPDR as an example):
+ *
+ * nreg = ngpio / 32;
+ * reg = offset / 32;
+ * bit = offset % 32;
+ * reg_addr = reg_base + GPDR * nreg * 4 + reg * 4;
+ *
+ * so the bit of reg_addr is to control pin offset's GPDR feature
+*/
 
 enum GPIO_REG {
-	GPLR = 0,	
-	GPDR,		
-	GPSR,		
-	GPCR,		
-	GRER,		
-	GFER,		
-	GEDR,		
-	GAFR,		
+	GPLR = 0,	/* pin level read-only */
+	GPDR,		/* pin direction */
+	GPSR,		/* pin set */
+	GPCR,		/* pin clear */
+	GRER,		/* rising edge detect */
+	GFER,		/* falling edge detect */
+	GEDR,		/* edge detect result */
+	GAFR,		/* alt function */
 };
 
 struct lnw_gpio {
@@ -211,7 +229,7 @@ static struct irq_chip lnw_irqchip = {
 	.irq_set_type	= lnw_irq_type,
 };
 
-static DEFINE_PCI_DEVICE_TABLE(lnw_gpio_ids) = {   
+static DEFINE_PCI_DEVICE_TABLE(lnw_gpio_ids) = {   /* pin number */
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x080f), .driver_data = 64 },
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x081f), .driver_data = 96 },
 	{ PCI_DEVICE(PCI_VENDOR_ID_INTEL, 0x081a), .driver_data = 96 },
@@ -228,7 +246,7 @@ static void lnw_irq_handler(unsigned irq, struct irq_desc *desc)
 	unsigned long pending;
 	void __iomem *gedr;
 
-	
+	/* check GPIO controller to check which pin triggered the interrupt */
 	for (base = 0; base < lnw->chip.ngpio; base += 32) {
 		gedr = gpio_reg(&lnw->chip, base, GEDR);
 		pending = readl(gedr);
@@ -236,7 +254,7 @@ static void lnw_irq_handler(unsigned irq, struct irq_desc *desc)
 			gpio = __ffs(pending);
 			mask = BIT(gpio);
 			pending &= ~mask;
-			
+			/* Clear before handling so we can't lose an edge */
 			writel(mask, gedr);
 			generic_handle_irq(lnw->irq_base + base + gpio);
 		}
@@ -298,7 +316,7 @@ static int __devinit lnw_gpio_probe(struct pci_dev *pdev,
 		dev_err(&pdev->dev, "error requesting resources\n");
 		goto err2;
 	}
-	
+	/* get the irq_base from bar1 */
 	start = pci_resource_start(pdev, 1);
 	len = pci_resource_len(pdev, 1);
 	base = ioremap_nocache(start, len);
@@ -308,9 +326,9 @@ static int __devinit lnw_gpio_probe(struct pci_dev *pdev,
 	}
 	irq_base = *(u32 *)base;
 	gpio_base = *((u32 *)base + 1);
-	
+	/* release the IO mapping, since we already get the info from bar1 */
 	iounmap(base);
-	
+	/* get the register base from bar0 */
 	start = pci_resource_start(pdev, 0);
 	len = pci_resource_len(pdev, 0);
 	base = ioremap_nocache(start, len);

@@ -25,6 +25,8 @@
 
 #include "cx18-mailbox.h"
 
+/* NOTE: All ACK interrupts are in the SW2 register.  All non-ACK interrupts
+   are in the SW1 register. */
 
 #define IRQ_APU_TO_CPU         0x00000001
 #define IRQ_CPU_TO_APU_ACK     0x00000001
@@ -73,41 +75,54 @@
 
 #define SCB_OFFSET  0xDC0000
 
+/* If Firmware uses fixed memory map, it shall not allocate the area
+   between SCB_OFFSET and SCB_OFFSET+SCB_RESERVED_SIZE-1 inclusive */
 #define SCB_RESERVED_SIZE 0x10000
 
 
+/* This structure is used by EPU to provide memory descriptors in its memory */
 struct cx18_mdl_ent {
-    u32 paddr;  
-    u32 length; 
+    u32 paddr;  /* Physical address of a buffer segment */
+    u32 length; /* Length of the buffer segment */
 };
 
 struct cx18_scb {
+	/* These fields form the System Control Block which is used at boot time
+	   for localizing the IPC data as well as the code positions for all
+	   processors. The offsets are from the start of this struct. */
 
-	
+	/* Offset where to find the Inter-Processor Communication data */
 	u32 ipc_offset;
 	u32 reserved01[7];
-	
+	/* Offset where to find the start of the CPU code */
 	u32 cpu_code_offset;
 	u32 reserved02[3];
-	
+	/* Offset where to find the start of the APU code */
 	u32 apu_code_offset;
 	u32 reserved03[3];
-	
+	/* Offset where to find the start of the HPU code */
 	u32 hpu_code_offset;
 	u32 reserved04[3];
-	
+	/* Offset where to find the start of the PPU code */
 	u32 ppu_code_offset;
 	u32 reserved05[3];
 
+	/* These fields form Inter-Processor Communication data which is used
+	   by all processors to locate the information needed for communicating
+	   with other processors */
 
-	
+	/* Fields for CPU: */
 
-	
+	/* bit 0: 1/0 processor ready/not ready. Set other bits to 0. */
 	u32 cpu_state;
 	u32 reserved1[7];
-	
+	/* Offset to the mailbox used for sending commands from APU to CPU */
 	u32 apu2cpu_mb_offset;
+	/* Value to write to register SW1 register set (0xC7003100) after the
+	   command is ready */
 	u32 apu2cpu_irq;
+	/* Value to write to register SW2 register set (0xC7003140) after the
+	   command is cleared */
 	u32 cpu2apu_irq_ack;
 	u32 reserved2[13];
 
@@ -127,7 +142,7 @@ struct cx18_scb {
 	u32 reserved5[13];
 	u32 reserved6[8];
 
-	
+	/* Fields for APU: */
 
 	u32 apu_state;
 	u32 reserved11[7];
@@ -152,7 +167,7 @@ struct cx18_scb {
 	u32 reserved15[13];
 	u32 reserved16[8];
 
-	
+	/* Fields for HPU: */
 
 	u32 hpu_state;
 	u32 reserved21[7];
@@ -177,7 +192,7 @@ struct cx18_scb {
 	u32 reserved25[13];
 	u32 reserved26[8];
 
-	
+	/* Fields for PPU: */
 
 	u32 ppu_state;
 	u32 reserved31[7];
@@ -202,7 +217,7 @@ struct cx18_scb {
 	u32 reserved35[13];
 	u32 reserved36[8];
 
-	
+	/* Fields for EPU: */
 
 	u32 epu_state;
 	u32 reserved41[7];
@@ -227,9 +242,9 @@ struct cx18_scb {
 	u32 reserved45[13];
 	u32 reserved46[8];
 
-	u32 semaphores[8];  
+	u32 semaphores[8];  /* Semaphores */
 
-	u32 reserved50[32]; 
+	u32 reserved50[32]; /* Reserved for future use */
 
 	struct cx18_mailbox  apu2cpu_mb;
 	struct cx18_mailbox  hpu2cpu_mb;

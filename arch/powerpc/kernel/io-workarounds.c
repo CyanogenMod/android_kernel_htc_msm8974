@@ -12,7 +12,7 @@
 #undef DEBUG
 
 #include <linux/kernel.h>
-#include <linux/sched.h>	
+#include <linux/sched.h>	/* for init_mm */
 
 #include <asm/io.h>
 #include <asm/machdep.h>
@@ -145,6 +145,7 @@ static void __iomem *iowa_ioremap(phys_addr_t addr, unsigned long size,
 	return res;
 }
 
+/* Enable IO workaround */
 static void __devinit io_workaround_init(void)
 {
 	static int io_workaround_inited;
@@ -156,6 +157,7 @@ static void __devinit io_workaround_init(void)
 	io_workaround_inited = 1;
 }
 
+/* Register new bus to support workaround */
 void __devinit iowa_register_bus(struct pci_controller *phb,
 			struct ppc_pci_io *ops,
 			int (*initfunc)(struct iowa_bus *, void *), void *data)

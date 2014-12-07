@@ -40,8 +40,11 @@ static int alloc_dbdma_descriptor_ring(struct i2sbus_dev *i2sdev,
 				       struct dbdma_command_mem *r,
 				       int numcmds)
 {
-	
+	/* one more for rounding, one for branch back, one for stop command */
 	r->size = (numcmds + 3) * sizeof(struct dbdma_cmd);
+	/* We use the PCI APIs for now until the generic one gets fixed
+	 * enough or until we get some macio-specific versions
+	 */
 	r->space = dma_alloc_coherent(
 			&macio_get_pci_dev(i2sdev->macio)->dev,
 			r->size,
@@ -97,7 +100,7 @@ static irqreturn_t i2sbus_bus_intr(int irq, void *devid)
 	spin_lock(&dev->low_lock);
 	intreg = in_le32(&dev->intfregs->intr_ctl);
 
-	
+	/* acknowledge interrupt reasons */
 	out_le32(&dev->intfregs->intr_ctl, intreg);
 
 	spin_unlock(&dev->low_lock);
@@ -106,6 +109,13 @@ static irqreturn_t i2sbus_bus_intr(int irq, void *devid)
 }
 
 
+/*
+ * XXX FIXME: We test the layout_id's here to get the proper way of
+ * mapping in various registers, thanks to bugs in Apple device-trees.
+ * We could instead key off the machine model and the name of the i2s
+ * node (i2s-a). This we'll do when we move it all to macio_asic.c
+ * and have that export items for each sub-node too.
+ */
 static int i2sbus_get_and_fixup_rsrc(struct device_node *np, int index,
 				     int layout, struct resource *res)
 {
@@ -113,6 +123,15 @@ static int i2sbus_get_and_fixup_rsrc(struct device_node *np, int index,
 	int pindex, rc = -ENXIO;
 	const u32 *reg;
 
+	/* Machines with layout 76 and 36 (K2 based) have a weird device
+	 * tree what we need to special case.
+	 * Normal machines just fetch the resource from the i2s-X node.
+	 * Darwin further divides normal machines into old and new layouts
+	 * with a subtely different code path but that doesn't seem necessary
+	 * in practice, they just bloated it. In addition, even on our K2
+	 * case the i2s-modem node, if we ever want to handle it, uses the
+	 * normal layout
+	 */
 	if (layout != 76 && layout != 36)
 		return of_address_to_resource(np, index, res);
 
@@ -133,6 +152,7 @@ static int i2sbus_get_and_fixup_rsrc(struct device_node *np, int index,
 	return rc;
 }
 
+/* FIXME: look at device node refcounting */
 static int i2sbus_add_dev(struct macio_dev *macio,
 			  struct i2sbus_control *control,
 			  struct device_node *np)
@@ -176,6 +196,10 @@ static int i2sbus_add_dev(struct macio_dev *macio,
 			ok = 1;
 		} else {
 			id = of_get_property(sound, "device-id", NULL);
+			/*
+			 * We probably cannot handle all device-id machines,
+			 * so restrict to those we do handle for now.
+			 */
 			if (id && (*id == 22 || *id == 14 || *id == 35)) {
 				snprintf(dev->sound.modalias, 32,
 					 "aoa-device-id-%d", *id);
@@ -184,6 +208,12 @@ static int i2sbus_add_dev(struct macio_dev *macio,
 			}
 		}
 	}
+	/* for the time being, until we can handle non-layout-id
+	 * things in some fabric, refuse to attach if there is no
+	 * layout-id property or we haven't been forced to attach.
+	 * When there are two i2s busses and only one has a layout-id,
+	 * then this depends on the order, but that isn't important
+	 * either as the second one in that case is just a modem. */
 	if (!ok) {
 		kfree(dev);
 		return -ENODEV;
@@ -217,9 +247,19 @@ static int i2sbus_add_dev(struct macio_dev *macio,
 	}
 
 
+	/* Resource handling is problematic as some device-trees contain
+	 * useless crap (ugh ugh ugh). We work around that here by calling
+	 * specific functions for calculating the appropriate resources.
+	 *
+	 * This will all be moved to macio_asic.c at one point
+	 */
 	for (i = aoa_resource_i2smmio; i <= aoa_resource_rxdbdma; i++) {
 		if (i2sbus_get_and_fixup_rsrc(np,i,layout,&dev->resources[i]))
 			goto err;
+		/* If only we could use our resource dev->resources[i]...
+		 * but request_resource doesn't know about parents and
+		 * contained resources...
+		 */
 		dev->allocated_resource[i] =
 			request_mem_region(dev->resources[i].start,
 					   resource_size(&dev->resources[i]),
@@ -268,7 +308,7 @@ static int i2sbus_add_dev(struct macio_dev *macio,
 		goto err;
 	}
 
-	
+	/* enable this cell */
 	i2sbus_control_cell(dev->control, dev, 1);
 	i2sbus_control_enable(dev->control, dev);
 	i2sbus_control_clock(dev->control, dev, 1);
@@ -313,7 +353,7 @@ static int i2sbus_probe(struct macio_dev* dev, const struct of_device_id *match)
 	}
 
 	if (!got) {
-		
+		/* found none, clean up */
 		i2sbus_control_destroy(control);
 		return -ENODEV;
 	}
@@ -343,13 +383,13 @@ static int i2sbus_suspend(struct macio_dev* dev, pm_message_t state)
 	int err, ret = 0;
 
 	list_for_each_entry(i2sdev, &control->list, item) {
-		
+		/* Notify Alsa */
 		if (i2sdev->sound.pcm) {
-			
+			/* Suspend PCM streams */
 			snd_pcm_suspend_all(i2sdev->sound.pcm);
 		}
 
-		
+		/* Notify codecs */
 		list_for_each_entry(cii, &i2sdev->sound.codec_list, list) {
 			err = 0;
 			if (cii->codec->suspend)
@@ -358,7 +398,7 @@ static int i2sbus_suspend(struct macio_dev* dev, pm_message_t state)
 				ret = err;
 		}
 
-		
+		/* wait until streams are stopped */
 		i2sbus_wait_for_stop_both(i2sdev);
 	}
 
@@ -373,10 +413,10 @@ static int i2sbus_resume(struct macio_dev* dev)
 	int err, ret = 0;
 
 	list_for_each_entry(i2sdev, &control->list, item) {
-		
+		/* reset i2s bus format etc. */
 		i2sbus_pcm_prepare_both(i2sdev);
 
-		
+		/* Notify codecs so they can re-initialize */
 		list_for_each_entry(cii, &i2sdev->sound.codec_list, list) {
 			err = 0;
 			if (cii->codec->resume)
@@ -388,7 +428,7 @@ static int i2sbus_resume(struct macio_dev* dev)
 
 	return ret;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 static int i2sbus_shutdown(struct macio_dev* dev)
 {

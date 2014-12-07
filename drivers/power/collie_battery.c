@@ -23,7 +23,7 @@
 #include <asm/mach-types.h>
 #include <mach/collie.h>
 
-static DEFINE_MUTEX(bat_lock); 
+static DEFINE_MUTEX(bat_lock); /* protects gpio pins */
 static struct work_struct bat_work;
 static struct ucb1x00 *ucb;
 
@@ -32,7 +32,7 @@ struct collie_bat {
 	struct power_supply psy;
 	int full_chrg;
 
-	struct mutex work_lock; 
+	struct mutex work_lock; /* protects data */
 
 	bool (*is_present)(struct collie_bat *bat);
 	int gpio_full;
@@ -289,14 +289,14 @@ static struct gpio collie_batt_gpios[] = {
 #ifdef CONFIG_PM
 static int collie_bat_suspend(struct ucb1x00_dev *dev, pm_message_t state)
 {
-	
+	/* flush all pending status updates */
 	flush_work_sync(&bat_work);
 	return 0;
 }
 
 static int collie_bat_resume(struct ucb1x00_dev *dev)
 {
-	
+	/* things may have changed while we were away */
 	schedule_work(&bat_work);
 	return 0;
 }
@@ -343,7 +343,7 @@ err_psy_reg_bu:
 	power_supply_unregister(&collie_bat_main.psy);
 err_psy_reg_main:
 
-	
+	/* see comment in collie_bat_remove */
 	cancel_work_sync(&bat_work);
 	gpio_free_array(collie_batt_gpios, ARRAY_SIZE(collie_batt_gpios));
 	return ret;
@@ -356,6 +356,11 @@ static void __devexit collie_bat_remove(struct ucb1x00_dev *dev)
 	power_supply_unregister(&collie_bat_bu.psy);
 	power_supply_unregister(&collie_bat_main.psy);
 
+	/*
+	 * Now cancel the bat_work.  We won't get any more schedules,
+	 * since all sources (isr and external_power_changed) are
+	 * unregistered now.
+	 */
 	cancel_work_sync(&bat_work);
 	gpio_free_array(collie_batt_gpios, ARRAY_SIZE(collie_batt_gpios));
 }

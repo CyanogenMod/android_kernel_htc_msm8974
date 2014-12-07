@@ -13,4 +13,4 @@ asmlinkage long sys_clone(int flags, unsigned long stack, struct pt_regs *regs);
 
 #include <asm-generic/syscalls.h>
 
-#endif 
+#endif /* __ASM_MICROBLAZE_SYSCALLS_H */

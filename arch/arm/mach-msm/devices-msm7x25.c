@@ -622,16 +622,16 @@ static struct platform_device rmt_storage_device = {
 };
 
 struct shared_ramfs_entry {
-	uint32_t client_id;   	
-	uint32_t base_addr;	
-	uint32_t size;		
-	uint32_t reserved;	
+	uint32_t client_id;   	/* Client id to uniquely identify a client */
+	uint32_t base_addr;	/* Base address of shared RAMFS memory */
+	uint32_t size;		/* Size of the shared RAMFS memory */
+	uint32_t reserved;	/* Reserved attribute for future use */
 };
 struct shared_ramfs_table {
-	uint32_t magic_id;  	
-	uint32_t version;	
-	uint32_t entries;	
-	struct shared_ramfs_entry ramfs_entry[3];	
+	uint32_t magic_id;  	/* Identify RAMFS details in SMEM */
+	uint32_t version;	/* Version of shared_ramfs_table */
+	uint32_t entries;	/* Total number of valid entries   */
+	struct shared_ramfs_entry ramfs_entry[3];	/* List all entries */
 };
 
 int __init rmt_storage_add_ramfs(void)
@@ -659,7 +659,7 @@ int __init rmt_storage_add_ramfs(void)
 	for (index = 0; index < ramfs_table->entries; index++) {
 		ramfs_entry = &ramfs_table->ramfs_entry[index];
 
-		
+		/* Find a match for the Modem Storage RAMFS area */
 		if (ramfs_entry->client_id == (u32) RAMFS_MODEMSTORAGE_ID) {
 			printk(KERN_INFO "%s: RAMFS Info (from SMEM): "
 				"Baseaddr = 0x%08x, Size = 0x%08x\n", __func__,
@@ -789,6 +789,7 @@ static struct platform_device msm_tvenc_device = {
 	.resource       = msm_tvenc_resources,
 };
 
+/* TSIF begin */
 #if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
 
 #define MSM_TSIF_PHYS        (0xa0100000)
@@ -826,7 +827,8 @@ struct platform_device msm_device_tsif = {
 		.release       = tsif_release,
 	},
 };
-#endif 
+#endif /* defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE) */
+/* TSIF end   */
 
 #define MSM_TSSC_PHYS         0xAA300000
 static struct resource resources_tssc[] = {

@@ -43,7 +43,7 @@ static void minix_put_super(struct super_block *sb)
 	struct minix_sb_info *sbi = minix_sb(sb);
 
 	if (!(sb->s_flags & MS_RDONLY)) {
-		if (sbi->s_version != MINIX_V3)	 
+		if (sbi->s_version != MINIX_V3)	 /* s_state is now out from V3 sb */
 			sbi->s_ms->s_state = sbi->s_mount_state;
 		mark_buffer_dirty(sbi->s_sbh);
 	}
@@ -125,12 +125,12 @@ static int minix_remount (struct super_block * sb, int * flags, char * data)
 		if (ms->s_state & MINIX_VALID_FS ||
 		    !(sbi->s_mount_state & MINIX_VALID_FS))
 			return 0;
-		
+		/* Mounting a rw partition read-only. */
 		if (sbi->s_version != MINIX_V3)
 			ms->s_state = sbi->s_mount_state;
 		mark_buffer_dirty(sbi->s_sbh);
 	} else {
-	  	
+	  	/* Mount a partition which is read-only, read-write. */
 		if (sbi->s_version != MINIX_V3) {
 			sbi->s_mount_state = ms->s_state;
 			ms->s_state &= ~MINIX_VALID_FS;
@@ -227,6 +227,9 @@ static int minix_fill_super(struct super_block *s, void *data, int silent)
 	} else
 		goto out_no_fs;
 
+	/*
+	 * Allocate the buffer map to keep the superblock small.
+	 */
 	if (sbi->s_imap_blocks == 0 || sbi->s_zmap_blocks == 0)
 		goto out_illegal_sb;
 	i = (sbi->s_imap_blocks + sbi->s_zmap_blocks) * sizeof(bh);
@@ -251,6 +254,10 @@ static int minix_fill_super(struct super_block *s, void *data, int silent)
 	minix_set_bit(0,sbi->s_imap[0]->b_data);
 	minix_set_bit(0,sbi->s_zmap[0]->b_data);
 
+	/* Apparently minix can create filesystems that allocate more blocks for
+	 * the bitmaps than needed.  We simply ignore that, but verify it didn't
+	 * create one with not enough blocks and bail out if so.
+	 */
 	block = minix_blocks_needed(sbi->s_ninodes, s->s_blocksize);
 	if (sbi->s_imap_blocks < block) {
 		printk("MINIX-fs: file system does not have enough "
@@ -267,7 +274,7 @@ static int minix_fill_super(struct super_block *s, void *data, int silent)
 		goto out_no_bitmap;
 	}
 
-	
+	/* set up enough so that it can read an inode */
 	s->s_op = &minix_sops;
 	root_inode = minix_iget(s, MINIX_ROOT_INO);
 	if (IS_ERR(root_inode)) {
@@ -281,7 +288,7 @@ static int minix_fill_super(struct super_block *s, void *data, int silent)
 		goto out_no_root;
 
 	if (!(s->s_flags & MS_RDONLY)) {
-		if (sbi->s_version != MINIX_V3) 
+		if (sbi->s_version != MINIX_V3) /* s_state is now out from V3 sb */
 			ms->s_state &= ~MINIX_VALID_FS;
 		mark_buffer_dirty(bh);
 	}
@@ -437,6 +444,9 @@ void minix_set_inode(struct inode *inode, dev_t rdev)
 		init_special_inode(inode, inode->i_mode, rdev);
 }
 
+/*
+ * The minix V1 function to read an inode.
+ */
 static struct inode *V1_minix_iget(struct inode *inode)
 {
 	struct buffer_head * bh;
@@ -467,6 +477,9 @@ static struct inode *V1_minix_iget(struct inode *inode)
 	return inode;
 }
 
+/*
+ * The minix V2 function to read an inode.
+ */
 static struct inode *V2_minix_iget(struct inode *inode)
 {
 	struct buffer_head * bh;
@@ -499,6 +512,9 @@ static struct inode *V2_minix_iget(struct inode *inode)
 	return inode;
 }
 
+/*
+ * The global function to read an inode.
+ */
 struct inode *minix_iget(struct super_block *sb, unsigned long ino)
 {
 	struct inode *inode;
@@ -515,6 +531,9 @@ struct inode *minix_iget(struct super_block *sb, unsigned long ino)
 		return V2_minix_iget(inode);
 }
 
+/*
+ * The minix V1 function to synchronize an inode.
+ */
 static struct buffer_head * V1_minix_update_inode(struct inode * inode)
 {
 	struct buffer_head * bh;
@@ -539,6 +558,9 @@ static struct buffer_head * V1_minix_update_inode(struct inode * inode)
 	return bh;
 }
 
+/*
+ * The minix V2 function to synchronize an inode.
+ */
 static struct buffer_head * V2_minix_update_inode(struct inode * inode)
 {
 	struct buffer_head * bh;
@@ -600,6 +622,9 @@ int minix_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *sta
 	return 0;
 }
 
+/*
+ * The function that is called for file truncation.
+ */
 void minix_truncate(struct inode * inode)
 {
 	if (!(S_ISREG(inode->i_mode) || S_ISDIR(inode->i_mode) || S_ISLNK(inode->i_mode)))

@@ -87,7 +87,7 @@ static void eq_set_ci(struct mlx4_eq *eq, int req_not)
 	__raw_writel((__force u32) cpu_to_be32((eq->cons_index & 0xffffff) |
 					       req_not << 31),
 		     eq->doorbell);
-	
+	/* We still want ordering, just not swabbing, so add a barrier */
 	mb();
 }
 
@@ -130,7 +130,7 @@ void mlx4_gen_slave_eqe(struct work_struct *work)
 	      eqe = next_slave_event_eqe(slave_eq)) {
 		slave = eqe->slave_id;
 
-		
+		/* All active slaves need to receive the event */
 		if (slave == ALL_SLAVES) {
 			for (i = 0; i < dev->num_slaves; i++) {
 				if (i != dev->caps.function &&
@@ -183,7 +183,7 @@ static void mlx4_slave_event(struct mlx4_dev *dev, int slave,
 		&priv->mfunc.master.slave_state[slave];
 
 	if (!s_slave->active) {
-		
+		/*mlx4_warn(dev, "Trying to pass event to inactive slave\n");*/
 		return;
 	}
 
@@ -213,12 +213,12 @@ void mlx4_master_handle_slave_flr(struct work_struct *work)
 				 "clean slave: %d\n", i);
 
 			mlx4_delete_all_resources_for_slave(dev, i);
-			
+			/*return the slave to running mode*/
 			spin_lock(&priv->mfunc.master.slave_state_lock);
 			slave_state[i].last_cmd = MLX4_COMM_CMD_RESET;
 			slave_state[i].is_slave_going_down = 0;
 			spin_unlock(&priv->mfunc.master.slave_state_lock);
-			
+			/*notify the FW:*/
 			err = mlx4_cmd(dev, 0, i, 0, MLX4_CMD_INFORM_FLR_DONE,
 				       MLX4_CMD_TIME_CLASS_A, MLX4_CMD_WRAPPED);
 			if (err)
@@ -243,6 +243,10 @@ static int mlx4_eq_int(struct mlx4_dev *dev, struct mlx4_eq *eq)
 	int i;
 
 	while ((eqe = next_eqe_sw(eq))) {
+		/*
+		 * Make sure we read EQ entry contents after we've
+		 * checked the ownership bit.
+		 */
 		rmb();
 
 		switch (eqe->type) {
@@ -261,7 +265,7 @@ static int mlx4_eq_int(struct mlx4_dev *dev, struct mlx4_eq *eq)
 		case MLX4_EVENT_TYPE_WQ_ACCESS_ERROR:
 			mlx4_dbg(dev, "event %d arrived\n", eqe->type);
 			if (mlx4_is_master(dev)) {
-				
+				/* forward only to slave owning the QP */
 				ret = mlx4_get_slave_from_resource_id(dev,
 						RES_QP,
 						be32_to_cpu(eqe->event.qp.qpn)
@@ -290,7 +294,7 @@ static int mlx4_eq_int(struct mlx4_dev *dev, struct mlx4_eq *eq)
 				  __func__);
 		case MLX4_EVENT_TYPE_SRQ_CATAS_ERROR:
 			if (mlx4_is_master(dev)) {
-				
+				/* forward only to slave owning the SRQ */
 				ret = mlx4_get_slave_from_resource_id(dev,
 						RES_SRQ,
 						be32_to_cpu(eqe->event.srq.srqn)
@@ -338,6 +342,8 @@ static int mlx4_eq_int(struct mlx4_dev *dev, struct mlx4_eq *eq)
 						    port);
 				mlx4_priv(dev)->sense.do_sense_port[port] = 1;
 				if (mlx4_is_master(dev))
+					/*change the state of all slave's port
+					* to down:*/
 					for (i = 0; i < dev->num_slaves; i++) {
 						mlx4_dbg(dev, "%s: Sending "
 							 "MLX4_PORT_CHANGE_SUBTYPE_DOWN"
@@ -485,6 +491,13 @@ static int mlx4_eq_int(struct mlx4_dev *dev, struct mlx4_eq *eq)
 		eqes_found = 1;
 		++set_ci;
 
+		/*
+		 * The HCA will think the queue has overflowed if we
+		 * don't tell it we've been processing events.  We
+		 * create our EQs with MLX4_NUM_SPARE_EQE extra
+		 * entries, so we must update our consumer index at
+		 * least that often.
+		 */
 		if (unlikely(set_ci >= MLX4_NUM_SPARE_EQE)) {
 			eq_set_ci(eq, 0);
 			set_ci = 0;
@@ -518,7 +531,7 @@ static irqreturn_t mlx4_msi_x_interrupt(int irq, void *eq_ptr)
 
 	mlx4_eq_int(dev, eq);
 
-	
+	/* MSI-X vectors always belong to us */
 	return IRQ_HANDLED;
 }
 
@@ -575,6 +588,11 @@ static int mlx4_HW2SW_EQ(struct mlx4_dev *dev, struct mlx4_cmd_mailbox *mailbox,
 
 static int mlx4_num_eq_uar(struct mlx4_dev *dev)
 {
+	/*
+	 * Each UAR holds 4 EQ doorbells.  To figure out how many UARs
+	 * we need to map, take the difference of highest index and
+	 * the lowest index we'll use and add 1.
+	 */
 	return (dev->caps.num_comp_vectors + 1 + dev->caps.reserved_eqs +
 		 dev->caps.comp_pool)/4 - dev->caps.reserved_eqs/4 + 1;
 }
@@ -767,8 +785,12 @@ static void mlx4_free_irqs(struct mlx4_dev *dev)
 		}
 
 	for (i = 0; i < dev->caps.comp_pool; i++) {
+		/*
+		 * Freeing the assigned irq's
+		 * all bits should be 0, but we need to validate
+		 */
 		if (priv->msix_ctl.pool_bm & 1ULL << i) {
-			
+			/* NO need protecting*/
 			vec = dev->caps.num_comp_vectors + 1 + i;
 			free_irq(priv->eq_table.eq[vec].irq,
 				 &priv->eq_table.eq[vec]);
@@ -877,7 +899,7 @@ int mlx4_init_eq_table(struct mlx4_dev *dev)
 	if (err)
 		goto err_out_comp;
 
-	
+	/*if additional completion vectors poolsize is 0 this loop will not run*/
 	for (i = dev->caps.num_comp_vectors + 1;
 	      i < dev->caps.num_comp_vectors + dev->caps.comp_pool + 1; ++i) {
 
@@ -994,6 +1016,10 @@ void mlx4_cleanup_eq_table(struct mlx4_dev *dev)
 	kfree(priv->eq_table.uar_map);
 }
 
+/* A test that verifies that we can accept interrupts on all
+ * the irq vectors of the device.
+ * Interrupts are checked using the NOP command.
+ */
 int mlx4_test_interrupts(struct mlx4_dev *dev)
 {
 	struct mlx4_priv *priv = mlx4_priv(dev);
@@ -1001,15 +1027,19 @@ int mlx4_test_interrupts(struct mlx4_dev *dev)
 	int err;
 
 	err = mlx4_NOP(dev);
-	
+	/* When not in MSI_X, there is only one irq to check */
 	if (!(dev->flags & MLX4_FLAG_MSI_X) || mlx4_is_slave(dev))
 		return err;
 
+	/* A loop over all completion vectors, for each vector we will check
+	 * whether it works by mapping command completions to that vector
+	 * and performing a NOP command
+	 */
 	for(i = 0; !err && (i < dev->caps.num_comp_vectors); ++i) {
-		
+		/* Temporary use polling for command completions */
 		mlx4_cmd_use_polling(dev);
 
-		
+		/* Map the new eq to handle all asyncronous events */
 		err = mlx4_MAP_EQ(dev, MLX4_ASYNC_EVENT_MASK, 0,
 				  priv->eq_table.eq[i].eqn);
 		if (err) {
@@ -1018,12 +1048,12 @@ int mlx4_test_interrupts(struct mlx4_dev *dev)
 			break;
 		}
 
-		
+		/* Go back to using events */
 		mlx4_cmd_use_events(dev);
 		err = mlx4_NOP(dev);
 	}
 
-	
+	/* Return to default */
 	mlx4_MAP_EQ(dev, MLX4_ASYNC_EVENT_MASK, 0,
 		    priv->eq_table.eq[dev->caps.num_comp_vectors].eqn);
 	return err;
@@ -1049,11 +1079,11 @@ int mlx4_assign_eq(struct mlx4_dev *dev, char* name, int * vector)
 					  &priv->eq_table.irq_names[vec<<5],
 					  priv->eq_table.eq + vec);
 			if (err) {
-				
+				/*zero out bit by fliping it*/
 				priv->msix_ctl.pool_bm ^= 1 << i;
 				vec = 0;
 				continue;
-				
+				/*we dont want to break here*/
 			}
 			eq_set_ci(&priv->eq_table.eq[vec], 1);
 		}
@@ -1073,10 +1103,12 @@ EXPORT_SYMBOL(mlx4_assign_eq);
 void mlx4_release_eq(struct mlx4_dev *dev, int vec)
 {
 	struct mlx4_priv *priv = mlx4_priv(dev);
-	
+	/*bm index*/
 	int i = vec - dev->caps.num_comp_vectors - 1;
 
 	if (likely(i >= 0)) {
+		/*sanity check , making sure were not trying to free irq's
+		  Belonging to a legacy EQ*/
 		mutex_lock(&priv->msix_ctl.pool_lock);
 		if (priv->msix_ctl.pool_bm & 1ULL << i) {
 			free_irq(priv->eq_table.eq[vec].irq,

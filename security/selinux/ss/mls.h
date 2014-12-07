@@ -1,4 +1,9 @@
 /*
+ * Multi-level security (MLS) policy operations.
+ *
+ * Author : Stephen Smalley, <sds@epoch.ncsc.mil>
+ */
+/*
  * Updated: Trusted Computer Solutions, Inc. <dgoeddel@trustedcs.com>
  *
  *	Support for enhanced MLS infrastructure.
@@ -82,5 +87,5 @@ static inline int mls_import_netlbl_cat(struct context *context,
 }
 #endif
 
-#endif	
+#endif	/* _SS_MLS_H */
 

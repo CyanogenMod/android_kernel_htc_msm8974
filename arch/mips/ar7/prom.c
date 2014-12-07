@@ -96,6 +96,31 @@ static const struct psp_var_map_entry psp_var_map[] = {
 	{ 38,	"mipsfrequency" },
 };
 
+/*
+
+Well-known variable (num is looked up in table above for matching variable name)
+Example: cpufrequency=211968000
++----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+---
+| 01 |CTRL|CHECKSUM | 01 | _2 | _1 | _1 | _9 | _6 | _8 | _0 | _0 | _0 | \0 | FF
++----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+---
+
+Name=Value pair in a single chunk
+Example: NAME=VALUE
++----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+---
+| 00 |CTRL|CHECKSUM | 01 | _N | _A | _M | _E | _0 | _V | _A | _L | _U | _E | \0
++----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+---
+
+Name=Value pair in 2 chunks (len is the number of chunks)
+Example: bootloaderVersion=1.3.7.15
++----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+---
+| 00 |CTRL|CHECKSUM | 02 | _b | _o | _o | _t | _l | _o | _a | _d | _e | _r | _V
++----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+---
+| _e | _r | _s | _i | _o | _n | \0 | _1 | _. | _3 | _. | _7 | _. | _1 | _5 | \0
++----+----+----+----+----+----+----+----+----+----+----+----+----+----+----+---
+
+Data is padded with 0xFF
+
+*/
 
 #define PSP_ENV_SIZE  4096
 

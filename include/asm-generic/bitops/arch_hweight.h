@@ -22,4 +22,4 @@ static inline unsigned long __arch_hweight64(__u64 w)
 {
 	return __sw_hweight64(w);
 }
-#endif 
+#endif /* _ASM_GENERIC_BITOPS_HWEIGHT_H_ */

@@ -37,11 +37,20 @@
 #define COMPILER_DEPENDENT_INT64	long
 #define COMPILER_DEPENDENT_UINT64	unsigned long
 
+/*
+ * Calling conventions:
+ *
+ * ACPI_SYSTEM_XFACE        - Interfaces to host OS (handlers, threads)
+ * ACPI_EXTERNAL_XFACE      - External ACPI interfaces
+ * ACPI_INTERNAL_XFACE      - Internal ACPI interfaces
+ * ACPI_INTERNAL_VAR_XFACE  - Internal variable-parameter list interfaces
+ */
 #define ACPI_SYSTEM_XFACE
 #define ACPI_EXTERNAL_XFACE
 #define ACPI_INTERNAL_XFACE
 #define ACPI_INTERNAL_VAR_XFACE
 
+/* Asm macros */
 
 #define ACPI_ASM_MACROS
 #define BREAKPOINT3
@@ -80,12 +89,12 @@ ia64_acpi_release_global_lock (unsigned int *lock)
 	((Acq) = ia64_acpi_release_global_lock(&facs->global_lock))
 
 #ifdef	CONFIG_ACPI
-#define acpi_disabled 0	
-#define acpi_noirq 0	
-#define acpi_pci_disabled 0 
-#define acpi_strict 1	
+#define acpi_disabled 0	/* ACPI always enabled on IA64 */
+#define acpi_noirq 0	/* ACPI always enabled on IA64 */
+#define acpi_pci_disabled 0 /* ACPI PCI always enabled on IA64 */
+#define acpi_strict 1	/* no ACPI spec workarounds on IA64 */
 #endif
-#define acpi_processor_cstate_check(x) (x) 
+#define acpi_processor_cstate_check(x) (x) /* no idle limits on IA64 :) */
 static inline void disable_acpi(void) { }
 static inline void pci_acpi_crs_quirks(void) { }
 
@@ -118,10 +127,15 @@ static inline const char *acpi_get_sysname (void)
 int acpi_request_vector (u32 int_type);
 int acpi_gsi_to_irq (u32 gsi, unsigned int *irq);
 
+/* Low-level suspend routine. */
 extern int acpi_suspend_lowlevel(void);
 
 extern unsigned long acpi_wakeup_address;
 
+/*
+ * Record the cpei override flag and current logical cpu. This is
+ * useful for CPU removal.
+ */
 extern unsigned int can_cpei_retarget(void);
 extern unsigned int is_cpu_cpei_target(unsigned int cpu);
 extern void set_cpei_target_cpu(unsigned int cpu);
@@ -177,8 +191,8 @@ static inline void per_cpu_scan_finalize(int min_cpus, int reserve_cpus)
 		}
 	}
 }
-#endif 
+#endif /* CONFIG_ACPI_NUMA */
 
-#endif 
+#endif /*__KERNEL__*/
 
-#endif 
+#endif /*_ASM_ACPI_H*/

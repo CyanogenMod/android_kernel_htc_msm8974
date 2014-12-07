@@ -1,3 +1,10 @@
+/*****************************************************************************
+*                                                                            *
+*                                                                            *
+*  easycap_low.c                                                             *
+*                                                                            *
+*                                                                            *
+*****************************************************************************/
 /*
  *
  *  Copyright (C) 2010 R.M. Thomas  <rmthomas@sciolus.org>
@@ -18,6 +25,18 @@
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
 */
+/*****************************************************************************/
+/*
+ *  ACKNOWLEGEMENTS AND REFERENCES
+ *  ------------------------------
+ *  This driver makes use of register information contained in the Syntek
+ *  Semicon DC-1125 driver hosted at
+ *               http://sourceforge.net/projects/syntekdriver/.
+ *  Particularly useful has been a patch to the latter driver provided by
+ *  Ivor Hewitt in January 2009.  The NTSC implementation is taken from the
+ *  work of Ben Trask.
+*/
+/****************************************************************************/
 
 #include "easycap.h"
 
@@ -39,6 +58,7 @@
 	} \
 } while (0)
 
+/*--------------------------------------------------------------------------*/
 static const struct stk1160config {
 	u16 reg;
 	u16 set;
@@ -62,6 +82,11 @@ static const struct stk1160config {
 		{0x105, 0x0000},
 		{0x106, 0x0000},
 
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+/*
+ *  RESOLUTION 640x480
+*/
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 		{0x110, 0x0008},
 		{0x111, 0x0000},
 		{0x112, 0x0020},
@@ -70,6 +95,7 @@ static const struct stk1160config {
 		{0x115, 0x0005},
 		{0x116, 0x0110},
 		{0x117, 0x0001},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 		{0x202, 0x000F},
 		{0x203, 0x004A},
@@ -77,6 +103,7 @@ static const struct stk1160config {
 
 		{0xFFF, 0xFFFF}
 };
+/*--------------------------------------------------------------------------*/
 static const struct stk1160config stk1160configNTSC[] = {
 		{0x000, 0x0098},
 		{0x002, 0x0093},
@@ -97,6 +124,11 @@ static const struct stk1160config stk1160configNTSC[] = {
 		{0x105, 0x0000},
 		{0x106, 0x0000},
 
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
+/*
+ *  RESOLUTION 640x480
+*/
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 		{0x110, 0x0008},
 		{0x111, 0x0000},
 		{0x112, 0x0003},
@@ -105,6 +137,7 @@ static const struct stk1160config stk1160configNTSC[] = {
 		{0x115, 0x0005},
 		{0x116, 0x00F3},
 		{0x117, 0x0000},
+/* - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 		{0x202, 0x000F},
 		{0x203, 0x004A},
@@ -112,6 +145,7 @@ static const struct stk1160config stk1160configNTSC[] = {
 
 		{0xFFF, 0xFFFF}
 };
+/*--------------------------------------------------------------------------*/
 static const struct saa7113config {
 	u8 reg;
 	u8 set;
@@ -168,6 +202,7 @@ static const struct saa7113config {
 
 		{0xFF, 0xFF}
 };
+/*--------------------------------------------------------------------------*/
 static const struct saa7113config saa7113configNTSC[] = {
 		{0x01, 0x08},
 		{0x02, 0x80},
@@ -289,6 +324,11 @@ static int regset(struct usb_device *pusb_device, u16 index, u16 value)
 
 	return rc;
 }
+/*--------------------------------------------------------------------------*/
+/*
+ *  FUNCTION wait_i2c() RETURNS 0 ON SUCCESS
+*/
+/*--------------------------------------------------------------------------*/
 static int wait_i2c(struct usb_device *p)
 {
 	u16 get0;
@@ -315,6 +355,7 @@ static int wait_i2c(struct usb_device *p)
 	return -1;
 }
 
+/****************************************************************************/
 int write_saa(struct usb_device *p, u16 reg0, u16 set0)
 {
 	if (!p)
@@ -325,6 +366,16 @@ int write_saa(struct usb_device *p, u16 reg0, u16 set0)
 	SET(p, 0x200, 0x01);
 	return wait_i2c(p);
 }
+/****************************************************************************/
+/*--------------------------------------------------------------------------*/
+/*
+ *  REGISTER 500:  SETTING VALUE TO 0x008B READS FROM VT1612A (?)
+ *  REGISTER 500:  SETTING VALUE TO 0x008C WRITES TO  VT1612A
+ *  REGISTER 502:  LEAST SIGNIFICANT BYTE OF VALUE TO SET
+ *  REGISTER 503:  MOST SIGNIFICANT BYTE OF VALUE TO SET
+ *  REGISTER 504:  TARGET ADDRESS ON VT1612A
+ */
+/*--------------------------------------------------------------------------*/
 static int write_vt(struct usb_device *p, u16 reg0, u16 set0)
 {
 	u8 igot;
@@ -352,6 +403,16 @@ static int write_vt(struct usb_device *p, u16 reg0, u16 set0)
 
 	return 0;
 }
+/****************************************************************************/
+/*--------------------------------------------------------------------------*/
+/*
+ *  REGISTER 500:  SETTING VALUE TO 0x008B READS FROM VT1612A (?)
+ *  REGISTER 500:  SETTING VALUE TO 0x008C WRITES TO  VT1612A
+ *  REGISTER 502:  LEAST SIGNIFICANT BYTE OF VALUE TO GET
+ *  REGISTER 503:  MOST SIGNIFICANT BYTE OF VALUE TO GET
+ *  REGISTER 504:  TARGET ADDRESS ON VT1612A
+ */
+/*--------------------------------------------------------------------------*/
 static int read_vt(struct usb_device *p, u16 reg0)
 {
 	u8 igot;
@@ -370,6 +431,12 @@ static int read_vt(struct usb_device *p, u16 reg0)
 
 	return (got503 << 8) | got502;
 }
+/****************************************************************************/
+/*--------------------------------------------------------------------------*/
+/*
+ *  THESE APPEAR TO HAVE NO EFFECT ON EITHER VIDEO OR AUDIO.
+ */
+/*--------------------------------------------------------------------------*/
 static int write_300(struct usb_device *p)
 {
 	if (!p)
@@ -382,6 +449,8 @@ static int write_300(struct usb_device *p)
 	SET(p, 0x300, 0x0080);
 	return 0;
 }
+/****************************************************************************/
+/****************************************************************************/
 int setup_stk(struct usb_device *p, bool ntsc)
 {
 	int i;
@@ -396,6 +465,7 @@ int setup_stk(struct usb_device *p, bool ntsc)
 
 	return 0;
 }
+/****************************************************************************/
 int setup_saa(struct usb_device *p, bool ntsc)
 {
 	int i, rc;
@@ -411,6 +481,7 @@ int setup_saa(struct usb_device *p, bool ntsc)
 	}
 	return 0;
 }
+/****************************************************************************/
 int merit_saa(struct usb_device *p)
 {
 	int rc;
@@ -420,10 +491,19 @@ int merit_saa(struct usb_device *p)
 	rc = read_saa(p, 0x1F);
 	return ((0 > rc) || (0x02 & rc)) ? 1 : 0;
 }
+/****************************************************************************/
 int ready_saa(struct usb_device *p)
 {
 	int j, rc, rate;
 	const int max = 5, marktime = PATIENCE/5;
+/*--------------------------------------------------------------------------*/
+/*
+ *   RETURNS    0     FOR INTERLACED       50 Hz
+ *              1     FOR NON-INTERLACED   50 Hz
+ *              2     FOR INTERLACED       60 Hz
+ *              3     FOR NON-INTERLACED   60 Hz
+*/
+/*--------------------------------------------------------------------------*/
 	if (!p)
 		return -ENODEV;
 	j = 0;
@@ -457,6 +537,7 @@ int ready_saa(struct usb_device *p)
 	}
 	return 0;
 }
+/****************************************************************************/
 int read_saa(struct usb_device *p, u16 reg0)
 {
 	u8 igot;
@@ -471,6 +552,7 @@ int read_saa(struct usb_device *p, u16 reg0)
 	GET(p, 0x0209, &igot);
 	return igot;
 }
+/****************************************************************************/
 static int read_stk(struct usb_device *p, u32 reg0)
 {
 	u8 igot;
@@ -582,6 +664,7 @@ int select_input(struct usb_device *p, int input, int mode)
 
 	return 0;
 }
+/****************************************************************************/
 int set_resolution(struct usb_device *p,
 		   u16 set0, u16 set1, u16 set2, u16 set3)
 {
@@ -605,6 +688,7 @@ int set_resolution(struct usb_device *p,
 
 	return 0;
 }
+/****************************************************************************/
 int start_100(struct usb_device *p)
 {
 	u16 get116, get117, get0;
@@ -628,6 +712,7 @@ int start_100(struct usb_device *p)
 
 	return 0;
 }
+/****************************************************************************/
 int stop_100(struct usb_device *p)
 {
 	u16 get0;
@@ -640,6 +725,9 @@ int stop_100(struct usb_device *p)
 	SET(p, 0x0100, (0x7F & get0));
 	return 0;
 }
+/****************************************************************************/
+/****************************************************************************/
+/*****************************************************************************/
 int easycap_wakeup_device(struct usb_device *pusb_device)
 {
 	if (!pusb_device)
@@ -651,11 +739,20 @@ int easycap_wakeup_device(struct usb_device *pusb_device)
 			USB_DEVICE_REMOTE_WAKEUP,
 			0, NULL, 0, 50000);
 }
+/*****************************************************************************/
 int easycap_audio_setup(struct easycap *peasycap)
 {
 	struct usb_device *pusb_device;
 	u8 buffer[1];
 	int rc, id1, id2;
+/*---------------------------------------------------------------------------*/
+/*
+ *                                IMPORTANT:
+ *  THE MESSAGE OF TYPE (USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE)
+ *  CAUSES MUTING IF THE VALUE 0x0100 IS SENT.
+ *  TO ENABLE AUDIO  THE VALUE 0x0200 MUST BE SENT.
+ */
+/*---------------------------------------------------------------------------*/
 	const u8 request = 0x01;
 	const u8 requesttype = USB_DIR_OUT |
 			       USB_TYPE_CLASS |
@@ -697,6 +794,21 @@ int easycap_audio_setup(struct easycap *peasycap)
 			break;
 		}
 	}
+/*--------------------------------------------------------------------------*/
+/*
+ *  REGISTER 500:  SETTING VALUE TO 0x0094 RESETS AUDIO CONFIGURATION ???
+ *  REGISTER 506:  ANALOGUE AUDIO ATTENTUATOR ???
+ *                 FOR THE CVBS+S-VIDEO HARDWARE:
+ *                    SETTING VALUE TO 0x0000 GIVES QUIET SOUND.
+ *                    THE UPPER BYTE SEEMS TO HAVE NO EFFECT.
+ *                 FOR THE FOUR-CVBS HARDWARE:
+ *                    SETTING VALUE TO 0x0000 SEEMS TO HAVE NO EFFECT.
+ *  REGISTER 507:  ANALOGUE AUDIO PREAMPLIFIER ON/OFF ???
+ *                 FOR THE CVBS-S-VIDEO HARDWARE:
+ *                    SETTING VALUE TO 0x0001 GIVES VERY LOUD, DISTORTED SOUND.
+ *                    THE UPPER BYTE SEEMS TO HAVE NO EFFECT.
+ */
+/*--------------------------------------------------------------------------*/
 	SET(pusb_device, 0x0500, 0x0094);
 	SET(pusb_device, 0x0500, 0x008C);
 	SET(pusb_device, 0x0506, 0x0001);
@@ -704,11 +816,17 @@ int easycap_audio_setup(struct easycap *peasycap)
 	id1 = read_vt(pusb_device, 0x007C);
 	id2 = read_vt(pusb_device, 0x007E);
 	SAM("0x%04X:0x%04X is audio vendor id\n", id1, id2);
+/*---------------------------------------------------------------------------*/
+/*
+ *  SELECT AUDIO SOURCE "LINE IN" AND SET THE AUDIO GAIN.
+*/
+/*---------------------------------------------------------------------------*/
 	if (easycap_audio_gainset(pusb_device, peasycap->gain))
 		SAY("ERROR: audio_gainset() failed\n");
 	check_vt(pusb_device);
 	return 0;
 }
+/*****************************************************************************/
 int check_vt(struct usb_device *pusb_device)
 {
 	int igot;
@@ -765,6 +883,21 @@ int check_vt(struct usb_device *pusb_device)
 
 	return 0;
 }
+/*****************************************************************************/
+/*---------------------------------------------------------------------------*/
+/*  NOTE:  THIS DOES INCREASE THE VOLUME DRAMATICALLY:
+ *                      audio_gainset(pusb_device, 0x000F);
+ *
+ *       loud        dB  register 0x10      dB register 0x1C    dB total
+ *         0               -34.5                   0             -34.5
+ *        ..                ....                   .              ....
+ *        15                10.5                   0              10.5
+ *        16                12.0                   0              12.0
+ *        17                12.0                   1.5            13.5
+ *        ..                ....                  ....            ....
+ *        31                12.0                  22.5            34.5
+*/
+/*---------------------------------------------------------------------------*/
 int easycap_audio_gainset(struct usb_device *pusb_device, s8 loud)
 {
 	int igot;
@@ -779,6 +912,7 @@ int easycap_audio_gainset(struct usb_device *pusb_device, s8 loud)
 		loud = 31;
 
 	write_vt(pusb_device, 0x0002, 0x8000);
+/*---------------------------------------------------------------------------*/
 	igot = read_vt(pusb_device, 0x000E);
 	if (0 > igot) {
 		SAY("ERROR: failed to read VT1612A register 0x0E\n");
@@ -794,6 +928,7 @@ int easycap_audio_gainset(struct usb_device *pusb_device, s8 loud)
 
 	JOT(8, "0x%04X=(mute|tmp) for VT1612A register 0x0E\n", mute | tmp);
 	write_vt(pusb_device, 0x000E, (mute | tmp));
+/*---------------------------------------------------------------------------*/
 	igot = read_vt(pusb_device, 0x0010);
 	if (0 > igot) {
 		SAY("ERROR: failed to read VT1612A register 0x10\n");
@@ -809,6 +944,7 @@ int easycap_audio_gainset(struct usb_device *pusb_device, s8 loud)
 	write_vt(pusb_device, 0x0014, (mute | tmp | (tmp << 8)));
 	write_vt(pusb_device, 0x0016, (mute | tmp | (tmp << 8)));
 	write_vt(pusb_device, 0x0018, (mute | tmp | (tmp << 8)));
+/*---------------------------------------------------------------------------*/
 	igot = read_vt(pusb_device, 0x001C);
 	if (0 > igot) {
 		SAY("ERROR: failed to read VT1612A register 0x1C\n");
@@ -829,3 +965,4 @@ int easycap_audio_gainset(struct usb_device *pusb_device, s8 loud)
 	write_vt(pusb_device, 0x0002, 0x0000);
 	return 0;
 }
+/*****************************************************************************/

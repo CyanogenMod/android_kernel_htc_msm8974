@@ -29,15 +29,16 @@
 #include <linux/efi.h>
 #include <linux/module.h>
 
-#define GSMI_SHUTDOWN_CLEAN	0	
-#define GSMI_SHUTDOWN_NMIWDT	1	
-#define GSMI_SHUTDOWN_PANIC	2	
-#define GSMI_SHUTDOWN_OOPS	3	
-#define GSMI_SHUTDOWN_DIE	4	
-#define GSMI_SHUTDOWN_MCE	5	
-#define GSMI_SHUTDOWN_SOFTWDT	6	
-#define GSMI_SHUTDOWN_MBE	7	
-#define GSMI_SHUTDOWN_TRIPLE	8	
+#define GSMI_SHUTDOWN_CLEAN	0	/* Clean Shutdown */
+/* TODO(mikew@google.com): Tie in HARDLOCKUP_DETECTOR with NMIWDT */
+#define GSMI_SHUTDOWN_NMIWDT	1	/* NMI Watchdog */
+#define GSMI_SHUTDOWN_PANIC	2	/* Panic */
+#define GSMI_SHUTDOWN_OOPS	3	/* Oops */
+#define GSMI_SHUTDOWN_DIE	4	/* Die -- No longer meaningful */
+#define GSMI_SHUTDOWN_MCE	5	/* Machine Check */
+#define GSMI_SHUTDOWN_SOFTWDT	6	/* Software Watchdog */
+#define GSMI_SHUTDOWN_MBE	7	/* Uncorrected ECC */
+#define GSMI_SHUTDOWN_TRIPLE	8	/* Triple Fault */
 
 #define DRIVER_VERSION		"1.0"
 #define GSMI_GUID_SIZE		16
@@ -45,6 +46,7 @@
 #define GSMI_BUF_ALIGN		sizeof(u64)
 #define GSMI_CALLBACK		0xef
 
+/* SMI return codes */
 #define GSMI_SUCCESS		0x00
 #define GSMI_UNSUPPORTED2	0x03
 #define GSMI_LOG_FULL		0x0b
@@ -61,6 +63,7 @@
 
 #define QUIRKY_BOARD_HASH 0x78a30a50
 
+/* Internally used commands passed to the firmware */
 #define GSMI_CMD_GET_NVRAM_VAR		0x01
 #define GSMI_CMD_GET_NEXT_VAR		0x02
 #define GSMI_CMD_SET_NVRAM_VAR		0x03
@@ -69,26 +72,29 @@
 #define GSMI_CMD_CLEAR_CONFIG		0x20
 #define GSMI_CMD_HANDSHAKE_TYPE		0xC1
 
+/* Magic entry type for kernel events */
 #define GSMI_LOG_ENTRY_TYPE_KERNEL     0xDEAD
 
+/* SMI buffers must be in 32bit physical address space */
 struct gsmi_buf {
-	u8 *start;			
-	size_t length;			
-	dma_addr_t handle;		
-	u32 address;			
+	u8 *start;			/* start of buffer */
+	size_t length;			/* length of buffer */
+	dma_addr_t handle;		/* dma allocation handle */
+	u32 address;			/* physical address of buffer */
 };
 
 struct gsmi_device {
-	struct platform_device *pdev;	
-	struct gsmi_buf *name_buf;	
-	struct gsmi_buf *data_buf;	
-	struct gsmi_buf *param_buf;	
-	spinlock_t lock;		
-	u16 smi_cmd;			
-	int handshake_type;		
-	struct dma_pool *dma_pool;	
+	struct platform_device *pdev;	/* platform device */
+	struct gsmi_buf *name_buf;	/* variable name buffer */
+	struct gsmi_buf *data_buf;	/* generic data buffer */
+	struct gsmi_buf *param_buf;	/* parameter buffer */
+	spinlock_t lock;		/* serialize access to SMIs */
+	u16 smi_cmd;			/* SMI command port */
+	int handshake_type;		/* firmware handler interlock type */
+	struct dma_pool *dma_pool;	/* DMA buffer pool */
 } gsmi_dev;
 
+/* Packed structures for communicating with the firmware */
 struct gsmi_nvram_var_param {
 	efi_guid_t	guid;
 	u32		name_ptr;
@@ -109,12 +115,17 @@ struct gsmi_set_eventlog_param {
 	u32	type;
 } __packed;
 
+/* Event log formats */
 struct gsmi_log_entry_type_1 {
 	u16	type;
 	u32	instance;
 } __packed;
 
 
+/*
+ * Some platforms don't have explicit SMI handshake
+ * and need to wait for SMI to complete.
+ */
 #define GSMI_DEFAULT_SPINCOUNT	0x10000
 static unsigned int spincount = GSMI_DEFAULT_SPINCOUNT;
 module_param(spincount, uint, 0600);
@@ -131,7 +142,7 @@ static struct gsmi_buf *gsmi_buf_alloc(void)
 		return NULL;
 	}
 
-	
+	/* allocate buffer in 32bit address space */
 	smibuf->start = dma_pool_alloc(gsmi_dev.dma_pool, GFP_KERNEL,
 				       &smibuf->handle);
 	if (!smibuf->start) {
@@ -140,7 +151,7 @@ static struct gsmi_buf *gsmi_buf_alloc(void)
 		return NULL;
 	}
 
-	
+	/* fill in the buffer handle */
 	smibuf->length = GSMI_BUF_SIZE;
 	smibuf->address = (u32)virt_to_phys(smibuf->start);
 
@@ -157,13 +168,32 @@ static void gsmi_buf_free(struct gsmi_buf *smibuf)
 	}
 }
 
+/*
+ * Make a call to gsmi func(sub).  GSMI error codes are translated to
+ * in-kernel errnos (0 on success, -ERRNO on error).
+ */
 static int gsmi_exec(u8 func, u8 sub)
 {
 	u16 cmd = (sub << 8) | func;
 	u16 result = 0;
 	int rc = 0;
 
+	/*
+	 * AH  : Subfunction number
+	 * AL  : Function number
+	 * EBX : Parameter block address
+	 * DX  : SMI command port
+	 *
+	 * Three protocols here. See also the comment in gsmi_init().
+	 */
 	if (gsmi_dev.handshake_type == GSMI_HANDSHAKE_CF) {
+		/*
+		 * If handshake_type == HANDSHAKE_CF then set CF on the
+		 * way in and wait for the handler to clear it; this avoids
+		 * corrupting register state on those chipsets which have
+		 * a delay between writing the SMI trigger register and
+		 * entering SMM.
+		 */
 		asm volatile (
 			"stc\n"
 			"outb %%al, %%dx\n"
@@ -175,6 +205,10 @@ static int gsmi_exec(u8 func, u8 sub)
 			: "memory", "cc"
 		);
 	} else if (gsmi_dev.handshake_type == GSMI_HANDSHAKE_SPIN) {
+		/*
+		 * If handshake_type == HANDSHAKE_SPIN we spin a
+		 * hundred-ish usecs to ensure the SMI has triggered.
+		 */
 		asm volatile (
 			"outb %%al, %%dx\n"
 		"1:      loop 1b\n"
@@ -186,6 +220,11 @@ static int gsmi_exec(u8 func, u8 sub)
 			: "memory", "cc"
 		);
 	} else {
+		/*
+		 * If handshake_type == HANDSHAKE_NONE we do nothing;
+		 * either we don't need to or it's legacy firmware that
+		 * doesn't understand the CF protocol.
+		 */
 		asm volatile (
 			"outb %%al, %%dx\n\t"
 			: "=a" (result)
@@ -196,12 +235,12 @@ static int gsmi_exec(u8 func, u8 sub)
 		);
 	}
 
-	
+	/* check return code from SMI handler */
 	switch (result) {
 	case GSMI_SUCCESS:
 		break;
 	case GSMI_VAR_NOT_FOUND:
-		
+		/* not really an error, but let the caller know */
 		rc = 1;
 		break;
 	case GSMI_INVALID_PARAMETER:
@@ -249,6 +288,7 @@ static int gsmi_exec(u8 func, u8 sub)
 	return rc;
 }
 
+/* Return the number of unicode characters in data */
 static size_t
 utf16_strlen(efi_char16_t *data, unsigned long maxlength)
 {
@@ -279,17 +319,17 @@ static efi_status_t gsmi_get_variable(efi_char16_t *name,
 
 	spin_lock_irqsave(&gsmi_dev.lock, flags);
 
-	
+	/* Vendor guid */
 	memcpy(&param.guid, vendor, sizeof(param.guid));
 
-	
+	/* variable name, already in UTF-16 */
 	memset(gsmi_dev.name_buf->start, 0, gsmi_dev.name_buf->length);
 	memcpy(gsmi_dev.name_buf->start, name, name_len * 2);
 
-	
+	/* data pointer */
 	memset(gsmi_dev.data_buf->start, 0, gsmi_dev.data_buf->length);
 
-	
+	/* parameter buffer */
 	memset(gsmi_dev.param_buf->start, 0, gsmi_dev.param_buf->length);
 	memcpy(gsmi_dev.param_buf->start, &param, sizeof(param));
 
@@ -298,21 +338,21 @@ static efi_status_t gsmi_get_variable(efi_char16_t *name,
 		printk(KERN_ERR "gsmi: Get Variable failed\n");
 		ret = EFI_LOAD_ERROR;
 	} else if (rc == 1) {
-		
+		/* variable was not found */
 		ret = EFI_NOT_FOUND;
 	} else {
-		
+		/* Get the arguments back */
 		memcpy(&param, gsmi_dev.param_buf->start, sizeof(param));
 
-		
+		/* The size reported is the min of all of our buffers */
 		*data_size = min_t(unsigned long, *data_size,
 						gsmi_dev.data_buf->length);
 		*data_size = min_t(unsigned long, *data_size, param.data_len);
 
-		
+		/* Copy data back to return buffer. */
 		memcpy(data, gsmi_dev.data_buf->start, *data_size);
 
-		
+		/* All variables are have the following attributes */
 		*attr = EFI_VARIABLE_NON_VOLATILE |
 			EFI_VARIABLE_BOOTSERVICE_ACCESS |
 			EFI_VARIABLE_RUNTIME_ACCESS;
@@ -335,23 +375,23 @@ static efi_status_t gsmi_get_next_variable(unsigned long *name_size,
 	int rc;
 	unsigned long flags;
 
-	
+	/* For the moment, only support buffers that exactly match in size */
 	if (*name_size != GSMI_BUF_SIZE)
 		return EFI_BAD_BUFFER_SIZE;
 
-	
+	/* Let's make sure the thing is at least null-terminated */
 	if (utf16_strlen(name, GSMI_BUF_SIZE / 2) == GSMI_BUF_SIZE / 2)
 		return EFI_INVALID_PARAMETER;
 
 	spin_lock_irqsave(&gsmi_dev.lock, flags);
 
-	
+	/* guid */
 	memcpy(&param.guid, vendor, sizeof(param.guid));
 
-	
+	/* variable name, already in UTF-16 */
 	memcpy(gsmi_dev.name_buf->start, name, *name_size);
 
-	
+	/* parameter buffer */
 	memset(gsmi_dev.param_buf->start, 0, gsmi_dev.param_buf->length);
 	memcpy(gsmi_dev.param_buf->start, &param, sizeof(param));
 
@@ -360,17 +400,17 @@ static efi_status_t gsmi_get_next_variable(unsigned long *name_size,
 		printk(KERN_ERR "gsmi: Get Next Variable Name failed\n");
 		ret = EFI_LOAD_ERROR;
 	} else if (rc == 1) {
-		
+		/* variable not found -- end of list */
 		ret = EFI_NOT_FOUND;
 	} else {
-		
+		/* copy variable data back to return buffer */
 		memcpy(&param, gsmi_dev.param_buf->start, sizeof(param));
 
-		
+		/* Copy the name back */
 		memcpy(name, gsmi_dev.name_buf->start, GSMI_BUF_SIZE);
 		*name_size = utf16_strlen(name, GSMI_BUF_SIZE / 2) * 2;
 
-		
+		/* copy guid to return buffer */
 		memcpy(vendor, &param.guid, sizeof(param.guid));
 		ret = EFI_SUCCESS;
 	}
@@ -404,18 +444,18 @@ static efi_status_t gsmi_set_variable(efi_char16_t *name,
 
 	spin_lock_irqsave(&gsmi_dev.lock, flags);
 
-	
+	/* guid */
 	memcpy(&param.guid, vendor, sizeof(param.guid));
 
-	
+	/* variable name, already in UTF-16 */
 	memset(gsmi_dev.name_buf->start, 0, gsmi_dev.name_buf->length);
 	memcpy(gsmi_dev.name_buf->start, name, name_len * 2);
 
-	
+	/* data pointer */
 	memset(gsmi_dev.data_buf->start, 0, gsmi_dev.data_buf->length);
 	memcpy(gsmi_dev.data_buf->start, data, data_size);
 
-	
+	/* parameter buffer */
 	memset(gsmi_dev.param_buf->start, 0, gsmi_dev.param_buf->length);
 	memcpy(gsmi_dev.param_buf->start, &param, sizeof(param));
 
@@ -446,25 +486,25 @@ static ssize_t eventlog_write(struct file *filp, struct kobject *kobj,
 	int rc = 0;
 	unsigned long flags;
 
-	
+	/* Pull the type out */
 	if (count < sizeof(u32))
 		return -EINVAL;
 	param.type = *(u32 *)buf;
 	count -= sizeof(u32);
 	buf += sizeof(u32);
 
-	
+	/* The remaining buffer is the data payload */
 	if (count > gsmi_dev.data_buf->length)
 		return -EINVAL;
 	param.data_len = count - sizeof(u32);
 
 	spin_lock_irqsave(&gsmi_dev.lock, flags);
 
-	
+	/* data pointer */
 	memset(gsmi_dev.data_buf->start, 0, gsmi_dev.data_buf->length);
 	memcpy(gsmi_dev.data_buf->start, buf, param.data_len);
 
-	
+	/* parameter buffer */
 	memset(gsmi_dev.param_buf->start, 0, gsmi_dev.param_buf->length);
 	memcpy(gsmi_dev.param_buf->start, &param, sizeof(param));
 
@@ -499,16 +539,20 @@ static ssize_t gsmi_clear_eventlog_store(struct kobject *kobj,
 	if (rc)
 		return rc;
 
+	/*
+	 * Value entered is a percentage, 0 through 100, anything else
+	 * is invalid.
+	 */
 	if (val > 100)
 		return -EINVAL;
 
-	
+	/* data_type here selects the smbios event log. */
 	param.percentage = val;
 	param.data_type = 0;
 
 	spin_lock_irqsave(&gsmi_dev.lock, flags);
 
-	
+	/* parameter buffer */
 	memset(gsmi_dev.param_buf->start, 0, gsmi_dev.param_buf->length);
 	memcpy(gsmi_dev.param_buf->start, &param, sizeof(param));
 
@@ -535,7 +579,7 @@ static ssize_t gsmi_clear_config_store(struct kobject *kobj,
 
 	spin_lock_irqsave(&gsmi_dev.lock, flags);
 
-	
+	/* clear parameter buffer */
 	memset(gsmi_dev.param_buf->start, 0, gsmi_dev.param_buf->length);
 
 	rc = gsmi_exec(GSMI_CALLBACK, GSMI_CMD_CLEAR_CONFIG);
@@ -572,7 +616,7 @@ static int gsmi_shutdown_reason(int reason)
 	int rc = 0;
 	unsigned long flags;
 
-	
+	/* avoid duplicate entries in the log */
 	if (saved_reason & (1 << reason))
 		return 0;
 
@@ -580,11 +624,11 @@ static int gsmi_shutdown_reason(int reason)
 
 	saved_reason |= (1 << reason);
 
-	
+	/* data pointer */
 	memset(gsmi_dev.data_buf->start, 0, gsmi_dev.data_buf->length);
 	memcpy(gsmi_dev.data_buf->start, &entry, sizeof(entry));
 
-	
+	/* parameter buffer */
 	param.data_ptr = gsmi_dev.data_buf->address;
 	memset(gsmi_dev.param_buf->start, 0, gsmi_dev.param_buf->length);
 	memcpy(gsmi_dev.param_buf->start, &param, sizeof(param));
@@ -636,11 +680,20 @@ static struct notifier_block gsmi_panic_notifier = {
 	.notifier_call = gsmi_panic_callback,
 };
 
+/*
+ * This hash function was blatantly copied from include/linux/hash.h.
+ * It is used by this driver to obfuscate a board name that requires a
+ * quirk within this driver.
+ *
+ * Please do not remove this copy of the function as any changes to the
+ * global utility hash_64() function would break this driver's ability
+ * to identify a board and provide the appropriate quirk -- mikew@google.com
+ */
 static u64 __init local_hash_64(u64 val, unsigned bits)
 {
 	u64 hash = val;
 
-	
+	/*  Sigh, gcc can't optimise this alone like it does for 32 bits. */
 	u64 n = hash;
 	n <<= 18;
 	hash -= n;
@@ -655,7 +708,7 @@ static u64 __init local_hash_64(u64 val, unsigned bits)
 	n <<= 2;
 	hash += n;
 
-	
+	/* High bits are more random, so use them. */
 	return hash >> (64 - bits);
 }
 
@@ -684,12 +737,20 @@ static __init int gsmi_system_valid(void)
 	if (!dmi_check_system(gsmi_dmi_table))
 		return -ENODEV;
 
+	/*
+	 * Only newer firmware supports the gsmi interface.  All older
+	 * firmware that didn't support this interface used to plug the
+	 * table name in the first four bytes of the oem_table_id field.
+	 * Newer firmware doesn't do that though, so use that as the
+	 * discriminant factor.  We have to do this in order to
+	 * whitewash our board names out of the public driver.
+	 */
 	if (!strncmp(acpi_gbl_FADT.header.oem_table_id, "FACP", 4)) {
 		printk(KERN_INFO "gsmi: Board is too old\n");
 		return -ENODEV;
 	}
 
-	
+	/* Disable on board with 1.0 BIOS due to Google bug 2602657 */
 	hash = hash_oem_table_id(acpi_gbl_FADT.header.oem_table_id);
 	if (hash == QUIRKY_BOARD_HASH) {
 		const char *bios_ver = dmi_get_system_info(DMI_BIOS_VERSION);
@@ -700,13 +761,13 @@ static __init int gsmi_system_valid(void)
 		}
 	}
 
-	
+	/* check for valid SMI command port in ACPI FADT */
 	if (acpi_gbl_FADT.smi_command == 0) {
 		pr_info("gsmi: missing smi_command\n");
 		return -ENODEV;
 	}
 
-	
+	/* Found */
 	return 0;
 }
 
@@ -724,17 +785,17 @@ static __init int gsmi_init(void)
 
 	gsmi_dev.smi_cmd = acpi_gbl_FADT.smi_command;
 
-	
+	/* register device */
 	gsmi_dev.pdev = platform_device_register_simple("gsmi", -1, NULL, 0);
 	if (IS_ERR(gsmi_dev.pdev)) {
 		printk(KERN_ERR "gsmi: unable to register platform device\n");
 		return PTR_ERR(gsmi_dev.pdev);
 	}
 
-	
+	/* SMI access needs to be serialized */
 	spin_lock_init(&gsmi_dev.lock);
 
-	
+	/* SMI callbacks require 32bit addresses */
 	gsmi_dev.pdev->dev.coherent_dma_mask = DMA_BIT_MASK(32);
 	gsmi_dev.pdev->dev.dma_mask =
 		&gsmi_dev.pdev->dev.coherent_dma_mask;
@@ -744,6 +805,10 @@ static __init int gsmi_init(void)
 	if (!gsmi_dev.dma_pool)
 		goto out_err;
 
+	/*
+	 * pre-allocate buffers because sometimes we are called when
+	 * this is not feasible: oops, panic, die, mce, etc
+	 */
 	gsmi_dev.name_buf = gsmi_buf_alloc();
 	if (!gsmi_dev.name_buf) {
 		printk(KERN_ERR "gsmi: failed to allocate name buffer\n");
@@ -762,6 +827,34 @@ static __init int gsmi_init(void)
 		goto out_err;
 	}
 
+	/*
+	 * Determine type of handshake used to serialize the SMI
+	 * entry. See also gsmi_exec().
+	 *
+	 * There's a "behavior" present on some chipsets where writing the
+	 * SMI trigger register in the southbridge doesn't result in an
+	 * immediate SMI. Rather, the processor can execute "a few" more
+	 * instructions before the SMI takes effect. To ensure synchronous
+	 * behavior, implement a handshake between the kernel driver and the
+	 * firmware handler to spin until released. This ioctl determines
+	 * the type of handshake.
+	 *
+	 * NONE: The firmware handler does not implement any
+	 * handshake. Either it doesn't need to, or it's legacy firmware
+	 * that doesn't know it needs to and never will.
+	 *
+	 * CF: The firmware handler will clear the CF in the saved
+	 * state before returning. The driver may set the CF and test for
+	 * it to clear before proceeding.
+	 *
+	 * SPIN: The firmware handler does not implement any handshake
+	 * but the driver should spin for a hundred or so microseconds
+	 * to ensure the SMI has triggered.
+	 *
+	 * Finally, the handler will return -ENOSYS if
+	 * GSMI_CMD_HANDSHAKE_TYPE is unimplemented, which implies
+	 * HANDSHAKE_NONE.
+	 */
 	spin_lock_irqsave(&gsmi_dev.lock, flags);
 	gsmi_dev.handshake_type = GSMI_HANDSHAKE_SPIN;
 	gsmi_dev.handshake_type =
@@ -770,7 +863,7 @@ static __init int gsmi_init(void)
 		gsmi_dev.handshake_type = GSMI_HANDSHAKE_NONE;
 	spin_unlock_irqrestore(&gsmi_dev.lock, flags);
 
-	
+	/* Remove and clean up gsmi if the handshake could not complete. */
 	if (gsmi_dev.handshake_type == -ENXIO) {
 		printk(KERN_INFO "gsmi version " DRIVER_VERSION
 		       " failed to load\n");
@@ -778,7 +871,7 @@ static __init int gsmi_init(void)
 		goto out_err;
 	}
 
-	
+	/* Register in the firmware directory */
 	ret = -ENOMEM;
 	gsmi_kobj = kobject_create_and_add("gsmi", firmware_kobj);
 	if (!gsmi_kobj) {
@@ -786,14 +879,14 @@ static __init int gsmi_init(void)
 		goto out_err;
 	}
 
-	
+	/* Setup eventlog access */
 	ret = sysfs_create_bin_file(gsmi_kobj, &eventlog_bin_attr);
 	if (ret) {
 		printk(KERN_INFO "gsmi: Failed to setup eventlog");
 		goto out_err;
 	}
 
-	
+	/* Other attributes */
 	ret = sysfs_create_files(gsmi_kobj, gsmi_attrs);
 	if (ret) {
 		printk(KERN_INFO "gsmi: Failed to add attrs");

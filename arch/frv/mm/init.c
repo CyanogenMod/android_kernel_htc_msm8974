@@ -40,17 +40,37 @@
 
 #undef DEBUG
 
+/*
+ * BAD_PAGE is the page that is used for page faults when linux
+ * is out-of-memory. Older versions of linux just did a
+ * do_exit(), but using this instead means there is less risk
+ * for a process dying in kernel mode, possibly leaving a inode
+ * unused etc..
+ *
+ * BAD_PAGETABLE is the accompanying page-table: it is initialized
+ * to point to BAD_PAGE entries.
+ *
+ * ZERO_PAGE is a special page that is used for zero-initialized
+ * data and COW.
+ */
 static unsigned long empty_bad_page_table;
 static unsigned long empty_bad_page;
 
 unsigned long empty_zero_page;
 EXPORT_SYMBOL(empty_zero_page);
 
+/*****************************************************************************/
+/*
+ * paging_init() continues the virtual memory environment setup which
+ * was begun by the code in arch/head.S.
+ * The parameters are pointers to where to stick the starting and ending
+ * addresses  of available kernel virtual memory.
+ */
 void __init paging_init(void)
 {
 	unsigned long zones_size[MAX_NR_ZONES] = {0, };
 
-	
+	/* allocate some pages for kernel housekeeping tasks */
 	empty_bad_page_table	= (unsigned long) alloc_bootmem_pages(PAGE_SIZE);
 	empty_bad_page		= (unsigned long) alloc_bootmem_pages(PAGE_SIZE);
 	empty_zero_page		= (unsigned long) alloc_bootmem_pages(PAGE_SIZE);
@@ -72,6 +92,8 @@ void __init paging_init(void)
 	}
 #endif
 
+	/* distribute the allocatable pages across the various zones and pass them to the allocator
+	 */
 	zones_size[ZONE_NORMAL]  = max_low_pfn - min_low_pfn;
 #ifdef CONFIG_HIGHMEM
 	zones_size[ZONE_HIGHMEM] = num_physpages - num_mappedpages;
@@ -80,12 +102,16 @@ void __init paging_init(void)
 	free_area_init(zones_size);
 
 #ifdef CONFIG_MMU
-	
+	/* initialise init's MMU context */
 	init_new_context(&init_task, &init_mm);
 #endif
 
-} 
+} /* end paging_init() */
 
+/*****************************************************************************/
+/*
+ *
+ */
 void __init mem_init(void)
 {
 	unsigned long npages = (memory_end - memory_start) >> PAGE_SHIFT;
@@ -96,7 +122,7 @@ void __init mem_init(void)
 #endif
 	int codek = 0, datak = 0;
 
-	
+	/* this will put all memory onto the freelists */
 	totalram_pages = free_all_bootmem();
 
 #ifdef CONFIG_MMU
@@ -120,7 +146,7 @@ void __init mem_init(void)
 
 #else
 	codek = (_etext - _stext) >> 10;
-	datak = 0; 
+	datak = 0; //(_ebss - _sdata) >> 10;
 #endif
 
 	tmp = nr_free_pages() << PAGE_SHIFT;
@@ -133,17 +159,21 @@ void __init mem_init(void)
 	       datak
 	       );
 
-} 
+} /* end mem_init() */
 
+/*****************************************************************************/
+/*
+ * free the memory that was only required for initialisation
+ */
 void free_initmem(void)
 {
 #if defined(CONFIG_RAMKERNEL) && !defined(CONFIG_PROTECT_KERNEL)
 	unsigned long start, end, addr;
 
-	start = PAGE_ALIGN((unsigned long) &__init_begin);	
-	end   = ((unsigned long) &__init_end) & PAGE_MASK;	
+	start = PAGE_ALIGN((unsigned long) &__init_begin);	/* round up */
+	end   = ((unsigned long) &__init_end) & PAGE_MASK;	/* round down */
 
-	
+	/* next to check that the page we free is not a partial page */
 	for (addr = start; addr < end; addr += PAGE_SIZE) {
 		ClearPageReserved(virt_to_page(addr));
 		init_page_count(virt_to_page(addr));
@@ -154,8 +184,12 @@ void free_initmem(void)
 	printk("Freeing unused kernel memory: %ldKiB freed (0x%lx - 0x%lx)\n",
 	       (end - start) >> 10, start, end);
 #endif
-} 
+} /* end free_initmem() */
 
+/*****************************************************************************/
+/*
+ * free the initial ramdisk memory
+ */
 #ifdef CONFIG_BLK_DEV_INITRD
 void __init free_initrd_mem(unsigned long start, unsigned long end)
 {
@@ -168,5 +202,5 @@ void __init free_initrd_mem(unsigned long start, unsigned long end)
 		pages++;
 	}
 	printk("Freeing initrd memory: %dKiB freed\n", (pages * PAGE_SIZE) >> 10);
-} 
+} /* end free_initrd_mem() */
 #endif

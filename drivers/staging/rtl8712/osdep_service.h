@@ -39,7 +39,7 @@
 #include <linux/netdevice.h>
 #include <linux/etherdevice.h>
 #include <net/iw_handler.h>
-#include <linux/proc_fs.h>      
+#include <linux/proc_fs.h>      /* Necessary because we use the proc fs */
 
 #include "basic_types.h"
 
@@ -94,7 +94,7 @@ static inline void _set_timer(struct timer_list *ptimer, u32 delay_time)
 static inline void _cancel_timer(struct timer_list *ptimer, u8 *bcancelled)
 {
 	del_timer(ptimer);
-	*bcancelled = true; 
+	*bcancelled = true; /*true ==1; false==0*/
 }
 
 static inline void _init_workitem(_workitem *pwork, void *pfunc, void *cntx)
@@ -113,6 +113,11 @@ static inline void _set_workitem(_workitem *pwork)
 	#define BIT(x)	(1 << (x))
 #endif
 
+/*
+For the following list_xxx operations,
+caller must guarantee the atomic context.
+Otherwise, there will be racing condition.
+*/
 static inline u32 is_list_empty(struct list_head *phead)
 {
 	if (list_empty(phead))
@@ -157,9 +162,9 @@ static inline void sleep_schedulable(int ms)
 {
 	u32 delta;
 
-	delta = (ms * HZ) / 1000;
+	delta = (ms * HZ) / 1000;/*(ms)*/
 	if (delta == 0)
-		delta = 1;
+		delta = 1;/* 1 ms */
 	set_current_state(TASK_INTERRUPTIBLE);
 	if (schedule_timeout(delta) != 0)
 		return ;

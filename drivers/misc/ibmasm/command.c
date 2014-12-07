@@ -108,6 +108,14 @@ static inline void do_exec_command(struct service_processor *sp)
 	}
 }
 
+/**
+ * exec_command
+ * send a command to a service processor
+ * Commands are executed sequentially. One command (sp->current_command)
+ * is sent to the service processor. Once the interrupt handler gets a
+ * message of type command_response, the message is copied into
+ * the current commands buffer,
+ */
 void ibmasm_exec_command(struct service_processor *sp, struct command *cmd)
 {
 	unsigned long flags;
@@ -146,6 +154,11 @@ static void exec_next_command(struct service_processor *sp)
 	}
 }
 
+/**
+ * Sleep until a command has failed or a response has been received
+ * and the command status been updated by the interrupt handler.
+ * (see receive_response).
+ */
 void ibmasm_wait_for_response(struct command *cmd, int timeout)
 {
 	wait_event_interruptible_timeout(cmd->wait,
@@ -154,6 +167,11 @@ void ibmasm_wait_for_response(struct command *cmd, int timeout)
 				timeout * HZ);
 }
 
+/**
+ * receive_command_response
+ * called by the interrupt handler when a dot command of type command_response
+ * was received.
+ */
 void ibmasm_receive_command_response(struct service_processor *sp, void *response, size_t size)
 {
 	struct command *cmd = sp->current_command;

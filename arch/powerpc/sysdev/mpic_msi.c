@@ -21,7 +21,7 @@
 
 void mpic_msi_reserve_hwirq(struct mpic *mpic, irq_hw_number_t hwirq)
 {
-	
+	/* The mpic calls this even when there is no allocator setup */
 	if (!mpic->msi_bitmap.bitmap)
 		return;
 
@@ -39,6 +39,12 @@ static int mpic_msi_reserve_u3_hwirqs(struct mpic *mpic)
 
 	pr_debug("mpic: found U3, guessing msi allocator setup\n");
 
+	/* Reserve source numbers we know are reserved in the HW.
+	 *
+	 * This is a bit of a mix of U3 and U4 reserves but that's going
+	 * to work fine, we have plenty enugh numbers left so let's just
+	 * mark anything we don't like reserved.
+	 */
 	for (i = 0;   i < 8;   i++)
 		msi_bitmap_reserve_hwirq(&mpic->msi_bitmap, i);
 

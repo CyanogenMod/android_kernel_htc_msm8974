@@ -38,7 +38,7 @@
 #define MAX_FLASH_CURRENT	300
 #define MAX_KEYPAD_CURRENT 300
 #define MAX_KEYPAD_BL_LEVEL	(1 << 4)
-#define MAX_LED_DRV_LEVEL	20 
+#define MAX_LED_DRV_LEVEL	20 /* 2 * 20 mA */
 
 #define PMIC8058_LED_OFFSET(id) ((id) - PMIC8058_ID_LED_0)
 

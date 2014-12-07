@@ -46,6 +46,7 @@
 
 #include <xen/features.h>
 
+/* NR_GRANT_FRAMES must be less than or equal to that configured in Xen */
 #define NR_GRANT_FRAMES 4
 
 struct gnttab_free_callback {
@@ -68,12 +69,31 @@ int gnttab_grant_foreign_access_trans(domid_t domid, int flags,
 				      domid_t trans_domid,
 				      grant_ref_t trans_gref);
 
+/*
+ * Are sub-page grants available on this version of Xen?  Returns true if they
+ * are, and false if they're not.
+ */
 bool gnttab_subpage_grants_available(void);
 
+/*
+ * Are transitive grants available on this version of Xen?  Returns true if they
+ * are, and false if they're not.
+ */
 bool gnttab_trans_grants_available(void);
 
+/*
+ * End access through the given grant reference, iff the grant entry is no
+ * longer in use.  Return 1 if the grant entry was freed, 0 if it is still in
+ * use.
+ */
 int gnttab_end_foreign_access_ref(grant_ref_t ref, int readonly);
 
+/*
+ * Eventually end access through the given grant reference, and once that
+ * access has been ended, free the given page too.  Access will be ended
+ * immediately iff the grant entry is not in use, otherwise it will happen
+ * some time later.  page may be 0, in which case no freeing will occur.
+ */
 void gnttab_end_foreign_access(grant_ref_t ref, int readonly,
 			       unsigned long page);
 
@@ -84,6 +104,9 @@ unsigned long gnttab_end_foreign_transfer(grant_ref_t ref);
 
 int gnttab_query_foreign_access(grant_ref_t ref);
 
+/*
+ * operations on reserved batches of grant references
+ */
 int gnttab_alloc_grant_references(u16 count, grant_ref_t *pprivate_head);
 
 void gnttab_free_grant_reference(grant_ref_t ref);
@@ -164,4 +187,4 @@ int gnttab_map_refs(struct gnttab_map_grant_ref *map_ops,
 int gnttab_unmap_refs(struct gnttab_unmap_grant_ref *unmap_ops,
 		      struct page **pages, unsigned int count, bool clear_pte);
 
-#endif 
+#endif /* __ASM_GNTTAB_H__ */

@@ -36,11 +36,14 @@ extern int diva_os_copy_from_user(void *os_handle, void *dst,
 
 static void no_printf(unsigned char *x, ...)
 {
-	
+	/* dummy debug function */
 }
 
 #include "debuglib.c"
 
+/*
+ *  DIDD callback function
+ */
 static void *didd_callback(void *context, DESCRIPTOR *adapter,
 			   int removal)
 {
@@ -66,6 +69,9 @@ static void *didd_callback(void *context, DESCRIPTOR *adapter,
 	return (NULL);
 }
 
+/*
+ * connect to didd
+ */
 static int DIVA_INIT_FUNCTION connect_didd(void)
 {
 	int x = 0;
@@ -76,7 +82,7 @@ static int DIVA_INIT_FUNCTION connect_didd(void)
 	DIVA_DIDD_Read(DIDD_Table, sizeof(DIDD_Table));
 
 	for (x = 0; x < MAX_DESCRIPTORS; x++) {
-		if (DIDD_Table[x].type == IDI_DADAPTER) {	
+		if (DIDD_Table[x].type == IDI_DADAPTER) {	/* DADAPTER found */
 			dadapter = 1;
 			memcpy(&DAdapter, &DIDD_Table[x], sizeof(DAdapter));
 			req.didd_notify.e.Req = 0;
@@ -88,7 +94,7 @@ static int DIVA_INIT_FUNCTION connect_didd(void)
 			if (req.didd_notify.e.Rc != 0xff)
 				return (0);
 			notify_handle = req.didd_notify.info.handle;
-			
+			/* Register MAINT (me) */
 			req.didd_add_adapter.e.Req = 0;
 			req.didd_add_adapter.e.Rc =
 				IDI_SYNC_REQ_DIDD_ADD_ADAPTER;
@@ -105,6 +111,9 @@ static int DIVA_INIT_FUNCTION connect_didd(void)
 	return (dadapter);
 }
 
+/*
+ * disconnect from didd
+ */
 static void DIVA_EXIT_FUNCTION disconnect_didd(void)
 {
 	IDI_SYNC_REQ req;
@@ -121,6 +130,9 @@ static void DIVA_EXIT_FUNCTION disconnect_didd(void)
 	DAdapter.request((ENTITY *)&req);
 }
 
+/*
+ * read/write maint
+ */
 int maint_read_write(void __user *buf, int count)
 {
 	byte data[128];
@@ -135,9 +147,9 @@ int maint_read_write(void __user *buf, int count)
 		return (-EFAULT);
 	}
 
-	cmd = *(dword *)&data[0];	
-	id = *(dword *)&data[4];	
-	mask = *(dword *)&data[8];	
+	cmd = *(dword *)&data[0];	/* command */
+	id = *(dword *)&data[4];	/* driver id */
+	mask = *(dword *)&data[8];	/* mask or size */
 
 	switch (cmd) {
 	case DITRACE_CMD_GET_DRIVER_INFO:
@@ -166,6 +178,11 @@ int maint_read_write(void __user *buf, int count)
 		}
 		break;
 
+		/*
+		  Filter commands will ignore the ID due to fact that filtering affects
+		  the B- channel and Audio Tap trace levels only. Also MAINT driver will
+		  select the right trace ID by itself
+		*/
 	case DITRACE_WRITE_SELECTIVE_TRACE_FILTER:
 		if (!mask) {
 			ret = diva_set_trace_filter(1, "*");
@@ -245,10 +262,16 @@ int maint_read_write(void __user *buf, int count)
 				diva_maint_ack_message(0, &old_irql);
 				break;
 			}
+			/*
+			  Write entry length
+			*/
 			pbuf[written++] = (byte) size;
 			pbuf[written++] = (byte) (size >> 8);
 			pbuf[written++] = 0;
 			pbuf[written++] = 0;
+			/*
+			  Write message
+			*/
 			memcpy(&pbuf[written], pmsg, size);
 			diva_maint_ack_message(1, &old_irql);
 			written += size;
@@ -274,6 +297,9 @@ int maint_read_write(void __user *buf, int count)
 	return (ret);
 }
 
+/*
+ *  init
+ */
 int DIVA_INIT_FUNCTION mntfunc_init(int *buffer_length, void **buffer,
 				    unsigned long diva_dbg_mem)
 {
@@ -319,6 +345,9 @@ int DIVA_INIT_FUNCTION mntfunc_init(int *buffer_length, void **buffer,
 	return (1);
 }
 
+/*
+ *  exit
+ */
 void DIVA_EXIT_FUNCTION mntfunc_finit(void)
 {
 	void *buffer;

@@ -24,7 +24,12 @@
 #include <linux/mtd/nand.h>
 #include <linux/mtd/doc2000.h>
 
+/* #define ECC_DEBUG */
 
+/* I have no idea why some DoC chips can not use memcop_form|to_io().
+ * This may be due to the different revisions of the ASIC controller built-in or
+ * simplily a QA/Bug issue. Who knows ?? If you have trouble, please uncomment
+ * this:*/
 #undef USE_MEMCPY
 
 static int doc_read(struct mtd_info *mtd, loff_t from, size_t len,
@@ -40,6 +45,7 @@ static int doc_erase (struct mtd_info *mtd, struct erase_info *instr);
 static struct mtd_info *docmilpluslist = NULL;
 
 
+/* Perform the required delay cycles by writing to the NOP register */
 static void DoC_Delay(void __iomem * docptr, int cycles)
 {
 	int i;
@@ -50,13 +56,14 @@ static void DoC_Delay(void __iomem * docptr, int cycles)
 
 #define	CDSN_CTRL_FR_B_MASK	(CDSN_CTRL_FR_B0 | CDSN_CTRL_FR_B1)
 
+/* DOC_WaitReady: Wait for RDY line to be asserted by the flash chip */
 static int _DoC_WaitReady(void __iomem * docptr)
 {
 	unsigned int c = 0xffff;
 
 	pr_debug("_DoC_WaitReady called for out-of-line wait\n");
 
-	
+	/* Out-of-line routine to wait for chip response */
 	while (((ReadDOC(docptr, Mplus_FlashControl) & CDSN_CTRL_FR_B_MASK) != CDSN_CTRL_FR_B_MASK) && --c)
 		;
 
@@ -68,27 +75,37 @@ static int _DoC_WaitReady(void __iomem * docptr)
 
 static inline int DoC_WaitReady(void __iomem * docptr)
 {
-	
+	/* This is inline, to optimise the common case, where it's ready instantly */
 	int ret = 0;
 
+	/* read form NOP register should be issued prior to the read from CDSNControl
+	   see Software Requirement 11.4 item 2. */
 	DoC_Delay(docptr, 4);
 
 	if ((ReadDOC(docptr, Mplus_FlashControl) & CDSN_CTRL_FR_B_MASK) != CDSN_CTRL_FR_B_MASK)
-		
+		/* Call the out-of-line routine to wait */
 		ret = _DoC_WaitReady(docptr);
 
 	return ret;
 }
 
+/* For some reason the Millennium Plus seems to occasionally put itself
+ * into reset mode. For me this happens randomly, with no pattern that I
+ * can detect. M-systems suggest always check this on any block level
+ * operation and setting to normal mode if in reset mode.
+ */
 static inline void DoC_CheckASIC(void __iomem * docptr)
 {
-	
+	/* Make sure the DoC is in normal mode */
 	if ((ReadDOC(docptr, Mplus_DOCControl) & DOC_MODE_NORMAL) == 0) {
 		WriteDOC((DOC_MODE_NORMAL | DOC_MODE_MDWREN), docptr, Mplus_DOCControl);
 		WriteDOC(~(DOC_MODE_NORMAL | DOC_MODE_MDWREN), docptr, Mplus_CtrlConfirm);
 	}
 }
 
+/* DoC_Command: Send a flash command to the flash chip through the Flash
+ * command register. Need 2 Write Pipeline Terminates to complete send.
+ */
 static void DoC_Command(void __iomem * docptr, unsigned char command,
 			       unsigned char xtraflags)
 {
@@ -97,27 +114,30 @@ static void DoC_Command(void __iomem * docptr, unsigned char command,
 	WriteDOC(command, docptr, Mplus_WritePipeTerm);
 }
 
+/* DoC_Address: Set the current address for the flash chip through the Flash
+ * Address register. Need 2 Write Pipeline Terminates to complete send.
+ */
 static inline void DoC_Address(struct DiskOnChip *doc, int numbytes,
 			       unsigned long ofs, unsigned char xtraflags1,
 			       unsigned char xtraflags2)
 {
 	void __iomem * docptr = doc->virtadr;
 
-	
+	/* Allow for possible Mill Plus internal flash interleaving */
 	ofs >>= doc->interleave;
 
 	switch (numbytes) {
 	case 1:
-		
+		/* Send single byte, bits 0-7. */
 		WriteDOC(ofs & 0xff, docptr, Mplus_FlashAddress);
 		break;
 	case 2:
-		
+		/* Send bits 9-16 followed by 17-23 */
 		WriteDOC((ofs >> 9)  & 0xff, docptr, Mplus_FlashAddress);
 		WriteDOC((ofs >> 17) & 0xff, docptr, Mplus_FlashAddress);
 		break;
 	case 3:
-		
+		/* Send 0-7, 9-16, then 17-23 */
 		WriteDOC(ofs & 0xff, docptr, Mplus_FlashAddress);
 		WriteDOC((ofs >> 9)  & 0xff, docptr, Mplus_FlashAddress);
 		WriteDOC((ofs >> 17) & 0xff, docptr, Mplus_FlashAddress);
@@ -130,18 +150,32 @@ static inline void DoC_Address(struct DiskOnChip *doc, int numbytes,
 	WriteDOC(0x00, docptr, Mplus_WritePipeTerm);
 }
 
+/* DoC_SelectChip: Select a given flash chip within the current floor */
 static int DoC_SelectChip(void __iomem * docptr, int chip)
 {
-	
+	/* No choice for flash chip on Millennium Plus */
 	return 0;
 }
 
+/* DoC_SelectFloor: Select a given floor (bank of flash chips) */
 static int DoC_SelectFloor(void __iomem * docptr, int floor)
 {
 	WriteDOC((floor & 0x3), docptr, Mplus_DeviceSelect);
 	return 0;
 }
 
+/*
+ * Translate the given offset into the appropriate command and offset.
+ * This does the mapping using the 16bit interleave layout defined by
+ * M-Systems, and looks like this for a sector pair:
+ *  +-----------+-------+-------+-------+--------------+---------+-----------+
+ *  | 0 --- 511 |512-517|518-519|520-521| 522 --- 1033 |1034-1039|1040 - 1055|
+ *  +-----------+-------+-------+-------+--------------+---------+-----------+
+ *  | Data 0    | ECC 0 |Flags0 |Flags1 | Data 1       |ECC 1    | OOB 1 + 2 |
+ *  +-----------+-------+-------+-------+--------------+---------+-----------+
+ */
+/* FIXME: This lives in INFTL not here. Other users of flash devices
+   may not want it */
 static unsigned int DoC_GetDataOffset(struct mtd_info *mtd, loff_t *from)
 {
 	struct DiskOnChip *this = mtd->priv;
@@ -164,7 +198,7 @@ static unsigned int DoC_GetDataOffset(struct mtd_info *mtd, loff_t *from)
 		*from = (*from & ~0x3ff) | ofs;
 		return cmd;
 	} else {
-		
+		/* No interleave */
 		if ((*from) & 0x100)
 			return NAND_CMD_READ1;
 		return NAND_CMD_READ0;
@@ -229,56 +263,59 @@ static inline void MemWriteDOC(void __iomem * docptr, unsigned char *buf, int le
 #endif
 }
 
+/* DoC_IdentChip: Identify a given NAND chip given {floor,chip} */
 static int DoC_IdentChip(struct DiskOnChip *doc, int floor, int chip)
 {
 	int mfr, id, i, j;
 	volatile char dummy;
 	void __iomem * docptr = doc->virtadr;
 
-	
+	/* Page in the required floor/chip */
 	DoC_SelectFloor(docptr, floor);
 	DoC_SelectChip(docptr, chip);
 
-	
+	/* Millennium Plus bus cycle sequence as per figure 2, section 2.4 */
 	WriteDOC((DOC_FLASH_CE | DOC_FLASH_WP), docptr, Mplus_FlashSelect);
 
-	
+	/* Reset the chip, see Software Requirement 11.4 item 1. */
 	DoC_Command(docptr, NAND_CMD_RESET, 0);
 	DoC_WaitReady(docptr);
 
-	
+	/* Read the NAND chip ID: 1. Send ReadID command */
 	DoC_Command(docptr, NAND_CMD_READID, 0);
 
-	
+	/* Read the NAND chip ID: 2. Send address byte zero */
 	DoC_Address(doc, 1, 0x00, 0, 0x00);
 
 	WriteDOC(0, docptr, Mplus_FlashControl);
 	DoC_WaitReady(docptr);
 
+	/* Read the manufacturer and device id codes of the flash device through
+	   CDSN IO register see Software Requirement 11.4 item 5.*/
 	dummy = ReadDOC(docptr, Mplus_ReadPipeInit);
 	dummy = ReadDOC(docptr, Mplus_ReadPipeInit);
 
 	mfr = ReadDOC(docptr, Mil_CDSN_IO);
 	if (doc->interleave)
-		dummy = ReadDOC(docptr, Mil_CDSN_IO); 
+		dummy = ReadDOC(docptr, Mil_CDSN_IO); /* 2 way interleave */
 
 	id  = ReadDOC(docptr, Mil_CDSN_IO);
 	if (doc->interleave)
-		dummy = ReadDOC(docptr, Mil_CDSN_IO); 
+		dummy = ReadDOC(docptr, Mil_CDSN_IO); /* 2 way interleave */
 
 	dummy = ReadDOC(docptr, Mplus_LastDataRead);
 	dummy = ReadDOC(docptr, Mplus_LastDataRead);
 
-	
+	/* Disable flash internally */
 	WriteDOC(0, docptr, Mplus_FlashSelect);
 
-	
+	/* No response - return failure */
 	if (mfr == 0xff || mfr == 0)
 		return 0;
 
 	for (i = 0; nand_flash_ids[i].name != NULL; i++) {
 		if (id == nand_flash_ids[i].id) {
-			
+			/* Try to identify manufacturer */
 			for (j = 0; nand_manuf_ids[j].id != 0x0; j++) {
 				if (nand_manuf_ids[j].id == mfr)
 					break;
@@ -299,6 +336,7 @@ static int DoC_IdentChip(struct DiskOnChip *doc, int floor, int chip)
 	return 1;
 }
 
+/* DoC_ScanChips: Find all NAND chips present in a DiskOnChip, and identify them */
 static void DoC_ScanChips(struct DiskOnChip *this)
 {
 	int floor, chip;
@@ -309,12 +347,12 @@ static void DoC_ScanChips(struct DiskOnChip *this)
 	this->mfr = 0;
 	this->id = 0;
 
-	
+	/* Work out the intended interleave setting */
 	this->interleave = 0;
 	if (this->ChipID == DOC_ChipID_DocMilPlus32)
 		this->interleave = 1;
 
-	
+	/* Check the ASIC agrees */
 	if ( (this->interleave << 2) !=
 	     (ReadDOC(this->virtadr, Mplus_Configuration) & 4)) {
 		u_char conf = ReadDOC(this->virtadr, Mplus_Configuration);
@@ -324,7 +362,7 @@ static void DoC_ScanChips(struct DiskOnChip *this)
 		WriteDOC(conf, this->virtadr, Mplus_Configuration);
 	}
 
-	
+	/* For each floor, find the number of valid chips it contains */
 	for (floor = 0,ret = 1; floor < MAX_FLOORS_MPLUS; floor++) {
 		numchips[floor] = 0;
 		for (chip = 0; chip < MAX_CHIPS_MPLUS && ret != 0; chip++) {
@@ -335,19 +373,21 @@ static void DoC_ScanChips(struct DiskOnChip *this)
 			}
 		}
 	}
-	
+	/* If there are none at all that we recognise, bail */
 	if (!this->numchips) {
 		printk("No flash chips recognised.\n");
 		return;
 	}
 
-	
+	/* Allocate an array to hold the information for each chip */
 	this->chips = kmalloc(sizeof(struct Nand) * this->numchips, GFP_KERNEL);
 	if (!this->chips){
 		printk("MTD: No memory for allocating chip info structures\n");
 		return;
 	}
 
+	/* Fill out the chip array with {floor, chipno} for each
+	 * detected chip in the device. */
 	for (floor = 0, ret = 0; floor < MAX_FLOORS_MPLUS; floor++) {
 		for (chip = 0 ; chip < numchips[floor] ; chip++) {
 			this->chips[ret].floor = floor;
@@ -358,7 +398,7 @@ static void DoC_ScanChips(struct DiskOnChip *this)
 		}
 	}
 
-	
+	/* Calculate and print the total size of the device */
 	this->totlen = this->numchips * (1 << this->chipshift);
 	printk(KERN_INFO "%d flash chips found. Total DiskOnChip size: %ld MiB\n",
 	       this->numchips ,this->totlen >> 20);
@@ -371,6 +411,11 @@ static int DoCMilPlus_is_alias(struct DiskOnChip *doc1, struct DiskOnChip *doc2)
 	if (doc1->physadr == doc2->physadr)
 		return 1;
 
+	/* Use the alias resolution register which was set aside for this
+	 * purpose. If it's value is the same on both chips, they might
+	 * be the same chip, and we write to one and check for a change in
+	 * the other. It's unclear if this register is usuable in the
+	 * DoC 2000 (it's in the Millennium docs), but it seems to work. */
 	tmp1 = ReadDOC(doc1->virtadr, Mplus_AliasResolution);
 	tmp2 = ReadDOC(doc2->virtadr, Mplus_AliasResolution);
 	if (tmp1 != tmp2)
@@ -383,17 +428,21 @@ static int DoCMilPlus_is_alias(struct DiskOnChip *doc1, struct DiskOnChip *doc2)
 	else
 		retval = 0;
 
+	/* Restore register contents.  May not be necessary, but do it just to
+	 * be safe. */
 	WriteDOC(tmp1, doc1->virtadr, Mplus_AliasResolution);
 
 	return retval;
 }
 
+/* This routine is found from the docprobe code by symbol_get(),
+ * which will bump the use count of this module. */
 void DoCMilPlus_init(struct mtd_info *mtd)
 {
 	struct DiskOnChip *this = mtd->priv;
 	struct DiskOnChip *old = NULL;
 
-	
+	/* We must avoid being called twice for the same device. */
 	if (docmilpluslist)
 		old = docmilpluslist->priv;
 
@@ -430,7 +479,7 @@ void DoCMilPlus_init(struct mtd_info *mtd)
 	this->curfloor = -1;
 	this->curchip = -1;
 
-	
+	/* Ident all the chips present. */
 	DoC_ScanChips(this);
 
 	if (!this->totlen) {
@@ -460,13 +509,13 @@ static int doc_dumpblk(struct mtd_info *mtd, loff_t from)
 
 	from &= ~0x3ff;
 
-	
+	/* Don't allow read past end of device */
 	if (from >= this->totlen)
 		return -EINVAL;
 
 	DoC_CheckASIC(docptr);
 
-	
+	/* Find the chip which is to be used and select it */
 	if (this->curfloor != mychip->floor) {
 		DoC_SelectFloor(docptr, mychip->floor);
 		DoC_SelectChip(docptr, mychip->chip);
@@ -476,10 +525,10 @@ static int doc_dumpblk(struct mtd_info *mtd, loff_t from)
 	this->curfloor = mychip->floor;
 	this->curchip = mychip->chip;
 
-	
+	/* Millennium Plus bus cycle sequence as per figure 2, section 2.4 */
 	WriteDOC((DOC_FLASH_CE | DOC_FLASH_WP), docptr, Mplus_FlashSelect);
 
-	
+	/* Reset the chip, see Software Requirement 11.4 item 1. */
 	DoC_Command(docptr, NAND_CMD_RESET, 0);
 	DoC_WaitReady(docptr);
 
@@ -489,12 +538,14 @@ static int doc_dumpblk(struct mtd_info *mtd, loff_t from)
 	WriteDOC(0, docptr, Mplus_FlashControl);
 	DoC_WaitReady(docptr);
 
-	
+	/* disable the ECC engine */
 	WriteDOC(DOC_ECC_RESET, docptr, Mplus_ECCConf);
 
 	ReadDOC(docptr, Mplus_ReadPipeInit);
 	ReadDOC(docptr, Mplus_ReadPipeInit);
 
+	/* Read the data via the internal pipeline through CDSN IO
+	   register, see Pipelined Read Operations 11.3 */
 	MemReadDOC(docptr, buf, 1054);
 	buf[1054] = ReadDOC(docptr, Mplus_LastDataRead);
 	buf[1055] = ReadDOC(docptr, Mplus_LastDataRead);
@@ -513,7 +564,7 @@ static int doc_dumpblk(struct mtd_info *mtd, loff_t from)
         }
 	printk("\n");
 
-	
+	/* Disable flash internally */
 	WriteDOC(0, docptr, Mplus_FlashSelect);
 
 	return 0;
@@ -531,13 +582,13 @@ static int doc_read(struct mtd_info *mtd, loff_t from, size_t len,
 	void __iomem * docptr = this->virtadr;
 	struct Nand *mychip = &this->chips[from >> (this->chipshift)];
 
-	
+	/* Don't allow a single read to cross a 512-byte block boundary */
 	if (from + len > ((from | 0x1ff) + 1))
 		len = ((from | 0x1ff) + 1) - from;
 
 	DoC_CheckASIC(docptr);
 
-	
+	/* Find the chip which is to be used and select it */
 	if (this->curfloor != mychip->floor) {
 		DoC_SelectFloor(docptr, mychip->floor);
 		DoC_SelectChip(docptr, mychip->chip);
@@ -547,10 +598,10 @@ static int doc_read(struct mtd_info *mtd, loff_t from, size_t len,
 	this->curfloor = mychip->floor;
 	this->curchip = mychip->chip;
 
-	
+	/* Millennium Plus bus cycle sequence as per figure 2, section 2.4 */
 	WriteDOC((DOC_FLASH_CE | DOC_FLASH_WP), docptr, Mplus_FlashSelect);
 
-	
+	/* Reset the chip, see Software Requirement 11.4 item 1. */
 	DoC_Command(docptr, NAND_CMD_RESET, 0);
 	DoC_WaitReady(docptr);
 
@@ -560,35 +611,39 @@ static int doc_read(struct mtd_info *mtd, loff_t from, size_t len,
 	WriteDOC(0, docptr, Mplus_FlashControl);
 	DoC_WaitReady(docptr);
 
-	
+	/* init the ECC engine, see Reed-Solomon EDC/ECC 11.1 .*/
 	WriteDOC(DOC_ECC_RESET, docptr, Mplus_ECCConf);
 	WriteDOC(DOC_ECC_EN, docptr, Mplus_ECCConf);
 
-	
+	/* Let the caller know we completed it */
 	*retlen = len;
 	ret = 0;
 
 	ReadDOC(docptr, Mplus_ReadPipeInit);
 	ReadDOC(docptr, Mplus_ReadPipeInit);
 
+	/* Read the data via the internal pipeline through CDSN IO
+	   register, see Pipelined Read Operations 11.3 */
 	MemReadDOC(docptr, buf, len);
 
-	
+	/* Read the ECC data following raw data */
 	MemReadDOC(docptr, eccbuf, 4);
 	eccbuf[4] = ReadDOC(docptr, Mplus_LastDataRead);
 	eccbuf[5] = ReadDOC(docptr, Mplus_LastDataRead);
 
-	
+	/* Flush the pipeline */
 	dummy = ReadDOC(docptr, Mplus_ECCConf);
 	dummy = ReadDOC(docptr, Mplus_ECCConf);
 
-	
+	/* Check the ECC Status */
 	if (ReadDOC(docptr, Mplus_ECCConf) & 0x80) {
 		int nb_errors;
-		
+		/* There was an ECC error */
 #ifdef ECC_DEBUG
 		printk("DiskOnChip ECC Error: Read at %lx\n", (long)from);
 #endif
+		/* Read the ECC syndrome through the DiskOnChip ECC logic.
+		   These syndrome will be all ZERO when there is no error */
 		for (i = 0; i < 6; i++)
 			syndrome[i] = ReadDOC(docptr, Mplus_ECCSyndrome0 + i);
 
@@ -597,6 +652,10 @@ static int doc_read(struct mtd_info *mtd, loff_t from, size_t len,
 		printk("ECC Errors corrected: %x\n", nb_errors);
 #endif
 		if (nb_errors < 0) {
+			/* We return error, but have actually done the
+			   read. Not that this can be told to user-space, via
+			   sys_read(), but at least MTD-aware stuff can know
+			   about it by checking *retlen */
 #ifdef ECC_DEBUG
 			printk("%s(%d): Millennium Plus ECC error (from=0x%x:\n",
 				__FILE__, __LINE__, (int)from);
@@ -618,10 +677,10 @@ static int doc_read(struct mtd_info *mtd, loff_t from, size_t len,
 	       (long)from, eccbuf[0], eccbuf[1], eccbuf[2], eccbuf[3],
 	       eccbuf[4], eccbuf[5]);
 #endif
-	
+	/* disable the ECC engine */
 	WriteDOC(DOC_ECC_DIS, docptr , Mplus_ECCConf);
 
-	
+	/* Disable flash internally */
 	WriteDOC(0, docptr, Mplus_FlashSelect);
 
 	return ret;
@@ -638,16 +697,16 @@ static int doc_write(struct mtd_info *mtd, loff_t to, size_t len,
 	void __iomem * docptr = this->virtadr;
 	struct Nand *mychip = &this->chips[to >> (this->chipshift)];
 
-	
+	/* Don't allow writes which aren't exactly one block (512 bytes) */
 	if ((to & 0x1ff) || (len != 0x200))
 		return -EINVAL;
 
-	
+	/* Determine position of OOB flags, before or after data */
 	before = (this->interleave && (to & 0x200));
 
 	DoC_CheckASIC(docptr);
 
-	
+	/* Find the chip which is to be used and select it */
 	if (this->curfloor != mychip->floor) {
 		DoC_SelectFloor(docptr, mychip->floor);
 		DoC_SelectChip(docptr, mychip->chip);
@@ -657,53 +716,55 @@ static int doc_write(struct mtd_info *mtd, loff_t to, size_t len,
 	this->curfloor = mychip->floor;
 	this->curchip = mychip->chip;
 
-	
+	/* Millennium Plus bus cycle sequence as per figure 2, section 2.4 */
 	WriteDOC(DOC_FLASH_CE, docptr, Mplus_FlashSelect);
 
-	
+	/* Reset the chip, see Software Requirement 11.4 item 1. */
 	DoC_Command(docptr, NAND_CMD_RESET, 0);
 	DoC_WaitReady(docptr);
 
-	
+	/* Set device to appropriate plane of flash */
 	fto = to;
 	WriteDOC(DoC_GetDataOffset(mtd, &fto), docptr, Mplus_FlashCmd);
 
-	
+	/* On interleaved devices the flags for 2nd half 512 are before data */
 	if (before)
 		fto -= 2;
 
-	
+	/* issue the Serial Data In command to initial the Page Program process */
 	DoC_Command(docptr, NAND_CMD_SEQIN, 0x00);
 	DoC_Address(this, 3, fto, 0x00, 0x00);
 
-	
+	/* Disable the ECC engine */
 	WriteDOC(DOC_ECC_RESET, docptr, Mplus_ECCConf);
 
 	if (before) {
-		
+		/* Write the block status BLOCK_USED (0x5555) */
 		WriteDOC(0x55, docptr, Mil_CDSN_IO);
 		WriteDOC(0x55, docptr, Mil_CDSN_IO);
 	}
 
-	
+	/* init the ECC engine, see Reed-Solomon EDC/ECC 11.1 .*/
 	WriteDOC(DOC_ECC_EN | DOC_ECC_RW, docptr, Mplus_ECCConf);
 
 	MemWriteDOC(docptr, (unsigned char *) buf, len);
 
+	/* Write ECC data to flash, the ECC info is generated by
+	   the DiskOnChip ECC logic see Reed-Solomon EDC/ECC 11.1 */
 	DoC_Delay(docptr, 3);
 
-	
+	/* Read the ECC data through the DiskOnChip ECC logic */
 	for (i = 0; i < 6; i++)
 		eccbuf[i] = ReadDOC(docptr, Mplus_ECCSyndrome0 + i);
 
-	
+	/* disable the ECC engine */
 	WriteDOC(DOC_ECC_DIS, docptr, Mplus_ECCConf);
 
-	
+	/* Write the ECC data to flash */
 	MemWriteDOC(docptr, eccbuf, 6);
 
 	if (!before) {
-		
+		/* Write the block status BLOCK_USED (0x5555) */
 		WriteDOC(0x55, docptr, Mil_CDSN_IO+6);
 		WriteDOC(0x55, docptr, Mil_CDSN_IO+7);
 	}
@@ -717,23 +778,29 @@ static int doc_write(struct mtd_info *mtd, loff_t to, size_t len,
 	WriteDOC(0x00, docptr, Mplus_WritePipeTerm);
 	WriteDOC(0x00, docptr, Mplus_WritePipeTerm);
 
+	/* Commit the Page Program command and wait for ready
+	   see Software Requirement 11.4 item 1.*/
 	DoC_Command(docptr, NAND_CMD_PAGEPROG, 0x00);
 	DoC_WaitReady(docptr);
 
+	/* Read the status of the flash device through CDSN IO register
+	   see Software Requirement 11.4 item 5.*/
 	DoC_Command(docptr, NAND_CMD_STATUS, 0);
 	dummy = ReadDOC(docptr, Mplus_ReadPipeInit);
 	dummy = ReadDOC(docptr, Mplus_ReadPipeInit);
 	DoC_Delay(docptr, 2);
 	if ((dummy = ReadDOC(docptr, Mplus_LastDataRead)) & 1) {
 		printk("MTD: Error 0x%x programming at 0x%x\n", dummy, (int)to);
+		/* Error in programming
+		   FIXME: implement Bad Block Replacement (in nftl.c ??) */
 		ret = -EIO;
 	}
 	dummy = ReadDOC(docptr, Mplus_LastDataRead);
 
-	
+	/* Disable flash internally */
 	WriteDOC(0, docptr, Mplus_FlashSelect);
 
-	
+	/* Let the caller know we completed it */
 	*retlen = len;
 
 	return ret;
@@ -756,7 +823,7 @@ static int doc_read_oob(struct mtd_info *mtd, loff_t ofs,
 
 	DoC_CheckASIC(docptr);
 
-	
+	/* Find the chip which is to be used and select it */
 	if (this->curfloor != mychip->floor) {
 		DoC_SelectFloor(docptr, mychip->floor);
 		DoC_SelectChip(docptr, mychip->chip);
@@ -766,21 +833,21 @@ static int doc_read_oob(struct mtd_info *mtd, loff_t ofs,
 	this->curfloor = mychip->floor;
 	this->curchip = mychip->chip;
 
-	
+	/* Millennium Plus bus cycle sequence as per figure 2, section 2.4 */
 	WriteDOC((DOC_FLASH_CE | DOC_FLASH_WP), docptr, Mplus_FlashSelect);
 
-	
+	/* disable the ECC engine */
 	WriteDOC(DOC_ECC_RESET, docptr, Mplus_ECCConf);
 	DoC_WaitReady(docptr);
 
-	
+	/* Maximum of 16 bytes in the OOB region, so limit read to that */
 	if (len > 16)
 		len = 16;
 	got = 0;
 	want = len;
 
 	for (i = 0; ((i < 3) && (want > 0)); i++) {
-		
+		/* Figure out which region we are accessing... */
 		fofs = ofs;
 		base = ofs & 0xf;
 		if (!this->interleave) {
@@ -799,7 +866,7 @@ static int doc_read_oob(struct mtd_info *mtd, loff_t ofs,
 		if (size > want)
 			size = want;
 
-		
+		/* Issue read command */
 		DoC_Address(this, 3, fofs, 0, 0x00);
 		WriteDOC(0, docptr, Mplus_FlashControl);
 		DoC_WaitReady(docptr);
@@ -815,7 +882,7 @@ static int doc_read_oob(struct mtd_info *mtd, loff_t ofs,
 		want -= size;
 	}
 
-	
+	/* Disable flash internally */
 	WriteDOC(0, docptr, Mplus_FlashSelect);
 
 	ops->retlen = len;
@@ -841,7 +908,7 @@ static int doc_write_oob(struct mtd_info *mtd, loff_t ofs,
 
 	DoC_CheckASIC(docptr);
 
-	
+	/* Find the chip which is to be used and select it */
 	if (this->curfloor != mychip->floor) {
 		DoC_SelectFloor(docptr, mychip->floor);
 		DoC_SelectChip(docptr, mychip->chip);
@@ -851,22 +918,22 @@ static int doc_write_oob(struct mtd_info *mtd, loff_t ofs,
 	this->curfloor = mychip->floor;
 	this->curchip = mychip->chip;
 
-	
+	/* Millennium Plus bus cycle sequence as per figure 2, section 2.4 */
 	WriteDOC(DOC_FLASH_CE, docptr, Mplus_FlashSelect);
 
 
-	
+	/* Maximum of 16 bytes in the OOB region, so limit write to that */
 	if (len > 16)
 		len = 16;
 	got = 0;
 	want = len;
 
 	for (i = 0; ((i < 3) && (want > 0)); i++) {
-		
+		/* Reset the chip, see Software Requirement 11.4 item 1. */
 		DoC_Command(docptr, NAND_CMD_RESET, 0);
 		DoC_WaitReady(docptr);
 
-		
+		/* Figure out which region we are accessing... */
 		fofs = ofs;
 		base = ofs & 0x0f;
 		if (!this->interleave) {
@@ -885,20 +952,26 @@ static int doc_write_oob(struct mtd_info *mtd, loff_t ofs,
 		if (size > want)
 			size = want;
 
-		
+		/* Issue the Serial Data In command to initial the Page Program process */
 		DoC_Command(docptr, NAND_CMD_SEQIN, 0x00);
 		DoC_Address(this, 3, fofs, 0, 0x00);
 
-		
+		/* Disable the ECC engine */
 		WriteDOC(DOC_ECC_RESET, docptr, Mplus_ECCConf);
 
+		/* Write the data via the internal pipeline through CDSN IO
+		   register, see Pipelined Write Operations 11.2 */
 		MemWriteDOC(docptr, (unsigned char *) &buf[got], size);
 		WriteDOC(0x00, docptr, Mplus_WritePipeTerm);
 		WriteDOC(0x00, docptr, Mplus_WritePipeTerm);
 
+		/* Commit the Page Program command and wait for ready
+	 	   see Software Requirement 11.4 item 1.*/
 		DoC_Command(docptr, NAND_CMD_PAGEPROG, 0x00);
 		DoC_WaitReady(docptr);
 
+		/* Read the status of the flash device through CDSN IO register
+		   see Software Requirement 11.4 item 5.*/
 		DoC_Command(docptr, NAND_CMD_STATUS, 0x00);
 		dummy = ReadDOC(docptr, Mplus_ReadPipeInit);
 		dummy = ReadDOC(docptr, Mplus_ReadPipeInit);
@@ -906,7 +979,7 @@ static int doc_write_oob(struct mtd_info *mtd, loff_t ofs,
 		if ((dummy = ReadDOC(docptr, Mplus_LastDataRead)) & 1) {
 			printk("MTD: Error 0x%x programming oob at 0x%x\n",
 				dummy, (int)ofs);
-			
+			/* FIXME: implement Bad Block Replacement */
 			ops->retlen = 0;
 			ret = -EIO;
 		}
@@ -917,7 +990,7 @@ static int doc_write_oob(struct mtd_info *mtd, loff_t ofs,
 		want -= size;
 	}
 
-	
+	/* Disable flash internally */
 	WriteDOC(0, docptr, Mplus_FlashSelect);
 
 	ops->retlen = len;
@@ -939,7 +1012,7 @@ int doc_erase(struct mtd_info *mtd, struct erase_info *instr)
 		printk(KERN_WARNING "MTD: Erase not right size (%x != %x)n",
 		       len, mtd->erasesize);
 
-	
+	/* Find the chip which is to be used and select it */
 	if (this->curfloor != mychip->floor) {
 		DoC_SelectFloor(docptr, mychip->floor);
 		DoC_SelectChip(docptr, mychip->chip);
@@ -951,7 +1024,7 @@ int doc_erase(struct mtd_info *mtd, struct erase_info *instr)
 
 	instr->state = MTD_ERASE_PENDING;
 
-	
+	/* Millennium Plus bus cycle sequence as per figure 2, section 2.4 */
 	WriteDOC(DOC_FLASH_CE, docptr, Mplus_FlashSelect);
 
 	DoC_Command(docptr, NAND_CMD_RESET, 0x00);
@@ -963,19 +1036,21 @@ int doc_erase(struct mtd_info *mtd, struct erase_info *instr)
 	DoC_WaitReady(docptr);
 	instr->state = MTD_ERASING;
 
+	/* Read the status of the flash device through CDSN IO register
+	   see Software Requirement 11.4 item 5. */
 	DoC_Command(docptr, NAND_CMD_STATUS, 0);
 	dummy = ReadDOC(docptr, Mplus_ReadPipeInit);
 	dummy = ReadDOC(docptr, Mplus_ReadPipeInit);
 	if ((dummy = ReadDOC(docptr, Mplus_LastDataRead)) & 1) {
 		printk("MTD: Error 0x%x erasing at 0x%x\n", dummy, ofs);
-		
+		/* FIXME: implement Bad Block Replacement (in nftl.c ??) */
 		instr->state = MTD_ERASE_FAILED;
 	} else {
 		instr->state = MTD_ERASE_DONE;
 	}
 	dummy = ReadDOC(docptr, Mplus_LastDataRead);
 
-	
+	/* Disable flash internally */
 	WriteDOC(0, docptr, Mplus_FlashSelect);
 
 	mtd_erase_callback(instr);
@@ -983,6 +1058,11 @@ int doc_erase(struct mtd_info *mtd, struct erase_info *instr)
 	return 0;
 }
 
+/****************************************************************************
+ *
+ * Module stuff
+ *
+ ****************************************************************************/
 
 static void __exit cleanup_doc2001plus(void)
 {

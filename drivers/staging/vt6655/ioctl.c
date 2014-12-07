@@ -111,7 +111,7 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 		break;
 
 	case WLAN_CMD_ZONETYPE_SET:
-		
+		/* mike add :cann't support. */
 		result = -EOPNOTSUPP;
 		break;
 
@@ -121,28 +121,28 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 		}
 
 		if (sZoneTypeCmd.bWrite == true) {
-			
+			/* write zonetype */
 			if (sZoneTypeCmd.ZoneType == ZoneType_USA) {
-				
+				/* set to USA */
 				printk("set_ZoneType:USA\n");
 			} else if (sZoneTypeCmd.ZoneType == ZoneType_Japan) {
-				
+				/* set to Japan */
 				printk("set_ZoneType:Japan\n");
 			} else if (sZoneTypeCmd.ZoneType == ZoneType_Europe) {
-				
+				/* set to Europe */
 				printk("set_ZoneType:Europe\n");
 			}
 		} else {
-			
+			/* read zonetype */
 			unsigned char zonetype = 0;
 
-			if (zonetype == 0x00) {		
+			if (zonetype == 0x00) {		/* USA */
 				sZoneTypeCmd.ZoneType = ZoneType_USA;
-			} else if (zonetype == 0x01) {	
+			} else if (zonetype == 0x01) {	/* Japan */
 				sZoneTypeCmd.ZoneType = ZoneType_Japan;
-			} else if (zonetype == 0x02) {	
+			} else if (zonetype == 0x02) {	/* Europe */
 				sZoneTypeCmd.ZoneType = ZoneType_Europe;
-			} else {			
+			} else {			/* Unknown ZoneType */
 				printk("Error:ZoneType[%x] Unknown ???\n", zonetype);
 				result = -EFAULT;
 				break;
@@ -317,7 +317,7 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 				pList->sBSSIDList[ii].uChannel = pBSS->uChannel;
 				pList->sBSSIDList[ii].wBeaconInterval = pBSS->wBeaconInterval;
 				pList->sBSSIDList[ii].wCapInfo = pBSS->wCapInfo;
-				
+				/* pList->sBSSIDList[ii].uRSSI = pBSS->uRSSI; */
 				RFvRSSITodBm(pDevice, (unsigned char)(pBSS->uRSSI), &ldBm);
 				pList->sBSSIDList[ii].uRSSI = (unsigned int)ldBm;
 				memcpy(pList->sBSSIDList[ii].abyBSSID, pBSS->abyBSSID, WLAN_BSSID_LEN);
@@ -534,7 +534,7 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 		} else if (sStartAPCmd.byBasicRate & BIT1) {
 			pMgmt->abyIBSSSuppRates[2] |= BIT7;
 		} else {
-			
+			/* default 1,2M */
 			pMgmt->abyIBSSSuppRates[2] |= BIT7;
 			pMgmt->abyIBSSSuppRates[3] |= BIT7;
 		}
@@ -647,7 +647,7 @@ int private_ioctl(PSDevice pDevice, struct ifreq *rq)
 				wireless_send_event(pDevice->dev, IWEVCUSTOM, &wrqu, pItemSSID->abySSID);
 			}
 #endif
-			pDevice->fWPA_Authened = true; 
+			pDevice->fWPA_Authened = true; /* is successful peer to wpa_Result.authenticated? */
 		}
 		pReq->wResult = 0;
 		break;

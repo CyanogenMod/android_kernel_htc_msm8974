@@ -29,16 +29,16 @@ enum digest_algo {
 };
 
 struct pubkey_hdr {
-	uint8_t		version;	
-	uint32_t	timestamp;	
+	uint8_t		version;	/* key format version */
+	uint32_t	timestamp;	/* key made, always 0 for now */
 	uint8_t		algo;
 	uint8_t		nmpi;
 	char		mpi[0];
 } __packed;
 
 struct signature_hdr {
-	uint8_t		version;	
-	uint32_t	timestamp;	
+	uint8_t		version;	/* signature format version */
+	uint32_t	timestamp;	/* signature made */
 	uint8_t		algo;
 	uint8_t		hash;
 	uint8_t		keyid[8];
@@ -59,6 +59,6 @@ static inline int digsig_verify(struct key *keyring, const char *sig,
 	return -EOPNOTSUPP;
 }
 
-#endif 
+#endif /* CONFIG_SIGNATURE */
 
-#endif 
+#endif /* _DIGSIG_H */

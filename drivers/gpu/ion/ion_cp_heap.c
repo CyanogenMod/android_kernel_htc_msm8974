@@ -42,6 +42,33 @@
 #include <asm/cacheflush.h>
 
 #include "msm/ion_cp_common.h"
+/**
+ * struct ion_cp_heap - container for the heap and shared heap data
+
+ * @heap:	the heap information structure
+ * @pool:	memory pool to allocate from.
+ * @base:	the base address of the memory pool.
+ * @permission_type:	Identifier for the memory used by SCM for protecting
+ *			and unprotecting memory.
+ * @secure_base:	Base address used when securing a heap that is shared.
+ * @secure_size:	Size used when securing a heap that is shared.
+ * @lock:	mutex to protect shared access.
+ * @heap_protected:	Indicates whether heap has been protected or not.
+ * @allocated_bytes:	the total number of allocated bytes from the pool.
+ * @total_size:	the total size of the memory pool.
+ * @request_region:	function pointer to call when first mapping of memory
+ *			occurs.
+ * @release_region:	function pointer to call when last mapping of memory
+ *			unmapped.
+ * @bus_id: token used with request/release region.
+ * @kmap_cached_count:	the total number of times this heap has been mapped in
+ *			kernel space (cached).
+ * @kmap_uncached_count:the total number of times this heap has been mapped in
+ *			kernel space (un-cached).
+ * @umap_count:	the total number of times this heap has been mapped in
+ *		user space.
+ * @has_outer_cache:    set to 1 if outer cache is used, 0 otherwise.
+*/
 struct ion_cp_heap {
 	struct ion_heap heap;
 	struct gen_pool *pool;
@@ -132,7 +159,7 @@ static void free_heap_memory(struct ion_heap *heap)
 	struct ion_cp_heap *cp_heap =
 		container_of(heap, struct ion_cp_heap, heap);
 
-	
+	/* release memory */
 	dma_free_coherent(dev, cp_heap->heap_size, cp_heap->cpu_addr,
 				cp_heap->handle);
 	gen_pool_destroy(cp_heap->pool);
@@ -142,6 +169,10 @@ static void free_heap_memory(struct ion_heap *heap)
 
 
 
+/**
+ * Get the total number of kernel mappings.
+ * Must be called with heap->lock locked.
+ */
 static unsigned long ion_cp_get_total_kmap_count(
 					const struct ion_cp_heap *cp_heap)
 {
@@ -171,6 +202,10 @@ static void ion_on_last_free(struct ion_heap *heap)
 		free_heap_memory(heap);
 }
 
+/**
+ * Protects memory if heap is unsecured heap.
+ * Must be called with heap->lock locked.
+ */
 static int ion_cp_protect(struct ion_heap *heap, int version, void *data)
 {
 	struct ion_cp_heap *cp_heap =
@@ -178,7 +213,7 @@ static int ion_cp_protect(struct ion_heap *heap, int version, void *data)
 	int ret_value = 0;
 
 	if (atomic_inc_return(&cp_heap->protect_cnt) == 1) {
-		
+		/* Make sure we are in C state when the heap is protected. */
 		if (!cp_heap->allocated_bytes)
 			if (ion_on_first_alloc(heap))
 				goto out;
@@ -207,6 +242,10 @@ out:
 	return ret_value;
 }
 
+/**
+ * Unprotects memory if heap is secure heap.
+ * Must be called with heap->lock locked.
+ */
 static void ion_cp_unprotect(struct ion_heap *heap, int version, void *data)
 {
 	struct ion_cp_heap *cp_heap =
@@ -261,11 +300,22 @@ ion_phys_addr_t ion_cp_allocate(struct ion_heap *heap,
 		return ION_CP_ALLOCATE_FAIL;
 	}
 
+	/*
+	 * The check above already checked for non-secure allocations when the
+	 * heap is protected. HEAP_PROTECTED implies that this must be a secure
+	 * allocation. If the heap is protected and there are userspace or
+	 * cached kernel mappings, something has gone wrong in the security
+	 * model.
+	 */
 	if (cp_heap->heap_protected == HEAP_PROTECTED) {
 		BUG_ON(cp_heap->umap_count != 0);
 		BUG_ON(cp_heap->kmap_cached_count != 0);
 	}
 
+	/*
+	 * if this is the first reusable allocation, transition
+	 * the heap
+	 */
 	if (!cp_heap->allocated_bytes)
 		if (ion_on_first_alloc(heap)) {
 			mutex_unlock(&cp_heap->lock);
@@ -339,6 +389,10 @@ static int ion_cp_heap_allocate(struct ion_heap *heap,
 	struct ion_cp_buffer *buf;
 	phys_addr_t addr;
 
+	/*
+	 * we never want Ion to fault pages in for us with this
+	 * heap. We want to set up the mappings ourselves in .map_user
+	 */
 	flags |= ION_FLAG_CACHED_NEEDS_SYNC;
 
 	buf = kzalloc(sizeof(*buf), GFP_KERNEL);
@@ -401,6 +455,9 @@ void ion_cp_heap_unmap_dma(struct ion_heap *heap,
 	buffer->sg_table = 0;
 }
 
+/**
+ * Call request region for SMI memory of this is the first mapping.
+ */
 static int ion_cp_request_region(struct ion_cp_heap *cp_heap)
 {
 	int ret_value = 0;
@@ -411,6 +468,9 @@ static int ion_cp_request_region(struct ion_cp_heap *cp_heap)
 	return ret_value;
 }
 
+/**
+ * Call release region for SMI memory of this is the last un-mapping.
+ */
 static int ion_cp_release_region(struct ion_cp_heap *cp_heap)
 {
 	int ret_value = 0;

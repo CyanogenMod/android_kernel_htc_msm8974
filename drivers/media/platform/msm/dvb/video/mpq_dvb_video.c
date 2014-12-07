@@ -498,25 +498,25 @@ static void mpq_int_vid_dec_output_frame_done(
 				      &phy_addr, &pmem_fd, &file,
 				      &buffer_index) ||
 		(vcd_frame_data->flags & VCD_FRAME_FLAG_EOS)) {
-		
+		/* Buffer address in user space */
 		vdec_msg->vdec_msg_info.msgdata.output_frame.bufferaddr =
 		    (u8 *) user_vaddr;
-		
+		/* Data length */
 		vdec_msg->vdec_msg_info.msgdata.output_frame.len =
 		    vcd_frame_data->data_len;
 		vdec_msg->vdec_msg_info.msgdata.output_frame.flags =
 		    vcd_frame_data->flags;
-		
+		/* Timestamp pass-through from input frame */
 		vdec_msg->vdec_msg_info.msgdata.output_frame.time_stamp =
 		    vcd_frame_data->time_stamp;
-		
+		/* Output frame client data */
 		vdec_msg->vdec_msg_info.msgdata.output_frame.client_data =
 		    (void *)vcd_frame_data->frm_clnt_data;
-		
+		/* Associated input frame client data */
 		vdec_msg->vdec_msg_info.msgdata.output_frame.
 		    input_frame_clientdata =
 		    (void *)vcd_frame_data->ip_frm_tag;
-		
+		/* Decoded picture width and height */
 		vdec_msg->vdec_msg_info.msgdata.output_frame.framesize.
 		bottom =
 		    vcd_frame_data->dec_op_prop.disp_frm.bottom;
@@ -535,7 +535,7 @@ static void mpq_int_vid_dec_output_frame_done(
 				output_frame.interlaced_format =
 				VDEC_InterlaceFrameProgressive;
 		}
-		
+		/* Decoded picture type */
 		switch (vcd_frame_data->frame) {
 		case VCD_FRAME_I:
 			pic_type = PICTURE_TYPE_I;
@@ -1292,7 +1292,7 @@ static int mpq_int_vid_dec_set_buffer(struct mpq_dvb_video_inst *dev_inst,
 		buf_adr_offset = (unsigned long)data_buffer->offset;
 	}
 	length = data_buffer->buffer_len;
-	
+	/*If buffer cannot be set, ignore */
 	if (!vidc_insert_addr_table(client_ctx, dir_buffer,
 		(unsigned long)data_buffer->bufferaddr,
 		&kernel_vaddr, data_buffer->ion_fd,
@@ -1335,7 +1335,7 @@ static int mpq_int_vid_dec_free_buffer(struct video_client_ctx *client_ctx,
 	if (dir_buffer == BUFFER_TYPE_OUTPUT)
 		buffer = VCD_BUFFER_OUTPUT;
 
-	
+	/*If buffer NOT set, ignore */
 	if (!vidc_delete_addr_table(client_ctx, dir_buffer,
 				(unsigned long)data_buffer->bufferaddr,
 				&kernel_vaddr)) {
@@ -1467,7 +1467,7 @@ static int mpq_int_vid_dec_decode_frame(struct video_client_ctx *client_ctx,
 				      &phy_addr, &pmem_fd, &file,
 				      &buffer_index)) {
 
-		
+		/* kernel_vaddr  is found. send the frame to VCD */
 		memset((void *)&vcd_input_buffer, 0,
 		       sizeof(struct vcd_frame_data));
 		vcd_input_buffer.virtual =
@@ -1479,7 +1479,7 @@ static int mpq_int_vid_dec_decode_frame(struct video_client_ctx *client_ctx,
 		    (u32) input_frame->client_data;
 		vcd_input_buffer.data_len = input_frame->buffer_len;
 		vcd_input_buffer.time_stamp = input_frame->pts;
-		
+		/* Rely on VCD using the same flags as OMX */
 		vcd_input_buffer.flags = 0;
 		vcd_input_buffer.desc_buf = NULL;
 		vcd_input_buffer.desc_size = 0;
@@ -1783,7 +1783,7 @@ static int mpq_dvb_video_open(struct inode *inode, struct file *file)
 	DBG("Inside %s()", __func__);
 	mutex_lock(&mpq_dvb_video_device->lock);
 
-	
+	/* Open the dvb/video instance */
 	rc = dvb_generic_open(inode, file);
 	if (rc) {
 		DBG("Failed in dvb_generic_open with return value :%d\n",
@@ -1815,7 +1815,7 @@ static int mpq_dvb_video_open(struct inode *inode, struct file *file)
 		return -ENOMEM;
 	}
 
-	
+	/* Set default source to memory for easier handling */
 	dev_inst->source = VIDEO_SOURCE_MEMORY;
 
 	mutex_unlock(&mpq_dvb_video_device->lock);
@@ -1868,7 +1868,7 @@ static int mpq_int_vid_dec_vcd_init(void)
 	struct vcd_init_config vcd_init_config;
 	u32 i;
 
-	
+	/* init_timer(&hw_timer); */
 	DBG("msm_vidc_dec: Inside %s()", __func__);
 	mpq_dvb_video_device->num_clients = 0;
 
@@ -2071,7 +2071,7 @@ static int mpq_dvb_video_get_event(struct video_client_ctx *client_ctx,
 		return rc;
 
 	ev->status = vdec_msg_info.status_code;
-	
+	/* Map the Message here */
 	switch (vdec_msg_info.msgcode) {
 	case VDEC_MSG_INVALID:
 		DBG("VDEC_MSG_INVALID\n");
@@ -2352,6 +2352,9 @@ static unsigned int mpq_dvb_video_poll(struct file *file, poll_table *wait)
 	return mask;
 }
 
+/*
+ * Driver Registration.
+ */
 static const struct file_operations mpq_dvb_video_fops = {
 	.owner		= THIS_MODULE,
 	.write		= mpq_dvb_video_write,
@@ -2365,7 +2368,7 @@ static const struct file_operations mpq_dvb_video_fops = {
 static const struct dvb_device mpq_dvb_video_device_ctrl = {
 	.priv		= NULL,
 	.users		= 4,
-	.readers	= 4,	
+	.readers	= 4,	/* arbitrary */
 	.writers	= 4,
 	.fops		= &mpq_dvb_video_fops,
 	.kernel_ioctl	= mpq_dvb_video_ioctl,

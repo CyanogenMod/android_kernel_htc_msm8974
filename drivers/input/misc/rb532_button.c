@@ -13,9 +13,22 @@
 
 #define DRV_NAME "rb532-button"
 
-#define RB532_BTN_RATE 100 
+#define RB532_BTN_RATE 100 /* msec */
 #define RB532_BTN_KSYM BTN_0
 
+/* The S1 button state is provided by GPIO pin 1. But as this
+ * pin is also used for uart input as alternate function, the
+ * operational modes must be switched first:
+ * 1) disable uart using set_latch_u5()
+ * 2) turn off alternate function implicitly through
+ *    gpio_direction_input()
+ * 3) read the GPIO's current value
+ * 4) undo step 2 by enabling alternate function (in this
+ *    mode the GPIO direction is fixed, so no change needed)
+ * 5) turn on uart again
+ * The GPIO value occurs to be inverted, so pin high means
+ * button is not pressed.
+ */
 static bool rb532_button_pressed(void)
 {
 	int val;

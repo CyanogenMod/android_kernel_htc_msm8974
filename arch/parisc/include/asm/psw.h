@@ -8,15 +8,16 @@
 
 #define	PSW_R	0x00000010
 #define	PSW_F	0x00000020
-#define	PSW_G	0x00000040	
-#define PSW_O	0x00000080	
+#define	PSW_G	0x00000040	/* PA1.x only */
+#define PSW_O	0x00000080	/* PA2.0 only */
 
-#define PSW_SM_I	PSW_I	
+/* ssm/rsm instructions number PSW_W and PSW_E differently */
+#define PSW_SM_I	PSW_I	/* Enable External Interrupts */
 #define PSW_SM_D	PSW_D
 #define PSW_SM_P	PSW_P
-#define PSW_SM_Q	PSW_Q	
-#define PSW_SM_R	PSW_R	
-#define PSW_SM_W	0x200	
+#define PSW_SM_Q	PSW_Q	/* Enable Interrupt State Collection */
+#define PSW_SM_R	PSW_R	/* Enable Recover Counter Trap */
+#define PSW_SM_W	0x200	/* PA2.0 only : Enable Wide Mode */
 
 #define PSW_SM_QUIET	PSW_SM_R+PSW_SM_Q+PSW_SM_P+PSW_SM_D+PSW_SM_I
 
@@ -35,14 +36,14 @@
 #define	PSW_T	0x01000000
 #define	PSW_S	0x02000000
 #define	PSW_E	0x04000000
-#define PSW_W	0x08000000	
-#define PSW_W_BIT       36      
+#define PSW_W	0x08000000	/* PA2.0 only */
+#define PSW_W_BIT       36      /* PA2.0 only */
 
-#define	PSW_Z	0x40000000	
-#define	PSW_Y	0x80000000	
+#define	PSW_Z	0x40000000	/* PA1.x only */
+#define	PSW_Y	0x80000000	/* PA1.x only */
 
 #ifdef CONFIG_64BIT
-#  define PSW_HI_CB 0x000000ff    
+#  define PSW_HI_CB 0x000000ff    /* PA2.0 only */
 #endif
 
 #ifdef CONFIG_64BIT
@@ -52,6 +53,7 @@
 #  define WIDE_PSW		0
 #endif
 
+/* Used when setting up for rfi */
 #define KERNEL_PSW    (WIDE_PSW | PSW_C | PSW_Q | PSW_P | PSW_D)
 #define REAL_MODE_PSW (WIDE_PSW | PSW_Q)
 #define USER_PSW_MASK (WIDE_PSW | PSW_T | PSW_N | PSW_X | PSW_B | PSW_V | PSW_CB)
@@ -59,6 +61,7 @@
 
 #ifndef __ASSEMBLY__
 
+/* The program status word as bitfields.  */
 struct pa_psw {
 	unsigned int y:1;
 	unsigned int z:1;
@@ -95,6 +98,6 @@ struct pa_psw {
 #define pa_psw(task) ((struct pa_psw *) ((char *) (task) + TASK_PT_PSW))
 #endif
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #endif

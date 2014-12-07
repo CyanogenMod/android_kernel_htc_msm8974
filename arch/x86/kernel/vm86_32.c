@@ -48,17 +48,37 @@
 #include <asm/irq.h>
 #include <asm/syscalls.h>
 
+/*
+ * Known problems:
+ *
+ * Interrupt handling is not guaranteed:
+ * - a real x86 will disable all interrupts for one instruction
+ *   after a "mov ss,xx" to make stack handling atomic even without
+ *   the 'lss' instruction. We can't guarantee this in v86 mode,
+ *   as the next instruction might result in a page fault or similar.
+ * - a real x86 will have interrupts disabled for one instruction
+ *   past the 'sti' that enables them. We don't bother with all the
+ *   details yet.
+ *
+ * Let's hope these problems do not actually matter for anything.
+ */
 
 
 #define KVM86	((struct kernel_vm86_struct *)regs)
 #define VMPI	KVM86->vm86plus
 
 
+/*
+ * 8- and 16-bit register defines..
+ */
 #define AL(regs)	(((unsigned char *)&((regs)->pt.ax))[0])
 #define AH(regs)	(((unsigned char *)&((regs)->pt.ax))[1])
 #define IP(regs)	(*(unsigned short *)&((regs)->pt.ip))
 #define SP(regs)	(*(unsigned short *)&((regs)->pt.sp))
 
+/*
+ * virtual flags (16 and 32-bit versions)
+ */
 #define VFLAGS	(*(unsigned short *)&(current->thread.v86flags))
 #define VEFLAGS	(current->thread.v86flags)
 
@@ -68,11 +88,16 @@
 #define SAFE_MASK	(0xDD5)
 #define RETURN_MASK	(0xDFF)
 
+/* convert kernel_vm86_regs to vm86_regs */
 static int copy_vm86_regs_to_user(struct vm86_regs __user *user,
 				  const struct kernel_vm86_regs *regs)
 {
 	int ret = 0;
 
+	/*
+	 * kernel_vm86_regs is missing gs, so copy everything up to
+	 * (but not including) orig_eax, and then rest including orig_eax.
+	 */
 	ret += copy_to_user(user, regs, offsetof(struct kernel_vm86_regs, pt.orig_ax));
 	ret += copy_to_user(&user->orig_eax, &regs->pt.orig_ax,
 			    sizeof(struct kernel_vm86_regs) -
@@ -81,15 +106,16 @@ static int copy_vm86_regs_to_user(struct vm86_regs __user *user,
 	return ret;
 }
 
+/* convert vm86_regs to kernel_vm86_regs */
 static int copy_vm86_regs_from_user(struct kernel_vm86_regs *regs,
 				    const struct vm86_regs __user *user,
 				    unsigned extra)
 {
 	int ret = 0;
 
-	
+	/* copy ax-fs inclusive */
 	ret += copy_from_user(regs, user, offsetof(struct kernel_vm86_regs, pt.orig_ax));
-	
+	/* copy orig_ax-__gsh+extra */
 	ret += copy_from_user(&regs->pt.orig_ax, &user->orig_eax,
 			      sizeof(struct kernel_vm86_regs) -
 			      offsetof(struct kernel_vm86_regs, pt.orig_ax) +
@@ -103,6 +129,11 @@ struct pt_regs *save_v86_state(struct kernel_vm86_regs *regs)
 	struct pt_regs *ret;
 	unsigned long tmp;
 
+	/*
+	 * This gets called from entry.S with interrupts disabled, but
+	 * from process context. Enable interrupts here, before trying
+	 * to access user space.
+	 */
 	local_irq_enable();
 
 	if (!current->thread.vm86_info) {
@@ -171,7 +202,11 @@ static void do_sys_vm86(struct kernel_vm86_struct *info, struct task_struct *tsk
 
 int sys_vm86old(struct vm86_struct __user *v86, struct pt_regs *regs)
 {
-	struct kernel_vm86_struct info; 
+	struct kernel_vm86_struct info; /* declare this _on top_,
+					 * this avoids wasting of stack space.
+					 * This remains on the stack until we
+					 * return to 32 bit user space.
+					 */
 	struct task_struct *tsk;
 	int tmp, ret = -EPERM;
 
@@ -188,7 +223,7 @@ int sys_vm86old(struct vm86_struct __user *v86, struct pt_regs *regs)
 	info.regs32 = regs;
 	tsk->thread.vm86_info = v86;
 	do_sys_vm86(&info, tsk);
-	ret = 0;	
+	ret = 0;	/* we never return here */
 out:
 	return ret;
 }
@@ -196,7 +231,11 @@ out:
 
 int sys_vm86(unsigned long cmd, unsigned long arg, struct pt_regs *regs)
 {
-	struct kernel_vm86_struct info; 
+	struct kernel_vm86_struct info; /* declare this _on top_,
+					 * this avoids wasting of stack space.
+					 * This remains on the stack until we
+					 * return to 32 bit user space.
+					 */
 	struct task_struct *tsk;
 	int tmp, ret;
 	struct vm86plus_struct __user *v86;
@@ -210,11 +249,17 @@ int sys_vm86(unsigned long cmd, unsigned long arg, struct pt_regs *regs)
 		ret = do_vm86_irq_handling(cmd, (int)arg);
 		goto out;
 	case VM86_PLUS_INSTALL_CHECK:
+		/*
+		 * NOTE: on old vm86 stuff this will return the error
+		 *  from access_ok(), because the subfunction is
+		 *  interpreted as (invalid) address to vm86_struct.
+		 *  So the installation check works.
+		 */
 		ret = 0;
 		goto out;
 	}
 
-	
+	/* we come here only for functions VM86_ENTER, VM86_ENTER_NO_BYPASS */
 	ret = -EPERM;
 	if (tsk->thread.saved_sp0)
 		goto out;
@@ -229,7 +274,7 @@ int sys_vm86(unsigned long cmd, unsigned long arg, struct pt_regs *regs)
 	info.vm86plus.is_vm86pus = 1;
 	tsk->thread.vm86_info = (struct vm86_struct __user *)v86;
 	do_sys_vm86(&info, tsk);
-	ret = 0;	
+	ret = 0;	/* we never return here */
 out:
 	return ret;
 }
@@ -238,6 +283,9 @@ out:
 static void do_sys_vm86(struct kernel_vm86_struct *info, struct task_struct *tsk)
 {
 	struct tss_struct *tss;
+/*
+ * make sure the vm86() system call doesn't try to do anything silly
+ */
 	info->regs.pt.ds = 0;
 	info->regs.pt.es = 0;
 	info->regs.pt.fs = 0;
@@ -245,6 +293,11 @@ static void do_sys_vm86(struct kernel_vm86_struct *info, struct task_struct *tsk
 	info->regs.pt.gs = 0;
 #endif
 
+/*
+ * The flags register is also special: we cannot trust that the user
+ * has set it up safely, so this makes sure interrupt etc flags are
+ * inherited from protected mode.
+ */
 	VEFLAGS = info->regs.pt.flags;
 	info->regs.pt.flags &= SAFE_MASK;
 	info->regs.pt.flags |= info->regs32->flags & ~SAFE_MASK;
@@ -265,6 +318,9 @@ static void do_sys_vm86(struct kernel_vm86_struct *info, struct task_struct *tsk
 		break;
 	}
 
+/*
+ * Save old state, set default return value (%ax) to 0 (VM86_SIGNAL)
+ */
 	info->regs32->ax = VM86_SIGNAL;
 	tsk->thread.saved_sp0 = tsk->thread.sp0;
 	tsk->thread.saved_fs = info->regs32->fs;
@@ -281,7 +337,7 @@ static void do_sys_vm86(struct kernel_vm86_struct *info, struct task_struct *tsk
 	if (info->flags & VM86_SCREEN_BITMAP)
 		mark_screen_rdonly(tsk->mm);
 
-	
+	/*call __audit_syscall_exit since we do not exit via the normal paths */
 #ifdef CONFIG_AUDITSYSCALL
 	if (unlikely(current->audit_context))
 		__audit_syscall_exit(1, 0);
@@ -294,9 +350,9 @@ static void do_sys_vm86(struct kernel_vm86_struct *info, struct task_struct *tsk
 		"mov  %2, %%gs\n\t"
 #endif
 		"jmp resume_userspace"
-		: 
+		: /* no outputs */
 		:"r" (&info->regs), "r" (task_thread_info(tsk)), "r" (0));
-	
+	/* we never return here */
 }
 
 static inline void return_to_32bit(struct kernel_vm86_regs *regs16, int retval)
@@ -333,6 +389,17 @@ static inline void clear_AC(struct kernel_vm86_regs *regs)
 	regs->pt.flags &= ~X86_EFLAGS_AC;
 }
 
+/*
+ * It is correct to call set_IF(regs) from the set_vflags_*
+ * functions. However someone forgot to call clear_IF(regs)
+ * in the opposite case.
+ * After the command sequence CLI PUSHF STI POPF you should
+ * end up with interrupts disabled, but you ended up with
+ * interrupts enabled.
+ *  ( I was testing my own changes, but the only bug I
+ *    could find was in a function I had not changed. )
+ * [KD]
+ */
 
 static inline void set_vflags_long(unsigned long flags, struct kernel_vm86_regs *regs)
 {
@@ -449,6 +516,11 @@ static inline int is_revectored(int nr, struct revectored_struct *bitmap)
 		__res; \
 	})
 
+/* There are so many possible reasons for this function to return
+ * VM86_INTx, so adding another doesn't bother me. We can expect
+ * userspace programs to be able to handle it. (Getting a problem
+ * in userspace is always better than an Oops anyway.) [KD]
+ */
 static void do_int(struct kernel_vm86_regs *regs, int i,
     unsigned char __user *ssp, unsigned short sp)
 {
@@ -486,6 +558,9 @@ int handle_vm86_trap(struct kernel_vm86_regs *regs, long error_code, int trapno)
 	if (VMPI.is_vm86pus) {
 		if ((trapno == 3) || (trapno == 1)) {
 			KVM86->regs32->ax = VM86_TRAP + (trapno << 8);
+			/* setting this flag forces the code in entry_32.S to
+			   call save_v86_state() and change the stack pointer
+			   to KVM86->regs32 */
 			set_thread_flag(TIF_IRET);
 			return 0;
 		}
@@ -493,7 +568,7 @@ int handle_vm86_trap(struct kernel_vm86_regs *regs, long error_code, int trapno)
 		return 0;
 	}
 	if (trapno != 1)
-		return 1; 
+		return 1; /* we let this handle by the calling routine */
 	current->thread.trap_nr = trapno;
 	current->thread.error_code = error_code;
 	force_sig(SIGTRAP, current);
@@ -529,23 +604,23 @@ void handle_vm86_fault(struct kernel_vm86_regs *regs, long error_code)
 	pref_done = 0;
 	do {
 		switch (opcode = popb(csp, ip, simulate_sigsegv)) {
-		case 0x66:           data32 = 1; break;
-		case 0x67:        break;
-		case 0x2e:                    break;
-		case 0x3e:                    break;
-		case 0x26:                    break;
-		case 0x36:                    break;
-		case 0x65:                    break;
-		case 0x64:                    break;
-		case 0xf2:             break;
-		case 0xf3:                   break;
+		case 0x66:      /* 32-bit data */     data32 = 1; break;
+		case 0x67:      /* 32-bit address */  break;
+		case 0x2e:      /* CS */              break;
+		case 0x3e:      /* DS */              break;
+		case 0x26:      /* ES */              break;
+		case 0x36:      /* SS */              break;
+		case 0x65:      /* GS */              break;
+		case 0x64:      /* FS */              break;
+		case 0xf2:      /* repnz */       break;
+		case 0xf3:      /* rep */             break;
 		default: pref_done = 1;
 		}
 	} while (!pref_done);
 
 	switch (opcode) {
 
-	
+	/* pushf */
 	case 0x9c:
 		if (data32) {
 			pushl(ssp, sp, get_vflags(regs), simulate_sigsegv);
@@ -557,7 +632,7 @@ void handle_vm86_fault(struct kernel_vm86_regs *regs, long error_code)
 		IP(regs) = ip;
 		VM86_FAULT_RETURN;
 
-	
+	/* popf */
 	case 0x9d:
 		{
 		unsigned long newflags;
@@ -578,7 +653,7 @@ void handle_vm86_fault(struct kernel_vm86_regs *regs, long error_code)
 		VM86_FAULT_RETURN;
 		}
 
-	
+	/* int xx */
 	case 0xcd: {
 		int intno = popb(csp, ip, simulate_sigsegv);
 		IP(regs) = ip;
@@ -590,7 +665,7 @@ void handle_vm86_fault(struct kernel_vm86_regs *regs, long error_code)
 		return;
 	}
 
-	
+	/* iret */
 	case 0xcf:
 		{
 		unsigned long newip;
@@ -618,13 +693,19 @@ void handle_vm86_fault(struct kernel_vm86_regs *regs, long error_code)
 		VM86_FAULT_RETURN;
 		}
 
-	
+	/* cli */
 	case 0xfa:
 		IP(regs) = ip;
 		clear_IF(regs);
 		VM86_FAULT_RETURN;
 
-	
+	/* sti */
+	/*
+	 * Damn. This is incorrect: the 'sti' instruction should actually
+	 * enable interrupts after the /next/ instruction. Not good.
+	 *
+	 * Probably needs some horsing around with the TF flag. Aiee..
+	 */
 	case 0xfb:
 		IP(regs) = ip;
 		set_IF(regs);
@@ -637,9 +718,20 @@ void handle_vm86_fault(struct kernel_vm86_regs *regs, long error_code)
 	return;
 
 simulate_sigsegv:
+	/* FIXME: After a long discussion with Stas we finally
+	 *        agreed, that this is wrong. Here we should
+	 *        really send a SIGSEGV to the user program.
+	 *        But how do we create the correct context? We
+	 *        are inside a general protection fault handler
+	 *        and has just returned from a page fault handler.
+	 *        The correct context for the signal handler
+	 *        should be a mixture of the two, but how do we
+	 *        get the information? [KD]
+	 */
 	return_to_32bit(regs, VM86_UNKNOWN);
 }
 
+/* ---------------- vm86 special IRQ passing stuff ----------------- */
 
 #define VM86_IRQNAME		"vm86irq"
 
@@ -651,7 +743,7 @@ static struct vm86_irqs {
 static DEFINE_SPINLOCK(irqbits_lock);
 static int irqbits;
 
-#define ALLOWED_SIGS (1  \
+#define ALLOWED_SIGS (1 /* 0 = don't send a signal */ \
 	| (1 << SIGUSR1) | (1 << SIGUSR2) | (1 << SIGIO)  | (1 << SIGURG) \
 	| (1 << SIGUNUSED))
 
@@ -667,6 +759,10 @@ static irqreturn_t irq_handler(int intno, void *dev_id)
 	irqbits |= irq_bit;
 	if (vm86_irqs[intno].sig)
 		send_sig(vm86_irqs[intno].sig, vm86_irqs[intno].tsk, 1);
+	/*
+	 * IRQ will be re-enabled when user asks for the irq (whether
+	 * polling or as a result of the signal)
+	 */
 	disable_irq_nosync(intno);
 	spin_unlock_irqrestore(&irqbits_lock, flags);
 	return IRQ_HANDLED;

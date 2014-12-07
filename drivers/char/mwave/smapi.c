@@ -47,7 +47,7 @@
 */
 
 #include <linux/kernel.h>
-#include <linux/mc146818rtc.h>	
+#include <linux/mc146818rtc.h>	/* CMOS defines */
 #include "smapi.h"
 #include "mwavedd.h"
 
@@ -159,7 +159,7 @@ int smapi_query_DSP_cfg(SMAPI_DSP_SETTINGS * pSettings)
 		pSettings->usDspIRQ, pSettings->usDspDMA,
 		pSettings->usDspBaseIO);
 
-	
+	/* check for illegal values */
 	if ( pSettings->usDspBaseIO == 0 ) 
 		PRINTK_ERROR(KERN_ERR_MWAVE "smapi::smapi_query_DSP_cfg: Worry: DSP base I/O address is 0\n");
 	if ( pSettings->usDspIRQ == 0 )
@@ -188,7 +188,7 @@ int smapi_query_DSP_cfg(SMAPI_DSP_SETTINGS * pSettings)
 		pSettings->usUartIRQ,
 		pSettings->usUartBaseIO);
 
-	
+	/* check for illegal values */
 	if ( pSettings->usUartBaseIO == 0 ) 
 		PRINTK_ERROR(KERN_ERR_MWAVE "smapi::smapi_query_DSP_cfg: Worry: UART base I/O address is 0\n");
 	if ( pSettings->usUartIRQ == 0 )
@@ -269,13 +269,13 @@ int smapi_set_DSP_cfg(void)
 
 	if (mwave_uart_irq || mwave_uart_io) {
 
-		
+		/* Check serial port A */
 		bRC = smapi_request(0x1402, 0x0000, 0, 0,
 			&usAX, &usBX, &usCX, &usDX, &usDI, &usSI);
 		if (bRC) goto exit_smapi_request_error;
-		
-		if (usBX & 0x0100) {	
-			if (usCX & 1) {	
+		/* bRC == 0 */
+		if (usBX & 0x0100) {	/* serial port A is present */
+			if (usCX & 1) {	/* serial port is enabled */
 				if ((usSI & 0xFF) == mwave_uart_irq) {
 #ifndef MWAVE_FUTZ_WITH_OTHER_DEVICES
 					PRINTK_ERROR(KERN_ERR_MWAVE
@@ -322,13 +322,13 @@ int smapi_set_DSP_cfg(void)
 			}
 		}
 
-		
+		/* Check serial port B */
 		bRC = smapi_request(0x1404, 0x0000, 0, 0,
 			&usAX, &usBX, &usCX, &usDX, &usDI, &usSI);
 		if (bRC) goto exit_smapi_request_error;
-		
-		if (usBX & 0x0100) {	
-			if (usCX & 1) {	
+		/* bRC == 0 */
+		if (usBX & 0x0100) {	/* serial port B is present */
+			if (usCX & 1) {	/* serial port is enabled */
 				if ((usSI & 0xFF) == mwave_uart_irq) {
 #ifndef MWAVE_FUTZ_WITH_OTHER_DEVICES
 					PRINTK_ERROR(KERN_ERR_MWAVE
@@ -375,15 +375,15 @@ int smapi_set_DSP_cfg(void)
 			}
 		}
 
-		
+		/* Check IR port */
 		bRC = smapi_request(0x1700, 0x0000, 0, 0,
 			&usAX, &usBX, &usCX, &usDX, &usDI, &usSI);
 		if (bRC) goto exit_smapi_request_error;
 		bRC = smapi_request(0x1704, 0x0000, 0, 0,
 			&usAX, &usBX, &usCX, &usDX, &usDI, &usSI);
 		if (bRC) goto exit_smapi_request_error;
-		
-		if ((usCX & 0xff) != 0xff) { 
+		/* bRC == 0 */
+		if ((usCX & 0xff) != 0xff) { /* IR port not disabled */
 			if ((usCX & 0xff) == mwave_uart_irq) {
 #ifndef MWAVE_FUTZ_WITH_OTHER_DEVICES
 				PRINTK_ERROR(KERN_ERR_MWAVE
@@ -479,11 +479,12 @@ int smapi_set_DSP_cfg(void)
 		&usAX, &usBX, &usCX, &usDX, &usDI, &usSI);
 	if (bRC) goto exit_smapi_request_error;
 
+/* normal exit: */
 	PRINTK_1(TRACE_SMAPI, "smapi::smapi_set_DSP_cfg exit\n");
 	return 0;
 
 exit_conflict:
-	
+	/* Message has already been printed */
 	return -EIO;
 
 exit_smapi_request_error:
@@ -530,7 +531,7 @@ static int SmapiQuerySystemID(void)
 
 	return bRC;
 }
-#endif  
+#endif  /*  0  */
 
 int smapi_init(void)
 {
@@ -558,7 +559,7 @@ int smapi_init(void)
 				"smapi::smapi_init, exit TRUE g_usSmapiPort %x\n",
 				g_usSmapiPort);
 			retval = 0;
-			
+			//SmapiQuerySystemID();
 		}
 	} else {
 		PRINTK_ERROR("smapi::smapi_init, ERROR invalid usSmapiID\n");

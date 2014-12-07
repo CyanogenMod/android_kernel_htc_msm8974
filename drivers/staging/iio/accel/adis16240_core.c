@@ -96,6 +96,13 @@ static int adis16240_spi_write_reg_16(struct iio_dev *indio_dev,
 	return ret;
 }
 
+/**
+ * adis16240_spi_read_reg_16() - read 2 bytes from a 16-bit register
+ * @indio_dev: iio_dev for this device
+ * @reg_address: the address of the lower of the two registers. Second register
+ *               is assumed to have address one greater.
+ * @val: somewhere to pass back the value read
+ **/
 static int adis16240_spi_read_reg_16(struct iio_dev *indio_dev,
 		u8 lower_reg_address,
 		u16 *val)
@@ -172,7 +179,7 @@ static ssize_t adis16240_read_12bit_signed(struct device *dev,
 	ssize_t ret;
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
 
-	
+	/* Take the iio_dev status lock */
 	mutex_lock(&indio_dev->mlock);
 	ret =  adis16240_spi_read_signed(dev, attr, buf, 12);
 	mutex_unlock(&indio_dev->mlock);
@@ -287,21 +294,21 @@ static int adis16240_initial_setup(struct iio_dev *indio_dev)
 	int ret;
 	struct device *dev = &indio_dev->dev;
 
-	
+	/* Disable IRQ */
 	ret = adis16240_set_irq(indio_dev, false);
 	if (ret) {
 		dev_err(dev, "disable irq failed");
 		goto err_ret;
 	}
 
-	
+	/* Do self test */
 	ret = adis16240_self_test(indio_dev);
 	if (ret) {
 		dev_err(dev, "self test failure");
 		goto err_ret;
 	}
 
-	
+	/* Read status register to check the result */
 	ret = adis16240_check_status(indio_dev);
 	if (ret) {
 		adis16240_reset(indio_dev);
@@ -515,14 +522,14 @@ static int __devinit adis16240_probe(struct spi_device *spi)
 	struct adis16240_state *st;
 	struct iio_dev *indio_dev;
 
-	
+	/* setup the industrialio driver allocated elements */
 	indio_dev = iio_allocate_device(sizeof(*st));
 	if (indio_dev == NULL) {
 		ret = -ENOMEM;
 		goto error_ret;
 	}
 	st = iio_priv(indio_dev);
-	
+	/* this is only used for removal purposes */
 	spi_set_drvdata(spi, indio_dev);
 
 	st->us = spi;
@@ -553,7 +560,7 @@ static int __devinit adis16240_probe(struct spi_device *spi)
 			goto error_uninitialize_ring;
 	}
 
-	
+	/* Get the device into a sane initial state */
 	ret = adis16240_initial_setup(indio_dev);
 	if (ret)
 		goto error_remove_trigger;

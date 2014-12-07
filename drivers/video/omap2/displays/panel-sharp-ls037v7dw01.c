@@ -143,7 +143,7 @@ static int sharp_ls_power_on(struct omap_dss_device *dssdev)
 	if (r)
 		goto err0;
 
-	
+	/* wait couple of vsyncs until enabling the LCD */
 	msleep(50);
 
 	if (dssdev->platform_enable) {
@@ -167,7 +167,7 @@ static void sharp_ls_power_off(struct omap_dss_device *dssdev)
 	if (dssdev->platform_disable)
 		dssdev->platform_disable(dssdev);
 
-	
+	/* wait at least 5 vsyncs after disabling the LCD */
 
 	msleep(100);
 

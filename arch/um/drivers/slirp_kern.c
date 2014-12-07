@@ -12,7 +12,7 @@
 #include "slirp.h"
 
 struct slirp_init {
-	struct arg_list_dummy_wrapper argw;  
+	struct arg_list_dummy_wrapper argw;  /* XXX should be simpler... */
 };
 
 void slirp_init(struct net_device *dev, void *data)
@@ -77,7 +77,7 @@ static int slirp_setup(char *str, char **mac_out, void *data)
 
 	str = split_if_spec(str, mac_out, NULL);
 
-	if (str == NULL) 
+	if (str == NULL) /* no command line given after MAC addr */
 		return 1;
 
 	do {

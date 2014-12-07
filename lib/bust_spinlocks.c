@@ -1,3 +1,11 @@
+/*
+ * lib/bust_spinlocks.c
+ *
+ * Provides a minimal bust_spinlocks for architectures which don't have one of their own.
+ *
+ * bust_spinlocks() clears any spinlocks which would prevent oops, die(), BUG()
+ * and panic() information from reaching the user.
+ */
 
 #include <linux/kernel.h>
 #include <linux/spinlock.h>

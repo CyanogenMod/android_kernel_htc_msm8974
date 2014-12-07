@@ -24,6 +24,7 @@
 #include <asm/heartbeat.h>
 #include <cpu/sh7722.h>
 
+/* Heartbeat */
 static struct resource heartbeat_resource = {
 	.start  = PA_LED,
 	.end    = PA_LED,
@@ -37,6 +38,7 @@ static struct platform_device heartbeat_device = {
 	.resource       = &heartbeat_resource,
 };
 
+/* SMC91x */
 static struct smc91x_platdata smc91x_info = {
 	.flags = SMC91X_USE_16BIT,
 };
@@ -49,7 +51,7 @@ static struct resource smc91x_eth_resources[] = {
 		.flags  = IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* Filled in later */
 		.flags  = IORESOURCE_IRQ,
 	},
 };
@@ -58,7 +60,7 @@ static struct platform_device smc91x_eth_device = {
 	.name           = "smc91x",
 	.id             = 0,
 	.dev = {
-		.dma_mask               = NULL,         
+		.dma_mask               = NULL,         /* don't use dma */
 		.coherent_dma_mask      = 0xffffffff,
 		.platform_data	= &smc91x_info,
 	},
@@ -78,7 +80,7 @@ static struct resource cf_ide_resources[] = {
 		.flags  = IORESOURCE_IO,
 	},
 	[2] = {
-		
+		/* Filled in later */
 		.flags  = IORESOURCE_IRQ,
 	},
 };
@@ -91,17 +93,17 @@ static struct platform_device cf_ide_device  = {
 };
 
 static struct sh_keysc_info sh_keysc_info = {
-	.mode = SH_KEYSC_MODE_1, 
+	.mode = SH_KEYSC_MODE_1, /* KEYOUT0->5, KEYIN0->4 */
 	.scan_timing = 3,
 	.delay = 5,
-	.keycodes = { 
+	.keycodes = { /* SW1 -> SW30 */
 		KEY_A, KEY_B, KEY_C, KEY_D, KEY_E,
 		KEY_F, KEY_G, KEY_H, KEY_I, KEY_J,
 		KEY_K, KEY_L, KEY_M, KEY_N, KEY_O,
 		KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T,
 		KEY_U, KEY_V, KEY_W, KEY_X, KEY_Y,
 		KEY_Z,
-		KEY_HOME, KEY_SLEEP, KEY_WAKEUP, KEY_COFFEE, 
+		KEY_HOME, KEY_SLEEP, KEY_WAKEUP, KEY_COFFEE, /* life */
 	},
 };
 
@@ -119,7 +121,7 @@ static struct resource sh_keysc_resources[] = {
 
 static struct platform_device sh_keysc_device = {
 	.name           = "sh_keysc",
-	.id             = 0, 
+	.id             = 0, /* "keysc0" clock */
 	.num_resources  = ARRAY_SIZE(sh_keysc_resources),
 	.resource       = sh_keysc_resources,
 	.dev	= {
@@ -138,7 +140,7 @@ static int __init se7722_devices_setup(void)
 {
 	mrshpc_setup_windows();
 
-	
+	/* Wire-up dynamic vectors */
 	cf_ide_resources[2].start = cf_ide_resources[2].end =
 		se7722_fpga_irq[SE7722_FPGA_IRQ_MRSHPC0];
 
@@ -151,34 +153,37 @@ device_initcall(se7722_devices_setup);
 
 static void __init se7722_setup(char **cmdline_p)
 {
-	__raw_writew(0x010D, FPGA_OUT);    
+	__raw_writew(0x010D, FPGA_OUT);    /* FPGA */
 
-	__raw_writew(0x0000, PORT_PECR);   
-	__raw_writew(0x1000, PORT_PJCR);   
+	__raw_writew(0x0000, PORT_PECR);   /* PORT E 1 = IRQ5 ,E 0 = BS */
+	__raw_writew(0x1000, PORT_PJCR);   /* PORT J 1 = IRQ1,J 0 =IRQ0 */
 
-	
+	/* LCDC I/O */
 	__raw_writew(0x0020, PORT_PSELD);
 
-	
+	/* SIOF1*/
 	__raw_writew(0x0003, PORT_PSELB);
 	__raw_writew(0xe000, PORT_PSELC);
 	__raw_writew(0x0000, PORT_PKCR);
 
-	
+	/* LCDC */
 	__raw_writew(0x4020, PORT_PHCR);
 	__raw_writew(0x0000, PORT_PLCR);
 	__raw_writew(0x0000, PORT_PMCR);
 	__raw_writew(0x0002, PORT_PRCR);
-	__raw_writew(0x0000, PORT_PXCR);   
+	__raw_writew(0x0000, PORT_PXCR);   /* LCDC,CS6A */
 
-	
-	__raw_writew(0x0A10, PORT_PSELA); 
+	/* KEYSC */
+	__raw_writew(0x0A10, PORT_PSELA); /* BS,SHHID2 */
 	__raw_writew(0x0000, PORT_PYCR);
 	__raw_writew(0x0000, PORT_PZCR);
 	__raw_writew(__raw_readw(PORT_HIZCRA) & ~0x4000, PORT_HIZCRA);
 	__raw_writew(__raw_readw(PORT_HIZCRC) & ~0xc000, PORT_HIZCRC);
 }
 
+/*
+ * The Machine Vector
+ */
 static struct sh_machine_vector mv_se7722 __initmv = {
 	.mv_name                = "Solution Engine 7722" ,
 	.mv_setup               = se7722_setup ,

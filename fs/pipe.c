@@ -25,10 +25,31 @@
 #include <asm/uaccess.h>
 #include <asm/ioctls.h>
 
+/*
+ * The max size that a non-root user is allowed to grow the pipe. Can
+ * be set by root in /proc/sys/fs/pipe-max-size
+ */
 unsigned int pipe_max_size = 1048576;
 
+/*
+ * Minimum pipe size, as required by POSIX
+ */
 unsigned int pipe_min_size = PAGE_SIZE;
 
+/*
+ * We use a start+len construction, which provides full use of the 
+ * allocated memory.
+ * -- Florian Coosmann (FGC)
+ * 
+ * Reads with count = 0 should always return 0.
+ * -- Julian Bradfield 1999-06-07.
+ *
+ * FIFOs and Pipes now generate SIGIO for both readers and writers.
+ * -- Jeremy Elson <jelson@circlemud.org> 2001-08-16
+ *
+ * pipe_read & write cleanup
+ * -- Manfred Spraul <manfred@colorfullife.com> 2002-05-09
+ */
 
 static void pipe_lock_nested(struct pipe_inode_info *pipe, int subclass)
 {
@@ -38,6 +59,9 @@ static void pipe_lock_nested(struct pipe_inode_info *pipe, int subclass)
 
 void pipe_lock(struct pipe_inode_info *pipe)
 {
+	/*
+	 * pipe_lock() nests non-pipe inode locks (for writing to a file)
+	 */
 	pipe_lock_nested(pipe, I_MUTEX_PARENT);
 }
 EXPORT_SYMBOL(pipe_lock);
@@ -63,10 +87,15 @@ void pipe_double_lock(struct pipe_inode_info *pipe1,
 	}
 }
 
+/* Drop the inode semaphore and wait for a pipe event, atomically */
 void pipe_wait(struct pipe_inode_info *pipe)
 {
 	DEFINE_WAIT(wait);
 
+	/*
+	 * Pipes are system-local resources, so sleeping on them
+	 * is considered a noninteractive wait:
+	 */
 	prepare_to_wait(&pipe->wait, &wait, TASK_INTERRUPTIBLE);
 	pipe_unlock(pipe);
 	schedule();
@@ -126,6 +155,10 @@ pipe_iov_copy_to_user(struct iovec *iov, const void *from, unsigned long len,
 	return 0;
 }
 
+/*
+ * Attempt to pre-fault in the user memory, so we can use atomic copies.
+ * Returns the number of bytes not faulted in.
+ */
 static int iov_fault_in_pages_write(struct iovec *iov, unsigned long len)
 {
 	while (!iov->iov_len)
@@ -145,6 +178,9 @@ static int iov_fault_in_pages_write(struct iovec *iov, unsigned long len)
 	return len;
 }
 
+/*
+ * Pre-fault in the user memory, so we can use atomic copies.
+ */
 static void iov_fault_in_pages_read(struct iovec *iov, unsigned long len)
 {
 	while (!iov->iov_len)
@@ -165,12 +201,31 @@ static void anon_pipe_buf_release(struct pipe_inode_info *pipe,
 {
 	struct page *page = buf->page;
 
+	/*
+	 * If nobody else uses this page, and we don't already have a
+	 * temporary page, let's keep track of it as a one-deep
+	 * allocation cache. (Otherwise just release our reference to it)
+	 */
 	if (page_count(page) == 1 && !pipe->tmp_page)
 		pipe->tmp_page = page;
 	else
 		page_cache_release(page);
 }
 
+/**
+ * generic_pipe_buf_map - virtually map a pipe buffer
+ * @pipe:	the pipe that the buffer belongs to
+ * @buf:	the buffer that should be mapped
+ * @atomic:	whether to use an atomic map
+ *
+ * Description:
+ *	This function returns a kernel virtual address mapping for the
+ *	pipe_buffer passed in @buf. If @atomic is set, an atomic map is provided
+ *	and the caller has to be careful not to fault before calling
+ *	the unmap function.
+ *
+ *	Note that this function occupies KM_USER0 if @atomic != 0.
+ */
 void *generic_pipe_buf_map(struct pipe_inode_info *pipe,
 			   struct pipe_buffer *buf, int atomic)
 {
@@ -183,6 +238,15 @@ void *generic_pipe_buf_map(struct pipe_inode_info *pipe,
 }
 EXPORT_SYMBOL(generic_pipe_buf_map);
 
+/**
+ * generic_pipe_buf_unmap - unmap a previously mapped pipe buffer
+ * @pipe:	the pipe that the buffer belongs to
+ * @buf:	the buffer that should be unmapped
+ * @map_data:	the data that the mapping function returned
+ *
+ * Description:
+ *	This function undoes the mapping that ->map() provided.
+ */
 void generic_pipe_buf_unmap(struct pipe_inode_info *pipe,
 			    struct pipe_buffer *buf, void *map_data)
 {
@@ -194,11 +258,28 @@ void generic_pipe_buf_unmap(struct pipe_inode_info *pipe,
 }
 EXPORT_SYMBOL(generic_pipe_buf_unmap);
 
+/**
+ * generic_pipe_buf_steal - attempt to take ownership of a &pipe_buffer
+ * @pipe:	the pipe that the buffer belongs to
+ * @buf:	the buffer to attempt to steal
+ *
+ * Description:
+ *	This function attempts to steal the &struct page attached to
+ *	@buf. If successful, this function returns 0 and returns with
+ *	the page locked. The caller may then reuse the page for whatever
+ *	he wishes; the typical use is insertion into a different file
+ *	page cache.
+ */
 int generic_pipe_buf_steal(struct pipe_inode_info *pipe,
 			   struct pipe_buffer *buf)
 {
 	struct page *page = buf->page;
 
+	/*
+	 * A reference of one is golden, that means that the owner of this
+	 * page is the only one holding a reference to it. lock the page
+	 * and return OK.
+	 */
 	if (page_count(page) == 1) {
 		lock_page(page);
 		return 0;
@@ -208,12 +289,31 @@ int generic_pipe_buf_steal(struct pipe_inode_info *pipe,
 }
 EXPORT_SYMBOL(generic_pipe_buf_steal);
 
+/**
+ * generic_pipe_buf_get - get a reference to a &struct pipe_buffer
+ * @pipe:	the pipe that the buffer belongs to
+ * @buf:	the buffer to get a reference to
+ *
+ * Description:
+ *	This function grabs an extra reference to @buf. It's used in
+ *	in the tee() system call, when we duplicate the buffers in one
+ *	pipe into another.
+ */
 void generic_pipe_buf_get(struct pipe_inode_info *pipe, struct pipe_buffer *buf)
 {
 	page_cache_get(buf->page);
 }
 EXPORT_SYMBOL(generic_pipe_buf_get);
 
+/**
+ * generic_pipe_buf_confirm - verify contents of the pipe buffer
+ * @info:	the pipe that the buffer belongs to
+ * @buf:	the buffer to confirm
+ *
+ * Description:
+ *	This function does nothing, because the generic pipe code uses
+ *	pages that are always good when inserted into the pipe.
+ */
 int generic_pipe_buf_confirm(struct pipe_inode_info *info,
 			     struct pipe_buffer *buf)
 {
@@ -221,6 +321,14 @@ int generic_pipe_buf_confirm(struct pipe_inode_info *info,
 }
 EXPORT_SYMBOL(generic_pipe_buf_confirm);
 
+/**
+ * generic_pipe_buf_release - put a reference to a &struct pipe_buffer
+ * @pipe:	the pipe that the buffer belongs to
+ * @buf:	the buffer to put a reference to
+ *
+ * Description:
+ *	This function releases a reference to @buf.
+ */
 void generic_pipe_buf_release(struct pipe_inode_info *pipe,
 			      struct pipe_buffer *buf)
 {
@@ -261,7 +369,7 @@ pipe_read(struct kiocb *iocb, const struct iovec *_iov,
 	size_t total_len;
 
 	total_len = iov_length(iov, nr_segs);
-	
+	/* Null read succeeds. */
 	if (unlikely(total_len == 0))
 		return 0;
 
@@ -295,6 +403,9 @@ redo:
 			error = pipe_iov_copy_to_user(iov, addr + buf->offset, chars, atomic);
 			ops->unmap(pipe, buf, addr);
 			if (unlikely(error)) {
+				/*
+				 * Just retry with the slow path if we failed.
+				 */
 				if (atomic) {
 					atomic = 0;
 					goto redo;
@@ -307,7 +418,7 @@ redo:
 			buf->offset += chars;
 			buf->len -= chars;
 
-			
+			/* Was it a packet buffer? Clean up and exit */
 			if (buf->flags & PIPE_BUF_FLAG_PACKET) {
 				total_len = chars;
 				buf->len = 0;
@@ -323,13 +434,18 @@ redo:
 			}
 			total_len -= chars;
 			if (!total_len)
-				break;	
+				break;	/* common path: read succeeded */
 		}
-		if (bufs)	
+		if (bufs)	/* More to do? */
 			continue;
 		if (!pipe->writers)
 			break;
 		if (!pipe->waiting_writers) {
+			/* syscall merging: Usually we must not sleep
+			 * if O_NONBLOCK is set, or if we got some data.
+			 * But if a writer sleeps in kernel space, then
+			 * we can wait for that data without violating POSIX.
+			 */
 			if (ret)
 				break;
 			if (filp->f_flags & O_NONBLOCK) {
@@ -350,7 +466,7 @@ redo:
 	}
 	mutex_unlock(&inode->i_mutex);
 
-	
+	/* Signal writers asynchronously that there is more room. */
 	if (do_wakeup) {
 		wake_up_interruptible_sync_poll(&pipe->wait, POLLOUT | POLLWRNORM);
 		kill_fasync(&pipe->fasync_writers, SIGIO, POLL_OUT);
@@ -379,7 +495,7 @@ pipe_write(struct kiocb *iocb, const struct iovec *_iov,
 	ssize_t chars;
 
 	total_len = iov_length(iov, nr_segs);
-	
+	/* Null write succeeds. */
 	if (unlikely(total_len == 0))
 		return 0;
 
@@ -394,8 +510,8 @@ pipe_write(struct kiocb *iocb, const struct iovec *_iov,
 		goto out;
 	}
 
-	
-	chars = total_len & (PAGE_SIZE-1); 
+	/* We try to merge small writes */
+	chars = total_len & (PAGE_SIZE-1); /* size of the last buffer */
 	if (pipe->nrbufs && chars != 0) {
 		int lastbuf = (pipe->curbuf + pipe->nrbufs - 1) &
 							(pipe->buffers - 1);
@@ -459,6 +575,11 @@ redo1:
 				}
 				pipe->tmp_page = page;
 			}
+			/* Always wake up, even if the copy fails. Otherwise
+			 * we lock up (O_NONBLOCK-)readers that sleep due to
+			 * syscall merging.
+			 * FIXME! Is this really true?
+			 */
 			do_wakeup = 1;
 			chars = PAGE_SIZE;
 			if (chars > total_len)
@@ -489,7 +610,7 @@ redo2:
 			}
 			ret += chars;
 
-			
+			/* Insert it into the buffer array */
 			buf->page = page;
 			buf->ops = &anon_pipe_buf_ops;
 			buf->offset = 0;
@@ -576,6 +697,7 @@ static long pipe_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	}
 }
 
+/* No kernel lock held - fine */
 static unsigned int
 pipe_poll(struct file *filp, poll_table *wait)
 {
@@ -586,7 +708,7 @@ pipe_poll(struct file *filp, poll_table *wait)
 
 	poll_wait(filp, &pipe->wait, wait);
 
-	
+	/* Reading only -- no need for acquiring the semaphore.  */
 	nrbufs = pipe->nrbufs;
 	mask = 0;
 	if (filp->f_mode & FMODE_READ) {
@@ -597,6 +719,10 @@ pipe_poll(struct file *filp, poll_table *wait)
 
 	if (filp->f_mode & FMODE_WRITE) {
 		mask |= (nrbufs < pipe->buffers) ? POLLOUT | POLLWRNORM : 0;
+		/*
+		 * Most Unices do not set POLLERR for FIFOs but on Linux they
+		 * behave exactly like pipes for poll().
+		 */
 		if (!pipe->readers)
 			mask |= POLLERR;
 	}
@@ -665,7 +791,7 @@ pipe_rdwr_fasync(int fd, struct file *filp, int on)
 	retval = fasync_helper(fd, filp, on, &pipe->fasync_readers);
 	if (retval >= 0) {
 		retval = fasync_helper(fd, filp, on, &pipe->fasync_writers);
-		if (retval < 0) 
+		if (retval < 0) /* this can happen only if on == T */
 			fasync_helper(-1, filp, 0, &pipe->fasync_readers);
 	}
 	mutex_unlock(&inode->i_mutex);
@@ -749,6 +875,12 @@ pipe_rdwr_open(struct inode *inode, struct file *filp)
 	return ret;
 }
 
+/*
+ * The file_operations structs are not static because they
+ * are also used in linux/fs/fifo.c to do operations on FIFOs.
+ *
+ * Pipes reuse fifos' file_operations structs.
+ */
 const struct file_operations read_pipefifo_fops = {
 	.llseek		= no_llseek,
 	.read		= do_sync_read,
@@ -829,6 +961,9 @@ void free_pipe_info(struct inode *inode)
 
 static struct vfsmount *pipe_mnt __read_mostly;
 
+/*
+ * pipefs_dname() is called from d_path().
+ */
 static char *pipefs_dname(struct dentry *dentry, char *buffer, int buflen)
 {
 	return dynamic_dname(dentry, buffer, buflen, "pipe:[%lu]",
@@ -857,6 +992,12 @@ static struct inode * get_pipe_inode(void)
 	pipe->readers = pipe->writers = 1;
 	inode->i_fop = &rdwr_pipefifo_fops;
 
+	/*
+	 * Mark the inode dirty from the very beginning,
+	 * that way it will never be moved to the dirty
+	 * list because "mark_inode_dirty()" will think
+	 * that it already _is_ on the dirty list.
+	 */
 	inode->i_state = I_DIRTY;
 	inode->i_mode = S_IFIFO | S_IRUSR | S_IWUSR;
 	inode->i_uid = current_fsuid();
@@ -925,7 +1066,7 @@ void free_write_pipe(struct file *f)
 
 struct file *create_read_pipe(struct file *wrf, int flags)
 {
-	
+	/* Grab pipe from the writer */
 	struct file *f = alloc_file(&wrf->f_path, FMODE_READ,
 				    &read_pipefifo_fops);
 	if (!f)
@@ -982,6 +1123,10 @@ int do_pipe_flags(int *fd, int flags)
 	return error;
 }
 
+/*
+ * sys_pipe() is the normal C calling standard for creating
+ * a pipe. It's not the way Unix traditionally does this, though.
+ */
 SYSCALL_DEFINE2(pipe2, int __user *, fildes, int, flags)
 {
 	int fd[2];
@@ -1003,10 +1148,20 @@ SYSCALL_DEFINE1(pipe, int __user *, fildes)
 	return sys_pipe2(fildes, 0);
 }
 
+/*
+ * Allocate a new array of pipe buffers and copy the info over. Returns the
+ * pipe size if successful, or return -ERROR on error.
+ */
 static long pipe_set_size(struct pipe_inode_info *pipe, unsigned long nr_pages)
 {
 	struct pipe_buffer *bufs;
 
+	/*
+	 * We can shrink the pipe, if arg >= pipe->nrbufs. Since we don't
+	 * expect a lot of shrink+grow operations, just free and allocate
+	 * again like we would do for growing. If the pipe currently
+	 * contains more buffers than arg, then return busy.
+	 */
 	if (nr_pages < pipe->nrbufs)
 		return -EBUSY;
 
@@ -1014,6 +1169,10 @@ static long pipe_set_size(struct pipe_inode_info *pipe, unsigned long nr_pages)
 	if (unlikely(!bufs))
 		return -ENOMEM;
 
+	/*
+	 * The pipe array wraps around, so just start the new one at zero
+	 * and adjust the indexes.
+	 */
 	if (pipe->nrbufs) {
 		unsigned int tail;
 		unsigned int head;
@@ -1038,6 +1197,10 @@ static long pipe_set_size(struct pipe_inode_info *pipe, unsigned long nr_pages)
 	return nr_pages * PAGE_SIZE;
 }
 
+/*
+ * Currently we rely on the pipe array holding a power-of-2 number
+ * of pages.
+ */
 static inline unsigned int round_pipe_size(unsigned int size)
 {
 	unsigned long nr_pages;
@@ -1046,6 +1209,10 @@ static inline unsigned int round_pipe_size(unsigned int size)
 	return roundup_pow_of_two(nr_pages) << PAGE_SHIFT;
 }
 
+/*
+ * This should work even if CONFIG_PROC_FS isn't set, as proc_dointvec_minmax
+ * will return an error.
+ */
 int pipe_proc_fn(struct ctl_table *table, int write, void __user *buf,
 		 size_t *lenp, loff_t *ppos)
 {
@@ -1059,6 +1226,11 @@ int pipe_proc_fn(struct ctl_table *table, int write, void __user *buf,
 	return ret;
 }
 
+/*
+ * After the inode slimming patch, i_pipe/i_bdev/i_cdev share the same
+ * location, so checking ->i_pipe is not enough to verify that this is a
+ * pipe.
+ */
 struct pipe_inode_info *get_pipe_info(struct file *file)
 {
 	struct inode *i = file->f_path.dentry->d_inode;
@@ -1113,6 +1285,12 @@ static const struct super_operations pipefs_ops = {
 	.statfs = simple_statfs,
 };
 
+/*
+ * pipefs should _never_ be mounted by userland - too much of security hassle,
+ * no real gain from having the whole whorehouse mounted. So we don't need
+ * any operations on the root directory. However, we need a non-trivial
+ * d_name - pipe: will go nicely and kill the special-casing in procfs.
+ */
 static struct dentry *pipefs_mount(struct file_system_type *fs_type,
 			 int flags, const char *dev_name, void *data)
 {

@@ -66,7 +66,7 @@ static void spi_init(struct stmpe *stmpe)
 
 	spi->bits_per_word = 8;
 
-	
+	/* This register is only present for stmpe811 */
 	if (stmpe->variant->id_val == 0x0811)
 		spi_reg_write(stmpe, STMPE811_REG_SPI_CFG, spi->mode);
 
@@ -87,7 +87,7 @@ stmpe_spi_probe(struct spi_device *spi)
 {
 	const struct spi_device_id *id = spi_get_device_id(spi);
 
-	
+	/* don't exceed max specified rate - 1MHz - Limitation of STMPE */
 	if (spi->max_speed_hz > 1000000) {
 		dev_dbg(&spi->dev, "f(sample) %d KHz?\n",
 				(spi->max_speed_hz/1000));

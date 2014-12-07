@@ -85,6 +85,7 @@ static int debug;
 #define MXLCTRL_NUM             189
 #define MASTER_CONTROL_ADDR     9
 
+/* Enumeration of Master Control Register State */
 enum master_control_state {
 	MC_LOAD_START = 1,
 	MC_POWER_DOWN,
@@ -92,6 +93,7 @@ enum master_control_state {
 	MC_SEQ_OFF
 };
 
+/* Enumeration of MXL5005 Tuner Modulation Type */
 enum {
 	MXL_DEFAULT_MODULATION = 0,
 	MXL_DVBT,
@@ -101,102 +103,109 @@ enum {
 	MXL_ANALOG_OTA
 };
 
+/* MXL5005 Tuner Register Struct */
 struct TunerReg {
-	u16 Reg_Num;	
+	u16 Reg_Num;	/* Tuner Register Address */
 	u16 Reg_Val;	/* Current sw programmed value waiting to be written */
 };
 
 enum {
-	
-	DN_IQTN_AMP_CUT = 1,       
-	BB_MODE,                   
-	BB_BUF,                    
-	BB_BUF_OA,                 
-	BB_ALPF_BANDSELECT,        
-	BB_IQSWAP,                 
-	BB_DLPF_BANDSEL,           
-	RFSYN_CHP_GAIN,            
-	RFSYN_EN_CHP_HIGAIN,       
-	AGC_IF,                    
-	AGC_RF,                    
-	IF_DIVVAL,                 
-	IF_VCO_BIAS,               
-	CHCAL_INT_MOD_IF,          
-	CHCAL_FRAC_MOD_IF,         
-	DRV_RES_SEL,               
-	I_DRIVER,                  
-	EN_AAF,                    
-	EN_3P,                     
-	EN_AUX_3P,                 
-	SEL_AAF_BAND,              
-	SEQ_ENCLK16_CLK_OUT,       
-	SEQ_SEL4_16B,              
-	XTAL_CAPSELECT,            
-	IF_SEL_DBL,                
-	RFSYN_R_DIV,               
-	SEQ_EXTSYNTHCALIF,         
-	SEQ_EXTDCCAL,              
-	AGC_EN_RSSI,               
-	RFA_ENCLKRFAGC,            
-	RFA_RSSI_REFH,             
-	RFA_RSSI_REF,              
-	RFA_RSSI_REFL,             
-	RFA_FLR,                   
-	RFA_CEIL,                  
-	SEQ_EXTIQFSMPULSE,         
-	OVERRIDE_1,                
-	BB_INITSTATE_DLPF_TUNE,    
-	TG_R_DIV,                  
-	EN_CHP_LIN_B,              
+	/* Initialization Control Names */
+	DN_IQTN_AMP_CUT = 1,       /* 1 */
+	BB_MODE,                   /* 2 */
+	BB_BUF,                    /* 3 */
+	BB_BUF_OA,                 /* 4 */
+	BB_ALPF_BANDSELECT,        /* 5 */
+	BB_IQSWAP,                 /* 6 */
+	BB_DLPF_BANDSEL,           /* 7 */
+	RFSYN_CHP_GAIN,            /* 8 */
+	RFSYN_EN_CHP_HIGAIN,       /* 9 */
+	AGC_IF,                    /* 10 */
+	AGC_RF,                    /* 11 */
+	IF_DIVVAL,                 /* 12 */
+	IF_VCO_BIAS,               /* 13 */
+	CHCAL_INT_MOD_IF,          /* 14 */
+	CHCAL_FRAC_MOD_IF,         /* 15 */
+	DRV_RES_SEL,               /* 16 */
+	I_DRIVER,                  /* 17 */
+	EN_AAF,                    /* 18 */
+	EN_3P,                     /* 19 */
+	EN_AUX_3P,                 /* 20 */
+	SEL_AAF_BAND,              /* 21 */
+	SEQ_ENCLK16_CLK_OUT,       /* 22 */
+	SEQ_SEL4_16B,              /* 23 */
+	XTAL_CAPSELECT,            /* 24 */
+	IF_SEL_DBL,                /* 25 */
+	RFSYN_R_DIV,               /* 26 */
+	SEQ_EXTSYNTHCALIF,         /* 27 */
+	SEQ_EXTDCCAL,              /* 28 */
+	AGC_EN_RSSI,               /* 29 */
+	RFA_ENCLKRFAGC,            /* 30 */
+	RFA_RSSI_REFH,             /* 31 */
+	RFA_RSSI_REF,              /* 32 */
+	RFA_RSSI_REFL,             /* 33 */
+	RFA_FLR,                   /* 34 */
+	RFA_CEIL,                  /* 35 */
+	SEQ_EXTIQFSMPULSE,         /* 36 */
+	OVERRIDE_1,                /* 37 */
+	BB_INITSTATE_DLPF_TUNE,    /* 38 */
+	TG_R_DIV,                  /* 39 */
+	EN_CHP_LIN_B,              /* 40 */
 
-	
-	DN_POLY = 51,              
-	DN_RFGAIN,                 
-	DN_CAP_RFLPF,              
-	DN_EN_VHFUHFBAR,           
-	DN_GAIN_ADJUST,            
-	DN_IQTNBUF_AMP,            
-	DN_IQTNGNBFBIAS_BST,       
-	RFSYN_EN_OUTMUX,           
-	RFSYN_SEL_VCO_OUT,         
-	RFSYN_SEL_VCO_HI,          
-	RFSYN_SEL_DIVM,            
-	RFSYN_RF_DIV_BIAS,         
-	DN_SEL_FREQ,               
-	RFSYN_VCO_BIAS,            
-	CHCAL_INT_MOD_RF,          
-	CHCAL_FRAC_MOD_RF,         
-	RFSYN_LPF_R,               
-	CHCAL_EN_INT_RF,           
-	TG_LO_DIVVAL,              
-	TG_LO_SELVAL,              
-	TG_DIV_VAL,                
-	TG_VCO_BIAS,               
-	SEQ_EXTPOWERUP,            
-	OVERRIDE_2,                
-	OVERRIDE_3,                
-	OVERRIDE_4,                
-	SEQ_FSM_PULSE,             
-	GPIO_4B,                   
-	GPIO_3B,                   
-	GPIO_4,                    
-	GPIO_3,                    
-	GPIO_1B,                   
-	DAC_A_ENABLE,              
-	DAC_B_ENABLE,              
-	DAC_DIN_A,                 
-	DAC_DIN_B,                 
+	/* Channel Change Control Names */
+	DN_POLY = 51,              /* 51 */
+	DN_RFGAIN,                 /* 52 */
+	DN_CAP_RFLPF,              /* 53 */
+	DN_EN_VHFUHFBAR,           /* 54 */
+	DN_GAIN_ADJUST,            /* 55 */
+	DN_IQTNBUF_AMP,            /* 56 */
+	DN_IQTNGNBFBIAS_BST,       /* 57 */
+	RFSYN_EN_OUTMUX,           /* 58 */
+	RFSYN_SEL_VCO_OUT,         /* 59 */
+	RFSYN_SEL_VCO_HI,          /* 60 */
+	RFSYN_SEL_DIVM,            /* 61 */
+	RFSYN_RF_DIV_BIAS,         /* 62 */
+	DN_SEL_FREQ,               /* 63 */
+	RFSYN_VCO_BIAS,            /* 64 */
+	CHCAL_INT_MOD_RF,          /* 65 */
+	CHCAL_FRAC_MOD_RF,         /* 66 */
+	RFSYN_LPF_R,               /* 67 */
+	CHCAL_EN_INT_RF,           /* 68 */
+	TG_LO_DIVVAL,              /* 69 */
+	TG_LO_SELVAL,              /* 70 */
+	TG_DIV_VAL,                /* 71 */
+	TG_VCO_BIAS,               /* 72 */
+	SEQ_EXTPOWERUP,            /* 73 */
+	OVERRIDE_2,                /* 74 */
+	OVERRIDE_3,                /* 75 */
+	OVERRIDE_4,                /* 76 */
+	SEQ_FSM_PULSE,             /* 77 */
+	GPIO_4B,                   /* 78 */
+	GPIO_3B,                   /* 79 */
+	GPIO_4,                    /* 80 */
+	GPIO_3,                    /* 81 */
+	GPIO_1B,                   /* 82 */
+	DAC_A_ENABLE,              /* 83 */
+	DAC_B_ENABLE,              /* 84 */
+	DAC_DIN_A,                 /* 85 */
+	DAC_DIN_B,                 /* 86 */
 #ifdef _MXL_PRODUCTION
-	RFSYN_EN_DIV,              
-	RFSYN_DIVM,                
-	DN_BYPASS_AGC_I2C          
+	RFSYN_EN_DIV,              /* 87 */
+	RFSYN_DIVM,                /* 88 */
+	DN_BYPASS_AGC_I2C          /* 89 */
 #endif
 };
 
+/*
+ * The following context is source code provided by MaxLinear.
+ * MaxLinear source code - Common_MXL.h (?)
+ */
 
+/* Constants */
 #define MXL5005S_REG_WRITING_TABLE_LEN_MAX	104
 #define MXL5005S_LATCH_BYTE			0xfe
 
+/* Register address, MSB, and LSB */
 #define MXL5005S_BB_IQSWAP_ADDR			59
 #define MXL5005S_BB_IQSWAP_MSB			0
 #define MXL5005S_BB_IQSWAP_LSB			0
@@ -205,12 +214,14 @@ enum {
 #define MXL5005S_BB_DLPF_BANDSEL_MSB		4
 #define MXL5005S_BB_DLPF_BANDSEL_LSB		3
 
+/* Standard modes */
 enum {
 	MXL5005S_STANDARD_DVBT,
 	MXL5005S_STANDARD_ATSC,
 };
 #define MXL5005S_STANDARD_MODE_NUM		2
 
+/* Bandwidth modes */
 enum {
 	MXL5005S_BANDWIDTH_6MHZ = 6000000,
 	MXL5005S_BANDWIDTH_7MHZ = 7000000,
@@ -218,66 +229,68 @@ enum {
 };
 #define MXL5005S_BANDWIDTH_MODE_NUM		3
 
+/* MXL5005 Tuner Control Struct */
 struct TunerControl {
-	u16 Ctrl_Num;	
-	u16 size;	
-	u16 addr[25];	
-	u16 bit[25];	
-	u16 val[25];	
+	u16 Ctrl_Num;	/* Control Number */
+	u16 size;	/* Number of bits to represent Value */
+	u16 addr[25];	/* Array of Tuner Register Address for each bit pos */
+	u16 bit[25];	/* Array of bit pos in Reg Addr for each bit pos */
+	u16 val[25];	/* Binary representation of Value */
 };
 
+/* MXL5005 Tuner Struct */
 struct mxl5005s_state {
-	u8	Mode;		
-	u8	IF_Mode;	
-	u32	Chan_Bandwidth;	
-	u32	IF_OUT;		
-	u16	IF_OUT_LOAD;	
-	u32	RF_IN;		
-	u32	Fxtal;		
-	u8	AGC_Mode;	
-	u16	TOP;		
-	u8	CLOCK_OUT;	
-	u8	DIV_OUT;	
-	u8	CAPSELECT;	
-	u8	EN_RSSI;	
+	u8	Mode;		/* 0: Analog Mode ; 1: Digital Mode */
+	u8	IF_Mode;	/* for Analog Mode, 0: zero IF; 1: low IF */
+	u32	Chan_Bandwidth;	/* filter  channel bandwidth (6, 7, 8) */
+	u32	IF_OUT;		/* Desired IF Out Frequency */
+	u16	IF_OUT_LOAD;	/* IF Out Load Resistor (200/300 Ohms) */
+	u32	RF_IN;		/* RF Input Frequency */
+	u32	Fxtal;		/* XTAL Frequency */
+	u8	AGC_Mode;	/* AGC Mode 0: Dual AGC; 1: Single AGC */
+	u16	TOP;		/* Value: take over point */
+	u8	CLOCK_OUT;	/* 0: turn off clk out; 1: turn on clock out */
+	u8	DIV_OUT;	/* 4MHz or 16MHz */
+	u8	CAPSELECT;	/* 0: disable On-Chip pulling cap; 1: enable */
+	u8	EN_RSSI;	/* 0: disable RSSI; 1: enable RSSI */
 
-	
-	
+	/* Modulation Type; */
+	/* 0 - Default;	1 - DVB-T; 2 - ATSC; 3 - QAM; 4 - Analog Cable */
 	u8	Mod_Type;
 
-	
-	
+	/* Tracking Filter Type */
+	/* 0 - Default; 1 - Off; 2 - Type C; 3 - Type C-H */
 	u8	TF_Type;
 
-	
-	u32	RF_LO;		
-	u32	IF_LO;		
-	u32	TG_LO;		
+	/* Calculated Settings */
+	u32	RF_LO;		/* Synth RF LO Frequency */
+	u32	IF_LO;		/* Synth IF LO Frequency */
+	u32	TG_LO;		/* Synth TG_LO Frequency */
 
-	
-	u16	Init_Ctrl_Num;		
+	/* Pointers to ControlName Arrays */
+	u16	Init_Ctrl_Num;		/* Number of INIT Control Names */
 	struct TunerControl
-		Init_Ctrl[INITCTRL_NUM]; 
+		Init_Ctrl[INITCTRL_NUM]; /* INIT Control Names Array Pointer */
 
-	u16	CH_Ctrl_Num;		
+	u16	CH_Ctrl_Num;		/* Number of CH Control Names */
 	struct TunerControl
-		CH_Ctrl[CHCTRL_NUM];	
+		CH_Ctrl[CHCTRL_NUM];	/* CH Control Name Array Pointer */
 
-	u16	MXL_Ctrl_Num;		
+	u16	MXL_Ctrl_Num;		/* Number of MXL Control Names */
 	struct TunerControl
-		MXL_Ctrl[MXLCTRL_NUM];	
+		MXL_Ctrl[MXLCTRL_NUM];	/* MXL Control Name Array Pointer */
 
-	
-	u16	TunerRegs_Num;		
+	/* Pointer to Tuner Register Array */
+	u16	TunerRegs_Num;		/* Number of Tuner Registers */
 	struct TunerReg
-		TunerRegs[TUNER_REGS_NUM]; 
+		TunerRegs[TUNER_REGS_NUM]; /* Tuner Register Array Pointer */
 
-	
+	/* Linux driver framework specific */
 	struct mxl5005s_config *config;
 	struct dvb_frontend *frontend;
 	struct i2c_adapter *i2c;
 
-	
+	/* Cache values */
 	u32 current_mode;
 
 };
@@ -333,16 +346,16 @@ static int mxl5005s_SetRfFreqHz(struct dvb_frontend *fe, unsigned long RfFreqHz)
 
 	dprintk(1, "%s() freq=%ld\n", __func__, RfFreqHz);
 
-	
+	/* Set MxL5005S tuner RF frequency according to example code. */
 
-	
+	/* Tuner RF frequency setting stage 0 */
 	MXL_GetMasterControl(ByteTable, MC_SYNTH_RESET);
 	AddrTable[0] = MASTER_CONTROL_ADDR;
 	ByteTable[0] |= state->config->AgcMasterByte;
 
 	mxl5005s_writeregs(fe, AddrTable, ByteTable, 1);
 
-	
+	/* Tuner RF frequency setting stage 1 */
 	MXL_TuneRF(fe, RfFreqHz);
 
 	MXL_ControlRead(fe, IF_DIVVAL, &IfDivval);
@@ -360,10 +373,10 @@ static int mxl5005s_SetRfFreqHz(struct dvb_frontend *fe, unsigned long RfFreqHz)
 
 	mxl5005s_writeregs(fe, AddrTable, ByteTable, TableLen);
 
-	
+	/* Wait 30 ms. */
 	msleep(150);
 
-	
+	/* Tuner RF frequency setting stage 2 */
 	MXL_ControlWrite(fe, SEQ_FSM_PULSE, 1);
 	MXL_ControlWrite(fe, IF_DIVVAL, IfDivval);
 	MXL_GetCHRegister_ZeroIF(fe, AddrTable, ByteTable, &TableLen);
@@ -380,6 +393,7 @@ static int mxl5005s_SetRfFreqHz(struct dvb_frontend *fe, unsigned long RfFreqHz)
 
 	return 0;
 }
+/* End: Custom code taken from the Realtek driver */
 
 /* ----------------------------------------------------------------
  * Begin: Reference driver code found in the Realtek driver.
@@ -1655,25 +1669,25 @@ static void InitTunerControls(struct dvb_frontend *fe)
 }
 
 static u16 MXL5005_TunerConfig(struct dvb_frontend *fe,
-	u8	Mode,		
-	u8	IF_mode,	
-	u32	Bandwidth,	
-	u32	IF_out,		
-	u32	Fxtal,		
-	u8	AGC_Mode,	
-	u16	TOP,		
-	u16	IF_OUT_LOAD,	
-	u8	CLOCK_OUT, 	
-	u8	DIV_OUT,	
-	u8	CAPSELECT, 	
-	u8	EN_RSSI, 	
+	u8	Mode,		/* 0: Analog Mode ; 1: Digital Mode */
+	u8	IF_mode,	/* for Analog Mode, 0: zero IF; 1: low IF */
+	u32	Bandwidth,	/* filter  channel bandwidth (6, 7, 8) */
+	u32	IF_out,		/* Desired IF Out Frequency */
+	u32	Fxtal,		/* XTAL Frequency */
+	u8	AGC_Mode,	/* AGC Mode - Dual AGC: 0, Single AGC: 1 */
+	u16	TOP,		/* 0: Dual AGC; Value: take over point */
+	u16	IF_OUT_LOAD,	/* IF Out Load Resistor (200 / 300 Ohms) */
+	u8	CLOCK_OUT, 	/* 0: turn off clk out; 1: turn on clock out */
+	u8	DIV_OUT,	/* 0: Div-1; 1: Div-4 */
+	u8	CAPSELECT, 	/* 0: disable On-Chip pulling cap; 1: enable */
+	u8	EN_RSSI, 	/* 0: disable RSSI; 1: enable RSSI */
 
-	
-	
+	/* Modulation Type; */
+	/* 0 - Default;	1 - DVB-T; 2 - ATSC; 3 - QAM; 4 - Analog Cable */
 	u8	Mod_Type,
 
-	
-	
+	/* Tracking Filter */
+	/* 0 - Default; 1 - Off; 2 - Type C; 3 - Type C-H */
 	u8	TF_Type
 	)
 {
@@ -1695,10 +1709,10 @@ static u16 MXL5005_TunerConfig(struct dvb_frontend *fe,
 	state->Mod_Type = Mod_Type;
 	state->TF_Type = TF_Type;
 
-	
+	/* Initialize all the controls and registers */
 	InitTunerControls(fe);
 
-	
+	/* Synthesizer LO frequency calculation */
 	MXL_SynthIFLO_Calc(fe);
 
 	return status;
@@ -1707,12 +1721,12 @@ static u16 MXL5005_TunerConfig(struct dvb_frontend *fe,
 static void MXL_SynthIFLO_Calc(struct dvb_frontend *fe)
 {
 	struct mxl5005s_state *state = fe->tuner_priv;
-	if (state->Mode == 1) 
+	if (state->Mode == 1) /* Digital Mode */
 		state->IF_LO = state->IF_OUT;
-	else  {
-		if (state->IF_Mode == 0) 
+	else /* Analog Mode */ {
+		if (state->IF_Mode == 0) /* Analog Zero IF mode */
 			state->IF_LO = state->IF_OUT + 400000;
-		else 
+		else /* Analog Low IF mode */
 			state->IF_LO = state->IF_OUT + state->Chan_Bandwidth/2;
 	}
 }
@@ -1721,16 +1735,16 @@ static void MXL_SynthRFTGLO_Calc(struct dvb_frontend *fe)
 {
 	struct mxl5005s_state *state = fe->tuner_priv;
 
-	if (state->Mode == 1)  {
-			
+	if (state->Mode == 1) /* Digital Mode */ {
+			/* remove 20.48MHz setting for 2.6.10 */
 			state->RF_LO = state->RF_IN;
-			
+			/* change for 2.6.6 */
 			state->TG_LO = state->RF_IN - 750000;
-	} else  {
-		if (state->IF_Mode == 0)  {
+	} else /* Analog Mode */ {
+		if (state->IF_Mode == 0) /* Analog Zero IF mode */ {
 			state->RF_LO = state->RF_IN - 400000;
 			state->TG_LO = state->RF_IN - 1750000;
-		} else  {
+		} else /* Analog Low IF mode */ {
 			state->RF_LO = state->RF_IN - state->Chan_Bandwidth/2;
 			state->TG_LO = state->RF_IN -
 				state->Chan_Bandwidth + 500000;
@@ -1757,18 +1771,18 @@ static u16 MXL_BlockInit(struct dvb_frontend *fe)
 
 	status += MXL_OverwriteICDefault(fe);
 
-	
+	/* Downconverter Control Dig Ana */
 	status += MXL_ControlWrite(fe, DN_IQTN_AMP_CUT, state->Mode ? 1 : 0);
 
-	
+	/* Filter Control  Dig  Ana */
 	status += MXL_ControlWrite(fe, BB_MODE, state->Mode ? 0 : 1);
 	status += MXL_ControlWrite(fe, BB_BUF, state->Mode ? 3 : 2);
 	status += MXL_ControlWrite(fe, BB_BUF_OA, state->Mode ? 1 : 0);
 	status += MXL_ControlWrite(fe, BB_IQSWAP, state->Mode ? 0 : 1);
 	status += MXL_ControlWrite(fe, BB_INITSTATE_DLPF_TUNE, 0);
 
-	
-	if (state->Mode) { 
+	/* Initialize Low-Pass Filter */
+	if (state->Mode) { /* Digital Mode */
 		switch (state->Chan_Bandwidth) {
 		case 8000000:
 			status += MXL_ControlWrite(fe, BB_DLPF_BANDSEL, 0);
@@ -1781,9 +1795,9 @@ static u16 MXL_BlockInit(struct dvb_frontend *fe)
 					BB_DLPF_BANDSEL, 3);
 			break;
 		}
-	} else { 
+	} else { /* Analog Mode */
 		switch (state->Chan_Bandwidth) {
-		case 8000000:	
+		case 8000000:	/* Low Zero */
 			status += MXL_ControlWrite(fe, BB_ALPF_BANDSELECT,
 					(state->IF_Mode ? 0 : 3));
 			break;
@@ -1798,68 +1812,68 @@ static u16 MXL_BlockInit(struct dvb_frontend *fe)
 		}
 	}
 
-	
+	/* Charge Pump Control Dig  Ana */
 	status += MXL_ControlWrite(fe, RFSYN_CHP_GAIN, state->Mode ? 5 : 8);
 	status += MXL_ControlWrite(fe,
 		RFSYN_EN_CHP_HIGAIN, state->Mode ? 1 : 1);
 	status += MXL_ControlWrite(fe, EN_CHP_LIN_B, state->Mode ? 0 : 0);
 
-	
-	if (state->AGC_Mode == 0)  {
+	/* AGC TOP Control */
+	if (state->AGC_Mode == 0) /* Dual AGC */ {
 		status += MXL_ControlWrite(fe, AGC_IF, 15);
 		status += MXL_ControlWrite(fe, AGC_RF, 15);
-	} else 
+	} else /*  Single AGC Mode Dig  Ana */
 		status += MXL_ControlWrite(fe, AGC_RF, state->Mode ? 15 : 12);
 
-	if (state->TOP == 55) 
+	if (state->TOP == 55) /* TOP == 5.5 */
 		status += MXL_ControlWrite(fe, AGC_IF, 0x0);
 
-	if (state->TOP == 72) 
+	if (state->TOP == 72) /* TOP == 7.2 */
 		status += MXL_ControlWrite(fe, AGC_IF, 0x1);
 
-	if (state->TOP == 92) 
+	if (state->TOP == 92) /* TOP == 9.2 */
 		status += MXL_ControlWrite(fe, AGC_IF, 0x2);
 
-	if (state->TOP == 110) 
+	if (state->TOP == 110) /* TOP == 11.0 */
 		status += MXL_ControlWrite(fe, AGC_IF, 0x3);
 
-	if (state->TOP == 129) 
+	if (state->TOP == 129) /* TOP == 12.9 */
 		status += MXL_ControlWrite(fe, AGC_IF, 0x4);
 
-	if (state->TOP == 147) 
+	if (state->TOP == 147) /* TOP == 14.7 */
 		status += MXL_ControlWrite(fe, AGC_IF, 0x5);
 
-	if (state->TOP == 168) 
+	if (state->TOP == 168) /* TOP == 16.8 */
 		status += MXL_ControlWrite(fe, AGC_IF, 0x6);
 
-	if (state->TOP == 194) 
+	if (state->TOP == 194) /* TOP == 19.4 */
 		status += MXL_ControlWrite(fe, AGC_IF, 0x7);
 
-	if (state->TOP == 212) 
+	if (state->TOP == 212) /* TOP == 21.2 */
 		status += MXL_ControlWrite(fe, AGC_IF, 0x9);
 
-	if (state->TOP == 232) 
+	if (state->TOP == 232) /* TOP == 23.2 */
 		status += MXL_ControlWrite(fe, AGC_IF, 0xA);
 
-	if (state->TOP == 252) 
+	if (state->TOP == 252) /* TOP == 25.2 */
 		status += MXL_ControlWrite(fe, AGC_IF, 0xB);
 
-	if (state->TOP == 271) 
+	if (state->TOP == 271) /* TOP == 27.1 */
 		status += MXL_ControlWrite(fe, AGC_IF, 0xC);
 
-	if (state->TOP == 292) 
+	if (state->TOP == 292) /* TOP == 29.2 */
 		status += MXL_ControlWrite(fe, AGC_IF, 0xD);
 
-	if (state->TOP == 317) 
+	if (state->TOP == 317) /* TOP == 31.7 */
 		status += MXL_ControlWrite(fe, AGC_IF, 0xE);
 
-	if (state->TOP == 349) 
+	if (state->TOP == 349) /* TOP == 34.9 */
 		status += MXL_ControlWrite(fe, AGC_IF, 0xF);
 
-	
+	/* IF Synthesizer Control */
 	status += MXL_IFSynthInit(fe);
 
-	
+	/* IF UpConverter Control */
 	if (state->IF_OUT_LOAD == 200) {
 		status += MXL_ControlWrite(fe, DRV_RES_SEL, 6);
 		status += MXL_ControlWrite(fe, I_DRIVER, 2);
@@ -1869,7 +1883,10 @@ static u16 MXL_BlockInit(struct dvb_frontend *fe)
 		status += MXL_ControlWrite(fe, I_DRIVER, 1);
 	}
 
-	if (state->Mode) { 
+	/* Anti-Alias Filtering Control
+	 * initialise Anti-Aliasing Filter
+	 */
+	if (state->Mode) { /* Digital Mode */
 		if (state->IF_OUT >= 4000000UL && state->IF_OUT <= 6280000UL) {
 			status += MXL_ControlWrite(fe, EN_AAF, 1);
 			status += MXL_ControlWrite(fe, EN_3P, 1);
@@ -1889,7 +1906,7 @@ static u16 MXL_BlockInit(struct dvb_frontend *fe)
 			status += MXL_ControlWrite(fe, EN_AUX_3P, 1);
 			status += MXL_ControlWrite(fe, SEL_AAF_BAND, 1);
 		}
-	} else { 
+	} else { /* Analog Mode */
 		if (state->IF_OUT >= 4000000UL && state->IF_OUT <= 5000000UL) {
 			status += MXL_ControlWrite(fe, EN_AAF, 1);
 			status += MXL_ControlWrite(fe, EN_3P, 1);
@@ -1904,7 +1921,7 @@ static u16 MXL_BlockInit(struct dvb_frontend *fe)
 		}
 	}
 
-	
+	/* Demod Clock Out */
 	if (state->CLOCK_OUT)
 		status += MXL_ControlWrite(fe, SEQ_ENCLK16_CLK_OUT, 1);
 	else
@@ -1915,7 +1932,7 @@ static u16 MXL_BlockInit(struct dvb_frontend *fe)
 	if (state->DIV_OUT == 0)
 		status += MXL_ControlWrite(fe, SEQ_SEL4_16B, 0);
 
-	
+	/* Crystal Control */
 	if (state->CAPSELECT)
 		status += MXL_ControlWrite(fe, XTAL_CAPSELECT, 1);
 	else
@@ -1931,139 +1948,142 @@ static u16 MXL_BlockInit(struct dvb_frontend *fe)
 	if (state->Fxtal > 22000000UL && state->Fxtal <= 32000000UL)
 		status += MXL_ControlWrite(fe, RFSYN_R_DIV, 0);
 
-	
-	if (state->Mode == 0 && state->IF_Mode == 1) 
+	/* Misc Controls */
+	if (state->Mode == 0 && state->IF_Mode == 1) /* Analog LowIF mode */
 		status += MXL_ControlWrite(fe, SEQ_EXTIQFSMPULSE, 0);
 	else
 		status += MXL_ControlWrite(fe, SEQ_EXTIQFSMPULSE, 1);
 
-	
+	/* status += MXL_ControlRead(fe, IF_DIVVAL, &IF_DIVVAL_Val); */
 
-	
+	/* Set TG_R_DIV */
 	status += MXL_ControlWrite(fe, TG_R_DIV,
 		MXL_Ceiling(state->Fxtal, 1000000));
 
-	
+	/* Apply Default value to BB_INITSTATE_DLPF_TUNE */
 
-	
+	/* RSSI Control */
 	if (state->EN_RSSI) {
 		status += MXL_ControlWrite(fe, SEQ_EXTSYNTHCALIF, 1);
 		status += MXL_ControlWrite(fe, SEQ_EXTDCCAL, 1);
 		status += MXL_ControlWrite(fe, AGC_EN_RSSI, 1);
 		status += MXL_ControlWrite(fe, RFA_ENCLKRFAGC, 1);
 
-		
+		/* RSSI reference point */
 		status += MXL_ControlWrite(fe, RFA_RSSI_REF, 2);
 		status += MXL_ControlWrite(fe, RFA_RSSI_REFH, 3);
 		status += MXL_ControlWrite(fe, RFA_RSSI_REFL, 1);
 
-		
+		/* TOP point */
 		status += MXL_ControlWrite(fe, RFA_FLR, 0);
 		status += MXL_ControlWrite(fe, RFA_CEIL, 12);
 	}
 
-	if (state->Mod_Type == MXL_DVBT)  {
-		state->AGC_Mode = 1; 
+	/* Modulation type bit settings
+	 * Override the control values preset
+	 */
+	if (state->Mod_Type == MXL_DVBT) /* DVB-T Mode */ {
+		state->AGC_Mode = 1; /* Single AGC Mode */
 
-		
+		/* Enable RSSI */
 		status += MXL_ControlWrite(fe, SEQ_EXTSYNTHCALIF, 1);
 		status += MXL_ControlWrite(fe, SEQ_EXTDCCAL, 1);
 		status += MXL_ControlWrite(fe, AGC_EN_RSSI, 1);
 		status += MXL_ControlWrite(fe, RFA_ENCLKRFAGC, 1);
 
-		
+		/* RSSI reference point */
 		status += MXL_ControlWrite(fe, RFA_RSSI_REF, 3);
 		status += MXL_ControlWrite(fe, RFA_RSSI_REFH, 5);
 		status += MXL_ControlWrite(fe, RFA_RSSI_REFL, 1);
 
-		
+		/* TOP point */
 		status += MXL_ControlWrite(fe, RFA_FLR, 2);
 		status += MXL_ControlWrite(fe, RFA_CEIL, 13);
-		if (state->IF_OUT <= 6280000UL)	
+		if (state->IF_OUT <= 6280000UL)	/* Low IF */
 			status += MXL_ControlWrite(fe, BB_IQSWAP, 0);
-		else 
+		else /* High IF */
 			status += MXL_ControlWrite(fe, BB_IQSWAP, 1);
 
 	}
-	if (state->Mod_Type == MXL_ATSC)  {
-		state->AGC_Mode = 1;	
+	if (state->Mod_Type == MXL_ATSC) /* ATSC Mode */ {
+		state->AGC_Mode = 1;	/* Single AGC Mode */
 
-		
+		/* Enable RSSI */
 		status += MXL_ControlWrite(fe, SEQ_EXTSYNTHCALIF, 1);
 		status += MXL_ControlWrite(fe, SEQ_EXTDCCAL, 1);
 		status += MXL_ControlWrite(fe, AGC_EN_RSSI, 1);
 		status += MXL_ControlWrite(fe, RFA_ENCLKRFAGC, 1);
 
-		
+		/* RSSI reference point */
 		status += MXL_ControlWrite(fe, RFA_RSSI_REF, 2);
 		status += MXL_ControlWrite(fe, RFA_RSSI_REFH, 4);
 		status += MXL_ControlWrite(fe, RFA_RSSI_REFL, 1);
 
-		
+		/* TOP point */
 		status += MXL_ControlWrite(fe, RFA_FLR, 2);
 		status += MXL_ControlWrite(fe, RFA_CEIL, 13);
 		status += MXL_ControlWrite(fe, BB_INITSTATE_DLPF_TUNE, 1);
-		
+		/* Low Zero */
 		status += MXL_ControlWrite(fe, RFSYN_CHP_GAIN, 5);
 
-		if (state->IF_OUT <= 6280000UL)	
+		if (state->IF_OUT <= 6280000UL)	/* Low IF */
 			status += MXL_ControlWrite(fe, BB_IQSWAP, 0);
-		else 
+		else /* High IF */
 			status += MXL_ControlWrite(fe, BB_IQSWAP, 1);
 	}
-	if (state->Mod_Type == MXL_QAM)  {
+	if (state->Mod_Type == MXL_QAM) /* QAM Mode */ {
 		state->Mode = MXL_DIGITAL_MODE;
 
-		 
+		/* state->AGC_Mode = 1; */ /* Single AGC Mode */
 
-			
+		/* Disable RSSI */	/* change here for v2.6.5 */
 		status += MXL_ControlWrite(fe, SEQ_EXTSYNTHCALIF, 1);
 		status += MXL_ControlWrite(fe, SEQ_EXTDCCAL, 1);
 		status += MXL_ControlWrite(fe, AGC_EN_RSSI, 0);
 		status += MXL_ControlWrite(fe, RFA_ENCLKRFAGC, 1);
 
-		
+		/* RSSI reference point */
 		status += MXL_ControlWrite(fe, RFA_RSSI_REFH, 5);
 		status += MXL_ControlWrite(fe, RFA_RSSI_REF, 3);
 		status += MXL_ControlWrite(fe, RFA_RSSI_REFL, 2);
-		
+		/* change here for v2.6.5 */
 		status += MXL_ControlWrite(fe, RFSYN_CHP_GAIN, 3);
 
-		if (state->IF_OUT <= 6280000UL)	
+		if (state->IF_OUT <= 6280000UL)	/* Low IF */
 			status += MXL_ControlWrite(fe, BB_IQSWAP, 0);
-		else 
+		else /* High IF */
 			status += MXL_ControlWrite(fe, BB_IQSWAP, 1);
 		status += MXL_ControlWrite(fe, RFSYN_CHP_GAIN, 2);
 
 	}
 	if (state->Mod_Type == MXL_ANALOG_CABLE) {
-		
-		
+		/* Analog Cable Mode */
+		/* state->Mode = MXL_DIGITAL_MODE; */
 
-		state->AGC_Mode = 1; 
+		state->AGC_Mode = 1; /* Single AGC Mode */
 
-		
+		/* Disable RSSI */
 		status += MXL_ControlWrite(fe, SEQ_EXTSYNTHCALIF, 1);
 		status += MXL_ControlWrite(fe, SEQ_EXTDCCAL, 1);
 		status += MXL_ControlWrite(fe, AGC_EN_RSSI, 0);
 		status += MXL_ControlWrite(fe, RFA_ENCLKRFAGC, 1);
-		
+		/* change for 2.6.3 */
 		status += MXL_ControlWrite(fe, AGC_IF, 1);
 		status += MXL_ControlWrite(fe, AGC_RF, 15);
 		status += MXL_ControlWrite(fe, BB_IQSWAP, 1);
 	}
 
 	if (state->Mod_Type == MXL_ANALOG_OTA) {
-		
-		
+		/* Analog OTA Terrestrial mode add for 2.6.7 */
+		/* state->Mode = MXL_ANALOG_MODE; */
 
-		
+		/* Enable RSSI */
 		status += MXL_ControlWrite(fe, SEQ_EXTSYNTHCALIF, 1);
 		status += MXL_ControlWrite(fe, SEQ_EXTDCCAL, 1);
 		status += MXL_ControlWrite(fe, AGC_EN_RSSI, 1);
 		status += MXL_ControlWrite(fe, RFA_ENCLKRFAGC, 1);
 
-		
+		/* RSSI reference point */
 		status += MXL_ControlWrite(fe, RFA_RSSI_REFH, 5);
 		status += MXL_ControlWrite(fe, RFA_RSSI_REF, 3);
 		status += MXL_ControlWrite(fe, RFA_RSSI_REFL, 2);
@@ -2071,7 +2091,7 @@ static u16 MXL_BlockInit(struct dvb_frontend *fe)
 		status += MXL_ControlWrite(fe, BB_IQSWAP, 1);
 	}
 
-	
+	/* RSSI disable */
 	if (state->EN_RSSI == 0) {
 		status += MXL_ControlWrite(fe, SEQ_EXTSYNTHCALIF, 1);
 		status += MXL_ControlWrite(fe, SEQ_EXTDCCAL, 1);
@@ -2096,8 +2116,8 @@ static u16 MXL_IFSynthInit(struct dvb_frontend *fe)
 	if (state->Fxtal > 16000000UL && state->Fxtal <= 32000000UL)
 		Kdbl = 1 ;
 
-	
-	if (state->Mode == 0 && state->IF_Mode == 1)  {
+	/* IF Synthesizer Control */
+	if (state->Mode == 0 && state->IF_Mode == 1) /* Analog Low IF mode */ {
 		if (state->IF_LO == 41000000UL) {
 			status += MXL_ControlWrite(fe, IF_DIVVAL,   0x08);
 			status += MXL_ControlWrite(fe, IF_VCO_BIAS, 0x0C);
@@ -2266,14 +2286,14 @@ static u16 MXL_IFSynthInit(struct dvb_frontend *fe)
 			status += MXL_ControlWrite(fe, IF_VCO_BIAS, 0x08);
 			Fref = 352000000UL ;
 		}
-		if (state->IF_LO == 4063000UL)   {
+		if (state->IF_LO == 4063000UL)  /* add for 2.6.8 */ {
 			status += MXL_ControlWrite(fe, IF_DIVVAL,   0x05);
 			status += MXL_ControlWrite(fe, IF_VCO_BIAS, 0x08);
 			Fref = 365670000UL ;
 		}
 	}
-	
-	
+	/* CHCAL_INT_MOD_IF */
+	/* CHCAL_FRAC_MOD_IF */
 	intModVal = Fref / (state->Fxtal * Kdbl/2);
 	status += MXL_ControlWrite(fe, CHCAL_INT_MOD_IF, intModVal);
 
@@ -2308,6 +2328,15 @@ static u16 MXL_TuneRF(struct dvb_frontend *fe, u32 RF_Freq)
 	if (state->Fxtal > 22000000 && state->Fxtal <= 32000000)
 		Kdbl_RF = 1;
 
+	/* Downconverter Controls
+	 * Look-Up Table Implementation for:
+	 *	DN_POLY
+	 *	DN_RFGAIN
+	 *	DN_CAP_RFLPF
+	 *	DN_EN_VHFUHFBAR
+	 *	DN_GAIN_ADJUST
+	 *  Change the boundary reference from RF_IN to RF_LO
+	 */
 	if (state->RF_LO < 40000000UL)
 		return -1;
 
@@ -2363,8 +2392,8 @@ static u16 MXL_TuneRF(struct dvb_frontend *fe, u32 RF_Freq)
 	if (state->RF_LO > 900000000UL)
 		return -1;
 
-	
-	
+	/*	DN_IQTNBUF_AMP */
+	/*	DN_IQTNGNBFBIAS_BST */
 	if (state->RF_LO >= 40000000UL && state->RF_LO <= 75000000UL) {
 		status += MXL_ControlWrite(fe, DN_IQTNBUF_AMP,       1);
 		status += MXL_ControlWrite(fe, DN_IQTNGNBFBIAS_BST,  0);
@@ -2430,6 +2459,19 @@ static u16 MXL_TuneRF(struct dvb_frontend *fe, u32 RF_Freq)
 		status += MXL_ControlWrite(fe, DN_IQTNGNBFBIAS_BST,  1);
 	}
 
+	/*
+	 * Set RF Synth and LO Path Control
+	 *
+	 * Look-Up table implementation for:
+	 *	RFSYN_EN_OUTMUX
+	 *	RFSYN_SEL_VCO_OUT
+	 *	RFSYN_SEL_VCO_HI
+	 *  RFSYN_SEL_DIVM
+	 *	RFSYN_RF_DIV_BIAS
+	 *	DN_SEL_FREQ
+	 *
+	 * Set divider_val, Fmax, Fmix to use in Equations
+	 */
 	FminBin = 28000000UL ;
 	FmaxBin = 42500000UL ;
 	if (state->RF_LO >= 40000000UL && state->RF_LO <= FmaxBin) {
@@ -2574,28 +2616,47 @@ static u16 MXL_TuneRF(struct dvb_frontend *fe, u32 RF_Freq)
 		Fmin = FminBin ;
 	}
 
-	
+	/*	CHCAL_INT_MOD_RF
+	 *	CHCAL_FRAC_MOD_RF
+	 *	RFSYN_LPF_R
+	 *	CHCAL_EN_INT_RF
+	 */
+	/* Equation E3 RFSYN_VCO_BIAS */
 	E3 = (((Fmax-state->RF_LO)/1000)*32)/((Fmax-Fmin)/1000) + 8 ;
 	status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, E3);
 
-	
+	/* Equation E4 CHCAL_INT_MOD_RF */
 	E4 = (state->RF_LO*divider_val/1000)/(2*state->Fxtal*Kdbl_RF/1000);
 	MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, E4);
 
-	
+	/* Equation E5 CHCAL_FRAC_MOD_RF CHCAL_EN_INT_RF */
 	E5 = ((2<<17)*(state->RF_LO/10000*divider_val -
 		(E4*(2*state->Fxtal*Kdbl_RF)/10000))) /
 		(2*state->Fxtal*Kdbl_RF/10000);
 
 	status += MXL_ControlWrite(fe, CHCAL_FRAC_MOD_RF, E5);
 
-	
+	/* Equation E5A RFSYN_LPF_R */
 	E5A = (((Fmax - state->RF_LO)/1000)*4/((Fmax-Fmin)/1000)) + 1 ;
 	status += MXL_ControlWrite(fe, RFSYN_LPF_R, E5A);
 
-	
+	/* Euqation E5B CHCAL_EN_INIT_RF */
 	status += MXL_ControlWrite(fe, CHCAL_EN_INT_RF, ((E5 == 0) ? 1 : 0));
+	/*if (E5 == 0)
+	 *	status += MXL_ControlWrite(fe, CHCAL_EN_INT_RF, 1);
+	 *else
+	 *	status += MXL_ControlWrite(fe, CHCAL_FRAC_MOD_RF, E5);
+	 */
 
+	/*
+	 * Set TG Synth
+	 *
+	 * Look-Up table implementation for:
+	 *	TG_LO_DIVVAL
+	 *	TG_LO_SELVAL
+	 *
+	 * Set divider_val, Fmax, Fmix to use in Equations
+	 */
 	if (state->TG_LO < 33000000UL)
 		return -1;
 
@@ -2681,7 +2742,7 @@ static u16 MXL_TuneRF(struct dvb_frontend *fe, u32 RF_Freq)
 		Fmin = FminBin ;
 	}
 
-	
+	/* TG_DIV_VAL */
 	tg_divval = (state->TG_LO*divider_val/100000) *
 		(MXL_Ceiling(state->Fxtal, 1000000) * 100) /
 		(state->Fxtal/1000);
@@ -2694,18 +2755,37 @@ static u16 MXL_TuneRF(struct dvb_frontend *fe, u32 RF_Freq)
 	Fmax = 1800000000UL ;
 	Fmin = 1200000000UL ;
 
-	
+	/* prevent overflow of 32 bit unsigned integer, use
+	 * following equation. Edit for v2.6.4
+	 */
+	/* Fref_TF = Fref_TG * 1000 */
 	Fref_TG = (state->Fxtal/1000) / MXL_Ceiling(state->Fxtal, 1000000);
 
-	
+	/* Fvco = Fvco/10 */
 	Fvco = (state->TG_LO/10000) * divider_val * Fref_TG;
 
 	tg_lo = (((Fmax/10 - Fvco)/100)*32) / ((Fmax-Fmin)/1000)+8;
 
+	/* below equation is same as above but much harder to debug.
+	 *
+	 * static u32 MXL_GetXtalInt(u32 Xtal_Freq)
+	 * {
+	 *	if ((Xtal_Freq % 1000000) == 0)
+	 *		return (Xtal_Freq / 10000);
+	 *	else
+	 *		return (((Xtal_Freq / 1000000) + 1)*100);
+	 * }
+	 *
+	 * u32 Xtal_Int = MXL_GetXtalInt(state->Fxtal);
+	 * tg_lo = ( ((Fmax/10000 * Xtal_Int)/100) -
+	 * ((state->TG_LO/10000)*divider_val *
+	 * (state->Fxtal/10000)/100) )*32/((Fmax-Fmin)/10000 *
+	 * Xtal_Int/100) + 8;
+	 */
 
 	status += MXL_ControlWrite(fe, TG_VCO_BIAS , tg_lo);
 
-	
+	/* add for 2.6.5 Special setting for QAM */
 	if (state->Mod_Type == MXL_QAM) {
 		if (state->config->qam_gain != 0)
 			status += MXL_ControlWrite(fe, RFSYN_CHP_GAIN,
@@ -2716,17 +2796,17 @@ static u16 MXL_TuneRF(struct dvb_frontend *fe, u32 RF_Freq)
 			status += MXL_ControlWrite(fe, RFSYN_CHP_GAIN, 2);
 	}
 
-	
+	/* Off Chip Tracking Filter Control */
 	if (state->TF_Type == MXL_TF_OFF) {
-		
+		/* Tracking Filter Off State; turn off all the banks */
 		status += MXL_ControlWrite(fe, DAC_A_ENABLE, 0);
 		status += MXL_ControlWrite(fe, DAC_B_ENABLE, 0);
-		status += MXL_SetGPIO(fe, 3, 1); 
-		status += MXL_SetGPIO(fe, 1, 1); 
-		status += MXL_SetGPIO(fe, 4, 1); 
+		status += MXL_SetGPIO(fe, 3, 1); /* Bank1 Off */
+		status += MXL_SetGPIO(fe, 1, 1); /* Bank2 Off */
+		status += MXL_SetGPIO(fe, 4, 1); /* Bank3 Off */
 	}
 
-	if (state->TF_Type == MXL_TF_C)  {
+	if (state->TF_Type == MXL_TF_C) /* Tracking Filter type C */ {
 		status += MXL_ControlWrite(fe, DAC_B_ENABLE, 1);
 		status += MXL_ControlWrite(fe, DAC_DIN_A, 0);
 
@@ -2797,7 +2877,7 @@ static u16 MXL_TuneRF(struct dvb_frontend *fe, u32 RF_Freq)
 
 	if (state->TF_Type == MXL_TF_C_H) {
 
-		
+		/* Tracking Filter type C-H for Hauppauge only */
 		status += MXL_ControlWrite(fe, DAC_DIN_A, 0);
 
 		if (state->RF_IN >= 43000000 && state->RF_IN < 150000000) {
@@ -2856,7 +2936,7 @@ static u16 MXL_TuneRF(struct dvb_frontend *fe, u32 RF_Freq)
 		}
 	}
 
-	if (state->TF_Type == MXL_TF_D) { 
+	if (state->TF_Type == MXL_TF_D) { /* Tracking Filter type D */
 
 		status += MXL_ControlWrite(fe, DAC_DIN_B, 0);
 
@@ -2906,20 +2986,20 @@ static u16 MXL_TuneRF(struct dvb_frontend *fe, u32 RF_Freq)
 
 	if (state->TF_Type == MXL_TF_D_L) {
 
-		
+		/* Tracking Filter type D-L for Lumanate ONLY change 2.6.3 */
 		status += MXL_ControlWrite(fe, DAC_DIN_A, 0);
 
-		
+		/* if UHF and terrestrial => Turn off Tracking Filter */
 		if (state->RF_IN >= 471000000 &&
 			(state->RF_IN - 471000000)%6000000 != 0) {
-			
+			/* Turn off all the banks */
 			status += MXL_SetGPIO(fe, 3, 1);
 			status += MXL_SetGPIO(fe, 1, 1);
 			status += MXL_SetGPIO(fe, 4, 1);
 			status += MXL_ControlWrite(fe, DAC_A_ENABLE, 0);
 			status += MXL_ControlWrite(fe, AGC_IF, 10);
 		} else {
-			
+			/* if VHF or cable => Turn on Tracking Filter */
 			if (state->RF_IN >= 43000000 &&
 				state->RF_IN < 140000000) {
 
@@ -2987,7 +3067,7 @@ static u16 MXL_TuneRF(struct dvb_frontend *fe, u32 RF_Freq)
 		}
 	}
 
-	if (state->TF_Type == MXL_TF_E)  {
+	if (state->TF_Type == MXL_TF_E) /* Tracking Filter type E */ {
 
 		status += MXL_ControlWrite(fe, DAC_DIN_B, 0);
 
@@ -3037,7 +3117,7 @@ static u16 MXL_TuneRF(struct dvb_frontend *fe, u32 RF_Freq)
 
 	if (state->TF_Type == MXL_TF_F) {
 
-		
+		/* Tracking Filter type F */
 		status += MXL_ControlWrite(fe, DAC_DIN_B, 0);
 
 		if (state->RF_IN >= 43000000 && state->RF_IN < 160000000) {
@@ -3086,7 +3166,7 @@ static u16 MXL_TuneRF(struct dvb_frontend *fe, u32 RF_Freq)
 
 	if (state->TF_Type == MXL_TF_E_2) {
 
-		
+		/* Tracking Filter type E_2 */
 		status += MXL_ControlWrite(fe, DAC_DIN_B, 0);
 
 		if (state->RF_IN >= 43000000 && state->RF_IN < 174000000) {
@@ -3135,7 +3215,7 @@ static u16 MXL_TuneRF(struct dvb_frontend *fe, u32 RF_Freq)
 
 	if (state->TF_Type == MXL_TF_G) {
 
-		
+		/* Tracking Filter type G add for v2.6.8 */
 		status += MXL_ControlWrite(fe, DAC_DIN_B, 0);
 
 		if (state->RF_IN >= 50000000 && state->RF_IN < 190000000) {
@@ -3191,38 +3271,40 @@ static u16 MXL_TuneRF(struct dvb_frontend *fe, u32 RF_Freq)
 
 	if (state->TF_Type == MXL_TF_E_NA) {
 
-		
+		/* Tracking Filter type E-NA for Empia ONLY change for 2.6.8 */
 		status += MXL_ControlWrite(fe, DAC_DIN_B, 0);
 
-		
+		/* if UHF and terrestrial=> Turn off Tracking Filter */
 		if (state->RF_IN >= 471000000 &&
 			(state->RF_IN - 471000000)%6000000 != 0) {
 
-			
+			/* Turn off all the banks */
 			status += MXL_SetGPIO(fe, 3, 1);
 			status += MXL_SetGPIO(fe, 1, 1);
 			status += MXL_SetGPIO(fe, 4, 1);
 			status += MXL_ControlWrite(fe, DAC_B_ENABLE, 0);
 
-			
+			/* 2.6.12 Turn on RSSI */
 			status += MXL_ControlWrite(fe, SEQ_EXTSYNTHCALIF, 1);
 			status += MXL_ControlWrite(fe, SEQ_EXTDCCAL, 1);
 			status += MXL_ControlWrite(fe, AGC_EN_RSSI, 1);
 			status += MXL_ControlWrite(fe, RFA_ENCLKRFAGC, 1);
 
-			
+			/* RSSI reference point */
 			status += MXL_ControlWrite(fe, RFA_RSSI_REFH, 5);
 			status += MXL_ControlWrite(fe, RFA_RSSI_REF, 3);
 			status += MXL_ControlWrite(fe, RFA_RSSI_REFL, 2);
 
+			/* following parameter is from analog OTA mode,
+			 * can be change to seek better performance */
 			status += MXL_ControlWrite(fe, RFSYN_CHP_GAIN, 3);
 		} else {
-		
+		/* if VHF or Cable =>  Turn on Tracking Filter */
 
-		
+		/* 2.6.12 Turn off RSSI */
 		status += MXL_ControlWrite(fe, AGC_EN_RSSI, 0);
 
-		
+		/* change back from above condition */
 		status += MXL_ControlWrite(fe, RFSYN_CHP_GAIN, 5);
 
 
@@ -3281,7 +3363,7 @@ static u16 MXL_SetGPIO(struct dvb_frontend *fe, u8 GPIO_Num, u8 GPIO_Val)
 	if (GPIO_Num == 1)
 		status += MXL_ControlWrite(fe, GPIO_1B, GPIO_Val ? 0 : 1);
 
-	
+	/* GPIO2 is not available */
 
 	if (GPIO_Num == 3) {
 		if (GPIO_Val == 1) {
@@ -3292,7 +3374,7 @@ static u16 MXL_SetGPIO(struct dvb_frontend *fe, u8 GPIO_Num, u8 GPIO_Val)
 			status += MXL_ControlWrite(fe, GPIO_3, 1);
 			status += MXL_ControlWrite(fe, GPIO_3B, 1);
 		}
-		if (GPIO_Val == 3) { 
+		if (GPIO_Val == 3) { /* tri-state */
 			status += MXL_ControlWrite(fe, GPIO_3, 0);
 			status += MXL_ControlWrite(fe, GPIO_3B, 1);
 		}
@@ -3306,7 +3388,7 @@ static u16 MXL_SetGPIO(struct dvb_frontend *fe, u8 GPIO_Num, u8 GPIO_Val)
 			status += MXL_ControlWrite(fe, GPIO_4, 1);
 			status += MXL_ControlWrite(fe, GPIO_4B, 1);
 		}
-		if (GPIO_Val == 3) { 
+		if (GPIO_Val == 3) { /* tri-state */
 			status += MXL_ControlWrite(fe, GPIO_4, 0);
 			status += MXL_ControlWrite(fe, GPIO_4B, 1);
 		}
@@ -3319,13 +3401,13 @@ static u16 MXL_ControlWrite(struct dvb_frontend *fe, u16 ControlNum, u32 value)
 {
 	u16 status = 0;
 
-	
-	
+	/* Will write ALL Matching Control Name */
+	/* Write Matching INIT Control */
 	status += MXL_ControlWrite_Group(fe, ControlNum, value, 1);
-	
+	/* Write Matching CH Control */
 	status += MXL_ControlWrite_Group(fe, ControlNum, value, 2);
 #ifdef _MXL_INTERNAL
-	
+	/* Write Matching MXL Control */
 	status += MXL_ControlWrite_Group(fe, ControlNum, value, 3);
 #endif
 	return status;
@@ -3339,7 +3421,7 @@ static u16 MXL_ControlWrite_Group(struct dvb_frontend *fe, u16 controlNum,
 	u32 highLimit;
 	u32 ctrlVal;
 
-	if (controlGroup == 1)  {
+	if (controlGroup == 1) /* Initial Control */ {
 
 		for (i = 0; i < state->Init_Ctrl_Num; i++) {
 
@@ -3361,7 +3443,7 @@ static u16 MXL_ControlWrite_Group(struct dvb_frontend *fe, u16 controlNum,
 			}
 		}
 	}
-	if (controlGroup == 2)  {
+	if (controlGroup == 2) /* Chan change Control */ {
 
 		for (i = 0; i < state->CH_Ctrl_Num; i++) {
 
@@ -3384,7 +3466,7 @@ static u16 MXL_ControlWrite_Group(struct dvb_frontend *fe, u16 controlNum,
 		}
 	}
 #ifdef _MXL_INTERNAL
-	if (controlGroup == 3)  {
+	if (controlGroup == 3) /* Maxlinear Control */ {
 
 		for (i = 0; i < state->MXL_Ctrl_Num; i++) {
 
@@ -3409,7 +3491,7 @@ static u16 MXL_ControlWrite_Group(struct dvb_frontend *fe, u16 controlNum,
 		}
 	}
 #endif
-	return 0 ; 
+	return 0 ; /* successful return */
 }
 
 static u16 MXL_RegRead(struct dvb_frontend *fe, u8 RegNum, u8 *RegVal)
@@ -3505,6 +3587,7 @@ static u32 MXL_Ceiling(u32 value, u32 resolution)
 	return value / resolution + (value % resolution > 0 ? 1 : 0);
 }
 
+/* Retrieve the Initialzation Registers */
 static u16 MXL_GetInitRegister(struct dvb_frontend *fe, u8 *RegNum,
 	u8 *RegVal, int *count)
 {
@@ -3534,12 +3617,18 @@ static u16 MXL_GetCHRegister(struct dvb_frontend *fe, u8 *RegNum, u8 *RegVal,
 	u16 status = 0;
 	int i ;
 
+/* add 77, 166, 167, 168 register for 2.6.12 */
 #ifdef _MXL_PRODUCTION
 	u8 RegAddr[] = {14, 15, 16, 17, 22, 43, 65, 68, 69, 70, 73, 92, 93, 106,
 	   107, 108, 109, 110, 111, 112, 136, 138, 149, 77, 166, 167, 168 } ;
 #else
 	u8 RegAddr[] = {14, 15, 16, 17, 22, 43, 68, 69, 70, 73, 92, 93, 106,
 	   107, 108, 109, 110, 111, 112, 136, 138, 149, 77, 166, 167, 168 } ;
+	/*
+	u8 RegAddr[171];
+	for (i = 0; i <= 170; i++)
+		RegAddr[i] = i;
+	*/
 #endif
 
 	*count = ARRAY_SIZE(RegAddr);
@@ -3572,13 +3661,13 @@ static u16 MXL_GetCHRegister_ZeroIF(struct dvb_frontend *fe, u8 *RegNum,
 
 static u16 MXL_GetMasterControl(u8 *MasterReg, int state)
 {
-	if (state == 1) 
+	if (state == 1) /* Load_Start */
 		*MasterReg = 0xF3;
-	if (state == 2) 
+	if (state == 2) /* Power_Down */
 		*MasterReg = 0x41;
-	if (state == 3) 
+	if (state == 3) /* Synth_Reset */
 		*MasterReg = 0xB1;
-	if (state == 4) 
+	if (state == 4) /* Seq_Off */
 		*MasterReg = 0xF1;
 
 	return 0;
@@ -3599,7 +3688,7 @@ static u16 MXL_VCORange_Test(struct dvb_frontend *fe, int VCO_Range)
 		status += MXL_ControlWrite(fe, RFSYN_RF_DIV_BIAS, 1);
 		status += MXL_ControlWrite(fe, DN_SEL_FREQ, 0);
 		if (state->Mode == 0 && state->IF_Mode == 1) {
-			
+			/* Analog Low IF Mode */
 			status += MXL_ControlWrite(fe, RFSYN_SEL_VCO_HI, 1);
 			status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, 8);
 			status += MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, 56);
@@ -3607,14 +3696,14 @@ static u16 MXL_VCORange_Test(struct dvb_frontend *fe, int VCO_Range)
 				CHCAL_FRAC_MOD_RF, 180224);
 		}
 		if (state->Mode == 0 && state->IF_Mode == 0) {
-			
+			/* Analog Zero IF Mode */
 			status += MXL_ControlWrite(fe, RFSYN_SEL_VCO_HI, 1);
 			status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, 8);
 			status += MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, 56);
 			status += MXL_ControlWrite(fe,
 				CHCAL_FRAC_MOD_RF, 222822);
 		}
-		if (state->Mode == 1)  {
+		if (state->Mode == 1) /* Digital Mode */ {
 			status += MXL_ControlWrite(fe, RFSYN_SEL_VCO_HI, 1);
 			status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, 8);
 			status += MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, 56);
@@ -3635,7 +3724,7 @@ static u16 MXL_VCORange_Test(struct dvb_frontend *fe, int VCO_Range)
 		status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, 40);
 		status += MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, 41);
 		if (state->Mode == 0 && state->IF_Mode == 1) {
-			
+			/* Analog Low IF Mode */
 			status += MXL_ControlWrite(fe, RFSYN_SEL_VCO_HI, 1);
 			status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, 40);
 			status += MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, 42);
@@ -3643,14 +3732,14 @@ static u16 MXL_VCORange_Test(struct dvb_frontend *fe, int VCO_Range)
 				CHCAL_FRAC_MOD_RF, 206438);
 		}
 		if (state->Mode == 0 && state->IF_Mode == 0) {
-			
+			/* Analog Zero IF Mode */
 			status += MXL_ControlWrite(fe, RFSYN_SEL_VCO_HI, 1);
 			status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, 40);
 			status += MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, 42);
 			status += MXL_ControlWrite(fe,
 				CHCAL_FRAC_MOD_RF, 206438);
 		}
-		if (state->Mode == 1)  {
+		if (state->Mode == 1) /* Digital Mode */ {
 			status += MXL_ControlWrite(fe, RFSYN_SEL_VCO_HI, 1);
 			status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, 40);
 			status += MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, 41);
@@ -3671,7 +3760,7 @@ static u16 MXL_VCORange_Test(struct dvb_frontend *fe, int VCO_Range)
 		status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, 8);
 		status += MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, 42);
 		if (state->Mode == 0 && state->IF_Mode == 1) {
-			
+			/* Analog Low IF Mode */
 			status += MXL_ControlWrite(fe, RFSYN_SEL_VCO_HI, 0);
 			status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, 8);
 			status += MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, 44);
@@ -3679,14 +3768,14 @@ static u16 MXL_VCORange_Test(struct dvb_frontend *fe, int VCO_Range)
 				CHCAL_FRAC_MOD_RF, 173670);
 		}
 		if (state->Mode == 0 && state->IF_Mode == 0) {
-			
+			/* Analog Zero IF Mode */
 			status += MXL_ControlWrite(fe, RFSYN_SEL_VCO_HI, 0);
 			status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, 8);
 			status += MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, 44);
 			status += MXL_ControlWrite(fe,
 				CHCAL_FRAC_MOD_RF, 173670);
 		}
-		if (state->Mode == 1)  {
+		if (state->Mode == 1) /* Digital Mode */ {
 			status += MXL_ControlWrite(fe, RFSYN_SEL_VCO_HI, 0);
 			status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, 8);
 			status += MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, 42);
@@ -3707,7 +3796,7 @@ static u16 MXL_VCORange_Test(struct dvb_frontend *fe, int VCO_Range)
 		status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, 40);
 		status += MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, 27);
 		if (state->Mode == 0 && state->IF_Mode == 1) {
-			
+			/* Analog Low IF Mode */
 			status += MXL_ControlWrite(fe, RFSYN_SEL_VCO_HI, 0);
 			status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, 40);
 			status += MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, 27);
@@ -3715,14 +3804,14 @@ static u16 MXL_VCORange_Test(struct dvb_frontend *fe, int VCO_Range)
 				CHCAL_FRAC_MOD_RF, 206438);
 		}
 		if (state->Mode == 0 && state->IF_Mode == 0) {
-			
+			/* Analog Zero IF Mode */
 			status += MXL_ControlWrite(fe, RFSYN_SEL_VCO_HI, 0);
 			status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, 40);
 			status += MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, 27);
 			status += MXL_ControlWrite(fe,
 				CHCAL_FRAC_MOD_RF, 206438);
 		}
-		if (state->Mode == 1)  {
+		if (state->Mode == 1) /* Digital Mode */ {
 			status += MXL_ControlWrite(fe, RFSYN_SEL_VCO_HI, 0);
 			status += MXL_ControlWrite(fe, RFSYN_VCO_BIAS, 40);
 			status += MXL_ControlWrite(fe, CHCAL_INT_MOD_RF, 27);
@@ -3778,6 +3867,9 @@ static int mxl5005s_reset(struct dvb_frontend *fe)
 	return ret;
 }
 
+/* Write a single byte to a single reg, latch the value if required by
+ * following the transaction with the latch byte.
+ */
 static int mxl5005s_writereg(struct dvb_frontend *fe, u8 reg, u8 val, int latch)
 {
 	struct mxl5005s_state *state = fe->tuner_priv;
@@ -3841,7 +3933,7 @@ static int mxl5005s_reconfigure(struct dvb_frontend *fe, u32 mod_type,
 
 	mxl5005s_reset(fe);
 
-	
+	/* Tuner initialization stage 0 */
 	MXL_GetMasterControl(ByteTable, MC_SYNTH_RESET);
 	AddrTable[0] = MASTER_CONTROL_ADDR;
 	ByteTable[0] |= state->config->AgcMasterByte;
@@ -3850,7 +3942,7 @@ static int mxl5005s_reconfigure(struct dvb_frontend *fe, u32 mod_type,
 
 	mxl5005s_AssignTunerMode(fe, mod_type, bandwidth);
 
-	
+	/* Tuner initialization stage 1 */
 	MXL_GetInitRegister(fe, AddrTable, ByteTable, &TableLen);
 
 	mxl5005s_writeregs(fe, AddrTable, ByteTable, TableLen);
@@ -3866,7 +3958,7 @@ static int mxl5005s_AssignTunerMode(struct dvb_frontend *fe, u32 mod_type,
 
 	InitTunerControls(fe);
 
-	
+	/* Set MxL5005S parameters. */
 	MXL5005_TunerConfig(
 		fe,
 		c->mod_mode,
@@ -3907,7 +3999,7 @@ static int mxl5005s_set_params(struct dvb_frontend *fe)
 		req_mode = MXL_QAM;
 		req_bw  = MXL5005S_BANDWIDTH_6MHZ;
 		break;
-	default:	
+	default:	/* Assume DVB-T */
 		req_mode = MXL_DVBT;
 		switch (bw) {
 		case 6000000:
@@ -3925,7 +4017,7 @@ static int mxl5005s_set_params(struct dvb_frontend *fe)
 		}
 	}
 
-	
+	/* Change tuner for new modulation type if reqd */
 	if (req_mode != state->current_mode ||
 	    req_bw != state->Chan_Bandwidth) {
 		state->current_mode = req_mode;

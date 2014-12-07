@@ -65,6 +65,20 @@ void __set_pmd(pmd_t *pmdptr, unsigned long pmd)
 	frv_dcache_writeback((unsigned long) pmdptr, (unsigned long) (pmdptr + 1));
 }
 
+/*
+ * List of all pgd's needed for non-PAE so it can invalidate entries
+ * in both cached and uncached pgd's; not needed for PAE since the
+ * kernel pmd is shared. If PAE were not to share the pmd a similar
+ * tactic would be needed. This is essentially codepath-based locking
+ * against pageattr.c; it is the unique case in which a valid change
+ * of kernel pagetables can't be lazily synchronized by vmalloc faults.
+ * vmalloc faults work because attached pagetables are never freed.
+ * If the locking proves to be non-performant, a ticketing scheme with
+ * checks at dup_mmap(), exec(), and other mmlist addition points
+ * could be used. The locking scheme was chosen on the basis of
+ * manfred's recommendations and having no core impact whatsoever.
+ * -- wli
+ */
 DEFINE_SPINLOCK(pgd_lock);
 struct page *pgd_list;
 
@@ -107,9 +121,10 @@ void pgd_ctor(void *pgd)
 	memset(pgd, 0, USER_PGDS_IN_LAST_PML4 * sizeof(pgd_t));
 }
 
+/* never called when PTRS_PER_PMD > 1 */
 void pgd_dtor(void *pgd)
 {
-	unsigned long flags; 
+	unsigned long flags; /* can be called from interrupt context */
 
 	spin_lock_irqsave(&pgd_lock, flags);
 	pgd_list_del(pgd);
@@ -123,7 +138,7 @@ pgd_t *pgd_alloc(struct mm_struct *mm)
 
 void pgd_free(struct mm_struct *mm, pgd_t *pgd)
 {
-	
+	/* in the non-PAE case, clear_page_tables() clears user pgd entries */
  	quicklist_free(0, pgd_dtor, pgd);
 }
 

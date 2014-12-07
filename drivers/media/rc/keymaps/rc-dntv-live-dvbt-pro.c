@@ -13,15 +13,16 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* DigitalNow DNTV Live! DVB-T Pro Remote */
 
 static struct rc_map_table dntv_live_dvbt_pro[] = {
 	{ 0x16, KEY_POWER },
 	{ 0x5b, KEY_HOME },
 
-	{ 0x55, KEY_TV },		
-	{ 0x58, KEY_TUNER },		
-	{ 0x5a, KEY_RADIO },		
-	{ 0x59, KEY_DVD },		
+	{ 0x55, KEY_TV },		/* live tv */
+	{ 0x58, KEY_TUNER },		/* digital Radio */
+	{ 0x5a, KEY_RADIO },		/* FM radio */
+	{ 0x59, KEY_DVD },		/* dvd menu */
 	{ 0x03, KEY_1 },
 	{ 0x01, KEY_2 },
 	{ 0x06, KEY_3 },
@@ -51,20 +52,20 @@ static struct rc_map_table dntv_live_dvbt_pro[] = {
 	{ 0x1a, KEY_STOP },
 	{ 0x40, KEY_REWIND },
 	{ 0x12, KEY_FASTFORWARD },
-	{ 0x41, KEY_PREVIOUSSONG },	
-	{ 0x42, KEY_NEXTSONG },		
-	{ 0x54, KEY_CAMERA },		
-	{ 0x50, KEY_LANGUAGE },		
-	{ 0x47, KEY_TV2 },		
+	{ 0x41, KEY_PREVIOUSSONG },	/* replay |< */
+	{ 0x42, KEY_NEXTSONG },		/* skip >| */
+	{ 0x54, KEY_CAMERA },		/* capture */
+	{ 0x50, KEY_LANGUAGE },		/* sap */
+	{ 0x47, KEY_TV2 },		/* pip */
 	{ 0x4d, KEY_SCREEN },
 	{ 0x43, KEY_SUBTITLE },
 	{ 0x10, KEY_MUTE },
-	{ 0x49, KEY_AUDIO },		
+	{ 0x49, KEY_AUDIO },		/* l/r */
 	{ 0x07, KEY_SLEEP },
-	{ 0x08, KEY_VIDEO },		
-	{ 0x0e, KEY_PREVIOUS },		
-	{ 0x45, KEY_ZOOM },		
-	{ 0x46, KEY_ANGLE },		
+	{ 0x08, KEY_VIDEO },		/* a/v */
+	{ 0x0e, KEY_PREVIOUS },		/* recall */
+	{ 0x45, KEY_ZOOM },		/* zoom + */
+	{ 0x46, KEY_ANGLE },		/* zoom - */
 	{ 0x56, KEY_RED },
 	{ 0x57, KEY_GREEN },
 	{ 0x5c, KEY_YELLOW },
@@ -75,7 +76,7 @@ static struct rc_map_list dntv_live_dvbt_pro_map = {
 	.map = {
 		.scan    = dntv_live_dvbt_pro,
 		.size    = ARRAY_SIZE(dntv_live_dvbt_pro),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_DNTV_LIVE_DVBT_PRO,
 	}
 };

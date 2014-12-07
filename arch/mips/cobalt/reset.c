@@ -30,6 +30,9 @@ device_initcall(ledtrig_power_off_init);
 
 void cobalt_machine_halt(void)
 {
+	/*
+	 * turn on power off LED on RaQ
+	 */
 	led_trigger_event(power_off_led_trigger, LED_FULL);
 
 	local_irq_disable();
@@ -43,6 +46,6 @@ void cobalt_machine_restart(char *command)
 {
 	writeb(RESET, RESET_PORT);
 
-	
+	/* we should never get here */
 	cobalt_machine_halt();
 }

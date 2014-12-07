@@ -8,6 +8,12 @@
  *
  * ----------------------------------------------------------------------- */
 
+/*
+ * mktables.c
+ *
+ * Make RAID-6 tables.  This is a host user space program to be run at
+ * compile time.
+ */
 
 #include <stdio.h>
 #include <string.h>
@@ -56,7 +62,7 @@ int main(int argc, char *argv[])
 	printf("#include <linux/raid/pq.h>\n");
 	printf("#include <linux/export.h>\n");
 
-	
+	/* Compute multiplication table */
 	printf("\nconst u8  __attribute__((aligned(256)))\n"
 		"raid6_gfmul[256][256] =\n"
 		"{\n");
@@ -75,7 +81,7 @@ int main(int argc, char *argv[])
 	printf("EXPORT_SYMBOL(raid6_gfmul);\n");
 	printf("#endif\n");
 
-	
+	/* Compute power-of-2 table (exponent) */
 	v = 1;
 	printf("\nconst u8 __attribute__((aligned(256)))\n"
 	       "raid6_gfexp[256] =\n" "{\n");
@@ -86,7 +92,7 @@ int main(int argc, char *argv[])
 			printf("0x%02x,%c", v, (j == 7) ? '\n' : ' ');
 			v = gfmul(v, 2);
 			if (v == 1)
-				v = 0;	
+				v = 0;	/* For entry 255, not a real entry */
 		}
 	}
 	printf("};\n");
@@ -94,7 +100,7 @@ int main(int argc, char *argv[])
 	printf("EXPORT_SYMBOL(raid6_gfexp);\n");
 	printf("#endif\n");
 
-	
+	/* Compute inverse table x^-1 == x^254 */
 	printf("\nconst u8 __attribute__((aligned(256)))\n"
 	       "raid6_gfinv[256] =\n" "{\n");
 	for (i = 0; i < 256; i += 8) {
@@ -109,7 +115,7 @@ int main(int argc, char *argv[])
 	printf("EXPORT_SYMBOL(raid6_gfinv);\n");
 	printf("#endif\n");
 
-	
+	/* Compute inv(2^x + 1) (exponent-xor-inverse) table */
 	printf("\nconst u8 __attribute__((aligned(256)))\n"
 	       "raid6_gfexi[256] =\n" "{\n");
 	for (i = 0; i < 256; i += 8) {

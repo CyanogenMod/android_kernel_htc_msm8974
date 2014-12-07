@@ -1,3 +1,26 @@
+/*!*****************************************************************************
+*!
+*!  Implements an interface for i2c compatible eeproms to run under Linux.
+*!  Supports 2k, 8k(?) and 16k. Uses adaptive timing adjustments by
+*!  Johan.Adolfsson@axis.com
+*!
+*!  Probing results:
+*!    8k or not is detected (the assumes 2k or 16k)
+*!    2k or 16k detected using test reads and writes.
+*!
+*!------------------------------------------------------------------------
+*!  HISTORY
+*!
+*!  DATE          NAME              CHANGES
+*!  ----          ----              -------
+*!  Aug  28 1999  Edgar Iglesias    Initial Version
+*!  Aug  31 1999  Edgar Iglesias    Allow simultaneous users.
+*!  Sep  03 1999  Edgar Iglesias    Updated probe.
+*!  Sep  03 1999  Edgar Iglesias    Added bail-out stuff if we get interrupted
+*!                                  in the spin-lock.
+*!
+*!        (c) 1999 Axis Communications AB, Lund, Sweden
+*!*****************************************************************************/
 
 #include <linux/kernel.h>
 #include <linux/sched.h>
@@ -11,35 +34,47 @@
 
 #define D(x)
 
+/* If we should use adaptive timing or not: */
+/* #define EEPROM_ADAPTIVE_TIMING */
 
-#define EEPROM_MAJOR_NR 122  
+#define EEPROM_MAJOR_NR 122  /* use a LOCAL/EXPERIMENTAL major for now */
 #define EEPROM_MINOR_NR 0
 
+/* Empirical sane initial value of the delay, the value will be adapted to
+ * what the chip needs when using EEPROM_ADAPTIVE_TIMING.
+ */
 #define INITIAL_WRITEDELAY_US 4000
-#define MAX_WRITEDELAY_US 10000 
+#define MAX_WRITEDELAY_US 10000 /* 10 ms according to spec for 2KB EEPROM */
 
+/* This one defines how many times to try when eeprom fails. */
 #define EEPROM_RETRIES 10
 
 #define EEPROM_2KB (2 * 1024)
- 
-#define EEPROM_8KB (8 * 1024 - 1 ) 
+/*#define EEPROM_4KB (4 * 1024)*/ /* Exists but not used in Axis products */
+#define EEPROM_8KB (8 * 1024 - 1 ) /* Last byte has write protection bit */
 #define EEPROM_16KB (16 * 1024)
 
 #define i2c_delay(x) udelay(x)
 
+/*
+ *  This structure describes the attached eeprom chip.
+ *  The values are probed for.
+ */
 
 struct eeprom_type
 {
   unsigned long size;
   unsigned long sequential_write_pagesize;
   unsigned char select_cmd;
-  unsigned long usec_delay_writecycles; 
-  unsigned long usec_delay_step; 
-  int adapt_state; 
+  unsigned long usec_delay_writecycles; /* Min time between write cycles
+					   (up to 10ms for some models) */
+  unsigned long usec_delay_step; /* For adaptive algorithm */
+  int adapt_state; /* 1 = To high , 0 = Even, -1 = To low */
   
-  
+  /* this one is to keep the read/write operations atomic */
   struct mutex lock;
-  int retry_cnt_addr; 
+  int retry_cnt_addr; /* Used to keep track of number of retries for
+                         adaptive timing adjustments */
   int retry_cnt_read;
 };
 
@@ -61,8 +96,10 @@ static void eeprom_disable_write_protect(void);
 
 static const char eeprom_name[] = "eeprom";
 
+/* chip description */
 static struct eeprom_type eeprom;
 
+/* This is the exported file-operations structure for this device. */
 const struct file_operations eeprom_fops =
 {
   .llseek  = eeprom_lseek,
@@ -72,6 +109,7 @@ const struct file_operations eeprom_fops =
   .release = eeprom_close
 };
 
+/* eeprom init call. Probes for different eeprom models. */
 
 int __init eeprom_init(void)
 {
@@ -91,6 +129,14 @@ int __init eeprom_init(void)
   
   printk("EEPROM char device v0.3, (c) 2000 Axis Communications AB\n");
 
+  /*
+   *  Note: Most of this probing method was taken from the printserver (5470e)
+   *        codebase. It did not contain a way of finding the 16kB chips
+   *        (M24128 or variants). The method used here might not work
+   *        for all models. If you encounter problems the easiest way
+   *        is probably to define your model within #ifdef's, and hard-
+   *        code it.
+   */
 
   eeprom.size = 0;
   eeprom.usec_delay_writecycles = INITIAL_WRITEDELAY_US;
@@ -102,17 +148,25 @@ int __init eeprom_init(void)
   i2c_outbyte(0x80);
   if(!i2c_getack())
   {
-    
+    /* It's not 8k.. */
     int success = 0;
     unsigned char buf_2k_start[16];
     
-    
-    
-    
+    /* Im not sure this will work... :) */
+    /* assume 2kB, if failure go for 16kB */
+    /* Test with 16kB settings.. */
+    /* If it's a 2kB EEPROM and we address it outside it's range
+     * it will mirror the address space:
+     * 1. We read two locations (that are mirrored), 
+     *    if the content differs * it's a 16kB EEPROM.
+     * 2. if it doesn't differ - write different value to one of the locations,
+     *    check the other - if content still is the same it's a 2k EEPROM,
+     *    restore original data.
+     */
 #define LOC1 8
-#define LOC2 (0x1fb) 
+#define LOC2 (0x1fb) /*1fb, 3ed, 5df, 7d1 */
 
-     
+   /* 2k settings */  
     i2c_stop();
     eeprom.size = EEPROM_2KB;
     eeprom.select_cmd = 0xA0;   
@@ -126,7 +180,7 @@ int __init eeprom_init(void)
       printk(KERN_INFO "%s: Failed to read in 2k mode!\n", eeprom_name);  
     }
     
-    
+    /* 16k settings */
     eeprom.size = EEPROM_16KB;
     eeprom.select_cmd = 0xA0;   
     eeprom.sequential_write_pagesize = 64;
@@ -142,7 +196,7 @@ int __init eeprom_init(void)
 #if 0
           if (memcmp(loc1, loc2, 4) != 0 )
           {
-            
+            /* It's 16k */
             printk(KERN_INFO "%s: 16k detected in step 1\n", eeprom_name);
             eeprom.size = EEPROM_16KB;     
             success = 1;
@@ -150,11 +204,14 @@ int __init eeprom_init(void)
           else
 #endif
           {
-            
-            
+            /* Do step 2 check */
+            /* Invert value */
             loc1[0] = ~loc1[0];
             if (eeprom_write_buf(LOC1, loc1, 1) == 1)
             {
+              /* If 2k EEPROM this write will actually write 10 bytes
+               * from pos 0
+               */
               D(printk("1 loc1: (%i) '%4.4s' loc2 (%i) '%4.4s'\n", 
                        LOC1, loc1, LOC2, loc2));
               if( eeprom_read_buf(LOC1, tmp, 4) == 4)
@@ -178,7 +235,7 @@ int __init eeprom_init(void)
                     
                   }
                   i2c_stop();
-                  
+                  /* Go to 2k mode and write original data */
                   eeprom.size = EEPROM_2KB;
                   eeprom.select_cmd = 0xA0;   
                   eeprom.sequential_write_pagesize = 16;
@@ -203,8 +260,8 @@ int __init eeprom_init(void)
                            LOC1, loc1, LOC2, loc2));
                   if (memcmp(loc1, loc2, 4) == 0 )
                   {
-                    
-                    
+                    /* Data the same, must be mirrored -> 2k */
+                    /* Restore data */
                     printk(KERN_INFO "%s: 2k detected in step 2\n", eeprom_name);
                     loc1[0] = ~loc1[0];
                     if (eeprom_write_buf(LOC1, loc1, 1) == 1)
@@ -225,8 +282,8 @@ int __init eeprom_init(void)
                     printk(KERN_INFO "%s: 16k detected in step 2\n",
                            eeprom_name);
                     loc1[0] = ~loc1[0];
-                    
-                    
+                    /* Data differs, assume 16k */
+                    /* Restore data */
                     if (eeprom_write_buf(LOC1, loc1, 1) == 1)
                     {
                       success = 1;
@@ -242,14 +299,14 @@ int __init eeprom_init(void)
                 }
               }
             }
-          } 
-        } 
+          } /* read LOC1 */
+        } /* address LOC1 */
         if (!success)
         {
           printk(KERN_INFO "%s: Probing failed!, using 2KB!\n", eeprom_name);
           eeprom.size = EEPROM_2KB;               
         }
-      } 
+      } /* read */
     }
   }
   else
@@ -257,7 +314,7 @@ int __init eeprom_init(void)
     i2c_outbyte(0x00);
     if(!i2c_getack())
     {
-      
+      /* No 8k */
       eeprom.size = EEPROM_2KB;
     }
     else
@@ -270,7 +327,7 @@ int __init eeprom_init(void)
       }
       else
       {
-        
+        /* It's a 8kB */
         i2c_inbyte();
         eeprom.size = EEPROM_8KB;
       }
@@ -315,6 +372,7 @@ int __init eeprom_init(void)
   return 0;
 }
 
+/* Opens the device. */
 static int eeprom_open(struct inode * inode, struct file * file)
 {
   if(iminor(inode) != EEPROM_MINOR_NR)
@@ -324,17 +382,23 @@ static int eeprom_open(struct inode * inode, struct file * file)
 
   if( eeprom.size > 0 )
   {
-    
+    /* OK */
     return 0;
   }
 
-  
+  /* No EEprom found */
   return -EFAULT;
 }
 
+/* Changes the current file position. */
 
 static loff_t eeprom_lseek(struct file * file, loff_t offset, int orig)
 {
+/*
+ *  orig 0: position from begning of eeprom
+ *  orig 1: relative from current position
+ *  orig 2: position from last eeprom address
+ */
   
   switch (orig)
   {
@@ -351,7 +415,7 @@ static loff_t eeprom_lseek(struct file * file, loff_t offset, int orig)
      return -EINVAL;
   }
 
-  
+  /* truncate position */
   if (file->f_pos < 0)
   {
     file->f_pos = 0;    
@@ -367,6 +431,7 @@ static loff_t eeprom_lseek(struct file * file, loff_t offset, int orig)
   return ( file->f_pos );
 }
 
+/* Reads data from eeprom. */
 
 static int eeprom_read_buf(loff_t addr, char * buf, int count)
 {
@@ -375,6 +440,7 @@ static int eeprom_read_buf(loff_t addr, char * buf, int count)
 
 
 
+/* Reads data from eeprom. */
 
 static ssize_t eeprom_read(struct file * file, char * buf, size_t count, loff_t *off)
 {
@@ -383,7 +449,7 @@ static ssize_t eeprom_read(struct file * file, char * buf, size_t count, loff_t 
 
   unsigned char page;
 
-  if(p >= eeprom.size)  
+  if(p >= eeprom.size)  /* Address i 0 - (size-1) */
   {
     return -EFAULT;
   }
@@ -399,27 +465,27 @@ static ssize_t eeprom_read(struct file * file, char * buf, size_t count, loff_t 
            "0x%08X (%i) page: %i\n", eeprom_name, (int)p, (int)p, page);
     i2c_stop();
     
-    
+    /* don't forget to wake them up */
     mutex_unlock(&eeprom.lock);
     return -EFAULT;
   }
 
   if( (p + count) > eeprom.size)
   {
-    
+    /* truncate count */
     count = eeprom.size - p;
   }
 
-  
+  /* stop dummy write op and initiate the read op */
   i2c_start();
 
-  
+  /* special case for small eeproms */
   if(eeprom.size < EEPROM_16KB)
   {
     i2c_outbyte( eeprom.select_cmd | 1 | (page << 1) );
   }
 
-  
+  /* go on with the actual read */
   read = read_from_eeprom( buf, count);
   
   if(read > 0)
@@ -431,6 +497,7 @@ static ssize_t eeprom_read(struct file * file, char * buf, size_t count, loff_t 
   return read;
 }
 
+/* Writes data to eeprom. */
 
 static int eeprom_write_buf(loff_t addr, const char * buf, int count)
 {
@@ -438,6 +505,7 @@ static int eeprom_write_buf(loff_t addr, const char * buf, int count)
 }
 
 
+/* Writes data to eeprom. */
 
 static ssize_t eeprom_write(struct file * file, const char * buf, size_t count,
                             loff_t *off)
@@ -450,7 +518,7 @@ static ssize_t eeprom_write(struct file * file, const char * buf, size_t count,
     return -EFAULT;
   }
 
-  
+  /* bail out if we get interrupted */
   if (mutex_lock_interruptible(&eeprom.lock))
     return -EINTR;
   for(i = 0; (i < EEPROM_RETRIES) && (restart > 0); i++)
@@ -462,22 +530,22 @@ static ssize_t eeprom_write(struct file * file, const char * buf, size_t count,
     
     while( (written < count) && (p < eeprom.size))
     {
-      
+      /* address the eeprom */
       if(!eeprom_address(p))
       {
         printk(KERN_INFO "%s: Write failed to address the eeprom: "
                "0x%08X (%i) \n", eeprom_name, (int)p, (int)p);
         i2c_stop();
         
-        
+        /* don't forget to wake them up */
         mutex_unlock(&eeprom.lock);
         return -EFAULT;
       }
 #ifdef EEPROM_ADAPTIVE_TIMING      
-      
+      /* Adaptive algorithm to adjust timing */
       if (eeprom.retry_cnt_addr > 0)
       {
-        
+        /* To Low now */
         D(printk(">D=%i d=%i\n",
                eeprom.usec_delay_writecycles, eeprom.usec_delay_step));
 
@@ -491,7 +559,7 @@ static ssize_t eeprom_write(struct file * file, const char * buf, size_t count,
 
           if (eeprom.adapt_state > 0)
           {
-            
+            /* To Low before */
             eeprom.usec_delay_step *= 2;
             if (eeprom.usec_delay_step > 2)
             {
@@ -501,7 +569,7 @@ static ssize_t eeprom_write(struct file * file, const char * buf, size_t count,
           }
           else if (eeprom.adapt_state < 0)
           {
-            
+            /* To High before (toggle dir) */
             eeprom.usec_delay_writecycles += eeprom.usec_delay_step;
             if (eeprom.usec_delay_step > 1)
             {
@@ -515,13 +583,13 @@ static ssize_t eeprom_write(struct file * file, const char * buf, size_t count,
       }
       else
       {
-        
+        /* To High (or good) now */
         D(printk("<D=%i d=%i\n",
                eeprom.usec_delay_writecycles, eeprom.usec_delay_step));
         
         if (eeprom.adapt_state < 0)
         {
-          
+          /* To High before */
           if (eeprom.usec_delay_step > 1)
           {
             eeprom.usec_delay_step *= 2;
@@ -535,7 +603,7 @@ static ssize_t eeprom_write(struct file * file, const char * buf, size_t count,
         }
         else if (eeprom.adapt_state > 0)
         {
-          
+          /* To Low before (toggle dir) */
           if (eeprom.usec_delay_writecycles > eeprom.usec_delay_step)
           {
             eeprom.usec_delay_writecycles -= eeprom.usec_delay_step;
@@ -555,13 +623,13 @@ static ssize_t eeprom_write(struct file * file, const char * buf, size_t count,
         }
         else
         {
-          
+          /* Restart adaption */
           D(printk("#Restart\n"));
           eeprom.usec_delay_step++;
         }
       }
-#endif 
-      
+#endif /* EEPROM_ADAPTIVE_TIMING */
+      /* write until we hit a page boundary or count */
       do
       {
         i2c_outbyte(buf[written]);        
@@ -576,11 +644,11 @@ static ssize_t eeprom_write(struct file * file, const char * buf, size_t count,
         p++;        
       } while( written < count && ( p % eeprom.sequential_write_pagesize ));
 
-      
+      /* end write cycle */
       i2c_stop();
       i2c_delay(eeprom.usec_delay_writecycles);
-    } 
-  } 
+    } /* while */
+  } /* for  */
 
   mutex_unlock(&eeprom.lock);
   if (written == 0 && p >= eeprom.size){
@@ -590,13 +658,15 @@ static ssize_t eeprom_write(struct file * file, const char * buf, size_t count,
   return written;
 }
 
+/* Closes the device. */
 
 static int eeprom_close(struct inode * inode, struct file * file)
 {
-  
+  /* do nothing for now */
   return 0;
 }
 
+/* Sets the current address of the eeprom. */
 
 static int eeprom_address(unsigned long addr)
 {
@@ -608,7 +678,7 @@ static int eeprom_address(unsigned long addr)
 
   for(i = 0; i < EEPROM_RETRIES; i++)
   {
-    
+    /* start a dummy write for addressing */
     i2c_start();
 
     if(eeprom.size == EEPROM_16KB)
@@ -623,11 +693,11 @@ static int eeprom_address(unsigned long addr)
     }
     if(!i2c_getack())
     {
-      
+      /* retry */
       i2c_stop();
-      
+      /* Must have a delay here.. 500 works, >50, 100->works 5th time*/
       i2c_delay(MAX_WRITEDELAY_US / EEPROM_RETRIES * i);
-      
+      /* The chip needs up to 10 ms from write stop to next start */
      
     }
     else
@@ -636,7 +706,7 @@ static int eeprom_address(unsigned long addr)
       
       if(!i2c_getack())
       {
-        
+        /* retry */
         i2c_stop();
       }
       else
@@ -649,12 +719,13 @@ static int eeprom_address(unsigned long addr)
   D(printk("%i\n", eeprom.retry_cnt_addr));
   if(eeprom.retry_cnt_addr == EEPROM_RETRIES)
   {
-    
+    /* failed */
     return 0;
   }
   return 1;
 }
 
+/* Reads from current address. */
 
 static int read_from_eeprom(char * buf, int count)
 {
@@ -690,27 +761,32 @@ static int read_from_eeprom(char * buf, int count)
       return -EFAULT;
     }
 
+    /*
+     *  make sure we don't ack last byte or you will get very strange
+     *  results!
+     */
     if(read < count)
     {
       i2c_sendack();
     }
   }
 
-  
+  /* stop the operation */
   i2c_stop();
 
   return read;
 }
 
+/* Disables write protection if applicable. */
 
 #define DBP_SAVE(x)
 #define ax_printf printk
 static void eeprom_disable_write_protect(void)
 {
-  
+  /* Disable write protect */
   if (eeprom.size == EEPROM_8KB)
   {
-    
+    /* Step 1 Set WEL = 1 (write 00000010 to address 1FFFh */
     i2c_start();
     i2c_outbyte(0xbe);
     if(!i2c_getack())
@@ -731,7 +807,7 @@ static void eeprom_disable_write_protect(void)
 
     i2c_delay(1000);
 
-    
+    /* Step 2 Set RWEL = 1 (write 00000110 to address 1FFFh */
     i2c_start();
     i2c_outbyte(0xbe);
     if(!i2c_getack())
@@ -750,7 +826,7 @@ static void eeprom_disable_write_protect(void)
     }
     i2c_stop();
     
-    
+    /* Step 3 Set BP1, BP0, and/or WPEN bits (write 00000110 to address 1FFFh */
     i2c_start();
     i2c_outbyte(0xbe);
     if(!i2c_getack())
@@ -769,7 +845,7 @@ static void eeprom_disable_write_protect(void)
     }
     i2c_stop();
     
-    
+    /* Write protect disabled */
   }
 }
 

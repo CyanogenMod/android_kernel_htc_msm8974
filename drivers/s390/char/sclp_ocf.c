@@ -39,30 +39,31 @@ static void sclp_ocf_change_notify(struct work_struct *work)
 	kobject_uevent(&ocf_kset->kobj, KOBJ_CHANGE);
 }
 
+/* Handler for OCF event. Look for the CPC image name. */
 static void sclp_ocf_handler(struct evbuf_header *evbuf)
 {
 	struct gds_vector *v;
 	struct gds_subvector *sv, *netid, *cpc;
 	size_t size;
 
-	
+	/* Find the 0x9f00 block. */
 	v = sclp_find_gds_vector(evbuf + 1, (void *) evbuf + evbuf->length,
 				 0x9f00);
 	if (!v)
 		return;
-	
+	/* Find the 0x9f22 block inside the 0x9f00 block. */
 	v = sclp_find_gds_vector(v + 1, (void *) v + v->length, 0x9f22);
 	if (!v)
 		return;
-	
+	/* Find the 0x81 block inside the 0x9f22 block. */
 	sv = sclp_find_gds_subvector(v + 1, (void *) v + v->length, 0x81);
 	if (!sv)
 		return;
-	
+	/* Find the 0x01 block inside the 0x81 block. */
 	netid = sclp_find_gds_subvector(sv + 1, (void *) sv + sv->length, 1);
-	
+	/* Find the 0x02 block inside the 0x81 block. */
 	cpc = sclp_find_gds_subvector(sv + 1, (void *) sv + sv->length, 2);
-	
+	/* Copy network name and cpc name. */
 	spin_lock(&sclp_ocf_lock);
 	if (netid) {
 		size = min(OCF_LENGTH_HMC_NETWORK, (size_t) netid->length);

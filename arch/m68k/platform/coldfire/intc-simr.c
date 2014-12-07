@@ -20,11 +20,19 @@
 #include <asm/mcfsim.h>
 #include <asm/traps.h>
 
+/*
+ *	The EDGE Port interrupts are the fixed 7 external interrupts.
+ *	They need some special treatment, for example they need to be acked.
+ */
 #ifdef CONFIG_M520x
-#define	EINT0	64	
-#define	EINT1	65	
-#define	EINT4	66	
-#define	EINT7	67	
+/*
+ *	The 520x parts only support a limited range of these external
+ *	interrupts, only 1, 4 and 7 (as interrupts 65, 66 and 67).
+ */
+#define	EINT0	64	/* Is not actually used, but spot reserved for it */
+#define	EINT1	65	/* EDGE Port interrupt 1 */
+#define	EINT4	66	/* EDGE Port interrupt 4 */
+#define	EINT7	67	/* EDGE Port interrupt 7 */
 
 static unsigned int irqebitmap[] = { 0, 1, 4, 7 };
 static unsigned int inline irq2ebit(unsigned int irq)
@@ -34,9 +42,14 @@ static unsigned int inline irq2ebit(unsigned int irq)
 
 #else
 
-#define	EINT0	64	
-#define	EINT1	65	
-#define	EINT7	71	
+/*
+ *	Most of the ColdFire parts with the EDGE Port module just have
+ *	a strait direct mapping of the 7 external interrupts. Although
+ *	there is a bit reserved for 0, it is not used.
+ */
+#define	EINT0	64	/* Is not actually used, but spot reserved for it */
+#define	EINT1	65	/* EDGE Port interrupt 1 */
+#define	EINT7	71	/* EDGE Port interrupt 7 */
 
 static unsigned int inline irq2ebit(unsigned int irq)
 {
@@ -45,6 +58,11 @@ static unsigned int inline irq2ebit(unsigned int irq)
 
 #endif
 
+/*
+ *	There maybe one or two interrupt control units, each has 64
+ *	interrupts. If there is no second unit then MCFINTC1_* defines
+ *	will be 0 (and code for them optimized away).
+ */
 
 static void intc_irq_mask(struct irq_data *d)
 {
@@ -81,11 +99,11 @@ static unsigned int intc_irq_startup(struct irq_data *d)
 		unsigned int ebit = irq2ebit(irq);
 		u8 v;
 
-		
+		/* Set EPORT line as input */
 		v = __raw_readb(MCFEPORT_EPDDR);
 		__raw_writeb(v & ~(0x1 << ebit), MCFEPORT_EPDDR);
 
-		
+		/* Set EPORT line as interrupt source */
 		v = __raw_readb(MCFEPORT_EPIER);
 		__raw_writeb(v | (0x1 << ebit), MCFEPORT_EPIER);
 	}
@@ -117,7 +135,7 @@ static int intc_irq_set_type(struct irq_data *d, unsigned int type)
 		tb = 0x3;
 		break;
 	default:
-		
+		/* Level triggered */
 		tb = 0;
 		break;
 	}
@@ -153,7 +171,7 @@ void __init init_IRQ(void)
 {
 	int irq, eirq;
 
-	
+	/* Mask all interrupt sources */
 	__raw_writeb(0xff, MCFINTC0_SIMR);
 	if (MCFINTC1_SIMR)
 		__raw_writeb(0xff, MCFINTC1_SIMR);

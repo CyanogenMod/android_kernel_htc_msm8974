@@ -11,6 +11,9 @@
  *
  */
 
+/*
+ * SMD RPCROUTER XDR module.
+ */
 
 #include <linux/slab.h>
 #include <linux/types.h>
@@ -275,16 +278,16 @@ int xdr_recv_req(struct msm_rpc_xdr *xdr, struct rpc_request_hdr *req)
 	if (!req)
 		return -1;
 
-	rc |= xdr_recv_uint32(xdr, &req->xid);           
-	rc |= xdr_recv_uint32(xdr, &req->type);          
-	rc |= xdr_recv_uint32(xdr, &req->rpc_vers);      
-	rc |= xdr_recv_uint32(xdr, &req->prog);          
-	rc |= xdr_recv_uint32(xdr, &req->vers);          
-	rc |= xdr_recv_uint32(xdr, &req->procedure);     
-	rc |= xdr_recv_uint32(xdr, &req->cred_flavor);   
-	rc |= xdr_recv_uint32(xdr, &req->cred_length);   
-	rc |= xdr_recv_uint32(xdr, &req->verf_flavor);   
-	rc |= xdr_recv_uint32(xdr, &req->verf_length);   
+	rc |= xdr_recv_uint32(xdr, &req->xid);           /* xid */
+	rc |= xdr_recv_uint32(xdr, &req->type);          /* type */
+	rc |= xdr_recv_uint32(xdr, &req->rpc_vers);      /* rpc_vers */
+	rc |= xdr_recv_uint32(xdr, &req->prog);          /* prog */
+	rc |= xdr_recv_uint32(xdr, &req->vers);          /* vers */
+	rc |= xdr_recv_uint32(xdr, &req->procedure);     /* procedure */
+	rc |= xdr_recv_uint32(xdr, &req->cred_flavor);   /* cred_flavor */
+	rc |= xdr_recv_uint32(xdr, &req->cred_length);   /* cred_length */
+	rc |= xdr_recv_uint32(xdr, &req->verf_flavor);   /* verf_flavor */
+	rc |= xdr_recv_uint32(xdr, &req->verf_length);   /* verf_length */
 
 	return rc;
 }
@@ -296,11 +299,11 @@ int xdr_recv_reply(struct msm_rpc_xdr *xdr, struct rpc_reply_hdr *reply)
 	if (!reply)
 		return -1;
 
-	rc |= xdr_recv_uint32(xdr, &reply->xid);           
-	rc |= xdr_recv_uint32(xdr, &reply->type);          
-	rc |= xdr_recv_uint32(xdr, &reply->reply_stat);    
+	rc |= xdr_recv_uint32(xdr, &reply->xid);           /* xid */
+	rc |= xdr_recv_uint32(xdr, &reply->type);          /* type */
+	rc |= xdr_recv_uint32(xdr, &reply->reply_stat);    /* reply_stat */
 
-	
+	/* acc_hdr */
 	if (reply->reply_stat == RPCMSG_REPLYSTAT_ACCEPTED) {
 		rc |= xdr_recv_uint32(xdr, &reply->data.acc_hdr.verf_flavor);
 		rc |= xdr_recv_uint32(xdr, &reply->data.acc_hdr.verf_length);
@@ -315,7 +318,7 @@ int xdr_start_request(struct msm_rpc_xdr *xdr, uint32_t prog,
 {
 	mutex_lock(&xdr->out_lock);
 
-	
+	/* TODO: replace below function with its implementation */
 	msm_rpc_setup_req((struct rpc_request_hdr *)xdr->out_buf,
 			  prog, ver, proc);
 
@@ -329,12 +332,12 @@ int xdr_start_accepted_reply(struct msm_rpc_xdr *xdr, uint32_t accept_status)
 
 	mutex_lock(&xdr->out_lock);
 
-	
+	/* TODO: err if xdr is not cb xdr */
 	reply = (struct rpc_reply_hdr *)xdr->out_buf;
 
-	
+	/* TODO: use xdr functions instead */
 	reply->xid = ((struct rpc_request_hdr *)(xdr->in_buf))->xid;
-	reply->type = cpu_to_be32(1); 
+	reply->type = cpu_to_be32(1); /* reply */
 	reply->reply_stat = cpu_to_be32(RPCMSG_REPLYSTAT_ACCEPTED);
 
 	reply->data.acc_hdr.accept_stat = cpu_to_be32(accept_status);

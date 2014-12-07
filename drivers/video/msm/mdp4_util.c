@@ -182,7 +182,7 @@ unsigned is_mdp4_hw_reset(void)
 {
 	unsigned hw_reset = 0;
 
-	
+	/* Only revisions > v2.1 may be reset or powered off/on at runtime */
 	if (mdp_hw_revision > MDP4_REVISION_V2_1) {
 		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 		hw_reset = !inpdw(MDP_BASE + 0x003c);
@@ -194,15 +194,15 @@ unsigned is_mdp4_hw_reset(void)
 
 void mdp4_sw_reset(ulong bits)
 {
-	
+	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
-	bits &= 0x1f;	
-	outpdw(MDP_BASE + 0x001c, bits);	
+	bits &= 0x1f;	/* 5 bits */
+	outpdw(MDP_BASE + 0x001c, bits);	/* MDP_SW_RESET */
 
-	while (inpdw(MDP_BASE + 0x001c) & bits) 
+	while (inpdw(MDP_BASE + 0x001c) & bits) /* self clear when complete */
 		;
-	
+	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 
 	MSM_FB_DEBUG("mdp4_sw_reset: 0x%x\n", (int)bits);
@@ -214,42 +214,42 @@ void mdp4_overlay_cfg(int overlayer, int blt_mode, int refresh, int direct_out)
 
 	if (blt_mode)
 		bits |= (1 << 3);
-	refresh &= 0x03;	
+	refresh &= 0x03;	/* 2 bites */
 	bits |= (refresh << 1);
 	direct_out &= 0x01;
 	bits |= direct_out;
-	
+	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
 
 	if (overlayer == MDP4_MIXER0)
-		outpdw(MDP_BASE + 0x10004, bits); 
+		outpdw(MDP_BASE + 0x10004, bits); /* MDP_OVERLAY0_CFG */
 	else if (overlayer == MDP4_MIXER1)
-		outpdw(MDP_BASE + 0x18004, bits); 
+		outpdw(MDP_BASE + 0x18004, bits); /* MDP_OVERLAY1_CFG */
 
 	MSM_FB_DEBUG("mdp4_overlay_cfg: 0x%x\n",
 		(int)inpdw(MDP_BASE + 0x10004));
-	
+	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 
 void mdp4_display_intf_sel(int output, ulong intf)
 {
 	ulong bits, mask, data;
-	
+	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
-	bits = inpdw(MDP_BASE + 0x0038);	
+	bits = inpdw(MDP_BASE + 0x0038);	/* MDP_DISP_INTF_SEL */
 
 	if (intf == DSI_VIDEO_INTF) {
-		data = 0x40;	
+		data = 0x40;	/* bit 6 */
 		intf = MDDI_LCDC_INTF;
 		if (output == SECONDARY_INTF_SEL) {
 			MSM_FB_INFO("%s: Illegal INTF selected, output=%d \
 				intf=%d\n", __func__, output, (int)intf);
 		}
 	} else if (intf == DSI_CMD_INTF) {
-		data = 0x80;	
+		data = 0x80;	/* bit 7 */
 		intf = MDDI_INTF;
 		if (output == EXTERNAL_INTF_SEL) {
 			MSM_FB_INFO("%s: Illegal INTF selected, output=%d \
@@ -258,8 +258,8 @@ void mdp4_display_intf_sel(int output, ulong intf)
 	} else
 		data = 0;
 
-	mask = 0x03;	
-	intf &= 0x03;	
+	mask = 0x03;	/* 2 bits */
+	intf &= 0x03;	/* 2 bits */
 
 	switch (output) {
 	case EXTERNAL_INTF_SEL:
@@ -267,7 +267,7 @@ void mdp4_display_intf_sel(int output, ulong intf)
 		mask <<= 4;
 		break;
 	case SECONDARY_INTF_SEL:
-		intf &= 0x02;	
+		intf &= 0x02;	/* only MDDI and EBI2 support */
 		intf <<= 2;
 		mask <<= 2;
 		break;
@@ -281,8 +281,8 @@ void mdp4_display_intf_sel(int output, ulong intf)
 	bits &= ~mask;
 	bits |= intf;
 
-	outpdw(MDP_BASE + 0x0038, bits);	
-	
+	outpdw(MDP_BASE + 0x0038, bits);	/* MDP_DISP_INTF_SEL */
+	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 
   MSM_FB_DEBUG("mdp4_display_intf_sel: 0x%x\n", (int)inpdw(MDP_BASE + 0x0038));
@@ -291,31 +291,31 @@ void mdp4_display_intf_sel(int output, ulong intf)
 unsigned long mdp4_display_status(void)
 {
 	ulong status;
-	
+	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
-	status = inpdw(MDP_BASE + 0x0018) & 0x3ff;	
+	status = inpdw(MDP_BASE + 0x0018) & 0x3ff;	/* MDP_DISPLAY_STATUS */
 
-	
+	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 	return status;
 }
 
 void mdp4_ebi2_lcd_setup(int lcd, ulong base, int ystride)
 {
-	
-	ystride &= 0x01fff;	
-	
+	/* always use memory map */
+	ystride &= 0x01fff;	/* 13 bits */
+	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
 	if (lcd == EBI2_LCD0) {
-		outpdw(MDP_BASE + 0x0060, base);
-		outpdw(MDP_BASE + 0x0068, ystride);
+		outpdw(MDP_BASE + 0x0060, base);/* MDP_EBI2_LCD0 */
+		outpdw(MDP_BASE + 0x0068, ystride);/* MDP_EBI2_LCD0_YSTRIDE */
 	} else {
-		outpdw(MDP_BASE + 0x0064, base);
-		outpdw(MDP_BASE + 0x006c, ystride);
+		outpdw(MDP_BASE + 0x0064, base);/* MDP_EBI2_LCD1 */
+		outpdw(MDP_BASE + 0x006c, ystride);/* MDP_EBI2_LCD1_YSTRIDE */
 	}
-	
+	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 
@@ -328,23 +328,23 @@ void mdp4_mddi_setup(int mddi, unsigned long id)
 	else if (mddi == MDDI_SECONDARY_SET)
 		bits = 0x01;
 	else
-		bits = 0;	
+		bits = 0;	/* PRIMARY_SET */
 
 	id <<= 16;
 
 	bits |= id;
-	
+	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
-	outpdw(MDP_BASE + 0x0090, bits); 
-	
+	outpdw(MDP_BASE + 0x0090, bits); /* MDP_MDDI_PARAM_WR_SEL */
+	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 
 int mdp_ppp_blit(struct fb_info *info, struct mdp_blit_req *req)
 {
 
-	
+	/* not implemented yet */
 	return -1;
 }
 
@@ -353,31 +353,34 @@ void mdp4_fetch_cfg(uint32 core_clk)
 	uint32 dmap_data, vg_data;
 	char *base;
 	int i;
-	
+	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
-	if (mdp_rev >= MDP_REV_41 || core_clk >= 90000000) { 
-		dmap_data = 0x47; 
-		vg_data = 0x47; 
+	if (mdp_rev >= MDP_REV_41 || core_clk >= 90000000) { /* 90 Mhz */
+		dmap_data = 0x47; /* 16 bytes-burst x 8 req */
+		vg_data = 0x47; /* 16 bytes-burs x 8 req */
 	} else {
-		dmap_data = 0x27; 
-		vg_data = 0x43; 
+		dmap_data = 0x27; /* 8 bytes-burst x 8 req */
+		vg_data = 0x43; /* 16 bytes-burst x 4 req */
 	}
 
 	MSM_FB_DEBUG("mdp4_fetch_cfg: dmap=%x vg=%x\n",
 			dmap_data, vg_data);
 
-	
+	/* dma_p fetch config */
 	outpdw(MDP_BASE + 0x91004, dmap_data);
-	
+	/* dma_e fetch config */
 	outpdw(MDP_BASE + 0xB1004, dmap_data);
 
+	/*
+	 * set up two vg pipes and two rgb pipes
+	 */
 	base = MDP_BASE + MDP4_VIDEO_BASE;
 	for (i = 0; i < 4; i++) {
 		outpdw(base + 0x1004, vg_data);
 		base += MDP4_VIDEO_OFF;
 	}
-	
+	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 
@@ -386,18 +389,23 @@ void mdp4_hw_init(void)
 	ulong bits;
 	uint32 clk_rate;
 	int i;
-	
+	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
 	mdp_bus_scale_update_request
 		(MDP_BUS_SCALE_INIT, MDP_BUS_SCALE_INIT);
 
 #ifdef MDP4_ERROR
+	/*
+	 * Issue software reset on DMA_P will casue DMA_P dma engine stall
+	 * on LCDC mode. However DMA_P does not stall at MDDI mode.
+	 * This need further investigation.
+	 */
 	mdp4_sw_reset(0x17);
 #endif
 
 	if (mdp_rev > MDP_REV_41) {
-		
+		/* mdp chip select controller */
 		outpdw(MDP_BASE + 0x00c0, CS_CONTROLLER_0);
 		outpdw(MDP_BASE + 0x00c4, CS_CONTROLLER_1);
 	}
@@ -425,21 +433,21 @@ void mdp4_hw_init(void)
 
 	outp32(MDP_EBI2_PORTMAP_MODE, 0x3);
 
-	
+	/* system interrupts */
 
 	bits =  mdp_intr_mask;
-	outpdw(MDP_BASE + 0x0050, bits);
+	outpdw(MDP_BASE + 0x0050, bits);/* enable specififed interrupts */
 
-	
-	
-	
-	
+	/* For the max read pending cmd config below, if the MDP clock     */
+	/* is less than the AXI clock, then we must use 3 pending          */
+	/* pending requests.  Otherwise, we should use 8 pending requests. */
+	/* In the future we should do this detection automatically.	   */
 
-	
-	outpdw(MDP_BASE + 0x004c, 0x02222);	
+	/* max read pending cmd config */
+	outpdw(MDP_BASE + 0x004c, 0x02222);	/* 3 pending requests */
 
 #ifndef CONFIG_FB_MSM_OVERLAY
-	
+	/* both REFRESH_MODE and DIRECT_OUT are ignored at BLT mode */
 	mdp4_overlay_cfg(MDP4_MIXER0, OVERLAY_MODE_BLT, 0, 0);
 	mdp4_overlay_cfg(MDP4_MIXER1, OVERLAY_MODE_BLT, 0, 0);
 #endif
@@ -447,10 +455,12 @@ void mdp4_hw_init(void)
 	clk_rate = mdp_get_core_clk();
 	mdp4_fetch_cfg(clk_rate);
 
+	/* Mark hardware as initialized. Only revisions > v2.1 have a register
+	 * for tracking core reset status. */
 	if (mdp_hw_revision > MDP4_REVISION_V2_1)
 		outpdw(MDP_BASE + 0x003c, 1);
 
-	
+	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 
@@ -462,25 +472,25 @@ void mdp4_clear_lcdc(void)
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
 	bits = inpdw(MDP_BASE + 0xc0000);
-	if (bits & 0x01) { 
+	if (bits & 0x01) { /* enabled already */
 		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 		return;
 	}
 
-	outpdw(MDP_BASE + 0xc0004, 0);	
-	outpdw(MDP_BASE + 0xc0008, 0);	
-	outpdw(MDP_BASE + 0xc000c, 0);	
-	outpdw(MDP_BASE + 0xc0010, 0);	
-	outpdw(MDP_BASE + 0xc0014, 0);	
-	outpdw(MDP_BASE + 0xc0018, 0);	
-	outpdw(MDP_BASE + 0xc001c, 0);	
-	outpdw(MDP_BASE + 0xc0020, 0);	
-	outpdw(MDP_BASE + 0xc0024, 0);	
-	outpdw(MDP_BASE + 0xc0028, 0);	
-	outpdw(MDP_BASE + 0xc002c, 0);	
-	outpdw(MDP_BASE + 0xc0030, 0);	
-	outpdw(MDP_BASE + 0xc0034, 0);	
-	outpdw(MDP_BASE + 0xc0038, 0);	
+	outpdw(MDP_BASE + 0xc0004, 0);	/* vsync ctrl out */
+	outpdw(MDP_BASE + 0xc0008, 0);	/* vsync period */
+	outpdw(MDP_BASE + 0xc000c, 0);	/* vsync pusle width */
+	outpdw(MDP_BASE + 0xc0010, 0);	/* lcdc display HCTL */
+	outpdw(MDP_BASE + 0xc0014, 0);	/* lcdc display v start */
+	outpdw(MDP_BASE + 0xc0018, 0);	/* lcdc display v end */
+	outpdw(MDP_BASE + 0xc001c, 0);	/* lcdc active hctl */
+	outpdw(MDP_BASE + 0xc0020, 0);	/* lcdc active v start */
+	outpdw(MDP_BASE + 0xc0024, 0);	/* lcdc active v end */
+	outpdw(MDP_BASE + 0xc0028, 0);	/* lcdc board color */
+	outpdw(MDP_BASE + 0xc002c, 0);	/* lcdc underflow ctrl */
+	outpdw(MDP_BASE + 0xc0030, 0);	/* lcdc hsync skew */
+	outpdw(MDP_BASE + 0xc0034, 0);	/* lcdc test ctl */
+	outpdw(MDP_BASE + 0xc0038, 0);	/* lcdc ctl polarity */
 
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
@@ -494,6 +504,10 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 
 	mdp_is_in_isr = TRUE;
 
+	/* complete all the reads before reading the interrupt
+	* status register - eliminate effects of speculative
+	* reads by the cpu
+	*/
 	rmb();
 	isr = inpdw(MDP_INTR_STATUS);
 	if (isr == 0)
@@ -506,6 +520,9 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 	if (isr & INTR_PRIMARY_INTF_UDERRUN) {
 		pr_debug("%s: UNDERRUN -- primary\n", __func__);
 		mdp4_stat.intr_underrun_p++;
+		/* When underun occurs mdp clear the histogram registers
+		that are set before in hw_init so restore them back so
+		that histogram works.*/
 		for (i = 0; i < MDP_HIST_MGMT_MAX; i++) {
 			mgmt = mdp_hist_mgmt_array[i];
 			if (!mgmt)
@@ -538,7 +555,7 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 		else if (panel & MDP4_PANEL_DSI_CMD)
 			mdp4_dmap_done_dsi_cmd(0);
 #else
-		else { 
+		else { /* MDDI */
 			mdp4_dmap_done_mddi(0);
 			mdp_pipe_ctrl(MDP_DMA2_BLOCK,
 				MDP_BLOCK_POWER_OFF, TRUE);
@@ -577,14 +594,14 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 		mdp4_stat.intr_overlay0++;
 		dma = &dma2_data;
 		if (panel & (MDP4_PANEL_LCDC | MDP4_PANEL_DSI_VIDEO)) {
-			
+			/* disable LCDC interrupt */
 			if (panel & MDP4_PANEL_LCDC)
 				mdp4_overlay0_done_lcdc(0);
 #ifdef CONFIG_FB_MSM_MIPI_DSI
 			else if (panel & MDP4_PANEL_DSI_VIDEO)
 				mdp4_overlay0_done_dsi_video(0);
 #endif
-		} else {        
+		} else {        /* MDDI, DSI_CMD  */
 #ifdef CONFIG_FB_MSM_MIPI_DSI
 			if (panel & MDP4_PANEL_DSI_CMD)
 				mdp4_overlay0_done_dsi_cmd(0);
@@ -597,7 +614,7 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 	}
 	if (isr & INTR_OVERLAY1_DONE) {
 		mdp4_stat.intr_overlay1++;
-		
+		/* disable DTV interrupt */
 		dma = &dma_e_data;
 		spin_lock(&mdp_spin_lock);
 		mdp_intr_mask &= ~INTR_OVERLAY1_DONE;
@@ -618,12 +635,12 @@ irqreturn_t mdp4_isr(int irq, void *ptr)
 	if (isr & INTR_OVERLAY2_DONE) {
 		mdp4_stat.intr_overlay2++;
 		mdp_pipe_ctrl(MDP_OVERLAY2_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
-		
+		/* disable DTV interrupt */
 		if (panel & MDP4_PANEL_WRITEBACK)
 			mdp4_overlay2_done_wfd(&dma_wb_data);
 	}
 #endif
-#endif	
+#endif	/* OVERLAY */
 
 	if (isr & INTR_PRIMARY_VSYNC) {
 		mdp4_stat.intr_vsync_p++;
@@ -675,6 +692,9 @@ out:
 }
 
 
+/*
+ * QSEED tables
+ */
 
 static uint32 vg_qseed_table0[] = {
 	0x5556aaff, 0x00000000, 0x00000000, 0x00000000
@@ -1290,34 +1310,34 @@ void mdp4_mixer_blend_init(mixer_num)
 	unsigned char *overlay_base;
 	int off;
 
-	if (mixer_num) 	
-		overlay_base = MDP_BASE + MDP4_OVERLAYPROC1_BASE;
+	if (mixer_num) 	/* mixer number, /dev/fb0, /dev/fb1 */
+		overlay_base = MDP_BASE + MDP4_OVERLAYPROC1_BASE;/* 0x18000 */
 	else
-		overlay_base = MDP_BASE + MDP4_OVERLAYPROC0_BASE;
+		overlay_base = MDP_BASE + MDP4_OVERLAYPROC0_BASE;/* 0x10000 */
 
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
-	
+	/* stage 0 to stage 2 */
 	off = 0;
 	outpdw(overlay_base + off + 0x104, 0x010);
-	outpdw(overlay_base + off + 0x108, 0xff);
-	outpdw(overlay_base + off + 0x10c, 0x00);
+	outpdw(overlay_base + off + 0x108, 0xff);/* FG */
+	outpdw(overlay_base + off + 0x10c, 0x00);/* BG */
 
 	off += 0x20;
 	outpdw(overlay_base + off + 0x104, 0x010);
-	outpdw(overlay_base + off + 0x108, 0xff);
-	outpdw(overlay_base + off + 0x10c, 0x00);
+	outpdw(overlay_base + off + 0x108, 0xff);/* FG */
+	outpdw(overlay_base + off + 0x10c, 0x00);/* BG */
 
 	off += 0x20;
 	outpdw(overlay_base + off + 0x104, 0x010);
-	outpdw(overlay_base + off + 0x108, 0xff);
-	outpdw(overlay_base + off + 0x10c, 0x00);
+	outpdw(overlay_base + off + 0x108, 0xff);/* FG */
+	outpdw(overlay_base + off + 0x10c, 0x00);/* BG */
 
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 
 struct mdp_csc_cfg mdp_csc_convert[4] = {
-	{ 
+	{ /*RGB2RGB*/
 		0,
 		{
 			0x0200, 0x0000, 0x0000,
@@ -1329,7 +1349,7 @@ struct mdp_csc_cfg mdp_csc_convert[4] = {
 		{ 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, },
 		{ 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, },
 	},
-	{ 
+	{ /*YUV2RGB*/
 		0,
 		{
 			0x0254, 0x0000, 0x0331,
@@ -1341,7 +1361,7 @@ struct mdp_csc_cfg mdp_csc_convert[4] = {
 		{ 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, },
 		{ 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, },
 	},
-	{ 
+	{ /*RGB2YUV*/
 		0,
 		{
 			0x0083, 0x0102, 0x0032,
@@ -1353,7 +1373,7 @@ struct mdp_csc_cfg mdp_csc_convert[4] = {
 		{ 0x0, 0xff, 0x0, 0xff, 0x0, 0xff, },
 		{ 0x0010, 0x00eb, 0x0010, 0x00f0, 0x0010, 0x00f0, },
 	},
-	{ 
+	{ /*YUV2YUV ???*/
 		0,
 		{
 			0x0200, 0x0000, 0x0000,
@@ -1931,25 +1951,25 @@ void mdp4_mixer_gc_lut_setup(int mixer_num)
 	char val;
 	int i, off;
 
-	if (mixer_num) 	
-		base = MDP_BASE + MDP4_OVERLAYPROC1_BASE;
+	if (mixer_num) 	/* mixer number, /dev/fb0, /dev/fb1 */
+		base = MDP_BASE + MDP4_OVERLAYPROC1_BASE;/* 0x18000 */
 	else
-		base = MDP_BASE + MDP4_OVERLAYPROC0_BASE;
+		base = MDP_BASE + MDP4_OVERLAYPROC0_BASE;/* 0x10000 */
 
-	base += 0x4000;	
+	base += 0x4000;	/* GC_LUT offset */
 
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 	off = 0;
 	for (i = 0; i < 4096; i++) {
 		val = gc_lut[i];
-		data = (val << 16 | val << 8 | val); 
+		data = (val << 16 | val << 8 | val); /* R, B, and G are same */
 		outpdw(base + off, data);
 		off += 4;
 	}
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 
-uint32 igc_video_lut[] = {	 
+uint32 igc_video_lut[] = {	 /* non linear */
 	0x0, 0x1, 0x2, 0x4, 0x5, 0x6, 0x7, 0x9,
 	0xA, 0xB, 0xC, 0xE, 0xF, 0x10, 0x12, 0x14,
 	0x15, 0x17, 0x19, 0x1B, 0x1D, 0x1F, 0x21, 0x23,
@@ -1997,15 +2017,15 @@ void mdp4_vg_igc_lut_setup(int vp_num)
 	off = 0;
 	for (i = 0; i < 256; i++) {
 		val = igc_video_lut[i];
-		data = (val << 16 | val);	
+		data = (val << 16 | val);	/* color 0 and 1 */
 		outpdw(base + off, data);
-		outpdw(base + off + 0x800, val);	
+		outpdw(base + off + 0x800, val);	/* color 2 */
 		off += 4;
 	}
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 
-uint32 igc_rgb_lut[] = {   
+uint32 igc_rgb_lut[] = {   /* linear */
 	0x0, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70,
 	0x80, 0x91, 0xA1, 0xB1, 0xC1, 0xD1, 0xE1, 0xF1,
 	0x101, 0x111, 0x121, 0x131, 0x141, 0x151, 0x161, 0x171,
@@ -2053,9 +2073,9 @@ void mdp4_rgb_igc_lut_setup(int num)
 	off = 0;
 	for (i = 0; i < 256; i++) {
 		val = igc_rgb_lut[i];
-		data = (val << 16 | val);	
+		data = (val << 16 | val);	/* color 0 and 1 */
 		outpdw(base + off, data);
-		outpdw(base + off + 0x800, val);	
+		outpdw(base + off + 0x800, val);	/* color 2 */
 		off += 4;
 	}
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
@@ -2863,7 +2883,7 @@ static int mdp4_igc_lut_write(struct mdp_igc_lut_data *cfg, uint32_t en_off,
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 	for (i = 0; i < cfg->len; i++) {
 		MDP_OUTP(off_low++, low[i]);
-		
+		/*low address write should occur before high address write*/
 		wmb();
 		MDP_OUTP(off_high++, high[i]);
 	}
@@ -3070,7 +3090,7 @@ static int is_valid_calib_addr(void *addr)
 	ptr = (unsigned int) addr;
 
 	if (mdp_rev >= MDP_REV_30 && mdp_rev < MDP_REV_40) {
-		
+		/* if request is outside the MDP reg-map or is not aligned 4 */
 		if (ptr == 0x0 || ptr > 0xF0600 || ptr % 0x4)
 			goto end;
 
@@ -3091,7 +3111,7 @@ static int is_valid_calib_addr(void *addr)
 				ret = 1;
 		}
 	} else if (mdp_rev >= MDP_REV_40 && mdp_rev <= MDP_REV_44) {
-		
+		/* if request is outside the MDP reg-map or is not aligned 4 */
 		if (ptr > 0xF0600 || ptr % 0x4)
 			goto end;
 

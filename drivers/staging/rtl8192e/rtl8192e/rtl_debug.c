@@ -25,9 +25,13 @@
 #include "rtl_core.h"
 #include "r8192E_phy.h"
 #include "r8192E_phyreg.h"
-#include "r8190P_rtl8256.h" 
+#include "r8190P_rtl8256.h" /* RTL8225 Radio frontend */
 #include "r8192E_cmdpkt.h"
 
+/****************************************************************************
+   -----------------------------PROCFS STUFF-------------------------
+*****************************************************************************/
+/*This part is related to PROC, which will record some statistics. */
 static struct proc_dir_entry *rtl8192_proc;
 
 static int proc_get_stats_ap(char *page, char **start,
@@ -100,7 +104,7 @@ static int proc_get_registers_1(char *page, char **start,
 	int max = 0xff;
 	page0 = 0x100;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n####################page %x##################\n ",
 			(page0>>8));
@@ -132,7 +136,7 @@ static int proc_get_registers_2(char *page, char **start,
 	int max = 0xff;
 	page0 = 0x200;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n####################page %x##################\n ",
 			(page0 >> 8));
@@ -164,7 +168,7 @@ static int proc_get_registers_3(char *page, char **start,
 	int max = 0xff;
 	page0 = 0x300;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n####################page %x##################\n ",
 			(page0>>8));
@@ -196,7 +200,7 @@ static int proc_get_registers_4(char *page, char **start,
 	int max = 0xff;
 	page0 = 0x400;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n####################page %x##################\n ",
 			(page0>>8));
@@ -228,7 +232,7 @@ static int proc_get_registers_5(char *page, char **start,
 	int max = 0xff;
 	page0 = 0x500;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n####################page %x##################\n ",
 			(page0 >> 8));
@@ -260,7 +264,7 @@ static int proc_get_registers_6(char *page, char **start,
 	int max = 0xff;
 	page0 = 0x600;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n####################page %x##################\n ",
 			(page0>>8));
@@ -292,7 +296,7 @@ static int proc_get_registers_7(char *page, char **start,
 	int max = 0xff;
 	page0 = 0x700;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n####################page %x##################\n ",
 			(page0 >> 8));
@@ -324,7 +328,7 @@ static int proc_get_registers_8(char *page, char **start,
 	int max = 0xff;
 	page0 = 0x800;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n####################page %x##################\n",
 			(page0 >> 8));
@@ -352,7 +356,7 @@ static int proc_get_registers_9(char *page, char **start,
 	int max = 0xff;
 	page0 = 0x900;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n####################page %x##################\n",
 			(page0>>8));
@@ -379,7 +383,7 @@ static int proc_get_registers_a(char *page, char **start,
 	int max = 0xff;
 	page0 = 0xa00;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n####################page %x##################\n",
 			(page0>>8));
@@ -406,7 +410,7 @@ static int proc_get_registers_b(char *page, char **start,
 	int max = 0xff;
 	page0 = 0xb00;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n####################page %x##################\n",
 			(page0 >> 8));
@@ -433,7 +437,7 @@ static int proc_get_registers_c(char *page, char **start,
 	int max = 0xff;
 	page0 = 0xc00;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n####################page %x##################\n",
 			(page0>>8));
@@ -460,7 +464,7 @@ static int proc_get_registers_d(char *page, char **start,
 	int max = 0xff;
 	page0 = 0xd00;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n####################page %x##################\n",
 			(page0>>8));
@@ -487,7 +491,7 @@ static int proc_get_registers_e(char *page, char **start,
 	int max = 0xff;
 	page0 = 0xe00;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n####################page %x##################\n",
 			(page0>>8));
@@ -514,7 +518,7 @@ static int proc_get_reg_rf_a(char *page, char **start,
 
 	int max = 0xff;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n#################### RF-A ##################\n ");
 	for (n = 0; n <= max;) {
@@ -541,7 +545,7 @@ static int proc_get_reg_rf_b(char *page, char **start,
 
 	int max = 0xff;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n#################### RF-B ##################\n ");
 	for (n = 0; n <= max;) {
@@ -568,7 +572,7 @@ static int proc_get_reg_rf_c(char *page, char **start,
 
 	int max = 0xff;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n#################### RF-C ##################\n");
 	for (n = 0; n <= max;) {
@@ -595,7 +599,7 @@ static int proc_get_reg_rf_d(char *page, char **start,
 
 	int max = 0xff;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n#################### RF-D ##################\n ");
 	for (n = 0; n <= max;) {
@@ -623,7 +627,7 @@ static int proc_get_cam_register_1(char *page, char **start,
 	int len = 0;
 	int i = 100, j = 0;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n#################### SECURITY CAM (0-10) ######"
 			"############\n ");
@@ -664,7 +668,7 @@ static int proc_get_cam_register_2(char *page, char **start,
 	int len = 0;
 	int i = 100, j = 0;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n#################### SECURITY CAM (11-21) "
 			"##################\n ");
@@ -705,7 +709,7 @@ static int proc_get_cam_register_3(char *page, char **start,
 	int len = 0;
 	int i = 100, j = 0;
 
-	
+	/* This dump the current register page */
 	len += snprintf(page + len, count - len,
 			"\n#################### SECURITY CAM (22-31) ######"
 			"############\n ");

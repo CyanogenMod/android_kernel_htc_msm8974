@@ -33,6 +33,24 @@ static LIST_HEAD(container_list);
 static DEFINE_MUTEX(container_list_lock);
 static struct class enclosure_class;
 
+/**
+ * enclosure_find - find an enclosure given a parent device
+ * @dev:	the parent to match against
+ * @start:	Optional enclosure device to start from (NULL if none)
+ *
+ * Looks through the list of registered enclosures to find all those
+ * with @dev as a parent.  Returns NULL if no enclosure is
+ * found. @start can be used as a starting point to obtain multiple
+ * enclosures per parent (should begin with NULL and then be set to
+ * each returned enclosure device). Obtains a reference to the
+ * enclosure class device which must be released with device_put().
+ * If @start is not NULL, a reference must be taken on it which is
+ * released before returning (this allows a loop through all
+ * enclosures to exit with only the reference on the enclosure of
+ * interest held).  Note that the @dev may correspond to the actual
+ * device housing the enclosure, in which case no iteration via @start
+ * is required.
+ */
 struct enclosure_device *enclosure_find(struct device *dev,
 					struct enclosure_device *start)
 {
@@ -45,6 +63,8 @@ struct enclosure_device *enclosure_find(struct device *dev,
 
 	list_for_each_entry_continue(edev, &container_list, node) {
 		struct device *parent = edev->edev.parent;
+		/* parent might not be immediate, so iterate up to
+		 * the root of the tree if necessary */
 		while (parent) {
 			if (parent == dev) {
 				get_device(&edev->edev);
@@ -60,6 +80,18 @@ struct enclosure_device *enclosure_find(struct device *dev,
 }
 EXPORT_SYMBOL_GPL(enclosure_find);
 
+/**
+ * enclosure_for_each_device - calls a function for each enclosure
+ * @fn:		the function to call
+ * @data:	the data to pass to each call
+ *
+ * Loops over all the enclosures calling the function.
+ *
+ * Note, this function uses a mutex which will be held across calls to
+ * @fn, so it must have non atomic context, and @fn may (although it
+ * should not) sleep or otherwise cause the mutex to be held for
+ * indefinite periods
+ */
 int enclosure_for_each_device(int (*fn)(struct enclosure_device *, void *),
 			      void *data)
 {
@@ -78,6 +110,16 @@ int enclosure_for_each_device(int (*fn)(struct enclosure_device *, void *),
 }
 EXPORT_SYMBOL_GPL(enclosure_for_each_device);
 
+/**
+ * enclosure_register - register device as an enclosure
+ *
+ * @dev:	device containing the enclosure
+ * @components:	number of components in the enclosure
+ *
+ * This sets up the device for being an enclosure.  Note that @dev does
+ * not have to be a dedicated enclosure device.  It may be some other type
+ * of device that additionally responds to enclosure services
+ */
 struct enclosure_device *
 enclosure_register(struct device *dev, const char *name, int components,
 		   struct enclosure_component_callbacks *cb)
@@ -121,6 +163,11 @@ EXPORT_SYMBOL_GPL(enclosure_register);
 
 static struct enclosure_component_callbacks enclosure_null_callbacks;
 
+/**
+ * enclosure_unregister - remove an enclosure
+ *
+ * @edev:	the registered enclosure to remove;
+ */
 void enclosure_unregister(struct enclosure_device *edev)
 {
 	int i;
@@ -133,7 +180,7 @@ void enclosure_unregister(struct enclosure_device *edev)
 		if (edev->component[i].number != -1)
 			device_unregister(&edev->component[i].cdev);
 
-	
+	/* prevent any callbacks into service user */
 	edev->cb = &enclosure_null_callbacks;
 	device_unregister(&edev->edev);
 }
@@ -194,6 +241,19 @@ static void enclosure_component_release(struct device *dev)
 
 static const struct attribute_group *enclosure_groups[];
 
+/**
+ * enclosure_component_register - add a particular component to an enclosure
+ * @edev:	the enclosure to add the component
+ * @num:	the device number
+ * @type:	the type of component being added
+ * @name:	an optional name to appear in sysfs (leave NULL if none)
+ *
+ * Registers the component.  The name is optional for enclosures that
+ * give their components a unique name.  If not, leave the field NULL
+ * and a name will be assigned.
+ *
+ * Returns a pointer to the enclosure component or an error.
+ */
 struct enclosure_component *
 enclosure_component_register(struct enclosure_device *edev,
 			     unsigned int number,
@@ -235,6 +295,20 @@ enclosure_component_register(struct enclosure_device *edev,
 }
 EXPORT_SYMBOL_GPL(enclosure_component_register);
 
+/**
+ * enclosure_add_device - add a device as being part of an enclosure
+ * @edev:	the enclosure device being added to.
+ * @num:	the number of the component
+ * @dev:	the device being added
+ *
+ * Declares a real device to reside in slot (or identifier) @num of an
+ * enclosure.  This will cause the relevant sysfs links to appear.
+ * This function may also be used to change a device associated with
+ * an enclosure without having to call enclosure_remove_device() in
+ * between.
+ *
+ * Returns zero on success or an error.
+ */
 int enclosure_add_device(struct enclosure_device *edev, int component,
 			 struct device *dev)
 {
@@ -257,6 +331,14 @@ int enclosure_add_device(struct enclosure_device *edev, int component,
 }
 EXPORT_SYMBOL_GPL(enclosure_add_device);
 
+/**
+ * enclosure_remove_device - remove a device from an enclosure
+ * @edev:	the enclosure device
+ * @num:	the number of the component to remove
+ *
+ * Returns zero on success or an error.
+ *
+ */
 int enclosure_remove_device(struct enclosure_device *edev, struct device *dev)
 {
 	struct enclosure_component *cdev;
@@ -279,6 +361,9 @@ int enclosure_remove_device(struct enclosure_device *edev, struct device *dev)
 }
 EXPORT_SYMBOL_GPL(enclosure_remove_device);
 
+/*
+ * sysfs pieces below
+ */
 
 static ssize_t enclosure_show_components(struct device *cdev,
 					 struct device_attribute *attr,

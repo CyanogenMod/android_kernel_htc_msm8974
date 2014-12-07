@@ -44,7 +44,7 @@ MODULE_LICENSE("GPL");
 MODULE_ALIAS_MISCDEV(WATCHDOG_MINOR);
 
 static int max_units = 255;
-static int margin = 60;		
+static int margin = 60;		/* in seconds */
 module_param(margin, int, 0);
 MODULE_PARM_DESC(margin, "Watchdog margin in seconds");
 
@@ -56,35 +56,36 @@ static unsigned long wdt_open;
 static unsigned expect_close;
 static unsigned char revision;
 
+/* Dog Food address - We use the game port address */
 static unsigned short address;
 
-#define	REG		0x2e	
-#define	VAL		0x2f	
+#define	REG		0x2e	/* The register to read/write */
+#define	VAL		0x2f	/* The value to read/write */
 
-#define	LDN		0x07	
-#define	DEVID		0x20	
-#define	DEVREV		0x22	
-#define ACT_REG		0x30	
-#define BASE_REG	0x60	
+#define	LDN		0x07	/* Register: Logical device select */
+#define	DEVID		0x20	/* Register: Device ID */
+#define	DEVREV		0x22	/* Register: Device Revision */
+#define ACT_REG		0x30	/* LDN Register: Activation */
+#define BASE_REG	0x60	/* LDN Register: Base address */
 
 #define IT8712F_DEVID	0x8712
 
-#define LDN_GPIO	0x07	
-#define LDN_GAME	0x09	
+#define LDN_GPIO	0x07	/* GPIO and Watch Dog Timer */
+#define LDN_GAME	0x09	/* Game Port */
 
-#define WDT_CONTROL	0x71	
-#define WDT_CONFIG	0x72	
-#define WDT_TIMEOUT	0x73	
+#define WDT_CONTROL	0x71	/* WDT Register: Control */
+#define WDT_CONFIG	0x72	/* WDT Register: Configuration */
+#define WDT_TIMEOUT	0x73	/* WDT Register: Timeout Value */
 
-#define WDT_RESET_GAME	0x10	
-#define WDT_RESET_KBD	0x20	
-#define WDT_RESET_MOUSE	0x40	
-#define WDT_RESET_CIR	0x80	
+#define WDT_RESET_GAME	0x10	/* Reset timer on read or write to game port */
+#define WDT_RESET_KBD	0x20	/* Reset timer on keyboard interrupt */
+#define WDT_RESET_MOUSE	0x40	/* Reset timer on mouse interrupt */
+#define WDT_RESET_CIR	0x80	/* Reset timer on consumer IR interrupt */
 
-#define WDT_UNIT_SEC	0x80	
+#define WDT_UNIT_SEC	0x80	/* If 0 in MINUTES */
 
-#define WDT_OUT_PWROK	0x10	
-#define WDT_OUT_KRST	0x40	
+#define WDT_OUT_PWROK	0x10	/* Pulse PWROK on timeout */
+#define WDT_OUT_KRST	0x40	/* Pulse reset on timeout */
 
 static int wdt_control_reg = WDT_RESET_GAME;
 module_param(wdt_control_reg, int, 0);
@@ -124,6 +125,9 @@ static inline void superio_select(int ldn)
 
 static inline int superio_enter(void)
 {
+	/*
+	 * Try to reserve REG and REG + 1 for exclusive access.
+	 */
 	if (!request_muxed_region(REG, 2, NAME))
 		return -EBUSY;
 
@@ -152,8 +156,11 @@ static void it8712f_wdt_update_margin(void)
 	int config = WDT_OUT_KRST | WDT_OUT_PWROK;
 	int units = margin;
 
+	/* Switch to minutes precision if the configured margin
+	 * value does not fit within the register width.
+	 */
 	if (units <= max_units) {
-		config |= WDT_UNIT_SEC; 
+		config |= WDT_UNIT_SEC; /* else UNIT is MINUTES */
 		pr_info("timer margin %d seconds\n", units);
 	} else {
 		units /= 60;
@@ -230,7 +237,7 @@ static struct notifier_block it8712f_wdt_notifier = {
 static ssize_t it8712f_wdt_write(struct file *file, const char __user *data,
 					size_t len, loff_t *ppos)
 {
-	
+	/* check for a magic close character */
 	if (len) {
 		size_t i;
 
@@ -301,7 +308,7 @@ static long it8712f_wdt_ioctl(struct file *file, unsigned int cmd,
 
 		superio_exit();
 		it8712f_wdt_ping();
-		
+		/* Fall through */
 	case WDIOC_GETTIMEOUT:
 		if (put_user(margin, p))
 			return -EFAULT;
@@ -314,7 +321,7 @@ static long it8712f_wdt_ioctl(struct file *file, unsigned int cmd,
 static int it8712f_wdt_open(struct inode *inode, struct file *file)
 {
 	int ret;
-	
+	/* only allow one at a time */
 	if (test_and_set_bit(0, &wdt_open))
 		return -EBUSY;
 
@@ -381,7 +388,7 @@ static int __init it8712f_wdt_find(unsigned short *address)
 	err = 0;
 	revision = superio_inb(DEVREV) & 0x0f;
 
-	
+	/* Later revisions have 16-bit values per datasheet 0.9.1 */
 	if (revision >= 0x08)
 		max_units = 65535;
 

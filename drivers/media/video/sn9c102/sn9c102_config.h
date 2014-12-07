@@ -37,6 +37,7 @@
 #define SN9C102_CTRL_TIMEOUT      300
 #define SN9C102_FRAME_TIMEOUT     0
 
+/*****************************************************************************/
 
 static const u8 SN9C102_Y_QTABLE0[64] = {
 	 8,   5,   5,   8,  12,  20,  25,  30,
@@ -82,4 +83,4 @@ static const u8 SN9C102_UV_QTABLE1[64] = {
 	99,  99,  99,  99,  99,  99,  99,  99
 };
 
-#endif 
+#endif /* _SN9C102_CONFIG_H_ */

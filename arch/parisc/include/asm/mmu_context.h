@@ -12,6 +12,8 @@ static inline void enter_lazy_tlb(struct mm_struct *mm, struct task_struct *tsk)
 {
 }
 
+/* on PA-RISC, we actually have enough contexts to justify an allocator
+ * for them.  prumpf */
 
 extern unsigned long alloc_sid(void);
 extern void free_sid(unsigned long);
@@ -60,8 +62,15 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next, str
 
 static inline void activate_mm(struct mm_struct *prev, struct mm_struct *next)
 {
+	/*
+	 * Activate_mm is our one chance to allocate a space id
+	 * for a new mm created in the exec path. There's also
+	 * some lazy tlb stuff, which is currently dead code, but
+	 * we only allocate a space id if one hasn't been allocated
+	 * already, so we should be OK.
+	 */
 
-	BUG_ON(next == &init_mm); 
+	BUG_ON(next == &init_mm); /* Should never happen */
 
 	if (next->context == 0)
 	    next->context = alloc_sid();

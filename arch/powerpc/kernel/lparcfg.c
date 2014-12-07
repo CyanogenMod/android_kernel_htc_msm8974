@@ -39,9 +39,14 @@
 #define MODULE_VERS "1.9"
 #define MODULE_NAME "lparcfg"
 
+/* #define LPARCFG_DEBUG */
 
 static struct proc_dir_entry *proc_ppc64_lparcfg;
 
+/*
+ * Track sum of all purrs across all processors. This is used to further
+ * calculate usage values by different applications
+ */
 static unsigned long get_purr(void)
 {
 	unsigned long sum_purr = 0;
@@ -56,6 +61,9 @@ static unsigned long get_purr(void)
 	return sum_purr;
 }
 
+/*
+ * Methods used to fetch LPAR data when running on a pSeries platform.
+ */
 
 struct hvcall_ppp_data {
 	u64	entitlement;
@@ -72,6 +80,31 @@ struct hvcall_ppp_data {
 	u32	entitled_proc_cap_avail;
 };
 
+/*
+ * H_GET_PPP hcall returns info in 4 parms.
+ *  entitled_capacity,unallocated_capacity,
+ *  aggregation, resource_capability).
+ *
+ *  R4 = Entitled Processor Capacity Percentage.
+ *  R5 = Unallocated Processor Capacity Percentage.
+ *  R6 (AABBCCDDEEFFGGHH).
+ *      XXXX - reserved (0)
+ *          XXXX - reserved (0)
+ *              XXXX - Group Number
+ *                  XXXX - Pool Number.
+ *  R7 (IIJJKKLLMMNNOOPP).
+ *      XX - reserved. (0)
+ *        XX - bit 0-6 reserved (0).   bit 7 is Capped indicator.
+ *          XX - variable processor Capacity Weight
+ *            XX - Unallocated Variable Processor Capacity Weight.
+ *              XXXX - Active processors in Physical Processor Pool.
+ *                  XXXX  - Processors active on platform.
+ *  R8 (QQQQRRRRRRSSSSSS). if ibm,partition-performance-parameters-level >= 1
+ *	XXXX - Physical platform procs allocated to virtualization.
+ *	    XXXXXX - Max procs capacity % available to the partitions pool.
+ *	          XXXXXX - Entitled procs capacity % available to the
+ *			   partitions pool.
+ */
 static unsigned int h_get_ppp(struct hvcall_ppp_data *ppp_data)
 {
 	unsigned long rc;
@@ -112,6 +145,10 @@ static unsigned h_pic(unsigned long *pool_idle_time,
 	return rc;
 }
 
+/*
+ * parse_ppp_data
+ * Parse out the data returned from h_get_ppp and h_pic
+ */
 static void parse_ppp_data(struct seq_file *m)
 {
 	struct hvcall_ppp_data ppp_data;
@@ -129,13 +166,13 @@ static void parse_ppp_data(struct seq_file *m)
 	seq_printf(m, "system_active_processors=%d\n",
 	           ppp_data.active_system_procs);
 
-	
+	/* pool related entries are appropriate for shared configs */
 	if (lppaca_of(0).shared_proc) {
 		unsigned long pool_idle_time, pool_procs;
 
 		seq_printf(m, "pool=%d\n", ppp_data.pool_num);
 
-		
+		/* report pool_capacity in percentage */
 		seq_printf(m, "pool_capacity=%d\n",
 			   ppp_data.active_procs_in_pool * 100);
 
@@ -151,6 +188,10 @@ static void parse_ppp_data(struct seq_file *m)
 	seq_printf(m, "unallocated_capacity=%lld\n",
 		   ppp_data.unallocated_entitlement);
 
+	/* The last bits of information returned from h_get_ppp are only
+	 * valid if the ibm,partition-performance-parameters-level
+	 * property is >= 1.
+	 */
 	root = of_find_node_by_path("/");
 	if (root) {
 		perf_level = of_get_property(root,
@@ -170,6 +211,10 @@ static void parse_ppp_data(struct seq_file *m)
 	}
 }
 
+/**
+ * parse_mpp_data
+ * Parse out data returned from h_get_mpp
+ */
 static void parse_mpp_data(struct seq_file *m)
 {
 	struct hvcall_mpp_data mpp_data;
@@ -204,6 +249,10 @@ static void parse_mpp_data(struct seq_file *m)
 	seq_printf(m, "backing_memory=%ld bytes\n", mpp_data.backing_mem);
 }
 
+/**
+ * parse_mpp_x_data
+ * Parse out data returned from h_get_mpp_x
+ */
 static void parse_mpp_x_data(struct seq_file *m)
 {
 	struct hvcall_mpp_x_data mpp_x_data;
@@ -227,6 +276,12 @@ static void parse_mpp_x_data(struct seq_file *m)
 #define SPLPAR_CHARACTERISTICS_TOKEN 20
 #define SPLPAR_MAXLENGTH 1026*(sizeof(char))
 
+/*
+ * parse_system_parameter_string()
+ * Retrieve the potential_processors, max_entitled_capacity and friends
+ * through the get-system-parameter rtas call.  Replace keyword strings as
+ * necessary.
+ */
 static void parse_system_parameter_string(struct seq_file *m)
 {
 	int call_status;
@@ -266,7 +321,7 @@ static void parse_system_parameter_string(struct seq_file *m)
 		printk(KERN_INFO "success calling get-system-parameter\n");
 #endif
 		splpar_strlen = local_buffer[0] * 256 + local_buffer[1];
-		local_buffer += 2;	
+		local_buffer += 2;	/* step over strlen value */
 
 		w_idx = 0;
 		idx = 0;
@@ -276,13 +331,15 @@ static void parse_system_parameter_string(struct seq_file *m)
 			    || (local_buffer[idx] == '\0')) {
 				workbuffer[w_idx] = '\0';
 				if (w_idx) {
-					
+					/* avoid the empty string */
 					seq_printf(m, "%s\n", workbuffer);
 				}
 				memset(workbuffer, 0, SPLPAR_MAXLENGTH);
-				idx++;	
+				idx++;	/* skip the comma */
 				w_idx = 0;
 			} else if (local_buffer[idx] == '=') {
+				/* code here to replace workbuffer contents
+				   with different keyword strings */
 				if (0 == strcmp(workbuffer, "MaxEntCap")) {
 					strcpy(workbuffer,
 					       "partition_max_entitled_capacity");
@@ -296,11 +353,15 @@ static void parse_system_parameter_string(struct seq_file *m)
 			}
 		}
 		kfree(workbuffer);
-		local_buffer -= 2;	
+		local_buffer -= 2;	/* back up over strlen value */
 	}
 	kfree(local_buffer);
 }
 
+/* Return the number of processors in the system.
+ * This function reads through the device tree and counts
+ * the virtual processors, this does not include threads.
+ */
 static int lparcfg_count_active_processors(void)
 {
 	struct device_node *cpus_dn = NULL;
@@ -383,7 +444,7 @@ static int pseries_lparcfg_data(struct seq_file *m, void *v)
 	partition_active_processors = lparcfg_count_active_processors();
 
 	if (firmware_has_feature(FW_FEATURE_SPLPAR)) {
-		
+		/* this call handles the ibm,get-system-parameter contents */
 		parse_system_parameter_string(m);
 		parse_ppp_data(m);
 		parse_mpp_data(m);
@@ -392,7 +453,7 @@ static int pseries_lparcfg_data(struct seq_file *m, void *v)
 		splpar_dispatch_data(m);
 
 		seq_printf(m, "purr=%ld\n", get_purr());
-	} else {		
+	} else {		/* non SPLPAR case */
 
 		seq_printf(m, "system_active_processors=%d\n",
 			   partition_potential_processors);
@@ -429,7 +490,7 @@ static ssize_t update_ppp(u64 *entitlement, u8 *weight)
 	u64 new_entitled;
 	ssize_t retval;
 
-	
+	/* Get our current parameters */
 	retval = h_get_ppp(&ppp_data);
 	if (retval)
 		return retval;
@@ -453,6 +514,13 @@ static ssize_t update_ppp(u64 *entitlement, u8 *weight)
 	return retval;
 }
 
+/**
+ * update_mpp
+ *
+ * Update the memory entitlement and weight for the partition.  Caller must
+ * specify either a new entitlement or weight, not both, to be updated
+ * since the h_set_mpp call takes both entitlement and weight as parameters.
+ */
 static ssize_t update_mpp(u64 *entitlement, u8 *weight)
 {
 	struct hvcall_mpp_data mpp_data;
@@ -461,6 +529,9 @@ static ssize_t update_mpp(u64 *entitlement, u8 *weight)
 	ssize_t rc;
 
 	if (entitlement) {
+		/* Check with vio to ensure the new memory entitlement
+		 * can be handled.
+		 */
 		rc = vio_cmo_entitlement_update(*entitlement);
 		if (rc)
 			return rc;
@@ -489,6 +560,16 @@ static ssize_t update_mpp(u64 *entitlement, u8 *weight)
 	return rc;
 }
 
+/*
+ * Interface for changing system parameters (variable capacity weight
+ * and entitled capacity).  Format of input is "param_name=value";
+ * anything after value is ignored.  Valid parameters at this time are
+ * "partition_entitled_capacity" and "capacity_weight".  We use
+ * H_SET_PPP to alter parameters.
+ *
+ * This function should be invoked only on systems with
+ * FW_FEATURE_SPLPAR.
+ */
 static ssize_t lparcfg_write(struct file *file, const char __user * buf,
 			     size_t count, loff_t * off)
 {
@@ -610,7 +691,7 @@ static int __init lparcfg_init(void)
 	struct proc_dir_entry *ent;
 	umode_t mode = S_IRUSR | S_IRGRP | S_IROTH;
 
-	
+	/* Allow writing if we have FW_FEATURE_SPLPAR */
 	if (firmware_has_feature(FW_FEATURE_SPLPAR))
 		mode |= S_IWUSR;
 

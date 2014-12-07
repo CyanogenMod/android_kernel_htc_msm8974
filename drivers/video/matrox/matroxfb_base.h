@@ -1,14 +1,28 @@
+/*
+ *
+ * Hardware accelerated Matrox Millennium I, II, Mystique, G100, G200, G400 and G450
+ *
+ * (c) 1998-2002 Petr Vandrovec <vandrove@vc.cvut.cz>
+ *
+ */
 #ifndef __MATROXFB_H__
 #define __MATROXFB_H__
 
+/* general, but fairly heavy, debugging */
 #undef MATROXFB_DEBUG
 
+/* heavy debugging: */
+/* -- logs putc[s], so every time a char is displayed, it's logged */
 #undef MATROXFB_DEBUG_HEAVY
 
+/* This one _could_ cause infinite loops */
+/* It _does_ cause lots and lots of messages during idle loops */
 #undef MATROXFB_DEBUG_LOOP
 
+/* Debug register calls, too? */
 #undef MATROXFB_DEBUG_REG
 
+/* Guard accelerator accesses with spin_lock_irqsave... */
 #undef MATROXFB_USE_SPINLOCKS
 
 #include <linux/module.h>
@@ -47,30 +61,30 @@
 
 #ifdef MATROXFB_DEBUG_HEAVY
 #define DBG_HEAVY(x)	DBG(x)
-#else 
-#define DBG_HEAVY(x)	
-#endif 
+#else /* MATROXFB_DEBUG_HEAVY */
+#define DBG_HEAVY(x)	/* DBG_HEAVY */
+#endif /* MATROXFB_DEBUG_HEAVY */
 
 #ifdef MATROXFB_DEBUG_LOOP
 #define DBG_LOOP(x)	DBG(x)
-#else 
-#define DBG_LOOP(x)	
-#endif 
+#else /* MATROXFB_DEBUG_LOOP */
+#define DBG_LOOP(x)	/* DBG_LOOP */
+#endif /* MATROXFB_DEBUG_LOOP */
 
 #ifdef MATROXFB_DEBUG_REG
 #define DBG_REG(x)	DBG(x)
-#else 
-#define DBG_REG(x)	
-#endif 
+#else /* MATROXFB_DEBUG_REG */
+#define DBG_REG(x)	/* DBG_REG */
+#endif /* MATROXFB_DEBUG_REG */
 
-#else 
+#else /* MATROXFB_DEBUG */
 
-#define DBG(x)		
-#define DBG_HEAVY(x)	
-#define DBG_REG(x)	
-#define DBG_LOOP(x)	
+#define DBG(x)		/* DBG */
+#define DBG_HEAVY(x)	/* DBG_HEAVY */
+#define DBG_REG(x)	/* DBG_REG */
+#define DBG_LOOP(x)	/* DBG_LOOP */
 
-#endif 
+#endif /* MATROXFB_DEBUG */
 
 #ifdef DEBUG
 #define dprintk(X...)	printk(X)
@@ -94,8 +108,8 @@
 #define PCI_SS_ID_MATROX_MGA_G100_PCI		0xFF05
 #define PCI_SS_ID_MATROX_MGA_G100_AGP		0x1001
 #define PCI_SS_ID_MATROX_MILLENNIUM_G400_MAX_AGP	0x2179
-#define PCI_SS_ID_SIEMENS_MGA_G100_AGP		0x001E 
-#define PCI_SS_ID_SIEMENS_MGA_G200_AGP		0x0032 
+#define PCI_SS_ID_SIEMENS_MGA_G100_AGP		0x001E /* 30 */
+#define PCI_SS_ID_SIEMENS_MGA_G200_AGP		0x0032 /* 50 */
 #endif
 
 #define MX_VISUAL_TRUECOLOR	FB_VISUAL_DIRECTCOLOR
@@ -104,6 +118,7 @@
 
 #define CNVT_TOHW(val,width) ((((val)<<(width))+0x7FFF-(val))>>16)
 
+/* G-series and Mystique have (almost) same DAC */
 #undef NEED_DAC1064
 #if defined(CONFIG_FB_MATROX_MYSTIQUE) || defined(CONFIG_FB_MATROX_G)
 #define NEED_DAC1064 1
@@ -135,6 +150,13 @@ static inline void mga_writel(vaddr_t va, unsigned int offs, u_int32_t value) {
 
 static inline void mga_memcpy_toio(vaddr_t va, const void* src, int len) {
 #if defined(__alpha__) || defined(__i386__) || defined(__x86_64__)
+	/*
+	 * iowrite32_rep works for us if:
+	 *  (1) Copies data as 32bit quantities, not byte after byte,
+	 *  (2) Performs LE ordered stores, and
+	 *  (3) It copes with unaligned source (destination is guaranteed to be page
+	 *      aligned and length is guaranteed to be multiple of 4).
+	 */
 	iowrite32_rep(va.vaddr, src, len >> 2);
 #else
         u_int32_t __iomem* addr = va.vaddr;
@@ -175,7 +197,7 @@ static inline int mga_ioremap(unsigned long phys, unsigned long size, int flags,
 		virt->vaddr = ioremap_nocache(phys, size);
 	else
 		virt->vaddr = ioremap(phys, size);
-	return (virt->vaddr == NULL); 
+	return (virt->vaddr == NULL); /* 0, !0... 0, error_code in future */
 }
 
 static inline void mga_iounmap(vaddr_t va) {
@@ -197,7 +219,7 @@ struct my_timming {
 	unsigned int sync;
 	int	     dblscan;
 	int	     interlaced;
-	unsigned int delay;	
+	unsigned int delay;	/* CRTC delay */
 };
 
 enum { M_SYSTEM_PLL, M_PIXEL_PLL_A, M_PIXEL_PLL_B, M_PIXEL_PLL_C, M_VIDEO_PLL };
@@ -243,6 +265,7 @@ struct matrox_DAC1064_features {
 	u_int8_t	xmiscctrl;
 };
 
+/* current hardware status */
 struct mavenregs {
 	u_int8_t regs[256];
 	int	 mode;
@@ -267,12 +290,12 @@ struct matrox_hw_state {
 	unsigned char	CRTC[25];
 	unsigned char	CRTCEXT[9];
 	unsigned char	SEQ[5];
-	
+	/* unused for MGA mode, but who knows... */
 	unsigned char	GCTL[9];
-	
+	/* unused for MGA mode, but who knows... */
 	unsigned char	ATTR[21];
 
-	
+	/* TVOut only */
 	struct mavenregs	maven;
 
 	struct matrox_crtc2	crtc2;
@@ -384,16 +407,16 @@ struct matrox_fb_info {
 	unsigned int		drivers_count;
 
 	struct {
-	unsigned long	base;	
-	vaddr_t		vbase;	
+	unsigned long	base;	/* physical */
+	vaddr_t		vbase;	/* CPU view */
 	unsigned int	len;
 	unsigned int	len_usable;
 	unsigned int	len_maximum;
 		      } video;
 
 	struct {
-	unsigned long	base;	
-	vaddr_t		vbase;	
+	unsigned long	base;	/* physical */
+	vaddr_t		vbase;	/* CPU view */
 	unsigned int	len;
 		      } mmio;
 
@@ -448,13 +471,13 @@ struct matrox_fb_info {
 		unsigned int	vgastep;
 		unsigned int	textmode;
 		unsigned int	textstep;
-		unsigned int	textvram;	
-		unsigned int	ydstorg;	
-						
+		unsigned int	textvram;	/* character cells */
+		unsigned int	ydstorg;	/* offset in bytes from video start to usable memory */
+						/* 0 except for 6MB Millenium */
 		int		memtype;
 		int		g450dac;
 		int		dfp_type;
-		int		panellink;	
+		int		panellink;	/* G400 DFP possible (not G450/G550) */
 		int		dualhead;
 		unsigned int	fbResource;
 			      } devflags;
@@ -550,6 +573,7 @@ void matroxfb_unregister_driver(struct matroxfb_driver* drv);
 #define M_YTOP		0x1C98
 #define M_YBOT		0x1C9C
 
+/* mystique only */
 #define M_CACHEFLUSH	0x1FFF
 
 #define M_EXEC		0x0100
@@ -589,11 +613,11 @@ void matroxfb_unregister_driver(struct matroxfb_driver* drv);
 #define     M_OPMODE_DMA_GEN_WRITE	0x00
 #define     M_OPMODE_DMA_BLIT		0x04
 #define     M_OPMODE_DMA_VECTOR_WRITE	0x08
-#define     M_OPMODE_DMA_LE		0x0000		
+#define     M_OPMODE_DMA_LE		0x0000		/* little endian - no transformation */
 #define     M_OPMODE_DMA_BE_8BPP	0x0000
 #define     M_OPMODE_DMA_BE_16BPP	0x0100
 #define     M_OPMODE_DMA_BE_32BPP	0x0200
-#define     M_OPMODE_DIR_LE		0x000000	
+#define     M_OPMODE_DIR_LE		0x000000	/* little endian - no transformation */
 #define     M_OPMODE_DIR_BE_8BPP	0x000000
 #define     M_OPMODE_DIR_BE_16BPP	0x010000
 #define     M_OPMODE_DIR_BE_32BPP	0x020000
@@ -623,11 +647,13 @@ void matroxfb_unregister_driver(struct matroxfb_driver* drv);
 #define M_EXTVGA_INDEX	0x1FDE
 #define M_EXTVGA_DATA	0x1FDF
 
+/* G200 only */
 #define M_SRCORG	0x2CB4
 #define M_DSTORG	0x2CB8
 
 #define M_RAMDAC_BASE	0x3C00
 
+/* fortunately, same on TVP3026 and MGA1064 */
 #define M_DAC_REG	(M_RAMDAC_BASE+0)
 #define M_DAC_VAL	(M_RAMDAC_BASE+1)
 #define M_PALETTE_MASK	(M_RAMDAC_BASE+2)
@@ -650,10 +676,10 @@ void matroxfb_unregister_driver(struct matroxfb_driver* drv);
 #define M_OPMODE_32BPP	(M_OPMODE_DMA_LE | M_OPMODE_DIR_LE | M_OPMODE_DMA_BLIT)
 #else
 #ifdef __BIG_ENDIAN
-#define M_OPMODE_4BPP	(M_OPMODE_DMA_LE | M_OPMODE_DIR_LE       | M_OPMODE_DMA_BLIT)	
+#define M_OPMODE_4BPP	(M_OPMODE_DMA_LE | M_OPMODE_DIR_LE       | M_OPMODE_DMA_BLIT)	/* TODO */
 #define M_OPMODE_8BPP	(M_OPMODE_DMA_LE | M_OPMODE_DIR_BE_8BPP  | M_OPMODE_DMA_BLIT)
 #define M_OPMODE_16BPP	(M_OPMODE_DMA_LE | M_OPMODE_DIR_BE_16BPP | M_OPMODE_DMA_BLIT)
-#define M_OPMODE_24BPP	(M_OPMODE_DMA_LE | M_OPMODE_DIR_BE_8BPP  | M_OPMODE_DMA_BLIT)	
+#define M_OPMODE_24BPP	(M_OPMODE_DMA_LE | M_OPMODE_DIR_BE_8BPP  | M_OPMODE_DMA_BLIT)	/* TODO, ?32 */
 #define M_OPMODE_32BPP	(M_OPMODE_DMA_LE | M_OPMODE_DIR_BE_32BPP | M_OPMODE_DMA_BLIT)
 #else
 #error "Byte ordering have to be defined. Cannot continue."
@@ -672,6 +698,7 @@ void matroxfb_unregister_driver(struct matroxfb_driver* drv);
 
 #define WaitTillIdle()	do {} while (mga_inl(M_STATUS) & 0x10000)
 
+/* code speedup */
 #ifdef CONFIG_FB_MATROX_MILLENIUM
 #define isInterleave(x)	 (x->interleave)
 #define isMillenium(x)	 (x->millenium)
@@ -703,4 +730,4 @@ extern int matroxfb_enable_irq(struct matrox_fb_info *minfo, int reenable);
 #define CRITFLAGS
 #endif
 
-#endif	
+#endif	/* __MATROXFB_H__ */

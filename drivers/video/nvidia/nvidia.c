@@ -59,6 +59,7 @@
 
 #define PFX "nvidiafb: "
 
+/* HW cursor parameters */
 #define MAX_CURS		32
 
 static struct pci_device_id nvidiafb_pci_tbl[] = {
@@ -68,7 +69,8 @@ static struct pci_device_id nvidiafb_pci_tbl[] = {
 };
 MODULE_DEVICE_TABLE(pci, nvidiafb_pci_tbl);
 
-static int flatpanel __devinitdata = -1;	
+/* command line data, set in nvidiafb_setup() */
+static int flatpanel __devinitdata = -1;	/* Autodetect later */
 static int fpdither __devinitdata = -1;
 static int forceCRTC __devinitdata = -1;
 static int hwcur __devinitdata = 0;
@@ -178,17 +180,21 @@ static int nvidia_panel_tweak(struct nvidia_par *par,
    if (par->paneltweak) {
 	   tweak = par->paneltweak;
    } else {
-	   
+	   /* begin flat panel hacks */
+	   /* This is unfortunate, but some chips need this register
+	      tweaked or else you get artifacts where adjacent pixels are
+	      swapped.  There are no hard rules for what to set here so all
+	      we can do is experiment and apply hacks. */
 
 	   if(((par->Chipset & 0xffff) == 0x0328) && (state->bpp == 32)) {
-		   
+		   /* At least one NV34 laptop needs this workaround. */
 		   tweak = -1;
 	   }
 
 	   if((par->Chipset & 0xfff0) == 0x0310) {
 		   tweak = 1;
 	   }
-	   
+	   /* end flat panel hacks */
    }
 
    return tweak;
@@ -199,16 +205,22 @@ static void nvidia_screen_off(struct nvidia_par *par, int on)
 	unsigned char tmp;
 
 	if (on) {
+		/*
+		 * Turn off screen and disable sequencer.
+		 */
 		tmp = NVReadSeq(par, 0x01);
 
-		NVWriteSeq(par, 0x00, 0x01);		
-		NVWriteSeq(par, 0x01, tmp | 0x20);	
+		NVWriteSeq(par, 0x00, 0x01);		/* Synchronous Reset */
+		NVWriteSeq(par, 0x01, tmp | 0x20);	/* disable the display */
 	} else {
+		/*
+		 * Reenable sequencer, then turn on screen.
+		 */
 
 		tmp = NVReadSeq(par, 0x01);
 
-		NVWriteSeq(par, 0x01, tmp & ~0x20);	
-		NVWriteSeq(par, 0x00, 0x03);		
+		NVWriteSeq(par, 0x01, tmp & ~0x20);	/* reenable display */
+		NVWriteSeq(par, 0x00, 0x03);		/* End Reset */
 	}
 }
 
@@ -258,7 +270,7 @@ static void nvidia_write_regs(struct nvidia_par *par,
 		NVWriteSeq(par, i, state->seq[i]);
 	}
 
-	
+	/* Ensure CRTC registers 0-7 are unlocked by clearing bit 7 of CRTC[17] */
 	NVWriteCrtc(par, 0x11, state->crtc[0x11] & ~0x80);
 
 	for (i = 0; i < NUM_CRT_REGS; i++) {
@@ -313,6 +325,9 @@ static int nvidia_calc_regs(struct fb_info *info)
 	int v_blank_s = v_display;
 	int v_blank_e = v_total + 1;
 
+	/*
+	 * Set all CRTC values.
+	 */
 
 	if (info->var.vmode & FB_VMODE_INTERLACED)
 		v_total |= 1;
@@ -380,9 +395,12 @@ static int nvidia_calc_regs(struct fb_info *info)
 		state->interlace = Set8Bits(h_total);
 		state->horiz |= SetBitField(h_total, 8: 8, 4:4);
 	} else {
-		state->interlace = 0xff;	
+		state->interlace = 0xff;	/* interlace off */
 	}
 
+	/*
+	 * Calculate the extended registers.
+	 */
 
 	if (depth < 24)
 		i = depth;
@@ -637,7 +655,7 @@ static int nvidiafb_set_par(struct fb_info *info)
 	NVSetStartAddress(par, 0);
 
 #if defined (__BIG_ENDIAN)
-	
+	/* turn on LFB swapping */
 	{
 		unsigned char tmp;
 
@@ -674,7 +692,7 @@ static int nvidiafb_set_par(struct fb_info *info)
 	nvidia_screen_off(par, 0);
 
 #ifdef CONFIG_BOOTX_TEXT
-	
+	/* Update debug text engine */
 	btext_update_display(info->fix.smem_start,
 			     info->var.xres, info->var.yres,
 			     info->var.bits_per_pixel, info->fix.line_length);
@@ -697,7 +715,7 @@ static int nvidiafb_setcolreg(unsigned regno, unsigned red, unsigned green,
 		return -EINVAL;
 
 	if (info->var.grayscale) {
-		
+		/* gray = 0.30*R + 0.59*G + 0.11*B */
 		red = green = blue = (red * 77 + green * 151 + blue * 28) >> 8;
 	}
 
@@ -710,7 +728,7 @@ static int nvidiafb_setcolreg(unsigned regno, unsigned red, unsigned green,
 
 	switch (info->var.bits_per_pixel) {
 	case 8:
-		
+		/* "transparent" stuff is completely ignored. */
 		nvidia_write_clut(par, regno, red >> 8, green >> 8, blue >> 8);
 		break;
 	case 16:
@@ -741,7 +759,7 @@ static int nvidiafb_setcolreg(unsigned regno, unsigned red, unsigned green,
 		nvidia_write_clut(par, regno, red >> 8, green >> 8, blue >> 8);
 		break;
 	default:
-		
+		/* do nothing */
 		break;
 	}
 
@@ -791,7 +809,7 @@ static int nvidiafb_check_var(struct fb_var_screeninfo *var,
 		var->red.offset = 5 + var->green.length;
 		var->transp.offset = (5 + var->red.offset) & 15;
 		break;
-	case 32:		
+	case 32:		/* RGBA 8888 */
 		var->red.offset = 16;
 		var->red.length = 8;
 		var->green.offset = 8;
@@ -812,7 +830,7 @@ static int nvidiafb_check_var(struct fb_var_screeninfo *var,
 	    !info->monspecs.dclkmax || !fb_validate_mode(var, info))
 		mode_valid = 1;
 
-	
+	/* calculate modeline if supported by monitor */
 	if (!mode_valid && info->monspecs.gtf) {
 		if (!fb_get_mode(FB_MAXTIMINGS, 0, var, info))
 			mode_valid = 1;
@@ -831,6 +849,11 @@ static int nvidiafb_check_var(struct fb_var_screeninfo *var,
 	if (!mode_valid && info->monspecs.modedb_len)
 		return -EINVAL;
 
+	/*
+	 * If we're on a flat panel, check if the mode is outside of the
+	 * panel dimensions. If so, cap it and try for the next best mode
+	 * before bailing out.
+	 */
 	if (par->fpWidth && par->fpHeight && (par->fpWidth < var->xres ||
 					      par->fpHeight < var->yres)) {
 		const struct fb_videomode *mode;
@@ -915,8 +938,8 @@ static int nvidiafb_blank(int blank, struct fb_info *info)
 	struct nvidia_par *par = info->par;
 	unsigned char tmp, vesa;
 
-	tmp = NVReadSeq(par, 0x01) & ~0x20;	
-	vesa = NVReadCrtc(par, 0x1a) & ~0xc0;	
+	tmp = NVReadSeq(par, 0x01) & ~0x20;	/* screen on/off */
+	vesa = NVReadCrtc(par, 0x1a) & ~0xc0;	/* sync on/off */
 
 	NVTRACE_ENTER();
 
@@ -946,6 +969,12 @@ static int nvidiafb_blank(int blank, struct fb_info *info)
 	return 0;
 }
 
+/*
+ * Because the VGA registers are not mapped linearly in its MMIO space,
+ * restrict VGA register saving and restore to x86 only, where legacy VGA IO
+ * access is legal. Consequently, we must also check if the device is the
+ * primary display.
+ */
 #ifdef CONFIG_X86
 static void save_vga_x86(struct nvidia_par *par)
 {
@@ -969,7 +998,7 @@ static void restore_vga_x86(struct nvidia_par *par)
 #else
 #define save_vga_x86(x) do {} while (0)
 #define restore_vga_x86(x) do {} while (0)
-#endif 
+#endif /* X86 */
 
 static int nvidiafb_open(struct fb_info *info, int user)
 {
@@ -1133,7 +1162,7 @@ static int __devinit nvidia_set_fbinfo(struct fb_info *info)
 	fb_destroy_modedb(info->monspecs.modedb);
 	info->monspecs.modedb = NULL;
 
-	
+	/* maximize virtual vertical length */
 	lpitch = info->var.xres_virtual *
 		((info->var.bits_per_pixel + 7) >> 3);
 	info->var.yres_virtual = info->screen_size / lpitch;
@@ -1181,12 +1210,12 @@ static u32 __devinit nvidia_get_chipset(struct fb_info *info)
 
 	if ((id & 0xfff0) == 0x00f0 ||
 	    (id & 0xfff0) == 0x02e0) {
-		
+		/* pci-e */
 		id = NV_RD32(par->REGS, 0x1800);
 
 		if ((id & 0x0000ffff) == 0x000010DE)
 			id = 0x10DE0000 | (id >> 16);
-		else if ((id & 0xffff0000) == 0xDE100000) 
+		else if ((id & 0xffff0000) == 0xDE100000) /* wrong endian */
 			id = 0x10DE0000 | ((id << 8) & 0x0000ff00) |
                             ((id >> 8) & 0x000000ff);
 		printk(KERN_INFO PFX "Subsystem ID: %x \n", id);
@@ -1201,46 +1230,46 @@ static u32 __devinit nvidia_get_arch(struct fb_info *info)
 	u32 arch = 0;
 
 	switch (par->Chipset & 0x0ff0) {
-	case 0x0100:		
-	case 0x0110:		
-	case 0x0150:		
-	case 0x0170:		
-	case 0x0180:		
-	case 0x01A0:		
-	case 0x01F0:		
+	case 0x0100:		/* GeForce 256 */
+	case 0x0110:		/* GeForce2 MX */
+	case 0x0150:		/* GeForce2 */
+	case 0x0170:		/* GeForce4 MX */
+	case 0x0180:		/* GeForce4 MX (8x AGP) */
+	case 0x01A0:		/* nForce */
+	case 0x01F0:		/* nForce2 */
 		arch = NV_ARCH_10;
 		break;
-	case 0x0200:		
-	case 0x0250:		
-	case 0x0280:		
+	case 0x0200:		/* GeForce3 */
+	case 0x0250:		/* GeForce4 Ti */
+	case 0x0280:		/* GeForce4 Ti (8x AGP) */
 		arch = NV_ARCH_20;
 		break;
-	case 0x0300:		
-	case 0x0310:		
-	case 0x0320:		
-	case 0x0330:		
-	case 0x0340:		
+	case 0x0300:		/* GeForceFX 5800 */
+	case 0x0310:		/* GeForceFX 5600 */
+	case 0x0320:		/* GeForceFX 5200 */
+	case 0x0330:		/* GeForceFX 5900 */
+	case 0x0340:		/* GeForceFX 5700 */
 		arch = NV_ARCH_30;
 		break;
-	case 0x0040:		
-	case 0x00C0:		
-	case 0x0120:		
-	case 0x0140:		
-	case 0x0160:		
-	case 0x01D0:		
-	case 0x0090:		
-	case 0x0210:		
-	case 0x0220:		
-	case 0x0240:		
-	case 0x0290:		
-	case 0x0390:		
+	case 0x0040:		/* GeForce 6800 */
+	case 0x00C0:		/* GeForce 6800 */
+	case 0x0120:		/* GeForce 6800 */
+	case 0x0140:		/* GeForce 6600 */
+	case 0x0160:		/* GeForce 6200 */
+	case 0x01D0:		/* GeForce 7200, 7300, 7400 */
+	case 0x0090:		/* GeForce 7800 */
+	case 0x0210:		/* GeForce 6800 */
+	case 0x0220:		/* GeForce 6200 */
+	case 0x0240:		/* GeForce 6100 */
+	case 0x0290:		/* GeForce 7900 */
+	case 0x0390:		/* GeForce 7600 */
 	case 0x03D0:
 		arch = NV_ARCH_40;
 		break;
-	case 0x0020:		
+	case 0x0020:		/* TNT, TNT2 */
 		arch = NV_ARCH_04;
 		break;
-	default:		
+	default:		/* unknown architecture */
 		break;
 	}
 
@@ -1290,7 +1319,7 @@ static int __devinit nvidiafb_probe(struct pci_dev *pd,
 	par->paneltweak = paneltweak;
 	par->reverse_i2c = reverse_i2c;
 
-	
+	/* enable IO and mem if not already done */
 	pci_read_config_word(pd, PCI_COMMAND, &cmd);
 	cmd |= (PCI_COMMAND_IO | PCI_COMMAND_MEMORY);
 	pci_write_config_word(pd, PCI_COMMAND, cmd);
@@ -1324,7 +1353,7 @@ static int __devinit nvidiafb_probe(struct pci_dev *pd,
 	if (vram && vram * 1024 * 1024 < par->FbMapSize)
 		par->FbMapSize = vram * 1024 * 1024;
 
-	
+	/* Limit amount of vram to 64 MB */
 	if (par->FbMapSize > 64 * 1024 * 1024)
 		par->FbMapSize = 64 * 1024 * 1024;
 
@@ -1357,11 +1386,11 @@ static int __devinit nvidiafb_probe(struct pci_dev *pd,
 			printk(KERN_ERR PFX "unable to setup MTRR\n");
 		} else {
 			par->mtrr.vram_valid = 1;
-			
+			/* let there be speed */
 			printk(KERN_INFO PFX "MTRR set to ON\n");
 		}
 	}
-#endif				
+#endif				/* CONFIG_MTRR */
 
 	info->fbops = &nvidia_fb_ops;
 	info->fix = nvidiafb_fix;
@@ -1424,7 +1453,7 @@ static void __devexit nvidiafb_remove(struct pci_dev *pd)
 	if (par->mtrr.vram_valid)
 		mtrr_del(par->mtrr.vram, info->fix.smem_start,
 			 info->fix.smem_len);
-#endif				
+#endif				/* CONFIG_MTRR */
 
 	iounmap(info->screen_base);
 	fb_destroy_modedb(info->monspecs.modedb);
@@ -1437,6 +1466,11 @@ static void __devexit nvidiafb_remove(struct pci_dev *pd)
 	NVTRACE_LEAVE();
 }
 
+/* ------------------------------------------------------------------------- *
+ *
+ * initialization
+ *
+ * ------------------------------------------------------------------------- */
 
 #ifndef MODULE
 static int __devinit nvidiafb_setup(char *options)
@@ -1487,7 +1521,7 @@ static int __devinit nvidiafb_setup(char *options)
 	NVTRACE_LEAVE();
 	return 0;
 }
-#endif				
+#endif				/* !MODULE */
 
 static struct pci_driver nvidiafb_driver = {
 	.name = "nvidiafb",
@@ -1498,6 +1532,11 @@ static struct pci_driver nvidiafb_driver = {
 	.remove   = __devexit_p(nvidiafb_remove),
 };
 
+/* ------------------------------------------------------------------------- *
+ *
+ * modularization
+ *
+ * ------------------------------------------------------------------------- */
 
 static int __devinit nvidiafb_init(void)
 {

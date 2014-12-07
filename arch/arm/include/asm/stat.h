@@ -48,6 +48,11 @@ struct stat {
 	unsigned long  __unused5;
 };
 
+/* This matches struct stat64 in glibc2.1, hence the absolutely
+ * insane amounts of padding around dev_t's.
+ * Note: The kernel zero's the padded region because glibc might read them
+ * in the hope that the kernel has stretched to using larger sizes.
+ */
 struct stat64 {
 	unsigned long long	st_dev;
 	unsigned char   __pad0[4];
@@ -65,7 +70,7 @@ struct stat64 {
 
 	long long	st_size;
 	unsigned long	st_blksize;
-	unsigned long long st_blocks;	
+	unsigned long long st_blocks;	/* Number 512-byte blocks allocated. */
 
 	unsigned long	st_atime;
 	unsigned long	st_atime_nsec;

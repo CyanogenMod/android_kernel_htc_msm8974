@@ -41,7 +41,7 @@ static int h3_panel_enable(struct lcd_panel *panel)
 {
 	int r = 0;
 
-	
+	/* GPIO1 and GPIO2 of TPS65010 send LCD_ENBKL and LCD_ENVDD signals */
 	r = tps65010_set_gpio_out_value(GPIO1, HIGH);
 	if (!r)
 		r = tps65010_set_gpio_out_value(GPIO2, HIGH);
@@ -55,7 +55,7 @@ static void h3_panel_disable(struct lcd_panel *panel)
 {
 	int r = 0;
 
-	
+	/* GPIO1 and GPIO2 of TPS65010 send LCD_ENBKL and LCD_ENVDD signals */
 	r = tps65010_set_gpio_out_value(GPIO1, LOW);
 	if (!r)
 		tps65010_set_gpio_out_value(GPIO2, LOW);

@@ -57,8 +57,20 @@
 #include "uwb-internal.h"
 
 
+/* UWB stack attributes (or 'global' constants) */
 
 
+/**
+ * If a beacon disappears for longer than this, then we consider the
+ * device who was represented by that beacon to be gone.
+ *
+ * ECMA-368[17.2.3, last para] establishes that a device must not
+ * consider a device to be its neighbour if he doesn't receive a beacon
+ * for more than mMaxLostBeacons. mMaxLostBeacons is defined in
+ * ECMA-368[17.16] as 3; because we can get only one beacon per
+ * superframe, that'd be 3 * 65ms = 195 ~ 200 ms. Let's give it time
+ * for jitter and stuff and make it 500 ms.
+ */
 unsigned long beacon_timeout_ms = 500;
 
 static
@@ -89,6 +101,7 @@ static struct class_attribute uwb_class_attrs[] = {
 	__ATTR_NULL,
 };
 
+/** Device model classes */
 struct class uwb_rc_class = {
 	.name        = "uwb_rc",
 	.class_attrs = uwb_class_attrs,

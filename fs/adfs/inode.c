@@ -11,6 +11,10 @@
 #include <linux/writeback.h>
 #include "adfs.h"
 
+/*
+ * Lookup/Create a block at offset 'block' into 'inode'.  We currently do
+ * not support creation of new blocks, so we return -EIO for this case.
+ */
 static int
 adfs_get_block(struct inode *inode, sector_t block, struct buffer_head *bh,
 	       int create)
@@ -24,7 +28,7 @@ adfs_get_block(struct inode *inode, sector_t block, struct buffer_head *bh,
 			map_bh(bh, inode->i_sb, block);
 		return 0;
 	}
-	
+	/* don't support allocation of blocks yet */
 	return -EIO;
 
 abort_toobig:
@@ -73,6 +77,9 @@ static const struct address_space_operations adfs_aops = {
 	.bmap		= _adfs_bmap
 };
 
+/*
+ * Convert ADFS attributes and filetype to Linux permission.
+ */
 static umode_t
 adfs_atts2mode(struct super_block *sb, struct inode *inode)
 {
@@ -86,10 +93,10 @@ adfs_atts2mode(struct super_block *sb, struct inode *inode)
 	}
 
 	switch (ADFS_I(inode)->filetype) {
-	case 0xfc0:	
+	case 0xfc0:	/* LinkFS */
 		return S_IFLNK|S_IRWXUGO;
 
-	case 0xfe6:	
+	case 0xfe6:	/* UnixExec */
 		rmask = S_IRUGO | S_IXUGO;
 		break;
 
@@ -113,6 +120,10 @@ adfs_atts2mode(struct super_block *sb, struct inode *inode)
 	return mode;
 }
 
+/*
+ * Convert Linux permission to ADFS attribute.  We try to do the reverse
+ * of atts2mode, but there is not a 1:1 translation.
+ */
 static int
 adfs_mode2atts(struct super_block *sb, struct inode *inode)
 {
@@ -120,7 +131,7 @@ adfs_mode2atts(struct super_block *sb, struct inode *inode)
 	int attr;
 	struct adfs_sb_info *asb = ADFS_SB(sb);
 
-	
+	/* FIXME: should we be able to alter a link? */
 	if (S_ISLNK(inode->i_mode))
 		return ADFS_I(inode)->attr;
 
@@ -145,10 +156,18 @@ adfs_mode2atts(struct super_block *sb, struct inode *inode)
 	return attr;
 }
 
+/*
+ * Convert an ADFS time to Unix time.  ADFS has a 40-bit centi-second time
+ * referenced to 1 Jan 1900 (til 2248) so we need to discard 2208988800 seconds
+ * of time to convert from RISC OS epoch to Unix epoch.
+ */
 static void
 adfs_adfs2unix_time(struct timespec *tv, struct inode *inode)
 {
 	unsigned int high, low;
+	/* 01 Jan 1970 00:00:00 (Unix epoch) as nanoseconds since
+	 * 01 Jan 1900 00:00:00 (RISC OS epoch)
+	 */
 	static const s64 nsec_unix_epoch_diff_risc_os_epoch =
 							2208988800000000000LL;
 	s64 nsec;
@@ -156,16 +175,19 @@ adfs_adfs2unix_time(struct timespec *tv, struct inode *inode)
 	if (ADFS_I(inode)->stamped == 0)
 		goto cur_time;
 
-	high = ADFS_I(inode)->loadaddr & 0xFF; 
-	low  = ADFS_I(inode)->execaddr;    
+	high = ADFS_I(inode)->loadaddr & 0xFF; /* top 8 bits of timestamp */
+	low  = ADFS_I(inode)->execaddr;    /* bottom 32 bits of timestamp */
 
-	nsec = (((s64) high << 32) | (s64) low) * 10000000; 
+	/* convert 40-bit centi-seconds to 32-bit seconds
+	 * going via nanoseconds to retain precision
+	 */
+	nsec = (((s64) high << 32) | (s64) low) * 10000000; /* cs to ns */
 
-	
+	/* Files dated pre  01 Jan 1970 00:00:00. */
 	if (nsec < nsec_unix_epoch_diff_risc_os_epoch)
 		goto too_early;
 
-	
+	/* convert from RISC OS to Unix epoch */
 	nsec -= nsec_unix_epoch_diff_risc_os_epoch;
 
 	*tv = ns_to_timespec(nsec);
@@ -180,13 +202,17 @@ adfs_adfs2unix_time(struct timespec *tv, struct inode *inode)
 	return;
 }
 
+/*
+ * Convert an Unix time to ADFS time.  We only do this if the entry has a
+ * time/date stamp already.
+ */
 static void
 adfs_unix2adfs_time(struct inode *inode, unsigned int secs)
 {
 	unsigned int high, low;
 
 	if (ADFS_I(inode)->stamped) {
-		
+		/* convert 32-bit seconds to 40-bit centi-seconds */
 		low  = (secs & 255) * 100;
 		high = (secs / 256) * 100 + (low >> 8) + 0x336e996a;
 
@@ -196,6 +222,18 @@ adfs_unix2adfs_time(struct inode *inode, unsigned int secs)
 	}
 }
 
+/*
+ * Fill in the inode information from the object information.
+ *
+ * Note that this is an inode-less filesystem, so we can't use the inode
+ * number to reference the metadata on the media.  Instead, we use the
+ * inode number to hold the object ID, which in turn will tell us where
+ * the data is held.  We also save the parent object ID, and with these
+ * two, we can locate the metadata.
+ *
+ * This does mean that we rely on an objects parent remaining the same at
+ * all times - we cannot cope with a cross-directory rename (yet).
+ */
 struct inode *
 adfs_iget(struct super_block *sb, struct object_info *obj)
 {
@@ -213,6 +251,12 @@ adfs_iget(struct super_block *sb, struct object_info *obj)
 	inode->i_blocks	 = (inode->i_size + sb->s_blocksize - 1) >>
 			    sb->s_blocksize_bits;
 
+	/*
+	 * we need to save the parent directory ID so that
+	 * write_inode can update the directory information
+	 * for this file.  This will need special handling
+	 * for cross-directory renames.
+	 */
 	ADFS_I(inode)->parent_id = obj->parent_id;
 	ADFS_I(inode)->loadaddr  = obj->loadaddr;
 	ADFS_I(inode)->execaddr  = obj->execaddr;
@@ -241,6 +285,11 @@ out:
 	return inode;
 }
 
+/*
+ * Validate and convert a changed access mode/time to their ADFS equivalents.
+ * adfs_write_inode will actually write the information back to the directory
+ * later.
+ */
 int
 adfs_notify_change(struct dentry *dentry, struct iattr *attr)
 {
@@ -251,6 +300,10 @@ adfs_notify_change(struct dentry *dentry, struct iattr *attr)
 	
 	error = inode_change_ok(inode, attr);
 
+	/*
+	 * we can't change the UID or GID of any file -
+	 * we have a global UID/GID in the superblock
+	 */
 	if ((ia_valid & ATTR_UID && attr->ia_uid != ADFS_SB(sb)->s_uid) ||
 	    (ia_valid & ATTR_GID && attr->ia_gid != ADFS_SB(sb)->s_gid))
 		error = -EPERM;
@@ -258,7 +311,7 @@ adfs_notify_change(struct dentry *dentry, struct iattr *attr)
 	if (error)
 		goto out;
 
-	
+	/* XXX: this is missing some actual on-disk truncation.. */
 	if (ia_valid & ATTR_SIZE)
 		truncate_setsize(inode, attr->ia_size);
 
@@ -266,6 +319,10 @@ adfs_notify_change(struct dentry *dentry, struct iattr *attr)
 		inode->i_mtime = attr->ia_mtime;
 		adfs_unix2adfs_time(inode, attr->ia_mtime.tv_sec);
 	}
+	/*
+	 * FIXME: should we make these == to i_mtime since we don't
+	 * have the ability to represent them in our filesystem?
+	 */
 	if (ia_valid & ATTR_ATIME)
 		inode->i_atime = attr->ia_atime;
 	if (ia_valid & ATTR_CTIME)
@@ -275,12 +332,21 @@ adfs_notify_change(struct dentry *dentry, struct iattr *attr)
 		inode->i_mode = adfs_atts2mode(sb, inode);
 	}
 
+	/*
+	 * FIXME: should we be marking this inode dirty even if
+	 * we don't have any metadata to write back?
+	 */
 	if (ia_valid & (ATTR_SIZE | ATTR_MTIME | ATTR_MODE))
 		mark_inode_dirty(inode);
 out:
 	return error;
 }
 
+/*
+ * write an existing inode back to the directory, and therefore the disk.
+ * The adfs-specific inode data has already been updated by
+ * adfs_notify_change()
+ */
 int adfs_write_inode(struct inode *inode, struct writeback_control *wbc)
 {
 	struct super_block *sb = inode->i_sb;

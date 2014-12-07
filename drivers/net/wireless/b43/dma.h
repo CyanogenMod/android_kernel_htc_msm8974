@@ -6,12 +6,15 @@
 #include "b43.h"
 
 
+/* DMA-Interrupt reasons. */
 #define B43_DMAIRQ_FATALMASK	((1 << 10) | (1 << 11) | (1 << 12) \
 					 | (1 << 14) | (1 << 15))
 #define B43_DMAIRQ_NONFATALMASK	(1 << 13)
 #define B43_DMAIRQ_RX_DONE		(1 << 16)
 
+/*** 32-bit DMA Engine. ***/
 
+/* 32-bit DMA controller registers. */
 #define B43_DMA32_TXCTL				0x00
 #define		B43_DMA32_TXENABLE			0x00000001
 #define		B43_DMA32_TXSUSPEND			0x00000002
@@ -62,6 +65,7 @@
 #define			B43_DMA32_RXERR_DESCREAD	0x00040000
 #define		B43_DMA32_RXACTIVE			0xFFF00000
 
+/* 32-bit DMA descriptor. */
 struct b43_dmadesc32 {
 	__le32 control;
 	__le32 address;
@@ -74,7 +78,9 @@ struct b43_dmadesc32 {
 #define B43_DMA32_DCTL_FRAMEEND		0x40000000
 #define B43_DMA32_DCTL_FRAMESTART		0x80000000
 
+/*** 64-bit DMA Engine. ***/
 
+/* 64-bit DMA controller registers. */
 #define B43_DMA64_TXCTL				0x00
 #define		B43_DMA64_TXENABLE			0x00000001
 #define		B43_DMA64_TXSUSPEND			0x00000002
@@ -132,6 +138,7 @@ struct b43_dmadesc32 {
 #define			B43_DMA64_RXERR_DESCREAD	0x40000000
 #define			B43_DMA64_RXERR_CORE	0x50000000
 
+/* 64-bit DMA descriptor. */
 struct b43_dmadesc64 {
 	__le32 control0;
 	__le32 control1;
@@ -153,16 +160,20 @@ struct b43_dmadesc_generic {
 	} __packed;
 } __packed;
 
+/* Misc DMA constants */
 #define B43_DMA32_RINGMEMSIZE		4096
 #define B43_DMA64_RINGMEMSIZE		8192
+/* Offset of frame with actual data */
 #define B43_DMA0_RX_FW598_FO		38
 #define B43_DMA0_RX_FW351_FO		30
 
+/* DMA engine tuning knobs */
 #define B43_TXRING_SLOTS		256
 #define B43_RXRING_SLOTS		64
 #define B43_DMA0_RX_FW598_BUFSIZE	(B43_DMA0_RX_FW598_FO + IEEE80211_MAX_FRAME_LEN)
 #define B43_DMA0_RX_FW351_BUFSIZE	(B43_DMA0_RX_FW351_FO + IEEE80211_MAX_FRAME_LEN)
 
+/* Pointer poison */
 #define B43_DMA_PTR_POISON		((void *)ERR_PTR(-ENOMEM))
 #define b43_dma_ptr_is_poisoned(ptr)	(unlikely((ptr) == B43_DMA_PTR_POISON))
 
@@ -172,16 +183,17 @@ struct b43_private;
 struct b43_txstatus;
 
 struct b43_dmadesc_meta {
-	
+	/* The kernel DMA-able buffer. */
 	struct sk_buff *skb;
-	
+	/* DMA base bus-address of the descriptor buffer. */
 	dma_addr_t dmaaddr;
-	
+	/* ieee80211 TX status. Only used once per 802.11 frag. */
 	bool is_last_fragment;
 };
 
 struct b43_dmaring;
 
+/* Lowlevel DMA operations that differ between 32bit and 64bit DMA. */
 struct b43_dma_ops {
 	struct b43_dmadesc_generic *(*idx2desc) (struct b43_dmaring * ring,
 						 int slot,
@@ -211,49 +223,55 @@ enum b43_addrtype {
 };
 
 struct b43_dmaring {
-	
+	/* Lowlevel DMA ops. */
 	const struct b43_dma_ops *ops;
-	
+	/* Kernel virtual base address of the ring memory. */
 	void *descbase;
-	
+	/* Meta data about all descriptors. */
 	struct b43_dmadesc_meta *meta;
+	/* Cache of TX headers for each TX frame.
+	 * This is to avoid an allocation on each TX.
+	 * This is NULL for an RX ring.
+	 */
 	u8 *txhdr_cache;
-	
+	/* (Unadjusted) DMA base bus-address of the ring memory. */
 	dma_addr_t dmabase;
-	
+	/* Number of descriptor slots in the ring. */
 	int nr_slots;
-	
+	/* Number of used descriptor slots. */
 	int used_slots;
-	
+	/* Currently used slot in the ring. */
 	int current_slot;
-	
+	/* Frameoffset in octets. */
 	u32 frameoffset;
-	
+	/* Descriptor buffer size. */
 	u16 rx_buffersize;
-	
+	/* The MMIO base register of the DMA controller. */
 	u16 mmio_base;
-	
+	/* DMA controller index number (0-5). */
 	int index;
-	
+	/* Boolean. Is this a TX ring? */
 	bool tx;
-	
+	/* The type of DMA engine used. */
 	enum b43_dmatype type;
-	
+	/* Boolean. Is this ring stopped at ieee80211 level? */
 	bool stopped;
+	/* The QOS priority assigned to this ring. Only used for TX rings.
+	 * This is the mac80211 "queue" value. */
 	u8 queue_prio;
 	struct b43_wldev *dev;
 #ifdef CONFIG_B43_DEBUG
-	
+	/* Maximum number of used slots. */
 	int max_used_slots;
-	
+	/* Last time we injected a ring overflow. */
 	unsigned long last_injected_overflow;
-	
+	/* Statistics: Number of successfully transmitted packets */
 	u64 nr_succeed_tx_packets;
-	
+	/* Statistics: Number of failed TX packets */
 	u64 nr_failed_tx_packets;
-	
+	/* Statistics: Total number of TX plus all retries. */
 	u64 nr_total_packet_tries;
-#endif 
+#endif /* CONFIG_B43_DEBUG */
 };
 
 static inline u32 b43_dma_read(struct b43_dmaring *ring, u16 offset)
@@ -282,4 +300,4 @@ void b43_dma_rx(struct b43_dmaring *ring);
 void b43_dma_direct_fifo_rx(struct b43_wldev *dev,
 			    unsigned int engine_index, bool enable);
 
-#endif 
+#endif /* B43_DMA_H_ */

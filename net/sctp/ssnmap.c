@@ -46,12 +46,18 @@
 static struct sctp_ssnmap *sctp_ssnmap_init(struct sctp_ssnmap *map, __u16 in,
 					    __u16 out);
 
+/* Storage size needed for map includes 2 headers and then the
+ * specific needs of in or out streams.
+ */
 static inline size_t sctp_ssnmap_size(__u16 in, __u16 out)
 {
 	return sizeof(struct sctp_ssnmap) + (in + out) * sizeof(__u16);
 }
 
 
+/* Create a new sctp_ssnmap.
+ * Allocate room to store at least 'len' contiguous TSNs.
+ */
 struct sctp_ssnmap *sctp_ssnmap_new(__u16 in, __u16 out,
 				    gfp_t gfp)
 {
@@ -85,22 +91,24 @@ fail:
 }
 
 
+/* Initialize a block of memory as a ssnmap.  */
 static struct sctp_ssnmap *sctp_ssnmap_init(struct sctp_ssnmap *map, __u16 in,
 					    __u16 out)
 {
 	memset(map, 0x00, sctp_ssnmap_size(in, out));
 
-	
+	/* Start 'in' stream just after the map header. */
 	map->in.ssn = (__u16 *)&map[1];
 	map->in.len = in;
 
-	
+	/* Start 'out' stream just after 'in'. */
 	map->out.ssn = &map->in.ssn[in];
 	map->out.len = out;
 
 	return map;
 }
 
+/* Clear out the ssnmap streams.  */
 void sctp_ssnmap_clear(struct sctp_ssnmap *map)
 {
 	size_t size;
@@ -109,6 +117,7 @@ void sctp_ssnmap_clear(struct sctp_ssnmap *map)
 	memset(map->in.ssn, 0x00, size);
 }
 
+/* Dispose of a ssnmap.  */
 void sctp_ssnmap_free(struct sctp_ssnmap *map)
 {
 	if (map && map->malloced) {

@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/crc-itu-t.h>
 
+/** CRC table for the CRC ITU-T V.41 0x0x1021 (x^16 + x^12 + x^15 + 1) */
 const u16 crc_itu_t_table[256] = {
 	0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50a5, 0x60c6, 0x70e7,
 	0x8108, 0x9129, 0xa14a, 0xb16b, 0xc18c, 0xd1ad, 0xe1ce, 0xf1ef,
@@ -46,6 +47,15 @@ const u16 crc_itu_t_table[256] = {
 
 EXPORT_SYMBOL(crc_itu_t_table);
 
+/**
+ * crc_itu_t - Compute the CRC-ITU-T for the data buffer
+ *
+ * @crc:     previous CRC value
+ * @buffer:  data pointer
+ * @len:     number of bytes in the buffer
+ *
+ * Returns the updated CRC value
+ */
 u16 crc_itu_t(u16 crc, const u8 *buffer, size_t len)
 {
 	while (len--)

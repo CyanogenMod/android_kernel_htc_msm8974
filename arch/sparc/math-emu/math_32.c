@@ -57,6 +57,12 @@
  * so we follow that practice...
  */
 
+/* TODO:
+ * fpsave() saves the FP queue but fpload() doesn't reload it.
+ * Therefore when we context switch or change FPU ownership
+ * we have to check to see if the queue had anything in it and
+ * emulate it if it did. This is going to be a pain.
+ */
 
 #include <linux/types.h>
 #include <linux/sched.h>
@@ -72,44 +78,49 @@
 
 #define FLOATFUNC(x) extern int x(void *,void *,void *)
 
-#define FSQRTQ	0x02b		
-#define FADDQ	0x043		
-#define FSUBQ	0x047		
-#define FMULQ	0x04b		
-#define FDIVQ	0x04f		
-#define FDMULQ	0x06e		
-#define FQTOS	0x0c7		
-#define FQTOD	0x0cb		
-#define FITOQ	0x0cc		
-#define FSTOQ	0x0cd		
-#define FDTOQ	0x0ce		
-#define FQTOI	0x0d3		
-#define FCMPQ	0x053		
-#define FCMPEQ	0x057		
-#define FSQRTS	0x029		
-#define FSQRTD	0x02a		
-#define FADDS	0x041		
-#define FADDD	0x042		
-#define FSUBS	0x045		
-#define FSUBD	0x046		
-#define FMULS	0x049		
-#define FMULD	0x04a		
-#define FDIVS	0x04d		
-#define FDIVD	0x04e		
-#define FSMULD	0x069		
-#define FDTOS	0x0c6		
-#define FSTOD	0x0c9		
-#define FSTOI	0x0d1		
-#define FDTOI	0x0d2		
-#define FABSS	0x009		
-#define FCMPS	0x051		
-#define FCMPES	0x055		
-#define FCMPD	0x052		
-#define FCMPED	0x056		
-#define FMOVS	0x001		
-#define FNEGS	0x005		
-#define FITOS	0x0c4		
-#define FITOD	0x0c8		
+/* The Vn labels indicate what version of the SPARC architecture gas thinks
+ * each insn is. This is from the binutils source :->
+ */
+/* quadword instructions */
+#define FSQRTQ	0x02b		/* v8 */
+#define FADDQ	0x043		/* v8 */
+#define FSUBQ	0x047		/* v8 */
+#define FMULQ	0x04b		/* v8 */
+#define FDIVQ	0x04f		/* v8 */
+#define FDMULQ	0x06e		/* v8 */
+#define FQTOS	0x0c7		/* v8 */
+#define FQTOD	0x0cb		/* v8 */
+#define FITOQ	0x0cc		/* v8 */
+#define FSTOQ	0x0cd		/* v8 */
+#define FDTOQ	0x0ce		/* v8 */
+#define FQTOI	0x0d3		/* v8 */
+#define FCMPQ	0x053		/* v8 */
+#define FCMPEQ	0x057		/* v8 */
+/* single/double instructions (subnormal): should all work */
+#define FSQRTS	0x029		/* v7 */
+#define FSQRTD	0x02a		/* v7 */
+#define FADDS	0x041		/* v6 */
+#define FADDD	0x042		/* v6 */
+#define FSUBS	0x045		/* v6 */
+#define FSUBD	0x046		/* v6 */
+#define FMULS	0x049		/* v6 */
+#define FMULD	0x04a		/* v6 */
+#define FDIVS	0x04d		/* v6 */
+#define FDIVD	0x04e		/* v6 */
+#define FSMULD	0x069		/* v6 */
+#define FDTOS	0x0c6		/* v6 */
+#define FSTOD	0x0c9		/* v6 */
+#define FSTOI	0x0d1		/* v6 */
+#define FDTOI	0x0d2		/* v6 */
+#define FABSS	0x009		/* v6 */
+#define FCMPS	0x051		/* v6 */
+#define FCMPES	0x055		/* v6 */
+#define FCMPD	0x052		/* v6 */
+#define FCMPED	0x056		/* v6 */
+#define FMOVS	0x001		/* v6 */
+#define FNEGS	0x005		/* v6 */
+#define FITOS	0x0c4		/* v6 */
+#define FITOD	0x0c8		/* v6 */
 
 #define FSR_TEM_SHIFT	23UL
 #define FSR_TEM_MASK	(0x1fUL << FSR_TEM_SHIFT)
@@ -120,13 +131,37 @@
 
 static int do_one_mathemu(u32 insn, unsigned long *fsr, unsigned long *fregs);
 
+/* Unlike the Sparc64 version (which has a struct fpustate), we
+ * pass the taskstruct corresponding to the task which currently owns the
+ * FPU. This is partly because we don't have the fpustate struct and
+ * partly because the task owning the FPU isn't always current (as is
+ * the case for the Sparc64 port). This is probably SMP-related...
+ * This function returns 1 if all queued insns were emulated successfully.
+ * The test for unimplemented FPop in kernel mode has been moved into
+ * kernel/traps.c for simplicity.
+ */
 int do_mathemu(struct pt_regs *regs, struct task_struct *fpt)
 {
+	/* regs->pc isn't necessarily the PC at which the offending insn is sitting.
+	 * The FPU maintains a queue of FPops which cause traps.
+	 * When it hits an instruction that requires that the trapped op succeeded
+	 * (usually because it reads a reg. that the trapped op wrote) then it
+	 * causes this exception. We need to emulate all the insns on the queue
+	 * and then allow the op to proceed.
+	 * This code should also handle the case where the trap was precise,
+	 * in which case the queue length is zero and regs->pc points at the
+	 * single FPop to be emulated. (this case is untested, though :->)
+	 * You'll need this case if you want to be able to emulate all FPops
+	 * because the FPU either doesn't exist or has been software-disabled.
+	 * [The UltraSPARC makes FP a precise trap; this isn't as stupid as it
+	 * might sound because the Ultra does funky things with a superscalar
+	 * architecture.]
+	 */
 
-	
+	/* You wouldn't believe how often I typed 'ftp' when I meant 'fpt' :-> */
 
 	int i;
-	int retcode = 0;                               
+	int retcode = 0;                               /* assume all succeed */
 	unsigned long insn;
 
 	perf_sw_event(PERF_COUNT_SW_EMULATION_FAULTS, 1, regs, 0);
@@ -139,14 +174,14 @@ int do_mathemu(struct pt_regs *regs, struct task_struct *fpt)
 		       (unsigned long)fpt->thread.fpqueue[i].insn_addr);
 #endif
 
-	if (fpt->thread.fpqdepth == 0) {                   
+	if (fpt->thread.fpqdepth == 0) {                   /* no queue, guilty insn is at regs->pc */
 #ifdef DEBUG_MATHEMU
 		printk("precise trap at %08lx\n", regs->pc);
 #endif
 		if (!get_user(insn, (u32 __user *) regs->pc)) {
 			retcode = do_one_mathemu(insn, &fpt->thread.fsr, fpt->thread.float_regs);
 			if (retcode) {
-				
+				/* in this case we need to fix up PC & nPC */
 				regs->pc = regs->npc;
 				regs->npc += 4;
 			}
@@ -154,13 +189,13 @@ int do_mathemu(struct pt_regs *regs, struct task_struct *fpt)
 		return retcode;
 	}
 
-	
+	/* Normal case: need to empty the queue... */
 	for (i = 0; i < fpt->thread.fpqdepth; i++) {
 		retcode = do_one_mathemu(fpt->thread.fpqueue[i].insn, &(fpt->thread.fsr), fpt->thread.float_regs);
-		if (!retcode)                               
+		if (!retcode)                               /* insn failed, no point doing any more */
 			break;
 	}
-	
+	/* Now empty the queue and clear the queue_not_empty flag */
 	if (retcode)
 		fpt->thread.fsr &= ~(0x3000 | FSR_CEXC_MASK);
 	else
@@ -170,15 +205,23 @@ int do_mathemu(struct pt_regs *regs, struct task_struct *fpt)
 	return retcode;
 }
 
+/* All routines returning an exception to raise should detect
+ * such exceptions _before_ rounding to be consistent with
+ * the behavior of the hardware in the implemented cases
+ * (and thus with the recommendations in the V9 architecture
+ * manual).
+ *
+ * We return 0 if a SIGFPE should be sent, 1 otherwise.
+ */
 static inline int record_exception(unsigned long *pfsr, int eflag)
 {
 	unsigned long fsr = *pfsr;
 	int would_trap;
 
-	
+	/* Determine if this exception would have generated a trap. */
 	would_trap = (fsr & ((long)eflag << FSR_TEM_SHIFT)) != 0UL;
 
-	
+	/* If trapping, we only want to signal one bit. */
 	if (would_trap != 0) {
 		eflag &= ((fsr & FSR_TEM_MASK) >> FSR_TEM_SHIFT);
 		if ((eflag & (eflag - 1)) != 0) {
@@ -195,13 +238,25 @@ static inline int record_exception(unsigned long *pfsr, int eflag)
 		}
 	}
 
+	/* Set CEXC, here is the rule:
+	 *
+	 *    In general all FPU ops will set one and only one
+	 *    bit in the CEXC field, this is always the case
+	 *    when the IEEE exception trap is enabled in TEM.
+	 */
 	fsr &= ~(FSR_CEXC_MASK);
 	fsr |= ((long)eflag << FSR_CEXC_SHIFT);
 
+	/* Set the AEXC field, rule is:
+	 *
+	 *    If a trap would not be generated, the
+	 *    CEXC just generated is OR'd into the
+	 *    existing value of AEXC.
+	 */
 	if (would_trap == 0)
 		fsr |= ((long)eflag << FSR_AEXC_SHIFT);
 
-	
+	/* If trapping, indicate fault trap type IEEE. */
 	if (would_trap != 0)
 		fsr |= (1UL << 14);
 
@@ -218,8 +273,11 @@ typedef union {
 
 static int do_one_mathemu(u32 insn, unsigned long *pfsr, unsigned long *fregs)
 {
-	
+	/* Emulate the given insn, updating fsr and fregs appropriately. */
 	int type = 0;
+	/* r is rd, b is rs2 and a is rs1. The *u arg tells
+	   whether the argument should be packed/unpacked (0 - do not unpack/pack, 1 - unpack/pack)
+	   non-u args tells the size of the argument (0 - no argument, 1 - single, 2 - double, 3 - quad */
 #define TYPE(dummy, r, ru, b, bu, a, au) type = (au << 2) | (a << 0) | (bu << 5) | (b << 3) | (ru << 8) | (r << 6)
 	int freg;
 	argp rs1 = NULL, rs2 = NULL, rd = NULL;
@@ -234,7 +292,7 @@ static int do_one_mathemu(u32 insn, unsigned long *pfsr, unsigned long *fregs)
 	printk("In do_mathemu(), emulating %08lx\n", insn);
 #endif
 
-	if ((insn & 0xc1f80000) == 0x81a00000)	 {
+	if ((insn & 0xc1f80000) == 0x81a00000)	/* FPOP1 */ {
 		switch ((insn >> 5) & 0x1ff) {
 		case FSQRTQ: TYPE(3,3,1,3,1,0,0); break;
 		case FADDQ:
@@ -269,7 +327,7 @@ static int do_one_mathemu(u32 insn, unsigned long *pfsr, unsigned long *fregs)
 		case FABSS:
 		case FNEGS: TYPE(2,1,0,1,0,0,0); break;
 		}
-	} else if ((insn & 0xc1f80000) == 0x81a80000)	 {
+	} else if ((insn & 0xc1f80000) == 0x81a80000)	/* FPOP2 */ {
 		switch ((insn >> 5) & 0x1ff) {
 		case FCMPS: TYPE(3,0,0,1,1,1,1); break;
 		case FCMPES: TYPE(3,0,0,1,1,1,1); break;
@@ -280,29 +338,29 @@ static int do_one_mathemu(u32 insn, unsigned long *pfsr, unsigned long *fregs)
 		}
 	}
 
-	if (!type) {	
+	if (!type) {	/* oops, didn't recognise that FPop */
 #ifdef DEBUG_MATHEMU
 		printk("attempt to emulate unrecognised FPop!\n");
 #endif
 		return 0;
 	}
 
-	
+	/* Decode the registers to be used */
 	freg = (*pfsr >> 14) & 0xf;
 
-	*pfsr &= ~0x1c000;				
+	*pfsr &= ~0x1c000;				/* clear the traptype bits */
 	
 	freg = ((insn >> 14) & 0x1f);
-	switch (type & 0x3) {				
+	switch (type & 0x3) {				/* is rs1 single, double or quad? */
 	case 3:
-		if (freg & 3) {				
-							
+		if (freg & 3) {				/* quadwords must have bits 4&5 of the */
+							/* encoded reg. number set to zero. */
 			*pfsr |= (6 << 14);
-			return 0;			
+			return 0;			/* simulate invalid_fp_register exception */
 		}
-	
+	/* fall through */
 	case 2:
-		if (freg & 1) {				
+		if (freg & 1) {				/* doublewords must have bit 5 zeroed */
 			*pfsr |= (6 << 14);
 			return 0;
 		}
@@ -314,16 +372,16 @@ static int do_one_mathemu(u32 insn, unsigned long *pfsr, unsigned long *fregs)
 	case 5: FP_UNPACK_SP (SA, rs1); break;
 	}
 	freg = (insn & 0x1f);
-	switch ((type >> 3) & 0x3) {			
+	switch ((type >> 3) & 0x3) {			/* same again for rs2 */
 	case 3:
-		if (freg & 3) {				
-							
+		if (freg & 3) {				/* quadwords must have bits 4&5 of the */
+							/* encoded reg. number set to zero. */
 			*pfsr |= (6 << 14);
-			return 0;			
+			return 0;			/* simulate invalid_fp_register exception */
 		}
-	
+	/* fall through */
 	case 2:
-		if (freg & 1) {				
+		if (freg & 1) {				/* doublewords must have bit 5 zeroed */
 			*pfsr |= (6 << 14);
 			return 0;
 		}
@@ -335,27 +393,27 @@ static int do_one_mathemu(u32 insn, unsigned long *pfsr, unsigned long *fregs)
 	case 5: FP_UNPACK_SP (SB, rs2); break;
 	}
 	freg = ((insn >> 25) & 0x1f);
-	switch ((type >> 6) & 0x3) {			
-	case 0:						
-		if (freg) {				
-							
-			*pfsr |= (6 << 14);		
-			return 0;			
+	switch ((type >> 6) & 0x3) {			/* and finally rd. This one's a bit different */
+	case 0:						/* dest is fcc. (this must be FCMPQ or FCMPEQ) */
+		if (freg) {				/* V8 has only one set of condition codes, so */
+							/* anything but 0 in the rd field is an error */
+			*pfsr |= (6 << 14);		/* (should probably flag as invalid opcode */
+			return 0;			/* but SIGFPE will do :-> ) */
 		}
 		break;
 	case 3:
-		if (freg & 3) {				
-							
+		if (freg & 3) {				/* quadwords must have bits 4&5 of the */
+							/* encoded reg. number set to zero. */
 			*pfsr |= (6 << 14);
-			return 0;			
+			return 0;			/* simulate invalid_fp_register exception */
 		}
-	
+	/* fall through */
 	case 2:
-		if (freg & 1) {				
+		if (freg & 1) {				/* doublewords must have bit 5 zeroed */
 			*pfsr |= (6 << 14);
 			return 0;
 		}
-	
+	/* fall through */
 	case 1:
 		rd = (void *)&fregs[freg];
 		break;
@@ -363,17 +421,17 @@ static int do_one_mathemu(u32 insn, unsigned long *pfsr, unsigned long *fregs)
 #ifdef DEBUG_MATHEMU
 	printk("executing insn...\n");
 #endif
-	
+	/* do the Right Thing */
 	switch ((insn >> 5) & 0x1ff) {
-	
+	/* + */
 	case FADDS: FP_ADD_S (SR, SA, SB); break;
 	case FADDD: FP_ADD_D (DR, DA, DB); break;
 	case FADDQ: FP_ADD_Q (QR, QA, QB); break;
-	
+	/* - */
 	case FSUBS: FP_SUB_S (SR, SA, SB); break;
 	case FSUBD: FP_SUB_D (DR, DA, DB); break;
 	case FSUBQ: FP_SUB_Q (QR, QA, QB); break;
-	
+	/* * */
 	case FMULS: FP_MUL_S (SR, SA, SB); break;
 	case FSMULD: FP_CONV (D, S, 2, 1, DA, SA);
 		     FP_CONV (D, S, 2, 1, DB, SB);
@@ -381,34 +439,34 @@ static int do_one_mathemu(u32 insn, unsigned long *pfsr, unsigned long *fregs)
 	case FDMULQ: FP_CONV (Q, D, 4, 2, QA, DA);
 		     FP_CONV (Q, D, 4, 2, QB, DB);
 	case FMULQ: FP_MUL_Q (QR, QA, QB); break;
-	
+	/* / */
 	case FDIVS: FP_DIV_S (SR, SA, SB); break;
 	case FDIVD: FP_DIV_D (DR, DA, DB); break;
 	case FDIVQ: FP_DIV_Q (QR, QA, QB); break;
-	
+	/* sqrt */
 	case FSQRTS: FP_SQRT_S (SR, SB); break;
 	case FSQRTD: FP_SQRT_D (DR, DB); break;
 	case FSQRTQ: FP_SQRT_Q (QR, QB); break;
-	
+	/* mov */
 	case FMOVS: rd->s = rs2->s; break;
 	case FABSS: rd->s = rs2->s & 0x7fffffff; break;
 	case FNEGS: rd->s = rs2->s ^ 0x80000000; break;
-	
+	/* float to int */
 	case FSTOI: FP_TO_INT_S (IR, SB, 32, 1); break;
 	case FDTOI: FP_TO_INT_D (IR, DB, 32, 1); break;
 	case FQTOI: FP_TO_INT_Q (IR, QB, 32, 1); break;
-	
+	/* int to float */
 	case FITOS: IR = rs2->s; FP_FROM_INT_S (SR, IR, 32, int); break;
 	case FITOD: IR = rs2->s; FP_FROM_INT_D (DR, IR, 32, int); break;
 	case FITOQ: IR = rs2->s; FP_FROM_INT_Q (QR, IR, 32, int); break;
-	
+	/* float to float */
 	case FSTOD: FP_CONV (D, S, 2, 1, DR, SB); break;
 	case FSTOQ: FP_CONV (Q, S, 4, 1, QR, SB); break;
 	case FDTOQ: FP_CONV (Q, D, 4, 2, QR, DB); break;
 	case FDTOS: FP_CONV (S, D, 1, 2, SR, DB); break;
 	case FQTOS: FP_CONV (S, Q, 1, 4, SR, QB); break;
 	case FQTOD: FP_CONV (D, Q, 2, 4, DR, QB); break;
-	
+	/* comparison */
 	case FCMPS:
 	case FCMPES:
 		FP_CMP_S(IR, SB, SA, 3);
@@ -440,7 +498,7 @@ static int do_one_mathemu(u32 insn, unsigned long *pfsr, unsigned long *fregs)
 		switch ((type >> 6) & 0x7) {
 		case 0: fsr = *pfsr;
 			if (IR == -1) IR = 2;
-			
+			/* fcc is always fcc0 */
 			fsr &= ~0xc00; fsr |= (IR << 10); break;
 			*pfsr = fsr;
 			break;
@@ -451,6 +509,6 @@ static int do_one_mathemu(u32 insn, unsigned long *pfsr, unsigned long *fregs)
 		}
 	}
 	if (_fex == 0)
-		return 1;				
+		return 1;				/* success! */
 	return record_exception(pfsr, _fex);
 }

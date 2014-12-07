@@ -62,4 +62,4 @@ void tt_update_orig(struct bat_priv *bat_priv, struct orig_node *orig_node,
 		    const unsigned char *tt_buff, uint8_t tt_num_changes,
 		    uint8_t ttvn, uint16_t tt_crc);
 
-#endif 
+#endif /* _NET_BATMAN_ADV_TRANSLATION_TABLE_H_ */

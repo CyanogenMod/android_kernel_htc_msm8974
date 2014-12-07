@@ -47,14 +47,14 @@ static void serial_edit_cmdline(char *buf, int len)
 	while (timer++ < 5*1000) {
 		if (scdp->tstc()) {
 			while (((ch = scdp->getc()) != '\n') && (ch != '\r')) {
-				
+				/* Test for backspace/delete */
 				if ((ch == '\b') || (ch == '\177')) {
 					if (cp != buf) {
 						cp--;
 						count--;
 						printf("\b \b");
 					}
-				
+				/* Test for ^x/^u (and wipe the line) */
 				} else if ((ch == '\030') || (ch == '\025')) {
 					while (cp != buf) {
 						cp--;
@@ -67,9 +67,9 @@ static void serial_edit_cmdline(char *buf, int len)
 						scdp->putc(ch);
 				}
 			}
-			break;  
+			break;  /* Exit 'timer' loop */
 		}
-		udelay(1000);  
+		udelay(1000);  /* 1 msec */
 	}
 	*cp = 0;
 }
@@ -107,6 +107,7 @@ err_out:
 
 static struct serial_console_data serial_cd;
 
+/* Node's "compatible" property determines which serial driver to use */
 int serial_console_init(void)
 {
 	void *devp;
@@ -132,7 +133,7 @@ int serial_console_init(void)
 		 dt_is_compatible(devp, "xlnx,xps-uartlite-1.00.a"))
 		rc = uartlite_console_init(devp, &serial_cd);
 
-	
+	/* Add other serial console driver calls here */
 
 	if (!rc) {
 		console_ops.open = serial_open;

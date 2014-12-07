@@ -17,6 +17,10 @@
 #include "../trigger_consumer.h"
 #include "ade7758.h"
 
+/**
+ * ade7758_spi_read_burst() - read data registers
+ * @dev: device associated with child of actual device (iio_dev or iio_trig)
+ **/
 static int ade7758_spi_read_burst(struct device *dev)
 {
 	struct iio_dev *indio_dev = dev_get_drvdata(dev);
@@ -51,6 +55,9 @@ out:
 	return ret;
 }
 
+/* Whilst this makes a lot of calls to iio_sw_ring functions - it is to device
+ * specific to be rolled into the core.
+ */
 static irqreturn_t ade7758_trigger_handler(int irq, void *p)
 {
 	struct iio_poll_func *pf = p;
@@ -64,7 +71,7 @@ static irqreturn_t ade7758_trigger_handler(int irq, void *p)
 		if (ade7758_spi_read_burst(&indio_dev->dev) >= 0)
 			*dat32 = get_unaligned_be32(&st->rx_buf[5]) & 0xFFFFFF;
 
-	
+	/* Guaranteed to be aligned with 8 byte boundary */
 	if (ring->scan_timestamp)
 		dat64[1] = pf->timestamp;
 
@@ -75,6 +82,13 @@ static irqreturn_t ade7758_trigger_handler(int irq, void *p)
 	return IRQ_HANDLED;
 }
 
+/**
+ * ade7758_ring_preenable() setup the parameters of the ring before enabling
+ *
+ * The complex nature of the setting of the number of bytes per datum is due
+ * to this driver currently ensuring that the timestamp is stored at an 8
+ * byte boundary.
+ **/
 static int ade7758_ring_preenable(struct iio_dev *indio_dev)
 {
 	struct ade7758_state *st = iio_priv(indio_dev);
@@ -154,7 +168,7 @@ int ade7758_configure_ring(struct iio_dev *indio_dev)
 	st->tx_buf[6] = 0;
 	st->tx_buf[7] = 0;
 
-	
+	/* build spi ring message */
 	st->ring_xfer[0].tx_buf = &st->tx_buf[0];
 	st->ring_xfer[0].len = 1;
 	st->ring_xfer[0].bits_per_word = 8;

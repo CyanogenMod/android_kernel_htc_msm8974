@@ -35,6 +35,9 @@
 #include <mach/spi.h>
 
 #define DA830_EVM_PHY_ID		""
+/*
+ * USB1 VBUS is controlled by GPIO1[15], over-current is reported on GPIO2[4].
+ */
 #define ON_BD_USB_DRV	GPIO_TO_PIN(1, 15)
 #define ON_BD_USB_OVC	GPIO_TO_PIN(2, 4)
 
@@ -89,8 +92,8 @@ static struct da8xx_ohci_root_hub da830_evm_usb11_pdata = {
 	.get_oci	= da830_evm_usb_get_oci,
 	.ocic_notify	= da830_evm_usb_ocic_notify,
 
-	
-	.potpgt		= (3 + 1) / 2,	
+	/* TPS2065 switch @ 5V */
+	.potpgt		= (3 + 1) / 2,	/* 3 ms max */
 };
 
 static irqreturn_t da830_evm_usb_ocic_irq(int irq, void *dev_id)
@@ -104,15 +107,30 @@ static __init void da830_evm_usb_init(void)
 	u32 cfgchip2;
 	int ret;
 
+	/*
+	 * Set up USB clock/mode in the CFGCHIP2 register.
+	 * FYI:  CFGCHIP2 is 0x0000ef00 initially.
+	 */
 	cfgchip2 = __raw_readl(DA8XX_SYSCFG0_VIRT(DA8XX_CFGCHIP2_REG));
 
-	
+	/* USB2.0 PHY reference clock is 24 MHz */
 	cfgchip2 &= ~CFGCHIP2_REFFREQ;
 	cfgchip2 |=  CFGCHIP2_REFFREQ_24MHZ;
 
+	/*
+	 * Select internal reference clock for USB 2.0 PHY
+	 * and use it as a clock source for USB 1.1 PHY
+	 * (this is the default setting anyway).
+	 */
 	cfgchip2 &= ~CFGCHIP2_USB1PHYCLKMUX;
 	cfgchip2 |=  CFGCHIP2_USB2PHYCLKMUX;
 
+	/*
+	 * We have to override VBUS/ID signals when MUSB is configured into the
+	 * host-only mode -- ID pin will float if no cable is connected, so the
+	 * controller won't be able to drive VBUS thinking that it's a B-device.
+	 * Otherwise, we want to use the OTG mode and enable VBUS comparators.
+	 */
 	cfgchip2 &= ~CFGCHIP2_OTGMODE;
 #ifdef	CONFIG_USB_MUSB_HOST
 	cfgchip2 |=  CFGCHIP2_FORCE_HOST;
@@ -122,12 +140,16 @@ static __init void da830_evm_usb_init(void)
 
 	__raw_writel(cfgchip2, DA8XX_SYSCFG0_VIRT(DA8XX_CFGCHIP2_REG));
 
-	
+	/* USB_REFCLKIN is not used. */
 	ret = davinci_cfg_reg(DA830_USB0_DRVVBUS);
 	if (ret)
 		pr_warning("%s: USB 2.0 PinMux setup failed: %d\n",
 			   __func__, ret);
 	else {
+		/*
+		 * TPS2065 switch @ 5V supplies 1 A (sustains 1.5 A),
+		 * with the power on to power good time of 3 ms.
+		 */
 		ret = da8xx_register_usb20(1000, 3);
 		if (ret)
 			pr_warning("%s: USB 2.0 registration failed: %d\n",
@@ -194,6 +216,9 @@ static struct snd_platform_data da830_evm_snd_data = {
 	.rxnumevt	= 1,
 };
 
+/*
+ * GPIO2[1] is used as MMC_SD_WP and GPIO2[2] as MMC_SD_INS.
+ */
 static const short da830_evm_mmc_sd_pins[] = {
 	DA830_MMCSD_DAT_0, DA830_MMCSD_DAT_1, DA830_MMCSD_DAT_2,
 	DA830_MMCSD_DAT_3, DA830_MMCSD_DAT_4, DA830_MMCSD_DAT_5,
@@ -259,6 +284,9 @@ static inline void da830_evm_init_mmc(void)
 	}
 }
 
+/*
+ * UI board NAND/NOR flashes only use 8-bit data bus.
+ */
 static const short da830_evm_emif25_pins[] = {
 	DA830_EMA_D_0, DA830_EMA_D_1, DA830_EMA_D_2, DA830_EMA_D_3,
 	DA830_EMA_D_4, DA830_EMA_D_5, DA830_EMA_D_6, DA830_EMA_D_7,
@@ -278,28 +306,28 @@ static const short da830_evm_emif25_pins[] = {
 
 #ifdef CONFIG_DA830_UI_NAND
 static struct mtd_partition da830_evm_nand_partitions[] = {
-	
+	/* bootloader (U-Boot, etc) in first sector */
 	[0] = {
 		.name		= "bootloader",
 		.offset		= 0,
 		.size		= SZ_128K,
-		.mask_flags	= MTD_WRITEABLE,	
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
 	},
-	
+	/* bootloader params in the next sector */
 	[1] = {
 		.name		= "params",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= SZ_128K,
-		.mask_flags	= MTD_WRITEABLE,	
+		.mask_flags	= MTD_WRITEABLE,	/* force read-only */
 	},
-	
+	/* kernel */
 	[2] = {
 		.name		= "kernel",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= SZ_2M,
 		.mask_flags	= 0,
 	},
-	
+	/* file system */
 	[3] = {
 		.name		= "filesystem",
 		.offset		= MTDPART_OFS_APPEND,
@@ -308,6 +336,7 @@ static struct mtd_partition da830_evm_nand_partitions[] = {
 	}
 };
 
+/* flash bbt decriptors */
 static uint8_t da830_evm_nand_bbt_pattern[] = { 'B', 'b', 't', '0' };
 static uint8_t da830_evm_nand_mirror_pattern[] = { '1', 't', 'b', 'B' };
 
@@ -355,12 +384,12 @@ static struct davinci_nand_pdata da830_evm_nand_pdata = {
 };
 
 static struct resource da830_evm_nand_resources[] = {
-	[0] = {		
+	[0] = {		/* First memory resource is NAND I/O window */
 		.start	= DA8XX_AEMIF_CS3_BASE,
 		.end	= DA8XX_AEMIF_CS3_BASE + PAGE_SIZE - 1,
 		.flags	= IORESOURCE_MEM,
 	},
-	[1] = {		
+	[1] = {		/* Second memory resource is AEMIF control registers */
 		.start	= DA8XX_AEMIF_CTL_BASE,
 		.end	= DA8XX_AEMIF_CTL_BASE + SZ_32K - 1,
 		.flags	= IORESOURCE_MEM,
@@ -436,7 +465,7 @@ static int __init da830_evm_ui_expander_setup(struct i2c_client *client,
 {
 	gpio_request(gpio + 6, "UI MUX_MODE");
 
-	
+	/* Drive mux mode low to match the default without UI card */
 	gpio_direction_output(gpio + 6, 0);
 
 	da830_evm_init_lcdc(gpio + 6);
@@ -474,12 +503,17 @@ static struct i2c_board_info __initdata da830_evm_i2c_devices[] = {
 };
 
 static struct davinci_i2c_platform_data da830_evm_i2c_0_pdata = {
-	.bus_freq	= 100,	
-	.bus_delay	= 0,	
+	.bus_freq	= 100,	/* kHz */
+	.bus_delay	= 0,	/* usec */
 };
 
+/*
+ * The following EDMA channels/slots are not being used by drivers (for
+ * example: Timer, GPIO, UART events etc) on da830/omap-l137 EVM, hence
+ * they are being reserved for codecs on the DSP side.
+ */
 static const s16 da830_dma_rsv_chans[][2] = {
-	
+	/* (offset, number) */
 	{ 8,  2},
 	{12,  2},
 	{24,  4},
@@ -488,7 +522,7 @@ static const s16 da830_dma_rsv_chans[][2] = {
 };
 
 static const s16 da830_dma_rsv_slots[][2] = {
-	
+	/* (offset, number) */
 	{ 8,  2},
 	{12,  2},
 	{24,  4},

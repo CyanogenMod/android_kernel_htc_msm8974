@@ -11,4 +11,4 @@ static inline void debugfs_hw_add(struct ieee80211_local *local)
 }
 #endif
 
-#endif 
+#endif /* __MAC80211_DEBUGFS_H */

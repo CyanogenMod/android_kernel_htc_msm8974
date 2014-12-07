@@ -47,7 +47,7 @@ static unsigned int __init tx4927_process_sdccr(u64 __iomem *addr)
 
 	val = __raw_readq(addr);
 
-	
+	/* MVMCP -- need #defs for these bits masks */
 	sdccr_ce = ((val & (1 << 10)) >> 10);
 	sdccr_bs = ((val & (1 << 8)) >> 8);
 	sdccr_rs = ((val & (3 << 5)) >> 5);

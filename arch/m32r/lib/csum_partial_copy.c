@@ -24,6 +24,9 @@
 #include <asm/byteorder.h>
 #include <asm/uaccess.h>
 
+/*
+ * Copy while checksumming, otherwise like csum_partial
+ */
 __wsum
 csum_partial_copy_nocheck (const void *src, void *dst, int len, __wsum sum)
 {
@@ -34,6 +37,10 @@ csum_partial_copy_nocheck (const void *src, void *dst, int len, __wsum sum)
 }
 EXPORT_SYMBOL(csum_partial_copy_nocheck);
 
+/*
+ * Copy from userspace and compute checksum.  If we catch an exception
+ * then zero the rest of the buffer.
+ */
 __wsum
 csum_partial_copy_from_user (const void __user *src, void *dst,
 			     int len, __wsum sum, int *err_ptr)

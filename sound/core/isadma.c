@@ -19,6 +19,10 @@
  *
  */
 
+/*
+ * Defining following add some delay. Maybe this helps for some broken
+ * ISA DMA controllers.
+ */
 
 #undef HAVE_REALLY_SLOW_DMA_CONTROLLER
 
@@ -26,6 +30,15 @@
 #include <sound/core.h>
 #include <asm/dma.h>
 
+/**
+ * snd_dma_program - program an ISA DMA transfer
+ * @dma: the dma number
+ * @addr: the physical address of the buffer
+ * @size: the DMA transfer size
+ * @mode: the DMA transfer mode, DMA_MODE_XXX
+ *
+ * Programs an ISA DMA transfer for the given buffer.
+ */
 void snd_dma_program(unsigned long dma,
 		     unsigned long addr, unsigned int size,
                      unsigned short mode)
@@ -45,6 +58,12 @@ void snd_dma_program(unsigned long dma,
 
 EXPORT_SYMBOL(snd_dma_program);
 
+/**
+ * snd_dma_disable - stop the ISA DMA transfer
+ * @dma: the dma number
+ *
+ * Stops the ISA DMA transfer.
+ */
 void snd_dma_disable(unsigned long dma)
 {
 	unsigned long flags;
@@ -57,6 +76,13 @@ void snd_dma_disable(unsigned long dma)
 
 EXPORT_SYMBOL(snd_dma_disable);
 
+/**
+ * snd_dma_pointer - return the current pointer to DMA transfer buffer in bytes
+ * @dma: the dma number
+ * @size: the dma transfer size
+ *
+ * Returns the current pointer in DMA tranfer buffer in bytes
+ */
 unsigned int snd_dma_pointer(unsigned long dma, unsigned int size)
 {
 	unsigned long flags;
@@ -67,6 +93,11 @@ unsigned int snd_dma_pointer(unsigned long dma, unsigned int size)
 	if (!isa_dma_bridge_buggy)
 		disable_dma(dma);
 	result = get_dma_residue(dma);
+	/*
+	 * HACK - read the counter again and choose higher value in order to
+	 * avoid reading during counter lower byte roll over if the
+	 * isa_dma_bridge_buggy is set.
+	 */
 	result1 = get_dma_residue(dma);
 	if (!isa_dma_bridge_buggy)
 		enable_dma(dma);

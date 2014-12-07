@@ -9,6 +9,7 @@
  */
 
 
+/* Be sure that virtual mapping is defined right */
 #ifndef __ASM_ARCH_HARDWARE_H
 #error You must include hardware.h not SA-1101.h
 #endif
@@ -25,6 +26,10 @@
 # endif
 #endif
 
+/*
+ * We have mapped the sa1101 depending on the value of SA1101_BASE.
+ * It then appears from 0xf4000000.
+ */
 
 #define SA1101_p2v( x )         ((x) - SA1101_BASE + 0xf4000000)
 #define SA1101_v2p( x )         ((x) - 0xf4000000  + SA1101_BASE)
@@ -39,6 +44,9 @@
 #define Assembly        1
 
 
+/*
+ * Memory map
+ */
 
 #define __SHMEM_CONTROL0	0x00000000
 #define __SYSTEM_CONTROL1	0x00000400
@@ -58,79 +66,107 @@
 #define	__VGA_CONTROL		0x00200000
 #define __GPIO_INTERFACE	0x00300000
 
+/*
+ * Macro that calculates real address for registers in the SA-1101
+ */
 
 #define _SA1101( x )    ((x) + SA1101_BASE)
 
+/*
+ * Interface and shared memory controller registers
+ *
+ * Registers
+ *	SKCR		SA-1101 control register (read/write)
+ *	SMCR		Shared Memory Controller Register
+ *	SNPR		Snoop Register
+ */
 
-#define _SKCR		_SA1101( 0x00000000 ) 
-#define _SMCR		_SA1101( 0x00140000 ) 
-#define _SNPR		_SA1101( 0x00140400 ) 
+#define _SKCR		_SA1101( 0x00000000 ) /* SA-1101 Control Reg. */
+#define _SMCR		_SA1101( 0x00140000 ) /* Shared Mem. Control Reg. */
+#define _SNPR		_SA1101( 0x00140400 ) /* Snoop Reg. */
 
 #if LANGUAGE == C
 #define SKCR		(*((volatile Word *) SA1101_p2v (_SKCR)))
 #define SMCR		(*((volatile Word *) SA1101_p2v (_SMCR)))
 #define SNPR		(*((volatile Word *) SA1101_p2v (_SNPR)))
 
-#define SKCR_PLLEn	  0x0001	  
-#define SKCR_BCLKEn	  0x0002	  
-#define SKCR_Sleep	  0x0004	  
-#define SKCR_IRefEn	  0x0008	  
-#define SKCR_VCOON	  0x0010	  
-#define SKCR_ScanTestEn	  0x0020	  
-#define SKCR_ClockTestEn  0x0040	  
+#define SKCR_PLLEn	  0x0001	  /* Enable On-Chip PLL */
+#define SKCR_BCLKEn	  0x0002	  /* Enables BCLK */
+#define SKCR_Sleep	  0x0004	  /* Sleep Mode */
+#define SKCR_IRefEn	  0x0008	  /* DAC Iref input enable */
+#define SKCR_VCOON	  0x0010	  /* VCO bias */
+#define SKCR_ScanTestEn	  0x0020	  /* Enables scan test */
+#define SKCR_ClockTestEn  0x0040	  /* Enables clock test */
 
-#define SMCR_DCAC	  Fld(2,0)	  
-#define SMCR_DRAC	  Fld(2,2)	  
-#define SMCR_ArbiterBias  0x0008	  
-#define SMCR_TopVidMem	  Fld(4,5)	  
+#define SMCR_DCAC	  Fld(2,0)	  /* Number of column address bits */
+#define SMCR_DRAC	  Fld(2,2)	  /* Number of row address bits */
+#define SMCR_ArbiterBias  0x0008	  /* favor video or USB */
+#define SMCR_TopVidMem	  Fld(4,5)	  /* Top 4 bits of vidmem addr. */
 
-#define SMCR_ColAdrBits( x )		   \
+#define SMCR_ColAdrBits( x )		  /* col. addr bits 8..11 */ \
 	(( (x) - 8 ) << FShft (SMCR_DCAC))
-#define SMCR_RowAdrBits( x )		  \
+#define SMCR_RowAdrBits( x )		  /* row addr bits 9..12 */\
 	(( (x) - 9 ) << FShft (SMCR_DRAC))
 
-#define SNPR_VFBstart	  Fld(12,0)	
-#define SNPR_VFBsize	  Fld(11,12)	
-#define SNPR_WholeBank	  (1 << 23)	
-#define SNPR_BankSelect	  Fld(2,27)	
-#define SNPR_SnoopEn	  (1 << 31)	
+#define SNPR_VFBstart	  Fld(12,0)	/* Video frame buffer addr */
+#define SNPR_VFBsize	  Fld(11,12)	/* Video frame buffer size */
+#define SNPR_WholeBank	  (1 << 23)	/* Whole bank bit */
+#define SNPR_BankSelect	  Fld(2,27)	/* Bank select */
+#define SNPR_SnoopEn	  (1 << 31)	/* Enable snoop operation */
 
-#define SNPR_Set_VFBsize( x )    \
+#define SNPR_Set_VFBsize( x )   /* set frame buffer size (in kb) */ \
 	( (x) << FShft (SNPR_VFBsize))
-#define SNPR_Select_Bank(x)       \
+#define SNPR_Select_Bank(x)     /* select bank 0 or 1 */  \
 	(( (x) + 1 ) << FShft (SNPR_BankSelect ))
 
-#endif 
+#endif /* LANGUAGE == C */
 
+/*
+ * Video Memory Controller
+ *
+ * Registers
+ *    VMCCR	Configuration register
+ *    VMCAR	VMC address register
+ *    VMCDR	VMC data register
+ *
+ */
 
-#define _VMCCR		_SA1101( 0x00100000 )	
-#define _VMCAR		_SA1101( 0x00101000 )	
-#define _VMCDR		_SA1101( 0x00101400 )	
+#define _VMCCR		_SA1101( 0x00100000 )	/* Configuration register */
+#define _VMCAR		_SA1101( 0x00101000 )	/* VMC address register */
+#define _VMCDR		_SA1101( 0x00101400 )	/* VMC data register */
 
 #if LANGUAGE == C
 #define VMCCR		(*((volatile Word *) SA1101_p2v (_VMCCR)))
 #define VMCAR		(*((volatile Word *) SA1101_p2v (_VMCAR)))
 #define VMCDR		(*((volatile Word *) SA1101_p2v (_VMCDR)))
 
-#define VMCCR_RefreshEn	    0x0000	  
-#define VMCCR_Config	    0x0001	  
-#define VMCCR_RefPeriod	    Fld(2,3)	  
-#define VMCCR_StaleDataWait Fld(4,5)	  
-#define VMCCR_SleepState    (1<<9)	  
-#define VMCCR_RefTest	    (1<<10)	  
-#define VMCCR_RefLow	    Fld(6,11)	  
-#define VMCCR_RefHigh	    Fld(7,17)	  
-#define VMCCR_SDTCTest	    Fld(7,24)	  
-#define VMCCR_ForceSelfRef  (1<<31)	  
+#define VMCCR_RefreshEn	    0x0000	  /* Enable memory refresh */
+#define VMCCR_Config	    0x0001	  /* DRAM size */
+#define VMCCR_RefPeriod	    Fld(2,3)	  /* Refresh period */
+#define VMCCR_StaleDataWait Fld(4,5)	  /* Stale FIFO data timeout counter */
+#define VMCCR_SleepState    (1<<9)	  /* State of interface pins in sleep*/
+#define VMCCR_RefTest	    (1<<10)	  /* refresh test */
+#define VMCCR_RefLow	    Fld(6,11)	  /* refresh low counter */
+#define VMCCR_RefHigh	    Fld(7,17)	  /* refresh high counter */
+#define VMCCR_SDTCTest	    Fld(7,24)	  /* stale data timeout counter */
+#define VMCCR_ForceSelfRef  (1<<31)	  /* Force self refresh */
 
 #endif LANGUAGE == C
 
 
+/* Update FIFO
+ *
+ * Registers
+ *    UFCR	Update FIFO Control Register
+ *    UFSR	Update FIFO Status Register
+ *    UFLVLR	update FIFO level register
+ *    UFDR	update FIFO data register
+ */
 
-#define _UFCR	_SA1101(0x00120000)   
-#define _UFSR	_SA1101(0x00120400)   	
-#define _UFLVLR	_SA1101(0x00120800)   
-#define _UFDR	_SA1101(0x00120c00)   
+#define _UFCR	_SA1101(0x00120000)   /* Update FIFO Control Reg. */
+#define _UFSR	_SA1101(0x00120400)   /* Update FIFO Status Reg. */	
+#define _UFLVLR	_SA1101(0x00120800)   /* Update FIFO level reg. */
+#define _UFDR	_SA1101(0x00120c00)   /* Update FIFO data reg. */
 
 #if LANGUAGE == C
 
@@ -140,12 +176,20 @@
 #define UFDR	(*((volatile Word *) SA1101_p2v (_UFDR)))
 
 
-#define UFCR_FifoThreshhold	Fld(7,0)	
+#define UFCR_FifoThreshhold	Fld(7,0)	/* Level for FifoGTn flag */
 
-#define UFSR_FifoGTnFlag	0x01		#define UFSR_FifoEmpty		0x80		
+#define UFSR_FifoGTnFlag	0x01		/* FifoGTn flag */#define UFSR_FifoEmpty		0x80		/* FIFO is empty */
 
-#endif 
+#endif /* LANGUAGE == C */
 
+/* System Controller
+ *
+ * Registers
+ *    SKPCR	Power Control Register
+ *    SKCDR	Clock Divider Register
+ *    DACDR1	DAC1 Data register
+ *    DACDR2	DAC2 Data register
+ */
 
 #define _SKPCR		_SA1101(0x00000400)
 #define _SKCDR		_SA1101(0x00040000)
@@ -158,33 +202,59 @@
 #define DACDR1	(*((volatile Word *) SA1101_p2v (_DACDR1)))
 #define DACDR2	(*((volatile Word *) SA1101_p2v (_DACDR2)))
 
-#define SKPCR_UCLKEn	     0x01    
-#define SKPCR_PCLKEn	     0x02    
-#define SKPCR_ICLKEn	     0x04    
-#define SKPCR_VCLKEn	     0x08    
-#define SKPCR_PICLKEn	     0x10    
-#define SKPCR_DCLKEn	     0x20    
-#define SKPCR_nKPADEn	     0x40    
+#define SKPCR_UCLKEn	     0x01    /* USB Enable */
+#define SKPCR_PCLKEn	     0x02    /* PS/2 Enable */
+#define SKPCR_ICLKEn	     0x04    /* Interrupt Controller Enable */
+#define SKPCR_VCLKEn	     0x08    /* Video Controller Enable */
+#define SKPCR_PICLKEn	     0x10    /* parallel port Enable */
+#define SKPCR_DCLKEn	     0x20    /* DACs Enable */
+#define SKPCR_nKPADEn	     0x40    /* Multiplexer */
 
-#define SKCDR_PLLMul	     Fld(7,0)	
-#define SKCDR_VCLKEn	     Fld(2,7)	
-#define SKDCR_BCLKEn	     (1<<9)	
-#define SKDCR_UTESTCLKEn     (1<<10)	
-#define SKDCR_DivRValue	     Fld(6,11)	
-#define SKDCR_DivNValue	     Fld(5,17)	
-#define SKDCR_PLLRSH	     Fld(3,22)	
-#define SKDCR_ChargePump     (1<<25)	
-#define SKDCR_ClkTestMode    (1<<26)	
-#define SKDCR_ClkTestEn	     (1<<27)	
-#define SKDCR_ClkJitterCntl  Fld(3,28)	
+#define SKCDR_PLLMul	     Fld(7,0)	/* PLL Multiplier */
+#define SKCDR_VCLKEn	     Fld(2,7)	/* Video controller clock divider */
+#define SKDCR_BCLKEn	     (1<<9)	/* BCLK Divider */
+#define SKDCR_UTESTCLKEn     (1<<10)	/* Route USB clock during test mode */
+#define SKDCR_DivRValue	     Fld(6,11)	/* Input clock divider for PLL */
+#define SKDCR_DivNValue	     Fld(5,17)	/* Output clock divider for PLL */
+#define SKDCR_PLLRSH	     Fld(3,22)	/* PLL bandwidth control */
+#define SKDCR_ChargePump     (1<<25)	/* Charge pump control */
+#define SKDCR_ClkTestMode    (1<<26)	/* Clock output test mode */
+#define SKDCR_ClkTestEn	     (1<<27)	/* Test clock generator */
+#define SKDCR_ClkJitterCntl  Fld(3,28)	/* video clock jitter compensation */
 
-#define DACDR_DACCount	     Fld(8,0)	
+#define DACDR_DACCount	     Fld(8,0)	/* Count value */
 #define DACDR1_DACCount	     DACDR_DACCount
 #define DACDR2_DACCount	     DACDR_DACCount
 
-#endif 
+#endif /* LANGUAGE == C */
 
+/*
+ * Parallel Port Interface
+ *
+ * Registers
+ *    IEEE_Config	IEEE mode selection and programmable attributes
+ *    IEEE_Control	Controls the states of IEEE port control outputs
+ *    IEEE_Data		Forward transfer data register
+ *    IEEE_Addr		Forward transfer address register
+ *    IEEE_Status	Port IO signal status register
+ *    IEEE_IntStatus	Port interrupts status register
+ *    IEEE_FifoLevels   Rx and Tx FIFO interrupt generation levels
+ *    IEEE_InitTime	Forward timeout counter initial value
+ *    IEEE_TimerStatus	Forward timeout counter current value
+ *    IEEE_FifoReset	Reset forward transfer FIFO
+ *    IEEE_ReloadValue	Counter reload value
+ *    IEEE_TestControl	Control testmode
+ *    IEEE_TestDataIn	Test data register
+ *    IEEE_TestDataInEn	Enable test data
+ *    IEEE_TestCtrlIn	Test control signals
+ *    IEEE_TestCtrlInEn	Enable test control signals
+ *    IEEE_TestDataStat	Current data bus value
+ *
+ */
 
+/*
+ * The control registers are defined as offsets from a base address 
+ */
  
 #define _IEEE( x ) _SA1101( (x) + __PARALLEL_PORT )
 
@@ -227,29 +297,29 @@
 #define IEEE_TestDataStat   (*((volatile Word *) SA1101_p2v (_IEEE_TestDataStat)))
 
 
-#define IEEE_Config_M	    Fld(3,0)	 
-#define IEEE_Config_D	    0x04	 
-#define IEEE_Config_B	    0x08	 
-#define IEEE_Config_T	    0x10	 
-#define IEEE_Config_A	    0x20	 
-#define IEEE_Config_E	    0x40	 
-#define IEEE_Control_A	    0x08	 
-#define IEEE_Control_E	    0x04	 
-#define IEEE_Control_T	    0x02	 
-#define IEEE_Control_I	    0x01	 
-#define IEEE_Data_C	    (1<<31)	 
-#define IEEE_Data_Db	    Fld(9,16)	 
-#define IEEE_Data_Da	    Fld(9,0)	 
-#define IEEE_Addr_A	    Fld(8,0)	 
-#define IEEE_Status_A	    0x0100	 
-#define IEEE_Status_E	    0x0080	 
-#define IEEE_Status_T	    0x0040	 
-#define IEEE_Status_I	    0x0020	 
-#define IEEE_Status_B	    0x0010	 
-#define IEEE_Status_S	    0x0008	 
-#define IEEE_Status_K	    0x0004	 
-#define IEEE_Status_F	    0x0002	 
-#define IEEE_Status_R	    0x0001	 
+#define IEEE_Config_M	    Fld(3,0)	 /* Mode select */
+#define IEEE_Config_D	    0x04	 /* FIFO access enable */
+#define IEEE_Config_B	    0x08	 /* 9-bit word enable */
+#define IEEE_Config_T	    0x10	 /* Data transfer enable */
+#define IEEE_Config_A	    0x20	 /* Data transfer direction */
+#define IEEE_Config_E	    0x40	 /* Timer enable */
+#define IEEE_Control_A	    0x08	 /* AutoFd output */
+#define IEEE_Control_E	    0x04	 /* Selectin output */
+#define IEEE_Control_T	    0x02	 /* Strobe output */
+#define IEEE_Control_I	    0x01	 /* Port init output */
+#define IEEE_Data_C	    (1<<31)	 /* Byte count */
+#define IEEE_Data_Db	    Fld(9,16)	 /* Data byte 2 */
+#define IEEE_Data_Da	    Fld(9,0)	 /* Data byte 1 */
+#define IEEE_Addr_A	    Fld(8,0)	 /* forward address transfer byte */
+#define IEEE_Status_A	    0x0100	 /* nAutoFd port output status */
+#define IEEE_Status_E	    0x0080	 /* nSelectIn port output status */
+#define IEEE_Status_T	    0x0040	 /* nStrobe port output status */
+#define IEEE_Status_I	    0x0020	 /* nInit port output status */
+#define IEEE_Status_B	    0x0010	 /* Busy port inout status */
+#define IEEE_Status_S	    0x0008	 /* Select port input status */
+#define IEEE_Status_K	    0x0004	 /* nAck port input status */
+#define IEEE_Status_F	    0x0002	 /* nFault port input status */
+#define IEEE_Status_R	    0x0001	 /* pError port input status */
 
 #define IEEE_IntStatus_IntReqDat	 0x0100
 #define IEEE_IntStatus_IntReqEmp	 0x0080
@@ -275,8 +345,26 @@
 #define IEEE_TestCtrlIn_PSel		 0x02
 #define IEEE_TestCtrlIn_Busy		 0x01
 
-#endif 
+#endif /* LANGUAGE == C */
 
+/*
+ * VGA Controller
+ *
+ * Registers
+ *    VideoControl	Video Control Register
+ *    VgaTiming0	VGA Timing Register 0
+ *    VgaTiming1	VGA Timing Register 1
+ *    VgaTiming2	VGA Timing Register 2
+ *    VgaTiming3	VGA Timing Register 3
+ *    VgaBorder		VGA Border Color Register
+ *    VgaDBAR		VGADMA Base Address Register
+ *    VgaDCAR		VGADMA Channel Current Address Register
+ *    VgaStatus		VGA Status Register
+ *    VgaInterruptMask	VGA Interrupt Mask Register
+ *    VgaPalette	VGA Palette Registers
+ *    DacControl	DAC Control Register
+ *    VgaTest		VGA Controller Test Register
+ */
 
 #define _VGA( x )	_SA1101( ( x ) + __VGA_CONTROL )
 
@@ -363,8 +451,42 @@
 #define VgaTest_DACTESTDAC    0x10
 #define VgaTest_DACTESTOUT    Fld(3,5)
 
-#endif 
+#endif /* LANGUAGE == C */
 
+/*
+ * USB Host Interface Controller
+ *
+ * Registers
+ *    Revision
+ *    Control
+ *    CommandStatus
+ *    InterruptStatus
+ *    InterruptEnable
+ *    HCCA
+ *    PeriodCurrentED
+ *    ControlHeadED
+ *    BulkHeadED
+ *    BulkCurrentED
+ *    DoneHead
+ *    FmInterval
+ *    FmRemaining
+ *    FmNumber
+ *    PeriodicStart
+ *    LSThreshold
+ *    RhDescriptorA
+ *    RhDescriptorB
+ *    RhStatus
+ *    RhPortStatus
+ *    USBStatus
+ *    USBReset
+ *    USTAR
+ *    USWER
+ *    USRFR
+ *    USNFR
+ *    USTCSR
+ *    USSR
+ *    
+ */
 
 #define _USB( x )	_SA1101( ( x ) + __USB_CONTROL )
 
@@ -457,9 +579,25 @@
 #define USSR_XferReq		     0x20
 #define USSR_XferEnd		     0x40
 
-#endif 
+#endif /* LANGUAGE == C */
 
 
+/*
+ * Interrupt Controller
+ *
+ * Registers
+ *    INTTEST0		Test register 0
+ *    INTTEST1		Test register 1
+ *    INTENABLE0	Interrupt Enable register 0
+ *    INTENABLE1	Interrupt Enable register 1
+ *    INTPOL0		Interrupt Polarity selection 0
+ *    INTPOL1		Interrupt Polarity selection 1
+ *    INTTSTSEL		Interrupt source selection
+ *    INTSTATCLR0	Interrupt Status 0
+ *    INTSTATCLR1	Interrupt Status 1
+ *    INTSET0		Interrupt Set 0
+ *    INTSET1		Interrupt Set 1
+ */
 
 #define _INT( x )	_SA1101( ( x ) + __INTERRUPT_CONTROL)
 
@@ -488,8 +626,32 @@
 #define INTSET0		(*((volatile Word *) SA1101_p2v (_INTSET0)))
 #define INTSET1		(*((volatile Word *) SA1101_p2v (_INTSET1)))
 
-#endif 
+#endif /* LANGUAGE == C */
 
+/*
+ * PS/2 Trackpad and Mouse Interfaces
+ *
+ * Registers   (prefix kbd applies to trackpad interface, mse to mouse)
+ *    KBDCR		Control Register
+ *    KBDSTAT		Status Register
+ *    KBDDATA		Transmit/Receive Data register
+ *    KBDCLKDIV		Clock Division Register
+ *    KBDPRECNT		Clock Precount Register
+ *    KBDTEST1		Test register 1
+ *    KBDTEST2		Test register 2
+ *    KBDTEST3		Test register 3
+ *    KBDTEST4		Test register 4
+ *    MSECR	
+ *    MSESTAT
+ *    MSEDATA
+ *    MSECLKDIV
+ *    MSEPRECNT
+ *    MSETEST1
+ *    MSETEST2
+ *    MSETEST3
+ *    MSETEST4
+ *     
+ */
 
 #define _KBD( x )	_SA1101( ( x ) + __TRACK_INTERFACE )
 #define _MSE( x )	_SA1101( ( x ) + __MOUSE_INTERFACE )
@@ -621,9 +783,23 @@
 #define MSETEST4_TXB		 0x02
 #define MSETEST4_SRX		 0x01
 
-#endif  
+#endif  /* LANGUAGE == C */
 
 
+/*
+ * General-Purpose I/O Interface
+ *
+ * Registers
+ *    PADWR	Port A Data Write Register
+ *    PBDWR	Port B Data Write Register
+ *    PADRR	Port A Data Read Register
+ *    PBDRR	Port B Data Read Register
+ *    PADDR	Port A Data Direction Register
+ *    PBDDR	Port B Data Direction Register
+ *    PASSR	Port A Sleep State Register
+ *    PBSSR	Port B Sleep State Register
+ *
+ */
 
 #define _PIO( x )      _SA1101( ( x ) + __GPIO_INTERFACE )
 
@@ -653,6 +829,16 @@
 
 
 
+/*
+ * Keypad Interface
+ *
+ * Registers
+ *    PXDWR
+ *    PXDRR
+ *    PYDWR
+ *    PYDRR
+ *
+ */
 
 #define _KEYPAD( x )	_SA1101( ( x ) + __KEYPAD_INTERFACE ) 
 
@@ -673,6 +859,15 @@
 
 
 
+/*
+ * PCMCIA Interface
+ *
+ * Registers
+ *    PCSR	Status Register
+ *    PCCR	Control Register
+ *    PCSSR	Sleep State Register
+ *
+ */
 
 #define _CARD( x )	_SA1101( ( x ) + __PCMCIA_INTERFACE )
 

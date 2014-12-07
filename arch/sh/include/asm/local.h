@@ -3,5 +3,5 @@
 
 #include <asm-generic/local.h>
 
-#endif 
+#endif /* __ASM_SH_LOCAL_H */
 

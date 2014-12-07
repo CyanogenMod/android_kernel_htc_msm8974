@@ -36,6 +36,9 @@
 
 #include "uwb-internal.h"
 
+/**
+ * Command result codes (WUSB1.0[T8-69])
+ */
 static
 const char *__strerror[] = {
 	"success",
@@ -55,6 +58,7 @@ const char *__strerror[] = {
 };
 
 
+/** Return a string matching the given error code */
 const char *uwb_rc_strerror(unsigned code)
 {
 	if (code == 255)
@@ -74,7 +78,7 @@ int uwb_rc_cmd_async(struct uwb_rc *rc, const char *cmd_name,
 	int needtofree = 0;
 	int result;
 
-	uwb_dev_lock(&rc->uwb_dev);	
+	uwb_dev_lock(&rc->uwb_dev);	/* Protect against rc->priv being removed */
 	if (rc->priv == NULL) {
 		uwb_dev_unlock(&rc->uwb_dev);
 		return -ESHUTDOWN;
@@ -137,6 +141,31 @@ static void uwb_rc_cmd_done(struct uwb_rc *rc, void *arg,
 }
 
 
+/**
+ * Generic function for issuing commands to the Radio Control Interface
+ *
+ * @rc:       UWB Radio Control descriptor
+ * @cmd_name: Name of the command being issued (for error messages)
+ * @cmd:      Pointer to rccb structure containing the command;
+ *            normally you embed this structure as the first member of
+ *            the full command structure.
+ * @cmd_size: Size of the whole command buffer pointed to by @cmd.
+ * @reply:    Pointer to where to store the reply
+ * @reply_size: @reply's size
+ * @expected_type: Expected type in the return event
+ * @expected_event: Expected event code in the return event
+ * @preply:   Here a pointer to where the event data is received will
+ *            be stored. Once done with the data, free with kfree().
+ *
+ * This function is generic; it works for commands that return a fixed
+ * and known size or for commands that return a variable amount of data.
+ *
+ * If a buffer is provided, that is used, although it could be chopped
+ * to the maximum size of the buffer. If the buffer is NULL, then one
+ * be allocated in *preply with the whole contents of the reply.
+ *
+ * @rc needs to be referenced
+ */
 static
 ssize_t __uwb_rc_cmd(struct uwb_rc *rc, const char *cmd_name,
 		     struct uwb_rccb *cmd, size_t cmd_size,
@@ -172,6 +201,28 @@ ssize_t __uwb_rc_cmd(struct uwb_rc *rc, const char *cmd_name,
 }
 
 
+/**
+ * Generic function for issuing commands to the Radio Control Interface
+ *
+ * @rc:       UWB Radio Control descriptor
+ * @cmd_name: Name of the command being issued (for error messages)
+ * @cmd:      Pointer to rccb structure containing the command;
+ *            normally you embed this structure as the first member of
+ *            the full command structure.
+ * @cmd_size: Size of the whole command buffer pointed to by @cmd.
+ * @reply:    Pointer to the beginning of the confirmation event
+ *            buffer. Normally bigger than an 'struct hwarc_rceb'.
+ *            You need to fill out reply->bEventType and reply->wEvent (in
+ *            cpu order) as the function will use them to verify the
+ *            confirmation event.
+ * @reply_size: Size of the reply buffer
+ *
+ * The function checks that the length returned in the reply is at
+ * least as big as @reply_size; if not, it will be deemed an error and
+ * -EIO returned.
+ *
+ * @rc needs to be referenced
+ */
 ssize_t uwb_rc_cmd(struct uwb_rc *rc, const char *cmd_name,
 		   struct uwb_rccb *cmd, size_t cmd_size,
 		   struct uwb_rceb *reply, size_t reply_size)
@@ -194,6 +245,27 @@ ssize_t uwb_rc_cmd(struct uwb_rc *rc, const char *cmd_name,
 EXPORT_SYMBOL_GPL(uwb_rc_cmd);
 
 
+/**
+ * Generic function for issuing commands to the Radio Control
+ * Interface that return an unknown amount of data
+ *
+ * @rc:       UWB Radio Control descriptor
+ * @cmd_name: Name of the command being issued (for error messages)
+ * @cmd:      Pointer to rccb structure containing the command;
+ *            normally you embed this structure as the first member of
+ *            the full command structure.
+ * @cmd_size: Size of the whole command buffer pointed to by @cmd.
+ * @expected_type: Expected type in the return event
+ * @expected_event: Expected event code in the return event
+ * @preply:   Here a pointer to where the event data is received will
+ *            be stored. Once done with the data, free with kfree().
+ *
+ * The function checks that the length returned in the reply is at
+ * least as big as a 'struct uwb_rceb *'; if not, it will be deemed an
+ * error and -EIO returned.
+ *
+ * @rc needs to be referenced
+ */
 ssize_t uwb_rc_vcmd(struct uwb_rc *rc, const char *cmd_name,
 		    struct uwb_rccb *cmd, size_t cmd_size,
 		    u8 expected_type, u16 expected_event,
@@ -205,6 +277,16 @@ ssize_t uwb_rc_vcmd(struct uwb_rc *rc, const char *cmd_name,
 EXPORT_SYMBOL_GPL(uwb_rc_vcmd);
 
 
+/**
+ * Reset a UWB Host Controller (and all radio settings)
+ *
+ * @rc:      Host Controller descriptor
+ * @returns: 0 if ok, < 0 errno code on error
+ *
+ * We put the command on kmalloc'ed memory as some arches cannot do
+ * USB from the stack. The reply event is copied from an stage buffer,
+ * so it can be in the stack. See WUSB1.0[8.6.2.4] for more details.
+ */
 int uwb_rc_reset(struct uwb_rc *rc)
 {
 	int result = -ENOMEM;
@@ -250,11 +332,20 @@ int uwbd_msg_handle_reset(struct uwb_event *evt)
 	}
 	return 0;
 error:
+	/* Nothing can be done except try the reset again. Wait a bit
+	   to avoid reset loops during probe() or remove(). */
 	msleep(1000);
 	uwb_rc_reset_all(rc);
 	return ret;
 }
 
+/**
+ * uwb_rc_reset_all - request a reset of the radio controller and PALs
+ * @rc: the radio controller of the hardware device to be reset.
+ *
+ * The full hardware reset of the radio controller and all the PALs
+ * will be scheduled.
+ */
 void uwb_rc_reset_all(struct uwb_rc *rc)
 {
 	struct uwb_event *evt;
@@ -263,7 +354,7 @@ void uwb_rc_reset_all(struct uwb_rc *rc)
 	if (unlikely(evt == NULL))
 		return;
 
-	evt->rc = __uwb_rc_get(rc);	
+	evt->rc = __uwb_rc_get(rc);	/* will be put by uwbd's uwbd_event_handle() */
 	evt->ts_jiffies = jiffies;
 	evt->type = UWB_EVT_TYPE_MSG;
 	evt->message = UWB_EVT_MSG_RESET;

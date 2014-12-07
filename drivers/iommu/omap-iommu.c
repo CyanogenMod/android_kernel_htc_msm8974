@@ -33,19 +33,35 @@
 	     (__i < (n)) && (cr = __iotlb_read_cr((obj), __i), true);	\
 	     __i++)
 
+/* bitmap of the page sizes currently supported */
 #define OMAP_IOMMU_PGSIZES	(SZ_4K | SZ_64K | SZ_1M | SZ_16M)
 
+/**
+ * struct omap_iommu_domain - omap iommu domain
+ * @pgtable:	the page table
+ * @iommu_dev:	an omap iommu device attached to this domain. only a single
+ *		iommu device can be attached for now.
+ * @lock:	domain lock, should be taken when attaching/detaching
+ */
 struct omap_iommu_domain {
 	u32 *pgtable;
 	struct omap_iommu *iommu_dev;
 	spinlock_t lock;
 };
 
+/* accommodate the difference between omap1 and omap2/3 */
 static const struct iommu_functions *arch_iommu;
 
 static struct platform_driver omap_iommu_driver;
 static struct kmem_cache *iopte_cachep;
 
+/**
+ * omap_install_iommu_arch - Install archtecure specific iommu functions
+ * @ops:	a pointer to architecture specific iommu functions
+ *
+ * There are several kind of iommu algorithm(tlb, pagetable) among
+ * omap series. This interface installs such an iommu algorighm.
+ **/
 int omap_install_iommu_arch(const struct iommu_functions *ops)
 {
 	if (arch_iommu)
@@ -56,6 +72,12 @@ int omap_install_iommu_arch(const struct iommu_functions *ops)
 }
 EXPORT_SYMBOL_GPL(omap_install_iommu_arch);
 
+/**
+ * omap_uninstall_iommu_arch - Uninstall archtecure specific iommu functions
+ * @ops:	a pointer to architecture specific iommu functions
+ *
+ * This interface uninstalls the iommu algorighm installed previously.
+ **/
 void omap_uninstall_iommu_arch(const struct iommu_functions *ops)
 {
 	if (arch_iommu != ops)
@@ -65,6 +87,10 @@ void omap_uninstall_iommu_arch(const struct iommu_functions *ops)
 }
 EXPORT_SYMBOL_GPL(omap_uninstall_iommu_arch);
 
+/**
+ * omap_iommu_save_ctx - Save registers for pm off-mode support
+ * @dev:	client device
+ **/
 void omap_iommu_save_ctx(struct device *dev)
 {
 	struct omap_iommu *obj = dev_to_omap_iommu(dev);
@@ -73,6 +99,10 @@ void omap_iommu_save_ctx(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(omap_iommu_save_ctx);
 
+/**
+ * omap_iommu_restore_ctx - Restore registers for pm off-mode support
+ * @dev:	client device
+ **/
 void omap_iommu_restore_ctx(struct device *dev)
 {
 	struct omap_iommu *obj = dev_to_omap_iommu(dev);
@@ -81,6 +111,9 @@ void omap_iommu_restore_ctx(struct device *dev)
 }
 EXPORT_SYMBOL_GPL(omap_iommu_restore_ctx);
 
+/**
+ * omap_iommu_arch_version - Return running iommu arch version
+ **/
 u32 omap_iommu_arch_version(void)
 {
 	return arch_iommu->version;
@@ -117,6 +150,9 @@ static void iommu_disable(struct omap_iommu *obj)
 	clk_disable(obj->clk);
 }
 
+/*
+ *	TLB operations
+ */
 void omap_iotlb_cr_to_e(struct cr_regs *cr, struct iotlb_entry *e)
 {
 	BUG_ON(!cr || !e);
@@ -191,6 +227,12 @@ static void iotlb_load_cr(struct omap_iommu *obj, struct cr_regs *cr)
 	iommu_write_reg(obj, 1, MMU_LD_TLB);
 }
 
+/**
+ * iotlb_dump_cr - Dump an iommu tlb entry into buf
+ * @obj:	target iommu
+ * @cr:		contents of cam and ram register
+ * @buf:	output buffer
+ **/
 static inline ssize_t iotlb_dump_cr(struct omap_iommu *obj, struct cr_regs *cr,
 				    char *buf)
 {
@@ -199,6 +241,7 @@ static inline ssize_t iotlb_dump_cr(struct omap_iommu *obj, struct cr_regs *cr,
 	return arch_iommu->dump_cr(obj, cr, buf);
 }
 
+/* only used in iotlb iteration for-loop */
 static struct cr_regs __iotlb_read_cr(struct omap_iommu *obj, int n)
 {
 	struct cr_regs cr;
@@ -212,6 +255,11 @@ static struct cr_regs __iotlb_read_cr(struct omap_iommu *obj, int n)
 	return cr;
 }
 
+/**
+ * load_iotlb_entry - Set an iommu tlb entry
+ * @obj:	target iommu
+ * @e:		an iommu tlb entry info
+ **/
 #ifdef PREFETCH_IOTLB
 static int load_iotlb_entry(struct omap_iommu *obj, struct iotlb_entry *e)
 {
@@ -261,7 +309,7 @@ static int load_iotlb_entry(struct omap_iommu *obj, struct iotlb_entry *e)
 
 	if (e->prsvd)
 		l.base++;
-	
+	/* increment victim for next tlb load */
 	if (++l.vict == obj->nr_tlb_entries)
 		l.vict = l.base;
 	iotlb_lock_set(obj, &l);
@@ -270,20 +318,27 @@ out:
 	return err;
 }
 
-#else 
+#else /* !PREFETCH_IOTLB */
 
 static int load_iotlb_entry(struct omap_iommu *obj, struct iotlb_entry *e)
 {
 	return 0;
 }
 
-#endif 
+#endif /* !PREFETCH_IOTLB */
 
 static int prefetch_iotlb_entry(struct omap_iommu *obj, struct iotlb_entry *e)
 {
 	return load_iotlb_entry(obj, e);
 }
 
+/**
+ * flush_iotlb_page - Clear an iommu tlb entry
+ * @obj:	target iommu
+ * @da:		iommu device virtual address
+ *
+ * Clear an iommu tlb entry which includes 'da' address.
+ **/
 static void flush_iotlb_page(struct omap_iommu *obj, u32 da)
 {
 	int i;
@@ -314,6 +369,10 @@ static void flush_iotlb_page(struct omap_iommu *obj, u32 da)
 		dev_dbg(obj->dev, "%s: no page for %08x\n", __func__, da);
 }
 
+/**
+ * flush_iotlb_all - Clear all iommu tlb entries
+ * @obj:	target iommu
+ **/
 static void flush_iotlb_all(struct omap_iommu *obj)
 {
 	struct iotlb_lock l;
@@ -369,6 +428,11 @@ __dump_tlb_entries(struct omap_iommu *obj, struct cr_regs *crs, int num)
 	return  p - crs;
 }
 
+/**
+ * omap_dump_tlb_entries - dump cr arrays to given buffer
+ * @obj:	target iommu
+ * @buf:	output buffer
+ **/
 size_t omap_dump_tlb_entries(struct omap_iommu *obj, char *buf, ssize_t bytes)
 {
 	int i, num;
@@ -398,11 +462,14 @@ int omap_foreach_iommu_device(void *data, int (*fn)(struct device *, void *))
 }
 EXPORT_SYMBOL_GPL(omap_foreach_iommu_device);
 
-#endif 
+#endif /* CONFIG_OMAP_IOMMU_DEBUG_MODULE */
 
+/*
+ *	H/W pagetable operations
+ */
 static void flush_iopgd_range(u32 *first, u32 *last)
 {
-	
+	/* FIXME: L2 cache should be taken care of if it exists */
 	do {
 		asm("mcr	p15, 0, %0, c7, c10, 1 @ flush_pgd"
 		    : : "r" (first));
@@ -412,7 +479,7 @@ static void flush_iopgd_range(u32 *first, u32 *last)
 
 static void flush_iopte_range(u32 *first, u32 *last)
 {
-	
+	/* FIXME: L2 cache should be taken care of if it exists */
 	do {
 		asm("mcr	p15, 0, %0, c7, c10, 1 @ flush_pte"
 		    : : "r" (first));
@@ -422,7 +489,7 @@ static void flush_iopte_range(u32 *first, u32 *last)
 
 static void iopte_free(u32 *iopte)
 {
-	
+	/* Note: freed iopte's must be clean ready for re-use */
 	kmem_cache_free(iopte_cachep, iopte);
 }
 
@@ -430,10 +497,13 @@ static u32 *iopte_alloc(struct omap_iommu *obj, u32 *iopgd, u32 da)
 {
 	u32 *iopte;
 
-	
+	/* a table has already existed */
 	if (*iopgd)
 		goto pte_ready;
 
+	/*
+	 * do the allocation outside the page table lock
+	 */
 	spin_unlock(&obj->page_table_lock);
 	iopte = kmem_cache_zalloc(iopte_cachep, GFP_KERNEL);
 	spin_lock(&obj->page_table_lock);
@@ -447,7 +517,7 @@ static u32 *iopte_alloc(struct omap_iommu *obj, u32 *iopgd, u32 da)
 
 		dev_vdbg(obj->dev, "%s: a new pte:%p\n", __func__, iopte);
 	} else {
-		
+		/* We raced, free the reduniovant table */
 		iopte_free(iopte);
 	}
 
@@ -569,6 +639,11 @@ iopgtable_store_entry_core(struct omap_iommu *obj, struct iotlb_entry *e)
 	return err;
 }
 
+/**
+ * omap_iopgtable_store_entry - Make an iommu pte entry
+ * @obj:	target iommu
+ * @e:		an iommu tlb entry info
+ **/
 int omap_iopgtable_store_entry(struct omap_iommu *obj, struct iotlb_entry *e)
 {
 	int err;
@@ -581,6 +656,13 @@ int omap_iopgtable_store_entry(struct omap_iommu *obj, struct iotlb_entry *e)
 }
 EXPORT_SYMBOL_GPL(omap_iopgtable_store_entry);
 
+/**
+ * iopgtable_lookup_entry - Lookup an iommu pte entry
+ * @obj:	target iommu
+ * @da:		iommu device virtual address
+ * @ppgd:	iommu pgd entry pointer to be returned
+ * @ppte:	iommu pte entry pointer to be returned
+ **/
 static void
 iopgtable_lookup_entry(struct omap_iommu *obj, u32 da, u32 **ppgd, u32 **ppte)
 {
@@ -613,25 +695,28 @@ static size_t iopgtable_clear_entry_core(struct omap_iommu *obj, u32 da)
 		bytes = IOPTE_SIZE;
 		if (*iopte & IOPTE_LARGE) {
 			nent *= 16;
-			
+			/* rewind to the 1st entry */
 			iopte = iopte_offset(iopgd, (da & IOLARGE_MASK));
 		}
 		bytes *= nent;
 		memset(iopte, 0, nent * sizeof(*iopte));
 		flush_iopte_range(iopte, iopte + (nent - 1) * sizeof(*iopte));
 
+		/*
+		 * do table walk to check if this table is necessary or not
+		 */
 		iopte = iopte_offset(iopgd, 0);
 		for (i = 0; i < PTRS_PER_IOPTE; i++)
 			if (iopte[i])
 				goto out;
 
 		iopte_free(iopte);
-		nent = 1; 
+		nent = 1; /* for the next L1 entry */
 	} else {
 		bytes = IOPGD_SIZE;
 		if ((*iopgd & IOPGD_SUPER) == IOPGD_SUPER) {
 			nent *= 16;
-			
+			/* rewind to the 1st entry */
 			iopgd = iopgd_offset(obj, (da & IOSUPER_MASK));
 		}
 		bytes *= nent;
@@ -642,6 +727,11 @@ out:
 	return bytes;
 }
 
+/**
+ * iopgtable_clear_entry - Remove an iommu pte entry
+ * @obj:	target iommu
+ * @da:		iommu device virtual address
+ **/
 static size_t iopgtable_clear_entry(struct omap_iommu *obj, u32 da)
 {
 	size_t bytes;
@@ -684,6 +774,9 @@ static void iopgtable_clear_entry_all(struct omap_iommu *obj)
 	spin_unlock(&obj->page_table_lock);
 }
 
+/*
+ *	Device IOMMU generic operations
+ */
 static irqreturn_t iommu_fault_handler(int irq, void *data)
 {
 	u32 da, errs;
@@ -700,7 +793,7 @@ static irqreturn_t iommu_fault_handler(int irq, void *data)
 	if (errs == 0)
 		return IRQ_HANDLED;
 
-	
+	/* Fault callback or TLB/PTE Dynamic loading */
 	if (!report_iommu_fault(domain, obj->dev, da, 0))
 		return IRQ_HANDLED;
 
@@ -733,6 +826,11 @@ static int device_match_by_alias(struct device *dev, void *data)
 	return strcmp(obj->name, name) == 0;
 }
 
+/**
+ * omap_iommu_attach() - attach iommu device to an iommu domain
+ * @name:	name of target omap iommu device
+ * @iopgd:	page table
+ **/
 static struct omap_iommu *omap_iommu_attach(const char *name, u32 *iopgd)
 {
 	int err = -ENOMEM;
@@ -749,7 +847,7 @@ static struct omap_iommu *omap_iommu_attach(const char *name, u32 *iopgd)
 
 	spin_lock(&obj->iommu_lock);
 
-	
+	/* an iommu device can only be attached once */
 	if (++obj->refcount > 1) {
 		dev_err(dev, "%s: already attached!\n", obj->name);
 		err = -EBUSY;
@@ -779,6 +877,10 @@ err_enable:
 	return ERR_PTR(err);
 }
 
+/**
+ * omap_iommu_detach - release iommu device
+ * @obj:	target iommu
+ **/
 static void omap_iommu_detach(struct omap_iommu *obj)
 {
 	if (!obj || IS_ERR(obj))
@@ -798,6 +900,9 @@ static void omap_iommu_detach(struct omap_iommu *obj)
 	dev_dbg(obj->dev, "%s: %s\n", __func__, obj->name);
 }
 
+/*
+ *	OMAP Device MMU(IOMMU) detection
+ */
 static int __devinit omap_iommu_probe(struct platform_device *pdev)
 {
 	int err = -ENODEV;
@@ -918,7 +1023,7 @@ static int omap_iommu_map(struct iommu_domain *domain, unsigned long da,
 	int omap_pgsz;
 	u32 ret, flags;
 
-	
+	/* we only support mapping a single iommu page for now */
 	omap_pgsz = bytes_to_iopgsz(bytes);
 	if (omap_pgsz < 0) {
 		dev_err(dev, "invalid size to map: %d\n", bytes);
@@ -960,14 +1065,14 @@ omap_iommu_attach_dev(struct iommu_domain *domain, struct device *dev)
 
 	spin_lock(&omap_domain->lock);
 
-	
+	/* only a single device is supported per domain for now */
 	if (omap_domain->iommu_dev) {
 		dev_err(dev, "iommu domain is already attached\n");
 		ret = -EBUSY;
 		goto out;
 	}
 
-	
+	/* get a handle to and enable the omap iommu */
 	oiommu = omap_iommu_attach(arch_data->name, omap_domain->pgtable);
 	if (IS_ERR(oiommu)) {
 		ret = PTR_ERR(oiommu);
@@ -992,7 +1097,7 @@ static void omap_iommu_detach_dev(struct iommu_domain *domain,
 
 	spin_lock(&omap_domain->lock);
 
-	
+	/* only a single device is supported per domain for now */
 	if (omap_domain->iommu_dev != oiommu) {
 		dev_err(dev, "invalid iommu device\n");
 		goto out;
@@ -1024,6 +1129,10 @@ static int omap_iommu_domain_init(struct iommu_domain *domain)
 		goto fail_nomem;
 	}
 
+	/*
+	 * should never fail, but please keep this around to ensure
+	 * we keep the hardware happy
+	 */
 	BUG_ON(!IS_ALIGNED((long)omap_domain->pgtable, IOPGD_TABLE_SIZE));
 
 	clean_dcache_area(omap_domain->pgtable, IOPGD_TABLE_SIZE);
@@ -1039,6 +1148,7 @@ out:
 	return -ENOMEM;
 }
 
+/* assume device was already detached */
 static void omap_iommu_domain_destroy(struct iommu_domain *domain)
 {
 	struct omap_iommu_domain *omap_domain = domain->priv;
@@ -1101,7 +1211,7 @@ static int __init omap_iommu_init(void)
 {
 	struct kmem_cache *p;
 	const unsigned long flags = SLAB_HWCACHE_ALIGN;
-	size_t align = 1 << 10; 
+	size_t align = 1 << 10; /* L2 pagetable alignement */
 
 	p = kmem_cache_create("iopte_cache", IOPTE_TABLE_SIZE, align, flags,
 			      iopte_cachep_ctor);
@@ -1113,6 +1223,7 @@ static int __init omap_iommu_init(void)
 
 	return platform_driver_register(&omap_iommu_driver);
 }
+/* must be ready before omap3isp is probed */
 subsys_initcall(omap_iommu_init);
 
 static void __exit omap_iommu_exit(void)

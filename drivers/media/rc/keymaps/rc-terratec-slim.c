@@ -21,6 +21,8 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* TerraTec slim remote, 7 rows, 4 columns. */
+/* Uses NEC extended 0x02bd. */
 static struct rc_map_table terratec_slim[] = {
 	{ 0x02bd00, KEY_1 },
 	{ 0x02bd01, KEY_2 },
@@ -33,7 +35,7 @@ static struct rc_map_table terratec_slim[] = {
 	{ 0x02bd08, KEY_9 },
 	{ 0x02bd09, KEY_0 },
 	{ 0x02bd0a, KEY_MUTE },
-	{ 0x02bd0b, KEY_NEW },             
+	{ 0x02bd0b, KEY_NEW },             /* symbol: PIP */
 	{ 0x02bd0e, KEY_VOLUMEDOWN },
 	{ 0x02bd0f, KEY_PLAYPAUSE },
 	{ 0x02bd10, KEY_RIGHT },
@@ -42,14 +44,14 @@ static struct rc_map_table terratec_slim[] = {
 	{ 0x02bd13, KEY_DOWN },
 	{ 0x02bd15, KEY_OK },
 	{ 0x02bd16, KEY_STOP },
-	{ 0x02bd17, KEY_CAMERA },          
+	{ 0x02bd17, KEY_CAMERA },          /* snapshot */
 	{ 0x02bd18, KEY_CHANNELUP },
 	{ 0x02bd19, KEY_RECORD },
 	{ 0x02bd1a, KEY_CHANNELDOWN },
 	{ 0x02bd1c, KEY_ESC },
 	{ 0x02bd1f, KEY_VOLUMEUP },
 	{ 0x02bd44, KEY_EPG },
-	{ 0x02bd45, KEY_POWER2 },          
+	{ 0x02bd45, KEY_POWER2 },          /* [red power button] */
 };
 
 static struct rc_map_list terratec_slim_map = {

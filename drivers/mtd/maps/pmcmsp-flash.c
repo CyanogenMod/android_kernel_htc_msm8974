@@ -59,14 +59,14 @@ static int __init init_msp_flash(void)
 	char part_name[] = "flash0_0";
 	unsigned addr, size;
 
-	
+	/* If ELB is disabled by "ful-mux" mode, we can't get at flash */
 	if ((*DEV_ID_REG & DEV_ID_SINGLE_PC) &&
 	    (*ELB_1PC_EN_REG & SINGLE_PCCARD)) {
 		printk(KERN_NOTICE "Single PC Card mode: no flash access\n");
 		return -ENXIO;
 	}
 
-	
+	/* examine the prom environment for flash devices */
 	for (fcnt = 0; (env = prom_getenv(flash_name)); fcnt++)
 		flash_name[5] = '0' + fcnt + 1;
 
@@ -87,9 +87,9 @@ static int __init init_msp_flash(void)
 	if (!msp_maps)
 		goto free_msp_parts;
 
-	
+	/* loop over the flash devices, initializing each */
 	for (i = 0; i < fcnt; i++) {
-		
+		/* examine the prom environment for flash partititions */
 		part_name[5] = '0' + i;
 		part_name[7] = '0';
 		for (pcnt = 0; (env = prom_getenv(part_name)); pcnt++)
@@ -106,7 +106,7 @@ static int __init init_msp_flash(void)
 		if (!msp_parts[i])
 			goto cleanup_loop;
 
-		
+		/* now initialize the devices proper */
 		flash_name[5] = '0' + i;
 		env = prom_getenv(flash_name);
 
@@ -120,10 +120,14 @@ static int __init init_msp_flash(void)
 		printk(KERN_NOTICE
 			"MSP flash device \"%s\": 0x%08x at 0x%08x\n",
 			flash_name, size, addr);
-		
+		/* This must matchs the actual size of the flash chip */
 		msp_maps[i].size = size;
 		msp_maps[i].phys = addr;
 
+		/*
+		 * Platforms have a specific limit of the size of memory
+		 * which may be mapped for flash:
+		 */
 		if (size > CONFIG_MSP_FLASH_MAP_LIMIT)
 			size = CONFIG_MSP_FLASH_MAP_LIMIT;
 
@@ -164,7 +168,7 @@ static int __init init_msp_flash(void)
 			msp_parts[i][j].name = env + coff;
 		}
 
-		
+		/* now probe and add the device */
 		simple_map_init(&msp_maps[i]);
 		msp_flash[i] = do_map_probe("cfi_probe", &msp_maps[i]);
 		if (msp_flash[i]) {
@@ -207,7 +211,7 @@ static void __exit cleanup_msp_flash(void)
 		map_destroy(msp_flash[i]);
 		iounmap((void *)msp_maps[i].virt);
 
-		
+		/* free the memory */
 		kfree(msp_maps[i].name);
 		kfree(msp_parts[i]);
 	}

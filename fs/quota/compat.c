@@ -3,6 +3,10 @@
 #include <linux/compat.h>
 #include <linux/quotaops.h>
 
+/*
+ * This code works only for 32 bit quota tools over 64 bit OS (x86_64, ia64)
+ * and is necessary due to alignment problems.
+ */
 struct compat_if_dqblk {
 	compat_u64 dqb_bhardlimit;
 	compat_u64 dqb_bsoftlimit;
@@ -15,6 +19,7 @@ struct compat_if_dqblk {
 	compat_uint_t dqb_valid;
 };
 
+/* XFS structures */
 struct compat_fs_qfilestat {
 	compat_u64 dqb_bhardlimit;
 	compat_u64 qfs_nblks;
@@ -78,25 +83,25 @@ asmlinkage long sys32_quotactl(unsigned int cmd, const char __user *special,
 		if (ret)
 			break;
 		ret = -EFAULT;
-		
+		/* Copying qs_version, qs_flags, qs_pad */
 		if (copy_in_user(compat_fsqstat, fsqstat,
 			offsetof(struct compat_fs_quota_stat, qs_uquota)))
 			break;
-		
+		/* Copying qs_uquota */
 		if (copy_in_user(&compat_fsqstat->qs_uquota,
 			&fsqstat->qs_uquota,
 			sizeof(compat_fsqstat->qs_uquota)) ||
 			get_user(data, &fsqstat->qs_uquota.qfs_nextents) ||
 			put_user(data, &compat_fsqstat->qs_uquota.qfs_nextents))
 			break;
-		
+		/* Copying qs_gquota */
 		if (copy_in_user(&compat_fsqstat->qs_gquota,
 			&fsqstat->qs_gquota,
 			sizeof(compat_fsqstat->qs_gquota)) ||
 			get_user(data, &fsqstat->qs_gquota.qfs_nextents) ||
 			put_user(data, &compat_fsqstat->qs_gquota.qfs_nextents))
 			break;
-		
+		/* Copying the rest */
 		if (copy_in_user(&compat_fsqstat->qs_incoredqs,
 			&fsqstat->qs_incoredqs,
 			sizeof(struct compat_fs_quota_stat) -

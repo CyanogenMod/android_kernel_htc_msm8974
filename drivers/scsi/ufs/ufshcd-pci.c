@@ -37,24 +37,56 @@
 #include <linux/pci.h>
 
 #ifdef CONFIG_PM
+/**
+ * ufshcd_pci_suspend - suspend power management function
+ * @pdev: pointer to PCI device handle
+ * @state: power state
+ *
+ * Returns -ENOSYS
+ */
 static int ufshcd_pci_suspend(struct pci_dev *pdev, pm_message_t state)
 {
+	/*
+	 * TODO:
+	 * 1. Call ufshcd_suspend
+	 * 2. Do bus specific power management
+	 */
 
 	return -ENOSYS;
 }
 
+/**
+ * ufshcd_pci_resume - resume power management function
+ * @pdev: pointer to PCI device handle
+ *
+ * Returns -ENOSYS
+ */
 static int ufshcd_pci_resume(struct pci_dev *pdev)
 {
+	/*
+	 * TODO:
+	 * 1. Call ufshcd_resume.
+	 * 2. Do bus specific wake up
+	 */
 
 	return -ENOSYS;
 }
-#endif 
+#endif /* CONFIG_PM */
 
+/**
+ * ufshcd_pci_shutdown - main function to put the controller in reset state
+ * @pdev: pointer to PCI device handle
+ */
 static void ufshcd_pci_shutdown(struct pci_dev *pdev)
 {
 	ufshcd_hba_stop((struct ufs_hba *)pci_get_drvdata(pdev));
 }
 
+/**
+ * ufshcd_pci_remove - de-allocate PCI/SCSI host and host memory space
+ *		data structure memory
+ * @pdev - pointer to PCI handle
+ */
 static void ufshcd_pci_remove(struct pci_dev *pdev)
 {
 	struct ufs_hba *hba = pci_get_drvdata(pdev);
@@ -67,6 +99,13 @@ static void ufshcd_pci_remove(struct pci_dev *pdev)
 	pci_disable_device(pdev);
 }
 
+/**
+ * ufshcd_set_dma_mask - Set dma mask based on the controller
+ *			 addressing capability
+ * @pdev: PCI device structure
+ *
+ * Returns 0 for success, non-zero for failure
+ */
 static int ufshcd_set_dma_mask(struct pci_dev *pdev)
 {
 	int err;
@@ -80,6 +119,13 @@ static int ufshcd_set_dma_mask(struct pci_dev *pdev)
 	return err;
 }
 
+/**
+ * ufshcd_pci_probe - probe routine of the driver
+ * @pdev: pointer to PCI device handle
+ * @id: PCI device id
+ *
+ * Returns 0 on success, non-zero value on failure
+ */
 static int
 ufshcd_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
 {
@@ -138,7 +184,7 @@ out_error:
 
 static DEFINE_PCI_DEVICE_TABLE(ufshcd_pci_tbl) = {
 	{ PCI_VENDOR_ID_SAMSUNG, 0xC00C, PCI_ANY_ID, PCI_ANY_ID, 0, 0, 0 },
-	{ }	
+	{ }	/* terminate list */
 };
 
 MODULE_DEVICE_TABLE(pci, ufshcd_pci_tbl);

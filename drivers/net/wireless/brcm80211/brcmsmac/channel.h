@@ -17,18 +17,20 @@
 #ifndef _BRCM_CHANNEL_H_
 #define _BRCM_CHANNEL_H_
 
+/* conversion for phy txpwr calculations that use .25 dB units */
 #define BRCMS_TXPWR_DB_FACTOR 4
 
-#define BRCMS_PEAK_CONDUCTED	0x00	
-#define BRCMS_EIRP		0x01	
-#define BRCMS_DFS_TPC		0x02	
-#define BRCMS_NO_OFDM		0x04	
-#define BRCMS_NO_40MHZ		0x08	
-#define BRCMS_NO_MIMO		0x10	
-#define BRCMS_RADAR_TYPE_EU       0x20	
-#define BRCMS_DFS_FCC             BRCMS_DFS_TPC	
+/* bits for locale_info flags */
+#define BRCMS_PEAK_CONDUCTED	0x00	/* Peak for locals */
+#define BRCMS_EIRP		0x01	/* Flag for EIRP */
+#define BRCMS_DFS_TPC		0x02	/* Flag for DFS TPC */
+#define BRCMS_NO_OFDM		0x04	/* Flag for No OFDM */
+#define BRCMS_NO_40MHZ		0x08	/* Flag for No MIMO 40MHz */
+#define BRCMS_NO_MIMO		0x10	/* Flag for No MIMO, 20 or 40 MHz */
+#define BRCMS_RADAR_TYPE_EU       0x20	/* Flag for EU */
+#define BRCMS_DFS_FCC             BRCMS_DFS_TPC	/* Flag for DFS FCC */
 
-#define BRCMS_DFS_EU (BRCMS_DFS_TPC | BRCMS_RADAR_TYPE_EU) 
+#define BRCMS_DFS_EU (BRCMS_DFS_TPC | BRCMS_RADAR_TYPE_EU) /* Flag for DFS EU */
 
 extern struct brcms_cm_info *
 brcms_c_channel_mgr_attach(struct brcms_c_info *wlc);
@@ -48,4 +50,4 @@ extern void brcms_c_channel_set_chanspec(struct brcms_cm_info *wlc_cm,
 				     u16 chanspec,
 				     u8 local_constraint_qdbm);
 
-#endif				
+#endif				/* _WLC_CHANNEL_H */

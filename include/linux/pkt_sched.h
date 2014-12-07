@@ -3,6 +3,18 @@
 
 #include <linux/types.h>
 
+/* Logical priority bands not depending on specific packet scheduler.
+   Every scheduler will map them to real traffic classes, if it has
+   no more precise mechanism to classify packets.
+
+   These numbers have no special meaning, though their coincidence
+   with obsolete IPv6 values is not occasional :-). New IPv6 drafts
+   preferred full anarchy inspired by diffserv group.
+
+   Note: TC_PRIO_BESTEFFORT does not mean that it is the most unhappy
+   class, actually, as rule it will be handled with more care than
+   filler or even bulk.
+ */
 
 #define TC_PRIO_BESTEFFORT		0
 #define TC_PRIO_FILLER			1
@@ -13,14 +25,18 @@
 
 #define TC_PRIO_MAX			15
 
+/* Generic queue statistics, available for all the elements.
+   Particular schedulers may have also their private records.
+ */
 
 struct tc_stats {
-	__u64	bytes;			
-	__u32	packets;		
-	__u32	drops;			
-	__u32	overlimits;		
-	__u32	bps;			
-	__u32	pps;			
+	__u64	bytes;			/* Number of enqueued bytes */
+	__u32	packets;		/* Number of enqueued packets	*/
+	__u32	drops;			/* Packets dropped because of lack of resources */
+	__u32	overlimits;		/* Number of throttle events when this
+					 * flow goes out of allocated bandwidth */
+	__u32	bps;			/* Current flow byte rate */
+	__u32	pps;			/* Current flow packet rate */
 	__u32	qlen;
 	__u32	backlog;
 };
@@ -30,6 +46,22 @@ struct tc_estimator {
 	unsigned char	ewma_log;
 };
 
+/* "Handles"
+   ---------
+
+    All the traffic control objects have 32bit identifiers, or "handles".
+
+    They can be considered as opaque numbers from user API viewpoint,
+    but actually they always consist of two fields: major and
+    minor numbers, which are interpreted by kernel specially,
+    that may be used by applications, though not recommended.
+
+    F.e. qdisc handles always have minor number equal to zero,
+    classes (or flows) have major equal to parent qdisc major, and
+    minor uniquely identifying class inside qdisc.
+
+    Macros to manipulate handles:
+ */
 
 #define TC_H_MAJ_MASK (0xFFFF0000U)
 #define TC_H_MIN_MASK (0x0000FFFFU)
@@ -72,27 +104,31 @@ enum {
 
 #define TCA_STAB_MAX (__TCA_STAB_MAX - 1)
 
+/* FIFO section */
 
 struct tc_fifo_qopt {
-	__u32	limit;	
+	__u32	limit;	/* Queue length: bytes for bfifo, packets for pfifo */
 };
 
+/* PRIO section */
 
 #define TCQ_PRIO_BANDS	16
 #define TCQ_MIN_PRIO_BANDS 2
 
 struct tc_prio_qopt {
-	int	bands;			
-	__u8	priomap[TC_PRIO_MAX+1];	
-	__u8	enable_flow;		
+	int	bands;			/* Number of bands */
+	__u8	priomap[TC_PRIO_MAX+1];	/* Map: logical priority -> PRIO band */
+	__u8	enable_flow;		/* Enable dequeue */
 };
 
+/* MULTIQ section */
 
 struct tc_multiq_qopt {
-	__u16	bands;			
-	__u16	max_bands;		
+	__u16	bands;			/* Number of bands */
+	__u16	max_bands;		/* Maximum number of queues */
 };
 
+/* PLUG section */
 
 #define TCQ_PLUG_BUFFER                0
 #define TCQ_PLUG_RELEASE_ONE           1
@@ -100,10 +136,20 @@ struct tc_multiq_qopt {
 #define TCQ_PLUG_LIMIT                 3
 
 struct tc_plug_qopt {
+	/* TCQ_PLUG_BUFFER: Inset a plug into the queue and
+	 *  buffer any incoming packets
+	 * TCQ_PLUG_RELEASE_ONE: Dequeue packets from queue head
+	 *   to beginning of the next plug.
+	 * TCQ_PLUG_RELEASE_INDEFINITE: Dequeue all packets from queue.
+	 *   Stop buffering packets until the next TCQ_PLUG_BUFFER
+	 *   command is received (just act as a pass-thru queue).
+	 * TCQ_PLUG_LIMIT: Increase/decrease queue size
+	 */
 	int             action;
 	__u32           limit;
 };
 
+/* TBF section */
 
 struct tc_tbf_qopt {
 	struct tc_ratespec rate;
@@ -124,38 +170,43 @@ enum {
 #define TCA_TBF_MAX (__TCA_TBF_MAX - 1)
 
 
+/* TEQL section */
 
+/* TEQL does not require any parameters */
 
+/* SFQ section */
 
 struct tc_sfq_qopt {
-	unsigned	quantum;	
-	int		perturb_period;	
-	__u32		limit;		
-	unsigned	divisor;	
-	unsigned	flows;		
+	unsigned	quantum;	/* Bytes per round allocated to flow */
+	int		perturb_period;	/* Period of hash perturbation */
+	__u32		limit;		/* Maximal packets in queue */
+	unsigned	divisor;	/* Hash divisor  */
+	unsigned	flows;		/* Maximal number of flows  */
 };
 
 struct tc_sfqred_stats {
-	__u32           prob_drop;      
-	__u32           forced_drop;	
-	__u32           prob_mark;      
-	__u32           forced_mark;    
-	__u32           prob_mark_head; 
-	__u32           forced_mark_head;
+	__u32           prob_drop;      /* Early drops, below max threshold */
+	__u32           forced_drop;	/* Early drops, after max threshold */
+	__u32           prob_mark;      /* Marked packets, below max threshold */
+	__u32           forced_mark;    /* Marked packets, after max threshold */
+	__u32           prob_mark_head; /* Marked packets, below max threshold */
+	__u32           forced_mark_head;/* Marked packets, after max threshold */
 };
 
 struct tc_sfq_qopt_v1 {
 	struct tc_sfq_qopt v0;
-	unsigned int	depth;		
+	unsigned int	depth;		/* max number of packets per flow */
 	unsigned int	headdrop;
-	__u32		limit;		
-	__u32		qth_min;	
-	__u32		qth_max;	
-	unsigned char   Wlog;		
-	unsigned char   Plog;		
-	unsigned char   Scell_log;	
+/* SFQRED parameters */
+	__u32		limit;		/* HARD maximal flow queue length (bytes) */
+	__u32		qth_min;	/* Min average length threshold (bytes) */
+	__u32		qth_max;	/* Max average length threshold (bytes) */
+	unsigned char   Wlog;		/* log(W)		*/
+	unsigned char   Plog;		/* log(P_max/(qth_max-qth_min))	*/
+	unsigned char   Scell_log;	/* cell size for idle damping */
 	unsigned char	flags;
-	__u32		max_P;		
+	__u32		max_P;		/* probability, high resolution */
+/* SFQRED stats */
 	struct tc_sfqred_stats stats;
 };
 
@@ -164,6 +215,7 @@ struct tc_sfq_xstats {
 	__s32		allot;
 };
 
+/* RED section */
 
 enum {
 	TCA_RED_UNSPEC,
@@ -176,12 +228,12 @@ enum {
 #define TCA_RED_MAX (__TCA_RED_MAX - 1)
 
 struct tc_red_qopt {
-	__u32		limit;		
-	__u32		qth_min;	
-	__u32		qth_max;	
-	unsigned char   Wlog;		
-	unsigned char   Plog;		
-	unsigned char   Scell_log;	
+	__u32		limit;		/* HARD maximal queue length (bytes)	*/
+	__u32		qth_min;	/* Min average length threshold (bytes) */
+	__u32		qth_max;	/* Max average length threshold (bytes) */
+	unsigned char   Wlog;		/* log(W)		*/
+	unsigned char   Plog;		/* log(P_max/(qth_max-qth_min))	*/
+	unsigned char   Scell_log;	/* cell size for idle damping */
 	unsigned char	flags;
 #define TC_RED_ECN		1
 #define TC_RED_HARDDROP		2
@@ -189,12 +241,13 @@ struct tc_red_qopt {
 };
 
 struct tc_red_xstats {
-	__u32           early;          
-	__u32           pdrop;          
-	__u32           other;          
-	__u32           marked;         
+	__u32           early;          /* Early drops */
+	__u32           pdrop;          /* Drops due to queue limits */
+	__u32           other;          /* Drops due to drop() calls */
+	__u32           marked;         /* Marked packets */
 };
 
+/* GRED section */
 
 #define MAX_DPs 16
 
@@ -210,24 +263,25 @@ enum {
 #define TCA_GRED_MAX (__TCA_GRED_MAX - 1)
 
 struct tc_gred_qopt {
-	__u32		limit;        
-	__u32		qth_min;      
-	__u32		qth_max;      
-	__u32		DP;           
+	__u32		limit;        /* HARD maximal queue length (bytes)    */
+	__u32		qth_min;      /* Min average length threshold (bytes) */
+	__u32		qth_max;      /* Max average length threshold (bytes) */
+	__u32		DP;           /* up to 2^32 DPs */
 	__u32		backlog;
 	__u32		qave;
 	__u32		forced;
 	__u32		early;
 	__u32		other;
 	__u32		pdrop;
-	__u8		Wlog;         
-	__u8		Plog;         
-	__u8		Scell_log;    
-	__u8		prio;         
+	__u8		Wlog;         /* log(W)               */
+	__u8		Plog;         /* log(P_max/(qth_max-qth_min)) */
+	__u8		Scell_log;    /* cell size for idle damping */
+	__u8		prio;         /* prio of this VQ */
 	__u32		packets;
 	__u32		bytesin;
 };
 
+/* gred setup */
 struct tc_gred_sopt {
 	__u32		DPs;
 	__u32		def_DP;
@@ -236,6 +290,7 @@ struct tc_gred_sopt {
 	__u16		pad1;
 };
 
+/* CHOKe section */
 
 enum {
 	TCA_CHOKE_UNSPEC,
@@ -248,26 +303,27 @@ enum {
 #define TCA_CHOKE_MAX (__TCA_CHOKE_MAX - 1)
 
 struct tc_choke_qopt {
-	__u32		limit;		
-	__u32		qth_min;	
-	__u32		qth_max;	
-	unsigned char   Wlog;		
-	unsigned char   Plog;		
-	unsigned char   Scell_log;	
-	unsigned char	flags;		
+	__u32		limit;		/* Hard queue length (packets)	*/
+	__u32		qth_min;	/* Min average threshold (packets) */
+	__u32		qth_max;	/* Max average threshold (packets) */
+	unsigned char   Wlog;		/* log(W)		*/
+	unsigned char   Plog;		/* log(P_max/(qth_max-qth_min))	*/
+	unsigned char   Scell_log;	/* cell size for idle damping */
+	unsigned char	flags;		/* see RED flags */
 };
 
 struct tc_choke_xstats {
-	__u32		early;          
-	__u32		pdrop;          
-	__u32		other;          
-	__u32		marked;         
-	__u32		matched;	
+	__u32		early;          /* Early drops */
+	__u32		pdrop;          /* Drops due to queue limits */
+	__u32		other;          /* Drops due to drop() calls */
+	__u32		marked;         /* Marked packets */
+	__u32		matched;	/* Drops due to flow match */
 };
 
+/* HTB section */
 #define TC_HTB_NUMPRIO		8
 #define TC_HTB_MAXDEPTH		8
-#define TC_HTB_PROTOVER		3 
+#define TC_HTB_PROTOVER		3 /* the same as HTB and TC's major */
 
 struct tc_htb_opt {
 	struct tc_ratespec 	rate;
@@ -275,17 +331,17 @@ struct tc_htb_opt {
 	__u32	buffer;
 	__u32	cbuffer;
 	__u32	quantum;
-	__u32	level;		
+	__u32	level;		/* out only */
 	__u32	prio;
 };
 struct tc_htb_glob {
-	__u32 version;		
-    	__u32 rate2quantum;	
-    	__u32 defcls;		
-	__u32 debug;		
+	__u32 version;		/* to match HTB/TC */
+    	__u32 rate2quantum;	/* bps->quantum divisor */
+    	__u32 defcls;		/* default class number */
+	__u32 debug;		/* debug flags */
 
-	
-	__u32 direct_pkts; 
+	/* stats */
+	__u32 direct_pkts; /* count of non shaped packets */
 };
 enum {
 	TCA_HTB_UNSPEC,
@@ -301,27 +357,28 @@ enum {
 struct tc_htb_xstats {
 	__u32 lends;
 	__u32 borrows;
-	__u32 giants;	
+	__u32 giants;	/* too big packets (rate will not be accurate) */
 	__u32 tokens;
 	__u32 ctokens;
 };
 
+/* HFSC section */
 
 struct tc_hfsc_qopt {
-	__u16	defcls;		
+	__u16	defcls;		/* default class */
 };
 
 struct tc_service_curve {
-	__u32	m1;		
-	__u32	d;		
-	__u32	m2;		
+	__u32	m1;		/* slope of the first segment in bps */
+	__u32	d;		/* x-projection of the first segment in us */
+	__u32	m2;		/* slope of the second segment in bps */
 };
 
 struct tc_hfsc_stats {
-	__u64	work;		
-	__u64	rtwork;		
-	__u32	period;		
-	__u32	level;		
+	__u64	work;		/* total work done */
+	__u64	rtwork;		/* work done by real-time criteria */
+	__u32	period;		/* current period */
+	__u32	level;		/* class level in hierarchy */
 };
 
 enum {
@@ -335,6 +392,7 @@ enum {
 #define TCA_HFSC_MAX (__TCA_HFSC_MAX - 1)
 
 
+/* CBQ section */
 
 #define TC_CBQ_MAXPRIO		8
 #define TC_CBQ_MAXLEVEL		8
@@ -413,6 +471,7 @@ enum {
 
 #define TCA_CBQ_MAX	(__TCA_CBQ_MAX - 1)
 
+/* dsmark section */
 
 enum {
 	TCA_DSMARK_UNSPEC,
@@ -426,20 +485,22 @@ enum {
 
 #define TCA_DSMARK_MAX (__TCA_DSMARK_MAX - 1)
 
+/* ATM  section */
 
 enum {
 	TCA_ATM_UNSPEC,
-	TCA_ATM_FD,		
-	TCA_ATM_PTR,		
-	TCA_ATM_HDR,		
-	TCA_ATM_EXCESS,		
-	TCA_ATM_ADDR,		
-	TCA_ATM_STATE,		
+	TCA_ATM_FD,		/* file/socket descriptor */
+	TCA_ATM_PTR,		/* pointer to descriptor - later */
+	TCA_ATM_HDR,		/* LL header */
+	TCA_ATM_EXCESS,		/* excess traffic class (0 for CLP)  */
+	TCA_ATM_ADDR,		/* PVC address (for output only) */
+	TCA_ATM_STATE,		/* VC state (ATM_VS_*; for output only) */
 	__TCA_ATM_MAX,
 };
 
 #define TCA_ATM_MAX	(__TCA_ATM_MAX - 1)
 
+/* Network emulator */
 
 enum {
 	TCA_NETEM_UNSPEC,
@@ -455,18 +516,18 @@ enum {
 #define TCA_NETEM_MAX (__TCA_NETEM_MAX - 1)
 
 struct tc_netem_qopt {
-	__u32	latency;	
-	__u32   limit;		
-	__u32	loss;		
-	__u32	gap;		
-	__u32   duplicate;	
-	__u32	jitter;		
+	__u32	latency;	/* added delay (us) */
+	__u32   limit;		/* fifo limit (packets) */
+	__u32	loss;		/* random packet loss (0=none ~0=100%) */
+	__u32	gap;		/* re-ordering gap (0 for none) */
+	__u32   duplicate;	/* random packet dup  (0=none ~0=100%) */
+	__u32	jitter;		/* random jitter in latency (us) */
 };
 
 struct tc_netem_corr {
-	__u32	delay_corr;	
-	__u32	loss_corr;	
-	__u32	dup_corr;	
+	__u32	delay_corr;	/* delay correlation */
+	__u32	loss_corr;	/* packet loss correlation */
+	__u32	dup_corr;	/* duplicate correlation  */
 };
 
 struct tc_netem_reorder {
@@ -480,7 +541,7 @@ struct tc_netem_corrupt {
 };
 
 struct tc_netem_rate {
-	__u32	rate;	
+	__u32	rate;	/* byte/s */
 	__s32	packet_overhead;
 	__u32	cell_size;
 	__s32	cell_overhead;
@@ -488,12 +549,13 @@ struct tc_netem_rate {
 
 enum {
 	NETEM_LOSS_UNSPEC,
-	NETEM_LOSS_GI,		
-	NETEM_LOSS_GE,		
+	NETEM_LOSS_GI,		/* General Intuitive - 4 state model */
+	NETEM_LOSS_GE,		/* Gilbert Elliot models */
 	__NETEM_LOSS_MAX
 };
 #define NETEM_LOSS_MAX (__NETEM_LOSS_MAX - 1)
 
+/* State transition probabilities for 4 state model */
 struct tc_netem_gimodel {
 	__u32	p13;
 	__u32	p31;
@@ -502,6 +564,7 @@ struct tc_netem_gimodel {
 	__u32	p23;
 };
 
+/* Gilbert-Elliot models */
 struct tc_netem_gemodel {
 	__u32 p;
 	__u32 r;
@@ -512,6 +575,7 @@ struct tc_netem_gemodel {
 #define NETEM_DIST_SCALE	8192
 #define NETEM_DIST_MAX		16384
 
+/* DRR */
 
 enum {
 	TCA_DRR_UNSPEC,
@@ -525,6 +589,7 @@ struct tc_drr_stats {
 	__u32	deficit;
 };
 
+/* MQPRIO */
 #define TC_QOPT_BITMASK 15
 #define TC_QOPT_MAX_QUEUE 16
 
@@ -536,6 +601,7 @@ struct tc_mqprio_qopt {
 	__u16	offset[TC_QOPT_MAX_QUEUE];
 };
 
+/* SFB */
 
 enum {
 	TCA_SFB_UNSPEC,
@@ -545,15 +611,18 @@ enum {
 
 #define TCA_SFB_MAX (__TCA_SFB_MAX - 1)
 
+/*
+ * Note: increment, decrement are Q0.16 fixed-point values.
+ */
 struct tc_sfb_qopt {
-	__u32 rehash_interval;	
-	__u32 warmup_time;	
-	__u32 max;		
-	__u32 bin_size;		
-	__u32 increment;	
-	__u32 decrement;	
-	__u32 limit;		
-	__u32 penalty_rate;	
+	__u32 rehash_interval;	/* delay between hash move, in ms */
+	__u32 warmup_time;	/* double buffering warmup time in ms (warmup_time < rehash_interval) */
+	__u32 max;		/* max len of qlen_min */
+	__u32 bin_size;		/* maximum queue length per bin */
+	__u32 increment;	/* probability increment, (d1 in Blue) */
+	__u32 decrement;	/* probability decrement, (d2 in Blue) */
+	__u32 limit;		/* max SFB queue length */
+	__u32 penalty_rate;	/* inelastic flows are rate limited to 'rate' pps */
 	__u32 penalty_burst;
 };
 
@@ -562,7 +631,7 @@ struct tc_sfb_xstats {
 	__u32 penaltydrop;
 	__u32 bucketdrop;
 	__u32 queuedrop;
-	__u32 childdrop; 
+	__u32 childdrop; /* drops in child qdisc */
 	__u32 marked;
 	__u32 maxqlen;
 	__u32 maxprob;
@@ -571,6 +640,7 @@ struct tc_sfb_xstats {
 
 #define SFB_MAX_PROB 0xFFFF
 
+/* QFQ */
 enum {
 	TCA_QFQ_UNSPEC,
 	TCA_QFQ_WEIGHT,

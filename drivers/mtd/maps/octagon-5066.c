@@ -1,3 +1,27 @@
+/* ######################################################################
+
+   Octagon 5066 MTD Driver.
+
+   The Octagon 5066 is a SBC based on AMD's 586-WB running at 133 MHZ. It
+   comes with a builtin AMD 29F016 flash chip and a socketed EEPROM that
+   is replacable by flash. Both units are mapped through a multiplexer
+   into a 32k memory window at 0xe8000. The control register for the
+   multiplexing unit is located at IO 0x208 with a bit map of
+     0-5 Page Selection in 32k increments
+     6-7 Device selection:
+        00 SSD off
+        01 SSD 0 (Socket)
+        10 SSD 1 (Flash chip)
+        11 undefined
+
+   On each SSD, the first 128k is reserved for use by the bios
+   (actually it IS the bios..) This only matters if you are booting off the
+   flash, you must not put a file system starting there.
+
+   The driver tries to do a detection algorithm to guess what sort of devices
+   are plugged into the sockets.
+
+   ##################################################################### */
 
 #include <linux/module.h>
 #include <linux/ioport.h>
@@ -17,6 +41,9 @@ static volatile char page_n_dev = 0;
 static unsigned long iomapadr;
 static DEFINE_SPINLOCK(oct5066_spin);
 
+/*
+ * We use map_priv_1 to identify which device we are.
+ */
 
 static void __oct5066_page(struct map_info *map, __u8 byte)
 {
@@ -112,6 +139,12 @@ static struct map_info oct5066_map[2] = {
 
 static struct mtd_info *oct5066_mtd[2] = {NULL, NULL};
 
+// OctProbe - Sense if this is an octagon card
+// ---------------------------------------------------------------------
+/* Perform a simple validity test, we map the window select SSD0 and
+   change pages while monitoring the window. A change in the window,
+   controlled by the PAGE_IO port is a functioning 5066 board. This will
+   fail if the thing in the socket is set to a uniform value. */
 static int __init OctProbe(void)
 {
    unsigned int Base = (1 << 6);
@@ -122,14 +155,14 @@ static int __init OctProbe(void)
       outb(Base + (I%10),PAGE_IO);
       if (I < 10)
       {
-	 
+	 // Record the value and check for uniqueness
 	 Values[I%10] = readl(iomapadr);
 	 if (I > 0 && Values[I%10] == Values[0])
 	    return -EAGAIN;
       }
       else
       {
-	 
+	 // Make sure we get the same values on the second pass
 	 if (Values[I%10] != readl(iomapadr))
 	    return -EAGAIN;
       }
@@ -155,7 +188,7 @@ static int __init init_oct5066(void)
 	int i;
 	int ret = 0;
 
-	
+	// Do an autoprobe sequence
 	if (!request_region(PAGE_IO,1,"Octagon SSD")) {
 		printk(KERN_NOTICE "5066: Page Register in Use\n");
 		return -EAGAIN;
@@ -173,7 +206,7 @@ static int __init init_oct5066(void)
 		goto out_unmap;
 	}
 
-	
+	// Print out our little header..
 	printk("Octagon 5066 SSD IO:0x%x MEM:0x%x-0x%x\n",PAGE_IO,WINDOW_START,
 	       WINDOW_START+WINDOW_LENGTH);
 

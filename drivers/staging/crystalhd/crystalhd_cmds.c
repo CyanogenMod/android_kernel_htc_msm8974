@@ -90,7 +90,7 @@ static enum BC_STATUS bc_cproc_notify_mode(struct crystalhd_cmd *ctx,
 		BCMLOG_ERR("Link invalid state %d\n", ctx->state);
 		return BC_STS_ERR_USAGE;
 	}
-	
+	/* Check for duplicate playback sessions..*/
 	for (i = 0; i < BC_LINK_MAX_OPENS; i++) {
 		if (ctx->user[i].mode == DTS_DIAG_MODE ||
 		    ctx->user[i].mode == DTS_PLAYBACK_MODE) {
@@ -101,12 +101,12 @@ static enum BC_STATUS bc_cproc_notify_mode(struct crystalhd_cmd *ctx,
 	}
 	ctx->cin_wait_exit = 0;
 	ctx->user[idata->u_id].mode = idata->udata.u.NotifyMode.Mode;
-	
+	/* Setup mmap pool for uaddr sgl mapping..*/
 	rc = crystalhd_create_dio_pool(ctx->adp, BC_LINK_MAX_SGLS);
 	if (rc)
 		return BC_STS_ERROR;
 
-	
+	/* Setup Hardware DMA rings */
 	return crystalhd_hw_setup_dma_rings(&ctx->hw_ctx);
 }
 
@@ -243,7 +243,7 @@ static enum BC_STATUS bc_cproc_cfg_rd(struct crystalhd_cmd *ctx,
 	if (len <= 4)
 		return crystalhd_pci_cfg_rd(ctx->adp, off, len, temp);
 
-	
+	/* Truncate to dword alignment..*/
 	len = 4;
 	cnt = idata->udata.u.pciCfg.Size / len;
 	for (ix = 0; ix < cnt; ix++) {
@@ -275,7 +275,7 @@ static enum BC_STATUS bc_cproc_cfg_wr(struct crystalhd_cmd *ctx,
 	if (len <= 4)
 		return crystalhd_pci_cfg_wr(ctx->adp, off, len, temp[0]);
 
-	
+	/* Truncate to dword alignment..*/
 	len = 4;
 	cnt = idata->udata.u.pciCfg.Size / len;
 	for (ix = 0; ix < cnt; ix++) {
@@ -316,6 +316,19 @@ static enum BC_STATUS bc_cproc_download_fw(struct crystalhd_cmd *ctx,
 	return sts;
 }
 
+/*
+ * We use the FW_CMD interface to sync up playback state with application
+ * and  firmware. This function will perform the required pre and post
+ * processing of the Firmware commands.
+ *
+ * Pause -
+ *	Disable capture after decoder pause.
+ * Resume -
+ *	First enable capture and issue decoder resume command.
+ * Flush -
+ *	Abort pending input transfers and issue decoder flush command.
+ *
+ */
 static enum BC_STATUS bc_cproc_do_fw_cmd(struct crystalhd_cmd *ctx,
 					struct crystalhd_ioctl_data *idata)
 {
@@ -329,7 +342,7 @@ static enum BC_STATUS bc_cproc_do_fw_cmd(struct crystalhd_cmd *ctx,
 
 	cmd = idata->udata.u.fwCmd.cmd;
 
-	
+	/* Pre-Process */
 	if (cmd[0] == eCMD_C011_DEC_CHAN_PAUSE) {
 		if (!cmd[3]) {
 			ctx->state &= ~BC_LINK_PAUSED;
@@ -348,7 +361,7 @@ static enum BC_STATUS bc_cproc_do_fw_cmd(struct crystalhd_cmd *ctx,
 		return sts;
 	}
 
-	
+	/* Post-Process */
 	if (cmd[0] == eCMD_C011_DEC_CHAN_PAUSE) {
 		if (cmd[3]) {
 			ctx->state |= BC_LINK_PAUSED;
@@ -411,7 +424,7 @@ static enum BC_STATUS bc_cproc_hw_txdma(struct crystalhd_cmd *ctx,
 	crystalhd_create_event(&event);
 
 	ctx->tx_list_id = 0;
-	
+	/* msleep_interruptible(2000); */
 	sts = crystalhd_hw_post_tx(&ctx->hw_ctx, dio, bc_proc_in_completion,
 				 &event, &tx_listid,
 				 idata->udata.u.ProcInput.Encrypted);
@@ -434,7 +447,7 @@ static enum BC_STATUS bc_cproc_hw_txdma(struct crystalhd_cmd *ctx,
 
 	ctx->tx_list_id = tx_listid;
 
-	
+	/* _post() succeeded.. wait for the completion. */
 	crystalhd_wait_on_event(&event, (dio->uinfo.ev_sts), 3000, rc, 0);
 	ctx->tx_list_id = 0;
 	if (!rc) {
@@ -449,11 +462,16 @@ static enum BC_STATUS bc_cproc_hw_txdma(struct crystalhd_cmd *ctx,
 		sts = BC_STS_IO_ERROR;
 	}
 
+	/* We are cancelling the IO from the same context as the _post().
+	 * so no need to wait on the event again.. the return itself
+	 * ensures the release of our resources.
+	 */
 	crystalhd_hw_cancel_tx(&ctx->hw_ctx, tx_listid);
 
 	return sts;
 }
 
+/* Helper function to check on user buffers */
 static enum BC_STATUS bc_cproc_check_inbuffs(bool pin, void *ubuff, uint32_t ub_sz,
 					uint32_t uv_off, bool en_422)
 {
@@ -463,7 +481,7 @@ static enum BC_STATUS bc_cproc_check_inbuffs(bool pin, void *ubuff, uint32_t ub_
 		return BC_STS_INV_ARG;
 	}
 
-	
+	/* Check for alignment */
 	if (((uintptr_t)ubuff) & 0x03) {
 		BCMLOG_ERR("%s-->Un-aligned address not implemented yet.. %p\n",
 				((pin) ? "TX" : "RX"), ubuff);
@@ -646,7 +664,7 @@ static enum BC_STATUS bc_cproc_flush_cap_buffs(struct crystalhd_cmd *ctx,
 	if (!(ctx->state & BC_LINK_CAP_EN))
 		return BC_STS_ERR_USAGE;
 
-	
+	/* We should ack flush even when we are in paused/suspend state */
 	if (!(ctx->state & BC_LINK_READY))
 		return crystalhd_hw_stop_capture(&ctx->hw_ctx);
 
@@ -732,6 +750,7 @@ static enum BC_STATUS bc_cproc_chg_clk(struct crystalhd_cmd *ctx,
 	return sts;
 }
 
+/*=============== Cmd Proc Table.. ======================================*/
 static const struct crystalhd_cmd_tbl	g_crystalhd_cproc_tbl[] = {
 	{ BCM_IOC_GET_VERSION,		bc_cproc_get_version,	0},
 	{ BCM_IOC_GET_HWTYPE,		bc_cproc_get_hwtype,	0},
@@ -757,7 +776,28 @@ static const struct crystalhd_cmd_tbl	g_crystalhd_cproc_tbl[] = {
 	{ BCM_IOC_END,			NULL},
 };
 
+/*=============== Cmd Proc Functions.. ===================================*/
 
+/**
+ * crystalhd_suspend - Power management suspend request.
+ * @ctx: Command layer context.
+ * @idata: Iodata - required for internal use.
+ *
+ * Return:
+ *	status
+ *
+ * 1. Set the state to Suspend.
+ * 2. Flush the Rx Buffers it will unmap all the buffers and
+ *    stop the RxDMA engine.
+ * 3. Cancel The TX Io and Stop Dma Engine.
+ * 4. Put the DDR in to deep sleep.
+ * 5. Stop the hardware putting it in to Reset State.
+ *
+ * Current gstreamer frame work does not provide any power management
+ * related notification to user mode decoder plug-in. As a work-around
+ * we pass on the power mangement notification to our plug-in by completing
+ * all outstanding requests with BC_STS_IO_USER_ABORT return code.
+ */
 enum BC_STATUS crystalhd_suspend(struct crystalhd_cmd *ctx,
 				struct crystalhd_ioctl_data *idata)
 {
@@ -801,6 +841,22 @@ enum BC_STATUS crystalhd_suspend(struct crystalhd_cmd *ctx,
 	return BC_STS_SUCCESS;
 }
 
+/**
+ * crystalhd_resume - Resume frame capture.
+ * @ctx: Command layer contextx.
+ *
+ * Return:
+ *	status
+ *
+ *
+ * Resume frame capture.
+ *
+ * PM_Resume can't resume the playback state back to pre-suspend state
+ * because we don't keep video clip related information within driver.
+ * To get back to the pre-suspend state App will re-open the device and
+ * start a new playback session from the pre-suspend clip position.
+ *
+ */
 enum BC_STATUS crystalhd_resume(struct crystalhd_cmd *ctx)
 {
 	BCMLOG(BCMLOG_DBG, "crystalhd_resume Success %x\n", ctx->state);
@@ -810,6 +866,18 @@ enum BC_STATUS crystalhd_resume(struct crystalhd_cmd *ctx)
 	return BC_STS_SUCCESS;
 }
 
+/**
+ * crystalhd_user_open - Create application handle.
+ * @ctx: Command layer contextx.
+ * @user_ctx: User ID context.
+ *
+ * Return:
+ *	status
+ *
+ * Creates an application specific UID and allocates
+ * application specific resources. HW layer initialization
+ * is done for the first open request.
+ */
 enum BC_STATUS crystalhd_user_open(struct crystalhd_cmd *ctx,
 			    struct crystalhd_user **user_ctx)
 {
@@ -837,6 +905,17 @@ enum BC_STATUS crystalhd_user_open(struct crystalhd_cmd *ctx,
 	return BC_STS_SUCCESS;
 }
 
+/**
+ * crystalhd_user_close - Close application handle.
+ * @ctx: Command layer contextx.
+ * @uc: User ID context.
+ *
+ * Return:
+ *	status
+ *
+ * Closer application handle and release app specific
+ * resources.
+ */
 enum BC_STATUS crystalhd_user_close(struct crystalhd_cmd *ctx, struct crystalhd_user *uc)
 {
 	uint32_t mode = uc->mode;
@@ -862,6 +941,16 @@ enum BC_STATUS crystalhd_user_close(struct crystalhd_cmd *ctx, struct crystalhd_
 	return BC_STS_SUCCESS;
 }
 
+/**
+ * crystalhd_setup_cmd_context - Setup Command layer resources.
+ * @ctx: Command layer contextx.
+ * @adp: Adapter context
+ *
+ * Return:
+ *	status
+ *
+ * Called at the time of driver load.
+ */
 enum BC_STATUS __devinit crystalhd_setup_cmd_context(struct crystalhd_cmd *ctx,
 				    struct crystalhd_adp *adp)
 {
@@ -882,12 +971,21 @@ enum BC_STATUS __devinit crystalhd_setup_cmd_context(struct crystalhd_cmd *ctx,
 		ctx->user[i].mode = DTS_MODE_INV;
 	}
 
-	
+	/*Open and Close the Hardware to put it in to sleep state*/
 	crystalhd_hw_open(&ctx->hw_ctx, ctx->adp);
 	crystalhd_hw_close(&ctx->hw_ctx);
 	return BC_STS_SUCCESS;
 }
 
+/**
+ * crystalhd_delete_cmd_context - Release Command layer resources.
+ * @ctx: Command layer contextx.
+ *
+ * Return:
+ *	status
+ *
+ * Called at the time of driver un-load.
+ */
 enum BC_STATUS __devexit crystalhd_delete_cmd_context(struct crystalhd_cmd *ctx)
 {
 	BCMLOG(BCMLOG_DBG, "Deleting Command context..\n");
@@ -897,6 +995,19 @@ enum BC_STATUS __devexit crystalhd_delete_cmd_context(struct crystalhd_cmd *ctx)
 	return BC_STS_SUCCESS;
 }
 
+/**
+ * crystalhd_get_cmd_proc  - Cproc table lookup.
+ * @ctx: Command layer contextx.
+ * @cmd: IOCTL command code.
+ * @uc: User ID context.
+ *
+ * Return:
+ *	command proc function pointer
+ *
+ * This function checks the process context, application's
+ * mode of operation and returns the function pointer
+ * from the cproc table.
+ */
 crystalhd_cmd_proc crystalhd_get_cmd_proc(struct crystalhd_cmd *ctx, uint32_t cmd,
 				      struct crystalhd_user *uc)
 {
@@ -929,6 +1040,16 @@ crystalhd_cmd_proc crystalhd_get_cmd_proc(struct crystalhd_cmd *ctx, uint32_t cm
 	return cproc;
 }
 
+/**
+ * crystalhd_cmd_interrupt - ISR entry point
+ * @ctx: Command layer contextx.
+ *
+ * Return:
+ *	TRUE: If interrupt from bcm70012 device.
+ *
+ *
+ * ISR entry point from OS layer.
+ */
 bool crystalhd_cmd_interrupt(struct crystalhd_cmd *ctx)
 {
 	if (!ctx) {

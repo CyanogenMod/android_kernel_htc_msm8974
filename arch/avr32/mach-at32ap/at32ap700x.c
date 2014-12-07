@@ -59,6 +59,9 @@
 		.flags		= IORESOURCE_IRQ,	\
 	}
 
+/* REVISIT these assume *every* device supports DMA, but several
+ * don't ... tc, smc, pio, rtc, watchdog, pwm, ps2, and more.
+ */
 #define DEFINE_DEV(_name, _id)					\
 static u64 _name##_id##_dma_mask = DMA_BIT_MASK(32);		\
 static struct platform_device _name##_id##_device = {		\
@@ -139,14 +142,14 @@ static long pll_set_rate(struct clk *clk, unsigned long rate,
 	unsigned long rate_error_prev = ~0UL;
 	u32 ctrl;
 
-	
+	/* Rate must be between 80 MHz and 200 Mhz. */
 	if (rate < 80000000UL || rate > 200000000UL)
 		return -EINVAL;
 
 	ctrl = PM_BF(PLLOPT, 4);
 	base = clk->parent->get_rate(clk->parent);
 
-	
+	/* PLL input frequency must be between 6 MHz and 32 MHz. */
 	div_min = DIV_ROUND_UP(base, 32000000UL);
 	div_max = base / 6000000UL;
 
@@ -215,7 +218,7 @@ static void pll1_mode(struct clk *clk, int enabled)
 		ctrl |= PM_BIT(PLLEN);
 		pm_writel(PLL1, ctrl);
 
-		
+		/* Wait for PLL lock. */
 		for (timeout = 10000; timeout; timeout--) {
 			status = pm_readl(ISR);
 			if (status & PM_BIT(LOCK1))
@@ -284,6 +287,10 @@ static int pll1_set_parent(struct clk *clk, struct clk *parent)
 	return 0;
 }
 
+/*
+ * The AT32AP7000 has five primary clock sources: One 32kHz
+ * oscillator, two crystal oscillators and two PLLs.
+ */
 static struct clk osc32k = {
 	.name		= "osc32k",
 	.get_rate	= osc_get_rate,
@@ -315,8 +322,19 @@ static struct clk pll1 = {
 	.parent		= &osc0,
 };
 
+/*
+ * The main clock can be either osc0 or pll0.  The boot loader may
+ * have chosen one for us, so we don't really know which one until we
+ * have a look at the SM.
+ */
 static struct clk *main_clock;
 
+/*
+ * Synchronous clocks are generated from the main clock. The clocks
+ * must satisfy the constraint
+ *   fCPU >= fHSB >= fPB
+ * i.e. each clock must not be faster than its parent.
+ */
 static unsigned long bus_clk_get_rate(struct clk *clk, unsigned int shift)
 {
 	return main_clock->get_rate(main_clock) >> shift;
@@ -488,6 +506,9 @@ static struct clk pbb_clk = {
 	.index		= 2,
 };
 
+/* --------------------------------------------------------------------
+ *  Generic Clock operations
+ * -------------------------------------------------------------------- */
 
 static void genclk_mode(struct clk *clk, int enabled)
 {
@@ -593,6 +614,9 @@ static struct resource dw_dmac0_resource[] = {
 DEFINE_DEV_DATA(dw_dmac, 0);
 DEV_CLK(hclk, dw_dmac0, hsb, 10);
 
+/* --------------------------------------------------------------------
+ *  System peripherals
+ * -------------------------------------------------------------------- */
 static struct resource at32_pm0_resource[] = {
 	{
 		.start	= 0xfff00000,
@@ -633,6 +657,10 @@ DEFINE_DEV(at32ap700x_rtc, 0);
 DEFINE_DEV(at32_wdt, 0);
 DEFINE_DEV(at32_eic, 0);
 
+/*
+ * Peripheral clock for PM, RTC, WDT and EIC. PM will ensure that this
+ * is always running.
+ */
 static struct clk at32_pm_pclk = {
 	.name		= "pclk",
 	.dev		= &at32_pm0_device.dev,
@@ -700,6 +728,9 @@ static struct clk pico_clk = {
 	.users		= 1,
 };
 
+/* --------------------------------------------------------------------
+ * HMATRIX
+ * -------------------------------------------------------------------- */
 
 struct clk at32_hmatrix_clk = {
 	.name		= "hmatrix_clk",
@@ -710,11 +741,20 @@ struct clk at32_hmatrix_clk = {
 	.users		= 1,
 };
 
+/*
+ * Set bits in the HMATRIX Special Function Register (SFR) used by the
+ * External Bus Interface (EBI). This can be used to enable special
+ * features like CompactFlash support, NAND Flash support, etc. on
+ * certain chipselects.
+ */
 static inline void set_ebi_sfr_bits(u32 mask)
 {
 	hmatrix_sfr_set_bits(HMATRIX_SLAVE_EBI, mask);
 }
 
+/* --------------------------------------------------------------------
+ *  Timer/Counter (TC)
+ * -------------------------------------------------------------------- */
 
 static struct resource at32_tcb0_resource[] = {
 	PBMEM(0xfff00c00),
@@ -740,6 +780,9 @@ static struct platform_device at32_tcb1_device = {
 };
 DEV_CLK(t0_clk, at32_tcb1, pbb, 4);
 
+/* --------------------------------------------------------------------
+ *  PIO
+ * -------------------------------------------------------------------- */
 
 static struct resource pio0_resource[] = {
 	PBMEM(0xffe02800),
@@ -800,6 +843,9 @@ static int __init system_device_init(void)
 }
 core_initcall(system_device_init);
 
+/* --------------------------------------------------------------------
+ *  PSIF
+ * -------------------------------------------------------------------- */
 static struct resource atmel_psif0_resource[] __initdata = {
 	{
 		.start	= 0xffe03c00,
@@ -846,7 +892,7 @@ struct platform_device *__init at32_add_device_psif(unsigned int id)
 
 	switch (id) {
 	case 0:
-		pin_mask  = (1 << 8) | (1 << 9); 
+		pin_mask  = (1 << 8) | (1 << 9); /* CLOCK & DATA */
 
 		if (platform_device_add_resources(pdev, atmel_psif0_resource,
 					ARRAY_SIZE(atmel_psif0_resource)))
@@ -855,7 +901,7 @@ struct platform_device *__init at32_add_device_psif(unsigned int id)
 		select_peripheral(PIOA, pin_mask, PERIPH_A, 0);
 		break;
 	case 1:
-		pin_mask  = (1 << 11) | (1 << 12); 
+		pin_mask  = (1 << 11) | (1 << 12); /* CLOCK & DATA */
 
 		if (platform_device_add_resources(pdev, atmel_psif1_resource,
 					ARRAY_SIZE(atmel_psif1_resource)))
@@ -875,6 +921,9 @@ err_add_resources:
 	return NULL;
 }
 
+/* --------------------------------------------------------------------
+ *  USART
+ * -------------------------------------------------------------------- */
 
 static struct atmel_uart_data atmel_usart0_data = {
 	.use_dma_tx	= 1,
@@ -922,7 +971,7 @@ DEV_CLK(usart, atmel_usart3, pba, 6);
 
 static inline void configure_usart0_pins(int flags)
 {
-	u32 pin_mask = (1 << 8) | (1 << 9); 
+	u32 pin_mask = (1 << 8) | (1 << 9); /* RXD & TXD */
 	if (flags & ATMEL_USART_RTS)	pin_mask |= (1 << 6);
 	if (flags & ATMEL_USART_CTS)	pin_mask |= (1 << 7);
 	if (flags & ATMEL_USART_CLK)	pin_mask |= (1 << 10);
@@ -932,7 +981,7 @@ static inline void configure_usart0_pins(int flags)
 
 static inline void configure_usart1_pins(int flags)
 {
-	u32 pin_mask = (1 << 17) | (1 << 18); 
+	u32 pin_mask = (1 << 17) | (1 << 18); /* RXD & TXD */
 	if (flags & ATMEL_USART_RTS)	pin_mask |= (1 << 19);
 	if (flags & ATMEL_USART_CTS)	pin_mask |= (1 << 20);
 	if (flags & ATMEL_USART_CLK)	pin_mask |= (1 << 16);
@@ -942,7 +991,7 @@ static inline void configure_usart1_pins(int flags)
 
 static inline void configure_usart2_pins(int flags)
 {
-	u32 pin_mask = (1 << 26) | (1 << 27); 
+	u32 pin_mask = (1 << 26) | (1 << 27); /* RXD & TXD */
 	if (flags & ATMEL_USART_RTS)	pin_mask |= (1 << 30);
 	if (flags & ATMEL_USART_CTS)	pin_mask |= (1 << 29);
 	if (flags & ATMEL_USART_CLK)	pin_mask |= (1 << 28);
@@ -952,7 +1001,7 @@ static inline void configure_usart2_pins(int flags)
 
 static inline void configure_usart3_pins(int flags)
 {
-	u32 pin_mask = (1 << 18) | (1 << 17); 
+	u32 pin_mask = (1 << 18) | (1 << 17); /* RXD & TXD */
 	if (flags & ATMEL_USART_RTS)	pin_mask |= (1 << 16);
 	if (flags & ATMEL_USART_CTS)	pin_mask |= (1 << 15);
 	if (flags & ATMEL_USART_CLK)	pin_mask |= (1 << 19);
@@ -989,7 +1038,7 @@ void __init at32_map_usart(unsigned int hw_id, unsigned int line, int flags)
 	}
 
 	if (PXSEG(pdev->resource[0].start) == P4SEG) {
-		
+		/* Addresses in the P4 segment are permanently mapped 1:1 */
 		struct atmel_uart_data *data = pdev->dev.platform_data;
 		data->regs = (void __iomem *)pdev->resource[0].start;
 	}
@@ -1011,6 +1060,9 @@ void __init at32_setup_serial_console(unsigned int usart_id)
 	atmel_default_console_device = at32_usarts[usart_id];
 }
 
+/* --------------------------------------------------------------------
+ *  Ethernet
+ * -------------------------------------------------------------------- */
 
 #ifdef CONFIG_CPU_AT32AP7000
 static struct macb_platform_data macb0_data;
@@ -1041,28 +1093,28 @@ at32_add_device_eth(unsigned int id, struct macb_platform_data *data)
 	case 0:
 		pdev = &macb0_device;
 
-		pin_mask  = (1 << 3);	
-		pin_mask |= (1 << 4);	
-		pin_mask |= (1 << 7);	
-		pin_mask |= (1 << 8);	
-		pin_mask |= (1 << 9);	
-		pin_mask |= (1 << 10);	
-		pin_mask |= (1 << 13);	
-		pin_mask |= (1 << 15);	
-		pin_mask |= (1 << 16);	
-		pin_mask |= (1 << 17);	
+		pin_mask  = (1 << 3);	/* TXD0 */
+		pin_mask |= (1 << 4);	/* TXD1 */
+		pin_mask |= (1 << 7);	/* TXEN */
+		pin_mask |= (1 << 8);	/* TXCK */
+		pin_mask |= (1 << 9);	/* RXD0 */
+		pin_mask |= (1 << 10);	/* RXD1 */
+		pin_mask |= (1 << 13);	/* RXER */
+		pin_mask |= (1 << 15);	/* RXDV */
+		pin_mask |= (1 << 16);	/* MDC  */
+		pin_mask |= (1 << 17);	/* MDIO */
 
 		if (!data->is_rmii) {
-			pin_mask |= (1 << 0);	
-			pin_mask |= (1 << 1);	
-			pin_mask |= (1 << 2);	
-			pin_mask |= (1 << 5);	
-			pin_mask |= (1 << 6);	
-			pin_mask |= (1 << 11);	
-			pin_mask |= (1 << 12);	
-			pin_mask |= (1 << 14);	
+			pin_mask |= (1 << 0);	/* COL  */
+			pin_mask |= (1 << 1);	/* CRS  */
+			pin_mask |= (1 << 2);	/* TXER */
+			pin_mask |= (1 << 5);	/* TXD2 */
+			pin_mask |= (1 << 6);	/* TXD3 */
+			pin_mask |= (1 << 11);	/* RXD2 */
+			pin_mask |= (1 << 12);	/* RXD3 */
+			pin_mask |= (1 << 14);	/* RXCK */
 #ifndef CONFIG_BOARD_MIMC200
-			pin_mask |= (1 << 18);	
+			pin_mask |= (1 << 18);	/* SPD  */
 #endif
 		}
 
@@ -1073,33 +1125,33 @@ at32_add_device_eth(unsigned int id, struct macb_platform_data *data)
 	case 1:
 		pdev = &macb1_device;
 
-		pin_mask  = (1 << 13);	
-		pin_mask |= (1 << 14);	
-		pin_mask |= (1 << 11);	
-		pin_mask |= (1 << 12);	
-		pin_mask |= (1 << 10);	
-		pin_mask |= (1 << 6);	
-		pin_mask |= (1 << 5);	
-		pin_mask |= (1 << 4);	
-		pin_mask |= (1 << 3);	
-		pin_mask |= (1 << 2);	
+		pin_mask  = (1 << 13);	/* TXD0 */
+		pin_mask |= (1 << 14);	/* TXD1 */
+		pin_mask |= (1 << 11);	/* TXEN */
+		pin_mask |= (1 << 12);	/* TXCK */
+		pin_mask |= (1 << 10);	/* RXD0 */
+		pin_mask |= (1 << 6);	/* RXD1 */
+		pin_mask |= (1 << 5);	/* RXER */
+		pin_mask |= (1 << 4);	/* RXDV */
+		pin_mask |= (1 << 3);	/* MDC  */
+		pin_mask |= (1 << 2);	/* MDIO */
 
 #ifndef CONFIG_BOARD_MIMC200
 		if (!data->is_rmii)
-			pin_mask |= (1 << 15);	
+			pin_mask |= (1 << 15);	/* SPD  */
 #endif
 
 		select_peripheral(PIOD, pin_mask, PERIPH_B, 0);
 
 		if (!data->is_rmii) {
-			pin_mask  = (1 << 19);	
-			pin_mask |= (1 << 23);	
-			pin_mask |= (1 << 26);	
-			pin_mask |= (1 << 27);	
-			pin_mask |= (1 << 28);	
-			pin_mask |= (1 << 29);	
-			pin_mask |= (1 << 30);	
-			pin_mask |= (1 << 24);	
+			pin_mask  = (1 << 19);	/* COL  */
+			pin_mask |= (1 << 23);	/* CRS  */
+			pin_mask |= (1 << 26);	/* TXER */
+			pin_mask |= (1 << 27);	/* TXD2 */
+			pin_mask |= (1 << 28);	/* TXD3 */
+			pin_mask |= (1 << 29);	/* RXD2 */
+			pin_mask |= (1 << 30);	/* RXD3 */
+			pin_mask |= (1 << 24);	/* RXCK */
 
 			select_peripheral(PIOC, pin_mask, PERIPH_B, 0);
 		}
@@ -1116,6 +1168,9 @@ at32_add_device_eth(unsigned int id, struct macb_platform_data *data)
 }
 #endif
 
+/* --------------------------------------------------------------------
+ *  SPI
+ * -------------------------------------------------------------------- */
 static struct resource atmel_spi0_resource[] = {
 	PBMEM(0xffe00000),
 	IRQ(3),
@@ -1133,6 +1188,10 @@ DEV_CLK(spi_clk, atmel_spi1, pba, 1);
 void __init
 at32_spi_setup_slaves(unsigned int bus_num, struct spi_board_info *b, unsigned int n)
 {
+	/*
+	 * Manage the chipselects as GPIOs, normally using the same pins
+	 * the SPI controller expects; but boards can use other pins.
+	 */
 	static u8 __initdata spi_pins[][4] = {
 		{ GPIO_PIN_PA(3), GPIO_PIN_PA(4),
 		  GPIO_PIN_PA(5), GPIO_PIN_PA(20) },
@@ -1141,7 +1200,7 @@ at32_spi_setup_slaves(unsigned int bus_num, struct spi_board_info *b, unsigned i
 	};
 	unsigned int pin, mode;
 
-	
+	/* There are only 2 SPI controllers */
 	if (bus_num > 1)
 		return;
 
@@ -1170,9 +1229,9 @@ at32_add_device_spi(unsigned int id, struct spi_board_info *b, unsigned int n)
 	switch (id) {
 	case 0:
 		pdev = &atmel_spi0_device;
-		pin_mask  = (1 << 1) | (1 << 2);	
+		pin_mask  = (1 << 1) | (1 << 2);	/* MOSI & SCK */
 
-		
+		/* pullup MISO so a level is always defined */
 		select_peripheral(PIOA, (1 << 0), PERIPH_A, AT32_GPIOF_PULLUP);
 		select_peripheral(PIOA, pin_mask, PERIPH_A, 0);
 
@@ -1181,9 +1240,9 @@ at32_add_device_spi(unsigned int id, struct spi_board_info *b, unsigned int n)
 
 	case 1:
 		pdev = &atmel_spi1_device;
-		pin_mask  = (1 << 1) | (1 << 5);	
+		pin_mask  = (1 << 1) | (1 << 5);	/* MOSI */
 
-		
+		/* pullup MISO so a level is always defined */
 		select_peripheral(PIOB, (1 << 0), PERIPH_B, AT32_GPIOF_PULLUP);
 		select_peripheral(PIOB, pin_mask, PERIPH_B, 0);
 
@@ -1199,6 +1258,9 @@ at32_add_device_spi(unsigned int id, struct spi_board_info *b, unsigned int n)
 	return pdev;
 }
 
+/* --------------------------------------------------------------------
+ *  TWI
+ * -------------------------------------------------------------------- */
 static struct resource atmel_twi0_resource[] __initdata = {
 	PBMEM(0xffe00800),
 	IRQ(5),
@@ -1229,7 +1291,7 @@ struct platform_device *__init at32_add_device_twi(unsigned int id,
 				ARRAY_SIZE(atmel_twi0_resource)))
 		goto err_add_resources;
 
-	pin_mask  = (1 << 6) | (1 << 7);	
+	pin_mask  = (1 << 6) | (1 << 7);	/* SDA & SDL */
 
 	select_peripheral(PIOA, pin_mask, PERIPH_A, 0);
 
@@ -1246,6 +1308,9 @@ err_add_resources:
 	return NULL;
 }
 
+/* --------------------------------------------------------------------
+ * MMC
+ * -------------------------------------------------------------------- */
 static struct resource atmel_mci0_resource[] __initdata = {
 	PBMEM(0xfff02400),
 	IRQ(28),
@@ -1269,7 +1334,7 @@ at32_add_device_mci(unsigned int id, struct mci_platform_data *data)
 	if (id != 0 || !data)
 		return NULL;
 
-	
+	/* Must have at least one usable slot */
 	if (!data->slot[0].bus_width && !data->slot[1].bus_width)
 		return NULL;
 
@@ -1297,18 +1362,18 @@ at32_add_device_mci(unsigned int id, struct mci_platform_data *data)
 				sizeof(struct mci_platform_data)))
 		goto fail_free;
 
-	
+	/* CLK line is common to both slots */
 	pioa_mask = 1 << 10;
 
 	switch (data->slot[0].bus_width) {
 	case 4:
-		pioa_mask |= 1 << 13;		
-		pioa_mask |= 1 << 14;		
-		pioa_mask |= 1 << 15;		
-		
+		pioa_mask |= 1 << 13;		/* DATA1 */
+		pioa_mask |= 1 << 14;		/* DATA2 */
+		pioa_mask |= 1 << 15;		/* DATA3 */
+		/* fall through */
 	case 1:
-		pioa_mask |= 1 << 11;		
-		pioa_mask |= 1 << 12;		
+		pioa_mask |= 1 << 11;		/* CMD	 */
+		pioa_mask |= 1 << 12;		/* DATA0 */
 
 		if (gpio_is_valid(data->slot[0].detect_pin))
 			at32_select_gpio(data->slot[0].detect_pin, 0);
@@ -1316,7 +1381,7 @@ at32_add_device_mci(unsigned int id, struct mci_platform_data *data)
 			at32_select_gpio(data->slot[0].wp_pin, 0);
 		break;
 	case 0:
-		
+		/* Slot is unused */
 		break;
 	default:
 		goto fail_free;
@@ -1327,13 +1392,13 @@ at32_add_device_mci(unsigned int id, struct mci_platform_data *data)
 
 	switch (data->slot[1].bus_width) {
 	case 4:
-		piob_mask |= 1 <<  8;		
-		piob_mask |= 1 <<  9;		
-		piob_mask |= 1 << 10;		
-		
+		piob_mask |= 1 <<  8;		/* DATA1 */
+		piob_mask |= 1 <<  9;		/* DATA2 */
+		piob_mask |= 1 << 10;		/* DATA3 */
+		/* fall through */
 	case 1:
-		piob_mask |= 1 <<  6;		
-		piob_mask |= 1 <<  7;		
+		piob_mask |= 1 <<  6;		/* CMD	 */
+		piob_mask |= 1 <<  7;		/* DATA0 */
 		select_peripheral(PIOB, piob_mask, PERIPH_B, 0);
 
 		if (gpio_is_valid(data->slot[1].detect_pin))
@@ -1342,7 +1407,7 @@ at32_add_device_mci(unsigned int id, struct mci_platform_data *data)
 			at32_select_gpio(data->slot[1].wp_pin, 0);
 		break;
 	case 0:
-		
+		/* Slot is unused */
 		break;
 	default:
 		if (!data->slot[0].bus_width)
@@ -1365,6 +1430,9 @@ fail:
 	return NULL;
 }
 
+/* --------------------------------------------------------------------
+ *  LCDC
+ * -------------------------------------------------------------------- */
 #if defined(CONFIG_CPU_AT32AP7000) || defined(CONFIG_CPU_AT32AP7002)
 static struct atmel_lcdfb_info atmel_lcdfb0_data;
 static struct resource atmel_lcdfb0_resource[] = {
@@ -1375,7 +1443,7 @@ static struct resource atmel_lcdfb0_resource[] = {
 	},
 	IRQ(1),
 	{
-		
+		/* Placeholder for pre-allocated fb memory */
 		.start		= 0x00000000,
 		.end		= 0x00000000,
 		.flags		= 0,
@@ -1405,6 +1473,11 @@ at32_add_device_lcdc(unsigned int id, struct atmel_lcdfb_info *data,
 	unsigned int modedb_size;
 	u32 portc_mask, portd_mask, porte_mask;
 
+	/*
+	 * Do a deep copy of the fb data, monspecs and modedb. Make
+	 * sure all allocations are done before setting up the
+	 * portmux.
+	 */
 	monspecs = kmemdup(data->default_monspecs,
 			   sizeof(struct fb_monspecs), GFP_KERNEL);
 	if (!monspecs)
@@ -1421,18 +1494,18 @@ at32_add_device_lcdc(unsigned int id, struct atmel_lcdfb_info *data,
 		pdev = &atmel_lcdfb0_device;
 
 		if (pin_mask == 0ULL)
-			
+			/* Default to "full" lcdc control signals and 24bit */
 			pin_mask = ATMEL_LCDC_PRI_24BIT | ATMEL_LCDC_PRI_CONTROL;
 
-		
+		/* LCDC on port C */
 		portc_mask = pin_mask & 0xfff80000;
 		select_peripheral(PIOC, portc_mask, PERIPH_A, 0);
 
-		
+		/* LCDC on port D */
 		portd_mask = pin_mask & 0x0003ffff;
 		select_peripheral(PIOD, portd_mask, PERIPH_A, 0);
 
-		
+		/* LCDC on port E */
 		porte_mask = (pin_mask >> 32) & 0x0007ffff;
 		select_peripheral(PIOE, porte_mask, PERIPH_B, 0);
 
@@ -1465,6 +1538,9 @@ err_dup_modedb:
 }
 #endif
 
+/* --------------------------------------------------------------------
+ *  PWM
+ * -------------------------------------------------------------------- */
 static struct resource atmel_pwm0_resource[] __initdata = {
 	PBMEM(0xfff01400),
 	IRQ(24),
@@ -1523,6 +1599,9 @@ out_free_pdev:
 	return NULL;
 }
 
+/* --------------------------------------------------------------------
+ *  SSC
+ * -------------------------------------------------------------------- */
 static struct resource ssc0_resource[] = {
 	PBMEM(0xffe01c00),
 	IRQ(10),
@@ -1554,17 +1633,17 @@ at32_add_device_ssc(unsigned int id, unsigned int flags)
 	case 0:
 		pdev = &ssc0_device;
 		if (flags & ATMEL_SSC_RF)
-			pin_mask |= (1 << 21);	
+			pin_mask |= (1 << 21);	/* RF */
 		if (flags & ATMEL_SSC_RK)
-			pin_mask |= (1 << 22);	
+			pin_mask |= (1 << 22);	/* RK */
 		if (flags & ATMEL_SSC_TK)
-			pin_mask |= (1 << 23);	
+			pin_mask |= (1 << 23);	/* TK */
 		if (flags & ATMEL_SSC_TF)
-			pin_mask |= (1 << 24);	
+			pin_mask |= (1 << 24);	/* TF */
 		if (flags & ATMEL_SSC_TD)
-			pin_mask |= (1 << 25);	
+			pin_mask |= (1 << 25);	/* TD */
 		if (flags & ATMEL_SSC_RD)
-			pin_mask |= (1 << 26);	
+			pin_mask |= (1 << 26);	/* RD */
 
 		if (pin_mask > 0)
 			select_peripheral(PIOA, pin_mask, PERIPH_A, 0);
@@ -1573,17 +1652,17 @@ at32_add_device_ssc(unsigned int id, unsigned int flags)
 	case 1:
 		pdev = &ssc1_device;
 		if (flags & ATMEL_SSC_RF)
-			pin_mask |= (1 << 0);	
+			pin_mask |= (1 << 0);	/* RF */
 		if (flags & ATMEL_SSC_RK)
-			pin_mask |= (1 << 1);	
+			pin_mask |= (1 << 1);	/* RK */
 		if (flags & ATMEL_SSC_TK)
-			pin_mask |= (1 << 2);	
+			pin_mask |= (1 << 2);	/* TK */
 		if (flags & ATMEL_SSC_TF)
-			pin_mask |= (1 << 3);	
+			pin_mask |= (1 << 3);	/* TF */
 		if (flags & ATMEL_SSC_TD)
-			pin_mask |= (1 << 4);	
+			pin_mask |= (1 << 4);	/* TD */
 		if (flags & ATMEL_SSC_RD)
-			pin_mask |= (1 << 5);	
+			pin_mask |= (1 << 5);	/* RD */
 
 		if (pin_mask > 0)
 			select_peripheral(PIOA, pin_mask, PERIPH_B, 0);
@@ -1592,17 +1671,17 @@ at32_add_device_ssc(unsigned int id, unsigned int flags)
 	case 2:
 		pdev = &ssc2_device;
 		if (flags & ATMEL_SSC_TD)
-			pin_mask |= (1 << 13);	
+			pin_mask |= (1 << 13);	/* TD */
 		if (flags & ATMEL_SSC_RD)
-			pin_mask |= (1 << 14);	
+			pin_mask |= (1 << 14);	/* RD */
 		if (flags & ATMEL_SSC_TK)
-			pin_mask |= (1 << 15);	
+			pin_mask |= (1 << 15);	/* TK */
 		if (flags & ATMEL_SSC_TF)
-			pin_mask |= (1 << 16);	
+			pin_mask |= (1 << 16);	/* TF */
 		if (flags & ATMEL_SSC_RF)
-			pin_mask |= (1 << 17);	
+			pin_mask |= (1 << 17);	/* RF */
 		if (flags & ATMEL_SSC_RK)
-			pin_mask |= (1 << 18);	
+			pin_mask |= (1 << 18);	/* RK */
 
 		if (pin_mask > 0)
 			select_peripheral(PIOB, pin_mask, PERIPH_A, 0);
@@ -1616,6 +1695,9 @@ at32_add_device_ssc(unsigned int id, unsigned int flags)
 	return pdev;
 }
 
+/* --------------------------------------------------------------------
+ *  USB Device Controller
+ * -------------------------------------------------------------------- */
 static struct resource usba0_resource[] __initdata = {
 	{
 		.start		= 0xff300000,
@@ -1668,6 +1750,10 @@ static struct usba_ep_data at32_usba_ep[] __initdata = {
 struct platform_device *__init
 at32_add_device_usba(unsigned int id, struct usba_platform_data *data)
 {
+	/*
+	 * pdata doesn't have room for any endpoints, so we need to
+	 * append room for the ones we need right after it.
+	 */
 	struct {
 		struct usba_platform_data pdata;
 		struct usba_ep_data ep[7];
@@ -1715,6 +1801,9 @@ out_free_pdev:
 	return NULL;
 }
 
+/* --------------------------------------------------------------------
+ * IDE / CompactFlash
+ * -------------------------------------------------------------------- */
 #if defined(CONFIG_CPU_AT32AP7000) || defined(CONFIG_CPU_AT32AP7001)
 static struct resource at32_smc_cs4_resource[] __initdata = {
 	{
@@ -1722,7 +1811,7 @@ static struct resource at32_smc_cs4_resource[] __initdata = {
 		.end	= 0x07ffffff,
 		.flags	= IORESOURCE_MEM,
 	},
-	IRQ(~0UL), 
+	IRQ(~0UL), /* Magic IRQ will be overridden */
 };
 static struct resource at32_smc_cs5_resource[] __initdata = {
 	{
@@ -1730,7 +1819,7 @@ static struct resource at32_smc_cs5_resource[] __initdata = {
 		.end	= 0x23ffffff,
 		.flags	= IORESOURCE_MEM,
 	},
-	IRQ(~0UL), 
+	IRQ(~0UL), /* Magic IRQ will be overridden */
 };
 
 static int __init at32_init_ide_or_cf(struct platform_device *pdev,
@@ -1759,7 +1848,7 @@ static int __init at32_init_ide_or_cf(struct platform_device *pdev,
 		if (ret)
 			return ret;
 
-		
+		/* NCS4   -> OE_N  */
 		select_peripheral(PIOE, (1 << 21), PERIPH_A, 0);
 		hmatrix_sfr_set_bits(HMATRIX_SLAVE_EBI, HMATRIX_EBI_CF0_ENABLE);
 		break;
@@ -1770,7 +1859,7 @@ static int __init at32_init_ide_or_cf(struct platform_device *pdev,
 		if (ret)
 			return ret;
 
-		
+		/* NCS5   -> OE_N  */
 		select_peripheral(PIOE, (1 << 22), PERIPH_A, 0);
 		hmatrix_sfr_set_bits(HMATRIX_SLAVE_EBI, HMATRIX_EBI_CF1_ENABLE);
 		break;
@@ -1779,10 +1868,10 @@ static int __init at32_init_ide_or_cf(struct platform_device *pdev,
 	}
 
 	if (!common_pins_initialized) {
-		pin_mask  = (1 << 19);	
-		pin_mask |= (1 << 20);	
-		pin_mask |= (1 << 23);	
-		pin_mask |= (1 << 24);	
+		pin_mask  = (1 << 19);	/* CFCE1  -> CS0_N */
+		pin_mask |= (1 << 20);	/* CFCE2  -> CS1_N */
+		pin_mask |= (1 << 23);	/* CFRNW  -> DIR   */
+		pin_mask |= (1 << 24);	/* NWAIT  <- IORDY */
 
 		select_peripheral(PIOE, pin_mask, PERIPH_A, 0);
 
@@ -1845,7 +1934,7 @@ at32_add_device_cf(unsigned int id, unsigned int extint,
 		at32_select_gpio(data->reset_pin, 0);
 	if (gpio_is_valid(data->vcc_pin))
 		at32_select_gpio(data->vcc_pin, 0);
-	
+	/* READY is used as extint, so we can't select it as gpio */
 
 	platform_device_add(pdev);
 	return pdev;
@@ -1856,6 +1945,9 @@ fail:
 }
 #endif
 
+/* --------------------------------------------------------------------
+ * NAND Flash / SmartMedia
+ * -------------------------------------------------------------------- */
 static struct resource smc_cs3_resource[] __initdata = {
 	{
 		.start	= 0x0c000000,
@@ -1905,6 +1997,9 @@ fail:
 	return NULL;
 }
 
+/* --------------------------------------------------------------------
+ * AC97C
+ * -------------------------------------------------------------------- */
 static struct resource atmel_ac97c0_resource[] __initdata = {
 	PBMEM(0xfff02800),
 	IRQ(29),
@@ -1947,7 +2042,7 @@ at32_add_device_ac97c(unsigned int id, struct ac97c_platform_data *data,
 	rx_dws = &data->rx_dws;
 	tx_dws = &data->tx_dws;
 
-	
+	/* Check if DMA slave interface for capture should be configured. */
 	if (flags & AC97C_CAPTURE) {
 		rx_dws->dma_dev = &dw_dmac0_device.dev;
 		rx_dws->cfg_hi = DWC_CFGH_SRC_PER(3);
@@ -1956,7 +2051,7 @@ at32_add_device_ac97c(unsigned int id, struct ac97c_platform_data *data,
 		rx_dws->dst_master = 1;
 	}
 
-	
+	/* Check if DMA slave interface for playback should be configured. */
 	if (flags & AC97C_PLAYBACK) {
 		tx_dws->dma_dev = &dw_dmac0_device.dev;
 		tx_dws->cfg_hi = DWC_CFGH_DST_PER(4);
@@ -1969,7 +2064,7 @@ at32_add_device_ac97c(unsigned int id, struct ac97c_platform_data *data,
 				sizeof(struct ac97c_platform_data)))
 		goto out_free_resources;
 
-	
+	/* SDO | SYNC | SCLK | SDI */
 	pin_mask = (1 << 20) | (1 << 21) | (1 << 22) | (1 << 23);
 
 	select_peripheral(PIOB, pin_mask, PERIPH_B, 0);
@@ -1988,6 +2083,9 @@ out_free_resources:
 	return NULL;
 }
 
+/* --------------------------------------------------------------------
+ * ABDAC
+ * -------------------------------------------------------------------- */
 static struct resource abdac0_resource[] __initdata = {
 	PBMEM(0xfff02000),
 	IRQ(27),
@@ -2038,8 +2136,8 @@ at32_add_device_abdac(unsigned int id, struct atmel_abdac_pdata *data)
 				sizeof(struct atmel_abdac_pdata)))
 		goto out_free_resources;
 
-	pin_mask  = (1 << 20) | (1 << 22);	
-	pin_mask |= (1 << 21) | (1 << 23);	
+	pin_mask  = (1 << 20) | (1 << 22);	/* DATA1 & DATAN1 */
+	pin_mask |= (1 << 21) | (1 << 23);	/* DATA0 & DATAN0 */
 
 	select_peripheral(PIOB, pin_mask, PERIPH_A, 0);
 
@@ -2054,6 +2152,9 @@ out_free_resources:
 	return NULL;
 }
 
+/* --------------------------------------------------------------------
+ *  GCLK
+ * -------------------------------------------------------------------- */
 static struct clk gclk0 = {
 	.name		= "gclk0",
 	.mode		= genclk_mode,
@@ -2188,10 +2289,19 @@ void __init setup_platform(void)
 #endif
 	genclk_init_parent(&abdac0_sample_clk);
 
+	/*
+	 * Build initial dynamic clock list by registering all clocks
+	 * from the array.
+	 * At the same time, turn on all clocks that have at least one
+	 * user already, and turn off everything else. We only do this
+	 * for module clocks, and even though it isn't particularly
+	 * pretty to  check the address of the mode function, it should
+	 * do the trick...
+	 */
 	for (i = 0; i < ARRAY_SIZE(init_clocks); i++) {
 		struct clk *clk = init_clocks[i];
 
-		
+		/* first, register clock */
 		at32_clk_register(clk);
 
 		if (clk->users == 0)
@@ -2212,7 +2322,7 @@ void __init setup_platform(void)
 	pm_writel(PBA_MASK, pba_mask);
 	pm_writel(PBB_MASK, pbb_mask);
 
-	
+	/* Initialize the port muxes */
 	at32_init_pio(&pio0_device);
 	at32_init_pio(&pio1_device);
 	at32_init_pio(&pio2_device);
@@ -2226,7 +2336,7 @@ static int __init sram_init(void)
 {
 	struct gen_pool *pool;
 
-	
+	/* 1KiB granularity */
 	pool = gen_pool_create(10, -1);
 	if (!pool)
 		goto fail;

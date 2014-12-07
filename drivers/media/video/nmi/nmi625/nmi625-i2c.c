@@ -47,7 +47,7 @@ int fm_ant_power(int on)
     {
         printk(KERN_INFO "[FM] %s: on \n", __func__);
 
-        
+        //turn on ONESEG_LNA_2V85
         ret = gpio_request(pdata->lna_2v85, "oneseg_lna_2v85");
         if (ret < 0) {
                 pr_err("[FM] %s: gpio_request failed %d\n", __func__, ret);
@@ -60,7 +60,7 @@ int fm_ant_power(int on)
                 return ret;
         }
 
-        
+        //set ONESEG_LNA_EN enabled
         ret = gpio_request(pdata->lna_en, "oneseg_lna_en");
         if (ret < 0) {
                 pr_err("[FM] %s: gpio_request failed %d\n", __func__, ret);
@@ -74,10 +74,10 @@ int fm_ant_power(int on)
         }
     }else
     {
-        
+        /*Power OFF sequence*/
         printk(KERN_INFO "[FM] %s: off \n", __func__);
 
-        
+        //unset ONESEG_LNA_EN
         ret = gpio_request(pdata->lna_en, "oneseg_lna_en");
         if (ret < 0) {
                 pr_err("[FM] %s: gpio_request failed %d\n", __func__, ret);
@@ -90,7 +90,7 @@ int fm_ant_power(int on)
                 return ret;
         }
 
-        
+        //turn off ONESEG_LNA_2V85
         ret = gpio_request(pdata->lna_2v85, "oneseg_lna_2v85");
         if (ret < 0) {
                 pr_err("[FM] %s: gpio_request failed %d\n", __func__, ret);
@@ -115,7 +115,7 @@ int oneseg_power(int on)
     {
         printk(KERN_INFO "[1SEG] %s: on \n", __func__);
 
-        
+        //set 1seg tuner power (1.2v)
         ret = gpio_request(pdata->_1v2_en, "oneseg_1v2_en");
         if (ret < 0) {
                 pr_err("[1SEG] %s: gpio_request failed %d\n", __func__, ret);
@@ -128,7 +128,7 @@ int oneseg_power(int on)
                 return ret;
         }
 
-       
+       //set ONESEG_EN to HIGH
 	ret = gpio_request(pdata->en, "oneseg_en");
         if (ret < 0) {
 		pr_err("[1SEG] %s: gpio_request failed %d\n", __func__, ret);
@@ -141,7 +141,7 @@ int oneseg_power(int on)
                 return ret;
 	}
 
-        
+        //set ONESEG_RST to HIGH
         ret = gpio_request(pdata->rst, "oneseg_rst");
         if (ret < 0) {
                 pr_err("[1SEG] %s: gpio_request failed %d\n", __func__, ret);
@@ -156,7 +156,7 @@ int oneseg_power(int on)
 
 	msleep(10);
 
-        
+        //set ONESEG_RST to low
         ret = gpio_direction_output(pdata->rst, 0);
         if (ret < 0) {
                 pr_err("[1SEG] %s: gpio_direction_output failed %d\n", __func__, ret);
@@ -166,7 +166,7 @@ int oneseg_power(int on)
 
         msleep(1);
 
-        
+        //set ONESEG_RST to HIGH
         ret = gpio_direction_output(pdata->rst, 1);
         if (ret < 0) {
                 pr_err("[1SEG] %s: gpio_direction_output failed %d\n", __func__, ret);
@@ -176,7 +176,7 @@ int oneseg_power(int on)
 
 	msleep(10);
 
-        
+        //turn on ONESEG_LNA_2V85
         ret = gpio_request(pdata->lna_2v85, "oneseg_lna_2v85");
         if (ret < 0) {
                 pr_err("[1SEG] %s: gpio_request failed %d\n", __func__, ret);
@@ -189,7 +189,7 @@ int oneseg_power(int on)
                 return ret;
         }
 
-        
+        //set ONESEG_LNA_EN enabled
         ret = gpio_request(pdata->lna_en, "oneseg_lna_en");
         if (ret < 0) {
                 pr_err("[1SEG] %s: gpio_request failed %d\n", __func__, ret);
@@ -203,10 +203,10 @@ int oneseg_power(int on)
         }
     }else
     {
-        
+        /*Power OFF sequence*/
         printk(KERN_INFO "[1SEG] %s: off \n", __func__);
 
-        
+        //unset ONESEG_LNA_EN
         ret = gpio_request(pdata->lna_en, "oneseg_lna_en");
         if (ret < 0) {
                 pr_err("[1SEG] %s: gpio_request failed %d\n", __func__, ret);
@@ -219,7 +219,7 @@ int oneseg_power(int on)
                 return ret;
         }
 
-        
+        //turn off ONESEG_LNA_2V85
         ret = gpio_request(pdata->lna_2v85, "oneseg_lna_2v85");
         if (ret < 0) {
                 pr_err("[1SEG] %s: gpio_request failed %d\n", __func__, ret);
@@ -232,7 +232,7 @@ int oneseg_power(int on)
                 return ret;
         }
 
-        
+        //unset ONESEG_EN
         ret = gpio_request(pdata->en, "oneseg_en");
         if (ret < 0) {
                 pr_err("[1SEG] %s: gpio_request failed %d\n", __func__, ret);
@@ -247,7 +247,7 @@ int oneseg_power(int on)
 
         msleep(10);
 
-        
+        //unset tuner power (1.2v)
         ret = gpio_request(pdata->_1v2_en, "oneseg_1v2_en");
         if (ret < 0) {
                 pr_err("[1SEG] %s: gpio_request failed %d\n", __func__, ret);
@@ -276,7 +276,16 @@ int nmi625_i2c_init(void)
 		return res;
 	}
 #endif
-  
+/*	
+	nmi625_i2c_client = kzalloc(sizeof(struct i2c_client), GFP_KERNEL);
+	
+	if(nmi625_i2c_client== NULL) {
+		printk("nmi625_i2c_client NULL...\n");
+		return -ENOMEM;
+	}
+
+	res=i2c_add_driver(&nmi625_i2c_driver);
+*/  
 #if HTC_ADD_PREVENT_REINIT_I2C	
 	if (NULL == nmi625_i2c_client->adapter) {
 		printk("nmi625_i2c_client->adapter == NULL !!\n");
@@ -305,6 +314,7 @@ int nmi625_i2c_deinit(void)
 {
 	printk("nmi625_i2c_deinit ENTER...\n");
 
+//	i2c_del_driver(&nmi625_i2c_driver);
 
 #if HTC_ADD_PREVENT_REINIT_I2C
     nmi625_i2c_has_init = 0;
@@ -326,6 +336,9 @@ int nmi625_i2c_read(void *hDevice, unsigned short addr, unsigned char *data, uns
 		
 	res = i2c_transfer(nmi625_i2c_client->adapter, &rmsg, 1);
 
+//	printk("nmi625_i2c_read nmi625_i2c_client->addr (%08lu)\n", (unsigned long)rmsg.addr);
+//	printk("nmi625_i2c_client->adapter (%08lu)\n", (unsigned long)nmi625_i2c_client->adapter);
+//	printk("nmi625_i2c_read (%02x)(%02x)(%02x)(%02x)\n", data[0],data[1],data[2],data[3]);
 
 	return 0;
 }
@@ -347,6 +360,9 @@ int nmi625_i2c_write(void *hDevice, unsigned short addr, unsigned char *data, un
 	
 	res = i2c_transfer(nmi625_i2c_client->adapter, &wmsg, 1);
 
+//	printk("nmi625_i2c_write nmi625_i2c_client->addr (%08lu)\n", (unsigned long)wmsg.addr);
+//	printk("nmi625_i2c_client->adapter (%08lu)\n", (unsigned long)nmi625_i2c_client->adapter);
+//	printk("nmi625_i2c_write (%02x)(%02x)(%02x)(%02x)(%02x)(%02x)\n", data[0],data[1],data[2],data[3],data[4],data[5]);
 
 	return 0;
 }
@@ -453,7 +469,7 @@ static int nmi625_i2c_probe(struct i2c_client *client,  const struct i2c_device_
 	nmi625->client = client;
 	i2c_set_clientdata(client, nmi625);
 	
-	
+	/* rest of the initialisation goes here.*/
 	
 	printk("nmi625 attach success!!!\n");
 
@@ -494,7 +510,7 @@ static struct dev_pm_ops nmi625_pm_ops =
 {   .suspend = nmi625_i2c_suspend,
     .resume  = nmi625_i2c_resume,
 };
-#endif 
+#endif //HTC_ADD_FOR_LNA_CONTROL
 
 static const struct of_device_id nmi625_mttable[] = {
         { .compatible = "nmi625"},

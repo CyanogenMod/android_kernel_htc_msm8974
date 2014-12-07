@@ -37,13 +37,13 @@
 #define RIO_LTLEDCSR		0x0608
 
 #define DOORBELL_ROWAR_EN	0x80000000
-#define DOORBELL_ROWAR_TFLOWLV	0x08000000 
-#define DOORBELL_ROWAR_PCI	0x02000000 
-#define DOORBELL_ROWAR_NREAD	0x00040000 
-#define DOORBELL_ROWAR_MAINTRD	0x00070000  
-#define DOORBELL_ROWAR_RES	0x00002000 
+#define DOORBELL_ROWAR_TFLOWLV	0x08000000 /* highest priority level */
+#define DOORBELL_ROWAR_PCI	0x02000000 /* PCI window */
+#define DOORBELL_ROWAR_NREAD	0x00040000 /* NREAD */
+#define DOORBELL_ROWAR_MAINTRD	0x00070000  /* maintenance read */
+#define DOORBELL_ROWAR_RES	0x00002000 /* wrtpy: reserverd */
 #define DOORBELL_ROWAR_MAINTWD	0x00007000
-#define DOORBELL_ROWAR_SIZE	0x0000000b 
+#define DOORBELL_ROWAR_SIZE	0x0000000b /* window size is 4k */
 
 #define RIO_ATMU_REGS_PORT1_OFFSET	0x10c00
 #define RIO_ATMU_REGS_PORT2_OFFSET	0x10e00
@@ -100,7 +100,7 @@ struct rio_priv {
 	struct rio_atmu_regs __iomem *atmu_regs;
 	struct rio_atmu_regs __iomem *maint_atmu_regs;
 	void __iomem *maint_win;
-	void *rmm_handle; 
+	void *rmm_handle; /* RapidIO message manager(unit) Handle */
 };
 
 extern void __iomem *rio_regs_win;

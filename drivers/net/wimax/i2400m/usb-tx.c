@@ -75,6 +75,14 @@
 #include "usb-debug-levels.h"
 
 
+/*
+ * Get the next TX message in the TX FIFO and send it to the device
+ *
+ * Note that any iteration consumes a message to be sent, no matter if
+ * it succeeds or fails (we have no real way to retry or complain).
+ *
+ * Return: 0 if ok, < 0 errno code on hard error.
+ */
 static
 int i2400mu_tx(struct i2400mu *i2400mu, struct i2400m_msg_hdr *tx_msg,
 	       size_t tx_msg_size)
@@ -101,32 +109,42 @@ retry:
 	usb_mark_last_busy(i2400mu->usb_dev);
 	switch (result) {
 	case 0:
-		if (sent_size != tx_msg_size) {	
+		if (sent_size != tx_msg_size) {	/* Too short? drop it */
 			dev_err(dev, "TX: short write (%d B vs %zu "
 				"expected)\n", sent_size, tx_msg_size);
 			result = -EIO;
 		}
 		break;
 	case -EPIPE:
+		/*
+		 * Stall -- maybe the device is choking with our
+		 * requests. Clear it and give it some time. If they
+		 * happen to often, it might be another symptom, so we
+		 * reset.
+		 *
+		 * No error handling for usb_clear_halt(0; if it
+		 * works, the retry works; if it fails, this switch
+		 * does the error handling for us.
+		 */
 		if (edc_inc(&i2400mu->urb_edc,
 			    10 * EDC_MAX_ERRORS, EDC_ERROR_TIMEFRAME)) {
 			dev_err(dev, "BM-CMD: too many stalls in "
 				"URB; resetting device\n");
 			usb_queue_reset_device(i2400mu->usb_iface);
-			
+			/* fallthrough */
 		} else {
 			usb_clear_halt(i2400mu->usb_dev, usb_pipe);
-			msleep(10);	
+			msleep(10);	/* give the device some time */
 			goto retry;
 		}
-	case -EINVAL:			
-	case -ENODEV:			
-	case -ENOENT:			
-	case -ESHUTDOWN:		
+	case -EINVAL:			/* while removing driver */
+	case -ENODEV:			/* dev disconnect ... */
+	case -ENOENT:			/* just ignore it */
+	case -ESHUTDOWN:		/* and exit */
 	case -ECONNRESET:
 		result = -ESHUTDOWN;
 		break;
-	default:			
+	default:			/* Some error? */
 		if (edc_inc(&i2400mu->urb_edc,
 			    EDC_MAX_ERRORS, EDC_ERROR_TIMEFRAME)) {
 			dev_err(dev, "TX: maximum errors in URB "
@@ -147,6 +165,15 @@ retry:
 }
 
 
+/*
+ * Get the next TX message in the TX FIFO and send it to the device
+ *
+ * Note we exit the loop if i2400mu_tx() fails; that function only
+ * fails on hard error (failing to tx a buffer not being one of them,
+ * see its doc).
+ *
+ * Return: 0
+ */
 static
 int i2400mu_txd(void *_i2400mu)
 {
@@ -169,17 +196,17 @@ int i2400mu_txd(void *_i2400mu)
 		tx_msg = NULL;
 		wait_event_interruptible(
 			i2400mu->tx_wq,
-			(kthread_should_stop()	
+			(kthread_should_stop()	/* check this first! */
 			 || (tx_msg = i2400m_tx_msg_get(i2400m, &tx_msg_size)))
 			);
 		if (kthread_should_stop())
 			break;
-		WARN_ON(tx_msg == NULL);	
+		WARN_ON(tx_msg == NULL);	/* should not happen...*/
 		d_printf(2, dev, "TX: submitting %zu bytes\n", tx_msg_size);
 		d_dump(5, dev, tx_msg, tx_msg_size);
-		
+		/* Yeah, we ignore errors ... not much we can do */
 		i2400mu_tx(i2400mu, tx_msg, tx_msg_size);
-		i2400m_tx_msg_sent(i2400m);	
+		i2400m_tx_msg_sent(i2400m);	/* ack it, advance the FIFO */
 	}
 
 	spin_lock_irqsave(&i2400m->tx_lock, flags);
@@ -191,6 +218,14 @@ int i2400mu_txd(void *_i2400mu)
 }
 
 
+/*
+ * i2400m TX engine notifies us that there is data in the FIFO ready
+ * for TX
+ *
+ * If there is a URB in flight, don't do anything; when it finishes,
+ * it will see there is data in the FIFO and send it. Else, just
+ * submit a write.
+ */
 void i2400mu_bus_tx_kick(struct i2400m *i2400m)
 {
 	struct i2400mu *i2400mu = container_of(i2400m, struct i2400mu, i2400m);
@@ -212,7 +247,7 @@ int i2400mu_tx_setup(struct i2400mu *i2400mu)
 
 	kthread = kthread_run(i2400mu_txd, i2400mu, "%s-tx",
 			      wimax_dev->name);
-	
+	/* the kthread function sets i2400mu->tx_thread */
 	if (IS_ERR(kthread)) {
 		result = PTR_ERR(kthread);
 		dev_err(dev, "TX: cannot start thread: %d\n", result);

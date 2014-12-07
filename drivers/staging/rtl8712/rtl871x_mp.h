@@ -26,6 +26,8 @@
 #ifndef __RTL871X_MP_H_
 #define __RTL871X_MP_H_
 
+/*	00 - Success */
+/*	11 - Error */
 #define STATUS_SUCCESS			(0x00000000L)
 #define STATUS_PENDING			(0x00000103L)
 #define STATUS_UNSUCCESSFUL		(0xC0000001L)
@@ -74,12 +76,12 @@
 #define NDIS_STATUS_SAP_IN_USE		((uint)0xC0010021L)
 #define NDIS_STATUS_INVALID_ADDRESS	((uint)0xC0010022L)
 #define NDIS_STATUS_VC_NOT_ACTIVATED	((uint)0xC0010023L)
-#define NDIS_STATUS_DEST_OUT_OF_ORDER	((uint)0xC0010024L) 
-#define NDIS_STATUS_VC_NOT_AVAILABLE	((uint)0xC0010025L) 
-#define NDIS_STATUS_CELLRATE_NOT_AVAILABLE ((uint)0xC0010026L) 
-#define NDIS_STATUS_INCOMPATABLE_QOS	((uint)0xC0010027L)  
-#define NDIS_STATUS_AAL_PARAMS_UNSUPPORTED ((uint)0xC0010028L)  
-#define NDIS_STATUS_NO_ROUTE_TO_DESTINATION ((uint)0xC0010029L)  
+#define NDIS_STATUS_DEST_OUT_OF_ORDER	((uint)0xC0010024L) /* cause 27*/
+#define NDIS_STATUS_VC_NOT_AVAILABLE	((uint)0xC0010025L) /* 35,45*/
+#define NDIS_STATUS_CELLRATE_NOT_AVAILABLE ((uint)0xC0010026L) /* 37*/
+#define NDIS_STATUS_INCOMPATABLE_QOS	((uint)0xC0010027L)  /* 49*/
+#define NDIS_STATUS_AAL_PARAMS_UNSUPPORTED ((uint)0xC0010028L)  /*  93*/
+#define NDIS_STATUS_NO_ROUTE_TO_DESTINATION ((uint)0xC0010029L)  /*  3*/
 #define MPT_NOOP			0
 #define MPT_READ_MAC_1BYTE		1
 #define MPT_READ_MAC_2BYTE		2
@@ -135,18 +137,18 @@ struct mp_wiparam {
 
 struct mp_priv {
 	struct _adapter *papdater;
-	
+	/*OID cmd handler*/
 	struct mp_wiparam workparam;
 	u8 act_in_progress;
-	
+	/*Tx Section*/
 	u8 TID;
 	u32 tx_pktcount;
-	
+	/*Rx Section*/
 	u32 rx_pktcount;
 	u32 rx_crcerrpktcount;
 	u32 rx_pktloss;
 	struct recv_stat rxstat;
-	
+	/*RF/BB relative*/
 	u32 curr_ch;
 	u32 curr_rateidx;
 	u8 curr_bandwidth;
@@ -160,8 +162,9 @@ struct mp_priv {
 	uint ForcedDataRate;
 	struct wlan_network mp_network;
 	unsigned char network_macaddr[6];
-	
-	u32 mode;
+	/*Testing Flag*/
+	u32 mode;/*0 for normal type packet,
+		  * 1 for loopback packet (16bytes TXCMD)*/
 	sint prev_fw_state;
 	u8 *pallocated_mp_xmitframe_buf;
 	u8 *pmp_xmtframe_buf;
@@ -185,6 +188,7 @@ struct bb_reg_param {
 	u32 offset;
 	u32 value;
 };
+/* ======================================================================= */
 
 #define LOWER	true
 #define RAISE	false
@@ -205,32 +209,33 @@ struct bb_reg_param {
 #define _2MAC_MODE_	0
 #define _LOOPBOOK_MODE_	1
 
+/* MP set force data rate base on the definition. */
 enum {
-	
-	MPT_RATE_1M,	
+	/* CCK rate. */
+	MPT_RATE_1M,	/* 0 */
 	MPT_RATE_2M,
 	MPT_RATE_55M,
-	MPT_RATE_11M,	
+	MPT_RATE_11M,	/* 3 */
 
-	
-	MPT_RATE_6M,	
+	/* OFDM rate. */
+	MPT_RATE_6M,	/* 4 */
 	MPT_RATE_9M,
 	MPT_RATE_12M,
 	MPT_RATE_18M,
 	MPT_RATE_24M,
 	MPT_RATE_36M,
 	MPT_RATE_48M,
-	MPT_RATE_54M,	
+	MPT_RATE_54M,	/* 11 */
 
-	
-	MPT_RATE_MCS0,	
+	/* HT rate. */
+	MPT_RATE_MCS0,	/* 12 */
 	MPT_RATE_MCS1,
 	MPT_RATE_MCS2,
 	MPT_RATE_MCS3,
 	MPT_RATE_MCS4,
 	MPT_RATE_MCS5,
 	MPT_RATE_MCS6,
-	MPT_RATE_MCS7,	
+	MPT_RATE_MCS7,	/* 19 */
 	MPT_RATE_MCS8,
 	MPT_RATE_MCS9,
 	MPT_RATE_MCS10,
@@ -238,16 +243,17 @@ enum {
 	MPT_RATE_MCS12,
 	MPT_RATE_MCS13,
 	MPT_RATE_MCS14,
-	MPT_RATE_MCS15,	
+	MPT_RATE_MCS15,	/* 27 */
 	MPT_RATE_LAST
 };
 
+/* Represent Channel Width in HT Capabilities */
 enum HT_CHANNEL_WIDTH {
 	HT_CHANNEL_WIDTH_20 = 0,
 	HT_CHANNEL_WIDTH_40 = 1,
 };
 
-#define MAX_TX_PWR_INDEX_N_MODE 64	
+#define MAX_TX_PWR_INDEX_N_MODE 64	/* 0x3F */
 
 enum POWER_MODE {
 	POWER_LOW = 0,
@@ -260,6 +266,22 @@ enum POWER_MODE {
 
 #define RPTMaxCount 0x000FFFFF;
 
+/* parameter 1 : BitMask
+ *	bit 0  : OFDM PPDU
+ *	bit 1  : OFDM False Alarm
+ *	bit 2  : OFDM MPDU OK
+ *	bit 3  : OFDM MPDU Fail
+ *	bit 4  : CCK PPDU
+ *	bit 5  : CCK False Alarm
+ *	bit 6  : CCK MPDU ok
+ *	bit 7  : CCK MPDU fail
+ *	bit 8  : HT PPDU counter
+ *	bit 9  : HT false alarm
+ *	bit 10 : HT MPDU total
+ *	bit 11 : HT MPDU OK
+ *	bit 12 : HT MPDU fail
+ *	bit 15 : RX full drop
+ */
 enum RXPHY_BITMASK {
 	OFDM_PPDU_BIT = 0,
 	OFDM_MPDU_OK_BIT,
@@ -274,15 +296,17 @@ enum RXPHY_BITMASK {
 };
 
 enum ENCRY_CTRL_STATE {
-	HW_CONTROL,		
-	SW_CONTROL,		
-	HW_ENCRY_SW_DECRY,	
-	SW_ENCRY_HW_DECRY	
+	HW_CONTROL,		/*hw encryption& decryption*/
+	SW_CONTROL,		/*sw encryption& decryption*/
+	HW_ENCRY_SW_DECRY,	/*hw encryption & sw decryption*/
+	SW_ENCRY_HW_DECRY	/*sw encryption & hw decryption*/
 };
 
+/* Bandwidth Offset */
 #define HAL_PRIME_CHNL_OFFSET_DONT_CARE	0
 #define HAL_PRIME_CHNL_OFFSET_LOWER	1
 #define HAL_PRIME_CHNL_OFFSET_UPPER	2
+/*=======================================================================*/
 void mp871xinit(struct _adapter *padapter);
 void mp871xdeinit(struct _adapter *padapter);
 u32 r8712_bb_reg_read(struct _adapter *Adapter, u16 offset);
@@ -314,5 +338,5 @@ void r8712_ResetPhyRxPktCount(struct _adapter *pAdapter);
 u32 r8712_GetPhyRxPktReceived(struct _adapter *pAdapter);
 u32 r8712_GetPhyRxPktCRC32Error(struct _adapter *pAdapter);
 
-#endif 
+#endif /*__RTL871X_MP_H_*/
 

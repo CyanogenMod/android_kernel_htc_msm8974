@@ -75,6 +75,7 @@
  *  if compiled into the kernel).
  */
 
+/* Change OLYMPIC_DEBUG to 1 to get verbose, and I mean really verbose, messages */
 
 #define OLYMPIC_DEBUG 0
 
@@ -108,6 +109,13 @@
 
 #include "olympic.h"
 
+/* I've got to put some intelligence into the version number so that Peter and I know
+ * which version of the code somebody has got. 
+ * Version Number = a.b.c.d  where a.b.c is the level of code and d is the latest author.
+ * So 0.0.1.pds = Peter, 0.0.1.mlp = Mike
+ * 
+ * Official releases will only have an a.b.c version number format. 
+ */
 
 static char version[] =
 "Olympic.c v1.0.5 6/04/02 - Peter De Schrijver & Mike Phillips" ; 
@@ -124,28 +132,49 @@ static char *open_min_error[] = {"No error", "Function Failure", "Signal Lost", 
 				   "Reserved", "Reserved", "No Monitor Detected for RPL", 
 				   "Monitor Contention failer for RPL", "FDX Protocol Error"};
 
+/* Module parameters */
 
 MODULE_AUTHOR("Mike Phillips <mikep@linuxtr.net>") ; 
 MODULE_DESCRIPTION("Olympic PCI/Cardbus Chipset Driver") ; 
 
+/* Ring Speed 0,4,16,100 
+ * 0 = Autosense         
+ * 4,16 = Selected speed only, no autosense
+ * This allows the card to be the first on the ring
+ * and become the active monitor.
+ * 100 = Nothing at present, 100mbps is autodetected
+ * if FDX is turned on. May be implemented in the future to 
+ * fail if 100mpbs is not detected.
+ *
+ * WARNING: Some hubs will allow you to insert
+ * at the wrong speed
+ */
 
 static int ringspeed[OLYMPIC_MAX_ADAPTERS] = {0,} ;
 module_param_array(ringspeed, int, NULL, 0);
 
+/* Packet buffer size */
 
 static int pkt_buf_sz[OLYMPIC_MAX_ADAPTERS] = {0,} ;
 module_param_array(pkt_buf_sz, int, NULL, 0) ;
 
+/* Message Level */
 
 static int message_level[OLYMPIC_MAX_ADAPTERS] = {0,} ; 
 module_param_array(message_level, int, NULL, 0) ;
 
+/* Change network_monitor to receive mac frames through the arb channel.
+ * Will also create a /proc/net/olympic_tr%d entry, where %d is the tr
+ * device, i.e. tr0, tr1 etc. 
+ * Intended to be used to create a ring-error reporting network module 
+ * i.e. it will give you the source address of beaconers on the ring 
+ */
 static int network_monitor[OLYMPIC_MAX_ADAPTERS] = {0,};
 module_param_array(network_monitor, int, NULL, 0);
 
 static DEFINE_PCI_DEVICE_TABLE(olympic_pci_tbl) = {
 	{PCI_VENDOR_ID_IBM,PCI_DEVICE_ID_IBM_TR_WAKE,PCI_ANY_ID,PCI_ANY_ID,},
-	{ } 	
+	{ } 	/* Terminating Entry */
 };
 MODULE_DEVICE_TABLE(pci,olympic_pci_tbl) ; 
 
@@ -239,7 +268,7 @@ static int __devinit olympic_probe(struct pci_dev *pdev, const struct pci_device
 	pci_set_drvdata(pdev,dev) ; 
 	register_netdev(dev) ; 
 	printk("Olympic: %s registered as: %s\n",olympic_priv->olympic_card_name,dev->name);
-	if (olympic_priv->olympic_network_monitor) {  
+	if (olympic_priv->olympic_network_monitor) { /* Must go after register_netdev as we need the device name */ 
 		char proc_name[20] ; 
 		strcpy(proc_name,"olympic_") ;
 		strcat(proc_name,dev->name) ; 
@@ -287,7 +316,7 @@ static int olympic_init(struct net_device *dev)
 	}
 
 
-	
+	/* Needed for cardbus */
 	if(!(readl(olympic_mmio+BCTL) & BCTL_MODE_INDICATOR)) {
 		writel(readl(olympic_priv->olympic_mmio+FERMASK)|FERMASK_INT_BIT, olympic_mmio+FERMASK);
 	}
@@ -297,10 +326,13 @@ static int olympic_init(struct net_device *dev)
 	printk("GPR: %x\n",readw(olympic_mmio+GPR));
 	printk("SISRMASK: %x\n",readl(olympic_mmio+SISR_MASK));
 #endif
+	/* Aaaahhh, You have got to be real careful setting GPR, the card
+	   holds the previous values from flash memory, including autosense 
+           and ring speed */
 
 	writel(readl(olympic_mmio+BCTL)|BCTL_MIMREB,olympic_mmio+BCTL);
 	
-	if (olympic_priv->olympic_ring_speed  == 0) { 
+	if (olympic_priv->olympic_ring_speed  == 0) { /* Autosense */
 		writew(readw(olympic_mmio+GPR)|GPR_AUTOSENSE,olympic_mmio+GPR);
 		if (olympic_priv->olympic_message_level) 
 			printk(KERN_INFO "%s: Ringspeed autosense mode on\n",olympic_priv->olympic_card_name);
@@ -319,6 +351,11 @@ static int olympic_init(struct net_device *dev)
 #if OLYMPIC_DEBUG
 	printk("GPR = %x\n",readw(olympic_mmio + GPR) ) ; 
 #endif
+	/* Solo has been paused to meet the Cardbus power
+	 * specs if the adapter is cardbus. Check to 
+	 * see its been paused and then restart solo. The
+	 * adapter should set the pause bit within 1 second.
+	 */
 
 	if(!(readl(olympic_mmio+BCTL) & BCTL_MODE_INDICATOR)) { 
 		t=jiffies;
@@ -332,7 +369,7 @@ static int olympic_init(struct net_device *dev)
 		writel(readl(olympic_mmio+CLKCTL) & ~CLKCTL_PAUSE, olympic_mmio+CLKCTL) ; 
 	}
 	
-	
+	/* start solo init */
 	writel((1<<15),olympic_mmio+SISR_MASK_SUM);
 
 	t=jiffies;
@@ -419,11 +456,11 @@ static int olympic_open(struct net_device *dev)
 
 	writel(SISR_MI,olympic_mmio+SISR_MASK_SUM);
 
-	writel(SISR_MI | SISR_SRB_REPLY, olympic_mmio+SISR_MASK); 
+	writel(SISR_MI | SISR_SRB_REPLY, olympic_mmio+SISR_MASK); /* more ints later, doesn't stop arb cmd interrupt */
 
-	writel(LISR_LIE,olympic_mmio+LISR); 
+	writel(LISR_LIE,olympic_mmio+LISR); /* more ints later */
 
-	
+	/* adapter is closed, so SRB is pointed to by LAPWWO */
 
 	writel(readw(olympic_mmio+LAPWWO),olympic_mmio+LAPA);
 	init_srb=olympic_priv->olympic_lap + ((readw(olympic_mmio+LAPWWO)) & (~0xf800));
@@ -436,15 +473,18 @@ static int olympic_open(struct net_device *dev)
 	do {
 		memset_io(init_srb,0,SRB_COMMAND_SIZE);
 
-		writeb(SRB_OPEN_ADAPTER,init_srb) ; 	
+		writeb(SRB_OPEN_ADAPTER,init_srb) ; 	/* open */
 		writeb(OLYMPIC_CLEAR_RET_CODE,init_srb+2);
 
-		
+		/* If Network Monitor, instruct card to copy MAC frames through the ARB */
 		if (olympic_priv->olympic_network_monitor) 
 			writew(swab16(OPEN_ADAPTER_ENABLE_FDX | OPEN_ADAPTER_PASS_ADC_MAC | OPEN_ADAPTER_PASS_ATT_MAC | OPEN_ADAPTER_PASS_BEACON), init_srb+8);
 		else
 			writew(swab16(OPEN_ADAPTER_ENABLE_FDX), init_srb+8);
 	
+		/* Test OR of first 3 bytes as its totally possible for 
+		 * someone to set the first 2 bytes to be zero, although this 
+		 * is an error, the first byte must have bit 6 set to 1  */
 
 		if (olympic_priv->olympic_laa[0] | olympic_priv->olympic_laa[1] | olympic_priv->olympic_laa[2]) {
 			writeb(olympic_priv->olympic_laa[0],init_srb+12);
@@ -496,6 +536,9 @@ static int olympic_open(struct net_device *dev)
 		printk("\n");
 #endif
 		
+		/* If we get the same return response as we set, the interrupt wasn't raised and the open
+                 * timed out.
+		 */
 
 		switch (resp = readb(init_srb+2)) {
 		case OLYMPIC_CLEAR_RET_CODE:
@@ -505,7 +548,7 @@ static int olympic_open(struct net_device *dev)
 			open_finished = 1;
 			break;
 		case 0x07:
-			if (!olympic_priv->olympic_ring_speed && open_finished) { 
+			if (!olympic_priv->olympic_ring_speed && open_finished) { /* Autosense , first time around */
 				printk(KERN_WARNING "%s: Retrying at different ring speed\n", dev->name);
 				open_finished = 0 ;  
 				continue;
@@ -533,7 +576,7 @@ static int olympic_open(struct net_device *dev)
 			goto out;
 
 		}
-	} while (!(open_finished)) ; 	
+	} while (!(open_finished)) ; /* Will only loop if ring speed mismatch re-open attempted && autosense is on */	
 
 	if (readb(init_srb+18) & (1<<3)) 
 		if (olympic_priv->olympic_message_level) 
@@ -557,11 +600,11 @@ static int olympic_open(struct net_device *dev)
 	olympic_priv->olympic_receive_options = 0x01 ; 
 	olympic_priv->olympic_copy_all_options = 0 ; 
 	
+	/* setup rx ring */
 	
-	
-	writel((3<<16),olympic_mmio+BMCTL_RWM);  
+	writel((3<<16),olympic_mmio+BMCTL_RWM); /* Ensure end of frame generated interrupts */ 
 
-	writel(BMCTL_RX_DIS|3,olympic_mmio+BMCTL_RWM); 
+	writel(BMCTL_RX_DIS|3,olympic_mmio+BMCTL_RWM); /* Yes, this the enables RX channel */
 
 	for(i=0;i<OLYMPIC_RX_RING_SIZE;i++) {
 
@@ -595,7 +638,7 @@ static int olympic_open(struct net_device *dev)
 	writel(olympic_priv->rx_status_ring_dma_addr, olympic_mmio+RXSTATQ);
 	writel(olympic_priv->rx_status_ring_dma_addr, olympic_mmio+RXCSA);
 	
- 	olympic_priv->rx_ring_last_received = OLYMPIC_RX_RING_SIZE - 1;	
+ 	olympic_priv->rx_ring_last_received = OLYMPIC_RX_RING_SIZE - 1;	/* last processed rx status */
 	olympic_priv->rx_status_last_received = OLYMPIC_RX_RING_SIZE - 1;  
 
 	writew(i, olympic_mmio+RXSTATQCNT);
@@ -622,9 +665,9 @@ static int olympic_open(struct net_device *dev)
 
 	writel(SISR_RX_STATUS | SISR_RX_NOBUF,olympic_mmio+SISR_MASK_SUM);
 
-	
+	/* setup tx ring */
 
-	writel(BMCTL_TX1_DIS,olympic_mmio+BMCTL_RWM); 
+	writel(BMCTL_TX1_DIS,olympic_mmio+BMCTL_RWM); /* Yes, this enables TX channel 1 */
 	for(i=0;i<OLYMPIC_TX_RING_SIZE;i++) 
 		olympic_priv->olympic_tx_ring[i].buffer=cpu_to_le32(0xdeadbeef);
 
@@ -641,12 +684,12 @@ static int olympic_open(struct net_device *dev)
 	writel(olympic_priv->tx_status_ring_dma_addr,olympic_mmio+TXCSA_1);
 	writew(OLYMPIC_TX_RING_SIZE,olympic_mmio+TXSTATQCNT_1);
 		
-	olympic_priv->tx_ring_free=0; 
-	olympic_priv->tx_ring_last_status=OLYMPIC_TX_RING_SIZE-1; 
+	olympic_priv->tx_ring_free=0; /* next entry in tx ring to use */
+	olympic_priv->tx_ring_last_status=OLYMPIC_TX_RING_SIZE-1; /* last processed tx status */
 
-	writel(0xffffffff, olympic_mmio+EISR_RWM) ; 
+	writel(0xffffffff, olympic_mmio+EISR_RWM) ; /* clean the eisr */
 	writel(0,olympic_mmio+EISR) ; 
-	writel(EISR_MASK_OPTIONS,olympic_mmio+EISR_MASK) ; 
+	writel(EISR_MASK_OPTIONS,olympic_mmio+EISR_MASK) ; /* enables most of the TX error interrupts */
 	writel(SISR_TX1_EOF | SISR_ADAPTER_CHECK | SISR_ARB_CMD | SISR_TRB_REPLY | SISR_ASB_FREE | SISR_ERR,olympic_mmio+SISR_MASK_SUM);
 
 #if OLYMPIC_DEBUG 
@@ -683,6 +726,21 @@ out:
 	return -EIO;
 }	
 
+/*
+ *	When we enter the rx routine we do not know how many frames have been 
+ *	queued on the rx channel.  Therefore we start at the next rx status
+ *	position and travel around the receive ring until we have completed
+ *	all the frames.
+ *
+ *	This means that we may process the frame before we receive the end
+ *	of frame interrupt. This is why we always test the status instead
+ *	of blindly processing the next frame.
+ *
+ *	We also remove the last 4 bytes from the packet as well, these are
+ *	just token ring trailer info and upset protocols that don't check 
+ *	their own length, i.e. SNA. 
+ *	
+ */
 static void olympic_rx(struct net_device *dev)
 {
 	struct olympic_private *olympic_priv=netdev_priv(dev);
@@ -705,7 +763,7 @@ static void olympic_rx(struct net_device *dev)
 #endif
 		length = le32_to_cpu(rx_status->fragmentcnt_framelen) & 0xffff;
 		buffer_cnt = le32_to_cpu(rx_status->status_buffercnt) & 0xffff; 
-		i = buffer_cnt ;  
+		i = buffer_cnt ; /* Need buffer_cnt later for rxenq update */ 
 		frag_len = le32_to_cpu(rx_status->fragmentcnt_framelen) >> 16; 
 
 #if OLYMPIC_DEBUG 
@@ -715,15 +773,15 @@ static void olympic_rx(struct net_device *dev)
 		if(l_status_buffercnt & 0xC0000000) {
 			if (l_status_buffercnt & 0x3B000000) {
 				if (olympic_priv->olympic_message_level) {
-					if (l_status_buffercnt & (1<<29))  
+					if (l_status_buffercnt & (1<<29))  /* Rx Frame Truncated */
 						printk(KERN_WARNING "%s: Rx Frame Truncated\n",dev->name);
-					if (l_status_buffercnt & (1<<28)) 
+					if (l_status_buffercnt & (1<<28)) /*Rx receive overrun */
 						printk(KERN_WARNING "%s: Rx Frame Receive overrun\n",dev->name);
-					if (l_status_buffercnt & (1<<27)) 
+					if (l_status_buffercnt & (1<<27)) /* No receive buffers */
 						printk(KERN_WARNING "%s: No receive buffers\n",dev->name);
-					if (l_status_buffercnt & (1<<25)) 
+					if (l_status_buffercnt & (1<<25)) /* Receive frame error detect */
 						printk(KERN_WARNING "%s: Receive frame error detect\n",dev->name);
-					if (l_status_buffercnt & (1<<24)) 
+					if (l_status_buffercnt & (1<<24)) /* Received Error Detect */
 						printk(KERN_WARNING "%s: Received Error Detect\n",dev->name);
 				} 
 				olympic_priv->rx_ring_last_received += i ; 
@@ -740,10 +798,17 @@ static void olympic_rx(struct net_device *dev)
 				if (skb == NULL) {
 					printk(KERN_WARNING "%s: Not enough memory to copy packet to upper layers.\n",dev->name) ;
 					dev->stats.rx_dropped++;
-					
+					/* Update counters even though we don't transfer the frame */
 					olympic_priv->rx_ring_last_received += i ; 
 					olympic_priv->rx_ring_last_received &= (OLYMPIC_RX_RING_SIZE -1) ;  
 				} else  {
+					/* Optimise based upon number of buffers used. 
+			   	   	   If only one buffer is used we can simply swap the buffers around.
+			   	   	   If more than one then we must use the new buffer and copy the information
+			   	   	   first. Ideally all frames would be in a single buffer, this can be tuned by
+                               	   	   altering the buffer size. If the length of the packet is less than
+					   1500 bytes we're going to copy it over anyway to stop packets getting
+					   dropped from sockets with buffers smaller than our pkt_buf_sz. */
 				
  					if (buffer_cnt==1) {
 						olympic_priv->rx_ring_last_received++ ; 
@@ -751,7 +816,7 @@ static void olympic_rx(struct net_device *dev)
 						rx_ring_last_received = olympic_priv->rx_ring_last_received ;
 						if (length > 1500) { 
 							skb2=olympic_priv->rx_ring_skb[rx_ring_last_received] ; 
-							
+							/* unmap buffer */
 							pci_unmap_single(olympic_priv->pdev,
 								le32_to_cpu(olympic_priv->olympic_rx_ring[rx_ring_last_received].buffer), 
 								olympic_priv->pkt_buf_sz,PCI_DMA_FROMDEVICE) ; 
@@ -778,7 +843,7 @@ static void olympic_rx(struct net_device *dev)
 							netif_rx(skb) ; 
 						} 
 					} else {
-						do {  
+						do { /* Walk the buffers */ 
 							olympic_priv->rx_ring_last_received++ ; 
 							olympic_priv->rx_ring_last_received &= (OLYMPIC_RX_RING_SIZE -1);
 							rx_ring_last_received = olympic_priv->rx_ring_last_received ; 
@@ -800,10 +865,10 @@ static void olympic_rx(struct net_device *dev)
 					} 
 					dev->stats.rx_packets++ ;
 					dev->stats.rx_bytes += length ;
-				} 
-			} 
+				} /* if skb == null */
+			} /* If status & 0x3b */
 
-		} else { 
+		} else { /*if buffercnt & 0xC */
 			olympic_priv->rx_ring_last_received += i ; 
 			olympic_priv->rx_ring_last_received &= (OLYMPIC_RX_RING_SIZE - 1) ; 
 		} 
@@ -813,7 +878,7 @@ static void olympic_rx(struct net_device *dev)
 		rx_status = &(olympic_priv->olympic_rx_status_ring[(olympic_priv->rx_status_last_received+1) & (OLYMPIC_RX_RING_SIZE -1) ]);
 
 		writew((((readw(olympic_mmio+RXENQ)) & 0x8000) ^ 0x8000) |  buffer_cnt , olympic_mmio+RXENQ); 
-	} 
+	} /* while */
 
 }
 
@@ -835,7 +900,7 @@ static void olympic_freemem(struct net_device *dev)
 		olympic_priv->rx_status_last_received++;
 		olympic_priv->rx_status_last_received&=OLYMPIC_RX_RING_SIZE-1;
 	}
-	
+	/* unmap rings */
 	pci_unmap_single(olympic_priv->pdev, olympic_priv->rx_status_ring_dma_addr, 
 		sizeof(struct olympic_rx_status) * OLYMPIC_RX_RING_SIZE, PCI_DMA_FROMDEVICE);
 	pci_unmap_single(olympic_priv->pdev, olympic_priv->rx_ring_dma_addr,
@@ -857,15 +922,19 @@ static irqreturn_t olympic_interrupt(int irq, void *dev_id)
 	u32 sisr;
 	u8 __iomem *adapter_check_area ; 
 	
- 
+	/* 
+	 *  Read sisr but don't reset it yet. 
+	 *  The indication bit may have been set but the interrupt latch
+	 *  bit may not be set, so we'd lose the interrupt later. 
+	 */ 
 	sisr=readl(olympic_mmio+SISR) ; 
-	if (!(sisr & SISR_MI))  
+	if (!(sisr & SISR_MI)) /* Interrupt isn't for us */ 
 		return IRQ_NONE;
-	sisr=readl(olympic_mmio+SISR_RR) ;   
+	sisr=readl(olympic_mmio+SISR_RR) ;  /* Read & Reset sisr */ 
 
 	spin_lock(&olympic_priv->olympic_lock);
 
-	
+	/* Hotswap gives us this on removal */
 	if (sisr == 0xffffffff) { 
 		printk(KERN_WARNING "%s: Hotswap adapter removal.\n",dev->name) ; 
 		spin_unlock(&olympic_priv->olympic_lock) ; 
@@ -875,7 +944,8 @@ static irqreturn_t olympic_interrupt(int irq, void *dev_id)
 	if (sisr & (SISR_SRB_REPLY | SISR_TX1_EOF | SISR_RX_STATUS | SISR_ADAPTER_CHECK |  
 			SISR_ASB_FREE | SISR_ARB_CMD | SISR_TRB_REPLY | SISR_RX_NOBUF | SISR_ERR)) {  
 	
- 
+		/* If we ever get this the adapter is seriously dead. Only a reset is going to 
+		 * bring it back to life. We're talking pci bus errors and such like :( */ 
 		if((sisr & SISR_ERR) && (readl(olympic_mmio+EISR) & EISR_MASK_OPTIONS)) {
 			printk(KERN_ERR "Olympic: EISR Error, EISR=%08x\n",readl(olympic_mmio+EISR)) ; 
 			printk(KERN_ERR "The adapter must be reset to clear this condition.\n") ; 
@@ -884,7 +954,7 @@ static irqreturn_t olympic_interrupt(int irq, void *dev_id)
 			wake_up_interruptible(&olympic_priv->srb_wait);
 			spin_unlock(&olympic_priv->olympic_lock) ; 
 			return IRQ_HANDLED;
-		} 
+		} /* SISR_ERR */
 
 		if(sisr & SISR_SRB_REPLY) {
 			if(olympic_priv->srb_queued==1) {
@@ -893,8 +963,10 @@ static irqreturn_t olympic_interrupt(int irq, void *dev_id)
 				olympic_srb_bh(dev) ; 
 			}
 			olympic_priv->srb_queued=0;
-		} 
+		} /* SISR_SRB_REPLY */
 
+		/* We shouldn't ever miss the Tx interrupt, but the you never know, hence the loop to ensure
+		   we get all tx completions. */
 		if (sisr & SISR_TX1_EOF) {
 			while(olympic_priv->olympic_tx_status_ring[(olympic_priv->tx_ring_last_status + 1) & (OLYMPIC_TX_RING_SIZE-1)].status) { 
 				olympic_priv->tx_ring_last_status++;
@@ -910,11 +982,11 @@ static irqreturn_t olympic_interrupt(int irq, void *dev_id)
 				olympic_priv->olympic_tx_status_ring[olympic_priv->tx_ring_last_status].status=0;
 			}
 			netif_wake_queue(dev);
-		} 
+		} /* SISR_TX1_EOF */
 	
 		if (sisr & SISR_RX_STATUS) {
 			olympic_rx(dev);
-		} 
+		} /* SISR_RX_STATUS */
 	
 		if (sisr & SISR_ADAPTER_CHECK) {
 			netif_stop_queue(dev);
@@ -924,33 +996,35 @@ static irqreturn_t olympic_interrupt(int irq, void *dev_id)
 			printk(KERN_WARNING "%s: Bytes %02x:%02x:%02x:%02x:%02x:%02x:%02x:%02x\n",dev->name, readb(adapter_check_area+0), readb(adapter_check_area+1), readb(adapter_check_area+2), readb(adapter_check_area+3), readb(adapter_check_area+4), readb(adapter_check_area+5), readb(adapter_check_area+6), readb(adapter_check_area+7)) ; 
 			spin_unlock(&olympic_priv->olympic_lock) ; 
 			return IRQ_HANDLED; 
-		} 
+		} /* SISR_ADAPTER_CHECK */
 	
 		if (sisr & SISR_ASB_FREE) {
-			  
+			/* Wake up anything that is waiting for the asb response */  
 			if (olympic_priv->asb_queued) {
 				olympic_asb_bh(dev) ; 
 			}
-		} 
+		} /* SISR_ASB_FREE */
 	
 		if (sisr & SISR_ARB_CMD) {
 			olympic_arb_cmd(dev) ; 
-		} 
+		} /* SISR_ARB_CMD */
 	
 		if (sisr & SISR_TRB_REPLY) {
-			
+			/* Wake up anything that is waiting for the trb response */
 			if (olympic_priv->trb_queued) {
 				wake_up_interruptible(&olympic_priv->trb_wait);
 			}
 			olympic_priv->trb_queued = 0 ; 
-		} 	
+		} /* SISR_TRB_REPLY */	
 	
 		if (sisr & SISR_RX_NOBUF) {
-		} 
+			/* According to the documentation, we don't have to do anything, but trapping it keeps it out of
+                  	   	   /var/log/messages.  */
+		} /* SISR_RX_NOBUF */
 	} else { 
 		printk(KERN_WARNING "%s: Unexpected interrupt: %x\n",dev->name, sisr);
 		printk(KERN_WARNING "%s: SISR_MASK: %x\n",dev->name, readl(olympic_mmio+SISR_MASK)) ;
-	} 
+	} /* One if the interrupts we want */
 	writel(SISR_MI,olympic_mmio+SISR_MASK_SUM);
 	
 	spin_unlock(&olympic_priv->olympic_lock) ; 
@@ -1038,7 +1112,7 @@ static int olympic_close(struct net_device *dev)
 
 	olympic_freemem(dev) ; 	
 
-	
+	/* reset tx/rx fifo's and busmaster logic */
 
 	writel(readl(olympic_mmio+BCTL)|(3<<13),olympic_mmio+BCTL);
 	udelay(1);
@@ -1077,11 +1151,11 @@ static void olympic_set_rx_mode(struct net_device *dev)
 	else
 		options &= ~0x61 ; 
 
-	
+	/* Only issue the srb if there is a change in options */
 
 	if ((options ^ olympic_priv->olympic_copy_all_options)) { 
 	
-		
+		/* Now to issue the srb command to alter the copy.all.options */
 	
 		writeb(SRB_MODIFY_RECEIVE_OPTIONS,srb);
 		writeb(0,srb+1);
@@ -1090,7 +1164,7 @@ static void olympic_set_rx_mode(struct net_device *dev)
 		writeb(olympic_priv->olympic_receive_options,srb+4);
 		writeb(options,srb+5);
 
-		olympic_priv->srb_queued=2; 
+		olympic_priv->srb_queued=2; /* Can't sleep, use srb_bh */
 
 		writel(LISR_SRB_CMD,olympic_mmio+LISR_SUM);
 
@@ -1099,7 +1173,7 @@ static void olympic_set_rx_mode(struct net_device *dev)
 		return ;  
 	} 
 
-	
+	/* Set the functional addresses we need for multicast */
 
 	dev_mc_address[0] = dev_mc_address[1] = dev_mc_address[2] = dev_mc_address[3] = 0 ; 
 
@@ -1137,6 +1211,10 @@ static void olympic_srb_bh(struct net_device *dev)
 
 	switch (readb(srb)) { 
 
+		/* SRB_MODIFY_RECEIVE_OPTIONS i.e. set_multicast_list options (promiscuous) 
+                 * At some point we should do something if we get an error, such as
+                 * resetting the IFF_PROMISC flag in dev
+		 */
 
 		case SRB_MODIFY_RECEIVE_OPTIONS:
 			switch (readb(srb+2)) { 
@@ -1150,9 +1228,11 @@ static void olympic_srb_bh(struct net_device *dev)
 					if (olympic_priv->olympic_message_level) 
 						printk(KERN_WARNING "%s: Receive Options Modified to %x,%x\n",dev->name,olympic_priv->olympic_copy_all_options, olympic_priv->olympic_receive_options) ; 
 					break ; 	
-			}  
+			} /* switch srb[2] */ 
 			break ;
 		
+		/* SRB_SET_GROUP_ADDRESS - Multicast group setting 
+                 */
 
 		case SRB_SET_GROUP_ADDRESS:
 			switch (readb(srb+2)) { 
@@ -1167,7 +1247,7 @@ static void olympic_srb_bh(struct net_device *dev)
 				case 0x3c:
 					printk(KERN_WARNING "%s: Group/Functional address indicator bits not set correctly\n",dev->name) ; 
 					break ;
-				case 0x3e: 
+				case 0x3e: /* If we ever implement individual multicast addresses, will need to deal with this */
 					printk(KERN_WARNING "%s: Group address registers full\n",dev->name) ; 
 					break ;  
 				case 0x55:
@@ -1175,9 +1255,11 @@ static void olympic_srb_bh(struct net_device *dev)
 					break ;
 				default:
 					break ; 
-			}  
+			} /* switch srb[2] */ 
 			break ; 
 
+		/* SRB_RESET_GROUP_ADDRESS - Remove a multicast address from group list
+ 		 */
 
 		case SRB_RESET_GROUP_ADDRESS:
 			switch (readb(srb+2)) { 
@@ -1189,15 +1271,17 @@ static void olympic_srb_bh(struct net_device *dev)
 				case 0x04:
 					printk(KERN_WARNING "%s: Adapter must be open for this operation, doh!!\n",dev->name) ; 
 					break ; 
-				case 0x39: 
+				case 0x39: /* Must deal with this if individual multicast addresses used */
 					printk(KERN_INFO "%s: Group address not found\n",dev->name);
 					break ;
 				default:
 					break ; 
-			} 
+			} /* switch srb[2] */
 			break ; 
 
 		
+		/* SRB_SET_FUNC_ADDRESS - Called by the set_rx_mode 
+		 */
 
 		case SRB_SET_FUNC_ADDRESS:
 			switch (readb(srb+2)) { 
@@ -1213,9 +1297,11 @@ static void olympic_srb_bh(struct net_device *dev)
 					break ; 
 				default:
 					break ; 
-			} 
+			} /* switch srb[2] */
 			break ; 
 	
+		/* SRB_READ_LOG - Read and reset the adapter error counters
+ 		 */
 
 		case SRB_READ_LOG:
 			switch (readb(srb+2)) { 
@@ -1230,10 +1316,10 @@ static void olympic_srb_bh(struct net_device *dev)
 					printk(KERN_WARNING "%s: Adapter must be open for this operation, doh!!\n",dev->name) ; 
 					break ; 
 			
-			} 
+			} /* switch srb[2] */
 			break ; 
 		
-		
+		/* SRB_READ_SR_COUNTERS - Read and reset the source routing bridge related counters */
 
 		case SRB_READ_SR_COUNTERS:
 			switch (readb(srb+2)) { 
@@ -1249,13 +1335,13 @@ static void olympic_srb_bh(struct net_device *dev)
 					break ; 
 				default:
 					break ; 
-			} 
+			} /* switch srb[2] */
 			break ;
  
 		default:
 			printk(KERN_WARNING "%s: Unrecognized srb bh return value.\n",dev->name);
 			break ; 
-	} 
+	} /* switch srb[0] */
 
 } 
 
@@ -1292,7 +1378,7 @@ static void olympic_arb_cmd(struct net_device *dev)
 	u8 __iomem *buf_ptr ;
 	u8 __iomem *frame_data ;  
 	u16 buff_off ; 
-	u16 lan_status = 0, lan_status_diff  ; 
+	u16 lan_status = 0, lan_status_diff  ; /* Initialize to stop compiler warning */
 	u8 fdx_prot_error ; 
 	u16 next_ptr;
 
@@ -1300,9 +1386,9 @@ static void olympic_arb_cmd(struct net_device *dev)
 	asb_block = (olympic_priv->olympic_lap + olympic_priv->asb) ; 
 	srb = (olympic_priv->olympic_lap + olympic_priv->srb) ; 
 	
-	if (readb(arb_block+0) == ARB_RECEIVE_DATA) { 
+	if (readb(arb_block+0) == ARB_RECEIVE_DATA) { /* Receive.data, MAC frames */
 
-		header_len = readb(arb_block+8) ; 	
+		header_len = readb(arb_block+8) ; /* 802.5 Token-Ring Header Length */	
 		frame_len = swab16(readw(arb_block + 10)) ; 
 
 		buff_off = swab16(readw(arb_block + 6)) ;
@@ -1327,7 +1413,7 @@ static void olympic_arb_cmd(struct net_device *dev)
 			goto drop_frame;
 		}
 
-		
+		/* Walk the buffer chain, creating the frame */
 
 		do {
 			frame_data = buf_ptr+offsetof(struct mac_receive_buffer,frame_data) ; 
@@ -1350,24 +1436,24 @@ static void olympic_arb_cmd(struct net_device *dev)
 		netif_rx(mac_frame);
 
 drop_frame:
-		
+		/* Now tell the card we have dealt with the received frame */
 
-		
+		/* Set LISR Bit 1 */
 		writel(LISR_ARB_FREE,olympic_priv->olympic_mmio + LISR_SUM);
 
-		 	
+		/* Is the ASB free ? */ 	
 		
 		if (readb(asb_block + 2) != 0xff) { 
 			olympic_priv->asb_queued = 1 ; 
 			writel(LISR_ASB_FREE_REQ,olympic_priv->olympic_mmio+LISR_SUM); 
 			return ; 	
-			
+			/* Drop out and wait for the bottom half to be run */
 		}
 		
-		writeb(ASB_RECEIVE_DATA,asb_block); 
-		writeb(OLYMPIC_CLEAR_RET_CODE,asb_block+2); 
-		writeb(readb(arb_block+6),asb_block+6); 
-		writeb(readb(arb_block+7),asb_block+7); 		
+		writeb(ASB_RECEIVE_DATA,asb_block); /* Receive data */
+		writeb(OLYMPIC_CLEAR_RET_CODE,asb_block+2); /* Necessary ?? */
+		writeb(readb(arb_block+6),asb_block+6); /* Must send the address back to the adapter */
+		writeb(readb(arb_block+7),asb_block+7); /* To let it know we have dealt with the data */		
 
 		writel(LISR_ASB_REPLY | LISR_ASB_FREE_REQ,olympic_priv->olympic_mmio+LISR_SUM);
 		
@@ -1375,11 +1461,11 @@ drop_frame:
 	
 		return ; 	
 		
-	} else if (readb(arb_block) == ARB_LAN_CHANGE_STATUS) { 
+	} else if (readb(arb_block) == ARB_LAN_CHANGE_STATUS) { /* Lan.change.status */
 		lan_status = swab16(readw(arb_block+6));
 		fdx_prot_error = readb(arb_block+8) ; 
 		
-		
+		/* Issue ARB Free */
 		writel(LISR_ARB_FREE,olympic_priv->olympic_mmio+LISR_SUM);
 
 		lan_status_diff = olympic_priv->olympic_lan_status ^ lan_status ; 
@@ -1394,9 +1480,9 @@ drop_frame:
 			if (lan_status_diff & LSC_RR) 
 					printk(KERN_WARNING "%s: Force remove MAC frame received\n",dev->name);
 		
-			
+			/* Adapter has been closed by the hardware */
 		
-			
+			/* reset tx/rx fifo's and busmaster logic */
 
 			writel(readl(olympic_mmio+BCTL)|(3<<13),olympic_mmio+BCTL);
 			udelay(1);
@@ -1404,7 +1490,7 @@ drop_frame:
 			netif_stop_queue(dev);
 			olympic_priv->srb = readw(olympic_priv->olympic_lap + LAPWWO) ; 
 			printk(KERN_WARNING "%s: Adapter has been closed\n", dev->name);
-		} 
+		} /* If serious error */
 		
 		if (olympic_priv->olympic_message_level) { 
 			if (lan_status_diff & LSC_SIG_LOSS) 
@@ -1428,7 +1514,7 @@ drop_frame:
 				if (olympic_priv->olympic_message_level) 
 					printk(KERN_INFO "%s: Counter Overflow\n", dev->name);
 					
-				
+				/* Issue READ.LOG command */
 
 				writeb(SRB_READ_LOG, srb);
 				writeb(0,srb+1);
@@ -1437,7 +1523,7 @@ drop_frame:
 				writeb(0,srb+4);
 				writeb(0,srb+5);
 					
-				olympic_priv->srb_queued=2; 
+				olympic_priv->srb_queued=2; /* Can't sleep, use srb_bh */
 
 				writel(LISR_SRB_CMD,olympic_mmio+LISR_SUM);
 					
@@ -1448,14 +1534,14 @@ drop_frame:
 				if (olympic_priv->olympic_message_level)
 					printk(KERN_INFO "%s: Source routing counters overflow\n", dev->name);
 
-				
+				/* Issue a READ.SR.COUNTERS */
 				
 				writeb(SRB_READ_SR_COUNTERS,srb);
 				writeb(0,srb+1);
 				writeb(OLYMPIC_CLEAR_RET_CODE,srb+2);
 				writeb(0,srb+3);
 				
-				olympic_priv->srb_queued=2; 
+				olympic_priv->srb_queued=2; /* Can't sleep, use srb_bh */
 
 				writel(LISR_SRB_CMD,olympic_mmio+LISR_SUM);
 
@@ -1463,7 +1549,7 @@ drop_frame:
 
 		olympic_priv->olympic_lan_status = lan_status ; 
 	
-	}  
+	}  /* Lan.change.status */
 	else
 		printk(KERN_WARNING "%s: Unknown arb command\n", dev->name);
 }
@@ -1476,12 +1562,12 @@ static void olympic_asb_bh(struct net_device *dev)
 	arb_block = (olympic_priv->olympic_lap + olympic_priv->arb) ; 
 	asb_block = (olympic_priv->olympic_lap + olympic_priv->asb) ; 
 
-	if (olympic_priv->asb_queued == 1) {   
+	if (olympic_priv->asb_queued == 1) {   /* Dropped through the first time */
 
-		writeb(ASB_RECEIVE_DATA,asb_block); 
-		writeb(OLYMPIC_CLEAR_RET_CODE,asb_block+2); 
-		writeb(readb(arb_block+6),asb_block+6); 
-		writeb(readb(arb_block+7),asb_block+7); 		
+		writeb(ASB_RECEIVE_DATA,asb_block); /* Receive data */
+		writeb(OLYMPIC_CLEAR_RET_CODE,asb_block+2); /* Necessary ?? */
+		writeb(readb(arb_block+6),asb_block+6); /* Must send the address back to the adapter */
+		writeb(readb(arb_block+7),asb_block+7); /* To let it know we have dealt with the data */		
 
 		writel(LISR_ASB_REPLY | LISR_ASB_FREE_REQ,olympic_priv->olympic_mmio+LISR_SUM);
 		olympic_priv->asb_queued = 2 ; 
@@ -1498,7 +1584,7 @@ static void olympic_asb_bh(struct net_device *dev)
 				printk(KERN_WARNING "%s: Unrecognized buffer address\n", dev->name);
 				break ;
 			case 0xFF:
-				
+				/* Valid response, everything should be ok again */
 				break ;
 			default:
 				printk(KERN_WARNING "%s: Invalid return code in asb\n",dev->name);

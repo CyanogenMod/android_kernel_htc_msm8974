@@ -1,3 +1,8 @@
+/*
+ * libgcc functions - functions that are used internally by the
+ * compiler...  (prototypes are not correct though, but that
+ * doesn't really matter since they're not versioned).
+ */
 extern void __ashldi3(void);
 extern void __ashrdi3(void);
 extern void __divsi3(void);

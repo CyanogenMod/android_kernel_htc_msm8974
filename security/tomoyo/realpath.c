@@ -7,6 +7,17 @@
 #include "common.h"
 #include <linux/magic.h>
 
+/**
+ * tomoyo_encode2 - Encode binary string to ascii string.
+ *
+ * @str:     String in binary format.
+ * @str_len: Size of @str in byte.
+ *
+ * Returns pointer to @str in ascii format on success, NULL otherwise.
+ *
+ * This function uses kzalloc(), so caller must kfree() if this function
+ * didn't return NULL.
+ */
 char *tomoyo_encode2(const char *str, int str_len)
 {
 	int i;
@@ -28,7 +39,7 @@ char *tomoyo_encode2(const char *str, int str_len)
 			len += 4;
 	}
 	len++;
-	
+	/* Reserve space for appending "/". */
 	cp = kzalloc(len + 10, GFP_NOFS);
 	if (!cp)
 		return NULL;
@@ -52,17 +63,38 @@ char *tomoyo_encode2(const char *str, int str_len)
 	return cp0;
 }
 
+/**
+ * tomoyo_encode - Encode binary string to ascii string.
+ *
+ * @str: String in binary format.
+ *
+ * Returns pointer to @str in ascii format on success, NULL otherwise.
+ *
+ * This function uses kzalloc(), so caller must kfree() if this function
+ * didn't return NULL.
+ */
 char *tomoyo_encode(const char *str)
 {
 	return str ? tomoyo_encode2(str, strlen(str)) : NULL;
 }
 
+/**
+ * tomoyo_get_absolute_path - Get the path of a dentry but ignores chroot'ed root.
+ *
+ * @path:   Pointer to "struct path".
+ * @buffer: Pointer to buffer to return value in.
+ * @buflen: Sizeof @buffer.
+ *
+ * Returns the buffer on success, an error code otherwise.
+ *
+ * If dentry is a directory, trailing '/' is appended.
+ */
 static char *tomoyo_get_absolute_path(struct path *path, char * const buffer,
 				      const int buflen)
 {
 	char *pos = ERR_PTR(-ENOMEM);
 	if (buflen >= 256) {
-		
+		/* go to whatever namespace root we are under */
 		pos = d_absolute_path(path, buffer, buflen - 1);
 		if (!IS_ERR(pos) && *pos == '/' && pos[1]) {
 			struct inode *inode = path->dentry->d_inode;
@@ -75,6 +107,17 @@ static char *tomoyo_get_absolute_path(struct path *path, char * const buffer,
 	return pos;
 }
 
+/**
+ * tomoyo_get_dentry_path - Get the path of a dentry.
+ *
+ * @dentry: Pointer to "struct dentry".
+ * @buffer: Pointer to buffer to return value in.
+ * @buflen: Sizeof @buffer.
+ *
+ * Returns the buffer on success, an error code otherwise.
+ *
+ * If dentry is a directory, trailing '/' is appended.
+ */
 static char *tomoyo_get_dentry_path(struct dentry *dentry, char * const buffer,
 				    const int buflen)
 {
@@ -92,6 +135,15 @@ static char *tomoyo_get_dentry_path(struct dentry *dentry, char * const buffer,
 	return pos;
 }
 
+/**
+ * tomoyo_get_local_path - Get the path of a dentry.
+ *
+ * @dentry: Pointer to "struct dentry".
+ * @buffer: Pointer to buffer to return value in.
+ * @buflen: Sizeof @buffer.
+ *
+ * Returns the buffer on success, an error code otherwise.
+ */
 static char *tomoyo_get_local_path(struct dentry *dentry, char * const buffer,
 				   const int buflen)
 {
@@ -99,7 +151,7 @@ static char *tomoyo_get_local_path(struct dentry *dentry, char * const buffer,
 	char *pos = tomoyo_get_dentry_path(dentry, buffer, buflen);
 	if (IS_ERR(pos))
 		return pos;
-	
+	/* Convert from $PID to self if $PID is current thread. */
 	if (sb->s_magic == PROC_SUPER_MAGIC && *pos == '/') {
 		char *ep;
 		const pid_t pid = (pid_t) simple_strtoul(pos + 1, &ep, 10);
@@ -112,15 +164,19 @@ static char *tomoyo_get_local_path(struct dentry *dentry, char * const buffer,
 		}
 		goto prepend_filesystem_name;
 	}
-	
+	/* Use filesystem name for unnamed devices. */
 	if (!MAJOR(sb->s_dev))
 		goto prepend_filesystem_name;
 	{
 		struct inode *inode = sb->s_root->d_inode;
+		/*
+		 * Use filesystem name if filesystem does not support rename()
+		 * operation.
+		 */
 		if (inode->i_op && !inode->i_op->rename)
 			goto prepend_filesystem_name;
 	}
-	
+	/* Prepend device name. */
 	{
 		char name[64];
 		int name_len;
@@ -135,7 +191,7 @@ static char *tomoyo_get_local_path(struct dentry *dentry, char * const buffer,
 		memmove(pos, name, name_len);
 		return pos;
 	}
-	
+	/* Prepend filesystem name. */
 prepend_filesystem_name:
 	{
 		const char *name = sb->s_type->name;
@@ -151,6 +207,15 @@ out:
 	return ERR_PTR(-ENOMEM);
 }
 
+/**
+ * tomoyo_get_socket_name - Get the name of a socket.
+ *
+ * @path:   Pointer to "struct path".
+ * @buffer: Pointer to buffer to return value in.
+ * @buflen: Sizeof @buffer.
+ *
+ * Returns the buffer.
+ */
 static char *tomoyo_get_socket_name(struct path *path, char * const buffer,
 				    const int buflen)
 {
@@ -167,6 +232,21 @@ static char *tomoyo_get_socket_name(struct path *path, char * const buffer,
 	return buffer;
 }
 
+/**
+ * tomoyo_realpath_from_path - Returns realpath(3) of the given pathname but ignores chroot'ed root.
+ *
+ * @path: Pointer to "struct path".
+ *
+ * Returns the realpath of the given @path on success, NULL otherwise.
+ *
+ * If dentry is a directory, trailing '/' is appended.
+ * Characters out of 0x20 < c < 0x7F range are converted to
+ * \ooo style octal string.
+ * Character \ is converted to \\ string.
+ *
+ * These functions use kzalloc(), so the caller must call kfree()
+ * if these functions didn't return NULL.
+ */
 char *tomoyo_realpath_from_path(struct path *path)
 {
 	char *buf = NULL;
@@ -185,25 +265,33 @@ char *tomoyo_realpath_from_path(struct path *path)
 		buf = kmalloc(buf_len, GFP_NOFS);
 		if (!buf)
 			break;
-		
+		/* To make sure that pos is '\0' terminated. */
 		buf[buf_len - 1] = '\0';
-		
+		/* Get better name for socket. */
 		if (sb->s_magic == SOCKFS_MAGIC) {
 			pos = tomoyo_get_socket_name(path, buf, buf_len - 1);
 			goto encode;
 		}
-		
+		/* For "pipe:[\$]". */
 		if (dentry->d_op && dentry->d_op->d_dname) {
 			pos = dentry->d_op->d_dname(dentry, buf, buf_len - 1);
 			goto encode;
 		}
 		inode = sb->s_root->d_inode;
+		/*
+		 * Get local name for filesystems without rename() operation
+		 * or dentry without vfsmount.
+		 */
 		if (!path->mnt || (inode->i_op && !inode->i_op->rename))
 			pos = tomoyo_get_local_path(path->dentry, buf,
 						    buf_len - 1);
-		
+		/* Get absolute name for the rest. */
 		else {
 			pos = tomoyo_get_absolute_path(path, buf, buf_len - 1);
+			/*
+			 * Fall back to local name if absolute name is not
+			 * available.
+			 */
 			if (pos == ERR_PTR(-EINVAL))
 				pos = tomoyo_get_local_path(path->dentry, buf,
 							    buf_len - 1);
@@ -220,6 +308,13 @@ encode:
 	return name;
 }
 
+/**
+ * tomoyo_realpath_nofollow - Get realpath of a pathname.
+ *
+ * @pathname: The pathname to solve.
+ *
+ * Returns the realpath of @pathname on success, NULL otherwise.
+ */
 char *tomoyo_realpath_nofollow(const char *pathname)
 {
 	struct path path;

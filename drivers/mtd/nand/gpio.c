@@ -42,11 +42,23 @@ struct gpiomtd {
 
 
 #ifdef CONFIG_ARM
+/* gpio_nand_dosync()
+ *
+ * Make sure the GPIO state changes occur in-order with writes to NAND
+ * memory region.
+ * Needed on PXA due to bus-reordering within the SoC itself (see section on
+ * I/O ordering in PXA manual (section 2.3, p35)
+ */
 static void gpio_nand_dosync(struct gpiomtd *gpiomtd)
 {
 	unsigned long tmp;
 
 	if (gpiomtd->io_sync) {
+		/*
+		 * Linux memory barriers don't cater for what's required here.
+		 * What's required is what's here - a read from a separate
+		 * region with a dependency on that read.
+		 */
 		tmp = readl(gpiomtd->io_sync);
 		asm volatile("mov %1, %0\n" : "=r" (tmp) : "r" (tmp));
 	}
@@ -210,7 +222,7 @@ static struct resource *gpio_nand_get_io_sync_of(struct platform_device *pdev)
 
 	return r;
 }
-#else 
+#else /* CONFIG_OF */
 #define gpio_nand_id_table NULL
 static inline int gpio_nand_get_config_of(const struct device *dev,
 					  struct gpio_nand_platdata *plat)
@@ -223,7 +235,7 @@ gpio_nand_get_io_sync_of(struct platform_device *pdev)
 {
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_OF */
 
 static inline int gpio_nand_get_config(const struct device *dev,
 				       struct gpio_nand_platdata *plat)
@@ -372,7 +384,7 @@ static int __devinit gpio_nand_probe(struct platform_device *dev)
 	this->options    = gpiomtd->plat.options;
 	this->chip_delay = gpiomtd->plat.chip_delay;
 
-	
+	/* install our routines */
 	this->cmd_ctrl   = gpio_nand_cmd_ctrl;
 	this->dev_ready  = gpio_nand_devready;
 
@@ -386,7 +398,7 @@ static int __devinit gpio_nand_probe(struct platform_device *dev)
 		this->verify_buf = gpio_nand_verifybuf;
 	}
 
-	
+	/* set the mtd private data for the nand driver */
 	gpiomtd->mtd_info.priv = this;
 	gpiomtd->mtd_info.owner = THIS_MODULE;
 

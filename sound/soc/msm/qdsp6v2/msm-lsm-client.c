@@ -164,8 +164,15 @@ static int msm_lsm_ioctl(struct snd_pcm_substream *substream,
 			if (!event_status) {
 				pr_err("%s: Couldn't allocate %d bytes\n",
 				       __func__, size);
+				/*
+				 * Don't use -ENOMEM as userspace will check
+				 * it for increasing buffer
+				 */
 				rc = -EFAULT;
 			} else {
+				if (!access_ok(VERIFY_READ, user,
+					sizeof(struct snd_lsm_event_status)))
+					rc = -EFAULT;
 				if (user->payload_size <
 				    event_status->payload_size) {
 					pr_debug("%s: provided %dbytes isn't enough, needs %dbytes\n",

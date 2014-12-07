@@ -13,4 +13,4 @@ struct rotary_encoder_platform_data {
 	bool half_period;
 };
 
-#endif 
+#endif /* __ROTARY_ENCODER_H__ */

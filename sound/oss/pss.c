@@ -67,6 +67,9 @@
 #include "ad1848.h"
 #include "mpu401.h"
 
+/*
+ * PSS registers.
+ */
 #define REG(x)	(devc->base+x)
 #define	PSS_DATA	0
 #define	PSS_STATUS	2
@@ -75,12 +78,18 @@
 #define	PSS_IRQACK	4
 #define	PSS_PIO		0x1a
 
+/*
+ * Config registers
+ */
 #define CONF_PSS	0x10
 #define CONF_WSS	0x12
 #define CONF_SB		0x14
 #define CONF_CDROM	0x16
 #define CONF_MIDI	0x18
 
+/*
+ * Status bits.
+ */
 #define PSS_FLAG3     0x0800
 #define PSS_FLAG2     0x0400
 #define PSS_FLAG1     0x1000
@@ -88,9 +97,15 @@
 #define PSS_WRITE_EMPTY  0x8000
 #define PSS_READ_FULL    0x4000
 
+/*
+ * WSS registers
+ */
 #define WSS_INDEX 4
 #define WSS_DATA 5
 
+/*
+ * WSS status bits
+ */
 #define WSS_INITIALIZING 0x80
 #define WSS_AUTOCALIBRATION 0x20
 
@@ -100,6 +115,7 @@
 
 #include "pss_boot.h"
 
+/* If compiled into kernel, it enable or disable pss mixer */
 #ifdef CONFIG_PSS_MIXER
 static bool pss_mixer = 1;
 #else
@@ -130,15 +146,22 @@ static DEFINE_SPINLOCK(lock);
 
 static int      pss_initialized;
 static int      nonstandard_microcode;
-static int	pss_cdrom_port = -1;	
-static bool	pss_enable_joystick;    
+static int	pss_cdrom_port = -1;	/* Parameter for the PSS cdrom port */
+static bool	pss_enable_joystick;    /* Parameter for enabling the joystick */
 static coproc_operations pss_coproc_operations;
 
 static void pss_write(pss_confdata *devc, int data)
 {
 	unsigned long i, limit;
 
-	limit = jiffies + HZ/10;	
+	limit = jiffies + HZ/10;	/* The timeout is 0.1 seconds */
+	/*
+	 * Note! the i<5000000 is an emergency exit. The dsp_command() is sometimes
+	 * called while interrupts are disabled. This means that the timer is
+	 * disabled also. However the timeout situation is a abnormal condition.
+	 * Normally the DSP should be ready to accept commands after just couple of
+	 * loops.
+	 */
 
 	for (i = 0; i < 5000000 && time_before(jiffies, limit); i++)
  	{
@@ -162,7 +185,7 @@ static int __init probe_pss(struct address_info *hw_config)
 	devc->osp = hw_config->osp;
 
 	if (devc->base != 0x220 && devc->base != 0x240)
-		if (devc->base != 0x230 && devc->base != 0x250)		
+		if (devc->base != 0x230 && devc->base != 0x250)		/* Some cards use these */
 			return 0;
 
 	if (!request_region(devc->base, 0x10, "PSS mixer, SB emulation")) {
@@ -198,7 +221,7 @@ static int set_irq(pss_confdata * devc, int dev, int irq)
 	if (irq < 0 || irq > 15)
 		return 0;
 
-	tmp = inw(REG(dev)) & ~0x38;	
+	tmp = inw(REG(dev)) & ~0x38;	/* Load confreg, mask IRQ bits out */
 
 	if ((bits = irq_bits[irq]) == 0 && irq != 0)
 	{
@@ -230,7 +253,7 @@ static int set_dma(pss_confdata * devc, int dev, int dma)
 	if (dma < 0 || dma > 7)
 		return 0;
 
-	tmp = inw(REG(dev)) & ~0x07;	
+	tmp = inw(REG(dev)) & ~0x07;	/* Load confreg, mask DMA bits out */
 
 	if ((bits = dma_bits[dma]) == 0 && dma != 4)
 	{
@@ -291,6 +314,7 @@ static int pss_download_boot(pss_confdata * devc, unsigned char *block, int size
 
 	if (flags & CPF_FIRST)
 	{
+/*_____ Warn DSP software that a boot is coming */
 		outw(0x00fe, REG(PSS_DATA));
 
 		limit = jiffies + HZ/10;
@@ -308,13 +332,14 @@ static int pss_download_boot(pss_confdata * devc, unsigned char *block, int size
 
 		for (j = 0; j < 327670; j++)
 		{
+/*_____ Wait for BG to appear */
 			if (inw(REG(PSS_STATUS)) & PSS_FLAG3)
 				break;
 		}
 
 		if (j == 327670)
 		{
-			
+			/* It's ok we timed out when the file was empty */
 			if (count >= size && flags & CPF_LAST)
 				break;
 			else
@@ -324,14 +349,15 @@ static int pss_download_boot(pss_confdata * devc, unsigned char *block, int size
 				return 0;
 			}
 		}
+/*_____ Send the next byte */
 		if (count >= size) 
 		{
-			
+			/* If not data in block send 0xffff */
 			outw (0xffff, REG (PSS_DATA));
 		}
 		else
 		{
-			
+			/*_____ Send the next byte */
 			outw (*block++, REG (PSS_DATA));
 		};
 		count++;
@@ -339,6 +365,7 @@ static int pss_download_boot(pss_confdata * devc, unsigned char *block, int size
 
 	if (flags & CPF_LAST)
 	{
+/*_____ Why */
 		outw(0, REG(PSS_DATA));
 
 		limit = jiffies + HZ/10;
@@ -353,7 +380,7 @@ static int pss_download_boot(pss_confdata * devc, unsigned char *block, int size
 				break;
 		}
 
-		
+		/* now read the version */
 		for (i = 0; i < 32000; i++)
 		{
 			val = inw(REG(PSS_STATUS));
@@ -364,11 +391,12 @@ static int pss_download_boot(pss_confdata * devc, unsigned char *block, int size
 			return 0;
 
 		val = inw(REG(PSS_DATA));
-		
+		/* printk( "<PSS: microcode version %d.%d loaded>",  val/16,  val % 16); */
 	}
 	return 1;
 }
 
+/* Mixer */
 static void set_master_volume(pss_confdata *devc, int left, int right)
 {
 	static unsigned char log_scale[101] =  {
@@ -418,7 +446,7 @@ static void pss_mixer_reset(pss_confdata *devc)
 	set_treble(devc, 50);
 	set_synth_volume(devc, 30);
 	pss_write (devc, 0x0010);
-	pss_write (devc, 0x0800 | 0xce);	
+	pss_write (devc, 0x0800 | 0xce);	/* Stereo */
 	
 	if(pss_mixer)
 	{
@@ -547,6 +575,9 @@ static int pss_mixer_ioctl (int dev, unsigned int cmd, void __user *arg)
 	else			
 	{
 		int val, and_mask = 0, or_mask = 0;
+		/*
+		 * Return parameters
+		 */
 		switch (cmdf)
 		{
 			case SOUND_MIXER_DEVMASK:
@@ -617,7 +648,7 @@ static struct mixer_operations pss_mixer_operations =
 
 static void disable_all_emulations(void)
 {
-	outw(0x0000, REG(CONF_PSS));	
+	outw(0x0000, REG(CONF_PSS));	/* 0x0400 enables joystick */
 	outw(0x0000, REG(CONF_WSS));
 	outw(0x0000, REG(CONF_SB));
 	outw(0x0000, REG(CONF_MIDI));
@@ -626,11 +657,11 @@ static void disable_all_emulations(void)
 
 static void configure_nonsound_components(void)
 {
-	
+	/* Configure Joystick port */
 
 	if(pss_enable_joystick)
 	{
-		outw(0x0400, REG(CONF_PSS));	
+		outw(0x0400, REG(CONF_PSS));	/* 0x0400 enables joystick */
 		printk(KERN_INFO "PSS: joystick enabled.\n");
 	}
 	else
@@ -638,9 +669,9 @@ static void configure_nonsound_components(void)
 		printk(KERN_INFO "PSS: joystick port not enabled.\n");
 	}
 
-	
+	/* Configure CDROM port */
 
-	if (pss_cdrom_port == -1) {	
+	if (pss_cdrom_port == -1) {	/* If cdrom port enablation wasn't requested */
 		printk(KERN_INFO "PSS: CDROM port not enabled.\n");
 	} else if (!request_region(pss_cdrom_port, 2, "PSS CDROM")) {
 		pss_cdrom_port = -1;
@@ -667,6 +698,9 @@ static int __init attach_pss(struct address_info *hw_config)
 
 	id = inw(REG(PSS_ID)) & 0x00ff;
 
+	/*
+	 * Disable all emulations. Will be enabled later (if required).
+	 */
 	 
 	disable_all_emulations();
 
@@ -729,20 +763,24 @@ static int __init probe_pss_mpu(struct address_info *hw_config)
 		goto fail;
 	}
 
+	/*
+	 * Finally wait until the DSP algorithm has initialized itself and
+	 * deactivates receive interrupt.
+	 */
 
 	for (timeout = 900000; timeout > 0; timeout--)
 	{
-		if ((inb(hw_config->io_base + 1) & 0x80) == 0)	
-			inb(hw_config->io_base);	
+		if ((inb(hw_config->io_base + 1) & 0x80) == 0)	/* Input data avail */
+			inb(hw_config->io_base);	/* Discard it */
 		else
-			break;	
+			break;	/* No more input */
 	}
 
 	if (!probe_mpu401(hw_config, ports))
 		goto fail;
 
-	attach_mpu401(hw_config, THIS_MODULE);	
-	if (hw_config->slots[1] != -1)	
+	attach_mpu401(hw_config, THIS_MODULE);	/* Slot 1 */
+	if (hw_config->slots[1] != -1)	/* The MPU driver installed itself */
 		midi_devs[hw_config->slots[1]]->coproc = &pss_coproc_operations;
 	return 1;
 fail:
@@ -813,7 +851,7 @@ static int pss_coproc_ioctl(void *dev_info, unsigned int cmd, void __user *arg, 
 	unsigned long flags;
 	unsigned short *data;
 	int i, err;
-	
+	/* printk( "PSS coproc ioctl %x %x %d\n",  cmd,  arg,  local); */
 	
 	switch (cmd) 
 	{
@@ -846,7 +884,7 @@ static int pss_coproc_ioctl(void *dev_info, unsigned int cmd, void __user *arg, 
 			for (i = 0; i < mbuf->len; i++) {
 				if (!pss_put_dspword(devc, *data++)) {
 					spin_unlock_irqrestore(&lock,flags);
-					mbuf->len = i;	
+					mbuf->len = i;	/* feed back number of WORDs sent */
 					err = copy_to_user(arg, mbuf, sizeof(copr_msg));
 					vfree(mbuf);
 					return err ? -EFAULT : -EIO;
@@ -864,7 +902,7 @@ static int pss_coproc_ioctl(void *dev_info, unsigned int cmd, void __user *arg, 
 			data = (unsigned short *)mbuf->data;
 			spin_lock_irqsave(&lock, flags);
 			for (i = 0; i < sizeof(mbuf->data)/sizeof(unsigned short); i++) {
-				mbuf->len = i;	
+				mbuf->len = i;	/* feed back number of WORDs read */
 				if (!pss_get_dspword(devc, data++)) {
 					if (i == 0)
 						err = -EIO;
@@ -956,12 +994,12 @@ static int pss_coproc_ioctl(void *dev_info, unsigned int cmd, void __user *arg, 
 				spin_unlock_irqrestore(&lock,flags);
 				return -EIO;
 			}
-			if (!pss_get_dspword(devc, &tmp)) { 
+			if (!pss_get_dspword(devc, &tmp)) { /* Read MSB */
 				spin_unlock_irqrestore(&lock,flags);
 				return -EIO;
 			}
 			dbuf.parm1 = tmp << 8;
-			if (!pss_get_dspword(devc, &tmp)) { 
+			if (!pss_get_dspword(devc, &tmp)) { /* Read LSB */
 				spin_unlock_irqrestore(&lock,flags);
 				return -EIO;
 			}
@@ -992,7 +1030,7 @@ static int __init probe_pss_mss(struct address_info *hw_config)
 {
 	volatile int timeout;
 	struct resource *ports;
-	int        my_mix = -999;	
+	int        my_mix = -999;	/* gcc shut up */
 
 	if (!pss_initialized)
 		return 0;
@@ -1016,11 +1054,17 @@ static int __init probe_pss_mss(struct address_info *hw_config)
 		printk(KERN_ERR "PSS: WSS DMA allocation error\n");
 		goto fail;
 	}
+	/*
+	 * For some reason the card returns 0xff in the WSS status register
+	 * immediately after boot. Probably MIDI+SB emulation algorithm
+	 * downloaded to the ADSP2115 spends some time initializing the card.
+	 * Let's try to wait until it finishes this task.
+	 */
 	for (timeout = 0; timeout < 100000 && (inb(hw_config->io_base + WSS_INDEX) &
 	  WSS_INITIALIZING); timeout++)
 		;
 
-	outb((0x0b), hw_config->io_base + WSS_INDEX);	
+	outb((0x0b), hw_config->io_base + WSS_INDEX);	/* Required by some cards */
 
 	for (timeout = 0; (inb(hw_config->io_base + WSS_DATA) & WSS_AUTOCALIBRATION) &&
 	  (timeout < 100000); timeout++)
@@ -1043,15 +1087,15 @@ static int __init probe_pss_mss(struct address_info *hw_config)
 		}
 	}
 	pss_mixer_reset(devc);
-	attach_ms_sound(hw_config, ports, THIS_MODULE);	
+	attach_ms_sound(hw_config, ports, THIS_MODULE);	/* Slot 0 */
 
 	if (hw_config->slots[0] != -1)
 	{
-		
+		/* The MSS driver installed itself */
 		audio_devs[hw_config->slots[0]]->coproc = &pss_coproc_operations;
 		if (pss_mixer && (num_mixers == (my_mix + 2)))
 		{
-			
+			/* The MSS mixer installed */
 			devc->ad_mixer_dev = audio_devs[hw_config->slots[0]]->mixer_dev;
 		}
 	}
@@ -1089,8 +1133,8 @@ static int mss_irq __initdata	= -1;
 static int mss_dma __initdata	= -1;
 static int mpu_io __initdata	= -1;
 static int mpu_irq __initdata	= -1;
-static bool pss_no_sound = 0;	
-static bool pss_keep_settings  = 1;	
+static bool pss_no_sound = 0;	/* Just configure non-sound components */
+static bool pss_keep_settings  = 1;	/* Keep hardware settings at module exit */
 static char *pss_firmware = "/etc/sound/pss_synth";
 
 module_param(pss_io, int, 0);
@@ -1125,11 +1169,14 @@ MODULE_LICENSE("GPL");
 static int fw_load = 0;
 static int pssmpu = 0, pssmss = 0;
 
+/*
+ *    Load a PSS sound card module
+ */
 
 static int __init init_pss(void)
 {
 
-	if(pss_no_sound)		
+	if(pss_no_sound)		/* If configuring only nonsound components */
 	{
 		cfg.io_base = pss_io;
 		if(!probe_pss(&cfg))
@@ -1163,6 +1210,9 @@ static int __init init_pss(void)
 	}
 	if (!attach_pss(&cfg))
 		return -ENODEV;
+	/*
+	 *    Attach stuff
+	 */
 	if (probe_pss_mpu(&cfg_mpu))
 		pssmpu = 1;
 
@@ -1186,7 +1236,7 @@ static void __exit cleanup_pss(void)
 	} else if (pss_cdrom_port != -1)
 		release_region(pss_cdrom_port, 2);
 
-	if(!pss_keep_settings)	
+	if(!pss_keep_settings)	/* Keep hardware settings if asked */
 	{
 		disable_all_emulations();
 		printk(KERN_INFO "Resetting PSS sound card configurations.\n");
@@ -1199,7 +1249,7 @@ module_exit(cleanup_pss);
 #ifndef MODULE
 static int __init setup_pss(char *str)
 {
-	
+	/* io, mss_io, mss_irq, mss_dma, mpu_io, mpu_irq */
 	int ints[7];
 	
 	str = get_options(str, ARRAY_SIZE(ints), ints);

@@ -10,6 +10,7 @@
 #ifndef _MACB_H
 #define _MACB_H
 
+/* MACB register offsets */
 #define MACB_NCR				0x0000
 #define MACB_NCFGR				0x0004
 #define MACB_NSR				0x0008
@@ -60,6 +61,7 @@
 #define MACB_WOL				0x00c4
 #define MACB_MID				0x00fc
 
+/* GEM register offsets. */
 #define GEM_NCFGR				0x0004
 #define GEM_USRIO				0x000c
 #define GEM_DMACFG				0x0010
@@ -76,6 +78,7 @@
 #define GEM_DCFG6				0x0294
 #define GEM_DCFG7				0x0298
 
+/* Bitfields in NCR */
 #define MACB_LB_OFFSET				0
 #define MACB_LB_SIZE				1
 #define MACB_LLB_OFFSET				1
@@ -103,6 +106,7 @@
 #define MACB_TZQ_OFFSET				12
 #define MACB_TZQ_SIZE				1
 
+/* Bitfields in NCFGR */
 #define MACB_SPD_OFFSET				0
 #define MACB_SPD_SIZE				1
 #define MACB_FD_OFFSET				1
@@ -140,18 +144,22 @@
 #define MACB_IRXFCS_OFFSET			19
 #define MACB_IRXFCS_SIZE			1
 
+/* GEM specific NCFGR bitfields. */
 #define GEM_CLK_OFFSET				18
 #define GEM_CLK_SIZE				3
 #define GEM_DBW_OFFSET				21
 #define GEM_DBW_SIZE				2
 
+/* Constants for data bus width. */
 #define GEM_DBW32				0
 #define GEM_DBW64				1
 #define GEM_DBW128				2
 
+/* Bitfields in DMACFG. */
 #define GEM_RXBS_OFFSET				16
 #define GEM_RXBS_SIZE				8
 
+/* Bitfields in NSR */
 #define MACB_NSR_LINK_OFFSET			0
 #define MACB_NSR_LINK_SIZE			1
 #define MACB_MDIO_OFFSET			1
@@ -159,6 +167,7 @@
 #define MACB_IDLE_OFFSET			2
 #define MACB_IDLE_SIZE				1
 
+/* Bitfields in TSR */
 #define MACB_UBR_OFFSET				0
 #define MACB_UBR_SIZE				1
 #define MACB_COL_OFFSET				1
@@ -174,6 +183,7 @@
 #define MACB_UND_OFFSET				6
 #define MACB_UND_SIZE				1
 
+/* Bitfields in RSR */
 #define MACB_BNA_OFFSET				0
 #define MACB_BNA_SIZE				1
 #define MACB_REC_OFFSET				1
@@ -181,6 +191,7 @@
 #define MACB_OVR_OFFSET				2
 #define MACB_OVR_SIZE				1
 
+/* Bitfields in ISR/IER/IDR/IMR */
 #define MACB_MFD_OFFSET				0
 #define MACB_MFD_SIZE				1
 #define MACB_RCOMP_OFFSET			1
@@ -208,6 +219,7 @@
 #define MACB_PTZ_OFFSET				13
 #define MACB_PTZ_SIZE				1
 
+/* Bitfields in MAN */
 #define MACB_DATA_OFFSET			0
 #define MACB_DATA_SIZE				16
 #define MACB_CODE_OFFSET			16
@@ -221,6 +233,7 @@
 #define MACB_SOF_OFFSET				30
 #define MACB_SOF_SIZE				2
 
+/* Bitfields in USRIO (AVR32) */
 #define MACB_MII_OFFSET				0
 #define MACB_MII_SIZE				1
 #define MACB_EAM_OFFSET				1
@@ -230,11 +243,13 @@
 #define MACB_TX_PAUSE_ZERO_OFFSET		3
 #define MACB_TX_PAUSE_ZERO_SIZE			1
 
+/* Bitfields in USRIO (AT91) */
 #define MACB_RMII_OFFSET			0
 #define MACB_RMII_SIZE				1
 #define MACB_CLKEN_OFFSET			1
 #define MACB_CLKEN_SIZE				1
 
+/* Bitfields in WOL */
 #define MACB_IP_OFFSET				0
 #define MACB_IP_SIZE				16
 #define MACB_MAG_OFFSET				16
@@ -246,19 +261,23 @@
 #define MACB_WOL_MTI_OFFSET			19
 #define MACB_WOL_MTI_SIZE			1
 
+/* Bitfields in MID */
 #define MACB_IDNUM_OFFSET			16
 #define MACB_IDNUM_SIZE				16
 #define MACB_REV_OFFSET				0
 #define MACB_REV_SIZE				16
 
+/* Bitfields in DCFG1. */
 #define GEM_DBWDEF_OFFSET			25
 #define GEM_DBWDEF_SIZE				3
 
+/* Constants for CLK */
 #define MACB_CLK_DIV8				0
 #define MACB_CLK_DIV16				1
 #define MACB_CLK_DIV32				2
 #define MACB_CLK_DIV64				3
 
+/* GEM specific constants for CLK. */
 #define GEM_CLK_DIV8				0
 #define GEM_CLK_DIV16				1
 #define GEM_CLK_DIV32				2
@@ -266,11 +285,13 @@
 #define GEM_CLK_DIV64				4
 #define GEM_CLK_DIV96				5
 
+/* Constants for MAN register */
 #define MACB_MAN_SOF				1
 #define MACB_MAN_WRITE				1
 #define MACB_MAN_READ				2
 #define MACB_MAN_CODE				2
 
+/* Bit manipulation macros */
 #define MACB_BIT(name)					\
 	(1 << MACB_##name##_OFFSET)
 #define MACB_BF(name,value)				\
@@ -297,6 +318,7 @@
 		    << GEM_##name##_OFFSET))		\
 	 | GEM_BF(name, value))
 
+/* Register access macros */
 #define macb_readl(port,reg)				\
 	__raw_readl((port)->regs + MACB_##reg)
 #define macb_writel(port,reg,value)			\
@@ -306,6 +328,12 @@
 #define gem_writel(port, reg, value)			\
 	__raw_writel((value), (port)->regs + GEM_##reg)
 
+/*
+ * Conditional GEM/MACB macros.  These perform the operation to the correct
+ * register dependent on whether the device is a GEM or a MACB.  For registers
+ * and bitfields that are common across both devices, use macb_{read,write}l
+ * to avoid the cost of the conditional.
+ */
 #define macb_or_gem_writel(__bp, __reg, __value) \
 	({ \
 		if (macb_is_gem((__bp))) \
@@ -329,6 +357,7 @@ struct dma_desc {
 	u32	ctrl;
 };
 
+/* DMA descriptor bitfields */
 #define MACB_RX_USED_OFFSET			0
 #define MACB_RX_USED_SIZE			1
 #define MACB_RX_WRAP_OFFSET			1
@@ -393,6 +422,10 @@ struct ring_info {
 	dma_addr_t		mapping;
 };
 
+/*
+ * Hardware-collected statistics. Used when updating the network
+ * device stats by a periodic timer.
+ */
 struct macb_stats {
 	u32	rx_pause_frames;
 	u32	tx_ok;
@@ -508,4 +541,4 @@ static inline bool macb_is_gem(struct macb *bp)
 	return MACB_BFEXT(IDNUM, macb_readl(bp, MID)) == 0x2;
 }
 
-#endif 
+#endif /* _MACB_H */

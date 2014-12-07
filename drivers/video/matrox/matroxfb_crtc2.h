@@ -12,8 +12,8 @@ struct matroxfb_dh_fb_info {
 	struct matrox_fb_info*	primary_dev;
 
 	struct {
-		unsigned long	base;	
-		vaddr_t		vbase;	
+		unsigned long	base;	/* physical */
+		vaddr_t		vbase;	/* virtual */
 		unsigned int	len;
 		unsigned int	len_usable;
 		unsigned int	len_maximum;
@@ -31,4 +31,4 @@ struct matroxfb_dh_fb_info {
 	u_int32_t cmap[16];
 };
 
-#endif 
+#endif /* __MATROXFB_CRTC2_H__ */

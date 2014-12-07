@@ -72,4 +72,4 @@ long sys_rt_sigreturn(void);
 long sys32_sigreturn(void);
 long sys32_rt_sigreturn(void);
 
-#endif 
+#endif /* _ENTRY_H */

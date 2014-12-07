@@ -32,7 +32,10 @@
 
 #include "mmu_decl.h"
 
-unsigned int tlb_44x_index; 
+/* Used by the 44x TLB replacement exception handler.
+ * Just needed it declared someplace.
+ */
+unsigned int tlb_44x_index; /* = 0 */
 unsigned int tlb_44x_hwater = PPC44x_TLB_SIZE - 1 - PPC44x_EARLY_TLBS;
 int icache_44x_need_flush;
 
@@ -43,6 +46,11 @@ static void __cpuinit ppc44x_update_tlb_hwater(void)
 	extern unsigned int tlb_44x_patch_hwater_D[];
 	extern unsigned int tlb_44x_patch_hwater_I[];
 
+	/* The TLB miss handlers hard codes the watermark in a cmpli
+	 * instruction to improve performances rather than loading it
+	 * from the global variable. Thus, we patch the instructions
+	 * in the 2 TLB miss handlers when updating the value
+	 */
 	tlb_44x_patch_hwater_D[0] = (tlb_44x_patch_hwater_D[0] & 0xffff0000) |
 		tlb_44x_hwater;
 	flush_icache_range((unsigned long)&tlb_44x_patch_hwater_D[0],
@@ -53,6 +61,9 @@ static void __cpuinit ppc44x_update_tlb_hwater(void)
 			   (unsigned long)&tlb_44x_patch_hwater_I[1]);
 }
 
+/*
+ * "Pins" a 256MB TLB entry in AS0 for kernel lowmem for 44x type MMU
+ */
 static void __init ppc44x_pin_tlb(unsigned int virt, unsigned int phys)
 {
 	unsigned int entry = tlb_44x_hwater--;
@@ -120,19 +131,22 @@ static void __init ppc47x_update_boltmap(void)
 			  tlb_47x_boltmap);
 }
 
+/*
+ * "Pins" a 256MB TLB entry in AS0 for kernel lowmem for 47x type MMU
+ */
 static void __cpuinit ppc47x_pin_tlb(unsigned int virt, unsigned int phys)
 {
 	unsigned int rA;
 	int bolted;
 
-	
+	/* Base rA is HW way select, way 0, bolted bit set */
 	rA = 0x88000000;
 
-	
+	/* Look for a bolted entry slot */
 	bolted = ppc47x_find_free_bolted();
 	BUG_ON(bolted < 0);
 
-	
+	/* Insert bolted slot number */
 	rA |= bolted << 24;
 
 	pr_debug("256M TLB entry for 0x%08x->0x%08x in bolt slot %d\n",
@@ -158,7 +172,7 @@ static void __cpuinit ppc47x_pin_tlb(unsigned int virt, unsigned int phys)
 
 void __init MMU_init_hw(void)
 {
-	
+	/* This is not useful on 47x but won't hurt either */
 	ppc44x_update_tlb_hwater();
 
 	flush_instruction_cache();
@@ -169,6 +183,8 @@ unsigned long __init mmu_mapin_ram(unsigned long top)
 	unsigned long addr;
 	unsigned long memstart = memstart_addr & ~(PPC_PIN_SIZE - 1);
 
+	/* Pin in enough TLBs to cover any lowmem not covered by the
+	 * initial 256M mapping established in head_44x.S */
 	for (addr = memstart + PPC_PIN_SIZE; addr < lowmem_end_addr;
 	     addr += PPC_PIN_SIZE) {
 		if (mmu_has_feature(MMU_FTR_TYPE_47x))
@@ -190,7 +206,7 @@ unsigned long __init mmu_mapin_ram(unsigned long top)
 			}
 			printk("\n");
 		}
-#endif 
+#endif /* DEBUG */
 	}
 	return total_lowmem;
 }
@@ -201,10 +217,13 @@ void setup_initial_memory_limit(phys_addr_t first_memblock_base,
 	u64 size;
 
 #ifndef CONFIG_NONSTATIC_KERNEL
+	/* We don't currently support the first MEMBLOCK not mapping 0
+	 * physical on those processors
+	 */
 	BUG_ON(first_memblock_base != 0);
 #endif
 
-	
+	/* 44x has a 256M TLB entry pinned at boot */
 	size = (min_t(u64, first_memblock_size, PPC_PIN_SIZE));
 	memblock_set_current_limit(first_memblock_base + size);
 }
@@ -215,6 +234,15 @@ void __cpuinit mmu_init_secondary(int cpu)
 	unsigned long addr;
 	unsigned long memstart = memstart_addr & ~(PPC_PIN_SIZE - 1);
 
+	/* Pin in enough TLBs to cover any lowmem not covered by the
+	 * initial 256M mapping established in head_44x.S
+	 *
+	 * WARNING: This is called with only the first 256M of the
+	 * linear mapping in the TLB and we can't take faults yet
+	 * so beware of what this code uses. It runs off a temporary
+	 * stack. current (r2) isn't initialized, smp_processor_id()
+	 * will not work, current thread info isn't accessible, ...
+	 */
 	for (addr = memstart + PPC_PIN_SIZE; addr < lowmem_end_addr;
 	     addr += PPC_PIN_SIZE) {
 		if (mmu_has_feature(MMU_FTR_TYPE_47x))
@@ -223,4 +251,4 @@ void __cpuinit mmu_init_secondary(int cpu)
 			ppc44x_pin_tlb(addr + PAGE_OFFSET, addr);
 	}
 }
-#endif 
+#endif /* CONFIG_SMP */

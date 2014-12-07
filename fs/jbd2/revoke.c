@@ -97,17 +97,23 @@
 static struct kmem_cache *jbd2_revoke_record_cache;
 static struct kmem_cache *jbd2_revoke_table_cache;
 
+/* Each revoke record represents one single revoked block.  During
+   journal replay, this involves recording the transaction ID of the
+   last transaction to revoke this block. */
 
 struct jbd2_revoke_record_s
 {
 	struct list_head  hash;
-	tid_t		  sequence;	
+	tid_t		  sequence;	/* Used for recovery only */
 	unsigned long long	  blocknr;
 };
 
 
+/* The revoke table is just a simple hash table of revoke records. */
 struct jbd2_revoke_table_s
 {
+	/* It is conceivable that we might want a larger hash table
+	 * for recovery.  Must be a power of two. */
 	int		  hash_size;
 	int		  hash_shift;
 	struct list_head *hash_table;
@@ -121,7 +127,9 @@ static void write_one_revoke_record(journal_t *, transaction_t *,
 static void flush_descriptor(journal_t *, struct journal_head *, int, int);
 #endif
 
+/* Utility functions to maintain the revoke table */
 
+/* Borrowed from buffer.c: this is a tried and tested block hash function */
 static inline int hash(journal_t *journal, unsigned long long block)
 {
 	struct jbd2_revoke_table_s *table = journal->j_revoke;
@@ -160,6 +168,7 @@ oom:
 	goto repeat;
 }
 
+/* Find a revoke record in the journal's hash table. */
 
 static struct jbd2_revoke_record_s *find_revoke_record(journal_t *journal,
 						      unsigned long long blocknr)
@@ -259,6 +268,7 @@ static void jbd2_journal_destroy_revoke_table(struct jbd2_revoke_table_s *table)
 	kmem_cache_free(jbd2_revoke_table_cache, table);
 }
 
+/* Initialise the revoke table for a given journal to a given size. */
 int jbd2_journal_init_revoke(journal_t *journal, int hash_size)
 {
 	J_ASSERT(journal->j_revoke_table[0] == NULL);
@@ -284,6 +294,7 @@ fail0:
 	return -ENOMEM;
 }
 
+/* Destroy a journal's revoke table.  The table must already be empty! */
 void jbd2_journal_destroy_revoke(journal_t *journal)
 {
 	journal->j_revoke = NULL;
@@ -296,6 +307,29 @@ void jbd2_journal_destroy_revoke(journal_t *journal)
 
 #ifdef __KERNEL__
 
+/*
+ * jbd2_journal_revoke: revoke a given buffer_head from the journal.  This
+ * prevents the block from being replayed during recovery if we take a
+ * crash after this current transaction commits.  Any subsequent
+ * metadata writes of the buffer in this transaction cancel the
+ * revoke.
+ *
+ * Note that this call may block --- it is up to the caller to make
+ * sure that there are no further calls to journal_write_metadata
+ * before the revoke is complete.  In ext3, this implies calling the
+ * revoke before clearing the block bitmap when we are deleting
+ * metadata.
+ *
+ * Revoke performs a jbd2_journal_forget on any buffer_head passed in as a
+ * parameter, but does _not_ forget the buffer_head if the bh was only
+ * found implicitly.
+ *
+ * bh_in may not be a journalled buffer - it may have come off
+ * the hash tables without an attached journal_head.
+ *
+ * If bh_in is non-zero, jbd2_journal_revoke() will decrement its b_count
+ * by one.
+ */
 
 int jbd2_journal_revoke(handle_t *handle, unsigned long long blocknr,
 		   struct buffer_head *bh_in)
@@ -327,16 +361,27 @@ int jbd2_journal_revoke(handle_t *handle, unsigned long long blocknr,
 	else {
 		struct buffer_head *bh2;
 
+		/* If there is a different buffer_head lying around in
+		 * memory anywhere... */
 		bh2 = __find_get_block(bdev, blocknr, journal->j_blocksize);
 		if (bh2) {
-			
+			/* ... and it has RevokeValid status... */
 			if (bh2 != bh && buffer_revokevalid(bh2))
+				/* ...then it better be revoked too,
+				 * since it's illegal to create a revoke
+				 * record against a buffer_head which is
+				 * not marked revoked --- that would
+				 * risk missing a subsequent revoke
+				 * cancel. */
 				J_ASSERT_BH(bh2, buffer_revoked(bh2));
 			put_bh(bh2);
 		}
 	}
 #endif
 
+	/* We really ought not ever to revoke twice in a row without
+           first having the revoke cancelled: it's illegal to free a
+           block twice without allocating it in between! */
 	if (bh) {
 		if (!J_EXPECT_BH(bh, !buffer_revoked(bh),
 				 "inconsistent data on disk")) {
@@ -362,16 +407,35 @@ int jbd2_journal_revoke(handle_t *handle, unsigned long long blocknr,
 	return err;
 }
 
+/*
+ * Cancel an outstanding revoke.  For use only internally by the
+ * journaling code (called from jbd2_journal_get_write_access).
+ *
+ * We trust buffer_revoked() on the buffer if the buffer is already
+ * being journaled: if there is no revoke pending on the buffer, then we
+ * don't do anything here.
+ *
+ * This would break if it were possible for a buffer to be revoked and
+ * discarded, and then reallocated within the same transaction.  In such
+ * a case we would have lost the revoked bit, but when we arrived here
+ * the second time we would still have a pending revoke to cancel.  So,
+ * do not trust the Revoked bit on buffers unless RevokeValid is also
+ * set.
+ */
 int jbd2_journal_cancel_revoke(handle_t *handle, struct journal_head *jh)
 {
 	struct jbd2_revoke_record_s *record;
 	journal_t *journal = handle->h_transaction->t_journal;
 	int need_cancel;
-	int did_revoke = 0;	
+	int did_revoke = 0;	/* akpm: debug */
 	struct buffer_head *bh = jh2bh(jh);
 
 	jbd_debug(4, "journal_head %p, cancelling revoke\n", jh);
 
+	/* Is the existing Revoke bit valid?  If so, we trust it, and
+	 * only perform the full cancel if the revoke bit is set.  If
+	 * not, we can't trust the revoke bit, and we need to do the
+	 * full search for a revoke record. */
 	if (test_set_buffer_revokevalid(bh)) {
 		need_cancel = test_clear_buffer_revoked(bh);
 	} else {
@@ -393,11 +457,15 @@ int jbd2_journal_cancel_revoke(handle_t *handle, struct journal_head *jh)
 	}
 
 #ifdef JBD2_EXPENSIVE_CHECKING
-	
+	/* There better not be one left behind by now! */
 	record = find_revoke_record(journal, bh->b_blocknr);
 	J_ASSERT_JH(jh, record == NULL);
 #endif
 
+	/* Finally, have we just cleared revoke on an unhashed
+	 * buffer_head?  If so, we'd better make sure we clear the
+	 * revoked status on any hashed alias too, otherwise the revoke
+	 * state machine will get very upset later on. */
 	if (need_cancel) {
 		struct buffer_head *bh2;
 		bh2 = __find_get_block(bh->b_bdev, bh->b_blocknr, bh->b_size);
@@ -410,6 +478,11 @@ int jbd2_journal_cancel_revoke(handle_t *handle, struct journal_head *jh)
 	return did_revoke;
 }
 
+/*
+ * journal_clear_revoked_flag clears revoked flag of buffers in
+ * revoke table to reflect there is no revoked buffers in the next
+ * transaction which is going to be started.
+ */
 void jbd2_clear_buffer_revoked_flags(journal_t *journal)
 {
 	struct jbd2_revoke_table_s *revoke = journal->j_revoke;
@@ -452,6 +525,10 @@ void jbd2_journal_switch_revoke_table(journal_t *journal)
 		INIT_LIST_HEAD(&journal->j_revoke->hash_table[i]);
 }
 
+/*
+ * Write revoke records to the journal for all entries in the current
+ * revoke hash, deleting the entries as we go.
+ */
 void jbd2_journal_write_revoke_records(journal_t *journal,
 				       transaction_t *transaction,
 				       int write_op)
@@ -466,7 +543,7 @@ void jbd2_journal_write_revoke_records(journal_t *journal,
 	offset = 0;
 	count = 0;
 
-	
+	/* select revoke table for committing transaction */
 	revoke = journal->j_revoke == journal->j_revoke_table[0] ?
 		journal->j_revoke_table[1] : journal->j_revoke_table[0];
 
@@ -489,6 +566,10 @@ void jbd2_journal_write_revoke_records(journal_t *journal,
 	jbd_debug(1, "Wrote %d revoke records\n", count);
 }
 
+/*
+ * Write out one revoke record.  We need to create a new descriptor
+ * block if the old one is full or if we have not already created one.
+ */
 
 static void write_one_revoke_record(journal_t *journal,
 				    transaction_t *transaction,
@@ -501,13 +582,17 @@ static void write_one_revoke_record(journal_t *journal,
 	int offset;
 	journal_header_t *header;
 
+	/* If we are already aborting, this all becomes a noop.  We
+           still need to go round the loop in
+           jbd2_journal_write_revoke_records in order to free all of the
+           revoke records: only the IO to the journal is omitted. */
 	if (is_journal_aborted(journal))
 		return;
 
 	descriptor = *descriptorp;
 	offset = *offsetp;
 
-	
+	/* Make sure we have a descriptor with space left for the record */
 	if (descriptor) {
 		if (offset == journal->j_blocksize) {
 			flush_descriptor(journal, descriptor, offset, write_op);
@@ -524,7 +609,7 @@ static void write_one_revoke_record(journal_t *journal,
 		header->h_blocktype = cpu_to_be32(JBD2_REVOKE_BLOCK);
 		header->h_sequence  = cpu_to_be32(transaction->t_tid);
 
-		
+		/* Record it so that we can wait for IO completion later */
 		JBUFFER_TRACE(descriptor, "file as BJ_LogCtl");
 		jbd2_journal_file_buffer(descriptor, transaction, BJ_LogCtl);
 
@@ -546,6 +631,12 @@ static void write_one_revoke_record(journal_t *journal,
 	*offsetp = offset;
 }
 
+/*
+ * Flush a revoke descriptor out to the journal.  If we are aborting,
+ * this is a noop; otherwise we are generating a buffer which needs to
+ * be waited for during commit, so it has to go onto the appropriate
+ * journal buffer list.
+ */
 
 static void flush_descriptor(journal_t *journal,
 			     struct journal_head *descriptor,
@@ -568,7 +659,27 @@ static void flush_descriptor(journal_t *journal,
 }
 #endif
 
+/*
+ * Revoke support for recovery.
+ *
+ * Recovery needs to be able to:
+ *
+ *  record all revoke records, including the tid of the latest instance
+ *  of each revoke in the journal
+ *
+ *  check whether a given block in a given transaction should be replayed
+ *  (ie. has not been revoked by a revoke record in that or a subsequent
+ *  transaction)
+ *
+ *  empty the revoke table after recovery.
+ */
 
+/*
+ * First, setting revoke records.  We create a new revoke record for
+ * every block ever revoked in the log as we scan it for recovery, and
+ * we update the existing records if we find multiple revokes for a
+ * single block.
+ */
 
 int jbd2_journal_set_revoke(journal_t *journal,
 		       unsigned long long blocknr,
@@ -578,6 +689,8 @@ int jbd2_journal_set_revoke(journal_t *journal,
 
 	record = find_revoke_record(journal, blocknr);
 	if (record) {
+		/* If we have multiple occurrences, only record the
+		 * latest sequence number in the hashed record */
 		if (tid_gt(sequence, record->sequence))
 			record->sequence = sequence;
 		return 0;
@@ -585,6 +698,12 @@ int jbd2_journal_set_revoke(journal_t *journal,
 	return insert_revoke_hash(journal, blocknr, sequence);
 }
 
+/*
+ * Test revoke records.  For a given block referenced in the log, has
+ * that block been revoked?  A revoke record with a given transaction
+ * sequence number revokes all blocks in that transaction and earlier
+ * ones, but later transactions still need replayed.
+ */
 
 int jbd2_journal_test_revoke(journal_t *journal,
 			unsigned long long blocknr,
@@ -600,6 +719,10 @@ int jbd2_journal_test_revoke(journal_t *journal,
 	return 1;
 }
 
+/*
+ * Finally, once recovery is over, we need to clear the revoke table so
+ * that it can be reused by the running filesystem.
+ */
 
 void jbd2_journal_clear_revoke(journal_t *journal)
 {

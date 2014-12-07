@@ -553,6 +553,12 @@ static int32_t ov2722_platform_probe(struct platform_device *pdev)
 	int32_t rc = 0;
 	const struct of_device_id *match;
 	match = of_match_device(ov2722_dt_match, &pdev->dev);
+	
+	if (!match) {
+		pr_err("%s:%d\n", __func__, __LINE__);
+		return -EINVAL;
+	}
+	
 	rc = msm_sensor_platform_probe(pdev, match->data);
 	pr_info("%s %s\n", __func__, dev_name(&pdev->dev));
 	return rc;
@@ -634,6 +640,7 @@ int32_t ov2722_sub_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
                 pr_err("%s:%d failed: invalid state %d\n", __func__,
 				__LINE__, s_ctrl->sensor_state);
                 rc = -EFAULT;
+                mutex_unlock(s_ctrl->msm_sensor_mutex);
                 break;
             }
 
@@ -642,12 +649,14 @@ int32_t ov2722_sub_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 			sizeof(struct msm_camera_i2c_reg_setting))) {
 			pr_err("%s:%d failed\n", __func__, __LINE__);
 			rc = -EFAULT;
+			mutex_unlock(s_ctrl->msm_sensor_mutex);
 			break;
             }
 
             if (!conf_array.size) {
 			pr_err("%s:%d failed\n", __func__, __LINE__);
 			rc = -EFAULT;
+			mutex_unlock(s_ctrl->msm_sensor_mutex);
 			break;
             }
 
@@ -657,6 +666,7 @@ int32_t ov2722_sub_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
             if (!reg_setting) {
 			pr_err("%s:%d failed\n", __func__, __LINE__);
 			rc = -ENOMEM;
+			mutex_unlock(s_ctrl->msm_sensor_mutex);
 			break;
             }
 
@@ -666,6 +676,7 @@ int32_t ov2722_sub_sensor_config(struct msm_sensor_ctrl_t *s_ctrl,
 			pr_err("%s:%d failed\n", __func__, __LINE__);
 			kfree(reg_setting);
 			rc = -EFAULT;
+			mutex_unlock(s_ctrl->msm_sensor_mutex);
 			break;
             }
 

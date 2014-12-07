@@ -45,7 +45,7 @@ static int caching_kthread(void *data)
 	if (!path)
 		return -ENOMEM;
 
-	
+	/* Since the commit root is read-only, we can safely skip locking. */
 	path->skip_locking = 1;
 	path->search_commit_root = 1;
 	path->reada = 2;
@@ -54,7 +54,7 @@ static int caching_kthread(void *data)
 	key.offset = 0;
 	key.type = BTRFS_INODE_ITEM_KEY;
 again:
-	
+	/* need to make sure the commit_root doesn't disappear */
 	mutex_lock(&root->fs_commit_mutex);
 
 	ret = btrfs_search_slot(NULL, root, &key, path, 0, 0);
@@ -83,6 +83,10 @@ again:
 					break;
 				}
 
+				/*
+				 * Save the key so we can advances forward
+				 * in the next search.
+				 */
 				btrfs_item_key_to_cpu(leaf, &key, 0);
 				btrfs_release_path(path);
 				root->cache_progress = last;
@@ -159,6 +163,13 @@ static void start_caching(struct btrfs_root *root)
 		return;
 	}
 
+	/*
+	 * It can be quite time-consuming to fill the cache by searching
+	 * through the extent tree, and this can keep ino allocation path
+	 * waiting. Therefore at start we quickly find out the highest
+	 * inode number and we know we can use inode numbers which fall in
+	 * [highest_ino + 1, BTRFS_LAST_FREE_OBJECTID].
+	 */
 	ret = btrfs_find_free_objectid(root, &objectid);
 	if (!ret && objectid <= BTRFS_LAST_FREE_OBJECTID) {
 		__btrfs_add_free_space(ctl, objectid,
@@ -167,7 +178,7 @@ static void start_caching(struct btrfs_root *root)
 
 	tsk = kthread_run(caching_kthread, root, "btrfs-ino-cache-%llu\n",
 			  root->root_key.objectid);
-	BUG_ON(IS_ERR(tsk)); 
+	BUG_ON(IS_ERR(tsk)); /* -ENOMEM */
 }
 
 int btrfs_find_free_ino(struct btrfs_root *root, u64 *objectid)
@@ -206,6 +217,13 @@ again:
 	if (root->cached == BTRFS_CACHE_FINISHED) {
 		__btrfs_add_free_space(ctl, objectid, 1);
 	} else {
+		/*
+		 * If we are in the process of caching free ino chunks,
+		 * to avoid adding the same inode number to the free_ino
+		 * tree twice due to cross transaction, we'll leave it
+		 * in the pinned tree until a transaction is committed
+		 * or the caching work is done.
+		 */
 
 		mutex_lock(&root->fs_commit_mutex);
 		spin_lock(&root->cache_lock);
@@ -228,6 +246,14 @@ again:
 	}
 }
 
+/*
+ * When a transaction is committed, we'll move those inode numbers which
+ * are smaller than root->cache_progress from pinned tree to free_ino tree,
+ * and others will just be dropped, because the commit root we were
+ * searching has changed.
+ *
+ * Must be called with root->fs_commit_mutex held
+ */
 void btrfs_unpin_free_ino(struct btrfs_root *root)
 {
 	struct btrfs_free_space_ctl *ctl = root->free_ino_ctl;
@@ -245,7 +271,7 @@ void btrfs_unpin_free_ino(struct btrfs_root *root)
 			break;
 
 		info = rb_entry(n, struct btrfs_free_space, offset_index);
-		BUG_ON(info->bitmap); 
+		BUG_ON(info->bitmap); /* Logic error */
 
 		if (info->offset > root->cache_progress)
 			goto free;
@@ -264,6 +290,10 @@ free:
 #define INIT_THRESHOLD	(((1024 * 32) / 2) / sizeof(struct btrfs_free_space))
 #define INODES_PER_BITMAP (PAGE_CACHE_SIZE * 8)
 
+/*
+ * The goal is to keep the memory used by the free_ino tree won't
+ * exceed the memory if we use bitmaps only.
+ */
 static void recalculate_thresholds(struct btrfs_free_space_ctl *ctl)
 {
 	struct btrfs_free_space *info;
@@ -278,6 +308,11 @@ static void recalculate_thresholds(struct btrfs_free_space_ctl *ctl)
 	}
 	info = rb_entry(n, struct btrfs_free_space, offset_index);
 
+	/*
+	 * Find the maximum inode number in the filesystem. Note we
+	 * ignore the fact that this can be a bitmap, because we are
+	 * not doing precise calculation.
+	 */
 	max_ino = info->bytes - 1;
 
 	max_bitmaps = ALIGN(max_ino, INODES_PER_BITMAP) / INODES_PER_BITMAP;
@@ -290,6 +325,10 @@ static void recalculate_thresholds(struct btrfs_free_space_ctl *ctl)
 				PAGE_CACHE_SIZE / sizeof(*info);
 }
 
+/*
+ * We don't fall back to bitmap, if we are below the extents threshold
+ * or this chunk of inode numbers is a big one.
+ */
 static bool use_bitmap(struct btrfs_free_space_ctl *ctl,
 		       struct btrfs_free_space *info)
 {
@@ -312,6 +351,13 @@ static void pinned_recalc_thresholds(struct btrfs_free_space_ctl *ctl)
 static bool pinned_use_bitmap(struct btrfs_free_space_ctl *ctl,
 			      struct btrfs_free_space *info)
 {
+	/*
+	 * We always use extents for two reasons:
+	 *
+	 * - The pinned tree is only used during the process of caching
+	 *   work.
+	 * - Make code simpler. See btrfs_unpin_free_ino().
+	 */
 	return false;
 }
 
@@ -331,6 +377,11 @@ void btrfs_init_free_ino_ctl(struct btrfs_root *root)
 	ctl->private = NULL;
 	ctl->op = &free_ino_op;
 
+	/*
+	 * Initially we allow to use 16K of ram to cache chunks of
+	 * inode numbers before we resort to bitmaps. This is somewhat
+	 * arbitrary, but it will be adjusted in runtime.
+	 */
 	ctl->extents_thresh = INIT_THRESHOLD;
 
 	spin_lock_init(&pinned->tree_lock);
@@ -354,13 +405,13 @@ int btrfs_save_ino_cache(struct btrfs_root *root,
 	int prealloc;
 	bool retry = false;
 
-	
+	/* only fs tree and subvol/snap needs ino cache */
 	if (root->root_key.objectid != BTRFS_FS_TREE_OBJECTID &&
 	    (root->root_key.objectid < BTRFS_FIRST_FREE_OBJECTID ||
 	     root->root_key.objectid > BTRFS_LAST_FREE_OBJECTID))
 		return 0;
 
-	
+	/* Don't save inode cache if we are deleting this root */
 	if (btrfs_root_refs(&root->root_item) == 0 &&
 	    root != root->fs_info->tree_root)
 		return 0;
@@ -376,6 +427,12 @@ int btrfs_save_ino_cache(struct btrfs_root *root,
 	trans->block_rsv = &root->fs_info->trans_block_rsv;
 
 	num_bytes = trans->bytes_reserved;
+	/*
+	 * 1 item for inode item insertion if need
+	 * 3 items for inode item update (in the worst case)
+	 * 1 item for free space object
+	 * 3 items for pre-allocation
+	 */
 	trans->bytes_reserved = btrfs_calc_trans_metadata_size(root, 8);
 	ret = btrfs_block_rsv_add_noflush(root, trans->block_rsv,
 					  trans->bytes_reserved);
@@ -391,7 +448,7 @@ again:
 	}
 
 	if (IS_ERR(inode)) {
-		BUG_ON(retry); 
+		BUG_ON(retry); /* Logic error */
 		retry = true;
 
 		ret = create_free_ino_inode(root, trans, path);
@@ -429,7 +486,7 @@ again:
 	prealloc += ctl->total_bitmaps * PAGE_CACHE_SIZE;
 	spin_unlock(&ctl->tree_lock);
 
-	
+	/* Just to make sure we have enough space */
 	prealloc += 8 * PAGE_CACHE_SIZE;
 
 	ret = btrfs_delalloc_reserve_space(inode, prealloc);
@@ -478,7 +535,7 @@ static int btrfs_find_highest_objectid(struct btrfs_root *root, u64 *objectid)
 	ret = btrfs_search_slot(NULL, root, &search_key, path, 0, 0);
 	if (ret < 0)
 		goto error;
-	BUG_ON(ret == 0); 
+	BUG_ON(ret == 0); /* Corruption */
 	if (path->slots[0] > 0) {
 		slot = path->slots[0] - 1;
 		l = path->nodes[0];

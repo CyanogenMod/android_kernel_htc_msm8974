@@ -1,4 +1,4 @@
-/* Copyright (c) 2013, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2014, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -55,6 +55,8 @@ int wcd9xxx_core_res_init(
 	int (*codec_read)(struct wcd9xxx_core_resource*, unsigned short),
 	int (*codec_write)(struct wcd9xxx_core_resource*, unsigned short, u8),
 	int (*codec_bulk_read) (struct wcd9xxx_core_resource*, unsigned short,
+							int, u8*),
+	int (*codec_bulk_write) (struct wcd9xxx_core_resource*, unsigned short,
 							int, u8*))
 {
 	mutex_init(&wcd9xxx_core_res->pm_lock);
@@ -68,6 +70,7 @@ int wcd9xxx_core_res_init(
 	wcd9xxx_core_res->codec_reg_read = codec_read;
 	wcd9xxx_core_res->codec_reg_write = codec_write;
 	wcd9xxx_core_res->codec_bulk_read = codec_bulk_read;
+	wcd9xxx_core_res->codec_bulk_write = codec_bulk_write;
 	wcd9xxx_core_res->num_irqs = num_irqs;
 	wcd9xxx_core_res->num_irq_regs = num_irq_regs;
 
@@ -111,6 +114,10 @@ int wcd9xxx_core_res_suspend(
 	int ret = 0;
 
 	pr_debug("%s: enter\n", __func__);
+	/*
+	 * pm_qos_update_request() can be called after this suspend chain call
+	 * started. thus suspend can be called while lock is being held
+	 */
 	mutex_lock(&wcd9xxx_core_res->pm_lock);
 	if (wcd9xxx_core_res->pm_state == WCD9XXX_PM_SLEEPABLE) {
 		pr_debug("%s: suspending system, state %d, wlock %d\n",
@@ -118,6 +125,10 @@ int wcd9xxx_core_res_suspend(
 			 wcd9xxx_core_res->wlock_holders);
 		wcd9xxx_core_res->pm_state = WCD9XXX_PM_ASLEEP;
 	} else if (wcd9xxx_core_res->pm_state == WCD9XXX_PM_AWAKE) {
+		/*
+		 * unlock to wait for pm_state == WCD9XXX_PM_SLEEPABLE
+		 * then set to WCD9XXX_PM_ASLEEP
+		 */
 		pr_debug("%s: waiting to suspend system, state %d, wlock %d\n",
 			 __func__, wcd9xxx_core_res->pm_state,
 			 wcd9xxx_core_res->wlock_holders);

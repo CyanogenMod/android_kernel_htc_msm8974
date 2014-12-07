@@ -15,30 +15,47 @@
 #include <sound/control.h>
 #include <sound/tlv.h>
 
+/*
+ * a subset of information returned via ctl info callback
+ */
 struct link_ctl_info {
-	snd_ctl_elem_type_t type; 
-	int count;		
-	int min_val, max_val;	
+	snd_ctl_elem_type_t type; /* value type */
+	int count;		/* item count */
+	int min_val, max_val;	/* min, max values */
 };
 
+/*
+ * link master - this contains a list of slave controls that are
+ * identical types, i.e. info returns the same value type and value
+ * ranges, but may have different number of counts.
+ *
+ * The master control is so far only mono volume/switch for simplicity.
+ * The same value will be applied to all slaves.
+ */
 struct link_master {
 	struct list_head slaves;
 	struct link_ctl_info info;
-	int val;		
+	int val;		/* the master value */
 	unsigned int tlv[4];
 	void (*hook)(void *private_data, int);
 	void *hook_private_data;
 };
 
+/*
+ * link slave - this contains a slave control element
+ *
+ * It fakes the control callbacsk with additional attenuation by the
+ * master control.  A slave may have either one or two channels.
+ */
 
 struct link_slave {
 	struct list_head list;
 	struct link_master *master;
 	struct link_ctl_info info;
-	int vals[2];		
+	int vals[2];		/* current values */
 	unsigned int flags;
-	struct snd_kcontrol *kctl; 
-	struct snd_kcontrol slave; 
+	struct snd_kcontrol *kctl; /* original kcontrol pointer */
+	struct snd_kcontrol slave; /* the copy of original control entry */
 };
 
 static int slave_update(struct link_slave *slave)
@@ -57,13 +74,14 @@ static int slave_update(struct link_slave *slave)
 	return 0;
 }
 
+/* get the slave ctl info and save the initial values */
 static int slave_init(struct link_slave *slave)
 {
 	struct snd_ctl_elem_info *uinfo;
 	int err;
 
 	if (slave->info.count) {
-		
+		/* already initialized */
 		if (slave->flags & SND_CTL_SLAVE_NEED_UPDATE)
 			return slave_update(slave);
 		return 0;
@@ -94,20 +112,21 @@ static int slave_init(struct link_slave *slave)
 	return slave_update(slave);
 }
 
+/* initialize master volume */
 static int master_init(struct link_master *master)
 {
 	struct link_slave *slave;
 
 	if (master->info.count)
-		return 0; 
+		return 0; /* already initialized */
 
 	list_for_each_entry(slave, &master->slaves, list) {
 		int err = slave_init(slave);
 		if (err < 0)
 			return err;
 		master->info = slave->info;
-		master->info.count = 1; 
-		
+		master->info.count = 1; /* always mono */
+		/* set full volume as default (= no attenuation) */
 		master->val = master->info.max_val;
 		if (master->hook)
 			master->hook(master->hook_private_data, master->val);
@@ -146,7 +165,7 @@ static int slave_put_val(struct link_slave *slave,
 		break;
 	case SNDRV_CTL_ELEM_TYPE_INTEGER:
 		for (ch = 0; ch < slave->info.count; ch++) {
-			
+			/* max master volume is supposed to be 0 dB */
 			vol = ucontrol->value.integer.value[ch];
 			vol += slave->master->val - slave->master->info.max_val;
 			if (vol < slave->info.min_val)
@@ -160,6 +179,9 @@ static int slave_put_val(struct link_slave *slave,
 	return slave->slave.put(&slave->slave, ucontrol);
 }
 
+/*
+ * ctl callbacks for slaves
+ */
 static int slave_info(struct snd_kcontrol *kcontrol,
 		      struct snd_ctl_elem_info *uinfo)
 {
@@ -199,7 +221,7 @@ static int slave_tlv_cmd(struct snd_kcontrol *kcontrol,
 			 unsigned int __user *tlv)
 {
 	struct link_slave *slave = snd_kcontrol_chip(kcontrol);
-	
+	/* FIXME: this assumes that the max volume is 0 dB */
 	return slave->slave.tlv.c(&slave->slave, op_flag, size, tlv);
 }
 
@@ -213,6 +235,18 @@ static void slave_free(struct snd_kcontrol *kcontrol)
 	kfree(slave);
 }
 
+/*
+ * Add a slave control to the group with the given master control
+ *
+ * All slaves must be the same type (returning the same information
+ * via info callback).  The function doesn't check it, so it's your
+ * responsibility.
+ *
+ * Also, some additional limitations:
+ * - at most two channels
+ * - logarithmic volume control (dB level), no linear volume
+ * - master can only attenuate the volume, no gain
+ */
 int _snd_ctl_add_slave(struct snd_kcontrol *master, struct snd_kcontrol *slave,
 		       unsigned int flags)
 {
@@ -229,7 +263,7 @@ int _snd_ctl_add_slave(struct snd_kcontrol *master, struct snd_kcontrol *slave,
 	srec->master = master_link;
 	srec->flags = flags;
 
-	
+	/* override callbacks */
 	slave->info = slave_info;
 	slave->get = slave_get;
 	slave->put = slave_put;
@@ -243,6 +277,9 @@ int _snd_ctl_add_slave(struct snd_kcontrol *master, struct snd_kcontrol *slave,
 }
 EXPORT_SYMBOL(_snd_ctl_add_slave);
 
+/*
+ * ctl callbacks for master controls
+ */
 static int master_info(struct snd_kcontrol *kcontrol,
 		      struct snd_ctl_elem_info *uinfo)
 {
@@ -306,20 +343,36 @@ static void master_free(struct snd_kcontrol *kcontrol)
 	struct link_master *master = snd_kcontrol_chip(kcontrol);
 	struct link_slave *slave, *n;
 
-	
+	/* free all slave links and retore the original slave kctls */
 	list_for_each_entry_safe(slave, n, &master->slaves, list) {
 		struct snd_kcontrol *sctl = slave->kctl;
 		struct list_head olist = sctl->list;
 		memcpy(sctl, &slave->slave, sizeof(*sctl));
 		memcpy(sctl->vd, slave->slave.vd,
 		       sctl->count * sizeof(*sctl->vd));
-		sctl->list = olist; 
+		sctl->list = olist; /* keep the current linked-list */
 		kfree(slave);
 	}
 	kfree(master);
 }
 
 
+/**
+ * snd_ctl_make_virtual_master - Create a virtual master control
+ * @name: name string of the control element to create
+ * @tlv: optional TLV int array for dB information
+ *
+ * Creates a virtual matster control with the given name string.
+ * Returns the created control element, or NULL for errors (ENOMEM).
+ *
+ * After creating a vmaster element, you can add the slave controls
+ * via snd_ctl_add_slave() or snd_ctl_add_slave_uncached().
+ *
+ * The optional argument @tlv can be used to specify the TLV information
+ * for dB scale of the master control.  It should be a single element
+ * with #SNDRV_CTL_TLVT_DB_SCALE, #SNDRV_CTL_TLV_DB_MINMAX or
+ * #SNDRV_CTL_TLVT_DB_MINMAX_MUTE type, and should be the max 0dB.
+ */
 struct snd_kcontrol *snd_ctl_make_virtual_master(char *name,
 						 const unsigned int *tlv)
 {
@@ -342,13 +395,13 @@ struct snd_kcontrol *snd_ctl_make_virtual_master(char *name,
 		kfree(master);
 		return NULL;
 	}
-	
+	/* override some callbacks */
 	kctl->info = master_info;
 	kctl->get = master_get;
 	kctl->put = master_put;
 	kctl->private_free = master_free;
 
-	
+	/* additional (constant) TLV read */
 	if (tlv &&
 	    (tlv[0] == SNDRV_CTL_TLVT_DB_SCALE ||
 	     tlv[0] == SNDRV_CTL_TLVT_DB_MINMAX ||
@@ -362,6 +415,15 @@ struct snd_kcontrol *snd_ctl_make_virtual_master(char *name,
 }
 EXPORT_SYMBOL(snd_ctl_make_virtual_master);
 
+/**
+ * snd_ctl_add_vmaster_hook - Add a hook to a vmaster control
+ * @kcontrol: vmaster kctl element
+ * @hook: the hook function
+ * @private_data: the private_data pointer to be saved
+ *
+ * Adds the given hook to the vmaster control element so that it's called
+ * at each time when the value is changed.
+ */
 int snd_ctl_add_vmaster_hook(struct snd_kcontrol *kcontrol,
 			     void (*hook)(void *private_data, int),
 			     void *private_data)
@@ -373,6 +435,14 @@ int snd_ctl_add_vmaster_hook(struct snd_kcontrol *kcontrol,
 }
 EXPORT_SYMBOL_GPL(snd_ctl_add_vmaster_hook);
 
+/**
+ * snd_ctl_sync_vmaster_hook - Sync the vmaster hook
+ * @kcontrol: vmaster kctl element
+ *
+ * Call the hook function to synchronize with the current value of the given
+ * vmaster element.  NOP when NULL is passed to @kcontrol or the hook doesn't
+ * exist.
+ */
 void snd_ctl_sync_vmaster_hook(struct snd_kcontrol *kcontrol)
 {
 	struct link_master *master;

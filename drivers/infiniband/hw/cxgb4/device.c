@@ -291,12 +291,17 @@ void c4iw_init_dev_ucontext(struct c4iw_rdev *rdev,
 	mutex_init(&uctx->lock);
 }
 
+/* Caller takes care of locking if needed */
 static int c4iw_rdev_open(struct c4iw_rdev *rdev)
 {
 	int err;
 
 	c4iw_init_dev_ucontext(rdev, &rdev->uctx);
 
+	/*
+	 * qpshift is the number of bits to shift the qpid left in order
+	 * to get the correct address of the doorbell for that qp.
+	 */
 	rdev->qpshift = PAGE_SHIFT - ilog2(rdev->lldi.udb_density);
 	rdev->qpmask = rdev->lldi.udb_density - 1;
 	rdev->cqshift = PAGE_SHIFT - ilog2(rdev->lldi.ucq_density);
@@ -487,7 +492,7 @@ static int c4iw_uld_rx_handler(void *handle, const __be64 *rsp,
 	unsigned int opcode;
 
 	if (gl == NULL) {
-		
+		/* omit RSS and rsp_ctrl at end of descriptor */
 		unsigned int len = 64 - sizeof(struct rsp_ctrl) - 8;
 
 		skb = alloc_skb(256, GFP_ATOMIC);

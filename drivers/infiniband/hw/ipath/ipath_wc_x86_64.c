@@ -31,6 +31,10 @@
  * SOFTWARE.
  */
 
+/*
+ * This file is conditionally built on x86_64 only.  Otherwise weak symbol
+ * versions of the functions exported from here are used.
+ */
 
 #include <linux/pci.h>
 #include <asm/mtrr.h>
@@ -38,6 +42,13 @@
 
 #include "ipath_kernel.h"
 
+/**
+ * ipath_enable_wc - enable write combining for MMIO writes to the device
+ * @dd: infinipath device
+ *
+ * This routine is x86_64-specific; it twiddles the CPU's MTRRs to enable
+ * write combining.
+ */
 int ipath_enable_wc(struct ipath_devdata *dd)
 {
 	int ret = 0;
@@ -46,11 +57,22 @@ int ipath_enable_wc(struct ipath_devdata *dd)
 	const unsigned long addr = pci_resource_start(dd->pcidev, 0);
 	const size_t len = pci_resource_len(dd->pcidev, 0);
 
-	if (dd->ipath_piobcnt2k && dd->ipath_piobcnt4k) { 
+	/*
+	 * Set the PIO buffers to be WCCOMB, so we get HT bursts to the
+	 * chip.  Linux (possibly the hardware) requires it to be on a power
+	 * of 2 address matching the length (which has to be a power of 2).
+	 * For rev1, that means the base address, for rev2, it will be just
+	 * the PIO buffers themselves.
+	 * For chips with two sets of buffers, the calculations are
+	 * somewhat more complicated; we need to sum, and the piobufbase
+	 * register has both offsets, 2K in low 32 bits, 4K in high 32 bits.
+	 * The buffers are still packed, so a single range covers both.
+	 */
+	if (dd->ipath_piobcnt2k && dd->ipath_piobcnt4k) { /* 2 sizes */
 		unsigned long pio2kbase, pio4kbase;
 		pio2kbase = dd->ipath_piobufbase & 0xffffffffUL;
 		pio4kbase = (dd->ipath_piobufbase >> 32) & 0xffffffffUL;
-		if (pio2kbase < pio4kbase) { 
+		if (pio2kbase < pio4kbase) { /* all, for now */
 			pioaddr = addr + pio2kbase;
 			piolen = pio4kbase - pio2kbase +
 				dd->ipath_piobcnt4k * dd->ipath_4kalign;
@@ -59,14 +81,14 @@ int ipath_enable_wc(struct ipath_devdata *dd)
 			piolen = pio2kbase - pio4kbase +
 				dd->ipath_piobcnt2k * dd->ipath_palign;
 		}
-	} else {  
+	} else {  /* single buffer size (2K, currently) */
 		pioaddr = addr + dd->ipath_piobufbase;
 		piolen = dd->ipath_piobcnt2k * dd->ipath_palign +
 			dd->ipath_piobcnt4k * dd->ipath_4kalign;
 	}
 
 	for (bits = 0; !(piolen & (1ULL << bits)); bits++)
-		 ;
+		/* do nothing */ ;
 
 	if (piolen != (1ULL << bits)) {
 		piolen >>= bits;
@@ -126,6 +148,10 @@ int ipath_enable_wc(struct ipath_devdata *dd)
 	return ret;
 }
 
+/**
+ * ipath_disable_wc - disable write combining for MMIO writes to the device
+ * @dd: infinipath device
+ */
 void ipath_disable_wc(struct ipath_devdata *dd)
 {
 	if (dd->ipath_wc_cookie) {
@@ -138,10 +164,20 @@ void ipath_disable_wc(struct ipath_devdata *dd)
 				 "mtrr_del(%lx, %lx, %lx) failed: %d\n",
 				 dd->ipath_wc_cookie, dd->ipath_wc_base,
 				 dd->ipath_wc_len, r);
-		dd->ipath_wc_cookie = 0; 
+		dd->ipath_wc_cookie = 0; /* even on failure */
 	}
 }
 
+/**
+ * ipath_unordered_wc - indicate whether write combining is ordered
+ *
+ * Because our performance depends on our ability to do write combining mmio
+ * writes in the most efficient way, we need to know if we are on an Intel
+ * or AMD x86_64 processor.  AMD x86_64 processors flush WC buffers out in
+ * the order completed, and so no special flushing is required to get
+ * correct ordering.  Intel processors, however, will flush write buffers
+ * out in "random" orders, and so explicit ordering is needed at times.
+ */
 int ipath_unordered_wc(void)
 {
 	return boot_cpu_data.x86_vendor != X86_VENDOR_AMD;

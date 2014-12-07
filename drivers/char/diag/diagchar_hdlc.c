@@ -45,7 +45,7 @@ void diag_hdlc_encode(struct diag_send_desc_type *src_desc,
 
 	if (src_desc && enc) {
 
-		
+		/* Copy parts to local variables. */
 		src = src_desc->pkt;
 		src_last = src_desc->last;
 		state = src_desc->state;
@@ -56,11 +56,15 @@ void diag_hdlc_encode(struct diag_send_desc_type *src_desc,
 			crc = CRC_16_L_SEED;
 			state++;
 		} else {
-			
+			/* Get a local copy of the CRC */
 			crc = enc->crc;
 		}
 
+		/* dest or dest_last may be NULL to trigger a
+		   state transition only */
 		if (dest && dest_last) {
+			/* This condition needs to include the possibility
+			   of 2 dest bytes for an escaped byte */
 			while (src <= src_last && dest <= dest_last) {
 
 				src_byte = *src++;
@@ -68,6 +72,8 @@ void diag_hdlc_encode(struct diag_send_desc_type *src_desc,
 				if ((src_byte == CONTROL_CHAR) ||
 				    (src_byte == ESC_CHAR)) {
 
+					/* If the escape character is not the
+					   last byte */
 					if (dest != dest_last) {
 						crc = CRC_16_L_STEP(crc,
 								    src_byte);
@@ -98,7 +104,7 @@ void diag_hdlc_encode(struct diag_send_desc_type *src_desc,
 						crc = ~crc;
 						state++;
 					} else {
-						
+						/* Done with fragment */
 						state = DIAG_STATE_COMPLETE;
 					}
 				}
@@ -106,7 +112,7 @@ void diag_hdlc_encode(struct diag_send_desc_type *src_desc,
 				while (dest <= dest_last &&
 				       state >= DIAG_STATE_CRC1 &&
 				       state < DIAG_STATE_TERM) {
-					
+					/* Encode a byte of the CRC next */
 					src_byte = crc & 0xFF;
 
 					if ((src_byte == CONTROL_CHAR)
@@ -139,12 +145,12 @@ void diag_hdlc_encode(struct diag_send_desc_type *src_desc,
 					if (dest_last >= dest) {
 						*dest++ = CONTROL_CHAR;
 						used++;
-						state++;	
+						state++;	/* Complete */
 					}
 				}
 			}
 		}
-		
+		/* Copy local variables back into the encode structure. */
 
 		enc->dest = dest;
 		enc->dest_last = dest_last;
@@ -171,8 +177,8 @@ int diag_hdlc_decode(struct diag_hdlc_decode_type *hdlc)
 	int msg_start;
 
 	if (hdlc && hdlc->src_ptr && hdlc->dest_ptr &&
-	    (hdlc->src_size - hdlc->src_idx > 0) &&
-	    (hdlc->dest_size - hdlc->dest_idx > 0)) {
+	    (hdlc->src_size > hdlc->src_idx) &&
+	    (hdlc->dest_size > hdlc->dest_idx)) {
 
 		msg_start = (hdlc->src_idx == 0) ? 1 : 0;
 
@@ -203,6 +209,8 @@ int diag_hdlc_decode(struct diag_hdlc_decode_type *hdlc)
 			} else if (src_byte == CONTROL_CHAR) {
 				if (msg_start && i == 0 && src_length > 1)
 					continue;
+				/* Byte 0x7E will be considered
+					as end of packet */
 				dest_ptr[len++] = src_byte;
 				i++;
 				pkt_bnd = 1;
@@ -229,16 +237,24 @@ int crc_check(uint8_t *buf, uint16_t len)
 	uint16_t crc = CRC_16_L_SEED;
 	uint8_t sent_crc[2] = {0, 0};
 
+	/*
+	* The minimum length of a valid incoming packet is 4. 1 byte
+	* of data and 3 bytes for CRC
+	*/
 	if (!buf || len < 4) {
 		pr_err_ratelimited("diag: In %s, invalid packet or length, buf: 0x%x, len: %d",
 			__func__, (int)buf, len);
 		return -EIO;
 	}
 
+	/*
+	* Run CRC check for the original input. Skip the last 3 CRC
+	* bytes
+	*/
 	crc = crc_ccitt(crc, buf, len-3);
 	crc ^= CRC_16_L_SEED;
 
-	
+	/* Check the computed CRC against the original CRC bytes. */
 	sent_crc[0] = buf[len-3];
 	sent_crc[1] = buf[len-2];
 	if (crc != *((uint16_t *)sent_crc)) {

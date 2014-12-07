@@ -24,18 +24,18 @@ struct cpm_pin {
 };
 
 static struct cpm_pin ep88xc_pins[] = {
-	
-	{1, 24, CPM_PIN_INPUT}, 
-	{1, 25, CPM_PIN_INPUT | CPM_PIN_SECONDARY}, 
+	/* SMC1 */
+	{1, 24, CPM_PIN_INPUT}, /* RX */
+	{1, 25, CPM_PIN_INPUT | CPM_PIN_SECONDARY}, /* TX */
 
-	
-	{0, 12, CPM_PIN_INPUT}, 
-	{0, 13, CPM_PIN_INPUT}, 
-	{2, 8, CPM_PIN_INPUT | CPM_PIN_SECONDARY | CPM_PIN_GPIO}, 
-	{2, 9, CPM_PIN_INPUT | CPM_PIN_SECONDARY | CPM_PIN_GPIO}, 
-	{2, 14, CPM_PIN_INPUT}, 
+	/* SCC2 */
+	{0, 12, CPM_PIN_INPUT}, /* TX */
+	{0, 13, CPM_PIN_INPUT}, /* RX */
+	{2, 8, CPM_PIN_INPUT | CPM_PIN_SECONDARY | CPM_PIN_GPIO}, /* CD */
+	{2, 9, CPM_PIN_INPUT | CPM_PIN_SECONDARY | CPM_PIN_GPIO}, /* CTS */
+	{2, 14, CPM_PIN_INPUT}, /* RTS */
 
-	
+	/* MII1 */
 	{0, 0, CPM_PIN_INPUT},
 	{0, 1, CPM_PIN_INPUT},
 	{0, 2, CPM_PIN_INPUT},
@@ -51,7 +51,7 @@ static struct cpm_pin ep88xc_pins[] = {
 	{4, 30, CPM_PIN_OUTPUT},
 	{4, 31, CPM_PIN_OUTPUT},
 
-	
+	/* MII2 */
 	{4, 14, CPM_PIN_OUTPUT | CPM_PIN_SECONDARY},
 	{4, 15, CPM_PIN_OUTPUT | CPM_PIN_SECONDARY},
 	{4, 16, CPM_PIN_OUTPUT},
@@ -69,18 +69,18 @@ static struct cpm_pin ep88xc_pins[] = {
 	{4, 28, CPM_PIN_OUTPUT},
 	{4, 29, CPM_PIN_OUTPUT},
 
-	
-	{0, 6, CPM_PIN_INPUT},  
-	{0, 14, CPM_PIN_INPUT}, 
-	{0, 15, CPM_PIN_INPUT}, 
-	{2, 6, CPM_PIN_OUTPUT}, 
-	{2, 7, CPM_PIN_OUTPUT}, 
-	{2, 10, CPM_PIN_INPUT}, 
-	{2, 11, CPM_PIN_INPUT}, 
+	/* USB */
+	{0, 6, CPM_PIN_INPUT},  /* CLK2 */
+	{0, 14, CPM_PIN_INPUT}, /* USBOE */
+	{0, 15, CPM_PIN_INPUT}, /* USBRXD */
+	{2, 6, CPM_PIN_OUTPUT}, /* USBTXN */
+	{2, 7, CPM_PIN_OUTPUT}, /* USBTXP */
+	{2, 10, CPM_PIN_INPUT}, /* USBRXN */
+	{2, 11, CPM_PIN_INPUT}, /* USBRXP */
 
-	
-	{1, 26, CPM_PIN_INPUT}, 
-	{1, 27, CPM_PIN_INPUT}, 
+	/* Misc */
+	{1, 26, CPM_PIN_INPUT}, /* BRGO2 */
+	{1, 27, CPM_PIN_INPUT}, /* BRGO1 */
 };
 
 static void __init init_ioports(void)
@@ -93,7 +93,7 @@ static void __init init_ioports(void)
 	}
 
 	cpm1_clk_setup(CPM_CLK_SMC1, CPM_BRG1, CPM_CLK_RTX);
-	cpm1_clk_setup(CPM_CLK_SCC1, CPM_CLK2, CPM_CLK_TX); 
+	cpm1_clk_setup(CPM_CLK_SCC1, CPM_CLK2, CPM_CLK_TX); /* USB */
 	cpm1_clk_setup(CPM_CLK_SCC1, CPM_CLK2, CPM_CLK_RX);
 	cpm1_clk_setup(CPM_CLK_SCC2, CPM_BRG2, CPM_CLK_TX);
 	cpm1_clk_setup(CPM_CLK_SCC2, CPM_BRG2, CPM_CLK_RX);
@@ -154,7 +154,7 @@ static struct of_device_id __initdata of_bus_ids[] = {
 
 static int __init declare_of_platform_devices(void)
 {
-	
+	/* Publish the QE devices */
 	of_platform_bus_probe(NULL, of_bus_ids, NULL);
 
 	return 0;

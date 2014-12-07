@@ -34,8 +34,21 @@
 #ifndef _IPATH_REGISTERS_H
 #define _IPATH_REGISTERS_H
 
+/*
+ * This file should only be included by kernel source, and by the diags.  It
+ * defines the registers, and their contents, for InfiniPath chips.
+ */
 
+/*
+ * These are the InfiniPath register and buffer bit definitions,
+ * that are visible to software, and needed only by the kernel
+ * and diag code.  A few, that are visible to protocol and user
+ * code are in ipath_common.h.  Some bits are specific
+ * to a given chip implementation, and have been moved to the
+ * chip-specific source file
+ */
 
+/* kr_revision bits */
 #define INFINIPATH_R_CHIPREVMINOR_MASK 0xFF
 #define INFINIPATH_R_CHIPREVMINOR_SHIFT 0
 #define INFINIPATH_R_CHIPREVMAJOR_MASK 0xFF
@@ -47,9 +60,11 @@
 #define INFINIPATH_R_BOARDID_MASK 0xFF
 #define INFINIPATH_R_BOARDID_SHIFT 32
 
+/* kr_control bits */
 #define INFINIPATH_C_FREEZEMODE 0x00000002
 #define INFINIPATH_C_LINKENABLE 0x00000004
 
+/* kr_sendctrl bits */
 #define INFINIPATH_S_DISARMPIOBUF_SHIFT 16
 #define INFINIPATH_S_UPDTHRESH_SHIFT 24
 #define INFINIPATH_S_UPDTHRESH_MASK 0x1f
@@ -75,9 +90,11 @@
 #define INFINIPATH_S_SDMAHALT		(1U << IPATH_S_SDMAHALT)
 #define INFINIPATH_S_DISARM		(1U << IPATH_S_DISARM)
 
+/* kr_rcvctrl bits that are the same on multiple chips */
 #define INFINIPATH_R_PORTENABLE_SHIFT 0
 #define INFINIPATH_R_QPMAP_ENABLE (1ULL << 38)
 
+/* kr_intstatus, kr_intclear, kr_intmask bits */
 #define INFINIPATH_I_SDMAINT		0x8000000000000000ULL
 #define INFINIPATH_I_SDMADISABLED	0x4000000000000000ULL
 #define INFINIPATH_I_ERROR		0x0000000080000000ULL
@@ -86,6 +103,7 @@
 #define INFINIPATH_I_GPIO		0x0000000010000000ULL
 #define INFINIPATH_I_JINT		0x0000000004000000ULL
 
+/* kr_errorstatus, kr_errorclear, kr_errormask bits */
 #define INFINIPATH_E_RFORMATERR			0x0000000000000001ULL
 #define INFINIPATH_E_RVCRC			0x0000000000000002ULL
 #define INFINIPATH_E_RICRC			0x0000000000000004ULL
@@ -132,11 +150,16 @@
 #define INFINIPATH_E_SDMADESCADDRMISALIGN	0x0010000000000000ULL
 #define INFINIPATH_E_INVALIDEEPCMD		0x0020000000000000ULL
 
+/*
+ * this is used to print "common" packet errors only when the
+ * __IPATH_ERRPKTDBG bit is set in ipath_debug.
+ */
 #define INFINIPATH_E_PKTERRS ( INFINIPATH_E_SPKTLEN \
 		| INFINIPATH_E_SDROPPEDDATAPKT | INFINIPATH_E_RVCRC \
 		| INFINIPATH_E_RICRC | INFINIPATH_E_RSHORTPKTLEN \
 		| INFINIPATH_E_REBP )
 
+/* Convenience for decoding Send DMA errors */
 #define INFINIPATH_E_SDMAERRS ( \
 	INFINIPATH_E_SDMAGENMISMATCH | INFINIPATH_E_SDMAOUTOFBOUND | \
 	INFINIPATH_E_SDMATAILOUTOFBOUND | INFINIPATH_E_SDMABASE | \
@@ -147,15 +170,21 @@
 	INFINIPATH_E_SDMADISABLED | \
 	INFINIPATH_E_SENDBUFMISUSE)
 
+/* kr_hwerrclear, kr_hwerrmask, kr_hwerrstatus, bits */
+/* TXEMEMPARITYERR bit 0: PIObuf, 1: PIOpbc, 2: launchfifo
+ * RXEMEMPARITYERR bit 0: rcvbuf, 1: lookupq, 2:  expTID, 3: eagerTID
+ * 		bit 4: flag buffer, 5: datainfo, 6: header info */
 #define INFINIPATH_HWE_TXEMEMPARITYERR_MASK 0xFULL
 #define INFINIPATH_HWE_TXEMEMPARITYERR_SHIFT 40
 #define INFINIPATH_HWE_RXEMEMPARITYERR_MASK 0x7FULL
 #define INFINIPATH_HWE_RXEMEMPARITYERR_SHIFT 44
 #define INFINIPATH_HWE_IBCBUSTOSPCPARITYERR 0x4000000000000000ULL
 #define INFINIPATH_HWE_IBCBUSFRSPCPARITYERR 0x8000000000000000ULL
+/* txe mem parity errors (shift by INFINIPATH_HWE_TXEMEMPARITYERR_SHIFT) */
 #define INFINIPATH_HWE_TXEMEMPARITYERR_PIOBUF	0x1ULL
 #define INFINIPATH_HWE_TXEMEMPARITYERR_PIOPBC	0x2ULL
 #define INFINIPATH_HWE_TXEMEMPARITYERR_PIOLAUNCHFIFO 0x4ULL
+/* rxe mem parity errors (shift by INFINIPATH_HWE_RXEMEMPARITYERR_SHIFT) */
 #define INFINIPATH_HWE_RXEMEMPARITYERR_RCVBUF   0x01ULL
 #define INFINIPATH_HWE_RXEMEMPARITYERR_LOOKUPQ  0x02ULL
 #define INFINIPATH_HWE_RXEMEMPARITYERR_EXPTID   0x04ULL
@@ -163,9 +192,12 @@
 #define INFINIPATH_HWE_RXEMEMPARITYERR_FLAGBUF  0x10ULL
 #define INFINIPATH_HWE_RXEMEMPARITYERR_DATAINFO 0x20ULL
 #define INFINIPATH_HWE_RXEMEMPARITYERR_HDRINFO  0x40ULL
+/* waldo specific -- find the rest in ipath_6110.c */
 #define INFINIPATH_HWE_RXDSYNCMEMPARITYERR  0x0000000400000000ULL
+/* 6120/7220 specific -- find the rest in ipath_6120.c and ipath_7220.c */
 #define INFINIPATH_HWE_MEMBISTFAILED	0x0040000000000000ULL
 
+/* kr_hwdiagctrl bits */
 #define INFINIPATH_DC_FORCETXEMEMPARITYERR_MASK 0xFULL
 #define INFINIPATH_DC_FORCETXEMEMPARITYERR_SHIFT 40
 #define INFINIPATH_DC_FORCERXEMEMPARITYERR_MASK 0x7FULL
@@ -176,19 +208,22 @@
 #define INFINIPATH_DC_FORCEIBCBUSTOSPCPARITYERR 0x4000000000000000ULL
 #define INFINIPATH_DC_FORCEIBCBUSFRSPCPARITYERR 0x8000000000000000ULL
 
+/* kr_ibcctrl bits */
 #define INFINIPATH_IBCC_FLOWCTRLPERIOD_MASK 0xFFULL
 #define INFINIPATH_IBCC_FLOWCTRLPERIOD_SHIFT 0
 #define INFINIPATH_IBCC_FLOWCTRLWATERMARK_MASK 0xFFULL
 #define INFINIPATH_IBCC_FLOWCTRLWATERMARK_SHIFT 8
 #define INFINIPATH_IBCC_LINKINITCMD_MASK 0x3ULL
 #define INFINIPATH_IBCC_LINKINITCMD_DISABLE 1
+/* cycle through TS1/TS2 till OK */
 #define INFINIPATH_IBCC_LINKINITCMD_POLL 2
+/* wait for TS1, then go on */
 #define INFINIPATH_IBCC_LINKINITCMD_SLEEP 3
 #define INFINIPATH_IBCC_LINKINITCMD_SHIFT 16
 #define INFINIPATH_IBCC_LINKCMD_MASK 0x3ULL
-#define INFINIPATH_IBCC_LINKCMD_DOWN 1		
-#define INFINIPATH_IBCC_LINKCMD_ARMED 2		
-#define INFINIPATH_IBCC_LINKCMD_ACTIVE 3	
+#define INFINIPATH_IBCC_LINKCMD_DOWN 1		/* move to 0x11 */
+#define INFINIPATH_IBCC_LINKCMD_ARMED 2		/* move to 0x21 */
+#define INFINIPATH_IBCC_LINKCMD_ACTIVE 3	/* move to 0x31 */
 #define INFINIPATH_IBCC_LINKCMD_SHIFT 18
 #define INFINIPATH_IBCC_MAXPKTLEN_MASK 0x7FFULL
 #define INFINIPATH_IBCC_MAXPKTLEN_SHIFT 20
@@ -201,11 +236,14 @@
 #define INFINIPATH_IBCC_LOOPBACK             0x8000000000000000ULL
 #define INFINIPATH_IBCC_LINKDOWNDEFAULTSTATE 0x4000000000000000ULL
 
+/* kr_ibcstatus bits */
 #define INFINIPATH_IBCS_LINKTRAININGSTATE_SHIFT 0
 #define INFINIPATH_IBCS_LINKSTATE_MASK 0x7
 
 #define INFINIPATH_IBCS_TXREADY       0x40000000
 #define INFINIPATH_IBCS_TXCREDITOK    0x80000000
+/* link training states (shift by
+   INFINIPATH_IBCS_LINKTRAININGSTATE_SHIFT) */
 #define INFINIPATH_IBCS_LT_STATE_DISABLED	0x00
 #define INFINIPATH_IBCS_LT_STATE_LINKUP		0x01
 #define INFINIPATH_IBCS_LT_STATE_POLLACTIVE	0x02
@@ -219,6 +257,7 @@
 #define INFINIPATH_IBCS_LT_STATE_RECOVERRETRAIN	0x0c
 #define INFINIPATH_IBCS_LT_STATE_RECOVERWAITRMT	0x0e
 #define INFINIPATH_IBCS_LT_STATE_RECOVERIDLE	0x0f
+/* link state machine states (shift by ibcs_ls_shift) */
 #define INFINIPATH_IBCS_L_STATE_DOWN		0x0
 #define INFINIPATH_IBCS_L_STATE_INIT		0x1
 #define INFINIPATH_IBCS_L_STATE_ARM		0x2
@@ -226,10 +265,12 @@
 #define INFINIPATH_IBCS_L_STATE_ACT_DEFER	0x4
 
 
+/* kr_extstatus bits */
 #define INFINIPATH_EXTS_SERDESPLLLOCK 0x1
 #define INFINIPATH_EXTS_GPIOIN_MASK 0xFFFFULL
 #define INFINIPATH_EXTS_GPIOIN_SHIFT 48
 
+/* kr_extctrl bits */
 #define INFINIPATH_EXTC_GPIOINVERT_MASK 0xFFFFULL
 #define INFINIPATH_EXTC_GPIOINVERT_SHIFT 32
 #define INFINIPATH_EXTC_GPIOOE_MASK 0xFFFFULL
@@ -248,33 +289,63 @@
 #define INFINIPATH_EXTC_LEDGBLOK_ON          0x00000002ULL
 #define INFINIPATH_EXTC_LEDGBLERR_OFF        0x00000001ULL
 
+/* kr_partitionkey bits */
 #define INFINIPATH_PKEY_SIZE 16
 #define INFINIPATH_PKEY_MASK 0xFFFF
 #define INFINIPATH_PKEY_DEFAULT_PKEY 0xFFFF
 
-#define INFINIPATH_SERDC0_RESET_MASK  0xfULL	
-#define INFINIPATH_SERDC0_RESET_PLL   0x10000000ULL	
+/* kr_serdesconfig0 bits */
+#define INFINIPATH_SERDC0_RESET_MASK  0xfULL	/* overal reset bits */
+#define INFINIPATH_SERDC0_RESET_PLL   0x10000000ULL	/* pll reset */
+/* tx idle enables (per lane) */
 #define INFINIPATH_SERDC0_TXIDLE      0xF000ULL
+/* rx detect enables (per lane) */
 #define INFINIPATH_SERDC0_RXDETECT_EN 0xF0000ULL
+/* L1 Power down; use with RXDETECT, Otherwise not used on IB side */
 #define INFINIPATH_SERDC0_L1PWR_DN	 0xF0ULL
 
+/* common kr_xgxsconfig bits (or safe in all, even if not implemented) */
 #define INFINIPATH_XGXS_RX_POL_SHIFT 19
 #define INFINIPATH_XGXS_RX_POL_MASK 0xfULL
 
 
+/*
+ * IPATH_PIO_MAXIBHDR is the max IB header size allowed for in our
+ * PIO send buffers.  This is well beyond anything currently
+ * defined in the InfiniBand spec.
+ */
 #define IPATH_PIO_MAXIBHDR 128
 
 typedef u64 ipath_err_t;
 
+/* The following change with the type of device, so
+ * need to be part of the ipath_devdata struct, or
+ * we could have problems plugging in devices of
+ * different types (e.g. one HT, one PCIE)
+ * in one system, to be managed by one driver.
+ * On the other hand, this file is may also be included
+ * by other code, so leave the declarations here
+ * temporarily. Minor footprint issue if common-model
+ * linker used, none if C89+ linker used.
+ */
 
+/* mask of defined bits for various registers */
 extern u64 infinipath_i_bitsextant;
 extern ipath_err_t infinipath_e_bitsextant, infinipath_hwe_bitsextant;
 
+/* masks that are different in various chips, or only exist in some chips */
 extern u32 infinipath_i_rcvavail_mask, infinipath_i_rcvurg_mask;
 
-typedef const u16 ipath_kreg,	
- ipath_creg,			
- ipath_sreg;			
+/*
+ * These are the infinipath general register numbers (not offsets).
+ * The kernel registers are used directly, those beyond the kernel
+ * registers are calculated from one of the base registers.  The use of
+ * an integer type doesn't allow type-checking as thorough as, say,
+ * an enum but allows for better hiding of chip differences.
+ */
+typedef const u16 ipath_kreg,	/* infinipath general registers */
+ ipath_creg,			/* infinipath counter registers */
+ ipath_sreg;			/* kernel-only, infinipath send registers */
 
 /*
  * These are the chip registers common to all infinipath chips, and
@@ -287,7 +358,7 @@ typedef const u16 ipath_kreg,
  * complexity).  The rest are all accessed as 64 bits.
  */
 struct ipath_kregs {
-	
+	/* These are the 32 bit group */
 	ipath_kreg kr_control;
 	ipath_kreg kr_counterregbase;
 	ipath_kreg kr_intmask;
@@ -305,7 +376,7 @@ struct ipath_kregs {
 	ipath_kreg kr_sendpiosize;
 	ipath_kreg kr_sendregbase;
 	ipath_kreg kr_userregbase;
-	
+	/* These are the 64 bit group */
 	ipath_kreg kr_debugport;
 	ipath_kreg kr_debugportselect;
 	ipath_kreg kr_errorclear;
@@ -347,9 +418,13 @@ struct ipath_kregs {
 	ipath_kreg kr_txintmemsize;
 	ipath_kreg kr_xgxsconfig;
 	ipath_kreg kr_ibpllcfg;
+	/* use these two (and the following N ports) only with
+	 * ipath_k*_kreg64_port(); not *kreg64() */
 	ipath_kreg kr_rcvhdraddr;
 	ipath_kreg kr_rcvhdrtailaddr;
 
+	/* remaining registers are not present on all types of infinipath
+	   chips  */
 	ipath_kreg kr_rcvpktledcnt;
 	ipath_kreg kr_pcierbuftestreg0;
 	ipath_kreg kr_pcierbuftestreg1;
@@ -364,7 +439,7 @@ struct ipath_kregs {
 	ipath_kreg kr_ibcddrstatus;
 	ipath_kreg kr_jintreload;
 
-	
+	/* send dma related regs */
 	ipath_kreg kr_senddmabase;
 	ipath_kreg kr_senddmalengen;
 	ipath_kreg kr_senddmatail;
@@ -375,7 +450,7 @@ struct ipath_kregs {
 	ipath_kreg kr_senddmabufmask2;
 	ipath_kreg kr_senddmastatus;
 
-	
+	/* SerDes related regs (IBA7220-only) */
 	ipath_kreg kr_ibserdesctrl;
 	ipath_kreg kr_ib_epbacc;
 	ipath_kreg kr_ib_epbtrans;
@@ -434,4 +509,4 @@ struct ipath_cregs {
 	ipath_creg cr_psxmitwaitcount;
 };
 
-#endif				
+#endif				/* _IPATH_REGISTERS_H */

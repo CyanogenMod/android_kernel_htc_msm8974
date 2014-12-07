@@ -11,12 +11,19 @@
 #include <linux/export.h>
 #include <linux/of.h>
 
+/*
+ * This is a thin library to solve the problem of how to portably allocate
+ * one of the TC blocks.  For simplicity, it doesn't currently expect to
+ * share individual timers between different drivers.
+ */
 
 #if defined(CONFIG_AVR32)
+/* AVR32 has these divide PBB */
 const u8 atmel_tc_divisors[5] = { 0, 4, 8, 16, 32, };
 EXPORT_SYMBOL(atmel_tc_divisors);
 
 #elif defined(CONFIG_ARCH_AT91)
+/* AT91 has these divide MCK */
 const u8 atmel_tc_divisors[5] = { 2, 8, 32, 128, 0, };
 EXPORT_SYMBOL(atmel_tc_divisors);
 
@@ -25,6 +32,15 @@ EXPORT_SYMBOL(atmel_tc_divisors);
 static DEFINE_SPINLOCK(tc_list_lock);
 static LIST_HEAD(tc_list);
 
+/**
+ * atmel_tc_alloc - allocate a specified TC block
+ * @block: which block to allocate
+ * @name: name to be associated with the iomem resource
+ *
+ * Caller allocates a block.  If it is available, a pointer to a
+ * pre-initialized struct atmel_tc is returned. The caller can access
+ * the registers directly through the "regs" field.
+ */
 struct atmel_tc *atmel_tc_alloc(unsigned block, const char *name)
 {
 	struct atmel_tc		*tc;
@@ -76,6 +92,14 @@ fail:
 }
 EXPORT_SYMBOL_GPL(atmel_tc_alloc);
 
+/**
+ * atmel_tc_free - release a specified TC block
+ * @tc: Timer/counter block that was returned by atmel_tc_alloc()
+ *
+ * This reverses the effect of atmel_tc_alloc(), unmapping the I/O
+ * registers, invalidating the resource returned by that routine and
+ * making the TC available to other drivers.
+ */
 void atmel_tc_free(struct atmel_tc *tc)
 {
 	spin_lock(&tc_list_lock);
@@ -106,7 +130,7 @@ static const struct of_device_id atmel_tcb_dt_ids[] = {
 		.compatible = "atmel,at91sam9x5-tcb",
 		.data = &tcb_sam9x5_config,
 	}, {
-		
+		/* sentinel */
 	}
 };
 
@@ -138,7 +162,7 @@ static int __init tc_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	
+	/* Now take SoC information if available */
 	if (pdev->dev.of_node) {
 		const struct of_device_id *match;
 		match = of_match_node(atmel_tcb_dt_ids, pdev->dev.of_node);

@@ -1,3 +1,6 @@
+/*
+ * Platform data definitions.
+ */
 #ifndef __ASM_ARCH_BOARD_H
 #define __ASM_ARCH_BOARD_H
 
@@ -8,8 +11,16 @@
 
 #define GPIO_PIN_NONE	(-1)
 
+/*
+ * Clock rates for various on-board oscillators. The number of entries
+ * in this array is chip-dependent.
+ */
 extern unsigned long at32_board_osc_rates[];
 
+/*
+ * This used to add essential system devices, but this is now done
+ * automatically. Please don't use it in new board code.
+ */
 static inline void __deprecated at32_add_system_devices(void)
 {
 
@@ -18,16 +29,17 @@ static inline void __deprecated at32_add_system_devices(void)
 #define ATMEL_MAX_UART	4
 extern struct platform_device *atmel_default_console_device;
 
+/* Flags for selecting USART extra pins */
 #define	ATMEL_USART_RTS		0x01
 #define	ATMEL_USART_CTS		0x02
 #define	ATMEL_USART_CLK		0x04
 
 struct atmel_uart_data {
-	int		num;		
-	short		use_dma_tx;	
-	short		use_dma_rx;	
-	void __iomem	*regs;		
-	struct serial_rs485	rs485;		
+	int		num;		/* port num */
+	short		use_dma_tx;	/* use transmit DMA? */
+	short		use_dma_rx;	/* use receive DMA? */
+	void __iomem	*regs;		/* virtual base address, if any */
+	struct serial_rs485	rs485;		/* rs485 settings */
 };
 void at32_map_usart(unsigned int hw_id, unsigned int line, int flags);
 struct platform_device *at32_add_device_usart(unsigned int id);
@@ -57,8 +69,10 @@ struct platform_device *
 at32_add_device_ide(unsigned int id, unsigned int extint,
 		    struct ide_platform_data *data);
 
+/* mask says which PWM channels to mux */
 struct platform_device *at32_add_device_pwm(u32 mask);
 
+/* depending on what's hooked up, not all SSC pins will be used */
 #define	ATMEL_SSC_TK		0x01
 #define	ATMEL_SSC_TF		0x02
 #define	ATMEL_SSC_TD		0x04
@@ -106,4 +120,4 @@ at32_add_device_cf(unsigned int id, unsigned int extint,
 struct platform_device *
 at32_add_device_nand(unsigned int id, struct atmel_nand_data *data);
 
-#endif 
+#endif /* __ASM_ARCH_BOARD_H */

@@ -215,7 +215,7 @@ static int read_eraseblock(int ebnum)
 	loff_t addr = ebnum * mtd->erasesize;
 
 	err = mtd_read(mtd, addr, mtd->erasesize, &read, iobuf);
-	
+	/* Ignore corrected ECC errors */
 	if (mtd_is_bitflip(err))
 		err = 0;
 	if (err || read != mtd->erasesize) {
@@ -236,7 +236,7 @@ static int read_eraseblock_by_page(int ebnum)
 
 	for (i = 0; i < pgcnt; i++) {
 		err = mtd_read(mtd, addr, pgsize, &read, buf);
-		
+		/* Ignore corrected ECC errors */
 		if (mtd_is_bitflip(err))
 			err = 0;
 		if (err || read != pgsize) {
@@ -262,7 +262,7 @@ static int read_eraseblock_by_2pages(int ebnum)
 
 	for (i = 0; i < n; i++) {
 		err = mtd_read(mtd, addr, sz, &read, buf);
-		
+		/* Ignore corrected ECC errors */
 		if (mtd_is_bitflip(err))
 			err = 0;
 		if (err || read != sz) {
@@ -277,7 +277,7 @@ static int read_eraseblock_by_2pages(int ebnum)
 	}
 	if (pgcnt % 2) {
 		err = mtd_read(mtd, addr, pgsize, &read, buf);
-		
+		/* Ignore corrected ECC errors */
 		if (mtd_is_bitflip(err))
 			err = 0;
 		if (err || read != pgsize) {
@@ -418,7 +418,7 @@ static int __init mtd_speedtest_init(void)
 	if (err)
 		goto out;
 
-	
+	/* Write all eraseblocks, 1 eraseblock at a time */
 	printk(PRINT_PREF "testing eraseblock write speed\n");
 	start_timing();
 	for (i = 0; i < ebcnt; ++i) {
@@ -433,7 +433,7 @@ static int __init mtd_speedtest_init(void)
 	speed = calc_speed();
 	printk(PRINT_PREF "eraseblock write speed is %ld KiB/s\n", speed);
 
-	
+	/* Read all eraseblocks, 1 eraseblock at a time */
 	printk(PRINT_PREF "testing eraseblock read speed\n");
 	start_timing();
 	for (i = 0; i < ebcnt; ++i) {
@@ -452,7 +452,7 @@ static int __init mtd_speedtest_init(void)
 	if (err)
 		goto out;
 
-	
+	/* Write all eraseblocks, 1 page at a time */
 	printk(PRINT_PREF "testing page write speed\n");
 	start_timing();
 	for (i = 0; i < ebcnt; ++i) {
@@ -467,7 +467,7 @@ static int __init mtd_speedtest_init(void)
 	speed = calc_speed();
 	printk(PRINT_PREF "page write speed is %ld KiB/s\n", speed);
 
-	
+	/* Read all eraseblocks, 1 page at a time */
 	printk(PRINT_PREF "testing page read speed\n");
 	start_timing();
 	for (i = 0; i < ebcnt; ++i) {
@@ -486,7 +486,7 @@ static int __init mtd_speedtest_init(void)
 	if (err)
 		goto out;
 
-	
+	/* Write all eraseblocks, 2 pages at a time */
 	printk(PRINT_PREF "testing 2 page write speed\n");
 	start_timing();
 	for (i = 0; i < ebcnt; ++i) {
@@ -501,7 +501,7 @@ static int __init mtd_speedtest_init(void)
 	speed = calc_speed();
 	printk(PRINT_PREF "2 page write speed is %ld KiB/s\n", speed);
 
-	
+	/* Read all eraseblocks, 2 pages at a time */
 	printk(PRINT_PREF "testing 2 page read speed\n");
 	start_timing();
 	for (i = 0; i < ebcnt; ++i) {
@@ -516,7 +516,7 @@ static int __init mtd_speedtest_init(void)
 	speed = calc_speed();
 	printk(PRINT_PREF "2 page read speed is %ld KiB/s\n", speed);
 
-	
+	/* Erase all eraseblocks */
 	printk(PRINT_PREF "Testing erase speed\n");
 	start_timing();
 	for (i = 0; i < ebcnt; ++i) {
@@ -531,7 +531,7 @@ static int __init mtd_speedtest_init(void)
 	speed = calc_speed();
 	printk(PRINT_PREF "erase speed is %ld KiB/s\n", speed);
 
-	
+	/* Multi-block erase all eraseblocks */
 	for (k = 1; k < 7; k++) {
 		blocks = 1 << k;
 		printk(PRINT_PREF "Testing %dx multi-block erase speed\n",

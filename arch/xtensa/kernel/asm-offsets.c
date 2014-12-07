@@ -27,7 +27,7 @@
 
 int main(void)
 {
-	
+	/* struct pt_regs */
 	DEFINE(PT_PC, offsetof (struct pt_regs, pc));
 	DEFINE(PT_PS, offsetof (struct pt_regs, ps));
 	DEFINE(PT_DEPC, offsetof (struct pt_regs, depc));
@@ -66,7 +66,7 @@ int main(void)
 	DEFINE(PT_XTREGS_OPT, offsetof(struct pt_regs, xtregs_opt));
 	DEFINE(XTREGS_OPT_SIZE, sizeof(xtregs_opt_t));
 
-	
+	/* struct task_struct */
 	DEFINE(TASK_PTRACE, offsetof (struct task_struct, ptrace));
 	DEFINE(TASK_MM, offsetof (struct task_struct, mm));
 	DEFINE(TASK_ACTIVE_MM, offsetof (struct task_struct, active_mm));
@@ -75,7 +75,7 @@ int main(void)
 	DEFINE(TASK_THREAD_INFO, offsetof (struct task_struct, stack));
 	DEFINE(TASK_STRUCT_SIZE, sizeof (struct task_struct));
 
-	
+	/* struct thread_info (offset from start_struct) */
 	DEFINE(THREAD_RA, offsetof (struct task_struct, thread.ra));
 	DEFINE(THREAD_SP, offsetof (struct task_struct, thread.sp));
 	DEFINE(THREAD_CPENABLE, offsetof (struct thread_info, cpenable));
@@ -93,15 +93,15 @@ int main(void)
 	DEFINE(XTREGS_USER_SIZE, sizeof(xtregs_user_t));
 	DEFINE(THREAD_CURRENT_DS, offsetof (struct task_struct, thread.current_ds));
 
-	
+	/* struct mm_struct */
 	DEFINE(MM_USERS, offsetof(struct mm_struct, mm_users));
 	DEFINE(MM_PGD, offsetof (struct mm_struct, pgd));
 	DEFINE(MM_CONTEXT, offsetof (struct mm_struct, context));
 
-	
+	/* struct page */
 	DEFINE(PAGE_FLAGS, offsetof(struct page, flags));
 
-	
+	/* constants */
 	DEFINE(_CLONE_VM, CLONE_VM);
 	DEFINE(_CLONE_UNTRACED, CLONE_UNTRACED);
 	DEFINE(PG_ARCH_1, PG_arch_1);

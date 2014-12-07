@@ -17,7 +17,7 @@ struct nfs_net {
 	struct list_head nfs_client_list;
 	struct list_head nfs_volume_list;
 #ifdef CONFIG_NFS_V4
-	struct idr cb_ident_idr; 
+	struct idr cb_ident_idr; /* Protected by nfs_client_lock */
 #endif
 	spinlock_t nfs_client_lock;
 };

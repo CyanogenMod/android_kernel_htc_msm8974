@@ -54,7 +54,7 @@ static floatx80 (*const dyadic_extended[16])(struct roundingData*, floatx80 rFn,
 	[RDF_CODE >> 20] = floatx80_rdv,
 	[RMF_CODE >> 20] = floatx80_rem,
 
-	
+	/* strictly, these opcodes should not be implemented */
 	[FML_CODE >> 20] = floatx80_mul,
 	[FDV_CODE >> 20] = floatx80_div,
 	[FRD_CODE >> 20] = floatx80_rdv,

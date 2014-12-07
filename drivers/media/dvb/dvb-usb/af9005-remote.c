@@ -24,6 +24,7 @@
  * see Documentation/dvb/README.dvb-usb for more information
  */
 #include "af9005.h"
+/* debug */
 static int dvb_usb_af9005_remote_debug;
 module_param_named(debug, dvb_usb_af9005_remote_debug, int, 0644);
 MODULE_PARM_DESC(debug,
@@ -51,7 +52,7 @@ struct rc_map_table rc_map_af9005_table[] = {
 	{0x0107, KEY_9},
 	{0x01cf, KEY_ZOOM},
 	{0x014f, KEY_0},
-	{0x018f, KEY_GOTO},	
+	{0x018f, KEY_GOTO},	/* marked jump on the remote */
 
 	{0x00bd, KEY_POWER},
 	{0x007d, KEY_VOLUMEUP},
@@ -70,7 +71,7 @@ struct rc_map_table rc_map_af9005_table[] = {
 	{0x00f5, KEY_9},
 	{0x0095, KEY_ZOOM},
 	{0x0055, KEY_0},
-	{0x00d5, KEY_GOTO},	
+	{0x00d5, KEY_GOTO},	/* marked jump on the remote */
 };
 
 int rc_map_af9005_table_size = ARRAY_SIZE(rc_map_af9005_table);
@@ -105,7 +106,7 @@ int af9005_rc_decode(struct dvb_usb_device *d, u8 * data, int len, u32 * event,
 			}
 			deb_decode("repeated key ignored (non repeatable)\n");
 			return 0;
-		} else if (len >= 33 * 4) {	
+		} else if (len >= 33 * 4) {	/*32 bits + start code */
 			result = 0;
 			for (i = 4; i < 4 + 32 * 4; i += 4) {
 				result <<= 1;

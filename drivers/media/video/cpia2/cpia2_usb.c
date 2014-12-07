@@ -36,14 +36,14 @@
 #include "cpia2.h"
 
 static int frame_sizes[] = {
-	0,	
-	0, 	
-	128, 	
-	384, 	
-	640, 	
-	768, 	
-	896, 	
-	1023, 	
+	0,	// USBIF_CMDONLY
+	0, 	// USBIF_BULK
+	128, 	// USBIF_ISO_1
+	384, 	// USBIF_ISO_2
+	640, 	// USBIF_ISO_3
+	768, 	// USBIF_ISO_4
+	896, 	// USBIF_ISO_5
+	1023, 	// USBIF_ISO_6
 };
 
 #define FRAMES_PER_DESC    10
@@ -65,8 +65,8 @@ static int configure_transfer_mode(struct camera_data *cam, unsigned int alt);
 static struct usb_device_id cpia2_id_table[] = {
 	{USB_DEVICE(0x0553, 0x0100)},
 	{USB_DEVICE(0x0553, 0x0140)},
-	{USB_DEVICE(0x0553, 0x0151)},  
-	{}			
+	{USB_DEVICE(0x0553, 0x0151)},  /* STV0676 */
+	{}			/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, cpia2_id_table);
 
@@ -78,6 +78,11 @@ static struct usb_driver cpia2_driver = {
 };
 
 
+/******************************************************************************
+ *
+ *  process_frame
+ *
+ *****************************************************************************/
 static void process_frame(struct camera_data *cam)
 {
 	static int frame_count;
@@ -98,7 +103,12 @@ static void process_frame(struct camera_data *cam)
 		return;
 	}
 
+	/***
+	 * Now the output buffer should have a JPEG image in it.
+	 ***/
 	if(!cam->first_image_seen) {
+		/* Always skip the first image after streaming
+		 * starts. It is almost certainly corrupt. */
 		cam->first_image_seen = 1;
 		cam->workbuff->status = FRAME_EMPTY;
 		return;
@@ -106,7 +116,7 @@ static void process_frame(struct camera_data *cam)
 	if (cam->workbuff->length > 3) {
 		if(cam->mmapped &&
 		   cam->workbuff->length < cam->workbuff->max_length) {
-			
+			/* No junk in the buffers */
 			memset(cam->workbuff->data+cam->workbuff->length,
 			       0, cam->workbuff->max_length-
 				  cam->workbuff->length);
@@ -115,6 +125,22 @@ static void process_frame(struct camera_data *cam)
 		cam->workbuff->status = FRAME_READY;
 
 		if(!cam->mmapped && cam->num_frames > 2) {
+			/* During normal reading, the most recent
+			 * frame will be read.  If the current frame
+			 * hasn't started reading yet, it will never
+			 * be read, so mark it empty.  If the buffer is
+			 * mmapped, or we have few buffers, we need to
+			 * wait for the user to free the buffer.
+			 *
+			 * NOTE: This is not entirely foolproof with 3
+			 * buffers, but it would take an EXTREMELY
+			 * overloaded system to cause problems (possible
+			 * image data corruption).  Basically, it would
+			 * need to take more time to execute cpia2_read
+			 * than it would for the camera to send
+			 * cam->num_frames-2 frames before problems
+			 * could occur.
+			 */
 			cam->curbuff->status = FRAME_EMPTY;
 		}
 		cam->curbuff = cam->workbuff;
@@ -130,6 +156,12 @@ static void process_frame(struct camera_data *cam)
 	return;
 }
 
+/******************************************************************************
+ *
+ *  add_APPn
+ *
+ *  Adds a user specified APPn record
+ *****************************************************************************/
 static void add_APPn(struct camera_data *cam)
 {
 	if(cam->APP_len > 0) {
@@ -143,6 +175,12 @@ static void add_APPn(struct camera_data *cam)
 	}
 }
 
+/******************************************************************************
+ *
+ *  add_COM
+ *
+ *  Adds a user specified COM record
+ *****************************************************************************/
 static void add_COM(struct camera_data *cam)
 {
 	if(cam->COM_len > 0) {
@@ -156,6 +194,12 @@ static void add_COM(struct camera_data *cam)
 	}
 }
 
+/******************************************************************************
+ *
+ *  cpia2_usb_complete
+ *
+ *  callback when incoming packet is received
+ *****************************************************************************/
 static void cpia2_usb_complete(struct urb *urb)
 {
 	int i;
@@ -181,7 +225,10 @@ static void cpia2_usb_complete(struct urb *urb)
 		return;
 	}
 
-	
+	/***
+	 * Packet collater
+	 ***/
+	//DBG("Collating %d packets\n", urb->number_of_packets);
 	for (i = 0; i < urb->number_of_packets; i++) {
 		u16 checksum, iso_checksum;
 		int j;
@@ -190,7 +237,7 @@ static void cpia2_usb_complete(struct urb *urb)
 
 		if(cam->workbuff->status == FRAME_READY) {
 			struct framebuf *ptr;
-			
+			/* Try to find an available buffer */
 			DBG("workbuff full, searching\n");
 			for (ptr = cam->workbuff->next;
 			     ptr != cam->workbuff;
@@ -203,7 +250,7 @@ static void cpia2_usb_complete(struct urb *urb)
 				}
 			}
 			if (ptr == cam->workbuff)
-				break; 
+				break; /* No READING or EMPTY buffers left */
 
 			cam->workbuff = ptr;
 		}
@@ -214,7 +261,7 @@ static void cpia2_usb_complete(struct urb *urb)
 			cam->workbuff->length = 0;
 		}
 
-		
+		//DBG("   Packet %d length = %d, status = %d\n", i, n, st);
 		cdata = urb->transfer_buffer + urb->iso_frame_desc[i].offset;
 
 		if (st) {
@@ -246,6 +293,8 @@ static void cpia2_usb_complete(struct urb *urb)
 			if((0xFF == cdata[0] && 0xD8 == cdata[1]) ||
 			   (0xD8 == cdata[0] && 0xFF == cdata[1] &&
 			    0 != cdata[2])) {
+				/* frame is skipped, but increment total
+				 * frame count anyway */
 				cam->frame_count++;
 			}
 			DBG("workbuff not reading, status=%d\n",
@@ -316,13 +365,18 @@ static void cpia2_usb_complete(struct urb *urb)
 	}
 
 	if(cam->streaming) {
-		
+		/* resubmit */
 		urb->dev = cam->dev;
 		if ((i = usb_submit_urb(urb, GFP_ATOMIC)) != 0)
 			ERR("%s: usb_submit_urb ret %d!\n", __func__, i);
 	}
 }
 
+/******************************************************************************
+ *
+ * configure_transfer_mode
+ *
+ *****************************************************************************/
 static int configure_transfer_mode(struct camera_data *cam, unsigned int alt)
 {
 	static unsigned char iso_regs[8][4] = {
@@ -341,6 +395,9 @@ static int configure_transfer_mode(struct camera_data *cam, unsigned int alt)
 	if(!cam->present)
 		return -ENODEV;
 
+	/***
+	 * Write the isoc registers according to the alternate selected
+	 ***/
 	cmd.direction = TRANSFER_WRITE;
 	cmd.buffer.block_data[0] = iso_regs[alt][0];
 	cmd.buffer.block_data[1] = iso_regs[alt][1];
@@ -351,6 +408,10 @@ static int configure_transfer_mode(struct camera_data *cam, unsigned int alt)
 	cmd.reg_count = 4;
 	cpia2_send_command(cam, &cmd);
 
+	/***
+	 * Enable relevant streams before starting polling.
+	 * First read USB Stream Config Register.
+	 ***/
 	cmd.direction = TRANSFER_READ;
 	cmd.req_mode = CAMERAACCESS_TYPE_BLOCK | CAMERAACCESS_VC;
 	cmd.start = CPIA2_VC_USB_STRM;
@@ -358,14 +419,14 @@ static int configure_transfer_mode(struct camera_data *cam, unsigned int alt)
 	cpia2_send_command(cam, &cmd);
 	reg = cmd.buffer.block_data[0];
 
-	
+	/* Clear iso, bulk, and int */
 	reg &= ~(CPIA2_VC_USB_STRM_BLK_ENABLE |
 		 CPIA2_VC_USB_STRM_ISO_ENABLE |
 		 CPIA2_VC_USB_STRM_INT_ENABLE);
 
 	if (alt == USBIF_BULK) {
 		DBG("Enabling bulk xfer\n");
-		reg |= CPIA2_VC_USB_STRM_BLK_ENABLE;	
+		reg |= CPIA2_VC_USB_STRM_BLK_ENABLE;	/* Enable Bulk */
 		cam->xfer_mode = XFER_BULK;
 	} else if (alt >= USBIF_ISO_1) {
 		DBG("Enabling ISOC xfer\n");
@@ -383,6 +444,11 @@ static int configure_transfer_mode(struct camera_data *cam, unsigned int alt)
 	return 0;
 }
 
+/******************************************************************************
+ *
+ * cpia2_usb_change_streaming_alternate
+ *
+ *****************************************************************************/
 int cpia2_usb_change_streaming_alternate(struct camera_data *cam,
 					 unsigned int alt)
 {
@@ -400,7 +466,7 @@ int cpia2_usb_change_streaming_alternate(struct camera_data *cam,
 
 	cam->params.camera_state.stream_mode = alt;
 
-	
+	/* Reset the camera to prevent image quality degradation */
 	cpia2_reset_camera(cam);
 
 	cpia2_usb_stream_resume(cam);
@@ -408,6 +474,11 @@ int cpia2_usb_change_streaming_alternate(struct camera_data *cam,
 	return ret;
 }
 
+/******************************************************************************
+ *
+ * set_alternate
+ *
+ *****************************************************************************/
 static int set_alternate(struct camera_data *cam, unsigned int alt)
 {
 	int ret = 0;
@@ -434,6 +505,14 @@ static int set_alternate(struct camera_data *cam, unsigned int alt)
 	return ret;
 }
 
+/******************************************************************************
+ *
+ * free_sbufs
+ *
+ * Free all cam->sbuf[]. All non-NULL .data and .urb members that are non-NULL
+ * are assumed to be allocated. Non-NULL .urb members are also assumed to be
+ * submitted (and must therefore be killed before they are freed).
+ *****************************************************************************/
 static void free_sbufs(struct camera_data *cam)
 {
 	int i;
@@ -451,6 +530,14 @@ static void free_sbufs(struct camera_data *cam)
 	}
 }
 
+/*******
+* Convenience functions
+*******/
+/****************************************************************************
+ *
+ *  write_packet
+ *
+ ***************************************************************************/
 static int write_packet(struct usb_device *udev,
 			u8 request, u8 * registers, u16 start, size_t size)
 {
@@ -461,13 +548,18 @@ static int write_packet(struct usb_device *udev,
 			       usb_sndctrlpipe(udev, 0),
 			       request,
 			       USB_TYPE_VENDOR | USB_RECIP_DEVICE,
-			       start,	
-			       0,	
-			       registers,	
+			       start,	/* value */
+			       0,	/* index */
+			       registers,	/* buffer */
 			       size,
 			       HZ);
 }
 
+/****************************************************************************
+ *
+ *  read_packet
+ *
+ ***************************************************************************/
 static int read_packet(struct usb_device *udev,
 		       u8 request, u8 * registers, u16 start, size_t size)
 {
@@ -478,13 +570,18 @@ static int read_packet(struct usb_device *udev,
 			       usb_rcvctrlpipe(udev, 0),
 			       request,
 			       USB_DIR_IN|USB_TYPE_VENDOR|USB_RECIP_DEVICE,
-			       start,	
-			       0,	
-			       registers,	
+			       start,	/* value */
+			       0,	/* index */
+			       registers,	/* buffer */
 			       size,
 			       HZ);
 }
 
+/******************************************************************************
+ *
+ *  cpia2_usb_transfer_cmd
+ *
+ *****************************************************************************/
 int cpia2_usb_transfer_cmd(struct camera_data *cam,
 			   void *registers,
 			   u8 request, u8 start, u8 count, u8 direction)
@@ -528,6 +625,11 @@ int cpia2_usb_transfer_cmd(struct camera_data *cam,
 }
 
 
+/******************************************************************************
+ *
+ *  submit_urbs
+ *
+ *****************************************************************************/
 static int submit_urbs(struct camera_data *cam)
 {
 	struct urb *urb;
@@ -547,6 +649,9 @@ static int submit_urbs(struct camera_data *cam)
 		}
 	}
 
+	/* We double buffer the Isoc lists, and also know the polling
+	 * interval is every frame (1 == (1 << (bInterval -1))).
+	 */
 	for(i=0; i<NUM_SBUF; ++i) {
 		if(cam->sbuf[i].urb) {
 			continue;
@@ -562,7 +667,7 @@ static int submit_urbs(struct camera_data *cam)
 		cam->sbuf[i].urb = urb;
 		urb->dev = cam->dev;
 		urb->context = cam;
-		urb->pipe = usb_rcvisocpipe(cam->dev, 1 );
+		urb->pipe = usb_rcvisocpipe(cam->dev, 1 /*ISOC endpoint*/);
 		urb->transfer_flags = URB_ISO_ASAP;
 		urb->transfer_buffer = cam->sbuf[i].data;
 		urb->complete = cpia2_usb_complete;
@@ -579,7 +684,7 @@ static int submit_urbs(struct camera_data *cam)
 	}
 
 
-	
+	/* Queue the ISO urbs, and resubmit in the completion handler */
 	for(i=0; i<NUM_SBUF; ++i) {
 		err = usb_submit_urb(cam->sbuf[i].urb, GFP_KERNEL);
 		if (err) {
@@ -591,6 +696,11 @@ static int submit_urbs(struct camera_data *cam)
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  cpia2_usb_stream_start
+ *
+ *****************************************************************************/
 int cpia2_usb_stream_start(struct camera_data *cam, unsigned int alternate)
 {
 	int ret;
@@ -633,6 +743,11 @@ int cpia2_usb_stream_start(struct camera_data *cam, unsigned int alternate)
 	return ret;
 }
 
+/******************************************************************************
+ *
+ *  cpia2_usb_stream_pause
+ *
+ *****************************************************************************/
 int cpia2_usb_stream_pause(struct camera_data *cam)
 {
 	int ret = 0;
@@ -643,6 +758,11 @@ int cpia2_usb_stream_pause(struct camera_data *cam)
 	return ret;
 }
 
+/******************************************************************************
+ *
+ *  cpia2_usb_stream_resume
+ *
+ *****************************************************************************/
 int cpia2_usb_stream_resume(struct camera_data *cam)
 {
 	int ret = 0;
@@ -656,6 +776,11 @@ int cpia2_usb_stream_resume(struct camera_data *cam)
 	return ret;
 }
 
+/******************************************************************************
+ *
+ *  cpia2_usb_stream_stop
+ *
+ *****************************************************************************/
 int cpia2_usb_stream_stop(struct camera_data *cam)
 {
 	int ret;
@@ -665,6 +790,12 @@ int cpia2_usb_stream_stop(struct camera_data *cam)
 	return ret;
 }
 
+/******************************************************************************
+ *
+ *  cpia2_usb_probe
+ *
+ *  Probe and initialize.
+ *****************************************************************************/
 static int cpia2_usb_probe(struct usb_interface *intf,
 			   const struct usb_device_id *id)
 {
@@ -673,12 +804,12 @@ static int cpia2_usb_probe(struct usb_interface *intf,
 	struct camera_data *cam;
 	int ret;
 
-	
+	/* A multi-config CPiA2 camera? */
 	if (udev->descriptor.bNumConfigurations != 1)
 		return -ENODEV;
 	interface = &intf->cur_altsetting->desc;
 
-	
+	/* If we get to this point, we found a CPiA2 camera */
 	LOG("CPiA2 USB camera found\n");
 
 	if((cam = cpia2_init_camera_struct()) == NULL)
@@ -725,6 +856,11 @@ static int cpia2_usb_probe(struct usb_interface *intf,
 	return 0;
 }
 
+/******************************************************************************
+ *
+ *  cpia2_disconnect
+ *
+ *****************************************************************************/
 static void cpia2_usb_disconnect(struct usb_interface *intf)
 {
 	struct camera_data *cam = usb_get_intfdata(intf);
@@ -757,11 +893,21 @@ static void cpia2_usb_disconnect(struct usb_interface *intf)
 }
 
 
+/******************************************************************************
+ *
+ *  usb_cpia2_init
+ *
+ *****************************************************************************/
 int cpia2_usb_init(void)
 {
 	return usb_register(&cpia2_driver);
 }
 
+/******************************************************************************
+ *
+ *  usb_cpia_cleanup
+ *
+ *****************************************************************************/
 void cpia2_usb_cleanup(void)
 {
 	schedule_timeout(2 * HZ);

@@ -1,9 +1,18 @@
 /*
+ * sound/oss/sequencer.c
+ *
+ * The sequencer personality manager.
+ */
+/*
  * Copyright (C) by Hannu Savolainen 1993-1997
  *
  * OSS/Free for Linux is distributed under the GNU GENERAL PUBLIC LICENSE (GPL)
  * Version 2 (June 1991). See the "COPYING" file distributed with this software
  * for more info.
+ */
+/*
+ * Thomas Sailer   : ioctl code reworked (vmalloc/vfree removed)
+ * Alan Cox	   : reformatted and fixed a pair of null pointer bugs
  */
 #include <linux/kmod.h>
 #include <linux/spinlock.h>
@@ -13,16 +22,25 @@
 
 static int      sequencer_ok;
 static struct sound_timer_operations *tmr;
-static int      tmr_no = -1;	
-static int      pending_timer = -1;	
+static int      tmr_no = -1;	/* Currently selected timer */
+static int      pending_timer = -1;	/* For timer change operation */
 extern unsigned long seq_time;
 
 static int      obsolete_api_used;
 static DEFINE_SPINLOCK(lock);
 
+/*
+ * Local counts for number of synth and MIDI devices. These are initialized
+ * by the sequencer_open.
+ */
 static int      max_mididev;
 static int      max_synthdev;
 
+/*
+ * The seq_mode gives the operating mode of the sequencer:
+ *      1 = level1 (the default)
+ *      2 = level2 (extended capabilities)
+ */
 
 #define SEQ_1	1
 #define SEQ_2	2
@@ -110,12 +128,18 @@ int sequencer_read(int dev, struct file *file, char __user *buf, int count)
 
 static void sequencer_midi_output(int dev)
 {
+	/*
+	 * Currently NOP
+	 */
 }
 
 void seq_copy_to_input(unsigned char *event_rec, int len)
 {
 	unsigned long flags;
 
+	/*
+	 * Verify that the len is valid for the current mode.
+	 */
 
 	if (len != 4 && len != 8)
 		return;
@@ -123,7 +147,7 @@ void seq_copy_to_input(unsigned char *event_rec, int len)
 		return;
 
 	if (iqlen >= (SEQ_MAX_QUEUE - 1))
-		return;		
+		return;		/* Overflow */
 
 	spin_lock_irqsave(&lock,flags);
 	memcpy(&iqueue[iqtail * IEV_SZ], event_rec, len);
@@ -139,7 +163,7 @@ static void sequencer_midi_input(int dev, unsigned char data)
 	unsigned int tstamp;
 	unsigned char event_rec[4];
 
-	if (data == 0xfe)	
+	if (data == 0xfe)	/* Ignore active sensing */
 		return;
 
 	tstamp = jiffies - seq_time;
@@ -265,7 +289,7 @@ int sequencer_write(int dev, struct file *file, const char __user *buf, int coun
 
 				if (dev >= max_mididev || midi_devs[dev]==NULL)
 				{
-					
+					/*printk("Sequencer Error: Nonexistent MIDI device %d\n", dev);*/
 					return -ENXIO;
 				}
 				mode = translate_mode(file);
@@ -305,17 +329,27 @@ out:
 static int seq_queue(unsigned char *note, char nonblock)
 {
 
+	/*
+	 * Test if there is space in the queue
+	 */
 
 	if (qlen >= SEQ_MAX_QUEUE)
 		if (!seq_playing)
-			seq_startplay();	
+			seq_startplay();	/*
+						 * Give chance to drain the queue
+						 */
 
 	if (!nonblock && qlen >= SEQ_MAX_QUEUE && !waitqueue_active(&seq_sleeper)) {
+		/*
+		 * Sleep until there is enough space on the queue
+		 */
 		interruptible_sleep_on(&seq_sleeper);
 	}
 	if (qlen >= SEQ_MAX_QUEUE)
 	{
-		return 0;	
+		return 0;	/*
+				 * To be sure
+				 */
 	}
 	memcpy(&queue[qtail * EV_SZ], note, EV_SZ);
 
@@ -439,12 +473,12 @@ static void seq_chn_voice_event(unsigned char *event_rec)
 	switch (cmd)
 	{
 		case MIDI_NOTEON:
-			if (note > 127 && note != 255)	
+			if (note > 127 && note != 255)	/* Not a seq2 feature */
 				return;
 
 			if (voice == -1 && seq_mode == SEQ_2 && synth_devs[dev]->alloc_voice)
 			{
-				
+				/* Internal synthesizer (FM, GUS, etc) */
 				voice = alloc_voice(dev, chn, note);
 			}
 			if (voice == -1)
@@ -452,6 +486,10 @@ static void seq_chn_voice_event(unsigned char *event_rec)
 
 			if (seq_mode == SEQ_2 && (int) dev < num_synths)
 			{
+				/*
+				 * The MIDI channel 10 is a percussive channel. Use the note
+				 * number to select the proper patch (128 to 255) to play.
+				 */
 
 				if (chn == 9)
 				{
@@ -492,7 +530,7 @@ static void seq_chn_common_event(unsigned char *event_rec)
 	unsigned char chn = event_rec[3];
 	unsigned char p1 = event_rec[4];
 
-	
+	/* unsigned char p2 = event_rec[5]; */
 	unsigned short w14 = *(short *) &event_rec[6];
 
 	if ((int) dev > max_synthdev || synth_devs[dev] == NULL)
@@ -524,7 +562,7 @@ static void seq_chn_common_event(unsigned char *event_rec)
 
 				synth_devs[dev]->chn_info[chn].controllers[p1] = w14 & 0x7f;
 
-				if (p1 < 32)	
+				if (p1 < 32)	/* Setting MSB should clear LSB to 0 */
 					synth_devs[dev]->chn_info[chn].controllers[p1 + 32] = 0;
 
 				if ((int) dev < num_synths)
@@ -532,7 +570,7 @@ static void seq_chn_common_event(unsigned char *event_rec)
 					int val = w14 & 0x7f;
 					int i, key;
 
-					if (p1 < 64)	
+					if (p1 < 64)	/* Combine MSB and LSB */
 					{
 						val = ((synth_devs[dev]->
 							chn_info[chn].controllers[p1 & ~32] & 0x7f) << 7)
@@ -540,7 +578,7 @@ static void seq_chn_common_event(unsigned char *event_rec)
 							chn_info[chn].controllers[p1 | 32] & 0x7f);
 						p1 &= ~32;
 					}
-					
+					/* Handle all playing notes on this channel */
 
 					key = ((int) chn << 8);
 
@@ -551,7 +589,7 @@ static void seq_chn_common_event(unsigned char *event_rec)
 				else
 					synth_devs[dev]->controller(dev, chn, p1, w14);
 			}
-			else	
+			else	/* Mode 1 */
 				synth_devs[dev]->controller(dev, chn, p1, w14);
 			break;
 
@@ -562,7 +600,7 @@ static void seq_chn_common_event(unsigned char *event_rec)
 
 				if ((int) dev < num_synths)
 				{
-					
+					/* Handle all playing notes on this channel */
 					int i, key;
 
 					key = (chn << 8);
@@ -574,7 +612,7 @@ static void seq_chn_common_event(unsigned char *event_rec)
 				else
 					synth_devs[dev]->bender(dev, chn, w14);
 			}
-			else	
+			else	/* MODE 1 */
 				synth_devs[dev]->bender(dev, chn, w14);
 			break;
 
@@ -601,6 +639,10 @@ static int seq_timing_event(unsigned char *event_rec)
 		case TMR_WAIT_REL:
 			parm += prev_event_time;
 
+			/*
+			 * NOTE!  No break here. Execution of TMR_WAIT_REL continues in the
+			 * next case (TMR_WAIT_ABS)
+			 */
 
 		case TMR_WAIT_ABS:
 			if (parm > 0)
@@ -690,6 +732,12 @@ static void seq_sysex_message(unsigned char *event_rec)
 
 static int play_event(unsigned char *q)
 {
+	/*
+	 * NOTE! This routine returns
+	 *   0 = normal event played.
+	 *   1 = Timer armed. Suspend playback until timer callback.
+	 *   2 = MIDI output buffer full. Restore queue and suspend until timer
+	 */
 	unsigned int *delay;
 
 	switch (q[0])
@@ -708,7 +756,10 @@ static int play_event(unsigned char *q)
 			break;
 
 		case SEQ_WAIT:
-			delay = (unsigned int *) q;	
+			delay = (unsigned int *) q;	/*
+							 * Bytes 1 to 3 are containing the *
+							 * delay in 'ticks'
+							 */
 			*delay = (*delay >> 8) & 0xffffff;
 
 			if (*delay > 0)
@@ -723,6 +774,10 @@ static int play_event(unsigned char *q)
 
 				if ((SEQ_MAX_QUEUE - qlen) >= output_threshold)
 					wake_up(&seq_sleeper);
+				/*
+				 * The timer is now active and will reinvoke this function
+				 * after the timer expires. Return to the caller now.
+				 */
 				return 1;
 			}
 			break;
@@ -733,13 +788,17 @@ static int play_event(unsigned char *q)
 					synth_devs[0]->set_instr(0, q[1], q[2]);
 			break;
 
-		case SEQ_SYNCTIMER: 	
+		case SEQ_SYNCTIMER: 	/*
+					 * Reset timer
+					 */
 			seq_time = jiffies;
 			prev_input_time = 0;
 			prev_event_time = 0;
 			break;
 
-		case SEQ_MIDIPUTC:	
+		case SEQ_MIDIPUTC:	/*
+					 * Put a midi character
+					 */
 			if (midi_opened[q[2]])
 			{
 				int dev;
@@ -751,6 +810,9 @@ static int play_event(unsigned char *q)
 
 				if (!midi_devs[dev]->outputc(dev, q[1]))
 				{
+					/*
+					 * Output FIFO is full. Wait one timer cycle and try again.
+					 */
 
 					seq_playing = 1;
 					request_sound_timer(-1);
@@ -762,7 +824,9 @@ static int play_event(unsigned char *q)
 			break;
 
 		case SEQ_ECHO:
-			seq_copy_to_input(q, 4);	
+			seq_copy_to_input(q, 4);	/*
+							 * Echo back to the process
+							 */
 			break;
 
 		case SEQ_PRIVATE:
@@ -802,6 +866,7 @@ static int play_event(unsigned char *q)
 	return 0;
 }
 
+/* called also as timer in irq context */
 static void seq_startplay(void)
 {
 	int this_one, action;
@@ -818,7 +883,7 @@ static void seq_startplay(void)
 		seq_playing = 1;
 
 		if ((action = play_event(&queue[this_one * EV_SZ])))
-		{		
+		{		/* Suspend playback. Next timer routine invokes this routine again */
 			if (action == 2)
 			{
 				qlen++;
@@ -867,7 +932,7 @@ static void setup_mode2(void)
 			synth_devs[dev]->chn_info[chn].pgm_num = 0;
 			reset_controllers(dev,
 				synth_devs[dev]->chn_info[chn].controllers,0);
-			synth_devs[dev]->chn_info[chn].bender_value = (1 << 7);	
+			synth_devs[dev]->chn_info[chn].bender_value = (1 << 7);	/* Neutral */
 			synth_devs[dev]->chn_info[chn].bender_range = 200;
 		}
 	}
@@ -892,9 +957,10 @@ int sequencer_open(int dev, struct file *file)
 
 	if (!sequencer_ok)
 	{
+/*		printk("Sound card: sequencer not initialized\n");*/
 		return -ENXIO;
 	}
-	if (dev)		
+	if (dev)		/* Patch manager device (obsolete) */
 		return -ENXIO;
 
 	if(synth_devs[dev] == NULL)
@@ -904,7 +970,7 @@ int sequencer_open(int dev, struct file *file)
 	{
 		if (!num_midis)
 		{
-			
+			/*printk("Sequencer: No MIDI devices. Input not possible\n");*/
 			sequencer_busy = 0;
 			return -ENXIO;
 		}
@@ -926,7 +992,7 @@ int sequencer_open(int dev, struct file *file)
 		tmr_no = pending_timer;
 		pending_timer = -1;
 	}
-	if (tmr_no == -1)	
+	if (tmr_no == -1)	/* Not selected yet */
 	{
 		int i, best;
 
@@ -937,7 +1003,7 @@ int sequencer_open(int dev, struct file *file)
 				tmr_no = i;
 				best = sound_timer_devs[i]->priority;
 			}
-		if (tmr_no == -1)	
+		if (tmr_no == -1)	/* Should not be */
 			tmr_no = 0;
 	}
 	tmr = sound_timer_devs[tmr_no];
@@ -946,7 +1012,7 @@ int sequencer_open(int dev, struct file *file)
 	{
 		if (tmr == NULL)
 		{
-			
+			/*printk("sequencer: No timer for level 2\n");*/
 			sequencer_busy = 0;
 			return -ENXIO;
 		}
@@ -995,6 +1061,9 @@ int sequencer_open(int dev, struct file *file)
 
 	if (seq_mode == SEQ_1 && (mode == OPEN_READ || mode == OPEN_READWRITE))
 	{
+		/*
+		 * Initialize midi input devices
+		 */
 
 		for (i = 0; i < max_mididev; i++)
 			if (!midi_opened[i] && midi_devs[i])
@@ -1026,6 +1095,9 @@ static void seq_drain_midi_queues(void)
 {
 	int i, n;
 
+	/*
+	 * Give the Midi drivers time to drain their output queues
+	 */
 
 	n = 1;
 
@@ -1039,6 +1111,9 @@ static void seq_drain_midi_queues(void)
 					if (midi_devs[i]->buffer_status(i))
 						n++;
 
+		/*
+		 * Let's have a delay
+		 */
 
  		if (n)
  			interruptible_sleep_on_timeout(&seq_sleeper,
@@ -1055,6 +1130,9 @@ void sequencer_release(int dev, struct file *file)
 
 	DEB(printk("sequencer_release(dev=%d)\n", dev));
 
+	/*
+	 * Wait until the queue is empty (if we don't have nonblock)
+	 */
 
 	if (mode != OPEN_READ && !(file->f_flags & O_NONBLOCK))
 	{
@@ -1063,19 +1141,25 @@ void sequencer_release(int dev, struct file *file)
   			seq_sync();
  			interruptible_sleep_on_timeout(&seq_sleeper,
 						       3*HZ);
- 			
+ 			/* Extra delay */
 		}
 	}
 
 	if (mode != OPEN_READ)
-		seq_drain_midi_queues();	
+		seq_drain_midi_queues();	/*
+						 * Ensure the output queues are empty
+						 */
 	seq_reset();
 	if (mode != OPEN_READ)
-		seq_drain_midi_queues();	
+		seq_drain_midi_queues();	/*
+						 * Flush the all notes off messages
+						 */
 
 	for (i = 0; i < max_synthdev; i++)
 	{
-		if (synth_open_mask & (1 << i))	
+		if (synth_open_mask & (1 << i))	/*
+						 * Actually opened
+						 */
 			if (synth_devs[i])
 			{
 				synth_devs[i]->close(i);
@@ -1117,12 +1201,20 @@ static int seq_sync(void)
 
 static void midi_outc(int dev, unsigned char data)
 {
+	/*
+	 * NOTE! Calls sleep(). Don't call this from interrupt.
+	 */
 
 	int n;
 	unsigned long flags;
 
+	/*
+	 * This routine sends one byte to the Midi channel.
+	 * If the output FIFO is full, it waits until there
+	 * is space in the queue
+	 */
 
-	n = 3 * HZ;		
+	n = 3 * HZ;		/* Timeout */
 
 	spin_lock_irqsave(&lock,flags);
  	while (n && !midi_devs[dev]->outputc(dev, data)) {
@@ -1134,6 +1226,9 @@ static void midi_outc(int dev, unsigned char data)
 
 static void seq_reset(void)
 {
+	/*
+	 * NOTE! Calls sleep(). Don't call this from interrupt.
+	 */
 
 	int i;
 	int chn;
@@ -1160,23 +1255,30 @@ static void seq_reset(void)
 				if (synth_open_mask & (1 << i))
 					if (synth_devs[i])
 					{
-						synth_devs[i]->controller(i, chn, 123, 0);	
-						synth_devs[i]->controller(i, chn, 121, 0);	
-						synth_devs[i]->bender(i, chn, 1 << 13);	
+						synth_devs[i]->controller(i, chn, 123, 0);	/* All notes off */
+						synth_devs[i]->controller(i, chn, 121, 0);	/* Reset all ctl */
+						synth_devs[i]->bender(i, chn, 1 << 13);	/* Bender off */
 					}
 	}
-	else	
+	else	/* seq_mode == SEQ_1 */
 	{
 		for (i = 0; i < max_mididev; i++)
-			if (midi_written[i])	
+			if (midi_written[i])	/*
+						 * Midi used. Some notes may still be playing
+						 */
 			{
+				/*
+				 *      Sending just a ACTIVE SENSING message should be enough to stop all
+				 *      playing notes. Since there are devices not recognizing the
+				 *      active sensing, we have to send some all notes off messages also.
+				 */
 				midi_outc(i, 0xfe);
 
 				for (chn = 0; chn < 16; chn++)
 				{
-					midi_outc(i, (unsigned char) (0xb0 + (chn & 0x0f)));		
-					midi_outc(i, 0x7b);	
-					midi_outc(i, 0);	
+					midi_outc(i, (unsigned char) (0xb0 + (chn & 0x0f)));		/* control change */
+					midi_outc(i, 0x7b);	/* All notes off */
+					midi_outc(i, 0);	/* Dummy parameter */
 				}
 
 				midi_devs[i]->close(i);
@@ -1191,7 +1293,7 @@ static void seq_reset(void)
 	spin_lock_irqsave(&lock,flags);
 
 	if (waitqueue_active(&seq_sleeper)) {
-		
+		/*      printk( "Sequencer Warning: Unexpected sleeping process - Waking up\n"); */
 		wake_up(&seq_sleeper);
 	}
 	spin_unlock_irqrestore(&lock,flags);
@@ -1199,10 +1301,23 @@ static void seq_reset(void)
 
 static void seq_panic(void)
 {
+	/*
+	 * This routine is called by the application in case the user
+	 * wants to reset the system to the default state.
+	 */
 
 	seq_reset();
 
+	/*
+	 * Since some of the devices don't recognize the active sensing and
+	 * all notes off messages, we have to shut all notes manually.
+	 *
+	 *      TO BE IMPLEMENTED LATER
+	 */
 
+	/*
+	 * Also return the controllers to their default states
+	 */
 }
 
 int sequencer_ioctl(int dev, struct file *file, unsigned int cmd, void __user *arg)
@@ -1289,6 +1404,9 @@ int sequencer_ioctl(int dev, struct file *file, unsigned int cmd, void __user *a
 			break;
 
 		case SNDCTL_SEQ_CTRLRATE:
+			/*
+			 * If *arg == 0, just return the current rate
+			 */
 			if (seq_mode == SEQ_2)
 				return tmr->ioctl(tmr_no, cmd, arg);
 
@@ -1347,7 +1465,7 @@ int sequencer_ioctl(int dev, struct file *file, unsigned int cmd, void __user *a
 				return -EBUSY;
 			return synth_devs[dev]->ioctl(dev, cmd, arg);
 
-		
+		/* Like SYNTH_INFO but returns ID in the name field */
 		case SNDCTL_SYNTH_ID:
 			if (get_user(dev, &((struct synth_info __user *)arg)->device))
 				return -EFAULT;
@@ -1409,6 +1527,7 @@ int sequencer_ioctl(int dev, struct file *file, unsigned int cmd, void __user *a
 	return put_user(val, p);
 }
 
+/* No kernel lock - we're using the global irq lock here */
 unsigned int sequencer_poll(int dev, struct file *file, poll_table * wait)
 {
 	unsigned long flags;
@@ -1417,12 +1536,12 @@ unsigned int sequencer_poll(int dev, struct file *file, poll_table * wait)
 	dev = dev >> 4;
 
 	spin_lock_irqsave(&lock,flags);
-	
+	/* input */
 	poll_wait(file, &midi_sleeper, wait);
 	if (iqlen)
 		mask |= POLLIN | POLLRDNORM;
 
-	
+	/* output */
 	poll_wait(file, &seq_sleeper, wait);
 	if ((SEQ_MAX_QUEUE - qlen) >= output_threshold)
 		mask |= POLLOUT | POLLWRNORM;
@@ -1440,6 +1559,9 @@ EXPORT_SYMBOL(sequencer_timer);
 int note_to_freq(int note_num)
 {
 
+	/*
+	 * This routine converts a midi note to a frequency (multiplied by 1000)
+	 */
 
 	int note, octave, note_freq;
 	static int notes[] =
@@ -1460,6 +1582,9 @@ int note_to_freq(int note_num)
 	else if (octave > BASE_OCTAVE)
 		note_freq <<= (octave - BASE_OCTAVE);
 
+	/*
+	 * note_freq >>= 1;
+	 */
 
 	return note_freq;
 }
@@ -1482,7 +1607,7 @@ unsigned long compute_finetune(unsigned long base_freq, int bend, int range,
 	if (range >= 8192)
 		range = 8192;
 
-	bend = bend * range / 8192;	
+	bend = bend * range / 8192;	/* Convert to cents */
 	bend += vibrato_cents;
 
 	if (!bend)
@@ -1495,6 +1620,10 @@ unsigned long compute_finetune(unsigned long base_freq, int bend, int range,
 	if (bend > range)
 		bend = range;
 
+	/*
+	   if (bend > 2399)
+	   bend = 2399;
+	 */
 	while (bend > 2399)
 	{
 		multiplier *= 4;
@@ -1507,9 +1636,9 @@ unsigned long compute_finetune(unsigned long base_freq, int bend, int range,
 	amount = (int) (semitone_tuning[semitones] * multiplier * cent_tuning[cents]) / 10000;
 
 	if (negative)
-		return (base_freq * 10000) / amount;	
+		return (base_freq * 10000) / amount;	/* Bend down */
 	else
-		return (base_freq * amount) / 10000;	
+		return (base_freq * amount) / 10000;	/* Bend up */
 }
 EXPORT_SYMBOL(compute_finetune);
 

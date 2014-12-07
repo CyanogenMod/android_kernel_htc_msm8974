@@ -43,16 +43,21 @@
 #include "rmi_function.h"
 #include "rmi_f01.h"
 
+/* Control register bits. */
 #define F01_CONFIGURED (1 << 7)
 #define NONSTANDARD_REPORT_RATE (1 << 6)
 
+/* Command register bits. */
 #define F01_RESET 1
 #define F01_SHUTDOWN (1 << 1)
 
+/* Data register 0 bits. */
 #define F01_UNCONFIGURED (1 << 7)
 #define F01_FLASH_PROGRAMMING_MODE (1 << 6)
 #define F01_STATUS_MASK 0x0F
 
+/** Context data for each F01 we find.
+ */
 struct f01_instance_data {
 	struct rmi_F01_control *controlRegisters;
 	struct rmi_F01_data *dataRegisters;
@@ -68,7 +73,7 @@ static ssize_t rmi_fn_01_productinfo_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(productinfo, 0444, rmi_fn_01_productinfo_show, rmi_fn_01_productinfo_store);     
+DEVICE_ATTR(productinfo, 0444, rmi_fn_01_productinfo_show, rmi_fn_01_productinfo_store);     /* RO attr */
 
 static ssize_t rmi_fn_01_productid_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
@@ -77,7 +82,7 @@ static ssize_t rmi_fn_01_productid_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(productid, 0444, rmi_fn_01_productid_show, rmi_fn_01_productid_store);     
+DEVICE_ATTR(productid, 0444, rmi_fn_01_productid_show, rmi_fn_01_productid_store);     /* RO attr */
 
 static ssize_t rmi_fn_01_manufacturer_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
@@ -86,7 +91,7 @@ static ssize_t rmi_fn_01_manufacturer_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(manufacturer, 0444, rmi_fn_01_manufacturer_show, rmi_fn_01_manufacturer_store);     
+DEVICE_ATTR(manufacturer, 0444, rmi_fn_01_manufacturer_show, rmi_fn_01_manufacturer_store);     /* RO attr */
 
 static ssize_t rmi_fn_01_datecode_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
@@ -95,7 +100,7 @@ static ssize_t rmi_fn_01_datecode_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(datecode, 0444, rmi_fn_01_datecode_show, rmi_fn_01_datecode_store);     
+DEVICE_ATTR(datecode, 0444, rmi_fn_01_datecode_show, rmi_fn_01_datecode_store);     /* RO attr */
 
 static ssize_t rmi_fn_01_reportrate_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
@@ -104,7 +109,7 @@ static ssize_t rmi_fn_01_reportrate_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(reportrate, 0644, rmi_fn_01_reportrate_show, rmi_fn_01_reportrate_store);     
+DEVICE_ATTR(reportrate, 0644, rmi_fn_01_reportrate_show, rmi_fn_01_reportrate_store);     /* RW attr */
 
 static ssize_t rmi_fn_01_reset_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
@@ -113,7 +118,7 @@ static ssize_t rmi_fn_01_reset_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(reset, 0200, rmi_fn_01_reset_show, rmi_fn_01_reset_store);     
+DEVICE_ATTR(reset, 0200, rmi_fn_01_reset_show, rmi_fn_01_reset_store);     /* WO attr */
 
 static ssize_t rmi_fn_01_testerid_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
@@ -122,7 +127,7 @@ static ssize_t rmi_fn_01_testerid_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(testerid, 0444, rmi_fn_01_testerid_show, rmi_fn_01_testerid_store);     
+DEVICE_ATTR(testerid, 0444, rmi_fn_01_testerid_show, rmi_fn_01_testerid_store);     /* RO attr */
 
 static ssize_t rmi_fn_01_serialnumber_show(struct device *dev,
 				struct device_attribute *attr, char *buf);
@@ -131,7 +136,7 @@ static ssize_t rmi_fn_01_serialnumber_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count);
 
-DEVICE_ATTR(serialnumber, 0444, rmi_fn_01_serialnumber_show, rmi_fn_01_serialnumber_store);     
+DEVICE_ATTR(serialnumber, 0444, rmi_fn_01_serialnumber_show, rmi_fn_01_serialnumber_store);     /* RO attr */
 
 static int set_report_rate(struct rmi_function_info *function_info, bool nonstandard)
 {
@@ -142,6 +147,9 @@ static int set_report_rate(struct rmi_function_info *function_info, bool nonstan
 	}
 }
 
+/*.
+ * The interrupt handler for Fn $01 doesn't do anything (for now).
+ */
 void FN_01_inthandler(struct rmi_function_info *rmifninfo,
 	unsigned int assertedIRQs)
 {
@@ -158,14 +166,22 @@ void FN_01_inthandler(struct rmi_function_info *rmifninfo,
 
 	if (instanceData->dataRegisters->deviceStatus & F01_UNCONFIGURED) {
 		printk(KERN_INFO "%s: ++++ Device reset detected.", __func__);
+		/* TODO: Handle device reset appropriately.
+		*/
 	}
 }
 EXPORT_SYMBOL(FN_01_inthandler);
 
+/*
+ * This reads in the function $01 source data.
+ *
+ */
 void FN_01_attention(struct rmi_function_info *rmifninfo)
 {
 	struct f01_instance_data *instanceData = (struct f01_instance_data *) rmifninfo->fndata;
 
+	/* TODO: Compute size to read and number of IRQ registers to processors
+	* dynamically.  See comments in rmi.h. */
 	if (rmi_read_multiple(rmifninfo->sensor, rmifninfo->funcDescriptor.dataBaseAddr+1,
 		instanceData->dataRegisters->irqs, 1)) {
 		printk(KERN_ERR "%s : Could not read interrupt status registers at 0x%02x\n",
@@ -174,7 +190,8 @@ void FN_01_attention(struct rmi_function_info *rmifninfo)
 	}
 
 	if (instanceData->dataRegisters->irqs[0] & instanceData->controlRegisters->interruptEnable[0]) {
-		
+//		printk(KERN_INFO "%s: ++++ IRQs == 0x%02X", __func__, instanceData->dataRegisters->irqs[0]);
+		/* call down to the sensors irq dispatcher to dispatch all enabled IRQs */
 		rmifninfo->sensor->dispatchIRQs(rmifninfo->sensor,
 			instanceData->dataRegisters->irqs[0]);
 	}
@@ -189,11 +206,17 @@ int FN_01_config(struct rmi_function_info *rmifninfo)
 
 	printk(KERN_DEBUG "%s: RMI4 function $01 config\n", __func__);
 
+	/* First thing to do is set the configuration bit.  We'll check this at
+	 * the end to determine if the device has reset during the config process.
+	 */
 	retval = rmi_set_bits(rmifninfo->sensor, rmifninfo->funcDescriptor.controlBaseAddr, F01_CONFIGURED);
 	if (retval)
 		printk(KERN_WARNING "%s: failed to set configured bit, errno = %d.",
 				__func__, retval);
 
+	/* At config time, the device is presumably in its default state, so we
+	 * only need to write non-default configuration settings.
+	 */
 	if (instance_data->nonstandard_report_rate) {
 		retval = set_report_rate(rmifninfo, true);
 		if (!retval)
@@ -201,12 +224,15 @@ int FN_01_config(struct rmi_function_info *rmifninfo)
 					__func__, retval);
 	}
 
-	
+	/* TODO: Check for reset! */
 
 	return retval;
 }
 EXPORT_SYMBOL(FN_01_config);
 
+/* Initialize any function $01 specific params and settings - input
+ * settings, device settings, etc.
+ */
 int FN_01_init(struct rmi_function_device *function_device)
 {
 	int retval;
@@ -278,6 +304,8 @@ int FN_01_detect(struct rmi_function_info *rmifninfo,
 
 	pr_debug("%s: RMI4 function $01 detect\n", __func__);
 
+	/* Store addresses - used elsewhere to read data,
+	* control, query, etc. */
 	rmifninfo->funcDescriptor.queryBaseAddr = fndescr->queryBaseAddr;
 	rmifninfo->funcDescriptor.commandBaseAddr = fndescr->commandBaseAddr;
 	rmifninfo->funcDescriptor.controlBaseAddr = fndescr->controlBaseAddr;
@@ -287,7 +315,7 @@ int FN_01_detect(struct rmi_function_info *rmifninfo,
 
 	rmifninfo->numSources = fndescr->interruptSrcCnt;
 
-	
+	/* Set up context data. */
 	instanceData = kzalloc(sizeof(*instanceData), GFP_KERNEL);
 	if (!instanceData) {
 		printk(KERN_ERR "%s: Error allocating memory for F01 context data.\n", __func__);
@@ -302,13 +330,13 @@ int FN_01_detect(struct rmi_function_info *rmifninfo,
 	}
 	instanceData->query_registers = query_registers;
 
-	
+	/* Read the query info and unpack it. */
 	retval = rmi_read_multiple(rmifninfo->sensor, rmifninfo->funcDescriptor.queryBaseAddr,
 		query_buffer, 21);
 	if (retval) {
 		printk(KERN_ERR "%s : Could not read F01 query registers at 0x%02x. Error %d.\n",
 			__func__, rmifninfo->funcDescriptor.queryBaseAddr, retval);
-		
+		/* Presumably if the read fails, the buffer should be all zeros, so we're OK to continue. */
 	}
 	query_registers->mfgid = query_buffer[0];
 	query_registers->properties = query_buffer[1];
@@ -336,6 +364,8 @@ int FN_01_detect(struct rmi_function_info *rmifninfo,
 		__func__, query_registers->serial_num);
 	printk(KERN_DEBUG "%s: Product ID: %s\n", __func__, query_registers->prod_id);
 
+	/* TODO: size of control registers needs to be computed dynamically.  See comment
+	* in rmi.h. */
 	controlRegisters = kzalloc(sizeof(*controlRegisters), GFP_KERNEL);
 	if (!controlRegisters) {
 		printk(KERN_ERR "%s: Error allocating memory for F01 control registers.\n", __func__);
@@ -350,6 +380,8 @@ int FN_01_detect(struct rmi_function_info *rmifninfo,
 			__func__, rmifninfo->funcDescriptor.controlBaseAddr, retval);
 	}
 
+	/* TODO: size of data registers needs to be computed dynamically.  See comment
+	 * in rmi.h. */
 	dataRegisters = kzalloc(sizeof(*dataRegisters), GFP_KERNEL);
 	if (!dataRegisters) {
 		printk(KERN_ERR "%s: Error allocating memory for F01 data registers.\n", __func__);
@@ -359,8 +391,12 @@ int FN_01_detect(struct rmi_function_info *rmifninfo,
 	instanceData->dataRegisters = dataRegisters;
 	rmifninfo->fndata = instanceData;
 
+	/* Need to get interrupt info to be used later when handling
+	 * interrupts. */
 	rmifninfo->interruptRegister = interruptCount/8;
 
+	/* loop through interrupts for each source and or in a bit
+	 * to the interrupt mask for each. */
 	InterruptOffset = interruptCount % 8;
 
 	for (i = InterruptOffset;
@@ -516,7 +552,7 @@ static ssize_t rmi_fn_01_reset_store(struct device *dev,
 	if (reset < 0 || reset > 1)
 		return -EINVAL;
 
-	
+	/* Per spec, 0 has no effect, so we skip it entirely. */
 	if (reset) {
 		retval = rmi_set_bits(fn->sensor, fn->rfi->funcDescriptor.commandBaseAddr, F01_RESET);
 		if (retval < 0) {

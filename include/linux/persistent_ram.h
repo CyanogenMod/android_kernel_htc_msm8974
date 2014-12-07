@@ -48,7 +48,7 @@ struct persistent_ram_zone {
 	struct persistent_ram_buffer *buffer;
 	size_t buffer_size;
 
-	
+	/* ECC correction */
 	bool ecc;
 	char *par_buffer;
 	char *par_header;

@@ -65,15 +65,15 @@ static const struct zd_ioreq16 zd1211b_ioreqs_shared_1[] = {
 };
 
 static const struct zd_ioreq16 ioreqs_init_al2230s[] = {
-	{ ZD_CR47,   0x1e }, 
+	{ ZD_CR47,   0x1e }, /* MARK_002 */
 	{ ZD_CR106,  0x22 },
-	{ ZD_CR107,  0x2a }, 
-	{ ZD_CR109,  0x13 }, 
-	{ ZD_CR118,  0xf8 }, 
+	{ ZD_CR107,  0x2a }, /* MARK_002 */
+	{ ZD_CR109,  0x13 }, /* MARK_002 */
+	{ ZD_CR118,  0xf8 }, /* MARK_002 */
 	{ ZD_CR119,  0x12 }, { ZD_CR122,  0xe0 },
-	{ ZD_CR128,  0x10 }, 
-	{ ZD_CR129,  0x0e }, 
-	{ ZD_CR130,  0x10 }, 
+	{ ZD_CR128,  0x10 }, /* MARK_001 from 0xe->0x10 */
+	{ ZD_CR129,  0x0e }, /* MARK_001 from 0xd->0x0e */
+	{ ZD_CR130,  0x10 }, /* MARK_001 from 0xb->0x0d */
 };
 
 static int zd1211b_al2230_finalize_rf(struct zd_chip *chip)
@@ -92,7 +92,7 @@ static int zd1211b_al2230_finalize_rf(struct zd_chip *chip)
 	if (r)
 		return r;
 
-	
+	/* related to antenna selection? */
 	if (chip->new_phy_layout) {
 		r = zd_iowrite16_locked(chip, 0xe1, ZD_CR9);
 		if (r)
@@ -113,13 +113,13 @@ static int zd1211_al2230_init_hw(struct zd_rf *rf)
 		{ ZD_CR44,   0x33 }, { ZD_CR106,  0x2a }, { ZD_CR107, 0x1a },
 		{ ZD_CR109,  0x09 }, { ZD_CR110,  0x27 }, { ZD_CR111, 0x2b },
 		{ ZD_CR112,  0x2b }, { ZD_CR119,  0x0a }, { ZD_CR10,  0x89 },
-		
+		/* for newest (3rd cut) AL2300 */
 		{ ZD_CR17,   0x28 },
 		{ ZD_CR26,   0x93 }, { ZD_CR34,   0x30 },
-		
+		/* for newest (3rd cut) AL2300 */
 		{ ZD_CR35,   0x3e },
 		{ ZD_CR41,   0x24 }, { ZD_CR44,   0x32 },
-		
+		/* for newest (3rd cut) AL2300 */
 		{ ZD_CR46,   0x96 },
 		{ ZD_CR47,   0x1e }, { ZD_CR79,   0x58 }, { ZD_CR80,  0x30 },
 		{ ZD_CR81,   0x30 }, { ZD_CR87,   0x0a }, { ZD_CR89,  0x04 },
@@ -128,7 +128,7 @@ static int zd1211_al2230_init_hw(struct zd_rf *rf)
 		{ ZD_CR107,  0x2a }, { ZD_CR109,  0x09 }, { ZD_CR110, 0x13 },
 		{ ZD_CR111,  0x1f }, { ZD_CR112,  0x1f }, { ZD_CR113, 0x27 },
 		{ ZD_CR114,  0x27 },
-		
+		/* for newest (3rd cut) AL2300 */
 		{ ZD_CR115,  0x24 },
 		{ ZD_CR116,  0x24 }, { ZD_CR117,  0xf4 }, { ZD_CR118, 0xfc },
 		{ ZD_CR119,  0x10 }, { ZD_CR120,  0x4f }, { ZD_CR121, 0x77 },
@@ -137,15 +137,15 @@ static int zd1211_al2230_init_hw(struct zd_rf *rf)
 	};
 
 	static const struct zd_ioreq16 ioreqs_pll[] = {
-		
+		/* shdnb(PLL_ON)=0 */
 		{ ZD_CR251,  0x2f },
-		
+		/* shdnb(PLL_ON)=1 */
 		{ ZD_CR251,  0x3f },
 		{ ZD_CR138,  0x28 }, { ZD_CR203,  0x06 },
 	};
 
 	static const u32 rv1[] = {
-		
+		/* Channel 1 */
 		0x03f790,
 		0x033331,
 		0x00000d,
@@ -157,11 +157,11 @@ static int zd1211_al2230_init_hw(struct zd_rf *rf)
 
 	static const u32 rv2[] = {
 		0x000da4,
-		0x0f4dc5, 
+		0x0f4dc5, /* fix freq shift, 0x04edc5 */
 		0x0805b6,
 		0x011687,
 		0x000688,
-		0x0403b9, 
+		0x0403b9, /* external control TX power (ZD_CR31) */
 		0x00dbba,
 		0x00099b,
 		0x0bdffc,
@@ -192,7 +192,7 @@ static int zd1211_al2230_init_hw(struct zd_rf *rf)
 	if (r)
 		return r;
 
-	
+	/* improve band edge for AL2230S */
 	if (IS_AL2230S(chip))
 		r = zd_rfwrite_locked(chip, 0x000824, RF_RV_BITS);
 	else
@@ -222,17 +222,17 @@ static int zd1211b_al2230_init_hw(struct zd_rf *rf)
 
 	static const struct zd_ioreq16 ioreqs1[] = {
 		{ ZD_CR10,  0x89 }, { ZD_CR15,  0x20 },
-		{ ZD_CR17,  0x2B }, 
+		{ ZD_CR17,  0x2B }, /* for newest(3rd cut) AL2230 */
 		{ ZD_CR23,  0x40 }, { ZD_CR24,  0x20 }, { ZD_CR26,  0x93 },
 		{ ZD_CR28,  0x3e }, { ZD_CR29,  0x00 },
-		{ ZD_CR33,  0x28 }, 
+		{ ZD_CR33,  0x28 }, /* 5621 */
 		{ ZD_CR34,  0x30 },
-		{ ZD_CR35,  0x3e }, 
+		{ ZD_CR35,  0x3e }, /* for newest(3rd cut) AL2230 */
 		{ ZD_CR41,  0x24 }, { ZD_CR44,  0x32 },
-		{ ZD_CR46,  0x99 }, 
+		{ ZD_CR46,  0x99 }, /* for newest(3rd cut) AL2230 */
 		{ ZD_CR47,  0x1e },
 
-		
+		/* ZD1211B 05.06.10 */
 		{ ZD_CR48,  0x06 }, { ZD_CR49,  0xf9 }, { ZD_CR51,  0x01 },
 		{ ZD_CR52,  0x80 }, { ZD_CR53,  0x7e }, { ZD_CR65,  0x00 },
 		{ ZD_CR66,  0x00 }, { ZD_CR67,  0x00 }, { ZD_CR68,  0x00 },
@@ -240,32 +240,34 @@ static int zd1211b_al2230_init_hw(struct zd_rf *rf)
 
 		{ ZD_CR79,  0x58 }, { ZD_CR80,  0x30 }, { ZD_CR81,  0x30 },
 		{ ZD_CR87,  0x0a }, { ZD_CR89,  0x04 },
-		{ ZD_CR91,  0x00 }, 
+		{ ZD_CR91,  0x00 }, /* 5621 */
 		{ ZD_CR92,  0x0a },
-		{ ZD_CR98,  0x8d }, 
-		{ ZD_CR99,  0x00 }, 
+		{ ZD_CR98,  0x8d }, /* 4804,  for 1212 new algorithm */
+		{ ZD_CR99,  0x00 }, /* 5621 */
 		{ ZD_CR101, 0x13 }, { ZD_CR102, 0x27 },
-		{ ZD_CR106, 0x24 }, 
+		{ ZD_CR106, 0x24 }, /* for newest(3rd cut) AL2230 */
 		{ ZD_CR107, 0x2a },
-		{ ZD_CR109, 0x13 }, 
-		{ ZD_CR110, 0x1f }, 
+		{ ZD_CR109, 0x13 }, /* 4804, for 1212 new algorithm */
+		{ ZD_CR110, 0x1f }, /* 4804, for 1212 new algorithm */
 		{ ZD_CR111, 0x1f }, { ZD_CR112, 0x1f }, { ZD_CR113, 0x27 },
 		{ ZD_CR114, 0x27 },
-		{ ZD_CR115, 0x26 }, 
+		{ ZD_CR115, 0x26 }, /* 24->26 at 4902 for newest(3rd cut)
+				     * AL2230
+				     */
 		{ ZD_CR116, 0x24 },
-		{ ZD_CR117, 0xfa }, 
-		{ ZD_CR118, 0xfa }, 
+		{ ZD_CR117, 0xfa }, /* for 1211b */
+		{ ZD_CR118, 0xfa }, /* for 1211b */
 		{ ZD_CR119, 0x10 },
 		{ ZD_CR120, 0x4f },
-		{ ZD_CR121, 0x6c }, 
-		{ ZD_CR122, 0xfc }, 
-		{ ZD_CR123, 0x57 }, 
-		{ ZD_CR125, 0xad }, 
-		{ ZD_CR126, 0x6c }, 
-		{ ZD_CR127, 0x03 }, 
-		{ ZD_CR137, 0x50 }, 
+		{ ZD_CR121, 0x6c }, /* for 1211b */
+		{ ZD_CR122, 0xfc }, /* E0->FC at 4902 */
+		{ ZD_CR123, 0x57 }, /* 5623 */
+		{ ZD_CR125, 0xad }, /* 4804, for 1212 new algorithm */
+		{ ZD_CR126, 0x6c }, /* 5614 */
+		{ ZD_CR127, 0x03 }, /* 4804, for 1212 new algorithm */
+		{ ZD_CR137, 0x50 }, /* 5614 */
 		{ ZD_CR138, 0xa8 },
-		{ ZD_CR144, 0xac }, 
+		{ ZD_CR144, 0xac }, /* 5621 */
 		{ ZD_CR150, 0x0d }, { ZD_CR252, 0x34 }, { ZD_CR253, 0x34 },
 	};
 
@@ -277,37 +279,37 @@ static int zd1211b_al2230_init_hw(struct zd_rf *rf)
 	};
 
 	static const u32 rv2[] = {
-		
+		/* To improve AL2230 yield, improve phase noise, 4713 */
 		0x25a000,
 		0xa3b2f0,
 
-		0x6da010, 
-		0xe36280, 
+		0x6da010, /* Reg6 update for MP versio */
+		0xe36280, /* Modified by jxiao for Bor-Chin on 2004/08/02 */
 		0x116000,
-		0x9dc020, 
-		0x5ddb00, 
-		0xd99000, 
-		0x3ffbd0, 
-		0xb00000, 
+		0x9dc020, /* External control TX power (ZD_CR31) */
+		0x5ddb00, /* RegA update for MP version */
+		0xd99000, /* RegB update for MP version */
+		0x3ffbd0, /* RegC update for MP version */
+		0xb00000, /* RegD update for MP version */
 
-		
+		/* improve phase noise and remove phase calibration,4713 */
 		0xf01a00,
 	};
 
 	static const struct zd_ioreq16 ioreqs2[] = {
-		{ ZD_CR251, 0x2f }, 
-		{ ZD_CR251, 0x7f }, 
+		{ ZD_CR251, 0x2f }, /* shdnb(PLL_ON)=0 */
+		{ ZD_CR251, 0x7f }, /* shdnb(PLL_ON)=1 */
 	};
 
 	static const u32 rv3[] = {
-		
+		/* To improve AL2230 yield, 4713 */
 		0xf01b00,
 		0xf01e00,
 		0xf01a00,
 	};
 
 	static const struct zd_ioreq16 ioreqs3[] = {
-		
+		/* related to 6M band edge patching, happens unconditionally */
 		{ ZD_CR128, 0x14 }, { ZD_CR129, 0x12 }, { ZD_CR130, 0x10 },
 	};
 

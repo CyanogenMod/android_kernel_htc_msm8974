@@ -26,6 +26,7 @@
 #define TW_BASE_ADDR				0x28
 #define TW_CHIP_OFFSET_ADDR(n)			(TW_BASE_ADDR + (n))
 
+/* tw2815 */
 #define TW_AV_STAT_ADDR				0x5a
 #define TW_HUE_ADDR(n)				(0x07 | ((n) << 4))
 #define TW_SATURATION_ADDR(n)			(0x08 | ((n) << 4))
@@ -34,6 +35,7 @@
 #define TW_AUDIO_OUTPUT_VOL_ADDR		0x70
 #define TW_AUDIO_INPUT_GAIN_ADDR(n)		(0x60 + ((n > 1) ? 1 : 0))
 
+/* tw286x */
 #define TW286X_AV_STAT_ADDR			0xfd
 #define TW286x_HUE_ADDR(n)			(0x06 | ((n) << 4))
 #define TW286x_SATURATIONU_ADDR(n)		(0x04 | ((n) << 4))
@@ -58,4 +60,4 @@ unsigned int tw2815_get_audio_status(struct SOLO *solo);
 void tw2815_Set_AudioOutVol(struct SOLO *solo, unsigned int u_val);
 #endif
 
-#endif 
+#endif /* __SOLO6X10_TW28_H */

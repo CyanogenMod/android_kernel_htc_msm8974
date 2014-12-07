@@ -142,41 +142,47 @@ struct pm8xxx_mpp_init {
 			PM_GPIO_STRENGTH_HIGH, \
 			PM_GPIO_FUNC_NORMAL, 0, 0)
 
+/* GPIO and MPP configurations for MSM8930 + PM8038 targets */
 
+/* Initial PM8038 GPIO configurations */
 static struct pm8xxx_gpio_init pm8038_gpios[] __initdata = {
-	
+	/* keys GPIOs */
 	PM8038_GPIO_INPUT(3, PM_GPIO_PULL_UP_30),
 	PM8038_GPIO_INPUT(8, PM_GPIO_PULL_UP_30),
 	PM8038_GPIO_INPUT(10, PM_GPIO_PULL_UP_30),
 	PM8038_GPIO_INPUT(11, PM_GPIO_PULL_UP_30),
-	
+	/* haptics gpio */
 	PM8038_GPIO_OUTPUT_FUNC(7, 0, PM_GPIO_FUNC_1),
-	
+	/* MHL PWR EN */
 	PM8038_GPIO_OUTPUT_VIN(5, 1, PM8038_GPIO_VIN_VPH),
 };
 
+/* Initial PM8038 MPP configurations */
 static struct pm8xxx_mpp_init pm8038_mpps[] __initdata = {
 };
 
+/* GPIO and MPP configurations for MSM8930 + PM8917 targets */
 
+/* Initial PM8917 GPIO configurations */
 static struct pm8xxx_gpio_init pm8917_gpios[] __initdata = {
-	
+	/* Backlight enable control */
 	PM8917_GPIO_OUTPUT(24, 1),
-	
+	/* keys GPIOs */
 	PM8917_GPIO_INPUT(27, PM_GPIO_PULL_UP_30),
 	PM8917_GPIO_INPUT(28, PM_GPIO_PULL_UP_30),
 	PM8917_GPIO_INPUT(36, PM_GPIO_PULL_UP_30),
 	PM8917_GPIO_INPUT(37, PM_GPIO_PULL_UP_30),
-	
+	/* haptics gpio */
 	PM8917_GPIO_OUTPUT_FUNC(38, 0, PM_GPIO_FUNC_2),
-	
+	/* MHL PWR EN */
 	PM8917_GPIO_OUTPUT_VIN(25, 1, PM_GPIO_VIN_VPH),
 };
 
+/* Initial PM8917 MPP configurations */
 static struct pm8xxx_mpp_init pm8917_mpps[] __initdata = {
 	PM8917_MPP_INIT(PM8XXX_AMUX_MPP_3, A_INPUT,
 				PM8XXX_MPP_AIN_AMUX_CH8, DIN_TO_INT),
-	
+	/* Configure MPP01 for USB ID detection */
 	PM8917_MPP_INIT(1, D_INPUT, PM8921_MPP_DIG_LEVEL_S4, DIN_TO_INT),
 };
 
@@ -193,7 +199,7 @@ void __init msm8930_pm8038_gpio_mpp_init(void)
 		}
 	}
 
-	
+	/* Initial MPP configuration. */
 	for (i = 0; i < ARRAY_SIZE(pm8038_mpps); i++) {
 		rc = pm8xxx_mpp_config(pm8038_mpps[i].mpp,
 					&pm8038_mpps[i].config);
@@ -217,7 +223,7 @@ void __init msm8930_pm8917_gpio_mpp_init(void)
 		}
 	}
 
-	
+	/* Initial MPP configuration. */
 	for (i = 0; i < ARRAY_SIZE(pm8917_mpps); i++) {
 		rc = pm8xxx_mpp_config(pm8917_mpps[i].mpp,
 					&pm8917_mpps[i].config);
@@ -264,7 +270,7 @@ static struct pm8xxx_adc_amux pm8038_adc_channels_data[] = {
 };
 
 static struct pm8xxx_adc_properties pm8038_adc_data = {
-	.adc_vdd_reference	= 1800, 
+	.adc_vdd_reference	= 1800, /* milli-voltage for this adc */
 	.bitresolution		= 15,
 	.bipolar                = 0,
 };
@@ -380,6 +386,11 @@ static int pm8038_led0_pwm_duty_pcts[56] = {
 		14, 10, 6, 4, 1
 };
 
+/*
+ * Note: There is a bug in LPG module that results in incorrect
+ * behavior of pattern when LUT index 0 is used. So effectively
+ * there are 63 usable LUT entries.
+ */
 static struct pm8xxx_pwm_duty_cycles pm8038_led0_pwm_duty_cycles = {
 	.duty_pcts = (int *)&pm8038_led0_pwm_duty_pcts,
 	.num_duty_pcts = ARRAY_SIZE(pm8038_led0_pwm_duty_pcts),
@@ -436,6 +447,11 @@ static struct pm8xxx_misc_platform_data pm8xxx_misc_pdata = {
 	.priority		= 0,
 };
 
+/*
+ *	0x254=0xC8 (Threshold=110, preamp bias=01)
+ *	0x255=0xC1 (Hold=110, max attn=0000, mute=1)
+ *	0x256=0xB0 (decay=101, attack=10, delay=0)
+ */
 
 static struct pm8xxx_spk_platform_data pm8xxx_spk_pdata = {
 	.spk_add_enable		= false,
@@ -495,6 +511,7 @@ static struct msm_ssbi_platform_data msm8930_ssbi_pm8038_pdata __devinitdata = {
 	},
 };
 
+/* PM8917 platform data */
 
 static struct pm8xxx_adc_amux pm8917_adc_channels_data[] = {
 	{"vcoin", CHANNEL_VCOIN, CHAN_PATH_SCALING2, AMUX_RSV1,
@@ -532,7 +549,7 @@ static struct pm8xxx_adc_amux pm8917_adc_channels_data[] = {
 };
 
 static struct pm8xxx_adc_properties pm8917_adc_data = {
-	.adc_vdd_reference	= 1800, 
+	.adc_vdd_reference	= 1800, /* milli-voltage for this adc */
 	.bitresolution		= 15,
 	.bipolar                = 0,
 };
@@ -569,7 +586,7 @@ static struct msm_ssbi_platform_data msm8930_ssbi_pm8917_pdata __devinitdata = {
 void __init msm8930_init_pmic(void)
 {
 	if (socinfo_get_pmic_model() != PMIC_MODEL_PM8917) {
-		
+		/* PM8038 configuration */
 		pmic_reset_irq = PM8038_IRQ_BASE + PM8038_RESOUT_IRQ;
 		msm8960_device_ssbi_pmic.dev.platform_data =
 					&msm8930_ssbi_pm8038_pdata;
@@ -580,7 +597,7 @@ void __init msm8930_init_pmic(void)
 		else if (machine_is_msm8930_cdp())
 			pm8921_chg_pdata.has_dc_supply = true;
 	} else {
-		
+		/* PM8917 configuration */
 		pmic_reset_irq = PM8917_IRQ_BASE + PM8921_RESOUT_IRQ;
 		msm8960_device_ssbi_pmic.dev.platform_data =
 					&msm8930_ssbi_pm8917_pdata;

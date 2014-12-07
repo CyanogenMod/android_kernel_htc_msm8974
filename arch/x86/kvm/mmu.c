@@ -41,6 +41,13 @@
 #include <asm/io.h>
 #include <asm/vmx.h>
 
+/*
+ * When setting this variable to true it enables Two-Dimensional-Paging
+ * where the hardware walks 2 page tables:
+ * 1. the guest-virtual to guest-physical
+ * 2. while doing 1. it walks guest-physical to host-physical
+ * If the hardware supports that we don't need to do shadow paging.
+ */
 bool tdp_enabled = false;
 
 enum {
@@ -173,7 +180,7 @@ static struct kmem_cache *mmu_page_header_cache;
 static struct percpu_counter kvm_total_used_mmu_pages;
 
 static u64 __read_mostly shadow_nx_mask;
-static u64 __read_mostly shadow_x_mask;	
+static u64 __read_mostly shadow_x_mask;	/* mutual exclusive with nx_mask */
 static u64 __read_mostly shadow_user_mask;
 static u64 __read_mostly shadow_accessed_mask;
 static u64 __read_mostly shadow_dirty_mask;
@@ -310,7 +317,7 @@ static u64 __get_spte_lockless(u64 *sptep)
 
 static bool __check_direct_spte_mmio_pf(u64 spte)
 {
-	
+	/* It is valid if the spte is zapped. */
 	return spte == 0ull;
 }
 #else
@@ -329,7 +336,7 @@ static void count_spte_clear(u64 *sptep, u64 spte)
 	if (is_shadow_present_pte(spte))
 		return;
 
-	
+	/* Ensure the spte is completely set before we increase the count */
 	smp_wmb();
 	sp->clear_spte_count++;
 }
@@ -343,6 +350,11 @@ static void __set_spte(u64 *sptep, u64 spte)
 
 	ssptep->spte_high = sspte.spte_high;
 
+	/*
+	 * If we map the spte from nonpresent to present, We should store
+	 * the high bits firstly, then set present bit, so cpu can not
+	 * fetch this spte while we are setting the spte.
+	 */
 	smp_wmb();
 
 	ssptep->spte_low = sspte.spte_low;
@@ -357,6 +369,10 @@ static void __update_clear_spte_fast(u64 *sptep, u64 spte)
 
 	ssptep->spte_low = sspte.spte_low;
 
+	/*
+	 * If we map the spte from present to nonpresent, we should clear
+	 * present bit firstly to avoid vcpu fetch the old high bits.
+	 */
 	smp_wmb();
 
 	ssptep->spte_high = sspte.spte_high;
@@ -370,7 +386,7 @@ static u64 __update_clear_spte_slow(u64 *sptep, u64 spte)
 	ssptep = (union split_spte *)sptep;
 	sspte = (union split_spte)spte;
 
-	
+	/* xchg acts as a barrier before the setting of the high bits */
 	orig.spte_low = xchg(&ssptep->spte_low, sspte.spte_low);
 	orig.spte_high = ssptep->spte_high;
 	ssptep->spte_high = sspte.spte_high;
@@ -379,6 +395,13 @@ static u64 __update_clear_spte_slow(u64 *sptep, u64 spte)
 	return orig.spte;
 }
 
+/*
+ * The idea using the light way get the spte on x86_32 guest is from
+ * gup_get_pte(arch/x86/mm/gup.c).
+ * The difference is we can not catch the spte tlb flush if we leave
+ * guest mode, so we emulate it by increase clear_spte_count when spte
+ * is cleared.
+ */
 static u64 __get_spte_lockless(u64 *sptep)
 {
 	struct kvm_mmu_page *sp =  page_header(__pa(sptep));
@@ -407,11 +430,11 @@ static bool __check_direct_spte_mmio_pf(u64 spte)
 	union split_spte sspte = (union split_spte)spte;
 	u32 high_mmio_mask = shadow_mmio_mask >> 32;
 
-	
+	/* It is valid if the spte is zapped. */
 	if (spte == 0ull)
 		return true;
 
-	
+	/* It is valid if the spte is being zapped. */
 	if (sspte.spte_low == 0ull &&
 	    (sspte.spte_high & high_mmio_mask) == high_mmio_mask)
 		return true;
@@ -440,12 +463,21 @@ static bool spte_is_bit_cleared(u64 old_spte, u64 new_spte, u64 bit_mask)
 	return (old_spte & bit_mask) && !(new_spte & bit_mask);
 }
 
+/* Rules for using mmu_spte_set:
+ * Set the sptep from nonpresent to present.
+ * Note: the sptep being assigned *must* be either not present
+ * or in a state where the hardware will not attempt to update
+ * the spte.
+ */
 static void mmu_spte_set(u64 *sptep, u64 new_spte)
 {
 	WARN_ON(is_shadow_present_pte(*sptep));
 	__set_spte(sptep, new_spte);
 }
 
+/* Rules for using mmu_spte_update:
+ * Update the state bits, it means the mapped pfn is not changged.
+ */
 static void mmu_spte_update(u64 *sptep, u64 new_spte)
 {
 	u64 mask, old_spte = *sptep;
@@ -475,6 +507,11 @@ static void mmu_spte_update(u64 *sptep, u64 new_spte)
 		kvm_set_pfn_dirty(spte_to_pfn(old_spte));
 }
 
+/*
+ * Rules for using mmu_spte_clear_track_bits:
+ * It sets the sptep from present to nonpresent, and track the
+ * state bits, it is used to clear the last level sptep.
+ */
 static int mmu_spte_clear_track_bits(u64 *sptep)
 {
 	pfn_t pfn;
@@ -496,6 +533,11 @@ static int mmu_spte_clear_track_bits(u64 *sptep)
 	return 1;
 }
 
+/*
+ * Rules for using mmu_spte_clear_no_track:
+ * Directly clear spte without caring the state bits of sptep,
+ * it is used to set the upper level spte.
+ */
 static void mmu_spte_clear_no_track(u64 *sptep)
 {
 	__update_clear_spte_fast(sptep, 0ull);
@@ -511,13 +553,13 @@ static void walk_shadow_page_lockless_begin(struct kvm_vcpu *vcpu)
 	rcu_read_lock();
 	atomic_inc(&vcpu->kvm->arch.reader_counter);
 
-	
+	/* Increase the counter before walking shadow page table */
 	smp_mb__after_atomic_inc();
 }
 
 static void walk_shadow_page_lockless_end(struct kvm_vcpu *vcpu)
 {
-	
+	/* Decrease the counter after walking shadow page table finished */
 	smp_mb__before_atomic_dec();
 	atomic_dec(&vcpu->kvm->arch.reader_counter);
 	rcu_read_unlock();
@@ -636,6 +678,10 @@ static void kvm_mmu_page_set_gfn(struct kvm_mmu_page *sp, int index, gfn_t gfn)
 		sp->gfns[index] = gfn;
 }
 
+/*
+ * Return the pointer to the large page information for a given gfn,
+ * handling slots that are not large page aligned.
+ */
 static struct kvm_lpage_info *lpage_info_slot(gfn_t gfn,
 					      struct kvm_memory_slot *slot,
 					      int level)
@@ -749,6 +795,18 @@ static int mapping_level(struct kvm_vcpu *vcpu, gfn_t large_gfn)
 	return level - 1;
 }
 
+/*
+ * Pte mapping structures:
+ *
+ * If pte_list bit zero is zero, then pte_list point to the spte.
+ *
+ * If pte_list bit zero is one, (then pte_list & ~1) points to a struct
+ * pte_list_desc containing more mappings.
+ *
+ * Returns the number of pte entries before the spte was added or zero if
+ * the spte was not added.
+ *
+ */
 static int pte_list_add(struct kvm_vcpu *vcpu, u64 *spte,
 			unsigned long *pte_list)
 {
@@ -899,6 +957,9 @@ static unsigned long *__gfn_to_rmap(gfn_t gfn, int level,
 	return &linfo->rmap_pde;
 }
 
+/*
+ * Take gfn and return the reverse mapping to it.
+ */
 static unsigned long *gfn_to_rmap(struct kvm *kvm, gfn_t gfn, int level)
 {
 	struct kvm_memory_slot *slot;
@@ -968,7 +1029,7 @@ int kvm_mmu_rmap_write_protect(struct kvm *kvm, u64 gfn,
 		spte = rmap_next(rmapp, spte);
 	}
 
-	
+	/* check for huge page mappings */
 	for (i = PT_DIRECTORY_LEVEL;
 	     i < PT_PAGE_TABLE_LEVEL + KVM_NR_PAGE_SIZES; ++i) {
 		rmapp = __gfn_to_rmap(gfn, i, slot);
@@ -1104,6 +1165,13 @@ static int kvm_age_rmapp(struct kvm *kvm, unsigned long *rmapp,
 	u64 *spte;
 	int young = 0;
 
+	/*
+	 * Emulate the accessed bit for EPT, by checking if this page has
+	 * an EPT mapping, and clearing it if it does. On the next access,
+	 * a new EPT mapping will be established.
+	 * This has some overhead, but not as much as the cost of swapping
+	 * out actively used pages or breaking up actively used hugepages.
+	 */
 	if (!shadow_accessed_mask)
 		return kvm_unmap_rmapp(kvm, rmapp, data);
 
@@ -1128,6 +1196,11 @@ static int kvm_test_age_rmapp(struct kvm *kvm, unsigned long *rmapp,
 	u64 *spte;
 	int young = 0;
 
+	/*
+	 * If there's no access bit in the secondary pte set by the
+	 * hardware it's up to gup-fast/gup to set the access bit in
+	 * the primary pte or in the page structure.
+	 */
 	if (!shadow_accessed_mask)
 		goto out;
 
@@ -1187,12 +1260,24 @@ static int is_empty_shadow_page(u64 *spt)
 }
 #endif
 
+/*
+ * This value is the sum of all of the kvm instances's
+ * kvm->arch.n_used_mmu_pages values.  We need a global,
+ * aggregate version in order to make the slab shrinker
+ * faster
+ */
 static inline void kvm_mod_used_mmu_pages(struct kvm *kvm, int nr)
 {
 	kvm->arch.n_used_mmu_pages += nr;
 	percpu_counter_add(&kvm_total_used_mmu_pages, nr);
 }
 
+/*
+ * Remove the sp from shadow page cache, after call it,
+ * we can not find this sp from the cache, and the shadow
+ * page table is still valid.
+ * It should be under the protection of mmu lock.
+ */
 static void kvm_mmu_isolate_page(struct kvm_mmu_page *sp)
 {
 	ASSERT(is_empty_shadow_page(sp->spt));
@@ -1201,6 +1286,10 @@ static void kvm_mmu_isolate_page(struct kvm_mmu_page *sp)
 		free_page((unsigned long)sp->gfns);
 }
 
+/*
+ * Free the shadow page table and the sp, we can do it
+ * out of the protection of mmu lock.
+ */
 static void kvm_mmu_free_page(struct kvm_mmu_page *sp)
 {
 	list_del(&sp->link);
@@ -1395,6 +1484,7 @@ static void kvm_mmu_commit_zap_page(struct kvm *kvm,
 		if ((sp)->gfn != (gfn) || (sp)->role.direct ||		\
 			(sp)->role.invalid) {} else
 
+/* @sp->gfn should be write-protected at the call site */
 static int __kvm_sync_page(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 			   struct list_head *invalid_list, bool clear_unsync)
 {
@@ -1441,6 +1531,7 @@ static int kvm_sync_page(struct kvm_vcpu *vcpu, struct kvm_mmu_page *sp,
 	return __kvm_sync_page(vcpu, sp, invalid_list, true);
 }
 
+/* @gfn should be write-protected at the call site */
 static void kvm_sync_pages(struct kvm_vcpu *vcpu,  gfn_t gfn)
 {
 	struct kvm_mmu_page *s;
@@ -1717,6 +1808,13 @@ static void validate_direct_spte(struct kvm_vcpu *vcpu, u64 *sptep,
 	if (is_shadow_present_pte(*sptep) && !is_large_pte(*sptep)) {
 		struct kvm_mmu_page *child;
 
+		/*
+		 * For the direct sp, if the guest pte's dirty bit
+		 * changed form clean to dirty, it will corrupt the
+		 * sp's access: allow writable in the read-only sp,
+		 * so we should update the spte at this point to get
+		 * a new sp with the correct access.
+		 */
 		child = page_header(*sptep & PT64_BASE_ADDR_MASK);
 		if (child->role.access == direct_access)
 			return;
@@ -1814,7 +1912,7 @@ static int kvm_mmu_prepare_zap_page(struct kvm *kvm, struct kvm_mmu_page *sp,
 	if (sp->unsync)
 		kvm_unlink_unsync_page(kvm, sp);
 	if (!sp->root_count) {
-		
+		/* Count self */
 		ret++;
 		list_move(&sp->link, invalid_list);
 		kvm_mod_used_mmu_pages(kvm, -1);
@@ -1880,9 +1978,18 @@ static void kvm_mmu_commit_zap_page(struct kvm *kvm,
 
 }
 
+/*
+ * Changing the number of mmu pages allocated to the vm
+ * Note: if goal_nr_mmu_pages is too small, you will get dead lock
+ */
 void kvm_mmu_change_mmu_pages(struct kvm *kvm, unsigned int goal_nr_mmu_pages)
 {
 	LIST_HEAD(invalid_list);
+	/*
+	 * If we set the number of mmu pages to be smaller be than the
+	 * number of actived pages , we must to free some mmu pages before we
+	 * change the value
+	 */
 
 	if (kvm->arch.n_used_mmu_pages > goal_nr_mmu_pages) {
 		while (kvm->arch.n_used_mmu_pages > goal_nr_mmu_pages &&
@@ -1931,6 +2038,10 @@ static void page_header_update_slot(struct kvm *kvm, void *pte, gfn_t gfn)
 	__set_bit(slot, sp->slot_bitmap);
 }
 
+/*
+ * The function is based on mtrr_type_lookup() in
+ * arch/x86/kernel/cpu/mtrr/generic.c
+ */
 static int get_mtrr_type(struct mtrr_state_type *mtrr_state,
 			 u64 start, u64 end)
 {
@@ -1942,10 +2053,10 @@ static int get_mtrr_type(struct mtrr_state_type *mtrr_state,
 	if (!mtrr_state->enabled)
 		return 0xFF;
 
-	
+	/* Make end inclusive end, instead of exclusive */
 	end--;
 
-	
+	/* Look in fixed ranges. Just return the type as per start */
 	if (mtrr_state->have_fixed && (start < 0x100000)) {
 		int idx;
 
@@ -1964,6 +2075,11 @@ static int get_mtrr_type(struct mtrr_state_type *mtrr_state,
 		}
 	}
 
+	/*
+	 * Look in variable ranges
+	 * Look of multiple ranges matching this address and pick type
+	 * as per MTRR precedence
+	 */
 	if (!(mtrr_state->enabled & 2))
 		return mtrr_state->def_type;
 
@@ -2123,10 +2239,22 @@ static int set_spte(struct kvm_vcpu *vcpu, u64 *sptep,
 		if (!vcpu->arch.mmu.direct_map
 		    && !(pte_access & ACC_WRITE_MASK)) {
 			spte &= ~PT_USER_MASK;
+			/*
+			 * If we converted a user page to a kernel page,
+			 * so that the kernel can write to it when cr0.wp=0,
+			 * then we should prevent the kernel from executing it
+			 * if SMEP is enabled.
+			 */
 			if (kvm_read_cr4_bits(vcpu, X86_CR4_SMEP))
 				spte |= PT64_NX_MASK;
 		}
 
+		/*
+		 * Optimization: for pte sync, if spte was writable the hash
+		 * lookup is unnecessary (and expensive). Write protection
+		 * is responsibility of mmu_get_page / kvm_sync_page.
+		 * Same reasoning can be applied to dirty page accounting.
+		 */
 		if (!can_unsync && is_writable_pte(*sptep))
 			goto set_pte;
 
@@ -2145,6 +2273,12 @@ static int set_spte(struct kvm_vcpu *vcpu, u64 *sptep,
 
 set_pte:
 	mmu_spte_update(sptep, spte);
+	/*
+	 * If we overwrite a writable spte with a read-only one we
+	 * should flush remote TLBs. Otherwise rmap_write_protect
+	 * will find a read-only spte, even though the writable spte
+	 * might be cached on a CPU's TLB.
+	 */
 	if (is_writable_pte(entry) && !is_writable_pte(*sptep))
 		kvm_flush_remote_tlbs(vcpu->kvm);
 done:
@@ -2167,6 +2301,10 @@ static void mmu_set_spte(struct kvm_vcpu *vcpu, u64 *sptep,
 		 write_fault, user_fault, gfn);
 
 	if (is_rmap_spte(*sptep)) {
+		/*
+		 * If we overwrite a PTE page pointer with a 2MB PMD, unlink
+		 * the parent of the now unreachable PTE.
+		 */
 		if (level > PT_PAGE_TABLE_LEVEL &&
 		    !is_large_pte(*sptep)) {
 			struct kvm_mmu_page *child;
@@ -2288,6 +2426,12 @@ static void direct_pte_prefetch(struct kvm_vcpu *vcpu, u64 *sptep)
 {
 	struct kvm_mmu_page *sp;
 
+	/*
+	 * Since it's no accessed bit on EPT, it's no way to
+	 * distinguish between actually accessed translations
+	 * and prefetched, so disable pte prefetch if EPT is
+	 * enabled.
+	 */
 	if (!shadow_accessed_mask)
 		return;
 
@@ -2374,11 +2518,26 @@ static void transparent_hugepage_adjust(struct kvm_vcpu *vcpu,
 	gfn_t gfn = *gfnp;
 	int level = *levelp;
 
+	/*
+	 * Check if it's a transparent hugepage. If this would be an
+	 * hugetlbfs page, level wouldn't be set to
+	 * PT_PAGE_TABLE_LEVEL and there would be no adjustment done
+	 * here.
+	 */
 	if (!is_error_pfn(pfn) && !kvm_is_mmio_pfn(pfn) &&
 	    level == PT_PAGE_TABLE_LEVEL &&
 	    PageTransCompound(pfn_to_page(pfn)) &&
 	    !has_wrprotected_page(vcpu->kvm, gfn, PT_DIRECTORY_LEVEL)) {
 		unsigned long mask;
+		/*
+		 * mmu_notifier_retry was successful and we hold the
+		 * mmu_lock here, so the pmd can't become splitting
+		 * from under us, and in turn
+		 * __split_huge_page_refcount() can't run from under
+		 * us and we can safely transfer the refcount from
+		 * PG_tail to PG_head as we switch the pfn to tail to
+		 * head.
+		 */
 		*levelp = level = PT_DIRECTORY_LEVEL;
 		mask = KVM_PAGES_PER_HPAGE(level) - 1;
 		VM_BUG_ON((gfn & mask) != (pfn & mask));
@@ -2404,7 +2563,7 @@ static bool handle_abnormal_pfn(struct kvm_vcpu *vcpu, gva_t gva, gfn_t gfn,
 {
 	bool ret = true;
 
-	
+	/* The pfn is invalid, report the error! */
 	if (unlikely(is_invalid_pfn(pfn))) {
 		*ret_val = kvm_handle_bad_page(vcpu, gfn, pfn);
 		goto exit;
@@ -2434,6 +2593,11 @@ static int nonpaging_map(struct kvm_vcpu *vcpu, gva_t v, int write, gfn_t gfn,
 	force_pt_level = mapping_level_dirty_bitmap(vcpu, gfn);
 	if (likely(!force_pt_level)) {
 		level = mapping_level(vcpu, gfn);
+		/*
+		 * This path builds a PAE pagetable - so we can map
+		 * 2mb pages at maximum. Therefore check if the level
+		 * is larger than that.
+		 */
 		if (level > PT_DIRECTORY_LEVEL)
 			level = PT_DIRECTORY_LEVEL;
 
@@ -2572,6 +2736,10 @@ static int mmu_alloc_shadow_roots(struct kvm_vcpu *vcpu)
 	if (mmu_check_root(vcpu, root_gfn))
 		return 1;
 
+	/*
+	 * Do we shadow a long mode page table? If so we need to
+	 * write-protect the guests page table root.
+	 */
 	if (vcpu->arch.mmu.root_level == PT64_ROOT_LEVEL) {
 		hpa_t root = vcpu->arch.mmu.root_hpa;
 
@@ -2588,6 +2756,11 @@ static int mmu_alloc_shadow_roots(struct kvm_vcpu *vcpu)
 		return 0;
 	}
 
+	/*
+	 * We shadow a 32 bit page table. This may be a legacy 2-level
+	 * or a PAE 3-level page table. In either case we need to be aware that
+	 * the shadow page table may be a PAE or a long mode page table.
+	 */
 	pm_mask = PT_PRESENT_MASK;
 	if (vcpu->arch.mmu.shadow_root_level == PT64_ROOT_LEVEL)
 		pm_mask |= PT_ACCESSED_MASK | PT_WRITABLE_MASK | PT_USER_MASK;
@@ -2619,8 +2792,16 @@ static int mmu_alloc_shadow_roots(struct kvm_vcpu *vcpu)
 	}
 	vcpu->arch.mmu.root_hpa = __pa(vcpu->arch.mmu.pae_root);
 
+	/*
+	 * If we shadow a 32 bit page table with a long mode page
+	 * table we enter this path.
+	 */
 	if (vcpu->arch.mmu.shadow_root_level == PT64_ROOT_LEVEL) {
 		if (vcpu->arch.mmu.lm_root == NULL) {
+			/*
+			 * The additional page necessary for this is only
+			 * allocated on demand.
+			 */
 
 			u64 *lm_root;
 
@@ -2712,6 +2893,15 @@ static bool quickly_check_mmio_pf(struct kvm_vcpu *vcpu, u64 addr, bool direct)
 }
 
 
+/*
+ * On direct hosts, the last spte is only allows two states
+ * for mmio page fault:
+ *   - It is the mmio spte
+ *   - It is zapped or it is being zapped.
+ *
+ * This function completely checks the spte when the last spte
+ * is not the mmio spte.
+ */
 static bool check_direct_spte_mmio_pf(u64 spte)
 {
 	return __check_direct_spte_mmio_pf(spte);
@@ -2731,6 +2921,11 @@ static u64 walk_shadow_page_get_mmio_spte(struct kvm_vcpu *vcpu, u64 addr)
 	return spte;
 }
 
+/*
+ * If it is a real mmio page fault, return 1 and emulat the instruction
+ * directly, return 0 to let CPU fault again on the address, -1 is
+ * returned if bug is detected.
+ */
 int handle_mmio_page_fault_common(struct kvm_vcpu *vcpu, u64 addr, bool direct)
 {
 	u64 spte;
@@ -2752,9 +2947,17 @@ int handle_mmio_page_fault_common(struct kvm_vcpu *vcpu, u64 addr, bool direct)
 		return 1;
 	}
 
+	/*
+	 * It's ok if the gva is remapped by other cpus on shadow guest,
+	 * it's a BUG if the gfn is not a mmio page.
+	 */
 	if (direct && !check_direct_spte_mmio_pf(spte))
 		return -1;
 
+	/*
+	 * If the page table is zapped by other cpus, let CPU fault again on
+	 * the address.
+	 */
 	return 0;
 }
 EXPORT_SYMBOL_GPL(handle_mmio_page_fault_common);
@@ -2822,7 +3025,7 @@ static bool try_async_pf(struct kvm_vcpu *vcpu, bool prefault, gfn_t gfn,
 	*pfn = gfn_to_pfn_async(vcpu->kvm, gfn, &async, write, writable);
 
 	if (!async)
-		return false; 
+		return false; /* *pfn has correct page already */
 
 	put_page(pfn_to_page(*pfn));
 
@@ -2991,7 +3194,7 @@ static void reset_rsvds_bits_mask(struct kvm_vcpu *vcpu,
 		exb_bit_rsvd = rsvd_bits(63, 63);
 	switch (context->root_level) {
 	case PT32_ROOT_LEVEL:
-		
+		/* no rsvd bits for 2 level 4K page table entries */
 		context->rsvd_bits_mask[0][1] = 0;
 		context->rsvd_bits_mask[0][0] = 0;
 		context->rsvd_bits_mask[1][0] = context->rsvd_bits_mask[0][0];
@@ -3002,23 +3205,23 @@ static void reset_rsvds_bits_mask(struct kvm_vcpu *vcpu,
 		}
 
 		if (is_cpuid_PSE36())
-			
+			/* 36bits PSE 4MB page */
 			context->rsvd_bits_mask[1][1] = rsvd_bits(17, 21);
 		else
-			
+			/* 32 bits PSE 4MB page */
 			context->rsvd_bits_mask[1][1] = rsvd_bits(13, 21);
 		break;
 	case PT32E_ROOT_LEVEL:
 		context->rsvd_bits_mask[0][2] =
 			rsvd_bits(maxphyaddr, 63) |
-			rsvd_bits(7, 8) | rsvd_bits(1, 2);	
+			rsvd_bits(7, 8) | rsvd_bits(1, 2);	/* PDPTE */
 		context->rsvd_bits_mask[0][1] = exb_bit_rsvd |
-			rsvd_bits(maxphyaddr, 62);	
+			rsvd_bits(maxphyaddr, 62);	/* PDE */
 		context->rsvd_bits_mask[0][0] = exb_bit_rsvd |
-			rsvd_bits(maxphyaddr, 62); 	
+			rsvd_bits(maxphyaddr, 62); 	/* PTE */
 		context->rsvd_bits_mask[1][1] = exb_bit_rsvd |
 			rsvd_bits(maxphyaddr, 62) |
-			rsvd_bits(13, 20);		
+			rsvd_bits(13, 20);		/* large page */
 		context->rsvd_bits_mask[1][0] = context->rsvd_bits_mask[0][0];
 		break;
 	case PT64_ROOT_LEVEL:
@@ -3036,7 +3239,7 @@ static void reset_rsvds_bits_mask(struct kvm_vcpu *vcpu,
 			rsvd_bits(13, 29);
 		context->rsvd_bits_mask[1][1] = exb_bit_rsvd |
 			rsvd_bits(maxphyaddr, 51) |
-			rsvd_bits(13, 20);		
+			rsvd_bits(13, 20);		/* large page */
 		context->rsvd_bits_mask[1][0] = context->rsvd_bits_mask[0][0];
 		break;
 	}
@@ -3186,6 +3389,12 @@ static int init_kvm_nested_mmu(struct kvm_vcpu *vcpu)
 	g_context->get_pdptr         = kvm_pdptr_read;
 	g_context->inject_page_fault = kvm_inject_page_fault;
 
+	/*
+	 * Note that arch.mmu.gva_to_gpa translates l2_gva to l1_gpa. The
+	 * translation of l2_gpa to l1_gpa addresses is done using the
+	 * arch.nested_mmu.gva_to_gpa function. Basically the gva_to_gpa
+	 * functions between mmu and nested_mmu are swapped.
+	 */
 	if (!is_paging(vcpu)) {
 		g_context->nx = false;
 		g_context->root_level = 0;
@@ -3224,7 +3433,7 @@ static void destroy_kvm_mmu(struct kvm_vcpu *vcpu)
 {
 	ASSERT(vcpu);
 	if (VALID_PAGE(vcpu->arch.mmu.root_hpa))
-		
+		/* mmu.free() should set root_hpa = INVALID_PAGE */
 		vcpu->arch.mmu.free(vcpu);
 }
 
@@ -3248,7 +3457,7 @@ int kvm_mmu_load(struct kvm_vcpu *vcpu)
 	spin_unlock(&vcpu->kvm->mmu_lock);
 	if (r)
 		goto out;
-	
+	/* set_cr3() should ensure TLB has been flushed */
 	vcpu->arch.mmu.set_cr3(vcpu, vcpu->arch.mmu.root_hpa);
 out:
 	return r;
@@ -3305,8 +3514,13 @@ static u64 mmu_pte_write_fetch_gpte(struct kvm_vcpu *vcpu, gpa_t *gpa,
 	u64 gentry;
 	int r;
 
+	/*
+	 * Assume that the pte write on a page table of the same type
+	 * as the current vcpu paging mode since we update the sptes only
+	 * when they have the same mode.
+	 */
 	if (is_pae(vcpu) && *bytes == 4) {
-		
+		/* Handle a 32-bit guest writing two halves of a 64-bit gpte */
 		*gpa &= ~(gpa_t)7;
 		*bytes = 8;
 		r = kvm_read_guest(vcpu->kvm, *gpa, &gentry, min(*bytes, 8));
@@ -3330,14 +3544,26 @@ static u64 mmu_pte_write_fetch_gpte(struct kvm_vcpu *vcpu, gpa_t *gpa,
 	return gentry;
 }
 
+/*
+ * If we're seeing too many writes to a page, it may no longer be a page table,
+ * or we may be forking, in which case it is better to unmap the page.
+ */
 static bool detect_write_flooding(struct kvm_mmu_page *sp)
 {
+	/*
+	 * Skip write-flooding detected for the sp whose level is 1, because
+	 * it can become unsync, then the guest page is not write-protected.
+	 */
 	if (sp->role.level == 1)
 		return false;
 
 	return ++sp->write_flooding_count >= 3;
 }
 
+/*
+ * Misaligned accesses are too much trouble to fix up; also, they usually
+ * indicate a page is not used as a page table.
+ */
 static bool detect_write_misaligned(struct kvm_mmu_page *sp, gpa_t gpa,
 				    int bytes)
 {
@@ -3349,6 +3575,10 @@ static bool detect_write_misaligned(struct kvm_mmu_page *sp, gpa_t gpa,
 	offset = offset_in_page(gpa);
 	pte_size = sp->role.cr4_pae ? 8 : 4;
 
+	/*
+	 * Sometimes, the OS only writes the last one bytes to update status
+	 * bits, for example, in linux, andb instruction is used in clear_bit().
+	 */
 	if (!(offset & (pte_size - 1)) && bytes == 1)
 		return false;
 
@@ -3368,9 +3598,14 @@ static u64 *get_written_sptes(struct kvm_mmu_page *sp, gpa_t gpa, int *nspte)
 	level = sp->role.level;
 	*nspte = 1;
 	if (!sp->role.cr4_pae) {
-		page_offset <<= 1;	
+		page_offset <<= 1;	/* 32->64 */
+		/*
+		 * A 32-bit pde maps 4MB while the shadow pdes map
+		 * only 2MB.  So we need to double the offset again
+		 * and zap two pdes instead of one.
+		 */
 		if (level == PT32_ROOT_LEVEL) {
-			page_offset &= ~7; 
+			page_offset &= ~7; /* kill rounding error */
 			page_offset <<= 1;
 			*nspte = 2;
 		}
@@ -3396,6 +3631,10 @@ void kvm_mmu_pte_write(struct kvm_vcpu *vcpu, gpa_t gpa,
 	int npte;
 	bool remote_flush, local_flush, zap_page;
 
+	/*
+	 * If we don't have indirect shadow pages, it means no page is
+	 * write-protected, so we can exit simply.
+	 */
 	if (!ACCESS_ONCE(vcpu->kvm->arch.indirect_shadow_pages))
 		return;
 
@@ -3405,6 +3644,11 @@ void kvm_mmu_pte_write(struct kvm_vcpu *vcpu, gpa_t gpa,
 
 	gentry = mmu_pte_write_fetch_gpte(vcpu, &gpa, new, &bytes);
 
+	/*
+	 * No need to care whether allocation memory is successful
+	 * or not since pte prefetch is skiped if it does not have
+	 * enough objects in the cache.
+	 */
 	mmu_topup_memory_caches(vcpu);
 
 	spin_lock(&vcpu->kvm->mmu_lock);
@@ -3509,7 +3753,7 @@ int kvm_mmu_page_fault(struct kvm_vcpu *vcpu, gva_t cr2, u32 error_code,
 		return 1;
 	case EMULATE_DO_MMIO:
 		++vcpu->stat.mmio_exits;
-		
+		/* fall through */
 	case EMULATE_FAIL:
 		return 0;
 	default:
@@ -3554,6 +3798,11 @@ static int alloc_mmu_pages(struct kvm_vcpu *vcpu)
 
 	ASSERT(vcpu);
 
+	/*
+	 * When emulating 32-bit mode, cr3 is only 32 bits even on x86_64.
+	 * Therefore we need to allocate shadow page tables in the first
+	 * 4GB of memory, which happens to fit the DMA32 zone.
+	 */
 	page = alloc_page(GFP_KERNEL | __GFP_DMA32);
 	if (!page)
 		return -ENOMEM;
@@ -3608,7 +3857,7 @@ void kvm_mmu_slot_remove_write_access(struct kvm *kvm, int slot)
 				continue;
 			}
 
-			
+			/* avoid RMW */
 			if (is_writable_pte(pt[i]))
 				mmu_spte_update(&pt[i],
 						pt[i] & ~PT_WRITABLE_MASK);
@@ -3719,6 +3968,9 @@ nomem:
 	return -ENOMEM;
 }
 
+/*
+ * Caculate mmu pages needed for kvm.
+ */
 unsigned int kvm_mmu_calculate_mmu_pages(struct kvm *kvm)
 {
 	unsigned int nr_mmu_pages;

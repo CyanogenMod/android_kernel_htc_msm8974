@@ -35,6 +35,15 @@ enum dot11d_state {
 	DOT11D_STATE_DONE,
 };
 
+/**
+ * struct rt_dot11d_info * @CountryIeLen: value greater than 0 if @CountryIeBuf contains
+ *		  valid country information element.
+ * @chanell_map: holds channel values
+ *		0 - invalid,
+ *		1 - valid (active scan),
+ *		2 - valid (passive scan)
+ * @CountryIeSrcAddr - Source AP of the country IE
+ */
 
 struct rt_dot11d_info {
 

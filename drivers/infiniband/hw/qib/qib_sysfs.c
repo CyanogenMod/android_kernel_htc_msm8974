@@ -34,6 +34,13 @@
 
 #include "qib.h"
 
+/**
+ * qib_parse_ushort - parse an unsigned short value in an arbitrary base
+ * @str: the string containing the number
+ * @valp: where to put the result
+ *
+ * Returns the number of bytes consumed, or negative value on error.
+ */
 static int qib_parse_ushort(const char *str, unsigned short *valp)
 {
 	unsigned long val;
@@ -62,6 +69,10 @@ bail:
 	return ret;
 }
 
+/* start of per-port functions */
+/*
+ * Get/Set heartbeat enable. OR of 1=enabled, 2=auto
+ */
 static ssize_t show_hrtbt_enb(struct qib_pportdata *ppd, char *buf)
 {
 	struct qib_devdata *dd = ppd->dd;
@@ -81,6 +92,13 @@ static ssize_t store_hrtbt_enb(struct qib_pportdata *ppd, const char *buf,
 
 	ret = qib_parse_ushort(buf, &val);
 
+	/*
+	 * Set the "intentional" heartbeat enable per either of
+	 * "Enable" and "Auto", as these are normally set together.
+	 * This bit is consulted when leaving loopback mode,
+	 * because entering loopback mode overrides it and automatically
+	 * disables heartbeat.
+	 */
 	if (ret >= 0)
 		ret = dd->f_set_ib_cfg(ppd, QIB_IB_CFG_HRTBT, val);
 	if (ret < 0)
@@ -128,6 +146,10 @@ static ssize_t show_status(struct qib_pportdata *ppd, char *buf)
 	return ret;
 }
 
+/*
+ * For userland compatibility, these offsets must remain fixed.
+ * They are strings for QIB_STATUS_*
+ */
 static const char * const qib_status_str[] = {
 	"Initted",
 	"",
@@ -157,7 +179,7 @@ static ssize_t show_status_str(struct qib_pportdata *ppd, char *buf)
 	*buf = '\0';
 	for (any = i = 0; s && qib_status_str[i]; i++) {
 		if (s & 1) {
-			
+			/* if overflow */
 			if (any && strlcat(buf, " ", PAGE_SIZE) >= PAGE_SIZE)
 				break;
 			if (strlcat(buf, qib_status_str[i], PAGE_SIZE) >=
@@ -176,7 +198,13 @@ bail:
 	return ret;
 }
 
+/* end of per-port functions */
 
+/*
+ * Start of per-port file structures and support code
+ * Because we are fitting into other infrastructure, we have to supply the
+ * full set of kobject/sysfs_ops structures and routines.
+ */
 #define QIB_PORT_ATTR(name, mode, show, store) \
 	static struct qib_port_attr qib_port_attr_##name = \
 		__ATTR(name, mode, show, store)
@@ -227,7 +255,7 @@ static ssize_t qib_portattr_store(struct kobject *kobj,
 
 static void qib_port_release(struct kobject *kobj)
 {
-	
+	/* nothing to do since memory is freed by qib_free_devdata() */
 }
 
 static const struct sysfs_ops qib_port_ops = {
@@ -241,6 +269,7 @@ static struct kobj_type qib_port_ktype = {
 	.default_attrs = port_default_attributes
 };
 
+/* Start sl2vl */
 
 #define QIB_SL2VL_ATTR(N) \
 	static struct qib_sl2vl_attr qib_sl2vl_attr_##N = { \
@@ -312,7 +341,9 @@ static struct kobj_type qib_sl2vl_ktype = {
 	.default_attrs = sl2vl_default_attributes
 };
 
+/* End sl2vl */
 
+/* Start diag_counters */
 
 #define QIB_DIAGC_ATTR(N) \
 	static struct qib_diagc_attr qib_diagc_attr_##N = { \
@@ -401,8 +432,14 @@ static struct kobj_type qib_diagc_ktype = {
 	.default_attrs = diagc_default_attributes
 };
 
+/* End diag_counters */
 
+/* end of per-port file structures and support code */
 
+/*
+ * Start of per-unit (or driver, in some cases, but replicated
+ * per unit) functions (these get a device *)
+ */
 static ssize_t show_rev(struct device *device, struct device_attribute *attr,
 			char *buf)
 {
@@ -430,7 +467,7 @@ static ssize_t show_hca(struct device *device, struct device_attribute *attr,
 static ssize_t show_version(struct device *device,
 			    struct device_attribute *attr, char *buf)
 {
-	
+	/* The string printed here is already newline-terminated. */
 	return scnprintf(buf, PAGE_SIZE, "%s", (char *)ib_qib_version);
 }
 
@@ -441,7 +478,7 @@ static ssize_t show_boardversion(struct device *device,
 		container_of(device, struct qib_ibdev, ibdev.dev);
 	struct qib_devdata *dd = dd_from_dev(dev);
 
-	
+	/* The string printed here is already newline-terminated. */
 	return scnprintf(buf, PAGE_SIZE, "%s", dd->boardversion);
 }
 
@@ -453,7 +490,7 @@ static ssize_t show_localbus_info(struct device *device,
 		container_of(device, struct qib_ibdev, ibdev.dev);
 	struct qib_devdata *dd = dd_from_dev(dev);
 
-	
+	/* The string printed here is already newline-terminated. */
 	return scnprintf(buf, PAGE_SIZE, "%s", dd->lbus_info);
 }
 
@@ -465,7 +502,7 @@ static ssize_t show_nctxts(struct device *device,
 		container_of(device, struct qib_ibdev, ibdev.dev);
 	struct qib_devdata *dd = dd_from_dev(dev);
 
-	
+	/* Return the number of user ports (contexts) available. */
 	return scnprintf(buf, PAGE_SIZE, "%u\n", dd->cfgctxts -
 		dd->first_user_ctxt);
 }
@@ -477,7 +514,7 @@ static ssize_t show_nfreectxts(struct device *device,
 		container_of(device, struct qib_ibdev, ibdev.dev);
 	struct qib_devdata *dd = dd_from_dev(dev);
 
-	
+	/* Return the number of free user ports (contexts) available. */
 	return scnprintf(buf, PAGE_SIZE, "%u\n", dd->freectxts);
 }
 
@@ -521,7 +558,7 @@ static ssize_t show_logged_errs(struct device *device,
 	struct qib_devdata *dd = dd_from_dev(dev);
 	int idx, count;
 
-	
+	/* force consistency with actual EEPROM */
 	if (qib_update_eeprom_log(dd) != 0)
 		return -ENXIO;
 
@@ -535,6 +572,9 @@ static ssize_t show_logged_errs(struct device *device,
 	return count;
 }
 
+/*
+ * Dump tempsense regs. in decimal, to ease shell-scripts.
+ */
 static ssize_t show_tempsense(struct device *device,
 			      struct device_attribute *attr, char *buf)
 {
@@ -564,7 +604,12 @@ static ssize_t show_tempsense(struct device *device,
 	return ret;
 }
 
+/*
+ * end of per-unit (or driver, in some cases, but replicated
+ * per unit) functions
+ */
 
+/* start of per-unit file structures and support code */
 static DEVICE_ATTR(hw_rev, S_IRUGO, show_rev, NULL);
 static DEVICE_ATTR(hca_type, S_IRUGO, show_hca, NULL);
 static DEVICE_ATTR(board_id, S_IRUGO, show_hca, NULL);
@@ -645,6 +690,9 @@ bail:
 	return ret;
 }
 
+/*
+ * Register and create our files in /sys/class/infiniband.
+ */
 int qib_verbs_register_sysfs(struct qib_devdata *dd)
 {
 	struct ib_device *dev = &dd->verbs_dev.ibdev;
@@ -659,6 +707,9 @@ int qib_verbs_register_sysfs(struct qib_devdata *dd)
 	return 0;
 }
 
+/*
+ * Unregister and remove our files in /sys/class/infiniband.
+ */
 void qib_verbs_unregister_sysfs(struct qib_devdata *dd)
 {
 	struct qib_pportdata *ppd;

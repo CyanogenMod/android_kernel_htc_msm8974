@@ -10,11 +10,16 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * control for which core is the next to come out of the secondary
+ * boot "holding pen".
+ */
 extern volatile int pen_release;
 
 void __cpuinit msm_secondary_startup(void);
 void __cpuinit write_pen_release(int val);
 
+/* HOTPLUG Interface */
 int platform_cpu_kill(unsigned int cpu);
 void platform_cpu_die(unsigned int cpu);
 int platform_cpu_disable(unsigned int cpu);

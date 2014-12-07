@@ -68,12 +68,12 @@ static const char main_strings[][ETH_GSTRING_LEN] = {
 	"tx_aborted_errors", "tx_carrier_errors", "tx_fifo_errors",
 	"tx_heartbeat_errors", "tx_window_errors",
 
-	
+	/* port statistics */
 	"tso_packets",
 	"queue_stopped", "wake_queue", "tx_timeout", "rx_alloc_failed",
 	"rx_csum_good", "rx_csum_none", "tx_chksum_offload",
 
-	
+	/* packet statistics */
 	"broadcast", "rx_prio_0", "rx_prio_1", "rx_prio_2", "rx_prio_3",
 	"rx_prio_4", "rx_prio_5", "rx_prio_6", "rx_prio_7", "tx_prio_0",
 	"tx_prio_1", "tx_prio_2", "tx_prio_3", "tx_prio_4", "tx_prio_5",
@@ -265,7 +265,7 @@ static void mlx4_en_get_strings(struct net_device *dev,
 		break;
 
 	case ETH_SS_STATS:
-		
+		/* Add main counters */
 		if (!priv->stats_bitmap) {
 			for (i = 0; i < NUM_MAIN_STATS; i++)
 				strcpy(data + (index++) * ETH_GSTRING_LEN,
@@ -350,7 +350,7 @@ static int mlx4_en_set_settings(struct net_device *dev, struct ethtool_cmd *cmd)
 	    (cmd->duplex != DUPLEX_FULL))
 		return -EINVAL;
 
-	
+	/* Nothing to change */
 	return 0;
 }
 
@@ -388,7 +388,7 @@ static int mlx4_en_set_coalesce(struct net_device *dev,
 				MLX4_EN_RX_COAL_TIME :
 				coal->rx_coalesce_usecs;
 
-	
+	/* Set adaptive coalescing params */
 	priv->pkt_rate_low = coal->pkt_rate_low;
 	priv->rx_usecs_low = coal->rx_coalesce_usecs_low;
 	priv->pkt_rate_high = coal->pkt_rate_high;
@@ -548,6 +548,9 @@ static int mlx4_en_set_rxfh_indir(struct net_device *dev,
 	int i;
 	int rss_rings = 0;
 
+	/* Calculate RSS table size and make sure flows are spread evenly
+	 * between rings
+	 */
 	for (i = 0; i < priv->rx_ring_num; i++) {
 		if (i > 0 && !ring_index[i] && !rss_rings)
 			rss_rings = i;
@@ -559,7 +562,7 @@ static int mlx4_en_set_rxfh_indir(struct net_device *dev,
 	if (!rss_rings)
 		rss_rings = priv->rx_ring_num;
 
-	
+	/* RSS table size must be an order of 2 */
 	if (!is_power_of_2(rss_rings))
 		return -EINVAL;
 

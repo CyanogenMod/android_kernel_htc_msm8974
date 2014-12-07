@@ -32,6 +32,7 @@ static int debug;
 module_param(debug, int, 0);
 MODULE_PARM_DESC(debug, "debug verbosity");
 
+/* global variables */
 static int hexium_num;
 
 #define HEXIUM_HV_PCI6_ORION		1
@@ -65,90 +66,91 @@ struct hexium
 	struct video_device	*video_dev;
 	struct i2c_adapter	i2c_adapter;
 
-	int cur_input;	
+	int cur_input;	/* current input */
 };
 
+/* Philips SAA7110 decoder default registers */
 static u8 hexium_saa7110[53]={
- 0x4C,0x3C,0x0D,0xEF,0xBD,0xF0,0x00,0x00,
- 0xF8,0xF8,0x60,0x60,0x40,0x86,0x18,0x90,
- 0x00,0x2C,0x40,0x46,0x42,0x1A,0xFF,0xDA,
- 0xF0,0x8B,0x00,0x00,0x00,0x00,0x00,0x00,
- 0xD9,0x17,0x40,0x41,0x80,0x41,0x80,0x4F,
- 0xFE,0x01,0x0F,0x0F,0x03,0x01,0x81,0x03,
- 0x44,0x75,0x01,0x8C,0x03
+/*00*/ 0x4C,0x3C,0x0D,0xEF,0xBD,0xF0,0x00,0x00,
+/*08*/ 0xF8,0xF8,0x60,0x60,0x40,0x86,0x18,0x90,
+/*10*/ 0x00,0x2C,0x40,0x46,0x42,0x1A,0xFF,0xDA,
+/*18*/ 0xF0,0x8B,0x00,0x00,0x00,0x00,0x00,0x00,
+/*20*/ 0xD9,0x17,0x40,0x41,0x80,0x41,0x80,0x4F,
+/*28*/ 0xFE,0x01,0x0F,0x0F,0x03,0x01,0x81,0x03,
+/*30*/ 0x44,0x75,0x01,0x8C,0x03
 };
 
 static struct {
 	struct hexium_data data[8];
 } hexium_input_select[] = {
 {
-	{ 
+	{ /* cvbs 1 */
 		{ 0x06, 0x00 },
 		{ 0x20, 0xD9 },
-		{ 0x21, 0x17 }, 
+		{ 0x21, 0x17 }, // 0x16,
 		{ 0x22, 0x40 },
 		{ 0x2C, 0x03 },
 		{ 0x30, 0x44 },
-		{ 0x31, 0x75 }, 
-		{ 0x21, 0x16 }, 
+		{ 0x31, 0x75 }, // ??
+		{ 0x21, 0x16 }, // 0x03,
 	}
 }, {
-	{ 
+	{ /* cvbs 2 */
 		{ 0x06, 0x00 },
 		{ 0x20, 0x78 },
-		{ 0x21, 0x07 }, 
+		{ 0x21, 0x07 }, // 0x03,
 		{ 0x22, 0xD2 },
 		{ 0x2C, 0x83 },
 		{ 0x30, 0x60 },
-		{ 0x31, 0xB5 }, 
+		{ 0x31, 0xB5 }, // ?
 		{ 0x21, 0x03 },
 	}
 }, {
-	{ 
+	{ /* cvbs 3 */
 		{ 0x06, 0x00 },
 		{ 0x20, 0xBA },
-		{ 0x21, 0x07 }, 
+		{ 0x21, 0x07 }, // 0x05,
 		{ 0x22, 0x91 },
 		{ 0x2C, 0x03 },
 		{ 0x30, 0x60 },
-		{ 0x31, 0xB5 }, 
-		{ 0x21, 0x05 }, 
+		{ 0x31, 0xB5 }, // ??
+		{ 0x21, 0x05 }, // 0x03,
 	}
 }, {
-	{ 
+	{ /* cvbs 4 */
 		{ 0x06, 0x00 },
 		{ 0x20, 0xD8 },
-		{ 0x21, 0x17 }, 
+		{ 0x21, 0x17 }, // 0x16,
 		{ 0x22, 0x40 },
 		{ 0x2C, 0x03 },
 		{ 0x30, 0x44 },
-		{ 0x31, 0x75 }, 
-		{ 0x21, 0x16 }, 
+		{ 0x31, 0x75 }, // ??
+		{ 0x21, 0x16 }, // 0x03,
 	}
 }, {
-	{ 
+	{ /* cvbs 5 */
 		{ 0x06, 0x00 },
 		{ 0x20, 0xB8 },
-		{ 0x21, 0x07 }, 
+		{ 0x21, 0x07 }, // 0x05,
 		{ 0x22, 0x91 },
 		{ 0x2C, 0x03 },
 		{ 0x30, 0x60 },
-		{ 0x31, 0xB5 }, 
-		{ 0x21, 0x05 }, 
+		{ 0x31, 0xB5 }, // ??
+		{ 0x21, 0x05 }, // 0x03,
 	}
 }, {
-	{ 
+	{ /* cvbs 6 */
 		{ 0x06, 0x00 },
 		{ 0x20, 0x7C },
-		{ 0x21, 0x07 }, 
+		{ 0x21, 0x07 }, // 0x03
 		{ 0x22, 0xD2 },
 		{ 0x2C, 0x83 },
 		{ 0x30, 0x60 },
-		{ 0x31, 0xB5 }, 
+		{ 0x31, 0xB5 }, // ??
 		{ 0x21, 0x03 },
 	}
 }, {
-	{ 
+	{ /* y/c 1 */
 		{ 0x06, 0x80 },
 		{ 0x20, 0x59 },
 		{ 0x21, 0x17 },
@@ -159,7 +161,7 @@ static struct {
 		{ 0x21, 0x12 },
 	}
 }, {
-	{ 
+	{ /* y/c 2 */
 		{ 0x06, 0x80 },
 		{ 0x20, 0x9A },
 		{ 0x21, 0x17 },
@@ -170,7 +172,7 @@ static struct {
 		{ 0x21, 0x14 },
 	}
 }, {
-	{ 
+	{ /* y/c 3 */
 		{ 0x06, 0x80 },
 		{ 0x20, 0x3C },
 		{ 0x21, 0x27 },
@@ -202,6 +204,8 @@ static struct saa7146_standard hexium_standards[] = {
 	}
 };
 
+/* this is only called for old HV-PCI6/Orion cards
+   without eeprom */
 static int hexium_probe(struct saa7146_dev *dev)
 {
 	struct hexium *hexium = NULL;
@@ -210,7 +214,7 @@ static int hexium_probe(struct saa7146_dev *dev)
 
 	DEB_EE("\n");
 
-	
+	/* there are no hexium orion cards with revision 0 saa7146s */
 	if (0 == dev->revision) {
 		return -EFAULT;
 	}
@@ -221,7 +225,7 @@ static int hexium_probe(struct saa7146_dev *dev)
 		return -ENOMEM;
 	}
 
-	
+	/* enable i2c-port pins */
 	saa7146_write(dev, MC1, (MASK_08 | MASK_24 | MASK_10 | MASK_26));
 
 	saa7146_write(dev, DD1_INIT, 0x01000100);
@@ -238,17 +242,17 @@ static int hexium_probe(struct saa7146_dev *dev)
 		return -EFAULT;
 	}
 
-	
+	/* set SAA7110 control GPIO 0 */
 	saa7146_setgpio(dev, 0, SAA7146_GPIO_OUTHI);
-	
+	/*  set HWControl GPIO number 2 */
 	saa7146_setgpio(dev, 2, SAA7146_GPIO_OUTHI);
 
 	mdelay(10);
 
-	
+	/* detect newer Hexium Orion cards by subsystem ids */
 	if (0x17c8 == dev->pci->subsystem_vendor && 0x0101 == dev->pci->subsystem_device) {
 		pr_info("device is a Hexium Orion w/ 1 SVHS + 3 BNC inputs\n");
-		
+		/* we store the pointer in our private data field */
 		dev->ext_priv = hexium;
 		hexium->type = HEXIUM_ORION_1SVHS_3BNC;
 		return 0;
@@ -256,15 +260,17 @@ static int hexium_probe(struct saa7146_dev *dev)
 
 	if (0x17c8 == dev->pci->subsystem_vendor && 0x2101 == dev->pci->subsystem_device) {
 		pr_info("device is a Hexium Orion w/ 4 BNC inputs\n");
-		
+		/* we store the pointer in our private data field */
 		dev->ext_priv = hexium;
 		hexium->type = HEXIUM_ORION_4BNC;
 		return 0;
 	}
 
+	/* check if this is an old hexium Orion card by looking at
+	   a saa7110 at address 0x4e */
 	if (0 == (err = i2c_smbus_xfer(&hexium->i2c_adapter, 0x4e, 0, I2C_SMBUS_READ, 0x00, I2C_SMBUS_BYTE_DATA, &data))) {
 		pr_info("device is a Hexium HV-PCI6/Orion (old)\n");
-		
+		/* we store the pointer in our private data field */
 		dev->ext_priv = hexium;
 		hexium->type = HEXIUM_HV_PCI6_ORION;
 		return 0;
@@ -275,6 +281,10 @@ static int hexium_probe(struct saa7146_dev *dev)
 	return -EFAULT;
 }
 
+/* bring hardware to a sane state. this has to be done, just in case someone
+   wants to capture from this device before it has been properly initialized.
+   the capture engine would badly fail, because no valid signal arrives on the
+   saa7146, thus leading to timeouts and stuff. */
 static int hexium_init_done(struct saa7146_dev *dev)
 {
 	struct hexium *hexium = (struct hexium *) dev->ext_priv;
@@ -283,7 +293,7 @@ static int hexium_init_done(struct saa7146_dev *dev)
 
 	DEB_D("hexium_init_done called\n");
 
-	
+	/* initialize the helper ics to useful values */
 	for (i = 0; i < sizeof(hexium_saa7110); i++) {
 		data.byte = hexium_saa7110[i];
 		if (0 != i2c_smbus_xfer(&hexium->i2c_adapter, 0x4e, 0, I2C_SMBUS_WRITE, i, I2C_SMBUS_BYTE_DATA, &data)) {
@@ -353,6 +363,7 @@ static int vidioc_s_input(struct file *file, void *fh, unsigned int input)
 
 static struct saa7146_ext_vv vv_data;
 
+/* this function only gets called when the probing was successful */
 static int hexium_attach(struct saa7146_dev *dev, struct saa7146_pci_extension_data *info)
 {
 	struct hexium *hexium = (struct hexium *) dev->ext_priv;
@@ -371,7 +382,7 @@ static int hexium_attach(struct saa7146_dev *dev, struct saa7146_pci_extension_d
 	pr_err("found 'hexium orion' frame grabber-%d\n", hexium_num);
 	hexium_num++;
 
-	
+	/* the rest */
 	hexium->cur_input = 0;
 	hexium_init_done(dev);
 
@@ -455,7 +466,7 @@ static struct saa7146_ext_vv vv_data = {
 
 static struct saa7146_extension extension = {
 	.name = "hexium HV-PCI6 Orion",
-	.flags = 0,		
+	.flags = 0,		// SAA7146_USE_I2C_IRQ,
 
 	.pci_tbl = &pci_tbl[0],
 	.module = THIS_MODULE,

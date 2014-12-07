@@ -19,6 +19,20 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
 */
+/*
+Driver: contec_pci_dio
+Description: Contec PIO1616L digital I/O board
+Devices: [Contec] PIO1616L (contec_pci_dio)
+Author: Stefano Rivoir <s.rivoir@gts.it>
+Updated: Wed, 27 Jun 2007 13:00:06 +0100
+Status: works
+
+Configuration Options:
+  [0] - PCI bus of device (optional)
+  [1] - PCI slot of device (optional)
+  If bus/slot is not specified, the first supported
+  PCI device found will be used.
+*/
 
 #include "../comedidev.h"
 
@@ -71,6 +85,7 @@ static struct comedi_driver driver_contec = {
 	.detach = contec_detach,
 };
 
+/* Classic digital IO */
 static int contec_di_insn_bits(struct comedi_device *dev,
 			       struct comedi_subdevice *s,
 			       struct comedi_insn *insn, unsigned int *data);
@@ -104,7 +119,7 @@ static int contec_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 		if (pcidev->vendor == PCI_VENDOR_ID_CONTEC &&
 		    pcidev->device == PCI_DEVICE_ID_PIO1616L) {
 			if (it->options[0] || it->options[1]) {
-				
+				/* Check bus and slot. */
 				if (it->options[0] != pcidev->bus->number ||
 				    it->options[1] != PCI_SLOT(pcidev->devfn)) {
 					continue;

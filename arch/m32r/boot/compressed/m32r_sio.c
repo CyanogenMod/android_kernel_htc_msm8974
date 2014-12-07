@@ -1,3 +1,10 @@
+/*
+ * arch/m32r/boot/compressed/m32r_sio.c
+ *
+ * 2003-02-12:	Takeo Takahashi
+ * 2006-11-30:	OPSPUT support by Kazuhiro Inaoka
+ *
+ */
 
 #include <asm/processor.h>
 
@@ -17,6 +24,10 @@ static int puts(const char *s)
 #define USE_FPGA_MAP	0
 
 #if USE_FPGA_MAP
+/*
+ * fpga configuration program uses MMU, and define map as same as
+ * M32104 uT-Engine board.
+ */
 #define BOOT_SIO0STS	(volatile unsigned short *)(0x02c00000 + 0x20006)
 #define BOOT_SIO0TXB	(volatile unsigned short *)(0x02c00000 + 0x2000c)
 #else
@@ -41,7 +52,7 @@ static void putc(char c)
 	}
 	*BOOT_SIO0TXB = c;
 }
-#else 
+#else /* !(CONFIG_PLAT_M32700UT) */
 #if defined(CONFIG_PLAT_MAPPI2)
 #define SIO0STS	(volatile unsigned short *)(0xa0efd000 + 14)
 #define SIO0TXB	(volatile unsigned short *)(0xa0efd000 + 30)

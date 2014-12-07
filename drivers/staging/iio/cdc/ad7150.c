@@ -16,6 +16,9 @@
 #include "../iio.h"
 #include "../sysfs.h"
 #include "../events.h"
+/*
+ * AD7150 registers definition
+ */
 
 #define AD7150_STATUS              0
 #define AD7150_STATUS_OUT1         (1 << 3)
@@ -43,6 +46,28 @@
 #define AD7150_SN0                 22
 #define AD7150_ID                  23
 
+/**
+ * struct ad7150_chip_info - instance specific chip data
+ * @client: i2c client for this device
+ * @current_event: device always has one type of event enabled.
+ *	This element stores the event code of the current one.
+ * @threshold: thresholds for simple capacitance value events
+ * @thresh_sensitivity: threshold for simple capacitance offset
+ *	from 'average' value.
+ * @mag_sensitity: threshold for magnitude of capacitance offset from
+ *	from 'average' value.
+ * @thresh_timeout: a timeout, in samples from the moment an
+ *	adaptive threshold event occurs to when the average
+ *	value jumps to current value.
+ * @mag_timeout: a timeout, in sample from the moment an
+ *	adaptive magnitude event occurs to when the average
+ *	value jumps to the current value.
+ * @old_state: store state from previous event, allowing confirmation
+ *	of new condition.
+ * @conversion_mode: the current conversion mode.
+ * @state_lock: ensure consistent state of this structure wrt the
+ *	hardware.
+ */
 struct ad7150_chip_info {
 	struct i2c_client *client;
 	u64 current_event;
@@ -56,6 +81,9 @@ struct ad7150_chip_info {
 	struct mutex state_lock;
 };
 
+/*
+ * sysfs nodes
+ */
 
 static const u8 ad7150_addresses[][6] = {
 	{ AD7150_CH1_DATA_HIGH, AD7150_CH1_AVG_HIGH,
@@ -132,6 +160,7 @@ static int ad7150_read_event_config(struct iio_dev *indio_dev, u64 event_code)
 	return -EINVAL;
 }
 
+/* lock should be held */
 static int ad7150_write_event_params(struct iio_dev *indio_dev, u64 event_code)
 {
 	int ret;
@@ -146,7 +175,7 @@ static int ad7150_write_event_params(struct iio_dev *indio_dev, u64 event_code)
 		return 0;
 
 	switch (IIO_EVENT_CODE_EXTRACT_TYPE(event_code)) {
-		
+		/* Note completely different from the adaptive versions */
 	case IIO_EV_TYPE_THRESH:
 		value = chip->threshold[rising][chan];
 		ret = i2c_smbus_write_word_data(chip->client,
@@ -190,7 +219,7 @@ static int ad7150_write_event_config(struct iio_dev *indio_dev,
 	int rising = !!(IIO_EVENT_CODE_EXTRACT_DIR(event_code) ==
 			IIO_EV_DIR_RISING);
 
-	
+	/* Something must always be turned on */
 	if (state == 0)
 		return -EINVAL;
 
@@ -238,7 +267,7 @@ static int ad7150_write_event_config(struct iio_dev *indio_dev,
 
 	chip->current_event = event_code;
 
-	
+	/* update control attributes */
 	ret = ad7150_write_event_params(indio_dev, event_code);
 error_ret:
 	mutex_unlock(&chip->state_lock);
@@ -255,7 +284,7 @@ static int ad7150_read_event_value(struct iio_dev *indio_dev,
 	int rising = !!(IIO_EVENT_CODE_EXTRACT_DIR(event_code) ==
 			IIO_EV_DIR_RISING);
 
-	
+	/* Complex register sharing going on here */
 	switch (IIO_EVENT_CODE_EXTRACT_TYPE(event_code)) {
 	case IIO_EV_TYPE_MAG_ADAPTIVE:
 		*val = chip->mag_sensitivity[rising][chan];
@@ -300,7 +329,7 @@ static int ad7150_write_event_value(struct iio_dev *indio_dev,
 		goto error_ret;
 	};
 
-	
+	/* write back if active */
 	ret = ad7150_write_event_params(indio_dev, event_code);
 
 error_ret:
@@ -317,7 +346,7 @@ static ssize_t ad7150_show_timeout(struct device *dev,
 	struct iio_dev_attr *this_attr = to_iio_dev_attr(attr);
 	u8 value;
 
-	
+	/* use the event code for consistency reasons */
 	int chan = IIO_EVENT_CODE_EXTRACT_CHAN(this_attr->address);
 	int rising = !!(IIO_EVENT_CODE_EXTRACT_DIR(this_attr->address)
 			== IIO_EV_DIR_RISING);
@@ -423,6 +452,9 @@ static const struct iio_chan_spec ad7150_channels[] = {
 	},
 };
 
+/*
+ * threshold events
+ */
 
 static irqreturn_t ad7150_event_handler(int irq, void *private)
 {
@@ -471,12 +503,13 @@ static irqreturn_t ad7150_event_handler(int irq, void *private)
 						    IIO_EV_TYPE_THRESH,
 						    IIO_EV_DIR_FALLING),
 			       timestamp);
-	
+	/* store the status to avoid repushing same events */
 	chip->old_state = int_status;
 
 	return IRQ_HANDLED;
 }
 
+/* Timeouts not currently handled by core */
 static struct attribute *ad7150_event_attributes[] = {
 	&iio_dev_attr_in_capacitance0_mag_adaptive_rising_timeout
 	.dev_attr.attr,
@@ -512,6 +545,9 @@ static const struct iio_info ad7150_info = {
 	.write_event_value = &ad7150_write_event_value,
 };
 
+/*
+ * device probe and remove
+ */
 
 static int __devinit ad7150_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
@@ -527,7 +563,7 @@ static int __devinit ad7150_probe(struct i2c_client *client,
 	}
 	chip = iio_priv(indio_dev);
 	mutex_init(&chip->state_lock);
-	
+	/* this is only used for device removal purposes */
 	i2c_set_clientdata(client, indio_dev);
 
 	chip->client = client;
@@ -535,7 +571,7 @@ static int __devinit ad7150_probe(struct i2c_client *client,
 	indio_dev->name = id->name;
 	indio_dev->channels = ad7150_channels;
 	indio_dev->num_channels = ARRAY_SIZE(ad7150_channels);
-	
+	/* Establish that the iio_dev is a child of the i2c device */
 	indio_dev->dev.parent = &client->dev;
 
 	indio_dev->info = &ad7150_info;

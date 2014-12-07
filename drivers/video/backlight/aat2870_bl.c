@@ -35,7 +35,7 @@ struct aat2870_bl_driver_data {
 
 	int channels;
 	int max_current;
-	int brightness; 
+	int brightness; /* current brightness */
 };
 
 static inline int aat2870_brightness(struct aat2870_bl_driver_data *aat2870_bl,

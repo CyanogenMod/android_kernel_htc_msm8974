@@ -80,7 +80,7 @@ static void ibm_currituck_fixups(void)
 	}
 }
 
-#define SPRN_PIR	0x11E	
+#define SPRN_PIR	0x11E	/* Processor Indentification Register */
 void platform_init(void)
 {
 	unsigned long end_of_ram, avail_ram;
@@ -100,7 +100,7 @@ void platform_init(void)
 	platform_ops.exit = ibm44x_dbcr_reset;
 	pir_reg = mfspr(SPRN_PIR);
 
-	
+	/* Make sure FDT blob is sane */
 	if (fdt_check_header(_dtb_start) != 0)
 		fatal("Invalid device tree blob\n");
 

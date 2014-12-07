@@ -38,7 +38,7 @@ struct adv7183 {
 	struct v4l2_subdev sd;
 	struct v4l2_ctrl_handler hdl;
 
-	v4l2_std_id std; 
+	v4l2_std_id std; /* Current set standard */
 	u32 input;
 	u32 output;
 	unsigned reset_pin;
@@ -46,13 +46,17 @@ struct adv7183 {
 	struct v4l2_mbus_framefmt fmt;
 };
 
+/* EXAMPLES USING 27 MHz CLOCK
+ * Mode 1 CVBS Input (Composite Video on AIN5)
+ * All standards are supported through autodetect, 8-bit, 4:2:2, ITU-R BT.656 output on P15 to P8.
+ */
 static const unsigned char adv7183_init_regs[] = {
-	ADV7183_IN_CTRL, 0x04,           
-	ADV7183_DIGI_CLAMP_CTRL_1, 0x00, 
-	ADV7183_SHAP_FILT_CTRL, 0x41,    
-	ADV7183_ADC_CTRL, 0x16,          
-	ADV7183_CTI_DNR_CTRL_4, 0x04,    
-	
+	ADV7183_IN_CTRL, 0x04,           /* CVBS input on AIN5 */
+	ADV7183_DIGI_CLAMP_CTRL_1, 0x00, /* Slow down digital clamps */
+	ADV7183_SHAP_FILT_CTRL, 0x41,    /* Set CSFM to SH1 */
+	ADV7183_ADC_CTRL, 0x16,          /* Power down ADC 1 and ADC 2 */
+	ADV7183_CTI_DNR_CTRL_4, 0x04,    /* Set DNR threshold to 4 for flat response */
+	/* ADI recommended programming sequence */
 	ADV7183_ADI_CTRL, 0x80,
 	ADV7183_CTI_DNR_CTRL_4, 0x20,
 	0x52, 0x18,
@@ -240,7 +244,7 @@ static int adv7183_reset(struct v4l2_subdev *sd, u32 val)
 
 	reg = adv7183_read(sd, ADV7183_POW_MANAGE) | 0x80;
 	adv7183_write(sd, ADV7183_POW_MANAGE, reg);
-	
+	/* wait 5ms before any further i2c writes are performed */
 	usleep_range(5000, 10000);
 	return 0;
 }
@@ -360,14 +364,14 @@ static int adv7183_querystd(struct v4l2_subdev *sd, v4l2_std_id *std)
 	struct adv7183 *decoder = to_adv7183(sd);
 	int reg;
 
-	
+	/* enable autodetection block */
 	reg = adv7183_read(sd, ADV7183_IN_CTRL) & 0xF;
 	adv7183_write(sd, ADV7183_IN_CTRL, reg);
 
-	
+	/* wait autodetection switch */
 	mdelay(10);
 
-	
+	/* get autodetection result */
 	reg = adv7183_read(sd, ADV7183_STATUS_1);
 	switch ((reg >> 0x4) & 0x7) {
 	case 0:
@@ -399,7 +403,7 @@ static int adv7183_querystd(struct v4l2_subdev *sd, v4l2_std_id *std)
 		break;
 	}
 
-	
+	/* after std detection, write back user set std */
 	adv7183_s_std(sd, decoder->std);
 	return 0;
 }
@@ -483,7 +487,7 @@ static int adv7183_g_chip_ident(struct v4l2_subdev *sd,
 	int rev;
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 
-	
+	/* 0x11 for adv7183, 0x13 for adv7183b */
 	rev = adv7183_read(sd, ADV7183_IDENT);
 
 	return v4l2_chip_ident_i2c_client(client, chip, V4L2_IDENT_ADV7183, rev);
@@ -558,7 +562,7 @@ static int adv7183_probe(struct i2c_client *client,
 	struct v4l2_mbus_framefmt fmt;
 	const unsigned *pin_array;
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -EIO;
 
@@ -601,7 +605,7 @@ static int adv7183_probe(struct i2c_client *client,
 			V4L2_CID_SATURATION, 0, 0xFFFF, 1, 0x8080);
 	v4l2_ctrl_new_std(hdl, &adv7183_ctrl_ops,
 			V4L2_CID_HUE, 0, 0xFFFF, 1, 0x8080);
-	
+	/* hook the control handler into the driver */
 	sd->ctrl_handler = hdl;
 	if (hdl->error) {
 		ret = hdl->error;
@@ -610,18 +614,18 @@ static int adv7183_probe(struct i2c_client *client,
 		goto err_free_oe;
 	}
 
-	
+	/* v4l2 doesn't support an autodetect standard, pick PAL as default */
 	decoder->std = V4L2_STD_PAL;
 	decoder->input = ADV7183_COMPOSITE4;
 	decoder->output = ADV7183_8BIT_OUT;
 
 	gpio_direction_output(decoder->oe_pin, 1);
-	
+	/* reset chip */
 	gpio_direction_output(decoder->reset_pin, 0);
-	
+	/* reset pulse width at least 5ms */
 	mdelay(10);
 	gpio_direction_output(decoder->reset_pin, 1);
-	
+	/* wait 5ms before any further i2c writes are performed */
 	mdelay(5);
 
 	adv7183_writeregs(sd, adv7183_init_regs, ARRAY_SIZE(adv7183_init_regs));
@@ -630,7 +634,7 @@ static int adv7183_probe(struct i2c_client *client,
 	fmt.height = 576;
 	adv7183_s_mbus_fmt(sd, &fmt);
 
-	
+	/* initialize the hardware to the default control values */
 	ret = v4l2_ctrl_handler_setup(hdl);
 	if (ret) {
 		v4l2_ctrl_handler_free(hdl);

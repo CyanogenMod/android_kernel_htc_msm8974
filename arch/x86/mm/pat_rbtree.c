@@ -1,3 +1,12 @@
+/*
+ * Handle caching attributes in page tables (PAT)
+ *
+ * Authors: Venkatesh Pallipadi <venkatesh.pallipadi@intel.com>
+ *          Suresh B Siddha <suresh.b.siddha@intel.com>
+ *
+ * Interval tree (augmented rbtree) used to store the PAT memory type
+ * reservations.
+ */
 
 #include <linux/seq_file.h>
 #include <linux/debugfs.h>
@@ -12,6 +21,18 @@
 
 #include "pat_internal.h"
 
+/*
+ * The memtype tree keeps track of memory type for specific
+ * physical memory areas. Without proper tracking, conflicting memory
+ * types in different mappings can cause CPU cache corruption.
+ *
+ * The tree is an interval tree (augmented rbtree) with tree ordered
+ * on starting address. Tree can contain multiple entries for
+ * different regions which overlap. All the aliases have the same
+ * cache attributes of course.
+ *
+ * memtype_lock protects the rbtree.
+ */
 
 static struct rb_root memtype_rbroot = RB_ROOT;
 
@@ -33,6 +54,7 @@ static u64 get_subtree_max_end(struct rb_node *node)
 	return ret;
 }
 
+/* Update 'subtree_max_end' for a node, based on node and its children */
 static void memtype_rb_augment_cb(struct rb_node *node, void *__unused)
 {
 	struct memtype *data;
@@ -55,6 +77,7 @@ static void memtype_rb_augment_cb(struct rb_node *node, void *__unused)
 	data->subtree_max_end = max_end;
 }
 
+/* Find the first (lowest start addr) overlapping range from rb tree */
 static struct memtype *memtype_rb_lowest_match(struct rb_root *root,
 				u64 start, u64 end)
 {
@@ -65,19 +88,19 @@ static struct memtype *memtype_rb_lowest_match(struct rb_root *root,
 		struct memtype *data = container_of(node, struct memtype, rb);
 
 		if (get_subtree_max_end(node->rb_left) > start) {
-			
+			/* Lowest overlap if any must be on left side */
 			node = node->rb_left;
 		} else if (is_node_overlap(data, start, end)) {
 			last_lower = data;
 			break;
 		} else if (start >= data->start) {
-			
+			/* Lowest overlap if any must be on right side */
 			node = node->rb_right;
 		} else {
 			break;
 		}
 	}
-	return last_lower; 
+	return last_lower; /* Returns NULL if there is no overlap */
 }
 
 static struct memtype *memtype_rb_exact_match(struct rb_root *root,
@@ -99,7 +122,7 @@ static struct memtype *memtype_rb_exact_match(struct rb_root *root,
 			match = NULL;
 	}
 
-	return NULL; 
+	return NULL; /* Returns NULL if there is no exact match */
 }
 
 static int memtype_rb_check_conflict(struct rb_root *root,
@@ -124,7 +147,7 @@ static int memtype_rb_check_conflict(struct rb_root *root,
 	while (node) {
 		match = container_of(node, struct memtype, rb);
 
-		if (match->start >= end) 
+		if (match->start >= end) /* Checked all possible matches */
 			goto success;
 
 		if (is_node_overlap(match, start, end) &&
@@ -219,7 +242,7 @@ int rbt_memtype_copy_nth_element(struct memtype *out, loff_t pos)
 		i++;
 	}
 
-	if (node) { 
+	if (node) { /* pos == i */
 		struct memtype *this = container_of(node, struct memtype, rb);
 		*out = *this;
 		return 0;

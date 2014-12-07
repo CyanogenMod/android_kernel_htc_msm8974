@@ -14,14 +14,17 @@
 #include <asm/irq.h>
 #include <asm/sun3x.h>
 
+/* default interrupt vector */
 #define SUN3X_FDC_IRQ 0x40
 
+/* some constants */
 #define FCR_TC 0x1
 #define FCR_EJECT 0x2
 #define FCR_MTRON 0x4
 #define FCR_DSEL1 0x8
 #define FCR_DSEL0 0x10
 
+/* We don't need no stinkin' I/O port allocation crap. */
 #undef release_region
 #undef request_region
 #define release_region(X, Y)	do { } while(0)
@@ -35,21 +38,24 @@ struct sun3xflop_private {
 	unsigned char fcr;
 } sun3x_fdc;
 
+/* Super paranoid... */
 #undef HAVE_DISABLE_HLT
 
+/* Routines unique to each controller type on a Sun. */
 static unsigned char sun3x_82072_fd_inb(int port)
 {
 	static int once = 0;
+//	udelay(5);
 	switch(port & 7) {
 	default:
 		printk("floppy: Asked to read unknown port %d\n", port);
 		panic("floppy: Port bolixed.");
-	case 4: 
+	case 4: /* FD_STATUS */
 		return (*sun3x_fdc.status_r) & ~STATUS_DMA;
-	case 5: 
+	case 5: /* FD_DATA */
 		return (*sun3x_fdc.data_r);
-	case 7: 
-		
+	case 7: /* FD_DIR */
+		/* ugly hack, I can't find a way to actually detect the disk */
 		if(!once) {
 			once = 1;
 			return 0x80;
@@ -61,11 +67,19 @@ static unsigned char sun3x_82072_fd_inb(int port)
 
 static void sun3x_82072_fd_outb(unsigned char value, int port)
 {
+//	udelay(5);
 	switch(port & 7) {
 	default:
 		printk("floppy: Asked to write to unknown port %d\n", port);
 		panic("floppy: Port bolixed.");
-	case 2: 
+	case 2: /* FD_DOR */
+		/* Oh geese, 82072 on the Sun has no DOR register,
+		 * so we make do with taunting the FCR.
+		 *
+		 * ASSUMPTIONS:  There will only ever be one floppy
+		 *               drive attached to a Sun controller
+		 *               and it will be at drive zero.
+		 */
 
 	{
 		unsigned char fcr = sun3x_fdc.fcr;
@@ -82,13 +96,13 @@ static void sun3x_82072_fd_outb(unsigned char value, int port)
 		}
 	}
 		break;
-	case 5: 
+	case 5: /* FD_DATA */
 		*(sun3x_fdc.data_r) = value;
 		break;
-	case 7: 
+	case 7: /* FD_DCR */
 		*(sun3x_fdc.status_r) = value;
 		break;
-	case 4: 
+	case 4: /* FD_STATUS */
 		*(sun3x_fdc.status_r) = value;
 		break;
 	};
@@ -113,6 +127,7 @@ asmlinkage irqreturn_t sun3xflop_hardint(int irq, void *dev_id)
 		return IRQ_HANDLED;
 	}
 
+//	printk("doing pdma\n");// st %x\n", sun_fdc->status_82072);
 
 #ifdef TRACE_FLPY_INT
 	if(!calls)
@@ -125,7 +140,10 @@ asmlinkage irqreturn_t sun3xflop_hardint(int irq, void *dev_id)
 
 		for(lcount=virtual_dma_count, lptr=virtual_dma_addr;
 		    lcount; lcount--, lptr++) {
+/*			st=fd_inb(virtual_dma_port+4) & 0x80 ;  */
 			st = *(sun3x_fdc.status_r);
+/*			if(st != 0xa0)                  */
+/*				break;                  */
 
 			if((st & 0x80) == 0) {
 				virtual_dma_count = lcount;
@@ -137,19 +155,23 @@ asmlinkage irqreturn_t sun3xflop_hardint(int irq, void *dev_id)
 				break;
 
 			if(virtual_dma_mode)
+/*				fd_outb(*lptr, virtual_dma_port+5); */
 				*(sun3x_fdc.data_r) = *lptr;
 			else
+/*				*lptr = fd_inb(virtual_dma_port+5); */
 				*lptr = *(sun3x_fdc.data_r);
 		}
 
 		virtual_dma_count = lcount;
 		virtual_dma_addr = lptr;
+/*		st = fd_inb(virtual_dma_port+4);   */
 		st = *(sun3x_fdc.status_r);
 	}
 
 #ifdef TRACE_FLPY_INT
 	calls++;
 #endif
+//	printk("st=%02x\n", st);
 	if(st == 0x20)
 		return IRQ_HANDLED;
 	if(!(st & 0x20)) {
@@ -203,7 +225,7 @@ static int sun3xflop_init(void)
 	sun3x_fdc.fvr_r = (volatile unsigned char *)SUN3X_FDC_FVR;
 	sun3x_fdc.fcr = 0;
 
-	
+	/* Last minute sanity check... */
 	if(*sun3x_fdc.status_r == 0xff) {
 		return -1;
 	}
@@ -214,12 +236,13 @@ static int sun3xflop_init(void)
 	udelay(10);
 	*sun3x_fdc.fcr_r = 0;
 
-	
-	floppy_set_flags(NULL, 1, FD_BROKEN_DCL); 
+	/* Success... */
+	floppy_set_flags(NULL, 1, FD_BROKEN_DCL); // I don't know how to detect this.
 	allowed_drive_mask = 0x01;
 	return (int) SUN3X_FDC;
 }
 
+/* I'm not precisely sure this eject routine works */
 static int sun3x_eject(void)
 {
 	if(MACH_IS_SUN3X) {
@@ -236,4 +259,4 @@ static int sun3x_eject(void)
 
 #define fd_eject(drive) sun3x_eject()
 
-#endif 
+#endif /* !(__ASM_SUN3X_FLOPPY_H) */

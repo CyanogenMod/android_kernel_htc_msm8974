@@ -20,6 +20,9 @@
 
 #ifdef CONFIG_GPIOLIB
 
+/*
+ * Just call gpiolib.
+ */
 static inline int gpio_get_value(unsigned int gpio)
 {
 	return __gpio_get_value(gpio);
@@ -45,6 +48,6 @@ static inline int irq_to_gpio(unsigned int irq)
 	return -EINVAL;
 }
 
-#endif 
+#endif /* CONFIG_GPIOLIB */
 
-#endif 
+#endif /* _ASM_X86_GPIO_H */

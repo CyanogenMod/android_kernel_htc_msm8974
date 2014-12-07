@@ -33,11 +33,38 @@
 #include "machvec_impl.h"
 
 
+/*
+ * Jensen is special: the vector is 0x8X0 for EISA interrupt X, and
+ * 0x9X0 for the local motherboard interrupts.
+ *
+ * Note especially that those local interrupts CANNOT be masked,
+ * which causes much of the pain below...
+ *
+ *	0x660 - NMI
+ *
+ *	0x800 - IRQ0  interval timer (not used, as we use the RTC timer)
+ *	0x810 - IRQ1  line printer (duh..)
+ *	0x860 - IRQ6  floppy disk
+ *
+ *	0x900 - COM1
+ *	0x920 - COM2
+ *	0x980 - keyboard
+ *	0x990 - mouse
+ *
+ * PCI-based systems are more sane: they don't have the local
+ * interrupts at all, and have only normal PCI interrupts from
+ * devices.  Happily it's easy enough to do a sane mapping from the
+ * Jensen.
+ * 
+ * Note that this means that we may have to do a hardware
+ * "local_op" to a different interrupt than we report to the rest of the
+ * world.
+ */
 
 static void
 jensen_local_enable(struct irq_data *d)
 {
-	
+	/* the parport is really hw IRQ 1, silly Jensen.  */
 	if (d->irq == 7)
 		i8259a_enable_irq(d);
 }
@@ -45,7 +72,7 @@ jensen_local_enable(struct irq_data *d)
 static void
 jensen_local_disable(struct irq_data *d)
 {
-	
+	/* the parport is really hw IRQ 1, silly Jensen.  */
 	if (d->irq == 7)
 		i8259a_disable_irq(d);
 }
@@ -53,7 +80,7 @@ jensen_local_disable(struct irq_data *d)
 static void
 jensen_local_mask_ack(struct irq_data *d)
 {
-	
+	/* the parport is really hw IRQ 1, silly Jensen.  */
 	if (d->irq == 7)
 		i8259a_mask_and_ack_irq(d);
 }
@@ -76,11 +103,11 @@ jensen_device_interrupt(unsigned long vector)
 		printk("61=%02x, 461=%02x\n", inb(0x61), inb(0x461));
 		return;
 
-	
-	case 0x900: irq = 4; break;		
-	case 0x920: irq = 3; break;		
-	case 0x980: irq = 1; break;		
-	case 0x990: irq = 9; break;		
+	/* local device interrupts: */
+	case 0x900: irq = 4; break;		/* com1 -> irq 4 */
+	case 0x920: irq = 3; break;		/* com2 -> irq 3 */
+	case 0x980: irq = 1; break;		/* kbd -> irq 1 */
+	case 0x990: irq = 9; break;		/* mouse -> irq 9 */
 
 	default:
 		if (vector > 0x900) {
@@ -94,27 +121,27 @@ jensen_device_interrupt(unsigned long vector)
 		break;
 	}
 
-	
+	/* If there is no handler yet... */
 	if (!irq_has_action(irq)) {
-	    
+	    /* If it is a local interrupt that cannot be masked... */
 	    if (vector >= 0x900)
 	    {
-	        
+	        /* Clear keyboard/mouse state */
 	    	inb(0x64);
 		inb(0x60);
-		
+		/* Reset serial ports */
 		inb(0x3fa);
 		inb(0x2fa);
 		outb(0x0c, 0x3fc);
 		outb(0x0c, 0x2fc);
-		
+		/* Clear NMI */
 		outb(0,0x61);
 		outb(0,0x461);
 	    }
 	}
 
 #if 0
-        
+        /* A useful bit of code to find out if an interrupt is going wild.  */
         {
           static unsigned int last_msg = 0, last_cc = 0;
           static int last_irq = -1, count = 0;
@@ -162,6 +189,8 @@ jensen_init_arch(void)
 	isa_bridge = &fake_isa_bridge;
 #endif
 
+	/* Create a hose so that we can report i/o base addresses to
+	   userland.  */
 
 	pci_isa_hose = hose = alloc_pci_controller();
 	hose->io_space = &ioport_resource;
@@ -184,6 +213,9 @@ jensen_machine_check(unsigned long vector, unsigned long la)
 	printk(KERN_CRIT "Machine check\n");
 }
 
+/*
+ * The System Vector
+ */
 
 struct alpha_machine_vector jensen_mv __initmv = {
 	.vector_name		= "Jensen",

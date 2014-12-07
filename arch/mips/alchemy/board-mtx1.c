@@ -66,7 +66,7 @@ void prom_putchar(unsigned char c)
 
 static void mtx1_reset(char *c)
 {
-	
+	/* Jump to the reset vector */
 	__asm__ __volatile__("jr\t%0" : : "r"(0xbfc00000));
 }
 
@@ -82,23 +82,23 @@ static void mtx1_power_off(void)
 void __init board_setup(void)
 {
 #if defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
-	
+	/* Enable USB power switch */
 	alchemy_gpio_direction_output(204, 0);
-#endif 
+#endif /* defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE) */
 
-	
+	/* Initialize sys_pinfunc */
 	au_writel(SYS_PF_NI2, SYS_PINFUNC);
 
-	
+	/* Initialize GPIO */
 	au_writel(~0, KSEG1ADDR(AU1000_SYS_PHYS_ADDR) + SYS_TRIOUTCLR);
-	alchemy_gpio_direction_output(0, 0);	
-	alchemy_gpio_direction_output(3, 1);	
-	alchemy_gpio_direction_output(1, 1);	
-	alchemy_gpio_direction_output(5, 0);	
+	alchemy_gpio_direction_output(0, 0);	/* Disable M66EN (PCI 66MHz) */
+	alchemy_gpio_direction_output(3, 1);	/* Disable PCI CLKRUN# */
+	alchemy_gpio_direction_output(1, 1);	/* Enable EXT_IO3 */
+	alchemy_gpio_direction_output(5, 0);	/* Disable eth PHY TX_ER */
 
-	
-	alchemy_gpio_direction_output(211, 1);	
-	alchemy_gpio_direction_output(212, 0);	
+	/* Enable LED and set it to green */
+	alchemy_gpio_direction_output(211, 1);	/* green on */
+	alchemy_gpio_direction_output(212, 0);	/* red off */
 
 	pm_power_off = mtx1_power_off;
 	_machine_halt = mtx1_power_off;
@@ -107,6 +107,7 @@ void __init board_setup(void)
 	printk(KERN_INFO "4G Systems MTX-1 Board\n");
 }
 
+/******************************************************************************/
 
 static struct gpio_keys_button mtx1_gpio_button[] = {
 	{
@@ -223,25 +224,29 @@ static struct resource alchemy_pci_host_res[] = {
 
 static int mtx1_pci_idsel(unsigned int devsel, int assert)
 {
+	/* This function is only necessary to support a proprietary Cardbus
+	 * adapter on the mtx-1 "singleboard" variant. It triggers a custom
+	 * logic chip connected to EXT_IO3 (GPIO1) to suppress IDSEL signals.
+	 */
 	if (assert && devsel != 0)
-		
-		alchemy_gpio_set_value(1, 0);	
+		/* Suppress signal to Cardbus */
+		alchemy_gpio_set_value(1, 0);	/* set EXT_IO3 OFF */
 	else
-		alchemy_gpio_set_value(1, 1);	
+		alchemy_gpio_set_value(1, 1);	/* set EXT_IO3 ON */
 
 	udelay(1);
 	return 1;
 }
 
 static const char mtx1_irqtab[][5] = {
-	[0] = { -1, AU1500_PCI_INTA, AU1500_PCI_INTA, 0xff, 0xff }, 
-	[1] = { -1, AU1500_PCI_INTB, AU1500_PCI_INTA, 0xff, 0xff }, 
-	[2] = { -1, AU1500_PCI_INTC, AU1500_PCI_INTD, 0xff, 0xff }, 
-	[3] = { -1, AU1500_PCI_INTD, AU1500_PCI_INTC, 0xff, 0xff }, 
-	[4] = { -1, AU1500_PCI_INTA, AU1500_PCI_INTB, 0xff, 0xff }, 
-	[5] = { -1, AU1500_PCI_INTB, AU1500_PCI_INTA, 0xff, 0xff }, 
-	[6] = { -1, AU1500_PCI_INTC, AU1500_PCI_INTD, 0xff, 0xff }, 
-	[7] = { -1, AU1500_PCI_INTD, AU1500_PCI_INTC, 0xff, 0xff }, 
+	[0] = { -1, AU1500_PCI_INTA, AU1500_PCI_INTA, 0xff, 0xff }, /* IDSEL 00 - AdapterA-Slot0 (top) */
+	[1] = { -1, AU1500_PCI_INTB, AU1500_PCI_INTA, 0xff, 0xff }, /* IDSEL 01 - AdapterA-Slot1 (bottom) */
+	[2] = { -1, AU1500_PCI_INTC, AU1500_PCI_INTD, 0xff, 0xff }, /* IDSEL 02 - AdapterB-Slot0 (top) */
+	[3] = { -1, AU1500_PCI_INTD, AU1500_PCI_INTC, 0xff, 0xff }, /* IDSEL 03 - AdapterB-Slot1 (bottom) */
+	[4] = { -1, AU1500_PCI_INTA, AU1500_PCI_INTB, 0xff, 0xff }, /* IDSEL 04 - AdapterC-Slot0 (top) */
+	[5] = { -1, AU1500_PCI_INTB, AU1500_PCI_INTA, 0xff, 0xff }, /* IDSEL 05 - AdapterC-Slot1 (bottom) */
+	[6] = { -1, AU1500_PCI_INTC, AU1500_PCI_INTD, 0xff, 0xff }, /* IDSEL 06 - AdapterD-Slot0 (top) */
+	[7] = { -1, AU1500_PCI_INTD, AU1500_PCI_INTC, 0xff, 0xff }, /* IDSEL 07 - AdapterD-Slot1 (bottom) */
 };
 
 static int mtx1_map_pci_irq(const struct pci_dev *d, u8 slot, u8 pin)

@@ -43,6 +43,7 @@
 #define SPRBR	0x10
 #define SPCR2	0x14
 
+/* SPSR */
 #define RXFL	(1 << 2)
 
 #define hspi2info(h)	(h->dev->platform_data)
@@ -54,6 +55,9 @@ struct hspi_priv {
 	struct clk *clk;
 };
 
+/*
+ *		basic function
+ */
 static void hspi_write(struct hspi_priv *hspi, int reg, u32 val)
 {
 	iowrite32(val, hspi->addr + reg);
@@ -64,6 +68,9 @@ static u32 hspi_read(struct hspi_priv *hspi, int reg)
 	return ioread32(hspi->addr + reg);
 }
 
+/*
+ *		transfer function
+ */
 static int hspi_status_check_timeout(struct hspi_priv *hspi, u32 mask, u32 val)
 {
 	int t = 256;
@@ -79,6 +86,9 @@ static int hspi_status_check_timeout(struct hspi_priv *hspi, u32 mask, u32 val)
 	return -ETIMEDOUT;
 }
 
+/*
+ *		spi master function
+ */
 static int hspi_prepare_transfer(struct spi_master *master)
 {
 	struct hspi_priv *hspi = spi_master_get_devdata(master);
@@ -109,22 +119,25 @@ static void hspi_hw_setup(struct hspi_priv *hspi,
 	if (!target_rate)
 		target_rate = spi->max_speed_hz;
 
+	/*
+	 * find best IDIV/CLKCx settings
+	 */
 	min = ~0;
 	best_rate = 0;
 	spcr = 0;
 	for (idiv_clk = 0x00; idiv_clk <= 0x3F; idiv_clk++) {
 		rate = clk_get_rate(hspi->clk);
 
-		
+		/* IDIV calculation */
 		if (idiv_clk & (1 << 5))
 			rate /= 128;
 		else
 			rate /= 16;
 
-		
+		/* CLKCx calculation */
 		rate /= (((idiv_clk & 0x1F) + 1) * 2) ;
 
-		
+		/* save best settings */
 		tmp = abs(target_rate - rate);
 		if (tmp < min) {
 			min = tmp;
@@ -142,7 +155,7 @@ static void hspi_hw_setup(struct hspi_priv *hspi,
 
 	hspi_write(hspi, SPCR, spcr);
 	hspi_write(hspi, SPSR, 0x0);
-	hspi_write(hspi, SPSCR, 0x1);	
+	hspi_write(hspi, SPSCR, 0x1);	/* master mode */
 }
 
 static int hspi_transfer_one_message(struct spi_master *master,
@@ -162,7 +175,7 @@ static int hspi_transfer_one_message(struct spi_master *master,
 
 		for (i = 0; i < t->len; i++) {
 
-			
+			/* wait remains */
 			ret = hspi_status_check_timeout(hspi, 0x1, 0);
 			if (ret < 0)
 				break;
@@ -173,7 +186,7 @@ static int hspi_transfer_one_message(struct spi_master *master,
 
 			hspi_write(hspi, SPTBR, tx);
 
-			
+			/* wait recive */
 			ret = hspi_status_check_timeout(hspi, 0x4, 0x4);
 			if (ret < 0)
 				break;
@@ -224,7 +237,7 @@ static int __devinit hspi_probe(struct platform_device *pdev)
 	struct clk *clk;
 	int ret;
 
-	
+	/* get base addr */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		dev_err(&pdev->dev, "invalid resource\n");
@@ -247,7 +260,7 @@ static int __devinit hspi_probe(struct platform_device *pdev)
 	hspi = spi_master_get_devdata(master);
 	dev_set_drvdata(&pdev->dev, hspi);
 
-	
+	/* init hspi */
 	hspi->master	= master;
 	hspi->dev	= &pdev->dev;
 	hspi->clk	= clk;

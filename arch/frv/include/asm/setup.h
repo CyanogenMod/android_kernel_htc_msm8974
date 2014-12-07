@@ -24,8 +24,8 @@
 extern unsigned long __initdata num_mappedpages;
 #endif
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif  
+#endif  /*  __KERNEL__  */
 
-#endif 
+#endif /* _ASM_SETUP_H */

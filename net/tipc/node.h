@@ -42,13 +42,43 @@
 #include "net.h"
 #include "bearer.h"
 
+/*
+ * Out-of-range value for node signature
+ */
 #define INVALID_NODE_SIG 0x10000
 
+/* Flags used to block (re)establishment of contact with a neighboring node */
 
-#define WAIT_PEER_DOWN	0x0001	
-#define WAIT_NAMES_GONE	0x0002	
-#define WAIT_NODE_DOWN	0x0004	
+#define WAIT_PEER_DOWN	0x0001	/* wait to see that peer's links are down */
+#define WAIT_NAMES_GONE	0x0002	/* wait for peer's publications to be purged */
+#define WAIT_NODE_DOWN	0x0004	/* wait until peer node is declared down */
 
+/**
+ * struct tipc_node - TIPC node structure
+ * @addr: network address of node
+ * @lock: spinlock governing access to structure
+ * @hash: links to adjacent nodes in unsorted hash chain
+ * @list: links to adjacent nodes in sorted list of cluster's nodes
+ * @nsub: list of "node down" subscriptions monitoring node
+ * @active_links: pointers to active links to node
+ * @links: pointers to all links to node
+ * @working_links: number of working links to node (both active and standby)
+ * @block_setup: bit mask of conditions preventing link establishment to node
+ * @link_cnt: number of links to node
+ * @permit_changeover: non-zero if node has redundant links to this system
+ * @signature: node instance identifier
+ * @bclink: broadcast-related info
+ *    @supportable: non-zero if node supports TIPC b'cast link capability
+ *    @supported: non-zero if node supports TIPC b'cast capability
+ *    @acked: sequence # of last outbound b'cast message acknowledged by node
+ *    @last_in: sequence # of last in-sequence b'cast message received from node
+ *    @last_sent: sequence # of last b'cast message sent by node
+ *    @oos_state: state tracker for handling OOS b'cast messages
+ *    @deferred_size: number of OOS b'cast messages in deferred queue
+ *    @deferred_head: oldest OOS b'cast message received from node
+ *    @deferred_tail: newest OOS b'cast message received from node
+ *    @defragm: list of partially reassembled b'cast message fragments from node
+ */
 
 struct tipc_node {
 	u32 addr;

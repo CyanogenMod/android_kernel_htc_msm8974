@@ -17,6 +17,20 @@
 		status = "ok";
 	};
 
+        i2c@f9925000 { /* BLSP1 QUP3 */
+                nfc-nci@0e {
+                        compatible = "qcom,nfc-nci";
+                        reg = <0x0e>;
+                        qcom,irq-gpio = <&msmgpio 21 0x00>;
+                        qcom,dis-gpio = <&msmgpio 20 0x00>;
+                        qcom,clk-src = "BBCLK2";
+                        qcom,clk-en-gpio = <&msmgpio 0 0x00>;
+                        interrupt-parent = <&msmgpio>;
+                        interrupts = <21 0>;
+                        qcom,clk-gpio = <&pm8226_gpios 3 0>;
+                };
+        };
+
 	i2c@f9927000 { /* BLSP1 QUP5 */
 		synaptics@20 {
 			compatible = "synaptics,rmi4";
@@ -387,7 +401,7 @@
 	qcom,min-fcc-learning-soc = <20>;
 	qcom,min-fcc-ocv-pc = <30>;
 	qcom,min-fcc-learning-samples = <5>;
-	qcom,fcc-resolution = <10>;
+	qcom,fcc-resolution = <13>;
 	qcom,battery-data = <&qrd_batterydata>;
 };
 
@@ -462,12 +476,6 @@
 	};
 
 	mpp@a700 { /* MPP 8 */
-	};
-};
-
-&slim_msm {
-	tapan_codec {
-		qcom,cdc-micbias1-ext-cap;
 	};
 };
 

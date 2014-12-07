@@ -3,6 +3,9 @@
  *  Copyright (c) 2000 Mark Fletcher
  */
 
+/*
+ * Gravis Stinger gamepad driver for Linux
+ */
 
 /*
  * This program is free warftware; you can redistribute it and/or modify
@@ -37,9 +40,15 @@ MODULE_AUTHOR("Vojtech Pavlik <vojtech@ucw.cz>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
+/*
+ * Constants.
+ */
 
 #define STINGER_MAX_LENGTH 8
 
+/*
+ * Per-Stinger data.
+ */
 
 struct stinger {
 	struct input_dev *dev;
@@ -48,6 +57,10 @@ struct stinger {
 	char phys[32];
 };
 
+/*
+ * stinger_process_packet() decodes packets the driver receives from the
+ * Stinger. It updates the data accordingly.
+ */
 
 static void stinger_process_packet(struct stinger *stinger)
 {
@@ -75,13 +88,18 @@ static void stinger_process_packet(struct stinger *stinger)
 	return;
 }
 
+/*
+ * stinger_interrupt() is called by the low level driver when characters
+ * are ready for us. We then buffer them for further processing, or call the
+ * packet processing routine.
+ */
 
 static irqreturn_t stinger_interrupt(struct serio *serio,
 	unsigned char data, unsigned int flags)
 {
 	struct stinger *stinger = serio_get_drvdata(serio);
 
-	
+	/* All Stinger packets are 4 bytes */
 
 	if (stinger->idx < STINGER_MAX_LENGTH)
 		stinger->data[stinger->idx++] = data;
@@ -94,6 +112,9 @@ static irqreturn_t stinger_interrupt(struct serio *serio,
 	return IRQ_HANDLED;
 }
 
+/*
+ * stinger_disconnect() is the opposite of stinger_connect()
+ */
 
 static void stinger_disconnect(struct serio *serio)
 {
@@ -105,6 +126,11 @@ static void stinger_disconnect(struct serio *serio)
 	kfree(stinger);
 }
 
+/*
+ * stinger_connect() is the routine that is called when someone adds a
+ * new serio device that supports Stinger protocol and registers it as
+ * an input device.
+ */
 
 static int stinger_connect(struct serio *serio, struct serio_driver *drv)
 {
@@ -155,6 +181,9 @@ static int stinger_connect(struct serio *serio, struct serio_driver *drv)
 	return err;
 }
 
+/*
+ * The serio driver structure.
+ */
 
 static struct serio_device_id stinger_serio_ids[] = {
 	{
@@ -179,6 +208,9 @@ static struct serio_driver stinger_drv = {
 	.disconnect	= stinger_disconnect,
 };
 
+/*
+ * The functions for inserting/removing us as a module.
+ */
 
 static int __init stinger_init(void)
 {

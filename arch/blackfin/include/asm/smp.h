@@ -49,4 +49,4 @@ int __cpu_die(unsigned int cpu);
 void smp_timer_broadcast(const struct cpumask *mask);
 
 
-#endif 
+#endif /* !__ASM_BLACKFIN_SMP_H */

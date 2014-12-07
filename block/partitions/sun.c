@@ -18,42 +18,42 @@ int sun_partition(struct parsed_partitions *state)
 	__be16 *ush;
 	Sector sect;
 	struct sun_disklabel {
-		unsigned char info[128];   
+		unsigned char info[128];   /* Informative text string */
 		struct sun_vtoc {
-		    __be32 version;     
-		    char   volume[8];   
-		    __be16 nparts;      
-		    struct sun_info {           
+		    __be32 version;     /* Layout version */
+		    char   volume[8];   /* Volume name */
+		    __be16 nparts;      /* Number of partitions */
+		    struct sun_info {           /* Partition hdrs, sec 2 */
 			__be16 id;
 			__be16 flags;
 		    } infos[8];
-		    __be16 padding;     
-		    __be32 bootinfo[3];  
-		    __be32 sanity;       
-		    __be32 reserved[10]; 
-		    __be32 timestamp[8]; 
+		    __be16 padding;     /* Alignment padding */
+		    __be32 bootinfo[3];  /* Info needed by mboot */
+		    __be32 sanity;       /* To verify vtoc sanity */
+		    __be32 reserved[10]; /* Free space */
+		    __be32 timestamp[8]; /* Partition timestamp */
 		} vtoc;
-		__be32 write_reinstruct; 
-		__be32 read_reinstruct;  
-		unsigned char spare[148]; 
-		__be16 rspeed;     
-		__be16 pcylcount;  
-		__be16 sparecyl;   
-		__be16 obs1;       
-		__be16 obs2;       
-		__be16 ilfact;     
-		__be16 ncyl;       
-		__be16 nacyl;      
-		__be16 ntrks;      
-		__be16 nsect;      
-		__be16 obs3;       
-		__be16 obs4;       
+		__be32 write_reinstruct; /* sectors to skip, writes */
+		__be32 read_reinstruct;  /* sectors to skip, reads */
+		unsigned char spare[148]; /* Padding */
+		__be16 rspeed;     /* Disk rotational speed */
+		__be16 pcylcount;  /* Physical cylinder count */
+		__be16 sparecyl;   /* extra sects per cylinder */
+		__be16 obs1;       /* gap1 */
+		__be16 obs2;       /* gap2 */
+		__be16 ilfact;     /* Interleave factor */
+		__be16 ncyl;       /* Data cylinder count */
+		__be16 nacyl;      /* Alt. cylinder count */
+		__be16 ntrks;      /* Tracks per cylinder */
+		__be16 nsect;      /* Sectors per track */
+		__be16 obs3;       /* bhead - Label head offset */
+		__be16 obs4;       /* ppart - Physical Partition */
 		struct sun_partition {
 			__be32 start_cylinder;
 			__be32 num_sectors;
 		} partitions[8];
-		__be16 magic;      
-		__be16 csum;       
+		__be16 magic;      /* Magic number */
+		__be16 csum;       /* Label xor'd checksum */
 	} * label;
 	struct sun_partition *p;
 	unsigned long spc;
@@ -67,10 +67,12 @@ int sun_partition(struct parsed_partitions *state)
 
 	p = label->partitions;
 	if (be16_to_cpu(label->magic) != SUN_LABEL_MAGIC) {
+/*		printk(KERN_INFO "Dev %s Sun disklabel: bad magic %04x\n",
+		       bdevname(bdev, b), be16_to_cpu(label->magic)); */
 		put_dev_sector(sect);
 		return 0;
 	}
-	
+	/* Look at the checksum */
 	ush = ((__be16 *) (label+1)) - 1;
 	for (csum = 0; ush >= ((__be16 *) label);)
 		csum ^= *ush--;
@@ -81,14 +83,18 @@ int sun_partition(struct parsed_partitions *state)
 		return 0;
 	}
 
-	
+	/* Check to see if we can use the VTOC table */
 	use_vtoc = ((be32_to_cpu(label->vtoc.sanity) == SUN_VTOC_SANITY) &&
 		    (be32_to_cpu(label->vtoc.version) == 1) &&
 		    (be16_to_cpu(label->vtoc.nparts) <= 8));
 
-	
+	/* Use 8 partition entries if not specified in validated VTOC */
 	nparts = (use_vtoc) ? be16_to_cpu(label->vtoc.nparts) : 8;
 
+	/*
+	 * So that old Linux-Sun partitions continue to work,
+	 * alow the VTOC to be used under the additional condition ...
+	 */
 	use_vtoc = use_vtoc || !(label->vtoc.sanity ||
 				 label->vtoc.version || label->vtoc.nparts);
 	spc = be16_to_cpu(label->ntrks) * be16_to_cpu(label->nsect);

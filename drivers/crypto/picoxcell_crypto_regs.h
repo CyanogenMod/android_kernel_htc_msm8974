@@ -125,4 +125,4 @@
 #define SPA_FIFO_STAT_EMPTY		(1 << 31)
 #define SPA_FIFO_CMD_FULL		(1 << 7)
 
-#endif 
+#endif /* __PICOXCELL_CRYPTO_REGS_H__ */

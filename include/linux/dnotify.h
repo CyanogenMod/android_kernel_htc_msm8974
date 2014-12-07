@@ -43,8 +43,8 @@ static inline int fcntl_dirnotify(int fd, struct file *filp, unsigned long arg)
 	return -EINVAL;
 }
 
-#endif 
+#endif /* CONFIG_DNOTIFY */
 
-#endif 
+#endif /* __KERNEL __ */
 
-#endif 
+#endif /* _LINUX_DNOTIFY_H */

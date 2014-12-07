@@ -25,14 +25,17 @@
 #include <linux/isdn/capilli.h>
 #include "avmcard.h"
 
+/* ------------------------------------------------------------- */
 
 static char *revision = "$Revision: 1.1.2.3 $";
 
+/* ------------------------------------------------------------- */
 
 MODULE_DESCRIPTION("CAPI4Linux: Driver for AVM B1 ISA card");
 MODULE_AUTHOR("Carsten Paeth");
 MODULE_LICENSE("GPL");
 
+/* ------------------------------------------------------------- */
 
 static void b1isa_remove(struct pci_dev *pdev)
 {
@@ -53,6 +56,7 @@ static void b1isa_remove(struct pci_dev *pdev)
 	b1_free_card(card);
 }
 
+/* ------------------------------------------------------------- */
 
 static char *b1isa_procinfo(struct capi_ctr *ctrl);
 
@@ -158,6 +162,7 @@ static char *b1isa_procinfo(struct capi_ctr *ctrl)
 	return cinfo->infobuf;
 }
 
+/* ------------------------------------------------------------- */
 
 #define MAX_CARDS 4
 static struct pci_dev isa_dev[MAX_CARDS];

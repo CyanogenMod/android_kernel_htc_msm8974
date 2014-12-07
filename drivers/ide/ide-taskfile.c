@@ -29,7 +29,7 @@ void ide_tf_readback(ide_drive_t *drive, struct ide_cmd *cmd)
 	ide_hwif_t *hwif = drive->hwif;
 	const struct ide_tp_ops *tp_ops = hwif->tp_ops;
 
-	
+	/* Be sure we're looking at the low order bytes */
 	tp_ops->write_devctl(hwif, ATA_DEVCTL_OBS);
 
 	tp_ops->tf_read(drive, &cmd->tf, cmd->valid.in.tf);
@@ -123,11 +123,11 @@ ide_startstop_t do_rw_taskfile(ide_drive_t *drive, struct ide_cmd *orig_cmd)
 	case ATA_PROT_PIO:
 		if (cmd->tf_flags & IDE_TFLAG_WRITE) {
 			tp_ops->exec_command(hwif, tf->command);
-			ndelay(400);	
+			ndelay(400);	/* FIXME */
 			return pre_task_out_intr(drive, cmd);
 		}
 		handler = task_pio_intr;
-		
+		/* fall-through */
 	case ATA_PROT_NODATA:
 		if (handler == NULL)
 			handler = task_no_data_intr;
@@ -201,6 +201,10 @@ static u8 wait_drive_not_busy(ide_drive_t *drive)
 	int retries;
 	u8 stat;
 
+	/*
+	 * Last sector was transferred, wait until device is ready.  This can
+	 * take up to 6 ms on some ATAPI devices, so we will wait max 10 ms.
+	 */
 	for (retries = 0; retries < 1000; retries++) {
 		stat = hwif->tp_ops->read_status(hwif);
 
@@ -241,7 +245,7 @@ void ide_pio_bytes(ide_drive_t *drive, struct ide_cmd *cmd,
 		page = sg_page(cursg);
 		offset = cursg->offset + cmd->cursg_ofs;
 
-		
+		/* get the current page and offset */
 		page = nth_page(page, (offset >> PAGE_SHIFT));
 		offset %= PAGE_SIZE;
 
@@ -259,7 +263,7 @@ void ide_pio_bytes(ide_drive_t *drive, struct ide_cmd *cmd,
 			cmd->cursg_ofs = 0;
 		}
 
-		
+		/* do the actual data transfer */
 		if (write)
 			hwif->tp_ops->output_data(drive, cmd, buf, nr_bytes);
 		else
@@ -335,6 +339,9 @@ void ide_finish_cmd(ide_drive_t *drive, struct ide_cmd *cmd, u8 stat)
 	ide_complete_rq(drive, err ? -EIO : 0, blk_rq_bytes(rq));
 }
 
+/*
+ * Handler for command with PIO data phase.
+ */
 static ide_startstop_t task_pio_intr(ide_drive_t *drive)
 {
 	ide_hwif_t *hwif = drive->hwif;
@@ -343,24 +350,24 @@ static ide_startstop_t task_pio_intr(ide_drive_t *drive)
 	u8 write = !!(cmd->tf_flags & IDE_TFLAG_WRITE);
 
 	if (write == 0) {
-		
+		/* Error? */
 		if (stat & ATA_ERR)
 			goto out_err;
 
-		
+		/* Didn't want any data? Odd. */
 		if ((stat & ATA_DRQ) == 0) {
-			
+			/* Command all done? */
 			if (OK_STAT(stat, ATA_DRDY, ATA_BUSY))
 				goto out_end;
 
-			
+			/* Assume it was a spurious irq */
 			goto out_wait;
 		}
 	} else {
 		if (!OK_STAT(stat, DRIVE_READY, drive->bad_wstat))
 			goto out_err;
 
-		
+		/* Deal with unexpected ATA data phase. */
 		if (((stat & ATA_DRQ) == 0) ^ (cmd->nleft == 0))
 			goto out_err;
 	}
@@ -368,10 +375,10 @@ static ide_startstop_t task_pio_intr(ide_drive_t *drive)
 	if (write && cmd->nleft == 0)
 		goto out_end;
 
-	
+	/* Still data left to transfer. */
 	ide_pio_datablock(drive, cmd, write);
 
-	
+	/* Are we done? Check status and finish transfer. */
 	if (write == 0 && cmd->nleft == 0) {
 		stat = wait_drive_not_busy(drive);
 		if (!OK_STAT(stat, 0, BAD_STAT))
@@ -380,7 +387,7 @@ static ide_startstop_t task_pio_intr(ide_drive_t *drive)
 		goto out_end;
 	}
 out_wait:
-	
+	/* Still data left to transfer. */
 	ide_set_handler(drive, &task_pio_intr, WAIT_WORSTCASE);
 	return ide_started;
 out_end:
@@ -427,6 +434,12 @@ int ide_raw_taskfile(ide_drive_t *drive, struct ide_cmd *cmd, u8 *buf,
 	rq = blk_get_request(drive->queue, rw, __GFP_WAIT);
 	rq->cmd_type = REQ_TYPE_ATA_TASKFILE;
 
+	/*
+	 * (ks) We transfer currently only whole sectors.
+	 * This is suffient for now.  But, it would be great,
+	 * if we would find a solution to transfer any size.
+	 * To support special commands like READ LONG.
+	 */
 	if (nsect) {
 		error = blk_rq_map_kern(drive->queue, rq, buf,
 					nsect * SECTOR_SIZE, __GFP_WAIT);
@@ -555,7 +568,7 @@ int ide_taskfile_ioctl(ide_drive_t *drive, unsigned long arg)
 		cmd.ftf_flags |= IDE_FTFLAG_IN_DATA;
 
 	if (req_task->req_cmd == IDE_DRIVE_TASK_RAW_WRITE) {
-		
+		/* fixup data phase if needed */
 		if (req_task->data_phase == TASKFILE_IN_DMAQ ||
 		    req_task->data_phase == TASKFILE_IN_DMA)
 			cmd.tf_flags |= IDE_TFLAG_WRITE;
@@ -566,17 +579,17 @@ int ide_taskfile_ioctl(ide_drive_t *drive, unsigned long arg)
 	switch (req_task->data_phase) {
 	case TASKFILE_MULTI_OUT:
 		if (!drive->mult_count) {
-			
+			/* (hs): give up if multcount is not set */
 			pr_err("%s: %s Multimode Write multcount is not set\n",
 				drive->name, __func__);
 			err = -EPERM;
 			goto abort;
 		}
 		cmd.tf_flags |= IDE_TFLAG_MULTI_PIO;
-		
+		/* fall through */
 	case TASKFILE_OUT:
 		cmd.protocol = ATA_PROT_PIO;
-		
+		/* fall through */
 	case TASKFILE_OUT_DMAQ:
 	case TASKFILE_OUT_DMA:
 		cmd.tf_flags |= IDE_TFLAG_WRITE;
@@ -585,17 +598,17 @@ int ide_taskfile_ioctl(ide_drive_t *drive, unsigned long arg)
 		break;
 	case TASKFILE_MULTI_IN:
 		if (!drive->mult_count) {
-			
+			/* (hs): give up if multcount is not set */
 			pr_err("%s: %s Multimode Read multcount is not set\n",
 				drive->name, __func__);
 			err = -EPERM;
 			goto abort;
 		}
 		cmd.tf_flags |= IDE_TFLAG_MULTI_PIO;
-		
+		/* fall through */
 	case TASKFILE_IN:
 		cmd.protocol = ATA_PROT_PIO;
-		
+		/* fall through */
 	case TASKFILE_IN_DMAQ:
 	case TASKFILE_IN_DMA:
 		nsect = taskin / SECTOR_SIZE;

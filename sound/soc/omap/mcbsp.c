@@ -120,7 +120,7 @@ static irqreturn_t omap_mcbsp_tx_irq_handler(int irq, void *dev_id)
 	if (irqst_spcr2 & XSYNC_ERR) {
 		dev_err(mcbsp_tx->dev, "TX Frame Sync Error! : 0x%x\n",
 			irqst_spcr2);
-		
+		/* Writing zero to XSYNC_ERR clears the IRQ */
 		MCBSP_WRITE(mcbsp_tx, SPCR2, MCBSP_READ_CACHE(mcbsp_tx, SPCR2));
 	}
 
@@ -138,20 +138,26 @@ static irqreturn_t omap_mcbsp_rx_irq_handler(int irq, void *dev_id)
 	if (irqst_spcr1 & RSYNC_ERR) {
 		dev_err(mcbsp_rx->dev, "RX Frame Sync Error! : 0x%x\n",
 			irqst_spcr1);
-		
+		/* Writing zero to RSYNC_ERR clears the IRQ */
 		MCBSP_WRITE(mcbsp_rx, SPCR1, MCBSP_READ_CACHE(mcbsp_rx, SPCR1));
 	}
 
 	return IRQ_HANDLED;
 }
 
+/*
+ * omap_mcbsp_config simply write a config to the
+ * appropriate McBSP.
+ * You either call this function or set the McBSP registers
+ * by yourself before calling omap_mcbsp_start().
+ */
 void omap_mcbsp_config(struct omap_mcbsp *mcbsp,
 		       const struct omap_mcbsp_reg_cfg *config)
 {
 	dev_dbg(mcbsp->dev, "Configuring McBSP%d  phys_base: 0x%08lx\n",
 			mcbsp->id, mcbsp->phys_base);
 
-	
+	/* We write the given config */
 	MCBSP_WRITE(mcbsp, SPCR2, config->spcr2);
 	MCBSP_WRITE(mcbsp, SPCR1, config->spcr1);
 	MCBSP_WRITE(mcbsp, RCR2, config->rcr2);
@@ -167,11 +173,20 @@ void omap_mcbsp_config(struct omap_mcbsp *mcbsp,
 		MCBSP_WRITE(mcbsp, XCCR, config->xccr);
 		MCBSP_WRITE(mcbsp, RCCR, config->rccr);
 	}
-	
+	/* Enable wakeup behavior */
 	if (mcbsp->pdata->has_wakeup)
 		MCBSP_WRITE(mcbsp, WAKEUPEN, XRDYEN | RRDYEN);
 }
 
+/**
+ * omap_mcbsp_dma_reg_params - returns the address of mcbsp data register
+ * @id - mcbsp id
+ * @stream - indicates the direction of data flow (rx or tx)
+ *
+ * Returns the address of mcbsp data transmit register or data receive register
+ * to be used by DMA for transferring/receiving data based on the value of
+ * @stream for the requested mcbsp given by @id
+ */
 static int omap_mcbsp_dma_reg_params(struct omap_mcbsp *mcbsp,
 				     unsigned int stream)
 {
@@ -199,11 +214,11 @@ static void omap_st_on(struct omap_mcbsp *mcbsp)
 	if (mcbsp->pdata->enable_st_clock)
 		mcbsp->pdata->enable_st_clock(mcbsp->id, 1);
 
-	
+	/* Enable McBSP Sidetone */
 	w = MCBSP_READ(mcbsp, SSELCR);
 	MCBSP_WRITE(mcbsp, SSELCR, w | SIDETONEEN);
 
-	
+	/* Enable Sidetone from Sidetone Core */
 	w = MCBSP_ST_READ(mcbsp, SSELCR);
 	MCBSP_ST_WRITE(mcbsp, SSELCR, w | ST_SIDETONEEN);
 }
@@ -374,6 +389,11 @@ int omap_st_is_enabled(struct omap_mcbsp *mcbsp)
 	return st_data->enabled;
 }
 
+/*
+ * omap_mcbsp_set_rx_threshold configures the transmit threshold in words.
+ * The threshold parameter is 1 based, and it is converted (threshold - 1)
+ * for the THRSH2 register.
+ */
 void omap_mcbsp_set_tx_threshold(struct omap_mcbsp *mcbsp, u16 threshold)
 {
 	if (mcbsp->pdata->buffer_size == 0)
@@ -383,6 +403,11 @@ void omap_mcbsp_set_tx_threshold(struct omap_mcbsp *mcbsp, u16 threshold)
 		MCBSP_WRITE(mcbsp, THRSH2, threshold - 1);
 }
 
+/*
+ * omap_mcbsp_set_rx_threshold configures the receive threshold in words.
+ * The threshold parameter is 1 based, and it is converted (threshold - 1)
+ * for the THRSH1 register.
+ */
 void omap_mcbsp_set_rx_threshold(struct omap_mcbsp *mcbsp, u16 threshold)
 {
 	if (mcbsp->pdata->buffer_size == 0)
@@ -392,6 +417,9 @@ void omap_mcbsp_set_rx_threshold(struct omap_mcbsp *mcbsp, u16 threshold)
 		MCBSP_WRITE(mcbsp, THRSH1, threshold - 1);
 }
 
+/*
+ * omap_mcbsp_get_tx_delay returns the number of used slots in the McBSP FIFO
+ */
 u16 omap_mcbsp_get_tx_delay(struct omap_mcbsp *mcbsp)
 {
 	u16 buffstat;
@@ -399,13 +427,17 @@ u16 omap_mcbsp_get_tx_delay(struct omap_mcbsp *mcbsp)
 	if (mcbsp->pdata->buffer_size == 0)
 		return 0;
 
-	
+	/* Returns the number of free locations in the buffer */
 	buffstat = MCBSP_READ(mcbsp, XBUFFSTAT);
 
-	
+	/* Number of slots are different in McBSP ports */
 	return mcbsp->pdata->buffer_size - buffstat;
 }
 
+/*
+ * omap_mcbsp_get_rx_delay returns the number of free slots in the McBSP FIFO
+ * to reach the threshold value (when the DMA will be triggered to read it)
+ */
 u16 omap_mcbsp_get_rx_delay(struct omap_mcbsp *mcbsp)
 {
 	u16 buffstat, threshold;
@@ -413,12 +445,12 @@ u16 omap_mcbsp_get_rx_delay(struct omap_mcbsp *mcbsp)
 	if (mcbsp->pdata->buffer_size == 0)
 		return 0;
 
-	
+	/* Returns the number of used locations in the buffer */
 	buffstat = MCBSP_READ(mcbsp, RBUFFSTAT);
-	
+	/* RX threshold */
 	threshold = MCBSP_READ(mcbsp, THRSH1);
 
-	
+	/* Return the number of location till we reach the threshold limit */
 	if (threshold <= buffstat)
 		return 0;
 	else
@@ -450,6 +482,10 @@ int omap_mcbsp_request(struct omap_mcbsp *mcbsp)
 	if (mcbsp->pdata && mcbsp->pdata->ops && mcbsp->pdata->ops->request)
 		mcbsp->pdata->ops->request(mcbsp->id - 1);
 
+	/*
+	 * Make sure that transmitter, receiver and sample-rate generator are
+	 * not running before activating IRQs.
+	 */
 	MCBSP_WRITE(mcbsp, SPCR1, 0);
 	MCBSP_WRITE(mcbsp, SPCR2, 0);
 
@@ -481,7 +517,7 @@ err_clk_disable:
 	if (mcbsp->pdata && mcbsp->pdata->ops && mcbsp->pdata->ops->free)
 		mcbsp->pdata->ops->free(mcbsp->id - 1);
 
-	
+	/* Disable wakeup behavior */
 	if (mcbsp->pdata->has_wakeup)
 		MCBSP_WRITE(mcbsp, WAKEUPEN, 0);
 
@@ -502,7 +538,7 @@ void omap_mcbsp_free(struct omap_mcbsp *mcbsp)
 	if (mcbsp->pdata && mcbsp->pdata->ops && mcbsp->pdata->ops->free)
 		mcbsp->pdata->ops->free(mcbsp->id - 1);
 
-	
+	/* Disable wakeup behavior */
 	if (mcbsp->pdata->has_wakeup)
 		MCBSP_WRITE(mcbsp, WAKEUPEN, 0);
 
@@ -512,6 +548,13 @@ void omap_mcbsp_free(struct omap_mcbsp *mcbsp)
 
 	reg_cache = mcbsp->reg_cache;
 
+	/*
+	 * Select CLKS source from internal source unconditionally before
+	 * marking the McBSP port as free.
+	 * If the external clock source via MCBSP_CLKS pin has been selected the
+	 * system will refuse to enter idle if the CLKS pin source is not reset
+	 * back to internal source.
+	 */
 	if (!cpu_class_is_omap1())
 		omap2_mcbsp_set_clks_src(mcbsp, MCBSP_CLKS_PRCM_SRC);
 
@@ -527,6 +570,11 @@ void omap_mcbsp_free(struct omap_mcbsp *mcbsp)
 		kfree(reg_cache);
 }
 
+/*
+ * Here we start the McBSP, by enabling transmitter, receiver or both.
+ * If no transmitter or receiver is active prior calling, then sample-rate
+ * generator and frame sync are started.
+ */
 void omap_mcbsp_start(struct omap_mcbsp *mcbsp, int tx, int rx)
 {
 	int enable_srg = 0;
@@ -535,19 +583,19 @@ void omap_mcbsp_start(struct omap_mcbsp *mcbsp, int tx, int rx)
 	if (mcbsp->st_data)
 		omap_st_start(mcbsp);
 
-	
+	/* Only enable SRG, if McBSP is master */
 	w = MCBSP_READ_CACHE(mcbsp, PCR0);
 	if (w & (FSXM | FSRM | CLKXM | CLKRM))
 		enable_srg = !((MCBSP_READ_CACHE(mcbsp, SPCR2) |
 				MCBSP_READ_CACHE(mcbsp, SPCR1)) & 1);
 
 	if (enable_srg) {
-		
+		/* Start the sample generator */
 		w = MCBSP_READ_CACHE(mcbsp, SPCR2);
 		MCBSP_WRITE(mcbsp, SPCR2, w | (1 << 6));
 	}
 
-	
+	/* Enable transmitter and receiver */
 	tx &= 1;
 	w = MCBSP_READ_CACHE(mcbsp, SPCR2);
 	MCBSP_WRITE(mcbsp, SPCR2, w | tx);
@@ -556,16 +604,22 @@ void omap_mcbsp_start(struct omap_mcbsp *mcbsp, int tx, int rx)
 	w = MCBSP_READ_CACHE(mcbsp, SPCR1);
 	MCBSP_WRITE(mcbsp, SPCR1, w | rx);
 
+	/*
+	 * Worst case: CLKSRG*2 = 8000khz: (1/8000) * 2 * 2 usec
+	 * REVISIT: 100us may give enough time for two CLKSRG, however
+	 * due to some unknown PM related, clock gating etc. reason it
+	 * is now at 500us.
+	 */
 	udelay(500);
 
 	if (enable_srg) {
-		
+		/* Start frame sync */
 		w = MCBSP_READ_CACHE(mcbsp, SPCR2);
 		MCBSP_WRITE(mcbsp, SPCR2, w | (1 << 7));
 	}
 
 	if (mcbsp->pdata->has_ccr) {
-		
+		/* Release the transmitter and receiver */
 		w = MCBSP_READ_CACHE(mcbsp, XCCR);
 		w &= ~(tx ? XDISABLE : 0);
 		MCBSP_WRITE(mcbsp, XCCR, w);
@@ -574,7 +628,7 @@ void omap_mcbsp_start(struct omap_mcbsp *mcbsp, int tx, int rx)
 		MCBSP_WRITE(mcbsp, RCCR, w);
 	}
 
-	
+	/* Dump McBSP Regs */
 	omap_mcbsp_dump_reg(mcbsp);
 }
 
@@ -583,7 +637,7 @@ void omap_mcbsp_stop(struct omap_mcbsp *mcbsp, int tx, int rx)
 	int idle;
 	u16 w;
 
-	
+	/* Reset transmitter */
 	tx &= 1;
 	if (mcbsp->pdata->has_ccr) {
 		w = MCBSP_READ_CACHE(mcbsp, XCCR);
@@ -593,7 +647,7 @@ void omap_mcbsp_stop(struct omap_mcbsp *mcbsp, int tx, int rx)
 	w = MCBSP_READ_CACHE(mcbsp, SPCR2);
 	MCBSP_WRITE(mcbsp, SPCR2, w & ~tx);
 
-	
+	/* Reset receiver */
 	rx &= 1;
 	if (mcbsp->pdata->has_ccr) {
 		w = MCBSP_READ_CACHE(mcbsp, RCCR);
@@ -607,7 +661,7 @@ void omap_mcbsp_stop(struct omap_mcbsp *mcbsp, int tx, int rx)
 			MCBSP_READ_CACHE(mcbsp, SPCR1)) & 1);
 
 	if (idle) {
-		
+		/* Reset the sample rate generator */
 		w = MCBSP_READ_CACHE(mcbsp, SPCR2);
 		MCBSP_WRITE(mcbsp, SPCR2, w & ~(1 << 6));
 	}
@@ -855,6 +909,10 @@ static int __devinit omap_st_add(struct omap_mcbsp *mcbsp,
 	return 0;
 }
 
+/*
+ * McBSP1 and McBSP3 are directly mapped on 1610 and 1510.
+ * 730 has only 2 McBSP, and both of them are MPU peripherals.
+ */
 int __devinit omap_mcbsp_init(struct platform_device *pdev)
 {
 	struct omap_mcbsp *mcbsp = platform_get_drvdata(pdev);
@@ -894,7 +952,7 @@ int __devinit omap_mcbsp_init(struct platform_device *pdev)
 	mcbsp->tx_irq = platform_get_irq_byname(pdev, "tx");
 	mcbsp->rx_irq = platform_get_irq_byname(pdev, "rx");
 
-	
+	/* From OMAP4 there will be a single irq line */
 	if (mcbsp->tx_irq == -ENXIO) {
 		mcbsp->tx_irq = platform_get_irq(pdev, 0);
 		mcbsp->rx_irq = 0;
@@ -905,7 +963,7 @@ int __devinit omap_mcbsp_init(struct platform_device *pdev)
 		dev_err(&pdev->dev, "invalid rx DMA channel\n");
 		return -ENODEV;
 	}
-	
+	/* RX DMA request number, and port address configuration */
 	mcbsp->dma_data[1].name = "Audio Capture";
 	mcbsp->dma_data[1].dma_req = res->start;
 	mcbsp->dma_data[1].port_addr = omap_mcbsp_dma_reg_params(mcbsp, 1);
@@ -915,7 +973,7 @@ int __devinit omap_mcbsp_init(struct platform_device *pdev)
 		dev_err(&pdev->dev, "invalid tx DMA channel\n");
 		return -ENODEV;
 	}
-	
+	/* TX DMA request number, and port address configuration */
 	mcbsp->dma_data[0].name = "Audio Playback";
 	mcbsp->dma_data[0].dma_req = res->start;
 	mcbsp->dma_data[0].port_addr = omap_mcbsp_dma_reg_params(mcbsp, 0);
@@ -929,6 +987,14 @@ int __devinit omap_mcbsp_init(struct platform_device *pdev)
 
 	mcbsp->dma_op_mode = MCBSP_DMA_MODE_ELEMENT;
 	if (mcbsp->pdata->buffer_size) {
+		/*
+		 * Initially configure the maximum thresholds to a safe value.
+		 * The McBSP FIFO usage with these values should not go under
+		 * 16 locations.
+		 * If the whole FIFO without safety buffer is used, than there
+		 * is a possibility that the DMA will be not able to push the
+		 * new data on time, causing channel shifts in runtime.
+		 */
 		mcbsp->max_tx_thres = max_thres(mcbsp) - 0x10;
 		mcbsp->max_rx_thres = max_thres(mcbsp) - 0x10;
 

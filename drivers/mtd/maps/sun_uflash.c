@@ -28,7 +28,7 @@
 #define PFX		DRIVER_NAME ": "
 
 #define UFLASH_WINDOW_SIZE	0x200000
-#define UFLASH_BUSWIDTH		1			
+#define UFLASH_BUSWIDTH		1			/* EBus is 8-bit */
 
 MODULE_AUTHOR("Eric Brower <ebrower@usa.net>");
 MODULE_DESCRIPTION("User-programmable flash device on Sun Microsystems boardsets");
@@ -37,9 +37,9 @@ MODULE_LICENSE("GPL");
 MODULE_VERSION("2.1");
 
 struct uflash_dev {
-	const char		*name;	
-	struct map_info 	map;	
-	struct mtd_info		*mtd;	
+	const char		*name;	/* device name */
+	struct map_info 	map;	/* mtd map info */
+	struct mtd_info		*mtd;	/* mtd info */
 };
 
 struct map_info uflash_map_templ = {
@@ -53,6 +53,9 @@ int uflash_devinit(struct platform_device *op, struct device_node *dp)
 	struct uflash_dev *up;
 
 	if (op->resource[1].flags) {
+		/* Non-CFI userflash device-- once I find one we
+		 * can work on supporting it.
+		 */
 		printk(KERN_ERR PFX "Unsupported device at %s, 0x%llx\n",
 		       dp->full_name, (unsigned long long)op->resource[0].start);
 
@@ -65,7 +68,7 @@ int uflash_devinit(struct platform_device *op, struct device_node *dp)
 		return -ENOMEM;
 	}
 
-	
+	/* copy defaults and tweak parameters */
 	memcpy(&up->map, &uflash_map_templ, sizeof(uflash_map_templ));
 
 	up->map.size = resource_size(&op->resource[0]);
@@ -87,7 +90,7 @@ int uflash_devinit(struct platform_device *op, struct device_node *dp)
 
 	simple_map_init(&up->map);
 
-	
+	/* MTD registration */
 	up->mtd = do_map_probe("cfi_probe", &up->map);
 	if (!up->mtd) {
 		of_iounmap(&op->resource[0], up->map.virt, up->map.size);
@@ -109,6 +112,9 @@ static int __devinit uflash_probe(struct platform_device *op)
 {
 	struct device_node *dp = op->dev.of_node;
 
+	/* Flashprom must have the "user" property in order to
+	 * be used by this driver.
+	 */
 	if (!of_find_property(dp, "user", NULL))
 		return -ENODEV;
 

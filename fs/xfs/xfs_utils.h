@@ -24,4 +24,4 @@ extern int xfs_droplink(xfs_trans_t *, xfs_inode_t *);
 extern int xfs_bumplink(xfs_trans_t *, xfs_inode_t *);
 extern void xfs_bump_ino_vers2(xfs_trans_t *, xfs_inode_t *);
 
-#endif	
+#endif	/* __XFS_UTILS_H__ */

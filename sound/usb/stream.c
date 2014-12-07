@@ -35,12 +35,15 @@
 #include "clock.h"
 #include "stream.h"
 
+/*
+ * free a substream
+ */
 static void free_substream(struct snd_usb_substream *subs)
 {
 	struct list_head *p, *n;
 
 	if (!subs->num_formats)
-		return; 
+		return; /* not initialized */
 	list_for_each_safe(p, n, &subs->fmt_list) {
 		struct audioformat *fp = list_entry(p, struct audioformat, list);
 		kfree(fp->rate_table);
@@ -50,6 +53,9 @@ static void free_substream(struct snd_usb_substream *subs)
 }
 
 
+/*
+ * free a usb stream instance
+ */
 static void snd_usb_audio_stream_free(struct snd_usb_stream *stream)
 {
 	free_substream(&stream->substream[0]);
@@ -68,6 +74,11 @@ static void snd_usb_audio_pcm_free(struct snd_pcm *pcm)
 }
 
 
+/*
+ * add this endpoint to the chip instance.
+ * if a stream with the same endpoint already exists, append to it.
+ * if not, create a new pcm stream.
+ */
 int snd_usb_add_audio_stream(struct snd_usb_audio *chip,
 			     int stream,
 			     struct audioformat *fp)
@@ -92,7 +103,7 @@ int snd_usb_add_audio_stream(struct snd_usb_audio *chip,
 			return 0;
 		}
 	}
-	
+	/* look for an empty stream */
 	list_for_each(p, &chip->pcm_list) {
 		as = list_entry(p, struct snd_usb_stream, list);
 		if (as->fmt_type != fp->fmt_type)
@@ -107,7 +118,7 @@ int snd_usb_add_audio_stream(struct snd_usb_audio *chip,
 		return 0;
 	}
 
-	
+	/* create a new pcm */
 	as = kzalloc(sizeof(*as), GFP_KERNEL);
 	if (!as)
 		return -ENOMEM;
@@ -145,13 +156,15 @@ static int parse_uac_endpoint_attributes(struct snd_usb_audio *chip,
 					 struct usb_host_interface *alts,
 					 int protocol, int iface_no)
 {
+	/* parsed with a v1 header here. that's ok as we only look at the
+	 * header first which is the same for both versions */
 	struct uac_iso_endpoint_descriptor *csep;
 	struct usb_interface_descriptor *altsd = get_iface_desc(alts);
 	int attributes = 0;
 
 	csep = snd_usb_find_desc(alts->endpoint[0].extra, alts->endpoint[0].extralen, NULL, USB_DT_CS_ENDPOINT);
 
-	
+	/* Creamware Noah has this descriptor after the 2nd endpoint */
 	if (!csep && altsd->bNumEndpoints >= 2)
 		csep = snd_usb_find_desc(alts->endpoint[1].extra, alts->endpoint[1].extralen, NULL, USB_DT_CS_ENDPOINT);
 
@@ -172,7 +185,7 @@ static int parse_uac_endpoint_attributes(struct snd_usb_audio *chip,
 
 		attributes = csep->bmAttributes & UAC_EP_CS_ATTR_FILL_MAX;
 
-		
+		/* emulate the endpoint attributes of a v1 device */
 		if (csep2->bmControls & UAC2_CONTROL_PITCH)
 			attributes |= UAC_EP_CS_ATTR_PITCH_CONTROL;
 	}
@@ -226,11 +239,15 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 
 	dev = chip->dev;
 
-	
+	/* parse the interface's altsettings */
 	iface = usb_ifnum_to_if(dev, iface_no);
 
 	num = iface->num_altsetting;
 
+	/*
+	 * Dallas DS4201 workaround: It presents 5 altsettings, but the last
+	 * one misses syncpipe, and does not produce any sound.
+	 */
 	if (chip->usb_id == USB_ID(0x04fa, 0x4201))
 		num = 4;
 
@@ -238,7 +255,7 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 		alts = &iface->altsetting[i];
 		altsd = get_iface_desc(alts);
 		protocol = altsd->bInterfaceProtocol;
-		
+		/* skip invalid one */
 		if ((altsd->bInterfaceClass != USB_CLASS_AUDIO &&
 		     altsd->bInterfaceClass != USB_CLASS_VENDOR_SPEC) ||
 		    (altsd->bInterfaceSubClass != USB_SUBCLASS_AUDIOSTREAMING &&
@@ -246,11 +263,11 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 		    altsd->bNumEndpoints < 1 ||
 		    le16_to_cpu(get_endpoint(alts, 0)->wMaxPacketSize) == 0)
 			continue;
-		
+		/* must be isochronous */
 		if ((get_endpoint(alts, 0)->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK) !=
 		    USB_ENDPOINT_XFER_ISOC)
 			continue;
-		
+		/* check direction */
 		stream = (get_endpoint(alts, 0)->bEndpointAddress & USB_DIR_IN) ?
 			SNDRV_PCM_STREAM_CAPTURE : SNDRV_PCM_STREAM_PLAYBACK;
 		altno = altsd->bAlternateSetting;
@@ -258,13 +275,13 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 		if (snd_usb_apply_interface_quirk(chip, iface_no, altno))
 			continue;
 
-		
+		/* get audio formats */
 		switch (protocol) {
 		default:
 			snd_printdd(KERN_WARNING "%d:%u:%d: unknown interface protocol %#02x, assuming v1\n",
 				    dev->devnum, iface_no, altno, protocol);
 			protocol = UAC_VERSION_1;
-			
+			/* fall through */
 
 		case UAC_VERSION_1: {
 			struct uac1_as_header_descriptor *as =
@@ -282,7 +299,7 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 				continue;
 			}
 
-			format = le16_to_cpu(as->wFormatTag); 
+			format = le16_to_cpu(as->wFormatTag); /* remember the format value */
 			break;
 		}
 
@@ -307,6 +324,8 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 			num_channels = as->bNrChannels;
 			format = le32_to_cpu(as->bmFormats);
 
+			/* lookup the terminal associated to this interface
+			 * to extract the clock */
 			input_term = snd_usb_find_input_terminal_descriptor(chip->ctrl_intf,
 									    as->bTerminalLink);
 			if (input_term) {
@@ -327,7 +346,7 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 		}
 		}
 
-		
+		/* get format type */
 		fmt = snd_usb_find_csint_desc(alts->extra, alts->extralen, NULL, UAC_FORMAT_TYPE);
 		if (!fmt) {
 			snd_printk(KERN_ERR "%d:%u:%d : no UAC_FORMAT_TYPE desc\n",
@@ -341,6 +360,11 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 			continue;
 		}
 
+		/*
+		 * Blue Microphones workaround: The last altsetting is identical
+		 * with the previous one, except for a larger packet size, but
+		 * is actually a mislabeled two-channel setting; ignore it.
+		 */
 		if (fmt->bNrChannels == 1 &&
 		    fmt->bSubframeSize == 2 &&
 		    altno == 2 && num == 3 &&
@@ -364,7 +388,7 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 		fp->ep_attr = get_endpoint(alts, 0)->bmAttributes;
 		fp->datainterval = snd_usb_parse_datainterval(chip, alts);
 		fp->maxpacksize = le16_to_cpu(get_endpoint(alts, 0)->wMaxPacketSize);
-		
+		/* num_channels is only set for v2 interfaces */
 		fp->channels = num_channels;
 		if (snd_usb_get_speed(dev) == USB_SPEED_HIGH)
 			fp->maxpacksize = (((fp->maxpacksize >> 11) & 3) + 1)
@@ -372,21 +396,29 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 		fp->attributes = parse_uac_endpoint_attributes(chip, alts, protocol, iface_no);
 		fp->clock = clock;
 
-		
+		/* some quirks for attributes here */
 
 		switch (chip->usb_id) {
-		case USB_ID(0x0a92, 0x0053): 
+		case USB_ID(0x0a92, 0x0053): /* AudioTrak Optoplay */
+			/* Optoplay sets the sample rate attribute although
+			 * it seems not supporting it in fact.
+			 */
 			fp->attributes &= ~UAC_EP_CS_ATTR_SAMPLE_RATE;
 			break;
-		case USB_ID(0x041e, 0x3020): 
-		case USB_ID(0x0763, 0x2003): 
-			
+		case USB_ID(0x041e, 0x3020): /* Creative SB Audigy 2 NX */
+		case USB_ID(0x0763, 0x2003): /* M-Audio Audiophile USB */
+			/* doesn't set the sample rate attribute, but supports it */
 			fp->attributes |= UAC_EP_CS_ATTR_SAMPLE_RATE;
 			break;
-		case USB_ID(0x0763, 0x2001):  
-		case USB_ID(0x0763, 0x2012):  
-		case USB_ID(0x047f, 0x0ca1): 
-		case USB_ID(0x077d, 0x07af): 
+		case USB_ID(0x0763, 0x2001):  /* M-Audio Quattro USB */
+		case USB_ID(0x0763, 0x2012):  /* M-Audio Fast Track Pro USB */
+		case USB_ID(0x047f, 0x0ca1): /* plantronics headset */
+		case USB_ID(0x077d, 0x07af): /* Griffin iMic (note that there is
+						an older model 77d:223) */
+		/*
+		 * plantronics headset and Griffin iMic have set adaptive-in
+		 * although it's really not...
+		 */
 			fp->ep_attr &= ~USB_ENDPOINT_SYNCTYPE;
 			if (stream == SNDRV_PCM_STREAM_PLAYBACK)
 				fp->ep_attr |= USB_ENDPOINT_SYNC_ADAPTIVE;
@@ -395,7 +427,7 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 			break;
 		}
 
-		
+		/* ok, let's parse further... */
 		if (snd_usb_parse_audio_format(chip, fp, format, fmt, stream, alts) < 0) {
 			kfree(fp->rate_table);
 			kfree(fp);
@@ -410,7 +442,7 @@ int snd_usb_parse_audio_interface(struct snd_usb_audio *chip, int iface_no)
 			kfree(fp);
 			return err;
 		}
-		
+		/* try to set the interface... */
 		usb_set_interface(chip->dev, iface_no, altno);
 		snd_usb_init_pitch(chip, iface_no, alts, fp);
 		snd_usb_init_sample_rate(chip, iface_no, alts, fp, fp->rate_max);

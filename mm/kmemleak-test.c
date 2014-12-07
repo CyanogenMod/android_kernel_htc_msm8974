@@ -38,6 +38,10 @@ struct test_node {
 static LIST_HEAD(test_list);
 static DEFINE_PER_CPU(void *, kmemleak_test_pointer);
 
+/*
+ * Some very simple testing. This function needs to be extended for
+ * proper testing.
+ */
 static int __init kmemleak_test_init(void)
 {
 	struct test_node *elem;
@@ -45,7 +49,7 @@ static int __init kmemleak_test_init(void)
 
 	printk(KERN_INFO "Kmemleak testing\n");
 
-	
+	/* make some orphan objects */
 	pr_info("kmemleak: kmalloc(32) = %p\n", kmalloc(32, GFP_KERNEL));
 	pr_info("kmemleak: kmalloc(32) = %p\n", kmalloc(32, GFP_KERNEL));
 	pr_info("kmemleak: kmalloc(1024) = %p\n", kmalloc(1024, GFP_KERNEL));
@@ -66,6 +70,10 @@ static int __init kmemleak_test_init(void)
 	pr_info("kmemleak: vmalloc(64) = %p\n", vmalloc(64));
 	pr_info("kmemleak: vmalloc(64) = %p\n", vmalloc(64));
 
+	/*
+	 * Add elements to a list. They should only appear as orphan
+	 * after the module is removed.
+	 */
 	for (i = 0; i < 10; i++) {
 		elem = kzalloc(sizeof(*elem), GFP_KERNEL);
 		pr_info("kmemleak: kzalloc(sizeof(*elem)) = %p\n", elem);
@@ -89,6 +97,10 @@ static void __exit kmemleak_test_exit(void)
 {
 	struct test_node *elem, *tmp;
 
+	/*
+	 * Remove the list elements without actually freeing the
+	 * memory.
+	 */
 	list_for_each_entry_safe(elem, tmp, &test_list, list)
 		list_del(&elem->list);
 }

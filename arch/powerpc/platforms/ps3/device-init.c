@@ -48,7 +48,7 @@ static int __init ps3_register_lpm_devices(void)
 	dev->match_id = PS3_MATCH_ID_LPM;
 	dev->dev_type = PS3_DEVICE_TYPE_LPM;
 
-	
+	/* The current lpm driver only supports a single BE processor. */
 
 	result = ps3_repository_read_be_node_id(0, &dev->lpm.node_id);
 
@@ -115,6 +115,12 @@ fail_read_repo:
 	return result;
 }
 
+/**
+ * ps3_setup_gelic_device - Setup and register a gelic device instance.
+ *
+ * Allocates memory for a struct ps3_system_bus_device instance, initialises the
+ * structure members, and registers the device instance with the system bus.
+ */
 
 static int __init ps3_setup_gelic_device(
 	const struct ps3_repository_device *repo)
@@ -425,14 +431,14 @@ static int __init ps3_register_vuart_devices(void)
 
 	result = ps3_repository_read_vuart_av_port(&port_number);
 	if (result)
-		port_number = 0; 
+		port_number = 0; /* av default */
 
 	result = ps3_setup_vuart_device(PS3_MATCH_ID_AV_SETTINGS, port_number);
 	WARN_ON(result);
 
 	result = ps3_repository_read_vuart_sysmgr_port(&port_number);
 	if (result)
-		port_number = 2; 
+		port_number = 2; /* sysmgr default */
 
 	result = ps3_setup_vuart_device(PS3_MATCH_ID_SYSTEM_MANAGER,
 		port_number);
@@ -548,6 +554,9 @@ fail_device_register:
 	return result;
 }
 
+/**
+ * ps3_setup_dynamic_device - Setup a dynamic device from the repository
+ */
 
 static int ps3_setup_dynamic_device(const struct ps3_repository_device *repo)
 {
@@ -557,7 +566,7 @@ static int ps3_setup_dynamic_device(const struct ps3_repository_device *repo)
 	case PS3_DEV_TYPE_STOR_DISK:
 		result = ps3_setup_storage_dev(repo, PS3_MATCH_ID_STOR_DISK);
 
-		
+		/* Some devices are not accessible from the Other OS lpar. */
 		if (result == -ENODEV) {
 			result = 0;
 			pr_debug("%s:%u: not accessible\n", __func__,
@@ -592,6 +601,9 @@ static int ps3_setup_dynamic_device(const struct ps3_repository_device *repo)
 	return result;
 }
 
+/**
+ * ps3_setup_static_device - Setup a static device from the repository
+ */
 
 static int __init ps3_setup_static_device(const struct ps3_repository_device *repo)
 {
@@ -607,7 +619,7 @@ static int __init ps3_setup_static_device(const struct ps3_repository_device *re
 		break;
 	case PS3_DEV_TYPE_SB_USB:
 
-		
+		/* Each USB device has both an EHCI and an OHCI HC */
 
 		result = ps3_setup_ehci_device(repo);
 
@@ -638,6 +650,10 @@ static void ps3_find_and_add_device(u64 bus_id, u64 dev_id)
 	unsigned int retries;
 	unsigned long rem;
 
+	/*
+	 * On some firmware versions (e.g. 1.90), the device may not show up
+	 * in the repository immediately
+	 */
 	for (retries = 0; retries < 10; retries++) {
 		res = ps3_repository_find_device_by_id(&repo, bus_id, dev_id);
 		if (!res)
@@ -678,12 +694,12 @@ enum ps3_notify_type {
 };
 
 struct ps3_notify_cmd {
-	u64 operation_code;		
-	u64 event_mask;			
+	u64 operation_code;		/* must be zero */
+	u64 event_mask;			/* OR of 1UL << enum ps3_notify_type */
 };
 
 struct ps3_notify_event {
-	u64 event_type;			
+	u64 event_type;			/* enum ps3_notify_type */
 	u64 bus_id;
 	u64 dev_id;
 	u64 dev_type;
@@ -757,6 +773,15 @@ static int ps3_notification_read_write(struct ps3_notification_device *dev,
 
 static struct task_struct *probe_task;
 
+/**
+ * ps3_probe_thread - Background repository probing at system startup.
+ *
+ * This implementation only supports background probing on a single bus.
+ * It uses the hypervisor's storage device notification mechanism to wait until
+ * a storage device is ready.  The device notification mechanism uses a
+ * pseudo device to asynchronously notify the guest when storage devices become
+ * ready.  The notification device has a block size of 512 bytes.
+ */
 
 static int ps3_probe_thread(void *data)
 {
@@ -778,7 +803,7 @@ static int ps3_probe_thread(void *data)
 	notify_cmd = buf;
 	notify_event = buf;
 
-	
+	/* dummy system bus device */
 	dev.sbd.bus_id = (u64)data;
 	dev.sbd.dev_id = PS3_NOTIFICATION_DEV_ID;
 	dev.sbd.interrupt_id = PS3_NOTIFICATION_INTERRUPT_ID;
@@ -808,15 +833,15 @@ static int ps3_probe_thread(void *data)
 		goto fail_sb_event_receive_port_destroy;
 	}
 
-	
-	notify_cmd->operation_code = 0; 
+	/* Setup and write the request for device notification. */
+	notify_cmd->operation_code = 0; /* must be zero */
 	notify_cmd->event_mask = 1UL << notify_region_probe;
 
 	res = ps3_notification_read_write(&dev, lpar, 1);
 	if (res)
 		goto fail_free_irq;
 
-	
+	/* Loop here processing the requested notification events. */
 	do {
 		try_to_freeze();
 
@@ -862,6 +887,10 @@ fail_free:
 	return 0;
 }
 
+/**
+ * ps3_stop_probe_thread - Stops the background probe thread.
+ *
+ */
 
 static int ps3_stop_probe_thread(struct notifier_block *nb, unsigned long code,
 				 void *data)
@@ -875,6 +904,10 @@ static struct notifier_block nb = {
 	.notifier_call = ps3_stop_probe_thread
 };
 
+/**
+ * ps3_start_probe_thread - Starts the background probe thread.
+ *
+ */
 
 static int __init ps3_start_probe_thread(enum ps3_bus_type bus_type)
 {
@@ -920,6 +953,11 @@ static int __init ps3_start_probe_thread(enum ps3_bus_type bus_type)
 	return 0;
 }
 
+/**
+ * ps3_register_devices - Probe the system and register devices found.
+ *
+ * A device_initcall() routine.
+ */
 
 static int __init ps3_register_devices(void)
 {
@@ -930,7 +968,7 @@ static int __init ps3_register_devices(void)
 
 	pr_debug(" -> %s:%d\n", __func__, __LINE__);
 
-	
+	/* ps3_repository_dump_bus_info(); */
 
 	result = ps3_start_probe_thread(PS3_BUS_TYPE_STORAGE);
 

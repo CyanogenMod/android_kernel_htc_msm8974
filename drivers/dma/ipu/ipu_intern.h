@@ -16,6 +16,7 @@
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
 
+/* IPU Common registers */
 #define IPU_CONF		0x00
 #define IPU_CHA_BUF0_RDY	0x04
 #define IPU_CHA_BUF1_RDY	0x08
@@ -41,6 +42,7 @@
 #define IPU_BRK_STAT		0x58
 #define IPU_DIAGB_CTRL		0x5C
 
+/* IPU_CONF Register bits */
 #define IPU_CONF_CSI_EN		0x00000001
 #define IPU_CONF_IC_EN		0x00000002
 #define IPU_CONF_ROT_EN		0x00000004
@@ -51,6 +53,7 @@
 #define IPU_CONF_DU_EN		0x00000080
 #define IPU_CONF_PXL_ENDIAN	0x00000100
 
+/* Image Converter Registers */
 #define IC_CONF			0x88
 #define IC_PRP_ENC_RSC		0x8C
 #define IC_PRP_VF_RSC		0x90
@@ -63,6 +66,7 @@
 #define IDMAC_CHA_PRI		0xAC
 #define IDMAC_CHA_BUSY		0xB0
 
+/* Image Converter Register bits */
 #define IC_CONF_PRPENC_EN	0x00000001
 #define IC_CONF_PRPENC_CSC1	0x00000002
 #define IC_CONF_PRPENC_ROT_EN	0x00000004
@@ -148,9 +152,9 @@ struct idmac {
 struct ipu {
 	void __iomem		*reg_ipu;
 	void __iomem		*reg_ic;
-	unsigned int		irq_fn;		
-	unsigned int		irq_err;	
-	unsigned int		irq_base;	
+	unsigned int		irq_fn;		/* IPU Function IRQ to the CPU */
+	unsigned int		irq_err;	/* IPU Error IRQ to the CPU */
+	unsigned int		irq_base;	/* Beginning of the IPU IRQ range */
 	unsigned long		channel_init_mask;
 	spinlock_t		lock;
 	struct clk		*ipu_clk;

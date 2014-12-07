@@ -58,6 +58,12 @@ extern void dma_insb(unsigned long port, void *addr, unsigned short count);
 extern void dma_insw(unsigned long port, void *addr, unsigned short count);
 extern void dma_insl(unsigned long port, void *addr, unsigned short count);
 
+/**
+ * I/O write barrier
+ *
+ * Ensure ordering of I/O space writes. This will make sure that writes
+ * following the barrier will arrive after all previous writes.
+ */
 #define mmiowb() do { SSYNC(); wmb(); } while (0)
 
 #include <asm-generic/io.h>

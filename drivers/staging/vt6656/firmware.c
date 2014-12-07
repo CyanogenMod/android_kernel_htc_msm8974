@@ -35,18 +35,25 @@
 #include "control.h"
 #include "rndis.h"
 
+/*---------------------  Static Definitions -------------------------*/
 
 static int          msglevel                =MSG_LEVEL_INFO;
+//static int          msglevel                =MSG_LEVEL_DEBUG;
 
-#define FIRMWARE_VERSION	0x133		
+#define FIRMWARE_VERSION	0x133		/* version 1.51 */
 #define FIRMWARE_NAME		"vntwusb.fw"
 
 #define FIRMWARE_CHUNK_SIZE	0x400
 
+/*---------------------  Static Classes  ----------------------------*/
 
+/*---------------------  Static Variables  --------------------------*/
 
+/*---------------------  Static Functions  --------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 
 BOOL
@@ -159,7 +166,7 @@ FIRMWAREbCheckVersion(
     }
     DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO"Firmware Version [%04x]\n", pDevice->wFirmwareVersion);
     if (pDevice->wFirmwareVersion < FIRMWARE_VERSION) {
-        
+        // branch to loader for download new firmware
         FIRMWAREbBrach2Sram(pDevice);
         return FALSE;
     }

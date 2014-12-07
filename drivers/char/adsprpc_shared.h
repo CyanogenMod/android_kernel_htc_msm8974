@@ -24,16 +24,22 @@
 #define FASTRPC_SMD_GUID "fastrpcsmd-apps-dsp"
 #define DEVICE_NAME      "adsprpc-smd"
 
+/* Driver should operate in parallel with the co-processor */
 #define FASTRPC_MODE_PARALLEL    0
 
+/* Driver should operate in serial mode with the co-processor */
 #define FASTRPC_MODE_SERIAL      1
 
+/* Retrives number of input buffers from the scalars parameter */
 #define REMOTE_SCALARS_INBUFS(sc)        (((sc) >> 16) & 0x0ff)
 
+/* Retrives number of output buffers from the scalars parameter */
 #define REMOTE_SCALARS_OUTBUFS(sc)       (((sc) >> 8) & 0x0ff)
 
+/* Retrives number of input handles from the scalars parameter */
 #define REMOTE_SCALARS_INHANDLES(sc)     (((sc) >> 4) & 0x0f)
 
+/* Retrives number of output handles from the scalars parameter */
 #define REMOTE_SCALARS_OUTHANDLES(sc)    ((sc) & 0x0f)
 
 #define REMOTE_SCALARS_LENGTH(sc)	(REMOTE_SCALARS_INBUFS(sc) +\
@@ -81,70 +87,70 @@ do {\
 #define remote_arg_t    union remote_arg
 
 struct remote_buf {
-	void *pv;		
-	int len;		
+	void *pv;		/* buffer pointer */
+	int len;		/* length of buffer */
 };
 
 union remote_arg {
-	struct remote_buf buf;	
-	uint32_t h;		
+	struct remote_buf buf;	/* buffer info */
+	uint32_t h;		/* remote handle */
 };
 
 struct fastrpc_ioctl_invoke {
-	uint32_t handle;	
-	uint32_t sc;		
-	remote_arg_t *pra;	
+	uint32_t handle;	/* remote handle */
+	uint32_t sc;		/* scalars describing the data */
+	remote_arg_t *pra;	/* remote arguments list */
 };
 
 struct fastrpc_ioctl_invoke_fd {
 	struct fastrpc_ioctl_invoke inv;
-	int *fds;		
+	int *fds;		/* fd list */
 };
 
 struct fastrpc_ioctl_munmap {
-	uint32_t vaddrout;	
-	int  size;		
+	uint32_t vaddrout;	/* address to unmap */
+	int  size;		/* size */
 };
 
 
 struct fastrpc_ioctl_mmap {
-	int fd;			
-	uint32_t flags;		
-	uint32_t vaddrin;	
-	int  size;		
-	uint32_t vaddrout;	
+	int fd;			/* ion fd */
+	uint32_t flags;		/* flags for dsp to map with */
+	uint32_t vaddrin;	/* optional virtual address */
+	int  size;		/* size */
+	uint32_t vaddrout;	/* dsps virtual address */
 };
 
 struct smq_null_invoke {
-	struct smq_invoke_ctx *ctx; 
-	uint32_t handle;	    
-	uint32_t sc;		    
+	struct smq_invoke_ctx *ctx; /* invoke caller context */
+	uint32_t handle;	    /* handle to invoke */
+	uint32_t sc;		    /* scalars structure describing the data */
 };
 
 struct smq_phy_page {
-	uint32_t addr;		
-	uint32_t size;		
+	uint32_t addr;		/* physical address */
+	uint32_t size;		/* size of contiguous region */
 };
 
 struct smq_invoke_buf {
-	int num;		
-	int pgidx;		
+	int num;		/* number of contiguous regions */
+	int pgidx;		/* index to start of contiguous region */
 };
 
 struct smq_invoke {
 	struct smq_null_invoke header;
-	struct smq_phy_page page;   
+	struct smq_phy_page page;   /* remote arg and list of pages address */
 };
 
 struct smq_msg {
-	uint32_t pid;           
-	uint32_t tid;           
+	uint32_t pid;           /* process group id */
+	uint32_t tid;           /* thread id */
 	struct smq_invoke invoke;
 };
 
 struct smq_invoke_rsp {
-	struct smq_invoke_ctx *ctx;  
-	int retval;	             
+	struct smq_invoke_ctx *ctx;  /* invoke caller context */
+	int retval;	             /* invoke return value */
 };
 
 static inline struct smq_invoke_buf *smq_invoke_buf_start(remote_arg_t *pra,

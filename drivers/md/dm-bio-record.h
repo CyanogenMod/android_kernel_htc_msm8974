@@ -9,6 +9,13 @@
 
 #include <linux/bio.h>
 
+/*
+ * There are lots of mutable fields in the bio struct that get
+ * changed by the lower levels of the block layer.  Some targets,
+ * such as multipath, may wish to resubmit a bio on error.  The
+ * functions in this file help the target record and restore the
+ * original bio state.
+ */
 
 struct dm_bio_vec_details {
 #if PAGE_SIZE < 65536

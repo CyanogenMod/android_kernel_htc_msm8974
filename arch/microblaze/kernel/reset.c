@@ -11,11 +11,12 @@
 #include <linux/of_platform.h>
 #include <asm/prom.h>
 
+/* Trigger specific functions */
 #ifdef CONFIG_GPIOLIB
 
 #include <linux/of_gpio.h>
 
-static int handle; 
+static int handle; /* reset pin handle */
 static unsigned int reset_val;
 
 void of_platform_reset_gpio_probe(void)
@@ -35,17 +36,17 @@ void of_platform_reset_gpio_probe(void)
 		return;
 	}
 
-	
+	/* get current setup value */
 	reset_val = gpio_get_value(handle);
-	
+	/* FIXME maybe worth to perform any action */
 	pr_debug("Reset: Gpio output state: 0x%x\n", reset_val);
 
-	
+	/* Setup GPIO as output */
 	ret = gpio_direction_output(handle, 0);
 	if (ret < 0)
 		goto err;
 
-	
+	/* Setup output direction */
 	gpio_set_value(handle, 0);
 
 	printk(KERN_INFO "RESET: Registered gpio device: %d, current val: %d\n",

@@ -23,11 +23,14 @@
 
 #include "version_gen.h"
 
-int quiet;		
-int reservenum;		
-int minsize;		
-int padsize;		
-int phandle_format = PHANDLE_BOTH;	
+/*
+ * Command line options
+ */
+int quiet;		/* Level of quietness */
+int reservenum;		/* Number of memory reservation slots */
+int minsize;		/* Minimum blob size */
+int padsize;		/* Additional padding to blob */
+int phandle_format = PHANDLE_BOTH;	/* Use linux,phandle or phandle properties */
 
 static void fill_fullpaths(struct node *tree, const char *prefix)
 {
@@ -194,7 +197,7 @@ int main(int argc, char *argv[])
 	else
 		arg = argv[optind];
 
-	
+	/* minsize and padsize are mutually exclusive */
 	if (minsize && padsize)
 		die("Can't set both -p and -S\n");
 
@@ -248,7 +251,7 @@ int main(int argc, char *argv[])
 	} else if (streq(outform, "asm")) {
 		dt_to_asm(outf, bi, outversion);
 	} else if (streq(outform, "null")) {
-		
+		/* do nothing */
 	} else {
 		die("Unknown output format \"%s\"\n", outform);
 	}

@@ -84,8 +84,14 @@ static int exynos_mipi_regulator_disable(struct mipi_dsim_device *dsim)
 	return ret;
 }
 
+/* update all register settings to MIPI DSI controller. */
 static void exynos_mipi_update_cfg(struct mipi_dsim_device *dsim)
 {
+	/*
+	 * data from Display controller(FIMD) is not transferred in video mode
+	 * but in case of command mode, all settings is not updated to
+	 * registers.
+	 */
 	exynos_mipi_dsi_stand_by(dsim, 0);
 
 	exynos_mipi_dsi_init_dsim(dsim);
@@ -93,9 +99,13 @@ static void exynos_mipi_update_cfg(struct mipi_dsim_device *dsim)
 
 	exynos_mipi_dsi_set_hs_enable(dsim);
 
-	
+	/* set display timing. */
 	exynos_mipi_dsi_set_display_mode(dsim, dsim->dsim_config);
 
+	/*
+	 * data from Display controller(FIMD) is transferred in video mode
+	 * but in case of command mode, all settigs is updated to registers.
+	 */
 	exynos_mipi_dsi_stand_by(dsim, 1);
 }
 
@@ -138,13 +148,13 @@ static int exynos_mipi_dsi_blank_mode(struct mipi_dsim_device *dsim, int power)
 		if (!dsim->suspended)
 			return 0;
 
-		
+		/* lcd panel power on. */
 		if (client_drv && client_drv->power_on)
 			client_drv->power_on(client_dev, 1);
 
 		exynos_mipi_regulator_disable(dsim);
 
-		
+		/* enable MIPI-DSI PHY. */
 		if (dsim->pd->phy_enable)
 			dsim->pd->phy_enable(pdev, true);
 
@@ -152,7 +162,7 @@ static int exynos_mipi_dsi_blank_mode(struct mipi_dsim_device *dsim, int power)
 
 		exynos_mipi_update_cfg(dsim);
 
-		
+		/* set lcd panel sequence commands. */
 		if (client_drv && client_drv->set_sequence)
 			client_drv->set_sequence(client_dev);
 
@@ -160,7 +170,7 @@ static int exynos_mipi_dsi_blank_mode(struct mipi_dsim_device *dsim, int power)
 
 		break;
 	case FB_BLANK_NORMAL:
-		
+		/* TODO. */
 		break;
 	default:
 		break;
@@ -209,6 +219,10 @@ struct mipi_dsim_ddi *exynos_mipi_dsi_find_lcd_device(struct mipi_dsim_lcd_drive
 			continue;
 
 		if ((strcmp(lcd_drv->name, lcd_dev->name)) == 0) {
+			/**
+			 * bus_id would be used to identify
+			 * connected bus.
+			 */
 			dsim_ddi->bus_id = lcd_dev->bus_id;
 			mutex_unlock(&mipi_dsim_lock);
 
@@ -301,6 +315,7 @@ struct mipi_dsim_ddi *exynos_mipi_dsi_bind_lcd_ddi(struct mipi_dsim_device *dsim
 	return NULL;
 }
 
+/* define MIPI-DSI Master operations. */
 static struct mipi_dsim_master_ops master_ops = {
 	.cmd_read			= exynos_mipi_dsi_rd_data,
 	.cmd_write			= exynos_mipi_dsi_wr_data,
@@ -329,13 +344,13 @@ static int exynos_mipi_dsi_probe(struct platform_device *pdev)
 	dsim->dev = &pdev->dev;
 	dsim->id = pdev->id;
 
-	
+	/* get mipi_dsim_platform_data. */
 	dsim_pd = (struct mipi_dsim_platform_data *)dsim->pd;
 	if (dsim_pd == NULL) {
 		dev_err(&pdev->dev, "failed to get platform data for dsim.\n");
 		goto err_clock_get;
 	}
-	
+	/* get mipi_dsim_config. */
 	dsim_config = dsim_pd->dsim_config;
 	if (dsim_config == NULL) {
 		dev_err(&pdev->dev, "failed to get dsim config data.\n");
@@ -384,7 +399,7 @@ static int exynos_mipi_dsi_probe(struct platform_device *pdev)
 
 	mutex_init(&dsim->lock);
 
-	
+	/* bind lcd ddi matched with panel name. */
 	dsim_ddi = exynos_mipi_dsi_bind_lcd_ddi(dsim, dsim_pd->lcd_panel_name);
 	if (!dsim_ddi) {
 		dev_err(&pdev->dev, "mipi_dsim_ddi object not found.\n");
@@ -409,30 +424,30 @@ static int exynos_mipi_dsi_probe(struct platform_device *pdev)
 	init_completion(&dsim_wr_comp);
 	init_completion(&dsim_rd_comp);
 
-	
+	/* enable interrupt */
 	exynos_mipi_dsi_init_interrupt(dsim);
 
-	
+	/* initialize mipi-dsi client(lcd panel). */
 	if (dsim_ddi->dsim_lcd_drv && dsim_ddi->dsim_lcd_drv->probe)
 		dsim_ddi->dsim_lcd_drv->probe(dsim_ddi->dsim_lcd_dev);
 
-	
+	/* in case that mipi got enabled at bootloader. */
 	if (dsim_pd->enabled)
 		goto out;
 
-	
+	/* lcd panel power on. */
 	if (dsim_ddi->dsim_lcd_drv && dsim_ddi->dsim_lcd_drv->power_on)
 		dsim_ddi->dsim_lcd_drv->power_on(dsim_ddi->dsim_lcd_dev, 1);
 
 	exynos_mipi_regulator_enable(dsim);
 
-	
+	/* enable MIPI-DSI PHY. */
 	if (dsim->pd->phy_enable)
 		dsim->pd->phy_enable(pdev, true);
 
 	exynos_mipi_update_cfg(dsim);
 
-	
+	/* set lcd panel sequence commands. */
 	if (dsim_ddi->dsim_lcd_drv && dsim_ddi->dsim_lcd_drv->set_sequence)
 		dsim_ddi->dsim_lcd_drv->set_sequence(dsim_ddi->dsim_lcd_dev);
 
@@ -516,7 +531,7 @@ static int exynos_mipi_dsi_suspend(struct platform_device *pdev,
 	if (client_drv && client_drv->suspend)
 		client_drv->suspend(client_dev);
 
-	
+	/* enable MIPI-DSI PHY. */
 	if (dsim->pd->phy_enable)
 		dsim->pd->phy_enable(pdev, false);
 
@@ -540,13 +555,13 @@ static int exynos_mipi_dsi_resume(struct platform_device *pdev)
 	if (!dsim->suspended)
 		return 0;
 
-	
+	/* lcd panel power on. */
 	if (client_drv && client_drv->power_on)
 		client_drv->power_on(client_dev, 1);
 
 	exynos_mipi_regulator_enable(dsim);
 
-	
+	/* enable MIPI-DSI PHY. */
 	if (dsim->pd->phy_enable)
 		dsim->pd->phy_enable(pdev, true);
 
@@ -554,7 +569,7 @@ static int exynos_mipi_dsi_resume(struct platform_device *pdev)
 
 	exynos_mipi_update_cfg(dsim);
 
-	
+	/* set lcd panel sequence commands. */
 	if (client_drv && client_drv->set_sequence)
 		client_drv->set_sequence(client_dev);
 

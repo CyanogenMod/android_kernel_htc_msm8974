@@ -465,7 +465,7 @@ static int __init mtd_subpagetest_init(void)
 	if (err)
 		goto out;
 
-	
+	/* Write all eraseblocks */
 	simple_srand(3);
 	printk(PRINT_PREF "writing whole device\n");
 	for (i = 0; i < ebcnt; ++i) {
@@ -480,7 +480,7 @@ static int __init mtd_subpagetest_init(void)
 	}
 	printk(PRINT_PREF "written %u eraseblocks\n", i);
 
-	
+	/* Check all eraseblocks */
 	simple_srand(3);
 	printk(PRINT_PREF "verifying all eraseblocks\n");
 	for (i = 0; i < ebcnt; ++i) {

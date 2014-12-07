@@ -25,6 +25,7 @@ extern int perf_config_bool(const char *, const char *);
 extern int config_error_nonbool(const char *);
 extern const char *perf_config_dirname(const char *, const char *);
 
+/* pager.c */
 extern void setup_pager(void);
 extern const char *pager_program;
 extern int pager_in_use(void);
@@ -61,6 +62,13 @@ int split_cmdline(char *cmdline, const char ***argv);
 
 #define alloc_nr(x) (((x)+16)*3/2)
 
+/*
+ * Realloc the buffer pointed at by variable 'x' so that it can hold
+ * at least 'nr' entries; the number of entries currently allocated
+ * is 'alloc', using the standard growing factor alloc_nr() macro.
+ *
+ * DO NOT USE any expression with side-effect for 'x' or 'alloc'.
+ */
 #define ALLOC_GROW(x, nr, alloc) \
 	do { \
 		if ((nr) > alloc) { \
@@ -91,4 +99,4 @@ extern char *perf_pathdup(const char *fmt, ...)
 extern size_t strlcpy(char *dest, const char *src, size_t size);
 #endif
 
-#endif 
+#endif /* __PERF_CACHE_H */

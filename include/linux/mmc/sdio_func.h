@@ -22,11 +22,17 @@ struct sdio_func;
 
 typedef void (sdio_irq_handler_t)(struct sdio_func *);
 
+/*
+ * Structure used to hold embedded SDIO device data from platform layer
+ */
 struct sdio_embedded_func {
 	uint8_t f_class;
 	uint32_t f_maxblksize;
 };
 
+/*
+ * SDIO function CIS tuple (unknown to the core)
+ */
 struct sdio_func_tuple {
 	struct sdio_func_tuple *next;
 	unsigned char code;
@@ -34,28 +40,31 @@ struct sdio_func_tuple {
 	unsigned char data[0];
 };
 
+/*
+ * SDIO function devices
+ */
 struct sdio_func {
-	struct mmc_card		*card;		
-	struct device		dev;		
-	sdio_irq_handler_t	*irq_handler;	
-	unsigned int		num;		
+	struct mmc_card		*card;		/* the card this device belongs to */
+	struct device		dev;		/* the device */
+	sdio_irq_handler_t	*irq_handler;	/* IRQ callback */
+	unsigned int		num;		/* function number */
 
-	unsigned char		class;		
-	unsigned short		vendor;		
-	unsigned short		device;		
+	unsigned char		class;		/* standard interface class */
+	unsigned short		vendor;		/* vendor id */
+	unsigned short		device;		/* device id */
 
-	unsigned		max_blksize;	
-	unsigned		cur_blksize;	
+	unsigned		max_blksize;	/* maximum block size */
+	unsigned		cur_blksize;	/* current block size */
 
-	unsigned		enable_timeout;	
+	unsigned		enable_timeout;	/* max enable timeout in msec */
 
-	unsigned int		state;		
-#define SDIO_STATE_PRESENT	(1<<0)		
+	unsigned int		state;		/* function state */
+#define SDIO_STATE_PRESENT	(1<<0)		/* present in sysfs */
 
-	u8			tmpbuf[4];	
+	u8			tmpbuf[4];	/* DMA:able scratch buffer */
 
-	unsigned		num_info;	
-	const char		**info;		
+	unsigned		num_info;	/* number of info strings */
+	const char		**info;		/* info strings */
 
 	struct sdio_func_tuple *tuples;
 };
@@ -70,6 +79,9 @@ struct sdio_func {
 #define sdio_set_drvdata(f,d)	dev_set_drvdata(&(f)->dev, d)
 #define dev_to_sdio_func(d)	container_of(d, struct sdio_func, dev)
 
+/*
+ * SDIO function device driver
+ */
 struct sdio_driver {
 	char *name;
 	const struct sdio_device_id *id_table;
@@ -82,10 +94,26 @@ struct sdio_driver {
 
 #define to_sdio_driver(d)	container_of(d, struct sdio_driver, drv)
 
+/**
+ * SDIO_DEVICE - macro used to describe a specific SDIO device
+ * @vend: the 16 bit manufacturer code
+ * @dev: the 16 bit function id
+ *
+ * This macro is used to create a struct sdio_device_id that matches a
+ * specific device. The class field will be set to SDIO_ANY_ID.
+ */
 #define SDIO_DEVICE(vend,dev) \
 	.class = SDIO_ANY_ID, \
 	.vendor = (vend), .device = (dev)
 
+/**
+ * SDIO_DEVICE_CLASS - macro used to describe a specific SDIO device class
+ * @dev_class: the 8 bit standard interface code
+ *
+ * This macro is used to create a struct sdio_device_id that matches a
+ * specific standard SDIO function type.  The vendor and device fields will
+ * be set to SDIO_ANY_ID.
+ */
 #define SDIO_DEVICE_CLASS(dev_class) \
 	.class = (dev_class), \
 	.vendor = SDIO_ANY_ID, .device = SDIO_ANY_ID
@@ -93,6 +121,9 @@ struct sdio_driver {
 extern int sdio_register_driver(struct sdio_driver *);
 extern void sdio_unregister_driver(struct sdio_driver *);
 
+/*
+ * SDIO I/O operations
+ */
 extern void sdio_claim_host(struct sdio_func *func);
 extern void sdio_release_host(struct sdio_func *func);
 
@@ -140,4 +171,4 @@ extern void sdio_f0_writeb(struct sdio_func *func, unsigned char b,
 extern mmc_pm_flag_t sdio_get_host_pm_caps(struct sdio_func *func);
 extern int sdio_set_host_pm_flags(struct sdio_func *func, mmc_pm_flag_t flags);
 
-#endif 
+#endif /* LINUX_MMC_SDIO_FUNC_H */

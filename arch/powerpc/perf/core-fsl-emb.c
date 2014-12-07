@@ -30,9 +30,15 @@ static DEFINE_PER_CPU(struct cpu_hw_events, cpu_hw_events);
 
 static struct fsl_emb_pmu *ppmu;
 
+/* Number of perf_events counting hardware events */
 static atomic_t num_events;
+/* Used to avoid races in calling reserve/release_pmc_hardware */
 static DEFINE_MUTEX(pmc_reserve_mutex);
 
+/*
+ * If interrupts were soft-disabled when a PMU interrupt occurs, treat
+ * it as an NMI.
+ */
 static inline int perf_intr_is_nmi(struct pt_regs *regs)
 {
 #ifdef __powerpc64__
@@ -44,6 +50,9 @@ static inline int perf_intr_is_nmi(struct pt_regs *regs)
 
 static void perf_event_interrupt(struct pt_regs *regs);
 
+/*
+ * Read one performance monitor counter (PMC).
+ */
 static unsigned long read_pmc(int idx)
 {
 	unsigned long val;
@@ -68,6 +77,9 @@ static unsigned long read_pmc(int idx)
 	return val;
 }
 
+/*
+ * Write one PMC.
+ */
 static void write_pmc(int idx, unsigned long val)
 {
 	switch (idx) {
@@ -90,6 +102,9 @@ static void write_pmc(int idx, unsigned long val)
 	isync();
 }
 
+/*
+ * Write one local control A register
+ */
 static void write_pmlca(int idx, unsigned long val)
 {
 	switch (idx) {
@@ -112,6 +127,9 @@ static void write_pmlca(int idx, unsigned long val)
 	isync();
 }
 
+/*
+ * Write one local control B register
+ */
 static void write_pmlcb(int idx, unsigned long val)
 {
 	switch (idx) {
@@ -141,18 +159,27 @@ static void fsl_emb_pmu_read(struct perf_event *event)
 	if (event->hw.state & PERF_HES_STOPPED)
 		return;
 
+	/*
+	 * Performance monitor interrupts come even when interrupts
+	 * are soft-disabled, as long as interrupts are hard-enabled.
+	 * Therefore we treat them like NMIs.
+	 */
 	do {
 		prev = local64_read(&event->hw.prev_count);
 		barrier();
 		val = read_pmc(event->hw.idx);
 	} while (local64_cmpxchg(&event->hw.prev_count, prev, val) != prev);
 
-	
+	/* The counters are only 32 bits wide */
 	delta = (val - prev) & 0xfffffffful;
 	local64_add(delta, &event->count);
 	local64_sub(delta, &event->hw.period_left);
 }
 
+/*
+ * Disable all events to prevent PMU interrupts and to allow
+ * events to be added or removed.
+ */
 static void fsl_emb_pmu_disable(struct pmu *pmu)
 {
 	struct cpu_hw_events *cpuhw;
@@ -164,12 +191,21 @@ static void fsl_emb_pmu_disable(struct pmu *pmu)
 	if (!cpuhw->disabled) {
 		cpuhw->disabled = 1;
 
+		/*
+		 * Check if we ever enabled the PMU on this cpu.
+		 */
 		if (!cpuhw->pmcs_enabled) {
 			ppc_enable_pmcs();
 			cpuhw->pmcs_enabled = 1;
 		}
 
 		if (atomic_read(&num_events)) {
+			/*
+			 * Set the 'freeze all counters' bit, and disable
+			 * interrupts.  The barrier is to make sure the
+			 * mtpmr has been executed and the PMU has frozen
+			 * the events before we return.
+			 */
 
 			mtpmr(PMRN_PMGC0, PMGC0_FAC);
 			isync();
@@ -178,6 +214,11 @@ static void fsl_emb_pmu_disable(struct pmu *pmu)
 	local_irq_restore(flags);
 }
 
+/*
+ * Re-enable all events if disable == 0.
+ * If we were previously disabled and events were added, then
+ * put the new config on the PMU.
+ */
 static void fsl_emb_pmu_enable(struct pmu *pmu)
 {
 	struct cpu_hw_events *cpuhw;
@@ -224,6 +265,7 @@ static int collect_events(struct perf_event *group, int max_count,
 	return n;
 }
 
+/* context locked on entry */
 static int fsl_emb_pmu_add(struct perf_event *event, int flags)
 {
 	struct cpu_hw_events *cpuhw;
@@ -238,6 +280,10 @@ static int fsl_emb_pmu_add(struct perf_event *event, int flags)
 	if (event->hw.config & FSL_EMB_EVENT_RESTRICTED)
 		num_counters = ppmu->n_restricted;
 
+	/*
+	 * Allocate counters from top-down, so that restricted-capable
+	 * counters are kept free as long as possible.
+	 */
 	for (i = num_counters - 1; i >= 0; i--) {
 		if (cpuhw->event[i])
 			continue;
@@ -278,6 +324,7 @@ static int fsl_emb_pmu_add(struct perf_event *event, int flags)
 	return ret;
 }
 
+/* context locked on entry */
 static void fsl_emb_pmu_del(struct perf_event *event, int flags)
 {
 	struct cpu_hw_events *cpuhw;
@@ -300,6 +347,13 @@ static void fsl_emb_pmu_del(struct perf_event *event, int flags)
 	cpuhw->event[i] = NULL;
 	event->hw.idx = -1;
 
+	/*
+	 * TODO: if at least one restricted event exists, and we
+	 * just freed up a non-restricted-capable counter, and
+	 * there is a restricted-capable counter occupied by
+	 * a non-restricted event, migrate that event to the
+	 * vacated counter.
+	 */
 
 	cpuhw->n_events--;
 
@@ -356,6 +410,9 @@ static void fsl_emb_pmu_stop(struct perf_event *event, int ef_flags)
 	local_irq_restore(flags);
 }
 
+/*
+ * Release the PMU if this is the last perf_event.
+ */
 static void hw_perf_event_destroy(struct perf_event *event)
 {
 	if (!atomic_add_unless(&num_events, -1, 1)) {
@@ -366,6 +423,9 @@ static void hw_perf_event_destroy(struct perf_event *event)
 	}
 }
 
+/*
+ * Translate a generic cache event_id config to a raw event_id code.
+ */
 static int hw_perf_cache_event(u64 config, u64 *eventp)
 {
 	unsigned long type, op, result;
@@ -374,7 +434,7 @@ static int hw_perf_cache_event(u64 config, u64 *eventp)
 	if (!ppmu->cache_events)
 		return -EINVAL;
 
-	
+	/* unpack config */
 	type = config & 0xff;
 	op = (config >> 8) & 0xff;
 	result = (config >> 16) & 0xff;
@@ -428,6 +488,11 @@ static int fsl_emb_pmu_event_init(struct perf_event *event)
 	if (!(event->hw.config & FSL_EMB_EVENT_VALID))
 		return -EINVAL;
 
+	/*
+	 * If this is in a group, check if it can go on with all the
+	 * other hardware events in the group.  We assume the event
+	 * hasn't been linked into its leader's sibling list at this point.
+	 */
 	n = 0;
 	if (event->group_leader != event) {
 		n = collect_events(event->group_leader,
@@ -462,6 +527,12 @@ static int fsl_emb_pmu_event_init(struct perf_event *event)
 	event->hw.last_period = event->hw.sample_period;
 	local64_set(&event->hw.period_left, event->hw.last_period);
 
+	/*
+	 * See if we need to reserve the PMU.
+	 * If no events are currently in use, then we have to take a
+	 * mutex to ensure that we don't race with another task doing
+	 * reserve_pmc_hardware or release_pmc_hardware.
+	 */
 	err = 0;
 	if (!atomic_inc_not_zero(&num_events)) {
 		mutex_lock(&pmc_reserve_mutex);
@@ -491,6 +562,11 @@ static struct pmu fsl_emb_pmu = {
 	.read		= fsl_emb_pmu_read,
 };
 
+/*
+ * A counter has overflowed; update its count and record
+ * things if requested.  Note that interrupts are hard-disabled
+ * here so there is no possibility of being interrupted.
+ */
 static void record_and_restart(struct perf_event *event, unsigned long val,
 			       struct pt_regs *regs)
 {
@@ -503,11 +579,15 @@ static void record_and_restart(struct perf_event *event, unsigned long val,
 		return;
 	}
 
-	
+	/* we don't have to worry about interrupts here */
 	prev = local64_read(&event->hw.prev_count);
 	delta = (val - prev) & 0xfffffffful;
 	local64_add(delta, &event->count);
 
+	/*
+	 * See if the total period for this event has expired,
+	 * and update for the next period.
+	 */
 	val = 0;
 	left = local64_read(&event->hw.period_left) - delta;
 	if (period) {
@@ -527,6 +607,9 @@ static void record_and_restart(struct perf_event *event, unsigned long val,
 	local64_set(&event->hw.period_left, left);
 	perf_event_update_userpage(event);
 
+	/*
+	 * Finally record data if requested.
+	 */
 	if (record) {
 		struct perf_sample_data data;
 
@@ -559,16 +642,20 @@ static void perf_event_interrupt(struct pt_regs *regs)
 		val = read_pmc(i);
 		if ((int)val < 0) {
 			if (event) {
-				
+				/* event has overflowed */
 				found = 1;
 				record_and_restart(event, val, regs);
 			} else {
+				/*
+				 * Disabled counter is negative,
+				 * reset it just in case.
+				 */
 				write_pmc(i, 0);
 			}
 		}
 	}
 
-	
+	/* PMM will keep counters frozen until we return from the interrupt. */
 	mtmsr(mfmsr() | MSR_PMM);
 	mtpmr(PMRN_PMGC0, PMGC0_PMIE | PMGC0_FCECE);
 	isync();
@@ -589,7 +676,7 @@ void hw_perf_event_setup(int cpu)
 int register_fsl_emb_pmu(struct fsl_emb_pmu *pmu)
 {
 	if (ppmu)
-		return -EBUSY;		
+		return -EBUSY;		/* something's already registered */
 
 	ppmu = pmu;
 	pr_info("%s performance monitor hardware support registered\n",

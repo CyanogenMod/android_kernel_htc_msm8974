@@ -1,7 +1,13 @@
+/*
+ * Reset a Jazz machine.
+ *
+ * We don't trust the firmware so we do it the classic way by poking and
+ * stabbing at the keyboard controller ...
+ */
 #include <linux/jiffies.h>
 #include <asm/jazz.h>
 
-#define KBD_STAT_IBF		0x02	
+#define KBD_STAT_IBF		0x02	/* Keyboard input buffer full */
 
 static void jazz_write_output(unsigned char val)
 {

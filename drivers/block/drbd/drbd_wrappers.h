@@ -4,22 +4,28 @@
 #include <linux/ctype.h>
 #include <linux/mm.h>
 
+/* see get_sb_bdev and bd_claim */
 extern char *drbd_sec_holder;
 
+/* sets the number of 512 byte sectors of our virtual device */
 static inline void drbd_set_my_capacity(struct drbd_conf *mdev,
 					sector_t size)
 {
-	
+	/* set_capacity(mdev->this_bdev->bd_disk, size); */
 	set_capacity(mdev->vdisk, size);
 	mdev->this_bdev->bd_inode->i_size = (loff_t)size << 9;
 }
 
 #define drbd_bio_uptodate(bio) bio_flagged(bio, BIO_UPTODATE)
 
+/* bi_end_io handlers */
 extern void drbd_md_io_complete(struct bio *bio, int error);
 extern void drbd_endio_sec(struct bio *bio, int error);
 extern void drbd_endio_pri(struct bio *bio, int error);
 
+/*
+ * used to submit our private bio
+ */
 static inline void drbd_generic_make_request(struct drbd_conf *mdev,
 					     int fault_type, struct bio *bio)
 {

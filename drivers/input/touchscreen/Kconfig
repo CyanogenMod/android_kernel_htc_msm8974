@@ -110,6 +110,18 @@ config TOUCHSCREEN_ATMEL_MXT
 	  To compile this driver as a module, choose M here: the
 	  module will be called atmel_mxt_ts.
 
+config TOUCHSCREEN_ATMEL_MAXTOUCH_TS
+	tristate "Atmel Maxtouch Touchscreen Family"
+	depends on I2C
+	help
+	  Say Y here if you have Atmel MaXTouch Touchscreen
+	  using i2c connected to your system.
+
+	  If unsure, say N.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called atmel_maxtouch_ts.
+
 config TOUCHSCREEN_AUO_PIXCIR
 	tristate "AUO in-cell touchscreen using Pixcir ICs"
 	depends on I2C
@@ -496,6 +508,14 @@ config TOUCHSCREEN_HIMAX
 		depends on I2C
 		help
 		This enables support for HIMAX HM852xD over I2C based touchscreens.
+
+config TOUCHSCREEN_ONE_LAYER_HIMAX
+        tristate "HIMAX 1 layer  HM852xD serious i2c touchscreen"
+		depends on I2C
+		help
+		This enables support for 1 layer HIMAX HM852xD too for just A11 project.
+		default n
+
 
 config TOUCHSCREEN_HIMAX_ESD_EN
         tristate "HIMAX HM852xD ESD recovery function"
@@ -1019,9 +1039,8 @@ config TOUCHSCREEN_SYNAPTICS_DSX_FW_UPDATE
 
 config SECURE_TOUCH
 	bool "Secure Touch"
-	depends on TOUCHSCREEN_ATMEL_MXT
 	help
-	  Say Y here to enable Secure Touch support in the Atmel MXT
+	  Say Y here to enable Secure Touch support in touch
 	  driver.
 
 	  If unsure, say N.

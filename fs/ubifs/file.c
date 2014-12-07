@@ -20,6 +20,34 @@
  *          Adrian Hunter
  */
 
+/*
+ * This file implements VFS file and inode operations for regular files, device
+ * nodes and symlinks as well as address space operations.
+ *
+ * UBIFS uses 2 page flags: @PG_private and @PG_checked. @PG_private is set if
+ * the page is dirty and is used for optimization purposes - dirty pages are
+ * not budgeted so the flag shows that 'ubifs_write_end()' should not release
+ * the budget for this page. The @PG_checked flag is set if full budgeting is
+ * required for the page e.g., when it corresponds to a file hole or it is
+ * beyond the file size. The budgeting is done in 'ubifs_write_begin()', because
+ * it is OK to fail in this function, and the budget is released in
+ * 'ubifs_write_end()'. So the @PG_private and @PG_checked flags carry
+ * information about how the page was budgeted, to make it possible to release
+ * the budget properly.
+ *
+ * A thing to keep in mind: inode @i_mutex is locked in most VFS operations we
+ * implement. However, this is not true for 'ubifs_writepage()', which may be
+ * called with @i_mutex unlocked. For example, when pdflush is doing background
+ * write-back, it calls 'ubifs_writepage()' with unlocked @i_mutex. At "normal"
+ * work-paths the @i_mutex is locked in 'ubifs_writepage()', e.g. in the
+ * "sys_write -> alloc_pages -> direct reclaim path". So, in 'ubifs_writepage()'
+ * we are only guaranteed that the page is locked.
+ *
+ * Similarly, @i_mutex is not always locked in 'ubifs_readpage()', e.g., the
+ * read-ahead path does not lock it ("sys_read -> generic_file_aio_read ->
+ * ondemand_readahead -> readpage"). In case of readahead, @I_SYNC flag is not
+ * set as well. However, UBIFS disables readahead.
+ */
 
 #include "ubifs.h"
 #include <linux/mount.h>
@@ -38,7 +66,7 @@ static int read_block(struct inode *inode, void *addr, unsigned int block,
 	err = ubifs_tnc_lookup(c, &key, dn);
 	if (err) {
 		if (err == -ENOENT)
-			
+			/* Not found, so it must be a hole */
 			memset(addr, 0, UBIFS_BLOCK_SIZE);
 		return err;
 	}
@@ -56,6 +84,11 @@ static int read_block(struct inode *inode, void *addr, unsigned int block,
 	if (err || len != out_len)
 		goto dump;
 
+	/*
+	 * Data length can be less than a full block, even for blocks that are
+	 * not the last in the file (e.g., as a result of making a hole and
+	 * appending data). Ensure that the remainder is zeroed out.
+	 */
 	if (len < UBIFS_BLOCK_SIZE)
 		memset(addr + len, 0, UBIFS_BLOCK_SIZE - len);
 
@@ -87,7 +120,7 @@ static int do_readpage(struct page *page)
 	block = page->index << UBIFS_BLOCKS_PER_PAGE_SHIFT;
 	beyond = (i_size + UBIFS_BLOCK_SIZE - 1) >> UBIFS_BLOCK_SHIFT;
 	if (block >= beyond) {
-		
+		/* Reading beyond inode */
 		SetPageChecked(page);
 		memset(addr, 0, PAGE_CACHE_SIZE);
 		goto out;
@@ -104,7 +137,7 @@ static int do_readpage(struct page *page)
 		int ret;
 
 		if (block >= beyond) {
-			
+			/* Reading beyond inode */
 			err = -ENOENT;
 			memset(addr, 0, UBIFS_BLOCK_SIZE);
 		} else {
@@ -128,7 +161,7 @@ static int do_readpage(struct page *page)
 	}
 	if (err) {
 		if (err == -ENOENT) {
-			
+			/* Not found, so it must be a hole */
 			SetPageChecked(page);
 			dbg_gen("hole");
 			goto out_free;
@@ -156,6 +189,13 @@ error:
 	return err;
 }
 
+/**
+ * release_new_page_budget - release budget of a new page.
+ * @c: UBIFS file-system description object
+ *
+ * This is a helper function which releases budget corresponding to the budget
+ * of one new page of data.
+ */
 static void release_new_page_budget(struct ubifs_info *c)
 {
 	struct ubifs_budget_req req = { .recalculate = 1, .new_page = 1 };
@@ -163,6 +203,13 @@ static void release_new_page_budget(struct ubifs_info *c)
 	ubifs_release_budget(c, &req);
 }
 
+/**
+ * release_existing_page_budget - release budget of an existing page.
+ * @c: UBIFS file-system description object
+ *
+ * This is a helper function which releases budget corresponding to the budget
+ * of changing one one page of data which already exists on the flash media.
+ */
 static void release_existing_page_budget(struct ubifs_info *c)
 {
 	struct ubifs_budget_req req = { .dd_growth = c->bi.page_budget};
@@ -193,7 +240,7 @@ static int write_begin_slow(struct address_space *mapping,
 	 * budget will be amended if this is not true.
 	 */
 	if (appending)
-		
+		/* We are appending data, budget for inode change */
 		req.dirtied_ino = 1;
 
 	err = ubifs_budget_space(c, &req);
@@ -223,15 +270,40 @@ static int write_begin_slow(struct address_space *mapping,
 	}
 
 	if (PagePrivate(page))
+		/*
+		 * The page is dirty, which means it was budgeted twice:
+		 *   o first time the budget was allocated by the task which
+		 *     made the page dirty and set the PG_private flag;
+		 *   o and then we budgeted for it for the second time at the
+		 *     very beginning of this function.
+		 *
+		 * So what we have to do is to release the page budget we
+		 * allocated.
+		 */
 		release_new_page_budget(c);
 	else if (!PageChecked(page))
+		/*
+		 * We are changing a page which already exists on the media.
+		 * This means that changing the page does not make the amount
+		 * of indexing information larger, and this part of the budget
+		 * which we have already acquired may be released.
+		 */
 		ubifs_convert_page_budget(c);
 
 	if (appending) {
 		struct ubifs_inode *ui = ubifs_inode(inode);
 
+		/*
+		 * 'ubifs_write_end()' is optimized from the fast-path part of
+		 * 'ubifs_write_begin()' and expects the @ui_mutex to be locked
+		 * if data is appended.
+		 */
 		mutex_lock(&ui->ui_mutex);
 		if (ui->dirty)
+			/*
+			 * The inode is dirty already, so we may free the
+			 * budget we allocated.
+			 */
 			ubifs_release_dirty_inode_budget(c, ui);
 	}
 
@@ -239,6 +311,19 @@ static int write_begin_slow(struct address_space *mapping,
 	return 0;
 }
 
+/**
+ * allocate_budget - allocate budget for 'ubifs_write_begin()'.
+ * @c: UBIFS file-system description object
+ * @page: page to allocate budget for
+ * @ui: UBIFS inode object the page belongs to
+ * @appending: non-zero if the page is appended
+ *
+ * This is a helper function for 'ubifs_write_begin()' which allocates budget
+ * for the operation. The budget is allocated differently depending on whether
+ * this is appending, whether the page is dirty or not, and so on. This
+ * function leaves the @ui->ui_mutex locked in case of appending. Returns zero
+ * in case of success and %-ENOSPC in case of failure.
+ */
 static int allocate_budget(struct ubifs_info *c, struct page *page,
 			   struct ubifs_inode *ui, int appending)
 {
@@ -246,22 +331,56 @@ static int allocate_budget(struct ubifs_info *c, struct page *page,
 
 	if (PagePrivate(page)) {
 		if (!appending)
+			/*
+			 * The page is dirty and we are not appending, which
+			 * means no budget is needed at all.
+			 */
 			return 0;
 
 		mutex_lock(&ui->ui_mutex);
 		if (ui->dirty)
+			/*
+			 * The page is dirty and we are appending, so the inode
+			 * has to be marked as dirty. However, it is already
+			 * dirty, so we do not need any budget. We may return,
+			 * but @ui->ui_mutex hast to be left locked because we
+			 * should prevent write-back from flushing the inode
+			 * and freeing the budget. The lock will be released in
+			 * 'ubifs_write_end()'.
+			 */
 			return 0;
 
+		/*
+		 * The page is dirty, we are appending, the inode is clean, so
+		 * we need to budget the inode change.
+		 */
 		req.dirtied_ino = 1;
 	} else {
 		if (PageChecked(page))
+			/*
+			 * The page corresponds to a hole and does not
+			 * exist on the media. So changing it makes
+			 * make the amount of indexing information
+			 * larger, and we have to budget for a new
+			 * page.
+			 */
 			req.new_page = 1;
 		else
+			/*
+			 * Not a hole, the change will not add any new
+			 * indexing information, budget for page
+			 * change.
+			 */
 			req.dirtied_page = 1;
 
 		if (appending) {
 			mutex_lock(&ui->ui_mutex);
 			if (!ui->dirty)
+				/*
+				 * The inode is clean but we will have to mark
+				 * it as dirty because we are appending. This
+				 * needs a budget.
+				 */
 				req.dirtied_ino = 1;
 		}
 	}
@@ -319,14 +438,23 @@ static int ubifs_write_begin(struct file *file, struct address_space *mapping,
 	if (unlikely(c->ro_error))
 		return -EROFS;
 
-	
+	/* Try out the fast-path part first */
 	page = grab_cache_page_write_begin(mapping, index, flags);
 	if (unlikely(!page))
 		return -ENOMEM;
 
 	if (!PageUptodate(page)) {
-		
+		/* The page is not loaded from the flash */
 		if (!(pos & ~PAGE_CACHE_MASK) && len == PAGE_CACHE_SIZE) {
+			/*
+			 * We change whole page so no need to load it. But we
+			 * do not know whether this page exists on the media or
+			 * not, so we assume the latter because it requires
+			 * larger budget. The assumption is that it is better
+			 * to budget a bit more than to read the page from the
+			 * media. Thus, we are setting the @PG_checked flag
+			 * here.
+			 */
 			SetPageChecked(page);
 			skipped_read = 1;
 		} else {
@@ -345,10 +473,21 @@ static int ubifs_write_begin(struct file *file, struct address_space *mapping,
 	err = allocate_budget(c, page, ui, appending);
 	if (unlikely(err)) {
 		ubifs_assert(err == -ENOSPC);
+		/*
+		 * If we skipped reading the page because we were going to
+		 * write all of it, then it is not up to date.
+		 */
 		if (skipped_read) {
 			ClearPageChecked(page);
 			ClearPageUptodate(page);
 		}
+		/*
+		 * Budgeting failed which means it would have to force
+		 * write-back but didn't, because we set the @fast flag in the
+		 * request. Write-back cannot be done now, while we have the
+		 * page locked, because it would deadlock. Unlock and free
+		 * everything and fall-back to slow-path.
+		 */
 		if (appending) {
 			ubifs_assert(mutex_is_locked(&ui->ui_mutex));
 			mutex_unlock(&ui->ui_mutex);
@@ -359,11 +498,27 @@ static int ubifs_write_begin(struct file *file, struct address_space *mapping,
 		return write_begin_slow(mapping, pos, len, pagep, flags);
 	}
 
+	/*
+	 * Whee, we acquired budgeting quickly - without involving
+	 * garbage-collection, committing or forcing write-back. We return
+	 * with @ui->ui_mutex locked if we are appending pages, and unlocked
+	 * otherwise. This is an optimization (slightly hacky though).
+	 */
 	*pagep = page;
 	return 0;
 
 }
 
+/**
+ * cancel_budget - cancel budget.
+ * @c: UBIFS file-system description object
+ * @page: page to cancel budget for
+ * @ui: UBIFS inode object the page belongs to
+ * @appending: non-zero if the page is appended
+ *
+ * This is a helper function for a page write operation. It unlocks the
+ * @ui->ui_mutex in case of appending.
+ */
 static void cancel_budget(struct ubifs_info *c, struct page *page,
 			  struct ubifs_inode *ui, int appending)
 {
@@ -394,11 +549,24 @@ static int ubifs_write_end(struct file *file, struct address_space *mapping,
 		inode->i_ino, pos, page->index, len, copied, inode->i_size);
 
 	if (unlikely(copied < len && len == PAGE_CACHE_SIZE)) {
+		/*
+		 * VFS copied less data to the page that it intended and
+		 * declared in its '->write_begin()' call via the @len
+		 * argument. If the page was not up-to-date, and @len was
+		 * @PAGE_CACHE_SIZE, the 'ubifs_write_begin()' function did
+		 * not load it from the media (for optimization reasons). This
+		 * means that part of the page contains garbage. So read the
+		 * page now.
+		 */
 		dbg_gen("copied %d instead of %d, read page and repeat",
 			copied, len);
 		cancel_budget(c, page, ui, appending);
 		ClearPageChecked(page);
 
+		/*
+		 * Return 0 to force VFS to repeat the whole operation, or the
+		 * error code if 'do_readpage()' fails.
+		 */
 		copied = do_readpage(page);
 		goto out;
 	}
@@ -412,6 +580,11 @@ static int ubifs_write_end(struct file *file, struct address_space *mapping,
 	if (appending) {
 		i_size_write(inode, end_pos);
 		ui->ui_size = end_pos;
+		/*
+		 * Note, we do not set @I_DIRTY_PAGES (which means that the
+		 * inode has dirty pages), this has been done in
+		 * '__set_page_dirty_nobuffers()'.
+		 */
 		__mark_inode_dirty(inode, I_DIRTY_DATASYNC);
 		ubifs_assert(mutex_is_locked(&ui->ui_mutex));
 		mutex_unlock(&ui->ui_mutex);
@@ -423,6 +596,15 @@ out:
 	return copied;
 }
 
+/**
+ * populate_page - copy data nodes into a page for bulk-read.
+ * @c: UBIFS file-system description object
+ * @page: page
+ * @bu: bulk-read information
+ * @n: next zbranch slot
+ *
+ * This function returns %0 on success and a negative error code on failure.
+ */
 static int populate_page(struct ubifs_info *c, struct page *page,
 			 struct bu_info *bu, int *n)
 {
@@ -519,6 +701,14 @@ out_err:
 	return -EINVAL;
 }
 
+/**
+ * ubifs_do_bulk_read - do bulk-read.
+ * @c: UBIFS file-system description object
+ * @bu: bulk-read information
+ * @page1: first page to read
+ *
+ * This function returns %1 if the bulk-read is done, otherwise %0 is returned.
+ */
 static int ubifs_do_bulk_read(struct ubifs_info *c, struct bu_info *bu,
 			      struct page *page1)
 {
@@ -535,18 +725,28 @@ static int ubifs_do_bulk_read(struct ubifs_info *c, struct bu_info *bu,
 		goto out_warn;
 
 	if (bu->eof) {
-		
+		/* Turn off bulk-read at the end of the file */
 		ui->read_in_a_row = 1;
 		ui->bulk_read = 0;
 	}
 
 	page_cnt = bu->blk_cnt >> UBIFS_BLOCKS_PER_PAGE_SHIFT;
 	if (!page_cnt) {
+		/*
+		 * This happens when there are multiple blocks per page and the
+		 * blocks for the first page we are looking for, are not
+		 * together. If all the pages were like this, bulk-read would
+		 * reduce performance, so we turn it off for a while.
+		 */
 		goto out_bu_off;
 	}
 
 	if (bu->cnt) {
 		if (allocate) {
+			/*
+			 * Allocate bulk-read buffer depending on how many data
+			 * nodes we are going to read.
+			 */
 			bu->buf_len = bu->zbranch[bu->cnt - 1].offs +
 				      bu->zbranch[bu->cnt - 1].len -
 				      bu->zbranch[0].offs;
@@ -608,6 +808,15 @@ out_bu_off:
 	goto out_free;
 }
 
+/**
+ * ubifs_bulk_read - determine whether to bulk-read and, if so, do it.
+ * @page: page from which to start bulk-read.
+ *
+ * Some flash media are capable of reading sequentially at faster rates. UBIFS
+ * bulk-read facility is designed to take advantage of that, by reading in one
+ * go consecutive data nodes that are also located consecutively in the same
+ * LEB. This function returns %1 if a bulk-read is done and %0 otherwise.
+ */
 static int ubifs_bulk_read(struct page *page)
 {
 	struct inode *inode = page->mapping->host;
@@ -621,11 +830,15 @@ static int ubifs_bulk_read(struct page *page)
 	if (!c->bulk_read)
 		return 0;
 
+	/*
+	 * Bulk-read is protected by @ui->ui_mutex, but it is an optimization,
+	 * so don't bother if we cannot lock the mutex.
+	 */
 	if (!mutex_trylock(&ui->ui_mutex))
 		return 0;
 
 	if (index != last_page_read + 1) {
-		
+		/* Turn off bulk-read if we stop reading sequentially */
 		ui->read_in_a_row = 1;
 		if (ui->bulk_read)
 			ui->bulk_read = 0;
@@ -636,10 +849,14 @@ static int ubifs_bulk_read(struct page *page)
 		ui->read_in_a_row += 1;
 		if (ui->read_in_a_row < 3)
 			goto out_unlock;
-		
+		/* Three reads in a row, so switch on bulk-read */
 		ui->bulk_read = 1;
 	}
 
+	/*
+	 * If possible, try to use pre-allocated bulk-read information, which
+	 * is protected by @c->bu_mutex.
+	 */
 	if (mutex_trylock(&c->bu_mutex))
 		bu = &c->bu;
 	else {
@@ -690,7 +907,7 @@ static int do_writepage(struct page *page, int len)
 	spin_unlock(&ui->ui_lock);
 #endif
 
-	
+	/* Update radix tree tags */
 	set_page_writeback(page);
 
 	addr = kmap(page);
@@ -790,7 +1007,7 @@ static int ubifs_writepage(struct page *page, struct writeback_control *wbc)
 		inode->i_ino, page->index, page->flags);
 	ubifs_assert(PagePrivate(page));
 
-	
+	/* Is the page fully outside @i_size? (truncate in progress) */
 	if (page->index > end_index || (page->index == end_index && !len)) {
 		err = 0;
 		goto out_unlock;
@@ -800,7 +1017,7 @@ static int ubifs_writepage(struct page *page, struct writeback_control *wbc)
 	synced_i_size = ui->synced_i_size;
 	spin_unlock(&ui->ui_lock);
 
-	
+	/* Is the page fully inside @i_size? */
 	if (page->index < end_index) {
 		if (page->index >= synced_i_size >> PAGE_CACHE_SHIFT) {
 			err = inode->i_sb->s_op->write_inode(inode, NULL);
@@ -843,6 +1060,11 @@ out_unlock:
 	return err;
 }
 
+/**
+ * do_attr_changes - change inode attributes.
+ * @inode: inode to change attributes for
+ * @attr: describes attributes to change
+ */
 static void do_attr_changes(struct inode *inode, const struct iattr *attr)
 {
 	if (attr->ia_valid & ATTR_UID)
@@ -867,6 +1089,16 @@ static void do_attr_changes(struct inode *inode, const struct iattr *attr)
 	}
 }
 
+/**
+ * do_truncation - truncate an inode.
+ * @c: UBIFS file-system description object
+ * @inode: inode to truncate
+ * @attr: inode attribute changes description
+ *
+ * This function implements VFS '->setattr()' call when the inode is truncated
+ * to a smaller size. Returns zero in case of success and a negative error code
+ * in case of failure.
+ */
 static int do_truncation(struct ubifs_info *c, struct inode *inode,
 			 const struct iattr *attr)
 {
@@ -888,10 +1120,14 @@ static int do_truncation(struct ubifs_info *c, struct inode *inode,
 		req.dirtied_page = 1;
 
 	req.dirtied_ino = 1;
-	
+	/* A funny way to budget for truncation node */
 	req.dirtied_ino_d = UBIFS_TRUN_NODE_SZ;
 	err = ubifs_budget_space(c, &req);
 	if (err) {
+		/*
+		 * Treat truncations to zero as deletion and always allow them,
+		 * just like we do for '->unlink()'.
+		 */
 		if (new_size || err != -ENOSPC)
 			return err;
 		budgeted = 0;
@@ -906,6 +1142,14 @@ static int do_truncation(struct ubifs_info *c, struct inode *inode,
 		page = find_lock_page(inode->i_mapping, index);
 		if (page) {
 			if (PageDirty(page)) {
+				/*
+				 * 'ubifs_jnl_truncate()' will try to truncate
+				 * the last data node, but it contains
+				 * out-of-date data because the page is dirty.
+				 * Write the page now, so that
+				 * 'ubifs_jnl_truncate()' will see an already
+				 * truncated (and up to date) data node.
+				 */
 				ubifs_assert(PagePrivate(page));
 
 				clear_page_dirty_for_io(page);
@@ -916,7 +1160,16 @@ static int do_truncation(struct ubifs_info *c, struct inode *inode,
 				page_cache_release(page);
 				if (err)
 					goto out_budg;
+				/*
+				 * We could now tell 'ubifs_jnl_truncate()' not
+				 * to read the last block.
+				 */
 			} else {
+				/*
+				 * We could 'kmap()' the page and pass the data
+				 * to 'ubifs_jnl_truncate()' to save it from
+				 * having to read it.
+				 */
 				unlock_page(page);
 				page_cache_release(page);
 			}
@@ -925,9 +1178,9 @@ static int do_truncation(struct ubifs_info *c, struct inode *inode,
 
 	mutex_lock(&ui->ui_mutex);
 	ui->ui_size = inode->i_size;
-	
+	/* Truncation changes inode [mc]time */
 	inode->i_mtime = inode->i_ctime = ubifs_current_time(inode);
-	
+	/* Other attributes may be changed at the same time as well */
 	do_attr_changes(inode, attr);
 	err = ubifs_jnl_truncate(c, inode, old_size, new_size);
 	mutex_unlock(&ui->ui_mutex);
@@ -942,6 +1195,16 @@ out_budg:
 	return err;
 }
 
+/**
+ * do_setattr - change inode attributes.
+ * @c: UBIFS file-system description object
+ * @inode: inode to change attributes for
+ * @attr: inode attribute changes description
+ *
+ * This function implements VFS '->setattr()' call for all cases except
+ * truncations to smaller size. Returns zero in case of success and a negative
+ * error code in case of failure.
+ */
 static int do_setattr(struct ubifs_info *c, struct inode *inode,
 		      const struct iattr *attr)
 {
@@ -962,9 +1225,9 @@ static int do_setattr(struct ubifs_info *c, struct inode *inode,
 
 	mutex_lock(&ui->ui_mutex);
 	if (attr->ia_valid & ATTR_SIZE) {
-		
+		/* Truncation changes inode [mc]time */
 		inode->i_mtime = inode->i_ctime = ubifs_current_time(inode);
-		
+		/* 'truncate_setsize()' changed @i_size, update @ui_size */
 		ui->ui_size = inode->i_size;
 	}
 
@@ -972,6 +1235,10 @@ static int do_setattr(struct ubifs_info *c, struct inode *inode,
 
 	release = ui->dirty;
 	if (attr->ia_valid & ATTR_SIZE)
+		/*
+		 * Inode length changed, so we have to make sure
+		 * @I_DIRTY_DATASYNC is set.
+		 */
 		 __mark_inode_dirty(inode, I_DIRTY_SYNC | I_DIRTY_DATASYNC);
 	else
 		mark_inode_dirty_sync(inode);
@@ -1001,7 +1268,7 @@ int ubifs_setattr(struct dentry *dentry, struct iattr *attr)
 		return err;
 
 	if ((attr->ia_valid & ATTR_SIZE) && attr->ia_size < inode->i_size)
-		
+		/* Truncation to a smaller size */
 		err = do_truncation(c, inode, attr);
 	else
 		err = do_setattr(c, inode, attr);
@@ -1016,7 +1283,7 @@ static void ubifs_invalidatepage(struct page *page, unsigned long offset)
 
 	ubifs_assert(PagePrivate(page));
 	if (offset)
-		
+		/* Partial page remains dirty */
 		return;
 
 	if (PageChecked(page))
@@ -1046,6 +1313,10 @@ int ubifs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 	dbg_gen("syncing inode %lu", inode->i_ino);
 
 	if (c->ro_mount)
+		/*
+		 * For some really strange reasons VFS does not filter out
+		 * 'fsync()' for R/O mounted file-systems as per 2.6.39.
+		 */
 		return 0;
 
 	err = filemap_write_and_wait_range(inode->i_mapping, start, end);
@@ -1053,19 +1324,32 @@ int ubifs_fsync(struct file *file, loff_t start, loff_t end, int datasync)
 		return err;
 	mutex_lock(&inode->i_mutex);
 
-	
+	/* Synchronize the inode unless this is a 'datasync()' call. */
 	if (!datasync || (inode->i_state & I_DIRTY_DATASYNC)) {
 		err = inode->i_sb->s_op->write_inode(inode, NULL);
 		if (err)
 			goto out;
 	}
 
+	/*
+	 * Nodes related to this inode may still sit in a write-buffer. Flush
+	 * them.
+	 */
 	err = ubifs_sync_wbufs_by_inode(c, inode);
 out:
 	mutex_unlock(&inode->i_mutex);
 	return err;
 }
 
+/**
+ * mctime_update_needed - check if mtime or ctime update is needed.
+ * @inode: the inode to do the check for
+ * @now: current time
+ *
+ * This helper function checks if the inode mtime/ctime should be updated or
+ * not. If current values of the time-stamps are within the UBIFS inode time
+ * granularity, they are not updated. This is an optimization.
+ */
 static inline int mctime_update_needed(const struct inode *inode,
 				       const struct timespec *now)
 {
@@ -1075,6 +1359,15 @@ static inline int mctime_update_needed(const struct inode *inode,
 	return 0;
 }
 
+/**
+ * update_ctime - update mtime and ctime of an inode.
+ * @c: UBIFS file-system description object
+ * @inode: inode to update
+ *
+ * This function updates mtime and ctime of the inode if it is not equivalent to
+ * current time. Returns zero in case of success and a negative error code in
+ * case of failure.
+ */
 static int update_mctime(struct ubifs_info *c, struct inode *inode)
 {
 	struct timespec now = ubifs_current_time(inode);
@@ -1120,12 +1413,20 @@ static int ubifs_set_page_dirty(struct page *page)
 	int ret;
 
 	ret = __set_page_dirty_nobuffers(page);
+	/*
+	 * An attempt to dirty a page without budgeting for it - should not
+	 * happen.
+	 */
 	ubifs_assert(ret == 0);
 	return ret;
 }
 
 static int ubifs_releasepage(struct page *page, gfp_t unused_gfp_flags)
 {
+	/*
+	 * An attempt to release a dirty page without budgeting for it - should
+	 * not happen.
+	 */
 	if (PageWriteback(page))
 		return 0;
 	ubifs_assert(PagePrivate(page));
@@ -1135,6 +1436,10 @@ static int ubifs_releasepage(struct page *page, gfp_t unused_gfp_flags)
 	return 1;
 }
 
+/*
+ * mmap()d file has taken write protection fault and is being made writable.
+ * UBIFS must ensure page is budgeted for.
+ */
 static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma,
 				 struct vm_fault *vmf)
 {
@@ -1150,10 +1455,32 @@ static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma,
 	ubifs_assert(!c->ro_media && !c->ro_mount);
 
 	if (unlikely(c->ro_error))
-		return VM_FAULT_SIGBUS; 
+		return VM_FAULT_SIGBUS; /* -EROFS */
 
+	/*
+	 * We have not locked @page so far so we may budget for changing the
+	 * page. Note, we cannot do this after we locked the page, because
+	 * budgeting may cause write-back which would cause deadlock.
+	 *
+	 * At the moment we do not know whether the page is dirty or not, so we
+	 * assume that it is not and budget for a new page. We could look at
+	 * the @PG_private flag and figure this out, but we may race with write
+	 * back and the page state may change by the time we lock it, so this
+	 * would need additional care. We do not bother with this at the
+	 * moment, although it might be good idea to do. Instead, we allocate
+	 * budget for a new page and amend it later on if the page was in fact
+	 * dirty.
+	 *
+	 * The budgeting-related logic of this function is similar to what we
+	 * do in 'ubifs_write_begin()' and 'ubifs_write_end()'. Glance there
+	 * for more comments.
+	 */
 	update_time = mctime_update_needed(inode, &now);
 	if (update_time)
+		/*
+		 * We have to change inode time stamp which requires extra
+		 * budgeting.
+		 */
 		req.dirtied_ino = 1;
 
 	err = ubifs_budget_space(c, &req);
@@ -1167,7 +1494,7 @@ static int ubifs_vm_page_mkwrite(struct vm_area_struct *vma,
 	lock_page(page);
 	if (unlikely(page->mapping != inode->i_mapping ||
 		     page_offset(page) > i_size_read(inode))) {
-		
+		/* Page got truncated out from underneath us */
 		err = -EINVAL;
 		goto out_unlock;
 	}

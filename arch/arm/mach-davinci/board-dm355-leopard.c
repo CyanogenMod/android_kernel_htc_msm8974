@@ -31,17 +31,22 @@
 
 #include "davinci.h"
 
+/* NOTE:  this is geared for the standard config, with a socketed
+ * 2 GByte Micron NAND (MT29F16G08FAA) using 128KB sectors.  If you
+ * swap chips, maybe with a different block size, partitioning may
+ * need to be changed.
+ */
 #define NAND_BLOCK_SIZE		SZ_128K
 
 static struct mtd_partition davinci_nand_partitions[] = {
 	{
-		
+		/* UBL (a few copies) plus U-Boot */
 		.name		= "bootloader",
 		.offset		= 0,
 		.size		= 15 * NAND_BLOCK_SIZE,
-		.mask_flags	= MTD_WRITEABLE, 
+		.mask_flags	= MTD_WRITEABLE, /* force read-only */
 	}, {
-		
+		/* U-Boot environment */
 		.name		= "params",
 		.offset		= MTDPART_OFS_APPEND,
 		.size		= 1 * NAND_BLOCK_SIZE,
@@ -62,7 +67,7 @@ static struct mtd_partition davinci_nand_partitions[] = {
 		.size		= MTDPART_SIZ_FULL,
 		.mask_flags	= 0,
 	}
-	
+	/* two blocks with bad block table (and mirror) at the end */
 };
 
 static struct davinci_nand_pdata davinci_nand_data = {
@@ -98,8 +103,8 @@ static struct platform_device davinci_nand_device = {
 };
 
 static struct davinci_i2c_platform_data i2c_pdata = {
-	.bus_freq	= 400	,
-	.bus_delay	= 0	,
+	.bus_freq	= 400	/* kHz */,
+	.bus_delay	= 0	/* usec */,
 };
 
 static int leopard_mmc_gpio = -EINVAL;
@@ -111,6 +116,9 @@ static void dm355leopard_mmcsd_gpios(unsigned gpio)
 	gpio_request(gpio + 2, "mmc1_ro");
 	gpio_request(gpio + 3, "mmc1_cd");
 
+	/* we "know" these are input-only so we don't
+	 * need to call gpio_direction_input()
+	 */
 
 	leopard_mmc_gpio = gpio;
 }
@@ -118,9 +126,9 @@ static void dm355leopard_mmcsd_gpios(unsigned gpio)
 static struct i2c_board_info dm355leopard_i2c_info[] = {
 	{ I2C_BOARD_INFO("dm355leopard_msp", 0x25),
 		.platform_data = dm355leopard_mmcsd_gpios,
-		 },
-	
-	
+		/* plus irq */ },
+	/* { I2C_BOARD_INFO("tlv320aic3x", 0x1b), }, */
+	/* { I2C_BOARD_INFO("tvp5146", 0x5d), }, */
 };
 
 static void __init leopard_init_i2c(void)
@@ -137,18 +145,18 @@ static void __init leopard_init_i2c(void)
 
 static struct resource dm355leopard_dm9000_rsrc[] = {
 	{
-		
+		/* addr */
 		.start	= 0x04000000,
 		.end	= 0x04000001,
 		.flags	= IORESOURCE_MEM,
 	}, {
-		
+		/* data */
 		.start	= 0x04000016,
 		.end	= 0x04000017,
 		.flags	= IORESOURCE_MEM,
 	}, {
 		.flags	= IORESOURCE_IRQ
-			| IORESOURCE_IRQ_HIGHEDGE ,
+			| IORESOURCE_IRQ_HIGHEDGE /* rising (active high) */,
 	},
 };
 
@@ -177,7 +185,7 @@ static int dm355leopard_mmc_get_cd(int module)
 {
 	if (!gpio_is_valid(leopard_mmc_gpio))
 		return -ENXIO;
-	
+	/* low == card present */
 	return !gpio_get_value_cansleep(leopard_mmc_gpio + 2 * module + 1);
 }
 
@@ -185,7 +193,7 @@ static int dm355leopard_mmc_get_ro(int module)
 {
 	if (!gpio_is_valid(leopard_mmc_gpio))
 		return -ENXIO;
-	
+	/* high == card's write protect switch active */
 	return gpio_get_value_cansleep(leopard_mmc_gpio + 2 * module + 0);
 }
 
@@ -197,10 +205,15 @@ static struct davinci_mmc_config dm355leopard_mmc_config = {
 	.caps           = MMC_CAP_MMC_HIGHSPEED | MMC_CAP_SD_HIGHSPEED,
 };
 
+/* Don't connect anything to J10 unless you're only using USB host
+ * mode *and* have to do so with some kind of gender-bender.  If
+ * you have proper Mini-B or Mini-A cables (or Mini-A adapters)
+ * the ID pin won't need any help.
+ */
 #ifdef CONFIG_USB_MUSB_PERIPHERAL
-#define USB_ID_VALUE	0	
+#define USB_ID_VALUE	0	/* ID pulled high; *should* float */
 #else
-#define USB_ID_VALUE	1	
+#define USB_ID_VALUE	1	/* ID pulled low */
 #endif
 
 static struct spi_eeprom at25640a = {
@@ -214,7 +227,7 @@ static struct spi_board_info dm355_leopard_spi_info[] __initconst = {
 	{
 		.modalias	= "at25",
 		.platform_data	= &at25640a,
-		.max_speed_hz	= 10 * 1000 * 1000,	
+		.max_speed_hz	= 10 * 1000 * 1000,	/* at 3v3 */
 		.bus_num	= 0,
 		.chip_select	= 0,
 		.mode		= SPI_MODE_0,
@@ -240,10 +253,14 @@ static __init void dm355_leopard_init(void)
 	leopard_init_i2c();
 	davinci_serial_init(&uart_config);
 
+	/* NOTE:  NAND flash timings set by the UBL are slower than
+	 * needed by MT29F16G08FAA chips ... EMIF.A1CR is 0x40400204
+	 * but could be 0x0400008c for about 25% faster page reads.
+	 */
 
 	gpio_request(2, "usb_id_toggle");
 	gpio_direction_output(2, USB_ID_VALUE);
-	
+	/* irlml6401 switches over 1A in under 8 msec */
 	davinci_setup_usb(1000, 8);
 
 	davinci_setup_mmc(0, &dm355leopard_mmc_config);

@@ -35,6 +35,7 @@
 #include <linux/types.h>
 #include <linux/slab.h>
 
+// kernel config is here (procfs flag)
 
 #ifdef CONFIG_PROC_FS
 #include <linux/proc_fs.h>
@@ -68,6 +69,9 @@ struct codec_list {
 
 static struct codec_list *codeclist_top = NULL;
 
+/* ================================================= */
+/* function prototypes of the master/slave interface */
+/* ================================================= */
 
 struct videocodec *
 videocodec_attach (struct videocodec_master *master)
@@ -94,8 +98,8 @@ videocodec_attach (struct videocodec_master *master)
 	}
 
 	while (h) {
-		
-		
+		// attach only if the slave has at least the flags
+		// expected by the master
 		if ((master->flags & h->codec->flags) == master->flags) {
 			dprintk(4, "videocodec_attach: try '%s'\n",
 				h->codec->name);
@@ -135,7 +139,7 @@ videocodec_attach (struct videocodec_master *master)
 						"videocodec: first element\n");
 				} else {
 					while (a->next)
-						a = a->next;	
+						a = a->next;	// find end
 					a->next = ptr;
 					dprintk(4,
 						"videocodec: in after '%s'\n",
@@ -252,7 +256,7 @@ videocodec_register (const struct videocodec *codec)
 		dprintk(4, "videocodec: hooked in as first element\n");
 	} else {
 		while (h->next)
-			h = h->next;	
+			h = h->next;	// find the end
 		h->next = ptr;
 		dprintk(4, "videocodec: hooked in after '%s'\n",
 			h->codec->name);
@@ -359,6 +363,9 @@ static const struct file_operations videocodecs_proc_fops = {
 };
 #endif
 
+/* ===================== */
+/* hook in driver module */
+/* ===================== */
 static int __init
 videocodec_init (void)
 {

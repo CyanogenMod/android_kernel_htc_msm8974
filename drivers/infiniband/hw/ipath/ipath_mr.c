@@ -39,10 +39,11 @@
 
 #include "ipath_verbs.h"
 
+/* Fast memory region */
 struct ipath_fmr {
 	struct ib_fmr ibfmr;
 	u8 page_shift;
-	struct ipath_mregion mr;        
+	struct ipath_mregion mr;        /* must be last */
 };
 
 static inline struct ipath_fmr *to_ifmr(struct ib_fmr *ibfmr)
@@ -50,6 +51,15 @@ static inline struct ipath_fmr *to_ifmr(struct ib_fmr *ibfmr)
 	return container_of(ibfmr, struct ipath_fmr, ibfmr);
 }
 
+/**
+ * ipath_get_dma_mr - get a DMA memory region
+ * @pd: protection domain for this memory region
+ * @acc: access flags
+ *
+ * Returns the memory region on success, otherwise returns an errno.
+ * Note that all DMA addresses should be created via the
+ * struct ib_dma_mapping_ops functions (see ipath_dma.c).
+ */
 struct ib_mr *ipath_get_dma_mr(struct ib_pd *pd, int acc)
 {
 	struct ipath_mr *mr;
@@ -74,13 +84,13 @@ static struct ipath_mr *alloc_mr(int count,
 	struct ipath_mr *mr;
 	int m, i = 0;
 
-	
+	/* Allocate struct plus pointers to first level page tables. */
 	m = (count + IPATH_SEGSZ - 1) / IPATH_SEGSZ;
 	mr = kmalloc(sizeof *mr + m * sizeof mr->mr.map[0], GFP_KERNEL);
 	if (!mr)
 		goto done;
 
-	
+	/* Allocate first level page tables. */
 	for (; i < m; i++) {
 		mr->mr.map[i] = kmalloc(sizeof *mr->mr.map[0], GFP_KERNEL);
 		if (!mr->mr.map[i])
@@ -88,6 +98,10 @@ static struct ipath_mr *alloc_mr(int count,
 	}
 	mr->mr.mapsz = m;
 
+	/*
+	 * ib_reg_phys_mr() will initialize mr->ibmr except for
+	 * lkey and rkey.
+	 */
 	if (!ipath_alloc_lkey(lk_table, &mr->mr))
 		goto bail;
 	mr->ibmr.rkey = mr->ibmr.lkey = mr->mr.lkey;
@@ -106,6 +120,15 @@ done:
 	return mr;
 }
 
+/**
+ * ipath_reg_phys_mr - register a physical memory region
+ * @pd: protection domain for this memory region
+ * @buffer_list: pointer to the list of physical buffers to register
+ * @num_phys_buf: the number of physical buffers to register
+ * @iova_start: the starting address passed over IB which maps to this MR
+ *
+ * Returns the memory region on success, otherwise returns an errno.
+ */
 struct ib_mr *ipath_reg_phys_mr(struct ib_pd *pd,
 				struct ib_phys_buf *buffer_list,
 				int num_phys_buf, int acc, u64 *iova_start)
@@ -148,6 +171,17 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_reg_user_mr - register a userspace memory region
+ * @pd: protection domain for this memory region
+ * @start: starting userspace address
+ * @length: length of region to register
+ * @virt_addr: virtual address to use (from HCA's point of view)
+ * @mr_access_flags: access flags for this memory region
+ * @udata: unused by the InfiniPath driver
+ *
+ * Returns the memory region on success, otherwise returns an errno.
+ */
 struct ib_mr *ipath_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
 				u64 virt_addr, int mr_access_flags,
 				struct ib_udata *udata)
@@ -214,6 +248,15 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_dereg_mr - unregister and free a memory region
+ * @ibmr: the memory region to free
+ *
+ * Returns 0 on success.
+ *
+ * Note that this is called to free MRs created by ipath_get_dma_mr()
+ * or ipath_reg_user_mr().
+ */
 int ipath_dereg_mr(struct ib_mr *ibmr)
 {
 	struct ipath_mr *mr = to_imr(ibmr);
@@ -233,6 +276,14 @@ int ipath_dereg_mr(struct ib_mr *ibmr)
 	return 0;
 }
 
+/**
+ * ipath_alloc_fmr - allocate a fast memory region
+ * @pd: the protection domain for this memory region
+ * @mr_access_flags: access flags for this memory region
+ * @fmr_attr: fast memory region attributes
+ *
+ * Returns the memory region on success, otherwise returns an errno.
+ */
 struct ib_fmr *ipath_alloc_fmr(struct ib_pd *pd, int mr_access_flags,
 			       struct ib_fmr_attr *fmr_attr)
 {
@@ -240,13 +291,13 @@ struct ib_fmr *ipath_alloc_fmr(struct ib_pd *pd, int mr_access_flags,
 	int m, i = 0;
 	struct ib_fmr *ret;
 
-	
+	/* Allocate struct plus pointers to first level page tables. */
 	m = (fmr_attr->max_pages + IPATH_SEGSZ - 1) / IPATH_SEGSZ;
 	fmr = kmalloc(sizeof *fmr + m * sizeof fmr->mr.map[0], GFP_KERNEL);
 	if (!fmr)
 		goto bail;
 
-	
+	/* Allocate first level page tables. */
 	for (; i < m; i++) {
 		fmr->mr.map[i] = kmalloc(sizeof *fmr->mr.map[0],
 					 GFP_KERNEL);
@@ -255,9 +306,17 @@ struct ib_fmr *ipath_alloc_fmr(struct ib_pd *pd, int mr_access_flags,
 	}
 	fmr->mr.mapsz = m;
 
+	/*
+	 * ib_alloc_fmr() will initialize fmr->ibfmr except for lkey &
+	 * rkey.
+	 */
 	if (!ipath_alloc_lkey(&to_idev(pd->device)->lk_table, &fmr->mr))
 		goto bail;
 	fmr->ibfmr.rkey = fmr->ibfmr.lkey = fmr->mr.lkey;
+	/*
+	 * Resources are allocated but no valid mapping (RKEY can't be
+	 * used).
+	 */
 	fmr->mr.pd = pd;
 	fmr->mr.user_base = 0;
 	fmr->mr.iova = 0;
@@ -280,6 +339,15 @@ done:
 	return ret;
 }
 
+/**
+ * ipath_map_phys_fmr - set up a fast memory region
+ * @ibmfr: the fast memory region to set up
+ * @page_list: the list of pages to associate with the fast memory region
+ * @list_len: the number of pages to associate with the fast memory region
+ * @iova: the virtual address of the start of the fast memory region
+ *
+ * This may be called from interrupt context.
+ */
 
 int ipath_map_phys_fmr(struct ib_fmr *ibfmr, u64 * page_list,
 		       int list_len, u64 iova)
@@ -319,6 +387,12 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_unmap_fmr - unmap fast memory regions
+ * @fmr_list: the list of fast memory regions to unmap
+ *
+ * Returns 0 on success.
+ */
 int ipath_unmap_fmr(struct list_head *fmr_list)
 {
 	struct ipath_fmr *fmr;
@@ -336,6 +410,12 @@ int ipath_unmap_fmr(struct list_head *fmr_list)
 	return 0;
 }
 
+/**
+ * ipath_dealloc_fmr - deallocate a fast memory region
+ * @ibfmr: the fast memory region to deallocate
+ *
+ * Returns 0 on success.
+ */
 int ipath_dealloc_fmr(struct ib_fmr *ibfmr)
 {
 	struct ipath_fmr *fmr = to_ifmr(ibfmr);

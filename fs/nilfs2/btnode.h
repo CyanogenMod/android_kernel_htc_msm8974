@@ -50,4 +50,4 @@ void nilfs_btnode_commit_change_key(struct address_space *,
 void nilfs_btnode_abort_change_key(struct address_space *,
 				   struct nilfs_btnode_chkey_ctxt *);
 
-#endif	
+#endif	/* _NILFS_BTNODE_H */

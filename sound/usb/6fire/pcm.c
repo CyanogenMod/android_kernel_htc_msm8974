@@ -22,6 +22,9 @@ enum {
 	OUT_N_CHANNELS = 6, IN_N_CHANNELS = 4
 };
 
+/* keep next two synced with
+ * FW_EP_W_MAX_PACKET_SIZE[] and RATES_MAX_PACKET_SIZE
+ * and CONTROL_RATE_XXX in control.h */
 static const int rates_in_packet_size[] = { 228, 228, 420, 420, 404, 404 };
 static const int rates_out_packet_size[] = { 228, 228, 420, 420, 604, 604 };
 static const int rates[] = { 44100, 48000, 88200, 96000, 176400, 192000 };
@@ -30,14 +33,14 @@ static const int rates_alsaid[] = {
 	SNDRV_PCM_RATE_88200, SNDRV_PCM_RATE_96000,
 	SNDRV_PCM_RATE_176400, SNDRV_PCM_RATE_192000 };
 
-enum { 
+enum { /* settings for pcm */
 	OUT_EP = 6, IN_EP = 2, MAX_BUFSIZE = 128 * 1024
 };
 
-enum { 
-	STREAM_DISABLED, 
-	STREAM_STARTING, 
-	STREAM_RUNNING, 
+enum { /* pcm streaming states */
+	STREAM_DISABLED, /* no pcm streaming */
+	STREAM_STARTING, /* pcm streaming requested, waiting to become ready */
+	STREAM_RUNNING, /* pcm streaming running */
 	STREAM_STOPPING
 };
 
@@ -60,7 +63,7 @@ static const struct snd_pcm_hardware pcm_hw = {
 	.rate_min = 44100,
 	.rate_max = 192000,
 	.channels_min = 1,
-	.channels_max = 0, 
+	.channels_max = 0, /* set in pcm_open, depending on capture/playback */
 	.buffer_bytes_max = MAX_BUFSIZE,
 	.period_bytes_min = PCM_N_PACKETS_PER_URB * (PCM_MAX_PACKET_SIZE - 4),
 	.period_bytes_max = MAX_BUFSIZE,
@@ -125,6 +128,7 @@ static struct pcm_substream *usb6fire_pcm_get_substream(
 	return NULL;
 }
 
+/* call with stream_mutex locked */
 static void usb6fire_pcm_stream_stop(struct pcm_runtime *rt)
 {
 	int i;
@@ -141,6 +145,7 @@ static void usb6fire_pcm_stream_stop(struct pcm_runtime *rt)
 	}
 }
 
+/* call with stream_mutex locked */
 static int usb6fire_pcm_stream_start(struct pcm_runtime *rt)
 {
 	int ret;
@@ -149,7 +154,7 @@ static int usb6fire_pcm_stream_start(struct pcm_runtime *rt)
 	struct usb_iso_packet_descriptor *packet;
 
 	if (rt->stream_state == STREAM_DISABLED) {
-		
+		/* submit our in urbs */
 		rt->stream_wait_cond = false;
 		rt->stream_state = STREAM_STARTING;
 		for (i = 0; i < PCM_N_URBS; i++) {
@@ -168,7 +173,7 @@ static int usb6fire_pcm_stream_start(struct pcm_runtime *rt)
 			}
 		}
 
-		
+		/* wait for first out urb to return (sent in in urb handler) */
 		wait_event_timeout(rt->stream_wait_queue, rt->stream_wait_cond,
 				HZ);
 		if (rt->stream_wait_cond)
@@ -181,6 +186,7 @@ static int usb6fire_pcm_stream_start(struct pcm_runtime *rt)
 	return 0;
 }
 
+/* call with substream locked */
 static void usb6fire_pcm_capture(struct pcm_substream *sub, struct pcm_urb *urb)
 {
 	int i;
@@ -197,6 +203,8 @@ static void usb6fire_pcm_capture(struct pcm_substream *sub, struct pcm_urb *urb)
 	int bytes_per_frame = alsa_rt->channels << 2;
 
 	for (i = 0; i < PCM_N_PACKETS_PER_URB; i++) {
+		/* at least 4 header bytes for valid packet.
+		 * after that: 32 bits per sample for analog channels */
 		if (urb->packets[i].actual_length > 4)
 			frame_count = (urb->packets[i].actual_length - 4)
 					/ (rt->in_n_analog << 2);
@@ -209,7 +217,7 @@ static void usb6fire_pcm_capture(struct pcm_substream *sub, struct pcm_urb *urb)
 			src = (u32 *) (urb->buffer - 1 + total_length);
 		else
 			return;
-		src++; 
+		src++; /* skip leading 4 bytes of every packet */
 		total_length += urb->packets[i].length;
 		for (frame = 0; frame < frame_count; frame++) {
 			memcpy(dest, src, bytes_per_frame);
@@ -225,6 +233,7 @@ static void usb6fire_pcm_capture(struct pcm_substream *sub, struct pcm_urb *urb)
 	}
 }
 
+/* call with substream locked */
 static void usb6fire_pcm_playback(struct pcm_substream *sub,
 		struct pcm_urb *urb)
 {
@@ -250,12 +259,14 @@ static void usb6fire_pcm_playback(struct pcm_substream *sub,
 	}
 
 	for (i = 0; i < PCM_N_PACKETS_PER_URB; i++) {
+		/* at least 4 header bytes for valid packet.
+		 * after that: 32 bits per sample for analog channels */
 		if (urb->packets[i].length > 4)
 			frame_count = (urb->packets[i].length - 4)
 					/ (rt->out_n_analog << 2);
 		else
 			frame_count = 0;
-		dest++; 
+		dest++; /* skip leading 4 bytes of every frame */
 		for (frame = 0; frame < frame_count; frame++) {
 			memcpy(dest, src, bytes_per_frame);
 			src += alsa_rt->channels;
@@ -298,7 +309,7 @@ static void usb6fire_pcm_in_urb_handler(struct urb *usb_urb)
 		return;
 	}
 
-	
+	/* receive our capture data */
 	sub = &rt->capture;
 	spin_lock_irqsave(&sub->lock, flags);
 	if (sub->active) {
@@ -312,7 +323,7 @@ static void usb6fire_pcm_in_urb_handler(struct urb *usb_urb)
 	} else
 		spin_unlock_irqrestore(&sub->lock, flags);
 
-	
+	/* setup out urb structure */
 	for (i = 0; i < PCM_N_PACKETS_PER_URB; i++) {
 		out_urb->packets[i].offset = total_length;
 		out_urb->packets[i].length = (in_urb->packets[i].actual_length
@@ -323,7 +334,7 @@ static void usb6fire_pcm_in_urb_handler(struct urb *usb_urb)
 	}
 	memset(out_urb->buffer, 0, total_length);
 
-	
+	/* now send our playback data (if a free out urb was found) */
 	sub = &rt->playback;
 	spin_lock_irqsave(&sub->lock, flags);
 	if (sub->active) {
@@ -337,7 +348,7 @@ static void usb6fire_pcm_in_urb_handler(struct urb *usb_urb)
 	} else
 		spin_unlock_irqrestore(&sub->lock, flags);
 
-	
+	/* setup the 4th byte of each sample (0x40 for analog channels) */
 	dest = out_urb->buffer;
 	for (i = 0; i < PCM_N_PACKETS_PER_URB; i++)
 		if (out_urb->packets[i].length >= 4) {
@@ -351,7 +362,7 @@ static void usb6fire_pcm_in_urb_handler(struct urb *usb_urb)
 				for (channel = 0;
 						channel < rt->out_n_analog;
 						channel++) {
-					dest += 3; 
+					dest += 3; /* skip sample data */
 					*(dest++) = 0x40;
 				}
 		}
@@ -417,13 +428,13 @@ static int usb6fire_pcm_close(struct snd_pcm_substream *alsa_sub)
 
 	mutex_lock(&rt->stream_mutex);
 	if (sub) {
-		
+		/* deactivate substream */
 		spin_lock_irqsave(&sub->lock, flags);
 		sub->instance = NULL;
 		sub->active = false;
 		spin_unlock_irqrestore(&sub->lock, flags);
 
-		
+		/* all substreams closed? if so, stop streaming */
 		if (!rt->playback.instance && !rt->capture.instance) {
 			usb6fire_pcm_stream_stop(rt);
 			rt->rate = ARRAY_SIZE(rates);

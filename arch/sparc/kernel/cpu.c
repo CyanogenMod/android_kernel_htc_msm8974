@@ -61,10 +61,10 @@ struct manufacturer_info {
 static const struct manufacturer_info __initconst manufacturer_info[] = {
 {
 	0,
-	
+	/* Sun4/100, 4/200, SLC */
 	.cpu_info = {
 		CPU(0, "Fujitsu  MB86900/1A or LSI L64831 SparcKIT-40"),
-		
+		/* borned STP1012PGA */
 		CPU(4,  "Fujitsu  MB86904"),
 		CPU(5, "Fujitsu TurboSparc MB86907"),
 		CPU(-1, NULL)
@@ -73,22 +73,22 @@ static const struct manufacturer_info __initconst manufacturer_info[] = {
 		FPU(0, "Fujitsu MB86910 or Weitek WTL1164/5"),
 		FPU(1, "Fujitsu MB86911 or Weitek WTL1164/5 or LSI L64831"),
 		FPU(2, "LSI Logic L64802 or Texas Instruments ACT8847"),
-		
+		/* SparcStation SLC, SparcStation1 */
 		FPU(3, "Weitek WTL3170/2"),
-		
+		/* SPARCstation-5 */
 		FPU(4, "Lsi Logic/Meiko L64804 or compatible"),
 		FPU(-1, NULL)
 	}
 },{
 	1,
 	.cpu_info = {
-		
+		/* SparcStation2, SparcServer 490 & 690 */
 		CPU(0, "LSI Logic Corporation - L64811"),
-		
+		/* SparcStation2 */
 		CPU(1, "Cypress/ROSS CY7C601"),
-		
+		/* Embedded controller */
 		CPU(3, "Cypress/ROSS CY7C611"),
-		
+		/* Ross Technologies HyperSparc */
 		CPU(0xf, "ROSS HyperSparc RT620"),
 		CPU(0xe, "ROSS HyperSparc RT625 or RT626"),
 		CPU(-1, NULL)
@@ -103,8 +103,8 @@ static const struct manufacturer_info __initconst manufacturer_info[] = {
 },{
 	2,
 	.cpu_info = {
-		
-		
+		/* ECL Implementation, CRAY S-MP Supercomputer... AIEEE! */
+		/* Someone please write the code to support this beast! ;) */
 		CPU(0, "Bipolar Integrated Technology - B5010"),
 		CPU(-1, NULL)
 	},
@@ -124,7 +124,7 @@ static const struct manufacturer_info __initconst manufacturer_info[] = {
 	4,
 	.cpu_info = {
 		CPU(0, "Texas Instruments, Inc. - SuperSparc-(II)"),
-		
+		/* SparcClassic  --  borned STP1010TAB-50*/
 		CPU(1, "Texas Instruments, Inc. - MicroSparc"),
 		CPU(2, "Texas Instruments, Inc. - MicroSparc II"),
 		CPU(3, "Texas Instruments, Inc. - SuperSparc 51"),
@@ -133,9 +133,9 @@ static const struct manufacturer_info __initconst manufacturer_info[] = {
 		CPU(-1, NULL)
 	},
 	.fpu_info = {
-		
+		/* SuperSparc 50 module */
 		FPU(0, "SuperSparc on-chip FPU"),
-		
+		/* SparcClassic */
 		FPU(4, "TI MicroSparc on chip FPU"),
 		FPU(-1, NULL)
 	}
@@ -179,7 +179,7 @@ static const struct manufacturer_info __initconst manufacturer_info[] = {
 },{
 	9,
 	.cpu_info = {
-		
+		/* Gallium arsenide 200MHz, BOOOOGOOOOMIPS!!! */
 		CPU(0, "Fujitsu or Weitek Power-UP"),
 		CPU(1, "Fujitsu or Weitek Power-UP"),
 		CPU(2, "Fujitsu or Weitek Power-UP"),
@@ -191,7 +191,7 @@ static const struct manufacturer_info __initconst manufacturer_info[] = {
 		FPU(-1, NULL)
 	}
 },{
-	0xF,		
+	0xF,		/* Aeroflex Gaisler */
 	.cpu_info = {
 		CPU(3, "LEON"),
 		CPU(-1, NULL)
@@ -249,6 +249,9 @@ static const struct manufacturer_info __initconst manufacturer_info[] = {
 	}
 }};
 
+/* In order to get the fpu type correct, you need to take the IDPROM's
+ * machine type value into consideration too.  I will fix this.
+ */
 
 static const char *sparc_cpu_type;
 static const char *sparc_fpu_type;
@@ -355,7 +358,7 @@ static int show_cpuinfo(struct seq_file *m, void *__unused)
 #endif
 	return 0;
 }
-#endif 
+#endif /* CONFIG_SPARC32 */
 
 #ifdef CONFIG_SPARC64
 unsigned int dcache_parity_tl1_occurred;
@@ -403,10 +406,14 @@ static int show_cpuinfo(struct seq_file *m, void *__unused)
 #endif
 	return 0;
 }
-#endif 
+#endif /* CONFIG_SPARC64 */
 
 static void *c_start(struct seq_file *m, loff_t *pos)
 {
+	/* The pointer we are returning is arbitrary,
+	 * it just has to be non-NULL and not IS_ERR
+	 * in the success case.
+	 */
 	return *pos == 0 ? &c_start : NULL;
 }
 
@@ -450,7 +457,7 @@ static int __init cpu_type_probe(void)
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_SPARC32 */
 
 #ifdef CONFIG_SPARC64
 static void __init sun4v_cpu_probe(void)
@@ -512,6 +519,6 @@ static int __init cpu_type_probe(void)
 	}
 	return 0;
 }
-#endif 
+#endif /* CONFIG_SPARC64 */
 
 early_initcall(cpu_type_probe);

@@ -17,14 +17,20 @@
 #ifndef PCAN_USB_PRO_H
 #define PCAN_USB_PRO_H
 
+/*
+ * USB Vendor request data types
+ */
 #define PCAN_USBPRO_REQ_INFO		0
 #define PCAN_USBPRO_REQ_FCT		2
 
+/* Vendor Request value for XXX_INFO */
 #define PCAN_USBPRO_INFO_BL		0
 #define PCAN_USBPRO_INFO_FW		1
 
-#define PCAN_USBPRO_FCT_DRVLD		5 
+/* Vendor Request value for XXX_FCT */
+#define PCAN_USBPRO_FCT_DRVLD		5 /* tell device driver is loaded */
 
+/* PCAN_USBPRO_INFO_BL vendor request record type */
 struct __packed pcan_usb_pro_blinfo {
 	u32 ctrl_type;
 	u8  version[4];
@@ -38,6 +44,7 @@ struct __packed pcan_usb_pro_blinfo {
 	u32 hw_rev;
 };
 
+/* PCAN_USBPRO_INFO_FW vendor request record type */
 struct __packed pcan_usb_pro_fwinfo {
 	u32 ctrl_type;
 	u8  version[4];
@@ -48,6 +55,9 @@ struct __packed pcan_usb_pro_fwinfo {
 	u32 fw_type;
 };
 
+/*
+ * USB Command record types
+ */
 #define PCAN_USBPRO_SETBTR	0x02
 #define PCAN_USBPRO_SETBUSACT	0x04
 #define PCAN_USBPRO_SETSILENT	0x05
@@ -65,6 +75,7 @@ struct __packed pcan_usb_pro_fwinfo {
 #define PCAN_USBPRO_TXMSG4	0x42
 #define PCAN_USBPRO_TXMSG0	0x43
 
+/* record structures */
 struct __packed pcan_usb_pro_btr {
 	u8  data_type;
 	u8  channel;

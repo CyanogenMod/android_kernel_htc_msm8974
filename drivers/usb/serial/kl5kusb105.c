@@ -30,6 +30,10 @@
  * breaks so that I can fix it!
  */
 
+/* TODO:
+ *	check modem line signals
+ *	implement handshaking or decide that we do not support it
+ */
 
 #include <linux/kernel.h>
 #include <linux/errno.h>
@@ -47,11 +51,17 @@
 
 static bool debug;
 
+/*
+ * Version Information
+ */
 #define DRIVER_VERSION "v0.4"
 #define DRIVER_AUTHOR "Utz-Uwe Haus <haus@uuhaus.de>, Johan Hovold <jhovold@gmail.com>"
 #define DRIVER_DESC "KLSI KL5KUSB105 chipset USB->Serial Converter driver"
 
 
+/*
+ * Function prototypes
+ */
 static int  klsi_105_startup(struct usb_serial *serial);
 static void klsi_105_release(struct usb_serial *serial);
 static int  klsi_105_open(struct tty_struct *tty, struct usb_serial_port *port);
@@ -65,10 +75,13 @@ static void klsi_105_process_read_urb(struct urb *urb);
 static int klsi_105_prepare_write_buffer(struct usb_serial_port *port,
 						void *dest, size_t size);
 
+/*
+ * All of the device info needed for the KLSI converters.
+ */
 static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(PALMCONNECT_VID, PALMCONNECT_PID) },
 	{ USB_DEVICE(KLSI_VID, KLSI_KL5KUSB105D_PID) },
-	{ }		
+	{ }		/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, id_table);
@@ -92,7 +105,7 @@ static struct usb_serial_driver kl5kusb105d_device = {
 	.open =			klsi_105_open,
 	.close =		klsi_105_close,
 	.set_termios =		klsi_105_set_termios,
-	
+	/*.break_ctl =		klsi_105_break_ctl,*/
 	.tiocmget =		klsi_105_tiocmget,
 	.tiocmset =		klsi_105_tiocmset,
 	.attach =		klsi_105_startup,
@@ -108,7 +121,7 @@ static struct usb_serial_driver * const serial_drivers[] = {
 };
 
 struct klsi_105_port_settings {
-	__u8	pktlen;		
+	__u8	pktlen;		/* always 5, it seems */
 	__u8	baudrate;
 	__u8	databits;
 	__u8	unknown1;
@@ -118,14 +131,17 @@ struct klsi_105_port_settings {
 struct klsi_105_private {
 	struct klsi_105_port_settings	cfg;
 	struct ktermios			termios;
-	unsigned long			line_state; 
+	unsigned long			line_state; /* modem line settings */
 	spinlock_t			lock;
 };
 
 
+/*
+ * Handle vendor specific USB requests
+ */
 
 
-#define KLSI_TIMEOUT	 5000 
+#define KLSI_TIMEOUT	 5000 /* default urb timeout */
 
 static int klsi_105_chg_port_settings(struct usb_serial_port *port,
 				      struct klsi_105_port_settings *settings)
@@ -136,8 +152,8 @@ static int klsi_105_chg_port_settings(struct usb_serial_port *port,
 			usb_sndctrlpipe(port->serial->dev, 0),
 			KL5KUSB105A_SIO_SET_DATA,
 			USB_TYPE_VENDOR | USB_DIR_OUT | USB_RECIP_INTERFACE,
-			0, 
-			0, 
+			0, /* value */
+			0, /* index */
 			settings,
 			sizeof(struct klsi_105_port_settings),
 			KLSI_TIMEOUT);
@@ -151,6 +167,7 @@ static int klsi_105_chg_port_settings(struct usb_serial_port *port,
 	return rc;
 }
 
+/* translate a 16-bit status value from the device to linux's TIO bits */
 static unsigned long klsi_105_status2linestate(const __u16 status)
 {
 	unsigned long res = 0;
@@ -162,6 +179,11 @@ static unsigned long klsi_105_status2linestate(const __u16 status)
 	return res;
 }
 
+/*
+ * Read line control via vendor command and return result through
+ * *line_state_p
+ */
+/* It seems that the status buffer has always only 2 bytes length */
 #define KLSI_STATUSBUF_LEN	2
 static int klsi_105_get_line_state(struct usb_serial_port *port,
 				   unsigned long *line_state_p)
@@ -184,8 +206,8 @@ static int klsi_105_get_line_state(struct usb_serial_port *port,
 			     usb_rcvctrlpipe(port->serial->dev, 0),
 			     KL5KUSB105A_SIO_POLL,
 			     USB_TYPE_VENDOR | USB_DIR_IN,
-			     0, 
-			     0, 
+			     0, /* value */
+			     0, /* index */
 			     status_buf, KLSI_STATUSBUF_LEN,
 			     10000
 			     );
@@ -206,14 +228,20 @@ static int klsi_105_get_line_state(struct usb_serial_port *port,
 }
 
 
+/*
+ * Driver's tty interface functions
+ */
 
 static int klsi_105_startup(struct usb_serial *serial)
 {
 	struct klsi_105_private *priv;
 	int i;
 
+	/* check if we support the product id (see keyspan.c)
+	 * FIXME
+	 */
 
-	
+	/* allocate the private data structure */
 	for (i = 0; i < serial->num_ports; i++) {
 		priv = kmalloc(sizeof(struct klsi_105_private),
 						   GFP_KERNEL);
@@ -222,7 +250,7 @@ static int klsi_105_startup(struct usb_serial *serial)
 			i--;
 			goto err_cleanup;
 		}
-		
+		/* set initial values for control structures */
 		priv->cfg.pktlen    = 5;
 		priv->cfg.baudrate  = kl5kusb105a_sio_b9600;
 		priv->cfg.databits  = kl5kusb105a_dtb_8;
@@ -235,7 +263,7 @@ static int klsi_105_startup(struct usb_serial *serial)
 
 		spin_lock_init(&priv->lock);
 
-		
+		/* priv->termios is left uninitialized until port opening */
 		init_waitqueue_head(&serial->port[i]->write_wait);
 	}
 
@@ -272,6 +300,13 @@ static int  klsi_105_open(struct tty_struct *tty, struct usb_serial_port *port)
 
 	dbg("%s port %d", __func__, port->number);
 
+	/* Do a defined restart:
+	 * Set up sane default baud rate and send the 'READ_ON'
+	 * vendor command.
+	 * FIXME: set modem line control (how?)
+	 * Then read the modem line control and store values in
+	 * priv->line_state.
+	 */
 	cfg = kmalloc(sizeof(*cfg), GFP_KERNEL);
 	if (!cfg) {
 		dev_err(&port->dev, "%s - out of memory for config buffer.\n",
@@ -285,7 +320,7 @@ static int  klsi_105_open(struct tty_struct *tty, struct usb_serial_port *port)
 	cfg->unknown2 = 1;
 	klsi_105_chg_port_settings(port, cfg);
 
-	
+	/* set up termios structure */
 	spin_lock_irqsave(&priv->lock, flags);
 	priv->termios.c_iflag = tty->termios->c_iflag;
 	priv->termios.c_oflag = tty->termios->c_oflag;
@@ -300,7 +335,7 @@ static int  klsi_105_open(struct tty_struct *tty, struct usb_serial_port *port)
 	priv->cfg.unknown2 = cfg->unknown2;
 	spin_unlock_irqrestore(&priv->lock, flags);
 
-	
+	/* READ_ON and urb submission */
 	rc = usb_serial_generic_open(tty, port);
 	if (rc) {
 		retval = rc;
@@ -312,7 +347,7 @@ static int  klsi_105_open(struct tty_struct *tty, struct usb_serial_port *port)
 			     KL5KUSB105A_SIO_CONFIGURE,
 			     USB_TYPE_VENDOR|USB_DIR_OUT|USB_RECIP_INTERFACE,
 			     KL5KUSB105A_SIO_CONFIGURE_READ_ON,
-			     0, 
+			     0, /* index */
 			     NULL,
 			     0,
 			     KLSI_TIMEOUT);
@@ -345,13 +380,13 @@ static void klsi_105_close(struct usb_serial_port *port)
 
 	mutex_lock(&port->serial->disc_mutex);
 	if (!port->serial->disconnected) {
-		
+		/* send READ_OFF */
 		rc = usb_control_msg(port->serial->dev,
 				     usb_sndctrlpipe(port->serial->dev, 0),
 				     KL5KUSB105A_SIO_CONFIGURE,
 				     USB_TYPE_VENDOR | USB_DIR_OUT,
 				     KL5KUSB105A_SIO_CONFIGURE_READ_OFF,
-				     0, 
+				     0, /* index */
 				     NULL, 0,
 				     KLSI_TIMEOUT);
 		if (rc < 0)
@@ -360,13 +395,17 @@ static void klsi_105_close(struct usb_serial_port *port)
 	}
 	mutex_unlock(&port->serial->disc_mutex);
 
-	
+	/* shutdown our bulk reads and writes */
 	usb_serial_generic_close(port);
 
-	
+	/* wgg - do I need this? I think so. */
 	usb_kill_urb(port->interrupt_in_urb);
 }
 
+/* We need to write a complete 64-byte data block and encode the
+ * number actually sent in the first double-byte, LSB-order. That
+ * leaves at most 62 bytes of payload.
+ */
 #define KLSI_HDR_LEN		2
 static int klsi_105_prepare_write_buffer(struct usb_serial_port *port,
 						void *dest, size_t size)
@@ -381,6 +420,8 @@ static int klsi_105_prepare_write_buffer(struct usb_serial_port *port,
 	return count + KLSI_HDR_LEN;
 }
 
+/* The data received is preceded by a length double-byte in LSB-first order.
+ */
 static void klsi_105_process_read_urb(struct urb *urb)
 {
 	struct usb_serial_port *port = urb->context;
@@ -388,7 +429,7 @@ static void klsi_105_process_read_urb(struct urb *urb)
 	struct tty_struct *tty;
 	unsigned len;
 
-	
+	/* empty urbs seem to happen, we ignore them */
 	if (!urb->actual_length)
 		return;
 
@@ -432,18 +473,21 @@ static void klsi_105_set_termios(struct tty_struct *tty,
 		return;
 	}
 
-	
+	/* lock while we are modifying the settings */
 	spin_lock_irqsave(&priv->lock, flags);
 
+	/*
+	 * Update baud rate
+	 */
 	baud = tty_get_baud_rate(tty);
 
 	if ((cflag & CBAUD) != (old_cflag & CBAUD)) {
-		
+		/* reassert DTR and (maybe) RTS on transition from B0 */
 		if ((old_cflag & CBAUD) == B0) {
 			dbg("%s: baud was B0", __func__);
 #if 0
 			priv->control_state |= TIOCM_DTR;
-			
+			/* don't set RTS if using hardware flow control */
 			if (!(old_cflag & CRTSCTS))
 				priv->control_state |= TIOCM_RTS;
 			mct_u232_set_modem_ctrl(serial, priv->control_state);
@@ -451,7 +495,7 @@ static void klsi_105_set_termios(struct tty_struct *tty,
 		}
 	}
 	switch (baud) {
-	case 0: 
+	case 0: /* handled below */
 		break;
 	case 1200:
 		priv->cfg.baudrate = kl5kusb105a_sio_b1200;
@@ -486,7 +530,10 @@ static void klsi_105_set_termios(struct tty_struct *tty,
 	}
 	if ((cflag & CBAUD) == B0) {
 		dbg("%s: baud is B0", __func__);
-		
+		/* Drop RTS and DTR */
+		/* maybe this should be simulated by sending read
+		 * disable and read enable messages?
+		 */
 		;
 #if 0
 		priv->control_state &= ~(TIOCM_DTR | TIOCM_RTS);
@@ -496,7 +543,7 @@ static void klsi_105_set_termios(struct tty_struct *tty,
 	tty_encode_baud_rate(tty, baud, baud);
 
 	if ((cflag & CSIZE) != (old_cflag & CSIZE)) {
-		
+		/* set the number of data bits */
 		switch (cflag & CSIZE) {
 		case CS5:
 			dbg("%s - 5 bits/byte not supported", __func__);
@@ -520,21 +567,24 @@ static void klsi_105_set_termios(struct tty_struct *tty,
 		}
 	}
 
+	/*
+	 * Update line control register (LCR)
+	 */
 	if ((cflag & (PARENB|PARODD)) != (old_cflag & (PARENB|PARODD))
 	    || (cflag & CSTOPB) != (old_cflag & CSTOPB)) {
-		
+		/* Not currently supported */
 		tty->termios->c_cflag &= ~(PARENB|PARODD|CSTOPB);
 #if 0
 		priv->last_lcr = 0;
 
-		
+		/* set the parity */
 		if (cflag & PARENB)
 			priv->last_lcr |= (cflag & PARODD) ?
 				MCT_U232_PARITY_ODD : MCT_U232_PARITY_EVEN;
 		else
 			priv->last_lcr |= MCT_U232_PARITY_NONE;
 
-		
+		/* set the number of stop bits */
 		priv->last_lcr |= (cflag & CSTOPB) ?
 			MCT_U232_STOP_BITS_2 : MCT_U232_STOP_BITS_1;
 
@@ -542,12 +592,16 @@ static void klsi_105_set_termios(struct tty_struct *tty,
 #endif
 		;
 	}
+	/*
+	 * Set flow control: well, I do not really now how to handle DTR/RTS.
+	 * Just do what we have seen with SniffUSB on Win98.
+	 */
 	if ((iflag & IXOFF) != (old_iflag & IXOFF)
 	    || (iflag & IXON) != (old_iflag & IXON)
 	    ||  (cflag & CRTSCTS) != (old_cflag & CRTSCTS)) {
-		
+		/* Not currently supported */
 		tty->termios->c_cflag &= ~CRTSCTS;
-		
+		/* Drop DTR/RTS if no flow control otherwise assert */
 #if 0
 		if ((iflag & IXOFF) || (iflag & IXON) || (cflag & CRTSCTS))
 			priv->control_state |= TIOCM_DTR | TIOCM_RTS;
@@ -560,7 +614,7 @@ static void klsi_105_set_termios(struct tty_struct *tty,
 	memcpy(cfg, &priv->cfg, sizeof(*cfg));
 	spin_unlock_irqrestore(&priv->lock, flags);
 
-	
+	/* now commit changes to device */
 	klsi_105_chg_port_settings(port, cfg);
 err:
 	kfree(cfg);
@@ -577,7 +631,7 @@ static void mct_u232_break_ctl(struct tty_struct *tty, int break_state)
 
 	dbg("%sstate=%d", __func__, break_state);
 
-	
+	/* LOCKING */
 	if (break_state)
 		lcr |= MCT_U232_SET_BREAK;
 
@@ -598,7 +652,7 @@ static int klsi_105_tiocmget(struct tty_struct *tty)
 	if (rc < 0) {
 		dev_err(&port->dev,
 			"Reading line control failed (error = %d)\n", rc);
-		
+		/* better return value? EAGAIN? */
 		return rc;
 	}
 
@@ -616,6 +670,25 @@ static int klsi_105_tiocmset(struct tty_struct *tty,
 
 	dbg("%s", __func__);
 
+/* if this ever gets implemented, it should be done something like this:
+	struct usb_serial *serial = port->serial;
+	struct klsi_105_private *priv = usb_get_serial_port_data(port);
+	unsigned long flags;
+	int control;
+
+	spin_lock_irqsave (&priv->lock, flags);
+	if (set & TIOCM_RTS)
+		priv->control_state |= TIOCM_RTS;
+	if (set & TIOCM_DTR)
+		priv->control_state |= TIOCM_DTR;
+	if (clear & TIOCM_RTS)
+		priv->control_state &= ~TIOCM_RTS;
+	if (clear & TIOCM_DTR)
+		priv->control_state &= ~TIOCM_DTR;
+	control = priv->control_state;
+	spin_unlock_irqrestore (&priv->lock, flags);
+	retval = mct_u232_set_modem_ctrl(serial, control);
+*/
 	return retval;
 }
 

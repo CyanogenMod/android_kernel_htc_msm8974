@@ -33,8 +33,11 @@
 		common->ops->write_flush((_ah));
 
 
-#define IEEE80211_WEP_NKID      4       
+#define IEEE80211_WEP_NKID      4       /* number of key ids */
 
+/************************/
+/* Key Cache Management */
+/************************/
 
 bool ath_hw_keyreset(struct ath_common *common, u16 entry)
 {
@@ -93,6 +96,13 @@ static bool ath_hw_keysetmac(struct ath_common *common,
 	}
 
 	if (mac != NULL) {
+		/*
+		 * AR_KEYTABLE_VALID indicates that the address is a unicast
+		 * address, which must match the transmitter address for
+		 * decrypting frames.
+		 * Not setting this bit allows the hardware to use the key
+		 * for multicast frame decryption.
+		 */
 		if (mac[0] & 0x01)
 			unicast_flag = 0;
 
@@ -176,6 +186,12 @@ static bool ath_hw_set_keycache_entry(struct ath_common *common, u16 entry,
 	if (k->kv_len <= WLAN_KEY_LEN_WEP104)
 		key4 &= 0xff;
 
+	/*
+	 * Note: Key cache registers access special memory area that requires
+	 * two 32-bit writes to actually update the values in the internal
+	 * memory. Consequently, the exact order and pairs used here must be
+	 * maintained.
+	 */
 
 	if (keyType == AR_KEYTABLE_TYPE_TKIP) {
 		u16 micentry = entry + 64;
@@ -189,18 +205,30 @@ static bool ath_hw_set_keycache_entry(struct ath_common *common, u16 entry,
 		REG_WRITE(ah, AR_KEYTABLE_KEY0(entry), ~key0);
 		REG_WRITE(ah, AR_KEYTABLE_KEY1(entry), ~key1);
 
-		
+		/* Write key[95:48] */
 		REG_WRITE(ah, AR_KEYTABLE_KEY2(entry), key2);
 		REG_WRITE(ah, AR_KEYTABLE_KEY3(entry), key3);
 
-		
+		/* Write key[127:96] and key type */
 		REG_WRITE(ah, AR_KEYTABLE_KEY4(entry), key4);
 		REG_WRITE(ah, AR_KEYTABLE_TYPE(entry), keyType);
 
-		
+		/* Write MAC address for the entry */
 		(void) ath_hw_keysetmac(common, entry, mac);
 
 		if (common->crypt_caps & ATH_CRYPT_CAP_MIC_COMBINED) {
+			/*
+			 * TKIP uses two key cache entries:
+			 * Michael MIC TX/RX keys in the same key cache entry
+			 * (idx = main index + 64):
+			 * key0 [31:0] = RX key [31:0]
+			 * key1 [15:0] = TX key [31:16]
+			 * key1 [31:16] = reserved
+			 * key2 [31:0] = RX key [63:32]
+			 * key3 [15:0] = TX key [15:0]
+			 * key3 [31:16] = reserved
+			 * key4 [31:0] = TX key [63:32]
+			 */
 			u32 mic0, mic1, mic2, mic3, mic4;
 
 			mic0 = get_unaligned_le32(k->kv_mic + 0);
@@ -211,15 +239,15 @@ static bool ath_hw_set_keycache_entry(struct ath_common *common, u16 entry,
 
 			ENABLE_REGWRITE_BUFFER(ah);
 
-			
+			/* Write RX[31:0] and TX[31:16] */
 			REG_WRITE(ah, AR_KEYTABLE_KEY0(micentry), mic0);
 			REG_WRITE(ah, AR_KEYTABLE_KEY1(micentry), mic1);
 
-			
+			/* Write RX[63:32] and TX[15:0] */
 			REG_WRITE(ah, AR_KEYTABLE_KEY2(micentry), mic2);
 			REG_WRITE(ah, AR_KEYTABLE_KEY3(micentry), mic3);
 
-			
+			/* Write TX[63:32] and keyType(reserved) */
 			REG_WRITE(ah, AR_KEYTABLE_KEY4(micentry), mic4);
 			REG_WRITE(ah, AR_KEYTABLE_TYPE(micentry),
 				  AR_KEYTABLE_TYPE_CLR);
@@ -227,6 +255,22 @@ static bool ath_hw_set_keycache_entry(struct ath_common *common, u16 entry,
 			REGWRITE_BUFFER_FLUSH(ah);
 
 		} else {
+			/*
+			 * TKIP uses four key cache entries (two for group
+			 * keys):
+			 * Michael MIC TX/RX keys are in different key cache
+			 * entries (idx = main index + 64 for TX and
+			 * main index + 32 + 96 for RX):
+			 * key0 [31:0] = TX/RX MIC key [31:0]
+			 * key1 [31:0] = reserved
+			 * key2 [31:0] = TX/RX MIC key [63:32]
+			 * key3 [31:0] = reserved
+			 * key4 [31:0] = reserved
+			 *
+			 * Upper layer code will call this function separately
+			 * for TX and RX keys when these registers offsets are
+			 * used.
+			 */
 			u32 mic0, mic2;
 
 			mic0 = get_unaligned_le32(k->kv_mic + 0);
@@ -234,15 +278,15 @@ static bool ath_hw_set_keycache_entry(struct ath_common *common, u16 entry,
 
 			ENABLE_REGWRITE_BUFFER(ah);
 
-			
+			/* Write MIC key[31:0] */
 			REG_WRITE(ah, AR_KEYTABLE_KEY0(micentry), mic0);
 			REG_WRITE(ah, AR_KEYTABLE_KEY1(micentry), 0);
 
-			
+			/* Write MIC key[63:32] */
 			REG_WRITE(ah, AR_KEYTABLE_KEY2(micentry), mic2);
 			REG_WRITE(ah, AR_KEYTABLE_KEY3(micentry), 0);
 
-			
+			/* Write TX[63:32] and keyType(reserved) */
 			REG_WRITE(ah, AR_KEYTABLE_KEY4(micentry), 0);
 			REG_WRITE(ah, AR_KEYTABLE_TYPE(micentry),
 				  AR_KEYTABLE_TYPE_CLR);
@@ -252,10 +296,15 @@ static bool ath_hw_set_keycache_entry(struct ath_common *common, u16 entry,
 
 		ENABLE_REGWRITE_BUFFER(ah);
 
-		
+		/* MAC address registers are reserved for the MIC entry */
 		REG_WRITE(ah, AR_KEYTABLE_MAC0(micentry), 0);
 		REG_WRITE(ah, AR_KEYTABLE_MAC1(micentry), 0);
 
+		/*
+		 * Write the correct (un-inverted) key[47:0] last to enable
+		 * TKIP now that all other registers are set with correct
+		 * values.
+		 */
 		REG_WRITE(ah, AR_KEYTABLE_KEY0(entry), key0);
 		REG_WRITE(ah, AR_KEYTABLE_KEY1(entry), key1);
 
@@ -263,21 +312,21 @@ static bool ath_hw_set_keycache_entry(struct ath_common *common, u16 entry,
 	} else {
 		ENABLE_REGWRITE_BUFFER(ah);
 
-		
+		/* Write key[47:0] */
 		REG_WRITE(ah, AR_KEYTABLE_KEY0(entry), key0);
 		REG_WRITE(ah, AR_KEYTABLE_KEY1(entry), key1);
 
-		
+		/* Write key[95:48] */
 		REG_WRITE(ah, AR_KEYTABLE_KEY2(entry), key2);
 		REG_WRITE(ah, AR_KEYTABLE_KEY3(entry), key3);
 
-		
+		/* Write key[127:96] and key type */
 		REG_WRITE(ah, AR_KEYTABLE_KEY4(entry), key4);
 		REG_WRITE(ah, AR_KEYTABLE_TYPE(entry), keyType);
 
 		REGWRITE_BUFFER_FLUSH(ah);
 
-		
+		/* Write MAC address for the entry */
 		(void) ath_hw_keysetmac(common, entry, mac);
 	}
 
@@ -295,6 +344,11 @@ static int ath_setkey_tkip(struct ath_common *common, u16 keyix, const u8 *key,
 	key_rxmic = key + NL80211_TKIP_DATA_OFFSET_RX_MIC_KEY;
 
 	if (addr == NULL) {
+		/*
+		 * Group key installation - only two key cache entries are used
+		 * regardless of splitmic capability since group key is only
+		 * used either for TX or RX.
+		 */
 		if (authenticator) {
 			memcpy(hk->kv_mic, key_txmic, sizeof(hk->kv_mic));
 			memcpy(hk->kv_txmic, key_txmic, sizeof(hk->kv_mic));
@@ -305,24 +359,24 @@ static int ath_setkey_tkip(struct ath_common *common, u16 keyix, const u8 *key,
 		return ath_hw_set_keycache_entry(common, keyix, hk, addr);
 	}
 	if (common->crypt_caps & ATH_CRYPT_CAP_MIC_COMBINED) {
-		
+		/* TX and RX keys share the same key cache entry. */
 		memcpy(hk->kv_mic, key_rxmic, sizeof(hk->kv_mic));
 		memcpy(hk->kv_txmic, key_txmic, sizeof(hk->kv_txmic));
 		return ath_hw_set_keycache_entry(common, keyix, hk, addr);
 	}
 
-	
+	/* Separate key cache entries for TX and RX */
 
-	
+	/* TX key goes at first index, RX key at +32. */
 	memcpy(hk->kv_mic, key_txmic, sizeof(hk->kv_mic));
 	if (!ath_hw_set_keycache_entry(common, keyix, hk, NULL)) {
-		
+		/* TX MIC entry failed. No need to proceed further */
 		ath_err(common, "Setting TX MIC Key Failed\n");
 		return 0;
 	}
 
 	memcpy(hk->kv_mic, key_rxmic, sizeof(hk->kv_mic));
-	
+	/* XXX delete tx key on failure? */
 	return ath_hw_set_keycache_entry(common, keyix + 32, hk, addr);
 }
 
@@ -333,13 +387,13 @@ static int ath_reserve_key_cache_slot_tkip(struct ath_common *common)
 	for (i = IEEE80211_WEP_NKID; i < common->keymax / 2; i++) {
 		if (test_bit(i, common->keymap) ||
 		    test_bit(i + 64, common->keymap))
-			continue; 
+			continue; /* At least one part of TKIP key allocated */
 		if (!(common->crypt_caps & ATH_CRYPT_CAP_MIC_COMBINED) &&
 		    (test_bit(i + 32, common->keymap) ||
 		     test_bit(i + 64 + 32, common->keymap)))
-			continue; 
+			continue; /* At least one part of TKIP key allocated */
 
-		
+		/* Found a free slot for a TKIP key */
 		return i;
 	}
 	return -1;
@@ -353,7 +407,7 @@ static int ath_reserve_key_cache_slot(struct ath_common *common,
 	if (cipher == WLAN_CIPHER_SUITE_TKIP)
 		return ath_reserve_key_cache_slot_tkip(common);
 
-	
+	/* First, try to find slots that would not be available for TKIP. */
 	if (!(common->crypt_caps & ATH_CRYPT_CAP_MIC_COMBINED)) {
 		for (i = IEEE80211_WEP_NKID; i < common->keymax / 4; i++) {
 			if (!test_bit(i, common->keymap) &&
@@ -388,8 +442,11 @@ static int ath_reserve_key_cache_slot(struct ath_common *common,
 		}
 	}
 
-	
+	/* No partially used TKIP slots, pick any available slot */
 	for (i = IEEE80211_WEP_NKID; i < common->keymax; i++) {
+		/* Do not allow slots that could be needed for TKIP group keys
+		 * to be used. This limitation could be removed if we know that
+		 * TKIP will not be used. */
 		if (i >= 64 && i < 64 + IEEE80211_WEP_NKID)
 			continue;
 		if (!(common->crypt_caps & ATH_CRYPT_CAP_MIC_COMBINED)) {
@@ -400,13 +457,16 @@ static int ath_reserve_key_cache_slot(struct ath_common *common,
 		}
 
 		if (!test_bit(i, common->keymap))
-			return i; 
+			return i; /* Found a free slot for a key */
 	}
 
-	
+	/* No free slot found */
 	return -1;
 }
 
+/*
+ * Configure encryption in the HW.
+ */
 int ath_key_config(struct ath_common *common,
 			  struct ieee80211_vif *vif,
 			  struct ieee80211_sta *sta,
@@ -470,6 +530,8 @@ int ath_key_config(struct ath_common *common,
 		mac = sta->addr;
 
 		if (vif->type != NL80211_IFTYPE_AP) {
+			/* Only keyidx 0 should be used with unicast key, but
+			 * allow this for client mode for now. */
 			idx = key->keyidx;
 		} else
 			return -EIO;
@@ -482,7 +544,7 @@ int ath_key_config(struct ath_common *common,
 	}
 
 	if (idx < 0)
-		return -ENOSPC; 
+		return -ENOSPC; /* no free key cache entries */
 
 	if (key->cipher == WLAN_CIPHER_SUITE_TKIP)
 		ret = ath_setkey_tkip(common, idx, key->key, &hk, mac,
@@ -510,6 +572,9 @@ int ath_key_config(struct ath_common *common,
 }
 EXPORT_SYMBOL(ath_key_config);
 
+/*
+ * Delete Key.
+ */
 void ath_key_delete(struct ath_common *common, struct ieee80211_key_conf *key)
 {
 	ath_hw_keyreset(common, key->hw_key_idx);

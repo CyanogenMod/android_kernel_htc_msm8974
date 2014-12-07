@@ -46,6 +46,7 @@ static uint32 mdp_scale_0p6_to_0p8_mode;
 static uint32 mdp_scale_0p4_to_0p6_mode;
 static uint32 mdp_scale_0p2_to_0p4_mode;
 
+/* -------- All scaling range, "pixel repeat" -------- */
 static int16 mdp_scale_pixel_repeat_C0[MDP_SCALE_COEFF_NUM] = {
 	0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0, 0, 0,
@@ -74,6 +75,8 @@ static int16 mdp_scale_pixel_repeat_C3[MDP_SCALE_COEFF_NUM] = {
 	0, 0, 0, 0, 0, 0, 0, 0
 };
 
+/* --------------------------- FIR ------------------------------------- */
+/* -------- Downscale, ranging from 0.8x to 8.0x of original size -------- */
 
 static int16 mdp_scale_0p8_to_8p0_C0[MDP_SCALE_COEFF_NUM] = {
 	0, -7, -13, -19, -24, -28, -32, -34, -37, -39,
@@ -103,6 +106,7 @@ static int16 mdp_scale_0p8_to_8p0_C3[MDP_SCALE_COEFF_NUM] = {
 	-13, -7
 };
 
+/* -------- Downscale, ranging from 0.6x to 0.8x of original size -------- */
 
 static int16 mdp_scale_0p6_to_0p8_C0[MDP_SCALE_COEFF_NUM] = {
 	104, 96, 89, 82, 75, 68, 61, 55, 49, 43,
@@ -132,6 +136,7 @@ static int16 mdp_scale_0p6_to_0p8_C3[MDP_SCALE_COEFF_NUM] = {
 	96, 104
 };
 
+/* -------- Downscale, ranging from 0.4x to 0.6x of original size -------- */
 
 static int16 mdp_scale_0p4_to_0p6_C0[MDP_SCALE_COEFF_NUM] = {
 	136, 132, 128, 123, 119, 115, 111, 107, 103, 98,
@@ -161,6 +166,7 @@ static int16 mdp_scale_0p4_to_0p6_C3[MDP_SCALE_COEFF_NUM] = {
 	132, 136
 };
 
+/* -------- Downscale, ranging from 0.2x to 0.4x of original size -------- */
 
 static int16 mdp_scale_0p2_to_0p4_C0[MDP_SCALE_COEFF_NUM] = {
 	131, 131, 130, 129, 128, 127, 127, 126, 125, 125,
@@ -270,6 +276,10 @@ static void mdp_calc_scaleInitPhase_3p1(uint32 in_w,
 	uint64 src_ROI_width;
 	uint64 src_ROI_height;
 
+	/*
+	 * phase_step_x, phase_step_y, phase_init_x and phase_init_y
+	 * are represented in fixed-point, unsigned 3.29 format
+	 */
 	uint32 phase_step_x = 0;
 	uint32 phase_step_y = 0;
 	uint32 phase_init_x = 0;
@@ -285,87 +295,105 @@ static void mdp_calc_scaleInitPhase_3p1(uint32 in_w,
 	dst_ROI_width = out_w;
 	dst_ROI_height = out_h;
 
-	
+	/* if there is a 90 degree rotation */
 	if (is_rotate) {
-		
+		/* decide whether to use FIR or M/N for scaling */
 
-		
+		/* if down-scaling by a factor smaller than 1/4 */
 		if ((dst_ROI_height == 1 && src_ROI_width < 4) ||
 			(src_ROI_width < 4 * dst_ROI_height - 3))
-			scale_unit_sel_x = 0;
+			scale_unit_sel_x = 0;/* use FIR scalar */
 		else
-			scale_unit_sel_x = 1;
+			scale_unit_sel_x = 1;/* use M/N scalar */
 
-		
+		/* if down-scaling by a factor smaller than 1/4 */
 		if ((dst_ROI_width == 1 && src_ROI_height < 4) ||
 			(src_ROI_height < 4 * dst_ROI_width - 3))
-			scale_unit_sel_y = 0;
+			scale_unit_sel_y = 0;/* use FIR scalar */
 		else
-			scale_unit_sel_y = 1;
+			scale_unit_sel_y = 1;/* use M/N scalar */
 	} else {
-		
+		/* decide whether to use FIR or M/N for scaling */
 		if ((dst_ROI_width == 1 && src_ROI_width < 4) ||
 			(src_ROI_width < 4 * dst_ROI_width - 3))
-			scale_unit_sel_x = 0;
+			scale_unit_sel_x = 0;/* use FIR scalar */
 		else
-			scale_unit_sel_x = 1;
+			scale_unit_sel_x = 1;/* use M/N scalar */
 
 		if ((dst_ROI_height == 1 && src_ROI_height < 4) ||
 			(src_ROI_height < 4 * dst_ROI_height - 3))
-			scale_unit_sel_y = 0;
+			scale_unit_sel_y = 0;/* use FIR scalar */
 		else
-			scale_unit_sel_y = 1;
+			scale_unit_sel_y = 1;/* use M/N scalar */
 	}
 
-	
+	/* if there is a 90 degree rotation */
 	if (is_rotate) {
-		
+		/* swap the width and height of dst ROI */
 		temp_dim = dst_ROI_width;
 		dst_ROI_width = dst_ROI_height;
 		dst_ROI_height = temp_dim;
 	}
 
-	
+	/* calculate phase step for the x direction */
 
+	/* if destination is only 1 pixel wide, the value of phase_step_x
+	   is unimportant. Assigning phase_step_x to src ROI width
+	   as an arbitrary value. */
 	if (dst_ROI_width == 1)
 		phase_step_x = (uint32) ((src_ROI_width) << SCALER_PHASE_BITS);
 
-	
+	/* if using FIR scalar */
 	else if (scale_unit_sel_x == 0) {
 
+		/* Calculate the quotient ( src_ROI_width - 1 ) / ( dst_ROI_width - 1)
+		   with u3.29 precision. Quotient is rounded up to the larger
+		   29th decimal point. */
 		numerator = (src_ROI_width - 1) << SCALER_PHASE_BITS;
-		denominator = (dst_ROI_width - 1);	
-		phase_step_x = (uint32) mdp_do_div((numerator + denominator - 1), denominator);	
+		denominator = (dst_ROI_width - 1);	/* never equals to 0 because of the "( dst_ROI_width == 1 ) case" */
+		phase_step_x = (uint32) mdp_do_div((numerator + denominator - 1), denominator);	/* divide and round up to the larger 29th decimal point. */
 
 	}
 
-	
+	/* if M/N scalar */
 	else if (scale_unit_sel_x == 1) {
+		/* Calculate the quotient ( src_ROI_width ) / ( dst_ROI_width)
+		   with u3.29 precision. Quotient is rounded down to the
+		   smaller 29th decimal point. */
 		numerator = (src_ROI_width) << SCALER_PHASE_BITS;
 		denominator = (dst_ROI_width);
 		phase_step_x = (uint32) mdp_do_div(numerator, denominator);
 	}
-	
+	/* calculate phase step for the y direction */
 
+	/* if destination is only 1 pixel wide, the value of
+	   phase_step_x is unimportant. Assigning phase_step_x
+	   to src ROI width as an arbitrary value. */
 	if (dst_ROI_height == 1)
 		phase_step_y = (uint32) ((src_ROI_height) << SCALER_PHASE_BITS);
 
-	
+	/* if FIR scalar */
 	else if (scale_unit_sel_y == 0) {
+		/* Calculate the quotient ( src_ROI_height - 1 ) / ( dst_ROI_height - 1)
+		   with u3.29 precision. Quotient is rounded up to the larger
+		   29th decimal point. */
 		numerator = (src_ROI_height - 1) << SCALER_PHASE_BITS;
-		denominator = (dst_ROI_height - 1);	
-		phase_step_y = (uint32) mdp_do_div((numerator + denominator - 1), denominator);	
+		denominator = (dst_ROI_height - 1);	/* never equals to 0 because of the "( dst_ROI_height == 1 )" case */
+		phase_step_y = (uint32) mdp_do_div((numerator + denominator - 1), denominator);	/* Quotient is rounded up to the larger 29th decimal point. */
 
 	}
 
-	
+	/* if M/N scalar */
 	else if (scale_unit_sel_y == 1) {
+		/* Calculate the quotient ( src_ROI_height ) / ( dst_ROI_height)
+		   with u3.29 precision. Quotient is rounded down to the smaller
+		   29th decimal point. */
 		numerator = (src_ROI_height) << SCALER_PHASE_BITS;
 		denominator = (dst_ROI_height);
 		phase_step_y = (uint32) mdp_do_div(numerator, denominator);
 	}
 
-	
+	/* decide which set of FIR coefficients to use */
 	if (phase_step_x > HAL_MDP_PHASE_STEP_2P50)
 		xscale_filter_sel = 0;
 	else if (phase_step_x > HAL_MDP_PHASE_STEP_1P66)
@@ -384,9 +412,9 @@ static void mdp_calc_scaleInitPhase_3p1(uint32 in_w,
 	else
 		yscale_filter_sel = 3;
 
-	
+	/* calculate phase init for the x direction */
 
-	
+	/* if using FIR scalar */
 	if (scale_unit_sel_x == 0) {
 		if (dst_ROI_width == 1)
 			phase_init_x =
@@ -395,10 +423,12 @@ static void mdp_calc_scaleInitPhase_3p1(uint32 in_w,
 			phase_init_x = 0;
 
 	}
-	
+	/* M over N scalar  */
 	else if (scale_unit_sel_x == 1)
 		phase_init_x = 0;
 
+	/* calculate phase init for the y direction
+	   if using FIR scalar */
 	if (scale_unit_sel_y == 0) {
 		if (dst_ROI_height == 1)
 			phase_init_y =
@@ -408,11 +438,11 @@ static void mdp_calc_scaleInitPhase_3p1(uint32 in_w,
 			phase_init_y = 0;
 
 	}
-	
+	/* M over N scalar   */
 	else if (scale_unit_sel_y == 1)
 		phase_init_y = 0;
 
-	
+	/* write registers */
 	pval->phase_step_x = (uint32) phase_step_x;
 	pval->phase_step_y = (uint32) phase_step_y;
 	pval->phase_init_x = (uint32) phase_init_x;
@@ -467,10 +497,10 @@ void mdp_set_scale(MDPIBUF *iBuf,
 			MDP_OUTP(MDP_CMD_DEBUG_ACCESS_BASE + 0x0148,
 				 pval.phase_step_y);
 
-			
+			/* disable the pixel repeat option for scaling */
 			use_pr = false;
 
-			
+			/* x-direction */
 			if ((dst_roi_width_scale == iBuf->roi.width) &&
 				!(iBuf->mdpImg.mdpOp & MDPOP_SHARPENING)) {
 				*pppop_reg_ptr &= ~PPP_OP_SCALE_X_ON;
@@ -585,7 +615,7 @@ void mdp_set_scale(MDPIBUF *iBuf,
 			} else
 				ppp_scale_config |= BIT(0);
 
-			
+			/* y-direction */
 			if ((dst_roi_height_scale == iBuf->roi.height) &&
 				!(iBuf->mdpImg.mdpOp & MDPOP_SHARPENING)) {
 				*pppop_reg_ptr &= ~PPP_OP_SCALE_Y_ON;
@@ -729,7 +759,7 @@ void mdp_adjust_start_addr(uint8 **src0,
 		break;
 
 	case 1:
-		
+		/* MDP 3.1 HW bug workaround */
 		if (iBuf->ibuf_type == MDP_YCRYCB_H2V1) {
 			*src0 += (x + y * width) * bpp;
 			x = y = 0;

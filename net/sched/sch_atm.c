@@ -1,3 +1,4 @@
+/* net/sched/sch_atm.c - ATM VC selection "queueing discipline" */
 
 /* Written 1998-2000 by Werner Almesberger, EPFL ICA */
 
@@ -11,39 +12,62 @@
 #include <linux/atmdev.h>
 #include <linux/atmclip.h>
 #include <linux/rtnetlink.h>
-#include <linux/file.h>		
+#include <linux/file.h>		/* for fput */
 #include <net/netlink.h>
 #include <net/pkt_sched.h>
 
-extern struct socket *sockfd_lookup(int fd, int *err);	
+extern struct socket *sockfd_lookup(int fd, int *err);	/* @@@ fix this */
 
+/*
+ * The ATM queuing discipline provides a framework for invoking classifiers
+ * (aka "filters"), which in turn select classes of this queuing discipline.
+ * Each class maps the flow(s) it is handling to a given VC. Multiple classes
+ * may share the same VC.
+ *
+ * When creating a class, VCs are specified by passing the number of the open
+ * socket descriptor by which the calling process references the VC. The kernel
+ * keeps the VC open at least until all classes using it are removed.
+ *
+ * In this file, most functions are named atm_tc_* to avoid confusion with all
+ * the atm_* in net/atm. This naming convention differs from what's used in the
+ * rest of net/sched.
+ *
+ * Known bugs:
+ *  - sometimes messes up the IP stack
+ *  - any manipulations besides the few operations described in the README, are
+ *    untested and likely to crash the system
+ *  - should lock the flow while there is data in the queue (?)
+ */
 
 #define VCC2FLOW(vcc) ((struct atm_flow_data *) ((vcc)->user_back))
 
 struct atm_flow_data {
-	struct Qdisc		*q;	
+	struct Qdisc		*q;	/* FIFO, TBF, etc. */
 	struct tcf_proto	*filter_list;
-	struct atm_vcc		*vcc;	
+	struct atm_vcc		*vcc;	/* VCC; NULL if VCC is closed */
 	void			(*old_pop)(struct atm_vcc *vcc,
-					   struct sk_buff *skb); 
-	struct atm_qdisc_data	*parent;	
-	struct socket		*sock;		
-	u32			classid;	
-	int			ref;		
+					   struct sk_buff *skb); /* chaining */
+	struct atm_qdisc_data	*parent;	/* parent qdisc */
+	struct socket		*sock;		/* for closing */
+	u32			classid;	/* x:y type ID */
+	int			ref;		/* reference count */
 	struct gnet_stats_basic_packed	bstats;
 	struct gnet_stats_queue	qstats;
 	struct list_head	list;
-	struct atm_flow_data	*excess;	
+	struct atm_flow_data	*excess;	/* flow for excess traffic;
+						   NULL to set CLP instead */
 	int			hdr_len;
-	unsigned char		hdr[0];		
+	unsigned char		hdr[0];		/* header data; MUST BE LAST */
 };
 
 struct atm_qdisc_data {
-	struct atm_flow_data	link;		
-	struct list_head	flows;		
-	struct tasklet_struct	task;		
+	struct atm_flow_data	link;		/* unclassified skbs go here */
+	struct list_head	flows;		/* NB: "link" is also on this
+						   list */
+	struct tasklet_struct	task;		/* dequeue tasklet */
 };
 
+/* ------------------------- Class/flow operations ------------------------- */
 
 static inline struct atm_flow_data *lookup_flow(struct Qdisc *sch, u32 classid)
 {
@@ -103,6 +127,11 @@ static unsigned long atm_tc_bind_filter(struct Qdisc *sch,
 	return atm_tc_get(sch, classid);
 }
 
+/*
+ * atm_tc_put handles all destructions, including the ones that are explicitly
+ * requested (atm_tc_destroy, etc.). The assumption here is that we never drop
+ * anything that still seems to be in use.
+ */
 static void atm_tc_put(struct Qdisc *sch, unsigned long cl)
 {
 	struct atm_qdisc_data *p = qdisc_priv(sch);
@@ -126,6 +155,10 @@ static void atm_tc_put(struct Qdisc *sch, unsigned long cl)
 		atm_tc_put(sch, (unsigned long)flow->excess);
 	if (flow != &p->link)
 		kfree(flow);
+	/*
+	 * If flow == &p->link, the qdisc no longer works at this point and
+	 * needs to be removed. (By the caller of atm_tc_put.)
+	 */
 }
 
 static void sch_atm_pop(struct atm_vcc *vcc, struct sk_buff *skb)
@@ -138,13 +171,13 @@ static void sch_atm_pop(struct atm_vcc *vcc, struct sk_buff *skb)
 }
 
 static const u8 llc_oui_ip[] = {
-	0xaa,			
-	0xaa,			
-	0x03,			
-	0x00,			
+	0xaa,			/* DSAP: non-ISO */
+	0xaa,			/* SSAP: non-ISO */
+	0x03,			/* Ctrl: Unnumbered Information Command PDU */
+	0x00,			/* OUI: EtherType */
 	0x00, 0x00,
 	0x08, 0x00
-};				
+};				/* Ethertype IP (0800) */
 
 static const struct nla_policy atm_policy[TCA_ATM_MAX + 1] = {
 	[TCA_ATM_FD]		= { .type = NLA_U32 },
@@ -165,8 +198,18 @@ static int atm_tc_change(struct Qdisc *sch, u32 classid, u32 parent,
 
 	pr_debug("atm_tc_change(sch %p,[qdisc %p],classid %x,parent %x,"
 		"flow %p,opt %p)\n", sch, p, classid, parent, flow, opt);
+	/*
+	 * The concept of parents doesn't apply for this qdisc.
+	 */
 	if (parent && parent != TC_H_ROOT && parent != sch->handle)
 		return -EINVAL;
+	/*
+	 * ATM classes cannot be changed. In order to change properties of the
+	 * ATM connection, that socket needs to be modified directly (via the
+	 * native ATM API. In order to send a flow to a different VC, the old
+	 * class needs to be removed and a new one added. (This may be changed
+	 * later.)
+	 */
 	if (flow)
 		return -EBUSY;
 	if (opt == NULL)
@@ -185,7 +228,7 @@ static int atm_tc_change(struct Qdisc *sch, u32 classid, u32 parent,
 		hdr = nla_data(tb[TCA_ATM_HDR]);
 	} else {
 		hdr_len = RFC1483LLC_LEN;
-		hdr = NULL;	
+		hdr = NULL;	/* default LLC/SNAP for IP */
 	}
 	if (!tb[TCA_ATM_EXCESS])
 		excess = NULL;
@@ -199,12 +242,14 @@ static int atm_tc_change(struct Qdisc *sch, u32 classid, u32 parent,
 		 opt->nla_type, nla_len(opt), hdr_len);
 	sock = sockfd_lookup(fd, &error);
 	if (!sock)
-		return error;	
+		return error;	/* f_count++ */
 	pr_debug("atm_tc_change: f_count %ld\n", file_count(sock->file));
 	if (sock->ops->family != PF_ATMSVC && sock->ops->family != PF_ATMPVC) {
 		error = -EPROTOTYPE;
 		goto err_out;
 	}
+	/* @@@ should check if the socket is really operational or we'll crash
+	   on vcc->send */
 	if (classid) {
 		if (TC_H_MAJ(classid ^ sch->handle)) {
 			pr_debug("atm_tc_change: classid mismatch\n");
@@ -236,7 +281,7 @@ static int atm_tc_change(struct Qdisc *sch, u32 classid, u32 parent,
 		flow->q = &noop_qdisc;
 	pr_debug("atm_tc_change: qdisc %p\n", flow->q);
 	flow->sock = sock;
-	flow->vcc = ATM_SD(sock);	
+	flow->vcc = ATM_SD(sock);	/* speedup */
 	flow->vcc->user_back = flow;
 	pr_debug("atm_tc_change: vcc %p\n", flow->vcc);
 	flow->old_pop = flow->vcc->pop;
@@ -270,12 +315,16 @@ static int atm_tc_delete(struct Qdisc *sch, unsigned long arg)
 		return -EINVAL;
 	if (flow->filter_list || flow == &p->link)
 		return -EBUSY;
+	/*
+	 * Reference count must be 2: one for "keepalive" (set at class
+	 * creation), and one for the reference held when calling delete.
+	 */
 	if (flow->ref < 2) {
 		pr_err("atm_tc_delete: flow->ref == %d\n", flow->ref);
 		return -EINVAL;
 	}
 	if (flow->ref > 2)
-		return -EBUSY;	
+		return -EBUSY;	/* catch references via excess, etc. */
 	atm_tc_put(sch, arg);
 	return 0;
 }
@@ -307,6 +356,7 @@ static struct tcf_proto **atm_tc_find_tcf(struct Qdisc *sch, unsigned long cl)
 	return flow ? &flow->filter_list : &p->link.filter_list;
 }
 
+/* --------------------------- Qdisc operations ---------------------------- */
 
 static int atm_tc_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 {
@@ -317,7 +367,7 @@ static int atm_tc_enqueue(struct sk_buff *skb, struct Qdisc *sch)
 	int ret = NET_XMIT_POLICED;
 
 	pr_debug("atm_tc_enqueue(skb %p,sch %p,[qdisc %p])\n", skb, sch, p);
-	result = TC_POLICE_OK;	
+	result = TC_POLICE_OK;	/* be nice to gcc */
 	flow = NULL;
 	if (TC_H_MAJ(skb->priority) != sch->handle ||
 	    !(flow = (struct atm_flow_data *)atm_tc_get(sch, skb->priority))) {
@@ -343,7 +393,7 @@ done:
 	} else {
 		if (flow->vcc)
 			ATM_SKB(skb)->atm_options = flow->vcc->atm_options;
-		
+		/*@@@ looks good ... but it's not supposed to work :-) */
 #ifdef CONFIG_NET_CLS_ACT
 		switch (result) {
 		case TC_ACT_QUEUED:
@@ -375,6 +425,15 @@ drop: __maybe_unused
 	}
 	qdisc_bstats_update(sch, skb);
 	bstats_update(&flow->bstats, skb);
+	/*
+	 * Okay, this may seem weird. We pretend we've dropped the packet if
+	 * it goes via ATM. The reason for this is that the outer qdisc
+	 * expects to be able to q->dequeue the packet later on if we return
+	 * success at this place. Also, sch->q.qdisc needs to reflect whether
+	 * there is a packet egligible for dequeuing or not. Note that the
+	 * statistics of the outer qdisc are necessarily wrong because of all
+	 * this. There's currently no correct solution for this.
+	 */
 	if (flow == &p->link) {
 		sch->q.qlen++;
 		return NET_XMIT_SUCCESS;
@@ -383,6 +442,12 @@ drop: __maybe_unused
 	return NET_XMIT_SUCCESS | __NET_XMIT_BYPASS;
 }
 
+/*
+ * Dequeue packets and send them over ATM. Note that we quite deliberately
+ * avoid checking net_device's flow control here, simply because sch_atm
+ * uses its own channels, which have nothing to do with any CLIP/LANE/or
+ * non-ATM interfaces.
+ */
 
 static void sch_atm_dequeue(unsigned long data)
 {
@@ -395,6 +460,10 @@ static void sch_atm_dequeue(unsigned long data)
 	list_for_each_entry(flow, &p->flows, list) {
 		if (flow == &p->link)
 			continue;
+		/*
+		 * If traffic is properly shaped, this won't generate nasty
+		 * little bursts. Otherwise, it may ... (but that's okay)
+		 */
 		while ((skb = flow->q->ops->peek(flow->q))) {
 			if (!atm_may_send(flow->vcc, skb->truesize))
 				break;
@@ -404,7 +473,7 @@ static void sch_atm_dequeue(unsigned long data)
 				break;
 
 			pr_debug("atm_tc_dequeue: sending on class %p\n", flow);
-			
+			/* remove any LL header somebody else has attached */
 			skb_pull(skb, skb_network_offset(skb));
 			if (skb_headroom(skb) < flow->hdr_len) {
 				struct sk_buff *new;
@@ -422,7 +491,7 @@ static void sch_atm_dequeue(unsigned long data)
 			       flow->hdr_len);
 			atomic_add(skb->truesize,
 				   &sk_atm(flow->vcc)->sk_wmem_alloc);
-			
+			/* atm.atm_options are already set by atm_tc_enqueue */
 			flow->vcc->send(flow->vcc, skb);
 		}
 	}

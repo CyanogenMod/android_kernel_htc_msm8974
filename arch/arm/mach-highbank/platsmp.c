@@ -36,13 +36,17 @@ int __cpuinit boot_secondary(unsigned int cpu, struct task_struct *idle)
 	return 0;
 }
 
+/*
+ * Initialise the CPU possible map early - this describes the CPUs
+ * which may be present or become present in the system.
+ */
 void __init smp_init_cpus(void)
 {
 	unsigned int i, ncores;
 
 	ncores = scu_get_core_count(scu_base_addr);
 
-	
+	/* sanity check */
 	if (ncores > NR_CPUS) {
 		printk(KERN_WARNING
 		       "highbank: no. of cores (%d) greater than configured "
@@ -63,6 +67,12 @@ void __init platform_smp_prepare_cpus(unsigned int max_cpus)
 
 	scu_enable(scu_base_addr);
 
+	/*
+	 * Write the address of secondary startup into the jump table
+	 * The cores are in wfi and wait until they receive a soft interrupt
+	 * and a non-zero value to jump to. Then the secondary CPU branches
+	 * to this address.
+	 */
 	for (i = 1; i < max_cpus; i++)
 		highbank_set_cpu_jump(i, secondary_startup);
 }

@@ -1,11 +1,16 @@
 #ifndef __ASM_GENERIC_PAGE_H
 #define __ASM_GENERIC_PAGE_H
+/*
+ * Generic page.h implementation, for NOMMU architectures.
+ * This provides the dummy definitions for the memory management.
+ */
 
 #ifdef CONFIG_MMU
 #error need to prove a real asm/page.h
 #endif
 
 
+/* PAGE_SHIFT determines the page size */
 
 #define PAGE_SHIFT	12
 #ifdef __ASSEMBLY__
@@ -28,6 +33,9 @@
 #define clear_user_page(page, vaddr, pg)	clear_page(page)
 #define copy_user_page(to, from, vaddr, pg)	copy_page(to, from)
 
+/*
+ * These are used to make use of C type-checking..
+ */
 typedef struct {
 	unsigned long pte;
 } pte_t;
@@ -55,7 +63,7 @@ typedef struct page *pgtable_t;
 extern unsigned long memory_start;
 extern unsigned long memory_end;
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #ifdef CONFIG_KERNEL_RAM_BASE_ADDRESS
 #define PAGE_OFFSET		(CONFIG_KERNEL_RAM_BASE_ADDRESS)
@@ -87,9 +95,9 @@ extern unsigned long memory_end;
 #define	virt_addr_valid(kaddr)	(((void *)(kaddr) >= (void *)PAGE_OFFSET) && \
 				((void *)(kaddr) < (void *)memory_end))
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #include <asm-generic/memory_model.h>
 #include <asm-generic/getorder.h>
 
-#endif 
+#endif /* __ASM_GENERIC_PAGE_H */

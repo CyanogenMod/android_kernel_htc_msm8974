@@ -86,11 +86,11 @@ enum {
 };
 
 enum {
-	
+	/* params1 */
 	MLX4_QP_BIT_SRE				= 1 << 15,
 	MLX4_QP_BIT_SWE				= 1 << 14,
 	MLX4_QP_BIT_SAE				= 1 << 13,
-	
+	/* params2 */
 	MLX4_QP_BIT_RRE				= 1 << 15,
 	MLX4_QP_BIT_RWE				= 1 << 14,
 	MLX4_QP_BIT_RAE				= 1 << 13,
@@ -108,9 +108,9 @@ enum {
 	MLX4_RSS_TCP_IPV4			= 1 << 4,
 	MLX4_RSS_IPV4				= 1 << 5,
 
-	
+	/* offset of mlx4_rss_context within mlx4_qp_context.pri_path */
 	MLX4_RSS_OFFSET_IN_QPC_PRI_PATH		= 0x24,
-	
+	/* offset of being RSS indirection QP within mlx4_qp_context.flags */
 	MLX4_RSS_QPC_FLAG_OFFSET		= 13,
 };
 
@@ -183,6 +183,7 @@ struct mlx4_qp_context {
 	u32			reserved5[10];
 };
 
+/* Which firmware version adds support for NEC (NoErrorCompletion) bit */
 #define MLX4_FW_VER_WQE_CTRL_NEC mlx4_fw_ver(2, 2, 232)
 
 enum {
@@ -202,10 +203,24 @@ struct mlx4_wqe_ctrl_seg {
 	__be16			vlan_tag;
 	u8			ins_vlan;
 	u8			fence_size;
+	/*
+	 * High 24 bits are SRC remote buffer; low 8 bits are flags:
+	 * [7]   SO (strong ordering)
+	 * [5]   TCP/UDP checksum
+	 * [4]   IP checksum
+	 * [3:2] C (generate completion queue entry)
+	 * [1]   SE (solicited event)
+	 * [0]   FL (force loopback)
+	 */
 	union {
 		__be32			srcrb_flags;
 		__be16			srcrb_flags16[2];
 	};
+	/*
+	 * imm is immediate data for send/RDMA write w/ immediate;
+	 * also invalidation key for send with invalidate; input
+	 * modifier for WQEs on CCQs.
+	 */
 	__be32			imm;
 };
 
@@ -220,6 +235,15 @@ struct mlx4_wqe_mlx_seg {
 	u8			opcode;
 	u8			reserved2[3];
 	u8			size;
+	/*
+	 * [17]    VL15
+	 * [16]    SLR
+	 * [15:12] static rate
+	 * [11:8]  SL
+	 * [4]     ICRC
+	 * [3:2]   C
+	 * [0]     FL (force loopback)
+	 */
 	__be32			flags;
 	__be16			rlid;
 	u16			reserved3;
@@ -337,4 +361,4 @@ static inline struct mlx4_qp *__mlx4_qp_lookup(struct mlx4_dev *dev, u32 qpn)
 
 void mlx4_qp_remove(struct mlx4_dev *dev, struct mlx4_qp *qp);
 
-#endif 
+#endif /* MLX4_QP_H */

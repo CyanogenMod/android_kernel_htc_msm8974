@@ -87,18 +87,29 @@ static struct s3c2410_uartcfg jive_uartcfgs[] = {
 	}
 };
 
+/* Jive flash assignment
+ *
+ * 0x00000000-0x00028000 : uboot
+ * 0x00028000-0x0002c000 : uboot env
+ * 0x0002c000-0x00030000 : spare
+ * 0x00030000-0x00200000 : zimage A
+ * 0x00200000-0x01600000 : cramfs A
+ * 0x01600000-0x017d0000 : zimage B
+ * 0x017d0000-0x02bd0000 : cramfs B
+ * 0x02bd0000-0x03fd0000 : yaffs
+ */
 static struct mtd_partition __initdata jive_imageA_nand_part[] = {
 
 #ifdef CONFIG_MACH_JIVE_SHOW_BOOTLOADER
-	
+	/* Don't allow access to the bootloader from linux */
 	{
 		.name           = "uboot",
 		.offset         = 0,
 		.size           = (160 * SZ_1K),
-		.mask_flags	= MTD_WRITEABLE, 
+		.mask_flags	= MTD_WRITEABLE, /* force read-only */
 	},
 
-	
+	/* spare */
         {
                 .name           = "spare",
                 .offset         = (176 * SZ_1K),
@@ -106,34 +117,34 @@ static struct mtd_partition __initdata jive_imageA_nand_part[] = {
         },
 #endif
 
-	
+	/* booted images */
         {
 		.name		= "kernel (ro)",
 		.offset		= (192 * SZ_1K),
 		.size		= (SZ_2M) - (192 * SZ_1K),
-		.mask_flags	= MTD_WRITEABLE, 
+		.mask_flags	= MTD_WRITEABLE, /* force read-only */
         }, {
                 .name           = "root (ro)",
                 .offset         = (SZ_2M),
                 .size           = (20 * SZ_1M),
-		.mask_flags	= MTD_WRITEABLE, 
+		.mask_flags	= MTD_WRITEABLE, /* force read-only */
         },
 
-	
+	/* yaffs */
 	{
 		.name		= "yaffs",
 		.offset		= (44 * SZ_1M),
 		.size		= (20 * SZ_1M),
 	},
 
-	
+	/* bootloader environment */
 	{
                 .name		= "env",
 		.offset		= (160 * SZ_1K),
 		.size		= (16 * SZ_1K),
 	},
 
-	
+	/* upgrade images */
         {
 		.name		= "zimage",
 		.offset		= (22 * SZ_1M),
@@ -148,15 +159,15 @@ static struct mtd_partition __initdata jive_imageA_nand_part[] = {
 static struct mtd_partition __initdata jive_imageB_nand_part[] = {
 
 #ifdef CONFIG_MACH_JIVE_SHOW_BOOTLOADER
-	
+	/* Don't allow access to the bootloader from linux */
 	{
 		.name           = "uboot",
 		.offset         = 0,
 		.size           = (160 * SZ_1K),
-		.mask_flags	= MTD_WRITEABLE, 
+		.mask_flags	= MTD_WRITEABLE, /* force read-only */
 	},
 
-	
+	/* spare */
         {
                 .name           = "spare",
                 .offset         = (176 * SZ_1K),
@@ -164,35 +175,35 @@ static struct mtd_partition __initdata jive_imageB_nand_part[] = {
         },
 #endif
 
-	
+	/* booted images */
         {
 		.name           = "kernel (ro)",
 		.offset         = (22 * SZ_1M),
 		.size           = (2 * SZ_1M) - (192 * SZ_1K),
-		.mask_flags	= MTD_WRITEABLE, 
+		.mask_flags	= MTD_WRITEABLE, /* force read-only */
         },
 	{
 		.name		= "root (ro)",
 		.offset		= (24 * SZ_1M) - (192 * SZ_1K),
                 .size		= (20 * SZ_1M),
-		.mask_flags	= MTD_WRITEABLE, 
+		.mask_flags	= MTD_WRITEABLE, /* force read-only */
 	},
 
-	
+	/* yaffs */
 	{
 		.name		= "yaffs",
 		.offset		= (44 * SZ_1M),
 		.size		= (20 * SZ_1M),
         },
 
-	
+	/* bootloader environment */
 	{
 		.name		= "env",
 		.offset		= (160 * SZ_1K),
 		.size		= (16 * SZ_1K),
 	},
 
-	
+	/* upgrade images */
 	{
 		.name		= "zimage",
 		.offset		= (192 * SZ_1K),
@@ -214,7 +225,7 @@ static struct s3c2410_nand_set __initdata jive_nand_sets[] = {
 };
 
 static struct s3c2410_platform_nand __initdata jive_nand_info = {
-	
+	/* set taken from osiris nand timings, possibly still conservative */
 	.tacls		= 30,
 	.twrph0		= 55,
 	.twrph1		= 40,
@@ -240,7 +251,7 @@ static int __init jive_mtdset(char *options)
 		nand->nr_partitions = ARRAY_SIZE(jive_imageB_nand_part);
 		nand->partitions = jive_imageB_nand_part;
 	case 0:
-		
+		/* this is already setup in the nand info */
 		break;
 	default:
 		printk(KERN_ERR "Unknown mtd set %ld specified,"
@@ -250,8 +261,10 @@ static int __init jive_mtdset(char *options)
 	return 0;
 }
 
+/* parse the mtdset= option given to the kernel command line */
 __setup("mtdset=", jive_mtdset);
 
+/* LCD timing and setup */
 
 #define LCD_XRES	 (240)
 #define LCD_YRES	 (320)
@@ -295,6 +308,7 @@ static struct s3c2410fb_display jive_vgg2432a4_display[] = {
 	},
 };
 
+/* todo - put into gpio header */
 
 #define S3C2410_GPCCON_MASK(x)	(3 << ((x) * 2))
 #define S3C2410_GPDCON_MASK(x)	(3 << ((x) * 2))
@@ -304,6 +318,9 @@ static struct s3c2410fb_mach_info jive_lcd_config = {
 	.num_displays	 = ARRAY_SIZE(jive_vgg2432a4_display),
 	.default_display = 0,
 
+	/* Enable VD[2..7], VD[10..15], VD[18..23] and VCLK, syncs, VDEN
+	 * and disable the pull down resistors on pins we are using for LCD
+	 * data. */
 
 	.gpcup		= (0xf << 1) | (0x3f << 10),
 
@@ -336,6 +353,7 @@ static struct s3c2410fb_mach_info jive_lcd_config = {
 			   S3C2410_GPDCON_MASK(14) | S3C2410_GPDCON_MASK(15)),
 };
 
+/* ILI9320 support. */
 
 static void jive_lcm_reset(unsigned int set)
 {
@@ -370,6 +388,7 @@ static struct ili9320_platdata jive_lcm_config = {
 	.interface6	= 0x0,
 };
 
+/* LCD SPI support */
 
 static struct spi_gpio_platform_data jive_lcd_spi = {
 	.sck		= S3C2410_GPG(8),
@@ -384,6 +403,7 @@ static struct platform_device jive_device_lcdspi = {
 };
 
 
+/* WM8750 audio code SPI definition */
 
 static struct spi_gpio_platform_data jive_wm8750_spi = {
 	.sck		= S3C2410_GPB(4),
@@ -397,13 +417,14 @@ static struct platform_device jive_device_wm8750 = {
 	.dev.platform_data = &jive_wm8750_spi,
 };
 
+/* JIVE SPI devices. */
 
 static struct spi_board_info __initdata jive_spi_devs[] = {
 	[0] = {
 		.modalias	= "VGG2432A4",
 		.bus_num	= 1,
 		.chip_select	= 0,
-		.mode		= SPI_MODE_3,	
+		.mode		= SPI_MODE_3,	/* CPOL=1, CPHA=1 */
 		.max_speed_hz	= 100000,
 		.platform_data	= &jive_lcm_config,
 		.controller_data = (void *)S3C2410_GPB(7),
@@ -411,12 +432,13 @@ static struct spi_board_info __initdata jive_spi_devs[] = {
 		.modalias	= "WM8750",
 		.bus_num	= 2,
 		.chip_select	= 0,
-		.mode		= SPI_MODE_0,	
+		.mode		= SPI_MODE_0,	/* CPOL=0, CPHA=0 */
 		.max_speed_hz	= 100000,
 		.controller_data = (void *)S3C2410_GPH(10),
 	},
 };
 
+/* I2C bus and device configuration. */
 
 static struct s3c2410_platform_i2c jive_i2c_cfg __initdata = {
 	.frequency	= 80 * 1000,
@@ -431,6 +453,7 @@ static struct i2c_board_info jive_i2c_devs[] __initdata = {
 	},
 };
 
+/* The platform devices being used. */
 
 static struct platform_device *jive_devices[] __initdata = {
 	&s3c_device_ohci,
@@ -445,13 +468,17 @@ static struct platform_device *jive_devices[] __initdata = {
 };
 
 static struct s3c2410_udc_mach_info jive_udc_cfg __initdata = {
-	.vbus_pin	= S3C2410_GPG(1),		
+	.vbus_pin	= S3C2410_GPG(1),		/* detect is on GPG1 */
 };
 
+/* Jive power management device */
 
 #ifdef CONFIG_PM
 static int jive_pm_suspend(void)
 {
+	/* Write the magic value u-boot uses to check for resume into
+	 * the INFORM0 register, and ensure INFORM1 is set to the
+	 * correct address to resume from. */
 
 	__raw_writel(0x2BED, S3C2412_INFORM0);
 	__raw_writel(virt_to_phys(s3c_cpu_resume), S3C2412_INFORM1);
@@ -491,12 +518,15 @@ static void jive_power_off(void)
 
 static void __init jive_machine_init(void)
 {
-	
+	/* register system core operations for managing low level suspend */
 
 	register_syscore_ops(&jive_pm_syscore_ops);
 
+	/* write our sleep configurations for the IO. Pull down all unused
+	 * IO, ensure that we have turned off all peripherals we do not
+	 * need, and configure the ones we do need. */
 
-	
+	/* Port B sleep */
 
 	__raw_writel(S3C2412_SLPCON_IN(0)   |
 		     S3C2412_SLPCON_PULL(1) |
@@ -510,7 +540,7 @@ static void __init jive_machine_init(void)
 		     S3C2412_SLPCON_PULL(9) |
 		     S3C2412_SLPCON_PULL(10), S3C2412_GPBSLPCON);
 
-	
+	/* Port C sleep */
 
 	__raw_writel(S3C2412_SLPCON_PULL(0) |
 		     S3C2412_SLPCON_PULL(1) |
@@ -530,11 +560,11 @@ static void __init jive_machine_init(void)
 		     S3C2412_SLPCON_PULL(14) |
 		     S3C2412_SLPCON_PULL(15), S3C2412_GPCSLPCON);
 
-	
+	/* Port D sleep */
 
 	__raw_writel(S3C2412_SLPCON_ALL_PULL, S3C2412_GPDSLPCON);
 
-	
+	/* Port F sleep */
 
 	__raw_writel(S3C2412_SLPCON_LOW(0)  |
 		     S3C2412_SLPCON_LOW(1)  |
@@ -545,7 +575,7 @@ static void __init jive_machine_init(void)
 		     S3C2412_SLPCON_EINT(6) |
 		     S3C2412_SLPCON_EINT(7), S3C2412_GPFSLPCON);
 
-	
+	/* Port G sleep */
 
 	__raw_writel(S3C2412_SLPCON_IN(0)    |
 		     S3C2412_SLPCON_IN(1)    |
@@ -564,7 +594,7 @@ static void __init jive_machine_init(void)
 		     S3C2412_SLPCON_IN(14)   |
 		     S3C2412_SLPCON_PULL(15), S3C2412_GPGSLPCON);
 
-	
+	/* Port H sleep */
 
 	__raw_writel(S3C2412_SLPCON_PULL(0) |
 		     S3C2412_SLPCON_PULL(1) |
@@ -578,14 +608,14 @@ static void __init jive_machine_init(void)
 		     S3C2412_SLPCON_PULL(9) |
 		     S3C2412_SLPCON_IN(10), S3C2412_GPHSLPCON);
 
-	
+	/* initialise the power management now we've setup everything. */
 
 	s3c_pm_init();
 
-	
+	/** TODO - check that this is after the cmdline option! */
 	s3c_nand_set_platdata(&jive_nand_info);
 
-	
+	/* initialise the spi */
 
 	gpio_request(S3C2410_GPG(13), "lcm reset");
 	gpio_direction_output(S3C2410_GPG(13), 0);
@@ -599,11 +629,13 @@ static void __init jive_machine_init(void)
 	s3c2410_gpio_setpin(S3C2410_GPG(8), 1);
 	s3c_gpio_cfgpin(S3C2410_GPG(8), S3C2410_GPIO_OUTPUT);
 
-	
+	/* initialise the WM8750 spi */
 
 	gpio_request(S3C2410_GPH(10), "jive wm8750 spi");
 	gpio_direction_output(S3C2410_GPH(10), 1);
 
+	/* Turn off suspend on both USB ports, and switch the
+	 * selectable USB port to USB device mode. */
 
 	s3c2410_modify_misccr(S3C2410_MISCCR_USBHOST |
 			      S3C2410_MISCCR_USBSUSPND0 |
@@ -623,7 +655,7 @@ static void __init jive_machine_init(void)
 }
 
 MACHINE_START(JIVE, "JIVE")
-	
+	/* Maintainer: Ben Dooks <ben-linux@fluff.org> */
 	.atag_offset	= 0x100,
 
 	.init_irq	= s3c24xx_init_irq,

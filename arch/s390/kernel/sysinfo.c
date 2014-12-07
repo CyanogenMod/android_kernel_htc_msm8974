@@ -17,6 +17,7 @@
 #include <asm/cpcmd.h>
 #include <asm/topology.h>
 
+/* Sigh, math-emu. Don't ask. */
 #include <asm/sfp-util.h>
 #include <math-emu/soft-fp.h>
 #include <math-emu/single.h>
@@ -45,6 +46,13 @@ static int stsi_1_1_1(struct sysinfo_1_1_1 *info, char *page, int len)
 	len += sprintf(page + len, "Type:                 %-4.4s\n",
 		       info->type);
 	if (info->model[0] != '\0')
+		/*
+		 * Sigh: the model field has been renamed with System z9
+		 * to model_capacity and a new model field has been added
+		 * after the plant field. To avoid confusing older programs
+		 * the "Model:" prints "model_capacity model" or just
+		 * "model_capacity" if the model string is empty .
+		 */
 		len += sprintf(page + len,
 			       "Model:                %-16.16s %-16.16s\n",
 			       info->model_capacity, info->model);
@@ -128,6 +136,15 @@ static int stsi_1_2_2(struct sysinfo_1_2_2 *info, char *page, int len)
 		       info->cpus_reserved);
 
 	if (info->format == 1) {
+		/*
+		 * Sigh 2. According to the specification the alternate
+		 * capability field is a 32 bit floating point number
+		 * if the higher order 8 bits are not zero. Printing
+		 * a floating point number in the kernel is a no-no,
+		 * always print the number as 32 bit unsigned integer.
+		 * The user-space needs to know about the strange
+		 * encoding of the alternate cpu capability.
+		 */
 		len += sprintf(page + len, "Capability:           %u %u\n",
 			       info->capability, ext->alt_capability);
 		for (i = 2; i <= info->cpus_total; i++)
@@ -261,6 +278,9 @@ static __init int create_proc_sysinfo(void)
 }
 device_initcall(create_proc_sysinfo);
 
+/*
+ * Service levels interface.
+ */
 
 static DECLARE_RWSEM(service_level_sem);
 static LIST_HEAD(service_level_list);
@@ -372,6 +392,9 @@ static __init int create_proc_service_level(void)
 }
 subsys_initcall(create_proc_service_level);
 
+/*
+ * Bogomips calculation based on cpu capability.
+ */
 int get_cpu_capability(unsigned int *capability)
 {
 	struct sysinfo_1_2_2 *info;
@@ -390,10 +413,13 @@ out:
 	return rc;
 }
 
+/*
+ * CPU capability might have changed. Therefore recalculate loops_per_jiffy.
+ */
 void s390_adjust_jiffies(void)
 {
 	struct sysinfo_1_2_2 *info;
-	const unsigned int fmil = 0x4b189680;	
+	const unsigned int fmil = 0x4b189680;	/* 1e7 as 32-bit float. */
 	FP_DECL_S(SA); FP_DECL_S(SB); FP_DECL_S(SR);
 	FP_DECL_EX;
 	unsigned int capability;
@@ -403,6 +429,17 @@ void s390_adjust_jiffies(void)
 		return;
 
 	if (stsi(info, 1, 2, 2) != -ENOSYS) {
+		/*
+		 * Major sigh. The cpu capability encoding is "special".
+		 * If the first 9 bits of info->capability are 0 then it
+		 * is a 32 bit unsigned integer in the range 0 .. 2^23.
+		 * If the first 9 bits are != 0 then it is a 32 bit float.
+		 * In addition a lower value indicates a proportionally
+		 * higher cpu capacity. Bogomips are the other way round.
+		 * To get to a halfway suitable number we divide 1e7
+		 * by the cpu capability number. Yes, that means a floating
+		 * point division .. math-emu here we come :-)
+		 */
 		FP_UNPACK_SP(SA, &fmil);
 		if ((info->capability >> 23) == 0)
 			FP_FROM_INT_S(SB, (long) info->capability, 64, long);
@@ -411,15 +448,22 @@ void s390_adjust_jiffies(void)
 		FP_DIV_S(SR, SA, SB);
 		FP_TO_INT_S(capability, SR, 32, 0);
 	} else
+		/*
+		 * Really old machine without stsi block for basic
+		 * cpu information. Report 42.0 bogomips.
+		 */
 		capability = 42;
 	loops_per_jiffy = capability * (500000/HZ);
 	free_page((unsigned long) info);
 }
 
+/*
+ * calibrate the delay loop
+ */
 void __cpuinit calibrate_delay(void)
 {
 	s390_adjust_jiffies();
-	
+	/* Print the good old Bogomips line .. */
 	printk(KERN_DEBUG "Calibrating delay loop (skipped)... "
 	       "%lu.%02lu BogoMIPS preset\n", loops_per_jiffy/(500000/HZ),
 	       (loops_per_jiffy/(5000/HZ)) % 100);

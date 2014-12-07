@@ -33,5 +33,5 @@
 #define BE_ADMTIME		(RTL8712_EDCASETTING_ + 0x20)
 #define RL			(RTL8712_EDCASETTING_ + 0x24)
 
-#endif 
+#endif /* __RTL8712_EDCASETTING_REGDEF_H__ */
 

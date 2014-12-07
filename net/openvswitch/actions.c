@@ -45,6 +45,7 @@ static int make_writable(struct sk_buff *skb, int write_len)
 	return pskb_expand_head(skb, 0, 0, GFP_ATOMIC);
 }
 
+/* remove VLAN header from packet and update csum accrodingly. */
 static int __pop_vlan_tci(struct sk_buff *skb, __be16 *current_tci)
 {
 	struct vlan_hdr *vhdr;
@@ -87,7 +88,7 @@ static int pop_vlan(struct sk_buff *skb)
 		if (err)
 			return err;
 	}
-	
+	/* move next vlan tag to hw accel tag */
 	if (likely(skb->protocol != htons(ETH_P_8021Q) ||
 		   skb->len < VLAN_ETH_HLEN))
 		return 0;
@@ -105,7 +106,7 @@ static int push_vlan(struct sk_buff *skb, const struct ovs_action_push_vlan *vla
 	if (unlikely(vlan_tx_tag_present(skb))) {
 		u16 current_tag;
 
-		
+		/* push down current VLAN tag */
 		current_tag = vlan_tx_tag_get(skb);
 
 		if (!__vlan_put_tag(skb, current_tag))
@@ -194,6 +195,7 @@ static int set_ipv4(struct sk_buff *skb, const struct ovs_key_ipv4 *ipv4_key)
 	return 0;
 }
 
+/* Must follow make_writable() since that can move the skb data. */
 static void set_tp_port(struct sk_buff *skb, __be16 *port,
 			 __be16 new_port, __sum16 *check)
 {
@@ -357,9 +359,14 @@ static int execute_set_action(struct sk_buff *skb,
 	return err;
 }
 
+/* Execute a list of actions against 'skb'. */
 static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 			const struct nlattr *attr, int len, bool keep_skb)
 {
+	/* Every output action needs a separate clone of 'skb', but the common
+	 * case is just a single output action, so that doing a clone and
+	 * then freeing the original skbuff is wasteful.  So the following code
+	 * is slightly obscure just to avoid that. */
 	int prev_port = -1;
 	const struct nlattr *a;
 	int rem;
@@ -384,7 +391,7 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 
 		case OVS_ACTION_ATTR_PUSH_VLAN:
 			err = push_vlan(skb, nla_data(a));
-			if (unlikely(err)) 
+			if (unlikely(err)) /* skb already freed. */
 				return err;
 			break;
 
@@ -418,6 +425,7 @@ static int do_execute_actions(struct datapath *dp, struct sk_buff *skb,
 	return 0;
 }
 
+/* Execute a list of actions against 'skb'. */
 int ovs_execute_actions(struct datapath *dp, struct sk_buff *skb)
 {
 	struct sw_flow_actions *acts = rcu_dereference(OVS_CB(skb)->flow->sf_acts);

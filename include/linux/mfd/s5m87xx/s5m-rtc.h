@@ -55,14 +55,18 @@ enum s5m87xx_rtc_reg {
 #define ALARM1_STATUS		(1 << 2)
 #define UPDATE_AD		(1 << 0)
 
+/* RTC Control Register */
 #define BCD_EN_SHIFT		0
 #define BCD_EN_MASK		(1 << BCD_EN_SHIFT)
 #define MODEL24_SHIFT		1
 #define MODEL24_MASK		(1 << MODEL24_SHIFT)
+/* RTC Update Register1 */
 #define RTC_UDR_SHIFT		0
 #define RTC_UDR_MASK		(1 << RTC_UDR_SHIFT)
+/* RTC Hour register */
 #define HOUR_PM_SHIFT		6
 #define HOUR_PM_MASK		(1 << HOUR_PM_SHIFT)
+/* RTC Alarm Enable */
 #define ALARM_ENABLE_SHIFT	7
 #define ALARM_ENABLE_MASK	(1 << ALARM_ENABLE_SHIFT)
 
@@ -77,4 +81,4 @@ enum {
 	RTC_YEAR2,
 };
 
-#endif 
+#endif /*  __LINUX_MFD_S5M_RTC_H */

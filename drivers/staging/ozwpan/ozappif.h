@@ -43,4 +43,4 @@ struct oz_test {
 #define OZ_IOCTL_MAX		9
 
 
-#endif 
+#endif /* _OZAPPIF_H */

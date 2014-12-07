@@ -3,6 +3,7 @@
 
 #include <arch/hwregs/dma.h>
 
+/* A cache-line is 32 bytes. */
 #define L1_CACHE_BYTES 32
 #define L1_CACHE_SHIFT 5
 
@@ -17,4 +18,4 @@ void flush_dma_descr(dma_descr_data *descr, int flush_buf);
 void cris_flush_cache_range(void *buf, unsigned long len);
 void cris_flush_cache(void);
 
-#endif 
+#endif /* _ASM_CRIS_ARCH_CACHE_H */

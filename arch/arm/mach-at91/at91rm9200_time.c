@@ -35,6 +35,11 @@ static struct clock_event_device clkevt;
 
 #define RM9200_TIMER_LATCH	((AT91_SLOW_CLOCK + HZ/2) / HZ)
 
+/*
+ * The ST_CRTR is updated asynchronously to the master clock ... but
+ * the updates as seen by the CPU don't seem to be strictly monotonic.
+ * Waiting until we read the same value twice avoids glitching.
+ */
 static inline unsigned long read_CRTR(void)
 {
 	unsigned long x1, x2;
@@ -49,19 +54,26 @@ static inline unsigned long read_CRTR(void)
 	return x1;
 }
 
+/*
+ * IRQ handler for the timer.
+ */
 static irqreturn_t at91rm9200_timer_interrupt(int irq, void *dev_id)
 {
 	u32	sr = at91_st_read(AT91_ST_SR) & irqmask;
 
+	/*
+	 * irqs should be disabled here, but as the irq is shared they are only
+	 * guaranteed to be off if the timer irq is registered first.
+	 */
 	WARN_ON_ONCE(!irqs_disabled());
 
-	
+	/* simulate "oneshot" timer with alarm */
 	if (sr & AT91_ST_ALMS) {
 		clkevt.event_handler(&clkevt);
 		return IRQ_HANDLED;
 	}
 
-	
+	/* periodic mode should handle delayed ticks */
 	if (sr & AT91_ST_PITS) {
 		u32	crtr = read_CRTR();
 
@@ -72,7 +84,7 @@ static irqreturn_t at91rm9200_timer_interrupt(int irq, void *dev_id)
 		return IRQ_HANDLED;
 	}
 
-	
+	/* this irq is shared ... */
 	return IRQ_NONE;
 }
 
@@ -98,18 +110,21 @@ static struct clocksource clk32k = {
 static void
 clkevt32k_mode(enum clock_event_mode mode, struct clock_event_device *dev)
 {
-	
+	/* Disable and flush pending timer interrupts */
 	at91_st_write(AT91_ST_IDR, AT91_ST_PITS | AT91_ST_ALMS);
 	at91_st_read(AT91_ST_SR);
 
 	last_crtr = read_CRTR();
 	switch (mode) {
 	case CLOCK_EVT_MODE_PERIODIC:
-		
+		/* PIT for periodic irqs; fixed rate of 1/HZ */
 		irqmask = AT91_ST_PITS;
 		at91_st_write(AT91_ST_PIMR, RM9200_TIMER_LATCH);
 		break;
 	case CLOCK_EVT_MODE_ONESHOT:
+		/* ALM for oneshot irqs, set by next_event()
+		 * before 32 seconds have passed
+		 */
 		irqmask = AT91_ST_ALMS;
 		at91_st_write(AT91_ST_RTAR, last_crtr);
 		break;
@@ -130,13 +145,22 @@ clkevt32k_next_event(unsigned long delta, struct clock_event_device *dev)
 
 	BUG_ON(delta < 2);
 
+	/* The alarm IRQ uses absolute time (now+delta), not the relative
+	 * time (delta) in our calling convention.  Like all clockevents
+	 * using such "match" hardware, we have a race to defend against.
+	 *
+	 * Our defense here is to have set up the clockevent device so the
+	 * delta is at least two.  That way we never end up writing RTAR
+	 * with the value then held in CRTR ... which would mean the match
+	 * wouldn't trigger until 32 seconds later, after CRTR wraps.
+	 */
 	alm = read_CRTR();
 
-	
+	/* Cancel any pending alarm; flush any pending IRQ */
 	at91_st_write(AT91_ST_RTAR, alm);
 	at91_st_read(AT91_ST_SR);
 
-	
+	/* Schedule alarm by writing RTAR. */
 	alm += delta;
 	at91_st_write(AT91_ST_RTAR, alm);
 
@@ -162,26 +186,33 @@ void __init at91rm9200_ioremap_st(u32 addr)
 		panic("Impossible to ioremap ST\n");
 }
 
+/*
+ * ST (system timer) module supports both clockevents and clocksource.
+ */
 void __init at91rm9200_timer_init(void)
 {
-	
+	/* Disable all timer interrupts, and clear any pending ones */
 	at91_st_write(AT91_ST_IDR,
 		AT91_ST_PITS | AT91_ST_WDOVF | AT91_ST_RTTINC | AT91_ST_ALMS);
 	at91_st_read(AT91_ST_SR);
 
-	
+	/* Make IRQs happen for the system timer */
 	setup_irq(AT91_ID_SYS, &at91rm9200_timer_irq);
 
+	/* The 32KiHz "Slow Clock" (tick every 30517.58 nanoseconds) is used
+	 * directly for the clocksource and all clockevents, after adjusting
+	 * its prescaler from the 1 Hz default.
+	 */
 	at91_st_write(AT91_ST_RTMR, 1);
 
-	
+	/* Setup timer clockevent, with minimum of two ticks (important!!) */
 	clkevt.mult = div_sc(AT91_SLOW_CLOCK, NSEC_PER_SEC, clkevt.shift);
 	clkevt.max_delta_ns = clockevent_delta2ns(AT91_ST_ALMV, &clkevt);
 	clkevt.min_delta_ns = clockevent_delta2ns(2, &clkevt) + 1;
 	clkevt.cpumask = cpumask_of(0);
 	clockevents_register_device(&clkevt);
 
-	
+	/* register clocksource */
 	clocksource_register_hz(&clk32k, AT91_SLOW_CLOCK);
 }
 

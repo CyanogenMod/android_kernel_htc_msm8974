@@ -31,7 +31,11 @@ asmlinkage long sys_mmap2(unsigned long addr, unsigned long len,
 			  unsigned long prot, unsigned long flags,
 			  unsigned long fd, unsigned long pgoff)
 {
+	/* As with sparc32, make sure the shift for mmap2 is constant
+	   (12), no matter what PAGE_SIZE we have.... */
 
+	/* But unlike sparc32, don't just silently break if we're
+	   trying to map something we can't */
 	if (pgoff & ((1 << (PAGE_SHIFT - 12)) - 1))
 		return -EINVAL;
 

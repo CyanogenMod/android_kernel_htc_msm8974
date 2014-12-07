@@ -19,6 +19,7 @@
 #include <linux/fb.h>
 #include <linux/list.h>
 
+/* to support deferred IO */
 #include <linux/rmap.h>
 #include <linux/pagemap.h>
 
@@ -35,6 +36,7 @@ struct page *fb_deferred_io_page(struct fb_info *info, unsigned long offs)
 	return page;
 }
 
+/* this is to find and return the vmalloc-ed fb pages */
 static int fb_deferred_io_fault(struct vm_area_struct *vma,
 				struct vm_fault *vmf)
 {
@@ -72,21 +74,22 @@ int fb_deferred_io_fsync(struct file *file, loff_t start, loff_t end, int datasy
 	if (err)
 		return err;
 
-	
+	/* Skip if deferred io is compiled-in but disabled on this fbdev */
 	if (!info->fbdefio)
 		return 0;
 
 	mutex_lock(&inode->i_mutex);
-	
+	/* Kill off the delayed work */
 	cancel_delayed_work_sync(&info->deferred_work);
 
-	
+	/* Run it immediately */
 	err = schedule_delayed_work(&info->deferred_work, 0);
 	mutex_unlock(&inode->i_mutex);
 	return err;
 }
 EXPORT_SYMBOL_GPL(fb_deferred_io_fsync);
 
+/* vm_ops->page_mkwrite handler */
 static int fb_deferred_io_mkwrite(struct vm_area_struct *vma,
 				  struct vm_fault *vmf)
 {
@@ -95,13 +98,33 @@ static int fb_deferred_io_mkwrite(struct vm_area_struct *vma,
 	struct fb_deferred_io *fbdefio = info->fbdefio;
 	struct page *cur;
 
+	/* this is a callback we get when userspace first tries to
+	write to the page. we schedule a workqueue. that workqueue
+	will eventually mkclean the touched pages and execute the
+	deferred framebuffer IO. then if userspace touches a page
+	again, we repeat the same scheme */
 
-	
+	/* protect against the workqueue changing the page list */
 	mutex_lock(&fbdefio->lock);
 
+	/*
+	 * We want the page to remain locked from ->page_mkwrite until
+	 * the PTE is marked dirty to avoid page_mkclean() being called
+	 * before the PTE is updated, which would leave the page ignored
+	 * by defio.
+	 * Do this by locking the page here and informing the caller
+	 * about it with VM_FAULT_LOCKED.
+	 */
 	lock_page(page);
 
+	/* we loop through the pagelist before adding in order
+	to keep the pagelist sorted */
 	list_for_each_entry(cur, &fbdefio->pagelist, lru) {
+		/* this check is to catch the case where a new
+		process could start writing to the same page
+		through a new pte. this new access can cause the
+		mkwrite even when the original ps's pte is marked
+		writable */
 		if (unlikely(cur == page))
 			goto page_already_added;
 		else if (cur->index > page->index)
@@ -113,7 +136,7 @@ static int fb_deferred_io_mkwrite(struct vm_area_struct *vma,
 page_already_added:
 	mutex_unlock(&fbdefio->lock);
 
-	
+	/* come back after delay to process the deferred IO */
 	schedule_delayed_work(&info->deferred_work, fbdefio->delay);
 	return VM_FAULT_LOCKED;
 }
@@ -144,6 +167,7 @@ static int fb_deferred_io_mmap(struct fb_info *info, struct vm_area_struct *vma)
 	return 0;
 }
 
+/* workqueue callback */
 static void fb_deferred_io_work(struct work_struct *work)
 {
 	struct fb_info *info = container_of(work, struct fb_info,
@@ -152,7 +176,7 @@ static void fb_deferred_io_work(struct work_struct *work)
 	struct page *cur;
 	struct fb_deferred_io *fbdefio = info->fbdefio;
 
-	
+	/* here we mkclean the pages, then do all deferred IO */
 	mutex_lock(&fbdefio->lock);
 	list_for_each_entry(cur, &fbdefio->pagelist, lru) {
 		lock_page(cur);
@@ -160,10 +184,10 @@ static void fb_deferred_io_work(struct work_struct *work)
 		unlock_page(cur);
 	}
 
-	
+	/* driver's callback with pagelist */
 	fbdefio->deferred_io(info, &fbdefio->pagelist);
 
-	
+	/* clear the list */
 	list_for_each_safe(node, next, &fbdefio->pagelist) {
 		list_del(node);
 	}
@@ -179,7 +203,7 @@ void fb_deferred_io_init(struct fb_info *info)
 	info->fbops->fb_mmap = fb_deferred_io_mmap;
 	INIT_DELAYED_WORK(&info->deferred_work, fb_deferred_io_work);
 	INIT_LIST_HEAD(&fbdefio->pagelist);
-	if (fbdefio->delay == 0) 
+	if (fbdefio->delay == 0) /* set a default of 1 s */
 		fbdefio->delay = HZ;
 }
 EXPORT_SYMBOL_GPL(fb_deferred_io_init);
@@ -201,7 +225,7 @@ void fb_deferred_io_cleanup(struct fb_info *info)
 	BUG_ON(!fbdefio);
 	cancel_delayed_work_sync(&info->deferred_work);
 
-	
+	/* clear out the mapping that we setup */
 	for (i = 0 ; i < info->fix.smem_len; i += PAGE_SIZE) {
 		page = fb_deferred_io_page(info, i);
 		page->mapping = NULL;

@@ -20,4 +20,4 @@
 #ifndef __MACH_MXS_HARDWARE_H__
 #define __MACH_MXS_HARDWARE_H__
 
-#endif 
+#endif /* __MACH_MXS_HARDWARE_H__ */

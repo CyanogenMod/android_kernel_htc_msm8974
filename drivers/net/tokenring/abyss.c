@@ -37,7 +37,7 @@
 #include <asm/irq.h>
 
 #include "tms380tr.h"
-#include "abyss.h"            
+#include "abyss.h"            /* Madge-specific constants */
 
 static char version[] __devinitdata =
 "abyss.c: v1.02 23/11/2000 by Adam Fritzler\n";
@@ -47,7 +47,7 @@ static char version[] __devinitdata =
 static DEFINE_PCI_DEVICE_TABLE(abyss_pci_tbl) = {
 	{ PCI_VENDOR_ID_MADGE, PCI_DEVICE_ID_MADGE_MK2,
 	  PCI_ANY_ID, PCI_ANY_ID, PCI_CLASS_NETWORK_TOKEN_RING << 8, 0x00ffffff, },
-	{ }			
+	{ }			/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(pci, abyss_pci_tbl);
 
@@ -107,11 +107,11 @@ static int __devinit abyss_attach(struct pci_dev *pdev, const struct pci_device_
 	if (pci_enable_device(pdev))
 		return -EIO;
 
-	
+	/* Remove I/O space marker in bit 0. */
 	pci_irq_line = pdev->irq;
 	pci_ioaddr = pci_resource_start (pdev, 0);
 		
-	
+	/* At this point we have found a valid card. */
 		
 	dev = alloc_trdev(sizeof(struct net_local));
 	if (!dev)
@@ -133,6 +133,9 @@ static int __devinit abyss_attach(struct pci_dev *pdev, const struct pci_device_
 	printk("%s: Madge Smart 16/4 PCI Mk2 (Abyss)\n", dev->name);
 	printk("%s:    IO: %#4lx  IRQ: %d\n",
 	       dev->name, pci_ioaddr, dev->irq);
+	/*
+	 * The TMS SIF registers lay 0x10 above the card base address.
+	 */
 	dev->base_addr += 0x10;
 		
 	ret = tmsdev_init(dev, &pdev->dev);
@@ -183,13 +186,23 @@ static unsigned short abyss_setnselout_pins(struct net_device *dev)
 	struct net_local *tp = netdev_priv(dev);
 	
 	if(tp->DataRate == SPEED_4)
-		val |= 0x01;  
+		val |= 0x01;  /* Set 4Mbps */
 	else
-		val |= 0x00;  
+		val |= 0x00;  /* Set 16Mbps */
 	
 	return val;
 }
 
+/*
+ * The following Madge boards should use this code:
+ *   - Smart 16/4 PCI Mk2 (Abyss)
+ *   - Smart 16/4 PCI Mk1 (PCI T)
+ *   - Smart 16/4 Client Plus PnP (Big Apple)
+ *   - Smart 16/4 Cardbus Mk2
+ *
+ * These access an Atmel AT24 SEEPROM using their glue chip registers. 
+ *
+ */
 static void at24_writedatabyte(unsigned long regaddr, unsigned char byte)
 {
 	int i;
@@ -278,7 +291,7 @@ static void at24_setlines(unsigned long regaddr, unsigned char clock, unsigned c
 		val |= AT24_DATA;
 
 	outb(val, regaddr); 
-	tms380tr_wait(20); 
+	tms380tr_wait(20); /* Very necessary. */
 }
 
 static void at24_start(unsigned long regaddr)
@@ -304,6 +317,10 @@ static unsigned char at24_readb(unsigned long regaddr, unsigned char addr)
 }
 
 
+/*
+ * Enable basic functions of the Madge chipset needed
+ * for initialization.
+ */
 static void abyss_enable(struct net_device *dev)
 {
 	unsigned char reset_reg;
@@ -316,6 +333,10 @@ static void abyss_enable(struct net_device *dev)
 	tms380tr_wait(100);
 }
 
+/*
+ * Enable the functions of the Madge chipset needed for
+ * full working order. 
+ */
 static int abyss_chipset_init(struct net_device *dev)
 {
 	unsigned char reset_reg;
@@ -361,6 +382,10 @@ static inline void abyss_chipset_close(struct net_device *dev)
 	outb(0, ioaddr + PCIBM2_RESET_REG);
 }
 
+/*
+ * Read configuration data from the AT24 SEEPROM on Madge cards.
+ *
+ */
 static void abyss_read_eeprom(struct net_device *dev)
 {
 	struct net_local *tp;
@@ -371,12 +396,12 @@ static void abyss_read_eeprom(struct net_device *dev)
 	tp = netdev_priv(dev);
 	ioaddr = dev->base_addr;
 	
-	
+	/* Must enable glue chip first */
 	abyss_enable(dev);
 	
 	val = at24_readb(ioaddr + PCIBM2_SEEPROM_REG, 
 			 PCIBM2_SEEPROM_RING_SPEED);
-	tp->DataRate = val?SPEED_4:SPEED_16; 
+	tp->DataRate = val?SPEED_4:SPEED_16; /* set open speed */
 	printk("%s:    SEEPROM: ring speed: %dMb/sec\n", dev->name, tp->DataRate);
 	
 	val = at24_readb(ioaddr + PCIBM2_SEEPROM_REG,

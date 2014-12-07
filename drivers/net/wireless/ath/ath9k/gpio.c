@@ -16,6 +16,9 @@
 
 #include "ath9k.h"
 
+/********************************/
+/*	 LED functions		*/
+/********************************/
 
 #ifdef CONFIG_MAC80211_LEDS
 static void ath_led_brightness(struct led_classdev *led_cdev,
@@ -51,10 +54,10 @@ void ath_init_leds(struct ath_softc *sc)
 			sc->sc_ah->led_pin = ATH_LED_PIN_DEF;
 	}
 
-	
+	/* Configure gpio 1 for output */
 	ath9k_hw_cfg_output(sc->sc_ah, sc->sc_ah->led_pin,
 			    AR_GPIO_OUTPUT_MUX_AS_OUTPUT);
-	
+	/* LED off, active low */
 	ath9k_hw_set_gpio(sc->sc_ah, sc->sc_ah->led_pin, 1);
 
 	if (!led_blink)
@@ -74,6 +77,9 @@ void ath_init_leds(struct ath_softc *sc)
 }
 #endif
 
+/*******************/
+/*	Rfkill	   */
+/*******************/
 
 static bool ath_is_rfkill_set(struct ath_softc *sc)
 {
@@ -106,7 +112,13 @@ void ath_start_rfkill_poll(struct ath_softc *sc)
 
 #ifdef CONFIG_ATH9K_BTCOEX_SUPPORT
 
+/******************/
+/*     BTCOEX     */
+/******************/
 
+/*
+ * Detects if there is any priority bt traffic
+ */
 static void ath_detect_bt_priority(struct ath_softc *sc)
 {
 	struct ath_btcoex *btcoex = &sc->btcoex;
@@ -118,7 +130,7 @@ static void ath_detect_bt_priority(struct ath_softc *sc)
 	if (time_after(jiffies, btcoex->bt_priority_time +
 			msecs_to_jiffies(ATH_BT_PRIORITY_TIME_THRESHOLD))) {
 		sc->sc_flags &= ~(SC_OP_BT_PRIORITY_DETECTED | SC_OP_BT_SCAN);
-		
+		/* Detect if colocated bt started scanning */
 		if (btcoex->bt_priority_cnt >= ATH_BT_CNT_SCAN_THRESHOLD) {
 			ath_dbg(ath9k_hw_common(sc->sc_ah), BTCOEX,
 				"BT scan detected\n");
@@ -156,7 +168,7 @@ static void ath9k_gen_timer_stop(struct ath_hw *ah, struct ath_gen_timer *timer)
 
 	ath9k_hw_gen_timer_stop(ah, timer);
 
-	
+	/* if no timer is enabled, turn off interrupt mask */
 	if (timer_table->timer_mask.val == 0) {
 		ath9k_hw_disable_interrupts(ah);
 		ah->imask &= ~ATH9K_INT_GENTIMER;
@@ -165,6 +177,11 @@ static void ath9k_gen_timer_stop(struct ath_hw *ah, struct ath_gen_timer *timer)
 	}
 }
 
+/*
+ * This is the master bt coex timer which runs for every
+ * 45ms, bt traffic will be given priority during 55% of this
+ * period while wlan gets remaining 45%
+ */
 static void ath_btcoex_period_timer(unsigned long data)
 {
 	struct ath_softc *sc = (struct ath_softc *) data;
@@ -203,6 +220,10 @@ static void ath_btcoex_period_timer(unsigned long data)
 				  msecs_to_jiffies(timer_period));
 }
 
+/*
+ * Generic tsf based hw timer which configures weight
+ * registers to time slice between wlan and bt traffic
+ */
 static void ath_btcoex_no_stomp_timer(void *arg)
 {
 	struct ath_softc *sc = (struct ath_softc *)arg;
@@ -252,6 +273,9 @@ static int ath_init_btcoex_timer(struct ath_softc *sc)
 	return 0;
 }
 
+/*
+ * (Re)start btcoex timers
+ */
 void ath9k_btcoex_timer_resume(struct ath_softc *sc)
 {
 	struct ath_btcoex *btcoex = &sc->btcoex;
@@ -259,7 +283,7 @@ void ath9k_btcoex_timer_resume(struct ath_softc *sc)
 
 	ath_dbg(ath9k_hw_common(ah), BTCOEX, "Starting btcoex timers\n");
 
-	
+	/* make sure duty cycle timer is also stopped when resuming */
 	if (btcoex->hw_timer_enabled)
 		ath9k_gen_timer_stop(sc->sc_ah, btcoex->no_stomp_timer);
 
@@ -271,6 +295,9 @@ void ath9k_btcoex_timer_resume(struct ath_softc *sc)
 }
 
 
+/*
+ * Pause btcoex timer and bt duty cycle timer
+ */
 void ath9k_btcoex_timer_pause(struct ath_softc *sc)
 {
 	struct ath_btcoex *btcoex = &sc->btcoex;
@@ -393,4 +420,4 @@ int ath9k_init_btcoex(struct ath_softc *sc)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_ATH9K_BTCOEX_SUPPORT */

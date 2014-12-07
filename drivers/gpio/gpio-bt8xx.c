@@ -49,10 +49,11 @@
 #include <linux/gpio.h>
 #include <linux/slab.h>
 
+/* Steal the hardware definitions from the bttv driver. */
 #include "../media/video/bt8xx/bt848.h"
 
 
-#define BT8XXGPIO_NR_GPIOS		24 
+#define BT8XXGPIO_NR_GPIOS		24 /* We have 24 GPIO pins */
 
 
 struct bt8xxgpio {
@@ -72,7 +73,7 @@ struct bt8xxgpio {
 #define bgread(adr)		readl(bg->mmio+(adr))
 
 
-static int modparam_gpiobase = -1;
+static int modparam_gpiobase = -1/* dynamic */;
 module_param_named(gpiobase, modparam_gpiobase, int, 0444);
 MODULE_PARM_DESC(gpiobase, "The GPIO number base. -1 means dynamic, which is the default.");
 
@@ -207,10 +208,10 @@ static int bt8xxgpio_probe(struct pci_dev *dev,
 		goto err_release_mem;
 	}
 
-	
+	/* Disable interrupts */
 	bgwrite(0, BT848_INT_MASK);
 
-	
+	/* gpio init */
 	bgwrite(0, BT848_GPIO_DMA_CTL);
 	bgwrite(0, BT848_GPIO_REG_INP);
 	bgwrite(0, BT848_GPIO_OUT_EN);
@@ -307,7 +308,7 @@ static int bt8xxgpio_resume(struct pci_dev *pdev)
 #else
 #define bt8xxgpio_suspend NULL
 #define bt8xxgpio_resume NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static struct pci_device_id bt8xxgpio_pci_tbl[] = {
 	{ PCI_DEVICE(PCI_VENDOR_ID_BROOKTREE, PCI_DEVICE_ID_BT848) },

@@ -48,13 +48,13 @@ udp_manip_pkt(struct sk_buff *skb,
 	hdr = (struct udphdr *)(skb->data + hdroff);
 
 	if (maniptype == NF_NAT_MANIP_SRC) {
-		
+		/* Get rid of src ip and src pt */
 		oldip = iph->saddr;
 		newip = tuple->src.u3.ip;
 		newport = tuple->src.u.udp.port;
 		portptr = &hdr->source;
 	} else {
-		
+		/* Get rid of dst ip and dst pt */
 		oldip = iph->daddr;
 		newip = tuple->dst.u3.ip;
 		newport = tuple->dst.u.udp.port;

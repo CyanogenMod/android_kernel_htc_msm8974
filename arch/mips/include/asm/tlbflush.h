@@ -3,6 +3,15 @@
 
 #include <linux/mm.h>
 
+/*
+ * TLB flushing:
+ *
+ *  - flush_tlb_all() flushes all processes TLB entries
+ *  - flush_tlb_mm(mm) flushes the specified mm context TLB entries
+ *  - flush_tlb_page(vma, vmaddr) flushes one page
+ *  - flush_tlb_range(vma, start, end) flushes a range of pages
+ *  - flush_tlb_kernel_range(start, end) flushes a range of kernel pages
+ */
 extern void local_flush_tlb_all(void);
 extern void local_flush_tlb_mm(struct mm_struct *mm);
 extern void local_flush_tlb_range(struct vm_area_struct *vma,
@@ -23,7 +32,7 @@ extern void flush_tlb_kernel_range(unsigned long, unsigned long);
 extern void flush_tlb_page(struct vm_area_struct *, unsigned long);
 extern void flush_tlb_one(unsigned long vaddr);
 
-#else 
+#else /* CONFIG_SMP */
 
 #define flush_tlb_all()			local_flush_tlb_all()
 #define flush_tlb_mm(mm)		local_flush_tlb_mm(mm)
@@ -33,6 +42,6 @@ extern void flush_tlb_one(unsigned long vaddr);
 #define flush_tlb_page(vma, page)	local_flush_tlb_page(vma, page)
 #define flush_tlb_one(vaddr)		local_flush_tlb_one(vaddr)
 
-#endif 
+#endif /* CONFIG_SMP */
 
-#endif 
+#endif /* __ASM_TLBFLUSH_H */

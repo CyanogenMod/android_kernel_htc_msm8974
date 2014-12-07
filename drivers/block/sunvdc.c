@@ -59,6 +59,9 @@ struct vdc_port {
 	u64			max_xfer_size;
 	u32			vdisk_block_size;
 
+	/* The server fills these in for us in the disk attribute
+	 * ACK packet.
+	 */
 	u64			operations;
 	u32			vdisk_size;
 	u8			vdisk_type;
@@ -74,6 +77,7 @@ static inline struct vdc_port *to_vdc_port(struct vio_driver_state *vio)
 	return container_of(vio, struct vdc_port, vio);
 }
 
+/* Ordered from largest major to lowest */
 static struct vio_version vdc_versions[] = {
 	{ .major = 1, .minor = 0 },
 };
@@ -253,7 +257,7 @@ static int vdc_ack(struct vdc_port *port, void *msgbuf)
 
 static int vdc_nack(struct vdc_port *port, void *msgbuf)
 {
-	
+	/* XXX Implement me XXX */
 	return 0;
 }
 
@@ -416,6 +420,9 @@ static int __send_request(struct request *req)
 	desc->size = len;
 	desc->ncookies = err;
 
+	/* This has to be a non-SMP write barrier because we are writing
+	 * to memory which is shared with the peer LDOM.
+	 */
 	wmb();
 	desc->hdr.state = VIO_DESC_READY;
 
@@ -531,6 +538,9 @@ static int generic_request(struct vdc_port *port, u8 op, void *buf, int len)
 
 	dr = &port->vio.drings[VIO_DRIVER_TX_RING];
 
+	/* XXX If we want to use this code generically we have to
+	 * XXX handle TX ring exhaustion etc.
+	 */
 	desc = vio_dring_cur(dr);
 
 	err = ldc_map_single(port->vio.lp, req_buf, op_len,
@@ -555,6 +565,9 @@ static int generic_request(struct vdc_port *port, u8 op, void *buf, int len)
 	desc->size = op_len;
 	desc->ncookies = err;
 
+	/* This has to be a non-SMP write barrier because we are writing
+	 * to memory which is shared with the peer LDOM.
+	 */
 	wmb();
 	desc->hdr.state = VIO_DESC_READY;
 

@@ -15,6 +15,7 @@
 #ifndef CSP_ERRNO_H
 #define CSP_ERRNO_H
 
+/* ---- Include Files ---------------------------------------------------- */
 
 #if   defined(__KERNEL__)
 #include <linux/errno.h>
@@ -24,5 +25,8 @@
 #include <errno.h>
 #endif
 
+/* ---- Public Constants and Types --------------------------------------- */
+/* ---- Public Variable Externs ------------------------------------------ */
+/* ---- Public Function Prototypes --------------------------------------- */
 
-#endif 
+#endif /* CSP_ERRNO_H */

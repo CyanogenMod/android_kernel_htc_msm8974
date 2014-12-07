@@ -34,12 +34,13 @@
 #define WIIPROTO_FLAG_ACCEL		0x20
 #define WIIPROTO_FLAG_IR_BASIC		0x40
 #define WIIPROTO_FLAG_IR_EXT		0x80
-#define WIIPROTO_FLAG_IR_FULL		0xc0 
+#define WIIPROTO_FLAG_IR_FULL		0xc0 /* IR_BASIC | IR_EXT */
 #define WIIPROTO_FLAGS_LEDS (WIIPROTO_FLAG_LED1 | WIIPROTO_FLAG_LED2 | \
 					WIIPROTO_FLAG_LED3 | WIIPROTO_FLAG_LED4)
 #define WIIPROTO_FLAGS_IR (WIIPROTO_FLAG_IR_BASIC | WIIPROTO_FLAG_IR_EXT | \
 							WIIPROTO_FLAG_IR_FULL)
 
+/* return flag for led \num */
 #define WIIPROTO_FLAG_LED(num) (WIIPROTO_FLAG_LED1 << (num - 1))
 
 struct wiimote_buf {
@@ -53,13 +54,13 @@ struct wiimote_state {
 	__u8 accel_split[2];
 	__u8 drm;
 
-	
+	/* synchronous cmd requests */
 	struct mutex sync;
 	struct completion ready;
 	int cmd;
 	__u32 opt;
 
-	
+	/* results of synchronous requests */
 	__u8 cmd_battery;
 	__u8 cmd_err;
 	__u8 *cmd_read_buf;
@@ -158,12 +159,14 @@ static inline void wiidebug_deinit(void *u) { }
 
 #endif
 
+/* requires the state.lock spinlock to be held */
 static inline bool wiimote_cmd_pending(struct wiimote_data *wdata, int cmd,
 								__u32 opt)
 {
 	return wdata->state.cmd == cmd && wdata->state.opt == opt;
 }
 
+/* requires the state.lock spinlock to be held */
 static inline void wiimote_cmd_complete(struct wiimote_data *wdata)
 {
 	wdata->state.cmd = WIIPROTO_REQ_NULL;
@@ -175,6 +178,7 @@ static inline int wiimote_cmd_acquire(struct wiimote_data *wdata)
 	return mutex_lock_interruptible(&wdata->state.sync) ? -ERESTARTSYS : 0;
 }
 
+/* requires the state.lock spinlock to be held */
 static inline void wiimote_cmd_set(struct wiimote_data *wdata, int cmd,
 								__u32 opt)
 {

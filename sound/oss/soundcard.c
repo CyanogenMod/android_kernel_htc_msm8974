@@ -45,14 +45,21 @@
 #include <linux/mm.h>
 #include <linux/device.h>
 
+/*
+ * This ought to be moved into include/asm/dma.h
+ */
 #ifndef valid_dma
 #define valid_dma(n) ((n) >= 0 && (n) < MAX_DMA_CHANNELS && (n) != 4)
 #endif
 
+/*
+ * Table for permanently allocated memory (used when unloading the module)
+ */
 void *          sound_mem_blocks[MAX_MEM_BLOCKS];
 static DEFINE_MUTEX(soundcard_mutex);
 int             sound_nblocks = 0;
 
+/* Persistent DMA buffers */
 #ifdef CONFIG_SOUND_DMAP
 int             sound_dmap_flag = 1;
 #else
@@ -66,9 +73,12 @@ static char     dma_alloc_map[MAX_DMA_CHANNELS];
 #define DMA_MAP_BUSY		2
 
 
-unsigned long seq_time = 0;	
+unsigned long seq_time = 0;	/* Time for /dev/sequencer */
 extern struct class *sound_class;
 
+/*
+ * Table for configurable mixer volume handling
+ */
 static mixer_vol_table mixer_vols[MAX_MIXER_DEV];
 static int num_mixer_volumes;
 
@@ -104,7 +114,7 @@ EXPORT_SYMBOL(load_mixer_volumes);
 
 static int set_mixer_levels(void __user * arg)
 {
-        
+        /* mixer_vol_table is 174 bytes, so IMHO no reason to not allocate it on the stack */
 	mixer_vol_table buf;   
 
 	if (__copy_from_user(&buf, arg, sizeof(buf)))
@@ -128,6 +138,7 @@ static int get_mixer_levels(void __user * arg)
 	return 0;
 }
 
+/* 4K page size but our output routines use some slack for overruns */
 #define PROC_BLOCK_SIZE (3*1024)
 
 static ssize_t sound_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
@@ -135,6 +146,11 @@ static ssize_t sound_read(struct file *file, char __user *buf, size_t count, lof
 	int dev = iminor(file->f_path.dentry->d_inode);
 	int ret = -EINVAL;
 
+	/*
+	 *	The OSS drivers aren't remotely happy without this locking,
+	 *	and unless someone fixes them when they are about to bite the
+	 *	big one anyway, we might as well bandage here..
+	 */
 	 
 	mutex_lock(&soundcard_mutex);
 	
@@ -297,7 +313,7 @@ static int sound_mixer_ioctl(int mixdev, unsigned int cmd, void __user *arg)
 {
  	if (mixdev < 0 || mixdev >= MAX_MIXER_DEV)
  		return -ENXIO;
- 	
+ 	/* Try to load the mixer... */
  	if (mixer_devs[mixdev] == NULL) {
  		request_module("mixer%d", mixdev);
  	}
@@ -322,6 +338,9 @@ static long sound_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	void __user *p = (void __user *)arg;
 
 	if (_SIOC_DIR(cmd) != _SIOC_NONE && _SIOC_DIR(cmd) != 0) {
+		/*
+		 * Have to validate the address given by the process.
+		 */
 		len = _SIOC_SIZE(cmd);
 		if (len < 1 || len > 65536 || !p)
 			return -EFAULT;
@@ -337,7 +356,7 @@ static long sound_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		return __put_user(SOUND_VERSION, (int __user *)p);
 	
 	mutex_lock(&soundcard_mutex);
-	if (_IOC_TYPE(cmd) == 'M' && num_mixers > 0 &&   
+	if (_IOC_TYPE(cmd) == 'M' && num_mixers > 0 &&   /* Mixer ioctl */
 	    (dev & 0x0f) != SND_DEV_CTL) {              
 		dtype = dev & 0x0f;
 		switch (dtype) {
@@ -422,7 +441,7 @@ static int sound_mmap(struct file *file, struct vm_area_struct *vma)
 		return -EINVAL;
 	}
 	mutex_lock(&soundcard_mutex);
-	if (vma->vm_flags & VM_WRITE)	
+	if (vma->vm_flags & VM_WRITE)	/* Map write and read/write to the output buf */
 		dmap = audio_devs[dev]->dmap_out;
 	else if (vma->vm_flags & VM_READ)
 		dmap = audio_devs[dev]->dmap_in;
@@ -488,6 +507,9 @@ const struct file_operations oss_sound_fops = {
 	.release	= sound_release,
 };
 
+/*
+ *	Create the required special subdevices
+ */
  
 static int create_special_devices(void)
 {
@@ -510,6 +532,7 @@ static int dmabug;
 module_param(dmabuf, int, 0444);
 module_param(dmabug, int, 0444);
 
+/* additional minors for compatibility */
 struct oss_minor_dev {
 	unsigned short minor;
 	unsigned int enabled;
@@ -534,7 +557,7 @@ static int __init oss_init(void)
 		return err;
 	}
 
-	
+	/* Protecting the innocent */
 	sound_dmap_flag = (dmabuf > 0 ? 1 : 0);
 
 	for (i = 0; i < ARRAY_SIZE(dev_list); i++) {
@@ -621,7 +644,7 @@ EXPORT_SYMBOL(sound_open_dma);
 void sound_free_dma(int chn)
 {
 	if (dma_alloc_map[chn] == DMA_MAP_UNAVAIL) {
-		
+		/* printk( "sound_free_dma: Bad access to DMA channel %d\n",  chn); */
 		return;
 	}
 	free_dma(chn);

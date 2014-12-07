@@ -68,26 +68,26 @@ static const struct gpio_led_platform_data mbimx51_leds_info __initconst = {
 };
 
 static iomux_v3_cfg_t mbimx51_pads[] = {
-	
+	/* UART2 */
 	MX51_PAD_UART2_RXD__UART2_RXD,
 	MX51_PAD_UART2_TXD__UART2_TXD,
 
-	
+	/* UART3 */
 	MX51_PAD_UART3_RXD__UART3_RXD,
 	MX51_PAD_UART3_TXD__UART3_TXD,
 	MX51_PAD_KEY_COL4__UART3_RTS,
 	MX51_PAD_KEY_COL5__UART3_CTS,
 
-	
+	/* TSC2007 IRQ */
 	MX51_PAD_NANDF_D10__GPIO3_30,
 
-	
+	/* LEDS */
 	MX51_PAD_DISPB2_SER_DIN__GPIO3_5,
 	MX51_PAD_DISPB2_SER_DIO__GPIO3_6,
 	MX51_PAD_DISPB2_SER_CLK__GPIO3_7,
 	MX51_PAD_DISPB2_SER_RS__GPIO3_8,
 
-	
+	/* KPP */
 	MX51_PAD_KEY_ROW0__KEY_ROW0,
 	MX51_PAD_KEY_ROW1__KEY_ROW1,
 	MX51_PAD_KEY_ROW2__KEY_ROW2,
@@ -97,7 +97,7 @@ static iomux_v3_cfg_t mbimx51_pads[] = {
 	MX51_PAD_KEY_COL2__KEY_COL2,
 	MX51_PAD_KEY_COL3__KEY_COL3,
 
-	
+	/* SD 1 */
 	MX51_PAD_SD1_CMD__SD1_CMD,
 	MX51_PAD_SD1_CLK__SD1_CLK,
 	MX51_PAD_SD1_DATA0__SD1_DATA0,
@@ -105,7 +105,7 @@ static iomux_v3_cfg_t mbimx51_pads[] = {
 	MX51_PAD_SD1_DATA2__SD1_DATA2,
 	MX51_PAD_SD1_DATA3__SD1_DATA3,
 
-	
+	/* SD 2 */
 	MX51_PAD_SD2_CMD__SD2_CMD,
 	MX51_PAD_SD2_CLK__SD2_CLK,
 	MX51_PAD_SD2_DATA0__SD2_DATA0,
@@ -166,6 +166,9 @@ static struct i2c_board_info mbimx51_i2c_devices[] = {
 	},
 };
 
+/*
+ * baseboard initialization.
+ */
 void __init eukrea_mbimx51_baseboard_init(void)
 {
 	mxc_iomux_v3_setup_multiple_pads(mbimx51_pads,

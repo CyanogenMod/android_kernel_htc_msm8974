@@ -52,8 +52,8 @@ enum ap_peer {
 #define HT_AMSDU_SIZE_4K	3839
 #define HT_AMSDU_SIZE_8K	7935
 
-#define MAX_BIT_RATE_40MHZ_MCS15	300	
-#define MAX_BIT_RATE_40MHZ_MCS7		150	
+#define MAX_BIT_RATE_40MHZ_MCS15	300	/* Mbps */
+#define MAX_BIT_RATE_40MHZ_MCS7		150	/* Mbps */
 
 #define RTL_RATE_COUNT_LEGACY		12
 #define RTL_CHANNEL_COUNT		14

@@ -29,6 +29,15 @@
 #include <linux/dma-mapping.h>
 #include <linux/async_tx.h>
 
+/**
+ * async_memset - attempt to fill memory with a dma engine.
+ * @dest: destination page
+ * @val: fill value
+ * @offset: offset in pages to start transaction
+ * @len: length in bytes
+ *
+ * honored flags: ASYNC_TX_ACK
+ */
 struct dma_async_tx_descriptor *
 async_memset(struct page *dest, int val, unsigned int offset, size_t len,
 	     struct async_submit_ctl *submit)
@@ -56,13 +65,13 @@ async_memset(struct page *dest, int val, unsigned int offset, size_t len,
 	if (tx) {
 		pr_debug("%s: (async) len: %zu\n", __func__, len);
 		async_tx_submit(chan, tx, submit);
-	} else { 
+	} else { /* run the memset synchronously */
 		void *dest_buf;
 		pr_debug("%s: (sync) len: %zu\n", __func__, len);
 
 		dest_buf = page_address(dest) + offset;
 
-		
+		/* wait for any prerequisite operations */
 		async_tx_quiesce(&submit->depend_tx);
 
 		memset(dest_buf, val, len);

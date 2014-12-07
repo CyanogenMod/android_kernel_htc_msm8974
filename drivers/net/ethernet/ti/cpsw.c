@@ -211,7 +211,7 @@ struct cpsw_priv {
 	struct cpdma_ctlr		*dma;
 	struct cpdma_chan		*txch, *rxch;
 	struct cpsw_ale			*ale;
-	
+	/* snapshot of IRQ numbers */
 	u32 irqs_table[4];
 	u32 num_irqs;
 };
@@ -262,7 +262,7 @@ void cpsw_rx_handler(void *token, int len, int status)
 	struct cpsw_priv	*priv = netdev_priv(ndev);
 	int			ret = 0;
 
-	
+	/* free and bail if we are shutting down */
 	if (unlikely(!netif_running(ndev)) ||
 			unlikely(!netif_carrier_ok(ndev))) {
 		dev_kfree_skb_any(skb);
@@ -374,18 +374,18 @@ static void _cpsw_adjust_link(struct cpsw_slave *slave,
 	if (phy->link) {
 		mac_control = priv->data.mac_control;
 
-		
+		/* enable forwarding */
 		cpsw_ale_control_set(priv->ale, slave_port,
 				     ALE_PORT_STATE, ALE_PORT_STATE_FORWARD);
 
 		if (phy->speed == 1000)
-			mac_control |= BIT(7);	
+			mac_control |= BIT(7);	/* GIGABITEN	*/
 		if (phy->duplex)
-			mac_control |= BIT(0);	
+			mac_control |= BIT(0);	/* FULLDUPLEXEN	*/
 		*link = true;
 	} else {
 		mac_control = 0;
-		
+		/* disable forwarding */
 		cpsw_ale_control_set(priv->ale, slave_port,
 				     ALE_PORT_STATE, ALE_PORT_STATE_DISABLE);
 	}
@@ -435,15 +435,15 @@ static void cpsw_slave_open(struct cpsw_slave *slave, struct cpsw_priv *priv)
 
 	soft_reset(name, &slave->sliver->soft_reset);
 
-	
+	/* setup priority mapping */
 	__raw_writel(RX_PRIORITY_MAPPING, &slave->sliver->rx_pri_map);
 	__raw_writel(TX_PRIORITY_MAPPING, &slave->regs->tx_pri_map);
 
-	
+	/* setup max packet size, and mac address */
 	__raw_writel(priv->rx_packet_max, &slave->sliver->rx_maxlen);
 	cpsw_set_slave_mac(slave, priv);
 
-	slave->mac_control = 0;	
+	slave->mac_control = 0;	/* no link yet */
 
 	slave_port = cpsw_get_slave_port(priv, slave->slave_num);
 
@@ -465,14 +465,14 @@ static void cpsw_slave_open(struct cpsw_slave *slave, struct cpsw_priv *priv)
 
 static void cpsw_init_host_port(struct cpsw_priv *priv)
 {
-	
+	/* soft reset the controller and initialize ale */
 	soft_reset("cpsw", &priv->regs->soft_reset);
 	cpsw_ale_start(priv->ale);
 
-	
+	/* switch to vlan unaware mode */
 	cpsw_ale_control_set(priv->ale, 0, ALE_VLAN_AWARE, 0);
 
-	
+	/* setup host port priority mapping */
 	__raw_writel(CPDMA_TX_PRIORITY_MAP,
 		     &priv->host_port_regs->cpdma_tx_pri_map);
 	__raw_writel(0, &priv->host_port_regs->cpdma_rx_chan_map);
@@ -506,18 +506,18 @@ static int cpsw_ndo_open(struct net_device *ndev)
 		 CPSW_MAJOR_VERSION(reg), CPSW_MINOR_VERSION(reg),
 		 CPSW_RTL_VERSION(reg));
 
-	
+	/* initialize host and slave ports */
 	cpsw_init_host_port(priv);
 	for_each_slave(priv, cpsw_slave_open, priv);
 
-	
+	/* setup tx dma to fixed prio and zero offset */
 	cpdma_control_set(priv->dma, CPDMA_TX_PRIO_FIXED, 1);
 	cpdma_control_set(priv->dma, CPDMA_RX_BUFFER_OFFSET, 0);
 
-	
+	/* disable priority elevation and enable statistics on all ports */
 	__raw_writel(0, &priv->regs->ptype);
 
-	
+	/* enable statistics collection only on the host port */
 	__raw_writel(0x7, &priv->regs->stat_port_en);
 
 	if (WARN_ON(!priv->data.rx_descs))
@@ -536,7 +536,7 @@ static int cpsw_ndo_open(struct net_device *ndev)
 		if (WARN_ON(ret < 0))
 			break;
 	}
-	
+	/* continue even if we didn't manage to submit all receive descs */
 	cpsw_info(priv, ifup, "submitted %d rx descriptors\n", i);
 
 	cpdma_ctlr_start(priv->dma);
@@ -603,9 +603,23 @@ fail:
 
 static void cpsw_ndo_change_rx_flags(struct net_device *ndev, int flags)
 {
+	/*
+	 * The switch cannot operate in promiscuous mode without substantial
+	 * headache.  For promiscuous mode to work, we would need to put the
+	 * ALE in bypass mode and route all traffic to the host port.
+	 * Subsequently, the host will need to operate as a "bridge", learn,
+	 * and flood as needed.  For now, we simply complain here and
+	 * do nothing about it :-)
+	 */
 	if ((flags & IFF_PROMISC) && (ndev->flags & IFF_PROMISC))
 		dev_err(&ndev->dev, "promiscuity ignored!\n");
 
+	/*
+	 * The switch cannot filter multicast traffic unless it is configured
+	 * in "VLAN Aware" mode.  Unfortunately, VLAN awareness requires a
+	 * whole bunch of additional logic that this driver does not implement
+	 * at present.
+	 */
 	if ((flags & IFF_ALLMULTI) && !(ndev->flags & IFF_ALLMULTI))
 		dev_err(&ndev->dev, "multicast traffic cannot be filtered!\n");
 }
@@ -883,13 +897,13 @@ static int __devinit cpsw_probe(struct platform_device *pdev)
 		k++;
 	}
 
-	ndev->flags |= IFF_ALLMULTI;	
+	ndev->flags |= IFF_ALLMULTI;	/* see cpsw_ndo_change_rx_flags() */
 
 	ndev->netdev_ops = &cpsw_netdev_ops;
 	SET_ETHTOOL_OPS(ndev, &cpsw_ethtool_ops);
 	netif_napi_add(ndev, &priv->napi, cpsw_poll, CPSW_POLL_WEIGHT);
 
-	
+	/* register the network device */
 	SET_NETDEV_DEV(ndev, &pdev->dev);
 	ret = register_netdev(ndev);
 	if (ret) {

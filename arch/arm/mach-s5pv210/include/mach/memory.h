@@ -15,8 +15,13 @@
 
 #define PLAT_PHYS_OFFSET		UL(0x20000000)
 
+/*
+ * Sparsemem support
+ * Physical memory can be located from 0x20000000 to 0x7fffffff,
+ * so MAX_PHYSMEM_BITS is 31.
+ */
 
 #define MAX_PHYSMEM_BITS	31
 #define SECTION_SIZE_BITS	28
 
-#endif 
+#endif /* __ASM_ARCH_MEMORY_H */

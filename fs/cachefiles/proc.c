@@ -18,6 +18,9 @@ atomic_t cachefiles_lookup_histogram[HZ];
 atomic_t cachefiles_mkdir_histogram[HZ];
 atomic_t cachefiles_create_histogram[HZ];
 
+/*
+ * display the latency histogram
+ */
 static int cachefiles_histogram_show(struct seq_file *m, void *v)
 {
 	unsigned long index;
@@ -45,6 +48,9 @@ static int cachefiles_histogram_show(struct seq_file *m, void *v)
 	}
 }
 
+/*
+ * set up the iterator to start reading from the first line
+ */
 static void *cachefiles_histogram_start(struct seq_file *m, loff_t *_pos)
 {
 	if ((unsigned long long)*_pos >= HZ + 2)
@@ -54,6 +60,9 @@ static void *cachefiles_histogram_start(struct seq_file *m, loff_t *_pos)
 	return (void *)(unsigned long) *_pos;
 }
 
+/*
+ * move to the next line
+ */
 static void *cachefiles_histogram_next(struct seq_file *m, void *v, loff_t *pos)
 {
 	(*pos)++;
@@ -61,6 +70,9 @@ static void *cachefiles_histogram_next(struct seq_file *m, void *v, loff_t *pos)
 		NULL : (void *)(unsigned long) *pos;
 }
 
+/*
+ * clean up after reading
+ */
 static void cachefiles_histogram_stop(struct seq_file *m, void *v)
 {
 }
@@ -72,6 +84,9 @@ static const struct seq_operations cachefiles_histogram_ops = {
 	.show		= cachefiles_histogram_show,
 };
 
+/*
+ * open "/proc/fs/cachefiles/XXX" which provide statistics summaries
+ */
 static int cachefiles_histogram_open(struct inode *inode, struct file *file)
 {
 	return seq_open(file, &cachefiles_histogram_ops);
@@ -85,6 +100,9 @@ static const struct file_operations cachefiles_histogram_fops = {
 	.release	= seq_release,
 };
 
+/*
+ * initialise the /proc/fs/cachefiles/ directory
+ */
 int __init cachefiles_proc_init(void)
 {
 	_enter("");
@@ -106,6 +124,9 @@ error_dir:
 	return -ENOMEM;
 }
 
+/*
+ * clean up the /proc/fs/cachefiles/ directory
+ */
 void cachefiles_proc_cleanup(void)
 {
 	remove_proc_entry("fs/cachefiles/histogram", NULL);

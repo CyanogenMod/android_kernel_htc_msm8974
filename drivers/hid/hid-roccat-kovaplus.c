@@ -11,6 +11,9 @@
  * any later version.
  */
 
+/*
+ * Roccat Kova[+] is a bigger version of the Pyra with two more side buttons.
+ */
 
 #include <linux/device.h>
 #include <linux/input.h>
@@ -70,20 +73,20 @@ static int kovaplus_receive_control_status(struct usb_device *usb_dev)
 		retval = roccat_common_receive(usb_dev, KOVAPLUS_COMMAND_CONTROL,
 				&control, sizeof(struct kovaplus_control));
 
-		
+		/* check if we get a completely wrong answer */
 		if (retval)
 			return retval;
 
 		if (control.value == KOVAPLUS_CONTROL_REQUEST_STATUS_OK)
 			return 0;
 
-		
+		/* indicates that hardware needs some more time to complete action */
 		if (control.value == KOVAPLUS_CONTROL_REQUEST_STATUS_WAIT) {
-			msleep(500); 
+			msleep(500); /* windows driver uses 1000 */
 			continue;
 		}
 
-		
+		/* seems to be critical - replug necessary */
 		if (control.value == KOVAPLUS_CONTROL_REQUEST_STATUS_OVERLOAD)
 			return -EINVAL;
 
@@ -162,6 +165,7 @@ static int kovaplus_set_profile_buttons(struct usb_device *usb_dev,
 			buttons, sizeof(struct kovaplus_profile_buttons));
 }
 
+/* retval is 0-4 on success, < 0 on error */
 static int kovaplus_get_actual_profile(struct usb_device *usb_dev)
 {
 	struct kovaplus_actual_profile buf;
@@ -479,7 +483,7 @@ static int kovaplus_init_kovaplus_device_struct(struct usb_device *usb_dev,
 		struct kovaplus_device *kovaplus)
 {
 	int retval, i;
-	static uint wait = 70; 
+	static uint wait = 70; /* device will freeze with just 60 */
 
 	mutex_init(&kovaplus->kovaplus_lock);
 

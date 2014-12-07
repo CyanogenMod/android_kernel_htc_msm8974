@@ -67,10 +67,14 @@ static struct {
 	void		(*lcdc_callback)(void *data);
 	void		*lcdc_callback_data;
 	int		vsync_dma_pending;
-	
+	/* timing for read and write access */
 	int		clk_div;
 	u8		clk_tw0[2];
 	u8		clk_tw1[2];
+	/*
+	 * if last_access is the same as current we don't have to change
+	 * the timings
+	 */
 	int		last_access;
 
 	struct omapfb_device	*fbdev;
@@ -130,8 +134,12 @@ static int calc_rd_timings(struct extif_timings *t)
 	int reon, reoff, recyc, actim;
 	int div = t->clk_div;
 
+	/*
+	 * Make sure that after conversion it still holds that:
+	 * reoff > reon, recyc >= reoff, actim > reon
+	 */
 	reon = ps_to_sossi_ticks(t->re_on_time, div);
-	
+	/* reon will be exactly one sossi tick */
 	if (reon > 1)
 		return -1;
 
@@ -149,7 +157,7 @@ static int calc_rd_timings(struct extif_timings *t)
 		recyc = reoff + 1;
 
 	tw1 = recyc - tw0;
-	
+	/* values less then 3 result in the SOSSI block resetting itself */
 	if (tw1 < 3)
 		tw1 = 3;
 	if (tw1 > 0x40)
@@ -158,6 +166,10 @@ static int calc_rd_timings(struct extif_timings *t)
 	actim = ps_to_sossi_ticks(t->access_time, div);
 	if (actim < reoff)
 		actim++;
+	/*
+	 * access time (data hold time) will be exactly one sossi
+	 * tick
+	 */
 	if (actim - reoff > 1)
 		return -1;
 
@@ -173,8 +185,12 @@ static int calc_wr_timings(struct extif_timings *t)
 	int weon, weoff, wecyc;
 	int div = t->clk_div;
 
+	/*
+	 * Make sure that after conversion it still holds that:
+	 * weoff > weon, wecyc >= weoff
+	 */
 	weon = ps_to_sossi_ticks(t->we_on_time, div);
-	
+	/* weon will be exactly one sossi tick */
 	if (weon > 1)
 		return -1;
 
@@ -190,7 +206,7 @@ static int calc_wr_timings(struct extif_timings *t)
 		wecyc = weoff + 1;
 
 	tw1 = wecyc - tw0;
-	
+	/* values less then 3 result in the SOSSI block resetting itself */
 	if (tw1 < 3)
 		tw1 = 3;
 	if (tw1 > 0x40)
@@ -241,7 +257,7 @@ static void _set_tearsync_mode(int mode, unsigned line)
 	l |= mode << 26;
 	sossi_write_reg(SOSSI_TEARING_REG, l);
 	if (mode)
-		sossi_set_bits(SOSSI_INIT2_REG, 1 << 6);	
+		sossi_set_bits(SOSSI_INIT2_REG, 1 << 6);	/* TE logic */
 	else
 		sossi_clear_bits(SOSSI_INIT2_REG, 1 << 6);
 }
@@ -257,23 +273,23 @@ static inline void set_timing(int access)
 
 static void sossi_start_transfer(void)
 {
-	
+	/* WE */
 	sossi_clear_bits(SOSSI_INIT2_REG, 1 << 4);
-	
+	/* CS active low */
 	sossi_clear_bits(SOSSI_INIT1_REG, 1 << 30);
 }
 
 static void sossi_stop_transfer(void)
 {
-	
+	/* WE */
 	sossi_set_bits(SOSSI_INIT2_REG, 1 << 4);
-	
+	/* CS active low */
 	sossi_set_bits(SOSSI_INIT1_REG, 1 << 30);
 }
 
 static void wait_end_of_write(void)
 {
-	
+	/* Before reading we must check if some writings are going on */
 	while (!(sossi_read_reg(SOSSI_INIT2_REG) & (1 << 3)));
 }
 
@@ -316,7 +332,7 @@ static int sossi_convert_timings(struct extif_timings *t)
 	if (div <= 0 || div > 8)
 		return -1;
 
-	
+	/* no CS on SOSSI, so ignore cson, csoff, cs_pulsewidth */
 	if ((r = calc_rd_timings(t)) < 0)
 		return r;
 
@@ -353,6 +369,11 @@ static void sossi_set_bits_per_cycle(int bpc)
 {
 	int bus_pick_count, bus_pick_width;
 
+	/*
+	 * We set explicitly the the bus_pick_count as well, although
+	 * with remapping/reordering disabled it will be calculated by HW
+	 * as (32 / bus_pick_width).
+	 */
 	switch (bpc) {
 	case 8:
 		bus_pick_count = 4;
@@ -423,9 +444,9 @@ static int sossi_enable_tearsync(int enable, unsigned line)
 		return -EINVAL;
 	if (enable) {
 		if (line)
-			mode = 2;		
+			mode = 2;		/* HS or VS */
 		else
-			mode = 3;		
+			mode = 3;		/* VS only */
 	} else
 		mode = 0;
 	sossi.tearsync_line = line;
@@ -439,7 +460,7 @@ static void sossi_write_command(const void *data, unsigned int len)
 	clk_enable(sossi.fck);
 	set_timing(WR_ACCESS);
 	_set_bits_per_cycle(sossi.bus_pick_count, sossi.bus_pick_width);
-	
+	/* CMD#/DATA */
 	sossi_clear_bits(SOSSI_INIT1_REG, 1 << 18);
 	set_cycles(len);
 	sossi_start_transfer();
@@ -454,7 +475,7 @@ static void sossi_write_data(const void *data, unsigned int len)
 	clk_enable(sossi.fck);
 	set_timing(WR_ACCESS);
 	_set_bits_per_cycle(sossi.bus_pick_count, sossi.bus_pick_width);
-	
+	/* CMD#/DATA */
 	sossi_set_bits(SOSSI_INIT1_REG, 1 << 18);
 	set_cycles(len);
 	sossi_start_transfer();
@@ -476,19 +497,25 @@ static void sossi_transfer_area(int width, int height,
 	set_timing(WR_ACCESS);
 	_set_bits_per_cycle(sossi.bus_pick_count, sossi.bus_pick_width);
 	_set_tearsync_mode(sossi.tearsync_mode, sossi.tearsync_line);
-	
+	/* CMD#/DATA */
 	sossi_set_bits(SOSSI_INIT1_REG, 1 << 18);
 	set_cycles(width * height * sossi.bus_pick_width / 8);
 
 	sossi_start_transfer();
 	if (sossi.tearsync_mode) {
+		/*
+		 * Wait for the sync signal and start the transfer only
+		 * then. We can't seem to be able to use HW sync DMA for
+		 * this since LCD DMA shows huge latencies, as if it
+		 * would ignore some of the DMA requests from SoSSI.
+		 */
 		unsigned long flags;
 
 		spin_lock_irqsave(&sossi.lock, flags);
 		sossi.vsync_dma_pending++;
 		spin_unlock_irqrestore(&sossi.lock, flags);
 	} else
-		
+		/* Just start the transfer right away. */
 		omap_enable_lcd_dma();
 }
 
@@ -505,7 +532,7 @@ static void sossi_read_data(void *data, unsigned int len)
 	clk_enable(sossi.fck);
 	set_timing(RD_ACCESS);
 	_set_bits_per_cycle(sossi.bus_pick_count, sossi.bus_pick_width);
-	
+	/* CMD#/DATA */
 	sossi_set_bits(SOSSI_INIT1_REG, 1 << 18);
 	set_cycles(len);
 	sossi_start_transfer();
@@ -562,6 +589,11 @@ static int sossi_init(struct omapfb_device *fbdev)
 		dev_err(fbdev->dev, "can't get DPLL1OUT clock\n");
 		return PTR_ERR(dpll1out_ck);
 	}
+	/*
+	 * We need the parent clock rate, which we might divide further
+	 * depending on the timing requirements of the controller. See
+	 * _set_timings.
+	 */
 	sossi.fck_hz = clk_get_rate(dpll1out_ck);
 	clk_put(dpll1out_ck);
 
@@ -572,7 +604,7 @@ static int sossi_init(struct omapfb_device *fbdev)
 	}
 	sossi.fck = fck;
 
-	
+	/* Reset and enable the SoSSI module */
 	l = omap_readl(MOD_CONF_CTRL_1);
 	l |= CONF_SOSSI_RESET_R;
 	omap_writel(l, MOD_CONF_CTRL_1);
@@ -581,14 +613,14 @@ static int sossi_init(struct omapfb_device *fbdev)
 
 	clk_enable(sossi.fck);
 	l = omap_readl(ARM_IDLECT2);
-	l &= ~(1 << 8);			
+	l &= ~(1 << 8);			/* DMACK_REQ */
 	omap_writel(l, ARM_IDLECT2);
 
 	l = sossi_read_reg(SOSSI_INIT2_REG);
-	
+	/* Enable and reset the SoSSI block */
 	l |= (1 << 0) | (1 << 1);
 	sossi_write_reg(SOSSI_INIT2_REG, l);
-	
+	/* Take SoSSI out of reset */
 	l &= ~(1 << 1);
 	sossi_write_reg(SOSSI_INIT2_REG, l);
 
@@ -609,14 +641,14 @@ static int sossi_init(struct omapfb_device *fbdev)
 		goto err;
 	}
 
-	l = sossi_read_reg(SOSSI_ID_REG); 
+	l = sossi_read_reg(SOSSI_ID_REG); /* Component code */
 	l = sossi_read_reg(SOSSI_ID_REG);
 	dev_info(fbdev->dev, "SoSSI version %d.%d initialized\n",
 		l >> 16, l & 0xffff);
 
 	l = sossi_read_reg(SOSSI_INIT1_REG);
-	l |= (1 << 19); 
-	l &= ~(1 << 31); 
+	l |= (1 << 19); /* DMA_MODE */
+	l &= ~(1 << 31); /* REORDERING */
 	sossi_write_reg(SOSSI_INIT1_REG, l);
 
 	if ((r = request_irq(INT_1610_SoSSI_MATCH, sossi_match_irq,

@@ -39,9 +39,22 @@
 #define VERSION "arcnet: COM90xx chipset support\n"
 
 
+/* Define this to speed up the autoprobe by assuming if only one io port and
+ * shmem are left in the list at Stage 5, they must correspond to each
+ * other.
+ *
+ * This is undefined by default because it might not always be true, and the
+ * extra check makes the autoprobe even more careful.  Speed demons can turn
+ * it on - I think it should be fine if you only have one ARCnet card
+ * installed.
+ *
+ * If no ARCnet cards are installed, this delay never happens anyway and thus
+ * the option has no effect.
+ */
 #undef FAST_PROBE
 
 
+/* Internal function declarations */
 static int com90xx_found(int ioaddr, int airq, u_long shmem, void __iomem *);
 static void com90xx_command(struct net_device *dev, int command);
 static int com90xx_status(struct net_device *dev);
@@ -52,23 +65,28 @@ static void com90xx_copy_to_card(struct net_device *dev, int bufnum, int offset,
 static void com90xx_copy_from_card(struct net_device *dev, int bufnum, int offset,
 				   void *buf, int count);
 
+/* Known ARCnet cards */
 
 static struct net_device *cards[16];
 static int numcards;
 
+/* Handy defines for ARCnet specific stuff */
 
+/* The number of low I/O ports used by the card */
 #define ARCNET_TOTAL_SIZE	16
 
+/* Amount of I/O memory used by the card */
 #define BUFFER_SIZE (512)
 #define MIRROR_SIZE (BUFFER_SIZE*4)
 
-#define _INTMASK (ioaddr+0)	
-#define _STATUS  (ioaddr+0)	
-#define _COMMAND (ioaddr+1)	
-#define _CONFIG  (ioaddr+2)	
-#define _RESET   (ioaddr+8)	
-#define _MEMDATA (ioaddr+12)	
-#define _ADDR_HI (ioaddr+15)	
+/* COM 9026 controller chip --> ARCnet register addresses */
+#define _INTMASK (ioaddr+0)	/* writable */
+#define _STATUS  (ioaddr+0)	/* readable */
+#define _COMMAND (ioaddr+1)	/* writable, returns random vals on read (?) */
+#define _CONFIG  (ioaddr+2)	/* Configuration register */
+#define _RESET   (ioaddr+8)	/* software reset (on read) */
+#define _MEMDATA (ioaddr+12)	/* Data port for IO-mapped memory */
+#define _ADDR_HI (ioaddr+15)	/* Control registers for said */
 #define _ADDR_LO (ioaddr+14)
 
 #undef ASTATUS
@@ -82,11 +100,12 @@ static int numcards;
 
 static int com90xx_skip_probe __initdata = 0;
 
+/* Module parameters */
 
-static int io;			
+static int io;			/* use the insmod io= irq= shmem= options */
 static int irq;
 static int shmem;
-static char device[9];		
+static char device[9];		/* use eg. device=arc1 to change name */
 
 module_param(io, int, 0);
 module_param(irq, int, 0);
@@ -121,7 +140,7 @@ static void __init com90xx_probe(void)
 
 	BUGLVL(D_NORMAL) printk(VERSION);
 
-	
+	/* set up the arrays where we'll store the possible probe addresses */
 	numports = numshmems = 0;
 	if (io)
 		ports[numports++] = io;
@@ -134,6 +153,9 @@ static void __init com90xx_probe(void)
 		for (count = 0xA0000; count <= 0xFF800; count += 2048)
 			shmems[numshmems++] = count;
 
+	/* Stage 1: abandon any reserved ports, or ones with status==0xFF
+	 * (empty), and reset any others by reading the reset port.
+	 */
 	numprint = -1;
 	for (port = &ports[0]; port - ports < numports; port++) {
 		numprint++;
@@ -161,7 +183,7 @@ static void __init com90xx_probe(void)
 			*port-- = ports[--numports];
 			continue;
 		}
-		inb(_RESET);	
+		inb(_RESET);	/* begin resetting card */
 
 		BUGMSG2(D_INIT_REASONS, "\n");
 		BUGMSG2(D_INIT_REASONS, "S1: ");
@@ -175,6 +197,10 @@ static void __init com90xx_probe(void)
 		kfree(iomem);
 		return;
 	}
+	/* Stage 2: we have now reset any possible ARCnet cards, so we can't
+	 * do anything until they finish.  If D_INIT, print the list of
+	 * cards that are left.
+	 */
 	numprint = -1;
 	for (port = &ports[0]; port < ports + numports; port++) {
 		numprint++;
@@ -188,6 +214,9 @@ static void __init com90xx_probe(void)
 	BUGMSG2(D_INIT, "\n");
 	mdelay(RESETtime);
 
+	/* Stage 3: abandon any shmem addresses that don't have the signature
+	 * 0xD1 byte in the right place, or are read-only.
+	 */
 	numprint = -1;
 	for (index = 0, p = &shmems[0]; index < numshmems; p++, index++) {
 		void __iomem *base;
@@ -220,6 +249,11 @@ static void __init com90xx_probe(void)
 			BUGLVL(D_INIT_REASONS) numprint = 0;
 			goto out2;
 		}
+		/* By writing 0x42 to the TESTvalue location, we also make
+		 * sure no "mirror" shmem areas show up - if they occur
+		 * in another pass through this loop, they will be discarded
+		 * because *cptr != TESTvalue.
+		 */
 		writeb(0x42, base);
 		if (readb(base) != 0x42) {
 			BUGMSG2(D_INIT_REASONS, "(read only)\n");
@@ -249,6 +283,9 @@ static void __init com90xx_probe(void)
 		kfree(iomem);
 		return;
 	}
+	/* Stage 4: something of a dummy, to report the shmems that are
+	 * still possible after stage 3.
+	 */
 	numprint = -1;
 	for (p = &shmems[0]; p < shmems + numshmems; p++) {
 		numprint++;
@@ -261,6 +298,13 @@ static void __init com90xx_probe(void)
 	}
 	BUGMSG2(D_INIT, "\n");
 
+	/* Stage 5: for any ports that have the correct status, can disable
+	 * the RESET flag, and (if no irq is given) generate an autoirq,
+	 * register an ARCnet device.
+	 *
+	 * Currently, we can only register one device per probe, so quit
+	 * after the first one is found.
+	 */
 	numprint = -1;
 	for (port = &ports[0]; port < ports + numports; port++) {
 		int found = 0;
@@ -295,7 +339,14 @@ static void __init com90xx_probe(void)
 			*port-- = ports[--numports];
 			continue;
 		}
+		/* skip this completely if an IRQ was given, because maybe
+		 * we're on a machine that locks during autoirq!
+		 */
 		if (!irq) {
+			/* if we do this, we're sure to get an IRQ since the
+			 * card has just reset and the NORXflag is on until
+			 * we tell it to start receiving.
+			 */
 			airqmask = probe_irq_on();
 			AINTMASK(NORXflag);
 			udelay(1);
@@ -317,12 +368,18 @@ static void __init com90xx_probe(void)
 		BUGMSG2(D_INIT, "(%d,", airq);
 		openparen = 1;
 
+		/* Everything seems okay.  But which shmem, if any, puts
+		 * back its signature byte when the card is reset?
+		 *
+		 * If there are multiple cards installed, there might be
+		 * multiple shmems still in the list.
+		 */
 #ifdef FAST_PROBE
 		if (numports > 1 || numshmems > 1) {
 			inb(_RESET);
 			mdelay(RESETtime);
 		} else {
-			
+			/* just one shmem and port, assume they match */
 			writeb(TESTvalue, iomem[0]);
 		}
 #else
@@ -334,19 +391,19 @@ static void __init com90xx_probe(void)
 			u_long ptr = shmems[index];
 			void __iomem *base = iomem[index];
 
-			if (readb(base) == TESTvalue) {	
+			if (readb(base) == TESTvalue) {	/* found one */
 				BUGMSG2(D_INIT, "%lXh)\n", *p);
 				openparen = 0;
 
-				
+				/* register the card */
 				if (com90xx_found(*port, airq, ptr, base) == 0)
 					found = 1;
 				numprint = -1;
 
-				
+				/* remove shmem from the list */
 				shmems[index] = shmems[--numshmems];
 				iomem[index] = iomem[numshmems];
-				break;	
+				break;	/* go to the next I/O port */
 			} else {
 				BUGMSG2(D_INIT_REASONS, "%Xh-", readb(base));
 			}
@@ -364,7 +421,7 @@ static void __init com90xx_probe(void)
 
 	BUGLVL(D_INIT_REASONS) printk("\n");
 
-	
+	/* Now put back TESTvalue on all leftover shmems. */
 	for (index = 0; index < numshmems; index++) {
 		writeb(TESTvalue, iomem[index]);
 		iounmap(iomem[index]);
@@ -395,6 +452,9 @@ static int check_mirror(unsigned long addr, size_t size)
 	return res;
 }
 
+/* Set up the struct net_device associated with this card.  Called after
+ * probing succeeds.
+ */
 static int __init com90xx_found(int ioaddr, int airq, u_long shmem, void __iomem *p)
 {
 	struct net_device *dev = NULL;
@@ -402,7 +462,7 @@ static int __init com90xx_found(int ioaddr, int airq, u_long shmem, void __iomem
 	u_long first_mirror, last_mirror;
 	int mirror_size;
 
-	
+	/* allocate struct net_device */
 	dev = alloc_arcdev(device);
 	if (!dev) {
 		BUGMSG2(D_NORMAL, "com90xx: Can't allocate device!\n");
@@ -411,8 +471,12 @@ static int __init com90xx_found(int ioaddr, int airq, u_long shmem, void __iomem
 		return -ENOMEM;
 	}
 	lp = netdev_priv(dev);
-	
+	/* find the real shared memory start/end points, including mirrors */
 
+	/* guess the actual size of one "memory mirror" - the number of
+	 * bytes between copies of the shared memory.  On most cards, it's
+	 * 2k (or there are no mirrors at all) but on some, it's 4k.
+	 */
 	mirror_size = MIRROR_SIZE;
 	if (readb(p) == TESTvalue &&
 	    check_mirror(shmem - MIRROR_SIZE, MIRROR_SIZE) == 0 &&
@@ -438,14 +502,14 @@ static int __init com90xx_found(int ioaddr, int airq, u_long shmem, void __iomem
 	if (!request_mem_region(dev->mem_start, dev->mem_end - dev->mem_start + 1, "arcnet (90xx)"))
 		goto err_free_dev;
 
-	
+	/* reserve the irq */
 	if (request_irq(airq, arcnet_interrupt, 0, "arcnet (90xx)", dev)) {
 		BUGMSG(D_NORMAL, "Can't get IRQ %d!\n", airq);
 		goto err_release_mem;
 	}
 	dev->irq = airq;
 
-	
+	/* Initialize the rest of the device structure. */
 	lp->card_name = "COM90xx";
 	lp->hw.command = com90xx_command;
 	lp->hw.status = com90xx_status;
@@ -460,7 +524,7 @@ static int __init com90xx_found(int ioaddr, int airq, u_long shmem, void __iomem
 		goto err_free_irq;
 	}
 
-	
+	/* get and check the station ID from offset 1 in shmem */
 	dev->dev_addr[0] = readb(lp->mem_start + 1);
 
 	dev->base_addr = ioaddr;
@@ -513,6 +577,14 @@ static void com90xx_setmask(struct net_device *dev, int mask)
 }
 
 
+/*
+ * Do a hardware reset on the card, and set up necessary registers.
+ * 
+ * This should be called as little as possible, because it disrupts the
+ * token on the network (causes a RECON) and requires a significant delay.
+ *
+ * However, it does make sure the card is in a defined state.
+ */
 static int com90xx_reset(struct net_device *dev, int really_reset)
 {
 	struct arcnet_local *lp = netdev_priv(dev);
@@ -521,30 +593,30 @@ static int com90xx_reset(struct net_device *dev, int really_reset)
 	BUGMSG(D_INIT, "Resetting (status=%02Xh)\n", ASTATUS());
 
 	if (really_reset) {
-		
+		/* reset the card */
 		inb(_RESET);
 		mdelay(RESETtime);
 	}
-	ACOMMAND(CFLAGScmd | RESETclear);	
+	ACOMMAND(CFLAGScmd | RESETclear);	/* clear flags & end reset */
 	ACOMMAND(CFLAGScmd | CONFIGclear);
 
-	
-	
+	/* don't do this until we verify that it doesn't hurt older cards! */
+	/* outb(inb(_CONFIG) | ENABLE16flag, _CONFIG); */
 
-	
+	/* verify that the ARCnet signature byte is present */
 	if (readb(lp->mem_start) != TESTvalue) {
 		if (really_reset)
 			BUGMSG(D_NORMAL, "reset failed: TESTvalue not present.\n");
 		return 1;
 	}
-	
+	/* enable extended (512-byte) packets */
 	ACOMMAND(CONFIGcmd | EXTconf);
 
-	
+	/* clean out all the memory to make debugging make more sense :) */
 	BUGLVL(D_DURING)
 	    memset_io(lp->mem_start, 0x42, 2048);
 
-	
+	/* done!  return success. */
 	return 0;
 }
 
@@ -612,13 +684,13 @@ static int __init com90xx_setup(char *s)
 	}
 
 	switch (ints[0]) {
-	default:		
+	default:		/* ERROR */
 		printk("com90xx: Too many arguments.\n");
-	case 3:		
+	case 3:		/* Mem address */
 		shmem = ints[3];
-	case 2:		
+	case 2:		/* IRQ */
 		irq = ints[2];
-	case 1:		
+	case 1:		/* IO address */
 		io = ints[1];
 	}
 

@@ -20,6 +20,10 @@
 #define VREG_CONSUMERS(_id) \
 	static struct regulator_consumer_supply vreg_consumers_##_id[]
 
+/*
+ * Consumer specific regulator names:
+ *			 regulator name		consumer dev_name
+ */
 VREG_CONSUMERS(L2) = {
 	REGULATOR_SUPPLY("8018_l2",		NULL),
 	REGULATOR_SUPPLY("HSUSB_1p8",		"msm_otg"),
@@ -172,6 +176,7 @@ VREG_CONSUMERS(VDD_DIG_CORNER) = {
 		_pull_down, _always_on, _supply_regulator, 0, _enable_time, \
 		_reg_id)
 
+/* Pin control initialization */
 #define PM8XXX_PC(_id, _name, _always_on, _pin_fn, _pin_ctrl, \
 		  _supply_regulator, _reg_id) \
 	{ \
@@ -269,6 +274,7 @@ VREG_CONSUMERS(VDD_DIG_CORNER) = {
 		 RPM_VREG_STATE_OFF, _sleep_selectable, _always_on, \
 		 _supply_regulator, 0)
 
+/* Pin control initialization */
 #define RPM_PC_INIT(_id, _always_on, _pin_fn, _pin_ctrl, _supply_regulator) \
 	{ \
 		.init_data = { \
@@ -301,24 +307,26 @@ VREG_CONSUMERS(VDD_DIG_CORNER) = {
 		.gpio		= _gpio, \
 	}
 
+/* GPIO regulator constraints */
 struct gpio_regulator_platform_data msm_gpio_regulator_pdata[] = {
 	GPIO_VREG_INIT(EXT_2P95V, "ext_2p95v", "ext_2p95_en", 18),
 };
 
+/* PM8018 regulator constraints */
 struct pm8xxx_regulator_platform_data
 msm_pm8018_regulator_pdata[] __devinitdata = {
 };
 
 static struct rpm_regulator_init_data
 msm_rpm_regulator_init_data[] __devinitdata = {
-	
+	/*	 ID    a_on pd ss min_uV   max_uV  supply sys_uA  freq */
 	RPM_SMPS(S1,     0, 1, 1,  500000, 1150000, NULL, 100000, 1p60),
 	RPM_SMPS(S2,     0, 1, 0, 1225000, 1300000, NULL, 0,	  1p60),
 	RPM_SMPS(S3,     1, 1, 0, 1800000, 1800000, NULL, 100000, 1p60),
 	RPM_SMPS(S4,     0, 1, 0, 2100000, 2200000, NULL, 0,	  1p60),
 	RPM_SMPS(S5,     1, 1, 0, 1350000, 1350000, NULL, 100000, 1p60),
 
-	
+	/*	 ID    a_on pd ss min_uV   max_uV  supply  sys_uA init_ip */
 	RPM_LDO(L2,      1, 1, 0, 1800000, 1800000, NULL,      0, 10000),
 	RPM_LDO(L3,      1, 1, 0, 1800000, 1800000, NULL,      0, 0),
 	RPM_LDO(L4,      0, 1, 0, 3075000, 3075000, NULL,      0, 0),
@@ -333,10 +341,10 @@ msm_rpm_regulator_init_data[] __devinitdata = {
 	RPM_LDO(L13,     0, 1, 0, 1850000, 2950000, NULL,      0, 0),
 	RPM_LDO(L14,     0, 1, 0, 2850000, 2850000, NULL,      0, 0),
 
-	
+	/*	ID    a_on pd ss		    supply */
 	RPM_VS(LVS1,    0, 1, 0,		    "8018_s3"),
 
-	
+	/*	   ID            a_on ss min_corner  max_corner  supply */
 	RPM_CORNER(VDD_DIG_CORNER, 0, 1, RPM_VREG_CORNER_NONE,
 		RPM_VREG_CORNER_HIGH, NULL),
 };

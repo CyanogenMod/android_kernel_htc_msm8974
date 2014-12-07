@@ -25,4 +25,4 @@
 
 # include <linux/unaligned/generic.h>
 
-#endif 
+#endif /* _ASM_MIPS_UNALIGNED_H */

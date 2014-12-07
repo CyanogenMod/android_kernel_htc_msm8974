@@ -50,41 +50,50 @@
 
 static void __init afeb9260_init_early(void)
 {
-	
+	/* Initialize processor: 18.432 MHz crystal */
 	at91_initialize(18432000);
 
-	
+	/* DBGU on ttyS0. (Rx & Tx only) */
 	at91_register_uart(0, 0, 0);
 
-	
+	/* USART0 on ttyS1. (Rx, Tx, CTS, RTS, DTR, DSR, DCD, RI) */
 	at91_register_uart(AT91SAM9260_ID_US0, 1,
 			     ATMEL_UART_CTS | ATMEL_UART_RTS
 			   | ATMEL_UART_DTR | ATMEL_UART_DSR
 			   | ATMEL_UART_DCD | ATMEL_UART_RI);
 
-	
+	/* USART1 on ttyS2. (Rx, Tx, RTS, CTS) */
 	at91_register_uart(AT91SAM9260_ID_US1, 2,
 			ATMEL_UART_CTS | ATMEL_UART_RTS);
 
-	
+	/* set serial console to ttyS0 (ie, DBGU) */
 	at91_set_serial_console(0);
 }
 
+/*
+ * USB Host port
+ */
 static struct at91_usbh_data __initdata afeb9260_usbh_data = {
 	.ports		= 1,
 	.vbus_pin	= {-EINVAL, -EINVAL},
 	.overcurrent_pin= {-EINVAL, -EINVAL},
 };
 
+/*
+ * USB Device port
+ */
 static struct at91_udc_data __initdata afeb9260_udc_data = {
 	.vbus_pin	= AT91_PIN_PC5,
-	.pullup_pin	= -EINVAL,		
+	.pullup_pin	= -EINVAL,		/* pull-up driven by UDC */
 };
 
 
 
+/*
+ * SPI devices.
+ */
 static struct spi_board_info afeb9260_spi_devices[] = {
-	{	
+	{	/* DataFlash chip */
 		.modalias	= "mtd_dataflash",
 		.chip_select	= 1,
 		.max_speed_hz	= 15 * 1000 * 1000,
@@ -93,12 +102,18 @@ static struct spi_board_info afeb9260_spi_devices[] = {
 };
 
 
+/*
+ * MACB Ethernet device
+ */
 static struct macb_platform_data __initdata afeb9260_macb_data = {
 	.phy_irq_pin	= AT91_PIN_PA9,
 	.is_rmii	= 0,
 };
 
 
+/*
+ * NAND flash
+ */
 static struct mtd_partition __initdata afeb9260_nand_partition[] = {
 	{
 		.name	= "bootloader",
@@ -130,6 +145,9 @@ static struct atmel_nand_data __initdata afeb9260_nand_data = {
 };
 
 
+/*
+ * MCI (SD/MMC)
+ */
 static struct at91_mmc_data __initdata afeb9260_mmc_data = {
 	.det_pin 	= AT91_PIN_PC9,
 	.wp_pin 	= AT91_PIN_PC4,
@@ -150,6 +168,9 @@ static struct i2c_board_info __initdata afeb9260_i2c_devices[] = {
 	},
 };
 
+/*
+ * IDE (CF True IDE mode)
+ */
 static struct at91_cf_data afeb9260_cf_data = {
 	.chipselect = 4,
 	.irq_pin    = AT91_PIN_PA6,
@@ -161,35 +182,38 @@ static struct at91_cf_data afeb9260_cf_data = {
 
 static void __init afeb9260_board_init(void)
 {
-	
+	/* Serial */
 	at91_add_device_serial();
-	
+	/* USB Host */
 	at91_add_device_usbh(&afeb9260_usbh_data);
-	
+	/* USB Device */
 	at91_add_device_udc(&afeb9260_udc_data);
-	
+	/* SPI */
 	at91_add_device_spi(afeb9260_spi_devices,
 			ARRAY_SIZE(afeb9260_spi_devices));
-	
+	/* NAND */
 	at91_add_device_nand(&afeb9260_nand_data);
-	
+	/* Ethernet */
 	at91_add_device_eth(&afeb9260_macb_data);
 
-	at91_set_B_periph(AT91_PIN_PA10, 0);	
-	at91_set_B_periph(AT91_PIN_PA11, 0);	
-	
+	/* Standard function's pin assignments are not
+	 * appropriate for us and generic code provide
+	 * no API to configure these pins any other way */
+	at91_set_B_periph(AT91_PIN_PA10, 0);	/* ETX2 */
+	at91_set_B_periph(AT91_PIN_PA11, 0);	/* ETX3 */
+	/* MMC */
 	at91_add_device_mmc(0, &afeb9260_mmc_data);
-	
+	/* I2C */
 	at91_add_device_i2c(afeb9260_i2c_devices,
 			ARRAY_SIZE(afeb9260_i2c_devices));
-	
+	/* Audio */
 	at91_add_device_ssc(AT91SAM9260_ID_SSC, ATMEL_SSC_TX);
-	
+	/* IDE */
 	at91_add_device_cf(&afeb9260_cf_data);
 }
 
 MACHINE_START(AFEB9260, "Custom afeb9260 board")
-	
+	/* Maintainer: Sergey Lapin <slapin@ossfans.org> */
 	.timer		= &at91sam926x_timer,
 	.map_io		= at91_map_io,
 	.init_early	= afeb9260_init_early,

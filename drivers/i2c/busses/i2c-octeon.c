@@ -27,11 +27,14 @@
 
 #define DRV_NAME "i2c-octeon"
 
+/* The previous out-of-tree version was implicitly version 1.0. */
 #define DRV_VERSION	"2.0"
 
+/* register offsets */
 #define SW_TWSI	 0x00
 #define TWSI_INT 0x10
 
+/* Controller command patterns */
 #define SW_TWSI_V               0x8000000000000000ull
 #define SW_TWSI_EOP_TWSI_DATA   0x0C00000100000000ull
 #define SW_TWSI_EOP_TWSI_CTL    0x0C00000200000000ull
@@ -41,6 +44,7 @@
 #define SW_TWSI_OP_TWSI_CLK     0x0800000000000000ull
 #define SW_TWSI_R               0x0100000000000000ull
 
+/* Controller command and status bits */
 #define TWSI_CTL_CE   0x80
 #define TWSI_CTL_ENAB 0x40
 #define TWSI_CTL_STA  0x20
@@ -48,6 +52,7 @@
 #define TWSI_CTL_IFLG 0x08
 #define TWSI_CTL_AAK  0x04
 
+/* Some status values */
 #define STAT_START      0x08
 #define STAT_RSTART     0x10
 #define STAT_TXADDR_ACK 0x18
@@ -88,6 +93,15 @@ static void octeon_i2c_write_sw(struct octeon_i2c *i2c,
 	} while ((tmp & SW_TWSI_V) != 0);
 }
 
+/**
+ * octeon_i2c_read_sw - write an I2C core register.
+ * @i2c: The struct octeon_i2c.
+ * @eop_reg: Register selector.
+ *
+ * Returns the data.
+ *
+ * The I2C core registers are accessed indirectly via the SW_TWSI CSR.
+ */
 static u8 octeon_i2c_read_sw(struct octeon_i2c *i2c, u64 eop_reg)
 {
 	u64 tmp;
@@ -113,16 +127,35 @@ static void octeon_i2c_write_int(struct octeon_i2c *i2c, u64 data)
 	tmp = __raw_readq(i2c->twsi_base + TWSI_INT);
 }
 
+/**
+ * octeon_i2c_int_enable - enable the TS interrupt.
+ * @i2c: The struct octeon_i2c.
+ *
+ * The interrupt will be asserted when there is non-STAT_IDLE state in
+ * the SW_TWSI_EOP_TWSI_STAT register.
+ */
 static void octeon_i2c_int_enable(struct octeon_i2c *i2c)
 {
 	octeon_i2c_write_int(i2c, 0x40);
 }
 
+/**
+ * octeon_i2c_int_disable - disable the TS interrupt.
+ * @i2c: The struct octeon_i2c.
+ */
 static void octeon_i2c_int_disable(struct octeon_i2c *i2c)
 {
 	octeon_i2c_write_int(i2c, 0);
 }
 
+/**
+ * octeon_i2c_unblock - unblock the bus.
+ * @i2c: The struct octeon_i2c.
+ *
+ * If there was a reset while a device was driving 0 to bus,
+ * bus is blocked. We toggle it free manually by some clock
+ * cycles and send a stop.
+ */
 static void octeon_i2c_unblock(struct octeon_i2c *i2c)
 {
 	int i;
@@ -141,6 +174,11 @@ static void octeon_i2c_unblock(struct octeon_i2c *i2c)
 	octeon_i2c_write_int(i2c, 0x0);
 }
 
+/**
+ * octeon_i2c_isr - the interrupt service routine.
+ * @int: The irq, unused.
+ * @dev_id: Our struct octeon_i2c.
+ */
 static irqreturn_t octeon_i2c_isr(int irq, void *dev_id)
 {
 	struct octeon_i2c *i2c = dev_id;
@@ -157,6 +195,12 @@ static int octeon_i2c_test_iflg(struct octeon_i2c *i2c)
 	return (octeon_i2c_read_sw(i2c, SW_TWSI_EOP_TWSI_CTL) & TWSI_CTL_IFLG) != 0;
 }
 
+/**
+ * octeon_i2c_wait - wait for the IFLG to be set.
+ * @i2c: The struct octeon_i2c.
+ *
+ * Returns 0 on success, otherwise a negative errno.
+ */
 static int octeon_i2c_wait(struct octeon_i2c *i2c)
 {
 	int result;
@@ -180,6 +224,12 @@ static int octeon_i2c_wait(struct octeon_i2c *i2c)
 	return 0;
 }
 
+/**
+ * octeon_i2c_start - send START to the bus.
+ * @i2c: The struct octeon_i2c.
+ *
+ * Returns 0 on success, otherwise a negative errno.
+ */
 static int octeon_i2c_start(struct octeon_i2c *i2c)
 {
 	u8 data;
@@ -191,6 +241,11 @@ static int octeon_i2c_start(struct octeon_i2c *i2c)
 	result = octeon_i2c_wait(i2c);
 	if (result) {
 		if (octeon_i2c_read_sw(i2c, SW_TWSI_EOP_TWSI_STAT) == STAT_IDLE) {
+			/*
+			 * Controller refused to send start flag May
+			 * be a client is holding SDA low - let's try
+			 * to free it.
+			 */
 			octeon_i2c_unblock(i2c);
 			octeon_i2c_write_sw(i2c, SW_TWSI_EOP_TWSI_CTL,
 					    TWSI_CTL_ENAB | TWSI_CTL_STA);
@@ -210,6 +265,12 @@ static int octeon_i2c_start(struct octeon_i2c *i2c)
 	return 0;
 }
 
+/**
+ * octeon_i2c_stop - send STOP to the bus.
+ * @i2c: The struct octeon_i2c.
+ *
+ * Returns 0 on success, otherwise a negative errno.
+ */
 static int octeon_i2c_stop(struct octeon_i2c *i2c)
 {
 	u8 data;
@@ -226,6 +287,17 @@ static int octeon_i2c_stop(struct octeon_i2c *i2c)
 	return 0;
 }
 
+/**
+ * octeon_i2c_write - send data to the bus.
+ * @i2c: The struct octeon_i2c.
+ * @target: Target address.
+ * @data: Pointer to the data to be sent.
+ * @length: Length of the data.
+ *
+ * The address is sent over the bus, then the data.
+ *
+ * Returns 0 on success, otherwise a negative errno.
+ */
 static int octeon_i2c_write(struct octeon_i2c *i2c, int target,
 			    const u8 *data, int length)
 {
@@ -263,6 +335,17 @@ static int octeon_i2c_write(struct octeon_i2c *i2c, int target,
 	return 0;
 }
 
+/**
+ * octeon_i2c_read - receive data from the bus.
+ * @i2c: The struct octeon_i2c.
+ * @target: Target address.
+ * @data: Pointer to the location to store the datae .
+ * @length: Length of the data.
+ *
+ * The address is sent over the bus, then the data is read.
+ *
+ * Returns 0 on success, otherwise a negative errno.
+ */
 static int octeon_i2c_read(struct octeon_i2c *i2c, int target,
 			   u8 *data, int length)
 {
@@ -308,6 +391,15 @@ static int octeon_i2c_read(struct octeon_i2c *i2c, int target,
 	return 0;
 }
 
+/**
+ * octeon_i2c_xfer - The driver's master_xfer function.
+ * @adap: Pointer to the i2c_adapter structure.
+ * @msgs: Pointer to the messages to be processed.
+ * @num: Length of the MSGS array.
+ *
+ * Returns the number of messages processed, or a negative errno on
+ * failure.
+ */
 static int octeon_i2c_xfer(struct i2c_adapter *adap,
 			   struct i2c_msg *msgs,
 			   int num)
@@ -352,13 +444,25 @@ static struct i2c_adapter octeon_i2c_ops = {
 	.timeout = 2,
 };
 
+/**
+ * octeon_i2c_setclock - Calculate and set clock divisors.
+ */
 static int __devinit octeon_i2c_setclock(struct octeon_i2c *i2c)
 {
 	int tclk, thp_base, inc, thp_idx, mdiv_idx, ndiv_idx, foscl, diff;
 	int thp = 0x18, mdiv = 2, ndiv = 0, delta_hz = 1000000;
 
 	for (ndiv_idx = 0; ndiv_idx < 8 && delta_hz != 0; ndiv_idx++) {
+		/*
+		 * An mdiv value of less than 2 seems to not work well
+		 * with ds1337 RTCs, so we constrain it to larger
+		 * values.
+		 */
 		for (mdiv_idx = 15; mdiv_idx >= 2 && delta_hz != 0; mdiv_idx--) {
+			/*
+			 * For given ndiv and mdiv values check the
+			 * two closest thp values.
+			 */
 			tclk = i2c->twsi_freq * (mdiv_idx + 1) * 10;
 			tclk *= (1 << ndiv_idx);
 			thp_base = (i2c->sys_freq / (tclk * 2)) - 1;
@@ -391,10 +495,10 @@ static int __devinit octeon_i2c_initlowlevel(struct octeon_i2c *i2c)
 	u8 status;
 	int tries;
 
-	
+	/* disable high level controller, enable bus access */
 	octeon_i2c_write_sw(i2c, SW_TWSI_EOP_TWSI_CTL, TWSI_CTL_ENAB);
 
-	
+	/* reset controller */
 	octeon_i2c_write_sw(i2c, SW_TWSI_EOP_TWSI_RST, 0);
 
 	for (tries = 10; tries; tries--) {
@@ -414,7 +518,7 @@ static int __devinit octeon_i2c_probe(struct platform_device *pdev)
 	struct octeon_i2c_data *i2c_data;
 	struct resource *res_mem;
 
-	
+	/* All adaptors have an irq.  */
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return irq;

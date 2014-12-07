@@ -45,6 +45,7 @@
 #define DEFAULT_VAR_FILTER "!__k???tab_* & !__crc_*"
 #define DEFAULT_FUNC_FILTER "!_*"
 
+/* Session management structure */
 static struct {
 	bool list_events;
 	bool force_add;
@@ -62,6 +63,7 @@ static struct {
 	struct strfilter *filter;
 } params;
 
+/* Parse an event definition. Note that any error must die. */
 static int parse_probe_event(const char *str)
 {
 	struct perf_probe_event *pev = &params.events[params.nevents];
@@ -73,7 +75,7 @@ static int parse_probe_event(const char *str)
 		return -1;
 	}
 
-	
+	/* Parse a perf-probe command into event */
 	ret = parse_perf_probe_command(str, pev);
 	pr_debug("%d arguments\n", pev->nargs);
 
@@ -85,7 +87,7 @@ static int parse_probe_event_argv(int argc, const char **argv)
 	int i, len, ret;
 	char *buf;
 
-	
+	/* Bind up rest arguments */
 	len = 0;
 	for (i = 0; i < argc; i++)
 		len += strlen(argv[i]) + 1;
@@ -286,6 +288,9 @@ int cmd_probe(int argc, const char **argv, const char *prefix __used)
 	     !params.show_lines && !params.show_funcs))
 		usage_with_options(probe_usage, options);
 
+	/*
+	 * Only consider the user's kernel image path if given.
+	 */
 	symbol_conf.try_vmlinux_path = (symbol_conf.vmlinux_name == NULL);
 
 	if (params.list_events) {

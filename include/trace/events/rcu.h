@@ -6,6 +6,17 @@
 
 #include <linux/tracepoint.h>
 
+/*
+ * Tracepoint for start/end markers used for utilization calculations.
+ * By convention, the string is of the following forms:
+ *
+ * "Start <activity>" -- Mark the start of the specified activity,
+ *			 such as "context switch".  Nesting is permitted.
+ * "End <activity>" -- Mark the end of the specified activity.
+ *
+ * An "@" character within "<activity>" is a comment character: Data
+ * reduction scripts will ignore the "@" and the remainder of the line.
+ */
 TRACE_EVENT(rcu_utilization,
 
 	TP_PROTO(char *s),
@@ -27,6 +38,15 @@ TRACE_EVENT(rcu_utilization,
 
 #if defined(CONFIG_TREE_RCU) || defined(CONFIG_TREE_PREEMPT_RCU)
 
+/*
+ * Tracepoint for grace-period events: starting and ending a grace
+ * period ("start" and "end", respectively), a CPU noting the start
+ * of a new grace period or the end of an old grace period ("cpustart"
+ * and "cpuend", respectively), a CPU passing through a quiescent
+ * state ("cpuqs"), a CPU coming online or going offline ("cpuonl"
+ * and "cpuofl", respectively), and a CPU being kicked for being too
+ * long in dyntick-idle mode ("kick").
+ */
 TRACE_EVENT(rcu_grace_period,
 
 	TP_PROTO(char *rcuname, unsigned long gpnum, char *gpevent),
@@ -49,6 +69,13 @@ TRACE_EVENT(rcu_grace_period,
 		  __entry->rcuname, __entry->gpnum, __entry->gpevent)
 );
 
+/*
+ * Tracepoint for grace-period-initialization events.  These are
+ * distinguished by the type of RCU, the new grace-period number, the
+ * rcu_node structure level, the starting and ending CPU covered by the
+ * rcu_node structure, and the mask of CPUs that will be waited for.
+ * All but the type of RCU are extracted from the rcu_node structure.
+ */
 TRACE_EVENT(rcu_grace_period_init,
 
 	TP_PROTO(char *rcuname, unsigned long gpnum, u8 level,
@@ -79,6 +106,12 @@ TRACE_EVENT(rcu_grace_period_init,
 		  __entry->grplo, __entry->grphi, __entry->qsmask)
 );
 
+/*
+ * Tracepoint for tasks blocking within preemptible-RCU read-side
+ * critical sections.  Track the type of RCU (which one day might
+ * include SRCU), the grace-period number that the task is blocking
+ * (the current or the next), and the task's PID.
+ */
 TRACE_EVENT(rcu_preempt_task,
 
 	TP_PROTO(char *rcuname, int pid, unsigned long gpnum),
@@ -101,6 +134,11 @@ TRACE_EVENT(rcu_preempt_task,
 		  __entry->rcuname, __entry->gpnum, __entry->pid)
 );
 
+/*
+ * Tracepoint for tasks that blocked within a given preemptible-RCU
+ * read-side critical section exiting that critical section.  Track the
+ * type of RCU (which one day might include SRCU) and the task's PID.
+ */
 TRACE_EVENT(rcu_unlock_preempted_task,
 
 	TP_PROTO(char *rcuname, unsigned long gpnum, int pid),
@@ -122,6 +160,14 @@ TRACE_EVENT(rcu_unlock_preempted_task,
 	TP_printk("%s %lu %d", __entry->rcuname, __entry->gpnum, __entry->pid)
 );
 
+/*
+ * Tracepoint for quiescent-state-reporting events.  These are
+ * distinguished by the type of RCU, the grace-period number, the
+ * mask of quiescent lower-level entities, the rcu_node structure level,
+ * the starting and ending CPU covered by the rcu_node structure, and
+ * whether there are any blocked tasks blocking the current grace period.
+ * All but the type of RCU are extracted from the rcu_node structure.
+ */
 TRACE_EVENT(rcu_quiescent_state_report,
 
 	TP_PROTO(char *rcuname, unsigned long gpnum,
@@ -158,6 +204,14 @@ TRACE_EVENT(rcu_quiescent_state_report,
 		  __entry->grplo, __entry->grphi, __entry->gp_tasks)
 );
 
+/*
+ * Tracepoint for quiescent states detected by force_quiescent_state().
+ * These trace events include the type of RCU, the grace-period number
+ * that was blocked by the CPU, the CPU itself, and the type of quiescent
+ * state, which can be "dti" for dyntick-idle mode, "ofl" for CPU offline,
+ * or "kick" when kicking a CPU that has been in dyntick-idle mode for
+ * too long.
+ */
 TRACE_EVENT(rcu_fqs,
 
 	TP_PROTO(char *rcuname, unsigned long gpnum, int cpu, char *qsevent),
@@ -183,8 +237,21 @@ TRACE_EVENT(rcu_fqs,
 		  __entry->cpu, __entry->qsevent)
 );
 
-#endif 
+#endif /* #if defined(CONFIG_TREE_RCU) || defined(CONFIG_TREE_PREEMPT_RCU) */
 
+/*
+ * Tracepoint for dyntick-idle entry/exit events.  These take a string
+ * as argument: "Start" for entering dyntick-idle mode, "End" for
+ * leaving it, "--=" for events moving towards idle, and "++=" for events
+ * moving away from idle.  "Error on entry: not idle task" and "Error on
+ * exit: not idle task" indicate that a non-idle task is erroneously
+ * toying with the idle loop.
+ *
+ * These events also take a pair of numbers, which indicate the nesting
+ * depth before and after the event of interest.  Note that task-related
+ * events use the upper bits of each number, while interrupt-related
+ * events use the lower bits.
+ */
 TRACE_EVENT(rcu_dyntick,
 
 	TP_PROTO(char *polarity, long long oldnesting, long long newnesting),
@@ -222,12 +289,9 @@ TRACE_EVENT(rcu_dyntick,
  *	"In holdoff": Nothing to do, holding off after unsuccessful attempt.
  *	"Begin holdoff": Attempt failed, don't retry until next jiffy.
  *	"Dyntick with callbacks": Entering dyntick-idle despite callbacks.
- *	"Dyntick with lazy callbacks": Entering dyntick-idle w/lazy callbacks.
  *	"More callbacks": Still more callbacks, try again to clear them out.
  *	"Callbacks drained": All callbacks processed, off to dyntick idle!
  *	"Timer": Timer fired to cause CPU to continue processing callbacks.
- *	"Demigrate": Timer fired on wrong CPU, woke up correct CPU.
- *	"Cleanup after idle": Idle exited, timer canceled.
  */
 TRACE_EVENT(rcu_prep_idle,
 
@@ -246,6 +310,13 @@ TRACE_EVENT(rcu_prep_idle,
 	TP_printk("%s", __entry->reason)
 );
 
+/*
+ * Tracepoint for the registration of a single RCU callback function.
+ * The first argument is the type of RCU, the second argument is
+ * a pointer to the RCU callback itself, the third element is the
+ * number of lazy callbacks queued, and the fourth element is the
+ * total number of callbacks queued.
+ */
 TRACE_EVENT(rcu_callback,
 
 	TP_PROTO(char *rcuname, struct rcu_head *rhp, long qlen_lazy,
@@ -274,6 +345,14 @@ TRACE_EVENT(rcu_callback,
 		  __entry->qlen_lazy, __entry->qlen)
 );
 
+/*
+ * Tracepoint for the registration of a single RCU callback of the special
+ * kfree() form.  The first argument is the RCU type, the second argument
+ * is a pointer to the RCU callback, the third argument is the offset
+ * of the callback within the enclosing RCU-protected data structure,
+ * the fourth argument is the number of lazy callbacks queued, and the
+ * fifth argument is the total number of callbacks queued.
+ */
 TRACE_EVENT(rcu_kfree_callback,
 
 	TP_PROTO(char *rcuname, struct rcu_head *rhp, unsigned long offset,
@@ -302,6 +381,13 @@ TRACE_EVENT(rcu_kfree_callback,
 		  __entry->qlen_lazy, __entry->qlen)
 );
 
+/*
+ * Tracepoint for marking the beginning rcu_do_batch, performed to start
+ * RCU callback invocation.  The first argument is the RCU flavor,
+ * the second is the number of lazy callbacks queued, the third is
+ * the total number of callbacks queued, and the fourth argument is
+ * the current RCU-callback batch limit.
+ */
 TRACE_EVENT(rcu_batch_start,
 
 	TP_PROTO(char *rcuname, long qlen_lazy, long qlen, int blimit),
@@ -327,6 +413,11 @@ TRACE_EVENT(rcu_batch_start,
 		  __entry->blimit)
 );
 
+/*
+ * Tracepoint for the invocation of a single RCU callback function.
+ * The first argument is the type of RCU, and the second argument is
+ * a pointer to the RCU callback itself.
+ */
 TRACE_EVENT(rcu_invoke_callback,
 
 	TP_PROTO(char *rcuname, struct rcu_head *rhp),
@@ -349,6 +440,13 @@ TRACE_EVENT(rcu_invoke_callback,
 		  __entry->rcuname, __entry->rhp, __entry->func)
 );
 
+/*
+ * Tracepoint for the invocation of a single RCU callback of the special
+ * kfree() form.  The first argument is the RCU flavor, the second
+ * argument is a pointer to the RCU callback, and the third argument
+ * is the offset of the callback within the enclosing RCU-protected
+ * data structure.
+ */
 TRACE_EVENT(rcu_invoke_kfree_callback,
 
 	TP_PROTO(char *rcuname, struct rcu_head *rhp, unsigned long offset),
@@ -371,6 +469,17 @@ TRACE_EVENT(rcu_invoke_kfree_callback,
 		  __entry->rcuname, __entry->rhp, __entry->offset)
 );
 
+/*
+ * Tracepoint for exiting rcu_do_batch after RCU callbacks have been
+ * invoked.  The first argument is the name of the RCU flavor,
+ * the second argument is number of callbacks actually invoked,
+ * the third argument (cb) is whether or not any of the callbacks that
+ * were ready to invoke at the beginning of this batch are still
+ * queued, the fourth argument (nr) is the return value of need_resched(),
+ * the fifth argument (iit) is 1 if the current task is the idle task,
+ * and the sixth argument (risk) is the return value from
+ * rcu_is_callbacks_kthread().
+ */
 TRACE_EVENT(rcu_batch_end,
 
 	TP_PROTO(char *rcuname, int callbacks_invoked,
@@ -404,6 +513,11 @@ TRACE_EVENT(rcu_batch_end,
 		  __entry->risk ? 'R' : '.')
 );
 
+/*
+ * Tracepoint for rcutorture readers.  The first argument is the name
+ * of the RCU flavor from rcutorture's viewpoint and the second argument
+ * is the callback address.
+ */
 TRACE_EVENT(rcu_torture_read,
 
 	TP_PROTO(char *rcutorturename, struct rcu_head *rhp),
@@ -424,7 +538,7 @@ TRACE_EVENT(rcu_torture_read,
 		  __entry->rcutorturename, __entry->rhp)
 );
 
-#else 
+#else /* #ifdef CONFIG_RCU_TRACE */
 
 #define trace_rcu_grace_period(rcuname, gpnum, gpevent) do { } while (0)
 #define trace_rcu_grace_period_init(rcuname, gpnum, level, grplo, grphi, \
@@ -448,8 +562,9 @@ TRACE_EVENT(rcu_torture_read,
 	do { } while (0)
 #define trace_rcu_torture_read(rcutorturename, rhp) do { } while (0)
 
-#endif 
+#endif /* #else #ifdef CONFIG_RCU_TRACE */
 
-#endif 
+#endif /* _TRACE_RCU_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

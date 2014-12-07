@@ -57,12 +57,12 @@ int sbusfb_mmap_helper(struct sbus_mmap_map *map,
 
 	off = vma->vm_pgoff << PAGE_SHIFT;
 
-	
+	/* To stop the swapper from even considering these pages */
 	vma->vm_flags |= (VM_IO | VM_RESERVED);
 	
 	vma->vm_page_prot = pgprot_noncached(vma->vm_page_prot);
 
-	
+	/* Each page, see which map applies */
 	for (page = 0; page < size; ){
 		map_size = 0;
 		for (i = 0; map[i].size; i++)
@@ -248,7 +248,8 @@ int sbusfb_compat_ioctl(struct fb_info *info, unsigned int cmd, unsigned long ar
 	case FBIOGATTR:
 	case FBIOSVIDEO:
 	case FBIOGVIDEO:
-	case FBIOGCURSOR32:	
+	case FBIOGCURSOR32:	/* This is not implemented yet.
+				   Later it should be converted... */
 	case FBIOSCURPOS:
 	case FBIOGCURPOS:
 	case FBIOGCURMAX:

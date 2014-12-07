@@ -1,3 +1,6 @@
+/*
+ * ATi AGPGART routines.
+ */
 
 #include <linux/types.h>
 #include <linux/module.h>
@@ -63,7 +66,7 @@ static int ati_create_page_map(struct ati_page_map *page_map)
 
 	for (i = 0; i < PAGE_SIZE / sizeof(unsigned long); i++) {
 		writel(agp_bridge->scratch_page, page_map->remapped+i);
-		readl(page_map->remapped+i);	
+		readl(page_map->remapped+i);	/* PCI Posting. */
 	}
 
 	return 0;
@@ -167,7 +170,7 @@ static int ati_fetch_size(void)
 static void ati_tlbflush(struct agp_memory * mem)
 {
 	writel(1, ati_generic_private.registers+ATI_GART_CACHE_CNTRL);
-	readl(ati_generic_private.registers+ATI_GART_CACHE_CNTRL);	
+	readl(ati_generic_private.registers+ATI_GART_CACHE_CNTRL);	/* PCI Posting. */
 }
 
 static void ati_cleanup(void)
@@ -177,7 +180,7 @@ static void ati_cleanup(void)
 
 	previous_size = A_SIZE_LVL2(agp_bridge->previous_size);
 
-	
+	/* Write back the previous size and disable gart translation */
 	if (is_r200()) {
 		pci_read_config_dword(agp_bridge->dev, ATI_RS100_APSIZE, &temp);
 		temp = ((temp & ~(0x0000000f)) | previous_size->size_value);
@@ -195,7 +198,7 @@ static int ati_configure(void)
 {
 	u32 temp;
 
-	
+	/* Get the memory mapped registers */
 	pci_read_config_dword(agp_bridge->dev, ATI_GART_MMBASE_ADDR, &temp);
 	temp = (temp & 0xfffff000);
 	ati_generic_private.registers = (volatile u8 __iomem *) ioremap(temp, 4096);
@@ -208,17 +211,22 @@ static int ati_configure(void)
 	else
 		pci_write_config_dword(agp_bridge->dev, ATI_RS300_IG_AGPMODE, 0x20000);
 
-	
+	/* address to map too */
+	/*
+	pci_read_config_dword(agp_bridge.dev, AGP_APBASE, &temp);
+	agp_bridge.gart_bus_addr = (temp & PCI_BASE_ADDRESS_MEM_MASK);
+	printk(KERN_INFO PFX "IGP320 gart_bus_addr: %x\n", agp_bridge.gart_bus_addr);
+	*/
 	writel(0x60000, ati_generic_private.registers+ATI_GART_FEATURE_ID);
-	readl(ati_generic_private.registers+ATI_GART_FEATURE_ID);	
+	readl(ati_generic_private.registers+ATI_GART_FEATURE_ID);	/* PCI Posting.*/
 
-	
+	/* SIGNALED_SYSTEM_ERROR @ NB_STATUS */
 	pci_read_config_dword(agp_bridge->dev, 4, &temp);
 	pci_write_config_dword(agp_bridge->dev, 4, temp | (1<<14));
 
-	
+	/* Write out the address of the gatt table */
 	writel(agp_bridge->gatt_bus_addr, ati_generic_private.registers+ATI_GART_BASE);
-	readl(ati_generic_private.registers+ATI_GART_BASE);	
+	readl(ati_generic_private.registers+ATI_GART_BASE);	/* PCI Posting. */
 
 	return 0;
 }
@@ -242,6 +250,10 @@ static int agp_ati_resume(struct pci_dev *dev)
 }
 #endif
 
+/*
+ *Since we don't need contiguous memory we just try
+ * to get the gatt table once
+ */
 
 #define GET_PAGE_DIR_OFF(addr) (addr >> 22)
 #define GET_PAGE_DIR_IDX(addr) (GET_PAGE_DIR_OFF(addr) - \
@@ -281,7 +293,7 @@ static int ati_insert_memory(struct agp_memory * mem,
 	}
 
 	if (!mem->is_flushed) {
-		
+		/*CACHE_FLUSH(); */
 		global_cache_flush();
 		mem->is_flushed = true;
 	}
@@ -294,7 +306,7 @@ static int ati_insert_memory(struct agp_memory * mem,
 						       mem->type),
 		       cur_gatt+GET_GATT_OFF(addr));
 	}
-	readl(GET_GATT(agp_bridge->gart_bus_addr)); 
+	readl(GET_GATT(agp_bridge->gart_bus_addr)); /* PCI posting */
 	agp_bridge->driver->tlb_flush(mem);
 	return 0;
 }
@@ -320,7 +332,7 @@ static int ati_remove_memory(struct agp_memory * mem, off_t pg_start,
 		writel(agp_bridge->scratch_page, cur_gatt+GET_GATT_OFF(addr));
 	}
 
-	readl(GET_GATT(agp_bridge->gart_bus_addr)); 
+	readl(GET_GATT(agp_bridge->gart_bus_addr)); /* PCI posting */
 	agp_bridge->driver->tlb_flush(mem);
 	return 0;
 }
@@ -351,7 +363,7 @@ static int ati_create_gatt_table(struct agp_bridge_data *bridge)
 	agp_bridge->gatt_table = (u32 __iomem *) page_dir.remapped;
 	agp_bridge->gatt_bus_addr = virt_to_phys(page_dir.real);
 
-	
+	/* Write out the size register */
 	current_size = A_SIZE_LVL2(agp_bridge->current_size);
 
 	if (is_r200()) {
@@ -368,15 +380,20 @@ static int ati_create_gatt_table(struct agp_bridge_data *bridge)
 		pci_read_config_dword(agp_bridge->dev, ATI_RS300_APSIZE, &temp);
 	}
 
+	/*
+	 * Get the address for the gart region.
+	 * This is a bus address even on the alpha, b/c its
+	 * used to program the agp master not the cpu
+	 */
 	pci_read_config_dword(agp_bridge->dev, AGP_APBASE, &temp);
 	addr = (temp & PCI_BASE_ADDRESS_MEM_MASK);
 	agp_bridge->gart_bus_addr = addr;
 
-	
+	/* Calculate the agp offset */
 	for (i = 0; i < value->num_entries / 1024; i++, addr += 0x00400000) {
 		writel(virt_to_phys(ati_generic_private.gatt_pages[i]->real) | 1,
 			page_dir.remapped+GET_PAGE_DIR_OFF(addr));
-		readl(page_dir.remapped+GET_PAGE_DIR_OFF(addr));	
+		readl(page_dir.remapped+GET_PAGE_DIR_OFF(addr));	/* PCI Posting. */
 	}
 
 	for (i = 0; i < value->num_entries; i++) {
@@ -470,7 +487,7 @@ static struct agp_device_ids ati_agp_device_ids[] __devinitdata =
 		.device_id	= PCI_DEVICE_ID_ATI_RS350_200,
 		.chipset_name	= "IGP9100/M",
 	},
-	{ }, 
+	{ }, /* dummy final entry, always present */
 };
 
 static int __devinit agp_ati_probe(struct pci_dev *pdev,
@@ -485,7 +502,7 @@ static int __devinit agp_ati_probe(struct pci_dev *pdev,
 	if (!cap_ptr)
 		return -ENODEV;
 
-	
+	/* probe for known chipsets */
 	for (j = 0; devs[j].chipset_name; j++) {
 		if (pdev->device == devs[j].device_id)
 			goto found;
@@ -507,7 +524,7 @@ found:
 
 	dev_info(&pdev->dev, "Ati %s chipset\n", devs[j].chipset_name);
 
-	
+	/* Fill in the mode register */
 	pci_read_config_dword(pdev,
 			bridge->capndx+PCI_AGP_STATUS,
 			&bridge->mode);

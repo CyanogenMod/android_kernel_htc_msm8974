@@ -57,21 +57,23 @@ EXPORT_SYMBOL(mtd_size);
 char __initdata command_line[COMMAND_LINE_SIZE];
 struct blackfin_initial_pda __initdata initial_pda;
 
-#define BFIN_MEMMAP_MAX		128 
+/* boot memmap, for parsing "memmap=" */
+#define BFIN_MEMMAP_MAX		128 /* number of entries in bfin_memmap */
 #define BFIN_MEMMAP_RAM		1
 #define BFIN_MEMMAP_RESERVED	2
 static struct bfin_memmap {
 	int nr_map;
 	struct bfin_memmap_entry {
-		unsigned long long addr; 
+		unsigned long long addr; /* start of memory segment */
 		unsigned long long size;
 		unsigned long type;
 	} map[BFIN_MEMMAP_MAX];
 } bfin_memmap __initdata;
 
+/* for memmap sanitization */
 struct change_member {
-	struct bfin_memmap_entry *pentry; 
-	unsigned long long addr; 
+	struct bfin_memmap_entry *pentry; /* pointer to original entry */
+	unsigned long long addr; /* address for this change point */
 };
 static struct change_member change_point_list[2*BFIN_MEMMAP_MAX] __initdata;
 static struct change_member *change_point[2*BFIN_MEMMAP_MAX] __initdata;
@@ -88,7 +90,7 @@ void __init generate_cplb_tables(void)
 	unsigned int cpu;
 
 	generate_cplb_tables_all();
-	
+	/* Generate per-CPU I&D CPLB tables */
 	for (cpu = 0; cpu < num_possible_cpus(); ++cpu)
 		generate_cplb_tables_cpu(cpu);
 }
@@ -106,6 +108,12 @@ void __cpuinit bfin_setup_caches(unsigned int cpu)
 
 	bfin_setup_cpudata(cpu);
 
+	/*
+	 * In cache coherence emulation mode, we need to have the
+	 * D-cache enabled before running any atomic operation which
+	 * might involve cache invalidation (i.e. spinlock, rwlock).
+	 * So printk's are deferred until then.
+	 */
 #ifdef CONFIG_BFIN_ICACHE
 	printk(KERN_INFO "Instruction Cache Enabled for CPU%u\n", cpu);
 	printk(KERN_INFO "  External memory:"
@@ -179,18 +187,31 @@ void __init bfin_relocate_l1_mem(void)
 
 	early_shadow_stamp();
 
+	/*
+	 * due to the ALIGN(4) in the arch/blackfin/kernel/vmlinux.lds.S
+	 * we know that everything about l1 text/data is nice and aligned,
+	 * so copy by 4 byte chunks, and don't worry about overlapping
+	 * src/dest.
+	 *
+	 * We can't use the dma_memcpy functions, since they can call
+	 * scheduler functions which might be in L1 :( and core writes
+	 * into L1 instruction cause bad access errors, so we are stuck,
+	 * we are required to use DMA, but can't use the common dma
+	 * functions. We can't use memcpy either - since that might be
+	 * going to be in the relocated L1
+	 */
 
 	blackfin_dma_early_init();
 
-	
+	/* if necessary, copy L1 text to L1 instruction SRAM */
 	if (L1_CODE_LENGTH && text_l1_len)
 		early_dma_memcpy(_stext_l1, _text_l1_lma, text_l1_len);
 
-	
+	/* if necessary, copy L1 data to L1 data bank A SRAM */
 	if (L1_DATA_A_LENGTH && data_l1_len)
 		early_dma_memcpy(_sdata_l1, _data_l1_lma, data_l1_len);
 
-	
+	/* if necessary, copy L1 data B to L1 data bank B SRAM */
 	if (L1_DATA_B_LENGTH && data_b_l1_len)
 		early_dma_memcpy(_sdata_b_l1, _data_b_l1_lma, data_b_l1_len);
 
@@ -200,7 +221,7 @@ void __init bfin_relocate_l1_mem(void)
 	blackfin_iflush_l1_entry[0] = (unsigned long)blackfin_icache_flush_range_l1;
 #endif
 
-	
+	/* if necessary, copy L2 text/data to L2 SRAM */
 	if (L2_LENGTH && l2_len)
 		memcpy(_stext_l2, _l2_lma, l2_len);
 }
@@ -214,17 +235,17 @@ void __init bfin_relocate_coreb_l1_mem(void)
 
 	blackfin_dma_early_init();
 
-	
+	/* if necessary, copy L1 text to L1 instruction SRAM */
 	if (L1_CODE_LENGTH && text_l1_len)
 		early_dma_memcpy((void *)COREB_L1_CODE_START, _text_l1_lma,
 				text_l1_len);
 
-	
+	/* if necessary, copy L1 data to L1 data bank A SRAM */
 	if (L1_DATA_A_LENGTH && data_l1_len)
 		early_dma_memcpy((void *)COREB_L1_DATA_A_START, _data_l1_lma,
 				data_l1_len);
 
-	
+	/* if necessary, copy L1 data B to L1 data bank B SRAM */
 	if (L1_DATA_B_LENGTH && data_b_l1_len)
 		early_dma_memcpy((void *)COREB_L1_DATA_B_START, _data_b_l1_lma,
 				data_b_l1_len);
@@ -248,6 +269,7 @@ void __init bfin_relocate_xip_data(void)
 }
 #endif
 
+/* add_memory_region to memmap */
 static void __init add_memory_region(unsigned long long start,
 			      unsigned long long size, int type)
 {
@@ -266,6 +288,9 @@ static void __init add_memory_region(unsigned long long start,
 	bfin_memmap.nr_map++;
 }
 
+/*
+ * Sanitize the boot memmap, removing overlaps.
+ */
 static int __init sanitize_memmap(struct bfin_memmap_entry *map, int *pnr_map)
 {
 	struct change_member *change_tmp;
@@ -277,21 +302,58 @@ static int __init sanitize_memmap(struct bfin_memmap_entry *map, int *pnr_map)
 	int old_nr, new_nr, chg_nr;
 	int i;
 
-	
+	/*
+		Visually we're performing the following (1,2,3,4 = memory types)
+
+		Sample memory map (w/overlaps):
+		   ____22__________________
+		   ______________________4_
+		   ____1111________________
+		   _44_____________________
+		   11111111________________
+		   ____________________33__
+		   ___________44___________
+		   __________33333_________
+		   ______________22________
+		   ___________________2222_
+		   _________111111111______
+		   _____________________11_
+		   _________________4______
+
+		Sanitized equivalent (no overlap):
+		   1_______________________
+		   _44_____________________
+		   ___1____________________
+		   ____22__________________
+		   ______11________________
+		   _________1______________
+		   __________3_____________
+		   ___________44___________
+		   _____________33_________
+		   _______________2________
+		   ________________1_______
+		   _________________4______
+		   ___________________2____
+		   ____________________33__
+		   ______________________4_
+	*/
+	/* if there's only one memory region, don't bother */
 	if (*pnr_map < 2)
 		return -1;
 
 	old_nr = *pnr_map;
 
-	
+	/* bail out if we find any unreasonable addresses in memmap */
 	for (i = 0; i < old_nr; i++)
 		if (map[i].addr + map[i].size < map[i].addr)
 			return -1;
 
-	
+	/* create pointers for initial change-point information (for sorting) */
 	for (i = 0; i < 2*old_nr; i++)
 		change_point[i] = &change_point_list[i];
 
+	/* record all known change-points (starting and ending addresses),
+	   omitting those that are for empty memory regions */
 	chgidx = 0;
 	for (i = 0; i < old_nr; i++) {
 		if (map[i].size != 0) {
@@ -301,15 +363,15 @@ static int __init sanitize_memmap(struct bfin_memmap_entry *map, int *pnr_map)
 			change_point[chgidx++]->pentry = &map[i];
 		}
 	}
-	chg_nr = chgidx;	
+	chg_nr = chgidx;	/* true number of change-points */
 
-	
+	/* sort change-point list by memory addresses (low -> high) */
 	still_changing = 1;
 	while (still_changing) {
 		still_changing = 0;
 		for (i = 1; i < chg_nr; i++) {
-			
-			
+			/* if <current_addr> > <last_addr>, swap */
+			/* or, if current=<start_addr> & last=<end_addr>, swap */
 			if ((change_point[i]->addr < change_point[i-1]->addr) ||
 				((change_point[i]->addr == change_point[i-1]->addr) &&
 				 (change_point[i]->addr == change_point[i]->pentry->addr) &&
@@ -323,40 +385,40 @@ static int __init sanitize_memmap(struct bfin_memmap_entry *map, int *pnr_map)
 		}
 	}
 
-	
-	overlap_entries = 0;	
-	new_entry = 0;		
-	last_type = 0;		
-	last_addr = 0;		
-	
+	/* create a new memmap, removing overlaps */
+	overlap_entries = 0;	/* number of entries in the overlap table */
+	new_entry = 0;		/* index for creating new memmap entries */
+	last_type = 0;		/* start with undefined memory type */
+	last_addr = 0;		/* start with 0 as last starting address */
+	/* loop through change-points, determining affect on the new memmap */
 	for (chgidx = 0; chgidx < chg_nr; chgidx++) {
-		
+		/* keep track of all overlapping memmap entries */
 		if (change_point[chgidx]->addr == change_point[chgidx]->pentry->addr) {
-			
+			/* add map entry to overlap list (> 1 entry implies an overlap) */
 			overlap_list[overlap_entries++] = change_point[chgidx]->pentry;
 		} else {
-			
+			/* remove entry from list (order independent, so swap with last) */
 			for (i = 0; i < overlap_entries; i++) {
 				if (overlap_list[i] == change_point[chgidx]->pentry)
 					overlap_list[i] = overlap_list[overlap_entries-1];
 			}
 			overlap_entries--;
 		}
-		
-		
+		/* if there are overlapping entries, decide which "type" to use */
+		/* (larger value takes precedence -- 1=usable, 2,3,4,4+=unusable) */
 		current_type = 0;
 		for (i = 0; i < overlap_entries; i++)
 			if (overlap_list[i]->type > current_type)
 				current_type = overlap_list[i]->type;
-		
+		/* continue building up new memmap based on this information */
 		if (current_type != last_type) {
 			if (last_type != 0) {
 				new_map[new_entry].size =
 					change_point[chgidx]->addr - last_addr;
-				
+				/* move forward only if the new size was non-zero */
 				if (new_map[new_entry].size != 0)
 					if (++new_entry >= BFIN_MEMMAP_MAX)
-						break;	
+						break;	/* no more space left for new entries */
 			}
 			if (current_type != 0) {
 				new_map[new_entry].addr = change_point[chgidx]->addr;
@@ -366,9 +428,9 @@ static int __init sanitize_memmap(struct bfin_memmap_entry *map, int *pnr_map)
 			last_type = current_type;
 		}
 	}
-	new_nr = new_entry;	
+	new_nr = new_entry;	/* retain count for new entries */
 
-	
+	/* copy new mapping into original location */
 	memcpy(map, new_map, new_nr*sizeof(struct bfin_memmap_entry));
 	*pnr_map = new_nr;
 
@@ -416,6 +478,16 @@ static __init int parse_memmap(char *arg)
 	return 0;
 }
 
+/*
+ * Initial parsing of the command line.  Currently, we support:
+ *  - Controlling the linux memory size: mem=xxx[KMG]
+ *  - Controlling the physical memory size: max_mem=xxx[KMG][$][#]
+ *       $ -> reserved memory is dcacheable
+ *       # -> reserved memory is icacheable
+ *  - "memmap=XXX[KkmM][@][$]XXX[KkmM]" defines a memory region
+ *       @ from <start> to <start>+<mem>, type RAM
+ *       $ from <start> to <start>+<mem>, type RESERVED
+ */
 static __init void parse_cmdline_early(char *cmdline_p)
 {
 	char c = ' ', *to = cmdline_p;
@@ -461,6 +533,19 @@ static __init void parse_cmdline_early(char *cmdline_p)
 	}
 }
 
+/*
+ * Setup memory defaults from user config.
+ * The physical memory layout looks like:
+ *
+ *  [_rambase, _ramstart]:		kernel image
+ *  [memory_start, memory_end]:		dynamic memory managed by kernel
+ *  [memory_end, _ramend]:		reserved memory
+ *  	[memory_mtd_start(memory_end),
+ *  		memory_mtd_start + mtd_size]:	rootfs (if any)
+ *	[_ramend - DMA_UNCACHED_REGION,
+ *		_ramend]:			uncached DMA region
+ *  [_ramend, physical_mem_end]:	memory not managed by kernel
+ */
 static __init void memory_setup(void)
 {
 #ifdef CONFIG_MTD_UCLINUX
@@ -480,25 +565,29 @@ static __init void memory_setup(void)
 	max_mem = memory_end = _ramend - DMA_UNCACHED_REGION;
 
 #if (defined(CONFIG_BFIN_EXTMEM_ICACHEABLE) && ANOMALY_05000263)
+	/* Due to a Hardware Anomaly we need to limit the size of usable
+	 * instruction memory to max 60MB, 56 if HUNT_FOR_ZERO is on
+	 * 05000263 - Hardware loop corrupted when taking an ICPLB exception
+	 */
 # if (defined(CONFIG_DEBUG_HUNT_FOR_ZERO))
 	if (max_mem >= 56 * 1024 * 1024)
 		max_mem = 56 * 1024 * 1024;
 # else
 	if (max_mem >= 60 * 1024 * 1024)
 		max_mem = 60 * 1024 * 1024;
-# endif				
-#endif				
+# endif				/* CONFIG_DEBUG_HUNT_FOR_ZERO */
+#endif				/* ANOMALY_05000263 */
 
 
 #ifdef CONFIG_MPU
-	
+	/* Round up to multiple of 4MB */
 	memory_start = (_ramstart + 0x3fffff) & ~0x3fffff;
 #else
 	memory_start = PAGE_ALIGN(_ramstart);
 #endif
 
 #if defined(CONFIG_MTD_UCLINUX)
-	
+	/* generic memory mapped MTD driver */
 	memory_mtd_end = memory_end;
 
 	mtd_phys = _ramstart;
@@ -521,28 +610,37 @@ static __init void memory_setup(void)
 		mtd_size =
 		    PAGE_ALIGN(be32_to_cpu(((unsigned long *)mtd_phys)[2]));
 
-		
+		/* ROM_FS is XIP, so if we found it, we need to limit memory */
 		if (memory_end > max_mem) {
 			pr_info("Limiting kernel memory to %liMB due to anomaly 05000263\n", max_mem >> 20);
 			memory_end = max_mem;
 		}
 	}
-# endif				
+# endif				/* CONFIG_ROMFS_FS */
 
+	/* Since the default MTD_UCLINUX has no magic number, we just blindly
+	 * read 8 past the end of the kernel's image, and look at it.
+	 * When no image is attached, mtd_size is set to a random number
+	 * Do some basic sanity checks before operating on things
+	 */
 	if (mtd_size == 0 || memory_end <= mtd_size) {
 		pr_emerg("Could not find valid ram mtd attached.\n");
 	} else {
 		memory_end -= mtd_size;
 
-		
+		/* Relocate MTD image to the top of memory after the uncached memory area */
 		uclinux_ram_map.phys = memory_mtd_start = memory_end;
 		uclinux_ram_map.size = mtd_size;
 		pr_info("Found mtd parition at 0x%p, (len=0x%lx), moving to 0x%p\n",
 			_end, mtd_size, (void *)memory_mtd_start);
 		dma_memcpy((void *)uclinux_ram_map.phys, _end, uclinux_ram_map.size);
 	}
-#endif				
+#endif				/* CONFIG_MTD_UCLINUX */
 
+	/* We need lo limit memory, since everything could have a text section
+	 * of userspace in it, and expose anomaly 05000263. If the anomaly
+	 * doesn't exist, or we don't need to - then dont.
+	 */
 	if (memory_end > max_mem) {
 		pr_info("Limiting kernel memory to %liMB due to anomaly 05000263\n", max_mem >> 20);
 		memory_end = max_mem;
@@ -599,6 +697,9 @@ static __init void memory_setup(void)
 		);
 }
 
+/*
+ * Find the lowest, highest page frame number we have available
+ */
 void __init find_min_max_pfn(void)
 {
 	int i;
@@ -608,7 +709,7 @@ void __init find_min_max_pfn(void)
 
 	for (i = 0; i < bfin_memmap.nr_map; i++) {
 		unsigned long start, end;
-		
+		/* RAM? */
 		if (bfin_memmap.map[i].type != BFIN_MEMMAP_RAM)
 			continue;
 		start = PFN_UP(bfin_memmap.map[i].addr);
@@ -630,44 +731,61 @@ static __init void setup_bootmem_allocator(void)
 	unsigned long start_pfn, end_pfn;
 	unsigned long curr_pfn, last_pfn, size;
 
-	
+	/* mark memory between memory_start and memory_end usable */
 	add_memory_region(memory_start,
 		memory_end - memory_start, BFIN_MEMMAP_RAM);
-	
+	/* sanity check for overlap */
 	sanitize_memmap(bfin_memmap.map, &bfin_memmap.nr_map);
 	print_memory_map("boot memmap");
 
-	
+	/* initialize globals in linux/bootmem.h */
 	find_min_max_pfn();
-	
+	/* pfn of the last usable page frame */
 	if (max_pfn > memory_end >> PAGE_SHIFT)
 		max_pfn = memory_end >> PAGE_SHIFT;
-	
+	/* pfn of last page frame directly mapped by kernel */
 	max_low_pfn = max_pfn;
-	
+	/* pfn of the first usable page frame after kernel image*/
 	if (min_low_pfn < memory_start >> PAGE_SHIFT)
 		min_low_pfn = memory_start >> PAGE_SHIFT;
 
 	start_pfn = PAGE_OFFSET >> PAGE_SHIFT;
 	end_pfn = memory_end >> PAGE_SHIFT;
 
+	/*
+	 * give all the memory to the bootmap allocator, tell it to put the
+	 * boot mem_map at the start of memory.
+	 */
 	bootmap_size = init_bootmem_node(NODE_DATA(0),
-			memory_start >> PAGE_SHIFT,	
+			memory_start >> PAGE_SHIFT,	/* map goes here */
 			start_pfn, end_pfn);
 
-	
+	/* register the memmap regions with the bootmem allocator */
 	for (i = 0; i < bfin_memmap.nr_map; i++) {
+		/*
+		 * Reserve usable memory
+		 */
 		if (bfin_memmap.map[i].type != BFIN_MEMMAP_RAM)
 			continue;
+		/*
+		 * We are rounding up the start address of usable memory:
+		 */
 		curr_pfn = PFN_UP(bfin_memmap.map[i].addr);
 		if (curr_pfn >= end_pfn)
 			continue;
+		/*
+		 * ... and at the end of the usable range downwards:
+		 */
 		last_pfn = PFN_DOWN(bfin_memmap.map[i].addr +
 					 bfin_memmap.map[i].size);
 
 		if (last_pfn > end_pfn)
 			last_pfn = end_pfn;
 
+		/*
+		 * .. finally, did all the rounding and playing
+		 * around just make the area go away?
+		 */
 		if (last_pfn <= curr_pfn)
 			continue;
 
@@ -675,7 +793,7 @@ static __init void setup_bootmem_allocator(void)
 		free_bootmem(PFN_PHYS(curr_pfn), PFN_PHYS(size));
 	}
 
-	
+	/* reserve memory before memory_start, including bootmap */
 	reserve_bootmem(PAGE_OFFSET,
 		memory_start + bootmap_size + PAGE_SIZE - 1 - PAGE_OFFSET,
 		BOOTMEM_DEFAULT);
@@ -751,7 +869,7 @@ void __init setup_arch(char **cmdline_p)
 
 	enable_shadow_console();
 
-	
+	/* Check to make sure we are running on the right processor */
 	if (unlikely(CPUID != bfin_cpuid()))
 		printk(KERN_ERR "ERROR: Not running on ADSP-%s: unknown CPUID 0x%04x Rev 0.%d\n",
 			CPU, bfin_cpuid(), bfin_revid());
@@ -765,13 +883,16 @@ void __init setup_arch(char **cmdline_p)
 	command_line[sizeof(command_line) - 1] = 0;
 #endif
 
-	
+	/* Keep a copy of command line */
 	*cmdline_p = &command_line[0];
 	memcpy(boot_command_line, command_line, COMMAND_LINE_SIZE);
 	boot_command_line[COMMAND_LINE_SIZE - 1] = '\0';
 
 	memset(&bfin_memmap, 0, sizeof(bfin_memmap));
 
+	/* If the user does not specify things on the command line, use
+	 * what the bootloader set things up as
+	 */
 	physical_mem_end = 0;
 	parse_cmdline_early(&command_line[0]);
 
@@ -783,7 +904,7 @@ void __init setup_arch(char **cmdline_p)
 
 	memory_setup();
 
-	
+	/* Initialize Async memory banks */
 	bfin_write_EBIU_AMBCTL0(AMBCTL0VAL);
 	bfin_write_EBIU_AMBCTL1(AMBCTL1VAL);
 	bfin_write_EBIU_AMGCTL(AMGCTLVAL);
@@ -821,12 +942,12 @@ void __init setup_arch(char **cmdline_p)
 	mmr = bfin_read_SYSCR();
 	printk(KERN_INFO "Boot Mode: %i\n", mmr & 0xF);
 
-	
+	/* Newer parts mirror SWRST bits in SYSCR */
 #if defined(CONFIG_BF53x) || defined(CONFIG_BF561) || \
     defined(CONFIG_BF538) || defined(CONFIG_BF539)
 	_bfin_swrst = bfin_read_SWRST();
 #else
-	
+	/* Clear boot mode field */
 	_bfin_swrst = mmr & ~0xf;
 #endif
 
@@ -844,7 +965,7 @@ void __init setup_arch(char **cmdline_p)
 #endif
 		printk(KERN_EMERG "Recovering from DOUBLE FAULT event\n");
 #ifdef CONFIG_DEBUG_DOUBLEFAULT
-		
+		/* We assume the crashing kernel, and the current symbol table match */
 		printk(KERN_EMERG " While handling exception (EXCAUSE = %#x) at %pF\n",
 			initial_pda.seqstat_doublefault & SEQSTAT_EXCAUSE,
 			initial_pda.retx_doublefault);
@@ -894,6 +1015,8 @@ void __init setup_arch(char **cmdline_p)
 
 	paging_init();
 
+	/* Copy atomic sequences to their fixed location, and sanity check that
+	   these locations are the ones that we advertise to userspace.  */
 	memcpy((void *)FIXED_CODE_START, &fixed_code_start,
 	       FIXED_CODE_END - FIXED_CODE_START);
 	BUG_ON((char *)&sigreturn_stub - (char *)&fixed_code_start
@@ -919,7 +1042,7 @@ void __init setup_arch(char **cmdline_p)
 	platform_init_cpus();
 #endif
 	init_exception_vectors();
-	bfin_cache_init();	
+	bfin_cache_init();	/* Initialize caches for the boot CPU */
 }
 
 static int __init topology_init(void)
@@ -935,6 +1058,7 @@ static int __init topology_init(void)
 
 subsys_initcall(topology_init);
 
+/* Get the input clock frequency */
 static u_long cached_clkin_hz = CONFIG_CLKIN_HZ;
 static u_long get_clkin_hz(void)
 {
@@ -951,11 +1075,15 @@ static int __init early_init_clkin_hz(char *buf)
 }
 early_param("clkin_hz=", early_init_clkin_hz);
 
+/* Get the voltage input multiplier */
 static u_long get_vco(void)
 {
 	static u_long cached_vco;
 	u_long msel, pll_ctl;
 
+	/* The assumption here is that VCO never changes at runtime.
+	 * If, someday, we support that, then we'll have to change this.
+	 */
 	if (cached_vco)
 		return cached_vco;
 
@@ -965,11 +1093,12 @@ static u_long get_vco(void)
 		msel = 64;
 
 	cached_vco = get_clkin_hz();
-	cached_vco >>= (1 & pll_ctl);	
+	cached_vco >>= (1 & pll_ctl);	/* DF bit */
 	cached_vco *= msel;
 	return cached_vco;
 }
 
+/* Get the Core clock */
 u_long get_cclk(void)
 {
 	static u_long cached_cclk_pll_div, cached_cclk;
@@ -986,7 +1115,7 @@ u_long get_cclk(void)
 
 	csel = ((ssel >> 4) & 0x03);
 	ssel &= 0xf;
-	if (ssel && ssel < (1 << csel))	
+	if (ssel && ssel < (1 << csel))	/* SCLK > CCLK */
 		cached_cclk = get_vco() / ssel;
 	else
 		cached_cclk = get_vco() >> csel;
@@ -994,11 +1123,15 @@ u_long get_cclk(void)
 }
 EXPORT_SYMBOL(get_cclk);
 
+/* Get the System clock */
 u_long get_sclk(void)
 {
 	static u_long cached_sclk;
 	u_long ssel;
 
+	/* The assumption here is that SCLK never changes at runtime.
+	 * If, someday, we support that, then we'll have to change this.
+	 */
 	if (cached_sclk)
 		return cached_sclk;
 
@@ -1032,6 +1165,9 @@ unsigned long usecs_to_sclk(unsigned long usecs)
 }
 EXPORT_SYMBOL(usecs_to_sclk);
 
+/*
+ *	Get CPU information for use by the procfs.
+ */
 static int show_cpuinfo(struct seq_file *m, void *v)
 {
 	char *cpu, *mmu, *fpu, *vendor, *cache;
@@ -1094,7 +1230,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 		((loops_per_jiffy * HZ) / 5000) % 100,
 		(loops_per_jiffy * HZ));
 
-	
+	/* Check Cache configutation */
 	switch (cpudata->dmemctl & (1 << DMC0_P | 1 << DMC1_P)) {
 	case ACACHE_BSRAM:
 		cache = "dbank-A/B\t: cache/sram";
@@ -1118,7 +1254,7 @@ static int show_cpuinfo(struct seq_file *m, void *v)
 		break;
 	}
 
-	
+	/* Is it turned on? */
 	if ((cpudata->dmemctl & (ENDCPLB | DMC_ENABLE)) != (ENDCPLB | DMC_ENABLE))
 		dcache_size = 0;
 

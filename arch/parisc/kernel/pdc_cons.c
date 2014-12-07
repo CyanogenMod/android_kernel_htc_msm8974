@@ -30,7 +30,17 @@
  *    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+/*
+ *  The PDC console is a simple console, which can be used for debugging 
+ *  boot related problems on HP PA-RISC machines. It is also useful when no
+ *  other console works.
+ *
+ *  This code uses the ROM (=PDC) based functions to read and write characters
+ *  from and to PDC's boot path.
+ */
 
+/* Define EARLY_BOOTUP_DEBUG to debug kernel related boot problems. 
+ * On production kernels EARLY_BOOTUP_DEBUG should be undefined. */
 #define EARLY_BOOTUP_DEBUG
 
 
@@ -40,8 +50,8 @@
 #include <linux/init.h>
 #include <linux/major.h>
 #include <linux/tty.h>
-#include <asm/page.h>		
-#include <asm/pdc.h>		
+#include <asm/page.h>		/* for PAGE0 */
+#include <asm/pdc.h>		/* for iodc_call() proto and friends */
 
 static DEFINE_SPINLOCK(pdc_console_lock);
 static struct console pdc_cons;
@@ -109,12 +119,12 @@ static int pdc_console_tty_write(struct tty_struct *tty, const unsigned char *bu
 
 static int pdc_console_tty_write_room(struct tty_struct *tty)
 {
-	return 32768; 
+	return 32768; /* no limit, no buffer used */
 }
 
 static int pdc_console_tty_chars_in_buffer(struct tty_struct *tty)
 {
-	return 0; 
+	return 0; /* no buffer */
 }
 
 static const struct tty_operations pdc_console_tty_ops = {
@@ -156,6 +166,9 @@ static int __init pdc_console_tty_driver_init(void)
 {
 	int err;
 
+	/* Check if the console driver is still registered.
+	 * It is unregistered if the pdc console was not selected as the
+	 * primary console. */
 
 	struct console *tmp;
 
@@ -227,11 +240,11 @@ static void pdc_console_init_force(void)
 		return;
 	++pdc_console_initialized;
 	
-	
+	/* If the console is duplex then copy the COUT parameters to CIN. */
 	if (PAGE0->mem_cons.cl_class == CL_DUPLEX)
 		memcpy(&PAGE0->mem_kbd, &PAGE0->mem_cons, sizeof(PAGE0->mem_cons));
 
-	
+	/* register the pdc console */
 	register_console(&pdc_cons);
 }
 
@@ -246,6 +259,13 @@ void __init pdc_console_init(void)
 }
 
 
+/*
+ * Used for emergencies. Currently only used if an HPMC occurs. If an
+ * HPMC occurs, it is possible that the current console may not be
+ * properly initialised after the PDC IO reset. This routine unregisters
+ * all of the current consoles, reinitializes the pdc console and
+ * registers it.
+ */
 
 void pdc_console_restart(void)
 {
@@ -254,13 +274,13 @@ void pdc_console_restart(void)
 	if (pdc_console_initialized)
 		return;
 
-	
+	/* If we've already seen the output, don't bother to print it again */
 	if (console_drivers != NULL)
 		pdc_cons.flags &= ~CON_PRINTBUFFER;
 
 	while ((console = console_drivers) != NULL)
 		unregister_console(console_drivers);
 
-	
+	/* force registering the pdc console */
 	pdc_console_init_force();
 }

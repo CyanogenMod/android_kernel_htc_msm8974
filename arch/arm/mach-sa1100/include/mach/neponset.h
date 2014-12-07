@@ -1,6 +1,20 @@
+/*
+ * arch/arm/mach-sa1100/include/mach/neponset.h
+ *
+ * Created 2000/06/05 by Nicolas Pitre <nico@fluxnic.net>
+ *
+ * This file contains the hardware specific definitions for Assabet
+ * Only include this file from SA1100-specific files.
+ *
+ * 2000/05/23 John Dorsey <john+@cs.cmu.edu>
+ *      Definitions for Neponset added.
+ */
 #ifndef __ASM_ARCH_NEPONSET_H
 #define __ASM_ARCH_NEPONSET_H
 
+/*
+ * Neponset definitions: 
+ */
 #define NCR_GP01_OFF		(1<<0)
 #define NCR_TP_PWR_EN		(1<<1)
 #define NCR_MS_PWR_EN		(1<<2)

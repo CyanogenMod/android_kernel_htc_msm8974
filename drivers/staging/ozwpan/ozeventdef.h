@@ -44,4 +44,4 @@ struct oz_evtlist {
 	struct oz_event evts[OZ_EVT_LIST_SZ];
 };
 
-#endif 
+#endif /* _OZEVENTDEF_H */

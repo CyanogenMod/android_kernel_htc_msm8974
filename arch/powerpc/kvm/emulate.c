@@ -79,10 +79,10 @@ void kvmppc_emulate_dec(struct kvm_vcpu *vcpu)
 	hrtimer_try_to_cancel(&vcpu->arch.dec_timer);
 
 #ifdef CONFIG_PPC_BOOK3S
-	
+	/* mtdec lowers the interrupt line when positive. */
 	kvmppc_core_dequeue_dec(vcpu);
 
-	
+	/* POWER4+ triggers a dec interrupt if the value is < 0 */
 	if (vcpu->arch.dec & 0x80000000) {
 		kvmppc_core_queue_dec(vcpu);
 		return;
@@ -90,11 +90,16 @@ void kvmppc_emulate_dec(struct kvm_vcpu *vcpu)
 #endif
 
 #ifdef CONFIG_BOOKE
-	
+	/* On BOOKE, DEC = 0 is as good as decrementer not enabled */
 	if (vcpu->arch.dec == 0)
 		return;
 #endif
 
+	/*
+	 * The decrementer ticks at the same rate as the timebase, so
+	 * that's how we convert the guest DEC value to the number of
+	 * host ticks.
+	 */
 
 	dec_time = vcpu->arch.dec;
 	dec_time *= 1000;
@@ -117,6 +122,22 @@ u32 kvmppc_get_dec(struct kvm_vcpu *vcpu, u64 tb)
 	return vcpu->arch.dec - jd;
 }
 
+/* XXX to do:
+ * lhax
+ * lhaux
+ * lswx
+ * lswi
+ * stswx
+ * stswi
+ * lha
+ * lhau
+ * lmw
+ * stmw
+ *
+ * XXX is_bigendian should depend on MMU mapping or MSR[LE]
+ */
+/* XXX Should probably auto-generate instruction decoding for a particular core
+ * from opcode tables in the future. */
 int kvmppc_emulate_instruction(struct kvm_run *run, struct kvm_vcpu *vcpu)
 {
 	u32 inst = kvmppc_get_last_inst(vcpu);
@@ -242,6 +263,9 @@ int kvmppc_emulate_instruction(struct kvm_run *run, struct kvm_vcpu *vcpu)
 			case SPRN_MSSSR0:
 				kvmppc_set_gpr(vcpu, rt, 0); break;
 
+			/* Note: mftb and TBRL/TBWL are user-accessible, so
+			 * the guest can always access the real TB anyways.
+			 * In fact, we probably will never see these traps. */
 			case SPRN_TBWL:
 				kvmppc_set_gpr(vcpu, rt, get_tb() >> 32); break;
 			case SPRN_TBWU:
@@ -259,6 +283,8 @@ int kvmppc_emulate_instruction(struct kvm_run *run, struct kvm_vcpu *vcpu)
 			case SPRN_SPRG3:
 				kvmppc_set_gpr(vcpu, rt, vcpu->arch.shared->sprg3);
 				break;
+			/* Note: SPRG4-7 are user-readable, so we don't get
+			 * a trap. */
 
 			case SPRN_DEC:
 			{
@@ -313,6 +339,8 @@ int kvmppc_emulate_instruction(struct kvm_run *run, struct kvm_vcpu *vcpu)
 				vcpu->arch.shared->srr1 = kvmppc_get_gpr(vcpu, rs);
 				break;
 
+			/* XXX We need to context-switch the timebase for
+			 * watchdog and FIT. */
 			case SPRN_TBWL: break;
 			case SPRN_TBWU: break;
 
@@ -346,6 +374,11 @@ int kvmppc_emulate_instruction(struct kvm_run *run, struct kvm_vcpu *vcpu)
 			break;
 
 		case OP_31_XOP_DCBI:
+			/* Do nothing. The guest is performing dcbi because
+			 * hardware DMA is not snooped by the dcache, but
+			 * emulated DMA either goes through the dcache as
+			 * normal writes, or the host kernel has handled dcache
+			 * coherence. */
 			break;
 
 		case OP_31_XOP_LWBRX:
@@ -382,7 +415,7 @@ int kvmppc_emulate_instruction(struct kvm_run *run, struct kvm_vcpu *vcpu)
 			break;
 
 		default:
-			
+			/* Attempt core-specific emulation below. */
 			emulated = EMULATE_FAIL;
 		}
 		break;
@@ -501,7 +534,7 @@ int kvmppc_emulate_instruction(struct kvm_run *run, struct kvm_vcpu *vcpu)
 
 	trace_kvm_ppc_instr(inst, kvmppc_get_pc(vcpu), emulated);
 
-	
+	/* Advance past emulated instruction. */
 	if (advance)
 		kvmppc_set_pc(vcpu, kvmppc_get_pc(vcpu) + 4);
 

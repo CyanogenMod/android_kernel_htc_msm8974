@@ -50,7 +50,7 @@ static int raw_ioctl(struct net_device *dev, struct ifreq *ifr)
 			return -EINVAL;
 		ifr->ifr_settings.type = IF_PROTO_HDLC;
 		if (ifr->ifr_settings.size < size) {
-			ifr->ifr_settings.size = size; 
+			ifr->ifr_settings.size = size; /* data size wanted */
 			return -ENOBUFS;
 		}
 		if (copy_to_user(raw_s, hdlc->state, size))

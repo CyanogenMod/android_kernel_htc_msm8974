@@ -48,6 +48,27 @@
 #include "dat.h"
 #include "ifile.h"
 
+/*
+ * nilfs_gccache_submit_read_data() - add data buffer and submit read request
+ * @inode - gc inode
+ * @blkoff - dummy offset treated as the key for the page cache
+ * @pbn - physical block number of the block
+ * @vbn - virtual block number of the block, 0 for non-virtual block
+ * @out_bh - indirect pointer to a buffer_head struct to receive the results
+ *
+ * Description: nilfs_gccache_submit_read_data() registers the data buffer
+ * specified by @pbn to the GC pagecache with the key @blkoff.
+ * This function sets @vbn (@pbn if @vbn is zero) in b_blocknr of the buffer.
+ *
+ * Return Value: On success, 0 is returned. On Error, one of the following
+ * negative error code is returned.
+ *
+ * %-EIO - I/O error.
+ *
+ * %-ENOMEM - Insufficient amount of memory available.
+ *
+ * %-ENOENT - The block specified with @pbn does not exist.
+ */
 int nilfs_gccache_submit_read_data(struct inode *inode, sector_t blkoff,
 				   sector_t pbn, __u64 vbn,
 				   struct buffer_head **out_bh)
@@ -66,7 +87,7 @@ int nilfs_gccache_submit_read_data(struct inode *inode, sector_t blkoff,
 		struct the_nilfs *nilfs = inode->i_sb->s_fs_info;
 
 		err = nilfs_dat_translate(nilfs->ns_dat, vbn, &pbn);
-		if (unlikely(err)) { 
+		if (unlikely(err)) { /* -EIO, -ENOMEM, -ENOENT */
 			brelse(bh);
 			goto failed;
 		}
@@ -98,6 +119,24 @@ int nilfs_gccache_submit_read_data(struct inode *inode, sector_t blkoff,
 	return err;
 }
 
+/*
+ * nilfs_gccache_submit_read_node() - add node buffer and submit read request
+ * @inode - gc inode
+ * @pbn - physical block number for the block
+ * @vbn - virtual block number for the block
+ * @out_bh - indirect pointer to a buffer_head struct to receive the results
+ *
+ * Description: nilfs_gccache_submit_read_node() registers the node buffer
+ * specified by @vbn to the GC pagecache.  @pbn can be supplied by the
+ * caller to avoid translation of the disk block address.
+ *
+ * Return Value: On success, 0 is returned. On Error, one of the following
+ * negative error code is returned.
+ *
+ * %-EIO - I/O error.
+ *
+ * %-ENOMEM - Insufficient amount of memory available.
+ */
 int nilfs_gccache_submit_read_node(struct inode *inode, sector_t pbn,
 				   __u64 vbn, struct buffer_head **out_bh)
 {
@@ -105,7 +144,7 @@ int nilfs_gccache_submit_read_node(struct inode *inode, sector_t pbn,
 
 	ret = nilfs_btnode_submit_block(&NILFS_I(inode)->i_btnode_cache,
 					vbn ? : pbn, pbn, READ, out_bh, &pbn);
-	if (ret == -EEXIST) 
+	if (ret == -EEXIST) /* internal code (cache hit) */
 		ret = 0;
 	return ret;
 }
@@ -141,6 +180,9 @@ int nilfs_init_gcinode(struct inode *inode)
 	return 0;
 }
 
+/**
+ * nilfs_remove_all_gcinodes() - remove all unprocessed gc inodes
+ */
 void nilfs_remove_all_gcinodes(struct the_nilfs *nilfs)
 {
 	struct list_head *head = &nilfs->ns_gc_inodes;

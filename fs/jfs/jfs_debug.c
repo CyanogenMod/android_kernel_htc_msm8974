@@ -27,7 +27,7 @@
 #include "jfs_filsys.h"
 #include "jfs_debug.h"
 
-#ifdef PROC_FS_JFS 
+#ifdef PROC_FS_JFS /* see jfs_debug.h */
 
 static struct proc_dir_entry *base;
 #ifdef CONFIG_JFS_DEBUG
@@ -50,7 +50,7 @@ static ssize_t jfs_loglevel_proc_write(struct file *file,
 	if (get_user(c, buffer))
 		return -EFAULT;
 
-	
+	/* yes, I know this is an ASCIIism.  --hch */
 	if (c < '0' || c > '9')
 		return -EINVAL;
 	jfsloglevel = c - '0';
@@ -106,4 +106,4 @@ void jfs_proc_clean(void)
 	}
 }
 
-#endif 
+#endif /* PROC_FS_JFS */

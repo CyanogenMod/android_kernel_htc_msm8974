@@ -32,13 +32,20 @@ EXPORT_SYMBOL(mfgpt_lock);
 
 static u32 mfgpt_base;
 
+/*
+ * Initialize the MFGPT timer.
+ *
+ * This is also called after resume to bring the MFGPT into operation again.
+ */
 
+/* disable counter */
 void disable_mfgpt0_counter(void)
 {
 	outw(inw(MFGPT0_SETUP) & 0x7fff, MFGPT0_SETUP);
 }
 EXPORT_SYMBOL(disable_mfgpt0_counter);
 
+/* enable counter, comparator2 to event mode, 14.318MHz clock */
 void enable_mfgpt0_counter(void)
 {
 	outw(0xe310, MFGPT0_SETUP);
@@ -52,8 +59,8 @@ static void init_mfgpt_timer(enum clock_event_mode mode,
 
 	switch (mode) {
 	case CLOCK_EVT_MODE_PERIODIC:
-		outw(COMPARE, MFGPT0_CMP2);	
-		outw(0, MFGPT0_CNT);	
+		outw(COMPARE, MFGPT0_CMP2);	/* set comparator2 */
+		outw(0, MFGPT0_CNT);	/* set counter to 0 */
 		enable_mfgpt0_counter();
 		break;
 
@@ -65,11 +72,11 @@ static void init_mfgpt_timer(enum clock_event_mode mode,
 		break;
 
 	case CLOCK_EVT_MODE_ONESHOT:
-		
+		/* The oneshot mode have very high deviation, Not use it! */
 		break;
 
 	case CLOCK_EVT_MODE_RESUME:
-		
+		/* Nothing to do here */
 		break;
 	}
 	spin_unlock(&mfgpt_lock);
@@ -86,9 +93,15 @@ static irqreturn_t timer_interrupt(int irq, void *dev_id)
 {
 	u32 basehi;
 
+	/*
+	 * get MFGPT base address
+	 *
+	 * NOTE: do not remove me, it's need for the value of mfgpt_base is
+	 * variable
+	 */
 	_rdmsr(DIVIL_MSR_REG(DIVIL_LBAR_MFGPT), &basehi, &mfgpt_base);
 
-	
+	/* ack */
 	outw(inw(MFGPT0_SETUP) | 0x4000, MFGPT0_SETUP);
 
 	mfgpt_clockevent.event_handler(&mfgpt_clockevent);
@@ -102,6 +115,10 @@ static struct irqaction irq5 = {
 	.name = "timer"
 };
 
+/*
+ * Initialize the conversion factor and the min/max deltas of the clock event
+ * structure and register the clock event source with the framework.
+ */
 void __init setup_mfgpt0_timer(void)
 {
 	u32 basehi;
@@ -113,13 +130,13 @@ void __init setup_mfgpt0_timer(void)
 	cd->max_delta_ns = clockevent_delta2ns(0xffff, cd);
 	cd->min_delta_ns = clockevent_delta2ns(0xf, cd);
 
-	
+	/* Enable MFGPT0 Comparator 2 Output to the Interrupt Mapper */
 	_wrmsr(DIVIL_MSR_REG(MFGPT_IRQ), 0, 0x100);
 
-	
+	/* Enable Interrupt Gate 5 */
 	_wrmsr(DIVIL_MSR_REG(PIC_ZSEL_LOW), 0, 0x50000);
 
-	
+	/* get MFGPT base address */
 	_rdmsr(DIVIL_MSR_REG(DIVIL_LBAR_MFGPT), &basehi, &mfgpt_base);
 
 	clockevents_register_device(cd);
@@ -127,6 +144,11 @@ void __init setup_mfgpt0_timer(void)
 	setup_irq(CS5536_MFGPT_INTR, &irq5);
 }
 
+/*
+ * Since the MFGPT overflows every tick, its not very useful
+ * to just read by itself. So use jiffies to emulate a free
+ * running counter:
+ */
 static cycle_t mfgpt_read(struct clocksource *cs)
 {
 	unsigned long flags;
@@ -136,10 +158,33 @@ static cycle_t mfgpt_read(struct clocksource *cs)
 	static u32 old_jifs;
 
 	spin_lock_irqsave(&mfgpt_lock, flags);
+	/*
+	 * Although our caller may have the read side of xtime_lock,
+	 * this is now a seqlock, and we are cheating in this routine
+	 * by having side effects on state that we cannot undo if
+	 * there is a collision on the seqlock and our caller has to
+	 * retry.  (Namely, old_jifs and old_count.)  So we must treat
+	 * jiffies as volatile despite the lock.  We read jiffies
+	 * before latching the timer count to guarantee that although
+	 * the jiffies value might be older than the count (that is,
+	 * the counter may underflow between the last point where
+	 * jiffies was incremented and the point where we latch the
+	 * count), it cannot be newer.
+	 */
 	jifs = jiffies;
-	
+	/* read the count */
 	count = inw(MFGPT0_CNT);
 
+	/*
+	 * It's possible for count to appear to go the wrong way for this
+	 * reason:
+	 *
+	 *  The timer counter underflows, but we haven't handled the resulting
+	 *  interrupt and incremented jiffies yet.
+	 *
+	 * Previous attempts to handle these cases intelligently were buggy, so
+	 * we just do the simple thing now.
+	 */
 	if (count < old_count && jifs == old_jifs)
 		count = old_count;
 
@@ -153,14 +198,14 @@ static cycle_t mfgpt_read(struct clocksource *cs)
 
 static struct clocksource clocksource_mfgpt = {
 	.name = "mfgpt",
-	.rating = 120, 
+	.rating = 120, /* Functional for real use, but not desired */
 	.read = mfgpt_read,
 	.mask = CLOCKSOURCE_MASK(32),
 };
 
 int __init init_mfgpt_clocksource(void)
 {
-	if (num_possible_cpus() > 1)	
+	if (num_possible_cpus() > 1)	/* MFGPT does not scale! */
 		return 0;
 
 	return clocksource_register_hz(&clocksource_mfgpt, MFGPT_TICK_RATE);

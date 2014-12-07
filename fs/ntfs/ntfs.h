@@ -40,20 +40,23 @@
 typedef enum {
 	NTFS_BLOCK_SIZE		= 512,
 	NTFS_BLOCK_SIZE_BITS	= 9,
-	NTFS_SB_MAGIC		= 0x5346544e,	
+	NTFS_SB_MAGIC		= 0x5346544e,	/* 'NTFS' */
 	NTFS_MAX_NAME_LEN	= 255,
 	NTFS_MAX_ATTR_NAME_LEN	= 255,
-	NTFS_MAX_CLUSTER_SIZE	= 64 * 1024,	
+	NTFS_MAX_CLUSTER_SIZE	= 64 * 1024,	/* 64kiB */
 	NTFS_MAX_PAGES_PER_CLUSTER = NTFS_MAX_CLUSTER_SIZE / PAGE_CACHE_SIZE,
 } NTFS_CONSTANTS;
 
+/* Global variables. */
 
+/* Slab caches (from super.c). */
 extern struct kmem_cache *ntfs_name_cache;
 extern struct kmem_cache *ntfs_inode_cache;
 extern struct kmem_cache *ntfs_big_inode_cache;
 extern struct kmem_cache *ntfs_attr_ctx_cache;
 extern struct kmem_cache *ntfs_index_ctx_cache;
 
+/* The various operations structs defined throughout the driver files. */
 extern const struct address_space_operations ntfs_aops;
 extern const struct address_space_operations ntfs_mst_aops;
 
@@ -68,16 +71,25 @@ extern const struct inode_operations ntfs_empty_inode_ops;
 
 extern const struct export_operations ntfs_export_ops;
 
+/**
+ * NTFS_SB - return the ntfs volume given a vfs super block
+ * @sb:		VFS super block
+ *
+ * NTFS_SB() returns the ntfs volume associated with the VFS super block @sb.
+ */
 static inline ntfs_volume *NTFS_SB(struct super_block *sb)
 {
 	return sb->s_fs_info;
 }
 
+/* Declarations of functions and global variables. */
 
+/* From fs/ntfs/compress.c */
 extern int ntfs_read_compressed_block(struct page *page);
 extern int allocate_compression_buffers(void);
 extern void free_compression_buffers(void);
 
+/* From fs/ntfs/super.c */
 #define default_upcase_len 0x10000
 extern struct mutex ntfs_lock;
 
@@ -87,10 +99,12 @@ typedef struct {
 } option_t;
 extern const option_t on_errors_arr[];
 
+/* From fs/ntfs/mst.c */
 extern int post_read_mst_fixup(NTFS_RECORD *b, const u32 size);
 extern int pre_write_mst_fixup(NTFS_RECORD *b, const u32 size);
 extern void post_write_mst_fixup(NTFS_RECORD *b);
 
+/* From fs/ntfs/unistr.c */
 extern bool ntfs_are_names_equal(const ntfschar *s1, size_t s1_len,
 		const ntfschar *s2, size_t s2_len,
 		const IGNORE_CASE_BOOL ic,
@@ -115,6 +129,7 @@ extern int ntfs_nlstoucs(const ntfs_volume *vol, const char *ins,
 extern int ntfs_ucstonls(const ntfs_volume *vol, const ntfschar *ins,
 		const int ins_len, unsigned char **outs, int outs_len);
 
+/* From fs/ntfs/upcase.c */
 extern ntfschar *generate_default_upcase(void);
 
 static inline int ntfs_ffs(int x)
@@ -146,4 +161,4 @@ static inline int ntfs_ffs(int x)
 	return r;
 }
 
-#endif 
+#endif /* _LINUX_NTFS_H */

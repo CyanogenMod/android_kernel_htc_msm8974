@@ -21,7 +21,7 @@
 static void putc(const char c)
 {
 	while (readb(UART0_PHYS + 0x1c) & 0x2)
-		;
+		/* Tx busy, wait and poll */;
 
 	writeb(c, UART0_PHYS);
 }
@@ -30,5 +30,8 @@ static void flush(void)
 {
 }
 
+/*
+ * nothing to do
+ */
 #define arch_decomp_setup()
 #define arch_decomp_wdog()

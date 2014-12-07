@@ -8,6 +8,7 @@
 #  define stringify_in_c(...)	__VA_ARGS__
 #  define ASM_CONST(x)		x
 #else
+/* This version of stringify will deal with commas... */
 #  define __stringify_in_c(...)	#__VA_ARGS__
 #  define stringify_in_c(...)	__stringify_in_c(__VA_ARGS__) " "
 #  define __ASM_CONST(x)	x##UL
@@ -17,6 +18,7 @@
 
 #ifdef __powerpc64__
 
+/* operations for longs and pointers */
 #define PPC_LL		stringify_in_c(ld)
 #define PPC_STL		stringify_in_c(std)
 #define PPC_STLU	stringify_in_c(stdu)
@@ -30,14 +32,18 @@
 #define PPC_LR_STKOFF	16
 #define PPC_MIN_STKFRM	112
 
+/* Move to CR, single-entry optimized version. Only available
+ * on POWER4 and later.
+ */
 #ifdef CONFIG_POWER4_ONLY
 #define PPC_MTOCRF	stringify_in_c(mtocrf)
 #else
 #define PPC_MTOCRF	stringify_in_c(mtcrf)
 #endif
 
-#else 
+#else /* 32-bit */
 
+/* operations for longs and pointers */
 #define PPC_LL		stringify_in_c(lwz)
 #define PPC_STL		stringify_in_c(stw)
 #define PPC_STLU	stringify_in_c(stwu)
@@ -56,6 +62,9 @@
 
 #ifdef __KERNEL__
 #ifdef CONFIG_IBM405_ERR77
+/* Erratum #77 on the 405 means we need a sync or dcbt before every
+ * stwcx.  The old ATOMIC_SYNC_FIX covered some but not all of this.
+ */
 #define PPC405_ERR77(ra,rb)	stringify_in_c(dcbt	ra, rb;)
 #define	PPC405_ERR77_SYNC	stringify_in_c(sync;)
 #else
@@ -64,4 +73,4 @@
 #endif
 #endif
 
-#endif 
+#endif /* _ASM_POWERPC_ASM_COMPAT_H */

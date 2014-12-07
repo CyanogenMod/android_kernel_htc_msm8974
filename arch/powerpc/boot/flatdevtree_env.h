@@ -24,4 +24,4 @@
 #define be64_to_cpu(x)		(x)
 #define cpu_to_be64(x)		(x)
 
-#endif 
+#endif /* _PPC_BOOT_FLATDEVTREE_ENV_H_ */

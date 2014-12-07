@@ -28,6 +28,7 @@
 #include "pm.h"
 #include "control.h"
 
+/* Used by omap3_ctrl_save_padconf() */
 #define START_PADCONF_SAVE		0x2
 #define PADCONF_SAVE_DONE		0x1
 
@@ -95,6 +96,12 @@ struct omap3_scratchpad_sdrc_block {
 
 void *omap3_secure_ram_storage;
 
+/*
+ * This is used to store ARM registers in SDRAM before attempting
+ * an MPU OFF. The save and restore happens from the SRAM sleep code.
+ * The address is stored in scratchpad, so that it can be used
+ * during the restore path.
+ */
 u32 omap3_arm_context[128];
 
 struct omap3_control_regs {
@@ -137,7 +144,7 @@ struct omap3_control_regs {
 };
 
 static struct omap3_control_regs control_context;
-#endif 
+#endif /* CONFIG_ARCH_OMAP3 && CONFIG_PM */
 
 #define OMAP_CTRL_REGADDR(reg)		(omap2_ctrl_base + (reg))
 #define OMAP4_CTRL_PAD_REGADDR(reg)	(omap4_ctrl_pad_base + (reg))
@@ -186,6 +193,12 @@ void omap_ctrl_writel(u32 val, u16 offset)
 	__raw_writel(val, OMAP_CTRL_REGADDR(offset));
 }
 
+/*
+ * On OMAP4 control pad are not addressable from control
+ * core base. So the common omap_ctrl_read/write APIs breaks
+ * Hence export separate APIs to manage the omap4 pad control
+ * registers. This APIs will work only for OMAP4
+ */
 
 u32 omap4_ctrl_pad_readl(u16 offset)
 {
@@ -199,18 +212,40 @@ void omap4_ctrl_pad_writel(u32 val, u16 offset)
 
 #ifdef CONFIG_ARCH_OMAP3
 
+/**
+ * omap3_ctrl_write_boot_mode - set scratchpad boot mode for the next boot
+ * @bootmode: 8-bit value to pass to some boot code
+ *
+ * Set the bootmode in the scratchpad RAM.  This is used after the
+ * system restarts.  Not sure what actually uses this - it may be the
+ * bootloader, rather than the boot ROM - contrary to the preserved
+ * comment below.  No return value.
+ */
 void omap3_ctrl_write_boot_mode(u8 bootmode)
 {
 	u32 l;
 
 	l = ('B' << 24) | ('M' << 16) | bootmode;
 
+	/*
+	 * Reserve the first word in scratchpad for communicating
+	 * with the boot ROM. A pointer to a data structure
+	 * describing the boot process can be stored there,
+	 * cf. OMAP34xx TRM, Initialization / Software Booting
+	 * Configuration.
+	 *
+	 * XXX This should use some omap_ctrl_writel()-type function
+	 */
 	__raw_writel(l, OMAP2_L4_IO_ADDRESS(OMAP343X_SCRATCHPAD + 4));
 }
 
 #endif
 
 #if defined(CONFIG_ARCH_OMAP3) && defined(CONFIG_PM)
+/*
+ * Clears the scratchpad contents in case of cold boot-
+ * called during bootup
+ */
 void omap3_clear_scratchpad_contents(void)
 {
 	u32 max_offset = OMAP343X_SCRATCHPAD_ROM_OFFSET;
@@ -227,6 +262,7 @@ void omap3_clear_scratchpad_contents(void)
 	}
 }
 
+/* Populate the scratchpad structure with restore structure */
 void omap3_save_scratchpad_contents(void)
 {
 	void  __iomem *scratchpad_address;
@@ -235,6 +271,14 @@ void omap3_save_scratchpad_contents(void)
 	struct omap3_scratchpad_prcm_block prcm_block_contents;
 	struct omap3_scratchpad_sdrc_block sdrc_block_contents;
 
+	/*
+	 * Populate the Scratchpad contents
+	 *
+	 * The "get_*restore_pointer" functions are used to provide a
+	 * physical restore address where the ROM code jumps while waking
+	 * up from MPU OFF/OSWR state.
+	 * The restore pointer is stored into the scratchpad.
+	 */
 	scratchpad_contents.boot_config_ptr = 0x0;
 	if (cpu_is_omap3630())
 		scratchpad_contents.public_restore_ptr =
@@ -256,7 +300,7 @@ void omap3_save_scratchpad_contents(void)
 	scratchpad_contents.prcm_block_offset = 0x2C;
 	scratchpad_contents.sdrc_block_offset = 0x64;
 
-	
+	/* Populate the PRCM block contents */
 	prcm_block_contents.prm_clksrc_ctrl =
 		omap2_prm_read_mod_reg(OMAP3430_GR_MOD,
 				       OMAP3_PRM_CLKSRC_CTRL_OFFSET);
@@ -269,6 +313,11 @@ void omap3_save_scratchpad_contents(void)
 			omap2_cm_read_mod_reg(WKUP_MOD, CM_CLKSEL);
 	prcm_block_contents.cm_clken_pll =
 			omap2_cm_read_mod_reg(PLL_MOD, CM_CLKEN);
+	/*
+	 * As per erratum i671, ROM code does not respect the PER DPLL
+	 * programming scheme if CM_AUTOIDLE_PLL..AUTO_PERIPH_DPLL == 1.
+	 * Then,  in anycase, clear these bits to avoid extra latencies.
+	 */
 	prcm_block_contents.cm_autoidle_pll =
 			omap2_cm_read_mod_reg(PLL_MOD, CM_AUTOIDLE) &
 			~OMAP3430_AUTO_PERIPH_DPLL_MASK;
@@ -288,7 +337,7 @@ void omap3_save_scratchpad_contents(void)
 			omap2_cm_read_mod_reg(MPU_MOD, OMAP3430_CM_CLKSEL2_PLL);
 	prcm_block_contents.prcm_block_size = 0x0;
 
-	
+	/* Populate the SDRC block contents */
 	sdrc_block_contents.sysconfig =
 			(sdrc_read_reg(SDRC_SYSCONFIG) & 0xFFFF);
 	sdrc_block_contents.cs_cfg =
@@ -299,6 +348,11 @@ void omap3_save_scratchpad_contents(void)
 			(sdrc_read_reg(SDRC_ERR_TYPE) & 0xFFFF);
 	sdrc_block_contents.dll_a_ctrl = sdrc_read_reg(SDRC_DLLA_CTRL);
 	sdrc_block_contents.dll_b_ctrl = 0x0;
+	/*
+	 * Due to a OMAP3 errata (1.142), on EMU/HS devices SRDC should
+	 * be programed to issue automatic self refresh on timeout
+	 * of AUTO_CNT = 1 prior to any transition to OFF mode.
+	 */
 	if ((omap_type() != OMAP2_DEVICE_TYPE_GP)
 			&& (omap_rev() >= OMAP3430_REV_ES3_0))
 		sdrc_block_contents.power = (sdrc_read_reg(SDRC_POWER) &
@@ -340,17 +394,21 @@ void omap3_save_scratchpad_contents(void)
 
 	arm_context_addr = virt_to_phys(omap3_arm_context);
 
-	
+	/* Copy all the contents to the scratchpad location */
 	scratchpad_address = OMAP2_L4_IO_ADDRESS(OMAP343X_SCRATCHPAD);
 	memcpy_toio(scratchpad_address, &scratchpad_contents,
 		 sizeof(scratchpad_contents));
-	
+	/* Scratchpad contents being 32 bits, a divide by 4 done here */
 	memcpy_toio(scratchpad_address +
 		scratchpad_contents.prcm_block_offset,
 		&prcm_block_contents, sizeof(prcm_block_contents));
 	memcpy_toio(scratchpad_address +
 		scratchpad_contents.sdrc_block_offset,
 		&sdrc_block_contents, sizeof(sdrc_block_contents));
+	/*
+	 * Copies the address of the location in SDRAM where ARM
+	 * registers get saved during a MPU OFF transition.
+	 */
 	memcpy_toio(scratchpad_address +
 		scratchpad_contents.sdrc_block_offset +
 		sizeof(sdrc_block_contents), &arm_context_addr, 4);
@@ -479,16 +537,26 @@ void omap3630_ctrl_disable_rta(void)
 	omap_ctrl_writel(OMAP36XX_RTA_DISABLE, OMAP36XX_CONTROL_MEM_RTA_CTRL);
 }
 
+/**
+ * omap3_ctrl_save_padconf - save padconf registers to scratchpad RAM
+ *
+ * Tell the SCM to start saving the padconf registers, then wait for
+ * the process to complete.  Returns 0 unconditionally, although it
+ * should also eventually be able to return -ETIMEDOUT, if the save
+ * does not complete.
+ *
+ * XXX This function is missing a timeout.  What should it be?
+ */
 int omap3_ctrl_save_padconf(void)
 {
 	u32 cpo;
 
-	
+	/* Save the padconf registers */
 	cpo = omap_ctrl_readl(OMAP343X_CONTROL_PADCONF_OFF);
 	cpo |= START_PADCONF_SAVE;
 	omap_ctrl_writel(cpo, OMAP343X_CONTROL_PADCONF_OFF);
 
-	
+	/* wait for the save to complete */
 	while (!(omap_ctrl_readl(OMAP343X_CONTROL_GENERAL_PURPOSE_STATUS)
 		 & PADCONF_SAVE_DONE))
 		udelay(1);
@@ -496,4 +564,4 @@ int omap3_ctrl_save_padconf(void)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_ARCH_OMAP3 && CONFIG_PM */

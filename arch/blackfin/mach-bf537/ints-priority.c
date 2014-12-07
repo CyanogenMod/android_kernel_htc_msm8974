@@ -19,7 +19,7 @@
 
 void __init program_IAR(void)
 {
-	
+	/* Program the IAR0 Register with the configured priority */
 	bfin_write_SIC_IAR0(((CONFIG_IRQ_PLL_WAKEUP - 7) << IRQ_PLL_WAKEUP_POS) |
 			    ((CONFIG_IRQ_DMA_ERROR - 7) << IRQ_DMA_ERROR_POS) |
 			    ((CONFIG_IRQ_ERROR - 7) << IRQ_ERROR_POS) |
@@ -59,12 +59,12 @@ void __init program_IAR(void)
 	SSYNC();
 }
 
-#define SPI_ERR_MASK   (BIT_STAT_TXCOL | BIT_STAT_RBSY | BIT_STAT_MODF | BIT_STAT_TXE)	
-#define SPORT_ERR_MASK (ROVF | RUVF | TOVF | TUVF)	
-#define PPI_ERR_MASK   (0xFFFF & ~FLD)	
-#define EMAC_ERR_MASK  (PHYINT | MMCINT | RXFSINT | TXFSINT | WAKEDET | RXDMAERR | TXDMAERR | STMDONE)	
-#define UART_ERR_MASK  (0x6)	
-#define CAN_ERR_MASK   (EWTIF | EWRIF | EPIF | BOIF | WUIF | UIAIF | AAIF | RMLIF | UCEIF | EXTIF | ADIF)	
+#define SPI_ERR_MASK   (BIT_STAT_TXCOL | BIT_STAT_RBSY | BIT_STAT_MODF | BIT_STAT_TXE)	/* SPI_STAT */
+#define SPORT_ERR_MASK (ROVF | RUVF | TOVF | TUVF)	/* SPORT_STAT */
+#define PPI_ERR_MASK   (0xFFFF & ~FLD)	/* PPI_STATUS */
+#define EMAC_ERR_MASK  (PHYINT | MMCINT | RXFSINT | TXFSINT | WAKEDET | RXDMAERR | TXDMAERR | STMDONE)	/* EMAC_SYSTAT */
+#define UART_ERR_MASK  (0x6)	/* UART_IIR */
+#define CAN_ERR_MASK   (EWTIF | EWRIF | EPIF | BOIF | WUIF | UIAIF | AAIF | RMLIF | UCEIF | EXTIF | ADIF)	/* CAN_GIF */
 
 static int error_int_mask;
 
@@ -197,7 +197,7 @@ void __init init_mach_irq(void)
 	int irq;
 
 #if defined(CONFIG_BF537) || defined(CONFIG_BF536)
-	
+	/* Clear EMAC Interrupt Status bits so we can demux it later */
 	bfin_write_EMAC_SYSTAT(-1);
 #endif
 

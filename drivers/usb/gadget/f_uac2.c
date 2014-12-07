@@ -20,26 +20,32 @@
 #include <sound/pcm.h>
 #include <sound/pcm_params.h>
 
+/* Playback(USB-IN) Default Stereo - Fl/Fr */
 static int p_chmask = 0x3;
 module_param(p_chmask, uint, S_IRUGO);
 MODULE_PARM_DESC(p_chmask, "Playback Channel Mask");
 
+/* Playback Default 48 KHz */
 static int p_srate = 48000;
 module_param(p_srate, uint, S_IRUGO);
 MODULE_PARM_DESC(p_srate, "Playback Sampling Rate");
 
+/* Playback Default 16bits/sample */
 static int p_ssize = 2;
 module_param(p_ssize, uint, S_IRUGO);
 MODULE_PARM_DESC(p_ssize, "Playback Sample Size(bytes)");
 
+/* Capture(USB-OUT) Default Stereo - Fl/Fr */
 static int c_chmask = 0x3;
 module_param(c_chmask, uint, S_IRUGO);
 MODULE_PARM_DESC(c_chmask, "Capture Channel Mask");
 
+/* Capture Default 64 KHz */
 static int c_srate = 64000;
 module_param(c_srate, uint, S_IRUGO);
 MODULE_PARM_DESC(c_srate, "Capture Sampling Rate");
 
+/* Capture Default 16bits/sample */
 static int c_ssize = 2;
 module_param(c_ssize, uint, S_IRUGO);
 MODULE_PARM_DESC(c_ssize, "Capture Sample Size(bytes)");
@@ -51,8 +57,17 @@ MODULE_PARM_DESC(c_ssize, "Capture Sample Size(bytes)");
 #define INTF_SET(x, i)	do {(x) &= 0xff; (x) |= ((i) << 8); } while (0)
 #define INTF_GET(x)	((x >> 8) & 0xff)
 
+/* Keep everyone on toes */
 #define USB_XFERS	2
 
+/*
+ * The driver implements a simple UAC_2 topology.
+ * USB-OUT -> IT_1 -> OT_3 -> ALSA_Capture
+ * ALSA_Playback -> IT_2 -> OT_4 -> USB-IN
+ * Capture and Playback sampling rates are independently
+ *  controlled by two clock sources :
+ *    CLK_5 := c_srate, and CLK_6 := p_srate
+ */
 #define USB_OUT_IT_ID	1
 #define IO_IN_IT_ID	2
 #define IO_OUT_OT_ID	3
@@ -77,19 +92,19 @@ MODULE_PARM_DESC(c_ssize, "Capture Sample Size(bytes)");
 const char *uac2_name = "snd_uac2";
 
 struct uac2_req {
-	struct uac2_rtd_params *pp; 
+	struct uac2_rtd_params *pp; /* parent param */
 	struct usb_request *req;
 };
 
 struct uac2_rtd_params {
-	bool ep_enabled; 
-	
+	bool ep_enabled; /* if the ep is enabled */
+	/* Size of the ring buffer */
 	size_t dma_bytes;
 	unsigned char *dma_area;
 
 	struct snd_pcm_substream *ss;
 
-	
+	/* Ring buffer */
 	ssize_t hw_ptr;
 
 	void *rbuf;
@@ -129,13 +144,13 @@ static struct snd_pcm_hardware uac2_pcm_hardware = {
 };
 
 struct audio_dev {
-	
+	/* Currently active {Interface[15:8] | AltSettings[7:0]} */
 	__u16 ac_alt, as_out_alt, as_in_alt;
 
 	struct usb_ep *in_ep, *out_ep;
 	struct usb_function func;
 
-	
+	/* The ALSA Sound Card it represents on the USB-Client side */
 	struct snd_uac2_chip uac2;
 };
 
@@ -197,17 +212,21 @@ agdev_iso_complete(struct usb_ep *ep, struct usb_request *req)
 	struct uac2_rtd_params *prm = ur->pp;
 	struct snd_uac2_chip *uac2 = prm_to_uac2(prm);
 
-	
+	/* i/f shutting down */
 	if (!prm->ep_enabled)
 		return;
 
+	/*
+	 * We can't really do much about bad xfers.
+	 * Afterall, the ISOCH xfers could fail legitimately.
+	 */
 	if (status)
 		pr_debug("%s: iso_complete status(%d) %d/%d\n",
 			__func__, status, req->actual, req->length);
 
 	substream = prm->ss;
 
-	
+	/* Do nothing if ALSA isn't active */
 	if (!substream)
 		goto exit;
 
@@ -231,7 +250,7 @@ agdev_iso_complete(struct usb_ep *ep, struct usb_request *req)
 
 	spin_unlock_irqrestore(&prm->lock, flags);
 
-	
+	/* Pack USB load in ALSA ring buffer */
 	memcpy(dst, src, req->actual);
 exit:
 	if (usb_ep_queue(ep, req, GFP_ATOMIC))
@@ -263,7 +282,7 @@ uac2_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 
 	spin_lock_irqsave(&prm->lock, flags);
 
-	
+	/* Reset */
 	prm->hw_ptr = 0;
 
 	switch (cmd) {
@@ -281,7 +300,7 @@ uac2_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 
 	spin_unlock_irqrestore(&prm->lock, flags);
 
-	
+	/* Clear buffer after Play stops */
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK && !prm->ss)
 		memset(prm->rbuf, 0, prm->max_psize * USB_XFERS);
 
@@ -351,14 +370,14 @@ static int uac2_pcm_open(struct snd_pcm_substream *substream)
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
 		spin_lock_init(&uac2->p_prm.lock);
 		runtime->hw.rate_min = p_srate;
-		runtime->hw.formats = SNDRV_PCM_FMTBIT_S16_LE; 
+		runtime->hw.formats = SNDRV_PCM_FMTBIT_S16_LE; /* ! p_ssize ! */
 		runtime->hw.channels_min = num_channels(p_chmask);
 		runtime->hw.period_bytes_min = 2 * uac2->p_prm.max_psize
 						/ runtime->hw.periods_min;
 	} else {
 		spin_lock_init(&uac2->c_prm.lock);
 		runtime->hw.rate_min = c_srate;
-		runtime->hw.formats = SNDRV_PCM_FMTBIT_S16_LE; 
+		runtime->hw.formats = SNDRV_PCM_FMTBIT_S16_LE; /* ! c_ssize ! */
 		runtime->hw.channels_min = num_channels(c_chmask);
 		runtime->hw.period_bytes_min = 2 * uac2->c_prm.max_psize
 						/ runtime->hw.periods_min;
@@ -372,6 +391,7 @@ static int uac2_pcm_open(struct snd_pcm_substream *substream)
 	return 0;
 }
 
+/* ALSA cries without these function pointers */
 static int uac2_pcm_null(struct snd_pcm_substream *substream)
 {
 	return 0;
@@ -395,13 +415,17 @@ static int __devinit snd_uac2_probe(struct platform_device *pdev)
 	struct snd_pcm *pcm;
 	int err;
 
-	
+	/* Choose any slot, with no id */
 	err = snd_card_create(-1, NULL, THIS_MODULE, 0, &card);
 	if (err < 0)
 		return err;
 
 	uac2->card = card;
 
+	/*
+	 * Create first PCM device
+	 * Create a substream only for non-zero channel streams
+	 */
 	err = snd_pcm_new(uac2->card, "UAC2 PCM", 0,
 			       p_chmask ? 1 : 0, c_chmask ? 1 : 0, &pcm);
 	if (err < 0)
@@ -463,12 +487,12 @@ static int alsa_uac2_init(struct audio_dev *agdev)
 	uac2->pdev.id = 0;
 	uac2->pdev.name = uac2_name;
 
-	
+	/* Register snd_uac2 driver */
 	err = platform_driver_register(&uac2->pdrv);
 	if (err)
 		return err;
 
-	
+	/* Register snd_uac2 device */
 	err = platform_device_register(&uac2->pdev);
 	if (err)
 		platform_driver_unregister(&uac2->pdrv);
@@ -485,6 +509,7 @@ static void alsa_uac2_exit(struct audio_dev *agdev)
 }
 
 
+/* --------- USB Function Interface ------------- */
 
 enum {
 	STR_ASSOC,
@@ -531,7 +556,7 @@ static struct usb_string strings_fn[] = {
 };
 
 static struct usb_gadget_strings str_fn = {
-	.language = 0x0409,	
+	.language = 0x0409,	/* en-us */
 	.strings = strings_fn,
 };
 
@@ -563,6 +588,7 @@ static struct usb_interface_assoc_descriptor iad_desc = {
 	.bFunctionProtocol = UAC_VERSION_2,
 };
 
+/* Audio Control Interface */
 static struct usb_interface_descriptor std_ac_if_desc = {
 	.bLength = sizeof std_ac_if_desc,
 	.bDescriptorType = USB_DT_INTERFACE,
@@ -574,6 +600,7 @@ static struct usb_interface_descriptor std_ac_if_desc = {
 	.bInterfaceProtocol = UAC_VERSION_2,
 };
 
+/* Clock source for IN traffic */
 struct uac_clock_source_descriptor in_clk_src_desc = {
 	.bLength = sizeof in_clk_src_desc,
 	.bDescriptorType = USB_DT_CS_INTERFACE,
@@ -585,6 +612,7 @@ struct uac_clock_source_descriptor in_clk_src_desc = {
 	.bAssocTerminal = 0,
 };
 
+/* Clock source for OUT traffic */
 struct uac_clock_source_descriptor out_clk_src_desc = {
 	.bLength = sizeof out_clk_src_desc,
 	.bDescriptorType = USB_DT_CS_INTERFACE,
@@ -596,6 +624,7 @@ struct uac_clock_source_descriptor out_clk_src_desc = {
 	.bAssocTerminal = 0,
 };
 
+/* Input Terminal for USB_OUT */
 struct uac2_input_terminal_descriptor usb_out_it_desc = {
 	.bLength = sizeof usb_out_it_desc,
 	.bDescriptorType = USB_DT_CS_INTERFACE,
@@ -609,6 +638,7 @@ struct uac2_input_terminal_descriptor usb_out_it_desc = {
 	.bmControls = (CONTROL_RDWR << COPY_CTRL),
 };
 
+/* Input Terminal for I/O-In */
 struct uac2_input_terminal_descriptor io_in_it_desc = {
 	.bLength = sizeof io_in_it_desc,
 	.bDescriptorType = USB_DT_CS_INTERFACE,
@@ -622,6 +652,7 @@ struct uac2_input_terminal_descriptor io_in_it_desc = {
 	.bmControls = (CONTROL_RDWR << COPY_CTRL),
 };
 
+/* Ouput Terminal for USB_IN */
 struct uac2_output_terminal_descriptor usb_in_ot_desc = {
 	.bLength = sizeof usb_in_ot_desc,
 	.bDescriptorType = USB_DT_CS_INTERFACE,
@@ -635,6 +666,7 @@ struct uac2_output_terminal_descriptor usb_in_ot_desc = {
 	.bmControls = (CONTROL_RDWR << COPY_CTRL),
 };
 
+/* Ouput Terminal for I/O-Out */
 struct uac2_output_terminal_descriptor io_out_ot_desc = {
 	.bLength = sizeof io_out_ot_desc,
 	.bDescriptorType = USB_DT_CS_INTERFACE,
@@ -661,6 +693,7 @@ struct uac2_ac_header_descriptor ac_hdr_desc = {
 	.bmControls = 0,
 };
 
+/* Audio Streaming OUT Interface - Alt0 */
 static struct usb_interface_descriptor std_as_out_if0_desc = {
 	.bLength = sizeof std_as_out_if0_desc,
 	.bDescriptorType = USB_DT_INTERFACE,
@@ -672,6 +705,7 @@ static struct usb_interface_descriptor std_as_out_if0_desc = {
 	.bInterfaceProtocol = UAC_VERSION_2,
 };
 
+/* Audio Streaming OUT Interface - Alt1 */
 static struct usb_interface_descriptor std_as_out_if1_desc = {
 	.bLength = sizeof std_as_out_if1_desc,
 	.bDescriptorType = USB_DT_INTERFACE,
@@ -683,6 +717,7 @@ static struct usb_interface_descriptor std_as_out_if1_desc = {
 	.bInterfaceProtocol = UAC_VERSION_2,
 };
 
+/* Audio Stream OUT Intface Desc */
 struct uac2_as_header_descriptor as_out_hdr_desc = {
 	.bLength = sizeof as_out_hdr_desc,
 	.bDescriptorType = USB_DT_CS_INTERFACE,
@@ -695,6 +730,7 @@ struct uac2_as_header_descriptor as_out_hdr_desc = {
 	.iChannelNames = 0,
 };
 
+/* Audio USB_OUT Format */
 struct uac2_format_type_i_descriptor as_out_fmt1_desc = {
 	.bLength = sizeof as_out_fmt1_desc,
 	.bDescriptorType = USB_DT_CS_INTERFACE,
@@ -702,6 +738,7 @@ struct uac2_format_type_i_descriptor as_out_fmt1_desc = {
 	.bFormatType = UAC_FORMAT_TYPE_I,
 };
 
+/* STD AS ISO OUT Endpoint */
 struct usb_endpoint_descriptor fs_epout_desc = {
 	.bLength = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType = USB_DT_ENDPOINT,
@@ -719,6 +756,7 @@ struct usb_endpoint_descriptor hs_epout_desc = {
 	.bInterval = 4,
 };
 
+/* CS AS ISO OUT Endpoint */
 static struct uac2_iso_endpoint_descriptor as_iso_out_desc = {
 	.bLength = sizeof as_iso_out_desc,
 	.bDescriptorType = USB_DT_CS_ENDPOINT,
@@ -730,6 +768,7 @@ static struct uac2_iso_endpoint_descriptor as_iso_out_desc = {
 	.wLockDelay = 0,
 };
 
+/* Audio Streaming IN Interface - Alt0 */
 static struct usb_interface_descriptor std_as_in_if0_desc = {
 	.bLength = sizeof std_as_in_if0_desc,
 	.bDescriptorType = USB_DT_INTERFACE,
@@ -741,6 +780,7 @@ static struct usb_interface_descriptor std_as_in_if0_desc = {
 	.bInterfaceProtocol = UAC_VERSION_2,
 };
 
+/* Audio Streaming IN Interface - Alt1 */
 static struct usb_interface_descriptor std_as_in_if1_desc = {
 	.bLength = sizeof std_as_in_if1_desc,
 	.bDescriptorType = USB_DT_INTERFACE,
@@ -752,6 +792,7 @@ static struct usb_interface_descriptor std_as_in_if1_desc = {
 	.bInterfaceProtocol = UAC_VERSION_2,
 };
 
+/* Audio Stream IN Intface Desc */
 struct uac2_as_header_descriptor as_in_hdr_desc = {
 	.bLength = sizeof as_in_hdr_desc,
 	.bDescriptorType = USB_DT_CS_INTERFACE,
@@ -764,6 +805,7 @@ struct uac2_as_header_descriptor as_in_hdr_desc = {
 	.iChannelNames = 0,
 };
 
+/* Audio USB_IN Format */
 struct uac2_format_type_i_descriptor as_in_fmt1_desc = {
 	.bLength = sizeof as_in_fmt1_desc,
 	.bDescriptorType = USB_DT_CS_INTERFACE,
@@ -771,6 +813,7 @@ struct uac2_format_type_i_descriptor as_in_fmt1_desc = {
 	.bFormatType = UAC_FORMAT_TYPE_I,
 };
 
+/* STD AS ISO IN Endpoint */
 struct usb_endpoint_descriptor fs_epin_desc = {
 	.bLength = USB_DT_ENDPOINT_SIZE,
 	.bDescriptorType = USB_DT_ENDPOINT,
@@ -788,6 +831,7 @@ struct usb_endpoint_descriptor hs_epin_desc = {
 	.bInterval = 4,
 };
 
+/* CS AS ISO IN Endpoint */
 static struct uac2_iso_endpoint_descriptor as_iso_in_desc = {
 	.bLength = sizeof as_iso_in_desc,
 	.bDescriptorType = USB_DT_CS_ENDPOINT,
@@ -1013,7 +1057,7 @@ afunc_set_alt(struct usb_function *fn, unsigned intf, unsigned alt)
 	struct uac2_rtd_params *prm;
 	int i;
 
-	
+	/* No i/f has more than 2 alt settings */
 	if (alt > 1) {
 		dev_err(&uac2->pdev.dev,
 			"%s:%d Error!\n", __func__, __LINE__);
@@ -1021,7 +1065,7 @@ afunc_set_alt(struct usb_function *fn, unsigned intf, unsigned alt)
 	}
 
 	if (intf == INTF_GET(agdev->ac_alt)) {
-		
+		/* Control I/f has only 1 AltSetting - 0 */
 		if (alt) {
 			dev_err(&uac2->pdev.dev,
 				"%s:%d Error!\n", __func__, __LINE__);
@@ -1247,7 +1291,7 @@ afunc_setup(struct usb_function *fn, const struct usb_ctrlrequest *cr)
 	u16 w_length = le16_to_cpu(cr->wLength);
 	int value = -EOPNOTSUPP;
 
-	
+	/* Only Class specific requests are supposed to reach here */
 	if ((cr->bRequestType & USB_TYPE_MASK) != USB_TYPE_CLASS)
 		return -EOPNOTSUPP;
 
@@ -1373,7 +1417,7 @@ static int audio_bind_config(struct usb_configuration *cfg)
 	agdev_g->func.disable = afunc_disable;
 	agdev_g->func.setup = afunc_setup;
 
-	
+	/* Initialize the configurable parameters */
 	usb_out_it_desc.bNrChannels = num_channels(c_chmask);
 	usb_out_it_desc.bmChannelConfig = cpu_to_le32(c_chmask);
 	io_in_it_desc.bNrChannels = num_channels(p_chmask);

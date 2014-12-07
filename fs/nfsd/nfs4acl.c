@@ -40,15 +40,18 @@
 #include "acl.h"
 
 
+/* mode bit translations: */
 #define NFS4_READ_MODE (NFS4_ACE_READ_DATA)
 #define NFS4_WRITE_MODE (NFS4_ACE_WRITE_DATA | NFS4_ACE_APPEND_DATA)
 #define NFS4_EXECUTE_MODE NFS4_ACE_EXECUTE
 #define NFS4_ANYONE_MODE (NFS4_ACE_READ_ATTRIBUTES | NFS4_ACE_READ_ACL | NFS4_ACE_SYNCHRONIZE)
 #define NFS4_OWNER_MODE (NFS4_ACE_WRITE_ATTRIBUTES | NFS4_ACE_WRITE_ACL)
 
+/* We don't support these bits; insist they be neither allowed nor denied */
 #define NFS4_MASK_UNSUPP (NFS4_ACE_DELETE | NFS4_ACE_WRITE_OWNER \
 		| NFS4_ACE_READ_NAMED_ATTRS | NFS4_ACE_WRITE_NAMED_ATTRS)
 
+/* flags used to simulate posix default ACLs */
 #define NFS4_INHERITANCE_FLAGS (NFS4_ACE_FILE_INHERIT_ACE \
 		| NFS4_ACE_DIRECTORY_INHERIT_ACE)
 
@@ -93,7 +96,14 @@ deny_mask_from_posix(unsigned short perm, u32 flags)
 	return mask;
 }
 
+/* XXX: modify functions to return NFS errors; they're only ever
+ * used by nfs code, after all.... */
 
+/* We only map from NFSv4 to POSIX ACLs when setting ACLs, when we err on the
+ * side of being more restrictive, so the mode bit mapping below is
+ * pessimistic.  An optimistic version would be needed to handle DENY's,
+ * but we espect to coalesce all ALLOWs and DENYs before mapping to mode
+ * bits. */
 
 static void
 low_mode_from_nfs4(u32 perm, unsigned short *mode, unsigned int flags)
@@ -138,7 +148,7 @@ nfs4_acl_posix_to_nfsv4(struct posix_acl *pacl, struct posix_acl *dpacl,
 		size += 2*dpacl->a_count;
 	}
 
-	
+	/* Allocate for worst case: one (deny, allow) pair each: */
 	acl = nfs4_acl_new(size);
 	if (acl == NULL)
 		return ERR_PTR(-ENOMEM);
@@ -166,6 +176,11 @@ summarize_posix_acl(struct posix_acl *acl, struct posix_acl_summary *pas)
 {
 	struct posix_acl_entry *pa, *pe;
 
+	/*
+	 * Only pas.users and pas.groups need initialization; previous
+	 * posix_acl_valid() calls ensure that the other fields will be
+	 * initialized in the following loop.  But, just to placate gcc:
+	 */
 	memset(pas, 0, sizeof(*pas));
 	pas->mask = 07;
 
@@ -193,12 +208,13 @@ summarize_posix_acl(struct posix_acl *acl, struct posix_acl_summary *pas)
 				break;
 		}
 	}
-	
+	/* We'll only care about effective permissions: */
 	pas->users &= pas->mask;
 	pas->group &= pas->mask;
 	pas->groups &= pas->mask;
 }
 
+/* We assume the acl has been verified with posix_acl_valid. */
 static void
 _posix_to_nfsv4_one(struct posix_acl *pacl, struct nfs4_acl *acl,
 						unsigned int flags)
@@ -216,8 +232,12 @@ _posix_to_nfsv4_one(struct posix_acl *pacl, struct nfs4_acl *acl,
 	pa = pacl->a_entries;
 	ace = acl->aces + acl->naces;
 
-	
+	/* We could deny everything not granted by the owner: */
 	deny = ~pas.owner;
+	/*
+	 * but it is equivalent (and simpler) to deny only what is not
+	 * granted by later entries:
+	 */
 	deny &= pas.users | pas.group | pas.groups | pas.other;
 	if (deny) {
 		ace->type = NFS4_ACE_ACCESS_DENIED_ACE_TYPE;
@@ -259,8 +279,10 @@ _posix_to_nfsv4_one(struct posix_acl *pacl, struct nfs4_acl *acl,
 		pa++;
 	}
 
+	/* In the case of groups, we apply allow ACEs first, then deny ACEs,
+	 * since a user can be in more than one group.  */
 
-	
+	/* allow ACEs */
 
 	group_owner_entry = pa;
 
@@ -284,7 +306,7 @@ _posix_to_nfsv4_one(struct posix_acl *pacl, struct nfs4_acl *acl,
 		pa++;
 	}
 
-	
+	/* deny ACEs */
 
 	pa = group_owner_entry;
 
@@ -328,6 +350,8 @@ sort_pacl_range(struct posix_acl *pacl, int start, int end) {
 	int sorted = 0, i;
 	struct posix_acl_entry tmp;
 
+	/* We just do a bubble sort; easy to do in place, and we're not
+	 * expecting acl's to be long enough to justify anything more. */
 	while (!sorted) {
 		sorted = 1;
 		for (i = start; i < end; i++) {
@@ -345,10 +369,12 @@ sort_pacl_range(struct posix_acl *pacl, int start, int end) {
 static void
 sort_pacl(struct posix_acl *pacl)
 {
+	/* posix_acl_valid requires that users and groups be in order
+	 * by uid/gid. */
 	int i, j;
 
 	if (pacl->a_count <= 4)
-		return; 
+		return; /* no users or groups */
 	i = 1;
 	while (pacl->a_entries[i].e_tag == ACL_USER)
 		i++;
@@ -362,6 +388,10 @@ sort_pacl(struct posix_acl *pacl)
 	return;
 }
 
+/*
+ * While processing the NFSv4 ACE, this maintains bitmasks representing
+ * which permission bits have been allowed and which denied to a given
+ * entity: */
 struct posix_ace_state {
 	u32 allow;
 	u32 deny;
@@ -377,6 +407,9 @@ struct posix_ace_state_array {
 	struct posix_user_ace_state aces[];
 };
 
+/*
+ * While processing the NFSv4 ACE, this maintains the partial permissions
+ * calculated so far: */
 
 struct posix_acl_state {
 	int empty;
@@ -384,7 +417,7 @@ struct posix_acl_state {
 	struct posix_ace_state group;
 	struct posix_ace_state other;
 	struct posix_ace_state everyone;
-	struct posix_ace_state mask; 
+	struct posix_ace_state mask; /* Deny unused in this case */
 	struct posix_ace_state_array *users;
 	struct posix_ace_state_array *groups;
 };
@@ -396,6 +429,11 @@ init_state(struct posix_acl_state *state, int cnt)
 
 	memset(state, 0, sizeof(struct posix_acl_state));
 	state->empty = 1;
+	/*
+	 * In the worst case, each individual acl could be for a distinct
+	 * named user or group, but we don't no which, so we allocate
+	 * enough space for either:
+	 */
 	alloc = sizeof(struct posix_ace_state_array)
 		+ cnt*sizeof(struct posix_user_ace_state);
 	state->users = kzalloc(alloc, GFP_KERNEL);
@@ -420,6 +458,24 @@ static inline void add_to_mask(struct posix_acl_state *state, struct posix_ace_s
 	state->mask.allow |= astate->allow;
 }
 
+/*
+ * Certain bits (SYNCHRONIZE, DELETE, WRITE_OWNER, READ/WRITE_NAMED_ATTRS,
+ * READ_ATTRIBUTES, READ_ACL) are currently unenforceable and don't translate
+ * to traditional read/write/execute permissions.
+ *
+ * It's problematic to reject acls that use certain mode bits, because it
+ * places the burden on users to learn the rules about which bits one
+ * particular server sets, without giving the user a lot of help--we return an
+ * error that could mean any number of different things.  To make matters
+ * worse, the problematic bits might be introduced by some application that's
+ * automatically mapping from some other acl model.
+ *
+ * So wherever possible we accept anything, possibly erring on the side of
+ * denying more permissions than necessary.
+ *
+ * However we do reject *explicit* DENY's of a few bits representing
+ * permissions we could never deny:
+ */
 
 static inline int check_deny(u32 mask, int isowner)
 {
@@ -440,10 +496,20 @@ posix_state_to_acl(struct posix_acl_state *state, unsigned int flags)
 	int nace;
 	int i, error = 0;
 
+	/*
+	 * ACLs with no ACEs are treated differently in the inheritable
+	 * and effective cases: when there are no inheritable ACEs, we
+	 * set a zero-length default posix acl:
+	 */
 	if (state->empty && (flags & NFS4_ACL_TYPE_DEFAULT)) {
 		pacl = posix_acl_alloc(0, GFP_KERNEL);
 		return pacl ? pacl : ERR_PTR(-ENOMEM);
 	}
+	/*
+	 * When there are no effective ACEs, the following will end
+	 * up setting a 3-element effective posix ACL with all
+	 * permissions zero.
+	 */
 	nace = 4 + state->users->n + state->groups->n;
 	pacl = posix_acl_alloc(nace, GFP_KERNEL);
 	if (!pacl)
@@ -511,13 +577,13 @@ out_err:
 
 static inline void allow_bits(struct posix_ace_state *astate, u32 mask)
 {
-	
+	/* Allow all bits in the mask not already denied: */
 	astate->allow |= mask & ~astate->deny;
 }
 
 static inline void deny_bits(struct posix_ace_state *astate, u32 mask)
 {
-	
+	/* Deny all bits in the mask not already allowed: */
 	astate->deny |= mask & ~astate->allow;
 }
 
@@ -528,7 +594,7 @@ static int find_uid(struct posix_acl_state *state, struct posix_ace_state_array 
 	for (i = 0; i < a->n; i++)
 		if (a->aces[i].uid == uid)
 			return i;
-	
+	/* Not found: */
 	a->n++;
 	a->aces[i].uid = uid;
 	a->aces[i].perms.allow = state->everyone.allow;
@@ -650,6 +716,11 @@ int nfs4_acl_nfsv4_to_posix(struct nfs4_acl *acl, struct posix_acl **pacl,
 		}
 		if (!(flags & NFS4_ACL_DIR))
 			goto out_dstate;
+		/*
+		 * Note that when only one of FILE_INHERIT or DIRECTORY_INHERIT
+		 * is set, we're effectively turning on the other.  That's OK,
+		 * according to rfc 3530.
+		 */
 		process_one_v4_ace(&default_acl_state, ace);
 
 		if (!(ace->flag & NFS4_ACE_INHERIT_ONLY_ACE))

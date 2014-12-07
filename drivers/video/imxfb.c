@@ -35,6 +35,9 @@
 #include <mach/imxfb.h>
 #include <mach/hardware.h>
 
+/*
+ * Complain if VAR is out of range.
+ */
 #define DEBUG_VAR 1
 
 #if defined(CONFIG_BACKLIGHT_CLASS_DEVICE) || \
@@ -86,10 +89,13 @@
 #define POS_POS(x)	((x) & 1f)
 
 #define LCDC_LSCR1	0x28
+/* bit fields in imxfb.h */
 
 #define LCDC_PWMR	0x2C
+/* bit fields in imxfb.h */
 
 #define LCDC_DMACR	0x30
+/* bit fields in imxfb.h */
 
 #define LCDC_RMCR	0x34
 
@@ -107,9 +113,14 @@
 #define LCDISR_EOF	(1<<1)
 #define LCDISR_BOF	(1<<0)
 
+/* Used fb-mode. Can be set on kernel command line, therefore file-static. */
 static const char *fb_mode;
 
 
+/*
+ * These are the bitfields for each
+ * display depth that we support.
+ */
 struct imxfb_rgb {
 	struct fb_bitfield	red;
 	struct fb_bitfield	green;
@@ -122,6 +133,10 @@ struct imxfb_info {
 	void __iomem		*regs;
 	struct clk		*clk;
 
+	/*
+	 * These are the addresses we mapped
+	 * the framebuffer memory region to.
+	 */
 	dma_addr_t		map_dma;
 	u_char			*map_cpu;
 	u_int			map_size;
@@ -153,9 +168,16 @@ struct imxfb_info {
 
 #define IMX_NAME	"IMX"
 
+/*
+ * Minimum X and Y resolutions
+ */
 #define MIN_XRES	64
 #define MIN_YRES	64
 
+/* Actually this really is 18bit support, the lowest 2 bits of each colour
+ * are unused in hardware. We claim to have 24bit support to make software
+ * like X work, which does not support 18bit.
+ */
 static struct imxfb_rgb def_rgb_18 = {
 	.red	= {.offset = 16, .length = 8,},
 	.green	= {.offset = 8, .length = 8,},
@@ -219,18 +241,32 @@ static int imxfb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	unsigned int val;
 	int ret = 1;
 
+	/*
+	 * If inverse mode was selected, invert all the colours
+	 * rather than the register number.  The register number
+	 * is what you poke into the framebuffer to produce the
+	 * colour you requested.
+	 */
 	if (fbi->cmap_inverse) {
 		red   = 0xffff - red;
 		green = 0xffff - green;
 		blue  = 0xffff - blue;
 	}
 
+	/*
+	 * If greyscale is true, then we convert the RGB value
+	 * to greyscale no mater what visual we are using.
+	 */
 	if (info->var.grayscale)
 		red = green = blue = (19595 * red + 38470 * green +
 					7471 * blue) >> 16;
 
 	switch (info->fix.visual) {
 	case FB_VISUAL_TRUECOLOR:
+		/*
+		 * 12 or 16-bit True Colour.  We encode the RGB value
+		 * according to the RGB bitfield information.
+		 */
 		if (regno < 16) {
 			u32 *pal = info->pseudo_palette;
 
@@ -264,6 +300,12 @@ static const struct imx_fb_videomode *imxfb_find_mode(struct imxfb_info *fbi)
 	return NULL;
 }
 
+/*
+ *  imxfb_check_var():
+ *    Round up in the following order: bits_per_pixel, xres,
+ *    yres, xres_virtual, yres_virtual, xoffset, yoffset, grayscale,
+ *    bitfields, horizontal timing, vertical timing.
+ */
 static int imxfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 {
 	struct imxfb_info *fbi = info->par;
@@ -338,11 +380,15 @@ static int imxfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		break;
 	}
 
-	
+	/* add sync polarities */
 	pcr |= imxfb_mode->pcr & ~(0x3f | (7 << 25));
 
 	fbi->pcr = pcr;
 
+	/*
+	 * Copy the RGB parameters for this display
+	 * from the machine specific parameters.
+	 */
 	var->red    = rgb->red;
 	var->green  = rgb->green;
 	var->blue   = rgb->blue;
@@ -359,6 +405,10 @@ static int imxfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 	return 0;
 }
 
+/*
+ * imxfb_set_par():
+ *	Set the user defined part of the display for the specified console
+ */
 static int imxfb_set_par(struct fb_info *info)
 {
 	struct imxfb_info *fbi = info->par;
@@ -369,6 +419,11 @@ static int imxfb_set_par(struct fb_info *info)
 	else if (!fbi->cmap_static)
 		info->fix.visual = FB_VISUAL_PSEUDOCOLOR;
 	else {
+		/*
+		 * Some people have weird ideas about wanting static
+		 * pseudocolor maps.  I suspect their user space
+		 * applications are broken.
+		 */
 		info->fix.visual = FB_VISUAL_STATIC_PSEUDOCOLOR;
 	}
 
@@ -454,13 +509,17 @@ static void imxfb_enable_controller(struct imxfb_info *fbi)
 
 	writel(fbi->screen_dma, fbi->regs + LCDC_SSA);
 
-	
+	/* panning offset 0 (0 pixel offset)        */
 	writel(0x00000000, fbi->regs + LCDC_POS);
 
-	
+	/* disable hardware cursor */
 	writel(readl(fbi->regs + LCDC_CPOS) & ~(CPOS_CC0 | CPOS_CC1),
 		fbi->regs + LCDC_CPOS);
 
+	/*
+	 * RMCR_LCDC_EN_MX1 is present on i.MX1 only, but doesn't hurt
+	 * on other SoCs
+	 */
 	writel(RMCR_LCDC_EN_MX1, fbi->regs + LCDC_RMCR);
 
 	clk_enable(fbi->clk);
@@ -560,7 +619,7 @@ static int imxfb_activate_var(struct fb_var_screeninfo *var, struct fb_info *inf
 			info->fix.id, var->lower_margin);
 #endif
 
-	
+	/* physical screen start address	    */
 	writel(VPW_VPW(var->xres * var->bits_per_pixel / 8 / 4),
 		fbi->regs + LCDC_VPW);
 
@@ -588,6 +647,10 @@ static int imxfb_activate_var(struct fb_var_screeninfo *var, struct fb_info *inf
 }
 
 #ifdef CONFIG_PM
+/*
+ * Power management hooks.  Note that we won't be called from IRQ context,
+ * unlike the blank functions above, so we may sleep.
+ */
 static int imxfb_suspend(struct platform_device *dev, pm_message_t state)
 {
 	struct fb_info *info = platform_get_drvdata(dev);
@@ -736,7 +799,7 @@ static int __init imxfb_probe(struct platform_device *pdev)
 		fbi->screen_dma = fbi->map_dma;
 		info->fix.smem_start = fbi->screen_dma;
 	} else {
-		
+		/* Fixed framebuffer mapping enables location of the screen in eSRAM */
 		fbi->map_cpu = pdata->fixed_screen_cpu;
 		fbi->map_dma = pdata->fixed_screen_dma;
 		info->screen_base = fbi->map_cpu;
@@ -758,6 +821,10 @@ static int __init imxfb_probe(struct platform_device *pdev)
 	for (i = 0; i < pdata->num_modes; i++)
 		fb_add_videomode(&pdata->mode[i].mode, &info->modelist);
 
+	/*
+	 * This makes sure that our colour bitfield
+	 * descriptors are correctly initialised.
+	 */
 	imxfb_check_var(&info->var, info);
 
 	ret = fb_alloc_cmap(&info->cmap, 1 << info->var.bits_per_pixel, 0);

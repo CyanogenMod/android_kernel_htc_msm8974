@@ -17,6 +17,21 @@
  * Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+/* This is a generic driver for SJA1000 chips on the OpenFirmware platform
+ * bus found on embedded PowerPC systems. You need a SJA1000 CAN node
+ * definition in your flattened device tree source (DTS) file similar to:
+ *
+ *   can@3,100 {
+ *           compatible = "nxp,sja1000";
+ *           reg = <3 0x100 0x80>;
+ *           interrupts = <2 0>;
+ *           interrupt-parent = <&mpic>;
+ *           nxp,external-clock-frequency = <16000000>;
+ *   };
+ *
+ * See "Documentation/devicetree/bindings/net/can/sja1000.txt" for further
+ * information.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -125,19 +140,19 @@ static int __devinit sja1000_ofp_probe(struct platform_device *ofdev)
 	if (prop && (prop_size ==  sizeof(u32)))
 		priv->can.clock.freq = *prop / 2;
 	else
-		priv->can.clock.freq = SJA1000_OFP_CAN_CLOCK; 
+		priv->can.clock.freq = SJA1000_OFP_CAN_CLOCK; /* default */
 
 	prop = of_get_property(np, "nxp,tx-output-mode", &prop_size);
 	if (prop && (prop_size == sizeof(u32)))
 		priv->ocr |= *prop & OCR_MODE_MASK;
 	else
-		priv->ocr |= OCR_MODE_NORMAL; 
+		priv->ocr |= OCR_MODE_NORMAL; /* default */
 
 	prop = of_get_property(np, "nxp,tx-output-config", &prop_size);
 	if (prop && (prop_size == sizeof(u32)))
 		priv->ocr |= (*prop << OCR_TX_SHIFT) & OCR_TX_MASK;
 	else
-		priv->ocr |= OCR_TX0_PULLDOWN; 
+		priv->ocr |= OCR_TX0_PULLDOWN; /* default */
 
 	prop = of_get_property(np, "nxp,clock-out-frequency", &prop_size);
 	if (prop && (prop_size == sizeof(u32)) && *prop) {
@@ -148,12 +163,12 @@ static int __devinit sja1000_ofp_probe(struct platform_device *ofdev)
 		else
 			priv->cdr |= CDR_CLKOUT_MASK;
 	} else {
-		priv->cdr |= CDR_CLK_OFF; 
+		priv->cdr |= CDR_CLK_OFF; /* default */
 	}
 
 	prop = of_get_property(np, "nxp,no-comparator-bypass", NULL);
 	if (!prop)
-		priv->cdr |= CDR_CBP; 
+		priv->cdr |= CDR_CBP; /* default */
 
 	priv->irq_flags = IRQF_SHARED;
 	priv->reg_base = base;

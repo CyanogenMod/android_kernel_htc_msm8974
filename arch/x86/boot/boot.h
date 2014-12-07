@@ -9,11 +9,14 @@
  *
  * ----------------------------------------------------------------------- */
 
+/*
+ * Header file for the real-mode kernel code
+ */
 
 #ifndef BOOT_BOOT_H
 #define BOOT_BOOT_H
 
-#define STACK_SIZE	512	
+#define STACK_SIZE	512	/* Minimum number of bytes for stack */
 
 #ifndef __ASSEMBLY__
 
@@ -27,6 +30,7 @@
 #include <asm/processor-flags.h>
 #include "ctype.h"
 
+/* Useful macros */
 #define BUILD_BUG_ON(condition) ((void)sizeof(char[1 - 2*!!(condition)]))
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof(*(x)))
@@ -36,6 +40,7 @@ extern struct boot_params boot_params;
 
 #define cpu_relax()	asm volatile("rep; nop")
 
+/* Basic port I/O */
 static inline void outb(u8 v, u16 port)
 {
 	asm volatile("outb %0,%1" : : "a" (v), "dN" (port));
@@ -75,6 +80,7 @@ static inline void io_delay(void)
 	asm volatile("outb %%al,%0" : : "dN" (DELAY_PORT));
 }
 
+/* These functions are used to reference data in other segments. */
 
 static inline u16 ds(void)
 {
@@ -171,6 +177,7 @@ static inline void wrgs32(u32 v, addr_t addr)
 	asm volatile("movl %1,%%gs:%0" : "+m" (*(u32 *)addr) : "ri" (v));
 }
 
+/* Note: these only return true/false, not a signed return value! */
 static inline int memcmp(const void *s1, const void *s2, size_t len)
 {
 	u8 diff;
@@ -194,6 +201,7 @@ static inline int memcmp_gs(const void *s1, addr_t s2, size_t len)
 	return diff;
 }
 
+/* Heap -- available for dynamic lists. */
 extern char _end[];
 extern char *HEAP;
 extern char *heap_end;
@@ -215,6 +223,7 @@ static inline bool heap_free(size_t n)
 	return (int)(heap_end-HEAP) >= (int)n;
 }
 
+/* copy.S */
 
 void copy_to_fs(addr_t dst, void *src, size_t len);
 void *copy_from_fs(void *dst, addr_t src, size_t len);
@@ -226,10 +235,13 @@ void *memset(void *dst, int c, size_t len);
 #define memcpy(d,s,l) __builtin_memcpy(d,s,l)
 #define memset(d,c,l) __builtin_memset(d,c,l)
 
+/* a20.c */
 int enable_a20(void);
 
+/* apm.c */
 int query_apm_bios(void);
 
+/* bioscall.c */
 struct biosregs {
 	union {
 		struct {
@@ -272,6 +284,7 @@ struct biosregs {
 };
 void intcall(u8 int_no, const struct biosregs *ireg, struct biosregs *oreg);
 
+/* cmdline.c */
 int __cmdline_find_option(u32 cmdline_ptr, const char *option, char *buffer, int bufsize);
 int __cmdline_find_option_bool(u32 cmdline_ptr, const char *option);
 static inline int cmdline_find_option(const char *option, char *buffer, int bufsize)
@@ -285,8 +298,9 @@ static inline int cmdline_find_option_bool(const char *option)
 }
 
 
+/* cpu.c, cpucheck.c */
 struct cpu_features {
-	int level;		
+	int level;		/* Family, or 64 for x86-64 */
 	int model;
 	u32 flags[NCAPINTS];
 };
@@ -294,48 +308,62 @@ extern struct cpu_features cpu;
 int check_cpu(int *cpu_level_ptr, int *req_level_ptr, u32 **err_flags_ptr);
 int validate_cpu(void);
 
+/* early_serial_console.c */
 extern int early_serial_base;
 void console_init(void);
 
+/* edd.c */
 void query_edd(void);
 
+/* header.S */
 void __attribute__((noreturn)) die(void);
 
+/* mca.c */
 int query_mca(void);
 
+/* memory.c */
 int detect_memory(void);
 
+/* pm.c */
 void __attribute__((noreturn)) go_to_protected_mode(void);
 
+/* pmjump.S */
 void __attribute__((noreturn))
 	protected_mode_jump(u32 entrypoint, u32 bootparams);
 
+/* printf.c */
 int sprintf(char *buf, const char *fmt, ...);
 int vsprintf(char *buf, const char *fmt, va_list args);
 int printf(const char *fmt, ...);
 
+/* regs.c */
 void initregs(struct biosregs *regs);
 
+/* string.c */
 int strcmp(const char *str1, const char *str2);
 int strncmp(const char *cs, const char *ct, size_t count);
 size_t strnlen(const char *s, size_t maxlen);
 unsigned int atou(const char *s);
 unsigned long long simple_strtoull(const char *cp, char **endp, unsigned int base);
 
+/* tty.c */
 void puts(const char *);
 void putchar(int);
 int getchar(void);
 void kbd_flush(void);
 int getchar_timeout(void);
 
+/* video.c */
 void set_video(void);
 
+/* video-mode.c */
 int set_mode(u16 mode);
 int mode_defined(u16 mode);
 void probe_cards(int unsafe);
 
+/* video-vesa.c */
 void vesa_store_edid(void);
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* BOOT_BOOT_H */

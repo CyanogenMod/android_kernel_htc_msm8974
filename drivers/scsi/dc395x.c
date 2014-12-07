@@ -61,7 +61,7 @@
 #include <asm/io.h>
 
 #include <scsi/scsi.h>
-#include <scsi/scsicam.h>	
+#include <scsi/scsicam.h>	/* needed for scsicam_bios_param */
 #include <scsi/scsi_cmnd.h>
 #include <scsi/scsi_device.h>
 #include <scsi/scsi_host.h>
@@ -72,7 +72,23 @@
 #define DC395X_BANNER	"Tekram DC395(U/UW/F), DC315(U) - ASIC TRM-S1040"
 #define DC395X_VERSION	"v2.05, 2004/03/08"
 
+/*---------------------------------------------------------------------------
+                                  Features
+ ---------------------------------------------------------------------------*/
+/*
+ * Set to disable parts of the driver
+ */
+/*#define DC395x_NO_DISCONNECT*/
+/*#define DC395x_NO_TAGQ*/
+/*#define DC395x_NO_SYNC*/
+/*#define DC395x_NO_WIDE*/
 
+/*---------------------------------------------------------------------------
+                                  Debugging
+ ---------------------------------------------------------------------------*/
+/*
+ * Types of debugging that can be enabled and disabled
+ */
 #define DBG_KG		0x0001
 #define DBG_0		0x0002
 #define DBG_1		0x0004
@@ -81,22 +97,44 @@
 #define DBG_PIO		0x0080
 
 
+/*
+ * Set set of things to output debugging for.
+ * Undefine to remove all debugging
+ */
+/*#define DEBUG_MASK (DBG_0|DBG_1|DBG_SG|DBG_FIFO|DBG_PIO)*/
+/*#define  DEBUG_MASK	DBG_0*/
 
 
+/*
+ * Output a kernel mesage at the specified level and append the
+ * driver name and a ": " to the start of the message
+ */
 #define dprintkl(level, format, arg...)  \
     printk(level DC395X_NAME ": " format , ## arg)
 
 
 #ifdef DEBUG_MASK
+/*
+ * print a debug message - this is formated with KERN_DEBUG, then the
+ * driver name followed by a ": " and then the message is output. 
+ * This also checks that the specified debug level is enabled before
+ * outputing the message
+ */
 #define dprintkdbg(type, format, arg...) \
 	do { \
 		if ((type) & (DEBUG_MASK)) \
 			dprintkl(KERN_DEBUG , format , ## arg); \
 	} while (0)
 
+/*
+ * Check if the specified type of debugging is enabled
+ */
 #define debug_enabled(type)	((DEBUG_MASK) & (type))
 
 #else
+/*
+ * No debugging. Do nothing
+ */
 #define dprintkdbg(type, format, arg...) \
 	do {} while (0)
 #define debug_enabled(type)	(0)
@@ -105,10 +143,10 @@
 
 
 #ifndef PCI_VENDOR_ID_TEKRAM
-#define PCI_VENDOR_ID_TEKRAM                    0x1DE1	
+#define PCI_VENDOR_ID_TEKRAM                    0x1DE1	/* Vendor ID    */
 #endif
 #ifndef PCI_DEVICE_ID_TEKRAM_TRMS1040
-#define PCI_DEVICE_ID_TEKRAM_TRMS1040           0x0391	
+#define PCI_DEVICE_ID_TEKRAM_TRMS1040           0x0391	/* Device ID    */
 #endif
 
 
@@ -122,11 +160,12 @@
 #define DC395x_write16(acb,address,value)	outw((value), acb->io_port_base + (address))
 #define DC395x_write32(acb,address,value)	outl((value), acb->io_port_base + (address))
 
-#define RES_TARGET		0x000000FF	
-#define RES_TARGET_LNX  STATUS_MASK	
-#define RES_ENDMSG		0x0000FF00	
-#define RES_DID			0x00FF0000	
-#define RES_DRV			0xFF000000	
+/* cmd->result */
+#define RES_TARGET		0x000000FF	/* Target State */
+#define RES_TARGET_LNX  STATUS_MASK	/* Only official ... */
+#define RES_ENDMSG		0x0000FF00	/* End Message */
+#define RES_DID			0x00FF0000	/* DID_ codes */
+#define RES_DRV			0xFF000000	/* DRIVER_ codes */
 
 #define MK_RES(drv,did,msg,tgt) ((int)(drv)<<24 | (int)(did)<<16 | (int)(msg)<<8 | (int)(tgt))
 #define MK_RES_LNX(drv,did,msg,tgt) ((int)(drv)<<24 | (int)(did)<<16 | (int)(msg)<<8 | (int)(tgt)<<1)
@@ -139,54 +178,75 @@
 
 #define TAG_NONE 255
 
+/*
+ * srb->segement_x is the hw sg list. It is always allocated as a
+ * DC395x_MAX_SG_LISTENTRY entries in a linear block which does not
+ * cross a page boundy.
+ */
 #define SEGMENTX_LEN	(sizeof(struct SGentry)*DC395x_MAX_SG_LISTENTRY)
 
 
 struct SGentry {
-	u32 address;		
+	u32 address;		/* bus! address */
 	u32 length;
 };
 
+/* The SEEPROM structure for TRM_S1040 */
 struct NVRamTarget {
-	u8 cfg0;		
-	u8 period;		
-	u8 cfg2;		
-	u8 cfg3;		
+	u8 cfg0;		/* Target configuration byte 0  */
+	u8 period;		/* Target period                */
+	u8 cfg2;		/* Target configuration byte 2  */
+	u8 cfg3;		/* Target configuration byte 3  */
 };
 
 struct NvRamType {
-	u8 sub_vendor_id[2];	
-	u8 sub_sys_id[2];	
-	u8 sub_class;		
-	u8 vendor_id[2];	
-	u8 device_id[2];	
-	u8 reserved;		
+	u8 sub_vendor_id[2];	/* 0,1  Sub Vendor ID   */
+	u8 sub_sys_id[2];	/* 2,3  Sub System ID   */
+	u8 sub_class;		/* 4    Sub Class       */
+	u8 vendor_id[2];	/* 5,6  Vendor ID       */
+	u8 device_id[2];	/* 7,8  Device ID       */
+	u8 reserved;		/* 9    Reserved        */
 	struct NVRamTarget target[DC395x_MAX_SCSI_ID];
-	u8 scsi_id;		
-	u8 channel_cfg;		
-	u8 delay_time;		
-	u8 max_tag;		
-	u8 reserved0;		
-	u8 boot_target;		
-	u8 boot_lun;		
-	u8 reserved1;		
-	u16 reserved2[22];	
-	u16 cksum;		
+						/** 10,11,12,13
+						 ** 14,15,16,17
+						 ** ....
+						 ** ....
+						 ** 70,71,72,73
+						 */
+	u8 scsi_id;		/* 74 Host Adapter SCSI ID      */
+	u8 channel_cfg;		/* 75 Channel configuration     */
+	u8 delay_time;		/* 76 Power on delay time       */
+	u8 max_tag;		/* 77 Maximum tags              */
+	u8 reserved0;		/* 78  */
+	u8 boot_target;		/* 79  */
+	u8 boot_lun;		/* 80  */
+	u8 reserved1;		/* 81  */
+	u16 reserved2[22];	/* 82,..125 */
+	u16 cksum;		/* 126,127 */
 };
 
 struct ScsiReqBlk {
-	struct list_head list;		
+	struct list_head list;		/* next/prev ptrs for srb lists */
 	struct DeviceCtlBlk *dcb;
 	struct scsi_cmnd *cmd;
 
-	struct SGentry *segment_x;	
-	dma_addr_t sg_bus_addr;	        
+	struct SGentry *segment_x;	/* Linear array of hw sg entries (up to 64 entries) */
+	dma_addr_t sg_bus_addr;	        /* Bus address of sg list (ie, of segment_x) */
 
-	u8 sg_count;			
-	u8 sg_index;			
-	size_t total_xfer_length;	
-	size_t request_length;		
-	size_t xferred;		        
+	u8 sg_count;			/* No of HW sg entries for this request */
+	u8 sg_index;			/* Index of HW sg entry for this request */
+	size_t total_xfer_length;	/* Total number of bytes remaining to be transferred */
+	size_t request_length;		/* Total number of bytes in this request */
+	/*
+	 * The sense buffer handling function, request_sense, uses
+	 * the first hw sg entry (segment_x[0]) and the transfer
+	 * length (total_xfer_length). While doing this it stores the
+	 * original values into the last sg hw list
+	 * (srb->segment_x[DC395x_MAX_SG_LISTENTRY - 1] and the
+	 * total_xfer_length in xferred. These values are restored in
+	 * pci_unmap_srb_sense. This is the only place xferred is used.
+	 */
+	size_t xferred;		        /* Saved copy of total_xfer_length */
 
 	u16 state;
 
@@ -207,27 +267,27 @@ struct ScsiReqBlk {
 };
 
 struct DeviceCtlBlk {
-	struct list_head list;		
+	struct list_head list;		/* next/prev ptrs for the dcb list */
 	struct AdapterCtlBlk *acb;
-	struct list_head srb_going_list;	
-	struct list_head srb_waiting_list;	
+	struct list_head srb_going_list;	/* head of going srb list */
+	struct list_head srb_waiting_list;	/* head of waiting srb list */
 
 	struct ScsiReqBlk *active_srb;
 	u32 tag_mask;
 
 	u16 max_command;
 
-	u8 target_id;		
-	u8 target_lun;		
+	u8 target_id;		/* SCSI Target ID  (SCSI Only) */
+	u8 target_lun;		/* SCSI Log.  Unit (SCSI Only) */
 	u8 identify_msg;
 	u8 dev_mode;
 
-	u8 inquiry7;		
-	u8 sync_mode;		
-	u8 min_nego_period;	
-	u8 sync_period;		
+	u8 inquiry7;		/* To store Inquiry flags */
+	u8 sync_mode;		/* 0:async mode */
+	u8 min_nego_period;	/* for nego. */
+	u8 sync_period;		/* for reg.  */
 
-	u8 sync_offset;		
+	u8 sync_offset;		/* for reg. and nego.(low nibble) */
 	u8 flag;
 	u8 dev_type;
 	u8 init_tcq_flag;
@@ -239,11 +299,11 @@ struct AdapterCtlBlk {
 	unsigned long io_port_base;
 	unsigned long io_port_len;
 
-	struct list_head dcb_list;		
+	struct list_head dcb_list;		/* head of going dcb list */
 	struct DeviceCtlBlk *dcb_run_robin;
 	struct DeviceCtlBlk *active_dcb;
 
-	struct list_head srb_free_list;		
+	struct list_head srb_free_list;		/* head of free srb list */
 	struct ScsiReqBlk *tmp_srb;
 	struct timer_list waiting_timer;
 	struct timer_list selto_timer;
@@ -272,10 +332,13 @@ struct AdapterCtlBlk {
 	struct ScsiReqBlk srb_array[DC395x_MAX_SRB_CNT];
 	struct ScsiReqBlk srb;
 
-	struct NvRamType eeprom;	
+	struct NvRamType eeprom;	/* eeprom settings for this adapter */
 };
 
 
+/*---------------------------------------------------------------------------
+                            Forward declarations
+ ---------------------------------------------------------------------------*/
 static void data_out_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 		u16 *pscsi_status);
 static void data_in_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
@@ -333,36 +396,72 @@ static void set_xfer_rate(struct AdapterCtlBlk *acb,
 static void waiting_timeout(unsigned long ptr);
 
 
+/*---------------------------------------------------------------------------
+                                 Static Data
+ ---------------------------------------------------------------------------*/
 static u16 current_sync_offset = 0;
 
 static void *dc395x_scsi_phase0[] = {
-	data_out_phase0,
-	data_in_phase0,	
-	command_phase0,	
-	status_phase0,	
-	nop0,		
-	nop0,		
-	msgout_phase0,	
-	msgin_phase0,	
+	data_out_phase0,/* phase:0 */
+	data_in_phase0,	/* phase:1 */
+	command_phase0,	/* phase:2 */
+	status_phase0,	/* phase:3 */
+	nop0,		/* phase:4 PH_BUS_FREE .. initial phase */
+	nop0,		/* phase:5 PH_BUS_FREE .. initial phase */
+	msgout_phase0,	/* phase:6 */
+	msgin_phase0,	/* phase:7 */
 };
 
 static void *dc395x_scsi_phase1[] = {
-	data_out_phase1,
-	data_in_phase1,	
-	command_phase1,	
-	status_phase1,	
-	nop1,		
-	nop1,		
-	msgout_phase1,	
-	msgin_phase1,	
+	data_out_phase1,/* phase:0 */
+	data_in_phase1,	/* phase:1 */
+	command_phase1,	/* phase:2 */
+	status_phase1,	/* phase:3 */
+	nop1,		/* phase:4 PH_BUS_FREE .. initial phase */
+	nop1,		/* phase:5 PH_BUS_FREE .. initial phase */
+	msgout_phase1,	/* phase:6 */
+	msgin_phase1,	/* phase:7 */
 };
 
+/*
+ *Fast20:	000	 50ns, 20.0 MHz
+ *		001	 75ns, 13.3 MHz
+ *		010	100ns, 10.0 MHz
+ *		011	125ns,  8.0 MHz
+ *		100	150ns,  6.6 MHz
+ *		101	175ns,  5.7 MHz
+ *		110	200ns,  5.0 MHz
+ *		111	250ns,  4.0 MHz
+ *
+ *Fast40(LVDS):	000	 25ns, 40.0 MHz
+ *		001	 50ns, 20.0 MHz
+ *		010	 75ns, 13.3 MHz
+ *		011	100ns, 10.0 MHz
+ *		100	125ns,  8.0 MHz
+ *		101	150ns,  6.6 MHz
+ *		110	175ns,  5.7 MHz
+ *		111	200ns,  5.0 MHz
+ */
+/*static u8	clock_period[] = {12,19,25,31,37,44,50,62};*/
 
+/* real period:48ns,76ns,100ns,124ns,148ns,176ns,200ns,248ns */
 static u8 clock_period[] = { 12, 18, 25, 31, 37, 43, 50, 62 };
 static u16 clock_speed[] = { 200, 133, 100, 80, 67, 58, 50, 40 };
 
 
+/*---------------------------------------------------------------------------
+                                Configuration
+  ---------------------------------------------------------------------------*/
+/*
+ * Module/boot parameters currently effect *all* instances of the
+ * card in the system.
+ */
 
+/*
+ * Command line parameters are stored in a structure below.
+ * These are the index's into the structure for the various
+ * command line options.
+ */
 #define CFG_ADAPTER_ID		0
 #define CFG_MAX_SPEED		1
 #define CFG_DEV_MODE		2
@@ -370,35 +469,42 @@ static u16 clock_speed[] = { 200, 133, 100, 80, 67, 58, 50, 40 };
 #define CFG_TAGS		4
 #define CFG_RESET_DELAY		5
 
-#define CFG_NUM			6	
+#define CFG_NUM			6	/* number of configuration items */
 
 
+/*
+ * Value used to indicate that a command line override
+ * hasn't been used to modify the value.
+ */
 #define CFG_PARAM_UNSET -1
 
 
+/*
+ * Hold command line parameters.
+ */
 struct ParameterData {
-	int value;		
-	int min;		
-	int max;		
-	int def;		
-	int safe;		
+	int value;		/* value of this setting */
+	int min;		/* minimum value */
+	int max;		/* maximum value */
+	int def;		/* default value */
+	int safe;		/* safe value */
 };
 static struct ParameterData __devinitdata cfg_data[] = {
-	{ 
+	{ /* adapter id */
 		CFG_PARAM_UNSET,
 		0,
 		15,
 		7,
 		7
 	},
-	{ 
+	{ /* max speed */
 		CFG_PARAM_UNSET,
 		  0,
 		  7,
-		  1,	
-		  4,	
+		  1,	/* 13.3Mhz */
+		  4,	/*  6.7Hmz */
 	},
-	{ 
+	{ /* dev mode */
 		CFG_PARAM_UNSET,
 		0,
 		0x3f,
@@ -407,7 +513,7 @@ static struct ParameterData __devinitdata cfg_data[] = {
 			NTC_DO_SEND_START,
 		NTC_DO_PARITY_CHK | NTC_DO_SEND_START
 	},
-	{ 
+	{ /* adapter mode */
 		CFG_PARAM_UNSET,
 		0,
 		0x2f,
@@ -415,26 +521,31 @@ static struct ParameterData __devinitdata cfg_data[] = {
 			NAC_SCANLUN |
 #endif
 		NAC_GT2DRIVES | NAC_GREATER_1G | NAC_POWERON_SCSI_RESET
-			,
+			/*| NAC_ACTIVE_NEG*/,
 		NAC_GT2DRIVES | NAC_GREATER_1G | NAC_POWERON_SCSI_RESET | 0x08
 	},
-	{ 
+	{ /* tags */
 		CFG_PARAM_UNSET,
 		0,
 		5,
-		3,	
+		3,	/* 16 tags (??) */
 		2,
 	},
-	{ 
+	{ /* reset delay */
 		CFG_PARAM_UNSET,
 		0,
 		180,
-		1,	
-		10,	
+		1,	/* 1 second */
+		10,	/* 10 seconds */
 	}
 };
 
 
+/*
+ * Safe settings. If set to zero the BIOS/default values with
+ * command line overrides will be used. If set to 1 then safe and
+ * slow settings will be used.
+ */
 static bool use_safe_settings = 0;
 module_param_named(safe, use_safe_settings, bool, 0);
 MODULE_PARM_DESC(safe, "Use safe and slow settings only. Default: false");
@@ -459,6 +570,10 @@ module_param_named(reset_delay, cfg_data[CFG_RESET_DELAY].value, int, 0);
 MODULE_PARM_DESC(reset_delay, "Reset delay in seconds. Default 1 (0-180)");
 
 
+/**
+ * set_safe_settings - if the use_safe_settings option is set then
+ * set all values to the safe and slow values.
+ **/
 static void __devinit set_safe_settings(void)
 {
 	if (use_safe_settings)
@@ -474,6 +589,10 @@ static void __devinit set_safe_settings(void)
 }
 
 
+/**
+ * fix_settings - reset any boot parameters which are out of range
+ * back to the default values.
+ **/
 static void __devinit fix_settings(void)
 {
 	int i;
@@ -497,16 +616,33 @@ static void __devinit fix_settings(void)
 
 
 
+/*
+ * Mapping from the eeprom delay index value (index into this array)
+ * to the number of actual seconds that the delay should be for.
+ */
 static char __devinitdata eeprom_index_to_delay_map[] = 
 	{ 1, 3, 5, 10, 16, 30, 60, 120 };
 
 
+/**
+ * eeprom_index_to_delay - Take the eeprom delay setting and convert it
+ * into a number of seconds.
+ *
+ * @eeprom: The eeprom structure in which we find the delay index to map.
+ **/
 static void __devinit eeprom_index_to_delay(struct NvRamType *eeprom)
 {
 	eeprom->delay_time = eeprom_index_to_delay_map[eeprom->delay_time];
 }
 
 
+/**
+ * delay_to_eeprom_index - Take a delay in seconds and return the
+ * closest eeprom index which will delay for at least that amount of
+ * seconds.
+ *
+ * @delay: The delay, in seconds, to find the eeprom index for.
+ **/
 static int __devinit delay_to_eeprom_index(int delay)
 {
 	u8 idx = 0;
@@ -516,11 +652,18 @@ static int __devinit delay_to_eeprom_index(int delay)
 }
 
 
+/**
+ * eeprom_override - Override the eeprom settings, in the provided
+ * eeprom structure, with values that have been set on the command
+ * line.
+ *
+ * @eeprom: The eeprom data to override with command line options.
+ **/
 static void __devinit eeprom_override(struct NvRamType *eeprom)
 {
 	u8 id;
 
-	
+	/* Adapter Settings */
 	if (cfg_data[CFG_ADAPTER_ID].value != CFG_PARAM_UNSET)
 		eeprom->scsi_id = (u8)cfg_data[CFG_ADAPTER_ID].value;
 
@@ -534,7 +677,7 @@ static void __devinit eeprom_override(struct NvRamType *eeprom)
 	if (cfg_data[CFG_TAGS].value != CFG_PARAM_UNSET)
 		eeprom->max_tag = (u8)cfg_data[CFG_TAGS].value;
 
-	
+	/* Device Settings */
 	for (id = 0; id < DC395x_MAX_SCSI_ID; id++) {
 		if (cfg_data[CFG_DEV_MODE].value != CFG_PARAM_UNSET)
 			eeprom->target[id].cfg0 =
@@ -548,6 +691,8 @@ static void __devinit eeprom_override(struct NvRamType *eeprom)
 }
 
 
+/*---------------------------------------------------------------------------
+ ---------------------------------------------------------------------------*/
 
 static unsigned int list_size(struct list_head *head)
 {
@@ -569,7 +714,7 @@ static struct DeviceCtlBlk *dcb_get_next(struct list_head *head,
 	if (list_empty(head))
 		return NULL;
 
-	
+	/* find supplied dcb and then select the next one */
 	list_for_each_entry(i, head, list)
 		if (use_next) {
 			next = i;
@@ -577,7 +722,7 @@ static struct DeviceCtlBlk *dcb_get_next(struct list_head *head,
 		} else if (i == pos) {
 			use_next = 1;
 		}
-	
+	/* if no next one take the head one (ie, wraparound) */
 	if (!next)
         	list_for_each_entry(i, head, list) {
         		next = i;
@@ -591,12 +736,13 @@ static struct DeviceCtlBlk *dcb_get_next(struct list_head *head,
 static void free_tag(struct DeviceCtlBlk *dcb, struct ScsiReqBlk *srb)
 {
 	if (srb->tag_number < 255) {
-		dcb->tag_mask &= ~(1 << srb->tag_number);	
+		dcb->tag_mask &= ~(1 << srb->tag_number);	/* free tag mask */
 		srb->tag_number = 255;
 	}
 }
 
 
+/* Find cmd in SRB list */
 static inline struct ScsiReqBlk *find_cmd(struct scsi_cmnd *cmd,
 		struct list_head *head)
 {
@@ -706,6 +852,7 @@ static void srb_waiting_to_going_move(struct DeviceCtlBlk *dcb,
 }
 
 
+/* Sets the timer to wake us up */
 static void waiting_set_timer(struct AdapterCtlBlk *acb, unsigned long to)
 {
 	if (timer_pending(&acb->waiting_timer))
@@ -722,6 +869,7 @@ static void waiting_set_timer(struct AdapterCtlBlk *acb, unsigned long to)
 }
 
 
+/* Send the next command from the waiting list to the bus */
 static void waiting_process_next(struct AdapterCtlBlk *acb)
 {
 	struct DeviceCtlBlk *start = NULL;
@@ -740,35 +888,43 @@ static void waiting_process_next(struct AdapterCtlBlk *acb)
 	if (list_empty(dcb_list_head))
 		return;
 
+	/*
+	 * Find the starting dcb. Need to find it again in the list
+	 * since the list may have changed since we set the ptr to it
+	 */
 	list_for_each_entry(dcb, dcb_list_head, list)
 		if (dcb == acb->dcb_run_robin) {
 			start = dcb;
 			break;
 		}
 	if (!start) {
-		
+		/* This can happen! */
 		start = list_entry(dcb_list_head->next, typeof(*start), list);
 		acb->dcb_run_robin = start;
 	}
 
 
+	/*
+	 * Loop over the dcb, but we start somewhere (potentially) in
+	 * the middle of the loop so we need to manully do this.
+	 */
 	pos = start;
 	do {
 		struct list_head *waiting_list_head = &pos->srb_waiting_list;
 
-		
+		/* Make sure, the next another device gets scheduled ... */
 		acb->dcb_run_robin = dcb_get_next(dcb_list_head,
 						  acb->dcb_run_robin);
 
 		if (list_empty(waiting_list_head) ||
 		    pos->max_command <= list_size(&pos->srb_going_list)) {
-			
+			/* move to next dcb */
 			pos = dcb_get_next(dcb_list_head, pos);
 		} else {
 			srb = list_entry(waiting_list_head->next,
 					 struct ScsiReqBlk, list);
 
-			
+			/* Try to send to the bus */
 			if (!start_scsi(acb, pos, srb))
 				srb_waiting_to_going_move(pos, srb);
 			else
@@ -779,6 +935,7 @@ static void waiting_process_next(struct AdapterCtlBlk *acb)
 }
 
 
+/* Wake up waiting queue */
 static void waiting_timeout(unsigned long ptr)
 {
 	unsigned long flags;
@@ -791,12 +948,14 @@ static void waiting_timeout(unsigned long ptr)
 }
 
 
+/* Get the DCB for a given ID/LUN combination */
 static struct DeviceCtlBlk *find_dcb(struct AdapterCtlBlk *acb, u8 id, u8 lun)
 {
 	return acb->children[id][lun];
 }
 
 
+/* Send SCSI Request Block (srb) to adapter (acb) */
 static void send_srb(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb)
 {
 	struct DeviceCtlBlk *dcb = srb->dcb;
@@ -817,6 +976,7 @@ static void send_srb(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb)
 	}
 }
 
+/* Prepare SRB for being sent to Device DCB w/ command *cmd */
 static void build_srb(struct scsi_cmnd *cmd, struct DeviceCtlBlk *dcb,
 		struct ScsiReqBlk *srb)
 {
@@ -839,7 +999,7 @@ static void build_srb(struct scsi_cmnd *cmd, struct DeviceCtlBlk *dcb,
 	srb->state = 0;
 	srb->retry_count = 0;
 	srb->tag_number = TAG_NONE;
-	srb->scsi_phase = PH_BUS_FREE;	
+	srb->scsi_phase = PH_BUS_FREE;	/* initial phase */
 	srb->end_message = 0;
 
 	nseg = scsi_dma_map(cmd);
@@ -872,12 +1032,16 @@ static void build_srb(struct scsi_cmnd *cmd, struct DeviceCtlBlk *dcb,
 		}
 		sgp += srb->sg_count - 1;
 
+		/*
+		 * adjust last page if too big as it is allocated
+		 * on even page boundaries
+		 */
 		if (srb->total_xfer_length > reqlen) {
 			sgp->length -= (srb->total_xfer_length - reqlen);
 			srb->total_xfer_length = reqlen;
 		}
 
-		
+		/* Fixup for WIDE padding - make sure length is even */
 		if (dcb->sync_period & WIDE_SYNC &&
 		    srb->total_xfer_length % 2) {
 			srb->total_xfer_length++;
@@ -897,6 +1061,25 @@ static void build_srb(struct scsi_cmnd *cmd, struct DeviceCtlBlk *dcb,
 }
 
 
+/**
+ * dc395x_queue_command - queue scsi command passed from the mid
+ * layer, invoke 'done' on completion
+ *
+ * @cmd: pointer to scsi command object
+ * @done: function pointer to be invoked on completion
+ *
+ * Returns 1 if the adapter (host) is busy, else returns 0. One
+ * reason for an adapter to be busy is that the number
+ * of outstanding queued commands is already equal to
+ * struct Scsi_Host::can_queue .
+ *
+ * Required: if struct Scsi_Host::can_queue is ever non-zero
+ *           then this function is required.
+ *
+ * Locks: struct Scsi_Host::host_lock held on entry (with "irqsave")
+ *        and is expected to be held on return.
+ *
+ **/
 static int dc395x_queue_command_lck(struct scsi_cmnd *cmd, void (*done)(struct scsi_cmnd *))
 {
 	struct DeviceCtlBlk *dcb;
@@ -906,39 +1089,43 @@ static int dc395x_queue_command_lck(struct scsi_cmnd *cmd, void (*done)(struct s
 	dprintkdbg(DBG_0, "queue_command: (0x%p) <%02i-%i> cmnd=0x%02x\n",
 		cmd, cmd->device->id, cmd->device->lun, cmd->cmnd[0]);
 
-	
+	/* Assume BAD_TARGET; will be cleared later */
 	cmd->result = DID_BAD_TARGET << 16;
 
-	
+	/* ignore invalid targets */
 	if (cmd->device->id >= acb->scsi_host->max_id ||
 	    cmd->device->lun >= acb->scsi_host->max_lun ||
 	    cmd->device->lun >31) {
 		goto complete;
 	}
 
-	
+	/* does the specified lun on the specified device exist */
 	if (!(acb->dcb_map[cmd->device->id] & (1 << cmd->device->lun))) {
 		dprintkl(KERN_INFO, "queue_command: Ignore target <%02i-%i>\n",
 			cmd->device->id, cmd->device->lun);
 		goto complete;
 	}
 
-	
+	/* do we have a DCB for the device */
 	dcb = find_dcb(acb, cmd->device->id, cmd->device->lun);
 	if (!dcb) {
-		
+		/* should never happen */
 		dprintkl(KERN_ERR, "queue_command: No such device <%02i-%i>",
 			cmd->device->id, cmd->device->lun);
 		goto complete;
 	}
 
-	
+	/* set callback and clear result in the command */
 	cmd->scsi_done = done;
 	cmd->result = 0;
 
 	srb = srb_get_free(acb);
 	if (!srb)
 	{
+		/*
+		 * Return 1 since we are unable to queue this command at this
+		 * point in time.
+		 */
 		dprintkdbg(DBG_0, "queue_command: No free srb's\n");
 		return 1;
 	}
@@ -946,23 +1133,32 @@ static int dc395x_queue_command_lck(struct scsi_cmnd *cmd, void (*done)(struct s
 	build_srb(cmd, dcb, srb);
 
 	if (!list_empty(&dcb->srb_waiting_list)) {
-		
+		/* append to waiting queue */
 		srb_waiting_append(dcb, srb);
 		waiting_process_next(acb);
 	} else {
-		
+		/* process immediately */
 		send_srb(acb, srb);
 	}
 	dprintkdbg(DBG_1, "queue_command: (0x%p) done\n", cmd);
 	return 0;
 
 complete:
+	/*
+	 * Complete the command immediatey, and then return 0 to
+	 * indicate that we have handled the command. This is usually
+	 * done when the commad is for things like non existent
+	 * devices.
+	 */
 	done(cmd);
 	return 0;
 }
 
 static DEF_SCSI_QCMD(dc395x_queue_command)
 
+/*
+ * Return the disk geometry for the given SCSI device.
+ */
 static int dc395x_bios_param(struct scsi_device *sdev,
 		struct block_device *bdev, sector_t capacity, int *info)
 {
@@ -1095,6 +1291,11 @@ static void reset_dev_param(struct AdapterCtlBlk *acb)
 }
 
 
+/*
+ * perform a hard reset on the SCSI bus
+ * @cmd - some command for this host (for fetching hooks)
+ * Returns: SUCCESS (0x2002) on success, else FAILED (0x2003).
+ */
 static int __dc395x_eh_bus_reset(struct scsi_cmnd *cmd)
 {
 	struct AdapterCtlBlk *acb =
@@ -1106,6 +1307,9 @@ static int __dc395x_eh_bus_reset(struct scsi_cmnd *cmd)
 	if (timer_pending(&acb->waiting_timer))
 		del_timer(&acb->waiting_timer);
 
+	/*
+	 * disable interrupt    
+	 */
 	DC395x_write8(acb, TRM_S1040_DMA_INTEN, 0x00);
 	DC395x_write8(acb, TRM_S1040_SCSI_INTEN, 0x00);
 	DC395x_write8(acb, TRM_S1040_SCSI_CONTROL, DO_RSTMODULE);
@@ -1114,22 +1318,25 @@ static int __dc395x_eh_bus_reset(struct scsi_cmnd *cmd)
 	reset_scsi_bus(acb);
 	udelay(500);
 
-	
+	/* We may be in serious trouble. Wait some seconds */
 	acb->scsi_host->last_reset =
 	    jiffies + 3 * HZ / 2 +
 	    HZ * acb->eeprom.delay_time;
 
-	
+	/*
+	 * re-enable interrupt      
+	 */
+	/* Clear SCSI FIFO          */
 	DC395x_write8(acb, TRM_S1040_DMA_CONTROL, CLRXFIFO);
 	clear_fifo(acb, "eh_bus_reset");
-	
+	/* Delete pending IRQ */
 	DC395x_read8(acb, TRM_S1040_SCSI_INTSTATUS);
 	set_basic_config(acb);
 
 	reset_dev_param(acb);
 	doing_srb_done(acb, DID_RESET, cmd, 0);
 	acb->active_dcb = NULL;
-	acb->acb_flag = 0;	
+	acb->acb_flag = 0;	/* RESET_DETECT, RESET_DONE ,RESET_DEV */
 	waiting_process_next(acb);
 
 	return SUCCESS;
@@ -1146,8 +1353,17 @@ static int dc395x_eh_bus_reset(struct scsi_cmnd *cmd)
 	return rc;
 }
 
+/*
+ * abort an errant SCSI command
+ * @cmd - command to be aborted
+ * Returns: SUCCESS (0x2002) on success, else FAILED (0x2003).
+ */
 static int dc395x_eh_abort(struct scsi_cmnd *cmd)
 {
+	/*
+	 * Look into our command queues: If it has not been sent already,
+	 * we remove it and return success. Otherwise fail.
+	 */
 	struct AdapterCtlBlk *acb =
 	    (struct AdapterCtlBlk *)cmd->device->host->hostdata;
 	struct DeviceCtlBlk *dcb;
@@ -1175,7 +1391,7 @@ static int dc395x_eh_abort(struct scsi_cmnd *cmd)
 	srb = find_cmd(cmd, &dcb->srb_going_list);
 	if (srb) {
 		dprintkl(KERN_DEBUG, "eh_abort: Command in progress\n");
-		
+		/* XXX: Should abort the command here */
 	} else {
 		dprintkl(KERN_DEBUG, "eh_abort: Command not found\n");
 	}
@@ -1183,6 +1399,7 @@ static int dc395x_eh_abort(struct scsi_cmnd *cmd)
 }
 
 
+/* SDTR */
 static void build_sdtr(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 		struct ScsiReqBlk *srb)
 {
@@ -1200,16 +1417,17 @@ static void build_sdtr(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 	} else if (dcb->sync_offset == 0)
 		dcb->sync_offset = SYNC_NEGO_OFFSET;
 
-	*ptr++ = MSG_EXTENDED;	
-	*ptr++ = 3;		
-	*ptr++ = EXTENDED_SDTR;	
-	*ptr++ = dcb->min_nego_period;	
-	*ptr++ = dcb->sync_offset;	
+	*ptr++ = MSG_EXTENDED;	/* (01h) */
+	*ptr++ = 3;		/* length */
+	*ptr++ = EXTENDED_SDTR;	/* (01h) */
+	*ptr++ = dcb->min_nego_period;	/* Transfer period (in 4ns) */
+	*ptr++ = dcb->sync_offset;	/* Transfer period (max. REQ/ACK dist) */
 	srb->msg_count += 5;
 	srb->state |= SRB_DO_SYNC_NEGO;
 }
 
 
+/* WDTR */
 static void build_wdtr(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 		struct ScsiReqBlk *srb)
 {
@@ -1223,9 +1441,9 @@ static void build_wdtr(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 			srb->msgout_buf[1]);
 		return;
 	}
-	*ptr++ = MSG_EXTENDED;	
-	*ptr++ = 2;		
-	*ptr++ = EXTENDED_WDTR;	
+	*ptr++ = MSG_EXTENDED;	/* (01h) */
+	*ptr++ = 2;		/* length */
+	*ptr++ = EXTENDED_WDTR;	/* (03h) */
 	*ptr++ = wide;
 	srb->msg_count += 4;
 	srb->state |= SRB_DO_WIDE_NEGO;
@@ -1233,7 +1451,10 @@ static void build_wdtr(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 
 
 #if 0
+/* Timer to work around chip flaw: When selecting and the bus is 
+ * busy, we sometimes miss a Selection timeout IRQ */
 void selection_timeout_missed(unsigned long ptr);
+/* Sets the timer to wake us up */
 static void selto_timer(struct AdapterCtlBlk *acb)
 {
 	if (timer_pending(&acb->selto_timer))
@@ -1277,16 +1498,26 @@ static u8 start_scsi(struct AdapterCtlBlk* acb, struct DeviceCtlBlk* dcb,
 	dprintkdbg(DBG_0, "start_scsi: (0x%p) <%02i-%i> srb=%p\n",
 		dcb->target_id, dcb->target_lun, srb);
 
-	srb->tag_number = TAG_NONE;	
+	srb->tag_number = TAG_NONE;	/* acb->tag_max_num: had error read in eeprom */
 
 	s_stat = DC395x_read8(acb, TRM_S1040_SCSI_SIGNAL);
 	s_stat2 = 0;
 	s_stat2 = DC395x_read16(acb, TRM_S1040_SCSI_STATUS);
 #if 1
-	if (s_stat & 0x20  ) {
+	if (s_stat & 0x20 /* s_stat2 & 0x02000 */ ) {
 		dprintkdbg(DBG_KG, "start_scsi: (0x%p) BUSY %02x %04x\n",
 			s_stat, s_stat2);
-		
+		/*
+		 * Try anyway?
+		 *
+		 * We could, BUT: Sometimes the TRM_S1040 misses to produce a Selection
+		 * Timeout, a Disconnect or a Reselection IRQ, so we would be screwed!
+		 * (This is likely to be a bug in the hardware. Obviously, most people
+		 *  only have one initiator per SCSI bus.)
+		 * Instead let this fail and have the timer make sure the command is 
+		 * tried again after a short time
+		 */
+		/*selto_timer (acb); */
 		return 1;
 	}
 #endif
@@ -1302,22 +1533,24 @@ static u8 start_scsi(struct AdapterCtlBlk* acb, struct DeviceCtlBlk* dcb,
 		dprintkdbg(DBG_KG, "start_scsi: (0x%p) Failed (busy)\n", srb->cmd);
 		return 1;
 	}
+	/* Allow starting of SCSI commands half a second before we allow the mid-level
+	 * to queue them again after a reset */
 	if (time_before(jiffies, acb->scsi_host->last_reset - HZ / 2)) {
 		dprintkdbg(DBG_KG, "start_scsi: Refuse cmds (reset wait)\n");
 		return 1;
 	}
 
-	
+	/* Flush FIFO */
 	clear_fifo(acb, "start_scsi");
 	DC395x_write8(acb, TRM_S1040_SCSI_HOSTID, acb->scsi_host->this_id);
 	DC395x_write8(acb, TRM_S1040_SCSI_TARGETID, dcb->target_id);
 	DC395x_write8(acb, TRM_S1040_SCSI_SYNC, dcb->sync_period);
 	DC395x_write8(acb, TRM_S1040_SCSI_OFFSET, dcb->sync_offset);
-	srb->scsi_phase = PH_BUS_FREE;	
+	srb->scsi_phase = PH_BUS_FREE;	/* initial phase */
 
 	identify_message = dcb->identify_msg;
-	
-	
+	/*DC395x_TRM_write8(TRM_S1040_SCSI_IDMSG, identify_message); */
+	/* Don't allow disconnection for AUTO_REQSENSE: Cont.All.Cond.! */
 	if (srb->flag & AUTO_REQSENSE)
 		identify_message &= 0xBF;
 
@@ -1352,7 +1585,7 @@ static u8 start_scsi(struct AdapterCtlBlk* acb, struct DeviceCtlBlk* dcb,
 		}
 		srb->msg_count = 0;
 	}
-	
+	/* Send identify message */
 	DC395x_write8(acb, TRM_S1040_SCSI_FIFO, identify_message);
 
 	scsicommand = SCMD_SEL_ATN;
@@ -1360,7 +1593,7 @@ static u8 start_scsi(struct AdapterCtlBlk* acb, struct DeviceCtlBlk* dcb,
 #ifndef DC395x_NO_TAGQ
 	if ((dcb->sync_mode & EN_TAG_QUEUEING)
 	    && (identify_message & 0xC0)) {
-		
+		/* Send Tag message */
 		u32 tag_mask = 1;
 		u8 tag_number = 0;
 		while (tag_mask & dcb->tag_mask
@@ -1378,7 +1611,7 @@ static u8 start_scsi(struct AdapterCtlBlk* acb, struct DeviceCtlBlk* dcb,
 				       DO_HWRESELECT);
 			return 1;
 		}
-		
+		/* Send Tag id */
 		DC395x_write8(acb, TRM_S1040_SCSI_FIFO, MSG_SIMPLE_QTAG);
 		DC395x_write8(acb, TRM_S1040_SCSI_FIFO, tag_number);
 		dcb->tag_mask |= tag_mask;
@@ -1387,7 +1620,8 @@ static u8 start_scsi(struct AdapterCtlBlk* acb, struct DeviceCtlBlk* dcb,
 		srb->state = SRB_START_;
 	}
 #endif
-	
+/*polling:*/
+	/* Send CDB ..command block ......... */
 	dprintkdbg(DBG_KG, "start_scsi: (0x%p) <%02i-%i> cmnd=0x%02x tag=%i\n",
 		srb->cmd, srb->cmd->device->id, srb->cmd->device->lun,
 		srb->cmd->cmnd[0], srb->tag_number);
@@ -1407,22 +1641,31 @@ static u8 start_scsi(struct AdapterCtlBlk* acb, struct DeviceCtlBlk* dcb,
 	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL,
 		       DO_HWRESELECT | DO_DATALATCH);
 	if (DC395x_read16(acb, TRM_S1040_SCSI_STATUS) & SCSIINTERRUPT) {
+		/* 
+		 * If start_scsi return 1:
+		 * we caught an interrupt (must be reset or reselection ... )
+		 * : Let's process it first!
+		 */
 		dprintkdbg(DBG_0, "start_scsi: (0x%p) <%02i-%i> Failed - busy\n",
 			srb->cmd, dcb->target_id, dcb->target_lun);
 		srb->state = SRB_READY;
 		free_tag(dcb, srb);
 		srb->msg_count = 0;
 		return_code = 1;
-		
+		/* This IRQ should NOT get lost, as we did not acknowledge it */
 	} else {
-		srb->scsi_phase = PH_BUS_FREE;	
+		/* 
+		 * If start_scsi returns 0:
+		 * we know that the SCSI processor is free
+		 */
+		srb->scsi_phase = PH_BUS_FREE;	/* initial phase */
 		dcb->active_srb = srb;
 		acb->active_dcb = dcb;
 		return_code = 0;
-		
+		/* it's important for atn stop */
 		DC395x_write16(acb, TRM_S1040_SCSI_CONTROL,
 			       DO_DATALATCH | DO_HWRESELECT);
-		
+		/* SCSI command */
 		DC395x_write8(acb, TRM_S1040_SCSI_COMMAND, scsicommand);
 	}
 	return return_code;
@@ -1434,6 +1677,7 @@ static u8 start_scsi(struct AdapterCtlBlk* acb, struct DeviceCtlBlk* dcb,
  srb->state |= SRB_MSGOUT
 
 
+/* abort command */
 static inline void enable_msgout_abort(struct AdapterCtlBlk *acb,
 		struct ScsiReqBlk *srb)
 {
@@ -1445,6 +1689,13 @@ static inline void enable_msgout_abort(struct AdapterCtlBlk *acb,
 }
 
 
+/**
+ * dc395x_handle_interrupt - Handle an interrupt that has been confirmed to
+ *                           have been triggered for this card.
+ *
+ * @acb:	 a pointer to the adpter control block
+ * @scsi_status: the status return when we checked the card
+ **/
 static void dc395x_handle_interrupt(struct AdapterCtlBlk *acb,
 		u16 scsi_status)
 {
@@ -1458,7 +1709,7 @@ static void dc395x_handle_interrupt(struct AdapterCtlBlk *acb,
 
 	DC395x_LOCK_IO(acb->scsi_host, flags);
 
-	
+	/* This acknowledges the IRQ */
 	scsi_intstatus = DC395x_read8(acb, TRM_S1040_SCSI_INTSTATUS);
 	if ((scsi_status & 0x2007) == 0x2002)
 		dprintkl(KERN_DEBUG,
@@ -1467,13 +1718,13 @@ static void dc395x_handle_interrupt(struct AdapterCtlBlk *acb,
 		if (scsi_intstatus & INT_SELTIMEOUT)
 			dprintkdbg(DBG_KG, "handle_interrupt: Selection timeout\n");
 	}
-	
+	/*dprintkl(KERN_DEBUG, "handle_interrupt: intstatus = 0x%02x ", scsi_intstatus); */
 
 	if (timer_pending(&acb->selto_timer))
 		del_timer(&acb->selto_timer);
 
 	if (scsi_intstatus & (INT_SELTIMEOUT | INT_DISCONNECT)) {
-		disconnect(acb);	
+		disconnect(acb);	/* bus free interrupt  */
 		goto out_unlock;
 	}
 	if (scsi_intstatus & INT_RESELECTED) {
@@ -1502,31 +1753,45 @@ static void dc395x_handle_interrupt(struct AdapterCtlBlk *acb,
 			enable_msgout_abort(acb, srb);
 		}
 
-		
+		/* software sequential machine */
 		phase = (u16)srb->scsi_phase;
 
-		
-		
-		
-		
-		
-		
-		
-		
+		/* 
+		 * 62037 or 62137
+		 * call  dc395x_scsi_phase0[]... "phase entry"
+		 * handle every phase before start transfer
+		 */
+		/* data_out_phase0,	phase:0 */
+		/* data_in_phase0,	phase:1 */
+		/* command_phase0,	phase:2 */
+		/* status_phase0,	phase:3 */
+		/* nop0,		phase:4 PH_BUS_FREE .. initial phase */
+		/* nop0,		phase:5 PH_BUS_FREE .. initial phase */
+		/* msgout_phase0,	phase:6 */
+		/* msgin_phase0,	phase:7 */
 		dc395x_statev = dc395x_scsi_phase0[phase];
 		dc395x_statev(acb, srb, &scsi_status);
 
+		/* 
+		 * if there were any exception occurred scsi_status
+		 * will be modify to bus free phase new scsi_status
+		 * transfer out from ... previous dc395x_statev
+		 */
 		srb->scsi_phase = scsi_status & PHASEMASK;
 		phase = (u16)scsi_status & PHASEMASK;
 
-		
-		
-		
-		
-		
-		
-		
-		
+		/* 
+		 * call  dc395x_scsi_phase1[]... "phase entry" handle
+		 * every phase to do transfer
+		 */
+		/* data_out_phase1,	phase:0 */
+		/* data_in_phase1,	phase:1 */
+		/* command_phase1,	phase:2 */
+		/* status_phase1,	phase:3 */
+		/* nop1,		phase:4 PH_BUS_FREE .. initial phase */
+		/* nop1,		phase:5 PH_BUS_FREE .. initial phase */
+		/* msgout_phase1,	phase:6 */
+		/* msgin_phase1,	phase:7 */
 		dc395x_statev = dc395x_scsi_phase1[phase];
 		dc395x_statev(acb, srb, &scsi_status);
 	}
@@ -1542,15 +1807,18 @@ static irqreturn_t dc395x_interrupt(int irq, void *dev_id)
 	u8 dma_status;
 	irqreturn_t handled = IRQ_NONE;
 
+	/*
+	 * Check for pending interrupt
+	 */
 	scsi_status = DC395x_read16(acb, TRM_S1040_SCSI_STATUS);
 	dma_status = DC395x_read8(acb, TRM_S1040_DMA_STATUS);
 	if (scsi_status & SCSIINTERRUPT) {
-		
+		/* interrupt pending - let's process it! */
 		dc395x_handle_interrupt(acb, scsi_status);
 		handled = IRQ_HANDLED;
 	}
 	else if (dma_status & 0x20) {
-		
+		/* Error from the DMA engine */
 		dprintkl(KERN_INFO, "Interrupt from DMA engine: 0x%02x!\n", dma_status);
 #if 0
 		dprintkl(KERN_INFO, "This means DMA error! Try to handle ...\n");
@@ -1576,9 +1844,9 @@ static void msgout_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 {
 	dprintkdbg(DBG_0, "msgout_phase0: (0x%p)\n", srb->cmd);
 	if (srb->state & (SRB_UNEXPECT_RESEL + SRB_ABORT_SENT))
-		*pscsi_status = PH_BUS_FREE;	
+		*pscsi_status = PH_BUS_FREE;	/*.. initial phase */
 
-	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	
+	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	/* it's important for atn stop */
 	srb->state &= ~SRB_MSGOUT;
 }
 
@@ -1595,13 +1863,13 @@ static void msgout_phase1(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 		srb->state |= SRB_MSGOUT;
 		dprintkl(KERN_DEBUG,
 			"msgout_phase1: (0x%p) Phase unexpected\n",
-			srb->cmd);	
+			srb->cmd);	/* So what ? */
 	}
 	if (!srb->msg_count) {
 		dprintkdbg(DBG_0, "msgout_phase1: (0x%p) NOP msg\n",
 			srb->cmd);
 		DC395x_write8(acb, TRM_S1040_SCSI_FIFO, MSG_NOP);
-		DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	
+		DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	/* it's important for atn stop */
 		DC395x_write8(acb, TRM_S1040_SCSI_COMMAND, SCMD_FIFO_OUT);
 		return;
 	}
@@ -1643,7 +1911,7 @@ static void command_phase1(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 	} else {
 		DC395x_write8(acb, TRM_S1040_SCSI_FIFO, REQUEST_SENSE);
 		dcb = acb->active_dcb;
-		
+		/* target id */
 		DC395x_write8(acb, TRM_S1040_SCSI_FIFO, (dcb->target_lun << 5));
 		DC395x_write8(acb, TRM_S1040_SCSI_FIFO, 0);
 		DC395x_write8(acb, TRM_S1040_SCSI_FIFO, 0);
@@ -1651,13 +1919,17 @@ static void command_phase1(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 		DC395x_write8(acb, TRM_S1040_SCSI_FIFO, 0);
 	}
 	srb->state |= SRB_COMMAND;
-	
+	/* it's important for atn stop */
 	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);
-	
+	/* SCSI command */
 	DC395x_write8(acb, TRM_S1040_SCSI_COMMAND, SCMD_FIFO_OUT);
 }
 
 
+/*
+ * Verify that the remaining space in the hw sg lists is the same as
+ * the count of remaining bytes in srb->total_xfer_length
+ */
 static void sg_verify_length(struct ScsiReqBlk *srb)
 {
 	if (debug_enabled(DBG_SG)) {
@@ -1674,28 +1946,32 @@ static void sg_verify_length(struct ScsiReqBlk *srb)
 }
 
 
+/*
+ * Compute the next Scatter Gather list index and adjust its length
+ * and address if necessary
+ */
 static void sg_update_list(struct ScsiReqBlk *srb, u32 left)
 {
 	u8 idx;
-	u32 xferred = srb->total_xfer_length - left; 
+	u32 xferred = srb->total_xfer_length - left; /* bytes transferred */
 	struct SGentry *psge = srb->segment_x + srb->sg_index;
 
 	dprintkdbg(DBG_0,
 		"sg_update_list: Transferred %i of %i bytes, %i remain\n",
 		xferred, srb->total_xfer_length, left);
 	if (xferred == 0) {
-		
+		/* nothing to update since we did not transfer any data */
 		return;
 	}
 
 	sg_verify_length(srb);
-	srb->total_xfer_length = left;	
+	srb->total_xfer_length = left;	/* update remaining count */
 	for (idx = srb->sg_index; idx < srb->sg_count; idx++) {
 		if (xferred >= psge->length) {
-			
+			/* Complete SG entries done */
 			xferred -= psge->length;
 		} else {
-			
+			/* Partial SG entry done */
 			psge->length -= xferred;
 			psge->address += xferred;
 			srb->sg_index = idx;
@@ -1712,22 +1988,36 @@ static void sg_update_list(struct ScsiReqBlk *srb, u32 left)
 }
 
 
+/*
+ * We have transferred a single byte (PIO mode?) and need to update
+ * the count of bytes remaining (total_xfer_length) and update the sg
+ * entry to either point to next byte in the current sg entry, or of
+ * already at the end to point to the start of the next sg entry
+ */
 static void sg_subtract_one(struct ScsiReqBlk *srb)
 {
 	sg_update_list(srb, srb->total_xfer_length - 1);
 }
 
 
+/* 
+ * cleanup_after_transfer
+ * 
+ * Makes sure, DMA and SCSI engine are empty, after the transfer has finished
+ * KG: Currently called from  StatusPhase1 ()
+ * Should probably also be called from other places
+ * Best might be to call it in DataXXPhase0, if new phase will differ 
+ */
 static void cleanup_after_transfer(struct AdapterCtlBlk *acb,
 		struct ScsiReqBlk *srb)
 {
-	
-	if (DC395x_read16(acb, TRM_S1040_DMA_COMMAND) & 0x0001) {	
+	/*DC395x_write8 (TRM_S1040_DMA_STATUS, FORCEDMACOMP); */
+	if (DC395x_read16(acb, TRM_S1040_DMA_COMMAND) & 0x0001) {	/* read */
 		if (!(DC395x_read8(acb, TRM_S1040_SCSI_FIFOCNT) & 0x40))
 			clear_fifo(acb, "cleanup/in");
 		if (!(DC395x_read8(acb, TRM_S1040_DMA_FIFOSTAT) & 0x80))
 			DC395x_write8(acb, TRM_S1040_DMA_CONTROL, CLRXFIFO);
-	} else {		
+	} else {		/* write */
 		if (!(DC395x_read8(acb, TRM_S1040_DMA_FIFOSTAT) & 0x80))
 			DC395x_write8(acb, TRM_S1040_DMA_CONTROL, CLRXFIFO);
 		if (!(DC395x_read8(acb, TRM_S1040_SCSI_FIFOCNT) & 0x40))
@@ -1737,6 +2027,10 @@ static void cleanup_after_transfer(struct AdapterCtlBlk *acb,
 }
 
 
+/*
+ * Those no of bytes will be transferred w/ PIO through the SCSI FIFO
+ * Seems to be needed for unknown reasons; could be a hardware bug :-(
+ */
 #define DC395x_LASTPIO 4
 
 
@@ -1749,6 +2043,18 @@ static void data_out_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 	dprintkdbg(DBG_0, "data_out_phase0: (0x%p) <%02i-%i>\n",
 		srb->cmd, srb->cmd->device->id, srb->cmd->device->lun);
 
+	/*
+	 * KG: We need to drain the buffers before we draw any conclusions!
+	 * This means telling the DMA to push the rest into SCSI, telling
+	 * SCSI to push the rest to the bus.
+	 * However, the device might have been the one to stop us (phase
+	 * change), and the data in transit just needs to be accounted so
+	 * it can be retransmitted.)
+	 */
+	/* 
+	 * KG: Stop DMA engine pushing more data into the SCSI FIFO
+	 * If we need more data, the DMA SG list will be freshly set up, anyway
+	 */
 	dprintkdbg(DBG_PIO, "data_out_phase0: "
 		"DMA{fifocnt=0x%02x fifostat=0x%02x} "
 		"SCSI{fifocnt=0x%02x cnt=0x%06x status=0x%04x} total=0x%06x\n",
@@ -1763,7 +2069,17 @@ static void data_out_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 		if (scsi_status & PARITYERROR)
 			srb->status |= PARITY_ERROR;
 
+		/*
+		 * KG: Right, we can't just rely on the SCSI_COUNTER, because this
+		 * is the no of bytes it got from the DMA engine not the no it 
+		 * transferred successfully to the device. (And the difference could
+		 * be as much as the FIFO size, I guess ...)
+		 */
 		if (!(scsi_status & SCSIXFERDONE)) {
+			/*
+			 * when data transfer from DMA FIFO to SCSI FIFO
+			 * if there was some data left in SCSI FIFO
+			 */
 			d_left_counter =
 			    (u32)(DC395x_read8(acb, TRM_S1040_SCSI_FIFOCNT) &
 				  0x1F);
@@ -1781,13 +2097,22 @@ static void data_out_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 				DC395x_read8(acb, TRM_S1040_DMA_FIFOSTAT),
 				DC395x_read32(acb, TRM_S1040_DMA_CXCNT));
 		}
+		/*
+		 * calculate all the residue data that not yet tranfered
+		 * SCSI transfer counter + left in SCSI FIFO data
+		 *
+		 * .....TRM_S1040_SCSI_COUNTER (24bits)
+		 * The counter always decrement by one for every SCSI byte transfer.
+		 * .....TRM_S1040_SCSI_FIFOCNT ( 5bits)
+		 * The counter is SCSI FIFO offset counter (in units of bytes or! words)
+		 */
 		if (srb->total_xfer_length > DC395x_LASTPIO)
 			d_left_counter +=
 			    DC395x_read32(acb, TRM_S1040_SCSI_COUNTER);
 
-		
-		
-		
+		/* Is this a good idea? */
+		/*clear_fifo(acb, "DOP1"); */
+		/* KG: What is this supposed to be useful for? WIDE padding stuff? */
 		if (d_left_counter == 1 && dcb->sync_period & WIDE_SYNC
 		    && scsi_bufflen(srb->cmd) % 2) {
 			d_left_counter = 0;
@@ -1795,15 +2120,30 @@ static void data_out_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 				"data_out_phase0: Discard 1 byte (0x%02x)\n",
 				scsi_status);
 		}
+		/*
+		 * KG: Oops again. Same thinko as above: The SCSI might have been
+		 * faster than the DMA engine, so that it ran out of data.
+		 * In that case, we have to do just nothing! 
+		 * But: Why the interrupt: No phase change. No XFERCNT_2_ZERO. Or?
+		 */
+		/*
+		 * KG: This is nonsense: We have been WRITING data to the bus
+		 * If the SCSI engine has no bytes left, how should the DMA engine?
+		 */
 		if (d_left_counter == 0) {
 			srb->total_xfer_length = 0;
 		} else {
+			/*
+			 * if transfer not yet complete
+			 * there were some data residue in SCSI FIFO or
+			 * SCSI transfer counter not empty
+			 */
 			long oldxferred =
 			    srb->total_xfer_length - d_left_counter;
 			const int diff =
 			    (dcb->sync_period & WIDE_SYNC) ? 2 : 1;
 			sg_update_list(srb, d_left_counter);
-			
+			/* KG: Most ugly hack! Apparently, this works around a chip bug */
 			if ((srb->segment_x[srb->sg_index].length ==
 			     diff && scsi_sg_count(srb->cmd))
 			    || ((oldxferred & ~PAGE_MASK) ==
@@ -1814,10 +2154,10 @@ static void data_out_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 				d_left_counter =
 				    srb->total_xfer_length - diff;
 				sg_update_list(srb, d_left_counter);
-				
-				
-				
-				
+				/*srb->total_xfer_length -= diff; */
+				/*srb->virt_addr += diff; */
+				/*if (srb->cmd->use_sg) */
+				/*      srb->sg_index++; */
 			}
 		}
 	}
@@ -1833,7 +2173,7 @@ static void data_out_phase1(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 	dprintkdbg(DBG_0, "data_out_phase1: (0x%p) <%02i-%i>\n",
 		srb->cmd, srb->cmd->device->id, srb->cmd->device->lun);
 	clear_fifo(acb, "data_out_phase1");
-	
+	/* do prepare before transfer when data out phase */
 	data_io_transfer(acb, srb, XFERDATAOUT);
 }
 
@@ -1845,6 +2185,19 @@ static void data_in_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 	dprintkdbg(DBG_0, "data_in_phase0: (0x%p) <%02i-%i>\n",
 		srb->cmd, srb->cmd->device->id, srb->cmd->device->lun);
 
+	/*
+	 * KG: DataIn is much more tricky than DataOut. When the device is finished
+	 * and switches to another phase, the SCSI engine should be finished too.
+	 * But: There might still be bytes left in its FIFO to be fetched by the DMA
+	 * engine and transferred to memory.
+	 * We should wait for the FIFOs to be emptied by that (is there any way to 
+	 * enforce this?) and then stop the DMA engine, because it might think, that
+	 * there are more bytes to follow. Yes, the device might disconnect prior to
+	 * having all bytes transferred! 
+	 * Also we should make sure that all data from the DMA engine buffer's really
+	 * made its way to the system memory! Some documentation on this would not
+	 * seem to be a bad idea, actually.
+	 */
 	if (!(srb->state & SRB_XFERPAD)) {
 		u32 d_left_counter;
 		unsigned int sc, fc;
@@ -1854,14 +2207,20 @@ static void data_in_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 				"Parity Error\n", srb->cmd);
 			srb->status |= PARITY_ERROR;
 		}
+		/*
+		 * KG: We should wait for the DMA FIFO to be empty ...
+		 * but: it would be better to wait first for the SCSI FIFO and then the
+		 * the DMA FIFO to become empty? How do we know, that the device not already
+		 * sent data to the FIFO in a MsgIn phase, eg.?
+		 */
 		if (!(DC395x_read8(acb, TRM_S1040_DMA_FIFOSTAT) & 0x80)) {
 #if 0
 			int ctr = 6000000;
 			dprintkl(KERN_DEBUG,
 				"DIP0: Wait for DMA FIFO to flush ...\n");
-			
-			
-			
+			/*DC395x_write8  (TRM_S1040_DMA_CONTROL, STOPDMAXFER); */
+			/*DC395x_write32 (TRM_S1040_SCSI_COUNTER, 7); */
+			/*DC395x_write8  (TRM_S1040_SCSI_COMMAND, SCMD_DMA_IN); */
 			while (!
 			       (DC395x_read16(acb, TRM_S1040_DMA_FIFOSTAT) &
 				0x80) && --ctr);
@@ -1871,14 +2230,14 @@ static void data_in_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 			if (!ctr)
 				dprintkl(KERN_ERR,
 				       "Deadlock in DIP0 waiting for DMA FIFO empty!!\n");
-			
+			/*DC395x_write32 (TRM_S1040_SCSI_COUNTER, 0); */
 #endif
 			dprintkdbg(DBG_KG, "data_in_phase0: "
 				"DMA{fifocnt=0x%02x fifostat=0x%02x}\n",
 				DC395x_read8(acb, TRM_S1040_DMA_FIFOCNT),
 				DC395x_read8(acb, TRM_S1040_DMA_FIFOSTAT));
 		}
-		
+		/* Now: Check remainig data: The SCSI counters should tell us ... */
 		sc = DC395x_read32(acb, TRM_S1040_SCSI_COUNTER);
 		fc = DC395x_read8(acb, TRM_S1040_SCSI_FIFOCNT);
 		d_left_counter = sc + ((fc & 0x1f)
@@ -1896,13 +2255,13 @@ static void data_in_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 			DC395x_read32(acb, TRM_S1040_DMA_CXCNT),
 			srb->total_xfer_length, d_left_counter);
 #if DC395x_LASTPIO
-		
+		/* KG: Less than or equal to 4 bytes can not be transferred via DMA, it seems. */
 		if (d_left_counter
 		    && srb->total_xfer_length <= DC395x_LASTPIO) {
 			size_t left_io = srb->total_xfer_length;
 
-			
-			
+			/*u32 addr = (srb->segment_x[srb->sg_index].address); */
+			/*sg_update_list (srb, d_left_counter); */
 			dprintkdbg(DBG_PIO, "data_in_phase0: PIO (%i %s) "
 				   "for remaining %i bytes:",
 				fc & 0x1f,
@@ -1919,6 +2278,8 @@ static void data_in_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 				size_t offset = srb->request_length - left_io;
 
 				local_irq_save(flags);
+				/* Assumption: it's inside one page as it's at most 4 bytes and
+				   I just assume it's on a 4-byte boundary */
 				base = scsi_kmap_atomic_sg(scsi_sglist(srb->cmd),
 							   srb->sg_count, &offset, &len);
 				virt = base + offset;
@@ -1949,7 +2310,7 @@ static void data_in_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 				WARN_ON((fc != 0x40) == !d_left_counter);
 
 				if (fc == 0x40 && (srb->dcb->sync_period & WIDE_SYNC)) {
-					
+					/* Read the last byte ... */
 					if (srb->total_xfer_length > 0) {
 						u8 byte = DC395x_read8(acb, TRM_S1040_SCSI_FIFO);
 
@@ -1965,23 +2326,36 @@ static void data_in_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 				scsi_kunmap_atomic_sg(base);
 				local_irq_restore(flags);
 			}
-			
-			
+			/*printk(" %08x", *(u32*)(bus_to_virt (addr))); */
+			/*srb->total_xfer_length = 0; */
 			if (debug_enabled(DBG_PIO))
 				printk("\n");
 		}
-#endif				
+#endif				/* DC395x_LASTPIO */
 
 #if 0
+		/*
+		 * KG: This was in DATAOUT. Does it also belong here?
+		 * Nobody seems to know what counter and fifo_cnt count exactly ...
+		 */
 		if (!(scsi_status & SCSIXFERDONE)) {
+			/*
+			 * when data transfer from DMA FIFO to SCSI FIFO
+			 * if there was some data left in SCSI FIFO
+			 */
 			d_left_counter =
 			    (u32)(DC395x_read8(acb, TRM_S1040_SCSI_FIFOCNT) &
 				  0x1F);
 			if (srb->dcb->sync_period & WIDE_SYNC)
 				d_left_counter <<= 1;
+			/*
+			 * if WIDE scsi SCSI FIFOCNT unit is word !!!
+			 * so need to *= 2
+			 * KG: Seems to be correct ...
+			 */
 		}
 #endif
-		
+		/* KG: This should not be needed any more! */
 		if (d_left_counter == 0
 		    || (scsi_status & SCSIXFERCNT_2_ZERO)) {
 #if 0
@@ -1997,11 +2371,19 @@ static void data_in_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 			srb->total_xfer_length = 0;
 #endif
 			srb->total_xfer_length = d_left_counter;
-		} else {	
+		} else {	/* phase changed */
+			/*
+			 * parsing the case:
+			 * when a transfer not yet complete 
+			 * but be disconnected by target
+			 * if transfer not yet complete
+			 * there were some data residue in SCSI FIFO or
+			 * SCSI transfer counter not empty
+			 */
 			sg_update_list(srb, d_left_counter);
 		}
 	}
-	
+	/* KG: The target may decide to disconnect: Empty FIFO before! */
 	if ((*pscsi_status & PHASEMASK) != PH_DATA_IN) {
 		cleanup_after_transfer(acb, srb);
 	}
@@ -2030,43 +2412,51 @@ static void data_io_transfer(struct AdapterCtlBlk *acb,
 	if (srb == acb->tmp_srb)
 		dprintkl(KERN_ERR, "data_io_transfer: Using tmp_srb!\n");
 	if (srb->sg_index >= srb->sg_count) {
-		
+		/* can't happen? out of bounds error */
 		return;
 	}
 
 	if (srb->total_xfer_length > DC395x_LASTPIO) {
 		u8 dma_status = DC395x_read8(acb, TRM_S1040_DMA_STATUS);
+		/*
+		 * KG: What should we do: Use SCSI Cmd 0x90/0x92?
+		 * Maybe, even ABORTXFER would be appropriate
+		 */
 		if (dma_status & XFERPENDING) {
 			dprintkl(KERN_DEBUG, "data_io_transfer: Xfer pending! "
 				"Expect trouble!\n");
 			dump_register_info(acb, dcb, srb);
 			DC395x_write8(acb, TRM_S1040_DMA_CONTROL, CLRXFIFO);
 		}
-		
+		/* clear_fifo(acb, "IO"); */
+		/* 
+		 * load what physical address of Scatter/Gather list table
+		 * want to be transfer
+		 */
 		srb->state |= SRB_DATA_XFER;
 		DC395x_write32(acb, TRM_S1040_DMA_XHIGHADDR, 0);
-		if (scsi_sg_count(srb->cmd)) {	
+		if (scsi_sg_count(srb->cmd)) {	/* with S/G */
 			io_dir |= DMACMD_SG;
 			DC395x_write32(acb, TRM_S1040_DMA_XLOWADDR,
 				       srb->sg_bus_addr +
 				       sizeof(struct SGentry) *
 				       srb->sg_index);
-			
+			/* load how many bytes in the sg list table */
 			DC395x_write32(acb, TRM_S1040_DMA_XCNT,
 				       ((u32)(srb->sg_count -
 					      srb->sg_index) << 3));
-		} else {	
+		} else {	/* without S/G */
 			io_dir &= ~DMACMD_SG;
 			DC395x_write32(acb, TRM_S1040_DMA_XLOWADDR,
 				       srb->segment_x[0].address);
 			DC395x_write32(acb, TRM_S1040_DMA_XCNT,
 				       srb->segment_x[0].length);
 		}
-		
+		/* load total transfer length (24bits) max value 16Mbyte */
 		DC395x_write32(acb, TRM_S1040_SCSI_COUNTER,
 			       srb->total_xfer_length);
-		DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	
-		if (io_dir & DMACMD_DIR) {	
+		DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	/* it's important for atn stop */
+		if (io_dir & DMACMD_DIR) {	/* read */
 			DC395x_write8(acb, TRM_S1040_SCSI_COMMAND,
 				      SCMD_DMA_IN);
 			DC395x_write16(acb, TRM_S1040_DMA_COMMAND, io_dir);
@@ -2078,16 +2468,20 @@ static void data_io_transfer(struct AdapterCtlBlk *acb,
 
 	}
 #if DC395x_LASTPIO
-	else if (srb->total_xfer_length > 0) {	
+	else if (srb->total_xfer_length > 0) {	/* The last four bytes: Do PIO */
+		/* 
+		 * load what physical address of Scatter/Gather list table
+		 * want to be transfer
+		 */
 		srb->state |= SRB_DATA_XFER;
-		
+		/* load total transfer length (24bits) max value 16Mbyte */
 		DC395x_write32(acb, TRM_S1040_SCSI_COUNTER,
 			       srb->total_xfer_length);
-		DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	
-		if (io_dir & DMACMD_DIR) {	
+		DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	/* it's important for atn stop */
+		if (io_dir & DMACMD_DIR) {	/* read */
 			DC395x_write8(acb, TRM_S1040_SCSI_COMMAND,
 				      SCMD_FIFO_IN);
-		} else {	
+		} else {	/* write */
 			int ln = srb->total_xfer_length;
 			size_t left_io = srb->total_xfer_length;
 
@@ -2102,7 +2496,7 @@ static void data_io_transfer(struct AdapterCtlBlk *acb,
 				size_t offset = srb->request_length - left_io;
 
 				local_irq_save(flags);
-				
+				/* Again, max 4 bytes */
 				base = scsi_kmap_atomic_sg(scsi_sglist(srb->cmd),
 							   srb->sg_count, &offset, &len);
 				virt = base + offset;
@@ -2129,20 +2523,25 @@ static void data_io_transfer(struct AdapterCtlBlk *acb,
 				}
 				DC395x_write8(acb, TRM_S1040_SCSI_CONFIG2, 0);
 			}
-			
+			/*DC395x_write32(acb, TRM_S1040_SCSI_COUNTER, ln); */
 			if (debug_enabled(DBG_PIO))
 				printk("\n");
 			DC395x_write8(acb, TRM_S1040_SCSI_COMMAND,
 					  SCMD_FIFO_OUT);
 		}
 	}
-#endif				
-	else {		
+#endif				/* DC395x_LASTPIO */
+	else {		/* xfer pad */
 		u8 data = 0, data2 = 0;
 		if (srb->sg_count) {
 			srb->adapter_status = H_OVER_UNDER_RUN;
 			srb->status |= OVER_RUN;
 		}
+		/*
+		 * KG: despite the fact that we are using 16 bits I/O ops
+		 * the SCSI FIFO is only 8 bits according to the docs
+		 * (we can set bit 1 in 0x8f to serialize FIFO access ...)
+		 */
 		if (dcb->sync_period & WIDE_SYNC) {
 			DC395x_write32(acb, TRM_S1040_SCSI_COUNTER, 2);
 			DC395x_write8(acb, TRM_S1040_SCSI_CONFIG2,
@@ -2151,20 +2550,25 @@ static void data_io_transfer(struct AdapterCtlBlk *acb,
 				data = DC395x_read8(acb, TRM_S1040_SCSI_FIFO);
 				data2 = DC395x_read8(acb, TRM_S1040_SCSI_FIFO);
 			} else {
+				/* Danger, Robinson: If you find KGs
+				 * scattered over the wide disk, the driver
+				 * or chip is to blame :-( */
 				DC395x_write8(acb, TRM_S1040_SCSI_FIFO, 'K');
 				DC395x_write8(acb, TRM_S1040_SCSI_FIFO, 'G');
 			}
 			DC395x_write8(acb, TRM_S1040_SCSI_CONFIG2, 0);
 		} else {
 			DC395x_write32(acb, TRM_S1040_SCSI_COUNTER, 1);
+			/* Danger, Robinson: If you find a collection of Ks on your disk
+			 * something broke :-( */
 			if (io_dir & DMACMD_DIR)
 				data = DC395x_read8(acb, TRM_S1040_SCSI_FIFO);
 			else
 				DC395x_write8(acb, TRM_S1040_SCSI_FIFO, 'K');
 		}
 		srb->state |= SRB_XFERPAD;
-		DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	
-		
+		DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	/* it's important for atn stop */
+		/* SCSI command */
 		bval = (io_dir & DMACMD_DIR) ? SCMD_FIFO_IN : SCMD_FIFO_OUT;
 		DC395x_write8(acb, TRM_S1040_SCSI_COMMAND, bval);
 	}
@@ -2177,10 +2581,10 @@ static void status_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 	dprintkdbg(DBG_0, "status_phase0: (0x%p) <%02i-%i>\n",
 		srb->cmd, srb->cmd->device->id, srb->cmd->device->lun);
 	srb->target_status = DC395x_read8(acb, TRM_S1040_SCSI_FIFO);
-	srb->end_message = DC395x_read8(acb, TRM_S1040_SCSI_FIFO);	
+	srb->end_message = DC395x_read8(acb, TRM_S1040_SCSI_FIFO);	/* get message */
 	srb->state = SRB_COMPLETED;
-	*pscsi_status = PH_BUS_FREE;	
-	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	
+	*pscsi_status = PH_BUS_FREE;	/*.. initial phase */
+	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	/* it's important for atn stop */
 	DC395x_write8(acb, TRM_S1040_SCSI_COMMAND, SCMD_MSGACCEPT);
 }
 
@@ -2191,11 +2595,12 @@ static void status_phase1(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 	dprintkdbg(DBG_0, "status_phase1: (0x%p) <%02i-%i>\n",
 		srb->cmd, srb->cmd->device->id, srb->cmd->device->lun);
 	srb->state = SRB_STATUS;
-	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	
+	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	/* it's important for atn stop */
 	DC395x_write8(acb, TRM_S1040_SCSI_COMMAND, SCMD_COMP);
 }
 
 
+/* Check if the message is complete */
 static inline u8 msgin_completed(u8 * msgbuf, u32 len)
 {
 	if (*msgbuf == EXTENDED_MESSAGE) {
@@ -2203,12 +2608,13 @@ static inline u8 msgin_completed(u8 * msgbuf, u32 len)
 			return 0;
 		if (len < msgbuf[1] + 2)
 			return 0;
-	} else if (*msgbuf >= 0x20 && *msgbuf <= 0x2f)	
+	} else if (*msgbuf >= 0x20 && *msgbuf <= 0x2f)	/* two byte messages */
 		if (len < 2)
 			return 0;
 	return 1;
 }
 
+/* reject_msg */
 static inline void msgin_reject(struct AdapterCtlBlk *acb,
 		struct ScsiReqBlk *srb)
 {
@@ -2250,7 +2656,7 @@ static struct ScsiReqBlk *msgin_qtag(struct AdapterCtlBlk *acb,
 	dprintkdbg(DBG_0, "msgin_qtag: (0x%p) <%02i-%i>\n",
 		srb->cmd, srb->dcb->target_id, srb->dcb->target_lun);
 	if (dcb->flag & ABORT_DEV_) {
-		
+		/*srb->state = SRB_ABORT_SENT; */
 		enable_msgout_abort(acb, srb);
 	}
 
@@ -2261,7 +2667,7 @@ static struct ScsiReqBlk *msgin_qtag(struct AdapterCtlBlk *acb,
 	srb->state |= dcb->active_srb->state;
 	srb->state |= SRB_DATA_XFER;
 	dcb->active_srb = srb;
-	
+	/* How can we make the DORS happy? */
 	return srb;
 
       mingx0:
@@ -2286,6 +2692,7 @@ static inline void reprogram_regs(struct AdapterCtlBlk *acb,
 }
 
 
+/* set async transfer mode */
 static void msgin_set_async(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb)
 {
 	struct DeviceCtlBlk *dcb = srb->dcb;
@@ -2294,9 +2701,9 @@ static void msgin_set_async(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb)
 
 	dcb->sync_mode &= ~(SYNC_NEGO_ENABLE);
 	dcb->sync_mode |= SYNC_NEGO_DONE;
-	
+	/*dcb->sync_period &= 0; */
 	dcb->sync_offset = 0;
-	dcb->min_nego_period = 200 >> 2;	
+	dcb->min_nego_period = 200 >> 2;	/* 200ns <=> 5 MHz */
 	srb->state &= ~SRB_DO_SYNC_NEGO;
 	reprogram_regs(acb, dcb);
 	if ((dcb->sync_mode & WIDE_NEGO_ENABLE)
@@ -2308,6 +2715,7 @@ static void msgin_set_async(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb)
 }
 
 
+/* set sync transfer mode */
 static void msgin_set_sync(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb)
 {
 	struct DeviceCtlBlk *dcb = srb->dcb;
@@ -2358,7 +2766,7 @@ static void msgin_set_sync(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb)
 		dcb->min_nego_period / 2) / dcb->min_nego_period);
 
 	if (!(srb->state & SRB_DO_SYNC_NEGO)) {
-		
+		/* Reply with corrected SDTR Message */
 		dprintkl(KERN_DEBUG, "msgin_set_sync: answer w/%ins %i\n",
 			srb->msgin_buf[3] << 2, srb->msgin_buf[4]);
 
@@ -2409,7 +2817,7 @@ static void msgin_set_wide(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb)
 
 	if (srb->msgin_buf[3] > wide)
 		srb->msgin_buf[3] = wide;
-	
+	/* Completed */
 	if (!(srb->state & SRB_DO_WIDE_NEGO)) {
 		dprintkl(KERN_DEBUG,
 			"msgin_set_wide: Wide nego initiated <%02i>\n",
@@ -2426,7 +2834,7 @@ static void msgin_set_wide(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb)
 	else
 		dcb->sync_period &= ~WIDE_SYNC;
 	srb->state &= ~SRB_DO_WIDE_NEGO;
-	
+	/*dcb->sync_mode &= ~(WIDE_NEGO_ENABLE+WIDE_NEGO_DONE); */
 	dprintkdbg(DBG_1,
 		"msgin_set_wide: Wide (%i bit) negotiated <%02i>\n",
 		(8 << srb->msgin_buf[3]), dcb->target_id);
@@ -2440,6 +2848,18 @@ static void msgin_set_wide(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb)
 }
 
 
+/*
+ * extended message codes:
+ *
+ *	code	description
+ *
+ *	02h	Reserved
+ *	00h	MODIFY DATA  POINTER
+ *	01h	SYNCHRONOUS DATA TRANSFER REQUEST
+ *	03h	WIDE DATA TRANSFER REQUEST
+ *   04h - 7Fh	Reserved
+ *   80h - FFh	Vendor specific
+ */
 static void msgin_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 		u16 *pscsi_status)
 {
@@ -2448,7 +2868,7 @@ static void msgin_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 
 	srb->msgin_buf[acb->msg_len++] = DC395x_read8(acb, TRM_S1040_SCSI_FIFO);
 	if (msgin_completed(srb->msgin_buf, acb->msg_len)) {
-		
+		/* Now eval the msg */
 		switch (srb->msgin_buf[0]) {
 		case DISCONNECT:
 			srb->state = SRB_DISCONNECT;
@@ -2465,31 +2885,31 @@ static void msgin_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 		case MESSAGE_REJECT:
 			DC395x_write16(acb, TRM_S1040_SCSI_CONTROL,
 				       DO_CLRATN | DO_DATALATCH);
-			
+			/* A sync nego message was rejected ! */
 			if (srb->state & SRB_DO_SYNC_NEGO) {
 				msgin_set_async(acb, srb);
 				break;
 			}
-			
+			/* A wide nego message was rejected ! */
 			if (srb->state & SRB_DO_WIDE_NEGO) {
 				msgin_set_nowide(acb, srb);
 				break;
 			}
 			enable_msgout_abort(acb, srb);
-			
+			/*srb->state |= SRB_ABORT_SENT */
 			break;
 
 		case EXTENDED_MESSAGE:
-			
+			/* SDTR */
 			if (srb->msgin_buf[1] == 3
 			    && srb->msgin_buf[2] == EXTENDED_SDTR) {
 				msgin_set_sync(acb, srb);
 				break;
 			}
-			
+			/* WDTR */
 			if (srb->msgin_buf[1] == 2
 			    && srb->msgin_buf[2] == EXTENDED_WDTR
-			    && srb->msgin_buf[3] <= 2) { 
+			    && srb->msgin_buf[3] <= 2) { /* sanity check ... */
 				msgin_set_wide(acb, srb);
 				break;
 			}
@@ -2497,15 +2917,19 @@ static void msgin_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 			break;
 
 		case MSG_IGNOREWIDE:
-			
+			/* Discard  wide residual */
 			dprintkdbg(DBG_0, "msgin_phase0: Ignore Wide Residual!\n");
 			break;
 
 		case COMMAND_COMPLETE:
-			
+			/* nothing has to be done */
 			break;
 
 		case SAVE_POINTERS:
+			/*
+			 * SAVE POINTER may be ignored as we have the struct
+			 * ScsiReqBlk* associated with the scsi command.
+			 */
 			dprintkdbg(DBG_0, "msgin_phase0: (0x%p) "
 				"SAVE POINTER rem=%i Ignore\n",
 				srb->cmd, srb->total_xfer_length);
@@ -2525,24 +2949,24 @@ static void msgin_phase0(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 			break;
 
 		default:
-			
+			/* reject unknown messages */
 			if (srb->msgin_buf[0] & IDENTIFY_BASE) {
 				dprintkdbg(DBG_0, "msgin_phase0: Identify msg\n");
 				srb->msg_count = 1;
 				srb->msgout_buf[0] = dcb->identify_msg;
 				DC395x_ENABLE_MSGOUT;
 				srb->state |= SRB_MSGOUT;
-				
+				/*break; */
 			}
 			msgin_reject(acb, srb);
 		}
 
-		
+		/* Clear counter and MsgIn state */
 		srb->state &= ~SRB_MSGIN;
 		acb->msg_len = 0;
 	}
 	*pscsi_status = PH_BUS_FREE;
-	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	
+	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	/* it's important ... you know! */
 	DC395x_write8(acb, TRM_S1040_SCSI_COMMAND, SCMD_MSGACCEPT);
 }
 
@@ -2557,8 +2981,8 @@ static void msgin_phase1(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb,
 		srb->state &= ~SRB_DISCONNECT;
 		srb->state |= SRB_MSGIN;
 	}
-	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	
-	
+	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	/* it's important for atn stop */
+	/* SCSI command */
 	DC395x_write8(acb, TRM_S1040_SCSI_COMMAND, SCMD_FIFO_IN);
 }
 
@@ -2579,7 +3003,7 @@ static void set_xfer_rate(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb)
 {
 	struct DeviceCtlBlk *i;
 
-	
+	/* set all lun device's  period, offset */
 	if (dcb->identify_msg & 0x07)
 		return;
 
@@ -2606,7 +3030,7 @@ static void disconnect(struct AdapterCtlBlk *acb)
 	if (!dcb) {
 		dprintkl(KERN_ERR, "disconnect: No such device\n");
 		udelay(500);
-		
+		/* Suspend queue for a while */
 		acb->scsi_host->last_reset =
 		    jiffies + HZ / 2 +
 		    HZ * acb->eeprom.delay_time;
@@ -2618,7 +3042,7 @@ static void disconnect(struct AdapterCtlBlk *acb)
 	acb->active_dcb = NULL;
 	dprintkdbg(DBG_0, "disconnect: (0x%p)\n", srb->cmd);
 
-	srb->scsi_phase = PH_BUS_FREE;	
+	srb->scsi_phase = PH_BUS_FREE;	/* initial phase */
 	clear_fifo(acb, "disconnect");
 	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_HWRESELECT);
 	if (srb->state & SRB_UNEXPECT_RESEL) {
@@ -2637,7 +3061,11 @@ static void disconnect(struct AdapterCtlBlk *acb)
 		if ((srb->state & (SRB_START_ + SRB_MSGOUT))
 		    || !(srb->
 			 state & (SRB_DISCONNECT + SRB_COMPLETED))) {
-			
+			/*
+			 * Selection time out 
+			 * SRB_START_ || SRB_MSGOUT || (!SRB_DISCONNECT && !SRB_COMPLETED)
+			 */
+			/* Unexp. Disc / Sel Timeout */
 			if (srb->state != SRB_START_
 			    && srb->state != SRB_MSGOUT) {
 				srb->state = SRB_READY;
@@ -2647,7 +3075,7 @@ static void disconnect(struct AdapterCtlBlk *acb)
 				srb->target_status = SCSI_STAT_SEL_TIMEOUT;
 				goto disc1;
 			} else {
-				
+				/* Normal selection timeout */
 				dprintkdbg(DBG_KG, "disconnect: (0x%p) "
 					"<%02i-%i> SelTO\n", srb->cmd,
 					dcb->target_id, dcb->target_lun);
@@ -2666,15 +3094,21 @@ static void disconnect(struct AdapterCtlBlk *acb)
 			}
 		} else if (srb->state & SRB_DISCONNECT) {
 			u8 bval = DC395x_read8(acb, TRM_S1040_SCSI_SIGNAL);
+			/*
+			 * SRB_DISCONNECT (This is what we expect!)
+			 */
 			if (bval & 0x40) {
 				dprintkdbg(DBG_0, "disconnect: SCSI bus stat "
 					" 0x%02x: ACK set! Other controllers?\n",
 					bval);
-				
+				/* It could come from another initiator, therefore don't do much ! */
 			} else
 				waiting_process_next(acb);
 		} else if (srb->state & SRB_COMPLETED) {
 		      disc1:
+			/*
+			 ** SRB_COMPLETED
+			 */
 			free_tag(dcb, srb);
 			dcb->active_srb = NULL;
 			srb->state = SRB_FREE;
@@ -2694,18 +3128,18 @@ static void reselect(struct AdapterCtlBlk *acb)
 	dprintkdbg(DBG_0, "reselect: acb=%p\n", acb);
 
 	clear_fifo(acb, "reselect");
-	
-	
+	/*DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_HWRESELECT | DO_DATALATCH); */
+	/* Read Reselected Target ID and LUN */
 	rsel_tar_lun_id = DC395x_read16(acb, TRM_S1040_SCSI_TARGETID);
-	if (dcb) {		
+	if (dcb) {		/* Arbitration lost but Reselection win */
 		srb = dcb->active_srb;
 		if (!srb) {
 			dprintkl(KERN_DEBUG, "reselect: Arb lost Resel won, "
 				"but active_srb == NULL\n");
-			DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	
+			DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	/* it's important for atn stop */
 			return;
 		}
-		
+		/* Why the if ? */
 		if (!acb->scan_devices) {
 			dprintkdbg(DBG_KG, "reselect: (0x%p) <%02i-%i> "
 				"Arb lost but Resel win rsel=%i stat=0x%04x\n",
@@ -2713,17 +3147,17 @@ static void reselect(struct AdapterCtlBlk *acb)
 				dcb->target_lun, rsel_tar_lun_id,
 				DC395x_read16(acb, TRM_S1040_SCSI_STATUS));
 			arblostflag = 1;
-			
+			/*srb->state |= SRB_DISCONNECT; */
 
 			srb->state = SRB_READY;
 			free_tag(dcb, srb);
 			srb_going_to_waiting_move(dcb, srb);
 			waiting_set_timer(acb, HZ / 20);
 
-			
+			/* return; */
 		}
 	}
-	
+	/* Read Reselected Target Id and LUN */
 	if (!(rsel_tar_lun_id & (IDENTIFY_BASE << 8)))
 		dprintkl(KERN_DEBUG, "reselect: Expects identify msg. "
 			"Got %i!\n", rsel_tar_lun_id);
@@ -2733,7 +3167,7 @@ static void reselect(struct AdapterCtlBlk *acb)
 	if (!dcb) {
 		dprintkl(KERN_ERR, "reselect: From non existent device "
 			"<%02i-%i>\n", id, lun);
-		DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	
+		DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);	/* it's important for atn stop */
 		return;
 	}
 	acb->active_dcb = dcb;
@@ -2743,13 +3177,16 @@ static void reselect(struct AdapterCtlBlk *acb)
 			"disconnection? <%02i-%i>\n",
 			dcb->target_id, dcb->target_lun);
 
-	if (dcb->sync_mode & EN_TAG_QUEUEING ) {
+	if (dcb->sync_mode & EN_TAG_QUEUEING /*&& !arblostflag */) {
 		srb = acb->tmp_srb;
 		dcb->active_srb = srb;
 	} else {
-		
+		/* There can be only one! */
 		srb = dcb->active_srb;
 		if (!srb || !(srb->state & SRB_DISCONNECT)) {
+			/*
+			 * abort command
+			 */
 			dprintkl(KERN_DEBUG,
 				"reselect: w/o disconnected cmds <%02i-%i>\n",
 				dcb->target_id, dcb->target_lun);
@@ -2759,23 +3196,23 @@ static void reselect(struct AdapterCtlBlk *acb)
 			enable_msgout_abort(acb, srb);
 		} else {
 			if (dcb->flag & ABORT_DEV_) {
-				
+				/*srb->state = SRB_ABORT_SENT; */
 				enable_msgout_abort(acb, srb);
 			} else
 				srb->state = SRB_DATA_XFER;
 
 		}
 	}
-	srb->scsi_phase = PH_BUS_FREE;	
+	srb->scsi_phase = PH_BUS_FREE;	/* initial phase */
 
-	
+	/* Program HA ID, target ID, period and offset */
 	dprintkdbg(DBG_0, "reselect: select <%i>\n", dcb->target_id);
-	DC395x_write8(acb, TRM_S1040_SCSI_HOSTID, acb->scsi_host->this_id);	
-	DC395x_write8(acb, TRM_S1040_SCSI_TARGETID, dcb->target_id);		
-	DC395x_write8(acb, TRM_S1040_SCSI_OFFSET, dcb->sync_offset);		
-	DC395x_write8(acb, TRM_S1040_SCSI_SYNC, dcb->sync_period);		
-	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);		
-	
+	DC395x_write8(acb, TRM_S1040_SCSI_HOSTID, acb->scsi_host->this_id);	/* host   ID */
+	DC395x_write8(acb, TRM_S1040_SCSI_TARGETID, dcb->target_id);		/* target ID */
+	DC395x_write8(acb, TRM_S1040_SCSI_OFFSET, dcb->sync_offset);		/* offset    */
+	DC395x_write8(acb, TRM_S1040_SCSI_SYNC, dcb->sync_period);		/* sync period, wide */
+	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_DATALATCH);		/* it's important for atn stop */
+	/* SCSI command */
 	DC395x_write8(acb, TRM_S1040_SCSI_COMMAND, SCMD_MSGACCEPT);
 }
 
@@ -2798,17 +3235,19 @@ static inline u8 tagq_blacklist(char *name)
 
 static void disc_tagq_set(struct DeviceCtlBlk *dcb, struct ScsiInqData *ptr)
 {
-	
+	/* Check for SCSI format (ANSI and Response data format) */
 	if ((ptr->Vers & 0x07) >= 2 || (ptr->RDF & 0x0F) == 2) {
 		if ((ptr->Flags & SCSI_INQ_CMDQUEUE)
 		    && (dcb->dev_mode & NTC_DO_TAG_QUEUEING) &&
-		    
+		    /*(dcb->dev_mode & NTC_DO_DISCONNECT) */
+		    /* ((dcb->dev_type == TYPE_DISK) 
+		       || (dcb->dev_type == TYPE_MOD)) && */
 		    !tagq_blacklist(((char *)ptr) + 8)) {
 			if (dcb->max_command == 1)
 				dcb->max_command =
 				    dcb->acb->tag_max_num;
 			dcb->sync_mode |= EN_TAG_QUEUEING;
-			
+			/*dcb->tag_mask = 0; */
 		} else
 			dcb->max_command = 1;
 	}
@@ -2820,18 +3259,19 @@ static void add_dev(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 {
 	u8 bval1 = ptr->DevType & SCSI_DEVTYPE;
 	dcb->dev_type = bval1;
-	
+	/* if (bval1 == TYPE_DISK || bval1 == TYPE_MOD) */
 	disc_tagq_set(dcb, ptr);
 }
 
 
+/* unmap mapped pci regions from SRB */
 static void pci_unmap_srb(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb)
 {
 	struct scsi_cmnd *cmd = srb->cmd;
 	enum dma_data_direction dir = cmd->sc_data_direction;
 
 	if (scsi_sg_count(cmd) && dir != PCI_DMA_NONE) {
-		
+		/* unmap DC395x SG list */
 		dprintkdbg(DBG_SG, "pci_unmap_srb: list=%08x(%05x)\n",
 			srb->sg_bus_addr, SEGMENTX_LEN);
 		pci_unmap_single(acb->dev, srb->sg_bus_addr,
@@ -2839,23 +3279,24 @@ static void pci_unmap_srb(struct AdapterCtlBlk *acb, struct ScsiReqBlk *srb)
 				 PCI_DMA_TODEVICE);
 		dprintkdbg(DBG_SG, "pci_unmap_srb: segs=%i buffer=%p\n",
 			   scsi_sg_count(cmd), scsi_bufflen(cmd));
-		
+		/* unmap the sg segments */
 		scsi_dma_unmap(cmd);
 	}
 }
 
 
+/* unmap mapped pci sense buffer from SRB */
 static void pci_unmap_srb_sense(struct AdapterCtlBlk *acb,
 		struct ScsiReqBlk *srb)
 {
 	if (!(srb->flag & AUTO_REQSENSE))
 		return;
-	
+	/* Unmap sense buffer */
 	dprintkdbg(DBG_SG, "pci_unmap_srb_sense: buffer=%08x\n",
 	       srb->segment_x[0].address);
 	pci_unmap_single(acb->dev, srb->segment_x[0].address,
 			 srb->segment_x[0].length, PCI_DMA_FROMDEVICE);
-	
+	/* Restore SG stuff */
 	srb->total_xfer_length = srb->xferred;
 	srb->segment_x[0].address =
 	    srb->segment_x[DC395x_MAX_SG_LISTENTRY - 1].address;
@@ -2864,6 +3305,10 @@ static void pci_unmap_srb_sense(struct AdapterCtlBlk *acb,
 }
 
 
+/*
+ * Complete execution of a SCSI command
+ * Signal completion to the generic SCSI driver  
+ */
 static void srb_done(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 		struct ScsiReqBlk *srb)
 {
@@ -2881,6 +3326,9 @@ static void srb_done(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 	if (srb->flag & AUTO_REQSENSE) {
 		dprintkdbg(DBG_0, "srb_done: AUTO_REQSENSE1\n");
 		pci_unmap_srb_sense(acb, srb);
+		/*
+		 ** target status..........................
+		 */
 		srb->flag &= ~AUTO_REQSENSE;
 		srb->adapter_status = 0;
 		srb->target_status = CHECK_CONDITION << 1;
@@ -2941,7 +3389,7 @@ static void srb_done(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 			cmd->result =
 			    MK_RES_LNX(DRIVER_SENSE, DID_OK,
 				       srb->end_message, CHECK_CONDITION);
-		
+		/*SET_RES_DID(cmd->result,DID_OK) */
 		else
 			cmd->result =
 			    MK_RES_LNX(DRIVER_SENSE, DID_OK,
@@ -2950,7 +3398,11 @@ static void srb_done(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 		goto ckc_e;
 	}
 
+/*************************************************************/
 	if (status) {
+		/*
+		 * target status..........................
+		 */
 		if (status_byte(status) == CHECK_CONDITION) {
 			request_sense(acb, dcb, srb);
 			return;
@@ -2979,6 +3431,9 @@ static void srb_done(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 
 		}
 	} else {
+		/*
+		 ** process initiator status..........................
+		 */
 		status = srb->adapter_status;
 		if (status & H_OVER_UNDER_RUN) {
 			srb->target_status = 0;
@@ -2987,7 +3442,7 @@ static void srb_done(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 		} else if (srb->status & PARITY_ERROR) {
 			SET_RES_DID(cmd->result, DID_PARITY);
 			SET_RES_MSG(cmd->result, srb->end_message);
-		} else {	
+		} else {	/* No error */
 
 			srb->adapter_status = 0;
 			srb->target_status = 0;
@@ -3000,6 +3455,7 @@ static void srb_done(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 					scsi_sg_count(cmd), dir);
 
 	ckc_only = 0;
+/* Check Error Conditions */
       ckc_e:
 
 	if (cmd->cmnd[0] == INQUIRY) {
@@ -3018,8 +3474,8 @@ static void srb_done(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 		    && dir != PCI_DMA_NONE && ptr && (ptr->Vers & 0x07) >= 2)
 			dcb->inquiry7 = ptr->Flags;
 
-	
-	
+	/*if( srb->cmd->cmnd[0] == INQUIRY && */
+	/*  (host_byte(cmd->result) == DID_OK || status_byte(cmd->result) & CHECK_CONDITION) ) */
 		if ((cmd->result == (DID_OK << 16)
 		     || status_byte(cmd->result) &
 		     CHECK_CONDITION)) {
@@ -3033,9 +3489,9 @@ static void srb_done(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 		local_irq_restore(flags);
 	}
 
-	
+	/* Here is the info for Doug Gilbert's sg3 ... */
 	scsi_set_resid(cmd, srb->total_xfer_length);
-	
+	/* This may be interpreted by sb. or not ... */
 	cmd->SCp.this_residual = srb->total_xfer_length;
 	cmd->SCp.buffers_residual = 0;
 	if (debug_enabled(DBG_KG)) {
@@ -3047,7 +3503,7 @@ static void srb_done(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 	}
 
 	srb_going_remove(dcb, srb);
-	
+	/* Add to free list */
 	if (srb == acb->tmp_srb)
 		dprintkl(KERN_ERR, "srb_done: ERROR! Completed cmd with tmp_srb\n");
 	else {
@@ -3062,6 +3518,7 @@ static void srb_done(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 }
 
 
+/* abort all cmds in our queues */
 static void doing_srb_done(struct AdapterCtlBlk *acb, u8 did_flag,
 		struct scsi_cmnd *cmd, u8 force)
 {
@@ -3089,6 +3546,8 @@ static void doing_srb_done(struct AdapterCtlBlk *acb, u8 did_flag,
 			pci_unmap_srb_sense(acb, srb);
 			pci_unmap_srb(acb, srb);
 			if (force) {
+				/* For new EH, we normally don't need to give commands back,
+				 * as they all complete or all time out */
 				p->scsi_done(p);
 			}
 		}
@@ -3102,7 +3561,7 @@ static void doing_srb_done(struct AdapterCtlBlk *acb, u8 did_flag,
 			       dcb->target_id, dcb->target_lun,
 			       dcb->tag_mask);
 
-		
+		/* Waiting queue */
 		list_for_each_entry_safe(srb, tmp, &dcb->srb_waiting_list, list) {
 			int result;
 			p = srb->cmd;
@@ -3116,6 +3575,8 @@ static void doing_srb_done(struct AdapterCtlBlk *acb, u8 did_flag,
 			pci_unmap_srb_sense(acb, srb);
 			pci_unmap_srb(acb, srb);
 			if (force) {
+				/* For new EH, we normally don't need to give commands back,
+				 * as they all complete or all time out */
 				cmd->scsi_done(cmd);
 			}
 		}
@@ -3132,11 +3593,11 @@ static void doing_srb_done(struct AdapterCtlBlk *acb, u8 did_flag,
 static void reset_scsi_bus(struct AdapterCtlBlk *acb)
 {
 	dprintkdbg(DBG_0, "reset_scsi_bus: acb=%p\n", acb);
-	acb->acb_flag |= RESET_DEV;	
+	acb->acb_flag |= RESET_DEV;	/* RESET_DETECT, RESET_DONE, RESET_DEV */
 	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_RSTSCSI);
 
 	while (!(DC395x_read8(acb, TRM_S1040_SCSI_INTSTATUS) & INT_SCSIRESET))
-		;
+		/* nothing */;
 }
 
 
@@ -3152,26 +3613,26 @@ static void set_basic_config(struct AdapterCtlBlk *acb)
 
 	DC395x_write8(acb, TRM_S1040_SCSI_CONFIG0, bval);
 
-	
-	DC395x_write8(acb, TRM_S1040_SCSI_CONFIG1, 0x03);	
-	
+	/* program configuration 1: Act_Neg (+ Act_Neg_Enh? + Fast_Filter? + DataDis?) */
+	DC395x_write8(acb, TRM_S1040_SCSI_CONFIG1, 0x03);	/* was 0x13: default */
+	/* program Host ID                  */
 	DC395x_write8(acb, TRM_S1040_SCSI_HOSTID, acb->scsi_host->this_id);
-	
+	/* set ansynchronous transfer       */
 	DC395x_write8(acb, TRM_S1040_SCSI_OFFSET, 0x00);
-	
+	/* Turn LED control off */
 	wval = DC395x_read16(acb, TRM_S1040_GEN_CONTROL) & 0x7F;
 	DC395x_write16(acb, TRM_S1040_GEN_CONTROL, wval);
-	
+	/* DMA config          */
 	wval = DC395x_read16(acb, TRM_S1040_DMA_CONFIG) & ~DMA_FIFO_CTRL;
 	wval |=
-	    DMA_FIFO_HALF_HALF | DMA_ENHANCE  ;
+	    DMA_FIFO_HALF_HALF | DMA_ENHANCE /*| DMA_MEM_MULTI_READ */ ;
 	DC395x_write16(acb, TRM_S1040_DMA_CONFIG, wval);
-	
+	/* Clear pending interrupt status */
 	DC395x_read8(acb, TRM_S1040_SCSI_INTSTATUS);
-	
+	/* Enable SCSI interrupt    */
 	DC395x_write8(acb, TRM_S1040_SCSI_INTEN, 0x7F);
 	DC395x_write8(acb, TRM_S1040_DMA_INTEN, EN_SCSIINTR | EN_DMAXFERERROR
-		      
+		      /*| EN_DMAXFERABORT | EN_DMAXFERCOMP | EN_FORCEDMACOMP */
 		      );
 }
 
@@ -3179,31 +3640,31 @@ static void set_basic_config(struct AdapterCtlBlk *acb)
 static void scsi_reset_detect(struct AdapterCtlBlk *acb)
 {
 	dprintkl(KERN_INFO, "scsi_reset_detect: acb=%p\n", acb);
-	
+	/* delay half a second */
 	if (timer_pending(&acb->waiting_timer))
 		del_timer(&acb->waiting_timer);
 
 	DC395x_write8(acb, TRM_S1040_SCSI_CONTROL, DO_RSTMODULE);
 	DC395x_write8(acb, TRM_S1040_DMA_CONTROL, DMARESETMODULE);
-	
+	/*DC395x_write8(acb, TRM_S1040_DMA_CONTROL,STOPDMAXFER); */
 	udelay(500);
-	
+	/* Maybe we locked up the bus? Then lets wait even longer ... */
 	acb->scsi_host->last_reset =
 	    jiffies + 5 * HZ / 2 +
 	    HZ * acb->eeprom.delay_time;
 
 	clear_fifo(acb, "scsi_reset_detect");
 	set_basic_config(acb);
-	
-	
+	/*1.25 */
+	/*DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_HWRESELECT); */
 
-	if (acb->acb_flag & RESET_DEV) {	
+	if (acb->acb_flag & RESET_DEV) {	/* RESET_DETECT, RESET_DONE, RESET_DEV */
 		acb->acb_flag |= RESET_DONE;
 	} else {
 		acb->acb_flag |= RESET_DETECT;
 		reset_dev_param(acb);
 		doing_srb_done(acb, DID_RESET, NULL, 1);
-		
+		/*DC395x_RecoverSRB( acb ); */
 		acb->active_dcb = NULL;
 		acb->acb_flag = 0;
 		waiting_process_next(acb);
@@ -3222,19 +3683,19 @@ static void request_sense(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 	srb->adapter_status = 0;
 	srb->target_status = 0;
 
-	
+	/* KG: Can this prevent crap sense data ? */
 	memset(cmd->sense_buffer, 0, SCSI_SENSE_BUFFERSIZE);
 
-	
+	/* Save some data */
 	srb->segment_x[DC395x_MAX_SG_LISTENTRY - 1].address =
 	    srb->segment_x[0].address;
 	srb->segment_x[DC395x_MAX_SG_LISTENTRY - 1].length =
 	    srb->segment_x[0].length;
 	srb->xferred = srb->total_xfer_length;
-	
+	/* srb->segment_x : a one entry of S/G list table */
 	srb->total_xfer_length = SCSI_SENSE_BUFFERSIZE;
 	srb->segment_x[0].length = SCSI_SENSE_BUFFERSIZE;
-	
+	/* Map sense buffer */
 	srb->segment_x[0].address =
 	    pci_map_single(acb->dev, cmd->sense_buffer,
 			   SCSI_SENSE_BUFFERSIZE, PCI_DMA_FROMDEVICE);
@@ -3244,7 +3705,7 @@ static void request_sense(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 	srb->sg_count = 1;
 	srb->sg_index = 0;
 
-	if (start_scsi(acb, dcb, srb)) {	
+	if (start_scsi(acb, dcb, srb)) {	/* Should only happen, if sb. else grabs the bus */
 		dprintkl(KERN_DEBUG,
 			"request_sense: (0x%p) failed <%02i-%i>\n",
 			srb->cmd, dcb->target_id, dcb->target_lun);
@@ -3254,6 +3715,19 @@ static void request_sense(struct AdapterCtlBlk *acb, struct DeviceCtlBlk *dcb,
 }
 
 
+/**
+ * device_alloc - Allocate a new device instance. This create the
+ * devices instance and sets up all the data items. The adapter
+ * instance is required to obtain confiuration information for this
+ * device. This does *not* add this device to the adapters device
+ * list.
+ *
+ * @acb: The adapter to obtain configuration information from.
+ * @target: The target for the new device.
+ * @lun: The lun for the new device.
+ *
+ * Return the new device if successful or NULL on failure.
+ **/
 static struct DeviceCtlBlk *device_alloc(struct AdapterCtlBlk *acb,
 		u8 target, u8 lun)
 {
@@ -3298,7 +3772,7 @@ static struct DeviceCtlBlk *device_alloc(struct AdapterCtlBlk *acb,
 			dcb->sync_mode |= SYNC_NEGO_ENABLE;
 #endif
 	if (dcb->target_lun != 0) {
-		
+		/* Copy settings */
 		struct DeviceCtlBlk *p;
 		list_for_each_entry(p, &acb->dcb_list, list)
 			if (p->target_id == dcb->target_id)
@@ -3317,25 +3791,40 @@ static struct DeviceCtlBlk *device_alloc(struct AdapterCtlBlk *acb,
 }
 
 
+/**
+ * adapter_add_device - Adds the device instance to the adaptor instance.
+ *
+ * @acb: The adapter device to be updated
+ * @dcb: A newly created and initialised device instance to add.
+ **/
 static void adapter_add_device(struct AdapterCtlBlk *acb,
 		struct DeviceCtlBlk *dcb)
 {
-	
+	/* backpointer to adapter */
 	dcb->acb = acb;
 	
-	
+	/* set run_robin to this device if it is currently empty */
 	if (list_empty(&acb->dcb_list))
 		acb->dcb_run_robin = dcb;
 
-	
+	/* add device to list */
 	list_add_tail(&dcb->list, &acb->dcb_list);
 
-	
+	/* update device maps */
 	acb->dcb_map[dcb->target_id] |= (1 << dcb->target_lun);
 	acb->children[dcb->target_id][dcb->target_lun] = dcb;
 }
 
 
+/**
+ * adapter_remove_device - Removes the device instance from the adaptor
+ * instance. The device instance is not check in any way or freed by this. 
+ * The caller is expected to take care of that. This will simply remove the
+ * device from the adapters data strcutures.
+ *
+ * @acb: The adapter device to be updated
+ * @dcb: A device that has previously been added to the adapter.
+ **/
 static void adapter_remove_device(struct AdapterCtlBlk *acb,
 		struct DeviceCtlBlk *dcb)
 {
@@ -3344,26 +3833,33 @@ static void adapter_remove_device(struct AdapterCtlBlk *acb,
 	dprintkdbg(DBG_0, "adapter_remove_device: <%02i-%i>\n",
 		dcb->target_id, dcb->target_lun);
 
-	
+	/* fix up any pointers to this device that we have in the adapter */
 	if (acb->active_dcb == dcb)
 		acb->active_dcb = NULL;
 	if (acb->dcb_run_robin == dcb)
 		acb->dcb_run_robin = dcb_get_next(&acb->dcb_list, dcb);
 
-	
+	/* unlink from list */
 	list_for_each_entry_safe(i, tmp, &acb->dcb_list, list)
 		if (dcb == i) {
 			list_del(&i->list);
 			break;
 		}
 
-		
+	/* clear map and children */	
 	acb->dcb_map[dcb->target_id] &= ~(1 << dcb->target_lun);
 	acb->children[dcb->target_id][dcb->target_lun] = NULL;
 	dcb->acb = NULL;
 }
 
 
+/**
+ * adapter_remove_and_free_device - Removes a single device from the adapter
+ * and then frees the device information.
+ *
+ * @acb: The adapter device to be updated
+ * @dcb: A device that has previously been added to the adapter.
+ */
 static void adapter_remove_and_free_device(struct AdapterCtlBlk *acb,
 		struct DeviceCtlBlk *dcb)
 {
@@ -3379,6 +3875,12 @@ static void adapter_remove_and_free_device(struct AdapterCtlBlk *acb,
 }
 
 
+/**
+ * adapter_remove_and_free_all_devices - Removes and frees all of the
+ * devices associated with the specified adapter.
+ *
+ * @acb: The adapter from which all devices should be removed.
+ **/
 static void adapter_remove_and_free_all_devices(struct AdapterCtlBlk* acb)
 {
 	struct DeviceCtlBlk *dcb;
@@ -3391,6 +3893,13 @@ static void adapter_remove_and_free_all_devices(struct AdapterCtlBlk* acb)
 }
 
 
+/**
+ * dc395x_slave_alloc - Called by the scsi mid layer to tell us about a new
+ * scsi device that we need to deal with. We allocate a new device and then
+ * insert that device into the adapters device list.
+ *
+ * @scsi_device: The new scsi device that we need to handle.
+ **/
 static int dc395x_slave_alloc(struct scsi_device *scsi_device)
 {
 	struct AdapterCtlBlk *acb = (struct AdapterCtlBlk *)scsi_device->host->hostdata;
@@ -3405,6 +3914,12 @@ static int dc395x_slave_alloc(struct scsi_device *scsi_device)
 }
 
 
+/**
+ * dc395x_slave_destroy - Called by the scsi mid layer to tell us about a
+ * device that is going away.
+ *
+ * @scsi_device: The new scsi device that we need to handle.
+ **/
 static void dc395x_slave_destroy(struct scsi_device *scsi_device)
 {
 	struct AdapterCtlBlk *acb = (struct AdapterCtlBlk *)scsi_device->host->hostdata;
@@ -3416,24 +3931,39 @@ static void dc395x_slave_destroy(struct scsi_device *scsi_device)
 
 
 
+/**
+ * trms1040_wait_30us: wait for 30 us
+ *
+ * Waits for 30us (using the chip by the looks of it..)
+ *
+ * @io_port: base I/O address
+ **/
 static void __devinit trms1040_wait_30us(unsigned long io_port)
 {
-	
+	/* ScsiPortStallExecution(30); wait 30 us */
 	outb(5, io_port + TRM_S1040_GEN_TIMER);
 	while (!(inb(io_port + TRM_S1040_GEN_STATUS) & GTIMEOUT))
-		 ;
+		/* nothing */ ;
 }
 
 
+/**
+ * trms1040_write_cmd - write the secified command and address to
+ * chip
+ *
+ * @io_port:	base I/O address
+ * @cmd:	SB + op code (command) to send
+ * @addr:	address to send
+ **/
 static void __devinit trms1040_write_cmd(unsigned long io_port, u8 cmd, u8 addr)
 {
 	int i;
 	u8 send_data;
 
-	
+	/* program SB + OP code */
 	for (i = 0; i < 3; i++, cmd <<= 1) {
 		send_data = NVR_SELECT;
-		if (cmd & 0x04)	
+		if (cmd & 0x04)	/* Start from bit 2 */
 			send_data |= NVR_BITOUT;
 
 		outb(send_data, io_port + TRM_S1040_GEN_NVRAM);
@@ -3443,10 +3973,10 @@ static void __devinit trms1040_write_cmd(unsigned long io_port, u8 cmd, u8 addr)
 		trms1040_wait_30us(io_port);
 	}
 
-	
+	/* send address */
 	for (i = 0; i < 7; i++, addr <<= 1) {
 		send_data = NVR_SELECT;
-		if (addr & 0x40)	
+		if (addr & 0x40)	/* Start from bit 6 */
 			send_data |= NVR_BITOUT;
 
 		outb(send_data, io_port + TRM_S1040_GEN_NVRAM);
@@ -3460,18 +3990,28 @@ static void __devinit trms1040_write_cmd(unsigned long io_port, u8 cmd, u8 addr)
 }
 
 
+/**
+ * trms1040_set_data - store a single byte in the eeprom
+ *
+ * Called from write all to write a single byte into the SSEEPROM
+ * Which is done one bit at a time.
+ *
+ * @io_port:	base I/O address
+ * @addr:	offset into EEPROM
+ * @byte:	bytes to write
+ **/
 static void __devinit trms1040_set_data(unsigned long io_port, u8 addr, u8 byte)
 {
 	int i;
 	u8 send_data;
 
-	
+	/* Send write command & address */
 	trms1040_write_cmd(io_port, 0x05, addr);
 
-	
+	/* Write data */
 	for (i = 0; i < 8; i++, byte <<= 1) {
 		send_data = NVR_SELECT;
-		if (byte & 0x80)	
+		if (byte & 0x80)	/* Start from bit 7 */
 			send_data |= NVR_BITOUT;
 
 		outb(send_data, io_port + TRM_S1040_GEN_NVRAM);
@@ -3482,14 +4022,14 @@ static void __devinit trms1040_set_data(unsigned long io_port, u8 addr, u8 byte)
 	outb(NVR_SELECT, io_port + TRM_S1040_GEN_NVRAM);
 	trms1040_wait_30us(io_port);
 
-	
+	/* Disable chip select */
 	outb(0, io_port + TRM_S1040_GEN_NVRAM);
 	trms1040_wait_30us(io_port);
 
 	outb(NVR_SELECT, io_port + TRM_S1040_GEN_NVRAM);
 	trms1040_wait_30us(io_port);
 
-	
+	/* Wait for write ready */
 	while (1) {
 		outb((NVR_SELECT | NVR_CLOCK), io_port + TRM_S1040_GEN_NVRAM);
 		trms1040_wait_30us(io_port);
@@ -3501,56 +4041,75 @@ static void __devinit trms1040_set_data(unsigned long io_port, u8 addr, u8 byte)
 			break;
 	}
 
-	
+	/*  Disable chip select */
 	outb(0, io_port + TRM_S1040_GEN_NVRAM);
 }
 
 
+/**
+ * trms1040_write_all - write 128 bytes to the eeprom
+ *
+ * Write the supplied 128 bytes to the chips SEEPROM
+ *
+ * @eeprom:	the data to write
+ * @io_port:	the base io port
+ **/
 static void __devinit trms1040_write_all(struct NvRamType *eeprom, unsigned long io_port)
 {
 	u8 *b_eeprom = (u8 *)eeprom;
 	u8 addr;
 
-	
+	/* Enable SEEPROM */
 	outb((inb(io_port + TRM_S1040_GEN_CONTROL) | EN_EEPROM),
 	     io_port + TRM_S1040_GEN_CONTROL);
 
-	
+	/* write enable */
 	trms1040_write_cmd(io_port, 0x04, 0xFF);
 	outb(0, io_port + TRM_S1040_GEN_NVRAM);
 	trms1040_wait_30us(io_port);
 
-	
+	/* write */
 	for (addr = 0; addr < 128; addr++, b_eeprom++)
 		trms1040_set_data(io_port, addr, *b_eeprom);
 
-	
+	/* write disable */
 	trms1040_write_cmd(io_port, 0x04, 0x00);
 	outb(0, io_port + TRM_S1040_GEN_NVRAM);
 	trms1040_wait_30us(io_port);
 
-	
+	/* Disable SEEPROM */
 	outb((inb(io_port + TRM_S1040_GEN_CONTROL) & ~EN_EEPROM),
 	     io_port + TRM_S1040_GEN_CONTROL);
 }
 
 
+/**
+ * trms1040_get_data - get a single byte from the eeprom
+ *
+ * Called from read all to read a single byte into the SSEEPROM
+ * Which is done one bit at a time.
+ *
+ * @io_port:	base I/O address
+ * @addr:	offset into SEEPROM
+ *
+ * Returns the byte read.
+ **/
 static u8 __devinit trms1040_get_data(unsigned long io_port, u8 addr)
 {
 	int i;
 	u8 read_byte;
 	u8 result = 0;
 
-	
+	/* Send read command & address */
 	trms1040_write_cmd(io_port, 0x06, addr);
 
-	
+	/* read data */
 	for (i = 0; i < 8; i++) {
 		outb((NVR_SELECT | NVR_CLOCK), io_port + TRM_S1040_GEN_NVRAM);
 		trms1040_wait_30us(io_port);
 		outb(NVR_SELECT, io_port + TRM_S1040_GEN_NVRAM);
 
-		
+		/* Get data bit while falling edge */
 		read_byte = inb(io_port + TRM_S1040_GEN_NVRAM);
 		result <<= 1;
 		if (read_byte & NVR_BITIN)
@@ -3559,32 +4118,50 @@ static u8 __devinit trms1040_get_data(unsigned long io_port, u8 addr)
 		trms1040_wait_30us(io_port);
 	}
 
-	
+	/* Disable chip select */
 	outb(0, io_port + TRM_S1040_GEN_NVRAM);
 	return result;
 }
 
 
+/**
+ * trms1040_read_all - read all bytes from the eeprom
+ *
+ * Read the 128 bytes from the SEEPROM.
+ *
+ * @eeprom:	where to store the data
+ * @io_port:	the base io port
+ **/
 static void __devinit trms1040_read_all(struct NvRamType *eeprom, unsigned long io_port)
 {
 	u8 *b_eeprom = (u8 *)eeprom;
 	u8 addr;
 
-	
+	/* Enable SEEPROM */
 	outb((inb(io_port + TRM_S1040_GEN_CONTROL) | EN_EEPROM),
 	     io_port + TRM_S1040_GEN_CONTROL);
 
-	
+	/* read details */
 	for (addr = 0; addr < 128; addr++, b_eeprom++)
 		*b_eeprom = trms1040_get_data(io_port, addr);
 
-	
+	/* Disable SEEPROM */
 	outb((inb(io_port + TRM_S1040_GEN_CONTROL) & ~EN_EEPROM),
 	     io_port + TRM_S1040_GEN_CONTROL);
 }
 
 
 
+/**
+ * check_eeprom - get and check contents of the eeprom
+ *
+ * Read seeprom 128 bytes into the memory provider in eeprom.
+ * Checks the checksum and if it's not correct it uses a set of default
+ * values.
+ *
+ * @eeprom:	caller allocated strcuture to read the eeprom data into
+ * @io_port:	io port to read from
+ **/
 static void __devinit check_eeprom(struct NvRamType *eeprom, unsigned long io_port)
 {
 	u16 *w_eeprom = (u16 *)eeprom;
@@ -3593,13 +4170,17 @@ static void __devinit check_eeprom(struct NvRamType *eeprom, unsigned long io_po
 	u32 d_addr;
 	u32 *d_eeprom;
 
-	trms1040_read_all(eeprom, io_port);	
+	trms1040_read_all(eeprom, io_port);	/* read eeprom */
 
 	cksum = 0;
 	for (w_addr = 0, w_eeprom = (u16 *)eeprom; w_addr < 64;
 	     w_addr++, w_eeprom++)
 		cksum += *w_eeprom;
 	if (cksum != 0x1234) {
+		/*
+		 * Checksum is wrong.
+		 * Load a set of defaults into the eeprom buffer
+		 */
 		dprintkl(KERN_WARNING,
 			"EEProm checksum error: using default values and options.\n");
 		eeprom->sub_vendor_id[0] = (u8)PCI_VENDOR_ID_TEKRAM;
@@ -3617,14 +4198,14 @@ static void __devinit check_eeprom(struct NvRamType *eeprom, unsigned long io_po
 
 		for (d_addr = 0, d_eeprom = (u32 *)eeprom->target;
 		     d_addr < 16; d_addr++, d_eeprom++)
-			*d_eeprom = 0x00000077;	
+			*d_eeprom = 0x00000077;	/* cfg3,cfg2,period,cfg0 */
 
-		*d_eeprom++ = 0x04000F07;	
-		*d_eeprom++ = 0x00000015;	
+		*d_eeprom++ = 0x04000F07;	/* max_tag,delay_time,channel_cfg,scsi_id */
+		*d_eeprom++ = 0x00000015;	/* reserved1,boot_lun,boot_target,reserved0 */
 		for (d_addr = 0; d_addr < 12; d_addr++, d_eeprom++)
 			*d_eeprom = 0x00;
 
-		
+		/* Now load defaults (maybe set by boot/module params) */
 		set_safe_settings();
 		fix_settings();
 		eeprom_override(eeprom);
@@ -3645,6 +4226,12 @@ static void __devinit check_eeprom(struct NvRamType *eeprom, unsigned long io_po
 }
 
 
+/**
+ * print_eeprom_settings - output the eeprom settings
+ * to the kernel log so people can see what they were.
+ *
+ * @eeprom: The eeprom data strucutre to show details for.
+ **/
 static void __devinit print_eeprom_settings(struct NvRamType *eeprom)
 {
 	dprintkl(KERN_INFO, "Used settings: AdapterID=%02i, Speed=%i(%02i.%01iMHz), dev_mode=0x%02x\n",
@@ -3659,6 +4246,7 @@ static void __devinit print_eeprom_settings(struct NvRamType *eeprom)
 }
 
 
+/* Free SG tables */
 static void adapter_sg_tables_free(struct AdapterCtlBlk *acb)
 {
 	int i;
@@ -3669,6 +4257,9 @@ static void adapter_sg_tables_free(struct AdapterCtlBlk *acb)
 }
 
 
+/*
+ * Allocate SG tables; as we have to pci_map them, an SG list (struct SGentry*)
+ * should never cross a page boundary */
 static int __devinit adapter_sg_tables_alloc(struct AdapterCtlBlk *acb)
 {
 	const unsigned mem_needed = (DC395x_MAX_SRB_CNT+1)
@@ -3706,6 +4297,15 @@ static int __devinit adapter_sg_tables_alloc(struct AdapterCtlBlk *acb)
 
 
 
+/**
+ * adapter_print_config - print adapter connection and termination
+ * config
+ *
+ * The io port in the adapter needs to have been set before calling
+ * this function.
+ *
+ * @acb: The adapter to print the information for.
+ **/
 static void __devinit adapter_print_config(struct AdapterCtlBlk *acb)
 {
 	u8 bval;
@@ -3720,7 +4320,7 @@ static void __devinit adapter_print_config(struct AdapterCtlBlk *acb)
 	if (!(bval & CON50))
 		printk("int50 ");
 	if ((bval & (CON5068 | CON50 | CON68)) ==
-	    0  )
+	    0 /*(CON5068 | CON50 | CON68) */ )
 		printk(" Oops! (All 3?) ");
 	bval = DC395x_read8(acb, TRM_S1040_GEN_CONTROL);
 	printk(" Termination: ");
@@ -3738,37 +4338,49 @@ static void __devinit adapter_print_config(struct AdapterCtlBlk *acb)
 }
 
 
+/**
+ * adapter_init_params - Initialize the various parameters in the
+ * adapter structure. Note that the pointer to the scsi_host is set
+ * early (when this instance is created) and the io_port and irq
+ * values are set later after they have been reserved. This just gets
+ * everything set to a good starting position.
+ *
+ * The eeprom structure in the adapter needs to have been set before
+ * calling this function.
+ *
+ * @acb: The adapter to initialize.
+ **/
 static void __devinit adapter_init_params(struct AdapterCtlBlk *acb)
 {
 	struct NvRamType *eeprom = &acb->eeprom;
 	int i;
 
-	
-	
-	
+	/* NOTE: acb->scsi_host is set at scsi_host/acb creation time */
+	/* NOTE: acb->io_port_base is set at port registration time */
+	/* NOTE: acb->io_port_len is set at port registration time */
 
 	INIT_LIST_HEAD(&acb->dcb_list);
 	acb->dcb_run_robin = NULL;
 	acb->active_dcb = NULL;
 
 	INIT_LIST_HEAD(&acb->srb_free_list);
-	
+	/*  temp SRB for Q tag used or abort command used  */
 	acb->tmp_srb = &acb->srb;
 	init_timer(&acb->waiting_timer);
 	init_timer(&acb->selto_timer);
 
 	acb->srb_count = DC395x_MAX_SRB_CNT;
 
-	acb->sel_timeout = DC395x_SEL_TIMEOUT;	
-	
+	acb->sel_timeout = DC395x_SEL_TIMEOUT;	/* timeout=250ms */
+	/* NOTE: acb->irq_level is set at IRQ registration time */
 
 	acb->tag_max_num = 1 << eeprom->max_tag;
 	if (acb->tag_max_num > 30)
 		acb->tag_max_num = 30;
 
-	acb->acb_flag = 0;	
+	acb->acb_flag = 0;	/* RESET_DETECT, RESET_DONE, RESET_DEV */
 	acb->gmode2 = eeprom->channel_cfg;
-	acb->config = 0;	
+	acb->config = 0;	/* NOTE: actually set in adapter_init_chip */
 
 	if (eeprom->channel_cfg & NAC_SCANLUN)
 		acb->lun_chk = 1;
@@ -3782,12 +4394,24 @@ static void __devinit adapter_init_params(struct AdapterCtlBlk *acb)
 
 	acb->msg_len = 0;
 	
-	
+	/* link static array of srbs into the srb free list */
 	for (i = 0; i < acb->srb_count - 1; i++)
 		srb_free_insert(acb, &acb->srb_array[i]);
 }
 
 
+/**
+ * adapter_init_host - Initialize the scsi host instance based on
+ * values that we have already stored in the adapter instance. There's
+ * some mention that a lot of these are deprecated, so we won't use
+ * them (we'll use the ones in the adapter instance) but we'll fill
+ * them in in case something else needs them.
+ *
+ * The eeprom structure, irq and io ports in the adapter need to have
+ * been set before calling this function.
+ *
+ * @host: The scsi host instance to fill in the values for.
+ **/
 static void __devinit adapter_init_scsi_host(struct Scsi_Host *host)
 {
         struct AdapterCtlBlk *acb = (struct AdapterCtlBlk *)host->hostdata;
@@ -3820,22 +4444,31 @@ static void __devinit adapter_init_scsi_host(struct Scsi_Host *host)
 }
 
 
+/**
+ * adapter_init_chip - Get the chip into a know state and figure out
+ * some of the settings that apply to this adapter.
+ *
+ * The io port in the adapter needs to have been set before calling
+ * this function. The config will be configured correctly on return.
+ *
+ * @acb: The adapter which we are to init.
+ **/
 static void __devinit adapter_init_chip(struct AdapterCtlBlk *acb)
 {
         struct NvRamType *eeprom = &acb->eeprom;
         
-        
+        /* Mask all the interrupt */
 	DC395x_write8(acb, TRM_S1040_DMA_INTEN, 0x00);
 	DC395x_write8(acb, TRM_S1040_SCSI_INTEN, 0x00);
 
-	
+	/* Reset SCSI module */
 	DC395x_write16(acb, TRM_S1040_SCSI_CONTROL, DO_RSTMODULE);
 
-	
+	/* Reset PCI/DMA module */
 	DC395x_write8(acb, TRM_S1040_DMA_CONTROL, DMARESETMODULE);
 	udelay(20);
 
-	
+	/* program configuration 0 */
 	acb->config = HCC_AUTOTERM | HCC_PARITY;
 	if (DC395x_read8(acb, TRM_S1040_GEN_STATUS) & WIDESCSI)
 		acb->config |= HCC_WIDE_CARD;
@@ -3847,19 +4480,32 @@ static void __devinit adapter_init_chip(struct AdapterCtlBlk *acb)
 		dprintkl(KERN_INFO, "Performing initial SCSI bus reset\n");
 		DC395x_write8(acb, TRM_S1040_SCSI_CONTROL, DO_RSTSCSI);
 
-		
-		
+		/*while (!( DC395x_read8(acb, TRM_S1040_SCSI_INTSTATUS) & INT_SCSIRESET )); */
+		/*spin_unlock_irq (&io_request_lock); */
 		udelay(500);
 
 		acb->scsi_host->last_reset =
 		    jiffies + HZ / 2 +
 		    HZ * acb->eeprom.delay_time;
 
-		
+		/*spin_lock_irq (&io_request_lock); */
 	}
 }
 
 
+/**
+ * init_adapter - Grab the resource for the card, setup the adapter
+ * information, set the card into a known state, create the various
+ * tables etc etc. This basically gets all adapter information all up
+ * to date, initialised and gets the chip in sync with it.
+ *
+ * @host:	This hosts adapter structure
+ * @io_port:	The base I/O port
+ * @irq:	IRQ
+ *
+ * Returns 0 if the initialization succeeds, any other value on
+ * failure.
+ **/
 static int __devinit adapter_init(struct AdapterCtlBlk *acb,
 	unsigned long io_port, u32 io_port_len, unsigned int irq)
 {
@@ -3867,26 +4513,26 @@ static int __devinit adapter_init(struct AdapterCtlBlk *acb,
 		dprintkl(KERN_ERR, "Failed to reserve IO region 0x%lx\n", io_port);
 		goto failed;
 	}
-	
+	/* store port base to indicate we have registered it */
 	acb->io_port_base = io_port;
 	acb->io_port_len = io_port_len;
 	
 	if (request_irq(irq, dc395x_interrupt, IRQF_SHARED, DC395X_NAME, acb)) {
-	    	
+	    	/* release the region we just claimed */
 		dprintkl(KERN_INFO, "Failed to register IRQ\n");
 		goto failed;
 	}
-	
+	/* store irq to indicate we have registered it */
 	acb->irq_level = irq;
 
-	
+	/* get eeprom configuration information and command line settings etc */
 	check_eeprom(&acb->eeprom, io_port);
  	print_eeprom_settings(&acb->eeprom);
 
-		
+	/* setup adapter control block */	
 	adapter_init_params(acb);
 	
-	
+	/* display card connectors/termination settings */
  	adapter_print_config(acb);
 
 	if (adapter_sg_tables_alloc(acb)) {
@@ -3915,28 +4561,42 @@ failed:
 }
 
 
+/**
+ * adapter_uninit_chip - cleanly shut down the scsi controller chip,
+ * stopping all operations and disabling interrupt generation on the
+ * card.
+ *
+ * @acb: The adapter which we are to shutdown.
+ **/
 static void adapter_uninit_chip(struct AdapterCtlBlk *acb)
 {
-	
+	/* disable interrupts */
 	DC395x_write8(acb, TRM_S1040_DMA_INTEN, 0);
 	DC395x_write8(acb, TRM_S1040_SCSI_INTEN, 0);
 
-	
+	/* reset the scsi bus */
 	if (acb->config & HCC_SCSI_RESET)
 		reset_scsi_bus(acb);
 
-	
+	/* clear any pending interrupt state */
 	DC395x_read8(acb, TRM_S1040_SCSI_INTSTATUS);
 }
 
 
 
+/**
+ * adapter_uninit - Shut down the chip and release any resources that
+ * we had allocated. Once this returns the adapter should not be used
+ * anymore.
+ *
+ * @acb: The adapter which we are to un-initialize.
+ **/
 static void adapter_uninit(struct AdapterCtlBlk *acb)
 {
 	unsigned long flags;
 	DC395x_LOCK_IO(acb->scsi_host, flags);
 
-	
+	/* remove timers */
 	if (timer_pending(&acb->waiting_timer))
 		del_timer(&acb->waiting_timer);
 	if (timer_pending(&acb->selto_timer))
@@ -3992,11 +4652,11 @@ static int dc395x_proc_info(struct Scsi_Host *host, char *buffer,
 	SPRINTF("AdapterID %i\n", host->this_id);
 
 	SPRINTF("tag_max_num %i", acb->tag_max_num);
-	
+	/*SPRINTF(", DMA_Status %i\n", DC395x_read8(acb, TRM_S1040_DMA_STATUS)); */
 	SPRINTF(", FilterCfg 0x%02x",
 		DC395x_read8(acb, TRM_S1040_SCSI_CONFIG1));
 	SPRINTF(", DelayReset %is\n", acb->eeprom.delay_time);
-	
+	/*SPRINTF("\n"); */
 
 	SPRINTF("Nr of DCBs: %i\n", list_size(&acb->dcb_list));
 	SPRINTF
@@ -4039,7 +4699,7 @@ static int dc395x_proc_info(struct Scsi_Host *host, char *buffer,
 		} else
 			SPRINTF("                 ");
 
-		
+		/* Add more info ... */
 		SPRINTF("     %02i\n", dcb->max_command);
 		dev++;
 	}
@@ -4106,6 +4766,10 @@ static struct scsi_host_template dc395x_driver_template = {
 };
 
 
+/**
+ * banner_display - Display banner on first instance of driver
+ * initialized.
+ **/
 static void banner_display(void)
 {
 	static int banner_done = 0;
@@ -4117,6 +4781,19 @@ static void banner_display(void)
 }
 
 
+/**
+ * dc395x_init_one - Initialise a single instance of the adapter.
+ *
+ * The PCI layer will call this once for each instance of the adapter
+ * that it finds in the system. The pci_dev strcuture indicates which
+ * instance we are being called from.
+ * 
+ * @dev: The PCI device to initialize.
+ * @id: Looks like a pointer to the entry in our pci device table
+ * that was actually matched by the PCI subsystem.
+ *
+ * Returns 0 on success, or an error code (-ve) on failure.
+ **/
 static int __devinit dc395x_init_one(struct pci_dev *dev,
 		const struct pci_device_id *id)
 {
@@ -4139,7 +4816,7 @@ static int __devinit dc395x_init_one(struct pci_dev *dev,
 	irq = dev->irq;
 	dprintkdbg(DBG_0, "IO_PORT=0x%04lx, IRQ=0x%x\n", io_port_base, dev->irq);
 
-	
+	/* allocate scsi host information (includes out adapter) */
 	scsi_host = scsi_host_alloc(&dc395x_driver_template,
 				    sizeof(struct AdapterCtlBlk));
 	if (!scsi_host) {
@@ -4150,7 +4827,7 @@ static int __devinit dc395x_init_one(struct pci_dev *dev,
  	acb->scsi_host = scsi_host;
  	acb->dev = dev;
 
-	
+	/* initialise the adapter and everything we need */
  	if (adapter_init(acb, io_port_base, io_port_len, irq)) {
 		dprintkl(KERN_INFO, "adapter init failed\n");
 		goto fail;
@@ -4158,7 +4835,7 @@ static int __devinit dc395x_init_one(struct pci_dev *dev,
 
 	pci_set_master(dev);
 
-	
+	/* get the scsi mid level to scan for new devices on the bus */
 	if (scsi_add_host(scsi_host, &dev->dev)) {
 		dprintkl(KERN_ERR, "scsi_add_host failed\n");
 		goto fail;
@@ -4178,6 +4855,12 @@ fail:
 }
 
 
+/**
+ * dc395x_remove_one - Called to remove a single instance of the
+ * adapter.
+ *
+ * @dev: The PCI device to initialize.
+ **/
 static void __devexit dc395x_remove_one(struct pci_dev *dev)
 {
 	struct Scsi_Host *scsi_host = pci_get_drvdata(dev);
@@ -4200,7 +4883,7 @@ static struct pci_device_id dc395x_pci_table[] = {
 		.subvendor	= PCI_ANY_ID,
 		.subdevice	= PCI_ANY_ID,
 	 },
-	{}			
+	{}			/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(pci, dc395x_pci_table);
 
@@ -4213,12 +4896,20 @@ static struct pci_driver dc395x_driver = {
 };
 
 
+/**
+ * dc395x_module_init - Module initialization function
+ *
+ * Used by both module and built-in driver to initialise this driver.
+ **/
 static int __init dc395x_module_init(void)
 {
 	return pci_register_driver(&dc395x_driver);
 }
 
 
+/**
+ * dc395x_module_exit - Module cleanup function.
+ **/
 static void __exit dc395x_module_exit(void)
 {
 	pci_unregister_driver(&dc395x_driver);

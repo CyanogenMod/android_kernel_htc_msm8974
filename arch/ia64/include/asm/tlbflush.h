@@ -13,8 +13,16 @@
 #include <asm/mmu_context.h>
 #include <asm/page.h>
 
+/*
+ * Now for some TLB flushing routines.  This is the kind of stuff that
+ * can be very expensive, so try to avoid them whenever possible.
+ */
 extern void setup_ptcg_sem(int max_purges, int from_palo);
 
+/*
+ * Flush everything (kernel mapping may also have changed due to
+ * vmalloc/vfree).
+ */
 extern void local_flush_tlb_all (void);
 
 #ifdef CONFIG_SMP
@@ -34,6 +42,11 @@ local_finish_flush_tlb_mm (struct mm_struct *mm)
 		activate_context(mm);
 }
 
+/*
+ * Flush a specified user mapping.  This is called, e.g., as a result of fork() and
+ * exit().  fork() ends up here because the copy-on-write mechanism needs to write-protect
+ * the PTEs of the parent task.
+ */
 static inline void
 flush_tlb_mm (struct mm_struct *mm)
 {
@@ -44,7 +57,7 @@ flush_tlb_mm (struct mm_struct *mm)
 	mm->context = 0;
 
 	if (atomic_read(&mm->mm_users) == 0)
-		return;		
+		return;		/* happens as a result of exit_mmap() */
 
 #ifdef CONFIG_SMP
 	smp_flush_tlb_mm(mm);
@@ -55,6 +68,9 @@ flush_tlb_mm (struct mm_struct *mm)
 
 extern void flush_tlb_range (struct vm_area_struct *vma, unsigned long start, unsigned long end);
 
+/*
+ * Page-granular tlb flush.
+ */
 static inline void
 flush_tlb_page (struct vm_area_struct *vma, unsigned long addr)
 {
@@ -68,6 +84,9 @@ flush_tlb_page (struct vm_area_struct *vma, unsigned long addr)
 #endif
 }
 
+/*
+ * Flush the local TLB. Invoked from another cpu using an IPI.
+ */
 #ifdef CONFIG_SMP
 void smp_local_flush_tlb(void);
 #else
@@ -77,7 +96,7 @@ void smp_local_flush_tlb(void);
 static inline void flush_tlb_kernel_range(unsigned long start,
 					  unsigned long end)
 {
-	flush_tlb_all();	
+	flush_tlb_all();	/* XXX fix me */
 }
 
-#endif 
+#endif /* _ASM_IA64_TLBFLUSH_H */

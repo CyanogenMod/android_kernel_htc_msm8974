@@ -14,6 +14,18 @@
 #include <linux/device.h>
 
 
+    /*
+     *  Each Zorro board has a 32-bit ID of the form
+     *
+     *      mmmmmmmmmmmmmmmmppppppppeeeeeeee
+     *
+     *  with
+     *
+     *      mmmmmmmmmmmmmmmm	16-bit Manufacturer ID (assigned by CBM (sigh))
+     *      pppppppp		8-bit Product ID (assigned by manufacturer)
+     *      eeeeeeee		8-bit Extended Product ID (currently only used
+     *				for some GVP boards)
+     */
 
 
 #define ZORRO_MANUF(id)		((id) >> 16)
@@ -26,9 +38,15 @@
 typedef __u32 zorro_id;
 
 
+/* Include the ID list */
 #include <linux/zorro_ids.h>
 
 
+    /*
+     *  GVP identifies most of its products through the 'extended product code'
+     *  (epc). The epc has to be ANDed with the GVP_PRODMASK before the
+     *  identification.
+     */
 
 #define GVP_PRODMASK			(0xf8)
 #define GVP_SCSICLKMASK			(0x01)
@@ -45,47 +63,49 @@ enum GVP_flags {
 
 
 struct Node {
-    struct  Node *ln_Succ;	
-    struct  Node *ln_Pred;	
+    struct  Node *ln_Succ;	/* Pointer to next (successor) */
+    struct  Node *ln_Pred;	/* Pointer to previous (predecessor) */
     __u8    ln_Type;
-    __s8    ln_Pri;		
-    __s8    *ln_Name;		
+    __s8    ln_Pri;		/* Priority, for sorting */
+    __s8    *ln_Name;		/* ID string, null terminated */
 } __attribute__ ((packed));
 
 struct ExpansionRom {
-    
-    __u8  er_Type;		
-    __u8  er_Product;		
-    __u8  er_Flags;		
-    __u8  er_Reserved03;	
-    __u16 er_Manufacturer;	
-    __u32 er_SerialNumber;	
-    __u16 er_InitDiagVec;	
+    /* -First 16 bytes of the expansion ROM */
+    __u8  er_Type;		/* Board type, size and flags */
+    __u8  er_Product;		/* Product number, assigned by manufacturer */
+    __u8  er_Flags;		/* Flags */
+    __u8  er_Reserved03;	/* Must be zero ($ff inverted) */
+    __u16 er_Manufacturer;	/* Unique ID, ASSIGNED BY COMMODORE-AMIGA! */
+    __u32 er_SerialNumber;	/* Available for use by manufacturer */
+    __u16 er_InitDiagVec;	/* Offset to optional "DiagArea" structure */
     __u8  er_Reserved0c;
     __u8  er_Reserved0d;
     __u8  er_Reserved0e;
     __u8  er_Reserved0f;
 } __attribute__ ((packed));
 
+/* er_Type board type bits */
 #define ERT_TYPEMASK	0xc0
 #define ERT_ZORROII	0xc0
 #define ERT_ZORROIII	0x80
 
-#define ERTB_MEMLIST	5		
+/* other bits defined in er_Type */
+#define ERTB_MEMLIST	5		/* Link RAM into free memory list */
 #define ERTF_MEMLIST	(1<<5)
 
 struct ConfigDev {
     struct Node		cd_Node;
-    __u8		cd_Flags;	
-    __u8		cd_Pad;		
-    struct ExpansionRom cd_Rom;		
-    void		*cd_BoardAddr;	
-    __u32		cd_BoardSize;	
-    __u16		cd_SlotAddr;	
-    __u16		cd_SlotSize;	
-    void		*cd_Driver;	
-    struct ConfigDev	*cd_NextCD;	
-    __u32		cd_Unused[4];	
+    __u8		cd_Flags;	/* (read/write) */
+    __u8		cd_Pad;		/* reserved */
+    struct ExpansionRom cd_Rom;		/* copy of board's expansion ROM */
+    void		*cd_BoardAddr;	/* where in memory the board was placed */
+    __u32		cd_BoardSize;	/* size of board in bytes */
+    __u16		cd_SlotAddr;	/* which slot number (PRIVATE) */
+    __u16		cd_SlotSize;	/* number of slots (PRIVATE) */
+    void		*cd_Driver;	/* pointer to node of driver */
+    struct ConfigDev	*cd_NextCD;	/* linked list of drivers to config */
+    __u32		cd_Unused[4];	/* for whatever the driver wants */
 } __attribute__ ((packed));
 
 #define ZORRO_NUM_AUTO		16
@@ -99,12 +119,15 @@ struct ConfigDev {
 #include <asm/zorro.h>
 
 
+    /*
+     *  Zorro devices
+     */
 
 struct zorro_dev {
     struct ExpansionRom rom;
     zorro_id id;
-    struct zorro_driver *driver;	
-    struct device dev;			
+    struct zorro_driver *driver;	/* which driver has allocated this device */
+    struct device dev;			/* Generic device interface */
     u16 slotaddr;
     u16 slotsize;
     char name[64];
@@ -114,17 +137,23 @@ struct zorro_dev {
 #define	to_zorro_dev(n)	container_of(n, struct zorro_dev, dev)
 
 
+    /*
+     *  Zorro bus
+     */
 
 extern struct bus_type zorro_bus_type;
 
 
+    /*
+     *  Zorro device drivers
+     */
 
 struct zorro_driver {
     struct list_head node;
     char *name;
-    const struct zorro_device_id *id_table;	
-    int (*probe)(struct zorro_dev *z, const struct zorro_device_id *id);	
-    void (*remove)(struct zorro_dev *z);	
+    const struct zorro_device_id *id_table;	/* NULL if wants all devices */
+    int (*probe)(struct zorro_dev *z, const struct zorro_device_id *id);	/* New device inserted */
+    void (*remove)(struct zorro_dev *z);	/* Device removed (NULL if not a hot-plug capable driver) */
     struct device_driver driver;
 };
 
@@ -135,6 +164,7 @@ struct zorro_driver {
 	for (dev = &zorro_autocon[0]; dev < zorro_autocon+zorro_num_autocon; dev++)
 
 
+/* New-style probing */
 extern int zorro_register_driver(struct zorro_driver *);
 extern void zorro_unregister_driver(struct zorro_driver *);
 extern const struct zorro_device_id *zorro_match_device(const struct zorro_device_id *ids, const struct zorro_dev *z);
@@ -144,10 +174,13 @@ static inline struct zorro_driver *zorro_dev_driver(const struct zorro_dev *z)
 }
 
 
-extern unsigned int zorro_num_autocon;	
+extern unsigned int zorro_num_autocon;	/* # of autoconfig devices found */
 extern struct zorro_dev zorro_autocon[ZORRO_NUM_AUTO];
 
 
+    /*
+     *  Zorro Functions
+     */
 
 extern struct zorro_dev *zorro_find_device(zorro_id id,
 					   struct zorro_dev *from);
@@ -162,6 +195,10 @@ extern struct zorro_dev *zorro_find_device(zorro_id id,
 #define zorro_release_device(z) \
     release_mem_region(zorro_resource_start(z), zorro_resource_len(z))
 
+/* Similar to the helpers above, these manipulate per-zorro_dev
+ * driver-specific data.  They are really just a wrapper around
+ * the generic device structure functions of these calls.
+ */
 static inline void *zorro_get_drvdata (struct zorro_dev *z)
 {
 	return dev_get_drvdata(&z->dev);
@@ -173,6 +210,14 @@ static inline void zorro_set_drvdata (struct zorro_dev *z, void *data)
 }
 
 
+    /*
+     *  Bitmask indicating portions of available Zorro II RAM that are unused
+     *  by the system. Every bit represents a 64K chunk, for a maximum of 8MB
+     *  (128 chunks, physical 0x00200000-0x009fffff).
+     *
+     *  If you want to use (= allocate) portions of this RAM, you should clear
+     *  the corresponding bits.
+     */
 
 extern DECLARE_BITMAP(zorro_unused_z2ram, 128);
 
@@ -184,6 +229,6 @@ extern DECLARE_BITMAP(zorro_unused_z2ram, 128);
 #define Z2RAM_CHUNKSHIFT	(16)
 
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _LINUX_ZORRO_H */

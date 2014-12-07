@@ -82,6 +82,10 @@ int update_persistent_clock(struct timespec now)
 	return set_rtc_mmss(now.tv_sec);
 }
 
+/*
+ * timer_interrupt() needs to keep up the real-time clock,
+ * as well as call the "xtime_update()" routine every clocktick
+ */
 
 #define TICK_SIZE (tick_nsec / 1000)
 
@@ -122,6 +126,7 @@ static struct m48t59_plat_data m48t59_data = {
 	.write_byte = mostek_write_byte,
 };
 
+/* resource is set at runtime */
 static struct platform_device m48t59_rtc = {
 	.name		= "rtc-m48t59",
 	.id		= 0,
@@ -139,13 +144,13 @@ static int __devinit clock_probe(struct platform_device *op)
 	if (!model)
 		return -ENODEV;
 
-	
+	/* Only the primary RTC has an address property */
 	if (!of_find_property(dp, "address", NULL))
 		return -ENODEV;
 
 	m48t59_rtc.resource = &op->resource[0];
 	if (!strcmp(model, "mk48t02")) {
-		
+		/* Map the clock register io area read-only */
 		m48t59_data.ioaddr = of_ioremap(&op->resource[0], 0,
 						2048, "rtc-m48t59");
 		m48t59_data.type = M48T59RTC_TYPE_M48T02;
@@ -179,10 +184,15 @@ static struct platform_driver clock_driver = {
 };
 
 
+/* Probe for the mostek real time clock chip. */
 static int __init clock_init(void)
 {
 	return platform_driver_register(&clock_driver);
 }
+/* Must be after subsys_initcall() so that busses are probed.  Must
+ * be before device_initcall() because things like the RTC driver
+ * need to see the clock registers.
+ */
 fs_initcall(clock_init);
 
 
@@ -191,7 +201,7 @@ u32 sbus_do_gettimeoffset(void)
 	unsigned long val = *master_l10_counter;
 	unsigned long usec = (val >> 10) & 0x1fffff;
 
-	
+	/* Limit hit?  */
 	if (val & 0x80000000)
 		usec += 1000000 / HZ;
 

@@ -35,6 +35,28 @@
 #ifndef _OMAP_RPMSG_H
 #define _OMAP_RPMSG_H
 
+/*
+ * enum - Predefined Mailbox Messages
+ *
+ * @RP_MBOX_READY: informs the M3's that we're up and running. this is
+ * part of the init sequence sent that the M3 expects to see immediately
+ * after it is booted.
+ *
+ * @RP_MBOX_PENDING_MSG: informs the receiver that there is an inbound
+ * message waiting in its own receive-side vring. please note that currently
+ * this message is optional: alternatively, one can explicitly send the index
+ * of the triggered virtqueue itself. the preferred approach will be decided
+ * as we progress and experiment with those two different approaches.
+ *
+ * @RP_MBOX_CRASH: this message is sent if BIOS crashes
+ *
+ * @RP_MBOX_ECHO_REQUEST: a mailbox-level "ping" message.
+ *
+ * @RP_MBOX_ECHO_REPLY: a mailbox-level reply to a "ping"
+ *
+ * @RP_MBOX_ABORT_REQUEST: a "please crash" request, used for testing the
+ * recovery mechanism (to some extent).
+ */
 enum omap_rp_mbox_messages {
 	RP_MBOX_READY		= 0xFFFFFF00,
 	RP_MBOX_PENDING_MSG	= 0xFFFFFF01,
@@ -44,4 +66,4 @@ enum omap_rp_mbox_messages {
 	RP_MBOX_ABORT_REQUEST	= 0xFFFFFF05,
 };
 
-#endif 
+#endif /* _OMAP_RPMSG_H */

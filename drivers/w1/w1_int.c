@@ -32,7 +32,7 @@
 #include "w1_netlink.h"
 #include "w1_int.h"
 
-static int w1_search_count = -1; 
+static int w1_search_count = -1; /* Default is continual scan */
 module_param_named(search_count, w1_search_count, int, 0);
 
 static int w1_enable_pullup = 1;
@@ -45,6 +45,9 @@ static struct w1_master * w1_alloc_dev(u32 id, int slave_count, int slave_ttl,
 	struct w1_master *dev;
 	int err;
 
+	/*
+	 * We are in process context(kernel thread), so can sleep.
+	 */
 	dev = kzalloc(sizeof(struct w1_master) + sizeof(struct w1_bus_master), GFP_KERNEL);
 	if (!dev) {
 		printk(KERN_ERR
@@ -66,6 +69,9 @@ static struct w1_master * w1_alloc_dev(u32 id, int slave_count, int slave_ttl,
 	dev->search_count	= w1_search_count;
 	dev->enable_pullup	= w1_enable_pullup;
 
+	/* 1 for w1_process to decrement
+	 * 1 for __w1_remove_master_device to decrement
+	 */
 	atomic_set(&dev->refcnt, 2);
 
 	INIT_LIST_HEAD(&dev->slist);
@@ -103,22 +109,29 @@ int w1_add_master_device(struct w1_bus_master *master)
 	struct w1_netlink_msg msg;
 	int id, found;
 
-        
+        /* validate minimum functionality */
         if (!(master->touch_bit && master->reset_bus) &&
             !(master->write_bit && master->read_bit) &&
 	    !(master->write_byte && master->read_byte && master->reset_bus)) {
 		printk(KERN_ERR "w1_add_master_device: invalid function set\n");
 		return(-EINVAL);
         }
+	/* While it would be electrically possible to make a device that
+	 * generated a strong pullup in bit bang mode, only hardare that
+	 * controls 1-wire time frames are even expected to support a strong
+	 * pullup.  w1_io.c would need to support calling set_pullup before
+	 * the last write_bit operation of a w1_write_8 which it currently
+	 * doesn't.
+	 */
 	if (!master->write_byte && !master->touch_bit && master->set_pullup) {
 		printk(KERN_ERR "w1_add_master_device: set_pullup requires "
 			"write_byte or touch_bit, disabling\n");
 		master->set_pullup = NULL;
 	}
 
-	
+	/* Lock until the device is added (or not) to w1_masters. */
 	mutex_lock(&w1_mlock);
-	
+	/* Search for the first available id (starting at 1). */
 	id = 0;
 	do {
 		++id;
@@ -168,7 +181,7 @@ int w1_add_master_device(struct w1_bus_master *master)
 
 	return 0;
 
-#if 0 
+#if 0 /* Thread cleanup code, not required currently. */
 err_out_kill_thread:
 	kthread_stop(dev->thread);
 #endif

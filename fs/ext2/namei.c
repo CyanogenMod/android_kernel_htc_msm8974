@@ -51,6 +51,9 @@ static inline int ext2_add_nondir(struct dentry *dentry, struct inode *inode)
 	return err;
 }
 
+/*
+ * Methods themselves.
+ */
 
 static struct dentry *ext2_lookup(struct inode * dir, struct dentry *dentry, struct nameidata *nd)
 {
@@ -83,6 +86,14 @@ struct dentry *ext2_get_parent(struct dentry *child)
 	return d_obtain_alias(ext2_iget(child->d_inode->i_sb, ino));
 } 
 
+/*
+ * By the time this is called, we already have created
+ * the directory cache entry for the new file, but it
+ * is so far negative - it has no inode.
+ *
+ * If the create succeeds, we fill in the inode information
+ * with d_instantiate(). 
+ */
 static int ext2_create (struct inode * dir, struct dentry * dentry, umode_t mode, struct nameidata *nd)
 {
 	struct inode *inode;
@@ -150,7 +161,7 @@ static int ext2_symlink (struct inode * dir, struct dentry * dentry,
 		goto out;
 
 	if (l > sizeof (EXT2_I(inode)->i_data)) {
-		
+		/* slow symlink */
 		inode->i_op = &ext2_symlink_inode_operations;
 		if (test_opt(inode->i_sb, NOBH))
 			inode->i_mapping->a_ops = &ext2_nobh_aops;
@@ -160,7 +171,7 @@ static int ext2_symlink (struct inode * dir, struct dentry * dentry,
 		if (err)
 			goto out_fail;
 	} else {
-		
+		/* fast symlink */
 		inode->i_op = &ext2_fast_symlink_inode_operations;
 		memcpy((char*)(EXT2_I(inode)->i_data),symname,l);
 		inode->i_size = l-1;
@@ -336,6 +347,10 @@ static int ext2_rename (struct inode * old_dir, struct dentry * old_dentry,
 			inode_inc_link_count(new_dir);
 	}
 
+	/*
+	 * Like most other Unix systems, set the ctime for inodes on a
+ 	 * rename.
+	 */
 	old_inode->i_ctime = CURRENT_TIME_SEC;
 	mark_inode_dirty(old_inode);
 

@@ -15,6 +15,7 @@
 #ifndef CFG_GLOBAL_DEFINES_H
 #define CFG_GLOBAL_DEFINES_H
 
+/* CHIP */
 #define BCM1103 1
 
 #define BCM1191 4
@@ -29,6 +30,7 @@
 #define BCM11110   13
 #define BCM11211   14
 
+/* CFG_GLOBAL_CHIP_FAMILY types */
 #define CFG_GLOBAL_CHIP_FAMILY_NONE        0
 #define CFG_GLOBAL_CHIP_FAMILY_BCM116X     2
 #define CFG_GLOBAL_CHIP_FAMILY_BCMRING     4

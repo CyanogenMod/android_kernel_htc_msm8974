@@ -13,12 +13,12 @@ struct unix_diag_req {
 	__u32	udiag_cookie[2];
 };
 
-#define UDIAG_SHOW_NAME		0x00000001	
-#define UDIAG_SHOW_VFS		0x00000002	
-#define UDIAG_SHOW_PEER		0x00000004	
-#define UDIAG_SHOW_ICONS	0x00000008	
-#define UDIAG_SHOW_RQLEN	0x00000010	
-#define UDIAG_SHOW_MEMINFO	0x00000020	
+#define UDIAG_SHOW_NAME		0x00000001	/* show name (not path) */
+#define UDIAG_SHOW_VFS		0x00000002	/* show VFS inode info */
+#define UDIAG_SHOW_PEER		0x00000004	/* show peer socket info */
+#define UDIAG_SHOW_ICONS	0x00000008	/* show pending connections */
+#define UDIAG_SHOW_RQLEN	0x00000010	/* show skb receive queue len */
+#define UDIAG_SHOW_MEMINFO	0x00000020	/* show memory info of a socket */
 
 struct unix_diag_msg {
 	__u8	udiag_family;

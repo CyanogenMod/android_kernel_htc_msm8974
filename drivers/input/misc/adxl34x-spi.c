@@ -7,7 +7,7 @@
  * Licensed under the GPL-2 or later.
  */
 
-#include <linux/input.h>	
+#include <linux/input.h>	/* BUS_SPI */
 #include <linux/module.h>
 #include <linux/spi/spi.h>
 #include <linux/pm.h>
@@ -69,7 +69,7 @@ static int __devinit adxl34x_spi_probe(struct spi_device *spi)
 {
 	struct adxl34x *ac;
 
-	
+	/* don't exceed max specified SPI CLK frequency */
 	if (spi->max_speed_hz > MAX_SPI_FREQ_HZ) {
 		dev_err(&spi->dev, "SPI CLK %d Hz too fast\n", spi->max_speed_hz);
 		return -EINVAL;

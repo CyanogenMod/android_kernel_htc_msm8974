@@ -43,7 +43,13 @@
 #define HOST_FS 25
 #define HOST_GS 26
 
+/* Also defined in asm/ptrace-x86_64.h, but not in libc headers.  So, these
+ * are already defined for kernel code, but not for userspace code.
+ */
 #ifndef FS_BASE
+/* These aren't defined in ptrace.h, but exist in struct user_regs_struct,
+ * which is what x86_64 ptrace actually uses.
+ */
 #define FS_BASE (HOST_FS_BASE * sizeof(long))
 #define GS_BASE (HOST_GS_BASE * sizeof(long))
 #define DS (HOST_DS * sizeof(long))

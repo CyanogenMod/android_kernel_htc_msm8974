@@ -15,7 +15,11 @@
 #ifndef __ASM_ARCH_ONENAND_CORE_H
 #define __ASM_ARCH_ONENAND_CORE_H __FILE__
 
+/* These functions are only for use with the core support code, such as
+ * the cpu specific initialisation code
+ */
 
+/* re-define device name depending on support. */
 static inline void s3c_onenand_setname(char *name)
 {
 #ifdef CONFIG_S3C_DEV_ONENAND
@@ -30,4 +34,4 @@ static inline void s3c64xx_onenand1_setname(char *name)
 #endif
 }
 
-#endif 
+#endif /* __ASM_ARCH_ONENAND_CORE_H */

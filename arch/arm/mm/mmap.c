@@ -1,3 +1,6 @@
+/*
+ *  linux/arch/arm/mm/mmap.c
+ */
 #include <linux/fs.h>
 #include <linux/mm.h>
 #include <linux/mman.h>
@@ -24,6 +27,7 @@ static inline unsigned long COLOUR_ALIGN_DOWN(unsigned long addr,
 	((((addr)+SHMLBA-1)&~(SHMLBA-1)) +	\
 	 (((pgoff)<<PAGE_SHIFT) & (SHMLBA-1)))
 
+/* gap between mmap and stack */
 #define MIN_GAP (128*1024*1024UL)
 #define MAX_GAP ((TASK_SIZE)/6*5)
 
@@ -50,6 +54,15 @@ static unsigned long mmap_base(unsigned long rnd)
 	return PAGE_ALIGN(TASK_SIZE - gap - rnd);
 }
 
+/*
+ * We need to ensure that shared mappings are correctly aligned to
+ * avoid aliasing issues with VIPT caches.  We need to ensure that
+ * a specific page of an object is always mapped at a multiple of
+ * SHMLBA bytes.
+ *
+ * We unconditionally provide this function for all cases, however
+ * in the VIVT case, we optimise out the alignment rules.
+ */
 unsigned long
 arch_get_unmapped_area(struct file *filp, unsigned long addr,
 		unsigned long len, unsigned long pgoff, unsigned long flags)
@@ -60,9 +73,16 @@ arch_get_unmapped_area(struct file *filp, unsigned long addr,
 	int do_align = 0;
 	int aliasing = cache_is_vipt_aliasing();
 
+	/*
+	 * We only need to do colour alignment if either the I or D
+	 * caches alias.
+	 */
 	if (aliasing)
 		do_align = filp || (flags & MAP_SHARED);
 
+	/*
+	 * We enforce the MAP_FIXED case.
+	 */
 	if (flags & MAP_FIXED) {
 		if (aliasing && flags & MAP_SHARED &&
 		    (addr - (pgoff << PAGE_SHIFT)) & (SHMLBA - 1))
@@ -98,8 +118,12 @@ full_search:
 		addr = PAGE_ALIGN(addr);
 
 	for (vma = find_vma(mm, addr); ; vma = vma->vm_next) {
-		
+		/* At this point:  (!vma || addr < vma->vm_end). */
 		if (TASK_SIZE - len < addr) {
+			/*
+			 * Start a new search - just in case we missed
+			 * some holes.
+			 */
 			if (start_addr != TASK_UNMAPPED_BASE) {
 				start_addr = addr = TASK_UNMAPPED_BASE;
 				mm->cached_hole_size = 0;
@@ -108,6 +132,9 @@ full_search:
 			return -ENOMEM;
 		}
 		if (!vma || addr + len <= vma->vm_start) {
+			/*
+			 * Remember the place where we stopped the search:
+			 */
 			mm->free_area_cache = addr + len;
 			return addr;
 		}
@@ -130,10 +157,14 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 	int do_align = 0;
 	int aliasing = cache_is_vipt_aliasing();
 
+	/*
+	 * We only need to do colour alignment if either the I or D
+	 * caches alias.
+	 */
 	if (aliasing)
 		do_align = filp || (flags & MAP_SHARED);
 
-	
+	/* requested length too big for entire address space */
 	if (len > TASK_SIZE)
 		return -ENOMEM;
 
@@ -144,7 +175,7 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 		return addr;
 	}
 
-	
+	/* requesting a specific address */
 	if (addr) {
 		if (do_align)
 			addr = COLOUR_ALIGN(addr, pgoff);
@@ -156,24 +187,24 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 			return addr;
 	}
 
-	
+	/* check if free_area_cache is useful for us */
 	if (len <= mm->cached_hole_size) {
 		mm->cached_hole_size = 0;
 		mm->free_area_cache = mm->mmap_base;
 	}
 
-	
+	/* either no address requested or can't fit in requested address hole */
 	addr = mm->free_area_cache;
 	if (do_align) {
 		unsigned long base = COLOUR_ALIGN_DOWN(addr - len, pgoff);
 		addr = base + len;
 	}
 
-	
+	/* make sure it can fit in the remaining address space */
 	if (addr > len) {
 		vma = find_vma(mm, addr-len);
 		if (!vma || addr <= vma->vm_start)
-			
+			/* remember the address as a hint for next time */
 			return (mm->free_area_cache = addr-len);
 	}
 
@@ -185,25 +216,39 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 		addr = COLOUR_ALIGN_DOWN(addr, pgoff);
 
 	do {
+		/*
+		 * Lookup failure means no vma is above this address,
+		 * else if new region fits below vma->vm_start,
+		 * return with success:
+		 */
 		vma = find_vma(mm, addr);
 		if (!vma || addr+len <= vma->vm_start)
-			
+			/* remember the address as a hint for next time */
 			return (mm->free_area_cache = addr);
 
-		
+		/* remember the largest hole we saw so far */
 		if (addr + mm->cached_hole_size < vma->vm_start)
 			mm->cached_hole_size = vma->vm_start - addr;
 
-		
+		/* try just below the current vma->vm_start */
 		addr = vma->vm_start - len;
 		if (do_align)
 			addr = COLOUR_ALIGN_DOWN(addr, pgoff);
 	} while (len < vma->vm_start);
 
 bottomup:
+	/*
+	 * A failed mmap() very likely causes application failure,
+	 * so fall back to the bottom-up function here. This scenario
+	 * can happen with large stack limits and large mmap()
+	 * allocations.
+	 */
 	mm->cached_hole_size = ~0UL;
 	mm->free_area_cache = TASK_UNMAPPED_BASE;
 	addr = arch_get_unmapped_area(filp, addr0, len, pgoff, flags);
+	/*
+	 * Restore the topdown base:
+	 */
 	mm->free_area_cache = mm->mmap_base;
 	mm->cached_hole_size = ~0UL;
 
@@ -214,7 +259,7 @@ void arch_pick_mmap_layout(struct mm_struct *mm)
 {
 	unsigned long random_factor = 0UL;
 
-	
+	/* 8 bits of randomness in 20 address space bits */
 	if ((current->flags & PF_RANDOMIZE) &&
 	    !(current->personality & ADDR_NO_RANDOMIZE))
 		random_factor = (get_random_int() % (1 << 8)) << PAGE_SHIFT;
@@ -230,6 +275,10 @@ void arch_pick_mmap_layout(struct mm_struct *mm)
 	}
 }
 
+/*
+ * You really shouldn't be using read() or write() on /dev/mem.  This
+ * might go away in the future.
+ */
 int valid_phys_addr_range(unsigned long addr, size_t size)
 {
 	if (addr < PHYS_OFFSET)
@@ -240,6 +289,11 @@ int valid_phys_addr_range(unsigned long addr, size_t size)
 	return 1;
 }
 
+/*
+ * We don't use supersection mappings for mmap() on /dev/mem, which
+ * means that we can't map the memory area above the 4G barrier into
+ * userspace.
+ */
 int valid_mmap_phys_addr_range(unsigned long pfn, size_t size)
 {
 	return !(pfn + (size >> PAGE_SHIFT) > 0x00100000);
@@ -249,6 +303,13 @@ int valid_mmap_phys_addr_range(unsigned long pfn, size_t size)
 
 #include <linux/ioport.h>
 
+/*
+ * devmem_is_allowed() checks to see if /dev/mem access to a certain
+ * address is valid. The argument is a physical page number.
+ * We mimic x86 here by disallowing access to system RAM as well as
+ * device-exclusive MMIO regions. This effectively disable read()/write()
+ * on /dev/mem.
+ */
 int devmem_is_allowed(unsigned long pfn)
 {
 	if (iomem_is_exclusive(pfn << PAGE_SHIFT))

@@ -6,6 +6,30 @@
 #define EBT_AMONG_DST 0x01
 #define EBT_AMONG_SRC 0x02
 
+/* Grzegorz Borowiak <grzes@gnu.univ.gda.pl> 2003
+ * 
+ * Write-once-read-many hash table, used for checking if a given
+ * MAC address belongs to a set or not and possibly for checking
+ * if it is related with a given IPv4 address.
+ *
+ * The hash value of an address is its last byte.
+ * 
+ * In real-world ethernet addresses, values of the last byte are
+ * evenly distributed and there is no need to consider other bytes.
+ * It would only slow the routines down.
+ *
+ * For MAC address comparison speedup reasons, we introduce a trick.
+ * MAC address is mapped onto an array of two 32-bit integers.
+ * This pair of integers is compared with MAC addresses in the
+ * hash table, which are stored also in form of pairs of integers
+ * (in `cmp' array). This is quick as it requires only two elementary
+ * number comparisons in worst case. Further, we take advantage of
+ * fact that entropy of 3 last bytes of address is larger than entropy
+ * of 3 first bytes. So first we compare 4 last bytes of addresses and
+ * if they are the same we compare 2 first.
+ *
+ * Yes, it is a memory overhead, but in 2003 AD, who cares?
+ */
 
 struct ebt_mac_wormhash_tuple {
 	__u32 cmp[2];

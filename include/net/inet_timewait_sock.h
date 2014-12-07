@@ -34,6 +34,10 @@ struct inet_hashinfo;
 #define INET_TWDR_RECYCLE_SLOTS_LOG	5
 #define INET_TWDR_RECYCLE_SLOTS		(1 << INET_TWDR_RECYCLE_SLOTS_LOG)
 
+/*
+ * If time > 4sec, it is "slow" path, no recycling is required,
+ * so that we select tick to get range about 4 seconds.
+ */
 #if HZ <= 16 || HZ > 4096
 # error Unsupported: HZ <= 16 or HZ > 4096
 #elif HZ <= 32
@@ -54,12 +58,13 @@ struct inet_hashinfo;
 # define INET_TWDR_RECYCLE_TICK (12 + 2 - INET_TWDR_RECYCLE_SLOTS_LOG)
 #endif
 
-#define INET_TWDR_TWKILL_SLOTS	8 
+/* TIME_WAIT reaping mechanism. */
+#define INET_TWDR_TWKILL_SLOTS	8 /* Please keep this a power of 2. */
 
 #define INET_TWDR_TWKILL_QUOTA 100
 
 struct inet_timewait_death_row {
-	
+	/* Short-time timewait calendar */
 	int			twcal_hand;
 	unsigned long		twcal_jiffie;
 	struct timer_list	twcal_timer;
@@ -84,7 +89,16 @@ extern void inet_twdr_twcal_tick(unsigned long data);
 
 struct inet_bind_bucket;
 
+/*
+ * This is a TIME_WAIT sock. It works around the memory consumption
+ * problems of sockets in such a state on heavily loaded servers, but
+ * without violating the protocol specification.
+ */
 struct inet_timewait_sock {
+	/*
+	 * Now struct sock also uses sock_common, so please just
+	 * don't add nothing before this first member (__tw_common) --acme
+	 */
 	struct sock_common	__tw_common;
 #define tw_family		__tw_common.skc_family
 #define tw_state		__tw_common.skc_state
@@ -102,16 +116,16 @@ struct inet_timewait_sock {
 	volatile unsigned char	tw_substate;
 	unsigned char		tw_rcv_wscale;
 
-	
-	
+	/* Socket demultiplex comparisons on incoming packets. */
+	/* these three are in inet_sock */
 	__be16			tw_sport;
 	__be16			tw_dport;
 	__u16			tw_num;
 	kmemcheck_bitfield_begin(flags);
-	
+	/* And these are ours. */
 	unsigned int		tw_ipv6only     : 1,
 				tw_transparent  : 1,
-				tw_pad		: 6,	
+				tw_pad		: 6,	/* 6 bits hole */
 				tw_tos		: 8,
 				tw_ipv6_offset  : 16;
 	kmemcheck_bitfield_end(flags);
@@ -174,6 +188,7 @@ static inline struct inet_timewait_sock *inet_twsk(const struct sock *sk)
 
 static inline __be32 sk_rcv_saddr(const struct sock *sk)
 {
+/* both inet_sk() and inet_twsk() store rcv_saddr in skc_rcv_saddr */
 	return sk->__sk_common.skc_rcv_saddr;
 }
 
@@ -211,4 +226,4 @@ void twsk_net_set(struct inet_timewait_sock *twsk, struct net *net)
 {
 	write_pnet(&twsk->tw_net, net);
 }
-#endif	
+#endif	/* _INET_TIMEWAIT_SOCK_ */

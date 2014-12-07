@@ -62,6 +62,7 @@ writefifo(unsigned int ale, unsigned int adr, u_char off, u_char *data, int size
 	outsb(adr, data, size);
 }
 
+/* Interface functions */
 
 static u_char
 ReadISAC(struct IsdnCardState *cs, u_char offset)
@@ -142,7 +143,7 @@ Start_ISAC:
 			debugl1(cs, "ISAC IntStat after IntRoutine");
 		goto Start_ISAC;
 	}
-	
+	/* Watchdog */
 	if (cs->hw.saphir.timer.function)
 		mod_timer(&cs->hw.saphir.timer, jiffies + 1 * HZ);
 	else
@@ -163,7 +164,7 @@ SaphirWatchDog(struct IsdnCardState *cs)
 	u_long flags;
 
 	spin_lock_irqsave(&cs->lock, flags);
-	
+	/* 5 sec WatchDog, so read at least every 4 sec */
 	cs->readisac(cs, ISAC_RBCH);
 	spin_unlock_irqrestore(&cs->lock, flags);
 	mod_timer(&cs->hw.saphir.timer, jiffies + 1 * HZ);
@@ -250,7 +251,7 @@ setup_saphir(struct IsdnCard *card)
 	if (cs->typ != ISDN_CTYPE_HSTSAPHIR)
 		return (0);
 
-	
+	/* IO-Ports */
 	cs->hw.saphir.cfg_reg = card->para[1];
 	cs->hw.saphir.isac = card->para[1] + ISAC_DATA;
 	cs->hw.saphir.hscx = card->para[1] + HSCX_DATA;

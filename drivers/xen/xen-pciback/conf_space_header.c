@@ -1,3 +1,8 @@
+/*
+ * PCI Backend - Handles the virtual fields in the configuration space headers.
+ *
+ * Author: Ryan Wilson <hap9@epoch.ncsc.mil>
+ */
 
 #include <linux/kernel.h>
 #include <linux/pci.h>
@@ -91,23 +96,30 @@ static int rom_write(struct pci_dev *dev, int offset, u32 value, void *data)
 		return XEN_PCI_ERR_op_failed;
 	}
 
+	/* A write to obtain the length must happen as a 32-bit write.
+	 * This does not (yet) support writing individual bytes
+	 */
 	if (value == ~PCI_ROM_ADDRESS_ENABLE)
 		bar->which = 1;
 	else {
 		u32 tmpval;
 		pci_read_config_dword(dev, offset, &tmpval);
 		if (tmpval != bar->val && value == bar->val) {
-			
+			/* Allow restoration of bar value. */
 			pci_write_config_dword(dev, offset, bar->val);
 		}
 		bar->which = 0;
 	}
 
-	
+	/* Do we need to support enabling/disabling the rom address here? */
 
 	return 0;
 }
 
+/* For the BARs, only allow writes which write ~0 or
+ * the correct resource information
+ * (Needed for when the driver probes the resource usage)
+ */
 static int bar_write(struct pci_dev *dev, int offset, u32 value, void *data)
 {
 	struct pci_bar_info *bar = data;
@@ -118,13 +130,16 @@ static int bar_write(struct pci_dev *dev, int offset, u32 value, void *data)
 		return XEN_PCI_ERR_op_failed;
 	}
 
+	/* A write to obtain the length must happen as a 32-bit write.
+	 * This does not (yet) support writing individual bytes
+	 */
 	if (value == ~0)
 		bar->which = 1;
 	else {
 		u32 tmpval;
 		pci_read_config_dword(dev, offset, &tmpval);
 		if (tmpval != bar->val && value == bar->val) {
-			
+			/* Allow restoration of bar value. */
 			pci_write_config_dword(dev, offset, bar->val);
 		}
 		bar->which = 0;
@@ -281,7 +296,7 @@ static const struct config_field header_common[] = {
 	 .u.b.read  = xen_pcibk_read_config_byte,
 	},
 	{
-	 
+	 /* Any side effects of letting driver domain control cache line? */
 	 .offset    = PCI_CACHE_LINE_SIZE,
 	 .size      = 1,
 	 .u.b.read  = xen_pcibk_read_config_byte,

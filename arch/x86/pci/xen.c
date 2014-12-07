@@ -1,3 +1,14 @@
+/*
+ * Xen PCI - handle PCI (INTx) and MSI infrastructure calls for PV, HVM and
+ * initial domain support. We also handle the DSDT _PRT callbacks for GSI's
+ * used in HVM and initial domain mode (PV does not parse ACPI, so it has no
+ * concept of GSIs). Under PV we hook under the pnbbios API for IRQs and
+ * 0xcf8 PCI configuration read/write.
+ *
+ *   Author: Ryan Wilson <hap9@epoch.ncsc.mil>
+ *           Konrad Rzeszutek Wilk <konrad.wilk@oracle.com>
+ *           Stefano Stabellini <stefano.stabellini@eu.citrix.com>
+ */
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/pci.h>
@@ -26,7 +37,7 @@ static int xen_pcifront_enable_irq(struct pci_dev *dev)
 			 rc);
 		return rc;
 	}
-	
+	/* In PV DomU the Xen PCI backend puts the PIRQ in the interrupt line.*/
 	pirq = gsi;
 
 	if (gsi < NR_IRQS_LEGACY)
@@ -93,8 +104,8 @@ static int acpi_register_gsi_xen_hvm(struct device *dev, u32 gsi,
 	if (!xen_hvm_domain())
 		return -1;
 
-	return xen_register_pirq(gsi, -1 , trigger,
-				 false );
+	return xen_register_pirq(gsi, -1 /* no GSI override */, trigger,
+				 false /* no mapping of GSI to PIRQ */);
 }
 
 #ifdef CONFIG_XEN_DOM0
@@ -129,7 +140,7 @@ static int xen_register_gsi(u32 gsi, int gsi_override, int triggering, int polar
 static int acpi_register_gsi_xen(struct device *dev, u32 gsi,
 				 int trigger, int polarity)
 {
-	return xen_register_gsi(gsi, -1 , trigger, polarity);
+	return xen_register_gsi(gsi, -1 /* no GSI override */, trigger, polarity);
 }
 #endif
 #endif
@@ -186,6 +197,9 @@ free:
 static void xen_msi_compose_msg(struct pci_dev *pdev, unsigned int pirq,
 		struct msi_msg *msg)
 {
+	/* We set vector == 0 to tell the hypervisor we don't care about it,
+	 * but we want a pirq setup instead.
+	 * We use the dest_id field to pass the pirq that we want. */
 	msg->address_hi = MSI_ADDR_BASE_HI | MSI_ADDR_EXT_DEST_ID(pirq);
 	msg->address_lo =
 		MSI_ADDR_BASE_LO |
@@ -250,6 +264,8 @@ static int xen_initdom_setup_msi_irqs(struct pci_dev *dev, int nvec, int type)
 		domid_t domid;
 
 		domid = ret = xen_find_device_domain_owner(dev);
+		/* N.B. Casting int's -ENODEV to uint16_t results in 0xFFED,
+		 * hence check ret value for < 0. */
 		if (ret < 0)
 			domid = DOMID_SELF;
 
@@ -346,7 +362,7 @@ static void xen_teardown_msi_irqs(struct pci_dev *dev)
 	else
 		xen_pci_frontend_disable_msi(dev);
 
-	
+	/* Free the IRQ's and the msidesc using the generic code. */
 	default_teardown_msi_irqs(dev);
 }
 
@@ -370,7 +386,7 @@ int __init pci_xen_init(void)
 	pcibios_disable_irq = NULL;
 
 #ifdef CONFIG_ACPI
-	
+	/* Keep ACPI out of the picture */
 	acpi_noirq = 1;
 #endif
 
@@ -388,6 +404,10 @@ int __init pci_xen_hvm_init(void)
 		return 0;
 
 #ifdef CONFIG_ACPI
+	/*
+	 * We don't want to change the actual ACPI delivery model,
+	 * just how GSIs get registered.
+	 */
 	__acpi_register_gsi = acpi_register_gsi_xen_hvm;
 #endif
 
@@ -422,8 +442,19 @@ static __init void xen_setup_acpi_sci(void)
 	printk(KERN_INFO "xen: sci override: global_irq=%d trigger=%d "
 			"polarity=%d\n", gsi, trigger, polarity);
 
+	/* Before we bind the GSI to a Linux IRQ, check whether
+	 * we need to override it with bus_irq (IRQ) value. Usually for
+	 * IRQs below IRQ_LEGACY_IRQ this holds IRQ == GSI, as so:
+	 *  ACPI: INT_SRC_OVR (bus 0 bus_irq 9 global_irq 9 low level)
+	 * but there are oddballs where the IRQ != GSI:
+	 *  ACPI: INT_SRC_OVR (bus 0 bus_irq 9 global_irq 20 low level)
+	 * which ends up being: gsi_to_irq[9] == 20
+	 * (which is what acpi_gsi_to_irq ends up calling when starting the
+	 * the ACPI interpreter and keels over since IRQ 9 has not been
+	 * setup as we had setup IRQ 20 for it).
+	 */
 	if (acpi_gsi_to_irq(gsi, &irq) == 0) {
-		
+		/* Use the provided value if it's valid. */
 		if (irq >= 0)
 			gsi_override = irq;
 	}
@@ -445,16 +476,16 @@ int __init pci_xen_initial_domain(void)
 #endif
 	xen_setup_acpi_sci();
 	__acpi_register_gsi = acpi_register_gsi_xen;
-	
+	/* Pre-allocate legacy irqs */
 	for (irq = 0; irq < NR_IRQS_LEGACY; irq++) {
 		int trigger, polarity;
 
 		if (acpi_get_override_irq(irq, &trigger, &polarity) == -1)
 			continue;
 
-		xen_register_pirq(irq, -1 ,
+		xen_register_pirq(irq, -1 /* no GSI override */,
 			trigger ? ACPI_LEVEL_SENSITIVE : ACPI_EDGE_SENSITIVE,
-			true );
+			true /* Map GSI to PIRQ */);
 	}
 	if (0 == nr_ioapics) {
 		for (irq = 0; irq < NR_IRQS_LEGACY; irq++)

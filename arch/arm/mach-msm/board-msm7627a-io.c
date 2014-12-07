@@ -85,6 +85,7 @@ static const unsigned short keymap[ARRAY_SIZE(kp_col_gpios) *
 	[KP_INDEX(4, 4)] = KEY_VOLUMEDOWN,
 };
 
+/* SURF keypad platform device information */
 static struct gpio_event_matrix_info kp_matrix_info = {
 	.info.func	= gpio_event_matrix_func,
 	.keymap		= keymap,
@@ -116,6 +117,7 @@ static struct platform_device kp_pdev = {
 	},
 };
 
+/* 8625 keypad device information */
 static unsigned int kp_row_gpios_8625[] = {31};
 static unsigned int kp_col_gpios_8625[] = {36, 37};
 
@@ -216,42 +218,42 @@ static int mxt_vkey_setup(void)
 }
 
 static const u8 mxt_config_data[] = {
-	
+	/* T6 Object */
 	0, 0, 0, 0, 0, 0,
-	
+	/* T38 Object */
 	16, 1, 0, 0, 0, 0, 0, 0,
-	
+	/* T7 Object */
 	32, 16, 50,
-	
+	/* T8 Object */
 	30, 0, 20, 20, 0, 0, 20, 0, 50, 0,
-	
+	/* T9 Object */
 	3, 0, 0, 18, 11, 0, 32, 75, 3, 3,
 	0, 1, 1, 0, 10, 10, 10, 10, 31, 3,
 	223, 1, 11, 11, 15, 15, 151, 43, 145, 80,
 	100, 15, 0, 0, 0,
-	
+	/* T15 Object */
 	131, 0, 11, 11, 1, 1, 0, 45, 3, 0,
 	0,
-	
+	/* T18 Object */
 	0, 0,
-	
+	/* T19 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0,
-	
+	/* T23 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0,
-	
+	/* T25 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0,
-	
+	/* T40 Object */
 	0, 0, 0, 0, 0,
-	
+	/* T42 Object */
 	0, 0, 0, 0, 0, 0, 0, 0,
-	
+	/* T46 Object */
 	0, 2, 32, 48, 0, 0, 0, 0, 0,
-	
+	/* T47 Object */
 	1, 20, 60, 5, 2, 50, 40, 0, 0, 40,
-	
+	/* T48 Object */
 	1, 12, 80, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 6, 6, 0, 0, 100, 4, 64,
 	10, 0, 20, 5, 0, 38, 0, 20, 0, 0,
@@ -261,42 +263,42 @@ static const u8 mxt_config_data[] = {
 };
 
 static const u8 mxt_config_data_evt[] = {
-	
+	/* T6 Object */
 	0, 0, 0, 0, 0, 0,
-	
+	/* T38 Object */
 	20, 1, 0, 25, 9, 12, 0, 0,
-	
+	/* T7 Object */
 	24, 12, 10,
-	
+	/* T8 Object */
 	30, 0, 20, 20, 0, 0, 0, 0, 10, 192,
-	
+	/* T9 Object */
 	131, 0, 0, 18, 11, 0, 16, 70, 2, 1,
 	0, 2, 1, 62, 10, 10, 10, 10, 107, 3,
 	223, 1, 2, 2, 20, 20, 172, 40, 139, 110,
 	10, 15, 0, 0, 0,
-	
+	/* T15 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0,
-	
+	/* T18 Object */
 	0, 0,
-	
+	/* T19 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0, 0,
-	
+	/* T23 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0, 0,
-	
+	/* T25 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 0,
-	
+	/* T40 Object */
 	0, 0, 0, 0, 0,
-	
+	/* T42 Object */
 	3, 20, 45, 40, 128, 0, 0, 0,
-	
+	/* T46 Object */
 	0, 2, 16, 16, 0, 0, 0, 0, 0,
-	
+	/* T47 Object */
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	
+	/* T48 Object */
 	1, 12, 64, 0, 0, 0, 0, 0, 0, 0,
 	0, 0, 0, 6, 6, 0, 0, 100, 4, 64,
 	10, 0, 20, 5, 0, 38, 0, 20, 0, 0,
@@ -454,7 +456,7 @@ static int synaptics_touchpad_setup(void)
 	if (retval) {
 		pr_err("%s:Failed to obtain touchpad GPIO %d. Code: %d.",
 				__func__, CLEARPAD3000_ATTEN_GPIO, retval);
-		retval = 0; 
+		retval = 0; /* ignore the err */
 	}
 	synaptics_platformdata.irq = gpio_to_irq(CLEARPAD3000_ATTEN_GPIO);
 
@@ -517,7 +519,7 @@ static int atmel_ts_platform_init(struct i2c_client *client)
 		goto reg_free;
 	}
 
-	
+	/* configure touchscreen interrupt gpio */
 	rc = gpio_request(ATMEL_TS_GPIO_IRQ, "atmel_maxtouch_gpio");
 	if (rc) {
 		dev_err(dev, "%s: unable to request gpio %d\n",
@@ -591,7 +593,7 @@ static struct i2c_board_info atmel_ts_i2c_info[] __initdata = {
 
 static struct msm_handset_platform_data hs_platform_data = {
 	.hs_name = "7k_handset",
-	.pwr_key_delay_ms = 500, 
+	.pwr_key_delay_ms = 500, /* 0 will disable end key */
 };
 
 static struct platform_device hs_pdev = {
@@ -714,6 +716,7 @@ static void __init ft5x06_touchpad_setup(void)
 				ARRAY_SIZE(ft5x06_device_info));
 }
 
+/* SKU3/SKU7 keypad device information */
 #define KP_INDEX_SKU3(row, col) ((row)*ARRAY_SIZE(kp_col_gpios_sku3) + (col))
 static unsigned int kp_row_gpios_sku3[] = {31, 32};
 static unsigned int kp_col_gpios_sku3[] = {36, 37};
@@ -807,7 +810,7 @@ static struct platform_device tricolor_leds_pdev = {
 
 void __init msm7627a_add_io_devices(void)
 {
-	
+	/* touchscreen */
 	if (machine_is_msm7625a_surf() || machine_is_msm7625a_ffa()) {
 		atmel_ts_pdata.min_x = 0;
 		atmel_ts_pdata.max_x = 480;
@@ -818,13 +821,13 @@ void __init msm7627a_add_io_devices(void)
 	i2c_register_board_info(MSM_GSBI1_QUP_I2C_BUS_ID,
 				atmel_ts_i2c_info,
 				ARRAY_SIZE(atmel_ts_i2c_info));
-	
+	/* keypad */
 	platform_device_register(&kp_pdev);
 
-	
+	/* headset */
 	platform_device_register(&hs_pdev);
 
-	
+	/* LED: configure it as a pdm function */
 	if (gpio_tlmm_config(GPIO_CFG(LED_GPIO_PDM, 3,
 				GPIO_CFG_OUTPUT, GPIO_CFG_NO_PULL,
 				GPIO_CFG_8MA), GPIO_CFG_ENABLE))
@@ -833,7 +836,7 @@ void __init msm7627a_add_io_devices(void)
 	else
 		platform_device_register(&led_pdev);
 
-	
+	/* Vibrator */
 	if (machine_is_msm7x27a_ffa() || machine_is_msm7625a_ffa()
 					|| machine_is_msm8625_ffa())
 		msm_init_pmic_vibrator();
@@ -843,14 +846,14 @@ void __init qrd7627a_add_io_devices(void)
 {
 	int rc;
 
-	
+	/* touchscreen */
 	if (machine_is_msm7627a_qrd1()) {
 		i2c_register_board_info(MSM_GSBI1_QUP_I2C_BUS_ID,
 					synaptic_i2c_clearpad3k,
 					ARRAY_SIZE(synaptic_i2c_clearpad3k));
 	} else if (machine_is_msm7627a_evb() || machine_is_msm8625_evb() ||
 			machine_is_msm8625_evt()) {
-		
+		/* Use configuration data for EVT */
 		if (machine_is_msm8625_evt()) {
 			mxt_config_array[0].config = mxt_config_data_evt;
 			mxt_config_array[0].config_length =
@@ -884,17 +887,17 @@ void __init qrd7627a_add_io_devices(void)
 		ft5x06_touchpad_setup();
 	}
 
-	
-	
+	/* headset and power key*/
+	/* ignore end key as this target doesn't need it */
 	hs_platform_data.ignore_end_key = true;
 	platform_device_register(&hs_pdev);
 
-	
+	/* vibrator */
 #ifdef CONFIG_MSM_RPC_VIBRATOR
 	msm_init_pmic_vibrator();
 #endif
 
-	
+	/* keypad */
 
 	if (machine_is_qrd_skud_prime()) {
 		kp_matrix_info_sku3.keymap = keymap_skud;
@@ -914,7 +917,7 @@ void __init qrd7627a_add_io_devices(void)
 		|| machine_is_qrd_skud_prime())
 		platform_device_register(&kp_pdev_sku3);
 
-	
+	/* leds */
 	if (machine_is_msm7627a_evb() || machine_is_msm8625_evb() ||
 						machine_is_msm8625_evt()) {
 		platform_device_register(&pmic_mpp_leds_pdev);

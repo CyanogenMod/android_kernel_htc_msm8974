@@ -72,7 +72,7 @@ static void s3c_ac97_activate(struct snd_ac97 *ac97)
 
 	stat = readl(s3c_ac97.regs + S3C_AC97_GLBSTAT) & 0x7;
 	if (stat == S3C_AC97_GLBSTAT_MAINSTATE_ACTIVE)
-		return; 
+		return; /* Return if already active */
 
 	INIT_COMPLETION(s3c_ac97.done);
 
@@ -179,7 +179,7 @@ static void s3c_ac97_warm_reset(struct snd_ac97 *ac97)
 
 	stat = readl(s3c_ac97.regs + S3C_AC97_GLBSTAT) & 0x7;
 	if (stat == S3C_AC97_GLBSTAT_MAINSTATE_ACTIVE)
-		return; 
+		return; /* Return if already active */
 
 	pr_debug("AC97: Warm reset\n");
 
@@ -208,7 +208,7 @@ static irqreturn_t s3c_ac97_irq(int irq, void *dev_id)
 	}
 
 	ac_glbctrl = readl(s3c_ac97.regs + S3C_AC97_GLBCTRL);
-	ac_glbctrl |= (1<<30); 
+	ac_glbctrl |= (1<<30); /* Clear interrupt */
 	writel(ac_glbctrl, s3c_ac97.regs + S3C_AC97_GLBCTRL);
 
 	return IRQ_HANDLED;
@@ -382,7 +382,7 @@ static __devinit int s3c_ac97_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	
+	/* Check for availability of necessary resource */
 	dmatx_res = platform_get_resource(pdev, IORESOURCE_DMA, 0);
 	if (!dmatx_res) {
 		dev_err(&pdev->dev, "Unable to get AC97-TX dma resource\n");

@@ -21,6 +21,9 @@
 
 static struct cpufreq_driver ucv2_driver;
 
+/* make sure that only the "userspace" governor is run
+ * -- anything else wouldn't make sense on this platform, anyway.
+ */
 int ucv2_verify_speed(struct cpufreq_policy *policy)
 {
 	if (policy->cpu)

@@ -30,184 +30,188 @@ static int noclear, nopanel, nocrt;
 static int vram;
 static int vt_switch;
 
+/* Most of these modes are sorted in ascending order, but
+ * since the first entry in this table is the "default" mode,
+ * we try to make it something sane - 640x480-60 is sane
+ */
 
 static struct fb_videomode geode_modedb[] __devinitdata = {
-	
+	/* 640x480-60 */
 	{ NULL, 60, 640, 480, 39682, 48, 8, 25, 2, 88, 2,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 640x400-70 */
 	{ NULL, 70, 640, 400, 39770, 40, 8, 28, 5, 96, 2,
 	  FB_SYNC_HOR_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 640x480-70 */
 	{ NULL, 70, 640, 480, 35014, 88, 24, 15, 2, 64, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 640x480-72 */
 	{ NULL, 72, 640, 480, 32102, 120, 16, 20, 1, 40, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 640x480-75 */
 	{ NULL, 75, 640, 480, 31746, 120, 16, 16, 1, 64, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 640x480-85 */
 	{ NULL, 85, 640, 480, 27780, 80, 56, 25, 1, 56, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 640x480-90 */
 	{ NULL, 90, 640, 480, 26392, 96, 32, 22, 1, 64, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 640x480-100 */
 	{ NULL, 100, 640, 480, 23167, 104, 40, 25, 1, 64, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 640x480-60 */
 	{ NULL, 60, 640, 480, 39682, 48, 16, 25, 10, 88, 2,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 800x600-56 */
 	{ NULL, 56, 800, 600, 27901, 128, 24, 22, 1, 72, 2,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 800x600-60 */
 	{ NULL, 60, 800, 600, 25131, 72, 32, 23, 1, 136, 4,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 800x600-70 */
 	{ NULL, 70, 800, 600, 21873, 120, 40, 21, 4, 80, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 800x600-72 */
 	{ NULL, 72, 800, 600, 20052, 64, 56, 23, 37, 120, 6,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 800x600-75 */
 	{ NULL, 75, 800, 600, 20202, 160, 16, 21, 1, 80, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 800x600-85 */
 	{ NULL, 85, 800, 600, 17790, 152, 32, 27, 1, 64, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 800x600-90 */
 	{ NULL, 90, 800, 600, 16648, 128, 40, 28, 1, 88, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 800x600-100 */
 	{ NULL, 100, 800, 600, 14667, 136, 48, 27, 1, 88, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 800x600-60 */
 	{ NULL, 60, 800, 600, 25131, 88, 40, 23, 1, 128, 4,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1024x768-60 */
 	{ NULL, 60, 1024, 768, 15385, 160, 24, 29, 3, 136, 6,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1024x768-70 */
 	{ NULL, 70, 1024, 768, 13346, 144, 24, 29, 3, 136, 6,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1024x768-72 */
 	{ NULL, 72, 1024, 768, 12702, 168, 56, 29, 4, 112, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1024x768-75 */
 	{ NULL, 75, 1024, 768, 12703, 176, 16, 28, 1, 96, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1024x768-85 */
 	{ NULL, 85, 1024, 768, 10581, 208, 48, 36, 1, 96, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1024x768-90 */
 	{ NULL, 90, 1024, 768, 9981, 176, 64, 37, 1, 112, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1024x768-100 */
 	{ NULL, 100, 1024, 768, 8825, 184, 72, 42, 1, 112, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1024x768-60 */
 	{ NULL, 60, 1024, 768, 15385, 160, 24, 29, 3, 136, 6,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1152x864-60 */
 	{ NULL, 60, 1152, 864, 12251, 184, 64, 27, 1, 120, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1152x864-70 */
 	{ NULL, 70, 1152, 864, 10254, 192, 72, 32, 8, 120, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1152x864-72 */
 	{ NULL, 72, 1152, 864, 9866, 200, 72, 33, 7, 128, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1152x864-75 */
 	{ NULL, 75, 1152, 864, 9259, 256, 64, 32, 1, 128, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1152x864-85 */
 	{ NULL, 85, 1152, 864, 8357, 200, 72, 37, 3, 128, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1152x864-90 */
 	{ NULL, 90, 1152, 864, 7719, 208, 80, 42, 9, 128, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1152x864-100 */
 	{ NULL, 100, 1152, 864, 6947, 208, 80, 48, 3, 128, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1152x864-60 */
 	{ NULL, 60, 1152, 864, 12251, 184, 64, 27, 1, 120, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1280x1024-60 */
 	{ NULL, 60, 1280, 1024, 9262, 248, 48, 38, 1, 112, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1280x1024-70 */
 	{ NULL, 70, 1280, 1024, 7719, 224, 88, 38, 6, 136, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1280x1024-72 */
 	{ NULL, 72, 1280, 1024, 7490, 224, 88, 39, 7, 136, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1280x1024-75 */
 	{ NULL, 75, 1280, 1024, 7409, 248, 16, 38, 1, 144, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1280x1024-85 */
 	{ NULL, 85, 1280, 1024, 6351, 224, 64, 44, 1, 160, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1280x1024-90 */
 	{ NULL, 90, 1280, 1024, 5791, 240, 96, 51, 12, 144, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1280x1024-100 */
 	{ NULL, 100, 1280, 1024, 5212, 240, 96, 57, 6, 144, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1280x1024-60 */
 	{ NULL, 60, 1280, 1024, 9262, 248, 48, 38, 1, 112, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1600x1200-60 */
 	{ NULL, 60, 1600, 1200, 6172, 304, 64, 46, 1, 192, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1600x1200-70 */
 	{ NULL, 70, 1600, 1200, 5291, 304, 64, 46, 1, 192, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1600x1200-72 */
 	{ NULL, 72, 1600, 1200, 5053, 288, 112, 47, 13, 176, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1600x1200-75 */
 	{ NULL, 75, 1600, 1200, 4938, 304, 64, 46, 1, 192, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1600x1200-85 */
 	{ NULL, 85, 1600, 1200, 4357, 304, 64, 46, 1, 192, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1600x1200-90 */
 	{ NULL, 90, 1600, 1200, 3981, 304, 128, 60, 1, 176, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1600x1200-100 */
 	{ NULL, 100, 1600, 1200, 3563, 304, 128, 67, 1, 176, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1600x1200-60 */
 	{ NULL, 60, 1600, 1200, 6172, 304, 64, 46, 1, 192, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1920x1440-60 */
 	{ NULL, 60, 1920, 1440, 4273, 344, 128, 56, 1, 208, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1920x1440-70 */
 	{ NULL, 70, 1920, 1440, 3593, 360, 152, 55, 8, 208, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1920x1440-72 */
 	{ NULL, 72, 1920, 1440, 3472, 360, 152, 68, 4, 208, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1920x1440-75 */
 	{ NULL, 75, 1920, 1440, 3367, 352, 144, 56, 1, 224, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
-	
+	/* 1920x1440-85 */
 	{ NULL, 85, 1920, 1440, 2929, 368, 152, 68, 1, 216, 3,
 	  0, FB_VMODE_NONINTERLACED, 0 },
 };
@@ -216,7 +220,7 @@ static struct fb_videomode geode_modedb[] __devinitdata = {
 #include <asm/olpc.h>
 
 static struct fb_videomode olpc_dcon_modedb[] __devinitdata = {
-	
+	/* The only mode the DCON has is 1200x900 */
 	{ NULL, 50, 1200, 900, 17460, 24, 8, 4, 5, 8, 3,
 	  FB_SYNC_HOR_HIGH_ACT | FB_SYNC_VERT_HIGH_ACT,
 	  FB_VMODE_NONINTERLACED, 0 }
@@ -265,7 +269,7 @@ static int lxfb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 
 	var->transp.offset = 0; var->transp.length = 0;
 
-	
+	/* Enough video memory? */
 	if ((lx_get_pitch(var->xres, var->bits_per_pixel) * var->yres)
 	    > info->fix.smem_len)
 	  return -EINVAL;
@@ -299,11 +303,11 @@ static int lxfb_setcolreg(unsigned regno, unsigned red, unsigned green,
 			   struct fb_info *info)
 {
 	if (info->var.grayscale) {
-		
+		/* grayscale = 0.30*R + 0.59*G + 0.11*B */
 		red = green = blue = (red * 77 + green * 151 + blue * 28) >> 8;
 	}
 
-	
+	/* Truecolor has hardware independent palette */
 	if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
 		u32 *pal = info->pseudo_palette;
 		u32 v;
@@ -404,7 +408,7 @@ static struct fb_ops lxfb_ops = {
 	.fb_set_par	= lxfb_set_par,
 	.fb_setcolreg	= lxfb_setcolreg,
 	.fb_blank       = lxfb_blank,
-	
+	/* No HW acceleration for now. */
 	.fb_fillrect	= cfb_fillrect,
 	.fb_copyarea	= cfb_copyarea,
 	.fb_imageblit	= cfb_imageblit,
@@ -415,7 +419,7 @@ static struct fb_info * __devinit lxfb_init_fbinfo(struct device *dev)
 	struct lxfb_par *par;
 	struct fb_info *info;
 
-	
+	/* Alloc enough space for the pseudo palette. */
 	info = framebuffer_alloc(sizeof(struct lxfb_par) + sizeof(u32) * 16,
 				 dev);
 	if (!info)
@@ -467,6 +471,8 @@ static int lxfb_suspend(struct pci_dev *pdev, pm_message_t state)
 		console_unlock();
 	}
 
+	/* there's no point in setting PCI states; we emulate PCI, so
+	 * we don't end up getting power savings anyways */
 
 	return 0;
 }
@@ -517,13 +523,13 @@ static int __devinit lxfb_probe(struct pci_dev *pdev,
 		goto err;
 	}
 
-	
+	/* Set up the desired outputs */
 
 	par->output = 0;
 	par->output |= (nopanel) ? 0 : OUTPUT_PANEL;
 	par->output |= (nocrt) ? 0 : OUTPUT_CRT;
 
-	
+	/* Set up the mode database */
 
 	get_modedb(&modedb_ptr, &modedb_size);
 	ret = fb_find_mode(&info->var, info, mode_option,
@@ -535,11 +541,13 @@ static int __devinit lxfb_probe(struct pci_dev *pdev,
 		goto err;
 	}
 
+	/* Clear the screen of garbage, unless noclear was specified,
+	 * in which case we assume the user knows what he is doing */
 
 	if (!noclear)
 		memset_io(info->screen_base, 0, info->fix.smem_len);
 
-	
+	/* Set the mode */
 
 	lxfb_check_var(&info->var, info);
 	lxfb_set_par(info);

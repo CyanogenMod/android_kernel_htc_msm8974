@@ -36,6 +36,11 @@
 
 #define print_ns(x) ((x) / 10), ((x) % 10)
 
+/**
+ * s3c2412_print_timing - print timing infromation via printk.
+ * @pfx: The prefix to print each line with.
+ * @iot: The IO timing information
+ */
 static void s3c2412_print_timing(const char *pfx, struct s3c_iotimings *iot)
 {
 	struct s3c2412_iobank_timing *bt;
@@ -57,11 +62,22 @@ static void s3c2412_print_timing(const char *pfx, struct s3c_iotimings *iot)
 	}
 }
 
+/**
+ * to_div - turn a cycle length into a divisor setting.
+ * @cyc_tns: The cycle time in 10ths of nanoseconds.
+ * @clk_tns: The clock period in 10ths of nanoseconds.
+ */
 static inline unsigned int to_div(unsigned int cyc_tns, unsigned int clk_tns)
 {
 	return cyc_tns ? DIV_ROUND_UP(cyc_tns, clk_tns) : 0;
 }
 
+/**
+ * calc_timing - calculate timing divisor value and check in range.
+ * @hwtm: The hardware timing in 10ths of nanoseconds.
+ * @clk_tns: The clock period in 10ths of nanoseconds.
+ * @err: Pointer to err variable to update in event of failure.
+ */
 static unsigned int calc_timing(unsigned int hwtm, unsigned int clk_tns,
 				unsigned int *err)
 {
@@ -73,6 +89,11 @@ static unsigned int calc_timing(unsigned int hwtm, unsigned int clk_tns,
 	return ret;
 }
 
+/**
+ * s3c2412_calc_bank - calculate the bank divisor settings.
+ * @cfg: The current frequency configuration.
+ * @bt: The bank timing.
+ */
 static int s3c2412_calc_bank(struct s3c_cpufreq_config *cfg,
 			     struct s3c2412_iobank_timing *bt)
 {
@@ -89,6 +110,12 @@ static int s3c2412_calc_bank(struct s3c_cpufreq_config *cfg,
 	return err;
 }
 
+/**
+ * s3c2412_iotiming_debugfs - debugfs show io bank timing information
+ * @seq: The seq_file to write output to using seq_printf().
+ * @cfg: The current configuration.
+ * @iob: The IO bank information to decode.
+*/
 void s3c2412_iotiming_debugfs(struct seq_file *seq,
 			      struct s3c_cpufreq_config *cfg,
 			      union s3c_iobank *iob)
@@ -106,6 +133,14 @@ void s3c2412_iotiming_debugfs(struct seq_file *seq,
 		   print_ns(bt->wstbrd));
 }
 
+/**
+ * s3c2412_iotiming_calc - calculate all the bank divisor settings.
+ * @cfg: The current frequency configuration.
+ * @iot: The bank timing information.
+ *
+ * Calculate the timing information for all the banks that are
+ * configured as IO, using s3c2412_calc_bank().
+ */
 int s3c2412_iotiming_calc(struct s3c_cpufreq_config *cfg,
 			  struct s3c_iotimings *iot)
 {
@@ -131,6 +166,14 @@ int s3c2412_iotiming_calc(struct s3c_cpufreq_config *cfg,
 	return ret;
 }
 
+/**
+ * s3c2412_iotiming_set - set the timing information
+ * @cfg: The current frequency configuration.
+ * @iot: The bank timing information.
+ *
+ * Set the IO bank information from the details calculated earlier from
+ * calling s3c2412_iotiming_calc().
+ */
 void s3c2412_iotiming_set(struct s3c_cpufreq_config *cfg,
 			  struct s3c_iotimings *iot)
 {
@@ -138,7 +181,7 @@ void s3c2412_iotiming_set(struct s3c_cpufreq_config *cfg,
 	void __iomem *regs;
 	int bank;
 
-	
+	/* set the io timings from the specifier */
 
 	for (bank = 0; bank < MAX_BANKS; bank++) {
 		bt = iot->bank[bank].io_2412;
@@ -165,7 +208,7 @@ static void s3c2412_iotiming_getbank(struct s3c_cpufreq_config *cfg,
 				     struct s3c2412_iobank_timing *bt,
 				     unsigned int bank)
 {
-	unsigned long clk = cfg->freq.hclk_tns;  
+	unsigned long clk = cfg->freq.hclk_tns;  /* ssmc clock??? */
 	void __iomem *regs = S3C2412_SSMC_BANK(bank);
 
 	bt->idcy = s3c2412_decode_timing(clk, __raw_readl(regs + SMBIDCYR));
@@ -175,6 +218,11 @@ static void s3c2412_iotiming_getbank(struct s3c_cpufreq_config *cfg,
 	bt->wstbrd = s3c2412_decode_timing(clk, __raw_readl(regs + SMBWSTBRDR));
 }
 
+/**
+ * bank_is_io - return true if bank is (possibly) IO.
+ * @bank: The bank number.
+ * @bankcfg: The value of S3C2412_EBI_BANKCFG.
+ */
 static inline bool bank_is_io(unsigned int bank, u32 bankcfg)
 {
 	if (bank < 2)
@@ -190,7 +238,7 @@ int s3c2412_iotiming_get(struct s3c_cpufreq_config *cfg,
 	u32 bankcfg = __raw_readl(S3C2412_EBI_BANKCFG);
 	unsigned int bank;
 
-	
+	/* look through all banks to see what is currently set. */
 
 	for (bank = 0; bank < MAX_BANKS; bank++) {
 		if (!bank_is_io(bank, bankcfg))
@@ -210,6 +258,10 @@ int s3c2412_iotiming_get(struct s3c_cpufreq_config *cfg,
 	return 0;
 }
 
+/* this is in here as it is so small, it doesn't currently warrant a file
+ * to itself. We expect that any s3c24xx needing this is going to also
+ * need the iotiming support.
+ */
 void s3c2412_cpufreq_setrefresh(struct s3c_cpufreq_config *cfg)
 {
 	struct s3c_cpufreq_board *board = cfg->board;
@@ -217,9 +269,15 @@ void s3c2412_cpufreq_setrefresh(struct s3c_cpufreq_config *cfg)
 
 	WARN_ON(board == NULL);
 
+	/* Reduce both the refresh time (in ns) and the frequency (in MHz)
+	 * down to ensure that we do not overflow 32 bit numbers.
+	 *
+	 * This should work for HCLK up to 133MHz and refresh period up
+	 * to 30usec.
+	 */
 
 	refresh = (cfg->freq.hclk / 100) * (board->refresh / 10);
-	refresh = DIV_ROUND_UP(refresh, (1000 * 1000)); 
+	refresh = DIV_ROUND_UP(refresh, (1000 * 1000)); /* apply scale  */
 	refresh &= ((1 << 16) - 1);
 
 	s3c_freq_dbg("%s: refresh value %u\n", __func__, (unsigned int)refresh);

@@ -42,6 +42,8 @@ void iop13xx_map_pci_memory(void);
 				    IOP13XX_ATUX_STAT_EXT_SIG_TABORT | \
 				    IOP13XX_ATUX_STAT_MASTER_DATA_PAR)
 
+/* PCI interrupts
+ */
 #define ATUX_INTA IRQ_IOP13XX_XINT0
 #define ATUX_INTB IRQ_IOP13XX_XINT1
 #define ATUX_INTC IRQ_IOP13XX_XINT2
@@ -52,4 +54,4 @@ void iop13xx_map_pci_memory(void);
 #define ATUE_INTC IRQ_IOP13XX_ATUE_IMC
 #define ATUE_INTD IRQ_IOP13XX_ATUE_IMD
 
-#endif 
+#endif /* _IOP13XX_PCI_H_ */

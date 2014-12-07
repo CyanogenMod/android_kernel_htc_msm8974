@@ -34,6 +34,6 @@ static inline int smux_tx_loopback(struct smux_pkt_t *pkt_ptr)
 }
 
 
-#endif 
-#endif 
+#endif /* CONFIG_N_SMUX_LOOPBACK */
+#endif /* SMUX_LOOPBACK_H */
 

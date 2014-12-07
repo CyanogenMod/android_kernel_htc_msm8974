@@ -47,6 +47,11 @@
 #define _minor(v)	(((v) >> 16) & 0xff)
 #define _build(v)	((v) & 0xffff)
 
+/* version in image has weird encoding:
+ *  7:0  - major
+ * 15:8  - minor
+ * 31:16 - build (little endian)
+ */
 #define QLCNIC_DECODE_VERSION(v) \
 	QLCNIC_VERSION_CODE(((v) & 0xff), (((v) >> 8) & 0xff), ((v) >> 16))
 
@@ -77,13 +82,14 @@
 
 #define P3P_MAX_MTU                     (9600)
 #define P3P_MIN_MTU                     (68)
-#define QLCNIC_MAX_ETHERHDR                32 
+#define QLCNIC_MAX_ETHERHDR                32 /* This contains some padding */
 
 #define QLCNIC_P3P_RX_BUF_MAX_LEN         (QLCNIC_MAX_ETHERHDR + ETH_DATA_LEN)
 #define QLCNIC_P3P_RX_JUMBO_BUF_MAX_LEN   (QLCNIC_MAX_ETHERHDR + P3P_MAX_MTU)
 #define QLCNIC_CT_DEFAULT_RX_BUF_LEN	2048
 #define QLCNIC_LRO_BUFFER_EXTRA		2048
 
+/* Opcodes to be used with the commands */
 #define TX_ETHER_PKT	0x01
 #define TX_TCP_PKT	0x02
 #define TX_UDP_PKT	0x03
@@ -93,6 +99,7 @@
 #define TX_TCPV6_PKT	0x0b
 #define TX_UDPV6_PKT	0x0c
 
+/* Tx defines */
 #define QLCNIC_MAX_FRAGS_PER_TX	14
 #define MAX_TSO_HEADER_DESC	2
 #define MGMT_CMD_DESC_RESV	4
@@ -100,9 +107,14 @@
 							+ MGMT_CMD_DESC_RESV)
 #define QLCNIC_MAX_TX_TIMEOUTS	2
 
+/*
+ * Following are the states of the Phantom. Phantom will set them and
+ * Host will read to check if the fields are correct.
+ */
 #define PHAN_INITIALIZE_FAILED		0xffff
 #define PHAN_INITIALIZE_COMPLETE	0xff01
 
+/* Host writes the following to notify that it has done the init-handshake */
 #define PHAN_INITIALIZE_ACK		0xf00f
 #define PHAN_PEG_RCV_INITIALIZED	0xff01
 
@@ -130,6 +142,11 @@
 #define get_next_index(index, length)	\
 	(((index) + 1) & ((length) - 1))
 
+/*
+ * Following data structures describe the descriptors that will be used.
+ * Added fileds of tcpHdrSize and ipHdrSize, The driver needs to do it only when
+ * we are doing LSO (above the 1500 size packet) only.
+ */
 
 #define FLAGS_VLAN_TAGGED	0x10
 #define FLAGS_VLAN_OOB		0x40
@@ -153,18 +170,18 @@
 	cpu_to_le32(((_frags) & 0xff) | (((_len) & 0xffffff) << 8)))
 
 struct cmd_desc_type0 {
-	u8 tcp_hdr_offset;	
-	u8 ip_hdr_offset;	
-	__le16 flags_opcode;	
-	__le32 nfrags__length;	
+	u8 tcp_hdr_offset;	/* For LSO only */
+	u8 ip_hdr_offset;	/* For LSO only */
+	__le16 flags_opcode;	/* 15:13 unused, 12:7 opcode, 6:0 flags */
+	__le32 nfrags__length;	/* 31:8 total len, 7:0 frag count */
 
 	__le64 addr_buffer2;
 
 	__le16 reference_handle;
 	__le16 mss;
-	u8 port_ctxid;		
-	u8 total_hdr_length;	
-	__le16 conn_id;		
+	u8 port_ctxid;		/* 7:4 ctxid 3:0 port */
+	u8 total_hdr_length;	/* LSO only : MAC+IP+TCP Hdr size */
+	__le16 conn_id;		/* IPSec offoad only */
 
 	__le64 addr_buffer3;
 	__le64 addr_buffer1;
@@ -178,25 +195,34 @@ struct cmd_desc_type0 {
 
 } __attribute__ ((aligned(64)));
 
+/* Note: sizeof(rcv_desc) should always be a mutliple of 2 */
 struct rcv_desc {
 	__le16 reference_handle;
 	__le16 reserved;
-	__le32 buffer_length;	
+	__le32 buffer_length;	/* allocated buffer length (usually 2K) */
 	__le64 addr_buffer;
 } __packed;
 
+/* opcode field in status_desc */
 #define QLCNIC_SYN_OFFLOAD	0x03
 #define QLCNIC_RXPKT_DESC  	0x04
 #define QLCNIC_OLD_RXPKT_DESC	0x3f
 #define QLCNIC_RESPONSE_DESC	0x05
 #define QLCNIC_LRO_DESC  	0x12
 
+/* for status field in status_desc */
 #define STATUS_CKSUM_LOOP	0
 #define STATUS_CKSUM_OK		2
 
+/* owner bits of status_desc */
 #define STATUS_OWNER_HOST	(0x1ULL << 56)
 #define STATUS_OWNER_PHANTOM	(0x2ULL << 56)
 
+/* Status descriptor:
+   0-3 port, 4-7 status, 8-11 type, 12-27 total_length
+   28-43 reference_handle, 44-47 protocol, 48-52 pkt_offset
+   53-55 desc_cnt, 56-57 owner, 58-63 opcode
+ */
 #define qlcnic_get_sts_port(sts_data)	\
 	((sts_data) & 0x0F)
 #define qlcnic_get_sts_status(sts_data)	\
@@ -238,11 +264,13 @@ struct status_desc {
 	__le64 status_desc_data[2];
 } __attribute__ ((aligned(16)));
 
+/* UNIFIED ROMIMAGE */
 #define QLCNIC_UNI_FW_MIN_SIZE		0xc8000
 #define QLCNIC_UNI_DIR_SECT_PRODUCT_TBL	0x0
 #define QLCNIC_UNI_DIR_SECT_BOOTLD	0x6
 #define QLCNIC_UNI_DIR_SECT_FW		0x7
 
+/*Offsets */
 #define QLCNIC_UNI_CHIP_REV_OFF		10
 #define QLCNIC_UNI_FLAGS_OFF		11
 #define QLCNIC_UNI_BIOS_VERSION_OFF 	12
@@ -262,6 +290,7 @@ struct uni_data_desc{
 	u32	reserved[5];
 };
 
+/* Flash Defines and Structures */
 #define QLCNIC_FLT_LOCATION	0x3F1000
 #define QLCNIC_B0_FW_IMAGE_REGION 0x74
 #define QLCNIC_C0_FW_IMAGE_REGION 0x97
@@ -283,6 +312,7 @@ struct qlcnic_flt_entry {
 	u32 end_addr;
 };
 
+/* Magic number to let user know flash is programmed */
 #define	QLCNIC_BDINFO_MAGIC 0x12345678
 
 #define QLCNIC_BRDTYPE_P3P_REF_QG	0x0021
@@ -302,10 +332,11 @@ struct qlcnic_flt_entry {
 
 #define QLCNIC_MSIX_TABLE_OFFSET	0x44
 
-#define QLCNIC_BRDCFG_START	0x4000		
-#define QLCNIC_BOOTLD_START	0x10000		
-#define QLCNIC_IMAGE_START	0x43000		
-#define QLCNIC_USER_START	0x3E8000	
+/* Flash memory map */
+#define QLCNIC_BRDCFG_START	0x4000		/* board config */
+#define QLCNIC_BOOTLD_START	0x10000		/* bootld */
+#define QLCNIC_IMAGE_START	0x43000		/* compressed image */
+#define QLCNIC_USER_START	0x3E8000	/* Firmare info */
 
 #define QLCNIC_FW_VERSION_OFFSET	(QLCNIC_USER_START+0x408)
 #define QLCNIC_FW_SIZE_OFFSET		(QLCNIC_USER_START+0x40c)
@@ -325,22 +356,33 @@ struct qlcnic_flt_entry {
 
 extern char qlcnic_driver_name[];
 
+/* Number of status descriptors to handle per interrupt */
 #define MAX_STATUS_HANDLE	(64)
 
+/*
+ * qlcnic_skb_frag{} is to contain mapping info for each SG list. This
+ * has to be freed when DMA is complete. This is part of qlcnic_tx_buffer{}.
+ */
 struct qlcnic_skb_frag {
 	u64 dma;
 	u64 length;
 };
 
+/*    Following defines are for the state of the buffers    */
 #define	QLCNIC_BUFFER_FREE	0
 #define	QLCNIC_BUFFER_BUSY	1
 
+/*
+ * There will be one qlcnic_buffer per skb packet.    These will be
+ * used to save the dma info for pci_unmap_page()
+ */
 struct qlcnic_cmd_buffer {
 	struct sk_buff *skb;
 	struct qlcnic_skb_frag frag_array[MAX_SKB_FRAGS + 1];
 	u32 frag_count;
 };
 
+/* In rx_buffer, we do not need multiple fragments as is a single buffer */
 struct qlcnic_rx_buffer {
 	u16 ref_handle;
 	struct sk_buff *skb;
@@ -348,9 +390,14 @@ struct qlcnic_rx_buffer {
 	u64 dma;
 };
 
+/* Board types */
 #define	QLCNIC_GBE	0x01
 #define	QLCNIC_XGBE	0x02
 
+/*
+ * Interrupt coalescing defaults. The defaults are for 1500 MTU. It is
+ * adjusted based on configured MTU.
+ */
 #define QLCNIC_DEFAULT_INTR_COALESCE_RX_TIME_US	3
 #define QLCNIC_DEFAULT_INTR_COALESCE_RX_PACKETS	256
 
@@ -383,13 +430,17 @@ struct qlcnic_dump_template_hdr {
 };
 
 struct qlcnic_fw_dump {
-	u8	clr;	
-	u8	enable; 
-	u32	size;	
-	void	*data;	
+	u8	clr;	/* flag to indicate if dump is cleared */
+	u8	enable; /* enable/disable dump */
+	u32	size;	/* total size of the dump */
+	void	*data;	/* dump data area */
 	struct	qlcnic_dump_template_hdr *tmpl_hdr;
 };
 
+/*
+ * One hardware_context{} per adapter
+ * contains interrupt info as well shared hardware info.
+ */
 struct qlcnic_hardware_context {
 	void __iomem *pci_base0;
 	void __iomem *ocm_win_crb;
@@ -432,6 +483,10 @@ struct qlcnic_adapter_stats {
 	u64  tx_dma_map_error;
 };
 
+/*
+ * Rcv Descriptor Context. One such per Rcv Descriptor. There may
+ * be one Rcv Descriptor for normal packets, one for jumbo and may be others.
+ */
 struct qlcnic_host_rds_ring {
 	void __iomem *crb_rcv_producer;
 	struct rcv_desc *desc_head;
@@ -477,6 +532,12 @@ struct qlcnic_host_tx_ring {
 	struct netdev_queue *txq;
 } ____cacheline_internodealigned_in_smp;
 
+/*
+ * Receive context. There is one such structure per instance of the
+ * receive processing. Any state information that is relevant to
+ * the receive, and is must be in this structure. The global data may be
+ * present elsewhere.
+ */
 struct qlcnic_recv_context {
 	struct qlcnic_host_rds_ring *rds_rings;
 	struct qlcnic_host_sds_ring *sds_rings;
@@ -486,6 +547,7 @@ struct qlcnic_recv_context {
 
 };
 
+/* HW context creation */
 
 #define QLCNIC_OS_CRB_RETRY_COUNT	4000
 #define QLCNIC_CDRP_SIGNATURE_MAKE(pcifn, version) \
@@ -493,6 +555,10 @@ struct qlcnic_recv_context {
 
 #define QLCNIC_CDRP_CMD_BIT		0x80000000
 
+/*
+ * All responses must have the QLCNIC_CDRP_CMD_BIT cleared
+ * in the crb QLCNIC_CDRP_CRB_OFFSET.
+ */
 #define QLCNIC_CDRP_FORM_RSP(rsp)	(rsp)
 #define QLCNIC_CDRP_IS_RSP(rsp)	(((rsp) & QLCNIC_CDRP_CMD_BIT) == 0)
 
@@ -500,6 +566,10 @@ struct qlcnic_recv_context {
 #define QLCNIC_CDRP_RSP_FAIL		0x00000002
 #define QLCNIC_CDRP_RSP_TIMEOUT 	0x00000003
 
+/*
+ * All commands must have the QLCNIC_CDRP_CMD_BIT set in
+ * the crb QLCNIC_CDRP_CRB_OFFSET.
+ */
 #define QLCNIC_CDRP_FORM_CMD(cmd)	(QLCNIC_CDRP_CMD_BIT | (cmd))
 #define QLCNIC_CDRP_IS_CMD(cmd)	(((cmd) & QLCNIC_CDRP_CMD_BIT) != 0)
 
@@ -543,6 +613,9 @@ struct qlcnic_recv_context {
 #define QLCNIC_RCODE_TIMEOUT		17
 #define QLCNIC_DESTROY_CTX_RESET	0
 
+/*
+ * Capabilities Announced
+ */
 #define QLCNIC_CAP0_LEGACY_CONTEXT	(1)
 #define QLCNIC_CAP0_LEGACY_MN		(1 << 2)
 #define QLCNIC_CAP0_LSO 		(1 << 6)
@@ -550,63 +623,77 @@ struct qlcnic_recv_context {
 #define QLCNIC_CAP0_LRO_CONTIGUOUS	(1 << 8)
 #define QLCNIC_CAP0_VALIDOFF		(1 << 11)
 
+/*
+ * Context state
+ */
 #define QLCNIC_HOST_CTX_STATE_FREED	0
 #define QLCNIC_HOST_CTX_STATE_ACTIVE	2
 
+/*
+ * Rx context
+ */
 
 struct qlcnic_hostrq_sds_ring {
-	__le64 host_phys_addr;	
-	__le32 ring_size;		
+	__le64 host_phys_addr;	/* Ring base addr */
+	__le32 ring_size;		/* Ring entries */
 	__le16 msi_index;
-	__le16 rsvd;		
+	__le16 rsvd;		/* Padding */
 } __packed;
 
 struct qlcnic_hostrq_rds_ring {
-	__le64 host_phys_addr;	
-	__le64 buff_size;		
-	__le32 ring_size;		
-	__le32 ring_kind;		
+	__le64 host_phys_addr;	/* Ring base addr */
+	__le64 buff_size;		/* Packet buffer size */
+	__le32 ring_size;		/* Ring entries */
+	__le32 ring_kind;		/* Class of ring */
 } __packed;
 
 struct qlcnic_hostrq_rx_ctx {
-	__le64 host_rsp_dma_addr;	
-	__le32 capabilities[4];	
-	__le32 host_int_crb_mode;	
-	__le32 host_rds_crb_mode;	
-	
-	__le32 rds_ring_offset;	
-	__le32 sds_ring_offset;	
-	__le16 num_rds_rings;	
-	__le16 num_sds_rings;	
+	__le64 host_rsp_dma_addr;	/* Response dma'd here */
+	__le32 capabilities[4];	/* Flag bit vector */
+	__le32 host_int_crb_mode;	/* Interrupt crb usage */
+	__le32 host_rds_crb_mode;	/* RDS crb usage */
+	/* These ring offsets are relative to data[0] below */
+	__le32 rds_ring_offset;	/* Offset to RDS config */
+	__le32 sds_ring_offset;	/* Offset to SDS config */
+	__le16 num_rds_rings;	/* Count of RDS rings */
+	__le16 num_sds_rings;	/* Count of SDS rings */
 	__le16 valid_field_offset;
 	u8  txrx_sds_binding;
 	u8  msix_handler;
-	u8  reserved[128];      
+	u8  reserved[128];      /* reserve space for future expansion*/
+	/* MUST BE 64-bit aligned.
+	   The following is packed:
+	   - N hostrq_rds_rings
+	   - N hostrq_sds_rings */
 	char data[0];
 } __packed;
 
 struct qlcnic_cardrsp_rds_ring{
-	__le32 host_producer_crb;	
-	__le32 rsvd1;		
+	__le32 host_producer_crb;	/* Crb to use */
+	__le32 rsvd1;		/* Padding */
 } __packed;
 
 struct qlcnic_cardrsp_sds_ring {
-	__le32 host_consumer_crb;	
-	__le32 interrupt_crb;	
+	__le32 host_consumer_crb;	/* Crb to use */
+	__le32 interrupt_crb;	/* Crb to use */
 } __packed;
 
 struct qlcnic_cardrsp_rx_ctx {
-	
-	__le32 rds_ring_offset;	
-	__le32 sds_ring_offset;	
-	__le32 host_ctx_state;	
-	__le32 num_fn_per_port;	
-	__le16 num_rds_rings;	
-	__le16 num_sds_rings;	
-	__le16 context_id;		
-	u8  phys_port;		
-	u8  virt_port;		
-	u8  reserved[128];	
+	/* These ring offsets are relative to data[0] below */
+	__le32 rds_ring_offset;	/* Offset to RDS config */
+	__le32 sds_ring_offset;	/* Offset to SDS config */
+	__le32 host_ctx_state;	/* Starting State */
+	__le32 num_fn_per_port;	/* How many PCI fn share the port */
+	__le16 num_rds_rings;	/* Count of RDS rings */
+	__le16 num_sds_rings;	/* Count of SDS rings */
+	__le16 context_id;		/* Handle for context */
+	u8  phys_port;		/* Physical id of port */
+	u8  virt_port;		/* Virtual/Logical id of port */
+	u8  reserved[128];	/* save space for future expansion */
+	/*  MUST BE 64-bit aligned.
+	   The following is packed:
+	   - N cardrsp_rds_rings
+	   - N cardrs_sds_rings */
 	char data[0];
 } __packed;
 
@@ -620,45 +707,49 @@ struct qlcnic_cardrsp_rx_ctx {
 	(rds_rings)*(sizeof(struct qlcnic_cardrsp_rds_ring)) + 		\
 	(sds_rings)*(sizeof(struct qlcnic_cardrsp_sds_ring)))
 
+/*
+ * Tx context
+ */
 
 struct qlcnic_hostrq_cds_ring {
-	__le64 host_phys_addr;	
-	__le32 ring_size;		
-	__le32 rsvd;		
+	__le64 host_phys_addr;	/* Ring base addr */
+	__le32 ring_size;		/* Ring entries */
+	__le32 rsvd;		/* Padding */
 } __packed;
 
 struct qlcnic_hostrq_tx_ctx {
-	__le64 host_rsp_dma_addr;	
-	__le64 cmd_cons_dma_addr;	
-	__le64 dummy_dma_addr;	
-	__le32 capabilities[4];	
-	__le32 host_int_crb_mode;	
-	__le32 rsvd1;		
-	__le16 rsvd2;		
+	__le64 host_rsp_dma_addr;	/* Response dma'd here */
+	__le64 cmd_cons_dma_addr;	/*  */
+	__le64 dummy_dma_addr;	/*  */
+	__le32 capabilities[4];	/* Flag bit vector */
+	__le32 host_int_crb_mode;	/* Interrupt crb usage */
+	__le32 rsvd1;		/* Padding */
+	__le16 rsvd2;		/* Padding */
 	__le16 interrupt_ctl;
 	__le16 msi_index;
-	__le16 rsvd3;		
-	struct qlcnic_hostrq_cds_ring cds_ring;	
-	u8  reserved[128];	
+	__le16 rsvd3;		/* Padding */
+	struct qlcnic_hostrq_cds_ring cds_ring;	/* Desc of cds ring */
+	u8  reserved[128];	/* future expansion */
 } __packed;
 
 struct qlcnic_cardrsp_cds_ring {
-	__le32 host_producer_crb;	
-	__le32 interrupt_crb;	
+	__le32 host_producer_crb;	/* Crb to use */
+	__le32 interrupt_crb;	/* Crb to use */
 } __packed;
 
 struct qlcnic_cardrsp_tx_ctx {
-	__le32 host_ctx_state;	
-	__le16 context_id;		
-	u8  phys_port;		
-	u8  virt_port;		
-	struct qlcnic_cardrsp_cds_ring cds_ring;	
-	u8  reserved[128];	
+	__le32 host_ctx_state;	/* Starting state */
+	__le16 context_id;		/* Handle for context */
+	u8  phys_port;		/* Physical id of port */
+	u8  virt_port;		/* Virtual/Logical id of port */
+	struct qlcnic_cardrsp_cds_ring cds_ring;	/* Card cds settings */
+	u8  reserved[128];	/* future expansion */
 } __packed;
 
 #define SIZEOF_HOSTRQ_TX(HOSTRQ_TX)	(sizeof(HOSTRQ_TX))
 #define SIZEOF_CARDRSP_TX(CARDRSP_TX)	(sizeof(CARDRSP_TX))
 
+/* CRB */
 
 #define QLCNIC_HOST_RDS_CRB_MODE_UNIQUE	0
 #define QLCNIC_HOST_RDS_CRB_MODE_SHARED	1
@@ -672,6 +763,7 @@ struct qlcnic_cardrsp_tx_ctx {
 #define QLCNIC_HOST_INT_CRB_MODE_NORXTX	4
 
 
+/* MAC */
 
 #define MC_COUNT_P3P	38
 
@@ -702,6 +794,9 @@ struct qlcnic_mac_list_s {
 #define QLCNIC_IS_LB_CONFIGURED(VAL)	\
 		(VAL == (QLCNIC_LINKEVENT | QLCNIC_LB_RESPONSE))
 
+/*
+ * Driver --> Firmware
+ */
 #define QLCNIC_H2C_OPCODE_CONFIG_RSS			0x1
 #define QLCNIC_H2C_OPCODE_CONFIG_INTR_COALESCE		0x3
 #define QLCNIC_H2C_OPCODE_CONFIG_LED			0x4
@@ -714,22 +809,27 @@ struct qlcnic_mac_list_s {
 #define QLCNIC_H2C_OPCODE_CONFIG_HW_LRO		0x18
 #define QLCNIC_H2C_OPCODE_CONFIG_LOOPBACK		0x13
 
+/*
+ * Firmware --> Driver
+ */
 
 #define QLCNIC_C2H_OPCODE_CONFIG_LOOPBACK		0x8f
 #define QLCNIC_C2H_OPCODE_GET_LINKEVENT_RESPONSE	141
 
-#define VPORT_MISS_MODE_DROP		0 
-#define VPORT_MISS_MODE_ACCEPT_ALL	1 
-#define VPORT_MISS_MODE_ACCEPT_MULTI	2 
+#define VPORT_MISS_MODE_DROP		0 /* drop all unmatched */
+#define VPORT_MISS_MODE_ACCEPT_ALL	1 /* accept all packets */
+#define VPORT_MISS_MODE_ACCEPT_MULTI	2 /* accept unmatched multicast */
 
 #define QLCNIC_LRO_REQUEST_CLEANUP	4
 
+/* Capabilites received */
 #define QLCNIC_FW_CAPABILITY_TSO		BIT_1
 #define QLCNIC_FW_CAPABILITY_BDG		BIT_8
 #define QLCNIC_FW_CAPABILITY_FVLANTX		BIT_9
 #define QLCNIC_FW_CAPABILITY_HW_LRO		BIT_10
 #define QLCNIC_FW_CAPABILITY_MULTI_LOOPBACK	BIT_27
 
+/* module types */
 #define LINKEVENT_MODULE_NOT_PRESENT			1
 #define LINKEVENT_MODULE_OPTICAL_UNKNOWN		2
 #define LINKEVENT_MODULE_OPTICAL_SRLR			3
@@ -757,6 +857,16 @@ struct qlcnic_mac_list_s {
 #define LINKEVENT_LINKSPEED_MBPS	0
 #define LINKEVENT_LINKSPEED_ENCODED	1
 
+/* firmware response header:
+ *	63:58 - message type
+ *	57:56 - owner
+ *	55:53 - desc count
+ *	52:48 - reserved
+ *	47:40 - completion id
+ *	39:32 - opcode
+ *	31:16 - error code
+ *	15:00 - reserved
+ */
 #define qlcnic_get_nic_msg_opcode(msg_hdr)	\
 	((msg_hdr >> 32) & 0xFF)
 
@@ -834,6 +944,7 @@ struct qlcnic_ipaddr {
 #define QLCNIC_READD_AGE	20
 #define QLCNIC_LB_MAX_FILTERS	64
 
+/* QLCNIC Driver Error Code */
 #define QLCNIC_FW_NOT_RESPOND		51
 #define QLCNIC_TEST_IN_PROGRESS		52
 #define QLCNIC_UNDEFINED_ERROR		53
@@ -942,16 +1053,16 @@ struct qlcnic_adapter {
 
 	spinlock_t tx_clean_lock;
 	spinlock_t mac_learn_lock;
-	__le32 file_prd_off;	
+	__le32 file_prd_off;	/*File fw product offset*/
 	u32 fw_version;
 	const struct firmware *fw;
 };
 
 struct qlcnic_info {
 	__le16	pci_func;
-	__le16	op_mode; 
+	__le16	op_mode; /* 1 = Priv, 2 = NP, 3 = NP passthru */
 	__le16	phys_port;
-	__le16	switch_mode; 
+	__le16	switch_mode; /* 0 = disabled, 1 = int, 2 = ext */
 
 	__le32	capabilities;
 	u8	max_mac_filters;
@@ -966,12 +1077,12 @@ struct qlcnic_info {
 } __packed;
 
 struct qlcnic_pci_info {
-	__le16	id; 
-	__le16	active; 
-	__le16	type; 
-	__le16	default_port; 
+	__le16	id; /* pci function id */
+	__le16	active; /* 1 = Enabled */
+	__le16	type; /* 1 = NIC, 2 = FCoE, 3 = iSCSI */
+	__le16	default_port; /* default port number */
 
-	__le16	tx_min_bw; 
+	__le16	tx_min_bw; /* Multiple of 100mbpc */
 	__le16	tx_max_bw;
 	__le16	reserved1[2];
 
@@ -1011,9 +1122,10 @@ struct qlcnic_eswitch {
 };
 
 
+/* Return codes for Error handling */
 #define QL_STATUS_INVALID_PARAM	-1
 
-#define MAX_BW			100	
+#define MAX_BW			100	/* % of link speed */
 #define MAX_VLAN_ID		4095
 #define MIN_VLAN_ID		2
 #define DEFAULT_MAC_LEARN	1
@@ -1311,6 +1423,7 @@ void qlcnic_prune_lb_filters(struct qlcnic_adapter *adapter);
 void qlcnic_delete_lb_filters(struct qlcnic_adapter *adapter);
 int qlcnic_dump_fw(struct qlcnic_adapter *);
 
+/* Functions from qlcnic_init.c */
 int qlcnic_load_firmware(struct qlcnic_adapter *adapter);
 int qlcnic_need_fw_reset(struct qlcnic_adapter *adapter);
 void qlcnic_request_firmware(struct qlcnic_adapter *adapter);
@@ -1366,8 +1479,10 @@ void qlcnic_process_rcv_ring_diag(struct qlcnic_host_sds_ring *sds_ring);
 void qlcnic_clear_lb_mode(struct qlcnic_adapter *adapter);
 int qlcnic_set_lb_mode(struct qlcnic_adapter *adapter, u8 mode);
 
+/* Functions from qlcnic_ethtool.c */
 int qlcnic_check_loopback_buff(unsigned char *data, u8 mac[]);
 
+/* Functions from qlcnic_main.c */
 int qlcnic_reset_context(struct qlcnic_adapter *);
 void qlcnic_issue_cmd(struct qlcnic_adapter *adapter, struct qlcnic_cmd_args *);
 void qlcnic_diag_free_res(struct net_device *netdev, int max_sds_rings);
@@ -1378,11 +1493,13 @@ int qlcnic_set_max_rss(struct qlcnic_adapter *adapter, u8 data);
 void qlcnic_dev_request_reset(struct qlcnic_adapter *);
 void qlcnic_alloc_lb_filters_mem(struct qlcnic_adapter *adapter);
 
+/* Management functions */
 int qlcnic_get_mac_address(struct qlcnic_adapter *, u8*);
 int qlcnic_get_nic_info(struct qlcnic_adapter *, struct qlcnic_info *, u8);
 int qlcnic_set_nic_info(struct qlcnic_adapter *, struct qlcnic_info *);
 int qlcnic_get_pci_info(struct qlcnic_adapter *, struct qlcnic_pci_info*);
 
+/*  eSwitch management functions */
 int qlcnic_config_switch_port(struct qlcnic_adapter *,
 				struct qlcnic_esw_func_cfg *);
 int qlcnic_get_eswitch_port_config(struct qlcnic_adapter *,
@@ -1395,6 +1512,9 @@ int qlcnic_get_eswitch_stats(struct qlcnic_adapter *, const u8, u8,
 int qlcnic_clear_esw_stats(struct qlcnic_adapter *adapter, u8, u8, u8);
 extern int qlcnic_config_tso;
 
+/*
+ * QLOGIC Board information
+ */
 
 #define QLCNIC_MAX_BOARD_NAME_LEN 100
 struct qlcnic_brdinfo {
@@ -1453,4 +1573,4 @@ struct qlcnic_nic_template {
 			__func__, ##_args);		\
 	} while (0)
 
-#endif				
+#endif				/* __QLCNIC_H_ */

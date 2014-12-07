@@ -8,6 +8,7 @@
  * Check with readelf after changing.
  */
 
+/* Disable profiling for userspace code: */
 #define DISABLE_BRANCH_PROFILING
 
 #include <linux/kernel.h>
@@ -29,6 +30,13 @@ notrace static cycle_t vread_tsc(void)
 	cycle_t ret;
 	u64 last;
 
+	/*
+	 * Empirically, a fence (of type that depends on the CPU)
+	 * before rdtsc is enough to ensure that rdtsc is ordered
+	 * with respect to loads.  The various CPU manuals are unclear
+	 * as to whether rdtsc can be reordered with later loads,
+	 * but no one has ever seen it happen.
+	 */
 	rdtsc_barrier();
 	ret = (cycle_t)vget_cycles();
 
@@ -37,6 +45,14 @@ notrace static cycle_t vread_tsc(void)
 	if (likely(ret >= last))
 		return ret;
 
+	/*
+	 * GCC likes to generate cmov here, but this branch is extremely
+	 * predictable (it's just a funciton of time and the likely is
+	 * very likely) and there's a data dependence, so force GCC
+	 * to generate a branch instead.  I don't barrier() because
+	 * we don't actually need a barrier, and if this function
+	 * ever gets inlined it will generate worse code.
+	 */
 	asm volatile ("");
 	return last;
 }
@@ -78,6 +94,7 @@ notrace static inline long vgetns(void)
 	return (v * gtod->clock.mult) >> gtod->clock.shift;
 }
 
+/* Code size doesn't matter (vdso is 4k anyway) and this is faster. */
 notrace static int __always_inline do_realtime(struct timespec *ts)
 {
 	unsigned long seq, ns;
@@ -171,7 +188,7 @@ notrace int __vdso_gettimeofday(struct timeval *tv, struct timezone *tz)
 		tv->tv_usec /= 1000;
 	}
 	if (unlikely(tz != NULL)) {
-		
+		/* Avoid memcpy. Some old compilers fail to inline it */
 		tz->tz_minuteswest = gtod->sys_tz.tz_minuteswest;
 		tz->tz_dsttime = gtod->sys_tz.tz_dsttime;
 	}
@@ -183,9 +200,13 @@ notrace int __vdso_gettimeofday(struct timeval *tv, struct timezone *tz)
 int gettimeofday(struct timeval *, struct timezone *)
 	__attribute__((weak, alias("__vdso_gettimeofday")));
 
+/*
+ * This will break when the xtime seconds get inaccurate, but that is
+ * unlikely
+ */
 notrace time_t __vdso_time(time_t *t)
 {
-	
+	/* This is atomic on x86_64 so we don't need any locks. */
 	time_t result = ACCESS_ONCE(VVAR(vsyscall_gtod_data).wall_time_sec);
 
 	if (t)

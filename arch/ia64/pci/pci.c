@@ -30,10 +30,16 @@
 #include <asm/irq.h>
 #include <asm/hw_irq.h>
 
+/*
+ * Low-level SAL-based PCI configuration access functions. Note that SAL
+ * calls are already serialized (via sal_lock), so we don't need another
+ * synchronization mechanism here.
+ */
 
 #define PCI_SAL_ADDRESS(seg, bus, devfn, reg)		\
 	(((u64) seg << 24) | (bus << 16) | (devfn << 8) | (reg))
 
+/* SAL 3.2 adds support for extended config space. */
 
 #define PCI_SAL_EXT_ADDRESS(seg, bus, devfn, reg)	\
 	(((u64) seg << 28) | (bus << 20) | (devfn << 12) | (reg))
@@ -108,6 +114,7 @@ struct pci_ops pci_root_ops = {
 	.write = pci_write,
 };
 
+/* Called by ACPI when it finds a new root bus.  */
 
 static struct pci_controller * __devinit
 alloc_pci_controller (int seg)
@@ -137,7 +144,7 @@ new_space (u64 phys_base, int sparse)
 	int i;
 
 	if (phys_base == 0)
-		return 0;	
+		return 0;	/* legacy I/O port space */
 
 	mmio_base = (u64) ioremap(phys_base, 0);
 	for (i = 0; i < num_io_spaces; i++)
@@ -195,6 +202,11 @@ add_io_space (struct pci_root_info *info, struct acpi_resource_address64 *addr)
 	snprintf(name, len, "%s I/O Ports %08lx-%08lx", info->name,
 		base_port + min, base_port + max);
 
+	/*
+	 * The SDM guarantees the legacy 0-64K space is sparse, but if the
+	 * mapping is done by the processor (not the bridge), ACPI may not
+	 * mark it as sparse.
+	 */
 	if (space_nr == 0)
 		sparse = 1;
 
@@ -219,6 +231,13 @@ static acpi_status __devinit resource_to_window(struct acpi_resource *resource,
 {
 	acpi_status status;
 
+	/*
+	 * We're only interested in _CRS descriptors that are
+	 *	- address space descriptors for memory or I/O space
+	 *	- non-zero size
+	 *	- producers, i.e., the address space is routed downstream,
+	 *	  not consumed by the bridge itself
+	 */
 	status = acpi_resource_to_address64(resource, addr);
 	if (ACPI_SUCCESS(status) &&
 	    (addr->resource_type == ACPI_MEMORY_RANGE ||
@@ -253,7 +272,7 @@ static __devinit acpi_status add_window(struct acpi_resource *res, void *data)
 	unsigned long flags, offset = 0;
 	struct resource *root;
 
-	
+	/* Return AE_OK for non-window resources to keep scanning for more */
 	status = resource_to_window(res, &addr);
 	if (!ACPI_SUCCESS(status))
 		return AE_OK;
@@ -296,6 +315,8 @@ static __devinit acpi_status add_window(struct acpi_resource *res, void *data)
 				 &window->resource);
 	}
 
+	/* HP's firmware has a hack to work around a Windows bug.
+	 * Ignore these tiny memory ranges */
 	if (!((window->resource.flags & IORESOURCE_MEM) &&
 	      (window->resource.end - window->resource.start < 16)))
 		pci_add_resource_offset(&info->resources, &window->resource,
@@ -350,6 +371,12 @@ pci_acpi_scan_root(struct acpi_pci_root *root)
 		acpi_walk_resources(device->handle, METHOD_NAME__CRS,
 			add_window, &info);
 	}
+	/*
+	 * See arch/x86/pci/acpi.c.
+	 * The desired pci bus might already be scanned in a quirk. We
+	 * should handle the case here, but it appears that IA64 hasn't
+	 * such quirk. So we just ignore the case now.
+	 */
 	pbus = pci_create_root_bus(NULL, bus, &pci_root_ops, controller,
 				   &info.resources);
 	if (!pbus) {
@@ -410,6 +437,9 @@ static void __devinit pcibios_fixup_bridge_resources(struct pci_dev *dev)
 	pcibios_fixup_resources(dev, PCI_BRIDGE_RESOURCES, PCI_NUM_RESOURCES);
 }
 
+/*
+ *  Called after each bus is probed, but before its children are examined.
+ */
 void __devinit
 pcibios_fixup_bus (struct pci_bus *b)
 {
@@ -426,7 +456,7 @@ pcibios_fixup_bus (struct pci_bus *b)
 
 void pcibios_set_master (struct pci_dev *dev)
 {
-	
+	/* No special bus mastering setup handling */
 }
 
 void __devinit
@@ -434,7 +464,7 @@ pcibios_update_irq (struct pci_dev *dev, int irq)
 {
 	pci_write_config_byte(dev, PCI_INTERRUPT_LINE, irq);
 
-	
+	/* ??? FIXME -- record old value for shutdown.  */
 }
 
 int
@@ -466,6 +496,9 @@ pcibios_align_resource (void *data, const struct resource *res,
 	return res->start;
 }
 
+/*
+ * PCI BIOS setup, always defaults to SAL interface
+ */
 char * __init
 pcibios_setup (char *str)
 {
@@ -479,7 +512,17 @@ pci_mmap_page_range (struct pci_dev *dev, struct vm_area_struct *vma,
 	unsigned long size = vma->vm_end - vma->vm_start;
 	pgprot_t prot;
 
+	/*
+	 * I/O space cannot be accessed via normal processor loads and
+	 * stores on this platform.
+	 */
 	if (mmap_state == pci_mmap_io)
+		/*
+		 * XXX we could relax this for I/O spaces for which ACPI
+		 * indicates that the space is 1-to-1 mapped.  But at the
+		 * moment, we don't support multiple PCI address spaces and
+		 * the legacy I/O space is not 1-to-1 mapped, so this is moot.
+		 */
 		return -EINVAL;
 
 	if (!valid_mmap_phys_addr_range(vma->vm_pgoff, size))
@@ -488,6 +531,11 @@ pci_mmap_page_range (struct pci_dev *dev, struct vm_area_struct *vma,
 	prot = phys_mem_access_prot(NULL, vma->vm_pgoff, size,
 				    vma->vm_page_prot);
 
+	/*
+	 * If the user requested WC, the kernel uses UC or WC for this region,
+	 * and the chipset supports WC, we can use WC. Otherwise, we have to
+	 * use the same attribute the kernel uses.
+	 */
 	if (write_combine &&
 	    ((pgprot_val(prot) & _PAGE_MA_MASK) == _PAGE_MA_UC ||
 	     (pgprot_val(prot) & _PAGE_MA_MASK) == _PAGE_MA_WC) &&
@@ -503,11 +551,31 @@ pci_mmap_page_range (struct pci_dev *dev, struct vm_area_struct *vma,
 	return 0;
 }
 
+/**
+ * ia64_pci_get_legacy_mem - generic legacy mem routine
+ * @bus: bus to get legacy memory base address for
+ *
+ * Find the base of legacy memory for @bus.  This is typically the first
+ * megabyte of bus address space for @bus or is simply 0 on platforms whose
+ * chipsets support legacy I/O and memory routing.  Returns the base address
+ * or an error pointer if an error occurred.
+ *
+ * This is the ia64 generic version of this routine.  Other platforms
+ * are free to override it with a machine vector.
+ */
 char *ia64_pci_get_legacy_mem(struct pci_bus *bus)
 {
 	return (char *)__IA64_UNCACHED_OFFSET;
 }
 
+/**
+ * pci_mmap_legacy_page_range - map legacy memory space to userland
+ * @bus: bus whose legacy space we're mapping
+ * @vma: vma passed in by mmap
+ *
+ * Map legacy memory space for this device back to userspace using a machine
+ * vector to get the base address.
+ */
 int
 pci_mmap_legacy_page_range(struct pci_bus *bus, struct vm_area_struct *vma,
 			   enum pci_mmap_state mmap_state)
@@ -516,10 +584,14 @@ pci_mmap_legacy_page_range(struct pci_bus *bus, struct vm_area_struct *vma,
 	pgprot_t prot;
 	char *addr;
 
-	
+	/* We only support mmap'ing of legacy memory space */
 	if (mmap_state != pci_mmap_mem)
 		return -ENOSYS;
 
+	/*
+	 * Avoid attribute aliasing.  See Documentation/ia64/aliasing.txt
+	 * for more details.
+	 */
 	if (!valid_mmap_phys_addr_range(vma->vm_pgoff, size))
 		return -EINVAL;
 	prot = phys_mem_access_prot(NULL, vma->vm_pgoff, size,
@@ -539,6 +611,19 @@ pci_mmap_legacy_page_range(struct pci_bus *bus, struct vm_area_struct *vma,
 	return 0;
 }
 
+/**
+ * ia64_pci_legacy_read - read from legacy I/O space
+ * @bus: bus to read
+ * @port: legacy port value
+ * @val: caller allocated storage for returned value
+ * @size: number of bytes to read
+ *
+ * Simply reads @size bytes from @port and puts the result in @val.
+ *
+ * Again, this (and the write routine) are generic versions that can be
+ * overridden by the platform.  This is necessary on platforms that don't
+ * support legacy I/O routing or that hard fail on legacy I/O timeouts.
+ */
 int ia64_pci_legacy_read(struct pci_bus *bus, u16 port, u32 *val, u8 size)
 {
 	int ret = size;
@@ -561,6 +646,15 @@ int ia64_pci_legacy_read(struct pci_bus *bus, u16 port, u32 *val, u8 size)
 	return ret;
 }
 
+/**
+ * ia64_pci_legacy_write - perform a legacy I/O write
+ * @bus: bus pointer
+ * @port: port to write
+ * @val: value to write
+ * @size: number of bytes to write from @val
+ *
+ * Simply writes @size bytes of @val to @port.
+ */
 int ia64_pci_legacy_write(struct pci_bus *bus, u16 port, u32 val, u8 size)
 {
 	int ret = size;
@@ -583,6 +677,14 @@ int ia64_pci_legacy_write(struct pci_bus *bus, u16 port, u32 val, u8 size)
 	return ret;
 }
 
+/**
+ * set_pci_cacheline_size - determine cacheline size for PCI devices
+ *
+ * We want to use the line-size of the outer-most cache.  We assume
+ * that this line-size is the same for all CPUs.
+ *
+ * Code mostly taken from arch/ia64/kernel/palinfo.c:cache_info().
+ */
 static void __init set_pci_dfl_cacheline_size(void)
 {
 	unsigned long levels, unique_caches;
@@ -597,7 +699,7 @@ static void __init set_pci_dfl_cacheline_size(void)
 	}
 
 	status = ia64_pal_cache_config_info(levels - 1,
-				 2, &cci);
+				/* cache_type (data_or_unified)= */ 2, &cci);
 	if (status != 0) {
 		printk(KERN_ERR "%s: ia64_pal_cache_config_info() failed "
 			"(status=%ld)\n", __func__, status);
@@ -613,7 +715,7 @@ u64 ia64_dma_get_required_mask(struct device *dev)
 	u64 mask;
 
 	if (!high_totalram) {
-		
+		/* convert to mask just covering totalram */
 		low_totalram = (1 << (fls(low_totalram) - 1));
 		low_totalram += low_totalram - 1;
 		mask = low_totalram;

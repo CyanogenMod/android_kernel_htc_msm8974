@@ -54,6 +54,7 @@
 #include "hostap_ap.h"
 
 
+/* #define final_version */
 
 static int mtu = 1500;
 module_param(mtu, int, 0444);
@@ -87,35 +88,47 @@ MODULE_PARM_DESC(dev_template, "Prefix for network device name (default: "
 #ifdef final_version
 #define EXTRA_EVENTS_WTERR 0
 #else
+/* check WTERR events (Wait Time-out) in development versions */
 #define EXTRA_EVENTS_WTERR HFA384X_EV_WTERR
 #endif
 
+/* Events that will be using BAP0 */
 #define HFA384X_BAP0_EVENTS \
 	(HFA384X_EV_TXEXC | HFA384X_EV_RX | HFA384X_EV_INFO | HFA384X_EV_TX)
 
+/* event mask, i.e., events that will result in an interrupt */
 #define HFA384X_EVENT_MASK \
 	(HFA384X_BAP0_EVENTS | HFA384X_EV_ALLOC | HFA384X_EV_INFDROP | \
 	HFA384X_EV_CMD | HFA384X_EV_TICK | \
 	EXTRA_EVENTS_WTERR)
 
+/* Default TX control flags: use 802.11 headers and request interrupt for
+ * failed transmits. Frames that request ACK callback, will add
+ * _TX_OK flag and _ALT_RTRY flag may be used to select different retry policy.
+ */
 #define HFA384X_TX_CTRL_FLAGS \
 	(HFA384X_TX_CTRL_802_11 | HFA384X_TX_CTRL_TX_EX)
 
 
+/* ca. 1 usec */
 #define HFA384X_CMD_BUSY_TIMEOUT 5000
 #define HFA384X_BAP_BUSY_TIMEOUT 50000
 
+/* ca. 10 usec */
 #define HFA384X_CMD_COMPL_TIMEOUT 20000
 #define HFA384X_DL_COMPL_TIMEOUT 1000000
 
-#define HFA384X_INIT_TIMEOUT (HZ / 2) 
-#define HFA384X_ALLOC_COMPL_TIMEOUT (HZ / 20) 
+/* Wait times for initialization; yield to other processes to avoid busy
+ * waiting for long time. */
+#define HFA384X_INIT_TIMEOUT (HZ / 2) /* 500 ms */
+#define HFA384X_ALLOC_COMPL_TIMEOUT (HZ / 20) /* 50 ms */
 
 
 static void prism2_hw_reset(struct net_device *dev);
 static void prism2_check_sta_fw_version(local_info_t *local);
 
 #ifdef PRISM2_DOWNLOAD_SUPPORT
+/* hostap_download.c */
 static int prism2_download_aux_dump(struct net_device *dev,
 				    unsigned int addr, int len, u8 *buf);
 static u8 * prism2_read_pda(struct net_device *dev);
@@ -127,7 +140,7 @@ static int prism2_download_volatile(local_info_t *local,
 static int prism2_download_genesis(local_info_t *local,
 				   struct prism2_download_data *param);
 static int prism2_get_ram_size(local_info_t *local);
-#endif 
+#endif /* PRISM2_DOWNLOAD_SUPPORT */
 
 
 
@@ -156,6 +169,15 @@ static void hfa384x_read_regs(struct net_device *dev,
 }
 
 
+/**
+ * __hostap_cmd_queue_free - Free Prism2 command queue entry (private)
+ * @local: pointer to private Host AP driver data
+ * @entry: Prism2 command queue entry to be freed
+ * @del_req: request the entry to be removed
+ *
+ * Internal helper function for freeing Prism2 command queue entries.
+ * Caller must have acquired local->cmdlock before calling this function.
+ */
 static inline void __hostap_cmd_queue_free(local_info_t *local,
 					   struct hostap_cmd_queue *entry,
 					   int del_req)
@@ -173,6 +195,14 @@ static inline void __hostap_cmd_queue_free(local_info_t *local,
 }
 
 
+/**
+ * hostap_cmd_queue_free - Free Prism2 command queue entry
+ * @local: pointer to private Host AP driver data
+ * @entry: Prism2 command queue entry to be freed
+ * @del_req: request the entry to be removed
+ *
+ * Free a Prism2 command queue entry.
+ */
 static inline void hostap_cmd_queue_free(local_info_t *local,
 					 struct hostap_cmd_queue *entry,
 					 int del_req)
@@ -185,6 +215,10 @@ static inline void hostap_cmd_queue_free(local_info_t *local,
 }
 
 
+/**
+ * prism2_clear_cmd_queue - Free all pending Prism2 command queue entries
+ * @local: pointer to private Host AP driver data
+ */
 static void prism2_clear_cmd_queue(local_info_t *local)
 {
 	struct list_head *ptr, *n;
@@ -202,6 +236,8 @@ static void prism2_clear_cmd_queue(local_info_t *local)
 		__hostap_cmd_queue_free(local, entry, 1);
 	}
 	if (local->cmd_queue_len) {
+		/* This should not happen; print debug message and clear
+		 * queue length. */
 		printk(KERN_DEBUG "%s: cmd_queue_len (%d) not zero after "
 		       "flush\n", local->dev->name, local->cmd_queue_len);
 		local->cmd_queue_len = 0;
@@ -210,6 +246,11 @@ static void prism2_clear_cmd_queue(local_info_t *local)
 }
 
 
+/**
+ * hfa384x_cmd_issue - Issue a Prism2 command to the hardware
+ * @dev: pointer to net_device
+ * @entry: Prism2 command queue entry to be issued
+ */
 static int hfa384x_cmd_issue(struct net_device *dev,
 				    struct hostap_cmd_queue *entry)
 {
@@ -230,6 +271,8 @@ static int hfa384x_cmd_issue(struct net_device *dev,
 		       dev->name, entry);
 	}
 
+	/* wait until busy bit is clear; this should always be clear since the
+	 * commands are serialized */
 	tries = HFA384X_CMD_BUSY_TIMEOUT;
 	while (HFA384X_INW(HFA384X_CMD_OFF) & HFA384X_CMD_BUSY && tries > 0) {
 		tries--;
@@ -251,7 +294,7 @@ static int hfa384x_cmd_issue(struct net_device *dev,
 		return -ETIMEDOUT;
 	}
 
-	
+	/* write command */
 	spin_lock_irqsave(&local->cmdlock, flags);
 	HFA384X_OUTW(entry->param0, HFA384X_PARAM0_OFF);
 	HFA384X_OUTW(entry->param1, HFA384X_PARAM1_OFF);
@@ -263,6 +306,18 @@ static int hfa384x_cmd_issue(struct net_device *dev,
 }
 
 
+/**
+ * hfa384x_cmd - Issue a Prism2 command and wait (sleep) for completion
+ * @dev: pointer to net_device
+ * @cmd: Prism2 command code (HFA384X_CMD_CODE_*)
+ * @param0: value for Param0 register
+ * @param1: value for Param1 register (pointer; %NULL if not used)
+ * @resp0: pointer for Resp0 data or %NULL if Resp0 is not needed
+ *
+ * Issue given command (possibly after waiting in command queue) and sleep
+ * until the command is completed (or timed out or interrupted). This can be
+ * called only from user process context.
+ */
 static int hfa384x_cmd(struct net_device *dev, u16 cmd, u16 param0,
 		       u16 *param1, u16 *resp0)
 {
@@ -303,6 +358,8 @@ static int hfa384x_cmd(struct net_device *dev, u16 cmd, u16 param0,
 		entry->param1 = *param1;
 	init_waitqueue_head(&entry->compl);
 
+	/* prepare to wait for command completion event, but do not sleep yet
+	 */
 	add_wait_queue(&entry->compl, &wait);
 	set_current_state(TASK_INTERRUPTIBLE);
 
@@ -330,7 +387,7 @@ static int hfa384x_cmd(struct net_device *dev, u16 cmd, u16 param0,
 
  wait_completion:
 	if (!err && entry->type != CMD_COMPLETED) {
-		
+		/* sleep until command is completed or timed out */
 		res = schedule_timeout(2 * HZ);
 	} else
 		res = -1;
@@ -339,13 +396,33 @@ static int hfa384x_cmd(struct net_device *dev, u16 cmd, u16 param0,
 		err = -EINTR;
 
 	if (err && issued) {
+		/* the command was issued, so a CmdCompl event should occur
+		 * soon; however, there's a pending signal and
+		 * schedule_timeout() would be interrupted; wait a short period
+		 * of time to avoid removing entry from the list before
+		 * CmdCompl event */
 		udelay(300);
 	}
 
 	set_current_state(TASK_RUNNING);
 	remove_wait_queue(&entry->compl, &wait);
 
+	/* If entry->list is still in the list, it must be removed
+	 * first and in this case prism2_cmd_ev() does not yet have
+	 * local reference to it, and the data can be kfree()'d
+	 * here. If the command completion event is still generated,
+	 * it will be assigned to next (possibly) pending command, but
+	 * the driver will reset the card anyway due to timeout
+	 *
+	 * If the entry is not in the list prism2_cmd_ev() has a local
+	 * reference to it, but keeps cmdlock as long as the data is
+	 * needed, so the data can be kfree()'d here. */
 
+	/* FIX: if the entry->list is in the list, it has not been completed
+	 * yet, so removing it here is somewhat wrong.. this could cause
+	 * references to freed memory and next list_del() causing NULL pointer
+	 * dereference.. it would probably be better to leave the entry in the
+	 * list and the list should be emptied during hw reset */
 
 	spin_lock_irqsave(&local->cmdlock, flags);
 	if (!list_empty(&entry->list)) {
@@ -372,6 +449,9 @@ static int hfa384x_cmd(struct net_device *dev, u16 cmd, u16 param0,
 		       res, entry, entry->type, entry->cmd, entry->param0, reg,
 		       HFA384X_INW(HFA384X_INTEN_OFF));
 		if (reg & HFA384X_EV_CMD) {
+			/* Command completion event is pending, but the
+			 * interrupt was not delivered - probably an issue
+			 * with pcmcia-cs configuration. */
 			printk(KERN_WARNING "%s: interrupt delivery does not "
 			       "seem to work\n", dev->name);
 		}
@@ -388,7 +468,7 @@ static int hfa384x_cmd(struct net_device *dev, u16 cmd, u16 param0,
 		       "resp0=0x%04x\n",
 		       dev->name, cmd, entry->res, entry->resp0);
 	}
-#endif 
+#endif /* final_version */
 
 	res = entry->res;
  done:
@@ -397,6 +477,20 @@ static int hfa384x_cmd(struct net_device *dev, u16 cmd, u16 param0,
 }
 
 
+/**
+ * hfa384x_cmd_callback - Issue a Prism2 command; callback when completed
+ * @dev: pointer to net_device
+ * @cmd: Prism2 command code (HFA384X_CMD_CODE_*)
+ * @param0: value for Param0 register
+ * @callback: command completion callback function (%NULL = no callback)
+ * @context: context data to be given to the callback function
+ *
+ * Issue given command (possibly after waiting in command queue) and use
+ * callback function to indicate command completion. This can be called both
+ * from user and interrupt context. The callback function will be called in
+ * hardware IRQ context. It can be %NULL, when no function is called when
+ * command is completed.
+ */
 static int hfa384x_cmd_callback(struct net_device *dev, u16 cmd, u16 param0,
 				void (*callback)(struct net_device *dev,
 						 long context, u16 resp0,
@@ -448,12 +542,23 @@ static int hfa384x_cmd_callback(struct net_device *dev, u16 cmd, u16 param0,
 }
 
 
+/**
+ * __hfa384x_cmd_no_wait - Issue a Prism2 command (private)
+ * @dev: pointer to net_device
+ * @cmd: Prism2 command code (HFA384X_CMD_CODE_*)
+ * @param0: value for Param0 register
+ * @io_debug_num: I/O debug error number
+ *
+ * Shared helper function for hfa384x_cmd_wait() and hfa384x_cmd_no_wait().
+ */
 static int __hfa384x_cmd_no_wait(struct net_device *dev, u16 cmd, u16 param0,
 				 int io_debug_num)
 {
 	int tries;
 	u16 reg;
 
+	/* wait until busy bit is clear; this should always be clear since the
+	 * commands are serialized */
 	tries = HFA384X_CMD_BUSY_TIMEOUT;
 	while (HFA384X_INW(HFA384X_CMD_OFF) & HFA384X_CMD_BUSY && tries > 0) {
 		tries--;
@@ -467,7 +572,7 @@ static int __hfa384x_cmd_no_wait(struct net_device *dev, u16 cmd, u16 param0,
 		return -ETIMEDOUT;
 	}
 
-	
+	/* write command */
 	HFA384X_OUTW(param0, HFA384X_PARAM0_OFF);
 	HFA384X_OUTW(cmd, HFA384X_CMD_OFF);
 
@@ -475,6 +580,12 @@ static int __hfa384x_cmd_no_wait(struct net_device *dev, u16 cmd, u16 param0,
 }
 
 
+/**
+ * hfa384x_cmd_wait - Issue a Prism2 command and busy wait for completion
+ * @dev: pointer to net_device
+ * @cmd: Prism2 command code (HFA384X_CMD_CODE_*)
+ * @param0: value for Param0 register
+ */
 static int hfa384x_cmd_wait(struct net_device *dev, u16 cmd, u16 param0)
 {
 	int res, tries;
@@ -484,7 +595,7 @@ static int hfa384x_cmd_wait(struct net_device *dev, u16 cmd, u16 param0)
 	if (res)
 		return res;
 
-        
+        /* wait for command completion */
 	if ((cmd & HFA384X_CMDCODE_MASK) == HFA384X_CMDCODE_DOWNLOAD)
 		tries = HFA384X_DL_COMPL_TIMEOUT;
 	else
@@ -519,6 +630,12 @@ static int hfa384x_cmd_wait(struct net_device *dev, u16 cmd, u16 param0)
 }
 
 
+/**
+ * hfa384x_cmd_no_wait - Issue a Prism2 command; do not wait for completion
+ * @dev: pointer to net_device
+ * @cmd: Prism2 command code (HFA384X_CMD_CODE_*)
+ * @param0: value for Param0 register
+ */
 static inline int hfa384x_cmd_no_wait(struct net_device *dev, u16 cmd,
 				      u16 param0)
 {
@@ -526,6 +643,16 @@ static inline int hfa384x_cmd_no_wait(struct net_device *dev, u16 cmd,
 }
 
 
+/**
+ * prism2_cmd_ev - Prism2 command completion event handler
+ * @dev: pointer to net_device
+ *
+ * Interrupt handler for command completion events. Called by the main
+ * interrupt handler in hardware IRQ context. Read Resp0 and status registers
+ * from the hardware and ACK the event. Depending on the issued command type
+ * either wake up the sleeping process that is waiting for command completion
+ * or call the callback function. Issue the next command, if one is pending.
+ */
 static void prism2_cmd_ev(struct net_device *dev)
 {
 	struct hostap_interface *iface;
@@ -565,7 +692,7 @@ static void prism2_cmd_ev(struct net_device *dev)
 		       BIT(9) | BIT(8))) >> 8;
 	HFA384X_OUTW(HFA384X_EV_CMD, HFA384X_EVACK_OFF);
 
-	
+	/* TODO: rest of the CmdEv handling could be moved to tasklet */
 	if (entry->type == CMD_SLEEP) {
 		entry->type = CMD_COMPLETED;
 		wake_up_interruptible(&entry->compl);
@@ -579,13 +706,15 @@ static void prism2_cmd_ev(struct net_device *dev)
 	}
 	hostap_cmd_queue_free(local, entry, 1);
 
-	
+	/* issue next command, if pending */
 	entry = NULL;
 	spin_lock(&local->cmdlock);
 	if (!list_empty(&local->cmd_queue)) {
 		entry = list_entry(local->cmd_queue.next,
 				   struct hostap_cmd_queue, list);
 		if (entry->issuing) {
+			/* hfa384x_cmd() has already started issuing this
+			 * command, so do not start here */
 			entry = NULL;
 		}
 		if (entry)
@@ -594,6 +723,8 @@ static void prism2_cmd_ev(struct net_device *dev)
 	spin_unlock(&local->cmdlock);
 
 	if (entry) {
+		/* issue next command; if command issuing fails, remove the
+		 * entry from cmd_queue */
 		int res = hfa384x_cmd_issue(dev, entry);
 		spin_lock(&local->cmdlock);
 		__hostap_cmd_queue_free(local, entry, res);
@@ -616,6 +747,7 @@ static int hfa384x_wait_offset(struct net_device *dev, u16 o_off)
 }
 
 
+/* Offset must be even */
 static int hfa384x_setup_bap(struct net_device *dev, u16 bap, u16 id,
 			     int offset)
 {
@@ -680,7 +812,8 @@ static int hfa384x_get_rid(struct net_device *dev, u16 rid, void *buf, int len,
 	if (local->no_pri) {
 		printk(KERN_DEBUG "%s: cannot get RID %04x (len=%d) - no PRI "
 		       "f/w\n", dev->name, rid, len);
-		return -ENOTTY; 
+		return -ENOTTY; /* Well.. not really correct, but return
+				 * something unique enough.. */
 	}
 
 	if ((local->func->card_present && !local->func->card_present(local)) ||
@@ -707,7 +840,7 @@ static int hfa384x_get_rid(struct net_device *dev, u16 rid, void *buf, int len,
 		res = hfa384x_from_bap(dev, BAP0, &rec, sizeof(rec));
 
 	if (le16_to_cpu(rec.len) == 0) {
-		
+		/* RID not available */
 		res = -ENODATA;
 	}
 
@@ -752,7 +885,8 @@ static int hfa384x_set_rid(struct net_device *dev, u16 rid, void *buf, int len)
 	if (local->no_pri) {
 		printk(KERN_DEBUG "%s: cannot set RID %04x (len=%d) - no PRI "
 		       "f/w\n", dev->name, rid, len);
-		return -ENOTTY; 
+		return -ENOTTY; /* Well.. not really correct, but return
+				 * something unique enough.. */
 	}
 
 	if ((local->func->card_present && !local->func->card_present(local)) ||
@@ -760,7 +894,7 @@ static int hfa384x_set_rid(struct net_device *dev, u16 rid, void *buf, int len)
 		return -ENODEV;
 
 	rec.rid = cpu_to_le16(rid);
-	
+	/* RID len in words and +1 for rec.rid */
 	rec.len = cpu_to_le16(len / 2 + len % 2 + 1);
 
 	res = mutex_lock_interruptible(&local->rid_bap_mtx);
@@ -800,7 +934,7 @@ static int hfa384x_set_rid(struct net_device *dev, u16 rid, void *buf, int len)
 
 static void hfa384x_disable_interrupts(struct net_device *dev)
 {
-	
+	/* disable interrupts and clear event status */
 	HFA384X_OUTW(0, HFA384X_INTEN_OFF);
 	HFA384X_OUTW(0xffff, HFA384X_EVACK_OFF);
 }
@@ -808,7 +942,7 @@ static void hfa384x_disable_interrupts(struct net_device *dev)
 
 static void hfa384x_enable_interrupts(struct net_device *dev)
 {
-	
+	/* ack pending events and enable interrupts from selected events */
 	HFA384X_OUTW(0xffff, HFA384X_EVACK_OFF);
 	HFA384X_OUTW(HFA384X_EVENT_MASK, HFA384X_INTEN_OFF);
 }
@@ -838,6 +972,9 @@ static u16 hfa384x_allocate_fid(struct net_device *dev, int len)
 	u16 fid;
 	unsigned long delay;
 
+	/* FIX: this could be replace with hfa384x_cmd() if the Alloc event
+	 * below would be handled like CmdCompl event (sleep here, wake up from
+	 * interrupt handler */
 	if (hfa384x_cmd_wait(dev, HFA384X_CMDCODE_ALLOC, len)) {
 		printk(KERN_DEBUG "%s: cannot allocate fid, len=%d\n",
 		       dev->name, len);
@@ -885,6 +1022,9 @@ static int prism2_reset_port(struct net_device *dev)
 			       "port\n", dev->name);
 	}
 
+	/* It looks like at least some STA firmware versions reset
+	 * fragmentation threshold back to 2346 after enable command. Restore
+	 * the configured value, if it differs from this default. */
 	if (local->fragm_threshold != 2346 &&
 	    hostap_set_word(dev, HFA384X_RID_FRAGMENTATIONTHRESHOLD,
 			    local->fragm_threshold)) {
@@ -893,7 +1033,7 @@ static int prism2_reset_port(struct net_device *dev)
 		       dev->name, local->fragm_threshold);
 	}
 
-	
+	/* Some firmwares lose antenna selection settings on reset */
 	(void) hostap_set_antsel(local);
 
 	return res;
@@ -911,7 +1051,7 @@ static int prism2_get_version_info(struct net_device *dev, u16 rid,
 	local = iface->local;
 
 	if (local->no_pri) {
-		
+		/* PRI f/w not yet available - cannot read RIDs */
 		return -1;
 	}
 	if (hfa384x_get_rid(dev, rid, &comp, sizeof(comp), 1) < 0) {
@@ -948,6 +1088,8 @@ static int prism2_setup_rids(struct net_device *dev)
 		}
 	}
 
+	/* Setting SSID to empty string seems to kill the card in Host AP mode
+	 */
 	if (local->iw_mode != IW_MODE_MASTER || local->essid[0] != '\0') {
 		ret = hostap_set_string(dev, HFA384X_RID_CNFOWNSSID,
 					local->essid);
@@ -992,7 +1134,7 @@ static int prism2_setup_rids(struct net_device *dev)
 	if (ret) {
 		printk("%s: Beacon interval setting to %d failed\n",
 		       dev->name, local->beacon_int);
-		
+		/* this may fail with Symbol/Lucent firmware */
 		if (ret == -ETIMEDOUT)
 			goto fail;
 	}
@@ -1002,7 +1144,7 @@ static int prism2_setup_rids(struct net_device *dev)
 	if (ret) {
 		printk("%s: DTIM period setting to %d failed\n",
 		       dev->name, local->dtim_period);
-		
+		/* this may fail with Symbol/Lucent firmware */
 		if (ret == -ETIMEDOUT)
 			goto fail;
 	}
@@ -1022,6 +1164,9 @@ static int prism2_setup_rids(struct net_device *dev)
 		}
 	}
 
+	/* Setup TXRateControl, defaults to allow use of 1, 2, 5.5, and
+	 * 11 Mbps in automatic TX rate fallback and 1 and 2 Mbps as basic
+	 * rates */
 	if (local->tx_rate_control == 0) {
 		local->tx_rate_control =
 			HFA384X_RATES_1MBPS |
@@ -1083,6 +1228,12 @@ static int prism2_setup_rids(struct net_device *dev)
 		printk(KERN_INFO "%s: cnfEnhSecurity setting to 0x%x failed\n",
 		       dev->name, local->enh_sec);
 
+	/* 32-bit tallies were added in STA f/w 0.8.0, but they were apparently
+	 * not working correctly (last seven counters report bogus values).
+	 * This has been fixed in 0.8.2, so enable 32-bit tallies only
+	 * beginning with that firmware version. Another bug fix for 32-bit
+	 * tallies in 1.4.0; should 16-bit tallies be used for some other
+	 * versions, too? */
 	if (local->sta_fw_ver >= PRISM2_FW_VER(0,8,2)) {
 		if (hostap_set_word(dev, HFA384X_RID_CNFTHIRTY2TALLY, 1)) {
 			printk(KERN_INFO "%s: cnfThirty2Tally setting "
@@ -1152,7 +1303,7 @@ static int prism2_hw_init(struct net_device *dev, int initial)
 	clear_bit(HOSTAP_BITS_TRANSMIT, &local->bits);
 
  init:
-	
+	/* initialize HFA 384x */
 	ret = hfa384x_cmd_no_wait(dev, HFA384X_CMDCODE_INIT, 0);
 	if (ret) {
 		printk(KERN_INFO "%s: first command failed - assuming card "
@@ -1160,6 +1311,8 @@ static int prism2_hw_init(struct net_device *dev, int initial)
 	}
 
 	if (first && (HFA384X_INW(HFA384X_EVSTAT_OFF) & HFA384X_EV_CMD)) {
+		/* EvStat has Cmd bit set in some cases, so retry once if no
+		 * wait was needed */
 		HFA384X_OUTW(HFA384X_EV_CMD, HFA384X_EVACK_OFF);
 		printk(KERN_DEBUG "%s: init command completed too quickly - "
 		       "retrying\n", dev->name);
@@ -1180,7 +1333,7 @@ static int prism2_hw_init(struct net_device *dev, int initial)
 #ifdef PRISM2_DOWNLOAD_SUPPORT
 			if (local->sram_type == -1)
 				local->sram_type = prism2_get_ram_size(local);
-#endif 
+#endif /* PRISM2_DOWNLOAD_SUPPORT */
 		return 1;
 	}
 	local->no_pri = 0;
@@ -1206,7 +1359,7 @@ static int prism2_hw_init2(struct net_device *dev, int initial)
 		local->pda = NULL;
 	else
 		local->pda = prism2_read_pda(dev);
-#endif 
+#endif /* PRISM2_DOWNLOAD_SUPPORT */
 
 	hfa384x_disable_interrupts(dev);
 
@@ -1221,7 +1374,7 @@ static int prism2_hw_init2(struct net_device *dev, int initial)
 
 	if (initial || local->pri_only) {
 		hfa384x_events_only_cmd(dev);
-		
+		/* get card version information */
 		if (prism2_get_version_info(dev, HFA384X_RID_NICID, "NIC") ||
 		    prism2_get_version_info(dev, HFA384X_RID_PRIID, "PRI")) {
 			hfa384x_disable_interrupts(dev);
@@ -1238,8 +1391,11 @@ static int prism2_hw_init2(struct net_device *dev, int initial)
 		hfa384x_disable_interrupts(dev);
 	}
 
+	/* FIX: could convert allocate_fid to use sleeping CmdCompl wait and
+	 * enable interrupts before this. This would also require some sort of
+	 * sleeping AllocEv waiting */
 
-	
+	/* allocate TX FIDs */
 	local->txfid_len = PRISM2_TXFID_LEN;
 	for (i = 0; i < PRISM2_TXFID_COUNT; i++) {
 		local->txfid[i] = hfa384x_allocate_fid(dev, local->txfid_len);
@@ -1276,7 +1432,7 @@ static int prism2_hw_init2(struct net_device *dev, int initial)
 
 	prism2_setup_rids(dev);
 
-	
+	/* MAC is now configured, but port 0 is not yet enabled */
 	return 0;
 
  failed:
@@ -1306,12 +1462,18 @@ static int prism2_hw_enable(struct net_device *dev, int initial)
 	local->hw_resetting = 0;
 	hfa384x_enable_interrupts(dev);
 
+	/* at least D-Link DWL-650 seems to require additional port reset
+	 * before it starts acting as an AP, so reset port automatically
+	 * here just in case */
 	if (initial && prism2_reset_port(dev)) {
 		printk("%s: MAC port 0 resetting failed\n", dev->name);
 		return 1;
 	}
 
 	if (was_resetting && netif_queue_stopped(dev)) {
+		/* If hw_reset() was called during pending transmit, netif
+		 * queue was stopped. Wake it up now since the wlan card has
+		 * been resetted. */
 		netif_wake_queue(dev);
 	}
 
@@ -1337,6 +1499,8 @@ static int prism2_hw_config(struct net_device *dev, int initial)
 	if (prism2_hw_init2(dev, initial))
 		return 1;
 
+	/* Enable firmware if secondary image is loaded and at least one of the
+	 * netdevices is up. */
 	if (!local->pri_only &&
 	    (initial == 0 || (initial == 2 && local->num_dev_open > 0))) {
 		if (!local->dev_enabled)
@@ -1357,7 +1521,7 @@ static void prism2_hw_shutdown(struct net_device *dev, int no_disable)
 	iface = netdev_priv(dev);
 	local = iface->local;
 
-	
+	/* Allow only command completion events during disable */
 	hfa384x_events_only_cmd(dev);
 
 	local->hw_ready = 0;
@@ -1392,6 +1556,8 @@ static void prism2_hw_reset(struct net_device *dev)
 #if 0
 	static long last_reset = 0;
 
+	/* do not reset card more than once per second to avoid ending up in a
+	 * busy loop resetting the card */
 	if (time_before_eq(jiffies, last_reset + HZ))
 		return;
 	last_reset = jiffies;
@@ -1426,6 +1592,12 @@ static void prism2_hw_reset(struct net_device *dev)
 	hfa384x_disable_interrupts(dev);
 	local->hw_resetting = 1;
 	if (local->func->cor_sreset) {
+		/* Host system seems to hang in some cases with high traffic
+		 * load or shared interrupts during COR sreset. Disable shared
+		 * interrupts during reset to avoid these crashes. COS sreset
+		 * takes quite a long time, so it is unfortunate that this
+		 * seems to be needed. Anyway, I do not know of any better way
+		 * of avoiding the crash. */
 		disable_irq(dev->irq);
 		local->func->cor_sreset(local);
 		enable_irq(dev->irq);
@@ -1450,9 +1622,9 @@ static void prism2_hw_reset(struct net_device *dev)
 			printk(KERN_WARNING "%s: download (SEC) failed\n",
 			       dev->name);
 	}
-#endif 
+#endif /* PRISM2_DOWNLOAD_SUPPORT */
 
-	
+	/* TODO: restore beacon TIM bits for STAs that have buffered frames */
 }
 
 
@@ -1462,6 +1634,8 @@ static void prism2_schedule_reset(local_info_t *local)
 }
 
 
+/* Called only as scheduled task after noticing card timeout in interrupt
+ * context */
 static void handle_reset_queue(struct work_struct *work)
 {
 	local_info_t *local = container_of(work, local_info_t, reset_queue);
@@ -1510,6 +1684,7 @@ static int prism2_get_txfid_idx(local_info_t *local)
 }
 
 
+/* Called only from hardware IRQ */
 static void prism2_transmit_cb(struct net_device *dev, long context,
 			       u16 resp0, u16 res)
 {
@@ -1538,11 +1713,15 @@ static void prism2_transmit_cb(struct net_device *dev, long context,
 	}
 
 	if (netif_queue_stopped(dev)) {
+		/* ready for next TX, so wake up queue that was stopped in
+		 * prism2_transmit() */
 		netif_wake_queue(dev);
 	}
 
 	spin_lock(&local->txfidlock);
 
+	/* With reclaim, Resp0 contains new txfid for transmit; the old txfid
+	 * will be automatically allocated for the next TX frame */
 	local->intransmitfid[idx] = resp0;
 
 	PDEBUG(DEBUG_FID, "%s: prism2_transmit_cb: txfid[%d]=0x%04x, "
@@ -1555,7 +1734,7 @@ static void prism2_transmit_cb(struct net_device *dev, long context,
 		idx = 0;
 	local->next_txfid = idx;
 
-	
+	/* check if all TX buffers are occupied */
 	do {
 		if (local->intransmitfid[idx] == PRISM2_TXFID_EMPTY) {
 			spin_unlock(&local->txfidlock);
@@ -1567,11 +1746,13 @@ static void prism2_transmit_cb(struct net_device *dev, long context,
 	} while (idx != local->next_txfid);
 	spin_unlock(&local->txfidlock);
 
-	
+	/* no empty TX buffers, stop queue */
 	netif_stop_queue(dev);
 }
 
 
+/* Called only from software IRQ if PCI bus master is not used (with bus master
+ * this can be called both from software and hardware IRQ) */
 static int prism2_transmit(struct net_device *dev, int idx)
 {
 	struct hostap_interface *iface;
@@ -1581,6 +1762,9 @@ static int prism2_transmit(struct net_device *dev, int idx)
 	iface = netdev_priv(dev);
 	local = iface->local;
 
+	/* The driver tries to stop netif queue so that there would not be
+	 * more than one attempt to transmit frames going on; check that this
+	 * is really the case */
 
 	if (test_and_set_bit(HOSTAP_BITS_TRANSMIT, &local->bits)) {
 		printk(KERN_DEBUG "%s: driver bug - prism2_transmit() called "
@@ -1588,10 +1772,10 @@ static int prism2_transmit(struct net_device *dev, int idx)
 		return -1;
 	}
 
-	
+	/* stop the queue for the time that transmit is pending */
 	netif_stop_queue(dev);
 
-	
+	/* transmit packet */
 	res = hfa384x_cmd_callback(
 		dev,
 		HFA384X_CMDCODE_TRANSMIT | HFA384X_CMD_TX_RECLAIM,
@@ -1607,11 +1791,17 @@ static int prism2_transmit(struct net_device *dev, int idx)
 	}
 	dev->trans_start = jiffies;
 
+	/* Since we did not wait for command completion, the card continues
+	 * to process on the background and we will finish handling when
+	 * command completion event is handled (prism2_cmd_ev() function) */
 
 	return 0;
 }
 
 
+/* Send IEEE 802.11 frame (convert the header into Prism2 TX descriptor and
+ * send the payload with this descriptor) */
+/* Called only from software IRQ */
 static int prism2_tx_80211(struct sk_buff *skb, struct net_device *dev)
 {
 	struct hostap_interface *iface;
@@ -1639,14 +1829,14 @@ static int prism2_tx_80211(struct sk_buff *skb, struct net_device *dev)
 
 	memset(&txdesc, 0, sizeof(txdesc));
 
-	
+	/* skb->data starts with txdesc->frame_control */
 	hdr_len = 24;
 	skb_copy_from_linear_data(skb, &txdesc.frame_control, hdr_len);
  	fc = le16_to_cpu(txdesc.frame_control);
 	if (ieee80211_is_data(txdesc.frame_control) &&
 	    ieee80211_has_a4(txdesc.frame_control) &&
 	    skb->len >= 30) {
-		
+		/* Addr4 */
 		skb_copy_from_linear_data_offset(skb, hdr_len, txdesc.addr4,
 						 ETH_ALEN);
 		hdr_len += ETH_ALEN;
@@ -1699,6 +1889,11 @@ fail:
 }
 
 
+/* Some SMP systems have reported number of odd errors with hostap_pci. fid
+ * register has changed values between consecutive reads for an unknown reason.
+ * This should really not happen, so more debugging is needed. This test
+ * version is a bit slower, but it will detect most of such register changes
+ * and will try to get the correct fid eventually. */
 #define EXTRA_FID_READ_TESTS
 
 static u16 prism2_read_fid_reg(struct net_device *dev, u16 reg)
@@ -1726,12 +1921,13 @@ static u16 prism2_read_fid_reg(struct net_device *dev, u16 reg)
 	printk(KERN_WARNING "%s: Uhhuh.. could not read good fid from reg "
 	       "%04x (%04x %04x %04x)\n", dev->name, reg, val, val2, val3);
 	return val;
-#else 
+#else /* EXTRA_FID_READ_TESTS */
 	return HFA384X_INW(reg);
-#endif 
+#endif /* EXTRA_FID_READ_TESTS */
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static void prism2_rx(local_info_t *local)
 {
 	struct net_device *dev = local->dev;
@@ -1752,7 +1948,7 @@ static void prism2_rx(local_info_t *local)
 			schedule_work(&local->reset_queue);
 			goto rx_dropped;
 		}
-		
+		/* try to continue with the new rxfid value */
 	}
 #endif
 
@@ -1776,7 +1972,11 @@ static void prism2_rx(local_info_t *local)
 	status = le16_to_cpu(rxdesc.status);
 	macport = (status >> 8) & 0x07;
 
-	if (len > PRISM2_DATA_MAXLEN + 8 ) {
+	/* Drop frames with too large reported payload length. Monitor mode
+	 * seems to sometimes pass frames (e.g., ctrl::ack) with signed and
+	 * negative value, so allow also values 65522 .. 65534 (-14 .. -2) for
+	 * macport 7 */
+	if (len > PRISM2_DATA_MAXLEN + 8 /* WEP */) {
 		if (macport == 7 && local->iw_mode == IW_MODE_MONITOR) {
 			if (len >= (u16) -14) {
 				hdr_len -= 65535 - len;
@@ -1830,6 +2030,7 @@ static void prism2_rx(local_info_t *local)
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static void hostap_rx_skb(local_info_t *local, struct sk_buff *skb)
 {
 	struct hfa384x_rx_frame *rxdesc;
@@ -1839,7 +2040,7 @@ static void hostap_rx_skb(local_info_t *local, struct sk_buff *skb)
 
 	rx_hdrlen = sizeof(*rxdesc);
 	if (skb->len < sizeof(*rxdesc)) {
-		
+		/* Allow monitor mode to receive shorter frames */
 		if (local->iw_mode == IW_MODE_MONITOR &&
 		    skb->len >= sizeof(*rxdesc) - 30) {
 			rx_hdrlen = skb->len;
@@ -1871,7 +2072,7 @@ static void hostap_rx_skb(local_info_t *local, struct sk_buff *skb)
 	stats.noise = rxdesc->silence - local->rssi_to_dBm;
 	stats.rate = rxdesc->rate;
 
-	
+	/* Convert Prism2 RX structure into IEEE 802.11 header */
 	hdrlen = hostap_80211_get_hdrlen(rxdesc->frame_control);
 	if (hdrlen > rx_hdrlen)
 		hdrlen = rx_hdrlen;
@@ -1887,6 +2088,7 @@ static void hostap_rx_skb(local_info_t *local, struct sk_buff *skb)
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static void hostap_rx_tasklet(unsigned long data)
 {
 	local_info_t *local = (local_info_t *) data;
@@ -1897,6 +2099,7 @@ static void hostap_rx_tasklet(unsigned long data)
 }
 
 
+/* Called only from hardware IRQ */
 static void prism2_alloc_ev(struct net_device *dev)
 {
 	struct hostap_interface *iface;
@@ -1955,9 +2158,14 @@ static void prism2_alloc_ev(struct net_device *dev)
 	printk("\n");
 	spin_unlock(&local->txfidlock);
 
+	/* FIX: should probably schedule reset; reference to one txfid was lost
+	 * completely.. Bad things will happen if we run out of txfids
+	 * Actually, this will cause netdev watchdog to notice TX timeout and
+	 * then card reset after all txfids have been leaked. */
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static void hostap_tx_callback(local_info_t *local,
 			       struct hfa384x_tx_frame *txdesc, int ok,
 			       char *payload)
@@ -1966,7 +2174,7 @@ static void hostap_tx_callback(local_info_t *local,
 	struct sk_buff *skb;
 	struct hostap_tx_callback_info *cb;
 
-	
+	/* Make sure that frame was from us. */
 	if (memcmp(txdesc->addr2, local->dev->dev_addr, ETH_ALEN)) {
 		printk(KERN_DEBUG "%s: TX callback - foreign frame\n",
 		       local->dev->name);
@@ -2007,6 +2215,7 @@ static void hostap_tx_callback(local_info_t *local,
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static int hostap_tx_compl_read(local_info_t *local, int error,
 				struct hfa384x_tx_frame *txdesc,
 				char **payload)
@@ -2055,6 +2264,7 @@ static int hostap_tx_compl_read(local_info_t *local, int error,
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static void prism2_tx_ev(local_info_t *local)
 {
 	struct net_device *dev = local->dev;
@@ -2083,6 +2293,7 @@ static void prism2_tx_ev(local_info_t *local)
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static void hostap_sta_tx_exc_tasklet(unsigned long data)
 {
 	local_info_t *local = (local_info_t *) data;
@@ -2093,6 +2304,8 @@ static void hostap_sta_tx_exc_tasklet(unsigned long data)
 			(struct hfa384x_tx_frame *) skb->data;
 
 		if (skb->len >= sizeof(*txdesc)) {
+			/* Convert Prism2 RX structure into IEEE 802.11 header
+			 */
 			int hdrlen = hostap_80211_get_hdrlen(txdesc->frame_control);
 			memmove(skb_pull(skb, sizeof(*txdesc) - hdrlen),
 				&txdesc->frame_control, hdrlen);
@@ -2104,6 +2317,7 @@ static void hostap_sta_tx_exc_tasklet(unsigned long data)
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static void prism2_txexc(local_info_t *local)
 {
 	struct net_device *dev = local->dev;
@@ -2122,11 +2336,15 @@ static void prism2_txexc(local_info_t *local)
 
 	status = le16_to_cpu(txdesc.status);
 
+	/* We produce a TXDROP event only for retry or lifetime
+	 * exceeded, because that's the only status that really mean
+	 * that this particular node went away.
+	 * Other errors means that *we* screwed up. - Jean II */
 	if (status & (HFA384X_TX_STATUS_RETRYERR | HFA384X_TX_STATUS_AGEDERR))
 	{
 		union iwreq_data wrqu;
 
-		
+		/* Copy 802.11 dest address. */
 		memcpy(wrqu.addr.sa_data, txdesc.addr1, ETH_ALEN);
 		wrqu.addr.sa_family = ARPHRD_ETHER;
 		wireless_send_event(dev, IWEVTXDROP, &wrqu, NULL);
@@ -2178,6 +2396,7 @@ static void prism2_txexc(local_info_t *local)
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static void hostap_info_tasklet(unsigned long data)
 {
 	local_info_t *local = (local_info_t *) data;
@@ -2190,6 +2409,7 @@ static void hostap_info_tasklet(unsigned long data)
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static void prism2_info(local_info_t *local)
 {
 	struct net_device *dev = local->dev;
@@ -2217,6 +2437,9 @@ static void prism2_info(local_info_t *local)
 	left = (le16_to_cpu(info.len) - 1) * 2;
 
 	if (info.len & cpu_to_le16(0x8000) || info.len == 0 || left > 2060) {
+		/* data register seems to give 0x8000 in some error cases even
+		 * though busy bit is not set in offset register;
+		 * in addition, length must be at least 1 due to type field */
 		spin_unlock(&local->baplock);
 		printk(KERN_DEBUG "%s: Received info frame with invalid "
 		       "length 0x%04x (type 0x%04x)\n", dev->name,
@@ -2252,6 +2475,7 @@ static void prism2_info(local_info_t *local)
 }
 
 
+/* Called only as a tasklet (software IRQ) */
 static void hostap_bap_tasklet(unsigned long data)
 {
 	local_info_t *local = (local_info_t *) data;
@@ -2264,6 +2488,8 @@ static void hostap_bap_tasklet(unsigned long data)
 
 	set_bit(HOSTAP_BITS_BAP_TASKLET, &local->bits);
 
+	/* Process all pending BAP events without generating new interrupts
+	 * for them */
 	while (frames-- > 0) {
 		ev = HFA384X_INW(HFA384X_EVSTAT_OFF);
 		if (ev == 0xffff || !(ev & HFA384X_BAP0_EVENTS))
@@ -2281,18 +2507,24 @@ static void hostap_bap_tasklet(unsigned long data)
 	set_bit(HOSTAP_BITS_BAP_TASKLET2, &local->bits);
 	clear_bit(HOSTAP_BITS_BAP_TASKLET, &local->bits);
 
-	
+	/* Enable interrupts for new BAP events */
 	hfa384x_events_all(dev);
 	clear_bit(HOSTAP_BITS_BAP_TASKLET2, &local->bits);
 }
 
 
+/* Called only from hardware IRQ */
 static void prism2_infdrop(struct net_device *dev)
 {
 	static unsigned long last_inquire = 0;
 
 	PDEBUG(DEBUG_EXTRA, "%s: INFDROP event\n", dev->name);
 
+	/* some firmware versions seem to get stuck with
+	 * full CommTallies in high traffic load cases; every
+	 * packet will then cause INFDROP event and CommTallies
+	 * info frame will not be sent automatically. Try to
+	 * get out of this state by inquiring CommTallies. */
 	if (!last_inquire || time_after(jiffies, last_inquire + HZ)) {
 		hfa384x_cmd_callback(dev, HFA384X_CMDCODE_INQUIRE,
 				     HFA384X_INFO_COMMTALLIES, NULL, 0);
@@ -2301,6 +2533,7 @@ static void prism2_infdrop(struct net_device *dev)
 }
 
 
+/* Called only from hardware IRQ */
 static void prism2_ev_tick(struct net_device *dev)
 {
 	struct hostap_interface *iface;
@@ -2333,8 +2566,14 @@ static void prism2_ev_tick(struct net_device *dev)
 }
 
 
+/* Called only from hardware IRQ */
 static void prism2_check_magic(local_info_t *local)
 {
+	/* at least PCI Prism2.5 with bus mastering seems to sometimes
+	 * return 0x0000 in SWSUPPORT0 for unknown reason, but re-reading the
+	 * register once or twice seems to get the correct value.. PCI cards
+	 * cannot anyway be removed during normal operation, so there is not
+	 * really any need for this verification with them. */
 
 #ifndef PRISM2_PCI
 #ifndef final_version
@@ -2361,11 +2600,12 @@ static void prism2_check_magic(local_info_t *local)
 			schedule_work(&local->reset_queue);
 		return;
 	}
-#endif 
-#endif 
+#endif /* final_version */
+#endif /* !PRISM2_PCI */
 }
 
 
+/* Called only from hardware IRQ */
 static irqreturn_t prism2_interrupt(int irq, void *dev_id)
 {
 	struct net_device *dev = dev_id;
@@ -2377,7 +2617,7 @@ static irqreturn_t prism2_interrupt(int irq, void *dev_id)
 	iface = netdev_priv(dev);
 	local = iface->local;
 
-	
+	/* Detect early interrupt before driver is fully configured */
 	spin_lock(&local->irq_init_lock);
 	if (!dev->base_addr) {
 		if (net_ratelimit()) {
@@ -2420,6 +2660,10 @@ static irqreturn_t prism2_interrupt(int irq, void *dev_id)
 			prism2_cmd_ev(dev);
 		}
 
+		/* Above events are needed even before hw is ready, but other
+		 * events should be skipped during initialization. This may
+		 * change for AllocEv if allocate_fid is implemented without
+		 * busy waiting. */
 		if (!local->hw_ready || local->hw_resetting ||
 		    !local->dev_enabled) {
 			ev = HFA384X_INW(HFA384X_EVSTAT_OFF);
@@ -2454,6 +2698,9 @@ static irqreturn_t prism2_interrupt(int irq, void *dev_id)
 			HFA384X_OUTW(HFA384X_EV_ALLOC, HFA384X_EVACK_OFF);
 		}
 
+		/* Reading data from the card is quite time consuming, so do it
+		 * in tasklets. TX, TXEXC, RX, and INFO events will be ACKed
+		 * and unmasked after needed data has been read completely. */
 		if (ev & HFA384X_BAP0_EVENTS) {
 			hfa384x_events_no_bap0(dev);
 			tasklet_schedule(&local->bap_tasklet);
@@ -2464,7 +2711,7 @@ static irqreturn_t prism2_interrupt(int irq, void *dev_id)
 			PDEBUG(DEBUG_EXTRA, "%s: WTERR event\n", dev->name);
 			HFA384X_OUTW(HFA384X_EV_WTERR, HFA384X_EVACK_OFF);
 		}
-#endif 
+#endif /* final_version */
 
 		if (ev & HFA384X_EV_INFDROP) {
 			prism2_infdrop(dev);
@@ -2508,6 +2755,12 @@ static void prism2_check_sta_fw_version(local_info_t *local)
 	variant = __le16_to_cpu(comp.variant);
 	local->sta_fw_ver = PRISM2_FW_VER(major, minor, variant);
 
+	/* Station firmware versions before 1.4.x seem to have a bug in
+	 * firmware-based WEP encryption when using Host AP mode, so use
+	 * host_encrypt as a default for them. Firmware version 1.4.9 is the
+	 * first one that has been seen to produce correct encryption, but the
+	 * bug might be fixed before that (although, at least 1.4.2 is broken).
+	 */
 	local->fw_encrypt_ok = local->sta_fw_ver >= PRISM2_FW_VER(1,4,9);
 
 	if (local->iw_mode == IW_MODE_MASTER && !local->host_encrypt &&
@@ -2518,6 +2771,13 @@ static void prism2_check_sta_fw_version(local_info_t *local)
 		local->host_encrypt = 1;
 	}
 
+	/* IEEE 802.11 standard compliant WDS frames (4 addresses) were broken
+	 * in station firmware versions before 1.5.x. With these versions, the
+	 * driver uses a workaround with bogus frame format (4th address after
+	 * the payload). This is not compatible with other AP devices. Since
+	 * the firmware bug is fixed in the latest station firmware versions,
+	 * automatically enable standard compliant mode for cards using station
+	 * firmware version 1.5.0 or newer. */
 	if (local->sta_fw_ver >= PRISM2_FW_VER(1,5,0))
 		local->wds_type |= HOSTAP_WDS_STANDARD_FRAME;
 	else {
@@ -2542,6 +2802,10 @@ static void hostap_passive_scan(unsigned long data)
 	if (local->passive_scan_state == PASSIVE_SCAN_LISTEN) {
 		int max_tries = 16;
 
+		/* Even though host system does not really know when the WLAN
+		 * MAC is sending frames, try to avoid changing channels for
+		 * passive scanning when a host-generated frame is being
+		 * transmitted */
 		if (test_bit(HOSTAP_BITS_TRANSMIT, &local->bits)) {
 			printk(KERN_DEBUG "%s: passive scan detected pending "
 			       "TX - delaying\n", dev->name);
@@ -2587,6 +2851,8 @@ static void hostap_passive_scan(unsigned long data)
 }
 
 
+/* Called only as a scheduled task when communications quality values should
+ * be updated. */
 static void handle_comms_qual_update(struct work_struct *work)
 {
 	local_info_t *local =
@@ -2595,12 +2861,18 @@ static void handle_comms_qual_update(struct work_struct *work)
 }
 
 
+/* Software watchdog - called as a timer. Hardware interrupt (Tick event) is
+ * used to monitor that local->last_tick_timer is being updated. If not,
+ * interrupt busy-loop is assumed and driver tries to recover by masking out
+ * some events. */
 static void hostap_tick_timer(unsigned long data)
 {
 	static unsigned long last_inquire = 0;
 	local_info_t *local = (local_info_t *) data;
 	local->last_tick_timer = jiffies;
 
+	/* Inquire CommTallies every 10 seconds to keep the statistics updated
+	 * more often during low load and when using 32-bit tallies. */
 	if ((!last_inquire || time_after(jiffies, last_inquire + 10 * HZ)) &&
 	    !local->hw_downloading && local->hw_ready &&
 	    !local->hw_resetting && local->dev_enabled) {
@@ -2659,11 +2931,13 @@ p += sprintf(p, #n "=%04x\n", hfa384x_read_reg(local->dev, HFA384X_##n##_OFF))
 	SHOW_REG(EVSTAT);
 	SHOW_REG(INTEN);
 	SHOW_REG(EVACK);
-	
-	
+	/* Do not read data registers, because they change the state of the
+	 * MAC (offset += 2) */
+	/* SHOW_REG(DATA0); */
+	/* SHOW_REG(DATA1); */
 	SHOW_REG(AUXPAGE);
 	SHOW_REG(AUXOFFSET);
-	
+	/* SHOW_REG(AUXDATA); */
 #ifdef PRISM2_PCI
 	SHOW_REG(PCICOR);
 	SHOW_REG(PCIHCR);
@@ -2676,11 +2950,11 @@ p += sprintf(p, #n "=%04x\n", hfa384x_read_reg(local->dev, HFA384X_##n##_OFF))
 	SHOW_REG(PCI_M1_ADDRL);
 	SHOW_REG(PCI_M1_LEN);
 	SHOW_REG(PCI_M1_CTL);
-#endif 
+#endif /* PRISM2_PCI */
 
 	return (p - page);
 }
-#endif 
+#endif /* PRISM2_NO_PROCFS_DEBUG */
 
 
 struct set_tim_data {
@@ -2778,6 +3052,11 @@ static void prism2_clear_set_tim_queue(local_info_t *local)
 }
 
 
+/*
+ * HostAP uses two layers of net devices, where the inner
+ * layer gets called all the time from the outer layer.
+ * This is a natural nesting, which needs a split lock type.
+ */
 static struct lock_class_key hostap_netdev_xmit_lock_key;
 static struct lock_class_key hostap_netdev_addr_lock_key;
 
@@ -2835,7 +3114,7 @@ prism2_init_local_data(struct prism2_helper_functions *funcs, int card_idx,
 
 #ifdef PRISM2_IO_DEBUG
 	local->io_debug_enabled = 1;
-#endif 
+#endif /* PRISM2_IO_DEBUG */
 
 	local->func = funcs;
 	local->func->cmd = hfa384x_cmd;
@@ -2851,10 +3130,12 @@ prism2_init_local_data(struct prism2_helper_functions *funcs, int card_idx,
 #ifdef PRISM2_DOWNLOAD_SUPPORT
 	local->func->read_aux = prism2_download_aux_dump;
 	local->func->download = prism2_download;
-#endif 
+#endif /* PRISM2_DOWNLOAD_SUPPORT */
 	local->func->tx = prism2_tx_80211;
 	local->func->set_tim = prism2_set_tim;
-	local->func->need_tx_headroom = 0; 
+	local->func->need_tx_headroom = 0; /* no need to add txdesc in
+					    * skb->data (FIX: maybe for DMA bus
+					    * mastering? */
 
 	local->mtu = mtu;
 
@@ -2891,13 +3172,14 @@ prism2_init_local_data(struct prism2_helper_functions *funcs, int card_idx,
 	local->manual_retry_count = -1;
 	local->rts_threshold = 2347;
 	local->fragm_threshold = 2346;
-	local->rssi_to_dBm = 100; 
+	local->rssi_to_dBm = 100; /* default; to be overriden by
+				   * cnfDbmAdjust, if available */
 	local->auth_algs = PRISM2_AUTH_OPEN | PRISM2_AUTH_SHARED_KEY;
 	local->sram_type = -1;
 	local->scan_channel_mask = 0xffff;
 	local->monitor_type = PRISM2_MONITOR_RADIOTAP;
 
-	
+	/* Initialize task queue structures */
 	INIT_WORK(&local->reset_queue, handle_reset_queue);
 	INIT_WORK(&local->set_multicast_list_queue,
 		  hostap_set_multicast_list_queue);
@@ -2908,6 +3190,8 @@ prism2_init_local_data(struct prism2_helper_functions *funcs, int card_idx,
 
 	INIT_WORK(&local->comms_qual_update, handle_comms_qual_update);
 
+	/* Initialize tasklets for handling hardware IRQ related operations
+	 * outside hw IRQ handler */
 #define HOSTAP_TASKLET_INIT(q, f, d) \
 do { memset((q), 0, sizeof(*(q))); (q)->func = (f); (q)->data = (d); } \
 while (0)
@@ -2992,7 +3276,7 @@ static int hostap_hw_ready(struct net_device *dev)
 #ifndef PRISM2_NO_PROCFS_DEBUG
 		create_proc_read_entry("registers", 0, local->proc,
 				       prism2_registers_proc_read, local);
-#endif 
+#endif /* PRISM2_NO_PROCFS_DEBUG */
 		hostap_init_ap_proc(local);
 		return 0;
 	}
@@ -3015,11 +3299,11 @@ static void prism2_free_local_data(struct net_device *dev)
 	iface = netdev_priv(dev);
 	local = iface->local;
 
-	
+	/* Unregister all netdevs before freeing local data. */
 	list_for_each_safe(ptr, n, &local->hostap_interfaces) {
 		iface = list_entry(ptr, struct hostap_interface, list);
 		if (iface->type == HOSTAP_INTERFACE_MASTER) {
-			
+			/* special handling for this interface below */
 			continue;
 		}
 		hostap_remove_interface(iface->dev, 0, 1);
@@ -3058,7 +3342,7 @@ static void prism2_free_local_data(struct net_device *dev)
 #ifndef PRISM2_NO_PROCFS_DEBUG
 	if (local->proc != NULL)
 		remove_proc_entry("registers", local->proc);
-#endif 
+#endif /* PRISM2_NO_PROCFS_DEBUG */
 	hostap_remove_proc(local);
 
 	tx_cb = local->tx_callback;
@@ -3079,7 +3363,7 @@ static void prism2_free_local_data(struct net_device *dev)
 #ifdef PRISM2_DOWNLOAD_SUPPORT
 	prism2_download_free_data(local->dl_pri);
 	prism2_download_free_data(local->dl_sec);
-#endif 
+#endif /* PRISM2_DOWNLOAD_SUPPORT */
 
 	prism2_clear_set_tim_queue(local);
 
@@ -3107,20 +3391,28 @@ static void prism2_suspend(struct net_device *dev)
 	iface = netdev_priv(dev);
 	local = iface->local;
 
+	/* Send disconnect event, e.g., to trigger reassociation after resume
+	 * if wpa_supplicant is used. */
 	memset(&wrqu, 0, sizeof(wrqu));
 	wrqu.ap_addr.sa_family = ARPHRD_ETHER;
 	wireless_send_event(local->dev, SIOCGIWAP, &wrqu, NULL);
 
-	
+	/* Disable hardware and firmware */
 	prism2_hw_shutdown(dev, 0);
 }
-#endif 
+#endif /* (PRISM2_PCI && CONFIG_PM) || PRISM2_PCCARD */
 
 
+/* These might at some point be compiled separately and used as separate
+ * kernel modules or linked into one */
 #ifdef PRISM2_DOWNLOAD_SUPPORT
 #include "hostap_download.c"
-#endif 
+#endif /* PRISM2_DOWNLOAD_SUPPORT */
 
 #ifdef PRISM2_CALLBACK
+/* External hostap_callback.c file can be used to, e.g., blink activity led.
+ * This can use platform specific code and must define prism2_callback()
+ * function (if PRISM2_CALLBACK is not defined, these function calls are not
+ * used. */
 #include "hostap_callback.c"
-#endif 
+#endif /* PRISM2_CALLBACK */

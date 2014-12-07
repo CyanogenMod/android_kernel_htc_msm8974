@@ -23,41 +23,45 @@
 
 #define IRQ_PBA8_GIC_START			32
 
-#define IRQ_PBA8_WATCHDOG	(IRQ_PBA8_GIC_START + 0)	
-#define IRQ_PBA8_SOFT		(IRQ_PBA8_GIC_START + 1)	
-#define IRQ_PBA8_COMMRx		(IRQ_PBA8_GIC_START + 2)	
-#define IRQ_PBA8_COMMTx		(IRQ_PBA8_GIC_START + 3)	
-#define IRQ_PBA8_TIMER0_1	(IRQ_PBA8_GIC_START + 4)	
-#define IRQ_PBA8_TIMER2_3	(IRQ_PBA8_GIC_START + 5)	
-#define IRQ_PBA8_GPIO0		(IRQ_PBA8_GIC_START + 6)	
-#define IRQ_PBA8_GPIO1		(IRQ_PBA8_GIC_START + 7)	
-#define IRQ_PBA8_GPIO2		(IRQ_PBA8_GIC_START + 8)	
-								
-#define IRQ_PBA8_RTC		(IRQ_PBA8_GIC_START + 10)	
-#define IRQ_PBA8_SSP		(IRQ_PBA8_GIC_START + 11)	
-#define IRQ_PBA8_UART0		(IRQ_PBA8_GIC_START + 12)	
-#define IRQ_PBA8_UART1		(IRQ_PBA8_GIC_START + 13)	
-#define IRQ_PBA8_UART2		(IRQ_PBA8_GIC_START + 14)	
-#define IRQ_PBA8_UART3		(IRQ_PBA8_GIC_START + 15)	
-#define IRQ_PBA8_SCI		(IRQ_PBA8_GIC_START + 16)	
-#define IRQ_PBA8_MMCI0A		(IRQ_PBA8_GIC_START + 17)	
-#define IRQ_PBA8_MMCI0B		(IRQ_PBA8_GIC_START + 18)	
-#define IRQ_PBA8_AACI		(IRQ_PBA8_GIC_START + 19)	
-#define IRQ_PBA8_KMI0		(IRQ_PBA8_GIC_START + 20)	
-#define IRQ_PBA8_KMI1		(IRQ_PBA8_GIC_START + 21)	
-#define IRQ_PBA8_CHARLCD	(IRQ_PBA8_GIC_START + 22)	
-#define IRQ_PBA8_CLCD		(IRQ_PBA8_GIC_START + 23)	
-#define IRQ_PBA8_DMAC		(IRQ_PBA8_GIC_START + 24)	
-#define IRQ_PBA8_PWRFAIL	(IRQ_PBA8_GIC_START + 25)	
-#define IRQ_PBA8_PISMO		(IRQ_PBA8_GIC_START + 26)	
-#define IRQ_PBA8_DoC		(IRQ_PBA8_GIC_START + 27)	
-#define IRQ_PBA8_ETH		(IRQ_PBA8_GIC_START + 28)	
-#define IRQ_PBA8_USB		(IRQ_PBA8_GIC_START + 29)	
-#define IRQ_PBA8_TSPEN		(IRQ_PBA8_GIC_START + 30)	
-#define IRQ_PBA8_TSKPAD		(IRQ_PBA8_GIC_START + 31)	
+/*
+ * PB-A8 on-board gic irq sources
+ */
+#define IRQ_PBA8_WATCHDOG	(IRQ_PBA8_GIC_START + 0)	/* Watchdog timer */
+#define IRQ_PBA8_SOFT		(IRQ_PBA8_GIC_START + 1)	/* Software interrupt */
+#define IRQ_PBA8_COMMRx		(IRQ_PBA8_GIC_START + 2)	/* Debug Comm Rx interrupt */
+#define IRQ_PBA8_COMMTx		(IRQ_PBA8_GIC_START + 3)	/* Debug Comm Tx interrupt */
+#define IRQ_PBA8_TIMER0_1	(IRQ_PBA8_GIC_START + 4)	/* Timer 0/1 (default timer) */
+#define IRQ_PBA8_TIMER2_3	(IRQ_PBA8_GIC_START + 5)	/* Timer 2/3 */
+#define IRQ_PBA8_GPIO0		(IRQ_PBA8_GIC_START + 6)	/* GPIO 0 */
+#define IRQ_PBA8_GPIO1		(IRQ_PBA8_GIC_START + 7)	/* GPIO 1 */
+#define IRQ_PBA8_GPIO2		(IRQ_PBA8_GIC_START + 8)	/* GPIO 2 */
+								/* 9 reserved */
+#define IRQ_PBA8_RTC		(IRQ_PBA8_GIC_START + 10)	/* Real Time Clock */
+#define IRQ_PBA8_SSP		(IRQ_PBA8_GIC_START + 11)	/* Synchronous Serial Port */
+#define IRQ_PBA8_UART0		(IRQ_PBA8_GIC_START + 12)	/* UART 0 on development chip */
+#define IRQ_PBA8_UART1		(IRQ_PBA8_GIC_START + 13)	/* UART 1 on development chip */
+#define IRQ_PBA8_UART2		(IRQ_PBA8_GIC_START + 14)	/* UART 2 on development chip */
+#define IRQ_PBA8_UART3		(IRQ_PBA8_GIC_START + 15)	/* UART 3 on development chip */
+#define IRQ_PBA8_SCI		(IRQ_PBA8_GIC_START + 16)	/* Smart Card Interface */
+#define IRQ_PBA8_MMCI0A		(IRQ_PBA8_GIC_START + 17)	/* Multimedia Card 0A */
+#define IRQ_PBA8_MMCI0B		(IRQ_PBA8_GIC_START + 18)	/* Multimedia Card 0B */
+#define IRQ_PBA8_AACI		(IRQ_PBA8_GIC_START + 19)	/* Audio Codec */
+#define IRQ_PBA8_KMI0		(IRQ_PBA8_GIC_START + 20)	/* Keyboard/Mouse port 0 */
+#define IRQ_PBA8_KMI1		(IRQ_PBA8_GIC_START + 21)	/* Keyboard/Mouse port 1 */
+#define IRQ_PBA8_CHARLCD	(IRQ_PBA8_GIC_START + 22)	/* Character LCD */
+#define IRQ_PBA8_CLCD		(IRQ_PBA8_GIC_START + 23)	/* CLCD controller */
+#define IRQ_PBA8_DMAC		(IRQ_PBA8_GIC_START + 24)	/* DMA controller */
+#define IRQ_PBA8_PWRFAIL	(IRQ_PBA8_GIC_START + 25)	/* Power failure */
+#define IRQ_PBA8_PISMO		(IRQ_PBA8_GIC_START + 26)	/* PISMO interface */
+#define IRQ_PBA8_DoC		(IRQ_PBA8_GIC_START + 27)	/* Disk on Chip memory controller */
+#define IRQ_PBA8_ETH		(IRQ_PBA8_GIC_START + 28)	/* Ethernet controller */
+#define IRQ_PBA8_USB		(IRQ_PBA8_GIC_START + 29)	/* USB controller */
+#define IRQ_PBA8_TSPEN		(IRQ_PBA8_GIC_START + 30)	/* Touchscreen pen */
+#define IRQ_PBA8_TSKPAD		(IRQ_PBA8_GIC_START + 31)	/* Touchscreen keypad */
 
-#define IRQ_PBA8_PMU		(IRQ_PBA8_GIC_START + 47)	
+#define IRQ_PBA8_PMU		(IRQ_PBA8_GIC_START + 47)	/* Cortex-A8 PMU */
 
+/* ... */
 #define IRQ_PBA8_PCI0		(IRQ_PBA8_GIC_START + 50)
 #define IRQ_PBA8_PCI1		(IRQ_PBA8_GIC_START + 51)
 #define IRQ_PBA8_PCI2		(IRQ_PBA8_GIC_START + 52)
@@ -68,6 +72,9 @@
 
 #define NR_GIC_PBA8		1
 
+/*
+ * Only define NR_IRQS if less than NR_IRQS_PBA8
+ */
 #define NR_IRQS_PBA8		(IRQ_PBA8_GIC_START + 64)
 
 #if defined(CONFIG_MACH_REALVIEW_PBA8)
@@ -82,6 +89,6 @@
 #define MAX_GIC_NR		NR_GIC_PBA8
 #endif
 
-#endif	
+#endif	/* CONFIG_MACH_REALVIEW_PBA8 */
 
-#endif	
+#endif	/* __MACH_IRQS_PBA8_H */

@@ -6,6 +6,12 @@
  * Copyright (c) 2008-2009 Silicon Graphics, Inc.  All Rights Reserved.
  */
 
+/*
+ * Cross Partition Communication (XPC) uv-based functions.
+ *
+ *     Architecture specific implementation of common functions.
+ *
+ */
 
 #include <linux/kernel.h>
 #include <linux/mm.h>
@@ -242,7 +248,7 @@ xpc_create_gru_mq_uv(unsigned int mq_size, int cpu, char *irq_name,
 	}
 	mq->address = page_address(page);
 
-	
+	/* enable generation of irq when GRU mq operation occurs to this mq */
 	ret = xpc_gru_mq_watchlist_alloc_uv(mq);
 	if (ret != 0)
 		goto out_3;
@@ -270,7 +276,7 @@ xpc_create_gru_mq_uv(unsigned int mq_size, int cpu, char *irq_name,
 		goto out_6;
 	}
 
-	
+	/* allow other partitions to access this GRU mq */
 	xp_ret = xp_expand_memprotect(xp_pa(mq->address), mq_size);
 	if (xp_ret != xpSuccess) {
 		ret = -EACCES;
@@ -279,7 +285,7 @@ xpc_create_gru_mq_uv(unsigned int mq_size, int cpu, char *irq_name,
 
 	return mq;
 
-	
+	/* something went wrong */
 out_6:
 	free_irq(mq->irq, NULL);
 out_5:
@@ -303,16 +309,16 @@ xpc_destroy_gru_mq_uv(struct xpc_gru_mq_uv *mq)
 	int pg_order;
 	int ret;
 
-	
+	/* disallow other partitions to access GRU mq */
 	mq_size = 1UL << mq->order;
 	ret = xp_restrict_memprotect(xp_pa(mq->address), mq_size);
 	BUG_ON(ret != xpSuccess);
 
-	
+	/* unregister irq handler and release mq irq/vector mapping */
 	free_irq(mq->irq, NULL);
 	xpc_release_gru_mq_irq_uv(mq);
 
-	
+	/* disable generation of irq when GRU mq op occurs to this mq */
 	xpc_gru_mq_watchlist_free_uv(mq);
 
 	pg_order = mq->order - PAGE_SHIFT;
@@ -338,16 +344,16 @@ xpc_send_gru_msg(struct gru_message_queue_desc *gru_mq_desc, void *msg,
 		if (ret == MQE_QUEUE_FULL) {
 			dev_dbg(xpc_chan, "gru_send_message_gpa() returned "
 				"error=MQE_QUEUE_FULL\n");
-			
-			
+			/* !!! handle QLimit reached; delay & try again */
+			/* ??? Do we add a limit to the number of retries? */
 			(void)msleep_interruptible(10);
 		} else if (ret == MQE_CONGESTION) {
 			dev_dbg(xpc_chan, "gru_send_message_gpa() returned "
 				"error=MQE_CONGESTION\n");
-			
-			
+			/* !!! handle LB Overflow; simply try again */
+			/* ??? Do we add a limit to the number of retries? */
 		} else {
-			
+			/* !!! Currently this is MQE_UNEXPECTED_CB_ERR */
 			dev_err(xpc_chan, "gru_send_message_gpa() returned "
 				"error=%d\n", ret);
 			xp_ret = xpGruSendMqError;
@@ -422,12 +428,17 @@ xpc_handle_activate_mq_msg_uv(struct xpc_partition *part,
 
 	switch (msg_hdr->type) {
 	case XPC_ACTIVATE_MQ_MSG_SYNC_ACT_STATE_UV:
-		
+		/* syncing of remote_act_state was just done above */
 		break;
 
 	case XPC_ACTIVATE_MQ_MSG_ACTIVATE_REQ_UV: {
 		struct xpc_activate_mq_msg_activate_req_uv *msg;
 
+		/*
+		 * ??? Do we deal here with ts_jiffies being different
+		 * ??? if act_state != XPC_P_AS_INACTIVE instead of
+		 * ??? below?
+		 */
 		msg = container_of(msg_hdr, struct
 				   xpc_activate_mq_msg_activate_req_uv, hdr);
 
@@ -435,7 +446,7 @@ xpc_handle_activate_mq_msg_uv(struct xpc_partition *part,
 		if (part_uv->act_state_req == 0)
 			xpc_activate_IRQ_rcvd++;
 		part_uv->act_state_req = XPC_P_ASR_ACTIVATE_UV;
-		part->remote_rp_pa = msg->rp_gpa; 
+		part->remote_rp_pa = msg->rp_gpa; /* !!! _pa is _gpa */
 		part->remote_rp_ts_jiffies = msg_hdr->rp_ts_jiffies;
 		part_uv->heartbeat_gpa = msg->heartbeat_gpa;
 
@@ -574,7 +585,7 @@ xpc_handle_activate_mq_msg_uv(struct xpc_partition *part,
 		dev_err(xpc_part, "received unknown activate_mq msg type=%d "
 			"from partition=%d\n", msg_hdr->type, XPC_PARTID(part));
 
-		
+		/* get hb checker to deactivate from the remote partition */
 		spin_lock_irqsave(&xpc_activate_IRQ_rcvd_lock, irq_flags);
 		if (part_uv->act_state_req == 0)
 			xpc_activate_IRQ_rcvd++;
@@ -588,6 +599,10 @@ xpc_handle_activate_mq_msg_uv(struct xpc_partition *part,
 
 	if (msg_hdr->rp_ts_jiffies != part->remote_rp_ts_jiffies &&
 	    part->remote_rp_ts_jiffies != 0) {
+		/*
+		 * ??? Does what we do here need to be sensitive to
+		 * ??? act_state or remote_act_state?
+		 */
 		spin_lock_irqsave(&xpc_activate_IRQ_rcvd_lock, irq_flags);
 		if (part_uv->act_state_req == 0)
 			xpc_activate_IRQ_rcvd++;
@@ -694,11 +709,11 @@ again:
 		spin_unlock_irqrestore(&part_uv->flags_lock, irq_flags);
 	}
 
-	
+	/* ??? Is holding a spin_lock (ch->lock) during this call a bad idea? */
 	ret = xpc_send_gru_msg(part_uv->cached_activate_gru_mq_desc, msg,
 			       msg_size);
 	if (ret != xpSuccess) {
-		smp_rmb();	
+		smp_rmb();	/* ensure a fresh copy of part_uv->flags */
 		if (!(part_uv->flags & XPC_P_CACHED_ACTIVATE_GRU_MQ_DESC_UV))
 			goto again;
 	}
@@ -743,6 +758,11 @@ xpc_send_local_activate_IRQ_uv(struct xpc_partition *part, int act_state_req)
 	unsigned long irq_flags;
 	struct xpc_partition_uv *part_uv = &part->sn.uv;
 
+	/*
+	 * !!! Make our side think that the remote partition sent an activate
+	 * !!! mq message our way by doing what the activate IRQ handler would
+	 * !!! do had one really been sent.
+	 */
 
 	spin_lock_irqsave(&xpc_activate_IRQ_rcvd_lock, irq_flags);
 	if (part_uv->act_state_req == 0)
@@ -875,12 +895,16 @@ xpc_request_partition_activation_uv(struct xpc_rsvd_page *remote_rp,
 	struct xpc_partition *part = &xpc_partitions[partid];
 	struct xpc_activate_mq_msg_activate_req_uv msg;
 
-	part->remote_rp_pa = remote_rp_gpa; 
+	part->remote_rp_pa = remote_rp_gpa; /* !!! _pa here is really _gpa */
 	part->remote_rp_ts_jiffies = remote_rp->ts_jiffies;
 	part->sn.uv.heartbeat_gpa = remote_rp->sn.uv.heartbeat_gpa;
 	part->sn.uv.activate_gru_mq_desc_gpa =
 	    remote_rp->sn.uv.activate_gru_mq_desc_gpa;
 
+	/*
+	 * ??? Is it a good idea to make this conditional on what is
+	 * ??? potentially stale state information?
+	 */
 	if (part->sn.uv.remote_act_state == XPC_P_AS_INACTIVE) {
 		msg.rp_gpa = uv_gpa(xpc_rsvd_page);
 		msg.heartbeat_gpa = xpc_rsvd_page->sn.uv.heartbeat_gpa;
@@ -905,6 +929,10 @@ xpc_request_partition_deactivation_uv(struct xpc_partition *part)
 {
 	struct xpc_activate_mq_msg_deactivate_req_uv msg;
 
+	/*
+	 * ??? Is it a good idea to make this conditional on what is
+	 * ??? potentially stale state information?
+	 */
 	if (part->sn.uv.remote_act_state != XPC_P_AS_DEACTIVATING &&
 	    part->sn.uv.remote_act_state != XPC_P_AS_INACTIVE) {
 
@@ -917,7 +945,7 @@ xpc_request_partition_deactivation_uv(struct xpc_partition *part)
 static void
 xpc_cancel_partition_deactivation_request_uv(struct xpc_partition *part)
 {
-	
+	/* nothing needs to be done */
 	return;
 }
 
@@ -975,6 +1003,9 @@ xpc_n_of_fifo_entries_uv(struct xpc_fifo_head_uv *head)
 	return head->n_entries;
 }
 
+/*
+ * Setup the channel structures that are uv specific.
+ */
 static enum xp_retval
 xpc_setup_ch_structures_uv(struct xpc_partition *part)
 {
@@ -991,10 +1022,13 @@ xpc_setup_ch_structures_uv(struct xpc_partition *part)
 	return xpSuccess;
 }
 
+/*
+ * Teardown the channel structures that are uv specific.
+ */
 static void
 xpc_teardown_ch_structures_uv(struct xpc_partition *part)
 {
-	
+	/* nothing needs to be done */
 	return;
 }
 
@@ -1003,6 +1037,11 @@ xpc_make_first_contact_uv(struct xpc_partition *part)
 {
 	struct xpc_activate_mq_msg_uv msg;
 
+	/*
+	 * We send a sync msg to get the remote partition's remote_act_state
+	 * updated to our current act_state which at this point should
+	 * be XPC_P_AS_ACTIVATING.
+	 */
 	xpc_send_activate_IRQ_part_uv(part, &msg, sizeof(msg),
 				      XPC_ACTIVATE_MQ_MSG_SYNC_ACT_STATE_UV);
 
@@ -1012,7 +1051,7 @@ xpc_make_first_contact_uv(struct xpc_partition *part)
 		dev_dbg(xpc_part, "waiting to make first contact with "
 			"partition %d\n", XPC_PARTID(part));
 
-		
+		/* wait a 1/4 of a second or so */
 		(void)msleep_interruptible(250);
 
 		if (part->act_state == XPC_P_AS_DEACTIVATING)
@@ -1104,6 +1143,9 @@ xpc_allocate_recv_msg_slot_uv(struct xpc_channel *ch)
 	return xpNoMemory;
 }
 
+/*
+ * Allocate msg_slots associated with the channel.
+ */
 static enum xp_retval
 xpc_setup_msg_structures_uv(struct xpc_channel *ch)
 {
@@ -1130,6 +1172,10 @@ xpc_setup_msg_structures_uv(struct xpc_channel *ch)
 	return ret;
 }
 
+/*
+ * Free up msg_slots and clear other stuff that were setup for the specified
+ * channel.
+ */
 static void
 xpc_teardown_msg_structures_uv(struct xpc_channel *ch)
 {
@@ -1308,7 +1354,7 @@ xpc_free_msg_slot_uv(struct xpc_channel *ch,
 {
 	xpc_put_fifo_entry_uv(&ch->sn.uv.msg_slot_free_list, &msg_slot->next);
 
-	
+	/* wakeup anyone waiting for a free msg slot */
 	if (atomic_read(&ch->n_on_msg_allocate_wq) > 0)
 		wake_up(&ch->msg_allocate_wq);
 }
@@ -1370,7 +1416,7 @@ xpc_handle_notify_mq_msg_uv(struct xpc_partition *part,
 			"channel number=0x%x in message from partid=%d\n",
 			ch_number, XPC_PARTID(part));
 
-		
+		/* get hb checker to deactivate from the remote partition */
 		spin_lock_irqsave(&xpc_activate_IRQ_rcvd_lock, irq_flags);
 		if (part_uv->act_state_req == 0)
 			xpc_activate_IRQ_rcvd++;
@@ -1390,14 +1436,14 @@ xpc_handle_notify_mq_msg_uv(struct xpc_partition *part,
 		return;
 	}
 
-	
+	/* see if we're really dealing with an ACK for a previously sent msg */
 	if (msg->hdr.size == 0) {
 		xpc_handle_notify_mq_ack_uv(ch, msg);
 		xpc_msgqueue_deref(ch);
 		return;
 	}
 
-	
+	/* we're dealing with a normal message sent via the notify_mq */
 	ch_uv = &ch->sn.uv;
 
 	msg_slot = ch_uv->recv_msg_slots +
@@ -1410,6 +1456,11 @@ xpc_handle_notify_mq_msg_uv(struct xpc_partition *part,
 	xpc_put_fifo_entry_uv(&ch_uv->recv_msg_list, &msg_slot->hdr.u.next);
 
 	if (ch->flags & XPC_C_CONNECTEDCALLOUT_MADE) {
+		/*
+		 * If there is an existing idle kthread get it to deliver
+		 * the payload, otherwise we'll have to get the channel mgr
+		 * for this partition to create a kthread to do the delivery.
+		 */
 		if (atomic_read(&ch->kthreads_idle) > 0)
 			wake_up_nr(&ch->idle_wq, 1);
 		else
@@ -1509,7 +1560,7 @@ xpc_send_payload_uv(struct xpc_channel *ch, u32 flags, void *payload,
 		atomic_inc(&ch->n_to_notify);
 
 		msg_slot->key = key;
-		smp_wmb(); 
+		smp_wmb(); /* a non-NULL func must hit memory after the key */
 		msg_slot->func = func;
 
 		if (ch->flags & XPC_C_DISCONNECTING) {
@@ -1533,6 +1584,16 @@ xpc_send_payload_uv(struct xpc_channel *ch, u32 flags, void *payload,
 	XPC_DEACTIVATE_PARTITION(&xpc_partitions[ch->partid], ret);
 out_2:
 	if (func != NULL) {
+		/*
+		 * Try to NULL the msg_slot's func field. If we fail, then
+		 * xpc_notify_senders_of_disconnect_uv() beat us to it, in which
+		 * case we need to pretend we succeeded to send the message
+		 * since the user will get a callout for the disconnect error
+		 * by xpc_notify_senders_of_disconnect_uv(), and to also get an
+		 * error returned here will confuse them. Additionally, since
+		 * in this case the channel is being disconnected we don't need
+		 * to put the the msg_slot back on the free list.
+		 */
 		if (cmpxchg(&msg_slot->func, func, NULL) != func) {
 			ret = xpSuccess;
 			goto out_1;
@@ -1547,6 +1608,13 @@ out_1:
 	return ret;
 }
 
+/*
+ * Tell the callers of xpc_send_notify() that the status of their payloads
+ * is unknown because the channel is now disconnecting.
+ *
+ * We don't worry about putting these msg_slots on the free list since the
+ * msg_slots themselves are about to be kfree'd.
+ */
 static void
 xpc_notify_senders_of_disconnect_uv(struct xpc_channel *ch)
 {
@@ -1566,6 +1634,9 @@ xpc_notify_senders_of_disconnect_uv(struct xpc_channel *ch)
 	}
 }
 
+/*
+ * Get the next deliverable message's payload.
+ */
 static void *
 xpc_get_deliverable_payload_uv(struct xpc_channel *ch)
 {
@@ -1592,10 +1663,10 @@ xpc_received_payload_uv(struct xpc_channel *ch, void *payload)
 
 	msg = container_of(payload, struct xpc_notify_mq_msg_uv, payload);
 
-	
+	/* return an ACK to the sender of this message */
 
 	msg->hdr.partid = xp_partition_id;
-	msg->hdr.size = 0;	
+	msg->hdr.size = 0;	/* size of zero indicates this is an ACK */
 
 	ret = xpc_send_gru_msg(ch->sn.uv.cached_notify_gru_mq_desc, msg,
 			       sizeof(struct xpc_notify_mq_msghdr_uv));

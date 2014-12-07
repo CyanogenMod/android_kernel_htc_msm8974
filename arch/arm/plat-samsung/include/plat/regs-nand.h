@@ -85,7 +85,7 @@
 #define S3C2412_NFCONF_NANDBOOT		(1<<31)
 #define S3C2412_NFCONF_ECCCLKCON	(1<<30)
 #define S3C2412_NFCONF_ECC_MLC		(1<<24)
-#define S3C2412_NFCONF_TACLS_MASK	(7<<12)	
+#define S3C2412_NFCONF_TACLS_MASK	(7<<12)	/* 1 extra bit of Tacls */
 
 #define S3C2412_NFCONT_ECC4_DIRWR	(1<<18)
 #define S3C2412_NFCONT_LOCKTIGHT	(1<<17)
@@ -119,5 +119,5 @@
 
 
 
-#endif 
+#endif /* __ASM_ARM_REGS_NAND */
 

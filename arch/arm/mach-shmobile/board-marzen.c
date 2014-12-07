@@ -37,20 +37,21 @@
 #include <asm/hardware/gic.h>
 #include <asm/traps.h>
 
+/* SMSC LAN89218 */
 static struct resource smsc911x_resources[] = {
 	[0] = {
-		.start		= 0x18000000, 
-		.end		= 0x180000ff, 
+		.start		= 0x18000000, /* ExCS0 */
+		.end		= 0x180000ff, /* A1->A7 */
 		.flags		= IORESOURCE_MEM,
 	},
 	[1] = {
-		.start		= gic_spi(28), 
+		.start		= gic_spi(28), /* IRQ 1 */
 		.flags		= IORESOURCE_IRQ,
 	},
 };
 
 static struct smsc911x_platform_config smsc911x_platdata = {
-	.flags		= SMSC911X_USE_32BIT, 
+	.flags		= SMSC911X_USE_32BIT, /* 32-bit SW on 16-bit HW bus */
 	.phy_interface	= PHY_INTERFACE_MODE_MII,
 	.irq_polarity	= SMSC911X_IRQ_POLARITY_ACTIVE_LOW,
 	.irq_type	= SMSC911X_IRQ_TYPE_PUSH_PULL,
@@ -74,17 +75,17 @@ static void __init marzen_init(void)
 {
 	r8a7779_pinmux_init();
 
-	
+	/* SCIF2 (CN18: DEBUG0) */
 	gpio_request(GPIO_FN_TX2_C, NULL);
 	gpio_request(GPIO_FN_RX2_C, NULL);
 
-	
+	/* SCIF4 (CN19: DEBUG1) */
 	gpio_request(GPIO_FN_TX4, NULL);
 	gpio_request(GPIO_FN_RX4, NULL);
 
-	
-	gpio_request(GPIO_FN_EX_CS0, NULL); 
-	gpio_request(GPIO_FN_IRQ1_B, NULL); 
+	/* LAN89218 */
+	gpio_request(GPIO_FN_EX_CS0, NULL); /* nCS */
+	gpio_request(GPIO_FN_IRQ1_B, NULL); /* IRQ + PME */
 
 	r8a7779_add_standard_devices();
 	platform_add_devices(marzen_devices, ARRAY_SIZE(marzen_devices));

@@ -9,6 +9,9 @@
  *
  * ----------------------------------------------------------------------- */
 
+/*
+ * Select video mode
+ */
 
 #include "boot.h"
 #include "video.h"
@@ -36,20 +39,30 @@ static void store_video_mode(void)
 {
 	struct biosregs ireg, oreg;
 
+	/* N.B.: the saving of the video page here is a bit silly,
+	   since we pretty much assume page 0 everywhere. */
 	initregs(&ireg);
 	ireg.ah = 0x0f;
 	intcall(0x10, &ireg, &oreg);
 
-	
+	/* Not all BIOSes are clean with respect to the top bit */
 	boot_params.screen_info.orig_video_mode = oreg.al & 0x7f;
 	boot_params.screen_info.orig_video_page = oreg.bh;
 }
 
+/*
+ * Store the video mode parameters for later usage by the kernel.
+ * This is done by asking the BIOS except for the rows/columns
+ * parameters in the default 80x25 mode -- these are set directly,
+ * because some very obscure BIOSes supply insane values.
+ */
 static void store_mode_params(void)
 {
 	u16 font_size;
 	int x, y;
 
+	/* For graphics mode, it is up to the mode-setting driver
+	   (currently only video-vesa.c) to store the parameters */
 	if (graphic_mode)
 		return;
 
@@ -57,15 +70,15 @@ static void store_mode_params(void)
 	store_video_mode();
 
 	if (boot_params.screen_info.orig_video_mode == 0x07) {
-		
+		/* MDA, HGC, or VGA in monochrome mode */
 		video_segment = 0xb000;
 	} else {
-		
+		/* CGA, EGA, VGA and so forth */
 		video_segment = 0xb800;
 	}
 
 	set_fs(0);
-	font_size = rdfs16(0x485); 
+	font_size = rdfs16(0x485); /* Font size, BIOS area */
 	boot_params.screen_info.orig_video_points = font_size;
 
 	x = rdfs16(0x44a);
@@ -107,7 +120,7 @@ static unsigned int get_entry(void)
 	putchar('\n');
 
 	if (len == 0)
-		return VIDEO_CURRENT_MODE; 
+		return VIDEO_CURRENT_MODE; /* Default */
 
 	v = 0;
 	for (i = 0; i < len; i++) {
@@ -152,7 +165,7 @@ static void display_menu(void)
 				(mi->y << 8)+mi->x;
 
 			if (!visible)
-				continue; 
+				continue; /* Hidden mode */
 
 			if (mi->depth)
 				sprintf(resbuf, "%dx%d", mi->y, mi->depth);
@@ -170,7 +183,7 @@ static void display_menu(void)
 			if (ch == '9')
 				ch = 'a';
 			else if (ch == 'z' || ch == ' ')
-				ch = ' '; 
+				ch = ' '; /* Out of keys... */
 			else
 				ch++;
 		}
@@ -194,10 +207,10 @@ static unsigned int mode_menu(void)
 	while (1) {
 		key = getchar_timeout();
 		if (key == ' ' || key == 0)
-			return VIDEO_CURRENT_MODE; 
+			return VIDEO_CURRENT_MODE; /* Default */
 		if (key == '\r')
 			break;
-		putchar('\a');	
+		putchar('\a');	/* Beep! */
 	}
 
 
@@ -214,6 +227,7 @@ static unsigned int mode_menu(void)
 	}
 }
 
+/* Save screen content to the heap */
 static struct saved_screen {
 	int x, y;
 	int curx, cury;
@@ -222,14 +236,14 @@ static struct saved_screen {
 
 static void save_screen(void)
 {
-	
+	/* Should be called after store_mode_params() */
 	saved.x = boot_params.screen_info.orig_video_cols;
 	saved.y = boot_params.screen_info.orig_video_lines;
 	saved.curx = boot_params.screen_info.orig_x;
 	saved.cury = boot_params.screen_info.orig_y;
 
 	if (!heap_free(saved.x*saved.y*sizeof(u16)+512))
-		return;		
+		return;		/* Not enough heap to save the screen */
 
 	saved.data = GET_HEAP(u16, saved.x*saved.y);
 
@@ -239,7 +253,7 @@ static void save_screen(void)
 
 static void restore_screen(void)
 {
-	
+	/* Should be called after store_mode_params() */
 	int xs = boot_params.screen_info.orig_video_cols;
 	int ys = boot_params.screen_info.orig_video_lines;
 	int y;
@@ -248,12 +262,12 @@ static void restore_screen(void)
 	struct biosregs ireg;
 
 	if (graphic_mode)
-		return;		
+		return;		/* Can't restore onto a graphic mode */
 
 	if (!src)
-		return;		
+		return;		/* No saved screen contents */
 
-	
+	/* Restore screen contents */
 
 	set_fs(video_segment);
 	for (y = 0; y < ys; y++) {
@@ -269,6 +283,8 @@ static void restore_screen(void)
 			npad = xs;
 		}
 
+		/* Writes "npad" blank characters to
+		   video_segment:dst and advances dst */
 		asm volatile("pushw %%es ; "
 			     "movw %2,%%es ; "
 			     "shrw %%cx ; "
@@ -281,14 +297,14 @@ static void restore_screen(void)
 			       "a" (0x07200720));
 	}
 
-	
+	/* Restore cursor position */
 	if (saved.curx >= xs)
 		saved.curx = xs-1;
 	if (saved.cury >= ys)
 		saved.cury = ys-1;
 
 	initregs(&ireg);
-	ireg.ah = 0x02;		
+	ireg.ah = 0x02;		/* Set cursor position */
 	ireg.dh = saved.cury;
 	ireg.dl = saved.curx;
 	intcall(0x10, &ireg, NULL);

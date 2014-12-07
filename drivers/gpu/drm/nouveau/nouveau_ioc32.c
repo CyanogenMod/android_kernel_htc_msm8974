@@ -38,6 +38,15 @@
 
 #include "nouveau_drv.h"
 
+/**
+ * Called whenever a 32-bit process running under a 64-bit kernel
+ * performs an ioctl on /dev/dri/card<n>.
+ *
+ * \param filp file pointer.
+ * \param cmd command.
+ * \param arg user argument.
+ * \return zero on success or negative number on failure.
+ */
 long nouveau_compat_ioctl(struct file *filp, unsigned int cmd,
 			 unsigned long arg)
 {

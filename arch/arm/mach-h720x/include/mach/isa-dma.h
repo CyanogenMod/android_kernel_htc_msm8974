@@ -16,4 +16,4 @@
 #error processor definition missmatch
 #endif
 
-#endif 
+#endif /* __ASM_ARCH_DMA_H */

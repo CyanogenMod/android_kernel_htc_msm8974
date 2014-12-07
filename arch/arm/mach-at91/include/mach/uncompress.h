@@ -43,10 +43,17 @@
 #define UART_OFFSET AT91_USART5
 #endif
 
+/*
+ * The following code assumes the serial port has already been
+ * initialized by the bootloader.  If you didn't setup a port in
+ * your bootloader then nothing will appear (which might be desired).
+ *
+ * This does not append a newline
+ */
 static void putc(int c)
 {
 #ifdef UART_OFFSET
-	void __iomem *sys = (void __iomem *) UART_OFFSET;	
+	void __iomem *sys = (void __iomem *) UART_OFFSET;	/* physical address */
 
 	while (!(__raw_readl(sys + ATMEL_US_CSR) & ATMEL_US_TXRDY))
 		barrier();
@@ -57,9 +64,9 @@ static void putc(int c)
 static inline void flush(void)
 {
 #ifdef UART_OFFSET
-	void __iomem *sys = (void __iomem *) UART_OFFSET;	
+	void __iomem *sys = (void __iomem *) UART_OFFSET;	/* physical address */
 
-	
+	/* wait for transmission to complete */
 	while (!(__raw_readl(sys + ATMEL_US_CSR) & ATMEL_US_TXEMPTY))
 		barrier();
 #endif

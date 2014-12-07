@@ -27,9 +27,10 @@
 #define CLRBITS_OUTL(mask, reg)   __raw_writel(__raw_readl(reg) & ~mask, reg)
 
 
-#define PA_LED          PORT_PADR      
+#define PA_LED          PORT_PADR      /* LED */
 
 
+/* BSC */
 #define CMNCR           0xA4FD0000UL
 #define CS0BCR          0xA4FD0004UL
 #define CS2BCR          0xA4FD0008UL
@@ -49,6 +50,7 @@
 #define CS6BWCR         0xA4FD0040UL
 
 
+/* usb */
 
 #define PORT_UTRCTL		0xA405012CUL
 #define PORT_UCLKCR_W		0xA40A0008UL
@@ -57,8 +59,9 @@
 #define INTC_ICR1		0xA4140010UL
 #define INTC_ICR2		0xA4140012UL
 
+/* MTD */
 
 #define MPR2_MTD_BOOTLOADER_SIZE	0x00060000UL
 #define MPR2_MTD_KERNEL_SIZE		0x00200000UL
 
-#endif  
+#endif  /* __ASM_SH_MAGICPANELR2_H */

@@ -34,4 +34,4 @@ extern void trace_break(void);
 #define NR_TRAPS 16
 #endif
 
-#endif 
+#endif /* _H8300_TRAPS_H */

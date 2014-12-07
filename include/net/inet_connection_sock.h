@@ -25,11 +25,16 @@
 
 #define INET_CSK_DEBUG 1
 
+/* Cancel timers, when they are not required. */
 #undef INET_CSK_CLEAR_TIMERS
 
 struct inet_bind_bucket;
 struct tcp_congestion_ops;
 
+/*
+ * Pointers to address related TCP functions
+ * (i.e. things that depend on the address family)
+ */
 struct inet_connection_sock_af_ops {
 	int	    (*queue_xmit)(struct sk_buff *skb, struct flowi *fl);
 	void	    (*send_check)(struct sock *sk, struct sk_buff *skb);
@@ -58,8 +63,28 @@ struct inet_connection_sock_af_ops {
 				     const struct inet_bind_bucket *tb);
 };
 
+/** inet_connection_sock - INET connection oriented sock
+ *
+ * @icsk_accept_queue:	   FIFO of established children 
+ * @icsk_bind_hash:	   Bind node
+ * @icsk_timeout:	   Timeout
+ * @icsk_retransmit_timer: Resend (no ack)
+ * @icsk_rto:		   Retransmit timeout
+ * @icsk_pmtu_cookie	   Last pmtu seen by socket
+ * @icsk_ca_ops		   Pluggable congestion control hook
+ * @icsk_af_ops		   Operations which are AF_INET{4,6} specific
+ * @icsk_ca_state:	   Congestion control state
+ * @icsk_retransmits:	   Number of unrecovered [RTO] timeouts
+ * @icsk_pending:	   Scheduled timer event
+ * @icsk_backoff:	   Backoff
+ * @icsk_syn_retries:      Number of allowed SYN (or equivalent) retries
+ * @icsk_probes_out:	   unanswered 0 window probes
+ * @icsk_ext_hdr_len:	   Network protocol overhead (IP/IPv6 options)
+ * @icsk_ack:		   Delayed ACK control data
+ * @icsk_mtup;		   MTU probing control data
+ */
 struct inet_connection_sock {
-	
+	/* inet_sock has to be the first member! */
 	struct inet_sock	  icsk_inet;
 	struct request_sock_queue icsk_accept_queue;
 	struct inet_bind_bucket	  *icsk_bind_hash;
@@ -79,24 +104,24 @@ struct inet_connection_sock {
 	__u8			  icsk_probes_out;
 	__u16			  icsk_ext_hdr_len;
 	struct {
-		__u8		  pending;	 
-		__u8		  quick;	 
-		__u8		  pingpong;	 
-		__u8		  blocked;	 
-		__u32		  ato;		 
-		unsigned long	  timeout;	 
-		__u32		  lrcvtime;	 
-		__u16		  last_seg_size; 
-		__u16		  rcv_mss;	  
+		__u8		  pending;	 /* ACK is pending			   */
+		__u8		  quick;	 /* Scheduled number of quick acks	   */
+		__u8		  pingpong;	 /* The session is interactive		   */
+		__u8		  blocked;	 /* Delayed ACK was blocked by socket lock */
+		__u32		  ato;		 /* Predicted tick of soft clock	   */
+		unsigned long	  timeout;	 /* Currently scheduled timeout		   */
+		__u32		  lrcvtime;	 /* timestamp of last received data packet */
+		__u16		  last_seg_size; /* Size of last incoming segment	   */
+		__u16		  rcv_mss;	 /* MSS used for delayed ACK decisions	   */ 
 	} icsk_ack;
 	struct {
 		int		  enabled;
 
-		
+		/* Range of MTUs to search */
 		int		  search_high;
 		int		  search_low;
 
-		
+		/* Information on the current probe. */
 		int		  probe_size;
 	} icsk_mtup;
 	u32			  icsk_ca_priv[16];
@@ -104,9 +129,9 @@ struct inet_connection_sock {
 #define ICSK_CA_PRIV_SIZE	(16 * sizeof(u32))
 };
 
-#define ICSK_TIME_RETRANS	1	
-#define ICSK_TIME_DACK		2	
-#define ICSK_TIME_PROBE0	3	
+#define ICSK_TIME_RETRANS	1	/* Retransmit timer */
+#define ICSK_TIME_DACK		2	/* Delayed ack timer */
+#define ICSK_TIME_PROBE0	3	/* Zero window probe timer */
 
 static inline struct inet_connection_sock *inet_csk(const struct sock *sk)
 {
@@ -179,6 +204,9 @@ static inline void inet_csk_clear_xmit_timer(struct sock *sk, const int what)
 #endif
 }
 
+/*
+ *	Reset the retransmission timer
+ */
 static inline void inet_csk_reset_xmit_timer(struct sock *sk, const int what,
 					     unsigned long when,
 					     const unsigned long max_when)
@@ -290,6 +318,9 @@ extern void inet_csk_reqsk_queue_prune(struct sock *parent,
 
 extern void inet_csk_destroy_sock(struct sock *sk);
 
+/*
+ * LISTEN is a special case for poll..
+ */
 static inline unsigned int inet_csk_listen_poll(const struct sock *sk)
 {
 	return !reqsk_queue_empty(&inet_csk(sk)->icsk_accept_queue) ?
@@ -305,4 +336,4 @@ extern int inet_csk_compat_getsockopt(struct sock *sk, int level, int optname,
 				      char __user *optval, int __user *optlen);
 extern int inet_csk_compat_setsockopt(struct sock *sk, int level, int optname,
 				      char __user *optval, unsigned int optlen);
-#endif 
+#endif /* _INET_CONNECTION_SOCK_H */

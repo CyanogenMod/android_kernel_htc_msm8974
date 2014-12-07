@@ -24,6 +24,11 @@ struct hostmixer_state {
 #define HOSTAUDIO_DEV_DSP "/dev/sound/dsp"
 #define HOSTAUDIO_DEV_MIXER "/dev/sound/mixer"
 
+/*
+ * Changed either at boot time or module load time.  At boot, this is
+ * single-threaded; at module load, multiple modules would each have
+ * their own copy of these variables.
+ */
 static char *dsp = HOSTAUDIO_DEV_DSP;
 static char *mixer = HOSTAUDIO_DEV_MIXER;
 
@@ -60,6 +65,7 @@ __uml_setup("mixer=", set_mixer, "mixer=<mixer device>\n" MIXER_HELP);
 
 static DEFINE_MUTEX(hostaudio_mutex);
 
+/* /dev/dsp file operations */
 
 static ssize_t hostaudio_read(struct file *file, char __user *buffer,
 			      size_t count, loff_t *ppos)
@@ -221,6 +227,7 @@ static int hostaudio_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* /dev/mixer file operations */
 
 static long hostmixer_ioctl_mixdev(struct file *file,
 				  unsigned int cmd, unsigned long arg)
@@ -286,6 +293,7 @@ static int hostmixer_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/* kernel module operations */
 
 static const struct file_operations hostaudio_fops = {
 	.owner          = THIS_MODULE,

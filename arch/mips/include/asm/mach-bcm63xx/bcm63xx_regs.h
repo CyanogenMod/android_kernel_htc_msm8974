@@ -1,13 +1,18 @@
 #ifndef BCM63XX_REGS_H_
 #define BCM63XX_REGS_H_
 
+/*************************************************************************
+ * _REG relative to RSET_PERF
+ *************************************************************************/
 
+/* Chip Identifier / Revision register */
 #define PERF_REV_REG			0x0
 #define REV_CHIPID_SHIFT		16
 #define REV_CHIPID_MASK			(0xffff << REV_CHIPID_SHIFT)
 #define REV_REVID_SHIFT			0
 #define REV_REVID_MASK			(0xffff << REV_REVID_SHIFT)
 
+/* Clock Control register */
 #define PERF_CKCTL_REG			0x4
 
 #define CKCTL_6338_ADSLPHY_EN		(1 << 0)
@@ -109,21 +114,25 @@
 					CKCTL_6368_NAND_CLK_EN |	\
 					CKCTL_6368_IPSEC_CLK_EN)
 
+/* System PLL Control register  */
 #define PERF_SYS_PLL_CTL_REG		0x8
 #define SYS_PLL_SOFT_RESET		0x1
 
+/* Interrupt Mask register */
 #define PERF_IRQMASK_6338_REG		0xc
 #define PERF_IRQMASK_6345_REG		0xc
 #define PERF_IRQMASK_6348_REG		0xc
 #define PERF_IRQMASK_6358_REG		0xc
 #define PERF_IRQMASK_6368_REG		0x20
 
+/* Interrupt Status register */
 #define PERF_IRQSTAT_6338_REG		0x10
 #define PERF_IRQSTAT_6345_REG		0x10
 #define PERF_IRQSTAT_6348_REG		0x10
 #define PERF_IRQSTAT_6358_REG		0x10
 #define PERF_IRQSTAT_6368_REG		0x28
 
+/* External Interrupt Configuration register */
 #define PERF_EXTIRQ_CFG_REG_6338	0x14
 #define PERF_EXTIRQ_CFG_REG_6348	0x14
 #define PERF_EXTIRQ_CFG_REG_6358	0x14
@@ -131,6 +140,7 @@
 
 #define PERF_EXTIRQ_CFG_REG2_6368	0x1c
 
+/* for 6348 only */
 #define EXTIRQ_CFG_SENSE_6348(x)	(1 << (x))
 #define EXTIRQ_CFG_STAT_6348(x)		(1 << (x + 5))
 #define EXTIRQ_CFG_CLEAR_6348(x)	(1 << (x + 10))
@@ -140,6 +150,7 @@
 #define EXTIRQ_CFG_CLEAR_ALL_6348	(0xf << 10)
 #define EXTIRQ_CFG_MASK_ALL_6348	(0xf << 15)
 
+/* for all others */
 #define EXTIRQ_CFG_SENSE(x)		(1 << (x))
 #define EXTIRQ_CFG_STAT(x)		(1 << (x + 4))
 #define EXTIRQ_CFG_CLEAR(x)		(1 << (x + 8))
@@ -149,6 +160,7 @@
 #define EXTIRQ_CFG_CLEAR_ALL		(0xf << 8)
 #define EXTIRQ_CFG_MASK_ALL		(0xf << 12)
 
+/* Soft Reset register */
 #define PERF_SOFTRESET_REG		0x28
 #define PERF_SOFTRESET_6368_REG		0x10
 
@@ -200,6 +212,7 @@
 #define SOFTRESET_6368_USBH_MASK	(1 << 12)
 #define SOFTRESET_6368_PCM_MASK		(1 << 13)
 
+/* MIPS PLL control register */
 #define PERF_MIPSPLLCTL_REG		0x34
 #define MIPSPLLCTL_N1_SHIFT		20
 #define MIPSPLLCTL_N1_MASK		(0x7 << MIPSPLLCTL_N1_SHIFT)
@@ -216,6 +229,7 @@
 #define MIPSPLLCTL_M2BUS_SHIFT		0
 #define MIPSPLLCTL_M2BUS_MASK		(0x7 << MIPSPLLCTL_M2BUS_SHIFT)
 
+/* ADSL PHY PLL Control register */
 #define PERF_ADSLPLLCTL_REG		0x38
 #define ADSLPLLCTL_N1_SHIFT		20
 #define ADSLPLLCTL_N1_MASK		(0x7 << ADSLPLLCTL_N1_SHIFT)
@@ -242,6 +256,9 @@
 				((m2bus) << ADSLPLLCTL_M2BUS_SHIFT))
 
 
+/*************************************************************************
+ * _REG relative to RSET_TIMER
+ *************************************************************************/
 
 #define BCM63XX_TIMER_COUNT		4
 #define TIMER_T0_ID			0
@@ -249,6 +266,7 @@
 #define TIMER_T2_ID			2
 #define TIMER_WDT_ID			3
 
+/* Timer irqstat register */
 #define TIMER_IRQSTAT_REG		0
 #define TIMER_IRQSTAT_TIMER_CAUSE(x)	(1 << (x))
 #define TIMER_IRQSTAT_TIMER0_CAUSE	(1 << 0)
@@ -260,6 +278,7 @@
 #define TIMER_IRQSTAT_TIMER1_IR_EN	(1 << 9)
 #define TIMER_IRQSTAT_TIMER2_IR_EN	(1 << 10)
 
+/* Timer control register */
 #define TIMER_CTLx_REG(x)		(0x4 + (x * 4))
 #define TIMER_CTL0_REG			0x4
 #define TIMER_CTL1_REG			0x8
@@ -269,20 +288,31 @@
 #define TIMER_CTL_ENABLE_MASK		(1 << 31)
 
 
+/*************************************************************************
+ * _REG relative to RSET_WDT
+ *************************************************************************/
 
+/* Watchdog default count register */
 #define WDT_DEFVAL_REG			0x0
 
+/* Watchdog control register */
 #define WDT_CTL_REG			0x4
 
+/* Watchdog control register constants */
 #define WDT_START_1			(0xff00)
 #define WDT_START_2			(0x00ff)
 #define WDT_STOP_1			(0xee00)
 #define WDT_STOP_2			(0x00ee)
 
+/* Watchdog reset length register */
 #define WDT_RSTLEN_REG			0x8
 
 
+/*************************************************************************
+ * _REG relative to RSET_UARTx
+ *************************************************************************/
 
+/* UART Control Register */
 #define UART_CTL_REG			0x0
 #define UART_CTL_RXTMOUTCNT_SHIFT	0
 #define UART_CTL_RXTMOUTCNT_MASK	(0x1f << UART_CTL_RXTMOUTCNT_SHIFT)
@@ -319,8 +349,10 @@
 #define UART_CTL_BRGEN_SHIFT		23
 #define UART_CTL_BRGEN_MASK		(1 << UART_CTL_BRGEN_SHIFT)
 
+/* UART Baudword register */
 #define UART_BAUD_REG			0x4
 
+/* UART Misc Control register */
 #define UART_MCTL_REG			0x8
 #define UART_MCTL_DTR_SHIFT		0
 #define UART_MCTL_DTR_MASK		(1 << UART_MCTL_DTR_SHIFT)
@@ -335,6 +367,7 @@
 #define UART_MCTL_TXFIFOFILL_SHIFT	24
 #define UART_MCTL_TXFIFOFILL_MASK	(0x1f << UART_MCTL_TXFIFOFILL_SHIFT)
 
+/* UART External Input Configuration register */
 #define UART_EXTINP_REG			0xc
 #define UART_EXTINP_RI_SHIFT		0
 #define UART_EXTINP_RI_MASK		(1 << UART_EXTINP_RI_SHIFT)
@@ -359,6 +392,7 @@
 #define UART_EXTINP_DSR_NOSENSE_SHIFT	19
 #define UART_EXTINP_DSR_NOSENSE_MASK	(1 << UART_EXTINP_DSR_NOSENSE_SHIFT)
 
+/* UART Interrupt register */
 #define UART_IR_REG			0x10
 #define UART_IR_MASK(x)			(1 << (x + 16))
 #define UART_IR_STAT(x)			(1 << (x))
@@ -379,6 +413,7 @@
 #define UART_IR_RXBRK			14
 #define UART_IR_TXDONE			15
 
+/* UART Fifo register */
 #define UART_FIFO_REG			0x14
 #define UART_FIFO_VALID_SHIFT		0
 #define UART_FIFO_VALID_MASK		0xff
@@ -393,13 +428,18 @@
 					UART_FIFO_BRKDET_MASK)
 
 
+/*************************************************************************
+ * _REG relative to RSET_GPIO
+ *************************************************************************/
 
+/* GPIO registers */
 #define GPIO_CTL_HI_REG			0x0
 #define GPIO_CTL_LO_REG			0x4
 #define GPIO_DATA_HI_REG		0x8
 #define GPIO_DATA_LO_REG		0xC
 #define GPIO_DATA_LO_REG_6345		0x8
 
+/* GPIO mux registers and constants */
 #define GPIO_MODE_REG			0x18
 
 #define GPIO_MODE_6348_G4_DIAG		0x00090000
@@ -465,8 +505,13 @@
 #define GPIO_BASEMODE_6368_UART2	0x1
 #define GPIO_BASEMODE_6368_GPIO		0x0
 #define GPIO_BASEMODE_6368_MASK		0x7
+/* those bits must be kept as read in gpio basemode register*/
 
+/*************************************************************************
+ * _REG relative to RSET_ENET
+ *************************************************************************/
 
+/* Receiver Configuration register */
 #define ENET_RXCFG_REG			0x0
 #define ENET_RXCFG_ALLMCAST_SHIFT	1
 #define ENET_RXCFG_ALLMCAST_MASK	(1 << ENET_RXCFG_ALLMCAST_SHIFT)
@@ -477,20 +522,24 @@
 #define ENET_RXCFG_ENFLOW_SHIFT		5
 #define ENET_RXCFG_ENFLOW_MASK		(1 << ENET_RXCFG_ENFLOW_SHIFT)
 
+/* Receive Maximum Length register */
 #define ENET_RXMAXLEN_REG		0x4
 #define ENET_RXMAXLEN_SHIFT		0
 #define ENET_RXMAXLEN_MASK		(0x7ff << ENET_RXMAXLEN_SHIFT)
 
+/* Transmit Maximum Length register */
 #define ENET_TXMAXLEN_REG		0x8
 #define ENET_TXMAXLEN_SHIFT		0
 #define ENET_TXMAXLEN_MASK		(0x7ff << ENET_TXMAXLEN_SHIFT)
 
+/* MII Status/Control register */
 #define ENET_MIISC_REG			0x10
 #define ENET_MIISC_MDCFREQDIV_SHIFT	0
 #define ENET_MIISC_MDCFREQDIV_MASK	(0x7f << ENET_MIISC_MDCFREQDIV_SHIFT)
 #define ENET_MIISC_PREAMBLEEN_SHIFT	7
 #define ENET_MIISC_PREAMBLEEN_MASK	(1 << ENET_MIISC_PREAMBLEEN_SHIFT)
 
+/* MII Data register */
 #define ENET_MIIDATA_REG		0x14
 #define ENET_MIIDATA_DATA_SHIFT		0
 #define ENET_MIIDATA_DATA_MASK		(0xffff << ENET_MIIDATA_DATA_SHIFT)
@@ -503,13 +552,16 @@
 #define ENET_MIIDATA_OP_READ_MASK	(0x6 << 28)
 #define ENET_MIIDATA_OP_WRITE_MASK	(0x5 << 28)
 
+/* Ethernet Interrupt Mask register */
 #define ENET_IRMASK_REG			0x18
 
+/* Ethernet Interrupt register */
 #define ENET_IR_REG			0x1c
 #define ENET_IR_MII			(1 << 0)
 #define ENET_IR_MIB			(1 << 1)
 #define ENET_IR_FLOWC			(1 << 2)
 
+/* Ethernet Control register */
 #define ENET_CTL_REG			0x2c
 #define ENET_CTL_ENABLE_SHIFT		0
 #define ENET_CTL_ENABLE_MASK		(1 << ENET_CTL_ENABLE_SHIFT)
@@ -520,97 +572,138 @@
 #define ENET_CTL_EPHYSEL_SHIFT		3
 #define ENET_CTL_EPHYSEL_MASK		(1 << ENET_CTL_EPHYSEL_SHIFT)
 
+/* Transmit Control register */
 #define ENET_TXCTL_REG			0x30
 #define ENET_TXCTL_FD_SHIFT		0
 #define ENET_TXCTL_FD_MASK		(1 << ENET_TXCTL_FD_SHIFT)
 
+/* Transmit Watermask register */
 #define ENET_TXWMARK_REG		0x34
 #define ENET_TXWMARK_WM_SHIFT		0
 #define ENET_TXWMARK_WM_MASK		(0x3f << ENET_TXWMARK_WM_SHIFT)
 
+/* MIB Control register */
 #define ENET_MIBCTL_REG			0x38
 #define ENET_MIBCTL_RDCLEAR_SHIFT	0
 #define ENET_MIBCTL_RDCLEAR_MASK	(1 << ENET_MIBCTL_RDCLEAR_SHIFT)
 
+/* Perfect Match Data Low register */
 #define ENET_PML_REG(x)			(0x58 + (x) * 8)
 #define ENET_PMH_REG(x)			(0x5c + (x) * 8)
 #define ENET_PMH_DATAVALID_SHIFT	16
 #define ENET_PMH_DATAVALID_MASK		(1 << ENET_PMH_DATAVALID_SHIFT)
 
+/* MIB register */
 #define ENET_MIB_REG(x)			(0x200 + (x) * 4)
 #define ENET_MIB_REG_COUNT		55
 
 
+/*************************************************************************
+ * _REG relative to RSET_ENETDMA
+ *************************************************************************/
 
+/* Controller Configuration Register */
 #define ENETDMA_CFG_REG			(0x0)
 #define ENETDMA_CFG_EN_SHIFT		0
 #define ENETDMA_CFG_EN_MASK		(1 << ENETDMA_CFG_EN_SHIFT)
 #define ENETDMA_CFG_FLOWCH_MASK(x)	(1 << ((x >> 1) + 1))
 
+/* Flow Control Descriptor Low Threshold register */
 #define ENETDMA_FLOWCL_REG(x)		(0x4 + (x) * 6)
 
+/* Flow Control Descriptor High Threshold register */
 #define ENETDMA_FLOWCH_REG(x)		(0x8 + (x) * 6)
 
+/* Flow Control Descriptor Buffer Alloca Threshold register */
 #define ENETDMA_BUFALLOC_REG(x)		(0xc + (x) * 6)
 #define ENETDMA_BUFALLOC_FORCE_SHIFT	31
 #define ENETDMA_BUFALLOC_FORCE_MASK	(1 << ENETDMA_BUFALLOC_FORCE_SHIFT)
 
+/* Channel Configuration register */
 #define ENETDMA_CHANCFG_REG(x)		(0x100 + (x) * 0x10)
 #define ENETDMA_CHANCFG_EN_SHIFT	0
 #define ENETDMA_CHANCFG_EN_MASK		(1 << ENETDMA_CHANCFG_EN_SHIFT)
 #define ENETDMA_CHANCFG_PKTHALT_SHIFT	1
 #define ENETDMA_CHANCFG_PKTHALT_MASK	(1 << ENETDMA_CHANCFG_PKTHALT_SHIFT)
 
+/* Interrupt Control/Status register */
 #define ENETDMA_IR_REG(x)		(0x104 + (x) * 0x10)
 #define ENETDMA_IR_BUFDONE_MASK		(1 << 0)
 #define ENETDMA_IR_PKTDONE_MASK		(1 << 1)
 #define ENETDMA_IR_NOTOWNER_MASK	(1 << 2)
 
+/* Interrupt Mask register */
 #define ENETDMA_IRMASK_REG(x)		(0x108 + (x) * 0x10)
 
+/* Maximum Burst Length */
 #define ENETDMA_MAXBURST_REG(x)		(0x10C + (x) * 0x10)
 
+/* Ring Start Address register */
 #define ENETDMA_RSTART_REG(x)		(0x200 + (x) * 0x10)
 
+/* State Ram Word 2 */
 #define ENETDMA_SRAM2_REG(x)		(0x204 + (x) * 0x10)
 
+/* State Ram Word 3 */
 #define ENETDMA_SRAM3_REG(x)		(0x208 + (x) * 0x10)
 
+/* State Ram Word 4 */
 #define ENETDMA_SRAM4_REG(x)		(0x20c + (x) * 0x10)
 
 
+/*************************************************************************
+ * _REG relative to RSET_ENETDMAC
+ *************************************************************************/
 
+/* Channel Configuration register */
 #define ENETDMAC_CHANCFG_REG(x)		((x) * 0x10)
 #define ENETDMAC_CHANCFG_EN_SHIFT	0
 #define ENETDMAC_CHANCFG_EN_MASK	(1 << ENETDMA_CHANCFG_EN_SHIFT)
 #define ENETDMAC_CHANCFG_PKTHALT_SHIFT	1
 #define ENETDMAC_CHANCFG_PKTHALT_MASK	(1 << ENETDMA_CHANCFG_PKTHALT_SHIFT)
 
+/* Interrupt Control/Status register */
 #define ENETDMAC_IR_REG(x)		(0x4 + (x) * 0x10)
 #define ENETDMAC_IR_BUFDONE_MASK	(1 << 0)
 #define ENETDMAC_IR_PKTDONE_MASK	(1 << 1)
 #define ENETDMAC_IR_NOTOWNER_MASK	(1 << 2)
 
+/* Interrupt Mask register */
 #define ENETDMAC_IRMASK_REG(x)		(0x8 + (x) * 0x10)
 
+/* Maximum Burst Length */
 #define ENETDMAC_MAXBURST_REG(x)	(0xc + (x) * 0x10)
 
 
+/*************************************************************************
+ * _REG relative to RSET_ENETDMAS
+ *************************************************************************/
 
+/* Ring Start Address register */
 #define ENETDMAS_RSTART_REG(x)		((x) * 0x10)
 
+/* State Ram Word 2 */
 #define ENETDMAS_SRAM2_REG(x)		(0x4 + (x) * 0x10)
 
+/* State Ram Word 3 */
 #define ENETDMAS_SRAM3_REG(x)		(0x8 + (x) * 0x10)
 
+/* State Ram Word 4 */
 #define ENETDMAS_SRAM4_REG(x)		(0xc + (x) * 0x10)
 
 
+/*************************************************************************
+ * _REG relative to RSET_ENETSW
+ *************************************************************************/
 
+/* MIB register */
 #define ENETSW_MIB_REG(x)		(0x2800 + (x) * 4)
 #define ENETSW_MIB_REG_COUNT		47
 
 
+/*************************************************************************
+ * _REG relative to RSET_OHCI_PRIV
+ *************************************************************************/
 
 #define OHCI_PRIV_REG			0x0
 #define OHCI_PRIV_PORT1_HOST_SHIFT	0
@@ -619,6 +712,9 @@
 #define OHCI_PRIV_REG_SWAP_MASK		(1 << OHCI_PRIV_REG_SWAP_SHIFT)
 
 
+/*************************************************************************
+ * _REG relative to RSET_USBH_PRIV
+ *************************************************************************/
 
 #define USBH_PRIV_SWAP_6358_REG		0x0
 #define USBH_PRIV_SWAP_6368_REG		0x1c
@@ -641,11 +737,16 @@
 
 
 
+/*************************************************************************
+ * _REG relative to RSET_MPI
+ *************************************************************************/
 
+/* well known (hard wired) chip select */
 #define MPI_CS_PCMCIA_COMMON		4
 #define MPI_CS_PCMCIA_ATTR		5
 #define MPI_CS_PCMCIA_IO		6
 
+/* Chip select base register */
 #define MPI_CSBASE_REG(x)		(0x0 + (x) * 8)
 #define MPI_CSBASE_BASE_SHIFT		13
 #define MPI_CSBASE_BASE_MASK		(0x1ffff << MPI_CSBASE_BASE_SHIFT)
@@ -669,6 +770,7 @@
 #define MPI_CSBASE_SIZE_128M		14
 #define MPI_CSBASE_SIZE_256M		15
 
+/* Chip select control register */
 #define MPI_CSCTL_REG(x)		(0x4 + (x) * 8)
 #define MPI_CSCTL_ENABLE_MASK		(1 << 0)
 #define MPI_CSCTL_WAIT_SHIFT		1
@@ -682,6 +784,7 @@
 #define MPI_CSCTL_HOLD_SHIFT		20
 #define MPI_CSCTL_HOLD_MASK		(0xf << MPI_CSCTL_HOLD_SHIFT)
 
+/* PCI registers */
 #define MPI_SP0_RANGE_REG		0x100
 #define MPI_SP0_REMAP_REG		0x104
 #define MPI_SP0_REMAP_ENABLE_MASK	(1 << 0)
@@ -740,6 +843,7 @@
 
 #define MPI_PCICFGDATA_REG		0x17C
 
+/* PCI host bridge custom register */
 #define BCMPCI_REG_TIMERS		0x40
 #define REG_TIMER_TRDY_SHIFT		0
 #define REG_TIMER_TRDY_MASK		(0xff << REG_TIMER_TRDY_SHIFT)
@@ -747,6 +851,9 @@
 #define REG_TIMER_RETRY_MASK		(0xff << REG_TIMER_RETRY_SHIFT)
 
 
+/*************************************************************************
+ * _REG relative to RSET_PCMCIA
+ *************************************************************************/
 
 #define PCMCIA_C1_REG			0x0
 #define PCMCIA_C1_CD1_MASK		(1 << 0)
@@ -775,6 +882,9 @@
 #define PCMCIA_C2_HOLD_MASK		(0x3f << PCMCIA_C2_HOLD_SHIFT)
 
 
+/*************************************************************************
+ * _REG relative to RSET_SDRAM
+ *************************************************************************/
 
 #define SDRAM_CFG_REG			0x0
 #define SDRAM_CFG_ROW_SHIFT		4
@@ -797,6 +907,9 @@
 #define SDRAM_PRIO_EN_MASK		(1 << SDRAM_PRIO_EN_SHIFT)
 
 
+/*************************************************************************
+ * _REG relative to RSET_MEMC
+ *************************************************************************/
 
 #define MEMC_CFG_REG			0x4
 #define MEMC_CFG_32B_SHIFT		1
@@ -807,6 +920,9 @@
 #define MEMC_CFG_ROW_MASK		(0x3 << MEMC_CFG_ROW_SHIFT)
 
 
+/*************************************************************************
+ * _REG relative to RSET_DDR
+ *************************************************************************/
 
 #define DDR_DMIPSPLLCFG_REG		0x18
 #define DMIPSPLLCFG_M1_SHIFT		0
@@ -829,6 +945,9 @@
 #define DMIPSPLLDIV_6368_MDIV_MASK	(0xff << DMIPSPLLDIV_6368_MDIV_SHIFT)
 
 
+/*************************************************************************
+ * _REG relative to RSET_M2M
+ *************************************************************************/
 
 #define M2M_RX				0
 #define M2M_TX				1
@@ -854,4 +973,4 @@
 #define M2M_SRCID_REG(x)		((x) * 0x40 + 0x14)
 #define M2M_DSTID_REG(x)		((x) * 0x40 + 0x18)
 
-#endif 
+#endif /* BCM63XX_REGS_H_ */

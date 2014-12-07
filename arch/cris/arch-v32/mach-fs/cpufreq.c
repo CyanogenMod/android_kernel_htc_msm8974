@@ -44,6 +44,8 @@ static void cris_freq_set_cpu_state(unsigned int state)
 
 	local_irq_disable();
 
+	/* Even though we may be SMP they will share the same clock
+	 * so all settings are made on CPU0. */
 	if (cris_freq_table[state].frequency == 200000)
 		clk_ctrl.pll = 1;
 	else
@@ -78,8 +80,8 @@ static int cris_freq_cpu_init(struct cpufreq_policy *policy)
 {
 	int result;
 
-	
-	policy->cpuinfo.transition_latency = 1000000;	
+	/* cpuinfo and default policy values */
+	policy->cpuinfo.transition_latency = 1000000;	/* 1ms */
 	policy->cur = cris_freq_get_cpu_frequency(0);
 
 	result = cpufreq_frequency_table_cpuinfo(policy, cris_freq_table);

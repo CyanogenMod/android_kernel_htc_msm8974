@@ -24,13 +24,14 @@
 
 #define	RTL8712_EEPROM_ID		0x8712
 #define	EEPROM_MAX_SIZE			256
-#define	CLOCK_RATE			50	
+#define	CLOCK_RATE			50	/*100us*/
 
+/*- EEPROM opcodes*/
 #define EEPROM_READ_OPCODE		06
 #define EEPROM_WRITE_OPCODE		05
 #define EEPROM_ERASE_OPCODE		07
-#define EEPROM_EWEN_OPCODE		19      
-#define EEPROM_EWDS_OPCODE		16      
+#define EEPROM_EWEN_OPCODE		19      /* Erase/write enable*/
+#define EEPROM_EWDS_OPCODE		16      /* Erase/write disable*/
 
 #define	EEPROM_CID_DEFAULT		0x0
 #define	EEPROM_CID_ALPHA		0x1
@@ -96,5 +97,5 @@ struct eeprom_priv {
 void r8712_eeprom_write16(struct _adapter *padapter, u16 reg, u16 data);
 u16 r8712_eeprom_read16(struct _adapter *padapter, u16 reg);
 
-#endif  
+#endif  /*__RTL871X_EEPROM_H__*/
 

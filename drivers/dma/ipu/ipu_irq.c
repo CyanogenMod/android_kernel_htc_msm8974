@@ -19,6 +19,9 @@
 
 #include "ipu_intern.h"
 
+/*
+ * Register read / write - shall be inlined by the compiler
+ */
 static u32 ipu_read_reg(struct ipu *ipu, unsigned long reg)
 {
 	return __raw_readl(ipu->reg_ipu + reg);
@@ -30,6 +33,9 @@ static void ipu_write_reg(struct ipu *ipu, u32 value, unsigned long reg)
 }
 
 
+/*
+ * IPU IRQ chip driver
+ */
 
 #define IPU_IRQ_NR_FN_BANKS 3
 #define IPU_IRQ_NR_ERR_BANKS 2
@@ -43,7 +49,7 @@ struct ipu_irq_bank {
 };
 
 static struct ipu_irq_bank irq_bank[IPU_IRQ_NR_BANKS] = {
-	
+	/* 3 groups of functional interrupts */
 	{
 		.control	= IPU_INT_CTRL_1,
 		.status		= IPU_INT_STAT_1,
@@ -54,7 +60,7 @@ static struct ipu_irq_bank irq_bank[IPU_IRQ_NR_BANKS] = {
 		.control	= IPU_INT_CTRL_3,
 		.status		= IPU_INT_STAT_3,
 	},
-	
+	/* 2 groups of error interrupts */
 	{
 		.control	= IPU_INT_CTRL_4,
 		.status		= IPU_INT_STAT_4,
@@ -72,7 +78,9 @@ struct ipu_irq_map {
 };
 
 static struct ipu_irq_map irq_map[CONFIG_MX3_IPU_IRQS];
+/* Protects allocations from the above array of maps */
 static DEFINE_MUTEX(map_lock);
+/* Protects register accesses and individual mappings */
 static DEFINE_RAW_SPINLOCK(bank_lock);
 
 static struct ipu_irq_map *src2map(unsigned int src)
@@ -151,6 +159,12 @@ static void ipu_irq_ack(struct irq_data *d)
 	raw_spin_unlock_irqrestore(&bank_lock, lock_flags);
 }
 
+/**
+ * ipu_irq_status() - returns the current interrupt status of the specified IRQ.
+ * @irq:	interrupt line to get status for.
+ * @return:	true if the interrupt is pending/asserted or false if the
+ *		interrupt is not pending.
+ */
 bool ipu_irq_status(unsigned int irq)
 {
 	struct ipu_irq_map *map = irq_get_chip_data(irq);
@@ -167,6 +181,19 @@ bool ipu_irq_status(unsigned int irq)
 	return ret;
 }
 
+/**
+ * ipu_irq_map() - map an IPU interrupt source to an IRQ number
+ * @source:	interrupt source bit position (see below)
+ * @return:	mapped IRQ number or negative error code
+ *
+ * The source parameter has to be explained further. On i.MX31 IPU has 137 IRQ
+ * sources, they are broken down in 5 32-bit registers, like 32, 32, 24, 32, 17.
+ * However, the source argument of this function is not the sequence number of
+ * the possible IRQ, but rather its bit position. So, first interrupt in fourth
+ * register has source number 96, and not 88. This makes calculations easier,
+ * and also provides forward compatibility with any future IPU implementations
+ * with any interrupt bit assignments.
+ */
 int ipu_irq_map(unsigned int source)
 {
 	int i, ret = -ENOMEM;
@@ -206,6 +233,11 @@ out:
 	return ret;
 }
 
+/**
+ * ipu_irq_map() - map an IPU interrupt source to an IRQ number
+ * @source:	interrupt source bit position (see ipu_irq_map())
+ * @return:	0 or negative error code
+ */
 int ipu_irq_unmap(unsigned int source)
 {
 	int i, ret = -EINVAL;
@@ -234,6 +266,7 @@ int ipu_irq_unmap(unsigned int source)
 	return ret;
 }
 
+/* Chained IRQ handler for IPU error interrupt */
 static void ipu_irq_err(unsigned int irq, struct irq_desc *desc)
 {
 	struct ipu *ipu = irq_get_handler_data(irq);
@@ -245,6 +278,11 @@ static void ipu_irq_err(unsigned int irq, struct irq_desc *desc)
 
 		raw_spin_lock(&bank_lock);
 		status = ipu_read_reg(ipu, bank->status);
+		/*
+		 * Don't think we have to clear all interrupts here, they will
+		 * be acked by ->handle_irq() (handle_level_irq). However, we
+		 * might want to clear unhandled interrupts after the loop...
+		 */
 		status &= ipu_read_reg(ipu, bank->control);
 		raw_spin_unlock(&bank_lock);
 		while ((line = ffs(status))) {
@@ -269,6 +307,7 @@ static void ipu_irq_err(unsigned int irq, struct irq_desc *desc)
 	}
 }
 
+/* Chained IRQ handler for IPU function interrupt */
 static void ipu_irq_fn(unsigned int irq, struct irq_desc *desc)
 {
 	struct ipu *ipu = irq_desc_get_handler_data(desc);
@@ -280,7 +319,7 @@ static void ipu_irq_fn(unsigned int irq, struct irq_desc *desc)
 
 		raw_spin_lock(&bank_lock);
 		status = ipu_read_reg(ipu, bank->status);
-		
+		/* Not clearing all interrupts, see above */
 		status &= ipu_read_reg(ipu, bank->control);
 		raw_spin_unlock(&bank_lock);
 		while ((line = ffs(status))) {
@@ -312,6 +351,7 @@ static struct irq_chip ipu_irq_chip = {
 	.irq_unmask	= ipu_irq_unmask,
 };
 
+/* Install the IRQ handler */
 int __init ipu_irq_attach_irq(struct ipu *ipu, struct platform_device *dev)
 {
 	struct ipu_platform_data *pdata = dev->dev.platform_data;

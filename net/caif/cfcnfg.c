@@ -23,29 +23,32 @@
 
 #define container_obj(layr) container_of(layr, struct cfcnfg, layer)
 
+/* Information about CAIF physical interfaces held by Config Module in order
+ * to manage physical interfaces
+ */
 struct cfcnfg_phyinfo {
 	struct list_head node;
 	bool up;
 
-	
+	/* Pointer to the layer below the MUX (framing layer) */
 	struct cflayer *frm_layer;
-	
+	/* Pointer to the lowest actual physical layer */
 	struct cflayer *phy_layer;
-	
+	/* Unique identifier of the physical interface */
 	unsigned int id;
-	
+	/* Preference of the physical in interface */
 	enum cfcnfg_phy_preference pref;
 
-	
+	/* Information about the physical device */
 	struct dev_info dev_info;
 
-	
+	/* Interface index */
 	int ifindex;
 
-	
+	/* Protocol head room added for CAIF link layer */
 	int head_room;
 
-	
+	/* Use Start of frame checksum */
 	bool use_fcs;
 };
 
@@ -73,7 +76,7 @@ struct cfcnfg *cfcnfg_create(void)
 
 	might_sleep();
 
-	
+	/* Initiate this layer */
 	this = kzalloc(sizeof(struct cfcnfg), GFP_ATOMIC);
 	if (!this)
 		return NULL;
@@ -83,7 +86,7 @@ struct cfcnfg *cfcnfg_create(void)
 	this->ctrl = cfctrl_create();
 	if (!this->ctrl)
 		goto out_of_mem;
-	
+	/* Initiate response functions */
 	resp = cfctrl_get_respfuncs(this->ctrl);
 	resp->enum_rsp = cfctrl_enum_resp;
 	resp->linkerror_ind = cfctrl_resp_func;
@@ -145,7 +148,7 @@ static void cfctrl_enum_resp(void)
 static struct dev_info *cfcnfg_get_phyid(struct cfcnfg *cnfg,
 				  enum cfcnfg_phy_preference phy_pref)
 {
-	
+	/* Try to match with specified preference */
 	struct cfcnfg_phyinfo *phy;
 
 	list_for_each_entry_rcu(phy, &cnfg->phys, node) {
@@ -155,7 +158,7 @@ static struct dev_info *cfcnfg_get_phyid(struct cfcnfg *cnfg,
 			return &phy->dev_info;
 	}
 
-	
+	/* Otherwise just return something */
 	list_for_each_entry_rcu(phy, &cnfg->phys, node)
 		if (phy->up)
 			return &phy->dev_info;
@@ -190,7 +193,7 @@ int caif_disconnect_client(struct net *net, struct cflayer *adap_layer)
 	} else
 		pr_debug("nothing to disconnect\n");
 
-	
+	/* Do RCU sync before initiating cleanup */
 	synchronize_rcu();
 	if (adap_layer->ctrlcmd != NULL)
 		adap_layer->ctrlcmd(adap_layer, CAIF_CTRLCMD_DEINIT_RSP, 0);
@@ -221,7 +224,7 @@ static int caif_connect_req_to_link_param(struct cfcnfg *cnfg,
 	int res;
 
 	memset(l, 0, sizeof(*l));
-	
+	/* In caif protocol low value is high priority */
 	l->priority = CAIF_PRIO_MAX - s->priority + 1;
 
 	if (s->ifindex != 0) {
@@ -350,7 +353,7 @@ int caif_connect_client(struct net *net, struct caif_connect_request *conn_req,
 
 	rcu_read_unlock();
 
-	
+	/* FIXME: ENUMERATE INITIALLY WHEN ACTIVATING PHYSICAL INTERFACE */
 	cfctrl_enum_req(cfg->ctrl, param.phyid);
 	return cfctrl_linkup_request(cfg->ctrl, &param, adap_layer);
 
@@ -467,7 +470,7 @@ cfcnfg_add_phy_layer(struct cfcnfg *cnfg,
 
 	mutex_lock(&cnfg->lock);
 
-	
+	/* CAIF protocol allow maximum 6 link-layers */
 	for (i = 0; i < 7; i++) {
 		phyid = (dev->ifindex + i) & 0x7;
 		if (phyid == 0)
@@ -579,7 +582,7 @@ int cfcnfg_del_phy_layer(struct cfcnfg *cnfg, struct cflayer *phy_layer)
 	list_del_rcu(&phyinfo->node);
 	synchronize_rcu();
 
-	
+	/* Fail if reference count is not zero */
 	if (cffrml_refcnt_read(phyinfo->frm_layer) != 0) {
 		pr_info("Wait for device inuse\n");
 		list_add_rcu(&phyinfo->node, &cnfg->phys);

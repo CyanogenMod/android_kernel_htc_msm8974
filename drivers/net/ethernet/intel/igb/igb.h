@@ -26,6 +26,7 @@
 *******************************************************************************/
 
 
+/* Linux PRO/1000 Ethernet Driver main header file */
 
 #ifndef _IGB_H_
 #define _IGB_H_
@@ -41,11 +42,13 @@
 
 struct igb_adapter;
 
-#define IGB_START_ITR                    648 
+/* Interrupt defines */
+#define IGB_START_ITR                    648 /* ~6000 ints/sec */
 #define IGB_4K_ITR                       980
 #define IGB_20K_ITR                      196
 #define IGB_70K_ITR                       56
 
+/* TX/RX descriptor defines */
 #define IGB_DEFAULT_TXD                  256
 #define IGB_DEFAULT_TX_WORK		 128
 #define IGB_MIN_TXD                       80
@@ -55,12 +58,13 @@ struct igb_adapter;
 #define IGB_MIN_RXD                       80
 #define IGB_MAX_RXD                     4096
 
-#define IGB_DEFAULT_ITR                    3 
+#define IGB_DEFAULT_ITR                    3 /* dynamic */
 #define IGB_MAX_ITR_USECS              10000
 #define IGB_MIN_ITR_USECS                 10
 #define NON_Q_VECTORS                      1
 #define MAX_Q_VECTORS                      8
 
+/* Transmit and receive queues */
 #define IGB_MAX_RX_QUEUES                  (adapter->vfs_allocated_count ? 2 : \
                                            (hw->mac.type > e1000_82575 ? 8 : 4))
 #define IGB_MAX_TX_QUEUES                  16
@@ -78,17 +82,28 @@ struct vf_data_storage {
 	u16 vlans_enabled;
 	u32 flags;
 	unsigned long last_nack;
-	u16 pf_vlan; 
+	u16 pf_vlan; /* When set, guest VLAN config not allowed. */
 	u16 pf_qos;
 	u16 tx_rate;
 	struct pci_dev *vfdev;
 };
 
-#define IGB_VF_FLAG_CTS            0x00000001 
-#define IGB_VF_FLAG_UNI_PROMISC    0x00000002 
-#define IGB_VF_FLAG_MULTI_PROMISC  0x00000004 
-#define IGB_VF_FLAG_PF_SET_MAC     0x00000008 
+#define IGB_VF_FLAG_CTS            0x00000001 /* VF is clear to send data */
+#define IGB_VF_FLAG_UNI_PROMISC    0x00000002 /* VF has unicast promisc */
+#define IGB_VF_FLAG_MULTI_PROMISC  0x00000004 /* VF has multicast promisc */
+#define IGB_VF_FLAG_PF_SET_MAC     0x00000008 /* PF has set MAC address */
 
+/* RX descriptor control thresholds.
+ * PTHRESH - MAC will consider prefetch if it has fewer than this number of
+ *           descriptors available in its onboard memory.
+ *           Setting this to 0 disables RX descriptor prefetch.
+ * HTHRESH - MAC will only prefetch if there are at least this many descriptors
+ *           available in host memory.
+ *           If PTHRESH is 0, this should also be 0.
+ * WTHRESH - RX descriptor writeback threshold - MAC will delay writing back
+ *           descriptors until either it has this many to write back, or the
+ *           ITR timer expires.
+ */
 #define IGB_RX_PTHRESH                     8
 #define IGB_RX_HTHRESH                     8
 #define IGB_TX_PTHRESH                     8
@@ -98,19 +113,24 @@ struct vf_data_storage {
 #define IGB_TX_WTHRESH                     ((hw->mac.type == e1000_82576 && \
 					     adapter->msix_entries) ? 1 : 16)
 
+/* this is the size past which hardware will drop packets when setting LPE=0 */
 #define MAXIMUM_ETHERNET_VLAN_SIZE 1522
 
+/* Supported Rx Buffer Sizes */
 #define IGB_RXBUFFER_512   512
 #define IGB_RXBUFFER_16384 16384
 #define IGB_RX_HDR_LEN     IGB_RXBUFFER_512
 
+/* How many Tx Descriptors do we need to call netif_wake_queue ? */
 #define IGB_TX_QUEUE_WAKE	16
-#define IGB_RX_BUFFER_WRITE	16	
+/* How many Rx Buffers do we bundle into one write to the hardware ? */
+#define IGB_RX_BUFFER_WRITE	16	/* Must be power of 2 */
 
 #define AUTO_ALL_MODES            0
 #define IGB_EEPROM_APME         0x0400
 
 #ifndef IGB_MASTER_SLAVE
+/* Switch to override PHY master/slave setting */
 #define IGB_MASTER_SLAVE	e1000_ms_hw_default
 #endif
 
@@ -124,6 +144,8 @@ struct vf_data_storage {
 #define IGB_TX_FLAGS_VLAN_MASK		0xffff0000
 #define IGB_TX_FLAGS_VLAN_SHIFT	16
 
+/* wrapper around a pointer to a socket buffer,
+ * so a DMA handle can be stored along with the buffer */
 struct igb_tx_buffer {
 	union e1000_adv_tx_desc *next_to_watch;
 	unsigned long time_stamp;
@@ -160,18 +182,18 @@ struct igb_rx_queue_stats {
 };
 
 struct igb_ring_container {
-	struct igb_ring *ring;		
-	unsigned int total_bytes;	
-	unsigned int total_packets;	
-	u16 work_limit;			
-	u8 count;			
-	u8 itr;				
+	struct igb_ring *ring;		/* pointer to linked list of rings */
+	unsigned int total_bytes;	/* total bytes processed this int */
+	unsigned int total_packets;	/* total packets processed this int */
+	u16 work_limit;			/* total work allowed per interrupt */
+	u8 count;			/* total number of rings in vector */
+	u8 itr;				/* current ITR setting for ring */
 };
 
 struct igb_q_vector {
-	struct igb_adapter *adapter;	
-	int cpu;			
-	u32 eims_value;			
+	struct igb_adapter *adapter;	/* backlink */
+	int cpu;			/* CPU for DCA */
+	u32 eims_value;			/* EIMS mask value */
 
 	struct igb_ring_container rx, tx;
 
@@ -186,42 +208,42 @@ struct igb_q_vector {
 };
 
 struct igb_ring {
-	struct igb_q_vector *q_vector;	
-	struct net_device *netdev;	
-	struct device *dev;		
-	union {				
+	struct igb_q_vector *q_vector;	/* backlink to q_vector */
+	struct net_device *netdev;	/* back pointer to net_device */
+	struct device *dev;		/* device pointer for dma mapping */
+	union {				/* array of buffer info structs */
 		struct igb_tx_buffer *tx_buffer_info;
 		struct igb_rx_buffer *rx_buffer_info;
 	};
-	void *desc;			
-	unsigned long flags;		
-	void __iomem *tail;		
+	void *desc;			/* descriptor ring memory */
+	unsigned long flags;		/* ring specific flags */
+	void __iomem *tail;		/* pointer to ring tail register */
 
-	u16 count;			
-	u8 queue_index;			
-	u8 reg_idx;			
-	u32 size;			
+	u16 count;			/* number of desc. in the ring */
+	u8 queue_index;			/* logical index of the ring*/
+	u8 reg_idx;			/* physical index of the ring */
+	u32 size;			/* length of desc. ring in bytes */
 
 	/* everything past this point are written often */
 	u16 next_to_clean ____cacheline_aligned_in_smp;
 	u16 next_to_use;
 
 	union {
-		
+		/* TX */
 		struct {
 			struct igb_tx_queue_stats tx_stats;
 			struct u64_stats_sync tx_syncp;
 			struct u64_stats_sync tx_syncp2;
 		};
-		
+		/* RX */
 		struct {
 			struct igb_rx_queue_stats rx_stats;
 			struct u64_stats_sync rx_syncp;
 		};
 	};
-	
-	dma_addr_t dma;                
-	int numa_node;                  
+	/* Items past this point are only used during ring alloc / free */
+	dma_addr_t dma;                /* phys address of the ring */
+	int numa_node;                  /* node to alloc ring memory on */
 };
 
 enum e1000_ring_flags_t {
@@ -240,12 +262,14 @@ enum e1000_ring_flags_t {
 #define IGB_TX_CTXTDESC(R, i)	    \
 	(&(((struct e1000_adv_tx_context_desc *)((R)->desc))[i]))
 
+/* igb_test_staterr - tests bits within Rx descriptor status and error fields */
 static inline __le32 igb_test_staterr(union e1000_adv_rx_desc *rx_desc,
 				      const u32 stat_err_bits)
 {
 	return rx_desc->wb.upper.status_error & cpu_to_le32(stat_err_bits);
 }
 
+/* igb_desc_unused - calculate if we have unused descriptors */
 static inline int igb_desc_unused(struct igb_ring *ring)
 {
 	if (ring->next_to_clean > ring->next_to_use)
@@ -254,6 +278,7 @@ static inline int igb_desc_unused(struct igb_ring *ring)
 	return ring->count + ring->next_to_clean - ring->next_to_use - 1;
 }
 
+/* board specific private data structure */
 struct igb_adapter {
 	unsigned long active_vlans[BITS_TO_LONGS(VLAN_N_VID)];
 
@@ -265,19 +290,19 @@ struct igb_adapter {
 	unsigned int num_q_vectors;
 	struct msix_entry *msix_entries;
 
-	
+	/* Interrupt Throttle Rate */
 	u32 rx_itr_setting;
 	u32 tx_itr_setting;
 	u16 tx_itr;
 	u16 rx_itr;
 
-	
+	/* TX */
 	u16 tx_work_limit;
 	u32 tx_timeout_count;
 	int num_tx_queues;
 	struct igb_ring *tx_ring[16];
 
-	
+	/* RX */
 	int num_rx_queues;
 	struct igb_ring *rx_ring[16];
 
@@ -301,7 +326,7 @@ struct igb_adapter {
 	struct timer_list blink_timer;
 	unsigned long led_status;
 
-	
+	/* OS defined structs */
 	struct pci_dev *pdev;
 	struct cyclecounter cycles;
 	struct timecounter clock;
@@ -311,7 +336,7 @@ struct igb_adapter {
 	spinlock_t stats64_lock;
 	struct rtnl_link_stats64 stats64;
 
-	
+	/* structs defined in e1000_hw.h */
 	struct e1000_hw hw;
 	struct e1000_hw_stats stats;
 	struct e1000_phy_info phy_info;
@@ -327,7 +352,7 @@ struct igb_adapter {
 	u32 eims_enable_mask;
 	u32 eims_other;
 
-	
+	/* to not mess up cache alignment, always add to the bottom */
 	u32 eeprom_wol;
 
 	u16 tx_ring_count;
@@ -347,9 +372,10 @@ struct igb_adapter {
 #define IGB_FLAG_QUEUE_PAIRS       (1 << 3)
 #define IGB_FLAG_DMAC              (1 << 4)
 
+/* DMA Coalescing defines */
 #define IGB_MIN_TXPBSIZE           20408
 #define IGB_TX_BUF_4096            4096
-#define IGB_DMCTLX_DCFLUSH_DIS     0x80000000  
+#define IGB_DMCTLX_DCFLUSH_DIS     0x80000000  /* Disable DMA Coal Flush */
 
 #define IGB_82576_TSYNC_SHIFT 19
 #define IGB_82580_TSYNC_SHIFT 24
@@ -426,4 +452,4 @@ static inline struct netdev_queue *txring_txq(const struct igb_ring *tx_ring)
 	return netdev_get_tx_queue(tx_ring->netdev, tx_ring->queue_index);
 }
 
-#endif 
+#endif /* _IGB_H_ */

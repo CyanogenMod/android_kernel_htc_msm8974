@@ -18,37 +18,60 @@
 #ifndef __XFS_DQUOT_H__
 #define __XFS_DQUOT_H__
 
+/*
+ * Dquots are structures that hold quota information about a user or a group,
+ * much like inodes are for files. In fact, dquots share many characteristics
+ * with inodes. However, dquots can also be a centralized resource, relative
+ * to a collection of inodes. In this respect, dquots share some characteristics
+ * of the superblock.
+ * XFS dquots exploit both those in its algorithms. They make every attempt
+ * to not be a bottleneck when quotas are on and have minimal impact, if any,
+ * when quotas are off.
+ */
 
 struct xfs_mount;
 struct xfs_trans;
 
+/*
+ * The incore dquot structure
+ */
 typedef struct xfs_dquot {
-	uint		 dq_flags;	
-	struct list_head q_lru;		
-	struct xfs_mount*q_mount;	
-	struct xfs_trans*q_transp;	
-	uint		 q_nrefs;	
-	xfs_daddr_t	 q_blkno;	
-	int		 q_bufoffset;	
-	xfs_fileoff_t	 q_fileoffset;	
+	uint		 dq_flags;	/* various flags (XFS_DQ_*) */
+	struct list_head q_lru;		/* global free list of dquots */
+	struct xfs_mount*q_mount;	/* filesystem this relates to */
+	struct xfs_trans*q_transp;	/* trans this belongs to currently */
+	uint		 q_nrefs;	/* # active refs from inodes */
+	xfs_daddr_t	 q_blkno;	/* blkno of dquot buffer */
+	int		 q_bufoffset;	/* off of dq in buffer (# dquots) */
+	xfs_fileoff_t	 q_fileoffset;	/* offset in quotas file */
 
-	struct xfs_dquot*q_gdquot;	
-	xfs_disk_dquot_t q_core;	
-	xfs_dq_logitem_t q_logitem;	
-	xfs_qcnt_t	 q_res_bcount;	
-	xfs_qcnt_t	 q_res_icount;	
-	xfs_qcnt_t	 q_res_rtbcount;
-	struct mutex	 q_qlock;	
-	struct completion q_flush;	
-	atomic_t          q_pincount;	
-	wait_queue_head_t q_pinwait;	
+	struct xfs_dquot*q_gdquot;	/* group dquot, hint only */
+	xfs_disk_dquot_t q_core;	/* actual usage & quotas */
+	xfs_dq_logitem_t q_logitem;	/* dquot log item */
+	xfs_qcnt_t	 q_res_bcount;	/* total regular nblks used+reserved */
+	xfs_qcnt_t	 q_res_icount;	/* total inos allocd+reserved */
+	xfs_qcnt_t	 q_res_rtbcount;/* total realtime blks used+reserved */
+	struct mutex	 q_qlock;	/* quota lock */
+	struct completion q_flush;	/* flush completion queue */
+	atomic_t          q_pincount;	/* dquot pin count */
+	wait_queue_head_t q_pinwait;	/* dquot pinning wait queue */
 } xfs_dquot_t;
 
+/*
+ * Lock hierarchy for q_qlock:
+ *	XFS_QLOCK_NORMAL is the implicit default,
+ * 	XFS_QLOCK_NESTED is the dquot with the higher id in xfs_dqlock2
+ */
 enum {
 	XFS_QLOCK_NORMAL = 0,
 	XFS_QLOCK_NESTED,
 };
 
+/*
+ * Manage the q_flush completion queue embedded in the dquot.  This completion
+ * queue synchronizes processes attempting to flush the in-core dquot back to
+ * disk.
+ */
 static inline void xfs_dqflock(xfs_dquot_t *dqp)
 {
 	wait_for_completion(&dqp->q_flush);
@@ -139,4 +162,4 @@ static inline struct xfs_dquot *xfs_qm_dqhold(struct xfs_dquot *dqp)
 	return dqp;
 }
 
-#endif 
+#endif /* __XFS_DQUOT_H__ */

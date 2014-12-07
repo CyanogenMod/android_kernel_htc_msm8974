@@ -31,8 +31,10 @@
 
 #include "l2tp_core.h"
 
+/* Default device name. May be overridden by name specified by user */
 #define L2TP_ETH_DEV_NAME	"l2tpeth%d"
 
+/* via netdev_priv() */
 struct l2tp_eth {
 	struct net_device	*dev;
 	struct sock		*tunnel_sock;
@@ -40,10 +42,12 @@ struct l2tp_eth {
 	struct list_head	list;
 };
 
+/* via l2tp_session_priv() */
 struct l2tp_eth_sess {
 	struct net_device	*dev;
 };
 
+/* per-net private data for this module */
 static unsigned int l2tp_eth_net_id;
 struct l2tp_eth_net {
 	struct list_head l2tp_eth_dev_list;
@@ -133,7 +137,7 @@ static void l2tp_eth_dev_recv(struct l2tp_session *session, struct sk_buff *skb,
 
 	secpath_reset(skb);
 
-	
+	/* checksums verified by L2TP */
 	skb->ip_summed = CHECKSUM_NONE;
 
 	skb_dst_drop(skb);
@@ -250,7 +254,7 @@ static int l2tp_eth_create(struct net *net, u32 tunnel_id, u32 session_id, u32 p
 	if (rc < 0)
 		goto out_del_dev;
 
-	
+	/* Must be done after register_netdev() */
 	strlcpy(session->ifname, dev->name, IFNAMSIZ);
 
 	dev_hold(dev);

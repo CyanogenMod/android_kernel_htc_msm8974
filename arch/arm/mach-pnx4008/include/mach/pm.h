@@ -29,5 +29,5 @@ extern void pnx4008_cpu_standby(void);
 extern int pnx4008_startup_pll(struct clk *);
 extern int pnx4008_shutdown_pll(struct clk *);
 
-#endif				
-#endif				
+#endif				/* ASSEMBLER */
+#endif				/* __ASM_ARCH_PNX4008_PM_H */

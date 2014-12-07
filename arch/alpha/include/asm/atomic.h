@@ -5,6 +5,13 @@
 #include <asm/barrier.h>
 #include <asm/cmpxchg.h>
 
+/*
+ * Atomic operations that C can't guarantee us.  Useful for
+ * resource counting etc...
+ *
+ * But use these as seldom as possible since they are much slower
+ * than regular operations.
+ */
 
 
 #define ATOMIC_INIT(i)		( (atomic_t) { (i) } )
@@ -16,6 +23,11 @@
 #define atomic_set(v,i)		((v)->counter = (i))
 #define atomic64_set(v,i)	((v)->counter = (i))
 
+/*
+ * To get proper branch prediction for the main line, we must branch
+ * forward to code at the end of this object's .text section, then
+ * branch back to restart the operation.
+ */
 
 static __inline__ void atomic_add(int i, atomic_t * v)
 {
@@ -78,6 +90,9 @@ static __inline__ void atomic64_sub(long i, atomic64_t * v)
 }
 
 
+/*
+ * Same as above, but return the result value
+ */
 static inline int atomic_add_return(int i, atomic_t *v)
 {
 	long temp, result;
@@ -160,6 +175,15 @@ static __inline__ long atomic64_sub_return(long i, atomic64_t * v)
 #define atomic_cmpxchg(v, old, new) (cmpxchg(&((v)->counter), old, new))
 #define atomic_xchg(v, new) (xchg(&((v)->counter), new))
 
+/**
+ * __atomic_add_unless - add unless the number is a given value
+ * @v: pointer of type atomic_t
+ * @a: the amount to add to v...
+ * @u: ...unless v is equal to u.
+ *
+ * Atomically adds @a to @v, so long as it was not @u.
+ * Returns the old value of @v.
+ */
 static __inline__ int __atomic_add_unless(atomic_t *v, int a, int u)
 {
 	int c, old;
@@ -176,6 +200,15 @@ static __inline__ int __atomic_add_unless(atomic_t *v, int a, int u)
 }
 
 
+/**
+ * atomic64_add_unless - add unless the number is a given value
+ * @v: pointer of type atomic64_t
+ * @a: the amount to add to v...
+ * @u: ...unless v is equal to u.
+ *
+ * Atomically adds @a to @v, so long as it was not @u.
+ * Returns the old value of @v.
+ */
 static __inline__ int atomic64_add_unless(atomic64_t *v, long a, long u)
 {
 	long c, old;
@@ -222,4 +255,4 @@ static __inline__ int atomic64_add_unless(atomic64_t *v, long a, long u)
 #define smp_mb__before_atomic_inc()	smp_mb()
 #define smp_mb__after_atomic_inc()	smp_mb()
 
-#endif 
+#endif /* _ALPHA_ATOMIC_H */

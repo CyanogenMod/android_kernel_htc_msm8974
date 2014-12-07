@@ -52,16 +52,19 @@
 #include "generic.h"
 #include "devices.h"
 
+/******************************************************************************
+ * Pin configuration
+ ******************************************************************************/
 static unsigned long spitz_pin_config[] __initdata = {
-	
-	GPIO78_nCS_2,	
-	GPIO79_nCS_3,	
-	GPIO80_nCS_4,	
+	/* Chip Selects */
+	GPIO78_nCS_2,	/* SCOOP #2 */
+	GPIO79_nCS_3,	/* NAND */
+	GPIO80_nCS_4,	/* SCOOP #1 */
 
-	
+	/* LCD - 16bpp Active TFT */
 	GPIOxx_LCD_TFT_16BPP,
 
-	
+	/* PC Card */
 	GPIO48_nPOE,
 	GPIO49_nPWE,
 	GPIO50_nPIOR,
@@ -73,13 +76,13 @@ static unsigned long spitz_pin_config[] __initdata = {
 	GPIO57_nIOIS16,
 	GPIO104_PSKTSEL,
 
-	
+	/* I2S */
 	GPIO28_I2S_BITCLK_OUT,
 	GPIO29_I2S_SDATA_IN,
 	GPIO30_I2S_SDATA_OUT,
 	GPIO31_I2S_SYNC,
 
-	
+	/* MMC */
 	GPIO32_MMC_CLK,
 	GPIO112_MMC_CMD,
 	GPIO92_MMC_DAT_0,
@@ -87,48 +90,52 @@ static unsigned long spitz_pin_config[] __initdata = {
 	GPIO110_MMC_DAT_2,
 	GPIO111_MMC_DAT_3,
 
-	
-	GPIO9_GPIO,	
-	GPIO16_GPIO,	
-	GPIO81_GPIO,	
-	GPIO41_GPIO,	
-	GPIO37_GPIO,	
-	GPIO35_GPIO,	
-	GPIO22_GPIO,	
-	GPIO94_GPIO,	
-	GPIO105_GPIO,	
-	GPIO106_GPIO,	
+	/* GPIOs */
+	GPIO9_GPIO,	/* SPITZ_GPIO_nSD_DETECT */
+	GPIO16_GPIO,	/* SPITZ_GPIO_SYNC */
+	GPIO81_GPIO,	/* SPITZ_GPIO_nSD_WP */
+	GPIO41_GPIO,	/* SPITZ_GPIO_USB_CONNECT */
+	GPIO37_GPIO,	/* SPITZ_GPIO_USB_HOST */
+	GPIO35_GPIO,	/* SPITZ_GPIO_USB_DEVICE */
+	GPIO22_GPIO,	/* SPITZ_GPIO_HSYNC */
+	GPIO94_GPIO,	/* SPITZ_GPIO_CF_CD */
+	GPIO105_GPIO,	/* SPITZ_GPIO_CF_IRQ */
+	GPIO106_GPIO,	/* SPITZ_GPIO_CF2_IRQ */
 
-	
-	GPIO88_GPIO,	
-	GPIO23_GPIO,	
-	GPIO24_GPIO,	
-	GPIO25_GPIO,	
-	GPIO26_GPIO,	
-	GPIO27_GPIO,	
-	GPIO52_GPIO,	
-	GPIO103_GPIO,	
-	GPIO107_GPIO,	
-	GPIO108_GPIO,	
-	GPIO114_GPIO,	
-	GPIO12_GPIO,	
-	GPIO17_GPIO,	
-	GPIO91_GPIO,	
-	GPIO34_GPIO,	
-	GPIO36_GPIO,	
-	GPIO38_GPIO,	
-	GPIO39_GPIO,	
+	/* GPIO matrix keypad */
+	GPIO88_GPIO,	/* column 0 */
+	GPIO23_GPIO,	/* column 1 */
+	GPIO24_GPIO,	/* column 2 */
+	GPIO25_GPIO,	/* column 3 */
+	GPIO26_GPIO,	/* column 4 */
+	GPIO27_GPIO,	/* column 5 */
+	GPIO52_GPIO,	/* column 6 */
+	GPIO103_GPIO,	/* column 7 */
+	GPIO107_GPIO,	/* column 8 */
+	GPIO108_GPIO,	/* column 9 */
+	GPIO114_GPIO,	/* column 10 */
+	GPIO12_GPIO,	/* row 0 */
+	GPIO17_GPIO,	/* row 1 */
+	GPIO91_GPIO,	/* row 2 */
+	GPIO34_GPIO,	/* row 3 */
+	GPIO36_GPIO,	/* row 4 */
+	GPIO38_GPIO,	/* row 5 */
+	GPIO39_GPIO,	/* row 6 */
 
-	
+	/* I2C */
 	GPIO117_I2C_SCL,
 	GPIO118_I2C_SDA,
 
-	GPIO0_GPIO | WAKEUP_ON_EDGE_RISE,	
-	GPIO1_GPIO | WAKEUP_ON_EDGE_FALL,	
+	GPIO0_GPIO | WAKEUP_ON_EDGE_RISE,	/* SPITZ_GPIO_KEY_INT */
+	GPIO1_GPIO | WAKEUP_ON_EDGE_FALL,	/* SPITZ_GPIO_RESET */
 };
 
 
+/******************************************************************************
+ * Scoop GPIO expander
+ ******************************************************************************/
 #if defined(CONFIG_SHARP_SCOOP) || defined(CONFIG_SHARP_SCOOP_MODULE)
+/* SCOOP Device #1 */
 static struct resource spitz_scoop_1_resources[] = {
 	[0] = {
 		.start		= 0x10800000,
@@ -155,6 +162,7 @@ struct platform_device spitz_scoop_1_device = {
 	.resource	= spitz_scoop_1_resources,
 };
 
+/* SCOOP Device #2 */
 static struct resource spitz_scoop_2_resources[] = {
 	[0] = {
 		.start		= 0x08800040,
@@ -185,11 +193,12 @@ static void __init spitz_scoop_init(void)
 {
 	platform_device_register(&spitz_scoop_1_device);
 
-	
+	/* Akita doesn't have the second SCOOP chip */
 	if (!machine_is_akita())
 		platform_device_register(&spitz_scoop_2_device);
 }
 
+/* Power control is shared with between one of the CF slots and SD */
 static void spitz_card_pwr_ctrl(uint8_t enable, uint8_t new_cpr)
 {
 	unsigned short cpr;
@@ -224,10 +233,13 @@ static inline void spitz_scoop_init(void) {}
 static inline void spitz_card_pwr_ctrl(uint8_t enable, uint8_t new_cpr) {}
 #endif
 
+/******************************************************************************
+ * PCMCIA
+ ******************************************************************************/
 #if defined(CONFIG_PCMCIA_PXA2XX) || defined(CONFIG_PCMCIA_PXA2XX_MODULE)
 static void spitz_pcmcia_pwr(struct device *scoop, uint16_t cpr, int nr)
 {
-	
+	/* Only need to override behaviour for slot 0 */
 	if (nr == 0)
 		spitz_card_pwr_ctrl(
 			cpr & (SCOOP_CPR_CF_3V | SCOOP_CPR_CF_XV), cpr);
@@ -256,7 +268,7 @@ static struct scoop_pcmcia_config spitz_pcmcia_config = {
 
 static void __init spitz_pcmcia_init(void)
 {
-	
+	/* Akita has only one PCMCIA slot used */
 	if (machine_is_akita())
 		spitz_pcmcia_config.num_devs = 1;
 
@@ -266,6 +278,9 @@ static void __init spitz_pcmcia_init(void)
 static inline void spitz_pcmcia_init(void) {}
 #endif
 
+/******************************************************************************
+ * GPIO keyboard
+ ******************************************************************************/
 #if defined(CONFIG_KEYBOARD_MATRIX) || defined(CONFIG_KEYBOARD_MATRIX_MODULE)
 
 #define SPITZ_KEY_CALENDAR	KEY_F1
@@ -293,8 +308,8 @@ static const uint32_t spitz_keymap[] = {
 	KEY(0, 6, KEY_9),
 	KEY(0, 7, KEY_0),
 	KEY(0, 8, KEY_BACKSPACE),
-	KEY(0, 9, SPITZ_KEY_EXOK),	
-	KEY(0, 10, SPITZ_KEY_EXCANCEL),	
+	KEY(0, 9, SPITZ_KEY_EXOK),	/* EXOK */
+	KEY(0, 10, SPITZ_KEY_EXCANCEL),	/* EXCANCEL */
 	KEY(1, 1, KEY_2),
 	KEY(1, 2, KEY_4),
 	KEY(1, 3, KEY_R),
@@ -303,8 +318,8 @@ static const uint32_t spitz_keymap[] = {
 	KEY(1, 6, KEY_I),
 	KEY(1, 7, KEY_O),
 	KEY(1, 8, KEY_P),
-	KEY(1, 9, SPITZ_KEY_EXJOGDOWN),	
-	KEY(1, 10, SPITZ_KEY_EXJOGUP),	
+	KEY(1, 9, SPITZ_KEY_EXJOGDOWN),	/* EXJOGDOWN */
+	KEY(1, 10, SPITZ_KEY_EXJOGUP),	/* EXJOGUP */
 	KEY(2, 0, KEY_TAB),
 	KEY(2, 1, KEY_Q),
 	KEY(2, 2, KEY_E),
@@ -313,7 +328,7 @@ static const uint32_t spitz_keymap[] = {
 	KEY(2, 5, KEY_U),
 	KEY(2, 6, KEY_J),
 	KEY(2, 7, KEY_K),
-	KEY(3, 0, SPITZ_KEY_ADDRESS),	
+	KEY(3, 0, SPITZ_KEY_ADDRESS),	/* ADDRESS */
 	KEY(3, 1, KEY_W),
 	KEY(3, 2, KEY_S),
 	KEY(3, 3, KEY_F),
@@ -322,7 +337,7 @@ static const uint32_t spitz_keymap[] = {
 	KEY(3, 6, KEY_M),
 	KEY(3, 7, KEY_L),
 	KEY(3, 9, KEY_RIGHTSHIFT),
-	KEY(4, 0, SPITZ_KEY_CALENDAR),	
+	KEY(4, 0, SPITZ_KEY_CALENDAR),	/* CALENDAR */
 	KEY(4, 1, KEY_A),
 	KEY(4, 2, KEY_D),
 	KEY(4, 3, KEY_C),
@@ -331,20 +346,20 @@ static const uint32_t spitz_keymap[] = {
 	KEY(4, 6, KEY_DOT),
 	KEY(4, 8, KEY_ENTER),
 	KEY(4, 9, KEY_LEFTSHIFT),
-	KEY(5, 0, SPITZ_KEY_MAIL),	
+	KEY(5, 0, SPITZ_KEY_MAIL),	/* MAIL */
 	KEY(5, 1, KEY_Z),
 	KEY(5, 2, KEY_X),
 	KEY(5, 3, KEY_MINUS),
 	KEY(5, 4, KEY_SPACE),
 	KEY(5, 5, KEY_COMMA),
 	KEY(5, 7, KEY_UP),
-	KEY(5, 10, SPITZ_KEY_FN),	
+	KEY(5, 10, SPITZ_KEY_FN),	/* FN */
 	KEY(6, 0, KEY_SYSRQ),
-	KEY(6, 1, SPITZ_KEY_JAP1),	
-	KEY(6, 2, SPITZ_KEY_JAP2),	
-	KEY(6, 3, SPITZ_KEY_CANCEL),	
-	KEY(6, 4, SPITZ_KEY_OK),	
-	KEY(6, 5, SPITZ_KEY_MENU),	
+	KEY(6, 1, SPITZ_KEY_JAP1),	/* JAP1 */
+	KEY(6, 2, SPITZ_KEY_JAP2),	/* JAP2 */
+	KEY(6, 3, SPITZ_KEY_CANCEL),	/* CANCEL */
+	KEY(6, 4, SPITZ_KEY_OK),	/* OK */
+	KEY(6, 5, SPITZ_KEY_MENU),	/* MENU */
 	KEY(6, 6, KEY_LEFT),
 	KEY(6, 7, KEY_DOWN),
 	KEY(6, 8, KEY_RIGHT),
@@ -387,6 +402,9 @@ static void __init spitz_mkp_init(void)
 static inline void spitz_mkp_init(void) {}
 #endif
 
+/******************************************************************************
+ * GPIO keys
+ ******************************************************************************/
 #if defined(CONFIG_KEYBOARD_GPIO) || defined(CONFIG_KEYBOARD_GPIO_MODULE)
 static struct gpio_keys_button spitz_gpio_keys[] = {
 	{
@@ -396,7 +414,7 @@ static struct gpio_keys_button spitz_gpio_keys[] = {
 		.desc	= "On Off",
 		.wakeup	= 1,
 	},
-	
+	/* Two buttons detecting the lid state */
 	{
 		.type	= EV_SW,
 		.code	= 0,
@@ -432,6 +450,9 @@ static void __init spitz_keys_init(void)
 static inline void spitz_keys_init(void) {}
 #endif
 
+/******************************************************************************
+ * LEDs
+ ******************************************************************************/
 #if defined(CONFIG_LEDS_GPIO) || defined(CONFIG_LEDS_GPIO_MODULE)
 static struct gpio_led spitz_gpio_leds[] = {
 	{
@@ -467,6 +488,9 @@ static void __init spitz_leds_init(void)
 static inline void spitz_leds_init(void) {}
 #endif
 
+/******************************************************************************
+ * SSP Devices
+ ******************************************************************************/
 #if defined(CONFIG_SPI_PXA2XX) || defined(CONFIG_SPI_PXA2XX_MODULE)
 static void spitz_ads7846_wait_for_hsync(void)
 {
@@ -565,7 +589,14 @@ static void __init spitz_spi_init(void)
 static inline void spitz_spi_init(void) {}
 #endif
 
+/******************************************************************************
+ * SD/MMC card controller
+ ******************************************************************************/
 #if defined(CONFIG_MMC_PXA) || defined(CONFIG_MMC_PXA_MODULE)
+/*
+ * NOTE: The card detect interrupt isn't debounced so we delay it by 250ms to
+ * give the card a chance to fully insert/eject.
+ */
 static void spitz_mci_setpower(struct device *dev, unsigned int vdd)
 {
 	struct pxamci_platform_data* p_d = dev->platform_data;
@@ -593,6 +624,9 @@ static void __init spitz_mmc_init(void)
 static inline void spitz_mmc_init(void) {}
 #endif
 
+/******************************************************************************
+ * USB Host
+ ******************************************************************************/
 #if defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
 static int spitz_ohci_init(struct device *dev)
 {
@@ -602,7 +636,7 @@ static int spitz_ohci_init(struct device *dev)
 	if (err)
 		return err;
 
-	
+	/* Only Port 2 is connected, setup USB Port 2 Output Control Register */
 	UP2OCR = UP2OCR_HXS | UP2OCR_HXOE | UP2OCR_DPPDE | UP2OCR_DMPDE;
 
 	return gpio_direction_output(SPITZ_GPIO_USB_HOST, 1);
@@ -629,6 +663,9 @@ static void __init spitz_uhc_init(void)
 static inline void spitz_uhc_init(void) {}
 #endif
 
+/******************************************************************************
+ * IrDA
+ ******************************************************************************/
 #if defined(CONFIG_PXA_FICP) || defined(CONFIG_PXA_FICP_MODULE)
 static struct pxaficp_platform_data spitz_ficp_platform_data = {
 	.transceiver_cap	= IR_SIRMODE | IR_OFF,
@@ -647,6 +684,9 @@ static void __init spitz_irda_init(void)
 static inline void spitz_irda_init(void) {}
 #endif
 
+/******************************************************************************
+ * Framebuffer
+ ******************************************************************************/
 #if defined(CONFIG_FB_PXA) || defined(CONFIG_FB_PXA_MODULE)
 static struct pxafb_mode_info spitz_pxafb_modes[] = {
 	{
@@ -691,6 +731,9 @@ static void __init spitz_lcd_init(void)
 static inline void spitz_lcd_init(void) {}
 #endif
 
+/******************************************************************************
+ * Framebuffer
+ ******************************************************************************/
 #if defined(CONFIG_MTD_NAND_SHARPSL) || defined(CONFIG_MTD_NAND_SHARPSL_MODULE)
 static struct mtd_partition spitz_nand_partitions[] = {
 	{
@@ -770,6 +813,9 @@ static void __init spitz_nand_init(void)
 static inline void spitz_nand_init(void) {}
 #endif
 
+/******************************************************************************
+ * NOR Flash
+ ******************************************************************************/
 #if defined(CONFIG_MTD_PHYSMAP) || defined(CONFIG_MTD_PHYSMAP_MODULE)
 static struct mtd_partition spitz_rom_parts[] = {
 	{
@@ -811,6 +857,9 @@ static void __init spitz_nor_init(void)
 static inline void spitz_nor_init(void) {}
 #endif
 
+/******************************************************************************
+ * GPIO expander
+ ******************************************************************************/
 #if defined(CONFIG_I2C_PXA) || defined(CONFIG_I2C_PXA_MODULE)
 static struct pca953x_platform_data akita_pca953x_pdata = {
 	.gpio_base		= AKITA_IOEXP_GPIO_BASE,
@@ -859,7 +908,7 @@ static void __init spitz_i2c_init(void)
 {
 	int size = ARRAY_SIZE(spitz_i2c_devs);
 
-	
+	/* Only Akita has the max7310 chip */
 	if (!machine_is_akita())
 		size--;
 
@@ -872,6 +921,9 @@ static void __init spitz_i2c_init(void)
 static inline void spitz_i2c_init(void) {}
 #endif
 
+/******************************************************************************
+ * Machine init
+ ******************************************************************************/
 static void spitz_poweroff(void)
 {
 	pxa_restart('g', NULL);
@@ -880,7 +932,7 @@ static void spitz_poweroff(void)
 static void spitz_restart(char mode, const char *cmd)
 {
 	uint32_t msc0 = __raw_readl(MSC0);
-	
+	/* Bootloader magic for a reboot */
 	if ((msc0 & 0xffff0000) == 0x7ff00000)
 		__raw_writel((msc0 & 0xffff) | 0x7ee00000, MSC0);
 
@@ -894,7 +946,7 @@ static void __init spitz_init(void)
 
 	PMCR = 0x00;
 
-	
+	/* Stop 3.6MHz and drive HIGH to PCMCIA and CS */
 	PCFR |= PCFR_OPDE;
 
 	pxa2xx_mfp_config(ARRAY_AND_SIZE(spitz_pin_config));

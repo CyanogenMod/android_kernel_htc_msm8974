@@ -3,4 +3,4 @@
 
 #include <asm-generic/termios.h>
 
-#endif 
+#endif /* _ASM_SCORE_TERMIOS_H */

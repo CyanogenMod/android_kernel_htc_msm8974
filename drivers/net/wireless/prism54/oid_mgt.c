@@ -26,6 +26,7 @@
 #include "oid_mgt.h"
 #include "isl_ioctl.h"
 
+/* to convert between channel and freq */
 static const int frequency_list_bg[] = { 2412, 2417, 2422, 2427, 2432,
 	2437, 2442, 2447, 2452, 2457, 2462, 2467, 2472, 2484
 };
@@ -62,7 +63,7 @@ struct oid_t isl_oid[] = {
 	OID_UNKNOWN(GEN_OID_OPTIONS, 0x00000004),
 	OID_UNKNOWN(GEN_OID_LEDCONFIG, 0x00000005),
 
-	
+	/* 802.11 */
 	OID_U32_C(DOT11_OID_BSSTYPE, 0x10000000),
 	OID_STRUCT_C(DOT11_OID_BSSID, 0x10000001, u8[6], OID_TYPE_RAW),
 	OID_STRUCT_C(DOT11_OID_SSID, 0x10000002, struct obj_ssid,
@@ -86,7 +87,7 @@ struct oid_t isl_oid[] = {
 	OID_U32_C(DOT11_OID_EXUNENCRYPTED, 0x12000002),
 	OID_U32_C(DOT11_OID_DEFKEYID, 0x12000003),
 	[DOT11_OID_DEFKEYX] = {0x12000004, 3, sizeof (struct obj_key),
-			       OID_FLAG_CACHED | OID_TYPE_KEY},	
+			       OID_FLAG_CACHED | OID_TYPE_KEY},	/* DOT11_OID_DEFKEY1,...DOT11_OID_DEFKEY4 */
 	OID_UNKNOWN(DOT11_OID_STAKEY, 0x12000008),
 	OID_U32(DOT11_OID_REKEYTHRESHOLD, 0x12000009),
 	OID_UNKNOWN(DOT11_OID_STASC, 0x1200000a),
@@ -124,7 +125,7 @@ struct oid_t isl_oid[] = {
 	OID_U32(DOT11_OID_BRIDGELOCAL, 0x15000000),
 	OID_U32(DOT11_OID_CLIENTS, 0x15000001),
 	OID_U32(DOT11_OID_CLIENTSASSOCIATED, 0x15000002),
-	[DOT11_OID_CLIENTX] = {0x15000003, 2006, 0, 0},	
+	[DOT11_OID_CLIENTX] = {0x15000003, 2006, 0, 0},	/* DOT11_OID_CLIENTX,...DOT11_OID_CLIENT2007 */
 
 	OID_STRUCT(DOT11_OID_CLIENTFIND, 0x150007DB, u8[6], OID_TYPE_ADDR),
 	OID_STRUCT(DOT11_OID_WDSLINKADD, 0x150007DC, u8[6], OID_TYPE_ADDR),
@@ -210,7 +211,7 @@ struct oid_t isl_oid[] = {
 
 	OID_U32(DOT11_OID_BSSS, 0x1C000000),
 	[DOT11_OID_BSSX] = {0x1C000001, 63, sizeof (struct obj_bss),
-			    OID_TYPE_BSS},	
+			    OID_TYPE_BSS},	/*DOT11_OID_BSS1,...,DOT11_OID_BSS64 */
 	OID_STRUCT(DOT11_OID_BSSFIND, 0x1C000042, struct obj_bss, OID_TYPE_BSS),
 	[DOT11_OID_BSSLIST] = {0x1C000043, 0, sizeof (struct
 						      obj_bsslist) +
@@ -241,7 +242,7 @@ mgt_init(islpci_private *priv)
 	if (!priv->mib)
 		return -ENOMEM;
 
-	
+	/* Alloc the cache */
 	for (i = 0; i < OID_NUM_LAST; i++) {
 		if (isl_oid[i].flags & OID_FLAG_CACHED) {
 			priv->mib[i] = kzalloc(isl_oid[i].size *
@@ -412,6 +413,7 @@ mgt_cpu_to_le(int type, void *data)
 	}
 }
 
+/* Note : data is modified during this function */
 
 int
 mgt_set_request(islpci_private *priv, enum oid_num_t n, int extra, void *data)
@@ -427,7 +429,7 @@ mgt_set_request(islpci_private *priv, enum oid_num_t n, int extra, void *data)
 	BUG_ON(extra > isl_oid[n].range);
 
 	if (!priv->mib)
-		
+		/* memory has been freed */
 		return -1;
 
 	dlen = isl_oid[n].size;
@@ -436,10 +438,16 @@ mgt_set_request(islpci_private *priv, enum oid_num_t n, int extra, void *data)
 	oid = isl_oid[n].oid + extra;
 
 	if (_data == NULL)
-		
+		/* we are requested to re-set a cached value */
 		_data = cache;
 	else
 		mgt_cpu_to_le(isl_oid[n].flags & OID_FLAG_TYPE, _data);
+	/* If we are going to write to the cache, we don't want anyone to read
+	 * it -> acquire write lock.
+	 * Else we could acquire a read lock to be sure we don't bother the
+	 * commit process (which takes a write lock). But I'm not sure if it's
+	 * needed.
+	 */
 	if (cache)
 		down_write(&priv->mib_sem);
 
@@ -461,13 +469,14 @@ mgt_set_request(islpci_private *priv, enum oid_num_t n, int extra, void *data)
 		up_write(&priv->mib_sem);
 	}
 
-	
+	/* re-set given data to what it was */
 	if (data)
 		mgt_le_to_cpu(isl_oid[n].flags & OID_FLAG_TYPE, data);
 
 	return ret;
 }
 
+/* None of these are cached */
 int
 mgt_set_varlen(islpci_private *priv, enum oid_num_t n, void *data, int extra_len)
 {
@@ -496,7 +505,7 @@ mgt_set_varlen(islpci_private *priv, enum oid_num_t n, void *data, int extra_len
 	} else
 		ret = -EIO;
 
-	
+	/* re-set given data to what it was */
 	if (data)
 		mgt_le_to_cpu(isl_oid[n].flags & OID_FLAG_TYPE, data);
 
@@ -522,7 +531,7 @@ mgt_get_request(islpci_private *priv, enum oid_num_t n, int extra, void *data,
 	res->ptr = NULL;
 
 	if (!priv->mib)
-		
+		/* memory has been freed */
 		return -1;
 
 	dlen = isl_oid[n].size;
@@ -579,6 +588,7 @@ mgt_get_request(islpci_private *priv, enum oid_num_t n, int extra, void *data,
 	return ret;
 }
 
+/* lock outside */
 int
 mgt_commit_list(islpci_private *priv, enum oid_num_t *l, int n)
 {
@@ -612,6 +622,7 @@ mgt_commit_list(islpci_private *priv, enum oid_num_t *l, int n)
 	return ret;
 }
 
+/* Lock outside */
 
 void
 mgt_set(islpci_private *priv, enum oid_num_t n, void *data)
@@ -634,6 +645,7 @@ mgt_get(islpci_private *priv, enum oid_num_t n, void *res)
 	mgt_le_to_cpu(isl_oid[n].flags & OID_FLAG_TYPE, res);
 }
 
+/* Commits the cache. Lock outside. */
 
 static enum oid_num_t commit_part1[] = {
 	OID_INL_CONFIG,
@@ -649,12 +661,16 @@ static enum oid_num_t commit_part2[] = {
 	DOT11_OID_AUTHENABLE,
 	DOT11_OID_PRIVACYINVOKED,
 	DOT11_OID_EXUNENCRYPTED,
-	DOT11_OID_DEFKEYX,	
+	DOT11_OID_DEFKEYX,	/* MULTIPLE */
 	DOT11_OID_DEFKEYID,
 	DOT11_OID_DOT1XENABLE,
 	OID_INL_DOT11D_CONFORMANCE,
+	/* Do not initialize this - fw < 1.0.4.3 rejects it
+	OID_INL_OUTPUTPOWER,
+	*/
 };
 
+/* update the MAC addr. */
 static int
 mgt_update_addr(islpci_private *priv)
 {
@@ -698,11 +714,20 @@ mgt_commit(islpci_private *priv)
 	rvalue |= mgt_update_addr(priv);
 
 	if (rvalue) {
+		/* some request have failed. The device might be in an
+		   incoherent state. We should reset it ! */
 		printk(KERN_DEBUG "%s: mgt_commit: failure\n", priv->ndev->name);
 	}
 	return rvalue;
 }
 
+/* The following OIDs need to be "unlatched":
+ *
+ * MEDIUMLIMIT,BEACONPERIOD,DTIMPERIOD,ATIMWINDOW,LISTENINTERVAL
+ * FREQUENCY,EXTENDEDRATES.
+ *
+ * The way to do this is to set ESSID. Note though that they may get
+ * unlatch before though by setting another OID. */
 #if 0
 void
 mgt_unlatch_all(islpci_private *priv)
@@ -715,7 +740,7 @@ mgt_unlatch_all(islpci_private *priv)
 
 	u = DOT11_OID_SSID;
 	rvalue = mgt_commit_list(priv, &u, 1);
-	
+	/* Necessary if in MANUAL RUN mode? */
 #if 0
 	u = OID_INL_MODE;
 	rvalue |= mgt_commit_list(priv, &u, 1);
@@ -732,11 +757,16 @@ mgt_unlatch_all(islpci_private *priv)
 }
 #endif
 
+/* This will tell you if you are allowed to answer a mlme(ex) request .*/
 
 int
 mgt_mlme_answer(islpci_private *priv)
 {
 	u32 mlmeautolevel;
+	/* Acquire a read lock because if we are in a mode change, it's
+	 * possible to answer true, while the card is leaving master to managed
+	 * mode. Answering to a mlme in this situation could hang the card.
+	 */
 	down_read(&priv->mib_sem);
 	mlmeautolevel =
 	    le32_to_cpu(*(u32 *) priv->mib[DOT11_OID_MLMEAUTOLEVEL]);

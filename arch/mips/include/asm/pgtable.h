@@ -35,7 +35,17 @@ struct vm_area_struct;
 #define PAGE_KERNEL_UNCACHED __pgprot(_PAGE_PRESENT | __READABLE | \
 			__WRITEABLE | _PAGE_GLOBAL | _CACHE_UNCACHED)
 
+/*
+ * If _PAGE_NO_EXEC is not defined, we can't do page protection for
+ * execute, and consider it to be the same as read. Also, write
+ * permissions imply read permissions. This is the closest we can get
+ * by reasonable means..
+ */
 
+/*
+ * Dummy values to fill the table in mmap.c
+ * The real values will be generated at runtime
+ */
 #define __P000 __pgprot(0)
 #define __P001 __pgprot(0)
 #define __P010 __pgprot(0)
@@ -56,6 +66,10 @@ struct vm_area_struct;
 
 extern unsigned long _page_cachable_default;
 
+/*
+ * ZERO_PAGE is a global shared page that is always zero; used
+ * for zero-mapped memory areas etc..
+ */
 
 extern unsigned long empty_zero_page;
 extern unsigned long zero_page_mask;
@@ -75,6 +89,10 @@ static inline int is_zero_pfn(unsigned long pfn)
 
 extern void paging_init(void);
 
+/*
+ * Conversion functions: convert a page and protection to a page entry,
+ * and a page entry and page directory to the page they refer to.
+ */
 #define pmd_phys(pmd)		virt_to_phys((void *)pmd_val(pmd))
 #define pmd_page(pmd)		(pfn_to_page(pmd_phys(pmd) >> PAGE_SHIFT))
 #define pmd_page_vaddr(pmd)	pmd_val(pmd)
@@ -89,10 +107,14 @@ static inline void set_pte(pte_t *ptep, pte_t pte)
 	ptep->pte_high = pte.pte_high;
 	smp_wmb();
 	ptep->pte_low = pte.pte_low;
-	
+	//printk("pte_high %x pte_low %x\n", ptep->pte_high, ptep->pte_low);
 
 	if (pte.pte_low & _PAGE_GLOBAL) {
 		pte_t *buddy = ptep_buddy(ptep);
+		/*
+		 * Make sure the buddy is global too (if it's !none,
+		 * it better already be global)
+		 */
 		if (pte_none(*buddy)) {
 			buddy->pte_low  |= _PAGE_GLOBAL;
 			buddy->pte_high |= _PAGE_GLOBAL;
@@ -105,7 +127,7 @@ static inline void pte_clear(struct mm_struct *mm, unsigned long addr, pte_t *pt
 {
 	pte_t null = __pte(0);
 
-	
+	/* Preserve global status for the pair */
 	if (ptep_buddy(ptep)->pte_low & _PAGE_GLOBAL)
 		null.pte_low = null.pte_high = _PAGE_GLOBAL;
 
@@ -116,12 +138,21 @@ static inline void pte_clear(struct mm_struct *mm, unsigned long addr, pte_t *pt
 #define pte_none(pte)		(!(pte_val(pte) & ~_PAGE_GLOBAL))
 #define pte_present(pte)	(pte_val(pte) & _PAGE_PRESENT)
 
+/*
+ * Certain architectures need to do special things when pte's
+ * within a page table are directly modified.  Thus, the following
+ * hook is made available.
+ */
 static inline void set_pte(pte_t *ptep, pte_t pteval)
 {
 	*ptep = pteval;
 #if !defined(CONFIG_CPU_R3000) && !defined(CONFIG_CPU_TX39XX)
 	if (pte_val(pteval) & _PAGE_GLOBAL) {
 		pte_t *buddy = ptep_buddy(ptep);
+		/*
+		 * Make sure the buddy is global too (if it's !none,
+		 * it better already be global)
+		 */
 		if (pte_none(*buddy))
 			pte_val(*buddy) = pte_val(*buddy) | _PAGE_GLOBAL;
 	}
@@ -132,7 +163,7 @@ static inline void set_pte(pte_t *ptep, pte_t pteval)
 static inline void pte_clear(struct mm_struct *mm, unsigned long addr, pte_t *ptep)
 {
 #if !defined(CONFIG_CPU_R3000) && !defined(CONFIG_CPU_TX39XX)
-	
+	/* Preserve global status for the pair */
 	if (pte_val(*ptep_buddy(ptep)) & _PAGE_GLOBAL)
 		set_pte_at(mm, addr, ptep, __pte(_PAGE_GLOBAL));
 	else
@@ -141,9 +172,17 @@ static inline void pte_clear(struct mm_struct *mm, unsigned long addr, pte_t *pt
 }
 #endif
 
+/*
+ * (pmds are folded into puds so this doesn't get actually called,
+ * but the define is needed for a generic inline function.)
+ */
 #define set_pmd(pmdptr, pmdval) do { *(pmdptr) = (pmdval); } while(0)
 
 #ifndef __PAGETABLE_PMD_FOLDED
+/*
+ * (puds are folded into pgds so this doesn't get actually called,
+ * but the define is needed for a generic inline function.)
+ */
 #define set_pud(pudptr, pudval) do { *(pudptr) = (pudval); } while(0)
 #endif
 
@@ -151,8 +190,16 @@ static inline void pte_clear(struct mm_struct *mm, unsigned long addr, pte_t *pt
 #define PMD_T_LOG2	(__builtin_ffs(sizeof(pmd_t)) - 1)
 #define PTE_T_LOG2	(__builtin_ffs(sizeof(pte_t)) - 1)
 
+/*
+ * We used to declare this array with size but gcc 3.3 and older are not able
+ * to find that this expression is a constant, so the size is dropped.
+ */
 extern pgd_t swapper_pg_dir[];
 
+/*
+ * The following only work if pte_present() is true.
+ * Undefined behaviour if not..
+ */
 #if defined(CONFIG_64BIT_PHYS_ADDR) && defined(CONFIG_CPU_MIPS32)
 static inline int pte_write(pte_t pte)	{ return pte.pte_low & _PAGE_WRITE; }
 static inline int pte_dirty(pte_t pte)	{ return pte.pte_low & _PAGE_MODIFIED; }
@@ -270,11 +317,17 @@ static inline pte_t pte_mkhuge(pte_t pte)
 	pte_val(pte) |= _PAGE_HUGE;
 	return pte;
 }
-#endif 
+#endif /* _PAGE_HUGE */
 #endif
 static inline int pte_special(pte_t pte)	{ return 0; }
 static inline pte_t pte_mkspecial(pte_t pte)	{ return pte; }
 
+/*
+ * Macro to make mark a page protection value as "uncacheable".  Note
+ * that "protection" is really a misnomer here as the protection value
+ * contains the memory attribute bits, dirty bits, and various other
+ * bits as well.
+ */
 #define pgprot_noncached pgprot_noncached
 
 static inline pgprot_t pgprot_noncached(pgprot_t _prot)
@@ -286,6 +339,10 @@ static inline pgprot_t pgprot_noncached(pgprot_t _prot)
 	return __pgprot(prot);
 }
 
+/*
+ * Conversion functions: convert a page and protection to a page entry,
+ * and a page entry and page directory to the page they refer to.
+ */
 #define mk_pte(page, pgprot)	pfn_pte(page_to_pfn(page), (pgprot))
 
 #if defined(CONFIG_64BIT_PHYS_ADDR) && defined(CONFIG_CPU_MIPS32)
@@ -339,6 +396,9 @@ static inline int io_remap_pfn_range(struct vm_area_struct *vma,
 
 #include <asm-generic/pgtable.h>
 
+/*
+ * uncached accelerated TLB map for video memory access
+ */
 #ifdef CONFIG_CPU_SUPPORTS_UNCACHED_ACCELERATED
 #define __HAVE_PHYS_MEM_ACCESS_PROT
 
@@ -349,9 +409,16 @@ int phys_mem_access_prot_allowed(struct file *file, unsigned long pfn,
 		unsigned long size, pgprot_t *vma_prot);
 #endif
 
+/*
+ * We provide our own get_unmapped area to cope with the virtual aliasing
+ * constraints placed on us by the cache architecture.
+ */
 #define HAVE_ARCH_UNMAPPED_AREA
 #define HAVE_ARCH_UNMAPPED_AREA_TOPDOWN
 
+/*
+ * No page table caches to initialise
+ */
 #define pgtable_cache_init()	do { } while (0)
 
-#endif 
+#endif /* _ASM_PGTABLE_H */

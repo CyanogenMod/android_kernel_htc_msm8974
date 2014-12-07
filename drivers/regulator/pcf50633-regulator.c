@@ -48,6 +48,7 @@ static const u8 pcf50633_regulator_registers[PCF50633_NUM_REGULATORS] = {
 	[PCF50633_REGULATOR_HCLDO]	= PCF50633_REG_HCLDOOUT,
 };
 
+/* Bits from voltage value */
 static u8 auto_voltage_bits(unsigned int millivolts)
 {
 	if (millivolts < 1800)
@@ -83,6 +84,7 @@ static u8 ldo_voltage_bits(unsigned int millivolts)
 	return millivolts / 100;
 }
 
+/* Obtain voltage value from bits */
 static unsigned int auto_voltage_value(u8 bits)
 {
 	if (bits < 0x2f)
@@ -234,7 +236,7 @@ static int pcf50633_regulator_enable(struct regulator_dev *rdev)
 	if (regulator_id >= PCF50633_NUM_REGULATORS)
 		return -EINVAL;
 
-	
+	/* The *ENA register is always one after the *OUT register */
 	regnr = pcf50633_regulator_registers[regulator_id] + 1;
 
 	return pcf50633_reg_set_bit_mask(pcf, regnr, PCF50633_REGULATOR_ON,
@@ -251,7 +253,7 @@ static int pcf50633_regulator_disable(struct regulator_dev *rdev)
 	if (regulator_id >= PCF50633_NUM_REGULATORS)
 		return -EINVAL;
 
-	
+	/* the *ENA register is always one after the *OUT register */
 	regnr = pcf50633_regulator_registers[regulator_id] + 1;
 
 	return pcf50633_reg_set_bit_mask(pcf, regnr,
@@ -268,7 +270,7 @@ static int pcf50633_regulator_is_enabled(struct regulator_dev *rdev)
 	if (regulator_id >= PCF50633_NUM_REGULATORS)
 		return -EINVAL;
 
-	
+	/* the *ENA register is always one after the *OUT register */
 	regnr = pcf50633_regulator_registers[regulator_id] + 1;
 
 	return pcf50633_reg_read(pcf, regnr) & PCF50633_REGULATOR_ON;
@@ -313,7 +315,7 @@ static int __devinit pcf50633_regulator_probe(struct platform_device *pdev)
 	struct regulator_dev *rdev;
 	struct pcf50633 *pcf;
 
-	
+	/* Already set by core driver */
 	pcf = dev_to_pcf50633(pdev->dev.parent);
 
 	rdev = regulator_register(&regulators[pdev->id], &pdev->dev,

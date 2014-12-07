@@ -68,7 +68,7 @@ wildfire_init_hose(int qbbno, int hoseno)
 	hose->io_space = alloc_resource();
 	hose->mem_space = alloc_resource();
 
-        
+        /* This is for userland consumption. */
         hose->sparse_mem_base = 0;
         hose->sparse_io_base  = 0;
         hose->dense_mem_base  = WILDFIRE_MEM(qbbno, hoseno);
@@ -98,6 +98,18 @@ wildfire_init_hose(int qbbno, int hoseno)
 	wildfire_dump_pci_regs(qbbno, hoseno);
 #endif
 
+        /*
+         * Set up the PCI to main memory translation windows.
+         *
+         * Note: Window 3 is scatter-gather only
+         * 
+         * Window 0 is scatter-gather 8MB at 8MB (for isa)
+	 * Window 1 is direct access 1GB at 1GB
+	 * Window 2 is direct access 1GB at 2GB
+         * Window 3 is scatter-gather 128MB at 3GB
+         * ??? We ought to scale window 3 memory.
+         *
+         */
         hose->sg_isa = iommu_arena_new(hose, 0x00800000, 0x00800000, 0);
         hose->sg_pci = iommu_arena_new(hose, 0xc0000000, 0x08000000, 0);
 
@@ -119,14 +131,14 @@ wildfire_init_hose(int qbbno, int hoseno)
 	pci->pci_window[3].wmask.csr = (hose->sg_pci->size - 1) & 0xfff00000;
 	pci->pci_window[3].tbase.csr = virt_to_phys(hose->sg_pci->ptes);
 
-	wildfire_pci_tbi(hose, 0, 0); 
+	wildfire_pci_tbi(hose, 0, 0); /* Flush TLB at the end. */
 }
 
 void __init
 wildfire_init_pca(int qbbno, int pcano)
 {
 
-	
+	/* Test for PCA existence first. */
 	if (!WILDFIRE_PCA_EXISTS(qbbno, pcano))
 	    return;
 
@@ -134,7 +146,7 @@ wildfire_init_pca(int qbbno, int pcano)
 	wildfire_dump_pca_regs(qbbno, pcano);
 #endif
 
-	
+	/* Do both hoses of the PCA. */
 	wildfire_init_hose(qbbno, (pcano << 1) + 0);
 	wildfire_init_hose(qbbno, (pcano << 1) + 1);
 }
@@ -144,7 +156,7 @@ wildfire_init_qbb(int qbbno)
 {
 	int pcano;
 
-	
+	/* Test for QBB existence first. */
 	if (!WILDFIRE_QBB_EXISTS(qbbno))
 		return;
 
@@ -155,7 +167,7 @@ wildfire_init_qbb(int qbbno)
 	wildfire_dump_gp_regs(qbbno);
 #endif
 
-	
+	/* Init all PCAs here. */
 	for (pcano = 0; pcano < WILDFIRE_PCA_PER_QBB; pcano++) {
 		wildfire_init_pca(qbbno, pcano);
 	}
@@ -183,7 +195,7 @@ wildfire_hardware_probe(void)
 	hard_qbb = (temp >> 8) & 7;
 	soft_qbb = (temp >> 4) & 7;
 
-	
+	/* Init the HW configuration variables. */
 	wildfire_hard_qbb_mask = (1 << hard_qbb);
 	wildfire_soft_qbb_mask = (1 << soft_qbb);
 
@@ -199,7 +211,7 @@ wildfire_hardware_probe(void)
 	memset(wildfire_hard_qbb_map, QBB_MAP_EMPTY, WILDFIRE_MAX_QBB);
 	memset(wildfire_soft_qbb_map, QBB_MAP_EMPTY, WILDFIRE_MAX_QBB);
 
-	
+	/* First, determine which QBBs are present. */
 	qsa = WILDFIRE_qsa(soft_qbb);
 
 	temp = qsa->qsa_qbb_id.csr;
@@ -207,10 +219,10 @@ wildfire_hardware_probe(void)
 	printk(KERN_ERR "QSA_QBB_ID at base %p is 0x%lx\n", qsa, temp);
 #endif
 
-	if (temp & 0x40) 
+	if (temp & 0x40) /* Is there an HS? */
 		wildfire_hs_mask = 1;
 
-	if (temp & 0x20) { 
+	if (temp & 0x20) { /* Is there a GP? */
 		gp = WILDFIRE_gp(soft_qbb);
 		temp = 0;
 		for (i = 0; i < 4; i++) {
@@ -222,7 +234,7 @@ wildfire_hardware_probe(void)
 		}
 
 		for (hard_qbb = 0; hard_qbb < WILDFIRE_MAX_QBB; hard_qbb++) {
-			if (temp & 8) { 
+			if (temp & 8) { /* Is there a QBB? */
 				soft_qbb = temp & 7;
 				wildfire_hard_qbb_mask |= (1 << hard_qbb);
 				wildfire_soft_qbb_mask |= (1 << soft_qbb);
@@ -232,7 +244,7 @@ wildfire_hardware_probe(void)
 		wildfire_gp_mask = wildfire_soft_qbb_mask;
         }
 
-	
+	/* Next determine each QBBs resources. */
 	for (soft_qbb = 0; soft_qbb < WILDFIRE_MAX_QBB; soft_qbb++) {
 	    if (WILDFIRE_QBB_EXISTS(soft_qbb)) {
 	        qsd = WILDFIRE_qsd(soft_qbb);
@@ -266,7 +278,7 @@ wildfire_hardware_probe(void)
 		if (temp & 0x20)
 		    wildfire_gp_mask |= (1 << soft_qbb);
 
-		
+		/* Probe for PCA existence here. */
 		for (i = 0; i < WILDFIRE_PCA_PER_QBB; i++) {
 		    iop = WILDFIRE_iop(soft_qbb);
 		    ne = WILDFIRE_ne(soft_qbb, i);
@@ -292,19 +304,19 @@ wildfire_init_arch(void)
 {
 	int qbbno;
 
-	
+	/* With multiple PCI buses, we play with I/O as physical addrs.  */
 	ioport_resource.end = ~0UL;
 
 
-	
+	/* Probe the hardware for info about configuration. */
 	wildfire_hardware_probe();
 
-	
+	/* Now init all the found QBBs. */
 	for (qbbno = 0; qbbno < WILDFIRE_MAX_QBB; qbbno++) {
 		wildfire_init_qbb(qbbno);
 	}
 
-	 
+	/* Normal direct PCI DMA mapping. */ 
 	__direct_map_base = 0x40000000UL;
 	__direct_map_size = 0x80000000UL;
 }
@@ -313,9 +325,9 @@ void
 wildfire_machine_check(unsigned long vector, unsigned long la_ptr)
 {
 	mb();
-	mb();  
+	mb();  /* magic */
 	draina();
-	
+	/* FIXME: clear pci errors */
 	wrmces(0x7);
 	mb();
 
@@ -336,7 +348,7 @@ wildfire_pci_tbi(struct pci_controller *hose, dma_addr_t start, dma_addr_t end)
 	wildfire_pci *pci = WILDFIRE_pci(qbbno, hoseno);
 
 	mb();
-	pci->pci_flush_tlb.csr; 
+	pci->pci_flush_tlb.csr; /* reading does the trick */
 }
 
 static int
@@ -351,7 +363,7 @@ mk_conf_addr(struct pci_bus *pbus, unsigned int device_fn, int where,
 		 "pci_addr=0x%p, type1=0x%p)\n",
 		 bus, device_fn, where, pci_addr, type1));
 
-	if (!pbus->parent) 
+	if (!pbus->parent) /* No parent means peer PCI bus. */
 		bus = 0;
 	*type1 = (bus != 0);
 
@@ -426,6 +438,9 @@ struct pci_ops wildfire_pci_ops =
 };
 
 
+/*
+ * NUMA Support
+ */
 int wildfire_pa_to_nid(unsigned long pa)
 {
 	return pa >> 36;
@@ -433,19 +448,19 @@ int wildfire_pa_to_nid(unsigned long pa)
 
 int wildfire_cpuid_to_nid(int cpuid)
 {
-	
+	/* assume 4 CPUs per node */
 	return cpuid >> 2;
 }
 
 unsigned long wildfire_node_mem_start(int nid)
 {
-	
+	/* 64GB per node */
 	return (unsigned long)nid * (64UL * 1024 * 1024 * 1024);
 }
 
 unsigned long wildfire_node_mem_size(int nid)
 {
-	
+	/* 64GB per node */
 	return 64UL * 1024 * 1024 * 1024;
 }
 
@@ -601,7 +616,7 @@ wildfire_dump_gp_regs(int qbbno)
 
 	printk(KERN_ERR "\n");
 }
-#endif 
+#endif /* DUMP_REGS */
 
 #if DEBUG_DUMP_CONFIG
 static void __init
@@ -639,4 +654,4 @@ wildfire_dump_hardware_config(void)
 		printk("%3d ", wildfire_soft_qbb_map[i]);
 	printk("\n");
 }
-#endif 
+#endif /* DUMP_CONFIG */

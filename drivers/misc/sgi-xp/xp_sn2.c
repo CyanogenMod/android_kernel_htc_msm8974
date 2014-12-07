@@ -6,6 +6,11 @@
  * Copyright (c) 2008 Silicon Graphics, Inc.  All Rights Reserved.
  */
 
+/*
+ * Cross Partition (XP) sn2-based functions.
+ *
+ *      Architecture specific implementation of common functions.
+ */
 
 #include <linux/module.h>
 #include <linux/device.h>
@@ -13,11 +18,24 @@
 #include <asm/sn/sn_sal.h>
 #include "xp.h"
 
+/*
+ * The export of xp_nofault_PIOR needs to happen here since it is defined
+ * in drivers/misc/sgi-xp/xp_nofault.S. The target of the nofault read is
+ * defined here.
+ */
 EXPORT_SYMBOL_GPL(xp_nofault_PIOR);
 
 u64 xp_nofault_PIOR_target;
 EXPORT_SYMBOL_GPL(xp_nofault_PIOR_target);
 
+/*
+ * Register a nofault code region which performs a cross-partition PIO read.
+ * If the PIO read times out, the MCA handler will consume the error and
+ * return to a kernel-provided instruction to indicate an error. This PIO read
+ * exists because it is guaranteed to timeout if the destination is down
+ * (amo operations do not timeout on at least some CPUs on Shubs <= v1.2,
+ * which unfortunately we have to work around).
+ */
 static enum xp_retval
 xp_register_nofault_code_sn2(void)
 {
@@ -33,6 +51,10 @@ xp_register_nofault_code_sn2(void)
 		dev_err(xp, "can't register nofault code, error=%d\n", ret);
 		return xpSalError;
 	}
+	/*
+	 * Setup the nofault PIO read target. (There is no special reason why
+	 * SH_IPI_ACCESS was selected.)
+	 */
 	if (is_shub1())
 		xp_nofault_PIOR_target = SH1_IPI_ACCESS;
 	else if (is_shub2())
@@ -47,23 +69,38 @@ xp_unregister_nofault_code_sn2(void)
 	u64 func_addr = *(u64 *)xp_nofault_PIOR;
 	u64 err_func_addr = *(u64 *)xp_error_PIOR;
 
-	
+	/* unregister the PIO read nofault code region */
 	(void)sn_register_nofault_code(func_addr, err_func_addr,
 				       err_func_addr, 1, 0);
 }
 
+/*
+ * Convert a virtual memory address to a physical memory address.
+ */
 static unsigned long
 xp_pa_sn2(void *addr)
 {
 	return __pa(addr);
 }
 
+/*
+ * Convert a global physical to a socket physical address.
+ */
 static unsigned long
 xp_socket_pa_sn2(unsigned long gpa)
 {
 	return gpa;
 }
 
+/*
+ * Wrapper for bte_copy().
+ *
+ *	dst_pa - physical address of the destination of the transfer.
+ *	src_pa - physical address of the source of the transfer.
+ *	len - number of bytes to transfer from source to destination.
+ *
+ * Note: xp_remote_memcpy_sn2() should never be called while holding a spinlock.
+ */
 static enum xp_retval
 xp_remote_memcpy_sn2(unsigned long dst_pa, const unsigned long src_pa,
 		     size_t len)

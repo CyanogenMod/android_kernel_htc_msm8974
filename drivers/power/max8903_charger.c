@@ -38,9 +38,9 @@ struct max8903_data {
 };
 
 static enum power_supply_property max8903_charger_props[] = {
-	POWER_SUPPLY_PROP_STATUS, 
-	POWER_SUPPLY_PROP_ONLINE, 
-	POWER_SUPPLY_PROP_HEALTH, 
+	POWER_SUPPLY_PROP_STATUS, /* Charger status output */
+	POWER_SUPPLY_PROP_ONLINE, /* External power source */
+	POWER_SUPPLY_PROP_HEALTH, /* Fault or OK */
 };
 
 static int max8903_get_property(struct power_supply *psy,
@@ -92,11 +92,11 @@ static irqreturn_t max8903_dcin(int irq, void *_data)
 
 	data->ta_in = ta_in;
 
-	
+	/* Set Current-Limit-Mode 1:DC 0:USB */
 	if (pdata->dcm)
 		gpio_set_value(pdata->dcm, ta_in ? 1 : 0);
 
-	
+	/* Charger Enable / Disable (cen is negated) */
 	if (pdata->cen)
 		gpio_set_value(pdata->cen, ta_in ? 0 :
 				(data->usb_in ? 0 : 1));
@@ -133,9 +133,9 @@ static irqreturn_t max8903_usbin(int irq, void *_data)
 
 	data->usb_in = usb_in;
 
-	
+	/* Do not touch Current-Limit-Mode */
 
-	
+	/* Charger Enable / Disable (cen is negated) */
 	if (pdata->cen)
 		gpio_set_value(pdata->cen, usb_in ? 0 :
 				(data->ta_in ? 0 : 1));
@@ -207,10 +207,10 @@ static __devinit int max8903_probe(struct platform_device *pdev)
 	if (pdata->dc_valid) {
 		if (pdata->dok && gpio_is_valid(pdata->dok) &&
 				pdata->dcm && gpio_is_valid(pdata->dcm)) {
-			gpio = pdata->dok; 
+			gpio = pdata->dok; /* PULL_UPed Interrupt */
 			ta_in = gpio_get_value(gpio) ? 0 : 1;
 
-			gpio = pdata->dcm; 
+			gpio = pdata->dcm; /* Output */
 			gpio_set_value(gpio, ta_in);
 		} else {
 			dev_err(dev, "When DC is wired, DOK and DCM should"

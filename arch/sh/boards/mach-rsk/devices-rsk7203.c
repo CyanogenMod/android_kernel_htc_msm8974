@@ -108,7 +108,7 @@ static struct gpio_keys_button rsk7203_gpio_keys_table[] = {
 static struct gpio_keys_platform_data rsk7203_gpio_keys_info = {
 	.buttons	= rsk7203_gpio_keys_table,
 	.nbuttons	= ARRAY_SIZE(rsk7203_gpio_keys_table),
-	.poll_interval	= 50, 
+	.poll_interval	= 50, /* default to 50ms */
 };
 
 static struct platform_device keys_device = {
@@ -126,12 +126,12 @@ static struct platform_device *rsk7203_devices[] __initdata = {
 
 static int __init rsk7203_devices_setup(void)
 {
-	
+	/* Select pins for SCIF0 */
 	gpio_request(GPIO_FN_TXD0, NULL);
 	gpio_request(GPIO_FN_RXD0, NULL);
 
-	
-	__raw_writel(0x36db0400, 0xfffc0008); 
+	/* Setup LAN9118: CS1 in 16-bit Big Endian Mode, IRQ0 at Port B */
+	__raw_writel(0x36db0400, 0xfffc0008); /* CS1BCR */
 	gpio_request(GPIO_FN_IRQ0_PB, NULL);
 
 	return platform_add_devices(rsk7203_devices,

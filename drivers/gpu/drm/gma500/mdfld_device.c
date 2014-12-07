@@ -28,7 +28,7 @@
 #ifdef CONFIG_BACKLIGHT_CLASS_DEVICE
 
 #define MRST_BLC_MAX_PWM_REG_FREQ	    0xFFFF
-#define BLC_PWM_PRECISION_FACTOR 100	
+#define BLC_PWM_PRECISION_FACTOR 100	/* 10000000 */
 #define BLC_PWM_FREQ_CALC_CONSTANT 32
 #define MHz 1000000
 #define BRIGHTNESS_MIN_LEVEL 1
@@ -56,13 +56,17 @@ int mdfld_set_brightness(struct backlight_device *bd)
 
 	DRM_DEBUG_DRIVER("backlight level set to %d\n", level);
 
-	
+	/* Perform value bounds checking */
 	if (level < BRIGHTNESS_MIN_LEVEL)
 		level = BRIGHTNESS_MIN_LEVEL;
 
 	if (gma_power_begin(dev, false)) {
 		u32 adjusted_level = 0;
 
+		/*
+		 * Adjust the backlight level with the percent in
+		 * dev_priv->blc_adj2
+		 */
 		adjusted_level = level * dev_priv->blc_adj2;
 		adjusted_level = adjusted_level / BLC_ADJUSTMENT_MAX;
 		dev_priv->brightness_adjusted = adjusted_level;
@@ -84,7 +88,7 @@ int mdfld_set_brightness(struct backlight_device *bd)
 		gma_power_end(dev);
 	}
 
-	
+	/* cache the brightness for later use */
 	dev_priv->brightness = level;
 	return 0;
 }
@@ -97,7 +101,7 @@ static int mdfld_get_brightness(struct backlight_device *bd)
 
 	DRM_DEBUG_DRIVER("brightness = 0x%x \n", dev_priv->brightness);
 
-	
+	/* return locally cached var instead of HW read (due to DPST etc.) */
 	return dev_priv->brightness;
 }
 
@@ -151,13 +155,21 @@ struct backlight_device *mdfld_get_backlight_device(void)
 #endif
 }
 
+/*
+ * mdfld_save_display_registers
+ *
+ * Description: We are going to suspend so save current display
+ * register state.
+ *
+ * Notes: FIXME_JLIU7 need to add the support for DPI MIPI & HDMI audio
+ */
 static int mdfld_save_display_registers(struct drm_device *dev, int pipe)
 {
 	struct drm_psb_private *dev_priv = dev->dev_private;
 	struct medfield_state *regs = &dev_priv->regs.mdfld;
 	int i;
 
-	
+	/* register */
 	u32 dpll_reg = MRST_DPLL_A;
 	u32 fp_reg = MRST_FPA0;
 	u32 pipeconf_reg = PIPEACONF;
@@ -179,7 +191,7 @@ static int mdfld_save_display_registers(struct drm_device *dev, int pipe)
 	u32 dspstatus_reg = PIPEASTAT;
 	u32 palette_reg = PALETTE_A;
 
-	
+	/* pointer to values */
 	u32 *dpll_val = &regs->saveDPLL_A;
 	u32 *fp_val = &regs->saveFPA0;
 	u32 *pipeconf_val = &regs->savePIPEACONF;
@@ -205,7 +217,7 @@ static int mdfld_save_display_registers(struct drm_device *dev, int pipe)
 	case 0:
 		break;
 	case 1:
-		
+		/* regester */
 		dpll_reg = MDFLD_DPLL_B;
 		fp_reg = MDFLD_DPLL_DIV0;
 		pipeconf_reg = PIPEBCONF;
@@ -226,7 +238,7 @@ static int mdfld_save_display_registers(struct drm_device *dev, int pipe)
 		dspstatus_reg = PIPEBSTAT;
 		palette_reg = PALETTE_B;
 
-		
+		/* values */
 		dpll_val = &regs->saveDPLL_B;
 		fp_val = &regs->saveFPB0;
 		pipeconf_val = &regs->savePIPEBCONF;
@@ -248,7 +260,7 @@ static int mdfld_save_display_registers(struct drm_device *dev, int pipe)
 		palette_val = regs->save_palette_b;
 		break;
 	case 2:
-		
+		/* register */
 		pipeconf_reg = PIPECCONF;
 		htot_reg = HTOTAL_C;
 		hblank_reg = HBLANK_C;
@@ -268,7 +280,7 @@ static int mdfld_save_display_registers(struct drm_device *dev, int pipe)
 		dspstatus_reg = PIPECSTAT;
 		palette_reg = PALETTE_C;
 
-		
+		/* pointer to values */
 		pipeconf_val = &regs->savePIPECCONF;
 		htot_val = &regs->saveHTOTAL_C;
 		hblank_val = &regs->saveHBLANK_C;
@@ -293,7 +305,7 @@ static int mdfld_save_display_registers(struct drm_device *dev, int pipe)
 		return -EINVAL;
 	}
 
-	
+	/* Pipe & plane A info */
 	*dpll_val = PSB_RVDC32(dpll_reg);
 	*fp_val = PSB_RVDC32(fp_reg);
 	*pipeconf_val = PSB_RVDC32(pipeconf_reg);
@@ -313,7 +325,7 @@ static int mdfld_save_display_registers(struct drm_device *dev, int pipe)
 	*dspcntr_val = PSB_RVDC32(dspcntr_reg);
 	*dspstatus_val = PSB_RVDC32(dspstatus_reg);
 
-	
+	/*save palette (gamma) */
 	for (i = 0; i < 256; i++)
 		palette_val[i] = PSB_RVDC32(palette_reg + (i << 2));
 
@@ -330,9 +342,16 @@ static int mdfld_save_display_registers(struct drm_device *dev, int pipe)
 	return 0;
 }
 
+/*
+ * mdfld_restore_display_registers
+ *
+ * Description: We are going to resume so restore display register state.
+ *
+ * Notes: FIXME_JLIU7 need to add the support for DPI MIPI & HDMI audio
+ */
 static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 {
-	
+	/* To get  panel out of ULPS mode. */
 	u32 temp = 0;
 	u32 device_ready_reg = DEVICE_READY_REG;
 	struct drm_psb_private *dev_priv = dev->dev_private;
@@ -342,7 +361,7 @@ static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 	u32 dpll = 0;
 	u32 timeout = 0;
 
-	
+	/* regester */
 	u32 dpll_reg = MRST_DPLL_A;
 	u32 fp_reg = MRST_FPA0;
 	u32 pipeconf_reg = PIPEACONF;
@@ -364,7 +383,7 @@ static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 	u32 dspcntr_reg = DSPACNTR;
 	u32 palette_reg = PALETTE_A;
 
-	
+	/* values */
 	u32 dpll_val = regs->saveDPLL_A & ~DPLL_VCO_ENABLE;
 	u32 fp_val = regs->saveFPA0;
 	u32 pipeconf_val = regs->savePIPEACONF;
@@ -391,7 +410,7 @@ static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 		dsi_config = dev_priv->dsi_configs[0];
 		break;
 	case 1:
-		
+		/* regester */
 		dpll_reg = MDFLD_DPLL_B;
 		fp_reg = MDFLD_DPLL_DIV0;
 		pipeconf_reg = PIPEBCONF;
@@ -412,7 +431,7 @@ static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 		dspstatus_reg = PIPEBSTAT;
 		palette_reg = PALETTE_B;
 
-		
+		/* values */
 		dpll_val = regs->saveDPLL_B & ~DPLL_VCO_ENABLE;
 		fp_val = regs->saveFPB0;
 		pipeconf_val = regs->savePIPEBCONF;
@@ -434,7 +453,7 @@ static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 		palette_val = regs->save_palette_b;
 		break;
 	case 2:
-		
+		/* regester */
 		pipeconf_reg = PIPECCONF;
 		htot_reg = HTOTAL_C;
 		hblank_reg = HBLANK_C;
@@ -454,7 +473,7 @@ static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 		dspstatus_reg = PIPECSTAT;
 		palette_reg = PALETTE_C;
 
-		
+		/* values */
 		pipeconf_val = regs->savePIPECCONF;
 		htot_val = regs->saveHTOTAL_C;
 		hblank_val = regs->saveHBLANK_C;
@@ -481,7 +500,7 @@ static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 		return -EINVAL;
 	}
 
-	
+	/*make sure VGA plane is off. it initializes to on after reset!*/
 	PSB_WVDC32(0x80000000, VGACNTRL);
 
 	if (pipe == 1) {
@@ -495,23 +514,25 @@ static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 
 		if (!(dpll & DPLL_VCO_ENABLE)) {
 
+			/* When ungating power of DPLL, needs to wait 0.5us
+			   before enable the VCO */
 			if (dpll & MDFLD_PWR_GATE_EN) {
 				dpll &= ~MDFLD_PWR_GATE_EN;
 				PSB_WVDC32(dpll, dpll_reg);
-				
+				/* FIXME_MDFLD PO - change 500 to 1 after PO */
 				udelay(500);
 			}
 
 			PSB_WVDC32(fp_val, fp_reg);
 			PSB_WVDC32(dpll_val, dpll_reg);
-			
+			/* FIXME_MDFLD PO - change 500 to 1 after PO */
 			udelay(500);
 
 			dpll_val |= DPLL_VCO_ENABLE;
 			PSB_WVDC32(dpll_val, dpll_reg);
 			PSB_RVDC32(dpll_reg);
 
-			
+			/* wait for DSI PLL to lock */
 			while (timeout < 20000 &&
 			  !(PSB_RVDC32(pipeconf_reg) & PIPECONF_DSIPLL_LOCK)) {
 				udelay(150);
@@ -525,7 +546,7 @@ static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 			}
 		}
 	}
-	
+	/* Restore mode */
 	PSB_WVDC32(htot_val, htot_reg);
 	PSB_WVDC32(hblank_val, hblank_reg);
 	PSB_WVDC32(hsync_val, hsync_reg);
@@ -535,7 +556,7 @@ static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 	PSB_WVDC32(pipesrc_val, pipesrc_reg);
 	PSB_WVDC32(dspstatus_val, dspstatus_reg);
 
-	
+	/*set up the plane*/
 	PSB_WVDC32(dspstride_val, dspstride_reg);
 	PSB_WVDC32(dsplinoff_val, dsplinoff_reg);
 	PSB_WVDC32(dsptileoff_val, dsptileoff_reg);
@@ -544,28 +565,28 @@ static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 	PSB_WVDC32(dspsurf_val, dspsurf_reg);
 
 	if (pipe == 1) {
-		
-		
+		/* restore palette (gamma) */
+		/*DRM_UDELAY(50000); */
 		for (i = 0; i < 256; i++)
 			PSB_WVDC32(palette_val[i], palette_reg + (i << 2));
 
 		PSB_WVDC32(regs->savePFIT_CONTROL, PFIT_CONTROL);
 		PSB_WVDC32(regs->savePFIT_PGM_RATIOS, PFIT_PGM_RATIOS);
 
-		
+		/*TODO: resume HDMI port */
 
-		
+		/*TODO: resume pipe*/
 
-		
+		/*enable the plane*/
 		PSB_WVDC32(dspcntr_val & ~DISPLAY_PLANE_ENABLE, dspcntr_reg);
 
 		return 0;
 	}
 
-	
+	/*set up pipe related registers*/
 	PSB_WVDC32(mipi_val, mipi_reg);
 
-	
+	/*setup MIPI adapter + MIPI IP registers*/
 	if (dsi_config)
 		mdfld_dsi_controller_init(dsi_config, pipe);
 
@@ -574,7 +595,7 @@ static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 	else
 		msleep(20);
 
-	
+	/*enable the plane*/
 	PSB_WVDC32(dspcntr_val, dspcntr_reg);
 
 	if (in_atomic() || in_interrupt())
@@ -582,14 +603,14 @@ static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 	else
 		msleep(20);
 
-	
+	/* LP Hold Release */
 	temp = REG_READ(mipi_reg);
 	temp |= LP_OUTPUT_HOLD_RELEASE;
 	REG_WRITE(mipi_reg, temp);
 	mdelay(1);
 
 
-	
+	/* Set DSI host to exit from Utra Low Power State */
 	temp = REG_READ(device_ready_reg);
 	temp &= ~ULPS_MASK;
 	temp |= 0x3;
@@ -603,11 +624,11 @@ static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 	REG_WRITE(device_ready_reg, temp);
 	mdelay(1);
 
-	
+	/*enable the pipe*/
 	PSB_WVDC32(pipeconf_val, pipeconf_reg);
 
-	
-	
+	/* restore palette (gamma) */
+	/*DRM_UDELAY(50000); */
 	for (i = 0; i < 256; i++)
 		PSB_WVDC32(palette_val[i], palette_reg + (i << 2));
 
@@ -616,7 +637,7 @@ static int mdfld_restore_display_registers(struct drm_device *dev, int pipe)
 
 static int mdfld_save_registers(struct drm_device *dev)
 {
-	
+	/* mdfld_save_cursor_overlay_registers(dev); */
 	mdfld_save_display_registers(dev, 0);
 	mdfld_save_display_registers(dev, 2);
 	mdfld_disable_crtc(dev, 0);
@@ -629,20 +650,20 @@ static int mdfld_restore_registers(struct drm_device *dev)
 {
 	mdfld_restore_display_registers(dev, 2);
 	mdfld_restore_display_registers(dev, 0);
-	
+	/* mdfld_restore_cursor_overlay_registers(dev); */
 
 	return 0;
 }
 
 static int mdfld_power_down(struct drm_device *dev)
 {
-	
+	/* FIXME */
 	return 0;
 }
 
 static int mdfld_power_up(struct drm_device *dev)
 {
-	
+	/* FIXME */
 	return 0;
 }
 

@@ -55,10 +55,10 @@ static iomux_v3_cfg_t mx53_evk_pads[] = {
 	MX53_PAD_EIM_D17__ECSPI1_MISO,
 	MX53_PAD_EIM_D18__ECSPI1_MOSI,
 
-	
+	/* ecspi chip select lines */
 	MX53_PAD_EIM_EB2__GPIO2_30,
 	MX53_PAD_EIM_D19__GPIO3_19,
-	
+	/* LED */
 	MX53_PAD_PATA_DA_1__GPIO7_7,
 };
 
@@ -94,7 +94,7 @@ static inline void mx53_evk_fec_reset(void)
 {
 	int ret;
 
-	
+	/* reset FEC PHY */
 	ret = gpio_request_one(MX53_EVK_FEC_PHY_RST, GPIOF_OUT_INIT_LOW,
 							"fec-phy-reset");
 	if (ret) {

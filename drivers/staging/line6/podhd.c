@@ -17,7 +17,7 @@
 #include "pcm.h"
 #include "podhd.h"
 
-#define PODHD_BYTES_PER_FRAME 6	
+#define PODHD_BYTES_PER_FRAME 6	/* 24bit audio (stereo) */
 
 static struct snd_ratden podhd_ratden = {
 	.num_min = 48000,
@@ -74,6 +74,9 @@ static struct line6_pcm_properties podhd_pcm_properties = {
 	.bytes_per_frame = PODHD_BYTES_PER_FRAME
 };
 
+/*
+	POD HD destructor.
+*/
 static void podhd_destruct(struct usb_interface *interface)
 {
 	struct usb_line6_podhd *podhd = usb_get_intfdata(interface);
@@ -83,6 +86,9 @@ static void podhd_destruct(struct usb_interface *interface)
 	line6_cleanup_audio(&podhd->line6);
 }
 
+/*
+	Try to init POD HD device.
+*/
 static int podhd_try_init(struct usb_interface *interface,
 			  struct usb_line6_podhd *podhd)
 {
@@ -92,26 +98,29 @@ static int podhd_try_init(struct usb_interface *interface,
 	if ((interface == NULL) || (podhd == NULL))
 		return -ENODEV;
 
-	
+	/* initialize audio system: */
 	err = line6_init_audio(line6);
 	if (err < 0)
 		return err;
 
-	
+	/* initialize MIDI subsystem: */
 	err = line6_init_midi(line6);
 	if (err < 0)
 		return err;
 
-	
+	/* initialize PCM subsystem: */
 	err = line6_init_pcm(line6, &podhd_pcm_properties);
 	if (err < 0)
 		return err;
 
-	
+	/* register USB audio system: */
 	err = line6_register_audio(line6);
 	return err;
 }
 
+/*
+	Init POD HD device (and clean up in case of failure).
+*/
 int line6_podhd_init(struct usb_interface *interface,
 		     struct usb_line6_podhd *podhd)
 {
@@ -123,6 +132,9 @@ int line6_podhd_init(struct usb_interface *interface,
 	return err;
 }
 
+/*
+	POD HD device disconnected.
+*/
 void line6_podhd_disconnect(struct usb_interface *interface)
 {
 	struct usb_line6_podhd *podhd;

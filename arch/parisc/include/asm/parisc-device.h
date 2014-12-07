@@ -4,27 +4,27 @@
 #include <linux/device.h>
 
 struct parisc_device {
-	struct resource hpa;		
+	struct resource hpa;		/* Hard Physical Address */
 	struct parisc_device_id id;
-	struct parisc_driver *driver;	
-	char		name[80];	
+	struct parisc_driver *driver;	/* Driver for this device */
+	char		name[80];	/* The hardware description */
 	int		irq;
-	int		aux_irq;	
+	int		aux_irq;	/* Some devices have a second IRQ */
 
-	char		hw_path;        
-	unsigned int	num_addrs;	
-	unsigned long	*addr;          
+	char		hw_path;        /* The module number on this bus */
+	unsigned int	num_addrs;	/* some devices have additional address ranges. */
+	unsigned long	*addr;          /* which will be stored here */
  
 #ifdef CONFIG_64BIT
-	
-	unsigned long	pcell_loc;	
-	unsigned long	mod_index;	
+	/* parms for pdc_pat_cell_module() call */
+	unsigned long	pcell_loc;	/* Physical Cell location */
+	unsigned long	mod_index;	/* PAT specific - Misc Module info */
 
-	
-	unsigned long	mod_info;	
-	unsigned long	pmod_loc;	
+	/* generic info returned from pdc_pat_cell_module() */
+	unsigned long	mod_info;	/* PAT specific - Misc Module info */
+	unsigned long	pmod_loc;	/* physical Module location */
 #endif
-	u64		dma_mask;	
+	u64		dma_mask;	/* DMA mask for I/O */
 	struct device 	dev;
 };
 
@@ -32,7 +32,7 @@ struct parisc_driver {
 	struct parisc_driver *next;
 	char *name; 
 	const struct parisc_device_id *id_table;
-	int (*probe) (struct parisc_device *dev); 
+	int (*probe) (struct parisc_device *dev); /* New device discovered */
 	int (*remove) (struct parisc_device *dev);
 	struct device_driver drv;
 };
@@ -61,4 +61,4 @@ parisc_get_drvdata(struct parisc_device *d)
 
 extern struct bus_type parisc_bus_type;
 
-#endif 
+#endif /*_ASM_PARISC_PARISC_DEVICE_H_*/

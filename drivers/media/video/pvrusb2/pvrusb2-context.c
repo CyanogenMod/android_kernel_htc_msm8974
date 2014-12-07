@@ -94,6 +94,8 @@ static void pvr2_context_destroy(struct pvr2_context *mp)
 		pvr2_context_exist_first = mp->exist_next;
 	}
 	if (!pvr2_context_exist_first) {
+		/* Trigger wakeup on control thread in case it is waiting
+		   for an exit condition. */
 		wake_up(&pvr2_context_sync_data);
 	}
 	mutex_unlock(&pvr2_context_mutex);
@@ -116,17 +118,25 @@ static void pvr2_context_check(struct pvr2_context *mp)
 		mp->initialized_flag = !0;
 		pvr2_trace(PVR2_TRACE_CTXT,
 			   "pvr2_context %p (initialize)", mp);
-		
+		/* Finish hardware initialization */
 		if (pvr2_hdw_initialize(mp->hdw,
 					(void (*)(void *))pvr2_context_notify,
 					mp)) {
 			mp->video_stream.stream =
 				pvr2_hdw_get_video_stream(mp->hdw);
+			/* Trigger interface initialization.  By doing this
+			   here initialization runs in our own safe and
+			   cozy thread context. */
 			if (mp->setup_func) mp->setup_func(mp);
 		} else {
 			pvr2_trace(PVR2_TRACE_CTXT,
 				   "pvr2_context %p (thread skipping setup)",
 				   mp);
+			/* Even though initialization did not succeed,
+			   we're still going to continue anyway.  We need
+			   to do this in order to await the expected
+			   disconnect (which we will detect in the normal
+			   course of operation). */
 		}
 	}
 
@@ -136,7 +146,7 @@ static void pvr2_context_check(struct pvr2_context *mp)
 	}
 
 	if (mp->disconnect_flag && !mp->mc_first) {
-		
+		/* Go away... */
 		pvr2_context_destroy(mp);
 		return;
 	}
@@ -333,7 +343,7 @@ int pvr2_channel_limit_inputs(struct pvr2_channel *cp,unsigned int cmsk)
 	mmsk = pvr2_hdw_get_input_available(hdw);
 	cmsk &= mmsk;
 	if (cmsk == cp->input_mask) {
-		
+		/* No change; nothing to do */
 		return 0;
 	}
 
@@ -356,6 +366,8 @@ int pvr2_channel_limit_inputs(struct pvr2_channel *cp,unsigned int cmsk)
 		}
 		tmsk &= cmsk;
 		if ((ret = pvr2_hdw_set_input_allowed(hdw,mmsk,tmsk)) != 0) {
+			/* Internal failure changing allowed list; probably
+			   should not happen, but react if it does. */
 			break;
 		}
 		cp->input_mask = cmsk;
@@ -391,6 +403,7 @@ int pvr2_channel_claim_stream(struct pvr2_channel *cp,
 }
 
 
+// This is the marker for the real beginning of a legitimate mpeg2 stream.
 static char stream_sync_key[] = {
 	0x00, 0x00, 0x01, 0xba,
 };
@@ -407,3 +420,12 @@ struct pvr2_ioread *pvr2_channel_create_mpeg_stream(
 }
 
 
+/*
+  Stuff for Emacs to see, in order to encourage consistent editing style:
+  *** Local Variables: ***
+  *** mode: c ***
+  *** fill-column: 75 ***
+  *** tab-width: 8 ***
+  *** c-basic-offset: 8 ***
+  *** End: ***
+  */

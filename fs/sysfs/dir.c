@@ -33,6 +33,13 @@ DEFINE_SPINLOCK(sysfs_assoc_lock);
 static DEFINE_SPINLOCK(sysfs_ino_lock);
 static DEFINE_IDA(sysfs_ino_ida);
 
+/**
+ *	sysfs_name_hash
+ *	@ns:   Namespace tag to hash
+ *	@name: Null terminated string to hash
+ *
+ *	Returns 31 bit hash of ns + name (so it fits in an off_t )
+ */
 static unsigned int sysfs_name_hash(const void *ns, const char *name)
 {
 	unsigned long hash = init_name_hash();
@@ -41,7 +48,7 @@ static unsigned int sysfs_name_hash(const void *ns, const char *name)
 		hash = partial_name_hash(*name++, hash);
 	hash = ( end_name_hash(hash) ^ hash_ptr( (void *)ns, 31 ) );
 	hash &= 0x7fffffffU;
-	
+	/* Reserve hash numbers 0, 1 and INT_MAX for magic directory entries */
 	if (hash < 1)
 		hash += 2;
 	if (hash >= INT_MAX)
@@ -66,6 +73,19 @@ static int sysfs_sd_compare(const struct sysfs_dirent *left,
 				  right);
 }
 
+/**
+ *	sysfs_link_subling - link sysfs_dirent into sibling rbtree
+ *	@sd: sysfs_dirent of interest
+ *
+ *	Link @sd into its sibling rbtree which starts from
+ *	sd->s_parent->s_dir.children.
+ *
+ *	Locking:
+ *	mutex_lock(sysfs_mutex)
+ *
+ *	RETURNS:
+ *	0 on susccess -EEXIST on failure.
+ */
 static int sysfs_link_sibling(struct sysfs_dirent *sd)
 {
 	struct rb_node **node = &sd->s_parent->s_dir.children.rb_node;
@@ -88,12 +108,22 @@ static int sysfs_link_sibling(struct sysfs_dirent *sd)
 		else
 			return -EEXIST;
 	}
-	
+	/* add new node and rebalance the tree */
 	rb_link_node(&sd->s_rb, parent, node);
 	rb_insert_color(&sd->s_rb, &sd->s_parent->s_dir.children);
 	return 0;
 }
 
+/**
+ *	sysfs_unlink_sibling - unlink sysfs_dirent from sibling rbtree
+ *	@sd: sysfs_dirent of interest
+ *
+ *	Unlink @sd from its sibling rbtree which starts from
+ *	sd->s_parent->s_dir.children.
+ *
+ *	Locking:
+ *	mutex_lock(sysfs_mutex)
+ */
 static void sysfs_unlink_sibling(struct sysfs_dirent *sd)
 {
 	if (sysfs_type(sd) == SYSFS_DIR)
@@ -102,6 +132,16 @@ static void sysfs_unlink_sibling(struct sysfs_dirent *sd)
 	rb_erase(&sd->s_rb, &sd->s_parent->s_dir.children);
 }
 
+/**
+ *	sysfs_get_active - get an active reference to sysfs_dirent
+ *	@sd: sysfs_dirent to get an active reference to
+ *
+ *	Get an active reference of @sd.  This function is noop if @sd
+ *	is NULL.
+ *
+ *	RETURNS:
+ *	Pointer to @sd on success, NULL on failure.
+ */
 struct sysfs_dirent *sysfs_get_active(struct sysfs_dirent *sd)
 {
 	if (unlikely(!sd))
@@ -126,6 +166,13 @@ struct sysfs_dirent *sysfs_get_active(struct sysfs_dirent *sd)
 	}
 }
 
+/**
+ *	sysfs_put_active - put an active reference to sysfs_dirent
+ *	@sd: sysfs_dirent to put an active reference to
+ *
+ *	Put an active reference to @sd.  This function is noop if @sd
+ *	is NULL.
+ */
 void sysfs_put_active(struct sysfs_dirent *sd)
 {
 	int v;
@@ -138,9 +185,18 @@ void sysfs_put_active(struct sysfs_dirent *sd)
 	if (likely(v != SD_DEACTIVATED_BIAS))
 		return;
 
+	/* atomic_dec_return() is a mb(), we'll always see the updated
+	 * sd->u.completion.
+	 */
 	complete(sd->u.completion);
 }
 
+/**
+ *	sysfs_deactivate - deactivate sysfs_dirent
+ *	@sd: sysfs_dirent to deactivate
+ *
+ *	Deny new active references and drain existing ones.
+ */
 static void sysfs_deactivate(struct sysfs_dirent *sd)
 {
 	DECLARE_COMPLETION_ONSTACK(wait);
@@ -154,6 +210,9 @@ static void sysfs_deactivate(struct sysfs_dirent *sd)
 	sd->u.completion = (void *)&wait;
 
 	rwsem_acquire(&sd->dep_map, 0, 0, _RET_IP_);
+	/* atomic_add_return() is a mb(), put_active() will always see
+	 * the updated sd->u.completion.
+	 */
 	v = atomic_add_return(SD_DEACTIVATED_BIAS, &sd->s_active);
 
 	if (v != SD_DEACTIVATED_BIAS) {
@@ -196,6 +255,9 @@ void release_sysfs_dirent(struct sysfs_dirent * sd)
 	struct sysfs_dirent *parent_sd;
 
  repeat:
+	/* Moving/renaming is always done while holding reference.
+	 * sd->s_parent won't change beneath us.
+	 */
 	parent_sd = sd->s_parent;
 
 	if (sysfs_type(sd) == SYSFS_KOBJ_LINK)
@@ -231,15 +293,15 @@ static int sysfs_dentry_revalidate(struct dentry *dentry, struct nameidata *nd)
 	sd = dentry->d_fsdata;
 	mutex_lock(&sysfs_mutex);
 
-	
+	/* The sysfs dirent has been deleted */
 	if (sd->s_flags & SYSFS_FLAG_REMOVED)
 		goto out_bad;
 
-	
+	/* The sysfs dirent has been moved? */
 	if (dentry->d_parent->d_fsdata != sd->s_parent)
 		goto out_bad;
 
-	
+	/* The sysfs dirent has been renamed */
 	if (strcmp(dentry->d_name.name, sd->s_name) != 0)
 		goto out_bad;
 
@@ -247,9 +309,23 @@ static int sysfs_dentry_revalidate(struct dentry *dentry, struct nameidata *nd)
 out_valid:
 	return 1;
 out_bad:
+	/* Remove the dentry from the dcache hashes.
+	 * If this is a deleted dentry we use d_drop instead of d_delete
+	 * so sysfs doesn't need to cope with negative dentries.
+	 *
+	 * If this is a dentry that has simply been renamed we
+	 * use d_drop to remove it from the dcache lookup on its
+	 * old parent.  If this dentry persists later when a lookup
+	 * is performed at its new name the dentry will be readded
+	 * to the dcache hashes.
+	 */
 	is_dir = (sysfs_type(sd) == SYSFS_DIR);
 	mutex_unlock(&sysfs_mutex);
 	if (is_dir) {
+		/* If we have submounts we must allow the vfs caches
+		 * to lie about the state of the filesystem to prevent
+		 * leaks and other nasty things.
+		 */
 		if (have_submounts(dentry))
 			goto out_valid;
 		shrink_dcache_parent(dentry);
@@ -306,6 +382,20 @@ struct sysfs_dirent *sysfs_new_dirent(const char *name, umode_t mode, int type)
 	return NULL;
 }
 
+/**
+ *	sysfs_addrm_start - prepare for sysfs_dirent add/remove
+ *	@acxt: pointer to sysfs_addrm_cxt to be used
+ *	@parent_sd: parent sysfs_dirent
+ *
+ *	This function is called when the caller is about to add or
+ *	remove sysfs_dirent under @parent_sd.  This function acquires
+ *	sysfs_mutex.  @acxt is used to keep and pass context to
+ *	other addrm functions.
+ *
+ *	LOCKING:
+ *	Kernel thread context (may sleep).  sysfs_mutex is locked on
+ *	return.
+ */
 void sysfs_addrm_start(struct sysfs_addrm_cxt *acxt,
 		       struct sysfs_dirent *parent_sd)
 {
@@ -315,6 +405,26 @@ void sysfs_addrm_start(struct sysfs_addrm_cxt *acxt,
 	mutex_lock(&sysfs_mutex);
 }
 
+/**
+ *	__sysfs_add_one - add sysfs_dirent to parent without warning
+ *	@acxt: addrm context to use
+ *	@sd: sysfs_dirent to be added
+ *
+ *	Get @acxt->parent_sd and set sd->s_parent to it and increment
+ *	nlink of parent inode if @sd is a directory and link into the
+ *	children list of the parent.
+ *
+ *	This function should be called between calls to
+ *	sysfs_addrm_start() and sysfs_addrm_finish() and should be
+ *	passed the same @acxt as passed to sysfs_addrm_start().
+ *
+ *	LOCKING:
+ *	Determined by sysfs_addrm_start().
+ *
+ *	RETURNS:
+ *	0 on success, -EEXIST if entry with the given name already
+ *	exists.
+ */
 int __sysfs_add_one(struct sysfs_addrm_cxt *acxt, struct sysfs_dirent *sd)
 {
 	struct sysfs_inode_attrs *ps_iattr;
@@ -334,7 +444,7 @@ int __sysfs_add_one(struct sysfs_addrm_cxt *acxt, struct sysfs_dirent *sd)
 	if (ret)
 		return ret;
 
-	
+	/* Update timestamps on the parent */
 	ps_iattr = acxt->parent_sd->s_iattr;
 	if (ps_iattr) {
 		struct iattr *ps_iattrs = &ps_iattr->ia_iattr;
@@ -344,6 +454,16 @@ int __sysfs_add_one(struct sysfs_addrm_cxt *acxt, struct sysfs_dirent *sd)
 	return 0;
 }
 
+/**
+ *	sysfs_pathname - return full path to sysfs dirent
+ *	@sd: sysfs_dirent whose path we want
+ *	@path: caller allocated buffer
+ *
+ *	Gives the name "/" to the sysfs_root entry; any path returned
+ *	is relative to wherever sysfs is mounted.
+ *
+ *	XXX: does no error checking on @path size
+ */
 static char *sysfs_pathname(struct sysfs_dirent *sd, char *path)
 {
 	if (sd->s_parent) {
@@ -354,6 +474,26 @@ static char *sysfs_pathname(struct sysfs_dirent *sd, char *path)
 	return path;
 }
 
+/**
+ *	sysfs_add_one - add sysfs_dirent to parent
+ *	@acxt: addrm context to use
+ *	@sd: sysfs_dirent to be added
+ *
+ *	Get @acxt->parent_sd and set sd->s_parent to it and increment
+ *	nlink of parent inode if @sd is a directory and link into the
+ *	children list of the parent.
+ *
+ *	This function should be called between calls to
+ *	sysfs_addrm_start() and sysfs_addrm_finish() and should be
+ *	passed the same @acxt as passed to sysfs_addrm_start().
+ *
+ *	LOCKING:
+ *	Determined by sysfs_addrm_start().
+ *
+ *	RETURNS:
+ *	0 on success, -EEXIST if entry with the given name already
+ *	exists.
+ */
 int sysfs_add_one(struct sysfs_addrm_cxt *acxt, struct sysfs_dirent *sd)
 {
 	int ret;
@@ -372,6 +512,21 @@ int sysfs_add_one(struct sysfs_addrm_cxt *acxt, struct sysfs_dirent *sd)
 	return ret;
 }
 
+/**
+ *	sysfs_remove_one - remove sysfs_dirent from parent
+ *	@acxt: addrm context to use
+ *	@sd: sysfs_dirent to be removed
+ *
+ *	Mark @sd removed and drop nlink of parent inode if @sd is a
+ *	directory.  @sd is unlinked from the children list.
+ *
+ *	This function should be called between calls to
+ *	sysfs_addrm_start() and sysfs_addrm_finish() and should be
+ *	passed the same @acxt as passed to sysfs_addrm_start().
+ *
+ *	LOCKING:
+ *	Determined by sysfs_addrm_start().
+ */
 void sysfs_remove_one(struct sysfs_addrm_cxt *acxt, struct sysfs_dirent *sd)
 {
 	struct sysfs_inode_attrs *ps_iattr;
@@ -380,7 +535,7 @@ void sysfs_remove_one(struct sysfs_addrm_cxt *acxt, struct sysfs_dirent *sd)
 
 	sysfs_unlink_sibling(sd);
 
-	
+	/* Update timestamps on the parent */
 	ps_iattr = acxt->parent_sd->s_iattr;
 	if (ps_iattr) {
 		struct iattr *ps_iattrs = &ps_iattr->ia_iattr;
@@ -392,12 +547,23 @@ void sysfs_remove_one(struct sysfs_addrm_cxt *acxt, struct sysfs_dirent *sd)
 	acxt->removed = sd;
 }
 
+/**
+ *	sysfs_addrm_finish - finish up sysfs_dirent add/remove
+ *	@acxt: addrm context to finish up
+ *
+ *	Finish up sysfs_dirent add/remove.  Resources acquired by
+ *	sysfs_addrm_start() are released and removed sysfs_dirents are
+ *	cleaned up.
+ *
+ *	LOCKING:
+ *	sysfs_mutex is released.
+ */
 void sysfs_addrm_finish(struct sysfs_addrm_cxt *acxt)
 {
-	
+	/* release resources acquired by sysfs_addrm_start() */
 	mutex_unlock(&sysfs_mutex);
 
-	
+	/* kill removed sysfs_dirents */
 	while (acxt->removed) {
 		struct sysfs_dirent *sd = acxt->removed;
 
@@ -409,6 +575,19 @@ void sysfs_addrm_finish(struct sysfs_addrm_cxt *acxt)
 	}
 }
 
+/**
+ *	sysfs_find_dirent - find sysfs_dirent with the given name
+ *	@parent_sd: sysfs_dirent to search under
+ *	@name: name to look for
+ *
+ *	Look for sysfs_dirent with name @name under @parent_sd.
+ *
+ *	LOCKING:
+ *	mutex_lock(sysfs_mutex)
+ *
+ *	RETURNS:
+ *	Pointer to sysfs_dirent if found, NULL if not.
+ */
 struct sysfs_dirent *sysfs_find_dirent(struct sysfs_dirent *parent_sd,
 				       const void *ns,
 				       const unsigned char *name)
@@ -440,6 +619,20 @@ struct sysfs_dirent *sysfs_find_dirent(struct sysfs_dirent *parent_sd,
 	return NULL;
 }
 
+/**
+ *	sysfs_get_dirent - find and get sysfs_dirent with the given name
+ *	@parent_sd: sysfs_dirent to search under
+ *	@name: name to look for
+ *
+ *	Look for sysfs_dirent with name @name under @parent_sd and get
+ *	it if found.
+ *
+ *	LOCKING:
+ *	Kernel thread context (may sleep).  Grabs sysfs_mutex.
+ *
+ *	RETURNS:
+ *	Pointer to sysfs_dirent if found, NULL if not.
+ */
 struct sysfs_dirent *sysfs_get_dirent(struct sysfs_dirent *parent_sd,
 				      const void *ns,
 				      const unsigned char *name)
@@ -464,7 +657,7 @@ static int create_dir(struct kobject *kobj, struct sysfs_dirent *parent_sd,
 	struct sysfs_dirent *sd;
 	int rc;
 
-	
+	/* allocate */
 	sd = sysfs_new_dirent(name, mode, SYSFS_DIR);
 	if (!sd)
 		return -ENOMEM;
@@ -473,7 +666,7 @@ static int create_dir(struct kobject *kobj, struct sysfs_dirent *parent_sd,
 	sd->s_ns = ns;
 	sd->s_dir.kobj = kobj;
 
-	
+	/* link in */
 	sysfs_addrm_start(&acxt, parent_sd);
 	rc = sysfs_add_one(&acxt, sd);
 	sysfs_addrm_finish(&acxt);
@@ -493,6 +686,14 @@ int sysfs_create_subdir(struct kobject *kobj, const char *name,
 			  KOBJ_NS_TYPE_NONE, NULL, name, p_sd);
 }
 
+/**
+ *	sysfs_read_ns_type: return associated ns_type
+ *	@kobj: the kobject being queried
+ *
+ *	Each kobject can be tagged with exactly one namespace type
+ *	(i.e. network or user).  Return the ns_type associated with
+ *	this object if any
+ */
 static enum kobj_ns_type sysfs_read_ns_type(struct kobject *kobj)
 {
 	const struct kobj_ns_type_operations *ops;
@@ -510,6 +711,10 @@ static enum kobj_ns_type sysfs_read_ns_type(struct kobject *kobj)
 	return type;
 }
 
+/**
+ *	sysfs_create_dir - create a directory for an object.
+ *	@kobj:		object we're creating directory for. 
+ */
 int sysfs_create_dir(struct kobject * kobj)
 {
 	enum kobj_ns_type type;
@@ -555,20 +760,20 @@ static struct dentry * sysfs_lookup(struct inode *dir, struct dentry *dentry,
 
 	sd = sysfs_find_dirent(parent_sd, ns, dentry->d_name.name);
 
-	
+	/* no such entry */
 	if (!sd) {
 		ret = ERR_PTR(-ENOENT);
 		goto out_unlock;
 	}
 
-	
+	/* attach dentry and inode */
 	inode = sysfs_get_inode(dir->i_sb, sd);
 	if (!inode) {
 		ret = ERR_PTR(-ENOMEM);
 		goto out_unlock;
 	}
 
-	
+	/* instantiate and hash dentry */
 	ret = d_find_alias(inode);
 	if (!ret) {
 		d_set_d_op(dentry, &sysfs_dentry_ops);
@@ -629,6 +834,14 @@ static void __sysfs_remove_dir(struct sysfs_dirent *dir_sd)
 	remove_dir(dir_sd);
 }
 
+/**
+ *	sysfs_remove_dir - remove an object's directory.
+ *	@kobj:	object.
+ *
+ *	The only thing special about this is that we remove any files in
+ *	the directory before we remove the directory, and we've inlined
+ *	what used to be sysfs_rmdir() below, instead of calling separately.
+ */
 
 void sysfs_remove_dir(struct kobject * kobj)
 {
@@ -653,13 +866,13 @@ int sysfs_rename(struct sysfs_dirent *sd,
 	error = 0;
 	if ((sd->s_parent == new_parent_sd) && (sd->s_ns == new_ns) &&
 	    (strcmp(sd->s_name, new_name) == 0))
-		goto out;	
+		goto out;	/* nothing to rename */
 
 	error = -EEXIST;
 	if (sysfs_find_dirent(new_parent_sd, new_ns, new_name))
 		goto out;
 
-	
+	/* rename sysfs_dirent */
 	if (strcmp(sd->s_name, new_name) != 0) {
 		error = -ENOMEM;
 		new_name = dup_name = kstrdup(new_name, GFP_KERNEL);
@@ -670,7 +883,7 @@ int sysfs_rename(struct sysfs_dirent *sd,
 		sd->s_name = new_name;
 	}
 
-	
+	/* Move to the appropriate place in the appropriate directories rbtree. */
 	sysfs_unlink_sibling(sd);
 	sysfs_get(new_parent_sd);
 	sysfs_put(sd->s_parent);
@@ -712,6 +925,7 @@ int sysfs_move_dir(struct kobject *kobj, struct kobject *new_parent_kobj)
 	return sysfs_rename(sd, new_parent_sd, new_ns, sd->s_name);
 }
 
+/* Relationship between s_mode and the DT_xxx types */
 static inline unsigned char dt_type(struct sysfs_dirent *sd)
 {
 	return (sd->s_mode >> 12) & 15;
@@ -747,7 +961,7 @@ static struct sysfs_dirent *sysfs_dir_pos(const void *ns,
 				break;
 		}
 	}
-	
+	/* Skip over entries in the wrong namespace */
 	while (pos && pos->s_ns != ns) {
 		struct rb_node *node = rb_next(&pos->s_rb);
 		if (!node)
@@ -819,7 +1033,7 @@ static int sysfs_readdir(struct file * filp, void * dirent, filldir_t filldir)
 			break;
 	}
 	mutex_unlock(&sysfs_mutex);
-	if ((filp->f_pos > 1) && !pos) { 
+	if ((filp->f_pos > 1) && !pos) { /* EOF */
 		filp->f_pos = INT_MAX;
 		filp->private_data = NULL;
 	}

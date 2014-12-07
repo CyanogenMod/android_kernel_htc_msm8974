@@ -24,6 +24,8 @@
 
 #define viafb_compact_res(x, y) (((x)<<16)|(y))
 
+/* CLE266 Software Power Sequence */
+/* {Mask}, {Data}, {Delay} */
 static const int PowerSequenceOn[3][3] = {
 	{0x10, 0x08, 0x06}, {0x10, 0x08, 0x06},	{0x19, 0x1FE, 0x01}
 };
@@ -32,17 +34,17 @@ static const int PowerSequenceOff[3][3] = {
 };
 
 static struct _lcd_scaling_factor lcd_scaling_factor = {
-	
+	/* LCD Horizontal Scaling Factor Register */
 	{LCD_HOR_SCALING_FACTOR_REG_NUM,
 	 {{CR9F, 0, 1}, {CR77, 0, 7}, {CR79, 4, 5} } },
-	
+	/* LCD Vertical Scaling Factor Register */
 	{LCD_VER_SCALING_FACTOR_REG_NUM,
 	 {{CR79, 3, 3}, {CR78, 0, 7}, {CR79, 6, 7} } }
 };
 static struct _lcd_scaling_factor lcd_scaling_factor_CLE = {
-	
+	/* LCD Horizontal Scaling Factor Register */
 	{LCD_HOR_SCALING_FACTOR_REG_NUM_CLE, {{CR77, 0, 7}, {CR79, 4, 5} } },
-	
+	/* LCD Vertical Scaling Factor Register */
 	{LCD_VER_SCALING_FACTOR_REG_NUM_CLE, {{CR78, 0, 7}, {CR79, 6, 7} } }
 };
 
@@ -97,7 +99,9 @@ void __devinit viafb_init_lcd_size(void)
 static bool lvds_identify_integratedlvds(void)
 {
 	if (viafb_display_hardware_layout == HW_LAYOUT_LCD_EXTERNAL_LCD2) {
-		
+		/* Two dual channel LCD (Internal LVDS + External LVDS): */
+		/* If we have an external LVDS, such as VT1636, we should
+		   have its chip ID already. */
 		if (viaparinfo->chip_info->lvds_chip_info.lvds_chip_name) {
 			viaparinfo->chip_info->lvds_chip_info2.lvds_chip_name =
 			    INTEGRATED_LVDS;
@@ -110,7 +114,7 @@ static bool lvds_identify_integratedlvds(void)
 				  "so can't support two dual channel LVDS!\n");
 		}
 	} else if (viafb_display_hardware_layout == HW_LAYOUT_LCD1_LCD2) {
-		
+		/* Two single channel LCD (Internal LVDS + Internal LVDS): */
 		viaparinfo->chip_info->lvds_chip_info.lvds_chip_name =
 		INTEGRATED_LVDS;
 		viaparinfo->chip_info->lvds_chip_info2.lvds_chip_name =
@@ -118,6 +122,8 @@ static bool lvds_identify_integratedlvds(void)
 		DEBUG_MSG(KERN_INFO "Support two single channel LVDS! "
 			  "(Internal LVDS + Internal LVDS)\n");
 	} else if (viafb_display_hardware_layout != HW_LAYOUT_DVI_ONLY) {
+		/* If we have found external LVDS, just use it,
+		   otherwise, we will use internal LVDS as default. */
 		if (!viaparinfo->chip_info->lvds_chip_info.lvds_chip_name) {
 			viaparinfo->chip_info->lvds_chip_info.lvds_chip_name =
 			    INTEGRATED_LVDS;
@@ -153,7 +159,7 @@ bool __devinit viafb_lvds_trasmitter_identify(void)
 
 	if (viaparinfo->chip_info->lvds_chip_info.lvds_chip_name)
 		return true;
-	
+	/* Check for VT1631: */
 	viaparinfo->chip_info->lvds_chip_info.lvds_chip_name = VT1631_LVDS;
 	viaparinfo->chip_info->lvds_chip_info.lvds_chip_slave_addr =
 		VT1631_LVDS_I2C_ADDR;
@@ -316,7 +322,7 @@ static void __devinit fp_id_to_vindex(int panel_id)
 		viaparinfo->lvds_setting_info->LCDDithering = 1;
 		break;
 	case 0x17:
-		
+		/* OLPC XO-1.5 panel */
 		viaparinfo->lvds_setting_info->lcd_panel_hres = 1200;
 		viaparinfo->lvds_setting_info->lcd_panel_vres = 900;
 		viaparinfo->lvds_setting_info->device_lcd_dualedge = 0;
@@ -349,12 +355,12 @@ static void load_lcd_scaling(int set_hres, int set_vres, int panel_hres,
 
 	DEBUG_MSG(KERN_INFO "load_lcd_scaling()!!\n");
 
-	
+	/* LCD Scaling Enable */
 	viafb_write_reg_mask(CR79, VIACR, 0x07, BIT0 + BIT1 + BIT2);
 
-	
+	/* Check if expansion for horizontal */
 	if (set_hres < panel_hres) {
-		
+		/* Load Horizontal Scaling Factor */
 		switch (viaparinfo->chip_info->gfx_chip_name) {
 		case UNICHROME_CLE266:
 		case UNICHROME_K400:
@@ -380,7 +386,7 @@ static void load_lcd_scaling(int set_hres, int set_vres, int panel_hres,
 		case UNICHROME_VX900:
 			reg_value =
 			    K800_LCD_HOR_SCF_FORMULA(set_hres, panel_hres);
-			
+			/* Horizontal scaling enabled */
 			viafb_write_reg_mask(CRA2, VIACR, 0xC0, BIT7 + BIT6);
 			viafb_load_reg_num =
 			    lcd_scaling_factor.lcd_hor_scaling_factor.reg_num;
@@ -392,13 +398,13 @@ static void load_lcd_scaling(int set_hres, int set_vres, int panel_hres,
 
 		DEBUG_MSG(KERN_INFO "Horizontal Scaling value = %d", reg_value);
 	} else {
-		
+		/* Horizontal scaling disabled */
 		viafb_write_reg_mask(CRA2, VIACR, 0x00, BIT7);
 	}
 
-	
+	/* Check if expansion for vertical */
 	if (set_vres < panel_vres) {
-		
+		/* Load Vertical Scaling Factor */
 		switch (viaparinfo->chip_info->gfx_chip_name) {
 		case UNICHROME_CLE266:
 		case UNICHROME_K400:
@@ -424,7 +430,7 @@ static void load_lcd_scaling(int set_hres, int set_vres, int panel_hres,
 		case UNICHROME_VX900:
 			reg_value =
 			    K800_LCD_VER_SCF_FORMULA(set_vres, panel_vres);
-			
+			/* Vertical scaling enabled */
 			viafb_write_reg_mask(CRA2, VIACR, 0x08, BIT3);
 			viafb_load_reg_num =
 			    lcd_scaling_factor.lcd_ver_scaling_factor.reg_num;
@@ -436,7 +442,7 @@ static void load_lcd_scaling(int set_hres, int set_vres, int panel_hres,
 
 		DEBUG_MSG(KERN_INFO "Vertical Scaling value = %d", reg_value);
 	} else {
-		
+		/* Vertical scaling disabled */
 		viafb_write_reg_mask(CRA2, VIACR, 0x00, BIT3);
 	}
 }
@@ -461,7 +467,7 @@ static void via_pitch_alignment_patch_lcd(int iga_path, int hres, int bpp)
 				viafb_write_reg(CR67, VIACR, cr67);
 			}
 
-			
+			/* Fetch Count */
 			cr67 = viafb_read_reg(VIACR, CR67) & 0xF3;
 			cr67 |= (unsigned char)((dwScreenPitch & 0x600) >> 7);
 			viafb_write_reg(CR67, VIACR, cr67);
@@ -531,6 +537,7 @@ static void lcd_patch_skew(struct lvds_setting_information
 	}
 }
 
+/* LCD Set Mode */
 void viafb_lcd_set_mode(const struct fb_var_screeninfo *var, u16 cxres,
 	u16 cyres, struct lvds_setting_information *plvds_setting_info,
 	struct lvds_chip_information *plvds_chip_info)
@@ -547,9 +554,9 @@ void viafb_lcd_set_mode(const struct fb_var_screeninfo *var, u16 cxres,
 	const struct fb_videomode *mode_crt_table, *panel_crt_table;
 
 	DEBUG_MSG(KERN_INFO "viafb_lcd_set_mode!!\n");
-	
+	/* Get mode table */
 	mode_crt_table = viafb_get_best_mode(set_hres, set_vres, 60);
-	
+	/* Get panel table Pointer */
 	panel_crt_table = viafb_get_best_mode(panel_hres, panel_vres, 60);
 	viafb_fill_var_timing_info(&panel_var, panel_crt_table);
 	DEBUG_MSG(KERN_INFO "bellow viafb_lcd_set_mode!!\n");
@@ -565,7 +572,7 @@ void viafb_lcd_set_mode(const struct fb_var_screeninfo *var, u16 cxres,
 	} else {
 		timing = var_to_timing(&panel_var, set_hres, set_vres);
 		if (set_iga == IGA2)
-			
+			/* disable scaling */
 			via_write_reg_mask(VIACR, 0x79, 0x00,
 				BIT0 + BIT1 + BIT2);
 	}
@@ -575,7 +582,7 @@ void viafb_lcd_set_mode(const struct fb_var_screeninfo *var, u16 cxres,
 	else if (set_iga == IGA2)
 		via_set_secondary_timing(&timing);
 
-	
+	/* Fetch count for IGA2 only */
 	viafb_load_fetch_count_reg(set_hres, mode_bpp / 8, set_iga);
 
 	if ((viaparinfo->chip_info->gfx_chip_name != UNICHROME_CLE266)
@@ -586,12 +593,12 @@ void viafb_lcd_set_mode(const struct fb_var_screeninfo *var, u16 cxres,
 	viafb_set_vclock(clock, set_iga);
 	lcd_patch_skew(plvds_setting_info, plvds_chip_info);
 
-	
+	/* If K8M800, enable LCD Prefetch Mode. */
 	if ((viaparinfo->chip_info->gfx_chip_name == UNICHROME_K800)
 	    || (UNICHROME_K8M890 == viaparinfo->chip_info->gfx_chip_name))
 		viafb_write_reg_mask(CR6A, VIACR, 0x01, BIT0);
 
-	
+	/* Patch for non 32bit alignment mode */
 	via_pitch_alignment_patch_lcd(plvds_setting_info->iga_path, set_hres,
 		var->bits_per_pixel);
 }
@@ -609,25 +616,25 @@ static void integrated_lvds_disable(struct lvds_setting_information
 	if (INTERFACE_LVDS1 == plvds_chip_info->output_interface)
 		turn_off_second_powersequence = true;
 	if (turn_off_second_powersequence) {
-		
+		/* Use second power sequence control: */
 
-		
+		/* Turn off power sequence. */
 		viafb_write_reg_mask(CRD4, VIACR, 0, BIT1);
 
-		
+		/* Turn off back light. */
 		viafb_write_reg_mask(CRD3, VIACR, 0xC0, BIT6 + BIT7);
 	}
 	if (turn_off_first_powersequence) {
-		
+		/* Use first power sequence control: */
 
-		
+		/* Turn off power sequence. */
 		viafb_write_reg_mask(CR6A, VIACR, 0, BIT3);
 
-		
+		/* Turn off back light. */
 		viafb_write_reg_mask(CR91, VIACR, 0xC0, BIT6 + BIT7);
 	}
 
-	
+	/* Power off LVDS channel. */
 	switch (plvds_chip_info->output_interface) {
 	case INTERFACE_LVDS0:
 		{
@@ -663,26 +670,26 @@ static void integrated_lvds_enable(struct lvds_setting_information
 	switch (plvds_chip_info->output_interface) {
 	case INTERFACE_LVDS0LVDS1:
 	case INTERFACE_LVDS0:
-		
-		
+		/* Use first power sequence control: */
+		/* Use hardware control power sequence. */
 		viafb_write_reg_mask(CR91, VIACR, 0, BIT0);
-		
+		/* Turn on back light. */
 		viafb_write_reg_mask(CR91, VIACR, 0, BIT6 + BIT7);
-		
+		/* Turn on hardware power sequence. */
 		viafb_write_reg_mask(CR6A, VIACR, 0x08, BIT3);
 		break;
 	case INTERFACE_LVDS1:
-		
-		
+		/* Use second power sequence control: */
+		/* Use hardware control power sequence. */
 		viafb_write_reg_mask(CRD3, VIACR, 0, BIT0);
-		
+		/* Turn on back light. */
 		viafb_write_reg_mask(CRD3, VIACR, 0, BIT6 + BIT7);
-		
+		/* Turn on hardware power sequence. */
 		viafb_write_reg_mask(CRD4, VIACR, 0x02, BIT1);
 		break;
 	}
 
-	
+	/* Power on LVDS channel. */
 	switch (plvds_chip_info->output_interface) {
 	case INTERFACE_LVDS0:
 		{
@@ -709,7 +716,7 @@ void viafb_lcd_disable(void)
 
 	if (viaparinfo->chip_info->gfx_chip_name == UNICHROME_CLE266) {
 		lcd_powersequence_off();
-		
+		/* DI1 pad off */
 		viafb_write_reg_mask(SR1E, VIASR, 0x00, 0x30);
 	} else if (viaparinfo->chip_info->gfx_chip_name == UNICHROME_CX700) {
 		if (viafb_LCD2_ON
@@ -730,15 +737,15 @@ void viafb_lcd_disable(void)
 		viafb_disable_lvds_vt1636(viaparinfo->lvds_setting_info,
 				    &viaparinfo->chip_info->lvds_chip_info);
 	} else {
-		
+		/* Backlight off           */
 		viafb_write_reg_mask(SR3D, VIASR, 0x00, 0x20);
-		
+		/* 24 bit DI data paht off */
 		viafb_write_reg_mask(CR91, VIACR, 0x80, 0x80);
 	}
 
-	
+	/* Disable expansion bit   */
 	viafb_write_reg_mask(CR79, VIACR, 0x00, 0x01);
-	
+	/* Simultaneout disabled   */
 	viafb_write_reg_mask(CR6B, VIACR, 0x00, 0x08);
 }
 
@@ -773,7 +780,7 @@ void viafb_lcd_enable(void)
 			lvds_chip_info2.output_interface);
 
 	if (viaparinfo->chip_info->gfx_chip_name == UNICHROME_CLE266) {
-		
+		/* DI1 pad on */
 		viafb_write_reg_mask(SR1E, VIASR, 0x30, 0x30);
 		lcd_powersequence_on();
 	} else if (viaparinfo->chip_info->gfx_chip_name == UNICHROME_CX700) {
@@ -795,11 +802,11 @@ void viafb_lcd_enable(void)
 		viafb_enable_lvds_vt1636(viaparinfo->lvds_setting_info,
 				   &viaparinfo->chip_info->lvds_chip_info);
 	} else {
-		
+		/* Backlight on            */
 		viafb_write_reg_mask(SR3D, VIASR, 0x20, 0x20);
-		
+		/* 24 bit DI data paht on  */
 		viafb_write_reg_mask(CR91, VIACR, 0x00, 0x80);
-		
+		/* LCD enabled             */
 		viafb_write_reg_mask(CR6A, VIACR, 0x48, 0x48);
 	}
 }
@@ -808,7 +815,7 @@ static void lcd_powersequence_off(void)
 {
 	int i, mask, data;
 
-	
+	/* Software control power sequence */
 	viafb_write_reg_mask(CR91, VIACR, 0x11, 0x11);
 
 	for (i = 0; i < 3; i++) {
@@ -818,7 +825,7 @@ static void lcd_powersequence_off(void)
 		udelay(PowerSequenceOff[2][i]);
 	}
 
-	
+	/* Disable LCD */
 	viafb_write_reg_mask(CR6A, VIACR, 0x00, 0x08);
 }
 
@@ -826,10 +833,10 @@ static void lcd_powersequence_on(void)
 {
 	int i, mask, data;
 
-	
+	/* Software control power sequence */
 	viafb_write_reg_mask(CR91, VIACR, 0x11, 0x11);
 
-	
+	/* Enable LCD */
 	viafb_write_reg_mask(CR6A, VIACR, 0x08, 0x08);
 
 	for (i = 0; i < 3; i++) {
@@ -850,7 +857,7 @@ static void fill_lcd_format(void)
 		bdual = BIT4;
 	if (viaparinfo->lvds_setting_info->LCDDithering)
 		bdithering = BIT0;
-	
+	/* Dual & Dithering */
 	viafb_write_reg_mask(CR88, VIACR, (bdithering | bdual), BIT4 + BIT0);
 }
 
@@ -859,7 +866,7 @@ static void check_diport_of_integrated_lvds(
 				     struct lvds_setting_information
 				     *plvds_setting_info)
 {
-	
+	/* Determine LCD DI Port by hardware layout. */
 	switch (viafb_display_hardware_layout) {
 	case HW_LAYOUT_LCD_ONLY:
 		{
@@ -913,7 +920,7 @@ void __devinit viafb_init_lvds_output_interface(struct lvds_chip_information
 				*plvds_setting_info)
 {
 	if (INTERFACE_NONE != plvds_chip_info->output_interface) {
-		
+		/*Do nothing, lcd port is specified by module parameter */
 		return;
 	}
 
@@ -957,26 +964,28 @@ bool viafb_lcd_get_mobile_state(bool *mobile)
 {
 	unsigned char __iomem *romptr, *tableptr, *biosptr;
 	u8 core_base;
-	
+	/* Rom address */
 	const u32 romaddr = 0x000C0000;
 	u16 start_pattern;
 
 	biosptr = ioremap(romaddr, 0x10000);
 	start_pattern = readw(biosptr);
 
-	
+	/* Compare pattern */
 	if (start_pattern == 0xAA55) {
-		
-		
+		/* Get the start of Table */
+		/* 0x1B means BIOS offset position */
 		romptr = biosptr + 0x1B;
 		tableptr = biosptr + readw(romptr);
 
-		
-		
+		/* Get the start of biosver structure */
+		/* 18 means BIOS version position. */
 		romptr = tableptr + 18;
 		romptr = biosptr + readw(romptr);
 
-		
+		/* The offset should be 44, but the
+		   actual image is less three char. */
+		/* pRom += 44; */
 		romptr += 41;
 
 		core_base = readb(romptr);
@@ -985,7 +994,7 @@ bool viafb_lcd_get_mobile_state(bool *mobile)
 			*mobile = false;
 		else
 			*mobile = true;
-		
+		/* release memory */
 		iounmap(biosptr);
 
 		return true;

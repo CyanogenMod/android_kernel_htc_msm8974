@@ -5,6 +5,7 @@
 
 #include "sysdep/ptrace.h"
 
+/* These two are from asm-um/uaccess.h and linux/module.h, check them. */
 struct exception_table_entry
 {
 	unsigned long insn;
@@ -13,6 +14,7 @@ struct exception_table_entry
 
 const struct exception_table_entry *search_exception_tables(unsigned long add);
 
+/* Compare this to arch/i386/mm/extable.c:fixup_exception() */
 int arch_fixup(unsigned long address, struct uml_pt_regs *regs)
 {
 	const struct exception_table_entry *fixup;

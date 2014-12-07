@@ -31,6 +31,7 @@
 #include "prcm44xx.h"
 #include "prcm_mpu44xx.h"
 
+/* Static Dependencies for OMAP4 Clock Domains */
 
 static struct clkdm_dep d2d_wkup_sleep_deps[] = {
 	{ .clkdm_name = "abe_clkdm" },
@@ -403,6 +404,7 @@ static struct clockdomain l3_dma_44xx_clkdm = {
 	.flags		  = CLKDM_CAN_FORCE_WAKEUP | CLKDM_CAN_HWSUP,
 };
 
+/* As clockdomains are added or removed above, this list must also be changed */
 static struct clockdomain *clockdomains_omap44xx[] __initdata = {
 	&l4_cefuse_44xx_clkdm,
 	&l4_cfg_44xx_clkdm,

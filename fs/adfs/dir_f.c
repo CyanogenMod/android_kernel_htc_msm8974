@@ -15,6 +15,9 @@
 
 static void adfs_f_free(struct adfs_dir *dir);
 
+/*
+ * Read an (unaligned) value of length 1..4 bytes
+ */
 static inline unsigned int adfs_readval(unsigned char *p, int len)
 {
 	unsigned int val = 0;
@@ -73,6 +76,11 @@ static inline int adfs_readname(char *buf, char *ptr, int maxlen)
 	  (u8 *)(_bh[_buf]->b_data + _off);	\
 	})
 
+/*
+ * There are some algorithms that are nice in
+ * assembler, but a bitch in C...  This is one
+ * of them.
+ */
 static u8
 adfs_dir_checkbyte(const struct adfs_dir *dir)
 {
@@ -83,6 +91,11 @@ adfs_dir_checkbyte(const struct adfs_dir *dir)
 	int last = 5 - 26;
 	int i = 0;
 
+	/*
+	 * Accumulate each word up to the last whole
+	 * word of the last directory entry.  This
+	 * can spread across several buffer heads.
+	 */
 	do {
 		last += 26;
 		do {
@@ -92,6 +105,10 @@ adfs_dir_checkbyte(const struct adfs_dir *dir)
 		} while (i < (last & ~3));
 	} while (dir_u8(last) != 0);
 
+	/*
+	 * Accumulate the last few bytes.  These
+	 * bytes will be within the same bh.
+	 */
 	if (i != last) {
 		ptr.ptr8 = bufoff(bh, i);
 		end.ptr8 = ptr.ptr8 + last - i;
@@ -101,6 +118,13 @@ adfs_dir_checkbyte(const struct adfs_dir *dir)
 		} while (ptr.ptr8 < end.ptr8);
 	}
 
+	/*
+	 * The directory tail is in the final bh
+	 * Note that contary to the RISC OS PRMs,
+	 * the first few bytes are NOT included
+	 * in the check.  All bytes are in the
+	 * same bh.
+	 */
 	ptr.ptr8 = bufoff(bh, 2008);
 	end.ptr8 = ptr.ptr8 + 36;
 
@@ -112,6 +136,9 @@ adfs_dir_checkbyte(const struct adfs_dir *dir)
 	return (dircheck ^ (dircheck >> 8) ^ (dircheck >> 16) ^ (dircheck >> 24)) & 0xff;
 }
 
+/*
+ * Read and check that a directory is valid
+ */
 static int
 adfs_dir_read(struct super_block *sb, unsigned long object_id,
 	      unsigned int size, struct adfs_dir *dir)
@@ -119,6 +146,10 @@ adfs_dir_read(struct super_block *sb, unsigned long object_id,
 	const unsigned int blocksize_bits = sb->s_blocksize_bits;
 	int blk = 0;
 
+	/*
+	 * Directories which are not a multiple of 2048 bytes
+	 * are considered bad v2 [3.6]
+	 */
 	if (size & 2047)
 		goto bad_dir;
 
@@ -172,6 +203,9 @@ release_buffers:
 	return -EIO;
 }
 
+/*
+ * convert a disk-based directory entry to a Linux ADFS directory entry
+ */
 static inline void
 adfs_dir2obj(struct adfs_dir *dir, struct object_info *obj,
 	struct adfs_direntry *de)
@@ -184,11 +218,15 @@ adfs_dir2obj(struct adfs_dir *dir, struct object_info *obj,
 	obj->attr     = de->newdiratts;
 	obj->filetype = -1;
 
+	/*
+	 * object is a file and is filetyped and timestamped?
+	 * RISC OS 12-bit filetype is stored in load_address[19:8]
+	 */
 	if ((0 == (obj->attr & ADFS_NDA_DIRECTORY)) &&
 		(0xfff00000 == (0xfff00000 & obj->loadaddr))) {
 		obj->filetype = (__u16) ((0x000fff00 & obj->loadaddr) >> 8);
 
-		
+		/* optionally append the ,xyz hex filetype suffix */
 		if (ADFS_SB(dir->sb)->s_ftsuffix)
 			obj->name_len +=
 				append_filetype_suffix(
@@ -197,6 +235,9 @@ adfs_dir2obj(struct adfs_dir *dir, struct object_info *obj,
 	}
 }
 
+/*
+ * convert a Linux ADFS directory entry to a disk-based directory entry
+ */
 static inline void
 adfs_obj2dir(struct adfs_direntry *de, struct object_info *obj)
 {
@@ -207,6 +248,10 @@ adfs_obj2dir(struct adfs_direntry *de, struct object_info *obj)
 	de->newdiratts = obj->attr;
 }
 
+/*
+ * get a directory entry.  Note that the caller is responsible
+ * for holding the relevant locks.
+ */
 static int
 __adfs_dir_get(struct adfs_dir *dir, int pos, struct object_info *obj)
 {
@@ -254,13 +299,22 @@ __adfs_dir_put(struct adfs_dir *dir, int pos, struct object_info *obj)
 	if (thissize > 26)
 		thissize = 26;
 
+	/*
+	 * Get the entry in total
+	 */
 	memcpy(&de, dir->bh[buffer]->b_data + offset, thissize);
 	if (thissize != 26)
 		memcpy(((char *)&de) + thissize, dir->bh[buffer + 1]->b_data,
 		       26 - thissize);
 
+	/*
+	 * update it
+	 */
 	adfs_obj2dir(&de, obj);
 
+	/*
+	 * Put the new entry back
+	 */
 	memcpy(dir->bh[buffer]->b_data + offset, &de, thissize);
 	if (thissize != 26)
 		memcpy(dir->bh[buffer + 1]->b_data, ((char *)&de) + thissize,
@@ -269,6 +323,10 @@ __adfs_dir_put(struct adfs_dir *dir, int pos, struct object_info *obj)
 	return 0;
 }
 
+/*
+ * the caller is responsible for holding the necessary
+ * locks.
+ */
 static int
 adfs_dir_find_entry(struct adfs_dir *dir, unsigned long object_id)
 {
@@ -344,10 +402,16 @@ adfs_f_update(struct adfs_dir *dir, struct object_info *obj)
 
 	__adfs_dir_put(dir, ret, obj);
  
+	/*
+	 * Increment directory sequence number
+	 */
 	dir->bh[0]->b_data[0] += 1;
 	dir->bh[dir->nr_buffers - 1]->b_data[sb->s_blocksize - 6] += 1;
 
 	ret = adfs_dir_checkbyte(dir);
+	/*
+	 * Update directory check byte
+	 */
 	dir->bh[dir->nr_buffers - 1]->b_data[sb->s_blocksize - 1] = ret;
 
 #if 1

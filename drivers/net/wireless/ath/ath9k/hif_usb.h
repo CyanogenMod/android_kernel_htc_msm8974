@@ -32,6 +32,7 @@
 #define ATH_USB_RX_STREAM_MODE_TAG 0x4e00
 #define ATH_USB_TX_STREAM_MODE_TAG 0x697e
 
+/* FIXME: Verify these numbers (with Windows) */
 #define MAX_TX_URB_NUM  8
 #define MAX_TX_BUF_NUM  256
 #define MAX_TX_BUF_SIZE 32768
@@ -46,6 +47,7 @@
 
 #define MAX_REG_IN_BUF_SIZE 64
 
+/* USB Endpoint definition */
 #define USB_WLAN_TX_PIPE  1
 #define USB_WLAN_RX_PIPE  2
 #define USB_REG_IN_PIPE   3
@@ -103,10 +105,10 @@ struct hif_device_usb {
 	int rx_transfer_len;
 	int rx_pad_len;
 	spinlock_t rx_lock;
-	u8 flags; 
+	u8 flags; /* HIF_USB_* */
 };
 
 int ath9k_hif_usb_init(void);
 void ath9k_hif_usb_exit(void);
 
-#endif 
+#endif /* HTC_USB_H */

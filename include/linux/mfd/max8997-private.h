@@ -118,7 +118,7 @@ enum max8997_pmic_reg {
 	MAX8997_REG_LBCNFG2	= 0x5f,
 	MAX8997_REG_BBCCTRL	= 0x60,
 
-	MAX8997_REG_FLASH1_CUR	= 0x63, 
+	MAX8997_REG_FLASH1_CUR	= 0x63, /* 0x63 ~ 0x6e for FLASH */
 	MAX8997_REG_FLASH2_CUR	= 0x64,
 	MAX8997_REG_MOVIE_CUR	= 0x65,
 	MAX8997_REG_GSMB_CUR	= 0x66,
@@ -214,6 +214,7 @@ enum max8997_haptic_reg {
 	MAX8997_HAPTIC_REG_END		= 0x11,
 };
 
+/* slave addr = 0x0c: using "2nd part" of rev4 datasheet */
 enum max8997_rtc_reg {
 	MAX8997_RTC_CTRLMASK		= 0x02,
 	MAX8997_RTC_CTRL		= 0x03,
@@ -250,16 +251,16 @@ enum max8997_irq_source {
 	PMIC_INT3,
 	PMIC_INT4,
 
-	FUEL_GAUGE, 
+	FUEL_GAUGE, /* Ignored (MAX17042 driver handles) */
 
 	MUIC_INT1,
 	MUIC_INT2,
 	MUIC_INT3,
 
-	GPIO_LOW, 
-	GPIO_HI, 
+	GPIO_LOW, /* Not implemented */
+	GPIO_HI, /* Not implemented */
 
-	FLASH_STATUS, 
+	FLASH_STATUS, /* Not implemented */
 
 	MAX8997_IRQ_GROUP_NR,
 };
@@ -313,14 +314,14 @@ enum max8997_irq {
 #define MAX8997_NUM_GPIO	12
 struct max8997_dev {
 	struct device *dev;
-	struct i2c_client *i2c; 
-	struct i2c_client *rtc; 
-	struct i2c_client *haptic; 
-	struct i2c_client *muic; 
+	struct i2c_client *i2c; /* 0xcc / PMIC, Battery Control, and FLASH */
+	struct i2c_client *rtc; /* slave addr 0x0c */
+	struct i2c_client *haptic; /* slave addr 0x90 */
+	struct i2c_client *muic; /* slave addr 0x4a */
 	struct mutex iolock;
 
 	int type;
-	struct platform_device *battery; 
+	struct platform_device *battery; /* battery control (not fuel gauge) */
 
 	int irq;
 	int ono;
@@ -329,7 +330,7 @@ struct max8997_dev {
 	int irq_masks_cur[MAX8997_IRQ_GROUP_NR];
 	int irq_masks_cache[MAX8997_IRQ_GROUP_NR];
 
-	
+	/* For hibernation */
 	u8 reg_dump[MAX8997_REG_PMIC_END + MAX8997_MUIC_REG_END +
 		MAX8997_HAPTIC_REG_END];
 
@@ -359,4 +360,4 @@ extern int max8997_update_reg(struct i2c_client *i2c, u8 reg, u8 val, u8 mask);
 
 #define MAX8997_GPIO_INT_MASK	(0x3 << 4)
 #define MAX8997_GPIO_DATA_MASK	(0x1 << 2)
-#endif 
+#endif /*  __LINUX_MFD_MAX8997_PRIV_H */

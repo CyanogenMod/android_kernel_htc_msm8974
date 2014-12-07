@@ -31,17 +31,23 @@
 
 #include "ttype.h"
 
+/*---------------------  Export Definitions -------------------------*/
 
+/*---------------------  Export Types  ------------------------------*/
 
+/*---------------------  Export Macros ------------------------------*/
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 unsigned long CRCdwCrc32(unsigned char *pbyData, unsigned int cbByte, unsigned long dwCrcSeed);
 unsigned long CRCdwGetCrc32(unsigned char *pbyData, unsigned int cbByte);
 unsigned long CRCdwGetCrc32Ex(unsigned char *pbyData, unsigned int cbByte, unsigned long dwPreCRC);
 
-#endif 
+#endif // __TCRC_H__
 
 
 

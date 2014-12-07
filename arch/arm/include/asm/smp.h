@@ -22,25 +22,57 @@
 
 struct seq_file;
 
+/*
+ * generate IPI list text
+ */
 extern void show_ipi_list(struct seq_file *, int);
 
+/*
+ * Called from assembly code, this handles an IPI.
+ */
 asmlinkage void do_IPI(int ipinr, struct pt_regs *regs);
 
+/*
+ * Called from C code, this handles an IPI.
+ */
 void handle_IPI(int ipinr, struct pt_regs *regs);
 
+/*
+ * Setup the set of possible CPUs (via set_cpu_possible)
+ */
 extern void smp_init_cpus(void);
 
 
+/*
+ * Provide a function to raise an IPI cross call on CPUs in callmap.
+ */
 extern void set_smp_cross_call(void (*)(const struct cpumask *, unsigned int));
 
+/*
+ * Boot a secondary CPU, and assign it the specified idle task.
+ * This also gives us the initial stack to use for this CPU.
+ */
 extern int boot_secondary(unsigned int cpu, struct task_struct *);
 
+/*
+ * Called from platform specific assembly code, this is the
+ * secondary CPU entry point.
+ */
 asmlinkage void secondary_start_kernel(void);
 
+/*
+ * Perform platform specific initialisation of the specified CPU.
+ */
 extern void platform_secondary_init(unsigned int cpu);
 
+/*
+ * Initialize cpu_possible map, and enable coherency
+ */
 extern void platform_smp_prepare_cpus(unsigned int);
 
+/*
+ * Initial data for bringing up a secondary CPU.
+ */
 struct secondary_data {
 	unsigned long pgdir;
 	unsigned long swapper_pg_dir;
@@ -65,10 +97,23 @@ extern void smp_send_all_cpu_backtrace(void);
 
 struct smp_operations {
 #ifdef CONFIG_SMP
+/*
+ * Setup the set of possible CPUs (via set_cpu_possible)
+ */
 void (*smp_init_cpus)(void);
+/*
+ * Initialize cpu_possible map, and enable coherency
+ */
 void (*smp_prepare_cpus)(unsigned int max_cpus);
 
+/*
+ * Perform platform specific initialisation of the specified CPU.
+ */
 void (*smp_secondary_init)(unsigned int cpu);
+/*
+ * Boot a secondary CPU, and assign it the specified idle task.
+ * This also gives us the initial stack to use for this CPU.
+ */
 int  (*smp_boot_secondary)(unsigned int cpu, struct task_struct *idle);
 #ifdef CONFIG_HOTPLUG_CPU
 int  (*cpu_kill)(unsigned int cpu);
@@ -78,6 +123,9 @@ int  (*cpu_disable)(unsigned int cpu);
 #endif
 };
 
+/*
+ * set platform specific SMP operations
+ */
 extern void smp_set_ops(struct smp_operations *);
 
-#endif 
+#endif /* ifndef __ASM_ARM_SMP_H */

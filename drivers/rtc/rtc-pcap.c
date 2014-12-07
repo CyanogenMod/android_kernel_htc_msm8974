@@ -47,8 +47,8 @@ static int pcap_rtc_read_alarm(struct device *dev, struct rtc_wkalrm *alrm)
 	struct pcap_rtc *pcap_rtc = platform_get_drvdata(pdev);
 	struct rtc_time *tm = &alrm->time;
 	unsigned long secs;
-	u32 tod;	
-	u32 days;	
+	u32 tod;	/* time of day, seconds since midnight */
+	u32 days;	/* days since 1/1/1970 */
 
 	ezx_pcap_read(pcap_rtc->pcap, PCAP_REG_RTC_TODA, &tod);
 	secs = tod & PCAP_RTC_TOD_MASK;

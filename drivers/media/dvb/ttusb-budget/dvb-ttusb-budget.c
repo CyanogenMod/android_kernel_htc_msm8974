@@ -38,6 +38,24 @@
 #include <linux/dvb/dmx.h>
 #include <linux/pci.h>
 
+/*
+  TTUSB_HWSECTIONS:
+    the DSP supports filtering in hardware, however, since the "muxstream"
+    is a bit braindead (no matching channel masks or no matching filter mask),
+    we won't support this - yet. it doesn't event support negative filters,
+    so the best way is maybe to keep TTUSB_HWSECTIONS undef'd and just
+    parse TS data. USB bandwidth will be a problem when having large
+    datastreams, especially for dvb-net, but hey, that's not my problem.
+
+  TTUSB_DISEQC, TTUSB_TONE:
+    let the STC do the diseqc/tone stuff. this isn't supported at least with
+    my TTUSB, so let it undef'd unless you want to implement another
+    frontend. never tested.
+
+  debug:
+    define it to > 3 for really hardcore debugging. you probably don't want
+    this unless the device doesn't load at all. > 2 for bandwidth statistics.
+*/
 
 static int debug;
 module_param(debug, int, 0644);
@@ -52,18 +70,22 @@ DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 #define ISO_FRAME_SIZE     912
 #define TTUSB_MAXCHANNEL   32
 #ifdef TTUSB_HWSECTIONS
-#define TTUSB_MAXFILTER    16	
+#define TTUSB_MAXFILTER    16	/* ??? */
 #endif
 
 #define TTUSB_REV_2_2	0x22
 #define TTUSB_BUDGET_NAME "ttusb_stc_fw"
 
+/**
+ *  since we're casting (struct ttusb*) <-> (struct dvb_demux*) around
+ *  the dvb_demux field must be the first in struct!!
+ */
 struct ttusb {
 	struct dvb_demux dvb_demux;
 	struct dmxdev dmxdev;
 	struct dvb_net dvbnet;
 
-	
+	/* and one for USB access. */
 	struct mutex semi2c;
 	struct mutex semusb;
 
@@ -88,19 +110,19 @@ struct ttusb {
 	int last_channel;
 	int last_filter;
 
-	u8 c;			
+	u8 c;			/* transaction counter, wraps around...  */
 	fe_sec_tone_mode_t tone;
 	fe_sec_voltage_t voltage;
 
-	int mux_state;		
+	int mux_state;		// 0..2 - MuxSyncWord, 3 - nMuxPacks,    4 - muxpack
 	u8 mux_npacks;
 	u8 muxpack[256 + 8];
 	int muxpack_ptr, muxpack_len;
 
 	int insync;
 
-	int cc;			
-	
+	int cc;			/* MuxCounter - will increment on EVERY MUX PACKET */
+	/* (including stuffing. yes. really.) */
 
 	u8 last_result[32];
 
@@ -109,6 +131,8 @@ struct ttusb {
 	struct dvb_frontend* fe;
 };
 
+/* ugly workaround ... don't know why it's necessary to read */
+/* all result codes. */
 
 static int ttusb_cmd(struct ttusb *ttusb,
 	      const u8 * data, int len, int needresult)
@@ -201,7 +225,7 @@ static int ttusb_i2c_msg(struct ttusb *ttusb,
 
 	err = ttusb_result(ttusb, b, 0x20);
 
-	
+	/* check if the i2c transaction was successful */
 	if ((snd_len != b[5]) || (rcv_len != b[6])) return -EREMOTEIO;
 
 	if (rcv_len > 0) {
@@ -277,13 +301,13 @@ static int ttusb_boot_dsp(struct ttusb *ttusb)
 		return err;
 	}
 
-	
+	/* BootBlock */
 	b[0] = 0xaa;
 	b[2] = 0x13;
 	b[3] = 28;
 
-	
-	
+	/* upload dsp code in 32 byte steps (36 didn't work for me ...) */
+	/* 32 is max packet size, no messages should be splitted. */
 	for (i = 0; i < fw->size; i += 28) {
 		memcpy(&b[4], &fw->data[i], 28);
 
@@ -294,7 +318,7 @@ static int ttusb_boot_dsp(struct ttusb *ttusb)
 			goto done;
 	}
 
-	
+	/* last block ... */
 	b[1] = ++ttusb->c;
 	b[2] = 0x13;
 	b[3] = 0;
@@ -303,7 +327,7 @@ static int ttusb_boot_dsp(struct ttusb *ttusb)
 	if (err)
 		goto done;
 
-	
+	/* BootEnd */
 	b[1] = ++ttusb->c;
 	b[2] = 0x14;
 	b[3] = 0;
@@ -324,7 +348,7 @@ static int ttusb_set_channel(struct ttusb *ttusb, int chan_id, int filter_type,
 		      int pid)
 {
 	int err;
-	
+	/* SetChannel */
 	u8 b[] = { 0xaa, ++ttusb->c, 0x22, 4, chan_id, filter_type,
 		(pid >> 8) & 0xff, pid & 0xff
 	};
@@ -336,7 +360,7 @@ static int ttusb_set_channel(struct ttusb *ttusb, int chan_id, int filter_type,
 static int ttusb_del_channel(struct ttusb *ttusb, int channel_id)
 {
 	int err;
-	
+	/* DelChannel */
 	u8 b[] = { 0xaa, ++ttusb->c, 0x23, 1, channel_id };
 
 	err = ttusb_cmd(ttusb, b, sizeof(b), 0);
@@ -348,7 +372,7 @@ static int ttusb_set_filter(struct ttusb *ttusb, int filter_id,
 		     int associated_chan, u8 filter[8], u8 mask[8])
 {
 	int err;
-	
+	/* SetFilter */
 	u8 b[] = { 0xaa, 0, 0x24, 0x1a, filter_id, associated_chan,
 		filter[0], filter[1], filter[2], filter[3],
 		filter[4], filter[5], filter[6], filter[7],
@@ -365,7 +389,7 @@ static int ttusb_set_filter(struct ttusb *ttusb, int filter_id,
 static int ttusb_del_filter(struct ttusb *ttusb, int filter_id)
 {
 	int err;
-	
+	/* DelFilter */
 	u8 b[] = { 0xaa, ++ttusb->c, 0x25, 1, filter_id };
 
 	err = ttusb_cmd(ttusb, b, sizeof(b), 0);
@@ -378,7 +402,7 @@ static int ttusb_init_controller(struct ttusb *ttusb)
 	u8 b0[] = { 0xaa, ++ttusb->c, 0x15, 1, 0 };
 	u8 b1[] = { 0xaa, ++ttusb->c, 0x15, 1, 1 };
 	u8 b2[] = { 0xaa, ++ttusb->c, 0x32, 1, 0 };
-	
+	/* i2c write read: 5 bytes, addr 0x10, 0x02 bytes write, 1 bytes read. */
 	u8 b3[] =
 	    { 0xaa, ++ttusb->c, 0x31, 5, 0x10, 0x02, 0x01, 0x00, 0x1e };
 	u8 b4[] =
@@ -389,17 +413,17 @@ static int ttusb_init_controller(struct ttusb *ttusb)
 	    { 0xaa, ++ttusb->c, 0x26, 28, 0, 0, 0, 0, 0 };
 	int err;
 
-	
+	/* reset board */
 	if ((err = ttusb_cmd(ttusb, b0, sizeof(b0), 0)))
 		return err;
 
-	
+	/* reset board (again?) */
 	if ((err = ttusb_cmd(ttusb, b1, sizeof(b1), 0)))
 		return err;
 
 	ttusb_boot_dsp(ttusb);
 
-	
+	/* set i2c bit rate */
 	if ((err = ttusb_cmd(ttusb, b2, sizeof(b2), 0)))
 		return err;
 
@@ -455,12 +479,12 @@ static int ttusb_send_diseqc(struct dvb_frontend* fe,
 	int err;
 
 	b[3] = 4 + 2 + cmd->msg_len;
-	b[4] = 0xFF;		
+	b[4] = 0xFF;		/* send diseqc master, not burst */
 	b[5] = cmd->msg_len;
 
 	memcpy(b + 5, cmd->msg, cmd->msg_len);
 
-	
+	/* Diseqc */
 	if ((err = ttusb_cmd(ttusb, b, 4 + b[3], 0))) {
 		dprintk("%s: usb_bulk_msg() failed, return value %i!\n",
 			__func__, err);
@@ -472,13 +496,13 @@ static int ttusb_send_diseqc(struct dvb_frontend* fe,
 
 static int ttusb_update_lnb(struct ttusb *ttusb)
 {
-	u8 b[] = { 0xaa, ++ttusb->c, 0x16, 5,  1,
+	u8 b[] = { 0xaa, ++ttusb->c, 0x16, 5, /*power: */ 1,
 		ttusb->voltage == SEC_VOLTAGE_18 ? 0 : 1,
 		ttusb->tone == SEC_TONE_ON ? 1 : 0, 1, 1
 	};
 	int err;
 
-	
+	/* SetLNB */
 	if ((err = ttusb_cmd(ttusb, b, sizeof(b), 0))) {
 		dprintk("%s: usb_bulk_msg() failed, return value %i!\n",
 			__func__, err);
@@ -520,6 +544,7 @@ static void ttusb_set_led_freq(struct ttusb *ttusb, u8 freq)
 }
 #endif
 
+/*****************************************************************************/
 
 #ifdef TTUSB_HWSECTIONS
 static void ttusb_handle_ts_data(struct ttusb_channel *channel,
@@ -553,12 +578,12 @@ static void ttusb_process_muxpack(struct ttusb *ttusb, const u8 * muxpack,
 	ttusb->cc = (cc + 1) & 0x7FFF;
 	if (muxpack[0] & 0x80) {
 #ifdef TTUSB_HWSECTIONS
-		
+		/* section data */
 		int pusi = muxpack[0] & 0x40;
 		int channel = muxpack[0] & 0x1F;
 		int payload = muxpack[1];
 		const u8 *data = muxpack + 2;
-		
+		/* check offset flag */
 		if (muxpack[0] & 0x20)
 			data++;
 
@@ -575,7 +600,7 @@ static void ttusb_process_muxpack(struct ttusb *ttusb, const u8 * muxpack,
 		numsec++;
 	} else if (muxpack[0] == 0x47) {
 #ifdef TTUSB_HWSECTIONS
-		
+		/* we have TS data here! */
 		int pid = ((muxpack[1] & 0x0F) << 8) | muxpack[2];
 		int channel;
 		for (channel = 0; channel < TTUSB_MAXCHANNEL; ++channel)
@@ -627,7 +652,7 @@ static void ttusb_process_frame(struct ttusb *ttusb, u8 * data, int len)
 			ttusb->mux_npacks = *data++;
 			++ttusb->mux_state;
 			ttusb->muxpack_ptr = 0;
-			
+			/* maximum bytes, until we know the length */
 			ttusb->muxpack_len = 2;
 			break;
 		case 4:
@@ -646,7 +671,7 @@ static void ttusb_process_frame(struct ttusb *ttusb, u8 * data, int len)
 				BUG_ON(ttusb->muxpack_ptr > 264);
 				data += avail;
 				len -= avail;
-				
+				/* determine length */
 				if (ttusb->muxpack_ptr == 2) {
 					if (ttusb->muxpack[0] & 0x80) {
 						ttusb->muxpack_len =
@@ -680,6 +705,10 @@ static void ttusb_process_frame(struct ttusb *ttusb, u8 * data, int len)
 					}
 				}
 
+			/**
+			 * if length is valid and we reached the end:
+			 * goto next muxpack
+			 */
 				if ((ttusb->muxpack_ptr >= 2) &&
 				    (ttusb->muxpack_ptr ==
 				     ttusb->muxpack_len)) {
@@ -689,9 +718,13 @@ static void ttusb_process_frame(struct ttusb *ttusb, u8 * data, int len)
 							      ttusb->
 							      muxpack_ptr);
 					ttusb->muxpack_ptr = 0;
-					
+					/* maximum bytes, until we know the length */
 					ttusb->muxpack_len = 2;
 
+				/**
+				 * no muxpacks left?
+				 * return to search-sync state
+				 */
 					if (!ttusb->mux_npacks--) {
 						ttusb->mux_state = 0;
 						break;
@@ -866,7 +899,9 @@ static void ttusb_handle_ts_data(struct dvb_demux_feed *dvbdmxfeed, const u8 * d
 static void ttusb_handle_sec_data(struct dvb_demux_feed *dvbdmxfeed, const u8 * data,
 			   int len)
 {
+//      struct dvb_demux_feed *dvbdmxfeed = channel->dvbdmxfeed;
 #error TODO: handle ugly stuff
+//      dvbdmxfeed->cb.sec(data, len, 0, 0, &dvbdmxfeed->feed.sec, 0);
 }
 #endif
 
@@ -1018,13 +1053,13 @@ static int philips_tdm1316l_tuner_init(struct dvb_frontend* fe)
 	static u8 disable_mc44BC374c[] = { 0x1d, 0x74, 0xa0, 0x68 };
 	struct i2c_msg tuner_msg = { .addr=0x60, .flags=0, .buf=td1316_init, .len=sizeof(td1316_init) };
 
-	
+	// setup PLL configuration
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 1);
 	if (i2c_transfer(&ttusb->i2c_adap, &tuner_msg, 1) != 1) return -EIO;
 	msleep(1);
 
-	
+	// disable the mc44BC374c (do not check for errors)
 	tuner_msg.addr = 0x65;
 	tuner_msg.buf = disable_mc44BC374c;
 	tuner_msg.len = sizeof(disable_mc44BC374c);
@@ -1046,7 +1081,7 @@ static int philips_tdm1316l_tuner_set_params(struct dvb_frontend *fe)
 	int tuner_frequency = 0;
 	u8 band, cp, filter;
 
-	
+	// determine charge pump
 	tuner_frequency = p->frequency + 36130000;
 	if (tuner_frequency < 87000000) return -EINVAL;
 	else if (tuner_frequency < 130000000) cp = 3;
@@ -1060,7 +1095,7 @@ static int philips_tdm1316l_tuner_set_params(struct dvb_frontend *fe)
 	else if (tuner_frequency < 895000000) cp = 7;
 	else return -EINVAL;
 
-	
+	// determine band
 	if (p->frequency < 49000000)
 		return -EINVAL;
 	else if (p->frequency < 159000000)
@@ -1071,7 +1106,7 @@ static int philips_tdm1316l_tuner_set_params(struct dvb_frontend *fe)
 		band = 4;
 	else return -EINVAL;
 
-	
+	// setup PLL filter
 	switch (p->bandwidth_hz) {
 	case 6000000:
 		tda1004x_writereg(fe, 0x0C, 0);
@@ -1092,11 +1127,11 @@ static int philips_tdm1316l_tuner_set_params(struct dvb_frontend *fe)
 		return -EINVAL;
 	}
 
-	
-	
+	// calculate divisor
+	// ((36130000+((1000000/6)/2)) + Finput)/(1000000/6)
 	tuner_frequency = (((p->frequency / 1000) * 6) + 217280) / 1000;
 
-	
+	// setup tuner buffer
 	tuner_buf[0] = tuner_frequency >> 8;
 	tuner_buf[1] = tuner_frequency & 0xff;
 	tuner_buf[2] = 0xca;
@@ -1130,19 +1165,19 @@ static u8 alps_bsbe1_inittab[] = {
 	0x01, 0x15,
 	0x02, 0x30,
 	0x03, 0x00,
-	0x04, 0x7d,             
-	0x05, 0x35,             
-	0x06, 0x40,             
-	0x07, 0x00,             
-	0x08, 0x40,             
-	0x09, 0x00,             
-	0x0c, 0x51,             
-	0x0d, 0x82,             
-	0x0e, 0x23,             
-	0x10, 0x3f,             
+	0x04, 0x7d,             /* F22FR = 0x7d, F22 = f_VCO / 128 / 0x7d = 22 kHz */
+	0x05, 0x35,             /* I2CT = 0, SCLT = 1, SDAT = 1 */
+	0x06, 0x40,             /* DAC not used, set to high impendance mode */
+	0x07, 0x00,             /* DAC LSB */
+	0x08, 0x40,             /* DiSEqC off, LNB power on OP2/LOCK pin on */
+	0x09, 0x00,             /* FIFO */
+	0x0c, 0x51,             /* OP1 ctl = Normal, OP1 val = 1 (LNB Power ON) */
+	0x0d, 0x82,             /* DC offset compensation = ON, beta_agc1 = 2 */
+	0x0e, 0x23,             /* alpha_tmg = 2, beta_tmg = 3 */
+	0x10, 0x3f,             // AGC2  0x3d
 	0x11, 0x84,
 	0x12, 0xb9,
-	0x15, 0xc9,             
+	0x15, 0xc9,             // lock detector threshold
 	0x16, 0x00,
 	0x17, 0x00,
 	0x18, 0x00,
@@ -1153,17 +1188,17 @@ static u8 alps_bsbe1_inittab[] = {
 	0x21, 0x00,
 	0x22, 0x00,
 	0x23, 0x00,
-	0x28, 0x00,             
-	0x29, 0x1e,             
-	0x2a, 0x14,             
-	0x2b, 0x0f,             
-	0x2c, 0x09,             
-	0x2d, 0x05,             
+	0x28, 0x00,             // out imp: normal  out type: parallel FEC mode:0
+	0x29, 0x1e,             // 1/2 threshold
+	0x2a, 0x14,             // 2/3 threshold
+	0x2b, 0x0f,             // 3/4 threshold
+	0x2c, 0x09,             // 5/6 threshold
+	0x2d, 0x05,             // 7/8 threshold
 	0x2e, 0x01,
-	0x31, 0x1f,             
-	0x32, 0x19,             
-	0x33, 0xfc,             
-	0x34, 0x93,             
+	0x31, 0x1f,             // test all FECs
+	0x32, 0x19,             // viterbi and synchro search
+	0x33, 0xfc,             // rs control
+	0x34, 0x93,             // error control
 	0x0f, 0x92,
 	0xff, 0xff
 };
@@ -1172,19 +1207,19 @@ static u8 alps_bsru6_inittab[] = {
 	0x01, 0x15,
 	0x02, 0x30,
 	0x03, 0x00,
-	0x04, 0x7d,		
-	0x05, 0x35,		
-	0x06, 0x40,		
-	0x07, 0x00,		
-	0x08, 0x40,		
-	0x09, 0x00,		
-	0x0c, 0x51,		
-	0x0d, 0x82,		
-	0x0e, 0x23,		
-	0x10, 0x3f,		
+	0x04, 0x7d,		/* F22FR = 0x7d, F22 = f_VCO / 128 / 0x7d = 22 kHz */
+	0x05, 0x35,		/* I2CT = 0, SCLT = 1, SDAT = 1 */
+	0x06, 0x40,		/* DAC not used, set to high impendance mode */
+	0x07, 0x00,		/* DAC LSB */
+	0x08, 0x40,		/* DiSEqC off, LNB power on OP2/LOCK pin on */
+	0x09, 0x00,		/* FIFO */
+	0x0c, 0x51,		/* OP1 ctl = Normal, OP1 val = 1 (LNB Power ON) */
+	0x0d, 0x82,		/* DC offset compensation = ON, beta_agc1 = 2 */
+	0x0e, 0x23,		/* alpha_tmg = 2, beta_tmg = 3 */
+	0x10, 0x3f,		// AGC2  0x3d
 	0x11, 0x84,
 	0x12, 0xb9,
-	0x15, 0xc9,		
+	0x15, 0xc9,		// lock detector threshold
 	0x16, 0x00,
 	0x17, 0x00,
 	0x18, 0x00,
@@ -1195,17 +1230,17 @@ static u8 alps_bsru6_inittab[] = {
 	0x21, 0x00,
 	0x22, 0x00,
 	0x23, 0x00,
-	0x28, 0x00,		
-	0x29, 0x1e,		
-	0x2a, 0x14,		
-	0x2b, 0x0f,		
-	0x2c, 0x09,		
-	0x2d, 0x05,		
+	0x28, 0x00,		// out imp: normal  out type: parallel FEC mode:0
+	0x29, 0x1e,		// 1/2 threshold
+	0x2a, 0x14,		// 2/3 threshold
+	0x2b, 0x0f,		// 3/4 threshold
+	0x2c, 0x09,		// 5/6 threshold
+	0x2d, 0x05,		// 7/8 threshold
 	0x2e, 0x01,
-	0x31, 0x1f,		
-	0x32, 0x19,		
-	0x33, 0xfc,		
-	0x34, 0x93,		
+	0x31, 0x1f,		// test all FECs
+	0x32, 0x19,		// viterbi and synchro search
+	0x33, 0xfc,		// rs control
+	0x34, 0x93,		// error control
 	0x0f, 0x52,
 	0xff, 0xff
 };
@@ -1255,7 +1290,7 @@ static int philips_tsa5059_tuner_set_params(struct dvb_frontend *fe)
 	if ((p->frequency < 950000) || (p->frequency > 2150000))
 		return -EINVAL;
 
-	div = (p->frequency + (125 - 1)) / 125;	
+	div = (p->frequency + (125 - 1)) / 125;	/* round correctly */
 	buf[0] = (div >> 8) & 0x7f;
 	buf[1] = div & 0xff;
 	buf[2] = 0x80 | ((div & 0x18000) >> 10) | 4;
@@ -1264,7 +1299,7 @@ static int philips_tsa5059_tuner_set_params(struct dvb_frontend *fe)
 	if (p->frequency > 1530000)
 		buf[3] = 0xC0;
 
-	
+	/* BSBE1 wants XCE bit set */
 	if (ttusb->revision == TTUSB_REV_2_2)
 		buf[3] |= 0x20;
 
@@ -1373,7 +1408,7 @@ static int dvbc_philips_tdm1316l_tuner_set_params(struct dvb_frontend *fe)
 	int tuner_frequency = 0;
 	u8 band, cp, filter;
 
-	
+	// determine charge pump
 	tuner_frequency = p->frequency;
 	if      (tuner_frequency <  87000000) {return -EINVAL;}
 	else if (tuner_frequency < 130000000) {cp = 3; band = 1;}
@@ -1387,14 +1422,14 @@ static int dvbc_philips_tdm1316l_tuner_set_params(struct dvb_frontend *fe)
 	else if (tuner_frequency < 895000000) {cp = 7; band = 4;}
 	else {return -EINVAL;}
 
-	
+	// assume PLL filter should always be 8MHz for the moment.
 	filter = 1;
 
-	
-	
+	// calculate divisor
+	// (Finput + Fif)/Fref; Fif = 36125000 Hz, Fref = 62500 Hz
 	tuner_frequency = ((p->frequency + 36125000) / 62500);
 
-	
+	// setup tuner buffer
 	tuner_buf[0] = tuner_frequency >> 8;
 	tuner_buf[1] = tuner_frequency & 0xff;
 	tuner_buf[2] = 0xc8;
@@ -1533,22 +1568,22 @@ static struct stv0297_config dvbc_philips_tdm1316l_config = {
 static void frontend_init(struct ttusb* ttusb)
 {
 	switch(le16_to_cpu(ttusb->dev->descriptor.idProduct)) {
-	case 0x1003: 
-		
+	case 0x1003: // Hauppauge/TT Nova-USB-S budget (stv0299/ALPS BSRU6|BSBE1(tsa5059))
+		// try the stv0299 based first
 		ttusb->fe = dvb_attach(stv0299_attach, &alps_stv0299_config, &ttusb->i2c_adap);
 		if (ttusb->fe != NULL) {
 			ttusb->fe->ops.tuner_ops.set_params = philips_tsa5059_tuner_set_params;
 
-			if(ttusb->revision == TTUSB_REV_2_2) { 
+			if(ttusb->revision == TTUSB_REV_2_2) { // ALPS BSBE1
 				alps_stv0299_config.inittab = alps_bsbe1_inittab;
 				dvb_attach(lnbp21_attach, ttusb->fe, &ttusb->i2c_adap, 0, 0);
-			} else { 
+			} else { // ALPS BSRU6
 				ttusb->fe->ops.set_voltage = ttusb_set_voltage;
 			}
 			break;
 		}
 
-		
+		// Grundig 29504-491
 		ttusb->fe = dvb_attach(tda8083_attach, &ttusb_novas_grundig_29504_491_config, &ttusb->i2c_adap);
 		if (ttusb->fe != NULL) {
 			ttusb->fe->ops.tuner_ops.set_params = ttusb_novas_grundig_29504_491_tuner_set_params;
@@ -1557,7 +1592,7 @@ static void frontend_init(struct ttusb* ttusb)
 		}
 		break;
 
-	case 0x1004: 
+	case 0x1004: // Hauppauge/TT DVB-C budget (ves1820/ALPS TDBE2(sp5659))
 		ttusb->fe = dvb_attach(ves1820_attach, &alps_tdbe2_config, &ttusb->i2c_adap, read_pwm(ttusb));
 		if (ttusb->fe != NULL) {
 			ttusb->fe->ops.tuner_ops.set_params = alps_tdbe2_tuner_set_params;
@@ -1571,15 +1606,15 @@ static void frontend_init(struct ttusb* ttusb)
 		}
 		break;
 
-	case 0x1005: 
-		
+	case 0x1005: // Hauppauge/TT Nova-USB-t budget (tda10046/Philips td1316(tda6651tt) OR cx22700/ALPS TDMB7(??))
+		// try the ALPS TDMB7 first
 		ttusb->fe = dvb_attach(cx22700_attach, &alps_tdmb7_config, &ttusb->i2c_adap);
 		if (ttusb->fe != NULL) {
 			ttusb->fe->ops.tuner_ops.set_params = alps_tdmb7_tuner_set_params;
 			break;
 		}
 
-		
+		// Philips td1316
 		ttusb->fe = dvb_attach(tda10046_attach, &philips_tdm1316l_config, &ttusb->i2c_adap);
 		if (ttusb->fe != NULL) {
 			ttusb->fe->ops.tuner_ops.init = philips_tdm1316l_tuner_init;
@@ -1658,7 +1693,7 @@ static int ttusb_probe(struct usb_interface *intf, const struct usb_device_id *i
 	}
 	ttusb->adapter.priv = ttusb;
 
-	
+	/* i2c */
 	memset(&ttusb->i2c_adap, 0, sizeof(struct i2c_adapter));
 	strcpy(ttusb->i2c_adap.name, "TTUSB DEC");
 
@@ -1693,6 +1728,7 @@ static int ttusb_probe(struct usb_interface *intf, const struct usb_device_id *i
 		result = -ENODEV;
 		goto err_i2c_del_adapter;
 	}
+//FIXME dmxdev (nur WAS?)
 	ttusb->dmxdev.filternum = ttusb->dvb_demux.filternum;
 	ttusb->dmxdev.demux = &ttusb->dvb_demux.dmx;
 	ttusb->dmxdev.capabilities = 0;

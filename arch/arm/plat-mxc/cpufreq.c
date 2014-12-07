@@ -11,6 +11,11 @@
  * http://www.gnu.org/copyleft/gpl.html
  */
 
+/*
+ * A driver for the Freescale Semiconductor i.MXC CPUfreq module.
+ * The CPUFREQ driver is for controlling CPU frequency. It allows you to change
+ * the CPU clock speed on the fly.
+ */
 
 #include <linux/module.h>
 #include <linux/cpufreq.h>
@@ -143,7 +148,7 @@ static int mxc_cpufreq_init(struct cpufreq_policy *policy)
 	policy->min = policy->cpuinfo.min_freq = cpu_freq_khz_min;
 	policy->max = policy->cpuinfo.max_freq = cpu_freq_khz_max;
 
-	
+	/* Manual states, that PLL stabilizes in two CLK32 periods */
 	policy->cpuinfo.transition_latency = 2 * NANOSECOND / CLK32_FREQ;
 
 	ret = cpufreq_frequency_table_cpuinfo(policy, imx_freq_table);

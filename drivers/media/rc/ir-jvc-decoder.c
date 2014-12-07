@@ -16,9 +16,9 @@
 #include <linux/module.h>
 #include "rc-core-priv.h"
 
-#define JVC_NBITS		16		
-#define JVC_UNIT		525000		
-#define JVC_HEADER_PULSE	(16 * JVC_UNIT) 
+#define JVC_NBITS		16		/* dev(8) + func(8) */
+#define JVC_UNIT		525000		/* ns */
+#define JVC_HEADER_PULSE	(16 * JVC_UNIT) /* lack of header -> repeat */
 #define JVC_HEADER_SPACE	(8  * JVC_UNIT)
 #define JVC_BIT_PULSE		(1  * JVC_UNIT)
 #define JVC_BIT_0_SPACE		(1  * JVC_UNIT)
@@ -36,6 +36,13 @@ enum jvc_state {
 	STATE_CHECK_REPEAT,
 };
 
+/**
+ * ir_jvc_decode() - Decode one JVC pulse or space
+ * @dev:	the struct rc_dev descriptor of the device
+ * @duration:   the struct ir_raw_event descriptor of the pulse/space
+ *
+ * This function returns -EINVAL if the pulse violates the state machine
+ */
 static int ir_jvc_decode(struct rc_dev *dev, struct ir_raw_event ev)
 {
 	struct jvc_dec *data = &dev->raw->jvc;

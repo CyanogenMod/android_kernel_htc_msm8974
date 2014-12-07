@@ -190,7 +190,7 @@ static int tcf_mirred(struct sk_buff *skb, const struct tc_action *a,
 			skb_push(skb2, skb2->dev->hard_header_len);
 	}
 
-	
+	/* mirror is always swallowed */
 	if (m->tcfm_eaction != TCA_EGRESS_MIRROR)
 		skb2->tc_verd = SET_TC_FROM(skb2->tc_verd, at);
 
@@ -201,6 +201,9 @@ static int tcf_mirred(struct sk_buff *skb, const struct tc_action *a,
 out:
 	if (err) {
 		m->tcf_qstats.overlimits++;
+		/* should we be asking for packet to be dropped?
+		 * may make sense for redirect case only
+		 */
 		retval = TC_ACT_SHOT;
 	} else {
 		retval = m->tcf_action;

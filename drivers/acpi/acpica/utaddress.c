@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Module Name: utaddress - op_region address range check
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -43,6 +48,29 @@
 #define _COMPONENT          ACPI_UTILITIES
 ACPI_MODULE_NAME("utaddress")
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_add_address_range
+ *
+ * PARAMETERS:  space_id            - Address space ID
+ *              Address             - op_region start address
+ *              Length              - op_region length
+ *              region_node         - op_region namespace node
+ *
+ * RETURN:      Status
+ *
+ * DESCRIPTION: Add the Operation Region address range to the global list.
+ *              The only supported Space IDs are Memory and I/O. Called when
+ *              the op_region address/length operands are fully evaluated.
+ *
+ * MUTEX:       Locks the namespace
+ *
+ * NOTE: Because this interface is only called when an op_region argument
+ * list is evaluated, there cannot be any duplicate region_nodes.
+ * Duplicate Address/Length values are allowed, however, so that multiple
+ * address conflicts can be detected.
+ *
+ ******************************************************************************/
 acpi_status
 acpi_ut_add_address_range(acpi_adr_space_type space_id,
 			  acpi_physical_address address,
@@ -58,7 +86,7 @@ acpi_ut_add_address_range(acpi_adr_space_type space_id,
 		return_ACPI_STATUS(AE_OK);
 	}
 
-	
+	/* Allocate/init a new info block, add it to the appropriate list */
 
 	range_info = ACPI_ALLOCATE(sizeof(struct acpi_address_range));
 	if (!range_info) {
@@ -88,6 +116,22 @@ acpi_ut_add_address_range(acpi_adr_space_type space_id,
 	return_ACPI_STATUS(AE_OK);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_remove_address_range
+ *
+ * PARAMETERS:  space_id            - Address space ID
+ *              region_node         - op_region namespace node
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Remove the Operation Region from the global list. The only
+ *              supported Space IDs are Memory and I/O. Called when an
+ *              op_region is deleted.
+ *
+ * MUTEX:       Assumes the namespace is locked
+ *
+ ******************************************************************************/
 
 void
 acpi_ut_remove_address_range(acpi_adr_space_type space_id,
@@ -103,12 +147,12 @@ acpi_ut_remove_address_range(acpi_adr_space_type space_id,
 		return_VOID;
 	}
 
-	
+	/* Get the appropriate list head and check the list */
 
 	range_info = prev = acpi_gbl_address_range_list[space_id];
 	while (range_info) {
 		if (range_info->region_node == region_node) {
-			if (range_info == prev) {	
+			if (range_info == prev) {	/* Found at list head */
 				acpi_gbl_address_range_list[space_id] =
 				    range_info->next;
 			} else {
@@ -137,6 +181,25 @@ acpi_ut_remove_address_range(acpi_adr_space_type space_id,
 	return_VOID;
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_check_address_range
+ *
+ * PARAMETERS:  space_id            - Address space ID
+ *              Address             - Start address
+ *              Length              - Length of address range
+ *              Warn                - TRUE if warning on overlap desired
+ *
+ * RETURN:      Count of the number of conflicts detected. Zero is always
+ *              returned for Space IDs other than Memory or I/O.
+ *
+ * DESCRIPTION: Check if the input address range overlaps any of the
+ *              ASL operation region address ranges. The only supported
+ *              Space IDs are Memory and I/O.
+ *
+ * MUTEX:       Assumes the namespace is locked.
+ *
+ ******************************************************************************/
 
 u32
 acpi_ut_check_address_range(acpi_adr_space_type space_id,
@@ -157,16 +220,25 @@ acpi_ut_check_address_range(acpi_adr_space_type space_id,
 	range_info = acpi_gbl_address_range_list[space_id];
 	end_address = address + length - 1;
 
-	
+	/* Check entire list for all possible conflicts */
 
 	while (range_info) {
+		/*
+		 * Check if the requested Address/Length overlaps this address_range.
+		 * Four cases to consider:
+		 *
+		 * 1) Input address/length is contained completely in the address range
+		 * 2) Input address/length overlaps range at the range start
+		 * 3) Input address/length overlaps range at the range end
+		 * 4) Input address/length completely encompasses the range
+		 */
 		if ((address <= range_info->end_address) &&
 		    (end_address >= range_info->start_address)) {
 
-			
+			/* Found an address range overlap */
 
 			overlap_count++;
-			if (warn) {	
+			if (warn) {	/* Optional warning message */
 				pathname =
 				    acpi_ns_get_external_pathname(range_info->
 								  region_node);
@@ -187,6 +259,18 @@ acpi_ut_check_address_range(acpi_adr_space_type space_id,
 	return_UINT32(overlap_count);
 }
 
+/*******************************************************************************
+ *
+ * FUNCTION:    acpi_ut_delete_address_lists
+ *
+ * PARAMETERS:  None
+ *
+ * RETURN:      None
+ *
+ * DESCRIPTION: Delete all global address range lists (called during
+ *              subsystem shutdown).
+ *
+ ******************************************************************************/
 
 void acpi_ut_delete_address_lists(void)
 {
@@ -194,7 +278,7 @@ void acpi_ut_delete_address_lists(void)
 	struct acpi_address_range *range_info;
 	int i;
 
-	
+	/* Delete all elements in all address range lists */
 
 	for (i = 0; i < ACPI_ADDRESS_RANGE_MAX; i++) {
 		next = acpi_gbl_address_range_list[i];

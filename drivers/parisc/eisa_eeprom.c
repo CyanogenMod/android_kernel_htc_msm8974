@@ -35,7 +35,7 @@ static loff_t eisa_eeprom_llseek(struct file *file, loff_t offset, int origin )
 {
 	switch (origin) {
 	  case 0:
-		
+		/* nothing to do */
 		break;
 	  case 1:
 		offset += file->f_pos;
@@ -87,6 +87,9 @@ static int eisa_eeprom_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ *	The various file operations we support.
+ */
 static const struct file_operations eisa_eeprom_fops = {
 	.owner =	THIS_MODULE,
 	.llseek =	eisa_eeprom_llseek,

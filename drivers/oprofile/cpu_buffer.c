@@ -101,6 +101,10 @@ void start_cpu_work(void)
 	for_each_online_cpu(i) {
 		struct oprofile_cpu_buffer *b = &per_cpu(op_cpu_buffer, i);
 
+		/*
+		 * Spread the work by 1 jiffy per cpu so they dont all
+		 * fire at once.
+		 */
 		schedule_delayed_work_on(i, &b->work, DEFAULT_TIMER_EXPIRE + i);
 	}
 }
@@ -117,11 +121,23 @@ void flush_cpu_work(void)
 	for_each_online_cpu(i) {
 		struct oprofile_cpu_buffer *b = &per_cpu(op_cpu_buffer, i);
 
-		
+		/* these works are per-cpu, no need for flush_sync */
 		flush_delayed_work(&b->work);
 	}
 }
 
+/*
+ * This function prepares the cpu buffer to write a sample.
+ *
+ * Struct op_entry is used during operations on the ring buffer while
+ * struct op_sample contains the data that is stored in the ring
+ * buffer. Struct entry can be uninitialized. The function reserves a
+ * data array that is specified by size. Use
+ * op_cpu_buffer_write_commit() after preparing the sample. In case of
+ * errors a null pointer is returned, otherwise the pointer to the
+ * sample.
+ *
+ */
 struct op_sample
 *op_cpu_buffer_write_reserve(struct op_entry *entry, unsigned long size)
 {
@@ -176,7 +192,7 @@ op_add_code(struct oprofile_cpu_buffer *cpu_buf, unsigned long backtrace,
 	if (backtrace)
 		flags |= TRACE_BEGIN;
 
-	
+	/* notice a switch from user->kernel or vice versa */
 	is_kernel = !!is_kernel;
 	if (cpu_buf->last_is_kernel != is_kernel) {
 		cpu_buf->last_is_kernel = is_kernel;
@@ -185,14 +201,14 @@ op_add_code(struct oprofile_cpu_buffer *cpu_buf, unsigned long backtrace,
 			flags |= IS_KERNEL;
 	}
 
-	
+	/* notice a task switch */
 	if (cpu_buf->last_task != task) {
 		cpu_buf->last_task = task;
 		flags |= USER_CTX_SWITCH;
 	}
 
 	if (!flags)
-		
+		/* nothing to do */
 		return 0;
 
 	if (flags & USER_CTX_SWITCH)
@@ -232,6 +248,14 @@ op_add_sample(struct oprofile_cpu_buffer *cpu_buf,
 	return op_cpu_buffer_write_commit(&entry);
 }
 
+/*
+ * This must be safe from any context.
+ *
+ * is_kernel is needed because on some architectures you cannot
+ * tell if you are in kernel or user space simply by looking at
+ * pc. We tag this in the buffer by generating kernel enter/exit
+ * events whenever is_kernel changes
+ */
 static int
 log_sample(struct oprofile_cpu_buffer *cpu_buf, unsigned long pc,
 	   unsigned long backtrace, int is_kernel, unsigned long event,
@@ -276,8 +300,12 @@ __oprofile_add_ext_sample(unsigned long pc, struct pt_regs * const regs,
 	struct oprofile_cpu_buffer *cpu_buf = &__get_cpu_var(op_cpu_buffer);
 	unsigned long backtrace = oprofile_backtrace_depth;
 
+	/*
+	 * if log_sample() fail we can't backtrace since we lost the
+	 * source of this event
+	 */
 	if (!log_sample(cpu_buf, pc, backtrace, is_kernel, event, task))
-		
+		/* failed */
 		return;
 
 	if (!backtrace)
@@ -310,13 +338,19 @@ void oprofile_add_sample(struct pt_regs * const regs, unsigned long event)
 		is_kernel = !user_mode(regs);
 		pc = profile_pc(regs);
 	} else {
-		is_kernel = 0;    
-		pc = ESCAPE_CODE; 
+		is_kernel = 0;    /* This value will not be used */
+		pc = ESCAPE_CODE; /* as this causes an early return. */
 	}
 
 	__oprofile_add_ext_sample(pc, regs, event, is_kernel, NULL);
 }
 
+/*
+ * Add samples with data to the ring buffer.
+ *
+ * Use oprofile_add_data(&entry, val) to add data and
+ * oprofile_write_commit(&entry) to commit the sample.
+ */
 void
 oprofile_write_reserve(struct op_entry *entry, struct pt_regs * const regs,
 		       unsigned long pc, int code, int size)
@@ -327,7 +361,7 @@ oprofile_write_reserve(struct op_entry *entry, struct pt_regs * const regs,
 
 	cpu_buf->sample_received++;
 
-	
+	/* no backtraces for samples with data */
 	if (op_add_code(cpu_buf, 0, is_kernel, current))
 		goto fail;
 
@@ -335,7 +369,7 @@ oprofile_write_reserve(struct op_entry *entry, struct pt_regs * const regs,
 	if (!sample)
 		goto fail;
 	sample->eip = ESCAPE_CODE;
-	sample->event = 0;		
+	sample->event = 0;		/* no flags */
 
 	op_cpu_buffer_add_data(entry, code);
 	op_cpu_buffer_add_data(entry, pc);
@@ -359,6 +393,10 @@ int oprofile_add_data64(struct op_entry *entry, u64 val)
 	if (!entry->event)
 		return 0;
 	if (op_cpu_buffer_get_size(entry) < 2)
+		/*
+		 * the function returns 0 to indicate a too small
+		 * buffer, even if there is some space left
+		 */
 		return 0;
 	if (!op_cpu_buffer_add_data(entry, (u32)val))
 		return 0;
@@ -385,6 +423,10 @@ void oprofile_add_trace(unsigned long pc)
 	if (!cpu_buf->tracing)
 		return;
 
+	/*
+	 * broken frame can give an eip with the same value as an
+	 * escape code, abort the trace if we get it
+	 */
 	if (pc == ESCAPE_CODE)
 		goto fail;
 
@@ -398,6 +440,13 @@ fail:
 	return;
 }
 
+/*
+ * This serves to avoid cpu buffer overflow, and makes sure
+ * the task mortuary progresses
+ *
+ * By using schedule_delayed_work_on and then schedule_delayed_work
+ * we guarantee this will stay on the correct cpu
+ */
 static void wq_sync_buffer(struct work_struct *work)
 {
 	struct oprofile_cpu_buffer *b =
@@ -413,7 +462,7 @@ static void wq_sync_buffer(struct work_struct *work)
 	}
 	sync_buffer(b->cpu);
 
-	
+	/* don't re-add the work if we're shutting down */
 	if (work_enabled)
 		schedule_delayed_work(&b->work, DEFAULT_TIMER_EXPIRE);
 }

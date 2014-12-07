@@ -64,4 +64,4 @@
 #define S3C_AC97_PCM_DATA				(0x18)
 #define S3C_AC97_MIC_DATA				(0x1C)
 
-#endif 
+#endif /* __ASM_ARCH_REGS_AC97_H */

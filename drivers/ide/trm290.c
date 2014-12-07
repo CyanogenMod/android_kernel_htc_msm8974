@@ -9,8 +9,28 @@
  *
  */
 
+/*
+ * This module provides support for the bus-master IDE DMA function
+ * of the Tekram TRM290 chip, used on a variety of PCI IDE add-on boards,
+ * including a "Precision Instruments" board.  The TRM290 pre-dates
+ * the sff-8038 standard (ide-dma.c) by a few months, and differs
+ * significantly enough to warrant separate routines for some functions,
+ * while re-using others from ide-dma.c.
+ *
+ * EXPERIMENTAL!  It works for me (a sample of one).
+ *
+ * Works reliably for me in DMA mode (READs only),
+ * DMA WRITEs are disabled by default (see #define below);
+ *
+ * DMA is not enabled automatically for this chipset,
+ * but can be turned on manually (with "hdparm -d1") at run time.
+ *
+ * I need volunteers with "spare" drives for further testing
+ * and development, and maybe to help figure out the peculiarities.
+ * Even knowing the registers (below), some things behave strangely.
+ */
 
-#define TRM290_NO_DMA_WRITES	
+#define TRM290_NO_DMA_WRITES	/* DMA writes seem unreliable sometimes */
 
 /*
  * TRM-290 PCI-IDE2 Bus Master Chip
@@ -128,19 +148,19 @@ static void trm290_prepare_drive (ide_drive_t *drive, unsigned int use_dma)
 	u16 reg = 0;
 	unsigned long flags;
 
-	
+	/* select PIO or DMA */
 	reg = use_dma ? (0x21 | 0x82) : (0x21 & ~0x82);
 
 	local_irq_save(flags);
 
 	if (reg != hwif->select_data) {
 		hwif->select_data = reg;
-		
+		/* set PIO/DMA */
 		outb(0x51 | (hwif->channel << 3), hwif->config_data + 1);
 		outw(reg & 0xff, hwif->config_data);
 	}
 
-	
+	/* enable IRQ if not probing */
 	if (drive->dev_flags & IDE_DFLAG_PRESENT) {
 		reg = inw(hwif->config_data + 3);
 		reg &= 0x13;
@@ -162,7 +182,7 @@ static int trm290_dma_check(ide_drive_t *drive, struct ide_cmd *cmd)
 {
 	if (cmd->tf_flags & IDE_TFLAG_WRITE) {
 #ifdef TRM290_NO_DMA_WRITES
-		
+		/* always use PIO for writes */
 		return 1;
 #endif
 	}
@@ -176,11 +196,11 @@ static int trm290_dma_setup(ide_drive_t *drive, struct ide_cmd *cmd)
 
 	count = ide_build_dmatable(drive, cmd);
 	if (count == 0)
-		
+		/* try PIO instead of DMA */
 		return 1;
 
 	outl(hwif->dmatable_dma | rw, hwif->dma_base);
-	
+	/* start DMA */
 	outw(count * 2 - 1, hwif->dma_base + 2);
 
 	return 0;
@@ -235,24 +255,29 @@ static void __devinit init_hwif_trm290(ide_hwif_t *hwif)
 		return;
 
 	local_irq_save(flags);
-	
+	/* put config reg into first byte of hwif->select_data */
 	outb(0x51 | (hwif->channel << 3), hwif->config_data + 1);
-	
+	/* select PIO as default */
 	hwif->select_data = 0x21;
 	outb(hwif->select_data, hwif->config_data);
-	
+	/* get IRQ info */
 	reg = inb(hwif->config_data + 3);
-	
+	/* mask IRQs for both ports */
 	reg = (reg & 0x10) | 0x03;
 	outb(reg, hwif->config_data + 3);
 	local_irq_restore(flags);
 
 	if (reg & 0x10)
-		
+		/* legacy mode */
 		hwif->irq = hwif->channel ? 15 : 14;
 
 #if 1
 	{
+	/*
+	 * My trm290-based card doesn't seem to work with all possible values
+	 * for the control basereg, so this kludge ensures that we use only
+	 * values that are known to work.  Ugh.		-ml
+	 */
 		u16 new, old, compat = hwif->channel ? 0x374 : 0x3f4;
 		static u16 next_offset = 0;
 		u8 old_mask;
@@ -262,7 +287,7 @@ static void __devinit init_hwif_trm290(ide_hwif_t *hwif)
 		old &= ~1;
 		old_mask = inb(old + 2);
 		if (old != compat && old_mask == 0xff) {
-			
+			/* leave lower 10 bits untouched */
 			compat += (next_offset += 0x400);
 			hwif->io_ports.ctl_addr = compat + 2;
 			outw(compat | 1, hwif->config_data);
@@ -306,7 +331,7 @@ static const struct ide_port_info trm290_chipset __devinitdata = {
 	.dma_ops	= &trm290_dma_ops,
 	.host_flags	= IDE_HFLAG_TRM290 |
 			  IDE_HFLAG_NO_ATAPI_DMA |
-#if 0 
+#if 0 /* play it safe for now */
 			  IDE_HFLAG_TRUST_BIOS_FOR_DMA |
 #endif
 			  IDE_HFLAG_NO_AUTODMA |

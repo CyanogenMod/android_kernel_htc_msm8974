@@ -92,6 +92,7 @@ write_fifo_hscx(void __iomem *adr, int hscx, u_char *data, int size)
 	}
 }
 
+/* Interface functions */
 
 static u_char
 ReadISAC(struct IsdnCardState *cs, u_char offset)
@@ -129,6 +130,9 @@ WriteHSCX(struct IsdnCardState *cs, int hscx, u_char offset, u_char value)
 	writehscx(cs->hw.teles0.membase, hscx, offset, value);
 }
 
+/*
+ * fast interrupt HSCX stuff goes here
+ */
 
 #define READHSCX(cs, nr, reg) readhscx(cs->hw.teles0.membase, nr, reg)
 #define WRITEHSCX(cs, nr, reg, data) writehscx(cs->hw.teles0.membase, nr, reg, data)
@@ -273,7 +277,7 @@ setup_teles0(struct IsdnCard *card)
 
 	if (cs->typ == ISDN_CTYPE_16_0)
 		cs->hw.teles0.cfg_reg = card->para[2];
-	else			
+	else			/* 8.0 */
 		cs->hw.teles0.cfg_reg = 0;
 
 	if (card->para[1] < 0x10000) {
@@ -306,7 +310,10 @@ setup_teles0(struct IsdnCard *card)
 			release_region(cs->hw.teles0.cfg_reg, 8);
 			return (0);
 		}
-		val = bytein(cs->hw.teles0.cfg_reg + 2);	
+		val = bytein(cs->hw.teles0.cfg_reg + 2);	/* 0x1e=without AB
+								 * 0x1f=with AB
+								 * 0x1c 16.3 ???
+								 */
 		if (val != 0x1e && val != 0x1f) {
 			printk(KERN_WARNING "Teles0: 16.0 Byte at %x is %x\n",
 			       cs->hw.teles0.cfg_reg + 2, val);
@@ -314,7 +321,7 @@ setup_teles0(struct IsdnCard *card)
 			return (0);
 		}
 	}
-	
+	/* 16.0 and 8.0 designed for IOM1 */
 	test_and_set_bit(HW_IOM1, &cs->HW_Flags);
 	cs->hw.teles0.phymem = card->para[1];
 	if (!request_mem_region(cs->hw.teles0.phymem, TELES_IOMEM_SIZE, "teles iomem")) {

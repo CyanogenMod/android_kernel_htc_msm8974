@@ -129,7 +129,7 @@ static int __init fsl_spi_init(struct spi_board_info *board_infos,
 	u32 sysclk = -1;
 	int ret;
 
-	
+	/* SPI controller is either clocked from QE or SoC clock */
 	sysclk = get_brgfreq();
 	if (sysclk == -1) {
 		sysclk = fsl_get_sys_freq();
@@ -166,22 +166,31 @@ static struct spi_board_info mpc832x_spi_boardinfo = {
 
 static int __init mpc832x_spi_init(void)
 {
-	par_io_config_pin(3,  0, 3, 0, 1, 0); 
-	par_io_config_pin(3,  1, 3, 0, 1, 0); 
-	par_io_config_pin(3,  2, 3, 0, 1, 0); 
-	par_io_config_pin(3,  3, 2, 0, 1, 0); 
+	par_io_config_pin(3,  0, 3, 0, 1, 0); /* SPI1 MOSI, I/O */
+	par_io_config_pin(3,  1, 3, 0, 1, 0); /* SPI1 MISO, I/O */
+	par_io_config_pin(3,  2, 3, 0, 1, 0); /* SPI1 CLK,  I/O */
+	par_io_config_pin(3,  3, 2, 0, 1, 0); /* SPI1 SEL,  I   */
 
-	par_io_config_pin(3, 13, 1, 0, 0, 0); 
-	par_io_config_pin(3, 14, 2, 0, 0, 0); 
-	par_io_config_pin(3, 15, 2, 0, 0, 0); 
+	par_io_config_pin(3, 13, 1, 0, 0, 0); /* !SD_CS,    O */
+	par_io_config_pin(3, 14, 2, 0, 0, 0); /* SD_INSERT, I */
+	par_io_config_pin(3, 15, 2, 0, 0, 0); /* SD_PROTECT,I */
 
+	/*
+	 * Don't bother with legacy stuff when device tree contains
+	 * mmc-spi-slot node.
+	 */
 	if (of_find_compatible_node(NULL, NULL, "mmc-spi-slot"))
 		return 0;
 	return fsl_spi_init(&mpc832x_spi_boardinfo, 1, mpc83xx_spi_cs_control);
 }
 machine_device_initcall(mpc832x_rdb, mpc832x_spi_init);
-#endif 
+#endif /* CONFIG_QUICC_ENGINE */
 
+/* ************************************************************************
+ *
+ * Setup the architecture
+ *
+ */
 static void __init mpc832x_rdb_setup_arch(void)
 {
 #if defined(CONFIG_QUICC_ENGINE)
@@ -203,11 +212,14 @@ static void __init mpc832x_rdb_setup_arch(void)
 		for (np = NULL; (np = of_find_node_by_name(np, "ucc")) != NULL;)
 			par_io_of_config(np);
 	}
-#endif				
+#endif				/* CONFIG_QUICC_ENGINE */
 }
 
 machine_device_initcall(mpc832x_rdb, mpc83xx_declare_of_platform_devices);
 
+/*
+ * Called very early, MMU is off, device-tree isn't unflattened
+ */
 static int __init mpc832x_rdb_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();

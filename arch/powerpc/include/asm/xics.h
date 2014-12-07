@@ -1,3 +1,7 @@
+/*
+ * Common definitions accross all variants of ICP and ICS interrupt
+ * controllers.
+ */
 
 #ifndef _XICS_H
 #define _XICS_H
@@ -7,26 +11,36 @@
 #define XICS_IPI		2
 #define XICS_IRQ_SPURIOUS	0
 
+/* Want a priority other than 0.  Various HW issues require this. */
 #define	DEFAULT_PRIORITY	5
 
+/*
+ * Mark IPIs as higher priority so we can take them inside interrupts
+ * FIXME: still true now?
+ */
 #define IPI_PRIORITY		4
 
+/* The least favored priority */
 #define LOWEST_PRIORITY		0xFF
 
+/* The number of priorities defined above */
 #define MAX_NUM_PRIORITIES	3
 
+/* Native ICP */
 #ifdef CONFIG_PPC_ICP_NATIVE
 extern int icp_native_init(void);
 #else
 static inline int icp_native_init(void) { return -ENODEV; }
 #endif
 
+/* PAPR ICP */
 #ifdef CONFIG_PPC_ICP_HV
 extern int icp_hv_init(void);
 #else
 static inline int icp_hv_init(void) { return -ENODEV; }
 #endif
 
+/* ICP ops */
 struct icp_ops {
 	unsigned int (*get_irq)(void);
 	void (*eoi)(struct irq_data *d);
@@ -41,20 +55,24 @@ struct icp_ops {
 
 extern const struct icp_ops *icp_ops;
 
+/* Native ICS */
 extern int ics_native_init(void);
 
+/* RTAS ICS */
 #ifdef CONFIG_PPC_ICS_RTAS
 extern int ics_rtas_init(void);
 #else
 static inline int ics_rtas_init(void) { return -ENODEV; }
 #endif
 
+/* HAL ICS */
 #ifdef CONFIG_PPC_POWERNV
 extern int ics_opal_init(void);
 #else
 static inline int ics_opal_init(void) { return -ENODEV; }
 #endif
 
+/* ICS instance, hooked up to chip_data of an irq */
 struct ics {
 	struct list_head link;
 	int (*map)(struct ics *ics, unsigned int virq);
@@ -64,6 +82,7 @@ struct ics {
 	char data[];
 };
 
+/* Commons */
 extern unsigned int xics_default_server;
 extern unsigned int xics_default_distrib_server;
 extern unsigned int xics_interrupt_server_size;
@@ -103,6 +122,9 @@ static inline void xics_set_base_cppr(unsigned char cppr)
 {
 	struct xics_cppr *os_cppr = &__get_cpu_var(xics_cppr);
 
+	/* we only really want to set the priority when there's
+	 * just one cppr value on the stack
+	 */
 	WARN_ON(os_cppr->index != 0);
 
 	os_cppr->stack[0] = cppr;
@@ -136,4 +158,4 @@ extern int xics_get_irq_server(unsigned int virq, const struct cpumask *cpumask,
 #endif
 
 
-#endif 
+#endif /* _XICS_H */

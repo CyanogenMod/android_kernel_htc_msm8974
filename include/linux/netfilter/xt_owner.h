@@ -15,4 +15,4 @@ struct xt_owner_match_info {
 	__u8 match, invert;
 };
 
-#endif 
+#endif /* _XT_OWNER_MATCH_H */

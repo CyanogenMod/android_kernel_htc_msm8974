@@ -39,6 +39,10 @@ static void __iomem *scu_base_addr(void)
 		return (void __iomem *)0;
 }
 
+/*
+ * Initialise the CPU possible map early - this describes the CPUs
+ * which may be present or become present in the system.
+ */
 void __init smp_init_cpus(void)
 {
 	void __iomem *scu_base = scu_base_addr();
@@ -46,7 +50,7 @@ void __init smp_init_cpus(void)
 
 	ncores = scu_base ? scu_get_core_count(scu_base) : 1;
 
-	
+	/* sanity check */
 	if (ncores > nr_cpu_ids) {
 		pr_warn("SMP: %u cores greater than maximum (%u), clipping\n",
 			ncores, nr_cpu_ids);
@@ -64,6 +68,12 @@ void __init platform_smp_prepare_cpus(unsigned int max_cpus)
 
 	scu_enable(scu_base_addr());
 
+	/*
+	 * Write the address of secondary startup into the
+	 * system-wide flags register. The BootMonitor waits
+	 * until it receives a soft interrupt, and then the
+	 * secondary CPU branches to this address.
+	 */
 	__raw_writel(virt_to_phys(versatile_secondary_startup),
 		     __io_address(REALVIEW_SYS_FLAGSSET));
 }

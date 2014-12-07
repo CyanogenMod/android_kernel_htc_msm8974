@@ -9,25 +9,31 @@
  *
  * ----------------------------------------------------------------------- */
 
+/*
+ * Get EDD BIOS disk information
+ */
 
 #include "boot.h"
 #include <linux/edd.h>
 
 #if defined(CONFIG_EDD) || defined(CONFIG_EDD_MODULE)
 
+/*
+ * Read the MBR (first sector) from a specific device.
+ */
 static int read_mbr(u8 devno, void *buf)
 {
 	struct biosregs ireg, oreg;
 
 	initregs(&ireg);
-	ireg.ax = 0x0201;		
-	ireg.cx = 0x0001;		
+	ireg.ax = 0x0201;		/* Legacy Read, one sector */
+	ireg.cx = 0x0001;		/* Sector 0-0-1 */
 	ireg.dl = devno;
 	ireg.bx = (size_t)buf;
 
 	intcall(0x13, &ireg, &oreg);
 
-	return -(oreg.eflags & X86_EFLAGS_CF); 
+	return -(oreg.eflags & X86_EFLAGS_CF); /* 0 or -1 */
 }
 
 static u32 read_mbr_sig(u8 devno, struct edd_info *ei, u32 *mbrsig)
@@ -40,15 +46,15 @@ static u32 read_mbr_sig(u8 devno, struct edd_info *ei, u32 *mbrsig)
 
 	sector_size = ei->params.bytes_per_sector;
 	if (!sector_size)
-		sector_size = 512; 
+		sector_size = 512; /* Best available guess */
 
-	
+	/* Produce a naturally aligned buffer on the heap */
 	buf_base = (ds() << 4) + (u32)&_end;
 	mbr_base = (buf_base+sector_size-1) & ~(sector_size-1);
 	mbrbuf_ptr = _end + (mbr_base-buf_base);
 	mbrbuf_end = mbrbuf_ptr + sector_size;
 
-	
+	/* Make sure we actually have space on the heap... */
 	if (!(boot_params.hdr.loadflags & CAN_USE_HEAP))
 		return -1;
 	if (mbrbuf_end > (char *)(size_t)boot_params.hdr.heap_end_ptr)
@@ -61,7 +67,7 @@ static u32 read_mbr_sig(u8 devno, struct edd_info *ei, u32 *mbrsig)
 	*mbrsig = *(u32 *)&mbrbuf_ptr[EDD_MBR_SIG_OFFSET];
 	mbr_magic = *(u16 *)&mbrbuf_ptr[510];
 
-	
+	/* check for valid MBR magic */
 	return mbr_magic == 0xAA55 ? 0 : -1;
 }
 
@@ -71,7 +77,7 @@ static int get_edd_info(u8 devno, struct edd_info *ei)
 
 	memset(ei, 0, sizeof *ei);
 
-	
+	/* Check Extensions Present */
 
 	initregs(&ireg);
 	ireg.ah = 0x41;
@@ -80,25 +86,25 @@ static int get_edd_info(u8 devno, struct edd_info *ei)
 	intcall(0x13, &ireg, &oreg);
 
 	if (oreg.eflags & X86_EFLAGS_CF)
-		return -1;	
+		return -1;	/* No extended information */
 
 	if (oreg.bx != EDDMAGIC2)
 		return -1;
 
 	ei->device  = devno;
-	ei->version = oreg.ah;		 
-	ei->interface_support = oreg.cx; 
+	ei->version = oreg.ah;		 /* EDD version number */
+	ei->interface_support = oreg.cx; /* EDD functionality subsets */
 
-	
+	/* Extended Get Device Parameters */
 
 	ei->params.length = sizeof(ei->params);
 	ireg.ah = 0x48;
 	ireg.si = (size_t)&ei->params;
 	intcall(0x13, &ireg, &oreg);
 
-	
+	/* Get legacy CHS parameters */
 
-	
+	/* Ralf Brown recommends setting ES:DI to 0:0 */
 	ireg.ah = 0x08;
 	ireg.es = 0;
 	intcall(0x13, &ireg, &oreg);
@@ -145,11 +151,18 @@ void query_edd(void)
 	if (!do_edd)
 		return;
 
+	/* Bugs in OnBoard or AddOnCards Bios may hang the EDD probe,
+	 * so give a hint if this happens.
+	 */
 
 	if (!be_quiet)
 		printf("Probing EDD (edd=off to disable)... ");
 
 	for (devno = 0x80; devno < 0x80+EDD_MBR_SIG_MAX; devno++) {
+		/*
+		 * Scan the BIOS-supported hard disks and query EDD
+		 * information...
+		 */
 		if (!get_edd_info(devno, &ei)
 		    && boot_params.eddbuf_entries < EDDMAXNR) {
 			memcpy(edp, &ei, sizeof ei);

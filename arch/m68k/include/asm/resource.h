@@ -3,4 +3,4 @@
 
 #include <asm-generic/resource.h>
 
-#endif 
+#endif /* _M68K_RESOURCE_H */

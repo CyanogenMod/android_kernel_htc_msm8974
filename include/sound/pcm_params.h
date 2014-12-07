@@ -31,7 +31,7 @@ int snd_pcm_hw_param_last(struct snd_pcm_substream *pcm,
 int snd_pcm_hw_param_value(const struct snd_pcm_hw_params *params,
 			   snd_pcm_hw_param_t var, int *dir);
 
-#define SNDRV_MASK_BITS	64	
+#define SNDRV_MASK_BITS	64	/* we use so far 64bits only */
 #define SNDRV_MASK_SIZE	(SNDRV_MASK_BITS / 32)
 #define MASK_OFS(i)	((i) >> 5)
 #define MASK_BIT(i)	(1U << ((i) & 31))
@@ -352,4 +352,4 @@ params_period_bytes(const struct snd_pcm_hw_params *p)
 		params_channels(p)) / 8;
 }
 
-#endif 
+#endif /* __SOUND_PCM_PARAMS_H */

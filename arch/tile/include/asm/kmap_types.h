@@ -15,10 +15,22 @@
 #ifndef _ASM_TILE_KMAP_TYPES_H
 #define _ASM_TILE_KMAP_TYPES_H
 
+/*
+ * In 32-bit TILE Linux we have to balance the desire to have a lot of
+ * nested atomic mappings with the fact that large page sizes and many
+ * processors chew up address space quickly.  In a typical
+ * 64-processor, 64KB-page layout build, making KM_TYPE_NR one larger
+ * adds 4MB of required address-space.  For now we leave KM_TYPE_NR
+ * set to depth 8.
+ */
 enum km_type {
 	KM_TYPE_NR = 8
 };
 
+/*
+ * We provide dummy definitions of all the stray values that used to be
+ * required for kmap_atomic() and no longer are.
+ */
 enum {
 	KM_BOUNCE_READ,
 	KM_SKB_SUNRPC_DATA,
@@ -42,4 +54,4 @@ enum {
 	KM_KDB
 };
 
-#endif 
+#endif /* _ASM_TILE_KMAP_TYPES_H */

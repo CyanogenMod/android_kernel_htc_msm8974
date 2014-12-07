@@ -37,6 +37,7 @@ void *module_alloc(unsigned long size)
 	return kmalloc(size, GFP_KERNEL);
 }
 
+/* Free memory returned from module_alloc */
 void module_free(struct module *mod, void *module_region)
 {
 	kfree(module_region);
@@ -56,10 +57,12 @@ int apply_relocate_add(Elf32_Shdr *sechdrs,
 		sechdrs[relsec].sh_info);
 
 	for (i = 0; i < sechdrs[relsec].sh_size / sizeof (*rela); i++) {
-		
+		/* This is where to make the change */
 		uint32_t *loc
 			= ((void *)sechdrs[sechdrs[relsec].sh_info].sh_addr
 			   + rela[i].r_offset);
+		/* This is the symbol it is referring to.  Note that all
+		   undefined symbols have been resolved.  */
 		Elf32_Sym *sym
 			= ((Elf32_Sym *)sechdrs[symindex].sh_addr
 			   + ELF32_R_SYM (rela[i].r_info));

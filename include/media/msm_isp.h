@@ -3,6 +3,7 @@
 
 #define BIT(nr)			(1UL << (nr))
 
+/* ISP message IDs */
 #define MSG_ID_RESET_ACK                0
 #define MSG_ID_START_ACK                1
 #define MSG_ID_STOP_ACK                 2
@@ -60,6 +61,7 @@
 #define MSG_ID_STATS_BE                 54
 
 
+/* ISP command IDs */
 #define VFE_CMD_DUMMY_0                                 0
 #define VFE_CMD_SET_CLK                                 1
 #define VFE_CMD_RESET                                   2
@@ -246,15 +248,16 @@ struct msm_isp_cmd {
 #define VPE_CMD_ZOOM                                    13
 #define VPE_CMD_MAX                                     14
 
-#define MSM_PP_CMD_TYPE_NOT_USED        0  
-#define MSM_PP_CMD_TYPE_VPE             1  
-#define MSM_PP_CMD_TYPE_MCTL            2  
+#define MSM_PP_CMD_TYPE_NOT_USED        0  /* not used */
+#define MSM_PP_CMD_TYPE_VPE             1  /* VPE cmd */
+#define MSM_PP_CMD_TYPE_MCTL            2  /* MCTL cmd */
 
-#define MCTL_CMD_DUMMY_0                0  
-#define MCTL_CMD_GET_FRAME_BUFFER       1  
-#define MCTL_CMD_PUT_FRAME_BUFFER       2  
-#define MCTL_CMD_DIVERT_FRAME_PP_PATH   3  
+#define MCTL_CMD_DUMMY_0                0  /* not used */
+#define MCTL_CMD_GET_FRAME_BUFFER       1  /* reserve a free frame buffer */
+#define MCTL_CMD_PUT_FRAME_BUFFER       2  /* return the free frame buffer */
+#define MCTL_CMD_DIVERT_FRAME_PP_PATH   3  /* divert frame for pp */
 
+/* event typese sending to MCTL PP module */
 #define MCTL_PP_EVENT_NOTUSED           0
 #define MCTL_PP_EVENT_CMD_ACK           1
 
@@ -337,5 +340,5 @@ struct msm_frame_info {
 	uint32_t path;
 };
 
-#endif 
+#endif /*__MSM_ISP_H__*/
 

@@ -124,6 +124,7 @@ static int sirc_irq_set_type(struct irq_data *d, unsigned int flow_type)
 	return 0;
 }
 
+/* Finds the pending interrupt on the passed cascade irq and redrives it */
 static void sirc_irq_handler(unsigned int irq, struct irq_desc *desc)
 {
 	unsigned int sirq;

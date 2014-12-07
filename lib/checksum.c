@@ -29,6 +29,8 @@
  *		2 of the License, or (at your option) any later version.
  */
 
+/* Revised by Kenneth Albanowski for m68knommu. Basic problem: unaligned access
+ kills, so most of the assembly has to go. */
 
 #include <linux/export.h>
 #include <net/checksum.h>
@@ -38,9 +40,9 @@
 #ifndef do_csum
 static inline unsigned short from32to16(unsigned int x)
 {
-	
+	/* add up 16-bit and 16-bit for 16+c bit */
 	x = (x & 0xffff) + (x >> 16);
-	
+	/* add up carry.. */
 	x = (x & 0xffff) + (x >> 16);
 	return x;
 }
@@ -100,18 +102,34 @@ out:
 }
 #endif
 
+/*
+ *	This is a version of ip_compute_csum() optimized for IP headers,
+ *	which always checksum on 4 octet boundaries.
+ */
 __sum16 ip_fast_csum(const void *iph, unsigned int ihl)
 {
 	return (__force __sum16)~do_csum(iph, ihl*4);
 }
 EXPORT_SYMBOL(ip_fast_csum);
 
+/*
+ * computes the checksum of a memory block at buff, length len,
+ * and adds in "sum" (32-bit)
+ *
+ * returns a 32-bit number suitable for feeding into itself
+ * or csum_tcpudp_magic
+ *
+ * this function must be called with even lengths, except
+ * for the last fragment, which may be odd
+ *
+ * it's best to have buff aligned on a 32-bit boundary
+ */
 __wsum csum_partial(const void *buff, int len, __wsum wsum)
 {
 	unsigned int sum = (__force unsigned int)wsum;
 	unsigned int result = do_csum(buff, len);
 
-	
+	/* add in old sum, and carry.. */
 	result += sum;
 	if (sum > result)
 		result += 1;
@@ -119,12 +137,19 @@ __wsum csum_partial(const void *buff, int len, __wsum wsum)
 }
 EXPORT_SYMBOL(csum_partial);
 
+/*
+ * this routine is used for miscellaneous IP-like checksums, mainly
+ * in icmp.c
+ */
 __sum16 ip_compute_csum(const void *buff, int len)
 {
 	return (__force __sum16)~do_csum(buff, len);
 }
 EXPORT_SYMBOL(ip_compute_csum);
 
+/*
+ * copy from fs while checksumming, otherwise like csum_partial
+ */
 __wsum
 csum_partial_copy_from_user(const void __user *src, void *dst, int len,
 						__wsum sum, int *csum_err)
@@ -142,6 +167,9 @@ csum_partial_copy_from_user(const void __user *src, void *dst, int len,
 }
 EXPORT_SYMBOL(csum_partial_copy_from_user);
 
+/*
+ * copy from ds while checksumming, otherwise like csum_partial
+ */
 __wsum
 csum_partial_copy(const void *src, void *dst, int len, __wsum sum)
 {

@@ -28,6 +28,7 @@
 #include "mdfld_output.h"
 #include "mdfld_dsi_output.h"
 
+/* Hardcoded currently */
 static int ksel = KSEL_CRYSTAL_19;
 
 struct psb_intel_range_t {
@@ -39,7 +40,7 @@ struct mrst_limit_t {
 };
 
 struct mrst_clock_t {
-	
+	/* derived values */
 	int dot;
 	int m;
 	int p1;
@@ -66,11 +67,11 @@ void mdfldWaitForPipeDisable(struct drm_device *dev, int pipe)
 		return;
 	}
 
-	
+	/* FIXME JLIU7_PO */
 	psb_intel_wait_for_vblank(dev);
 	return;
 
-	
+	/* Wait for for the pipe disable to take effect. */
 	for (count = 0; count < COUNT_MAX; count++) {
 		temp = REG_READ(pipeconf_reg);
 		if ((temp & PIPEACONF_PIPE_STATE) == 0)
@@ -97,11 +98,11 @@ void mdfldWaitForPipeEnable(struct drm_device *dev, int pipe)
 		return;
 	}
 
-	
+	/* FIXME JLIU7_PO */
 	psb_intel_wait_for_vblank(dev);
 	return;
 
-	
+	/* Wait for for the pipe enable to take effect. */
 	for (count = 0; count < COUNT_MAX; count++) {
 		temp = REG_READ(pipeconf_reg);
 		if ((temp & PIPEACONF_PIPE_STATE) == 1)
@@ -128,17 +129,21 @@ static bool psb_intel_crtc_mode_fixup(struct drm_crtc *crtc,
 	return true;
 }
 
+/**
+ * Return the pipe currently connected to the panel fitter,
+ * or -1 if the panel fitter is not present or not in use
+ */
 static int psb_intel_panel_fitter_pipe(struct drm_device *dev)
 {
 	u32 pfit_control;
 
 	pfit_control = REG_READ(PFIT_CONTROL);
 
-	
+	/* See if the panel fitter is in use */
 	if ((pfit_control & PFIT_ENABLE) == 0)
 		return -1;
 
-	
+	/* 965 can place panel fitter on either pipe */
 	return (pfit_control >> 29) & 0x3;
 }
 
@@ -184,7 +189,7 @@ static int mdfld__intel_pipe_set_base(struct drm_crtc *crtc, int x, int y,
 				struct drm_framebuffer *old_fb)
 {
 	struct drm_device *dev = crtc->dev;
-	
+	/* struct drm_i915_master_private *master_priv; */
 	struct psb_intel_crtc *psb_intel_crtc = to_psb_intel_crtc(crtc);
 	struct psb_framebuffer *psbfb = to_psb_fb(crtc->fb);
 	int pipe = psb_intel_crtc->pipe;
@@ -200,7 +205,7 @@ static int mdfld__intel_pipe_set_base(struct drm_crtc *crtc, int x, int y,
 
 	dev_dbg(dev->dev, "pipe = 0x%x.\n", pipe);
 
-	
+	/* no fb bound */
 	if (!crtc->fb) {
 		dev_dbg(dev->dev, "No FB bound\n");
 		return 0;
@@ -270,6 +275,10 @@ static int mdfld__intel_pipe_set_base(struct drm_crtc *crtc, int x, int y,
 	return 0;
 }
 
+/*
+ * Disable the pipe, plane and pll.
+ *
+ */
 void mdfld_disable_crtc(struct drm_device *dev, int pipe)
 {
 	int dpll_reg = MRST_DPLL_A;
@@ -305,19 +314,19 @@ void mdfld_disable_crtc(struct drm_device *dev, int pipe)
 		mdfld_dsi_gen_fifo_ready(dev, MIPI_GEN_FIFO_STAT_REG(pipe),
 				HS_CTRL_FIFO_EMPTY | HS_DATA_FIFO_EMPTY);
 
-	
+	/* Disable display plane */
 	temp = REG_READ(dspcntr_reg);
 	if ((temp & DISPLAY_PLANE_ENABLE) != 0) {
 		REG_WRITE(dspcntr_reg,
 			  temp & ~DISPLAY_PLANE_ENABLE);
-		
+		/* Flush the plane changes */
 		REG_WRITE(dspbase_reg, REG_READ(dspbase_reg));
 		REG_READ(dspbase_reg);
 	}
 
-	
+	/* FIXME_JLIU7 MDFLD_PO revisit */
 
-	
+	/* Next, disable display pipes */
 	temp = REG_READ(pipeconf_reg);
 	if ((temp & PIPEACONF_ENABLE) != 0) {
 		temp &= ~PIPEACONF_ENABLE;
@@ -325,7 +334,7 @@ void mdfld_disable_crtc(struct drm_device *dev, int pipe)
 		REG_WRITE(pipeconf_reg, temp);
 		REG_READ(pipeconf_reg);
 
-		
+		/* Wait for for the pipe disable to take effect. */
 		mdfldWaitForPipeDisable(dev, pipe);
 	}
 
@@ -337,14 +346,14 @@ void mdfld_disable_crtc(struct drm_device *dev, int pipe)
 			temp &= ~(DPLL_VCO_ENABLE);
 			REG_WRITE(dpll_reg, temp);
 			REG_READ(dpll_reg);
-			
-			
+			/* Wait for the clocks to turn off. */
+			/* FIXME_MDFLD PO may need more delay */
 			udelay(500);
 
 			if (!(temp & MDFLD_PWR_GATE_EN)) {
-				
+				/* gating power of DPLL */
 				REG_WRITE(dpll_reg, temp | MDFLD_PWR_GATE_EN);
-				
+				/* FIXME_MDFLD PO - change 500 to 1 after PO */
 				udelay(5000);
 			}
 		}
@@ -352,6 +361,12 @@ void mdfld_disable_crtc(struct drm_device *dev, int pipe)
 
 }
 
+/**
+ * Sets the power management mode of the pipe and plane.
+ *
+ * This code should probably grow support for turning the cursor off and back
+ * on appropriately at the same time as we're turning the pipe off/on.
+ */
 static void mdfld_crtc_dpms(struct drm_crtc *crtc, int mode)
 {
 	struct drm_device *dev = crtc->dev;
@@ -369,6 +384,8 @@ static void mdfld_crtc_dpms(struct drm_crtc *crtc, int mode)
 
 	dev_dbg(dev->dev, "mode = %d, pipe = %d\n", mode, pipe);
 
+/* FIXME_JLIU7 MDFLD_PO replaced w/ the following function */
+/* mdfld_dbi_dpms (struct drm_device *dev, int pipe, bool enabled) */
 
 	switch (pipe) {
 	case 0:
@@ -395,29 +412,39 @@ static void mdfld_crtc_dpms(struct drm_crtc *crtc, int mode)
 	if (!gma_power_begin(dev, true))
 		return;
 
+	/* XXX: When our outputs are all unaware of DPMS modes other than off
+	 * and on, we should map those modes to DRM_MODE_DPMS_OFF in the CRTC.
+	 */
 	switch (mode) {
 	case DRM_MODE_DPMS_ON:
 	case DRM_MODE_DPMS_STANDBY:
 	case DRM_MODE_DPMS_SUSPEND:
-		
+		/* Enable the DPLL */
 		temp = REG_READ(dpll_reg);
 
 		if ((temp & DPLL_VCO_ENABLE) == 0) {
+			/* When ungating power of DPLL, needs to wait 0.5us
+			   before enable the VCO */
 			if (temp & MDFLD_PWR_GATE_EN) {
 				temp &= ~MDFLD_PWR_GATE_EN;
 				REG_WRITE(dpll_reg, temp);
-				
+				/* FIXME_MDFLD PO - change 500 to 1 after PO */
 				udelay(500);
 			}
 
 			REG_WRITE(dpll_reg, temp);
 			REG_READ(dpll_reg);
-			
+			/* FIXME_MDFLD PO - change 500 to 1 after PO */
 			udelay(500);
 
 			REG_WRITE(dpll_reg, temp | DPLL_VCO_ENABLE);
 			REG_READ(dpll_reg);
 
+			/**
+			 * wait for DSI PLL to lock
+			 * NOTE: only need to poll status of pipe 0 and pipe 1,
+			 * since both MIPI pipes share the same PLL.
+			 */
 			while ((pipe != 2) && (timeout < 20000) &&
 			  !(REG_READ(pipeconf_reg) & PIPECONF_DSIPLL_LOCK)) {
 				udelay(150);
@@ -425,26 +452,26 @@ static void mdfld_crtc_dpms(struct drm_crtc *crtc, int mode)
 			}
 		}
 
-		
+		/* Enable the plane */
 		temp = REG_READ(dspcntr_reg);
 		if ((temp & DISPLAY_PLANE_ENABLE) == 0) {
 			REG_WRITE(dspcntr_reg,
 				temp | DISPLAY_PLANE_ENABLE);
-			
+			/* Flush the plane changes */
 			REG_WRITE(dspbase_reg, REG_READ(dspbase_reg));
 		}
 
-		
+		/* Enable the pipe */
 		temp = REG_READ(pipeconf_reg);
 		if ((temp & PIPEACONF_ENABLE) == 0) {
 			REG_WRITE(pipeconf_reg, pipeconf);
 
-			
+			/* Wait for for the pipe enable to take effect. */
 			mdfldWaitForPipeEnable(dev, pipe);
 		}
 
-		
-		
+		/*workaround for sighting 3741701 Random X blank display*/
+		/*perform w/a in video mode only on pipe A or C*/
 		if (pipe == 0 || pipe == 2) {
 			REG_WRITE(pipestat_reg, REG_READ(pipestat_reg));
 			msleep(100);
@@ -452,28 +479,28 @@ static void mdfld_crtc_dpms(struct drm_crtc *crtc, int mode)
 				dev_dbg(dev->dev, "OK");
 			else {
 				dev_dbg(dev->dev, "STUCK!!!!");
-				
+				/*shutdown controller*/
 				temp = REG_READ(dspcntr_reg);
 				REG_WRITE(dspcntr_reg,
 						temp & ~DISPLAY_PLANE_ENABLE);
 				REG_WRITE(dspbase_reg, REG_READ(dspbase_reg));
-				
+				/*mdfld_dsi_dpi_shut_down(dev, pipe);*/
 				REG_WRITE(0xb048, 1);
 				msleep(100);
 				temp = REG_READ(pipeconf_reg);
 				temp &= ~PIPEACONF_ENABLE;
 				REG_WRITE(pipeconf_reg, temp);
-				msleep(100); 
+				msleep(100); /*wait for pipe disable*/
 				REG_WRITE(MIPI_DEVICE_READY_REG(pipe), 0);
 				msleep(100);
 				REG_WRITE(0xb004, REG_READ(0xb004));
-				
+				/* try to bring the controller back up again*/
 				REG_WRITE(MIPI_DEVICE_READY_REG(pipe), 1);
 				temp = REG_READ(dspcntr_reg);
 				REG_WRITE(dspcntr_reg,
 						temp | DISPLAY_PLANE_ENABLE);
 				REG_WRITE(dspbase_reg, REG_READ(dspbase_reg));
-				
+				/*mdfld_dsi_dpi_turn_on(dev, pipe);*/
 				REG_WRITE(0xb048, 2);
 				msleep(100);
 				temp = REG_READ(pipeconf_reg);
@@ -484,30 +511,34 @@ static void mdfld_crtc_dpms(struct drm_crtc *crtc, int mode)
 
 		psb_intel_crtc_load_lut(crtc);
 
-		
+		/* Give the overlay scaler a chance to enable
+		   if it's on this pipe */
+		/* psb_intel_crtc_dpms_video(crtc, true); TODO */
 
 		break;
 	case DRM_MODE_DPMS_OFF:
-		
+		/* Give the overlay scaler a chance to disable
+		 * if it's on this pipe */
+		/* psb_intel_crtc_dpms_video(crtc, FALSE); TODO */
 		if (pipe != 1)
 			mdfld_dsi_gen_fifo_ready(dev,
 				MIPI_GEN_FIFO_STAT_REG(pipe),
 				HS_CTRL_FIFO_EMPTY | HS_DATA_FIFO_EMPTY);
 
-		
+		/* Disable the VGA plane that we never use */
 		REG_WRITE(VGACNTRL, VGA_DISP_DISABLE);
 
-		
+		/* Disable display plane */
 		temp = REG_READ(dspcntr_reg);
 		if ((temp & DISPLAY_PLANE_ENABLE) != 0) {
 			REG_WRITE(dspcntr_reg,
 				  temp & ~DISPLAY_PLANE_ENABLE);
-			
+			/* Flush the plane changes */
 			REG_WRITE(dspbase_reg, REG_READ(dspbase_reg));
 			REG_READ(dspbase_reg);
 		}
 
-		
+		/* Next, disable display pipes */
 		temp = REG_READ(pipeconf_reg);
 		if ((temp & PIPEACONF_ENABLE) != 0) {
 			temp &= ~PIPEACONF_ENABLE;
@@ -515,7 +546,7 @@ static void mdfld_crtc_dpms(struct drm_crtc *crtc, int mode)
 			REG_WRITE(pipeconf_reg, temp);
 			REG_READ(pipeconf_reg);
 
-			
+			/* Wait for for the pipe disable to take effect. */
 			mdfldWaitForPipeDisable(dev, pipe);
 		}
 
@@ -527,8 +558,8 @@ static void mdfld_crtc_dpms(struct drm_crtc *crtc, int mode)
 				temp &= ~(DPLL_VCO_ENABLE);
 				REG_WRITE(dpll_reg, temp);
 				REG_READ(dpll_reg);
-				
-				
+				/* Wait for the clocks to turn off. */
+				/* FIXME_MDFLD PO may need more delay */
 				udelay(500);
 			}
 		}
@@ -583,42 +614,42 @@ static void mdfld_crtc_dpms(struct drm_crtc *crtc, int mode)
 #define MDFLD_DSIPLL_P1_MAX_100	    9
 
 static const struct mrst_limit_t mdfld_limits[] = {
-	{			
+	{			/* MDFLD_LIMT_DPLL_19 */
 	 .dot = {.min = MDFLD_DOT_MIN, .max = MDFLD_DOT_MAX},
 	 .m = {.min = MDFLD_DPLL_M_MIN_19, .max = MDFLD_DPLL_M_MAX_19},
 	 .p1 = {.min = MDFLD_DPLL_P1_MIN_19, .max = MDFLD_DPLL_P1_MAX_19},
 	 },
-	{			
+	{			/* MDFLD_LIMT_DPLL_25 */
 	 .dot = {.min = MDFLD_DOT_MIN, .max = MDFLD_DOT_MAX},
 	 .m = {.min = MDFLD_DPLL_M_MIN_25, .max = MDFLD_DPLL_M_MAX_25},
 	 .p1 = {.min = MDFLD_DPLL_P1_MIN_25, .max = MDFLD_DPLL_P1_MAX_25},
 	 },
-	{			
+	{			/* MDFLD_LIMT_DPLL_83 */
 	 .dot = {.min = MDFLD_DOT_MIN, .max = MDFLD_DOT_MAX},
 	 .m = {.min = MDFLD_DPLL_M_MIN_83, .max = MDFLD_DPLL_M_MAX_83},
 	 .p1 = {.min = MDFLD_DPLL_P1_MIN_83, .max = MDFLD_DPLL_P1_MAX_83},
 	 },
-	{			
+	{			/* MDFLD_LIMT_DPLL_100 */
 	 .dot = {.min = MDFLD_DOT_MIN, .max = MDFLD_DOT_MAX},
 	 .m = {.min = MDFLD_DPLL_M_MIN_100, .max = MDFLD_DPLL_M_MAX_100},
 	 .p1 = {.min = MDFLD_DPLL_P1_MIN_100, .max = MDFLD_DPLL_P1_MAX_100},
 	 },
-	{			
+	{			/* MDFLD_LIMT_DSIPLL_19 */
 	 .dot = {.min = MDFLD_DOT_MIN, .max = MDFLD_DOT_MAX},
 	 .m = {.min = MDFLD_DSIPLL_M_MIN_19, .max = MDFLD_DSIPLL_M_MAX_19},
 	 .p1 = {.min = MDFLD_DSIPLL_P1_MIN_19, .max = MDFLD_DSIPLL_P1_MAX_19},
 	 },
-	{			
+	{			/* MDFLD_LIMT_DSIPLL_25 */
 	 .dot = {.min = MDFLD_DOT_MIN, .max = MDFLD_DOT_MAX},
 	 .m = {.min = MDFLD_DSIPLL_M_MIN_25, .max = MDFLD_DSIPLL_M_MAX_25},
 	 .p1 = {.min = MDFLD_DSIPLL_P1_MIN_25, .max = MDFLD_DSIPLL_P1_MAX_25},
 	 },
-	{			
+	{			/* MDFLD_LIMT_DSIPLL_83 */
 	 .dot = {.min = MDFLD_DOT_MIN, .max = MDFLD_DOT_MAX},
 	 .m = {.min = MDFLD_DSIPLL_M_MIN_83, .max = MDFLD_DSIPLL_M_MAX_83},
 	 .p1 = {.min = MDFLD_DSIPLL_P1_MIN_83, .max = MDFLD_DSIPLL_P1_MAX_83},
 	 },
-	{			
+	{			/* MDFLD_LIMT_DSIPLL_100 */
 	 .dot = {.min = MDFLD_DOT_MIN, .max = MDFLD_DOT_MAX},
 	 .m = {.min = MDFLD_DSIPLL_M_MIN_100, .max = MDFLD_DSIPLL_M_MAX_100},
 	 .p1 = {.min = MDFLD_DSIPLL_P1_MIN_100, .max = MDFLD_DSIPLL_P1_MAX_100},
@@ -628,22 +659,23 @@ static const struct mrst_limit_t mdfld_limits[] = {
 #define MDFLD_M_MIN	    21
 #define MDFLD_M_MAX	    180
 static const u32 mdfld_m_converts[] = {
-	224, 368, 440, 220, 366, 439, 219, 365, 182, 347, 
-	173, 342, 171, 85, 298, 149, 74, 37, 18, 265,   
-	388, 194, 353, 432, 216, 108, 310, 155, 333, 166, 
-	83, 41, 276, 138, 325, 162, 337, 168, 340, 170, 
-	341, 426, 469, 234, 373, 442, 221, 110, 311, 411, 
-	461, 486, 243, 377, 188, 350, 175, 343, 427, 213, 
-	106, 53, 282, 397, 354, 227, 113, 56, 284, 142, 
-	71, 35, 273, 136, 324, 418, 465, 488, 500, 506, 
-	253, 126, 63, 287, 399, 455, 483, 241, 376, 444, 
-	478, 495, 503, 251, 381, 446, 479, 239, 375, 443, 
-	477, 238, 119, 315, 157, 78, 295, 147, 329, 420, 
-	210, 105, 308, 154, 77, 38, 275, 137, 68, 290, 
-	145, 328, 164, 82, 297, 404, 458, 485, 498, 249, 
-	380, 190, 351, 431, 471, 235, 117, 314, 413, 206, 
-	103, 51, 25, 12, 262, 387, 193, 96, 48, 280, 
-	396, 198, 99, 305, 152, 76, 294, 403, 457, 228, 
+/* M configuration table from 9-bit LFSR table */
+	224, 368, 440, 220, 366, 439, 219, 365, 182, 347, /* 21 - 30 */
+	173, 342, 171, 85, 298, 149, 74, 37, 18, 265,   /* 31 - 40 */
+	388, 194, 353, 432, 216, 108, 310, 155, 333, 166, /* 41 - 50 */
+	83, 41, 276, 138, 325, 162, 337, 168, 340, 170, /* 51 - 60 */
+	341, 426, 469, 234, 373, 442, 221, 110, 311, 411, /* 61 - 70 */
+	461, 486, 243, 377, 188, 350, 175, 343, 427, 213, /* 71 - 80 */
+	106, 53, 282, 397, 354, 227, 113, 56, 284, 142, /* 81 - 90 */
+	71, 35, 273, 136, 324, 418, 465, 488, 500, 506, /* 91 - 100 */
+	253, 126, 63, 287, 399, 455, 483, 241, 376, 444, /* 101 - 110 */
+	478, 495, 503, 251, 381, 446, 479, 239, 375, 443, /* 111 - 120 */
+	477, 238, 119, 315, 157, 78, 295, 147, 329, 420, /* 121 - 130 */
+	210, 105, 308, 154, 77, 38, 275, 137, 68, 290, /* 131 - 140 */
+	145, 328, 164, 82, 297, 404, 458, 485, 498, 249, /* 141 - 150 */
+	380, 190, 351, 431, 471, 235, 117, 314, 413, 206, /* 151 - 160 */
+	103, 51, 25, 12, 262, 387, 193, 96, 48, 280, /* 161 - 170 */
+	396, 198, 99, 305, 152, 76, 294, 403, 457, 228, /* 171 - 180 */
 };
 
 static const struct mrst_limit_t *mdfld_limit(struct drm_crtc *crtc)
@@ -685,11 +717,16 @@ static const struct mrst_limit_t *mdfld_limit(struct drm_crtc *crtc)
 	return limit;
 }
 
+/** Derive the pixel clock for the given refclk and divisors for 8xx chips. */
 static void mdfld_clock(int refclk, struct mrst_clock_t *clock)
 {
 	clock->dot = (refclk * clock->m) / clock->p1;
 }
 
+/**
+ * Returns a set of divisors for the desired target clock with the given refclk,
+ * or FALSE.  Divisor values are the actual divisors for
+ */
 static bool
 mdfldFindBestPLL(struct drm_crtc *crtc, int target, int refclk,
 		struct mrst_clock_t *best_clock)
@@ -870,18 +907,31 @@ static int mdfld_crtc_mode_set(struct drm_crtc *crtc,
 		}
 	}
 
-	
+	/* Disable the VGA plane that we never use */
 	REG_WRITE(VGACNTRL, VGA_DISP_DISABLE);
 
-	
+	/* Disable the panel fitter if it was on our pipe */
 	if (psb_intel_panel_fitter_pipe(dev) == pipe)
 		REG_WRITE(PFIT_CONTROL, 0);
 
+	/* pipesrc and dspsize control the size that is scaled from,
+	 * which should always be the user's requested size.
+	 */
 	if (pipe == 1) {
+		/* FIXME: To make HDMI display with 864x480 (TPO), 480x864
+		 * (PYR) or 480x854 (TMD), set the sprite width/height and
+		 * souce image size registers with the adjusted mode for
+		 * pipe B.
+		 */
 
+		/*
+		 * The defined sprite rectangle must always be completely
+		 * contained within the displayable area of the screen image
+		 * (frame buffer).
+		 */
 		REG_WRITE(dspsize_reg, ((min(mode->crtc_vdisplay, adjusted_mode->crtc_vdisplay) - 1) << 16)
 				| (min(mode->crtc_hdisplay, adjusted_mode->crtc_hdisplay) - 1));
-		
+		/* Set the CRTC with encoder mode. */
 		REG_WRITE(pipesrc_reg, ((mode->crtc_hdisplay - 1) << 16)
 				 | (mode->crtc_vdisplay - 1));
 	} else {
@@ -900,6 +950,10 @@ static int mdfld_crtc_mode_set(struct drm_crtc *crtc,
 			dev->mode_config.scaling_mode_property, &scalingType);
 
 	if (scalingType == DRM_MODE_SCALE_NO_SCALE) {
+		/* Medfield doesn't have register support for centering so we
+		 * need to mess with the h/vblank and h/vsync start and ends
+		 * to get centering
+		 */
 		int offsetX = 0, offsetY = 0;
 
 		offsetX = (adjusted_mode->crtc_hdisplay -
@@ -938,17 +992,17 @@ static int mdfld_crtc_mode_set(struct drm_crtc *crtc,
 			((adjusted_mode->crtc_vsync_end - 1) << 16));
 	}
 
-	
+	/* Flush the plane changes */
 	{
 		struct drm_crtc_helper_funcs *crtc_funcs =
 		    crtc->helper_private;
 		crtc_funcs->mode_set_base(crtc, x, y, old_fb);
 	}
 
-	
-	*pipeconf = PIPEACONF_ENABLE; 
+	/* setup pipeconf */
+	*pipeconf = PIPEACONF_ENABLE; /* FIXME_JLIU7 REG_READ(pipeconf_reg); */
 
-	
+	/* Set up the display plane register */
 	*dspcntr = REG_READ(dspcntr_reg);
 	*dspcntr |= pipe << DISPPLANE_SEL_PIPE_POS;
 	*dspcntr |= DISPLAY_PLANE_ENABLE;
@@ -1023,33 +1077,35 @@ static int mdfld_crtc_mode_set(struct drm_crtc *crtc,
 			REG_WRITE(dpll_reg, dpll);
 			REG_READ(dpll_reg);
 
-			
-			
+			/* FIXME jliu7 check the DPLL lock bit PIPEACONF[29] */
+			/* FIXME_MDFLD PO - change 500 to 1 after PO */
 			udelay(500);
 
-			
+			/* reset M1, N1 & P1 */
 			REG_WRITE(fp_reg, 0);
 			dpll &= ~MDFLD_P1_MASK;
 			REG_WRITE(dpll_reg, dpll);
-			
+			/* FIXME_MDFLD PO - change 500 to 1 after PO */
 			udelay(500);
 		}
 
+		/* When ungating power of DPLL, needs to wait 0.5us before
+		 * enable the VCO */
 		if (dpll & MDFLD_PWR_GATE_EN) {
 			dpll &= ~MDFLD_PWR_GATE_EN;
 			REG_WRITE(dpll_reg, dpll);
-			
+			/* FIXME_MDFLD PO - change 500 to 1 after PO */
 			udelay(500);
 		}
 		dpll = 0;
 
-#if 0 
+#if 0 /* FIXME revisit later */
 		if (ksel == KSEL_CRYSTAL_19 || ksel == KSEL_BYPASS_19 ||
 						ksel == KSEL_BYPASS_25)
 			dpll &= ~MDFLD_INPUT_REF_SEL;
 		else if (ksel == KSEL_BYPASS_83_100)
 			dpll |= MDFLD_INPUT_REF_SEL;
-#endif 
+#endif /* FIXME revisit later */
 
 		if (is_hdmi)
 			dpll |= MDFLD_VCO_SEL;
@@ -1057,22 +1113,22 @@ static int mdfld_crtc_mode_set(struct drm_crtc *crtc,
 		fp = (clk_n / 2) << 16;
 		fp |= m_conv;
 
-		
+		/* compute bitmask from p1 value */
 		dpll |= (1 << (clock.p1 - 2)) << 17;
 
-#if 0 
+#if 0 /* 1080p30 & 720p */
 		dpll = 0x00050000;
 		fp = 0x000001be;
 #endif
-#if 0 
+#if 0 /* 480p */
 		dpll = 0x02010000;
 		fp = 0x000000d2;
 #endif
 	} else {
-#if 0 
+#if 0 /*DBI_TPO_480x864*/
 		dpll = 0x00020000;
 		fp = 0x00000156;
-#endif  
+#endif /* DBI_TPO_480x864 */ /* get from spec. */
 
 		dpll = 0x00800000;
 		fp = 0x000000c1;
@@ -1080,14 +1136,14 @@ static int mdfld_crtc_mode_set(struct drm_crtc *crtc,
 
 	REG_WRITE(fp_reg, fp);
 	REG_WRITE(dpll_reg, dpll);
-	
+	/* FIXME_MDFLD PO - change 500 to 1 after PO */
 	udelay(500);
 
 	dpll |= DPLL_VCO_ENABLE;
 	REG_WRITE(dpll_reg, dpll);
 	REG_READ(dpll_reg);
 
-	
+	/* wait for DSI PLL to lock */
 	while (timeout < 20000 &&
 			!(REG_READ(pipeconf_reg) & PIPECONF_DSIPLL_LOCK)) {
 		udelay(150);
@@ -1102,7 +1158,7 @@ static int mdfld_crtc_mode_set(struct drm_crtc *crtc,
 	REG_WRITE(pipeconf_reg, *pipeconf);
 	REG_READ(pipeconf_reg);
 
-	
+	/* Wait for for the pipe enable to take effect. */
 	REG_WRITE(dspcntr_reg, *dspcntr);
 	psb_intel_wait_for_vblank(dev);
 

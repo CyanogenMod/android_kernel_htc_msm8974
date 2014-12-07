@@ -16,6 +16,35 @@
  *  along with this driver; if not, see <http://www.gnu.org/licenses/>.
  */
 
+/*
+ * Xonar D1/DX
+ * -----------
+ *
+ * CMI8788:
+ *
+ *   I²C <-> CS4398 (addr 1001111) (front)
+ *       <-> CS4362A (addr 0011000) (surround, center/LFE, back)
+ *
+ *   GPI 0 <- external power present (DX only)
+ *
+ *   GPIO 0 -> enable output to speakers
+ *   GPIO 1 -> route output to front panel
+ *   GPIO 2 -> M0 of CS5361
+ *   GPIO 3 -> M1 of CS5361
+ *   GPIO 6 -> ?
+ *   GPIO 7 -> ?
+ *   GPIO 8 -> route input jack to line-in (0) or mic-in (1)
+ *
+ * CM9780:
+ *
+ *   LINE_OUT -> input of ADC
+ *
+ *   AUX_IN  <- aux
+ *   MIC_IN  <- mic
+ *   FMIC_IN <- front mic
+ *
+ *   GPO 0 -> route line-in (0) or AC97 output (1) to CS5361 input
+ */
 
 #include <linux/pci.h>
 #include <linux/delay.h>
@@ -36,8 +65,8 @@
 #define GPIO_D1_MAGIC		0x00c0
 #define GPIO_D1_INPUT_ROUTE	0x0100
 
-#define I2C_DEVICE_CS4398	0x9e	
-#define I2C_DEVICE_CS4362A	0x30	
+#define I2C_DEVICE_CS4398	0x9e	/* 10011, AD1=1, AD0=1, /W=0 */
+#define I2C_DEVICE_CS4362A	0x30	/* 001100, AD0=0, /W=0 */
 
 struct xonar_cs43xx {
 	struct xonar_generic generic;
@@ -84,10 +113,10 @@ static void cs43xx_registers_init(struct oxygen *chip)
 	struct xonar_cs43xx *data = chip->model_data;
 	unsigned int i;
 
-	
+	/* set CPEN (control port mode) and power down */
 	cs4398_write(chip, 8, CS4398_CPEN | CS4398_PDN);
 	cs4362a_write(chip, 0x01, CS4362A_PDN | CS4362A_CPEN);
-	
+	/* configure */
 	cs4398_write(chip, 2, data->cs4398_regs[2]);
 	cs4398_write(chip, 3, CS4398_ATAPI_B_R | CS4398_ATAPI_A_L);
 	cs4398_write(chip, 4, data->cs4398_regs[4]);
@@ -101,7 +130,7 @@ static void cs43xx_registers_init(struct oxygen *chip)
 	cs4362a_write(chip, 0x05, 0);
 	for (i = 6; i <= 14; ++i)
 		cs4362a_write(chip, i, data->cs4362a_regs[i]);
-	
+	/* clear power down */
 	cs4398_write(chip, 8, CS4398_CPEN);
 	cs4362a_write(chip, 0x01, CS4362A_CPEN);
 }

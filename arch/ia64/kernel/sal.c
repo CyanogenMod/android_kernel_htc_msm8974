@@ -28,8 +28,8 @@ unsigned short sal_version;
 #define SAL_MINOR(x) ((x) & 0xff)
 
 static struct {
-	void *addr;	
-	void *gpval;	
+	void *addr;	/* function entry point */
+	void *gpval;	/* gp value to use */
 } pdesc;
 
 static long
@@ -86,7 +86,7 @@ ia64_sal_strerror (long status)
 void __init
 ia64_sal_handler_init (void *entry_point, void *gpval)
 {
-	
+	/* fill in the SAL procedure descriptor and point ia64_sal to it: */
 	pdesc.addr = entry_point;
 	pdesc.gpval = gpval;
 	ia64_sal = (ia64_sal_handler) &pdesc;
@@ -98,15 +98,23 @@ check_versions (struct ia64_sal_systab *systab)
 	sal_revision = (systab->sal_rev_major << 8) | systab->sal_rev_minor;
 	sal_version = (systab->sal_b_rev_major << 8) | systab->sal_b_rev_minor;
 
-	
+	/* Check for broken firmware */
 	if ((sal_revision == SAL_VERSION_CODE(49, 29))
 	    && (sal_version == SAL_VERSION_CODE(49, 29)))
 	{
+		/*
+		 * Old firmware for zx2000 prototypes have this weird version number,
+		 * reset it to something sane.
+		 */
 		sal_revision = SAL_VERSION_CODE(2, 8);
 		sal_version = SAL_VERSION_CODE(0, 0);
 	}
 
 	if (ia64_platform_is("sn2") && (sal_revision == SAL_VERSION_CODE(2, 9)))
+		/*
+		 * SGI Altix has hard-coded version 2.9 in their prom
+		 * but they actually implement 3.2, so let's fix it here.
+		 */
 		sal_revision = SAL_VERSION_CODE(3, 2);
 }
 
@@ -128,6 +136,14 @@ set_smp_redirect (int flag)
 	else
 		smp_int_redirect |= flag;
 #else
+	/*
+	 * For CPU Hotplug we dont want to do any chipset supported
+	 * interrupt redirection. The reason is this would require that
+	 * All interrupts be stopped and hard bind the irq to a cpu.
+	 * Later when the interrupt is fired we need to set the redir hint
+	 * on again in the vector. This is cumbersome for something that the
+	 * user mode irq balancer will solve anyways.
+	 */
 	no_int_routing=1;
 	smp_int_redirect &= ~flag;
 #endif
@@ -204,6 +220,13 @@ chk_nointroute_opt(void)
 static void __init sal_desc_ap_wakeup(void *p) { }
 #endif
 
+/*
+ * HP rx5670 firmware polls for interrupts during SAL_CACHE_FLUSH by reading
+ * cr.ivr, but it never writes cr.eoi.  This leaves any interrupt marked as
+ * "in-service" and masks other interrupts of equal or lower priority.
+ *
+ * HP internal defect reports: F1859, F2775, F3031.
+ */
 static int sal_cache_flush_drops_interrupts;
 
 static int __init
@@ -228,6 +251,10 @@ check_sal_cache_flush (void)
 	cpu = get_cpu();
 	local_irq_save(flags);
 
+	/*
+	 * Send ourselves a timer interrupt, wait until it's reported, and see
+	 * if SAL_CACHE_FLUSH drops it.
+	 */
 	platform_send_ipi(cpu, IA64_TIMER_VECTOR, IA64_IPI_DM_INT, 0);
 
 	while (!ia64_get_irr(IA64_TIMER_VECTOR))
@@ -295,7 +322,7 @@ ia64_sal_init (struct ia64_sal_systab *systab)
 	chk_nointroute_opt();
 #endif
 
-	
+	/* revisions are coded in BCD, so %x does the job for us */
 	printk(KERN_INFO "SAL %x.%x: %.32s %.32s%sversion %x.%x\n",
 			SAL_MAJOR(sal_revision), SAL_MINOR(sal_revision),
 			systab->oem_id, systab->product_id,
@@ -304,6 +331,10 @@ ia64_sal_init (struct ia64_sal_systab *systab)
 
 	p = (char *) (systab + 1);
 	for (i = 0; i < systab->entry_count; i++) {
+		/*
+		 * The first byte of each entry type contains the type
+		 * descriptor.
+		 */
 		switch (*p) {
 		case SAL_DESC_ENTRY_POINT:
 			sal_desc_entry_point(p);

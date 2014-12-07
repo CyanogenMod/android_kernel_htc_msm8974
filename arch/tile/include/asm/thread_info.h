@@ -20,20 +20,30 @@
 #include <asm/page.h>
 #ifndef __ASSEMBLY__
 
+/*
+ * Low level task data that assembly code needs immediate access to.
+ * The structure is placed at the bottom of the supervisor stack.
+ */
 struct thread_info {
-	struct task_struct	*task;		
-	struct exec_domain	*exec_domain;	
-	unsigned long		flags;		
-	unsigned long		status;		
-	__u32			homecache_cpu;	
-	__u32			cpu;		
-	int			preempt_count;	
+	struct task_struct	*task;		/* main task structure */
+	struct exec_domain	*exec_domain;	/* execution domain */
+	unsigned long		flags;		/* low level flags */
+	unsigned long		status;		/* thread-synchronous flags */
+	__u32			homecache_cpu;	/* CPU we are homecached on */
+	__u32			cpu;		/* current CPU */
+	int			preempt_count;	/* 0 => preemptable,
+						   <0 => BUG */
 
-	mm_segment_t		addr_limit;	
+	mm_segment_t		addr_limit;	/* thread address space
+						   (KERNEL_DS or USER_DS) */
 	struct restart_block	restart_block;
-	struct single_step_state *step_state;	
+	struct single_step_state *step_state;	/* single step state
+						   (if non-zero) */
 };
 
+/*
+ * macros/functions for gaining access to the thread information structure.
+ */
 #define INIT_THREAD_INFO(tsk)			\
 {						\
 	.task		= &tsk,			\
@@ -51,7 +61,7 @@ struct thread_info {
 #define init_thread_info	(init_thread_union.thread_info)
 #define init_stack		(init_thread_union.stack)
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #if PAGE_SIZE < 8192
 #define THREAD_SIZE_ORDER (13 - PAGE_SHIFT)
@@ -67,6 +77,7 @@ struct thread_info {
 
 #ifndef __ASSEMBLY__
 
+/* How to get the thread information struct from C. */
 register unsigned long stack_pointer __asm__("sp");
 
 #define current_thread_info() \
@@ -76,35 +87,50 @@ register unsigned long stack_pointer __asm__("sp");
 extern struct thread_info *alloc_thread_info_node(struct task_struct *task, int node);
 extern void free_thread_info(struct thread_info *info);
 
+/* Sit on a nap instruction until interrupted. */
 extern void smp_nap(void);
 
+/* Enable interrupts racelessly and nap forever: helper for cpu_idle(). */
 extern void _cpu_idle(void);
 
+/* Switch boot idle thread to a freshly-allocated stack and free old stack. */
 extern void cpu_idle_on_new_stack(struct thread_info *old_ti,
 				  unsigned long new_sp,
 				  unsigned long new_ss10);
 
-#else 
+#else /* __ASSEMBLY__ */
 
+/*
+ * How to get the thread information struct from assembly.
+ * Note that we use different macros since different architectures
+ * have different semantics in their "mm" instruction and we would
+ * like to guarantee that the macro expands to exactly one instruction.
+ */
 #ifdef __tilegx__
 #define EXTRACT_THREAD_INFO(reg) mm reg, zero, LOG2_THREAD_SIZE, 63
 #else
 #define GET_THREAD_INFO(reg) mm reg, sp, zero, LOG2_THREAD_SIZE, 31
 #endif
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #define PREEMPT_ACTIVE		0x10000000
 
-#define TIF_SIGPENDING		0	
-#define TIF_NEED_RESCHED	1	
-#define TIF_SINGLESTEP		2	
-#define TIF_ASYNC_TLB		3	
-#define TIF_SYSCALL_TRACE	4	
-#define TIF_SYSCALL_AUDIT	5	
-#define TIF_SECCOMP		6	
-#define TIF_MEMDIE		7	
-#define TIF_NOTIFY_RESUME	8	
+/*
+ * Thread information flags that various assembly files may need to access.
+ * Keep flags accessed frequently in low bits, particular since it makes
+ * it easier to build constants in assembly.
+ */
+#define TIF_SIGPENDING		0	/* signal pending */
+#define TIF_NEED_RESCHED	1	/* rescheduling necessary */
+#define TIF_SINGLESTEP		2	/* restore singlestep on return to
+					   user mode */
+#define TIF_ASYNC_TLB		3	/* got an async TLB fault in kernel */
+#define TIF_SYSCALL_TRACE	4	/* syscall trace active */
+#define TIF_SYSCALL_AUDIT	5	/* syscall auditing active */
+#define TIF_SECCOMP		6	/* secure computing */
+#define TIF_MEMDIE		7	/* OOM killer at work */
+#define TIF_NOTIFY_RESUME	8	/* callback before returning to user */
 
 #define _TIF_SIGPENDING		(1<<TIF_SIGPENDING)
 #define _TIF_NEED_RESCHED	(1<<TIF_NEED_RESCHED)
@@ -116,15 +142,23 @@ extern void cpu_idle_on_new_stack(struct thread_info *old_ti,
 #define _TIF_MEMDIE		(1<<TIF_MEMDIE)
 #define _TIF_NOTIFY_RESUME	(1<<TIF_NOTIFY_RESUME)
 
+/* Work to do on any return to user space. */
 #define _TIF_ALLWORK_MASK \
   (_TIF_SIGPENDING|_TIF_NEED_RESCHED|_TIF_SINGLESTEP|\
    _TIF_ASYNC_TLB|_TIF_NOTIFY_RESUME)
 
+/*
+ * Thread-synchronous status.
+ *
+ * This is different from the flags in that nobody else
+ * ever touches our thread-synchronous status, so we don't
+ * have to worry about atomic accesses.
+ */
 #ifdef __tilegx__
-#define TS_COMPAT		0x0001	
+#define TS_COMPAT		0x0001	/* 32-bit compatibility mode */
 #endif
-#define TS_POLLING		0x0004	
-#define TS_RESTORE_SIGMASK	0x0008	
+#define TS_POLLING		0x0004	/* in idle loop but not sleeping */
+#define TS_RESTORE_SIGMASK	0x0008	/* restore signal mask in do_signal */
 
 #define tsk_is_polling(t) (task_thread_info(t)->status & TS_POLLING)
 
@@ -136,6 +170,6 @@ static inline void set_restore_sigmask(void)
 	ti->status |= TS_RESTORE_SIGMASK;
 	set_bit(TIF_SIGPENDING, &ti->flags);
 }
-#endif	
+#endif	/* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_TILE_THREAD_INFO_H */

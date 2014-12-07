@@ -18,6 +18,14 @@
 #include <asm/octeon/cvmx-ipd-defs.h>
 #include <asm/octeon/cvmx-mio-defs.h>
 
+/*
+ * Set the current core's cvmcount counter to the value of the
+ * IPD_CLK_COUNT.  We do this on all cores as they are brought
+ * on-line.  This allows for a read from a local cpu register to
+ * access a synchronized counter.
+ *
+ * On CPU_CAVIUM_OCTEON2 the IPD_CLK_COUNT is scaled by rdiv/sdiv.
+ */
 void octeon_init_cvmcount(void)
 {
 	unsigned long flags;
@@ -28,16 +36,20 @@ void octeon_init_cvmcount(void)
 	if (current_cpu_type() == CPU_CAVIUM_OCTEON2) {
 		union cvmx_mio_rst_boot rst_boot;
 		rst_boot.u64 = cvmx_read_csr(CVMX_MIO_RST_BOOT);
-		rdiv = rst_boot.s.c_mul;	
-		sdiv = rst_boot.s.pnr_mul;	
+		rdiv = rst_boot.s.c_mul;	/* CPU clock */
+		sdiv = rst_boot.s.pnr_mul;	/* I/O clock */
 		f = (0x8000000000000000ull / sdiv) * 2;
 	}
 
 
-	
+	/* Clobber loops so GCC will not unroll the following while loop. */
 	asm("" : "+r" (loops));
 
 	local_irq_save(flags);
+	/*
+	 * Loop several times so we are executing from the cache,
+	 * which should give more deterministic timing.
+	 */
 	while (loops--) {
 		u64 ipd_clk_count = cvmx_read_csr(CVMX_IPD_CLK_COUNT);
 		if (rdiv != 0) {
@@ -69,7 +81,7 @@ static struct clocksource clocksource_mips = {
 
 unsigned long long notrace sched_clock(void)
 {
-	
+	/* 64-bit arithmatic can overflow, so use 128-bit.  */
 	u64 t1, t2, t3;
 	unsigned long long rv;
 	u64 mult = clocksource_mips.mult;
@@ -103,6 +115,10 @@ static u64 octeon_ndelay_factor;
 void __init octeon_setup_delays(void)
 {
 	octeon_udelay_factor = octeon_get_clock_rate() / 1000000;
+	/*
+	 * For __ndelay we divide by 2^16, so the factor is multiplied
+	 * by the same amount.
+	 */
 	octeon_ndelay_factor = (octeon_udelay_factor * 0x10000ull) / 1000ull;
 
 	preset_lpj = octeon_get_clock_rate() / HZ;

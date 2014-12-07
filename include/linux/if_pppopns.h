@@ -22,11 +22,11 @@
 #include <linux/types.h>
 
 struct sockaddr_pppopns {
-	sa_family_t	sa_family;	
-	unsigned int	sa_protocol;	
+	sa_family_t	sa_family;	/* AF_PPPOX */
+	unsigned int	sa_protocol;	/* PX_PROTO_OPNS */
 	int		tcp_socket;
 	__u16		local;
 	__u16		remote;
 } __attribute__((packed));
 
-#endif 
+#endif /* __LINUX_IF_PPPOPNS_H */

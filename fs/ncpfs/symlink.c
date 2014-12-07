@@ -31,10 +31,13 @@
 #include <linux/stat.h>
 #include "ncp_fs.h"
 
+/* these magic numbers must appear in the symlink file -- this makes it a bit
+   more resilient against the magic attributes being set on random files. */
 
-#define NCP_SYMLINK_MAGIC0	cpu_to_le32(0x6c6d7973)     
+#define NCP_SYMLINK_MAGIC0	cpu_to_le32(0x6c6d7973)     /* "symlnk->" */
 #define NCP_SYMLINK_MAGIC1	cpu_to_le32(0x3e2d6b6e)
 
+/* ----- read a symbolic link ------------------------------------------ */
 
 static int ncp_symlink_readpage(struct file *file, struct page *page)
 {
@@ -55,7 +58,7 @@ static int ncp_symlink_readpage(struct file *file, struct page *page)
                          0,NCP_MAX_SYMLINK_SIZE,rawlink,&length);
 
 	ncp_inode_close(inode);
-	
+	/* Close file handle if no other users... */
 	ncp_make_closed(inode);
 	if (error)
 		goto failEIO;
@@ -91,10 +94,14 @@ fail:
 	return error;
 }
 
+/*
+ * symlinks can't do much...
+ */
 const struct address_space_operations ncp_symlink_aops = {
 	.readpage	= ncp_symlink_readpage,
 };
 	
+/* ----- create a new symbolic link -------------------------------------- */
  
 int ncp_symlink(struct inode *dir, struct dentry *dentry, const char *symname) {
 	struct inode *inode;
@@ -115,7 +122,7 @@ int ncp_symlink(struct inode *dir, struct dentry *dentry, const char *symname) {
 		kludge = 1;
 	else
 #endif
-	
+	/* EPERM is returned by VFS if symlink procedure does not exist */
 		return -EPERM;
   
 	rawlink = kmalloc(NCP_MAX_SYMLINK_SIZE, GFP_KERNEL);
@@ -135,6 +142,8 @@ int ncp_symlink(struct inode *dir, struct dentry *dentry, const char *symname) {
 	}			
 
 	length = strlen(symname);
+	/* map to/from server charset, do not touch upper/lower case as
+	   symlink can point out of ncp filesystem */
 	outlen = NCP_MAX_SYMLINK_SIZE - hdr;
 	err = ncp_io2vol(NCP_SERVER(dir), rawlink + hdr, &outlen, symname, length, 0);
 	if (err)
@@ -169,3 +178,4 @@ failfree:;
 	return err;
 }
 
+/* ----- EOF ----- */

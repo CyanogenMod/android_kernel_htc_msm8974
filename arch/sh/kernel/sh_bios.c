@@ -65,6 +65,11 @@ void sh_bios_shutdown(unsigned int how)
 	sh_bios_call(BIOS_CALL_SHUTDOWN, how, 0, 0, 0);
 }
 
+/*
+ * Read the old value of the VBR register to initialise the vector
+ * through which debug and BIOS traps are delegated by the Linux trap
+ * handler.
+ */
 void sh_bios_vbr_init(void)
 {
 	unsigned long vbr;
@@ -82,6 +87,12 @@ void sh_bios_vbr_init(void)
 		printk(KERN_NOTICE "SH-BIOS not detected\n");
 }
 
+/**
+ * sh_bios_vbr_reload - Re-load the system VBR from the BIOS vector.
+ *
+ * This can be used by save/restore code to reinitialize the system VBR
+ * from the fixed BIOS VBR. A no-op if no BIOS VBR is known.
+ */
 void sh_bios_vbr_reload(void)
 {
 	if (gdb_vbr_vector)
@@ -93,17 +104,32 @@ void sh_bios_vbr_reload(void)
 		);
 }
 
+/*
+ *	Print a string through the BIOS
+ */
 static void sh_console_write(struct console *co, const char *s,
 				 unsigned count)
 {
 	sh_bios_console_write(s, count);
 }
 
+/*
+ *	Setup initial baud/bits/parity. We do two things here:
+ *	- construct a cflag setting for the first rs_open()
+ *	- initialize the serial port
+ *	Return non-zero if we didn't find a serial port.
+ */
 static int __init sh_console_setup(struct console *co, char *options)
 {
 	int	cflag = CREAD | HUPCL | CLOCAL;
 
-	cflag |= B115200 | CS8 | 0;
+	/*
+	 *	Now construct a cflag setting.
+	 *	TODO: this is a totally bogus cflag, as we have
+	 *	no idea what serial settings the BIOS is using, or
+	 *	even if its using the serial port at all.
+	 */
+	cflag |= B115200 | CS8 | /*no parity*/0;
 
 	co->cflag = cflag;
 

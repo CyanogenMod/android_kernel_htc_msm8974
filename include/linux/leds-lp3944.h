@@ -47,4 +47,4 @@ struct lp3944_platform_data {
 	u8 leds_size;
 };
 
-#endif 
+#endif /* __LINUX_LEDS_LP3944_H */

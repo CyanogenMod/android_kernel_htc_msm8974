@@ -1,6 +1,17 @@
+/*
+ *  linux/fs/hpfs/alloc.c
+ *
+ *  Mikulas Patocka (mikulas@artax.karlin.mff.cuni.cz), 1998-1999
+ *
+ *  HPFS bitmap operations
+ */
 
 #include "hpfs_fn.h"
 
+/*
+ * Check if a sector is allocated in bitmap
+ * This is really slow. Turned on only if chk==2
+ */
 
 static int chk_if_allocated(struct super_block *s, secno sec, char *msg)
 {
@@ -28,6 +39,10 @@ static int chk_if_allocated(struct super_block *s, secno sec, char *msg)
 	return 1;
 }
 
+/*
+ * Check if sector(s) have proper number and additionally check if they're
+ * allocated in bitmap.
+ */
 	
 int hpfs_chk_sectors(struct super_block *s, secno start, int len, char *msg)
 {
@@ -50,7 +65,7 @@ static secno alloc_in_bmp(struct super_block *s, secno near, unsigned n, unsigne
 	unsigned *bmp;
 	unsigned bs = near & ~0x3fff;
 	unsigned nr = (near & 0x3fff) & ~(n - 1);
-	
+	/*unsigned mnr;*/
 	unsigned i, q;
 	int a, b;
 	secno ret = 0;
@@ -83,7 +98,7 @@ static secno alloc_in_bmp(struct super_block *s, secno near, unsigned n, unsigne
 		goto rt;
 	}
 	nr >>= 5;
-	
+	/*for (i = nr + 1; i != nr; i++, i &= 0x1ff) */
 	i = nr;
 	do {
 		if (!le32_to_cpu(bmp[i])) goto cont;
@@ -124,6 +139,13 @@ static secno alloc_in_bmp(struct super_block *s, secno near, unsigned n, unsigne
 	return ret;
 }
 
+/*
+ * Allocation strategy:	1) search place near the sector specified
+ *			2) search bitmap where free sectors last found
+ *			3) search all bitmaps
+ *			4) search all bitmaps ignoring number of pre-allocated
+ *				sectors
+ */
 
 secno hpfs_alloc_sector(struct super_block *s, secno near, unsigned n, int forward)
 {
@@ -142,6 +164,14 @@ secno hpfs_alloc_sector(struct super_block *s, secno near, unsigned n, int forwa
 		if ((sec = alloc_in_bmp(s, near, n, f_p ? forward : forward/4))) goto ret;
 		near_bmp = near >> 14;
 	} else near_bmp = n_bmps / 2;
+	/*
+	if (b != -1) {
+		if ((sec = alloc_in_bmp(s, b<<14, n, f_p ? forward : forward/2))) {
+			b &= 0x0fffffff;
+			goto ret;
+		}
+		if (b > 0x10000000) if ((sec = alloc_in_bmp(s, (b&0xfffffff)<<14, n, f_p ? forward : 0))) goto ret;
+	*/
 	if (!f_p) if (forward > sbi->sb_max_fwd_alloc) forward = sbi->sb_max_fwd_alloc;
 	less_fwd:
 	for (i = 0; i < n_bmps; i++) {
@@ -201,6 +231,7 @@ static secno alloc_in_dirband(struct super_block *s, secno near)
 	return ((sec & 0x3fff) << 2) + sbi->sb_dirband_start;
 }
 
+/* Alloc sector if it's free */
 
 int hpfs_alloc_if_possible(struct super_block *s, secno sec)
 {
@@ -218,13 +249,14 @@ int hpfs_alloc_if_possible(struct super_block *s, secno sec)
 	return 0;
 }
 
+/* Free sectors in bitmaps */
 
 void hpfs_free_sectors(struct super_block *s, secno sec, unsigned n)
 {
 	struct quad_buffer_head qbh;
 	u32 *bmp;
 	struct hpfs_sb_info *sbi = hpfs_sb(s);
-	
+	/*printk("2 - ");*/
 	if (!n) return;
 	if (sec < 0x12) {
 		hpfs_error(s, "Trying to free reserved sector %08x", sec);
@@ -256,6 +288,11 @@ void hpfs_free_sectors(struct super_block *s, secno sec, unsigned n)
 	goto new_tst;
 }
 
+/*
+ * Check if there are at least n free dnodes on the filesystem.
+ * Called before adding to dnode. If we run out of space while
+ * splitting dnodes, it would corrupt dnode tree.
+ */
 
 int hpfs_check_free_dnodes(struct super_block *s, int n)
 {

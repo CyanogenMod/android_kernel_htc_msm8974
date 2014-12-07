@@ -1,4 +1,8 @@
+/* Trivial implementations of basic i/o routines.  Assumes that all
+   of the hard work has been done by ioremap and ioportmap, and that
+   access to i/o space is linear.  */
 
+/* This file may be included multiple times.  */
 
 #if IO_CONCAT(__IO_PREFIX,trivial_io_bw)
 __EXTERN_INLINE unsigned int

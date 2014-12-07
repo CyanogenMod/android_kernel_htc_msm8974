@@ -22,7 +22,7 @@
 #include "lifebook.h"
 
 struct lifebook_data {
-	struct input_dev *dev2;		
+	struct input_dev *dev2;		/* Relative device */
 	char phys[32];
 };
 
@@ -46,56 +46,56 @@ static int lifebook_set_6byte_proto(const struct dmi_system_id *d)
 
 static const struct dmi_system_id __initconst lifebook_dmi_table[] = {
 	{
-		
+		/* FLORA-ie 55mi */
 		.matches = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "FLORA-ie 55mi"),
 		},
 	},
 	{
-		
+		/* LifeBook B */
 		.matches = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "Lifebook B Series"),
 		},
 	},
 	{
-		
+		/* LifeBook B */
 		.matches = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "LifeBook B Series"),
 		},
 	},
 	{
-		
+		/* Lifebook B */
 		.matches = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "LIFEBOOK B Series"),
 		},
 	},
 	{
-		
+		/* Lifebook B-2130 */
 		.matches = {
 			DMI_MATCH(DMI_BOARD_NAME, "ZEPHYR"),
 		},
 	},
 	{
-		
+		/* Lifebook B213x/B2150 */
 		.matches = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "LifeBook B2131/B2133/B2150"),
 		},
 	},
 	{
-		
+		/* Zephyr */
 		.matches = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "ZEPHYR"),
 		},
 	},
 	{
-		
+		/* Panasonic CF-18 */
 		.matches = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "CF-18"),
 		},
 		.callback = lifebook_limit_serio3,
 	},
 	{
-		
+		/* Panasonic CF-28 */
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "Matsushita"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "CF-28"),
@@ -103,7 +103,7 @@ static const struct dmi_system_id __initconst lifebook_dmi_table[] = {
 		.callback = lifebook_set_6byte_proto,
 	},
 	{
-		
+		/* Panasonic CF-29 */
 		.matches = {
 			DMI_MATCH(DMI_SYS_VENDOR, "Matsushita"),
 			DMI_MATCH(DMI_PRODUCT_NAME, "CF-29"),
@@ -111,14 +111,14 @@ static const struct dmi_system_id __initconst lifebook_dmi_table[] = {
 		.callback = lifebook_set_6byte_proto,
 	},
 	{
-		
+		/* Panasonic CF-72 */
 		.matches = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "CF-72"),
 		},
 		.callback = lifebook_set_6byte_proto,
 	},
 	{
-		
+		/* Lifebook B142 */
 		.matches = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "LifeBook B142"),
 		},
@@ -163,7 +163,7 @@ static psmouse_ret_t lifebook_process_byte(struct psmouse *psmouse)
 				return PSMOUSE_BAD_DATA;
 			if ((packet[5] & 0xc0) != (packet[1] & 0xc0))
 				return PSMOUSE_BAD_DATA;
-			break; 
+			break; /* report data */
 		}
 	}
 
@@ -210,6 +210,11 @@ static int lifebook_absolute_mode(struct psmouse *psmouse)
 	if (psmouse_reset(psmouse))
 		return -1;
 
+	/*
+	 * Enable absolute output -- ps2_command fails always but if
+	 * you leave this call out the touchscreen will never send
+	 * absolute coordinates
+	 */
 	param = lifebook_use_6byte_proto ? 0x08 : 0x07;
 	ps2_command(ps2dev, &param, PSMOUSE_CMD_SETRES);
 
@@ -336,6 +341,10 @@ int lifebook_init(struct psmouse *psmouse)
 
 	psmouse->model = lifebook_use_6byte_proto ? 6 : 3;
 
+	/*
+	 * Use packet size = 3 even when using 6-byte protocol because
+	 * that's what POLL will return on Lifebooks (according to spec).
+	 */
 	psmouse->pktsize = 3;
 
 	return 0;

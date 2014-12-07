@@ -23,8 +23,10 @@
 struct raid_internal {
 	struct raid_template r;
 	struct raid_function_template *f;
-	
+	/* The actual attributes */
 	struct device_attribute private_attrs[RAID_NUM_ATTRS];
+	/* The array of null terminated pointers to attributes 
+	 * needed by scsi_sysfs.c */
 	struct device_attribute *attrs[RAID_NUM_ATTRS + 1];
 };
 
@@ -57,6 +59,8 @@ struct raid_component {
 
 static int raid_match(struct attribute_container *cont, struct device *dev)
 {
+	/* We have to look for every subsystem that could house
+	 * emulated RAID devices, so start with SCSI */
 	struct raid_internal *i = ac_to_raid_internal(cont);
 
 #if defined(CONFIG_SCSI) || defined(CONFIG_SCSI_MODULE)
@@ -69,7 +73,7 @@ static int raid_match(struct attribute_container *cont, struct device *dev)
 		return i->f->is_raid(dev);
 	}
 #endif
-	
+	/* FIXME: look at other subsystems too */
 	return 0;
 }
 

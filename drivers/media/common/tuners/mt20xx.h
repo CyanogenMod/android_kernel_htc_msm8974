@@ -34,4 +34,4 @@ static inline struct dvb_frontend *microtune_attach(struct dvb_frontend *fe,
 }
 #endif
 
-#endif 
+#endif /* __MT20XX_H__ */

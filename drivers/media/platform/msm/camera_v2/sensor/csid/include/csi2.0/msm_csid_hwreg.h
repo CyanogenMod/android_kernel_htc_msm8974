@@ -13,6 +13,7 @@
 #ifndef MSM_CSID_HWREG_H
 #define MSM_CSID_HWREG_H
 
+/* MIPI	CSID registers */
 #define CSID_HW_VERSION_ADDR                        0x0
 #define CSID_CORE_CTRL_0_ADDR                       0x4
 #define CSID_CORE_CTRL_1_ADDR                       0x4

@@ -5,5 +5,5 @@
 
 extern void __init megamod_pic_init(void);
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _C6X_MEGAMOD_PIC_H */

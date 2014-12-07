@@ -15,6 +15,13 @@
 #include <linux/mfd/abx500/ab8500.h>
 #include <linux/slab.h>
 
+/**
+ * struct ab8500_ponkey - ab8500 ponkey information
+ * @input_dev: pointer to input device
+ * @ab8500: ab8500 parent
+ * @irq_dbf: irq number for falling transition
+ * @irq_dbr: irq number for rising transition
+ */
 struct ab8500_ponkey {
 	struct input_dev	*idev;
 	struct ab8500		*ab8500;
@@ -22,6 +29,7 @@ struct ab8500_ponkey {
 	int			irq_dbr;
 };
 
+/* AB8500 gives us an interrupt when ONKEY is held */
 static irqreturn_t ab8500_ponkey_handler(int irq, void *data)
 {
 	struct ab8500_ponkey *ponkey = data;

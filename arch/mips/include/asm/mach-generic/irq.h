@@ -25,7 +25,7 @@
 #define MIPS_CPU_IRQ_BASE 16
 #else
 #define MIPS_CPU_IRQ_BASE 0
-#endif 
+#endif /* CONFIG_I8259 */
 #endif
 
 #ifdef CONFIG_IRQ_CPU_RM7K
@@ -40,6 +40,6 @@
 #endif
 #endif
 
-#endif 
+#endif /* CONFIG_IRQ_CPU */
 
-#endif 
+#endif /* __ASM_MACH_GENERIC_IRQ_H */

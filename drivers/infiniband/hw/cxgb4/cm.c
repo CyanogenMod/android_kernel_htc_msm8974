@@ -296,6 +296,9 @@ static int status2errno(int status)
 	}
 }
 
+/*
+ * Try and reuse skbs already allocated...
+ */
 static struct sk_buff *get_skb(struct sk_buff *skb, int len, gfp_t gfp)
 {
 	if (skb && !skb_is_nonlinear(skb) && !skb_cloned(skb)) {
@@ -329,12 +332,19 @@ static void arp_failure_discard(void *handle, struct sk_buff *skb)
 	kfree_skb(skb);
 }
 
+/*
+ * Handle an ARP failure for an active open.
+ */
 static void act_open_req_arp_failure(void *handle, struct sk_buff *skb)
 {
 	printk(KERN_ERR MOD "ARP failure duing connect\n");
 	kfree_skb(skb);
 }
 
+/*
+ * Handle an ARP failure for a CPL_ABORT_REQ.  Change it into a no RST variant
+ * and send it along.
+ */
 static void abort_arp_failure(void *handle, struct sk_buff *skb)
 {
 	struct c4iw_rdev *rdev = handle;
@@ -375,7 +385,7 @@ static void send_flowc(struct c4iw_ep *ep, struct sk_buff *skb)
 	flowc->mnemval[6].val = cpu_to_be32(snd_win);
 	flowc->mnemval[7].mnemonic = FW_FLOWC_MNEM_MSS;
 	flowc->mnemval[7].val = cpu_to_be32(ep->emss);
-	
+	/* Pad WR to 16 byte boundary */
 	flowc->mnemval[8].mnemonic = 0;
 	flowc->mnemval[8].val = 0;
 	for (i = 0; i < 9; i++) {
@@ -564,6 +574,11 @@ static void send_mpa_req(struct c4iw_ep *ep, struct sk_buff *skb,
 			memcpy(mpa->private_data,
 					ep->mpa_pkt + sizeof(*mpa), ep->plen);
 
+	/*
+	 * Reference the mpa skb.  This ensures the data area
+	 * will remain in memory until the hw acks the tx.
+	 * Function fw4_ack() will deref it.
+	 */
 	skb_get(skb);
 	t4_set_arp_err_handler(skb, NULL, arp_failure_discard);
 	BUG_ON(ep->mpa_skb);
@@ -641,6 +656,11 @@ static int send_mpa_reject(struct c4iw_ep *ep, const void *pdata, u8 plen)
 		if (plen)
 			memcpy(mpa->private_data, pdata, plen);
 
+	/*
+	 * Reference the mpa skb again.  This ensures the data area
+	 * will remain in memory until the hw acks the tx.
+	 * Function fw4_ack() will deref it.
+	 */
 	skb_get(skb);
 	set_wr_txq(skb, CPL_PRIORITY_DATA, ep->txq_idx);
 	t4_set_arp_err_handler(skb, NULL, arp_failure_discard);
@@ -721,6 +741,11 @@ static int send_mpa_reply(struct c4iw_ep *ep, const void *pdata, u8 plen)
 		if (plen)
 			memcpy(mpa->private_data, pdata, plen);
 
+	/*
+	 * Reference the mpa skb.  This ensures the data area
+	 * will remain in memory until the hw acks the tx.
+	 * Function fw4_ack() will deref it.
+	 */
 	skb_get(skb);
 	t4_set_arp_err_handler(skb, NULL, arp_failure_discard);
 	ep->mpa_skb = skb;
@@ -743,7 +768,7 @@ static int act_establish(struct c4iw_dev *dev, struct sk_buff *skb)
 
 	dst_confirm(ep->dst);
 
-	
+	/* setup the hwtid for this connection */
 	ep->hwtid = tid;
 	cxgb4_insert_tid(t, ep, tid);
 
@@ -752,10 +777,10 @@ static int act_establish(struct c4iw_dev *dev, struct sk_buff *skb)
 
 	set_emss(ep, ntohs(req->tcp_opt));
 
-	
+	/* dealloc the atid */
 	cxgb4_free_atid(t, atid);
 
-	
+	/* start MPA negotiation */
 	send_flowc(ep, NULL);
 	if (ep->retry_with_mpa_v1)
 		send_mpa_req(ep, skb, 1);
@@ -835,14 +860,14 @@ static void connect_reply_upcall(struct c4iw_ep *ep, int status)
 
 	if ((status == 0) || (status == -ECONNREFUSED)) {
 		if (!ep->tried_with_mpa_v1) {
-			
+			/* this means MPA_v2 is used */
 			event.private_data_len = ep->plen -
 				sizeof(struct mpa_v2_conn_params);
 			event.private_data = ep->mpa_pkt +
 				sizeof(struct mpa_message) +
 				sizeof(struct mpa_v2_conn_params);
 		} else {
-			
+			/* this means MPA_v1 is used */
 			event.private_data_len = ep->plen;
 			event.private_data = ep->mpa_pkt +
 				sizeof(struct mpa_message);
@@ -871,7 +896,7 @@ static void connect_request_upcall(struct c4iw_ep *ep)
 	event.remote_addr = ep->com.remote_addr;
 	event.provider_data = ep;
 	if (!ep->tried_with_mpa_v1) {
-		
+		/* this means MPA_v2 is used */
 		event.ord = ep->ord;
 		event.ird = ep->ird;
 		event.private_data_len = ep->plen -
@@ -879,7 +904,7 @@ static void connect_request_upcall(struct c4iw_ep *ep)
 		event.private_data = ep->mpa_pkt + sizeof(struct mpa_message) +
 			sizeof(struct mpa_v2_conn_params);
 	} else {
-		
+		/* this means MPA_v1 is used. Send max supported */
 		event.ord = c4iw_max_read_depth;
 		event.ird = c4iw_max_read_depth;
 		event.private_data_len = ep->plen;
@@ -949,24 +974,39 @@ static void process_mpa_reply(struct c4iw_ep *ep, struct sk_buff *skb)
 
 	PDBG("%s ep %p tid %u\n", __func__, ep, ep->hwtid);
 
+	/*
+	 * Stop mpa timer.  If it expired, then the state has
+	 * changed and we bail since ep_timeout already aborted
+	 * the connection.
+	 */
 	stop_ep_timer(ep);
 	if (state_read(&ep->com) != MPA_REQ_SENT)
 		return;
 
+	/*
+	 * If we get more than the supported amount of private data
+	 * then we must fail this connection.
+	 */
 	if (ep->mpa_pkt_len + skb->len > sizeof(ep->mpa_pkt)) {
 		err = -EINVAL;
 		goto err;
 	}
 
+	/*
+	 * copy the new data into our accumulation buffer.
+	 */
 	skb_copy_from_linear_data(skb, &(ep->mpa_pkt[ep->mpa_pkt_len]),
 				  skb->len);
 	ep->mpa_pkt_len += skb->len;
 
+	/*
+	 * if we don't even have the mpa message, then bail.
+	 */
 	if (ep->mpa_pkt_len < sizeof(*mpa))
 		return;
 	mpa = (struct mpa_message *) ep->mpa_pkt;
 
-	
+	/* Validate MPA header. */
 	if (mpa->revision > mpa_rev) {
 		printk(KERN_ERR MOD "%s MPA version mismatch. Local = %d,"
 		       " Received = %d\n", __func__, mpa_rev, mpa->revision);
@@ -980,11 +1020,17 @@ static void process_mpa_reply(struct c4iw_ep *ep, struct sk_buff *skb)
 
 	plen = ntohs(mpa->private_data_size);
 
+	/*
+	 * Fail if there's too much private data.
+	 */
 	if (plen > MPA_MAX_PRIVATE_DATA) {
 		err = -EPROTO;
 		goto err;
 	}
 
+	/*
+	 * If plen does not account for pkt size
+	 */
 	if (ep->mpa_pkt_len > (sizeof(*mpa) + plen)) {
 		err = -EPROTO;
 		goto err;
@@ -992,6 +1038,10 @@ static void process_mpa_reply(struct c4iw_ep *ep, struct sk_buff *skb)
 
 	ep->plen = (u8) plen;
 
+	/*
+	 * If we don't have all the pdata yet, then bail.
+	 * We'll continue process when more data arrives.
+	 */
 	if (ep->mpa_pkt_len < (sizeof(*mpa) + plen))
 		return;
 
@@ -1000,6 +1050,11 @@ static void process_mpa_reply(struct c4iw_ep *ep, struct sk_buff *skb)
 		goto err;
 	}
 
+	/*
+	 * If we get here we have accumulated the entire mpa
+	 * start reply message including private data. And
+	 * the MPA header is valid.
+	 */
 	state_set(&ep->com, FPDU_MODE);
 	ep->mpa_attr.crc_enabled = (mpa->flags & MPA_CRC) | crc_enabled ? 1 : 0;
 	ep->mpa_attr.recv_marker_enabled = markers_enabled;
@@ -1018,6 +1073,11 @@ static void process_mpa_reply(struct c4iw_ep *ep, struct sk_buff *skb)
 			resp_ord = ntohs(mpa_v2_params->ord) &
 				MPA_V2_IRD_ORD_MASK;
 
+			/*
+			 * This is a double-check. Ideally, below checks are
+			 * not required since ird/ord stuff has been taken
+			 * care of in c4iw_accept_cr
+			 */
 			if ((ep->ird < resp_ord) || (ep->ord > resp_ird)) {
 				err = -ENOMEM;
 				ep->ird = resp_ord;
@@ -1048,6 +1108,12 @@ static void process_mpa_reply(struct c4iw_ep *ep, struct sk_buff *skb)
 	     ep->mpa_attr.xmit_marker_enabled, ep->mpa_attr.version,
 	     ep->mpa_attr.p2p_type, p2p_type);
 
+	/*
+	 * If responder's RTR does not match with that of initiator, assign
+	 * FW_RI_INIT_P2PTYPE_DISABLED in mpa attributes so that RTR is not
+	 * generated when moving QP to RTS state.
+	 * A TERM message will be sent after QP has moved to RTS state
+	 */
 	if ((ep->mpa_attr.version == 2) && peer2peer &&
 			(ep->mpa_attr.p2p_type != p2p_type)) {
 		ep->mpa_attr.p2p_type = FW_RI_INIT_P2PTYPE_DISABLED;
@@ -1064,12 +1130,16 @@ static void process_mpa_reply(struct c4iw_ep *ep, struct sk_buff *skb)
 	    C4IW_QP_ATTR_LLP_STREAM_HANDLE | C4IW_QP_ATTR_MPA_ATTR |
 	    C4IW_QP_ATTR_MAX_IRD | C4IW_QP_ATTR_MAX_ORD;
 
-	
+	/* bind QP and TID with INIT_WR */
 	err = c4iw_modify_qp(ep->com.qp->rhp,
 			     ep->com.qp, mask, &attrs, 1);
 	if (err)
 		goto err;
 
+	/*
+	 * If responder's RTR requirement did not match with what initiator
+	 * supports, generate TERM message
+	 */
 	if (rtr_mismatch) {
 		printk(KERN_ERR "%s: RTR mismatch, sending TERM\n", __func__);
 		attrs.layer_etype = LAYER_MPA | DDP_LLP;
@@ -1081,6 +1151,12 @@ static void process_mpa_reply(struct c4iw_ep *ep, struct sk_buff *skb)
 		goto out;
 	}
 
+	/*
+	 * Generate TERM if initiator IRD is not sufficient for responder
+	 * provided ORD. Currently, we do the same behaviour even when
+	 * responder provided IRD is also not sufficient as regards to
+	 * initiator ORD.
+	 */
 	if (insuff_ird) {
 		printk(KERN_ERR "%s: Insufficient IRD, sending TERM\n",
 				__func__);
@@ -1112,6 +1188,10 @@ static void process_mpa_request(struct c4iw_ep *ep, struct sk_buff *skb)
 	if (state_read(&ep->com) != MPA_REQ_WAIT)
 		return;
 
+	/*
+	 * If we get more than the supported amount of private data
+	 * then we must fail this connection.
+	 */
 	if (ep->mpa_pkt_len + skb->len > sizeof(ep->mpa_pkt)) {
 		stop_ep_timer(ep);
 		abort_connection(ep, skb, GFP_KERNEL);
@@ -1120,10 +1200,17 @@ static void process_mpa_request(struct c4iw_ep *ep, struct sk_buff *skb)
 
 	PDBG("%s enter (%s line %u)\n", __func__, __FILE__, __LINE__);
 
+	/*
+	 * Copy the new data into our accumulation buffer.
+	 */
 	skb_copy_from_linear_data(skb, &(ep->mpa_pkt[ep->mpa_pkt_len]),
 				  skb->len);
 	ep->mpa_pkt_len += skb->len;
 
+	/*
+	 * If we don't even have the mpa message, then bail.
+	 * We'll continue process when more data arrives.
+	 */
 	if (ep->mpa_pkt_len < sizeof(*mpa))
 		return;
 
@@ -1131,6 +1218,9 @@ static void process_mpa_request(struct c4iw_ep *ep, struct sk_buff *skb)
 	stop_ep_timer(ep);
 	mpa = (struct mpa_message *) ep->mpa_pkt;
 
+	/*
+	 * Validate MPA Header.
+	 */
 	if (mpa->revision > mpa_rev) {
 		printk(KERN_ERR MOD "%s MPA version mismatch. Local = %d,"
 		       " Received = %d\n", __func__, mpa_rev, mpa->revision);
@@ -1145,20 +1235,33 @@ static void process_mpa_request(struct c4iw_ep *ep, struct sk_buff *skb)
 
 	plen = ntohs(mpa->private_data_size);
 
+	/*
+	 * Fail if there's too much private data.
+	 */
 	if (plen > MPA_MAX_PRIVATE_DATA) {
 		abort_connection(ep, skb, GFP_KERNEL);
 		return;
 	}
 
+	/*
+	 * If plen does not account for pkt size
+	 */
 	if (ep->mpa_pkt_len > (sizeof(*mpa) + plen)) {
 		abort_connection(ep, skb, GFP_KERNEL);
 		return;
 	}
 	ep->plen = (u8) plen;
 
+	/*
+	 * If we don't have all the pdata yet, then bail.
+	 */
 	if (ep->mpa_pkt_len < (sizeof(*mpa) + plen))
 		return;
 
+	/*
+	 * If we get here we have accumulated the entire mpa
+	 * start reply message including private data.
+	 */
 	ep->mpa_attr.initiator = 0;
 	ep->mpa_attr.crc_enabled = (mpa->flags & MPA_CRC) | crc_enabled ? 1 : 0;
 	ep->mpa_attr.recv_marker_enabled = markers_enabled;
@@ -1202,7 +1305,7 @@ static void process_mpa_request(struct c4iw_ep *ep, struct sk_buff *skb)
 
 	state_set(&ep->com, MPA_REQ_RCVD);
 
-	
+	/* drive upcall */
 	connect_request_upcall(ep);
 	return;
 }
@@ -1223,7 +1326,7 @@ static int rx_data(struct c4iw_dev *dev, struct sk_buff *skb)
 	ep->rcv_seq += dlen;
 	BUG_ON(ep->rcv_seq != (ntohl(hdr->seq) + dlen));
 
-	
+	/* update RX credits */
 	update_rx_credits(ep, dlen);
 
 	switch (state_read(&ep->com)) {
@@ -1240,6 +1343,10 @@ static int rx_data(struct c4iw_dev *dev, struct sk_buff *skb)
 		       " ep %p state %d tid %u\n",
 		       __func__, ep, state_read(&ep->com), ep->hwtid);
 
+		/*
+		 * The ep will timeout and inform the ULP of the failure.
+		 * See ep_timeout().
+		 */
 		break;
 	}
 	return 0;
@@ -1274,6 +1381,9 @@ static int abort_rpl(struct c4iw_dev *dev, struct sk_buff *skb)
 	return 0;
 }
 
+/*
+ * Return whether a failed active open has allocated a TID
+ */
 static inline int act_open_has_tid(int status)
 {
 	return status != CPL_ERR_TCAM_FULL && status != CPL_ERR_CONN_EXIST &&
@@ -1533,7 +1643,7 @@ static int pass_accept_req(struct c4iw_dev *dev, struct sk_buff *skb)
 		goto reject;
 	}
 
-	
+	/* Find output route */
 	rt = find_route(dev, local_ip, peer_ip, local_port, peer_port,
 			GET_POPEN_TOS(ntohl(req->tos_stid)));
 	if (!rt) {
@@ -1636,6 +1746,12 @@ static int peer_close(struct c4iw_dev *dev, struct sk_buff *skb)
 		break;
 	case MPA_REQ_RCVD:
 
+		/*
+		 * We're gonna mark this puppy DEAD, but keep
+		 * the reference on it until the ULP accepts or
+		 * rejects the CR. Also wake up anyone waiting
+		 * in rdma connection migration (see c4iw_accept_cr()).
+		 */
 		__state_set(&ep->com, CLOSING);
 		PDBG("waking up ep %p tid %u\n", ep, ep->hwtid);
 		c4iw_wake_up(&ep->com.wr_wait, -ECONNRESET);
@@ -1689,6 +1805,9 @@ static int peer_close(struct c4iw_dev *dev, struct sk_buff *skb)
 	return 0;
 }
 
+/*
+ * Returns whether an ABORT_REQ_RSS message is a negative advice.
+ */
 static int is_neg_adv_abort(unsigned int status)
 {
 	return status == CPL_ERR_RTX_NEG_ADVICE ||
@@ -1703,6 +1822,9 @@ static int c4iw_reconnect(struct c4iw_ep *ep)
 	PDBG("%s qp %p cm_id %p\n", __func__, ep->com.qp, ep->com.cm_id);
 	init_timer(&ep->timer);
 
+	/*
+	 * Allocate an active TID to initiate a TCP connection.
+	 */
 	ep->atid = cxgb4_alloc_atid(ep->com.dev->rdev.lldi.tids, ep);
 	if (ep->atid == -1) {
 		printk(KERN_ERR MOD "%s - cannot alloc atid.\n", __func__);
@@ -1710,7 +1832,7 @@ static int c4iw_reconnect(struct c4iw_ep *ep)
 		goto fail2;
 	}
 
-	
+	/* find a route */
 	rt = find_route(ep->com.dev,
 			ep->com.cm_id->local_addr.sin_addr.s_addr,
 			ep->com.cm_id->remote_addr.sin_addr.s_addr,
@@ -1737,7 +1859,7 @@ static int c4iw_reconnect(struct c4iw_ep *ep)
 	state_set(&ep->com, CONNECTING);
 	ep->tos = 0;
 
-	
+	/* send connect request to rnic */
 	err = send_connect(ep);
 	if (!err)
 		goto out;
@@ -1748,6 +1870,12 @@ fail4:
 fail3:
 	cxgb4_free_atid(ep->com.dev->rdev.lldi.tids, ep->atid);
 fail2:
+	/*
+	 * remember to send notification to upper layer.
+	 * We are in here so the upper layer is not aware that this is
+	 * re-connect attempt and so, upper layer is still waiting for
+	 * response of 1st connect request.
+	 */
 	connect_reply_upcall(ep, -ECONNRESET);
 	c4iw_put_ep(&ep->com);
 out:
@@ -1775,6 +1903,11 @@ static int peer_abort(struct c4iw_dev *dev, struct sk_buff *skb)
 	PDBG("%s ep %p tid %u state %u\n", __func__, ep, ep->hwtid,
 	     ep->com.state);
 
+	/*
+	 * Wake up any threads in rdma_init() or rdma_fini().
+	 * However, this is not needed if com state is just
+	 * MPA_REQ_SENT
+	 */
 	if (ep->com.state != MPA_REQ_SENT)
 		c4iw_wake_up(&ep->com.wr_wait, -ECONNRESET);
 
@@ -1790,6 +1923,14 @@ static int peer_abort(struct c4iw_dev *dev, struct sk_buff *skb)
 		if (mpa_rev == 2 && ep->tried_with_mpa_v1)
 			connect_reply_upcall(ep, -ECONNRESET);
 		else {
+			/*
+			 * we just don't send notification upwards because we
+			 * want to retry with mpa_v1 without upper layers even
+			 * knowing it.
+			 *
+			 * do some housekeeping so as to re-initiate the
+			 * connection
+			 */
 			PDBG("%s: mpa_rev=%d. Retrying with mpav1\n", __func__,
 			     mpa_rev);
 			ep->retry_with_mpa_v1 = 1;
@@ -1802,7 +1943,7 @@ static int peer_abort(struct c4iw_dev *dev, struct sk_buff *skb)
 	case MORIBUND:
 	case CLOSING:
 		stop_ep_timer(ep);
-		
+		/*FALLTHROUGH*/
 	case FPDU_MODE:
 		if (ep->com.cm_id && ep->com.qp) {
 			attrs.next_state = C4IW_QP_STATE_ERROR;
@@ -1829,7 +1970,7 @@ static int peer_abort(struct c4iw_dev *dev, struct sk_buff *skb)
 	dst_confirm(ep->dst);
 	if (ep->com.state != ABORTING) {
 		__state_set(&ep->com, DEAD);
-		
+		/* we don't release if we want to retry with mpa_v1 */
 		if (!ep->retry_with_mpa_v1)
 			release = 1;
 	}
@@ -1852,7 +1993,7 @@ out:
 	if (release)
 		release_ep_resources(ep);
 
-	
+	/* retry with mpa-v1 */
 	if (ep && ep->retry_with_mpa_v1) {
 		cxgb4_remove_tid(ep->com.dev->rdev.lldi.tids, 0, ep->hwtid);
 		dst_release(ep->dst);
@@ -1877,7 +2018,7 @@ static int close_con_rpl(struct c4iw_dev *dev, struct sk_buff *skb)
 	PDBG("%s ep %p tid %u\n", __func__, ep, ep->hwtid);
 	BUG_ON(!ep);
 
-	
+	/* The cm_id may be null if we failed to connect */
 	mutex_lock(&ep->com.mutex);
 	switch (ep->com.state) {
 	case CLOSING:
@@ -1932,6 +2073,11 @@ static int terminate(struct c4iw_dev *dev, struct sk_buff *skb)
 	return 0;
 }
 
+/*
+ * Upcall from the adapter indicating data has been transmitted.
+ * For us its just the single MPA request or reply.  We can now free
+ * the skb holding the mpa message.
+ */
 static int fw4_ack(struct c4iw_dev *dev, struct sk_buff *skb)
 {
 	struct c4iw_ep *ep;
@@ -2040,14 +2186,14 @@ int c4iw_accept_cr(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param)
 	ep->com.cm_id = cm_id;
 	ep->com.qp = qp;
 
-	
+	/* bind QP to EP and move to RTS */
 	attrs.mpa_attr = ep->mpa_attr;
 	attrs.max_ird = ep->ird;
 	attrs.max_ord = ep->ord;
 	attrs.llp_stream_handle = ep;
 	attrs.next_state = C4IW_QP_STATE_RTS;
 
-	
+	/* bind QP and TID with INIT_WR */
 	mask = C4IW_QP_ATTR_NEXT_STATE |
 			     C4IW_QP_ATTR_LLP_STREAM_HANDLE |
 			     C4IW_QP_ATTR_MPA_ATTR |
@@ -2113,6 +2259,9 @@ int c4iw_connect(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param)
 	PDBG("%s qpn 0x%x qp %p cm_id %p\n", __func__, conn_param->qpn,
 	     ep->com.qp, cm_id);
 
+	/*
+	 * Allocate an active TID to initiate a TCP connection.
+	 */
 	ep->atid = cxgb4_alloc_atid(dev->rdev.lldi.tids, ep);
 	if (ep->atid == -1) {
 		printk(KERN_ERR MOD "%s - cannot alloc atid.\n", __func__);
@@ -2126,7 +2275,7 @@ int c4iw_connect(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param)
 	     ntohl(cm_id->remote_addr.sin_addr.s_addr),
 	     ntohs(cm_id->remote_addr.sin_port));
 
-	
+	/* find a route */
 	rt = find_route(dev,
 			cm_id->local_addr.sin_addr.s_addr,
 			cm_id->remote_addr.sin_addr.s_addr,
@@ -2155,7 +2304,7 @@ int c4iw_connect(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param)
 	ep->com.local_addr = cm_id->local_addr;
 	ep->com.remote_addr = cm_id->remote_addr;
 
-	
+	/* send connect request to rnic */
 	err = send_connect(ep);
 	if (!err)
 		goto out;
@@ -2194,6 +2343,9 @@ int c4iw_create_listen(struct iw_cm_id *cm_id, int backlog)
 	ep->backlog = backlog;
 	ep->com.local_addr = cm_id->local_addr;
 
+	/*
+	 * Allocate a server TID.
+	 */
 	ep->stid = cxgb4_alloc_stid(dev->rdev.lldi.tids, PF_INET, ep);
 	if (ep->stid == -1) {
 		printk(KERN_ERR MOD "%s - cannot alloc stid.\n", __func__);
@@ -2210,7 +2362,7 @@ int c4iw_create_listen(struct iw_cm_id *cm_id, int backlog)
 	if (err)
 		goto fail3;
 
-	
+	/* wait for pass_open_rpl */
 	err = c4iw_wait_for_reply(&ep->com.dev->rdev, &ep->com.wr_wait, 0, 0,
 				  __func__);
 	if (!err) {
@@ -2325,6 +2477,10 @@ static int async_event(struct c4iw_dev *dev, struct sk_buff *skb)
 	return 0;
 }
 
+/*
+ * These are the real handlers that are called from a
+ * work queue.
+ */
 static c4iw_handler_func work_handlers[NUM_CPL_CMDS] = {
 	[CPL_ACT_ESTABLISH] = act_establish,
 	[CPL_ACT_OPEN_RPL] = act_open_rpl,
@@ -2432,11 +2588,20 @@ static void ep_timeout(unsigned long arg)
 	queue_work(workq, &skb_work);
 }
 
+/*
+ * All the CM events are handled on a work queue to have a safe context.
+ */
 static int sched(struct c4iw_dev *dev, struct sk_buff *skb)
 {
 
+	/*
+	 * Save dev in the skb->cb area.
+	 */
 	*((struct c4iw_dev **) (skb->cb + sizeof(void *))) = dev;
 
+	/*
+	 * Queue the skb and schedule the worker thread.
+	 */
 	skb_queue_tail(&rxq, skb);
 	queue_work(workq, &skb_work);
 	return 0;
@@ -2500,12 +2665,21 @@ static int peer_abort_intr(struct c4iw_dev *dev, struct sk_buff *skb)
 	PDBG("%s ep %p tid %u state %u\n", __func__, ep, ep->hwtid,
 	     ep->com.state);
 
+	/*
+	 * Wake up any threads in rdma_init() or rdma_fini().
+	 * However, this is not needed if com state is just
+	 * MPA_REQ_SENT
+	 */
 	if (ep->com.state != MPA_REQ_SENT)
 		c4iw_wake_up(&ep->com.wr_wait, -ECONNRESET);
 	sched(dev, skb);
 	return 0;
 }
 
+/*
+ * Most upcalls from the T4 Core go to sched() to
+ * schedule the processing on a work queue.
+ */
 c4iw_handler_func c4iw_handlers[NUM_CPL_CMDS] = {
 	[CPL_ACT_ESTABLISH] = sched,
 	[CPL_ACT_OPEN_RPL] = sched,

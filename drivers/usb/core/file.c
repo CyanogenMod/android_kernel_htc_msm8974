@@ -42,7 +42,7 @@ static int usb_open(struct inode * inode, struct file * file)
 
 	old_fops = file->f_op;
 	file->f_op = new_fops;
-	
+	/* Curiouser and curiouser... NULL ->open() as "no device" ? */
 	if (file->f_op->open)
 		err = file->f_op->open(inode,file);
 	if (err) {
@@ -108,7 +108,7 @@ exit:
 
 static void release_usb_class(struct kref *kref)
 {
-	
+	/* Ok, we cheat as we know we only have one usb_class */
 	class_destroy(usb_class->class);
 	kfree(usb_class);
 	usb_class = NULL;
@@ -137,6 +137,25 @@ void usb_major_cleanup(void)
 	unregister_chrdev(USB_MAJOR, "usb");
 }
 
+/**
+ * usb_register_dev - register a USB device, and ask for a minor number
+ * @intf: pointer to the usb_interface that is being registered
+ * @class_driver: pointer to the usb_class_driver for this device
+ *
+ * This should be called by all USB drivers that use the USB major number.
+ * If CONFIG_USB_DYNAMIC_MINORS is enabled, the minor number will be
+ * dynamically allocated out of the list of available ones.  If it is not
+ * enabled, the minor number will be based on the next available free minor,
+ * starting at the class_driver->minor_base.
+ *
+ * This function also creates a usb class device in the sysfs tree.
+ *
+ * usb_deregister_dev() must be called when the driver is done with
+ * the minor numbers given out by this function.
+ *
+ * Returns -EINVAL if something bad happens with trying to register a
+ * device, and 0 on success.
+ */
 int usb_register_dev(struct usb_interface *intf,
 		     struct usb_class_driver *class_driver)
 {
@@ -147,6 +166,11 @@ int usb_register_dev(struct usb_interface *intf,
 	char *temp;
 
 #ifdef CONFIG_USB_DYNAMIC_MINORS
+	/* 
+	 * We don't care what the device tries to start at, we want to start
+	 * at zero to pack the devices into the smallest available space with
+	 * no holes in the minor range.
+	 */
 	minor_base = 0;
 #endif
 
@@ -174,7 +198,7 @@ int usb_register_dev(struct usb_interface *intf,
 	if (intf->minor < 0)
 		return -EXFULL;
 
-	
+	/* create a usb class device for this usb interface */
 	snprintf(name, sizeof(name), class_driver->name, minor - minor_base);
 	temp = strrchr(name, '/');
 	if (temp && (temp[1] != '\0'))
@@ -195,6 +219,20 @@ int usb_register_dev(struct usb_interface *intf,
 }
 EXPORT_SYMBOL_GPL(usb_register_dev);
 
+/**
+ * usb_deregister_dev - deregister a USB device's dynamic minor.
+ * @intf: pointer to the usb_interface that is being deregistered
+ * @class_driver: pointer to the usb_class_driver for this device
+ *
+ * Used in conjunction with usb_register_dev().  This function is called
+ * when the USB driver is finished with the minor numbers gotten from a
+ * call to usb_register_dev() (usually when the device is disconnected
+ * from the system.)
+ *
+ * This function also removes the usb class device from the sysfs tree.
+ *
+ * This should be called by all drivers that use the USB major number.
+ */
 void usb_deregister_dev(struct usb_interface *intf,
 			struct usb_class_driver *class_driver)
 {

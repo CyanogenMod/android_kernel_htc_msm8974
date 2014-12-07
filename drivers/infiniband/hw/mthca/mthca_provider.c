@@ -112,6 +112,11 @@ static int mthca_query_device(struct ib_device *ibdev,
 	props->max_mcast_qp_attach = MTHCA_QP_PER_MGM;
 	props->max_total_mcast_qp_attach = props->max_mcast_qp_attach *
 					   props->max_mcast_grp;
+	/*
+	 * If Sinai memory key optimization is being used, then only
+	 * the 8-bit key portion will change.  For other HCAs, the
+	 * unused index bits will also be used for FMR remapping.
+	 */
 	if (mdev->mthca_flags & MTHCA_FLAG_SINAI_OPT)
 		props->max_map_per_fmr = 255;
 	else
@@ -582,7 +587,7 @@ static struct ib_qp *mthca_create_qp(struct ib_pd *pd,
 	case IB_QPT_SMI:
 	case IB_QPT_GSI:
 	{
-		
+		/* Don't allow userspace to create special QPs */
 		if (pd->uobject)
 			return ERR_PTR(-EINVAL);
 
@@ -601,7 +606,7 @@ static struct ib_qp *mthca_create_qp(struct ib_pd *pd,
 		break;
 	}
 	default:
-		
+		/* Don't support raw QPs */
 		return ERR_PTR(-ENOSYS);
 	}
 
@@ -679,7 +684,7 @@ static struct ib_cq *mthca_create_cq(struct ib_device *ibdev, int entries,
 	}
 
 	for (nent = 1; nent <= entries; nent <<= 1)
-		; 
+		; /* nothing */
 
 	err = mthca_init_cq(to_mdev(ibdev), nent,
 			    context ? to_mucontext(context) : NULL,
@@ -1031,6 +1036,10 @@ static struct ib_mr *mthca_reg_user_mr(struct ib_pd *pd, u64 start, u64 length,
 			for (k = 0; k < len; ++k) {
 				pages[i++] = sg_dma_address(&chunk->page_list[j]) +
 					mr->umem->page_size * k;
+				/*
+				 * Be friendly to write_mtt and pass it chunks
+				 * of appropriate size.
+				 */
 				if (i == write_mtt_size) {
 					err = mthca_write_mtt(dev, mr->mtt, n, pages, i);
 					if (err)

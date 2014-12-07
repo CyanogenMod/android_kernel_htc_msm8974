@@ -3,6 +3,7 @@
 
 #include <asm/io.h>
 
+/* --- register definitions ------------------------------- */
 
 #define ECONTROL(p) ((p)->base_hi + 0x2)
 #define CONFIGB(p)  ((p)->base_hi + 0x1)
@@ -15,26 +16,26 @@
 #define DATA(p)     ((p)->base    + 0x0)
 
 struct parport_pc_private {
-	
+	/* Contents of CTR. */
 	unsigned char ctr;
 
-	
+	/* Bitmask of writable CTR bits. */
 	unsigned char ctr_writable;
 
-	
+	/* Whether or not there's an ECR. */
 	int ecr;
 
-	
+	/* Number of PWords that FIFO will hold. */
 	int fifo_depth;
 
-	
+	/* Number of bytes per portword. */
 	int pword;
 
-	
+	/* Not used yet. */
 	int readIntrThreshold;
 	int writeIntrThreshold;
 
-	
+	/* buffer suitable for DMA, if DMA enabled */
 	char *dma_buf;
 	dma_addr_t dma_handle;
 	struct list_head list;
@@ -43,18 +44,18 @@ struct parport_pc_private {
 
 struct parport_pc_via_data
 {
-	
+	/* ISA PnP IRQ routing register 1 */
 	u8 via_pci_parport_irq_reg;
-	
+	/* ISA PnP DMA request routing register */
 	u8 via_pci_parport_dma_reg;
-	
+	/* Register and value to enable SuperIO configuration access */
 	u8 via_pci_superio_config_reg;
 	u8 via_pci_superio_config_data;
-	
+	/* SuperIO function register number */
 	u8 viacfg_function;
-	
+	/* parallel port control register number */
 	u8 viacfg_parport_control;
-	
+	/* Parallel port base address register */
 	u8 viacfg_parport_base;
 };
 
@@ -79,7 +80,7 @@ static __inline__ unsigned char parport_pc_read_data(struct parport *p)
 #ifdef DEBUG_PARPORT
 static inline void dump_parport_state (char *str, struct parport *p)
 {
-	
+	/* here's hoping that reading these ports won't side-effect anything underneath */
 	unsigned char ecr = inb (ECONTROL (p));
 	unsigned char dcr = inb (CONTROL (p));
 	unsigned char dsr = inb (STATUS (p));
@@ -117,10 +118,12 @@ static inline void dump_parport_state (char *str, struct parport *p)
 	printk ("]\n");
 	return;
 }
-#else	
+#else	/* !DEBUG_PARPORT */
 #define dump_parport_state(args...)
-#endif	
+#endif	/* !DEBUG_PARPORT */
 
+/* __parport_pc_frob_control differs from parport_pc_frob_control in that
+ * it doesn't do any extra masking. */
 static __inline__ unsigned char __parport_pc_frob_control (struct parport *p,
 							   unsigned char mask,
 							   unsigned char val)
@@ -133,9 +136,9 @@ static __inline__ unsigned char __parport_pc_frob_control (struct parport *p,
 		mask, val, ctr, ((ctr & ~mask) ^ val) & priv->ctr_writable);
 #endif
 	ctr = (ctr & ~mask) ^ val;
-	ctr &= priv->ctr_writable; 
+	ctr &= priv->ctr_writable; /* only write writable bits. */
 	outb (ctr, CONTROL (p));
-	priv->ctr = ctr;	
+	priv->ctr = ctr;	/* Update soft copy */
 	return ctr;
 }
 
@@ -157,7 +160,7 @@ static __inline__ void parport_pc_write_control (struct parport *p,
 				  PARPORT_CONTROL_INIT |
 				  PARPORT_CONTROL_SELECT);
 
-	
+	/* Take this out when drivers have adapted to newer interface. */
 	if (d & 0x20) {
 		printk (KERN_DEBUG "%s (%s): use data_reverse for this!\n",
 			p->name, p->cad->name);
@@ -174,7 +177,7 @@ static __inline__ unsigned char parport_pc_read_control(struct parport *p)
 				  PARPORT_CONTROL_INIT |
 				  PARPORT_CONTROL_SELECT);
 	const struct parport_pc_private *priv = p->physport->private_data;
-	return priv->ctr & rm; 
+	return priv->ctr & rm; /* Use soft copy */
 }
 
 static __inline__ unsigned char parport_pc_frob_control (struct parport *p,
@@ -186,7 +189,7 @@ static __inline__ unsigned char parport_pc_frob_control (struct parport *p,
 				  PARPORT_CONTROL_INIT |
 				  PARPORT_CONTROL_SELECT);
 
-	
+	/* Take this out when drivers have adapted to newer interface. */
 	if (mask & 0x20) {
 		printk (KERN_DEBUG "%s (%s): use data_%s for this!\n",
 			p->name, p->cad->name,
@@ -197,7 +200,7 @@ static __inline__ unsigned char parport_pc_frob_control (struct parport *p,
 			parport_pc_data_forward (p);
 	}
 
-	
+	/* Restrict mask and val to control lines. */
 	mask &= wm;
 	val &= wm;
 
@@ -224,6 +227,7 @@ extern void parport_pc_release_resources(struct parport *p);
 
 extern int parport_pc_claim_resources(struct parport *p);
 
+/* PCMCIA code will want to get us to look at a port.  Provide a mechanism. */
 extern struct parport *parport_pc_probe_port(unsigned long base,
 					     unsigned long base_hi,
 					     int irq, int dma,

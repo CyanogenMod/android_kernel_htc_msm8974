@@ -16,7 +16,19 @@
 
 #define DM_MSG_PREFIX "block manager"
 
+/*----------------------------------------------------------------*/
 
+/*
+ * This is a read/write semaphore with a couple of differences.
+ *
+ * i) There is a restriction on the number of concurrent read locks that
+ * may be held at once.  This is just an implementation detail.
+ *
+ * ii) Recursive locking attempts are detected and return EINVAL.  A stack
+ * trace is also emitted for the previous lock aquisition.
+ *
+ * iii) Priority is given to write locks.
+ */
 #define MAX_HOLDERS 4
 #define MAX_STACK 10
 
@@ -53,6 +65,7 @@ static unsigned __find_holder(struct block_lock *lock,
 	return i;
 }
 
+/* call this *after* you increment lock->count */
 static void __add_holder(struct block_lock *lock, struct task_struct *task)
 {
 	unsigned h = __find_holder(lock, NULL);
@@ -73,6 +86,7 @@ static void __add_holder(struct block_lock *lock, struct task_struct *task)
 #endif
 }
 
+/* call this *before* you decrement lock->count */
 static void __del_holder(struct block_lock *lock, struct task_struct *task)
 {
 	unsigned h = __find_holder(lock, task);
@@ -135,6 +149,9 @@ static void __wake_waiter(struct waiter *w)
 	wake_up_process(task);
 }
 
+/*
+ * We either wake a few readers or a single writer.
+ */
 static void __wake_many(struct block_lock *lock)
 {
 	struct waiter *w, *tmp;
@@ -146,7 +163,7 @@ static void __wake_many(struct block_lock *lock)
 
 		if (w->wants_write) {
 			if (lock->count > 0)
-				return; 
+				return; /* still read locked */
 
 			lock->count = -1;
 			__add_holder(lock, w->task);
@@ -264,6 +281,10 @@ static int bl_down_write(struct block_lock *lock)
 	w.task = current;
 	w.wants_write = 1;
 
+	/*
+	 * Writers given priority. We know there's only one mutator in the
+	 * system, so ignoring the ordering reversal.
+	 */
 	list_add(&w.list, &lock->waiters);
 	spin_unlock(&lock->lock);
 
@@ -290,7 +311,15 @@ static void report_recursive_bug(dm_block_t b, int r)
 		      (unsigned long long) b);
 }
 
+/*----------------------------------------------------------------*/
 
+/*
+ * Block manager is currently implemented using dm-bufio.  struct
+ * dm_block_manager and struct dm_block map directly onto a couple of
+ * structs in the bufio interface.  I want to retain the freedom to move
+ * away from bufio in the future.  So these structs are just cast within
+ * this .c file, rather than making it through to the public interface.
+ */
 static struct dm_buffer *to_buffer(struct dm_block *b)
 {
 	return (struct dm_buffer *) b;
@@ -335,6 +364,9 @@ static void dm_block_manager_write_callback(struct dm_buffer *buf)
 	}
 }
 
+/*----------------------------------------------------------------
+ * Public interface
+ *--------------------------------------------------------------*/
 struct dm_block_manager *dm_block_manager_create(struct block_device *bdev,
 						 unsigned block_size,
 						 unsigned cache_size,
@@ -579,8 +611,10 @@ u32 dm_bm_checksum(const void *data, size_t len, u32 init_xor)
 }
 EXPORT_SYMBOL_GPL(dm_bm_checksum);
 
+/*----------------------------------------------------------------*/
 
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Joe Thornber <dm-devel@redhat.com>");
 MODULE_DESCRIPTION("Immutable metadata library for dm");
 
+/*----------------------------------------------------------------*/

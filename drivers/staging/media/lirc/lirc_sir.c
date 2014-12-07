@@ -65,8 +65,12 @@
 #include <media/lirc.h>
 #include <media/lirc_dev.h>
 
+/* SECTION: Definitions */
 
+/*** Tekram dongle ***/
 #ifdef LIRC_SIR_TEKRAM
+/* stolen from kernel source */
+/* definitions for Tekram dongle */
 #define TEKRAM_115200 0x00
 #define TEKRAM_57600  0x01
 #define TEKRAM_38400  0x02
@@ -74,8 +78,9 @@
 #define TEKRAM_9600   0x04
 #define TEKRAM_2400   0x08
 
-#define TEKRAM_PW 0x10 
+#define TEKRAM_PW 0x10 /* Pulse select bit */
 
+/* 10bit * 1s/115200bit in milliseconds = 87ms*/
 #define TIME_CONST (10000000ul/115200ul)
 
 #endif
@@ -86,11 +91,12 @@ static void init_act200(void);
 static void init_act220(void);
 #endif
 
+/*** SA1100 ***/
 #ifdef LIRC_ON_SA1100
 struct sa1100_ser2_registers {
-	
+	/* HSSP control register */
 	unsigned char hscr0;
-	
+	/* UART registers */
 	unsigned char utcr0;
 	unsigned char utcr1;
 	unsigned char utcr2;
@@ -105,10 +111,12 @@ static int irq = IRQ_Ser2ICP;
 
 #define LIRC_ON_SA1100_TRANSMITTER_LATENCY 0
 
+/* pulse/space ratio of 50/50 */
 static unsigned long pulse_width = (13-LIRC_ON_SA1100_TRANSMITTER_LATENCY);
+/* 1000000/freq-pulse_width */
 static unsigned long space_width = (13-LIRC_ON_SA1100_TRANSMITTER_LATENCY);
-static unsigned int freq = 38000;      
-static unsigned int duty_cycle = 50;   
+static unsigned int freq = 38000;      /* modulation frequency */
+static unsigned int duty_cycle = 50;   /* duty cycle of 50% */
 
 #endif
 
@@ -120,10 +128,12 @@ static unsigned int duty_cycle = 50;
 #define PULSE '['
 
 #ifndef LIRC_SIR_TEKRAM
+/* 9bit * 1s/115200bit in milli seconds = 78.125ms*/
 #define TIME_CONST (9000000ul/115200ul)
 #endif
 
 
+/* timeout for sequences in jiffies (=5/100s), must be longer than TIME_CONST */
 #define SIR_TIMEOUT	(HZ*5/100)
 
 #ifndef LIRC_ON_SA1100
@@ -131,11 +141,13 @@ static unsigned int duty_cycle = 50;
 #define LIRC_IRQ 4
 #endif
 #ifndef LIRC_PORT
+/* for external dongles, default to com1 */
 #if defined(LIRC_SIR_ACTISYS_ACT200L)         || \
 	    defined(LIRC_SIR_ACTISYS_ACT220L) || \
 	    defined(LIRC_SIR_TEKRAM)
 #define LIRC_PORT 0x3f8
 #else
+/* onboard sir ports are typically com3 */
 #define LIRC_PORT 0x3e8
 #endif
 #endif
@@ -147,7 +159,9 @@ static int threshold = 3;
 
 static DEFINE_SPINLOCK(timer_lock);
 static struct timer_list timerlist;
+/* time of last signal change detected */
 static struct timeval last_tv = {0, 0};
+/* time of last UART data ready interrupt */
 static struct timeval last_intr_tv = {0, 0};
 static int last_value;
 
@@ -166,7 +180,9 @@ static bool debug;
 				fmt, ## args);				\
 	} while (0)
 
+/* SECTION: Prototypes */
 
+/* Communication with user-space */
 static unsigned int lirc_poll(struct file *file, poll_table *wait);
 static ssize_t lirc_read(struct file *file, char *buf, size_t count,
 		loff_t *ppos);
@@ -176,11 +192,13 @@ static long lirc_ioctl(struct file *filep, unsigned int cmd, unsigned long arg);
 static void add_read_queue(int flag, unsigned long val);
 static int init_chrdev(void);
 static void drop_chrdev(void);
+/* Hardware */
 static irqreturn_t sir_interrupt(int irq, void *dev_id);
 static void send_space(unsigned long len);
 static void send_pulse(unsigned long len);
 static int init_hardware(void);
 static void drop_hardware(void);
+/* Initialisation */
 static int init_port(void);
 static void drop_port(void);
 
@@ -221,6 +239,7 @@ static void safe_udelay(unsigned long usecs)
 	udelay(usecs);
 }
 
+/* SECTION: Communication with user-space */
 
 static unsigned int lirc_poll(struct file *file, poll_table *wait)
 {
@@ -284,7 +303,7 @@ static ssize_t lirc_write(struct file *file, const char *buf, size_t n,
 		return PTR_ERR(tx_buf);
 	i = 0;
 #ifdef LIRC_ON_SA1100
-	
+	/* disable receiver */
 	Ser2UTCR3 = 0;
 #endif
 	local_irq_save(flags);
@@ -303,11 +322,11 @@ static ssize_t lirc_write(struct file *file, const char *buf, size_t n,
 	local_irq_restore(flags);
 #ifdef LIRC_ON_SA1100
 	off();
-	udelay(1000); 
+	udelay(1000); /* wait 1ms for IR diode to recover */
 	Ser2UTCR3 = 0;
-	
+	/* clear status register to prevent unwanted interrupts */
 	Ser2UTSR0 &= (UTSR0_RID | UTSR0_RBB | UTSR0_REB);
-	
+	/* enable receiver */
 	Ser2UTCR3 = UTCR3_RXE|UTCR3_RIE;
 #endif
 	kfree(tx_buf);
@@ -356,7 +375,7 @@ static long lirc_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 			return retval;
 		if (value <= 0 || value > 100)
 			return -EINVAL;
-		
+		/* (value/100)*(1000000/freq) */
 		duty_cycle = value;
 		pulse_width = (unsigned long) duty_cycle*10000/freq;
 		space_width = (unsigned long) 1000000L/freq-pulse_width;
@@ -407,11 +426,15 @@ static void add_read_queue(int flag, unsigned long val)
 
 	newval = val & PULSE_MASK;
 
+	/*
+	 * statistically, pulses are ~TIME_CONST/2 too long. we could
+	 * maybe make this more exact, but this is good enough
+	 */
 	if (flag) {
-		
+		/* pulse */
 		if (newval > TIME_CONST/2)
 			newval -= TIME_CONST/2;
-		else 
+		else /* should not ever happen */
 			newval = 1;
 		newval |= PULSE_BIT;
 	} else {
@@ -480,6 +503,7 @@ static void drop_chrdev(void)
 	lirc_unregister_driver(driver.minor);
 }
 
+/* SECTION: Hardware */
 static long delta(struct timeval *tv1, struct timeval *tv2)
 {
 	unsigned long deltv;
@@ -496,18 +520,24 @@ static long delta(struct timeval *tv1, struct timeval *tv2)
 
 static void sir_timeout(unsigned long data)
 {
+	/*
+	 * if last received signal was a pulse, but receiving stopped
+	 * within the 9 bit frame, we need to finish this pulse and
+	 * simulate a signal change to from pulse to space. Otherwise
+	 * upper layers will receive two sequences next time.
+	 */
 
 	unsigned long flags;
 	unsigned long pulse_end;
 
-	
+	/* avoid interference with interrupt */
 	spin_lock_irqsave(&timer_lock, flags);
 	if (last_value) {
 #ifndef LIRC_ON_SA1100
-		
+		/* clear unread bits in UART and restart */
 		outb(UART_FCR_CLEAR_RCVR, io + UART_FCR);
 #endif
-		
+		/* determine 'virtual' pulse end: */
 		pulse_end = delta(&last_tv, &last_intr_tv);
 		dprintk("timeout add %d for %lu usec\n", last_value, pulse_end);
 		add_read_queue(last_value, pulse_end);
@@ -527,6 +557,10 @@ static irqreturn_t sir_interrupt(int irq, void *dev_id)
 	static int n;
 
 	status = Ser2UTSR0;
+	/*
+	 * Deal with any receive errors first.  The bytes in error may be
+	 * the only bytes in the receive FIFO, so we do this first.
+	 */
 	while (status & UTSR0_EIF) {
 		int bstat;
 
@@ -554,12 +588,13 @@ static irqreturn_t sir_interrupt(int irq, void *dev_id)
 			data = Ser2UTDR;
 			dprintk("%d data: %u\n", n, (unsigned int) data);
 			n++;
-		} while (status & UTSR0_RID && 
-		      Ser2UTSR1 & UTSR1_RNE); 
+		} while (status & UTSR0_RID && /* do not empty fifo in order to
+						* get UTSR0_RID in any case */
+		      Ser2UTSR1 & UTSR1_RNE); /* data ready */
 
 		if (status&UTSR0_RID) {
-			add_read_queue(0 , deltv - n * TIME_CONST); 
-			add_read_queue(1, n * TIME_CONST); 
+			add_read_queue(0 , deltv - n * TIME_CONST); /*space*/
+			add_read_queue(1, n * TIME_CONST); /*pulse*/
 			n = 0;
 			last_tv = curr_tv;
 		}
@@ -568,7 +603,7 @@ static irqreturn_t sir_interrupt(int irq, void *dev_id)
 	if (status & UTSR0_TFS)
 		printk(KERN_ERR "transmit fifo not full, shouldn't happen\n");
 
-	
+	/* We must clear certain bits. */
 	status &= (UTSR0_RID | UTSR0_RBB | UTSR0_REB);
 	if (status)
 		Ser2UTSR0 = status;
@@ -578,7 +613,7 @@ static irqreturn_t sir_interrupt(int irq, void *dev_id)
 	int iir, lsr;
 
 	while ((iir = inb(io + UART_IIR) & UART_IIR_ID)) {
-		switch (iir&UART_IIR_ID) { 
+		switch (iir&UART_IIR_ID) { /* FIXME toto treba preriedit */
 		case UART_IIR_MSI:
 			(void) inb(io + UART_MSR);
 			break;
@@ -587,12 +622,12 @@ static irqreturn_t sir_interrupt(int irq, void *dev_id)
 			break;
 		case UART_IIR_THRI:
 #if 0
-			if (lsr & UART_LSR_THRE) 
+			if (lsr & UART_LSR_THRE) /* FIFO is empty */
 				outb(data, io + UART_TX)
 #endif
 			break;
 		case UART_IIR_RDI:
-			
+			/* avoid interference with timer */
 			spin_lock_irqsave(&timer_lock, flags);
 			do {
 				del_timer(&timerlist);
@@ -601,10 +636,14 @@ static irqreturn_t sir_interrupt(int irq, void *dev_id)
 				deltv = delta(&last_tv, &curr_tv);
 				deltintrtv = delta(&last_intr_tv, &curr_tv);
 				dprintk("t %lu, d %d\n", deltintrtv, (int)data);
+				/*
+				 * if nothing came in last X cycles,
+				 * it was gap
+				 */
 				if (deltintrtv > TIME_CONST * threshold) {
 					if (last_value) {
 						dprintk("GAP\n");
-						
+						/* simulate signal change */
 						add_read_queue(last_value,
 							       deltv -
 							       deltintrtv);
@@ -618,6 +657,10 @@ static irqreturn_t sir_interrupt(int irq, void *dev_id)
 				}
 				data = 1;
 				if (data ^ last_value) {
+					/*
+					 * deltintrtv > 2*TIME_CONST, remember?
+					 * the other case is timeout
+					 */
 					add_read_queue(last_value,
 						       deltv-TIME_CONST);
 					last_value = data;
@@ -632,13 +675,17 @@ static irqreturn_t sir_interrupt(int irq, void *dev_id)
 				}
 				last_intr_tv = curr_tv;
 				if (data) {
+					/*
+					 * start timer for end of
+					 * sequence detection
+					 */
 					timerlist.expires = jiffies +
 								SIR_TIMEOUT;
 					add_timer(&timerlist);
 				}
 
 				lsr = inb(io + UART_LSR);
-			} while (lsr & UART_LSR_DR); 
+			} while (lsr & UART_LSR_DR); /* data ready */
 			spin_unlock_irqrestore(&timer_lock, flags);
 			break;
 		default:
@@ -657,6 +704,10 @@ static void send_pulse(unsigned long length)
 
 	if (length == 0)
 		return;
+	/*
+	 * this won't give us the carrier frequency we really want
+	 * due to integer arithmetic, but we can accept this inaccuracy
+	 */
 
 	for (k = flag = 0; k < length; k += delay, flag = !flag) {
 		if (flag) {
@@ -693,7 +744,7 @@ static void send_pulse(unsigned long len)
 
 	while (bytes_out--) {
 		outb(PULSE, io + UART_TX);
-		
+		/* FIXME treba seriozne cakanie z char/serial.c */
 		while (!(inb(io + UART_LSR) & UART_LSR_THRE))
 			;
 	}
@@ -704,12 +755,18 @@ static void send_pulse(unsigned long len)
 static int sa1100_irda_set_power_collie(int state)
 {
 	if (state) {
+		/*
+		 *  0 - off
+		 *  1 - short range, lowest power
+		 *  2 - medium range, medium power
+		 *  3 - maximum range, high power
+		 */
 		ucb1200_set_io_direction(TC35143_GPIO_IR_ON,
 					 TC35143_IODIR_OUTPUT);
 		ucb1200_set_io(TC35143_GPIO_IR_ON, TC35143_IODAT_LOW);
 		udelay(100);
 	} else {
-		
+		/* OFF */
 		ucb1200_set_io_direction(TC35143_GPIO_IR_ON,
 					 TC35143_IODIR_OUTPUT);
 		ucb1200_set_io(TC35143_GPIO_IR_ON, TC35143_IODAT_HIGH);
@@ -723,7 +780,7 @@ static int init_hardware(void)
 	unsigned long flags;
 
 	spin_lock_irqsave(&hardware_lock, flags);
-	
+	/* reset UART */
 #ifdef LIRC_ON_SA1100
 #ifdef CONFIG_SA1100_BITSY
 	if (machine_is_bitsy()) {
@@ -732,7 +789,7 @@ static int init_hardware(void)
 	}
 #endif
 #ifdef CONFIG_SA1100_COLLIE
-	sa1100_irda_set_power_collie(3);	
+	sa1100_irda_set_power_collie(3);	/* power on */
 #endif
 	sr.hscr0 = Ser2HSCR0;
 
@@ -746,63 +803,63 @@ static int init_hardware(void)
 	sr.utsr0 = Ser2UTSR0;
 	sr.utsr1 = Ser2UTSR1;
 
-	
-	
+	/* configure GPIO */
+	/* output */
 	PPDR |= PPC_TXD2;
 	PSDR |= PPC_TXD2;
-	
+	/* set output to 0 */
 	off();
 
-	
+	/* Enable HP-SIR modulation, and ensure that the port is disabled. */
 	Ser2UTCR3 = 0;
 	Ser2HSCR0 = sr.hscr0 & (~HSCR0_HSSP);
 
-	
+	/* clear status register to prevent unwanted interrupts */
 	Ser2UTSR0 &= (UTSR0_RID | UTSR0_RBB | UTSR0_REB);
 
-	
+	/* 7N1 */
 	Ser2UTCR0 = UTCR0_1StpBit|UTCR0_7BitData;
-	
+	/* 115200 */
 	Ser2UTCR1 = 0;
 	Ser2UTCR2 = 1;
-	
+	/* use HPSIR, 1.6 usec pulses */
 	Ser2UTCR4 = UTCR4_HPSIR|UTCR4_Z1_6us;
 
-	
+	/* enable receiver, receive fifo interrupt */
 	Ser2UTCR3 = UTCR3_RXE|UTCR3_RIE;
 
-	
+	/* clear status register to prevent unwanted interrupts */
 	Ser2UTSR0 &= (UTSR0_RID | UTSR0_RBB | UTSR0_REB);
 
 #elif defined(LIRC_SIR_TEKRAM)
-	
+	/* disable FIFO */
 	soutp(UART_FCR,
 	      UART_FCR_CLEAR_RCVR|
 	      UART_FCR_CLEAR_XMIT|
 	      UART_FCR_TRIGGER_1);
 
-	
+	/* Set DLAB 0. */
 	soutp(UART_LCR, sinp(UART_LCR) & (~UART_LCR_DLAB));
 
-	
+	/* First of all, disable all interrupts */
 	soutp(UART_IER, sinp(UART_IER) &
 	      (~(UART_IER_MSI|UART_IER_RLSI|UART_IER_THRI|UART_IER_RDI)));
 
-	
+	/* Set DLAB 1. */
 	soutp(UART_LCR, sinp(UART_LCR) | UART_LCR_DLAB);
 
-	
+	/* Set divisor to 12 => 9600 Baud */
 	soutp(UART_DLM, 0);
 	soutp(UART_DLL, 12);
 
-	
+	/* Set DLAB 0. */
 	soutp(UART_LCR, sinp(UART_LCR) & (~UART_LCR_DLAB));
 
-	
+	/* power supply */
 	soutp(UART_MCR, UART_MCR_RTS|UART_MCR_DTR|UART_MCR_OUT2);
 	safe_udelay(50*1000);
 
-	
+	/* -DTR low -> reset PIC */
 	soutp(UART_MCR, UART_MCR_RTS|UART_MCR_OUT2);
 	udelay(1*1000);
 
@@ -810,50 +867,50 @@ static int init_hardware(void)
 	udelay(100);
 
 
-	
+	/* -RTS low -> send control byte */
 	soutp(UART_MCR, UART_MCR_DTR|UART_MCR_OUT2);
 	udelay(7);
 	soutp(UART_TX, TEKRAM_115200|TEKRAM_PW);
 
-	
+	/* one byte takes ~1042 usec to transmit at 9600,8N1 */
 	udelay(1500);
 
-	
+	/* back to normal operation */
 	soutp(UART_MCR, UART_MCR_RTS|UART_MCR_DTR|UART_MCR_OUT2);
 	udelay(50);
 
 	udelay(1500);
 
-	
+	/* read previous control byte */
 	printk(KERN_INFO LIRC_DRIVER_NAME
 	       ": 0x%02x\n", sinp(UART_RX));
 
-	
+	/* Set DLAB 1. */
 	soutp(UART_LCR, sinp(UART_LCR) | UART_LCR_DLAB);
 
-	
+	/* Set divisor to 1 => 115200 Baud */
 	soutp(UART_DLM, 0);
 	soutp(UART_DLL, 1);
 
-	
+	/* Set DLAB 0, 8 Bit */
 	soutp(UART_LCR, UART_LCR_WLEN8);
-	
+	/* enable interrupts */
 	soutp(UART_IER, sinp(UART_IER)|UART_IER_RDI);
 #else
 	outb(0, io + UART_MCR);
 	outb(0, io + UART_IER);
-	
-	
+	/* init UART */
+	/* set DLAB, speed = 115200 */
 	outb(UART_LCR_DLAB | UART_LCR_WLEN7, io + UART_LCR);
 	outb(1, io + UART_DLL); outb(0, io + UART_DLM);
-	
+	/* 7N1+start = 9 bits at 115200 ~ 3 bits at 44000 */
 	outb(UART_LCR_WLEN7, io + UART_LCR);
-	
+	/* FIFO operation */
 	outb(UART_FCR_ENABLE_FIFO, io + UART_FCR);
-	
-	
+	/* interrupts */
+	/* outb(UART_IER_RLSI|UART_IER_RDI|UART_IER_THRI, io + UART_IER); */
 	outb(UART_IER_RDI, io + UART_IER);
-	
+	/* turn on UART */
 	outb(UART_MCR_DTR|UART_MCR_RTS|UART_MCR_OUT2, io + UART_MCR);
 #ifdef LIRC_SIR_ACTISYS_ACT200L
 	init_act200();
@@ -886,21 +943,22 @@ static void drop_hardware(void)
 		clr_bitsy_egpio(EGPIO_BITSY_IR_ON);
 #endif
 #ifdef CONFIG_SA1100_COLLIE
-	sa1100_irda_set_power_collie(0);	
+	sa1100_irda_set_power_collie(0);	/* power off */
 #endif
 #else
-	
+	/* turn off interrupts */
 	outb(0, io + UART_IER);
 #endif
 	spin_unlock_irqrestore(&hardware_lock, flags);
 }
 
+/* SECTION: Initialisation */
 
 static int init_port(void)
 {
 	int retval;
 
-	
+	/* get I/O port access and IRQ line */
 #ifndef LIRC_ON_SA1100
 	if (request_region(io, 8, LIRC_DRIVER_NAME) == NULL) {
 		printk(KERN_ERR LIRC_DRIVER_NAME
@@ -942,37 +1000,47 @@ static void drop_port(void)
 }
 
 #ifdef LIRC_SIR_ACTISYS_ACT200L
+/* Crystal/Cirrus CS8130 IR transceiver, used in Actisys Act200L dongle */
+/* some code borrowed from Linux IRDA driver */
 
+/* Register 0: Control register #1 */
 #define ACT200L_REG0    0x00
-#define ACT200L_TXEN    0x01 
-#define ACT200L_RXEN    0x02 
-#define ACT200L_ECHO    0x08 
+#define ACT200L_TXEN    0x01 /* Enable transmitter */
+#define ACT200L_RXEN    0x02 /* Enable receiver */
+#define ACT200L_ECHO    0x08 /* Echo control chars */
 
+/* Register 1: Control register #2 */
 #define ACT200L_REG1    0x10
-#define ACT200L_LODB    0x01 
-#define ACT200L_WIDE    0x04 
+#define ACT200L_LODB    0x01 /* Load new baud rate count value */
+#define ACT200L_WIDE    0x04 /* Expand the maximum allowable pulse */
 
+/* Register 3: Transmit mode register #2 */
 #define ACT200L_REG3    0x30
-#define ACT200L_B0      0x01 
-#define ACT200L_B1      0x02 
-#define ACT200L_CHSY    0x04 
+#define ACT200L_B0      0x01 /* DataBits, 0=6, 1=7, 2=8, 3=9(8P)  */
+#define ACT200L_B1      0x02 /* DataBits, 0=6, 1=7, 2=8, 3=9(8P)  */
+#define ACT200L_CHSY    0x04 /* StartBit Synced 0=bittime, 1=startbit */
 
+/* Register 4: Output Power register */
 #define ACT200L_REG4    0x40
-#define ACT200L_OP0     0x01 
-#define ACT200L_OP1     0x02 
+#define ACT200L_OP0     0x01 /* Enable LED1C output */
+#define ACT200L_OP1     0x02 /* Enable LED2C output */
 #define ACT200L_BLKR    0x04
 
+/* Register 5: Receive Mode register */
 #define ACT200L_REG5    0x50
-#define ACT200L_RWIDL   0x01 
-    
+#define ACT200L_RWIDL   0x01 /* fixed 1.6us pulse mode */
+    /*.. other various IRDA bit modes, and TV remote modes..*/
 
+/* Register 6: Receive Sensitivity register #1 */
 #define ACT200L_REG6    0x60
-#define ACT200L_RS0     0x01 
-#define ACT200L_RS1     0x02 
+#define ACT200L_RS0     0x01 /* receive threshold bit 0 */
+#define ACT200L_RS1     0x02 /* receive threshold bit 1 */
 
+/* Register 7: Receive Sensitivity register #2 */
 #define ACT200L_REG7    0x70
-#define ACT200L_ENPOS   0x04 
+#define ACT200L_ENPOS   0x04 /* Ignore the falling edge */
 
+/* Register 8,9: Baud Rate Divider register #1,#2 */
 #define ACT200L_REG8    0x80
 #define ACT200L_REG9    0x90
 
@@ -983,14 +1051,17 @@ static void drop_port(void)
 #define ACT200L_57600   0x03
 #define ACT200L_115200  0x01
 
+/* Register 13: Control register #3 */
 #define ACT200L_REG13   0xd0
-#define ACT200L_SHDW    0x01 
+#define ACT200L_SHDW    0x01 /* Enable access to shadow registers */
 
+/* Register 15: Status register */
 #define ACT200L_REG15   0xf0
 
+/* Register 21: Control register #4 */
 #define ACT200L_REG21   0x50
-#define ACT200L_EXCK    0x02 
-#define ACT200L_OSCL    0x04 
+#define ACT200L_EXCK    0x02 /* Disable clock output driver */
+#define ACT200L_OSCL    0x04 /* oscillator in low power, medium accuracy mode */
 
 static void init_act200(void)
 {
@@ -1011,23 +1082,23 @@ static void init_act200(void)
 		ACT200L_REG1 | ACT200L_LODB | ACT200L_WIDE
 	};
 
-	
+	/* Set DLAB 1. */
 	soutp(UART_LCR, UART_LCR_DLAB | UART_LCR_WLEN8);
 
-	
+	/* Set divisor to 12 => 9600 Baud */
 	soutp(UART_DLM, 0);
 	soutp(UART_DLL, 12);
 
-	
+	/* Set DLAB 0. */
 	soutp(UART_LCR, UART_LCR_WLEN8);
-	
+	/* Set divisor to 12 => 9600 Baud */
 
-	
+	/* power supply */
 	soutp(UART_MCR, UART_MCR_RTS|UART_MCR_DTR|UART_MCR_OUT2);
 	for (i = 0; i < 50; i++)
 		safe_udelay(1000);
 
-		
+		/* Reset the dongle : set RTS low for 25 ms */
 	soutp(UART_MCR, UART_MCR_DTR|UART_MCR_OUT2);
 	for (i = 0; i < 25; i++)
 		udelay(1000);
@@ -1035,89 +1106,97 @@ static void init_act200(void)
 	soutp(UART_MCR, UART_MCR_RTS|UART_MCR_DTR|UART_MCR_OUT2);
 	udelay(100);
 
-	
+	/* Clear DTR and set RTS to enter command mode */
 	soutp(UART_MCR, UART_MCR_RTS|UART_MCR_OUT2);
 	udelay(7);
 
-	
+	/* send out the control register settings for 115K 7N1 SIR operation */
 	for (i = 0; i < sizeof(control); i++) {
 		soutp(UART_TX, control[i]);
-		
+		/* one byte takes ~1042 usec to transmit at 9600,8N1 */
 		udelay(1500);
 	}
 
-	
+	/* back to normal operation */
 	soutp(UART_MCR, UART_MCR_RTS|UART_MCR_DTR|UART_MCR_OUT2);
 	udelay(50);
 
 	udelay(1500);
 	soutp(UART_LCR, sinp(UART_LCR) | UART_LCR_DLAB);
 
-	
+	/* Set DLAB 1. */
 	soutp(UART_LCR, UART_LCR_DLAB | UART_LCR_WLEN7);
 
-	
+	/* Set divisor to 1 => 115200 Baud */
 	soutp(UART_DLM, 0);
 	soutp(UART_DLL, 1);
 
-	
+	/* Set DLAB 0. */
 	soutp(UART_LCR, sinp(UART_LCR) & (~UART_LCR_DLAB));
 
-	
+	/* Set DLAB 0, 7 Bit */
 	soutp(UART_LCR, UART_LCR_WLEN7);
 
-	
+	/* enable interrupts */
 	soutp(UART_IER, sinp(UART_IER)|UART_IER_RDI);
 }
 #endif
 
 #ifdef LIRC_SIR_ACTISYS_ACT220L
+/*
+ * Derived from linux IrDA driver (net/irda/actisys.c)
+ * Drop me a mail for any kind of comment: maxx@spaceboyz.net
+ */
 
 void init_act220(void)
 {
 	int i;
 
-	
+	/* DLAB 1 */
 	soutp(UART_LCR, UART_LCR_DLAB|UART_LCR_WLEN7);
 
-	
+	/* 9600 baud */
 	soutp(UART_DLM, 0);
 	soutp(UART_DLL, 12);
 
-	
+	/* DLAB 0 */
 	soutp(UART_LCR, UART_LCR_WLEN7);
 
-	
+	/* reset the dongle, set DTR low for 10us */
 	soutp(UART_MCR, UART_MCR_RTS|UART_MCR_OUT2);
 	udelay(10);
 
-	
+	/* back to normal (still 9600) */
 	soutp(UART_MCR, UART_MCR_DTR|UART_MCR_RTS|UART_MCR_OUT2);
 
+	/*
+	 * send RTS pulses until we reach 115200
+	 * i hope this is really the same for act220l/act220l+
+	 */
 	for (i = 0; i < 3; i++) {
 		udelay(10);
-		
+		/* set RTS low for 10 us */
 		soutp(UART_MCR, UART_MCR_DTR|UART_MCR_OUT2);
 		udelay(10);
-		
+		/* set RTS high for 10 us */
 		soutp(UART_MCR, UART_MCR_RTS|UART_MCR_DTR|UART_MCR_OUT2);
 	}
 
-	
-	udelay(1500); 
+	/* back to normal operation */
+	udelay(1500); /* better safe than sorry ;) */
 
-	
+	/* Set DLAB 1. */
 	soutp(UART_LCR, UART_LCR_DLAB | UART_LCR_WLEN7);
 
-	
+	/* Set divisor to 1 => 115200 Baud */
 	soutp(UART_DLM, 0);
 	soutp(UART_DLL, 1);
 
-	
-	
+	/* Set DLAB 0, 7 Bit */
+	/* The dongle doesn't seem to have any problems with operation at 7N1 */
 	soutp(UART_LCR, UART_LCR_WLEN7);
 
-	
+	/* enable interrupts */
 	soutp(UART_IER, UART_IER_RDI);
 }
 #endif

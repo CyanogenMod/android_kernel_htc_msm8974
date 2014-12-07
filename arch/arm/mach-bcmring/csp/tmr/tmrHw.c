@@ -12,7 +12,19 @@
 * consent.
 *****************************************************************************/
 
+/****************************************************************************/
+/**
+*  @file    tmrHw.c
+*
+*  @brief   Low level Timer driver routines
+*
+*  @note
+*
+*   These routines provide basic timer functionality only.
+*/
+/****************************************************************************/
 
+/* ---- Include Files ---------------------------------------------------- */
 
 #include <csp/errno.h>
 #include <csp/stdint.h>
@@ -42,8 +54,18 @@ static void ResetTimer(tmrHw_ID_t timerId)
 static int tmrHw_divide(int num, int denom)
     __attribute__ ((section(".aramtext")));
 
-uint32_t tmrHw_getTimerCapability(tmrHw_ID_t timerId,	
-				  tmrHw_CAPABILITY_e capability	
+/****************************************************************************/
+/**
+*  @brief   Get timer capability
+*
+*  This function returns various capabilities/attributes of a timer
+*
+*  @return  Capability
+*
+*/
+/****************************************************************************/
+uint32_t tmrHw_getTimerCapability(tmrHw_ID_t timerId,	/*  [ IN ] Timer Id */
+				  tmrHw_CAPABILITY_e capability	/*  [ IN ] Timer capability */
 ) {
 	switch (capability) {
 	case tmrHw_CAPABILITY_CLOCK:
@@ -58,23 +80,42 @@ uint32_t tmrHw_getTimerCapability(tmrHw_ID_t timerId,
 	return 0;
 }
 
-static void ResetTimer(tmrHw_ID_t timerId	
+/****************************************************************************/
+/**
+*  @brief   Resets a timer
+*
+*  This function initializes  timer
+*
+*  @return  void
+*
+*/
+/****************************************************************************/
+static void ResetTimer(tmrHw_ID_t timerId	/*  [ IN ] Timer Id */
 ) {
-	
+	/* Reset timer */
 	pTmrHw[timerId].LoadValue = 0;
 	pTmrHw[timerId].CurrentValue = 0xFFFFFFFF;
 	pTmrHw[timerId].Control = 0;
 	pTmrHw[timerId].BackgroundLoad = 0;
-	
+	/* Always configure as a 32 bit timer */
 	pTmrHw[timerId].Control |= tmrHw_CONTROL_32BIT;
-	
+	/* Clear interrupt only if raw status interrupt is set */
 	if (pTmrHw[timerId].RawInterruptStatus) {
 		pTmrHw[timerId].InterruptClear = 0xFFFFFFFF;
 	}
 }
 
-static tmrHw_INTERVAL_t SetTimerPeriod(tmrHw_ID_t timerId,	
-				       tmrHw_INTERVAL_t msec	
+/****************************************************************************/
+/**
+*  @brief   Sets counter value for an interval in ms
+*
+*  @return   On success: Effective counter value set
+*            On failure: 0
+*
+*/
+/****************************************************************************/
+static tmrHw_INTERVAL_t SetTimerPeriod(tmrHw_ID_t timerId,	/*  [ IN ] Timer Id */
+				       tmrHw_INTERVAL_t msec	/*  [ IN ] Interval in milli-second */
 ) {
 	uint32_t scale = 0;
 	uint32_t count = 0;
@@ -94,7 +135,7 @@ static tmrHw_INTERVAL_t SetTimerPeriod(tmrHw_ID_t timerId,
 		}
 
 		count = msec * scale;
-		
+		/* Set counter value */
 		pTmrHw[timerId].LoadValue = count;
 		pTmrHw[timerId].BackgroundLoad = count;
 
@@ -113,24 +154,36 @@ static tmrHw_INTERVAL_t SetTimerPeriod(tmrHw_ID_t timerId,
 		}
 
 		count = msec * scale;
-		
+		/* Set counter value */
 		pTmrHw[timerId].LoadValue = count;
 		pTmrHw[timerId].BackgroundLoad = count;
 	}
 	return count / scale;
 }
 
-tmrHw_RATE_t tmrHw_setPeriodicTimerRate(tmrHw_ID_t timerId,	
-					tmrHw_RATE_t rate	
+/****************************************************************************/
+/**
+*  @brief   Configures a periodic timer in terms of timer interrupt rate
+*
+*  This function initializes a periodic timer to generate specific number of
+*  timer interrupt per second
+*
+*  @return   On success: Effective timer frequency
+*            On failure: 0
+*
+*/
+/****************************************************************************/
+tmrHw_RATE_t tmrHw_setPeriodicTimerRate(tmrHw_ID_t timerId,	/*  [ IN ] Timer Id */
+					tmrHw_RATE_t rate	/*  [ IN ] Number of timer interrupt per second */
 ) {
 	uint32_t resolution = 0;
 	uint32_t count = 0;
 	ResetTimer(timerId);
 
-	
+	/* Set timer mode periodic */
 	pTmrHw[timerId].Control |= tmrHw_CONTROL_PERIODIC;
 	pTmrHw[timerId].Control &= ~tmrHw_CONTROL_ONESHOT;
-	
+	/* Set timer in highest resolution */
 	pTmrHw[timerId].Control |= tmrHw_CONTROL_PRESCALE_1;
 
 	if (rate && (timerId == 0 || timerId == 1)) {
@@ -147,46 +200,82 @@ tmrHw_RATE_t tmrHw_setPeriodicTimerRate(tmrHw_ID_t timerId,
 	} else {
 		return 0;
 	}
-	
+	/* Find the counter value */
 	count = resolution / rate;
-	
+	/* Set counter value */
 	pTmrHw[timerId].LoadValue = count;
 	pTmrHw[timerId].BackgroundLoad = count;
 
 	return resolution / count;
 }
 
-tmrHw_INTERVAL_t tmrHw_setPeriodicTimerInterval(tmrHw_ID_t timerId,	
-						tmrHw_INTERVAL_t msec	
+/****************************************************************************/
+/**
+*  @brief   Configures a periodic timer to generate timer interrupt after
+*           certain time interval
+*
+*  This function initializes a periodic timer to generate timer interrupt
+*  after every time interval in millisecond
+*
+*  @return   On success: Effective interval set in milli-second
+*            On failure: 0
+*
+*/
+/****************************************************************************/
+tmrHw_INTERVAL_t tmrHw_setPeriodicTimerInterval(tmrHw_ID_t timerId,	/*  [ IN ] Timer Id */
+						tmrHw_INTERVAL_t msec	/*  [ IN ] Interval in milli-second */
 ) {
 	ResetTimer(timerId);
 
-	
+	/* Set timer mode periodic */
 	pTmrHw[timerId].Control |= tmrHw_CONTROL_PERIODIC;
 	pTmrHw[timerId].Control &= ~tmrHw_CONTROL_ONESHOT;
 
 	return SetTimerPeriod(timerId, msec);
 }
 
-tmrHw_INTERVAL_t tmrHw_setOneshotTimerInterval(tmrHw_ID_t timerId,	
-					       tmrHw_INTERVAL_t msec	
+/****************************************************************************/
+/**
+*  @brief   Configures a periodic timer to generate timer interrupt just once
+*           after certain time interval
+*
+*  This function initializes a periodic timer to generate a single ticks after
+*  certain time interval in millisecond
+*
+*  @return   On success: Effective interval set in milli-second
+*            On failure: 0
+*
+*/
+/****************************************************************************/
+tmrHw_INTERVAL_t tmrHw_setOneshotTimerInterval(tmrHw_ID_t timerId,	/*  [ IN ] Timer Id */
+					       tmrHw_INTERVAL_t msec	/*  [ IN ] Interval in milli-second */
 ) {
 	ResetTimer(timerId);
 
-	
+	/* Set timer mode oneshot */
 	pTmrHw[timerId].Control |= tmrHw_CONTROL_PERIODIC;
 	pTmrHw[timerId].Control |= tmrHw_CONTROL_ONESHOT;
 
 	return SetTimerPeriod(timerId, msec);
 }
 
-tmrHw_RATE_t tmrHw_setFreeRunningTimer(tmrHw_ID_t timerId,	
-				       uint32_t divider	
+/****************************************************************************/
+/**
+*  @brief   Configures a timer to run as a free running timer
+*
+*  This function initializes a timer to run as a free running timer
+*
+*  @return   Timer resolution (count / sec)
+*
+*/
+/****************************************************************************/
+tmrHw_RATE_t tmrHw_setFreeRunningTimer(tmrHw_ID_t timerId,	/*  [ IN ] Timer Id */
+				       uint32_t divider	/*  [ IN ] Dividing the clock frequency */
 ) {
 	uint32_t scale = 0;
 
 	ResetTimer(timerId);
-	
+	/* Set timer as free running mode */
 	pTmrHw[timerId].Control &= ~tmrHw_CONTROL_PERIODIC;
 	pTmrHw[timerId].Control &= ~tmrHw_CONTROL_ONESHOT;
 
@@ -210,21 +299,53 @@ tmrHw_RATE_t tmrHw_setFreeRunningTimer(tmrHw_ID_t timerId,
 	return 0;
 }
 
-int tmrHw_startTimer(tmrHw_ID_t timerId	
+/****************************************************************************/
+/**
+*  @brief   Starts a timer
+*
+*  This function starts a preconfigured timer
+*
+*  @return  -1     - On Failure
+*            0     - On Success
+*
+*/
+/****************************************************************************/
+int tmrHw_startTimer(tmrHw_ID_t timerId	/*  [ IN ] Timer id */
 ) {
 	pTmrHw[timerId].Control |= tmrHw_CONTROL_TIMER_ENABLE;
 	return 0;
 }
 
-int tmrHw_stopTimer(tmrHw_ID_t timerId	
+/****************************************************************************/
+/**
+*  @brief   Stops a timer
+*
+*  This function stops a running timer
+*
+*  @return  -1     - On Failure
+*            0     - On Success
+*
+*/
+/****************************************************************************/
+int tmrHw_stopTimer(tmrHw_ID_t timerId	/*  [ IN ] Timer id */
 ) {
 	pTmrHw[timerId].Control &= ~tmrHw_CONTROL_TIMER_ENABLE;
 	return 0;
 }
 
-uint32_t tmrHw_GetCurrentCount(tmrHw_ID_t timerId	
+/****************************************************************************/
+/**
+*  @brief   Gets current timer count
+*
+*  This function returns the current timer value
+*
+*  @return  Current downcounting timer value
+*
+*/
+/****************************************************************************/
+uint32_t tmrHw_GetCurrentCount(tmrHw_ID_t timerId	/*  [ IN ] Timer id */
 ) {
-	
+	/* return 32 bit timer value */
 	switch (pTmrHw[timerId].Control & tmrHw_CONTROL_MODE_MASK) {
 	case tmrHw_CONTROL_FREE_RUNNING:
 		if (pTmrHw[timerId].CurrentValue) {
@@ -239,7 +360,17 @@ uint32_t tmrHw_GetCurrentCount(tmrHw_ID_t timerId
 	return 0;
 }
 
-tmrHw_RATE_t tmrHw_getCountRate(tmrHw_ID_t timerId	
+/****************************************************************************/
+/**
+*  @brief   Gets timer count rate
+*
+*  This function returns the number of counts per second
+*
+*  @return  Count rate
+*
+*/
+/****************************************************************************/
+tmrHw_RATE_t tmrHw_getCountRate(tmrHw_ID_t timerId	/*  [ IN ] Timer id */
 ) {
 	uint32_t divider = 0;
 
@@ -265,22 +396,63 @@ tmrHw_RATE_t tmrHw_getCountRate(tmrHw_ID_t timerId
 	return 0;
 }
 
-void tmrHw_enableInterrupt(tmrHw_ID_t timerId	
+/****************************************************************************/
+/**
+*  @brief   Enables timer interrupt
+*
+*  This function enables the timer interrupt
+*
+*  @return   N/A
+*
+*/
+/****************************************************************************/
+void tmrHw_enableInterrupt(tmrHw_ID_t timerId	/*  [ IN ] Timer id */
 ) {
 	pTmrHw[timerId].Control |= tmrHw_CONTROL_INTERRUPT_ENABLE;
 }
 
-void tmrHw_disableInterrupt(tmrHw_ID_t timerId	
+/****************************************************************************/
+/**
+*  @brief   Disables timer interrupt
+*
+*  This function disable the timer interrupt
+*
+*  @return   N/A
+*
+*/
+/****************************************************************************/
+void tmrHw_disableInterrupt(tmrHw_ID_t timerId	/*  [ IN ] Timer id */
 ) {
 	pTmrHw[timerId].Control &= ~tmrHw_CONTROL_INTERRUPT_ENABLE;
 }
 
-void tmrHw_clearInterrupt(tmrHw_ID_t timerId	
+/****************************************************************************/
+/**
+*  @brief   Clears the interrupt
+*
+*  This function clears the timer interrupt
+*
+*  @return   N/A
+*
+*  @note
+*     Must be called under the context of ISR
+*/
+/****************************************************************************/
+void tmrHw_clearInterrupt(tmrHw_ID_t timerId	/*  [ IN ] Timer id */
 ) {
 	pTmrHw[timerId].InterruptClear = 0x1;
 }
 
-tmrHw_INTERRUPT_STATUS_e tmrHw_getInterruptStatus(tmrHw_ID_t timerId	
+/****************************************************************************/
+/**
+*  @brief   Gets the interrupt status
+*
+*  This function returns timer interrupt status
+*
+*  @return   Interrupt status
+*/
+/****************************************************************************/
+tmrHw_INTERRUPT_STATUS_e tmrHw_getInterruptStatus(tmrHw_ID_t timerId	/*  [ IN ] Timer id */
 ) {
 	if (pTmrHw[timerId].InterruptStatus) {
 		return tmrHw_INTERRUPT_STATUS_SET;
@@ -289,7 +461,19 @@ tmrHw_INTERRUPT_STATUS_e tmrHw_getInterruptStatus(tmrHw_ID_t timerId
 	}
 }
 
-tmrHw_ID_t tmrHw_getInterruptSource(void	
+/****************************************************************************/
+/**
+*  @brief   Indentifies a timer causing interrupt
+*
+*  This functions returns a timer causing interrupt
+*
+*  @return  0xFFFFFFFF   : No timer causing an interrupt
+*           ! 0xFFFFFFFF : timer causing an interrupt
+*  @note
+*     tmrHw_clearIntrrupt() must be called with a valid timer id after calling this function
+*/
+/****************************************************************************/
+tmrHw_ID_t tmrHw_getInterruptSource(void	/*  void */
 ) {
 	int i;
 
@@ -302,8 +486,17 @@ tmrHw_ID_t tmrHw_getInterruptSource(void
 	return 0xFFFFFFFF;
 }
 
-void tmrHw_printDebugInfo(tmrHw_ID_t timerId,	
-			  int (*fpPrint) (const char *, ...)	
+/****************************************************************************/
+/**
+*  @brief   Displays specific timer registers
+*
+*
+*  @return  void
+*
+*/
+/****************************************************************************/
+void tmrHw_printDebugInfo(tmrHw_ID_t timerId,	/*  [ IN ] Timer id */
+			  int (*fpPrint) (const char *, ...)	/*  [ IN ] Print callback function */
 ) {
 	(*fpPrint) ("Displaying register contents \n\n");
 	(*fpPrint) ("Timer %d: Load value              0x%X\n", timerId,
@@ -320,8 +513,15 @@ void tmrHw_printDebugInfo(tmrHw_ID_t timerId,
 		    pTmrHw[timerId].InterruptStatus);
 }
 
-void tmrHw_udelay(tmrHw_ID_t timerId,	
-		  unsigned long usecs 
+/****************************************************************************/
+/**
+*  @brief   Use a timer to perform a busy wait delay for a number of usecs.
+*
+*  @return   N/A
+*/
+/****************************************************************************/
+void tmrHw_udelay(tmrHw_ID_t timerId,	/*  [ IN ] Timer id */
+		  unsigned long usecs /*  [ IN ] usec to delay */
 ) {
 	tmrHw_RATE_t usec_tick_rate;
 	tmrHw_COUNT_t start_time;
@@ -331,34 +531,44 @@ void tmrHw_udelay(tmrHw_ID_t timerId,
 	usec_tick_rate = tmrHw_divide(tmrHw_getCountRate(timerId), 1000000);
 	delta_time = usecs * usec_tick_rate;
 
-	
+	/* Busy wait */
 	while (delta_time > (tmrHw_GetCurrentCount(timerId) - start_time))
 		;
 }
 
+/****************************************************************************/
+/**
+*  @brief   Local Divide function
+*
+*  This function does the divide
+*
+*  @return divide value
+*
+*/
+/****************************************************************************/
 static int tmrHw_divide(int num, int denom)
 {
 	int r;
 	int t = 1;
 
-	
-	
-	while ((denom & 0x40000000) == 0) {	
+	/* Shift denom and t up to the largest value to optimize algorithm */
+	/* t contains the units of each divide */
+	while ((denom & 0x40000000) == 0) {	/* fails if denom=0 */
 		denom = denom << 1;
 		t = t << 1;
 	}
 
-	
+	/* Initialize the result */
 	r = 0;
 
 	do {
-		
+		/* Determine if there exists a positive remainder */
 		if ((num - denom) >= 0) {
-			
+			/* Accumlate t to the result and calculate a new remainder */
 			num = num - denom;
 			r = r + t;
 		}
-		
+		/* Continue to shift denom and shift t down to 0 */
 		denom = denom >> 1;
 		t = t >> 1;
 	} while (t != 0);

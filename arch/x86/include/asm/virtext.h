@@ -20,14 +20,23 @@
 #include <asm/vmx.h>
 #include <asm/svm.h>
 
+/*
+ * VMX functions:
+ */
 
 static inline int cpu_has_vmx(void)
 {
 	unsigned long ecx = cpuid_ecx(1);
-	return test_bit(5, &ecx); 
+	return test_bit(5, &ecx); /* CPUID.1:ECX.VMX[bit 5] -> VT */
 }
 
 
+/** Disable VMX on the current CPU
+ *
+ * vmxoff causes a undefined-opcode exception if vmxon was not run
+ * on the CPU previously. Only call this function if you know VMX
+ * is enabled.
+ */
 static inline void cpu_vmxoff(void)
 {
 	asm volatile (ASM_VMX_VMXOFF : : : "cc");
@@ -39,12 +48,18 @@ static inline int cpu_vmx_enabled(void)
 	return read_cr4() & X86_CR4_VMXE;
 }
 
+/** Disable VMX if it is enabled on the current CPU
+ *
+ * You shouldn't call this if cpu_has_vmx() returns 0.
+ */
 static inline void __cpu_emergency_vmxoff(void)
 {
 	if (cpu_vmx_enabled())
 		cpu_vmxoff();
 }
 
+/** Disable VMX if it is supported and enabled on the current CPU
+ */
 static inline void cpu_emergency_vmxoff(void)
 {
 	if (cpu_has_vmx())
@@ -54,7 +69,17 @@ static inline void cpu_emergency_vmxoff(void)
 
 
 
+/*
+ * SVM functions:
+ */
 
+/** Check if the CPU has SVM support
+ *
+ * You can use the 'msg' arg to get a message describing the problem,
+ * if the function returns zero. Simply pass NULL if you are not interested
+ * on the messages; gcc should take care of not generating code for
+ * the messages on this case.
+ */
 static inline int cpu_has_svm(const char **msg)
 {
 	uint32_t eax, ebx, ecx, edx;
@@ -82,6 +107,10 @@ static inline int cpu_has_svm(const char **msg)
 }
 
 
+/** Disable SVM on the current CPU
+ *
+ * You should call this only if cpu_has_svm() returned true.
+ */
 static inline void cpu_svm_disable(void)
 {
 	uint64_t efer;
@@ -91,10 +120,12 @@ static inline void cpu_svm_disable(void)
 	wrmsrl(MSR_EFER, efer & ~EFER_SVME);
 }
 
+/** Makes sure SVM is disabled, if it is supported on the CPU
+ */
 static inline void cpu_emergency_svm_disable(void)
 {
 	if (cpu_has_svm(NULL))
 		cpu_svm_disable();
 }
 
-#endif 
+#endif /* _ASM_X86_VIRTEX_H */

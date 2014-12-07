@@ -63,29 +63,50 @@
 
 #define PM2_PIXMAP_SIZE	(1600 * 4)
 
+/*
+ * Driver data
+ */
 static int hwcursor = 1;
 static char *mode_option __devinitdata;
 
+/*
+ * The XFree GLINT driver will (I think to implement hardware cursor
+ * support on TVP4010 and similar where there is no RAMDAC - see
+ * comment in set_video) always request +ve sync regardless of what
+ * the mode requires. This screws me because I have a Sun
+ * fixed-frequency monitor which absolutely has to have -ve sync. So
+ * these flags allow the user to specify that requests for +ve sync
+ * should be silently turned in -ve sync.
+ */
 static bool lowhsync;
 static bool lowvsync;
 static bool noaccel __devinitdata;
+/* mtrr option */
 #ifdef CONFIG_MTRR
 static bool nomtrr __devinitdata;
 #endif
 
+/*
+ * The hardware state of the graphics card that isn't part of the
+ * screeninfo.
+ */
 struct pm2fb_par
 {
-	pm2type_t	type;		
-	unsigned char	__iomem *v_regs;
-	u32		memclock;	
-	u32		video;		
-	u32		mem_config;	
-	u32		mem_control;	
-	u32		boot_address;	
+	pm2type_t	type;		/* Board type */
+	unsigned char	__iomem *v_regs;/* virtual address of p_regs */
+	u32		memclock;	/* memclock */
+	u32		video;		/* video flags before blanking */
+	u32		mem_config;	/* MemConfig reg at probe */
+	u32		mem_control;	/* MemControl reg at probe */
+	u32		boot_address;	/* BootAddress reg at probe */
 	u32		palette[16];
 	int		mtrr_handle;
 };
 
+/*
+ * Here we define the default structs fb_fix_screeninfo and fb_var_screeninfo
+ * if we don't use modedb.
+ */
 static struct fb_fix_screeninfo pm2fb_fix __devinitdata = {
 	.id =		"",
 	.type =		FB_TYPE_PACKED_PIXELS,
@@ -96,8 +117,11 @@ static struct fb_fix_screeninfo pm2fb_fix __devinitdata = {
 	.accel =	FB_ACCEL_3DLABS_PERMEDIA2,
 };
 
+/*
+ * Default video mode. In case the modedb doesn't work.
+ */
 static struct fb_var_screeninfo pm2fb_var __devinitdata = {
-	
+	/* "640x480, 8 bpp @ 60 Hz */
 	.xres =			640,
 	.yres =			480,
 	.xres_virtual =		640,
@@ -120,6 +144,9 @@ static struct fb_var_screeninfo pm2fb_var __devinitdata = {
 	.vmode =		FB_VMODE_NONINTERLACED
 };
 
+/*
+ * Utility functions
+ */
 
 static inline u32 pm2_RD(struct pm2fb_par *p, s32 off)
 {
@@ -171,6 +198,9 @@ static inline void WAIT_FIFO(struct pm2fb_par *p, u32 a)
 }
 #endif
 
+/*
+ * partial products for the supported horizontal resolutions.
+ */
 #define PACKPP(p0, p1, p2)	(((p2) << 6) | ((p1) << 3) | (p0))
 static const struct {
 	u16 width;
@@ -306,7 +336,7 @@ static void reset_card(struct pm2fb_par *p)
 	mb();
 #endif
 
-	
+	/* Restore stashed memory config information from probe */
 	WAIT_FIFO(p, 3);
 	pm2_WR(p, PM2R_MEM_CONTROL, p->mem_control);
 	pm2_WR(p, PM2R_BOOT_ADDRESS, p->boot_address);
@@ -356,7 +386,7 @@ static void reset_config(struct pm2fb_par *p)
 	pm2_WR(p, PM2R_RD_PIXEL_MASK, 0xff);
 	switch (p->type) {
 	case PM2_TYPE_PERMEDIA2:
-		pm2_RDAC_WR(p, PM2I_RD_MODE_CONTROL, 0); 
+		pm2_RDAC_WR(p, PM2I_RD_MODE_CONTROL, 0); /* no overlay */
 		pm2_RDAC_WR(p, PM2I_RD_CURSOR_CONTROL, 0);
 		pm2_RDAC_WR(p, PM2I_RD_MISC_CONTROL, PM2F_RD_PALETTE_WIDTH_8);
 		pm2_RDAC_WR(p, PM2I_RD_COLOR_KEY_CONTROL, 0);
@@ -366,32 +396,42 @@ static void reset_config(struct pm2fb_par *p)
 		pm2_RDAC_WR(p, PM2I_RD_BLUE_KEY, 0);
 		break;
 	case PM2_TYPE_PERMEDIA2V:
-		pm2v_RDAC_WR(p, PM2VI_RD_MISC_CONTROL, 1); 
+		pm2v_RDAC_WR(p, PM2VI_RD_MISC_CONTROL, 1); /* 8bit */
 		break;
 	}
 }
 
 static void set_aperture(struct pm2fb_par *p, u32 depth)
 {
+	/*
+	 * The hardware is little-endian. When used in big-endian
+	 * hosts, the on-chip aperture settings are used where
+	 * possible to translate from host to card byte order.
+	 */
 	WAIT_FIFO(p, 2);
 #ifdef __LITTLE_ENDIAN
 	pm2_WR(p, PM2R_APERTURE_ONE, PM2F_APERTURE_STANDARD);
 #else
 	switch (depth) {
-	case 24:	
-	case 8:		
+	case 24:	/* RGB->BGR */
+		/*
+		 * We can't use the aperture to translate host to
+		 * card byte order here, so we switch to BGR mode
+		 * in pm2fb_set_par().
+		 */
+	case 8:		/* B->B */
 		pm2_WR(p, PM2R_APERTURE_ONE, PM2F_APERTURE_STANDARD);
 		break;
-	case 16:	
+	case 16:	/* HL->LH */
 		pm2_WR(p, PM2R_APERTURE_ONE, PM2F_APERTURE_HALFWORDSWAP);
 		break;
-	case 32:	
+	case 32:	/* RGBA->ABGR */
 		pm2_WR(p, PM2R_APERTURE_ONE, PM2F_APERTURE_BYTESWAP);
 		break;
 	}
 #endif
 
-	
+	/* We don't use aperture two, so this may be superflous */
 	pm2_WR(p, PM2R_APERTURE_TWO, PM2F_APERTURE_STANDARD);
 }
 
@@ -483,6 +523,12 @@ static void set_video(struct pm2fb_par *p, u32 video)
 
 	DPRINTK("video = 0x%x\n", video);
 
+	/*
+	 * The hardware cursor needs +vsync to recognise vert retrace.
+	 * We may not be using the hardware cursor, but the X Glint
+	 * driver may well. So always set +hsync/+vsync and then set
+	 * the RAMDAC to invert the sync if necessary.
+	 */
 	vsync &= ~(PM2F_HSYNC_MASK | PM2F_VSYNC_MASK);
 	vsync |= PM2F_HSYNC_ACT_HIGH | PM2F_VSYNC_ACT_HIGH;
 
@@ -493,22 +539,32 @@ static void set_video(struct pm2fb_par *p, u32 video)
 	case PM2_TYPE_PERMEDIA2:
 		tmp = PM2F_RD_PALETTE_WIDTH_8;
 		if ((video & PM2F_HSYNC_MASK) == PM2F_HSYNC_ACT_LOW)
-			tmp |= 4; 
+			tmp |= 4; /* invert hsync */
 		if ((video & PM2F_VSYNC_MASK) == PM2F_VSYNC_ACT_LOW)
-			tmp |= 8; 
+			tmp |= 8; /* invert vsync */
 		pm2_RDAC_WR(p, PM2I_RD_MISC_CONTROL, tmp);
 		break;
 	case PM2_TYPE_PERMEDIA2V:
 		tmp = 0;
 		if ((video & PM2F_HSYNC_MASK) == PM2F_HSYNC_ACT_LOW)
-			tmp |= 1; 
+			tmp |= 1; /* invert hsync */
 		if ((video & PM2F_VSYNC_MASK) == PM2F_VSYNC_ACT_LOW)
-			tmp |= 4; 
+			tmp |= 4; /* invert vsync */
 		pm2v_RDAC_WR(p, PM2VI_RD_SYNC_CONTROL, tmp);
 		break;
 	}
 }
 
+/*
+ *	pm2fb_check_var - Optional function. Validates a var passed in.
+ *	@var: frame buffer variable screen structure
+ *	@info: frame buffer structure that represents a single frame buffer
+ *
+ *	Checks to see if the hardware supports the state requested by
+ *	var passed in.
+ *
+ *	Returns negative errno on error, or zero on success.
+ */
 static int pm2fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 {
 	u32 lpitch;
@@ -531,7 +587,7 @@ static int pm2fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		return -EINVAL;
 	}
 
-	
+	/* permedia cannot blit over 2048 */
 	if (var->yres_virtual > 2047) {
 		var->yres_virtual = 2047;
 	}
@@ -546,7 +602,7 @@ static int pm2fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		return -EINVAL;
 	}
 
-	var->xres = (var->xres + 15) & ~15; 
+	var->xres = (var->xres + 15) & ~15; /* could sometimes be 8 */
 	lpitch = var->xres * ((var->bits_per_pixel + 7) >> 3);
 
 	if (var->xres < 320 || var->xres > 1600) {
@@ -614,13 +670,20 @@ static int pm2fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 	var->height = -1;
 	var->width = -1;
 
-	var->accel_flags = 0;	
+	var->accel_flags = 0;	/* Can't mmap if this is on */
 
 	DPRINTK("Checking graphics mode at %dx%d depth %d\n",
 		var->xres, var->yres, var->bits_per_pixel);
 	return 0;
 }
 
+/**
+ *	pm2fb_set_par - Alters the hardware state.
+ *	@info: frame buffer structure that represents a single frame buffer
+ *
+ *	Using the fb_var_screeninfo in fb_info we set the resolution of the
+ *	this particular framebuffer.
+ */
 static int pm2fb_set_par(struct fb_info *info)
 {
 	struct pm2fb_par *par = info->par;
@@ -637,7 +700,7 @@ static int pm2fb_set_par(struct fb_info *info)
 	u32 txtmap = 0;
 	u32 pixsize = 0;
 	u32 clrformat = 0;
-	u32 misc = 1; 
+	u32 misc = 1; /* 8-bit DAC */
 	u32 xres = (info->var.xres + 31) & ~31;
 	int data64;
 
@@ -662,7 +725,7 @@ static int pm2fb_set_par(struct fb_info *info)
 	htotal = to3264(xres, depth, data64) + hbend - 1;
 	vsstart = (info->var.lower_margin)
 		? info->var.lower_margin - 1
-		: 0;	
+		: 0;	/* FIXME! */
 	vsend = info->var.lower_margin + info->var.vsync_len - 1;
 	vbend = info->var.lower_margin + info->var.vsync_len +
 		info->var.upper_margin;
@@ -705,6 +768,9 @@ static int pm2fb_set_par(struct fb_info *info)
 	info->fix.line_length = info->var.xres * depth / 8;
 	info->cmap.len = 256;
 
+	/*
+	 * Settings calculated. Now write them out.
+	 */
 	if (par->type == PM2_TYPE_PERMEDIA2V) {
 		WAIT_FIFO(par, 1);
 		pm2_WR(par, PM2VR_RD_INDEX_HIGH, 0);
@@ -787,20 +853,61 @@ static int pm2fb_set_par(struct fb_info *info)
 	return 0;
 }
 
+/**
+ *	pm2fb_setcolreg - Sets a color register.
+ *	@regno: boolean, 0 copy local, 1 get_user() function
+ *	@red: frame buffer colormap structure
+ *	@green: The green value which can be up to 16 bits wide
+ *	@blue:  The blue value which can be up to 16 bits wide.
+ *	@transp: If supported the alpha value which can be up to 16 bits wide.
+ *	@info: frame buffer info structure
+ *
+ *	Set a single color register. The values supplied have a 16 bit
+ *	magnitude which needs to be scaled in this function for the hardware.
+ *	Pretty much a direct lift from tdfxfb.c.
+ *
+ *	Returns negative errno on error, or zero on success.
+ */
 static int pm2fb_setcolreg(unsigned regno, unsigned red, unsigned green,
 			   unsigned blue, unsigned transp,
 			   struct fb_info *info)
 {
 	struct pm2fb_par *par = info->par;
 
-	if (regno >= info->cmap.len)  
+	if (regno >= info->cmap.len)  /* no. of hw registers */
 		return -EINVAL;
+	/*
+	 * Program hardware... do anything you want with transp
+	 */
 
-	
-	
+	/* grayscale works only partially under directcolor */
+	/* grayscale = 0.30*R + 0.59*G + 0.11*B */
 	if (info->var.grayscale)
 		red = green = blue = (red * 77 + green * 151 + blue * 28) >> 8;
 
+	/* Directcolor:
+	 *   var->{color}.offset contains start of bitfield
+	 *   var->{color}.length contains length of bitfield
+	 *   {hardwarespecific} contains width of DAC
+	 *   cmap[X] is programmed to
+	 *   (X << red.offset) | (X << green.offset) | (X << blue.offset)
+	 *   RAMDAC[X] is programmed to (red, green, blue)
+	 *
+	 * Pseudocolor:
+	 *    uses offset = 0 && length = DAC register width.
+	 *    var->{color}.offset is 0
+	 *    var->{color}.length contains width of DAC
+	 *    cmap is not used
+	 *    DAC[X] is programmed to (red, green, blue)
+	 * Truecolor:
+	 *    does not use RAMDAC (usually has 3 of them).
+	 *    var->{color}.offset contains start of bitfield
+	 *    var->{color}.length contains length of bitfield
+	 *    cmap is programmed to
+	 *    (red << red.offset) | (green << green.offset) |
+	 *    (blue << blue.offset) | (transp << transp.offset)
+	 *    RAMDAC does not exist
+	 */
 #define CNVT_TOHW(val, width) ((((val) << (width)) + 0x7FFF -(val)) >> 16)
 	switch (info->fix.visual) {
 	case FB_VISUAL_TRUECOLOR:
@@ -811,15 +918,17 @@ static int pm2fb_setcolreg(unsigned regno, unsigned red, unsigned green,
 		transp = CNVT_TOHW(transp, info->var.transp.length);
 		break;
 	case FB_VISUAL_DIRECTCOLOR:
+		/* example here assumes 8 bit DAC. Might be different
+		 * for your hardware */
 		red = CNVT_TOHW(red, 8);
 		green = CNVT_TOHW(green, 8);
 		blue = CNVT_TOHW(blue, 8);
-		
+		/* hey, there is bug in transp handling... */
 		transp = CNVT_TOHW(transp, 8);
 		break;
 	}
 #undef CNVT_TOHW
-	
+	/* Truecolor has hardware independent palette */
 	if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
 		u32 v;
 
@@ -847,6 +956,18 @@ static int pm2fb_setcolreg(unsigned regno, unsigned red, unsigned green,
 	return 0;
 }
 
+/**
+ *	pm2fb_pan_display - Pans the display.
+ *	@var: frame buffer variable screen structure
+ *	@info: frame buffer structure that represents a single frame buffer
+ *
+ *	Pan (or wrap, depending on the `vmode' field) the display using the
+ *	`xoffset' and `yoffset' fields of the `var' structure.
+ *	If the values don't fit, return -EINVAL.
+ *
+ *	Returns negative errno on error, or zero on success.
+ *
+ */
 static int pm2fb_pan_display(struct fb_var_screeninfo *var,
 			     struct fb_info *info)
 {
@@ -862,6 +983,22 @@ static int pm2fb_pan_display(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/**
+ *	pm2fb_blank - Blanks the display.
+ *	@blank_mode: the blank mode we want.
+ *	@info: frame buffer structure that represents a single frame buffer
+ *
+ *	Blank the screen if blank_mode != 0, else unblank. Return 0 if
+ *	blanking succeeded, != 0 if un-/blanking failed due to e.g. a
+ *	video mode which doesn't support it. Implements VESA suspend
+ *	and powerdown modes on hardware that supports disabling hsync/vsync:
+ *	blank_mode == 2: suspend vsync
+ *	blank_mode == 3: suspend hsync
+ *	blank_mode == 4: powerdown
+ *
+ *	Returns negative errno on error, or zero on success.
+ *
+ */
 static int pm2fb_blank(int blank_mode, struct fb_info *info)
 {
 	struct pm2fb_par *par = info->par;
@@ -871,23 +1008,23 @@ static int pm2fb_blank(int blank_mode, struct fb_info *info)
 
 	switch (blank_mode) {
 	case FB_BLANK_UNBLANK:
-		
+		/* Screen: On */
 		video |= PM2F_VIDEO_ENABLE;
 		break;
 	case FB_BLANK_NORMAL:
-		
+		/* Screen: Off */
 		video &= ~PM2F_VIDEO_ENABLE;
 		break;
 	case FB_BLANK_VSYNC_SUSPEND:
-		
+		/* VSync: Off */
 		video &= ~(PM2F_VSYNC_MASK | PM2F_BLANK_LOW);
 		break;
 	case FB_BLANK_HSYNC_SUSPEND:
-		
+		/* HSync: Off */
 		video &= ~(PM2F_HSYNC_MASK | PM2F_BLANK_LOW);
 		break;
 	case FB_BLANK_POWERDOWN:
-		
+		/* HSync: Off, VSync: Off */
 		video &= ~(PM2F_VSYNC_MASK | PM2F_HSYNC_MASK | PM2F_BLANK_LOW);
 		break;
 	}
@@ -1022,10 +1159,10 @@ static void pm2fb_imageblit(struct fb_info *info, const struct fb_image *image)
 	u32 fgx, bgx;
 	const u32 *src = (const u32 *)image->data;
 	u32 xres = (info->var.xres + 31) & ~31;
-	int raster_mode = 1; 
+	int raster_mode = 1; /* invert bits */
 
 #ifdef __LITTLE_ENDIAN
-	raster_mode |= 3 << 7; 
+	raster_mode |= 3 << 7; /* reverse byte order */
 #endif
 
 	if (info->state != FBINFO_STATE_RUNNING)
@@ -1062,7 +1199,7 @@ static void pm2fb_imageblit(struct fb_info *info, const struct fb_image *image)
 			(((image->dy + image->height) & 0x0fff) << 16) |
 			((image->dx + image->width) & 0x0fff));
 	pm2_WR(par, PM2R_SCISSOR_MODE, 1);
-	
+	/* GXcopy & UNIT_ENABLE */
 	pm2_WR(par, PM2R_LOGICAL_OP_MODE, (0x3 << 1) | 1);
 	pm2_WR(par, PM2R_RECTANGLE_ORIGIN,
 			((image->dy & 0xfff) << 16) | (image->dx & 0x0fff));
@@ -1071,12 +1208,12 @@ static void pm2fb_imageblit(struct fb_info *info, const struct fb_image *image)
 			((image->width) & 0x0fff));
 	if (info->var.bits_per_pixel == 24) {
 		pm2_WR(par, PM2R_COLOR_DDA_MODE, 1);
-		
+		/* clear area */
 		pm2_WR(par, PM2R_CONSTANT_COLOR, bgx);
 		pm2_WR(par, PM2R_RENDER,
 			PM2F_RENDER_RECTANGLE |
 			PM2F_INCREASE_X | PM2F_INCREASE_Y);
-		
+		/* BitMapPackEachScanline */
 		pm2_WR(par, PM2R_RASTERIZER_MODE, raster_mode | (1 << 9));
 		pm2_WR(par, PM2R_CONSTANT_COLOR, fgx);
 		pm2_WR(par, PM2R_RENDER,
@@ -1085,7 +1222,7 @@ static void pm2fb_imageblit(struct fb_info *info, const struct fb_image *image)
 			PM2F_RENDER_SYNC_ON_BIT_MASK);
 	} else {
 		pm2_WR(par, PM2R_COLOR_DDA_MODE, 0);
-		
+		/* clear area */
 		pm2_WR(par, PM2R_FB_BLOCK_COLOR, bgx);
 		pm2_WR(par, PM2R_RENDER,
 			PM2F_RENDER_RECTANGLE |
@@ -1116,6 +1253,9 @@ static void pm2fb_imageblit(struct fb_info *info, const struct fb_image *image)
 	pm2_WR(par, PM2R_SCISSOR_MODE, 0);
 }
 
+/*
+ *	Hardware cursor support.
+ */
 static const u8 cursor_bits_lookup[16] = {
 	0x00, 0x40, 0x10, 0x50, 0x04, 0x44, 0x14, 0x54,
 	0x01, 0x41, 0x11, 0x51, 0x05, 0x45, 0x15, 0x55
@@ -1134,12 +1274,17 @@ static int pm2vfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 	pm2v_RDAC_WR(par, PM2VI_RD_CURSOR_MODE, mode);
 
 	if (!cursor->enable)
-		x = 2047;	
+		x = 2047;	/* push it outside display */
 	pm2v_RDAC_WR(par, PM2VI_RD_CURSOR_X_LOW, x & 0xff);
 	pm2v_RDAC_WR(par, PM2VI_RD_CURSOR_X_HIGH, (x >> 8) & 0xf);
 	pm2v_RDAC_WR(par, PM2VI_RD_CURSOR_Y_LOW, y & 0xff);
 	pm2v_RDAC_WR(par, PM2VI_RD_CURSOR_Y_HIGH, (y >> 8) & 0xf);
 
+	/*
+	 * If the cursor is not be changed this means either we want the
+	 * current cursor state (if enable is set) or we want to query what
+	 * we can do with the cursor (if enable is not set)
+	 */
 	if (!cursor->set)
 		return 0;
 
@@ -1155,7 +1300,7 @@ static int pm2vfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 		u32 bg_idx = cursor->image.bg_color;
 		struct fb_cmap cmap = info->cmap;
 
-		
+		/* the X11 driver says one should use these color registers */
 		pm2_WR(par, PM2VR_RD_INDEX_HIGH, PM2VI_RD_CURSOR_PALETTE >> 8);
 		pm2v_RDAC_WR(par, PM2VI_RD_CURSOR_PALETTE + 0,
 			     cmap.red[bg_idx] >> 8 );
@@ -1190,11 +1335,11 @@ static int pm2vfb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 
 				if (cursor->rop == ROP_COPY)
 					data = *mask & *bitmap;
-				
+				/* Upper 4 bits of bitmap data */
 				pm2v_RDAC_WR(par, pos++,
 					cursor_bits_lookup[data >> 4] |
 					(cursor_bits_lookup[*mask >> 4] << 1));
-				
+				/* Lower 4 bits of bitmap */
 				pm2v_RDAC_WR(par, pos++,
 					cursor_bits_lookup[data & 0xf] |
 					(cursor_bits_lookup[*mask & 0xf] << 1));
@@ -1223,9 +1368,9 @@ static int pm2fb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 	u8 mode;
 
 	if (!hwcursor)
-		return -EINVAL;	
+		return -EINVAL;	/* just to force soft_cursor() call */
 
-	
+	/* Too large of a cursor or wrong bpp :-( */
 	if (cursor->image.width > 64 ||
 	    cursor->image.height > 64 ||
 	    cursor->image.depth > 1)
@@ -1240,6 +1385,11 @@ static int pm2fb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 
 	pm2_RDAC_WR(par, PM2I_RD_CURSOR_CONTROL, mode);
 
+	/*
+	 * If the cursor is not be changed this means either we want the
+	 * current cursor state (if enable is set) or we want to query what
+	 * we can do with the cursor (if enable is not set)
+	 */
 	if (!cursor->set)
 		return 0;
 
@@ -1293,7 +1443,7 @@ static int pm2fb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 
 				if (cursor->rop == ROP_COPY)
 					data = *mask & *bitmap;
-				
+				/* bitmap data */
 				pm2_WR(par, PM2R_RD_CURSOR_DATA, data);
 				bitmap++;
 				mask++;
@@ -1315,7 +1465,7 @@ static int pm2fb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 
 			WAIT_FIFO(par, 8);
 			for (; j > 0; j--) {
-				
+				/* mask */
 				pm2_WR(par, PM2R_RD_CURSOR_DATA, *mask);
 				mask++;
 			}
@@ -1332,7 +1482,11 @@ static int pm2fb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 	return 0;
 }
 
+/* ------------ Hardware Independent Functions ------------ */
 
+/*
+ *  Frame buffer operations
+ */
 
 static struct fb_ops pm2fb_ops = {
 	.owner		= THIS_MODULE,
@@ -1348,8 +1502,19 @@ static struct fb_ops pm2fb_ops = {
 	.fb_cursor	= pm2fb_cursor,
 };
 
+/*
+ * PCI stuff
+ */
 
 
+/**
+ * Device initialisation
+ *
+ * Initialise and allocate resource for PCI device.
+ *
+ * @param	pdev	PCI device.
+ * @param	id	PCI device ID.
+ */
 static int __devinit pm2fb_probe(struct pci_dev *pdev,
 				 const struct pci_device_id *id)
 {
@@ -1388,12 +1553,16 @@ static int __devinit pm2fb_probe(struct pci_dev *pdev,
 	pm2fb_fix.mmio_len = PM2_REGS_SIZE;
 
 #if defined(__BIG_ENDIAN)
+	/*
+	 * PM2 has a 64k register file, mapped twice in 128k. Lower
+	 * map is little-endian, upper map is big-endian.
+	 */
 	pm2fb_fix.mmio_start += PM2_REGS_SIZE;
 	DPRINTK("Adjusting register base for big-endian.\n");
 #endif
 	DPRINTK("Register base at 0x%lx\n", pm2fb_fix.mmio_start);
 
-	
+	/* Registers - request region and map it. */
 	if (!request_mem_region(pm2fb_fix.mmio_start, pm2fb_fix.mmio_len,
 				"pm2fb regbase")) {
 		printk(KERN_WARNING "pm2fb: Can't reserve regbase.\n");
@@ -1408,7 +1577,7 @@ static int __devinit pm2fb_probe(struct pci_dev *pdev,
 		goto err_exit_neither;
 	}
 
-	
+	/* Stash away memory register info for use when we reset the board */
 	default_par->mem_control = pm2_RD(default_par, PM2R_MEM_CONTROL);
 	default_par->boot_address = pm2_RD(default_par, PM2R_BOOT_ADDRESS);
 	default_par->mem_config = pm2_RD(default_par, PM2R_MEM_CONFIG);
@@ -1445,7 +1614,7 @@ static int __devinit pm2fb_probe(struct pci_dev *pdev,
 		}
 	}
 
-	
+	/* Now work out how big lfb is going to be. */
 	switch (default_par->mem_config & PM2F_MEM_CONFIG_RAM_MASK) {
 	case PM2F_MEM_BANKS_1:
 		pm2fb_fix.smem_len = 0x200000;
@@ -1462,7 +1631,7 @@ static int __devinit pm2fb_probe(struct pci_dev *pdev,
 	}
 	pm2fb_fix.smem_start = pci_resource_start(pdev, 1);
 
-	
+	/* Linear frame buffer - request region and map it. */
 	if (!request_mem_region(pm2fb_fix.smem_start, pm2fb_fix.smem_len,
 				"pm2fb smem")) {
 		printk(KERN_WARNING "pm2fb: Can't reserve smem.\n");
@@ -1529,6 +1698,9 @@ static int __devinit pm2fb_probe(struct pci_dev *pdev,
 	printk(KERN_INFO "fb%d: %s frame buffer device, memory = %dK.\n",
 	       info->node, info->fix.id, pm2fb_fix.smem_len / 1024);
 
+	/*
+	 * Our driver data
+	 */
 	pci_set_drvdata(pdev, info);
 
 	return 0;
@@ -1548,6 +1720,13 @@ static int __devinit pm2fb_probe(struct pci_dev *pdev,
 	return retval;
 }
 
+/**
+ * Device removal.
+ *
+ * Release all device resources.
+ *
+ * @param	pdev	PCI device to clean up.
+ */
 static void __devexit pm2fb_remove(struct pci_dev *pdev)
 {
 	struct fb_info *info = pci_get_drvdata(pdev);
@@ -1560,7 +1739,7 @@ static void __devexit pm2fb_remove(struct pci_dev *pdev)
 	if (par->mtrr_handle >= 0)
 		mtrr_del(par->mtrr_handle, info->fix.smem_start,
 			 info->fix.smem_len);
-#endif 
+#endif /* CONFIG_MTRR */
 	iounmap(info->screen_base);
 	release_mem_region(fix->smem_start, fix->smem_len);
 	iounmap(par->v_regs);
@@ -1593,6 +1772,11 @@ MODULE_DEVICE_TABLE(pci, pm2fb_id_table);
 
 
 #ifndef MODULE
+/**
+ * Parse user specified options.
+ *
+ * This is, comma-separated options following `video=pm2fb:'.
+ */
 static int __init pm2fb_setup(char *options)
 {
 	char *this_opt;
@@ -1639,6 +1823,9 @@ static int __init pm2fb_init(void)
 module_init(pm2fb_init);
 
 #ifdef MODULE
+/*
+ *  Cleanup
+ */
 
 static void __exit pm2fb_exit(void)
 {

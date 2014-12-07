@@ -26,17 +26,18 @@
 
 #define MSND_MIXER_VOLUME	0
 #define MSND_MIXER_PCM		1
-#define MSND_MIXER_AUX		2	
-#define MSND_MIXER_IMIX		3	
+#define MSND_MIXER_AUX		2	/* Input source 1  (aux1) */
+#define MSND_MIXER_IMIX		3	/*  Recording monitor  */
 #define MSND_MIXER_SYNTH	4
 #define MSND_MIXER_SPEAKER	5
 #define MSND_MIXER_LINE		6
 #define MSND_MIXER_MIC		7
-#define MSND_MIXER_RECLEV	11	
-#define MSND_MIXER_IGAIN	12	
-#define MSND_MIXER_OGAIN	13	
-#define MSND_MIXER_DIGITAL	17	
+#define MSND_MIXER_RECLEV	11	/* Recording level */
+#define MSND_MIXER_IGAIN	12	/* Input gain */
+#define MSND_MIXER_OGAIN	13	/* Output gain */
+#define MSND_MIXER_DIGITAL	17	/* Digital (input) 1 */
 
+/*	Device mask bits	*/
 
 #define MSND_MASK_VOLUME	(1 << MSND_MIXER_VOLUME)
 #define MSND_MASK_SYNTH		(1 << MSND_MIXER_SYNTH)
@@ -74,7 +75,7 @@ static int snd_msndmix_get_mux(struct snd_kcontrol *kcontrol,
 				struct snd_ctl_elem_value *ucontrol)
 {
 	struct snd_msnd *chip = snd_kcontrol_chip(kcontrol);
-	
+	/* MSND_MASK_IMIX is the default */
 	ucontrol->value.enumerated.item[0] = 0;
 
 	if (chip->recsrc & MSND_MASK_SYNTH) {
@@ -208,37 +209,37 @@ static int snd_msndmix_set(struct snd_msnd *dev, int d, int left, int right)
 	dev->right_levels[d] = wRight;
 
 	switch (d) {
-		
-	case MSND_MIXER_LINE:			
-		
+		/* master volume unscaled controls */
+	case MSND_MIXER_LINE:			/* line pot control */
+		/* scaled by IMIX in digital mix */
 		writeb(bLeft, dev->SMA + SMA_bInPotPosLeft);
 		writeb(bRight, dev->SMA + SMA_bInPotPosRight);
 		if (snd_msnd_send_word(dev, 0, 0, HDEXAR_IN_SET_POTS) == 0)
 			snd_msnd_send_dsp_cmd(dev, HDEX_AUX_REQ);
 		break;
-	case MSND_MIXER_MIC:			
+	case MSND_MIXER_MIC:			/* mic pot control */
 		if (dev->type == msndClassic)
 			return -EINVAL;
-		
+		/* scaled by IMIX in digital mix */
 		writeb(bLeft, dev->SMA + SMA_bMicPotPosLeft);
 		writeb(bRight, dev->SMA + SMA_bMicPotPosRight);
 		if (snd_msnd_send_word(dev, 0, 0, HDEXAR_MIC_SET_POTS) == 0)
 			snd_msnd_send_dsp_cmd(dev, HDEX_AUX_REQ);
 		break;
-	case MSND_MIXER_VOLUME:		
+	case MSND_MIXER_VOLUME:		/* master volume */
 		writew(wLeft, dev->SMA + SMA_wCurrMastVolLeft);
 		writew(wRight, dev->SMA + SMA_wCurrMastVolRight);
-		
+		/* fall through */
 
-	case MSND_MIXER_AUX:			
-		
-		
+	case MSND_MIXER_AUX:			/* aux pot control */
+		/* scaled by master volume */
+		/* fall through */
 
-		
-	case MSND_MIXER_SYNTH:			
-	case MSND_MIXER_PCM:			
-	case MSND_MIXER_IMIX:			
-		
+		/* digital controls */
+	case MSND_MIXER_SYNTH:			/* synth vol (dsp mix) */
+	case MSND_MIXER_PCM:			/* pcm vol (dsp mix) */
+	case MSND_MIXER_IMIX:			/* input monitor (dsp mix) */
+		/* scaled by master volume */
 		updatemaster = 1;
 		break;
 
@@ -247,7 +248,7 @@ static int snd_msndmix_set(struct snd_msnd *dev, int d, int left, int right)
 	}
 
 	if (updatemaster) {
-		
+		/* update master volume scaled controls */
 		update_volm(MSND_MIXER_PCM, wCurrPlayVol);
 		update_volm(MSND_MIXER_IMIX, wCurrInVol);
 		if (dev->type == msndPinnacle)

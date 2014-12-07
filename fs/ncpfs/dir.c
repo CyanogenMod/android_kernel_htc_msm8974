@@ -69,6 +69,9 @@ const struct inode_operations ncp_dir_inode_operations =
 	.setattr	= ncp_notify_change,
 };
 
+/*
+ * Dentry operations routines
+ */
 static int ncp_lookup_validate(struct dentry *, struct nameidata *);
 static int ncp_hash_dentry(const struct dentry *, const struct inode *,
 		struct qstr *);
@@ -95,10 +98,10 @@ static inline int ncp_preserve_entry_case(struct inode *i, __u32 nscreator)
 	if ((ns == NW_NS_DOS)
 #ifdef CONFIG_NCPFS_OS2_NS
 		|| ((ns == NW_NS_OS2) && (nscreator == NW_NS_DOS))
-#endif 
+#endif /* CONFIG_NCPFS_OS2_NS */
 	   )
 		return 0;
-#endif 
+#endif /* CONFIG_NCPFS_SMALLDOS */
 	return 1;
 }
 
@@ -110,9 +113,13 @@ static inline int ncp_case_sensitive(const struct inode *i)
 	return ncp_namespace(i) == NW_NS_NFS;
 #else
 	return 0;
-#endif 
+#endif /* CONFIG_NCPFS_NFS_NS */
 }
 
+/*
+ * Note: leave the hash unchanged if the directory
+ * is case-sensitive.
+ */
 static int 
 ncp_hash_dentry(const struct dentry *dentry, const struct inode *inode,
 		struct qstr *this)
@@ -147,6 +154,11 @@ ncp_compare_dentry(const struct dentry *parent, const struct inode *pinode,
 	return ncp_strnicmp(NCP_IO_TABLE(pinode->i_sb), str, name->name, len);
 }
 
+/*
+ * This is the callback from dput() when d_count is going to 0.
+ * We use this to unhash dentries with bad inodes.
+ * Closing files can be safely postponed until iput() - it's done there anyway.
+ */
 static int
 ncp_delete_dentry(const struct dentry * dentry)
 {
@@ -157,7 +169,7 @@ ncp_delete_dentry(const struct dentry * dentry)
 			return 1;
 	} else
 	{
-	
+	/* N.B. Unhash negative dentries? */
 	}
 	return 0;
 }
@@ -175,9 +187,13 @@ static inline int ncp_is_server_root(struct inode *inode)
 }
 
 
+/*
+ * This is the callback when the dcache has a lookup hit.
+ */
 
 
 #ifdef CONFIG_NCPFS_STRONG
+/* try to delete a readonly file (NW R bit set) */
 
 static int
 ncp_force_unlink(struct inode *dir, struct dentry* dentry)
@@ -189,7 +205,7 @@ ncp_force_unlink(struct inode *dir, struct dentry* dentry)
 
 	memset(&info, 0, sizeof(info));
 	
-        
+        /* remove the Read-Only flag on the NW server */
 	inode = dentry->d_inode;
 
 	old_nwattr = NCP_FINFO(inode)->nwattr;
@@ -198,10 +214,10 @@ ncp_force_unlink(struct inode *dir, struct dentry* dentry)
 	if (res2)
 		goto leave_me;
 
-        
+        /* now try again the delete operation */
         res = ncp_del_file_or_subdir2(NCP_SERVER(dir), dentry);
 
-        if (res)  
+        if (res)  /* delete failed, set R bit again */
         {
 		info.attributes = old_nwattr;
 		res2 = ncp_modify_file_or_subdir_dos_info_path(NCP_SERVER(inode), inode, NULL, DM_ATTRIBUTES, &info);
@@ -211,7 +227,7 @@ ncp_force_unlink(struct inode *dir, struct dentry* dentry)
 leave_me:
         return(res);
 }
-#endif	
+#endif	/* CONFIG_NCPFS_STRONG */
 
 #ifdef CONFIG_NCPFS_STRONG
 static int
@@ -222,13 +238,13 @@ ncp_force_rename(struct inode *old_dir, struct dentry* old_dentry, char *_old_na
         int res=0x90,res2;
 	struct inode *old_inode = old_dentry->d_inode;
 	__le32 old_nwattr = NCP_FINFO(old_inode)->nwattr;
-	__le32 new_nwattr = 0; 
+	__le32 new_nwattr = 0; /* shut compiler warning */
 	int old_nwattr_changed = 0;
 	int new_nwattr_changed = 0;
 
 	memset(&info, 0, sizeof(info));
 	
-        
+        /* remove the Read-Only flag on the NW server */
 
 	info.attributes = old_nwattr & ~(aRONLY|aRENAMEINHIBIT|aDELETEINHIBIT);
 	res2 = ncp_modify_file_or_subdir_dos_info_path(NCP_SERVER(old_inode), old_inode, NULL, DM_ATTRIBUTES, &info);
@@ -241,8 +257,8 @@ ncp_force_rename(struct inode *old_dir, struct dentry* old_dentry, char *_old_na
 		if (!res2)
 			new_nwattr_changed = 1;
 	}
-        
-	
+        /* now try again the rename operation */
+	/* but only if something really happened */
 	if (new_nwattr_changed || old_nwattr_changed) {
 	        res = ncp_ren_or_mov_file_or_subdir(NCP_SERVER(old_dir),
         	                                    old_dir, _old_name,
@@ -250,6 +266,9 @@ ncp_force_rename(struct inode *old_dir, struct dentry* old_dentry, char *_old_na
 	} 
 	if (res)
 		goto leave_me;
+	/* file was successfully renamed, so:
+	   do not set attributes on old file - it no longer exists
+	   copy attributes from old file to new */
 	new_nwattr_changed = old_nwattr_changed;
 	new_nwattr = old_nwattr;
 	old_nwattr_changed = 0;
@@ -258,16 +277,16 @@ leave_me:;
 	if (old_nwattr_changed) {
 		info.attributes = old_nwattr;
 		res2 = ncp_modify_file_or_subdir_dos_info_path(NCP_SERVER(old_inode), old_inode, NULL, DM_ATTRIBUTES, &info);
-		
+		/* ignore errors */
 	}
 	if (new_nwattr_changed)	{
 		info.attributes = new_nwattr;
 		res2 = ncp_modify_file_or_subdir_dos_info_path(NCP_SERVER(new_dir), new_dir, _new_name, DM_ATTRIBUTES, &info);
-		
+		/* ignore errors */
 	}
         return(res);
 }
-#endif	
+#endif	/* CONFIG_NCPFS_STRONG */
 
 
 static int
@@ -294,6 +313,12 @@ ncp_lookup_validate(struct dentry *dentry, struct nameidata *nd)
 
 	server = NCP_SERVER(dir);
 
+	/*
+	 * Inspired by smbfs:
+	 * The default validation is based on dentry age:
+	 * We set the max age at mount time.  (But each
+	 * successful server lookup renews the timestamp.)
+	 */
 	val = NCP_TEST_AGE(server, dentry);
 	if (val)
 		goto finished;
@@ -320,6 +345,10 @@ ncp_lookup_validate(struct dentry *dentry, struct nameidata *nd)
 	finfo.volume = finfo.i.volNumber;
 	DDPRINTK("ncp_lookup_validate: looked for %s/%s, res=%d\n",
 		dentry->d_parent->d_name.name, __name, res);
+	/*
+	 * If we didn't find it, or if it has a different dirEntNum to
+	 * what we remember, it's not valid any more.
+	 */
 	if (!res) {
 		struct inode *inode = dentry->d_inode;
 
@@ -358,7 +387,7 @@ ncp_dget_fpos(struct dentry *dentry, struct dentry *parent, unsigned long fpos)
 		dput(dent);
 	}
 
-	
+	/* If a pointer is invalid, we search the dentry. */
 	spin_lock(&parent->d_lock);
 	next = parent->d_subdirs.next;
 	while (next != &parent->d_subdirs) {
@@ -414,7 +443,7 @@ static int ncp_readdir(struct file *filp, void *dirent, filldir_t filldir)
 		(int) filp->f_pos);
 
 	result = -EIO;
-	
+	/* Do not generate '.' and '..' when server is dead. */
 	if (!ncp_conn_valid(server))
 		goto out;
 
@@ -561,7 +590,7 @@ ncp_fill_cache(struct file *filp, void *dirent, filldir_t filldir,
 	if (ncp_vol2io(NCP_SERVER(dir), __name, &qname.len,
 			entry->i.entryName, entry->i.nameLen,
 			!ncp_preserve_entry_case(dir, entry->i.NSCreator)))
-		return 1; 
+		return 1; /* I'm not sure */
 
 	qname.name = __name;
 	qname.hash = full_name_hash(qname.name, qname.len);
@@ -579,9 +608,18 @@ ncp_fill_cache(struct file *filp, void *dirent, filldir_t filldir,
 	} else {
 		hashed = 1;
 
+		/* If case sensitivity changed for this volume, all entries below this one
+		   should be thrown away.  This entry itself is not affected, as its case
+		   sensitivity is controlled by its own parent. */
 		if (inval_childs)
 			shrink_dcache_parent(newdent);
 
+		/*
+		 * NetWare's OS2 namespace is case preserving yet case
+		 * insensitive.  So we update dentry's name as received from
+		 * server. Parent dir's i_mutex is locked because we're in
+		 * readdir.
+		 */
 		dentry_update_name_case(newdent, &qname);
 	}
 
@@ -712,6 +750,11 @@ ncp_do_readdir(struct file *filp, void *dirent, filldir_t filldir,
 		DPRINTK("ncp_do_readdir: init failed, err=%d\n", err);
 		return;
 	}
+	/* We MUST NOT use server->buffer_size handshaked with server if we are
+	   using UDP, as for UDP server uses max. buffer size determined by
+	   MTU, and for TCP server uses hardwired value 65KB (== 66560 bytes). 
+	   So we use 128KB, just to be sure, as there is no way how to know
+	   this value in advance. */
 	bufsize = 131072;
 	buf = vmalloc(bufsize);
 	if (!buf)
@@ -722,19 +765,19 @@ ncp_do_readdir(struct file *filp, void *dirent, filldir_t filldir,
 		size_t rpls;
 
 		err = ncp_search_for_fileset(server, &seq, &more, &cnt, buf, bufsize, &rpl, &rpls);
-		if (err)		
+		if (err)		/* Error */
 			break;
-		if (!cnt)		
+		if (!cnt)		/* prevent endless loop */
 			break;
 		while (cnt--) {
 			size_t onerpl;
 			
 			if (rpls < offsetof(struct nw_info_struct, entryName))
-				break;	
+				break;	/* short packet */
 			ncp_extract_file_info(rpl, &entry.i);
 			onerpl = offsetof(struct nw_info_struct, entryName) + entry.i.nameLen;
 			if (rpls < onerpl)
-				break;	
+				break;	/* short packet */
 			(void)ncp_obtain_nfs_info(server, &entry.i);
 			rpl += onerpl;
 			rpls -= onerpl;
@@ -824,9 +867,15 @@ static struct dentry *ncp_lookup(struct inode *dir, struct dentry *dentry, struc
 	}
 	PPRINTK("ncp_lookup: looked for %s/%s, res=%d\n",
 		dentry->d_parent->d_name.name, __name, res);
+	/*
+	 * If we didn't find an entry, make a negative dentry.
+	 */
 	if (res)
 		goto add_entry;
 
+	/*
+	 * Create an inode for the entry.
+	 */
 	finfo.opened = 0;
 	finfo.ino = iunique(dir->i_sb, 2);
 	finfo.volume = finfo.i.volNumber;
@@ -845,6 +894,9 @@ finished:
 	return ERR_PTR(error);
 }
 
+/*
+ * This code is common to create, mkdir, and mknod.
+ */
 static int ncp_instantiate(struct inode *dir, struct dentry *dentry,
 			struct ncp_entry_info *finfo)
 {
@@ -981,6 +1033,10 @@ static int ncp_rmdir(struct inode *dir, struct dentry *dentry)
 	DPRINTK("ncp_rmdir: removing %s/%s\n",
 		dentry->d_parent->d_name.name, dentry->d_name.name);
 
+	/*
+	 * fail with EBUSY if there are still references to this
+	 * directory.
+	 */
 	dentry_unhash(dentry);
 	error = -EBUSY;
 	if (!d_unhashed(dentry))
@@ -997,21 +1053,21 @@ static int ncp_rmdir(struct inode *dir, struct dentry *dentry)
 		case 0x00:
 			error = 0;
 			break;
-		case 0x85:	
-		case 0x8A:	
+		case 0x85:	/* unauthorized to delete file */
+		case 0x8A:	/* unauthorized to delete file */
 			error = -EACCES;
 			break;
 		case 0x8F:
-		case 0x90:	
+		case 0x90:	/* read only */
 			error = -EPERM;
 			break;
-		case 0x9F:	
+		case 0x9F:	/* in use by another client */
 			error = -EBUSY;
 			break;
-		case 0xA0:	
+		case 0xA0:	/* directory not empty */
 			error = -ENOTEMPTY;
 			break;
-		case 0xFF:	
+		case 0xFF:	/* someone deleted file */
 			error = -ENOENT;
 			break;
 		default:
@@ -1032,6 +1088,9 @@ static int ncp_unlink(struct inode *dir, struct dentry *dentry)
 	DPRINTK("ncp_unlink: unlinking %s/%s\n",
 		dentry->d_parent->d_name.name, dentry->d_name.name);
 	
+	/*
+	 * Check whether to close the file ...
+	 */
 	if (inode) {
 		PPRINTK("ncp_unlink: closing file\n");
 		ncp_make_closed(inode);
@@ -1039,7 +1098,9 @@ static int ncp_unlink(struct inode *dir, struct dentry *dentry)
 
 	error = ncp_del_file_or_subdir2(server, dentry);
 #ifdef CONFIG_NCPFS_STRONG
-	if ((error == 0x9C || error == 0x90) && server->m.flags & NCP_MOUNT_STRONG) { 
+	/* 9C is Invalid path.. It should be 8F, 90 - read only, but
+	   it is not :-( */
+	if ((error == 0x9C || error == 0x90) && server->m.flags & NCP_MOUNT_STRONG) { /* R/O */
 		error = ncp_force_unlink(dir, dentry);
 	}
 #endif
@@ -1052,13 +1113,13 @@ static int ncp_unlink(struct inode *dir, struct dentry *dentry)
 		case 0x8A:
 			error = -EACCES;
 			break;
-		case 0x8D:	
-		case 0x8E:	
+		case 0x8D:	/* some files in use */
+		case 0x8E:	/* all files in use */
 			error = -EBUSY;
 			break;
-		case 0x8F:	
-		case 0x90:	
-		case 0x9C:	
+		case 0x8F:	/* some read only */
+		case 0x90:	/* all read only */
+		case 0x9C:	/* !!! returned when in-use or read-only by NW4 */
 			error = -EPERM;
 			break;
 		case 0xFF:
@@ -1084,6 +1145,10 @@ static int ncp_rename(struct inode *old_dir, struct dentry *old_dentry,
 		new_dentry->d_parent->d_name.name, new_dentry->d_name.name);
 
 	if (new_dentry->d_inode && S_ISDIR(new_dentry->d_inode->i_mode)) {
+		/*
+		 * fail with EBUSY if there are still references to this
+		 * directory.
+		 */
 		dentry_unhash(new_dentry);
 		error = -EBUSY;
 		if (!d_unhashed(new_dentry))
@@ -1111,7 +1176,7 @@ static int ncp_rename(struct inode *old_dir, struct dentry *old_dentry,
 						      new_dir, __new_name);
 #ifdef CONFIG_NCPFS_STRONG
 	if ((error == 0x90 || error == 0x8B || error == -EACCES) &&
-			server->m.flags & NCP_MOUNT_STRONG) {	
+			server->m.flags & NCP_MOUNT_STRONG) {	/* RO */
 		error = ncp_force_rename(old_dir, old_dentry, __old_name,
 					 new_dir, new_dentry, __new_name);
 	}
@@ -1144,13 +1209,16 @@ static int ncp_mknod(struct inode * dir, struct dentry *dentry,
 		DPRINTK(KERN_DEBUG "ncp_mknod: mode = 0%ho\n", mode);
 		return ncp_create_new(dir, dentry, mode, rdev, 0);
 	}
-	return -EPERM; 
+	return -EPERM; /* Strange, but true */
 }
 
+/* The following routines are taken directly from msdos-fs */
 
+/* Linear day numbers of the respective 1sts in non-leap years. */
 
 static int day_n[] =
 {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 0, 0, 0, 0};
+/* Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec */
 
 
 extern struct timezone sys_tz;
@@ -1165,22 +1233,26 @@ static int local2utc(int time)
 	return time + sys_tz.tz_minuteswest * 60;
 }
 
+/* Convert a MS-DOS time/date pair to a UNIX date (seconds since 1 1 70). */
 int
 ncp_date_dos2unix(__le16 t, __le16 d)
 {
 	unsigned short time = le16_to_cpu(t), date = le16_to_cpu(d);
 	int month, year, secs;
 
+	/* first subtract and mask after that... Otherwise, if
+	   date == 0, bad things happen */
 	month = ((date >> 5) - 1) & 15;
 	year = date >> 9;
 	secs = (time & 31) * 2 + 60 * ((time >> 5) & 63) + (time >> 11) * 3600 +
 		86400 * ((date & 31) - 1 + day_n[month] + (year / 4) + 
 		year * 365 - ((year & 3) == 0 && month < 2 ? 1 : 0) + 3653);
-	
+	/* days since 1.1.70 plus 80's leap day */
 	return local2utc(secs);
 }
 
 
+/* Convert linear UNIX date to a MS-DOS time/date pair. */
 void
 ncp_date_unix2dos(int unix_date, __le16 *time, __le16 *date)
 {

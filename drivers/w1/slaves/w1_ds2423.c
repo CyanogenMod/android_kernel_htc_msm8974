@@ -71,6 +71,13 @@ static ssize_t w1_counter_read(struct device *device,
 		w1_write_block(dev, wrbuf, 3);
 		read_byte_count = 0;
 		for (p = 0; p < 4; p++) {
+			/*
+			 * 1 byte for first bytes in ram page read
+			 * 4 bytes for counter
+			 * 4 bytes for zero bits
+			 * 2 bytes for crc
+			 * 31 remaining bytes from the ram page
+			 */
 			read_byte_count += w1_read_block(dev,
 				rbuf + (p * READ_BYTE_COUNT), READ_BYTE_COUNT);
 			for (ii = 0; ii < READ_BYTE_COUNT; ++ii)
@@ -90,6 +97,10 @@ static ssize_t w1_counter_read(struct device *device,
 					crc = crc16(CRC16_INIT, wrbuf, 3);
 					crc = crc16(crc, rbuf, 11);
 				} else {
+					/*
+					 * DS2423 calculates crc from all bytes
+					 * read after the previous crc bytes.
+					 */
 					crc = crc16(CRC16_INIT,
 						(rbuf + 11) +
 						((p - 1) * READ_BYTE_COUNT),

@@ -32,11 +32,13 @@
 #include "hlwd-pic.h"
 #include "usbgecko_udbg.h"
 
+/* control block */
 #define HW_CTRL_COMPATIBLE	"nintendo,hollywood-control"
 
 #define HW_CTRL_RESETS		0x94
 #define HW_CTRL_RESETS_SYS	(1<<0)
 
+/* gpio */
 #define HW_GPIO_COMPATIBLE	"nintendo,hollywood-gpio"
 
 #define HW_GPIO_BASE(idx)	(idx * 0x20)
@@ -64,15 +66,24 @@ void __init wii_memory_fixups(void)
 {
 	struct memblock_region *p = memblock.memory.regions;
 
+	/*
+	 * This is part of a workaround to allow the use of two
+	 * discontinuous RAM ranges on the Wii, even if this is
+	 * currently unsupported on 32-bit PowerPC Linux.
+	 *
+	 * We coalesce the two memory ranges of the Wii into a
+	 * single range, then create a reservation for the "hole"
+	 * between both ranges.
+	 */
 
 	BUG_ON(memblock.memory.cnt != 2);
 	BUG_ON(!page_aligned(p[0].base) || !page_aligned(p[1].base));
 
-	
+	/* trim unaligned tail */
 	memblock_remove(ALIGN(p[1].base + p[1].size, PAGE_SIZE),
 			(phys_addr_t)ULLONG_MAX);
 
-	
+	/* determine hole, add & reserve them */
 	wii_hole_start = ALIGN(p[0].base + p[0].size, PAGE_SIZE);
 	wii_hole_size = p[1].base - wii_hole_start;
 	memblock_add(wii_hole_start, wii_hole_size);
@@ -81,7 +92,7 @@ void __init wii_memory_fixups(void)
 	BUG_ON(memblock.memory.cnt != 1);
 	__memblock_dump_all();
 
-	
+	/* allow ioremapping the address space in the hole */
 	__allow_ioremap_reserved = 1;
 }
 
@@ -90,7 +101,7 @@ unsigned long __init wii_mmu_mapin_mem2(unsigned long top)
 	unsigned long delta, size, bl;
 	unsigned long max_size = (256<<20);
 
-	
+	/* MEM2 64MB@0x10000000 */
 	delta = wii_hole_start + wii_hole_size;
 	size = top - delta;
 	for (bl = 128<<10; bl < max_size; bl <<= 1) {
@@ -143,7 +154,7 @@ static void __init wii_setup_arch(void)
 	hw_ctrl = wii_ioremap_hw_regs("hw_ctrl", HW_CTRL_COMPATIBLE);
 	hw_gpio = wii_ioremap_hw_regs("hw_gpio", HW_GPIO_COMPATIBLE);
 	if (hw_gpio) {
-		
+		/* turn off the front blue led and IR light */
 		clrbits32(hw_gpio + HW_GPIO_OUT(0),
 			  HW_GPIO_SLOT_LED | HW_GPIO_SENSOR_BAR);
 	}
@@ -154,7 +165,7 @@ static void wii_restart(char *cmd)
 	local_irq_disable();
 
 	if (hw_ctrl) {
-		
+		/* clear the system reset pin to cause a reset */
 		clrbits32(hw_ctrl + HW_CTRL_RESETS, HW_CTRL_RESETS_SYS);
 	}
 	wii_spin();
@@ -165,10 +176,10 @@ static void wii_power_off(void)
 	local_irq_disable();
 
 	if (hw_gpio) {
-		
+		/* make sure that the poweroff GPIO is configured as output */
 		setbits32(hw_gpio + HW_GPIO_DIR(1), HW_GPIO_SHUTDOWN);
 
-		
+		/* drive the poweroff GPIO high */
 		setbits32(hw_gpio + HW_GPIO_OUT(1), HW_GPIO_SHUTDOWN);
 	}
 	wii_spin();

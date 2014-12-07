@@ -1,3 +1,10 @@
+/*
+ *  include/asm-s390/siginfo.h
+ *
+ *  S390 version
+ *
+ *  Derived from "include/asm-i386/siginfo.h"
+ */
 
 #ifndef _S390_SIGINFO_H
 #define _S390_SIGINFO_H

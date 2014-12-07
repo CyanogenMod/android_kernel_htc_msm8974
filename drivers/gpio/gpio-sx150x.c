@@ -54,7 +54,7 @@ struct sx150x_chip {
 };
 
 static const struct sx150x_device_data sx150x_devices[] = {
-	[0] = { 
+	[0] = { /* sx1508q */
 		.reg_pullup   = 0x03,
 		.reg_pulldn   = 0x04,
 		.reg_drain    = 0x05,
@@ -69,7 +69,7 @@ static const struct sx150x_device_data sx150x_devices[] = {
 		.reg_reset    = 0x7d,
 		.ngpios       = 8
 	},
-	[1] = { 
+	[1] = { /* sx1509q */
 		.reg_pullup   = 0x07,
 		.reg_pulldn   = 0x09,
 		.reg_drain    = 0x0b,
@@ -122,6 +122,25 @@ static inline bool offset_is_oscio(struct sx150x_chip *chip, unsigned offset)
 	return (chip->dev_cfg->ngpios == offset);
 }
 
+/*
+ * These utility functions solve the common problem of locating and setting
+ * configuration bits.  Configuration bits are grouped into registers
+ * whose indexes increase downwards.  For example, with eight-bit registers,
+ * sixteen gpios would have their config bits grouped in the following order:
+ * REGISTER N-1 [ f e d c b a 9 8 ]
+ *          N   [ 7 6 5 4 3 2 1 0 ]
+ *
+ * For multi-bit configurations, the pattern gets wider:
+ * REGISTER N-3 [ f f e e d d c c ]
+ *          N-2 [ b b a a 9 9 8 8 ]
+ *          N-1 [ 7 7 6 6 5 5 4 4 ]
+ *          N   [ 3 3 2 2 1 1 0 0 ]
+ *
+ * Given the address of the starting register 'N', the index of the gpio
+ * whose configuration we seek to change, and the width in bits of that
+ * configuration, these functions allow us to locate the correct
+ * register and mask the correct bits.
+ */
 static inline void sx150x_find_cfg(u8 offset, u8 width,
 				u8 *reg, u8 *mask, u8 *shift)
 {
@@ -391,7 +410,7 @@ static void sx150x_irq_bus_sync_unlock(struct irq_data *d)
 	n = chip->irq_update;
 	chip->irq_update = NO_UPDATE_PENDING;
 
-	
+	/* Avoid updates if nothing changed */
 	if (chip->dev_sense == chip->irq_sense &&
 	    chip->dev_sense == chip->irq_masked)
 		goto out;

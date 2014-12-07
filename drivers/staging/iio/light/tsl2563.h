@@ -5,5 +5,5 @@ struct tsl2563_platform_data {
 	int cover_comp_gain;
 };
 
-#endif 
+#endif /* __LINUX_TSL2563_H */
 

@@ -17,7 +17,7 @@ static struct rc_map_table videomate_s350[] = {
 	{ 0x00, KEY_TV},
 	{ 0x01, KEY_DVD},
 	{ 0x04, KEY_RECORD},
-	{ 0x05, KEY_VIDEO},	
+	{ 0x05, KEY_VIDEO},	/* TV/Video */
 	{ 0x07, KEY_STOP},
 	{ 0x08, KEY_PLAYPAUSE},
 	{ 0x0a, KEY_REWIND},
@@ -39,13 +39,13 @@ static struct rc_map_table videomate_s350[] = {
 	{ 0x1f, KEY_0},
 	{ 0x21, KEY_SLEEP},
 	{ 0x24, KEY_ZOOM},
-	{ 0x25, KEY_LAST},	
-	{ 0x26, KEY_SUBTITLE},	
-	{ 0x27, KEY_LANGUAGE},	
-	{ 0x29, KEY_CHANNEL},	
+	{ 0x25, KEY_LAST},	/* Recall */
+	{ 0x26, KEY_SUBTITLE},	/* CC */
+	{ 0x27, KEY_LANGUAGE},	/* MTS */
+	{ 0x29, KEY_CHANNEL},	/* SURF */
 	{ 0x2b, KEY_A},
 	{ 0x2c, KEY_B},
-	{ 0x2f, KEY_CAMERA},	
+	{ 0x2f, KEY_CAMERA},	/* Snapshot */
 	{ 0x23, KEY_RADIO},
 	{ 0x02, KEY_PREVIOUSSONG},
 	{ 0x06, KEY_NEXTSONG},
@@ -64,7 +64,7 @@ static struct rc_map_list videomate_s350_map = {
 	.map = {
 		.scan    = videomate_s350,
 		.size    = ARRAY_SIZE(videomate_s350),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_VIDEOMATE_S350,
 	}
 };

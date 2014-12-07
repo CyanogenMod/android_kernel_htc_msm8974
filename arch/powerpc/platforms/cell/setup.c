@@ -90,7 +90,7 @@ static void cell_fixup_pcie_rootcomplex(struct pci_dev *dev)
 	if (!machine_is(cell))
 		return;
 
-	
+	/* We're searching for a direct child of the PHB */
 	if (dev->bus->self != NULL || dev->devfn != 0)
 		return;
 
@@ -98,11 +98,11 @@ static void cell_fixup_pcie_rootcomplex(struct pci_dev *dev)
 	if (hose == NULL)
 		return;
 
-	
+	/* Only on PCIE */
 	if (!of_device_is_compatible(hose->dn, "pciex"))
 		return;
 
-	
+	/* And only on axon */
 	s = of_get_property(hose->dn, "model", NULL);
 	if (!s || strcmp(s, "Axon") != 0)
 		return;
@@ -131,7 +131,7 @@ static int __devinit cell_setup_phb(struct pci_controller *phb)
 	if (model == NULL || strcmp(np->name, "pci"))
 		return 0;
 
-	
+	/* Setup workarounds for spider */
 	if (strcmp(model, "Spider"))
 		return 0;
 
@@ -158,9 +158,12 @@ static int __init cell_publish_devices(void)
 	struct device_node *np;
 	int node;
 
-	
+	/* Publish OF platform devices for southbridge IOs */
 	of_platform_bus_probe(NULL, cell_bus_ids, NULL);
 
+	/* On spider based blades, we need to manually create the OF
+	 * platform devices for the PCI host bridges
+	 */
 	for_each_child_of_node(root, np) {
 		if (np->type == NULL || (strcmp(np->type, "pci") != 0 &&
 					 strcmp(np->type, "pciex") != 0))
@@ -168,6 +171,9 @@ static int __init cell_publish_devices(void)
 		of_platform_device_create(np, NULL, NULL);
 	}
 
+	/* There is no device for the MIC memory controller, thus we create
+	 * a platform device for it to attach the EDAC driver to.
+	 */
 	for_each_online_node(node) {
 		if (cbe_get_cpu_mic_tm_regs(cbe_node_to_cpu(node)) == NULL)
 			continue;
@@ -188,6 +194,9 @@ static void __init mpic_init_IRQ(void)
 		if (!of_device_is_compatible(dn, "CBEA,platform-open-pic"))
 			continue;
 
+		/* The MPIC driver will get everything it needs from the
+		 * device-tree, just pass 0 to all arguments
+		 */
 		mpic = mpic_alloc(dn, 0, MPIC_SECONDARY | MPIC_NO_RESET,
 				0, 0, " MPIC     ");
 		if (mpic == NULL)
@@ -227,10 +236,10 @@ static void __init cell_setup_arch(void)
 #ifdef CONFIG_SMP
 	smp_init_cell();
 #endif
-	
+	/* init to some ~sane value until calibrate_delay() runs */
 	loops_per_jiffy = 50000000;
 
-	
+	/* Find and initialize PCI host bridges */
 	init_pci_config_tokens();
 
 	cbe_pervasive_init();

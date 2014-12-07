@@ -30,20 +30,22 @@
 #define	PORT_RWC_BITS	(PORT_CSC | PORT_PEC | PORT_WRC | PORT_OCC | \
 			 PORT_RC | PORT_PLC | PORT_PE)
 
+/* usb 1.1 root hub device descriptor */
 static u8 usb_bos_descriptor [] = {
-	USB_DT_BOS_SIZE,		
-	USB_DT_BOS,			
-	0x0F, 0x00,			
-	0x1,				
-	
-	USB_DT_USB_SS_CAP_SIZE,		
-	USB_DT_DEVICE_CAPABILITY,	
-	USB_SS_CAP_TYPE,		
-	0x00,				
-	USB_5GBPS_OPERATION, 0x00,	
-	0x03,				
-	0x00,				
-	0x00, 0x00			
+	USB_DT_BOS_SIZE,		/*  __u8 bLength, 5 bytes */
+	USB_DT_BOS,			/*  __u8 bDescriptorType */
+	0x0F, 0x00,			/*  __le16 wTotalLength, 15 bytes */
+	0x1,				/*  __u8 bNumDeviceCaps */
+	/* First device capability */
+	USB_DT_USB_SS_CAP_SIZE,		/*  __u8 bLength, 10 bytes */
+	USB_DT_DEVICE_CAPABILITY,	/* Device Capability */
+	USB_SS_CAP_TYPE,		/* bDevCapabilityType, SUPERSPEED_USB */
+	0x00,				/* bmAttributes, LTM off by default */
+	USB_5GBPS_OPERATION, 0x00,	/* wSpeedsSupported, 5Gbps only */
+	0x03,				/* bFunctionalitySupport,
+					   USB 3.0 speed only */
+	0x00,				/* bU1DevExitLat, set later. */
+	0x00, 0x00			/* __le16 bU2DevExitLat, set later. */
 };
 
 
@@ -52,24 +54,25 @@ static void xhci_common_hub_descriptor(struct xhci_hcd *xhci,
 {
 	u16 temp;
 
-	desc->bPwrOn2PwrGood = 10;	
+	desc->bPwrOn2PwrGood = 10;	/* xhci section 5.4.9 says 20ms max */
 	desc->bHubContrCurrent = 0;
 
 	desc->bNbrPorts = ports;
 	temp = 0;
-	
+	/* Bits 1:0 - support per-port power switching, or power always on */
 	if (HCC_PPC(xhci->hcc_params))
 		temp |= HUB_CHAR_INDV_PORT_LPSM;
 	else
 		temp |= HUB_CHAR_NO_LPSM;
-	
-	
+	/* Bit  2 - root hubs are not part of a compound device */
+	/* Bits 4:3 - individual port over current protection */
 	temp |= HUB_CHAR_INDV_PORT_OCPM;
-	
-	
+	/* Bits 6:5 - no TTs in root ports */
+	/* Bit  7 - no port indicators */
 	desc->wHubCharacteristics = cpu_to_le16(temp);
 }
 
+/* Fill in the USB 2.0 roothub descriptor */
 static void xhci_usb2_hub_descriptor(struct usb_hcd *hcd, struct xhci_hcd *xhci,
 		struct usb_hub_descriptor *desc)
 {
@@ -86,13 +89,32 @@ static void xhci_usb2_hub_descriptor(struct usb_hcd *hcd, struct xhci_hcd *xhci,
 	temp = 1 + (ports / 8);
 	desc->bDescLength = USB_DT_HUB_NONVAR_SIZE + 2 * temp;
 
+	/* The Device Removable bits are reported on a byte granularity.
+	 * If the port doesn't exist within that byte, the bit is set to 0.
+	 */
 	memset(port_removable, 0, sizeof(port_removable));
 	for (i = 0; i < ports; i++) {
 		portsc = xhci_readl(xhci, xhci->usb2_ports[i]);
+		/* If a device is removable, PORTSC reports a 0, same as in the
+		 * hub descriptor DeviceRemovable bits.
+		 */
 		if (portsc & PORT_DEV_REMOVE)
+			/* This math is hairy because bit 0 of DeviceRemovable
+			 * is reserved, and bit 1 is for port 1, etc.
+			 */
 			port_removable[(i + 1) / 8] |= 1 << ((i + 1) % 8);
 	}
 
+	/* ch11.h defines a hub descriptor that has room for USB_MAXCHILDREN
+	 * ports on it.  The USB 2.0 specification says that there are two
+	 * variable length fields at the end of the hub descriptor:
+	 * DeviceRemovable and PortPwrCtrlMask.  But since we can have less than
+	 * USB_MAXCHILDREN ports, we may need to use the DeviceRemovable array
+	 * to set PortPwrCtrlMask bits.  PortPwrCtrlMask must always be set to
+	 * 0xFF, so we initialize the both arrays (DeviceRemovable and
+	 * PortPwrCtrlMask) to 0xFF.  Then we set the DeviceRemovable for each
+	 * set of ports that actually exist.
+	 */
 	memset(desc->u.hs.DeviceRemovable, 0xff,
 			sizeof(desc->u.hs.DeviceRemovable));
 	memset(desc->u.hs.PortPwrCtrlMask, 0xff,
@@ -103,6 +125,7 @@ static void xhci_usb2_hub_descriptor(struct usb_hcd *hcd, struct xhci_hcd *xhci,
 				sizeof(__u8));
 }
 
+/* Fill in the USB 3.0 roothub descriptor */
 static void xhci_usb3_hub_descriptor(struct usb_hcd *hcd, struct xhci_hcd *xhci,
 		struct usb_hub_descriptor *desc)
 {
@@ -116,11 +139,14 @@ static void xhci_usb3_hub_descriptor(struct usb_hcd *hcd, struct xhci_hcd *xhci,
 	desc->bDescriptorType = USB_DT_SS_HUB;
 	desc->bDescLength = USB_DT_SS_HUB_SIZE;
 
+	/* header decode latency should be zero for roothubs,
+	 * see section 4.23.5.2.
+	 */
 	desc->u.ss.bHubHdrDecLat = 0;
 	desc->u.ss.wHubDelay = 0;
 
 	port_removable = 0;
-	
+	/* bit 0 is reserved, bit 1 is for port 1, etc. */
 	for (i = 0; i < ports; i++) {
 		portsc = xhci_readl(xhci, xhci->usb3_ports[i]);
 		if (portsc & PORT_DEV_REMOVE)
@@ -148,6 +174,11 @@ static unsigned int xhci_port_speed(unsigned int port_status)
 		return USB_PORT_STAT_LOW_SPEED;
 	if (DEV_HIGHSPEED(port_status))
 		return USB_PORT_STAT_HIGH_SPEED;
+	/*
+	 * FIXME: Yes, we should check for full speed, but the core uses that as
+	 * a default in portspeed() in usb/core/hub.c (which is the only place
+	 * USB_PORT_STAT_*_SPEED is used).
+	 */
 	return 0;
 }
 
@@ -159,9 +190,29 @@ static unsigned int xhci_port_speed(unsigned int port_status)
  * the AUX well and they aren't changed by a hot, warm, or cold reset.
  */
 #define	XHCI_PORT_RO	((1<<0) | (1<<3) | (0xf<<10) | (1<<30))
+/*
+ * These bits are RW; writing a 0 clears the bit, writing a 1 sets the bit:
+ * bits 5:8, 9, 14:15, 25:27
+ * link state, port power, port indicator state, "wake on" enable state
+ */
 #define XHCI_PORT_RWS	((0xf<<5) | (1<<9) | (0x3<<14) | (0x7<<25))
+/*
+ * These bits are RW; writing a 1 sets the bit, writing a 0 has no effect:
+ * bit 4 (port reset)
+ */
 #define	XHCI_PORT_RW1S	((1<<4))
+/*
+ * These bits are RW; writing a 1 clears the bit, writing a 0 has no effect:
+ * bits 1, 17, 18, 19, 20, 21, 22, 23
+ * port enable/disable, and
+ * change bits: connect, PED, warm port reset changed (reserved zero for USB 2.0 ports),
+ * over-current, reset, link state, and L1 change
+ */
 #define XHCI_PORT_RW1CS	((1<<1) | (0x7f<<17))
+/*
+ * Bit 16 is RW, and writing a '1' to it causes the link state control to be
+ * latched in
+ */
 #define	XHCI_PORT_RW	((1<<16))
 /*
  * These bits are Reserved Zero (RsvdZ) and zero should be written to them:
@@ -179,10 +230,14 @@ static unsigned int xhci_port_speed(unsigned int port_status)
  */
 u32 xhci_port_state_to_neutral(u32 state)
 {
-	
+	/* Save read-only status and port state */
 	return (state & XHCI_PORT_RO) | (state & XHCI_PORT_RWS);
 }
 
+/*
+ * find slot id based on port number.
+ * @port: The one-based port number from one of the two split roothubs.
+ */
 int xhci_find_slot_id_by_port(struct usb_hcd *hcd, struct xhci_hcd *xhci,
 		u16 port)
 {
@@ -205,6 +260,12 @@ int xhci_find_slot_id_by_port(struct usb_hcd *hcd, struct xhci_hcd *xhci,
 	return slot_id;
 }
 
+/*
+ * Stop device
+ * It issues stop endpoint command for EP 0 to 30. And wait the last command
+ * to complete.
+ * suspend will set to 1, if suspend bit need to set in command.
+ */
 static int xhci_stop_device(struct xhci_hcd *xhci, int slot_id, int suspend)
 {
 	struct xhci_virt_device *virt_dev;
@@ -233,7 +294,7 @@ static int xhci_stop_device(struct xhci_hcd *xhci, int slot_id, int suspend)
 	xhci_ring_cmd_db(xhci);
 	spin_unlock_irqrestore(&xhci->lock, flags);
 
-	
+	/* Wait for last stop endpoint command to finish */
 	timeleft = wait_for_completion_interruptible_timeout(
 			cmd->completion,
 			USB_CTRL_SET_TIMEOUT);
@@ -241,6 +302,9 @@ static int xhci_stop_device(struct xhci_hcd *xhci, int slot_id, int suspend)
 		xhci_warn(xhci, "%s while waiting for stop endpoint command\n",
 				timeleft == 0 ? "Timeout" : "Signal");
 		spin_lock_irqsave(&xhci->lock, flags);
+		/* The timeout might have raced with the event ring handler, so
+		 * only delete from the list if the item isn't poisoned.
+		 */
 		if (cmd->cmd_list.next != LIST_POISON1)
 			list_del(&cmd->cmd_list);
 		spin_unlock_irqrestore(&xhci->lock, flags);
@@ -253,6 +317,9 @@ command_cleanup:
 	return ret;
 }
 
+/*
+ * Ring device, it rings the all doorbells unconditionally.
+ */
 void xhci_ring_device(struct xhci_hcd *xhci, int slot_id)
 {
 	int i;
@@ -268,14 +335,14 @@ void xhci_ring_device(struct xhci_hcd *xhci, int slot_id)
 static void xhci_disable_port(struct usb_hcd *hcd, struct xhci_hcd *xhci,
 		u16 wIndex, __le32 __iomem *addr, u32 port_status)
 {
-	
+	/* Don't allow the USB core to disable SuperSpeed ports. */
 	if (hcd->speed == HCD_USB3) {
 		xhci_dbg(xhci, "Ignoring request to disable "
 				"SuperSpeed port.\n");
 		return;
 	}
 
-	
+	/* Write 1 to disable the port */
 	xhci_writel(xhci, port_status | PORT_PE, addr);
 	if (xhci->quirks & XHCI_PORTSC_DELAY)
 		ndelay(100);
@@ -320,10 +387,10 @@ static void xhci_clear_port_change_bit(struct xhci_hcd *xhci, u16 wValue,
 		port_change_bit = "link state";
 		break;
 	default:
-		
+		/* Should never happen */
 		return;
 	}
-	
+	/* Change bits are all write 1 to clear */
 	xhci_writel(xhci, port_status | status, addr);
 	if (xhci->quirks & XHCI_PORTSC_DELAY)
 		ndelay(100);
@@ -390,6 +457,7 @@ void xhci_set_remote_wake_mask(struct xhci_hcd *xhci,
 		ndelay(100);
 }
 
+/* Test and clear port RWC bit */
 void xhci_test_and_clear_bit(struct xhci_hcd *xhci, __le32 __iomem **port_array,
 				int port_id, u32 port_bit)
 {
@@ -412,6 +480,13 @@ static void xhci_single_step_completion(struct urb *urb)
 	complete(done);
 }
 
+/*
+ * Allocate a URB and initialize the various fields of it.
+ * This API is used by the single_step_set_feature test of
+ * EHSET where IN packet of the GetDescriptor request is
+ * sent 15secs after the SETUP packet.
+ * Return NULL if failed.
+ */
 static struct urb *xhci_request_single_step_set_feature_urb(
 		struct usb_device *udev,
 		void *dr,
@@ -433,6 +508,10 @@ static struct urb *xhci_request_single_step_set_feature_urb(
 		return NULL;
 	}
 
+	/*
+	 * Initialize the various URB fields as these are used by the HCD
+	 * driver to queue it and as well as when completion happens.
+	 */
 	urb->ep = ep;
 	urb->dev = udev;
 	urb->setup_packet = dr;
@@ -450,6 +529,16 @@ static struct urb *xhci_request_single_step_set_feature_urb(
 	return urb;
 }
 
+/*
+ * This function implements the USB_PORT_FEAT_TEST handling of the
+ * SINGLE_STEP_SET_FEATURE test mode as defined in the Embedded
+ * High-Speed Electrical Test (EHSET) specification. This simply
+ * issues a GetDescriptor control transfer, with an inserted 15-second
+ * delay after the end of the SETUP stage and before the IN token of
+ * the DATA stage is set. The idea is that this gives the test operator
+ * enough time to configure the oscilloscope to perform a measurement
+ * of the response time between the DATA and ACK packets that follow.
+ */
 static int xhci_ehset_single_step_set_feature(struct usb_hcd *hcd, int port)
 {
 	int retval = -ENOMEM;
@@ -461,7 +550,7 @@ static int xhci_ehset_single_step_set_feature(struct usb_hcd *hcd, int port)
 	unsigned long flags;
 	DECLARE_COMPLETION_ONSTACK(done);
 
-	
+	/* Obtain udev of the rhub's child port */
 	udev = hcd->self.root_hub->children[port];
 	if (!udev) {
 		xhci_err(xhci, "No device attached to the RootHub\n");
@@ -477,7 +566,7 @@ static int xhci_ehset_single_step_set_feature(struct usb_hcd *hcd, int port)
 		return -ENOMEM;
 	}
 
-	
+	/* Fill Setup packet for GetDescriptor */
 	dr->bRequestType = USB_DIR_IN;
 	dr->bRequest = USB_REQ_GET_DESCRIPTOR;
 	dr->wValue = cpu_to_le16(USB_DT_DEVICE << 8);
@@ -487,7 +576,7 @@ static int xhci_ehset_single_step_set_feature(struct usb_hcd *hcd, int port)
 	if (!urb)
 		goto cleanup;
 
-	
+	/* Now complete just the SETUP stage */
 	spin_lock_irqsave(&xhci->lock, flags);
 	retval = xhci_submit_single_step_set_feature(hcd, urb, 1);
 	spin_unlock_irqrestore(&xhci->lock, flags);
@@ -501,10 +590,10 @@ static int xhci_ehset_single_step_set_feature(struct usb_hcd *hcd, int port)
 		goto out1;
 	}
 
-	
+	/* Sleep for 15 seconds; HC will send SOFs during this period */
 	msleep(15 * 1000);
 
-	
+	/* Complete remaining DATA and status stages. Re-use same URB */
 	urb->status = -EINPROGRESS;
 	usb_get_urb(urb);
 	atomic_inc(&urb->use_count);
@@ -548,10 +637,14 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 	spin_lock_irqsave(&xhci->lock, flags);
 	switch (typeReq) {
 	case GetHubStatus:
-		
+		/* No power source, over-current reported per port */
 		memset(buf, 0, 4);
 		break;
 	case GetHubDescriptor:
+		/* Check to make sure userspace is asking for the USB 3.0 hub
+		 * descriptor for the USB 3.0 roothub.  If not, we stall the
+		 * endpoint, like external hubs do.
+		 */
 		if (hcd->speed == HCD_USB3 &&
 				(wLength < USB_DT_SS_HUB_SIZE ||
 				 wValue != (USB_DT_SS_HUB << 8))) {
@@ -589,7 +682,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 		}
 		xhci_dbg(xhci, "get port status, actual port %d status  = 0x%x\n", wIndex, temp);
 
-		
+		/* wPortChange bits */
 		if (temp & PORT_CSC)
 			status |= USB_PORT_STAT_C_CONNECTION << 16;
 		if (temp & PORT_PEC)
@@ -598,7 +691,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			status |= USB_PORT_STAT_C_OVERCURRENT << 16;
 		if ((temp & PORT_RC))
 			status |= USB_PORT_STAT_C_RESET << 16;
-		
+		/* USB3.0 only */
 		if (hcd->speed == HCD_USB3) {
 			if ((temp & PORT_PLC))
 				status |= USB_PORT_STAT_C_LINK_STATE << 16;
@@ -634,6 +727,12 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 				bus_state->port_c_suspend |= 1 << wIndex;
 				bus_state->suspended_ports &= ~(1 << wIndex);
 			} else {
+				/*
+				 * The resume has been signaling for less than
+				 * 20ms. Report the port status as SUSPEND,
+				 * let the usbcore check port status again
+				 * and clear resume signaling later.
+				 */
 				status |= USB_PORT_STAT_SUSPEND;
 			}
 		}
@@ -660,8 +759,11 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			else
 				status |= USB_PORT_STAT_POWER;
 		}
-		
+		/* Port Link State */
 		if (hcd->speed == HCD_USB3) {
+			/* resume state is a xHCI internal state.
+			 * Do not report it to usb core.
+			 */
 			if ((temp & PORT_PLS_MASK) != XDEV_RESUME)
 				status |= (temp & PORT_PLS_MASK);
 		}
@@ -671,7 +773,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 		put_unaligned(cpu_to_le32(status), (__le32 *) buf);
 		break;
 	case SetPortFeature:
-		
+		/* The MSB of wIndex is the TEST Mode */
 		test_mode = (wIndex & 0xff00) >> 8;
 		if (wValue == USB_PORT_FEAT_LINK_STATE)
 			link_state = (wIndex & 0xff00) >> 3;
@@ -687,18 +789,22 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			break;
 		}
 		temp = xhci_port_state_to_neutral(temp);
-		
+		/* FIXME: What new port features do we need to support? */
 		switch (wValue) {
 		case USB_PORT_FEAT_SUSPEND:
 			temp = xhci_readl(xhci, port_array[wIndex]);
 			if ((temp & PORT_PLS_MASK) != XDEV_U0) {
-				
+				/* Resume the port to U0 first */
 				xhci_set_link_state(xhci, port_array, wIndex,
 							XDEV_U0);
 				spin_unlock_irqrestore(&xhci->lock, flags);
 				msleep(10);
 				spin_lock_irqsave(&xhci->lock, flags);
 			}
+			/* In spec software should not attempt to suspend
+			 * a port unless the port reports that it is in the
+			 * enabled (PED = ‘1’,PLS < ‘3’) state.
+			 */
 			temp = xhci_readl(xhci, port_array[wIndex]);
 			if ((temp & PORT_PE) == 0 || (temp & PORT_RESET)
 				|| (temp & PORT_PLS_MASK) >= XDEV_U3) {
@@ -713,7 +819,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 				xhci_warn(xhci, "slot_id is zero\n");
 				goto error;
 			}
-			
+			/* unlock to execute stop endpoint commands */
 			spin_unlock_irqrestore(&xhci->lock, flags);
 			xhci_stop_device(xhci, slot_id, 1);
 			spin_lock_irqsave(&xhci->lock, flags);
@@ -721,7 +827,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			xhci_set_link_state(xhci, port_array, wIndex, XDEV_U3);
 
 			spin_unlock_irqrestore(&xhci->lock, flags);
-			msleep(10); 
+			msleep(10); /* wait device to enter */
 			spin_lock_irqsave(&xhci->lock, flags);
 
 			temp = xhci_readl(xhci, port_array[wIndex]);
@@ -729,6 +835,10 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			break;
 		case USB_PORT_FEAT_LINK_STATE:
 			temp = xhci_readl(xhci, port_array[wIndex]);
+			/* Software should not attempt to set
+			 * port link state above '5' (Rx.Detect) and the port
+			 * must be enabled.
+			 */
 			if ((temp & PORT_PE) == 0 ||
 				(link_state > USB_SS_PORT_LS_RX_DETECT)) {
 				xhci_warn(xhci, "Cannot set link state.\n");
@@ -739,6 +849,8 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 				slot_id = xhci_find_slot_id_by_port(hcd, xhci,
 						wIndex + 1);
 				if (slot_id) {
+					/* unlock to execute stop endpoint
+					 * commands */
 					spin_unlock_irqrestore(&xhci->lock,
 								flags);
 					xhci_stop_device(xhci, slot_id, 1);
@@ -750,7 +862,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 						link_state);
 
 			spin_unlock_irqrestore(&xhci->lock, flags);
-			msleep(20); 
+			msleep(20); /* wait device to enter */
 			spin_lock_irqsave(&xhci->lock, flags);
 
 			temp = xhci_readl(xhci, port_array[wIndex]);
@@ -758,6 +870,12 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 				bus_state->suspended_ports |= 1 << wIndex;
 			break;
 		case USB_PORT_FEAT_POWER:
+			/*
+			 * Turn on ports, even if there isn't per-port switching.
+			 * HC will report connect events even before this is set.
+			 * However, khubd will ignore the roothub events until
+			 * the roothub is registered.
+			 */
 			xhci_writel(xhci, temp | PORT_POWER,
 					port_array[wIndex]);
 			if (xhci->quirks & XHCI_PORTSC_DELAY)
@@ -795,7 +913,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			slot_id = xhci_find_slot_id_by_port(hcd, xhci,
 					wIndex + 1);
 			if (test_mode && test_mode <= 5) {
-				
+				/* unlock to execute stop endpoint commands */
 				spin_unlock_irqrestore(&xhci->lock, flags);
 				xhci_stop_device(xhci, slot_id, 1);
 				spin_lock_irqsave(&xhci->lock, flags);
@@ -816,7 +934,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 		default:
 			goto error;
 		}
-		
+		/* unblock any posted writes */
 		temp = xhci_readl(xhci, port_array[wIndex]);
 		break;
 	case ClearPortFeature:
@@ -828,7 +946,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			retval = -ENODEV;
 			break;
 		}
-		
+		/* FIXME: What new port features do we need to support? */
 		temp = xhci_port_state_to_neutral(temp);
 		switch (wValue) {
 		case USB_PORT_FEAT_SUSPEND:
@@ -880,13 +998,21 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 		break;
 	default:
 error:
-		
+		/* "stall" on error */
 		retval = -EPIPE;
 	}
 	spin_unlock_irqrestore(&xhci->lock, flags);
 	return retval;
 }
 
+/*
+ * Returns 0 if the status hasn't changed, or the number of bytes in buf.
+ * Ports are 0-indexed from the HCD point of view,
+ * and 1-indexed from the USB core pointer of view.
+ *
+ * Note that the status change bits will be cleared as soon as a port status
+ * change event is generated, so we use the saved status from that event.
+ */
 int xhci_hub_status_data(struct usb_hcd *hcd, char *buf)
 {
 	unsigned long flags;
@@ -901,7 +1027,7 @@ int xhci_hub_status_data(struct usb_hcd *hcd, char *buf)
 	max_ports = xhci_get_ports(hcd, &port_array);
 	bus_state = &xhci->bus_state[hcd_index(hcd)];
 
-	
+	/* Initial status is no changes */
 	retval = (max_ports + 8) / 8;
 	memset(buf, 0, retval);
 	status = 0;
@@ -909,7 +1035,7 @@ int xhci_hub_status_data(struct usb_hcd *hcd, char *buf)
 	mask = PORT_CSC | PORT_PEC | PORT_OCC | PORT_PLC | PORT_WRC;
 
 	spin_lock_irqsave(&xhci->lock, flags);
-	
+	/* For each port, did anything change?  If so, set that bit in buf. */
 	for (i = 0; i < max_ports; i++) {
 		temp = xhci_readl(xhci, port_array[i]);
 		if (temp == 0xffffffff) {
@@ -959,7 +1085,7 @@ int xhci_bus_suspend(struct usb_hcd *hcd)
 	port_index = max_ports;
 	bus_state->bus_suspended = 0;
 	while (port_index--) {
-		
+		/* suspend the port if the port is not suspended */
 		u32 t1, t2;
 		int slot_id;
 
@@ -979,6 +1105,10 @@ int xhci_bus_suspend(struct usb_hcd *hcd)
 			t2 |= PORT_LINK_STROBE | XDEV_U3;
 			set_bit(port_index, &bus_state->bus_suspended);
 		}
+		/* USB core sets remote wake mask for USB 3.0 hubs,
+		 * including the USB 3.0 roothub, but only if CONFIG_USB_SUSPEND
+		 * is enabled, so also enable remote wake here.
+		 */
 		if (hcd->self.root_hub->do_remote_wakeup) {
 			if (t1 & PORT_CONNECT) {
 				t2 |= PORT_WKOC_E | PORT_WKDISC_E;
@@ -998,10 +1128,13 @@ int xhci_bus_suspend(struct usb_hcd *hcd)
 		}
 
 		if (hcd->speed != HCD_USB3) {
-			
+			/* enable remote wake up for USB 2.0 */
 			__le32 __iomem *addr;
 			u32 tmp;
 
+			/* Add one to the port status register address to get
+			 * the port power control register address.
+			 */
 			addr = port_array[port_index] + 1;
 			tmp = xhci_readl(xhci, addr);
 			tmp |= PORT_RWE;
@@ -1037,13 +1170,15 @@ int xhci_bus_resume(struct usb_hcd *hcd)
 		return -ESHUTDOWN;
 	}
 
-	
+	/* delay the irqs */
 	temp = xhci_readl(xhci, &xhci->op_regs->command);
 	temp &= ~CMD_EIE;
 	xhci_writel(xhci, temp, &xhci->op_regs->command);
 
 	port_index = max_ports;
 	while (port_index--) {
+		/* Check whether need resume ports. If needed
+		   resume port and disable remote wakeup */
 		u32 temp;
 		int slot_id;
 
@@ -1068,11 +1203,14 @@ int xhci_bus_resume(struct usb_hcd *hcd)
 				xhci_set_link_state(xhci, port_array,
 							port_index, XDEV_U0);
 			}
+			/* wait for the port to enter U0 and report port link
+			 * state change.
+			 */
 			spin_unlock_irqrestore(&xhci->lock, flags);
 			msleep(20);
 			spin_lock_irqsave(&xhci->lock, flags);
 
-			
+			/* Clear PLC */
 			xhci_test_and_clear_bit(xhci, port_array, port_index,
 						PORT_PLC);
 
@@ -1087,10 +1225,13 @@ int xhci_bus_resume(struct usb_hcd *hcd)
 		}
 
 		if (hcd->speed != HCD_USB3) {
-			
+			/* disable remote wake up for USB 2.0 */
 			__le32 __iomem *addr;
 			u32 tmp;
 
+			/* Add one to the port status register address to get
+			 * the port power control register address.
+			 */
 			addr = port_array[port_index] + 1;
 			tmp = xhci_readl(xhci, addr);
 			tmp &= ~PORT_RWE;
@@ -1103,7 +1244,7 @@ int xhci_bus_resume(struct usb_hcd *hcd)
 	(void) xhci_readl(xhci, &xhci->op_regs->command);
 
 	bus_state->next_statechange = jiffies + msecs_to_jiffies(5);
-	
+	/* re-enable irqs */
 	temp = xhci_readl(xhci, &xhci->op_regs->command);
 	temp |= CMD_EIE;
 	xhci_writel(xhci, temp, &xhci->op_regs->command);
@@ -1113,4 +1254,4 @@ int xhci_bus_resume(struct usb_hcd *hcd)
 	return 0;
 }
 
-#endif	
+#endif	/* CONFIG_PM */

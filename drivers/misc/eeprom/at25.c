@@ -21,6 +21,12 @@
 #include <linux/spi/eeprom.h>
 
 
+/*
+ * NOTE: this is an *EEPROM* driver.  The vagaries of product naming
+ * mean that some AT25 products are EEPROMs, and others are FLASH.
+ * Handle FLASH chips with the drivers/mtd/devices/m25p80.c driver,
+ * not this one!
+ */
 
 struct at25_data {
 	struct spi_device	*spi;
@@ -31,26 +37,30 @@ struct at25_data {
 	unsigned		addrlen;
 };
 
-#define	AT25_WREN	0x06		
-#define	AT25_WRDI	0x04		
-#define	AT25_RDSR	0x05		
-#define	AT25_WRSR	0x01		
-#define	AT25_READ	0x03		
-#define	AT25_WRITE	0x02		
+#define	AT25_WREN	0x06		/* latch the write enable */
+#define	AT25_WRDI	0x04		/* reset the write enable */
+#define	AT25_RDSR	0x05		/* read status register */
+#define	AT25_WRSR	0x01		/* write status register */
+#define	AT25_READ	0x03		/* read byte(s) */
+#define	AT25_WRITE	0x02		/* write byte(s)/sector */
 
-#define	AT25_SR_nRDY	0x01		
-#define	AT25_SR_WEN	0x02		
-#define	AT25_SR_BP0	0x04		
+#define	AT25_SR_nRDY	0x01		/* nRDY = write-in-progress */
+#define	AT25_SR_WEN	0x02		/* write enable (latched) */
+#define	AT25_SR_BP0	0x04		/* BP for software writeprotect */
 #define	AT25_SR_BP1	0x08
-#define	AT25_SR_WPEN	0x80		
+#define	AT25_SR_WPEN	0x80		/* writeprotect enable */
 
 
-#define EE_MAXADDRLEN	3		
+#define EE_MAXADDRLEN	3		/* 24 bit addresses, up to 2 MBytes */
 
+/* Specs often allow 5 msec for a page write, sometimes 20 msec;
+ * it's important to recover from write timeouts.
+ */
 #define	EE_TIMEOUT	25
 
+/*-------------------------------------------------------------------------*/
 
-#define	io_limit	PAGE_SIZE	
+#define	io_limit	PAGE_SIZE	/* bytes */
 
 static ssize_t
 at25_ee_read(
@@ -78,12 +88,12 @@ at25_ee_read(
 
 	/* 8/16/24-bit address is written MSB first */
 	switch (at25->addrlen) {
-	default:	
+	default:	/* case 3 */
 		*cp++ = offset >> 16;
 	case 2:
 		*cp++ = offset >> 8;
 	case 1:
-	case 0:	
+	case 0:	/* can't happen: for better codegen */
 		*cp++ = offset >> 0;
 	}
 
@@ -100,6 +110,12 @@ at25_ee_read(
 
 	mutex_lock(&at25->lock);
 
+	/* Read it all at once.
+	 *
+	 * REVISIT that's potentially a problem with large chips, if
+	 * other devices on the bus need to be accessed regularly or
+	 * this chip is clocked very slowly
+	 */
 	status = spi_sync(at25->spi, &m);
 	dev_dbg(&at25->spi->dev,
 		"read %Zd bytes at %d --> %d\n",
@@ -140,7 +156,7 @@ at25_ee_write(struct at25_data *at25, const char *buf, loff_t off,
 	if (unlikely(!count))
 		return count;
 
-	
+	/* Temp buffer starts with command and address */
 	buf_size = at25->chip.page_size;
 	if (buf_size > io_limit)
 		buf_size = io_limit;
@@ -148,6 +164,9 @@ at25_ee_write(struct at25_data *at25, const char *buf, loff_t off,
 	if (!bounce)
 		return -ENOMEM;
 
+	/* For write, rollover is within the page ... so we write at
+	 * most one page, then manually roll over to the next page.
+	 */
 	bounce[0] = AT25_WRITE;
 	mutex_lock(&at25->lock);
 	do {
@@ -167,16 +186,16 @@ at25_ee_write(struct at25_data *at25, const char *buf, loff_t off,
 
 		/* 8/16/24-bit address is written MSB first */
 		switch (at25->addrlen) {
-		default:	
+		default:	/* case 3 */
 			*cp++ = offset >> 16;
 		case 2:
 			*cp++ = offset >> 8;
 		case 1:
-		case 0:	
+		case 0:	/* can't happen: for better codegen */
 			*cp++ = offset >> 0;
 		}
 
-		
+		/* Write as much of a page as we can */
 		segment = buf_size - (offset % buf_size);
 		if (segment > count)
 			segment = count;
@@ -189,8 +208,11 @@ at25_ee_write(struct at25_data *at25, const char *buf, loff_t off,
 		if (status < 0)
 			break;
 
+		/* REVISIT this should detect (or prevent) failed writes
+		 * to readonly sections of the EEPROM...
+		 */
 
-		
+		/* Wait for non-busy status */
 		timeout = jiffies + msecs_to_jiffies(EE_TIMEOUT);
 		retries = 0;
 		do {
@@ -199,7 +221,7 @@ at25_ee_write(struct at25_data *at25, const char *buf, loff_t off,
 			if (sr < 0 || (sr & AT25_SR_nRDY)) {
 				dev_dbg(&at25->spi->dev,
 					"rdsr --> %d (%02x)\n", sr, sr);
-				
+				/* at HZ=100, this is sloooow */
 				msleep(1);
 				continue;
 			}
@@ -245,7 +267,9 @@ at25_bin_write(struct file *filp, struct kobject *kobj,
 	return at25_ee_write(at25, buf, off, count);
 }
 
+/*-------------------------------------------------------------------------*/
 
+/* Let in-kernel code access the eeprom data. */
 
 static ssize_t at25_mem_read(struct memory_accessor *mem, char *buf,
 			 off_t offset, size_t count)
@@ -263,6 +287,7 @@ static ssize_t at25_mem_write(struct memory_accessor *mem, const char *buf,
 	return at25_ee_write(at25, buf, offset, count);
 }
 
+/*-------------------------------------------------------------------------*/
 
 static int at25_probe(struct spi_device *spi)
 {
@@ -272,7 +297,7 @@ static int at25_probe(struct spi_device *spi)
 	int			sr;
 	int			addrlen;
 
-	
+	/* Chip description */
 	chip = spi->dev.platform_data;
 	if (!chip) {
 		dev_dbg(&spi->dev, "no chip description\n");
@@ -280,7 +305,7 @@ static int at25_probe(struct spi_device *spi)
 		goto fail;
 	}
 
-	
+	/* For now we only support 8/16/24 bit addressing */
 	if (chip->flags & EE_ADDR1)
 		addrlen = 1;
 	else if (chip->flags & EE_ADDR2)
@@ -293,6 +318,10 @@ static int at25_probe(struct spi_device *spi)
 		goto fail;
 	}
 
+	/* Ping the chip ... the status register is pretty portable,
+	 * unlike probing manufacturer IDs.  We do expect that system
+	 * firmware didn't write it in the past few milliseconds!
+	 */
 	sr = spi_w8r8(spi, AT25_RDSR);
 	if (sr < 0 || sr & AT25_SR_nRDY) {
 		dev_dbg(&spi->dev, "rdsr --> %d (%02x)\n", sr, sr);
@@ -311,6 +340,15 @@ static int at25_probe(struct spi_device *spi)
 	dev_set_drvdata(&spi->dev, at25);
 	at25->addrlen = addrlen;
 
+	/* Export the EEPROM bytes through sysfs, since that's convenient.
+	 * And maybe to other kernel code; it might hold a board's Ethernet
+	 * address, or board-specific calibration data generated on the
+	 * manufacturing floor.
+	 *
+	 * Default to root-only access to the data; EEPROMs often hold data
+	 * that's sensitive for read and/or write, like ethernet addresses,
+	 * security codes, board-specific manufacturing calibrations, etc.
+	 */
 	sysfs_bin_attr_init(&at25->bin);
 	at25->bin.attr.name = "eeprom";
 	at25->bin.attr.mode = S_IRUSR;
@@ -356,6 +394,7 @@ static int __devexit at25_remove(struct spi_device *spi)
 	return 0;
 }
 
+/*-------------------------------------------------------------------------*/
 
 static struct spi_driver at25_driver = {
 	.driver = {

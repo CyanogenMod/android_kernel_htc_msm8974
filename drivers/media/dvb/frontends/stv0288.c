@@ -140,9 +140,9 @@ static int stv0288_set_symbolrate(struct dvb_frontend *fe, u32 srate)
 		b[0] = (unsigned char)((temp >> 12) & 0xff);
 		b[1] = (unsigned char)((temp >> 4) & 0xff);
 		b[2] = (unsigned char)((temp << 4) & 0xf0);
-		stv0288_writeregI(state, 0x28, 0x80); 
-		stv0288_writeregI(state, 0x29, 0); 
-		stv0288_writeregI(state, 0x2a, 0); 
+		stv0288_writeregI(state, 0x28, 0x80); /* SFRH */
+		stv0288_writeregI(state, 0x29, 0); /* SFRM */
+		stv0288_writeregI(state, 0x2a, 0); /* SFRL */
 
 		stv0288_writeregI(state, 0x28, b[0]);
 		stv0288_writeregI(state, 0x29, b[1]);
@@ -163,7 +163,7 @@ static int stv0288_send_diseqc_msg(struct dvb_frontend *fe,
 
 	stv0288_writeregI(state, 0x09, 0);
 	msleep(30);
-	stv0288_writeregI(state, 0x05, 0x12);
+	stv0288_writeregI(state, 0x05, 0x12);/* modulated mode, single shot */
 
 	for (i = 0; i < m->msg_len; i++) {
 		if (stv0288_writeregI(state, 0x06, m->msg[i]))
@@ -180,7 +180,7 @@ static int stv0288_send_diseqc_burst(struct dvb_frontend *fe,
 
 	dprintk("%s\n", __func__);
 
-	if (stv0288_writeregI(state, 0x05, 0x03))
+	if (stv0288_writeregI(state, 0x05, 0x03))/* burst mode, single shot */
 		return -EREMOTEIO;
 
 	if (stv0288_writeregI(state, 0x06, burst == SEC_MINI_A ? 0x00 : 0xff))
@@ -199,12 +199,12 @@ static int stv0288_set_tone(struct dvb_frontend *fe, fe_sec_tone_mode_t tone)
 
 	switch (tone) {
 	case SEC_TONE_ON:
-		if (stv0288_writeregI(state, 0x05, 0x10))
+		if (stv0288_writeregI(state, 0x05, 0x10))/* cont carrier */
 			return -EREMOTEIO;
 	break;
 
 	case SEC_TONE_OFF:
-		if (stv0288_writeregI(state, 0x05, 0x12))
+		if (stv0288_writeregI(state, 0x05, 0x12))/* burst mode off*/
 			return -EREMOTEIO;
 	break;
 
@@ -343,7 +343,7 @@ static int stv0288_init(struct dvb_frontend *fe)
 	stv0288_writeregI(state, 0x41, 0x04);
 	msleep(50);
 
-	
+	/* we have default inittab */
 	if (state->config->inittab == NULL) {
 		for (i = 0; !(stv0288_inittab[i] == 0xff &&
 				stv0288_inittab[i + 1] == 0xff); i += 2)
@@ -473,7 +473,7 @@ static int stv0288_set_frontend(struct dvb_frontend *fe)
 	if (state->config->set_ts_params)
 		state->config->set_ts_params(fe, 0);
 
-	
+	/* only frequency & symbol_rate are used for tuner*/
 	if (fe->ops.tuner_ops.set_params) {
 		fe->ops.tuner_ops.set_params(fe);
 		if (fe->ops.i2c_gate_ctrl)
@@ -482,12 +482,12 @@ static int stv0288_set_frontend(struct dvb_frontend *fe)
 
 	udelay(10);
 	stv0288_set_symbolrate(fe, c->symbol_rate);
-	
+	/* Carrier lock control register */
 	stv0288_writeregI(state, 0x15, 0xc5);
 
-	tda[2] = 0x0; 
+	tda[2] = 0x0; /* CFRL */
 	for (tm = -9; tm < 7;) {
-		
+		/* Viterbi status */
 		reg = stv0288_readreg(state, 0x24);
 		if (reg & 0x8)
 				break;
@@ -541,11 +541,11 @@ static struct dvb_frontend_ops stv0288_ops = {
 		.name			= "ST STV0288 DVB-S",
 		.frequency_min		= 950000,
 		.frequency_max		= 2150000,
-		.frequency_stepsize	= 1000,	 
+		.frequency_stepsize	= 1000,	 /* kHz for QPSK frontends */
 		.frequency_tolerance	= 0,
 		.symbol_rate_min	= 1000000,
 		.symbol_rate_max	= 45000000,
-		.symbol_rate_tolerance	= 500,	
+		.symbol_rate_tolerance	= 500,	/* ppm */
 		.caps = FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |
 		      FE_CAN_FEC_5_6 | FE_CAN_FEC_7_8 |
 		      FE_CAN_QPSK |
@@ -577,12 +577,12 @@ struct dvb_frontend *stv0288_attach(const struct stv0288_config *config,
 	struct stv0288_state *state = NULL;
 	int id;
 
-	
+	/* allocate memory for the internal state */
 	state = kzalloc(sizeof(struct stv0288_state), GFP_KERNEL);
 	if (state == NULL)
 		goto error;
 
-	
+	/* setup the state */
 	state->config = config;
 	state->i2c = i2c;
 	state->initialised = 0;
@@ -596,11 +596,11 @@ struct dvb_frontend *stv0288_attach(const struct stv0288_config *config,
 	id = stv0288_readreg(state, 0x00);
 	dprintk("stv0288 id %x\n", id);
 
-	
+	/* register 0x00 contains 0x11 for STV0288  */
 	if (id != 0x11)
 		goto error;
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &stv0288_ops,
 			sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;

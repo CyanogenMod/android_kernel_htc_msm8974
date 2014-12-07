@@ -18,6 +18,22 @@
 #include "ima.h"
 static const char *IMA_TEMPLATE_NAME = "ima";
 
+/*
+ * ima_store_template - store ima template measurements
+ *
+ * Calculate the hash of a template entry, add the template entry
+ * to an ordered list of measurement entries maintained inside the kernel,
+ * and also update the aggregate integrity value (maintained inside the
+ * configured TPM PCR) over the hashes of the current list of measurement
+ * entries.
+ *
+ * Applications retrieve the current kernel-held measurement list through
+ * the securityfs entries in /sys/kernel/security/ima. The signed aggregate
+ * TPM PCR (called quote) can be retrieved using a TPM user space library
+ * and is used to validate the measurement list.
+ *
+ * Returns 0 on success, error code otherwise
+ */
 int ima_store_template(struct ima_template_entry *entry,
 		       int violation, struct inode *inode)
 {
@@ -44,6 +60,13 @@ int ima_store_template(struct ima_template_entry *entry,
 	return result;
 }
 
+/*
+ * ima_add_violation - add violation to measurement list.
+ *
+ * Violations are flagged in the measurement list with zero hash values.
+ * By extending the PCR with 0xFF's instead of with zeroes, the PCR
+ * value is invalidated.
+ */
 void ima_add_violation(struct inode *inode, const unsigned char *filename,
 		       const char *op, const char *cause)
 {
@@ -51,7 +74,7 @@ void ima_add_violation(struct inode *inode, const unsigned char *filename,
 	int violation = 1;
 	int result;
 
-	
+	/* can overflow, only indicator */
 	atomic_long_inc(&ima_htable.violations);
 
 	entry = kmalloc(sizeof(*entry), GFP_KERNEL);
@@ -69,6 +92,22 @@ err_out:
 			    op, cause, result, 0);
 }
 
+/**
+ * ima_must_measure - measure decision based on policy.
+ * @inode: pointer to inode to measure
+ * @mask: contains the permission mask (MAY_READ, MAY_WRITE, MAY_EXECUTE)
+ * @function: calling function (FILE_CHECK, BPRM_CHECK, FILE_MMAP)
+ *
+ * The policy is defined in terms of keypairs:
+ * 		subj=, obj=, type=, func=, mask=, fsmagic=
+ *	subj,obj, and type: are LSM specific.
+ * 	func: FILE_CHECK | BPRM_CHECK | FILE_MMAP
+ * 	mask: contains the permission mask
+ *	fsmagic: hex value
+ *
+ * Return 0 to measure. For matching a DONT_MEASURE policy, no policy,
+ * or other error, return an error code.
+*/
 int ima_must_measure(struct inode *inode, int mask, int function)
 {
 	int must_measure;
@@ -77,6 +116,16 @@ int ima_must_measure(struct inode *inode, int mask, int function)
 	return must_measure ? 0 : -EACCES;
 }
 
+/*
+ * ima_collect_measurement - collect file measurement
+ *
+ * Calculate the file hash, if it doesn't already exist,
+ * storing the measurement and i_version in the iint.
+ *
+ * Must be called with iint->mutex held.
+ *
+ * Return 0 on success, error code otherwise
+ */
 int ima_collect_measurement(struct integrity_iint_cache *iint,
 			    struct file *file)
 {
@@ -93,6 +142,21 @@ int ima_collect_measurement(struct integrity_iint_cache *iint,
 	return result;
 }
 
+/*
+ * ima_store_measurement - store file measurement
+ *
+ * Create an "ima" template and then store the template by calling
+ * ima_store_template.
+ *
+ * We only get here if the inode has not already been measured,
+ * but the measurement could already exist:
+ * 	- multiple copies of the same file on either the same or
+ *	  different filesystems.
+ *	- the inode was previously flushed as well as the iint info,
+ *	  containing the hashing info.
+ *
+ * Must be called with iint->mutex held.
+ */
 void ima_store_measurement(struct integrity_iint_cache *iint,
 			   struct file *file, const unsigned char *filename)
 {

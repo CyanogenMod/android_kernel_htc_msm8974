@@ -34,6 +34,7 @@
 
 #include "aic94xx_dump.h"
 
+/* ---------- EMPTY SCB ---------- */
 
 #define DL_PHY_MASK      7
 #define BYTES_DMAED      0
@@ -56,7 +57,7 @@ static void get_lrate_mode(struct asd_phy *phy, u8 oob_mode)
 
 	switch (oob_mode & 7) {
 	case PHY_SPEED_60:
-		
+		/* FIXME: sas transport class doesn't have this */
 		phy->sas_phy.linkrate = SAS_LINK_RATE_6_0_GBPS;
 		phy->sas_phy.phy->negotiated_linkrate = SAS_LINK_RATE_6_0_GBPS;
 		break;
@@ -94,14 +95,14 @@ static void asd_phy_event_tasklet(struct asd_ascb *ascb,
 
 	switch (oob_status) {
 	case CURRENT_LOSS_OF_SIGNAL:
-		
+		/* directly attached device was removed */
 		ASD_DPRINTK("phy%d: device unplugged\n", phy_id);
 		asd_turn_led(asd_ha, phy_id, 0);
 		sas_phy_disconnected(&phy->sas_phy);
 		sas_ha->notify_phy_event(&phy->sas_phy, PHYE_LOSS_OF_SIGNAL);
 		break;
 	case CURRENT_OOB_DONE:
-		
+		/* hot plugged device */
 		asd_turn_led(asd_ha, phy_id, 1);
 		get_lrate_mode(phy, oob_mode);
 		ASD_DPRINTK("phy%d device plugged: lrate:0x%x, proto:0x%x\n",
@@ -109,7 +110,7 @@ static void asd_phy_event_tasklet(struct asd_ascb *ascb,
 		sas_ha->notify_phy_event(&phy->sas_phy, PHYE_OOB_DONE);
 		break;
 	case CURRENT_SPINUP_HOLD:
-		
+		/* hot plug SATA, no COMWAKE sent */
 		asd_turn_led(asd_ha, phy_id, 1);
 		sas_ha->notify_phy_event(&phy->sas_phy, PHYE_SPINUP_HOLD);
 		break;
@@ -124,6 +125,7 @@ static void asd_phy_event_tasklet(struct asd_ascb *ascb,
 	}
 }
 
+/* If phys are enabled sparsely, this will do the right thing. */
 static unsigned ord_phy(struct asd_ha_struct *asd_ha, struct asd_phy *phy)
 {
 	u8 enabled_mask = asd_ha->hw_prof.enabled_phys;
@@ -154,7 +156,7 @@ static void asd_get_attached_sas_addr(struct asd_phy *phy, u8 *sas_addr)
 	if (phy->sas_phy.frame_rcvd[0] == 0x34
 	    && phy->sas_phy.oob_mode == SATA_OOB_MODE) {
 		struct asd_ha_struct *asd_ha = phy->sas_phy.ha->lldd_ha;
-		
+		/* FIS device-to-host */
 		u64 addr = be64_to_cpu(*(__be64 *)phy->phy_desc->sas_addr);
 
 		addr += asd_ha->hw_prof.sata_name_base + ord_phy(asd_ha, phy);
@@ -179,7 +181,7 @@ static void asd_form_port(struct asd_ha_struct *asd_ha, struct asd_phy *phy)
 		for (i = 0; i < ASD_MAX_PHYS; i++) {
 			port = &asd_ha->asd_ports[i];
 
-			
+			/* Check for wide port */
 			if (port->num_phys > 0 &&
 			    memcmp(port->sas_addr, sas_phy->sas_addr,
 				   SAS_ADDR_SIZE) == 0 &&
@@ -189,13 +191,13 @@ static void asd_form_port(struct asd_ha_struct *asd_ha, struct asd_phy *phy)
 				break;
 			}
 
-			
+			/* Find a free port */
 			if (port->num_phys == 0 && free_port == NULL) {
 				free_port = port;
 			}
 		}
 
-		
+		/* Use a free port if this doesn't form a wide port */
 		if (i >= ASD_MAX_PHYS) {
 			port = free_port;
 			BUG_ON(!port);
@@ -349,6 +351,8 @@ static void asd_primitive_rcvd_tasklet(struct asd_ascb *ascb,
 		case LmHARDRST:
 			ASD_DPRINTK("phy%d: HARD_RESET primitive rcvd\n",
 				    phy_id);
+			/* The sequencer disables all phys on that port.
+			 * We have to re-enable the phys ourselves. */
 			asd_deform_port(asd_ha, phy);
 			sas_ha->notify_port_event(sas_phy, PORTE_HARD_RESET);
 			break;
@@ -366,6 +370,15 @@ static void asd_primitive_rcvd_tasklet(struct asd_ascb *ascb,
 	}
 }
 
+/**
+ * asd_invalidate_edb -- invalidate an EDB and if necessary post the ESCB
+ * @ascb: pointer to Empty SCB
+ * @edb_id: index [0,6] to the empty data buffer which is to be invalidated
+ *
+ * After an EDB has been invalidated, if all EDBs in this ESCB have been
+ * invalidated, the ESCB is posted back to the sequencer.
+ * Context is tasklet/IRQ.
+ */
 void asd_invalidate_edb(struct asd_ascb *ascb, int edb_id)
 {
 	struct asd_seq_data *seq = &ascb->ha->seq;
@@ -379,6 +392,15 @@ void asd_invalidate_edb(struct asd_ascb *ascb, int edb_id)
 
 	if (escb->num_valid == 0) {
 		int i;
+		/* ASD_DPRINTK("reposting escb: vaddr: 0x%p, "
+			    "dma_handle: 0x%08llx, next: 0x%08llx, "
+			    "index:%d, opcode:0x%02x\n",
+			    ascb->dma_scb.vaddr,
+			    (u64)ascb->dma_scb.dma_handle,
+			    le64_to_cpu(ascb->scb->header.next_scb),
+			    le16_to_cpu(ascb->scb->header.index),
+			    ascb->scb->header.opcode);
+		*/
 		escb->num_valid = ASD_EDBS_PER_SCB;
 		for (i = 0; i < ASD_EDBS_PER_SCB; i++)
 			escb->eb[i].flags = 0;
@@ -395,7 +417,7 @@ static void escb_tasklet_complete(struct asd_ascb *ascb,
 {
 	struct asd_ha_struct *asd_ha = ascb->ha;
 	struct sas_ha_struct *sas_ha = &asd_ha->sas_ha;
-	int edb = (dl->opcode & DL_PHY_MASK) - 1; 
+	int edb = (dl->opcode & DL_PHY_MASK) - 1; /* [0xc1,0xc7] -> [0,6] */
 	u8  sb_opcode = dl->status_block[0];
 	int phy_id = sb_opcode & DL_PHY_MASK;
 	struct asd_sas_phy *sas_phy = sas_ha->sas_phy[phy_id];
@@ -417,7 +439,7 @@ static void escb_tasklet_complete(struct asd_ascb *ascb,
 			    ascb->scb->header.opcode);
 	}
 
-	
+	/* Catch these before we mask off the sb_opcode bits */
 	switch (sb_opcode) {
 	case REQ_TASK_ABORT: {
 		struct asd_ascb *a, *b;
@@ -427,6 +449,11 @@ static void escb_tasklet_complete(struct asd_ascb *ascb,
 		ASD_DPRINTK("%s: REQ_TASK_ABORT, reason=0x%X\n",
 			    __func__, dl->status_block[3]);
 
+		/*
+		 * Find the task that caused the abort and abort it first.
+		 * The sequencer won't put anything on the done list until
+		 * that happens.
+		 */
 		tc_abort = *((u16*)(&dl->status_block[1]));
 		tc_abort = le16_to_cpu(tc_abort);
 
@@ -452,6 +479,10 @@ static void escb_tasklet_complete(struct asd_ascb *ascb,
 			goto out;
 		}
 
+		/*
+		 * Now abort everything else for that device (hba?) so
+		 * that the EH will wake up and do something.
+		 */
 		list_for_each_entry_safe(a, b, &asd_ha->seq.pend_q, list) {
 			struct sas_task *task = a->uldd_task;
 
@@ -475,7 +506,7 @@ static void escb_tasklet_complete(struct asd_ascb *ascb,
 		ASD_DPRINTK("%s: REQ_DEVICE_RESET, reason=0x%X\n", __func__,
 			    dl->status_block[3]);
 
-		
+		/* Find the last pending task for the device... */
 		list_for_each_entry(a, &asd_ha->seq.pend_q, list) {
 			u16 x;
 			struct domain_device *dev;
@@ -496,12 +527,12 @@ static void escb_tasklet_complete(struct asd_ascb *ascb,
 			goto out;
 		}
 
-		
+		/* ...and set the reset flag */
 		spin_lock_irqsave(&last_dev_task->task_state_lock, flags);
 		last_dev_task->task_state_flags |= SAS_TASK_NEED_DEV_RESET;
 		spin_unlock_irqrestore(&last_dev_task->task_state_lock, flags);
 
-		
+		/* Kill all pending tasks for the device */
 		list_for_each_entry(a, &asd_ha->seq.pend_q, list) {
 			u16 x;
 			struct domain_device *dev;
@@ -551,7 +582,7 @@ static void escb_tasklet_complete(struct asd_ascb *ascb,
 		ASD_DPRINTK("%s: phy%d: TIMER_EVENT, lost dw sync\n",
 			    __func__, phy_id);
 		asd_turn_led(asd_ha, phy_id, 0);
-		
+		/* the device is gone */
 		sas_phy_disconnected(sas_phy);
 		asd_deform_port(asd_ha, phy);
 		sas_ha->notify_port_event(sas_phy, PORTE_TIMER_EVENT);
@@ -591,11 +622,23 @@ int asd_init_post_escbs(struct asd_ha_struct *asd_ha)
 	return asd_post_escb_list(asd_ha, seq->escb_arr[0], seq->num_escbs);
 }
 
+/* ---------- CONTROL PHY ---------- */
 
 #define CONTROL_PHY_STATUS (CURRENT_DEVICE_PRESENT | CURRENT_OOB_DONE   \
 			    | CURRENT_SPINUP_HOLD | CURRENT_GTO_TIMEOUT \
 			    | CURRENT_OOB_ERROR)
 
+/**
+ * control_phy_tasklet_complete -- tasklet complete for CONTROL PHY ascb
+ * @ascb: pointer to an ascb
+ * @dl: pointer to the done list entry
+ *
+ * This function completes a CONTROL PHY scb and frees the ascb.
+ * A note on LEDs:
+ *  - an LED blinks if there is IO though it,
+ *  - if a device is connected to the LED, it is lit,
+ *  - if no device is connected to the LED, is is dimmed (off).
+ */
 static void control_phy_tasklet_complete(struct asd_ascb *ascb,
 					 struct done_list_struct *dl)
 {
@@ -608,7 +651,7 @@ static void control_phy_tasklet_complete(struct asd_ascb *ascb,
 	u8 status     = dl->status_block[0];
 	u8 oob_status = dl->status_block[1];
 	u8 oob_mode   = dl->status_block[2];
-	
+	/* u8 oob_signals= dl->status_block[3]; */
 
 	if (status != 0) {
 		ASD_DPRINTK("%s: phy%d status block opcode:0x%x\n",
@@ -661,7 +704,7 @@ static void control_phy_tasklet_complete(struct asd_ascb *ascb,
 	case EXECUTE_HARD_RESET:
 		ASD_DPRINTK("%s: phy%d: sub_func:0x%x\n", __func__,
 			    phy_id, control_phy->sub_func);
-		
+		/* XXX finish */
 		break;
 	default:
 		ASD_DPRINTK("%s: phy%d: sub_func:0x%x?\n", __func__,
@@ -674,7 +717,7 @@ out:
 
 static void set_speed_mask(u8 *speed_mask, struct asd_phy_desc *pd)
 {
-	
+	/* disable all speeds, then enable defaults */
 	*speed_mask = SAS_SPEED_60_DIS | SAS_SPEED_30_DIS | SAS_SPEED_15_DIS
 		| SATA_SPEED_30_DIS | SATA_SPEED_15_DIS;
 
@@ -695,7 +738,7 @@ static void set_speed_mask(u8 *speed_mask, struct asd_phy_desc *pd)
 		*speed_mask |= SAS_SPEED_15_DIS;
 	default:
 	case SAS_LINK_RATE_1_5_GBPS:
-		
+		/* nothing to do */
 		;
 	}
 
@@ -712,11 +755,24 @@ static void set_speed_mask(u8 *speed_mask, struct asd_phy_desc *pd)
 		*speed_mask |= SATA_SPEED_15_DIS;
 	default:
 	case SAS_LINK_RATE_1_5_GBPS:
-		
+		/* nothing to do */
 		;
 	}
 }
 
+/**
+ * asd_build_control_phy -- build a CONTROL PHY SCB
+ * @ascb: pointer to an ascb
+ * @phy_id: phy id to control, integer
+ * @subfunc: subfunction, what to actually to do the phy
+ *
+ * This function builds a CONTROL PHY scb.  No allocation of any kind
+ * is performed. @ascb is allocated with the list function.
+ * The caller can override the ascb->tasklet_complete to point
+ * to its own callback function.  It must call asd_ascb_free()
+ * at its tasklet complete function.
+ * See the default implementation.
+ */
 void asd_build_control_phy(struct asd_ascb *ascb, int phy_id, u8 subfunc)
 {
 	struct asd_phy *phy = &ascb->ha->phys[phy_id];
@@ -728,15 +784,15 @@ void asd_build_control_phy(struct asd_ascb *ascb, int phy_id, u8 subfunc)
 	control_phy->sub_func = subfunc;
 
 	switch (subfunc) {
-	case EXECUTE_HARD_RESET:  
-	case ENABLE_PHY:          
-		
+	case EXECUTE_HARD_RESET:  /* 0x81 */
+	case ENABLE_PHY:          /* 0x01 */
+		/* decide hot plug delay */
 		control_phy->hot_plug_delay = HOTPLUG_DELAY_TIMEOUT;
 
-		
+		/* decide speed mask */
 		set_speed_mask(&control_phy->speed_mask, phy->phy_desc);
 
-		
+		/* initiator port settings are in the hi nibble */
 		if (phy->sas_phy.role == PHY_ROLE_INITIATOR)
 			control_phy->port_type = SAS_PROTOCOL_ALL << 4;
 		else if (phy->sas_phy.role == PHY_ROLE_TARGET)
@@ -745,11 +801,11 @@ void asd_build_control_phy(struct asd_ascb *ascb, int phy_id, u8 subfunc)
 			control_phy->port_type =
 				(SAS_PROTOCOL_ALL << 4) | SAS_PROTOCOL_ALL;
 
-		
+		/* link reset retries, this should be nominal */
 		control_phy->link_reset_retries = 10;
 
-	case RELEASE_SPINUP_HOLD: 
-		
+	case RELEASE_SPINUP_HOLD: /* 0x02 */
+		/* decide the func_mask */
 		control_phy->func_mask = FUNCTION_MASK_DEFAULT;
 		if (phy->phy_desc->flags & ASD_SATA_SPINUP_HOLD)
 			control_phy->func_mask &= ~SPINUP_HOLD_DIS;
@@ -762,6 +818,7 @@ void asd_build_control_phy(struct asd_ascb *ascb, int phy_id, u8 subfunc)
 	ascb->tasklet_complete = control_phy_tasklet_complete;
 }
 
+/* ---------- INITIATE LINK ADM TASK ---------- */
 
 #if 0
 
@@ -797,9 +854,21 @@ void asd_build_initiate_link_adm_task(struct asd_ascb *ascb, int phy_id,
 	ascb->tasklet_complete = link_adm_tasklet_complete;
 }
 
-#endif  
+#endif  /*  0  */
 
+/* ---------- SCB timer ---------- */
 
+/**
+ * asd_ascb_timedout -- called when a pending SCB's timer has expired
+ * @data: unsigned long, a pointer to the ascb in question
+ *
+ * This is the default timeout function which does the most necessary.
+ * Upper layers can implement their own timeout function, say to free
+ * resources they have with this SCB, and then call this one at the
+ * end of their timeout function.  To do this, one should initialize
+ * the ascb->timer.{function, data, expires} prior to calling the post
+ * function. The timer is started by the post function.
+ */
 void asd_ascb_timedout(unsigned long data)
 {
 	struct asd_ascb *ascb = (void *) data;
@@ -816,7 +885,9 @@ void asd_ascb_timedout(unsigned long data)
 	asd_ascb_free(ascb);
 }
 
+/* ---------- CONTROL PHY ---------- */
 
+/* Given the spec value, return a driver value. */
 static const int phy_func_table[] = {
 	[PHY_FUNC_NOP]        = PHY_NO_OP,
 	[PHY_FUNC_LINK_RESET] = ENABLE_PHY,

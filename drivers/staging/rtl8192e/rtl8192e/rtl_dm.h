@@ -20,6 +20,7 @@
 #define __R8192UDM_H__
 
 
+/*--------------------------Define Parameters-------------------------------*/
 #define			OFDM_Table_Length	19
 #define		CCK_Table_length	12
 
@@ -79,8 +80,10 @@
 #define		DM_Type_ByFW			0
 #define		DM_Type_ByDriver		1
 
+/*--------------------------Define Parameters-------------------------------*/
 
 
+/*------------------------------Define structure----------------------------*/
 struct dig_t {
 	u8		dig_enable_flag;
 	u8		dig_algorithm;
@@ -240,21 +243,28 @@ struct dcmd_txcmd {
 	u32	Length;
 	u32	Value;
 };
+/*------------------------------Define structure----------------------------*/
 
 
+/*------------------------Export global variable----------------------------*/
 extern	struct dig_t dm_digtable;
 extern	u8		dm_shadow[16][256];
 extern struct drx_path_sel DM_RxPathSelTable;
 
 extern	u8			test_flag;
+/*------------------------Export global variable----------------------------*/
 
 
+/*------------------------Export Marco Definition---------------------------*/
 #define DM_APInitGainChangeNotify(Event)		\
 	{						\
 		dm_digtable.CurAPConnectState = Event;	\
 	}
+/*------------------------Export Marco Definition---------------------------*/
 
 
+/*--------------------------Exported Function prototype---------------------*/
+/*--------------------------Exported Function prototype---------------------*/
 extern  void    init_hal_dm(struct net_device *dev);
 extern  void deinit_hal_dm(struct net_device *dev);
 
@@ -311,4 +321,4 @@ extern	void	dm_shadow_init(struct net_device *dev);
 extern	void dm_initialize_txpower_tracking(struct net_device *dev);
 extern  void    dm_CheckRfCtrlGPIO(void *data);
 
-#endif	
+#endif	/*__R8192UDM_H__ */

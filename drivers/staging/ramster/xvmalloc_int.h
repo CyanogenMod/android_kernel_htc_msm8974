@@ -16,7 +16,9 @@
 #include <linux/kernel.h>
 #include <linux/types.h>
 
+/* User configurable params */
 
+/* Must be power of two */
 #ifdef CONFIG_64BIT
 #define XV_ALIGN_SHIFT 3
 #else
@@ -25,9 +27,15 @@
 #define XV_ALIGN	(1 << XV_ALIGN_SHIFT)
 #define XV_ALIGN_MASK	(XV_ALIGN - 1)
 
+/* This must be greater than sizeof(link_free) */
 #define XV_MIN_ALLOC_SIZE	32
 #define XV_MAX_ALLOC_SIZE	(PAGE_SIZE - XV_ALIGN)
 
+/*
+ * Free lists are separated by FL_DELTA bytes
+ * This value is 3 for 4k pages and 4 for 64k pages, for any
+ * other page size, a conservative (PAGE_SHIFT - 9) is used.
+ */
 #if PAGE_SHIFT == 16
 #define FL_DELTA_SHIFT 4
 #else
@@ -40,6 +48,7 @@
 
 #define MAX_FLI		DIV_ROUND_UP(NUM_FREE_LISTS, BITS_PER_LONG)
 
+/* End of user params */
 
 enum blockflags {
 	BLOCK_FREE,
@@ -65,7 +74,7 @@ struct link_free {
 
 struct block_header {
 	union {
-		
+		/* This common header must be XV_ALIGN bytes */
 		u8 common[XV_ALIGN];
 		struct {
 			u16 size;
@@ -78,7 +87,7 @@ struct block_header {
 struct xv_pool {
 	ulong flbitmap;
 	ulong slbitmap[MAX_FLI];
-	u64 total_pages;	
+	u64 total_pages;	/* stats */
 	struct freelist_entry freelist[NUM_FREE_LISTS];
 	spinlock_t lock;
 };

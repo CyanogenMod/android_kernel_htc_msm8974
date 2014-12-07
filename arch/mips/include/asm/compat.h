@@ -1,5 +1,8 @@
 #ifndef _ASM_COMPAT_H
 #define _ASM_COMPAT_H
+/*
+ * Architecture specific compatibility types
+ */
 #include <linux/thread_info.h>
 #include <linux/types.h>
 #include <asm/page.h>
@@ -114,9 +117,9 @@ struct compat_statfs {
 
 #define COMPAT_RLIM_INFINITY	0x7fffffffUL
 
-typedef u32		compat_old_sigset_t;	
+typedef u32		compat_old_sigset_t;	/* at least 32 bits */
 
-#define _COMPAT_NSIG		128		
+#define _COMPAT_NSIG		128		/* Don't ask !$@#% ...  */
 #define _COMPAT_NSIG_BPW	32
 
 typedef u32		compat_sigset_word;
@@ -124,11 +127,17 @@ typedef u32		compat_sigset_word;
 #define COMPAT_OFF_T_MAX	0x7fffffff
 #define COMPAT_LOFF_T_MAX	0x7fffffffffffffffL
 
+/*
+ * A pointer passed in from user mode. This should not
+ * be used for syscall parameters, just declare them
+ * as pointers because the syscall entry code will have
+ * appropriately converted them already.
+ */
 typedef u32		compat_uptr_t;
 
 static inline void __user *compat_ptr(compat_uptr_t uptr)
 {
-	
+	/* cast to a __user pointer via "unsigned long" makes sparse happy */
 	return (void __user *)(unsigned long)(long)uptr;
 }
 
@@ -217,4 +226,4 @@ static inline int is_compat_task(void)
 	return test_thread_flag(TIF_32BIT);
 }
 
-#endif 
+#endif /* _ASM_COMPAT_H */

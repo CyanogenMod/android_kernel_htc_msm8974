@@ -23,7 +23,15 @@
 #include <linux/mutex.h>
 #include <linux/sched.h>
 
+/*
+ *	jfs_lock.h
+ */
 
+/*
+ * Conditional sleep where condition is protected by spinlock
+ *
+ * lock_cmd and unlock_cmd take and release the spinlock
+ */
 #define __SLEEP_COND(wq, cond, lock_cmd, unlock_cmd)	\
 do {							\
 	DECLARE_WAITQUEUE(__wait, current);		\
@@ -41,4 +49,4 @@ do {							\
 	remove_wait_queue(&wq, &__wait);		\
 } while (0)
 
-#endif				
+#endif				/* _H_JFS_LOCK */

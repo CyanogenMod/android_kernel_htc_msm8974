@@ -21,9 +21,25 @@
 #ifndef _CMM_
 #define _CMM_
 
+/*
+ *  These target side symbols define the beginning and ending addresses
+ *  of the section of shared memory used for shared memory manager CMM.
+ *  They are defined in the *cfg.cmd file by cdb code.
+ */
 #define SHM0_SHARED_BASE_SYM             "_SHM0_BEG"
 #define SHM0_SHARED_END_SYM              "_SHM0_END"
 #define SHM0_SHARED_RESERVED_BASE_SYM    "_SHM0_RSVDSTRT"
 
+/*
+ *  Shared Memory Region #0(SHMSEG0) is used in the following way:
+ *
+ *  |(_SHM0_BEG)                  | (_SHM0_RSVDSTRT)           | (_SHM0_END)
+ *  V                             V                            V
+ *  ------------------------------------------------------------
+ *  |     DSP-side allocations    |    GPP-side allocations    |
+ *  ------------------------------------------------------------
+ *
+ *
+ */
 
-#endif 
+#endif /* _CMM_ */

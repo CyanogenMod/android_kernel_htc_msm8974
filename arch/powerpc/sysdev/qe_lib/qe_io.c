@@ -37,7 +37,7 @@ int par_io_init(struct device_node *np)
 	int ret;
 	const u32 *num_ports;
 
-	
+	/* Map Parallel I/O ports registers */
 	ret = of_address_to_resource(np, 0, &res);
 	if (ret)
 		return ret;
@@ -58,30 +58,30 @@ void __par_io_config_pin(struct qe_pio_regs __iomem *par_io, u8 pin, int dir,
 	u32 new_mask2bits;
 	u32 tmp_val;
 
-	
+	/* calculate pin location for single and 2 bits information */
 	pin_mask1bit = (u32) (1 << (QE_PIO_PINS - (pin + 1)));
 
-	
+	/* Set open drain, if required */
 	tmp_val = in_be32(&par_io->cpodr);
 	if (open_drain)
 		out_be32(&par_io->cpodr, pin_mask1bit | tmp_val);
 	else
 		out_be32(&par_io->cpodr, ~pin_mask1bit & tmp_val);
 
-	
+	/* define direction */
 	tmp_val = (pin > (QE_PIO_PINS / 2) - 1) ?
 		in_be32(&par_io->cpdir2) :
 		in_be32(&par_io->cpdir1);
 
-	
+	/* get all bits mask for 2 bit per port */
 	pin_mask2bits = (u32) (0x3 << (QE_PIO_PINS -
 				(pin % (QE_PIO_PINS / 2) + 1) * 2));
 
-	
+	/* Get the final mask we need for the right definition */
 	new_mask2bits = (u32) (dir << (QE_PIO_PINS -
 				(pin % (QE_PIO_PINS / 2) + 1) * 2));
 
-	
+	/* clear and set 2 bits mask */
 	if (pin > (QE_PIO_PINS / 2) - 1) {
 		out_be32(&par_io->cpdir2,
 			 ~pin_mask2bits & tmp_val);
@@ -93,14 +93,14 @@ void __par_io_config_pin(struct qe_pio_regs __iomem *par_io, u8 pin, int dir,
 		tmp_val &= ~pin_mask2bits;
 		out_be32(&par_io->cpdir1, new_mask2bits | tmp_val);
 	}
-	
+	/* define pin assignment */
 	tmp_val = (pin > (QE_PIO_PINS / 2) - 1) ?
 		in_be32(&par_io->cppar2) :
 		in_be32(&par_io->cppar1);
 
 	new_mask2bits = (u32) (assignment << (QE_PIO_PINS -
 			(pin % (QE_PIO_PINS / 2) + 1) * 2));
-	
+	/* clear and set 2 bits mask */
 	if (pin > (QE_PIO_PINS / 2) - 1) {
 		out_be32(&par_io->cppar2,
 			 ~pin_mask2bits & tmp_val);
@@ -135,14 +135,14 @@ int par_io_data_set(u8 port, u8 pin, u8 val)
 		return -EINVAL;
 	if (pin >= QE_PIO_PINS)
 		return -EINVAL;
-	
+	/* calculate pin location */
 	pin_mask = (u32) (1 << (QE_PIO_PINS - 1 - pin));
 
 	tmp_val = in_be32(&par_io[port].cpdata);
 
-	if (val == 0)		
+	if (val == 0)		/* clear */
 		out_be32(&par_io[port].cpdata, ~pin_mask & tmp_val);
-	else			
+	else			/* set */
 		out_be32(&par_io[port].cpdata, pin_mask | tmp_val);
 
 	return 0;
@@ -215,4 +215,4 @@ static void dump_par_io(void)
 
 }
 EXPORT_SYMBOL(dump_par_io);
-#endif 
+#endif /* DEBUG */

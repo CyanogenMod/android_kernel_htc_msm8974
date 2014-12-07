@@ -14,32 +14,38 @@
 #ifndef AT91SAM9RL_H
 #define AT91SAM9RL_H
 
-#define AT91SAM9RL_ID_PIOA	2	
-#define AT91SAM9RL_ID_PIOB	3	
-#define AT91SAM9RL_ID_PIOC	4	
-#define AT91SAM9RL_ID_PIOD	5	
-#define AT91SAM9RL_ID_US0	6	
-#define AT91SAM9RL_ID_US1	7	
-#define AT91SAM9RL_ID_US2	8	
-#define AT91SAM9RL_ID_US3	9	
-#define AT91SAM9RL_ID_MCI	10	
-#define AT91SAM9RL_ID_TWI0	11	
-#define AT91SAM9RL_ID_TWI1	12	
-#define AT91SAM9RL_ID_SPI	13	
-#define AT91SAM9RL_ID_SSC0	14	
-#define AT91SAM9RL_ID_SSC1	15	
-#define AT91SAM9RL_ID_TC0	16	
-#define AT91SAM9RL_ID_TC1	17	
-#define AT91SAM9RL_ID_TC2	18	
-#define AT91SAM9RL_ID_PWMC	19	
-#define AT91SAM9RL_ID_TSC	20	
-#define AT91SAM9RL_ID_DMA	21	
-#define AT91SAM9RL_ID_UDPHS	22	
-#define AT91SAM9RL_ID_LCDC	23	
-#define AT91SAM9RL_ID_AC97C	24	
-#define AT91SAM9RL_ID_IRQ0	31	
+/*
+ * Peripheral identifiers/interrupts.
+ */
+#define AT91SAM9RL_ID_PIOA	2	/* Parallel IO Controller A */
+#define AT91SAM9RL_ID_PIOB	3	/* Parallel IO Controller B */
+#define AT91SAM9RL_ID_PIOC	4	/* Parallel IO Controller C */
+#define AT91SAM9RL_ID_PIOD	5	/* Parallel IO Controller D */
+#define AT91SAM9RL_ID_US0	6	/* USART 0 */
+#define AT91SAM9RL_ID_US1	7	/* USART 1 */
+#define AT91SAM9RL_ID_US2	8	/* USART 2 */
+#define AT91SAM9RL_ID_US3	9	/* USART 3 */
+#define AT91SAM9RL_ID_MCI	10	/* Multimedia Card Interface */
+#define AT91SAM9RL_ID_TWI0	11	/* TWI 0 */
+#define AT91SAM9RL_ID_TWI1	12	/* TWI 1 */
+#define AT91SAM9RL_ID_SPI	13	/* Serial Peripheral Interface */
+#define AT91SAM9RL_ID_SSC0	14	/* Serial Synchronous Controller 0 */
+#define AT91SAM9RL_ID_SSC1	15	/* Serial Synchronous Controller 1 */
+#define AT91SAM9RL_ID_TC0	16	/* Timer Counter 0 */
+#define AT91SAM9RL_ID_TC1	17	/* Timer Counter 1 */
+#define AT91SAM9RL_ID_TC2	18	/* Timer Counter 2 */
+#define AT91SAM9RL_ID_PWMC	19	/* Pulse Width Modulation Controller */
+#define AT91SAM9RL_ID_TSC	20	/* Touch Screen Controller */
+#define AT91SAM9RL_ID_DMA	21	/* DMA Controller */
+#define AT91SAM9RL_ID_UDPHS	22	/* USB Device HS */
+#define AT91SAM9RL_ID_LCDC	23	/* LCD Controller */
+#define AT91SAM9RL_ID_AC97C	24	/* AC97 Controller */
+#define AT91SAM9RL_ID_IRQ0	31	/* Advanced Interrupt Controller (IRQ0) */
 
 
+/*
+ * User Peripheral physical base addresses.
+ */
 #define AT91SAM9RL_BASE_TCB0	0xfffa0000
 #define AT91SAM9RL_BASE_TC0	0xfffa0000
 #define AT91SAM9RL_BASE_TC1	0xfffa0040
@@ -60,6 +66,9 @@
 #define AT91SAM9RL_BASE_AC97C	0xfffd8000
 
 
+/*
+ * System Peripherals (offset from AT91_BASE_SYS)
+ */
 #define AT91_SCKCR	(0xfffffd50 - AT91_BASE_SYS)
 
 #define AT91SAM9RL_BASE_DMA	0xffffe600
@@ -86,13 +95,16 @@
 #define AT91_USART3	AT91SAM9RL_BASE_US3
 
 
-#define AT91SAM9RL_SRAM_BASE	0x00300000	
-#define AT91SAM9RL_SRAM_SIZE	SZ_16K		
+/*
+ * Internal Memory.
+ */
+#define AT91SAM9RL_SRAM_BASE	0x00300000	/* Internal SRAM base address */
+#define AT91SAM9RL_SRAM_SIZE	SZ_16K		/* Internal SRAM size (16Kb) */
 
-#define AT91SAM9RL_ROM_BASE	0x00400000	
-#define AT91SAM9RL_ROM_SIZE	(2 * SZ_16K)	
+#define AT91SAM9RL_ROM_BASE	0x00400000	/* Internal ROM base address */
+#define AT91SAM9RL_ROM_SIZE	(2 * SZ_16K)	/* Internal ROM size (32Kb) */
 
-#define AT91SAM9RL_LCDC_BASE	0x00500000	
-#define AT91SAM9RL_UDPHS_FIFO	0x00600000	
+#define AT91SAM9RL_LCDC_BASE	0x00500000	/* LCD Controller */
+#define AT91SAM9RL_UDPHS_FIFO	0x00600000	/* USB Device HS controller */
 
 #endif

@@ -28,6 +28,7 @@
 
 #define DMA_FREQ    ((MCF_CLK / 2) / 16)
 
+/* DTMR */
 #define DMA_DTMR_RESTART	(1 << 3)
 #define DMA_DTMR_CLK_DIV_1	(1 << 1)
 #define DMA_DTMR_CLK_DIV_16	(2 << 1)
@@ -48,6 +49,12 @@ static struct clocksource clocksource_cf_dt = {
 
 static int __init  init_cf_dt_clocksource(void)
 {
+	/*
+	 * We setup DMA timer 0 in free run mode. This incrementing counter is
+	 * used as a highly precious clock source. With MCF_CLOCK = 150 MHz we
+	 * get a ~213 ns resolution and the 32bit register will overflow almost
+	 * every 15 minutes.
+	 */
 	__raw_writeb(0x00, DTXMR0);
 	__raw_writeb(0x00, DTER0);
 	__raw_writel(0x00000000, DTRR0);
@@ -57,7 +64,7 @@ static int __init  init_cf_dt_clocksource(void)
 
 arch_initcall(init_cf_dt_clocksource);
 
-#define CYC2NS_SCALE_FACTOR 10 
+#define CYC2NS_SCALE_FACTOR 10 /* 2^10, carefully chosen */
 #define CYC2NS_SCALE	((1000000 << CYC2NS_SCALE_FACTOR) / (DMA_FREQ / 1000))
 
 static unsigned long long cycles2ns(unsigned long cycl)

@@ -62,7 +62,7 @@ static int cfutill_receive(struct cflayer *layr, struct cfpkt *pkt)
 		layr->ctrlcmd(layr, CAIF_CTRLCMD_FLOW_ON_IND, 0);
 		cfpkt_destroy(pkt);
 		return 0;
-	case UTIL_REMOTE_SHUTDOWN:	
+	case UTIL_REMOTE_SHUTDOWN:	/* Remote Shutdown Request */
 		pr_err("REMOTE SHUTDOWN REQUEST RECEIVED\n");
 		layr->ctrlcmd(layr, CAIF_CTRLCMD_REMOTE_SHUTDOWN_IND, 0);
 		service->open = false;
@@ -91,9 +91,13 @@ static int cfutill_transmit(struct cflayer *layr, struct cfpkt *pkt)
 	}
 
 	cfpkt_add_head(pkt, &zero, 1);
-	
+	/* Add info for MUX-layer to route the packet out. */
 	info = cfpkt_info(pkt);
 	info->channel_id = service->layer.id;
+	/*
+	 * To optimize alignment, we add up the size of CAIF header before
+	 * payload.
+	 */
 	info->hdr_len = 1;
 	info->dev_info = &service->dev_info;
 	return layr->dn->transmit(layr->dn, pkt);

@@ -28,7 +28,7 @@ struct gxfb_par {
 #ifdef CONFIG_PM
 	int powered_down;
 
-	
+	/* register state, for power management functionality */
 	struct {
 		uint64_t padsel;
 		uint64_t dotpll;
@@ -59,6 +59,7 @@ int gx_powerup(struct fb_info *info);
 #endif
 
 
+/* Graphics Processor registers (table 6-23 from the data book) */
 enum gp_registers {
 	GP_DST_OFFSET = 0,
 	GP_SRC_OFFSET,
@@ -83,13 +84,14 @@ enum gp_registers {
 	GP_BLT_MODE,
 	GP_BLT_STATUS,
 	GP_HST_SRC,
-	GP_BASE_OFFSET, 
+	GP_BASE_OFFSET, /* 0x4c */
 };
 
 #define GP_BLT_STATUS_BLT_PENDING	(1 << 2)
 #define GP_BLT_STATUS_BLT_BUSY		(1 << 0)
 
 
+/* Display Controller registers (table 6-38 from the data book) */
 enum dc_registers {
 	DC_UNLOCK = 0,
 	DC_GENERAL_CFG,
@@ -134,11 +136,11 @@ enum dc_registers {
 	DC_VID_DS_DELTA,
 	DC_GLIU0_MEM_OFFSET,
 	DC_RSVD_5,
-	DC_DV_ACC, 
+	DC_DV_ACC, /* 0x8c */
 };
 
 #define DC_UNLOCK_LOCK			0x00000000
-#define DC_UNLOCK_UNLOCK		0x00004758	
+#define DC_UNLOCK_UNLOCK		0x00004758	/* magic value */
 
 #define DC_GENERAL_CFG_YUVM		(1 << 20)
 #define DC_GENERAL_CFG_VDSE		(1 << 19)
@@ -162,6 +164,12 @@ enum dc_registers {
 #define DC_DISPLAY_CFG_TGEN		(1 << 0)
 
 
+/*
+ * Video Processor registers (table 6-54).
+ * There is space for 64 bit values, but we never use more than the
+ * lower 32 bits.  The actual register save/restore code only bothers
+ * to restore those 32 bits.
+ */
 enum vp_registers {
 	VP_VCFG = 0,
 	VP_DCFG,
@@ -220,7 +228,7 @@ enum vp_registers {
 	VP_VRR,
 	VP_AWT,
 
-	VP_VTM, 
+	VP_VTM, /* 0x130 */
 };
 
 #define VP_VCFG_VID_EN			(1 << 0)
@@ -232,8 +240,8 @@ enum vp_registers {
 #define VP_DCFG_CRT_SYNC_SKW		((1 << 14) | (1 << 15) | (1 << 16))
 #define VP_DCFG_CRT_VSYNC_POL		(1 << 9)
 #define VP_DCFG_CRT_HSYNC_POL		(1 << 8)
-#define VP_DCFG_FP_DATA_EN		(1 << 7)	
-#define VP_DCFG_FP_PWR_EN		(1 << 6)	
+#define VP_DCFG_FP_DATA_EN		(1 << 7)	/* undocumented */
+#define VP_DCFG_FP_PWR_EN		(1 << 6)	/* undocumented */
 #define VP_DCFG_DAC_BL_EN		(1 << 3)
 #define VP_DCFG_VSYNC_EN		(1 << 2)
 #define VP_DCFG_HSYNC_EN		(1 << 1)
@@ -244,7 +252,12 @@ enum vp_registers {
 #define VP_MISC_APWRDN			(1 << 11)
 
 
+/*
+ * Flat Panel registers (table 6-55).
+ * Also 64 bit registers; see above note about 32-bit handling.
+ */
 
+/* we're actually in the VP register space, starting at address 0x400 */
 #define VP_FP_START		0x400
 
 enum fp_registers {
@@ -266,24 +279,25 @@ enum fp_registers {
 	FP_DMD,
 	FP_CRC,
 
-	FP_FBB, 
+	FP_FBB, /* 0x460 */
 };
 
-#define FP_PT1_VSIZE_SHIFT		16		
-#define FP_PT1_VSIZE_MASK		0x7FF0000	
+#define FP_PT1_VSIZE_SHIFT		16		/* undocumented? */
+#define FP_PT1_VSIZE_MASK		0x7FF0000	/* undocumented? */
 
 #define FP_PT2_HSP			(1 << 22)
 #define FP_PT2_VSP			(1 << 23)
 
-#define FP_PM_P				(1 << 24)       
-#define FP_PM_PANEL_PWR_UP		(1 << 3)        
-#define FP_PM_PANEL_PWR_DOWN		(1 << 2)        
-#define FP_PM_PANEL_OFF			(1 << 1)        
-#define FP_PM_PANEL_ON			(1 << 0)        
+#define FP_PM_P				(1 << 24)       /* panel power on */
+#define FP_PM_PANEL_PWR_UP		(1 << 3)        /* r/o */
+#define FP_PM_PANEL_PWR_DOWN		(1 << 2)        /* r/o */
+#define FP_PM_PANEL_OFF			(1 << 1)        /* r/o */
+#define FP_PM_PANEL_ON			(1 << 0)        /* r/o */
 
 #define FP_DFC_NFI			((1 << 4) | (1 << 5) | (1 << 6))
 
 
+/* register access functions */
 
 static inline uint32_t read_gp(struct gxfb_par *par, int reg)
 {
@@ -326,17 +340,18 @@ static inline void write_fp(struct gxfb_par *par, int reg, uint32_t val)
 }
 
 
+/* MSRs are defined in linux/cs5535.h; their bitfields are here */
 
 #define MSR_GLCP_SYS_RSTPLL_DOTPOSTDIV3	(1 << 3)
 #define MSR_GLCP_SYS_RSTPLL_DOTPREMULT2	(1 << 2)
 #define MSR_GLCP_SYS_RSTPLL_DOTPREDIV2	(1 << 1)
 
-#define MSR_GLCP_DOTPLL_LOCK		(1 << 25)	
+#define MSR_GLCP_DOTPLL_LOCK		(1 << 25)	/* r/o */
 #define MSR_GLCP_DOTPLL_BYPASS		(1 << 15)
 #define MSR_GLCP_DOTPLL_DOTRESET	(1 << 0)
 
-#define MSR_GX_MSR_PADSEL_MASK		0x3FFFFFFF	
-#define MSR_GX_MSR_PADSEL_TFT		0x1FFFFFFF	
+#define MSR_GX_MSR_PADSEL_MASK		0x3FFFFFFF	/* undocumented? */
+#define MSR_GX_MSR_PADSEL_TFT		0x1FFFFFFF	/* undocumented? */
 
 #define MSR_GX_GLD_MSR_CONFIG_FP	(1 << 3)
 

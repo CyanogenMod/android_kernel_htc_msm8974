@@ -44,7 +44,7 @@
 
 static struct plat_serial8250_port debug_uart_platform_data[] = {
 	{
-		
+		/* Memory and IRQ filled in before registration */
 		.flags		= UPF_BOOT_AUTOCONF | UPF_FIXED_TYPE,
 		.type		= PORT_TEGRA,
 		.iotype		= UPIO_MEM,
@@ -64,7 +64,7 @@ static struct platform_device debug_uart = {
 };
 
 static __initdata struct tegra_clk_init_table seaboard_clk_init_table[] = {
-	
+	/* name		parent		rate		enabled */
 	{ "uartb",	"pll_p",	216000000,	true},
 	{ "uartd",	"pll_p",	216000000,	true},
 	{ "pll_a",	"pll_p_out1",	56448000,	true },
@@ -243,7 +243,7 @@ static void __init seaboard_common_init(void)
 
 static void __init tegra_seaboard_init(void)
 {
-	
+	/* Seaboard uses UARTD for the debug port. */
 	debug_uart_platform_data[0].membase = IO_ADDRESS(TEGRA_UARTD_BASE);
 	debug_uart_platform_data[0].mapbase = TEGRA_UARTD_BASE;
 	debug_uart_platform_data[0].irq = INT_UARTD;
@@ -255,7 +255,7 @@ static void __init tegra_seaboard_init(void)
 
 static void __init tegra_kaen_init(void)
 {
-	
+	/* Kaen uses UARTB for the debug port. */
 	debug_uart_platform_data[0].membase = IO_ADDRESS(TEGRA_UARTB_BASE);
 	debug_uart_platform_data[0].mapbase = TEGRA_UARTB_BASE;
 	debug_uart_platform_data[0].irq = INT_UARTB;
@@ -270,7 +270,7 @@ static void __init tegra_kaen_init(void)
 
 static void __init tegra_wario_init(void)
 {
-	
+	/* Wario uses UARTB for the debug port. */
 	debug_uart_platform_data[0].membase = IO_ADDRESS(TEGRA_UARTB_BASE);
 	debug_uart_platform_data[0].mapbase = TEGRA_UARTB_BASE;
 	debug_uart_platform_data[0].irq = INT_UARTB;

@@ -31,6 +31,28 @@
 #include "kernel.h"
 #include "kstack.h"
 
+/* Sparc64 chips have two performance counters, 32-bits each, with
+ * overflow interrupts generated on transition from 0xffffffff to 0.
+ * The counters are accessed in one go using a 64-bit register.
+ *
+ * Both counters are controlled using a single control register.  The
+ * only way to stop all sampling is to clear all of the context (user,
+ * supervisor, hypervisor) sampling enable bits.  But these bits apply
+ * to both counters, thus the two counters can't be enabled/disabled
+ * individually.
+ *
+ * The control register has two event fields, one for each of the two
+ * counters.  It's thus nearly impossible to have one counter going
+ * while keeping the other one stopped.  Therefore it is possible to
+ * get overflow interrupts for counters not currently "in use" and
+ * that condition must be checked in the overflow interrupt handler.
+ *
+ * So we use a hack, in that we program inactive counters with the
+ * "sw_count0" and "sw_count1" events.  These count how many times
+ * the instruction "sethi %hi(0xfc000), %g0" is executed.  It's an
+ * unusual way to encode a NOP and therefore will not trigger in
+ * normal code.
+ */
 
 #define MAX_HWEVENTS			2
 #define MAX_PERIOD			((1UL << 32) - 1)
@@ -40,27 +62,48 @@
 #define PIC_NO_INDEX			-1
 
 struct cpu_hw_events {
+	/* Number of events currently scheduled onto this cpu.
+	 * This tells how many entries in the arrays below
+	 * are valid.
+	 */
 	int			n_events;
 
+	/* Number of new events added since the last hw_perf_disable().
+	 * This works because the perf event layer always adds new
+	 * events inside of a perf_{disable,enable}() sequence.
+	 */
 	int			n_added;
 
-	
+	/* Array of events current scheduled on this cpu.  */
 	struct perf_event	*event[MAX_HWEVENTS];
 
+	/* Array of encoded longs, specifying the %pcr register
+	 * encoding and the mask of PIC counters this even can
+	 * be scheduled on.  See perf_event_encode() et al.
+	 */
 	unsigned long		events[MAX_HWEVENTS];
 
+	/* The current counter index assigned to an event.  When the
+	 * event hasn't been programmed into the cpu yet, this will
+	 * hold PIC_NO_INDEX.  The event->hw.idx value tells us where
+	 * we ought to schedule the event.
+	 */
 	int			current_idx[MAX_HWEVENTS];
 
-	
+	/* Software copy of %pcr register on this cpu.  */
 	u64			pcr;
 
-	
+	/* Enabled/disable state.  */
 	int			enabled;
 
 	unsigned int		group_flag;
 };
 DEFINE_PER_CPU(struct cpu_hw_events, cpu_hw_events) = { .enabled = 1, };
 
+/* An event map describes the characteristics of a performance
+ * counter event.  In particular it gives the encoding as well as
+ * a mask telling which counters the event can be measured on.
+ */
 struct perf_event_map {
 	u16	encoding;
 	u8	pic_mask;
@@ -69,6 +112,7 @@ struct perf_event_map {
 #define PIC_LOWER	0x02
 };
 
+/* Encode a perf_event_map entry into a long.  */
 static unsigned long perf_event_encode(const struct perf_event_map *pmap)
 {
 	return ((unsigned long) pmap->encoding << 16) | pmap->pic_mask;
@@ -231,6 +275,11 @@ static const struct sparc_pmu ultra3_pmu = {
 	.lower_nop	= 0x14,
 };
 
+/* Niagara1 is very limited.  The upper PIC is hard-locked to count
+ * only instructions, so it is free running which creates all kinds of
+ * problems.  Some hardware designs make one wonder if the creator
+ * even looked at how this stuff gets used by software.
+ */
 static const struct perf_event_map niagara1_perfmon_event_map[] = {
 	[PERF_COUNT_HW_CPU_CYCLES] = { 0x00, PIC_UPPER },
 	[PERF_COUNT_HW_INSTRUCTIONS] = { 0x00, PIC_UPPER },
@@ -616,6 +665,10 @@ static int sparc_perf_event_set_period(struct perf_event *event,
 	return ret;
 }
 
+/* If performance event entries have been added, move existing
+ * events around (if necessary) and then assign new entries to
+ * counters.
+ */
 static u64 maybe_change_configuration(struct cpu_hw_events *cpuc, u64 pcr)
 {
 	int i;
@@ -623,7 +676,7 @@ static u64 maybe_change_configuration(struct cpu_hw_events *cpuc, u64 pcr)
 	if (!cpuc->n_added)
 		goto out;
 
-	
+	/* Read in the counters which are moving.  */
 	for (i = 0; i < cpuc->n_events; i++) {
 		struct perf_event *cp = cpuc->event[i];
 
@@ -635,7 +688,7 @@ static u64 maybe_change_configuration(struct cpu_hw_events *cpuc, u64 pcr)
 		}
 	}
 
-	
+	/* Assign to counters all unassigned events.  */
 	for (i = 0; i < cpuc->n_events; i++) {
 		struct perf_event *cp = cpuc->event[i];
 		struct hw_perf_event *hwc = &cp->hw;
@@ -676,6 +729,10 @@ static void sparc_pmu_enable(struct pmu *pmu)
 	} else {
 		pcr = maybe_change_configuration(cpuc, pcr);
 
+		/* We require that all of the events have the same
+		 * configuration, so just fetch the settings from the
+		 * first entry.
+		 */
 		cpuc->pcr = pcr | cpuc->event[0]->hw.config_base;
 	}
 
@@ -756,8 +813,14 @@ static void sparc_pmu_del(struct perf_event *event, int _flags)
 
 	for (i = 0; i < cpuc->n_events; i++) {
 		if (event == cpuc->event[i]) {
+			/* Absorb the final count and turn off the
+			 * event.
+			 */
 			sparc_pmu_stop(event, PERF_EF_UPDATE);
 
+			/* Shift remaining entries down into
+			 * the existing slot.
+			 */
 			while (++i < cpuc->n_events) {
 				cpuc->event[i - 1] = cpuc->event[i];
 				cpuc->events[i - 1] = cpuc->events[i];
@@ -857,12 +920,25 @@ static void hw_perf_event_destroy(struct perf_event *event)
 	perf_event_release_pmc();
 }
 
+/* Make sure all events can be scheduled into the hardware at
+ * the same time.  This is simplified by the fact that we only
+ * need to support 2 simultaneous HW events.
+ *
+ * As a side effect, the evts[]->hw.idx values will be assigned
+ * on success.  These are pending indexes.  When the events are
+ * actually programmed into the chip, these values will propagate
+ * to the per-cpu cpuc->current_idx[] slots, see the code in
+ * maybe_change_configuration() for details.
+ */
 static int sparc_check_constraints(struct perf_event **evts,
 				   unsigned long *events, int n_ev)
 {
 	u8 msk0 = 0, msk1 = 0;
 	int idx0 = 0;
 
+	/* This case is possible when we are invoked from
+	 * hw_perf_group_sched_in().
+	 */
 	if (!n_ev)
 		return 0;
 
@@ -878,11 +954,14 @@ static int sparc_check_constraints(struct perf_event **evts,
 	BUG_ON(n_ev != 2);
 	msk1 = perf_event_get_msk(events[1]);
 
-	
+	/* If both events can go on any counter, OK.  */
 	if (msk0 == (PIC_UPPER | PIC_LOWER) &&
 	    msk1 == (PIC_UPPER | PIC_LOWER))
 		goto success;
 
+	/* If one event is limited to a specific counter,
+	 * and the other can go on both, OK.
+	 */
 	if ((msk0 == PIC_UPPER || msk0 == PIC_LOWER) &&
 	    msk1 == (PIC_UPPER | PIC_LOWER)) {
 		if (msk0 & PIC_LOWER)
@@ -897,7 +976,7 @@ static int sparc_check_constraints(struct perf_event **evts,
 		goto success;
 	}
 
-	
+	/* If the events are fixed to different counters, OK.  */
 	if ((msk0 == PIC_UPPER && msk1 == PIC_LOWER) ||
 	    (msk0 == PIC_LOWER && msk1 == PIC_UPPER)) {
 		if (msk0 & PIC_LOWER)
@@ -905,7 +984,7 @@ static int sparc_check_constraints(struct perf_event **evts,
 		goto success;
 	}
 
-	
+	/* Otherwise, there is a conflict.  */
 	return -1;
 
 success:
@@ -991,6 +1070,11 @@ static int sparc_pmu_add(struct perf_event *event, int ef_flags)
 	if (!(ef_flags & PERF_EF_START))
 		event->hw.state |= PERF_HES_STOPPED;
 
+	/*
+	 * If group events scheduling transaction was started,
+	 * skip the schedulability test here, it will be performed
+	 * at commit time(->commit_txn) as a whole
+	 */
 	if (cpuc->group_flag & PERF_EVENT_TXN)
 		goto nocheck;
 
@@ -1023,7 +1107,7 @@ static int sparc_pmu_event_init(struct perf_event *event)
 	if (atomic_read(&nmi_active) < 0)
 		return -ENODEV;
 
-	
+	/* does not support taken branch sampling */
 	if (has_branch_stack(event))
 		return -EOPNOTSUPP;
 
@@ -1052,10 +1136,14 @@ static int sparc_pmu_event_init(struct perf_event *event)
 	if (pmap) {
 		hwc->event_base = perf_event_encode(pmap);
 	} else {
+		/*
+		 * User gives us "(encoding << 16) | pic_mask" for
+		 * PERF_TYPE_RAW events.
+		 */
 		hwc->event_base = attr->config;
 	}
 
-	
+	/* We save the enable bits in the config_base.  */
 	hwc->config_base = sparc_pmu->irq_bit;
 	if (!attr->exclude_user)
 		hwc->config_base |= PCR_UTRACE;
@@ -1083,6 +1171,9 @@ static int sparc_pmu_event_init(struct perf_event *event)
 
 	hwc->idx = PIC_NO_INDEX;
 
+	/* Try to do all error checking before this point, as unwinding
+	 * state after grabbing the PMC is difficult.
+	 */
 	perf_event_grab_pmc();
 	event->destroy = hw_perf_event_destroy;
 
@@ -1095,6 +1186,11 @@ static int sparc_pmu_event_init(struct perf_event *event)
 	return 0;
 }
 
+/*
+ * Start group events scheduling transaction
+ * Set the flag to make pmu::enable() not perform the
+ * schedulability test, it will be performed at commit time
+ */
 static void sparc_pmu_start_txn(struct pmu *pmu)
 {
 	struct cpu_hw_events *cpuhw = &__get_cpu_var(cpu_hw_events);
@@ -1103,6 +1199,11 @@ static void sparc_pmu_start_txn(struct pmu *pmu)
 	cpuhw->group_flag |= PERF_EVENT_TXN;
 }
 
+/*
+ * Stop group events scheduling transaction
+ * Clear the flag and pmu::enable() will perform the
+ * schedulability test.
+ */
 static void sparc_pmu_cancel_txn(struct pmu *pmu)
 {
 	struct cpu_hw_events *cpuhw = &__get_cpu_var(cpu_hw_events);
@@ -1111,6 +1212,11 @@ static void sparc_pmu_cancel_txn(struct pmu *pmu)
 	perf_pmu_enable(pmu);
 }
 
+/*
+ * Commit group events scheduling transaction
+ * Perform the group schedulability test as a whole
+ * Return 0 if success
+ */
 static int sparc_pmu_commit_txn(struct pmu *pmu)
 {
 	struct cpu_hw_events *cpuc = &__get_cpu_var(cpu_hw_events);
@@ -1194,6 +1300,13 @@ static int __kprobes perf_event_nmi_handler(struct notifier_block *self,
 
 	cpuc = &__get_cpu_var(cpu_hw_events);
 
+	/* If the PMU has the TOE IRQ enable bits, we need to do a
+	 * dummy write to the %pcr to clear the overflow bits and thus
+	 * the interrupt.
+	 *
+	 * Do this before we peek at the counters to determine
+	 * overflow so we don't lose any events.
+	 */
 	if (sparc_pmu->irq_bit)
 		pcr_ops->write(cpuc->pcr);
 

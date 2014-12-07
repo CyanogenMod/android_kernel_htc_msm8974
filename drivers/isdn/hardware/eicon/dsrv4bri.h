@@ -25,6 +25,9 @@
  */
 #ifndef __DIVA_XDI_DSRV_4_BRI_INC__
 #define __DIVA_XDI_DSRV_4_BRI_INC__
+/*
+ * Some special registers in the PLX 9054
+ */
 #define PLX9054_P2LDBELL    0x60
 #define PLX9054_L2PDBELL    0x64
 #define PLX9054_INTCSR      0x69

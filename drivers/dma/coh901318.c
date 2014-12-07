@@ -9,10 +9,10 @@
 
 #include <linux/init.h>
 #include <linux/module.h>
-#include <linux/kernel.h> 
-#include <linux/fs.h> 
+#include <linux/kernel.h> /* printk() */
+#include <linux/fs.h> /* everything... */
 #include <linux/scatterlist.h>
-#include <linux/slab.h> 
+#include <linux/slab.h> /* kmalloc() */
 #include <linux/dmaengine.h>
 #include <linux/platform_device.h>
 #include <linux/device.h>
@@ -129,7 +129,7 @@ static int coh901318_debugfs_read(struct file *file, char __user *buf,
 	tmp += sprintf(tmp, "Pool alloc nbr %d\n", pool_count);
 	dev_size = tmp  - dev_buf;
 
-	
+	/* No more to read if offset != 0 */
 	if (*f_pos > dev_size)
 		goto out;
 
@@ -180,7 +180,7 @@ module_exit(exit_coh901318_debugfs);
 
 #define COH901318_DEBUGFS_ASSIGN(x, y)
 
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 
 static inline struct coh901318_chan *to_coh901318_chan(struct dma_chan *chan)
 {
@@ -190,7 +190,7 @@ static inline struct coh901318_chan *to_coh901318_chan(struct dma_chan *chan)
 static inline dma_addr_t
 cohc_dev_addr(struct coh901318_chan *cohc)
 {
-	
+	/* Runtime supplied address will take precedence */
 	if (cohc->runtime_addr)
 		return cohc->runtime_addr;
 	return cohc->base->platform->chan_conf[cohc->id].dev_addr;
@@ -218,7 +218,7 @@ static void enable_powersave(struct coh901318_chan *cohc)
 	pm->started_channels &= ~(1ULL << cohc->id);
 
 	if (!pm->started_channels) {
-		
+		/* DMA no longer intends to access memory */
 		cohc->base->platform->access_memory_state(cohc->base->dev,
 							  false);
 	}
@@ -233,7 +233,7 @@ static void disable_powersave(struct coh901318_chan *cohc)
 	spin_lock_irqsave(&pm->lock, flags);
 
 	if (!pm->started_channels) {
-		
+		/* DMA intends to access memory */
 		cohc->base->platform->access_memory_state(cohc->base->dev,
 							  true);
 	}
@@ -277,7 +277,7 @@ static int coh901318_start(struct coh901318_chan *cohc)
 	val = readl(virtbase + COH901318_CX_CFG +
 		    COH901318_CX_CFG_SPACING * channel);
 
-	
+	/* Enable channel */
 	val |= COH901318_CX_CFG_CH_ENABLE;
 	writel(val, virtbase + COH901318_CX_CFG +
 	       COH901318_CX_CFG_SPACING * channel);
@@ -318,18 +318,22 @@ coh901318_desc_get(struct coh901318_chan *cohc)
 	struct coh901318_desc *desc;
 
 	if (list_empty(&cohc->free)) {
+		/* alloc new desc because we're out of used ones
+		 * TODO: alloc a pile of descs instead of just one,
+		 * avoid many small allocations.
+		 */
 		desc = kzalloc(sizeof(struct coh901318_desc), GFP_NOWAIT);
 		if (desc == NULL)
 			goto out;
 		INIT_LIST_HEAD(&desc->node);
 		dma_async_tx_descriptor_init(&desc->desc, &cohc->chan);
 	} else {
-		
+		/* Reuse an old desc. */
 		desc = list_first_entry(&cohc->free,
 					struct coh901318_desc,
 					node);
 		list_del(&desc->node);
-		
+		/* Initialize it a bit so it's not insane */
 		desc->sg = NULL;
 		desc->sg_len = 0;
 		desc->desc.callback = NULL;
@@ -346,6 +350,7 @@ coh901318_desc_free(struct coh901318_chan *cohc, struct coh901318_desc *cohd)
 	list_add_tail(&cohd->node, &cohc->free);
 }
 
+/* call with irq lock held */
 static void
 coh901318_desc_submit(struct coh901318_chan *cohc, struct coh901318_desc *desc)
 {
@@ -404,6 +409,12 @@ static inline u32 coh901318_get_bytes_in_lli(struct coh901318_lli *in_lli)
 	return bytes;
 }
 
+/*
+ * Get the number of bytes left to transfer on this channel,
+ * it is unwise to call this before stopping the channel for
+ * absolute measures, but for a rough guess you can still call
+ * it.
+ */
 static u32 coh901318_get_bytes_left(struct dma_chan *chan)
 {
 	struct coh901318_chan *cohc = to_coh901318_chan(chan);
@@ -415,29 +426,44 @@ static u32 coh901318_get_bytes_left(struct dma_chan *chan)
 
 	spin_lock_irqsave(&cohc->lock, flags);
 
+	/*
+	 * If there are many queued jobs, we iterate and add the
+	 * size of them all. We take a special look on the first
+	 * job though, since it is probably active.
+	 */
 	list_for_each(pos, &cohc->active) {
+		/*
+		 * The first job in the list will be working on the
+		 * hardware. The job can be stopped but still active,
+		 * so that the transfer counter is somewhere inside
+		 * the buffer.
+		 */
 		cohd = list_entry(pos, struct coh901318_desc, node);
 
 		if (i == 0) {
 			struct coh901318_lli *lli;
 			dma_addr_t ladd;
 
-			
+			/* Read current transfer count value */
 			left = readl(cohc->base->virtbase +
 				     COH901318_CX_CTRL +
 				     COH901318_CX_CTRL_SPACING * cohc->id) &
 				COH901318_CX_CTRL_TC_VALUE_MASK;
 
-			
+			/* See if the transfer is linked... */
 			ladd = readl(cohc->base->virtbase +
 				     COH901318_CX_LNK_ADDR +
 				     COH901318_CX_LNK_ADDR_SPACING *
 				     cohc->id) &
 				~COH901318_CX_LNK_LINK_IMMEDIATE;
-			
+			/* Single transaction */
 			if (!ladd)
 				continue;
 
+			/*
+			 * Linked transaction, follow the lli, find the
+			 * currently processing lli, and proceed to the next
+			 */
 			lli = cohd->lli;
 			while (lli && lli->link_addr != ladd)
 				lli = lli->virt_link_addr;
@@ -445,6 +471,10 @@ static u32 coh901318_get_bytes_left(struct dma_chan *chan)
 			if (lli)
 				lli = lli->virt_link_addr;
 
+			/*
+			 * Follow remaining lli links around to count the total
+			 * number of bytes left
+			 */
 			left += coh901318_get_bytes_in_lli(lli);
 		} else {
 			left += coh901318_get_bytes_in_lli(cohd->lli);
@@ -452,7 +482,7 @@ static u32 coh901318_get_bytes_left(struct dma_chan *chan)
 		i++;
 	}
 
-	
+	/* Also count bytes in the queued jobs */
 	list_for_each(pos, &cohc->queue) {
 		cohd = list_entry(pos, struct coh901318_desc, node);
 		left += coh901318_get_bytes_in_lli(cohd->lli);
@@ -463,6 +493,10 @@ static u32 coh901318_get_bytes_left(struct dma_chan *chan)
 	return left;
 }
 
+/*
+ * Pauses a transfer without losing data. Enables power save.
+ * Use this function in conjunction with coh901318_resume.
+ */
 static void coh901318_pause(struct dma_chan *chan)
 {
 	u32 val;
@@ -473,29 +507,29 @@ static void coh901318_pause(struct dma_chan *chan)
 
 	spin_lock_irqsave(&cohc->lock, flags);
 
-	
+	/* Disable channel in HW */
 	val = readl(virtbase + COH901318_CX_CFG +
 		    COH901318_CX_CFG_SPACING * channel);
 
-	
+	/* Stopping infinite transfer */
 	if ((val & COH901318_CX_CTRL_TC_ENABLE) == 0 &&
 	    (val & COH901318_CX_CFG_CH_ENABLE))
 		cohc->stopped = 1;
 
 
 	val &= ~COH901318_CX_CFG_CH_ENABLE;
-	
+	/* Enable twice, HW bug work around */
 	writel(val, virtbase + COH901318_CX_CFG +
 	       COH901318_CX_CFG_SPACING * channel);
 	writel(val, virtbase + COH901318_CX_CFG +
 	       COH901318_CX_CFG_SPACING * channel);
 
-	
+	/* Spin-wait for it to actually go inactive */
 	while (readl(virtbase + COH901318_CX_STAT+COH901318_CX_STAT_SPACING *
 		     channel) & COH901318_CX_STAT_ACTIVE)
 		cpu_relax();
 
-	
+	/* Check if we stopped an active job */
 	if ((readl(virtbase + COH901318_CX_CTRL+COH901318_CX_CTRL_SPACING *
 		   channel) & COH901318_CX_CTRL_TC_VALUE_MASK) > 0)
 		cohc->stopped = 1;
@@ -505,6 +539,9 @@ static void coh901318_pause(struct dma_chan *chan)
 	spin_unlock_irqrestore(&cohc->lock, flags);
 }
 
+/* Resumes a transfer that has been stopped via 300_dma_stop(..).
+   Power save is handled.
+*/
 static void coh901318_resume(struct dma_chan *chan)
 {
 	u32 val;
@@ -517,7 +554,7 @@ static void coh901318_resume(struct dma_chan *chan)
 	disable_powersave(cohc);
 
 	if (cohc->stopped) {
-		
+		/* Enable channel in HW */
 		val = readl(cohc->base->virtbase + COH901318_CX_CFG +
 			    COH901318_CX_CFG_SPACING * channel);
 
@@ -543,6 +580,9 @@ bool coh901318_filter_id(struct dma_chan *chan, void *chan_id)
 }
 EXPORT_SYMBOL(coh901318_filter_id);
 
+/*
+ * DMA channel allocation
+ */
 static int coh901318_config(struct coh901318_chan *cohc,
 			    struct coh901318_params *param)
 {
@@ -558,7 +598,7 @@ static int coh901318_config(struct coh901318_chan *cohc,
 	else
 		p = &cohc->base->platform->chan_conf[channel].param;
 
-	
+	/* Clear any pending BE or TC interrupt */
 	if (channel < 32) {
 		writel(1 << channel, virtbase + COH901318_BE_INT_CLEAR1);
 		writel(1 << channel, virtbase + COH901318_TC_INT_CLEAR1);
@@ -577,26 +617,37 @@ static int coh901318_config(struct coh901318_chan *cohc,
 	return 0;
 }
 
+/* must lock when calling this function
+ * start queued jobs, if any
+ * TODO: start all queued jobs in one go
+ *
+ * Returns descriptor if queued job is started otherwise NULL.
+ * If the queue is empty NULL is returned.
+ */
 static struct coh901318_desc *coh901318_queue_start(struct coh901318_chan *cohc)
 {
 	struct coh901318_desc *cohd;
 
+	/*
+	 * start queued jobs, if any
+	 * TODO: transmit all queued jobs in one go
+	 */
 	cohd = coh901318_first_queued(cohc);
 
 	if (cohd != NULL) {
-		
+		/* Remove from queue */
 		coh901318_desc_remove(cohd);
-		
+		/* initiate DMA job */
 		cohc->busy = 1;
 
 		coh901318_desc_submit(cohc, cohd);
 
-		
+		/* Program the transaction head */
 		coh901318_set_conf(cohc, cohd->head_config);
 		coh901318_set_ctrl(cohc, cohd->head_ctrl);
 		coh901318_prep_linked_list(cohc, cohd->lli);
 
-		
+		/* start dma job on this channel */
 		coh901318_start(cohc);
 
 	}
@@ -604,6 +655,10 @@ static struct coh901318_desc *coh901318_queue_start(struct coh901318_chan *cohc)
 	return cohd;
 }
 
+/*
+ * This tasklet is called from the interrupt handler to
+ * handle each descriptor (DMA job) that is sent to a channel.
+ */
 static void dma_tasklet(unsigned long data)
 {
 	struct coh901318_chan *cohc = (struct coh901318_chan *) data;
@@ -618,34 +673,41 @@ static void dma_tasklet(unsigned long data)
 
 	spin_lock_irqsave(&cohc->lock, flags);
 
-	
+	/* get first active descriptor entry from list */
 	cohd_fin = coh901318_first_active_get(cohc);
 
 	if (cohd_fin == NULL)
 		goto err;
 
-	
+	/* locate callback to client */
 	callback = cohd_fin->desc.callback;
 	callback_param = cohd_fin->desc.callback_param;
 
-	
+	/* sign this job as completed on the channel */
 	dma_cookie_complete(&cohd_fin->desc);
 
-	
+	/* release the lli allocation and remove the descriptor */
 	coh901318_lli_free(&cohc->base->pool, &cohd_fin->lli);
 
-	
+	/* return desc to free-list */
 	coh901318_desc_remove(cohd_fin);
 	coh901318_desc_free(cohc, cohd_fin);
 
 	spin_unlock_irqrestore(&cohc->lock, flags);
 
-	
+	/* Call the callback when we're done */
 	if (callback)
 		callback(callback_param);
 
 	spin_lock_irqsave(&cohc->lock, flags);
 
+	/*
+	 * If another interrupt fired while the tasklet was scheduling,
+	 * we don't get called twice, so we have this number of active
+	 * counter that keep track of the number of IRQs expected to
+	 * be handled for this channel. If there happen to be more than
+	 * one IRQ to be ack:ed, we simply schedule this tasklet again.
+	 */
 	cohc->nbr_active_done--;
 	if (cohc->nbr_active_done) {
 		dev_dbg(COHC_2_DEV(cohc), "scheduling tasklet again, new IRQs "
@@ -666,8 +728,13 @@ static void dma_tasklet(unsigned long data)
 }
 
 
+/* called from interrupt context */
 static void dma_tc_handle(struct coh901318_chan *cohc)
 {
+	/*
+	 * If the channel is not allocated, then we shouldn't have
+	 * any TC interrupts on it.
+	 */
 	if (!cohc->allocated) {
 		dev_err(COHC_2_DEV(cohc), "spurious interrupt from "
 			"unallocated channel\n");
@@ -676,15 +743,32 @@ static void dma_tc_handle(struct coh901318_chan *cohc)
 
 	spin_lock(&cohc->lock);
 
+	/*
+	 * When we reach this point, at least one queue item
+	 * should have been moved over from cohc->queue to
+	 * cohc->active and run to completion, that is why we're
+	 * getting a terminal count interrupt is it not?
+	 * If you get this BUG() the most probable cause is that
+	 * the individual nodes in the lli chain have IRQ enabled,
+	 * so check your platform config for lli chain ctrl.
+	 */
 	BUG_ON(list_empty(&cohc->active));
 
 	cohc->nbr_active_done++;
 
+	/*
+	 * This attempt to take a job from cohc->queue, put it
+	 * into cohc->active and start it.
+	 */
 	if (coh901318_queue_start(cohc) == NULL)
 		cohc->busy = 0;
 
 	spin_unlock(&cohc->lock);
 
+	/*
+	 * This tasklet will remove items from cohc->active
+	 * and thus terminates them.
+	 */
 	if (cohc_chan_conf(cohc)->priority_high)
 		tasklet_hi_schedule(&cohc->tasklet);
 	else
@@ -710,42 +794,48 @@ static irqreturn_t dma_irq_handler(int irq, void *dev_id)
 		return IRQ_HANDLED;
 	}
 
+	/* TODO: consider handle IRQ in tasklet here to
+	 *       minimize interrupt latency */
 
-	
+	/* Check the first 32 DMA channels for IRQ */
 	while (status1) {
-		
+		/* Find first bit set, return as a number. */
 		i = ffs(status1) - 1;
 		ch = i;
 
 		cohc = &base->chans[ch];
 		spin_lock(&cohc->lock);
 
-		
+		/* Mask off this bit */
 		status1 &= ~(1 << i);
-		
+		/* Check the individual channel bits */
 		if (test_bit(i, virtbase + COH901318_BE_INT_STATUS1)) {
 			dev_crit(COHC_2_DEV(cohc),
 				 "DMA bus error on channel %d!\n", ch);
 			BUG_ON(1);
-			
+			/* Clear BE interrupt */
 			__set_bit(i, virtbase + COH901318_BE_INT_CLEAR1);
 		} else {
-			
+			/* Caused by TC, really? */
 			if (unlikely(!test_bit(i, virtbase +
 					       COH901318_TC_INT_STATUS1))) {
 				dev_warn(COHC_2_DEV(cohc),
 					 "ignoring interrupt not caused by terminal count on channel %d\n", ch);
-				
+				/* Clear TC interrupt */
 				BUG_ON(1);
 				__set_bit(i, virtbase + COH901318_TC_INT_CLEAR1);
 			} else {
-				
+				/* Enable powersave if transfer has finished */
 				if (!(readl(virtbase + COH901318_CX_STAT +
 					    COH901318_CX_STAT_SPACING*ch) &
 				      COH901318_CX_STAT_ENABLED)) {
 					enable_powersave(cohc);
 				}
 
+				/* Must clear TC interrupt before calling
+				 * dma_tc_handle
+				 * in case tc_handle initiate a new dma job
+				 */
 				__set_bit(i, virtbase + COH901318_TC_INT_CLEAR1);
 
 				dma_tc_handle(cohc);
@@ -754,39 +844,43 @@ static irqreturn_t dma_irq_handler(int irq, void *dev_id)
 		spin_unlock(&cohc->lock);
 	}
 
-	
+	/* Check the remaining 32 DMA channels for IRQ */
 	while (status2) {
-		
+		/* Find first bit set, return as a number. */
 		i = ffs(status2) - 1;
 		ch = i + 32;
 		cohc = &base->chans[ch];
 		spin_lock(&cohc->lock);
 
-		
+		/* Mask off this bit */
 		status2 &= ~(1 << i);
-		
+		/* Check the individual channel bits */
 		if (test_bit(i, virtbase + COH901318_BE_INT_STATUS2)) {
 			dev_crit(COHC_2_DEV(cohc),
 				 "DMA bus error on channel %d!\n", ch);
-			
+			/* Clear BE interrupt */
 			BUG_ON(1);
 			__set_bit(i, virtbase + COH901318_BE_INT_CLEAR2);
 		} else {
-			
+			/* Caused by TC, really? */
 			if (unlikely(!test_bit(i, virtbase +
 					       COH901318_TC_INT_STATUS2))) {
 				dev_warn(COHC_2_DEV(cohc),
 					 "ignoring interrupt not caused by terminal count on channel %d\n", ch);
-				
+				/* Clear TC interrupt */
 				__set_bit(i, virtbase + COH901318_TC_INT_CLEAR2);
 				BUG_ON(1);
 			} else {
-				
+				/* Enable powersave if transfer has finished */
 				if (!(readl(virtbase + COH901318_CX_STAT +
 					    COH901318_CX_STAT_SPACING*ch) &
 				      COH901318_CX_STAT_ENABLED)) {
 					enable_powersave(cohc);
 				}
+				/* Must clear TC interrupt before calling
+				 * dma_tc_handle
+				 * in case tc_handle initiate a new dma job
+				 */
 				__set_bit(i, virtbase + COH901318_TC_INT_CLEAR2);
 
 				dma_tc_handle(cohc);
@@ -830,7 +924,7 @@ coh901318_free_chan_resources(struct dma_chan *chan)
 
 	spin_lock_irqsave(&cohc->lock, flags);
 
-	
+	/* Disable HW */
 	writel(0x00000000U, cohc->base->virtbase + COH901318_CX_CFG +
 	       COH901318_CX_CFG_SPACING*channel);
 	writel(0x00000000U, cohc->base->virtbase + COH901318_CX_CTRL +
@@ -882,7 +976,7 @@ coh901318_prep_memcpy(struct dma_chan *chan, dma_addr_t dest, dma_addr_t src,
 		 __func__, cohc->id, src, dest, size);
 
 	if (flags & DMA_PREP_INTERRUPT)
-		
+		/* Trigger interrupt after last lli */
 		ctrl_last |= COH901318_CX_CTRL_TC_IRQ_ENABLE;
 
 	lli_len = size >> MAX_DMA_PACKET_SIZE_SHIFT;
@@ -903,7 +997,7 @@ coh901318_prep_memcpy(struct dma_chan *chan, dma_addr_t dest, dma_addr_t src,
 
 	COH_DBG(coh901318_list_print(cohc, lli));
 
-	
+	/* Pick a descriptor to handle this transfer */
 	cohd = coh901318_desc_get(cohc);
 	cohd->lli = lli;
 	cohd->flags = flags;
@@ -948,11 +1042,16 @@ coh901318_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 		 __func__, sg_len, direction);
 
 	if (flags & DMA_PREP_INTERRUPT)
-		
+		/* Trigger interrupt after last lli */
 		ctrl_last |= COH901318_CX_CTRL_TC_IRQ_ENABLE;
 
 	params = cohc_chan_param(cohc);
 	config = params->config;
+	/*
+	 * Add runtime-specific control on top, make
+	 * sure the bits you set per peripheral channel are
+	 * cleared in the default config from the platform.
+	 */
 	ctrl_chained |= cohc->runtime_ctrl;
 	ctrl_last |= cohc->runtime_ctrl;
 	ctrl |= cohc->runtime_ctrl;
@@ -976,6 +1075,10 @@ coh901318_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 	} else
 		goto err_direction;
 
+	/* The dma only supports transmitting packages up to
+	 * MAX_DMA_PACKET_SIZE. Calculate to total number of
+	 * dma elemts required to send the entire sg list
+	 */
 	for_each_sg(sgl, sg, sg_len, i) {
 		unsigned int factor;
 		size = sg_dma_len(sg);
@@ -998,7 +1101,7 @@ coh901318_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 	if (lli == NULL)
 		goto err_dma_alloc;
 
-	
+	/* initiate allocated lli list */
 	ret = coh901318_lli_fill_sg(&cohc->base->pool, lli, sgl, sg_len,
 				    cohc_dev_addr(cohc),
 				    ctrl_chained,
@@ -1011,9 +1114,14 @@ coh901318_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 
 	COH_DBG(coh901318_list_print(cohc, lli));
 
-	
+	/* Pick a descriptor to handle this transfer */
 	cohd = coh901318_desc_get(cohc);
 	cohd->head_config = config;
+	/*
+	 * Set the default head ctrl for the channel to the one from the
+	 * lli, things may have changed due to odd buffer alignment
+	 * etc.
+	 */
 	cohd->head_ctrl = lli->control;
 	cohd->dir = direction;
 	cohd->flags = flags;
@@ -1039,7 +1147,7 @@ coh901318_tx_status(struct dma_chan *chan, dma_cookie_t cookie,
 	enum dma_status ret;
 
 	ret = dma_cookie_status(chan, cookie, txstate);
-	
+	/* FIXME: should be conditional on ret != DMA_SUCCESS? */
 	dma_set_residue(txstate, coh901318_get_bytes_left(chan));
 
 	if (ret == DMA_IN_PROGRESS && cohc->stopped)
@@ -1056,12 +1164,21 @@ coh901318_issue_pending(struct dma_chan *chan)
 
 	spin_lock_irqsave(&cohc->lock, flags);
 
+	/*
+	 * Busy means that pending jobs are already being processed,
+	 * and then there is no point in starting the queue: the
+	 * terminal count interrupt on the channel will take the next
+	 * job on the queue and execute it anyway.
+	 */
 	if (!cohc->busy)
 		coh901318_queue_start(cohc);
 
 	spin_unlock_irqrestore(&cohc->lock, flags);
 }
 
+/*
+ * Here we wrap in the runtime dma control interface
+ */
 struct burst_table {
 	int burst_8bit;
 	int burst_16bit;
@@ -1130,7 +1247,7 @@ static void coh901318_dma_set_runtimeconfig(struct dma_chan *chan,
 	u32 runtime_ctrl = 0;
 	int i = 0;
 
-	
+	/* We only support mem to per or per to mem transfers */
 	if (config->direction == DMA_DEV_TO_MEM) {
 		addr = config->src_addr;
 		addr_width = config->src_addr_width;
@@ -1172,7 +1289,7 @@ static void coh901318_dma_set_runtimeconfig(struct dma_chan *chan,
 
 		break;
 	case DMA_SLAVE_BUSWIDTH_4_BYTES:
-		
+		/* Direction doesn't matter here, it's 32/32 bits */
 		runtime_ctrl |=
 			COH901318_CX_CTRL_SRC_BUS_SIZE_32_BITS |
 			COH901318_CX_CTRL_DST_BUS_SIZE_32_BITS;
@@ -1229,11 +1346,11 @@ coh901318_control(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
 	if (cmd != DMA_TERMINATE_ALL)
 		return -ENXIO;
 
-	
+	/* The remainder of this function terminates the transfer */
 	coh901318_pause(chan);
 	spin_lock_irqsave(&cohc->lock, flags);
 
-	
+	/* Clear any pending BE or TC interrupt */
 	if (cohc->id < 32) {
 		writel(1 << cohc->id, virtbase + COH901318_BE_INT_CLEAR1);
 		writel(1 << cohc->id, virtbase + COH901318_TC_INT_CLEAR1);
@@ -1247,19 +1364,19 @@ coh901318_control(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
 	enable_powersave(cohc);
 
 	while ((cohd = coh901318_first_active_get(cohc))) {
-		
+		/* release the lli allocation*/
 		coh901318_lli_free(&cohc->base->pool, &cohd->lli);
 
-		
+		/* return desc to free-list */
 		coh901318_desc_remove(cohd);
 		coh901318_desc_free(cohc, cohd);
 	}
 
 	while ((cohd = coh901318_first_queued(cohc))) {
-		
+		/* release the lli allocation*/
 		coh901318_lli_free(&cohc->base->pool, &cohd->lli);
 
-		
+		/* return desc to free-list */
 		coh901318_desc_remove(cohd);
 		coh901318_desc_free(cohc, cohd);
 	}
@@ -1290,6 +1407,9 @@ void coh901318_base_init(struct dma_device *dma, const int *pick_chans,
 			cohc->chan.device = dma;
 			cohc->id = i;
 
+			/* TODO: do we really need this lock if only one
+			 * client is connected to each channel?
+			 */
 
 			spin_lock_init(&cohc->lock);
 
@@ -1320,7 +1440,7 @@ static int __init coh901318_probe(struct platform_device *pdev)
 	if (!io)
 		goto err_get_resource;
 
-	
+	/* Map DMA controller registers to virtual memory */
 	if (request_mem_region(io->start,
 			       resource_size(io),
 			       pdev->dev.driver->name) == NULL) {
@@ -1374,7 +1494,7 @@ static int __init coh901318_probe(struct platform_device *pdev)
 	if (err)
 		goto err_pool_create;
 
-	
+	/* init channels for device transfers */
 	coh901318_base_init(&base->dma_slave,  base->platform->chans_slave,
 			    base);
 
@@ -1394,7 +1514,7 @@ static int __init coh901318_probe(struct platform_device *pdev)
 	if (err)
 		goto err_register_slave;
 
-	
+	/* init channels for memcpy */
 	coh901318_base_init(&base->dma_memcpy, base->platform->chans_memcpy,
 			    base);
 
@@ -1408,6 +1528,10 @@ static int __init coh901318_probe(struct platform_device *pdev)
 	base->dma_memcpy.device_issue_pending = coh901318_issue_pending;
 	base->dma_memcpy.device_control = coh901318_control;
 	base->dma_memcpy.dev = &pdev->dev;
+	/*
+	 * This controller can only access address at even 32bit boundaries,
+	 * i.e. 2^2
+	 */
 	base->dma_memcpy.copy_align = 2;
 	err = dma_async_device_register(&base->dma_memcpy);
 

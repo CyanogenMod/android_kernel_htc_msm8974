@@ -1,8 +1,17 @@
+/*
+ * tracepoint-probe-sample2.c
+ *
+ * 2nd sample tracepoint probes.
+ */
 
 #include <linux/module.h>
 #include <linux/fs.h>
 #include "tp-samples-trace.h"
 
+/*
+ * Here the caller only guarantees locking for struct file and struct inode.
+ * Locking must therefore be done in the probe to use the dentry.
+ */
 static void probe_subsys_event(void *ignore,
 			       struct inode *inode, struct file *file)
 {

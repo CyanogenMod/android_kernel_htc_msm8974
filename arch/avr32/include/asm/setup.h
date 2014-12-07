@@ -15,16 +15,26 @@
 
 #ifdef __KERNEL__
 
+/* Magic number indicating that a tag table is present */
 #define ATAG_MAGIC	0xa2a25441
 
 #ifndef __ASSEMBLY__
 
+/*
+ * Generic memory range, used by several tags.
+ *
+ *   addr is always physical.
+ *   size is measured in bytes.
+ *   next is for use by the OS, e.g. for grouping regions into
+ *        linked lists.
+ */
 struct tag_mem_range {
 	u32			addr;
 	u32			size;
 	struct tag_mem_range *	next;
 };
 
+/* The list ends with an ATAG_NONE node. */
 #define ATAG_NONE	0x00000000
 
 struct tag_header {
@@ -32,6 +42,7 @@ struct tag_header {
 	u32 tag;
 };
 
+/* The list must start with an ATAG_CORE node */
 #define ATAG_CORE	0x54410001
 
 struct tag_core {
@@ -40,28 +51,38 @@ struct tag_core {
 	u32 rootdev;
 };
 
+/* it is allowed to have multiple ATAG_MEM nodes */
 #define ATAG_MEM	0x54410002
+/* ATAG_MEM uses tag_mem_range */
 
+/* command line: \0 terminated string */
 #define ATAG_CMDLINE	0x54410003
 
 struct tag_cmdline {
-	char	cmdline[1];	
+	char	cmdline[1];	/* this is the minimum size */
 };
 
+/* Ramdisk image (may be compressed) */
 #define ATAG_RDIMG	0x54410004
+/* ATAG_RDIMG uses tag_mem_range */
 
+/* Information about various clocks present in the system */
 #define ATAG_CLOCK	0x54410005
 
 struct tag_clock {
-	u32	clock_id;	
-	u32	clock_flags;	
-	u64	clock_hz;	
+	u32	clock_id;	/* Which clock are we talking about? */
+	u32	clock_flags;	/* Special features */
+	u64	clock_hz;	/* Clock speed in Hz */
 };
 
+/* The clock types we know about */
 #define CLOCK_BOOTCPU	0
 
+/* Memory reserved for the system (e.g. the bootloader) */
 #define ATAG_RSVD_MEM	0x54410006
+/* ATAG_RSVD_MEM uses tag_mem_range */
 
+/* Ethernet information */
 
 #define ATAG_ETHERNET	0x54410007
 
@@ -73,6 +94,7 @@ struct tag_ethernet {
 
 #define ETH_INVALID_PHY	0xff
 
+/* board information */
 #define ATAG_BOARDINFO	0x54410008
 
 struct tag_boardinfo {
@@ -118,8 +140,8 @@ extern u32 board_number;
 
 void setup_processor(void);
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif  
+#endif  /*  __KERNEL__  */
 
-#endif 
+#endif /* __ASM_AVR32_SETUP_H__ */

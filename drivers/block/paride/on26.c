@@ -7,6 +7,14 @@
 
 */
 
+/* Changes:
+
+        1.01    GRG 1998.05.06 init_proto, release_proto
+	1.02    GRG 1998.09.23 updates for the -E rev chip
+	1.03    GRG 1998.12.14 fix for slave drives
+	1.04    GRG 1998.12.20 yet another bug fix
+
+*/
 
 #define ON26_VERSION      "1.04"
 
@@ -20,12 +28,21 @@
 
 #include "paride.h"
 
+/* mode codes:  0  nybble reads, 8-bit writes
+                1  8-bit reads and writes
+                2  8-bit EPP mode
+		3  EPP-16
+		4  EPP-32
+*/
 
 #define j44(a,b)  (((a>>4)&0x0f)|(b&0xf0))
 
 #define P1	w2(5);w2(0xd);w2(5);w2(0xd);w2(5);w2(4);
 #define P2	w2(5);w2(7);w2(5);w2(4);
 
+/* cont = 0 - access the IDE register file 
+   cont = 1 - access the IDE command set 
+*/
 
 static int on26_read_regr( PIA *pi, int cont, int regr )
 
@@ -107,7 +124,7 @@ static void on26_disconnect ( PIA *pi )
 
 #define	RESET_WAIT  200
 
-static int on26_test_port( PIA *pi)  
+static int on26_test_port( PIA *pi)  /* hard reset */
 
 {       int     i, m, d, x=0, y=0;
 

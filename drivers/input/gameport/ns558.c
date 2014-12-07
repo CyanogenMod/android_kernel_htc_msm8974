@@ -3,6 +3,9 @@
  *  Copyright (c) 1999 Brian Gerst
  */
 
+/*
+ * NS558 based standard IBM game port driver for Linux
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -52,6 +55,11 @@ struct ns558 {
 
 static LIST_HEAD(ns558_list);
 
+/*
+ * ns558_isa_probe() tries to find an isa gameport at the
+ * specified address, and also checks for mirrors.
+ * A joystick must be attached for this to work.
+ */
 
 static int ns558_isa_probe(int io)
 {
@@ -60,10 +68,17 @@ static int ns558_isa_probe(int io)
 	struct ns558 *ns558;
 	struct gameport *port;
 
+/*
+ * No one should be using this address.
+ */
 
 	if (!request_region(io, 1, "ns558-isa"))
 		return -EBUSY;
 
+/*
+ * We must not be able to write arbitrary values to the port.
+ * The lower two axis bits must be 1 after a write.
+ */
 
 	c = inb(io);
 	outb(~c & ~3, io);
@@ -72,6 +87,9 @@ static int ns558_isa_probe(int io)
 		release_region(io, 1);
 		return -ENODEV;
 	}
+/*
+ * After a trigger, there must be at least some bits changing.
+ */
 
 	for (i = 0; i < 1000; i++) v &= inb(io);
 
@@ -81,6 +99,9 @@ static int ns558_isa_probe(int io)
 		return -ENODEV;
 	}
 	msleep(3);
+/*
+ * After some time (4ms) the axes shouldn't change anymore.
+ */
 
 	u = inb(io);
 	for (i = 0; i < 1000; i++)
@@ -89,20 +110,23 @@ static int ns558_isa_probe(int io)
 			release_region(io, 1);
 			return -ENODEV;
 		}
+/*
+ * And now find the number of mirrors of the port.
+ */
 
 	for (i = 1; i < 5; i++) {
 
 		release_region(io & (-1 << (i - 1)), (1 << (i - 1)));
 
 		if (!request_region(io & (-1 << i), (1 << i), "ns558-isa"))
-			break;				
+			break;				/* Don't disturb anyone */
 
 		outb(0xff, io & (-1 << i));
 		for (j = b = 0; j < 1000; j++)
 			if (inb(io & (-1 << i)) != inb((io & (-1 << i)) + (1 << i) - 1)) b++;
 		msleep(3);
 
-		if (b > 300) {				
+		if (b > 300) {				/* We allow 30% difference */
 			release_region(io & (-1 << i), (1 << i));
 			break;
 		}
@@ -143,28 +167,28 @@ static int ns558_isa_probe(int io)
 #ifdef CONFIG_PNP
 
 static const struct pnp_device_id pnp_devids[] = {
-	{ .id = "@P@0001", .driver_data = 0 }, 
-	{ .id = "@P@0020", .driver_data = 0 }, 
-	{ .id = "@P@1001", .driver_data = 0 }, 
-	{ .id = "@P@2001", .driver_data = 0 }, 
-	{ .id = "ASB16fd", .driver_data = 0 }, 
-	{ .id = "AZT3001", .driver_data = 0 }, 
-	{ .id = "CDC0001", .driver_data = 0 }, 
-	{ .id = "CSC0001", .driver_data = 0 }, 
-	{ .id = "CSC000f", .driver_data = 0 }, 
-	{ .id = "CSC0101", .driver_data = 0 }, 
-	{ .id = "CTL7001", .driver_data = 0 }, 
-	{ .id = "CTL7002", .driver_data = 0 }, 
-	{ .id = "CTL7005", .driver_data = 0 }, 
-	{ .id = "ENS2020", .driver_data = 0 }, 
-	{ .id = "ESS0001", .driver_data = 0 }, 
-	{ .id = "ESS0005", .driver_data = 0 }, 
-	{ .id = "ESS6880", .driver_data = 0 }, 
-	{ .id = "IBM0012", .driver_data = 0 }, 
-	{ .id = "OPT0001", .driver_data = 0 }, 
-	{ .id = "YMH0006", .driver_data = 0 }, 
-	{ .id = "YMH0022", .driver_data = 0 }, 
-	{ .id = "PNPb02f", .driver_data = 0 }, 
+	{ .id = "@P@0001", .driver_data = 0 }, /* ALS 100 */
+	{ .id = "@P@0020", .driver_data = 0 }, /* ALS 200 */
+	{ .id = "@P@1001", .driver_data = 0 }, /* ALS 100+ */
+	{ .id = "@P@2001", .driver_data = 0 }, /* ALS 120 */
+	{ .id = "ASB16fd", .driver_data = 0 }, /* AdLib NSC16 */
+	{ .id = "AZT3001", .driver_data = 0 }, /* AZT1008 */
+	{ .id = "CDC0001", .driver_data = 0 }, /* Opl3-SAx */
+	{ .id = "CSC0001", .driver_data = 0 }, /* CS4232 */
+	{ .id = "CSC000f", .driver_data = 0 }, /* CS4236 */
+	{ .id = "CSC0101", .driver_data = 0 }, /* CS4327 */
+	{ .id = "CTL7001", .driver_data = 0 }, /* SB16 */
+	{ .id = "CTL7002", .driver_data = 0 }, /* AWE64 */
+	{ .id = "CTL7005", .driver_data = 0 }, /* Vibra16 */
+	{ .id = "ENS2020", .driver_data = 0 }, /* SoundscapeVIVO */
+	{ .id = "ESS0001", .driver_data = 0 }, /* ES1869 */
+	{ .id = "ESS0005", .driver_data = 0 }, /* ES1878 */
+	{ .id = "ESS6880", .driver_data = 0 }, /* ES688 */
+	{ .id = "IBM0012", .driver_data = 0 }, /* CS4232 */
+	{ .id = "OPT0001", .driver_data = 0 }, /* OPTi Audio16 */
+	{ .id = "YMH0006", .driver_data = 0 }, /* Opl3-SA */
+	{ .id = "YMH0022", .driver_data = 0 }, /* Opl3-SAx */
+	{ .id = "PNPb02f", .driver_data = 0 }, /* Generic */
 	{ .id = "", },
 };
 
@@ -230,9 +254,14 @@ static int __init ns558_init(void)
 	int error;
 
 	error = pnp_register_driver(&ns558_pnp_driver);
-	if (error && error != -ENODEV)	
+	if (error && error != -ENODEV)	/* should be ENOSYS really */
 		return error;
 
+/*
+ * Probe ISA ports after PnP, so that PnP ports that are already
+ * enabled get detected as PnP. This may be suboptimal in multi-device
+ * configurations, but saves hassle with simple setups.
+ */
 
 	while (ns558_isa_portlist[i])
 		ns558_isa_probe(ns558_isa_portlist[i++]);

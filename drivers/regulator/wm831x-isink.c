@@ -41,13 +41,13 @@ static int wm831x_isink_enable(struct regulator_dev *rdev)
 	struct wm831x *wm831x = isink->wm831x;
 	int ret;
 
-	
+	/* We have a two stage enable: first start the ISINK... */
 	ret = wm831x_set_bits(wm831x, isink->reg, WM831X_CS1_ENA,
 			      WM831X_CS1_ENA);
 	if (ret != 0)
 		return ret;
 
-	
+	/* ...then enable drive */
 	ret = wm831x_set_bits(wm831x, isink->reg, WM831X_CS1_DRIVE,
 			      WM831X_CS1_DRIVE);
 	if (ret != 0)
@@ -179,6 +179,9 @@ static __devinit int wm831x_isink_probe(struct platform_device *pdev)
 	}
 	isink->reg = res->start;
 
+	/* For current parts this is correct; probably need to revisit
+	 * in future.
+	 */
 	snprintf(isink->name, sizeof(isink->name), "ISINK%d", id + 1);
 	isink->desc.name = isink->name;
 	isink->desc.id = id;
@@ -253,6 +256,7 @@ static void __exit wm831x_isink_exit(void)
 }
 module_exit(wm831x_isink_exit);
 
+/* Module information */
 MODULE_AUTHOR("Mark Brown");
 MODULE_DESCRIPTION("WM831x current sink driver");
 MODULE_LICENSE("GPL");

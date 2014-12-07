@@ -200,6 +200,15 @@ static unsigned int get_channel_status(struct tegra_dma_channel *ch,
 	unsigned int status;
 
 	if (is_stop_dma) {
+		/*
+		 * STOP the DMA and get the transfer count.
+		 * Getting the transfer count is tricky.
+		 *  - Globally disable DMA on all channels
+		 *  - Read the channel's status register to know the number
+		 *    of pending bytes to be transfered.
+		 *  - Stop the dma channel
+		 *  - Globally re-enable DMA to resume other transfers
+		 */
 		spin_lock(&enable_lock);
 		writel(0, addr + APB_DMA_GEN);
 		udelay(20);
@@ -218,6 +227,7 @@ static unsigned int get_channel_status(struct tegra_dma_channel *ch,
 	return status;
 }
 
+/* should be called with the channel lock held */
 static unsigned int dma_active_count(struct tegra_dma_channel *ch,
 	struct tegra_dma_req *req, unsigned int status)
 {
@@ -230,6 +240,11 @@ static unsigned int dma_active_count(struct tegra_dma_channel *ch,
 	bytes_transferred = req_transfer_count;
 	if (status & STA_BUSY)
 		bytes_transferred -= to_transfer;
+	/*
+	 * In continuous transfer mode, DMA only tracks the count of the
+	 * half DMA buffer. So, if the DMA already finished half the DMA
+	 * then add the half buffer to the completed count.
+	 */
 	if (ch->mode & TEGRA_DMA_MODE_CONTINOUS) {
 		if (req->buffer_status == TEGRA_DMA_REQ_BUF_STATUS_HALF_FULL)
 			bytes_transferred += req_transfer_count;
@@ -273,7 +288,7 @@ int tegra_dma_dequeue_req(struct tegra_dma_channel *ch,
 	req->bytes_transferred = dma_active_count(ch, req, status);
 
 	if (!list_empty(&ch->list)) {
-		
+		/* if the list is not empty, queue the next request */
 		struct tegra_dma_req *next_req;
 		next_req = list_entry(ch->list.next,
 			typeof(*next_req), node);
@@ -285,7 +300,7 @@ skip_stop_dma:
 
 	spin_unlock_irqrestore(&ch->lock, irq_flags);
 
-	
+	/* Callback should be called without any lock */
 	req->complete(req);
 	return 0;
 }
@@ -373,7 +388,7 @@ struct tegra_dma_channel *tegra_dma_allocate_channel(int mode)
 
 	mutex_lock(&tegra_dma_lock);
 
-	
+	/* first channel is the shared channel */
 	if (mode & TEGRA_DMA_SHARED) {
 		channel = TEGRA_SYSTEM_DMA_CH_MIN;
 	} else {
@@ -444,12 +459,18 @@ static void tegra_dma_update_hw(struct tegra_dma_channel *ch,
 
 	csr |= req->req_sel << CSR_REQ_SEL_SHIFT;
 
+	/* One shot mode is always single buffered,
+	 * continuous mode is always double buffered
+	 * */
 	if (ch->mode & TEGRA_DMA_MODE_ONESHOT) {
 		csr |= CSR_ONCE;
 		ch->req_transfer_count = (req->size >> 2) - 1;
 	} else {
 		ahb_seq |= AHB_SEQ_DBL_BUF;
 
+		/* In double buffered mode, we set the size to half the
+		 * requested size and interrupt when half the buffer
+		 * is full */
 		ch->req_transfer_count = (req->size >> 3) - 1;
 	}
 
@@ -478,7 +499,7 @@ static void tegra_dma_update_hw(struct tegra_dma_channel *ch,
 	apb_addr_wrap >>= 2;
 	ahb_addr_wrap >>= 2;
 
-	
+	/* set address wrap for APB size */
 	index = 0;
 	do  {
 		if (apb_addr_wrap_table[index] == apb_addr_wrap)
@@ -488,7 +509,7 @@ static void tegra_dma_update_hw(struct tegra_dma_channel *ch,
 	BUG_ON(index == ARRAY_SIZE(apb_addr_wrap_table));
 	apb_seq |= index << APB_SEQ_WRAP_SHIFT;
 
-	
+	/* set address wrap for AHB size */
 	index = 0;
 	do  {
 		if (ahb_addr_wrap_table[index] == ahb_addr_wrap)
@@ -548,7 +569,7 @@ static void handle_oneshot_dma(struct tegra_dma_channel *ch)
 		req->status = TEGRA_DMA_REQ_SUCCESS;
 
 		spin_unlock_irqrestore(&ch->lock, irq_flags);
-		
+		/* Callback should be called without any lock */
 		pr_debug("%s: transferred %d bytes\n", __func__,
 			req->bytes_transferred);
 		req->complete(req);
@@ -557,6 +578,8 @@ static void handle_oneshot_dma(struct tegra_dma_channel *ch)
 
 	if (!list_empty(&ch->list)) {
 		req = list_entry(ch->list.next, typeof(*req), node);
+		/* the complete function we just called may have enqueued
+		   another req, in which case dma has already started */
 		if (req->status != TEGRA_DMA_REQ_INFLIGHT)
 			tegra_dma_update_hw(ch, req);
 	}
@@ -582,7 +605,7 @@ static void handle_continuous_dma(struct tegra_dma_channel *ch)
 						& STA_PING_PONG) ? true : false;
 			if (req->to_memory)
 				is_dma_ping_complete = !is_dma_ping_complete;
-			
+			/* Out of sync - Release current buffer */
 			if (!is_dma_ping_complete) {
 				int bytes_transferred;
 
@@ -604,11 +627,13 @@ static void handle_continuous_dma(struct tegra_dma_channel *ch)
 
 				list_del(&req->node);
 
-				
+				/* DMA lock is NOT held when callbak is called */
 				spin_unlock_irqrestore(&ch->lock, irq_flags);
 				req->complete(req);
 				return;
 			}
+			/* Load the next request into the hardware, if available
+			 * */
 			if (!list_is_last(&req->node, &ch->list)) {
 				struct tegra_dma_req *next_req;
 
@@ -618,7 +643,7 @@ static void handle_continuous_dma(struct tegra_dma_channel *ch)
 			}
 			req->buffer_status = TEGRA_DMA_REQ_BUF_STATUS_HALF_FULL;
 			req->status = TEGRA_DMA_REQ_SUCCESS;
-			
+			/* DMA lock is NOT held when callback is called */
 			spin_unlock_irqrestore(&ch->lock, irq_flags);
 			if (likely(req->threshold))
 				req->threshold(req);
@@ -626,6 +651,8 @@ static void handle_continuous_dma(struct tegra_dma_channel *ch)
 
 		} else if (req->buffer_status ==
 			TEGRA_DMA_REQ_BUF_STATUS_HALF_FULL) {
+			/* Callback when the buffer is completely full (i.e on
+			 * the second  interrupt */
 			int bytes_transferred;
 
 			bytes_transferred = ch->req_transfer_count;
@@ -637,7 +664,7 @@ static void handle_continuous_dma(struct tegra_dma_channel *ch)
 			req->status = TEGRA_DMA_REQ_SUCCESS;
 			list_del(&req->node);
 
-			
+			/* DMA lock is NOT held when callbak is called */
 			spin_unlock_irqrestore(&ch->lock, irq_flags);
 			req->complete(req);
 			return;
@@ -729,7 +756,7 @@ int __init tegra_dma_init(void)
 
 		__clear_bit(i, channel_usage);
 	}
-	
+	/* mark the shared channel allocated */
 	__set_bit(TEGRA_SYSTEM_DMA_CH_MIN, channel_usage);
 
 	tegra_dma_initialized = true;

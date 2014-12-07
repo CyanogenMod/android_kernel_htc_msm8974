@@ -26,7 +26,9 @@
 
 #include <plat/devs.h>
 
+/* Serial port registrations */
 
+/* 64xx uarts are closer together */
 
 static struct resource s3c64xx_uart0_resource[] = {
 	[0] = {

@@ -52,39 +52,58 @@ struct fsl_pq_mdio_priv {
 	struct fsl_pq_mdio __iomem *regs;
 };
 
+/*
+ * Write value to the PHY at mii_id at register regnum,
+ * on the bus attached to the local interface, which may be different from the
+ * generic mdio bus (tied to a single interface), waiting until the write is
+ * done before returning. This is helpful in programming interfaces like
+ * the TBI which control interfaces like onchip SERDES and are always tied to
+ * the local mdio pins, which may not be the same as system mdio bus, used for
+ * controlling the external PHYs, for example.
+ */
 int fsl_pq_local_mdio_write(struct fsl_pq_mdio __iomem *regs, int mii_id,
 		int regnum, u16 value)
 {
-	
+	/* Set the PHY address and the register address we want to write */
 	out_be32(&regs->miimadd, (mii_id << 8) | regnum);
 
-	
+	/* Write out the value we want */
 	out_be32(&regs->miimcon, value);
 
-	
+	/* Wait for the transaction to finish */
 	while (in_be32(&regs->miimind) & MIIMIND_BUSY)
 		cpu_relax();
 
 	return 0;
 }
 
+/*
+ * Read the bus for PHY at addr mii_id, register regnum, and
+ * return the value.  Clears miimcom first.  All PHY operation
+ * done on the bus attached to the local interface,
+ * which may be different from the generic mdio bus
+ * This is helpful in programming interfaces like
+ * the TBI which, in turn, control interfaces like onchip SERDES
+ * and are always tied to the local mdio pins, which may not be the
+ * same as system mdio bus, used for controlling the external PHYs, for eg.
+ */
 int fsl_pq_local_mdio_read(struct fsl_pq_mdio __iomem *regs,
 		int mii_id, int regnum)
 {
 	u16 value;
 
-	
+	/* Set the PHY address and the register address we want to read */
 	out_be32(&regs->miimadd, (mii_id << 8) | regnum);
 
-	
+	/* Clear miimcom, and then initiate a read */
 	out_be32(&regs->miimcom, 0);
 	out_be32(&regs->miimcom, MII_READ_COMMAND);
 
-	
+	/* Wait for the transaction to finish */
 	while (in_be32(&regs->miimind) & (MIIMIND_NOTVALID | MIIMIND_BUSY))
 		cpu_relax();
 
-	
+	/* Grab the value of the register from miimstat */
 	value = in_be32(&regs->miimstat);
 
 	return value;
@@ -97,22 +116,31 @@ static struct fsl_pq_mdio __iomem *fsl_pq_mdio_get_regs(struct mii_bus *bus)
 	return priv->regs;
 }
 
+/*
+ * Write value to the PHY at mii_id at register regnum,
+ * on the bus, waiting until the write is done before returning.
+ */
 int fsl_pq_mdio_write(struct mii_bus *bus, int mii_id, int regnum, u16 value)
 {
 	struct fsl_pq_mdio __iomem *regs = fsl_pq_mdio_get_regs(bus);
 
-	
+	/* Write to the local MII regs */
 	return fsl_pq_local_mdio_write(regs, mii_id, regnum, value);
 }
 
+/*
+ * Read the bus for PHY at addr mii_id, register regnum, and
+ * return the value.  Clears miimcom first.
+ */
 int fsl_pq_mdio_read(struct mii_bus *bus, int mii_id, int regnum)
 {
 	struct fsl_pq_mdio __iomem *regs = fsl_pq_mdio_get_regs(bus);
 
-	
+	/* Read the local MII regs */
 	return fsl_pq_local_mdio_read(regs, mii_id, regnum);
 }
 
+/* Reset the MIIM registers, and wait for the bus to free */
 static int fsl_pq_mdio_reset(struct mii_bus *bus)
 {
 	struct fsl_pq_mdio __iomem *regs = fsl_pq_mdio_get_regs(bus);
@@ -120,13 +148,13 @@ static int fsl_pq_mdio_reset(struct mii_bus *bus)
 
 	mutex_lock(&bus->mdio_lock);
 
-	
+	/* Reset the management interface */
 	out_be32(&regs->miimcfg, MIIMCFG_RESET);
 
-	
+	/* Setup the MII Mgmt clock speed */
 	out_be32(&regs->miimcfg, MIIMCFG_INIT_VALUE);
 
-	
+	/* Wait until the bus is free */
 	while ((in_be32(&regs->miimind) & MIIMIND_BUSY) && timeout--)
 		cpu_relax();
 
@@ -161,6 +189,11 @@ static u32 __iomem *get_gfar_tbipa(struct fsl_pq_mdio __iomem *regs, struct devi
 #if defined(CONFIG_GIANFAR) || defined(CONFIG_GIANFAR_MODULE)
 	struct gfar __iomem *enet_regs;
 
+	/*
+	 * This is mildly evil, but so is our hardware for doing this.
+	 * Also, we have to cast back to struct gfar because of
+	 * definition weirdness done in gianfar.h.
+	 */
 	if(of_device_is_compatible(np, "fsl,gianfar-mdio") ||
 		of_device_is_compatible(np, "fsl,gianfar-tbi") ||
 		of_device_is_compatible(np, "gianfar")) {
@@ -188,9 +221,9 @@ static int get_ucc_id_for_range(u64 start, u64 end, u32 *ucc_id)
 		if (err)
 			continue;
 
-		
+		/* if our mdio regs fall within this UCC regs range */
 		if ((start >= tempres.start) && (end <= tempres.end)) {
-			
+			/* Find the id of the UCC */
 			const u32 *id;
 
 			id = of_get_property(np, "cell-index", NULL);
@@ -252,7 +285,7 @@ static int fsl_pq_mdio_probe(struct platform_device *ofdev)
 		goto err_free_bus;
 	}
 
-	
+	/* Set the PHY base address */
 	addr = of_translate_address(np, addrp);
 	if (addr == OF_BAD_ADDR) {
 		err = -EINVAL;

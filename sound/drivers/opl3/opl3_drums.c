@@ -25,24 +25,24 @@ extern char snd_opl3_regmap[MAX_OPL2_VOICES][4];
 
 static char snd_opl3_drum_table[47] =
 {
-	OPL3_BASSDRUM_ON,  OPL3_BASSDRUM_ON,  OPL3_HIHAT_ON,	
-	OPL3_SNAREDRUM_ON, OPL3_HIHAT_ON,     OPL3_SNAREDRUM_ON, 
-	OPL3_BASSDRUM_ON,  OPL3_HIHAT_ON,     OPL3_BASSDRUM_ON,	
-	OPL3_HIHAT_ON,     OPL3_TOMTOM_ON,    OPL3_HIHAT_ON,	
-	OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,    OPL3_CYMBAL_ON,	
+	OPL3_BASSDRUM_ON,  OPL3_BASSDRUM_ON,  OPL3_HIHAT_ON,	/* 35 - 37 */
+	OPL3_SNAREDRUM_ON, OPL3_HIHAT_ON,     OPL3_SNAREDRUM_ON, /* 38 - 40 */
+	OPL3_BASSDRUM_ON,  OPL3_HIHAT_ON,     OPL3_BASSDRUM_ON,	/* 41 - 43 */
+	OPL3_HIHAT_ON,     OPL3_TOMTOM_ON,    OPL3_HIHAT_ON,	/* 44 - 46 */
+	OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,    OPL3_CYMBAL_ON,	/* 47 - 49 */
 
-	OPL3_TOMTOM_ON,    OPL3_CYMBAL_ON,    OPL3_CYMBAL_ON,	
-	OPL3_CYMBAL_ON,    OPL3_CYMBAL_ON,    OPL3_CYMBAL_ON,	
-	OPL3_HIHAT_ON,     OPL3_CYMBAL_ON,    OPL3_TOMTOM_ON,	
-	OPL3_CYMBAL_ON,    OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,	
-	OPL3_HIHAT_ON,     OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,	
+	OPL3_TOMTOM_ON,    OPL3_CYMBAL_ON,    OPL3_CYMBAL_ON,	/* 50 - 52 */
+	OPL3_CYMBAL_ON,    OPL3_CYMBAL_ON,    OPL3_CYMBAL_ON,	/* 53 - 55 */
+	OPL3_HIHAT_ON,     OPL3_CYMBAL_ON,    OPL3_TOMTOM_ON,	/* 56 - 58 */
+	OPL3_CYMBAL_ON,    OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,	/* 59 - 61 */
+	OPL3_HIHAT_ON,     OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,	/* 62 - 64 */
 
-	OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,	
-	OPL3_TOMTOM_ON,    OPL3_HIHAT_ON,     OPL3_HIHAT_ON,	
-	OPL3_HIHAT_ON,     OPL3_HIHAT_ON,     OPL3_TOMTOM_ON,	
-	OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,	
-	OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,	
-	OPL3_CYMBAL_ON,    OPL3_CYMBAL_ON			
+	OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,	/* 65 - 67 */
+	OPL3_TOMTOM_ON,    OPL3_HIHAT_ON,     OPL3_HIHAT_ON,	/* 68 - 70 */
+	OPL3_HIHAT_ON,     OPL3_HIHAT_ON,     OPL3_TOMTOM_ON,	/* 71 - 73 */
+	OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,	/* 74 - 76 */
+	OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,    OPL3_TOMTOM_ON,	/* 77 - 79 */
+	OPL3_CYMBAL_ON,    OPL3_CYMBAL_ON			/* 80 - 81 */
 };
 
 struct snd_opl3_drum_voice {
@@ -77,6 +77,9 @@ static struct snd_opl3_drum_note tomtom_note = {8, 0xf4, 0x09};
 
 static struct snd_opl3_drum_voice cymbal = {8, 1, 0x04, 0x03, 0xf0, 0x06, 0x10, 0x00};
 
+/*
+ * set drum voice characteristics
+ */
 static void snd_opl3_drum_voice_set(struct snd_opl3 *opl3,
 				    struct snd_opl3_drum_voice *data)
 {
@@ -84,46 +87,52 @@ static void snd_opl3_drum_voice_set(struct snd_opl3 *opl3,
 	unsigned char voice_offset = data->voice;
 	unsigned short opl3_reg;
 	
-	 
+	/* Set OPL3 AM_VIB register */ 
 	opl3_reg = OPL3_LEFT | (OPL3_REG_AM_VIB + op_offset);
 	opl3->command(opl3, opl3_reg, data->am_vib);
 
-	 
+	/* Set OPL3 KSL_LEVEL register */ 
 	opl3_reg = OPL3_LEFT | (OPL3_REG_KSL_LEVEL + op_offset);
 	opl3->command(opl3, opl3_reg, data->ksl_level);
 
-	 
+	/* Set OPL3 ATTACK_DECAY register */ 
 	opl3_reg = OPL3_LEFT | (OPL3_REG_ATTACK_DECAY + op_offset);
 	opl3->command(opl3, opl3_reg, data->attack_decay);
 
-	 
+	/* Set OPL3 SUSTAIN_RELEASE register */ 
 	opl3_reg = OPL3_LEFT | (OPL3_REG_SUSTAIN_RELEASE + op_offset);
 	opl3->command(opl3, opl3_reg, data->sustain_release);
 
-	 
+	/* Set OPL3 FEEDBACK_CONNECTION register */ 
 	opl3_reg = OPL3_LEFT | (OPL3_REG_FEEDBACK_CONNECTION + voice_offset);
 	opl3->command(opl3, opl3_reg, data->feedback_connection);
 
-	
+	/* Select waveform */
 	opl3_reg = OPL3_LEFT | (OPL3_REG_WAVE_SELECT + op_offset);
 	opl3->command(opl3, opl3_reg, data->wave_select);
 }
 
+/*
+ * Set drum voice pitch
+ */
 static void snd_opl3_drum_note_set(struct snd_opl3 *opl3,
 				   struct snd_opl3_drum_note *data)
 {
 	unsigned char voice_offset = data->voice;
 	unsigned short opl3_reg;
 
-	 
+	/* Set OPL3 FNUM_LOW register */ 
 	opl3_reg = OPL3_LEFT | (OPL3_REG_FNUM_LOW + voice_offset);
 	opl3->command(opl3, opl3_reg, data->fnum);
 
-	 
+	/* Set OPL3 KEYON_BLOCK register */ 
 	opl3_reg = OPL3_LEFT | (OPL3_REG_KEYON_BLOCK + voice_offset);
 	opl3->command(opl3, opl3_reg, data->octave_f);
 }
 
+/*
+ * Set drum voice volume and position
+ */
 static void snd_opl3_drum_vol_set(struct snd_opl3 *opl3,
 				  struct snd_opl3_drum_voice *data,
 				  int vel, struct snd_midi_channel *chan)
@@ -133,14 +142,14 @@ static void snd_opl3_drum_vol_set(struct snd_opl3 *opl3,
 	unsigned char reg_val;
 	unsigned short opl3_reg;
 
-	 
+	/* Set OPL3 KSL_LEVEL register */ 
 	reg_val = data->ksl_level;
 	snd_opl3_calc_volume(&reg_val, vel, chan);
 	opl3_reg = OPL3_LEFT | (OPL3_REG_KSL_LEVEL + op_offset);
 	opl3->command(opl3, opl3_reg, reg_val);
 
-	 
-	
+	/* Set OPL3 FEEDBACK_CONNECTION register */ 
+	/* Set output voice connection */
 	reg_val = data->feedback_connection | OPL3_STEREO_BITS;
 	if (chan->gm_pan < 43)
 		reg_val &= ~OPL3_VOICE_TO_RIGHT;
@@ -150,6 +159,9 @@ static void snd_opl3_drum_vol_set(struct snd_opl3 *opl3,
 	opl3->command(opl3, opl3_reg, reg_val);
 }
 
+/*
+ * Loads drum voices at init time
+ */
 void snd_opl3_load_drums(struct snd_opl3 *opl3)
 {
 	snd_opl3_drum_voice_set(opl3, &bass_op0);
@@ -167,6 +179,9 @@ void snd_opl3_load_drums(struct snd_opl3 *opl3)
 	snd_opl3_drum_voice_set(opl3, &cymbal);
 }
 
+/*
+ * Switch drum voice on or off
+ */
 void snd_opl3_drum_switch(struct snd_opl3 *opl3, int note, int vel, int on_off,
 			  struct snd_midi_channel *chan)
 {

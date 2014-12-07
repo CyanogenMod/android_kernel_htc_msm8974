@@ -28,7 +28,14 @@
 #include <asm/mem_map.h>
 #include <asm/mmu_context.h>
 
+/*
+ * does not yet catch signals sent when the child dies.
+ * in exit.c or in signal.c.
+ */
 
+/*
+ * Get contents of register REGNO in task TASK.
+ */
 static inline long
 get_reg(struct task_struct *task, unsigned long regno,
 	unsigned long __user *datap)
@@ -63,6 +70,9 @@ get_reg(struct task_struct *task, unsigned long regno,
 	return put_user(tmp, datap);
 }
 
+/*
+ * Write contents of register REGNO in task TASK.
+ */
 static inline int
 put_reg(struct task_struct *task, unsigned long regno, unsigned long data)
 {
@@ -73,41 +83,44 @@ put_reg(struct task_struct *task, unsigned long regno, unsigned long data)
 
 	switch (regno) {
 	case PT_PC:
-		
-		
-		
-		
+		/*********************************************************************/
+		/* At this point the kernel is most likely in exception.             */
+		/* The RETX register will be used to populate the pc of the process. */
+		/*********************************************************************/
 		regs->retx = data;
 		regs->pc = data;
 		break;
 	case PT_RETX:
-		break;		
+		break;		/* regs->retx = data; break; */
 	case PT_USP:
 		regs->usp = data;
 		task->thread.usp = data;
 		break;
-	case PT_SYSCFG:	
+	case PT_SYSCFG:	/* don't let userspace screw with this */
 		if ((data & ~1) != 0x6)
 			pr_warning("ptrace: ignore syscfg write of %#lx\n", data);
-		break;		
+		break;		/* regs->syscfg = data; break; */
 	default:
 		if (regno < sizeof(*regs)) {
 			void *reg_offset = regs;
 			*(long *)(reg_offset + regno) = data;
 		}
-		
+		/* Ignore writes to pseudo registers */
 	}
 
 	return 0;
 }
 
+/*
+ * check that an address falls within the bounds of the target process's memory mappings
+ */
 int
 is_user_addr_valid(struct task_struct *child, unsigned long start, unsigned long len)
 {
 	struct vm_area_struct *vma;
 	struct sram_list_struct *sraml;
 
-	
+	/* overflow */
 	if (start + len < start)
 		return -EIO;
 
@@ -133,6 +146,9 @@ is_user_addr_valid(struct task_struct *child, unsigned long start, unsigned long
 	return -EIO;
 }
 
+/*
+ * retrieve the contents of Blackfin userspace general registers
+ */
 static int genregs_get(struct task_struct *target,
 		       const struct user_regset *regset,
 		       unsigned int pos, unsigned int count,
@@ -141,7 +157,7 @@ static int genregs_get(struct task_struct *target,
 	struct pt_regs *regs = task_pt_regs(target);
 	int ret;
 
-	
+	/* This sucks ... */
 	regs->usp = target->thread.usp;
 
 	ret = user_regset_copyout(&pos, &count, &kbuf, &ubuf,
@@ -153,6 +169,9 @@ static int genregs_get(struct task_struct *target,
 					sizeof(*regs), -1);
 }
 
+/*
+ * update the contents of the Blackfin userspace general registers
+ */
 static int genregs_set(struct task_struct *target,
 		       const struct user_regset *regset,
 		       unsigned int pos, unsigned int count,
@@ -161,20 +180,23 @@ static int genregs_set(struct task_struct *target,
 	struct pt_regs *regs = task_pt_regs(target);
 	int ret;
 
-	
+	/* Don't let people set SYSCFG (it's at the end of pt_regs) */
 	ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf,
 				 regs, 0, PT_SYSCFG);
 	if (ret < 0)
 		return ret;
 
-	
+	/* This sucks ... */
 	target->thread.usp = regs->usp;
-	
+	/* regs->retx = regs->pc; */
 
 	return user_regset_copyin_ignore(&pos, &count, &kbuf, &ubuf,
 					PT_SYSCFG, -1);
 }
 
+/*
+ * Define the register sets available on the Blackfin under Linux
+ */
 enum bfin_regset {
 	REGSET_GENERAL,
 };
@@ -226,11 +248,11 @@ long arch_ptrace(struct task_struct *child, long request,
 	void *paddr = (void *)addr;
 
 	switch (request) {
-		
+		/* when I and D space are separate, these will need to be fixed. */
 	case PTRACE_PEEKDATA:
 		pr_debug("ptrace: PEEKDATA\n");
-		
-	case PTRACE_PEEKTEXT:	
+		/* fall through */
+	case PTRACE_PEEKTEXT:	/* read word at location addr. */
 		{
 			unsigned long tmp = 0;
 			int copied = 0, to_copy = sizeof(tmp);
@@ -249,7 +271,7 @@ long arch_ptrace(struct task_struct *child, long request,
 				if (copied)
 					break;
 
-				
+				/* hrm, why didn't that work ... maybe no mapping */
 				if (addr >= FIXED_CODE_START &&
 				    addr + to_copy <= FIXED_CODE_END) {
 					copy_from_user_page(0, 0, 0, &tmp, paddr, to_copy);
@@ -279,11 +301,11 @@ long arch_ptrace(struct task_struct *child, long request,
 			break;
 		}
 
-		
+		/* when I and D space are separate, this will have to be fixed. */
 	case PTRACE_POKEDATA:
 		pr_debug("ptrace: PTRACE_PEEKDATA\n");
-		
-	case PTRACE_POKETEXT:	
+		/* fall through */
+	case PTRACE_POKETEXT:	/* write the word at location addr. */
 		{
 			int copied = 0, to_copy = sizeof(data);
 
@@ -321,7 +343,7 @@ long arch_ptrace(struct task_struct *child, long request,
 
 	case PTRACE_PEEKUSR:
 		switch (addr) {
-#ifdef CONFIG_BINFMT_ELF_FDPIC	
+#ifdef CONFIG_BINFMT_ELF_FDPIC	/* backwards compat */
 		case PT_FDPIC_EXEC:
 			request = PTRACE_GETFDPIC;
 			addr = PTRACE_GETFDPIC_EXEC;

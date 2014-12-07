@@ -14,11 +14,19 @@
 
 #include <plat/gpio-switch.h>
 
+/*
+ * OMAP35x EVM revision
+ * Run time detection of EVM revision is done by reading Ethernet
+ * PHY ID -
+ *	GEN_1	= 0x01150000
+ *	GEN_2	= 0x92200000
+ */
 enum {
-	OMAP3EVM_BOARD_GEN_1 = 0,	
-	OMAP3EVM_BOARD_GEN_2,		
+	OMAP3EVM_BOARD_GEN_1 = 0,	/* EVM Rev between  A - D */
+	OMAP3EVM_BOARD_GEN_2,		/* EVM Rev >= Rev E */
 };
 
+/* Different peripheral ids */
 #define OMAP_TAG_CLOCK		0x4f01
 #define OMAP_TAG_GPIO_SWITCH	0x4f06
 #define OMAP_TAG_STI_CONSOLE	0x4f09
@@ -29,7 +37,7 @@ enum {
 #define OMAP_TAG_VERSION_STR	0x4f82
 
 struct omap_clock_config {
-	
+	/* 0 for 12 MHz, 1 for 13 MHz and 2 for 19.2 MHz */
 	u8 system_clock_type;
 };
 
@@ -50,15 +58,30 @@ struct omap_camera_sensor_config {
 };
 
 struct omap_usb_config {
+	/* Configure drivers according to the connectors on your board:
+	 *  - "A" connector (rectagular)
+	 *	... for host/OHCI use, set "register_host".
+	 *  - "B" connector (squarish) or "Mini-B"
+	 *	... for device/gadget use, set "register_dev".
+	 *  - "Mini-AB" connector (very similar to Mini-B)
+	 *	... for OTG use as device OR host, initialize "otg"
+	 */
 	unsigned	register_host:1;
 	unsigned	register_dev:1;
-	u8		otg;	
+	u8		otg;	/* port number, 1-based:  usb1 == 2 */
 
 	u8		hmc_mode;
 
-	
+	/* implicitly true if otg:  host supports remote wakeup? */
 	u8		rwc;
 
+	/* signaling pins used to talk to transceiver on usbN:
+	 *  0 == usbN unused
+	 *  2 == usb0-only, using internal transceiver
+	 *  3 == 3 wire bidirectional
+	 *  4 == 4 wire bidirectional
+	 *  6 == 6 wire unidirectional (or TLL)
+	 */
 	u8		pins[3];
 
 	struct platform_device *udc_device;
@@ -97,7 +120,7 @@ struct omap_pwm_led_platform_data {
 };
 
 struct omap_uart_config {
-	
+	/* Bit field of UARTs present; bit 0 --> UART1 */
 	unsigned int enabled_uarts;
 };
 
@@ -139,8 +162,10 @@ extern struct omap_board_config_kernel *omap_board_config;
 extern int omap_board_config_size;
 
 
+/* for TI reference platforms sharing the same debug card */
 extern int debug_card_init(u32 addr, unsigned gpio);
 
+/* OMAP3EVM revision */
 #if defined(CONFIG_MACH_OMAP3EVM)
 u8 get_omap3_evm_rev(void);
 #else

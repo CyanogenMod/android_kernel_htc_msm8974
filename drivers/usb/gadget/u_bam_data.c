@@ -71,6 +71,7 @@ struct bam_data_port *bam2bam_data_ports[BAM2BAM_DATA_N_PORTS];
 static void bam2bam_data_suspend_work(struct work_struct *w);
 static void bam2bam_data_resume_work(struct work_struct *w);
 
+/*------------data_path----------------------------*/
 
 static void bam_data_endless_rx_complete(struct usb_ep *ep,
 					 struct usb_request *req)
@@ -154,20 +155,20 @@ static int bam_data_peer_reset_cb(void *param)
 
 	pr_debug("%s: reset by peer\n", __func__);
 
-	
+	/* Disable BAM */
 	msm_hw_bam_disable(1);
 
-	
+	/* Reset BAM */
 	ret = usb_bam_a2_reset(0);
 	if (ret) {
 		pr_err("%s: BAM reset failed %d\n", __func__, ret);
 		return ret;
 	}
 
-	
+	/* Enable BAM */
 	msm_hw_bam_disable(0);
 
-	
+	/* Unregister the peer reset callback */
 	usb_bam_register_peer_reset_cb(NULL, NULL);
 
 	return 0;
@@ -270,7 +271,7 @@ static void bam2bam_data_connect_work(struct work_struct *w)
 				return;
 			}
 		}
-	} else { 
+	} else { /* transport type is USB_GADGET_XPORT_BAM2BAM */
 		usb_bam_reset_complete();
 		ret = usb_bam_connect(d->src_connection_idx, &d->src_pipe_idx);
 		if (ret) {
@@ -317,11 +318,11 @@ static void bam2bam_data_connect_work(struct work_struct *w)
 				 MSM_VENDOR_ID) & ~SPS_PARAMS_TBE;
 	d->tx_req->udc_priv = sps_params;
 
-	
+	/* queue in & out requests */
 	bam_data_start_endless_rx(port);
 	bam_data_start_endless_tx(port);
 
-	
+	/* Register for peer reset callback if USB_GADGET_XPORT_BAM2BAM */
 	if (d->trans != USB_GADGET_XPORT_BAM2BAM_IPA) {
 		usb_bam_register_peer_reset_cb(bam_data_peer_reset_cb, port);
 
@@ -358,7 +359,7 @@ static int bam2bam_data_port_alloc(int portno)
 	INIT_WORK(&port->suspend_w, bam2bam_data_suspend_work);
 	INIT_WORK(&port->resume_w, bam2bam_data_resume_work);
 
-	
+	/* data ch */
 	d = &port->data_ch;
 	d->port = port;
 	bam2bam_data_ports[portno] = port;
@@ -389,7 +390,7 @@ void bam_data_disconnect(struct data_port *gr, u8 port_num)
 
 	if (port->port_usb && port->port_usb->in &&
 	  port->port_usb->in->driver_data) {
-		
+		/* disable endpoints */
 		usb_ep_disable(port->port_usb->out);
 		usb_ep_disable(port->port_usb->in);
 

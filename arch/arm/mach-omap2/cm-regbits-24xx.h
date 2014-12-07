@@ -14,7 +14,9 @@
  * published by the Free Software Foundation.
  */
 
+/* Bits shared between registers */
 
+/* CM_FCLKEN1_CORE and CM_ICLKEN1_CORE shared bits */
 #define OMAP24XX_EN_CAM_SHIFT				31
 #define OMAP24XX_EN_CAM_MASK				(1 << 31)
 #define OMAP24XX_EN_WDT4_SHIFT				29
@@ -34,6 +36,7 @@
 #define OMAP2420_EN_I2C1_SHIFT				19
 #define OMAP2420_EN_I2C1_MASK				(1 << 19)
 
+/* CM_FCLKEN2_CORE and CM_ICLKEN2_CORE shared bits */
 #define OMAP2430_EN_MCBSP5_SHIFT			5
 #define OMAP2430_EN_MCBSP5_MASK				(1 << 5)
 #define OMAP2430_EN_MCBSP4_SHIFT			4
@@ -43,18 +46,25 @@
 #define OMAP24XX_EN_SSI_SHIFT				1
 #define OMAP24XX_EN_SSI_MASK				(1 << 1)
 
+/* CM_FCLKEN_WKUP and CM_ICLKEN_WKUP shared bits */
 #define OMAP24XX_EN_MPU_WDT_SHIFT			3
 #define OMAP24XX_EN_MPU_WDT_MASK			(1 << 3)
 
+/* Bits specific to each register */
 
+/* CM_IDLEST_MPU */
+/* 2430 only */
 #define OMAP2430_ST_MPU_MASK				(1 << 0)
 
+/* CM_CLKSEL_MPU */
 #define OMAP24XX_CLKSEL_MPU_SHIFT			0
 #define OMAP24XX_CLKSEL_MPU_MASK			(0x1f << 0)
 
+/* CM_CLKSTCTRL_MPU */
 #define OMAP24XX_AUTOSTATE_MPU_SHIFT			0
 #define OMAP24XX_AUTOSTATE_MPU_MASK			(1 << 0)
 
+/* CM_FCLKEN1_CORE specific bits*/
 #define OMAP24XX_EN_TV_SHIFT				2
 #define OMAP24XX_EN_TV_MASK				(1 << 2)
 #define OMAP24XX_EN_DSS2_SHIFT				1
@@ -62,6 +72,7 @@
 #define OMAP24XX_EN_DSS1_SHIFT				0
 #define OMAP24XX_EN_DSS1_MASK				(1 << 0)
 
+/* CM_FCLKEN2_CORE specific bits */
 #define OMAP2430_EN_I2CHS2_SHIFT			20
 #define OMAP2430_EN_I2CHS2_MASK				(1 << 20)
 #define OMAP2430_EN_I2CHS1_SHIFT			19
@@ -71,15 +82,20 @@
 #define OMAP2430_EN_MMCHSDB1_SHIFT			16
 #define OMAP2430_EN_MMCHSDB1_MASK			(1 << 16)
 
+/* CM_ICLKEN1_CORE specific bits */
 #define OMAP24XX_EN_MAILBOXES_SHIFT			30
 #define OMAP24XX_EN_MAILBOXES_MASK			(1 << 30)
 #define OMAP24XX_EN_DSS_SHIFT				0
 #define OMAP24XX_EN_DSS_MASK				(1 << 0)
 
+/* CM_ICLKEN2_CORE specific bits */
 
+/* CM_ICLKEN3_CORE */
+/* 2430 only */
 #define OMAP2430_EN_SDRC_SHIFT				2
 #define OMAP2430_EN_SDRC_MASK				(1 << 2)
 
+/* CM_ICLKEN4_CORE */
 #define OMAP24XX_EN_PKA_SHIFT				4
 #define OMAP24XX_EN_PKA_MASK				(1 << 4)
 #define OMAP24XX_EN_AES_SHIFT				3
@@ -91,6 +107,7 @@
 #define OMAP24XX_EN_DES_SHIFT				0
 #define OMAP24XX_EN_DES_MASK				(1 << 0)
 
+/* CM_IDLEST1_CORE specific bits */
 #define OMAP24XX_ST_MAILBOXES_SHIFT			30
 #define OMAP24XX_ST_MAILBOXES_MASK			(1 << 30)
 #define OMAP24XX_ST_WDT4_SHIFT				29
@@ -120,6 +137,7 @@
 #define OMAP24XX_ST_DSS_SHIFT				0
 #define OMAP24XX_ST_DSS_MASK				(1 << 0)
 
+/* CM_IDLEST2_CORE */
 #define OMAP2430_ST_MCBSP5_SHIFT			5
 #define OMAP2430_ST_MCBSP5_MASK				(1 << 5)
 #define OMAP2430_ST_MCBSP4_SHIFT			4
@@ -129,8 +147,11 @@
 #define OMAP24XX_ST_SSI_SHIFT				1
 #define OMAP24XX_ST_SSI_MASK				(1 << 1)
 
+/* CM_IDLEST3_CORE */
+/* 2430 only */
 #define OMAP2430_ST_SDRC_MASK				(1 << 2)
 
+/* CM_IDLEST4_CORE */
 #define OMAP24XX_ST_PKA_SHIFT				4
 #define OMAP24XX_ST_PKA_MASK				(1 << 4)
 #define OMAP24XX_ST_AES_SHIFT				3
@@ -142,6 +163,7 @@
 #define OMAP24XX_ST_DES_SHIFT				0
 #define OMAP24XX_ST_DES_MASK				(1 << 0)
 
+/* CM_AUTOIDLE1_CORE */
 #define OMAP24XX_AUTO_CAM_MASK				(1 << 31)
 #define OMAP24XX_AUTO_MAILBOXES_MASK			(1 << 30)
 #define OMAP24XX_AUTO_WDT4_MASK				(1 << 29)
@@ -173,6 +195,7 @@
 #define OMAP2420_AUTO_VLYNQ_MASK			(1 << 3)
 #define OMAP24XX_AUTO_DSS_MASK				(1 << 0)
 
+/* CM_AUTOIDLE2_CORE */
 #define OMAP2430_AUTO_MDM_INTC_MASK			(1 << 11)
 #define OMAP2430_AUTO_GPIO5_MASK			(1 << 10)
 #define OMAP2430_AUTO_MCSPI3_MASK			(1 << 9)
@@ -186,6 +209,7 @@
 #define OMAP24XX_AUTO_SSI_MASK				(1 << 1)
 #define OMAP24XX_AUTO_USB_MASK				(1 << 0)
 
+/* CM_AUTOIDLE3_CORE */
 #define OMAP24XX_AUTO_SDRC_SHIFT			2
 #define OMAP24XX_AUTO_SDRC_MASK				(1 << 2)
 #define OMAP24XX_AUTO_GPMC_SHIFT			1
@@ -193,12 +217,14 @@
 #define OMAP24XX_AUTO_SDMA_SHIFT			0
 #define OMAP24XX_AUTO_SDMA_MASK				(1 << 0)
 
+/* CM_AUTOIDLE4_CORE */
 #define OMAP24XX_AUTO_PKA_MASK				(1 << 4)
 #define OMAP24XX_AUTO_AES_MASK				(1 << 3)
 #define OMAP24XX_AUTO_RNG_MASK				(1 << 2)
 #define OMAP24XX_AUTO_SHA_MASK				(1 << 1)
 #define OMAP24XX_AUTO_DES_MASK				(1 << 0)
 
+/* CM_CLKSEL1_CORE */
 #define OMAP24XX_CLKSEL_USB_SHIFT			25
 #define OMAP24XX_CLKSEL_USB_MASK			(0x7 << 25)
 #define OMAP24XX_CLKSEL_SSI_SHIFT			20
@@ -214,6 +240,7 @@
 #define OMAP24XX_CLKSEL_L3_SHIFT			0
 #define OMAP24XX_CLKSEL_L3_MASK				(0x1f << 0)
 
+/* CM_CLKSEL2_CORE */
 #define OMAP24XX_CLKSEL_GPT12_SHIFT			22
 #define OMAP24XX_CLKSEL_GPT12_MASK			(0x3 << 22)
 #define OMAP24XX_CLKSEL_GPT11_SHIFT			20
@@ -237,6 +264,7 @@
 #define OMAP24XX_CLKSEL_GPT2_SHIFT			2
 #define OMAP24XX_CLKSEL_GPT2_MASK			(0x3 << 2)
 
+/* CM_CLKSTCTRL_CORE */
 #define OMAP24XX_AUTOSTATE_DSS_SHIFT			2
 #define OMAP24XX_AUTOSTATE_DSS_MASK			(1 << 2)
 #define OMAP24XX_AUTOSTATE_L4_SHIFT			1
@@ -244,18 +272,25 @@
 #define OMAP24XX_AUTOSTATE_L3_SHIFT			0
 #define OMAP24XX_AUTOSTATE_L3_MASK			(1 << 0)
 
+/* CM_FCLKEN_GFX */
 #define OMAP24XX_EN_3D_SHIFT				2
 #define OMAP24XX_EN_3D_MASK				(1 << 2)
 #define OMAP24XX_EN_2D_SHIFT				1
 #define OMAP24XX_EN_2D_MASK				(1 << 1)
 
+/* CM_ICLKEN_GFX specific bits */
 
+/* CM_IDLEST_GFX specific bits */
 
+/* CM_CLKSEL_GFX specific bits */
 
+/* CM_CLKSTCTRL_GFX */
 #define OMAP24XX_AUTOSTATE_GFX_SHIFT			0
 #define OMAP24XX_AUTOSTATE_GFX_MASK			(1 << 0)
 
+/* CM_FCLKEN_WKUP specific bits */
 
+/* CM_ICLKEN_WKUP specific bits */
 #define OMAP2430_EN_ICR_SHIFT				6
 #define OMAP2430_EN_ICR_MASK				(1 << 6)
 #define OMAP24XX_EN_OMAPCTRL_SHIFT			5
@@ -265,6 +300,7 @@
 #define OMAP24XX_EN_32KSYNC_SHIFT			1
 #define OMAP24XX_EN_32KSYNC_MASK			(1 << 1)
 
+/* CM_IDLEST_WKUP specific bits */
 #define OMAP2430_ST_ICR_SHIFT				6
 #define OMAP2430_ST_ICR_MASK				(1 << 6)
 #define OMAP24XX_ST_OMAPCTRL_SHIFT			5
@@ -276,6 +312,7 @@
 #define OMAP24XX_ST_32KSYNC_SHIFT			1
 #define OMAP24XX_ST_32KSYNC_MASK			(1 << 1)
 
+/* CM_AUTOIDLE_WKUP */
 #define OMAP24XX_AUTO_OMAPCTRL_MASK			(1 << 5)
 #define OMAP24XX_AUTO_WDT1_MASK				(1 << 4)
 #define OMAP24XX_AUTO_MPU_WDT_MASK			(1 << 3)
@@ -283,9 +320,11 @@
 #define OMAP24XX_AUTO_32KSYNC_MASK			(1 << 1)
 #define OMAP24XX_AUTO_GPT1_MASK				(1 << 0)
 
+/* CM_CLKSEL_WKUP */
 #define OMAP24XX_CLKSEL_GPT1_SHIFT			0
 #define OMAP24XX_CLKSEL_GPT1_MASK			(0x3 << 0)
 
+/* CM_CLKEN_PLL */
 #define OMAP24XX_EN_54M_PLL_SHIFT			6
 #define OMAP24XX_EN_54M_PLL_MASK			(0x3 << 6)
 #define OMAP24XX_EN_96M_PLL_SHIFT			2
@@ -293,6 +332,7 @@
 #define OMAP24XX_EN_DPLL_SHIFT				0
 #define OMAP24XX_EN_DPLL_MASK				(0x3 << 0)
 
+/* CM_IDLEST_CKGEN */
 #define OMAP24XX_ST_54M_APLL_MASK			(1 << 9)
 #define OMAP24XX_ST_96M_APLL_MASK			(1 << 8)
 #define OMAP24XX_ST_54M_CLK_MASK			(1 << 6)
@@ -302,6 +342,7 @@
 #define OMAP24XX_ST_CORE_CLK_SHIFT			0
 #define OMAP24XX_ST_CORE_CLK_MASK			(0x3 << 0)
 
+/* CM_AUTOIDLE_PLL */
 #define OMAP24XX_AUTO_54M_SHIFT				6
 #define OMAP24XX_AUTO_54M_MASK				(0x3 << 6)
 #define OMAP24XX_AUTO_96M_SHIFT				2
@@ -309,6 +350,7 @@
 #define OMAP24XX_AUTO_DPLL_SHIFT			0
 #define OMAP24XX_AUTO_DPLL_MASK				(0x3 << 0)
 
+/* CM_CLKSEL1_PLL */
 #define OMAP2430_MAXDPLLFASTLOCK_SHIFT			28
 #define OMAP2430_MAXDPLLFASTLOCK_MASK			(0x7 << 28)
 #define OMAP24XX_APLLS_CLKIN_SHIFT			23
@@ -326,9 +368,11 @@
 #define OMAP2430_ALTCLK_SOURCE_SHIFT			0
 #define OMAP2430_ALTCLK_SOURCE_MASK			(0x7 << 0)
 
+/* CM_CLKSEL2_PLL */
 #define OMAP24XX_CORE_CLK_SRC_SHIFT			0
 #define OMAP24XX_CORE_CLK_SRC_MASK			(0x3 << 0)
 
+/* CM_FCLKEN_DSP */
 #define OMAP2420_EN_IVA_COP_SHIFT			10
 #define OMAP2420_EN_IVA_COP_MASK			(1 << 10)
 #define OMAP2420_EN_IVA_MPU_SHIFT			8
@@ -336,15 +380,19 @@
 #define OMAP24XX_CM_FCLKEN_DSP_EN_DSP_SHIFT		0
 #define OMAP24XX_CM_FCLKEN_DSP_EN_DSP_MASK		(1 << 0)
 
+/* CM_ICLKEN_DSP */
 #define OMAP2420_EN_DSP_IPI_SHIFT			1
 #define OMAP2420_EN_DSP_IPI_MASK			(1 << 1)
 
+/* CM_IDLEST_DSP */
 #define OMAP2420_ST_IVA_MASK				(1 << 8)
 #define OMAP2420_ST_IPI_MASK				(1 << 1)
 #define OMAP24XX_ST_DSP_MASK				(1 << 0)
 
+/* CM_AUTOIDLE_DSP */
 #define OMAP2420_AUTO_DSP_IPI_MASK			(1 << 1)
 
+/* CM_CLKSEL_DSP */
 #define OMAP2420_SYNC_IVA_MASK				(1 << 13)
 #define OMAP2420_CLKSEL_IVA_SHIFT			8
 #define OMAP2420_CLKSEL_IVA_MASK			(0x1f << 8)
@@ -354,28 +402,42 @@
 #define OMAP24XX_CLKSEL_DSP_SHIFT			0
 #define OMAP24XX_CLKSEL_DSP_MASK			(0x1f << 0)
 
+/* CM_CLKSTCTRL_DSP */
 #define OMAP2420_AUTOSTATE_IVA_SHIFT			8
 #define OMAP2420_AUTOSTATE_IVA_MASK			(1 << 8)
 #define OMAP24XX_AUTOSTATE_DSP_SHIFT			0
 #define OMAP24XX_AUTOSTATE_DSP_MASK			(1 << 0)
 
+/* CM_FCLKEN_MDM */
+/* 2430 only */
 #define OMAP2430_EN_OSC_SHIFT				1
 #define OMAP2430_EN_OSC_MASK				(1 << 1)
 
+/* CM_ICLKEN_MDM */
+/* 2430 only */
 #define OMAP2430_CM_ICLKEN_MDM_EN_MDM_SHIFT		0
 #define OMAP2430_CM_ICLKEN_MDM_EN_MDM_MASK		(1 << 0)
 
+/* CM_IDLEST_MDM specific bits */
+/* 2430 only */
 
+/* CM_AUTOIDLE_MDM */
+/* 2430 only */
 #define OMAP2430_AUTO_OSC_MASK				(1 << 1)
 #define OMAP2430_AUTO_MDM_MASK				(1 << 0)
 
+/* CM_CLKSEL_MDM */
+/* 2430 only */
 #define OMAP2430_SYNC_MDM_MASK				(1 << 4)
 #define OMAP2430_CLKSEL_MDM_SHIFT			0
 #define OMAP2430_CLKSEL_MDM_MASK			(0xf << 0)
 
+/* CM_CLKSTCTRL_MDM */
+/* 2430 only */
 #define OMAP2430_AUTOSTATE_MDM_SHIFT			0
 #define OMAP2430_AUTOSTATE_MDM_MASK			(1 << 0)
 
+/* OMAP24XX CM_CLKSTCTRL_*.AUTOSTATE_* register bit values */
 #define OMAP24XX_CLKSTCTRL_DISABLE_AUTO		0x0
 #define OMAP24XX_CLKSTCTRL_ENABLE_AUTO		0x1
 

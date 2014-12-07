@@ -109,11 +109,11 @@ static struct iscsi_transport cxgb4i_iscsi_transport = {
 	.attr_is_visible	= cxgbi_attr_is_visible,
 	.get_host_param	= cxgbi_get_host_param,
 	.set_host_param	= cxgbi_set_host_param,
-	
+	/* session management */
 	.create_session	= cxgbi_create_session,
 	.destroy_session	= cxgbi_destroy_session,
 	.get_session_param = iscsi_session_get_param,
-	
+	/* connection management */
 	.create_conn	= cxgbi_create_conn,
 	.bind_conn		= cxgbi_bind_conn,
 	.destroy_conn	= iscsi_tcp_conn_teardown,
@@ -122,28 +122,34 @@ static struct iscsi_transport cxgb4i_iscsi_transport = {
 	.get_conn_param	= iscsi_conn_get_param,
 	.set_param	= cxgbi_set_conn_param,
 	.get_stats	= cxgbi_get_conn_stats,
-	
+	/* pdu xmit req from user space */
 	.send_pdu	= iscsi_conn_send_pdu,
-	
+	/* task */
 	.init_task	= iscsi_tcp_task_init,
 	.xmit_task	= iscsi_tcp_task_xmit,
 	.cleanup_task	= cxgbi_cleanup_task,
-	
+	/* pdu */
 	.alloc_pdu	= cxgbi_conn_alloc_pdu,
 	.init_pdu	= cxgbi_conn_init_pdu,
 	.xmit_pdu	= cxgbi_conn_xmit_pdu,
 	.parse_pdu_itt	= cxgbi_parse_pdu_itt,
-	
+	/* TCP connect/disconnect */
 	.get_ep_param	= cxgbi_get_ep_param,
 	.ep_connect	= cxgbi_ep_connect,
 	.ep_poll	= cxgbi_ep_poll,
 	.ep_disconnect	= cxgbi_ep_disconnect,
-	
+	/* Error recovery timeout call */
 	.session_recovery_timedout = iscsi_session_recovery_timedout,
 };
 
 static struct scsi_transport_template *cxgb4i_stt;
 
+/*
+ * CPL (Chelsio Protocol Language) defines a message passing interface between
+ * the host driver and Chelsio asic.
+ * The section below implments CPLs that related to iscsi tcp connection
+ * open/close/abort and data send/receive.
+ */
 #define DIV_ROUND_UP(n, d)	(((n) + (d) - 1) / (d))
 #define RCV_BUFSIZ_MASK		0x3FFU
 #define MAX_IMM_TX_PKT_LEN	128
@@ -156,6 +162,13 @@ static inline void set_queue(struct sk_buff *skb, unsigned int queue,
 
 static int push_tx_frames(struct cxgbi_sock *, int);
 
+/*
+ * is_ofld_imm - check whether a packet can be sent as immediate data
+ * @skb: the packet
+ *
+ * Returns true if a packet can be sent as an offload WR with immediate
+ * data.  We currently use the same limit as for Ethernet packets.
+ */
 static inline int is_ofld_imm(const struct sk_buff *skb)
 {
 	return skb->len <= (MAX_IMM_TX_PKT_LEN -
@@ -287,6 +300,11 @@ static void send_abort_rpl(struct cxgbi_sock *csk, int rst_status)
 	cxgb4_ofld_send(csk->cdev->ports[csk->port_id], skb);
 }
 
+/*
+ * CPL connection rx data ack: host ->
+ * Send RX credits through an RX_DATA_ACK CPL message. Returns the number of
+ * credits sent.
+ */
 static u32 send_rx_credits(struct cxgbi_sock *csk, u32 credits)
 {
 	struct sk_buff *skb;
@@ -312,12 +330,26 @@ static u32 send_rx_credits(struct cxgbi_sock *csk, u32 credits)
 	return credits;
 }
 
+/*
+ * sgl_len - calculates the size of an SGL of the given capacity
+ * @n: the number of SGL entries
+ * Calculates the number of flits needed for a scatter/gather list that
+ * can hold the given number of entries.
+ */
 static inline unsigned int sgl_len(unsigned int n)
 {
 	n--;
 	return (3 * n) / 2 + (n & 1) + 2;
 }
 
+/*
+ * calc_tx_flits_ofld - calculate # of flits for an offload packet
+ * @skb: the packet
+ *
+ * Returns the number of flits needed for the given offload packet.
+ * These packets are already fully constructed and no additional headers
+ * will be added.
+ */
 static inline unsigned int calc_tx_flits_ofld(const struct sk_buff *skb)
 {
 	unsigned int flits, cnt;
@@ -546,6 +578,10 @@ static void do_act_establish(struct cxgbi_device *cdev, struct sk_buff *skb)
 	}
 
 	csk->copied_seq = csk->rcv_wup = csk->rcv_nxt = rcv_isn;
+	/*
+	 * Causes the first RX_DATA_ACK to supply any Rx credits we couldn't
+	 * pass through opt0.
+	 */
 	if (cxgb4i_rcv_win > (RCV_BUFSIZ_MASK << 10))
 		csk->rcv_wup -= cxgb4i_rcv_win - (RCV_BUFSIZ_MASK << 10);
 
@@ -709,7 +745,7 @@ static int abort_status_to_errno(struct cxgbi_sock *csk, int abort_reason,
 								int *need_rst)
 {
 	switch (abort_reason) {
-	case CPL_ERR_BAD_SYN: 
+	case CPL_ERR_BAD_SYN: /* fall through */
 	case CPL_ERR_CONN_RESET:
 		return csk->state > CTP_ESTABLISHED ?
 			-EPIPE : -ECONNRESET;
@@ -1128,7 +1164,7 @@ static int init_act_open(struct cxgbi_sock *csk)
 		csk->mtu = dst_mtu(csk->dst);
 	cxgb4_best_mtu(lldi->mtus, csk->mtu, &csk->mss_idx);
 	csk->tx_chan = cxgb4_port_chan(ndev);
-	
+	/* SMT two entries per row */
 	csk->smac_idx = ((cxgb4_port_viid(ndev) & 0x7F)) << 1;
 	step = lldi->ntxq / lldi->nchan;
 	csk->txq_idx = cxgb4_port_idx(ndev) * step;
@@ -1191,7 +1227,10 @@ int cxgb4i_ofld_init(struct cxgbi_device *cdev)
 	return 0;
 }
 
-#define ULPMEM_IDATA_MAX_NPPODS	4 
+/*
+ * functions to program the pagepod in h/w
+ */
+#define ULPMEM_IDATA_MAX_NPPODS	4 /* 256/PPOD_SIZE */
 static inline void ulp_mem_io_set_hdr(struct ulp_mem_io *req,
 				unsigned int wr_len, unsigned int dlen,
 				unsigned int pm_addr)
@@ -1298,7 +1337,7 @@ static int ddp_setup_conn_pgidx(struct cxgbi_sock *csk, unsigned int tid,
 	if (!skb)
 		return -ENOMEM;
 
-	
+	/*  set up ulp page size */
 	req = (struct cpl_set_tcb_field *)skb->head;
 	INIT_TP_WR(req, csk->tid);
 	OPCODE_TID(req) = htonl(MK_OPCODE_TID(CPL_SET_TCB_FIELD, csk->tid));
@@ -1330,7 +1369,7 @@ static int ddp_setup_conn_digest(struct cxgbi_sock *csk, unsigned int tid,
 
 	csk->hcrc_len = (hcrc ? 4 : 0);
 	csk->dcrc_len = (dcrc ? 4 : 0);
-	
+	/*  set up ulp submode */
 	req = (struct cpl_set_tcb_field *)skb->head;
 	INIT_TP_WR(req, tid);
 	OPCODE_TID(req) = htonl(MK_OPCODE_TID(CPL_SET_TCB_FIELD, tid));
@@ -1511,11 +1550,11 @@ static int t4_uld_state_change(void *handle, enum cxgb4_state state)
 	switch (state) {
 	case CXGB4_STATE_UP:
 		pr_info("cdev 0x%p, UP.\n", cdev);
-		
+		/* re-initialize */
 		break;
 	case CXGB4_STATE_START_RECOVERY:
 		pr_info("cdev 0x%p, RECOVERY.\n", cdev);
-		
+		/* close all connections */
 		break;
 	case CXGB4_STATE_DOWN:
 		pr_info("cdev 0x%p, DOWN.\n", cdev);

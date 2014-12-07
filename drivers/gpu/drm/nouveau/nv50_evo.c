@@ -56,13 +56,13 @@ nv50_evo_dmaobj_init(struct nouveau_gpuobj *obj, u32 memtype, u64 base, u64 size
 	u32 flags5;
 
 	if (dev_priv->chipset < 0xc0) {
-		
+		/* not supported on 0x50, specified in format mthd */
 		if (dev_priv->chipset == 0x50)
 			memtype = 0;
 		flags5 = 0x00010000;
 	} else {
 		if (memtype & 0x80000000)
-			flags5 = 0x00000000; 
+			flags5 = 0x00000000; /* large pages */
 		else
 			flags5 = 0x00020000;
 	}
@@ -142,7 +142,7 @@ nv50_evo_channel_new(struct drm_device *dev, int chid,
 		return -ENOMEM;
 	}
 
-	
+	/* bind primary evo channel's ramht to the channel */
 	if (disp->master && evo != disp->master)
 		nouveau_ramht_ref(disp->master->ramht, &evo->ramht, NULL);
 
@@ -165,7 +165,7 @@ nv50_evo_channel_init(struct nouveau_channel *evo)
 	if ((tmp & 0x003f0000) == 0x00030000)
 		nv_wr32(dev, NV50_PDISPLAY_EVO_CTRL(id), tmp | 0x00600000);
 
-	
+	/* initialise fifo */
 	nv_wr32(dev, NV50_PDISPLAY_EVO_DMA_CB(id), pushbuf >> 8 |
 		     NV50_PDISPLAY_EVO_DMA_CB_LOCATION_VRAM |
 		     NV50_PDISPLAY_EVO_DMA_CB_VALID);
@@ -183,7 +183,7 @@ nv50_evo_channel_init(struct nouveau_channel *evo)
 		return -EBUSY;
 	}
 
-	
+	/* enable error reporting on the channel */
 	nv_mask(dev, 0x610028, 0x00000000, 0x00010001 << id);
 
 	evo->dma.max = (4096/4) - 2;
@@ -244,11 +244,18 @@ nv50_evo_create(struct drm_device *dev)
 	struct nouveau_channel *evo;
 	int ret, i, j;
 
+	/* create primary evo channel, the one we use for modesetting
+	 * purporses
+	 */
 	ret = nv50_evo_channel_new(dev, 0, &disp->master);
 	if (ret)
 		return ret;
 	evo = disp->master;
 
+	/* setup object management on it, any other evo channel will
+	 * use this also as there's no per-channel support on the
+	 * hardware
+	 */
 	ret = nouveau_gpuobj_new(dev, NULL, 32768, 65536,
 				 NVOBJ_FLAG_ZERO_ALLOC, &evo->ramin);
 	if (ret) {
@@ -273,6 +280,14 @@ nv50_evo_create(struct drm_device *dev)
 	if (ret)
 		goto err;
 
+	/* not sure exactly what this is..
+	 *
+	 * the first dword of the structure is used by nvidia to wait on
+	 * full completion of an EVO "update" command.
+	 *
+	 * method 0x8c on the master evo channel will fill a lot more of
+	 * this structure with some undefined info
+	 */
 	ret = nouveau_gpuobj_new(dev, disp->master, 0x1000, 0,
 				 NVOBJ_FLAG_ZERO_ALLOC, &disp->ntfy);
 	if (ret)
@@ -283,7 +298,7 @@ nv50_evo_create(struct drm_device *dev)
 	if (ret)
 		goto err;
 
-	
+	/* create some default objects for the scanout memtypes we support */
 	ret = nv50_evo_dmaobj_new(disp->master, NvEvoVRAM, 0x0000,
 				  0, dev_priv->vram_size, NULL);
 	if (ret)
@@ -306,6 +321,9 @@ nv50_evo_create(struct drm_device *dev)
 	if (ret)
 		goto err;
 
+	/* create "display sync" channels and other structures we need
+	 * to implement page flipping
+	 */
 	for (i = 0; i < 2; i++) {
 		struct nv50_display_crtc *dispc = &disp->crtc[i];
 		u64 offset;

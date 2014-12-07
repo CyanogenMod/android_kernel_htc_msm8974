@@ -1,3 +1,10 @@
+/*
+ * linux/arch/arm/mach-footbridge/netwinder-pci.c
+ *
+ * PCI bios-type initialisation for PCI machines
+ *
+ * Bits taken from various places.
+ */
 #include <linux/kernel.h>
 #include <linux/pci.h>
 #include <linux/init.h>
@@ -6,22 +13,26 @@
 #include <asm/mach/pci.h>
 #include <asm/mach-types.h>
 
+/*
+ * We now use the slot ID instead of the device identifiers to select
+ * which interrupt is routed where.
+ */
 static int __init netwinder_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	switch (slot) {
-	case 0:  
+	case 0:  /* host bridge */
 		return 0;
 
-	case 9:  
+	case 9:  /* CyberPro */
 		return IRQ_NETWINDER_VGA;
 
-	case 10: 
+	case 10: /* DC21143 */
 		return IRQ_NETWINDER_ETHER100;
 
-	case 12: 
+	case 12: /* Winbond 553 */
 		return IRQ_ISA_HARDDISK1;
 
-	case 13: 
+	case 13: /* Winbond 89C940F */
 		return IRQ_NETWINDER_ETHER10;
 
 	default:

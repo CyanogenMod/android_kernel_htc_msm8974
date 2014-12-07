@@ -19,6 +19,11 @@
  *  along with this program; if not, write to the Free Software
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
+/*
+ * Changes:
+ *  MontaVista Software Inc. <source@mvista.com>
+ *  - New creation, NEC VR4122 and VR4131 are supported.
+ */
 #include <linux/pci.h>
 #include <linux/types.h>
 
@@ -31,12 +36,18 @@ static inline int set_pci_configuration_address(unsigned char number,
                                                 unsigned int devfn, int where)
 {
 	if (number == 0) {
+		/*
+		 * Type 0 configuration
+		 */
 		if (PCI_SLOT(devfn) < 11 || where > 0xff)
 			return -EINVAL;
 
 		writel((1U << PCI_SLOT(devfn)) | (PCI_FUNC(devfn) << 8) |
 		       (where & 0xfc), PCICONFAREG);
 	} else {
+		/*
+		 * Type 1 configuration
+		 */
 		if (where > 0xff)
 			return -EINVAL;
 

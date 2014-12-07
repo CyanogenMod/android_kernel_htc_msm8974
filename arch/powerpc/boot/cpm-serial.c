@@ -62,9 +62,9 @@ struct cpm_param {
 };
 
 struct cpm_bd {
-	u16 sc;   
-	u16 len;  
-	u8 *addr; 
+	u16 sc;   /* Status and Control */
+	u16 len;  /* Data length in buffer */
+	u8 *addr; /* Buffer address in host memory */
 };
 
 static void *cpcr;
@@ -250,6 +250,10 @@ int cpm_console_init(void *devp, struct serial_console_data *scdp)
 	if (!muram)
 		return -1;
 
+	/* For bootwrapper-compatible device trees, we assume that the first
+	 * entry has at least 128 bytes, and that #address-cells/#data-cells
+	 * is one for both parent and child.
+	 */
 
 	if (dt_get_virtual_reg(muram, &muram_addr, 1) < 1)
 		return -1;
@@ -260,6 +264,10 @@ int cpm_console_init(void *devp, struct serial_console_data *scdp)
 	muram_offset = reg[0];
 	muram_size = reg[1];
 
+	/* Store the buffer descriptors at the end of the first muram chunk.
+	 * For SMC ports on CPM2-based platforms, relocate the parameter RAM
+	 * just before the buffer descriptors.
+	 */
 
 	cbd_offset = muram_offset + muram_size - 2 * sizeof(struct cpm_bd);
 

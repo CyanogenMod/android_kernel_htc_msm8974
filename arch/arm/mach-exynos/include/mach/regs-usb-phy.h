@@ -61,4 +61,4 @@
 #define EXYNOS4_PHY1CON			EXYNOS4_HSOTG_PHYREG(0x34)
 #define FPENABLEN			(1 << 0)
 
-#endif 
+#endif /* __PLAT_S5P_REGS_USB_PHY_H */

@@ -56,6 +56,9 @@ static int timer_alive;
 static int harddog_in_fd = -1;
 static int harddog_out_fd = -1;
 
+/*
+ *	Allow only one person to hold it open
+ */
 
 extern int start_watchdog(int *in_fd_ret, int *out_fd_ret, char *sock);
 
@@ -93,6 +96,9 @@ extern void stop_watchdog(int in_fd, int out_fd);
 
 static int harddog_release(struct inode *inode, struct file *file)
 {
+	/*
+	 *	Shut off the timer.
+	 */
 
 	spin_lock(&lock);
 
@@ -111,6 +117,9 @@ extern int ping_watchdog(int fd);
 static ssize_t harddog_write(struct file *file, const char __user *data, size_t len,
 			     loff_t *ppos)
 {
+	/*
+	 *	Refresh the timer.
+	 */
 	if(len)
 		return ping_watchdog(harddog_out_fd);
 	return 0;

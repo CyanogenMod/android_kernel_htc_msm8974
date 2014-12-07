@@ -53,6 +53,13 @@ struct dentry *debugfs_create_netdev_queue_stopped(
 				   &fops_netdev_queue_stopped);
 }
 
+/*
+ * We don't allow partial reads of this file, as then the reader would
+ * get weirdly confused data as it is updated.
+ *
+ * So or you read it all or nothing; if you try to read with an offset
+ * != 0, we consider you are done reading.
+ */
 static
 ssize_t i2400m_rx_stats_read(struct file *filp, char __user *buffer,
 			     size_t count, loff_t *ppos)
@@ -76,6 +83,7 @@ ssize_t i2400m_rx_stats_read(struct file *filp, char __user *buffer,
 }
 
 
+/* Any write clears the stats */
 static
 ssize_t i2400m_rx_stats_write(struct file *filp, const char __user *buffer,
 			      size_t count, loff_t *ppos)
@@ -105,6 +113,7 @@ const struct file_operations i2400m_rx_stats_fops = {
 };
 
 
+/* See i2400m_rx_stats_read() */
 static
 ssize_t i2400m_tx_stats_read(struct file *filp, char __user *buffer,
 			     size_t count, loff_t *ppos)
@@ -127,6 +136,7 @@ ssize_t i2400m_tx_stats_read(struct file *filp, char __user *buffer,
 	return simple_read_from_buffer(buffer, count, ppos, buf, strlen(buf));
 }
 
+/* Any write clears the stats */
 static
 ssize_t i2400m_tx_stats_write(struct file *filp, const char __user *buffer,
 			      size_t count, loff_t *ppos)
@@ -156,6 +166,7 @@ const struct file_operations i2400m_tx_stats_fops = {
 };
 
 
+/* Write 1 to ask the device to go into suspend */
 static
 int debugfs_i2400m_suspend_set(void *data, u64 val)
 {
@@ -179,6 +190,12 @@ struct dentry *debugfs_create_i2400m_suspend(
 }
 
 
+/*
+ * Reset the device
+ *
+ * Write 0 to ask the device to soft reset, 1 to cold reset, 2 to bus
+ * reset (as defined by enum i2400m_reset_type).
+ */
 static
 int debugfs_i2400m_reset_set(void *data, u64 val)
 {
@@ -229,7 +246,7 @@ int i2400m_debugfs_add(struct i2400m *i2400m)
 	result = PTR_ERR(dentry);
 	if (IS_ERR(dentry)) {
 		if (result == -ENODEV)
-			result = 0;	
+			result = 0;	/* No debugfs support */
 		goto error;
 	}
 	i2400m->debugfs_dentry = dentry;
@@ -269,6 +286,28 @@ int i2400m_debugfs_add(struct i2400m *i2400m)
 		goto error;
 	}
 
+	/*
+	 * Trace received messages from user space
+	 *
+	 * In order to tap the bidirectional message stream in the
+	 * 'msg' pipe, user space can read from the 'msg' pipe;
+	 * however, due to limitations in libnl, we can't know what
+	 * the different applications are sending down to the kernel.
+	 *
+	 * So we have this hack where the driver will echo any message
+	 * received on the msg pipe from user space [through a call to
+	 * wimax_dev->op_msg_from_user() into
+	 * i2400m_op_msg_from_user()] into the 'trace' pipe that this
+	 * driver creates.
+	 *
+	 * So then, reading from both the 'trace' and 'msg' pipes in
+	 * user space will provide a full dump of the traffic.
+	 *
+	 * Write 1 to activate, 0 to clear.
+	 *
+	 * It is not really very atomic, but it is also not too
+	 * critical.
+	 */
 	fd = debugfs_create_u8("trace_msg_from_user", 0600, dentry,
 			       &i2400m->trace_msg_from_user);
 	result = PTR_ERR(fd);

@@ -52,17 +52,17 @@ static int _ConfigVerTOutEP(struct ieee80211_hw *hw)
 	ep_cfg = rtl_read_byte(rtlpriv, REG_TEST_SIE_OPTIONAL);
 	ep_cfg = (ep_cfg & USB_TEST_EP_MASK) >> USB_TEST_EP_SHIFT;
 	switch (ep_cfg)	{
-	case 0:		
+	case 0:		/* 2 bulk OUT, 1 bulk IN */
 	case 3:
 		rtlusb->out_queue_sel  = TX_SELE_HQ | TX_SELE_LQ;
 		ep_nums = 2;
 		break;
-	case 1:	
-	case 2:	
+	case 1:	/* 1 bulk IN/OUT => map all endpoint to Low queue */
+	case 2:	/* 1 bulk IN, 1 bulk OUT => map all endpoint to High queue */
 		txqsele = rtl_read_byte(rtlpriv, REG_TEST_USB_TXQS);
-		if (txqsele & 0x0F) 
+		if (txqsele & 0x0F) /* /map all endpoint to High queue */
 			rtlusb->out_queue_sel =  TX_SELE_HQ;
-		else if (txqsele&0xF0) 
+		else if (txqsele&0xF0) /* map all endpoint to Low queue */
 			rtlusb->out_queue_sel =  TX_SELE_LQ;
 		ep_nums = 1;
 		break;
@@ -82,7 +82,7 @@ static int _ConfigVerNOutEP(struct ieee80211_hw *hw)
 	struct rtl_usb *rtlusb = rtl_usbdev(usb_priv);
 
 	rtlusb->out_queue_sel = 0;
-	
+	/* Normal and High queue */
 	ep_cfg =  rtl_read_byte(rtlpriv, (REG_NORMAL_SIE_EP + 1));
 	if (ep_cfg & USB_NORMAL_SIE_EP_MASK) {
 		rtlusb->out_queue_sel |= TX_SELE_HQ;
@@ -92,7 +92,7 @@ static int _ConfigVerNOutEP(struct ieee80211_hw *hw)
 		rtlusb->out_queue_sel |= TX_SELE_NQ;
 		ep_nums++;
 	}
-	
+	/* Low queue */
 	ep_cfg =  rtl_read_byte(rtlpriv, (REG_NORMAL_SIE_EP + 2));
 	if (ep_cfg & USB_NORMAL_SIE_EP_MASK) {
 		rtlusb->out_queue_sel |= TX_SELE_LQ;
@@ -106,7 +106,7 @@ static void _TwoOutEpMapping(struct ieee80211_hw *hw, bool bIsChipB,
 {
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 
-	if (bwificfg) { 
+	if (bwificfg) { /* for WMM */
 		RT_TRACE(rtlpriv, COMP_INIT, DBG_DMESG,
 			 "USB Chip-B & WMM Setting.....\n");
 		ep_map->ep_mapping[RTL_TXQ_BE]	= 2;
@@ -116,7 +116,7 @@ static void _TwoOutEpMapping(struct ieee80211_hw *hw, bool bIsChipB,
 		ep_map->ep_mapping[RTL_TXQ_MGT] = 2;
 		ep_map->ep_mapping[RTL_TXQ_BCN] = 2;
 		ep_map->ep_mapping[RTL_TXQ_HI]	= 2;
-	} else { 
+	} else { /* typical setting */
 		RT_TRACE(rtlpriv, COMP_INIT, DBG_DMESG,
 			 "USB typical Setting.....\n");
 		ep_map->ep_mapping[RTL_TXQ_BE]	= 3;
@@ -133,7 +133,7 @@ static void _ThreeOutEpMapping(struct ieee80211_hw *hw, bool  bwificfg,
 			       struct rtl_ep_map *ep_map)
 {
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
-	if (bwificfg) { 
+	if (bwificfg) { /* for WMM */
 		RT_TRACE(rtlpriv, COMP_INIT, DBG_DMESG,
 			 "USB 3EP Setting for WMM.....\n");
 		ep_map->ep_mapping[RTL_TXQ_BE]	= 5;
@@ -143,7 +143,7 @@ static void _ThreeOutEpMapping(struct ieee80211_hw *hw, bool  bwificfg,
 		ep_map->ep_mapping[RTL_TXQ_MGT] = 2;
 		ep_map->ep_mapping[RTL_TXQ_BCN] = 2;
 		ep_map->ep_mapping[RTL_TXQ_HI]	= 2;
-	} else { 
+	} else { /* typical setting */
 		RT_TRACE(rtlpriv, COMP_INIT, DBG_DMESG,
 			 "USB 3EP Setting for typical.....\n");
 		ep_map->ep_mapping[RTL_TXQ_BE]	= 5;
@@ -181,7 +181,7 @@ static int _out_ep_mapping(struct ieee80211_hw *hw)
 		_TwoOutEpMapping(hw, bIsChipN, bwificfg, ep_map);
 		break;
 	case 3:
-		
+		/* Test chip doesn't support three out EPs. */
 		if (!bIsChipN) {
 			err  =  -EINVAL;
 			goto err_out;
@@ -199,6 +199,7 @@ err_out:
 	return err;
 
 }
+/* endpoint mapping */
 int  rtl8192cu_endpoint_mapping(struct ieee80211_hw *hw)
 {
 	struct rtl_hal *rtlhal = rtl_hal(rtl_priv(hw));
@@ -266,22 +267,22 @@ static enum rtl_desc_qsel _rtl8192cu_mq_to_descq(struct ieee80211_hw *hw,
 		goto out;
 	}
 	switch (mac80211_queue_index) {
-	case 0:	
+	case 0:	/* VO */
 		qsel = QSLT_VO;
 		RT_TRACE(rtlpriv, COMP_USB, DBG_DMESG,
 			 "VO queue, set qsel = 0x%x\n", QSLT_VO);
 		break;
-	case 1:	
+	case 1:	/* VI */
 		qsel = QSLT_VI;
 		RT_TRACE(rtlpriv, COMP_USB, DBG_DMESG,
 			 "VI queue, set qsel = 0x%x\n", QSLT_VI);
 		break;
-	case 3:	
+	case 3:	/* BK */
 		qsel = QSLT_BK;
 		RT_TRACE(rtlpriv, COMP_USB, DBG_DMESG,
 			 "BK queue, set qsel = 0x%x\n", QSLT_BK);
 		break;
-	case 2:	
+	case 2:	/* BE */
 	default:
 		qsel = QSLT_BE;
 		RT_TRACE(rtlpriv, COMP_USB, DBG_DMESG,
@@ -292,7 +293,13 @@ out:
 	return qsel;
 }
 
+/* =============================================================== */
 
+/*----------------------------------------------------------------------
+ *
+ *	Rx handler
+ *
+ *---------------------------------------------------------------------- */
 bool rtl92cu_rx_query_desc(struct ieee80211_hw *hw,
 			   struct rtl_stats *stats,
 			   struct ieee80211_rx_status *rx_status,
@@ -340,9 +347,9 @@ bool rtl92cu_rx_query_desc(struct ieee80211_hw *hw,
 		rtl92c_translate_rx_signal_stuff(hw, skb, stats, pdesc,
 						 p_drvinfo);
 	}
-	
+	/*rx_status->qual = stats->signal; */
 	rx_status->signal = stats->rssi + 10;
-	
+	/*rx_status->noise = -stats->noise; */
 	return true;
 }
 
@@ -370,7 +377,7 @@ static void _rtl_rx_process(struct ieee80211_hw *hw, struct sk_buff *skb)
 	skb_len	= skb->len;
 	drvinfo_len = (GET_RX_DESC_DRVINFO_SIZE(rxdesc) * RTL_RX_DRV_INFO_UNIT);
 	pkt_len		= GET_RX_DESC_PKT_LEN(rxdesc);
-	
+	/* TODO: Error recovery. drop this skb or something. */
 	WARN_ON(skb_len < (pkt_len + RTL_RX_DESC_SIZE + drvinfo_len));
 	stats.length = (u16) GET_RX_DESC_PKT_LEN(rxdesc);
 	stats.rx_drvinfo_size = (u8)GET_RX_DESC_DRVINFO_SIZE(rxdesc) *
@@ -386,8 +393,8 @@ static void _rtl_rx_process(struct ieee80211_hw *hw, struct sk_buff *skb)
 				   && (GET_RX_DESC_FAGGR(rxdesc) == 1));
 	stats.timestamp_low = GET_RX_DESC_TSFL(rxdesc);
 	stats.rx_is40Mhzpacket = (bool) GET_RX_DESC_BW(rxdesc);
-	
-	
+	/* TODO: is center_freq changed when doing scan? */
+	/* TODO: Shall we add protection or just skip those two step? */
 	rx_status->freq = hw->conf.channel->center_freq;
 	rx_status->band = hw->conf.channel->band;
 	if (GET_RX_DESC_CRC32(rxdesc))
@@ -398,12 +405,12 @@ static void _rtl_rx_process(struct ieee80211_hw *hw, struct sk_buff *skb)
 		rx_status->flag |= RX_FLAG_40MHZ;
 	if (GET_RX_DESC_RX_HT(rxdesc))
 		rx_status->flag |= RX_FLAG_HT;
-	
+	/* Data rate */
 	rx_status->rate_idx = rtlwifi_rate_mapping(hw,
 					(bool)GET_RX_DESC_RX_HT(rxdesc),
 					(u8)GET_RX_DESC_RX_MCS(rxdesc),
 					(bool)GET_RX_DESC_PAGGR(rxdesc));
-	
+	/*  There is a phy status after this rx descriptor. */
 	if (GET_RX_DESC_PHY_STATUS(rxdesc)) {
 		p_drvinfo = (struct rx_fwinfo_92c *)(rxdesc + RTL_RX_DESC_SIZE);
 		rtl92c_translate_rx_signal_stuff(hw, skb, &stats,
@@ -442,6 +449,11 @@ void rtl8192c_rx_segregate_hdl(
 {
 }
 
+/*----------------------------------------------------------------------
+ *
+ *	Tx handler
+ *
+ *---------------------------------------------------------------------- */
 void rtl8192c_tx_cleanup(struct ieee80211_hw *hw, struct sk_buff  *skb)
 {
 }
@@ -458,6 +470,7 @@ struct sk_buff *rtl8192c_tx_aggregate_hdl(struct ieee80211_hw *hw,
 	return skb_dequeue(list);
 }
 
+/*======================================== trx ===============================*/
 
 static void _rtl_fill_usb_tx_desc(u8 *txdesc)
 {
@@ -465,13 +478,16 @@ static void _rtl_fill_usb_tx_desc(u8 *txdesc)
 	SET_TX_DESC_LAST_SEG(txdesc, 1);
 	SET_TX_DESC_FIRST_SEG(txdesc, 1);
 }
+/**
+ *	For HW recovery information
+ */
 static void _rtl_tx_desc_checksum(u8 *txdesc)
 {
 	u16 *ptr = (u16 *)txdesc;
 	u16	checksum = 0;
 	u32 index;
 
-	
+	/* Clear first */
 	SET_TX_DESC_TX_DESC_CHECKSUM(txdesc, 0);
 	for (index = 0; index < 16; index++)
 		checksum = checksum ^ (*(ptr + index));
@@ -610,20 +626,22 @@ void rtl92cu_tx_fill_desc(struct ieee80211_hw *hw,
 void rtl92cu_fill_fake_txdesc(struct ieee80211_hw *hw, u8 * pDesc,
 			      u32 buffer_len, bool bIsPsPoll)
 {
-	
+	/* Clear all status */
 	memset(pDesc, 0, RTL_TX_HEADER_SIZE);
-	SET_TX_DESC_FIRST_SEG(pDesc, 1); 
-	SET_TX_DESC_LAST_SEG(pDesc, 1); 
-	SET_TX_DESC_OFFSET(pDesc, RTL_TX_HEADER_SIZE); 
-	SET_TX_DESC_PKT_SIZE(pDesc, buffer_len); 
-	SET_TX_DESC_QUEUE_SEL(pDesc, QSLT_MGNT); 
+	SET_TX_DESC_FIRST_SEG(pDesc, 1); /* bFirstSeg; */
+	SET_TX_DESC_LAST_SEG(pDesc, 1); /* bLastSeg; */
+	SET_TX_DESC_OFFSET(pDesc, RTL_TX_HEADER_SIZE); /* Offset = 32 */
+	SET_TX_DESC_PKT_SIZE(pDesc, buffer_len); /* Buffer size + command hdr */
+	SET_TX_DESC_QUEUE_SEL(pDesc, QSLT_MGNT); /* Fixed queue of Mgnt queue */
+	/* Set NAVUSEHDR to prevent Ps-poll AId filed to be changed to error
+	 * vlaue by Hw. */
 	if (bIsPsPoll) {
 		SET_TX_DESC_NAV_USE_HDR(pDesc, 1);
 	} else {
-		SET_TX_DESC_HWSEQ_EN(pDesc, 1); 
-		SET_TX_DESC_PKT_ID(pDesc, 0x100); 
+		SET_TX_DESC_HWSEQ_EN(pDesc, 1); /* Hw set sequence number */
+		SET_TX_DESC_PKT_ID(pDesc, 0x100); /* set bit3 to 1. */
 	}
-	SET_TX_DESC_USE_RATE(pDesc, 1); 
+	SET_TX_DESC_USE_RATE(pDesc, 1); /* use data rate which is set by Sw */
 	SET_TX_DESC_OWN(pDesc, 1);
 	SET_TX_DESC_TX_RATE(pDesc, DESC92_RATE1M);
 	_rtl_tx_desc_checksum(pDesc);

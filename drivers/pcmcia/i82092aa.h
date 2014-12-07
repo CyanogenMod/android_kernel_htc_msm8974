@@ -3,6 +3,7 @@
 
 #include <linux/interrupt.h>
 
+/* Debuging defines */
 #ifdef NOTRACE
 #define enter(x)   printk("Enter: %s, %s line %i\n",x,__FILE__,__LINE__)
 #define leave(x)   printk("Leave: %s, %s line %i\n",x,__FILE__,__LINE__)
@@ -15,6 +16,7 @@
 
 
 
+/* prototypes */
 
 static int  i82092aa_pci_probe(struct pci_dev *dev, const struct pci_device_id *id);
 static void i82092aa_pci_remove(struct pci_dev *dev);

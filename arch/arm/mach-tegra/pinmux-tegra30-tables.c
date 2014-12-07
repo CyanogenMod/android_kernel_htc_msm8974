@@ -112,7 +112,7 @@ static const struct tegra_drive_pingroup_desc tegra_soc_drive_pingroups[TEGRA_MA
 	}
 
 static const struct tegra_pingroup_desc tegra_soc_pingroups[TEGRA_MAX_PINGROUP] = {
-	
+	/*       NAME		  VDD	    f0		f1          f2          f3          fSafe       io	reg */
 	PINGROUP(ULPI_DATA0,	  BB,	    SPI3,	HSI,	    UARTA,	ULPI,	    RSVD,	INPUT,	0x3000),
 	PINGROUP(ULPI_DATA1,	  BB,	    SPI3,	HSI,	    UARTA,	ULPI,	    RSVD,	INPUT,	0x3004),
 	PINGROUP(ULPI_DATA2,	  BB,	    SPI3,	HSI,	    UARTA,	ULPI,	    RSVD,	INPUT,	0x3008),

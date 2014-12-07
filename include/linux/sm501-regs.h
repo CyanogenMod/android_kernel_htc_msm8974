@@ -9,8 +9,11 @@
  * Silicon Motion SM501 register definitions
 */
 
+/* System Configuration area */
+/* System config base */
 #define SM501_SYS_CONFIG		(0x000000)
 
+/* config 1 */
 #define SM501_SYSTEM_CONTROL 		(0x000000)
 
 #define SM501_SYSCTRL_PANEL_TRISTATE	(1<<0)
@@ -30,6 +33,7 @@
 
 #define SM501_SYSCTRL_2D_ENGINE_STATUS	(1<<19)
 
+/* miscellaneous control */
 
 #define SM501_MISC_CONTROL		(0x000004)
 
@@ -66,16 +70,20 @@
 #define SM501_GPIO63_32_CONTROL		(0x00000C)
 #define SM501_DRAM_CONTROL		(0x000010)
 
+/* command list */
 #define SM501_ARBTRTN_CONTROL		(0x000014)
 
+/* command list */
 #define SM501_COMMAND_LIST_STATUS	(0x000024)
 
+/* interrupt debug */
 #define SM501_RAW_IRQ_STATUS		(0x000028)
 #define SM501_RAW_IRQ_CLEAR		(0x000028)
 #define SM501_IRQ_STATUS		(0x00002C)
 #define SM501_IRQ_MASK			(0x000030)
 #define SM501_DEBUG_CONTROL		(0x000034)
 
+/* power management */
 #define SM501_POWERMODE_P2X_SRC		(1<<29)
 #define SM501_POWERMODE_V2X_SRC		(1<<20)
 #define SM501_POWERMODE_M_SRC		(1<<12)
@@ -90,6 +98,7 @@
 #define SM501_SLEEP_MODE_GATE		(0x000050)
 #define SM501_POWER_MODE_CONTROL	(0x000054)
 
+/* power gates for units within the 501 */
 #define SM501_GATE_HOST			(0)
 #define SM501_GATE_MEMORY		(1)
 #define SM501_GATE_DISPLAY		(2)
@@ -105,14 +114,20 @@
 #define SM501_GATE_UCONTROLLER		(17)
 #define SM501_GATE_AC97			(18)
 
+/* panel clock */
 #define SM501_CLOCK_P2XCLK		(24)
+/* crt clock */
 #define SM501_CLOCK_V2XCLK		(16)
+/* main clock */
 #define SM501_CLOCK_MCLK		(8)
+/* SDRAM controller clock */
 #define SM501_CLOCK_M1XCLK		(0)
 
+/* config 2 */
 #define SM501_PCI_MASTER_BASE		(0x000058)
 #define SM501_ENDIAN_CONTROL		(0x00005C)
 #define SM501_DEVICEID			(0x000060)
+/* 0x050100A0 */
 
 #define SM501_DEVICEID_SM501		(0x05010000)
 #define SM501_DEVICEID_IDMASK		(0xffff0000)
@@ -124,6 +139,7 @@
 
 #define SM501_PROGRAMMABLE_PLL_CONTROL	(0x000074)
 
+/* GPIO base */
 #define SM501_GPIO			(0x010000)
 #define SM501_GPIO_DATA_LOW		(0x00)
 #define SM501_GPIO_DATA_HIGH		(0x04)
@@ -133,6 +149,7 @@
 #define SM501_GPIO_IRQ_STATUS		(0x14)
 #define SM501_GPIO_IRQ_RESET		(0x14)
 
+/* I2C controller base */
 #define SM501_I2C			(0x010040)
 #define SM501_I2C_BYTE_COUNT		(0x00)
 #define SM501_I2C_CONTROL		(0x01)
@@ -141,20 +158,28 @@
 #define SM501_I2C_SLAVE_ADDRESS		(0x03)
 #define SM501_I2C_DATA			(0x04)
 
+/* SSP base */
 #define SM501_SSP			(0x020000)
 
+/* Uart 0 base */
 #define SM501_UART0			(0x030000)
 
+/* Uart 1 base */
 #define SM501_UART1			(0x030020)
 
+/* USB host port base */
 #define SM501_USB_HOST			(0x040000)
 
+/* USB slave/gadget base */
 #define SM501_USB_GADGET		(0x060000)
 
+/* USB slave/gadget data port base */
 #define SM501_USB_GADGET_DATA		(0x070000)
 
+/* Display controller/video engine base */
 #define SM501_DC			(0x080000)
 
+/* common defines for the SM501 address registers */
 #define SM501_ADDR_FLIP			(1<<31)
 #define SM501_ADDR_EXT			(1<<27)
 #define SM501_ADDR_CS1			(1<<26)
@@ -166,6 +191,7 @@
 #define SM501_FIFO_7			(0x2 << 16)
 #define SM501_FIFO_11			(0x3 << 16)
 
+/* common registers for panel and the crt */
 #define SM501_OFF_DC_H_TOT		(0x000)
 #define SM501_OFF_DC_V_TOT		(0x008)
 #define SM501_OFF_DC_H_SYNC		(0x004)
@@ -304,16 +330,22 @@
 
 #define SM501_DC_CRT_PALETTE		(0xC00)
 
+/* Zoom Video port base */
 #define SM501_ZVPORT			(0x090000)
 
+/* AC97/I2S base */
 #define SM501_AC97			(0x0A0000)
 
+/* 8051 micro controller base */
 #define SM501_UCONTROLLER		(0x0B0000)
 
+/* 8051 micro controller SRAM base */
 #define SM501_UCONTROLLER_SRAM		(0x0C0000)
 
+/* DMA base */
 #define SM501_DMA			(0x0D0000)
 
+/* 2d engine base */
 #define SM501_2D_ENGINE			(0x100000)
 #define SM501_2D_SOURCE			(0x00)
 #define SM501_2D_DESTINATION		(0x04)
@@ -352,4 +384,5 @@
 #define SM501_CSC_DESTINATION_BASE	(0xF8)
 #define SM501_CSC_CONTROL		(0xFC)
 
+/* 2d engine data port base */
 #define SM501_2D_ENGINE_DATA		(0x110000)

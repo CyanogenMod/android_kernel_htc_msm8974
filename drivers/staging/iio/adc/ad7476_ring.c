@@ -20,6 +20,13 @@
 
 #include "ad7476.h"
 
+/**
+ * ad7476_ring_preenable() setup the parameters of the ring before enabling
+ *
+ * The complex nature of the setting of the number of bytes per datum is due
+ * to this driver currently ensuring that the timestamp is stored at an 8
+ * byte boundary.
+ **/
 static int ad7476_ring_preenable(struct iio_dev *indio_dev)
 {
 	struct ad7476_state *st = iio_priv(indio_dev);
@@ -104,11 +111,11 @@ int ad7476_register_ring_funcs_and_init(struct iio_dev *indio_dev)
 		goto error_deallocate_sw_rb;
 	}
 
-	
+	/* Ring buffer functions - here trigger setup related */
 	indio_dev->setup_ops = &ad7476_ring_setup_ops;
 	indio_dev->buffer->scan_timestamp = true;
 
-	
+	/* Flag that polled ring buffering is possible */
 	indio_dev->modes |= INDIO_BUFFER_TRIGGERED;
 	return 0;
 

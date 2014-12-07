@@ -28,19 +28,29 @@ MODULE_AUTHOR("Frank Zago <frank@zago.net>");
 MODULE_DESCRIPTION("Fujifilm FinePix USB V4L2 driver");
 MODULE_LICENSE("GPL");
 
+/* Default timeout, in ms */
 #define FPIX_TIMEOUT 250
 
+/* Maximum transfer size to use. The windows driver reads by chunks of
+ * 0x2000 bytes, so do the same. Note: reading more seems to work
+ * too. */
 #define FPIX_MAX_TRANSFER 0x2000
 
+/* Structure to hold all of our device specific stuff */
 struct usb_fpix {
-	struct gspca_dev gspca_dev;	
+	struct gspca_dev gspca_dev;	/* !! must be the first item */
 
 	struct work_struct work_struct;
 	struct workqueue_struct *work_thread;
 };
 
+/* Delay after which claim the next frame. If the delay is too small,
+ * the camera will return old frames. On the 4800Z, 20ms is bad, 25ms
+ * will fail every 4 or 5 frames, but 30ms is perfect. On the A210,
+ * 30ms is bad while 35ms is perfect. */
 #define NEXT_FRAME_DELAY 35
 
+/* These cameras only support 320x200. */
 static const struct v4l2_pix_format fpix_mode[1] = {
 	{ 320, 240, V4L2_PIX_FMT_JPEG, V4L2_FIELD_NONE,
 		.bytesperline = 320,
@@ -49,12 +59,13 @@ static const struct v4l2_pix_format fpix_mode[1] = {
 		.priv = 0}
 };
 
+/* send a command to the webcam */
 static int command(struct gspca_dev *gspca_dev,
-		int order)	
+		int order)	/* 0: reset, 1: frame request */
 {
 	static u8 order_values[2][12] = {
-		{0xc6, 0, 0, 0, 0, 0, 0,    0, 0x20, 0, 0, 0},	
-		{0xd3, 0, 0, 0, 0, 0, 0, 0x01,    0, 0, 0, 0},	
+		{0xc6, 0, 0, 0, 0, 0, 0,    0, 0x20, 0, 0, 0},	/* reset */
+		{0xd3, 0, 0, 0, 0, 0, 0, 0x01,    0, 0, 0, 0},	/* fr req */
 	};
 
 	memcpy(gspca_dev->usb_buf, order_values[order], 12);
@@ -66,6 +77,7 @@ static int command(struct gspca_dev *gspca_dev,
 			12, FPIX_TIMEOUT);
 }
 
+/* workqueue */
 static void dostream(struct work_struct *work)
 {
 	struct usb_fpix *dev = container_of(work, struct usb_fpix, work_struct);
@@ -75,16 +87,16 @@ static void dostream(struct work_struct *work)
 	int ret = 0;
 	int len;
 
-	
+	/* synchronize with the main driver */
 	mutex_lock(&gspca_dev->usb_lock);
 	mutex_unlock(&gspca_dev->usb_lock);
 	PDEBUG(D_STREAM, "dostream started");
 
-	
+	/* loop reading a frame */
 again:
 	while (gspca_dev->present && gspca_dev->streaming) {
 
-		
+		/* request a frame */
 		mutex_lock(&gspca_dev->usb_lock);
 		ret = command(gspca_dev, 1);
 		mutex_unlock(&gspca_dev->usb_lock);
@@ -93,7 +105,7 @@ again:
 		if (!gspca_dev->present || !gspca_dev->streaming)
 			break;
 
-		
+		/* the frame comes in parts */
 		for (;;) {
 			ret = usb_bulk_msg(gspca_dev->dev,
 					urb->pipe,
@@ -101,6 +113,8 @@ again:
 					FPIX_MAX_TRANSFER,
 					&len, FPIX_TIMEOUT);
 			if (ret < 0) {
+				/* Most of the time we get a timeout
+				 * error. Just restart. */
 				goto again;
 			}
 			if (!gspca_dev->present || !gspca_dev->streaming)
@@ -109,12 +123,18 @@ again:
 				(data[len - 2] == 0xff &&
 					data[len - 1] == 0xd9)) {
 
+				/* If the result is less than what was asked
+				 * for, then it's the end of the
+				 * frame. Sometimes the jpeg is not complete,
+				 * but there's nothing we can do. We also end
+				 * here if the the jpeg ends right at the end
+				 * of the frame. */
 				gspca_frame_add(gspca_dev, LAST_PACKET,
 						data, len);
 				break;
 			}
 
-			
+			/* got a partial image */
 			gspca_frame_add(gspca_dev,
 					gspca_dev->last_packet_type
 						== LAST_PACKET
@@ -122,6 +142,9 @@ again:
 					data, len);
 		}
 
+		/* We must wait before trying reading the next
+		 * frame. If we don't, or if the delay is too short,
+		 * the camera will disconnect. */
 		msleep(NEXT_FRAME_DELAY);
 	}
 
@@ -129,6 +152,7 @@ out:
 	PDEBUG(D_STREAM, "dostream stopped");
 }
 
+/* this function is called at probe time */
 static int sd_config(struct gspca_dev *gspca_dev,
 		const struct usb_device_id *id)
 {
@@ -145,23 +169,27 @@ static int sd_config(struct gspca_dev *gspca_dev,
 	return 0;
 }
 
+/* this function is called at probe and resume time */
 static int sd_init(struct gspca_dev *gspca_dev)
 {
 	return 0;
 }
 
+/* start the camera */
 static int sd_start(struct gspca_dev *gspca_dev)
 {
 	struct usb_fpix *dev = (struct usb_fpix *) gspca_dev;
 	int ret, len;
 
-	
+	/* Init the device */
 	ret = command(gspca_dev, 0);
 	if (ret < 0) {
 		pr_err("init failed %d\n", ret);
 		return ret;
 	}
 
+	/* Read the result of the command. Ignore the result, for it
+	 * varies with the device. */
 	ret = usb_bulk_msg(gspca_dev->dev,
 			gspca_dev->urb[0]->pipe,
 			gspca_dev->urb[0]->transfer_buffer,
@@ -172,34 +200,37 @@ static int sd_start(struct gspca_dev *gspca_dev)
 		return ret;
 	}
 
-	
+	/* Request a frame, but don't read it */
 	ret = command(gspca_dev, 1);
 	if (ret < 0) {
 		pr_err("frame request failed %d\n", ret);
 		return ret;
 	}
 
-	
+	/* Again, reset bulk in endpoint */
 	usb_clear_halt(gspca_dev->dev, gspca_dev->urb[0]->pipe);
 
-	
+	/* Start the workqueue function to do the streaming */
 	dev->work_thread = create_singlethread_workqueue(MODULE_NAME);
 	queue_work(dev->work_thread, &dev->work_struct);
 
 	return 0;
 }
 
+/* called on streamoff with alt==0 and on disconnect */
+/* the usb_lock is held at entry - restore on exit */
 static void sd_stop0(struct gspca_dev *gspca_dev)
 {
 	struct usb_fpix *dev = (struct usb_fpix *) gspca_dev;
 
-	
+	/* wait for the work queue to terminate */
 	mutex_unlock(&gspca_dev->usb_lock);
 	destroy_workqueue(dev->work_thread);
 	mutex_lock(&gspca_dev->usb_lock);
 	dev->work_thread = NULL;
 }
 
+/* Table of supported USB devices */
 static const struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x04cb, 0x0104)},
 	{USB_DEVICE(0x04cb, 0x0109)},
@@ -229,6 +260,7 @@ static const struct usb_device_id device_table[] = {
 
 MODULE_DEVICE_TABLE(usb, device_table);
 
+/* sub-driver description */
 static const struct sd_desc sd_desc = {
 	.name   = MODULE_NAME,
 	.config = sd_config,
@@ -237,6 +269,7 @@ static const struct sd_desc sd_desc = {
 	.stop0  = sd_stop0,
 };
 
+/* -- device connect -- */
 static int sd_probe(struct usb_interface *intf,
 		const struct usb_device_id *id)
 {

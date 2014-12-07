@@ -12,9 +12,22 @@
 #include "internal.h"
 #include "sleep.h"
 
+/*
+ * We didn't lock acpi_device_lock in the file, because it invokes oops in
+ * suspend/resume and isn't really required as this is called in S-state. At
+ * that time, there is no device hotplug
+ **/
 #define _COMPONENT		ACPI_SYSTEM_COMPONENT
 ACPI_MODULE_NAME("wakeup_devices")
 
+/**
+ * acpi_enable_wakeup_devices - Enable wake-up device GPEs.
+ * @sleep_state: ACPI system sleep state.
+ *
+ * Enable wakeup device power of devices with the state.enable flag set and set
+ * the wakeup enable mask bits in the GPE registers that correspond to wakeup
+ * devices.
+ */
 void acpi_enable_wakeup_devices(u8 sleep_state)
 {
 	struct list_head *node, *next;
@@ -32,12 +45,16 @@ void acpi_enable_wakeup_devices(u8 sleep_state)
 		if (device_may_wakeup(&dev->dev))
 			acpi_enable_wakeup_device_power(dev, sleep_state);
 
-		
+		/* The wake-up power should have been enabled already. */
 		acpi_set_gpe_wake_mask(dev->wakeup.gpe_device, dev->wakeup.gpe_number,
 				ACPI_GPE_ENABLE);
 	}
 }
 
+/**
+ * acpi_disable_wakeup_devices - Disable devices' wakeup capability.
+ * @sleep_state: ACPI system sleep state.
+ */
 void acpi_disable_wakeup_devices(u8 sleep_state)
 {
 	struct list_head *node, *next;
@@ -70,7 +87,7 @@ int __init acpi_wakeup_device_init(void)
 						       struct acpi_device,
 						       wakeup_list);
 		if (device_can_wakeup(&dev->dev)) {
-			
+			/* Button GPEs are supposed to be always enabled. */
 			acpi_enable_gpe(dev->wakeup.gpe_device,
 					dev->wakeup.gpe_number);
 			device_set_wakeup_enable(&dev->dev, true);

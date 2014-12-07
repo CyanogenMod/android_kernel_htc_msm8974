@@ -18,4 +18,4 @@ struct ltc4245_platform_data {
 	bool use_extra_gpios;
 };
 
-#endif 
+#endif /* LINUX_LTC4245_H */

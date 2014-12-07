@@ -16,4 +16,4 @@ extern void wsp_setup_phb_msi(struct pci_controller *phb);
 static inline void wsp_setup_phb_msi(struct pci_controller *phb) { }
 #endif
 
-#endif 
+#endif /* __WSP_MSI_H */

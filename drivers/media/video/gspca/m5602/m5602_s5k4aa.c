@@ -245,12 +245,14 @@ int s5k4aa_probe(struct sd *sd)
 			pr_info("Forcing a %s sensor\n", s5k4aa.name);
 			goto sensor_found;
 		}
+		/* If we want to force another sensor, don't try to probe this
+		 * one */
 		return -ENODEV;
 	}
 
 	PDEBUG(D_PROBE, "Probing for a s5k4aa sensor");
 
-	
+	/* Preinit the sensor */
 	for (i = 0; i < ARRAY_SIZE(preinit_s5k4aa) && !err; i++) {
 		u8 data[2] = {0x00, 0x00};
 
@@ -281,7 +283,7 @@ int s5k4aa_probe(struct sd *sd)
 		}
 	}
 
-	
+	/* Test some registers, but we don't know their exact meaning yet */
 	if (m5602_read_sensor(sd, 0x00, prod_id, 2))
 		return -ENODEV;
 	if (m5602_read_sensor(sd, 0x02, prod_id+2, 2))
@@ -715,7 +717,7 @@ static void s5k4aa_dump_registers(struct sd *sd)
 				pr_info("register 0x%x is read only\n",
 					address);
 
-			
+			/* Restore original value */
 			m5602_write_sensor(sd, address, &old_value, 1);
 		}
 	}

@@ -49,7 +49,13 @@
 #include <linux/types.h>
 
 
+/* The large precomputed tables for the Twofish cipher (twofish.c)
+ * Taken from the same source as twofish.c
+ * Marc Mutz <Marc@Mutz.com>
+ */
 
+/* These two tables are the q0 and q1 permutations, exactly as described in
+ * the Twofish paper. */
 
 static const u8 q0[256] = {
 	0xA9, 0x67, 0xB3, 0xE8, 0x04, 0xFD, 0xA3, 0x76, 0x9A, 0x92, 0x80, 0x78,
@@ -101,6 +107,18 @@ static const u8 q1[256] = {
 	0x55, 0x09, 0xBE, 0x91
 };
 
+/* These MDS tables are actually tables of MDS composed with q0 and q1,
+ * because it is only ever used that way and we can save some time by
+ * precomputing.  Of course the main saving comes from precomputing the
+ * GF(2^8) multiplication involved in the MDS matrix multiply; by looking
+ * things up in these tables we reduce the matrix multiply to four lookups
+ * and three XORs.  Semi-formally, the definition of these tables is:
+ * mds[0][i] = MDS (q1[i] 0 0 0)^T  mds[1][i] = MDS (0 q0[i] 0 0)^T
+ * mds[2][i] = MDS (0 0 q1[i] 0)^T  mds[3][i] = MDS (0 0 0 q0[i])^T
+ * where ^T means "transpose", the matrix multiply is performed in GF(2^8)
+ * represented as GF(2)[x]/v(x) where v(x)=x^8+x^6+x^5+x^3+1 as described
+ * by Schneier et al, and I'm casually glossing over the byte/word
+ * conversion issues. */
 
 static const u32 mds[4][256] = {
 	{
@@ -284,6 +302,38 @@ static const u32 mds[4][256] = {
 	0xECC94AEC, 0xFDD25EFD, 0xAB7FC1AB, 0xD8A8E0D8}
 };
 
+/* The exp_to_poly and poly_to_exp tables are used to perform efficient
+ * operations in GF(2^8) represented as GF(2)[x]/w(x) where
+ * w(x)=x^8+x^6+x^3+x^2+1.  We care about doing that because it's part of the
+ * definition of the RS matrix in the key schedule.  Elements of that field
+ * are polynomials of degree not greater than 7 and all coefficients 0 or 1,
+ * which can be represented naturally by bytes (just substitute x=2).  In that
+ * form, GF(2^8) addition is the same as bitwise XOR, but GF(2^8)
+ * multiplication is inefficient without hardware support.  To multiply
+ * faster, I make use of the fact x is a generator for the nonzero elements,
+ * so that every element p of GF(2)[x]/w(x) is either 0 or equal to (x)^n for
+ * some n in 0..254.  Note that that caret is exponentiation in GF(2^8),
+ * *not* polynomial notation.  So if I want to compute pq where p and q are
+ * in GF(2^8), I can just say:
+ *    1. if p=0 or q=0 then pq=0
+ *    2. otherwise, find m and n such that p=x^m and q=x^n
+ *    3. pq=(x^m)(x^n)=x^(m+n), so add m and n and find pq
+ * The translations in steps 2 and 3 are looked up in the tables
+ * poly_to_exp (for step 2) and exp_to_poly (for step 3).  To see this
+ * in action, look at the CALC_S macro.  As additional wrinkles, note that
+ * one of my operands is always a constant, so the poly_to_exp lookup on it
+ * is done in advance; I included the original values in the comments so
+ * readers can have some chance of recognizing that this *is* the RS matrix
+ * from the Twofish paper.  I've only included the table entries I actually
+ * need; I never do a lookup on a variable input of zero and the biggest
+ * exponents I'll ever see are 254 (variable) and 237 (constant), so they'll
+ * never sum to more than 491.	I'm repeating part of the exp_to_poly table
+ * so that I don't have to do mod-255 reduction in the exponent arithmetic.
+ * Since I know my constant operands are never zero, I only have to worry
+ * about zero values in the variable operand, and I do it with a simple
+ * conditional branch.	I know conditionals are expensive, but I couldn't
+ * see a non-horrible way of avoiding them, and I did manage to group the
+ * statements so that each if covers four group multiplications. */
 
 static const u8 poly_to_exp[255] = {
 	0x00, 0x01, 0x17, 0x02, 0x2E, 0x18, 0x53, 0x03, 0x6A, 0x2F, 0x93, 0x19,
@@ -355,6 +405,8 @@ static const u8 exp_to_poly[492] = {
 };
 
 
+/* The table constants are indices of
+ * S-box entries, preprocessed through q0 and q1. */
 static const u8 calc_sb_tbl[512] = {
 	0xA9, 0x75, 0x67, 0xF3, 0xB3, 0xC6, 0xE8, 0xF4,
 	0x04, 0xDB, 0xFD, 0x7B, 0xA3, 0xFB, 0x76, 0xC8,
@@ -422,6 +474,10 @@ static const u8 calc_sb_tbl[512] = {
 	0x4A, 0x55, 0x5E, 0x09, 0xC1, 0xBE, 0xE0, 0x91
 };
 
+/* Macro to perform one column of the RS matrix multiplication.  The
+ * parameters a, b, c, and d are the four bytes of output; i is the index
+ * of the key bytes, and w, x, y, and z, are the column of constants from
+ * the RS matrix, preprocessed through the poly_to_exp table. */
 
 #define CALC_S(a, b, c, d, i, w, x, y, z) \
    if (key[i]) { \
@@ -432,6 +488,11 @@ static const u8 calc_sb_tbl[512] = {
       (d) ^= exp_to_poly[tmp + (z)]; \
    }
 
+/* Macros to calculate the key-dependent S-boxes for a 128-bit key using
+ * the S vector from CALC_S.  CALC_SB_2 computes a single entry in all
+ * four S-boxes, where i is the index of the entry to compute, and a and b
+ * are the index numbers preprocessed through the q0 and q1 tables
+ * respectively. */
 
 #define CALC_SB_2(i, a, b) \
    ctx->s[0][i] = mds[0][q0[(a) ^ sa] ^ se]; \
@@ -439,6 +500,7 @@ static const u8 calc_sb_tbl[512] = {
    ctx->s[2][i] = mds[2][q1[(a) ^ sc] ^ sg]; \
    ctx->s[3][i] = mds[3][q1[(b) ^ sd] ^ sh]
 
+/* Macro exactly like CALC_SB_2, but for 192-bit keys. */
 
 #define CALC_SB192_2(i, a, b) \
    ctx->s[0][i] = mds[0][q0[q0[(b) ^ sa] ^ se] ^ si]; \
@@ -446,6 +508,7 @@ static const u8 calc_sb_tbl[512] = {
    ctx->s[2][i] = mds[2][q1[q0[(a) ^ sc] ^ sg] ^ sk]; \
    ctx->s[3][i] = mds[3][q1[q1[(a) ^ sd] ^ sh] ^ sl];
 
+/* Macro exactly like CALC_SB_2, but for 256-bit keys. */
 
 #define CALC_SB256_2(i, a, b) \
    ctx->s[0][i] = mds[0][q0[q0[q1[(b) ^ sa] ^ se] ^ si] ^ sm]; \
@@ -453,6 +516,29 @@ static const u8 calc_sb_tbl[512] = {
    ctx->s[2][i] = mds[2][q1[q0[q0[(a) ^ sc] ^ sg] ^ sk] ^ so]; \
    ctx->s[3][i] = mds[3][q1[q1[q0[(b) ^ sd] ^ sh] ^ sl] ^ sp];
 
+/* Macros to calculate the whitening and round subkeys.  CALC_K_2 computes the
+ * last two stages of the h() function for a given index (either 2i or 2i+1).
+ * a, b, c, and d are the four bytes going into the last two stages.  For
+ * 128-bit keys, this is the entire h() function and a and c are the index
+ * preprocessed through q0 and q1 respectively; for longer keys they are the
+ * output of previous stages.  j is the index of the first key byte to use.
+ * CALC_K computes a pair of subkeys for 128-bit Twofish, by calling CALC_K_2
+ * twice, doing the Pseudo-Hadamard Transform, and doing the necessary
+ * rotations.  Its parameters are: a, the array to write the results into,
+ * j, the index of the first output entry, k and l, the preprocessed indices
+ * for index 2i, and m and n, the preprocessed indices for index 2i+1.
+ * CALC_K192_2 expands CALC_K_2 to handle 192-bit keys, by doing an
+ * additional lookup-and-XOR stage.  The parameters a, b, c and d are the
+ * four bytes going into the last three stages.  For 192-bit keys, c = d
+ * are the index preprocessed through q0, and a = b are the index
+ * preprocessed through q1; j is the index of the first key byte to use.
+ * CALC_K192 is identical to CALC_K but for using the CALC_K192_2 macro
+ * instead of CALC_K_2.
+ * CALC_K256_2 expands CALC_K192_2 to handle 256-bit keys, by doing an
+ * additional lookup-and-XOR stage.  The parameters a and b are the index
+ * preprocessed through q0 and q1 respectively; j is the index of the first
+ * key byte to use.  CALC_K256 is identical to CALC_K but for using the
+ * CALC_K256_2 macro instead of CALC_K_2. */
 
 #define CALC_K_2(a, b, c, d, j) \
      mds[0][q0[a ^ key[(j) + 8]] ^ key[j]] \
@@ -493,99 +579,115 @@ static const u8 calc_sb_tbl[512] = {
    x += y; y += x; ctx->a[j] = x; \
    ctx->a[(j) + 1] = rol32(y, 9)
 
+/* Perform the key setup. */
 int __twofish_setkey(struct twofish_ctx *ctx, const u8 *key,
 		     unsigned int key_len, u32 *flags)
 {
 	int i, j, k;
 
-	
+	/* Temporaries for CALC_K. */
 	u32 x, y;
 
+	/* The S vector used to key the S-boxes, split up into individual bytes.
+	 * 128-bit keys use only sa through sh; 256-bit use all of them. */
 	u8 sa = 0, sb = 0, sc = 0, sd = 0, se = 0, sf = 0, sg = 0, sh = 0;
 	u8 si = 0, sj = 0, sk = 0, sl = 0, sm = 0, sn = 0, so = 0, sp = 0;
 
-	
+	/* Temporary for CALC_S. */
 	u8 tmp;
 
-	
+	/* Check key length. */
 	if (key_len % 8)
 	{
 		*flags |= CRYPTO_TFM_RES_BAD_KEY_LEN;
-		return -EINVAL; 
+		return -EINVAL; /* unsupported key length */
 	}
 
-	CALC_S (sa, sb, sc, sd, 0, 0x00, 0x2D, 0x01, 0x2D); 
-	CALC_S (sa, sb, sc, sd, 1, 0x2D, 0xA4, 0x44, 0x8A); 
-	CALC_S (sa, sb, sc, sd, 2, 0x8A, 0xD5, 0xBF, 0xD1); 
-	CALC_S (sa, sb, sc, sd, 3, 0xD1, 0x7F, 0x3D, 0x99); 
-	CALC_S (sa, sb, sc, sd, 4, 0x99, 0x46, 0x66, 0x96); 
-	CALC_S (sa, sb, sc, sd, 5, 0x96, 0x3C, 0x5B, 0xED); 
-	CALC_S (sa, sb, sc, sd, 6, 0xED, 0x37, 0x4F, 0xE0); 
-	CALC_S (sa, sb, sc, sd, 7, 0xE0, 0xD0, 0x8C, 0x17); 
-	CALC_S (se, sf, sg, sh, 8, 0x00, 0x2D, 0x01, 0x2D); 
-	CALC_S (se, sf, sg, sh, 9, 0x2D, 0xA4, 0x44, 0x8A); 
-	CALC_S (se, sf, sg, sh, 10, 0x8A, 0xD5, 0xBF, 0xD1); 
-	CALC_S (se, sf, sg, sh, 11, 0xD1, 0x7F, 0x3D, 0x99); 
-	CALC_S (se, sf, sg, sh, 12, 0x99, 0x46, 0x66, 0x96); 
-	CALC_S (se, sf, sg, sh, 13, 0x96, 0x3C, 0x5B, 0xED); 
-	CALC_S (se, sf, sg, sh, 14, 0xED, 0x37, 0x4F, 0xE0); 
-	CALC_S (se, sf, sg, sh, 15, 0xE0, 0xD0, 0x8C, 0x17); 
+	/* Compute the first two words of the S vector.  The magic numbers are
+	 * the entries of the RS matrix, preprocessed through poly_to_exp. The
+	 * numbers in the comments are the original (polynomial form) matrix
+	 * entries. */
+	CALC_S (sa, sb, sc, sd, 0, 0x00, 0x2D, 0x01, 0x2D); /* 01 A4 02 A4 */
+	CALC_S (sa, sb, sc, sd, 1, 0x2D, 0xA4, 0x44, 0x8A); /* A4 56 A1 55 */
+	CALC_S (sa, sb, sc, sd, 2, 0x8A, 0xD5, 0xBF, 0xD1); /* 55 82 FC 87 */
+	CALC_S (sa, sb, sc, sd, 3, 0xD1, 0x7F, 0x3D, 0x99); /* 87 F3 C1 5A */
+	CALC_S (sa, sb, sc, sd, 4, 0x99, 0x46, 0x66, 0x96); /* 5A 1E 47 58 */
+	CALC_S (sa, sb, sc, sd, 5, 0x96, 0x3C, 0x5B, 0xED); /* 58 C6 AE DB */
+	CALC_S (sa, sb, sc, sd, 6, 0xED, 0x37, 0x4F, 0xE0); /* DB 68 3D 9E */
+	CALC_S (sa, sb, sc, sd, 7, 0xE0, 0xD0, 0x8C, 0x17); /* 9E E5 19 03 */
+	CALC_S (se, sf, sg, sh, 8, 0x00, 0x2D, 0x01, 0x2D); /* 01 A4 02 A4 */
+	CALC_S (se, sf, sg, sh, 9, 0x2D, 0xA4, 0x44, 0x8A); /* A4 56 A1 55 */
+	CALC_S (se, sf, sg, sh, 10, 0x8A, 0xD5, 0xBF, 0xD1); /* 55 82 FC 87 */
+	CALC_S (se, sf, sg, sh, 11, 0xD1, 0x7F, 0x3D, 0x99); /* 87 F3 C1 5A */
+	CALC_S (se, sf, sg, sh, 12, 0x99, 0x46, 0x66, 0x96); /* 5A 1E 47 58 */
+	CALC_S (se, sf, sg, sh, 13, 0x96, 0x3C, 0x5B, 0xED); /* 58 C6 AE DB */
+	CALC_S (se, sf, sg, sh, 14, 0xED, 0x37, 0x4F, 0xE0); /* DB 68 3D 9E */
+	CALC_S (se, sf, sg, sh, 15, 0xE0, 0xD0, 0x8C, 0x17); /* 9E E5 19 03 */
 
-	if (key_len == 24 || key_len == 32) { 
-		
-		CALC_S (si, sj, sk, sl, 16, 0x00, 0x2D, 0x01, 0x2D); 
-		CALC_S (si, sj, sk, sl, 17, 0x2D, 0xA4, 0x44, 0x8A); 
-		CALC_S (si, sj, sk, sl, 18, 0x8A, 0xD5, 0xBF, 0xD1); 
-		CALC_S (si, sj, sk, sl, 19, 0xD1, 0x7F, 0x3D, 0x99); 
-		CALC_S (si, sj, sk, sl, 20, 0x99, 0x46, 0x66, 0x96); 
-		CALC_S (si, sj, sk, sl, 21, 0x96, 0x3C, 0x5B, 0xED); 
-		CALC_S (si, sj, sk, sl, 22, 0xED, 0x37, 0x4F, 0xE0); 
-		CALC_S (si, sj, sk, sl, 23, 0xE0, 0xD0, 0x8C, 0x17); 
+	if (key_len == 24 || key_len == 32) { /* 192- or 256-bit key */
+		/* Calculate the third word of the S vector */
+		CALC_S (si, sj, sk, sl, 16, 0x00, 0x2D, 0x01, 0x2D); /* 01 A4 02 A4 */
+		CALC_S (si, sj, sk, sl, 17, 0x2D, 0xA4, 0x44, 0x8A); /* A4 56 A1 55 */
+		CALC_S (si, sj, sk, sl, 18, 0x8A, 0xD5, 0xBF, 0xD1); /* 55 82 FC 87 */
+		CALC_S (si, sj, sk, sl, 19, 0xD1, 0x7F, 0x3D, 0x99); /* 87 F3 C1 5A */
+		CALC_S (si, sj, sk, sl, 20, 0x99, 0x46, 0x66, 0x96); /* 5A 1E 47 58 */
+		CALC_S (si, sj, sk, sl, 21, 0x96, 0x3C, 0x5B, 0xED); /* 58 C6 AE DB */
+		CALC_S (si, sj, sk, sl, 22, 0xED, 0x37, 0x4F, 0xE0); /* DB 68 3D 9E */
+		CALC_S (si, sj, sk, sl, 23, 0xE0, 0xD0, 0x8C, 0x17); /* 9E E5 19 03 */
 	}
 
-	if (key_len == 32) { 
-		
-		CALC_S (sm, sn, so, sp, 24, 0x00, 0x2D, 0x01, 0x2D); 
-		CALC_S (sm, sn, so, sp, 25, 0x2D, 0xA4, 0x44, 0x8A); 
-		CALC_S (sm, sn, so, sp, 26, 0x8A, 0xD5, 0xBF, 0xD1); 
-		CALC_S (sm, sn, so, sp, 27, 0xD1, 0x7F, 0x3D, 0x99); 
-		CALC_S (sm, sn, so, sp, 28, 0x99, 0x46, 0x66, 0x96); 
-		CALC_S (sm, sn, so, sp, 29, 0x96, 0x3C, 0x5B, 0xED); 
-		CALC_S (sm, sn, so, sp, 30, 0xED, 0x37, 0x4F, 0xE0); 
-		CALC_S (sm, sn, so, sp, 31, 0xE0, 0xD0, 0x8C, 0x17); 
+	if (key_len == 32) { /* 256-bit key */
+		/* Calculate the fourth word of the S vector */
+		CALC_S (sm, sn, so, sp, 24, 0x00, 0x2D, 0x01, 0x2D); /* 01 A4 02 A4 */
+		CALC_S (sm, sn, so, sp, 25, 0x2D, 0xA4, 0x44, 0x8A); /* A4 56 A1 55 */
+		CALC_S (sm, sn, so, sp, 26, 0x8A, 0xD5, 0xBF, 0xD1); /* 55 82 FC 87 */
+		CALC_S (sm, sn, so, sp, 27, 0xD1, 0x7F, 0x3D, 0x99); /* 87 F3 C1 5A */
+		CALC_S (sm, sn, so, sp, 28, 0x99, 0x46, 0x66, 0x96); /* 5A 1E 47 58 */
+		CALC_S (sm, sn, so, sp, 29, 0x96, 0x3C, 0x5B, 0xED); /* 58 C6 AE DB */
+		CALC_S (sm, sn, so, sp, 30, 0xED, 0x37, 0x4F, 0xE0); /* DB 68 3D 9E */
+		CALC_S (sm, sn, so, sp, 31, 0xE0, 0xD0, 0x8C, 0x17); /* 9E E5 19 03 */
 
-		
+		/* Compute the S-boxes. */
 		for ( i = j = 0, k = 1; i < 256; i++, j += 2, k += 2 ) {
 			CALC_SB256_2( i, calc_sb_tbl[j], calc_sb_tbl[k] );
 		}
 
-		
+		/* CALC_K256/CALC_K192/CALC_K loops were unrolled.
+		 * Unrolling produced x2.5 more code (+18k on i386),
+		 * and speeded up key setup by 7%:
+		 * unrolled: twofish_setkey/sec: 41128
+		 *     loop: twofish_setkey/sec: 38148
+		 * CALC_K256: ~100 insns each
+		 * CALC_K192: ~90 insns
+		 *    CALC_K: ~70 insns
+		 */
+		/* Calculate whitening and round subkeys */
 		for ( i = 0; i < 8; i += 2 ) {
 			CALC_K256 (w, i, q0[i], q1[i], q0[i+1], q1[i+1]);
 		}
 		for ( i = 0; i < 32; i += 2 ) {
 			CALC_K256 (k, i, q0[i+8], q1[i+8], q0[i+9], q1[i+9]);
 		}
-	} else if (key_len == 24) { 
-		
+	} else if (key_len == 24) { /* 192-bit key */
+		/* Compute the S-boxes. */
 		for ( i = j = 0, k = 1; i < 256; i++, j += 2, k += 2 ) {
 		        CALC_SB192_2( i, calc_sb_tbl[j], calc_sb_tbl[k] );
 		}
 
-		
+		/* Calculate whitening and round subkeys */
 		for ( i = 0; i < 8; i += 2 ) {
 			CALC_K192 (w, i, q0[i], q1[i], q0[i+1], q1[i+1]);
 		}
 		for ( i = 0; i < 32; i += 2 ) {
 			CALC_K192 (k, i, q0[i+8], q1[i+8], q0[i+9], q1[i+9]);
 		}
-	} else { 
-		
+	} else { /* 128-bit key */
+		/* Compute the S-boxes. */
 		for ( i = j = 0, k = 1; i < 256; i++, j += 2, k += 2 ) {
 			CALC_SB_2( i, calc_sb_tbl[j], calc_sb_tbl[k] );
 		}
 
-		
+		/* Calculate whitening and round subkeys */
 		for ( i = 0; i < 8; i += 2 ) {
 			CALC_K (w, i, q0[i], q1[i], q0[i+1], q1[i+1]);
 		}

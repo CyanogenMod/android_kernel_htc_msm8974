@@ -38,6 +38,20 @@ static int extram_pool_sz = SZ_256K;
 module_param(extram_pool_sz, int, 0);
 MODULE_PARM_DESC(extram_pool_sz, "external ram pool size to allocate");
 
+/*
+ * Host event IRQ numbers from PRUSS - PRUSS can generate up to 8 interrupt
+ * events to AINTC of ARM host processor - which can be used for IPC b/w PRUSS
+ * firmware and user space application, async notification from PRU firmware
+ * to user space application
+ * 3	PRU_EVTOUT0
+ * 4	PRU_EVTOUT1
+ * 5	PRU_EVTOUT2
+ * 6	PRU_EVTOUT3
+ * 7	PRU_EVTOUT4
+ * 8	PRU_EVTOUT5
+ * 9	PRU_EVTOUT6
+ * 10	PRU_EVTOUT7
+*/
 #define MAX_PRUSS_EVT	8
 
 #define PINTC_HIDISR	0x0038
@@ -68,10 +82,10 @@ static irqreturn_t pruss_handler(int irq, struct uio_info *info)
 	void __iomem *intrstat_reg = base + PINTC_HIPIR + (intr_bit << 2);
 
 	val = ioread32(intren_reg);
-	
+	/* Is interrupt enabled and active ? */
 	if (!(val & intr_mask) && (ioread32(intrstat_reg) & HIPIR_NOPEND))
 		return IRQ_NONE;
-	
+	/* Disable interrupt */
 	iowrite32(intr_bit, intrdis_reg);
 	return IRQ_HANDLED;
 }
@@ -115,7 +129,7 @@ static int __devinit pruss_probe(struct platform_device *dev)
 		kfree(gdev);
 		return -ENOMEM;
 	}
-	
+	/* Power on PRU in case its not done as part of boot-loader */
 	gdev->pruss_clk = clk_get(&dev->dev, "pruss");
 	if (IS_ERR(gdev->pruss_clk)) {
 		dev_err(&dev->dev, "Failed to get clock\n");
@@ -177,7 +191,7 @@ static int __devinit pruss_probe(struct platform_device *dev)
 		p->name = kasprintf(GFP_KERNEL, "pruss_evt%d", cnt);
 		p->version = DRV_VERSION;
 
-		
+		/* Register PRUSS IRQ lines */
 		p->irq = gdev->hostirq_start + cnt;
 		p->handler = pruss_handler;
 		p->priv = gdev;

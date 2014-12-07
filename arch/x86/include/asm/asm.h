@@ -40,6 +40,7 @@
 #define _ASM_SI		__ASM_REG(si)
 #define _ASM_DI		__ASM_REG(di)
 
+/* Exception table entry */
 #ifdef __ASSEMBLY__
 # define _ASM_EXTABLE(from,to)	    \
 	__ASM_EX_SEC ;		    \
@@ -54,4 +55,4 @@
 	" .previous\n"
 #endif
 
-#endif 
+#endif /* _ASM_X86_ASM_H */

@@ -31,8 +31,8 @@
 
 #define MIN_X		0x00
 #define MIN_Y		0x00
-#define MAX_X		0x31f	
-#define MAX_Y		0x1df	
+#define MAX_X		0x31f	/* (800 - 1) */
+#define MAX_Y		0x1df	/* (480 - 1) */
 #define MAX_AREA	0xff
 #define MAX_FINGERS	2
 
@@ -59,7 +59,7 @@ static int st1232_ts_read_data(struct st1232_ts_data *ts)
 	u8 start_reg;
 	u8 buf[10];
 
-	
+	/* read touchscreen data from ST1232 */
 	msg[0].addr = client->addr;
 	msg[0].flags = 0;
 	msg[0].len = 1;
@@ -75,11 +75,11 @@ static int st1232_ts_read_data(struct st1232_ts_data *ts)
 	if (error < 0)
 		return error;
 
-	
+	/* get "valid" bits */
 	finger[0].is_valid = buf[2] >> 7;
 	finger[1].is_valid = buf[5] >> 7;
 
-	
+	/* get xy coordinate */
 	if (finger[0].is_valid) {
 		finger[0].x = ((buf[2] & 0x0070) << 4) | buf[3];
 		finger[0].y = ((buf[2] & 0x0007) << 8) | buf[4];
@@ -107,7 +107,7 @@ static irqreturn_t st1232_ts_irq_handler(int irq, void *dev_id)
 	if (ret < 0)
 		goto end;
 
-	
+	/* multi touch protocol */
 	for (i = 0; i < MAX_FINGERS; i++) {
 		if (!finger[i].is_valid)
 			continue;
@@ -119,7 +119,7 @@ static irqreturn_t st1232_ts_irq_handler(int irq, void *dev_id)
 		count++;
 	}
 
-	
+	/* SYN_MT_REPORT only if no contact */
 	if (!count) {
 		input_mt_sync(input_dev);
 		if (ts->low_latency_req.dev) {
@@ -127,12 +127,12 @@ static irqreturn_t st1232_ts_irq_handler(int irq, void *dev_id)
 			ts->low_latency_req.dev = NULL;
 		}
 	} else if (!ts->low_latency_req.dev) {
-		
+		/* First contact, request 100 us latency. */
 		dev_pm_qos_add_ancestor_request(&ts->client->dev,
 						&ts->low_latency_req, 100);
 	}
 
-	
+	/* SYN_REPORT */
 	input_sync(input_dev);
 
 end:

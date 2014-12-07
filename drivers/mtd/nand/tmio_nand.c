@@ -39,47 +39,55 @@
 #include <linux/mtd/partitions.h>
 #include <linux/slab.h>
 
+/*--------------------------------------------------------------------------*/
 
-#define CCR_COMMAND	0x04	
-#define CCR_BASE	0x10	
-#define CCR_INTP	0x3d	
-#define CCR_INTE	0x48	
-#define CCR_EC		0x4a	
-#define CCR_ICC		0x4c	
-#define CCR_ECCC	0x5b	
-#define CCR_NFTC	0x60	
-#define CCR_NFM		0x61	
-#define CCR_NFPSC	0x62	
-#define CCR_NFDC	0x63	
+/*
+ * NAND Flash Host Controller Configuration Register
+ */
+#define CCR_COMMAND	0x04	/* w Command				*/
+#define CCR_BASE	0x10	/* l NAND Flash Control Reg Base Addr	*/
+#define CCR_INTP	0x3d	/* b Interrupt Pin			*/
+#define CCR_INTE	0x48	/* b Interrupt Enable			*/
+#define CCR_EC		0x4a	/* b Event Control			*/
+#define CCR_ICC		0x4c	/* b Internal Clock Control		*/
+#define CCR_ECCC	0x5b	/* b ECC Control			*/
+#define CCR_NFTC	0x60	/* b NAND Flash Transaction Control	*/
+#define CCR_NFM		0x61	/* b NAND Flash Monitor			*/
+#define CCR_NFPSC	0x62	/* b NAND Flash Power Supply Control	*/
+#define CCR_NFDC	0x63	/* b NAND Flash Detect Control		*/
 
-#define FCR_DATA	0x00	
-#define FCR_MODE	0x04	
-#define FCR_STATUS	0x05	
-#define FCR_ISR		0x06	
-#define FCR_IMR		0x07	
+/*
+ * NAND Flash Control Register
+ */
+#define FCR_DATA	0x00	/* bwl Data Register			*/
+#define FCR_MODE	0x04	/* b Mode Register			*/
+#define FCR_STATUS	0x05	/* b Status Register			*/
+#define FCR_ISR		0x06	/* b Interrupt Status Register		*/
+#define FCR_IMR		0x07	/* b Interrupt Mask Register		*/
 
-#define FCR_MODE_DATA	0x94	
-#define FCR_MODE_COMMAND 0x95	
-#define FCR_MODE_ADDRESS 0x96	
+/* FCR_MODE Register Command List */
+#define FCR_MODE_DATA	0x94	/* Data Data_Mode */
+#define FCR_MODE_COMMAND 0x95	/* Data Command_Mode */
+#define FCR_MODE_ADDRESS 0x96	/* Data Address_Mode */
 
-#define FCR_MODE_HWECC_CALC	0xB4	
-#define FCR_MODE_HWECC_RESULT	0xD4	
-#define FCR_MODE_HWECC_RESET	0xF4	
+#define FCR_MODE_HWECC_CALC	0xB4	/* HW-ECC Data */
+#define FCR_MODE_HWECC_RESULT	0xD4	/* HW-ECC Calc result Read_Mode */
+#define FCR_MODE_HWECC_RESET	0xF4	/* HW-ECC Reset */
 
-#define FCR_MODE_POWER_ON	0x0C	
-#define FCR_MODE_POWER_OFF	0x08	
+#define FCR_MODE_POWER_ON	0x0C	/* Power Supply ON  to SSFDC card */
+#define FCR_MODE_POWER_OFF	0x08	/* Power Supply OFF to SSFDC card */
 
-#define FCR_MODE_LED_OFF	0x00	
-#define FCR_MODE_LED_ON		0x04	
+#define FCR_MODE_LED_OFF	0x00	/* LED OFF */
+#define FCR_MODE_LED_ON		0x04	/* LED ON */
 
-#define FCR_MODE_EJECT_ON	0x68	
-#define FCR_MODE_EJECT_OFF	0x08	
+#define FCR_MODE_EJECT_ON	0x68	/* Ejection events active  */
+#define FCR_MODE_EJECT_OFF	0x08	/* Ejection events ignored */
 
-#define FCR_MODE_LOCK		0x6C	
-#define FCR_MODE_UNLOCK		0x0C	
+#define FCR_MODE_LOCK		0x6C	/* Lock_Mode. Eject Switch Invalid */
+#define FCR_MODE_UNLOCK		0x0C	/* UnLock_Mode. Eject Switch is valid */
 
-#define FCR_MODE_CONTROLLER_ID	0x40	
-#define FCR_MODE_STANDBY	0x00	
+#define FCR_MODE_CONTROLLER_ID	0x40	/* Controller ID Read */
+#define FCR_MODE_STANDBY	0x00	/* SSFDC card Changes Standby State */
 
 #define FCR_MODE_WE		0x80
 #define FCR_MODE_ECC1		0x40
@@ -92,6 +100,7 @@
 
 #define FCR_STATUS_BUSY		0x80
 
+/*--------------------------------------------------------------------------*/
 
 struct tmio_nand {
 	struct mtd_info mtd;
@@ -105,7 +114,7 @@ struct tmio_nand {
 
 	unsigned int irq;
 
-	
+	/* for tmio_nand_read_byte */
 	u8			read;
 	unsigned read_good:1;
 };
@@ -113,6 +122,7 @@ struct tmio_nand {
 #define mtd_to_tmio(m)			container_of(m, struct tmio_nand, mtd)
 
 
+/*--------------------------------------------------------------------------*/
 
 static void tmio_nand_hwcontrol(struct mtd_info *mtd, int cmd,
 				   unsigned int ctrl)
@@ -159,7 +169,7 @@ static irqreturn_t tmio_irq(int irq, void *__tmio)
 	struct tmio_nand *tmio = __tmio;
 	struct nand_chip *nand_chip = &tmio->chip;
 
-	
+	/* disable RDYREQ interrupt */
 	tmio_iowrite8(0x00, tmio->fcr + FCR_IMR);
 
 	if (unlikely(!waitqueue_active(&nand_chip->controller->wq)))
@@ -169,13 +179,19 @@ static irqreturn_t tmio_irq(int irq, void *__tmio)
 	return IRQ_HANDLED;
 }
 
+/*
+  *The TMIO core has a RDYREQ interrupt on the posedge of #SMRB.
+  *This interrupt is normally disabled, but for long operations like
+  *erase and write, we enable it to wake us up.  The irq handler
+  *disables the interrupt.
+ */
 static int
 tmio_nand_wait(struct mtd_info *mtd, struct nand_chip *nand_chip)
 {
 	struct tmio_nand *tmio = mtd_to_tmio(mtd);
 	long timeout;
 
-	
+	/* enable RDYREQ interrupt */
 	tmio_iowrite8(0x0f, tmio->fcr + FCR_ISR);
 	tmio_iowrite8(0x81, tmio->fcr + FCR_IMR);
 
@@ -198,6 +214,14 @@ tmio_nand_wait(struct mtd_info *mtd, struct nand_chip *nand_chip)
 	return nand_chip->read_byte(mtd);
 }
 
+/*
+  *The TMIO controller combines two 8-bit data bytes into one 16-bit
+  *word. This function separates them so nand_base.c works as expected,
+  *especially its NAND_CMD_READID routines.
+ *
+  *To prevent stale data from being read, tmio_nand_hwcontrol() clears
+  *tmio->read_good.
+ */
 static u_char tmio_nand_read_byte(struct mtd_info *mtd)
 {
 	struct tmio_nand *tmio = mtd_to_tmio(mtd);
@@ -211,6 +235,12 @@ static u_char tmio_nand_read_byte(struct mtd_info *mtd)
 	return data;
 }
 
+/*
+  *The TMIO controller converts an 8-bit NAND interface to a 16-bit
+  *bus interface, so all data reads and writes must be 16-bit wide.
+  *Thus, we implement 16-bit versions of the read, write, and verify
+  *buffer functions.
+ */
 static void
 tmio_nand_write_buf(struct mtd_info *mtd, const u_char *buf, int len)
 {
@@ -243,7 +273,7 @@ static void tmio_nand_enable_hwecc(struct mtd_info *mtd, int mode)
 	struct tmio_nand *tmio = mtd_to_tmio(mtd);
 
 	tmio_iowrite8(FCR_MODE_HWECC_RESET, tmio->fcr + FCR_MODE);
-	tmio_ioread8(tmio->fcr + FCR_DATA);	
+	tmio_ioread8(tmio->fcr + FCR_DATA);	/* dummy read */
 	tmio_iowrite8(FCR_MODE_HWECC_CALC, tmio->fcr + FCR_MODE);
 }
 
@@ -256,14 +286,14 @@ static int tmio_nand_calculate_ecc(struct mtd_info *mtd, const u_char *dat,
 	tmio_iowrite8(FCR_MODE_HWECC_RESULT, tmio->fcr + FCR_MODE);
 
 	ecc = tmio_ioread16(tmio->fcr + FCR_DATA);
-	ecc_code[1] = ecc;	
-	ecc_code[0] = ecc >> 8;	
+	ecc_code[1] = ecc;	/* 000-255 LP7-0 */
+	ecc_code[0] = ecc >> 8;	/* 000-255 LP15-8 */
 	ecc = tmio_ioread16(tmio->fcr + FCR_DATA);
-	ecc_code[2] = ecc;	
-	ecc_code[4] = ecc >> 8;	
+	ecc_code[2] = ecc;	/* 000-255 CP5-0,11b */
+	ecc_code[4] = ecc >> 8;	/* 256-511 LP7-0 */
 	ecc = tmio_ioread16(tmio->fcr + FCR_DATA);
-	ecc_code[3] = ecc;	
-	ecc_code[5] = ecc >> 8;	
+	ecc_code[3] = ecc;	/* 256-511 LP15-8 */
+	ecc_code[5] = ecc >> 8;	/* 256-511 CP5-0,11b */
 
 	tmio_iowrite8(FCR_MODE_DATA, tmio->fcr + FCR_MODE);
 	return 0;
@@ -274,7 +304,7 @@ static int tmio_nand_correct_data(struct mtd_info *mtd, unsigned char *buf,
 {
 	int r0, r1;
 
-	
+	/* assume ecc.size = 512 and ecc.bytes = 6 */
 	r0 = __nand_correct_data(buf, read_ecc, calc_ecc, 256);
 	if (r0 < 0)
 		return r0;
@@ -295,32 +325,32 @@ static int tmio_hw_init(struct platform_device *dev, struct tmio_nand *tmio)
 			return ret;
 	}
 
-	
+	/* (4Ch) CLKRUN Enable    1st spcrunc */
 	tmio_iowrite8(0x81, tmio->ccr + CCR_ICC);
 
-	
+	/* (10h)BaseAddress    0x1000 spba.spba2 */
 	tmio_iowrite16(tmio->fcr_base, tmio->ccr + CCR_BASE);
 	tmio_iowrite16(tmio->fcr_base >> 16, tmio->ccr + CCR_BASE + 2);
 
-	
+	/* (04h)Command Register I/O spcmd */
 	tmio_iowrite8(0x02, tmio->ccr + CCR_COMMAND);
 
-	
-	
+	/* (62h) Power Supply Control ssmpwc */
+	/* HardPowerOFF - SuspendOFF - PowerSupplyWait_4MS */
 	tmio_iowrite8(0x02, tmio->ccr + CCR_NFPSC);
 
-	
+	/* (63h) Detect Control ssmdtc */
 	tmio_iowrite8(0x02, tmio->ccr + CCR_NFDC);
 
-	
+	/* Interrupt status register clear sintst */
 	tmio_iowrite8(0x0f, tmio->fcr + FCR_ISR);
 
-	
+	/* After power supply, Media are reset smode */
 	tmio_iowrite8(FCR_MODE_POWER_ON, tmio->fcr + FCR_MODE);
 	tmio_iowrite8(FCR_MODE_COMMAND, tmio->fcr + FCR_MODE);
 	tmio_iowrite8(NAND_CMD_RESET, tmio->fcr + FCR_DATA);
 
-	
+	/* Standby Mode smode */
 	tmio_iowrite8(FCR_MODE_STANDBY, tmio->fcr + FCR_MODE);
 
 	mdelay(5);
@@ -384,11 +414,11 @@ static int tmio_probe(struct platform_device *dev)
 	if (retval)
 		goto err_hwinit;
 
-	
+	/* Set address of NAND IO lines */
 	nand_chip->IO_ADDR_R = tmio->fcr;
 	nand_chip->IO_ADDR_W = tmio->fcr;
 
-	
+	/* Set address of hardware control function */
 	nand_chip->cmd_ctrl = tmio_nand_hwcontrol;
 	nand_chip->dev_ready = tmio_nand_dev_ready;
 	nand_chip->read_byte = tmio_nand_read_byte;
@@ -396,7 +426,7 @@ static int tmio_probe(struct platform_device *dev)
 	nand_chip->read_buf = tmio_nand_read_buf;
 	nand_chip->verify_buf = tmio_nand_verify_buf;
 
-	
+	/* set eccmode using hardware ECC */
 	nand_chip->ecc.mode = NAND_ECC_HW;
 	nand_chip->ecc.size = 512;
 	nand_chip->ecc.bytes = 6;
@@ -408,7 +438,7 @@ static int tmio_probe(struct platform_device *dev)
 	if (data)
 		nand_chip->badblock_pattern = data->badblock_pattern;
 
-	
+	/* 15 us command delay time */
 	nand_chip->chip_delay = 15;
 
 	retval = request_irq(irq, &tmio_irq,
@@ -421,12 +451,12 @@ static int tmio_probe(struct platform_device *dev)
 	tmio->irq = irq;
 	nand_chip->waitfunc = tmio_nand_wait;
 
-	
+	/* Scan to find existence of the device */
 	if (nand_scan(mtd, 1)) {
 		retval = -ENODEV;
 		goto err_scan;
 	}
-	
+	/* Register the partitions */
 	retval = mtd_device_parse_register(mtd, NULL, NULL,
 					   data ? data->partition : NULL,
 					   data ? data->num_partitions : 0);
@@ -480,6 +510,9 @@ static int tmio_resume(struct platform_device *dev)
 {
 	const struct mfd_cell *cell = mfd_get_cell(dev);
 
+	/* FIXME - is this required or merely another attack of the broken
+	 * SHARP platform? Looks suspicious.
+	 */
 	tmio_hw_init(dev, platform_get_drvdata(dev));
 
 	if (cell->resume)

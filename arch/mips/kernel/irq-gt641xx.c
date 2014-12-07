@@ -98,6 +98,11 @@ void gt641xx_irq_dispatch(void)
 	mask = GT_READ(GT_INTRMASK_OFS);
 	cause &= mask;
 
+	/*
+	 * bit0 : logical or of all the interrupt bits.
+	 * bit30: logical or of bits[29:26,20:1].
+	 * bit31: logical or of bits[25:1].
+	 */
 	for (i = 1; i < 30; i++) {
 		if (cause & (1U << i)) {
 			do_IRQ(GT641XX_IRQ_BASE + i);
@@ -115,6 +120,11 @@ void __init gt641xx_irq_init(void)
 	GT_WRITE(GT_INTRMASK_OFS, 0);
 	GT_WRITE(GT_INTRCAUSE_OFS, 0);
 
+	/*
+	 * bit0 : logical or of all the interrupt bits.
+	 * bit30: logical or of bits[29:26,20:1].
+	 * bit31: logical or of bits[25:1].
+	 */
 	for (i = 1; i < 30; i++)
 		irq_set_chip_and_handler(GT641XX_IRQ_BASE + i,
 					 &gt641xx_irq_chip, handle_level_irq);

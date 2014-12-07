@@ -29,6 +29,11 @@ static void arch_detect_cpu(void)
 {
 	u32 chip_id = __raw_readl(EXYNOS_PA_CHIPID);
 
+	/*
+	 * product_id is bits 31:12
+	 *    bits 23:20 describe the exynosX family
+	 *
+	 */
 	chip_id >>= 20;
 	chip_id &= 0xf;
 
@@ -37,7 +42,11 @@ static void arch_detect_cpu(void)
 	else
 		uart_base = (volatile u8 *)EXYNOS4_PA_UART + (S3C_UART_OFFSET * CONFIG_S3C_LOWLEVEL_UART_PORT);
 
+	/*
+	 * For preventing FIFO overrun or infinite loop of UART console,
+	 * fifo_max should be the minimum fifo size of all of the UART channels
+	 */
 	fifo_mask = S5PV210_UFSTAT_TXMASK;
 	fifo_max = 15 << S5PV210_UFSTAT_TXSHIFT;
 }
-#endif 
+#endif /* __ASM_ARCH_UNCOMPRESS_H */

@@ -35,6 +35,8 @@
 #include "bat_algo.h"
 
 
+/* List manipulations on hardif_list have to be rtnl_lock()'ed,
+ * list traversals just rcu-locked */
 struct list_head hardif_list;
 char bat_routing_algo[20] = "BATMAN IV";
 static struct hlist_head bat_algo_list;
@@ -50,6 +52,8 @@ static int __init batman_init(void)
 
 	bat_iv_init();
 
+	/* the name should not be longer than 10 chars - see
+	 * http://lwn.net/Articles/23634/ */
 	bat_event_workqueue = create_singlethread_workqueue("bat_events");
 
 	if (!bat_event_workqueue)
@@ -202,7 +206,7 @@ int bat_algo_register(struct bat_algo_ops *bat_algo_ops)
 		goto out;
 	}
 
-	
+	/* all algorithms must implement all ops (for now) */
 	if (!bat_algo_ops->bat_ogm_init ||
 	    !bat_algo_ops->bat_ogm_init_primary ||
 	    !bat_algo_ops->bat_ogm_update_mac ||

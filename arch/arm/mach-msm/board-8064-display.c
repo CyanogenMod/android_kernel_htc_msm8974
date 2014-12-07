@@ -29,8 +29,10 @@
 #include "board-8064.h"
 
 #ifdef CONFIG_FB_MSM_TRIPLE_BUFFER
+/* prim = 1366 x 768 x 3(bpp) x 3(pages) */
 #define MSM_FB_PRIM_BUF_SIZE roundup(1920 * 1088 * 4 * 3, 0x10000)
 #else
+/* prim = 1366 x 768 x 3(bpp) x 2(pages) */
 #define MSM_FB_PRIM_BUF_SIZE roundup(1920 * 1088 * 4 * 2, 0x10000)
 #endif
 
@@ -40,13 +42,13 @@
 #define MSM_FB_OVERLAY0_WRITEBACK_SIZE roundup((1376 * 768 * 3 * 2), 4096)
 #else
 #define MSM_FB_OVERLAY0_WRITEBACK_SIZE (0)
-#endif  
+#endif  /* CONFIG_FB_MSM_OVERLAY0_WRITEBACK */
 
 #ifdef CONFIG_FB_MSM_OVERLAY1_WRITEBACK
 #define MSM_FB_OVERLAY1_WRITEBACK_SIZE roundup((1920 * 1088 * 3 * 2), 4096)
 #else
 #define MSM_FB_OVERLAY1_WRITEBACK_SIZE (0)
-#endif  
+#endif  /* CONFIG_FB_MSM_OVERLAY1_WRITEBACK */
 
 #define AVTIMER_PHYSICAL_ADDRESS 0x28009008
 
@@ -181,7 +183,7 @@ static struct msm_bus_vectors mdp_ui_vectors[] = {
 };
 
 static struct msm_bus_vectors mdp_vga_vectors[] = {
-	
+	/* VGA and less video */
 	{
 		.src = MSM_BUS_MASTER_MDP_PORT0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
@@ -191,7 +193,7 @@ static struct msm_bus_vectors mdp_vga_vectors[] = {
 };
 
 static struct msm_bus_vectors mdp_720p_vectors[] = {
-	
+	/* 720p and less video */
 	{
 		.src = MSM_BUS_MASTER_MDP_PORT0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
@@ -201,7 +203,7 @@ static struct msm_bus_vectors mdp_720p_vectors[] = {
 };
 
 static struct msm_bus_vectors mdp_1080p_vectors[] = {
-	
+	/* 1080p and less video */
 	{
 		.src = MSM_BUS_MASTER_MDP_PORT0,
 		.dst = MSM_BUS_SLAVE_EBI_CH0,
@@ -336,6 +338,7 @@ static struct platform_device wfd_device = {
 };
 #endif
 
+/* HDMI related GPIOs */
 #define HDMI_CEC_VAR_GPIO	69
 #define HDMI_DDC_CLK_GPIO	70
 #define HDMI_DDC_DATA_GPIO	71
@@ -416,7 +419,7 @@ static int mipi_dsi_panel_power(int on)
 			return -ENODEV;
 		}
 
-		gpio36 = PM8921_GPIO_PM_TO_SYS(36); 
+		gpio36 = PM8921_GPIO_PM_TO_SYS(36); /* lcd1_pwr_en_n */
 		rc = gpio_request(gpio36, "lcd1_pwr_en_n");
 		if (rc) {
 			pr_err("request gpio 36 failed, rc=%d\n", rc);
@@ -559,7 +562,7 @@ static int lvds_panel_power(int on)
 			return -ENODEV;
 		}
 
-		gpio36 = PM8921_GPIO_PM_TO_SYS(36); 
+		gpio36 = PM8921_GPIO_PM_TO_SYS(36); /* lcd1_pwr_en_n */
 		rc = gpio_request(gpio36, "lcd1_pwr_en_n");
 		if (rc) {
 			pr_err("request gpio 36 failed, rc=%d\n", rc);
@@ -685,8 +688,8 @@ static struct platform_device lvds_frc_panel_device = {
 };
 
 static int dsi2lvds_gpio[2] = {
-	LPM_CHANNEL,
-	0x1F08 
+	LPM_CHANNEL,/* Backlight PWM-ID=0 for PMIC-GPIO#24 */
+	0x1F08 /* DSI2LVDS Bridge GPIO Output, mask=0x1f, out=0x08 */
 };
 static struct msm_panel_common_pdata mipi_dsi2lvds_pdata = {
 	.gpio_num = dsi2lvds_gpio,
@@ -765,8 +768,8 @@ static int hdmi_panel_power(int on)
 
 static int hdmi_enable_5v(int on)
 {
-	
-	static struct regulator *reg_8921_hdmi_mvs;	
+	/* TBD: PM8921 regulator instead of 8901 */
+	static struct regulator *reg_8921_hdmi_mvs;	/* HDMI_5V */
 	static int prev_on;
 	int rc;
 
@@ -814,7 +817,7 @@ static int hdmi_core_power(int on, int show)
 	if (on == prev_on)
 		return 0;
 
-	
+	/* TBD: PM8921 regulator instead of 8901 */
 	if (!reg_ext_3p3v &&
 		(!(machine_is_mpq8064_hrd() || machine_is_mpq8064_dtv()))) {
 		reg_ext_3p3v = regulator_get(&hdmi_msm_device.dev,
@@ -854,6 +857,10 @@ static int hdmi_core_power(int on, int show)
 	}
 
 	if (on) {
+		/*
+		 * Configure 3P3V_BOOST_EN as GPIO, 8mA drive strength,
+		 * pull none, out-high
+		 */
 		if (!(machine_is_mpq8064_hrd() || machine_is_mpq8064_dtv())) {
 			rc = regulator_set_optimum_mode(reg_ext_3p3v, 290000);
 			if (rc < 0) {
@@ -1033,6 +1040,10 @@ void __init apq8064_init_fb(void)
 	msm_fb_register_device("dtv", &dtv_pdata);
 }
 
+/**
+ * Set MDP clocks to high frequency to avoid DSI underflow
+ * when using high resolution 1200x1920 WUXGA panels
+ */
 static void set_mdp_clocks_for_wuxga(void)
 {
 	mdp_ui_vectors[0].ab = 2000000000;
@@ -1053,6 +1064,11 @@ static void set_mdp_clocks_for_wuxga(void)
 void __init apq8064_set_display_params(char *prim_panel, char *ext_panel,
 		unsigned char resolution)
 {
+	/*
+	 * For certain MPQ boards, HDMI should be set as primary display
+	 * by default, with the flexibility to specify any other panel
+	 * as a primary panel through boot parameters.
+	 */
 	if (machine_is_mpq8064_hrd() || machine_is_mpq8064_cdp()) {
 		pr_debug("HDMI is the primary display by default for MPQ\n");
 		if (!strnlen(prim_panel, PANEL_NAME_MAX_LEN))

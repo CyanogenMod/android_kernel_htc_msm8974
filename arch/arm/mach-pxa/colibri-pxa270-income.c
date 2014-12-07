@@ -43,6 +43,9 @@
 #define GPIO55_INCOME_LED_B     (55)
 #define GPIO113_INCOME_TS_IRQ   (113)
 
+/******************************************************************************
+ * SD/MMC card controller
+ ******************************************************************************/
 #if defined(CONFIG_MMC_PXA) || defined(CONFIG_MMC_PXA_MODULE)
 static struct pxamci_platform_data income_mci_platform_data = {
 	.ocr_mask		= MMC_VDD_32_33 | MMC_VDD_33_34,
@@ -60,6 +63,9 @@ static void __init income_mmc_init(void)
 static inline void income_mmc_init(void) {}
 #endif
 
+/******************************************************************************
+ * USB Host
+ ******************************************************************************/
 #if defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
 static struct pxaohci_platform_data income_ohci_info = {
 	.port_mode	= PMM_PERPORT_MODE,
@@ -74,6 +80,9 @@ static void __init income_uhc_init(void)
 static inline void income_uhc_init(void) {}
 #endif
 
+/******************************************************************************
+ * LED
+ ******************************************************************************/
 #if defined(CONFIG_LEDS_GPIO) || defined(CONFIG_LEDS_GPIO_MODULE)
 struct gpio_led income_gpio_leds[] = {
 	{
@@ -111,6 +120,9 @@ static void __init income_led_init(void)
 static inline void income_led_init(void) {}
 #endif
 
+/******************************************************************************
+ * I2C
+ ******************************************************************************/
 #if defined(CONFIG_I2C_PXA) || defined(CONFIG_I2C_PXA_MODULE)
 static struct i2c_board_info __initdata income_i2c_devs[] = {
 	{
@@ -130,6 +142,9 @@ static void __init income_i2c_init(void)
 static inline void income_i2c_init(void) {}
 #endif
 
+/******************************************************************************
+ * Framebuffer
+ ******************************************************************************/
 #if defined(CONFIG_FB_PXA) || defined(CONFIG_FB_PXA_MODULE)
 static struct pxafb_mode_info income_lcd_modes[] = {
 {
@@ -165,6 +180,9 @@ static void __init income_lcd_init(void)
 static inline void income_lcd_init(void) {}
 #endif
 
+/******************************************************************************
+ * Backlight
+ ******************************************************************************/
 #if defined(CONFIG_BACKLIGHT_PWM) || defined(CONFIG_BACKLIGHT_PWM_MODULE)
 static struct platform_pwm_backlight_data income_backlight_data = {
 	.pwm_id		= 0,

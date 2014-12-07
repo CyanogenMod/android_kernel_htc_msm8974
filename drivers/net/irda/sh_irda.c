@@ -13,6 +13,15 @@
  * published by the Free Software Foundation.
  */
 
+/*
+ * CAUTION
+ *
+ * This driver is very simple.
+ * So, it doesn't have below support now
+ *  - MIR/FIR support
+ *  - DMA transfer support
+ *  - FIFO mode support
+ */
 #include <linux/io.h>
 #include <linux/interrupt.h>
 #include <linux/module.h>
@@ -30,75 +39,94 @@
 #define __IRDARAM_LEN	0x1039
 #endif
 
-#define IRTMR		0x1F00 
-#define IRCFR		0x1F02 
-#define IRCTR		0x1F04 
-#define IRTFLR		0x1F20 
-#define IRTCTR		0x1F22 
-#define IRRFLR		0x1F40 
-#define IRRCTR		0x1F42 
-#define SIRISR		0x1F60 
-#define SIRIMR		0x1F62 
-#define SIRICR		0x1F64 
-#define SIRBCR		0x1F68 
-#define MFIRISR		0x1F70 
-#define MFIRIMR		0x1F72 
-#define MFIRICR		0x1F74 
-#define CRCCTR		0x1F80 
-#define CRCIR		0x1F86 
-#define CRCCR		0x1F8A 
-#define CRCOR		0x1F8E 
-#define FIFOCP		0x1FC0 
-#define FIFOFP		0x1FC2 
-#define FIFORSMSK	0x1FC4 
-#define FIFORSOR	0x1FC6 
-#define FIFOSEL		0x1FC8 
-#define FIFORS		0x1FCA 
-#define FIFORFL		0x1FCC 
-#define FIFORAMCP	0x1FCE 
-#define FIFORAMFP	0x1FD0 
-#define BIFCTL		0x1FD2 
-#define IRDARAM		0x0000 
-#define IRDARAM_LEN	__IRDARAM_LEN 
+#define IRTMR		0x1F00 /* Transfer mode */
+#define IRCFR		0x1F02 /* Configuration */
+#define IRCTR		0x1F04 /* IR control */
+#define IRTFLR		0x1F20 /* Transmit frame length */
+#define IRTCTR		0x1F22 /* Transmit control */
+#define IRRFLR		0x1F40 /* Receive frame length */
+#define IRRCTR		0x1F42 /* Receive control */
+#define SIRISR		0x1F60 /* SIR-UART mode interrupt source */
+#define SIRIMR		0x1F62 /* SIR-UART mode interrupt mask */
+#define SIRICR		0x1F64 /* SIR-UART mode interrupt clear */
+#define SIRBCR		0x1F68 /* SIR-UART mode baud rate count */
+#define MFIRISR		0x1F70 /* MIR/FIR mode interrupt source */
+#define MFIRIMR		0x1F72 /* MIR/FIR mode interrupt mask */
+#define MFIRICR		0x1F74 /* MIR/FIR mode interrupt clear */
+#define CRCCTR		0x1F80 /* CRC engine control */
+#define CRCIR		0x1F86 /* CRC engine input data */
+#define CRCCR		0x1F8A /* CRC engine calculation */
+#define CRCOR		0x1F8E /* CRC engine output data */
+#define FIFOCP		0x1FC0 /* FIFO current pointer */
+#define FIFOFP		0x1FC2 /* FIFO follow pointer */
+#define FIFORSMSK	0x1FC4 /* FIFO receive status mask */
+#define FIFORSOR	0x1FC6 /* FIFO receive status OR */
+#define FIFOSEL		0x1FC8 /* FIFO select */
+#define FIFORS		0x1FCA /* FIFO receive status */
+#define FIFORFL		0x1FCC /* FIFO receive frame length */
+#define FIFORAMCP	0x1FCE /* FIFO RAM current pointer */
+#define FIFORAMFP	0x1FD0 /* FIFO RAM follow pointer */
+#define BIFCTL		0x1FD2 /* BUS interface control */
+#define IRDARAM		0x0000 /* IrDA buffer RAM */
+#define IRDARAM_LEN	__IRDARAM_LEN /* - 8/16/32 (read-only for 32) */
 
-#define TMD_MASK	(0x3 << 14) 
+/* IRTMR */
+#define TMD_MASK	(0x3 << 14) /* Transfer Mode */
 #define TMD_SIR		(0x0 << 14)
 #define TMD_MIR		(0x3 << 14)
 #define TMD_FIR		(0x2 << 14)
 
-#define FIFORIM		(1 << 8) 
-#define MIM		(1 << 4) 
-#define SIM		(1 << 0) 
+#define FIFORIM		(1 << 8) /* FIFO receive interrupt mask */
+#define MIM		(1 << 4) /* MIR/FIR Interrupt Mask */
+#define SIM		(1 << 0) /* SIR Interrupt Mask */
 #define xIM_MASK	(FIFORIM | MIM | SIM)
 
-#define RTO_SHIFT	8 
+/* IRCFR */
+#define RTO_SHIFT	8 /* shift for Receive Timeout */
 #define RTO		(0x3 << RTO_SHIFT)
 
-#define ARMOD		(1 << 15) 
-#define TE		(1 <<  0) 
+/* IRTCTR */
+#define ARMOD		(1 << 15) /* Auto-Receive Mode */
+#define TE		(1 <<  0) /* Transmit Enable */
 
-#define RFL_MASK	(0x1FFF) 
+/* IRRFLR */
+#define RFL_MASK	(0x1FFF) /* mask for Receive Frame Length */
 
-#define RE		(1 <<  0) 
+/* IRRCTR */
+#define RE		(1 <<  0) /* Receive Enable */
 
-#define FRE		(1 << 15) 
-#define TROV		(1 << 11) 
+/*
+ * SIRISR,  SIRIMR,  SIRICR,
+ * MFIRISR, MFIRIMR, MFIRICR
+ */
+#define FRE		(1 << 15) /* Frame Receive End */
+#define TROV		(1 << 11) /* Transfer Area Overflow */
 #define xIR_9		(1 << 9)
-#define TOT		xIR_9     
-#define ABTD		xIR_9     
+#define TOT		xIR_9     /* for SIR     Timeout */
+#define ABTD		xIR_9     /* for MIR/FIR Abort Detection */
 #define xIR_8		(1 << 8)
-#define FER		xIR_8     
-#define CRCER		xIR_8     
-#define FTE		(1 << 7)  
+#define FER		xIR_8     /* for SIR     Framing Error */
+#define CRCER		xIR_8     /* for MIR/FIR CRC error */
+#define FTE		(1 << 7)  /* Frame Transmit End */
 #define xIR_MASK	(FRE | TROV | xIR_9 | xIR_8 | FTE)
 
-#define BRC_MASK	(0x3F) 
+/* SIRBCR */
+#define BRC_MASK	(0x3F) /* mask for Baud Rate Count */
 
-#define CRC_RST		(1 << 15) 
-#define CRC_CT_MASK	0x0FFF    
+/* CRCCTR */
+#define CRC_RST		(1 << 15) /* CRC Engine Reset */
+#define CRC_CT_MASK	0x0FFF    /* mask for CRC Engine Input Data Count */
 
-#define CRC_IN_MASK	0x0FFF    
+/* CRCIR */
+#define CRC_IN_MASK	0x0FFF    /* mask for CRC Engine Input Data */
 
+/************************************************************************
+
+
+			enum / structure
+
+
+************************************************************************/
 enum sh_irda_mode {
 	SH_IRDA_NONE = 0,
 	SH_IRDA_SIR,
@@ -134,6 +162,13 @@ struct sh_irda_self {
 	struct sh_irda_xir_func	*xir_func;
 };
 
+/************************************************************************
+
+
+			common function
+
+
+************************************************************************/
 static void sh_irda_write(struct sh_irda_self *self, u32 offset, u16 data)
 {
 	unsigned long flags;
@@ -169,6 +204,18 @@ static void sh_irda_update_bits(struct sh_irda_self *self, u32 offset,
 	spin_unlock_irqrestore(&self->lock, flags);
 }
 
+/************************************************************************
+
+
+			mode function
+
+
+************************************************************************/
+/*=====================================
+ *
+ *		common
+ *
+ *=====================================*/
 static void sh_irda_rcv_ctrl(struct sh_irda_self *self, int enable)
 {
 	struct device *dev = &self->ndev->dev;
@@ -206,6 +253,10 @@ static int sh_irda_set_baudrate(struct sh_irda_self *self, int baudrate)
 		return -EINVAL;
 	}
 
+	/*
+	 * Baud rate (bits/s) =
+	 *   (48 MHz / 26) / (baud rate counter value + 1) x 16
+	 */
 	val = (48000000 / 26 / 16 / baudrate) - 1;
 	dev_dbg(dev, "baudrate = %d,  val = 0x%02x\n", baudrate, val);
 
@@ -219,6 +270,11 @@ static int sh_irda_get_rcv_length(struct sh_irda_self *self)
 	return RFL_MASK & sh_irda_read(self, IRRFLR);
 }
 
+/*=====================================
+ *
+ *		NONE MODE
+ *
+ *=====================================*/
 static int sh_irda_xir_fre(struct sh_irda_self *self)
 {
 	struct device *dev = &self->ndev->dev;
@@ -262,6 +318,12 @@ static struct sh_irda_xir_func sh_irda_xir_func = {
 	.xir_fte	= sh_irda_xir_fte,
 };
 
+/*=====================================
+ *
+ *		MIR/FIR MODE
+ *
+ * MIR/FIR are not supported now
+ *=====================================*/
 static struct sh_irda_xir_func sh_irda_mfir_func = {
 	.xir_fre	= sh_irda_xir_fre,
 	.xir_trov	= sh_irda_xir_trov,
@@ -270,6 +332,11 @@ static struct sh_irda_xir_func sh_irda_mfir_func = {
 	.xir_fte	= sh_irda_xir_fte,
 };
 
+/*=====================================
+ *
+ *		SIR MODE
+ *
+ *=====================================*/
 static int sh_irda_sir_fre(struct sh_irda_self *self)
 {
 	struct device *dev = &self->ndev->dev;
@@ -381,17 +448,24 @@ static void sh_irda_set_mode(struct sh_irda_self *self, enum sh_irda_mode mode)
 	dev_dbg(dev, "switch to %s mode", name);
 }
 
+/************************************************************************
+
+
+			irq function
+
+
+************************************************************************/
 static void sh_irda_set_irq_mask(struct sh_irda_self *self)
 {
 	u16 tmr_hole;
 	u16 xir_reg;
 
-	
+	/* set all mask */
 	sh_irda_update_bits(self, IRTMR,   xIM_MASK, xIM_MASK);
 	sh_irda_update_bits(self, SIRIMR,  xIR_MASK, xIR_MASK);
 	sh_irda_update_bits(self, MFIRIMR, xIR_MASK, xIR_MASK);
 
-	
+	/* clear irq */
 	sh_irda_update_bits(self, SIRICR,  xIR_MASK, xIR_MASK);
 	sh_irda_update_bits(self, MFIRICR, xIR_MASK, xIR_MASK);
 
@@ -411,7 +485,7 @@ static void sh_irda_set_irq_mask(struct sh_irda_self *self)
 		break;
 	}
 
-	
+	/* open mask */
 	if (xir_reg) {
 		sh_irda_update_bits(self, IRTMR, tmr_hole, 0);
 		sh_irda_update_bits(self, xir_reg, xIR_MASK, 0);
@@ -424,7 +498,7 @@ static irqreturn_t sh_irda_irq(int irq, void *dev_id)
 	struct sh_irda_xir_func	*func = self->xir_func;
 	u16 isr = sh_irda_read(self, SIRISR);
 
-	
+	/* clear irq */
 	sh_irda_write(self, SIRICR, isr);
 
 	if (isr & FRE)
@@ -441,6 +515,13 @@ static irqreturn_t sh_irda_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/************************************************************************
+
+
+			CRC function
+
+
+************************************************************************/
 static void sh_irda_crc_reset(struct sh_irda_self *self)
 {
 	sh_irda_write(self, CRCCTR, CRC_RST);
@@ -494,6 +575,13 @@ crc_init_out:
 	return ret;
 }
 
+/************************************************************************
+
+
+			iobuf function
+
+
+************************************************************************/
 static void sh_irda_remove_iobuf(struct sh_irda_self *self)
 {
 	kfree(self->rx_buff.head);
@@ -512,7 +600,7 @@ static int sh_irda_init_iobuf(struct sh_irda_self *self, int rxsize, int txsize)
 		return -EINVAL;
 	}
 
-	
+	/* rx_buff */
 	self->rx_buff.head = kmalloc(rxsize, GFP_KERNEL);
 	if (!self->rx_buff.head)
 		return -ENOMEM;
@@ -522,13 +610,20 @@ static int sh_irda_init_iobuf(struct sh_irda_self *self, int rxsize, int txsize)
 	self->rx_buff.state	= OUTSIDE_FRAME;
 	self->rx_buff.data	= self->rx_buff.head;
 
-	
+	/* tx_buff */
 	self->tx_buff.head	= self->membase + IRDARAM;
 	self->tx_buff.truesize	= IRDARAM_LEN;
 
 	return 0;
 }
 
+/************************************************************************
+
+
+			net_device_ops function
+
+
+************************************************************************/
 static int sh_irda_hard_xmit(struct sk_buff *skb, struct net_device *ndev)
 {
 	struct sh_irda_self *self = netdev_priv(ndev);
@@ -579,6 +674,12 @@ sh_irda_hard_xmit_end:
 
 static int sh_irda_ioctl(struct net_device *ndev, struct ifreq *ifreq, int cmd)
 {
+	/*
+	 * FIXME
+	 *
+	 * This function is needed for irda framework.
+	 * But nothing to do now
+	 */
 	return 0;
 }
 
@@ -627,7 +728,7 @@ static int sh_irda_stop(struct net_device *ndev)
 {
 	struct sh_irda_self *self = netdev_priv(ndev);
 
-	
+	/* Stop IrLAP */
 	if (self->irlap) {
 		irlap_close(self->irlap);
 		self->irlap = NULL;
@@ -649,6 +750,13 @@ static const struct net_device_ops sh_irda_ndo = {
 	.ndo_get_stats		= sh_irda_stats,
 };
 
+/************************************************************************
+
+
+			platform_driver function
+
+
+************************************************************************/
 static int __devinit sh_irda_probe(struct platform_device *pdev)
 {
 	struct net_device *ndev;
@@ -689,8 +797,8 @@ static int __devinit sh_irda_probe(struct platform_device *pdev)
 	ndev->irq		= irq;
 
 	self->ndev			= ndev;
-	self->qos.baud_rate.bits	&= IR_9600; 
-	self->qos.min_turn_time.bits	= 1; 
+	self->qos.baud_rate.bits	&= IR_9600; /* FIXME */
+	self->qos.min_turn_time.bits	= 1; /* 10 ms or more */
 	spin_lock_init(&self->lock);
 
 	irda_qos_bits_to_value(&self->qos);
@@ -741,6 +849,13 @@ static int __devexit sh_irda_remove(struct platform_device *pdev)
 
 static int sh_irda_runtime_nop(struct device *dev)
 {
+	/* Runtime PM callback shared between ->runtime_suspend()
+	 * and ->runtime_resume(). Simply returns success.
+	 *
+	 * This driver re-initializes all registers after
+	 * pm_runtime_get_sync() anyway so there is no need
+	 * to save and restore registers here.
+	 */
 	return 0;
 }
 

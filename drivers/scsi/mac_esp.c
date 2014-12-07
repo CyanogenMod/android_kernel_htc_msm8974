@@ -70,6 +70,9 @@ static inline u8 mac_esp_read8(struct esp *esp, unsigned long reg)
 	return nubus_readb(esp->regs + reg * 16);
 }
 
+/* For pseudo DMA and PIO we need the virtual address
+ * so this address mapping is the identity mapping.
+ */
 
 static dma_addr_t mac_esp_map_single(struct esp *esp, void *buf,
 				     size_t sz, int dir)
@@ -90,28 +93,28 @@ static int mac_esp_map_sg(struct esp *esp, struct scatterlist *sg,
 static void mac_esp_unmap_single(struct esp *esp, dma_addr_t addr,
 				 size_t sz, int dir)
 {
-	
+	/* Nothing to do. */
 }
 
 static void mac_esp_unmap_sg(struct esp *esp, struct scatterlist *sg,
 			     int num_sg, int dir)
 {
-	
+	/* Nothing to do. */
 }
 
 static void mac_esp_reset_dma(struct esp *esp)
 {
-	
+	/* Nothing to do. */
 }
 
 static void mac_esp_dma_drain(struct esp *esp)
 {
-	
+	/* Nothing to do. */
 }
 
 static void mac_esp_dma_invalidate(struct esp *esp)
 {
-	
+	/* Nothing to do. */
 }
 
 static int mac_esp_dma_error(struct esp *esp)
@@ -267,6 +270,9 @@ static void mac_esp_send_pdma_cmd(struct esp *esp, u32 addr, u32 esp_count,
 	} while (esp_count);
 }
 
+/*
+ * Programmed IO routines follow.
+ */
 
 static inline unsigned int mac_esp_wait_for_fifo(struct esp *esp)
 {
@@ -437,6 +443,10 @@ static irqreturn_t mac_scsi_esp_intr(int irq, void *dev_id)
 {
 	int got_intr;
 
+	/*
+	 * This is an edge triggered IRQ, so we have to be careful to
+	 * avoid missing a transition when it is shared by two ESP devices.
+	 */
 
 	do {
 		got_intr = 0;
@@ -530,6 +540,9 @@ static int __devinit esp_mac_probe(struct platform_device *dev)
 		nubus_writel(0x1d1, mep->pdma_regs);
 		break;
 	case MAC_SCSI_QUADRA3:
+		/* These quadras have a real DMA controller (the PSC) but we
+		 * don't know how to drive it so we must use PIO instead.
+		 */
 		esp->cfreq     = 25000000;
 		esp->regs      = (void __iomem *)MAC_ESP_REGS_QUADRA3;
 		mep->pdma_io   = NULL;

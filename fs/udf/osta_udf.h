@@ -37,9 +37,12 @@
 #ifndef _OSTA_UDF_H
 #define _OSTA_UDF_H 1
 
+/* OSTA CS0 Charspec (UDF 2.50 2.1.2) */
 #define UDF_CHAR_SET_TYPE		0
 #define UDF_CHAR_SET_INFO		"OSTA Compressed Unicode"
 
+/* Entity Identifier (UDF 2.50 2.1.5) */
+/* Identifiers (UDF 2.50 2.1.5.2) */
 #define UDF_ID_DEVELOPER		"*Linux UDFFS"
 #define	UDF_ID_COMPLIANT		"*OSTA UDF Compliant"
 #define UDF_ID_LV_INFO			"*UDF LV Info"
@@ -58,6 +61,7 @@
 #define UDF_ID_SPARING			"*UDF Sparing Table"
 #define UDF_ID_METADATA			"*UDF Metadata Partition"
 
+/* Identifier Suffix (UDF 2.50 2.1.5.3) */
 #define IS_DF_HARD_WRITE_PROTECT	0x01
 #define IS_DF_SOFT_WRITE_PROTECT	0x02
 
@@ -78,6 +82,8 @@ struct appIdentSuffix {
 	uint8_t		impUse[8];
 } __attribute__ ((packed));
 
+/* Logical Volume Integrity Descriptor (UDF 2.50 2.2.6) */
+/* Implementation Use (UDF 2.50 2.2.6.4) */
 struct logicalVolIntegrityDescImpUse {
 	struct regid	impIdent;
 	__le32		numFiles;
@@ -88,6 +94,8 @@ struct logicalVolIntegrityDescImpUse {
 	uint8_t		impUse[0];
 } __attribute__ ((packed));
 
+/* Implementation Use Volume Descriptor (UDF 2.50 2.2.7) */
+/* Implementation Use (UDF 2.50 2.2.7.2) */
 struct impUseVolDescImpUse {
 	struct charspec	LVICharset;
 	dstring		logicalVolIdent[128];
@@ -107,6 +115,7 @@ struct udfPartitionMap2 {
 	__le16		partitionNum;
 } __attribute__ ((packed));
 
+/* Virtual Partition Map (UDF 2.50 2.2.8) */
 struct virtualPartitionMap {
 	uint8_t		partitionMapType;
 	uint8_t		partitionMapLength;
@@ -117,6 +126,7 @@ struct virtualPartitionMap {
 	uint8_t		reserved2[24];
 } __attribute__ ((packed));
 
+/* Sparable Partition Map (UDF 2.50 2.2.9) */
 struct sparablePartitionMap {
 	uint8_t partitionMapType;
 	uint8_t partitionMapLength;
@@ -131,6 +141,7 @@ struct sparablePartitionMap {
 	__le32 locSparingTable[4];
 } __attribute__ ((packed));
 
+/* Metadata Partition Map (UDF 2.4.0 2.2.10) */
 struct metadataPartitionMap {
 	uint8_t		partitionMapType;
 	uint8_t		partitionMapLength;
@@ -147,6 +158,7 @@ struct metadataPartitionMap {
 	uint8_t		reserved2[5];
 } __attribute__ ((packed));
 
+/* Virtual Allocation Table (UDF 1.5 2.2.10) */
 struct virtualAllocationTable15 {
 	__le32		VirtualSector[0];
 	struct regid	vatIdent;
@@ -155,6 +167,7 @@ struct virtualAllocationTable15 {
 
 #define ICBTAG_FILE_TYPE_VAT15		0x00U
 
+/* Virtual Allocation Table (UDF 2.50 2.2.11) */
 struct virtualAllocationTable20 {
 	__le16		lengthHeader;
 	__le16		lengthImpUse;
@@ -172,6 +185,7 @@ struct virtualAllocationTable20 {
 
 #define ICBTAG_FILE_TYPE_VAT20		0xF8U
 
+/* Sparing Table (UDF 2.50 2.2.12) */
 struct sparingEntry {
 	__le32		origLocation;
 	__le32		mappedLocation;
@@ -187,10 +201,12 @@ struct sparingTable {
 			mapEntry[0];
 } __attribute__ ((packed));
 
+/* Metadata File (and Metadata Mirror File) (UDF 2.50 2.2.13.1) */
 #define ICBTAG_FILE_TYPE_MAIN		0xFA
 #define ICBTAG_FILE_TYPE_MIRROR		0xFB
 #define ICBTAG_FILE_TYPE_BITMAP		0xFC
 
+/* struct struct long_ad ICB - ADImpUse (UDF 2.50 2.2.4.3) */
 struct allocDescImpUse {
 	__le16		flags;
 	uint8_t		impUse[4];
@@ -198,8 +214,11 @@ struct allocDescImpUse {
 
 #define AD_IU_EXT_ERASED		0x0001
 
+/* Real-Time Files (UDF 2.50 6.11) */
 #define ICBTAG_FILE_TYPE_REALTIME	0xF9U
 
+/* Implementation Use Extended Attribute (UDF 2.50 3.3.4.5) */
+/* FreeEASpace (UDF 2.50 3.3.4.5.1.1) */
 struct freeEaSpace {
 	__le16		headerChecksum;
 	uint8_t		freeEASpace[0];
@@ -213,16 +232,20 @@ struct DVDCopyrightImpUse {
 	uint8_t		protectionSystemInfo[4];
 } __attribute__ ((packed));
 
+/* Application Use Extended Attribute (UDF 2.50 3.3.4.6) */
+/* FreeAppEASpace (UDF 2.50 3.3.4.6.1) */
 struct freeAppEASpace {
 	__le16		headerChecksum;
 	uint8_t		freeEASpace[0];
 } __attribute__ ((packed));
 
+/* UDF Defined System Stream (UDF 2.50 3.3.7) */
 #define UDF_ID_UNIQUE_ID		"*UDF Unique ID Mapping Data"
 #define UDF_ID_NON_ALLOC		"*UDF Non-Allocatable Space"
 #define UDF_ID_POWER_CAL		"*UDF Power Cal Table"
 #define UDF_ID_BACKUP			"*UDF Backup"
 
+/* Operating System Identifiers (UDF 2.50 6.3) */
 #define UDF_OS_CLASS_UNDEF		0x00U
 #define UDF_OS_CLASS_DOS		0x01U
 #define UDF_OS_CLASS_OS2		0x02U
@@ -253,4 +276,4 @@ struct freeAppEASpace {
 #define UDF_OS_ID_BEOS			0x00U
 #define UDF_OS_ID_WINCE			0x00U
 
-#endif 
+#endif /* _OSTA_UDF_H */

@@ -35,19 +35,20 @@
 #include <linux/workqueue.h>
 #include <linux/slab.h>
 
-#define LP5521_PROGRAM_LENGTH		32	
+#define LP5521_PROGRAM_LENGTH		32	/* in bytes */
 
-#define LP5521_MAX_LEDS			3	
-#define LP5521_MAX_ENGINES		3	
+#define LP5521_MAX_LEDS			3	/* Maximum number of LEDs */
+#define LP5521_MAX_ENGINES		3	/* Maximum number of engines */
 
-#define LP5521_ENG_MASK_BASE		0x30	
-#define LP5521_ENG_STATUS_MASK		0x07	
+#define LP5521_ENG_MASK_BASE		0x30	/* 00110000 */
+#define LP5521_ENG_STATUS_MASK		0x07	/* 00000111 */
 
-#define LP5521_CMD_LOAD			0x15	
-#define LP5521_CMD_RUN			0x2a	
-#define LP5521_CMD_DIRECT		0x3f	
-#define LP5521_CMD_DISABLED		0x00	
+#define LP5521_CMD_LOAD			0x15	/* 00010101 */
+#define LP5521_CMD_RUN			0x2a	/* 00101010 */
+#define LP5521_CMD_DIRECT		0x3f	/* 00111111 */
+#define LP5521_CMD_DISABLED		0x00	/* 00000000 */
 
+/* Registers */
 #define LP5521_REG_ENABLE		0x00
 #define LP5521_REG_OP_MODE		0x01
 #define LP5521_REG_R_PWM		0x02
@@ -70,22 +71,28 @@
 #define LP5521_PROG_MEM_BASE		LP5521_REG_R_PROG_MEM
 #define LP5521_PROG_MEM_SIZE		0x20
 
+/* Base register to set LED current */
 #define LP5521_REG_LED_CURRENT_BASE	LP5521_REG_R_CURRENT
 
+/* Base register to set the brightness */
 #define LP5521_REG_LED_PWM_BASE		LP5521_REG_R_PWM
 
-#define LP5521_MASTER_ENABLE		0x40	
-#define LP5521_LOGARITHMIC_PWM		0x80	
+/* Bits in ENABLE register */
+#define LP5521_MASTER_ENABLE		0x40	/* Chip master enable */
+#define LP5521_LOGARITHMIC_PWM		0x80	/* Logarithmic PWM adjustment */
 #define LP5521_EXEC_RUN			0x2A
 #define LP5521_ENABLE_DEFAULT	\
 	(LP5521_MASTER_ENABLE | LP5521_LOGARITHMIC_PWM)
 #define LP5521_ENABLE_RUN_PROGRAM	\
 	(LP5521_ENABLE_DEFAULT | LP5521_EXEC_RUN)
 
+/* Status */
 #define LP5521_EXT_CLK_USED		0x08
 
+/* default R channel current register value */
 #define LP5521_REG_R_CURR_DEFAULT	0xAF
 
+/* Pattern Mode */
 #define PATTERN_OFF	0
 
 struct lp5521_engine {
@@ -107,7 +114,7 @@ struct lp5521_led {
 
 struct lp5521_chip {
 	struct lp5521_platform_data *pdata;
-	struct mutex		lock; 
+	struct mutex		lock; /* Serialize control */
 	struct i2c_client	*client;
 	struct lp5521_engine	engines[LP5521_MAX_ENGINES];
 	struct lp5521_led	leds[LP5521_MAX_LEDS];
@@ -158,7 +165,7 @@ static int lp5521_set_engine_mode(struct lp5521_engine *engine, u8 mode)
 	int ret;
 	u8 engine_state;
 
-	
+	/* Only transition between RUN and DIRECT mode are handled here */
 	if (mode == LP5521_CMD_LOAD)
 		return 0;
 
@@ -169,7 +176,7 @@ static int lp5521_set_engine_mode(struct lp5521_engine *engine, u8 mode)
 	if (ret < 0)
 		return ret;
 
-	
+	/* set mode only for this engine */
 	engine_state &= ~(engine->engine_mask);
 	mode &= engine->engine_mask;
 	engine_state |= mode;
@@ -184,18 +191,18 @@ static int lp5521_load_program(struct lp5521_engine *eng, const u8 *pattern)
 	int addr;
 	u8 mode;
 
-	
+	/* move current engine to direct mode and remember the state */
 	ret = lp5521_set_engine_mode(eng, LP5521_CMD_DIRECT);
-	
+	/* Mode change requires min 500 us delay. 1 - 2 ms  with margin */
 	usleep_range(1000, 2000);
 	ret |= lp5521_read(client, LP5521_REG_OP_MODE, &mode);
 
-	
+	/* For loading, all the engines to load mode */
 	lp5521_write(client, LP5521_REG_OP_MODE, LP5521_CMD_DIRECT);
-	
+	/* Mode change requires min 500 us delay. 1 - 2 ms  with margin */
 	usleep_range(1000, 2000);
 	lp5521_write(client, LP5521_REG_OP_MODE, LP5521_CMD_LOAD);
-	
+	/* Mode change requires min 500 us delay. 1 - 2 ms  with margin */
 	usleep_range(1000, 2000);
 
 	addr = LP5521_PROG_MEM_BASE + eng->prog_page * LP5521_PROG_MEM_SIZE;
@@ -233,22 +240,22 @@ static int lp5521_configure(struct i2c_client *client)
 
 	lp5521_init_engine(chip);
 
-	
+	/* Set all PWMs to direct control mode */
 	ret = lp5521_write(client, LP5521_REG_OP_MODE, LP5521_CMD_DIRECT);
 
 	cfg = chip->pdata->update_config ?
 		: (LP5521_PWRSAVE_EN | LP5521_CP_MODE_AUTO | LP5521_R_TO_BATT);
 	ret |= lp5521_write(client, LP5521_REG_CONFIG, cfg);
 
-	
+	/* Initialize all channels PWM to zero -> leds off */
 	ret |= lp5521_write(client, LP5521_REG_R_PWM, 0);
 	ret |= lp5521_write(client, LP5521_REG_G_PWM, 0);
 	ret |= lp5521_write(client, LP5521_REG_B_PWM, 0);
 
-	
+	/* Set engines are set to run state when OP_MODE enables engines */
 	ret |= lp5521_write(client, LP5521_REG_ENABLE,
 			LP5521_ENABLE_RUN_PROGRAM);
-	
+	/* enable takes 500us. 1 - 2 ms leaves some margin */
 	usleep_range(1000, 2000);
 
 	return ret;
@@ -263,7 +270,7 @@ static int lp5521_run_selftest(struct lp5521_chip *chip, char *buf)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Check that ext clock is really in use if requested */
 	if (chip->pdata && chip->pdata->clock_mode == LP5521_CLOCK_EXT)
 		if  ((status & LP5521_EXT_CLK_USED) == 0)
 			return -EIO;
@@ -292,6 +299,7 @@ static void lp5521_led_brightness_work(struct work_struct *work)
 	mutex_unlock(&chip->lock);
 }
 
+/* Detect the chip by setting its ENABLE register and reading it back. */
 static int lp5521_detect(struct i2c_client *client)
 {
 	int ret;
@@ -300,7 +308,7 @@ static int lp5521_detect(struct i2c_client *client)
 	ret = lp5521_write(client, LP5521_REG_ENABLE, LP5521_ENABLE_DEFAULT);
 	if (ret)
 		return ret;
-	
+	/* enable takes 500us. 1 - 2 ms leaves some margin */
 	usleep_range(1000, 2000);
 	ret = lp5521_read(client, LP5521_REG_ENABLE, &buf);
 	if (ret)
@@ -311,11 +319,12 @@ static int lp5521_detect(struct i2c_client *client)
 	return 0;
 }
 
+/* Set engine mode and create appropriate sysfs attributes, if required. */
 static int lp5521_set_mode(struct lp5521_engine *engine, u8 mode)
 {
 	int ret = 0;
 
-	
+	/* if in that mode already do nothing, except for run */
 	if (mode == engine->mode && mode != LP5521_CMD_RUN)
 		return 0;
 
@@ -344,7 +353,7 @@ static int lp5521_do_store_load(struct lp5521_engine *engine,
 	u8 pattern[LP5521_PROGRAM_LENGTH] = {0};
 
 	while ((offset < len - 1) && (i < LP5521_PROGRAM_LENGTH)) {
-		
+		/* separate sscanfs because length is working only for %s */
 		ret = sscanf(buf + offset, "%2s%n ", c, &nrchars);
 		if (ret != 2)
 			goto fail;
@@ -357,7 +366,7 @@ static int lp5521_do_store_load(struct lp5521_engine *engine,
 		i++;
 	}
 
-	
+	/* Each instruction is 16bit long. Check that length is even */
 	if (i % 2)
 		goto fail;
 
@@ -612,6 +621,7 @@ static ssize_t store_led_pattern(struct device *dev,
 	return len;
 }
 
+/* led class device attributes */
 static DEVICE_ATTR(led_current, S_IRUGO | S_IWUSR, show_current, store_current);
 static DEVICE_ATTR(max_current, S_IRUGO , show_max_current, NULL);
 
@@ -625,6 +635,7 @@ static struct attribute_group lp5521_led_attribute_group = {
 	.attrs = lp5521_led_attributes
 };
 
+/* device attributes */
 static DEVICE_ATTR(engine1_mode, S_IRUGO | S_IWUSR,
 		   show_engine1_mode, store_engine1_mode);
 static DEVICE_ATTR(engine2_mode, S_IRUGO | S_IWUSR,
@@ -756,14 +767,23 @@ static int __devinit lp5521_probe(struct i2c_client *client,
 
 	if (pdata->enable) {
 		pdata->enable(0);
-		usleep_range(1000, 2000); 
+		usleep_range(1000, 2000); /* Keep enable down at least 1ms */
 		pdata->enable(1);
-		usleep_range(1000, 2000); 
+		usleep_range(1000, 2000); /* 500us abs min. */
 	}
 
 	lp5521_write(client, LP5521_REG_RESET, 0xff);
-	usleep_range(10000, 20000); 
+	usleep_range(10000, 20000); /*
+				     * Exact value is not available. 10 - 20ms
+				     * appears to be enough for reset.
+				     */
 
+	/*
+	 * Make sure that the chip is reset by reading back the r channel
+	 * current reg. This is dummy read is required on some platforms -
+	 * otherwise further access to the R G B channels in the
+	 * LP5521_REG_ENABLE register will not have any effect - strange!
+	 */
 	ret = lp5521_read(client, LP5521_REG_R_CURRENT, &buf);
 	if (buf != LP5521_REG_R_CURR_DEFAULT) {
 		dev_err(&client->dev, "error in resetting chip\n");
@@ -786,12 +806,12 @@ static int __devinit lp5521_probe(struct i2c_client *client,
 		goto fail2;
 	}
 
-	
+	/* Initialize leds */
 	chip->num_channels = pdata->num_channels;
 	chip->num_leds = 0;
 	led = 0;
 	for (i = 0; i < pdata->num_channels; i++) {
-		
+		/* Do not initialize channels that are not connected */
 		if (pdata->led_config[i].led_current == 0)
 			continue;
 
@@ -803,7 +823,7 @@ static int __devinit lp5521_probe(struct i2c_client *client,
 		chip->num_leds++;
 
 		chip->leds[led].id = led;
-		
+		/* Set initial LED current */
 		lp5521_set_led_current(chip, led,
 				chip->leds[led].led_current);
 
@@ -856,7 +876,7 @@ static int __devexit lp5521_remove(struct i2c_client *client)
 }
 
 static const struct i2c_device_id lp5521_id[] = {
-	{ "lp5521", 0 }, 
+	{ "lp5521", 0 }, /* Three channel chip */
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, lp5521_id);

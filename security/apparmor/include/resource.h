@@ -22,6 +22,13 @@
 
 struct aa_profile;
 
+/* struct aa_rlimit - rlimit settings for the profile
+ * @mask: which hard limits to set
+ * @limits: rlimit values that override task limits
+ *
+ * AppArmor rlimits are used to set confined task rlimits.  Only the
+ * limits specified in @mask will be controlled by apparmor.
+ */
 struct aa_rlimit {
 	unsigned int mask;
 	struct rlimit limits[RLIM_NLIMITS];
@@ -37,7 +44,7 @@ void __aa_transition_rlimits(struct aa_profile *old, struct aa_profile *new);
 
 static inline void aa_free_rlimit_rules(struct aa_rlimit *rlims)
 {
-	
+	/* NOP */
 }
 
-#endif 
+#endif /* __AA_RESOURCE_H */

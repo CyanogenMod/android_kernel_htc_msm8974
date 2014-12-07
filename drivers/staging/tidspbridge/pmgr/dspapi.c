@@ -18,12 +18,16 @@
  */
 #include <linux/types.h>
 
+/*  ----------------------------------- Host OS */
 #include <dspbridge/host_os.h>
 
+/*  ----------------------------------- DSP/BIOS Bridge */
 #include <dspbridge/dbdefs.h>
 
+/*  ----------------------------------- OS Adaptation Layer */
 #include <dspbridge/ntfy.h>
 
+/*  ----------------------------------- Platform Manager */
 #include <dspbridge/chnl.h>
 #include <dspbridge/dev.h>
 #include <dspbridge/drv.h>
@@ -31,106 +35,125 @@
 #include <dspbridge/proc.h>
 #include <dspbridge/strm.h>
 
+/*  ----------------------------------- Resource Manager */
 #include <dspbridge/disp.h>
 #include <dspbridge/mgr.h>
 #include <dspbridge/node.h>
 #include <dspbridge/rmm.h>
 
+/*  ----------------------------------- Others */
 #include <dspbridge/msg.h>
 #include <dspbridge/cmm.h>
 #include <dspbridge/io.h>
 
+/*  ----------------------------------- This */
 #include <dspbridge/dspapi.h>
 #include <dspbridge/dbdcd.h>
 
 #include <dspbridge/resourcecleanup.h>
 
+/*  ----------------------------------- Defines, Data Structures, Typedefs */
 #define MAX_TRACEBUFLEN 255
 #define MAX_LOADARGS    16
 #define MAX_NODES       64
 #define MAX_STREAMS     16
 #define MAX_BUFS	64
 
+/* Used to get dspbridge ioctl table */
 #define DB_GET_IOC_TABLE(cmd)	(DB_GET_MODULE(cmd) >> DB_MODULE_SHIFT)
 
+/* Device IOCtl function pointer */
 struct api_cmd {
 	u32(*fxn) (union trapped_args *args, void *pr_ctxt);
 	u32 index;
 };
 
+/*  ----------------------------------- Globals */
 static u32 api_c_refs;
 
+/*
+ *  Function tables.
+ *  The order of these functions MUST be the same as the order of the command
+ *  numbers defined in dspapi-ioctl.h  This is how an IOCTL number in user mode
+ *  turns into a function call in kernel mode.
+ */
 
+/* MGR wrapper functions */
 static struct api_cmd mgr_cmd[] = {
-	{mgrwrap_enum_node_info},	
-	{mgrwrap_enum_proc_info},	
-	{mgrwrap_register_object},	
-	{mgrwrap_unregister_object},	
-	{mgrwrap_wait_for_bridge_events},	
-	{mgrwrap_get_process_resources_info},	
+	{mgrwrap_enum_node_info},	/* MGR_ENUMNODE_INFO */
+	{mgrwrap_enum_proc_info},	/* MGR_ENUMPROC_INFO */
+	{mgrwrap_register_object},	/* MGR_REGISTEROBJECT */
+	{mgrwrap_unregister_object},	/* MGR_UNREGISTEROBJECT */
+	{mgrwrap_wait_for_bridge_events},	/* MGR_WAIT */
+	{mgrwrap_get_process_resources_info},	/* MGR_GET_PROC_RES */
 };
 
+/* PROC wrapper functions */
 static struct api_cmd proc_cmd[] = {
-	{procwrap_attach},	
-	{procwrap_ctrl},	
-	{procwrap_detach},	
-	{procwrap_enum_node_info},	
-	{procwrap_enum_resources},	
-	{procwrap_get_state},	
-	{procwrap_get_trace},	
-	{procwrap_load},	
-	{procwrap_register_notify},	
-	{procwrap_start},	
-	{procwrap_reserve_memory},	
-	{procwrap_un_reserve_memory},	
-	{procwrap_map},		
-	{procwrap_un_map},	
-	{procwrap_flush_memory},	
-	{procwrap_stop},	
-	{procwrap_invalidate_memory},	
-	{procwrap_begin_dma},	
-	{procwrap_end_dma},	
+	{procwrap_attach},	/* PROC_ATTACH */
+	{procwrap_ctrl},	/* PROC_CTRL */
+	{procwrap_detach},	/* PROC_DETACH */
+	{procwrap_enum_node_info},	/* PROC_ENUMNODE */
+	{procwrap_enum_resources},	/* PROC_ENUMRESOURCES */
+	{procwrap_get_state},	/* PROC_GET_STATE */
+	{procwrap_get_trace},	/* PROC_GET_TRACE */
+	{procwrap_load},	/* PROC_LOAD */
+	{procwrap_register_notify},	/* PROC_REGISTERNOTIFY */
+	{procwrap_start},	/* PROC_START */
+	{procwrap_reserve_memory},	/* PROC_RSVMEM */
+	{procwrap_un_reserve_memory},	/* PROC_UNRSVMEM */
+	{procwrap_map},		/* PROC_MAPMEM */
+	{procwrap_un_map},	/* PROC_UNMAPMEM */
+	{procwrap_flush_memory},	/* PROC_FLUSHMEMORY */
+	{procwrap_stop},	/* PROC_STOP */
+	{procwrap_invalidate_memory},	/* PROC_INVALIDATEMEMORY */
+	{procwrap_begin_dma},	/* PROC_BEGINDMA */
+	{procwrap_end_dma},	/* PROC_ENDDMA */
 };
 
+/* NODE wrapper functions */
 static struct api_cmd node_cmd[] = {
-	{nodewrap_allocate},	
-	{nodewrap_alloc_msg_buf},	
-	{nodewrap_change_priority},	
-	{nodewrap_connect},	
-	{nodewrap_create},	
-	{nodewrap_delete},	
-	{nodewrap_free_msg_buf},	
-	{nodewrap_get_attr},	
-	{nodewrap_get_message},	
-	{nodewrap_pause},	
-	{nodewrap_put_message},	
-	{nodewrap_register_notify},	
-	{nodewrap_run},		
-	{nodewrap_terminate},	
-	{nodewrap_get_uuid_props},	
+	{nodewrap_allocate},	/* NODE_ALLOCATE */
+	{nodewrap_alloc_msg_buf},	/* NODE_ALLOCMSGBUF */
+	{nodewrap_change_priority},	/* NODE_CHANGEPRIORITY */
+	{nodewrap_connect},	/* NODE_CONNECT */
+	{nodewrap_create},	/* NODE_CREATE */
+	{nodewrap_delete},	/* NODE_DELETE */
+	{nodewrap_free_msg_buf},	/* NODE_FREEMSGBUF */
+	{nodewrap_get_attr},	/* NODE_GETATTR */
+	{nodewrap_get_message},	/* NODE_GETMESSAGE */
+	{nodewrap_pause},	/* NODE_PAUSE */
+	{nodewrap_put_message},	/* NODE_PUTMESSAGE */
+	{nodewrap_register_notify},	/* NODE_REGISTERNOTIFY */
+	{nodewrap_run},		/* NODE_RUN */
+	{nodewrap_terminate},	/* NODE_TERMINATE */
+	{nodewrap_get_uuid_props},	/* NODE_GETUUIDPROPS */
 };
 
+/* STRM wrapper functions */
 static struct api_cmd strm_cmd[] = {
-	{strmwrap_allocate_buffer},	
-	{strmwrap_close},	
-	{strmwrap_free_buffer},	
-	{strmwrap_get_event_handle},	
-	{strmwrap_get_info},	
-	{strmwrap_idle},	
-	{strmwrap_issue},	
-	{strmwrap_open},	
-	{strmwrap_reclaim},	
-	{strmwrap_register_notify},	
-	{strmwrap_select},	
+	{strmwrap_allocate_buffer},	/* STRM_ALLOCATEBUFFER */
+	{strmwrap_close},	/* STRM_CLOSE */
+	{strmwrap_free_buffer},	/* STRM_FREEBUFFER */
+	{strmwrap_get_event_handle},	/* STRM_GETEVENTHANDLE */
+	{strmwrap_get_info},	/* STRM_GETINFO */
+	{strmwrap_idle},	/* STRM_IDLE */
+	{strmwrap_issue},	/* STRM_ISSUE */
+	{strmwrap_open},	/* STRM_OPEN */
+	{strmwrap_reclaim},	/* STRM_RECLAIM */
+	{strmwrap_register_notify},	/* STRM_REGISTERNOTIFY */
+	{strmwrap_select},	/* STRM_SELECT */
 };
 
+/* CMM wrapper functions */
 static struct api_cmd cmm_cmd[] = {
-	{cmmwrap_calloc_buf},	
-	{cmmwrap_free_buf},	
-	{cmmwrap_get_handle},	
-	{cmmwrap_get_info},	
+	{cmmwrap_calloc_buf},	/* CMM_ALLOCBUF */
+	{cmmwrap_free_buf},	/* CMM_FREEBUF */
+	{cmmwrap_get_handle},	/* CMM_GETHANDLE */
+	{cmmwrap_get_info},	/* CMM_GETINFO */
 };
 
+/* Array used to store ioctl table sizes. It can hold up to 8 entries */
 static u8 size_cmd[] = {
 	ARRAY_SIZE(mgr_cmd),
 	ARRAY_SIZE(proc_cmd),
@@ -175,6 +198,11 @@ static inline void _cp_to_usr(void __user *to, const void *from,
 #define CP_TO_USR(to, from, err, n)				\
 	_cp_to_usr(to, from, &(err), (n) * sizeof(*(from)))
 
+/*
+ *  ======== api_call_dev_ioctl ========
+ *  Purpose:
+ *      Call the (wrapper) function for the corresponding API IOCTL.
+ */
 inline int api_call_dev_ioctl(u32 cmd, union trapped_args *args,
 				      u32 *result, void *pr_ctxt)
 {
@@ -191,7 +219,7 @@ inline int api_call_dev_ioctl(u32 cmd, union trapped_args *args,
 		goto err;
 	}
 
-	
+	/* Check the size of the required cmd table */
 	i = DB_GET_IOC(cmd);
 	if (i > size_cmd[DB_GET_IOC_TABLE(cmd)]) {
 		pr_err("%s: requested ioctl %d out of bounds for table %d\n",
@@ -230,6 +258,9 @@ err:
 	return -EINVAL;
 }
 
+/*
+ *  ======== api_exit ========
+ */
 void api_exit(void)
 {
 	api_c_refs--;
@@ -238,6 +269,11 @@ void api_exit(void)
 		mgr_exit();
 }
 
+/*
+ *  ======== api_init ========
+ *  Purpose:
+ *      Module initialization used by Bridge API.
+ */
 bool api_init(void)
 {
 	bool ret = true;
@@ -251,6 +287,21 @@ bool api_init(void)
 	return ret;
 }
 
+/*
+ *  ======== api_init_complete2 ========
+ *  Purpose:
+ *      Perform any required bridge initialization which cannot
+ *      be performed in api_init() or dev_start_device() due
+ *      to the fact that some services are not yet
+ *      completely initialized.
+ *  Parameters:
+ *  Returns:
+ *      0:	Allow this device to load
+ *      -EPERM:      Failure.
+ *  Requires:
+ *      Bridge API initialized.
+ *  Ensures:
+ */
 int api_init_complete2(void)
 {
 	int status = 0;
@@ -259,6 +310,9 @@ int api_init_complete2(void)
 	struct drv_data *drv_datap;
 	u8 dev_type;
 
+	/*  Walk the list of DevObjects, get each devnode, and attempting to
+	 *  autostart the board. Note that this requires COF loading, which
+	 *  requires KFILE. */
 	for (hdev_obj = dev_get_first(); hdev_obj != NULL;
 	     hdev_obj = dev_get_next(hdev_obj)) {
 		if (dev_get_dev_node(hdev_obj, &dev_node))
@@ -278,7 +332,11 @@ int api_init_complete2(void)
 	return status;
 }
 
+/* TODO: Remove deprecated and not implemented ioctl wrappers */
 
+/*
+ * ======== mgrwrap_enum_node_info ========
+ */
 u32 mgrwrap_enum_node_info(union trapped_args *args, void *pr_ctxt)
 {
 	u8 *pndb_props;
@@ -308,6 +366,9 @@ u32 mgrwrap_enum_node_info(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== mgrwrap_enum_proc_info ========
+ */
 u32 mgrwrap_enum_proc_info(union trapped_args *args, void *pr_ctxt)
 {
 	u8 *processor_info;
@@ -339,6 +400,9 @@ u32 mgrwrap_enum_proc_info(union trapped_args *args, void *pr_ctxt)
 }
 
 #define WRAP_MAP2CALLER(x) x
+/*
+ * ======== mgrwrap_register_object ========
+ */
 u32 mgrwrap_register_object(union trapped_args *args, void *pr_ctxt)
 {
 	u32 ret;
@@ -350,7 +414,7 @@ u32 mgrwrap_register_object(union trapped_args *args, void *pr_ctxt)
 	CP_FM_USR(&uuid_obj, args->args_mgr_registerobject.uuid_obj, status, 1);
 	if (status)
 		goto func_end;
-	
+	/* path_size is increased by 1 to accommodate NULL */
 	path_size = strlen_user((char *)
 				args->args_mgr_registerobject.sz_path_name) +
 	    1;
@@ -380,6 +444,9 @@ func_end:
 	return status;
 }
 
+/*
+ * ======== mgrwrap_unregister_object ========
+ */
 u32 mgrwrap_unregister_object(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -397,6 +464,9 @@ func_end:
 
 }
 
+/*
+ * ======== mgrwrap_wait_for_bridge_events ========
+ */
 u32 mgrwrap_wait_for_bridge_events(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -408,17 +478,17 @@ u32 mgrwrap_wait_for_bridge_events(union trapped_args *args, void *pr_ctxt)
 	if (count > MAX_EVENTS)
 		status = -EINVAL;
 
-	
+	/* get the array of pointers to user structures */
 	CP_FM_USR(anotifications, args->args_mgr_wait.anotifications,
 		  status, count);
-	
+	/* get the events */
 	for (i = 0; i < count; i++) {
 		CP_FM_USR(&notifications[i], anotifications[i], status, 1);
 		if (status || !notifications[i].handle) {
 			status = -EINVAL;
 			break;
 		}
-		
+		/* set the array of pointers to kernel structures */
 		anotifications[i] = &notifications[i];
 	}
 	if (!status) {
@@ -431,6 +501,9 @@ u32 mgrwrap_wait_for_bridge_events(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== MGRWRAP_GetProcessResourceInfo ========
+ */
 u32 __deprecated mgrwrap_get_process_resources_info(union trapped_args * args,
 						    void *pr_ctxt)
 {
@@ -438,13 +511,16 @@ u32 __deprecated mgrwrap_get_process_resources_info(union trapped_args * args,
 	return 0;
 }
 
+/*
+ * ======== procwrap_attach ========
+ */
 u32 procwrap_attach(union trapped_args *args, void *pr_ctxt)
 {
 	void *processor;
 	int status = 0;
 	struct dsp_processorattrin proc_attr_in, *attr_in = NULL;
 
-	
+	/* Optional argument */
 	if (args->args_proc_attach.attr_in) {
 		CP_FM_USR(&proc_attr_in, args->args_proc_attach.attr_in, status,
 			  1);
@@ -461,6 +537,9 @@ func_end:
 	return status;
 }
 
+/*
+ * ======== procwrap_ctrl ========
+ */
 u32 procwrap_ctrl(union trapped_args *args, void *pr_ctxt)
 {
 	u32 cb_data_size, __user * psize = (u32 __user *)
@@ -490,19 +569,25 @@ u32 procwrap_ctrl(union trapped_args *args, void *pr_ctxt)
 				   (struct dsp_cbdata *)pargs);
 	}
 
-	
+	/* CP_TO_USR(args->args_proc_ctrl.args, pargs, status, 1); */
 	kfree(pargs);
 func_end:
 	return status;
 }
 
+/*
+ * ======== procwrap_detach ========
+ */
 u32 __deprecated procwrap_detach(union trapped_args * args, void *pr_ctxt)
 {
-	
+	/* proc_detach called at bridge_release only */
 	pr_err("%s: deprecated dspbridge ioctl\n", __func__);
 	return 0;
 }
 
+/*
+ * ======== procwrap_enum_node_info ========
+ */
 u32 procwrap_enum_node_info(union trapped_args *args, void *pr_ctxt)
 {
 	int status;
@@ -555,6 +640,9 @@ u32 procwrap_begin_dma(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== procwrap_flush_memory ========
+ */
 u32 procwrap_flush_memory(union trapped_args *args, void *pr_ctxt)
 {
 	int status;
@@ -570,6 +658,9 @@ u32 procwrap_flush_memory(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== procwrap_invalidate_memory ========
+ */
 u32 procwrap_invalidate_memory(union trapped_args *args, void *pr_ctxt)
 {
 	int status;
@@ -581,6 +672,9 @@ u32 procwrap_invalidate_memory(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== procwrap_enum_resources ========
+ */
 u32 procwrap_enum_resources(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -605,6 +699,9 @@ u32 procwrap_enum_resources(union trapped_args *args, void *pr_ctxt)
 
 }
 
+/*
+ * ======== procwrap_get_state ========
+ */
 u32 procwrap_get_state(union trapped_args *args, void *pr_ctxt)
 {
 	int status;
@@ -623,6 +720,9 @@ u32 procwrap_get_state(union trapped_args *args, void *pr_ctxt)
 
 }
 
+/*
+ * ======== procwrap_get_trace ========
+ */
 u32 procwrap_get_trace(union trapped_args *args, void *pr_ctxt)
 {
 	int status;
@@ -646,6 +746,9 @@ u32 procwrap_get_trace(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== procwrap_load ========
+ */
 u32 procwrap_load(union trapped_args *args, void *pr_ctxt)
 {
 	s32 i, len;
@@ -675,11 +778,11 @@ u32 procwrap_load(union trapped_args *args, void *pr_ctxt)
 
 	for (i = 0; i < count; i++) {
 		if (argv[i]) {
-			
+			/* User space pointer to argument */
 			temp = (char *)argv[i];
-			
+			/* len is increased by 1 to accommodate NULL */
 			len = strlen_user((char *)temp) + 1;
-			
+			/* Kernel space pointer to argument */
 			argv[i] = kmalloc(len, GFP_KERNEL);
 			if (argv[i]) {
 				CP_FM_USR(argv[i], temp, status, len);
@@ -694,9 +797,9 @@ u32 procwrap_load(union trapped_args *args, void *pr_ctxt)
 			}
 		}
 	}
-	
+	/* TODO: validate this */
 	if (args->args_proc_load.user_envp) {
-		
+		/* number of elements in the envp array including NULL */
 		count = 0;
 		do {
 			if (get_user(temp,
@@ -719,11 +822,11 @@ u32 procwrap_load(union trapped_args *args, void *pr_ctxt)
 			goto func_cont;
 		}
 		for (i = 0; envp[i]; i++) {
-			
+			/* User space pointer to argument */
 			temp = (char *)envp[i];
-			
+			/* len is increased by 1 to accommodate NULL */
 			len = strlen_user((char *)temp) + 1;
-			
+			/* Kernel space pointer to argument */
 			envp[i] = kmalloc(len, GFP_KERNEL);
 			if (envp[i]) {
 				CP_FM_USR(envp[i], temp, status, len);
@@ -764,6 +867,9 @@ func_cont:
 	return status;
 }
 
+/*
+ * ======== procwrap_map ========
+ */
 u32 procwrap_map(union trapped_args *args, void *pr_ctxt)
 {
 	int status;
@@ -788,13 +894,16 @@ u32 procwrap_map(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== procwrap_register_notify ========
+ */
 u32 procwrap_register_notify(union trapped_args *args, void *pr_ctxt)
 {
 	int status;
 	struct dsp_notification notification;
 	void *hprocessor = ((struct process_context *)pr_ctxt)->processor;
 
-	
+	/* Initialize the notification data structure */
 	notification.name = NULL;
 	notification.handle = NULL;
 
@@ -807,6 +916,9 @@ u32 procwrap_register_notify(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== procwrap_reserve_memory ========
+ */
 u32 procwrap_reserve_memory(union trapped_args *args, void *pr_ctxt)
 {
 	int status;
@@ -830,6 +942,9 @@ u32 procwrap_reserve_memory(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== procwrap_start ========
+ */
 u32 procwrap_start(union trapped_args *args, void *pr_ctxt)
 {
 	u32 ret;
@@ -838,6 +953,9 @@ u32 procwrap_start(union trapped_args *args, void *pr_ctxt)
 	return ret;
 }
 
+/*
+ * ======== procwrap_un_map ========
+ */
 u32 procwrap_un_map(union trapped_args *args, void *pr_ctxt)
 {
 	int status;
@@ -847,6 +965,9 @@ u32 procwrap_un_map(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== procwrap_un_reserve_memory ========
+ */
 u32 procwrap_un_reserve_memory(union trapped_args *args, void *pr_ctxt)
 {
 	int status;
@@ -858,6 +979,9 @@ u32 procwrap_un_reserve_memory(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== procwrap_stop ========
+ */
 u32 procwrap_stop(union trapped_args *args, void *pr_ctxt)
 {
 	u32 ret;
@@ -867,6 +991,9 @@ u32 procwrap_stop(union trapped_args *args, void *pr_ctxt)
 	return ret;
 }
 
+/*
+ * ======== find_handle =========
+ */
 inline void find_node_handle(struct node_res_object **noderes,
 				void *pr_ctxt, void *hnode)
 {
@@ -878,6 +1005,9 @@ inline void find_node_handle(struct node_res_object **noderes,
 }
 
 
+/*
+ * ======== nodewrap_allocate ========
+ */
 u32 nodewrap_allocate(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -890,7 +1020,7 @@ u32 nodewrap_allocate(union trapped_args *args, void *pr_ctxt)
 	int nodeid;
 	void *hprocessor = ((struct process_context *)pr_ctxt)->processor;
 
-	
+	/* Optional argument */
 	if (psize) {
 		if (get_user(cb_data_size, psize))
 			status = -EPERM;
@@ -908,7 +1038,7 @@ u32 nodewrap_allocate(union trapped_args *args, void *pr_ctxt)
 	CP_FM_USR(&node_uuid, args->args_node_allocate.node_id_ptr, status, 1);
 	if (status)
 		goto func_cont;
-	
+	/* Optional argument */
 	if (args->args_node_allocate.attr_in) {
 		CP_FM_USR(&proc_attr_in, args->args_node_allocate.attr_in,
 			  status, 1);
@@ -938,6 +1068,9 @@ func_cont:
 	return status;
 }
 
+/*
+ *  ======== nodewrap_alloc_msg_buf ========
+ */
 u32 nodewrap_alloc_msg_buf(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -955,13 +1088,13 @@ u32 nodewrap_alloc_msg_buf(union trapped_args *args, void *pr_ctxt)
 	if (!args->args_node_allocmsgbuf.size)
 		return -EINVAL;
 
-	if (args->args_node_allocmsgbuf.attr) {	
+	if (args->args_node_allocmsgbuf.attr) {	/* Optional argument */
 		CP_FM_USR(&attr, args->args_node_allocmsgbuf.attr, status, 1);
 		if (!status)
 			pattr = &attr;
 
 	}
-	
+	/* argument */
 	CP_FM_USR(&pbuffer, args->args_node_allocmsgbuf.buffer, status, 1);
 	if (!status) {
 		status = node_alloc_msg_buf(node_res->node,
@@ -972,6 +1105,9 @@ u32 nodewrap_alloc_msg_buf(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== nodewrap_change_priority ========
+ */
 u32 nodewrap_change_priority(union trapped_args *args, void *pr_ctxt)
 {
 	u32 ret;
@@ -989,6 +1125,9 @@ u32 nodewrap_change_priority(union trapped_args *args, void *pr_ctxt)
 	return ret;
 }
 
+/*
+ * ======== nodewrap_connect ========
+ */
 u32 nodewrap_connect(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -1021,7 +1160,7 @@ u32 nodewrap_connect(union trapped_args *args, void *pr_ctxt)
 	if (!node1 || !node2)
 		return -EFAULT;
 
-	
+	/* Optional argument */
 	if (psize) {
 		if (get_user(cb_data_size, psize))
 			status = -EPERM;
@@ -1040,7 +1179,7 @@ u32 nodewrap_connect(union trapped_args *args, void *pr_ctxt)
 		if (status)
 			goto func_cont;
 	}
-	if (args->args_node_connect.attrs) {	
+	if (args->args_node_connect.attrs) {	/* Optional argument */
 		CP_FM_USR(&attrs, args->args_node_connect.attrs, status, 1);
 		if (!status)
 			pattrs = &attrs;
@@ -1059,6 +1198,9 @@ func_cont:
 	return status;
 }
 
+/*
+ * ======== nodewrap_create ========
+ */
 u32 nodewrap_create(union trapped_args *args, void *pr_ctxt)
 {
 	u32 ret;
@@ -1074,6 +1216,9 @@ u32 nodewrap_create(union trapped_args *args, void *pr_ctxt)
 	return ret;
 }
 
+/*
+ * ======== nodewrap_delete ========
+ */
 u32 nodewrap_delete(union trapped_args *args, void *pr_ctxt)
 {
 	u32 ret;
@@ -1089,6 +1234,9 @@ u32 nodewrap_delete(union trapped_args *args, void *pr_ctxt)
 	return ret;
 }
 
+/*
+ *  ======== nodewrap_free_msg_buf ========
+ */
 u32 nodewrap_free_msg_buf(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -1101,7 +1249,7 @@ u32 nodewrap_free_msg_buf(union trapped_args *args, void *pr_ctxt)
 	if (!node_res)
 		return -EFAULT;
 
-	if (args->args_node_freemsgbuf.attr) {	
+	if (args->args_node_freemsgbuf.attr) {	/* Optional argument */
 		CP_FM_USR(&attr, args->args_node_freemsgbuf.attr, status, 1);
 		if (!status)
 			pattr = &attr;
@@ -1120,6 +1268,9 @@ u32 nodewrap_free_msg_buf(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== nodewrap_get_attr ========
+ */
 u32 nodewrap_get_attr(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -1138,6 +1289,9 @@ u32 nodewrap_get_attr(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== nodewrap_get_message ========
+ */
 u32 nodewrap_get_message(union trapped_args *args, void *pr_ctxt)
 {
 	int status;
@@ -1157,6 +1311,9 @@ u32 nodewrap_get_message(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== nodewrap_pause ========
+ */
 u32 nodewrap_pause(union trapped_args *args, void *pr_ctxt)
 {
 	u32 ret;
@@ -1172,6 +1329,9 @@ u32 nodewrap_pause(union trapped_args *args, void *pr_ctxt)
 	return ret;
 }
 
+/*
+ * ======== nodewrap_put_message ========
+ */
 u32 nodewrap_put_message(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -1194,6 +1354,9 @@ u32 nodewrap_put_message(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== nodewrap_register_notify ========
+ */
 u32 nodewrap_register_notify(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -1206,7 +1369,7 @@ u32 nodewrap_register_notify(union trapped_args *args, void *pr_ctxt)
 	if (!node_res)
 		return -EFAULT;
 
-	
+	/* Initialize the notification data structure */
 	notification.name = NULL;
 	notification.handle = NULL;
 
@@ -1224,6 +1387,9 @@ u32 nodewrap_register_notify(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== nodewrap_run ========
+ */
 u32 nodewrap_run(union trapped_args *args, void *pr_ctxt)
 {
 	u32 ret;
@@ -1239,6 +1405,9 @@ u32 nodewrap_run(union trapped_args *args, void *pr_ctxt)
 	return ret;
 }
 
+/*
+ * ======== nodewrap_terminate ========
+ */
 u32 nodewrap_terminate(union trapped_args *args, void *pr_ctxt)
 {
 	int status;
@@ -1257,6 +1426,9 @@ u32 nodewrap_terminate(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== nodewrap_get_uuid_props ========
+ */
 u32 nodewrap_get_uuid_props(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -1281,6 +1453,9 @@ func_cont:
 	return status;
 }
 
+/*
+ * ======== find_strm_handle =========
+ */
 inline void find_strm_handle(struct strm_res_object **strmres,
 				void *pr_ctxt, void *hstream)
 {
@@ -1291,6 +1466,9 @@ inline void find_strm_handle(struct strm_res_object **strmres,
 	return;
 }
 
+/*
+ * ======== strmwrap_allocate_buffer ========
+ */
 u32 strmwrap_allocate_buffer(union trapped_args *args, void *pr_ctxt)
 {
 	int status;
@@ -1328,6 +1506,9 @@ u32 strmwrap_allocate_buffer(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== strmwrap_close ========
+ */
 u32 strmwrap_close(union trapped_args *args, void *pr_ctxt)
 {
 	struct strm_res_object *strm_res;
@@ -1340,6 +1521,9 @@ u32 strmwrap_close(union trapped_args *args, void *pr_ctxt)
 	return strm_close(strm_res, pr_ctxt);
 }
 
+/*
+ * ======== strmwrap_free_buffer ========
+ */
 u32 strmwrap_free_buffer(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -1374,6 +1558,9 @@ u32 strmwrap_free_buffer(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== strmwrap_get_event_handle ========
+ */
 u32 __deprecated strmwrap_get_event_handle(union trapped_args * args,
 					   void *pr_ctxt)
 {
@@ -1381,6 +1568,9 @@ u32 __deprecated strmwrap_get_event_handle(union trapped_args * args,
 	return -ENOSYS;
 }
 
+/*
+ * ======== strmwrap_get_info ========
+ */
 u32 strmwrap_get_info(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -1412,6 +1602,9 @@ u32 strmwrap_get_info(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== strmwrap_idle ========
+ */
 u32 strmwrap_idle(union trapped_args *args, void *pr_ctxt)
 {
 	u32 ret;
@@ -1427,6 +1620,9 @@ u32 strmwrap_idle(union trapped_args *args, void *pr_ctxt)
 	return ret;
 }
 
+/*
+ * ======== strmwrap_issue ========
+ */
 u32 strmwrap_issue(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -1440,6 +1636,9 @@ u32 strmwrap_issue(union trapped_args *args, void *pr_ctxt)
 	if (!args->args_strm_issue.buffer)
 		return -EFAULT;
 
+	/* No need of doing CP_FM_USR for the user buffer (pbuffer)
+	   as this is done in Bridge internal function bridge_chnl_add_io_req
+	   in chnl_sm.c */
 	status = strm_issue(strm_res->stream,
 			    args->args_strm_issue.buffer,
 			    args->args_strm_issue.bytes,
@@ -1449,6 +1648,9 @@ u32 strmwrap_issue(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== strmwrap_open ========
+ */
 u32 strmwrap_open(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -1465,7 +1667,7 @@ u32 strmwrap_open(union trapped_args *args, void *pr_ctxt)
 
 	CP_FM_USR(&attr, args->args_strm_open.attr_in, status, 1);
 
-	if (attr.stream_attr_in != NULL) {	
+	if (attr.stream_attr_in != NULL) {	/* Optional argument */
 		CP_FM_USR(&strm_attr_in, attr.stream_attr_in, status, 1);
 		if (!status) {
 			attr.stream_attr_in = &strm_attr_in;
@@ -1485,6 +1687,9 @@ u32 strmwrap_open(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== strmwrap_reclaim ========
+ */
 u32 strmwrap_reclaim(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -1513,6 +1718,9 @@ u32 strmwrap_reclaim(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== strmwrap_register_notify ========
+ */
 u32 strmwrap_register_notify(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -1525,7 +1733,7 @@ u32 strmwrap_register_notify(union trapped_args *args, void *pr_ctxt)
 	if (!strm_res)
 		return -EFAULT;
 
-	
+	/* Initialize the notification data structure */
 	notification.name = NULL;
 	notification.handle = NULL;
 
@@ -1539,6 +1747,9 @@ u32 strmwrap_register_notify(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== strmwrap_select ========
+ */
 u32 strmwrap_select(union trapped_args *args, void *pr_ctxt)
 {
 	u32 mask;
@@ -1574,21 +1785,31 @@ u32 strmwrap_select(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/* CMM */
 
+/*
+ * ======== cmmwrap_calloc_buf ========
+ */
 u32 __deprecated cmmwrap_calloc_buf(union trapped_args * args, void *pr_ctxt)
 {
-	
+	/* This operation is done in kernel */
 	pr_err("%s: deprecated dspbridge ioctl\n", __func__);
 	return -ENOSYS;
 }
 
+/*
+ * ======== cmmwrap_free_buf ========
+ */
 u32 __deprecated cmmwrap_free_buf(union trapped_args * args, void *pr_ctxt)
 {
-	
+	/* This operation is done in kernel */
 	pr_err("%s: deprecated dspbridge ioctl\n", __func__);
 	return -ENOSYS;
 }
 
+/*
+ * ======== cmmwrap_get_handle ========
+ */
 u32 cmmwrap_get_handle(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;
@@ -1602,6 +1823,9 @@ u32 cmmwrap_get_handle(union trapped_args *args, void *pr_ctxt)
 	return status;
 }
 
+/*
+ * ======== cmmwrap_get_info ========
+ */
 u32 cmmwrap_get_info(union trapped_args *args, void *pr_ctxt)
 {
 	int status = 0;

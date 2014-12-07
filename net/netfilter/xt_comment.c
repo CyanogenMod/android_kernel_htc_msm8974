@@ -1,3 +1,8 @@
+/*
+ * Implements a dummy match to allow attaching comments to rules
+ *
+ * 2003-05-13 Brad Fisher (brad@info-link.net)
+ */
 
 #include <linux/module.h>
 #include <linux/skbuff.h>
@@ -13,7 +18,7 @@ MODULE_ALIAS("ip6t_comment");
 static bool
 comment_mt(const struct sk_buff *skb, struct xt_action_param *par)
 {
-	
+	/* We always match */
 	return true;
 }
 

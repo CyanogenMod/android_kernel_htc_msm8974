@@ -107,7 +107,7 @@ static int __init init_sbc82xx_flash(void)
 		       (sbc82xx_flash_map[i].size >> 20),
 		       flashcs[i]);
 		if (!sbc82xx_flash_map[i].phys) {
-			
+			/* We know it can't be at zero. */
 			printk("): disabled by bootloader.\n");
 			continue;
 		}
@@ -130,7 +130,7 @@ static int __init init_sbc82xx_flash(void)
 
 		sbcmtd[i]->owner = THIS_MODULE;
 
-		
+		/* No partitioning detected. Use default */
 		if (i == 2) {
 			defparts = NULL;
 			nr_parts = 0;

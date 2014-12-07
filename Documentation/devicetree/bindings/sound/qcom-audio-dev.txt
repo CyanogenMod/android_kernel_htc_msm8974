@@ -4,24 +4,24 @@ Qualcomm audio devices for ALSA sound SoC
 
 Required properties:
 
- - compatible : "qti,msm-pcm-dsp"
+ - compatible : "qcom,msm-pcm-dsp"
 
- - qti,msm-pcm-dsp-id : device node id
+ - qcom,msm-pcm-dsp-id : device node id
 
 * msm-pcm-low-latency
 
 Required properties:
 
- - compatible : "qti,msm-pcm-dsp"
+ - compatible : "qcom,msm-pcm-dsp"
 
- - qti,msm-pcm-dsp-id : device node id
+ - qcom,msm-pcm-dsp-id : device node id
 
    Optional properties
 
-      - qti,msm-pcm-low-latency : Flag indicating whether
+      - qcom,msm-pcm-low-latency : Flag indicating whether
         the device node is of type low latency.
 
-      - qti,latency-level : Flag indicating whether the device node
+      - qcom,latency-level : Flag indicating whether the device node
                             is of type regular low latency or ultra
                             low latency.
                             regular : regular low latency stream
@@ -112,7 +112,7 @@ Required properties:
 
 Required properties:
 
- - compatible : "qti,msm-pcm-loopback"
+ - compatible : "qcom,msm-pcm-loopback"
 
 * msm-dai-q6
 
@@ -140,6 +140,7 @@ Required properties:
                             FM Rx and TX port ID values from 12292 to 12293
                             incall record Rx and TX port ID values from 32771 to 32772
                             inCall Music Delivery port ID is 32773
+                            incall Music 2 Delivery port ID is 32770
 
 * msm-auxpcm
 
@@ -232,15 +233,15 @@ Required properties:
 
 Example:
 
-	qti,msm-pcm {
-		compatible = "qti,msm-pcm-dsp";
-		qti,msm-pcm-dsp-id = <0>;
+	qcom,msm-pcm {
+		compatible = "qcom,msm-pcm-dsp";
+		qcom,msm-pcm-dsp-id = <0>;
 	};
 
-	qti,msm-pcm-low-latency {
-		compatible = "qti,msm-pcm-dsp";
-		qti,msm-pcm-dsp-id = <1>;
-		qti,msm-pcm-low-latency;
+	qcom,msm-pcm-low-latency {
+		compatible = "qcom,msm-pcm-dsp";
+		qcom,msm-pcm-dsp-id = <1>;
+		qcom,msm-pcm-low-latency;
 	};
 
         qcom,msm-pcm-routing {
@@ -376,6 +377,11 @@ Example:
 			compatible = "qcom,msm-dai-q6-dev";
 			qcom,msm-dai-q6-dev-id = <32773>;
 		};
+
+		qcom,msm-dai-q6-incall-music-2-rx {
+			compatible = "qcom,msm-dai-q6-dev";
+			qcom,msm-dai-q6-dev-id = <32770>;
+		};
 	};
 
 	qcom,msm-pri-auxpcm {
@@ -461,7 +467,11 @@ Optional properties:
 			    codec.
 - qcom,mbhc-bias-internal: Flag to indicate if internal micbias should be used
 			   for headset detection.
-
+- qcom,mbhc-audio-jack-type : String to indicate the jack type on the hardware.
+		Possible Values:
+		4-pole-jack : Jack on the hardware is 4-pole.
+		5-pole-jack : Jack on the hardware is 5-pole.
+		6-pole-jack : Jack on the hardware is 6-pole.
 * APQ8074 ASoC Machine driver
 
 Required properties:
@@ -518,6 +528,7 @@ sound {
 	qcom,sec-auxpcm-gpio-sync = <&msmgpio 80 0>;
 	qcom,sec-auxpcm-gpio-din  = <&msmgpio 81 0>;
 	qcom,sec-auxpcm-gpio-dout = <&msmgpio 82 0>;
+	qcom,mbhc-audio-jack-type = "4-pole-jack";
 };
 
 * msm-dai-mi2s

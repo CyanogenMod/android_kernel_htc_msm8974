@@ -45,10 +45,23 @@
 
 #include "picoxcell_crypto_regs.h"
 
+/*
+ * The threshold for the number of entries in the CMD FIFO available before
+ * the CMD0_CNT interrupt is raised. Increasing this value will reduce the
+ * number of interrupts raised to the CPU.
+ */
 #define CMD0_IRQ_THRESHOLD   1
 
+/*
+ * The timeout period (in jiffies) for a PDU. When the the number of PDUs in
+ * flight is greater than the STAT_IRQ_THRESHOLD or 0 the timer is disabled.
+ * When there are packets in flight but lower than the threshold, we enable
+ * the timer and at expiry, attempt to remove any processed packets from the
+ * queue and if there are still packets left, schedule the timer again.
+ */
 #define PACKET_TIMEOUT	    1
 
+/* The priority to register each algorithm with. */
 #define SPACC_CRYPTO_ALG_PRIORITY	10000
 
 #define SPACC_CRYPTO_KASUMI_F8_KEY_LEN	16
@@ -63,11 +76,18 @@
 
 #define MAX_DDT_LEN			16
 
+/* DDT format. This must match the hardware DDT format exactly. */
 struct spacc_ddt {
 	dma_addr_t	p;
 	u32		len;
 };
 
+/*
+ * Asynchronous crypto request structure.
+ *
+ * This structure defines a request that is either queued for processing or
+ * being processed.
+ */
 struct spacc_req {
 	struct list_head		list;
 	struct spacc_engine		*engine;
@@ -79,7 +99,7 @@ struct spacc_req {
 	struct spacc_ddt		*src_ddt, *dst_ddt;
 	void				(*complete)(struct spacc_req *req);
 
-	
+	/* AEAD specific bits. */
 	u8				*giv;
 	size_t				giv_len;
 	dma_addr_t			giv_pa;
@@ -111,8 +131,10 @@ struct spacc_engine {
 	struct dma_pool			*req_pool;
 };
 
+/* Algorithm type mask. */
 #define SPACC_CRYPTO_ALG_MASK		0x7
 
+/* SPACC definition of a crypto algorithm. */
 struct spacc_alg {
 	unsigned long			ctrl_default;
 	unsigned long			type;
@@ -123,6 +145,7 @@ struct spacc_alg {
 	int				iv_offs;
 };
 
+/* Generic context structure for any algorithm type. */
 struct spacc_generic_ctx {
 	struct spacc_engine		*engine;
 	int				flags;
@@ -130,13 +153,19 @@ struct spacc_generic_ctx {
 	int				iv_offs;
 };
 
+/* Block cipher context. */
 struct spacc_ablk_ctx {
 	struct spacc_generic_ctx	generic;
 	u8				key[AES_MAX_KEY_SIZE];
 	u8				key_len;
+	/*
+	 * The fallback cipher. If the operation can't be done in hardware,
+	 * fallback to a software version.
+	 */
 	struct crypto_ablkcipher	*sw_cipher;
 };
 
+/* AEAD cipher context. */
 struct spacc_aead_ctx {
 	struct spacc_generic_ctx	generic;
 	u8				cipher_key[AES_MAX_KEY_SIZE];
@@ -199,6 +228,11 @@ static void spacc_cipher_write_ctx(struct spacc_generic_ctx *ctx,
 	memcpy_toio32(iv_ptr, iv, iv_len / 4);
 }
 
+/*
+ * Load a context into the engines context memory.
+ *
+ * Returns the index of the context page where the context was loaded.
+ */
 static unsigned spacc_load_ctx(struct spacc_generic_ctx *ctx,
 			       const u8 *ciph_key, size_t ciph_len,
 			       const u8 *iv, size_t ivlen, const u8 *hash_key,
@@ -226,6 +260,7 @@ static unsigned spacc_load_ctx(struct spacc_generic_ctx *ctx,
 	return indx;
 }
 
+/* Count the number of scatterlist entries in a scatterlist. */
 static int sg_count(struct scatterlist *sg_list, int nbytes)
 {
 	struct scatterlist *sg = sg_list;
@@ -246,6 +281,11 @@ static inline void ddt_set(struct spacc_ddt *ddt, dma_addr_t phys, size_t len)
 	ddt->len = len;
 }
 
+/*
+ * Take a crypto request and scatterlists for the data and turn them into DDTs
+ * for passing to the crypto engines. This also DMA maps the data so that the
+ * crypto engines can DMA to/from them.
+ */
 static struct spacc_ddt *spacc_sg_to_ddt(struct spacc_engine *engine,
 					 struct scatterlist *payload,
 					 unsigned nbytes,
@@ -317,10 +357,18 @@ static int spacc_aead_make_ddts(struct spacc_req *req, u8 *giv)
 		dst_ents = 0;
 	}
 
+	/*
+	 * Map the IV/GIV. For the GIV it needs to be bidirectional as it is
+	 * formed by the crypto block and sent as the ESP IV for IPSEC.
+	 */
 	iv_addr = dma_map_single(engine->dev, iv, ivsize,
 				 giv ? DMA_BIDIRECTIONAL : DMA_TO_DEVICE);
 	req->giv_pa = iv_addr;
 
+	/*
+	 * Map the associated data. For decryption we don't copy the
+	 * associated data.
+	 */
 	for_each_sg(areq->assoc, cur, assoc_ents, i) {
 		ddt_set(src_ddt++, sg_dma_address(cur), sg_dma_len(cur));
 		if (req->is_encrypt)
@@ -332,6 +380,10 @@ static int spacc_aead_make_ddts(struct spacc_req *req, u8 *giv)
 	if (giv || req->is_encrypt)
 		ddt_set(dst_ddt++, iv_addr, ivsize);
 
+	/*
+	 * Now map in the payload for the source and destination and terminate
+	 * with the NULL pointers.
+	 */
 	for_each_sg(areq->src, cur, src_ents, i) {
 		ddt_set(src_ddt++, sg_dma_address(cur), sg_dma_len(cur));
 		if (areq->src == areq->dst)
@@ -386,6 +438,10 @@ static void spacc_free_ddt(struct spacc_req *req, struct spacc_ddt *ddt,
 	dma_pool_free(req->engine->req_pool, ddt, ddt_addr);
 }
 
+/*
+ * Set key for a DES operation in an AEAD cipher. This also performs weak key
+ * checking if required.
+ */
 static int spacc_aead_des_setkey(struct crypto_aead *aead, const u8 *key,
 				 unsigned int len)
 {
@@ -405,13 +461,23 @@ static int spacc_aead_des_setkey(struct crypto_aead *aead, const u8 *key,
 	return 0;
 }
 
+/* Set the key for the AES block cipher component of the AEAD transform. */
 static int spacc_aead_aes_setkey(struct crypto_aead *aead, const u8 *key,
 				 unsigned int len)
 {
 	struct crypto_tfm *tfm = crypto_aead_tfm(aead);
 	struct spacc_aead_ctx *ctx = crypto_tfm_ctx(tfm);
 
+	/*
+	 * IPSec engine only supports 128 and 256 bit AES keys. If we get a
+	 * request for any other size (192 bits) then we need to do a software
+	 * fallback.
+	 */
 	if (len != AES_KEYSIZE_128 && len != AES_KEYSIZE_256) {
+		/*
+		 * Set the fallback transform to use the same request flags as
+		 * the hardware transform.
+		 */
 		ctx->sw_cipher->base.crt_flags &= ~CRYPTO_TFM_REQ_MASK;
 		ctx->sw_cipher->base.crt_flags |=
 			tfm->crt_flags & CRYPTO_TFM_REQ_MASK;
@@ -486,6 +552,11 @@ static int spacc_aead_setauthsize(struct crypto_aead *tfm,
 	return 0;
 }
 
+/*
+ * Check if an AEAD request requires a fallback operation. Some requests can't
+ * be completed in hardware because the hardware may not support certain key
+ * sizes. In these cases we need to complete the request in software.
+ */
 static int spacc_aead_need_fallback(struct spacc_req *req)
 {
 	struct aead_request *aead_req;
@@ -495,6 +566,10 @@ static int spacc_aead_need_fallback(struct spacc_req *req)
 	struct spacc_aead_ctx *ctx = crypto_tfm_ctx(tfm);
 
 	aead_req = container_of(req->req, struct aead_request, base);
+	/*
+	 * If we have a non-supported key-length, then we need to do a
+	 * software fallback.
+	 */
 	if ((spacc_alg->ctrl_default & SPACC_CRYPTO_ALG_MASK) ==
 	    SPA_CTRL_CIPH_ALG_AES &&
 	    ctx->cipher_key_len != AES_KEYSIZE_128 &&
@@ -512,6 +587,11 @@ static int spacc_aead_do_fallback(struct aead_request *req, unsigned alg_type,
 	int err;
 
 	if (ctx->sw_cipher) {
+		/*
+		 * Change the request to use the software fallback transform,
+		 * and once the ciphering has completed, put the old transform
+		 * back into the request.
+		 */
 		aead_request_set_tfm(req, ctx->sw_cipher);
 		err = is_encrypt ? crypto_aead_encrypt(req) :
 		    crypto_aead_decrypt(req);
@@ -544,7 +624,7 @@ static int spacc_aead_submit(struct spacc_req *req)
 		ctx->cipher_key_len, aead_req->iv, alg->cra_aead.ivsize,
 		ctx->hash_ctx, ctx->hash_key_len);
 
-	
+	/* Set the source and destination DDT pointers. */
 	writel(req->src_addr, engine->regs + SPA_SRC_PTR_REG_OFFSET);
 	writel(req->dst_addr, engine->regs + SPA_DST_PTR_REG_OFFSET);
 	writel(0, engine->regs + SPA_OFFSET_REG_OFFSET);
@@ -552,12 +632,20 @@ static int spacc_aead_submit(struct spacc_req *req)
 	assoc_len = aead_req->assoclen;
 	proc_len = aead_req->cryptlen + assoc_len;
 
+	/*
+	 * If we aren't generating an IV, then we need to include the IV in the
+	 * associated data so that it is included in the hash.
+	 */
 	if (!req->giv) {
 		assoc_len += crypto_aead_ivsize(crypto_aead_reqtfm(aead_req));
 		proc_len += crypto_aead_ivsize(crypto_aead_reqtfm(aead_req));
 	} else
 		proc_len += req->giv_len;
 
+	/*
+	 * If we are decrypting, we need to take the length of the ICV out of
+	 * the processing length.
+	 */
 	if (!req->is_encrypt)
 		proc_len -= ctx->auth_size;
 
@@ -599,6 +687,13 @@ static void spacc_push(struct spacc_engine *engine)
 	}
 }
 
+/*
+ * Setup an AEAD request for processing. This will configure the engine, load
+ * the context and then start the packet processing.
+ *
+ * @giv Pointer to destination address for a generated IV. If the
+ *	request does not need to generate an IV then this should be set to NULL.
+ */
 static int spacc_aead_setup(struct aead_request *req, u8 *giv,
 			    unsigned alg_type, bool is_encrypt)
 {
@@ -685,6 +780,10 @@ static int spacc_aead_decrypt(struct aead_request *req)
 	return spacc_aead_setup(req, NULL, alg->type, 0);
 }
 
+/*
+ * Initialise a new AEAD context. This is responsible for allocating the
+ * fallback cipher and initialising the context.
+ */
 static int spacc_aead_cra_init(struct crypto_tfm *tfm)
 {
 	struct spacc_aead_ctx *ctx = crypto_tfm_ctx(tfm);
@@ -712,6 +811,10 @@ static int spacc_aead_cra_init(struct crypto_tfm *tfm)
 	return 0;
 }
 
+/*
+ * Destructor for an AEAD context. This is called when the transform is freed
+ * and must free the fallback cipher.
+ */
 static void spacc_aead_cra_exit(struct crypto_tfm *tfm)
 {
 	struct spacc_aead_ctx *ctx = crypto_tfm_ctx(tfm);
@@ -721,6 +824,10 @@ static void spacc_aead_cra_exit(struct crypto_tfm *tfm)
 	ctx->sw_cipher = NULL;
 }
 
+/*
+ * Set the DES key for a block cipher transform. This also performs weak key
+ * checking if the transform has requested it.
+ */
 static int spacc_des_setkey(struct crypto_ablkcipher *cipher, const u8 *key,
 			    unsigned int len)
 {
@@ -745,6 +852,10 @@ static int spacc_des_setkey(struct crypto_ablkcipher *cipher, const u8 *key,
 	return 0;
 }
 
+/*
+ * Set the key for an AES block cipher. Some key lengths are not supported in
+ * hardware so this must also check whether a fallback is needed.
+ */
 static int spacc_aes_setkey(struct crypto_ablkcipher *cipher, const u8 *key,
 			    unsigned int len)
 {
@@ -757,8 +868,17 @@ static int spacc_aes_setkey(struct crypto_ablkcipher *cipher, const u8 *key,
 		return -EINVAL;
 	}
 
+	/*
+	 * IPSec engine only supports 128 and 256 bit AES keys. If we get a
+	 * request for any other size (192 bits) then we need to do a software
+	 * fallback.
+	 */
 	if (len != AES_KEYSIZE_128 && len != AES_KEYSIZE_256 &&
 	    ctx->sw_cipher) {
+		/*
+		 * Set the fallback transform to use the same request flags as
+		 * the hardware transform.
+		 */
 		ctx->sw_cipher->base.crt_flags &= ~CRYPTO_TFM_REQ_MASK;
 		ctx->sw_cipher->base.crt_flags |=
 			cipher->base.crt_flags & CRYPTO_TFM_REQ_MASK;
@@ -880,6 +1000,11 @@ static int spacc_ablk_do_fallback(struct ablkcipher_request *req,
 	if (!ctx->sw_cipher)
 		return -EINVAL;
 
+	/*
+	 * Change the request to use the software fallback transform, and once
+	 * the ciphering has completed, put the old transform back into the
+	 * request.
+	 */
 	ablkcipher_request_set_tfm(req, ctx->sw_cipher);
 	err = is_encrypt ? crypto_ablkcipher_encrypt(req) :
 		crypto_ablkcipher_decrypt(req);
@@ -906,6 +1031,10 @@ static int spacc_ablk_setup(struct ablkcipher_request *req, unsigned alg_type,
 	if (unlikely(spacc_ablk_need_fallback(dev_req)))
 		return spacc_ablk_do_fallback(req, alg_type, is_encrypt);
 
+	/*
+	 * Create the DDT's for the engine. If we share the same source and
+	 * destination then we can optimize by reusing the DDT's.
+	 */
 	if (req->src != req->dst) {
 		dev_req->src_ddt = spacc_sg_to_ddt(engine, req->src,
 			req->nbytes, DMA_TO_DEVICE, &dev_req->src_addr);
@@ -928,6 +1057,11 @@ static int spacc_ablk_setup(struct ablkcipher_request *req, unsigned alg_type,
 
 	err = -EINPROGRESS;
 	spin_lock_irqsave(&engine->hw_lock, flags);
+	/*
+	 * Check if the engine will accept the operation now. If it won't then
+	 * we either stick it on the end of a pending list if we can backlog,
+	 * or bailout with an error if not.
+	 */
 	if (unlikely(spacc_fifo_cmd_full(engine)) ||
 	    engine->in_flight + 1 > engine->fifo_sz) {
 		if (!(req->base.flags & CRYPTO_TFM_REQ_MAY_BACKLOG)) {
@@ -1028,11 +1162,15 @@ static void spacc_process_done(struct spacc_engine *engine)
 		list_move_tail(&req->list, &engine->completed);
 		--engine->in_flight;
 
-		
+		/* POP the status register. */
 		writel(~0, engine->regs + SPA_STAT_POP_REG_OFFSET);
 		req->result = (readl(engine->regs + SPA_STATUS_REG_OFFSET) &
 		     SPA_STATUS_RES_CODE_MASK) >> SPA_STATUS_RES_CODE_OFFSET;
 
+		/*
+		 * Convert the SPAcc error status into the standard POSIX error
+		 * codes.
+		 */
 		if (unlikely(req->result)) {
 			switch (req->result) {
 			case SPA_STATUS_ICV_FAIL:
@@ -1115,6 +1253,11 @@ static int spacc_suspend(struct device *dev)
 	struct platform_device *pdev = to_platform_device(dev);
 	struct spacc_engine *engine = platform_get_drvdata(pdev);
 
+	/*
+	 * We only support standby mode. All we have to do is gate the clock to
+	 * the spacc. The hardware will preserve state until we turn it back
+	 * on again.
+	 */
 	clk_disable(engine->clk);
 
 	return 0;
@@ -1132,7 +1275,7 @@ static const struct dev_pm_ops spacc_pm_ops = {
 	.suspend	= spacc_suspend,
 	.resume		= spacc_resume,
 };
-#endif 
+#endif /* CONFIG_PM */
 
 static inline struct spacc_engine *spacc_dev_to_engine(struct device *dev)
 {
@@ -1545,9 +1688,9 @@ static const struct of_device_id spacc_of_id_table[] = {
 	{ .compatible = "picochip,spacc-l2" },
 	{}
 };
-#else 
+#else /* CONFIG_OF */
 #define spacc_of_id_table NULL
-#endif 
+#endif /* CONFIG_OF */
 
 static bool spacc_is_compatible(struct platform_device *pdev,
 				const char *spacc_type)
@@ -1560,7 +1703,7 @@ static bool spacc_is_compatible(struct platform_device *pdev,
 #ifdef CONFIG_OF
 	if (of_device_is_compatible(pdev->dev.of_node, spacc_type))
 		return true;
-#endif 
+#endif /* CONFIG_OF */
 
 	return false;
 }
@@ -1649,8 +1792,18 @@ static int __devinit spacc_probe(struct platform_device *pdev)
 	}
 
 
+	/*
+	 * Use an IRQ threshold of 50% as a default. This seems to be a
+	 * reasonable trade off of latency against throughput but can be
+	 * changed at runtime.
+	 */
 	engine->stat_irq_thresh = (engine->fifo_sz / 2);
 
+	/*
+	 * Configure the interrupts. We only use the STAT_CNT interrupt as we
+	 * only submit a new packet for processing when we complete another in
+	 * the queue. This minimizes time spent in the interrupt handler.
+	 */
 	writel(engine->stat_irq_thresh << SPA_IRQ_CTRL_STAT_CNT_OFFSET,
 	       engine->regs + SPA_IRQ_CTRL_REG_OFFSET);
 	writel(SPA_IRQ_EN_STAT_EN | SPA_IRQ_EN_GLBL_EN,
@@ -1719,7 +1872,7 @@ static struct platform_driver spacc_driver = {
 		.name	= "picochip,spacc",
 #ifdef CONFIG_PM
 		.pm	= &spacc_pm_ops,
-#endif 
+#endif /* CONFIG_PM */
 		.of_match_table	= spacc_of_id_table,
 	},
 	.id_table	= spacc_id_table,

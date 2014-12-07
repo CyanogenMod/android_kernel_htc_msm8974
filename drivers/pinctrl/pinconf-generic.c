@@ -68,20 +68,20 @@ void pinconf_generic_dump_pin(struct pinctrl_dev *pctldev,
 		unsigned long config;
 		int ret;
 
-		
+		/* We want to check out this parameter */
 		config = pinconf_to_config_packed(conf_items[i].param, 0);
 		ret = pin_config_get_for_pin(pctldev, pin, &config);
-		
+		/* These are legal errors */
 		if (ret == -EINVAL || ret == -ENOTSUPP)
 			continue;
 		if (ret) {
 			seq_printf(s, "ERROR READING CONFIG SETTING %d ", i);
 			continue;
 		}
-		
+		/* Space between multiple configs */
 		seq_puts(s, " ");
 		seq_puts(s, conf_items[i].display);
-		
+		/* Print unit if available */
 		if (conf_items[i].format &&
 		    pinconf_to_config_argument(config) != 0)
 			seq_printf(s, " (%u %s)",
@@ -103,21 +103,21 @@ void pinconf_generic_dump_group(struct pinctrl_dev *pctldev,
 		unsigned long config;
 		int ret;
 
-		
+		/* We want to check out this parameter */
 		config = pinconf_to_config_packed(conf_items[i].param, 0);
 		ret = pin_config_group_get(dev_name(pctldev->dev), gname,
 					   &config);
-		
+		/* These are legal errors */
 		if (ret == -EINVAL || ret == -ENOTSUPP)
 			continue;
 		if (ret) {
 			seq_printf(s, "ERROR READING CONFIG SETTING %d ", i);
 			continue;
 		}
-		
+		/* Space between multiple configs */
 		seq_puts(s, " ");
 		seq_puts(s, conf_items[i].display);
-		
+		/* Print unit if available */
 		if (conf_items[i].format && config != 0)
 			seq_printf(s, " (%u %s)",
 				   pinconf_to_config_argument(config),
@@ -157,6 +157,13 @@ static struct pinconf_generic_dt_params dt_params[] = {
 	{ "output-high", PIN_CONFIG_OUTPUT, 1, },
 };
 
+/**
+ * pinconf_generic_parse_dt_config()
+ * parse the config properties into generic pinconfig values.
+ * @np: node containing the pinconfig properties
+ * @configs: array with nconfigs entries containing the generic pinconf values
+ * @nconfigs: umber of configurations
+ */
 int pinconf_generic_parse_dt_config(struct device_node *np,
 				    unsigned long **configs,
 				    unsigned int *nconfigs)
@@ -170,7 +177,7 @@ int pinconf_generic_parse_dt_config(struct device_node *np,
 	if (!np)
 		return -EINVAL;
 
-	
+	/* allocate a temporary array big enough to hold one of each option */
 	cfg = kzalloc(sizeof(*cfg) * ARRAY_SIZE(dt_params), GFP_KERNEL);
 	if (!cfg)
 		return -ENOMEM;
@@ -179,11 +186,11 @@ int pinconf_generic_parse_dt_config(struct device_node *np,
 		struct pinconf_generic_dt_params *par = &dt_params[i];
 		ret = of_property_read_u32(np, par->property, &val);
 
-		
+		/* property not found */
 		if (ret == -EINVAL)
 			continue;
 
-		
+		/* use default value, when no value is specified */
 		if (ret)
 			val = par->default_value;
 
@@ -194,13 +201,17 @@ int pinconf_generic_parse_dt_config(struct device_node *np,
 
 	ret = 0;
 
-	
+	/* no configs found at all */
 	if (ncfg == 0) {
 		*configs = NULL;
 		*nconfigs = 0;
 		goto out;
 	}
 
+	/*
+	 * Now limit the number of configs to the real number of
+	 * found properties.
+	 */
 	*configs = kzalloc(ncfg * sizeof(unsigned long), GFP_KERNEL);
 	if (!*configs) {
 		ret = -ENOMEM;

@@ -40,4 +40,4 @@ UNUSUAL_DEV(  0x0781, 0x0005, 0x0005, 0x0005,
 		USB_SC_SCSI, USB_PR_USBAT, init_usbat_flash,
 		US_FL_SINGLE_LUN),
 
-#endif 
+#endif /* defined(CONFIG_USB_STORAGE_USBAT) || ... */

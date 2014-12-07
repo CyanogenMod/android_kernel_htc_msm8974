@@ -27,22 +27,103 @@
  *
  */
 
+/**********************************************
+ * Instructions paravirtualized for correctness
+ **********************************************/
 
+/* "fc" and "thash" are privilege-sensitive instructions, meaning they
+ *  may have different semantics depending on whether they are executed
+ *  at PL0 vs PL!=0.  When paravirtualized, these instructions mustn't
+ *  be allowed to execute directly, lest incorrect semantics result.
+ */
 
 #define fc	.error "fc should not be used directly."
 #define thash	.error "thash should not be used directly."
 
+/* Note that "ttag" and "cover" are also privilege-sensitive; "ttag"
+ * is not currently used (though it may be in a long-format VHPT system!)
+ * and the semantics of cover only change if psr.ic is off which is very
+ * rare (and currently non-existent outside of assembly code
+ */
 #define ttag	.error "ttag should not be used directly."
 #define cover	.error "cover should not be used directly."
 
+/* There are also privilege-sensitive registers.  These registers are
+ * readable at any privilege level but only writable at PL0.
+ */
 #define cpuid	.error "cpuid should not be used directly."
 #define pmd	.error "pmd should not be used directly."
 
+/*
+ * mov ar.eflag =
+ * mov = ar.eflag
+ */
 
+/**********************************************
+ * Instructions paravirtualized for performance
+ **********************************************/
+/*
+ * Those instructions include '.' which can't be handled by cpp.
+ * or can't be handled by cpp easily.
+ * They are handled by sed instead of cpp.
+ */
 
+/* for .S
+ * itc.i
+ * itc.d
+ *
+ * bsw.0
+ * bsw.1
+ *
+ * ssm psr.ic | PSR_DEFAULT_BITS
+ * ssm psr.ic
+ * rsm psr.ic
+ * ssm psr.i
+ * rsm psr.i
+ * rsm psr.i | psr.ic
+ * rsm psr.dt
+ * ssm psr.dt
+ *
+ * mov = cr.ifa
+ * mov = cr.itir
+ * mov = cr.isr
+ * mov = cr.iha
+ * mov = cr.ipsr
+ * mov = cr.iim
+ * mov = cr.iip
+ * mov = cr.ivr
+ * mov = psr
+ *
+ * mov cr.ifa =
+ * mov cr.itir =
+ * mov cr.iha =
+ * mov cr.ipsr =
+ * mov cr.ifs =
+ * mov cr.iip =
+ * mov cr.kr =
+ */
 
+/* for intrinsics
+ * ssm psr.i
+ * rsm psr.i
+ * mov = psr
+ * mov = ivr
+ * mov = tpr
+ * mov cr.itm =
+ * mov eoi =
+ * mov rr[] =
+ * mov = rr[]
+ * mov = kr
+ * mov kr =
+ * ptc.ga
+ */
 
+/*************************************************************
+ * define paravirtualized instrcution macros as nop to ingore.
+ * and check whether arguments are appropriate.
+ *************************************************************/
 
+/* check whether reg is a regular register */
 .macro is_rreg_in reg
 	.ifc "\reg", "r0"
 		nop 0
@@ -61,6 +142,7 @@
 
 #define IS_RREG_CLOB(reg)	IS_RREG_OUT(reg)
 
+/* check whether pred is a predicate register */
 #define IS_PRED_IN(pred)			\
 	;;					\
 	(pred)	nop 0				\
@@ -184,6 +266,6 @@
 #define COVER					\
 	nop 0
 #define RFI					\
-	br.ret.sptk.many rp 
+	br.ret.sptk.many rp /* defining nop causes dependency error */
 
-#endif 
+#endif /* _ASM_NATIVE_PVCHK_INST_H */

@@ -3,6 +3,7 @@
 
 #include <asm/debug.h>
 
+/* for use of debug feature */
 extern debug_info_t *cio_debug_msg_id;
 extern debug_info_t *cio_debug_trace_id;
 extern debug_info_t *cio_debug_crw_id;

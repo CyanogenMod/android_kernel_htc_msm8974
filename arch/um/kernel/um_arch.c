@@ -23,6 +23,7 @@
 
 #define DEFAULT_COMMAND_LINE "root=98:0"
 
+/* Changed in add_arg and setup_arch, which run before SMP is started */
 static char __initdata command_line[COMMAND_LINE_SIZE] = { 0 };
 
 static void __init add_arg(char *arg)
@@ -36,6 +37,11 @@ static void __init add_arg(char *arg)
 	strcat(command_line, arg);
 }
 
+/*
+ * These fields are initialized at boot time and not changed.
+ * XXX This structure is used only in the non-SMP case.  Maybe this
+ * should be moved to smp.c.
+ */
 struct cpuinfo_um boot_cpu_data = {
 	.loops_per_jiffy	= 0,
 	.ipi_pipe		= { -1, -1 }
@@ -43,10 +49,11 @@ struct cpuinfo_um boot_cpu_data = {
 
 unsigned long thread_saved_pc(struct task_struct *task)
 {
-	
+	/* FIXME: Need to look up userspace_pid by cpu */
 	return os_process_pc(userspace_pid[0]);
 }
 
+/* Changed in setup_arch, which is called in early boot */
 static char host_info[(__NEW_UTS_LEN + 1) * 5];
 
 static int show_cpuinfo(struct seq_file *m, void *v)
@@ -93,17 +100,21 @@ const struct seq_operations cpuinfo_op = {
 	.show	= show_cpuinfo,
 };
 
+/* Set in linux_main */
 unsigned long uml_physmem;
 EXPORT_SYMBOL(uml_physmem);
 
-unsigned long uml_reserved; 
+unsigned long uml_reserved; /* Also modified in mem_init */
 unsigned long start_vm;
 unsigned long end_vm;
 
+/* Set in uml_ncpus_setup */
 int ncpus = 1;
 
+/* Set in early boot */
 static int have_root __initdata = 0;
 
+/* Set in uml_mem_setup and modified in linux_main */
 long long physmem_size = 32 * 1024 * 1024;
 
 static const char *usage_string =
@@ -231,6 +242,7 @@ static struct notifier_block panic_exit_notifier = {
 	.priority 		= 0
 };
 
+/* Set during early boot */
 unsigned long task_size;
 EXPORT_SYMBOL(task_size);
 
@@ -265,9 +277,13 @@ int __init linux_main(int argc, char **argv)
 		add_arg(DEFAULT_COMMAND_LINE);
 
 	host_task_size = os_get_top_address();
+	/*
+	 * TASK_SIZE needs to be PGDIR_SIZE aligned or else exit_mmap craps
+	 * out
+	 */
 	task_size = host_task_size & PGDIR_MASK;
 
-	
+	/* OS sanity checks that need to happen before the kernel runs */
 	os_early_checks();
 
 	can_do_skas();
@@ -281,6 +297,11 @@ int __init linux_main(int argc, char **argv)
 
 	brk_start = (unsigned long) sbrk(0);
 
+	/*
+	 * Increase physical memory size for exec-shield users
+	 * so they actually get what they asked for. This should
+	 * add zero for non-exec shield users
+	 */
 
 	diff = UML_ROUND_UP(brk_start) - UML_ROUND_UP(&_end);
 	if (diff > 1024 * 1024) {
@@ -291,7 +312,7 @@ int __init linux_main(int argc, char **argv)
 
 	uml_physmem = (unsigned long) &__binary_start & PAGE_MASK;
 
-	
+	/* Reserve up to 4M after the current brk */
 	uml_reserved = ROUND_4M(brk_start) + (1 << 22);
 
 	setup_machinename(init_utsname()->machine);
@@ -300,6 +321,10 @@ int __init linux_main(int argc, char **argv)
 	iomem_size = (iomem_size + PAGE_SIZE - 1) & PAGE_MASK;
 	max_physmem = TASK_SIZE - uml_physmem - iomem_size - MIN_VMALLOC;
 
+	/*
+	 * Zones have to begin on a 1 << MAX_ORDER page boundary,
+	 * so this makes sure that's true for highmem
+	 */
 	max_physmem &= ~((1 << (PAGE_SHIFT + MAX_ORDER)) - 1);
 	if (physmem_size + iomem_size > max_physmem) {
 		highmem = physmem_size + iomem_size - max_physmem;

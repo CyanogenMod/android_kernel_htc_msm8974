@@ -26,6 +26,17 @@
 #include <linux/writeback.h>
 #include "ext3.h"
 
+/*
+ * akpm: A new design for ext3_sync_file().
+ *
+ * This is only called from sys_fsync(), sys_fdatasync() and sys_msync().
+ * There cannot be a transaction open by this task.
+ * Another task could have dirtied this inode.  Its data can be in any
+ * state in the journalling system.
+ *
+ * What we do is just kick off a commit and wait on it.  This will snapshot the
+ * inode to disk.
+ */
 
 int ext3_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 {
@@ -46,6 +57,20 @@ int ext3_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 
 	J_ASSERT(ext3_journal_current_handle() == NULL);
 
+	/*
+	 * data=writeback,ordered:
+	 *  The caller's filemap_fdatawrite()/wait will sync the data.
+	 *  Metadata is in the journal, we wait for a proper transaction
+	 *  to commit here.
+	 *
+	 * data=journal:
+	 *  filemap_fdatawrite won't do anything (the buffers are clean).
+	 *  ext3_force_commit will write the file data into the journal and
+	 *  will wait on that.
+	 *  filemap_fdatawait() will encounter a ton of newly-dirtied pages
+	 *  (they were dirtied by commit).  But that's OK - the blocks are
+	 *  safe in-journal, which is all fsync() needs to ensure.
+	 */
 	if (ext3_should_journal_data(inode)) {
 		ret = ext3_force_commit(inode->i_sb);
 		goto out;
@@ -62,6 +87,11 @@ int ext3_sync_file(struct file *file, loff_t start, loff_t end, int datasync)
 	log_start_commit(journal, commit_tid);
 	ret = log_wait_commit(journal, commit_tid);
 
+	/*
+	 * In case we didn't commit a transaction, we have to flush
+	 * disk caches manually so that data really is on persistent
+	 * storage
+	 */
 	if (needs_barrier)
 		blkdev_issue_flush(inode->i_sb->s_bdev, GFP_KERNEL, NULL);
 out:

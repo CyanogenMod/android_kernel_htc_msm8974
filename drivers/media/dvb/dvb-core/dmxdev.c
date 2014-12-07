@@ -37,6 +37,8 @@
 #include <linux/timer.h>
 #include <linux/jiffies.h>
 #include "dmxdev.h"
+#include <mach/devices_cmdline.h>
+
 
 static int debug;
 
@@ -3669,7 +3671,8 @@ dvb_demux_read(struct file *file, char __user *buf, size_t count,
 	if (ret > 0) {
 		dvb_dmxdev_notify_data_read(dmxdevfilter, ret);
 		spin_lock_irq(&dmxdevfilter->dev->lock);
-		dvb_dmxdev_update_events(&dmxdevfilter->events, ret);
+		if (dmxdevfilter->buffer.error != -EOVERFLOW)
+			dvb_dmxdev_update_events(&dmxdevfilter->events, ret);
 		spin_unlock_irq(&dmxdevfilter->dev->lock);
 
 		if (dmxdevfilter->dev->playback_mode == DMX_PB_MODE_PULL)
@@ -4298,6 +4301,9 @@ static const struct file_operations dbgfs_filters_fops = {
 int dvb_dmxdev_init(struct dmxdev *dmxdev, struct dvb_adapter *dvb_adapter)
 {
 	int i;
+
+	if (board_mfg_mode() == 9) 
+		return 0;
 
 	if (dmxdev->demux->open(dmxdev->demux) < 0)
 		return -EUSERS;

@@ -1,9 +1,14 @@
+/*
+ * dm9000 Ethernet
+ */
 
 #ifndef _DM9000X_H_
 #define _DM9000X_H_
 
 #define DM9000_ID		0x90000A46
 
+/* although the registers are 16 bit, they are 32-bit aligned.
+ */
 
 #define DM9000_NCR             0x00
 #define DM9000_NSR             0x01
@@ -150,10 +155,11 @@
 #define RCSR_CSUM	    (1<<1)
 #define RCSR_DISCARD	    (1<<0)
 
-#define DM9000_PKT_RDY		0x01	
+#define DM9000_PKT_RDY		0x01	/* Packet ready to receive */
 #define DM9000_PKT_ERR		0x02
-#define DM9000_PKT_MAX		1536	
+#define DM9000_PKT_MAX		1536	/* Received packet max size */
 
+/* DM9000A / DM9000B definitions */
 
 #define IMR_LNKCHNG		(1<<5)
 #define IMR_UNDERRUN		(1<<4)
@@ -161,5 +167,5 @@
 #define ISR_LNKCHNG		(1<<5)
 #define ISR_UNDERRUN		(1<<4)
 
-#endif 
+#endif /* _DM9000X_H_ */
 

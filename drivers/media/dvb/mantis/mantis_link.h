@@ -37,6 +37,7 @@ struct mantis_slot {
 	u32				bar;
 };
 
+/* Physical layer */
 enum mantis_slot_state {
 	MODULE_INSERTED			= 3,
 	MODULE_XTRACTED			= 4
@@ -51,7 +52,7 @@ struct mantis_ca {
 	wait_queue_head_t		hif_opdone_wq;
 	wait_queue_head_t		hif_brrdyw_wq;
 	wait_queue_head_t		hif_data_wq;
-	wait_queue_head_t		hif_write_wq; 
+	wait_queue_head_t		hif_write_wq; /* HIF Write op */
 
 	enum mantis_sbuf_status		sbuf_status;
 
@@ -63,6 +64,7 @@ struct mantis_ca {
 	struct mutex			ca_lock;
 };
 
+/* CA */
 extern void mantis_event_cam_plugin(struct mantis_ca *ca);
 extern void mantis_event_cam_unplug(struct mantis_ca *ca);
 extern int mantis_pcmcia_init(struct mantis_ca *ca);
@@ -70,6 +72,7 @@ extern void mantis_pcmcia_exit(struct mantis_ca *ca);
 extern int mantis_evmgr_init(struct mantis_ca *ca);
 extern void mantis_evmgr_exit(struct mantis_ca *ca);
 
+/* HIF */
 extern int mantis_hif_init(struct mantis_ca *ca);
 extern void mantis_hif_exit(struct mantis_ca *ca);
 extern int mantis_hif_read_mem(struct mantis_ca *ca, u32 addr);
@@ -77,4 +80,4 @@ extern int mantis_hif_write_mem(struct mantis_ca *ca, u32 addr, u8 data);
 extern int mantis_hif_read_iom(struct mantis_ca *ca, u32 addr);
 extern int mantis_hif_write_iom(struct mantis_ca *ca, u32 addr, u8 data);
 
-#endif 
+#endif /* __MANTIS_LINK_H */

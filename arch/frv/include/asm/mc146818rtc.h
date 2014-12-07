@@ -13,4 +13,4 @@
 #define _ASM_MC146818RTC_H
 
 
-#endif 
+#endif /* _ASM_MC146818RTC_H */

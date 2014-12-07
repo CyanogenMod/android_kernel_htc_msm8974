@@ -48,6 +48,7 @@ static void gusspec_control(struct snd_emux *emu, struct snd_emux_port *port,
 static void fake_event(struct snd_emux *emu, struct snd_emux_port *port,
 		       int ch, int param, int val, int atomic, int hop);
 
+/* operators */
 static struct snd_seq_oss_callback oss_callback = {
 	.owner = THIS_MODULE,
 	.open = snd_emux_open_seq_oss,
@@ -58,6 +59,9 @@ static struct snd_seq_oss_callback oss_callback = {
 };
 
 
+/*
+ * register OSS synth
+ */
 
 void
 snd_emux_init_seq_oss(struct snd_emux *emu)
@@ -78,11 +82,14 @@ snd_emux_init_seq_oss(struct snd_emux *emu)
 	arg->oper = oss_callback;
 	arg->private_data = emu;
 
-	
+	/* register to OSS synth table */
 	snd_device_register(emu->card, dev);
 }
 
 
+/*
+ * unregister
+ */
 void
 snd_emux_detach_seq_oss(struct snd_emux *emu)
 {
@@ -93,8 +100,12 @@ snd_emux_detach_seq_oss(struct snd_emux *emu)
 }
 
 
+/* use port number as a unique soundfont client number */
 #define SF_CLIENT_NO(p)	((p) + 0x1000)
 
+/*
+ * open port for OSS sequencer
+ */
 static int
 snd_emux_open_seq_oss(struct snd_seq_oss_arg *arg, void *closure)
 {
@@ -128,7 +139,7 @@ snd_emux_open_seq_oss(struct snd_seq_oss_arg *arg, void *closure)
 		return -ENOMEM;
 	}
 
-	
+	/* fill the argument data */
 	arg->private_data = p;
 	arg->addr.client = p->chset.client;
 	arg->addr.port = p->chset.port;
@@ -145,6 +156,9 @@ snd_emux_open_seq_oss(struct snd_seq_oss_arg *arg, void *closure)
 
 #define DEFAULT_DRUM_FLAGS	((1<<9) | (1<<25))
 
+/*
+ * reset port mode
+ */
 static void
 reset_port_mode(struct snd_emux_port *port, int midi_mode)
 {
@@ -162,6 +176,9 @@ reset_port_mode(struct snd_emux_port *port, int midi_mode)
 }
 
 
+/*
+ * close port
+ */
 static int
 snd_emux_close_seq_oss(struct snd_seq_oss_arg *arg)
 {
@@ -189,6 +206,9 @@ snd_emux_close_seq_oss(struct snd_seq_oss_arg *arg)
 }
 
 
+/*
+ * load patch
+ */
 static int
 snd_emux_load_patch_seq_oss(struct snd_seq_oss_arg *arg, int format,
 			    const char __user *buf, int offs, int count)
@@ -231,6 +251,9 @@ snd_emux_load_patch_seq_oss(struct snd_seq_oss_arg *arg, int format,
 }
 
 
+/*
+ * ioctl
+ */
 static int
 snd_emux_ioctl_seq_oss(struct snd_seq_oss_arg *arg, unsigned int cmd, unsigned long ioarg)
 {
@@ -262,6 +285,9 @@ snd_emux_ioctl_seq_oss(struct snd_seq_oss_arg *arg, unsigned int cmd, unsigned l
 }
 
 
+/*
+ * reset device
+ */
 static int
 snd_emux_reset_seq_oss(struct snd_seq_oss_arg *arg)
 {
@@ -277,6 +303,9 @@ snd_emux_reset_seq_oss(struct snd_seq_oss_arg *arg)
 }
 
 
+/*
+ * receive raw events: only SEQ_PRIVATE is accepted.
+ */
 static int
 snd_emux_event_oss_input(struct snd_seq_event *ev, int direct, void *private_data,
 			 int atomic, int hop)
@@ -295,7 +324,7 @@ snd_emux_event_oss_input(struct snd_seq_event *ev, int direct, void *private_dat
 		return snd_emux_event_input(ev, direct, private_data, atomic, hop);
 
 	data = ev->data.raw8.d;
-	
+	/* only SEQ_PRIVATE is accepted */
 	if (data[0] != 0xfe)
 		return 0;
 	cmd = data[2] & _EMUX_OSS_MODE_VALUE_MASK;
@@ -307,6 +336,9 @@ snd_emux_event_oss_input(struct snd_seq_event *ev, int direct, void *private_dat
 }
 
 
+/*
+ * OSS/AWE driver specific h/w controls
+ */
 static void
 emuspec_control(struct snd_emux *emu, struct snd_emux_port *port, int cmd,
 		unsigned char *event, int atomic, int hop)
@@ -327,7 +359,7 @@ emuspec_control(struct snd_emux *emu, struct snd_emux_port *port, int cmd,
 	p2 = *(short *) &event[6];
 
 	switch (cmd) {
-#if 0 
+#if 0 /* don't do this atomically */
 	case _EMUX_OSS_REMOVE_LAST_SAMPLES:
 		snd_soundfont_remove_unlocked(emu->sflist);
 		break;
@@ -342,10 +374,10 @@ emuspec_control(struct snd_emux *emu, struct snd_emux_port *port, int cmd,
 		break;
 
 	case _EMUX_OSS_TERMINATE_CHANNEL:
-		
+		/*snd_emux_mute_channel(emu, chan);*/
 		break;
 	case _EMUX_OSS_RESET_CHANNEL:
-		
+		/*snd_emux_channel_init(chset, chan);*/
 		break;
 
 	case _EMUX_OSS_RELEASE_ALL:
@@ -396,6 +428,9 @@ emuspec_control(struct snd_emux *emu, struct snd_emux_port *port, int cmd,
 	}
 }
 
+/*
+ * GUS specific h/w controls
+ */
 
 #include <linux/ultrasound.h>
 
@@ -429,14 +464,14 @@ gusspec_control(struct snd_emux *emu, struct snd_emux_port *port, int cmd,
 		return;
 
 	case _GUS_VOICEBALA:
-		
+		/* 0 to 15 --> 0 to 127 */
 		chan->control[MIDI_CTL_MSB_PAN] = (int)p1 << 3;
 		snd_emux_update_channel(port, chan, SNDRV_EMUX_UPDATE_PAN);
 		return;
 
 	case _GUS_VOICEVOL:
 	case _GUS_VOICEVOL2:
-		
+		/* not supported yet */
 		return;
 
 	case _GUS_RAMPRANGE:
@@ -444,7 +479,7 @@ gusspec_control(struct snd_emux *emu, struct snd_emux_port *port, int cmd,
 	case _GUS_RAMPMODE:
 	case _GUS_RAMPON:
 	case _GUS_RAMPOFF:
-		
+		/* volume ramping not supported */
 		return;
 
 	case _GUS_VOLUME_SCALE:
@@ -464,6 +499,9 @@ gusspec_control(struct snd_emux *emu, struct snd_emux_port *port, int cmd,
 }
 
 
+/*
+ * send an event to midi emulation
+ */
 static void
 fake_event(struct snd_emux *emu, struct snd_emux_port *port, int ch, int param, int val, int atomic, int hop)
 {
@@ -476,4 +514,4 @@ fake_event(struct snd_emux *emu, struct snd_emux_port *port, int ch, int param, 
 	snd_emux_event_input(&ev, 0, port, atomic, hop);
 }
 
-#endif 
+#endif /* CONFIG_SND_SEQUENCER_OSS */

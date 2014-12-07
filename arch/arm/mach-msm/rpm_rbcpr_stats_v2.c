@@ -207,7 +207,7 @@ static int msm_rpmrbcpr_file_read(struct file *file, char __user *bufu,
 	}
 
 	if (*ppos > pdata->len || !*ppos) {
-		
+		/* Read RPM stats */
 		status_counter = readl_relaxed(pdata->start +
 			offsetof(struct rbcpr_stats_type, status));
 		if (status_counter != rbcpr_stats->status) {
@@ -218,7 +218,7 @@ static int msm_rpmrbcpr_file_read(struct file *file, char __user *bufu,
 		*ppos = 0;
 	}
 
-	
+	/* copy to user data*/
 	ret = simple_read_from_buffer(bufu, count, ppos, pdata->buf,
 					pdata->len);
 exit_rpmrbcpr_file_read:
@@ -279,6 +279,12 @@ static int msm_rpmrbcpr_memalloc(struct platform_device *pdev)
 	addr = rbcpr_data->start + offsetof(struct rbcpr_stats_type,
 								rbcpr_rail);
 
+	/* Each rail has the same number of corners and number of latest
+	   recommended values. Read these from the first rail and check them
+	   to make sure the values are valid. (RPM doesn't 0 initialize this
+	   memory region, so its possible we end up with bogus values if the
+	   rbcpr driver is not initialized.).
+	*/
 	num_corners = readl_relaxed(addr);
 	num_latest_recommends = readl_relaxed(addr +
 				offsetof(struct rbcpr_rail_stats_type,

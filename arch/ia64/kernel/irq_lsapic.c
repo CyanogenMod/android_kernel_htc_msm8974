@@ -23,7 +23,7 @@ lsapic_noop_startup (struct irq_data *data)
 static void
 lsapic_noop (struct irq_data *data)
 {
-	
+	/* nothing to do... */
 }
 
 static int lsapic_retrigger(struct irq_data *data)

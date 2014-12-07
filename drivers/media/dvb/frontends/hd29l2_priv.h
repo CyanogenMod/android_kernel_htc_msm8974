@@ -41,7 +41,7 @@
 #undef warn
 #define warn(f, arg...) printk(KERN_WARNING LOG_PREFIX": " f "\n" , ## arg)
 
-#define HD29L2_XTAL 30400000 
+#define HD29L2_XTAL 30400000 /* Hz */
 
 
 #define HD29L2_QAM4NR 0x00
@@ -84,7 +84,7 @@ struct hd29l2_priv {
 };
 
 static const struct reg_mod_vals reg_mod_vals_tab[] = {
-	
+	/* REG, QAM4NR, QAM4,QAM16,QAM32,QAM64 */
 	{ 0x01, { 0x10, 0x10, 0x10, 0x10, 0x10 } },
 	{ 0x02, { 0x07, 0x07, 0x07, 0x07, 0x07 } },
 	{ 0x03, { 0x10, 0x10, 0x10, 0x10, 0x10 } },
@@ -311,4 +311,4 @@ static const struct reg_mod_vals reg_mod_vals_tab[] = {
 	{ 0xf0, { 0x00, 0x00, 0x00, 0x00, 0x00 } },
 };
 
-#endif 
+#endif /* HD29L2_PRIV */

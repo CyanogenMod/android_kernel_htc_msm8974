@@ -50,6 +50,7 @@ static struct pio_device *gpio_to_pio(unsigned int gpio)
 	return pio;
 }
 
+/* Pin multiplexing API */
 static DEFINE_SPINLOCK(pio_lock);
 
 void __init at32_select_periph(unsigned int port, u32 pin_mask,
@@ -57,14 +58,14 @@ void __init at32_select_periph(unsigned int port, u32 pin_mask,
 {
 	struct pio_device *pio;
 
-	
+	/* assign and verify pio */
 	pio = gpio_to_pio(port);
 	if (unlikely(!pio)) {
 		printk(KERN_WARNING "pio: invalid port %u\n", port);
 		goto fail;
 	}
 
-	
+	/* Test if any of the requested pins is already muxed */
 	spin_lock(&pio_lock);
 	if (unlikely(pio->pinmux_mask & pin_mask)) {
 		printk(KERN_WARNING "%s: pin(s) busy (requested 0x%x, busy 0x%x)\n",
@@ -75,19 +76,19 @@ void __init at32_select_periph(unsigned int port, u32 pin_mask,
 
 	pio->pinmux_mask |= pin_mask;
 
-	
+	/* enable pull ups */
 	pio_writel(pio, PUER, pin_mask);
 
-	
+	/* select either peripheral A or B */
 	if (periph)
 		pio_writel(pio, BSR, pin_mask);
 	else
 		pio_writel(pio, ASR, pin_mask);
 
-	
+	/* enable peripheral control */
 	pio_writel(pio, PDR, pin_mask);
 
-	
+	/* Disable pull ups if not requested. */
 	if (!(flags & AT32_GPIOF_PULLUP))
 		pio_writel(pio, PUDR, pin_mask);
 
@@ -147,6 +148,10 @@ fail:
 	dump_stack();
 }
 
+/*
+ * Undo a previous pin reservation. Will not affect the hardware
+ * configuration.
+ */
 void at32_deselect_pin(unsigned int pin)
 {
 	struct pio_device *pio;
@@ -162,18 +167,19 @@ void at32_deselect_pin(unsigned int pin)
 	clear_bit(pin_index, &pio->pinmux_mask);
 }
 
+/* Reserve a pin, preventing anyone else from changing its configuration. */
 void __init at32_reserve_pin(unsigned int port, u32 pin_mask)
 {
 	struct pio_device *pio;
 
-	
+	/* assign and verify pio */
 	pio = gpio_to_pio(port);
 	if (unlikely(!pio)) {
 		printk(KERN_WARNING "pio: invalid port %u\n", port);
 		goto fail;
 	}
 
-	
+	/* Test if any of the requested pins is already muxed */
 	spin_lock(&pio_lock);
 	if (unlikely(pio->pinmux_mask & pin_mask)) {
 		printk(KERN_WARNING "%s: pin(s) busy (req. 0x%x, busy 0x%x)\n",
@@ -182,7 +188,7 @@ void __init at32_reserve_pin(unsigned int port, u32 pin_mask)
 		goto fail;
 	}
 
-	
+	/* Reserve pins */
 	pio->pinmux_mask |= pin_mask;
 	spin_unlock(&pio_lock);
 	return;
@@ -191,7 +197,9 @@ fail:
 	dump_stack();
 }
 
+/*--------------------------------------------------------------------------*/
 
+/* GPIO API */
 
 static int direction_input(struct gpio_chip *chip, unsigned offset)
 {
@@ -238,7 +246,9 @@ static void gpio_set(struct gpio_chip *chip, unsigned offset, int value)
 		pio_writel(pio, CODR, mask);
 }
 
+/*--------------------------------------------------------------------------*/
 
+/* GPIO IRQ support */
 
 static void gpio_irq_mask(struct irq_data *d)
 {
@@ -280,7 +290,7 @@ static void gpio_irq_handler(unsigned irq, struct irq_desc *desc)
 	for (;;) {
 		u32		isr;
 
-		
+		/* ack pending GPIO interrupts */
 		isr = pio_readl(pio, ISR) & pio_readl(pio, IMR);
 		if (!isr)
 			break;
@@ -313,11 +323,16 @@ gpio_irq_setup(struct pio_device *pio, int irq, int gpio_irq)
 	irq_set_chained_handler(irq, gpio_irq_handler);
 }
 
+/*--------------------------------------------------------------------------*/
 
 #ifdef CONFIG_DEBUG_FS
 
 #include <linux/seq_file.h>
 
+/*
+ * This shows more info than the generic gpio dump code:
+ * pullups, deglitching, open drain drive.
+ */
 static void pio_bank_show(struct seq_file *s, struct gpio_chip *chip)
 {
 	struct pio_device *pio = container_of(chip, struct pio_device, chip);
@@ -367,6 +382,7 @@ static void pio_bank_show(struct seq_file *s, struct gpio_chip *chip)
 #endif
 
 
+/*--------------------------------------------------------------------------*/
 
 static int __init pio_probe(struct platform_device *pdev)
 {
@@ -436,6 +452,11 @@ void __init at32_init_pio(struct platform_device *pdev)
 
 	pio->clk = clk_get(&pdev->dev, "mck");
 	if (IS_ERR(pio->clk))
+		/*
+		 * This is a fatal error, but if we continue we might
+		 * be so lucky that we manage to initialize the
+		 * console and display this message...
+		 */
 		dev_err(&pdev->dev, "no mck clock defined\n");
 	else
 		clk_enable(pio->clk);
@@ -443,7 +464,7 @@ void __init at32_init_pio(struct platform_device *pdev)
 	pio->pdev = pdev;
 	pio->regs = ioremap(regs->start, resource_size(regs));
 
-	
+	/* start with irqs disabled and acked */
 	pio_writel(pio, IDR, ~0UL);
 	(void) pio_readl(pio, ISR);
 }

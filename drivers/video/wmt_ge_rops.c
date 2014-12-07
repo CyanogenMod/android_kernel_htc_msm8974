@@ -39,7 +39,7 @@
 #define GE_DESTAREAY_OFF	0x4c
 #define GE_DESTAREAW_OFF	0x50
 #define GE_DESTAREAH_OFF	0x54
-#define GE_PAT0C_OFF		0x88	
+#define GE_PAT0C_OFF		0x88	/* Pattern 0 color */
 #define GE_ENABLE_OFF		0xec
 #define GE_INTEN_OFF		0xf0
 #define GE_STATUS_OFF		0xf8
@@ -134,7 +134,7 @@ static int __devinit wmt_ge_rops_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	
+	/* Only one ROP engine is presently supported. */
 	if (unlikely(regbase)) {
 		WARN_ON(1);
 		return -EBUSY;

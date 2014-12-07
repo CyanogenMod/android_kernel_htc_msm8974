@@ -62,11 +62,16 @@ do {							\
 } while (0)
 
 #define FOUND_APCI 0x61504349
+/* these are the names for the IBM ACPI pseudo-device */
 #define IBM_HARDWARE_ID1 "IBM37D0"
 #define IBM_HARDWARE_ID2 "IBM37D4"
 
 #define hpslot_to_sun(A) (((struct slot *)((A)->private))->acpi_slot->sun)
 
+/* union apci_descriptor - allows access to the
+ * various device descriptors that are embedded in the
+ * aPCI table
+ */
 union apci_descriptor {
 	struct {
 		char sig[4];
@@ -91,6 +96,9 @@ union apci_descriptor {
 	} generic;
 };
 
+/* struct notification - keeps info about the device
+ * that cause the ACPI notification event
+ */
 struct notification {
 	struct acpi_device *device;
 	u8                  event;
@@ -125,6 +133,15 @@ static struct acpiphp_attention_info ibm_attention_info =
 	.owner = THIS_MODULE,
 };
 
+/**
+ * ibm_slot_from_id - workaround for bad ibm hardware
+ * @id: the slot number that linux refers to the slot by
+ *
+ * Description: This method returns the aCPI slot descriptor
+ * corresponding to the Linux slot number.  This descriptor
+ * has info about the aPCI slot id and attention status.
+ * This descriptor must be freed using kfree when done.
+ */
 static union apci_descriptor *ibm_slot_from_id(int id)
 {
 	int ind = 0, size;
@@ -154,6 +171,14 @@ ibm_slot_done:
 	return ret;
 }
 
+/**
+ * ibm_set_attention_status - callback method to set the attention LED
+ * @slot: the hotplug_slot to work with
+ * @status: what to set the LED to (0 or 1)
+ *
+ * Description: This method is registered with the acpiphp module as a
+ * callback to do the device specific task of setting the LED status.
+ */
 static int ibm_set_attention_status(struct hotplug_slot *slot, u8 status)
 {
 	union acpi_object args[2]; 
@@ -186,6 +211,18 @@ static int ibm_set_attention_status(struct hotplug_slot *slot, u8 status)
 	return 0;
 }
 
+/**
+ * ibm_get_attention_status - callback method to get attention LED status
+ * @slot: the hotplug_slot to work with
+ * @status: returns what the LED is set to (0 or 1)
+ *
+ * Description: This method is registered with the acpiphp module as a
+ * callback to do the device specific task of getting the LED status.
+ * 
+ * Because there is no direct method of getting the LED status directly
+ * from an ACPI call, we read the aPCI table and parse out our
+ * slot descriptor to read the status from that.
+ */
 static int ibm_get_attention_status(struct hotplug_slot *slot, u8 *status)
 {
 	union apci_descriptor *ibm_slot;
@@ -205,6 +242,24 @@ static int ibm_get_attention_status(struct hotplug_slot *slot, u8 *status)
 	return 0;
 }
 
+/**
+ * ibm_handle_events - listens for ACPI events for the IBM37D0 device
+ * @handle: an ACPI handle to the device that caused the event
+ * @event: the event info (device specific)
+ * @context: passed context (our notification struct)
+ *
+ * Description: This method is registered as a callback with the ACPI
+ * subsystem it is called when this device has an event to notify the OS of.
+ *
+ * The events actually come from the device as two events that get
+ * synthesized into one event with data by this function.  The event
+ * ID comes first and then the slot number that caused it.  We report
+ * this as one event to the OS.
+ *
+ * From section 5.6.2.2 of the ACPI 2.0 spec, I understand that the OSPM will
+ * only re-enable the interrupt that causes this event AFTER this method
+ * has returned, thereby enforcing serial access for the notification struct.
+ */
 static void ibm_handle_events(acpi_handle handle, u32 event, void *context)
 {
 	u8 detail = event & 0x0f;
@@ -223,6 +278,20 @@ static void ibm_handle_events(acpi_handle handle, u32 event, void *context)
 		note->event = event;
 }
 
+/**
+ * ibm_get_table_from_acpi - reads the APLS buffer from ACPI
+ * @bufp: address to pointer to allocate for the table
+ *
+ * Description: This method reads the APLS buffer in from ACPI and
+ * stores the "stripped" table into a single buffer
+ * it allocates and passes the address back in bufp.
+ *
+ * If NULL is passed in as buffer, this method only calculates
+ * the size of the table and returns that without filling
+ * in the buffer.
+ *
+ * Returns < 0 on error or the size of the table on success.
+ */
 static int ibm_get_table_from_acpi(char **bufp)
 {
 	union acpi_object *package;
@@ -280,6 +349,22 @@ read_table_done:
 	return size;
 }
 
+/**
+ * ibm_read_apci_table - callback for the sysfs apci_table file
+ * @filp: the open sysfs file
+ * @kobj: the kobject this binary attribute is a part of
+ * @bin_attr: struct bin_attribute for this file
+ * @buffer: the kernel space buffer to fill
+ * @pos: the offset into the file
+ * @size: the number of bytes requested
+ *
+ * Description: Gets registered with sysfs as the reader callback
+ * to be executed when /sys/bus/pci/slots/apci_table gets read.
+ *
+ * Since we don't get notified on open and close for this file,
+ * things get really tricky here...
+ * our solution is to only allow reading the table in all at once.
+ */
 static ssize_t ibm_read_apci_table(struct file *filp, struct kobject *kobj,
 				   struct bin_attribute *bin_attr,
 				   char *buffer, loff_t pos, size_t size)
@@ -298,6 +383,17 @@ static ssize_t ibm_read_apci_table(struct file *filp, struct kobject *kobj,
 	return bytes_read;
 }
 
+/**
+ * ibm_find_acpi_device - callback to find our ACPI device
+ * @handle: the ACPI handle of the device we are inspecting
+ * @lvl: depth into the namespace tree
+ * @context: a pointer to our handle to fill when we find the device
+ * @rv: a return value to fill if desired
+ *
+ * Description: Used as a callback when calling acpi_walk_namespace
+ * to find our device.  When this method returns non-zero
+ * acpi_walk_namespace quits its search and returns our value.
+ */
 static acpi_status __init ibm_find_acpi_device(acpi_handle handle,
 		u32 lvl, void *context, void **rv)
 {
@@ -319,6 +415,11 @@ static acpi_status __init ibm_find_acpi_device(acpi_handle handle,
 		dbg("found hardware: %s, handle: %p\n",
 			info->hardware_id.string, handle);
 		*phandle = handle;
+		/* returning non-zero causes the search to stop
+		 * and returns this value to the caller of 
+		 * acpi_walk_namespace, but it also causes some warnings
+		 * in the acpi debug code to print...
+		 */
 		retval = FOUND_APCI;
 	}
 	kfree(info);
@@ -390,7 +491,7 @@ static void __exit ibm_acpiphp_exit(void)
 			   ibm_handle_events);
 	if (ACPI_FAILURE(status))
 		err("%s: Notification handler removal failed\n", __func__);
-	
+	/* remove the /sys entries */
 	sysfs_remove_bin_file(sysdir, &ibm_apci_table_attr);
 }
 

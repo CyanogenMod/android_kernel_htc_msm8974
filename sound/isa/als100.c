@@ -52,16 +52,16 @@ MODULE_SUPPORTED_DEVICE("{{Diamond Technologies DT-019X},"
 MODULE_AUTHOR("Massimo Piccioni <dafastidio@libero.it>");
 MODULE_LICENSE("GPL");
 
-static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	
-static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	
-static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE;	
-static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static long mpu_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static long fm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	
-static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int mpu_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	
-static int dma8[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
-static int dma16[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	
+static int index[SNDRV_CARDS] = SNDRV_DEFAULT_IDX;	/* Index 0-MAX */
+static char *id[SNDRV_CARDS] = SNDRV_DEFAULT_STR;	/* ID for this card */
+static bool enable[SNDRV_CARDS] = SNDRV_DEFAULT_ENABLE;	/* Enable this card */
+static long port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* PnP setup */
+static long mpu_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* PnP setup */
+static long fm_port[SNDRV_CARDS] = SNDRV_DEFAULT_PORT;	/* PnP setup */
+static int irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* PnP setup */
+static int mpu_irq[SNDRV_CARDS] = SNDRV_DEFAULT_IRQ;	/* PnP setup */
+static int dma8[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* PnP setup */
+static int dma16[SNDRV_CARDS] = SNDRV_DEFAULT_DMA;	/* PnP setup */
 
 module_param_array(index, int, NULL, 0444);
 MODULE_PARM_DESC(index, "Index value for Avance Logic based soundcard.");
@@ -80,39 +80,39 @@ struct snd_card_als100 {
 };
 
 static struct pnp_card_device_id snd_als100_pnpids[] = {
-	
+	/* DT197A30 */
 	{ .id = "RWB1688",
 	  .devs = { { "@@@0001" }, { "@X@0001" }, { "@H@0001" } },
 	  .driver_data = SB_HW_DT019X },
-	
+	/* DT0196 / ALS-007 */
 	{ .id = "ALS0007",
 	  .devs = { { "@@@0001" }, { "@X@0001" }, { "@H@0001" } },
 	  .driver_data = SB_HW_DT019X },
-	
+	/* ALS100 - PRO16PNP */
 	{ .id = "ALS0001",
 	  .devs = { { "@@@0001" }, { "@X@0001" }, { "@H@0001" } },
 	  .driver_data = SB_HW_ALS100 },
-	
+	/* ALS110 - MF1000 - Digimate 3D Sound */
 	{ .id = "ALS0110",
 	  .devs = { { "@@@1001" }, { "@X@1001" }, { "@H@1001" } },
 	  .driver_data = SB_HW_ALS100 },
-	
+	/* ALS120 */
 	{ .id = "ALS0120",
 	  .devs = { { "@@@2001" }, { "@X@2001" }, { "@H@2001" } },
 	  .driver_data = SB_HW_ALS100 },
-	
+	/* ALS200 */
 	{ .id = "ALS0200",
 	  .devs = { { "@@@0020" }, { "@X@0020" }, { "@H@0001" } },
 	  .driver_data = SB_HW_ALS100 },
-	
+	/* ALS200 OEM */
 	{ .id = "ALS0200",
 	  .devs = { { "@@@0020" }, { "@X@0020" }, { "@H@0020" } },
 	  .driver_data = SB_HW_ALS100 },
-	
+	/* RTL3000 */
 	{ .id = "RTL3000",
 	  .devs = { { "@@@2001" }, { "@X@2001" }, { "@H@2001" } },
 	  .driver_data = SB_HW_ALS100 },
-	{ .id = "" } 
+	{ .id = "" } /* end */
 };
 
 MODULE_DEVICE_TABLE(pnp_card, snd_als100_pnpids);

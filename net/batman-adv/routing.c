@@ -67,20 +67,20 @@ static void _update_route(struct bat_priv *bat_priv,
 
 	curr_router = orig_node_get_router(orig_node);
 
-	
+	/* route deleted */
 	if ((curr_router) && (!neigh_node)) {
 		bat_dbg(DBG_ROUTES, bat_priv, "Deleting route towards: %pM\n",
 			orig_node->orig);
 		tt_global_del_orig(bat_priv, orig_node,
 				   "Deleted route towards originator");
 
-	
+	/* route added */
 	} else if ((!curr_router) && (neigh_node)) {
 
 		bat_dbg(DBG_ROUTES, bat_priv,
 			"Adding route towards: %pM (via %pM)\n",
 			orig_node->orig, neigh_node->addr);
-	
+	/* route changed */
 	} else if (neigh_node && curr_router) {
 		bat_dbg(DBG_ROUTES, bat_priv,
 			"Changing route towards: %pM (now via %pM - was via %pM)\n",
@@ -91,7 +91,7 @@ static void _update_route(struct bat_priv *bat_priv,
 	if (curr_router)
 		neigh_node_free_ref(curr_router);
 
-	
+	/* increase refcount of new best neighbor */
 	if (neigh_node && !atomic_inc_not_zero(&neigh_node->refcount))
 		neigh_node = NULL;
 
@@ -99,7 +99,7 @@ static void _update_route(struct bat_priv *bat_priv,
 	rcu_assign_pointer(orig_node->router, neigh_node);
 	spin_unlock_bh(&orig_node->neigh_list_lock);
 
-	
+	/* decrease refcount of previous best neighbor */
 	if (curr_router)
 		neigh_node_free_ref(curr_router);
 }
@@ -122,10 +122,11 @@ out:
 		neigh_node_free_ref(router);
 }
 
+/* caller must hold the neigh_list_lock */
 void bonding_candidate_del(struct orig_node *orig_node,
 			   struct neigh_node *neigh_node)
 {
-	
+	/* this neighbor is not part of our candidate list */
 	if (list_empty(&neigh_node->bonding_list))
 		goto out;
 
@@ -147,7 +148,7 @@ void bonding_candidate_add(struct orig_node *orig_node,
 
 	spin_lock_bh(&orig_node->neigh_list_lock);
 
-	
+	/* only consider if it has the same primary address ...  */
 	if (!compare_eth(orig_node->orig,
 			 neigh_node->orig_node->primary_addr))
 		goto candidate_del;
@@ -156,16 +157,23 @@ void bonding_candidate_add(struct orig_node *orig_node,
 	if (!router)
 		goto candidate_del;
 
-	
+	/* ... and is good enough to be considered */
 	if (neigh_node->tq_avg < router->tq_avg - BONDING_TQ_THRESHOLD)
 		goto candidate_del;
 
+	/**
+	 * check if we have another candidate with the same mac address or
+	 * interface. If we do, we won't select this candidate because of
+	 * possible interference.
+	 */
 	hlist_for_each_entry_rcu(tmp_neigh_node, node,
 				 &orig_node->neigh_list, list) {
 
 		if (tmp_neigh_node == neigh_node)
 			continue;
 
+		/* we only care if the other candidate is even
+		* considered as candidate. */
 		if (list_empty(&tmp_neigh_node->bonding_list))
 			continue;
 
@@ -176,11 +184,11 @@ void bonding_candidate_add(struct orig_node *orig_node,
 		}
 	}
 
-	
+	/* don't care further if it is an interference candidate */
 	if (interference_candidate)
 		goto candidate_del;
 
-	
+	/* this neighbor already is part of our candidate list */
 	if (!list_empty(&neigh_node->bonding_list))
 		goto out;
 
@@ -201,6 +209,7 @@ out:
 		neigh_node_free_ref(router);
 }
 
+/* copy primary address for bonding */
 void bonding_save_primary(const struct orig_node *orig_node,
 			  struct orig_node *orig_neigh_node,
 			  const struct batman_ogm_packet *batman_ogm_packet)
@@ -211,6 +220,11 @@ void bonding_save_primary(const struct orig_node *orig_node,
 	memcpy(orig_neigh_node->primary_addr, orig_node->orig, ETH_ALEN);
 }
 
+/* checks whether the host restarted and is in the protection time.
+ * returns:
+ *  0 if the packet is to be accepted
+ *  1 if the packet is to be ignored.
+ */
 int window_protected(struct bat_priv *bat_priv, int32_t seq_num_diff,
 		     unsigned long *last_reset)
 {
@@ -235,25 +249,25 @@ int recv_bat_ogm_packet(struct sk_buff *skb, struct hard_iface *hard_iface)
 	struct bat_priv *bat_priv = netdev_priv(hard_iface->soft_iface);
 	struct ethhdr *ethhdr;
 
-	
+	/* drop packet if it has not necessary minimum size */
 	if (unlikely(!pskb_may_pull(skb, BATMAN_OGM_LEN)))
 		return NET_RX_DROP;
 
 	ethhdr = (struct ethhdr *)skb_mac_header(skb);
 
-	
+	/* packet with broadcast indication but unicast recipient */
 	if (!is_broadcast_ether_addr(ethhdr->h_dest))
 		return NET_RX_DROP;
 
-	
+	/* packet with broadcast sender address */
 	if (is_broadcast_ether_addr(ethhdr->h_source))
 		return NET_RX_DROP;
 
-	
+	/* create a copy of the skb, if needed, to modify it. */
 	if (skb_cow(skb, 0) < 0)
 		return NET_RX_DROP;
 
-	
+	/* keep skb linear */
 	if (skb_linearize(skb) < 0)
 		return NET_RX_DROP;
 
@@ -274,7 +288,7 @@ static int recv_my_icmp_packet(struct bat_priv *bat_priv,
 
 	icmp_packet = (struct icmp_packet_rr *)skb->data;
 
-	
+	/* add data to device queue */
 	if (icmp_packet->msg_type != ECHO_REQUEST) {
 		bat_socket_receive_packet(icmp_packet, icmp_len);
 		goto out;
@@ -284,8 +298,8 @@ static int recv_my_icmp_packet(struct bat_priv *bat_priv,
 	if (!primary_if)
 		goto out;
 
-	
-	
+	/* answer echo request (ping) */
+	/* get routing information */
 	orig_node = orig_hash_find(bat_priv, icmp_packet->orig);
 	if (!orig_node)
 		goto out;
@@ -294,7 +308,7 @@ static int recv_my_icmp_packet(struct bat_priv *bat_priv,
 	if (!router)
 		goto out;
 
-	
+	/* create a copy of the skb, if needed, to modify it. */
 	if (skb_cow(skb, sizeof(struct ethhdr)) < 0)
 		goto out;
 
@@ -329,7 +343,7 @@ static int recv_icmp_ttl_exceeded(struct bat_priv *bat_priv,
 
 	icmp_packet = (struct icmp_packet *)skb->data;
 
-	
+	/* send TTL exceeded if packet is an echo request (traceroute) */
 	if (icmp_packet->msg_type != ECHO_REQUEST) {
 		pr_debug("Warning - can't forward icmp packet from %pM to %pM: ttl exceeded\n",
 			 icmp_packet->orig, icmp_packet->dst);
@@ -340,7 +354,7 @@ static int recv_icmp_ttl_exceeded(struct bat_priv *bat_priv,
 	if (!primary_if)
 		goto out;
 
-	
+	/* get routing information */
 	orig_node = orig_hash_find(bat_priv, icmp_packet->orig);
 	if (!orig_node)
 		goto out;
@@ -349,7 +363,7 @@ static int recv_icmp_ttl_exceeded(struct bat_priv *bat_priv,
 	if (!router)
 		goto out;
 
-	
+	/* create a copy of the skb, if needed, to modify it. */
 	if (skb_cow(skb, sizeof(struct ethhdr)) < 0)
 		goto out;
 
@@ -384,30 +398,33 @@ int recv_icmp_packet(struct sk_buff *skb, struct hard_iface *recv_if)
 	int hdr_size = sizeof(struct icmp_packet);
 	int ret = NET_RX_DROP;
 
+	/**
+	 * we truncate all incoming icmp packets if they don't match our size
+	 */
 	if (skb->len >= sizeof(struct icmp_packet_rr))
 		hdr_size = sizeof(struct icmp_packet_rr);
 
-	
+	/* drop packet if it has not necessary minimum size */
 	if (unlikely(!pskb_may_pull(skb, hdr_size)))
 		goto out;
 
 	ethhdr = (struct ethhdr *)skb_mac_header(skb);
 
-	
+	/* packet with unicast indication but broadcast recipient */
 	if (is_broadcast_ether_addr(ethhdr->h_dest))
 		goto out;
 
-	
+	/* packet with broadcast sender address */
 	if (is_broadcast_ether_addr(ethhdr->h_source))
 		goto out;
 
-	
+	/* not for me */
 	if (!is_my_mac(ethhdr->h_dest))
 		goto out;
 
 	icmp_packet = (struct icmp_packet_rr *)skb->data;
 
-	
+	/* add record route information if not full */
 	if ((hdr_size == sizeof(struct icmp_packet_rr)) &&
 	    (icmp_packet->rr_cur < BAT_RR_LEN)) {
 		memcpy(&(icmp_packet->rr[icmp_packet->rr_cur]),
@@ -415,15 +432,15 @@ int recv_icmp_packet(struct sk_buff *skb, struct hard_iface *recv_if)
 		icmp_packet->rr_cur++;
 	}
 
-	
+	/* packet for me */
 	if (is_my_mac(icmp_packet->dst))
 		return recv_my_icmp_packet(bat_priv, skb, hdr_size);
 
-	
+	/* TTL exceeded */
 	if (icmp_packet->header.ttl < 2)
 		return recv_icmp_ttl_exceeded(bat_priv, skb);
 
-	
+	/* get routing information */
 	orig_node = orig_hash_find(bat_priv, icmp_packet->dst);
 	if (!orig_node)
 		goto out;
@@ -432,16 +449,16 @@ int recv_icmp_packet(struct sk_buff *skb, struct hard_iface *recv_if)
 	if (!router)
 		goto out;
 
-	
+	/* create a copy of the skb, if needed, to modify it. */
 	if (skb_cow(skb, sizeof(struct ethhdr)) < 0)
 		goto out;
 
 	icmp_packet = (struct icmp_packet_rr *)skb->data;
 
-	
+	/* decrement ttl */
 	icmp_packet->header.ttl--;
 
-	
+	/* route it */
 	send_skb_packet(skb, router->if_incoming, router->addr);
 	ret = NET_RX_SUCCESS;
 
@@ -453,6 +470,11 @@ out:
 	return ret;
 }
 
+/* In the bonding case, send the packets in a round
+ * robin fashion over the remaining interfaces.
+ *
+ * This method rotates the bonding list and increases the
+ * returned router's refcount. */
 static struct neigh_node *find_bond_router(struct orig_node *primary_orig,
 					   const struct hard_iface *recv_if)
 {
@@ -465,7 +487,7 @@ static struct neigh_node *find_bond_router(struct orig_node *primary_orig,
 		if (!first_candidate)
 			first_candidate = tmp_neigh_node;
 
-		
+		/* recv_if == NULL on the first node. */
 		if (tmp_neigh_node->if_incoming == recv_if)
 			continue;
 
@@ -476,7 +498,7 @@ static struct neigh_node *find_bond_router(struct orig_node *primary_orig,
 		break;
 	}
 
-	
+	/* use the first candidate if nothing was found. */
 	if (!router && first_candidate &&
 	    atomic_inc_not_zero(&first_candidate->refcount))
 		router = first_candidate;
@@ -484,7 +506,11 @@ static struct neigh_node *find_bond_router(struct orig_node *primary_orig,
 	if (!router)
 		goto out;
 
+	/* selected should point to the next element
+	 * after the current router */
 	spin_lock_bh(&primary_orig->neigh_list_lock);
+	/* this is a list_move(), which unfortunately
+	 * does not exist as rcu version */
 	list_del_rcu(&primary_orig->bond_list);
 	list_add_rcu(&primary_orig->bond_list,
 		     &router->bonding_list);
@@ -495,6 +521,11 @@ out:
 	return router;
 }
 
+/* Interface Alternating: Use the best of the
+ * remaining candidates which are not using
+ * this interface.
+ *
+ * Increases the returned router's refcount */
 static struct neigh_node *find_ifalter_router(struct orig_node *primary_orig,
 					      const struct hard_iface *recv_if)
 {
@@ -507,15 +538,19 @@ static struct neigh_node *find_ifalter_router(struct orig_node *primary_orig,
 		if (!first_candidate)
 			first_candidate = tmp_neigh_node;
 
-		
+		/* recv_if == NULL on the first node. */
 		if (tmp_neigh_node->if_incoming == recv_if)
 			continue;
 
 		if (!atomic_inc_not_zero(&tmp_neigh_node->refcount))
 			continue;
 
+		/* if we don't have a router yet
+		 * or this one is better, choose it. */
 		if ((!router) ||
 		    (tmp_neigh_node->tq_avg > router->tq_avg)) {
+			/* decrement refcount of
+			 * previously selected router */
 			if (router)
 				neigh_node_free_ref(router);
 
@@ -526,7 +561,7 @@ static struct neigh_node *find_ifalter_router(struct orig_node *primary_orig,
 		neigh_node_free_ref(tmp_neigh_node);
 	}
 
-	
+	/* use the first candidate if nothing was found. */
 	if (!router && first_candidate &&
 	    atomic_inc_not_zero(&first_candidate->refcount))
 		router = first_candidate;
@@ -542,21 +577,21 @@ int recv_tt_query(struct sk_buff *skb, struct hard_iface *recv_if)
 	uint16_t tt_len;
 	struct ethhdr *ethhdr;
 
-	
+	/* drop packet if it has not necessary minimum size */
 	if (unlikely(!pskb_may_pull(skb, sizeof(struct tt_query_packet))))
 		goto out;
 
-	
+	/* I could need to modify it */
 	if (skb_cow(skb, sizeof(struct tt_query_packet)) < 0)
 		goto out;
 
 	ethhdr = (struct ethhdr *)skb_mac_header(skb);
 
-	
+	/* packet with unicast indication but broadcast recipient */
 	if (is_broadcast_ether_addr(ethhdr->h_dest))
 		goto out;
 
-	
+	/* packet with broadcast sender address */
 	if (is_broadcast_ether_addr(ethhdr->h_source))
 		goto out;
 
@@ -566,6 +601,8 @@ int recv_tt_query(struct sk_buff *skb, struct hard_iface *recv_if)
 
 	switch (tt_query->flags & TT_QUERY_TYPE_MASK) {
 	case TT_REQUEST:
+		/* If we cannot provide an answer the tt_request is
+		 * forwarded */
 		if (!send_tt_response(bat_priv, tt_query)) {
 			bat_dbg(DBG_TT, bat_priv,
 				"Routing TT_REQUEST to %pM [%c]\n",
@@ -577,12 +614,14 @@ int recv_tt_query(struct sk_buff *skb, struct hard_iface *recv_if)
 		break;
 	case TT_RESPONSE:
 		if (is_my_mac(tt_query->dst)) {
+			/* packet needs to be linearized to access the TT
+			 * changes */
 			if (skb_linearize(skb) < 0)
 				goto out;
 
 			tt_len = tt_query->tt_data * sizeof(struct tt_change);
 
-			
+			/* Ensure we have all the claimed data */
 			if (unlikely(skb_headlen(skb) <
 				     sizeof(struct tt_query_packet) + tt_len))
 				goto out;
@@ -600,7 +639,7 @@ int recv_tt_query(struct sk_buff *skb, struct hard_iface *recv_if)
 	}
 
 out:
-	
+	/* returning NET_RX_DROP will make the caller function kfree the skb */
 	return NET_RX_DROP;
 }
 
@@ -611,17 +650,17 @@ int recv_roam_adv(struct sk_buff *skb, struct hard_iface *recv_if)
 	struct orig_node *orig_node;
 	struct ethhdr *ethhdr;
 
-	
+	/* drop packet if it has not necessary minimum size */
 	if (unlikely(!pskb_may_pull(skb, sizeof(struct roam_adv_packet))))
 		goto out;
 
 	ethhdr = (struct ethhdr *)skb_mac_header(skb);
 
-	
+	/* packet with unicast indication but broadcast recipient */
 	if (is_broadcast_ether_addr(ethhdr->h_dest))
 		goto out;
 
-	
+	/* packet with broadcast sender address */
 	if (is_broadcast_ether_addr(ethhdr->h_source))
 		goto out;
 
@@ -641,14 +680,20 @@ int recv_roam_adv(struct sk_buff *skb, struct hard_iface *recv_if)
 	tt_global_add(bat_priv, orig_node, roam_adv_packet->client,
 		      atomic_read(&orig_node->last_ttvn) + 1, true, false);
 
+	/* Roaming phase starts: I have new information but the ttvn has not
+	 * been incremented yet. This flag will make me check all the incoming
+	 * packets for the correct destination. */
 	bat_priv->tt_poss_change = true;
 
 	orig_node_free_ref(orig_node);
 out:
-	
+	/* returning NET_RX_DROP will make the caller function kfree the skb */
 	return NET_RX_DROP;
 }
 
+/* find a suitable router for this originator, and use
+ * bonding if possible. increases the found neighbors
+ * refcount.*/
 struct neigh_node *find_router(struct bat_priv *bat_priv,
 			       struct orig_node *orig_node,
 			       const struct hard_iface *recv_if)
@@ -666,10 +711,12 @@ struct neigh_node *find_router(struct bat_priv *bat_priv,
 	if (!router)
 		goto err;
 
+	/* without bonding, the first node should
+	 * always choose the default router. */
 	bonding_enabled = atomic_read(&bat_priv->bonding);
 
 	rcu_read_lock();
-	
+	/* select default router to output */
 	router_orig = router->orig_node;
 	if (!router_orig)
 		goto err_unlock;
@@ -677,9 +724,13 @@ struct neigh_node *find_router(struct bat_priv *bat_priv,
 	if ((!recv_if) && (!bonding_enabled))
 		goto return_router;
 
+	/* if we have something in the primary_addr, we can search
+	 * for a potential bonding candidate. */
 	if (compare_eth(router_orig->primary_addr, zero_mac))
 		goto return_router;
 
+	/* find the orig_node which has the primary interface. might
+	 * even be the same as our router_orig in many cases */
 
 	if (compare_eth(router_orig->primary_addr, router_orig->orig)) {
 		primary_orig_node = router_orig;
@@ -692,9 +743,14 @@ struct neigh_node *find_router(struct bat_priv *bat_priv,
 		orig_node_free_ref(primary_orig_node);
 	}
 
+	/* with less than 2 candidates, we can't do any
+	 * bonding and prefer the original router. */
 	if (atomic_read(&primary_orig_node->bond_candidates) < 2)
 		goto return_router;
 
+	/* all nodes between should choose a candidate which
+	 * is is not on the interface where the packet came
+	 * in. */
 
 	neigh_node_free_ref(router);
 
@@ -721,21 +777,21 @@ static int check_unicast_packet(struct sk_buff *skb, int hdr_size)
 {
 	struct ethhdr *ethhdr;
 
-	
+	/* drop packet if it has not necessary minimum size */
 	if (unlikely(!pskb_may_pull(skb, hdr_size)))
 		return -1;
 
 	ethhdr = (struct ethhdr *)skb_mac_header(skb);
 
-	
+	/* packet with unicast indication but broadcast recipient */
 	if (is_broadcast_ether_addr(ethhdr->h_dest))
 		return -1;
 
-	
+	/* packet with broadcast sender address */
 	if (is_broadcast_ether_addr(ethhdr->h_source))
 		return -1;
 
-	
+	/* not for me */
 	if (!is_my_mac(ethhdr->h_dest))
 		return -1;
 
@@ -754,26 +810,26 @@ int route_unicast_packet(struct sk_buff *skb, struct hard_iface *recv_if)
 
 	unicast_packet = (struct unicast_packet *)skb->data;
 
-	
+	/* TTL exceeded */
 	if (unicast_packet->header.ttl < 2) {
 		pr_debug("Warning - can't forward unicast packet from %pM to %pM: ttl exceeded\n",
 			 ethhdr->h_source, unicast_packet->dest);
 		goto out;
 	}
 
-	
+	/* get routing information */
 	orig_node = orig_hash_find(bat_priv, unicast_packet->dest);
 
 	if (!orig_node)
 		goto out;
 
-	
+	/* find_router() increases neigh_nodes refcount if found. */
 	neigh_node = find_router(bat_priv, orig_node, recv_if);
 
 	if (!neigh_node)
 		goto out;
 
-	
+	/* create a copy of the skb, if needed, to modify it. */
 	if (skb_cow(skb, sizeof(struct ethhdr)) < 0)
 		goto out;
 
@@ -795,7 +851,7 @@ int route_unicast_packet(struct sk_buff *skb, struct hard_iface *recv_if)
 		if (ret == NET_RX_DROP)
 			goto out;
 
-		
+		/* packet was buffered for late merge */
 		if (!new_skb) {
 			ret = NET_RX_SUCCESS;
 			goto out;
@@ -805,10 +861,10 @@ int route_unicast_packet(struct sk_buff *skb, struct hard_iface *recv_if)
 		unicast_packet = (struct unicast_packet *)skb->data;
 	}
 
-	
+	/* decrement ttl */
 	unicast_packet->header.ttl--;
 
-	
+	/* route it */
 	send_skb_packet(skb, neigh_node->if_incoming, neigh_node->addr);
 	ret = NET_RX_SUCCESS;
 
@@ -829,7 +885,7 @@ static int check_unicast_ttvn(struct bat_priv *bat_priv,
 	struct unicast_packet *unicast_packet;
 	bool tt_poss_change;
 
-	
+	/* I could need to modify it */
 	if (skb_cow(skb, sizeof(struct unicast_packet)) < 0)
 		return 0;
 
@@ -849,9 +905,9 @@ static int check_unicast_ttvn(struct bat_priv *bat_priv,
 		orig_node_free_ref(orig_node);
 	}
 
-	
+	/* Check whether I have to reroute the packet */
 	if (seq_before(unicast_packet->ttvn, curr_ttvn) || tt_poss_change) {
-		
+		/* Linearize the skb before accessing it */
 		if (skb_linearize(skb) < 0)
 			return 0;
 
@@ -900,7 +956,7 @@ int recv_unicast_packet(struct sk_buff *skb, struct hard_iface *recv_if)
 
 	unicast_packet = (struct unicast_packet *)skb->data;
 
-	
+	/* packet for me */
 	if (is_my_mac(unicast_packet->dest)) {
 		interface_rx(recv_if->soft_iface, skb, recv_if, hdr_size);
 		return NET_RX_SUCCESS;
@@ -925,7 +981,7 @@ int recv_ucast_frag_packet(struct sk_buff *skb, struct hard_iface *recv_if)
 
 	unicast_packet = (struct unicast_frag_packet *)skb->data;
 
-	
+	/* packet for me */
 	if (is_my_mac(unicast_packet->dest)) {
 
 		ret = frag_reassemble_skb(skb, bat_priv, &new_skb);
@@ -933,7 +989,7 @@ int recv_ucast_frag_packet(struct sk_buff *skb, struct hard_iface *recv_if)
 		if (ret == NET_RX_DROP)
 			return NET_RX_DROP;
 
-		
+		/* packet was buffered for late merge */
 		if (!new_skb)
 			return NET_RX_SUCCESS;
 
@@ -956,27 +1012,27 @@ int recv_bcast_packet(struct sk_buff *skb, struct hard_iface *recv_if)
 	int ret = NET_RX_DROP;
 	int32_t seq_diff;
 
-	
+	/* drop packet if it has not necessary minimum size */
 	if (unlikely(!pskb_may_pull(skb, hdr_size)))
 		goto out;
 
 	ethhdr = (struct ethhdr *)skb_mac_header(skb);
 
-	
+	/* packet with broadcast indication but unicast recipient */
 	if (!is_broadcast_ether_addr(ethhdr->h_dest))
 		goto out;
 
-	
+	/* packet with broadcast sender address */
 	if (is_broadcast_ether_addr(ethhdr->h_source))
 		goto out;
 
-	
+	/* ignore broadcasts sent by myself */
 	if (is_my_mac(ethhdr->h_source))
 		goto out;
 
 	bcast_packet = (struct bcast_packet *)skb->data;
 
-	
+	/* ignore broadcasts originated by myself */
 	if (is_my_mac(bcast_packet->orig))
 		goto out;
 
@@ -990,27 +1046,29 @@ int recv_bcast_packet(struct sk_buff *skb, struct hard_iface *recv_if)
 
 	spin_lock_bh(&orig_node->bcast_seqno_lock);
 
-	
+	/* check whether the packet is a duplicate */
 	if (get_bit_status(orig_node->bcast_bits, orig_node->last_bcast_seqno,
 			   ntohl(bcast_packet->seqno)))
 		goto spin_unlock;
 
 	seq_diff = ntohl(bcast_packet->seqno) - orig_node->last_bcast_seqno;
 
-	
+	/* check whether the packet is old and the host just restarted. */
 	if (window_protected(bat_priv, seq_diff,
 			     &orig_node->bcast_seqno_reset))
 		goto spin_unlock;
 
+	/* mark broadcast in flood history, update window position
+	 * if required. */
 	if (bit_get_packet(bat_priv, orig_node->bcast_bits, seq_diff, 1))
 		orig_node->last_bcast_seqno = ntohl(bcast_packet->seqno);
 
 	spin_unlock_bh(&orig_node->bcast_seqno_lock);
 
-	
+	/* rebroadcast packet */
 	add_bcast_packet_to_list(bat_priv, skb, 1);
 
-	
+	/* broadcast for me */
 	interface_rx(recv_if->soft_iface, skb, recv_if, hdr_size);
 	ret = NET_RX_SUCCESS;
 	goto out;
@@ -1030,7 +1088,7 @@ int recv_vis_packet(struct sk_buff *skb, struct hard_iface *recv_if)
 	struct bat_priv *bat_priv = netdev_priv(recv_if->soft_iface);
 	int hdr_size = sizeof(*vis_packet);
 
-	
+	/* keep skb linear */
 	if (skb_linearize(skb) < 0)
 		return NET_RX_DROP;
 
@@ -1040,11 +1098,11 @@ int recv_vis_packet(struct sk_buff *skb, struct hard_iface *recv_if)
 	vis_packet = (struct vis_packet *)skb->data;
 	ethhdr = (struct ethhdr *)skb_mac_header(skb);
 
-	
+	/* not for me */
 	if (!is_my_mac(ethhdr->h_dest))
 		return NET_RX_DROP;
 
-	
+	/* ignore own packets */
 	if (is_my_mac(vis_packet->vis_orig))
 		return NET_RX_DROP;
 
@@ -1062,9 +1120,11 @@ int recv_vis_packet(struct sk_buff *skb, struct hard_iface *recv_if)
 					     skb_headlen(skb));
 		break;
 
-	default:	
+	default:	/* ignore unknown packet */
 		break;
 	}
 
+	/* We take a copy of the data in the packet, so we should
+	   always free the skbuf. */
 	return NET_RX_DROP;
 }

@@ -29,8 +29,10 @@
 #define APANEL_VERSION	"1.3.1"
 #define APANEL		"apanel"
 
+/* How often we poll keys - msecs */
 #define POLL_INTERVAL_DEFAULT	1000
 
+/* Magic constants in BIOS that tell about buttons */
 enum apanel_devid {
 	APANEL_DEV_NONE	  = 0,
 	APANEL_DEV_APPBTN = 1,
@@ -48,6 +50,7 @@ enum apanel_chip {
 	CHIP_OZ711M3 = 4,
 };
 
+/* Result of BIOS snooping/probing -- what features are supported */
 static enum apanel_chip device_chip[APANEL_DEV_MAX];
 
 #define MAX_PANEL_KEYS	12
@@ -75,6 +78,14 @@ static void report_key(struct input_dev *input, unsigned keycode)
 	input_sync(input);
 }
 
+/* Poll for key changes
+ *
+ * Read Application keys via SMI
+ *  A (0x4), B (0x8), Internet (0x2), Email (0x1).
+ *
+ * CD keys:
+ * Forward (0x100), Rewind (0x200), Stop (0x400), Pause (0x800)
+ */
 static void apanel_poll(struct input_polled_dev *ipdev)
 {
 	struct apanel *ap = ipdev->private;
@@ -85,9 +96,9 @@ static void apanel_poll(struct input_polled_dev *ipdev)
 
 	data = i2c_smbus_read_word_data(ap->client, cmd);
 	if (data < 0)
-		return;	
+		return;	/* ignore errors (due to ACPI??) */
 
-	
+	/* write back to clear latch */
 	i2c_smbus_write_word_data(ap->client, cmd, 0);
 
 	if (!data)
@@ -99,6 +110,7 @@ static void apanel_poll(struct input_polled_dev *ipdev)
 			report_key(idev, ap->keymap[i]);
 }
 
+/* Track state changes of LED */
 static void led_update(struct work_struct *work)
 {
 	struct apanel *ap = container_of(work, struct apanel, led_work);
@@ -172,6 +184,7 @@ static struct apanel apanel = {
 	},
 };
 
+/* NB: Only one panel on the i2c. */
 static int apanel_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
 {
@@ -239,6 +252,7 @@ out1:
 	return err;
 }
 
+/* Scan the system ROM for the signature "FJKEYINF" */
 static __init const void __iomem *bios_signature(const void __iomem *bios)
 {
 	ssize_t offset;
@@ -262,7 +276,7 @@ static int __init apanel_init(void)
 	unsigned char i2c_addr;
 	int found = 0;
 
-	bios = ioremap(0xF0000, 0x10000); 
+	bios = ioremap(0xF0000, 0x10000); /* Can't fail */
 
 	p = bios_signature(bios);
 	if (!p) {
@@ -270,7 +284,7 @@ static int __init apanel_init(void)
 		return -ENODEV;
 	}
 
-	
+	/* just use the first address */
 	p += 8;
 	i2c_addr = readb(p + 3) >> 1;
 
@@ -287,7 +301,7 @@ static int __init apanel_init(void)
 			continue;
 		}
 
-		
+		/* translate alternative device numbers */
 		switch (devno) {
 		case 6:
 			devno = APANEL_DEV_APPBTN;

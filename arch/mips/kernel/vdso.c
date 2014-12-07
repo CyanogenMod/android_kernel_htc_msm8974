@@ -20,6 +20,9 @@
 #include <asm/vdso.h>
 #include <asm/uasm.h>
 
+/*
+ * Including <asm/unistd.h> would give use the 64-bit syscall numbers ...
+ */
 #define __NR_O32_sigreturn		4119
 #define __NR_O32_rt_sigreturn		4193
 #define __NR_N32_rt_sigreturn		6211
@@ -28,7 +31,7 @@ static struct page *vdso_page;
 
 static void __init install_trampoline(u32 *tramp, unsigned int sigreturn)
 {
-	uasm_i_addiu(&tramp, 2, 0, sigreturn);	
+	uasm_i_addiu(&tramp, 2, 0, sigreturn);	/* li v0, sigreturn */
 	uasm_i_syscall(&tramp, 0);
 }
 

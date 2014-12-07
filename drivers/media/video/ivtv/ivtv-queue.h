@@ -25,6 +25,7 @@
 #define IVTV_DMA_UNMAPPED	((u32) -1)
 #define SLICED_VBI_PIO 0
 
+/* ivtv_buffer utility functions */
 
 static inline int ivtv_might_use_pio(struct ivtv_stream *s)
 {
@@ -66,6 +67,7 @@ static inline void ivtv_buf_sync_for_device(struct ivtv_stream *s, struct ivtv_b
 int ivtv_buf_copy_from_user(struct ivtv_stream *s, struct ivtv_buffer *buf, const char __user *src, int copybytes);
 void ivtv_buf_swap(struct ivtv_buffer *buf);
 
+/* ivtv_queue utility functions */
 void ivtv_queue_init(struct ivtv_queue *q);
 void ivtv_enqueue(struct ivtv_stream *s, struct ivtv_buffer *buf, struct ivtv_queue *q);
 struct ivtv_buffer *ivtv_dequeue(struct ivtv_stream *s, struct ivtv_queue *q);
@@ -73,6 +75,7 @@ int ivtv_queue_move(struct ivtv_stream *s, struct ivtv_queue *from, struct ivtv_
 		    struct ivtv_queue *to, int needed_bytes);
 void ivtv_flush_queues(struct ivtv_stream *s);
 
+/* ivtv_stream utility functions */
 int ivtv_stream_alloc(struct ivtv_stream *s);
 void ivtv_stream_free(struct ivtv_stream *s);
 

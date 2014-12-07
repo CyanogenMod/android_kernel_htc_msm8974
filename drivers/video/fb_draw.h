@@ -4,6 +4,10 @@
 #include <asm/types.h>
 #include <linux/fb.h>
 
+    /*
+     *  Compose two values, using a bitmask as decision value
+     *  This is equivalent to (a & mask) | (b & ~mask)
+     */
 
 static inline unsigned long
 comp(unsigned long a, unsigned long b, unsigned long mask)
@@ -11,6 +15,9 @@ comp(unsigned long a, unsigned long b, unsigned long mask)
     return ((a ^ b) & mask) ^ b;
 }
 
+    /*
+     *  Create a pattern with the given pixel's color
+     */
 
 #if BITS_PER_LONG == 64
 static inline unsigned long
@@ -99,7 +106,7 @@ static inline u32 fb_shifted_pixels_mask_u32(struct fb_info *p, u32 index,
 		mask = FB_SHIFT_LOW(p, mask, index & (bswapmask)) & mask;
 		mask = FB_SHIFT_HIGH(p, mask, index & ~(bswapmask));
 #if defined(__i386__) || defined(__x86_64__)
-		
+		/* Shift argument is limited to 0 - 31 on x86 based CPU's */
 		if(index + bswapmask < 32)
 #endif
 			mask |= FB_SHIFT_HIGH(p, ~(u32)0,
@@ -121,7 +128,7 @@ static inline unsigned long fb_shifted_pixels_mask_long(struct fb_info *p,
 		mask = FB_SHIFT_LOW(p, mask, index & (bswapmask)) & mask;
 		mask = FB_SHIFT_HIGH(p, mask, index & ~(bswapmask));
 #if defined(__i386__) || defined(__x86_64__)
-		
+		/* Shift argument is limited to 0 - 31 on x86 based CPU's */
 		if(index + bswapmask < BITS_PER_LONG)
 #endif
 			mask |= FB_SHIFT_HIGH(p, ~0UL,
@@ -137,12 +144,16 @@ static inline u32 fb_compute_bswapmask(struct fb_info *info)
 	unsigned bpp = info->var.bits_per_pixel;
 
 	if ((bpp < 8) && (info->var.nonstd & FB_NONSTD_REV_PIX_IN_B)) {
+		/*
+		 * Reversed order of pixel layout in bytes
+		 * works only for 1, 2 and 4 bpp
+		 */
 		bswapmask = 7 - bpp + 1;
 	}
 	return bswapmask;
 }
 
-#else 
+#else /* CONFIG_FB_CFB_REV_PIXELS_IN_BYTE */
 
 static inline unsigned long fb_rev_pixels_in_long(unsigned long val,
 						  u32 bswapmask)
@@ -154,7 +165,7 @@ static inline unsigned long fb_rev_pixels_in_long(unsigned long val,
 #define fb_shifted_pixels_mask_long(p, i, b) FB_SHIFT_HIGH((p), ~0UL, (i))
 #define fb_compute_bswapmask(...) 0
 
-#endif  
+#endif  /* CONFIG_FB_CFB_REV_PIXELS_IN_BYTE */
 
 #define cpu_to_le_long _cpu_to_le_long(BITS_PER_LONG)
 #define _cpu_to_le_long(x) __cpu_to_le_long(x)
@@ -169,4 +180,4 @@ static inline unsigned long rolx(unsigned long word, unsigned int shift, unsigne
 	return (word << shift) | (word >> (x - shift));
 }
 
-#endif 
+#endif /* FB_DRAW_H */

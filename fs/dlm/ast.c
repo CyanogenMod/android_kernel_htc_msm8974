@@ -61,6 +61,12 @@ int dlm_add_lkb_callback(struct dlm_lkb *lkb, uint32_t flags, int mode,
 		if (lkb->lkb_callbacks[i].seq)
 			continue;
 
+		/*
+		 * Suppress some redundant basts here, do more on removal.
+		 * Don't even add a bast if the callback just before it
+		 * is a bast for the same mode or a more restrictive mode.
+		 * (the addional > PR check is needed for PR/CW inversion)
+		 */
 
 		if ((i > 0) && (flags & DLM_CB_BAST) &&
 		    (lkb->lkb_callbacks[i-1].flags & DLM_CB_BAST)) {
@@ -116,12 +122,12 @@ int dlm_rem_lkb_callback(struct dlm_ls *ls, struct dlm_lkb *lkb,
 		goto out;
 	}
 
-	
+	/* oldest undelivered cb is callbacks[0] */
 
 	memcpy(cb, &lkb->lkb_callbacks[0], sizeof(struct dlm_callback));
 	memset(&lkb->lkb_callbacks[0], 0, sizeof(struct dlm_callback));
 
-	
+	/* shift others down */
 
 	for (i = 1; i < DLM_CALLBACKS_SIZE; i++) {
 		if (!lkb->lkb_callbacks[i].seq)
@@ -132,6 +138,8 @@ int dlm_rem_lkb_callback(struct dlm_ls *ls, struct dlm_lkb *lkb,
 		(*resid)++;
 	}
 
+	/* if cb is a bast, it should be skipped if the blocking mode is
+	   compatible with the last granted mode */
 
 	if ((cb->flags & DLM_CB_BAST) && lkb->lkb_last_cast.seq) {
 		if (dlm_modes_compat(cb->mode, lkb->lkb_last_cast.mode)) {
@@ -214,7 +222,7 @@ void dlm_callback_work(struct work_struct *work)
 
 	mutex_lock(&lkb->lkb_cb_mutex);
 	if (!lkb->lkb_callbacks[0].seq) {
-		
+		/* no callback work exists, shouldn't happen */
 		log_error(ls, "dlm_callback_work %x no work", lkb->lkb_id);
 		dlm_print_lkb(lkb);
 		dlm_dump_lkb_callbacks(lkb);
@@ -227,7 +235,7 @@ void dlm_callback_work(struct work_struct *work)
 	}
 
 	if (resid) {
-		
+		/* cbs remain, loop should have removed all, shouldn't happen */
 		log_error(ls, "dlm_callback_work %x resid %d", lkb->lkb_id,
 			  resid);
 		dlm_print_lkb(lkb);
@@ -252,7 +260,7 @@ void dlm_callback_work(struct work_struct *work)
 		}
 	}
 
-	
+	/* undo kref_get from dlm_add_callback, may cause lkb to be freed */
 	dlm_put_lkb(lkb);
 }
 

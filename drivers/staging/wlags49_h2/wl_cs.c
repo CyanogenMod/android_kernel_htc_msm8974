@@ -59,6 +59,9 @@
  *
  ******************************************************************************/
 
+/*******************************************************************************
+ *  include files
+ ******************************************************************************/
 #include <wl_version.h>
 
 #include <linux/kernel.h>
@@ -99,16 +102,38 @@
 #include <wl_sysfs.h>
 
 
+/*******************************************************************************
+ *  global definitions
+ ******************************************************************************/
 #if DBG
 extern dbg_info_t *DbgInfo;
-#endif  
+#endif  /* DBG */
 
 
+/*******************************************************************************
+ *	wl_adapter_attach()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Creates an instance of the driver, allocating local data structures for
+ *  one device. The device is registered with Card Services.
+ *
+ *  PARAMETERS:
+ *
+ *      none
+ *
+ *  RETURNS:
+ *
+ *      pointer to an allocated dev_link_t structure
+ *      NULL on failure
+ *
+ ******************************************************************************/
 static int wl_adapter_attach(struct pcmcia_device *link)
 {
 	struct net_device   *dev;
 	struct wl_private   *lp;
-	
+	/*--------------------------------------------------------------------*/
 
 	DBG_FUNC("wl_adapter_attach");
 	DBG_ENTER(DbgInfo);
@@ -133,14 +158,15 @@ static int wl_adapter_attach(struct pcmcia_device *link)
 
 	DBG_LEAVE(DbgInfo);
 	return 0;
-} 
+} /* wl_adapter_attach */
+/*============================================================================*/
 
 
 
 static void wl_adapter_detach(struct pcmcia_device *link)
 {
 	struct net_device   *dev = link->priv;
-	
+	/*--------------------------------------------------------------------*/
 
 	DBG_FUNC("wl_adapter_detach");
 	DBG_ENTER(DbgInfo);
@@ -156,7 +182,8 @@ static void wl_adapter_detach(struct pcmcia_device *link)
 	wl_device_dealloc(dev);
 
 	DBG_LEAVE(DbgInfo);
-} 
+} /* wl_adapter_detach */
+/*============================================================================*/
 
 
 void wl_adapter_release(struct pcmcia_device *link)
@@ -165,26 +192,27 @@ void wl_adapter_release(struct pcmcia_device *link)
 	DBG_ENTER(DbgInfo);
 	DBG_PARAM(DbgInfo, "link", "0x%p", link);
 
-	
+	/* Stop hardware */
 	wl_remove(link->priv);
 
 	pcmcia_disable_device(link);
 
 	DBG_LEAVE(DbgInfo);
-} 
+} /* wl_adapter_release */
+/*============================================================================*/
 
 static int wl_adapter_suspend(struct pcmcia_device *link)
 {
 	struct net_device *dev = link->priv;
 
-	
+	/* if (link->open) { */
 	netif_device_detach(dev);
 	wl_suspend(dev);
-	
-	
+	/* CHECK! pcmcia_release_configuration(link->handle); */
+	/* } */
 
 	return 0;
-} 
+} /* wl_adapter_suspend */
 
 static int wl_adapter_resume(struct pcmcia_device *link)
 {
@@ -195,13 +223,13 @@ static int wl_adapter_resume(struct pcmcia_device *link)
 	netif_device_attach(dev);
 
 	return 0;
-} 
+} /* wl_adapter_resume */
 
 void wl_adapter_insert(struct pcmcia_device *link)
 {
 	struct net_device *dev;
 	int ret;
-	
+	/*--------------------------------------------------------------------*/
 
 	DBG_FUNC("wl_adapter_insert");
 	DBG_ENTER(DbgInfo);
@@ -209,7 +237,7 @@ void wl_adapter_insert(struct pcmcia_device *link)
 
 	dev     = link->priv;
 
-	
+	/* Do we need to allocate an interrupt? */
 	link->config_flags |= CONF_ENABLE_IRQ;
 	link->io_lines = 6;
 
@@ -247,16 +275,36 @@ failed:
 
 	DBG_LEAVE(DbgInfo);
 	return;
-} 
+} /* wl_adapter_insert */
+/*============================================================================*/
 
 
+/*******************************************************************************
+ *	wl_adapter_open()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Open the device.
+ *
+ *  PARAMETERS:
+ *
+ *      dev - a pointer to a net_device structure representing the network
+ *            device to open.
+ *
+ *  RETURNS:
+ *
+ *      0 on success
+ *      errno value otherwise
+ *
+ ******************************************************************************/
 int wl_adapter_open(struct net_device *dev)
 {
 	struct wl_private *lp = wl_priv(dev);
 	struct pcmcia_device *link = lp->link;
 	int result = 0;
 	int hcf_status = HCF_SUCCESS;
-	
+	/*--------------------------------------------------------------------*/
 
 	DBG_FUNC("wl_adapter_open");
 	DBG_ENTER(DbgInfo);
@@ -279,14 +327,34 @@ int wl_adapter_open(struct net_device *dev)
 
 	DBG_LEAVE(DbgInfo);
 	return result;
-} 
+} /* wl_adapter_open */
+/*============================================================================*/
 
 
+/*******************************************************************************
+ *	wl_adapter_close()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Close the device.
+ *
+ *  PARAMETERS:
+ *
+ *      dev - a pointer to a net_device structure representing the network
+ *            device to close.
+ *
+ *  RETURNS:
+ *
+ *      0 on success
+ *      errno value otherwise
+ *
+ ******************************************************************************/
 int wl_adapter_close(struct net_device *dev)
 {
 	struct wl_private *lp = wl_priv(dev);
 	struct pcmcia_device *link = lp->link;
-	
+	/*--------------------------------------------------------------------*/
 
 	DBG_FUNC("wl_adapter_close");
 	DBG_ENTER(DbgInfo);
@@ -304,7 +372,8 @@ int wl_adapter_close(struct net_device *dev)
 
 	DBG_LEAVE(DbgInfo);
 	return 0;
-} 
+} /* wl_adapter_close */
+/*============================================================================*/
 
 static const struct pcmcia_device_id wl_adapter_ids[] = {
 #if !((HCF_TYPE) & HCF_TYPE_HII5)
@@ -315,7 +384,7 @@ static const struct pcmcia_device_id wl_adapter_ids[] = {
 	PCMCIA_DEVICE_MANF_CARD(0x0156, 0x0004),
 	PCMCIA_DEVICE_PROD_ID12("Linksys", "WCF54G_Wireless-G_CompactFlash_Card",
 				0x0733cc81, 0x98a599e1),
-#endif  
+#endif  /* (HCF_TYPE) & HCF_TYPE_HII5 */
 	PCMCIA_DEVICE_NULL,
 };
 MODULE_DEVICE_TABLE(pcmcia, wl_adapter_ids);
@@ -332,10 +401,28 @@ static struct pcmcia_driver wlags49_driver = {
 
 
 
+/*******************************************************************************
+ *	wl_adapter_init_module()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Called by init_module() to perform PCMCIA driver initialization.
+ *
+ *  PARAMETERS:
+ *
+ *      N/A
+ *
+ *  RETURNS:
+ *
+ *      0 on success
+ *      -1 on error
+ *
+ ******************************************************************************/
 int wl_adapter_init_module(void)
 {
 	int ret;
-	
+	/*--------------------------------------------------------------------*/
 
 	DBG_FUNC("wl_adapter_init_module");
 	DBG_ENTER(DbgInfo);
@@ -345,9 +432,27 @@ int wl_adapter_init_module(void)
 
 	DBG_LEAVE(DbgInfo);
 	return ret;
-} 
+} /* wl_adapter_init_module */
+/*============================================================================*/
 
 
+/*******************************************************************************
+ *	wl_adapter_cleanup_module()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Called by cleanup_module() to perform driver uninitialization.
+ *
+ *  PARAMETERS:
+ *
+ *      N/A
+ *
+ *  RETURNS:
+ *
+ *      N/A
+ *
+ ******************************************************************************/
 void wl_adapter_cleanup_module(void)
 {
 	DBG_FUNC("wl_adapter_cleanup_module");
@@ -359,9 +464,29 @@ void wl_adapter_cleanup_module(void)
 
 	DBG_LEAVE(DbgInfo);
 	return;
-} 
+} /* wl_adapter_cleanup_module */
+/*============================================================================*/
 
 
+/*******************************************************************************
+ *	wl_adapter_is_open()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      Check with Card Services to determine if this device is open.
+ *
+ *  PARAMETERS:
+ *
+ *      dev - a pointer to the net_device structure whose open status will be
+ *            checked
+ *
+ *  RETURNS:
+ *
+ *      nonzero if device is open
+ *      0 otherwise
+ *
+ ******************************************************************************/
 int wl_adapter_is_open(struct net_device *dev)
 {
 	struct wl_private *lp = wl_priv(dev);
@@ -371,4 +496,5 @@ int wl_adapter_is_open(struct net_device *dev)
 		return 0;
 
 	return link->open;
-} 
+} /* wl_adapter_is_open */
+/*============================================================================*/

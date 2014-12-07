@@ -12,6 +12,9 @@
 #ifndef __MACH_MX1_H__
 #define __MACH_MX1_H__
 
+/*
+ * Memory map
+ */
 #define MX1_IO_BASE_ADDR	0x00200000
 #define MX1_IO_SIZE		SZ_1M
 
@@ -33,6 +36,9 @@
 #define MX1_CS5_PHYS		0x16000000
 #define MX1_CS5_SIZE		0x01000000
 
+/*
+ *  Register BASEs, based on OFFSETs
+ */
 #define MX1_AIPI1_BASE_ADDR		(0x00000 + MX1_IO_BASE_ADDR)
 #define MX1_WDT_BASE_ADDR		(0x01000 + MX1_IO_BASE_ADDR)
 #define MX1_TIM1_BASE_ADDR		(0x02000 + MX1_IO_BASE_ADDR)
@@ -67,9 +73,11 @@
 #define MX1_AVIC_BASE_ADDR		(0x23000 + MX1_IO_BASE_ADDR)
 #define MX1_CSI_BASE_ADDR		(0x24000 + MX1_IO_BASE_ADDR)
 
+/* macro to get at IO space when running virtually */
 #define MX1_IO_P2V(x)			IMX_IO_P2V(x)
 #define MX1_IO_ADDRESS(x)		IOMEM(MX1_IO_P2V(x))
 
+/* fixed interrput numbers */
 #define MX1_INT_SOFTINT		0
 #define MX1_INT_CSI		6
 #define MX1_DSPA_MAC_INT	7
@@ -126,6 +134,7 @@
 #define MX1_GPIO_INT_PORTD	62
 #define MX1_WDT_INT		63
 
+/* DMA */
 #define MX1_DMA_REQ_UART3_T		2
 #define MX1_DMA_REQ_UART3_R		3
 #define MX1_DMA_REQ_SSI2_T		4
@@ -152,6 +161,11 @@
 #define MX1_DMA_REQ_UART1_T		30
 #define MX1_DMA_REQ_UART1_R		31
 
+/*
+ * This doesn't depend on IMX_NEEDS_DEPRECATED_SYMBOLS
+ * to not break drivers/usb/gadget/imx_udc.  Should go
+ * away after this driver uses the new name.
+ */
 #define USBD_INT0		MX1_INT_USBD0
 
-#endif 
+#endif /* ifndef __MACH_MX1_H__ */

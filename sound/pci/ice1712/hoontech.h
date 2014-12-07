@@ -30,14 +30,15 @@
 	"{Hoontech,SoundTrack DSP 24 Media 7.1}," \
 	"{Event Electronics,EZ8},"
 
-#define ICE1712_SUBDEVICE_STDSP24		0x12141217	
-#define ICE1712_SUBDEVICE_STDSP24_VALUE		0x00010010	
-#define ICE1712_SUBDEVICE_STDSP24_MEDIA7_1	0x16141217	
-#define ICE1712_SUBDEVICE_EVENT_EZ8		0x00010001	
+#define ICE1712_SUBDEVICE_STDSP24		0x12141217	/* Hoontech SoundTrack Audio DSP 24 */
+#define ICE1712_SUBDEVICE_STDSP24_VALUE		0x00010010	/* A dummy id for Hoontech SoundTrack Audio DSP 24 Value */
+#define ICE1712_SUBDEVICE_STDSP24_MEDIA7_1	0x16141217	/* Hoontech ST Audio DSP24 Media 7.1 */
+#define ICE1712_SUBDEVICE_EVENT_EZ8		0x00010001	/* A dummy id for EZ8 */
 
 extern struct snd_ice1712_card_info snd_ice1712_hoontech_cards[];
 
 
+/* Hoontech SoundTrack Audio DSP 24 GPIO definitions */
 
 #define ICE1712_STDSP24_0_BOX(r, x)	r[0] = ((r[0] & ~3) | ((x)&3))
 #define ICE1712_STDSP24_0_DAREAR(r, x)	r[0] = ((r[0] & ~4) | (((x)&1)<<2))
@@ -54,21 +55,23 @@ extern struct snd_ice1712_card_info snd_ice1712_hoontech_cards[];
 #define ICE1712_STDSP24_CLOCK(r, a, c)	r[a&3] = ((r[a&3] & ~0x20) | (((c)&1)<<5))
 #define ICE1712_STDSP24_CLOCK_BIT	(1<<5)
 
+/* Hoontech SoundTrack Audio DSP 24 box configuration definitions */
 
 #define ICE1712_STDSP24_DAREAR		(1<<0)
 #define ICE1712_STDSP24_MUTE		(1<<1)
 #define ICE1712_STDSP24_INSEL		(1<<2)
 
-#define ICE1712_STDSP24_BOX_CHN1	(1<<0)	
-#define ICE1712_STDSP24_BOX_CHN2	(1<<1)	
-#define ICE1712_STDSP24_BOX_CHN3	(1<<2)	
-#define ICE1712_STDSP24_BOX_CHN4	(1<<3)	
+#define ICE1712_STDSP24_BOX_CHN1	(1<<0)	/* input channel 1 */
+#define ICE1712_STDSP24_BOX_CHN2	(1<<1)	/* input channel 2 */
+#define ICE1712_STDSP24_BOX_CHN3	(1<<2)	/* input channel 3 */
+#define ICE1712_STDSP24_BOX_CHN4	(1<<3)	/* input channel 4 */
 #define ICE1712_STDSP24_BOX_MIDI1	(1<<8)
 #define ICE1712_STDSP24_BOX_MIDI2	(1<<9)
 
+/* Hoontech SoundTrack Audio DSP 24 Value definitions for modified hardware */
 
-#define ICE1712_STDSP24_AK4524_CS	0x03	
-#define ICE1712_STDSP24_SERIAL_DATA	0x0c	
-#define ICE1712_STDSP24_SERIAL_CLOCK	0x30	
+#define ICE1712_STDSP24_AK4524_CS	0x03	/* AK4524 chip select; low = active */
+#define ICE1712_STDSP24_SERIAL_DATA	0x0c	/* ak4524 data */
+#define ICE1712_STDSP24_SERIAL_CLOCK	0x30	/* ak4524 clock */
 
-#endif 
+#endif /* __SOUND_HOONTECH_H */

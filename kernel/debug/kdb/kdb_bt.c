@@ -39,6 +39,42 @@ static void kdb_show_stack(struct task_struct *p, void *addr)
 	kdb_trap_printk--;
 }
 
+/*
+ * kdb_bt
+ *
+ *	This function implements the 'bt' command.  Print a stack
+ *	traceback.
+ *
+ *	bt [<address-expression>]	(addr-exp is for alternate stacks)
+ *	btp <pid>			Kernel stack for <pid>
+ *	btt <address-expression>	Kernel stack for task structure at
+ *					<address-expression>
+ *	bta [DRSTCZEUIMA]		All useful processes, optionally
+ *					filtered by state
+ *	btc [<cpu>]			The current process on one cpu,
+ *					default is all cpus
+ *
+ *	bt <address-expression> refers to a address on the stack, that location
+ *	is assumed to contain a return address.
+ *
+ *	btt <address-expression> refers to the address of a struct task.
+ *
+ * Inputs:
+ *	argc	argument count
+ *	argv	argument vector
+ * Outputs:
+ *	None.
+ * Returns:
+ *	zero for success, a kdb diagnostic if error
+ * Locking:
+ *	none.
+ * Remarks:
+ *	Backtrack works best when the code uses frame pointers.  But even
+ *	without frame pointers we should get a reasonable trace.
+ *
+ *	mds comes in handy when examining the stack to do a manual traceback or
+ *	to get a starting point for bt <address-expression>.
+ */
 
 static int
 kdb_bt1(struct task_struct *p, unsigned long mask,
@@ -75,7 +111,7 @@ kdb_bt(int argc, const char **argv)
 	unsigned long addr;
 	long offset;
 
-	
+	/* Prompt after each proc in bta */
 	kdbgetintenv("BTAPROMPT", &btaprompt);
 
 	if (strcmp(argv[0], "bta") == 0) {
@@ -85,13 +121,13 @@ kdb_bt(int argc, const char **argv)
 							   NULL);
 		if (argc == 0)
 			kdb_ps_suppressed();
-		
+		/* Run the active tasks first */
 		for_each_online_cpu(cpu) {
 			p = kdb_curr_task(cpu);
 			if (kdb_bt1(p, mask, argcount, btaprompt))
 				return 0;
 		}
-		
+		/* Now the inactive tasks */
 		kdb_do_each_thread(g, p) {
 			if (task_curr(p))
 				continue;
@@ -132,6 +168,8 @@ kdb_bt(int argc, const char **argv)
 			if (diag)
 				return diag;
 		}
+		/* Recursive use of kdb_parse, do not use argv after
+		 * this point */
 		argv = NULL;
 		if (cpu != ~0) {
 			if (cpu >= num_possible_cpus() || !cpu_online(cpu)) {
@@ -165,6 +203,6 @@ kdb_bt(int argc, const char **argv)
 		}
 	}
 
-	
+	/* NOTREACHED */
 	return 0;
 }

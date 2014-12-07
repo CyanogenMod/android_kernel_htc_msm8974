@@ -37,6 +37,7 @@ struct cp2_lock2_req {
 	unsigned int flags;
 } __attribute__ ((__packed__));
 
+/*  SCM related code for locking down memory for content protection */
 
 #define SCM_CP_LOCK_CMD_ID	0x1
 #define SCM_CP_PROTECT		0x1
@@ -108,6 +109,11 @@ static int ion_cp_change_mem_v2(unsigned int phy_base, unsigned int size,
 	for (i = 0; i < nchunks; i++)
 		chunk_list[i] = phy_base + i * V2_CHUNK_SIZE;
 
+	/*
+	 * Flush the chunk list before sending the memory to the
+	 * secure environment to ensure the data is actually present
+	 * in RAM
+	 */
 	dmac_flush_range(chunk_list, chunk_list + chunk_list_len);
 	outer_flush_range(chunk_list_phys,
 			  chunk_list_phys + chunk_list_len);
@@ -172,6 +178,7 @@ int ion_cp_change_chunks_state(unsigned long chunks, unsigned int nchunks,
 
 }
 
+/* Must be protected by ion_cp_buffer lock */
 static int __ion_cp_protect_buffer(struct ion_buffer *buffer, int version,
 					void *data, int flags)
 {
@@ -203,6 +210,7 @@ static int __ion_cp_protect_buffer(struct ion_buffer *buffer, int version,
 	return ret_value;
 }
 
+/* Must be protected by ion_cp_buffer lock */
 static int __ion_cp_unprotect_buffer(struct ion_buffer *buffer, int version,
 					void *data, int force_unsecure)
 {
@@ -228,8 +236,16 @@ static int __ion_cp_unprotect_buffer(struct ion_buffer *buffer, int version,
 		if (ret_value) {
 			pr_err("Failed to unsecure buffer %p, error %d\n",
 				buffer, ret_value);
+			/*
+			 * If the force unsecure is happening, the buffer
+			 * is being destroyed. We failed to unsecure the
+			 * buffer even though the memory is given back.
+			 * Just die now rather than discovering later what
+			 * happens when trying to use the secured memory as
+			 * unsecured...
+			 */
 			BUG_ON(force_unsecure);
-			
+			/* Bump the count back up one to try again later */
 			atomic_inc(&buf->secure_cnt);
 		} else {
 			buf->version = -1;

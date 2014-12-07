@@ -32,7 +32,13 @@
 
 struct clk *vclk, *sclk, *dclk;
 
+/*
+ * Omap24xx specific clock functions
+ */
 
+/*
+ * Set clocks for bypass mode for reboot to work.
+ */
 void omap2xxx_clk_prepare_for_reboot(void)
 {
 	u32 rate;
@@ -44,6 +50,11 @@ void omap2xxx_clk_prepare_for_reboot(void)
 	clk_set_rate(vclk, rate);
 }
 
+/*
+ * Switch the MPU rate if specified on cmdline.  We cannot do this
+ * early until cmdline is parsed.  XXX This should be removed from the
+ * clock code and handled by the OPP layer code in the near future.
+ */
 static int __init omap2xxx_clk_arch_init(void)
 {
 	int ret;

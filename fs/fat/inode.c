@@ -102,7 +102,7 @@ static inline int __fat_get_block(struct inode *inode, sector_t iblock,
 	return 0;
 }
 
-static int fat_get_block(struct inode *inode, sector_t iblock,
+int fat_get_block(struct inode *inode, sector_t iblock,
 			 struct buffer_head *bh_result, int create)
 {
 	struct super_block *sb = inode->i_sb;

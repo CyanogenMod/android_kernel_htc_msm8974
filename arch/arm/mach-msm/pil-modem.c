@@ -96,29 +96,29 @@ static int modem_reset(struct pil_desc *pil)
 	const struct modem_data *drv = dev_get_drvdata(pil->dev);
 	phys_addr_t start_addr = pil_get_entry_addr(pil);
 
-	
+	/* Put modem AHB0,1,2 clocks into reset */
 	writel_relaxed(BIT(0) | BIT(1), drv->cbase + MAHB0_SFAB_PORT_RESET);
 	writel_relaxed(BIT(7), drv->cbase + MAHB1_CLK_CTL);
 	writel_relaxed(BIT(7), drv->cbase + MAHB2_CLK_CTL);
 
-	
+	/* Vote for pll8 on behalf of the modem */
 	reg = readl_relaxed(drv->cbase + PLL_ENA_MARM);
 	reg |= BIT(8);
 	writel_relaxed(reg, drv->cbase + PLL_ENA_MARM);
 
-	
+	/* Wait for PLL8 to enable */
 	while (!(readl_relaxed(drv->cbase + PLL8_STATUS) & BIT(16)))
 		cpu_relax();
 
-	
+	/* Set MAHB1 divider to Div-5 to run MAHB1,2 and sfab at 79.8 Mhz*/
 	writel_relaxed(0x4, drv->cbase + MAHB1_NS);
 
-	
+	/* Vote for modem AHB1 and 2 clocks to be on on behalf of the modem */
 	reg = readl_relaxed(drv->cbase + MARM_CLK_BRANCH_ENA_VOTE);
 	reg |= BIT(0) | BIT(1);
 	writel_relaxed(reg, drv->cbase + MARM_CLK_BRANCH_ENA_VOTE);
 
-	
+	/* Source marm_clk off of PLL8 */
 	reg = readl_relaxed(drv->cbase + MARM_CLK_SRC_CTL);
 	if ((reg & 0x1) == 0) {
 		writel_relaxed(0x3, drv->cbase + MARM_CLK_SRC1_NS);
@@ -129,9 +129,17 @@ static int modem_reset(struct pil_desc *pil)
 	}
 	writel_relaxed(reg | 0x2, drv->cbase + MARM_CLK_SRC_CTL);
 
+	/*
+	 * Force core on and periph on signals to remain active during halt
+	 * for marm_clk and mahb2_clk
+	 */
 	writel_relaxed(0x6F, drv->cbase + MARM_CLK_FS);
 	writel_relaxed(0x6F, drv->cbase + MAHB2_CLK_FS);
 
+	/*
+	 * Enable all of the marm_clk branches, cxo sourced marm branches,
+	 * and sleep clock branches
+	 */
 	writel_relaxed(0x10, drv->cbase + MARM_CLK_CTL);
 	writel_relaxed(0x10, drv->cbase + MAHB0_CLK_CTL);
 	writel_relaxed(0x10, drv->cbase + SFAB_MSS_S_HCLK_CTL);
@@ -139,24 +147,24 @@ static int modem_reset(struct pil_desc *pil)
 	writel_relaxed(0x10, drv->cbase + MSS_SLP_CLK_CTL);
 	writel_relaxed(0x10, drv->cbase + MSS_MARM_SYS_REF_CLK_CTL);
 
-	
+	/* Wait for above clocks to be turned on */
 	while (readl_relaxed(drv->cbase + CLK_HALT_MSS_SMPSS_MISC_STATE) &
 			(BIT(7) | BIT(8) | BIT(9) | BIT(10) | BIT(4) | BIT(6)))
 		cpu_relax();
 
-	
+	/* Take MAHB0,1,2 clocks out of reset */
 	writel_relaxed(0x0, drv->cbase + MAHB2_CLK_CTL);
 	writel_relaxed(0x0, drv->cbase + MAHB1_CLK_CTL);
 	writel_relaxed(0x0, drv->cbase + MAHB0_SFAB_PORT_RESET);
 	mb();
 
-	
+	/* Setup exception vector table base address */
 	writel_relaxed(start_addr | 0x1, drv->base + MARM_BOOT_CONTROL);
 
-	
+	/* Wait for vector table to be setup */
 	mb();
 
-	
+	/* Bring modem out of reset */
 	writel_relaxed(0x0, drv->cbase + MARM_RESET);
 
 	return 0;
@@ -167,16 +175,20 @@ static int modem_pil_shutdown(struct pil_desc *pil)
 	u32 reg;
 	const struct modem_data *drv = dev_get_drvdata(pil->dev);
 
-	
+	/* Put modem into reset */
 	writel_relaxed(0x1, drv->cbase + MARM_RESET);
 	mb();
 
-	
+	/* Put modem AHB0,1,2 clocks into reset */
 	writel_relaxed(BIT(0) | BIT(1), drv->cbase + MAHB0_SFAB_PORT_RESET);
 	writel_relaxed(BIT(7), drv->cbase + MAHB1_CLK_CTL);
 	writel_relaxed(BIT(7), drv->cbase + MAHB2_CLK_CTL);
 	mb();
 
+	/*
+	 * Disable all of the marm_clk branches, cxo sourced marm branches,
+	 * and sleep clock branches
+	 */
 	writel_relaxed(0x0, drv->cbase + MARM_CLK_CTL);
 	writel_relaxed(0x0, drv->cbase + MAHB0_CLK_CTL);
 	writel_relaxed(0x0, drv->cbase + SFAB_MSS_S_HCLK_CTL);
@@ -184,15 +196,15 @@ static int modem_pil_shutdown(struct pil_desc *pil)
 	writel_relaxed(0x0, drv->cbase + MSS_SLP_CLK_CTL);
 	writel_relaxed(0x0, drv->cbase + MSS_MARM_SYS_REF_CLK_CTL);
 
-	
+	/* Disable marm_clk */
 	reg = readl_relaxed(drv->cbase + MARM_CLK_SRC_CTL);
 	reg &= ~0x2;
 	writel_relaxed(reg, drv->cbase + MARM_CLK_SRC_CTL);
 
-	
+	/* Clear modem's votes for ahb clocks */
 	writel_relaxed(0x0, drv->cbase + MARM_CLK_BRANCH_ENA_VOTE);
 
-	
+	/* Clear modem's votes for PLLs */
 	writel_relaxed(0x0, drv->cbase + PLL_ENA_MARM);
 
 	return 0;
@@ -233,14 +245,14 @@ static void modem_crash_shutdown(const struct subsys_desc *subsys)
 {
 	struct modem_data *drv;
 
-	
+	/* If modem hasn't already crashed, send SMSM_RESET. */
 	drv = container_of(subsys, struct modem_data, subsys_desc);
 	if (!(smsm_get_state(SMSM_MODEM_STATE) & SMSM_RESET)) {
 		modem_unregister_notifier(&drv->notifier);
 		smsm_reset_modem(SMSM_RESET);
 	}
 
-	
+	/* Wait to allow the modem to clean up caches etc. */
 	mdelay(5);
 }
 
@@ -262,7 +274,7 @@ static void modem_unlock_timeout(struct work_struct *work)
 	pr_crit("Timeout waiting for modem to unlock.\n");
 
 	drv = container_of(dwork, struct modem_data, unlock_work);
-	
+	/* The unlock didn't work, clear the reset */
 	writel_relaxed(0x0, drv->cbase + MSS_MODEM_RESET);
 	mb();
 
@@ -296,6 +308,11 @@ static void modem_fatal_fn(struct work_struct *work)
 		pr_err("Modem AHB locked up. Trying to free up modem!\n");
 
 		writel_relaxed(0x3, drv->cbase + MSS_MODEM_RESET);
+		/*
+		 * If we are still alive (allowing for the 5 second
+		 * delayed-panic-reboot), the modem is either still wedged or
+		 * SMSM didn't come through. Force panic in that case.
+		 */
 		schedule_delayed_work(&drv->unlock_work, timeout);
 	}
 }
@@ -337,15 +354,26 @@ static int modem_shutdown(const struct subsys_desc *subsys)
 	struct modem_data *drv;
 
 	drv = container_of(subsys, struct modem_data, subsys_desc);
+	/*
+	 * If the modem didn't already crash, setting SMSM_RESET here will help
+	 * flush caches etc. The ignore_smsm_ack flag is set to ignore the
+	 * SMSM_RESET notification that is generated due to the modem settings
+	 * its own SMSM_RESET bit in response to the apps setting the apps
+	 * SMSM_RESET bit.
+	 */
 	if (!(smsm_get_state(SMSM_MODEM_STATE) & SMSM_RESET)) {
 		drv->ignore_smsm_ack = 1;
 		smsm_reset_modem(SMSM_RESET);
 	}
 
-	
+	/* Disable the modem watchdog to allow clean modem bootup */
 	writel_relaxed(0x0, drv->wdog + 0x8);
+	/*
+	 * The write above needs to go through before the modem is powered up
+	 * again.
+	 */
 	mb();
-	
+	/* Wait here to allow the modem to clean up caches, etc. */
 	msleep(20);
 
 	pil_shutdown(&drv->pil_desc);

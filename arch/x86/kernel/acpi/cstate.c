@@ -16,6 +16,16 @@
 #include <asm/mwait.h>
 #include <asm/special_insns.h>
 
+/*
+ * Initialize bm_flags based on the CPU cache properties
+ * On SMP it depends on cache configuration
+ * - When cache is not shared among all CPUs, we flush cache
+ *   before entering C3.
+ * - When cache is shared among all CPUs, we use bm_check
+ *   mechanism as in UP case
+ *
+ * This routine is called only after all the CPUs are online
+ */
 void acpi_processor_power_init_bm_check(struct acpi_processor_flags *flags,
 					unsigned int cpu)
 {
@@ -25,15 +35,27 @@ void acpi_processor_power_init_bm_check(struct acpi_processor_flags *flags,
 	if (num_online_cpus() == 1)
 		flags->bm_check = 1;
 	else if (c->x86_vendor == X86_VENDOR_INTEL) {
+		/*
+		 * Today all MP CPUs that support C3 share cache.
+		 * And caches should not be flushed by software while
+		 * entering C3 type state.
+		 */
 		flags->bm_check = 1;
 	}
 
+	/*
+	 * On all recent Intel platforms, ARB_DISABLE is a nop.
+	 * So, set bm_control to zero to indicate that ARB_DISABLE
+	 * is not required while entering C3 type state on
+	 * P4, Core and beyond CPUs
+	 */
 	if (c->x86_vendor == X86_VENDOR_INTEL &&
 	    (c->x86 > 0xf || (c->x86 == 6 && c->x86_model >= 0x0f)))
 			flags->bm_control = 0;
 }
 EXPORT_SYMBOL(acpi_processor_power_init_bm_check);
 
+/* The code below handles cstate entry with monitor-mwait pair on Intel*/
 
 struct cstate_entry {
 	struct {
@@ -41,7 +63,7 @@ struct cstate_entry {
 		unsigned int ecx;
 	} states[ACPI_PROCESSOR_MAX_POWER];
 };
-static struct cstate_entry __percpu *cpu_cstate_entry;	
+static struct cstate_entry __percpu *cpu_cstate_entry;	/* per CPU ptr */
 
 static short mwait_supported[ACPI_PROCESSOR_MAX_POWER];
 
@@ -53,12 +75,12 @@ static long acpi_processor_ffh_cstate_probe_cpu(void *_cx)
 	long retval;
 	unsigned int eax, ebx, ecx, edx;
 	unsigned int edx_part;
-	unsigned int cstate_type; 
+	unsigned int cstate_type; /* C-state type and not ACPI C-state type */
 	unsigned int num_cstate_subtype;
 
 	cpuid(CPUID_MWAIT_LEAF, &eax, &ebx, &ecx, &edx);
 
-	
+	/* Check whether this particular cx_type (in CST) is supported or not */
 	cstate_type = ((cx->address >> MWAIT_SUBSTATE_SIZE) &
 			MWAIT_CSTATE_MASK) + 1;
 	edx_part = edx >> (cstate_type * MWAIT_SUBSTATE_SIZE);
@@ -70,7 +92,7 @@ static long acpi_processor_ffh_cstate_probe_cpu(void *_cx)
 		goto out;
 	}
 
-	
+	/* mwait ecx extensions INTERRUPT_BREAK should be supported for C2/C3 */
 	if (!(ecx & CPUID5_ECX_EXTENSIONS_SUPPORTED) ||
 	    !(ecx & CPUID5_ECX_INTERRUPT_BREAK)) {
 		retval = -1;
@@ -107,15 +129,20 @@ int acpi_processor_ffh_cstate_probe(unsigned int cpu,
 	percpu_entry->states[cx->index].eax = 0;
 	percpu_entry->states[cx->index].ecx = 0;
 
-	
+	/* Make sure we are running on right CPU */
 
 	retval = work_on_cpu(cpu, acpi_processor_ffh_cstate_probe_cpu, cx);
 	if (retval == 0) {
-		
+		/* Use the hint in CST */
 		percpu_entry->states[cx->index].eax = cx->address;
 		percpu_entry->states[cx->index].ecx = MWAIT_ECX_INTERRUPT_BREAK;
 	}
 
+	/*
+	 * For _CST FFH on Intel, if GAS.access_size bit 1 is cleared,
+	 * then we should skip checking BM_STS for this C-state.
+	 * ref: "Intel Processor Vendor-Specific ACPI Interface Specification"
+	 */
 	if ((c->x86_vendor == X86_VENDOR_INTEL) && !(reg->access_size & 0x2))
 		cx->bm_sts_skip = 1;
 
@@ -123,6 +150,16 @@ int acpi_processor_ffh_cstate_probe(unsigned int cpu,
 }
 EXPORT_SYMBOL_GPL(acpi_processor_ffh_cstate_probe);
 
+/*
+ * This uses new MONITOR/MWAIT instructions on P4 processors with PNI,
+ * which can obviate IPI to trigger checking of need_resched.
+ * We execute MONITOR against need_resched and enter optimized wait state
+ * through MWAIT. Whenever someone changes need_resched, we would be woken
+ * up from MWAIT (without an IPI).
+ *
+ * New with Core Duo processors, MWAIT can take some hints based on CPU
+ * capability.
+ */
 void mwait_idle_with_hints(unsigned long ax, unsigned long cx)
 {
 	if (!need_resched()) {

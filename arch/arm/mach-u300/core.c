@@ -49,6 +49,12 @@
 #include "i2c.h"
 #include "u300-gpio.h"
 
+/*
+ * Static I/O mappings that are needed for booting the U300 platforms. The
+ * only things we need are the areas where we find the timer, syscon and
+ * intcon, since the remaining device drivers will map their own memory
+ * physical to virtual as the need arise.
+ */
 static struct map_desc u300_io_desc[] __initdata = {
 	{
 		.virtual	= U300_SLOW_PER_VIRT_BASE,
@@ -73,10 +79,14 @@ static struct map_desc u300_io_desc[] __initdata = {
 void __init u300_map_io(void)
 {
 	iotable_init(u300_io_desc, ARRAY_SIZE(u300_io_desc));
-	
+	/* We enable a real big DMA buffer if need be. */
 	init_consistent_dma_size(SZ_4M);
 }
 
+/*
+ * Declaration of devices found on the U300 board and
+ * their respective memory locations.
+ */
 
 static struct amba_pl011_data uart0_plat_data = {
 #ifdef CONFIG_COH901318
@@ -86,9 +96,11 @@ static struct amba_pl011_data uart0_plat_data = {
 #endif
 };
 
+/* Slow device at 0x3000 offset */
 static AMBA_APB_DEVICE(uart0, "uart0", 0, U300_UART0_BASE,
 	{ IRQ_U300_UART0 }, &uart0_plat_data);
 
+/* The U335 have an additional UART1 on the APP CPU */
 #ifdef CONFIG_MACH_U300_BS335
 static struct amba_pl011_data uart1_plat_data = {
 #ifdef CONFIG_COH901318
@@ -98,18 +110,26 @@ static struct amba_pl011_data uart1_plat_data = {
 #endif
 };
 
+/* Fast device at 0x7000 offset */
 static AMBA_APB_DEVICE(uart1, "uart1", 0, U300_UART1_BASE,
 	{ IRQ_U300_UART1 }, &uart1_plat_data);
 #endif
 
+/* AHB device at 0x4000 offset */
 static AMBA_APB_DEVICE(pl172, "pl172", 0, U300_EMIF_CFG_BASE, { }, NULL);
 
+/* Fast device at 0x6000 offset */
 static AMBA_APB_DEVICE(pl022, "pl022", 0, U300_SPI_BASE,
 	{ IRQ_U300_SPI }, NULL);
 
+/* Fast device at 0x1000 offset */
 #define U300_MMCSD_IRQS	{ IRQ_U300_MMCSD_MCIINTR0, IRQ_U300_MMCSD_MCIINTR1 }
 
 static struct mmci_platform_data mmcsd_platform_data = {
+	/*
+	 * Do not set ocr_mask or voltage translation function,
+	 * we have a regulator we can control instead.
+	 */
 	.f_max = 24000000,
 	.gpio_wp = -1,
 	.gpio_cd = U300_GPIO_PIN_MMC_CD,
@@ -119,13 +139,17 @@ static struct mmci_platform_data mmcsd_platform_data = {
 #ifdef CONFIG_COH901318
 	.dma_filter = coh901318_filter_id,
 	.dma_rx_param = (void *) U300_DMA_MMCSD_RX_TX,
-	
+	/* Don't specify a TX channel, this RX channel is bidirectional */
 #endif
 };
 
 static AMBA_APB_DEVICE(mmcsd, "mmci", 0, U300_MMCSD_BASE,
 	U300_MMCSD_IRQS, &mmcsd_platform_data);
 
+/*
+ * The order of device declaration may be important, since some devices
+ * have dependencies on other devices being initialized first.
+ */
 static struct amba_device *amba_devs[] __initdata = {
 	&uart0_device,
 #ifdef CONFIG_MACH_U300_BS335
@@ -136,6 +160,9 @@ static struct amba_device *amba_devs[] __initdata = {
 	&mmcsd_device,
 };
 
+/* Here follows a list of all hw resources that the platform devices
+ * allocate. Note, clock dependencies are not included
+ */
 
 static struct resource gpio_resources[] = {
 	{
@@ -188,7 +215,7 @@ static struct resource gpio_resources[] = {
 		.end   = IRQ_U300_GPIO_PORT6,
 		.flags = IORESOURCE_IRQ,
 	},
-#endif 
+#endif /* CONFIG_MACH_U300_BS335 */
 };
 
 static struct resource keypad_resources[] = {
@@ -224,6 +251,10 @@ static struct resource rtc_resources[] = {
 	},
 };
 
+/*
+ * Fsmc does have IRQs: #43 and #44 (NFIF and NFIF2)
+ * but these are not yet used by the driver.
+ */
 static struct resource fsmc_resources[] = {
 	{
 		.name  = "nand_data",
@@ -293,14 +324,19 @@ static struct resource dma_resource[] = {
 };
 
 #ifdef CONFIG_MACH_U300_BS335
+/* points out all dma slave channels.
+ * Syntax is [A1, B1, A2, B2, .... ,-1,-1]
+ * Select all channels from A to B, end of list is marked with -1,-1
+ */
 static int dma_slave_channels[] = {
 	U300_DMA_MSL_TX_0, U300_DMA_SPI_RX,
 	U300_DMA_UART1_TX, U300_DMA_UART1_RX, -1, -1};
 
+/* points out all dma memcpy channels. */
 static int dma_memcpy_channels[] = {
 	U300_DMA_GENERAL_PURPOSE_0, U300_DMA_GENERAL_PURPOSE_8, -1, -1};
 
-#else 
+#else /* CONFIG_MACH_U300_BS335 */
 
 static int dma_slave_channels[] = {U300_DMA_MSL_TX_0, U300_DMA_SPI_RX, -1, -1};
 static int dma_memcpy_channels[] = {
@@ -308,6 +344,11 @@ static int dma_memcpy_channels[] = {
 
 #endif
 
+/** register dma for memory access
+ *
+ * active  1 means dma intends to access memory
+ *         0 means dma wont access memory
+ */
 static void coh901318_access_memory_state(struct device *dev, bool active)
 {
 }
@@ -844,6 +885,11 @@ const struct coh_dma_channel chan_config[U300_DMA_CHANNELS] = {
 		.priority_high = 0,
 		.dev_addr = U300_MSL_BASE + 6 * 0x40 + 0x220,
 	},
+	/*
+	 * Don't set up device address, burst count or size of src
+	 * or dst bus for this peripheral - handled by PrimeCell
+	 * DMA extension.
+	 */
 	{
 		.number = U300_DMA_MMCSD_RX_TX,
 		.name = "MMCSD RX TX",
@@ -888,6 +934,11 @@ const struct coh_dma_channel chan_config[U300_DMA_CHANNELS] = {
 		.name = "MSPRO RX",
 		.priority_high = 0,
 	},
+	/*
+	 * Don't set up device address, burst count or size of src
+	 * or dst bus for this peripheral - handled by PrimeCell
+	 * DMA extension.
+	 */
 	{
 		.number = U300_DMA_UART0_TX,
 		.name = "UART0 TX",
@@ -1182,6 +1233,11 @@ const struct coh_dma_channel chan_config[U300_DMA_CHANNELS] = {
 		.name = "XGAM PDI",
 		.priority_high = 0,
 	},
+	/*
+	 * Don't set up device address, burst count or size of src
+	 * or dst bus for this peripheral - handled by PrimeCell
+	 * DMA extension.
+	 */
 	{
 		.number = U300_DMA_SPI_TX,
 		.name = "SPI TX",
@@ -1419,6 +1475,10 @@ static struct platform_device pinctrl_device = {
 	.resource = pinctrl_resources,
 };
 
+/*
+ * The different variants have a few different versions of the
+ * GPIO block, with different number of ports.
+ */
 static struct u300_gpio_platform u300_gpio_plat = {
 #if defined(CONFIG_MACH_U300_BS2X) || defined(CONFIG_MACH_U300_BS330)
 	.variant = U300_GPIO_COH901335,
@@ -1517,19 +1577,20 @@ static unsigned long pin_highz_conf[] = {
 	PIN_CONF_PACKED(PIN_CONFIG_BIAS_HIGH_IMPEDANCE, 0),
 };
 
+/* Pin control settings */
 static struct pinctrl_map __initdata u300_pinmux_map[] = {
-	
+	/* anonymous maps for chip power and EMIFs */
 	PIN_MAP_MUX_GROUP_HOG_DEFAULT("pinctrl-u300", NULL, "power"),
 	PIN_MAP_MUX_GROUP_HOG_DEFAULT("pinctrl-u300", NULL, "emif0"),
 	PIN_MAP_MUX_GROUP_HOG_DEFAULT("pinctrl-u300", NULL, "emif1"),
-	
+	/* per-device maps for MMC/SD, SPI and UART */
 	PIN_MAP_MUX_GROUP_DEFAULT("mmci",  "pinctrl-u300", NULL, "mmc0"),
 	PIN_MAP_MUX_GROUP_DEFAULT("pl022", "pinctrl-u300", NULL, "spi0"),
 	PIN_MAP_MUX_GROUP_DEFAULT("uart0", "pinctrl-u300", NULL, "uart0"),
-	
+	/* This pin is used for clock return rather than GPIO */
 	PIN_MAP_CONFIGS_PIN_DEFAULT("mmci", "pinctrl-u300", "PIO APP GPIO 11",
 				    pin_pullup_conf),
-	
+	/* This pin is used for card detect */
 	PIN_MAP_CONFIGS_PIN_DEFAULT("mmci", "pinctrl-u300", "PIO MS INS",
 				    pin_highz_conf),
 };
@@ -1570,6 +1631,10 @@ static int __init u300_pinctrl_fetch(void)
 }
 subsys_initcall(u300_pinctrl_fetch);
 
+/*
+ * Notice that AMBA devices are initialized before platform devices.
+ *
+ */
 static struct platform_device *platform_devs[] __initdata = {
 	&dma_device,
 	&i2c0_device,
@@ -1581,16 +1646,21 @@ static struct platform_device *platform_devs[] __initdata = {
 	&wdog_device,
 };
 
+/*
+ * Interrupts: the U300 platforms have two pl190 ARM PrimeCells connected
+ * together so some interrupts are connected to the first one and some
+ * to the second one.
+ */
 void __init u300_init_irq(void)
 {
 	u32 mask[2] = {0, 0};
 	struct clk *clk;
 	int i;
 
-	
+	/* initialize clocking early, we want to clock the INTCON */
 	u300_clock_init();
 
-	
+	/* Clock the interrupt controller */
 	clk = clk_get_sys("intcon", NULL);
 	BUG_ON(IS_ERR(clk));
 	clk_enable(clk);
@@ -1604,11 +1674,17 @@ void __init u300_init_irq(void)
 }
 
 
+/*
+ * U300 platforms peripheral handling
+ */
 struct db_chip {
 	u16 chipid;
 	const char *name;
 };
 
+/*
+ * This is a list of the Digital Baseband chips used in the U300 platform.
+ */
 static struct db_chip db_chips[] __initdata = {
 	{
 		.chipid = 0xb800,
@@ -1643,7 +1719,7 @@ static struct db_chip db_chips[] __initdata = {
 		.name = "DB3350 P2x",
 	},
 	{
-		.chipid = 0x0000, 
+		.chipid = 0x0000, /* List terminator */
 		.name = NULL,
 	}
 };
@@ -1656,9 +1732,9 @@ static void __init u300_init_check_chip(void)
 	const char *chipname;
 	const char unknown[] = "UNKNOWN";
 
-	
+	/* Read out and print chip ID */
 	val = readw(U300_SYSCON_VBASE + U300_SYSCON_CIDR);
-	
+	/* This is in funky bigendian order... */
 	val = (val & 0xFFU) << 8 | (val >> 8);
 	chip = db_chips;
 	chipname = unknown;
@@ -1697,6 +1773,11 @@ static void __init u300_init_check_chip(void)
 
 }
 
+/*
+ * Some devices and their resources require reserved physical memory from
+ * the end of the available RAM. This function traverses the list of devices
+ * and assigns actual addresses to these.
+ */
 static void __init u300_assign_physmem(void)
 {
 	unsigned long curr_start = __pa(high_memory);
@@ -1727,20 +1808,20 @@ void __init u300_init_devices(void)
 	int i;
 	u16 val;
 
-	
+	/* Check what platform we run and print some status information */
 	u300_init_check_chip();
 
-	
+	/* Set system to run at PLL208, max performance, a known state. */
 	val = readw(U300_SYSCON_VBASE + U300_SYSCON_CCR);
 	val &= ~U300_SYSCON_CCR_CLKING_PERFORMANCE_MASK;
 	writew(val, U300_SYSCON_VBASE + U300_SYSCON_CCR);
-	
+	/* Wait for the PLL208 to lock if not locked in yet */
 	while (!(readw(U300_SYSCON_VBASE + U300_SYSCON_CSR) &
 		 U300_SYSCON_CSR_PLL208_LOCK_IND));
-	
+	/* Initialize SPI device with some board specifics */
 	u300_spi_init(&pl022_device);
 
-	
+	/* Register the AMBA devices in the AMBA bus abstraction layer */
 	for (i = 0; i < ARRAY_SIZE(amba_devs); i++) {
 		struct amba_device *d = amba_devs[i];
 		amba_device_register(d, &iomem_resource);
@@ -1748,25 +1829,26 @@ void __init u300_init_devices(void)
 
 	u300_assign_physmem();
 
-	
+	/* Initialize pinmuxing */
 	pinctrl_register_mappings(u300_pinmux_map,
 				  ARRAY_SIZE(u300_pinmux_map));
 
-	
+	/* Register subdevices on the I2C buses */
 	u300_i2c_register_board_devices();
 
-	
+	/* Register the platform devices */
 	platform_add_devices(platform_devs, ARRAY_SIZE(platform_devs));
 
-	
+	/* Register subdevices on the SPI bus */
 	u300_spi_register_board_devices();
 
-	
+	/* Enable SEMI self refresh */
 	val = readw(U300_SYSCON_VBASE + U300_SYSCON_SMCR) |
 		U300_SYSCON_SMCR_SEMI_SREFREQ_ENABLE;
 	writew(val, U300_SYSCON_VBASE + U300_SYSCON_SMCR);
 }
 
+/* Forward declare this function from the watchdog */
 void coh901327_watchdog_reset(void);
 
 void u300_restart(char mode, const char *cmd)
@@ -1779,9 +1861,9 @@ void u300_restart(char mode, const char *cmd)
 #endif
 		break;
 	default:
-		
+		/* Do nothing */
 		break;
 	}
-	
+	/* Wait for system do die/reset. */
 	while (1);
 }

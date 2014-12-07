@@ -13,6 +13,7 @@
 #ifndef _WM8770_H
 #define _WM8770_H
 
+/* Registers */
 #define WM8770_VOUT1LVOL                0
 #define WM8770_VOUT1RVOL                0x1
 #define WM8770_VOUT2LVOL                0x2

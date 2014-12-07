@@ -38,6 +38,21 @@
 #define to_exynos_crtc(x)	container_of(x, struct exynos_drm_crtc,\
 				drm_crtc)
 
+/*
+ * Exynos specific crtc structure.
+ *
+ * @drm_crtc: crtc object.
+ * @overlay: contain information common to display controller and hdmi and
+ *	contents of this overlay object would be copied to sub driver size.
+ * @pipe: a crtc index created at load() with a new crtc object creation
+ *	and the crtc object would be set to private->crtc array
+ *	to get a crtc object corresponding to this pipe from private->crtc
+ *	array when irq interrupt occured. the reason of using this pipe is that
+ *	drm framework doesn't support multiple irq yet.
+ *	we can refer to the crtc to current hardware interrupt occured through
+ *	this pipe value.
+ * @dpms: store the crtc dpms value
+ */
 struct exynos_drm_crtc {
 	struct drm_crtc			drm_crtc;
 	struct exynos_drm_overlay	overlay;
@@ -85,7 +100,7 @@ int exynos_drm_overlay_update(struct exynos_drm_overlay *overlay,
 	actual_w = min((mode->hdisplay - pos->crtc_x), pos->crtc_w);
 	actual_h = min((mode->vdisplay - pos->crtc_y), pos->crtc_h);
 
-	
+	/* set drm framebuffer data. */
 	overlay->fb_x = pos->fb_x;
 	overlay->fb_y = pos->fb_y;
 	overlay->fb_width = fb->width;
@@ -94,13 +109,13 @@ int exynos_drm_overlay_update(struct exynos_drm_overlay *overlay,
 	overlay->pitch = fb->pitches[0];
 	overlay->pixel_format = fb->pixel_format;
 
-	
+	/* set overlay range to be displayed. */
 	overlay->crtc_x = pos->crtc_x;
 	overlay->crtc_y = pos->crtc_y;
 	overlay->crtc_width = actual_w;
 	overlay->crtc_height = actual_h;
 
-	
+	/* set drm mode data. */
 	overlay->mode_width = mode->hdisplay;
 	overlay->mode_height = mode->vdisplay;
 	overlay->refresh = mode->vrefresh;
@@ -129,11 +144,11 @@ static int exynos_drm_crtc_update(struct drm_crtc *crtc)
 
 	memset(&pos, 0, sizeof(struct exynos_drm_crtc_pos));
 
-	
+	/* it means the offset of framebuffer to be displayed. */
 	pos.fb_x = crtc->x;
 	pos.fb_y = crtc->y;
 
-	
+	/* OSD position to be displayed. */
 	pos.crtc_x = 0;
 	pos.crtc_y = 0;
 	pos.crtc_w = fb->width - crtc->x;
@@ -181,7 +196,7 @@ static void exynos_drm_crtc_prepare(struct drm_crtc *crtc)
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	
+	/* drm framework doesn't check NULL. */
 }
 
 static void exynos_drm_crtc_commit(struct drm_crtc *crtc)
@@ -190,10 +205,24 @@ static void exynos_drm_crtc_commit(struct drm_crtc *crtc)
 
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
+	/*
+	 * when set_crtc is requested from user or at booting time,
+	 * crtc->commit would be called without dpms call so if dpms is
+	 * no power on then crtc->dpms should be called
+	 * with DRM_MODE_DPMS_ON for the hardware power to be on.
+	 */
 	if (exynos_crtc->dpms != DRM_MODE_DPMS_ON) {
 		int mode = DRM_MODE_DPMS_ON;
 
+		/*
+		 * enable hardware(power on) to all encoders hdmi connected
+		 * to current crtc.
+		 */
 		exynos_drm_crtc_dpms(crtc, mode);
+		/*
+		 * enable dma to all encoders connected to current crtc and
+		 * lcd panel.
+		 */
 		exynos_drm_fn_encoder(crtc, &mode,
 					exynos_drm_encoder_dpms_from_crtc);
 	}
@@ -209,7 +238,7 @@ exynos_drm_crtc_mode_fixup(struct drm_crtc *crtc,
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
-	
+	/* drm framework doesn't check NULL */
 	return true;
 }
 
@@ -220,6 +249,10 @@ exynos_drm_crtc_mode_set(struct drm_crtc *crtc, struct drm_display_mode *mode,
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
+	/*
+	 * copy the mode data adjusted by mode_fixup() into crtc->mode
+	 * so that hardware can be seet to proper mode.
+	 */
 	memcpy(&crtc->mode, adjusted_mode, sizeof(*adjusted_mode));
 
 	return exynos_drm_crtc_update(crtc);
@@ -244,7 +277,7 @@ static int exynos_drm_crtc_mode_set_base(struct drm_crtc *crtc, int x, int y,
 static void exynos_drm_crtc_load_lut(struct drm_crtc *crtc)
 {
 	DRM_DEBUG_KMS("%s\n", __FILE__);
-	
+	/* drm framework doesn't check NULL */
 }
 
 static struct drm_crtc_helper_funcs exynos_crtc_helper_funcs = {
@@ -272,6 +305,10 @@ static int exynos_drm_crtc_page_flip(struct drm_crtc *crtc,
 	mutex_lock(&dev->struct_mutex);
 
 	if (event) {
+		/*
+		 * the pipe from user always is 0 so we can set pipe number
+		 * of current owner to event.
+		 */
 		event->pipe = exynos_crtc->pipe;
 
 		ret = drm_vblank_get(dev, exynos_crtc->pipe);
@@ -295,6 +332,12 @@ static int exynos_drm_crtc_page_flip(struct drm_crtc *crtc,
 			goto out;
 		}
 
+		/*
+		 * the values related to a buffer of the drm framebuffer
+		 * to be applied should be set at here. because these values
+		 * first, are set to shadow registers and then to
+		 * real registers at vsync front porch period.
+		 */
 		exynos_drm_crtc_apply(crtc);
 	}
 out:

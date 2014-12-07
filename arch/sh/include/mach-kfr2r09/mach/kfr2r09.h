@@ -24,4 +24,4 @@ static void kfr2r09_lcd_start(void *sys_ops_handle,
 }
 #endif
 
-#endif 
+#endif /* __ASM_SH_KFR2R09_H */

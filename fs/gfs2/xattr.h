@@ -44,7 +44,7 @@ struct gfs2_ea_request {
 	char *er_data;
 	unsigned int er_name_len;
 	unsigned int er_data_len;
-	unsigned int er_type; 
+	unsigned int er_type; /* GFS2_EATYPE_... */
 };
 
 struct gfs2_ea_location {
@@ -59,8 +59,9 @@ extern int __gfs2_xattr_set(struct inode *inode, const char *name,
 extern ssize_t gfs2_listxattr(struct dentry *dentry, char *buffer, size_t size);
 extern int gfs2_ea_dealloc(struct gfs2_inode *ip);
 
+/* Exported to acl.c */
 
 extern int gfs2_xattr_acl_get(struct gfs2_inode *ip, const char *name, char **data);
 extern int gfs2_xattr_acl_chmod(struct gfs2_inode *ip, struct iattr *attr, char *data);
 
-#endif 
+#endif /* __EATTR_DOT_H__ */

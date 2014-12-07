@@ -6,6 +6,9 @@
  * ToDo: Needs to be done more properly for AMD/Intel specifics
  */
 
+/* Helper struct for qsort, must be in sync with cpupower_topology.cpu_info */
+/* Be careful: Need to pass unsigned to the sort, so that offlined cores are
+   in the end, but double check for -1 for offlined cpus at other places */
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -16,6 +19,7 @@
 #include <helpers/helpers.h>
 #include <helpers/sysfs.h>
 
+/* returns -1 on failure, 0 on success */
 int sysfs_topology_read_file(unsigned int cpu, const char *fname)
 {
 	unsigned long value;
@@ -37,7 +41,7 @@ struct cpuid_core_info {
 	unsigned int pkg;
 	unsigned int thread;
 	unsigned int cpu;
-	
+	/* flags */
 	unsigned int is_online:1;
 };
 
@@ -61,6 +65,12 @@ static int __compare(const void *t1, const void *t2)
 		return 0;
 }
 
+/*
+ * Returns amount of cpus, negative on error, cpu_top must be
+ * passed to cpu_topology_release to free resources
+ *
+ * Array is sorted after ->pkg, ->core, then ->cpu
+ */
 int get_cpu_topology(struct cpupower_topology *cpu_top)
 {
 	int cpu, cpus = sysconf(_SC_NPROCESSORS_CONF);
@@ -85,6 +95,13 @@ int get_cpu_topology(struct cpupower_topology *cpu_top)
 	qsort(cpu_top->core_info, cpus, sizeof(struct cpuid_core_info),
 	      __compare);
 
+	/* Intel's cores count is not consecutively numbered, there may
+	 * be a core_id of 3, but none of 2. Assume there always is 0
+	 * Get amount of cores by counting duplicates in a package
+	for (cpu = 0; cpu_top->core_info[cpu].pkg = 0 && cpu < cpus; cpu++) {
+		if (cpu_top->core_info[cpu].core == 0)
+	cpu_top->cores++;
+	*/
 	return cpus;
 }
 

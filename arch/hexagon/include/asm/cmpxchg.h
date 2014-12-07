@@ -22,17 +22,28 @@
 #ifndef _ASM_CMPXCHG_H
 #define _ASM_CMPXCHG_H
 
+/*
+ * __xchg - atomically exchange a register and a memory location
+ * @x: value to swap
+ * @ptr: pointer to memory
+ * @size:  size of the value
+ *
+ * Only 4 bytes supported currently.
+ *
+ * Note:  there was an errata for V2 about .new's and memw_locked.
+ *
+ */
 static inline unsigned long __xchg(unsigned long x, volatile void *ptr,
 				   int size)
 {
 	unsigned long retval;
 
-	
+	/*  Can't seem to use printk or panic here, so just stop  */
 	if (size != 4) do { asm volatile("brkpt;\n"); } while (1);
 
 	__asm__ __volatile__ (
-	"1:	%0 = memw_locked(%1);\n"    
-	"	memw_locked(%1,P0) = %2;\n" 
+	"1:	%0 = memw_locked(%1);\n"    /*  load into retval */
+	"	memw_locked(%1,P0) = %2;\n" /*  store into memory */
 	"	if !P0 jump 1b;\n"
 	: "=&r" (retval)
 	: "r" (ptr), "r" (x)
@@ -41,9 +52,18 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr,
 	return retval;
 }
 
+/*
+ * Atomically swap the contents of a register with memory.  Should be atomic
+ * between multiple CPU's and within interrupts on the same CPU.
+ */
 #define xchg(ptr, v) ((__typeof__(*(ptr)))__xchg((unsigned long)(v), (ptr), \
 	sizeof(*(ptr))))
 
+/*
+ *  see rt-mutex-design.txt; cmpxchg supposedly checks if *ptr == A and swaps.
+ *  looks just like atomic_cmpxchg on our arch currently with a bunch of
+ *  variable casting.
+ */
 #define __HAVE_ARCH_CMPXCHG 1
 
 #define cmpxchg(ptr, old, new)					\
@@ -67,4 +87,4 @@ static inline unsigned long __xchg(unsigned long x, volatile void *ptr,
 	__oldval;						\
 })
 
-#endif 
+#endif /* _ASM_CMPXCHG_H */

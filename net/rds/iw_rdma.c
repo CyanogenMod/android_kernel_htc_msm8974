@@ -38,6 +38,9 @@
 #include "iw.h"
 
 
+/*
+ * This is stored as mr->r_trans_private.
+ */
 struct rds_iw_mr {
 	struct rds_iw_device	*device;
 	struct rds_iw_mr_pool	*pool;
@@ -50,19 +53,22 @@ struct rds_iw_mr {
 	unsigned char		remap_count;
 };
 
+/*
+ * Our own little MR pool
+ */
 struct rds_iw_mr_pool {
-	struct rds_iw_device	*device;		
+	struct rds_iw_device	*device;		/* back ptr to the device that owns us */
 
-	struct mutex		flush_lock;		
-	struct work_struct	flush_worker;		
+	struct mutex		flush_lock;		/* serialize fmr invalidate */
+	struct work_struct	flush_worker;		/* flush worker */
 
-	spinlock_t		list_lock;		
-	atomic_t		item_count;		
-	atomic_t		dirty_count;		
-	struct list_head	dirty_list;		
-	struct list_head	clean_list;		
-	atomic_t		free_pinned;		
-	unsigned long		max_message_size;	
+	spinlock_t		list_lock;		/* protect variables below */
+	atomic_t		item_count;		/* total # of MRs */
+	atomic_t		dirty_count;		/* # dirty of MRs */
+	struct list_head	dirty_list;		/* dirty mappings */
+	struct list_head	clean_list;		/* unused & unamapped MRs */
+	atomic_t		free_pinned;		/* memory pinned by free MRs */
+	unsigned long		max_message_size;	/* in pages */
 	unsigned long		max_items;
 	unsigned long		max_items_soft;
 	unsigned long		max_free_pinned;
@@ -116,6 +122,12 @@ static int rds_iw_get_device(struct rds_sock *rs, struct rds_iw_device **rds_iwd
 			    dst_addr->sin_addr.s_addr == rs->rs_conn_addr &&
 			    dst_addr->sin_port == rs->rs_conn_port) {
 #else
+			/* FIXME - needs to compare the local and remote
+			 * ipaddr/port tuple, but the ipaddr is the only
+			 * available information in the rds_sock (as the rest are
+			 * zero'ed.  It doesn't appear to be properly populated
+			 * during connection setup...
+			 */
 			if (src_addr->sin_addr.s_addr == rs->rs_bound_addr) {
 #endif
 				spin_unlock_irq(&iwdev->spinlock);
@@ -191,7 +203,7 @@ void rds_iw_add_conn(struct rds_iw_device *rds_iwdev, struct rds_connection *con
 {
 	struct rds_iw_connection *ic = conn->c_transport_data;
 
-	
+	/* conn was previously on the nodev_conns_list */
 	spin_lock_irq(&iw_nodev_conns_lock);
 	BUG_ON(list_empty(&iw_nodev_conns));
 	BUG_ON(list_empty(&ic->iw_node));
@@ -209,7 +221,7 @@ void rds_iw_remove_conn(struct rds_iw_device *rds_iwdev, struct rds_connection *
 {
 	struct rds_iw_connection *ic = conn->c_transport_data;
 
-	
+	/* place conn on nodev_conns_list */
 	spin_lock(&iw_nodev_conns_lock);
 
 	spin_lock_irq(&rds_iwdev->spinlock);
@@ -230,7 +242,7 @@ void __rds_iw_destroy_conns(struct list_head *list, spinlock_t *list_lock)
 	struct rds_iw_connection *ic, *_ic;
 	LIST_HEAD(tmp_list);
 
-	
+	/* avoid calling conn_destroy with irqs off */
 	spin_lock_irq(list_lock);
 	list_splice(list, &tmp_list);
 	INIT_LIST_HEAD(list);
@@ -291,7 +303,7 @@ static u64 *rds_iw_map_scatterlist(struct rds_iw_device *rds_iwdev,
 		sg->dma_npages += (end_addr - dma_addr) >> PAGE_SHIFT;
 	}
 
-	
+	/* Now gather the dma addrs into one list */
 	if (sg->dma_npages > fastreg_message_size)
 		goto out_unmap;
 
@@ -345,6 +357,11 @@ struct rds_iw_mr_pool *rds_iw_create_mr_pool(struct rds_iw_device *rds_iwdev)
 	pool->max_free_pinned = pool->max_items * pool->max_message_size / 4;
 	pool->max_pages = fastreg_message_size;
 
+	/* We never allow more than max_items MRs to be allocated.
+	 * When we exceed more than max_items_soft, we start freeing
+	 * items more aggressively.
+	 * Make sure that max_items > max_items_soft > max_items / 2
+	 */
 	pool->max_items_soft = pool->max_items * 3 / 4;
 
 	return pool;
@@ -393,6 +410,15 @@ static struct rds_iw_mr *rds_iw_alloc_mr(struct rds_iw_device *rds_iwdev)
 		if (ibmr)
 			return ibmr;
 
+		/* No clean MRs - now we have the choice of either
+		 * allocating a fresh MR up to the limit imposed by the
+		 * driver, or flush any dirty unused MRs.
+		 * We try to avoid stalling in the send path if possible,
+		 * so we allocate as long as we're allowed to.
+		 *
+		 * We're fussy with enforcing the FMR limit, though. If the driver
+		 * tells us we can't use more than N fmrs, we shouldn't start
+		 * arguing with it */
 		if (atomic_inc_return(&pool->item_count) <= pool->max_items)
 			break;
 
@@ -403,7 +429,7 @@ static struct rds_iw_mr *rds_iw_alloc_mr(struct rds_iw_device *rds_iwdev)
 			return ERR_PTR(-EAGAIN);
 		}
 
-		
+		/* We do have some empty MRs. Flush them out. */
 		rds_iw_stats_inc(s_iw_rdma_mr_pool_wait);
 		rds_iw_flush_mr_pool(pool, 0);
 	}
@@ -451,6 +477,12 @@ void rds_iw_sync_mr(void *trans_private, int direction)
 	}
 }
 
+/*
+ * Flush our pool of MRs.
+ * At a minimum, all currently unused MRs are unmapped.
+ * If the number of MRs allocated exceeds the limit, we also try
+ * to free as many MRs as needed to get back to this limit.
+ */
 static int rds_iw_flush_mr_pool(struct rds_iw_mr_pool *pool, int free_all)
 {
 	struct rds_iw_mr *ibmr, *next;
@@ -465,20 +497,30 @@ static int rds_iw_flush_mr_pool(struct rds_iw_mr_pool *pool, int free_all)
 	mutex_lock(&pool->flush_lock);
 
 	spin_lock_irqsave(&pool->list_lock, flags);
-	
+	/* Get the list of all mappings to be destroyed */
 	list_splice_init(&pool->dirty_list, &unmap_list);
 	if (free_all)
 		list_splice_init(&pool->clean_list, &kill_list);
 	spin_unlock_irqrestore(&pool->list_lock, flags);
 
+	/* Batched invalidate of dirty MRs.
+	 * For FMR based MRs, the mappings on the unmap list are
+	 * actually members of an ibmr (ibmr->mapping). They either
+	 * migrate to the kill_list, or have been cleaned and should be
+	 * moved to the clean_list.
+	 * For fastregs, they will be dynamically allocated, and
+	 * will be destroyed by the unmap function.
+	 */
 	if (!list_empty(&unmap_list)) {
 		ncleaned = rds_iw_unmap_fastreg_list(pool, &unmap_list,
 						     &kill_list, &unpinned);
+		/* If we've been asked to destroy all MRs, move those
+		 * that were simply cleaned to the kill list */
 		if (free_all)
 			list_splice_init(&unmap_list, &kill_list);
 	}
 
-	
+	/* Destroy any MRs that are past their best before date */
 	list_for_each_entry_safe(ibmr, next, &kill_list, mapping.m_list) {
 		rds_iw_stats_inc(s_iw_rdma_mr_free);
 		list_del(&ibmr->mapping.m_list);
@@ -487,6 +529,8 @@ static int rds_iw_flush_mr_pool(struct rds_iw_mr_pool *pool, int free_all)
 		nfreed++;
 	}
 
+	/* Anything that remains are laundered ibmrs, which we can add
+	 * back to the clean list. */
 	if (!list_empty(&unmap_list)) {
 		spin_lock_irqsave(&pool->list_lock, flags);
 		list_splice(&unmap_list, &pool->clean_list);
@@ -517,10 +561,10 @@ void rds_iw_free_mr(void *trans_private, int invalidate)
 	if (!pool)
 		return;
 
-	
+	/* Return it to the pool's free list */
 	rds_iw_free_fastreg(pool, ibmr);
 
-	
+	/* If we've pinned too many pages, request a flush */
 	if (atomic_read(&pool->free_pinned) >= pool->max_free_pinned ||
 	    atomic_read(&pool->dirty_count) >= pool->max_items / 10)
 		queue_work(rds_wq, &pool->flush_worker);
@@ -529,6 +573,8 @@ void rds_iw_free_mr(void *trans_private, int invalidate)
 		if (likely(!in_interrupt())) {
 			rds_iw_flush_mr_pool(pool, 0);
 		} else {
+			/* We get here if the user created a MR marked
+			 * as use_once and invalidate at the same time. */
 			queue_work(rds_wq, &pool->flush_worker);
 		}
 	}
@@ -587,6 +633,28 @@ out:
 	return ibmr;
 }
 
+/*
+ * iWARP fastreg handling
+ *
+ * The life cycle of a fastreg registration is a bit different from
+ * FMRs.
+ * The idea behind fastreg is to have one MR, to which we bind different
+ * mappings over time. To avoid stalling on the expensive map and invalidate
+ * operations, these operations are pipelined on the same send queue on
+ * which we want to send the message containing the r_key.
+ *
+ * This creates a bit of a problem for us, as we do not have the destination
+ * IP in GET_MR, so the connection must be setup prior to the GET_MR call for
+ * RDMA to be correctly setup.  If a fastreg request is present, rds_iw_xmit
+ * will try to queue a LOCAL_INV (if needed) and a FAST_REG_MR work request
+ * before queuing the SEND. When completions for these arrive, they are
+ * dispatched to the MR has a bit set showing that RDMa can be performed.
+ *
+ * There is another interesting aspect that's related to invalidation.
+ * The application can request that a mapping is invalidated in FREE_MR.
+ * The expectation there is that this invalidation step includes ALL
+ * PREVIOUSLY FREED MRs.
+ */
 static int rds_iw_init_fastreg(struct rds_iw_mr_pool *pool,
 				struct rds_iw_mr *ibmr)
 {
@@ -603,6 +671,9 @@ static int rds_iw_init_fastreg(struct rds_iw_mr_pool *pool,
 		return err;
 	}
 
+	/* FIXME - this is overkill, but mapping->m_sg.dma_len/mapping->m_sg.dma_npages
+	 * is not filled in.
+	 */
 	page_list = ib_alloc_fast_reg_page_list(rds_iwdev->dev, pool->max_message_size);
 	if (IS_ERR(page_list)) {
 		err = PTR_ERR(page_list);
@@ -623,6 +694,12 @@ static int rds_iw_rdma_build_fastreg(struct rds_iw_mapping *mapping)
 	struct ib_send_wr f_wr, *failed_wr;
 	int ret;
 
+	/*
+	 * Perform a WR for the fast_reg_mr. Each individual page
+	 * in the sg list is added to the fast reg page list and placed
+	 * inside the fast_reg_mr WR.  The key used is a rolling 8bit
+	 * counter, which should guarantee uniqueness.
+	 */
 	ib_update_fast_reg_key(ibmr->mr, ibmr->remap_count++);
 	mapping->m_rkey = ibmr->mr->rkey;
 
@@ -713,6 +790,9 @@ out:
 	return ret;
 }
 
+/*
+ * "Free" a fastreg MR.
+ */
 static void rds_iw_free_fastreg(struct rds_iw_mr_pool *pool,
 		struct rds_iw_mr *ibmr)
 {
@@ -726,7 +806,7 @@ static void rds_iw_free_fastreg(struct rds_iw_mr_pool *pool,
 	if (ret)
 		return;
 
-	
+	/* Try to post the LOCAL_INV WR to the queue. */
 	spin_lock_irqsave(&pool->list_lock, flags);
 
 	list_add_tail(&ibmr->mapping.m_list, &pool->dirty_list);
@@ -745,6 +825,22 @@ static unsigned int rds_iw_unmap_fastreg_list(struct rds_iw_mr_pool *pool,
 	unsigned int ncleaned = 0;
 	LIST_HEAD(laundered);
 
+	/* Batched invalidation of fastreg MRs.
+	 * Why do we do it this way, even though we could pipeline unmap
+	 * and remap? The reason is the application semantics - when the
+	 * application requests an invalidation of MRs, it expects all
+	 * previously released R_Keys to become invalid.
+	 *
+	 * If we implement MR reuse naively, we risk memory corruption
+	 * (this has actually been observed). So the default behavior
+	 * requires that a MR goes through an explicit unmap operation before
+	 * we can reuse it again.
+	 *
+	 * We could probably improve on this a little, by allowing immediate
+	 * reuse of a MR on the same socket (eg you could add small
+	 * cache of unused MRs to strct rds_socket - GET_MR could grab one
+	 * of these without requiring an explicit invalidate).
+	 */
 	while (!list_empty(unmap_list)) {
 		unsigned long flags;
 
@@ -757,6 +853,9 @@ static unsigned int rds_iw_unmap_fastreg_list(struct rds_iw_mr_pool *pool,
 		spin_unlock_irqrestore(&pool->list_lock, flags);
 	}
 
+	/* Move all laundered mappings back to the unmap list.
+	 * We do not kill any WRs right now - it doesn't seem the
+	 * fastreg API has a max_remap limit. */
 	list_splice_init(&laundered, unmap_list);
 
 	return ncleaned;

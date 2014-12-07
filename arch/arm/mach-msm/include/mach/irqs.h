@@ -17,6 +17,11 @@
 #ifndef __ASM_ARCH_MSM_IRQS_H
 #define __ASM_ARCH_MSM_IRQS_H
 
+/*
+ * 0-15:  STI/SGI (software triggered/generated interrupts)
+ * 16-31: PPI (private peripheral interrupts)
+ * 32+:   SPI (shared peripheral interrupts)
+ */
 #define GIC_PPI_START 16
 #define GIC_SPI_START 32
 
@@ -47,6 +52,8 @@
 #include "irqs-8064.h"
 #endif
 
+/* For now, use the maximum number of interrupts until a pending GIC issue
+ * is sorted out */
 #define NR_MSM_IRQS 288
 #define NR_GPIO_IRQS 152
 #define NR_PM8921_IRQS 256
@@ -96,7 +103,7 @@
 #if !defined(CONFIG_SPARSE_IRQ)
 
 #if defined(CONFIG_ARCH_MSM8974) || defined(CONFIG_ARCH_MPQ8092)
-#define NR_MSM_IRQS 1020 
+#define NR_MSM_IRQS 1020 /* Should be 256 - but higher due to bug in sim */
 #define NR_GPIO_IRQS 146
 #define NR_QPNP_IRQS 32768
 #define NR_BOARD_IRQS NR_QPNP_IRQS

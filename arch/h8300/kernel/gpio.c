@@ -1,4 +1,13 @@
+/*
+ *  linux/arch/h8300/kernel/gpio.c
+ *
+ *  Yoshinori Sato <ysato@users.sourceforge.jp>
+ *
+ */
 
+/*
+ * Internal I/O Port Management
+ */
 
 #include <linux/stddef.h>
 #include <linux/proc_fs.h>
@@ -18,6 +27,7 @@ static volatile unsigned char *ddrs[] = {
 #endif
 
  #if defined(CONFIG_H83002) || defined(CONFIG_H8048)
+/* Fix me!! */
 #include <asm/regs306x.h>
 static volatile unsigned char *ddrs[] = {
 	_(P1DDR),_(P2DDR),_(P3DDR),_(P4DDR),_(P5DDR),_(P6DDR),

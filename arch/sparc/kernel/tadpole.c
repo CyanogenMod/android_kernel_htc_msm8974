@@ -56,6 +56,9 @@ static void clk_slow(void)
 			     "g2", "g3", "g4", "g5");
 }
 
+/*
+ * Tadpole is guaranteed to be UP, using local_irq_save.
+ */
 static void tsu_clockstop(void)
 {
 	unsigned int mcsr;
@@ -66,21 +69,24 @@ static void tsu_clockstop(void)
 	if (!(clk_state & CLOCK_INIT_DONE)) {
 		local_irq_save(flags);
 		clk_init();
-		clk_state |= CLOCK_INIT_DONE;       
+		clk_state |= CLOCK_INIT_DONE;       /* all done */
 		local_irq_restore(flags);
 		return;
 	}
 	if (!(clk_ctrl[2] & 1))
-		return;               
+		return;               /* no speed up yet */
 
 	local_irq_save(flags);
 
-	
+	/* if SCSI DMA in progress, don't slow clock */
 	mcsr = ldphys(MACIO_SCSI_CSR_ADDR);
 	if ((mcsr&MACIO_EN_DMA) != 0) {
 		local_irq_restore(flags);
 		return;
 	}
+	/* TODO... the minimum clock setting ought to increase the
+	 * memory refresh interval..
+	 */
 	clk_slow();
 	local_irq_restore(flags);
 }

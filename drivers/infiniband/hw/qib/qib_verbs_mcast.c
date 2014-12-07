@@ -35,6 +35,10 @@
 
 #include "qib.h"
 
+/**
+ * qib_mcast_qp_alloc - alloc a struct to link a QP to mcast GID struct
+ * @qp: the QP to link
+ */
 static struct qib_mcast_qp *qib_mcast_qp_alloc(struct qib_qp *qp)
 {
 	struct qib_mcast_qp *mqp;
@@ -54,13 +58,19 @@ static void qib_mcast_qp_free(struct qib_mcast_qp *mqp)
 {
 	struct qib_qp *qp = mqp->qp;
 
-	
+	/* Notify qib_destroy_qp() if it is waiting. */
 	if (atomic_dec_and_test(&qp->refcount))
 		wake_up(&qp->wait);
 
 	kfree(mqp);
 }
 
+/**
+ * qib_mcast_alloc - allocate the multicast GID structure
+ * @mgid: the multicast GID
+ *
+ * A list of QPs will be attached to this structure.
+ */
 static struct qib_mcast *qib_mcast_alloc(union ib_gid *mgid)
 {
 	struct qib_mcast *mcast;
@@ -89,6 +99,15 @@ static void qib_mcast_free(struct qib_mcast *mcast)
 	kfree(mcast);
 }
 
+/**
+ * qib_mcast_find - search the global table for the given multicast GID
+ * @ibp: the IB port structure
+ * @mgid: the multicast GID to search for
+ *
+ * Returns NULL if not found.
+ *
+ * The caller is responsible for decrementing the reference count if found.
+ */
 struct qib_mcast *qib_mcast_find(struct qib_ibport *ibp, union ib_gid *mgid)
 {
 	struct rb_node *n;
@@ -122,6 +141,15 @@ bail:
 	return mcast;
 }
 
+/**
+ * qib_mcast_add - insert mcast GID into table and attach QP struct
+ * @mcast: the mcast GID table
+ * @mqp: the QP to attach
+ *
+ * Return zero if both were added.  Return EEXIST if the GID was already in
+ * the table but the QP was added.  Return ESRCH if the QP was already
+ * attached and neither structure was added.
+ */
 static int qib_mcast_add(struct qib_ibdev *dev, struct qib_ibport *ibp,
 			 struct qib_mcast *mcast, struct qib_mcast_qp *mqp)
 {
@@ -149,7 +177,7 @@ static int qib_mcast_add(struct qib_ibdev *dev, struct qib_ibport *ibp,
 			continue;
 		}
 
-		
+		/* Search the QP list to see if this is already there. */
 		list_for_each_entry_rcu(p, &tmcast->qp_list, list) {
 			if (p->qp == mqp->qp) {
 				ret = ESRCH;
@@ -208,6 +236,10 @@ int qib_multicast_attach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 		goto bail;
 	}
 
+	/*
+	 * Allocate data structures since its better to do this outside of
+	 * spin locks and it will most likely be needed.
+	 */
 	mcast = qib_mcast_alloc(gid);
 	if (mcast == NULL) {
 		ret = -ENOMEM;
@@ -222,17 +254,17 @@ int qib_multicast_attach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 	ibp = to_iport(ibqp->device, qp->port_num);
 	switch (qib_mcast_add(dev, ibp, mcast, mqp)) {
 	case ESRCH:
-		
+		/* Neither was used: OK to attach the same QP twice. */
 		qib_mcast_qp_free(mqp);
 		qib_mcast_free(mcast);
 		break;
 
-	case EEXIST:            
+	case EEXIST:            /* The mcast wasn't used */
 		qib_mcast_free(mcast);
 		break;
 
 	case ENOMEM:
-		
+		/* Exceeded the maximum number of mcast groups. */
 		qib_mcast_qp_free(mqp);
 		qib_mcast_free(mcast);
 		ret = -ENOMEM;
@@ -266,7 +298,7 @@ int qib_multicast_detach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 
 	spin_lock_irq(&ibp->lock);
 
-	
+	/* Find the GID in the mcast table. */
 	n = ibp->mcast_tree.rb_node;
 	while (1) {
 		if (n == NULL) {
@@ -286,14 +318,18 @@ int qib_multicast_detach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 			break;
 	}
 
-	
+	/* Search the QP list. */
 	list_for_each_entry_safe(p, tmp, &mcast->qp_list, list) {
 		if (p->qp != qp)
 			continue;
+		/*
+		 * We found it, so remove it, but don't poison the forward
+		 * link until we are sure there are no list walkers.
+		 */
 		list_del_rcu(&p->list);
 		mcast->n_attached--;
 
-		
+		/* If this was the last attached QP, remove the GID too. */
 		if (list_empty(&mcast->qp_list)) {
 			rb_erase(&mcast->rb_node, &ibp->mcast_tree);
 			last = 1;
@@ -304,6 +340,10 @@ int qib_multicast_detach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 	spin_unlock_irq(&ibp->lock);
 
 	if (p) {
+		/*
+		 * Wait for any list walkers to finish before freeing the
+		 * list element.
+		 */
 		wait_event(mcast->wait, atomic_read(&mcast->refcount) <= 1);
 		qib_mcast_qp_free(p);
 	}

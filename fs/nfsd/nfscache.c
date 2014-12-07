@@ -13,6 +13,12 @@
 #include "nfsd.h"
 #include "cache.h"
 
+/* Size of reply cache. Common values are:
+ * 4.3BSD:	128
+ * 4.4BSD:	256
+ * Solaris2:	1024
+ * DEC Unix:	512-4096
+ */
 #define CACHESIZE		1024
 #define HASHSIZE		64
 
@@ -20,6 +26,9 @@ static struct hlist_head *	cache_hash;
 static struct list_head 	lru_head;
 static int			cache_disabled = 1;
 
+/*
+ * Calculate the hash index from an XID.
+ */
 static inline u32 request_hash(u32 xid)
 {
 	u32 h = xid;
@@ -29,6 +38,11 @@ static inline u32 request_hash(u32 xid)
 
 static int	nfsd_cache_append(struct svc_rqst *rqstp, struct kvec *vec);
 
+/*
+ * locking for the reply cache:
+ * A cache entry is "single use" if c_state == RC_INPROG
+ * Otherwise, it when accessing _prev or _next, the lock must be held.
+ */
 static DEFINE_SPINLOCK(cache_lock);
 
 int nfsd_reply_cache_init(void)
@@ -79,12 +93,18 @@ void nfsd_reply_cache_shutdown(void)
 	cache_hash = NULL;
 }
 
+/*
+ * Move cache entry to end of LRU list
+ */
 static void
 lru_put_end(struct svc_cacherep *rp)
 {
 	list_move_tail(&rp->c_lru, &lru_head);
 }
 
+/*
+ * Move a cache entry from one hash list to another
+ */
 static void
 hash_refile(struct svc_cacherep *rp)
 {
@@ -92,6 +112,11 @@ hash_refile(struct svc_cacherep *rp)
 	hlist_add_head(&rp->c_hash, cache_hash + request_hash(rp->c_xid));
 }
 
+/*
+ * Try to find an entry matching the current call in the cache. When none
+ * is found, we grab the oldest unlocked entry off the LRU list.
+ * Note that no operation within the loop may sleep.
+ */
 int
 nfsd_cache_lookup(struct svc_rqst *rqstp)
 {
@@ -128,7 +153,7 @@ nfsd_cache_lookup(struct svc_rqst *rqstp)
 	}
 	nfsdstats.rcmisses++;
 
-	
+	/* This loop shouldn't take more than a few iterations normally */
 	{
 	int	safe = 0;
 	list_for_each_entry(rp, &lru_head, c_lru) {
@@ -142,7 +167,7 @@ nfsd_cache_lookup(struct svc_rqst *rqstp)
 	}
 	}
 
-	
+	/* All entries on the LRU are in-progress. This should not happen */
 	if (&rp->c_lru == &lru_head) {
 		static int	complaints;
 
@@ -165,7 +190,7 @@ nfsd_cache_lookup(struct svc_rqst *rqstp)
 
 	hash_refile(rp);
 
-	
+	/* release any buffer */
 	if (rp->c_type == RC_REPLBUFF) {
 		kfree(rp->c_replvec.iov_base);
 		rp->c_replvec.iov_base = NULL;
@@ -176,21 +201,23 @@ nfsd_cache_lookup(struct svc_rqst *rqstp)
 	return rtn;
 
 found_entry:
-	
+	/* We found a matching entry which is either in progress or done. */
 	age = jiffies - rp->c_timestamp;
 	rp->c_timestamp = jiffies;
 	lru_put_end(rp);
 
 	rtn = RC_DROPIT;
-	
+	/* Request being processed or excessive rexmits */
 	if (rp->c_state == RC_INPROG || age < RC_DELAY)
 		goto out;
 
+	/* From the hall of fame of impractical attacks:
+	 * Is this a user who tries to snoop on the cache? */
 	rtn = RC_DOIT;
 	if (!rqstp->rq_secure && rp->c_secure)
 		goto out;
 
-	
+	/* Compose RPC reply header */
 	switch (rp->c_type) {
 	case RC_NOCACHE:
 		break;
@@ -200,7 +227,7 @@ found_entry:
 		break;
 	case RC_REPLBUFF:
 		if (!nfsd_cache_append(rqstp, &rp->c_replvec))
-			goto out;	
+			goto out;	/* should not happen */
 		rtn = RC_REPLY;
 		break;
 	default:
@@ -211,6 +238,22 @@ found_entry:
 	goto out;
 }
 
+/*
+ * Update a cache entry. This is called from nfsd_dispatch when
+ * the procedure has been executed and the complete reply is in
+ * rqstp->rq_res.
+ *
+ * We're copying around data here rather than swapping buffers because
+ * the toplevel loop requires max-sized buffers, which would be a waste
+ * of memory for a cache with a max reply size of 100 bytes (diropokres).
+ *
+ * If we should start to use different types of cache entries tailored
+ * specifically for attrstat and fh's, we may save even more space.
+ *
+ * Also note that a cachetype of RC_NOCACHE can legally be passed when
+ * nfsd failed to encode a reply that otherwise would have been cached.
+ * In this case, nfsd_cache_update is called with statp == NULL.
+ */
 void
 nfsd_cache_update(struct svc_rqst *rqstp, int cachetype, __be32 *statp)
 {
@@ -224,7 +267,7 @@ nfsd_cache_update(struct svc_rqst *rqstp, int cachetype, __be32 *statp)
 	len = resv->iov_len - ((char*)statp - (char*)resv->iov_base);
 	len >>= 2;
 
-	
+	/* Don't cache excessive amounts of data and XDR failures */
 	if (!statp || len > (256 >> 2)) {
 		rp->c_state = RC_UNUSED;
 		return;
@@ -259,6 +302,11 @@ nfsd_cache_update(struct svc_rqst *rqstp, int cachetype, __be32 *statp)
 	return;
 }
 
+/*
+ * Copy cached reply to current reply buffer. Should always fit.
+ * FIXME as reply is in a page, we should just attach the page, and
+ * keep a refcount....
+ */
 static int
 nfsd_cache_append(struct svc_rqst *rqstp, struct kvec *data)
 {

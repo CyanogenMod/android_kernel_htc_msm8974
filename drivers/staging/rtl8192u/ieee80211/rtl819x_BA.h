@@ -18,6 +18,14 @@
 #define	DELBA_REASON_END_BA			37
 #define	DELBA_REASON_UNKNOWN_BA	38
 #define	DELBA_REASON_TIMEOUT			39
+/*  whether need define BA Action frames here?
+struct ieee80211_ADDBA_Req{
+	struct ieee80211_header_data header;
+	u8	category;
+	u8
+} __attribute__ ((packed));
+*/
+//Is this need?I put here just to make it easier to define structure BA_RECORD //WB
 typedef union _SEQUENCE_CONTROL{
 	u16 ShortData;
 	struct
@@ -57,5 +65,5 @@ typedef struct _BA_RECORD {
 	SEQUENCE_CONTROL	BaStartSeqCtrl;
 } BA_RECORD, *PBA_RECORD;
 
-#endif 
+#endif //end _BATYPE_H_
 

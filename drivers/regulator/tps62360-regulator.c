@@ -36,6 +36,7 @@
 #include <linux/slab.h>
 #include <linux/regmap.h>
 
+/* Register definitions */
 #define REG_VSET0		0
 #define REG_VSET1		1
 #define REG_VSET2		2
@@ -53,6 +54,7 @@ enum chips {TPS62360, TPS62361};
 #define TPS62361_BASE_VOLTAGE	500
 #define TPS62361_N_VOLTAGES	128
 
+/* tps 62360 chip information */
 struct tps62360_chip {
 	const char *name;
 	struct device *dev;
@@ -74,6 +76,22 @@ struct tps62360_chip {
 	int curr_vset_id;
 };
 
+/*
+ * find_voltage_set_register: Find new voltage configuration register
+ * (VSET) id.
+ * The finding of the new VSET register will be based on the LRU mechanism.
+ * Each VSET register will have different voltage configured . This
+ * Function will look if any of the VSET register have requested voltage set
+ * or not.
+ *     - If it is already there then it will make that register as most
+ *       recently used and return as found so that caller need not to set
+ *       the VSET register but need to set the proper gpios to select this
+ *       VSET register.
+ *     - If requested voltage is not found then it will use the least
+ *       recently mechanism to get new VSET register for new configuration
+ *       and will return not_found so that caller need to set new VSET
+ *       register and then gpios (both).
+ */
 static bool find_voltage_set_register(struct tps62360_chip *tps,
 		int req_vsel, int *vset_reg_id)
 {
@@ -139,6 +157,10 @@ static int tps62360_dcdc_set_voltage(struct regulator_dev *dev,
 	if (selector)
 		*selector = (vsel & tps->voltage_reg_mask);
 
+	/*
+	 * If gpios are available to select the VSET register then least
+	 * recently used register for new configuration.
+	 */
 	if (tps->valid_gpios)
 		found = find_voltage_set_register(tps, vsel, &new_vset_id);
 
@@ -154,7 +176,7 @@ static int tps62360_dcdc_set_voltage(struct regulator_dev *dev,
 		tps->curr_vset_vsel[new_vset_id] = vsel;
 	}
 
-	
+	/* Select proper VSET register vio gpios */
 	if (tps->valid_gpios) {
 		gpio_set_value_cansleep(tps->vsel0_gpio,
 					new_vset_id & 0x1);
@@ -210,7 +232,7 @@ static int tps62360_init_dcdc(struct tps62360_chip *tps,
 	int ret;
 	int i;
 
-	
+	/* Initailize internal pull up/down control */
 	if (tps->en_internal_pulldn)
 		ret = regmap_write(tps->regmap, REG_CONTROL, 0xE0);
 	else
@@ -221,7 +243,7 @@ static int tps62360_init_dcdc(struct tps62360_chip *tps,
 		return ret;
 	}
 
-	
+	/* Initailize force PWM mode */
 	if (tps->valid_gpios) {
 		for (i = 0; i < 4; ++i) {
 			ret = tps62360_init_force_pwm(tps, pdata, i);
@@ -234,7 +256,7 @@ static int tps62360_init_dcdc(struct tps62360_chip *tps,
 			return ret;
 	}
 
-	
+	/* Reset output discharge path to reduce power consumption */
 	ret = regmap_update_bits(tps->regmap, REG_RAMPCTRL, BIT(2), 0);
 	if (ret < 0)
 		dev_err(tps->dev, "%s() fails in updating reg %d\n",
@@ -337,6 +359,10 @@ static int __devinit tps62360_probe(struct i2c_client *client,
 		}
 		tps->valid_gpios = true;
 
+		/*
+		 * Initialize the lru index with vset_reg id
+		 * The index 0 will be most recently used and
+		 * set with the tps->curr_vset_id */
 		for (i = 0; i < 4; ++i)
 			tps->lru_index[i] = i;
 		tps->lru_index[0] = tps->curr_vset_id;
@@ -350,7 +376,7 @@ static int __devinit tps62360_probe(struct i2c_client *client,
 		goto err_init;
 	}
 
-	
+	/* Register the regulators */
 	rdev = regulator_register(&tps->desc, &client->dev,
 				&pdata->reg_init_data, tps, NULL);
 	if (IS_ERR(rdev)) {
@@ -374,6 +400,12 @@ err_gpio0:
 	return ret;
 }
 
+/**
+ * tps62360_remove - tps62360 driver i2c remove handler
+ * @client: i2c driver client device structure
+ *
+ * Unregister TPS driver as an i2c client device driver
+ */
 static int __devexit tps62360_remove(struct i2c_client *client)
 {
 	struct tps62360_chip *tps = i2c_get_clientdata(client);
@@ -397,7 +429,7 @@ static void tps62360_shutdown(struct i2c_client *client)
 	if (!tps->en_discharge)
 		return;
 
-	
+	/* Configure the output discharge path */
 	st = regmap_update_bits(tps->regmap, REG_RAMPCTRL, BIT(2), BIT(2));
 	if (st < 0)
 		dev_err(tps->dev, "%s() fails in updating reg %d\n",

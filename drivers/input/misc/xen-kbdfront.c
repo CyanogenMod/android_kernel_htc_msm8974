@@ -44,6 +44,10 @@ static int xenkbd_remove(struct xenbus_device *);
 static int xenkbd_connect_backend(struct xenbus_device *, struct xenkbd_info *);
 static void xenkbd_disconnect_backend(struct xenkbd_info *);
 
+/*
+ * Note: if you need to send out events, see xenfb_do_update() for how
+ * to do that.
+ */
 
 static irqreturn_t input_handler(int rq, void *dev_id)
 {
@@ -54,7 +58,7 @@ static irqreturn_t input_handler(int rq, void *dev_id)
 	prod = page->in_prod;
 	if (prod == page->in_cons)
 		return IRQ_HANDLED;
-	rmb();			
+	rmb();			/* ensure we see ring contents up to prod */
 	for (cons = page->in_cons; cons != prod; cons++) {
 		union xenkbd_in_event *event;
 		struct input_dev *dev;
@@ -93,7 +97,7 @@ static irqreturn_t input_handler(int rq, void *dev_id)
 		if (dev)
 			input_sync(dev);
 	}
-	mb();			
+	mb();			/* ensure we got ring contents */
 	page->in_cons = cons;
 	notify_remote_via_irq(info->irq);
 
@@ -127,7 +131,7 @@ static int __devinit xenkbd_probe(struct xenbus_device *dev,
 	if (abs)
 		xenbus_printf(XBT_NIL, dev->nodename, "request-abs-pointer", "1");
 
-	
+	/* keyboard */
 	kbd = input_allocate_device();
 	if (!kbd)
 		goto error_nomem;
@@ -151,7 +155,7 @@ static int __devinit xenkbd_probe(struct xenbus_device *dev,
 	}
 	info->kbd = kbd;
 
-	
+	/* pointing device */
 	ptr = input_allocate_device();
 	if (!ptr)
 		goto error_nomem;
@@ -327,10 +331,15 @@ InitWait:
 		break;
 
 	case XenbusStateConnected:
+		/*
+		 * Work around xenbus race condition: If backend goes
+		 * through InitWait to Connected fast enough, we can
+		 * get Connected twice here.
+		 */
 		if (dev->state != XenbusStateConnected)
-			goto InitWait; 
+			goto InitWait; /* no InitWait seen yet, fudge it */
 
-		
+		/* Set input abs params to match backend screen res */
 		if (xenbus_scanf(XBT_NIL, info->xbdev->otherend,
 				 "width", "%d", &val) > 0)
 			input_set_abs_params(info->ptr, ABS_X, 0, val, 0, 0);
@@ -364,7 +373,7 @@ static int __init xenkbd_init(void)
 	if (!xen_domain())
 		return -ENODEV;
 
-	
+	/* Nothing to do if running in dom0. */
 	if (xen_initial_domain())
 		return -ENODEV;
 

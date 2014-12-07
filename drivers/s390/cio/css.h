@@ -13,6 +13,9 @@
 
 #include "cio.h"
 
+/*
+ * path grouping stuff
+ */
 #define SPID_FUNC_SINGLE_PATH	   0x00
 #define SPID_FUNC_MULTI_PATH	   0x80
 #define SPID_FUNC_ESTABLISH	   0x00
@@ -31,10 +34,10 @@
 #define SNID_STATE3_SINGLE_PATH	   0
 
 struct path_state {
-	__u8  state1 : 2;	
-	__u8  state2 : 2;	
-	__u8  state3 : 1;	
-	__u8  resvd  : 3;	
+	__u8  state1 : 2;	/* path state value 1 */
+	__u8  state2 : 2;	/* path state value 2 */
+	__u8  state3 : 1;	/* path state value 3 */
+	__u8  resvd  : 3;	/* reserved */
 } __attribute__ ((packed));
 
 struct extended_cssid {
@@ -44,20 +47,37 @@ struct extended_cssid {
 
 struct pgid {
 	union {
-		__u8 fc;   	
-		struct path_state ps;	
+		__u8 fc;   	/* SPID function code */
+		struct path_state ps;	/* SNID path state */
 	} __attribute__ ((packed)) inf;
 	union {
-		__u32 cpu_addr	: 16;	
+		__u32 cpu_addr	: 16;	/* CPU address */
 		struct extended_cssid ext_cssid;
 	} __attribute__ ((packed)) pgid_high;
-	__u32 cpu_id	: 24;	
-	__u32 cpu_model : 16;	
-	__u32 tod_high;		
+	__u32 cpu_id	: 24;	/* CPU identification */
+	__u32 cpu_model : 16;	/* CPU model */
+	__u32 tod_high;		/* high word TOD clock */
 } __attribute__ ((packed));
 
 struct subchannel;
 struct chp_link;
+/**
+ * struct css_driver - device driver for subchannels
+ * @subchannel_type: subchannel type supported by this driver
+ * @drv: embedded device driver structure
+ * @irq: called on interrupts
+ * @chp_event: called for events affecting a channel path
+ * @sch_event: called for events affecting the subchannel
+ * @probe: function called on probe
+ * @remove: function called on remove
+ * @shutdown: called at device shutdown
+ * @prepare: prepare for pm state transition
+ * @complete: undo work done in @prepare
+ * @freeze: callback for freezing during hibernation snapshotting
+ * @thaw: undo work done in @freeze
+ * @restore: callback for restoring after hibernation
+ * @settle: wait for asynchronous work to finish
+ */
 struct css_driver {
 	struct css_device_id *subchannel_type;
 	struct device_driver drv;
@@ -102,11 +122,11 @@ struct channel_subsystem {
 	struct device device;
 	struct pgid global_pgid;
 	struct mutex mutex;
-	
+	/* channel measurement related */
 	int cm_enabled;
 	void *cub_addr1;
 	void *cub_addr2;
-	
+	/* for orphaned ccw devices */
 	struct subchannel *pseudo_subchannel;
 };
 #define to_css(dev) container_of(dev, struct channel_subsystem, device)
@@ -115,6 +135,7 @@ extern struct channel_subsystem *channel_subsystems[];
 
 void channel_subsystem_reinit(void);
 
+/* Helper functions to build lists for the slow path. */
 void css_schedule_eval(struct subchannel_id schid);
 void css_schedule_eval_all(void);
 int css_complete_work(void);

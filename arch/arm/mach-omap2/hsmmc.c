@@ -52,6 +52,16 @@ static void omap_hsmmc1_before_set_reg(struct device *dev, int slot,
 	if (mmc->slots[0].remux)
 		mmc->slots[0].remux(dev, slot, power_on);
 
+	/*
+	 * Assume we power both OMAP VMMC1 (for CMD, CLK, DAT0..3) and the
+	 * card with Vcc regulator (from twl4030 or whatever).  OMAP has both
+	 * 1.8V and 3.0V modes, controlled by the PBIAS register.
+	 *
+	 * In 8-bit modes, OMAP VMMC1A (for DAT4..7) needs a supply, which
+	 * is most naturally TWL VSIM; those pins also use PBIAS.
+	 *
+	 * FIXME handle VMMC1A as needed ...
+	 */
 	if (power_on) {
 		if (cpu_is_omap2430()) {
 			reg = omap_ctrl_readl(OMAP243X_CONTROL_DEVCONF1);
@@ -70,7 +80,7 @@ static void omap_hsmmc1_before_set_reg(struct device *dev, int slot,
 
 		reg = omap_ctrl_readl(control_pbias_offset);
 		if (cpu_is_omap3630()) {
-			
+			/* Set MMC I/O to 52Mhz */
 			prog_io = omap_ctrl_readl(OMAP343X_CONTROL_PROG_IO1);
 			prog_io |= OMAP3630_PRG_SDMMC1_SPEEDCTRL;
 			omap_ctrl_writel(prog_io, OMAP343X_CONTROL_PROG_IO1);
@@ -91,7 +101,7 @@ static void omap_hsmmc1_after_set_reg(struct device *dev, int slot,
 {
 	u32 reg;
 
-	
+	/* 100ms delay required for PBIAS configuration */
 	msleep(100);
 
 	if (power_on) {
@@ -115,6 +125,11 @@ static void omap4_hsmmc1_before_set_reg(struct device *dev, int slot,
 {
 	u32 reg;
 
+	/*
+	 * Assume we power both OMAP VMMC1 (for CMD, CLK, DAT0..3) and the
+	 * card with Vcc regulator (from twl4030 or whatever).  OMAP has both
+	 * 1.8V and 3.0V modes, controlled by the PBIAS register.
+	 */
 	reg = omap4_ctrl_pad_readl(control_pbias_offset);
 	reg &= ~(OMAP4_MMC1_PBIASLITE_PWRDNZ_MASK |
 		OMAP4_MMC1_PWRDNZ_MASK |
@@ -149,7 +164,7 @@ static void omap4_hsmmc1_after_set_reg(struct device *dev, int slot,
 
 		if (reg & OMAP4_MMC1_PBIASLITE_VMODE_ERROR_MASK) {
 			pr_err("Pbias Voltage is not same as LDO\n");
-			
+			/* Caution : On VMODE_ERROR Power Down MMC IO */
 			reg &= ~(OMAP4_MMC1_PWRDNZ_MASK);
 			omap4_ctrl_pad_writel(reg, control_pbias_offset);
 		}
@@ -238,7 +253,7 @@ static inline void omap_hsmmc_mux(struct omap_mmc_platform_data *mmc_controller,
 			}
 		}
 		if (controller_nr == 1) {
-			
+			/* MMC2 */
 			omap_mux_init_signal("sdmmc2_clk",
 				OMAP_PIN_INPUT_PULLUP);
 			omap_mux_init_signal("sdmmc2_cmd",
@@ -246,6 +261,10 @@ static inline void omap_hsmmc_mux(struct omap_mmc_platform_data *mmc_controller,
 			omap_mux_init_signal("sdmmc2_dat0",
 				OMAP_PIN_INPUT_PULLUP);
 
+			/*
+			 * For 8 wire configurations, Lines DAT4, 5, 6 and 7
+			 * need to be muxed in the board-*.c files
+			 */
 			if (mmc_controller->slots[0].caps &
 				(MMC_CAP_4_BIT_DATA | MMC_CAP_8_BIT_DATA)) {
 				omap_mux_init_signal("sdmmc2_dat1",
@@ -268,6 +287,9 @@ static inline void omap_hsmmc_mux(struct omap_mmc_platform_data *mmc_controller,
 			}
 		}
 
+		/*
+		 * For MMC3 the pins need to be muxed in the board-*.c files
+		 */
 	}
 }
 
@@ -326,6 +348,13 @@ static int __init omap_hsmmc_pdata_init(struct omap2_hsmmc_info *c,
 	if (c->vcc_aux_disable_is_sleep)
 		mmc->slots[0].vcc_aux_disable_is_sleep = 1;
 
+	/*
+	 * NOTE:  MMC slots should have a Vcc regulator set up.
+	 * This may be from a TWL4030-family chip, another
+	 * controllable regulator, or a fixed supply.
+	 *
+	 * temporary HACK: ocr_mask instead of fixed supply
+	 */
 	if (cpu_is_omap3505() || cpu_is_omap3517())
 		mmc->slots[0].ocr_mask = MMC_VDD_165_195 |
 					 MMC_VDD_26_27 |
@@ -345,7 +374,7 @@ static int __init omap_hsmmc_pdata_init(struct omap2_hsmmc_info *c,
 	switch (c->mmc) {
 	case 1:
 		if (mmc->slots[0].features & HSMMC_HAS_PBIAS) {
-			
+			/* on-chip level shifting via PBIAS0/PBIAS1 */
 			if (cpu_is_omap44xx()) {
 				mmc->slots[0].before_set_reg =
 						omap4_hsmmc1_before_set_reg;
@@ -362,7 +391,7 @@ static int __init omap_hsmmc_pdata_init(struct omap2_hsmmc_info *c,
 		if (cpu_is_omap3517() || cpu_is_omap3505())
 			mmc->slots[0].set_power = nop_mmc_set_power;
 
-		
+		/* OMAP3630 HSMMC1 supports only 4-bit */
 		if (cpu_is_omap3630() &&
 				(c->caps & MMC_CAP_8_BIT_DATA)) {
 			c->caps &= ~MMC_CAP_8_BIT_DATA;
@@ -381,7 +410,7 @@ static int __init omap_hsmmc_pdata_init(struct omap2_hsmmc_info *c,
 			c->caps |= MMC_CAP_4_BIT_DATA;
 		}
 		if (mmc->slots[0].features & HSMMC_HAS_PBIAS) {
-			
+			/* off-chip level shifting, or none */
 			mmc->slots[0].before_set_reg = hsmmc2_before_set_reg;
 			mmc->slots[0].after_set_reg = NULL;
 		}
@@ -477,6 +506,10 @@ static void __init omap_hsmmc_init_one(struct omap2_hsmmc_info *hsmmcinfo,
 	if (oh->dev_attr != NULL) {
 		mmc_dev_attr = oh->dev_attr;
 		mmc_data->controller_flags = mmc_dev_attr->flags;
+		/*
+		 * erratum 2.1.1.128 doesn't apply if board has
+		 * a transceiver is attached
+		 */
 		if (hsmmcinfo->transceiver)
 			mmc_data->controller_flags &=
 				~OMAP_HSMMC_BROKEN_MULTIBLOCK_READ;

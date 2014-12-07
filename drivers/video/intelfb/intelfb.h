@@ -1,6 +1,7 @@
 #ifndef _INTELFB_H
 #define _INTELFB_H
 
+/* $DHD: intelfb/intelfb.h,v 1.40 2003/06/27 15:06:25 dawes Exp $ */
 
 #include <linux/agp_backend.h>
 #include <linux/fb.h>
@@ -10,11 +11,13 @@
 #include <linux/i2c-algo-bit.h>
 #endif
 
+/*** Version/name ***/
 #define INTELFB_VERSION			"0.9.6"
 #define INTELFB_MODULE_NAME		"intelfb"
 #define SUPPORTED_CHIPSETS		"830M/845G/852GM/855GM/865G/915G/915GM/945G/945GM/945GME/965G/965GM"
 
 
+/*** Debug/feature defines ***/
 
 #ifndef DEBUG
 #define DEBUG				0
@@ -40,10 +43,13 @@
 #define PREFERRED_MODE			"1024x768-32@70"
 #endif
 
+/*** hw-related values ***/
 
+/* Resource Allocation */
 #define INTELFB_FB_ACQUIRED                 1
 #define INTELFB_MMIO_ACQUIRED               2
 
+/* PCI ids for supported devices */
 #define PCI_DEVICE_ID_INTEL_830M	0x3577
 #define PCI_DEVICE_ID_INTEL_845G	0x2562
 #define PCI_DEVICE_ID_INTEL_85XGM	0x3582
@@ -57,6 +63,7 @@
 #define PCI_DEVICE_ID_INTEL_965G	0x29A2
 #define PCI_DEVICE_ID_INTEL_965GM	0x2A02
 
+/* Size of MMIO region */
 #define INTEL_REG_SIZE			0x80000
 
 #define STRIDE_ALIGNMENT		16
@@ -65,7 +72,9 @@
 #define PALETTE_8_ENTRIES		256
 
 
+/*** Macros ***/
 
+/* basic arithmetic */
 #define KB(x)			((x) * 1024)
 #define MB(x)			((x) * 1024 * 1024)
 #define BtoKB(x)		((x) / 1024)
@@ -78,6 +87,7 @@
 #define ROUND_UP_TO_PAGE(x)	ROUND_UP_TO((x), GTT_PAGE_SIZE)
 #define ROUND_DOWN_TO_PAGE(x)	ROUND_DOWN_TO((x), GTT_PAGE_SIZE)
 
+/* messages */
 #define PFX			INTELFB_MODULE_NAME ": "
 
 #define ERR_MSG(fmt, args...)	printk(KERN_ERR PFX fmt, ## args)
@@ -90,25 +100,36 @@
 #define DBG_MSG(fmt, args...)	while (0) printk(fmt, ## args)
 #endif
 
+/* get commonly used pointers */
 #define GET_DINFO(info)		(info)->par
 
+/* misc macros */
 #define ACCEL(d, i)                                                     \
 	((d)->accel && !(d)->ring_lockup &&                             \
 	 ((i)->var.accel_flags & FB_ACCELF_TEXT))
 
+/*#define NOACCEL_CHIPSET(d)						\
+	((d)->chipset != INTEL_865G)*/
 #define NOACCEL_CHIPSET(d)						\
 	(0)
 
 #define FIXED_MODE(d) ((d)->fixed_mode)
 
+/*** Driver parameters ***/
 
 #define RINGBUFFER_SIZE		KB(64)
 #define HW_CURSOR_SIZE		KB(4)
 
+/* Intel agpgart driver */
 #define AGP_PHYSICAL_MEMORY     2
 
+/* store information about an Ixxx DVO */
+/* The i830->i865 use multiple DVOs with multiple i2cs */
+/* the i915, i945 have a single sDVO i2c bus - which is different */
 #define MAX_OUTPUTS 6
 
+/* these are outputs from the chip - integrated only
+   external chips are via DVO or SDVO output */
 #define INTELFB_OUTPUT_UNUSED 0
 #define INTELFB_OUTPUT_ANALOG 1
 #define INTELFB_OUTPUT_DVO 2
@@ -125,7 +146,9 @@
 #define INTELFB_OUTPUT_PIPE_A   1
 #define INTELFB_OUTPUT_PIPE_B   2
 
+/*** Data Types ***/
 
+/* supported chipsets */
 enum intel_chips {
 	INTEL_830M,
 	INTEL_845G,
@@ -216,8 +239,8 @@ struct intelfb_hwstate {
 struct intelfb_heap_data {
 	u32 physical;
 	u8 __iomem *virtual;
-	u32 offset;		
-	u32 size;		
+	u32 offset;		/* in GATT pages */
+	u32 size;		/* in bytes */
 };
 
 #ifdef CONFIG_FB_INTEL_I2C
@@ -254,57 +277,57 @@ struct intelfb_info {
 
 	struct intelfb_hwstate save_state;
 
-	
-	struct agp_memory *gtt_fb_mem;     
-	struct agp_memory *gtt_ring_mem;   
-	struct agp_memory *gtt_cursor_mem; 
+	/* agpgart structs */
+	struct agp_memory *gtt_fb_mem;     /* use all stolen memory or vram */
+	struct agp_memory *gtt_ring_mem;   /* ring buffer */
+	struct agp_memory *gtt_cursor_mem; /* hw cursor */
 
-	
+	/* use a gart reserved fb mem */
 	u8 fbmem_gart;
 
-	
+	/* mtrr support */
 	int mtrr_reg;
 	u32 has_mtrr;
 
-	
+	/* heap data */
 	struct intelfb_heap_data aperture;
 	struct intelfb_heap_data fb;
 	struct intelfb_heap_data ring;
 	struct intelfb_heap_data cursor;
 
-	
+	/* mmio regs */
 	u32 mmio_base_phys;
 	u8 __iomem *mmio_base;
 
-	
+	/* fb start offset (in bytes) */
 	u32 fb_start;
 
-	
+	/* ring buffer */
 	u32 ring_head;
 	u32 ring_tail;
 	u32 ring_tail_mask;
 	u32 ring_space;
 	u32 ring_lockup;
 
-	
+	/* palette */
 	u32 pseudo_palette[16];
 
-	
+	/* chip info */
 	int pci_chipset;
 	int chipset;
 	const char *name;
 	int mobile;
 
-	
+	/* current mode */
 	int bpp, depth;
 	u32 visual;
 	int xres, yres, pitch;
 	int pixclock;
 
-	
+	/* current pipe */
 	int pipe;
 
-	
+	/* some flags */
 	int accel;
 	int hwcursor;
 	int fixed_mode;
@@ -313,29 +336,29 @@ struct intelfb_info {
 	unsigned long irq_flags;
 	int open;
 
-	
+	/* vsync */
 	struct intelfb_vsync vsync;
 	spinlock_t int_lock;
 
-	
+	/* hw cursor */
 	int cursor_on;
 	int cursor_blanked;
 	u8  cursor_src[64];
 
-	
+	/* initial parameters */
 	int initial_vga;
 	struct fb_var_screeninfo initial_var;
 	u32 initial_fb_base;
 	u32 initial_video_ram;
 	u32 initial_pitch;
 
-	
+	/* driver registered */
 	int registered;
 
-	
+	/* index into plls */
 	int pll_index;
 
-	
+	/* outputs */
 	int num_outputs;
 	struct intelfb_output_rec output[MAX_OUTPUTS];
 };
@@ -348,6 +371,7 @@ struct intelfb_info {
 			((dinfo)->chipset == INTEL_965G) ||	\
 			((dinfo)->chipset == INTEL_965GM))
 
+/*** function prototypes ***/
 
 extern int intelfb_var_to_depth(const struct fb_var_screeninfo *var);
 
@@ -356,4 +380,4 @@ extern void intelfb_create_i2c_busses(struct intelfb_info *dinfo);
 extern void intelfb_delete_i2c_busses(struct intelfb_info *dinfo);
 #endif
 
-#endif 
+#endif /* _INTELFB_H */

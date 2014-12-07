@@ -31,45 +31,54 @@ int com20020_check(struct net_device *dev);
 int com20020_found(struct net_device *dev, int shared);
 extern const struct net_device_ops com20020_netdev_ops;
 
+/* The number of low I/O ports used by the card. */
 #define ARCNET_TOTAL_SIZE 8
 
+/* various register addresses */
 #ifdef CONFIG_SA1100_CT6001
-#define BUS_ALIGN  2  
+#define BUS_ALIGN  2  /* 8 bit device on a 16 bit bus - needs padding */
 #else
 #define BUS_ALIGN  1
 #endif
 
 
-#define _INTMASK  (ioaddr+BUS_ALIGN*0)	
-#define _STATUS   (ioaddr+BUS_ALIGN*0)	
-#define _COMMAND  (ioaddr+BUS_ALIGN*1)	
-#define _DIAGSTAT (ioaddr+BUS_ALIGN*1)	
-#define _ADDR_HI  (ioaddr+BUS_ALIGN*2)	
+#define _INTMASK  (ioaddr+BUS_ALIGN*0)	/* writable */
+#define _STATUS   (ioaddr+BUS_ALIGN*0)	/* readable */
+#define _COMMAND  (ioaddr+BUS_ALIGN*1)	/* standard arcnet commands */
+#define _DIAGSTAT (ioaddr+BUS_ALIGN*1)	/* diagnostic status register */
+#define _ADDR_HI  (ioaddr+BUS_ALIGN*2)	/* control registers for IO-mapped memory */
 #define _ADDR_LO  (ioaddr+BUS_ALIGN*3)
-#define _MEMDATA  (ioaddr+BUS_ALIGN*4)	
-#define _SUBADR   (ioaddr+BUS_ALIGN*5)	
-#define _CONFIG   (ioaddr+BUS_ALIGN*6)	
-#define _XREG     (ioaddr+BUS_ALIGN*7)	
+#define _MEMDATA  (ioaddr+BUS_ALIGN*4)	/* data port for IO-mapped memory */
+#define _SUBADR   (ioaddr+BUS_ALIGN*5)	/* the extended port _XREG refers to */
+#define _CONFIG   (ioaddr+BUS_ALIGN*6)	/* configuration register */
+#define _XREG     (ioaddr+BUS_ALIGN*7)	/* extra registers (indexed by _CONFIG
+  					or _SUBADR) */
 
-#define RDDATAflag	0x80	
+/* in the ADDR_HI register */
+#define RDDATAflag	0x80	/* next access is a read (not a write) */
 
-#define NEWNXTIDflag	0x02	
+/* in the DIAGSTAT register */
+#define NEWNXTIDflag	0x02	/* ID to which token is passed has changed */
 
-#define RESETcfg	0x80	
-#define TXENcfg		0x20	
+/* in the CONFIG register */
+#define RESETcfg	0x80	/* put card in reset state */
+#define TXENcfg		0x20	/* enable TX */
 
-#define PROMISCset	0x10	
-#define P1MODE		0x80    
-#define SLOWARB		0x01    
+/* in SETUP register */
+#define PROMISCset	0x10	/* enable RCV_ALL */
+#define P1MODE		0x80    /* enable P1-MODE for Backplane */
+#define SLOWARB		0x01    /* enable Slow Arbitration for >=5Mbps */
 
-#define SUB_TENTATIVE	0	
-#define SUB_NODE	1	
-#define SUB_SETUP1	2	
-#define SUB_TEST	3	
+/* COM2002x */
+#define SUB_TENTATIVE	0	/* tentative node ID */
+#define SUB_NODE	1	/* node ID */
+#define SUB_SETUP1	2	/* various options */
+#define SUB_TEST	3	/* test/diag register */
 
-#define SUB_SETUP2	4	
-#define SUB_BUSCTL	5	
-#define SUB_DMACOUNT	6	
+/* COM20022 only */
+#define SUB_SETUP2	4	/* sundry options */
+#define SUB_BUSCTL	5	/* bus control options */
+#define SUB_DMACOUNT	6	/* DMA count options */
 
 #define SET_SUBADR(x) do { \
 	if ((x) < 4) \
@@ -104,4 +113,4 @@ extern const struct net_device_ops com20020_netdev_ops;
 
 #define SETCONF		outb(lp->config, _CONFIG)
 
-#endif 
+#endif /* __COM20020_H */

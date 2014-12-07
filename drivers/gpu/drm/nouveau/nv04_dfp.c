@@ -51,6 +51,10 @@ static inline bool is_fpc_off(uint32_t fpc)
 
 int nv04_dfp_get_bound_head(struct drm_device *dev, struct dcb_entry *dcbent)
 {
+	/* special case of nv_read_tmds to find crtc associated with an output.
+	 * this does not give a correct answer for off-chip dvi, but there's no
+	 * use for such an answer anyway
+	 */
 	int ramdac = (dcbent->or & OUTPUT_C) >> 2;
 
 	NVWriteRAMDAC(dev, ramdac, NV_PRAMDAC_FP_TMDS_CONTROL,
@@ -61,6 +65,12 @@ int nv04_dfp_get_bound_head(struct drm_device *dev, struct dcb_entry *dcbent)
 void nv04_dfp_bind_head(struct drm_device *dev, struct dcb_entry *dcbent,
 			int head, bool dl)
 {
+	/* The BIOS scripts don't do this for us, sadly
+	 * Luckily we do know the values ;-)
+	 *
+	 * head < 0 indicates we wish to force a setting with the overrideval
+	 * (for VT restore etc.)
+	 */
 
 	int ramdac = (dcbent->or & OUTPUT_C) >> 2;
 	uint8_t tmds04 = 0x80;
@@ -73,7 +83,7 @@ void nv04_dfp_bind_head(struct drm_device *dev, struct dcb_entry *dcbent,
 
 	nv_write_tmds(dev, dcbent->or, 0, 0x04, tmds04);
 
-	if (dl)	
+	if (dl)	/* dual link */
 		nv_write_tmds(dev, dcbent->or, 1, 0x04, tmds04 ^ 0x08);
 }
 
@@ -84,6 +94,10 @@ void nv04_dfp_disable(struct drm_device *dev, int head)
 
 	if (NVReadRAMDAC(dev, head, NV_PRAMDAC_FP_TG_CONTROL) &
 	    FP_TG_CONTROL_ON) {
+		/* digital remnants must be cleaned before new crtc
+		 * values programmed.  delay is time for the vga stuff
+		 * to realise it's in control again
+		 */
 		NVWriteRAMDAC(dev, head, NV_PRAMDAC_FP_TG_CONTROL,
 			      FP_TG_CONTROL_OFF);
 		msleep(50);
@@ -107,6 +121,10 @@ void nv04_dfp_update_fp_control(struct drm_encoder *encoder, int mode)
 		fpc = &dev_priv->mode_reg.crtc_reg[nv_crtc->index].fp_control;
 
 		if (is_fpc_off(*fpc)) {
+			/* using saved value is ok, as (is_digital && dpms_on &&
+			 * fp_control==OFF) is (at present) *only* true when
+			 * fpc's most recent change was by below "off" code
+			 */
 			*fpc = nv_crtc->dpms_saved_fp_control;
 		}
 
@@ -120,7 +138,7 @@ void nv04_dfp_update_fp_control(struct drm_encoder *encoder, int mode)
 			nv_crtc->fp_users &= ~(1 << nouveau_encoder(encoder)->dcb->index);
 			if (!is_fpc_off(*fpc) && !nv_crtc->fp_users) {
 				nv_crtc->dpms_saved_fp_control = *fpc;
-				
+				/* cut the FP output */
 				*fpc &= ~FP_TG_CONTROL_ON;
 				*fpc |= FP_TG_CONTROL_OFF;
 				NVWriteRAMDAC(dev, nv_crtc->index,
@@ -139,6 +157,16 @@ static struct drm_encoder *get_tmds_slave(struct drm_encoder *encoder)
 	if (dcb->type != OUTPUT_TMDS || dcb->location == DCB_LOC_ON_CHIP)
 		return NULL;
 
+	/* Some BIOSes (e.g. the one in a Quadro FX1000) report several
+	 * TMDS transmitters at the same I2C address, in the same I2C
+	 * bus. This can still work because in that case one of them is
+	 * always hard-wired to a reasonable configuration using straps,
+	 * and the other one needs to be programmed.
+	 *
+	 * I don't think there's a way to know which is which, even the
+	 * blob programs the one exposed via I2C for *both* heads, so
+	 * let's do the same.
+	 */
 	list_for_each_entry(slave, &dev->mode_config.encoder_list, head) {
 		struct dcb_entry *slave_dcb = nouveau_encoder(slave)->dcb;
 
@@ -181,11 +209,30 @@ static void nv04_dfp_prepare_sel_clk(struct drm_device *dev,
 	if (nv_encoder->dcb->location != DCB_LOC_ON_CHIP)
 		return;
 
+	/* SEL_CLK is only used on the primary ramdac
+	 * It toggles spread spectrum PLL output and sets the bindings of PLLs
+	 * to heads on digital outputs
+	 */
 	if (head)
 		state->sel_clk |= bits1618;
 	else
 		state->sel_clk &= ~bits1618;
 
+	/* nv30:
+	 *	bit 0		NVClk spread spectrum on/off
+	 *	bit 2		MemClk spread spectrum on/off
+	 * 	bit 4		PixClk1 spread spectrum on/off toggle
+	 * 	bit 6		PixClk2 spread spectrum on/off toggle
+	 *
+	 * nv40 (observations from bios behaviour and mmio traces):
+	 * 	bits 4&6	as for nv30
+	 * 	bits 5&7	head dependent as for bits 4&6, but do not appear with 4&6;
+	 * 			maybe a different spread mode
+	 * 	bits 8&10	seen on dual-link dvi outputs, purpose unknown (set by POST scripts)
+	 * 	The logic behind turning spread spectrum on/off in the first place,
+	 * 	and which bit-pair to use, is unclear on nv40 (for earlier cards, the fp table
+	 * 	entry has the necessary info)
+	 */
 	if (nv_encoder->dcb->type == OUTPUT_LVDS && dev_priv->saved_reg.sel_clk & 0xf0) {
 		int shift = (dev_priv->saved_reg.sel_clk & 0x50) ? 0 : 1;
 
@@ -219,7 +266,7 @@ static void nv04_dfp_prepare(struct drm_encoder *encoder)
 			if (nv_encoder->dcb->type == OUTPUT_LVDS)
 				*cr_lcd |= 0x30;
 			if ((*cr_lcd & 0x30) == (*cr_lcd_oth & 0x30)) {
-				
+				/* avoid being connected to both crtcs */
 				*cr_lcd_oth &= ~0x30;
 				NVWriteVgaCrtc(dev, head ^ 1,
 					       NV_CIO_CRE_LCD__INDEX,
@@ -248,7 +295,7 @@ static void nv04_dfp_mode_set(struct drm_encoder *encoder,
 	NV_DEBUG_KMS(dev, "Output mode on CRTC %d:\n", nv_crtc->index);
 	drm_mode_debug_printmodeline(output_mode);
 
-	
+	/* Initialize the FP registers in this CRTC. */
 	regp->fp_horiz_regs[FP_DISPLAY_END] = output_mode->hdisplay - 1;
 	regp->fp_horiz_regs[FP_TOTAL] = output_mode->htotal - 1;
 	if (!nv_gf4_disp_arch(dev) ||
@@ -270,23 +317,23 @@ static void nv04_dfp_mode_set(struct drm_encoder *encoder,
 	regp->fp_vert_regs[FP_VALID_START] = 0;
 	regp->fp_vert_regs[FP_VALID_END] = output_mode->vdisplay - 1;
 
-	
+	/* bit26: a bit seen on some g7x, no as yet discernable purpose */
 	regp->fp_control = NV_PRAMDAC_FP_TG_CONTROL_DISPEN_POS |
 			   (savep->fp_control & (1 << 26 | NV_PRAMDAC_FP_TG_CONTROL_READ_PROG));
-	
-	
+	/* Deal with vsync/hsync polarity */
+	/* LVDS screens do set this, but modes with +ve syncs are very rare */
 	if (output_mode->flags & DRM_MODE_FLAG_PVSYNC)
 		regp->fp_control |= NV_PRAMDAC_FP_TG_CONTROL_VSYNC_POS;
 	if (output_mode->flags & DRM_MODE_FLAG_PHSYNC)
 		regp->fp_control |= NV_PRAMDAC_FP_TG_CONTROL_HSYNC_POS;
-	
+	/* panel scaling first, as native would get set otherwise */
 	if (nv_connector->scaling_mode == DRM_MODE_SCALE_NONE ||
-	    nv_connector->scaling_mode == DRM_MODE_SCALE_CENTER)	
+	    nv_connector->scaling_mode == DRM_MODE_SCALE_CENTER)	/* panel handles it */
 		regp->fp_control |= NV_PRAMDAC_FP_TG_CONTROL_MODE_CENTER;
 	else if (adjusted_mode->hdisplay == output_mode->hdisplay &&
-		 adjusted_mode->vdisplay == output_mode->vdisplay) 
+		 adjusted_mode->vdisplay == output_mode->vdisplay) /* native mode */
 		regp->fp_control |= NV_PRAMDAC_FP_TG_CONTROL_MODE_NATIVE;
-	else 
+	else /* gpu needs to scale */
 		regp->fp_control |= NV_PRAMDAC_FP_TG_CONTROL_MODE_SCALE;
 	if (nvReadEXTDEV(dev, NV_PEXTDEV_BOOT_0) & NV_PEXTDEV_BOOT_0_STRAP_FP_IFACE_12BIT)
 		regp->fp_control |= NV_PRAMDAC_FP_TG_CONTROL_WIDTH_12;
@@ -317,26 +364,31 @@ static void nv04_dfp_mode_set(struct drm_encoder *encoder,
 			   NV_PRAMDAC_FP_DEBUG_0_YSCALE_ENABLE |
 			   NV_PRAMDAC_FP_DEBUG_0_XSCALE_ENABLE;
 
-	
+	/* We want automatic scaling */
 	regp->fp_debug_1 = 0;
-	
+	/* This can override HTOTAL and VTOTAL */
 	regp->fp_debug_2 = 0;
 
-	
+	/* Use 20.12 fixed point format to avoid floats */
 	mode_ratio = (1 << 12) * adjusted_mode->hdisplay / adjusted_mode->vdisplay;
 	panel_ratio = (1 << 12) * output_mode->hdisplay / output_mode->vdisplay;
+	/* if ratios are equal, SCALE_ASPECT will automatically (and correctly)
+	 * get treated the same as SCALE_FULLSCREEN */
 	if (nv_connector->scaling_mode == DRM_MODE_SCALE_ASPECT &&
 	    mode_ratio != panel_ratio) {
 		uint32_t diff, scale;
 		bool divide_by_2 = nv_gf4_disp_arch(dev);
 
 		if (mode_ratio < panel_ratio) {
+			/* vertical needs to expand to glass size (automatic)
+			 * horizontal needs to be scaled at vertical scale factor
+			 * to maintain aspect */
 
 			scale = (1 << 12) * adjusted_mode->vdisplay / output_mode->vdisplay;
 			regp->fp_debug_1 = NV_PRAMDAC_FP_DEBUG_1_XSCALE_TESTMODE_ENABLE |
 					   XLATE(scale, divide_by_2, NV_PRAMDAC_FP_DEBUG_1_XSCALE_VALUE);
 
-			
+			/* restrict area of screen used, horizontally */
 			diff = output_mode->hdisplay -
 			       output_mode->vdisplay * mode_ratio / (1 << 12);
 			regp->fp_horiz_regs[FP_VALID_START] += diff / 2;
@@ -344,12 +396,15 @@ static void nv04_dfp_mode_set(struct drm_encoder *encoder,
 		}
 
 		if (mode_ratio > panel_ratio) {
+			/* horizontal needs to expand to glass size (automatic)
+			 * vertical needs to be scaled at horizontal scale factor
+			 * to maintain aspect */
 
 			scale = (1 << 12) * adjusted_mode->hdisplay / output_mode->hdisplay;
 			regp->fp_debug_1 = NV_PRAMDAC_FP_DEBUG_1_YSCALE_TESTMODE_ENABLE |
 					   XLATE(scale, divide_by_2, NV_PRAMDAC_FP_DEBUG_1_YSCALE_VALUE);
 
-			
+			/* restrict area of screen used, vertically */
 			diff = output_mode->vdisplay -
 			       (1 << 12) * output_mode->hdisplay / mode_ratio;
 			regp->fp_vert_regs[FP_VALID_START] += diff / 2;
@@ -357,7 +412,7 @@ static void nv04_dfp_mode_set(struct drm_encoder *encoder,
 		}
 	}
 
-	
+	/* Output property. */
 	if ((nv_connector->dithering_mode == DITHERING_MODE_ON) ||
 	    (nv_connector->dithering_mode == DITHERING_MODE_AUTO &&
 	     encoder->crtc->fb->depth > connector->display_info.bpc * 3)) {
@@ -373,7 +428,7 @@ static void nv04_dfp_mode_set(struct drm_encoder *encoder,
 		}
 	} else {
 		if (dev_priv->chipset != 0x11) {
-			
+			/* reset them */
 			int i;
 			for (i = 0; i < 3; i++) {
 				regp->dither_regs[i] = savep->dither_regs[i];
@@ -407,13 +462,13 @@ static void nv04_dfp_commit(struct drm_encoder *encoder)
 	dev_priv->mode_reg.crtc_reg[head].fp_control =
 		NVReadRAMDAC(dev, head, NV_PRAMDAC_FP_TG_CONTROL);
 
-	
+	/* This could use refinement for flatpanels, but it should work this way */
 	if (dev_priv->chipset < 0x44)
 		NVWriteRAMDAC(dev, 0, NV_PRAMDAC_TEST_CONTROL + nv04_dac_output_offset(encoder), 0xf0000000);
 	else
 		NVWriteRAMDAC(dev, 0, NV_PRAMDAC_TEST_CONTROL + nv04_dac_output_offset(encoder), 0x00100000);
 
-	
+	/* Init external transmitters */
 	slave_encoder = get_tmds_slave(encoder);
 	if (slave_encoder)
 		get_slave_funcs(slave_encoder)->mode_set(
@@ -431,6 +486,9 @@ static void nv04_dfp_update_backlight(struct drm_encoder *encoder, int mode)
 #ifdef __powerpc__
 	struct drm_device *dev = encoder->dev;
 
+	/* BIOS scripts usually take care of the backlight, thanks
+	 * Apple for your consistency.
+	 */
 	if (dev->pci_device == 0x0179 || dev->pci_device == 0x0189 ||
 	    dev->pci_device == 0x0329) {
 		if (mode == DRM_MODE_DPMS_ON) {
@@ -468,6 +526,9 @@ static void nv04_lvds_dpms(struct drm_encoder *encoder, int mode)
 		return;
 
 	if (nv_encoder->dcb->lvdsconf.use_power_scripts) {
+		/* when removing an output, crtc may not be set, but PANEL_OFF
+		 * must still be run
+		 */
 		int head = crtc ? nouveau_crtc(crtc)->index :
 			   nv04_dfp_get_bound_head(dev, nv_encoder->dcb);
 
@@ -475,6 +536,9 @@ static void nv04_lvds_dpms(struct drm_encoder *encoder, int mode)
 			call_lvds_script(dev, nv_encoder->dcb, head,
 					 LVDS_PANEL_ON, nv_encoder->mode.clock);
 		} else
+			/* pxclk of 0 is fine for PANEL_OFF, and for a
+			 * disconnected LVDS encoder there is no native_mode
+			 */
 			call_lvds_script(dev, nv_encoder->dcb, head,
 					 LVDS_PANEL_OFF, 0);
 	}

@@ -38,10 +38,13 @@
 		(ISNPHY(pi) ? VALID_N_RADIO(radioid) : false) || \
 		(ISLCNPHY(pi) ? VALID_LCN_RADIO(radioid) : false))
 
+/* basic mux operation - can be optimized on several architectures */
 #define MUX(pred, true, false) ((pred) ? (true) : (false))
 
+/* modulo inc/dec - assumes x E [0, bound - 1] */
 #define MODINC(x, bound) MUX((x) == (bound) - 1, 0, (x) + 1)
 
+/* modulo inc/dec, bound = 2^k */
 #define MODDEC_POW2(x, bound) (((x) - 1) & ((bound) - 1))
 #define MODINC_POW2(x, bound) (((x) + 1) & ((bound) - 1))
 

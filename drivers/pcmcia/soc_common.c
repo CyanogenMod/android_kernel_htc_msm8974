@@ -200,15 +200,15 @@ static unsigned int soc_common_pcmcia_skt_state(struct soc_pcmcia_socket *skt)
 
 	memset(&state, 0, sizeof(struct pcmcia_state));
 
-	
+	/* Make battery voltage state report 'good' */
 	state.bvd1 = 1;
 	state.bvd2 = 1;
 
-	
+	/* CD is active low by default */
 	if (gpio_is_valid(skt->stat[SOC_STAT_CD].gpio))
 		state.detect = !gpio_get_value(skt->stat[SOC_STAT_CD].gpio);
 
-	
+	/* RDY and BVD are active high by default */
 	if (gpio_is_valid(skt->stat[SOC_STAT_RDY].gpio))
 		state.ready = !!gpio_get_value(skt->stat[SOC_STAT_RDY].gpio);
 	if (gpio_is_valid(skt->stat[SOC_STAT_BVD1].gpio))
@@ -224,6 +224,10 @@ static unsigned int soc_common_pcmcia_skt_state(struct soc_pcmcia_socket *skt)
 	stat |= state.vs_3v  ? SS_3VCARD : 0;
 	stat |= state.vs_Xv  ? SS_XVCARD : 0;
 
+	/* The power status of individual sockets is not available
+	 * explicitly from the hardware, so we just remember the state
+	 * and regurgitate it upon request:
+	 */
 	stat |= skt->cs_state.Vcc ? SS_POWERON : 0;
 
 	if (skt->cs_state.flags & SS_IOCARD)
@@ -237,6 +241,12 @@ static unsigned int soc_common_pcmcia_skt_state(struct soc_pcmcia_socket *skt)
 	return stat;
 }
 
+/*
+ * soc_common_pcmcia_config_skt
+ * ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ *
+ * Convert PCMCIA socket state to our socket configure structure.
+ */
 static int soc_common_pcmcia_config_skt(
 	struct soc_pcmcia_socket *skt, socket_state_t *state)
 {
@@ -244,6 +254,10 @@ static int soc_common_pcmcia_config_skt(
 
 	ret = skt->ops->configure_socket(skt, state);
 	if (ret == 0) {
+		/*
+		 * This really needs a better solution.  The IRQ
+		 * may or may not be claimed by the driver.
+		 */
 		if (skt->irq_state != 1 && state->io_irq) {
 			skt->irq_state = 1;
 			irq_set_irq_type(skt->socket.pci_irq,
@@ -263,6 +277,15 @@ static int soc_common_pcmcia_config_skt(
 	return ret;
 }
 
+/* soc_common_pcmcia_sock_init()
+ * ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ *
+ * (Re-)Initialise the socket, turning on status interrupts
+ * and PCMCIA bus.  This must wait for power to stabilise
+ * so that the card status signals report correctly.
+ *
+ * Returns: 0
+ */
 static int soc_common_pcmcia_sock_init(struct pcmcia_socket *sock)
 {
 	struct soc_pcmcia_socket *skt = to_soc_pcmcia_socket(sock);
@@ -275,6 +298,15 @@ static int soc_common_pcmcia_sock_init(struct pcmcia_socket *sock)
 }
 
 
+/*
+ * soc_common_pcmcia_suspend()
+ * ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ *
+ * Remove power on the socket, disable IRQs from the card.
+ * Turn off status interrupts, and disable the PCMCIA bus.
+ *
+ * Returns: 0
+ */
 static int soc_common_pcmcia_suspend(struct pcmcia_socket *sock)
 {
 	struct soc_pcmcia_socket *skt = to_soc_pcmcia_socket(sock);
@@ -320,6 +352,7 @@ static void soc_common_check_status(struct soc_pcmcia_socket *skt)
 	} while (events);
 }
 
+/* Let's poll for events in addition to IRQs since IRQ only is unreliable... */
 static void soc_common_pcmcia_poll_event(unsigned long dummy)
 {
 	struct soc_pcmcia_socket *skt = (struct soc_pcmcia_socket *)dummy;
@@ -331,6 +364,14 @@ static void soc_common_pcmcia_poll_event(unsigned long dummy)
 }
 
 
+/*
+ * Service routine for socket driver interrupts (requested by the
+ * low-level PCMCIA init() operation via soc_common_pcmcia_thread()).
+ * The actual interrupt-servicing work is performed by
+ * soc_common_pcmcia_thread(), largely because the Card Services event-
+ * handling code performs scheduling operations which cannot be
+ * executed from within an interrupt context.
+ */
 static irqreturn_t soc_common_pcmcia_interrupt(int irq, void *dev)
 {
 	struct soc_pcmcia_socket *skt = dev;
@@ -343,6 +384,21 @@ static irqreturn_t soc_common_pcmcia_interrupt(int irq, void *dev)
 }
 
 
+/*
+ *  Implements the get_status() operation for the in-kernel PCMCIA
+ * service (formerly SS_GetStatus in Card Services). Essentially just
+ * fills in bits in `status' according to internal driver state or
+ * the value of the voltage detect chipselect register.
+ *
+ * As a debugging note, during card startup, the PCMCIA core issues
+ * three set_socket() commands in a row the first with RESET deasserted,
+ * the second with RESET asserted, and the last with RESET deasserted
+ * again. Following the third set_socket(), a get_status() command will
+ * be issued. The kernel is looking for the SS_READY flag (see
+ * setup_socket(), reset_socket(), and unreset_socket() in cs.c).
+ *
+ * Returns: 0
+ */
 static int
 soc_common_pcmcia_get_status(struct pcmcia_socket *sock, unsigned int *status)
 {
@@ -355,6 +411,13 @@ soc_common_pcmcia_get_status(struct pcmcia_socket *sock, unsigned int *status)
 }
 
 
+/*
+ * Implements the set_socket() operation for the in-kernel PCMCIA
+ * service (formerly SS_SetSocket in Card Services). We more or
+ * less punt all of this work and let the kernel handle the details
+ * of power configuration, reset, &c. We also record the value of
+ * `state' in order to regurgitate it to the PCMCIA core later.
+ */
 static int soc_common_pcmcia_set_socket(
 	struct pcmcia_socket *sock, socket_state_t *state)
 {
@@ -379,6 +442,14 @@ static int soc_common_pcmcia_set_socket(
 }
 
 
+/*
+ * Implements the set_io_map() operation for the in-kernel PCMCIA
+ * service (formerly SS_SetIOMap in Card Services). We configure
+ * the map speed as requested, but override the address ranges
+ * supplied by Card Services.
+ *
+ * Returns: 0 on success, -1 on error
+ */
 static int soc_common_pcmcia_set_io_map(
 	struct pcmcia_socket *sock, struct pccard_io_map *map)
 {
@@ -425,6 +496,14 @@ static int soc_common_pcmcia_set_io_map(
 }
 
 
+/*
+ * Implements the set_mem_map() operation for the in-kernel PCMCIA
+ * service (formerly SS_SetMemMap in Card Services). We configure
+ * the map speed as requested, but override the address ranges
+ * supplied by Card Services.
+ *
+ * Returns: 0 on success, -ERRNO on error
+ */
 static int soc_common_pcmcia_set_mem_map(
 	struct pcmcia_socket *sock, struct pccard_mem_map *map)
 {
@@ -511,6 +590,11 @@ static void dump_bits(char **p, const char *prefix,
 	*p = b;
 }
 
+/*
+ * Implements the /sys/class/pcmcia_socket/??/status file.
+ *
+ * Returns: the number of characters added to the buffer
+ */
 static ssize_t show_status(
 	struct device *dev, struct device_attribute *attr, char *buf)
 {
@@ -619,7 +703,7 @@ void soc_pcmcia_remove_one(struct soc_pcmcia_socket *skt)
 
 	soc_pcmcia_hw_shutdown(skt);
 
-	
+	/* should not be required; violates some lowlevel drivers */
 	soc_common_pcmcia_config_skt(skt, &dead_socket);
 
 	list_del(&skt->node);
@@ -669,6 +753,11 @@ int soc_pcmcia_add_one(struct soc_pcmcia_socket *skt)
 
 	list_add(&skt->node, &soc_pcmcia_sockets);
 
+	/*
+	 * We initialize default socket timing here, because
+	 * we are not guaranteed to see a SetIOMap operation at
+	 * runtime.
+	 */
 	skt->ops->set_timing(skt);
 
 	ret = soc_pcmcia_hw_init(skt);

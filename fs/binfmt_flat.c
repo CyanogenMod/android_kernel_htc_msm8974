@@ -1,3 +1,4 @@
+/****************************************************************************/
 /*
  *  linux/fs/binfmt_flat.c
  *
@@ -41,6 +42,7 @@
 #include <asm/cacheflush.h>
 #include <asm/page.h>
 
+/****************************************************************************/
 
 #if 0
 #define DEBUG 1
@@ -52,22 +54,33 @@
 #define	DBG_FLT(a...)
 #endif
 
+/*
+ * User data (data section and bss) needs to be aligned.
+ * We pick 0x20 here because it is the max value elf2flt has always
+ * used in producing FLAT files, and because it seems to be large
+ * enough to make all the gcc alignment related tests happy.
+ */
 #define FLAT_DATA_ALIGN	(0x20)
 
+/*
+ * User data (stack) also needs to be aligned.
+ * Here we can be a bit looser than the data sections since this
+ * needs to only meet arch ABI requirements.
+ */
 #define FLAT_STACK_ALIGN	max_t(unsigned long, sizeof(void *), ARCH_SLAB_MINALIGN)
 
-#define RELOC_FAILED 0xff00ff01		
-#define UNLOADED_LIB 0x7ff000ff		
+#define RELOC_FAILED 0xff00ff01		/* Relocation incorrect somewhere */
+#define UNLOADED_LIB 0x7ff000ff		/* Placeholder for unused library */
 
 struct lib_info {
 	struct {
-		unsigned long start_code;		
-		unsigned long start_data;		
-		unsigned long start_brk;		
-		unsigned long text_len;			
-		unsigned long entry;			
-		unsigned long build_date;		
-		short loaded;				
+		unsigned long start_code;		/* Start of text segment */
+		unsigned long start_data;		/* Start of data segment */
+		unsigned long start_brk;		/* End of data segment */
+		unsigned long text_len;			/* Length of text segment */
+		unsigned long entry;			/* Start address for this module */
+		unsigned long build_date;		/* When this one was compiled */
+		short loaded;				/* Has this library been loaded? */
 	} lib_list[MAX_SHARED_LIBS];
 };
 
@@ -85,6 +98,11 @@ static struct linux_binfmt flat_format = {
 	.min_coredump	= PAGE_SIZE
 };
 
+/****************************************************************************/
+/*
+ * Routine writes a core dump image in the current directory.
+ * Currently only a stub-function.
+ */
 
 static int flat_core_dump(struct coredump_params *cprm)
 {
@@ -93,6 +111,12 @@ static int flat_core_dump(struct coredump_params *cprm)
 	return(1);
 }
 
+/****************************************************************************/
+/*
+ * create_flat_tables() parses the env- and arg-strings in new user
+ * memory and creates the pointer tables from them, and puts their
+ * addresses on the "stack", returning the new stack pointer value.
+ */
 
 static unsigned long create_flat_tables(
 	unsigned long pp,
@@ -137,6 +161,7 @@ static unsigned long create_flat_tables(
 	return (unsigned long)sp;
 }
 
+/****************************************************************************/
 
 #ifdef CONFIG_BINFMT_ZFLAT
 
@@ -144,13 +169,14 @@ static unsigned long create_flat_tables(
 
 #define LBUFSIZE	4000
 
-#define ASCII_FLAG   0x01 
-#define CONTINUATION 0x02 
-#define EXTRA_FIELD  0x04 
-#define ORIG_NAME    0x08 
-#define COMMENT      0x10 
-#define ENCRYPTED    0x20 
-#define RESERVED     0xC0 
+/* gzip flag byte */
+#define ASCII_FLAG   0x01 /* bit 0 set: file probably ASCII text */
+#define CONTINUATION 0x02 /* bit 1 set: continuation of multi-part gzip file */
+#define EXTRA_FIELD  0x04 /* bit 2 set: extra field present */
+#define ORIG_NAME    0x08 /* bit 3 set: original file name present */
+#define COMMENT      0x10 /* bit 4 set: file comment present */
+#define ENCRYPTED    0x20 /* bit 5 set: file is encrypted */
+#define RESERVED     0xC0 /* bit 6,7:   reserved */
 
 static int decompress_exec(
 	struct linux_binprm *bprm,
@@ -179,7 +205,7 @@ static int decompress_exec(
 		goto out_free;
 	}
 
-	
+	/* Read in first chunk of data and parse gzip header. */
 	fpos = offset;
 	ret = bprm->file->f_op->read(bprm->file, buf, LBUFSIZE, &fpos);
 
@@ -189,24 +215,24 @@ static int decompress_exec(
 
 	retval = -ENOEXEC;
 
-	
+	/* Check minimum size -- gzip header */
 	if (ret < 10) {
 		DBG_FLT("binfmt_flat: file too small?\n");
 		goto out_free_buf;
 	}
 
-	
+	/* Check gzip magic number */
 	if ((buf[0] != 037) || ((buf[1] != 0213) && (buf[1] != 0236))) {
 		DBG_FLT("binfmt_flat: unknown compression magic?\n");
 		goto out_free_buf;
 	}
 
-	
+	/* Check gzip method */
 	if (buf[2] != 8) {
 		DBG_FLT("binfmt_flat: unknown compression method?\n");
 		goto out_free_buf;
 	}
-	
+	/* Check gzip flags */
 	if ((buf[3] & ENCRYPTED) || (buf[3] & CONTINUATION) ||
 	    (buf[3] & RESERVED)) {
 		DBG_FLT("binfmt_flat: unknown flags?\n");
@@ -277,8 +303,9 @@ out_free:
 	return retval;
 }
 
-#endif 
+#endif /* CONFIG_BINFMT_ZFLAT */
 
+/****************************************************************************/
 
 static unsigned long
 calc_reloc(unsigned long r, struct lib_info *p, int curid, int internalp)
@@ -292,10 +319,10 @@ calc_reloc(unsigned long r, struct lib_info *p, int curid, int internalp)
 
 #ifdef CONFIG_BINFMT_SHARED_FLAT
 	if (r == 0)
-		id = curid;	
+		id = curid;	/* Relocs of 0 are always self referring */
 	else {
-		id = (r >> 24) & 0xff;	
-		r &= 0x00ffffff;	
+		id = (r >> 24) & 0xff;	/* Find ID for this reloc */
+		r &= 0x00ffffff;	/* Trim ID off here */
 	}
 	if (id >= MAX_SHARED_LIBS) {
 		printk("BINFMT_FLAT: reference 0x%x to shared library %d",
@@ -312,7 +339,7 @@ calc_reloc(unsigned long r, struct lib_info *p, int curid, int internalp)
 			printk("BINFMT_FLAT: failed to load library %d", id);
 			goto failed;
 		}
-		
+		/* Check versioning information (i.e. time stamps) */
 		if (p->lib_list[id].build_date && p->lib_list[curid].build_date &&
 				p->lib_list[curid].build_date < p->lib_list[id].build_date) {
 			printk("BINFMT_FLAT: library %d is younger than %d", id, curid);
@@ -334,12 +361,12 @@ calc_reloc(unsigned long r, struct lib_info *p, int curid, int internalp)
 		goto failed;
 	}
 
-	if (r < text_len)			
+	if (r < text_len)			/* In text segment */
 		addr = r + start_code;
-	else					
+	else					/* In data segment */
 		addr = r - text_len + start_data;
 
-	
+	/* Range checked already above so doing the range tests is redundant...*/
 	return(addr);
 
 failed:
@@ -349,6 +376,7 @@ failed:
 	return RELOC_FAILED;
 }
 
+/****************************************************************************/
 
 void old_reloc(unsigned long rl)
 {
@@ -391,6 +419,7 @@ void old_reloc(unsigned long rl)
 #endif
 }		
 
+/****************************************************************************/
 
 static int load_flat_file(struct linux_binprm * bprm,
 		struct lib_info *libinfo, int id, unsigned long *extra_stack)
@@ -408,7 +437,7 @@ static int load_flat_file(struct linux_binprm * bprm,
 	unsigned long start_code, end_code;
 	int ret;
 
-	hdr = ((struct flat_hdr *) bprm->buf);		
+	hdr = ((struct flat_hdr *) bprm->buf);		/* exec-header */
 	inode = bprm->file->f_path.dentry->d_inode;
 
 	text_len  = ntohl(hdr->data_start);
@@ -424,6 +453,13 @@ static int load_flat_file(struct linux_binprm * bprm,
 	rev       = ntohl(hdr->rev);
 
 	if (strncmp(hdr->magic, "bFLT", 4)) {
+		/*
+		 * Previously, here was a printk to tell people
+		 *   "BINFMT_FLAT: bad header magic".
+		 * But for the kernel which also use ELF FD-PIC format, this
+		 * error message is confusing.
+		 * because a lot of people do not manage to produce good
+		 */
 		ret = -ENOEXEC;
 		goto err;
 	}
@@ -439,7 +475,7 @@ static int load_flat_file(struct linux_binprm * bprm,
 		goto err;
 	}
 	
-	
+	/* Don't allow old format executables to use shared libraries */
 	if (rev == OLD_FLAT_VERSION && id != 0) {
 		printk("BINFMT_FLAT: shared libraries are not available before rev 0x%x\n",
 				(int) FLAT_VERSION);
@@ -447,6 +483,10 @@ static int load_flat_file(struct linux_binprm * bprm,
 		goto err;
 	}
 
+	/*
+	 * fix up the flags for the older format,  there were all kinds
+	 * of endian hacks,  this only works for the simple cases
+	 */
 	if (rev == OLD_FLAT_VERSION && flat_old_ram_flag(flags))
 		flags = FLAT_FLAG_RAM;
 
@@ -458,6 +498,11 @@ static int load_flat_file(struct linux_binprm * bprm,
 	}
 #endif
 
+	/*
+	 * Check initial limits. This avoids letting people circumvent
+	 * size limits imposed on them by creating programs with large
+	 * arrays in the data or bss.
+	 */
 	rlim = rlimit(RLIMIT_DATA);
 	if (rlim >= RLIM_INFINITY)
 		rlim = ~0;
@@ -466,7 +511,7 @@ static int load_flat_file(struct linux_binprm * bprm,
 		goto err;
 	}
 
-	
+	/* Flush all traces of the currently running executable */
 	if (id == 0) {
 		result = flush_old_exec(bprm);
 		if (result) {
@@ -474,15 +519,27 @@ static int load_flat_file(struct linux_binprm * bprm,
 			goto err;
 		}
 
-		
+		/* OK, This is the point of no return */
 		set_personality(PER_LINUX_32BIT);
 		setup_new_exec(bprm);
 	}
 
+	/*
+	 * calculate the extra space we need to map in
+	 */
 	extra = max_t(unsigned long, bss_len + stack_len,
 			relocs * sizeof(unsigned long));
 
+	/*
+	 * there are a couple of cases here,  the separate code/data
+	 * case,  and then the fully copied to RAM case which lumps
+	 * it all together.
+	 */
 	if ((flags & (FLAT_FLAG_RAM|FLAT_FLAG_GZIP)) == 0) {
+		/*
+		 * this should give us a ROM ptr,  but if it doesn't we don't
+		 * really care
+		 */
 		DBG_FLT("BINFMT_FLAT: ROM mapping of file (we hope)\n");
 
 		textpos = vm_mmap(bprm->file, 0, text_len, PROT_READ|PROT_EXEC,
@@ -564,6 +621,9 @@ static int load_flat_file(struct linux_binprm * bprm,
 		memp = textpos;
 		memp_size = len;
 #ifdef CONFIG_BINFMT_ZFLAT
+		/*
+		 * load it all in and treat it like a RAM load from now on
+		 */
 		if (flags & FLAT_FLAG_GZIP) {
 			result = decompress_exec(bprm, sizeof (struct flat_hdr),
 					 (((char *) textpos) + sizeof (struct flat_hdr)),
@@ -605,7 +665,7 @@ static int load_flat_file(struct linux_binprm * bprm,
 		printk("Mapping is %x, Entry point is %x, data_start is %x\n",
 			(int)textpos, 0x00ffffff&ntohl(hdr->entry), ntohl(hdr->data_start));
 
-	
+	/* The main program needs a little extra setup in the task structure */
 	start_code = textpos + sizeof (struct flat_hdr);
 	end_code = textpos + text_len;
 	if (id == 0) {
@@ -613,6 +673,13 @@ static int load_flat_file(struct linux_binprm * bprm,
 		current->mm->end_code = end_code;
 		current->mm->start_data = datapos;
 		current->mm->end_data = datapos + data_len;
+		/*
+		 * set up the brk stuff, uses any slack left in data/bss/stack
+		 * allocation.  We put the brk after the bss (between the bss
+		 * and stack) like other platforms.
+		 * Userspace code relies on the stack pointer starting out at
+		 * an address right at the end of a page.
+		 */
 		current->mm->start_brk = datapos + data_len + bss_len;
 		current->mm->brk = (current->mm->start_brk + 3) & ~3;
 		current->mm->context.end_brk = memp + memp_size - stack_len;
@@ -627,9 +694,9 @@ static int load_flat_file(struct linux_binprm * bprm,
 			(int) (datapos + data_len),
 			(int) (((datapos + data_len + bss_len) + 3) & ~3));
 
-	text_len -= sizeof(struct flat_hdr); 
+	text_len -= sizeof(struct flat_hdr); /* the real code len */
 
-	
+	/* Store the current module values into the global library structure */
 	libinfo->lib_list[id].start_code = start_code;
 	libinfo->lib_list[id].start_data = datapos;
 	libinfo->lib_list[id].start_brk = datapos + data_len + bss_len;
@@ -638,6 +705,18 @@ static int load_flat_file(struct linux_binprm * bprm,
 	libinfo->lib_list[id].entry = (0x00ffffff & ntohl(hdr->entry)) + textpos;
 	libinfo->lib_list[id].build_date = ntohl(hdr->build_date);
 	
+	/*
+	 * We just load the allocations into some temporary memory to
+	 * help simplify all this mumbo jumbo
+	 *
+	 * We've got two different sections of relocation entries.
+	 * The first is the GOT which resides at the beginning of the data segment
+	 * and is terminated with a -1.  This one can be relocated in place.
+	 * The second is the extra relocation entries tacked after the image's
+	 * data segment. These require a little more processing as the entry is
+	 * really an offset into the image which contains an offset into the
+	 * image.
+	 */
 	if (flags & FLAT_FLAG_GOTPIC) {
 		for (rp = (unsigned long *)datapos; *rp != 0xffffffff; rp++) {
 			unsigned long addr;
@@ -652,11 +731,25 @@ static int load_flat_file(struct linux_binprm * bprm,
 		}
 	}
 
+	/*
+	 * Now run through the relocation entries.
+	 * We've got to be careful here as C++ produces relocatable zero
+	 * entries in the constructor and destructor tables which are then
+	 * tested for being not zero (which will always occur unless we're
+	 * based from address zero).  This causes an endless loop as __start
+	 * is at zero.  The solution used is to not relocate zero addresses.
+	 * This has the negative side effect of not allowing a global data
+	 * reference to be statically initialised to _stext (I've moved
+	 * __start to address 4 so that is okay).
+	 */
 	if (rev > OLD_FLAT_VERSION) {
 		unsigned long persistent = 0;
 		for (i=0; i < relocs; i++) {
 			unsigned long addr, relval;
 
+			/* Get the address of the pointer to be
+			   relocated (of course, the address has to be
+			   relocated first).  */
 			relval = ntohl(reloc[i]);
 			if (flat_set_persistent (relval, &persistent))
 				continue;
@@ -667,10 +760,14 @@ static int load_flat_file(struct linux_binprm * bprm,
 				goto err;
 			}
 
-			
+			/* Get the pointer's value.  */
 			addr = flat_get_addr_from_rp(rp, relval, flags,
 							&persistent);
 			if (addr != 0) {
+				/*
+				 * Do the relocation.  PIC relocs in the data section are
+				 * already in target order
+				 */
 				if ((flags & FLAT_FLAG_GOTPIC) == 0)
 					addr = ntohl(addr);
 				addr = calc_reloc(addr, libinfo, id, 0);
@@ -679,7 +776,7 @@ static int load_flat_file(struct linux_binprm * bprm,
 					goto err;
 				}
 
-				
+				/* Write back the relocated pointer.  */
 				flat_put_addr_at_rp(rp, addr, relval);
 			}
 		}
@@ -690,10 +787,10 @@ static int load_flat_file(struct linux_binprm * bprm,
 	
 	flush_icache_range(start_code, end_code);
 
-	
+	/* zero the BSS,  BRK and stack areas */
 	memset((void*)(datapos + data_len), 0, bss_len + 
-			(memp + memp_size - stack_len -		
-			libinfo->lib_list[id].start_brk) +	
+			(memp + memp_size - stack_len -		/* end brk */
+			libinfo->lib_list[id].start_brk) +	/* start brk */
 			stack_len);
 
 	return 0;
@@ -702,8 +799,13 @@ err:
 }
 
 
+/****************************************************************************/
 #ifdef CONFIG_BINFMT_SHARED_FLAT
 
+/*
+ * Load a shared library into memory.  The library gets its own data
+ * segment (including bss) but not argv/argc/environ.
+ */
 
 static int load_flat_shared_library(int id, struct lib_info *libs)
 {
@@ -713,10 +815,10 @@ static int load_flat_shared_library(int id, struct lib_info *libs)
 
 	memset(&bprm, 0, sizeof(bprm));
 
-	
+	/* Create the file name */
 	sprintf(buf, "/lib/lib%d.so", id);
 
-	
+	/* Open the file up */
 	bprm.filename = buf;
 	bprm.file = open_exec(bprm.filename);
 	res = PTR_ERR(bprm.file);
@@ -728,6 +830,10 @@ static int load_flat_shared_library(int id, struct lib_info *libs)
 	if (!bprm.cred)
 		goto out;
 
+	/* We don't really care about recalculating credentials at this point
+	 * as we're past the point of no return and are dealing with shared
+	 * libraries.
+	 */
 	bprm.cred_prepared = 1;
 
 	res = prepare_binprm(&bprm);
@@ -744,8 +850,13 @@ out:
 	return(res);
 }
 
-#endif 
+#endif /* CONFIG_BINFMT_SHARED_FLAT */
+/****************************************************************************/
 
+/*
+ * These are the functions used to load flat style executables and shared
+ * libraries.  There is no binary dependent code anywhere else.
+ */
 
 static int load_flat_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 {
@@ -758,17 +869,24 @@ static int load_flat_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	int i, j;
 
 	memset(&libinfo, 0, sizeof(libinfo));
+	/*
+	 * We have to add the size of our arguments to our stack size
+	 * otherwise it's too easy for users to create stack overflows
+	 * by passing in a huge argument list.  And yes,  we have to be
+	 * pedantic and include space for the argv/envp array as it may have
+	 * a lot of entries.
+	 */
 #define TOP_OF_ARGS (PAGE_SIZE * MAX_ARG_PAGES - sizeof(void *))
-	stack_len = TOP_OF_ARGS - bprm->p;             
-	stack_len += (bprm->argc + 1) * sizeof(char *); 
-	stack_len += (bprm->envc + 1) * sizeof(char *); 
-	stack_len += FLAT_STACK_ALIGN - 1;  
+	stack_len = TOP_OF_ARGS - bprm->p;             /* the strings */
+	stack_len += (bprm->argc + 1) * sizeof(char *); /* the argv array */
+	stack_len += (bprm->envc + 1) * sizeof(char *); /* the envp array */
+	stack_len += FLAT_STACK_ALIGN - 1;  /* reserve for upcoming alignment */
 	
 	res = load_flat_file(bprm, &libinfo, 0, &stack_len);
 	if (IS_ERR_VALUE(res))
 		return res;
 	
-	
+	/* Update data segment pointers for all libraries */
 	for (i=0; i<MAX_SHARED_LIBS; i++)
 		if (libinfo.lib_list[i].loaded)
 			for (j=0; j<MAX_SHARED_LIBS; j++)
@@ -783,26 +901,30 @@ static int load_flat_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	p = ((current->mm->context.end_brk + stack_len + 3) & ~3) - 4;
 	DBG_FLT("p=%x\n", (int)p);
 
-	
+	/* copy the arg pages onto the stack, this could be more efficient :-) */
 	for (i = TOP_OF_ARGS - 1; i >= bprm->p; i--)
 		* (char *) --p =
 			((char *) page_address(bprm->page[i/PAGE_SIZE]))[i % PAGE_SIZE];
 
 	sp = (unsigned long *) create_flat_tables(p, bprm);
 	
+	/* Fake some return addresses to ensure the call chain will
+	 * initialise library in order for us.  We are required to call
+	 * lib 1 first, then 2, ... and finally the main program (id 0).
+	 */
 	start_addr = libinfo.lib_list[0].entry;
 
 #ifdef CONFIG_BINFMT_SHARED_FLAT
 	for (i = MAX_SHARED_LIBS-1; i>0; i--) {
 		if (libinfo.lib_list[i].loaded) {
-			
+			/* Push previos first to call address */
 			--sp;	put_user(start_addr, sp);
 			start_addr = libinfo.lib_list[i].entry;
 		}
 	}
 #endif
 	
-	
+	/* Stash our initial stack pointer into the mm structure */
 	current->mm->start_stack = (unsigned long )sp;
 
 #ifdef FLAT_PLAT_INIT
@@ -816,6 +938,7 @@ static int load_flat_binary(struct linux_binprm * bprm, struct pt_regs * regs)
 	return 0;
 }
 
+/****************************************************************************/
 
 static int __init init_flat_binfmt(void)
 {
@@ -823,6 +946,8 @@ static int __init init_flat_binfmt(void)
 	return 0;
 }
 
+/****************************************************************************/
 
 core_initcall(init_flat_binfmt);
 
+/****************************************************************************/

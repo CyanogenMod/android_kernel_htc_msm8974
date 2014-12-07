@@ -37,4 +37,4 @@ extern void spi_sendrecv(sdioh_info_t *sd, uint8 *msg_out, uint8 *msg_in, int ms
 extern void spi_spinbits(sdioh_info_t *sd);
 extern void spi_waitbits(sdioh_info_t *sd, bool yield);
 
-#endif 
+#endif /* _BCM_SPI_H */

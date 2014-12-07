@@ -33,6 +33,8 @@ int __kprobes arch_prepare_kprobe(struct kprobe *p)
 		ret = -EINVAL;
 	}
 
+	/* XXX: Might be a good idea to check if p->addr is a valid
+	 * kernel address as well... */
 
 	if (!ret) {
 		pr_debug("copy kprobe at %p\n", p->addr);
@@ -74,6 +76,12 @@ static void __kprobes prepare_singlestep(struct kprobe *p, struct pt_regs *regs)
 	dc |= 1 << OCD_DC_SS_BIT;
 	ocd_write(DC, dc);
 
+	/*
+	 * We must run the instruction from its original location
+	 * since it may actually reference PC.
+	 *
+	 * TODO: Do the instruction replacement directly in icache.
+	 */
 	*p->addr = p->opcode;
 	flush_icache_range((unsigned long)p->addr,
 			   (unsigned long)p->addr + sizeof(kprobe_opcode_t));
@@ -108,9 +116,13 @@ static int __kprobes kprobe_handler(struct pt_regs *regs)
 	pr_debug("kprobe_handler: kprobe_running=%p\n",
 		 kprobe_running());
 
+	/*
+	 * We don't want to be preempted for the entire
+	 * duration of kprobe processing
+	 */
 	preempt_disable();
 
-	
+	/* Check that we're not recursing */
 	if (kprobe_running()) {
 		p = get_kprobe(addr);
 		if (p) {
@@ -126,7 +138,7 @@ static int __kprobes kprobe_handler(struct pt_regs *regs)
 			if (p->break_handler && p->break_handler(p, regs))
 				goto ss_probe;
 		}
-		
+		/* If it's not ours, can't be delete race, (we hold lock). */
 		goto no_kprobe;
 	}
 
@@ -137,7 +149,7 @@ static int __kprobes kprobe_handler(struct pt_regs *regs)
 	kprobe_status = KPROBE_HIT_ACTIVE;
 	set_current_kprobe(p);
 	if (p->pre_handler && p->pre_handler(p, regs))
-		
+		/* handler has already set things up, so skip ss setup */
 		return 1;
 
 ss_probe:
@@ -187,6 +199,9 @@ int __kprobes kprobe_fault_handler(struct pt_regs *regs, int trapnr)
 	return 0;
 }
 
+/*
+ * Wrapper routine to for handling exceptions.
+ */
 int __kprobes kprobe_exceptions_notify(struct notifier_block *self,
 				       unsigned long val, void *data)
 {
@@ -218,8 +233,13 @@ int __kprobes setjmp_pre_handler(struct kprobe *p, struct pt_regs *regs)
 
 	memcpy(&jprobe_saved_regs, regs, sizeof(struct pt_regs));
 
+	/*
+	 * TODO: We should probably save some of the stack here as
+	 * well, since gcc may pass arguments on the stack for certain
+	 * functions (lots of arguments, large aggregates, varargs)
+	 */
 
-	
+	/* setup return addr to the jprobe handler routine */
 	regs->pc = (unsigned long)jp->entry;
 	return 1;
 }
@@ -231,12 +251,17 @@ void __kprobes jprobe_return(void)
 
 int __kprobes longjmp_break_handler(struct kprobe *p, struct pt_regs *regs)
 {
+	/*
+	 * FIXME - we should ideally be validating that we got here 'cos
+	 * of the "trap" in jprobe_return() above, before restoring the
+	 * saved regs...
+	 */
 	memcpy(regs, &jprobe_saved_regs, sizeof(struct pt_regs));
 	return 1;
 }
 
 int __init arch_init_kprobes(void)
 {
-	
+	/* TODO: Register kretprobe trampoline */
 	return 0;
 }

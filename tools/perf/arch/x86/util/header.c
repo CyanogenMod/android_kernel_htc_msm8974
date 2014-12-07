@@ -36,21 +36,21 @@ get_cpuid(char *buffer, size_t sz)
 	if (lvl >= 1) {
 		cpuid(1, &a, &b, &c, &d);
 
-		family = (a >> 8) & 0xf;  
-		model  = (a >> 4) & 0xf;  
+		family = (a >> 8) & 0xf;  /* bits 11 - 8 */
+		model  = (a >> 4) & 0xf;  /* Bits  7 - 4 */
 		step   = a & 0xf;
 
-		
+		/* extended family */
 		if (family == 0xf)
 			family += (a >> 20) & 0xff;
 
-		
+		/* extended model */
 		if (family >= 0x6)
 			model += ((a >> 16) & 0xf) << 4;
 	}
 	nb = scnprintf(buffer, sz, "%s,%u,%u,%u$", vendor, family, model, step);
 
-	
+	/* look for end marker to ensure the entire data fit */
 	if (strchr(buffer, '$')) {
 		buffer[nb-1] = '\0';
 		return 0;

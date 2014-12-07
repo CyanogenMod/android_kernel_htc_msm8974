@@ -1395,6 +1395,7 @@ DEFINE_EVENT(ext4__truncate, ext4_truncate_exit,
 	TP_ARGS(inode)
 );
 
+/* 'ux' is the uninitialized extent. */
 TRACE_EVENT(ext4_ext_convert_to_initialized_enter,
 	TP_PROTO(struct inode *inode, struct ext4_map_blocks *map,
 		 struct ext4_extent *ux),
@@ -1429,6 +1430,10 @@ TRACE_EVENT(ext4_ext_convert_to_initialized_enter,
 		  __entry->u_lblk, __entry->u_len, __entry->u_pblk)
 );
 
+/*
+ * 'ux' is the uninitialized extent.
+ * 'ix' is the initialized extent to which blocks are transferred.
+ */
 TRACE_EVENT(ext4_ext_convert_to_initialized_fastpath,
 	TP_PROTO(struct inode *inode, struct ext4_map_blocks *map,
 		 struct ext4_extent *ux, struct ext4_extent *ix),
@@ -2050,6 +2055,7 @@ TRACE_EVENT(ext4_ext_remove_space_done,
 		  (unsigned short) __entry->eh_entries)
 );
 
-#endif 
+#endif /* _TRACE_EXT4_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

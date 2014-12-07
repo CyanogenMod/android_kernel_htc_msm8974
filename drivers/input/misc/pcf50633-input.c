@@ -41,7 +41,7 @@ pcf50633_input_irq(int irq, void *data)
 
 	input = data;
 
-	
+	/* We report only one event depending on the key press status */
 	onkey_released = pcf50633_reg_read(input->pcf, PCF50633_REG_OOCSTAT)
 						& PCF50633_OOCSTAT_ONKEY;
 

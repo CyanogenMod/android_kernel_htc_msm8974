@@ -49,7 +49,11 @@
 #include <net/sctp/sctp.h>
 #include <net/sctp/sm.h>
 
+/* This file is mostly in anticipation of future work, but initially
+ * populate with fragment tracking for an outbound message.
+ */
 
+/* Initialize datamsg from memory. */
 static void sctp_datamsg_init(struct sctp_datamsg *msg)
 {
 	atomic_set(&msg->refcnt, 1);
@@ -61,6 +65,7 @@ static void sctp_datamsg_init(struct sctp_datamsg *msg)
 	INIT_LIST_HEAD(&msg->chunks);
 }
 
+/* Allocate and initialize datamsg. */
 SCTP_STATIC struct sctp_datamsg *sctp_datamsg_new(gfp_t gfp)
 {
 	struct sctp_datamsg *msg;
@@ -76,12 +81,16 @@ void sctp_datamsg_free(struct sctp_datamsg *msg)
 {
 	struct sctp_chunk *chunk;
 
+	/* This doesn't have to be a _safe vairant because
+	 * sctp_chunk_free() only drops the refs.
+	 */
 	list_for_each_entry(chunk, &msg->chunks, frag_list)
 		sctp_chunk_free(chunk);
 
 	sctp_datamsg_put(msg);
 }
 
+/* Final destructruction of datamsg memory. */
 static void sctp_datamsg_destroy(struct sctp_datamsg *msg)
 {
 	struct list_head *pos, *temp;
@@ -91,14 +100,14 @@ static void sctp_datamsg_destroy(struct sctp_datamsg *msg)
 	struct sctp_association *asoc = NULL;
 	int error = 0, notify;
 
-	
+	/* If we failed, we may need to notify. */
 	notify = msg->send_failed ? -1 : 0;
 
-	
+	/* Release all references. */
 	list_for_each_safe(pos, temp, &msg->chunks) {
 		list_del_init(pos);
 		chunk = list_entry(pos, struct sctp_chunk, frag_list);
-		
+		/* Check whether we _really_ need to notify. */
 		if (notify < 0) {
 			asoc = chunk->asoc;
 			if (msg->send_error)
@@ -111,7 +120,7 @@ static void sctp_datamsg_destroy(struct sctp_datamsg *msg)
 							    &sp->subscribe);
 		}
 
-		
+		/* Generate a SEND FAILED event only if enabled. */
 		if (notify > 0) {
 			int sent;
 			if (chunk->has_tsn)
@@ -132,17 +141,20 @@ static void sctp_datamsg_destroy(struct sctp_datamsg *msg)
 	kfree(msg);
 }
 
+/* Hold a reference. */
 static void sctp_datamsg_hold(struct sctp_datamsg *msg)
 {
 	atomic_inc(&msg->refcnt);
 }
 
+/* Release a reference. */
 void sctp_datamsg_put(struct sctp_datamsg *msg)
 {
 	if (atomic_dec_and_test(&msg->refcnt))
 		sctp_datamsg_destroy(msg);
 }
 
+/* Assign a chunk to this datamsg. */
 static void sctp_datamsg_assign(struct sctp_datamsg *msg, struct sctp_chunk *chunk)
 {
 	sctp_datamsg_hold(msg);
@@ -150,6 +162,13 @@ static void sctp_datamsg_assign(struct sctp_datamsg *msg, struct sctp_chunk *chu
 }
 
 
+/* A data chunk can have a maximum payload of (2^16 - 20).  Break
+ * down any such message into smaller chunks.  Opportunistically, fragment
+ * the chunks down to the current MTU constraints.  We may get refragmented
+ * later if the PMTU changes, but it is _much better_ to fragment immediately
+ * with a reasonable guess than always doing our fragmentation on the
+ * soft-interrupt.
+ */
 struct sctp_datamsg *sctp_datamsg_from_user(struct sctp_association *asoc,
 					    struct sctp_sndrcvinfo *sinfo,
 					    struct msghdr *msgh, int msg_len)
@@ -166,8 +185,11 @@ struct sctp_datamsg *sctp_datamsg_from_user(struct sctp_association *asoc,
 	if (!msg)
 		return NULL;
 
+	/* Note: Calculate this outside of the loop, so that all fragments
+	 * have the same expiration.
+	 */
 	if (sinfo->sinfo_timetolive) {
-		
+		/* sinfo_timetolive is in milliseconds */
 		msg->expires_at = jiffies +
 				    msecs_to_jiffies(sinfo->sinfo_timetolive);
 		msg->can_abandon = 1;
@@ -175,11 +197,18 @@ struct sctp_datamsg *sctp_datamsg_from_user(struct sctp_association *asoc,
 				  __func__, msg, msg->expires_at, jiffies);
 	}
 
+	/* This is the biggest possible DATA chunk that can fit into
+	 * the packet
+	 */
 	max_data = asoc->pathmtu -
 		sctp_sk(asoc->base.sk)->pf->af->net_header_len -
 		sizeof(struct sctphdr) - sizeof(struct sctp_data_chunk);
 
 	max = asoc->frag_point;
+	/* If the the peer requested that we authenticate DATA chunks
+	 * we need to accound for bundling of the AUTH chunks along with
+	 * DATA.
+	 */
 	if (sctp_auth_send_cid(SCTP_CID_DATA, asoc)) {
 		struct sctp_hmac *hmac_desc = sctp_auth_asoc_get_hmac(asoc);
 
@@ -188,35 +217,41 @@ struct sctp_datamsg *sctp_datamsg_from_user(struct sctp_association *asoc,
 					    hmac_desc->hmac_len);
 	}
 
-	
+	/* Now, check if we need to reduce our max */
 	if (max > max_data)
 		max = max_data;
 
 	whole = 0;
 	first_len = max;
 
+	/* Check to see if we have a pending SACK and try to let it be bundled
+	 * with this message.  Do this if we don't have any data queued already.
+	 * To check that, look at out_qlen and retransmit list.
+	 * NOTE: we will not reduce to account for SACK, if the message would
+	 * not have been fragmented.
+	 */
 	if (timer_pending(&asoc->timers[SCTP_EVENT_TIMEOUT_SACK]) &&
 	    asoc->outqueue.out_qlen == 0 &&
 	    list_empty(&asoc->outqueue.retransmit) &&
 	    msg_len > max)
 		max_data -= WORD_ROUND(sizeof(sctp_sack_chunk_t));
 
-	
+	/* Encourage Cookie-ECHO bundling. */
 	if (asoc->state < SCTP_STATE_COOKIE_ECHOED)
 		max_data -= SCTP_ARBITRARY_COOKIE_ECHO_LEN;
 
-	
+	/* Now that we adjusted completely, reset first_len */
 	if (first_len > max_data)
 		first_len = max_data;
 
-	
+	/* Account for a different sized first fragment */
 	if (msg_len >= first_len) {
 		msg_len -= first_len;
 		whole = 1;
 		msg->can_delay = 0;
 	}
 
-	
+	/* How many full sized?  How many bytes leftover? */
 	whole += msg_len / max;
 	over = msg_len % max;
 	offset = 0;
@@ -224,7 +259,7 @@ struct sctp_datamsg *sctp_datamsg_from_user(struct sctp_association *asoc,
 	if ((whole > 1) || (whole && over))
 		SCTP_INC_STATS_USER(SCTP_MIB_FRAGUSRMSGS);
 
-	
+	/* Create chunks for all the full sized DATA chunks. */
 	for (i=0, len=first_len; i < whole; i++) {
 		frag = SCTP_DATA_MIDDLE_FRAG;
 
@@ -234,6 +269,10 @@ struct sctp_datamsg *sctp_datamsg_from_user(struct sctp_association *asoc,
 		if ((i == (whole - 1)) && !over) {
 			frag |= SCTP_DATA_LAST_FRAG;
 
+			/* The application requests to set the I-bit of the
+			 * last DATA chunk of a user message when providing
+			 * the user message to the SCTP implementation.
+			 */
 			if ((sinfo->sinfo_flags & SCTP_EOF) ||
 			    (sinfo->sinfo_flags & SCTP_SACK_IMMEDIATELY))
 				frag |= SCTP_DATA_SACK_IMM;
@@ -249,18 +288,21 @@ struct sctp_datamsg *sctp_datamsg_from_user(struct sctp_association *asoc,
 
 		offset += len;
 
-		
+		/* Put the chunk->skb back into the form expected by send.  */
 		__skb_pull(chunk->skb, (__u8 *)chunk->chunk_hdr
 			   - (__u8 *)chunk->skb->data);
 
 		sctp_datamsg_assign(msg, chunk);
 		list_add_tail(&chunk->frag_list, &msg->chunks);
 
+		/* The first chunk, the first chunk was likely short
+		 * to allow bundling, so reset to full size.
+		 */
 		if (0 == i)
 			len = max;
 	}
 
-	
+	/* .. now the leftover bytes. */
 	if (over) {
 		if (!whole)
 			frag = SCTP_DATA_NOT_FRAG;
@@ -278,7 +320,7 @@ struct sctp_datamsg *sctp_datamsg_from_user(struct sctp_association *asoc,
 
 		err = sctp_user_addto_chunk(chunk, offset, over,msgh->msg_iov);
 
-		
+		/* Put the chunk->skb back into the form expected by send.  */
 		__skb_pull(chunk->skb, (__u8 *)chunk->chunk_hdr
 			   - (__u8 *)chunk->skb->data);
 		if (err < 0)
@@ -300,6 +342,7 @@ errout:
 	return NULL;
 }
 
+/* Check whether this message has expired. */
 int sctp_chunk_abandoned(struct sctp_chunk *chunk)
 {
 	struct sctp_datamsg *msg = chunk->msg;
@@ -313,6 +356,7 @@ int sctp_chunk_abandoned(struct sctp_chunk *chunk)
 	return 0;
 }
 
+/* This chunk (and consequently entire message) has failed in its sending. */
 void sctp_chunk_fail(struct sctp_chunk *chunk, int error)
 {
 	chunk->msg->send_failed = 1;

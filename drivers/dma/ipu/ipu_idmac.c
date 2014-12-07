@@ -34,6 +34,12 @@
 static int ipu_disable_channel(struct idmac *idmac, struct idmac_channel *ichan,
 			       bool wait_for_stop);
 
+/*
+ * There can be only one, we could allocate it dynamically, but then we'd have
+ * to add an extra parameter to some functions, and use something as ugly as
+ *	struct ipu *ipu = to_ipu(to_idmac(ichan->dma_chan.device));
+ * in the ISR
+ */
 static struct ipu ipu_data;
 
 #define to_ipu(id) container_of(id, struct ipu, idmac)
@@ -62,6 +68,9 @@ static void idmac_write_ipureg(struct ipu *ipu, u32 value, unsigned long reg)
 	__raw_writel(value, ipu->reg_ipu + reg);
 }
 
+/*****************************************************************************
+ * IPU / IC common functions
+ */
 static void dump_idmac_reg(struct ipu *ipu)
 {
 	dev_dbg(ipu->dev, "IDMAC_CONF 0x%x, IC_CONF 0x%x, IDMAC_CHA_EN 0x%x, "
@@ -83,7 +92,7 @@ static void dump_idmac_reg(struct ipu *ipu)
 static uint32_t bytes_per_pixel(enum pixel_fmt fmt)
 {
 	switch (fmt) {
-	case IPU_PIX_FMT_GENERIC:	
+	case IPU_PIX_FMT_GENERIC:	/* generic data */
 	case IPU_PIX_FMT_RGB332:
 	case IPU_PIX_FMT_YUV420P:
 	case IPU_PIX_FMT_YUV422P:
@@ -96,7 +105,7 @@ static uint32_t bytes_per_pixel(enum pixel_fmt fmt)
 	case IPU_PIX_FMT_BGR24:
 	case IPU_PIX_FMT_RGB24:
 		return 3;
-	case IPU_PIX_FMT_GENERIC_32:	
+	case IPU_PIX_FMT_GENERIC_32:	/* generic data */
 	case IPU_PIX_FMT_BGR32:
 	case IPU_PIX_FMT_RGB32:
 	case IPU_PIX_FMT_ABGR32:
@@ -104,6 +113,7 @@ static uint32_t bytes_per_pixel(enum pixel_fmt fmt)
 	}
 }
 
+/* Enable direct write to memory by the Camera Sensor Interface */
 static void ipu_ic_enable_task(struct ipu *ipu, enum ipu_channel channel)
 {
 	uint32_t ic_conf, mask;
@@ -122,6 +132,7 @@ static void ipu_ic_enable_task(struct ipu *ipu, enum ipu_channel channel)
 	idmac_write_icreg(ipu, ic_conf, IC_CONF);
 }
 
+/* Called under spin_lock_irqsave(&ipu_data.lock) */
 static void ipu_ic_disable_task(struct ipu *ipu, enum ipu_channel channel)
 {
 	uint32_t ic_conf, mask;
@@ -160,7 +171,7 @@ static uint32_t ipu_channel_status(struct ipu *ipu, enum ipu_channel channel)
 }
 
 struct chan_param_mem_planar {
-	
+	/* Word 0 */
 	u32	xv:10;
 	u32	yv:10;
 	u32	xb:12;
@@ -182,7 +193,7 @@ struct chan_param_mem_planar {
 	u32	fh_h:4;
 	u32	res3:28;
 
-	
+	/* Word 1 */
 	u32	eba0;
 
 	u32	eba1;
@@ -200,7 +211,7 @@ struct chan_param_mem_planar {
 } __attribute__ ((packed));
 
 struct chan_param_mem_interleaved {
-	
+	/* Word 0 */
 	u32	xv:10;
 	u32	yv:10;
 	u32	xb:12;
@@ -230,7 +241,7 @@ struct chan_param_mem_interleaved {
 	u32	fh_h:4;
 	u32	res3:28;
 
-	
+	/* Word 1 */
 	u32	eba0;
 
 	u32	eba1;
@@ -286,57 +297,57 @@ static void ipu_ch_param_set_size(union chan_param_mem *params,
 
 	switch (pixel_fmt) {
 	case IPU_PIX_FMT_GENERIC:
-		
+		/*Represents 8-bit Generic data */
 		params->pp.bpp	= 3;
 		params->pp.pfs	= 7;
 		params->pp.npb	= 31;
-		params->pp.sat	= 2;		
+		params->pp.sat	= 2;		/* SAT = use 32-bit access */
 		break;
 	case IPU_PIX_FMT_GENERIC_32:
-		
+		/*Represents 32-bit Generic data */
 		params->pp.bpp	= 0;
 		params->pp.pfs	= 7;
 		params->pp.npb	= 7;
-		params->pp.sat	= 2;		
+		params->pp.sat	= 2;		/* SAT = use 32-bit access */
 		break;
 	case IPU_PIX_FMT_RGB565:
 		params->ip.bpp	= 2;
 		params->ip.pfs	= 4;
 		params->ip.npb	= 15;
-		params->ip.sat	= 2;		
-		params->ip.ofs0	= 0;		
-		params->ip.ofs1	= 5;		
-		params->ip.ofs2	= 11;		
-		params->ip.ofs3	= 16;		
-		params->ip.wid0	= 4;		
-		params->ip.wid1	= 5;		
-		params->ip.wid2	= 4;		
+		params->ip.sat	= 2;		/* SAT = 32-bit access */
+		params->ip.ofs0	= 0;		/* Red bit offset */
+		params->ip.ofs1	= 5;		/* Green bit offset */
+		params->ip.ofs2	= 11;		/* Blue bit offset */
+		params->ip.ofs3	= 16;		/* Alpha bit offset */
+		params->ip.wid0	= 4;		/* Red bit width - 1 */
+		params->ip.wid1	= 5;		/* Green bit width - 1 */
+		params->ip.wid2	= 4;		/* Blue bit width - 1 */
 		break;
 	case IPU_PIX_FMT_BGR24:
-		params->ip.bpp	= 1;		
+		params->ip.bpp	= 1;		/* 24 BPP & RGB PFS */
 		params->ip.pfs	= 4;
 		params->ip.npb	= 7;
-		params->ip.sat	= 2;		
-		params->ip.ofs0	= 0;		
-		params->ip.ofs1	= 8;		
-		params->ip.ofs2	= 16;		
-		params->ip.ofs3	= 24;		
-		params->ip.wid0	= 7;		
-		params->ip.wid1	= 7;		
-		params->ip.wid2	= 7;		
+		params->ip.sat	= 2;		/* SAT = 32-bit access */
+		params->ip.ofs0	= 0;		/* Red bit offset */
+		params->ip.ofs1	= 8;		/* Green bit offset */
+		params->ip.ofs2	= 16;		/* Blue bit offset */
+		params->ip.ofs3	= 24;		/* Alpha bit offset */
+		params->ip.wid0	= 7;		/* Red bit width - 1 */
+		params->ip.wid1	= 7;		/* Green bit width - 1 */
+		params->ip.wid2	= 7;		/* Blue bit width - 1 */
 		break;
 	case IPU_PIX_FMT_RGB24:
-		params->ip.bpp	= 1;		
+		params->ip.bpp	= 1;		/* 24 BPP & RGB PFS */
 		params->ip.pfs	= 4;
 		params->ip.npb	= 7;
-		params->ip.sat	= 2;		
-		params->ip.ofs0	= 16;		
-		params->ip.ofs1	= 8;		
-		params->ip.ofs2	= 0;		
-		params->ip.ofs3	= 24;		
-		params->ip.wid0	= 7;		
-		params->ip.wid1	= 7;		
-		params->ip.wid2	= 7;		
+		params->ip.sat	= 2;		/* SAT = 32-bit access */
+		params->ip.ofs0	= 16;		/* Red bit offset */
+		params->ip.ofs1	= 8;		/* Green bit offset */
+		params->ip.ofs2	= 0;		/* Blue bit offset */
+		params->ip.ofs3	= 24;		/* Alpha bit offset */
+		params->ip.wid0	= 7;		/* Red bit width - 1 */
+		params->ip.wid1	= 7;		/* Green bit width - 1 */
+		params->ip.wid2	= 7;		/* Blue bit width - 1 */
 		break;
 	case IPU_PIX_FMT_BGRA32:
 	case IPU_PIX_FMT_BGR32:
@@ -344,43 +355,43 @@ static void ipu_ch_param_set_size(union chan_param_mem *params,
 		params->ip.bpp	= 0;
 		params->ip.pfs	= 4;
 		params->ip.npb	= 7;
-		params->ip.sat	= 2;		
-		params->ip.ofs0	= 8;		
-		params->ip.ofs1	= 16;		
-		params->ip.ofs2	= 24;		
-		params->ip.ofs3	= 0;		
-		params->ip.wid0	= 7;		
-		params->ip.wid1	= 7;		
-		params->ip.wid2	= 7;		
-		params->ip.wid3	= 7;		
+		params->ip.sat	= 2;		/* SAT = 32-bit access */
+		params->ip.ofs0	= 8;		/* Red bit offset */
+		params->ip.ofs1	= 16;		/* Green bit offset */
+		params->ip.ofs2	= 24;		/* Blue bit offset */
+		params->ip.ofs3	= 0;		/* Alpha bit offset */
+		params->ip.wid0	= 7;		/* Red bit width - 1 */
+		params->ip.wid1	= 7;		/* Green bit width - 1 */
+		params->ip.wid2	= 7;		/* Blue bit width - 1 */
+		params->ip.wid3	= 7;		/* Alpha bit width - 1 */
 		break;
 	case IPU_PIX_FMT_RGBA32:
 	case IPU_PIX_FMT_RGB32:
 		params->ip.bpp	= 0;
 		params->ip.pfs	= 4;
 		params->ip.npb	= 7;
-		params->ip.sat	= 2;		
-		params->ip.ofs0	= 24;		
-		params->ip.ofs1	= 16;		
-		params->ip.ofs2	= 8;		
-		params->ip.ofs3	= 0;		
-		params->ip.wid0	= 7;		
-		params->ip.wid1	= 7;		
-		params->ip.wid2	= 7;		
-		params->ip.wid3	= 7;		
+		params->ip.sat	= 2;		/* SAT = 32-bit access */
+		params->ip.ofs0	= 24;		/* Red bit offset */
+		params->ip.ofs1	= 16;		/* Green bit offset */
+		params->ip.ofs2	= 8;		/* Blue bit offset */
+		params->ip.ofs3	= 0;		/* Alpha bit offset */
+		params->ip.wid0	= 7;		/* Red bit width - 1 */
+		params->ip.wid1	= 7;		/* Green bit width - 1 */
+		params->ip.wid2	= 7;		/* Blue bit width - 1 */
+		params->ip.wid3	= 7;		/* Alpha bit width - 1 */
 		break;
 	case IPU_PIX_FMT_UYVY:
 		params->ip.bpp	= 2;
 		params->ip.pfs	= 6;
 		params->ip.npb	= 7;
-		params->ip.sat	= 2;		
+		params->ip.sat	= 2;		/* SAT = 32-bit access */
 		break;
 	case IPU_PIX_FMT_YUV420P2:
 	case IPU_PIX_FMT_YUV420P:
 		params->ip.bpp	= 3;
 		params->ip.pfs	= 3;
 		params->ip.npb	= 7;
-		params->ip.sat	= 2;		
+		params->ip.sat	= 2;		/* SAT = 32-bit access */
 		u_offset = stride * height;
 		v_offset = u_offset + u_offset / 4;
 		ipu_ch_param_set_plane_offset(params, u_offset, v_offset);
@@ -389,7 +400,7 @@ static void ipu_ch_param_set_size(union chan_param_mem *params,
 		params->ip.bpp	= 3;
 		params->ip.pfs	= 2;
 		params->ip.npb	= 7;
-		params->ip.sat	= 2;		
+		params->ip.sat	= 2;		/* SAT = 32-bit access */
 		v_offset = stride * height;
 		u_offset = v_offset + v_offset / 2;
 		ipu_ch_param_set_plane_offset(params, u_offset, v_offset);
@@ -398,7 +409,7 @@ static void ipu_ch_param_set_size(union chan_param_mem *params,
 		params->ip.bpp	= 3;
 		params->ip.pfs	= 2;
 		params->ip.npb	= 7;
-		params->ip.sat	= 2;		
+		params->ip.sat	= 2;		/* SAT = 32-bit access */
 		u_offset = stride * height;
 		v_offset = u_offset + u_offset / 2;
 		ipu_ch_param_set_plane_offset(params, u_offset, v_offset);
@@ -436,8 +447,8 @@ static void ipu_write_param_mem(uint32_t addr, uint32_t *data,
 		idmac_write_ipureg(&ipu_data, *data++, IPU_IMA_DATA);
 		addr++;
 		if ((addr & 0x7) == 5) {
-			addr &= ~0x7;	
-			addr += 8;	
+			addr &= ~0x7;	/* set to word 0 */
+			addr += 8;	/* increment to next row */
 		}
 	}
 }
@@ -452,11 +463,11 @@ static int calc_resize_coeffs(uint32_t in_size, uint32_t out_size,
 	*resize_coeff	= 1 << 13;
 	*downsize_coeff	= 1 << 13;
 
-	
+	/* Cannot downsize more than 8:1 */
 	if (out_size << 3 < in_size)
 		return -EINVAL;
 
-	
+	/* compute downsizing coefficient */
 	temp_downsize = 0;
 	temp_size = in_size;
 	while (temp_size >= out_size * 2 && temp_downsize < 2) {
@@ -465,6 +476,11 @@ static int calc_resize_coeffs(uint32_t in_size, uint32_t out_size,
 	}
 	*downsize_coeff = temp_downsize;
 
+	/*
+	 * compute resizing coefficient using the following formula:
+	 * resize_coeff = M*(SI -1)/(SO - 1)
+	 * where M = 2^13, SI - input size, SO - output size
+	 */
 	*resize_coeff = (8192L * (temp_size - 1)) / (out_size - 1);
 	if (*resize_coeff >= 16384L) {
 		dev_err(ipu_data.dev, "Warning! Overflow on resize coeff.\n");
@@ -500,22 +516,26 @@ static int ipu_ic_init_prpenc(struct ipu *ipu,
 	uint32_t downsize_coeff, resize_coeff;
 	enum ipu_color_space in_fmt, out_fmt;
 
-	
+	/* Setup vertical resizing */
 	calc_resize_coeffs(params->video.in_height,
 			    params->video.out_height,
 			    &resize_coeff, &downsize_coeff);
 	reg = (downsize_coeff << 30) | (resize_coeff << 16);
 
-	
+	/* Setup horizontal resizing */
 	calc_resize_coeffs(params->video.in_width,
 			    params->video.out_width,
 			    &resize_coeff, &downsize_coeff);
 	reg |= (downsize_coeff << 14) | resize_coeff;
 
-	
+	/* Setup color space conversion */
 	in_fmt = format_to_colorspace(params->video.in_pixel_fmt);
 	out_fmt = format_to_colorspace(params->video.out_pixel_fmt);
 
+	/*
+	 * Colourspace conversion unsupported yet - see _init_csc() in
+	 * Freescale sources
+	 */
 	if (in_fmt != out_fmt) {
 		dev_err(ipu->dev, "Colourspace conversion unsupported!\n");
 		return -EOPNOTSUPP;
@@ -537,7 +557,7 @@ static int ipu_ic_init_prpenc(struct ipu *ipu,
 
 static uint32_t dma_param_addr(uint32_t dma_ch)
 {
-	
+	/* Channel Parameter Memory */
 	return 0x10000 | (dma_ch << 4);
 }
 
@@ -577,6 +597,12 @@ static uint32_t ipu_channel_conf_mask(enum ipu_channel channel)
 	return mask;
 }
 
+/**
+ * ipu_enable_channel() - enable an IPU channel.
+ * @idmac:	IPU DMAC context.
+ * @ichan:	IDMAC channel.
+ * @return:	0 on success or negative error code on failure.
+ */
 static int ipu_enable_channel(struct idmac *idmac, struct idmac_channel *ichan)
 {
 	struct ipu *ipu = to_ipu(idmac);
@@ -586,7 +612,7 @@ static int ipu_enable_channel(struct idmac *idmac, struct idmac_channel *ichan)
 
 	spin_lock_irqsave(&ipu->lock, flags);
 
-	
+	/* Reset to buffer 0 */
 	idmac_write_ipureg(ipu, 1UL << channel, IPU_CHA_CUR_BUF);
 	ichan->active_buffer = 0;
 	ichan->status = IPU_CHANNEL_ENABLED;
@@ -610,6 +636,21 @@ static int ipu_enable_channel(struct idmac *idmac, struct idmac_channel *ichan)
 	return 0;
 }
 
+/**
+ * ipu_init_channel_buffer() - initialize a buffer for logical IPU channel.
+ * @ichan:	IDMAC channel.
+ * @pixel_fmt:	pixel format of buffer. Pixel format is a FOURCC ASCII code.
+ * @width:	width of buffer in pixels.
+ * @height:	height of buffer in pixels.
+ * @stride:	stride length of buffer in pixels.
+ * @rot_mode:	rotation mode of buffer. A rotation setting other than
+ *		IPU_ROTATE_VERT_FLIP should only be used for input buffers of
+ *		rotation channels.
+ * @phyaddr_0:	buffer 0 physical address.
+ * @phyaddr_1:	buffer 1 physical address. Setting this to a value other than
+ *		NULL enables double buffering mode.
+ * @return:	0 on success or negative error code on failure.
+ */
 static int ipu_init_channel_buffer(struct idmac_channel *ichan,
 				   enum pixel_fmt pixel_fmt,
 				   uint16_t width, uint16_t height,
@@ -634,13 +675,13 @@ static int ipu_init_channel_buffer(struct idmac_channel *ichan,
 		return -EINVAL;
 	}
 
-	
+	/* IC channel's stride must be a multiple of 8 pixels */
 	if ((channel <= IDMAC_IC_13) && (stride % 8)) {
 		dev_err(ipu->dev, "Stride must be 8 pixel multiple\n");
 		return -EINVAL;
 	}
 
-	
+	/* Build parameter memory data for DMA channel */
 	ipu_ch_param_set_size(&params, pixel_fmt, width, height, stride_bytes);
 	ipu_ch_param_set_buffer(&params, phyaddr_0, phyaddr_1);
 	ipu_ch_param_set_rotation(&params, rot_mode);
@@ -665,17 +706,30 @@ static int ipu_init_channel_buffer(struct idmac_channel *ichan,
 	return 0;
 }
 
+/**
+ * ipu_select_buffer() - mark a channel's buffer as ready.
+ * @channel:	channel ID.
+ * @buffer_n:	buffer number to mark ready.
+ */
 static void ipu_select_buffer(enum ipu_channel channel, int buffer_n)
 {
-	
+	/* No locking - this is a write-one-to-set register, cleared by IPU */
 	if (buffer_n == 0)
-		
+		/* Mark buffer 0 as ready. */
 		idmac_write_ipureg(&ipu_data, 1UL << channel, IPU_CHA_BUF0_RDY);
 	else
-		
+		/* Mark buffer 1 as ready. */
 		idmac_write_ipureg(&ipu_data, 1UL << channel, IPU_CHA_BUF1_RDY);
 }
 
+/**
+ * ipu_update_channel_buffer() - update physical address of a channel buffer.
+ * @ichan:	IDMAC channel.
+ * @buffer_n:	buffer number to update.
+ *		0 or 1 are the only valid values.
+ * @phyaddr:	buffer physical address.
+ */
+/* Called under spin_lock(_irqsave)(&ichan->lock) */
 static void ipu_update_channel_buffer(struct idmac_channel *ichan,
 				      int buffer_n, dma_addr_t phyaddr)
 {
@@ -692,7 +746,7 @@ static void ipu_update_channel_buffer(struct idmac_channel *ichan,
 			ichan->status = IPU_CHANNEL_READY;
 		}
 
-		
+		/* 44.3.3.1.9 - Row Number 1 (WORD1, offset 0) */
 		idmac_write_ipureg(&ipu_data, dma_param_addr(channel) +
 				   0x0008UL, IPU_IMA_ADDR);
 		idmac_write_ipureg(&ipu_data, phyaddr, IPU_IMA_DATA);
@@ -703,14 +757,14 @@ static void ipu_update_channel_buffer(struct idmac_channel *ichan,
 			ichan->status = IPU_CHANNEL_READY;
 		}
 
-		
+		/* Check if double-buffering is already enabled */
 		reg = idmac_read_ipureg(&ipu_data, IPU_CHA_DB_MODE_SEL);
 
 		if (!(reg & (1UL << channel)))
 			idmac_write_ipureg(&ipu_data, reg | (1UL << channel),
 					   IPU_CHA_DB_MODE_SEL);
 
-		
+		/* 44.3.3.1.9 - Row Number 1 (WORD1, offset 1) */
 		idmac_write_ipureg(&ipu_data, dma_param_addr(channel) +
 				   0x0009UL, IPU_IMA_ADDR);
 		idmac_write_ipureg(&ipu_data, phyaddr, IPU_IMA_DATA);
@@ -719,6 +773,7 @@ static void ipu_update_channel_buffer(struct idmac_channel *ichan,
 	spin_unlock_irqrestore(&ipu_data.lock, flags);
 }
 
+/* Called under spin_lock_irqsave(&ichan->lock) */
 static int ipu_submit_buffer(struct idmac_channel *ichan,
 	struct idmac_tx_desc *desc, struct scatterlist *sg, int buf_idx)
 {
@@ -728,6 +783,12 @@ static int ipu_submit_buffer(struct idmac_channel *ichan,
 	if (async_tx_test_ack(&desc->txd))
 		return -EINTR;
 
+	/*
+	 * On first invocation this shouldn't be necessary, the call to
+	 * ipu_init_channel_buffer() above will set addresses for us, so we
+	 * could make it conditional on status >= IPU_CHANNEL_ENABLED, but
+	 * doing it again shouldn't hurt either.
+	 */
 	ipu_update_channel_buffer(ichan, buf_idx, sg_dma_address(sg));
 
 	ipu_select_buffer(chan_id, buf_idx);
@@ -737,6 +798,7 @@ static int ipu_submit_buffer(struct idmac_channel *ichan,
 	return 0;
 }
 
+/* Called under spin_lock_irqsave(&ichan->lock) */
 static int ipu_submit_channel_buffers(struct idmac_channel *ichan,
 				      struct idmac_tx_desc *desc)
 {
@@ -769,9 +831,9 @@ static dma_cookie_t idmac_tx_submit(struct dma_async_tx_descriptor *tx)
 	unsigned long flags;
 	int ret;
 
-	
+	/* Sanity check */
 	if (!list_empty(&desc->list)) {
-		
+		/* The descriptor doesn't belong to client */
 		dev_err(dev, "Descriptor %p not prepared!\n", tx);
 		return -EBUSY;
 	}
@@ -782,6 +844,10 @@ static dma_cookie_t idmac_tx_submit(struct dma_async_tx_descriptor *tx)
 
 	if (ichan->status < IPU_CHANNEL_READY) {
 		struct idmac_video_param *video = &ichan->params.video;
+		/*
+		 * Initial buffer assignment - the first two sg-entries from
+		 * the descriptor will end up in the IDMAC buffers
+		 */
 		dma_addr_t dma_1 = sg_is_last(desc->sg) ? 0 :
 			sg_dma_address(&desc->sg[1]);
 
@@ -803,11 +869,11 @@ static dma_cookie_t idmac_tx_submit(struct dma_async_tx_descriptor *tx)
 
 	cookie = dma_cookie_assign(tx);
 
-	
+	/* ipu->lock can be taken under ichan->lock, but not v.v. */
 	spin_lock_irqsave(&ichan->lock, flags);
 
 	list_add_tail(&desc->list, &ichan->queue);
-	
+	/* submit_buffers() atomically verifies and fills empty sg slots */
 	ret = ipu_submit_channel_buffers(ichan, desc);
 
 	spin_unlock_irqrestore(&ichan->lock, flags);
@@ -842,6 +908,7 @@ out:
 	return cookie;
 }
 
+/* Called with ichan->chan_mutex held */
 static int idmac_desc_alloc(struct idmac_channel *ichan, int n)
 {
 	struct idmac_tx_desc *desc = vmalloc(n * sizeof(struct idmac_tx_desc));
@@ -850,7 +917,7 @@ static int idmac_desc_alloc(struct idmac_channel *ichan, int n)
 	if (!desc)
 		return -ENOMEM;
 
-	
+	/* No interrupts, just disable the tasklet for a moment */
 	tasklet_disable(&to_ipu(idmac)->tasklet);
 
 	ichan->n_tx_desc = n;
@@ -875,6 +942,12 @@ static int idmac_desc_alloc(struct idmac_channel *ichan, int n)
 	return 0;
 }
 
+/**
+ * ipu_init_channel() - initialize an IPU channel.
+ * @idmac:	IPU DMAC context.
+ * @ichan:	pointer to the channel object.
+ * @return      0 on success or negative error code on failure.
+ */
 static int ipu_init_channel(struct idmac *idmac, struct idmac_channel *ichan)
 {
 	union ipu_channel_param *params = &ichan->params;
@@ -914,7 +987,7 @@ static int ipu_init_channel(struct idmac *idmac, struct idmac_channel *ichan)
 
 	ipu->channel_init_mask |= 1L << channel;
 
-	
+	/* Enable IPU sub module */
 	ipu_conf = idmac_read_ipureg(ipu, IPU_CONF) |
 		ipu_channel_conf_mask(channel);
 	idmac_write_ipureg(ipu, ipu_conf, IPU_CONF);
@@ -929,6 +1002,11 @@ static int ipu_init_channel(struct idmac *idmac, struct idmac_channel *ichan)
 	return ret;
 }
 
+/**
+ * ipu_uninit_channel() - uninitialize an IPU channel.
+ * @idmac:	IPU DMAC context.
+ * @ichan:	pointer to the channel object.
+ */
 static void ipu_uninit_channel(struct idmac *idmac, struct idmac_channel *ichan)
 {
 	enum ipu_channel channel = ichan->dma_chan.chan_id;
@@ -947,7 +1025,7 @@ static void ipu_uninit_channel(struct idmac *idmac, struct idmac_channel *ichan)
 		return;
 	}
 
-	
+	/* Reset the double buffer */
 	reg = idmac_read_ipureg(ipu, IPU_CHA_DB_MODE_SEL);
 	idmac_write_ipureg(ipu, reg & ~chan_mask, IPU_CHA_DB_MODE_SEL);
 
@@ -983,6 +1061,14 @@ static void ipu_uninit_channel(struct idmac *idmac, struct idmac_channel *ichan)
 	ichan->desc = NULL;
 }
 
+/**
+ * ipu_disable_channel() - disable an IPU channel.
+ * @idmac:		IPU DMAC context.
+ * @ichan:		channel object pointer.
+ * @wait_for_stop:	flag to set whether to wait for channel end of frame or
+ *			return immediately.
+ * @return:		0 on success or negative error code on failure.
+ */
 static int ipu_disable_channel(struct idmac *idmac, struct idmac_channel *ichan,
 			       bool wait_for_stop)
 {
@@ -995,7 +1081,7 @@ static int ipu_disable_channel(struct idmac *idmac, struct idmac_channel *ichan,
 
 	if (wait_for_stop && channel != IDMAC_SDC_1 && channel != IDMAC_SDC_0) {
 		timeout = 40;
-		
+		/* This waiting always fails. Related to spurious irq problem */
 		while ((idmac_read_icreg(ipu, IDMAC_CHA_BUSY) & chan_mask) ||
 		       (ipu_channel_status(ipu, channel) == TASK_STAT_ACTIVE)) {
 			timeout--;
@@ -1015,7 +1101,7 @@ static int ipu_disable_channel(struct idmac *idmac, struct idmac_channel *ichan,
 		}
 		dev_dbg(ipu->dev, "timeout = %d * 10ms\n", 40 - timeout);
 	}
-	
+	/* SDC BG and FG must be disabled before DMA is disabled */
 	if (wait_for_stop && (channel == IDMAC_SDC_0 ||
 			      channel == IDMAC_SDC_1)) {
 		for (timeout = 5;
@@ -1025,10 +1111,10 @@ static int ipu_disable_channel(struct idmac *idmac, struct idmac_channel *ichan,
 
 	spin_lock_irqsave(&ipu->lock, flags);
 
-	
+	/* Disable IC task */
 	ipu_ic_disable_task(ipu, channel);
 
-	
+	/* Disable DMA channel(s) */
 	reg = idmac_read_icreg(ipu, IDMAC_CHA_EN);
 	idmac_write_icreg(ipu, reg & ~chan_mask, IDMAC_CHA_EN);
 
@@ -1043,25 +1129,37 @@ static struct scatterlist *idmac_sg_next(struct idmac_channel *ichan,
 	struct scatterlist *sgnew = sg ? sg_next(sg) : NULL;
 
 	if (sgnew)
-		
+		/* next sg-element in this list */
 		return sgnew;
 
 	if ((*desc)->list.next == &ichan->queue)
-		
+		/* No more descriptors on the queue */
 		return NULL;
 
-	
+	/* Fetch next descriptor */
 	*desc = list_entry((*desc)->list.next, struct idmac_tx_desc, list);
 	return (*desc)->sg;
 }
 
+/*
+ * We have several possibilities here:
+ * current BUF		next BUF
+ *
+ * not last sg		next not last sg
+ * not last sg		next last sg
+ * last sg		first sg from next descriptor
+ * last sg		NULL
+ *
+ * Besides, the descriptor queue might be empty or not. We process all these
+ * cases carefully.
+ */
 static irqreturn_t idmac_interrupt(int irq, void *dev_id)
 {
 	struct idmac_channel *ichan = dev_id;
 	struct device *dev = &ichan->dma_chan.dev->device;
 	unsigned int chan_id = ichan->dma_chan.chan_id;
 	struct scatterlist **sg, *sgnext, *sgnew = NULL;
-	
+	/* Next transfer descriptor */
 	struct idmac_tx_desc *desc, *descnew;
 	dma_async_tx_callback callback;
 	void *callback_param;
@@ -1069,7 +1167,7 @@ static irqreturn_t idmac_interrupt(int irq, void *dev_id)
 	u32 ready0, ready1, curbuf, err;
 	unsigned long flags;
 
-	
+	/* IDMAC has cleared the respective BUFx_RDY bit, we manage the buffer */
 
 	dev_dbg(dev, "IDMAC irq %d, buf %d\n", irq, ichan->active_buffer);
 
@@ -1083,13 +1181,20 @@ static irqreturn_t idmac_interrupt(int irq, void *dev_id)
 	if (err & (1 << chan_id)) {
 		idmac_write_ipureg(&ipu_data, 1 << chan_id, IPU_INT_STAT_4);
 		spin_unlock_irqrestore(&ipu_data.lock, flags);
+		/*
+		 * Doing this
+		 * ichan->sg[0] = ichan->sg[1] = NULL;
+		 * you can force channel re-enable on the next tx_submit(), but
+		 * this is dirty - think about descriptors with multiple
+		 * sg elements.
+		 */
 		dev_warn(dev, "NFB4EOF on channel %d, ready %x, %x, cur %x\n",
 			 chan_id, ready0, ready1, curbuf);
 		return IRQ_HANDLED;
 	}
 	spin_unlock_irqrestore(&ipu_data.lock, flags);
 
-	
+	/* Other interrupts do not interfere with this channel */
 	spin_lock(&ichan->lock);
 	if (unlikely((ichan->active_buffer && (ready1 >> chan_id) & 1) ||
 		     (!ichan->active_buffer && (ready0 >> chan_id) & 1)
@@ -1112,6 +1217,11 @@ static irqreturn_t idmac_interrupt(int irq, void *dev_id)
 		return IRQ_NONE;
 	}
 
+	/*
+	 * active_buffer is a software flag, it shows which buffer we are
+	 * currently expecting back from the hardware, IDMAC should be
+	 * processing the other buffer already
+	 */
 	sg = &ichan->sg[ichan->active_buffer];
 	sgnext = ichan->sg[!ichan->active_buffer];
 
@@ -1126,11 +1236,15 @@ static irqreturn_t idmac_interrupt(int irq, void *dev_id)
 	dev_dbg(dev, "IDMAC irq %d, dma 0x%08x, next dma 0x%08x, current %d, curbuf 0x%08x\n",
 		irq, sg_dma_address(*sg), sgnext ? sg_dma_address(sgnext) : 0, ichan->active_buffer, curbuf);
 
-	
+	/* Find the descriptor of sgnext */
 	sgnew = idmac_sg_next(ichan, &descnew, *sg);
 	if (sgnext != sgnew)
 		dev_err(dev, "Submitted buffer %p, next buffer %p\n", sgnext, sgnew);
 
+	/*
+	 * if sgnext == NULL sg must be the last element in a scatterlist and
+	 * queue must be empty
+	 */
 	if (unlikely(!sgnext)) {
 		if (!WARN_ON(sg_next(*sg)))
 			dev_dbg(dev, "Underrun on channel %x\n", chan_id);
@@ -1143,14 +1257,18 @@ static irqreturn_t idmac_interrupt(int irq, void *dev_id)
 			ipu_ic_disable_task(&ipu_data, chan_id);
 			spin_unlock_irqrestore(&ipu_data.lock, flags);
 			ichan->status = IPU_CHANNEL_READY;
-			
+			/* Continue to check for complete descriptor */
 		}
 	}
 
-	
+	/* Calculate and submit the next sg element */
 	sgnew = idmac_sg_next(ichan, &descnew, sgnew);
 
 	if (unlikely(!sg_next(*sg)) || !sgnext) {
+		/*
+		 * Last element in scatterlist done, remove from the queue,
+		 * _init for debugging
+		 */
 		list_del_init(&desc->list);
 		done = true;
 	}
@@ -1168,7 +1286,7 @@ static irqreturn_t idmac_interrupt(int irq, void *dev_id)
 		spin_lock(&ichan->lock);
 	}
 
-	
+	/* Flip the active buffer - even if update above failed */
 	ichan->active_buffer = !ichan->active_buffer;
 	if (done)
 		dma_cookie_complete(&desc->txd);
@@ -1214,6 +1332,7 @@ static void ipu_gc_tasklet(unsigned long arg)
 	}
 }
 
+/* Allocate and initialise a transfer descriptor. */
 static struct dma_async_tx_descriptor *idmac_prep_slave_sg(struct dma_chan *chan,
 		struct scatterlist *sgl, unsigned int sg_len,
 		enum dma_transfer_direction direction, unsigned long tx_flags,
@@ -1224,7 +1343,7 @@ static struct dma_async_tx_descriptor *idmac_prep_slave_sg(struct dma_chan *chan
 	struct dma_async_tx_descriptor *txd = NULL;
 	unsigned long flags;
 
-	
+	/* We only can handle these three channels so far */
 	if (chan->chan_id != IDMAC_SDC_0 && chan->chan_id != IDMAC_SDC_1 &&
 	    chan->chan_id != IDMAC_IC_7)
 		return NULL;
@@ -1257,6 +1376,7 @@ static struct dma_async_tx_descriptor *idmac_prep_slave_sg(struct dma_chan *chan
 	return txd;
 }
 
+/* Re-select the current buffer and re-activate the channel */
 static void idmac_issue_pending(struct dma_chan *chan)
 {
 	struct idmac_channel *ichan = to_idmac_chan(chan);
@@ -1264,11 +1384,17 @@ static void idmac_issue_pending(struct dma_chan *chan)
 	struct ipu *ipu = to_ipu(idmac);
 	unsigned long flags;
 
-	
+	/* This is not always needed, but doesn't hurt either */
 	spin_lock_irqsave(&ipu->lock, flags);
 	ipu_select_buffer(chan->chan_id, ichan->active_buffer);
 	spin_unlock_irqrestore(&ipu->lock, flags);
 
+	/*
+	 * Might need to perform some parts of initialisation from
+	 * ipu_enable_channel(), but not all, we do not want to reset to buffer
+	 * 0, don't need to set priority again either, but re-enabling the task
+	 * and the channel might be a good idea.
+	 */
 }
 
 static int __idmac_control(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
@@ -1286,7 +1412,7 @@ static int __idmac_control(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
 		spin_lock_irqsave(&ipu->lock, flags);
 		ipu_ic_disable_task(ipu, chan->chan_id);
 
-		
+		/* Return all descriptors into "prepared" state */
 		list_for_each_safe(list, tmp, &ichan->queue)
 			list_del_init(list);
 
@@ -1303,7 +1429,7 @@ static int __idmac_control(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
 
 		tasklet_disable(&ipu->tasklet);
 
-		
+		/* ichan->queue is modified in ISR, have to spinlock */
 		spin_lock_irqsave(&ichan->lock, flags);
 		list_splice_init(&ichan->queue, &ichan->free_list);
 
@@ -1311,7 +1437,7 @@ static int __idmac_control(struct dma_chan *chan, enum dma_ctrl_cmd cmd,
 			for (i = 0; i < ichan->n_tx_desc; i++) {
 				struct idmac_tx_desc *desc = ichan->desc + i;
 				if (list_empty(&desc->list))
-					
+					/* Descriptor was prepared, but not submitted */
 					list_add(&desc->list, &ichan->free_list);
 
 				async_tx_clear_ack(&desc->txd);
@@ -1375,7 +1501,7 @@ static int idmac_alloc_chan_resources(struct dma_chan *chan)
 	struct idmac *idmac = to_idmac(chan->device);
 	int ret;
 
-	
+	/* dmaengine.c now guarantees to only offer free channels */
 	BUG_ON(chan->client_count > 1);
 	WARN_ON(ichan->status != IPU_CHANNEL_FREE);
 
@@ -1387,6 +1513,10 @@ static int idmac_alloc_chan_resources(struct dma_chan *chan)
 
 	ichan->eof_irq = ret;
 
+	/*
+	 * Important to first disable the channel, because maybe someone
+	 * used it before us, e.g., the bootloader
+	 */
 	ipu_disable_channel(idmac, ichan, true);
 
 	ret = ipu_init_channel(idmac, ichan);
@@ -1479,14 +1609,14 @@ static int __init ipu_idmac_init(struct ipu *ipu)
 	dma_cap_set(DMA_SLAVE, dma->cap_mask);
 	dma_cap_set(DMA_PRIVATE, dma->cap_mask);
 
-	
+	/* Compulsory common fields */
 	dma->dev				= ipu->dev;
 	dma->device_alloc_chan_resources	= idmac_alloc_chan_resources;
 	dma->device_free_chan_resources		= idmac_free_chan_resources;
 	dma->device_tx_status			= idmac_tx_status;
 	dma->device_issue_pending		= idmac_issue_pending;
 
-	
+	/* Compulsory for DMA_SLAVE fields */
 	dma->device_prep_slave_sg		= idmac_prep_slave_sg;
 	dma->device_control			= idmac_control;
 
@@ -1527,6 +1657,9 @@ static void __exit ipu_idmac_exit(struct ipu *ipu)
 	dma_async_device_unregister(&idmac->dma);
 }
 
+/*****************************************************************************
+ * IPU common probe / remove
+ */
 
 static int __init ipu_probe(struct platform_device *pdev)
 {
@@ -1560,31 +1693,31 @@ static int __init ipu_probe(struct platform_device *pdev)
 	dev_dbg(&pdev->dev, "fn irq %u, err irq %u, irq-base %u\n",
 		ipu_data.irq_fn, ipu_data.irq_err, ipu_data.irq_base);
 
-	
+	/* Remap IPU common registers */
 	ipu_data.reg_ipu = ioremap(mem_ipu->start, resource_size(mem_ipu));
 	if (!ipu_data.reg_ipu) {
 		ret = -ENOMEM;
 		goto err_ioremap_ipu;
 	}
 
-	
+	/* Remap Image Converter and Image DMA Controller registers */
 	ipu_data.reg_ic = ioremap(mem_ic->start, resource_size(mem_ic));
 	if (!ipu_data.reg_ic) {
 		ret = -ENOMEM;
 		goto err_ioremap_ic;
 	}
 
-	
+	/* Get IPU clock */
 	ipu_data.ipu_clk = clk_get(&pdev->dev, NULL);
 	if (IS_ERR(ipu_data.ipu_clk)) {
 		ret = PTR_ERR(ipu_data.ipu_clk);
 		goto err_clk_get;
 	}
 
-	
+	/* Make sure IPU HSP clock is running */
 	clk_enable(ipu_data.ipu_clk);
 
-	
+	/* Disable all interrupts */
 	idmac_write_ipureg(&ipu_data, 0, IPU_INT_CTRL_1);
 	idmac_write_ipureg(&ipu_data, 0, IPU_INT_CTRL_2);
 	idmac_write_ipureg(&ipu_data, 0, IPU_INT_CTRL_3);
@@ -1598,7 +1731,7 @@ static int __init ipu_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto err_attach_irq;
 
-	
+	/* Initialize DMA engine */
 	ret = ipu_idmac_init(&ipu_data);
 	if (ret < 0)
 		goto err_idmac_init;
@@ -1642,6 +1775,10 @@ static int __exit ipu_remove(struct platform_device *pdev)
 	return 0;
 }
 
+/*
+ * We need two MEM resources - with IPU-common and Image Converter registers,
+ * including PF_CONF and IDMAC_* registers, and two IRQs - function and error
+ */
 static struct platform_driver ipu_platform_driver = {
 	.driver = {
 		.name	= "ipu-core",

@@ -45,7 +45,9 @@ static char *node_name[2] = {"", "_sec"};
 
 #define INFO(x...) printk(KERN_INFO x)
 #define ERR(x...) printk(KERN_ERR x)
-
+#ifdef KW_TAINT_ANALYSIS
+	extern void * get_tainted_stuff();
+#endif
 static struct vid_enc_dev *vid_enc_device_p;
 static dev_t vid_enc_dev_num;
 static struct class *vid_enc_class;
@@ -239,23 +241,23 @@ static void vid_enc_output_frame_done(struct video_client_ctx *client_ctx,
 		&phy_addr, &pmem_fd, &file,
 		&buffer_index)) {
 
-		
+		/* Buffer address in user space */
 		venc_msg->venc_msg_info.buf.ptrbuffer =	(u8 *) user_vaddr;
-		
+		/* Buffer address in user space */
 		venc_msg->venc_msg_info.buf.clientdata = (void *)
 		vcd_frame_data->frm_clnt_data;
-		
+		/* Data length */
 		venc_msg->venc_msg_info.buf.len =
 			vcd_frame_data->data_len;
 		venc_msg->venc_msg_info.buf.flags =
 			vcd_frame_data->flags;
-		
+		/* Timestamp pass-through from input frame */
 		venc_msg->venc_msg_info.buf.timestamp =
 			vcd_frame_data->time_stamp;
 		venc_msg->venc_msg_info.buf.sz =
 			vcd_frame_data->alloc_len;
 
-		
+		/* Decoded picture width and height */
 		venc_msg->venc_msg_info.msgdata_size =
 			sizeof(struct venc_buffer);
 	} else {
@@ -840,7 +842,11 @@ static long vid_enc_ioctl(struct file *file,
 {
 	struct video_client_ctx *client_ctx = NULL;
 	struct venc_ioctl_msg venc_msg;
+	#ifdef KW_TAINT_ANALYSIS
+	void __user *arg = (void __user *)get_tainted_stuff();;
+	#else
 	void __user *arg = (void __user *)u_arg;
+	#endif
 	u32 result = true;
 	int result_read = -1;
 
@@ -1416,6 +1422,12 @@ static long vid_enc_ioctl(struct file *file,
 			return -EFAULT;
 
 		DBG("VEN_IOCTL_GET_SEQUENCE_HDR\n");
+		if (!access_ok(VERIFY_WRITE, seq_header.hdrbufptr,
+			seq_header.bufsize)) {
+			ERR("VEN_IOCTL_GET_SEQUENCE_HDR:"\
+				" Userspace address verification failed.\n");
+			return -EFAULT;
+		}
 		result = vid_enc_get_sequence_header(client_ctx,
 				&seq_header);
 		if (!result) {

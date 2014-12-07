@@ -47,15 +47,31 @@ enum {
 	VIA_NOISESRC2		= (1 << 9),
 	VIA_XSTORE_CNT_MASK	= 0x0F,
 
-	VIA_RNG_CHUNK_8		= 0x00,	
-	VIA_RNG_CHUNK_4		= 0x01,	
+	VIA_RNG_CHUNK_8		= 0x00,	/* 64 rand bits, 64 stored bits */
+	VIA_RNG_CHUNK_4		= 0x01,	/* 32 rand bits, 32 stored bits */
 	VIA_RNG_CHUNK_4_MASK	= 0xFFFFFFFF,
-	VIA_RNG_CHUNK_2		= 0x02,	
+	VIA_RNG_CHUNK_2		= 0x02,	/* 16 rand bits, 32 stored bits */
 	VIA_RNG_CHUNK_2_MASK	= 0xFFFF,
-	VIA_RNG_CHUNK_1		= 0x03,	
+	VIA_RNG_CHUNK_1		= 0x03,	/* 8 rand bits, 32 stored bits */
 	VIA_RNG_CHUNK_1_MASK	= 0xFF,
 };
 
+/*
+ * Investigate using the 'rep' prefix to obtain 32 bits of random data
+ * in one insn.  The upside is potentially better performance.  The
+ * downside is that the instruction becomes no longer atomic.  Due to
+ * this, just like familiar issues with /dev/random itself, the worst
+ * case of a 'rep xstore' could potentially pause a cpu for an
+ * unreasonably long time.  In practice, this condition would likely
+ * only occur when the hardware is failing.  (or so we hope :))
+ *
+ * Another possible performance boost may come from simply buffering
+ * until we have 4 bytes, thus returning a u32 at a time,
+ * instead of the current u8-at-a-time.
+ *
+ * Padlock instructions can generate a spurious DNA fault, so
+ * we have to call them in the context of irq_ts_save/restore()
+ */
 
 static inline u32 xstore(u32 *addr, u32 edx_in)
 {
@@ -79,9 +95,21 @@ static int via_rng_data_present(struct hwrng *rng, int wait)
 	u32 bytes_out;
 	int i;
 
+	/* We choose the recommended 1-byte-per-instruction RNG rate,
+	 * for greater randomness at the expense of speed.  Larger
+	 * values 2, 4, or 8 bytes-per-instruction yield greater
+	 * speed at lesser randomness.
+	 *
+	 * If you change this to another VIA_CHUNK_n, you must also
+	 * change the ->n_bytes values in rng_vendor_ops[] tables.
+	 * VIA_CHUNK_8 requires further code changes.
+	 *
+	 * A copy of MSR_VIA_RNG is placed in eax_out when xstore
+	 * completes.
+	 */
 
 	for (i = 0; i < 20; i++) {
-		*via_rng_datum = 0; 
+		*via_rng_datum = 0; /* paranoia, not really necessary */
 		bytes_out = xstore(via_rng_datum, VIA_RNG_CHUNK_1);
 		bytes_out &= VIA_XSTORE_CNT_MASK;
 		if (bytes_out || !wait)
@@ -106,6 +134,10 @@ static int via_rng_init(struct hwrng *rng)
 	struct cpuinfo_x86 *c = &cpu_data(0);
 	u32 lo, hi, old_lo;
 
+	/* VIA Nano CPUs don't have the MSR_VIA_RNG anymore.  The RNG
+	 * is always enabled if CPUID rng_en is set.  There is no
+	 * RNG configuration like it used to be the case in this
+	 * register */
 	if ((c->x86 == 6) && (c->x86_model >= 0x0f)) {
 		if (!cpu_has_xstore_enabled) {
 			printk(KERN_ERR PFX "can't enable hardware RNG "
@@ -130,19 +162,21 @@ static int via_rng_init(struct hwrng *rng)
 	lo |= VIA_RNG_ENABLE;
 	lo |= VIA_NOISESRC1;
 
-	
+	/* Enable secondary noise source on CPUs where it is present. */
 
-	
+	/* Nehemiah stepping 8 and higher */
 	if ((c->x86_model == 9) && (c->x86_mask > 7))
 		lo |= VIA_NOISESRC2;
 
-	
+	/* Esther */
 	if (c->x86_model >= 10)
 		lo |= VIA_NOISESRC2;
 
 	if (lo != old_lo)
 		wrmsr(MSR_VIA_RNG, lo, hi);
 
+	/* perhaps-unnecessary sanity check; remove after testing if
+	   unneeded */
 	rdmsr(MSR_VIA_RNG, lo, hi);
 	if ((lo & VIA_RNG_ENABLE) == 0) {
 		printk(KERN_ERR PFX "cannot enable VIA C3 RNG, aborting\n");

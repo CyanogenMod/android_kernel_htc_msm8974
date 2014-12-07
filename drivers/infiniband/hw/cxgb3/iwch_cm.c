@@ -319,6 +319,9 @@ static int status2errno(int status)
 	}
 }
 
+/*
+ * Try and reuse skbs already allocated...
+ */
 static struct sk_buff *get_skb(struct sk_buff *skb, int len, gfp_t gfp)
 {
 	if (skb && !skb_is_nonlinear(skb) && !skb_cloned(skb)) {
@@ -360,12 +363,19 @@ static void arp_failure_discard(struct t3cdev *dev, struct sk_buff *skb)
 	kfree_skb(skb);
 }
 
+/*
+ * Handle an ARP failure for an active open.
+ */
 static void act_open_req_arp_failure(struct t3cdev *dev, struct sk_buff *skb)
 {
 	printk(KERN_ERR MOD "ARP failure duing connect\n");
 	kfree_skb(skb);
 }
 
+/*
+ * Handle an ARP failure for a CPL_ABORT_REQ.  Change it into a no RST variant
+ * and send it along.
+ */
 static void abort_arp_failure(struct t3cdev *dev, struct sk_buff *skb)
 {
 	struct cpl_abort_req *req = cplhdr(skb);
@@ -496,6 +506,11 @@ static void send_mpa_req(struct iwch_ep *ep, struct sk_buff *skb)
 	if (ep->plen)
 		memcpy(mpa->private_data, ep->mpa_pkt + sizeof(*mpa), ep->plen);
 
+	/*
+	 * Reference the mpa skb.  This ensures the data area
+	 * will remain in memory until the hw acks the tx.
+	 * Function tx_ack() will deref it.
+	 */
 	skb_get(skb);
 	set_arp_failure_handler(skb, arp_failure_discard);
 	skb_reset_transport_header(skb);
@@ -542,6 +557,11 @@ static int send_mpa_reject(struct iwch_ep *ep, const void *pdata, u8 plen)
 	if (plen)
 		memcpy(mpa->private_data, pdata, plen);
 
+	/*
+	 * Reference the mpa skb again.  This ensures the data area
+	 * will remain in memory until the hw acks the tx.
+	 * Function tx_ack() will deref it.
+	 */
 	skb_get(skb);
 	skb->priority = CPL_PRIORITY_DATA;
 	set_arp_failure_handler(skb, arp_failure_discard);
@@ -588,6 +608,11 @@ static int send_mpa_reply(struct iwch_ep *ep, const void *pdata, u8 plen)
 	if (plen)
 		memcpy(mpa->private_data, pdata, plen);
 
+	/*
+	 * Reference the mpa skb.  This ensures the data area
+	 * will remain in memory until the hw acks the tx.
+	 * Function tx_ack() will deref it.
+	 */
 	skb_get(skb);
 	set_arp_failure_handler(skb, arp_failure_discard);
 	skb_reset_transport_header(skb);
@@ -615,7 +640,7 @@ static int act_establish(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 
 	dst_confirm(ep->dst);
 
-	
+	/* setup the hwtid for this connection */
 	ep->hwtid = tid;
 	cxgb3_insert_tid(ep->com.tdev, &t3c_client, ep, tid);
 
@@ -624,10 +649,10 @@ static int act_establish(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 
 	set_emss(ep, ntohs(req->tcp_opt));
 
-	
+	/* dealloc the atid */
 	cxgb3_free_atid(ep->com.tdev, ep->atid);
 
-	
+	/* start MPA negotiation */
 	send_mpa_req(ep, skb);
 
 	return 0;
@@ -728,6 +753,10 @@ static void connect_request_upcall(struct iwch_ep *ep)
 	event.private_data_len = ep->plen;
 	event.private_data = ep->mpa_pkt + sizeof(struct mpa_message);
 	event.provider_data = ep;
+	/*
+	 * Until ird/ord negotiation via MPAv2 support is added, send max
+	 * supported values
+	 */
 	event.ird = event.ord = 8;
 	if (state_read(&ep->parent_ep->com) != DEAD) {
 		get_ep(&ep->com);
@@ -746,6 +775,10 @@ static void established_upcall(struct iwch_ep *ep)
 	PDBG("%s ep %p\n", __func__, ep);
 	memset(&event, 0, sizeof(event));
 	event.event = IW_CM_EVENT_ESTABLISHED;
+	/*
+	 * Until ird/ord negotiation via MPAv2 support is added, send max
+	 * supported values
+	 */
 	event.ird = event.ord = 8;
 	if (ep->com.cm_id) {
 		PDBG("%s ep %p tid %d\n", __func__, ep, ep->hwtid);
@@ -784,24 +817,39 @@ static void process_mpa_reply(struct iwch_ep *ep, struct sk_buff *skb)
 
 	PDBG("%s ep %p\n", __func__, ep);
 
+	/*
+	 * Stop mpa timer.  If it expired, then the state has
+	 * changed and we bail since ep_timeout already aborted
+	 * the connection.
+	 */
 	stop_ep_timer(ep);
 	if (state_read(&ep->com) != MPA_REQ_SENT)
 		return;
 
+	/*
+	 * If we get more than the supported amount of private data
+	 * then we must fail this connection.
+	 */
 	if (ep->mpa_pkt_len + skb->len > sizeof(ep->mpa_pkt)) {
 		err = -EINVAL;
 		goto err;
 	}
 
+	/*
+	 * copy the new data into our accumulation buffer.
+	 */
 	skb_copy_from_linear_data(skb, &(ep->mpa_pkt[ep->mpa_pkt_len]),
 				  skb->len);
 	ep->mpa_pkt_len += skb->len;
 
+	/*
+	 * if we don't even have the mpa message, then bail.
+	 */
 	if (ep->mpa_pkt_len < sizeof(*mpa))
 		return;
 	mpa = (struct mpa_message *) ep->mpa_pkt;
 
-	
+	/* Validate MPA header. */
 	if (mpa->revision != mpa_rev) {
 		err = -EPROTO;
 		goto err;
@@ -813,11 +861,17 @@ static void process_mpa_reply(struct iwch_ep *ep, struct sk_buff *skb)
 
 	plen = ntohs(mpa->private_data_size);
 
+	/*
+	 * Fail if there's too much private data.
+	 */
 	if (plen > MPA_MAX_PRIVATE_DATA) {
 		err = -EPROTO;
 		goto err;
 	}
 
+	/*
+	 * If plen does not account for pkt size
+	 */
 	if (ep->mpa_pkt_len > (sizeof(*mpa) + plen)) {
 		err = -EPROTO;
 		goto err;
@@ -825,6 +879,10 @@ static void process_mpa_reply(struct iwch_ep *ep, struct sk_buff *skb)
 
 	ep->plen = (u8) plen;
 
+	/*
+	 * If we don't have all the pdata yet, then bail.
+	 * We'll continue process when more data arrives.
+	 */
 	if (ep->mpa_pkt_len < (sizeof(*mpa) + plen))
 		return;
 
@@ -833,6 +891,11 @@ static void process_mpa_reply(struct iwch_ep *ep, struct sk_buff *skb)
 		goto err;
 	}
 
+	/*
+	 * If we get here we have accumulated the entire mpa
+	 * start reply message including private data. And
+	 * the MPA header is valid.
+	 */
 	state_set(&ep->com, FPDU_MODE);
 	ep->mpa_attr.initiator = 1;
 	ep->mpa_attr.crc_enabled = (mpa->flags & MPA_CRC) | crc_enabled ? 1 : 0;
@@ -854,7 +917,7 @@ static void process_mpa_reply(struct iwch_ep *ep, struct sk_buff *skb)
 	    IWCH_QP_ATTR_LLP_STREAM_HANDLE | IWCH_QP_ATTR_MPA_ATTR |
 	    IWCH_QP_ATTR_MAX_IRD | IWCH_QP_ATTR_MAX_ORD;
 
-	
+	/* bind QP and TID with INIT_WR */
 	err = iwch_modify_qp(ep->com.qp->rhp,
 			     ep->com.qp, mask, &attrs, 1);
 	if (err)
@@ -879,10 +942,19 @@ static void process_mpa_request(struct iwch_ep *ep, struct sk_buff *skb)
 
 	PDBG("%s ep %p\n", __func__, ep);
 
+	/*
+	 * Stop mpa timer.  If it expired, then the state has
+	 * changed and we bail since ep_timeout already aborted
+	 * the connection.
+	 */
 	stop_ep_timer(ep);
 	if (state_read(&ep->com) != MPA_REQ_WAIT)
 		return;
 
+	/*
+	 * If we get more than the supported amount of private data
+	 * then we must fail this connection.
+	 */
 	if (ep->mpa_pkt_len + skb->len > sizeof(ep->mpa_pkt)) {
 		abort_connection(ep, skb, GFP_KERNEL);
 		return;
@@ -890,15 +962,25 @@ static void process_mpa_request(struct iwch_ep *ep, struct sk_buff *skb)
 
 	PDBG("%s enter (%s line %u)\n", __func__, __FILE__, __LINE__);
 
+	/*
+	 * Copy the new data into our accumulation buffer.
+	 */
 	skb_copy_from_linear_data(skb, &(ep->mpa_pkt[ep->mpa_pkt_len]),
 				  skb->len);
 	ep->mpa_pkt_len += skb->len;
 
+	/*
+	 * If we don't even have the mpa message, then bail.
+	 * We'll continue process when more data arrives.
+	 */
 	if (ep->mpa_pkt_len < sizeof(*mpa))
 		return;
 	PDBG("%s enter (%s line %u)\n", __func__, __FILE__, __LINE__);
 	mpa = (struct mpa_message *) ep->mpa_pkt;
 
+	/*
+	 * Validate MPA Header.
+	 */
 	if (mpa->revision != mpa_rev) {
 		abort_connection(ep, skb, GFP_KERNEL);
 		return;
@@ -911,20 +993,33 @@ static void process_mpa_request(struct iwch_ep *ep, struct sk_buff *skb)
 
 	plen = ntohs(mpa->private_data_size);
 
+	/*
+	 * Fail if there's too much private data.
+	 */
 	if (plen > MPA_MAX_PRIVATE_DATA) {
 		abort_connection(ep, skb, GFP_KERNEL);
 		return;
 	}
 
+	/*
+	 * If plen does not account for pkt size
+	 */
 	if (ep->mpa_pkt_len > (sizeof(*mpa) + plen)) {
 		abort_connection(ep, skb, GFP_KERNEL);
 		return;
 	}
 	ep->plen = (u8) plen;
 
+	/*
+	 * If we don't have all the pdata yet, then bail.
+	 */
 	if (ep->mpa_pkt_len < (sizeof(*mpa) + plen))
 		return;
 
+	/*
+	 * If we get here we have accumulated the entire mpa
+	 * start reply message including private data.
+	 */
 	ep->mpa_attr.initiator = 0;
 	ep->mpa_attr.crc_enabled = (mpa->flags & MPA_CRC) | crc_enabled ? 1 : 0;
 	ep->mpa_attr.recv_marker_enabled = markers_enabled;
@@ -937,7 +1032,7 @@ static void process_mpa_request(struct iwch_ep *ep, struct sk_buff *skb)
 
 	state_set(&ep->com, MPA_REQ_RCVD);
 
-	
+	/* drive upcall */
 	connect_request_upcall(ep);
 	return;
 }
@@ -970,15 +1065,24 @@ static int rx_data(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 		       " ep %p state %d tid %d\n",
 		       __func__, ep, state_read(&ep->com), ep->hwtid);
 
+		/*
+		 * The ep will timeout and inform the ULP of the failure.
+		 * See ep_timeout().
+		 */
 		break;
 	}
 
-	
+	/* update RX credits */
 	update_rx_credits(ep, dlen);
 
 	return CPL_RET_BUF_DONE;
 }
 
+/*
+ * Upcall from the adapter indicating data has been transmitted.
+ * For us its just the single MPA request or reply.  We can now free
+ * the skb holding the mpa message.
+ */
 static int tx_ack(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 {
 	struct iwch_ep *ep = ctx;
@@ -1035,6 +1139,10 @@ static int abort_rpl(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 	PDBG("%s ep %p\n", __func__, ep);
 	BUG_ON(!ep);
 
+	/*
+	 * We get 2 abort replies from the HW.  The first one must
+	 * be ignored except for scribbling that we need one more.
+	 */
 	if (!test_and_set_bit(ABORT_REQ_IN_PROGRESS, &ep->com.flags)) {
 		return CPL_RET_BUF_DONE;
 	}
@@ -1058,6 +1166,9 @@ static int abort_rpl(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 	return CPL_RET_BUF_DONE;
 }
 
+/*
+ * Return whether a failed active open has allocated a TID
+ */
 static inline int act_open_has_tid(int status)
 {
 	return status != CPL_ERR_TCAM_FULL && status != CPL_ERR_CONN_EXIST &&
@@ -1187,7 +1298,7 @@ static void accept_cr(struct iwch_ep *ep, __be32 peer_ip, struct sk_buff *skb)
 	rpl->opt0h = htonl(opt0h);
 	rpl->opt0l_status = htonl(opt0l | CPL_PASS_OPEN_ACCEPT);
 	rpl->opt2 = htonl(opt2);
-	rpl->rsvd = rpl->opt2;	
+	rpl->rsvd = rpl->opt2;	/* workaround for HW bug */
 	skb->priority = CPL_PRIORITY_SETUP;
 	iwch_l2t_send(ep->com.tdev, skb, ep->l2t);
 
@@ -1240,6 +1351,9 @@ static int pass_accept_req(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 		goto reject;
 	}
 
+	/*
+	 * Find the netdev for this connection request.
+	 */
 	tim.mac_addr = req->dst_mac;
 	tim.vlan_tag = ntohs(req->vlan_tag);
 	if (tdev->ctl(tdev, GET_IFF_FROM_MAC, &tim) < 0 || !tim.dev) {
@@ -1248,7 +1362,7 @@ static int pass_accept_req(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 		goto reject;
 	}
 
-	
+	/* Find output route */
 	rt = find_route(tdev,
 			req->local_ip,
 			req->peer_ip,
@@ -1340,6 +1454,12 @@ static int peer_close(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 		break;
 	case MPA_REQ_RCVD:
 
+		/*
+		 * We're gonna mark this puppy DEAD, but keep
+		 * the reference on it until the ULP accepts or
+		 * rejects the CR. Also wake up anyone waiting
+		 * in rdma connection migration (see iwch_accept_cr()).
+		 */
 		__state_set(&ep->com, CLOSING);
 		ep->com.rpl_done = 1;
 		ep->com.rpl_err = -ECONNRESET;
@@ -1394,6 +1514,9 @@ static int peer_close(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 	return CPL_RET_BUF_DONE;
 }
 
+/*
+ * Returns whether an ABORT_REQ_RSS message is a negative advice.
+ */
 static int is_neg_adv_abort(unsigned int status)
 {
 	return status == CPL_ERR_RTX_NEG_ADVICE ||
@@ -1418,6 +1541,10 @@ static int peer_abort(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 		return CPL_RET_BUF_DONE;
 	}
 
+	/*
+	 * We get 2 peer aborts from the HW.  The first one must
+	 * be ignored except for scribbling that we need one more.
+	 */
 	if (!test_and_set_bit(PEER_ABORT_IN_PROGRESS, &ep->com.flags)) {
 		return CPL_RET_BUF_DONE;
 	}
@@ -1442,6 +1569,12 @@ static int peer_abort(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 		break;
 	case MPA_REQ_RCVD:
 
+		/*
+		 * We're gonna mark this puppy DEAD, but keep
+		 * the reference on it until the ULP accepts or
+		 * rejects the CR. Also wake up anyone waiting
+		 * in rdma connection migration (see iwch_accept_cr()).
+		 */
 		ep->com.rpl_done = 1;
 		ep->com.rpl_err = -ECONNRESET;
 		PDBG("waking up ep %p\n", ep);
@@ -1450,7 +1583,7 @@ static int peer_abort(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 	case MORIBUND:
 	case CLOSING:
 		stop_ep_timer(ep);
-		
+		/*FALLTHROUGH*/
 	case FPDU_MODE:
 		if (ep->com.cm_id && ep->com.qp) {
 			attrs.next_state = IWCH_QP_STATE_ERROR;
@@ -1511,7 +1644,7 @@ static int close_con_rpl(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 	PDBG("%s ep %p\n", __func__, ep);
 	BUG_ON(!ep);
 
-	
+	/* The cm_id may be null if we failed to connect */
 	spin_lock_irqsave(&ep->com.lock, flags);
 	switch (ep->com.state) {
 	case CLOSING:
@@ -1543,6 +1676,18 @@ static int close_con_rpl(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 	return CPL_RET_BUF_DONE;
 }
 
+/*
+ * T3A does 3 things when a TERM is received:
+ * 1) send up a CPL_RDMA_TERMINATE message with the TERM packet
+ * 2) generate an async event on the QP with the TERMINATE opcode
+ * 3) post a TERMINATE opcde cqe into the associated CQ.
+ *
+ * For (1), we save the message in the qp for later consumer consumption.
+ * For (2), we move the QP into TERMINATE, post a QP event and disconnect.
+ * For (3), we toss the CQE in cxio_poll_cq().
+ *
+ * terminate() handles case (1)...
+ */
 static int terminate(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 {
 	struct iwch_ep *ep = ctx;
@@ -1680,14 +1825,14 @@ int iwch_accept_cr(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param)
 
 	PDBG("%s %d ird %d ord %d\n", __func__, __LINE__, ep->ird, ep->ord);
 
-	
+	/* bind QP to EP and move to RTS */
 	attrs.mpa_attr = ep->mpa_attr;
 	attrs.max_ird = ep->ird;
 	attrs.max_ord = ep->ord;
 	attrs.llp_stream_handle = ep;
 	attrs.next_state = IWCH_QP_STATE_RTS;
 
-	
+	/* bind QP and TID with INIT_WR */
 	mask = IWCH_QP_ATTR_NEXT_STATE |
 			     IWCH_QP_ATTR_LLP_STREAM_HANDLE |
 			     IWCH_QP_ATTR_MPA_ATTR |
@@ -1699,7 +1844,7 @@ int iwch_accept_cr(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param)
 	if (err)
 		goto err1;
 
-	
+	/* if needed, wait for wr_ack */
 	if (iwch_rqes_posted(qp)) {
 		wait_event(ep->com.waitq, ep->com.rpl_done);
 		err = ep->com.rpl_err;
@@ -1775,6 +1920,9 @@ int iwch_connect(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param)
 	PDBG("%s qpn 0x%x qp %p cm_id %p\n", __func__, conn_param->qpn,
 	     ep->com.qp, cm_id);
 
+	/*
+	 * Allocate an active TID to initiate a TCP connection.
+	 */
 	ep->atid = cxgb3_alloc_atid(h->rdev.t3cdev_p, &t3c_client, ep);
 	if (ep->atid == -1) {
 		printk(KERN_ERR MOD "%s - cannot alloc atid.\n", __func__);
@@ -1782,7 +1930,7 @@ int iwch_connect(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param)
 		goto fail2;
 	}
 
-	
+	/* find a route */
 	rt = find_route(h->rdev.t3cdev_p,
 			cm_id->local_addr.sin_addr.s_addr,
 			cm_id->remote_addr.sin_addr.s_addr,
@@ -1806,7 +1954,7 @@ int iwch_connect(struct iw_cm_id *cm_id, struct iw_cm_conn_param *conn_param)
 	ep->com.local_addr = cm_id->local_addr;
 	ep->com.remote_addr = cm_id->remote_addr;
 
-	
+	/* send connect request to rnic */
 	err = send_connect(ep);
 	if (!err)
 		goto out;
@@ -1845,6 +1993,9 @@ int iwch_create_listen(struct iw_cm_id *cm_id, int backlog)
 	ep->backlog = backlog;
 	ep->com.local_addr = cm_id->local_addr;
 
+	/*
+	 * Allocate a server TID.
+	 */
 	ep->stid = cxgb3_alloc_stid(h->rdev.t3cdev_p, &t3c_client, ep);
 	if (ep->stid == -1) {
 		printk(KERN_ERR MOD "%s - cannot alloc atid.\n", __func__);
@@ -1857,7 +2008,7 @@ int iwch_create_listen(struct iw_cm_id *cm_id, int backlog)
 	if (err)
 		goto fail3;
 
-	
+	/* wait for pass_open_rpl */
 	wait_event(ep->com.waitq, ep->com.rpl_done);
 	err = ep->com.rpl_err;
 	if (!err) {
@@ -1986,6 +2137,10 @@ int iwch_ep_redirect(void *ctx, struct dst_entry *old, struct dst_entry *new,
 	return 1;
 }
 
+/*
+ * All the CM events are handled on a work queue to have a safe context.
+ * These are the real handlers that are called from the work queue.
+ */
 static const cxgb3_cpl_handler_func work_handlers[NUM_CPL_CMDS] = {
 	[CPL_ACT_ESTABLISH]	= act_establish,
 	[CPL_ACT_OPEN_RPL]	= act_open_rpl,
@@ -2018,6 +2173,9 @@ static void process_work(struct work_struct *work)
 		if (ret & CPL_RET_BUF_DONE)
 			kfree_skb(skb);
 
+		/*
+		 * ep was referenced in sched(), and is freed here.
+		 */
 		put_ep((struct iwch_ep_common *)ep);
 	}
 }
@@ -2030,9 +2188,15 @@ static int sched(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 
 	get_ep(epc);
 
+	/*
+	 * Save ctx and tdev in the skb->cb area.
+	 */
 	*((void **) skb->cb) = ctx;
 	*((struct t3cdev **) (skb->cb + sizeof(void *))) = tdev;
 
+	/*
+	 * Queue the skb and schedule the worker thread.
+	 */
 	skb_queue_tail(&rxq, skb);
 	queue_work(workq, &skb_work);
 	return 0;
@@ -2049,6 +2213,10 @@ static int set_tcb_rpl(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 	return CPL_RET_BUF_DONE;
 }
 
+/*
+ * All upcalls from the T3 Core go to sched() to schedule the
+ * processing on a work queue.
+ */
 cxgb3_cpl_handler_func t3c_handlers[NUM_CPL_CMDS] = {
 	[CPL_ACT_ESTABLISH]	= sched,
 	[CPL_ACT_OPEN_RPL]	= sched,

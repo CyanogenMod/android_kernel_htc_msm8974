@@ -10,7 +10,7 @@
 #include <asm/time.h>
 
 
-#define MAX_RTC_WAIT 5000	
+#define MAX_RTC_WAIT 5000	/* 5 sec */
 #define RTAS_CLOCK_BUSY (-2)
 unsigned long __init rtas_get_boot_time(void)
 {
@@ -25,7 +25,7 @@ unsigned long __init rtas_get_boot_time(void)
 
 		wait_time = rtas_busy_delay_time(error);
 		if (wait_time) {
-			
+			/* This is boot time so we spin. */
 			udelay(wait_time*1000);
 		}
 	} while (wait_time && (get_tb() < max_wait_tb));
@@ -40,6 +40,10 @@ unsigned long __init rtas_get_boot_time(void)
 	return mktime(ret[0], ret[1], ret[2], ret[3], ret[4], ret[5]);
 }
 
+/* NOTE: get_rtc_time will get an error if executed in interrupt context
+ * and if a delay is needed to read the clock.  In this case we just
+ * silently return without updating rtc_tm.
+ */
 void rtas_get_rtc_time(struct rtc_time *rtc_tm)
 {
         int ret[8];
@@ -58,7 +62,7 @@ void rtas_get_rtc_time(struct rtc_time *rtc_tm)
 				printk_ratelimited(KERN_WARNING
 						   "error: reading clock "
 						   "would delay interrupt\n");
-				return;	
+				return;	/* delay not allowed */
 			}
 			msleep(wait_time);
 		}
@@ -94,7 +98,7 @@ int rtas_set_rtc_time(struct rtc_time *tm)
 		wait_time = rtas_busy_delay_time(error);
 		if (wait_time) {
 			if (in_interrupt())
-				return 1;	
+				return 1;	/* probably decrementer */
 			msleep(wait_time);
 		}
 	} while (wait_time && (get_tb() < max_wait_tb));

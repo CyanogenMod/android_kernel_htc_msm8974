@@ -119,6 +119,7 @@ static struct s3c2410_uartcfg smdk6450_uartcfgs[] __initdata = {
 #endif
 };
 
+/* Frame Buffer */
 static struct s3c_fb_pd_win smdk6450_fb_win0 = {
 	.win_mode	= {
 		.left_margin	= 8,
@@ -141,6 +142,7 @@ static struct s3c_fb_platdata smdk6450_lcd_pdata __initdata = {
 	.setup_gpio	= s5p64x0_fb_gpio_setup_24bpp,
 };
 
+/* LCD power controller */
 static void smdk6450_lte480_reset_power(struct plat_lcd_data *pd,
 					 unsigned int power)
 {
@@ -184,7 +186,7 @@ static struct platform_device *smdk6450_devices[] __initdata = {
 	&s3c_device_hsmmc0,
 	&s3c_device_hsmmc1,
 	&s3c_device_hsmmc2,
-	
+	/* s5p6450_device_spi0 will be added */
 };
 
 static struct s3c_sdhci_platdata smdk6450_hsmmc0_pdata __initdata = {
@@ -222,13 +224,14 @@ static struct s3c2410_platform_i2c s5p6450_i2c1_data __initdata = {
 
 static struct i2c_board_info smdk6450_i2c_devs0[] __initdata = {
 	{ I2C_BOARD_INFO("wm8580", 0x1b), },
-	{ I2C_BOARD_INFO("24c08", 0x50), },	
+	{ I2C_BOARD_INFO("24c08", 0x50), },	/* Samsung KS24C080C EEPROM */
 };
 
 static struct i2c_board_info smdk6450_i2c_devs1[] __initdata = {
-	{ I2C_BOARD_INFO("24c128", 0x57), },
+	{ I2C_BOARD_INFO("24c128", 0x57), },/* Samsung S524AD0XD1 EEPROM */
 };
 
+/* LCD Backlight data */
 static struct samsung_bl_gpio_info smdk6450_bl_gpio_info = {
 	.no = S5P6450_GPF(15),
 	.func = S3C_GPIO_SFN(2),
@@ -250,7 +253,7 @@ static void s5p6450_set_lcd_interface(void)
 {
 	unsigned int cfg;
 
-	
+	/* select TFT LCD type (RGB I/F) */
 	cfg = __raw_readl(S5P64X0_SPCON0);
 	cfg &= ~S5P64X0_SPCON0_LCD_SEL_MASK;
 	cfg |= S5P64X0_SPCON0_LCD_SEL_RGB;
@@ -281,7 +284,7 @@ static void __init smdk6450_machine_init(void)
 }
 
 MACHINE_START(SMDK6450, "SMDK6450")
-	
+	/* Maintainer: Kukjin Kim <kgene.kim@samsung.com> */
 	.atag_offset	= 0x100,
 
 	.init_irq	= s5p6450_init_irq,

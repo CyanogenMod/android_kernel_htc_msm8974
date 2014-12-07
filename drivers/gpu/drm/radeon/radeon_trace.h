@@ -76,6 +76,7 @@ DEFINE_EVENT(radeon_fence_request, radeon_fence_wait_end,
 
 #endif
 
+/* This part must be outside protection */
 #undef TRACE_INCLUDE_PATH
 #define TRACE_INCLUDE_PATH .
 #include <trace/define_trace.h>

@@ -29,6 +29,7 @@
 
 #include "devices.h"
 
+/* gpio */
 static struct resource ltq_gpio_resource[] = {
 	{
 		.name	= "gpio0",
@@ -55,13 +56,14 @@ void __init ltq_register_gpio(void)
 	platform_device_register_simple("ltq_gpio", 1,
 		&ltq_gpio_resource[1], 1);
 
-	
+	/* AR9 and VR9 have an extra gpio block */
 	if (ltq_is_ar9() || ltq_is_vr9()) {
 		platform_device_register_simple("ltq_gpio", 2,
 			&ltq_gpio_resource[2], 1);
 	}
 }
 
+/* serial to parallel conversion */
 static struct resource ltq_stp_resource = {
 	.name   = "stp",
 	.start  = LTQ_STP_BASE_ADDR,
@@ -74,6 +76,7 @@ void __init ltq_register_gpio_stp(void)
 	platform_device_register_simple("ltq_stp", 0, &ltq_stp_resource, 1);
 }
 
+/* asc ports - amazon se has its own serial mapping */
 static struct resource ltq_ase_asc_resources[] = {
 	{
 		.name	= "asc0",
@@ -92,6 +95,7 @@ void __init ltq_register_ase_asc(void)
 		ltq_ase_asc_resources, ARRAY_SIZE(ltq_ase_asc_resources));
 }
 
+/* ethernet */
 static struct resource ltq_etop_resources = {
 	.name	= "etop",
 	.start	= LTQ_ETOP_BASE_ADDR,

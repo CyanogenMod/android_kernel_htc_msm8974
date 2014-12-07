@@ -47,7 +47,7 @@ void q6_audio_cb(uint32_t opcode, uint32_t token,
 }
 
 void audio_aio_cb(uint32_t opcode, uint32_t token,
-		uint32_t *payload,  void *priv)
+		uint32_t *payload,  void *priv/*struct q6audio_aio *audio*/)
 {
 	struct q6audio_aio *audio = (struct q6audio_aio *)priv;
 	union msm_audio_event_payload e_payload;
@@ -64,10 +64,12 @@ void audio_aio_cb(uint32_t opcode, uint32_t token,
 		audio_aio_async_read_ack(audio, token, payload);
 		break;
 	case ASM_DATA_EVENT_RENDERED_EOS:
-		
+		/* EOS Handle */
 		pr_debug("%s[%p]:ASM_DATA_CMDRSP_EOS\n", __func__, audio);
-		if (audio->feedback) { 
+		if (audio->feedback) { /* Non-Tunnel mode */
 			audio->eos_rsp = 1;
+			/* propagate input EOS i/p buffer,
+			after receiving DSP acknowledgement */
 			if (audio->eos_flag &&
 				(audio->eos_write_payload.aio_buf.buf_addr)) {
 				audio_aio_post_event(audio,
@@ -77,7 +79,7 @@ void audio_aio_cb(uint32_t opcode, uint32_t token,
 					sizeof(union msm_audio_event_payload));
 				audio->eos_flag = 0;
 			}
-		} else { 
+		} else { /* Tunnel mode */
 			audio->eos_rsp = 1;
 			wake_up(&audio->write_wait);
 			wake_up(&audio->cmd_wait);
@@ -120,7 +122,7 @@ void extract_meta_out_info(struct q6audio_aio *audio,
 	struct dec_meta_out *meta_data = buf_node->kvaddr;
 	uint32_t temp;
 
-	if (dir) { 
+	if (dir) { /* input buffer - Write */
 		if (audio->buf_cfg.meta_info_enable)
 			memcpy(&buf_node->meta_info.meta_in,
 			(char *)buf_node->kvaddr, sizeof(struct dec_meta_in));
@@ -132,7 +134,7 @@ void extract_meta_out_info(struct q6audio_aio *audio,
 			buf_node->meta_info.meta_in.ntimestamp.highpart,
 			buf_node->meta_info.meta_in.ntimestamp.lowpart,
 			buf_node->meta_info.meta_in.nflags);
-	} else { 
+	} else { /* output buffer - Read */
 		memcpy((char *)buf_node->kvaddr,
 			&buf_node->meta_info.meta_out,
 			sizeof(struct dec_meta_out));
@@ -154,6 +156,7 @@ void extract_meta_out_info(struct q6audio_aio *audio,
 	}
 }
 
+/* Read buffer from DSP / Handle Ack from DSP */
 void audio_aio_async_read_ack(struct q6audio_aio *audio, uint32_t token,
 			uint32_t *payload)
 {
@@ -162,11 +165,11 @@ void audio_aio_async_read_ack(struct q6audio_aio *audio, uint32_t token,
 	struct audio_aio_buffer_node *filled_buf;
 	pr_debug("%s\n", __func__);
 
-	
+	/* No active flush in progress */
 	if (audio->rflush)
 		return;
 
-	
+	/* Statistics of read */
 	atomic_add(payload[4], &audio->in_bytes);
 	atomic_add(payload[9], &audio->in_samples);
 
@@ -185,10 +188,12 @@ void audio_aio_async_read_ack(struct q6audio_aio *audio, uint32_t token,
 		list_del(&filled_buf->list);
 		spin_unlock_irqrestore(&audio->dsp_lock, flags);
 		event_payload.aio_buf = filled_buf->buf;
+		/* Read done Buffer due to flush/normal condition
+		after EOS event, so append EOS buffer */
 		if (audio->eos_rsp == 0x1) {
 			event_payload.aio_buf.data_len =
 			insert_eos_buf(audio, filled_buf);
-			
+			/* Reset flag back to indicate eos intimated */
 			audio->eos_rsp = 0;
 		} else {
 			filled_buf->meta_info.meta_out.num_of_frames\

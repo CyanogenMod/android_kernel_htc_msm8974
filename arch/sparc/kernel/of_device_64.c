@@ -38,6 +38,9 @@ void of_iounmap(struct resource *res, void __iomem *base, unsigned long size)
 }
 EXPORT_SYMBOL(of_iounmap);
 
+/*
+ * PCI bus specific translator
+ */
 
 static int of_bus_pci_match(struct device_node *np)
 {
@@ -47,6 +50,12 @@ static int of_bus_pci_match(struct device_node *np)
 		if (model && !strcmp(model, "SUNW,simba"))
 			return 0;
 
+		/* Do not do PCI specific frobbing if the
+		 * PCI bridge lacks a ranges property.  We
+		 * want to pass it through up to the next
+		 * parent as-is, not with the PCI translate
+		 * method which chops off the top address cell.
+		 */
 		if (!of_find_property(np, "ranges", NULL))
 			return 0;
 
@@ -63,6 +72,9 @@ static int of_bus_simba_match(struct device_node *np)
 	if (model && !strcmp(model, "SUNW,simba"))
 		return 1;
 
+	/* Treat PCI busses lacking ranges property just like
+	 * simba.
+	 */
 	if (!strcmp(np->name, "pci")) {
 		if (!of_find_property(np, "ranges", NULL))
 			return 1;
@@ -92,10 +104,13 @@ static int of_bus_pci_map(u32 *addr, const u32 *range,
 	u32 result[OF_MAX_ADDR_CELLS];
 	int i;
 
-	
+	/* Check address type match */
 	if (!((addr[0] ^ range[0]) & 0x03000000))
 		goto type_match;
 
+	/* Special exception, we can map a 64-bit address into
+	 * a 32-bit range.
+	 */
 	if ((addr[0] & 0x03000000) == 0x03000000 &&
 	    (range[0] & 0x03000000) == 0x02000000)
 		goto type_match;
@@ -107,10 +122,10 @@ type_match:
 			    na - 1, ns))
 		return -EINVAL;
 
-	
+	/* Start with the parent range base.  */
 	memcpy(result, range + na, pna * 4);
 
-	
+	/* Add in the child address offset, skipping high cell.  */
 	for (i = 0; i < na - 1; i++)
 		result[pna - 1 - i] +=
 			(addr[na - 1 - i] -
@@ -125,15 +140,15 @@ static unsigned long of_bus_pci_get_flags(const u32 *addr, unsigned long flags)
 {
 	u32 w = addr[0];
 
-	
+	/* For PCI, we override whatever child busses may have used.  */
 	flags = 0;
 	switch((w >> 24) & 0x03) {
 	case 0x01:
 		flags |= IORESOURCE_IO;
 		break;
 
-	case 0x02: 
-	case 0x03: 
+	case 0x02: /* 32 bits */
+	case 0x03: /* 64 bits */
 		flags |= IORESOURCE_MEM;
 		break;
 	}
@@ -142,6 +157,15 @@ static unsigned long of_bus_pci_get_flags(const u32 *addr, unsigned long flags)
 	return flags;
 }
 
+/*
+ * FHC/Central bus specific translator.
+ *
+ * This is just needed to hard-code the address and size cell
+ * counts.  'fhc' and 'central' nodes lack the #address-cells and
+ * #size-cells properties, and if you walk to the root on such
+ * Enterprise boxes all you'll get is a #size-cells of 2 which is
+ * not what we want to use.
+ */
 static int of_bus_fhc_match(struct device_node *np)
 {
 	return !strcmp(np->name, "fhc") ||
@@ -150,9 +174,12 @@ static int of_bus_fhc_match(struct device_node *np)
 
 #define of_bus_fhc_count_cells of_bus_sbus_count_cells
 
+/*
+ * Array of bus specific translators
+ */
 
 static struct of_bus of_busses[] = {
-	
+	/* PCI */
 	{
 		.name = "pci",
 		.addr_prop_name = "assigned-addresses",
@@ -161,7 +188,7 @@ static struct of_bus of_busses[] = {
 		.map = of_bus_pci_map,
 		.get_flags = of_bus_pci_get_flags,
 	},
-	
+	/* SIMBA */
 	{
 		.name = "simba",
 		.addr_prop_name = "assigned-addresses",
@@ -170,7 +197,7 @@ static struct of_bus of_busses[] = {
 		.map = of_bus_simba_map,
 		.get_flags = of_bus_pci_get_flags,
 	},
-	
+	/* SBUS */
 	{
 		.name = "sbus",
 		.addr_prop_name = "reg",
@@ -179,7 +206,7 @@ static struct of_bus of_busses[] = {
 		.map = of_bus_default_map,
 		.get_flags = of_bus_default_get_flags,
 	},
-	
+	/* FHC */
 	{
 		.name = "fhc",
 		.addr_prop_name = "reg",
@@ -188,7 +215,7 @@ static struct of_bus of_busses[] = {
 		.map = of_bus_default_map,
 		.get_flags = of_bus_default_get_flags,
 	},
-	
+	/* Default */
 	{
 		.name = "default",
 		.addr_prop_name = "reg",
@@ -233,7 +260,7 @@ static int __init build_one_resource(struct device_node *parent,
 		return 0;
 	}
 
-	
+	/* Now walk through the ranges */
 	rlen /= 4;
 	rone = na + pna + ns;
 	for (; rlen >= rone; rlen -= rone, ranges += rone) {
@@ -241,6 +268,9 @@ static int __init build_one_resource(struct device_node *parent,
 			return 0;
 	}
 
+	/* When we miss an I/O space match on PCI, just pass it up
+	 * to the next PCI bridge and/or controller.
+	 */
 	if (!strcmp(bus->name, "pci") &&
 	    (addr[0] & 0x03000000) == 0x01000000)
 		return 0;
@@ -250,16 +280,29 @@ static int __init build_one_resource(struct device_node *parent,
 
 static int __init use_1to1_mapping(struct device_node *pp)
 {
-	
+	/* If we have a ranges property in the parent, use it.  */
 	if (of_find_property(pp, "ranges", NULL) != NULL)
 		return 0;
 
+	/* If the parent is the dma node of an ISA bus, pass
+	 * the translation up to the root.
+	 *
+	 * Some SBUS devices use intermediate nodes to express
+	 * hierarchy within the device itself.  These aren't
+	 * real bus nodes, and don't have a 'ranges' property.
+	 * But, we should still pass the translation work up
+	 * to the SBUS itself.
+	 */
 	if (!strcmp(pp->name, "dma") ||
 	    !strcmp(pp->name, "espdma") ||
 	    !strcmp(pp->name, "ledma") ||
 	    !strcmp(pp->name, "lebuffer"))
 		return 0;
 
+	/* Similarly for all PCI bridges, if we get this far
+	 * it lacks a ranges property, and this will include
+	 * cases like Simba.
+	 */
 	if (!strcmp(pp->name, "pci"))
 		return 0;
 
@@ -288,13 +331,13 @@ static void __init build_device_resources(struct platform_device *op,
 	if (!preg || num_reg == 0)
 		return;
 
-	
+	/* Convert to num-cells.  */
 	num_reg /= 4;
 
-	
+	/* Convert to num-entries.  */
 	num_reg /= na + ns;
 
-	
+	/* Prevent overrunning the op->resources[] array.  */
 	if (num_reg > PROMREG_MAX) {
 		printk(KERN_WARNING "%s: Too many regs (%d), "
 		       "limiting to %d.\n",
@@ -410,6 +453,16 @@ apply_interrupt_map(struct device_node *dp, struct device_node *pp,
 		imap += (na + 3);
 	}
 	if (i == imlen) {
+		/* Psycho and Sabre PCI controllers can have 'interrupt-map'
+		 * properties that do not include the on-board device
+		 * interrupts.  Instead, the device's 'interrupts' property
+		 * is already a fully specified INO value.
+		 *
+		 * Handle this by deciding that, if we didn't get a
+		 * match in the parent's 'interrupt-map', and the
+		 * parent is an IRQ translator, then use the parent as
+		 * our IRQ controller.
+		 */
 		if (pp->irq_trans)
 			return pp;
 
@@ -441,12 +494,23 @@ static unsigned int __init pci_irq_swizzle(struct device_node *dp,
 	slot = (devfn >> 3) & 0x1f;
 
 	if (pp->irq_trans) {
+		/* Derived from Table 8-3, U2P User's Manual.  This branch
+		 * is handling a PCI controller that lacks a proper set of
+		 * interrupt-map and interrupt-map-mask properties.  The
+		 * Ultra-E450 is one example.
+		 *
+		 * The bit layout is BSSLL, where:
+		 * B: 0 on bus A, 1 on bus B
+		 * D: 2-bit slot number, derived from PCI device number as
+		 *    (dev - 1) for bus A, or (dev - 2) for bus B
+		 * L: 2-bit line number
+		 */
 		if (bus & 0x80) {
-			
+			/* PBM-A */
 			bus  = 0x00;
 			slot = (slot - 1) << 2;
 		} else {
-			
+			/* PBM-B */
 			bus  = 0x10;
 			slot = (slot - 2) << 2;
 		}
@@ -454,6 +518,9 @@ static unsigned int __init pci_irq_swizzle(struct device_node *dp,
 
 		ret = (bus | slot | irq);
 	} else {
+		/* Going through a PCI-PCI bridge that lacks a set of
+		 * interrupt-map and interrupt-map-mask properties.
+		 */
 		ret = ((irq - 1 + (slot & 3)) & 3) + 1;
 	}
 
@@ -485,6 +552,14 @@ static unsigned int __init build_one_device_irq(struct platform_device *op,
 		goto out;
 	}
 
+	/* Something more complicated.  Walk up to the root, applying
+	 * interrupt-map or bus specific translations, until we hit
+	 * an IRQ translator.
+	 *
+	 * If we hit a bus type or situation we cannot handle, we
+	 * stop and assume that the original IRQ number was in a
+	 * format which has special meaning to it's immediate parent.
+	 */
 	pp = dp->parent;
 	ip = NULL;
 	while (pp) {
@@ -577,7 +652,7 @@ static struct platform_device * __init scan_one_device(struct device_node *dp,
 	if (irq) {
 		op->archdata.num_irqs = len / 4;
 
-		
+		/* Prevent overrunning the op->irqs[] array.  */
 		if (op->archdata.num_irqs > PROMINTR_MAX) {
 			printk(KERN_WARNING "%s: Too many irqs (%d), "
 			       "limiting to %d.\n",

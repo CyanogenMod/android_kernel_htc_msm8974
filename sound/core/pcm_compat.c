@@ -18,6 +18,7 @@
  *
  */
 
+/* This file included from pcm_native.c */
 
 #include <linux/compat.h>
 #include <linux/slab.h>
@@ -75,10 +76,10 @@ static int snd_pcm_ioctl_forward_compat(struct snd_pcm_substream *substream,
 
 struct snd_pcm_hw_params32 {
 	u32 flags;
-	struct snd_mask masks[SNDRV_PCM_HW_PARAM_LAST_MASK - SNDRV_PCM_HW_PARAM_FIRST_MASK + 1]; 
-	struct snd_mask mres[5];	
+	struct snd_mask masks[SNDRV_PCM_HW_PARAM_LAST_MASK - SNDRV_PCM_HW_PARAM_FIRST_MASK + 1]; /* this must be identical */
+	struct snd_mask mres[5];	/* reserved masks */
 	struct snd_interval intervals[SNDRV_PCM_HW_PARAM_LAST_INTERVAL - SNDRV_PCM_HW_PARAM_FIRST_INTERVAL + 1];
-	struct snd_interval ires[9];	
+	struct snd_interval ires[9];	/* reserved intervals */
 	u32 rmask;
 	u32 cmask;
 	u32 info;
@@ -103,6 +104,7 @@ struct snd_pcm_sw_params32 {
 	unsigned char reserved[64];
 };
 
+/* recalcuate the boundary within 32bit */
 static snd_pcm_uframes_t recalculate_boundary(struct snd_pcm_runtime *runtime)
 {
 	snd_pcm_uframes_t boundary;
@@ -133,6 +135,10 @@ static int snd_pcm_ioctl_sw_params_compat(struct snd_pcm_substream *substream,
 	    get_user(params.silence_threshold, &src->silence_threshold) ||
 	    get_user(params.silence_size, &src->silence_size))
 		return -EFAULT;
+	/*
+	 * Check silent_size parameter.  Since we have 64bit boundary,
+	 * silence_size must be compared with the 32bit boundary.
+	 */
 	boundary = recalculate_boundary(substream->runtime);
 	if (boundary && params.silence_size >= boundary)
 		params.silence_size = substream->runtime->boundary;
@@ -215,6 +221,7 @@ static int snd_pcm_status_user_compat(struct snd_pcm_substream *substream,
 	return err;
 }
 
+/* both for HW_PARAMS and HW_REFINE */
 static int snd_pcm_ioctl_hw_params_compat(struct snd_pcm_substream *substream,
 					  int refine, 
 					  struct snd_pcm_hw_params32 __user *data32)
@@ -226,7 +233,7 @@ static int snd_pcm_ioctl_hw_params_compat(struct snd_pcm_substream *substream,
 	if (! (runtime = substream->runtime))
 		return -ENOTTY;
 
-	
+	/* only fifo_size is different, so just copy all */
 	data = memdup_user(data32, sizeof(*data32));
 	if (IS_ERR(data))
 		return PTR_ERR(data);
@@ -254,6 +261,8 @@ static int snd_pcm_ioctl_hw_params_compat(struct snd_pcm_substream *substream,
 }
 
 
+/*
+ */
 struct snd_xferi32 {
 	s32 result;
 	u32 buf;
@@ -284,19 +293,26 @@ static int snd_pcm_ioctl_xferi_compat(struct snd_pcm_substream *substream,
 		err = snd_pcm_lib_read(substream, compat_ptr(buf), frames);
 	if (err < 0)
 		return err;
-	
+	/* copy the result */
 	if (put_user(err, &data32->result))
 		return -EFAULT;
 	return 0;
 }
 
 
+/* snd_xfern needs remapping of bufs */
 struct snd_xfern32 {
 	s32 result;
-	u32 bufs;  
+	u32 bufs;  /* this is void **; */
 	u32 frames;
 };
 
+/*
+ * xfern ioctl nees to copy (up to) 128 pointers on stack.
+ * although we may pass the copied pointers through f_op->ioctl, but the ioctl
+ * handler there expands again the same 128 pointers on stack, so it is better
+ * to handle the function (calling pcm_readv/writev) directly in this handler.
+ */
 static int snd_pcm_ioctl_xfern_compat(struct snd_pcm_substream *substream,
 				      int dir, struct snd_xfern32 __user *data32)
 {
@@ -397,7 +413,7 @@ static int snd_pcm_ioctl_sync_ptr_compat(struct snd_pcm_substream *substream,
 	if (! boundary)
 		boundary = 0x7fffffff;
 	snd_pcm_stream_lock_irq(substream);
-	
+	/* FIXME: we should consider the boundary for the sync from app */
 	if (!(sflags & SNDRV_PCM_SYNC_PTR_APPL))
 		control->appl_ptr = scontrol.appl_ptr;
 	else
@@ -424,6 +440,8 @@ static int snd_pcm_ioctl_sync_ptr_compat(struct snd_pcm_substream *substream,
 }
 
 
+/*
+ */
 enum {
 	SNDRV_PCM_IOCTL_HW_REFINE32 = _IOWR('A', 0x10, struct snd_pcm_hw_params32),
 	SNDRV_PCM_IOCTL_HW_PARAMS32 = _IOWR('A', 0x11, struct snd_pcm_hw_params32),
@@ -454,6 +472,11 @@ static long snd_pcm_ioctl_compat(struct file *file, unsigned int cmd, unsigned l
 	if (! substream)
 		return -ENOTTY;
 
+	/*
+	 * When PCM is used on 32bit mode, we need to disable
+	 * mmap of PCM status/control records because of the size
+	 * incompatibility.
+	 */
 	pcm_file->no_compat_mmap = 1;
 
 	switch (cmd) {

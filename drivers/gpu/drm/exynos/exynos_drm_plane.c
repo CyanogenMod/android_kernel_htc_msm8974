@@ -56,7 +56,7 @@ exynos_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
 	pos.fb_x = x;
 	pos.fb_y = y;
 
-	
+	/* TODO: scale feature */
 	ret = exynos_drm_overlay_update(overlay, fb, &crtc->mode, &pos);
 	if (ret < 0)
 		return ret;
@@ -118,7 +118,7 @@ int exynos_plane_init(struct drm_device *dev, unsigned int nr)
 	if (!exynos_plane)
 		return -ENOMEM;
 
-	
+	/* all CRTCs are available */
 	possible_crtcs = (1 << MAX_CRTC) - 1;
 
 	exynos_plane->overlay.zpos = DEFAULT_ZPOS;

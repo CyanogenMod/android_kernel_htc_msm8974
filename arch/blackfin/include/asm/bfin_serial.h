@@ -58,80 +58,91 @@ struct bfin_serial_port {
 #endif
 };
 
-#define WLS(x)                   (((x)-5) & 0x03)  
-#define STB                      0x04  
-#define PEN                      0x08  
-#define EPS                      0x10  
-#define STP                      0x20  
-#define SB                       0x40  
-#define DLAB                     0x80  
+/* UART_LCR Masks */
+#define WLS(x)                   (((x)-5) & 0x03)  /* Word Length Select */
+#define STB                      0x04  /* Stop Bits */
+#define PEN                      0x08  /* Parity Enable */
+#define EPS                      0x10  /* Even Parity Select */
+#define STP                      0x20  /* Stick Parity */
+#define SB                       0x40  /* Set Break */
+#define DLAB                     0x80  /* Divisor Latch Access */
 
-#define DR                       0x01  
-#define OE                       0x02  
-#define PE                       0x04  
-#define FE                       0x08  
-#define BI                       0x10  
-#define THRE                     0x20  
-#define TEMT                     0x40  
-#define TFI                      0x80  
+/* UART_LSR Masks */
+#define DR                       0x01  /* Data Ready */
+#define OE                       0x02  /* Overrun Error */
+#define PE                       0x04  /* Parity Error */
+#define FE                       0x08  /* Framing Error */
+#define BI                       0x10  /* Break Interrupt */
+#define THRE                     0x20  /* THR Empty */
+#define TEMT                     0x40  /* TSR and UART_THR Empty */
+#define TFI                      0x80  /* Transmission Finished Indicator */
 
-#define ERBFI                    0x01  
-#define ETBEI                    0x02  
-#define ELSI                     0x04  
-#define EDSSI                    0x08  
-#define EDTPTI                   0x10  
-#define ETFI                     0x20  
-#define ERFCI                    0x40  
+/* UART_IER Masks */
+#define ERBFI                    0x01  /* Enable Receive Buffer Full Interrupt */
+#define ETBEI                    0x02  /* Enable Transmit Buffer Empty Interrupt */
+#define ELSI                     0x04  /* Enable RX Status Interrupt */
+#define EDSSI                    0x08  /* Enable Modem Status Interrupt */
+#define EDTPTI                   0x10  /* Enable DMA Transmit PIRQ Interrupt */
+#define ETFI                     0x20  /* Enable Transmission Finished Interrupt */
+#define ERFCI                    0x40  /* Enable Receive FIFO Count Interrupt */
 
-#define XOFF                     0x01  
-#define MRTS                     0x02  
-#define RFIT                     0x04  
-#define RFRT                     0x08  
-#define LOOP_ENA                 0x10  
-#define FCPOL                    0x20  
-#define ARTS                     0x40  
-#define ACTS                     0x80  
+/* UART_MCR Masks */
+#define XOFF                     0x01  /* Transmitter Off */
+#define MRTS                     0x02  /* Manual Request To Send */
+#define RFIT                     0x04  /* Receive FIFO IRQ Threshold */
+#define RFRT                     0x08  /* Receive FIFO RTS Threshold */
+#define LOOP_ENA                 0x10  /* Loopback Mode Enable */
+#define FCPOL                    0x20  /* Flow Control Pin Polarity */
+#define ARTS                     0x40  /* Automatic Request To Send */
+#define ACTS                     0x80  /* Automatic Clear To Send */
 
-#define SCTS                     0x01  
-#define CTS                      0x10  
-#define RFCS                     0x20  
+/* UART_MSR Masks */
+#define SCTS                     0x01  /* Sticky CTS */
+#define CTS                      0x10  /* Clear To Send */
+#define RFCS                     0x20  /* Receive FIFO Count Status */
 
-#define UCEN                     0x01  
-#define IREN                     0x02  
-#define TPOLC                    0x04  
-#define RPOLC                    0x08  
-#define FPE                      0x10  
-#define FFE                      0x20  
+/* UART_GCTL Masks */
+#define UCEN                     0x01  /* Enable UARTx Clocks */
+#define IREN                     0x02  /* Enable IrDA Mode */
+#define TPOLC                    0x04  /* IrDA TX Polarity Change */
+#define RPOLC                    0x08  /* IrDA RX Polarity Change */
+#define FPE                      0x10  /* Force Parity Error On Transmit */
+#define FFE                      0x20  /* Force Framing Error On Transmit */
 
 #ifdef BFIN_UART_BF54X_STYLE
-# define OFFSET_DLL              0x00  
-# define OFFSET_DLH              0x04  
-# define OFFSET_GCTL             0x08  
-# define OFFSET_LCR              0x0C  
-# define OFFSET_MCR              0x10  
-# define OFFSET_LSR              0x14  
-# define OFFSET_MSR              0x18  
-# define OFFSET_SCR              0x1C  
-# define OFFSET_IER_SET          0x20  
-# define OFFSET_IER_CLEAR        0x24  
-# define OFFSET_THR              0x28  
-# define OFFSET_RBR              0x2C  
-#else 
-# define OFFSET_THR              0x00  
-# define OFFSET_RBR              0x00  
-# define OFFSET_DLL              0x00  
-# define OFFSET_DLH              0x04  
-# define OFFSET_IER              0x04  
-# define OFFSET_IIR              0x08  
-# define OFFSET_LCR              0x0C  
-# define OFFSET_MCR              0x10  
-# define OFFSET_LSR              0x14  
-# define OFFSET_MSR              0x18  
-# define OFFSET_SCR              0x1C  
-# define OFFSET_GCTL             0x24  
+# define OFFSET_DLL              0x00  /* Divisor Latch (Low-Byte)        */
+# define OFFSET_DLH              0x04  /* Divisor Latch (High-Byte)       */
+# define OFFSET_GCTL             0x08  /* Global Control Register         */
+# define OFFSET_LCR              0x0C  /* Line Control Register           */
+# define OFFSET_MCR              0x10  /* Modem Control Register          */
+# define OFFSET_LSR              0x14  /* Line Status Register            */
+# define OFFSET_MSR              0x18  /* Modem Status Register           */
+# define OFFSET_SCR              0x1C  /* SCR Scratch Register            */
+# define OFFSET_IER_SET          0x20  /* Set Interrupt Enable Register   */
+# define OFFSET_IER_CLEAR        0x24  /* Clear Interrupt Enable Register */
+# define OFFSET_THR              0x28  /* Transmit Holding register       */
+# define OFFSET_RBR              0x2C  /* Receive Buffer register         */
+#else /* BF533 style */
+# define OFFSET_THR              0x00  /* Transmit Holding register         */
+# define OFFSET_RBR              0x00  /* Receive Buffer register           */
+# define OFFSET_DLL              0x00  /* Divisor Latch (Low-Byte)          */
+# define OFFSET_DLH              0x04  /* Divisor Latch (High-Byte)         */
+# define OFFSET_IER              0x04  /* Interrupt Enable Register         */
+# define OFFSET_IIR              0x08  /* Interrupt Identification Register */
+# define OFFSET_LCR              0x0C  /* Line Control Register             */
+# define OFFSET_MCR              0x10  /* Modem Control Register            */
+# define OFFSET_LSR              0x14  /* Line Status Register              */
+# define OFFSET_MSR              0x18  /* Modem Status Register             */
+# define OFFSET_SCR              0x1C  /* SCR Scratch Register              */
+# define OFFSET_GCTL             0x24  /* Global Control Register           */
+/* code should not need IIR, so force build error if they use it */
 # undef OFFSET_IIR
 #endif
 
+/*
+ * All Blackfin system MMRs are padded to 32bits even if the register
+ * itself is only 16bits.  So use a helper macro to streamline this.
+ */
 #define __BFP(m) u16 m; u16 __pad_##m
 struct bfin_uart_regs {
 #ifdef BFIN_UART_BF54X_STYLE
@@ -196,13 +207,14 @@ struct bfin_uart_regs {
 #define UART_GET_IER(p)       bfin_read16(port_membase(p) + OFFSET_IER_SET)
 #define UART_SET_IER(p, v)    bfin_write16(port_membase(p) + OFFSET_IER_SET, v)
 
-#define UART_CLEAR_DLAB(p)    
-#define UART_SET_DLAB(p)      
+#define UART_CLEAR_DLAB(p)    /* MMRs not muxed on BF54x */
+#define UART_SET_DLAB(p)      /* MMRs not muxed on BF54x */
 
 #define UART_CLEAR_LSR(p)     bfin_write16(port_membase(p) + OFFSET_LSR, -1)
 #define UART_GET_LSR(p)       bfin_read16(port_membase(p) + OFFSET_LSR)
 #define UART_PUT_LSR(p, v)    bfin_write16(port_membase(p) + OFFSET_LSR, v)
 
+/* This handles hard CTS/RTS */
 #define BFIN_UART_CTSRTS_HARD
 #define UART_CLEAR_SCTS(p)      bfin_write16((port_membase(p) + OFFSET_MSR), SCTS)
 #define UART_GET_CTS(x)         (UART_GET_MSR(x) & CTS)
@@ -211,7 +223,7 @@ struct bfin_uart_regs {
 #define UART_ENABLE_INTS(x, v)  UART_SET_IER(x, v)
 #define UART_DISABLE_INTS(x)    UART_CLEAR_IER(x, 0xF)
 
-#else 
+#else /* BF533 style */
 
 #define UART_CLEAR_IER(p, v)  UART_PUT_IER(p, UART_GET_IER(p) & ~(v))
 #define UART_GET_IER(p)       bfin_read16(port_membase(p) + OFFSET_IER)
@@ -228,6 +240,10 @@ struct bfin_uart_regs {
 # define get_lsr_cache(p) 0
 #endif
 
+/* The hardware clears the LSR bits upon read, so we need to cache
+ * some of the more fun bits in software so they don't get lost
+ * when checking the LSR in other code paths (TX).
+ */
 static inline void UART_CLEAR_LSR(void *p)
 {
 	put_lsr_cache(p, 0);
@@ -244,6 +260,7 @@ static inline void UART_PUT_LSR(void *p, uint16_t val)
 	put_lsr_cache(p, get_lsr_cache(p) & ~val);
 }
 
+/* This handles soft CTS/RTS */
 #define UART_GET_CTS(x)        gpio_get_value((x)->cts_pin)
 #define UART_DISABLE_RTS(x)    gpio_set_value((x)->rts_pin, 1)
 #define UART_ENABLE_RTS(x)     gpio_set_value((x)->rts_pin, 0)
@@ -256,4 +273,4 @@ static inline void UART_PUT_LSR(void *p, uint16_t val)
 # define BFIN_UART_TX_FIFO_SIZE 2
 #endif
 
-#endif 
+#endif /* __BFIN_ASM_SERIAL_H__ */

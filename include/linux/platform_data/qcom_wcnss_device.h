@@ -17,4 +17,4 @@ struct qcom_wcnss_opts {
 	bool has_48mhz_xo;
 };
 
-#endif 
+#endif /* __QCOM_WCNSS_DEVICE__H */

@@ -52,7 +52,7 @@ static irqreturn_t htcpen_interrupt(int irq, void *handle)
 	struct input_dev *htcpen_dev = handle;
 	unsigned short x, y, xy;
 
-	
+	/* 0 = press; 1 = release */
 	outb_p(TOUCH_INDEX, HTCPEN_PORT_INDEX);
 
 	if (inb_p(HTCPEN_PORT_DATA)) {
@@ -67,7 +67,7 @@ static irqreturn_t htcpen_interrupt(int irq, void *handle)
 		outb_p(LSB_XY_INDEX, HTCPEN_PORT_INDEX);
 		xy = inb_p(HTCPEN_PORT_DATA);
 
-		
+		/* get high resolution value of X and Y using LSB */
 		x = X_AXIS_MAX - ((x * 8) + ((xy >> 4) & 0xf));
 		y = (y * 8) + (xy & 0xf);
 		if (invert_x)

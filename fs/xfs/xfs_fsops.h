@@ -27,4 +27,4 @@ extern int xfs_reserve_blocks(xfs_mount_t *mp, __uint64_t *inval,
 extern int xfs_fs_goingdown(xfs_mount_t *mp, __uint32_t inflags);
 extern int xfs_fs_log_dummy(struct xfs_mount *mp);
 
-#endif	
+#endif	/* __XFS_FSOPS_H__ */

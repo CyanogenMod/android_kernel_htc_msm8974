@@ -23,6 +23,9 @@
 #include <mach/regs-pmu.h>
 #include <plat/devs.h>
 
+/*
+ * Exynos specific wrapper around the generic power domain
+ */
 struct exynos_pm_domain {
 	void __iomem *base;
 	char const *name;
@@ -43,7 +46,7 @@ static int exynos_pd_power(struct generic_pm_domain *domain, bool power_on)
 	pwr = power_on ? S5P_INT_LOCAL_PWR_EN : 0;
 	__raw_writel(pwr, base);
 
-	
+	/* Wait max 1ms */
 	timeout = 10;
 
 	while ((__raw_readl(base + 0x4) & S5P_INT_LOCAL_PWR_EN)	!= pwr) {
@@ -110,7 +113,7 @@ static __init int exynos_pm_dt_parse_domains(void)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_OF */
 
 static __init void exynos_pm_add_dev_to_genpd(struct platform_device *pdev,
 						struct exynos_pm_domain *pd)

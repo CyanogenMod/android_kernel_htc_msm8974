@@ -72,6 +72,10 @@ void __init gemini_init_irq(void)
 {
 	unsigned int i, mode = 0, level = 0;
 
+	/*
+	 * Disable the idle handler by default since it is buggy
+	 * For more info see arch/arm/mach-gemini/idle.c
+	 */
 	disable_hlt();
 
 	request_resource(&iomem_resource, &irq_resource);
@@ -88,11 +92,11 @@ void __init gemini_init_irq(void)
 		set_irq_flags(i, IRQF_VALID | IRQF_PROBE);
 	}
 
-	
+	/* Disable all interrupts */
 	__raw_writel(0, IRQ_MASK(IO_ADDRESS(GEMINI_INTERRUPT_BASE)));
 	__raw_writel(0, FIQ_MASK(IO_ADDRESS(GEMINI_INTERRUPT_BASE)));
 
-	
+	/* Set interrupt mode */
 	__raw_writel(mode, IRQ_TMODE(IO_ADDRESS(GEMINI_INTERRUPT_BASE)));
 	__raw_writel(level, IRQ_TLEVEL(IO_ADDRESS(GEMINI_INTERRUPT_BASE)));
 }

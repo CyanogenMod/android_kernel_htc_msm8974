@@ -28,6 +28,7 @@
 
 #define SUPPORT_VOLTAGE	0x003C0000
 
+/* Error Code */
 #define	SD_NO_ERROR		0x0
 #define	SD_CRC_ERR		0x80
 #define	SD_TO_ERR		0x40
@@ -37,10 +38,13 @@
 #define SD_RSP_TIMEOUT		0x04
 #define SD_IO_ERR		0x02
 
+/* Return code for MMC switch bus */
 #define SWITCH_SUCCESS		0
 #define SWITCH_ERR		1
 #define SWITCH_FAIL		2
 
+/* MMC/SD Command Index */
+/* Basic command (class 0) */
 #define GO_IDLE_STATE		0
 #define	SEND_OP_COND		1
 #define	ALL_SEND_CID		2
@@ -51,6 +55,9 @@
 #define	SWITCH			6
 #define	SELECT_CARD		7
 #define	DESELECT_CARD		7
+/* CMD8 is "SEND_EXT_CSD" for MMC4.x Spec
+ * while is "SEND_IF_COND" for SD 2.0
+ */
 #define	SEND_EXT_CSD		8
 #define	SEND_IF_COND		8
 
@@ -290,4 +297,4 @@ int sd_get_cmd_rsp(struct scsi_cmnd *srb, struct rtsx_chip *chip);
 int sd_hw_rst(struct scsi_cmnd *srb, struct rtsx_chip *chip);
 #endif
 
-#endif  
+#endif  /* __REALTEK_RTSX_SD_H */

@@ -45,11 +45,11 @@ find_section(struct bdb_header *bdb, int section_id)
 	u16 total, current_size;
 	u8 current_id;
 
-	
+	/* skip to first section */
 	index += bdb->header_size;
 	total = bdb->bdb_size;
 
-	
+	/* walk the sections looking for section_id */
 	while (index < total) {
 		current_id = *(base + index);
 		index++;
@@ -107,7 +107,7 @@ fill_detail_timing_data(struct drm_display_mode *panel_fixed_mode,
 	else
 		panel_fixed_mode->flags |= DRM_MODE_FLAG_NVSYNC;
 
-	
+	/* Some VBTs have bogus h/vtotal values */
 	if (panel_fixed_mode->hsync_end > panel_fixed_mode->htotal)
 		panel_fixed_mode->htotal = panel_fixed_mode->hsync_end + 1;
 	if (panel_fixed_mode->vsync_end > panel_fixed_mode->vtotal)
@@ -157,6 +157,11 @@ get_lvds_dvo_timing(const struct bdb_lvds_lfp_data *lvds_lfp_data,
 		    const struct bdb_lvds_lfp_data_ptrs *lvds_lfp_data_ptrs,
 		    int index)
 {
+	/*
+	 * the size of fp_timing varies on the different platform.
+	 * So calculate the DVO timing relative offset in LVDS data
+	 * entry to get the DVO timing entry
+	 */
 
 	int lfp_data_size =
 		lvds_lfp_data_ptrs->ptr[1].dvo_timing_offset -
@@ -169,6 +174,7 @@ get_lvds_dvo_timing(const struct bdb_lvds_lfp_data *lvds_lfp_data,
 	return (struct lvds_dvo_timing *)(entry + dvo_timing_offset);
 }
 
+/* Try to find integrated panel data */
 static void
 parse_lfp_panel_data(struct drm_i915_private *dev_priv,
 			    struct bdb_header *bdb)
@@ -215,6 +221,10 @@ parse_lfp_panel_data(struct drm_i915_private *dev_priv,
 	DRM_DEBUG_KMS("Found panel mode in BIOS VBT tables:\n");
 	drm_mode_debug_printmodeline(panel_fixed_mode);
 
+	/*
+	 * Iterate over the LVDS panel timing info to find the lowest clock
+	 * for the native resolution.
+	 */
 	downclock = panel_dvo_timing->clock;
 	for (i = 0; i < 16; i++) {
 		const struct lvds_dvo_timing *dvo_timing;
@@ -236,6 +246,7 @@ parse_lfp_panel_data(struct drm_i915_private *dev_priv,
 	}
 }
 
+/* Try to find sdvo panel data */
 static void
 parse_sdvo_panel_data(struct drm_i915_private *dev_priv,
 		      struct bdb_header *bdb)
@@ -345,30 +356,39 @@ parse_sdvo_device_mapping(struct drm_i915_private *dev_priv,
 		DRM_DEBUG_KMS("No general definition block is found, unable to construct sdvo mapping.\n");
 		return;
 	}
+	/* judge whether the size of child device meets the requirements.
+	 * If the child device size obtained from general definition block
+	 * is different with sizeof(struct child_device_config), skip the
+	 * parsing of sdvo device info
+	 */
 	if (p_defs->child_dev_size != sizeof(*p_child)) {
-		
+		/* different child dev size . Ignore it */
 		DRM_DEBUG_KMS("different child size is found. Invalid.\n");
 		return;
 	}
-	
+	/* get the block size of general definitions */
 	block_size = get_blocksize(p_defs);
-	
+	/* get the number of child device */
 	child_device_num = (block_size - sizeof(*p_defs)) /
 				sizeof(*p_child);
 	count = 0;
 	for (i = 0; i < child_device_num; i++) {
 		p_child = &(p_defs->devices[i]);
 		if (!p_child->device_type) {
-			
+			/* skip the device block if device type is invalid */
 			continue;
 		}
 		if (p_child->slave_addr != SLAVE_ADDR1 &&
 			p_child->slave_addr != SLAVE_ADDR2) {
+			/*
+			 * If the slave address is neither 0x70 nor 0x72,
+			 * it is not a SDVO device. Skip it.
+			 */
 			continue;
 		}
 		if (p_child->dvo_port != DEVICE_PORT_DVOB &&
 			p_child->dvo_port != DEVICE_PORT_DVOC) {
-			
+			/* skip the incorrect SDVO port */
 			DRM_DEBUG_KMS("Incorrect SDVO port. Skip it\n");
 			continue;
 		}
@@ -396,8 +416,8 @@ parse_sdvo_device_mapping(struct drm_i915_private *dev_priv,
 					 "two SDVO device.\n");
 		}
 		if (p_child->slave2_addr) {
-			
-			
+			/* Maybe this is a SDVO device with multiple inputs */
+			/* And the mapping info is not added */
 			DRM_DEBUG_KMS("there exists the slave2_addr. Maybe this"
 				" is a SDVO device with multiple inputs.\n");
 		}
@@ -405,7 +425,7 @@ parse_sdvo_device_mapping(struct drm_i915_private *dev_priv,
 	}
 
 	if (!count) {
-		
+		/* No SDVO device info is found */
 		DRM_DEBUG_KMS("No SDVO device info is found in VBT\n");
 	}
 	return;
@@ -460,7 +480,7 @@ parse_edp(struct drm_i915_private *dev_priv, struct bdb_header *bdb)
 		break;
 	}
 
-	
+	/* Get the eDP sequencing and link info */
 	edp_pps = &edp->power_seqs[panel_type];
 	edp_link_params = &edp->link_params[panel_type];
 
@@ -524,22 +544,27 @@ parse_device_mapping(struct drm_i915_private *dev_priv,
 		DRM_DEBUG_KMS("No general definition block is found, no devices defined.\n");
 		return;
 	}
+	/* judge whether the size of child device meets the requirements.
+	 * If the child device size obtained from general definition block
+	 * is different with sizeof(struct child_device_config), skip the
+	 * parsing of sdvo device info
+	 */
 	if (p_defs->child_dev_size != sizeof(*p_child)) {
-		
+		/* different child dev size . Ignore it */
 		DRM_DEBUG_KMS("different child size is found. Invalid.\n");
 		return;
 	}
-	
+	/* get the block size of general definitions */
 	block_size = get_blocksize(p_defs);
-	
+	/* get the number of child device */
 	child_device_num = (block_size - sizeof(*p_defs)) /
 				sizeof(*p_child);
 	count = 0;
-	
+	/* get the number of child device that is present */
 	for (i = 0; i < child_device_num; i++) {
 		p_child = &(p_defs->devices[i]);
 		if (!p_child->device_type) {
-			
+			/* skip the device block if device type is invalid */
 			continue;
 		}
 		count++;
@@ -559,7 +584,7 @@ parse_device_mapping(struct drm_i915_private *dev_priv,
 	for (i = 0; i < child_device_num; i++) {
 		p_child = &(p_defs->devices[i]);
 		if (!p_child->device_type) {
-			
+			/* skip the device block if device type is invalid */
 			continue;
 		}
 		child_dev_ptr = dev_priv->child_dev + count;
@@ -577,23 +602,23 @@ init_vbt_defaults(struct drm_i915_private *dev_priv)
 
 	dev_priv->crt_ddc_pin = GMBUS_PORT_VGADDC;
 
-	
+	/* LFP panel data */
 	dev_priv->lvds_dither = 1;
 	dev_priv->lvds_vbt = 0;
 
-	
+	/* SDVO panel data */
 	dev_priv->sdvo_lvds_vbt_mode = NULL;
 
-	
+	/* general features */
 	dev_priv->int_tv_support = 1;
 	dev_priv->int_crt_support = 1;
 
-	
+	/* Default to using SSC */
 	dev_priv->lvds_use_ssc = 1;
 	dev_priv->lvds_ssc_freq = intel_bios_ssc_frequency(dev, 1);
 	DRM_DEBUG_KMS("Set default to SSC at %dMHz\n", dev_priv->lvds_ssc_freq);
 
-	
+	/* eDP data */
 	dev_priv->edp.bpp = 18;
 }
 
@@ -617,6 +642,15 @@ static const struct dmi_system_id intel_no_opregion_vbt[] = {
 	{ }
 };
 
+/**
+ * intel_parse_bios - find VBT and initialize settings from the BIOS
+ * @dev: DRM device
+ *
+ * Loads the Video BIOS and checks that the VBT exists.  Sets scratch registers
+ * to appropriate values.
+ *
+ * Returns 0 on success, nonzero on failure.
+ */
 bool
 intel_parse_bios(struct drm_device *dev)
 {
@@ -627,7 +661,7 @@ intel_parse_bios(struct drm_device *dev)
 
 	init_vbt_defaults(dev_priv);
 
-	
+	/* XXX Should this validation be moved to intel_opregion.c? */
 	if (!dmi_check_system(intel_no_opregion_vbt) && dev_priv->opregion.vbt) {
 		struct vbt_header *vbt = dev_priv->opregion.vbt;
 		if (memcmp(vbt->signature, "$VBT", 4) == 0) {
@@ -647,7 +681,7 @@ intel_parse_bios(struct drm_device *dev)
 		if (!bios)
 			return -1;
 
-		
+		/* Scour memory looking for the VBT signature */
 		for (i = 0; i + 4 < size; i++) {
 			if (!memcmp(bios + i, "$VBT", 4)) {
 				vbt = (struct vbt_header *)(bios + i);
@@ -664,7 +698,7 @@ intel_parse_bios(struct drm_device *dev)
 		bdb = (struct bdb_header *)(bios + i + vbt->bdb_offset);
 	}
 
-	
+	/* Grab useful general definitions */
 	parse_general_features(dev_priv, bdb);
 	parse_general_definitions(dev_priv, bdb);
 	parse_lfp_panel_data(dev_priv, bdb);
@@ -680,16 +714,19 @@ intel_parse_bios(struct drm_device *dev)
 	return 0;
 }
 
+/* Ensure that vital registers have been initialised, even if the BIOS
+ * is absent or just failing to do its job.
+ */
 void intel_setup_bios(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;
 
-	 
+	 /* Set the Panel Power On/Off timings if uninitialized. */
 	if ((I915_READ(PP_ON_DELAYS) == 0) && (I915_READ(PP_OFF_DELAYS) == 0)) {
-		
+		/* Set T2 to 40ms and T5 to 200ms */
 		I915_WRITE(PP_ON_DELAYS, 0x019007d0);
 
-		
+		/* Set T3 to 35ms and Tx to 200ms */
 		I915_WRITE(PP_OFF_DELAYS, 0x015e07d0);
 	}
 }

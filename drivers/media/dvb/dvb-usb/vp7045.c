@@ -14,6 +14,7 @@
  */
 #include "vp7045.h"
 
+/* debug */
 static int dvb_usb_vp7045_debug;
 module_param_named(debug,dvb_usb_vp7045_debug, int, 0644);
 MODULE_PARM_DESC(debug, "set debugging level (1=info,xfer=2,rc=4 (or-able))." DVB_USB_DEBUG_STATUS);
@@ -96,7 +97,10 @@ static int vp7045_power_ctrl(struct dvb_usb_device *d, int onoff)
 	return vp7045_usb_op(d,SET_TUNER_POWER,&v,1,NULL,0,150);
 }
 
+/* remote control stuff */
 
+/* The keymapping struct. Somehow this should be loaded to the driver, but
+ * currently it is hardcoded. */
 static struct rc_map_table rc_map_vp7045_table[] = {
 	{ 0x0016, KEY_POWER },
 	{ 0x0010, KEY_MUTE },
@@ -115,21 +119,21 @@ static struct rc_map_table rc_map_vp7045_table[] = {
 	{ 0x001e, KEY_VOLUMEUP },
 	{ 0x000a, KEY_VOLUMEDOWN },
 	{ 0x0011, KEY_RECORD },
-	{ 0x0017, KEY_FAVORITES }, 
+	{ 0x0017, KEY_FAVORITES }, /* Heart symbol - Channel list. */
 	{ 0x0014, KEY_PLAY },
 	{ 0x001a, KEY_STOP },
 	{ 0x0040, KEY_REWIND },
 	{ 0x0012, KEY_FASTFORWARD },
-	{ 0x000e, KEY_PREVIOUS }, 
+	{ 0x000e, KEY_PREVIOUS }, /* Recall - Previous channel. */
 	{ 0x004c, KEY_PAUSE },
-	{ 0x004d, KEY_SCREEN }, 
-	{ 0x0054, KEY_AUDIO }, 
-	{ 0x000c, KEY_CANCEL }, 
-	{ 0x001c, KEY_EPG }, 
-	{ 0x0000, KEY_TAB }, 
-	{ 0x0048, KEY_INFO }, 
-	{ 0x0004, KEY_LIST }, 
-	{ 0x000f, KEY_TEXT }, 
+	{ 0x004d, KEY_SCREEN }, /* Full screen mode. */
+	{ 0x0054, KEY_AUDIO }, /* MTS - Switch to secondary audio. */
+	{ 0x000c, KEY_CANCEL }, /* Cancel */
+	{ 0x001c, KEY_EPG }, /* EPG */
+	{ 0x0000, KEY_TAB }, /* Tab */
+	{ 0x0048, KEY_INFO }, /* Preview */
+	{ 0x0004, KEY_LIST }, /* RecordList */
+	{ 0x000f, KEY_TEXT }, /* Teletext */
 	{ 0x0041, KEY_PREVIOUSSONG },
 	{ 0x0042, KEY_NEXTSONG },
 	{ 0x004b, KEY_UP },
@@ -139,11 +143,11 @@ static struct rc_map_table rc_map_vp7045_table[] = {
 	{ 0x004f, KEY_ENTER },
 	{ 0x0013, KEY_CANCEL },
 	{ 0x004a, KEY_CLEAR },
-	{ 0x0054, KEY_PRINT }, 
-	{ 0x0043, KEY_SUBTITLE }, 
-	{ 0x0008, KEY_VIDEO }, 
-	{ 0x0007, KEY_SLEEP }, 
-	{ 0x0045, KEY_ZOOM }, 
+	{ 0x0054, KEY_PRINT }, /* Capture */
+	{ 0x0043, KEY_SUBTITLE }, /* Subtitle/CC */
+	{ 0x0008, KEY_VIDEO }, /* A/V */
+	{ 0x0007, KEY_SLEEP }, /* Hibernate */
+	{ 0x0045, KEY_ZOOM }, /* Zoom+ */
 	{ 0x0018, KEY_RED},
 	{ 0x0053, KEY_GREEN},
 	{ 0x005e, KEY_YELLOW},
@@ -207,6 +211,8 @@ static int vp7045_frontend_attach(struct dvb_usb_adapter *adap)
 	buf[10] = '\0';
 	deb_info("v%s\n",buf);
 
+/*	Dump the EEPROM */
+/*	vp7045_read_eeprom(d,buf, 255, FX2_ID_ADDR); */
 
 	adap->fe_adap[0].fe = vp7045_fe_attach(adap->dev);
 
@@ -242,7 +248,7 @@ static struct dvb_usb_device_properties vp7045_properties = {
 		.num_frontends = 1,
 		.fe = {{
 			.frontend_attach  = vp7045_frontend_attach,
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 7,
@@ -280,6 +286,7 @@ static struct dvb_usb_device_properties vp7045_properties = {
 	}
 };
 
+/* usb specific object needed to register this driver with the usb subsystem */
 static struct usb_driver vp7045_usb_driver = {
 	.name		= "dvb_usb_vp7045",
 	.probe		= vp7045_usb_probe,

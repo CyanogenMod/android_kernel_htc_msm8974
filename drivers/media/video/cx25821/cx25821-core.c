@@ -391,65 +391,73 @@ static void cx25821_registers_init(struct cx25821_dev *dev)
 {
 	u32 tmp;
 
-	
+	/* enable RUN_RISC in Pecos */
 	cx_write(DEV_CNTRL2, 0x20);
 
+	/* Set the master PCI interrupt masks to enable video, audio, MBIF,
+	 * and GPIO interrupts
+	 * I2C interrupt masking is handled by the I2C objects themselves. */
 	cx_write(PCI_INT_MSK, 0x2001FFFF);
 
 	tmp = cx_read(RDR_TLCTL0);
-	tmp &= ~FLD_CFG_RCB_CK_EN;	
+	tmp &= ~FLD_CFG_RCB_CK_EN;	/* Clear the RCB_CK_EN bit */
 	cx_write(RDR_TLCTL0, tmp);
 
-	
+	/* PLL-A setting for the Audio Master Clock */
 	cx_write(PLL_A_INT_FRAC, 0x9807A58B);
 
-	
+	/* PLL_A_POST = 0x1C, PLL_A_OUT_TO_PIN = 0x1 */
 	cx_write(PLL_A_POST_STAT_BIST, 0x8000019C);
 
-	
+	/* clear reset bit [31] */
 	tmp = cx_read(PLL_A_INT_FRAC);
 	cx_write(PLL_A_INT_FRAC, tmp & 0x7FFFFFFF);
 
-	
+	/* PLL-B setting for Mobilygen Host Bus Interface */
 	cx_write(PLL_B_INT_FRAC, 0x9883A86F);
 
-	
+	/* PLL_B_POST = 0xD, PLL_B_OUT_TO_PIN = 0x0 */
 	cx_write(PLL_B_POST_STAT_BIST, 0x8000018D);
 
-	
+	/* clear reset bit [31] */
 	tmp = cx_read(PLL_B_INT_FRAC);
 	cx_write(PLL_B_INT_FRAC, tmp & 0x7FFFFFFF);
 
-	
+	/* PLL-C setting for video upstream channel */
 	cx_write(PLL_C_INT_FRAC, 0x96A0EA3F);
 
-	
+	/* PLL_C_POST = 0x3, PLL_C_OUT_TO_PIN = 0x0 */
 	cx_write(PLL_C_POST_STAT_BIST, 0x80000103);
 
-	
+	/* clear reset bit [31] */
 	tmp = cx_read(PLL_C_INT_FRAC);
 	cx_write(PLL_C_INT_FRAC, tmp & 0x7FFFFFFF);
 
-	
+	/* PLL-D setting for audio upstream channel */
 	cx_write(PLL_D_INT_FRAC, 0x98757F5B);
 
-	
+	/* PLL_D_POST = 0x13, PLL_D_OUT_TO_PIN = 0x0 */
 	cx_write(PLL_D_POST_STAT_BIST, 0x80000113);
 
-	
+	/* clear reset bit [31] */
 	tmp = cx_read(PLL_D_INT_FRAC);
 	cx_write(PLL_D_INT_FRAC, tmp & 0x7FFFFFFF);
 
+	/* This selects the PLL C clock source for the video upstream channel
+	 * I and J */
 	tmp = cx_read(VID_CH_CLK_SEL);
 	cx_write(VID_CH_CLK_SEL, (tmp & 0x00FFFFFF) | 0x24000000);
 
+	/* 656/VIP SRC Upstream Channel I & J and 7 - Host Bus Interface for
+	 * channel A-C
+	 * select 656/VIP DST for downstream Channel A - C */
 	tmp = cx_read(VID_CH_MODE_SEL);
-	
+	/* cx_write( VID_CH_MODE_SEL, tmp | 0x1B0001FF); */
 	cx_write(VID_CH_MODE_SEL, tmp & 0xFFFFFE00);
 
-	
+	/* enables 656 port I and J as output */
 	tmp = cx_read(CLK_RST);
-	
+	/* use external ALT_PLL_REF pin as its reference clock instead */
 	tmp |= FLD_USE_ALT_PLL_REF;
 	cx_write(CLK_RST, tmp & ~(FLD_VID_I_CLK_NOE | FLD_VID_J_CLK_NOE));
 
@@ -471,7 +479,7 @@ int cx25821_sram_channel_setup(struct cx25821_dev *dev,
 		return 0;
 	}
 
-	bpl = (bpl + 7) & ~7;	
+	bpl = (bpl + 7) & ~7;	/* alignment */
 	cdt = ch->cdt;
 	lines = ch->fifo_size / bpl;
 
@@ -484,7 +492,7 @@ int cx25821_sram_channel_setup(struct cx25821_dev *dev,
 	cx_write(8 + 4, 8);
 	cx_write(8 + 8, 0);
 
-	
+	/* write CDT */
 	for (i = 0; i < lines; i++) {
 		cx_write(cdt + 16 * i, ch->fifo_start + bpl * i);
 		cx_write(cdt + 16 * i + 4, 0);
@@ -492,17 +500,17 @@ int cx25821_sram_channel_setup(struct cx25821_dev *dev,
 		cx_write(cdt + 16 * i + 12, 0);
 	}
 
-	
+	/* init the first cdt buffer */
 	for (i = 0; i < 128; i++)
 		cx_write(ch->fifo_start + 4 * i, i);
 
-	
+	/* write CMDS */
 	if (ch->jumponly)
 		cx_write(ch->cmds_start + 0, 8);
 	else
 		cx_write(ch->cmds_start + 0, risc);
 
-	cx_write(ch->cmds_start + 4, 0);	
+	cx_write(ch->cmds_start + 4, 0);	/* 64 bits 63-32 */
 	cx_write(ch->cmds_start + 8, cdt);
 	cx_write(ch->cmds_start + 12, (lines * 16) >> 3);
 	cx_write(ch->cmds_start + 16, ch->ctrl_start);
@@ -515,7 +523,7 @@ int cx25821_sram_channel_setup(struct cx25821_dev *dev,
 	for (i = 24; i < 80; i += 4)
 		cx_write(ch->cmds_start + i, 0);
 
-	
+	/* fill registers */
 	cx_write(ch->ptr1_reg, ch->fifo_start);
 	cx_write(ch->ptr2_reg, cdt);
 	cx_write(ch->cnt2_reg, (lines * 16) >> 3);
@@ -540,12 +548,12 @@ int cx25821_sram_channel_setup_audio(struct cx25821_dev *dev,
 		return 0;
 	}
 
-	bpl = (bpl + 7) & ~7;	
+	bpl = (bpl + 7) & ~7;	/* alignment */
 	cdt = ch->cdt;
 	lines = ch->fifo_size / bpl;
 
 	if (lines > 3)
-		lines = 3;	
+		lines = 3;	/* for AUDIO */
 
 	BUG_ON(lines < 2);
 
@@ -553,7 +561,7 @@ int cx25821_sram_channel_setup_audio(struct cx25821_dev *dev,
 	cx_write(8 + 4, 8);
 	cx_write(8 + 8, 0);
 
-	
+	/* write CDT */
 	for (i = 0; i < lines; i++) {
 		cx_write(cdt + 16 * i, ch->fifo_start + bpl * i);
 		cx_write(cdt + 16 * i + 4, 0);
@@ -561,28 +569,28 @@ int cx25821_sram_channel_setup_audio(struct cx25821_dev *dev,
 		cx_write(cdt + 16 * i + 12, 0);
 	}
 
-	
+	/* write CMDS */
 	if (ch->jumponly)
 		cx_write(ch->cmds_start + 0, 8);
 	else
 		cx_write(ch->cmds_start + 0, risc);
 
-	cx_write(ch->cmds_start + 4, 0);	
+	cx_write(ch->cmds_start + 4, 0);	/* 64 bits 63-32 */
 	cx_write(ch->cmds_start + 8, cdt);
 	cx_write(ch->cmds_start + 12, (lines * 16) >> 3);
 	cx_write(ch->cmds_start + 16, ch->ctrl_start);
 
-	
+	/* IQ size */
 	if (ch->jumponly)
 		cx_write(ch->cmds_start + 20, 0x80000000 | (64 >> 2));
 	else
 		cx_write(ch->cmds_start + 20, 64 >> 2);
 
-	
+	/* zero out */
 	for (i = 24; i < 80; i += 4)
 		cx_write(ch->cmds_start + i, 0);
 
-	
+	/* fill registers */
 	cx_write(ch->ptr1_reg, ch->fifo_start);
 	cx_write(ch->ptr2_reg, cdt);
 	cx_write(ch->cnt2_reg, (lines * 16) >> 3);
@@ -627,7 +635,7 @@ void cx25821_sram_channel_dump(struct cx25821_dev *dev, struct sram_channel *ch)
 
 	for (i = 0; i < (64 >> 2); i += n) {
 		risc = cx_read(ch->ctrl_start + 4 * i);
-		
+		/* No consideration for bits 63-32 */
 
 		pr_warn("ctrl + 0x%2x (0x%08x): iq %x: ",
 			i * 4, ch->ctrl_start + 4 * i, i);
@@ -694,7 +702,7 @@ void cx25821_sram_channel_dump_audio(struct cx25821_dev *dev,
 
 	for (i = 0; i < (64 >> 2); i += n) {
 		risc = cx_read(ch->ctrl_start + 4 * i);
-		
+		/* No consideration for bits 63-32 */
 
 		pr_warn("ctrl + 0x%2x (0x%08x): iq %x: ",
 			i * 4, ch->ctrl_start + 4 * i, i);
@@ -725,7 +733,7 @@ void cx25821_sram_channel_dump_audio(struct cx25821_dev *dev,
 		pr_warn("instruction %d = 0x%x\n", i, risc);
 	}
 
-	
+	/* read data from the first cdt buffer */
 	risc = cx_read(AUD_A_CDT);
 	pr_warn("\nread cdt loc=0x%x\n", risc);
 	for (i = 0; i < 8; i++) {
@@ -766,10 +774,10 @@ static void cx25821_shutdown(struct cx25821_dev *dev)
 {
 	int i;
 
-	
+	/* disable RISC controller */
 	cx_write(DEV_CNTRL2, 0);
 
-	
+	/* Disable Video A/B activity */
 	for (i = 0; i < VID_CHANNEL_NUM; i++) {
 		cx_write(dev->channels[i].sram_channels->dma_ctl, 0);
 		cx_write(dev->channels[i].sram_channels->int_msk, 0);
@@ -781,13 +789,13 @@ static void cx25821_shutdown(struct cx25821_dev *dev)
 		cx_write(dev->channels[i].sram_channels->int_msk, 0);
 	}
 
-	
+	/* Disable Audio activity */
 	cx_write(AUD_INT_DMA_CTL, 0);
 
-	
+	/* Disable Serial port */
 	cx_write(UART_CTL, 0);
 
-	
+	/* Disable Interrupts */
 	cx_write(PCI_INT_MSK, 0);
 	cx_write(AUD_A_INT_MSK, 0);
 }
@@ -828,8 +836,8 @@ static void cx25821_initialize(struct cx25821_dev *dev)
 	cx_write(AUD_E_INT_STAT, 0xffffffff);
 
 	cx_write(CLK_DELAY, cx_read(CLK_DELAY) & 0x80000000);
-	cx_write(PAD_CTRL, 0x12);	
-	cx25821_registers_init(dev);	
+	cx_write(PAD_CTRL, 0x12);	/* for I2C */
+	cx25821_registers_init(dev);	/* init Pecos registers */
 	mdelay(100);
 
 	for (i = 0; i < VID_CHANNEL_NUM; i++) {
@@ -840,7 +848,7 @@ static void cx25821_initialize(struct cx25821_dev *dev)
 		dev->channels[i].use_cif_resolution = FALSE;
 	}
 
-	
+	/* Probably only affect Downstream */
 	for (i = VID_UPSTREAM_SRAM_CHANNEL_I;
 		i <= VID_UPSTREAM_SRAM_CHANNEL_J; i++) {
 		cx25821_set_vip_mode(dev, dev->channels[i].sram_channels);
@@ -877,7 +885,7 @@ static void cx25821_iounmap(struct cx25821_dev *dev)
 	if (dev == NULL)
 		return;
 
-	
+	/* Releasing IO memory */
 	if (dev->lmmio != NULL) {
 		CX25821_INFO("Releasing lmmio.\n");
 		iounmap(dev->lmmio);
@@ -915,7 +923,7 @@ static int cx25821_dev_setup(struct cx25821_dev *dev)
 		pr_info("Athena Hardware device = 0x%02x\n", dev->pci->device);
 	}
 
-	
+	/* Apply a sensible clock frequency for the PCIe bridge */
 	dev->clk_freq = 28000000;
 	for (i = 0; i < MAX_VID_CHANNEL_NUM; i++)
 		dev->channels[i].sram_channels = &cx25821_sram_channels[i];
@@ -923,15 +931,15 @@ static int cx25821_dev_setup(struct cx25821_dev *dev)
 	if (dev->nr > 1)
 		CX25821_INFO("dev->nr > 1!");
 
-	
-	dev->board = 1;		
+	/* board config */
+	dev->board = 1;		/* card[dev->nr]; */
 	dev->_max_num_decoders = MAX_DECODERS;
 
 	dev->pci_bus = dev->pci->bus->number;
 	dev->pci_slot = PCI_SLOT(dev->pci->devfn);
 	dev->pci_irqmask = 0x001f00;
 
-	
+	/* External Master 1 Bus */
 	dev->i2c_bus[0].nr = 0;
 	dev->i2c_bus[0].dev = dev;
 	dev->i2c_bus[0].reg_stat = I2C1_STAT;
@@ -939,7 +947,7 @@ static int cx25821_dev_setup(struct cx25821_dev *dev)
 	dev->i2c_bus[0].reg_addr = I2C1_ADDR;
 	dev->i2c_bus[0].reg_rdata = I2C1_RDATA;
 	dev->i2c_bus[0].reg_wdata = I2C1_WDATA;
-	dev->i2c_bus[0].i2c_period = (0x07 << 24);	
+	dev->i2c_bus[0].i2c_period = (0x07 << 24);	/* 1.95MHz */
 
 	if (cx25821_get_resources(dev) < 0) {
 		pr_err("%s: No more PCIe resources for subsystem: %04x:%04x\n",
@@ -950,7 +958,7 @@ static int cx25821_dev_setup(struct cx25821_dev *dev)
 		return -EBUSY;
 	}
 
-	
+	/* PCIe stuff */
 	dev->base_io_addr = pci_resource_start(dev->pci, 0);
 	io_size = pci_resource_len(dev->pci, 0);
 
@@ -975,10 +983,12 @@ static int cx25821_dev_setup(struct cx25821_dev *dev)
 		dev->board, card[dev->nr] == dev->board ?
 		"insmod option" : "autodetected");
 
-	
+	/* init hardware */
 	cx25821_initialize(dev);
 
 	cx25821_i2c_register(&dev->i2c_bus[0]);
+/*  cx25821_i2c_register(&dev->i2c_bus[1]);
+ *  cx25821_i2c_register(&dev->i2c_bus[2]); */
 
 	CX25821_INFO("i2c register! bus->i2c_rc = %d\n",
 			dev->i2c_bus[0].i2c_rc);
@@ -990,7 +1000,7 @@ static int cx25821_dev_setup(struct cx25821_dev *dev)
 
 	cx25821_video_register(dev);
 
-	
+	/* register IOCTL device */
 	dev->ioctl_dev = cx25821_vdev_init(dev, dev->pci,
 			&cx25821_videoioctl_template, "video");
 
@@ -1076,11 +1086,11 @@ static __le32 *cx25821_risc_field(__le32 * rp, struct scatterlist *sglist,
 	struct scatterlist *sg;
 	unsigned int line, todo;
 
-	
+	/* sync instruction */
 	if (sync_line != NO_SYNC_LINE)
 		*(rp++) = cpu_to_le32(RISC_RESYNC | sync_line);
 
-	
+	/* scan lines */
 	sg = sglist;
 	for (line = 0; line < lines; line++) {
 		while (offset && offset >= sg_dma_len(sg)) {
@@ -1088,19 +1098,19 @@ static __le32 *cx25821_risc_field(__le32 * rp, struct scatterlist *sglist,
 			sg++;
 		}
 		if (bpl <= sg_dma_len(sg) - offset) {
-			
+			/* fits into current chunk */
 			*(rp++) = cpu_to_le32(RISC_WRITE | RISC_SOL | RISC_EOL |
 					bpl);
 			*(rp++) = cpu_to_le32(sg_dma_address(sg) + offset);
-			*(rp++) = cpu_to_le32(0);	
+			*(rp++) = cpu_to_le32(0);	/* bits 63-32 */
 			offset += bpl;
 		} else {
-			
+			/* scanline needs to be split */
 			todo = bpl;
 			*(rp++) = cpu_to_le32(RISC_WRITE | RISC_SOL |
 					(sg_dma_len(sg) - offset));
 			*(rp++) = cpu_to_le32(sg_dma_address(sg) + offset);
-			*(rp++) = cpu_to_le32(0);	
+			*(rp++) = cpu_to_le32(0);	/* bits 63-32 */
 			todo -= (sg_dma_len(sg) - offset);
 			offset = 0;
 			sg++;
@@ -1108,13 +1118,13 @@ static __le32 *cx25821_risc_field(__le32 * rp, struct scatterlist *sglist,
 				*(rp++) = cpu_to_le32(RISC_WRITE |
 						sg_dma_len(sg));
 				*(rp++) = cpu_to_le32(sg_dma_address(sg));
-				*(rp++) = cpu_to_le32(0);	
+				*(rp++) = cpu_to_le32(0);	/* bits 63-32 */
 				todo -= sg_dma_len(sg);
 				sg++;
 			}
 			*(rp++) = cpu_to_le32(RISC_WRITE | RISC_EOL | todo);
 			*(rp++) = cpu_to_le32(sg_dma_address(sg));
-			*(rp++) = cpu_to_le32(0);	
+			*(rp++) = cpu_to_le32(0);	/* bits 63-32 */
 			offset += todo;
 		}
 
@@ -1140,7 +1150,11 @@ int cx25821_risc_buffer(struct pci_dev *pci, struct btcx_riscmem *risc,
 	if (UNSET != bottom_offset)
 		fields++;
 
-	
+	/* estimate risc mem: worst case is one write per page border +
+	   one write per scan line + syncs + jump (all 2 dwords).  Padding
+	   can cause next bpl to start close to a page border.  First DMA
+	   region may be smaller than PAGE_SIZE */
+	/* write and jump need and extra dword */
 	instructions = fields * (1 + ((bpl + padding) * lines) / PAGE_SIZE +
 			lines);
 	instructions += 2;
@@ -1149,7 +1163,7 @@ int cx25821_risc_buffer(struct pci_dev *pci, struct btcx_riscmem *risc,
 	if (rc < 0)
 		return rc;
 
-	
+	/* write risc instructions */
 	rp = risc->cpu;
 
 	if (UNSET != top_offset) {
@@ -1162,7 +1176,7 @@ int cx25821_risc_buffer(struct pci_dev *pci, struct btcx_riscmem *risc,
 					padding, lines);
 	}
 
-	
+	/* save pointer to jmp instruction address */
 	risc->jmp = rp;
 	BUG_ON((risc->jmp - risc->cpu + 2) * sizeof(*risc->cpu) > risc->size);
 
@@ -1177,11 +1191,11 @@ static __le32 *cx25821_risc_field_audio(__le32 * rp, struct scatterlist *sglist,
 	struct scatterlist *sg;
 	unsigned int line, todo, sol;
 
-	
+	/* sync instruction */
 	if (sync_line != NO_SYNC_LINE)
 		*(rp++) = cpu_to_le32(RISC_RESYNC | sync_line);
 
-	
+	/* scan lines */
 	sg = sglist;
 	for (line = 0; line < lines; line++) {
 		while (offset && offset >= sg_dma_len(sg)) {
@@ -1195,19 +1209,19 @@ static __le32 *cx25821_risc_field_audio(__le32 * rp, struct scatterlist *sglist,
 			sol = RISC_SOL;
 
 		if (bpl <= sg_dma_len(sg) - offset) {
-			
+			/* fits into current chunk */
 			*(rp++) = cpu_to_le32(RISC_WRITE | sol | RISC_EOL |
 					bpl);
 			*(rp++) = cpu_to_le32(sg_dma_address(sg) + offset);
-			*(rp++) = cpu_to_le32(0);	
+			*(rp++) = cpu_to_le32(0);	/* bits 63-32 */
 			offset += bpl;
 		} else {
-			
+			/* scanline needs to be split */
 			todo = bpl;
 			*(rp++) = cpu_to_le32(RISC_WRITE | sol |
 					(sg_dma_len(sg) - offset));
 			*(rp++) = cpu_to_le32(sg_dma_address(sg) + offset);
-			*(rp++) = cpu_to_le32(0);	
+			*(rp++) = cpu_to_le32(0);	/* bits 63-32 */
 			todo -= (sg_dma_len(sg) - offset);
 			offset = 0;
 			sg++;
@@ -1215,13 +1229,13 @@ static __le32 *cx25821_risc_field_audio(__le32 * rp, struct scatterlist *sglist,
 				*(rp++) = cpu_to_le32(RISC_WRITE |
 						sg_dma_len(sg));
 				*(rp++) = cpu_to_le32(sg_dma_address(sg));
-				*(rp++) = cpu_to_le32(0);	
+				*(rp++) = cpu_to_le32(0);	/* bits 63-32 */
 				todo -= sg_dma_len(sg);
 				sg++;
 			}
 			*(rp++) = cpu_to_le32(RISC_WRITE | RISC_EOL | todo);
 			*(rp++) = cpu_to_le32(sg_dma_address(sg));
-			*(rp++) = cpu_to_le32(0);	
+			*(rp++) = cpu_to_le32(0);	/* bits 63-32 */
 			offset += todo;
 		}
 		offset += padding;
@@ -1240,7 +1254,11 @@ int cx25821_risc_databuffer_audio(struct pci_dev *pci,
 	__le32 *rp;
 	int rc;
 
-	
+	/* estimate risc mem: worst case is one write per page border +
+	   one write per scan line + syncs + jump (all 2 dwords).  Here
+	   there is no padding and no sync.  First DMA region may be smaller
+	   than PAGE_SIZE */
+	/* Jump and write need an extra dword */
 	instructions = 1 + (bpl * lines) / PAGE_SIZE + lines;
 	instructions += 1;
 
@@ -1248,12 +1266,12 @@ int cx25821_risc_databuffer_audio(struct pci_dev *pci,
 	if (rc < 0)
 		return rc;
 
-	
+	/* write risc instructions */
 	rp = risc->cpu;
 	rp = cx25821_risc_field_audio(rp, sglist, 0, NO_SYNC_LINE, bpl, 0,
 				      lines, lpi);
 
-	
+	/* save pointer to jmp instruction address */
 	risc->jmp = rp;
 	BUG_ON((risc->jmp - risc->cpu + 2) * sizeof(*risc->cpu) > risc->size);
 	return 0;
@@ -1271,7 +1289,7 @@ int cx25821_risc_stopper(struct pci_dev *pci, struct btcx_riscmem *risc,
 	if (rc < 0)
 		return rc;
 
-	
+	/* write risc instructions */
 	rp = risc->cpu;
 
 	*(rp++) = cpu_to_le32(RISC_WRITECR | RISC_IRQ1);
@@ -1280,7 +1298,7 @@ int cx25821_risc_stopper(struct pci_dev *pci, struct btcx_riscmem *risc,
 	*(rp++) = cpu_to_le32(mask);
 	*(rp++) = cpu_to_le32(RISC_JUMP);
 	*(rp++) = cpu_to_le32(risc->dma);
-	*(rp++) = cpu_to_le32(0);	
+	*(rp++) = cpu_to_le32(0);	/* bits 63-32 */
 	return 0;
 }
 
@@ -1370,7 +1388,7 @@ static int __devinit cx25821_initdev(struct pci_dev *pci_dev,
 	if (err < 0)
 		goto fail_free;
 
-	
+	/* pci init */
 	dev->pci = pci_dev;
 	if (pci_enable_device(pci_dev)) {
 		err = -EIO;
@@ -1390,7 +1408,7 @@ static int __devinit cx25821_initdev(struct pci_dev *pci_dev,
 			goto fail_unregister_pci;
 	}
 
-	
+	/* print pci info */
 	pci_read_config_byte(pci_dev, PCI_CLASS_REVISION, &dev->pci_rev);
 	pci_read_config_byte(pci_dev, PCI_LATENCY_TIMER, &dev->pci_lat);
 	pr_info("%s/0: found at %s, rev: %d, irq: %d, latency: %d, mmio: 0x%llx\n",
@@ -1436,7 +1454,7 @@ static void __devexit cx25821_finidev(struct pci_dev *pci_dev)
 	cx25821_shutdown(dev);
 	pci_disable_device(pci_dev);
 
-	
+	/* unregister stuff */
 	if (pci_dev->irq)
 		free_irq(pci_dev->irq, dev);
 
@@ -1451,19 +1469,19 @@ static void __devexit cx25821_finidev(struct pci_dev *pci_dev)
 
 static DEFINE_PCI_DEVICE_TABLE(cx25821_pci_tbl) = {
 	{
-		
+		/* CX25821 Athena */
 		.vendor = 0x14f1,
 		.device = 0x8210,
 		.subvendor = 0x14f1,
 		.subdevice = 0x0920,
 	}, {
-		
+		/* CX25821 No Brand */
 		.vendor = 0x14f1,
 		.device = 0x8210,
 		.subvendor = 0x0000,
 		.subdevice = 0x0000,
 	}, {
-		
+		/* --- end of list --- */
 	}
 };
 
@@ -1474,7 +1492,7 @@ static struct pci_driver cx25821_pci_driver = {
 	.id_table = cx25821_pci_tbl,
 	.probe = cx25821_initdev,
 	.remove = __devexit_p(cx25821_finidev),
-	
+	/* TODO */
 	.suspend = NULL,
 	.resume = NULL,
 };

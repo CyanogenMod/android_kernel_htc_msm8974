@@ -38,12 +38,15 @@
 #include <plat/pm.h>
 #include <plat/irq.h>
 
+/* WDT/AC97 */
 
 static void s3c_irq_demux_wdtac97(unsigned int irq,
 				  struct irq_desc *desc)
 {
 	unsigned int subsrc, submsk;
 
+	/* read the current pending interrupts, and the mask
+	 * for what it is available */
 
 	subsrc = __raw_readl(S3C2410_SUBSRCPND);
 	submsk = __raw_readl(S3C2410_INTSUBMSK);
@@ -95,7 +98,7 @@ static int s3c2440_irq_add(struct device *dev, struct subsys_interface *sif)
 
 	printk("S3C2440: IRQ Support\n");
 
-	
+	/* add new chained handler for wdt, ac7 */
 
 	irq_set_chip_and_handler(IRQ_WDT, &s3c_irq_level_chip,
 				 handle_level_irq);

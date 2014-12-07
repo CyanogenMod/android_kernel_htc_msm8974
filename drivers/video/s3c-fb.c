@@ -29,7 +29,20 @@
 #include <plat/regs-fb-v4.h>
 #include <plat/fb.h>
 
+/* This driver will export a number of framebuffer interfaces depending
+ * on the configuration passed in via the platform data. Each fb instance
+ * maps to a hardware window. Currently there is no support for runtime
+ * setting of the alpha-blending functions that each window has, so only
+ * window 0 is actually useful.
+ *
+ * Window 0 is treated specially, it is used for the basis of the LCD
+ * output timings and as the control for the output power-down state.
+*/
 
+/* note, the previous use of <mach/regs-fb.h> to get platform specific data
+ * has been replaced by using the platform device name to pick the correct
+ * configuration data for the system.
+*/
 
 #ifdef CONFIG_FB_S3C_DEBUG_REGWRITE
 #undef writel
@@ -37,8 +50,9 @@
 	printk(KERN_DEBUG "%s: %08x => %p\n", __func__, (unsigned int)v, r); \
 	__raw_writel(v, r); \
 } while (0)
-#endif 
+#endif /* FB_S3C_DEBUG_REGWRITE */
 
+/* irq_flags bits */
 #define S3C_FB_VSYNC_IRQ_EN	0
 
 #define VSYNC_TIMEOUT_MSEC 50
@@ -53,6 +67,25 @@ struct s3c_fb;
 #define VIDOSD_C(win, variant) (OSD_BASE(win, variant) + 0x08)
 #define VIDOSD_D(win, variant) (OSD_BASE(win, variant) + 0x0C)
 
+/**
+ * struct s3c_fb_variant - fb variant information
+ * @is_2443: Set if S3C2443/S3C2416 style hardware.
+ * @nr_windows: The number of windows.
+ * @vidtcon: The base for the VIDTCONx registers
+ * @wincon: The base for the WINxCON registers.
+ * @winmap: The base for the WINxMAP registers.
+ * @keycon: The abse for the WxKEYCON registers.
+ * @buf_start: Offset of buffer start registers.
+ * @buf_size: Offset of buffer size registers.
+ * @buf_end: Offset of buffer end registers.
+ * @osd: The base for the OSD registers.
+ * @palette: Address of palette memory, or 0 if none.
+ * @has_prtcon: Set if has PRTCON register.
+ * @has_shadowcon: Set if has SHADOWCON register.
+ * @has_blendcon: Set if has BLENDCON register.
+ * @has_clksel: Set if VIDCON0 register has CLKSEL bit.
+ * @has_fixvclk: Set if VIDCON1 register has FIXVCLK bits.
+ */
 struct s3c_fb_variant {
 	unsigned int	is_2443:1;
 	unsigned short	nr_windows;
@@ -74,6 +107,19 @@ struct s3c_fb_variant {
 	unsigned int	has_fixvclk:1;
 };
 
+/**
+ * struct s3c_fb_win_variant
+ * @has_osd_c: Set if has OSD C register.
+ * @has_osd_d: Set if has OSD D register.
+ * @has_osd_alpha: Set if can change alpha transparency for a window.
+ * @palette_sz: Size of palette in entries.
+ * @palette_16bpp: Set if palette is 16bits wide.
+ * @osd_size_off: If != 0, supports setting up OSD for a window; the appropriate
+ *                register is located at the given offset from OSD_BASE.
+ * @valid_bpp: 1 bit per BPP setting to show valid bits-per-pixel.
+ *
+ * valid_bpp bit x is set if (x+1)BPP is supported.
+ */
 struct s3c_fb_win_variant {
 	unsigned int	has_osd_c:1;
 	unsigned int	has_osd_d:1;
@@ -84,11 +130,23 @@ struct s3c_fb_win_variant {
 	u32		valid_bpp;
 };
 
+/**
+ * struct s3c_fb_driverdata - per-device type driver data for init time.
+ * @variant: The variant information for this driver.
+ * @win: The window information for each window.
+ */
 struct s3c_fb_driverdata {
 	struct s3c_fb_variant	variant;
 	struct s3c_fb_win_variant *win[S3C_FB_MAX_WIN];
 };
 
+/**
+ * struct s3c_fb_palette - palette information
+ * @r: Red bitfield.
+ * @g: Green bitfield.
+ * @b: Blue bitfield.
+ * @a: Alpha bitfield.
+ */
 struct s3c_fb_palette {
 	struct fb_bitfield	r;
 	struct fb_bitfield	g;
@@ -96,6 +154,17 @@ struct s3c_fb_palette {
 	struct fb_bitfield	a;
 };
 
+/**
+ * struct s3c_fb_win - per window private data for each framebuffer.
+ * @windata: The platform data supplied for the window configuration.
+ * @parent: The hardware that this window is part of.
+ * @fbinfo: Pointer pack to the framebuffer info for this window.
+ * @varint: The variant information for this window.
+ * @palette_buffer: Buffer/cache to hold palette entries.
+ * @pseudo_palette: For use in TRUECOLOUR modes for entries 0..15/
+ * @index: The window number of this window.
+ * @palette: The bitfields for changing r/g/b into a hardware palette entry.
+ */
 struct s3c_fb_win {
 	struct s3c_fb_pd_win	*windata;
 	struct s3c_fb		*parent;
@@ -108,11 +177,32 @@ struct s3c_fb_win {
 	unsigned int		 index;
 };
 
+/**
+ * struct s3c_fb_vsync - vsync information
+ * @wait:	a queue for processes waiting for vsync
+ * @count:	vsync interrupt count
+ */
 struct s3c_fb_vsync {
 	wait_queue_head_t	wait;
 	unsigned int		count;
 };
 
+/**
+ * struct s3c_fb - overall hardware state of the hardware
+ * @slock: The spinlock protection for this data sturcture.
+ * @dev: The device that we bound to, for printing, etc.
+ * @bus_clk: The clk (hclk) feeding our interface and possibly pixclk.
+ * @lcd_clk: The clk (sclk) feeding pixclk.
+ * @regs: The mapped hardware registers.
+ * @variant: Variant information for this hardware.
+ * @enabled: A bitmask of enabled hardware windows.
+ * @output_on: Flag if the physical output is enabled.
+ * @pdata: The platform configuration data passed with the device.
+ * @windows: The hardware windows that have been claimed.
+ * @irq_no: IRQ line number
+ * @irq_flags: irq flags
+ * @vsync_info: VSYNC-related information (count, queues...)
+ */
 struct s3c_fb {
 	spinlock_t		slock;
 	struct device		*dev;
@@ -132,11 +222,24 @@ struct s3c_fb {
 	struct s3c_fb_vsync	 vsync_info;
 };
 
+/**
+ * s3c_fb_validate_win_bpp - validate the bits-per-pixel for this mode.
+ * @win: The device window.
+ * @bpp: The bit depth.
+ */
 static bool s3c_fb_validate_win_bpp(struct s3c_fb_win *win, unsigned int bpp)
 {
 	return win->variant.valid_bpp & VALID_BPP(bpp);
 }
 
+/**
+ * s3c_fb_check_var() - framebuffer layer request to verify a given mode.
+ * @var: The screen information to verify.
+ * @info: The framebuffer device.
+ *
+ * Framebuffer layer call to verify the given information and allow us to
+ * update various information depending on the hardware capabilities.
+ */
 static int s3c_fb_check_var(struct fb_var_screeninfo *var,
 			    struct fb_info *info)
 {
@@ -154,7 +257,7 @@ static int s3c_fb_check_var(struct fb_var_screeninfo *var,
 		return -EINVAL;
 	}
 
-	
+	/* always ensure these are zero, for drop through cases below */
 	var->transp.offset = 0;
 	var->transp.length = 0;
 
@@ -164,7 +267,7 @@ static int s3c_fb_check_var(struct fb_var_screeninfo *var,
 	case 4:
 	case 8:
 		if (sfb->variant.palette[win->index] != 0) {
-			
+			/* non palletised, A:1,R:2,G:3,B:2 mode */
 			var->red.offset		= 4;
 			var->green.offset	= 2;
 			var->blue.offset	= 0;
@@ -182,13 +285,13 @@ static int s3c_fb_check_var(struct fb_var_screeninfo *var,
 		break;
 
 	case 19:
-		
+		/* 666 with one bit alpha/transparency */
 		var->transp.offset	= 18;
 		var->transp.length	= 1;
 	case 18:
 		var->bits_per_pixel	= 32;
 
-		
+		/* 666 format */
 		var->red.offset		= 12;
 		var->green.offset	= 6;
 		var->blue.offset	= 0;
@@ -198,7 +301,7 @@ static int s3c_fb_check_var(struct fb_var_screeninfo *var,
 		break;
 
 	case 16:
-		
+		/* 16 bpp, 565 format */
 		var->red.offset		= 11;
 		var->green.offset	= 5;
 		var->blue.offset	= 0;
@@ -212,9 +315,9 @@ static int s3c_fb_check_var(struct fb_var_screeninfo *var,
 	case 25:
 		var->transp.length	= var->bits_per_pixel - 24;
 		var->transp.offset	= 24;
-		
+		/* drop through */
 	case 24:
-		
+		/* our 24bpp is unpacked, so 32bpp */
 		var->bits_per_pixel	= 32;
 		var->red.offset		= 16;
 		var->red.length		= 8;
@@ -232,6 +335,14 @@ static int s3c_fb_check_var(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/**
+ * s3c_fb_calc_pixclk() - calculate the divider to create the pixel clock.
+ * @sfb: The hardware state.
+ * @pixclock: The pixel clock wanted, in picoseconds.
+ *
+ * Given the specified pixel clock, work out the necessary divider to get
+ * close to the output frequency.
+ */
 static int s3c_fb_calc_pixclk(struct s3c_fb *sfb, unsigned int pixclk)
 {
 	unsigned long clk;
@@ -255,6 +366,14 @@ static int s3c_fb_calc_pixclk(struct s3c_fb *sfb, unsigned int pixclk)
 	return result;
 }
 
+/**
+ * s3c_fb_align_word() - align pixel count to word boundary
+ * @bpp: The number of bits per pixel
+ * @pix: The value to be aligned.
+ *
+ * Align the given pixel count so that it will start on an 32bit word
+ * boundary.
+ */
 static int s3c_fb_align_word(unsigned int bpp, unsigned int pix)
 {
 	int pix_per_word;
@@ -266,16 +385,28 @@ static int s3c_fb_align_word(unsigned int bpp, unsigned int pix)
 	return ALIGN(pix, pix_per_word);
 }
 
+/**
+ * vidosd_set_size() - set OSD size for a window
+ *
+ * @win: the window to set OSD size for
+ * @size: OSD size register value
+ */
 static void vidosd_set_size(struct s3c_fb_win *win, u32 size)
 {
 	struct s3c_fb *sfb = win->parent;
 
-	
+	/* OSD can be set up if osd_size_off != 0 for this window */
 	if (win->variant.osd_size_off)
 		writel(size, sfb->regs + OSD_BASE(win->index, sfb->variant)
 				+ win->variant.osd_size_off);
 }
 
+/**
+ * vidosd_set_alpha() - set alpha transparency for a window
+ *
+ * @win: the window to set OSD size for
+ * @alpha: alpha register value
+ */
 static void vidosd_set_alpha(struct s3c_fb_win *win, u32 alpha)
 {
 	struct s3c_fb *sfb = win->parent;
@@ -284,6 +415,12 @@ static void vidosd_set_alpha(struct s3c_fb_win *win, u32 alpha)
 		writel(alpha, sfb->regs + VIDOSD_C(win->index, sfb->variant));
 }
 
+/**
+ * shadow_protect_win() - disable updating values from shadow registers at vsync
+ *
+ * @win: window to protect registers for
+ * @protect: 1 to protect (disable updates)
+ */
 static void shadow_protect_win(struct s3c_fb_win *win, bool protect)
 {
 	struct s3c_fb *sfb = win->parent;
@@ -308,6 +445,11 @@ static void shadow_protect_win(struct s3c_fb_win *win, bool protect)
 	}
 }
 
+/**
+ * s3c_fb_enable() - Set the state of the main LCD output
+ * @sfb: The main framebuffer state.
+ * @enable: The state to set.
+ */
 static void s3c_fb_enable(struct s3c_fb *sfb, int enable)
 {
 	u32 vidcon0 = readl(sfb->regs + VIDCON0);
@@ -318,6 +460,9 @@ static void s3c_fb_enable(struct s3c_fb *sfb, int enable)
 	if (enable) {
 		vidcon0 |= VIDCON0_ENVID | VIDCON0_ENVID_F;
 	} else {
+		/* see the note in the framebuffer datasheet about
+		 * why you cannot take both of these bits down at the
+		 * same time. */
 
 		if (vidcon0 & VIDCON0_ENVID) {
 			vidcon0 |= VIDCON0_ENVID;
@@ -333,6 +478,12 @@ static void s3c_fb_enable(struct s3c_fb *sfb, int enable)
 	sfb->output_on = enable;
 }
 
+/**
+ * s3c_fb_set_par() - framebuffer request to set new framebuffer state.
+ * @info: The framebuffer to change.
+ *
+ * Framebuffer layer request to set a new mode for the specified framebuffer
+ */
 static int s3c_fb_set_par(struct fb_info *info)
 {
 	struct fb_var_screeninfo *var = &info->var;
@@ -378,10 +529,10 @@ static int s3c_fb_set_par(struct fb_info *info)
 	info->fix.xpanstep = info->var.xres_virtual > info->var.xres ? 1 : 0;
 	info->fix.ypanstep = info->var.yres_virtual > info->var.yres ? 1 : 0;
 
-	
+	/* disable the window whilst we update it */
 	writel(0, regs + WINCON(win_no));
 
-	
+	/* use platform specified window as the basis for the lcd timings */
 
 	if (win_no == sfb->pdata->default_win) {
 		clkdiv = s3c_fb_calc_pixclk(sfb, var->pixclock);
@@ -392,9 +543,9 @@ static int s3c_fb_set_par(struct fb_info *info)
 		if (clkdiv > 1)
 			data |= VIDCON0_CLKVAL_F(clkdiv-1) | VIDCON0_CLKDIR;
 		else
-			data &= ~VIDCON0_CLKDIR;	
+			data &= ~VIDCON0_CLKDIR;	/* 1:1 clock */
 
-		
+		/* write the timing data to the panel */
 
 		if (sfb->variant.is_2443)
 			data |= (1 << 5);
@@ -413,7 +564,7 @@ static int s3c_fb_set_par(struct fb_info *info)
 		       VIDTCON1_HFPD(var->right_margin - 1) |
 		       VIDTCON1_HSPW(var->hsync_len - 1);
 
-		
+		/* VIDTCON1 */
 		writel(data, regs + sfb->variant.vidtcon + 4);
 
 		data = VIDTCON2_LINEVAL(var->yres - 1) |
@@ -423,9 +574,9 @@ static int s3c_fb_set_par(struct fb_info *info)
 		writel(data, regs + sfb->variant.vidtcon + 8);
 	}
 
-	
+	/* write the buffer address */
 
-	
+	/* start and end registers stride is 8 */
 	buf = regs + win_no * 8;
 
 	writel(info->fix.smem_start, buf + sfb->variant.buf_start);
@@ -440,7 +591,7 @@ static int s3c_fb_set_par(struct fb_info *info)
 	       VIDW_BUF_SIZE_PAGEWIDTH_E(pagewidth);
 	writel(data, regs + sfb->variant.buf_size + (win_no * 4));
 
-	
+	/* write 'OSD' registers to control position of framebuffer */
 
 	data = VIDOSDxA_TOPLEFT_X(0) | VIDOSDxA_TOPLEFT_Y(0) |
 	       VIDOSDxA_TOPLEFT_X_E(0) | VIDOSDxA_TOPLEFT_Y_E(0);
@@ -464,7 +615,7 @@ static int s3c_fb_set_par(struct fb_info *info)
 	vidosd_set_alpha(win, alpha);
 	vidosd_set_size(win, data);
 
-	
+	/* Enable DMA channel for this window */
 	if (sfb->variant.has_shadowcon) {
 		data = readl(sfb->regs + SHADOWCON);
 		data |= SHADOWCON_CHx_ENABLE(win_no);
@@ -474,6 +625,9 @@ static int s3c_fb_set_par(struct fb_info *info)
 	data = WINCONx_ENWIN;
 	sfb->enabled |= (1 << win->index);
 
+	/* note, since we have to round up the bits-per-pixel, we end up
+	 * relying on the bitfield information for r/g/b/a to work out
+	 * exactly which mode of operation is intended. */
 
 	switch (var->bits_per_pixel) {
 	case 1:
@@ -529,7 +683,7 @@ static int s3c_fb_set_par(struct fb_info *info)
 		break;
 	}
 
-	
+	/* Enable the colour keying for the window below this one */
 	if (win_no > 0) {
 		u32 keycon0_data = 0, keycon1_data = 0;
 		void __iomem *keycon = regs + sfb->variant.keycon;
@@ -549,7 +703,7 @@ static int s3c_fb_set_par(struct fb_info *info)
 	writel(data, regs + sfb->variant.wincon + (win_no * 4));
 	writel(0x0, regs + sfb->variant.winmap + (win_no * 4));
 
-	
+	/* Set alpha value width */
 	if (sfb->variant.has_blendcon) {
 		data = readl(sfb->regs + BLENDCON);
 		data &= ~BLENDCON_NEW_MASK;
@@ -567,6 +721,20 @@ static int s3c_fb_set_par(struct fb_info *info)
 	return 0;
 }
 
+/**
+ * s3c_fb_update_palette() - set or schedule a palette update.
+ * @sfb: The hardware information.
+ * @win: The window being updated.
+ * @reg: The palette index being changed.
+ * @value: The computed palette value.
+ *
+ * Change the value of a palette register, either by directly writing to
+ * the palette (this requires the palette RAM to be disconnected from the
+ * hardware whilst this is in progress) or schedule the update for later.
+ *
+ * At the moment, since we have no VSYNC interrupt support, we simply set
+ * the palette entry directly.
+ */
 static void s3c_fb_update_palette(struct s3c_fb *sfb,
 				  struct s3c_fb_win *win,
 				  unsigned int reg,
@@ -601,6 +769,15 @@ static inline unsigned int chan_to_field(unsigned int chan,
 	return chan << bf->offset;
 }
 
+/**
+ * s3c_fb_setcolreg() - framebuffer layer request to change palette.
+ * @regno: The palette index to change.
+ * @red: The red field for the palette data.
+ * @green: The green field for the palette data.
+ * @blue: The blue field for the palette data.
+ * @trans: The transparency (alpha) field for the palette data.
+ * @info: The framebuffer being changed.
+ */
 static int s3c_fb_setcolreg(unsigned regno,
 			    unsigned red, unsigned green, unsigned blue,
 			    unsigned transp, struct fb_info *info)
@@ -616,7 +793,7 @@ static int s3c_fb_setcolreg(unsigned regno,
 
 	switch (info->fix.visual) {
 	case FB_VISUAL_TRUECOLOR:
-		
+		/* true-colour, use pseudo-palette */
 
 		if (regno < 16) {
 			u32 *pal = info->pseudo_palette;
@@ -642,13 +819,20 @@ static int s3c_fb_setcolreg(unsigned regno,
 
 	default:
 		pm_runtime_put_sync(sfb->dev);
-		return 1;	
+		return 1;	/* unknown type */
 	}
 
 	pm_runtime_put_sync(sfb->dev);
 	return 0;
 }
 
+/**
+ * s3c_fb_blank() - blank or unblank the given window
+ * @blank_mode: The blank state from FB_BLANK_*
+ * @info: The framebuffer to blank.
+ *
+ * Framebuffer layer request to change the power state.
+ */
 static int s3c_fb_blank(int blank_mode, struct fb_info *info)
 {
 	struct s3c_fb_win *win = info->par;
@@ -666,10 +850,10 @@ static int s3c_fb_blank(int blank_mode, struct fb_info *info)
 	case FB_BLANK_POWERDOWN:
 		wincon &= ~WINCONx_ENWIN;
 		sfb->enabled &= ~(1 << index);
-		
+		/* fall through to FB_BLANK_NORMAL */
 
 	case FB_BLANK_NORMAL:
-		
+		/* disable the DMA and display 0x0 (black) */
 		shadow_protect_win(win, 1);
 		writel(WINxMAP_MAP | WINxMAP_MAP_COLOUR(0x0),
 		       sfb->regs + sfb->variant.winmap + (index * 4));
@@ -695,8 +879,23 @@ static int s3c_fb_blank(int blank_mode, struct fb_info *info)
 	writel(wincon, sfb->regs + sfb->variant.wincon + (index * 4));
 	shadow_protect_win(win, 0);
 
+	/* Check the enabled state to see if we need to be running the
+	 * main LCD interface, as if there are no active windows then
+	 * it is highly likely that we also do not need to output
+	 * anything.
+	 */
 
+	/* We could do something like the following code, but the current
+	 * system of using framebuffer events means that we cannot make
+	 * the distinction between just window 0 being inactive and all
+	 * the windows being down.
+	 *
+	 * s3c_fb_enable(sfb, sfb->enabled ? 1 : 0);
+	*/
 
+	/* we're stuck with this until we can do something about overriding
+	 * the power control using the blanking event for a single fb.
+	 */
 	if (index == sfb->pdata->default_win) {
 		shadow_protect_win(win, 1);
 		s3c_fb_enable(sfb, blank_mode != FB_BLANK_POWERDOWN ? 1 : 0);
@@ -729,9 +928,9 @@ static int s3c_fb_pan_display(struct fb_var_screeninfo *var,
 
 	pm_runtime_get_sync(sfb->dev);
 
-	
+	/* Offset in bytes to the start of the displayed area */
 	start_boff = var->yoffset * info->fix.line_length;
-	
+	/* X offset depends on the current bpp */
 	if (info->var.bits_per_pixel >= 8) {
 		start_boff += var->xoffset * (info->var.bits_per_pixel >> 3);
 	} else {
@@ -751,9 +950,11 @@ static int s3c_fb_pan_display(struct fb_var_screeninfo *var,
 			return -EINVAL;
 		}
 	}
-	
+	/* Offset in bytes to the end of the displayed area */
 	end_boff = start_boff + info->var.yres * info->fix.line_length;
 
+	/* Temporarily turn off per-vsync update from shadow registers until
+	 * both start and end addresses are updated to prevent corruption */
 	shadow_protect_win(win, 1);
 
 	writel(info->fix.smem_start + start_boff, buf + sfb->variant.buf_start);
@@ -765,13 +966,17 @@ static int s3c_fb_pan_display(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/**
+ * s3c_fb_enable_irq() - enable framebuffer interrupts
+ * @sfb: main hardware state
+ */
 static void s3c_fb_enable_irq(struct s3c_fb *sfb)
 {
 	void __iomem *regs = sfb->regs;
 	u32 irq_ctrl_reg;
 
 	if (!test_and_set_bit(S3C_FB_VSYNC_IRQ_EN, &sfb->irq_flags)) {
-		
+		/* IRQ disabled, enable it */
 		irq_ctrl_reg = readl(regs + VIDINTCON0);
 
 		irq_ctrl_reg |= VIDINTCON0_INT_ENABLE;
@@ -786,13 +991,17 @@ static void s3c_fb_enable_irq(struct s3c_fb *sfb)
 	}
 }
 
+/**
+ * s3c_fb_disable_irq() - disable framebuffer interrupts
+ * @sfb: main hardware state
+ */
 static void s3c_fb_disable_irq(struct s3c_fb *sfb)
 {
 	void __iomem *regs = sfb->regs;
 	u32 irq_ctrl_reg;
 
 	if (test_and_clear_bit(S3C_FB_VSYNC_IRQ_EN, &sfb->irq_flags)) {
-		
+		/* IRQ enabled, disable it */
 		irq_ctrl_reg = readl(regs + VIDINTCON0);
 
 		irq_ctrl_reg &= ~VIDINTCON0_INT_FRAME;
@@ -814,19 +1023,27 @@ static irqreturn_t s3c_fb_irq(int irq, void *dev_id)
 
 	if (irq_sts_reg & VIDINTCON1_INT_FRAME) {
 
-		
+		/* VSYNC interrupt, accept it */
 		writel(VIDINTCON1_INT_FRAME, regs + VIDINTCON1);
 
 		sfb->vsync_info.count++;
 		wake_up_interruptible(&sfb->vsync_info.wait);
 	}
 
+	/* We only support waiting for VSYNC for now, so it's safe
+	 * to always disable irqs here.
+	 */
 	s3c_fb_disable_irq(sfb);
 
 	spin_unlock(&sfb->slock);
 	return IRQ_HANDLED;
 }
 
+/**
+ * s3c_fb_wait_for_vsync() - sleep until next VSYNC interrupt or timeout
+ * @sfb: main hardware state
+ * @crtc: head index.
+ */
 static int s3c_fb_wait_for_vsync(struct s3c_fb *sfb, u32 crtc)
 {
 	unsigned long count;
@@ -888,6 +1105,12 @@ static struct fb_ops s3c_fb_ops = {
 	.fb_ioctl	= s3c_fb_ioctl,
 };
 
+/**
+ * s3c_fb_missing_pixclock() - calculates pixel clock
+ * @mode: The video mode to change.
+ *
+ * Calculate the pixel clock when none has been given through platform data.
+ */
 static void __devinit s3c_fb_missing_pixclock(struct fb_videomode *mode)
 {
 	u64 pixclk = 1000000000000ULL;
@@ -904,6 +1127,13 @@ static void __devinit s3c_fb_missing_pixclock(struct fb_videomode *mode)
 	mode->pixclock = pixclk;
 }
 
+/**
+ * s3c_fb_alloc_memory() - allocate display memory for framebuffer window
+ * @sfb: The base resources for the hardware.
+ * @win: The window to initialise memory for.
+ *
+ * Allocate memory for the given framebuffer.
+ */
 static int __devinit s3c_fb_alloc_memory(struct s3c_fb *sfb,
 					 struct s3c_fb_win *win)
 {
@@ -944,6 +1174,13 @@ static int __devinit s3c_fb_alloc_memory(struct s3c_fb *sfb,
 	return 0;
 }
 
+/**
+ * s3c_fb_free_memory() - free the display memory for the given window
+ * @sfb: The base resources for the hardware.
+ * @win: The window to free the display memory for.
+ *
+ * Free the display memory allocated by s3c_fb_alloc_memory().
+ */
 static void s3c_fb_free_memory(struct s3c_fb *sfb, struct s3c_fb_win *win)
 {
 	struct fb_info *fbi = win->fbinfo;
@@ -953,6 +1190,13 @@ static void s3c_fb_free_memory(struct s3c_fb *sfb, struct s3c_fb_win *win)
 			      fbi->screen_base, fbi->fix.smem_start);
 }
 
+/**
+ * s3c_fb_release_win() - release resources for a framebuffer window.
+ * @win: The window to cleanup the resources for.
+ *
+ * Release the resources that where claimed for the hardware window,
+ * such as the framebuffer instance and any memory claimed for it.
+ */
 static void s3c_fb_release_win(struct s3c_fb *sfb, struct s3c_fb_win *win)
 {
 	u32 data;
@@ -972,6 +1216,15 @@ static void s3c_fb_release_win(struct s3c_fb *sfb, struct s3c_fb_win *win)
 	}
 }
 
+/**
+ * s3c_fb_probe_win() - register an hardware window
+ * @sfb: The base resources for the hardware
+ * @variant: The variant information for this window.
+ * @res: Pointer to where to place the resultant window.
+ *
+ * Allocate and do the basic initialisation for one of the hardware's graphics
+ * windows.
+ */
 static int __devinit s3c_fb_probe_win(struct s3c_fb *sfb, unsigned int win_no,
 				      struct s3c_fb_win_variant *variant,
 				      struct s3c_fb_win **res)
@@ -1020,9 +1273,9 @@ static int __devinit s3c_fb_probe_win(struct s3c_fb *sfb, unsigned int win_no,
 		return ret;
 	}
 
-	
+	/* setup the r/b/g positions for the window's palette */
 	if (win->variant.palette_16bpp) {
-		
+		/* Set RGB 5:6:5 as default */
 		win->palette.r.offset = 11;
 		win->palette.r.length = 5;
 		win->palette.g.offset = 5;
@@ -1031,7 +1284,7 @@ static int __devinit s3c_fb_probe_win(struct s3c_fb *sfb, unsigned int win_no,
 		win->palette.b.length = 5;
 
 	} else {
-		
+		/* Set 8bpp or 8bpp and 1bit alpha */
 		win->palette.r.offset = 16;
 		win->palette.r.length = 8;
 		win->palette.g.offset = 8;
@@ -1040,7 +1293,7 @@ static int __devinit s3c_fb_probe_win(struct s3c_fb *sfb, unsigned int win_no,
 		win->palette.b.length = 8;
 	}
 
-	
+	/* setup the initial video mode from the window */
 	fb_videomode_to_var(&fbinfo->var, initmode);
 
 	fbinfo->fix.type	= FB_TYPE_PACKED_PIXELS;
@@ -1052,7 +1305,7 @@ static int __devinit s3c_fb_probe_win(struct s3c_fb *sfb, unsigned int win_no,
 	fbinfo->flags		= FBINFO_FLAG_DEFAULT;
 	fbinfo->pseudo_palette  = &win->pseudo_palette;
 
-	
+	/* prepare to actually start the framebuffer */
 
 	ret = s3c_fb_check_var(&fbinfo->var, fbinfo);
 	if (ret < 0) {
@@ -1060,7 +1313,7 @@ static int __devinit s3c_fb_probe_win(struct s3c_fb *sfb, unsigned int win_no,
 		return ret;
 	}
 
-	
+	/* create initial colour map */
 
 	ret = fb_alloc_cmap(&fbinfo->cmap, win->variant.palette_sz, 1);
 	if (ret == 0)
@@ -1072,7 +1325,7 @@ static int __devinit s3c_fb_probe_win(struct s3c_fb *sfb, unsigned int win_no,
 
 	dev_dbg(sfb->dev, "about to register framebuffer\n");
 
-	
+	/* run the check_var and set_par on our configuration. */
 
 	ret = register_framebuffer(fbinfo);
 	if (ret < 0) {
@@ -1085,6 +1338,13 @@ static int __devinit s3c_fb_probe_win(struct s3c_fb *sfb, unsigned int win_no,
 	return 0;
 }
 
+/**
+ * s3c_fb_clear_win() - clear hardware window registers.
+ * @sfb: The base resources for the hardware.
+ * @win: The window to process.
+ *
+ * Reset the specific window registers to a known state.
+ */
 static void s3c_fb_clear_win(struct s3c_fb *sfb, int win)
 {
 	void __iomem *regs = sfb->regs;
@@ -1193,13 +1453,13 @@ static int __devinit s3c_fb_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, sfb);
 	pm_runtime_get_sync(sfb->dev);
 
-	
+	/* setup gpio and output polarity controls */
 
 	pd->setup_gpio();
 
 	writel(pd->vidcon1, sfb->regs + VIDCON1);
 
-	
+	/* set video clock running at under-run */
 	if (sfb->variant.has_fixvclk) {
 		reg = readl(sfb->regs + VIDCON1);
 		reg &= ~VIDCON1_VCLK_MASK;
@@ -1207,12 +1467,12 @@ static int __devinit s3c_fb_probe(struct platform_device *pdev)
 		writel(reg, sfb->regs + VIDCON1);
 	}
 
-	
+	/* zero all windows before we do anything */
 
 	for (win = 0; win < fbdrv->variant.nr_windows; win++)
 		s3c_fb_clear_win(sfb, win);
 
-	
+	/* initialise colour key controls */
 	for (win = 0; win < (fbdrv->variant.nr_windows - 1); win++) {
 		void __iomem *regs = sfb->regs + sfb->variant.keycon;
 
@@ -1221,7 +1481,7 @@ static int __devinit s3c_fb_probe(struct platform_device *pdev)
 		writel(0xffffff, regs + WKEYCON1);
 	}
 
-	
+	/* we have the register setup, start allocating framebuffers */
 
 	for (win = 0; win < fbdrv->variant.nr_windows; win++) {
 		if (!pd->win[win])
@@ -1264,6 +1524,13 @@ err_sfb:
 	return ret;
 }
 
+/**
+ * s3c_fb_remove() - Cleanup on module finalisation
+ * @pdev: The platform device we are bound to.
+ *
+ * Shutdown and then release all the resources that the driver allocated
+ * on initialisation.
+ */
 static int __devexit s3c_fb_remove(struct platform_device *pdev)
 {
 	struct s3c_fb *sfb = platform_get_drvdata(pdev);
@@ -1302,7 +1569,7 @@ static int s3c_fb_suspend(struct device *dev)
 		if (!win)
 			continue;
 
-		
+		/* use the blank function to push into power-down */
 		s3c_fb_blank(FB_BLANK_POWERDOWN, win->fbinfo);
 	}
 
@@ -1327,11 +1594,11 @@ static int s3c_fb_resume(struct device *dev)
 	if (!sfb->variant.has_clksel)
 		clk_enable(sfb->lcd_clk);
 
-	
+	/* setup gpio and output polarity controls */
 	pd->setup_gpio();
 	writel(pd->vidcon1, sfb->regs + VIDCON1);
 
-	
+	/* set video clock running at under-run */
 	if (sfb->variant.has_fixvclk) {
 		reg = readl(sfb->regs + VIDCON1);
 		reg &= ~VIDCON1_VCLK_MASK;
@@ -1339,7 +1606,7 @@ static int s3c_fb_resume(struct device *dev)
 		writel(reg, sfb->regs + VIDCON1);
 	}
 
-	
+	/* zero all windows before we do anything */
 	for (win_no = 0; win_no < sfb->variant.nr_windows; win_no++)
 		s3c_fb_clear_win(sfb, win_no);
 
@@ -1356,7 +1623,7 @@ static int s3c_fb_resume(struct device *dev)
 		shadow_protect_win(win, 0);
 	}
 
-	
+	/* restore framebuffers */
 	for (win_no = 0; win_no < S3C_FB_MAX_WIN; win_no++) {
 		win = sfb->windows[win_no];
 		if (!win)
@@ -1395,7 +1662,7 @@ static int s3c_fb_runtime_resume(struct device *dev)
 	if (!sfb->variant.has_clksel)
 		clk_enable(sfb->lcd_clk);
 
-	
+	/* setup gpio and output polarity controls */
 	pd->setup_gpio();
 	writel(pd->vidcon1, sfb->regs + VIDCON1);
 
@@ -1675,6 +1942,7 @@ static struct s3c_fb_driverdata s3c_fb_data_exynos5 = {
 	.win[4]	= &s3c_fb_data_s5p_wins[4],
 };
 
+/* S3C2443/S3C2416 style hardware */
 static struct s3c_fb_driverdata s3c_fb_data_s3c2443 = {
 	.variant = {
 		.nr_windows	= 2,

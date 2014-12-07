@@ -15,7 +15,7 @@
 #include <asm/mem_init.h>
 #include <asm/dpmc.h>
 
-#define SDGCTL_WIDTH (1 << 31)	
+#define SDGCTL_WIDTH (1 << 31)	/* SDRAM external data path width */
 #define PLL_CTL_VAL \
 	(((CONFIG_VCO_MULT & 63) << 9) | CLKIN_HALF | \
 	 (PLL_BYPASS << 8) | (ANOMALY_05000305 ? 0 : 0x8000))
@@ -29,6 +29,10 @@ static void do_sync(void)
 __attribute__((l1_text))
 void init_clocks(void)
 {
+	/* Kill any active DMAs as they may trigger external memory accesses
+	 * in the middle of reprogramming things, and that'll screw us up.
+	 * For example, any automatic DMAs left by U-Boot for splash screens.
+	 */
 	size_t i;
 	for (i = 0; i < MAX_DMA_CHANNELS; ++i) {
 		struct dma_register *dma = dma_io_base_addr[i];
@@ -40,6 +44,11 @@ void init_clocks(void)
 #ifdef SIC_IWR0
 	bfin_write_SIC_IWR0(IWR_ENABLE(0));
 # ifdef SIC_IWR1
+	/* BF52x system reset does not properly reset SIC_IWR1 which
+	 * will screw up the bootrom as it relies on MDMA0/1 waking it
+	 * up from IDLE instructions.  See this report for more info:
+	 * http://blackfin.uclinux.org/gf/tracker/4323
+	 */
 	if (ANOMALY_05000435)
 		bfin_write_SIC_IWR1(IWR_ENABLE(10) | IWR_ENABLE(11));
 	else
@@ -64,7 +73,7 @@ void init_clocks(void)
 #endif
 	bfin_write_PLL_LOCKCNT(0x300);
 	do_sync();
-	
+	/* We always write PLL_CTL thus avoiding Anomaly 05000242 */
 	bfin_write16(PLL_CTL, PLL_CTL_VAL);
 	__asm__ __volatile__("IDLE;");
 	bfin_write_PLL_DIV(CONFIG_CCLK_ACT_DIV | CONFIG_SCLK_DIV);

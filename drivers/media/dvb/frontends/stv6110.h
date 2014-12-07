@@ -28,6 +28,7 @@
 #include <linux/i2c.h>
 #include "dvb_frontend.h"
 
+/* registers */
 #define RSTV6110_CTRL1		0
 #define RSTV6110_CTRL2		1
 #define RSTV6110_TUNING1	2
@@ -41,7 +42,7 @@ struct stv6110_config {
 	u8 i2c_address;
 	u32 mclk;
 	u8 gain;
-	u8 clk_div;	
+	u8 clk_div;	/* divisor value for the output clock */
 };
 
 #if defined(CONFIG_DVB_STV6110) || (defined(CONFIG_DVB_STV6110_MODULE) \

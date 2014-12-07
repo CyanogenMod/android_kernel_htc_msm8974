@@ -12,5 +12,5 @@ nfulnl_log_packet(u_int8_t pf,
 
 #define NFULNL_COPY_DISABLED    0xff
 
-#endif 
+#endif /* _KER_NFNETLINK_LOG_H */
 

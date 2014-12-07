@@ -79,6 +79,14 @@ static const __le32 i2400m_ACK_BARKER[4] = {
 };
 
 
+/*
+ * Read and return the amount of bytes available for RX
+ *
+ * The RX size has to be read like this: byte reads of three
+ * sequential locations; then glue'em together.
+ *
+ * sdio_readl() doesn't work.
+ */
 static ssize_t __i2400ms_rx_get_size(struct i2400ms *i2400ms)
 {
 	int ret, cnt, val;
@@ -107,6 +115,15 @@ error_read:
 }
 
 
+/*
+ * Read data from the device (when in normal)
+ *
+ * Allocate an SKB of the right size, read the data in and then
+ * deliver it to the generic layer.
+ *
+ * We also check for a reboot barker. That means the device died and
+ * we have to reboot it.
+ */
 static
 void i2400ms_rx(struct i2400ms *i2400ms)
 {
@@ -123,6 +140,10 @@ void i2400ms_rx(struct i2400ms *i2400ms)
 		ret = rx_size;
 		goto error_get_size;
 	}
+	/*
+	 * Hardware quirk: make sure to clear the INTR status register
+	 * AFTER getting the data transfer size.
+	 */
 	sdio_writeb(func, 1, I2400MS_INTR_CLEAR_ADDR, &ret);
 
 	ret = -ENOMEM;
@@ -138,7 +159,7 @@ void i2400ms_rx(struct i2400ms *i2400ms)
 		goto error_memcpy_fromio;
 	}
 
-	rmb();	
+	rmb();	/* make sure we get boot_mode from dev_reset_handle */
 	if (unlikely(i2400m->boot_mode == 1)) {
 		spin_lock(&i2400m->rx_lock);
 		i2400ms->bm_ack_size = rx_size;
@@ -179,6 +200,13 @@ error_bad_size:
 }
 
 
+/*
+ * Process an interrupt from the SDIO card
+ *
+ * FIXME: need to process other events that are not just ready-to-read
+ *
+ * Checks there is data ready and then proceeds to read it.
+ */
 static
 void i2400ms_irq(struct sdio_func *func)
 {
@@ -203,6 +231,11 @@ error_no_irq:
 }
 
 
+/*
+ * Setup SDIO RX
+ *
+ * Hooks up the IRQ handler and then enables IRQs.
+ */
 int i2400ms_rx_setup(struct i2400ms *i2400ms)
 {
 	int result;
@@ -215,6 +248,12 @@ int i2400ms_rx_setup(struct i2400ms *i2400ms)
 	init_waitqueue_head(&i2400ms->bm_wfa_wq);
 	spin_lock(&i2400m->rx_lock);
 	i2400ms->bm_wait_result = -EINPROGRESS;
+	/*
+	 * Before we are about to enable the RX interrupt, make sure
+	 * bm_ack_size is cleared to -EINPROGRESS which indicates
+	 * no RX interrupt happened yet or the previous interrupt
+	 * has been handled, we are ready to take the new interrupt
+	 */
 	i2400ms->bm_ack_size = -EINPROGRESS;
 	spin_unlock(&i2400m->rx_lock);
 
@@ -237,6 +276,11 @@ error_irq_claim:
 }
 
 
+/*
+ * Tear down SDIO RX
+ *
+ * Disables IRQs in the device and removes the IRQ handler.
+ */
 void i2400ms_rx_release(struct i2400ms *i2400ms)
 {
 	int result;

@@ -42,11 +42,13 @@ static void asd_can_dequeue(struct asd_ha_struct *asd_ha, int num)
 	spin_unlock_irqrestore(&asd_ha->seq.pend_q_lock, flags);
 }
 
+/* PCI_DMA_... to our direction translation.
+ */
 static const u8 data_dir_flags[] = {
-	[PCI_DMA_BIDIRECTIONAL] = DATA_DIR_BYRECIPIENT,	
-	[PCI_DMA_TODEVICE]      = DATA_DIR_OUT, 
-	[PCI_DMA_FROMDEVICE]    = DATA_DIR_IN, 
-	[PCI_DMA_NONE]          = DATA_DIR_NONE, 
+	[PCI_DMA_BIDIRECTIONAL] = DATA_DIR_BYRECIPIENT,	/* UNSPECIFIED */
+	[PCI_DMA_TODEVICE]      = DATA_DIR_OUT, /* OUTBOUND */
+	[PCI_DMA_FROMDEVICE]    = DATA_DIR_IN, /* INBOUND */
+	[PCI_DMA_NONE]          = DATA_DIR_NONE, /* NO TRANSFER */
 };
 
 static int asd_map_scatterlist(struct sas_task *task,
@@ -72,6 +74,8 @@ static int asd_map_scatterlist(struct sas_task *task,
 		return 0;
 	}
 
+	/* STP tasks come from libata which has already mapped
+	 * the SG list */
 	if (sas_protocol_ata(task->task_proto))
 		num_sg = task->num_scatter;
 	else
@@ -149,6 +153,7 @@ static void asd_unmap_scatterlist(struct asd_ascb *ascb)
 			     task->data_dir);
 }
 
+/* ---------- Task complete tasklet ---------- */
 
 static void asd_get_response_tasklet(struct asd_ascb *ascb,
 				     struct done_list_struct *dl)
@@ -163,6 +168,7 @@ static void asd_get_response_tasklet(struct asd_ascb *ascb,
 		u8     flags;
 	} __attribute__ ((packed)) *resp_sb = (void *) dl->status_block;
 
+/* 	int  size   = ((resp_sb->flags & 7) << 8) | resp_sb->len_lsb; */
 	int  edb_id = ((resp_sb->flags & 0x70) >> 4)-1;
 	struct asd_ascb *escb;
 	struct asd_dma_tok *edb;
@@ -353,6 +359,7 @@ Again:
 	}
 }
 
+/* ---------- ATA ---------- */
 
 static int asd_build_ata_ascb(struct asd_ascb *ascb, struct sas_task *task,
 			      gfp_t gfp_flags)
@@ -371,15 +378,15 @@ static int asd_build_ata_ascb(struct asd_ascb *ascb, struct sas_task *task,
 	else
 		scb->header.opcode = INITIATE_ATAPI_TASK;
 
-	scb->ata_task.proto_conn_rate = (1 << 5); 
+	scb->ata_task.proto_conn_rate = (1 << 5); /* STP */
 	if (dev->port->oob_mode == SAS_OOB_MODE)
 		scb->ata_task.proto_conn_rate |= dev->linkrate;
 
 	scb->ata_task.total_xfer_len = cpu_to_le32(task->total_xfer_len);
 	scb->ata_task.fis = task->ata_task.fis;
 	if (likely(!task->ata_task.device_control_reg_update))
-		scb->ata_task.fis.flags |= 0x80; 
-	scb->ata_task.fis.flags &= 0xF0; 
+		scb->ata_task.fis.flags |= 0x80; /* C=1: update ATA cmd reg */
+	scb->ata_task.fis.flags &= 0xF0; /* PM_PORT field shall be 0 */
 	if (dev->sata_dev.command_set == ATAPI_COMMAND_SET)
 		memcpy(scb->ata_task.atapi_packet, task->ata_task.atapi_packet,
 		       16);
@@ -420,6 +427,7 @@ static void asd_unbuild_ata_ascb(struct asd_ascb *a)
 	asd_unmap_scatterlist(a);
 }
 
+/* ---------- SMP ---------- */
 
 static int asd_build_smp_ascb(struct asd_ascb *ascb, struct sas_task *task,
 			      gfp_t gfp_flags)
@@ -469,6 +477,7 @@ static void asd_unbuild_smp_ascb(struct asd_ascb *a)
 		     PCI_DMA_FROMDEVICE);
 }
 
+/* ---------- SSP ---------- */
 
 static int asd_build_ssp_ascb(struct asd_ascb *ascb, struct sas_task *task,
 			      gfp_t gfp_flags)
@@ -481,7 +490,7 @@ static int asd_build_ssp_ascb(struct asd_ascb *ascb, struct sas_task *task,
 
 	scb->header.opcode = INITIATE_SSP_TASK;
 
-	scb->ssp_task.proto_conn_rate  = (1 << 4); 
+	scb->ssp_task.proto_conn_rate  = (1 << 4); /* SSP */
 	scb->ssp_task.proto_conn_rate |= dev->linkrate;
 	scb->ssp_task.total_xfer_len = cpu_to_le32(task->total_xfer_len);
 	scb->ssp_task.ssp_frame.frame_type = SSP_DATA;
@@ -516,6 +525,7 @@ static void asd_unbuild_ssp_ascb(struct asd_ascb *a)
 	asd_unmap_scatterlist(a);
 }
 
+/* ---------- Execute Task ---------- */
 
 static int asd_can_queue(struct asd_ha_struct *asd_ha, int num)
 {

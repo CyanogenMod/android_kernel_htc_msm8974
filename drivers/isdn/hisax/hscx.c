@@ -59,7 +59,7 @@ modehscx(struct BCState *bcs, int mode, int bc)
 	cs->BC_Write_Reg(cs, hscx, HSCX_XCCR, 7);
 	cs->BC_Write_Reg(cs, hscx, HSCX_RCCR, 7);
 
-	
+	/* Switch IOM 1 SSI */
 	if (test_bit(HW_IOM1, &cs->HW_Flags) && (hscx == 0))
 		bc = 1 - bc;
 
@@ -235,7 +235,7 @@ clear_pending_hscx_ints(struct IsdnCardState *cs)
 	debugl1(cs, "HSCX B STAR %x", val);
 	val = cs->BC_Read_Reg(cs, 0, HSCX_STAR);
 	debugl1(cs, "HSCX A STAR %x", val);
-	
+	/* disable all IRQ */
 	cs->BC_Write_Reg(cs, 0, HSCX_MASK, 0xFF);
 	cs->BC_Write_Reg(cs, 1, HSCX_MASK, 0xFF);
 }
@@ -267,11 +267,11 @@ inithscxisac(struct IsdnCardState *cs, int part)
 		inithscx(cs);
 	}
 	if (part & 2) {
-		
+		/* Reenable all IRQ */
 		cs->writeisac(cs, ISAC_MASK, 0);
 		cs->BC_Write_Reg(cs, 0, HSCX_MASK, 0);
 		cs->BC_Write_Reg(cs, 1, HSCX_MASK, 0);
-		
+		/* RESET Receiver and Transmitter */
 		cs->writeisac(cs, ISAC_CMDR, 0x41);
 	}
 }

@@ -19,9 +19,9 @@
 #include <asm/uaccess.h>
 
 static unsigned long cpuidle_mode[] = {
-	SUSP_SH_SLEEP, 
-	SUSP_SH_SLEEP | SUSP_SH_SF, 
-	SUSP_SH_STANDBY | SUSP_SH_SF, 
+	SUSP_SH_SLEEP, /* regular sleep mode */
+	SUSP_SH_SLEEP | SUSP_SH_SF, /* sleep mode + self refresh */
+	SUSP_SH_STANDBY | SUSP_SH_SF, /* software standby mode + self refresh */
 };
 
 static int cpuidle_sleep_enter(struct cpuidle_device *dev,
@@ -33,13 +33,17 @@ static int cpuidle_sleep_enter(struct cpuidle_device *dev,
 	int allowed_state;
 	int k;
 
-	
+	/* convert allowed mode to allowed state */
 	for (k = ARRAY_SIZE(cpuidle_mode) - 1; k > 0; k--)
 		if (cpuidle_mode[k] == allowed_mode)
 			break;
 
 	allowed_state = k;
 
+	/* take the following into account for sleep mode selection:
+	 * - allowed_state: best mode allowed by hardware (clock deps)
+	 * - requested_state: best mode allowed by software (latencies)
+	 */
 	k = min_t(int, allowed_state, requested_state);
 
 	sh_mobile_call_standby(cpuidle_mode[k]);

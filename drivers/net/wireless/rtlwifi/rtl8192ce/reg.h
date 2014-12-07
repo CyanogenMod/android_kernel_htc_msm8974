@@ -66,8 +66,11 @@
 #define REG_HSIMR				0x0058
 #define REG_HSISR				0x005c
 
+/* RTL8723 WIFI/BT/GPS Multi-Function GPIO Pin Control. */
 #define REG_GPIO_PIN_CTRL_2			0x0060
+/* RTL8723 WIFI/BT/GPS Multi-Function GPIO Select. */
 #define REG_GPIO_IO_SEL_2			0x0062
+/* RTL8723 WIFI/BT/GPS Multi-Function control source. */
 #define REG_MULTI_FUNC_CTRL			0x0068
 
 #define REG_MCUFWDL				0x0080
@@ -85,7 +88,7 @@
 #define REG_PCIE_MIO_INTD			0x00E8
 #define REG_HPON_FSM				0x00EC
 #define REG_SYS_CFG				0x00F0
-#define REG_GPIO_OUTSTS				0x00F4	
+#define REG_GPIO_OUTSTS				0x00F4	/* For RTL8723 only.*/
 
 #define REG_CR					0x0100
 #define REG_PBP					0x0104
@@ -270,7 +273,9 @@
 #define REG_MAC_SPEC_SIFS			0x063A
 #define REG_RESP_SIFS_CCK			0x063C
 #define REG_RESP_SIFS_OFDM			0x063E
+/* [15:8]SIFS_R2T_OFDM, [7:0]SIFS_R2T_CCK */
 #define REG_R2T_SIFS				0x063C
+/* [15:8]SIFS_T2T_OFDM, [7:0]SIFS_T2T_CCK */
 #define REG_T2T_SIFS				0x063E
 #define REG_ACKTO				0x0640
 #define REG_CTS2TO				0x0641

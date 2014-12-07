@@ -72,6 +72,7 @@ static struct acpi_driver acpi_container_driver = {
 		},
 };
 
+/*******************************************************************/
 
 static int is_device_present(acpi_handle handle)
 {
@@ -82,15 +83,16 @@ static int is_device_present(acpi_handle handle)
 
 	status = acpi_get_handle(handle, "_STA", &temp);
 	if (ACPI_FAILURE(status))
-		return 1;	
+		return 1;	/* _STA not found, assume device present */
 
 	status = acpi_evaluate_integer(handle, "_STA", NULL, &sta);
 	if (ACPI_FAILURE(status))
-		return 0;	
+		return 0;	/* Firmware error */
 
 	return ((sta & ACPI_STA_DEVICE_PRESENT) == ACPI_STA_DEVICE_PRESENT);
 }
 
+/*******************************************************************/
 static int acpi_container_add(struct acpi_device *device)
 {
 	struct acpi_container *container;
@@ -162,7 +164,7 @@ static void container_notify_cb(acpi_handle handle, u32 type, void *context)
 
 	switch (type) {
 	case ACPI_NOTIFY_BUS_CHECK:
-		
+		/* Fall through */
 	case ACPI_NOTIFY_DEVICE_CHECK:
 		printk(KERN_WARNING "Container driver received %s event\n",
 		       (type == ACPI_NOTIFY_BUS_CHECK) ?
@@ -180,7 +182,7 @@ static void container_notify_cb(acpi_handle handle, u32 type, void *context)
 			}
 		} else {
 			if (ACPI_SUCCESS(status)) {
-				
+				/* device exist and this is a remove request */
 				kobject_uevent(&device->dev.kobj, KOBJ_OFFLINE);
 			}
 		}
@@ -253,7 +255,7 @@ static int __init acpi_container_init(void)
 		return (result);
 	}
 
-	
+	/* register notify handler to every container device */
 	acpi_walk_namespace(ACPI_TYPE_DEVICE,
 			    ACPI_ROOT_OBJECT,
 			    ACPI_UINT32_MAX,

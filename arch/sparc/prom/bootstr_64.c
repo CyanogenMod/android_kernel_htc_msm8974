@@ -9,6 +9,10 @@
 #include <linux/init.h>
 #include <asm/oplib.h>
 
+/* WARNING: The boot loader knows that these next three variables come one right
+ *          after another in the .data section.  Do not move this stuff into
+ *          the .bss section or it will break things.
+ */
 
 #define BARG_LEN  256
 struct {
@@ -26,7 +30,7 @@ struct {
 char * __init
 prom_getbootargs(void)
 {
-	
+	/* This check saves us from a panic when bootfd patches args. */
 	if (bootstr_info.bootstr_valid)
 		return bootstr_info.bootstr_buf;
 	prom_getstring(prom_chosen_node, "bootargs",

@@ -47,6 +47,14 @@ out:
 
 EXPORT_SYMBOL(vfs_readdir);
 
+/*
+ * Traditional linux readdir() handling..
+ *
+ * "count=1" is a special case, meaning that the buffer is one
+ * dirent-structure in size and that the code can't handle more
+ * anyway. Thus the special "fillonedir()" function for that
+ * case (the low-level handlers don't need to care about this).
+ */
 
 #ifdef __ARCH_WANT_OLD_READDIR
 
@@ -118,8 +126,12 @@ out:
 	return error;
 }
 
-#endif 
+#endif /* __ARCH_WANT_OLD_READDIR */
 
+/*
+ * New, all-improved, singing, dancing, iBCS2-compliant getdents()
+ * interface. 
+ */
 struct linux_dirent {
 	unsigned long	d_ino;
 	unsigned long	d_off;
@@ -143,7 +155,7 @@ static int filldir(void * __buf, const char * name, int namlen, loff_t offset,
 	int reclen = ALIGN(offsetof(struct linux_dirent, d_name) + namlen + 2,
 		sizeof(long));
 
-	buf->error = -EINVAL;	
+	buf->error = -EINVAL;	/* only used if we fail.. */
 	if (reclen > buf->count)
 		return -EINVAL;
 	d_ino = ino;
@@ -229,7 +241,7 @@ static int filldir64(void * __buf, const char * name, int namlen, loff_t offset,
 	int reclen = ALIGN(offsetof(struct linux_dirent64, d_name) + namlen + 1,
 		sizeof(u64));
 
-	buf->error = -EINVAL;	
+	buf->error = -EINVAL;	/* only used if we fail.. */
 	if (reclen > buf->count)
 		return -EINVAL;
 	dirent = buf->previous;

@@ -19,4 +19,4 @@
 #ifndef _ASM_PERF_EVENT_H
 #define _ASM_PERF_EVENT_H
 
-#endif 
+#endif /* _ASM_PERF_EVENT_H */

@@ -25,6 +25,7 @@ struct xfs_inode;
 #define XFS_ACL_MAX_ENTRIES 25
 #define XFS_ACL_NOT_PRESENT (-1)
 
+/* On-disk XFS access control list structure */
 struct xfs_acl {
 	__be32		acl_cnt;
 	struct xfs_acl_entry {
@@ -34,6 +35,7 @@ struct xfs_acl {
 	} acl_entry[XFS_ACL_MAX_ENTRIES];
 };
 
+/* On-disk XFS extended attribute names */
 #define SGI_ACL_FILE		(unsigned char *)"SGI_ACL_FILE"
 #define SGI_ACL_DEFAULT		(unsigned char *)"SGI_ACL_DEFAULT"
 #define SGI_ACL_FILE_SIZE	(sizeof(SGI_ACL_FILE)-1)
@@ -57,5 +59,5 @@ static inline struct posix_acl *xfs_get_acl(struct inode *inode, int type)
 # define xfs_acl_chmod(inode)				0
 # define posix_acl_access_exists(inode)			0
 # define posix_acl_default_exists(inode)		0
-#endif 
-#endif	
+#endif /* CONFIG_XFS_POSIX_ACL */
+#endif	/* __XFS_ACL_H__ */

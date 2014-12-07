@@ -41,7 +41,7 @@ static int __devinit dw_spi_mmio_probe(struct platform_device *pdev)
 
 	dws = &dwsmmio->dws;
 
-	
+	/* Get basic io resource and map it */
 	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!mem) {
 		dev_err(&pdev->dev, "no mem resource?\n");
@@ -67,7 +67,7 @@ static int __devinit dw_spi_mmio_probe(struct platform_device *pdev)
 	dws->irq = platform_get_irq(pdev, 0);
 	if (dws->irq < 0) {
 		dev_err(&pdev->dev, "no irq resource?\n");
-		ret = dws->irq; 
+		ret = dws->irq; /* -ENXIO */
 		goto err_unmap;
 	}
 

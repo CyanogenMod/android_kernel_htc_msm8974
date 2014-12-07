@@ -81,6 +81,9 @@ static int __devinit gen_74x164_probe(struct spi_device *spi)
 		return -EINVAL;
 	}
 
+	/*
+	 * bits_per_word cannot be configured in platform data
+	 */
 	spi->bits_per_word = 8;
 
 	ret = spi_setup(spi);

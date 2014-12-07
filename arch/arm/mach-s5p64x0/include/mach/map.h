@@ -57,6 +57,7 @@
 
 #define S5P64X0_PA_ADC		0xF3000000
 
+/* Compatibiltiy Defines */
 
 #define S3C_PA_HSMMC0		S5P64X0_PA_HSMMC(0)
 #define S3C_PA_HSMMC1		S5P64X0_PA_HSMMC(1)
@@ -76,6 +77,7 @@
 
 #define SAMSUNG_PA_ADC		S5P64X0_PA_ADC
 
+/* UART */
 
 #define S5P6440_PA_UART(x)	(0xEC000000 + ((x) * S3C_UART_OFFSET))
 #define S5P6450_PA_UART(x)	((x < 5) ? (0xEC800000 + ((x) * S3C_UART_OFFSET)) : (0xEC000000))
@@ -90,4 +92,4 @@
 #define S5P_SZ_UART		SZ_256
 #define S3C_VA_UARTx(x)		(S3C_VA_UART + ((x) * S3C_UART_OFFSET))
 
-#endif 
+#endif /* __ASM_ARCH_MAP_H */

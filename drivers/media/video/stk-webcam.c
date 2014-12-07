@@ -55,8 +55,10 @@ MODULE_AUTHOR("Jaime Velasco Juan <jsagarribay@gmail.com> and Nicolas VIVIEN");
 MODULE_DESCRIPTION("Syntek DC1125 webcam driver");
 
 
+/* bool for webcam LED management */
 int first_init = 1;
 
+/* Some cameras have audio interfaces, we aren't interested in those */
 static struct usb_device_id stkwebcam_table[] = {
 	{ USB_DEVICE_AND_INTERFACE_INFO(0x174f, 0xa311, 0xff, 0xff, 0xff) },
 	{ USB_DEVICE_AND_INTERFACE_INFO(0x05e1, 0x0501, 0xff, 0xff, 0xff) },
@@ -64,6 +66,9 @@ static struct usb_device_id stkwebcam_table[] = {
 };
 MODULE_DEVICE_TABLE(usb, stkwebcam_table);
 
+/*
+ * Basic stuff
+ */
 int stk_camera_write_reg(struct stk_camera *dev, u16 index, u8 value)
 {
 	struct usb_device *udev = dev->udev;
@@ -167,9 +172,16 @@ static int stk_stop_stream(struct stk_camera *dev)
 	return 0;
 }
 
+/*
+ * This seems to be the shortest init sequence we
+ * must do in order to find the sensor
+ * Bit 5 of reg. 0x0000 here is important, when reset to 0 the sensor
+ * is also reset. Maybe powers down it?
+ * Rest of values don't make a difference
+ */
 
 static struct regval stk1125_initvals[] = {
-	
+	/*TODO: What means this sequence? */
 	{0x0000, 0x24},
 	{0x0100, 0x21},
 	{0x0002, 0x68},
@@ -220,6 +232,12 @@ static int stk_initialise(struct stk_camera *dev)
 		return -1;
 }
 
+/* *********************************************** */
+/*
+ * This function is called as an URB transfert is complete (Isochronous pipe).
+ * So, the traitement is done in interrupt time, so it has be fast, not crash,
+ * and not stall. Neat.
+ */
 static void stk_isoc_handler(struct urb *urb)
 {
 	int i;
@@ -254,7 +272,7 @@ static void stk_isoc_handler(struct urb *urb)
 	}
 
 	if (list_empty(&dev->sio_avail)) {
-		
+		/*FIXME Stop streaming after a while */
 		(void) (printk_ratelimit() &&
 		STK_ERROR("isoc_handler without available buffer!\n"));
 		goto resubmit;
@@ -274,7 +292,7 @@ static void stk_isoc_handler(struct urb *urb)
 		iso_buf = urb->transfer_buffer + urb->iso_frame_desc[i].offset;
 
 		if (framelen <= 4)
-			continue; 
+			continue; /* no data */
 
 		/*
 		 * we found something informational from there
@@ -288,7 +306,7 @@ static void stk_isoc_handler(struct urb *urb)
 		if (*iso_buf & 0x80) {
 			framelen -= 8;
 			iso_buf += 8;
-			
+			/* This marks a new frame */
 			if (fb->v4lbuf.bytesused != 0
 				&& fb->v4lbuf.bytesused != dev->frame_size) {
 				(void) (printk_ratelimit() &&
@@ -299,7 +317,7 @@ static void stk_isoc_handler(struct urb *urb)
 				fill = fb->buffer;
 			} else if (fb->v4lbuf.bytesused == dev->frame_size) {
 				if (list_is_singular(&dev->sio_avail)) {
-					
+					/* Always reuse the last buffer */
 					fb->v4lbuf.bytesused = 0;
 					fill = fb->buffer;
 				} else {
@@ -317,11 +335,11 @@ static void stk_isoc_handler(struct urb *urb)
 			iso_buf += 4;
 		}
 
-		
+		/* Our buffer is full !!! */
 		if (framelen + fb->v4lbuf.bytesused > dev->frame_size) {
 			(void) (printk_ratelimit() &&
 			STK_ERROR("Frame buffer overflow, lost sync\n"));
-			
+			/*FIXME Do something here? */
 			continue;
 		}
 		spin_unlock_irqrestore(&dev->spinlock, flags);
@@ -329,7 +347,7 @@ static void stk_isoc_handler(struct urb *urb)
 		spin_lock_irqsave(&dev->spinlock, flags);
 		fill += framelen;
 
-		
+		/* New size of our buffer */
 		fb->v4lbuf.bytesused += framelen;
 	}
 
@@ -343,6 +361,7 @@ resubmit:
 	}
 }
 
+/* -------------------------------------------- */
 
 static int stk_prepare_iso(struct stk_camera *dev)
 {
@@ -464,10 +483,16 @@ static int stk_free_sio_buffers(struct stk_camera *dev)
 	unsigned long flags;
 	if (dev->n_sbufs == 0 || dev->sio_bufs == NULL)
 		return 0;
+	/*
+	* If any buffers are mapped, we cannot free them at all.
+	*/
 	for (i = 0; i < dev->n_sbufs; i++) {
 		if (dev->sio_bufs[i].mapcount > 0)
 			return -EBUSY;
 	}
+	/*
+	* OK, let's do it.
+	*/
 	spin_lock_irqsave(&dev->spinlock, flags);
 	INIT_LIST_HEAD(&dev->sio_avail);
 	INIT_LIST_HEAD(&dev->sio_full);
@@ -523,7 +548,9 @@ static void stk_free_buffers(struct stk_camera *dev)
 	stk_clean_iso(dev);
 	stk_free_sio_buffers(dev);
 }
+/* -------------------------------------------- */
 
+/* v4l file operations */
 
 static int v4l_stk_open(struct file *fp)
 {
@@ -554,7 +581,7 @@ static int v4l_stk_release(struct file *fp)
 	if (dev->owner == fp) {
 		stk_stop_stream(dev);
 		stk_free_buffers(dev);
-		stk_camera_write_reg(dev, 0x0, 0x49); 
+		stk_camera_write_reg(dev, 0x0, 0x49); /* turn off the LED */
 		unset_initialised(dev);
 		dev->owner = NULL;
 	}
@@ -689,6 +716,7 @@ static int v4l_stk_mmap(struct file *fp, struct vm_area_struct *vma)
 	return 0;
 }
 
+/* v4l ioctl handlers */
 
 static int stk_vidioc_querycap(struct file *filp,
 		void *priv, struct v4l2_capability *cap)
@@ -728,11 +756,13 @@ static int stk_vidioc_s_input(struct file *filp, void *priv, unsigned int i)
 		return 0;
 }
 
+/* from vivi.c */
 static int stk_vidioc_s_std(struct file *filp, void *priv, v4l2_std_id *a)
 {
 	return 0;
 }
 
+/* List of all V4Lv2 controls supported by the driver */
 static struct v4l2_queryctrl stk_controls[] = {
 	{
 		.id      = V4L2_CID_BRIGHTNESS,
@@ -947,12 +977,16 @@ static int stk_setup_format(struct stk_camera *dev)
 		STK_ERROR("Something is broken in %s\n", __func__);
 		return -EFAULT;
 	}
-	
+	/* This registers controls some timings, not sure of what. */
 	stk_camera_write_reg(dev, 0x001b, 0x0e);
 	if (dev->vsettings.mode == MODE_SXGA)
 		stk_camera_write_reg(dev, 0x001c, 0x0e);
 	else
 		stk_camera_write_reg(dev, 0x001c, 0x46);
+	/*
+	 * Registers 0x0115 0x0114 are the size of each line (bytes),
+	 * regs 0x0117 0x0116 are the heigth of the image.
+	 */
 	stk_camera_write_reg(dev, 0x0115,
 		((stk_sizes[i].w * depth) >> 8) & 0xff);
 	stk_camera_write_reg(dev, 0x0114,
@@ -1006,10 +1040,10 @@ static int stk_vidioc_reqbufs(struct file *filp,
 		return -EBUSY;
 	dev->owner = filp;
 
-	
+	/*FIXME If they ask for zero, we must stop streaming and free */
 	if (rb->count < 3)
 		rb->count = 3;
-	
+	/* Arbitrary limit */
 	else if (rb->count > 5)
 		rb->count = 5;
 
@@ -1122,7 +1156,7 @@ static int stk_vidioc_streamoff(struct file *filp,
 static int stk_vidioc_g_parm(struct file *filp,
 		void *priv, struct v4l2_streamparm *sp)
 {
-	
+	/*FIXME This is not correct */
 	sp->parm.capture.timeperframe.numerator = 1;
 	sp->parm.capture.timeperframe.denominator = 30;
 	sp->parm.capture.readbuffers = 2;
@@ -1218,6 +1252,7 @@ static int stk_register_video_device(struct stk_camera *dev)
 }
 
 
+/* USB Stuff */
 
 static int stk_camera_probe(struct usb_interface *interface,
 		const struct usb_device_id *id)
@@ -1248,6 +1283,9 @@ static int stk_camera_probe(struct usb_interface *interface,
 	dev->n_sbufs = 0;
 	set_present(dev);
 
+	/* Set up the endpoint information
+	 * use only the first isoc-in endpoint
+	 * for the current alternate setting */
 	iface_desc = interface->cur_altsetting;
 
 	for (i = 0; i < iface_desc->desc.bNumEndpoints; ++i) {
@@ -1255,7 +1293,7 @@ static int stk_camera_probe(struct usb_interface *interface,
 
 		if (!dev->isoc_ep
 			&& usb_endpoint_is_isoc_in(endpoint)) {
-			
+			/* we found an isoc in endpoint */
 			dev->isoc_ep = usb_endpoint_num(endpoint);
 			break;
 		}
@@ -1307,7 +1345,7 @@ static int stk_camera_suspend(struct usb_interface *intf, pm_message_t message)
 	struct stk_camera *dev = usb_get_intfdata(intf);
 	if (is_streaming(dev)) {
 		stk_stop_stream(dev);
-		
+		/* yes, this is ugly */
 		set_streaming(dev);
 	}
 	return 0;

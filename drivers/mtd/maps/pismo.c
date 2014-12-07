@@ -171,6 +171,11 @@ static void __devinit pismo_add_one(struct pismo_data *pismo, int i,
 		return;
 	}
 
+	/*
+	 * FIXME: may need to the platforms memory controller here, but at
+	 * the moment we assume that it has already been correctly setup.
+	 * The memory controller can also tell us the base address as well.
+	 */
 
 	dev_info(dev, "cs%u: %.32s: type %02x access %u00ps size %uK\n",
 		i, cs->device, region.type, region.access, region.size / 1024);
@@ -179,14 +184,14 @@ static void __devinit pismo_add_one(struct pismo_data *pismo, int i,
 	case 0:
 		break;
 	case 1:
-		
+		/* static DOC */
 		break;
 	case 2:
-		
+		/* static NOR */
 		pismo_add_nor(pismo, i, &region);
 		break;
 	case 3:
-		
+		/* static RAM */
 		pismo_add_sram(pismo, i, &region);
 		break;
 	}

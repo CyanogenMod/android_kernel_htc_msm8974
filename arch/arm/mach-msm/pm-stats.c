@@ -41,6 +41,9 @@ static struct msm_pm_time_stats suspend_stats;
 static DEFINE_SPINLOCK(msm_pm_stats_lock);
 static DEFINE_PER_CPU_SHARED_ALIGNED(
 	struct msm_pm_cpu_time_stats, msm_pm_stats);
+/*
+ *  Function to update stats
+ */
 static void update_stats(struct msm_pm_time_stats *stats, int64_t t)
 {
 	int64_t bt;
@@ -73,6 +76,9 @@ static void update_stats(struct msm_pm_time_stats *stats, int64_t t)
 		stats->max_time[i] = t;
 }
 
+/*
+ * Add the given time data to the statistics collection.
+ */
 void msm_pm_add_stat(enum msm_pm_time_stats_id id, int64_t t)
 {
 	struct msm_pm_time_stats *stats;
@@ -142,6 +148,9 @@ static void stats_show(struct seq_file *m,
 		stats->min_time[i],
 		stats->max_time[i]);
 }
+/*
+ * Write out the power management statistics.
+ */
 static int msm_pm_stats_show(struct seq_file *m, void *v)
 {
 	int cpu;
@@ -156,7 +165,7 @@ static int msm_pm_stats_show(struct seq_file *m, void *v)
 		stats = per_cpu(msm_pm_stats, cpu).stats;
 
 		for (id = 0; id < MSM_PM_STAT_COUNT; id++) {
-			
+			/* Skip the disabled ones */
 			if (!stats[id].enabled)
 				continue;
 
@@ -172,6 +181,9 @@ static int msm_pm_stats_show(struct seq_file *m, void *v)
 }
 
 #define MSM_PM_STATS_RESET "reset"
+/*
+ * Reset the power management statistics values.
+ */
 static ssize_t msm_pm_write_proc(struct file *file, const char __user *buffer,
 	size_t count, loff_t *off)
 {
@@ -213,6 +225,14 @@ static ssize_t msm_pm_write_proc(struct file *file, const char __user *buffer,
 			stats[i].total_time = 0;
 		}
 	}
+	memset(suspend_stats.bucket,
+		0, sizeof(suspend_stats.bucket));
+	memset(suspend_stats.min_time,
+		0, sizeof(suspend_stats.min_time));
+	memset(suspend_stats.max_time,
+		0, sizeof(suspend_stats.max_time));
+	suspend_stats.count = 0;
+	suspend_stats.total_time = 0;
 
 	spin_unlock_irqrestore(&msm_pm_stats_lock, flags);
 	return count;

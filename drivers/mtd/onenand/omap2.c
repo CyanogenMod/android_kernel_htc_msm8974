@@ -145,19 +145,19 @@ static int omap2_onenand_wait(struct mtd_info *mtd, int state)
 		}
 		if ((intr & intr_flags) == intr_flags)
 			return 0;
-		
+		/* Continue in wait for interrupt branch */
 	}
 
 	if (state != FL_READING) {
 		int result;
 
-		
+		/* Turn interrupts on */
 		syscfg = read_reg(c, ONENAND_REG_SYS_CFG1);
 		if (!(syscfg & ONENAND_SYS_CFG1_IOBE)) {
 			syscfg |= ONENAND_SYS_CFG1_IOBE;
 			write_reg(c, syscfg, ONENAND_REG_SYS_CFG1);
 			if (cpu_is_omap34xx())
-				
+				/* Add a delay to let GPIO settle */
 				syscfg = read_reg(c, ONENAND_REG_SYS_CFG1);
 		}
 
@@ -178,10 +178,14 @@ retry:
 			result = wait_for_completion_timeout(&c->irq_done,
 						    msecs_to_jiffies(20));
 			if (result == 0) {
-				
+				/* Timeout after 20ms */
 				ctrl = read_reg(c, ONENAND_REG_CTRL_STATUS);
 				if (ctrl & ONENAND_CTRL_ONGO &&
 				    !this->ongoing) {
+					/*
+					 * The operation seems to be still going
+					 * so give it some more time.
+					 */
 					retry_cnt += 1;
 					if (retry_cnt < 3)
 						goto retry;
@@ -198,7 +202,7 @@ retry:
 	} else {
 		int retry_cnt = 0;
 
-		
+		/* Turn interrupts off */
 		syscfg = read_reg(c, ONENAND_REG_SYS_CFG1);
 		syscfg &= ~ONENAND_SYS_CFG1_IOBE;
 		write_reg(c, syscfg, ONENAND_REG_SYS_CFG1);
@@ -210,9 +214,13 @@ retry:
 				if (intr & ONENAND_INT_MASTER)
 					break;
 			} else {
-				
+				/* Timeout after 20ms */
 				ctrl = read_reg(c, ONENAND_REG_CTRL_STATUS);
 				if (ctrl & ONENAND_CTRL_ONGO) {
+					/*
+					 * The operation seems to be still going
+					 * so give it some more time.
+					 */
 					retry_cnt += 1;
 					if (retry_cnt < 3) {
 						timeout = jiffies +
@@ -305,7 +313,7 @@ static int omap3_onenand_read_bufferram(struct mtd_info *mtd, int area,
 	if (bram_offset & 3 || (size_t)buf & 3 || count < 384)
 		goto out_copy;
 
-	
+	/* panic_write() may be in an interrupt context */
 	if (in_interrupt() || oops_in_progress)
 		goto out_copy;
 
@@ -382,7 +390,7 @@ static int omap3_onenand_write_bufferram(struct mtd_info *mtd, int area,
 	if (bram_offset & 3 || (size_t)buf & 3 || count < 384)
 		goto out_copy;
 
-	
+	/* panic_write() may be in an interrupt context */
 	if (in_interrupt() || oops_in_progress)
 		goto out_copy;
 
@@ -461,7 +469,7 @@ static int omap2_onenand_read_bufferram(struct mtd_info *mtd, int area,
 	int bram_offset;
 
 	bram_offset = omap2_onenand_bufferram_offset(mtd, area) + area + offset;
-	
+	/* DMA is not used.  Revisit PM requirements before enabling it. */
 	if (1 || (c->dma_channel < 0) ||
 	    ((void *) buffer >= (void *) high_memory) || (bram_offset & 3) ||
 	    (((unsigned int) buffer) & 3) || (count < 1024) || (count & 3)) {
@@ -506,7 +514,7 @@ static int omap2_onenand_write_bufferram(struct mtd_info *mtd, int area,
 	int bram_offset;
 
 	bram_offset = omap2_onenand_bufferram_offset(mtd, area) + area + offset;
-	
+	/* DMA is not used.  Revisit PM requirements before enabling it. */
 	if (1 || (c->dma_channel < 0) ||
 	    ((void *) buffer >= (void *) high_memory) || (bram_offset & 3) ||
 	    (((unsigned int) buffer) & 3) || (count < 1024) || (count & 3)) {
@@ -564,8 +572,8 @@ static int __adjust_timing(struct device *dev, void *data)
 
 	BUG_ON(c->setup == NULL);
 
-	
-	
+	/* DMA is not in use so this is all that is needed */
+	/* Revisit for OMAP3! */
 	ret = c->setup(c->onenand.base, &c->freq);
 
 	return ret;
@@ -581,6 +589,10 @@ static void omap2_onenand_shutdown(struct platform_device *pdev)
 {
 	struct omap2_onenand *c = dev_get_drvdata(&pdev->dev);
 
+	/* With certain content in the buffer RAM, the OMAP boot ROM code
+	 * can recognize the flash chip incorrectly. Zero it out before
+	 * soft reset.
+	 */
 	memset((__force void *)c->onenand.base, 0, ONENAND_BUFRAM_SIZE);
 }
 
@@ -631,7 +643,7 @@ static int __devinit omap2_onenand_probe(struct platform_device *pdev)
 	c->gpio_irq = pdata->gpio_irq;
 	c->dma_channel = pdata->dma_channel;
 	if (c->dma_channel < 0) {
-		
+		/* if -1, don't use DMA */
 		c->gpio_irq = 0;
 	}
 

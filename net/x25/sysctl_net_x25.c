@@ -1,3 +1,9 @@
+/* -*- linux-c -*-
+ * sysctl_net_x25.c: sysctl interface to net X.25 subsystem.
+ *
+ * Begun April 1, 1996, Mike Shaver.
+ * Added /proc/sys/net/x25 directory entry (empty =) ). [MS]
+ */
 
 #include <linux/sysctl.h>
 #include <linux/skbuff.h>

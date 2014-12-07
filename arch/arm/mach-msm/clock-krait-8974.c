@@ -31,6 +31,10 @@
 #include "clock-krait.h"
 #include "clock.h"
 
+#ifdef CONFIG_HTC_POWER_DEBUG
+#include <linux/debugfs.h>
+#endif
+
 #ifdef CONFIG_PERFLOCK
 #include <mach/perflock.h>
 #endif
@@ -488,6 +492,52 @@ static void get_krait_bin_format_b(struct platform_device *pdev,
 	devm_iounmap(&pdev->dev, base);
 }
 
+#ifdef CONFIG_HTC_POWER_DEBUG
+int htc_pvs = 0;
+int htc_speed = 0;
+int htc_pvs_ver = 0;
+static void htc_get_pvs_info(int speed, int pvs, int pvs_ver)
+{
+	htc_pvs = pvs;
+	htc_speed = speed;
+	htc_pvs_ver = pvs_ver;
+}
+
+static int pvs_info_show(struct seq_file *m, void *unused)
+{
+	seq_printf(m, "pvs%d-speed%d-bin-v%d\n", htc_pvs, htc_speed, htc_pvs_ver);
+	return 0;
+}
+
+static int pvs_info_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, pvs_info_show, inode->i_private);
+}
+
+static const struct file_operations pvs_info_fops = {
+        .open = pvs_info_open,
+        .read = seq_read,
+        .llseek = seq_lseek,
+        .release = seq_release,
+};
+
+static int htc_pvs_debugfs_init(void)
+{
+	static struct dentry *debugfs_pvs_base;
+
+	debugfs_pvs_base = debugfs_create_dir("htc_pvs", NULL);
+
+	if (!debugfs_pvs_base)
+		return -ENOMEM;
+
+	if (!debugfs_create_file("pvs_info", S_IRUGO, debugfs_pvs_base,
+                                NULL, &pvs_info_fops))
+		return -ENOMEM;
+
+	return 0;
+}
+#endif
+
 static int parse_tbl(struct device *dev, char *prop, int num_cols,
 		u32 **col1, u32 **col2, u32 **col3)
 {
@@ -697,9 +747,13 @@ static int clock_krait_8974_driver_probe(struct platform_device *pdev)
 	}
 
 	get_krait_bin_format_b(pdev, &speed, &pvs, &pvs_ver);
-	snprintf(table_name, ARRAY_SIZE(table_name),
+	snprintf(table_name, sizeof(table_name) - 1,
 			"qcom,speed%d-pvs%d-bin-v%d", speed, pvs, pvs_ver);
 
+#ifdef CONFIG_HTC_POWER_DEBUG
+	htc_pvs_debugfs_init();
+	htc_get_pvs_info(speed, pvs, pvs_ver);
+#endif
 	rows = parse_tbl(dev, table_name, 3,
 			(u32 **) &freq, (u32 **) &uv, (u32 **) &ua);
 	if (rows < 0) {

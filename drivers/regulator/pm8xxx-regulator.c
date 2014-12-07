@@ -23,11 +23,12 @@
 #include <linux/mfd/pm8xxx/core.h>
 #include <linux/mfd/pm8xxx/regulator.h>
 
+/* Debug Flag Definitions */
 enum {
 	PM8XXX_VREG_DEBUG_REQUEST	= BIT(0),
 	PM8XXX_VREG_DEBUG_DUPLICATE	= BIT(1),
 	PM8XXX_VREG_DEBUG_INIT		= BIT(2),
-	PM8XXX_VREG_DEBUG_WRITES	= BIT(3), 
+	PM8XXX_VREG_DEBUG_WRITES	= BIT(3), /* SSBI writes */
 };
 
 static int pm8xxx_vreg_debug_mask;
@@ -35,6 +36,7 @@ module_param_named(
 	debug_mask, pm8xxx_vreg_debug_mask, int, S_IRUSR | S_IWUSR
 );
 
+/* Common Masks */
 #define REGULATOR_ENABLE_MASK		0x80
 #define REGULATOR_ENABLE		0x80
 #define REGULATOR_DISABLE		0x00
@@ -47,9 +49,16 @@ module_param_named(
 #define NLDO1200_TEST_BANKS		5
 #define SMPS_TEST_BANKS			8
 
+/*
+ * This voltage in uV is returned by get_voltage functions when there is no way
+ * to determine the current voltage level.  It is needed because the regulator
+ * framework treats a 0 uV voltage as an error.
+ */
 #define VOLTAGE_UNKNOWN			1
 
+/* LDO masks and values */
 
+/* CTRL register */
 #define LDO_ENABLE_MASK			0x80
 #define LDO_DISABLE			0x00
 #define LDO_ENABLE			0x80
@@ -62,25 +71,37 @@ module_param_named(
 
 #define LDO_CTRL_VPROG_MASK		0x1F
 
+/* TEST register bank 0 */
 #define LDO_TEST_LPM_MASK		0x04
 #define LDO_TEST_LPM_SEL_CTRL		0x00
 #define LDO_TEST_LPM_SEL_TCXO		0x04
 
+/* TEST register bank 2 */
 #define LDO_TEST_VPROG_UPDATE_MASK	0x08
 #define LDO_TEST_RANGE_SEL_MASK		0x04
 #define LDO_TEST_FINE_STEP_MASK		0x02
 #define LDO_TEST_FINE_STEP_SHIFT	1
 
+/* TEST register bank 4 */
 #define LDO_TEST_RANGE_EXT_MASK		0x01
 
+/* TEST register bank 5 */
 #define LDO_TEST_PIN_CTRL_MASK		0x0F
 #define LDO_TEST_PIN_CTRL_EN3		0x08
 #define LDO_TEST_PIN_CTRL_EN2		0x04
 #define LDO_TEST_PIN_CTRL_EN1		0x02
 #define LDO_TEST_PIN_CTRL_EN0		0x01
 
+/* TEST register bank 6 */
 #define LDO_TEST_PIN_CTRL_LPM_MASK	0x0F
 
+/*
+ * If a given voltage could be output by two ranges, then the preferred one must
+ * be determined by the range limits.  Specified voltage ranges should must
+ * not overlap.
+ *
+ * Allowable voltage ranges:
+ */
 #define PLDO_LOW_UV_MIN			750000
 #define PLDO_LOW_UV_MAX			1487500
 #define PLDO_LOW_UV_FINE_STEP		12500
@@ -112,15 +133,19 @@ module_param_named(
 #define NLDO_SET_POINTS			((NLDO_UV_MAX - NLDO_UV_MIN) \
 						/ NLDO_UV_FINE_STEP + 1)
 
+/* NLDO1200 masks and values */
 
+/* CTRL register */
 #define NLDO1200_ENABLE_MASK		0x80
 #define NLDO1200_DISABLE		0x00
 #define NLDO1200_ENABLE			0x80
 
+/* Legacy mode */
 #define NLDO1200_LEGACY_PM_MASK		0x20
 #define NLDO1200_LEGACY_PM_HPM		0x00
 #define NLDO1200_LEGACY_PM_LPM		0x20
 
+/* Advanced mode */
 #define NLDO1200_CTRL_RANGE_MASK	0x40
 #define NLDO1200_CTRL_RANGE_HIGH	0x00
 #define NLDO1200_CTRL_RANGE_LOW		0x40
@@ -143,17 +168,21 @@ module_param_named(
 #define NLDO1200_SET_POINTS		(NLDO1200_LOW_SET_POINTS \
 						+ NLDO1200_HIGH_SET_POINTS)
 
+/* TEST register bank 0 */
 #define NLDO1200_TEST_LPM_MASK		0x04
 #define NLDO1200_TEST_LPM_SEL_CTRL	0x00
 #define NLDO1200_TEST_LPM_SEL_TCXO	0x04
 
+/* TEST register bank 1 */
 #define NLDO1200_PULL_DOWN_ENABLE_MASK	0x02
 #define NLDO1200_PULL_DOWN_ENABLE	0x02
 
+/* TEST register bank 2 */
 #define NLDO1200_ADVANCED_MODE_MASK	0x08
 #define NLDO1200_ADVANCED_MODE		0x00
 #define NLDO1200_LEGACY_MODE		0x08
 
+/* Advanced mode power mode control */
 #define NLDO1200_ADVANCED_PM_MASK	0x02
 #define NLDO1200_ADVANCED_PM_HPM	0x00
 #define NLDO1200_ADVANCED_PM_LPM	0x02
@@ -162,8 +191,11 @@ module_param_named(
 	((vreg->test_reg[2] & NLDO1200_ADVANCED_MODE_MASK) \
 	 == NLDO1200_ADVANCED_MODE)
 
+/* SMPS masks and values */
 
+/* CTRL register */
 
+/* Legacy mode */
 #define SMPS_LEGACY_ENABLE_MASK		0x80
 #define SMPS_LEGACY_DISABLE		0x00
 #define SMPS_LEGACY_ENABLE		0x80
@@ -171,6 +203,7 @@ module_param_named(
 #define SMPS_LEGACY_VREF_SEL_MASK	0x20
 #define SMPS_LEGACY_VPROG_MASK		0x1F
 
+/* Advanced mode */
 #define SMPS_ADVANCED_BAND_MASK		0xC0
 #define SMPS_ADVANCED_BAND_OFF		0x00
 #define SMPS_ADVANCED_BAND_1		0x40
@@ -178,6 +211,7 @@ module_param_named(
 #define SMPS_ADVANCED_BAND_3		0xC0
 #define SMPS_ADVANCED_VPROG_MASK	0x3F
 
+/* Legacy mode voltage ranges */
 #define SMPS_MODE3_UV_MIN		375000
 #define SMPS_MODE3_UV_MAX		725000
 #define SMPS_MODE3_UV_STEP		25000
@@ -203,6 +237,7 @@ module_param_named(
 						+ SMPS_MODE2_SET_POINTS \
 						+ SMPS_MODE1_SET_POINTS)
 
+/* Advanced mode voltage ranges */
 #define SMPS_BAND1_UV_MIN		375000
 #define SMPS_BAND1_UV_MAX		737500
 #define SMPS_BAND1_UV_STEP		12500
@@ -228,10 +263,13 @@ module_param_named(
 						+ SMPS_BAND2_SET_POINTS \
 						+ SMPS_BAND3_SET_POINTS)
 
+/* Test2 register bank 1 */
 #define SMPS_LEGACY_VLOW_SEL_MASK	0x01
 
+/* Test2 register bank 6 */
 #define SMPS_ADVANCED_PULL_DOWN_ENABLE	0x08
 
+/* Test2 register bank 7 */
 #define SMPS_ADVANCED_MODE_MASK		0x02
 #define SMPS_ADVANCED_MODE		0x02
 #define SMPS_LEGACY_MODE		0x00
@@ -239,6 +277,7 @@ module_param_named(
 #define SMPS_IN_ADVANCED_MODE(vreg) \
 	((vreg->test_reg[7] & SMPS_ADVANCED_MODE_MASK) == SMPS_ADVANCED_MODE)
 
+/* BUCK_SLEEP_CNTRL register */
 #define SMPS_PIN_CTRL_MASK		0xF0
 #define SMPS_PIN_CTRL_EN3		0x80
 #define SMPS_PIN_CTRL_EN2		0x40
@@ -251,6 +290,7 @@ module_param_named(
 #define SMPS_PIN_CTRL_LPM_EN1		0x02
 #define SMPS_PIN_CTRL_LPM_EN0		0x01
 
+/* BUCK_CLOCK_CNTRL register */
 #define SMPS_CLK_DIVIDE2		0x40
 
 #define SMPS_CLK_CTRL_MASK		0x30
@@ -258,7 +298,9 @@ module_param_named(
 #define SMPS_CLK_CTRL_PWM		0x10
 #define SMPS_CLK_CTRL_PFM		0x20
 
+/* FTSMPS masks and values */
 
+/* CTRL register */
 #define FTSMPS_VCTRL_BAND_MASK		0xC0
 #define FTSMPS_VCTRL_BAND_OFF		0x00
 #define FTSMPS_VCTRL_BAND_1		0x40
@@ -268,7 +310,10 @@ module_param_named(
 
 #define FTSMPS_BAND1_UV_MIN		350000
 #define FTSMPS_BAND1_UV_MAX		650000
+/* 3 LSB's of program voltage must be 0 in band 1. */
+/* Logical step size */
 #define FTSMPS_BAND1_UV_LOG_STEP	50000
+/* Physical step size */
 #define FTSMPS_BAND1_UV_PHYS_STEP	6250
 
 #define FTSMPS_BAND2_UV_MIN		700000
@@ -293,14 +338,18 @@ module_param_named(
 						+ FTSMPS_BAND2_SET_POINTS \
 						+ FTSMPS_BAND3_SET_POINTS)
 
+/* FTS_CNFG1 register bank 0 */
 #define FTSMPS_CNFG1_PM_MASK		0x0C
 #define FTSMPS_CNFG1_PM_PWM		0x00
 #define FTSMPS_CNFG1_PM_PFM		0x08
 
+/* PWR_CNFG register */
 #define FTSMPS_PULL_DOWN_ENABLE_MASK	0x40
 #define FTSMPS_PULL_DOWN_ENABLE		0x40
 
+/* VS masks and values */
 
+/* CTRL register */
 #define VS_ENABLE_MASK			0x80
 #define VS_DISABLE			0x00
 #define VS_ENABLE			0x80
@@ -318,11 +367,14 @@ module_param_named(
 #define VS_PIN_CTRL_EN2			0x02
 #define VS_PIN_CTRL_EN3			0x01
 
+/* TEST register */
 #define VS_OCP_MASK			0x10
 #define VS_OCP_ENABLE			0x00
 #define VS_OCP_DISABLE			0x10
 
+/* VS300 masks and values */
 
+/* CTRL register */
 #define VS300_CTRL_ENABLE_MASK		0xC0
 #define VS300_CTRL_DISABLE		0x00
 #define VS300_CTRL_ENABLE		0x40
@@ -334,7 +386,9 @@ module_param_named(
 #define VS300_MODE_NORMAL		0x00
 #define VS300_MODE_LPM			0x08
 
+/* NCP masks and values */
 
+/* CTRL register */
 #define NCP_ENABLE_MASK			0x80
 #define NCP_DISABLE			0x00
 #define NCP_ENABLE			0x80
@@ -347,6 +401,7 @@ module_param_named(
 #define NCP_SET_POINTS			((NCP_UV_MAX - NCP_UV_MIN) \
 						/ NCP_UV_STEP + 1)
 
+/* Boost masks and values */
 #define BOOST_ENABLE_MASK		0x80
 #define BOOST_DISABLE			0x00
 #define BOOST_ENABLE			0x80
@@ -362,6 +417,7 @@ module_param_named(
 #define vreg_err(vreg, fmt, ...) \
 	pr_err("%s: " fmt, vreg->rdesc.name, ##__VA_ARGS__)
 
+/* Determines which label to add to the print. */
 enum pm8xxx_regulator_action {
 	PM8XXX_REGULATOR_ACTION_INIT,
 	PM8XXX_REGULATOR_ACTION_ENABLE,
@@ -371,6 +427,7 @@ enum pm8xxx_regulator_action {
 	PM8XXX_REGULATOR_ACTION_PIN_CTRL,
 };
 
+/* Debug state printing */
 static void pm8xxx_vreg_show_state(struct regulator_dev *rdev,
 				   enum pm8xxx_regulator_action action);
 
@@ -459,6 +516,11 @@ static int pm8xxx_vreg_is_pin_controlled(struct pm8xxx_vreg *vreg)
 	return ret;
 }
 
+/*
+ * Returns the logical pin control enable state because the pin control options
+ * present in the hardware out of restart could be different from those desired
+ * by the consumer.
+ */
 static int pm8xxx_vreg_pin_control_is_enabled(struct regulator_dev *rdev)
 {
 	struct pm8xxx_vreg *vreg = rdev_get_drvdata(rdev);
@@ -471,10 +533,15 @@ static int pm8xxx_vreg_pin_control_is_enabled(struct regulator_dev *rdev)
 	return enabled;
 }
 
+/* Returns the physical enable state of the regulator. */
 static int _pm8xxx_vreg_is_enabled(struct pm8xxx_vreg *vreg)
 {
 	int rc = 0;
 
+	/*
+	 * All regulator types except advanced mode SMPS, FTSMPS, and VS300 have
+	 * enable bit in bit 7 of the control register.
+	 */
 	switch (vreg->type) {
 	case PM8XXX_REGULATOR_TYPE_FTSMPS:
 		if ((vreg->ctrl_reg & FTSMPS_VCTRL_BAND_MASK)
@@ -493,7 +560,7 @@ static int _pm8xxx_vreg_is_enabled(struct pm8xxx_vreg *vreg)
 				rc = 1;
 			break;
 		}
-		
+		/* Fall through for legacy mode SMPS. */
 	default:
 		if ((vreg->ctrl_reg & REGULATOR_ENABLE_MASK)
 		    == REGULATOR_ENABLE)
@@ -503,6 +570,10 @@ static int _pm8xxx_vreg_is_enabled(struct pm8xxx_vreg *vreg)
 	return rc;
 }
 
+/*
+ * Returns the logical enable state of the regulator which may be different from
+ * the physical enable state thanks to HPM/LPM pin control.
+ */
 static int pm8xxx_vreg_is_enabled(struct regulator_dev *rdev)
 {
 	struct pm8xxx_vreg *vreg = rdev_get_drvdata(rdev);
@@ -512,18 +583,22 @@ static int pm8xxx_vreg_is_enabled(struct regulator_dev *rdev)
 	    || vreg->type == PM8XXX_REGULATOR_TYPE_NLDO
 	    || vreg->type == PM8XXX_REGULATOR_TYPE_SMPS
 	    || vreg->type == PM8XXX_REGULATOR_TYPE_VS) {
-		
+		/* Pin controllable */
 		mutex_lock(&vreg->pc_lock);
 		enabled = vreg->is_enabled;
 		mutex_unlock(&vreg->pc_lock);
 	} else {
-		
+		/* Not pin controlable */
 		enabled = _pm8xxx_vreg_is_enabled(vreg);
 	}
 
 	return enabled;
 }
 
+/*
+ * Adds delay when increasing in voltage to account for the slew rate of
+ * the regulator.
+ */
 static void pm8xxx_vreg_delay_for_slew(struct pm8xxx_vreg *vreg, int prev_uV,
 					int new_uV)
 {
@@ -561,15 +636,15 @@ static int pm8xxx_pldo_get_voltage(struct regulator_dev *rdev)
 	vprog = (vprog << 1) | (fine_step_reg >> LDO_TEST_FINE_STEP_SHIFT);
 
 	if (range_sel) {
-		
+		/* low range mode */
 		fine_step = PLDO_LOW_UV_FINE_STEP;
 		vmin = PLDO_LOW_UV_MIN;
 	} else if (!range_ext) {
-		
+		/* normal mode */
 		fine_step = PLDO_NORM_UV_FINE_STEP;
 		vmin = PLDO_NORM_UV_MIN;
 	} else {
-		
+		/* high range mode */
 		fine_step = PLDO_HIGH_UV_FINE_STEP;
 		vmin = PLDO_HIGH_UV_MIN;
 	}
@@ -651,7 +726,7 @@ static int pm8xxx_pldo_set_voltage(struct regulator_dev *rdev, int min_uV,
 
 	mutex_lock(&vreg->pc_lock);
 
-	
+	/* Write fine step, range select and program voltage update. */
 	prev_reg = vreg->test_reg[2];
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 			fine_step_reg | range_sel | REGULATOR_BANK_SEL(2)
@@ -664,7 +739,7 @@ static int pm8xxx_pldo_set_voltage(struct regulator_dev *rdev, int min_uV,
 	if (prev_reg != vreg->test_reg[2])
 		reg_changed = true;
 
-	
+	/* Write range extension. */
 	prev_reg = vreg->test_reg[4];
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 			range_ext | REGULATOR_BANK_SEL(4)
@@ -676,7 +751,7 @@ static int pm8xxx_pldo_set_voltage(struct regulator_dev *rdev, int min_uV,
 	if (prev_reg != vreg->test_reg[4])
 		reg_changed = true;
 
-	
+	/* Write new voltage. */
 	if (reg_changed) {
 		/*
 		 * Force a CTRL register write even if the value hasn't changed.
@@ -687,7 +762,7 @@ static int pm8xxx_pldo_set_voltage(struct regulator_dev *rdev, int min_uV,
 		rc = pm8xxx_vreg_masked_write_forced(vreg, vreg->ctrl_addr,
 			vprog, LDO_CTRL_VPROG_MASK, &vreg->ctrl_reg);
 	} else {
-		
+		/* Only write to control register if new value is different. */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr, vprog,
 			LDO_CTRL_VPROG_MASK, &vreg->ctrl_reg);
 	}
@@ -764,7 +839,7 @@ static int pm8xxx_nldo_set_voltage(struct regulator_dev *rdev, int min_uV,
 
 	mutex_lock(&vreg->pc_lock);
 
-	
+	/* Write fine step. */
 	prev_reg = vreg->test_reg[2];
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 			fine_step_reg | REGULATOR_BANK_SEL(2)
@@ -775,7 +850,7 @@ static int pm8xxx_nldo_set_voltage(struct regulator_dev *rdev, int min_uV,
 	if (rc)
 		goto bail;
 
-	
+	/* Write new voltage. */
 	if (prev_reg != vreg->test_reg[2]) {
 		/*
 		 * Force a CTRL register write even if the value hasn't changed.
@@ -785,7 +860,7 @@ static int pm8xxx_nldo_set_voltage(struct regulator_dev *rdev, int min_uV,
 		rc = pm8xxx_vreg_masked_write_forced(vreg, vreg->ctrl_addr,
 			vprog, LDO_CTRL_VPROG_MASK, &vreg->ctrl_reg);
 	} else {
-		
+		/* Only write to control register if new value is different. */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr, vprog,
 			LDO_CTRL_VPROG_MASK, &vreg->ctrl_reg);
 	}
@@ -889,7 +964,7 @@ static int _pm8xxx_nldo1200_set_voltage(struct pm8xxx_vreg *vreg, int min_uV,
 
 	prev_uV = _pm8xxx_nldo1200_get_voltage(vreg);
 
-	
+	/* Set to advanced mode */
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 		NLDO1200_ADVANCED_MODE | REGULATOR_BANK_SEL(2)
 		| REGULATOR_BANK_WRITE, NLDO1200_ADVANCED_MODE_MASK
@@ -897,7 +972,7 @@ static int _pm8xxx_nldo1200_set_voltage(struct pm8xxx_vreg *vreg, int min_uV,
 	if (rc)
 		goto bail;
 
-	
+	/* Set voltage and range selection. */
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr, vprog | range,
 			NLDO1200_CTRL_VPROG_MASK | NLDO1200_CTRL_RANGE_MASK,
 			&vreg->ctrl_reg);
@@ -960,13 +1035,13 @@ static int pm8xxx_smps_get_voltage_legacy(struct pm8xxx_vreg *vreg)
 	vprog = vreg->ctrl_reg & SMPS_LEGACY_VPROG_MASK;
 
 	if (vlow && vref) {
-		
+		/* mode 3 */
 		uV = vprog * SMPS_MODE3_UV_STEP + SMPS_MODE3_UV_MIN;
 	} else if (vref) {
-		
+		/* mode 2 */
 		uV = vprog * SMPS_MODE2_UV_STEP + SMPS_MODE2_UV_MIN;
 	} else {
-		
+		/* mode 1 */
 		uV = vprog * SMPS_MODE1_UV_STEP + SMPS_MODE1_UV_MIN;
 	}
 
@@ -1055,11 +1130,11 @@ static int pm8xxx_smps_set_voltage_advanced(struct pm8xxx_vreg *vreg,
 		return -EINVAL;
 	}
 
-	
+	/* Do not set band if regulator currently disabled. */
 	if (!_pm8xxx_vreg_is_enabled(vreg) && !force_on)
 		band = SMPS_ADVANCED_BAND_OFF;
 
-	
+	/* Set advanced mode bit to 1. */
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr, SMPS_ADVANCED_MODE
 		| REGULATOR_BANK_WRITE | REGULATOR_BANK_SEL(7),
 		SMPS_ADVANCED_MODE_MASK | REGULATOR_BANK_MASK,
@@ -1067,7 +1142,7 @@ static int pm8xxx_smps_set_voltage_advanced(struct pm8xxx_vreg *vreg,
 	if (rc)
 		goto bail;
 
-	
+	/* Set voltage and voltage band. */
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr, band | vprog,
 			SMPS_ADVANCED_BAND_MASK | SMPS_ADVANCED_VPROG_MASK,
 			&vreg->ctrl_reg);
@@ -1127,7 +1202,7 @@ static int pm8xxx_smps_set_voltage_legacy(struct pm8xxx_vreg *vreg, int min_uV,
 		return -EINVAL;
 	}
 
-	
+	/* set vlow bit for ultra low voltage mode */
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 		vlow | REGULATOR_BANK_WRITE | REGULATOR_BANK_SEL(1),
 		REGULATOR_BANK_MASK | SMPS_LEGACY_VLOW_SEL_MASK,
@@ -1135,7 +1210,7 @@ static int pm8xxx_smps_set_voltage_legacy(struct pm8xxx_vreg *vreg, int min_uV,
 	if (rc)
 		goto bail;
 
-	
+	/* Set advanced mode bit to 0. */
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr, SMPS_LEGACY_MODE
 		| REGULATOR_BANK_WRITE | REGULATOR_BANK_SEL(7),
 		SMPS_ADVANCED_MODE_MASK | REGULATOR_BANK_MASK,
@@ -1146,7 +1221,7 @@ static int pm8xxx_smps_set_voltage_legacy(struct pm8xxx_vreg *vreg, int min_uV,
 	en = (_pm8xxx_vreg_is_enabled(vreg) ? SMPS_LEGACY_ENABLE : 0);
 	pd = (vreg->pdata.pull_down_enable ? SMPS_LEGACY_PULL_DOWN_ENABLE : 0);
 
-	
+	/* Set voltage (and the rest of the control register). */
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
 		en | pd | vref | vprog,
 		SMPS_LEGACY_ENABLE_MASK | SMPS_LEGACY_PULL_DOWN_ENABLE
@@ -1199,7 +1274,7 @@ static int _pm8xxx_ftsmps_get_voltage(struct pm8xxx_vreg *vreg)
 		vprog = vreg->pfm_ctrl_reg & FTSMPS_VCTRL_VPROG_MASK;
 		band = vreg->pfm_ctrl_reg & FTSMPS_VCTRL_BAND_MASK;
 		if (band == FTSMPS_VCTRL_BAND_OFF && vprog == 0) {
-			
+			/* PWM_VCTRL overrides PFM_VCTRL */
 			vprog = vreg->ctrl_reg & FTSMPS_VCTRL_VPROG_MASK;
 			band = vreg->ctrl_reg & FTSMPS_VCTRL_BAND_MASK;
 		}
@@ -1270,7 +1345,7 @@ static int _pm8xxx_ftsmps_set_voltage(struct pm8xxx_vreg *vreg, int min_uV,
 		return -EINVAL;
 	}
 
-	
+	/* Round up for set points in the gaps between bands. */
 	if (uV > FTSMPS_BAND1_UV_MAX && uV < FTSMPS_BAND2_UV_MIN)
 		uV = FTSMPS_BAND2_UV_MIN;
 	else if (uV > FTSMPS_BAND2_UV_MAX
@@ -1305,6 +1380,10 @@ static int _pm8xxx_ftsmps_set_voltage(struct pm8xxx_vreg *vreg, int min_uV,
 
 	prev_uV = _pm8xxx_ftsmps_get_voltage(vreg);
 
+	/*
+	 * Do not set voltage if regulator is currently disabled because doing
+	 * so will enable it.
+	 */
 	if (_pm8xxx_vreg_is_enabled(vreg) || force_on) {
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
 			band | vprog,
@@ -1313,7 +1392,7 @@ static int _pm8xxx_ftsmps_set_voltage(struct pm8xxx_vreg *vreg, int min_uV,
 		if (rc)
 			goto bail;
 
-		
+		/* Program PFM_VCTRL as 0x00 so that PWM_VCTRL overrides it. */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->pfm_ctrl_addr, 0x00,
 			FTSMPS_VCTRL_BAND_MASK | FTSMPS_VCTRL_VPROG_MASK,
 			&vreg->pfm_ctrl_reg);
@@ -1395,7 +1474,7 @@ static int pm8xxx_ncp_set_voltage(struct regulator_dev *rdev, int min_uV,
 
 	prev_uV = pm8xxx_ncp_get_voltage(rdev);
 
-	
+	/* voltage setting */
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr, val,
 			NCP_VPROG_MASK, &vreg->ctrl_reg);
 	if (rc)
@@ -1457,7 +1536,7 @@ static int pm8xxx_boost_set_voltage(struct regulator_dev *rdev, int min_uV,
 
 	prev_uV = pm8xxx_boost_get_voltage(rdev);
 
-	
+	/* voltage setting */
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr, val,
 			BOOST_VPROG_MASK, &vreg->ctrl_reg);
 	if (rc)
@@ -1497,11 +1576,11 @@ static int pm8xxx_ldo_set_mode(struct regulator_dev *rdev, unsigned int mode)
 	if (mode == REGULATOR_MODE_NORMAL
 	    || (vreg->is_enabled_pc
 		&& vreg->pdata.pin_fn == PM8XXX_VREG_PIN_FN_ENABLE)) {
-		
+		/* HPM */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
 			LDO_CTRL_PM_HPM, LDO_CTRL_PM_MASK, &vreg->ctrl_reg);
 	} else {
-		
+		/* LPM */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
 			LDO_CTRL_PM_LPM, LDO_CTRL_PM_MASK, &vreg->ctrl_reg);
 		if (rc)
@@ -1534,14 +1613,14 @@ static unsigned int pm8xxx_nldo1200_get_mode(struct regulator_dev *rdev)
 	unsigned int mode = 0;
 
 	if (NLDO1200_IN_ADVANCED_MODE(vreg)) {
-		
+		/* Advanced mode */
 		if ((vreg->test_reg[2] & NLDO1200_ADVANCED_PM_MASK)
 		    == NLDO1200_ADVANCED_PM_LPM)
 			mode = REGULATOR_MODE_IDLE;
 		else
 			mode = REGULATOR_MODE_NORMAL;
 	} else {
-		
+		/* Legacy mode */
 		if ((vreg->ctrl_reg & NLDO1200_LEGACY_PM_MASK)
 		    == NLDO1200_LEGACY_PM_LPM)
 			mode = REGULATOR_MODE_IDLE;
@@ -1563,6 +1642,10 @@ static int pm8xxx_nldo1200_set_mode(struct regulator_dev *rdev,
 		return -EINVAL;
 	}
 
+	/*
+	 * Make sure that advanced mode is in use.  If it isn't, then set it
+	 * and update the voltage accordingly.
+	 */
 	if (!NLDO1200_IN_ADVANCED_MODE(vreg)) {
 		rc = _pm8xxx_nldo1200_set_voltage(vreg, vreg->save_uV,
 			vreg->save_uV);
@@ -1571,13 +1654,13 @@ static int pm8xxx_nldo1200_set_mode(struct regulator_dev *rdev,
 	}
 
 	if (mode == REGULATOR_MODE_NORMAL) {
-		
+		/* HPM */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 			NLDO1200_ADVANCED_PM_HPM | REGULATOR_BANK_WRITE
 			| REGULATOR_BANK_SEL(2), NLDO1200_ADVANCED_PM_MASK
 			| REGULATOR_BANK_MASK, &vreg->test_reg[2]);
 	} else {
-		
+		/* LPM */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 			NLDO1200_ADVANCED_PM_LPM | REGULATOR_BANK_WRITE
 			| REGULATOR_BANK_SEL(2), NLDO1200_ADVANCED_PM_MASK
@@ -1620,12 +1703,12 @@ static int pm8xxx_smps_set_mode(struct regulator_dev *rdev, unsigned int mode)
 	if (mode == REGULATOR_MODE_NORMAL
 	    || (vreg->is_enabled_pc
 		&& vreg->pdata.pin_fn == PM8XXX_VREG_PIN_FN_ENABLE)) {
-		
+		/* HPM */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->clk_ctrl_addr,
 				       SMPS_CLK_CTRL_PWM, SMPS_CLK_CTRL_MASK,
 				       &vreg->clk_ctrl_reg);
 	} else {
-		
+		/* LPM */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->clk_ctrl_addr,
 				       SMPS_CLK_CTRL_PFM, SMPS_CLK_CTRL_MASK,
 				       &vreg->clk_ctrl_reg);
@@ -1663,13 +1746,13 @@ static int pm8xxx_ftsmps_set_mode(struct regulator_dev *rdev, unsigned int mode)
 	int rc = 0;
 
 	if (mode == REGULATOR_MODE_NORMAL) {
-		
+		/* HPM */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 				FTSMPS_CNFG1_PM_PWM | REGULATOR_BANK_WRITE
 				| REGULATOR_BANK_SEL(0), FTSMPS_CNFG1_PM_MASK
 				| REGULATOR_BANK_MASK, &vreg->test_reg[0]);
 	} else if (mode == REGULATOR_MODE_IDLE) {
-		
+		/* LPM */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 				FTSMPS_CNFG1_PM_PFM | REGULATOR_BANK_WRITE
 				| REGULATOR_BANK_SEL(0), FTSMPS_CNFG1_PM_MASK
@@ -1708,6 +1791,10 @@ static int pm8xxx_ldo_enable(struct regulator_dev *rdev)
 
 	mutex_lock(&vreg->pc_lock);
 
+	/*
+	 * Choose HPM if previously set to HPM or if pin control is enabled in
+	 * on/off mode.
+	 */
 	val = LDO_CTRL_PM_LPM;
 	if (vreg->mode == REGULATOR_MODE_NORMAL
 		|| (vreg->is_enabled_pc
@@ -1737,6 +1824,10 @@ static int pm8xxx_ldo_disable(struct regulator_dev *rdev)
 
 	mutex_lock(&vreg->pc_lock);
 
+	/*
+	 * Only disable the regulator if it isn't still required for HPM/LPM
+	 * pin control.
+	 */
 	if (!vreg->is_enabled_pc
 	    || vreg->pdata.pin_fn != PM8XXX_VREG_PIN_FN_MODE) {
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
@@ -1745,7 +1836,7 @@ static int pm8xxx_ldo_disable(struct regulator_dev *rdev)
 			goto bail;
 	}
 
-	
+	/* Change to LPM if HPM/LPM pin control is enabled. */
 	if (vreg->is_enabled_pc
 	    && vreg->pdata.pin_fn == PM8XXX_VREG_PIN_FN_MODE) {
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
@@ -1815,7 +1906,7 @@ static int pm8xxx_smps_enable(struct regulator_dev *rdev)
 
 	if (SMPS_IN_ADVANCED_MODE(vreg)
 	     || !pm8xxx_vreg_is_pin_controlled(vreg)) {
-		
+		/* Enable in advanced mode if not using pin control. */
 		rc = pm8xxx_smps_set_voltage_advanced(vreg, vreg->save_uV,
 			vreg->save_uV, 1);
 	} else {
@@ -1829,6 +1920,10 @@ static int pm8xxx_smps_enable(struct regulator_dev *rdev)
 			&vreg->ctrl_reg);
 	}
 
+	/*
+	 * Choose HPM if previously set to HPM or if pin control is enabled in
+	 * on/off mode.
+	 */
 	val = SMPS_CLK_CTRL_PFM;
 	if (vreg->mode == REGULATOR_MODE_NORMAL
 		|| (vreg->is_enabled_pc
@@ -1859,13 +1954,17 @@ static int pm8xxx_smps_disable(struct regulator_dev *rdev)
 	mutex_lock(&vreg->pc_lock);
 
 	if (SMPS_IN_ADVANCED_MODE(vreg)) {
-		
+		/* Change SMPS to legacy mode before disabling. */
 		rc = pm8xxx_smps_set_voltage_legacy(vreg, vreg->save_uV,
 				vreg->save_uV);
 		if (rc)
 			goto bail;
 	}
 
+	/*
+	 * Only disable the regulator if it isn't still required for HPM/LPM
+	 * pin control.
+	 */
 	if (!vreg->is_enabled_pc
 	    || vreg->pdata.pin_fn != PM8XXX_VREG_PIN_FN_MODE) {
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
@@ -1875,7 +1974,7 @@ static int pm8xxx_smps_disable(struct regulator_dev *rdev)
 			goto bail;
 	}
 
-	
+	/* Change to LPM if HPM/LPM pin control is enabled. */
 	if (vreg->is_enabled_pc
 	    && vreg->pdata.pin_fn == PM8XXX_VREG_PIN_FN_MODE)
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->clk_ctrl_addr,
@@ -1941,13 +2040,13 @@ static int pm8xxx_vs_enable(struct regulator_dev *rdev)
 	mutex_lock(&vreg->pc_lock);
 
 	if (vreg->pdata.ocp_enable) {
-		
+		/* Disable OCP. */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 			VS_OCP_DISABLE, VS_OCP_MASK, &vreg->test_reg[0]);
 		if (rc)
 			goto done;
 
-		
+		/* Enable the switch while OCP is disabled. */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
 			VS_ENABLE | VS_MODE_NORMAL,
 			VS_ENABLE_MASK | VS_MODE_MASK,
@@ -1955,12 +2054,12 @@ static int pm8xxx_vs_enable(struct regulator_dev *rdev)
 		if (rc)
 			goto done;
 
-		
+		/* Wait for inrush current to subside, then enable OCP. */
 		udelay(vreg->pdata.ocp_enable_time);
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 			VS_OCP_ENABLE, VS_OCP_MASK, &vreg->test_reg[0]);
 	} else {
-		
+		/* Enable the switch without touching OCP. */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr, VS_ENABLE,
 			VS_ENABLE_MASK, &vreg->ctrl_reg);
 	}
@@ -2008,13 +2107,13 @@ static int pm8xxx_vs300_enable(struct regulator_dev *rdev)
 	int rc;
 
 	if (vreg->pdata.ocp_enable) {
-		
+		/* Disable OCP. */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 			VS_OCP_DISABLE, VS_OCP_MASK, &vreg->test_reg[0]);
 		if (rc)
 			goto done;
 
-		
+		/* Enable the switch while OCP is disabled. */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
 			VS300_CTRL_ENABLE | VS300_MODE_NORMAL,
 			VS300_CTRL_ENABLE_MASK | VS300_MODE_MASK,
@@ -2022,12 +2121,12 @@ static int pm8xxx_vs300_enable(struct regulator_dev *rdev)
 		if (rc)
 			goto done;
 
-		
+		/* Wait for inrush current to subside, then enable OCP. */
 		udelay(vreg->pdata.ocp_enable_time);
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 			VS_OCP_ENABLE, VS_OCP_MASK, &vreg->test_reg[0]);
 	} else {
-		
+		/* Enable the regulator without touching OCP. */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
 			VS300_CTRL_ENABLE, VS300_CTRL_ENABLE_MASK,
 			&vreg->ctrl_reg);
@@ -2151,7 +2250,7 @@ static int pm8xxx_ldo_pin_control_enable(struct regulator_dev *rdev)
 	if (rc)
 		goto bail;
 
-	
+	/* Unset pin control bits in unused bank. */
 	bank = (bank == 5 ? 6 : 5);
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 		REGULATOR_BANK_SEL(bank) | REGULATOR_BANK_WRITE,
@@ -2169,18 +2268,18 @@ static int pm8xxx_ldo_pin_control_enable(struct regulator_dev *rdev)
 		goto bail;
 
 	if (vreg->pdata.pin_fn == PM8XXX_VREG_PIN_FN_ENABLE) {
-		
+		/* Pin control ON/OFF */
 		val = LDO_CTRL_PM_HPM;
-		
+		/* Leave physically enabled if already enabled. */
 		val |= (vreg->is_enabled ? LDO_ENABLE : LDO_DISABLE);
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr, val,
 			LDO_ENABLE_MASK | LDO_CTRL_PM_MASK, &vreg->ctrl_reg);
 		if (rc)
 			goto bail;
 	} else {
-		
+		/* Pin control LPM/HPM */
 		val = LDO_ENABLE;
-		
+		/* Leave in HPM if already enabled in HPM. */
 		val |= (vreg->is_enabled && vreg->mode == REGULATOR_MODE_NORMAL
 			?  LDO_CTRL_PM_HPM : LDO_CTRL_PM_LPM);
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr, val,
@@ -2222,6 +2321,10 @@ static int pm8xxx_ldo_pin_control_disable(struct regulator_dev *rdev)
 			LDO_TEST_PIN_CTRL_MASK | REGULATOR_BANK_MASK,
 			&vreg->test_reg[6]);
 
+	/*
+	 * Physically disable the regulator if it was enabled in HPM/LPM pin
+	 * control mode previously and it logically should not be enabled.
+	 */
 	if ((vreg->ctrl_reg & LDO_ENABLE_MASK) == LDO_ENABLE
 	    && !vreg->is_enabled) {
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
@@ -2230,7 +2333,7 @@ static int pm8xxx_ldo_pin_control_disable(struct regulator_dev *rdev)
 			goto bail;
 	}
 
-	
+	/* Change to LPM if LPM was enabled. */
 	if (vreg->is_enabled && vreg->mode == REGULATOR_MODE_IDLE) {
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
 			LDO_CTRL_PM_LPM, LDO_CTRL_PM_MASK, &vreg->ctrl_reg);
@@ -2269,7 +2372,7 @@ static int pm8xxx_smps_pin_control_enable(struct regulator_dev *rdev)
 	mutex_lock(&vreg->pc_lock);
 
 	if (vreg->pdata.pin_fn == PM8XXX_VREG_PIN_FN_ENABLE) {
-		
+		/* Pin control ON/OFF */
 		if (vreg->pdata.pin_ctrl & PM8XXX_VREG_PIN_CTRL_EN0)
 			val |= SMPS_PIN_CTRL_EN0;
 		if (vreg->pdata.pin_ctrl & PM8XXX_VREG_PIN_CTRL_EN1)
@@ -2279,7 +2382,7 @@ static int pm8xxx_smps_pin_control_enable(struct regulator_dev *rdev)
 		if (vreg->pdata.pin_ctrl & PM8XXX_VREG_PIN_CTRL_EN3)
 			val |= SMPS_PIN_CTRL_EN3;
 	} else {
-		
+		/* Pin control LPM/HPM */
 		if (vreg->pdata.pin_ctrl & PM8XXX_VREG_PIN_CTRL_EN0)
 			val |= SMPS_PIN_CTRL_LPM_EN0;
 		if (vreg->pdata.pin_ctrl & PM8XXX_VREG_PIN_CTRL_EN1)
@@ -2300,6 +2403,10 @@ static int pm8xxx_smps_pin_control_enable(struct regulator_dev *rdev)
 	if (rc)
 		goto bail;
 
+	/*
+	 * Physically enable the regulator if using HPM/LPM pin control mode or
+	 * if the regulator should be logically left on.
+	 */
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
 		((vreg->pdata.pin_fn == PM8XXX_VREG_PIN_FN_MODE
 		  || vreg->is_enabled) ?
@@ -2308,6 +2415,10 @@ static int pm8xxx_smps_pin_control_enable(struct regulator_dev *rdev)
 	if (rc)
 		goto bail;
 
+	/*
+	 * Set regulator to HPM if using on/off pin control or if the regulator
+	 * is already enabled in HPM.  Otherwise, set it to LPM.
+	 */
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->clk_ctrl_addr,
 			(vreg->pdata.pin_fn == PM8XXX_VREG_PIN_FN_ENABLE
 			 || (vreg->is_enabled
@@ -2342,6 +2453,10 @@ static int pm8xxx_smps_pin_control_disable(struct regulator_dev *rdev)
 	if (rc)
 		goto bail;
 
+	/*
+	 * Physically disable the regulator if it was enabled in HPM/LPM pin
+	 * control mode previously and it logically should not be enabled.
+	 */
 	if ((vreg->ctrl_reg & SMPS_LEGACY_ENABLE_MASK) == SMPS_LEGACY_ENABLE
 	    && vreg->is_enabled == false) {
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
@@ -2351,7 +2466,7 @@ static int pm8xxx_smps_pin_control_disable(struct regulator_dev *rdev)
 			goto bail;
 	}
 
-	
+	/* Change to LPM if LPM was enabled. */
 	if (vreg->is_enabled && vreg->mode == REGULATOR_MODE_IDLE) {
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->clk_ctrl_addr,
 		       SMPS_CLK_CTRL_PFM, SMPS_CLK_CTRL_MASK,
@@ -2462,6 +2577,10 @@ static void pm8xxx_vreg_show_state(struct regulator_dev *rdev,
 
 	mutex_lock(&vreg->pc_lock);
 
+	/*
+	 * Do not print unless REQUEST is specified and SSBI writes have taken
+	 * place, or DUPLICATE is specified.
+	 */
 	if (!((pm8xxx_vreg_debug_mask & PM8XXX_VREG_DEBUG_DUPLICATE)
 	      || ((pm8xxx_vreg_debug_mask & PM8XXX_VREG_DEBUG_REQUEST)
 		  && (vreg->write_count != vreg->prev_write_count)))) {
@@ -2554,6 +2673,7 @@ static void pm8xxx_vreg_show_state(struct regulator_dev *rdev,
 	}
 }
 
+/* Real regulator operations. */
 static struct regulator_ops pm8xxx_pldo_ops = {
 	.enable			= pm8xxx_ldo_enable,
 	.disable		= pm8xxx_ldo_disable,
@@ -2653,6 +2773,7 @@ static struct regulator_ops pm8xxx_boost_ops = {
 	.enable_time		= pm8xxx_enable_time,
 };
 
+/* Pin control regulator operations. */
 static struct regulator_ops pm8xxx_ldo_pc_ops = {
 	.enable			= pm8xxx_ldo_pin_control_enable,
 	.disable		= pm8xxx_ldo_pin_control_disable,
@@ -2708,12 +2829,12 @@ static int pm8xxx_init_ldo(struct pm8xxx_vreg *vreg, bool is_real)
 	int i;
 	u8 bank;
 
-	
+	/* Save the current control register state. */
 	rc = pm8xxx_readb(vreg->dev->parent, vreg->ctrl_addr, &vreg->ctrl_reg);
 	if (rc)
 		goto bail;
 
-	
+	/* Save the current test register state. */
 	for (i = 0; i < LDO_TEST_BANKS; i++) {
 		bank = REGULATOR_BANK_SEL(i);
 		rc = pm8xxx_writeb(vreg->dev->parent, vreg->test_addr, bank);
@@ -2728,7 +2849,7 @@ static int pm8xxx_init_ldo(struct pm8xxx_vreg *vreg, bool is_real)
 	}
 
 	if (is_real) {
-		
+		/* Set pull down enable based on platform data. */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
 		      (vreg->pdata.pull_down_enable ? LDO_PULL_DOWN_ENABLE : 0),
 		      LDO_PULL_DOWN_ENABLE_MASK, &vreg->ctrl_reg);
@@ -2752,12 +2873,12 @@ static int pm8xxx_init_nldo1200(struct pm8xxx_vreg *vreg)
 	int i;
 	u8 bank;
 
-	
+	/* Save the current control register state. */
 	rc = pm8xxx_readb(vreg->dev->parent, vreg->ctrl_addr, &vreg->ctrl_reg);
 	if (rc)
 		goto bail;
 
-	
+	/* Save the current test register state. */
 	for (i = 0; i < LDO_TEST_BANKS; i++) {
 		bank = REGULATOR_BANK_SEL(i);
 		rc = pm8xxx_writeb(vreg->dev->parent, vreg->test_addr, bank);
@@ -2773,7 +2894,7 @@ static int pm8xxx_init_nldo1200(struct pm8xxx_vreg *vreg)
 
 	vreg->save_uV = _pm8xxx_nldo1200_get_voltage(vreg);
 
-	
+	/* Set pull down enable based on platform data. */
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 		 (vreg->pdata.pull_down_enable ? NLDO1200_PULL_DOWN_ENABLE : 0)
 		 | REGULATOR_BANK_SEL(1) | REGULATOR_BANK_WRITE,
@@ -2793,12 +2914,12 @@ static int pm8xxx_init_smps(struct pm8xxx_vreg *vreg, bool is_real)
 	int i;
 	u8 bank;
 
-	
+	/* Save the current control register state. */
 	rc = pm8xxx_readb(vreg->dev->parent, vreg->ctrl_addr, &vreg->ctrl_reg);
 	if (rc)
 		goto bail;
 
-	
+	/* Save the current test2 register state. */
 	for (i = 0; i < SMPS_TEST_BANKS; i++) {
 		bank = REGULATOR_BANK_SEL(i);
 		rc = pm8xxx_writeb(vreg->dev->parent, vreg->test_addr, bank);
@@ -2812,13 +2933,13 @@ static int pm8xxx_init_smps(struct pm8xxx_vreg *vreg, bool is_real)
 		vreg->test_reg[i] |= REGULATOR_BANK_WRITE;
 	}
 
-	
+	/* Save the current clock control register state. */
 	rc = pm8xxx_readb(vreg->dev->parent, vreg->clk_ctrl_addr,
 			  &vreg->clk_ctrl_reg);
 	if (rc)
 		goto bail;
 
-	
+	/* Save the current sleep control register state. */
 	rc = pm8xxx_readb(vreg->dev->parent, vreg->sleep_ctrl_addr,
 			  &vreg->sleep_ctrl_reg);
 	if (rc)
@@ -2827,7 +2948,7 @@ static int pm8xxx_init_smps(struct pm8xxx_vreg *vreg, bool is_real)
 	vreg->save_uV = _pm8xxx_smps_get_voltage(vreg);
 
 	if (is_real) {
-		
+		/* Set advanced mode pull down enable based on platform data. */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->test_addr,
 			(vreg->pdata.pull_down_enable
 				? SMPS_ADVANCED_PULL_DOWN_ENABLE : 0)
@@ -2845,7 +2966,7 @@ static int pm8xxx_init_smps(struct pm8xxx_vreg *vreg, bool is_real)
 	}
 
 	if (!SMPS_IN_ADVANCED_MODE(vreg) && is_real) {
-		
+		/* Set legacy mode pull down enable based on platform data. */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
 			(vreg->pdata.pull_down_enable
 				? SMPS_LEGACY_PULL_DOWN_ENABLE : 0),
@@ -2866,12 +2987,12 @@ static int pm8xxx_init_ftsmps(struct pm8xxx_vreg *vreg)
 	int rc, i;
 	u8 bank;
 
-	
+	/* Save the current control register state. */
 	rc = pm8xxx_readb(vreg->dev->parent, vreg->ctrl_addr, &vreg->ctrl_reg);
 	if (rc)
 		goto bail;
 
-	
+	/* Store current regulator register values. */
 	rc = pm8xxx_readb(vreg->dev->parent, vreg->pfm_ctrl_addr,
 			  &vreg->pfm_ctrl_reg);
 	if (rc)
@@ -2882,7 +3003,7 @@ static int pm8xxx_init_ftsmps(struct pm8xxx_vreg *vreg)
 	if (rc)
 		goto bail;
 
-	
+	/* Save the current fts_cnfg1 register state (uses 'test' member). */
 	for (i = 0; i < SMPS_TEST_BANKS; i++) {
 		bank = REGULATOR_BANK_SEL(i);
 		rc = pm8xxx_writeb(vreg->dev->parent, vreg->test_addr, bank);
@@ -2898,7 +3019,7 @@ static int pm8xxx_init_ftsmps(struct pm8xxx_vreg *vreg)
 
 	vreg->save_uV = _pm8xxx_ftsmps_get_voltage(vreg);
 
-	
+	/* Set pull down enable based on platform data. */
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->pwr_cnfg_addr,
 		(vreg->pdata.pull_down_enable ? FTSMPS_PULL_DOWN_ENABLE : 0),
 		FTSMPS_PULL_DOWN_ENABLE_MASK, &vreg->pwr_cnfg_reg);
@@ -2914,14 +3035,14 @@ static int pm8xxx_init_vs(struct pm8xxx_vreg *vreg, bool is_real)
 {
 	int rc = 0;
 
-	
+	/* Save the current control register state. */
 	rc = pm8xxx_readb(vreg->dev->parent, vreg->ctrl_addr, &vreg->ctrl_reg);
 	if (rc) {
 		vreg_err(vreg, "pm8xxx_readb failed, rc=%d\n", rc);
 		return rc;
 	}
 
-	
+	/* Save the current test register state. */
 	rc = pm8xxx_readb(vreg->dev->parent, vreg->test_addr,
 		&vreg->test_reg[0]);
 	if (rc) {
@@ -2930,7 +3051,7 @@ static int pm8xxx_init_vs(struct pm8xxx_vreg *vreg, bool is_real)
 	}
 
 	if (is_real) {
-		
+		/* Set pull down enable based on platform data. */
 		rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
 		       (vreg->pdata.pull_down_enable ? VS_PULL_DOWN_ENABLE
 						     : VS_PULL_DOWN_DISABLE),
@@ -2950,14 +3071,14 @@ static int pm8xxx_init_vs300(struct pm8xxx_vreg *vreg)
 {
 	int rc;
 
-	
+	/* Save the current control register state. */
 	rc = pm8xxx_readb(vreg->dev->parent, vreg->ctrl_addr, &vreg->ctrl_reg);
 	if (rc) {
 		vreg_err(vreg, "pm8xxx_readb failed, rc=%d\n", rc);
 		return rc;
 	}
 
-	
+	/* Save the current test register state. */
 	rc = pm8xxx_readb(vreg->dev->parent, vreg->test_addr,
 		&vreg->test_reg[0]);
 	if (rc) {
@@ -2965,7 +3086,7 @@ static int pm8xxx_init_vs300(struct pm8xxx_vreg *vreg)
 		return rc;
 	}
 
-	
+	/* Set pull down enable based on platform data. */
 	rc = pm8xxx_vreg_masked_write(vreg, vreg->ctrl_addr,
 		    (vreg->pdata.pull_down_enable ? VS300_PULL_DOWN_ENABLE : 0),
 		    VS300_PULL_DOWN_ENABLE_MASK, &vreg->ctrl_reg);
@@ -2980,7 +3101,7 @@ static int pm8xxx_init_ncp(struct pm8xxx_vreg *vreg)
 {
 	int rc;
 
-	
+	/* Save the current control register state. */
 	rc = pm8xxx_readb(vreg->dev->parent, vreg->ctrl_addr, &vreg->ctrl_reg);
 	if (rc) {
 		vreg_err(vreg, "pm8xxx_readb failed, rc=%d\n", rc);
@@ -2994,7 +3115,7 @@ static int pm8xxx_init_boost(struct pm8xxx_vreg *vreg)
 {
 	int rc;
 
-	
+	/* Save the current control register state. */
 	rc = pm8xxx_readb(vreg->dev->parent, vreg->ctrl_addr, &vreg->ctrl_reg);
 	if (rc) {
 		vreg_err(vreg, "pm8xxx_readb failed, rc=%d\n", rc);
@@ -3077,13 +3198,17 @@ static int __devinit pm8xxx_vreg_probe(struct platform_device *pdev)
 	mutex_lock(&vreg->pc_lock);
 
 	if (!core_data->is_pin_controlled) {
-		
+		/* Do not modify pin control and pin function values. */
 		pin_ctrl = vreg->pdata.pin_ctrl;
 		pin_fn = vreg->pdata.pin_fn;
 		memcpy(&(vreg->pdata), pdata,
 			sizeof(struct pm8xxx_regulator_platform_data));
 		vreg->pdata.pin_ctrl = pin_ctrl;
 		vreg->pdata.pin_fn = pin_fn;
+		/*
+		 * If slew_rate isn't specified but enable_time is, then set
+		 * slew_rate = max_uV / enable_time.
+		 */
 		if (vreg->pdata.enable_time > 0
 		    && vreg->pdata.init_data.constraints.max_uV > 0
 		    && vreg->pdata.slew_rate <= 0)
@@ -3092,7 +3217,7 @@ static int __devinit pm8xxx_vreg_probe(struct platform_device *pdev)
 					vreg->pdata.enable_time);
 		vreg->dev = &pdev->dev;
 	} else {
-		
+		/* Pin control regulator */
 		if ((pdata->pin_ctrl & PM8XXX_VREG_PIN_CTRL_ALL)
 		    == PM8XXX_VREG_PIN_CTRL_NONE) {
 			pr_err("%s: no pin control input specified\n",
@@ -3107,7 +3232,7 @@ static int __devinit pm8xxx_vreg_probe(struct platform_device *pdev)
 			vreg->dev = &pdev->dev;
 	}
 
-	
+	/* Initialize register values. */
 	switch (vreg->type) {
 	case PM8XXX_REGULATOR_TYPE_PLDO:
 	case PM8XXX_REGULATOR_TYPE_NLDO:

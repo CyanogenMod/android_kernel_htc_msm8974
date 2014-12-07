@@ -38,6 +38,15 @@ struct ti_ssp_spi_data {
 	void		(*select)(int cs);
 };
 
+/*
+ * Sequencer port IO pin configuration bits.  These do not correlate 1-1 with
+ * the hardware.  The iosel field in the port data combines iosel1 and iosel2,
+ * and is therefore not a direct map to register space.  It is best to use the
+ * macros below to construct iosel values.
+ *
+ * least significant 16 bits --> iosel1
+ * most significant 16 bits  --> iosel2
+ */
 
 #define SSP_IN			0x0000
 #define SSP_DATA		0x0001
@@ -48,9 +57,11 @@ struct ti_ssp_spi_data {
 #define SSP_PIN_MASK(pin)	SSP_PIN_SEL(pin, 0x7)
 #define SSP_INPUT_SEL(pin)	((pin) << 16)
 
+/* Sequencer port config bits */
 #define SSP_EARLY_DIN		BIT(8)
 #define SSP_DELAY_DOUT		BIT(9)
 
+/* Sequence map definitions */
 #define SSP_CLK_HIGH		BIT(0)
 #define SSP_CLK_LOW		0
 #define SSP_DATA_HIGH		BIT(1)
@@ -79,4 +90,4 @@ int ti_ssp_run(struct device *dev, u32 pc, u32 input, u32 *output);
 int ti_ssp_set_mode(struct device *dev, int mode);
 int ti_ssp_set_iosel(struct device *dev, u32 iosel);
 
-#endif 
+#endif /* __TI_SSP_H__ */

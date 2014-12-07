@@ -51,8 +51,9 @@
 
 #define CRYSTAL_HD_NAME		"Broadcom Crystal HD Decoder (BCM70012) Driver"
 
+/* OS specific PCI information structure and adapter information. */
 struct crystalhd_adp {
-	
+	/* Hardware borad/PCI specifics */
 	char			name[32];
 	struct pci_dev		*pdev;
 
@@ -65,19 +66,19 @@ struct crystalhd_adp {
 	void			*i2o_addr;
 
 	unsigned int		drv_data;
-	unsigned int		dmabits;	
+	unsigned int		dmabits;	/* 32 | 64 */
 	unsigned int		registered;
 	unsigned int		present;
 	unsigned int		msi;
 
 	spinlock_t		lock;
 
-	
+	/* API Related */
 	int		chd_dec_major;
 	unsigned int		cfg_users;
 
-	struct crystalhd_ioctl_data	*idata_free_head;	
-	struct crystalhd_elem		*elem_pool_head;	
+	struct crystalhd_ioctl_data	*idata_free_head;	/* ioctl data pool */
+	struct crystalhd_elem		*elem_pool_head;	/* Queue element pool */
 
 	struct crystalhd_cmd	cmds;
 

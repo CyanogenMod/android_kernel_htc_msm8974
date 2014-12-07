@@ -6,6 +6,7 @@
 #ifndef ssc_h
 #define ssc_h
 
+/* Simulator system calls: */
 
 #define SSC_CONSOLE_INIT		20
 #define SSC_GETCHAR			21
@@ -26,6 +27,9 @@
 
 #define SSC_GET_ARGS			75
 
+/*
+ * Simulator system call.
+ */
 extern long ssc (long arg0, long arg1, long arg2, long arg3, int nr);
 
-#endif 
+#endif /* ssc_h */

@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Name: acdebug.h - ACPI/AML debugger
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -42,12 +47,12 @@
 #define ACPI_DEBUG_BUFFER_SIZE  4196
 
 struct command_info {
-	char *name;		
-	u8 min_args;		
+	char *name;		/* Command Name */
+	u8 min_args;		/* Minimum arguments required */
 };
 
 struct argument_info {
-	char *name;		
+	char *name;		/* Argument Name */
 };
 
 #define PARAM_LIST(pl)                  pl
@@ -58,6 +63,9 @@ struct argument_info {
 #define EX_NO_SINGLE_STEP               1
 #define EX_SINGLE_STEP                  2
 
+/*
+ * dbxface - external debugger interfaces
+ */
 acpi_status acpi_db_initialize(void);
 
 void acpi_db_terminate(void);
@@ -66,6 +74,9 @@ acpi_status
 acpi_db_single_step(struct acpi_walk_state *walk_state,
 		    union acpi_parse_object *op, u32 op_type);
 
+/*
+ * dbcmds - debug commands and output routines
+ */
 acpi_status acpi_db_disassemble_method(char *name);
 
 void acpi_db_display_table_info(char *table_arg);
@@ -120,6 +131,9 @@ void acpi_db_check_predefined_names(void);
 
 void acpi_db_batch_execute(void);
 
+/*
+ * dbdisply - debug display commands
+ */
 void acpi_db_display_method_info(union acpi_parse_object *op);
 
 void acpi_db_decode_and_display_object(char *target, char *output_type);
@@ -144,6 +158,9 @@ void
 acpi_db_display_argument_object(union acpi_operand_object *obj_desc,
 				struct acpi_walk_state *walk_state);
 
+/*
+ * dbexec - debugger control method execution
+ */
 void acpi_db_execute(char *name, char **args, u32 flags);
 
 void
@@ -154,6 +171,9 @@ acpi_db_create_execution_threads(char *num_threads_arg,
 u32 acpi_db_get_cache_info(struct acpi_memory_list *cache);
 #endif
 
+/*
+ * dbfileio - Debugger file I/O commands
+ */
 acpi_object_type
 acpi_db_match_argument(char *user_argument, struct argument_info *arguments);
 
@@ -169,12 +189,18 @@ acpi_db_get_table_from_file(char *filename, struct acpi_table_header **table);
 acpi_status
 acpi_db_read_table_from_file(char *filename, struct acpi_table_header **table);
 
+/*
+ * dbhistry - debugger HISTORY command
+ */
 void acpi_db_add_to_history(char *command_line);
 
 void acpi_db_display_history(void);
 
 char *acpi_db_get_from_history(char *command_num_arg);
 
+/*
+ * dbinput - user front-end to the AML debugger
+ */
 acpi_status
 acpi_db_command_dispatch(char *input_buffer,
 			 struct acpi_walk_state *walk_state,
@@ -182,10 +208,16 @@ acpi_db_command_dispatch(char *input_buffer,
 
 void ACPI_SYSTEM_XFACE acpi_db_execute_thread(void *context);
 
+/*
+ * dbstats - Generation and display of ACPI table statistics
+ */
 void acpi_db_generate_statistics(union acpi_parse_object *root, u8 is_method);
 
 acpi_status acpi_db_display_statistics(char *type_arg);
 
+/*
+ * dbutils - AML debugger utilities
+ */
 void acpi_db_set_output_destination(u32 where);
 
 void acpi_db_dump_external_object(union acpi_object *obj_desc, u32 level);
@@ -196,4 +228,4 @@ struct acpi_namespace_node *acpi_db_local_ns_lookup(char *name);
 
 void acpi_db_uint32_to_hex_string(u32 value, char *buffer);
 
-#endif				
+#endif				/* __ACDEBUG_H__ */

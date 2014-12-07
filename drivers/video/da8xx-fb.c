@@ -39,12 +39,14 @@
 #define LCD_VERSION_1	1
 #define LCD_VERSION_2	2
 
+/* LCD Status Register */
 #define LCD_END_OF_FRAME1		BIT(9)
 #define LCD_END_OF_FRAME0		BIT(8)
 #define LCD_PL_LOAD_DONE		BIT(6)
 #define LCD_FIFO_UNDERFLOW		BIT(5)
 #define LCD_SYNC_LOST			BIT(2)
 
+/* LCD DMA Control Register */
 #define LCD_DMA_BURST_SIZE(x)		((x) << 4)
 #define LCD_DMA_BURST_1			0x0
 #define LCD_DMA_BURST_2			0x1
@@ -56,9 +58,11 @@
 #define LCD_V2_END_OF_FRAME1_INT_ENA	BIT(9)
 #define LCD_DUAL_FRAME_BUFFER_ENABLE	BIT(0)
 
+/* LCD Control Register */
 #define LCD_CLK_DIVISOR(x)		((x) << 8)
 #define LCD_RASTER_MODE			0x01
 
+/* LCD Raster Control Register */
 #define LCD_PALETTE_LOAD_MODE(x)	((x) << 20)
 #define PALETTE_AND_DATA		0x00
 #define PALETTE_ONLY			0x01
@@ -80,6 +84,7 @@
 #define LCD_V2_CORE_CLK_EN		BIT(0)
 #define LCD_V2_LPP_B10			26
 
+/* LCD Raster Timing 2 Register */
 #define LCD_AC_BIAS_TRANSITIONS_PER_INT(x)	((x) << 16)
 #define LCD_AC_BIAS_FREQUENCY(x)		((x) << 8)
 #define LCD_SYNC_CTRL				BIT(25)
@@ -88,6 +93,7 @@
 #define LCD_INVERT_LINE_CLOCK			BIT(21)
 #define LCD_INVERT_FRAME_CLOCK			BIT(20)
 
+/* LCD Block */
 #define  LCD_PID_REG				0x0
 #define  LCD_CTRL_REG				0x4
 #define  LCD_STAT_REG				0x8
@@ -101,12 +107,14 @@
 #define  LCD_DMA_FRM_BUF_BASE_ADDR_1_REG	0x4C
 #define  LCD_DMA_FRM_BUF_CEILING_ADDR_1_REG	0x50
 
+/* Interrupt Registers available only in Version 2 */
 #define  LCD_RAW_STAT_REG			0x58
 #define  LCD_MASKED_STAT_REG			0x5c
 #define  LCD_INT_ENABLE_SET_REG			0x60
 #define  LCD_INT_ENABLE_CLR_REG			0x64
 #define  LCD_END_OF_INT_IND_REG			0x68
 
+/* Clock registers available only on Version 2 */
 #define  LCD_CLK_ENABLE_REG			0x6c
 #define  LCD_CLK_RESET_REG			0x70
 #define  LCD_CLK_MAIN_RESET			BIT(3)
@@ -159,6 +167,7 @@ struct da8xx_fb_par {
 	void (*panel_power_ctrl)(int);
 };
 
+/* Variable Screen Information */
 static struct fb_var_screeninfo da8xx_fb_var __devinitdata = {
 	.xoffset = 0,
 	.yoffset = 0,
@@ -188,21 +197,21 @@ static struct fb_fix_screeninfo da8xx_fb_fix __devinitdata = {
 };
 
 struct da8xx_panel {
-	const char	name[25];	
+	const char	name[25];	/* Full name <vendor>_<model> */
 	unsigned short	width;
 	unsigned short	height;
-	int		hfp;		
-	int		hbp;		
-	int		hsw;		
-	int		vfp;		
-	int		vbp;		
-	int		vsw;		
-	unsigned int	pxl_clk;	
-	unsigned char	invert_pxl_clk;	
+	int		hfp;		/* Horizontal front porch */
+	int		hbp;		/* Horizontal back porch */
+	int		hsw;		/* Horizontal Sync Pulse Width */
+	int		vfp;		/* Vertical front porch */
+	int		vbp;		/* Vertical back porch */
+	int		vsw;		/* Vertical Sync Pulse Width */
+	unsigned int	pxl_clk;	/* Pixel clock */
+	unsigned char	invert_pxl_clk;	/* Invert Pixel clock */
 };
 
 static struct da8xx_panel known_lcd_panels[] = {
-	
+	/* Sharp LCD035Q3DG01 */
 	[0] = {
 		.name = "Sharp_LCD035Q3DG01",
 		.width = 320,
@@ -216,7 +225,7 @@ static struct da8xx_panel known_lcd_panels[] = {
 		.pxl_clk = 4608000,
 		.invert_pxl_clk = 1,
 	},
-	
+	/* Sharp LK043T1DG01 */
 	[1] = {
 		.name = "Sharp_LK043T1DG01",
 		.width = 480,
@@ -231,7 +240,7 @@ static struct da8xx_panel known_lcd_panels[] = {
 		.invert_pxl_clk = 0,
 	},
 	[2] = {
-		
+		/* Hitachi SP10Q010 */
 		.name = "SP10Q010",
 		.width = 320,
 		.height = 240,
@@ -246,11 +255,12 @@ static struct da8xx_panel known_lcd_panels[] = {
 	},
 };
 
+/* Enable the Raster Engine of the LCD Controller */
 static inline void lcd_enable_raster(void)
 {
 	u32 reg;
 
-	
+	/* Bring LCDC out of reset */
 	if (lcd_revision == LCD_VERSION_2)
 		lcdc_write(0, LCD_CLK_RESET_REG);
 
@@ -259,6 +269,7 @@ static inline void lcd_enable_raster(void)
 		lcdc_write(reg | LCD_RASTER_ENABLE, LCD_RASTER_CTRL_REG);
 }
 
+/* Disable the Raster Engine of the LCD Controller */
 static inline void lcd_disable_raster(void)
 {
 	u32 reg;
@@ -268,7 +279,7 @@ static inline void lcd_disable_raster(void)
 		lcdc_write(reg & ~LCD_RASTER_ENABLE, LCD_RASTER_CTRL_REG);
 
 	if (lcd_revision == LCD_VERSION_2)
-		
+		/* Write 1 to reset LCDC */
 		lcdc_write(LCD_CLK_MAIN_RESET, LCD_CLK_RESET_REG);
 }
 
@@ -280,7 +291,7 @@ static void lcd_blit(int load_mode, struct da8xx_fb_par *par)
 	u32 reg_dma;
 	u32 reg_int;
 
-	
+	/* init reg to clear PLM (loading mode) fields */
 	reg_ras = lcdc_read(LCD_RASTER_CTRL_REG);
 	reg_ras &= ~(3 << 20);
 
@@ -326,9 +337,14 @@ static void lcd_blit(int load_mode, struct da8xx_fb_par *par)
 	lcdc_write(reg_dma, LCD_DMA_CTRL_REG);
 	lcdc_write(reg_ras, LCD_RASTER_CTRL_REG);
 
+	/*
+	 * The Raster enable bit must be set after all other control fields are
+	 * set.
+	 */
 	lcd_enable_raster();
 }
 
+/* Configure the Burst Size of DMA */
 static int lcd_cfg_dma(int burst_size)
 {
 	u32 reg;
@@ -362,7 +378,7 @@ static void lcd_cfg_ac_bias(int period, int transitions_per_int)
 {
 	u32 reg;
 
-	
+	/* Set the AC Bias Period and Number of Transisitons per Interrupt */
 	reg = lcdc_read(LCD_RASTER_TIMING_2_REG) & 0xFFF00000;
 	reg |= LCD_AC_BIAS_FREQUENCY(period) |
 		LCD_AC_BIAS_TRANSITIONS_PER_INT(transitions_per_int);
@@ -423,7 +439,7 @@ static int lcd_cfg_display(const struct lcd_ctrl_config *cfg)
 		return -EINVAL;
 	}
 
-	
+	/* enable additional interrupts here */
 	if (lcd_revision == LCD_VERSION_1) {
 		reg |= LCD_V1_UNDERFLOW_INT_ENA;
 	} else {
@@ -466,11 +482,19 @@ static int lcd_cfg_frame_buffer(struct da8xx_fb_par *par, u32 width, u32 height,
 {
 	u32 reg;
 
-	
-	
+	/* Set the Panel Width */
+	/* Pixels per line = (PPL + 1)*16 */
 	if (lcd_revision == LCD_VERSION_1) {
+		/*
+		 * 0x3F in bits 4..9 gives max horizontal resolution = 1024
+		 * pixels.
+		 */
 		width &= 0x3f0;
 	} else {
+		/*
+		 * 0x7F in bits 4..10 gives max horizontal resolution = 2048
+		 * pixels.
+		 */
 		width &= 0x7f0;
 	}
 
@@ -484,20 +508,20 @@ static int lcd_cfg_frame_buffer(struct da8xx_fb_par *par, u32 width, u32 height,
 	}
 	lcdc_write(reg, LCD_RASTER_TIMING_0_REG);
 
-	
-	
+	/* Set the Panel Height */
+	/* Set bits 9:0 of Lines Per Pixel */
 	reg = lcdc_read(LCD_RASTER_TIMING_1_REG);
 	reg = ((height - 1) & 0x3ff) | (reg & 0xfffffc00);
 	lcdc_write(reg, LCD_RASTER_TIMING_1_REG);
 
-	
+	/* Set bit 10 of Lines Per Pixel */
 	if (lcd_revision == LCD_VERSION_2) {
 		reg = lcdc_read(LCD_RASTER_TIMING_2_REG);
 		reg |= ((height - 1) & 0x400) << 16;
 		lcdc_write(reg, LCD_RASTER_TIMING_2_REG);
 	}
 
-	
+	/* Set the Raster Order of the Frame Buffer */
 	reg = lcdc_read(LCD_RASTER_CTRL_REG) & ~(1 << 8);
 	if (raster_order)
 		reg |= LCD_RASTER_ORDER;
@@ -587,7 +611,7 @@ static int fb_setcolreg(unsigned regno, unsigned red, unsigned green,
 		}
 	}
 
-	
+	/* Update the palette in the h/w as needed. */
 	if (update_hw)
 		lcd_blit(LOAD_PALETTE, par);
 
@@ -596,16 +620,16 @@ static int fb_setcolreg(unsigned regno, unsigned red, unsigned green,
 
 static void lcd_reset(struct da8xx_fb_par *par)
 {
-	
+	/* Disable the Raster if previously Enabled */
 	lcd_disable_raster();
 
-	
+	/* DMA has to be disabled */
 	lcdc_write(0, LCD_DMA_CTRL_REG);
 	lcdc_write(0, LCD_RASTER_CTRL_REG);
 
 	if (lcd_revision == LCD_VERSION_2) {
 		lcdc_write(0, LCD_INT_ENABLE_SET_REG);
-		
+		/* Write 1 to reset */
 		lcdc_write(LCD_CLK_MAIN_RESET, LCD_CLK_RESET_REG);
 		lcdc_write(0, LCD_CLK_RESET_REG);
 	}
@@ -618,7 +642,7 @@ static void lcd_calc_clk_divider(struct da8xx_fb_par *par)
 	lcd_clk = clk_get_rate(par->lcdc_clk);
 	div = lcd_clk / par->pxl_clk;
 
-	
+	/* Configure the LCD clock divisor. */
 	lcdc_write(LCD_CLK_DIVISOR(div) |
 			(LCD_RASTER_MODE & 0x1), LCD_CTRL_REG);
 
@@ -636,7 +660,7 @@ static int lcd_init(struct da8xx_fb_par *par, const struct lcd_ctrl_config *cfg,
 
 	lcd_reset(par);
 
-	
+	/* Calculate the divider */
 	lcd_calc_clk_divider(par);
 
 	if (panel->invert_pxl_clk)
@@ -646,19 +670,19 @@ static int lcd_init(struct da8xx_fb_par *par, const struct lcd_ctrl_config *cfg,
 		lcdc_write((lcdc_read(LCD_RASTER_TIMING_2_REG) &
 			~LCD_INVERT_PIXEL_CLOCK), LCD_RASTER_TIMING_2_REG);
 
-	
+	/* Configure the DMA burst size. */
 	ret = lcd_cfg_dma(cfg->dma_burst_sz);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Configure the AC bias properties. */
 	lcd_cfg_ac_bias(cfg->ac_bias, cfg->ac_bias_intrpt);
 
-	
+	/* Configure the vertical and horizontal sync properties. */
 	lcd_cfg_vertical_sync(panel->vbp, panel->vsw, panel->vfp);
 	lcd_cfg_horizontal_sync(panel->hbp, panel->hsw, panel->hfp);
 
-	
+	/* Configure for disply */
 	ret = lcd_cfg_display(cfg);
 	if (ret < 0)
 		return ret;
@@ -679,13 +703,14 @@ static int lcd_init(struct da8xx_fb_par *par, const struct lcd_ctrl_config *cfg,
 	if (ret < 0)
 		return ret;
 
-	
+	/* Configure FDD */
 	lcdc_write((lcdc_read(LCD_RASTER_CTRL_REG) & 0xfff00fff) |
 		       (cfg->fdd << 12), LCD_RASTER_CTRL_REG);
 
 	return 0;
 }
 
+/* IRQ handler for version 2 of LCDC */
 static irqreturn_t lcdc_irq_handler_rev02(int irq, void *arg)
 {
 	struct da8xx_fb_par *par = arg;
@@ -697,16 +722,22 @@ static irqreturn_t lcdc_irq_handler_rev02(int irq, void *arg)
 		lcdc_write(stat, LCD_MASKED_STAT_REG);
 		lcd_enable_raster();
 	} else if (stat & LCD_PL_LOAD_DONE) {
+		/*
+		 * Must disable raster before changing state of any control bit.
+		 * And also must be disabled before clearing the PL loading
+		 * interrupt via the following write to the status register. If
+		 * this is done after then one gets multiple PL done interrupts.
+		 */
 		lcd_disable_raster();
 
 		lcdc_write(stat, LCD_MASKED_STAT_REG);
 
-		
+		/* Disable PL completion inerrupt */
 		reg_int = lcdc_read(LCD_INT_ENABLE_CLR_REG) |
 		       (LCD_V2_PL_INT_ENA);
 		lcdc_write(reg_int, LCD_INT_ENABLE_CLR_REG);
 
-		
+		/* Setup and start data loading mode */
 		lcd_blit(LOAD_DATA, par);
 	} else {
 		lcdc_write(stat, LCD_MASKED_STAT_REG);
@@ -734,6 +765,7 @@ static irqreturn_t lcdc_irq_handler_rev02(int irq, void *arg)
 	return IRQ_HANDLED;
 }
 
+/* IRQ handler for version 1 LCDC */
 static irqreturn_t lcdc_irq_handler_rev01(int irq, void *arg)
 {
 	struct da8xx_fb_par *par = arg;
@@ -745,16 +777,22 @@ static irqreturn_t lcdc_irq_handler_rev01(int irq, void *arg)
 		lcdc_write(stat, LCD_STAT_REG);
 		lcd_enable_raster();
 	} else if (stat & LCD_PL_LOAD_DONE) {
+		/*
+		 * Must disable raster before changing state of any control bit.
+		 * And also must be disabled before clearing the PL loading
+		 * interrupt via the following write to the status register. If
+		 * this is done after then one gets multiple PL done interrupts.
+		 */
 		lcd_disable_raster();
 
 		lcdc_write(stat, LCD_STAT_REG);
 
-		
+		/* Disable PL completion inerrupt */
 		reg_ras  = lcdc_read(LCD_RASTER_CTRL_REG);
 		reg_ras &= ~LCD_V1_PL_INT_ENA;
 		lcdc_write(reg_ras, LCD_RASTER_CTRL_REG);
 
-		
+		/* Setup and start data loading mode */
 		lcd_blit(LOAD_DATA, par);
 	} else {
 		lcdc_write(stat, LCD_STAT_REG);
@@ -810,7 +848,7 @@ static int fb_check_var(struct fb_var_screeninfo *var,
 		var->transp.length = 0;
 		var->nonstd = FB_NONSTD_REV_PIX_IN_B;
 		break;
-	case 16:		
+	case 16:		/* RGB 565 */
 		var->red.offset = 11;
 		var->red.length = 5;
 		var->green.offset = 5;
@@ -882,7 +920,7 @@ static int __devexit fb_remove(struct platform_device *dev)
 		lcd_disable_raster();
 		lcdc_write(0, LCD_RASTER_CTRL_REG);
 
-		
+		/* disable DMA  */
 		lcdc_write(0, LCD_DMA_CTRL_REG);
 
 		unregister_framebuffer(info);
@@ -902,11 +940,27 @@ static int __devexit fb_remove(struct platform_device *dev)
 	return 0;
 }
 
+/*
+ * Function to wait for vertical sync which for this LCD peripheral
+ * translates into waiting for the current raster frame to complete.
+ */
 static int fb_wait_for_vsync(struct fb_info *info)
 {
 	struct da8xx_fb_par *par = info->par;
 	int ret;
 
+	/*
+	 * Set flag to 0 and wait for isr to set to 1. It would seem there is a
+	 * race condition here where the ISR could have occurred just before or
+	 * just after this set. But since we are just coarsely waiting for
+	 * a frame to complete then that's OK. i.e. if the frame completed
+	 * just before this code executed then we have to wait another full
+	 * frame time but there is no way to avoid such a situation. On the
+	 * other hand if the frame completed just after then we don't need
+	 * to wait long at all. Either way we are guaranteed to return to the
+	 * user immediately after a frame completion which is all that is
+	 * required.
+	 */
 	par->vsync_flag = 0;
 	ret = wait_event_interruptible_timeout(par->vsync_wait,
 					       par->vsync_flag != 0,
@@ -985,6 +1039,10 @@ static int cfb_blank(int blank, struct fb_info *info)
 	return ret;
 }
 
+/*
+ * Set new x,y offsets in the virtual display for the visible area and switch
+ * to the new mode.
+ */
 static int da8xx_pan_display(struct fb_var_screeninfo *var,
 			     struct fb_info *fbi)
 {
@@ -1029,6 +1087,7 @@ static struct fb_ops da8xx_fb_ops = {
 	.fb_blank = cfb_blank,
 };
 
+/* Calculate and return pixel clock period in pico seconds */
 static unsigned int da8xxfb_pixel_clk_period(struct da8xx_fb_par *par)
 {
 	unsigned int lcd_clk, div;
@@ -1090,7 +1149,7 @@ static int __devinit fb_probe(struct platform_device *device)
 	if (ret)
 		goto err_clk_put;
 
-	
+	/* Determine LCD IP Version */
 	switch (lcdc_read(LCD_PID_REG)) {
 	case 0x4C100102:
 		lcd_revision = LCD_VERSION_1;
@@ -1148,7 +1207,7 @@ static int __devinit fb_probe(struct platform_device *device)
 		goto err_release_fb;
 	}
 
-	
+	/* allocate frame buffer */
 	par->vram_size = lcdc_info->width * lcdc_info->height * lcd_cfg->bpp;
 	par->vram_size = PAGE_ALIGN(par->vram_size/8);
 	par->vram_size = par->vram_size * LCD_NUM_BUFFERS;
@@ -1173,7 +1232,7 @@ static int __devinit fb_probe(struct platform_device *device)
 	par->dma_end   = par->dma_start + lcdc_info->height *
 		da8xx_fb_fix.line_length - 1;
 
-	
+	/* allocate palette buffer */
 	par->v_palette_base = dma_alloc_coherent(NULL,
 					       PALETTE_SIZE,
 					       (resource_size_t *)
@@ -1193,7 +1252,7 @@ static int __devinit fb_probe(struct platform_device *device)
 		goto err_release_pl_mem;
 	}
 
-	
+	/* Initialize par */
 	da8xx_fb_info->var.bits_per_pixel = lcd_cfg->bpp;
 
 	da8xx_fb_var.xres = lcdc_info->width;
@@ -1214,7 +1273,7 @@ static int __devinit fb_probe(struct platform_device *device)
 	da8xx_fb_var.upper_margin = lcdc_info->vbp;
 	da8xx_fb_var.pixclock = da8xxfb_pixel_clk_period(par);
 
-	
+	/* Initialize fbinfo */
 	da8xx_fb_info->flags = FBINFO_FLAG_DEFAULT;
 	da8xx_fb_info->fix = da8xx_fb_fix;
 	da8xx_fb_info->var = da8xx_fb_var;
@@ -1228,17 +1287,17 @@ static int __devinit fb_probe(struct platform_device *device)
 		goto err_release_pl_mem;
 	da8xx_fb_info->cmap.len = par->palette_sz;
 
-	
+	/* initialize var_screeninfo */
 	da8xx_fb_var.activate = FB_ACTIVATE_FORCE;
 	fb_set_var(da8xx_fb_info, &da8xx_fb_var);
 
 	dev_set_drvdata(&device->dev, da8xx_fb_info);
 
-	
+	/* initialize the vsync wait queue */
 	init_waitqueue_head(&par->vsync_wait);
 	par->vsync_timeout = HZ / 5;
 
-	
+	/* Register the Frame Buffer  */
 	if (register_framebuffer(da8xx_fb_info) < 0) {
 		dev_err(&device->dev,
 			"GLCD: Frame Buffer Registration Failed!\n");

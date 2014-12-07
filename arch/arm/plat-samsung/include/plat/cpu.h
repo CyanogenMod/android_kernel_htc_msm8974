@@ -13,6 +13,7 @@
  * published by the Free Software Foundation.
 */
 
+/* todo - fix when rmk changes iodescs to use `void __iomem *` */
 
 #ifndef __SAMSUNG_PLAT_CPU_H
 #define __SAMSUNG_PLAT_CPU_H
@@ -137,11 +138,13 @@ IS_SAMSUNG_CPU(exynos5250, EXYNOS5250_SOC_ID, EXYNOS5_SOC_MASK)
 
 #define print_mhz(m) ((m) / MHZ), (((m) / 1000) % 1000)
 
+/* forward declaration */
 struct s3c24xx_uart_resources;
 struct platform_device;
 struct s3c2410_uartcfg;
 struct map_desc;
 
+/* per-cpu initialisation function table. */
 
 struct cpu_table {
 	unsigned long	idcode;
@@ -156,6 +159,7 @@ struct cpu_table {
 extern void s3c_init_cpu(unsigned long idcode,
 			 struct cpu_table *cpus, unsigned int cputab_size);
 
+/* core initialisation functions */
 
 extern void s3c24xx_init_irq(void);
 extern void s5p_init_irq(u32 *vic, u32 num_vic);
@@ -176,6 +180,7 @@ extern void s3c24xx_init_uartdevs(char *name,
 				  struct s3c24xx_uart_resources *res,
 				  struct s3c2410_uartcfg *cfg, int no);
 
+/* timer for 2410/2440 */
 
 struct sys_timer;
 extern struct sys_timer s3c24xx_timer;
@@ -185,6 +190,7 @@ extern struct syscore_ops s3c2412_pm_syscore_ops;
 extern struct syscore_ops s3c2416_pm_syscore_ops;
 extern struct syscore_ops s3c244x_pm_syscore_ops;
 
+/* system device subsystems */
 
 extern struct bus_type s3c2410_subsys;
 extern struct bus_type s3c2410a_subsys;

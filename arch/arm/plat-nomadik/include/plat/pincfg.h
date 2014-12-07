@@ -12,6 +12,32 @@
 #ifndef __PLAT_PINCFG_H
 #define __PLAT_PINCFG_H
 
+/*
+ * pin configurations are represented by 32-bit integers:
+ *
+ *	bit  0.. 8 - Pin Number (512 Pins Maximum)
+ *	bit  9..10 - Alternate Function Selection
+ *	bit 11..12 - Pull up/down state
+ *	bit     13 - Sleep mode behaviour
+ *	bit     14 - Direction
+ *	bit     15 - Value (if output)
+ *	bit 16..18 - SLPM pull up/down state
+ *	bit 19..20 - SLPM direction
+ *	bit 21..22 - SLPM Value (if output)
+ *
+ * to facilitate the definition, the following macros are provided
+ *
+ * PIN_CFG_DEFAULT - default config (0):
+ *		     pull up/down = disabled
+ *		     sleep mode = input/wakeup
+ *		     direction = input
+ *		     value = low
+ *		     SLPM direction = same as normal
+ *		     SLPM pull = same as normal
+ *		     SLPM value = same as normal
+ *
+ * PIN_CFG	   - default config with alternate function
+ */
 
 typedef unsigned long pin_cfg_t;
 
@@ -38,6 +64,7 @@ typedef unsigned long pin_cfg_t;
 #define PIN_SLPM(x)		(((x) & PIN_SLPM_MASK) >> PIN_SLPM_SHIFT)
 #define PIN_SLPM_MAKE_INPUT	(NMK_GPIO_SLPM_INPUT << PIN_SLPM_SHIFT)
 #define PIN_SLPM_NOCHANGE	(NMK_GPIO_SLPM_NOCHANGE << PIN_SLPM_SHIFT)
+/* These two replace the above in DB8500v2+ */
 #define PIN_SLPM_WAKEUP_ENABLE	(NMK_GPIO_SLPM_WAKEUP_ENABLE << PIN_SLPM_SHIFT)
 #define PIN_SLPM_WAKEUP_DISABLE	(NMK_GPIO_SLPM_WAKEUP_DISABLE << PIN_SLPM_SHIFT)
 
@@ -78,6 +105,7 @@ typedef unsigned long pin_cfg_t;
 #define PIN_SLPM_VAL_LOW	((1 + 0) << PIN_SLPM_VAL_SHIFT)
 #define PIN_SLPM_VAL_HIGH	((1 + 1) << PIN_SLPM_VAL_SHIFT)
 
+/* Shortcuts.  Use these instead of separate DIR, PULL, and VAL.  */
 #define PIN_INPUT_PULLDOWN	(PIN_DIR_INPUT | PIN_PULL_DOWN)
 #define PIN_INPUT_PULLUP	(PIN_DIR_INPUT | PIN_PULL_UP)
 #define PIN_INPUT_NOPULL	(PIN_DIR_INPUT | PIN_PULL_NONE)

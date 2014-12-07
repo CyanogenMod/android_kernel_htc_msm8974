@@ -16,4 +16,4 @@ extern void __delay(unsigned long loops);
 
 #define udelay(n) __udelay(n)
 
-#endif 
+#endif /* _ASM_DELAY_H */

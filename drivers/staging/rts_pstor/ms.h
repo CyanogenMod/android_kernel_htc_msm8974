@@ -32,6 +32,7 @@
 
 #define	WRT_PRTCT		0x01
 
+/* Error Code */
 #define	MS_NO_ERROR				0x00
 #define	MS_CRC16_ERROR				0x80
 #define	MS_TO_ERROR				0x40
@@ -43,6 +44,7 @@
 #define	MS_BREQ_ERROR				0x01
 #define	MS_NOT_FOUND				0x03
 
+/* Transfer Protocol Command */
 #define READ_PAGE_DATA				0x02
 #define READ_REG				0x04
 #define	GET_INT					0x07
@@ -220,4 +222,4 @@ int mg_get_ICV(struct scsi_cmnd *srb, struct rtsx_chip *chip);
 int mg_set_ICV(struct scsi_cmnd *srb, struct rtsx_chip *chip);
 #endif
 
-#endif  
+#endif  /* __REALTEK_RTSX_MS_H */

@@ -32,11 +32,17 @@ struct iio_gpio_trigger_info {
 	struct mutex in_use;
 	unsigned int irq;
 };
+/*
+ * Need to reference count these triggers and only enable gpio interrupts
+ * as appropriate.
+ */
 
+/* So what functionality do we want in here?... */
+/* set high / low as interrupt type? */
 
 static irqreturn_t iio_gpio_trigger_poll(int irq, void *private)
 {
-	
+	/* Timestamp not currently provided */
 	iio_trigger_poll(private, 0);
 	return IRQ_HANDLED;
 }
@@ -102,6 +108,7 @@ static int iio_gpio_trigger_probe(struct platform_device *pdev)
 
 	return 0;
 
+/* First clean up the partly allocated trigger */
 error_release_irq:
 	free_irq(irq, trig);
 error_free_trig_info:
@@ -109,7 +116,7 @@ error_free_trig_info:
 error_put_trigger:
 	iio_put_trigger(trig);
 error_free_completed_registrations:
-	
+	/* The rest should have been added to the iio_gpio_trigger_list */
 	list_for_each_entry_safe(trig,
 				 trig2,
 				 &iio_gpio_trigger_list,

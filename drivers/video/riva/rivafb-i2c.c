@@ -107,7 +107,7 @@ static int __devinit riva_setup_i2c_bus(struct riva_i2c_chan *chan,
 
 	i2c_set_adapdata(&chan->adapter, chan);
 
-	
+	/* Raise SCL and SDA */
 	riva_gpio_setsda(chan, 1);
 	riva_gpio_setscl(chan, 1);
 	udelay(20);

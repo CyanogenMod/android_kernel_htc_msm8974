@@ -39,6 +39,9 @@ struct dma_channel {
 static struct dma_channel *dma_channels;
 static int num_dma_channels;
 
+/*
+ * Debug fs
+ */
 #ifdef CONFIG_DEBUG_FS
 #include <linux/debugfs.h>
 #include <linux/uaccess.h>
@@ -170,7 +173,7 @@ static int dbg_show_state(struct seq_file *s, void *p)
 {
 	int pos = 0;
 
-	
+	/* basic device status */
 	pos += seq_printf(s, "DMA engine status\n");
 	pos += seq_printf(s, "\tChannel number: %d\n", num_dma_channels);
 
@@ -281,14 +284,14 @@ int pxa_request_dma (char *name, pxa_dma_prio prio,
 	unsigned long flags;
 	int i, found = 0;
 
-	
+	/* basic sanity checks */
 	if (!name || !irq_handler)
 		return -EINVAL;
 
 	local_irq_save(flags);
 
 	do {
-		
+		/* try grabbing a DMA channel with the requested priority */
 		for (i = 0; i < num_dma_channels; i++) {
 			if ((dma_channels[i].prio == prio) &&
 			    !dma_channels[i].name) {
@@ -296,7 +299,7 @@ int pxa_request_dma (char *name, pxa_dma_prio prio,
 				break;
 			}
 		}
-		
+		/* if requested prio group is full, try a hier priority */
 	} while (!found && prio--);
 
 	if (found) {
@@ -344,6 +347,10 @@ static irqreturn_t dma_irq_handler(int irq, void *dev_id)
 		if (channel->name && channel->irq_handler) {
 			channel->irq_handler(i, channel->data);
 		} else {
+			/*
+			 * IRQ for an unregistered DMA channel:
+			 * let's clear the interrupts and disable it.
+			 */
 			printk (KERN_WARNING "spurious IRQ for DMA channel %d\n", i);
 			DCSR(i) = DCSR_STARTINTR|DCSR_ENDINTR|DCSR_BUSERR;
 		}
@@ -359,6 +366,11 @@ int __init pxa_init_dma(int irq, int num_ch)
 	if (dma_channels == NULL)
 		return -ENOMEM;
 
+	/* dma channel priorities on pxa2xx processors:
+	 * ch 0 - 3,  16 - 19  <--> (0) DMA_PRIO_HIGH
+	 * ch 4 - 7,  20 - 23  <--> (1) DMA_PRIO_MEDIUM
+	 * ch 8 - 15, 24 - 31  <--> (2) DMA_PRIO_LOW
+	 */
 	for (i = 0; i < num_ch; i++) {
 		DCSR(i) = 0;
 		dma_channels[i].prio = min((i & 0xf) >> 2, DMA_PRIO_LOW);

@@ -21,9 +21,11 @@
 #include "ssb_private.h"
 
 
+/* Define the following to 1 to enable a printk on each coreswitch. */
 #define SSB_VERBOSE_PCMCIACORESWITCH_DEBUG		0
 
 
+/* PCMCIA configuration registers */
 #define SSB_PCMCIA_ADDRESS0		0x2E
 #define SSB_PCMCIA_ADDRESS1		0x30
 #define SSB_PCMCIA_ADDRESS2		0x32
@@ -40,6 +42,7 @@
 #define SSB_PCMCIA_SPROM_ADDRLO		0x3C
 #define SSB_PCMCIA_SPROM_ADDRHI		0x3E
 
+/* Hardware invariants CIS tuples */
 #define SSB_PCMCIA_CIS			0x80
 #define  SSB_PCMCIA_CIS_ID		0x01
 #define  SSB_PCMCIA_CIS_BOARDREV	0x02
@@ -59,10 +62,12 @@
 #define  SSB_PCMCIA_CIS_BFLAGS		0x08
 #define  SSB_PCMCIA_CIS_LEDS		0x09
 
+/* PCMCIA SPROM size. */
 #define SSB_PCMCIA_SPROM_SIZE		256
 #define SSB_PCMCIA_SPROM_SIZE_BYTES	(SSB_PCMCIA_SPROM_SIZE * sizeof(u16))
 
 
+/* Write to a PCMCIA configuration register. */
 static int ssb_pcmcia_cfg_write(struct ssb_bus *bus, u8 offset, u8 value)
 {
 	int res;
@@ -74,6 +79,7 @@ static int ssb_pcmcia_cfg_write(struct ssb_bus *bus, u8 offset, u8 value)
 	return 0;
 }
 
+/* Read from a PCMCIA configuration register. */
 static int ssb_pcmcia_cfg_read(struct ssb_bus *bus, u8 offset, u8 *value)
 {
 	int res;
@@ -323,7 +329,7 @@ static void ssb_pcmcia_block_read(struct ssb_device *dev, void *buffer,
 unlock:
 	spin_unlock_irqrestore(&bus->bar_lock, flags);
 }
-#endif 
+#endif /* CONFIG_SSB_BLOCKIO */
 
 static void ssb_pcmcia_write8(struct ssb_device *dev, u16 offset, u8 value)
 {
@@ -424,8 +430,9 @@ unlock:
 	mmiowb();
 	spin_unlock_irqrestore(&bus->bar_lock, flags);
 }
-#endif 
+#endif /* CONFIG_SSB_BLOCKIO */
 
+/* Not "static", as it's used in main.c */
 const struct ssb_bus_ops ssb_pcmcia_ops = {
 	.read8		= ssb_pcmcia_read8,
 	.read16		= ssb_pcmcia_read16,
@@ -460,12 +467,13 @@ static int ssb_pcmcia_sprom_command(struct ssb_bus *bus, u8 command)
 	return -ETIMEDOUT;
 }
 
+/* offset is the 16bit word offset */
 static int ssb_pcmcia_sprom_read(struct ssb_bus *bus, u16 offset, u16 *value)
 {
 	int err;
 	u8 lo, hi;
 
-	offset *= 2; 
+	offset *= 2; /* Make byte offset */
 
 	err = ssb_pcmcia_cfg_write(bus, SSB_PCMCIA_SPROM_ADDRLO,
 				   (offset & 0x00FF));
@@ -489,11 +497,12 @@ static int ssb_pcmcia_sprom_read(struct ssb_bus *bus, u16 offset, u16 *value)
 	return 0;
 }
 
+/* offset is the 16bit word offset */
 static int ssb_pcmcia_sprom_write(struct ssb_bus *bus, u16 offset, u16 value)
 {
 	int err;
 
-	offset *= 2; 
+	offset *= 2; /* Make byte offset */
 
 	err = ssb_pcmcia_cfg_write(bus, SSB_PCMCIA_SPROM_ADDRLO,
 				   (offset & 0x00FF));
@@ -519,6 +528,7 @@ static int ssb_pcmcia_sprom_write(struct ssb_bus *bus, u16 offset, u16 value)
 	return 0;
 }
 
+/* Read the SPROM image. bufsize is in 16bit words. */
 static int ssb_pcmcia_sprom_read_all(struct ssb_bus *bus, u16 *sprom)
 {
 	int err, i;
@@ -532,6 +542,7 @@ static int ssb_pcmcia_sprom_read_all(struct ssb_bus *bus, u16 *sprom)
 	return 0;
 }
 
+/* Write the SPROM image. size is in 16bit words. */
 static int ssb_pcmcia_sprom_write_all(struct ssb_bus *bus, const u16 *sprom)
 {
 	int i, err;
@@ -583,7 +594,7 @@ static int ssb_pcmcia_sprom_write_all(struct ssb_bus *bus, const u16 *sprom)
 
 static int ssb_pcmcia_sprom_check_crc(const u16 *sprom, size_t size)
 {
-	
+	//TODO
 	return 0;
 }
 
@@ -649,7 +660,7 @@ static int ssb_pcmcia_do_get_invariants(struct pcmcia_device *p_dev,
 		sprom->maxpwr_bg = tuple->TupleData[8];
 		break;
 	case SSB_PCMCIA_CIS_OEMNAME:
-		
+		/* We ignore this. */
 		break;
 	case SSB_PCMCIA_CIS_CCODE:
 		GOTO_ERROR_ON(tuple->TupleDataLen != 2,
@@ -686,7 +697,7 @@ static int ssb_pcmcia_do_get_invariants(struct pcmcia_device *p_dev,
 		sprom->gpio3 = tuple->TupleData[4];
 		break;
 	}
-	return -ENOSPC; 
+	return -ENOSPC; /* continue with next entry */
 
 error:
 	ssb_printk(KERN_ERR PFX
@@ -707,7 +718,7 @@ int ssb_pcmcia_get_invariants(struct ssb_bus *bus,
 	sprom->boardflags_lo = 0;
 	sprom->boardflags_hi = 0;
 
-	
+	/* First fetch the MAC address. */
 	res = pcmcia_loop_tuple(bus->host_pcmcia, CISTPL_FUNCE,
 				ssb_pcmcia_get_mac, sprom);
 	if (res != 0) {
@@ -716,7 +727,7 @@ int ssb_pcmcia_get_invariants(struct ssb_bus *bus,
 		return -ENODEV;
 	}
 
-	
+	/* Fetch the vendor specific tuples. */
 	res = pcmcia_loop_tuple(bus->host_pcmcia, SSB_PCMCIA_CIS,
 				ssb_pcmcia_do_get_invariants, iv);
 	if ((res == 0) || (res == -ENOSPC))
@@ -782,6 +793,7 @@ static int ssb_pcmcia_cor_setup(struct ssb_bus *bus, u8 cor)
 	return 0;
 }
 
+/* Initialize the PCMCIA hardware. This is called on Init and Resume. */
 int ssb_pcmcia_hardware_setup(struct ssb_bus *bus)
 {
 	int err;
@@ -789,12 +801,14 @@ int ssb_pcmcia_hardware_setup(struct ssb_bus *bus)
 	if (bus->bustype != SSB_BUSTYPE_PCMCIA)
 		return 0;
 
+	/* Switch segment to a known state and sync
+	 * bus->mapped_pcmcia_seg with hardware state. */
 	ssb_pcmcia_switch_segment(bus, 0);
-	
+	/* Init the COR register. */
 	err = ssb_pcmcia_cor_setup(bus, CISREG_COR);
 	if (err)
 		return err;
-	
+	/* Some cards also need this register to get poked. */
 	err = ssb_pcmcia_cor_setup(bus, CISREG_COR + 0x80);
 	if (err)
 		return err;

@@ -15,6 +15,9 @@
 #include <mach/clk-provider.h>
 #include "clock.h"
 
+/*
+ * Clocks
+ */
 
 static struct clk_lookup msm_clocks_fsm9xxx[] = {
 	CLK_DUMMY("core_clk",	ADM0_CLK,	"msm_dmov", OFF),

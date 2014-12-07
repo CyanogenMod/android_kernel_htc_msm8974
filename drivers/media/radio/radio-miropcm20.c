@@ -1,4 +1,16 @@
+/* Miro PCM20 radio driver for Linux radio support
+ * (c) 1998 Ruurd Reitsma <R.A.Reitsma@wbmt.tudelft.nl>
+ * Thanks to Norberto Pellici for the ACI device interface specification
+ * The API part is based on the radiotrack driver by M. Kirkwood
+ * This driver relies on the aci mixer provided by the snd-miro
+ * ALSA driver.
+ * Look there for further info...
+ */
 
+/* What ever you think about the ACI, version 0x07 is not very well!
+ * I can't get frequency, 'tuner status', 'tuner flags' or mute/mono
+ * conditions...                Robert
+ */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -50,7 +62,8 @@ static int pcm20_setfreq(struct pcm20 *dev, unsigned long freq)
 
 	freq /= 160;
 	if (!(aci->aci_version == 0x07 || aci->aci_version >= 0xb0))
-		freq /= 10;  
+		freq /= 10;  /* I don't know exactly which version
+			      * needs this hack */
 	freql = freq & 0xff;
 	freqh = freq >> 8;
 
@@ -77,7 +90,7 @@ static int vidioc_querycap(struct file *file, void *priv,
 static int vidioc_g_tuner(struct file *file, void *priv,
 				struct v4l2_tuner *v)
 {
-	if (v->index)	
+	if (v->index)	/* Only 1 tuner */
 		return -EINVAL;
 	strlcpy(v->name, "FM", sizeof(v->name));
 	v->type = V4L2_TUNER_RADIO;

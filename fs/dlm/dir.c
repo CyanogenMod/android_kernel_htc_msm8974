@@ -67,6 +67,14 @@ void dlm_clear_free_entries(struct dlm_ls *ls)
 	spin_unlock(&ls->ls_recover_list_lock);
 }
 
+/*
+ * We use the upper 16 bits of the hash value to select the directory node.
+ * Low bits are used for distribution of rsb's among hash buckets on each node.
+ *
+ * To give the exact range wanted (0 to num_nodes-1), we apply a modulus of
+ * num_nodes to the hash value.  This value in the desired range is used as an
+ * offset into the sorted list of nodeid's to give the particular nodeid.
+ */
 
 int dlm_hash2nodeid(struct dlm_ls *ls, uint32_t hash)
 {
@@ -86,7 +94,7 @@ int dlm_hash2nodeid(struct dlm_ls *ls, uint32_t hash)
 		goto out;
 	}
 
-	
+	/* make_member_array() failed to kmalloc ls_node_array... */
 
 	node = (hash >> 16) % ls->ls_num_nodes;
 
@@ -224,6 +232,9 @@ int dlm_recover_directory(struct dlm_ls *ls)
 
 			schedule();
 
+			/*
+			 * pick namelen/name pairs out of received buffer
+			 */
 
 			b = ls->ls_recover_buf->rc_buf;
 			left = ls->ls_recover_buf->rc_header.h_length;
@@ -241,6 +252,9 @@ int dlm_recover_directory(struct dlm_ls *ls)
 				b += sizeof(__be16);
 				left -= sizeof(__be16);
 
+				/* namelen of 0xFFFFF marks end of names for
+				   this node; namelen of 0 marks end of the
+				   buffer */
 
 				if (namelen == 0xFFFF)
 					goto done;
@@ -366,6 +380,9 @@ static struct dlm_rsb *find_rsb_root(struct dlm_ls *ls, char *name, int len)
 	return NULL;
 }
 
+/* Find the rsb where we left off (or start again), then send rsb names
+   for rsb's we're master of and whose directory node matches the requesting
+   node.  inbuf is the rsb name last sent, inlen is the name's length */
 
 void dlm_copy_master_names(struct dlm_ls *ls, char *inbuf, int inlen,
  			   char *outbuf, int outlen, int nodeid)
@@ -399,9 +416,16 @@ void dlm_copy_master_names(struct dlm_ls *ls, char *inbuf, int inlen,
 		if (dir_nodeid != nodeid)
 			continue;
 
+		/*
+		 * The block ends when we can't fit the following in the
+		 * remaining buffer space:
+		 * namelen (uint16_t) +
+		 * name (r->res_length) +
+		 * end-of-block record 0x0000 (uint16_t)
+		 */
 
 		if (offset + sizeof(uint16_t)*2 + r->res_length > outlen) {
-			
+			/* Write end-of-block record */
 			be_namelen = cpu_to_be16(0);
 			memcpy(outbuf + offset, &be_namelen, sizeof(__be16));
 			offset += sizeof(__be16);
@@ -415,6 +439,10 @@ void dlm_copy_master_names(struct dlm_ls *ls, char *inbuf, int inlen,
 		offset += r->res_length;
 	}
 
+	/*
+	 * If we've reached the end of the list (and there's room) write a
+	 * terminating record.
+	 */
 
 	if ((list == &ls->ls_root_list) &&
 	    (offset + sizeof(uint16_t) <= outlen)) {

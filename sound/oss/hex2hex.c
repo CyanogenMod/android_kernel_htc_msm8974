@@ -1,3 +1,8 @@
+/*
+ * hex2hex reads stdin in Intel HEX format and produces an
+ * (unsigned char) array which contains the bytes and writes it
+ * to stdout using C syntax
+ */
 
 #include <stdio.h>
 #include <string.h>
@@ -13,7 +18,7 @@ static int loadhex(FILE *inf, unsigned char *buf)
 
 	while ((c=getc(inf))!=EOF)
 	{
-		if (c == ':')	
+		if (c == ':')	/* Sync with beginning of line */
 		{
 			int n, check;
 			unsigned char sum;

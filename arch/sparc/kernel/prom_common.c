@@ -95,7 +95,7 @@ int of_set_property(struct device_node *dp, const char *name, void *val, int len
 	write_unlock(&devtree_lock);
 	mutex_unlock(&of_set_property_mutex);
 
-	
+	/* XXX Upate procfs if necessary... */
 
 	return err;
 }
@@ -116,6 +116,12 @@ int of_find_in_proplist(const char *list, const char *match, int len)
 }
 EXPORT_SYMBOL(of_find_in_proplist);
 
+/*
+ * SPARC32 and SPARC64's prom_nextprop() do things differently
+ * here, despite sharing the same interface.  SPARC32 doesn't fill in 'buf',
+ * returning NULL on an error.  SPARC64 fills in 'buf', but sets it to an
+ * empty string upon error.
+ */
 static int __init handle_nextprop_quirks(char *buf, const char *name)
 {
 	if (!name || strlen(name) == 0)

@@ -37,6 +37,16 @@ static int __init hash_setup(char *str)
 }
 __setup("ima_hash=", hash_setup);
 
+/*
+ * ima_rdwr_violation_check
+ *
+ * Only invalidate the PCR for measured files:
+ * 	- Opening a file for write when already open for read,
+ *	  results in a time of measure, time of use (ToMToU) error.
+ *	- Opening a file for read when already open for write,
+ * 	  could result in a file measurement error.
+ *
+ */
 static void ima_rdwr_violation_check(struct file *file)
 {
 	struct dentry *dentry = file->f_path.dentry;
@@ -48,7 +58,7 @@ static void ima_rdwr_violation_check(struct file *file)
 	if (!S_ISREG(inode->i_mode) || !ima_initialized)
 		return;
 
-	mutex_lock(&inode->i_mutex);	
+	mutex_lock(&inode->i_mutex);	/* file metadata: permissions, xattr */
 
 	if (mode & FMODE_WRITE) {
 		if (atomic_read(&inode->i_readcount) && IS_IMA(inode))
@@ -87,6 +97,12 @@ static void ima_check_last_writer(struct integrity_iint_cache *iint,
 	mutex_unlock(&iint->mutex);
 }
 
+/**
+ * ima_file_free - called on __fput()
+ * @file: pointer to file structure being freed
+ *
+ * Flag files that changed, based on i_version
+ */
 void ima_file_free(struct file *file)
 {
 	struct inode *inode = file->f_dentry->d_inode;
@@ -138,6 +154,17 @@ out:
 	return rc;
 }
 
+/**
+ * ima_file_mmap - based on policy, collect/store measurement.
+ * @file: pointer to the file to be measured (May be NULL)
+ * @prot: contains the protection that will be applied by the kernel.
+ *
+ * Measure files being mmapped executable based on the ima_must_measure()
+ * policy decision.
+ *
+ * Return 0 on success, an error code on failure.
+ * (Based on the results of appraise_measurement().)
+ */
 int ima_file_mmap(struct file *file, unsigned long prot)
 {
 	int rc;
@@ -150,6 +177,19 @@ int ima_file_mmap(struct file *file, unsigned long prot)
 	return 0;
 }
 
+/**
+ * ima_bprm_check - based on policy, collect/store measurement.
+ * @bprm: contains the linux_binprm structure
+ *
+ * The OS protects against an executable file, already open for write,
+ * from being executed in deny_write_access() and an executable file,
+ * already open for execute, from being modified in get_write_access().
+ * So we can be certain that what we verify and measure here is actually
+ * what is being executed.
+ *
+ * Return 0 on success, an error code on failure.
+ * (Based on the results of appraise_measurement().)
+ */
 int ima_bprm_check(struct linux_binprm *bprm)
 {
 	int rc;
@@ -159,6 +199,16 @@ int ima_bprm_check(struct linux_binprm *bprm)
 	return 0;
 }
 
+/**
+ * ima_path_check - based on policy, collect/store measurement.
+ * @file: pointer to the file to be measured
+ * @mask: contains MAY_READ, MAY_WRITE or MAY_EXECUTE
+ *
+ * Measure files based on the ima_must_measure() policy decision.
+ *
+ * Always return 0 and audit dentry_open failures.
+ * (Return code will be based upon measurement appraisal.)
+ */
 int ima_file_check(struct file *file, int mask)
 {
 	int rc;
@@ -185,7 +235,7 @@ static void __exit cleanup_ima(void)
 	ima_cleanup();
 }
 
-late_initcall(init_ima);	
+late_initcall(init_ima);	/* Start IMA after the TPM is available */
 
 MODULE_DESCRIPTION("Integrity Measurement Architecture");
 MODULE_LICENSE("GPL");

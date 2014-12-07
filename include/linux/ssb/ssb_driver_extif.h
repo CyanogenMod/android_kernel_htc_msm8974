@@ -20,6 +20,7 @@
 #ifndef LINUX_SSB_EXTIFCORE_H_
 #define LINUX_SSB_EXTIFCORE_H_
 
+/* external interface address space */
 #define	SSB_EXTIF_PCMCIA_MEMBASE(x)	(x)
 #define	SSB_EXTIF_PCMCIA_IOBASE(x)	((x) + 0x100000)
 #define	SSB_EXTIF_PCMCIA_CFGBASE(x)	((x) + 0x200000)
@@ -27,6 +28,12 @@
 #define	SSB_EXTIF_FLASH_BASE(x)		((x) + 0xc00000)
 
 #define SSB_EXTIF_NR_GPIOOUT		5
+/* GPIO NOTE:
+ * The multiple instances of output and output enable registers
+ * are present to allow driver software for multiple cores to control
+ * gpio outputs without needing to share a single register pair.
+ * Use the following helper macro to get a register offset value.
+ */
 #define SSB_EXTIF_GPIO_OUT(index)	({		\
 	BUILD_BUG_ON(index >= SSB_EXTIF_NR_GPIOOUT);	\
 	SSB_EXTIF_GPIO_OUT_BASE + ((index) * 8);	\
@@ -36,13 +43,14 @@
 	SSB_EXTIF_GPIO_OUTEN_BASE + ((index) * 8);	\
 					})
 
+/** EXTIF core registers **/
 
 #define SSB_EXTIF_CTL			0x0000
-#define  SSB_EXTIF_CTL_UARTEN		(1 << 0) 
+#define  SSB_EXTIF_CTL_UARTEN		(1 << 0) /* UART enable */
 #define SSB_EXTIF_EXTSTAT		0x0004
-#define  SSB_EXTIF_EXTSTAT_EMODE	(1 << 0) 
-#define  SSB_EXTIF_EXTSTAT_EIRQPIN	(1 << 1) 
-#define  SSB_EXTIF_EXTSTAT_GPIOIRQPIN	(1 << 2) 
+#define  SSB_EXTIF_EXTSTAT_EMODE	(1 << 0) /* Endian mode (ro) */
+#define  SSB_EXTIF_EXTSTAT_EIRQPIN	(1 << 1) /* External interrupt pin (ro) */
+#define  SSB_EXTIF_EXTSTAT_GPIOIRQPIN	(1 << 2) /* GPIO interrupt pin (ro) */
 #define SSB_EXTIF_PCMCIA_CFG		0x0010
 #define SSB_EXTIF_PCMCIA_MEMWAIT	0x0014
 #define SSB_EXTIF_PCMCIA_ATTRWAIT	0x0018
@@ -74,52 +82,57 @@
 
 
 
-#define	SSB_EXTCFG_EN			(1 << 0)	
-#define	SSB_EXTCFG_MODE			0xE		
+/* pcmcia/prog/flash_config */
+#define	SSB_EXTCFG_EN			(1 << 0)	/* enable */
+#define	SSB_EXTCFG_MODE			0xE		/* mode */
 #define	SSB_EXTCFG_MODE_SHIFT		1
-#define	 SSB_EXTCFG_MODE_FLASH		0x0		
-#define	 SSB_EXTCFG_MODE_SYNC		0x2		
-#define	 SSB_EXTCFG_MODE_PCMCIA		0x4		
-#define	SSB_EXTCFG_DS16			(1 << 4)	
-#define	SSB_EXTCFG_BSWAP		(1 << 5)	
-#define	SSB_EXTCFG_CLKDIV		0xC0		
+#define	 SSB_EXTCFG_MODE_FLASH		0x0		/* flash/asynchronous mode */
+#define	 SSB_EXTCFG_MODE_SYNC		0x2		/* synchronous mode */
+#define	 SSB_EXTCFG_MODE_PCMCIA		0x4		/* pcmcia mode */
+#define	SSB_EXTCFG_DS16			(1 << 4)	/* destsize:  0=8bit, 1=16bit */
+#define	SSB_EXTCFG_BSWAP		(1 << 5)	/* byteswap */
+#define	SSB_EXTCFG_CLKDIV		0xC0		/* clock divider */
 #define	SSB_EXTCFG_CLKDIV_SHIFT		6
-#define	 SSB_EXTCFG_CLKDIV_2		0x0		
-#define	 SSB_EXTCFG_CLKDIV_3		0x40		
-#define	 SSB_EXTCFG_CLKDIV_4		0x80		
-#define	SSB_EXTCFG_CLKEN		(1 << 8)	
-#define	SSB_EXTCFG_STROBE		(1 << 9)	
+#define	 SSB_EXTCFG_CLKDIV_2		0x0		/* backplane/2 */
+#define	 SSB_EXTCFG_CLKDIV_3		0x40		/* backplane/3 */
+#define	 SSB_EXTCFG_CLKDIV_4		0x80		/* backplane/4 */
+#define	SSB_EXTCFG_CLKEN		(1 << 8)	/* clock enable */
+#define	SSB_EXTCFG_STROBE		(1 << 9)	/* size/bytestrobe (synch only) */
 
-#define	SSB_PCMCIA_MEMW_0		0x0000003F	
-#define	SSB_PCMCIA_MEMW_1		0x00001F00	
+/* pcmcia_memwait */
+#define	SSB_PCMCIA_MEMW_0		0x0000003F	/* waitcount0 */
+#define	SSB_PCMCIA_MEMW_1		0x00001F00	/* waitcount1 */
 #define	SSB_PCMCIA_MEMW_1_SHIFT		8
-#define	SSB_PCMCIA_MEMW_2		0x001F0000	
+#define	SSB_PCMCIA_MEMW_2		0x001F0000	/* waitcount2 */
 #define	SSB_PCMCIA_MEMW_2_SHIFT		16
-#define	SSB_PCMCIA_MEMW_3		0x1F000000	
+#define	SSB_PCMCIA_MEMW_3		0x1F000000	/* waitcount3 */
 #define	SSB_PCMCIA_MEMW_3_SHIFT		24
 
-#define	SSB_PCMCIA_ATTW_0		0x0000003F	
-#define	SSB_PCMCIA_ATTW_1		0x00001F00	
+/* pcmcia_attrwait */
+#define	SSB_PCMCIA_ATTW_0		0x0000003F	/* waitcount0 */
+#define	SSB_PCMCIA_ATTW_1		0x00001F00	/* waitcount1 */
 #define	SSB_PCMCIA_ATTW_1_SHIFT		8
-#define	SSB_PCMCIA_ATTW_2		0x001F0000	
+#define	SSB_PCMCIA_ATTW_2		0x001F0000	/* waitcount2 */
 #define	SSB_PCMCIA_ATTW_2_SHIFT		16
-#define	SSB_PCMCIA_ATTW_3		0x1F000000	
+#define	SSB_PCMCIA_ATTW_3		0x1F000000	/* waitcount3 */
 #define	SSB_PCMCIA_ATTW_3_SHIFT		24
 
-#define	SSB_PCMCIA_IOW_0		0x0000003F	
-#define	SSB_PCMCIA_IOW_1		0x00001F00	
+/* pcmcia_iowait */
+#define	SSB_PCMCIA_IOW_0		0x0000003F	/* waitcount0 */
+#define	SSB_PCMCIA_IOW_1		0x00001F00	/* waitcount1 */
 #define	SSB_PCMCIA_IOW_1_SHIFT		8
-#define	SSB_PCMCIA_IOW_2		0x001F0000	
+#define	SSB_PCMCIA_IOW_2		0x001F0000	/* waitcount2 */
 #define	SSB_PCMCIA_IOW_2_SHIFT		16
-#define	SSB_PCMCIA_IOW_3		0x1F000000	
+#define	SSB_PCMCIA_IOW_3		0x1F000000	/* waitcount3 */
 #define	SSB_PCMCIA_IOW_3_SHIFT		24
 
-#define	SSB_PROG_WCNT_0			0x0000001F	
-#define	SSB_PROG_WCNT_1			0x00001F00	
+/* prog_waitcount */
+#define	SSB_PROG_WCNT_0			0x0000001F	/* waitcount0 */
+#define	SSB_PROG_WCNT_1			0x00001F00	/* waitcount1 */
 #define	SSB_PROG_WCNT_1_SHIFT		8
-#define	SSB_PROG_WCNT_2			0x001F0000	
+#define	SSB_PROG_WCNT_2			0x001F0000	/* waitcount2 */
 #define	SSB_PROG_WCNT_2_SHIFT		16
-#define	SSB_PROG_WCNT_3			0x1F000000	
+#define	SSB_PROG_WCNT_3			0x1F000000	/* waitcount3 */
 #define	SSB_PROG_WCNT_3_SHIFT		24
 
 #define SSB_PROG_W0			0x0000000C
@@ -127,15 +140,17 @@
 #define SSB_PROG_W2			0x00020000
 #define SSB_PROG_W3			0x01000000
 
-#define	SSB_FLASH_WCNT_0		0x0000001F	
-#define	SSB_FLASH_WCNT_1		0x00001F00	
+/* flash_waitcount */
+#define	SSB_FLASH_WCNT_0		0x0000001F	/* waitcount0 */
+#define	SSB_FLASH_WCNT_1		0x00001F00	/* waitcount1 */
 #define	SSB_FLASH_WCNT_1_SHIFT		8
-#define	SSB_FLASH_WCNT_2		0x001F0000	
+#define	SSB_FLASH_WCNT_2		0x001F0000	/* waitcount2 */
 #define	SSB_FLASH_WCNT_2_SHIFT		16
-#define	SSB_FLASH_WCNT_3		0x1F000000	
+#define	SSB_FLASH_WCNT_3		0x1F000000	/* waitcount3 */
 #define	SSB_FLASH_WCNT_3_SHIFT		24
 
-#define SSB_EXTIF_WATCHDOG_CLK		48000000	
+/* watchdog */
+#define SSB_EXTIF_WATCHDOG_CLK		48000000	/* Hz */
 
 
 
@@ -159,6 +174,7 @@ extern void ssb_extif_timing_init(struct ssb_extif *extif,
 extern void ssb_extif_watchdog_timer_set(struct ssb_extif *extif,
 					 u32 ticks);
 
+/* Extif GPIO pin access */
 u32 ssb_extif_gpio_in(struct ssb_extif *extif, u32 mask);
 u32 ssb_extif_gpio_out(struct ssb_extif *extif, u32 mask, u32 value);
 u32 ssb_extif_gpio_outen(struct ssb_extif *extif, u32 mask, u32 value);
@@ -168,10 +184,11 @@ u32 ssb_extif_gpio_intmask(struct ssb_extif *extif, u32 mask, u32 value);
 #ifdef CONFIG_SSB_SERIAL
 extern int ssb_extif_serial_init(struct ssb_extif *extif,
 				 struct ssb_serial_port *ports);
-#endif 
+#endif /* CONFIG_SSB_SERIAL */
 
 
-#else 
+#else /* CONFIG_SSB_DRIVER_EXTIF */
+/* extif disabled */
 
 struct ssb_extif {
 };
@@ -193,5 +210,5 @@ void ssb_extif_watchdog_timer_set(struct ssb_extif *extif,
 {
 }
 
-#endif 
-#endif 
+#endif /* CONFIG_SSB_DRIVER_EXTIF */
+#endif /* LINUX_SSB_EXTIFCORE_H_ */

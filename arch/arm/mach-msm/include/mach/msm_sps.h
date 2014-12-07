@@ -12,9 +12,14 @@
 #ifndef _MSM_SPS_H_
 #define _MSM_SPS_H_
 
+/**
+ * struct msm_sps_platform_data - SPS Platform specific data.
+ * @bamdma_restricted_pipes - Bitmask of pipes restricted from local use.
+ *
+ */
 struct msm_sps_platform_data {
 	u32 bamdma_restricted_pipes;
 };
 
-#endif 
+#endif /* _MSM_SPS_H_ */
 

@@ -14,6 +14,9 @@
 
 struct clock_event_device;
 
+/*
+ * Setup a per-cpu timer, whether it be a local timer or dummy broadcast
+ */
 void percpu_timer_setup(void);
 
 struct local_timer_ops {
@@ -22,6 +25,9 @@ struct local_timer_ops {
 };
 
 #ifdef CONFIG_LOCAL_TIMERS
+/*
+ * Register a local timer driver
+ */
 int local_timer_register(struct local_timer_ops *);
 #else
 static inline int local_timer_register(struct local_timer_ops *ops)

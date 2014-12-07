@@ -25,13 +25,20 @@ static const signed char sine_data[] = {
 
 #define custom amiga_custom
 
+    /*
+     * The minimum period for audio may be modified by the frame buffer
+     * device since it depends on htotal (for OCS/ECS/AGA)
+     */
 
-volatile unsigned short amiga_audio_min_period = 124; 
+volatile unsigned short amiga_audio_min_period = 124; /* Default for pre-OCS */
 EXPORT_SYMBOL(amiga_audio_min_period);
 
 #define MAX_PERIOD	(65535)
 
 
+    /*
+     *	Current period (set by dmasound.c)
+     */
 
 unsigned short amiga_audio_period = MAX_PERIOD;
 EXPORT_SYMBOL(amiga_audio_period);
@@ -49,10 +56,10 @@ void __init amiga_init_sound(void)
 	}
 	memcpy (snd_data, sine_data, sizeof(sine_data));
 
-	
+	/* setup divisor */
 	clock_constant = (amiga_colorclock+DATA_SIZE/2)/DATA_SIZE;
 
-	
+	/* without amifb, turn video off and enable high quality sound */
 #ifndef CONFIG_FB_AMIGA
 	amifb_video_off();
 #endif
@@ -79,18 +86,18 @@ void amiga_mksound( unsigned int hz, unsigned int ticks )
 		if (period > MAX_PERIOD)
 			period = MAX_PERIOD;
 
-		
+		/* setup pointer to data, period, length and volume */
 		custom.aud[2].audlc = snd_data;
 		custom.aud[2].audlen = sizeof(sine_data)/2;
 		custom.aud[2].audper = (unsigned short)period;
-		custom.aud[2].audvol = 32; 
+		custom.aud[2].audvol = 32; /* 50% of maxvol */
 
 		if (ticks) {
 			sound_timer.expires = jiffies + ticks;
 			add_timer( &sound_timer );
 		}
 
-		
+		/* turn on DMA for audio channel 2 */
 		custom.dmacon = DMAF_SETCLR | DMAF_AUD2;
 
 	} else
@@ -102,8 +109,8 @@ void amiga_mksound( unsigned int hz, unsigned int ticks )
 
 static void nosound( unsigned long ignored )
 {
-	
+	/* turn off DMA for audio channel 2 */
 	custom.dmacon = DMAF_AUD2;
-	
+	/* restore period to previous value after beeping */
 	custom.aud[2].audper = amiga_audio_period;
 }

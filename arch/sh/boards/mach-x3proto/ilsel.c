@@ -18,9 +18,32 @@
 #include <linux/io.h>
 #include <mach/ilsel.h>
 
+/*
+ * ILSEL is split across:
+ *
+ *	ILSEL0 - 0xb8100004 [ Levels  1 -  4 ]
+ *	ILSEL1 - 0xb8100006 [ Levels  5 -  8 ]
+ *	ILSEL2 - 0xb8100008 [ Levels  9 - 12 ]
+ *	ILSEL3 - 0xb810000a [ Levels 13 - 15 ]
+ *
+ * With each level being relative to an ilsel_source_t.
+ */
 #define ILSEL_BASE	0xb8100004
 #define ILSEL_LEVELS	15
 
+/*
+ * ILSEL level map, in descending order from the highest level down.
+ *
+ * Supported levels are 1 - 15 spread across ILSEL0 - ILSEL4, mapping
+ * directly to IRLs. As the IRQs are numbered in reverse order relative
+ * to the interrupt level, the level map is carefully managed to ensure a
+ * 1:1 mapping between the bit position and the IRQ number.
+ *
+ * This careful constructions allows ilsel_enable*() to be referenced
+ * directly for hooking up an ILSEL set and getting back an IRQ which can
+ * subsequently be used for internal accounting in the (optional) disable
+ * path.
+ */
 static unsigned long ilsel_level_map;
 
 static inline unsigned int ilsel_offset(unsigned int bit)
@@ -57,6 +80,18 @@ static void __ilsel_enable(ilsel_source_t set, unsigned int bit)
 	__raw_writew(tmp, addr);
 }
 
+/**
+ * ilsel_enable - Enable an ILSEL set.
+ * @set: ILSEL source (see ilsel_source_t enum in include/asm-sh/ilsel.h).
+ *
+ * Enables a given non-aliased ILSEL source (<= ILSEL_KEY) at the highest
+ * available interrupt level. Callers should take care to order callsites
+ * noting descending interrupt levels. Aliasing FPGA and external board
+ * IRQs need to use ilsel_enable_fixed().
+ *
+ * The return value is an IRQ number that can later be taken down with
+ * ilsel_disable().
+ */
 int ilsel_enable(ilsel_source_t set)
 {
 	unsigned int bit;
@@ -76,6 +111,17 @@ int ilsel_enable(ilsel_source_t set)
 }
 EXPORT_SYMBOL_GPL(ilsel_enable);
 
+/**
+ * ilsel_enable_fixed - Enable an ILSEL set at a fixed interrupt level
+ * @set: ILSEL source (see ilsel_source_t enum in include/asm-sh/ilsel.h).
+ * @level: Interrupt level (1 - 15)
+ *
+ * Enables a given ILSEL source at a fixed interrupt level. Necessary
+ * both for level reservation as well as for aliased sources that only
+ * exist on special ILSEL#s.
+ *
+ * Returns an IRQ number (as ilsel_enable()).
+ */
 int ilsel_enable_fixed(ilsel_source_t set, unsigned int level)
 {
 	unsigned int bit = ilsel_offset(level - 1);
@@ -89,6 +135,12 @@ int ilsel_enable_fixed(ilsel_source_t set, unsigned int level)
 }
 EXPORT_SYMBOL_GPL(ilsel_enable_fixed);
 
+/**
+ * ilsel_disable - Disable an ILSEL set
+ * @irq: Bit position for ILSEL set value (retval from enable routines)
+ *
+ * Disable a previously enabled ILSEL set.
+ */
 void ilsel_disable(unsigned int irq)
 {
 	unsigned long addr;

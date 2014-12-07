@@ -1,3 +1,13 @@
+/*
+ * Slabinfo: Tool to get reports about slabs
+ *
+ * (C) 2007 sgi, Christoph Lameter
+ * (C) 2011 Linux Foundation, Christoph Lameter
+ *
+ * Compile with:
+ *
+ * gcc -o slabinfo slabinfo.c
+ */
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/types.h>
@@ -70,6 +80,7 @@ int set_debug = 0;
 int show_ops = 0;
 int show_activity = 0;
 
+/* Debug options */
 int sanity = 0;
 int redzone = 0;
 int poison = 0;
@@ -141,6 +152,9 @@ static unsigned long read_obj(const char *name)
 }
 
 
+/*
+ * Get the contents of an attribute
+ */
 static unsigned long get_obj(const char *name)
 {
 	if (!read_obj(name))
@@ -202,6 +216,9 @@ static unsigned long read_slab_obj(struct slabinfo *s, const char *name)
 }
 
 
+/*
+ * Put a size string together
+ */
 static int store_size(char *buffer, unsigned long value)
 {
 	unsigned long divisor = 1;
@@ -286,6 +303,9 @@ static void first_line(void)
 			"Slabs/Part/Cpu  O/S O %%Fr %%Ef Flg\n");
 }
 
+/*
+ * Find the shortest alias of a slab
+ */
 static struct aliasinfo *find_one_alias(struct slabinfo *find)
 {
 	struct aliasinfo *a;
@@ -593,6 +613,9 @@ static void slabcache(struct slabinfo *s)
 			flags);
 }
 
+/*
+ * Analyze debug options. Return false if something is amiss.
+ */
 static int debug_opt_scan(char *opt)
 {
 	if (!opt || !opt[0] || strcmp(opt, "-") == 0)
@@ -647,6 +670,10 @@ static int slab_empty(struct slabinfo *s)
 	if (s->objects > 0)
 		return 0;
 
+	/*
+	 * We may still have slabs even if there are no objects. Shrinking will
+	 * remove them.
+	 */
 	if (s->slabs != 0)
 		set_obj(s, "shrink", 1);
 
@@ -721,50 +748,50 @@ static void totals(void)
 	char b1[20], b2[20], b3[20], b4[20];
 	unsigned long long max = 1ULL << 63;
 
-	
+	/* Object size */
 	unsigned long long min_objsize = max, max_objsize = 0, avg_objsize;
 
-	
+	/* Number of partial slabs in a slabcache */
 	unsigned long long min_partial = max, max_partial = 0,
 				avg_partial, total_partial = 0;
 
-	
+	/* Number of slabs in a slab cache */
 	unsigned long long min_slabs = max, max_slabs = 0,
 				avg_slabs, total_slabs = 0;
 
-	
+	/* Size of the whole slab */
 	unsigned long long min_size = max, max_size = 0,
 				avg_size, total_size = 0;
 
-	
+	/* Bytes used for object storage in a slab */
 	unsigned long long min_used = max, max_used = 0,
 				avg_used, total_used = 0;
 
-	
+	/* Waste: Bytes used for alignment and padding */
 	unsigned long long min_waste = max, max_waste = 0,
 				avg_waste, total_waste = 0;
-	
+	/* Number of objects in a slab */
 	unsigned long long min_objects = max, max_objects = 0,
 				avg_objects, total_objects = 0;
-	
+	/* Waste per object */
 	unsigned long long min_objwaste = max,
 				max_objwaste = 0, avg_objwaste,
 				total_objwaste = 0;
 
-	
+	/* Memory per object */
 	unsigned long long min_memobj = max,
 				max_memobj = 0, avg_memobj,
 				total_objsize = 0;
 
-	
+	/* Percentage of partial slabs per slab */
 	unsigned long min_ppart = 100, max_ppart = 0,
 				avg_ppart, total_ppart = 0;
 
-	
+	/* Number of objects in partial slabs */
 	unsigned long min_partobj = max, max_partobj = 0,
 				avg_partobj, total_partobj = 0;
 
-	
+	/* Percentage of partial objects of all objects in a slab */
 	unsigned long min_ppartobj = 100, max_ppartobj = 0,
 				avg_ppartobj, total_ppartobj = 0;
 
@@ -871,7 +898,7 @@ static void totals(void)
 		return;
 	}
 
-	
+	/* Per slab averages */
 	avg_partial = total_partial / used_slabs;
 	avg_slabs = total_slabs / used_slabs;
 	avg_size = total_size / used_slabs;
@@ -883,7 +910,7 @@ static void totals(void)
 	avg_ppart = total_ppart / used_slabs;
 	avg_ppartobj = total_ppartobj / used_slabs;
 
-	
+	/* Per object object sizes */
 	avg_objsize = total_used / total_objects;
 	avg_objwaste = total_objwaste / total_objects;
 	avg_partobj = total_partobj * 100 / total_objects;

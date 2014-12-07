@@ -20,8 +20,8 @@ typedef enum {
 	led_timer,
 	led_start,
 	led_stop,
-	led_claim,		
-	led_release,		
+	led_claim,		/* override idle & timer leds */
+	led_release,		/* restore idle & timer leds */
 	led_start_timer_mode,
 	led_stop_timer_mode,
 	led_green_on,
@@ -32,9 +32,14 @@ typedef enum {
 	led_red_off,
 	led_blue_on,
 	led_blue_off,
+	/*
+	 * I want this between led_timer and led_start, but
+	 * someone has decided to export this to user space
+	 */
 	led_halted
 } led_event_t;
 
+/* Use this routine to handle LEDs */
 
 #ifdef CONFIG_LEDS
 extern void (*leds_event)(led_event_t);

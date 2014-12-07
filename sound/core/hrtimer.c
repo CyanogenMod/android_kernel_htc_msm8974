@@ -32,7 +32,7 @@ MODULE_LICENSE("GPL");
 
 MODULE_ALIAS("snd-timer-" __stringify(SNDRV_TIMER_GLOBAL_HRTIMER));
 
-#define NANO_SEC	1000000000UL	
+#define NANO_SEC	1000000000UL	/* 10^9 in sec */
 static unsigned int resolution;
 
 struct snd_hrtimer {
@@ -112,6 +112,9 @@ static struct snd_timer_hardware hrtimer_hw = {
 	.stop =		snd_hrtimer_stop,
 };
 
+/*
+ * entry functions
+ */
 
 static struct snd_timer *mytimer;
 
@@ -130,7 +133,7 @@ static int __init snd_hrtimer_init(void)
 	}
 	resolution = tp.tv_nsec;
 
-	
+	/* Create a new timer and set up the fields */
 	err = snd_timer_global_new("hrtimer", SNDRV_TIMER_GLOBAL_HRTIMER,
 				   &timer);
 	if (err < 0)
@@ -147,7 +150,7 @@ static int __init snd_hrtimer_init(void)
 		snd_timer_global_free(timer);
 		return err;
 	}
-	mytimer = timer; 
+	mytimer = timer; /* remember this */
 
 	return 0;
 }

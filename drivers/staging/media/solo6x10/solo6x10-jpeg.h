@@ -99,6 +99,7 @@ static unsigned char jpeg_header[] = {
 	0x00, 0x02, 0x11, 0x03, 0x11, 0x00, 0x3f, 0x00
 };
 
+/* This is the byte marker for the start of SOF0: 0xffc0 marker */
 #define SOF0_START	575
 
-#endif 
+#endif /* __SOLO6X10_JPEG_H */

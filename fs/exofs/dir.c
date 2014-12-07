@@ -44,6 +44,7 @@ static inline void exofs_put_page(struct page *page)
 	page_cache_release(page);
 }
 
+/* Accesses dir's inode->i_size must be called under inode lock */
 static inline unsigned long dir_pages(struct inode *inode)
 {
 	return (inode->i_size + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
@@ -94,7 +95,7 @@ static void exofs_check_page(struct page *page)
 	struct exofs_dir_entry *p;
 	char *error;
 
-	
+	/* if the page is the last one in the directory */
 	if ((dir->i_size >> PAGE_CACHE_SHIFT) == page->index) {
 		limit = dir->i_size & ~PAGE_CACHE_MASK;
 		if (limit & (chunk_size - 1))
@@ -573,6 +574,7 @@ out:
 	return err;
 }
 
+/* kept aligned on 4 bytes */
 #define THIS_DIR ".\0\0"
 #define PARENT_DIR "..\0"
 
@@ -641,7 +643,7 @@ int exofs_empty_dir(struct inode *inode)
 				goto not_empty;
 			}
 			if (de->inode_no != 0) {
-				
+				/* check for . and .. */
 				if (de->name[0] != '.')
 					goto not_empty;
 				if (de->name_len > 2)

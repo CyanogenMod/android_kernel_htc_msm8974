@@ -7,10 +7,13 @@
 #ifndef _CDEF_BF548_H
 #define _CDEF_BF548_H
 
+/* include cdefBF54x_base.h for the set of #defines that are common to all ADSP-BF54x bfin_read_()rocessors */
 #include "cdefBF54x_base.h"
 
+/* The BF548 is like the BF547, but has additional CANs */
 #include "cdefBF547.h"
 
+/* CAN Controller 1 Config 1 Registers */
 
 #define bfin_read_CAN1_MC1()		bfin_read16(CAN1_MC1)
 #define bfin_write_CAN1_MC1(val)	bfin_write16(CAN1_MC1, val)
@@ -39,6 +42,7 @@
 #define bfin_read_CAN1_OPSS1()		bfin_read16(CAN1_OPSS1)
 #define bfin_write_CAN1_OPSS1(val)	bfin_write16(CAN1_OPSS1, val)
 
+/* CAN Controller 1 Config 2 Registers */
 
 #define bfin_read_CAN1_MC2()		bfin_read16(CAN1_MC2)
 #define bfin_write_CAN1_MC2(val)	bfin_write16(CAN1_MC2, val)
@@ -67,6 +71,7 @@
 #define bfin_read_CAN1_OPSS2()		bfin_read16(CAN1_OPSS2)
 #define bfin_write_CAN1_OPSS2(val)	bfin_write16(CAN1_OPSS2, val)
 
+/* CAN Controller 1 Clock/Interrubfin_read_()t/Counter Registers */
 
 #define bfin_read_CAN1_CLOCK()		bfin_read16(CAN1_CLOCK)
 #define bfin_write_CAN1_CLOCK(val)	bfin_write16(CAN1_CLOCK, val)
@@ -101,6 +106,7 @@
 #define bfin_read_CAN1_UCCNF()		bfin_read16(CAN1_UCCNF)
 #define bfin_write_CAN1_UCCNF(val)	bfin_write16(CAN1_UCCNF, val)
 
+/* CAN Controller 1 Mailbox Accebfin_read_()tance Registers */
 
 #define bfin_read_CAN1_AM00L()		bfin_read16(CAN1_AM00L)
 #define bfin_write_CAN1_AM00L(val)	bfin_write16(CAN1_AM00L, val)
@@ -167,6 +173,7 @@
 #define bfin_read_CAN1_AM15H()		bfin_read16(CAN1_AM15H)
 #define bfin_write_CAN1_AM15H(val)	bfin_write16(CAN1_AM15H, val)
 
+/* CAN Controller 1 Mailbox Accebfin_read_()tance Registers */
 
 #define bfin_read_CAN1_AM16L()		bfin_read16(CAN1_AM16L)
 #define bfin_write_CAN1_AM16L(val)	bfin_write16(CAN1_AM16L, val)
@@ -233,6 +240,7 @@
 #define bfin_read_CAN1_AM31H()		bfin_read16(CAN1_AM31H)
 #define bfin_write_CAN1_AM31H(val)	bfin_write16(CAN1_AM31H, val)
 
+/* CAN Controller 1 Mailbox Data Registers */
 
 #define bfin_read_CAN1_MB00_DATA0()		bfin_read16(CAN1_MB00_DATA0)
 #define bfin_write_CAN1_MB00_DATA0(val)		bfin_write16(CAN1_MB00_DATA0, val)
@@ -491,6 +499,7 @@
 #define bfin_read_CAN1_MB15_ID1()		bfin_read16(CAN1_MB15_ID1)
 #define bfin_write_CAN1_MB15_ID1(val)		bfin_write16(CAN1_MB15_ID1, val)
 
+/* CAN Controller 1 Mailbox Data Registers */
 
 #define bfin_read_CAN1_MB16_DATA0()		bfin_read16(CAN1_MB16_DATA0)
 #define bfin_write_CAN1_MB16_DATA0(val)		bfin_write16(CAN1_MB16_DATA0, val)
@@ -749,4 +758,4 @@
 #define bfin_read_CAN1_MB31_ID1()		bfin_read16(CAN1_MB31_ID1)
 #define bfin_write_CAN1_MB31_ID1(val)		bfin_write16(CAN1_MB31_ID1, val)
 
-#endif 
+#endif /* _CDEF_BF548_H */

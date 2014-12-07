@@ -17,22 +17,22 @@
 
 
 enum {
-	MSM6242_SECOND1		= 0x0,	
-	MSM6242_SECOND10	= 0x1,	
-	MSM6242_MINUTE1		= 0x2,	
-	MSM6242_MINUTE10	= 0x3,	
-	MSM6242_HOUR1		= 0x4,	
-	MSM6242_HOUR10		= 0x5,	
-	MSM6242_DAY1		= 0x6,	
-	MSM6242_DAY10		= 0x7,	
-	MSM6242_MONTH1		= 0x8,	
-	MSM6242_MONTH10		= 0x9,	
-	MSM6242_YEAR1		= 0xa,	
-	MSM6242_YEAR10		= 0xb,	
-	MSM6242_WEEK		= 0xc,	
-	MSM6242_CD		= 0xd,	
-	MSM6242_CE		= 0xe,	
-	MSM6242_CF		= 0xf,	
+	MSM6242_SECOND1		= 0x0,	/* 1-second digit register */
+	MSM6242_SECOND10	= 0x1,	/* 10-second digit register */
+	MSM6242_MINUTE1		= 0x2,	/* 1-minute digit register */
+	MSM6242_MINUTE10	= 0x3,	/* 10-minute digit register */
+	MSM6242_HOUR1		= 0x4,	/* 1-hour digit register */
+	MSM6242_HOUR10		= 0x5,	/* PM/AM, 10-hour digit register */
+	MSM6242_DAY1		= 0x6,	/* 1-day digit register */
+	MSM6242_DAY10		= 0x7,	/* 10-day digit register */
+	MSM6242_MONTH1		= 0x8,	/* 1-month digit register */
+	MSM6242_MONTH10		= 0x9,	/* 10-month digit register */
+	MSM6242_YEAR1		= 0xa,	/* 1-year digit register */
+	MSM6242_YEAR10		= 0xb,	/* 10-year digit register */
+	MSM6242_WEEK		= 0xc,	/* Week register */
+	MSM6242_CD		= 0xd,	/* Control Register D */
+	MSM6242_CE		= 0xe,	/* Control Register E */
+	MSM6242_CF		= 0xf,	/* Control Register F */
 };
 
 #define MSM6242_HOUR10_AM	(0 << 2)
@@ -47,25 +47,25 @@ enum {
 #define MSM6242_WEEK_FRIDAY	5
 #define MSM6242_WEEK_SATURDAY	6
 
-#define MSM6242_CD_30_S_ADJ	(1 << 3)	
+#define MSM6242_CD_30_S_ADJ	(1 << 3)	/* 30-second adjustment */
 #define MSM6242_CD_IRQ_FLAG	(1 << 2)
 #define MSM6242_CD_BUSY		(1 << 1)
 #define MSM6242_CD_HOLD		(1 << 0)
 
 #define MSM6242_CE_T_MASK	(3 << 2)
-#define MSM6242_CE_T_64HZ	(0 << 2)	
-#define MSM6242_CE_T_1HZ	(1 << 2)	
-#define MSM6242_CE_T_1MINUTE	(2 << 2)	
-#define MSM6242_CE_T_1HOUR	(3 << 2)	
+#define MSM6242_CE_T_64HZ	(0 << 2)	/* period 1/64 second */
+#define MSM6242_CE_T_1HZ	(1 << 2)	/* period 1 second */
+#define MSM6242_CE_T_1MINUTE	(2 << 2)	/* period 1 minute */
+#define MSM6242_CE_T_1HOUR	(3 << 2)	/* period 1 hour */
 
 #define MSM6242_CE_ITRPT_STND	(1 << 1)
-#define MSM6242_CE_MASK		(1 << 0)	
+#define MSM6242_CE_MASK		(1 << 0)	/* STD.P output control */
 
 #define MSM6242_CF_TEST		(1 << 3)
 #define MSM6242_CF_12H		(0 << 2)
 #define MSM6242_CF_24H		(1 << 2)
 #define MSM6242_CF_STOP		(1 << 1)
-#define MSM6242_CF_REST		(1 << 0)	
+#define MSM6242_CF_REST		(1 << 0)	/* reset */
 
 
 struct msm6242_priv {

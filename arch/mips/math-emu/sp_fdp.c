@@ -1,3 +1,6 @@
+/* IEEE754 floating point arithmetic
+ * single precision
+ */
 /*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.
@@ -49,7 +52,7 @@ ieee754sp ieee754sp_fdp(ieee754dp x)
 	case IEEE754_CLASS_ZERO:
 		return ieee754sp_zero(xs);
 	case IEEE754_CLASS_DNORM:
-		
+		/* can't possibly be sp representable */
 		SETCX(IEEE754_UNDERFLOW);
 		SETCX(IEEE754_INEXACT);
 		if ((ieee754_csr.rm == IEEE754_RU && !xs) ||
@@ -63,6 +66,8 @@ ieee754sp ieee754sp_fdp(ieee754dp x)
 	{
 		u32 rm;
 
+		/* convert from DP_MBITS to SP_MBITS+3 with sticky right shift
+		 */
 		rm = (xm >> (DP_MBITS - (SP_MBITS + 3))) |
 		    ((xm << (64 - (DP_MBITS - (SP_MBITS + 3)))) != 0);
 

@@ -27,6 +27,9 @@
 #include <asm/kvm_ppc.h>
 #include <asm/kvm_book3s.h>
 
+/* #define DEBUG_MMU */
+/* #define DEBUG_MMU_PTE */
+/* #define DEBUG_MMU_PTE_IP 0xfff14c40 */
 
 #ifdef DEBUG_MMU
 #define dprintk(X...) printk(KERN_INFO X)
@@ -184,7 +187,7 @@ static int kvmppc_mmu_book3s_32_xlate_bat(struct kvm_vcpu *vcpu, gva_t eaddr,
 				continue;
 			}
 			if (!pte->may_write) {
-				
+				/* let's treat r/o BATs as not-readable for now */
 				dprintk_pte("BAT is read-only!\n");
 				continue;
 			}
@@ -265,6 +268,8 @@ static int kvmppc_mmu_book3s_32_xlate_pte(struct kvm_vcpu *vcpu, gva_t eaddr,
 		}
 	}
 
+	/* Update PTE C and A bits, so the guest's swapper knows we used the
+	   page */
 	if (found) {
 		u32 oldpte = pteg[i+1];
 
@@ -275,7 +280,7 @@ static int kvmppc_mmu_book3s_32_xlate_pte(struct kvm_vcpu *vcpu, gva_t eaddr,
 		else
 			dprintk_pte("KVM: Mapping read-only page!\n");
 
-		
+		/* Write back into the PTEG */
 		if (pteg[i+1] != oldpte)
 			copy_to_user((void __user *)ptegp, pteg, sizeof(pteg));
 
@@ -304,7 +309,7 @@ static int kvmppc_mmu_book3s_32_xlate(struct kvm_vcpu *vcpu, gva_t eaddr,
 
 	pte->eaddr = eaddr;
 
-	
+	/* Magic page override */
 	if (unlikely(mp_ea) &&
 	    unlikely((eaddr & ~0xfffULL) == (mp_ea & ~0xfffULL)) &&
 	    !(vcpu->arch.shared->msr & MSR_PR)) {
@@ -358,6 +363,9 @@ static int kvmppc_mmu_book3s_32_esid_to_vsid(struct kvm_vcpu *vcpu, ulong esid,
 			gvsid = sr_vsid(sr);
 	}
 
+	/* In case we only have one of MSR_IR or MSR_DR set, let's put
+	   that in the real-mode context (and hope RM doesn't access
+	   high memory) */
 	switch (vcpu->arch.shared->msr & (MSR_DR|MSR_IR)) {
 	case 0:
 		*vsid = VSID_REAL | esid;

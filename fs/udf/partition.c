@@ -264,12 +264,12 @@ int udf_relocate_blocks(struct super_block *sb, long old_block, long *new_block)
 
 			ret = 1;
 			goto out;
-		} 
+		} /* if old_block */
 	}
 
 	if (i == sbi->s_partitions) {
-		
-		
+		/* outside of partitions */
+		/* for now, fail =) */
 		ret = 1;
 	}
 
@@ -294,7 +294,7 @@ static uint32_t udf_try_read_meta(struct inode *inode, uint32_t block,
 		phyblock = 0xFFFFFFFF;
 	else {
 		map = &UDF_SB(sb)->s_partmaps[partition];
-		
+		/* map to sparable/physical partition desc */
 		phyblock = udf_get_pblock(sb, eloc.logicalBlockNum,
 			map->s_partition_num, ext_offset + offset);
 	}
@@ -318,7 +318,7 @@ uint32_t udf_get_pblock_meta25(struct super_block *sb, uint32_t block,
 	mdata = &map->s_type_specific.s_metadata;
 	inode = mdata->s_metadata_fe ? : mdata->s_mirror_fe;
 
-	
+	/* We shouldn't mount such media... */
 	BUG_ON(!inode);
 	retblk = udf_try_read_meta(inode, block, partition, offset);
 	if (retblk == 0xFFFFFFFF && mdata->s_metadata_fe) {

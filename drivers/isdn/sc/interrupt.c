@@ -21,6 +21,9 @@
 #include "card.h"
 #include <linux/interrupt.h>
 
+/*
+ *
+ */
 irqreturn_t interrupt_handler(int dummy, void *card_inst)
 {
 
@@ -36,13 +39,23 @@ irqreturn_t interrupt_handler(int dummy, void *card_inst)
 	pr_debug("%s: Entered Interrupt handler\n",
 		 sc_adapter[card]->devicename);
 
+	/*
+	 * Pull all of the waiting messages off the response queue
+	 */
 	while (!receivemessage(card, &rcvmsg)) {
+		/*
+		 * Push the message to the adapter structure for
+		 * send_and_receive to snoop
+		 */
 		if (sc_adapter[card]->want_async_messages)
 			memcpy(&(sc_adapter[card]->async_msg),
 			       &rcvmsg, sizeof(RspMessage));
 
 		channel = (unsigned int) rcvmsg.phy_link_no;
 
+		/*
+		 * Trap Invalid request messages
+		 */
 		if (IS_CM_MESSAGE(rcvmsg, 0, 0, Invalid)) {
 			pr_debug("%s: Invalid request Message, rsp_status = %d\n",
 				 sc_adapter[card]->devicename,
@@ -50,6 +63,9 @@ irqreturn_t interrupt_handler(int dummy, void *card_inst)
 			break;
 		}
 
+		/*
+		 * Check for a linkRead message
+		 */
 		if (IS_CE_MESSAGE(rcvmsg, Lnk, 1, Read))
 		{
 			pr_debug("%s: Received packet 0x%x bytes long at 0x%lx\n",
@@ -61,6 +77,9 @@ irqreturn_t interrupt_handler(int dummy, void *card_inst)
 
 		}
 
+		/*
+		 * Handle a write acknoledgement
+		 */
 		if (IS_CE_MESSAGE(rcvmsg, Lnk, 1, Write)) {
 			pr_debug("%s: Packet Send ACK on channel %d\n",
 				 sc_adapter[card]->devicename,
@@ -69,6 +88,9 @@ irqreturn_t interrupt_handler(int dummy, void *card_inst)
 			continue;
 		}
 
+		/*
+		 * Handle a connection message
+		 */
 		if (IS_CE_MESSAGE(rcvmsg, Phy, 1, Connect))
 		{
 			unsigned int callid;
@@ -114,6 +136,9 @@ irqreturn_t interrupt_handler(int dummy, void *card_inst)
 			continue;
 		}
 
+		/*
+		 * Handle a disconnection message
+		 */
 		if (IS_CE_MESSAGE(rcvmsg, Phy, 1, Disconnect))
 		{
 			pr_debug("%s: disconnect message: line %d: status %d: cause 0x%x\n",
@@ -128,6 +153,9 @@ irqreturn_t interrupt_handler(int dummy, void *card_inst)
 
 		}
 
+		/*
+		 * Handle a startProc engine up message
+		 */
 		if (IS_CM_MESSAGE(rcvmsg, 5, 0, MiscEngineUp)) {
 			pr_debug("%s: Received EngineUp message\n",
 				 sc_adapter[card]->devicename);
@@ -142,6 +170,9 @@ irqreturn_t interrupt_handler(int dummy, void *card_inst)
 			continue;
 		}
 
+		/*
+		 * Start proc response
+		 */
 		if (IS_CM_MESSAGE(rcvmsg, 2, 0, StartProc)) {
 			pr_debug("%s: StartProc Response Status %d\n",
 				 sc_adapter[card]->devicename,
@@ -149,6 +180,9 @@ irqreturn_t interrupt_handler(int dummy, void *card_inst)
 			continue;
 		}
 
+		/*
+		 * Handle a GetMyNumber Rsp
+		 */
 		if (IS_CE_MESSAGE(rcvmsg, Call, 0, GetMyNumber)) {
 			strlcpy(sc_adapter[card]->channel[rcvmsg.phy_link_no - 1].dn,
 				rcvmsg.msg_data.byte_array,
@@ -156,13 +190,19 @@ irqreturn_t interrupt_handler(int dummy, void *card_inst)
 			continue;
 		}
 
+		/*
+		 * PhyStatus response
+		 */
 		if (IS_CE_MESSAGE(rcvmsg, Phy, 2, Status)) {
 			unsigned int b1stat, b2stat;
 
+			/*
+			 * Covert the message data to the adapter->phystat code
+			 */
 			b1stat = (unsigned int) rcvmsg.msg_data.byte_array[0];
 			b2stat = (unsigned int) rcvmsg.msg_data.byte_array[1];
 
-			sc_adapter[card]->nphystat = (b2stat >> 8) | b1stat; 
+			sc_adapter[card]->nphystat = (b2stat >> 8) | b1stat; /* endian?? */
 			pr_debug("%s: PhyStat is 0x%2x\n",
 				 sc_adapter[card]->devicename,
 				 sc_adapter[card]->nphystat);
@@ -170,9 +210,15 @@ irqreturn_t interrupt_handler(int dummy, void *card_inst)
 		}
 
 
+		/*
+		 * Handle a GetFramFormat
+		 */
 		if (IS_CE_MESSAGE(rcvmsg, Call, 0, GetFrameFormat)) {
 			if (rcvmsg.msg_data.byte_array[0] != HDLC_PROTO) {
 				unsigned int proto = HDLC_PROTO;
+				/*
+				 * Set board format to HDLC if it wasn't already
+				 */
 				pr_debug("%s: current frame format: 0x%x, will change to HDLC\n",
 					 sc_adapter[card]->devicename,
 					 rcvmsg.msg_data.byte_array[0]);
@@ -185,12 +231,15 @@ irqreturn_t interrupt_handler(int dummy, void *card_inst)
 			continue;
 		}
 
+		/*
+		 * Hmm...
+		 */
 		pr_debug("%s: Received unhandled message (%d,%d,%d) link %d\n",
 			 sc_adapter[card]->devicename,
 			 rcvmsg.type, rcvmsg.class, rcvmsg.code,
 			 rcvmsg.phy_link_no);
 
-	}	
+	}	/* while */
 
 	pr_debug("%s: Exiting Interrupt Handler\n",
 		 sc_adapter[card]->devicename);

@@ -30,6 +30,8 @@
 
 #include <linux/input/rmi_platformdata.h>
 
+/*  RMI4 Protocol Support
+ */
 
 struct rmi_phys_driver {
 	char *name;
@@ -45,6 +47,10 @@ struct rmi_phys_driver {
 	bool polling_required;
 	int irq;
 
+	/* Standard kernel linked list implementation.
+	*  Documentation on how to use it can be found at
+	*  http://isis.poly.edu/kulesh/stuff/src/klist/.
+	*/
 	struct list_head drivers;
 	struct rmi_sensor_driver *sensor;
 	struct module *module;
@@ -61,11 +67,15 @@ int rmi_register_sensor(struct rmi_phys_driver *physdrvr,
 						 struct rmi_sensordata *sensordata);
 int rmi_unregister_sensors(struct rmi_phys_driver *physdrvr);
 
+/* Utility routine to set bits in a register. */
 int rmi_set_bits(struct rmi_sensor_driver *sensor, unsigned short address, unsigned char bits);
+/* Utility routine to clear bits in a register. */
 int rmi_clear_bits(struct rmi_sensor_driver *sensor, unsigned short address, unsigned char bits);
+/* Utility routine to set the value of a bit field in a register. */
 int rmi_set_bit_field(struct rmi_sensor_driver *sensor, unsigned short address,
 					  unsigned char field_mask, unsigned char bits);
 
+/* Set this to 1 to turn on code used in detecting buffer leaks. */
 #define RMI_ALLOC_STATS 1
 
 #if RMI_ALLOC_STATS

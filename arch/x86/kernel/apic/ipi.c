@@ -24,6 +24,11 @@ void default_send_IPI_mask_sequence_phys(const struct cpumask *mask, int vector)
 	unsigned long query_cpu;
 	unsigned long flags;
 
+	/*
+	 * Hack. The clustered APIC addressing mode doesn't allow us to send
+	 * to an arbitrary mask, so I do a unicast to each CPU instead.
+	 * - mbligh
+	 */
 	local_irq_save(flags);
 	for_each_cpu(query_cpu, mask) {
 		__default_send_IPI_dest_field(per_cpu(x86_cpu_to_apicid,
@@ -39,7 +44,7 @@ void default_send_IPI_mask_allbutself_phys(const struct cpumask *mask,
 	unsigned int query_cpu;
 	unsigned long flags;
 
-	
+	/* See Hack comment above */
 
 	local_irq_save(flags);
 	for_each_cpu(query_cpu, mask) {
@@ -59,6 +64,11 @@ void default_send_IPI_mask_sequence_logical(const struct cpumask *mask,
 	unsigned long flags;
 	unsigned int query_cpu;
 
+	/*
+	 * Hack. The clustered APIC addressing mode doesn't allow us to send
+	 * to an arbitrary mask, so I do a unicasts to each CPU instead. This
+	 * should be modified to do 1 message per cluster ID - mbligh
+	 */
 
 	local_irq_save(flags);
 	for_each_cpu(query_cpu, mask)
@@ -75,7 +85,7 @@ void default_send_IPI_mask_allbutself_logical(const struct cpumask *mask,
 	unsigned int query_cpu;
 	unsigned int this_cpu = smp_processor_id();
 
-	
+	/* See Hack comment above */
 
 	local_irq_save(flags);
 	for_each_cpu(query_cpu, mask) {
@@ -88,6 +98,9 @@ void default_send_IPI_mask_allbutself_logical(const struct cpumask *mask,
 	local_irq_restore(flags);
 }
 
+/*
+ * This is only used on smaller machines.
+ */
 void default_send_IPI_mask_logical(const struct cpumask *cpumask, int vector)
 {
 	unsigned long mask = cpumask_bits(cpumask)[0];
@@ -104,6 +117,10 @@ void default_send_IPI_mask_logical(const struct cpumask *cpumask, int vector)
 
 void default_send_IPI_allbutself(int vector)
 {
+	/*
+	 * if there are no other CPUs in the system then we get an APIC send
+	 * error if we try to broadcast, thus avoid sending IPIs in this case.
+	 */
 	if (!(num_online_cpus() > 1))
 		return;
 
@@ -120,6 +137,7 @@ void default_send_IPI_self(int vector)
 	__default_send_IPI_shortcut(APIC_DEST_SELF, vector, apic->dest_logical);
 }
 
+/* must come after the send_IPI functions above for inlining */
 static int convert_apicid_to_cpu(int apic_id)
 {
 	int i;

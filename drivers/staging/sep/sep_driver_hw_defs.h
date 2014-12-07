@@ -33,8 +33,13 @@
 #ifndef SEP_DRIVER_HW_DEFS__H
 #define SEP_DRIVER_HW_DEFS__H
 
+/*----------------------- */
+/* HW Registers Defines.  */
+/*                        */
+/*---------------------- -*/
 
 
+/* cf registers */
 #define		HW_HOST_IRR_REG_ADDR			0x0A00UL
 #define		HW_HOST_IMR_REG_ADDR			0x0A04UL
 #define		HW_HOST_ICR_REG_ADDR			0x0A08UL
@@ -48,4 +53,4 @@
 #define		HW_HOST_HOST_SEP_GPR3_REG_ADDR		0x0B8CUL
 #define		HW_SRAM_DATA_READY_REG_ADDR		0x0F08UL
 
-#endif		
+#endif		/* ifndef HW_DEFS */

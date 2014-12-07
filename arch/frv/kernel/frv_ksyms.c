@@ -19,6 +19,7 @@
 extern long __memcpy_user(void *dst, const void *src, size_t count);
 extern long __memset_user(void *dst, const void *src, size_t count);
 
+/* platform dependent support */
 
 EXPORT_SYMBOL(__ioremap);
 EXPORT_SYMBOL(iounmap);
@@ -47,6 +48,10 @@ EXPORT_SYMBOL(memory_end);
 
 EXPORT_SYMBOL(__debug_bug_trap);
 
+/* The following are special because they're not called
+   explicitly (the C compiler generates them).  Fortunately,
+   their interface isn't gonna change any time soon now, so
+   it's OK to leave it out of version control.  */
 EXPORT_SYMBOL(memcpy);
 EXPORT_SYMBOL(memset);
 
@@ -70,6 +75,11 @@ EXPORT_SYMBOL(__cmpxchg_64);
 EXPORT_SYMBOL(__debug_bug_printk);
 EXPORT_SYMBOL(__delay_loops_MHz);
 
+/*
+ * libgcc functions - functions that are used internally by the
+ * compiler...  (prototypes are not correct though, but that
+ * doesn't really matter since they're not versioned).
+ */
 extern void __gcc_bcmp(void);
 extern void __ashldi3(void);
 extern void __ashrdi3(void);
@@ -86,12 +96,19 @@ extern void __udivdi3(void);
 extern void __udivmoddi4(void);
 extern void __umoddi3(void);
 
-        
+        /* gcc lib functions */
+//EXPORT_SYMBOL(__gcc_bcmp);
 EXPORT_SYMBOL(__ashldi3);
 EXPORT_SYMBOL(__ashrdi3);
+//EXPORT_SYMBOL(__cmpdi2);
+//EXPORT_SYMBOL(__divdi3);
 EXPORT_SYMBOL(__lshrdi3);
+//EXPORT_SYMBOL(__moddi3);
 EXPORT_SYMBOL(__muldi3);
 EXPORT_SYMBOL(__mulll);
 EXPORT_SYMBOL(__umulll);
 EXPORT_SYMBOL(__negdi2);
 EXPORT_SYMBOL(__ucmpdi2);
+//EXPORT_SYMBOL(__udivdi3);
+//EXPORT_SYMBOL(__udivmoddi4);
+//EXPORT_SYMBOL(__umoddi3);

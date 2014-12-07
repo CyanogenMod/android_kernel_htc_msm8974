@@ -50,7 +50,7 @@
 #include "common.h"
 
 static struct map_desc smdk2440_iodesc[] __initdata = {
-	
+	/* ISA IO Space map (memory space selected by A24) */
 
 	{
 		.virtual	= (u32)S3C24XX_VA_ISA_WORD,
@@ -94,7 +94,7 @@ static struct s3c2410_uartcfg smdk2440_uartcfgs[] __initdata = {
 		.ulcon	     = 0x03,
 		.ufcon	     = 0x51,
 	},
-	
+	/* IR port */
 	[2] = {
 		.hwport	     = 2,
 		.flags	     = 0,
@@ -104,6 +104,7 @@ static struct s3c2410_uartcfg smdk2440_uartcfgs[] __initdata = {
 	}
 };
 
+/* LCD driver info */
 
 static struct s3c2410fb_display smdk2440_lcd_cfg __initdata = {
 
@@ -118,7 +119,7 @@ static struct s3c2410fb_display smdk2440_lcd_cfg __initdata = {
 	.width		= 240,
 	.height		= 320,
 
-	.pixclock	= 166667, 
+	.pixclock	= 166667, /* HCLK 60 MHz, divisor 10 */
 	.xres		= 240,
 	.yres		= 320,
 	.bpp		= 16,
@@ -136,7 +137,7 @@ static struct s3c2410fb_mach_info smdk2440_fb_info __initdata = {
 	.default_display = 0,
 
 #if 0
-	
+	/* currently setup by downloader */
 	.gpccon		= 0xaa940659,
 	.gpccon_mask	= 0xffffffff,
 	.gpcup		= 0x0000ffff,
@@ -175,7 +176,7 @@ static void __init smdk2440_machine_init(void)
 }
 
 MACHINE_START(S3C2440, "SMDK2440")
-	
+	/* Maintainer: Ben Dooks <ben-linux@fluff.org> */
 	.atag_offset	= 0x100,
 
 	.init_irq	= s3c24xx_init_irq,

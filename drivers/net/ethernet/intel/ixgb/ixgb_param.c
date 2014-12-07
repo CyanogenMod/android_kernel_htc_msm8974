@@ -30,6 +30,9 @@
 
 #include "ixgb.h"
 
+/* This is the only thing that needs to be changed to adjust the
+ * maximum number of ports that the driver can manage.
+ */
 
 #define IXGB_MAX_NIC 8
 
@@ -37,6 +40,10 @@
 #define OPTION_DISABLED 0
 #define OPTION_ENABLED  1
 
+/* All parameters are treated the same, as an integer array of values.
+ * This macro just reduces the need to repeat the same declaration code
+ * over and over (plus this helps to avoid typo bugs).
+ */
 
 #define IXGB_PARAM_INIT { [0 ... IXGB_MAX_NIC] = OPTION_UNSET }
 #define IXGB_PARAM(X, desc)					\
@@ -46,33 +53,107 @@
 	module_param_array_named(X, X, int, &num_##X, 0);	\
 	MODULE_PARM_DESC(X, desc);
 
+/* Transmit Descriptor Count
+ *
+ * Valid Range: 64-4096
+ *
+ * Default Value: 256
+ */
 
 IXGB_PARAM(TxDescriptors, "Number of transmit descriptors");
 
+/* Receive Descriptor Count
+ *
+ * Valid Range: 64-4096
+ *
+ * Default Value: 1024
+ */
 
 IXGB_PARAM(RxDescriptors, "Number of receive descriptors");
 
+/* User Specified Flow Control Override
+ *
+ * Valid Range: 0-3
+ *  - 0 - No Flow Control
+ *  - 1 - Rx only, respond to PAUSE frames but do not generate them
+ *  - 2 - Tx only, generate PAUSE frames but ignore them on receive
+ *  - 3 - Full Flow Control Support
+ *
+ * Default Value: 2 - Tx only (silicon bug avoidance)
+ */
 
 IXGB_PARAM(FlowControl, "Flow Control setting");
 
+/* XsumRX - Receive Checksum Offload Enable/Disable
+ *
+ * Valid Range: 0, 1
+ *  - 0 - disables all checksum offload
+ *  - 1 - enables receive IP/TCP/UDP checksum offload
+ *        on 82597 based NICs
+ *
+ * Default Value: 1
+ */
 
 IXGB_PARAM(XsumRX, "Disable or enable Receive Checksum offload");
 
+/* Transmit Interrupt Delay in units of 0.8192 microseconds
+ *
+ * Valid Range: 0-65535
+ *
+ * Default Value: 32
+ */
 
 IXGB_PARAM(TxIntDelay, "Transmit Interrupt Delay");
 
+/* Receive Interrupt Delay in units of 0.8192 microseconds
+ *
+ * Valid Range: 0-65535
+ *
+ * Default Value: 72
+ */
 
 IXGB_PARAM(RxIntDelay, "Receive Interrupt Delay");
 
+/* Receive Flow control high threshold (when we send a pause frame)
+ * (FCRTH)
+ *
+ * Valid Range: 1,536 - 262,136 (0x600 - 0x3FFF8, 8 byte granularity)
+ *
+ * Default Value: 196,608 (0x30000)
+ */
 
 IXGB_PARAM(RxFCHighThresh, "Receive Flow Control High Threshold");
 
+/* Receive Flow control low threshold (when we send a resume frame)
+ * (FCRTL)
+ *
+ * Valid Range: 64 - 262,136 (0x40 - 0x3FFF8, 8 byte granularity)
+ *              must be less than high threshold by at least 8 bytes
+ *
+ * Default Value:  163,840 (0x28000)
+ */
 
 IXGB_PARAM(RxFCLowThresh, "Receive Flow Control Low Threshold");
 
+/* Flow control request timeout (how long to pause the link partner's tx)
+ * (PAP 15:0)
+ *
+ * Valid Range: 1 - 65535
+ *
+ * Default Value:  65535 (0xffff) (we'll send an xon if we recover)
+ */
 
 IXGB_PARAM(FCReqTimeout, "Flow Control Request Timeout");
 
+/* Interrupt Delay Enable
+ *
+ * Valid Range: 0, 1
+ *
+ *  - 0 - disables transmit interrupt delay
+ *  - 1 - enables transmmit interrupt delay
+ *
+ * Default Value: 1
+ */
 
 IXGB_PARAM(IntDelayEnable, "Transmit Interrupt Delay Enable");
 
@@ -96,7 +177,7 @@ IXGB_PARAM(IntDelayEnable, "Transmit Interrupt Delay Enable");
 
 #define MIN_FCPAUSE			      1
 #define MAX_FCPAUSE			 0xffff
-#define DEFAULT_FCPAUSE		  	 0xFFFF 
+#define DEFAULT_FCPAUSE		  	 0xFFFF /* this may be too long */
 
 struct ixgb_option {
 	enum { enable_option, range_option, list_option } type;
@@ -104,11 +185,11 @@ struct ixgb_option {
 	const char *err;
 	int def;
 	union {
-		struct {	
+		struct {	/* range_option info */
 			int min;
 			int max;
 		} r;
-		struct {	
+		struct {	/* list_option info */
 			int nr;
 			const struct ixgb_opt_list {
 				int i;
@@ -166,6 +247,15 @@ ixgb_validate_option(unsigned int *value, const struct ixgb_option *opt)
 	return -1;
 }
 
+/**
+ * ixgb_check_options - Range Checking for Command Line Parameters
+ * @adapter: board private structure
+ *
+ * This routine checks all command line parameters for valid user
+ * input.  If an invalid value is given, or if no user specified
+ * value exists, a default value is used.  The final value is stored
+ * in a variable in the adapter structure.
+ **/
 
 void __devinit
 ixgb_check_options(struct ixgb_adapter *adapter)
@@ -176,7 +266,7 @@ ixgb_check_options(struct ixgb_adapter *adapter)
 		pr_notice("Using defaults for all values\n");
 	}
 
-	{ 
+	{ /* Transmit Descriptor Count */
 		static const struct ixgb_option opt = {
 			.type = range_option,
 			.name = "Transmit Descriptors",
@@ -195,7 +285,7 @@ ixgb_check_options(struct ixgb_adapter *adapter)
 		}
 		tx_ring->count = ALIGN(tx_ring->count, IXGB_REQ_TX_DESCRIPTOR_MULTIPLE);
 	}
-	{ 
+	{ /* Receive Descriptor Count */
 		static const struct ixgb_option opt = {
 			.type = range_option,
 			.name = "Receive Descriptors",
@@ -214,7 +304,7 @@ ixgb_check_options(struct ixgb_adapter *adapter)
 		}
 		rx_ring->count = ALIGN(rx_ring->count, IXGB_REQ_RX_DESCRIPTOR_MULTIPLE);
 	}
-	{ 
+	{ /* Receive Checksum Offload Enable */
 		static const struct ixgb_option opt = {
 			.type = enable_option,
 			.name = "Receive Checksum Offload",
@@ -230,7 +320,7 @@ ixgb_check_options(struct ixgb_adapter *adapter)
 			adapter->rx_csum = opt.def;
 		}
 	}
-	{ 
+	{ /* Flow Control */
 
 		static const struct ixgb_opt_list fc_list[] = {
 		       { ixgb_fc_none, "Flow Control Disabled" },
@@ -257,7 +347,7 @@ ixgb_check_options(struct ixgb_adapter *adapter)
 			adapter->hw.fc.type = opt.def;
 		}
 	}
-	{ 
+	{ /* Receive Flow Control High Threshold */
 		static const struct ixgb_option opt = {
 			.type = range_option,
 			.name = "Rx Flow Control High Threshold",
@@ -276,7 +366,7 @@ ixgb_check_options(struct ixgb_adapter *adapter)
 		if (!(adapter->hw.fc.type & ixgb_fc_tx_pause) )
 			pr_info("Ignoring RxFCHighThresh when no RxFC\n");
 	}
-	{ 
+	{ /* Receive Flow Control Low Threshold */
 		static const struct ixgb_option opt = {
 			.type = range_option,
 			.name = "Rx Flow Control Low Threshold",
@@ -295,7 +385,7 @@ ixgb_check_options(struct ixgb_adapter *adapter)
 		if (!(adapter->hw.fc.type & ixgb_fc_tx_pause) )
 			pr_info("Ignoring RxFCLowThresh when no RxFC\n");
 	}
-	{ 
+	{ /* Flow Control Pause Time Request*/
 		static const struct ixgb_option opt = {
 			.type = range_option,
 			.name = "Flow Control Pause Time Request",
@@ -315,17 +405,17 @@ ixgb_check_options(struct ixgb_adapter *adapter)
 		if (!(adapter->hw.fc.type & ixgb_fc_tx_pause) )
 			pr_info("Ignoring FCReqTimeout when no RxFC\n");
 	}
-	
+	/* high low and spacing check for rx flow control thresholds */
 	if (adapter->hw.fc.type & ixgb_fc_tx_pause) {
-		
+		/* high must be greater than low */
 		if (adapter->hw.fc.high_water < (adapter->hw.fc.low_water + 8)) {
-			
+			/* set defaults */
 			pr_info("RxFCHighThresh must be >= (RxFCLowThresh + 8), Using Defaults\n");
 			adapter->hw.fc.high_water = DEFAULT_FCRTH;
 			adapter->hw.fc.low_water  = DEFAULT_FCRTL;
 		}
 	}
-	{ 
+	{ /* Receive Interrupt Delay */
 		static const struct ixgb_option opt = {
 			.type = range_option,
 			.name = "Receive Interrupt Delay",
@@ -342,7 +432,7 @@ ixgb_check_options(struct ixgb_adapter *adapter)
 			adapter->rx_int_delay = opt.def;
 		}
 	}
-	{ 
+	{ /* Transmit Interrupt Delay */
 		static const struct ixgb_option opt = {
 			.type = range_option,
 			.name = "Transmit Interrupt Delay",
@@ -360,7 +450,7 @@ ixgb_check_options(struct ixgb_adapter *adapter)
 		}
 	}
 
-	{ 
+	{ /* Transmit Interrupt Delay Enable */
 		static const struct ixgb_option opt = {
 			.type = enable_option,
 			.name = "Tx Interrupt Delay Enable",

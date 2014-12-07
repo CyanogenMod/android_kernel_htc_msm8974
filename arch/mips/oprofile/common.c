@@ -25,10 +25,10 @@ static struct op_counter_config ctr[20];
 
 static int op_mips_setup(void)
 {
-	
+	/* Pre-compute the values to stuff in the hardware registers.  */
 	model->reg_setup(ctr);
 
-	
+	/* Configure the registers on all cpus.  */
 	on_each_cpu(model->cpu_setup, NULL, 1);
 
         return 0;
@@ -51,7 +51,7 @@ static int op_mips_create_files(struct super_block *sb, struct dentry *root)
 		oprofilefs_create_ulong(sb, dir, "kernel", &ctr[i].kernel);
 		oprofilefs_create_ulong(sb, dir, "user", &ctr[i].user);
 		oprofilefs_create_ulong(sb, dir, "exl", &ctr[i].exl);
-		
+		/* Dummy.  */
 		oprofilefs_create_ulong(sb, dir, "unit_mask", &ctr[i].unit_mask);
 	}
 
@@ -67,7 +67,7 @@ static int op_mips_start(void)
 
 static void op_mips_stop(void)
 {
-	
+	/* Disable performance monitoring for all counters.  */
 	on_each_cpu(model->cpu_stop, NULL, 1);
 }
 
@@ -111,7 +111,7 @@ int __init oprofile_arch_init(struct oprofile_operations *ops)
 
 	ops->create_files	= op_mips_create_files;
 	ops->setup		= op_mips_setup;
-	
+	//ops->shutdown         = op_mips_shutdown;
 	ops->start		= op_mips_start;
 	ops->stop		= op_mips_stop;
 	ops->cpu_type		= lmodel->cpu_type;

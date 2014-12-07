@@ -55,6 +55,10 @@ struct s5h1420_state {
 	fe_code_rate_t fec_inner;
 	u32 symbol_rate;
 
+	/* FIXME: ugly workaround for flexcop's incapable i2c-controller
+	 * it does not support repeated-start, workaround: write addr-1
+	 * and then read
+	 */
 	u8 shadow[256];
 };
 
@@ -98,7 +102,7 @@ static u8 s5h1420_readreg(struct s5h1420_state *state, u8 reg)
 			return ret;
 	}
 
-	
+	/* dprintk("rd(%02x): %02x %02x\n", state->config->demod_address, reg, b[0]); */
 
 	return b[0];
 }
@@ -109,7 +113,7 @@ static int s5h1420_writereg (struct s5h1420_state* state, u8 reg, u8 data)
 	struct i2c_msg msg = { .addr = state->config->demod_address, .flags = 0, .buf = buf, .len = 2 };
 	int err;
 
-	
+	/* dprintk("wr(%02x): %02x %02x\n", state->config->demod_address, reg, data); */
 	err = i2c_transfer(state->i2c, &msg, 1);
 	if (err != 1) {
 		dprintk("%s: writereg error (err == %i, reg == 0x%02x, data == 0x%02x)\n", __func__, err, reg, data);
@@ -179,21 +183,21 @@ static int s5h1420_send_master_cmd (struct dvb_frontend* fe,
 	if (cmd->msg_len > 8)
 		return -EINVAL;
 
-	
+	/* setup for DISEQC */
 	val = s5h1420_readreg(state, 0x3b);
 	s5h1420_writereg(state, 0x3b, 0x02);
 	msleep(15);
 
-	
+	/* write the DISEQC command bytes */
 	for(i=0; i< cmd->msg_len; i++) {
 		s5h1420_writereg(state, 0x3d + i, cmd->msg[i]);
 	}
 
-	
+	/* kick off transmission */
 	s5h1420_writereg(state, 0x3b, s5h1420_readreg(state, 0x3b) |
 				      ((cmd->msg_len-1) << 4) | 0x08);
 
-	
+	/* wait for transmission to complete */
 	timeout = jiffies + ((100*HZ) / 1000);
 	while(time_before(jiffies, timeout)) {
 		if (!(s5h1420_readreg(state, 0x3b) & 0x08))
@@ -204,7 +208,7 @@ static int s5h1420_send_master_cmd (struct dvb_frontend* fe,
 	if (time_after(jiffies, timeout))
 		result = -ETIMEDOUT;
 
-	
+	/* restore original settings */
 	s5h1420_writereg(state, 0x3b, val);
 	msleep(15);
 	dprintk("leave %s\n", __func__);
@@ -221,15 +225,15 @@ static int s5h1420_recv_slave_reply (struct dvb_frontend* fe,
 	unsigned long timeout;
 	int result = 0;
 
-	
+	/* setup for DISEQC receive */
 	val = s5h1420_readreg(state, 0x3b);
-	s5h1420_writereg(state, 0x3b, 0x82); 
+	s5h1420_writereg(state, 0x3b, 0x82); /* FIXME: guess - do we need to set DIS_RDY(0x08) in receive mode? */
 	msleep(15);
 
-	
+	/* wait for reception to complete */
 	timeout = jiffies + ((reply->timeout*HZ) / 1000);
 	while(time_before(jiffies, timeout)) {
-		if (!(s5h1420_readreg(state, 0x3b) & 0x80)) 
+		if (!(s5h1420_readreg(state, 0x3b) & 0x80)) /* FIXME: do we test DIS_RDY(0x08) or RCV_EN(0x80)? */
 			break;
 
 		msleep(5);
@@ -239,12 +243,14 @@ static int s5h1420_recv_slave_reply (struct dvb_frontend* fe,
 		goto exit;
 	}
 
+	/* check error flag - FIXME: not sure what this does - docs do not describe
+	 * beyond "error flag for diseqc receive data :( */
 	if (s5h1420_readreg(state, 0x49)) {
 		result = -EIO;
 		goto exit;
 	}
 
-	
+	/* check length */
 	length = (s5h1420_readreg(state, 0x3b) & 0x70) >> 4;
 	if (length > sizeof(reply->msg)) {
 		result = -EOVERFLOW;
@@ -252,13 +258,13 @@ static int s5h1420_recv_slave_reply (struct dvb_frontend* fe,
 	}
 	reply->msg_len = length;
 
-	
+	/* extract data */
 	for(i=0; i< length; i++) {
 		reply->msg[i] = s5h1420_readreg(state, 0x3d + i);
 	}
 
 exit:
-	
+	/* restore original settings */
 	s5h1420_writereg(state, 0x3b, val);
 	msleep(15);
 	return result;
@@ -271,20 +277,20 @@ static int s5h1420_send_burst (struct dvb_frontend* fe, fe_sec_mini_cmd_t minicm
 	int result = 0;
 	unsigned long timeout;
 
-	
+	/* setup for tone burst */
 	val = s5h1420_readreg(state, 0x3b);
 	s5h1420_writereg(state, 0x3b, (s5h1420_readreg(state, 0x3b) & 0x70) | 0x01);
 
-	
+	/* set value for B position if requested */
 	if (minicmd == SEC_MINI_B) {
 		s5h1420_writereg(state, 0x3b, s5h1420_readreg(state, 0x3b) | 0x04);
 	}
 	msleep(15);
 
-	
+	/* start transmission */
 	s5h1420_writereg(state, 0x3b, s5h1420_readreg(state, 0x3b) | 0x08);
 
-	
+	/* wait for transmission to complete */
 	timeout = jiffies + ((100*HZ) / 1000);
 	while(time_before(jiffies, timeout)) {
 		if (!(s5h1420_readreg(state, 0x3b) & 0x08))
@@ -295,7 +301,7 @@ static int s5h1420_send_burst (struct dvb_frontend* fe, fe_sec_mini_cmd_t minicm
 	if (time_after(jiffies, timeout))
 		result = -ETIMEDOUT;
 
-	
+	/* restore original settings */
 	s5h1420_writereg(state, 0x3b, val);
 	msleep(15);
 	return result;
@@ -332,9 +338,11 @@ static int s5h1420_read_status(struct dvb_frontend* fe, fe_status_t* status)
 	if (status == NULL)
 		return -EINVAL;
 
-	
+	/* determine lock state */
 	*status = s5h1420_get_status_bits(state);
 
+	/* fix for FEC 5/6 inversion issue - if it doesn't quite lock, invert
+	the inversion, wait a bit and check again */
 	if (*status == (FE_HAS_SIGNAL | FE_HAS_CARRIER | FE_HAS_VITERBI)) {
 		val = s5h1420_readreg(state, Vit10);
 		if ((val & 0x07) == 0x03) {
@@ -343,16 +351,16 @@ static int s5h1420_read_status(struct dvb_frontend* fe, fe_status_t* status)
 			else
 				s5h1420_writereg(state, Vit09, 0x1b);
 
-			
+			/* wait a bit then update lock status */
 			mdelay(200);
 			*status = s5h1420_get_status_bits(state);
 		}
 	}
 
-	
+	/* perform post lock setup */
 	if ((*status & FE_HAS_LOCK) && !state->postlocked) {
 
-		
+		/* calculate the data rate */
 		u32 tmp = s5h1420_getsymbolrate(state);
 		switch (s5h1420_readreg(state, Vit10) & 0x07) {
 		case 0: tmp = (tmp * 2 * 1) / 2; break;
@@ -370,7 +378,7 @@ static int s5h1420_read_status(struct dvb_frontend* fe, fe_status_t* status)
 		tmp = state->fclk / tmp;
 
 
-		
+		/* set the MPEG_CLK_INTL for the calculated data rate */
 		if (tmp < 2)
 			val = 0x00;
 		else if (tmp < 5)
@@ -393,15 +401,15 @@ static int s5h1420_read_status(struct dvb_frontend* fe, fe_status_t* status)
 		s5h1420_writereg(state, FEC01, 0x10);
 		s5h1420_writereg(state, FEC01, val);
 
-		
+		/* Enable "MPEG_Out" */
 		val = s5h1420_readreg(state, Mpeg02);
 		s5h1420_writereg(state, Mpeg02, val | (1 << 6));
 
-		
+		/* kicker disable */
 		val = s5h1420_readreg(state, QPSK01) & 0x7f;
 		s5h1420_writereg(state, QPSK01, val);
 
-		
+		/* DC freeze TODO it was never activated by default or it can stay activated */
 
 		if (s5h1420_getsymbolrate(state) >= 20000000) {
 			s5h1420_writereg(state, Loop04, 0x8a);
@@ -411,7 +419,7 @@ static int s5h1420_read_status(struct dvb_frontend* fe, fe_status_t* status)
 			s5h1420_writereg(state, Loop05, 0x27);
 		}
 
-		
+		/* post-lock processing has been done! */
 		state->postlocked = 1;
 	}
 
@@ -499,6 +507,8 @@ static void s5h1420_setfreqoffset(struct s5h1420_state* state, int freqoffset)
 
 	dprintk("enter %s\n", __func__);
 
+	/* remember freqoffset is in kHz, but the chip wants the offset in Hz, so
+	 * divide fclk by 1000000 to get the correct value. */
 	val = -(int) ((freqoffset * (1<<24)) / (state->fclk / 1000000));
 
 	dprintk("phase rotator/freqoffset: %d %06x\n", freqoffset, val);
@@ -525,6 +535,8 @@ static int s5h1420_getfreqoffset(struct s5h1420_state* state)
 	if (val & 0x800000)
 		val |= 0xff000000;
 
+	/* remember freqoffset is in kHz, but the chip wants the offset in Hz, so
+	 * divide fclk by 1000000 to get the correct value. */
 	val = (((-val) * (state->fclk/1000000)) / (1<<24));
 
 	return val;
@@ -626,7 +638,7 @@ static int s5h1420_set_frontend(struct dvb_frontend *fe)
 
 	dprintk("enter %s\n", __func__);
 
-	
+	/* check if we should do a fast-tune */
 	s5h1420_get_tune_settings(fe, &fesettings);
 	frequency_delta = p->frequency - state->tunedfreq;
 	if ((frequency_delta > -fesettings.max_drift) &&
@@ -652,10 +664,10 @@ static int s5h1420_set_frontend(struct dvb_frontend *fe)
 	}
 	dprintk("tuning demod\n");
 
-	
+	/* first of all, software reset */
 	s5h1420_reset(state);
 
-	
+	/* set s5h1420 fclk PLL according to desired symbol rate */
 	if (p->symbol_rate > 33000000)
 		state->fclk = 80000000;
 	else if (p->symbol_rate > 28500000)
@@ -667,7 +679,7 @@ static int s5h1420_set_frontend(struct dvb_frontend *fe)
 	else
 		state->fclk = 44000000;
 
-	
+	/* Clock */
 	switch (state->fclk) {
 	default:
 	case 88000000:
@@ -691,20 +703,20 @@ static int s5h1420_set_frontend(struct dvb_frontend *fe)
 	s5h1420_writereg(state, PLL02, 0x40);
 	s5h1420_writereg(state, DiS01, (state->fclk + (TONE_FREQ * 32) - 1) / (TONE_FREQ * 32));
 
-	
+	/* TODO DC offset removal, config parameter ? */
 	if (p->symbol_rate > 29000000)
 		s5h1420_writereg(state, QPSK01, 0xae | 0x10);
 	else
 		s5h1420_writereg(state, QPSK01, 0xac | 0x10);
 
-	
+	/* set misc registers */
 	s5h1420_writereg(state, CON_1, 0x00);
 	s5h1420_writereg(state, QPSK02, 0x00);
 	s5h1420_writereg(state, Pre01, 0xb0);
 
 	s5h1420_writereg(state, Loop01, 0xF0);
-	s5h1420_writereg(state, Loop02, 0x2a); 
-	s5h1420_writereg(state, Loop03, 0x79); 
+	s5h1420_writereg(state, Loop02, 0x2a); /* e7 for s5h1420 */
+	s5h1420_writereg(state, Loop03, 0x79); /* 78 for s5h1420 */
 	if (p->symbol_rate > 20000000)
 		s5h1420_writereg(state, Loop04, 0x79);
 	else
@@ -718,18 +730,18 @@ static int s5h1420_set_frontend(struct dvb_frontend *fe)
 	else
 		s5h1420_writereg(state, Post01, (3 << 6) | 0x10);
 
-	s5h1420_writereg(state, Monitor12, 0x00); 
+	s5h1420_writereg(state, Monitor12, 0x00); /* unfreeze DC compensation */
 
 	s5h1420_writereg(state, Sync01, 0x33);
 	s5h1420_writereg(state, Mpeg01, state->config->cdclk_polarity);
-	s5h1420_writereg(state, Mpeg02, 0x3d); 
-	s5h1420_writereg(state, Err01, 0x03); 
+	s5h1420_writereg(state, Mpeg02, 0x3d); /* Parallel output more, disabled -> enabled later */
+	s5h1420_writereg(state, Err01, 0x03); /* 0x1d for s5h1420 */
 
-	s5h1420_writereg(state, Vit06, 0x6e); 
+	s5h1420_writereg(state, Vit06, 0x6e); /* 0x8e for s5h1420 */
 	s5h1420_writereg(state, DiS03, 0x00);
-	s5h1420_writereg(state, Rf01, 0x61); 
+	s5h1420_writereg(state, Rf01, 0x61); /* Tuner i2c address - for the gate controller */
 
-	
+	/* set tuner PLL */
 	if (fe->ops.tuner_ops.set_params) {
 		fe->ops.tuner_ops.set_params(fe);
 		if (fe->ops.i2c_gate_ctrl)
@@ -737,11 +749,11 @@ static int s5h1420_set_frontend(struct dvb_frontend *fe)
 		s5h1420_setfreqoffset(state, 0);
 	}
 
-	
+	/* set the reset of the parameters */
 	s5h1420_setsymbolrate(state, p);
 	s5h1420_setfec_inversion(state, p);
 
-	
+	/* start QPSK */
 	s5h1420_writereg(state, QPSK01, s5h1420_readreg(state, QPSK01) | 1);
 
 	state->fec_inner = p->fec_inner;
@@ -813,7 +825,7 @@ static int s5h1420_init (struct dvb_frontend* fe)
 {
 	struct s5h1420_state* state = fe->demodulator_priv;
 
-	
+	/* disable power down and do reset */
 	state->CON_1_val = state->config->serial_mpeg << 4;
 	s5h1420_writereg(state, 0x02, state->CON_1_val);
 	msleep(10);
@@ -845,7 +857,7 @@ static int s5h1420_tuner_i2c_tuner_xfer(struct i2c_adapter *i2c_adap, struct i2c
 {
 	struct s5h1420_state *state = i2c_get_adapdata(i2c_adap);
 	struct i2c_msg m[1 + num];
-	u8 tx_open[2] = { CON_1, state->CON_1_val | 1 }; 
+	u8 tx_open[2] = { CON_1, state->CON_1_val | 1 }; /* repeater stops once there was a stop condition */
 
 	memset(m, 0, sizeof(struct i2c_msg) * (1 + num));
 
@@ -875,14 +887,14 @@ static struct dvb_frontend_ops s5h1420_ops;
 struct dvb_frontend *s5h1420_attach(const struct s5h1420_config *config,
 				    struct i2c_adapter *i2c)
 {
-	
+	/* allocate memory for the internal state */
 	struct s5h1420_state *state = kzalloc(sizeof(struct s5h1420_state), GFP_KERNEL);
 	u8 i;
 
 	if (state == NULL)
 		goto error;
 
-	
+	/* setup the state */
 	state->config = config;
 	state->i2c = i2c;
 	state->postlocked = 0;
@@ -891,7 +903,7 @@ struct dvb_frontend *s5h1420_attach(const struct s5h1420_config *config,
 	state->fec_inner = FEC_NONE;
 	state->symbol_rate = 0;
 
-	
+	/* check if the demod is there + identify it */
 	i = s5h1420_readreg(state, ID01);
 	if (i != 0x03)
 		goto error;
@@ -901,11 +913,11 @@ struct dvb_frontend *s5h1420_attach(const struct s5h1420_config *config,
 	for (i = 0; i < 0x50; i++)
 		state->shadow[i] = s5h1420_readreg(state, i);
 
-	
+	/* create dvb_frontend */
 	memcpy(&state->frontend.ops, &s5h1420_ops, sizeof(struct dvb_frontend_ops));
 	state->frontend.demodulator_priv = state;
 
-	
+	/* create tuner i2c adapter */
 	strlcpy(state->tuner_i2c_adapter.name, "S5H1420-PN1010 tuner I2C bus",
 		sizeof(state->tuner_i2c_adapter.name));
 	state->tuner_i2c_adapter.algo      = &s5h1420_tuner_i2c_algo;
@@ -930,11 +942,11 @@ static struct dvb_frontend_ops s5h1420_ops = {
 		.name     = "Samsung S5H1420/PnpNetwork PN1010 DVB-S",
 		.frequency_min    = 950000,
 		.frequency_max    = 2150000,
-		.frequency_stepsize = 125,     
+		.frequency_stepsize = 125,     /* kHz for QPSK frontends */
 		.frequency_tolerance  = 29500,
 		.symbol_rate_min  = 1000000,
 		.symbol_rate_max  = 45000000,
-		
+		/*  .symbol_rate_tolerance  = ???,*/
 		.caps = FE_CAN_INVERSION_AUTO |
 		FE_CAN_FEC_1_2 | FE_CAN_FEC_2_3 | FE_CAN_FEC_3_4 |
 		FE_CAN_FEC_5_6 | FE_CAN_FEC_6_7 | FE_CAN_FEC_7_8 | FE_CAN_FEC_AUTO |

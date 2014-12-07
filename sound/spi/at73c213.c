@@ -8,6 +8,7 @@
  * the Free Software Foundation.
  */
 
+/*#define DEBUG*/
 
 #include <linux/clk.h>
 #include <linux/err.h>
@@ -33,30 +34,31 @@
 
 #include "at73c213.h"
 
-#define BITRATE_MIN	 8000 
+#define BITRATE_MIN	 8000 /* Hardware limit? */
 #define BITRATE_TARGET	CONFIG_SND_AT73C213_TARGET_BITRATE
-#define BITRATE_MAX	50000 
+#define BITRATE_MAX	50000 /* Hardware limit. */
 
+/* Initial (hardware reset) AT73C213 register values. */
 static u8 snd_at73c213_original_image[18] =
 {
-	0x00,	
-	0x05,	
-	0x05,	
-	0x08,	
-	0x08,	
-	0x00,	
-	0x00,	
-	0x22,	
-	0x09,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x05,	
-	0x00,	
-	0x00,	
-	0x00,	
-	0x00,	
+	0x00,	/* 00 - CTRL    */
+	0x05,	/* 01 - LLIG    */
+	0x05,	/* 02 - RLIG    */
+	0x08,	/* 03 - LPMG    */
+	0x08,	/* 04 - RPMG    */
+	0x00,	/* 05 - LLOG    */
+	0x00,	/* 06 - RLOG    */
+	0x22,	/* 07 - OLC     */
+	0x09,	/* 08 - MC      */
+	0x00,	/* 09 - CSFC    */
+	0x00,	/* 0A - MISC    */
+	0x00,	/* 0B -         */
+	0x00,	/* 0C - PRECH   */
+	0x05,	/* 0D - AUXG    */
+	0x00,	/* 0E -         */
+	0x00,	/* 0F -         */
+	0x00,	/* 10 - RST     */
+	0x00,	/* 11 - PA_CTRL */
 };
 
 struct snd_at73c213 {
@@ -71,11 +73,11 @@ struct snd_at73c213 {
 	struct spi_device		*spi;
 	u8				spi_wbuffer[2];
 	u8				spi_rbuffer[2];
-	
+	/* Image of the SPI registers in AT73C213. */
 	u8				reg_image[18];
-	
+	/* Protect SSC registers against concurrent access. */
 	spinlock_t			lock;
-	
+	/* Protect mixer registers against concurrent access. */
 	struct mutex			mixer_lock;
 };
 
@@ -113,8 +115,8 @@ static struct snd_pcm_hardware snd_at73c213_playback_hw = {
 			  SNDRV_PCM_INFO_BLOCK_TRANSFER,
 	.formats	= SNDRV_PCM_FMTBIT_S16_BE,
 	.rates		= SNDRV_PCM_RATE_CONTINUOUS,
-	.rate_min	= 8000,  
-	.rate_max	= 50000, 
+	.rate_min	= 8000,  /* Replaced by chip->bitrate later. */
+	.rate_max	= 50000, /* Replaced by chip->bitrate later. */
 	.channels_min	= 1,
 	.channels_max	= 2,
 	.buffer_bytes_max = 64 * 1024 - 1,
@@ -124,6 +126,9 @@ static struct snd_pcm_hardware snd_at73c213_playback_hw = {
 	.periods_max	= 1024,
 };
 
+/*
+ * Calculate and set bitrate and divisions.
+ */
 static int snd_at73c213_set_bitrate(struct snd_at73c213 *chip)
 {
 	unsigned long ssc_rate = clk_get_rate(chip->ssc->clk);
@@ -132,8 +137,16 @@ static int snd_at73c213_set_bitrate(struct snd_at73c213 *chip)
 	unsigned long ssc_div_max, ssc_div_min;
 	int max_tries;
 
+	/*
+	 * We connect two clocks here, picking divisors so the I2S clocks
+	 * out data at the same rate the DAC clocks it in ... and as close
+	 * as practical to the desired target rate.
+	 *
+	 * The DAC master clock (MCLK) is programmable, and is either 256
+	 * or (not here) 384 times the I2S output clock (BCLK).
+	 */
 
-	
+	/* SSC clock / (bitrate * stereo * 16-bit). */
 	ssc_div = ssc_rate / (BITRATE_TARGET * 2 * 16);
 	ssc_div_min = ssc_rate / (BITRATE_MAX * 2 * 16);
 	ssc_div_max = ssc_rate / (BITRATE_MIN * 2 * 16);
@@ -142,7 +155,7 @@ static int snd_at73c213_set_bitrate(struct snd_at73c213 *chip)
 	if (max_tries < 1)
 		max_tries = 1;
 
-	
+	/* ssc_div must be even. */
 	ssc_div = (ssc_div + 1) & ~1UL;
 
 	if ((ssc_rate / (ssc_div * 2 * 16)) < BITRATE_MIN) {
@@ -151,27 +164,27 @@ static int snd_at73c213_set_bitrate(struct snd_at73c213 *chip)
 			return -ENXIO;
 	}
 
-	
+	/* Search for a possible bitrate. */
 	do {
-		
+		/* SSC clock / (ssc divider * 16-bit * stereo). */
 		if ((ssc_rate / (ssc_div * 2 * 16)) < BITRATE_MIN)
 			return -ENXIO;
 
-		
+		/* 256 / (2 * 16) = 8 */
 		dac_rate_new = 8 * (ssc_rate / ssc_div);
 
 		status = clk_round_rate(chip->board->dac_clk, dac_rate_new);
 		if (status < 0)
 			return status;
 
-		
+		/* Ignore difference smaller than 256 Hz. */
 		if ((status/256) == (dac_rate_new/256))
 			goto set_rate;
 
 		ssc_div += 2;
 	} while (--max_tries);
 
-	
+	/* Not able to find a valid bitrate. */
 	return -ENXIO;
 
 set_rate:
@@ -179,10 +192,10 @@ set_rate:
 	if (status < 0)
 		return status;
 
-	
+	/* Set divider in SSC device. */
 	ssc_writel(chip->ssc->regs, CMR, ssc_div/2);
 
-	
+	/* SSC clock / (ssc divider * 16-bit * stereo). */
 	chip->bitrate = ssc_rate / (ssc_div * 16 * 2);
 
 	dev_info(&chip->spi->dev,
@@ -198,7 +211,7 @@ static int snd_at73c213_pcm_open(struct snd_pcm_substream *substream)
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	int err;
 
-	
+	/* ensure buffer_size is a multiple of period_size */
 	err = snd_pcm_hw_constraint_integer(runtime,
 					SNDRV_PCM_HW_PARAM_PERIODS);
 	if (err < 0)
@@ -382,6 +395,9 @@ static irqreturn_t snd_at73c213_interrupt(int irq, void *dev_id)
 	return retval;
 }
 
+/*
+ * Mixer functions.
+ */
 static int snd_at73c213_mono_get(struct snd_kcontrol *kcontrol,
 				 struct snd_ctl_elem_value *ucontrol)
 {
@@ -605,7 +621,7 @@ static int snd_at73c213_line_capture_volume_info(
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
 	uinfo->count = 2;
-	
+	/* When inverted will give values 0x10001 => 0. */
 	uinfo->value.integer.min = 14;
 	uinfo->value.integer.max = 31;
 
@@ -618,7 +634,7 @@ static int snd_at73c213_aux_capture_volume_info(
 {
 	uinfo->type = SNDRV_CTL_ELEM_TYPE_INTEGER;
 	uinfo->count = 1;
-	
+	/* When inverted will give values 0x10001 => 0. */
 	uinfo->value.integer.min = 14;
 	uinfo->value.integer.max = 31;
 
@@ -725,13 +741,29 @@ cleanup:
 	return errval;
 }
 
+/*
+ * Device functions
+ */
 static int __devinit snd_at73c213_ssc_init(struct snd_at73c213 *chip)
 {
+	/*
+	 * Continuous clock output.
+	 * Starts on falling TF.
+	 * Delay 1 cycle (1 bit).
+	 * Periode is 16 bit (16 - 1).
+	 */
 	ssc_writel(chip->ssc->regs, TCMR,
 			SSC_BF(TCMR_CKO, 1)
 			| SSC_BF(TCMR_START, 4)
 			| SSC_BF(TCMR_STTDLY, 1)
 			| SSC_BF(TCMR_PERIOD, 16 - 1));
+	/*
+	 * Data length is 16 bit (16 - 1).
+	 * Transmit MSB first.
+	 * Transmit 2 words each transfer.
+	 * Frame sync length is 16 bit (16 - 1).
+	 * Frame starts on negative pulse.
+	 */
 	ssc_writel(chip->ssc->regs, TFMR,
 			SSC_BF(TFMR_DATLEN, 16 - 1)
 			| SSC_BIT(TFMR_MSBF)
@@ -751,10 +783,10 @@ static int __devinit snd_at73c213_chip_init(struct snd_at73c213 *chip)
 	if (retval)
 		goto out;
 
-	
+	/* Enable DAC master clock. */
 	clk_enable(chip->board->dac_clk);
 
-	
+	/* Initialize at73c213 on SPI bus. */
 	retval = snd_at73c213_write_reg(chip, DAC_RST, 0x04);
 	if (retval)
 		goto out_clk;
@@ -763,7 +795,7 @@ static int __devinit snd_at73c213_chip_init(struct snd_at73c213 *chip)
 	if (retval)
 		goto out_clk;
 
-	
+	/* Precharge everything. */
 	retval = snd_at73c213_write_reg(chip, DAC_PRECH, 0xff);
 	if (retval)
 		goto out_clk;
@@ -777,7 +809,7 @@ static int __devinit snd_at73c213_chip_init(struct snd_at73c213 *chip)
 
 	msleep(50);
 
-	
+	/* Stop precharging PA. */
 	retval = snd_at73c213_write_reg(chip, PA_CTRL,
 			(1<<PA_CTRL_APALP) | 0x0f);
 	if (retval)
@@ -785,14 +817,14 @@ static int __devinit snd_at73c213_chip_init(struct snd_at73c213 *chip)
 
 	msleep(450);
 
-	
+	/* Stop precharging DAC, turn on master power. */
 	retval = snd_at73c213_write_reg(chip, DAC_PRECH, (1<<DAC_PRECH_ONMSTR));
 	if (retval)
 		goto out_clk;
 
 	msleep(1);
 
-	
+	/* Turn on DAC. */
 	dac_ctrl = (1<<DAC_CTRL_ONDACL) | (1<<DAC_CTRL_ONDACR)
 		| (1<<DAC_CTRL_ONLNOL) | (1<<DAC_CTRL_ONLNOR);
 
@@ -800,7 +832,7 @@ static int __devinit snd_at73c213_chip_init(struct snd_at73c213 *chip)
 	if (retval)
 		goto out_clk;
 
-	
+	/* Mute sound. */
 	retval = snd_at73c213_write_reg(chip, DAC_LMPG, 0x3f);
 	if (retval)
 		goto out_clk;
@@ -823,7 +855,7 @@ static int __devinit snd_at73c213_chip_init(struct snd_at73c213 *chip)
 	if (retval)
 		goto out_clk;
 
-	
+	/* Enable I2S device, i.e. clock output. */
 	ssc_writel(chip->ssc->regs, CR, SSC_BIT(CR_TXEN));
 
 	goto out;
@@ -932,7 +964,7 @@ static int __devinit snd_at73c213_probe(struct spi_device *spi)
 		return PTR_ERR(board->dac_clk);
 	}
 
-	
+	/* Allocate "card" using some unused identifiers. */
 	snprintf(id, sizeof id, "at73c213_%d", board->ssc_id);
 	retval = snd_card_create(-1, id, THIS_MODULE,
 				 sizeof(struct snd_at73c213), &card);
@@ -981,10 +1013,10 @@ static int __devexit snd_at73c213_remove(struct spi_device *spi)
 	struct snd_at73c213 *chip = card->private_data;
 	int retval;
 
-	
+	/* Stop playback. */
 	ssc_writel(chip->ssc->regs, CR, SSC_BIT(CR_TXDIS));
 
-	
+	/* Mute sound. */
 	retval = snd_at73c213_write_reg(chip, DAC_LMPG, 0x3f);
 	if (retval)
 		goto out;
@@ -1007,7 +1039,7 @@ static int __devexit snd_at73c213_remove(struct spi_device *spi)
 	if (retval)
 		goto out;
 
-	
+	/* Turn off PA. */
 	retval = snd_at73c213_write_reg(chip, PA_CTRL,
 					chip->reg_image[PA_CTRL] | 0x0f);
 	if (retval)
@@ -1018,7 +1050,7 @@ static int __devexit snd_at73c213_remove(struct spi_device *spi)
 	if (retval)
 		goto out;
 
-	
+	/* Turn off external DAC. */
 	retval = snd_at73c213_write_reg(chip, DAC_CTRL, 0x0c);
 	if (retval)
 		goto out;
@@ -1027,13 +1059,13 @@ static int __devexit snd_at73c213_remove(struct spi_device *spi)
 	if (retval)
 		goto out;
 
-	
+	/* Turn off master power. */
 	retval = snd_at73c213_write_reg(chip, DAC_PRECH, 0x00);
 	if (retval)
 		goto out;
 
 out:
-	
+	/* Stop DAC master clock. */
 	clk_disable(chip->board->dac_clk);
 
 	ssc_free(chip->ssc);

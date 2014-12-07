@@ -26,14 +26,33 @@
 #include <asm/eeh_event.h>
 #include <asm/ppc-pci.h>
 
+/** Overview:
+ *  EEH error states may be detected within exception handlers;
+ *  however, the recovery processing needs to occur asynchronously
+ *  in a normal kernel context and not an interrupt context.
+ *  This pair of routines creates an event and queues it onto a
+ *  work-queue, where a worker thread can drive recovery.
+ */
 
+/* EEH event workqueue setup. */
 static DEFINE_SPINLOCK(eeh_eventlist_lock);
 LIST_HEAD(eeh_eventlist);
 static void eeh_thread_launcher(struct work_struct *);
 DECLARE_WORK(eeh_event_wq, eeh_thread_launcher);
 
+/* Serialize reset sequences for a given pci device */
 DEFINE_MUTEX(eeh_event_mutex);
 
+/**
+ * eeh_event_handler - Dispatch EEH events.
+ * @dummy - unused
+ *
+ * The detection of a frozen slot can occur inside an interrupt,
+ * where it can be hard to do anything about it.  The goal of this
+ * routine is to pull these detection events out of the context
+ * of the interrupt handler, and re-dispatch them for processing
+ * at a later time in a normal context.
+ */
 static int eeh_event_handler(void * dummy)
 {
 	unsigned long flags;
@@ -45,7 +64,7 @@ static int eeh_event_handler(void * dummy)
 	spin_lock_irqsave(&eeh_eventlist_lock, flags);
 	event = NULL;
 
-	
+	/* Unqueue the event, get ready to process. */
 	if (!list_empty(&eeh_eventlist)) {
 		event = list_entry(eeh_eventlist.next, struct eeh_event, list);
 		list_del(&event->list);
@@ -55,7 +74,7 @@ static int eeh_event_handler(void * dummy)
 	if (event == NULL)
 		return 0;
 
-	
+	/* Serialize processing of EEH events */
 	mutex_lock(&eeh_event_mutex);
 	edev = event->edev;
 	eeh_mark_slot(eeh_dev_to_of_node(edev), EEH_MODE_RECOVERING);
@@ -63,7 +82,7 @@ static int eeh_event_handler(void * dummy)
 	printk(KERN_INFO "EEH: Detected PCI bus error on device %s\n",
 	       eeh_pci_name(edev->pdev));
 
-	set_current_state(TASK_INTERRUPTIBLE);	
+	set_current_state(TASK_INTERRUPTIBLE);	/* Don't add to load average */
 	edev = handle_eeh_events(event);
 
 	eeh_clear_slot(eeh_dev_to_of_node(edev), EEH_MODE_RECOVERING);
@@ -72,7 +91,7 @@ static int eeh_event_handler(void * dummy)
 	kfree(event);
 	mutex_unlock(&eeh_event_mutex);
 
-	
+	/* If there are no new errors after an hour, clear the counter. */
 	if (edev && edev->freeze_count>0) {
 		msleep_interruptible(3600*1000);
 		if (edev->freeze_count>0)
@@ -83,12 +102,27 @@ static int eeh_event_handler(void * dummy)
 	return 0;
 }
 
+/**
+ * eeh_thread_launcher - Start kernel thread to handle EEH events
+ * @dummy - unused
+ *
+ * This routine is called to start the kernel thread for processing
+ * EEH event.
+ */
 static void eeh_thread_launcher(struct work_struct *dummy)
 {
 	if (kernel_thread(eeh_event_handler, NULL, CLONE_KERNEL) < 0)
 		printk(KERN_ERR "Failed to start EEH daemon\n");
 }
 
+/**
+ * eeh_send_failure_event - Generate a PCI error event
+ * @edev: EEH device
+ *
+ * This routine can be called within an interrupt context;
+ * the actual event will be delivered in a normal context
+ * (from a workqueue).
+ */
 int eeh_send_failure_event(struct eeh_dev *edev)
 {
 	unsigned long flags;
@@ -114,7 +148,7 @@ int eeh_send_failure_event(struct eeh_dev *edev)
 
 	event->edev = edev;
 
-	
+	/* We may or may not be called in an interrupt context */
 	spin_lock_irqsave(&eeh_eventlist_lock, flags);
 	list_add(&event->list, &eeh_eventlist);
 	spin_unlock_irqrestore(&eeh_eventlist_lock, flags);

@@ -34,13 +34,14 @@ static struct rm9k_register_config {
 	unsigned int reset_counter2;
 } reg;
 
+/* Compute all of the registers in preparation for enabling profiling.  */
 
 static void rm9000_reg_setup(struct op_counter_config *ctr)
 {
 	unsigned int control = 0;
 
-	
-	
+	/* Compute the performance counter control word.  */
+	/* For now count kernel and user mode */
 	if (ctr[0].enabled)
 		control |= RM9K_COUNTER1_EVENT(ctr[0].event) |
 		           RM9K_COUNTER1_KERNEL |
@@ -57,6 +58,7 @@ static void rm9000_reg_setup(struct op_counter_config *ctr)
 	reg.reset_counter2 = 0x80000000 - ctr[1].count;
 }
 
+/* Program all of the registers in preparation for enabling profiling.  */
 
 static void rm9000_cpu_setup(void *args)
 {
@@ -68,13 +70,13 @@ static void rm9000_cpu_setup(void *args)
 
 static void rm9000_cpu_start(void *args)
 {
-	
+	/* Start all counters on current CPU */
 	write_c0_perfcontrol(reg.control);
 }
 
 static void rm9000_cpu_stop(void *args)
 {
-	
+	/* Stop all counters on current CPU */
 	write_c0_perfcontrol(0);
 }
 
@@ -85,6 +87,12 @@ static irqreturn_t rm9000_perfcount_handler(int irq, void *dev_id)
 	uint32_t counter1, counter2;
 	uint64_t counters;
 
+	/*
+	 * RM9000 combines two 32-bit performance counters into a single
+	 * 64-bit coprocessor zero register.  To avoid a race updating the
+	 * registers we need to stop the counters while we're messing with
+	 * them ...
+	 */
 	write_c0_perfcontrol(0);
 
 	counters = read_c0_perfcount();

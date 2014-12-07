@@ -23,8 +23,12 @@
 #define COPP_IGNORE	0xffffffff
 #define SESSION_IGNORE 0x0UL
 
+/* 8 concurrent sessions with Q6 possible,  session:0
+   reserved in DSP */
 #define MAX_SESSIONS 0x09
 
+/* This represents Maximum bit needed for representing sessions
+   per clients, MAX_BIT_PER_CLIENT >= MAX_SESSIONS */
 #define MAX_BIT_PER_CLIENT 16
 
 #define VOICE_STATE_INVALID 0x0
@@ -55,12 +59,12 @@ struct msm_snddev_info {
 	u32 set_sample_rate;
 	u64 sessions;
 	int usage_count;
-	s32 max_voc_rx_vol[VOC_RX_VOL_ARRAY_NUM]; 
+	s32 max_voc_rx_vol[VOC_RX_VOL_ARRAY_NUM]; /* [0] is for NB,[1] for WB */
 	s32 min_voc_rx_vol[VOC_RX_VOL_ARRAY_NUM];
 };
 
 struct msm_volume {
-	int volume; 
+	int volume; /* Volume parameter, in % Scale */
 	int pan;
 };
 
@@ -103,12 +107,13 @@ void msm_release_voc_thread(void);
 int snddev_voice_set_volume(int vol, int path);
 
 struct auddev_evt_voc_devinfo {
-	u32 dev_type; 
-	u32 acdb_dev_id; 
-	u32 dev_sample;  
-	s32 max_rx_vol[VOC_RX_VOL_ARRAY_NUM]; 
-	s32 min_rx_vol[VOC_RX_VOL_ARRAY_NUM]; 
-	u32 dev_id; 
+	u32 dev_type; /* Rx or Tx */
+	u32 acdb_dev_id; /* acdb id of device */
+	u32 dev_sample;  /* Sample rate of device */
+	s32 max_rx_vol[VOC_RX_VOL_ARRAY_NUM]; /* unit is mb (milibel),
+						[0] is for NB, other for WB */
+	s32 min_rx_vol[VOC_RX_VOL_ARRAY_NUM]; /* unit is mb */
+	u32 dev_id; /* registered device id */
 	u32 dev_port_id;
 };
 
@@ -154,23 +159,23 @@ struct message_header {
 	uint32_t data_len;
 };
 
-#define AUDDEV_EVT_DEV_CHG_VOICE 0x01 
-#define AUDDEV_EVT_DEV_RDY 0x02 
-#define AUDDEV_EVT_DEV_RLS 0x04 
-#define AUDDEV_EVT_REL_PENDING 0x08 
-#define AUDDEV_EVT_DEVICE_VOL_MUTE_CHG 0x10 
-#define AUDDEV_EVT_START_VOICE 0x20 
-#define AUDDEV_EVT_END_VOICE 0x40 
-#define AUDDEV_EVT_STREAM_VOL_CHG 0x80 
-#define AUDDEV_EVT_FREQ_CHG 0x100 
-#define AUDDEV_EVT_VOICE_STATE_CHG 0x200 
+#define AUDDEV_EVT_DEV_CHG_VOICE 0x01 /* device change event */
+#define AUDDEV_EVT_DEV_RDY 0x02 /* device ready event */
+#define AUDDEV_EVT_DEV_RLS 0x04 /* device released event */
+#define AUDDEV_EVT_REL_PENDING 0x08 /* device release pending */
+#define AUDDEV_EVT_DEVICE_VOL_MUTE_CHG 0x10 /* device volume changed */
+#define AUDDEV_EVT_START_VOICE 0x20 /* voice call start */
+#define AUDDEV_EVT_END_VOICE 0x40 /* voice call end */
+#define AUDDEV_EVT_STREAM_VOL_CHG 0x80 /* device volume changed */
+#define AUDDEV_EVT_FREQ_CHG 0x100 /* Change in freq */
+#define AUDDEV_EVT_VOICE_STATE_CHG 0x200 /* Change in voice state */
 
-#define AUDDEV_CLNT_VOC 0x1 
-#define AUDDEV_CLNT_DEC 0x2 
-#define AUDDEV_CLNT_ENC 0x3 
-#define AUDDEV_CLNT_AUDIOCAL 0x4 
+#define AUDDEV_CLNT_VOC 0x1 /*Vocoder clients*/
+#define AUDDEV_CLNT_DEC 0x2 /*Decoder clients*/
+#define AUDDEV_CLNT_ENC 0x3 /* Encoder clients */
+#define AUDDEV_CLNT_AUDIOCAL 0x4 /* AudioCalibration client */
 
-#define AUDIO_DEV_CTL_MAX_LISTNER 20 
+#define AUDIO_DEV_CTL_MAX_LISTNER 20 /* Max Listeners Supported */
 
 struct msm_snd_evt_listner {
 	uint32_t evt_id;
@@ -187,7 +192,7 @@ struct msm_snd_evt_listner {
 struct event_listner {
 	struct msm_snd_evt_listner *cb;
 	u32 num_listner;
-	int state;  
+	int state; /* Call state */ /* TODO remove this if not req*/
 };
 
 extern struct event_listner event;

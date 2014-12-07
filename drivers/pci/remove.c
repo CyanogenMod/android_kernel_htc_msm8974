@@ -32,6 +32,8 @@ static void pci_stop_dev(struct pci_dev *dev)
 
 static void pci_destroy_dev(struct pci_dev *dev)
 {
+	/* Remove the device from the device lists, and prevent any further
+	 * list accesses from this device */
 	down_write(&pci_bus_sem);
 	list_del(&dev->bus_list);
 	dev->bus_list.next = dev->bus_list.prev = NULL;
@@ -41,6 +43,15 @@ static void pci_destroy_dev(struct pci_dev *dev)
 	pci_dev_put(dev);
 }
 
+/**
+ * pci_remove_device_safe - remove an unused hotplug device
+ * @dev: the device to remove
+ *
+ * Delete the device structure from the device lists and 
+ * notify userspace (/sbin/hotplug), but only if the device
+ * in question is not being used by a driver.
+ * Returns 0 on success.
+ */
 #if 0
 int pci_remove_device_safe(struct pci_dev *dev)
 {
@@ -49,7 +60,7 @@ int pci_remove_device_safe(struct pci_dev *dev)
 	pci_destroy_dev(dev);
 	return 0;
 }
-#endif  
+#endif  /*  0  */
 
 void pci_remove_bus(struct pci_bus *pci_bus)
 {
@@ -67,6 +78,18 @@ void pci_remove_bus(struct pci_bus *pci_bus)
 EXPORT_SYMBOL(pci_remove_bus);
 
 static void __pci_remove_behind_bridge(struct pci_dev *dev);
+/**
+ * pci_stop_and_remove_bus_device - remove a PCI device and any children
+ * @dev: the device to remove
+ *
+ * Remove a PCI device from the device lists, informing the drivers
+ * that the device has been removed.  We also remove any subordinate
+ * buses and children in a depth-first manner.
+ *
+ * For each device we remove, delete the device structure from the
+ * device lists, remove the /proc entry, and notify userspace
+ * (/sbin/hotplug).
+ */
 void __pci_remove_bus_device(struct pci_dev *dev)
 {
 	if (dev->subordinate) {
@@ -105,6 +128,15 @@ static void pci_stop_behind_bridge(struct pci_dev *dev)
 			pci_stop_bus_device(pci_dev_b(l));
 }
 
+/**
+ * pci_stop_and_remove_behind_bridge - stop and remove all devices behind
+ *					 a PCI bridge
+ * @dev: PCI bridge device
+ *
+ * Remove all devices on the bus, except for the parent bridge.
+ * This also removes any child buses, and any devices they may
+ * contain in a depth-first manner.
+ */
 void pci_stop_and_remove_behind_bridge(struct pci_dev *dev)
 {
 	pci_stop_behind_bridge(dev);
@@ -115,12 +147,28 @@ static void pci_stop_bus_devices(struct pci_bus *bus)
 {
 	struct list_head *l, *n;
 
+	/*
+	 * VFs could be removed by pci_stop_and_remove_bus_device() in the
+	 *  pci_stop_bus_devices() code path for PF.
+	 *  aka, bus->devices get updated in the process.
+	 * but VFs are inserted after PFs when SRIOV is enabled for PF,
+	 * We can iterate the list backwards to get prev valid PF instead
+	 *  of removed VF.
+	 */
 	list_for_each_prev_safe(l, n, &bus->devices) {
 		struct pci_dev *dev = pci_dev_b(l);
 		pci_stop_bus_device(dev);
 	}
 }
 
+/**
+ * pci_stop_bus_device - stop a PCI device and any children
+ * @dev: the device to stop
+ *
+ * Stop a PCI device (detach the driver, remove from the global list
+ * and so on). This also stop any subordinate buses and children in a
+ * depth-first manner.
+ */
 void pci_stop_bus_device(struct pci_dev *dev)
 {
 	if (dev->subordinate)

@@ -31,9 +31,14 @@
 #define PCI_ACCESS_READ  0
 #define PCI_ACCESS_WRITE 1
 
+/*
+ *  PCI configuration cycle AD bus definition
+ */
+/* Type 0 */
 #define PCI_CFG_TYPE0_REG_SHF           0
 #define PCI_CFG_TYPE0_FUNC_SHF          8
 
+/* Type 1 */
 #define PCI_CFG_TYPE1_REG_SHF           0
 #define PCI_CFG_TYPE1_FUNC_SHF          8
 #define PCI_CFG_TYPE1_DEV_SHF           11
@@ -45,7 +50,7 @@ static int msc_pcibios_config_access(unsigned char access_type,
 	unsigned char busnum = bus->number;
 	u32 intr;
 
-	
+	/* Clear status register bits. */
 	MSC_WRITE(MSC01_PCI_INTSTAT,
 		  (MSC01_PCI_INTCFG_MA_BIT | MSC01_PCI_INTCFG_TA_BIT));
 
@@ -55,18 +60,18 @@ static int msc_pcibios_config_access(unsigned char access_type,
 		   (PCI_FUNC(devfn) << MSC01_PCI_CFGADDR_FNUM_SHF) |
 		   ((where / 4) << MSC01_PCI_CFGADDR_RNUM_SHF)));
 
-	
+	/* Perform access */
 	if (access_type == PCI_ACCESS_WRITE)
 		MSC_WRITE(MSC01_PCI_CFGDATA, *data);
 	else
 		MSC_READ(MSC01_PCI_CFGDATA, *data);
 
-	
+	/* Detect Master/Target abort */
 	MSC_READ(MSC01_PCI_INTSTAT, intr);
 	if (intr & (MSC01_PCI_INTCFG_MA_BIT | MSC01_PCI_INTCFG_TA_BIT)) {
-		
+		/* Error occurred */
 
-		
+		/* Clear bits */
 		MSC_WRITE(MSC01_PCI_INTSTAT,
 			  (MSC01_PCI_INTCFG_MA_BIT | MSC01_PCI_INTCFG_TA_BIT));
 
@@ -77,6 +82,10 @@ static int msc_pcibios_config_access(unsigned char access_type,
 }
 
 
+/*
+ * We can't address 8 and 16 bit words directly.  Instead we have to
+ * read/write a 32bit word and mask/modify the data we actually want.
+ */
 static int msc_pcibios_read(struct pci_bus *bus, unsigned int devfn,
 			     int where, int size, u32 * val)
 {

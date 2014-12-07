@@ -19,7 +19,7 @@ static struct {
 } gio_name_table[] = {
 	{ .name = "SGI Impact", .id = 0x10 },
 	{ .name = "Phobos G160", .id = 0x35 },
-	
+	/* fake IDs */
 	{ .name = "SGI Newport", .id = 0x7e },
 	{ .name = "SGI GR2/GR3", .id = 0x7f },
 };
@@ -28,6 +28,15 @@ static struct device gio_bus = {
 	.init_name = "gio",
 };
 
+/**
+ * gio_match_device - Tell if an of_device structure has a matching
+ * gio_match structure
+ * @ids: array of of device match structures to search in
+ * @dev: the of device structure to match against
+ *
+ * Used by a driver to check whether an of_device present in the
+ * system is in its list of supported devices.
+ */
 const struct gio_device_id *gio_match_device(const struct gio_device_id *match,
 		     const struct gio_device *dev)
 {
@@ -62,6 +71,13 @@ void gio_dev_put(struct gio_device *dev)
 }
 EXPORT_SYMBOL_GPL(gio_dev_put);
 
+/**
+ * gio_release_dev - free an gio device structure when all users of it are finished.
+ * @dev: device that's been disconnected
+ *
+ * Will be called only by the device core when all users of this gio device are
+ * done.
+ */
 void gio_release_dev(struct device *dev)
 {
 	struct gio_device *giodev;
@@ -202,14 +218,14 @@ static int gio_device_uevent(struct device *dev, struct kobj_uevent_env *env)
 
 int gio_register_driver(struct gio_driver *drv)
 {
-	
+	/* initialize common driver fields */
 	if (!drv->driver.name)
 		drv->driver.name = drv->name;
 	if (!drv->driver.owner)
 		drv->driver.owner = drv->owner;
 	drv->driver.bus = &gio_bus_type;
 
-	
+	/* register with core */
 	return driver_register(&drv->driver);
 }
 EXPORT_SYMBOL_GPL(gio_register_driver);
@@ -268,6 +284,14 @@ static int ip22_gio_id(unsigned long addr, u32 *res)
 
 	ptr32 = (void *)CKSEG1ADDR(addr);
 	if (!get_dbe(tmp32, ptr32)) {
+		/*
+		 * We got no DBE, but this doesn't mean anything.
+		 * If GIO is pipelined (which can't be disabled
+		 * for GFX slot) we don't get a DBE, but we see
+		 * the transfer size as data. So we do an 8bit
+		 * and a 16bit access and check whether the common
+		 * data matches
+		 */
 		ptr8 = (void *)CKSEG1ADDR(addr + 3);
 		get_dbe(tmp8, ptr8);
 		ptr16 = (void *)CKSEG1ADDR(addr + 2);
@@ -279,7 +303,7 @@ static int ip22_gio_id(unsigned long addr, u32 *res)
 			return 1;
 		}
 	}
-	return 0; 
+	return 0; /* nothing here */
 }
 
 #define HQ2_MYSTERY_OFFS       0x6A07C
@@ -290,7 +314,7 @@ static int ip22_is_gr2(unsigned long addr)
 	u32 tmp;
 	u32 *ptr;
 
-	
+	/* HQ2 only allows 32bit accesses */
 	ptr = (void *)CKSEG1ADDR(addr + HQ2_MYSTERY_OFFS);
 	if (!get_dbe(tmp, ptr)) {
 		if (tmp == 0xdeadbeef)
@@ -308,11 +332,16 @@ static void ip22_check_gio(int slotno, unsigned long addr)
 	__u8 id;
 	int i;
 
-	
+	/* first look for GR2/GR3 by checking mystery register */
 	if (ip22_is_gr2(addr))
 		tmp = 0x7f;
 	else {
 		if (!ip22_gio_id(addr, &tmp)) {
+			/*
+			 * no GIO signature at start address of slot, but
+			 * Newport doesn't have one, so let's check usea
+			 * status register
+			 */
 			if (ip22_gio_id(addr + NEWPORT_USTATUS_OFFS, &tmp))
 				tmp = 0x7e;
 			else
@@ -381,11 +410,11 @@ int __init ip22_gio_init(void)
 
 		if (ip22_is_fullhouse() ||
 		    !get_dbe(pbdma, (unsigned int *)&hpc3c1->pbdma[1])) {
-			
+			/* Indigo2 and ChallengeS */
 			ip22_check_gio(0, GIO_SLOT_GFX_BASE);
 			ip22_check_gio(1, GIO_SLOT_EXP0_BASE);
 		} else {
-			
+			/* Indy */
 			ip22_check_gio(0, GIO_SLOT_GFX_BASE);
 			ip22_check_gio(1, GIO_SLOT_EXP0_BASE);
 			ip22_check_gio(2, GIO_SLOT_EXP1_BASE);

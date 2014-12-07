@@ -67,4 +67,4 @@ static inline u32 task_cls_classid(struct task_struct *p)
 	return 0;
 }
 #endif
-#endif  
+#endif  /* _NET_CLS_CGROUP_H */

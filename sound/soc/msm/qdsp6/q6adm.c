@@ -29,7 +29,7 @@
 #define AUDIO_RX 0x0
 #define AUDIO_TX 0x1
 
-#define ASM_MAX_SESSION 0x8 
+#define ASM_MAX_SESSION 0x8 /* To do: define in a header */
 #define RESET_COPP_ID 99
 #define INVALID_COPP_ID 0xFF
 
@@ -223,7 +223,7 @@ int srs_trumedia_open(int port_id, int srs_tech_id, void *srs_params)
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
-	
+	/* Wait for the callback with copp id */
 	ret = wait_event_timeout(this_adm.wait, 1,
 			msecs_to_jiffies(TIMEOUT_MS));
 	if (!ret) {
@@ -383,7 +383,7 @@ int srs_ss3d_open(int port_id, int srs_tech_id, void *srs_params)
 
 	index = afe_get_port_index(port_id);
 	open->hdr.dest_port = atomic_read(&this_adm.copp_id[index]);
-		 
+		 /* port_id;//atomic_read(&this_adm.copp_id[port_id]); */
 	open->hdr.token = port_id;
 	open->hdr.opcode = ADM_CMD_SET_PARAMS;
 
@@ -399,7 +399,7 @@ int srs_ss3d_open(int port_id, int srs_tech_id, void *srs_params)
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
-	
+	/* Wait for the callback with copp id */
 	ret = wait_event_timeout(this_adm.wait, 1,
 		 msecs_to_jiffies(TIMEOUT_MS));
 	if (!ret) {
@@ -436,12 +436,12 @@ static int32_t adm_callback(struct apr_client_data *data, void *priv)
 		}
 		pr_debug("Resetting calibration blocks");
 		for (i = 0; i < MAX_AUDPROC_TYPES; i++) {
-			
+			/* Device calibration */
 			mem_addr_audproc[i].cal_size = 0;
 			mem_addr_audproc[i].cal_kvaddr = 0;
 			mem_addr_audproc[i].cal_paddr = 0;
 
-			
+			/* Volume calibration */
 			mem_addr_audvol[i].cal_size = 0;
 			mem_addr_audvol[i].cal_kvaddr = 0;
 			mem_addr_audvol[i].cal_paddr = 0;
@@ -646,7 +646,7 @@ static int send_adm_cal_block(int port_id, struct acdb_cal_block *aud_cal)
 		result = -EINVAL;
 		goto done;
 	}
-	
+	/* Wait for the callback */
 	result = wait_event_timeout(this_adm.wait,
 		atomic_read(&this_adm.copp_stat[index]),
 		msecs_to_jiffies(TIMEOUT_MS));
@@ -670,13 +670,13 @@ static void send_adm_cal(int port_id, int path)
 
 	pr_debug("%s\n", __func__);
 
-	
+	/* Maps audio_dev_ctrl path definition to ACDB definition */
 	acdb_path = path - 1;
 
 	pr_debug("%s: Sending audproc cal\n", __func__);
 	get_audproc_cal(acdb_path, &aud_cal);
 
-	
+	/* map & cache buffers used */
 	if (((mem_addr_audproc[acdb_path].cal_paddr != aud_cal.cal_paddr)  &&
 		(aud_cal.cal_size > 0)) ||
 		(aud_cal.cal_size > mem_addr_audproc[acdb_path].cal_size)) {
@@ -706,7 +706,7 @@ static void send_adm_cal(int port_id, int path)
 	pr_debug("%s: Sending audvol cal\n", __func__);
 	get_audvol_cal(acdb_path, &aud_cal);
 
-	
+	/* map & cache buffers used */
 	if (((mem_addr_audvol[acdb_path].cal_paddr != aud_cal.cal_paddr)  &&
 		(aud_cal.cal_size > 0))  ||
 		(aud_cal.cal_size > mem_addr_audvol[acdb_path].cal_size)) {
@@ -785,7 +785,7 @@ int adm_connect_afe_port(int mode, int session_id, int port_id)
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
-	
+	/* Wait for the callback with copp id */
 	ret = wait_event_timeout(this_adm.wait,
 		atomic_read(&this_adm.copp_stat[index]),
 		msecs_to_jiffies(TIMEOUT_MS));
@@ -855,7 +855,7 @@ int adm_disconnect_afe_port(int mode, int session_id, int port_id)
 		ret = -EINVAL;
 		goto fail_cmd;
 	}
-	
+	/* Wait for the callback with copp id */
 	ret = wait_event_timeout(this_adm.wait,
 		atomic_read(&this_adm.copp_stat[index]),
 		msecs_to_jiffies(TIMEOUT_MS));
@@ -904,7 +904,7 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology)
 	}
 
 
-	
+	/* Create a COPP if port id are not enabled */
 	if (atomic_read(&this_adm.copp_cnt[index]) == 0) {
 
 		open.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
@@ -931,7 +931,7 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology)
 
 		pr_debug("%s open.endpoint_id1:%d open.endpoint_id2:%d",
 			__func__, open.endpoint_id1, open.endpoint_id2);
-		
+		/* convert path to acdb path */
 		if (path == ADM_PATH_PLAYBACK)
 			open.topology_id = get_adm_rx_topology();
 		else {
@@ -963,7 +963,7 @@ int adm_open(int port_id, int path, int rate, int channel_mode, int topology)
 			ret = -EINVAL;
 			goto fail_cmd;
 		}
-		
+		/* Wait for the callback with copp id */
 		ret = wait_event_timeout(this_adm.wait,
 			atomic_read(&this_adm.copp_stat[index]),
 			msecs_to_jiffies(TIMEOUT_MS));
@@ -1137,7 +1137,7 @@ int adm_multi_ch_copp_open(int port_id, int path, int rate, int channel_mode,
 		rtac_set_adm_handle(this_adm.apr);
 	}
 
-	
+	/* Create a COPP if port id are not enabled */
 	if (atomic_read(&this_adm.copp_cnt[index]) == 0) {
 
 		open.hdr.hdr_field = APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
@@ -1209,7 +1209,7 @@ int adm_multi_ch_copp_open(int port_id, int path, int rate, int channel_mode,
 
 		pr_debug("%s open.endpoint_id1:%d open.endpoint_id2:%d",
 			__func__, open.endpoint_id1, open.endpoint_id2);
-		
+		/* convert path to acdb path */
 		if (path == ADM_PATH_PLAYBACK)
 			open.topology_id = get_adm_rx_topology();
 		else {
@@ -1241,7 +1241,7 @@ int adm_multi_ch_copp_open(int port_id, int path, int rate, int channel_mode,
 			ret = -EINVAL;
 			goto fail_cmd;
 		}
-		
+		/* Wait for the callback with copp id */
 		ret = wait_event_timeout(this_adm.wait,
 			atomic_read(&this_adm.copp_stat[index]),
 			msecs_to_jiffies(TIMEOUT_MS));
@@ -1265,7 +1265,7 @@ int adm_matrix_map(int session_id, int path, int num_copps,
 {
 	struct adm_routings_command	route;
 	int ret = 0, i = 0;
-	
+	/* Assumes port_ids have already been validated during adm_open */
 	int index = afe_get_port_index(copp_id);
 	int copp_cnt;
 
@@ -1296,6 +1296,9 @@ int adm_matrix_map(int session_id, int path, int num_copps,
 		copp_cnt = num_copps;
 	} else {
 		copp_cnt = ADM_MAX_COPPS;
+		/* print out warning for now as playback/capture to/from
+		 * COPPs more than maximum allowed is extremely unlikely
+		 */
 		pr_warn("%s: max out routable COPPs\n", __func__);
 	}
 

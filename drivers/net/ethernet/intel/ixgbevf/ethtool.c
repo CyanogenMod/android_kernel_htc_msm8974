@@ -25,6 +25,7 @@
 
 *******************************************************************************/
 
+/* ethtool support for ixgbevf */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -81,14 +82,14 @@ static const struct ixgbe_stats ixgbe_gstrings_stats[] = {
 #define IXGBE_GLOBAL_STATS_LEN	ARRAY_SIZE(ixgbe_gstrings_stats)
 
 #define IXGBEVF_STATS_LEN (IXGBE_GLOBAL_STATS_LEN + IXGBE_QUEUE_STATS_LEN)
-#endif 
+#endif /* ETHTOOL_GSTATS */
 #ifdef ETHTOOL_TEST
 static const char ixgbe_gstrings_test[][ETH_GSTRING_LEN] = {
 	"Register test  (offline)",
 	"Link test   (on/offline)"
 };
 #define IXGBE_TEST_LEN (sizeof(ixgbe_gstrings_test) / ETH_GSTRING_LEN)
-#endif 
+#endif /* ETHTOOL_TEST */
 
 static int ixgbevf_get_settings(struct net_device *netdev,
 				struct ethtool_cmd *ecmd)
@@ -201,14 +202,16 @@ static void ixgbevf_get_regs(struct net_device *netdev,
 
 	regs->version = (1 << 24) | hw->revision_id << 16 | hw->device_id;
 
-	
+	/* General Registers */
 	regs_buff[0] = IXGBE_READ_REG(hw, IXGBE_VFCTRL);
 	regs_buff[1] = IXGBE_READ_REG(hw, IXGBE_VFSTATUS);
 	regs_buff[2] = IXGBE_READ_REG(hw, IXGBE_VFLINKS);
 	regs_buff[3] = IXGBE_READ_REG(hw, IXGBE_VFRXMEMWRAP);
 	regs_buff[4] = IXGBE_READ_REG(hw, IXGBE_VFFRTIMER);
 
-	
+	/* Interrupt */
+	/* don't read EICR because it can clear interrupt causes, instead
+	 * read EICS which is a shadow but doesn't clear EICR */
 	regs_buff[5] = IXGBE_READ_REG(hw, IXGBE_VTEICS);
 	regs_buff[6] = IXGBE_READ_REG(hw, IXGBE_VTEICS);
 	regs_buff[7] = IXGBE_READ_REG(hw, IXGBE_VTEIMS);
@@ -219,7 +222,7 @@ static void ixgbevf_get_regs(struct net_device *netdev,
 	regs_buff[12] = IXGBE_READ_REG(hw, IXGBE_VTIVAR(0));
 	regs_buff[13] = IXGBE_READ_REG(hw, IXGBE_VTIVAR_MISC);
 
-	
+	/* Receive DMA */
 	for (i = 0; i < 2; i++)
 		regs_buff[14 + i] = IXGBE_READ_REG(hw, IXGBE_VFRDBAL(i));
 	for (i = 0; i < 2; i++)
@@ -235,10 +238,10 @@ static void ixgbevf_get_regs(struct net_device *netdev,
 	for (i = 0; i < 2; i++)
 		regs_buff[26 + i] = IXGBE_READ_REG(hw, IXGBE_VFSRRCTL(i));
 
-	
+	/* Receive */
 	regs_buff[28] = IXGBE_READ_REG(hw, IXGBE_VFPSRTYPE);
 
-	
+	/* Transmit */
 	for (i = 0; i < 2; i++)
 		regs_buff[29 + i] = IXGBE_READ_REG(hw, IXGBE_VFTDBAL(i));
 	for (i = 0; i < 2; i++)
@@ -306,13 +309,17 @@ static int ixgbevf_set_ringparam(struct net_device *netdev,
 
 	if ((new_tx_count == adapter->tx_ring->count) &&
 	    (new_rx_count == adapter->rx_ring->count)) {
-		
+		/* nothing to do */
 		return 0;
 	}
 
 	while (test_and_set_bit(__IXGBEVF_RESETTING, &adapter->state))
 		msleep(1);
 
+	/*
+	 * If the adapter isn't up and running then just set the
+	 * new parameters and scurry for the exits.
+	 */
 	if (!netif_running(adapter->netdev)) {
 		for (i = 0; i < adapter->num_tx_queues; i++)
 			adapter->tx_ring[i].count = new_tx_count;
@@ -371,6 +378,10 @@ static int ixgbevf_set_ringparam(struct net_device *netdev,
 		rx_ring[i].v_idx = adapter->rx_ring[i].v_idx;
 	}
 
+	/*
+	 * Only switch to new rings if all the prior allocations
+	 * and ring setups have succeeded.
+	 */
 	kfree(adapter->tx_ring);
 	adapter->tx_ring = tx_ring;
 	adapter->tx_ring_count = new_tx_count;
@@ -379,7 +390,7 @@ static int ixgbevf_set_ringparam(struct net_device *netdev,
 	adapter->rx_ring = rx_ring;
 	adapter->rx_ring_count = new_rx_count;
 
-	
+	/* success! */
 	ixgbevf_up(adapter);
 
 	goto clear_reset;
@@ -469,6 +480,7 @@ static int ixgbevf_link_test(struct ixgbevf_adapter *adapter, u64 *data)
 	return *data;
 }
 
+/* ethtool register test data */
 struct ixgbevf_reg_test {
 	u16 reg;
 	u8  array_len;
@@ -494,6 +506,7 @@ struct ixgbevf_reg_test {
 #define TABLE64_TEST_LO	5
 #define TABLE64_TEST_HI	6
 
+/* default VF register test */
 static const struct ixgbevf_reg_test reg_test_vf[] = {
 	{ IXGBE_VFRDBAL(0), 2, PATTERN_TEST, 0xFFFFFF80, 0xFFFFFF80 },
 	{ IXGBE_VFRDBAH(0), 2, PATTERN_TEST, 0xFFFFFFFF, 0xFFFFFFFF },
@@ -555,6 +568,10 @@ static int ixgbevf_reg_test(struct ixgbevf_adapter *adapter, u64 *data)
 
 	test = reg_test_vf;
 
+	/*
+	 * Perform the register test, looping through the test table
+	 * until we either fail or reach the null entry.
+	 */
 	while (test->reg) {
 		for (i = 0; i < test->array_len; i++) {
 			switch (test->test_type) {
@@ -605,15 +622,17 @@ static void ixgbevf_diag_test(struct net_device *netdev,
 
 	set_bit(__IXGBEVF_TESTING, &adapter->state);
 	if (eth_test->flags == ETH_TEST_FL_OFFLINE) {
-		
+		/* Offline tests */
 
 		hw_dbg(&adapter->hw, "offline testing starting\n");
 
+		/* Link test performed before hardware reset so autoneg doesn't
+		 * interfere with test result */
 		if (ixgbevf_link_test(adapter, &data[1]))
 			eth_test->flags |= ETH_TEST_FL_FAILED;
 
 		if (if_running)
-			
+			/* indicate we're in test mode */
 			dev_close(netdev);
 		else
 			ixgbevf_reset(adapter);
@@ -629,11 +648,11 @@ static void ixgbevf_diag_test(struct net_device *netdev,
 			dev_open(netdev);
 	} else {
 		hw_dbg(&adapter->hw, "online testing starting\n");
-		
+		/* Online tests */
 		if (ixgbevf_link_test(adapter, &data[1]))
 			eth_test->flags |= ETH_TEST_FL_FAILED;
 
-		
+		/* Online tests aren't run; pass by default */
 		data[0] = 0;
 
 		clear_bit(__IXGBEVF_TESTING, &adapter->state);

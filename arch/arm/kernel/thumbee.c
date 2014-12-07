@@ -23,6 +23,9 @@
 #include <asm/system_info.h>
 #include <asm/thread_notify.h>
 
+/*
+ * Access to the ThumbEE Handler Base register
+ */
 static inline unsigned long teehbr_read(void)
 {
 	unsigned long v;
@@ -64,7 +67,7 @@ static int __init thumbee_init(void)
 	if (cpu_arch < CPU_ARCH_ARMv7)
 		return 0;
 
-	
+	/* processor feature register 0 */
 	asm("mrc	p15, 0, %0, c0, c1, 0\n" : "=r" (pfr0));
 	if ((pfr0 & 0x0000f000) != 0x00001000)
 		return 0;

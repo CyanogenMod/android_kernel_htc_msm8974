@@ -46,6 +46,7 @@
 #include <linux/random.h>
 #include <linux/io.h>
 
+/* Need this defined before including local include files */
 #define DRV_NAME "rtl819xE"
 
 #include "../rtllib.h"
@@ -151,7 +152,7 @@
 
 #define RTLLIB_WATCH_DOG_TIME		2000
 
-#define MAX_DEV_ADDR_SIZE		8  
+#define MAX_DEV_ADDR_SIZE		8  /*support till 64 bit bus width OS*/
 #define MAX_FIRMWARE_INFORMATION_SIZE   32
 #define MAX_802_11_HEADER_LENGTH	(40 + MAX_FIRMWARE_INFORMATION_SIZE)
 #define ENCRYPTION_MAX_OVERHEAD		128
@@ -656,7 +657,7 @@ struct r8192_priv {
 	bool		blinked_ingpio;
 	u8		polling_timer_on;
 
-	
+	/**********************************************************/
 
 	enum card_type {
 		PCI, MINIPCI,
@@ -1085,6 +1086,7 @@ void ActUpdateChannelAccessSetting(struct net_device *dev,
 			   enum wireless_mode WirelessMode,
 			   struct channel_access_setting *ChnlAccessSetting);
 
+/* proc stuff from rtl_debug.c */
 void rtl8192_proc_init_one(struct net_device *dev);
 void rtl8192_proc_remove_one(struct net_device *dev);
 void rtl8192_proc_module_init(void);

@@ -18,6 +18,7 @@
 #define ISCSI_PDU_NONPAYLOAD_MAX \
 	(sizeof(struct iscsi_hdr) + ISCSI_MAX_AHS_SIZE + 2*ISCSI_DIGEST_SIZE)
 
+/*for TX: a skb must have a headroom of at least TX_HEADER_LEN bytes */
 #define CXGB3I_TX_HEADER_LEN \
 	(sizeof(struct tx_data_wr) + sizeof(struct sge_opaque_hdr))
 

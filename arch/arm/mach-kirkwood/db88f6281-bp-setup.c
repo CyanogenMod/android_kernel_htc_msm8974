@@ -66,6 +66,9 @@ static unsigned int db88f6281_mpp_config[] __initdata = {
 
 static void __init db88f6281_init(void)
 {
+	/*
+	 * Basic setup. Needs to be called early.
+	 */
 	kirkwood_init();
 	kirkwood_mpp_conf(db88f6281_mpp_config);
 
@@ -93,7 +96,7 @@ static int __init db88f6281_pci_init(void)
 subsys_initcall(db88f6281_pci_init);
 
 MACHINE_START(DB88F6281_BP, "Marvell DB-88F6281-BP Development Board")
-	
+	/* Maintainer: Saeed Bishara <saeed@marvell.com> */
 	.atag_offset	= 0x100,
 	.init_machine	= db88f6281_init,
 	.map_io		= kirkwood_map_io,

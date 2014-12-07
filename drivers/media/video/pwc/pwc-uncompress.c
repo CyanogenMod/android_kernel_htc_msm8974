@@ -42,14 +42,17 @@ int pwc_decompress(struct pwc_device *pdev, struct pwc_frame_buf *fbuf)
 
 	image = vb2_plane_vaddr(&fbuf->vb, 0);
 
-	yuv = fbuf->data + pdev->frame_header_size;  
+	yuv = fbuf->data + pdev->frame_header_size;  /* Skip header */
 
-	
+	/* Raw format; that's easy... */
 	if (pdev->pixfmt != V4L2_PIX_FMT_YUV420)
 	{
 		struct pwc_raw_frame *raw_frame = image;
 		raw_frame->type = cpu_to_le16(pdev->type);
 		raw_frame->vbandlength = cpu_to_le16(pdev->vbandlength);
+			/* cmd_buf is always 4 bytes, but sometimes, only the
+			 * first 3 bytes is filled (Nala case). We can
+			 * determine this using the type of the webcam */
 		memcpy(raw_frame->cmd, pdev->cmd_buf, 4);
 		memcpy(raw_frame+1, yuv, pdev->frame_size);
 		vb2_set_plane_payload(&fbuf->vb, 0,
@@ -61,6 +64,11 @@ int pwc_decompress(struct pwc_device *pdev, struct pwc_frame_buf *fbuf)
 			      pdev->width * pdev->height * 3 / 2);
 
 	if (pdev->vbandlength == 0) {
+		/* Uncompressed mode.
+		 *
+		 * We do some byte shuffling here to go from the
+		 * native format to YUV420P.
+		 */
 		src = (u16 *)yuv;
 		n = pdev->width * pdev->height;
 		dsty = (u16 *)(image);
@@ -81,11 +89,16 @@ int pwc_decompress(struct pwc_device *pdev, struct pwc_frame_buf *fbuf)
 		return 0;
 	}
 
+	/*
+	 * Compressed;
+	 * the decompressor routines will write the data in planar format
+	 * immediately.
+	 */
 	if (DEVICE_USE_CODEC1(pdev->type)) {
 
-		
+		/* TODO & FIXME */
 		PWC_ERROR("This chipset is not supported for now\n");
-		return -ENXIO; 
+		return -ENXIO; /* No such device or address: missing decompressor */
 
 	} else {
 		pwc_dec23_decompress(pdev, yuv, image);

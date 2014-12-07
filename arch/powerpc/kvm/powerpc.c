@@ -54,7 +54,7 @@ int kvmppc_kvm_pv(struct kvm_vcpu *vcpu)
 	unsigned long r2 = 0;
 
 	if (!(vcpu->arch.shared->msr & MSR_SF)) {
-		
+		/* 32 bit mode */
 		param1 &= 0xffffffff;
 		param2 &= 0xffffffff;
 		param3 &= 0xffffffff;
@@ -75,11 +75,11 @@ int kvmppc_kvm_pv(struct kvm_vcpu *vcpu)
 	case HC_VENDOR_KVM | KVM_HC_FEATURES:
 		r = HC_EV_SUCCESS;
 #if defined(CONFIG_PPC_BOOK3S) || defined(CONFIG_KVM_E500)
-		
+		/* XXX Missing magic page on 44x */
 		r2 |= (1 << KVM_FEATURE_MAGIC_PAGE);
 #endif
 
-		
+		/* Second return value is in r4 */
 		break;
 	default:
 		r = HC_EV_UNIMPLEMENTED;
@@ -95,16 +95,16 @@ int kvmppc_sanity_check(struct kvm_vcpu *vcpu)
 {
 	int r = false;
 
-	
+	/* We have to know what CPU to virtualize */
 	if (!vcpu->arch.pvr)
 		goto out;
 
-	
+	/* PAPR only works with book3s_64 */
 	if ((vcpu->arch.cpu_type != KVM_CPU_3S_64) && vcpu->arch.papr_enabled)
 		goto out;
 
 #ifdef CONFIG_KVM_BOOK3S_64_HV
-	
+	/* HV KVM can only do PAPR mode for now */
 	if (!vcpu->arch.papr_enabled)
 		goto out;
 #endif
@@ -124,14 +124,20 @@ int kvmppc_emulate_mmio(struct kvm_run *run, struct kvm_vcpu *vcpu)
 	er = kvmppc_emulate_instruction(run, vcpu);
 	switch (er) {
 	case EMULATE_DONE:
+		/* Future optimization: only reload non-volatiles if they were
+		 * actually modified. */
 		r = RESUME_GUEST_NV;
 		break;
 	case EMULATE_DO_MMIO:
 		run->exit_reason = KVM_EXIT_MMIO;
+		/* We must reload nonvolatiles because "update" load/store
+		 * instructions modify register state. */
+		/* Future optimization: only reload non-volatiles if they were
+		 * actually modified. */
 		r = RESUME_HOST_NV;
 		break;
 	case EMULATE_FAIL:
-		
+		/* XXX Deliver Program interrupt to guest. */
 		printk(KERN_EMERG "%s: emulation failed (%08x)\n", __func__,
 		       kvmppc_get_last_inst(vcpu));
 		r = RESUME_HOST;
@@ -237,7 +243,7 @@ int kvm_dev_ioctl_check_extension(long ext)
 		break;
 	case KVM_CAP_PPC_RMA:
 		r = 1;
-		
+		/* PPC970 requires an RMA */
 		if (cpu_has_feature(CPU_FTR_ARCH_201))
 			r = 2;
 		break;
@@ -246,6 +252,12 @@ int kvm_dev_ioctl_check_extension(long ext)
 		break;
 #endif
 	case KVM_CAP_NR_VCPUS:
+		/*
+		 * Recommending a number of CPUs is somewhat arbitrary; we
+		 * return the number of present CPUs for -HV (since a host
+		 * will have secondary threads "offline"), and for other KVM
+		 * implementations just count online CPUs.
+		 */
 #ifdef CONFIG_KVM_BOOK3S_64_HV
 		r = num_present_cpus();
 #else
@@ -314,7 +326,7 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm, unsigned int id)
 
 void kvm_arch_vcpu_free(struct kvm_vcpu *vcpu)
 {
-	
+	/* Make sure we're not using the vcpu anymore */
 	hrtimer_cancel(&vcpu->arch.dec_timer);
 	tasklet_kill(&vcpu->arch.tasklet);
 
@@ -332,6 +344,10 @@ int kvm_cpu_has_pending_timer(struct kvm_vcpu *vcpu)
 	return kvmppc_core_pending_dec(vcpu);
 }
 
+/*
+ * low level hrtimer wake routine. Because this runs in hardirq context
+ * we schedule a tasklet to do the real work.
+ */
 enum hrtimer_restart kvmppc_decrementer_wakeup(struct hrtimer *timer)
 {
 	struct kvm_vcpu *vcpu;
@@ -364,6 +380,13 @@ void kvm_arch_vcpu_uninit(struct kvm_vcpu *vcpu)
 void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
 {
 #ifdef CONFIG_BOOKE
+	/*
+	 * vrsave (formerly usprg0) isn't used by Linux, but may
+	 * be used by the guest.
+	 *
+	 * On non-booke this is associated with Altivec and
+	 * is handled by code in book3s.c.
+	 */
 	mtspr(SPRN_VRSAVE, vcpu->arch.vrsave);
 #endif
 	kvmppc_core_vcpu_load(vcpu, cpu);
@@ -409,7 +432,7 @@ static void kvmppc_complete_mmio_load(struct kvm_vcpu *vcpu,
 		case 1: gpr = *(u8 *)run->mmio.data; break;
 		}
 	} else {
-		
+		/* Convert BE data from userland back to LE. */
 		switch (run->mmio.len) {
 		case 4: gpr = ld_le32((u32 *)run->mmio.data); break;
 		case 2: gpr = ld_le16((u16 *)run->mmio.data); break;
@@ -477,6 +500,7 @@ int kvmppc_handle_load(struct kvm_run *run, struct kvm_vcpu *vcpu,
 	return EMULATE_DO_MMIO;
 }
 
+/* Same as above, but sign extends */
 int kvmppc_handle_loads(struct kvm_run *run, struct kvm_vcpu *vcpu,
                         unsigned int rt, unsigned int bytes, int is_bigendian)
 {
@@ -504,7 +528,7 @@ int kvmppc_handle_store(struct kvm_run *run, struct kvm_vcpu *vcpu,
 	vcpu->mmio_needed = 1;
 	vcpu->mmio_is_write = 1;
 
-	
+	/* Store the value at the lowest bytes in 'data'. */
 	if (is_bigendian) {
 		switch (bytes) {
 		case 8: *(u64 *)data = val; break;
@@ -513,7 +537,7 @@ int kvmppc_handle_store(struct kvm_run *run, struct kvm_vcpu *vcpu,
 		case 1: *(u8  *)data = val; break;
 		}
 	} else {
-		
+		/* Store LE value into 'data'. */
 		switch (bytes) {
 		case 4: st_le32(data, val); break;
 		case 2: st_le16(data, val); break;
@@ -718,6 +742,15 @@ static int kvm_vm_ioctl_get_pvinfo(struct kvm_ppc_pvinfo *pvinfo)
 	u32 inst_sc = 0x44000002;
 	u32 inst_imm_mask = 0xffff;
 
+	/*
+	 * The hypercall to get into KVM from within guest context is as
+	 * follows:
+	 *
+	 *    lis r0, r0, KVM_SC_MAGIC_R0@h
+	 *    ori r0, KVM_SC_MAGIC_R0@l
+	 *    sc
+	 *    nop
+	 */
 	pvinfo->hcall[0] = inst_lis | ((KVM_SC_MAGIC_R0 >> 16) & inst_imm_mask);
 	pvinfo->hcall[1] = inst_ori | (KVM_SC_MAGIC_R0 & inst_imm_mask);
 	pvinfo->hcall[2] = inst_sc;
@@ -765,7 +798,7 @@ long kvm_arch_vm_ioctl(struct file *filp,
 			r = -EFAULT;
 		break;
 	}
-#endif 
+#endif /* CONFIG_KVM_BOOK3S_64_HV */
 
 	default:
 		r = -ENOTTY;

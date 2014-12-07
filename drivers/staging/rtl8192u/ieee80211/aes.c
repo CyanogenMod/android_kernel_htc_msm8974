@@ -47,11 +47,16 @@
  * ---------------------------------------------------------------------------
  */
 
+/* Some changes from the Gladman version:
+    s/RIJNDAEL(e_key)/E_KEY/g
+    s/RIJNDAEL(d_key)/D_KEY/g
+*/
 
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/types.h>
 #include <linux/errno.h>
+//#include <linux/crypto.h>
 #include "rtl_crypto.h"
 #include <asm/byteorder.h>
 
@@ -77,6 +82,9 @@ u32 generic_rotl32 (const u32 x, const unsigned bits)
 #define rotl generic_rotl32
 #define rotr generic_rotr32
 
+/*
+ * #define byte(x, nr) ((unsigned char)((x) >> (nr*8)))
+ */
 inline static u8
 byte(const u32 x, const unsigned n)
 {
@@ -152,6 +160,9 @@ gen_tabs (void)
 	u32 i, t;
 	u8 p, q;
 
+	/* log and power tables for GF(2**8) finite field with
+	   0x011b as modular polynomial - the simplest primitive
+	   root is 0x03, used here to generate the tables */
 
 	for (i = 0, p = 1; i < 256; ++i) {
 		pow_tab[i] = (u8) p;
@@ -226,6 +237,7 @@ gen_tabs (void)
 	  rotr(v ^ t, 16) ^ \
 	  rotr(t,24)
 
+/* initialise the key schedule from the user supplied key */
 
 #define loop4(i)                                    \
 {   t = rotr(t,  8); t = ls_box(t) ^ rco_tab[i];    \
@@ -312,6 +324,7 @@ aes_set_key(void *ctx_arg, const u8 *in_key, unsigned int key_len, u32 *flags)
 	return 0;
 }
 
+/* encrypt a block of text */
 
 #define f_nround(bo, bi, k) \
     f_rn(bo, bi, 0, k);     \
@@ -364,6 +377,7 @@ static void aes_encrypt(void *ctx_arg, u8 *out, const u8 *in)
 	u32_out (out + 12, b0[3]);
 }
 
+/* decrypt a block of text */
 
 #define i_nround(bo, bi, k) \
     i_rn(bo, bi, 0, k);     \

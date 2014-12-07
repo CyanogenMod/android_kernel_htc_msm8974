@@ -187,7 +187,7 @@ int mc13xxx_reg_read(struct mc13xxx *mc13xxx, unsigned int offset, u32 *val)
 
 	ret = spi_sync(mc13xxx->spidev, &m);
 
-	
+	/* error in message.status implies error return from spi_sync */
 	BUG_ON(!ret && m.status);
 
 	if (ret)
@@ -270,7 +270,7 @@ int mc13xxx_irq_mask(struct mc13xxx *mc13xxx, int irq)
 		return ret;
 
 	if (mask & irqbit)
-		
+		/* already masked */
 		return 0;
 
 	return mc13xxx_reg_write(mc13xxx, offmask, mask | irqbit);
@@ -292,7 +292,7 @@ int mc13xxx_irq_unmask(struct mc13xxx *mc13xxx, int irq)
 		return ret;
 
 	if (!(mask & irqbit))
-		
+		/* already unmasked */
 		return 0;
 
 	return mc13xxx_reg_write(mc13xxx, offmask, mask & ~irqbit);
@@ -409,6 +409,10 @@ static inline irqreturn_t mc13xxx_irqhandler(struct mc13xxx *mc13xxx, int irq)
 	return mc13xxx->irqhandler[irq](irq, mc13xxx->irqdata[irq]);
 }
 
+/*
+ * returns: number of handled irqs or negative error
+ * locking: holds mc13xxx->lock
+ */
 static int mc13xxx_irq_handle(struct mc13xxx *mc13xxx,
 		unsigned int offstat, unsigned int offmask, int baseirq)
 {
@@ -661,7 +665,7 @@ int mc13xxx_adc_do_conversion(struct mc13xxx *mc13xxx, unsigned int mode,
 		}
 
 	if (mode == MC13XXX_ADC_MODE_TS)
-		
+		/* restore TSMOD */
 		mc13xxx_reg_write(mc13xxx, MC13XXX_ADC0, old_adc0);
 
 	mc13xxx->adcflags &= ~MC13XXX_ADC_WORKING;
@@ -683,7 +687,7 @@ static int mc13xxx_add_subdevice_pdata(struct mc13xxx *mc13xxx,
 		.pdata_size = pdata_size,
 	};
 
-	
+	/* there is no asnprintf in the kernel :-( */
 	if (snprintf(buf, sizeof(buf), format, name) > sizeof(buf))
 		return -E2BIG;
 
@@ -736,7 +740,7 @@ static const struct spi_device_id mc13xxx_device_id[] = {
 		.name = "mc13892",
 		.driver_data = MC13XXX_ID_MC13892,
 	}, {
-		
+		/* sentinel */
 	}
 };
 MODULE_DEVICE_TABLE(spi, mc13xxx_device_id);
@@ -744,7 +748,7 @@ MODULE_DEVICE_TABLE(spi, mc13xxx_device_id);
 static const struct of_device_id mc13xxx_dt_ids[] = {
 	{ .compatible = "fsl,mc13783", .data = (void *) MC13XXX_ID_MC13783, },
 	{ .compatible = "fsl,mc13892", .data = (void *) MC13XXX_ID_MC13892, },
-	{  }
+	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, mc13xxx_dt_ids);
 
@@ -779,7 +783,7 @@ static int mc13xxx_probe(struct spi_device *spi)
 	if (ret || id == MC13XXX_ID_INVALID)
 		goto err_revision;
 
-	
+	/* mask all irqs */
 	ret = mc13xxx_reg_write(mc13xxx, MC13XXX_IRQMASK0, 0x00ffffff);
 	if (ret)
 		goto err_mask;

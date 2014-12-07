@@ -11,7 +11,7 @@
 
 static void ltalk_setup(struct net_device *dev)
 {
-	
+	/* Fill in the fields of the device structure with localtalk-generic values. */
 
 	dev->type		= ARPHRD_LOCALTLK;
 	dev->hard_header_len 	= LTALK_HLEN;
@@ -24,6 +24,18 @@ static void ltalk_setup(struct net_device *dev)
 	dev->flags		= IFF_BROADCAST|IFF_MULTICAST|IFF_NOARP;
 }
 
+/**
+ * alloc_ltalkdev - Allocates and sets up an localtalk device
+ * @sizeof_priv: Size of additional driver-private structure to be allocated
+ *	for this localtalk device
+ *
+ * Fill in the fields of the device structure with localtalk-generic
+ * values. Basically does everything except registering the device.
+ *
+ * Constructs a new net device, complete with a private data area of
+ * size @sizeof_priv.  A 32-byte (not bit) alignment is enforced for
+ * this private data area.
+ */
 
 struct net_device *alloc_ltalkdev(int sizeof_priv)
 {

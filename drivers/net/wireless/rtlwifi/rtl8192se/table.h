@@ -24,6 +24,7 @@
 
 #include <linux/types.h>
 
+/*Created on  2010/ 4/12,  5:56*/
 
 #define PHY_REG_2T2RARRAYLENGTH 372
 extern u32 rtl8192sephy_reg_2t2rarray[PHY_REG_2T2RARRAYLENGTH];

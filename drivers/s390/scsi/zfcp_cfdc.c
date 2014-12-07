@@ -35,6 +35,16 @@
 #define ZFCP_CFDC_IOC \
 	_IOWR(ZFCP_CFDC_IOC_MAGIC, 0, struct zfcp_cfdc_data)
 
+/**
+ * struct zfcp_cfdc_data - data for ioctl cfdc interface
+ * @signature: request signature
+ * @devno: FCP adapter device number
+ * @command: command code
+ * @fsf_status: returns status of FSF command to userspace
+ * @fsf_status_qual: returned to userspace
+ * @payloads: access conflicts list
+ * @control_file: access control table
+ */
 struct zfcp_cfdc_data {
 	u32 signature;
 	u32 devno;
@@ -254,6 +264,13 @@ struct miscdevice zfcp_cfdc_misc = {
 	.fops = &zfcp_cfdc_fops,
 };
 
+/**
+ * zfcp_cfdc_adapter_access_changed - Process change in adapter ACT
+ * @adapter: Adapter where the Access Control Table (ACT) changed
+ *
+ * After a change in the adapter ACT, check if access to any
+ * previously denied resources is now possible.
+ */
 void zfcp_cfdc_adapter_access_changed(struct zfcp_adapter *adapter)
 {
 	unsigned long flags;
@@ -299,6 +316,11 @@ static void zfcp_act_eval_err(struct zfcp_adapter *adapter, u32 table)
 			 "rule %d\n", act_type[subtable], rule);
 }
 
+/**
+ * zfcp_cfdc_port_denied - Process "access denied" for port
+ * @port: The port where the access has been denied
+ * @qual: The FSF status qualifier for the access denied FSF status
+ */
 void zfcp_cfdc_port_denied(struct zfcp_port *port,
 			   union fsf_status_qual *qual)
 {
@@ -313,6 +335,11 @@ void zfcp_cfdc_port_denied(struct zfcp_port *port,
 				 ZFCP_STATUS_COMMON_ACCESS_DENIED);
 }
 
+/**
+ * zfcp_cfdc_lun_denied - Process "access denied" for LUN
+ * @sdev: The SCSI device / LUN where the access has been denied
+ * @qual: The FSF status qualifier for the access denied FSF status
+ */
 void zfcp_cfdc_lun_denied(struct scsi_device *sdev,
 			  union fsf_status_qual *qual)
 {
@@ -332,6 +359,11 @@ void zfcp_cfdc_lun_denied(struct scsi_device *sdev,
 	atomic_clear_mask(ZFCP_STATUS_LUN_READONLY, &zfcp_sdev->status);
 }
 
+/**
+ * zfcp_cfdc_lun_shrng_vltn - Evaluate LUN sharing violation status
+ * @sdev: The LUN / SCSI device where sharing violation occurred
+ * @qual: The FSF status qualifier from the LUN sharing violation
+ */
 void zfcp_cfdc_lun_shrng_vltn(struct scsi_device *sdev,
 			      union fsf_status_qual *qual)
 {
@@ -355,6 +387,14 @@ void zfcp_cfdc_lun_shrng_vltn(struct scsi_device *sdev,
 	atomic_clear_mask(ZFCP_STATUS_LUN_READONLY, &zfcp_sdev->status);
 }
 
+/**
+ * zfcp_cfdc_open_lun_eval - Eval access ctrl. status for successful "open lun"
+ * @sdev: The SCSI device / LUN where to evaluate the status
+ * @bottom: The qtcb bottom with the status from the "open lun"
+ *
+ * Returns: 0 if LUN is usable, -EACCES if the access control table
+ *          reports an unsupported configuration.
+ */
 int zfcp_cfdc_open_lun_eval(struct scsi_device *sdev,
 			    struct fsf_qtcb_bottom_support *bottom)
 {

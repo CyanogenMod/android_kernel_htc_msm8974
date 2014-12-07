@@ -43,10 +43,11 @@
 #define AB8500_BIT_WD_CTRL_KICK (1 << 1)
 
 #define AB8500_V1x_LINK_STAT_WAIT (HZ/10)
-#define AB8500_WD_KICK_DELAY_US 100 
-#define AB8500_WD_V11_DISABLE_DELAY_US 100 
-#define AB8500_WD_V10_DISABLE_DELAY_MS 100 
+#define AB8500_WD_KICK_DELAY_US 100 /* usec */
+#define AB8500_WD_V11_DISABLE_DELAY_US 100 /* usec */
+#define AB8500_WD_V10_DISABLE_DELAY_MS 100 /* ms */
 
+/* Usb line status register */
 enum ab8500_usb_link_status {
 	USB_LINK_NOT_CONFIGURED = 0,
 	USB_LINK_STD_HOST_NC,
@@ -101,9 +102,9 @@ static void ab8500_usb_wd_workaround(struct ab8500_usb *ab)
 		(AB8500_BIT_WD_CTRL_ENABLE
 		| AB8500_BIT_WD_CTRL_KICK));
 
-	if (ab->rev > 0x10) 
+	if (ab->rev > 0x10) /* v1.1 v2.0 */
 		udelay(AB8500_WD_V11_DISABLE_DELAY_US);
-	else 
+	else /* v1.0 */
 		msleep(AB8500_WD_V10_DISABLE_DELAY_MS);
 
 	abx500_set_register_interruptible(ab->dev,
@@ -137,7 +138,7 @@ static void ab8500_usb_phy_ctrl(struct ab8500_usb *ab, bool sel_host,
 				AB8500_USB_PHY_CTRL_REG,
 				ctrl_reg);
 
-	
+	/* Needed to enable the phy.*/
 	if (enable)
 		ab8500_usb_wd_workaround(ab);
 }
@@ -165,7 +166,7 @@ static int ab8500_usb_link_status_update(struct ab8500_usb *ab)
 	case USB_LINK_NOT_CONFIGURED:
 	case USB_LINK_RESERVED:
 	case USB_LINK_NOT_VALID_LINK:
-		
+		/* TODO: Disable regulators. */
 		ab8500_usb_host_phy_dis(ab);
 		ab8500_usb_peri_phy_dis(ab);
 		ab->phy.state = OTG_STATE_B_IDLE;
@@ -181,7 +182,7 @@ static int ab8500_usb_link_status_update(struct ab8500_usb *ab)
 	case USB_LINK_HOST_CHG_HS:
 	case USB_LINK_HOST_CHG_HS_CHIRP:
 		if (ab->phy.otg->gadget) {
-			
+			/* TODO: Enable regulators. */
 			ab8500_usb_peri_phy_en(ab);
 			v = ab->phy.otg->gadget;
 		}
@@ -190,7 +191,7 @@ static int ab8500_usb_link_status_update(struct ab8500_usb *ab)
 
 	case USB_LINK_HM_IDGND:
 		if (ab->phy.otg->host) {
-			
+			/* TODO: Enable regulators. */
 			ab8500_usb_host_phy_en(ab);
 			v = ab->phy.otg->host;
 		}
@@ -201,12 +202,12 @@ static int ab8500_usb_link_status_update(struct ab8500_usb *ab)
 
 	case USB_LINK_ACA_RID_A:
 	case USB_LINK_ACA_RID_B:
-		
+		/* TODO */
 	case USB_LINK_ACA_RID_C_NM:
 	case USB_LINK_ACA_RID_C_HS:
 	case USB_LINK_ACA_RID_C_HS_CHIRP:
 	case USB_LINK_DEDICATED_CHG:
-		
+		/* TODO: vbus_draw */
 		event = USB_EVENT_CHARGER;
 		break;
 	}
@@ -228,7 +229,7 @@ static irqreturn_t ab8500_usb_v1x_common_irq(int irq, void *data)
 {
 	struct ab8500_usb *ab = (struct ab8500_usb *) data;
 
-	
+	/* Wait for link status to become stable. */
 	schedule_delayed_work(&ab->dwork, ab->link_status_wait);
 
 	return IRQ_HANDLED;
@@ -238,10 +239,10 @@ static irqreturn_t ab8500_usb_v1x_vbus_fall_irq(int irq, void *data)
 {
 	struct ab8500_usb *ab = (struct ab8500_usb *) data;
 
-	
+	/* Link status will not be updated till phy is disabled. */
 	ab8500_usb_peri_phy_dis(ab);
 
-	
+	/* Wait for link status to become stable. */
 	schedule_delayed_work(&ab->dwork, ab->link_status_wait);
 
 	return IRQ_HANDLED;
@@ -285,10 +286,13 @@ static int ab8500_usb_set_power(struct usb_phy *phy, unsigned mA)
 	return 0;
 }
 
+/* TODO: Implement some way for charging or other drivers to read
+ * ab->vbus_draw.
+ */
 
 static int ab8500_usb_set_suspend(struct usb_phy *x, int suspend)
 {
-	
+	/* TODO */
 	return 0;
 }
 
@@ -302,15 +306,23 @@ static int ab8500_usb_set_peripheral(struct usb_otg *otg,
 
 	ab = phy_to_ab(otg->phy);
 
+	/* Some drivers call this function in atomic context.
+	 * Do not update ab8500 registers directly till this
+	 * is fixed.
+	 */
 
 	if (!gadget) {
-		
+		/* TODO: Disable regulators. */
 		otg->gadget = NULL;
 		schedule_work(&ab->phy_dis_work);
 	} else {
 		otg->gadget = gadget;
 		otg->phy->state = OTG_STATE_B_IDLE;
 
+		/* Phy will not be enabled if cable is already
+		 * plugged-in. Schedule to enable phy.
+		 * Use same delay to avoid any race condition.
+		 */
 		schedule_delayed_work(&ab->dwork, ab->link_status_wait);
 	}
 
@@ -326,13 +338,21 @@ static int ab8500_usb_set_host(struct usb_otg *otg, struct usb_bus *host)
 
 	ab = phy_to_ab(otg->phy);
 
+	/* Some drivers call this function in atomic context.
+	 * Do not update ab8500 registers directly till this
+	 * is fixed.
+	 */
 
 	if (!host) {
-		
+		/* TODO: Disable regulators. */
 		otg->host = NULL;
 		schedule_work(&ab->phy_dis_work);
 	} else {
 		otg->host = host;
+		/* Phy will not be enabled if cable is already
+		 * plugged-in. Schedule to enable phy.
+		 * Use same delay to avoid any race condition.
+		 */
 		schedule_delayed_work(&ab->dwork, ab->link_status_wait);
 	}
 
@@ -491,9 +511,12 @@ static int __devinit ab8500_usb_probe(struct platform_device *pdev)
 
 	ATOMIC_INIT_NOTIFIER_HEAD(&ab->phy.notifier);
 
+	/* v1: Wait for link status to become stable.
+	 * all: Updates form set_host and set_peripheral as they are atomic.
+	 */
 	INIT_DELAYED_WORK(&ab->dwork, ab8500_usb_delayed_work);
 
-	
+	/* all: Disable phy when called from set_host and set_peripheral */
 	INIT_WORK(&ab->phy_dis_work, ab8500_usb_phy_disable_work);
 
 	if (ab->rev < 0x20) {

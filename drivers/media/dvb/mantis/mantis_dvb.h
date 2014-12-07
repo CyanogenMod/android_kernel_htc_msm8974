@@ -32,4 +32,4 @@ extern void mantis_frontend_soft_reset(struct mantis_pci *mantis);
 extern int mantis_dvb_init(struct mantis_pci *mantis);
 extern int mantis_dvb_exit(struct mantis_pci *mantis);
 
-#endif 
+#endif /* __MANTIS_DVB_H */

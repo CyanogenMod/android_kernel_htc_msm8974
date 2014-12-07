@@ -28,20 +28,32 @@
 #include <plat/tc.h>
 
 
+/* NOTE:  don't expect this to support many I/O cards.  The 16xx chips have
+ * hard-wired timings to support Compact Flash memory cards; they won't work
+ * with various other devices (like WLAN adapters) without some external
+ * logic to help out.
+ *
+ * NOTE:  CF controller docs disagree with address space docs as to where
+ * CF_BASE really lives; this is a doc erratum.
+ */
 #define	CF_BASE	0xfffe2800
 
+/* status; read after IRQ */
 #define CF_STATUS			(CF_BASE + 0x00)
 #	define	CF_STATUS_BAD_READ	(1 << 2)
 #	define	CF_STATUS_BAD_WRITE	(1 << 1)
 #	define	CF_STATUS_CARD_DETECT	(1 << 0)
 
+/* which chipselect (CS0..CS3) is used for CF (active low) */
 #define CF_CFG				(CF_BASE + 0x02)
 
+/* card reset */
 #define CF_CONTROL			(CF_BASE + 0x04)
 #	define	CF_CONTROL_RESET	(1 << 0)
 
 #define omap_cf_present() (!(omap_readw(CF_STATUS) & CF_STATUS_CARD_DETECT))
 
+/*--------------------------------------------------------------------------*/
 
 static const char driver_name[] = "omap_cf";
 
@@ -60,12 +72,14 @@ struct omap_cf_socket {
 
 #define	POLL_INTERVAL		(2 * HZ)
 
+/*--------------------------------------------------------------------------*/
 
 static int omap_cf_ss_init(struct pcmcia_socket *s)
 {
 	return 0;
 }
 
+/* the timer is primarily to kick this socket's pccardd */
 static void omap_cf_timer(unsigned long _cf)
 {
 	struct omap_cf_socket	*cf = (void *) _cf;
@@ -82,6 +96,10 @@ static void omap_cf_timer(unsigned long _cf)
 		mod_timer(&cf->timer, jiffies + POLL_INTERVAL);
 }
 
+/* This irq handler prevents "irqNNN: nobody cared" messages as drivers
+ * claim the card's IRQ.  It may also detect some card insertions, but
+ * not removals; it can't always eliminate timer irqs.
+ */
 static irqreturn_t omap_cf_irq(int irq, void *_cf)
 {
 	omap_cf_timer((unsigned long)_cf);
@@ -93,7 +111,7 @@ static int omap_cf_get_status(struct pcmcia_socket *s, u_int *sp)
 	if (!sp)
 		return -EINVAL;
 
-	
+	/* NOTE CF is always 3VCARD */
 	if (omap_cf_present()) {
 		struct omap_cf_socket	*cf;
 
@@ -111,7 +129,7 @@ omap_cf_set_socket(struct pcmcia_socket *sock, struct socket_state_t *s)
 {
 	u16		control;
 
-	
+	/* REVISIT some non-OSK boards may support power switching */
 	switch (s->Vcc) {
 	case 0:
 	case 33:
@@ -138,6 +156,7 @@ static int omap_cf_ss_suspend(struct pcmcia_socket *s)
 	return omap_cf_set_socket(s, &dead_socket);
 }
 
+/* regions are 2K each:  mem, attrib, io (and reserved-for-ide) */
 
 static int
 omap_cf_set_io_map(struct pcmcia_socket *s, struct pccard_io_map *io)
@@ -175,7 +194,12 @@ static struct pccard_operations omap_cf_ops = {
 	.set_mem_map		= omap_cf_set_mem_map,
 };
 
+/*--------------------------------------------------------------------------*/
 
+/*
+ * NOTE:  right now the only board-specific platform_data is
+ * "what chipselect is used".  Boards could want more.
+ */
 
 static int __init omap_cf_probe(struct platform_device *pdev)
 {
@@ -188,7 +212,7 @@ static int __init omap_cf_probe(struct platform_device *pdev)
 	if (seg == 0 || seg > 3)
 		return -ENODEV;
 
-	
+	/* either CFLASH.IREQ (INT_1610_CF) or some GPIO */
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return -EINVAL;
@@ -203,7 +227,7 @@ static int __init omap_cf_probe(struct platform_device *pdev)
 	cf->pdev = pdev;
 	platform_set_drvdata(pdev, cf);
 
-	
+	/* this primarily just shuts up irq handling noise */
 	status = request_irq(irq, omap_cf_irq, IRQF_SHARED,
 			driver_name, cf);
 	if (status < 0)
@@ -212,7 +236,7 @@ static int __init omap_cf_probe(struct platform_device *pdev)
 	cf->socket.pci_irq = irq;
 
 	switch (seg) {
-	
+	/* NOTE: CS0 could be configured too ... */
 	case 1:
 		cf->phys_cf = OMAP_CS1_PHYS;
 		break;
@@ -229,7 +253,7 @@ static int __init omap_cf_probe(struct platform_device *pdev)
 	cf->iomem.end = cf->iomem.end + SZ_8K - 1;
 	cf->iomem.flags = IORESOURCE_MEM;
 
-	
+	/* pcmcia layer only remaps "real" memory */
 	cf->socket.io_offset = (unsigned long)
 			ioremap(cf->phys_cf + SZ_4K, SZ_2K);
 	if (!cf->socket.io_offset)
@@ -238,7 +262,7 @@ static int __init omap_cf_probe(struct platform_device *pdev)
 	if (!request_mem_region(cf->phys_cf, SZ_8K, driver_name))
 		goto fail1;
 
-	
+	/* NOTE:  CF conflicts with MMC1 */
 	omap_cfg_reg(W11_1610_CF_CD1);
 	omap_cfg_reg(P11_1610_CF_CD2);
 	omap_cfg_reg(R11_1610_CF_IOIS16);
@@ -249,12 +273,16 @@ static int __init omap_cf_probe(struct platform_device *pdev)
 
 	pr_info("%s: cs%d on irq %d\n", driver_name, seg, irq);
 
+	/* NOTE:  better EMIFS setup might support more cards; but the
+	 * TRM only shows how to affect regular flash signals, not their
+	 * CF/PCMCIA variants...
+	 */
 	pr_debug("%s: cs%d, previous ccs %08x acs %08x\n", driver_name,
 		seg, omap_readl(EMIFS_CCS(seg)), omap_readl(EMIFS_ACS(seg)));
-	omap_writel(0x0004a1b3, EMIFS_CCS(seg));	
-	omap_writel(0x00000000, EMIFS_ACS(seg));	
+	omap_writel(0x0004a1b3, EMIFS_CCS(seg));	/* synch mode 4 etc */
+	omap_writel(0x00000000, EMIFS_ACS(seg));	/* OE hold/setup */
 
-	
+	/* CF uses armxor_ck, which is "always" available */
 
 	pr_debug("%s: sts %04x cfg %04x control %04x %s\n", driver_name,
 		omap_readw(CF_STATUS), omap_readw(CF_CFG),

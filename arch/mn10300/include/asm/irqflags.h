@@ -17,6 +17,15 @@
 #include <linux/smp.h>
 #endif
 
+/*
+ * interrupt control
+ * - "disabled": run in IM1/2
+ *   - level 0 - kernel debugger
+ *   - level 1 - virtual serial DMA (if present)
+ *   - level 5 - normal interrupt priority
+ *   - level 6 - timer interrupt
+ * - "enabled":  run in IM7
+ */
 #define MN10300_CLI_LEVEL	(CONFIG_LINUX_CLI_LEVEL << EPSW_IM_SHIFT)
 
 #ifndef __ASSEMBLY__
@@ -51,6 +60,9 @@ static inline unsigned long arch_local_irq_save(void)
 	return flags;
 }
 
+/*
+ * we make sure arch_irq_enable() doesn't cause priority inversion
+ */
 extern unsigned long __mn10300_irq_enabled_epsw[];
 
 static inline void arch_local_irq_enable(void)
@@ -90,6 +102,11 @@ static inline bool arch_irqs_disabled(void)
 	return arch_irqs_disabled_flags(arch_local_save_flags());
 }
 
+/*
+ * Hook to save power by halting the CPU
+ * - called from the idle loop
+ * - must reenable interrupts (which takes three instruction cycles to complete)
+ */
 static inline void arch_safe_halt(void)
 {
 #ifdef CONFIG_SMP
@@ -157,7 +174,7 @@ static inline void arch_local_change_intr_mask_level(unsigned long level)
 		: "cc", "memory");
 }
 
-#else 
+#else /* !__ASSEMBLY__ */
 
 #define LOCAL_SAVE_FLAGS(reg)			\
 	mov	epsw,reg
@@ -195,5 +212,5 @@ static inline void arch_local_change_intr_mask_level(unsigned long level)
 	and	~EPSW_IM,epsw;			\
 	or	EPSW_IE|(level),epsw
 
-#endif 
-#endif 
+#endif /* __ASSEMBLY__ */
+#endif /* _ASM_IRQFLAGS_H */

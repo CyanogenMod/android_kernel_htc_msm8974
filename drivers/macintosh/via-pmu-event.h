@@ -5,4 +5,4 @@
 #define PMU_EVT_LID	1
 extern void via_pmu_event(int key, int down);
 
-#endif 
+#endif /* __VIA_PMU_EVENT_H */

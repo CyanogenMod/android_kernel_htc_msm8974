@@ -38,6 +38,9 @@
 #define CARDU1			0
 #define CARDU2			1
 
+/*
+ * PCI Configuration Registers
+ */
 #define BRGCNT			0x3e
  #define POST_WR_EN		0x0400
  #define MEM1_PREF_EN		0x0200
@@ -75,6 +78,9 @@
  #define SERR_DIS_TAB		0x08
  #define SERR_DIS_DT_PERR	0x04
 
+/*
+ * ExCA Registers
+ */
 #define EXCA_REGS_BASE		0x800
 #define EXCA_REGS_SIZE		0x800
 
@@ -88,11 +94,11 @@
  #define CARD_DETECT2		0x08
  #define CARD_DETECT1		0x04
  #define BV_DETECT_MASK		0x03
- #define BV_DETECT_GOOD		0x03	
+ #define BV_DETECT_GOOD		0x03	/* Memory card */
  #define BV_DETECT_WARN		0x02
  #define BV_DETECT_BAD1		0x01
  #define BV_DETECT_BAD0		0x00
- #define STSCHG			0x02	
+ #define STSCHG			0x02	/* I/O card */
  #define SPKR			0x01
 
 #define PWR_CNT			0x002
@@ -175,6 +181,9 @@
 #define MEM_WIN_PWEN		0x091
  #define POSTWEN		0x01
 
+/*
+ * CardBus Socket Registers
+ */
 #define CARDBUS_SOCKET_REGS_BASE	0x000
 #define CARDBUS_SOCKET_REGS_SIZE	0x800
 
@@ -235,4 +244,4 @@ typedef struct vrc4173_socket {
 	char name[20];
 } vrc4173_socket_t;
 
-#endif 
+#endif /* _VRC4173_CARDU_H */

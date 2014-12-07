@@ -59,6 +59,12 @@ static cstate_t mperf_cstates[MPERF_CSTATE_COUNT] = {
 
 enum MAX_FREQ_MODE { MAX_FREQ_SYSFS, MAX_FREQ_TSC_REF };
 static int max_freq_mode;
+/*
+ * The max frequency mperf is ticking at (in C0), either retrieved via:
+ *   1) calculated after measurements if we know TSC ticks at mperf/P0 frequency
+ *   2) cpufreq /sys/devices/.../cpu0/cpufreq/cpuinfo_max_freq at init time
+ * 1. Is preferred as it also works without cpufreq subsystem (e.g. on Xen)
+ */
 static unsigned long max_frequency;
 
 static unsigned long long tsc_at_measure_start;
@@ -68,6 +74,7 @@ static unsigned long long *aperf_previous_count;
 static unsigned long long *mperf_current_count;
 static unsigned long long *aperf_current_count;
 
+/* valid flag for all CPUs. If a MSR read failed it will be zero */
 static int *is_valid;
 
 static int mperf_get_tsc(unsigned long long *tsc)
@@ -159,7 +166,7 @@ static int mperf_get_count_freq(unsigned int id, unsigned long long *count,
 	aperf_diff = aperf_current_count[cpu] - aperf_previous_count[cpu];
 
 	if (max_freq_mode == MAX_FREQ_TSC_REF) {
-		
+		/* Calculate max_freq from TSC count */
 		tsc_diff = tsc_at_measure_end - tsc_at_measure_start;
 		time_diff = timespec_diff_us(time_start, time_end);
 		max_frequency = tsc_diff / time_diff;
@@ -209,6 +216,21 @@ static int mperf_stop(void)
 	return 0;
 }
 
+/*
+ * Mperf register is defined to tick at P0 (maximum) frequency
+ *
+ * Instead of reading out P0 which can be tricky to read out from HW,
+ * we use TSC counter if it reliably ticks at P0/mperf frequency.
+ *
+ * Still try to fall back to:
+ * /sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq
+ * on older Intel HW without invariant TSC feature.
+ * Or on AMD machines where TSC does not tick at P0 (do not exist yet, but
+ * it's still double checked (MSR_AMD_HWCR)).
+ *
+ * On these machines the user would still get useful mperf
+ * stats when acpi-cpufreq driver is loaded.
+ */
 static int init_maxfreq_mode(void)
 {
 	int ret;
@@ -219,7 +241,21 @@ static int init_maxfreq_mode(void)
 		goto use_sysfs;
 
 	if (cpupower_cpu_info.vendor == X86_VENDOR_AMD) {
+		/* MSR_AMD_HWCR tells us whether TSC runs at P0/mperf
+		 * freq.
+		 * A test whether hwcr is accessable/available would be:
+		 * (cpupower_cpu_info.family > 0x10 ||
+		 *   cpupower_cpu_info.family == 0x10 &&
+		 *   cpupower_cpu_info.model >= 0x2))
+		 * This should be the case for all aperf/mperf
+		 * capable AMD machines and is therefore safe to test here.
+		 * Compare with Linus kernel git commit: acf01734b1747b1ec4
+		 */
 		ret = read_msr(0, MSR_AMD_HWCR, &hwcr);
+		/*
+		 * If the MSR read failed, assume a Xen system that did
+		 * not explicitly provide access to it and assume TSC works
+		*/
 		if (ret != 0) {
 			dprint("TSC read 0x%x failed - assume TSC working\n",
 			       MSR_AMD_HWCR);
@@ -227,8 +263,12 @@ static int init_maxfreq_mode(void)
 		} else if (1 & (hwcr >> 24)) {
 			max_freq_mode = MAX_FREQ_TSC_REF;
 			return 0;
-		} else {  }
+		} else { /* Use sysfs max frequency if available */ }
 	} else if (cpupower_cpu_info.vendor == X86_VENDOR_INTEL) {
+		/*
+		 * On Intel we assume mperf (in C0) is ticking at same
+		 * rate than TSC
+		 */
 		max_freq_mode = MAX_FREQ_TSC_REF;
 		return 0;
 	}
@@ -242,6 +282,18 @@ use_sysfs:
 	return 0;
 }
 
+/*
+ * This monitor provides:
+ *
+ * 1) Average frequency a CPU resided in
+ *    This always works if the CPU has aperf/mperf capabilities
+ *
+ * 2) C0 and Cx (any sleep state) time a CPU resided in
+ *    Works if mperf timer stops ticking in sleep states which
+ *    seem to be the case on all current HW.
+ * Both is directly retrieved from HW registers and is independent
+ * from kernel statistics.
+ */
 struct cpuidle_monitor mperf_monitor;
 struct cpuidle_monitor *mperf_register(void)
 {
@@ -251,7 +303,7 @@ struct cpuidle_monitor *mperf_register(void)
 	if (init_maxfreq_mode())
 		return NULL;
 
-	
+	/* Free this at program termination */
 	is_valid = calloc(cpu_count, sizeof(int));
 	mperf_previous_count = calloc(cpu_count, sizeof(unsigned long long));
 	aperf_previous_count = calloc(cpu_count, sizeof(unsigned long long));
@@ -280,6 +332,7 @@ struct cpuidle_monitor mperf_monitor = {
 	.do_register		= mperf_register,
 	.unregister		= mperf_unregister,
 	.needs_root		= 1,
-	.overflow_s		= 922000000 
+	.overflow_s		= 922000000 /* 922337203 seconds TSC overflow
+					       at 20GHz */
 };
-#endif 
+#endif /* #if defined(__i386__) || defined(__x86_64__) */

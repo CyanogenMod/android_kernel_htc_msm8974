@@ -24,6 +24,10 @@ static inline struct kvm_coalesced_mmio_dev *to_mmio(struct kvm_io_device *dev)
 static int coalesced_mmio_in_range(struct kvm_coalesced_mmio_dev *dev,
 				   gpa_t addr, int len)
 {
+	/* is it in a batchable area ?
+	 * (addr,len) is fully included in
+	 * (zone->addr, zone->size)
+	 */
 	if (len < 0)
 		return 0;
 	if (addr + len < addr)
@@ -40,12 +44,16 @@ static int coalesced_mmio_has_room(struct kvm_coalesced_mmio_dev *dev)
 	struct kvm_coalesced_mmio_ring *ring;
 	unsigned avail;
 
-	
+	/* Are we able to batch it ? */
 
+	/* last is the first free entry
+	 * check if we don't meet the first used entry
+	 * there is always one unused entry in the buffer
+	 */
 	ring = dev->kvm->coalesced_mmio_ring;
 	avail = (ring->first - ring->last - 1) % KVM_COALESCED_MMIO_MAX;
 	if (avail == 0) {
-		
+		/* full */
 		return 0;
 	}
 
@@ -68,7 +76,7 @@ static int coalesced_mmio_write(struct kvm_io_device *this,
 		return -EOPNOTSUPP;
 	}
 
-	
+	/* copy data in first free entry of the ring */
 
 	ring->coalesced_mmio[ring->last].phys_addr = addr;
 	ring->coalesced_mmio[ring->last].len = len;
@@ -106,6 +114,11 @@ int kvm_coalesced_mmio_init(struct kvm *kvm)
 	ret = 0;
 	kvm->coalesced_mmio_ring = page_address(page);
 
+	/*
+	 * We're using this spinlock to sync access to the coalesced ring.
+	 * The list doesn't need it's own lock since device registration and
+	 * unregistration should only happen when kvm->slots_lock is held.
+	 */
 	spin_lock_init(&kvm->ring_lock);
 	INIT_LIST_HEAD(&kvm->coalesced_zones);
 

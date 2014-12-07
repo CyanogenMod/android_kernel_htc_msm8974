@@ -25,7 +25,7 @@
 
 static int backtrace_stack(void *data, char *name)
 {
-	
+	/* Yes, we want all stacks */
 	return 0;
 }
 
@@ -42,6 +42,7 @@ static struct stacktrace_ops backtrace_ops = {
 	.address = backtrace_address,
 };
 
+/* Limit to stop backtracing too far. */
 static int backtrace_limit = 20;
 
 static unsigned long *
@@ -49,14 +50,14 @@ user_backtrace(unsigned long *stackaddr, struct pt_regs *regs)
 {
 	unsigned long buf_stack;
 
-	
+	/* Also check accessibility of address */
 	if (!access_ok(VERIFY_READ, stackaddr, sizeof(unsigned long)))
 		return NULL;
 
 	if (__copy_from_user_inatomic(&buf_stack, stackaddr, sizeof(unsigned long)))
 		return NULL;
 
-	
+	/* Quick paranoia check */
 	if (buf_stack & 3)
 		return NULL;
 
@@ -71,6 +72,9 @@ void sh_backtrace(struct pt_regs * const regs, unsigned int depth)
 {
 	unsigned long *stackaddr;
 
+	/*
+	 * Paranoia - clip max depth as we could get lost in the weeds.
+	 */
 	if (depth > backtrace_limit)
 		depth = backtrace_limit;
 

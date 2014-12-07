@@ -9,7 +9,7 @@
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/mm.h>
-#include <linux/highmem.h>	
+#include <linux/highmem.h>	/* pte_offset_map => kmap_atomic */
 #include <linux/bitops.h>
 #include <linux/scatterlist.h>
 #include <linux/of.h>
@@ -25,6 +25,7 @@
 #include <asm/dma.h>
 #include <asm/oplib.h>
 
+/* #define IOUNIT_DEBUG */
 #ifdef IOUNIT_DEBUG
 #define IOD(x) printk(x)
 #else
@@ -86,6 +87,7 @@ static int __init iounit_init(void)
 
 subsys_initcall(iounit_init);
 
+/* One has to hold iounit->lock to call this */
 static unsigned long iounit_get_area(struct iounit_struct *iounit, unsigned long vaddr, int size)
 {
 	int i, j, k, npages;
@@ -94,7 +96,7 @@ static unsigned long iounit_get_area(struct iounit_struct *iounit, unsigned long
 
         npages = ((vaddr & ~PAGE_MASK) + size + (PAGE_SIZE-1)) >> PAGE_SHIFT;
 
-	
+	/* A tiny bit of magic ingredience :) */
 	switch (npages) {
 	case 1: i = 0x0231; break;
 	case 2: i = 0x0132; break;
@@ -150,7 +152,7 @@ static void iounit_get_scsi_sgl(struct device *dev, struct scatterlist *sg, int 
 	struct iounit_struct *iounit = dev->archdata.iommu;
 	unsigned long flags;
 
-	
+	/* FIXME: Cache some resolved pages - often several sg entries are to the same page */
 	spin_lock_irqsave(&iounit->lock, flags);
 	while (sz != 0) {
 		--sz;
@@ -236,17 +238,19 @@ static int iounit_map_dma_area(struct device *dev, dma_addr_t *pba, unsigned lon
 
 static void iounit_unmap_dma_area(struct device *dev, unsigned long addr, int len)
 {
-	
+	/* XXX Somebody please fill this in */
 }
 #endif
 
 static char *iounit_lockarea(char *vaddr, unsigned long len)
 {
+/* FIXME: Write this */
 	return vaddr;
 }
 
 static void iounit_unlockarea(char *vaddr, unsigned long len)
 {
+/* FIXME: Write this */
 }
 
 void __init ld_mmu_iounit(void)

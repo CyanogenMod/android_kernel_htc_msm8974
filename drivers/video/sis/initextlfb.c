@@ -74,7 +74,7 @@ sisfb_mode_rate_to_dclock(struct SiS_Private *SiS_Pr, unsigned char modeno,
 
     if(SiS_Pr->SiS_RefIndex[RRTI].Ext_InfoFlag & HaveWideTiming) {
        if(SiS_Pr->SiS_UseWide == 1) {
-	  
+	  /* Wide screen: Ignore rateindex */
 	  ClockIndex = SiS_Pr->SiS_RefIndex[RRTI].Ext_CRTVCLK_WIDE;
        } else {
 	  RRTI += rateindex;
@@ -114,7 +114,7 @@ sisfb_mode_rate_to_ddata(struct SiS_Private *SiS_Pr, unsigned char modeno,
     RRTI = SiS_Pr->SiS_EModeIDTable[ModeIdIndex].REFindex;
     if(SiS_Pr->SiS_RefIndex[RRTI].Ext_InfoFlag & HaveWideTiming) {
        if(SiS_Pr->SiS_UseWide == 1) {
-	  
+	  /* Wide screen: Ignore rateindex */
 	  index = SiS_Pr->SiS_RefIndex[RRTI].Ext_CRT1CRTC_WIDE;
        } else {
 	  RRTI += rateindex;
@@ -159,7 +159,7 @@ sisfb_mode_rate_to_ddata(struct SiS_Private *SiS_Pr, unsigned char modeno,
     }
 
     if((var->vmode & FB_VMODE_MASK) == FB_VMODE_INTERLACED) {
-#if 0  
+#if 0  /* Do this? */
        var->upper_margin <<= 1;
        var->lower_margin <<= 1;
        var->vsync_len <<= 1;
@@ -198,7 +198,7 @@ sisfb_gettotalfrommode(struct SiS_Private *SiS_Pr, unsigned char modeno, int *ht
     RRTI = SiS_Pr->SiS_EModeIDTable[ModeIdIndex].REFindex;
     if(SiS_Pr->SiS_RefIndex[RRTI].Ext_InfoFlag & HaveWideTiming) {
        if(SiS_Pr->SiS_UseWide == 1) {
-	  
+	  /* Wide screen: Ignore rateindex */
 	  CRT1Index = SiS_Pr->SiS_RefIndex[RRTI].Ext_CRT1CRTC_WIDE;
        } else {
 	  RRTI += rateindex;

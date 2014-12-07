@@ -41,5 +41,5 @@ do {							\
 } while(0)
 
 
-#endif 
-#endif 
+#endif /* __ASSEMBLY__ */
+#endif /* _ASM_SEGMENT_H */

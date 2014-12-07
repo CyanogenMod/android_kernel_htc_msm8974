@@ -70,15 +70,15 @@ static int acs5k_pca9555_setup(struct i2c_client *client,
 		else
 			gpio_direction_output(gpio_base + n,
 					      acs5k_gpio_value[n]);
-		gpio_export(gpio_base + n, 0); 
+		gpio_export(gpio_base + n, 0); /* Export, direction locked down */
 	}
 
 	return 0;
 }
 
 static struct pca953x_platform_data acs5k_i2c_pca9555_platdata = {
-	.gpio_base	= 16, 
-	.invert		= 0, 
+	.gpio_base	= 16, /* Start directly after the CPU's GPIO */
+	.invert		= 0, /* Do not invert */
 	.setup		= acs5k_pca9555_setup,
 };
 
@@ -94,9 +94,9 @@ static struct i2c_board_info acs5k_i2c_devs[] __initdata = {
 
 static void __devinit acs5k_i2c_init(void)
 {
-	
+	/* The gpio interface */
 	platform_device_register(&acs5k_i2c_device);
-	
+	/* I2C devices */
 	i2c_register_board_info(0, acs5k_i2c_devs,
 				ARRAY_SIZE(acs5k_i2c_devs));
 }
@@ -125,7 +125,7 @@ static struct mtd_partition acs5k_nor_partitions[] = {
 	},
 	[4] = {
 		.name	= "Data",
-		.size	= SZ_16M + SZ_4M + SZ_2M + SZ_512K, 
+		.size	= SZ_16M + SZ_4M + SZ_2M + SZ_512K, /* 22.5 MB */
 		.offset	= SZ_256K + SZ_8M + SZ_1M,
 	}
 };
@@ -138,7 +138,9 @@ static struct physmap_flash_data acs5k_nor_pdata = {
 
 static struct resource acs5k_nor_resource[] = {
 	[0] = {
-		.start = SZ_32M, 
+		.start = SZ_32M, /* We expect the bootloader to map
+				  * the flash here.
+				  */
 		.end   = SZ_32M + SZ_16M - 1,
 		.flags = IORESOURCE_MEM,
 	},
@@ -173,6 +175,10 @@ static void __init acs5k_register_nor(void)
 
 static int __init acs5k_protection_setup(char *s)
 {
+	/* We can't allocate anything here but we should be able
+	 * to trivially parse s and decide if we can protect the
+	 * bootloader partition or not
+	 */
 	if (strcmp(s, "no") == 0)
 		acs5k_nor_partitions[0].mask_flags = 0;
 
@@ -194,29 +200,29 @@ static void __init acs5k_init_gpio(void)
 
 	gpio_request(3, "ACS5K CAN Control");
 	gpio_request(6, "ACS5K Heartbeat");
-	gpio_direction_output(3, 1); 
-	gpio_direction_output(6, 0); 
-	gpio_export(3, 0); 
-	gpio_export(6, 0); 
+	gpio_direction_output(3, 1); /* Default CAN_RESET high */
+	gpio_direction_output(6, 0); /* Default KS8695_ACTIVE low */
+	gpio_export(3, 0); /* export CAN_RESET as output only */
+	gpio_export(6, 0); /* export KS8695_ACTIVE as output only */
 }
 
 static void __init acs5k_init(void)
 {
 	acs5k_init_gpio();
 
-	
-	ks8695_add_device_lan();	
-	ks8695_add_device_wan();	
+	/* Network device */
+	ks8695_add_device_lan();	/* eth0 = LAN */
+	ks8695_add_device_wan();	/* ethX = WAN */
 
-	
+	/* NOR devices */
 	acs5k_register_nor();
 
-	
+	/* I2C bus */
 	acs5k_i2c_init();
 }
 
 MACHINE_START(ACS5K, "Brivo Systems LLC ACS-5000 Master board")
-	
+	/* Maintainer: Simtec Electronics. */
 	.atag_offset	= 0x100,
 	.map_io		= ks8695_map_io,
 	.init_irq	= ks8695_init_irq,

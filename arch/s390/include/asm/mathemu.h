@@ -22,7 +22,7 @@ extern int math_emu_lfpc(__u8 *, struct pt_regs *);
 extern int math_emu_stfpc(__u8 *, struct pt_regs *);
 extern int math_emu_srnm(__u8 *, struct pt_regs *);
 
-#endif                                 
+#endif                                 /* __MATHEMU__                      */
 
 
 

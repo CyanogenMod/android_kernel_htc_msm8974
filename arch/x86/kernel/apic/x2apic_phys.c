@@ -78,6 +78,10 @@ static void x2apic_send_IPI_all(int vector)
 
 static unsigned int x2apic_cpu_mask_to_apicid(const struct cpumask *cpumask)
 {
+	/*
+	 * We're using fixed IRQ delivery, can only return one phys APIC ID.
+	 * May as well be the first.
+	 */
 	int cpu = cpumask_first(cpumask);
 
 	if ((unsigned)cpu < nr_cpu_ids)
@@ -92,6 +96,10 @@ x2apic_cpu_mask_to_apicid_and(const struct cpumask *cpumask,
 {
 	int cpu;
 
+	/*
+	 * We're using fixed IRQ delivery, can only return one phys APIC ID.
+	 * May as well be the first.
+	 */
 	for_each_cpu_and(cpu, cpumask, andmask) {
 		if (cpumask_test_cpu(cpu, cpu_online_mask))
 			break;
@@ -121,7 +129,7 @@ static struct apic apic_x2apic_phys = {
 	.apic_id_registered		= x2apic_apic_id_registered,
 
 	.irq_delivery_mode		= dest_Fixed,
-	.irq_dest_mode			= 0, 
+	.irq_dest_mode			= 0, /* physical */
 
 	.target_cpus			= x2apic_target_cpus,
 	.disable_esr			= 0,

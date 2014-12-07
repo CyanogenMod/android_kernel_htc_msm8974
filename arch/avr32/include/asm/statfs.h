@@ -3,4 +3,4 @@
 
 #include <asm-generic/statfs.h>
 
-#endif 
+#endif /* __ASM_AVR32_STATFS_H */

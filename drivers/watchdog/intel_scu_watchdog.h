@@ -27,8 +27,10 @@
 
 #define WDT_VER "0.3"
 
+/* minimum time between interrupts */
 #define MIN_TIME_CYCLE 1
 
+/* Time from warning to reboot is 2 seconds */
 #define DEFAULT_SOFT_TO_HARD_MARGIN 2
 
 #define MAX_TIME 170
@@ -37,6 +39,7 @@
 
 #define MAX_SOFT_TO_HARD_MARGIN (MAX_TIME-MIN_TIME_CYCLE)
 
+/* Ajustment to clock tick frequency to make timing come out right */
 #define FREQ_ADJUSTMENT 8
 
 struct intel_scu_watchdog_dev {
@@ -58,4 +61,5 @@ struct intel_scu_watchdog_dev {
 
 extern int sfi_mtimer_num;
 
-#endif 
+/* extern struct sfi_timer_table_entry *sfi_get_mtmr(int hint); */
+#endif /* __INTEL_SCU_WATCHDOG_H */

@@ -15,8 +15,8 @@
 #ifdef CONFIG_DYNAMIC_FTRACE
 
 static const unsigned char mnop[] = {
-	0x03, 0xc0, 0x00, 0x18, 
-	0x03, 0xc0, 0x00, 0x18, 
+	0x03, 0xc0, 0x00, 0x18, /* MNOP; */
+	0x03, 0xc0, 0x00, 0x18, /* MNOP; */
 };
 
 static void bfin_make_pcrel24(unsigned char *insn, unsigned long src,
@@ -41,18 +41,18 @@ static int ftrace_modify_code(unsigned long ip, const unsigned char *code,
 int ftrace_make_nop(struct module *mod, struct dyn_ftrace *rec,
                     unsigned long addr)
 {
-	
+	/* Turn the mcount call site into two MNOPs as those are 32bit insns */
 	return ftrace_modify_code(rec->ip, mnop, sizeof(mnop));
 }
 
 int ftrace_make_call(struct dyn_ftrace *rec, unsigned long addr)
 {
-	
+	/* Restore the mcount call site */
 	unsigned char call[8];
-	call[0] = 0x67; 
+	call[0] = 0x67; /* [--SP] = RETS; */
 	call[1] = 0x01;
 	bfin_make_pcrel24(&call[2], rec->ip + 2, addr);
-	call[6] = 0x27; 
+	call[6] = 0x27; /* RETS = [SP++]; */
 	call[7] = 0x01;
 	return ftrace_modify_code(rec->ip, call, sizeof(call));
 }
@@ -67,7 +67,7 @@ int ftrace_update_ftrace_func(ftrace_func_t func)
 
 int __init ftrace_dyn_arch_init(void *data)
 {
-	
+	/* return value is done indirectly via data */
 	*(unsigned long *)data = 0;
 
 	return 0;
@@ -96,6 +96,10 @@ int ftrace_disable_ftrace_graph_caller(void)
 
 # endif
 
+/*
+ * Hook the return address and push it in the stack of return addrs
+ * in current thread info.
+ */
 void prepare_ftrace_return(unsigned long *parent, unsigned long self_addr,
                            unsigned long frame_pointer)
 {
@@ -111,13 +115,13 @@ void prepare_ftrace_return(unsigned long *parent, unsigned long self_addr,
 
 	trace.func = self_addr;
 
-	
+	/* Only trace if the calling function expects to */
 	if (!ftrace_graph_entry(&trace)) {
 		current->curr_ret_stack--;
 		return;
 	}
 
-	
+	/* all is well in the world !  hijack RETS ... */
 	*parent = return_hooker;
 }
 

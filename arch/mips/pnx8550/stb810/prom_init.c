@@ -41,6 +41,6 @@ void __init prom_init(void)
 
 	prom_init_cmdline();
 
-	memsize = 0x08000000; 
+	memsize = 0x08000000; /* Trimedia uses memory above */
 	add_memory_region(0, memsize, BOOT_MEM_RAM);
 }

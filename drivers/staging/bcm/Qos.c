@@ -1,3 +1,7 @@
+/**
+@file Qos.C
+This file contains the routines related to Quality of Service.
+*/
 #include "headers.h"
 
 static void EThCSGetPktInfo(PMINI_ADAPTER Adapter,PVOID pvEthPayload,PS_ETHCS_PKT_INFO pstEthCsPktInfo);
@@ -9,6 +13,17 @@ static USHORT	IpVersion4(PMINI_ADAPTER Adapter, struct iphdr *iphd,
 static VOID PruneQueue(PMINI_ADAPTER Adapter, INT iIndex);
 
 
+/*******************************************************************
+* Function    - MatchSrcIpAddress()
+*
+* Description - Checks whether the Source IP address from the packet
+*				matches with that of Queue.
+*
+* Parameters  - pstClassifierRule: Pointer to the packet info structure.
+* 			  - ulSrcIP	    : Source IP address from the packet.
+*
+* Returns     - TRUE(If address matches) else FAIL .
+*********************************************************************/
 BOOLEAN MatchSrcIpAddress(S_CLASSIFIER_RULE *pstClassifierRule,ULONG ulSrcIP)
 {
     UCHAR 	ucLoopIndex=0;
@@ -32,6 +47,17 @@ BOOLEAN MatchSrcIpAddress(S_CLASSIFIER_RULE *pstClassifierRule,ULONG ulSrcIP)
 }
 
 
+/*******************************************************************
+* Function    - MatchDestIpAddress()
+*
+* Description - Checks whether the Destination IP address from the packet
+*				matches with that of Queue.
+*
+* Parameters  - pstClassifierRule: Pointer to the packet info structure.
+* 			  - ulDestIP    : Destination IP address from the packet.
+*
+* Returns     - TRUE(If address matches) else FAIL .
+*********************************************************************/
 BOOLEAN MatchDestIpAddress(S_CLASSIFIER_RULE *pstClassifierRule,ULONG ulDestIP)
 {
 	UCHAR 	ucLoopIndex=0;
@@ -55,6 +81,16 @@ BOOLEAN MatchDestIpAddress(S_CLASSIFIER_RULE *pstClassifierRule,ULONG ulDestIP)
 }
 
 
+/************************************************************************
+* Function    - MatchTos()
+*
+* Description - Checks the TOS from the packet matches with that of queue.
+*
+* Parameters  - pstClassifierRule   : Pointer to the packet info structure.
+* 			  - ucTypeOfService: TOS from the packet.
+*
+* Returns     - TRUE(If address matches) else FAIL.
+**************************************************************************/
 BOOLEAN MatchTos(S_CLASSIFIER_RULE *pstClassifierRule,UCHAR ucTypeOfService)
 {
 
@@ -71,6 +107,16 @@ BOOLEAN MatchTos(S_CLASSIFIER_RULE *pstClassifierRule,UCHAR ucTypeOfService)
 }
 
 
+/***************************************************************************
+* Function    - MatchProtocol()
+*
+* Description - Checks the protocol from the packet matches with that of queue.
+*
+* Parameters  - pstClassifierRule: Pointer to the packet info structure.
+* 			  - ucProtocol	: Protocol from the packet.
+*
+* Returns     - TRUE(If address matches) else FAIL.
+****************************************************************************/
 BOOLEAN MatchProtocol(S_CLASSIFIER_RULE *pstClassifierRule,UCHAR ucProtocol)
 {
    	UCHAR 	ucLoopIndex=0;
@@ -90,6 +136,16 @@ BOOLEAN MatchProtocol(S_CLASSIFIER_RULE *pstClassifierRule,UCHAR ucProtocol)
 }
 
 
+/***********************************************************************
+* Function    - MatchSrcPort()
+*
+* Description - Checks, Source port from the packet matches with that of queue.
+*
+* Parameters  - pstClassifierRule: Pointer to the packet info structure.
+* 			  - ushSrcPort	: Source port from the packet.
+*
+* Returns     - TRUE(If address matches) else FAIL.
+***************************************************************************/
 BOOLEAN MatchSrcPort(S_CLASSIFIER_RULE *pstClassifierRule,USHORT ushSrcPort)
 {
     	UCHAR 	ucLoopIndex=0;
@@ -112,6 +168,16 @@ BOOLEAN MatchSrcPort(S_CLASSIFIER_RULE *pstClassifierRule,USHORT ushSrcPort)
 }
 
 
+/***********************************************************************
+* Function    - MatchDestPort()
+*
+* Description - Checks, Destination port from packet matches with that of queue.
+*
+* Parameters  - pstClassifierRule: Pointer to the packet info structure.
+* 			  - ushDestPort	: Destination port from the packet.
+*
+* Returns     - TRUE(If address matches) else FAIL.
+***************************************************************************/
 BOOLEAN MatchDestPort(S_CLASSIFIER_RULE *pstClassifierRule,USHORT ushDestPort)
 {
     	UCHAR 	ucLoopIndex=0;
@@ -133,6 +199,11 @@ BOOLEAN MatchDestPort(S_CLASSIFIER_RULE *pstClassifierRule,USHORT ushDestPort)
 		BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, IPV4_DBG, DBG_LVL_ALL, "Dest Port: %x Not Matched",ushDestPort);
     	return FALSE;
 }
+/**
+@ingroup tx_functions
+Compares IPV4 Ip address and port number
+@return Queue Index.
+*/
 static USHORT	IpVersion4(PMINI_ADAPTER Adapter,
 			   struct iphdr *iphd,
 			   S_CLASSIFIER_RULE *pstClassifierRule )
@@ -149,7 +220,7 @@ static USHORT	IpVersion4(PMINI_ADAPTER Adapter,
 			pstClassifierRule->ucDirection,
 			pstClassifierRule->usVCID_Value);
 
-		
+		//Checking classifier validity
 		if(!pstClassifierRule->bUsed || pstClassifierRule->ucDirection == DOWNLINK_DIR)
 		{
 			bClassificationSucceed = FALSE;
@@ -160,7 +231,7 @@ static USHORT	IpVersion4(PMINI_ADAPTER Adapter,
 		if(pstClassifierRule->bIpv6Protocol)
 			break;
 
-		
+		//**************Checking IP header parameter**************************//
 		BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, IPV4_DBG, DBG_LVL_ALL, "Trying to match Source IP Address");
 		if(FALSE == (bClassificationSucceed =
 			MatchSrcIpAddress(pstClassifierRule, iphd->saddr)))
@@ -185,10 +256,10 @@ static USHORT	IpVersion4(PMINI_ADAPTER Adapter,
 			break;
 		BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, IPV4_DBG, DBG_LVL_ALL, "Protocol Matched");
 
-		
+		//if protocol is not TCP or UDP then no need of comparing source port and destination port
 		if(iphd->protocol!=TCP && iphd->protocol!=UDP)
 			break;
-		
+		//******************Checking Transport Layer Header field if present *****************//
 		BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, IPV4_DBG, DBG_LVL_ALL, "Source Port %04x",
 			(iphd->protocol==UDP)?xprt_hdr->uhdr.source:xprt_hdr->thdr.source);
 
@@ -245,6 +316,13 @@ VOID PruneQueueAllSF(PMINI_ADAPTER Adapter)
 }
 
 
+/**
+@ingroup tx_functions
+This function checks if the max queue size for a queue
+is less than number of bytes in the queue. If so -
+drops packets from the Head till the number of bytes is
+less than or equal to max queue size for the queue.
+*/
 static VOID PruneQueue(PMINI_ADAPTER Adapter, INT iIndex)
 {
 	struct sk_buff* PacketToDrop=NULL;
@@ -258,12 +336,14 @@ static VOID PruneQueue(PMINI_ADAPTER Adapter, INT iIndex)
 	if(!Adapter || (iIndex < 0) || (iIndex > HiPriority))
 		return;
 
-	
+	/* To Store the netdevice statistic */
 	netstats = &Adapter->dev->stats;
 
 	spin_lock_bh(&Adapter->PackInfo[iIndex].SFQueueLock);
 
 	while(1)
+//	while((UINT)Adapter->PackInfo[iIndex].uiCurrentPacketsOnHost >
+//		SF_MAX_ALLOWED_PACKETS_TO_BACKUP)
 	{
 		BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, PRUNE_QUEUE, DBG_LVL_ALL, "uiCurrentBytesOnHost:%x uiMaxBucketSize :%x",
 		Adapter->PackInfo[iIndex].uiCurrentBytesOnHost,
@@ -287,11 +367,11 @@ static VOID PruneQueue(PMINI_ADAPTER Adapter, INT iIndex)
 
 			DEQUEUEPACKET(Adapter->PackInfo[iIndex].FirstTxQueue,
 						Adapter->PackInfo[iIndex].LastTxQueue);
-			
+			/// update current bytes and packets count
 			Adapter->PackInfo[iIndex].uiCurrentBytesOnHost -=
 				PacketToDrop->len;
 			Adapter->PackInfo[iIndex].uiCurrentPacketsOnHost--;
-			
+			/// update dropped bytes and packets counts
 			Adapter->PackInfo[iIndex].uiDroppedCountBytes += PacketToDrop->len;
 			Adapter->PackInfo[iIndex].uiDroppedCountPackets++;
 			dev_kfree_skb(PacketToDrop);
@@ -320,6 +400,7 @@ VOID flush_all_queues(PMINI_ADAPTER Adapter)
 
 	BCM_DEBUG_PRINT(Adapter,DBG_TYPE_OTHERS, DUMP_INFO, DBG_LVL_ALL, "=====>");
 
+//	down(&Adapter->data_packet_queue_lock);
 	for(iQIndex=LowPriority; iQIndex<HiPriority; iQIndex++)
 	{
 		struct net_device_stats *netstats = &Adapter->dev->stats;
@@ -339,14 +420,14 @@ VOID flush_all_queues(PMINI_ADAPTER Adapter)
 			DEQUEUEPACKET(Adapter->PackInfo[iQIndex].FirstTxQueue,
 						Adapter->PackInfo[iQIndex].LastTxQueue);
 
-			
+			/* Free the skb */
 			dev_kfree_skb(PacketToDrop);
 
-			
+			/// update current bytes and packets count
 			Adapter->PackInfo[iQIndex].uiCurrentBytesOnHost -= uiTotalPacketLength;
 			Adapter->PackInfo[iQIndex].uiCurrentPacketsOnHost--;
 
-			
+			/// update dropped bytes and packets counts
 			Adapter->PackInfo[iQIndex].uiDroppedCountBytes += uiTotalPacketLength;
 			Adapter->PackInfo[iQIndex].uiDroppedCountPackets++;
 
@@ -357,6 +438,7 @@ VOID flush_all_queues(PMINI_ADAPTER Adapter)
 		}
 		spin_unlock_bh(&Adapter->PackInfo[iQIndex].SFQueueLock);
 	}
+//	up(&Adapter->data_packet_queue_lock);
 	BCM_DEBUG_PRINT(Adapter,DBG_TYPE_OTHERS, DUMP_INFO, DBG_LVL_ALL, "<=====");
 }
 
@@ -423,7 +505,7 @@ USHORT ClassifyPacket(PMINI_ADAPTER Adapter,struct sk_buff* skb)
 
 		if(bFragmentedPkt)
 		{
-				
+				//Fragmented  Packet. Get Frag Classifier Entry.
 			pstClassifierRule = GetFragIPClsEntry(Adapter,pIpHeader->id, pIpHeader->saddr);
 			if(pstClassifierRule)
 			{
@@ -432,7 +514,7 @@ USHORT ClassifyPacket(PMINI_ADAPTER Adapter,struct sk_buff* skb)
 			}
 			if(!(ntohs(pIpHeader->frag_off) & IP_MF))
 			{
-				
+				//Fragmented Last packet . Remove Frag Classifier Entry
 				BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, IPV4_DBG, DBG_LVL_ALL,"This is the last fragmented Pkt");
 				DelFragIPClsEntry(Adapter,pIpHeader->id, pIpHeader->saddr);
 			}
@@ -443,8 +525,8 @@ USHORT ClassifyPacket(PMINI_ADAPTER Adapter,struct sk_buff* skb)
 	{
 		if(bClassificationSucceed)
 			break;
-		
-		
+		//Iterate through all classifiers which are already in order of priority
+		//to classify the packet until match found
 		do
 		{
 			if(FALSE==Adapter->astClassifierTable[uiLoopIndex].bUsed)
@@ -456,8 +538,8 @@ USHORT ClassifyPacket(PMINI_ADAPTER Adapter,struct sk_buff* skb)
 
 			if(0 == Adapter->astClassifierTable[uiLoopIndex].ucDirection)
 			{
-				bClassificationSucceed=FALSE;
-				break;						
+				bClassificationSucceed=FALSE;//cannot be processed for classification.
+				break;						// it is a down link connection
 			}
 
 			pstClassifierRule = &Adapter->astClassifierTable[uiLoopIndex];
@@ -490,7 +572,7 @@ USHORT ClassifyPacket(PMINI_ADAPTER Adapter,struct sk_buff* skb)
 				}
 			}
 
-			else 
+			else // No ETH Supported on this SF
 			{
 				if(eEthOtherFrame != stEthCsPktInfo.eNwpktEthFrameType)
 				{
@@ -527,7 +609,7 @@ USHORT ClassifyPacket(PMINI_ADAPTER Adapter,struct sk_buff* skb)
 	{
 		BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, IPV4_DBG, DBG_LVL_ALL, "CF id : %d, SF ID is =%lu",pstClassifierRule->uiClassifierRuleIndex, pstClassifierRule->ulSFID);
 
-		
+		//Store The matched Classifier in SKB
 		*((UINT32*)(skb->cb)+SKB_CB_CLASSIFICATION_OFFSET) = pstClassifierRule->uiClassifierRuleIndex;
 		if((TCP == pIpHeader->protocol ) && !bFragmentedPkt && (ETH_AND_IP_HEADER_LEN + TCP_HEADER_LEN <= skb->len) )
 		{
@@ -545,10 +627,10 @@ USHORT ClassifyPacket(PMINI_ADAPTER Adapter,struct sk_buff* skb)
 		usIndex = SearchSfid(Adapter, pstClassifierRule->ulSFID);
 		BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, IPV4_DBG, DBG_LVL_ALL, "index is	=%d", usIndex);
 
-		
+		//If this is the first fragment of a Fragmented pkt, add this CF. Only This CF should be used for all other fragment of this Pkt.
 		if(bFragmentedPkt && (usCurrFragment == 0))
 		{
-			
+			//First Fragment of Fragmented Packet. Create Frag CLS Entry
 			S_FRAGMENTED_PACKET_INFO stFragPktInfo;
 			stFragPktInfo.bUsed = TRUE;
 			stFragPktInfo.ulSrcIpAddress = pIpHeader->saddr;
@@ -645,7 +727,7 @@ static BOOLEAN EthCSMatchVLANRules(S_CLASSIFIER_RULE *pstClassifierRule,struct s
 
 	BCM_DEBUG_PRINT(Adapter, DBG_TYPE_TX, IPV4_DBG, DBG_LVL_ALL,  "%s  CLS UserPrio:%x CLS VLANID:%x\n",__FUNCTION__,ntohs(*((USHORT *)pstClassifierRule->usUserPriority)),pstClassifierRule->usVLANID);
 
-	
+	/* In case FW didn't receive the TLV, the priority field should be ignored */
 	if(pstClassifierRule->usValidityBitMap & (1<<PKT_CLASSIFICATION_USER_PRIORITY_VALID))
 	{
 		if(pstEthCsPktInfo->eNwpktEthFrameType!=eEth802QVLANFrame)
@@ -702,14 +784,14 @@ static BOOLEAN EThCSClassifyPkt(PMINI_ADAPTER Adapter,struct sk_buff* skb,
 		return FALSE;
 	BCM_DEBUG_PRINT(Adapter, DBG_TYPE_TX, IPV4_DBG, DBG_LVL_ALL,  "ETH CS DestMAC Matched\n");
 
-	
+	//classify on ETHType/802.2SAP TLV
 	bClassificationSucceed = EthCSMatchEThTypeSAP(pstClassifierRule,skb,pstEthCsPktInfo);
 	if(!bClassificationSucceed)
 		return FALSE;
 
 	BCM_DEBUG_PRINT(Adapter, DBG_TYPE_TX, IPV4_DBG, DBG_LVL_ALL,  "ETH CS EthType/802.2SAP Matched\n");
 
-	
+	//classify on 802.1VLAN Header Parameters
 
 	bClassificationSucceed = EthCSMatchVLANRules(pstClassifierRule,skb,pstEthCsPktInfo);
 	if(!bClassificationSucceed)
@@ -728,13 +810,13 @@ static void EThCSGetPktInfo(PMINI_ADAPTER Adapter,PVOID pvEthPayload,
 	if(u16Etype > 0x5dc)
 	{
 		BCM_DEBUG_PRINT(Adapter, DBG_TYPE_TX, IPV4_DBG, DBG_LVL_ALL,  "EthCSGetPktInfo : ETH2 Frame \n");
-		
+		//ETH2 Frame
 		if(u16Etype == ETHERNET_FRAMETYPE_802QVLAN)
 		{
-			
+			//802.1Q VLAN Header
 			pstEthCsPktInfo->eNwpktEthFrameType = eEth802QVLANFrame;
 			u16Etype = ((ETH_CS_802_Q_FRAME*)pvEthPayload)->EthType;
-			
+			//((ETH_CS_802_Q_FRAME*)pvEthPayload)->UserPriority
 		}
 		else
 		{
@@ -745,13 +827,13 @@ static void EThCSGetPktInfo(PMINI_ADAPTER Adapter,PVOID pvEthPayload,
 	}
 	else
 	{
-		
+		//802.2 LLC
 		BCM_DEBUG_PRINT(Adapter, DBG_TYPE_TX, IPV4_DBG, DBG_LVL_ALL,  "802.2 LLC Frame \n");
 		pstEthCsPktInfo->eNwpktEthFrameType = eEth802LLCFrame;
 		pstEthCsPktInfo->ucDSAP = ((ETH_CS_802_LLC_FRAME*)pvEthPayload)->DSAP;
 		if(pstEthCsPktInfo->ucDSAP == 0xAA && ((ETH_CS_802_LLC_FRAME*)pvEthPayload)->SSAP == 0xAA)
 		{
-			
+			//SNAP Frame
 			pstEthCsPktInfo->eNwpktEthFrameType = eEth802LLCSNAPFrame;
 			u16Etype = ((ETH_CS_802_LLC_SNAP_FRAME*)pvEthPayload)->usEtherType;
 		}

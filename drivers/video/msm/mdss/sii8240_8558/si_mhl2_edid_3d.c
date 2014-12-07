@@ -37,6 +37,8 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 extern int start_video(struct drv_hw_context *hw_context, void *edid_parser_context);
 #endif
 
+extern bool ap_hdcp_success;
+
 #define SET_3D_FLAG(context,x)							\
 {														\
 	context->parse_data.flags.x = 1;			\
@@ -2193,6 +2195,7 @@ void si_mhl_tx_handle_atomic_hw_edid_read_complete(edid_3d_data_p mhl_edid_3d_da
 	PEDID_block0_t p_EDID_block_0 = (PEDID_block0_t)&mhl_edid_3d_data->EDID_block_data[0];
 	uint8_t counter;
 	MHL_TX_EDID_INFO(mhl_edid_3d_data->dev_context,"tag: Entire EDID Read complete\n");
+	ap_hdcp_success = false;
 #ifdef EDID_PASSTHROUGH 
 	si_mhl_tx_drv_set_upstream_edid(mhl_edid_3d_data->drv_context,
 					mhl_edid_3d_data->EDID_block_data,2*EDID_BLOCK_SIZE);
@@ -2223,6 +2226,7 @@ void si_mhl_tx_handle_atomic_hw_edid_read_complete(edid_3d_data_p mhl_edid_3d_da
 		SiiMhlTxMakeItDVI(mhl_edid_3d_data,p_EDID_block_0);
 	} else {
 		uint8_t Result = EDID_OK;
+		uint8_t i;
 		MHL_TX_EDID_INFO(mhl_edid_3d_data->dev_context," tag:place holder \n");
 		
 		for (counter = 1; counter <= mhl_edid_3d_data->parse_data.num_EDID_extensions;++counter) {
@@ -2233,6 +2237,9 @@ void si_mhl_tx_handle_atomic_hw_edid_read_complete(edid_3d_data_p mhl_edid_3d_da
 					,"EDID -> Extension[%d] is not HDMI: Result:%d\n"
 					, counter
 					,(uint16_t)Result);
+				DUMP_EDID_BLOCK_INFO(0,(uint8_t *)p_EDID_block_0,EDID_BLOCK_SIZE)
+				for(i = 1; i <= counter; ++i)
+					DUMP_EDID_BLOCK_INFO(0,(PCEA_extension_t)&mhl_edid_3d_data->EDID_block_data[EDID_BLOCK_SIZE*i],EDID_BLOCK_SIZE)  
 				SiiMhlTxMakeItDVI(mhl_edid_3d_data,p_EDID_block_0);
 				Result = EDID_OK;
 			}
@@ -2383,7 +2390,7 @@ void si_edid_destroy_context(void *context)
 		kfree(context);
 	}
 }
-#ifdef ENABLE_EDID_DEBUG_PRINT 
+#ifdef ENABLE_EDID_INFO_PRINT 
 void dump_EDID_block_impl(const char *pszFunction, int iLineNum,uint8_t override,uint8_t *pData,uint16_t length)
 {
     uint16_t i;

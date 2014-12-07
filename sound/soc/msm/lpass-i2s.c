@@ -57,10 +57,10 @@ static int msm_cpu_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
 
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBS_CFS:
-		dai_set_master_mode(dma_ch, 1); 
+		dai_set_master_mode(dma_ch, 1); /* CPU is master */
 		break;
 	case SND_SOC_DAIFMT_CBM_CFM:
-		dai_set_master_mode(dma_ch, 0); 
+		dai_set_master_mode(dma_ch, 0); /* CPU is slave */
 		break;
 	default:
 		return -EINVAL;
@@ -134,5 +134,6 @@ static void __exit msm_cpu_dai_exit(void)
 }
 module_exit(msm_cpu_dai_exit);
 
+/* Module information */
 MODULE_DESCRIPTION("MSM CPU DAI driver");
 MODULE_LICENSE("GPL v2");

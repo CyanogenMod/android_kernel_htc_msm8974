@@ -1420,8 +1420,13 @@ static void psensor_set_kvalue(struct cm3629_info *lpi)
 	
 	if (lpi->ps_kparam1 >> 16 == PS_CALIBRATED) {
 		psensor_cali = 1;
+
 		lpi->inte_ps1_canc = (uint8_t) (lpi->ps_kparam2 & 0xFF);
-		lpi->inte_ps2_canc = (uint8_t) ((lpi->ps_kparam2 >> 8) & 0xFF);
+		if (lpi->ps_kparam2 >> 16 == 0xFFFF)
+			lpi->inte_ps2_canc = (uint8_t) ((lpi->ps_kparam2 >> 8) & 0xFF);
+		else
+			lpi->inte_ps2_canc = (uint8_t) ((lpi->ps_kparam2 >> 16) & 0xFF);
+
 		if (lpi->ps_calibration_rule == 3) {
 
 			if ((lpi->ps_conf1_val & CM3629_PS_IT_1_6T) == CM3629_PS_IT_1_6T) {
@@ -1813,9 +1818,13 @@ static ssize_t ps_kadc_store(struct device *dev,
 
 		enable_ps_interrupt(ps_conf);
 	}
-
 	ps1_canc_set = lpi->inte_ps1_canc = (param2 & 0xFF);
-	ps2_canc_set = lpi->inte_ps2_canc = ((param2 >> 8) & 0xFF);
+
+	if (param2 >> 16 == 0xFFFF)
+		ps2_canc_set = lpi->inte_ps2_canc = (uint8_t) ((param2 >> 8) & 0xFF);
+	else
+		ps2_canc_set = lpi->inte_ps2_canc = (uint8_t) ((param2 >> 16) & 0xFF);
+
 	psensor_intelligent_cancel_cmd(lpi);
 
 #ifdef CONFIG_PSENSOR_KTHRESHOLD
@@ -2131,18 +2140,17 @@ static ssize_t ls_enable_store(struct device *dev,
 	ls_auto = -1;
 	sscanf(buf, "%d", &ls_auto);
 
-	if (ls_auto != 0 && ls_auto != 1 && ls_auto != 147 && ls_auto != 148) {
+	if (ls_auto != 0 && ls_auto != 1 && ls_auto != 147 && ls_auto != 148 && ls_auto != 149) {
 		return -EINVAL;
 	}
 	if (ls_auto) {
-		lpi->ls_calibrate = (ls_auto == 147) ? 1 : 0;
-		lpi->ws_calibrate = (ls_auto == 148) ? 1 : 0;
 		ret = lightsensor_enable(lpi);
 	} else {
-		lpi->ls_calibrate = 0;
-		lpi->ws_calibrate = 0;
 		ret = lightsensor_disable(lpi);
 	}
+	lpi->ls_calibrate = (ls_auto == 147) ? 1 : 0;
+	lpi->ws_calibrate = (ls_auto == 148) ? 1 : 0;
+
 
 	D("[LS][cm3629] %s: lpi->als_enable = %d, lpi->ls_calibrate = %d, lpi->ws_calibrate = %d, ls_auto=%d\n",
 		__func__, lpi->als_enable, lpi->ls_calibrate, lpi->ws_calibrate, ls_auto);
@@ -2365,6 +2373,13 @@ static ssize_t ps_fixed_thd_add_store(struct device *dev,
 	return count;
 }
 static DEVICE_ATTR(ps_fixed_thd_add, 0664, ps_fixed_thd_add_show, ps_fixed_thd_add_store);
+
+static ssize_t p_status_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf,"%d\n",p_status);
+}
+static DEVICE_ATTR(p_status, 0444, p_status_show, NULL);
 
 static ssize_t phone_status_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
@@ -3226,6 +3241,9 @@ static int __devinit cm3629_probe(struct i2c_client *client,
 	if (ret)
 		goto err_create_ps_device;
 
+	ret = device_create_file(lpi->ps_dev, &dev_attr_p_status);
+	if (ret)
+		goto err_create_ps_device;
 #ifdef CONFIG_FB
 	lpi->cm3629_fb_wq = create_singlethread_workqueue("CM3629_FB");
 	if (!lpi->cm3629_fb_wq) {

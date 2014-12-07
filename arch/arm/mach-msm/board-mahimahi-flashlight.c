@@ -85,6 +85,10 @@ int flashlight_control(int mode)
 	switch (mode) {
 	case FLASHLIGHT_TORCH:
 		pr_info("%s: half\n", __func__);
+		/* If we are transitioning from flash to torch, make sure to
+		 * cancel the flash timeout timer, otherwise when it expires,
+		 * the torch will go off as well.
+		 */
 		hrtimer_cancel(&the_fl.timer);
 		flashlight_hw_command(2, 4);
 		break;
@@ -100,6 +104,9 @@ int flashlight_control(int mode)
 					(the_fl.flash_duration_ms % 1000) *
 						NSEC_PER_MSEC),
 				HRTIMER_MODE_REL);
+		/* Flash overrides torch mode, and after the flash period, the
+		 * flash LED will turn off.
+		 */
 		mode = LED_OFF;
 		break;
 

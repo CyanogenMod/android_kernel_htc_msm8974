@@ -40,6 +40,7 @@
 #include "aic94xx_seq.h"
 #include "aic94xx_sds.h"
 
+/* The format is "version.release.patchlevel" */
 #define ASD_DRIVER_VERSION "1.0.3"
 
 static int use_msi = 0;
@@ -62,7 +63,7 @@ static void asd_scan_start(struct Scsi_Host *);
 
 static struct scsi_host_template aic94xx_sht = {
 	.module			= THIS_MODULE,
-	
+	/* .name is initialized */
 	.name			= "aic94xx",
 	.queuecommand		= sas_queuecommand,
 	.target_alloc		= sas_target_alloc,
@@ -234,11 +235,11 @@ static int __devinit asd_common_setup(struct asd_ha_struct *asd_ha)
 			   asd_ha->revision_id);
 		goto Err;
 	}
-	
+	/* Provide some sane default values. */
 	asd_ha->hw_prof.max_scbs = 512;
 	asd_ha->hw_prof.max_ddbs = ASD_MAX_DDBS;
 	asd_ha->hw_prof.num_phys = ASD_MAX_PHYS;
-	
+	/* All phys are enabled, by default. */
 	asd_ha->hw_prof.enabled_phys = 0xFF;
 	for (i = 0; i < ASD_MAX_PHYS; i++) {
 		asd_ha->hw_prof.phy_desc[i].max_sas_lrate =
@@ -324,7 +325,7 @@ static struct flash_command flash_command_table[] =
 {
      {"verify",      FLASH_CMD_VERIFY},
      {"update",      FLASH_CMD_UPDATE},
-     {"",            FLASH_CMD_NONE}      
+     {"",            FLASH_CMD_NONE}      /* Last entry should be NULL. */
 };
 
 struct error_bios {
@@ -347,7 +348,7 @@ static struct error_bios flash_error_table[] =
      {"Image file size Error",               FAIL_FILE_SIZE},
      {"Input parameter error",               FAIL_PARAMETERS},
      {"Out of memory",                       FAIL_OUT_MEMORY},
-     {"OK", 0}	
+     {"OK", 0}	/* Last entry err_code = 0. */
 };
 
 static ssize_t asd_store_update_bios(struct device *dev,
@@ -427,7 +428,7 @@ static ssize_t asd_store_update_bios(struct device *dev,
 		goto out2;
 	}
 
-	
+	/* calculate checksum */
 	for (i = 0; i < hdr_ptr->filelen; i++)
 		csum += asd_ha->bios_image->data[i];
 
@@ -524,11 +525,14 @@ static void asd_remove_dev_attrs(struct asd_ha_struct *asd_ha)
 	device_remove_file(&asd_ha->pcidev->dev, &dev_attr_update_bios);
 }
 
+/* The first entry, 0, is used for dynamic ids, the rest for devices
+ * we know about.
+ */
 static const struct asd_pcidev_struct {
 	const char * name;
 	int (*setup)(struct asd_ha_struct *asd_ha);
 } asd_pcidev_data[] __devinitconst = {
-	
+	/* Id 0 is used for dynamic ids. */
 	{ .name  = "Adaptec AIC-94xx SAS/SATA Host Adapter",
 	  .setup = asd_aic9410_setup
 	},
@@ -554,6 +558,10 @@ static int asd_create_ha_caches(struct asd_ha_struct *asd_ha)
 	return 0;
 }
 
+/**
+ * asd_free_edbs -- free empty data buffers
+ * asd_ha: pointer to host adapter structure
+ */
 static void asd_free_edbs(struct asd_ha_struct *asd_ha)
 {
 	struct asd_seq_data *seq = &asd_ha->seq;
@@ -890,6 +898,12 @@ static void asd_free_queues(struct asd_ha_struct *asd_ha)
 
 	list_for_each_safe(pos, n, &pending) {
 		struct asd_ascb *ascb = list_entry(pos, struct asd_ascb, list);
+		/*
+		 * Delete unexpired ascb timers.  This may happen if we issue
+		 * a CONTROL PHY scb to an adapter and rmmod before the scb
+		 * times out.  Apparently we don't wait for the CONTROL PHY
+		 * to complete, so it doesn't matter if we kill the timer.
+		 */
 		del_timer_sync(&ascb->timer);
 		WARN_ON(ascb->scb->header.opcode != CONTROL_PHY);
 
@@ -923,7 +937,7 @@ static void __devexit asd_pci_remove(struct pci_dev *dev)
 
 	asd_remove_dev_attrs(asd_ha);
 
-	
+	/* XXX more here as needed */
 
 	free_irq(dev->irq, asd_ha);
 	if (use_msi)
@@ -951,9 +965,11 @@ static void asd_scan_start(struct Scsi_Host *shost)
 
 static int asd_scan_finished(struct Scsi_Host *shost, unsigned long time)
 {
+	/* give the phy enabling interrupt event time to come in (1s
+	 * is empirically about all it takes) */
 	if (time < HZ)
 		return 0;
-	
+	/* Wait for discovery to finish */
 	sas_drain_work(SHOST_TO_SAS_HA(shost));
 	return 1;
 }

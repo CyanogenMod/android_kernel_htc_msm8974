@@ -24,9 +24,14 @@
 #include <asm/mmu_context.h>
 #include <asm/uaccess.h>
 #include <asm/ptrace.h>
-#include <asm/highmem.h>		
+#include <asm/highmem.h>		/* For VMALLOC_END */
 #include <linux/kdebug.h>
 
+/*
+ * This routine handles page faults.  It determines the address,
+ * and the problem, and then passes it off to one of the appropriate
+ * routines.
+ */
 asmlinkage void __kprobes do_page_fault(struct pt_regs *regs, unsigned long write,
 			      unsigned long address)
 {
@@ -46,6 +51,11 @@ asmlinkage void __kprobes do_page_fault(struct pt_regs *regs, unsigned long writ
 #endif
 
 #ifdef CONFIG_KPROBES
+	/*
+	 * This is to notify the fault handler of the kprobes.  The
+	 * exception code is redundant as it is also carried in REGS,
+	 * but we pass it anyhow.
+	 */
 	if (notify_die(DIE_PAGE_FAULT, "page fault", regs, -1,
 		       (regs->cp0_cause >> 2) & 0x1f, SIGSEGV) == NOTIFY_STOP)
 		return;
@@ -53,6 +63,15 @@ asmlinkage void __kprobes do_page_fault(struct pt_regs *regs, unsigned long writ
 
 	info.si_code = SEGV_MAPERR;
 
+	/*
+	 * We fault-in kernel-space virtual memory on-demand. The
+	 * 'reference' page table is init_mm.pgd.
+	 *
+	 * NOTE! We MUST NOT take any locks for this case. We may
+	 * be in an interrupt or a critical region, and should
+	 * only copy the information from the master page table,
+	 * nothing more.
+	 */
 #ifdef CONFIG_64BIT
 # define VMALLOC_FAULT_TARGET no_context
 #else
@@ -66,6 +85,10 @@ asmlinkage void __kprobes do_page_fault(struct pt_regs *regs, unsigned long writ
 		goto VMALLOC_FAULT_TARGET;
 #endif
 
+	/*
+	 * If we're in an interrupt or have no user
+	 * context, we must not take the fault..
+	 */
 	if (in_atomic() || !mm)
 		goto bad_area_nosemaphore;
 
@@ -80,6 +103,10 @@ retry:
 		goto bad_area;
 	if (expand_stack(vma, address))
 		goto bad_area;
+/*
+ * Ok, we have a good vm_area for this memory access, so
+ * we can handle it..
+ */
 good_area:
 	info.si_code = SEGV_ACCERR;
 
@@ -114,6 +141,11 @@ good_area:
 		}
 	}
 
+	/*
+	 * If for any reason at all we couldn't handle the fault,
+	 * make sure we exit gracefully rather than endlessly redo
+	 * the fault.
+	 */
 	fault = handle_mm_fault(mm, vma, address, flags);
 
 	if ((fault & VM_FAULT_RETRY) && fatal_signal_pending(current))
@@ -140,6 +172,11 @@ good_area:
 		if (fault & VM_FAULT_RETRY) {
 			flags &= ~FAULT_FLAG_ALLOW_RETRY;
 
+			/*
+			 * No need to up_read(&mm->mmap_sem) as we would
+			 * have already released it in __lock_page_or_retry
+			 * in mm/filemap.c.
+			 */
 
 			goto retry;
 		}
@@ -148,11 +185,15 @@ good_area:
 	up_read(&mm->mmap_sem);
 	return;
 
+/*
+ * Something tried to access memory that isn't in our memory map..
+ * Fix it, but check if it's kernel or user first..
+ */
 bad_area:
 	up_read(&mm->mmap_sem);
 
 bad_area_nosemaphore:
-	
+	/* User mode accesses just cause a SIGSEGV */
 	if (user_mode(regs)) {
 		tsk->thread.cp0_badvaddr = address;
 		tsk->thread.error_code = write;
@@ -167,19 +208,23 @@ bad_area_nosemaphore:
 #endif
 		info.si_signo = SIGSEGV;
 		info.si_errno = 0;
-		
+		/* info.si_code has been set above */
 		info.si_addr = (void __user *) address;
 		force_sig_info(SIGSEGV, &info, tsk);
 		return;
 	}
 
 no_context:
-	
+	/* Are we prepared to handle this kernel fault?  */
 	if (fixup_exception(regs)) {
 		current->thread.cp0_baduaddr = address;
 		return;
 	}
 
+	/*
+	 * Oops. The kernel tried to access some bad page. We'll have to
+	 * terminate things with extreme prejudice.
+	 */
 	bust_spinlocks(1);
 
 	printk(KERN_ALERT "CPU %d Unable to handle kernel paging request at "
@@ -189,6 +234,10 @@ no_context:
 	die("Oops", regs);
 
 out_of_memory:
+	/*
+	 * We ran out of memory, call the OOM killer, and return the userspace
+	 * (which will retry the fault, or kill us if we got oom-killed).
+	 */
 	up_read(&mm->mmap_sem);
 	pagefault_out_of_memory();
 	return;
@@ -196,10 +245,14 @@ out_of_memory:
 do_sigbus:
 	up_read(&mm->mmap_sem);
 
-	
+	/* Kernel mode? Handle exceptions or die */
 	if (!user_mode(regs))
 		goto no_context;
 	else
+	/*
+	 * Send a sigbus, regardless of whether we were in kernel
+	 * or user mode.
+	 */
 #if 0
 		printk("do_page_fault() #3: sending SIGBUS to %s for "
 		       "invalid %s\n%0*lx (epc == %0*lx, ra == %0*lx)\n",
@@ -220,6 +273,13 @@ do_sigbus:
 #ifndef CONFIG_64BIT
 vmalloc_fault:
 	{
+		/*
+		 * Synchronize this task's top level page-table
+		 * with the 'reference' page table.
+		 *
+		 * Do _not_ use "tsk" here. We might be inside
+		 * an interrupt in the middle of a task switch..
+		 */
 		int offset = __pgd_offset(address);
 		pgd_t *pgd, *pgd_k;
 		pud_t *pud, *pud_k;

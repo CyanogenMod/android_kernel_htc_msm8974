@@ -281,10 +281,14 @@ int netxen_alloc_sw_resources(struct netxen_adapter *adapter)
 		}
 		rds_ring->rx_buf_arr = vzalloc(RCV_BUFF_RINGSIZE(rds_ring));
 		if (rds_ring->rx_buf_arr == NULL)
-			
+			/* free whatever was already allocated */
 			goto err_out;
 
 		INIT_LIST_HEAD(&rds_ring->free_list);
+		/*
+		 * Now go through all of them, set reference handles
+		 * and put them in the queues.
+		 */
 		rx_buf = rds_ring->rx_buf_arr;
 		for (i = 0; i < rds_ring->num_desc; i++) {
 			list_add_tail(&rx_buf->list,
@@ -313,6 +317,10 @@ err_out:
 	return -ENOMEM;
 }
 
+/*
+ * netxen_decode_crb_addr(0 - utility to translate from internal Phantom CRB
+ * address to external PCI CRB address.
+ */
 static u32 netxen_decode_crb_addr(u32 addr)
 {
 	int i;
@@ -369,7 +377,7 @@ static int do_rom_fast_read(struct netxen_adapter *adapter,
 		printk("Error waiting for rom done\n");
 		return -EIO;
 	}
-	
+	/* reset abyte_cnt and dummy_byte_cnt */
 	NXWR32(adapter, NETXEN_ROMUSB_ROM_ABYTE_CNT, 0);
 	udelay(10);
 	NXWR32(adapter, NETXEN_ROMUSB_ROM_DUMMY_BYTE_CNT, 0);
@@ -436,7 +444,7 @@ int netxen_pinit_from_rom(struct netxen_adapter *adapter)
 	unsigned offset;
 	u32 off;
 
-	
+	/* resetall */
 	netxen_rom_lock(adapter);
 	NXWR32(adapter, NETXEN_ROMUSB_GLB_SW_RESET, 0xfeffffff);
 	netxen_rom_unlock(adapter);
@@ -497,30 +505,30 @@ int netxen_pinit_from_rom(struct netxen_adapter *adapter)
 		if (off & 1)
 			continue;
 
-		
+		/* skipping cold reboot MAGIC */
 		if (off == NETXEN_CAM_RAM(0x1fc))
 			continue;
 
 		if (NX_IS_REVISION_P3(adapter->ahw.revision_id)) {
 			if (off == (NETXEN_CRB_I2C0 + 0x1c))
 				continue;
-			
+			/* do not reset PCI */
 			if (off == (ROMUSB_GLB + 0xbc))
 				continue;
 			if (off == (ROMUSB_GLB + 0xa8))
 				continue;
-			if (off == (ROMUSB_GLB + 0xc8)) 
+			if (off == (ROMUSB_GLB + 0xc8)) /* core clock */
 				continue;
-			if (off == (ROMUSB_GLB + 0x24)) 
+			if (off == (ROMUSB_GLB + 0x24)) /* MN clock */
 				continue;
-			if (off == (ROMUSB_GLB + 0x1c)) 
+			if (off == (ROMUSB_GLB + 0x1c)) /* MS clock */
 				continue;
 			if ((off & 0x0ff00000) == NETXEN_CRB_DDR_NET)
 				continue;
 			if (off == (NETXEN_CRB_PEG_NET_1 + 0x18) &&
 				!NX_IS_REVISION_P3P(adapter->ahw.revision_id))
 				buf[i].data = 0x1020;
-			
+			/* skip the function enable register */
 			if (off == NETXEN_PCIE_REG(PCIE_SETUP_FUNCTION))
 				continue;
 			if (off == NETXEN_PCIE_REG(PCIE_SETUP_FUNCTION2))
@@ -530,12 +538,12 @@ int netxen_pinit_from_rom(struct netxen_adapter *adapter)
 		}
 
 		init_delay = 1;
-		
-		
+		/* After writing this register, HW needs time for CRB */
+		/* to quiet down (else crb_window returns 0xffffffff) */
 		if (off == NETXEN_ROMUSB_GLB_SW_RESET) {
 			init_delay = 1000;
 			if (NX_IS_REVISION_P2(adapter->ahw.revision_id)) {
-				
+				/* hold xdma in reset also */
 				buf[i].data = NETXEN_NIC_XDMA_RESET;
 				buf[i].data = 0x8000ff;
 			}
@@ -547,33 +555,33 @@ int netxen_pinit_from_rom(struct netxen_adapter *adapter)
 	}
 	kfree(buf);
 
-	
+	/* disable_peg_cache_all */
 
-	
+	/* unreset_net_cache */
 	if (NX_IS_REVISION_P2(adapter->ahw.revision_id)) {
 		val = NXRD32(adapter, NETXEN_ROMUSB_GLB_SW_RESET);
 		NXWR32(adapter, NETXEN_ROMUSB_GLB_SW_RESET, (val & 0xffffff0f));
 	}
 
-	
+	/* p2dn replyCount */
 	NXWR32(adapter, NETXEN_CRB_PEG_NET_D + 0xec, 0x1e);
-	
+	/* disable_peg_cache 0 */
 	NXWR32(adapter, NETXEN_CRB_PEG_NET_D + 0x4c, 8);
-	
+	/* disable_peg_cache 1 */
 	NXWR32(adapter, NETXEN_CRB_PEG_NET_I + 0x4c, 8);
 
-	
+	/* peg_clr_all */
 
-	
+	/* peg_clr 0 */
 	NXWR32(adapter, NETXEN_CRB_PEG_NET_0 + 0x8, 0);
 	NXWR32(adapter, NETXEN_CRB_PEG_NET_0 + 0xc, 0);
-	
+	/* peg_clr 1 */
 	NXWR32(adapter, NETXEN_CRB_PEG_NET_1 + 0x8, 0);
 	NXWR32(adapter, NETXEN_CRB_PEG_NET_1 + 0xc, 0);
-	
+	/* peg_clr 2 */
 	NXWR32(adapter, NETXEN_CRB_PEG_NET_2 + 0x8, 0);
 	NXWR32(adapter, NETXEN_CRB_PEG_NET_2 + 0xc, 0);
-	
+	/* peg_clr 3 */
 	NXWR32(adapter, NETXEN_CRB_PEG_NET_3 + 0x8, 0);
 	NXWR32(adapter, NETXEN_CRB_PEG_NET_3 + 0xc, 0);
 	return 0;
@@ -891,14 +899,14 @@ netxen_need_fw_reset(struct netxen_adapter *adapter)
 	int i, timeout;
 	u8 fw_type;
 
-	
+	/* NX2031 firmware doesn't support heartbit */
 	if (NX_IS_REVISION_P2(adapter->ahw.revision_id))
 		return 1;
 
 	if (adapter->need_fw_reset)
 		return 1;
 
-	
+	/* last attempt had failed */
 	if (NXRD32(adapter, CRB_CMDPEG_STATE) == PHAN_INITIALIZE_FAILED)
 		return 1;
 
@@ -918,11 +926,11 @@ netxen_need_fw_reset(struct netxen_adapter *adapter)
 			break;
 	}
 
-	
+	/* firmware is dead */
 	if (count == old_count)
 		return 1;
 
-	
+	/* check if we have got newer or different file firmware */
 	if (adapter->fw) {
 
 		val = nx_get_fw_version(adapter);
@@ -1058,7 +1066,7 @@ netxen_load_firmware(struct netxen_adapter *adapter)
 					flashaddr + 4, (int *)&hi) != 0)
 				return -EIO;
 
-			
+			/* hi, lo are already in host endian byteorder */
 			data = (((u64)hi << 32) | lo);
 
 			if (adapter->pci_mem_write(adapter,
@@ -1139,7 +1147,7 @@ netxen_validate_firmware(struct netxen_adapter *adapter)
 	}
 	flash_fw_ver = NETXEN_DECODE_VERSION(flash_fw_ver);
 
-	
+	/* New fw from file is not allowed, if fw on flash is < 4.0.554 */
 	crbinit_fix_fw = NETXEN_VERSION_CODE(4, 0, 554);
 	if (file_fw_ver >= crbinit_fix_fw && flash_fw_ver < crbinit_fix_fw &&
 	    NX_IS_REVISION_P3(adapter->ahw.revision_id)) {
@@ -1150,7 +1158,7 @@ netxen_validate_firmware(struct netxen_adapter *adapter)
 		return -EINVAL;
 	}
 
-	
+	/* check if flashed firmware is newer only for no-mn and P2 case*/
 	if (!netxen_p3_has_mn(adapter) ||
 	    NX_IS_REVISION_P2(adapter->ahw.revision_id)) {
 		if (flash_fw_ver > file_fw_ver) {
@@ -1205,7 +1213,7 @@ netxen_p3_has_mn(struct netxen_adapter *adapter)
 	u32 capability, flashed_ver;
 	capability = 0;
 
-	
+	/* NX2031 always had MN */
 	if (NX_IS_REVISION_P2(adapter->ahw.revision_id))
 		return 1;
 
@@ -1285,6 +1293,14 @@ int netxen_init_dummy_dma(struct netxen_adapter *adapter)
 	return 0;
 }
 
+/*
+ * NetXen DMA watchdog control:
+ *
+ *	Bit 0		: enabled => R/O: 1 watchdog active, 0 inactive
+ *	Bit 1		: disable_request => 1 req disable dma watchdog
+ *	Bit 2		: enable_request =>  1 req enable dma watchdog
+ *	Bit 3-31	: unused
+ */
 void netxen_free_dummy_dma(struct netxen_adapter *adapter)
 {
 	int i = 100;
@@ -1425,7 +1441,7 @@ netxen_handle_linkevent(struct netxen_adapter *adapter, nx_fw_msg_t *msg)
 
 	netxen_advert_link_change(adapter, link_status);
 
-	
+	/* update link parameters */
 	if (duplex == LINKEVENT_FULL_DUPLEX)
 		adapter->link_duplex = DUPLEX_FULL;
 	else
@@ -1745,6 +1761,7 @@ skip:
 	return count;
 }
 
+/* Process Command status ring */
 int netxen_process_cmd_ring(struct netxen_adapter *adapter)
 {
 	u32 sw_consumer, hw_consumer;
@@ -1770,7 +1787,7 @@ int netxen_process_cmd_ring(struct netxen_adapter *adapter)
 					 PCI_DMA_TODEVICE);
 			frag->dma = 0ULL;
 			for (i = 1; i < buffer->frag_count; i++) {
-				frag++;	
+				frag++;	/* Get the next frag */
 				pci_unmap_page(pdev, frag->dma, frag->length,
 					       PCI_DMA_TODEVICE);
 				frag->dma = 0ULL;
@@ -1796,6 +1813,19 @@ int netxen_process_cmd_ring(struct netxen_adapter *adapter)
 				netif_wake_queue(netdev);
 		adapter->tx_timeo_cnt = 0;
 	}
+	/*
+	 * If everything is freed up to consumer then check if the ring is full
+	 * If the ring is full then check if more needs to be freed and
+	 * schedule the call back again.
+	 *
+	 * This happens when there are 2 CPUs. One could be freeing and the
+	 * other filling it. If the ring is full when we get out of here and
+	 * the card has already interrupted the host then the host can miss the
+	 * interrupt.
+	 *
+	 * There is still a possible race condition and the host could miss an
+	 * interrupt. The card has to take care of this.
+	 */
 	hw_consumer = le32_to_cpu(*(tx_ring->hw_consumer));
 	done = (sw_consumer == hw_consumer);
 	spin_unlock(&adapter->tx_clean_lock);
@@ -1828,7 +1858,7 @@ netxen_post_rx_buffers(struct netxen_adapter *adapter, u32 ringid,
 		count++;
 		list_del(&buffer->list);
 
-		
+		/* make a rcv descriptor  */
 		pdesc = &rds_ring->desc_head[producer];
 		pdesc->addr_buffer = cpu_to_le64(buffer->dma);
 		pdesc->reference_handle = cpu_to_le16(buffer->ref_handle);
@@ -1843,6 +1873,11 @@ netxen_post_rx_buffers(struct netxen_adapter *adapter, u32 ringid,
 				(producer-1) & (rds_ring->num_desc-1));
 
 		if (NX_IS_REVISION_P2(adapter->ahw.revision_id)) {
+			/*
+			 * Write a doorbell msg to tell phanmon of change in
+			 * receive ring producer
+			 * Only for firmware version < 4.0.0
+			 */
 			netxen_set_msg_peg_id(msg, NETXEN_RCV_PEG_DB_ID);
 			netxen_set_msg_privid(msg);
 			netxen_set_msg_count(msg,
@@ -1883,7 +1918,7 @@ netxen_post_rx_buffers_nodb(struct netxen_adapter *adapter,
 		count++;
 		list_del(&buffer->list);
 
-		
+		/* make a rcv descriptor  */
 		pdesc = &rds_ring->desc_head[producer];
 		pdesc->reference_handle = cpu_to_le16(buffer->ref_handle);
 		pdesc->buffer_length = cpu_to_le32(rds_ring->dma_size);

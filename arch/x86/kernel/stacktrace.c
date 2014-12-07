@@ -55,6 +55,9 @@ static const struct stacktrace_ops save_stack_ops_nosched = {
 	.walk_stack	= print_context_stack,
 };
 
+/*
+ * Save stack-backtrace addresses into a stack_trace buffer.
+ */
 void save_stack_trace(struct stack_trace *trace)
 {
 	dump_trace(current, NULL, NULL, 0, &save_stack_ops, trace);
@@ -78,6 +81,7 @@ void save_stack_trace_tsk(struct task_struct *tsk, struct stack_trace *trace)
 }
 EXPORT_SYMBOL_GPL(save_stack_trace_tsk);
 
+/* Userspace stacktrace - based on kernel/trace/trace_sysprof.c */
 
 struct stack_frame_user {
 	const void __user	*next_fp;
@@ -130,6 +134,9 @@ static inline void __save_stack_trace_user(struct stack_trace *trace)
 
 void save_stack_trace_user(struct stack_trace *trace)
 {
+	/*
+	 * Trace user stack if we are not a kernel thread
+	 */
 	if (current->mm) {
 		__save_stack_trace_user(trace);
 	}

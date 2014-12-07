@@ -40,7 +40,7 @@ struct cns3xxx_pcie {
 	bool linked;
 };
 
-static struct cns3xxx_pcie cns3xxx_pcie[]; 
+static struct cns3xxx_pcie cns3xxx_pcie[]; /* forward decl. */
 
 static struct cns3xxx_pcie *sysdata_to_cnspci(void *sysdata)
 {
@@ -69,10 +69,15 @@ static void __iomem *cns3xxx_pci_cfg_base(struct pci_bus *bus,
 	enum cns3xxx_access_type type;
 	void __iomem *base;
 
-	
+	/* If there is no link, just show the CNS PCI bridge. */
 	if (!cnspci->linked && (busno > 0 || slot > 0))
 		return NULL;
 
+	/*
+	 * The CNS PCI bridge doesn't fit into the PCI hierarchy, though
+	 * we still want to access it. For this to work, we must place
+	 * the first device on the same bus as the CNS PCI bridge.
+	 */
 	if (busno == 0) {
 		if (slot > 1)
 			return NULL;
@@ -105,6 +110,11 @@ static int cns3xxx_pci_read_config(struct pci_bus *bus, unsigned int devfn,
 
 	if (bus->number == 0 && devfn == 0 &&
 			(where & 0xffc) == PCI_CLASS_REVISION) {
+		/*
+		 * RC's class is 0xb, but Linux PCI driver needs 0x604
+		 * for a PCIe bridge. So we must fixup the class code
+		 * to 0x604 here.
+		 */
 		v &= 0xff;
 		v |= 0x604 << 16;
 	}
@@ -270,6 +280,10 @@ static void __init cns3xxx_pcie_check_link(struct cns3xxx_pcie *cnspci)
 	unsigned long time;
 
 	reg = __raw_readl(MISC_PCIE_CTRL(port));
+	/*
+	 * Enable Application Request to 1, it will exit L1 automatically,
+	 * but when chip back, it will use another clock, still can use 0x1.
+	 */
 	reg |= 0x3;
 	__raw_writel(reg, MISC_PCIE_CTRL(port));
 
@@ -329,17 +343,17 @@ static void __init cns3xxx_pcie_hw_init(struct cns3xxx_pcie *cnspci)
 	if (!cnspci->linked)
 		return;
 
-	
+	/* Set Device Max_Read_Request_Size to 128 byte */
 	devfn = PCI_DEVFN(1, 0);
 	pos = pci_bus_find_capability(&bus, devfn, PCI_CAP_ID_EXP);
 	pci_bus_read_config_word(&bus, devfn, pos + PCI_EXP_DEVCTL, &dc);
-	dc &= ~(0x3 << 12);	
+	dc &= ~(0x3 << 12);	/* Clear Device Control Register [14:12] */
 	pci_bus_write_config_word(&bus, devfn, pos + PCI_EXP_DEVCTL, dc);
 	pci_bus_read_config_word(&bus, devfn, pos + PCI_EXP_DEVCTL, &dc);
 	if (!(dc & (0x3 << 12)))
 		pr_info("PCIe: Set Device Max_Read_Request_Size to 128 byte\n");
 
-	
+	/* Disable PCIe0 Interrupt Mask INTA to INTD */
 	__raw_writel(~0x3FFF, MISC_PCIE_INT_MASK(port));
 }
 

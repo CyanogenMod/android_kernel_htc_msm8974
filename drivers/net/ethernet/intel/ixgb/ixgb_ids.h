@@ -29,6 +29,9 @@
 #ifndef _IXGB_IDS_H_
 #define _IXGB_IDS_H_
 
+/**********************************************************************
+** The Device and Vendor IDs for 10 Gigabit MACs
+**********************************************************************/
 
 #define INTEL_VENDOR_ID             0x8086
 #define INTEL_SUBVENDOR_ID          0x8086
@@ -46,4 +49,5 @@
 #define IXGB_SUBDEVICE_ID_A01C  0xA01C
 #define IXGB_SUBDEVICE_ID_7036  0x7036
 
-#endif 
+#endif /* #ifndef _IXGB_IDS_H_ */
+/* End of File */

@@ -33,9 +33,12 @@
 #include <asm/pgtable.h>
 #include <mach/time.h>
 
+/*
+ * IQ80332 timer tick configuration.
+ */
 static void __init iq80332_timer_init(void)
 {
-	
+	/* D-Step parts and the iop333 run at a higher internal bus frequency */
 	if (*IOP3XX_ATURID >= 0xa || *IOP3XX_ATUDID == 0x374)
 		iop_init_time(333000000);
 	else
@@ -47,25 +50,28 @@ static struct sys_timer iq80332_timer = {
 };
 
 
+/*
+ * IQ80332 PCI.
+ */
 static int __init
 iq80332_pci_map_irq(const struct pci_dev *dev, u8 slot, u8 pin)
 {
 	int irq;
 
 	if (slot == 4 && pin == 1) {
-		
+		/* PCI-X Slot INTA */
 		irq = IRQ_IOP33X_XINT0;
 	} else if (slot == 4 && pin == 2) {
-		
+		/* PCI-X Slot INTB */
 		irq = IRQ_IOP33X_XINT1;
 	} else if (slot == 4 && pin == 3) {
-		
+		/* PCI-X Slot INTC */
 		irq = IRQ_IOP33X_XINT2;
 	} else if (slot == 4 && pin == 4) {
-		
+		/* PCI-X Slot INTD */
 		irq = IRQ_IOP33X_XINT3;
 	} else if (slot == 6) {
-		
+		/* GigE */
 		irq = IRQ_IOP33X_XINT2;
 	} else {
 		printk(KERN_ERR "iq80332_pci_map_irq() called for unknown "
@@ -98,6 +104,9 @@ static int __init iq80332_pci_init(void)
 subsys_initcall(iq80332_pci_init);
 
 
+/*
+ * IQ80332 machine initialisation.
+ */
 static struct physmap_flash_data iq80332_flash_data = {
 	.width		= 1,
 };
@@ -131,7 +140,7 @@ static void __init iq80332_init_machine(void)
 }
 
 MACHINE_START(IQ80332, "Intel IQ80332")
-	
+	/* Maintainer: Intel Corp. */
 	.atag_offset	= 0x100,
 	.map_io		= iop3xx_map_io,
 	.init_irq	= iop33x_init_irq,

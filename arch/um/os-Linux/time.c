@@ -39,6 +39,16 @@ int timer_one_shot(int ticks)
 	return 0;
 }
 
+/**
+ * timeval_to_ns - Convert timeval to nanoseconds
+ * @ts:		pointer to the timeval variable to be converted
+ *
+ * Returns the scalar nanosecond representation of the timeval
+ * parameter.
+ *
+ * Ripped from linux/time.h because it's a kernel header, and thus
+ * unusable from here.
+ */
 static inline long long timeval_to_ns(const struct timeval *tv)
 {
 	return ((long long) tv->tv_sec * UM_NSEC_PER_SEC) +
@@ -94,7 +104,7 @@ static void deliver_alarm(void)
 	unsigned long long this_tick = os_nsecs();
 	int one_tick = UM_NSEC_PER_SEC / UM_HZ;
 
-	
+	/* Protection against the host's time going backwards */
 	if ((last_tick != 0) && (this_tick < last_tick))
 		this_tick = last_tick;
 
@@ -129,6 +139,13 @@ static int after_sleep_interval(struct timespec *ts)
 	struct timeval tv;
 	struct itimerval interval;
 
+	/*
+	 * It seems that rounding can increase the value returned from
+	 * setitimer to larger than the one passed in.  Over time,
+	 * this will cause the remaining time to be greater than the
+	 * tick interval.  If this happens, then just reduce the first
+	 * tick to the interval value.
+	 */
 	if (start_usecs > usec)
 		start_usecs = usec;
 
@@ -151,6 +168,11 @@ void idle_sleep(unsigned long long nsecs)
 {
 	struct timespec ts;
 
+	/*
+	 * nsecs can come in as zero, in which case, this starts a
+	 * busy loop.  To prevent this, reset nsecs to the tick
+	 * interval if it is zero.
+	 */
 	if (nsecs == 0)
 		nsecs = UM_NSEC_PER_SEC / UM_HZ;
 

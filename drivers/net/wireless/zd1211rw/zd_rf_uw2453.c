@@ -25,9 +25,29 @@
 #include "zd_usb.h"
 #include "zd_chip.h"
 
+/* This RF programming code is based upon the code found in v2.16.0.0 of the
+ * ZyDAS vendor driver. Unlike other RF's, Ubec publish full technical specs
+ * for this RF on their website, so we're able to understand more than
+ * usual as to what is going on. Thumbs up for Ubec for doing that. */
 
+/* The 3-wire serial interface provides access to 8 write-only registers.
+ * The data format is a 4 bit register address followed by a 20 bit value. */
 #define UW2453_REGWRITE(reg, val) ((((reg) & 0xf) << 20) | ((val) & 0xfffff))
 
+/* For channel tuning, we have to configure registers 1 (synthesizer), 2 (synth
+ * fractional divide ratio) and 3 (VCO config).
+ *
+ * We configure the RF to produce an interrupt when the PLL is locked onto
+ * the configured frequency. During initialization, we run through a variety
+ * of different VCO configurations on channel 1 until we detect a PLL lock.
+ * When this happens, we remember which VCO configuration produced the lock
+ * and use it later. Actually, we use the configuration *after* the one that
+ * produced the lock, which seems odd, but it works.
+ *
+ * If we do not see a PLL lock on any standard VCO config, we fall back on an
+ * autocal configuration, which has a fixed (as opposed to per-channel) VCO
+ * config and different synth values from the standard set (divide ratio
+ * is still shared with the standard set). */
 
 /* The per-channel synth values for all standard VCO configurations. These get
  * written to register 1. */
@@ -68,10 +88,15 @@ static const u16 uw2453_synth_divide[] = {
 	RF_CHANNEL(14) = 0xccc,
 };
 
+/* Here is the data for all the standard VCO configurations. We shrink our
+ * table a little by observing that both channels in a consecutive pair share
+ * the same value. We also observe that the high 4 bits ([0:3] in the specs)
+ * are all 'Reserved' and are always set to 0x4 - we chop them off in the data
+ * below. */
 #define CHAN_TO_PAIRIDX(a) ((a - 1) / 2)
 #define RF_CHANPAIR(a,b) [CHAN_TO_PAIRIDX(a)]
 static const u16 uw2453_std_vco_cfg[][7] = {
-	{ 
+	{ /* table 1 */
 		RF_CHANPAIR( 1,  2) = 0x664d,
 		RF_CHANPAIR( 3,  4) = 0x604d,
 		RF_CHANPAIR( 5,  6) = 0x6675,
@@ -80,7 +105,7 @@ static const u16 uw2453_std_vco_cfg[][7] = {
 		RF_CHANPAIR(11, 12) = 0x6455,
 		RF_CHANPAIR(13, 14) = 0x6665,
 	},
-	{ 
+	{ /* table 2 */
 		RF_CHANPAIR( 1,  2) = 0x666d,
 		RF_CHANPAIR( 3,  4) = 0x606d,
 		RF_CHANPAIR( 5,  6) = 0x664d,
@@ -89,7 +114,7 @@ static const u16 uw2453_std_vco_cfg[][7] = {
 		RF_CHANPAIR(11, 12) = 0x6475,
 		RF_CHANPAIR(13, 14) = 0x6655,
 	},
-	{ 
+	{ /* table 3 */
 		RF_CHANPAIR( 1,  2) = 0x665d,
 		RF_CHANPAIR( 3,  4) = 0x605d,
 		RF_CHANPAIR( 5,  6) = 0x666d,
@@ -98,7 +123,7 @@ static const u16 uw2453_std_vco_cfg[][7] = {
 		RF_CHANPAIR(11, 12) = 0x644d,
 		RF_CHANPAIR(13, 14) = 0x6675,
 	},
-	{ 
+	{ /* table 4 */
 		RF_CHANPAIR( 1,  2) = 0x667d,
 		RF_CHANPAIR( 3,  4) = 0x607d,
 		RF_CHANPAIR( 5,  6) = 0x665d,
@@ -107,7 +132,7 @@ static const u16 uw2453_std_vco_cfg[][7] = {
 		RF_CHANPAIR(11, 12) = 0x646d,
 		RF_CHANPAIR(13, 14) = 0x664d,
 	},
-	{ 
+	{ /* table 5 */
 		RF_CHANPAIR( 1,  2) = 0x6643,
 		RF_CHANPAIR( 3,  4) = 0x6043,
 		RF_CHANPAIR( 5,  6) = 0x667d,
@@ -116,7 +141,7 @@ static const u16 uw2453_std_vco_cfg[][7] = {
 		RF_CHANPAIR(11, 12) = 0x645d,
 		RF_CHANPAIR(13, 14) = 0x666d,
 	},
-	{ 
+	{ /* table 6 */
 		RF_CHANPAIR( 1,  2) = 0x6663,
 		RF_CHANPAIR( 3,  4) = 0x6063,
 		RF_CHANPAIR( 5,  6) = 0x6643,
@@ -125,7 +150,7 @@ static const u16 uw2453_std_vco_cfg[][7] = {
 		RF_CHANPAIR(11, 12) = 0x647d,
 		RF_CHANPAIR(13, 14) = 0x665d,
 	},
-	{ 
+	{ /* table 7 */
 		RF_CHANPAIR( 1,  2) = 0x6653,
 		RF_CHANPAIR( 3,  4) = 0x6053,
 		RF_CHANPAIR( 5,  6) = 0x6663,
@@ -134,7 +159,7 @@ static const u16 uw2453_std_vco_cfg[][7] = {
 		RF_CHANPAIR(11, 12) = 0x6443,
 		RF_CHANPAIR(13, 14) = 0x667d,
 	},
-	{ 
+	{ /* table 8 */
 		RF_CHANPAIR( 1,  2) = 0x6673,
 		RF_CHANPAIR( 3,  4) = 0x6073,
 		RF_CHANPAIR( 5,  6) = 0x6653,
@@ -143,7 +168,7 @@ static const u16 uw2453_std_vco_cfg[][7] = {
 		RF_CHANPAIR(11, 12) = 0x6463,
 		RF_CHANPAIR(13, 14) = 0x6643,
 	},
-	{ 
+	{ /* table 9 */
 		RF_CHANPAIR( 1,  2) = 0x664b,
 		RF_CHANPAIR( 3,  4) = 0x604b,
 		RF_CHANPAIR( 5,  6) = 0x6673,
@@ -152,7 +177,7 @@ static const u16 uw2453_std_vco_cfg[][7] = {
 		RF_CHANPAIR(11, 12) = 0x6453,
 		RF_CHANPAIR(13, 14) = 0x6663,
 	},
-	{ 
+	{ /* table 10 */
 		RF_CHANPAIR( 1,  2) = 0x666b,
 		RF_CHANPAIR( 3,  4) = 0x606b,
 		RF_CHANPAIR( 5,  6) = 0x664b,
@@ -161,7 +186,7 @@ static const u16 uw2453_std_vco_cfg[][7] = {
 		RF_CHANPAIR(11, 12) = 0x6473,
 		RF_CHANPAIR(13, 14) = 0x6653,
 	},
-	{ 
+	{ /* table 11 */
 		RF_CHANPAIR( 1,  2) = 0x665b,
 		RF_CHANPAIR( 3,  4) = 0x605b,
 		RF_CHANPAIR( 5,  6) = 0x666b,
@@ -191,6 +216,7 @@ static const u16 uw2453_autocal_synth[] = {
 	RF_CHANNEL(14) = 0x684f,
 };
 
+/* The VCO configuration for autocal (all channels) */
 static const u16 UW2453_AUTOCAL_VCO_CFG = 0x6662;
 
 /* TX gain settings. The array index corresponds to the TX power integration
@@ -217,7 +243,10 @@ static u32 uw2453_txgain[] = {
 	[0x12] = 0x3ffff,
 };
 
+/* RF-specific structure */
 struct uw2453_priv {
+	/* index into synth/VCO config tables where PLL lock was found
+	 * -1 means autocal */
 	int config;
 };
 
@@ -245,6 +274,8 @@ static int uw2453_synth_set_channel(struct zd_chip *chip, int channel,
 
 static int uw2453_write_vco_cfg(struct zd_chip *chip, u16 value)
 {
+	/* vendor driver always sets these upper bits even though the specs say
+	 * they are reserved */
 	u32 val = 0x40000 | value;
 	return zd_rfwrite_locked(chip, UW2453_REGWRITE(3, val), RF_RV_BITS);
 }
@@ -252,10 +283,10 @@ static int uw2453_write_vco_cfg(struct zd_chip *chip, u16 value)
 static int uw2453_init_mode(struct zd_chip *chip)
 {
 	static const u32 rv[] = {
-		UW2453_REGWRITE(0, 0x25f98), 
-		UW2453_REGWRITE(0, 0x25f9a), 
-		UW2453_REGWRITE(0, 0x25f94), 
-		UW2453_REGWRITE(0, 0x27fd4), 
+		UW2453_REGWRITE(0, 0x25f98), /* enter IDLE mode */
+		UW2453_REGWRITE(0, 0x25f9a), /* enter CAL_VCO mode */
+		UW2453_REGWRITE(0, 0x25f94), /* enter RX/TX mode */
+		UW2453_REGWRITE(0, 0x27fd4), /* power down RSSI circuit */
 	};
 
 	return zd_rfwritev_locked(chip, rv, ARRAY_SIZE(rv), RF_RV_BITS);
@@ -284,59 +315,63 @@ static int uw2453_init_hw(struct zd_rf *rf)
 
 	static const struct zd_ioreq16 ioreqs[] = {
 		{ ZD_CR10,  0x89 }, { ZD_CR15,  0x20 },
-		{ ZD_CR17,  0x28 }, 
+		{ ZD_CR17,  0x28 }, /* 6112 no change */
 		{ ZD_CR23,  0x38 }, { ZD_CR24,  0x20 }, { ZD_CR26,  0x93 },
 		{ ZD_CR27,  0x15 }, { ZD_CR28,  0x3e }, { ZD_CR29,  0x00 },
 		{ ZD_CR33,  0x28 }, { ZD_CR34,  0x30 },
-		{ ZD_CR35,  0x43 }, 
+		{ ZD_CR35,  0x43 }, /* 6112 3e->43 */
 		{ ZD_CR41,  0x24 }, { ZD_CR44,  0x32 },
-		{ ZD_CR46,  0x92 }, 
+		{ ZD_CR46,  0x92 }, /* 6112 96->92 */
 		{ ZD_CR47,  0x1e },
-		{ ZD_CR48,  0x04 }, 
+		{ ZD_CR48,  0x04 }, /* 5602 Roger */
 		{ ZD_CR49,  0xfa }, { ZD_CR79,  0x58 }, { ZD_CR80,  0x30 },
 		{ ZD_CR81,  0x30 }, { ZD_CR87,  0x0a }, { ZD_CR89,  0x04 },
 		{ ZD_CR91,  0x00 }, { ZD_CR92,  0x0a }, { ZD_CR98,  0x8d },
 		{ ZD_CR99,  0x28 }, { ZD_CR100, 0x02 },
-		{ ZD_CR101, 0x09 }, 
+		{ ZD_CR101, 0x09 }, /* 6112 13->1f 6220 1f->13 6407 13->9 */
 		{ ZD_CR102, 0x27 },
-		{ ZD_CR106, 0x1c }, 
-		{ ZD_CR107, 0x1c }, 
+		{ ZD_CR106, 0x1c }, /* 5d07 5112 1f->1c 6220 1c->1f
+				     * 6221 1f->1c
+				     */
+		{ ZD_CR107, 0x1c }, /* 6220 1c->1a 5221 1a->1c */
 		{ ZD_CR109, 0x13 },
-		{ ZD_CR110, 0x1f }, 
+		{ ZD_CR110, 0x1f }, /* 6112 13->1f 6221 1f->13 6407 13->0x09 */
 		{ ZD_CR111, 0x13 }, { ZD_CR112, 0x1f }, { ZD_CR113, 0x27 },
-		{ ZD_CR114, 0x23 }, 
-		{ ZD_CR115, 0x24 }, 
-		{ ZD_CR116, 0x24 }, 
-		{ ZD_CR117, 0xfa }, 
-		{ ZD_CR118, 0xf0 }, 
-		{ ZD_CR119, 0x1a }, 
+		{ ZD_CR114, 0x23 }, /* 6221 27->23 */
+		{ ZD_CR115, 0x24 }, /* 6112 24->1c 6220 1c->24 */
+		{ ZD_CR116, 0x24 }, /* 6220 1c->24 */
+		{ ZD_CR117, 0xfa }, /* 6112 fa->f8 6220 f8->f4 6220 f4->fa */
+		{ ZD_CR118, 0xf0 }, /* 5d07 6112 f0->f2 6220 f2->f0 */
+		{ ZD_CR119, 0x1a }, /* 6112 1a->10 6220 10->14 6220 14->1a */
 		{ ZD_CR120, 0x4f },
-		{ ZD_CR121, 0x1f }, 
+		{ ZD_CR121, 0x1f }, /* 6220 4f->1f */
 		{ ZD_CR122, 0xf0 }, { ZD_CR123, 0x57 }, { ZD_CR125, 0xad },
 		{ ZD_CR126, 0x6c }, { ZD_CR127, 0x03 },
-		{ ZD_CR128, 0x14 }, 
-		{ ZD_CR129, 0x12 }, 
+		{ ZD_CR128, 0x14 }, /* 6302 12->11 */
+		{ ZD_CR129, 0x12 }, /* 6301 10->0f */
 		{ ZD_CR130, 0x10 }, { ZD_CR137, 0x50 }, { ZD_CR138, 0xa8 },
 		{ ZD_CR144, 0xac }, { ZD_CR146, 0x20 }, { ZD_CR252, 0xff },
 		{ ZD_CR253, 0xff },
 	};
 
 	static const u32 rv[] = {
-		UW2453_REGWRITE(4, 0x2b),    
-		UW2453_REGWRITE(5, 0x19e4f), 
-		UW2453_REGWRITE(6, 0xf81ad), 
-		UW2453_REGWRITE(7, 0x3fffe), 
+		UW2453_REGWRITE(4, 0x2b),    /* configure receiver gain */
+		UW2453_REGWRITE(5, 0x19e4f), /* configure transmitter gain */
+		UW2453_REGWRITE(6, 0xf81ad), /* enable RX/TX filter tuning */
+		UW2453_REGWRITE(7, 0x3fffe), /* disable TX gain in test mode */
 
-		UW2453_REGWRITE(0, 0x25f9c), 
+		/* enter CAL_FIL mode, TX gain set by registers, RX gain set by pins,
+		 * RSSI circuit powered down, reduced RSSI range */
+		UW2453_REGWRITE(0, 0x25f9c), /* 5d01 cal_fil */
 
-		
+		/* synthesizer configuration for channel 1 */
 		UW2453_REGWRITE(1, 0x47),
 		UW2453_REGWRITE(2, 0x999),
 
-		
+		/* disable manual VCO band selection */
 		UW2453_REGWRITE(3, 0x7602),
 
-		
+		/* enable manual VCO band selection, configure current level */
 		UW2453_REGWRITE(3, 0x46063),
 	};
 
@@ -352,24 +387,24 @@ static int uw2453_init_hw(struct zd_rf *rf)
 	if (r)
 		return r;
 
-	
+	/* Try all standard VCO configuration settings on channel 1 */
 	for (i = 0; i < ARRAY_SIZE(uw2453_std_vco_cfg) - 1; i++) {
-		
+		/* Configure synthesizer for channel 1 */
 		r = uw2453_synth_set_channel(chip, 1, false);
 		if (r)
 			return r;
 
-		
+		/* Write VCO config */
 		r = uw2453_write_vco_cfg(chip, uw2453_std_vco_cfg[i][0]);
 		if (r)
 			return r;
 
-		
+		/* ack interrupt event */
 		r = zd_iowrite16_locked(chip, 0x0f, UW2453_INTR_REG);
 		if (r)
 			return r;
 
-		
+		/* check interrupt status */
 		r = zd_ioread16_locked(chip, &intr_status, UW2453_INTR_REG);
 		if (r)
 			return r;
@@ -383,7 +418,7 @@ static int uw2453_init_hw(struct zd_rf *rf)
 	}
 
 	if (found_config == -1) {
-		
+		/* autocal */
 		dev_dbg_f(zd_chip_dev(chip),
 			"PLL did not lock, using autocal\n");
 
@@ -396,6 +431,8 @@ static int uw2453_init_hw(struct zd_rf *rf)
 			return r;
 	}
 
+	/* To match the vendor driver behaviour, we use the configuration after
+	 * the one that produced a lock. */
 	UW2453_PRIV(rf)->config = found_config + 1;
 
 	return zd_iowrite16_locked(chip, 0x06, ZD_CR203);
@@ -450,7 +487,7 @@ static int uw2453_switch_radio_on(struct zd_rf *rf)
 		{ ZD_CR11,  0x00 }, { ZD_CR251, 0x3f },
 	};
 
-	
+	/* enter RXTX mode */
 	r = zd_rfwrite_locked(chip, UW2453_REGWRITE(0, 0x25f94), RF_RV_BITS);
 	if (r)
 		return r;
@@ -469,8 +506,8 @@ static int uw2453_switch_radio_off(struct zd_rf *rf)
 		{ ZD_CR11,  0x04 }, { ZD_CR251, 0x2f },
 	};
 
-	
-	
+	/* enter IDLE mode */
+	/* FIXME: shouldn't we go to SLEEP? sent email to zydas */
 	r = zd_rfwrite_locked(chip, UW2453_REGWRITE(0, 0x25f90), RF_RV_BITS);
 	if (r)
 		return r;
@@ -491,7 +528,7 @@ int zd_rf_init_uw2453(struct zd_rf *rf)
 	rf->switch_radio_off = uw2453_switch_radio_off;
 	rf->patch_6m_band_edge = zd_rf_generic_patch_6m;
 	rf->clear = uw2453_clear;
-	
+	/* we have our own TX integration code */
 	rf->update_channel_int = 0;
 
 	rf->priv = kmalloc(sizeof(struct uw2453_priv), GFP_KERNEL);

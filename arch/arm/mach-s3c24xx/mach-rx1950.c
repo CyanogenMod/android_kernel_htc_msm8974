@@ -87,7 +87,7 @@ static struct s3c2410_uartcfg rx1950_uartcfgs[] __initdata = {
 	       .ufcon = 0x51,
 		.clk_sel = S3C2410_UCON_CLKSEL3,
 	},
-	
+	/* IR port */
 	[2] = {
 	       .hwport = 2,
 	       .flags = 0,
@@ -390,53 +390,53 @@ static void rx1950_lcd_power(int enable)
 		return;
 	if (!enable) {
 
-		
+		/* GPC11-GPC15->OUTPUT */
 		for (i = 11; i < 16; i++)
 			gpio_direction_output(S3C2410_GPC(i), 1);
 
-		
+		/* Wait a bit here... */
 		mdelay(100);
 
-		
-		
-		
+		/* GPD2-GPD7->OUTPUT */
+		/* GPD11-GPD15->OUTPUT */
+		/* GPD2-GPD7->1, GPD11-GPD15->1 */
 		for (i = 2; i < 8; i++)
 			gpio_direction_output(S3C2410_GPD(i), 1);
 		for (i = 11; i < 16; i++)
 			gpio_direction_output(S3C2410_GPD(i), 1);
 
-		
+		/* Wait a bit here...*/
 		mdelay(100);
 
-		
+		/* GPB0->OUTPUT, GPB0->0 */
 		gpio_direction_output(S3C2410_GPB(0), 0);
 
-		
+		/* GPC1-GPC4->OUTPUT, GPC1-4->0 */
 		for (i = 1; i < 5; i++)
 			gpio_direction_output(S3C2410_GPC(i), 0);
 
-		
+		/* GPC15-GPC11->0 */
 		for (i = 11; i < 16; i++)
 			gpio_direction_output(S3C2410_GPC(i), 0);
 
-		
+		/* GPD15-GPD11->0, GPD2->GPD7->0 */
 		for (i = 11; i < 16; i++)
 			gpio_direction_output(S3C2410_GPD(i), 0);
 
 		for (i = 2; i < 8; i++)
 			gpio_direction_output(S3C2410_GPD(i), 0);
 
-		
+		/* GPC6->0, GPC7->0, GPC5->0 */
 		gpio_direction_output(S3C2410_GPC(6), 0);
 		gpio_direction_output(S3C2410_GPC(7), 0);
 		gpio_direction_output(S3C2410_GPC(5), 0);
 
-		
+		/* GPB1->OUTPUT, GPB1->0 */
 		gpio_direction_output(S3C2410_GPB(1), 0);
 		pwm_config(lcd_pwm, 0, LCD_PWM_PERIOD);
 		pwm_disable(lcd_pwm);
 
-		
+		/* GPC0->0, GPC10->0 */
 		gpio_direction_output(S3C2410_GPC(0), 0);
 		gpio_direction_output(S3C2410_GPC(10), 0);
 	} else {
@@ -475,8 +475,12 @@ static void rx1950_bl_power(int enable)
 	if (!enable) {
 			gpio_direction_output(S3C2410_GPB(0), 0);
 	} else {
-			
+			/* LED driver need a "push" to power on */
 			gpio_direction_output(S3C2410_GPB(0), 1);
+			/* Warm up backlight for one period of PWM.
+			 * Without this trick its almost impossible to
+			 * enable backlight with low brightness value
+			 */
 			ndelay(48000);
 			s3c_gpio_cfgpin(S3C2410_GPB(0), S3C2410_GPB0_TOUT0);
 	}
@@ -746,7 +750,7 @@ static void __init rx1950_map_io(void)
 	s3c24xx_init_clocks(16934000);
 	s3c24xx_init_uarts(rx1950_uartcfgs, ARRAY_SIZE(rx1950_uartcfgs));
 
-	
+	/* setup PM */
 
 #ifdef CONFIG_PM_H1940
 	memcpy(phys_to_virt(H1940_SUSPEND_RESUMEAT), h1940_pm_return, 8);
@@ -766,11 +770,13 @@ static void __init rx1950_init_machine(void)
 	s3c_i2c0_set_platdata(NULL);
 	s3c_nand_set_platdata(&rx1950_nand_info);
 
+	/* Turn off suspend on both USB ports, and switch the
+	 * selectable USB port to USB device mode. */
 	s3c2410_modify_misccr(S3C2410_MISCCR_USBHOST |
 						S3C2410_MISCCR_USBSUSPND0 |
 						S3C2410_MISCCR_USBSUSPND1, 0x0);
 
-	
+	/* mmc power is disabled by default */
 	WARN_ON(gpio_request(S3C2410_GPJ(1), "MMC power"));
 	gpio_direction_output(S3C2410_GPJ(1), 0);
 
@@ -801,6 +807,7 @@ static void __init rx1950_init_machine(void)
 		ARRAY_SIZE(rx1950_i2c_devices));
 }
 
+/* H1940 and RX3715 need to reserve this for suspend */
 static void __init rx1950_reserve(void)
 {
 	memblock_reserve(0x30003000, 0x1000);
@@ -808,7 +815,7 @@ static void __init rx1950_reserve(void)
 }
 
 MACHINE_START(RX1950, "HP iPAQ RX1950")
-    
+    /* Maintainers: Vasily Khoruzhick */
 	.atag_offset = 0x100,
 	.map_io = rx1950_map_io,
 	.reserve	= rx1950_reserve,

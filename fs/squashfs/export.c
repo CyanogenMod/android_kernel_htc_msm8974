@@ -21,6 +21,19 @@
  * export.c
  */
 
+/*
+ * This file implements code to make Squashfs filesystems exportable (NFS etc.)
+ *
+ * The export code uses an inode lookup table to map inode numbers passed in
+ * filehandles to an inode location on disk.  This table is stored compressed
+ * into metadata blocks.  A second index table is used to locate these.  This
+ * second index table for speed of access (and because it is small) is read at
+ * mount time and cached in memory.
+ *
+ * The inode lookup table is used only by the export code, inode disk
+ * locations are directly encoded in directories, enabling direct access
+ * without an intermediate lookup for all operations except the export ops.
+ */
 
 #include <linux/fs.h>
 #include <linux/vfs.h>
@@ -33,6 +46,9 @@
 #include "squashfs_fs_i.h"
 #include "squashfs.h"
 
+/*
+ * Look-up inode number (ino) in table, returning the inode location.
+ */
 static long long squashfs_inode_lookup(struct super_block *sb, int ino_num)
 {
 	struct squashfs_sb_info *msblk = sb->s_fs_info;
@@ -101,6 +117,9 @@ static struct dentry *squashfs_get_parent(struct dentry *child)
 }
 
 
+/*
+ * Read uncompressed inode lookup table indexes off disk into memory
+ */
 __le64 *squashfs_read_inode_lookup_table(struct super_block *sb,
 		u64 lookup_table_start, u64 next_table, unsigned int inodes)
 {
@@ -109,17 +128,25 @@ __le64 *squashfs_read_inode_lookup_table(struct super_block *sb,
 
 	TRACE("In read_inode_lookup_table, length %d\n", length);
 
-	
+	/* Sanity check values */
 
-	
+	/* there should always be at least one inode */
 	if (inodes == 0)
 		return ERR_PTR(-EINVAL);
 
+	/* length bytes should not extend into the next table - this check
+	 * also traps instances where lookup_table_start is incorrectly larger
+	 * than the next table start
+	 */
 	if (lookup_table_start + length > next_table)
 		return ERR_PTR(-EINVAL);
 
 	table = squashfs_read_table(sb, lookup_table_start, length);
 
+	/*
+	 * table[0] points to the first inode lookup table metadata block,
+	 * this should be less than lookup_table_start
+	 */
 	if (!IS_ERR(table) && le64_to_cpu(table[0]) >= lookup_table_start) {
 		kfree(table);
 		return ERR_PTR(-EINVAL);

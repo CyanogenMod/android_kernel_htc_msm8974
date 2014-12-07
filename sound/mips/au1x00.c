@@ -66,10 +66,11 @@ MODULE_SUPPORTED_DEVICE("{{AMD,Au1000 AC'97}}");
 struct au1000_period
 {
 	u32 start;
-	u32 relative_end;	
+	u32 relative_end;	/*realtive to start of buffer*/
 	struct au1000_period * next;
 };
 
+/*Au1000 AC97 Port Control Reisters*/
 struct au1000_ac97_reg {
 	u32 volatile config;
 	u32 volatile status;
@@ -96,9 +97,10 @@ struct snd_au1000 {
 	struct snd_ac97 *ac97;
 
 	struct snd_pcm *pcm;
-	struct audio_stream *stream[2];	
+	struct audio_stream *stream[2];	/* playback & capture */
 };
 
+/*--------------------------- Local Functions --------------------------------*/
 static void
 au1000_set_ac97_xmit_slots(struct snd_au1000 *au1000, long xmit_slots)
 {
@@ -159,7 +161,7 @@ au1000_setup_dma_link(struct audio_stream *stream, unsigned int period_bytes,
 
 	if (stream->period_size == period_bytes &&
 	    stream->periods == periods)
-		return 0; 
+		return 0; /* not changed */
 
 	au1000_release_dma_link(stream);
 
@@ -253,6 +255,7 @@ au1000_dma_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*-------------------------- PCM Audio Streams -------------------------------*/
 
 static unsigned int rates[] = {8000, 11025, 16000, 22050};
 static struct snd_pcm_hw_constraint_list hw_constraints_rates = {
@@ -474,7 +477,7 @@ snd_au1000_pcm_new(struct snd_au1000 *au1000)
 		release_dma_lock(flags);
 		return -EBUSY;
 	}
-	
+	/* enable DMA coherency in read/write DMA channels */
 	set_dma_mode(au1000->stream[PLAYBACK]->dma,
 		     get_dma_mode(au1000->stream[PLAYBACK]->dma) & ~DMA_NC);
 	set_dma_mode(au1000->stream[CAPTURE]->dma,
@@ -485,6 +488,7 @@ snd_au1000_pcm_new(struct snd_au1000 *au1000)
 }
 
 
+/*-------------------------- AC97 CODEC Control ------------------------------*/
 
 static unsigned short
 snd_au1000_ac97_read(struct snd_ac97 *ac97, unsigned short reg)
@@ -495,6 +499,8 @@ snd_au1000_ac97_read(struct snd_ac97 *ac97, unsigned short reg)
 	int             i;
 
 	spin_lock(&au1000->ac97_lock);
+/* would rather use the interrupt than this polling but it works and I can't
+get the interrupt driven case to work efficiently */
 	for (i = 0; i < 0x5000; i++)
 		if (!(au1000->ac97_ioport->status & AC97C_CP))
 			break;
@@ -505,7 +511,7 @@ snd_au1000_ac97_read(struct snd_ac97 *ac97, unsigned short reg)
 	cmd |= AC97C_READ;
 	au1000->ac97_ioport->cmd = cmd;
 
-	
+	/* now wait for the data */
 	for (i = 0; i < 0x5000; i++)
 		if (!(au1000->ac97_ioport->status & AC97C_CP))
 			break;
@@ -531,6 +537,8 @@ snd_au1000_ac97_write(struct snd_ac97 *ac97, unsigned short reg, unsigned short 
 	int i;
 
 	spin_lock(&au1000->ac97_lock);
+/* would rather use the interrupt than this polling but it works and I can't
+get the interrupt driven case to work efficiently */
 	for (i = 0; i < 0x5000; i++)
 		if (!(au1000->ac97_ioport->status & AC97C_CP))
 			break;
@@ -565,21 +573,23 @@ snd_au1000_ac97_new(struct snd_au1000 *au1000)
 
 	spin_lock_init(&au1000->ac97_lock);
 
+	/* configure pins for AC'97
+	TODO: move to board_setup.c */
 	au_writel(au_readl(SYS_PINFUNC) & ~0x02, SYS_PINFUNC);
 
-	
+	/* Initialise Au1000's AC'97 Control Block */
 	au1000->ac97_ioport->cntrl = AC97C_RS | AC97C_CE;
 	udelay(10);
 	au1000->ac97_ioport->cntrl = AC97C_CE;
 	udelay(10);
 
-	
+	/* Initialise External CODEC -- cold reset */
 	au1000->ac97_ioport->config = AC97C_RESET;
 	udelay(10);
 	au1000->ac97_ioport->config = 0x0;
 	mdelay(5);
 
-	
+	/* Initialise AC97 middle-layer */
 	if ((err = snd_ac97_bus(au1000->card, 0, &ops, au1000, &pbus)) < 0)
  		return err;
 
@@ -591,6 +601,7 @@ snd_au1000_ac97_new(struct snd_au1000 *au1000)
 	return 0;
 }
 
+/*------------------------------ Setup / Destroy ----------------------------*/
 
 void
 snd_au1000_free(struct snd_card *card)
@@ -598,7 +609,7 @@ snd_au1000_free(struct snd_card *card)
 	struct snd_au1000 *au1000 = card->private_data;
 
 	if (au1000->ac97_res_port) {
-		
+		/* put internal AC97 block into reset */
 		au1000->ac97_ioport->cntrl = AC97C_RS;
 		au1000->ac97_ioport = NULL;
 		release_and_free_resource(au1000->ac97_res_port);
@@ -638,7 +649,7 @@ au1000_init(void)
 
 	au1000->stream[PLAYBACK] = kmalloc(sizeof(struct audio_stream), GFP_KERNEL);
 	au1000->stream[CAPTURE ] = kmalloc(sizeof(struct audio_stream), GFP_KERNEL);
-	
+	/* so that snd_au1000_free will work as intended */
  	au1000->ac97_res_port = NULL;
 	if (au1000->stream[PLAYBACK])
 		au1000->stream[PLAYBACK]->dma = -1;

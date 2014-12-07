@@ -26,6 +26,7 @@
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #include <linux/earlysuspend.h>
 
+/* Early-suspend level */
 #define LED_SUSPEND_LEVEL 1
 #endif
 
@@ -113,7 +114,7 @@ static int __devinit msm_pdm_led_probe(struct platform_device *pdev)
 	if (!led)
 		return -ENOMEM;
 
-	
+	/* Enable runtime PM ops, start in ACTIVE mode */
 	rc = pm_runtime_set_active(&pdev->dev);
 	if (rc < 0)
 		dev_dbg(&pdev->dev, "unable to set runtime pm state\n");
@@ -141,14 +142,17 @@ static int __devinit msm_pdm_led_probe(struct platform_device *pdev)
 		goto err_ioremap;
 	}
 
+	/* Pulse Density Modulation(PDM) ids start with 0 and
+	 * every PDM register takes 4 bytes
+	 */
 	led->pdm_offset = ((pdev->id) + 1) * 4;
 
-	
+	/* program tcxo_pdm_ctl register to enable pdm*/
 	tcxo_pdm_ctl = readl_relaxed(led->perph_base);
 	tcxo_pdm_ctl |= (1 << pdev->id);
 	writel_relaxed(tcxo_pdm_ctl, led->perph_base);
 
-	
+	/* Start with LED in off state */
 	msm_led_brightness_set_percent(led, 0);
 
 	led->cdev.brightness_set = msm_led_brightness_set;

@@ -34,6 +34,7 @@
 
 #include "ngene.h"
 
+/* demods/tuners */
 #include "stv6110x.h"
 #include "stv090x.h"
 #include "lnbh24.h"
@@ -43,6 +44,9 @@
 #include "drxk.h"
 
 
+/****************************************************************************/
+/* Demod/tuner attachment ***************************************************/
+/****************************************************************************/
 
 static int tuner_attach_stv6110(struct ngene_channel *chan)
 {
@@ -53,7 +57,7 @@ static int tuner_attach_stv6110(struct ngene_channel *chan)
 		chan->dev->card_info->tuner_config[chan->number];
 	struct stv6110x_devctl *ctl;
 
-	
+	/* tuner 1+2: i2c adapter #0, tuner 3+4: i2c adapter #1 */
 	if (chan->number < 2)
 		i2c = &chan->dev->channel[0].i2c_adapter;
 	else
@@ -130,9 +134,9 @@ static int demod_attach_stv0900(struct ngene_channel *chan)
 	struct stv090x_config *feconf = (struct stv090x_config *)
 		chan->dev->card_info->fe_config[chan->number];
 
-	
-	
-	
+	/* tuner 1+2: i2c adapter #0, tuner 3+4: i2c adapter #1 */
+	/* Note: Both adapters share the same i2c bus, but the demod     */
+	/*       driver requires that each demod has its own i2c adapter */
 	if (chan->number < 2)
 		i2c = &chan->dev->channel[0].i2c_adapter;
 	else
@@ -146,7 +150,7 @@ static int demod_attach_stv0900(struct ngene_channel *chan)
 		return -ENODEV;
 	}
 
-	
+	/* store channel info */
 	if (feconf->tuner_i2c_lock)
 		chan->fe->analog_demod_priv = chan;
 
@@ -234,7 +238,7 @@ static int cineS2_probe(struct ngene_channel *chan)
 	struct i2c_msg i2c_msg = { .flags = 0, .buf = buf };
 	int rc;
 
-	
+	/* tuner 1+2: i2c adapter #0, tuner 3+4: i2c adapter #1 */
 	if (chan->number < 2)
 		i2c = &chan->dev->channel[0].i2c_adapter;
 	else
@@ -243,12 +247,12 @@ static int cineS2_probe(struct ngene_channel *chan)
 	if (port_has_stv0900(i2c, chan->number)) {
 		chan->demod_type = 0;
 		fe_conf = chan->dev->card_info->fe_config[chan->number];
-		
+		/* demod found, attach it */
 		rc = demod_attach_stv0900(chan);
 		if (rc < 0 || chan->number < 2)
 			return rc;
 
-		
+		/* demod #2: reprogram outputs DPN1 & DPN2 */
 		i2c_msg.addr = fe_conf->address;
 		i2c_msg.len = 3;
 		buf[0] = 0xf1;
@@ -283,7 +287,7 @@ static int cineS2_probe(struct ngene_channel *chan)
 static struct lgdt330x_config aver_m780 = {
 	.demod_address = 0xb2 >> 1,
 	.demod_chip    = LGDT3303,
-	.serial_mpeg   = 0x00, 
+	.serial_mpeg   = 0x00, /* PARALLEL */
 	.clock_polarity_flip = 1,
 };
 
@@ -291,6 +295,9 @@ static struct mt2131_config m780_tunerconfig = {
 	0xc0 >> 1
 };
 
+/* A single func to attach the demo and tuner, rather than
+ * use two sep funcs like the current design mandates.
+ */
 static int demod_attach_lg330x(struct ngene_channel *chan)
 {
 	chan->fe = dvb_attach(lgdt330x_attach, &aver_m780, &chan->i2c_adapter);
@@ -305,6 +312,9 @@ static int demod_attach_lg330x(struct ngene_channel *chan)
 	return (chan->fe) ? 0 : -ENODEV;
 }
 
+/****************************************************************************/
+/* Switch control (I2C gates, etc.) *****************************************/
+/****************************************************************************/
 
 
 static struct stv090x_config fe_cineS2 = {
@@ -439,29 +449,34 @@ static struct ngene_info ngene_info_m780 = {
 	.type           = NGENE_APP,
 	.name           = "Aver M780 ATSC/QAM-B",
 
-	
+	/* Channel 0 is analog, which is currently unsupported */
 	.io_type        = { NGENE_IO_NONE, NGENE_IO_TSIN },
 	.demod_attach   = { NULL, demod_attach_lg330x },
 
-	
+	/* Ensure these are NULL else the frame will call them (as funcs) */
 	.tuner_attach   = { 0, 0, 0, 0 },
 	.fe_config      = { NULL, &aver_m780 },
 	.avf            = { 0 },
 
-	
+	/* A custom electrical interface config for the demod to bridge */
 	.tsf		= { 4, 4 },
 	.fw_version	= 15,
 };
 
+/****************************************************************************/
 
 
 
+/****************************************************************************/
+/* PCI Subsystem ID *********************************************************/
+/****************************************************************************/
 
 #define NGENE_ID(_subvend, _subdev, _driverdata) { \
 	.vendor = NGENE_VID, .device = NGENE_PID, \
 	.subvendor = _subvend, .subdevice = _subdev, \
 	.driver_data = (unsigned long) &_driverdata }
 
+/****************************************************************************/
 
 static const struct pci_device_id ngene_id_tbl[] __devinitdata = {
 	NGENE_ID(0x18c3, 0xabc3, ngene_info_cineS2),
@@ -476,6 +491,9 @@ static const struct pci_device_id ngene_id_tbl[] __devinitdata = {
 };
 MODULE_DEVICE_TABLE(pci, ngene_id_tbl);
 
+/****************************************************************************/
+/* Init/Exit ****************************************************************/
+/****************************************************************************/
 
 static pci_ers_result_t ngene_error_detected(struct pci_dev *dev,
 					     enum pci_channel_state state)

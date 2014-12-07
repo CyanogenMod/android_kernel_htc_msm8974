@@ -9,6 +9,7 @@
 
 #include <asm/percpu.h>
 
+/* enough to cover all DEFINE_PER_CPUs in modules */
 #ifdef CONFIG_MODULES
 #define PERCPU_MODULE_RESERVE		(8 << 10)
 #else
@@ -21,10 +22,18 @@
 	 PERCPU_MODULE_RESERVE)
 #endif
 
+/*
+ * Must be an lvalue. Since @var must be a simple identifier,
+ * we force a syntax error here if it isn't.
+ */
 #define get_cpu_var(var) (*({				\
 	preempt_disable();				\
 	&__get_cpu_var(var); }))
 
+/*
+ * The weird & is necessary because sparse considers (void)(var) to be
+ * a direct dereference of percpu variable (var).
+ */
 #define put_cpu_var(var) do {				\
 	(void)&(var);					\
 	preempt_enable();				\
@@ -39,11 +48,30 @@
 	preempt_enable();				\
 } while (0)
 
+/* minimum unit size, also is the maximum supported allocation size */
 #define PCPU_MIN_UNIT_SIZE		PFN_ALIGN(32 << 10)
 
+/*
+ * Percpu allocator can serve percpu allocations before slab is
+ * initialized which allows slab to depend on the percpu allocator.
+ * The following two parameters decide how much resource to
+ * preallocate for this.  Keep PERCPU_DYNAMIC_RESERVE equal to or
+ * larger than PERCPU_DYNAMIC_EARLY_SIZE.
+ */
 #define PERCPU_DYNAMIC_EARLY_SLOTS	128
 #define PERCPU_DYNAMIC_EARLY_SIZE	(12 << 10)
 
+/*
+ * PERCPU_DYNAMIC_RESERVE indicates the amount of free area to piggy
+ * back on the first chunk for dynamic percpu allocation if arch is
+ * manually allocating and mapping it for faster access (as a part of
+ * large page mapping for example).
+ *
+ * The following values give between one and two pages of free space
+ * after typical minimal boot (2-way SMP, single disk and NIC) with
+ * both defconfig and a distro config on x86_64 and 32.  More
+ * intelligent way to determine this would be nice.
+ */
 #if BITS_PER_LONG > 32
 #define PERCPU_DYNAMIC_RESERVE		(20 << 10)
 #else
@@ -54,9 +82,10 @@ extern void *pcpu_base_addr;
 extern const unsigned long *pcpu_unit_offsets;
 
 struct pcpu_group_info {
-	int			nr_units;	
-	unsigned long		base_offset;	
-	unsigned int		*cpu_map;	
+	int			nr_units;	/* aligned # of units */
+	unsigned long		base_offset;	/* base address offset */
+	unsigned int		*cpu_map;	/* unit->cpu map, empty
+						 * entries contain NR_CPUS */
 };
 
 struct pcpu_alloc_info {
@@ -66,8 +95,8 @@ struct pcpu_alloc_info {
 	size_t			unit_size;
 	size_t			atom_size;
 	size_t			alloc_size;
-	size_t			__ai_size;	
-	int			nr_groups;	
+	size_t			__ai_size;	/* internal, don't use */
+	int			nr_groups;	/* 0 if grouping unnecessary */
 	struct pcpu_group_info	groups[];
 };
 
@@ -110,6 +139,11 @@ extern int __init pcpu_page_first_chunk(size_t reserved_size,
 				pcpu_fc_populate_pte_fn_t populate_pte_fn);
 #endif
 
+/*
+ * Use this to get to a cpu's version of the per-cpu object
+ * dynamically allocated. Non-atomic access to the current CPU's
+ * version should probably be combined with get_cpu()/put_cpu().
+ */
 #ifdef CONFIG_SMP
 #define per_cpu_ptr(ptr, cpu)	SHIFT_PERCPU_PTR((ptr), per_cpu_offset((cpu)))
 #else
@@ -131,6 +165,18 @@ extern phys_addr_t per_cpu_ptr_to_phys(void *addr);
 #define alloc_percpu(type)	\
 	(typeof(type) __percpu *)__alloc_percpu(sizeof(type), __alignof__(type))
 
+/*
+ * Optional methods for optimized non-lvalue per-cpu variable access.
+ *
+ * @var can be a percpu variable or a field of it and its size should
+ * equal char, int or long.  percpu_read() evaluates to a lvalue and
+ * all others to void.
+ *
+ * These operations are guaranteed to be atomic.
+ * The generic versions disable interrupts.  Archs are
+ * encouraged to implement single-instruction alternatives which don't
+ * require protection.
+ */
 #ifndef percpu_read
 # define percpu_read(var)						\
   ({									\
@@ -173,6 +219,10 @@ do {									\
 # define percpu_xor(var, val)		__percpu_generic_to_op(var, (val), ^=)
 #endif
 
+/*
+ * Branching function to split up a function into a set of functions that
+ * are called for different scalar sizes of the objects handled.
+ */
 
 extern void __bad_size_call_parameter(void);
 
@@ -205,6 +255,14 @@ extern void __bad_size_call_parameter(void);
 	pscr2_ret__;							\
 })
 
+/*
+ * Special handling for cmpxchg_double.  cmpxchg_double is passed two
+ * percpu variables.  The first has to be aligned to a double word
+ * boundary and the second has to follow directly thereafter.
+ * We enforce this on all architectures even if they don't support
+ * a double cmpxchg instruction, since it's a cheap requirement, and it
+ * avoids breaking the requirement for architectures with the instruction.
+ */
 #define __pcpu_double_call_return_bool(stem, pcp1, pcp2, ...)		\
 ({									\
 	bool pdcrb_ret__;						\
@@ -237,6 +295,31 @@ do {									\
 	}								\
 } while (0)
 
+/*
+ * Optimized manipulation for memory allocated through the per cpu
+ * allocator or for addresses of per cpu variables.
+ *
+ * These operation guarantee exclusivity of access for other operations
+ * on the *same* processor. The assumption is that per cpu data is only
+ * accessed by a single processor instance (the current one).
+ *
+ * The first group is used for accesses that must be done in a
+ * preemption safe way since we know that the context is not preempt
+ * safe. Interrupts may occur. If the interrupt modifies the variable
+ * too then RMW actions will not be reliable.
+ *
+ * The arch code can provide optimized functions in two ways:
+ *
+ * 1. Override the function completely. F.e. define this_cpu_add().
+ *    The arch must then ensure that the various scalar format passed
+ *    are handled correctly.
+ *
+ * 2. Provide functions for certain scalar sizes. F.e. provide
+ *    this_cpu_add_2() to provide per cpu atomic operations for 2 byte
+ *    sized RMW actions. If arch code does not provide operations for
+ *    a scalar size then the fallback in the generic code will be
+ *    used.
+ */
 
 #define _this_cpu_generic_read(pcp)					\
 ({	typeof(pcp) ret__;						\
@@ -449,6 +532,14 @@ do {									\
 	__pcpu_size_call_return2(this_cpu_cmpxchg_, pcp, oval, nval)
 #endif
 
+/*
+ * cmpxchg_double replaces two adjacent scalars at once.  The first
+ * two parameters are per cpu variables which have to be of the same
+ * size.  A truth value is returned to indicate success or failure
+ * (since a double register result is difficult to handle).  There is
+ * very limited hardware support for these operations, so only certain
+ * sizes may work.
+ */
 #define _this_cpu_generic_cmpxchg_double(pcp1, pcp2, oval1, oval2, nval1, nval2)	\
 ({									\
 	int ret__;							\
@@ -481,6 +572,20 @@ do {									\
 	__pcpu_double_call_return_bool(this_cpu_cmpxchg_double_, (pcp1), (pcp2), (oval1), (oval2), (nval1), (nval2))
 #endif
 
+/*
+ * Generic percpu operations for context that are safe from preemption/interrupts.
+ * Either we do not care about races or the caller has the
+ * responsibility of handling preemption/interrupt issues. Arch code can still
+ * override these instructions since the arch per cpu code may be more
+ * efficient and may actually get race freeness for free (that is the
+ * case for x86 for example).
+ *
+ * If there is no other protection through preempt disable and/or
+ * disabling interupts then one of these RMW operations can show unexpected
+ * behavior because the execution thread was rescheduled on another processor
+ * or an interrupt occurred and the same percpu variable was modified from
+ * the interrupt context.
+ */
 #ifndef __this_cpu_read
 # ifndef __this_cpu_read_1
 #  define __this_cpu_read_1(pcp)	(*__this_cpu_ptr(&(pcp)))
@@ -704,4 +809,4 @@ do {									\
 	__pcpu_double_call_return_bool(__this_cpu_cmpxchg_double_, (pcp1), (pcp2), (oval1), (oval2), (nval1), (nval2))
 #endif
 
-#endif 
+#endif /* __LINUX_PERCPU_H */

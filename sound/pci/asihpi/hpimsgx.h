@@ -33,4 +33,4 @@ void hpi_send_recv_ex(struct hpi_message *phm, struct hpi_response *phr,
 
 #define HPI_MESSAGE_LOWER_LAYER hpi_send_recv_ex
 
-#endif				
+#endif				/* _HPIMSGX_H_ */

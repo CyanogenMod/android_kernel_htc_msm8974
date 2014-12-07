@@ -1,3 +1,16 @@
+/*
+ * ebt_nflog
+ *
+ *	Author:
+ *	Peter Warasin <peter@endian.com>
+ *
+ *  February, 2008
+ *
+ * Based on:
+ *  xt_NFLOG.c, (C) 2006 by Patrick McHardy <kaber@trash.net>
+ *  ebt_ulog.c, (C) 2004 by Bart De Schuymer <bdschuym@pandora.be>
+ *
+ */
 
 #include <linux/module.h>
 #include <linux/spinlock.h>

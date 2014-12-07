@@ -115,7 +115,7 @@ static int test_kprobes(void)
 	int ret;
 	struct kprobe *kps[2] = {&kp, &kp2};
 
-	
+	/* addr and flags should be cleard for reusing kprobe. */
 	kp.addr = NULL;
 	kp.flags = 0;
 	ret = register_kprobes(kps, 2);
@@ -212,7 +212,7 @@ static int test_jprobes(void)
 	int ret;
 	struct jprobe *jps[2] = {&jp, &jp2};
 
-	
+	/* addr and flags should be cleard for reusing kprobe. */
 	jp.kp.addr = NULL;
 	jp.kp.flags = 0;
 	ret = register_jprobes(jps, 2);
@@ -327,7 +327,7 @@ static int test_kretprobes(void)
 	int ret;
 	struct kretprobe *rps[2] = {&rp, &rp2};
 
-	
+	/* addr and flags should be cleard for reusing kprobe. */
 	rp.kp.addr = NULL;
 	rp.kp.flags = 0;
 	ret = register_kretprobes(rps, 2);
@@ -355,7 +355,7 @@ static int test_kretprobes(void)
 	unregister_kretprobes(rps, 2);
 	return 0;
 }
-#endif 
+#endif /* CONFIG_KRETPROBES */
 
 int init_test_probes(void)
 {
@@ -399,7 +399,7 @@ int init_test_probes(void)
 	ret = test_kretprobes();
 	if (ret < 0)
 		errors++;
-#endif 
+#endif /* CONFIG_KRETPROBES */
 
 	if (errors)
 		printk(KERN_ERR "BUG: Kprobe smoke test: %d out of "

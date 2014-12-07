@@ -5,7 +5,7 @@
 #include <asm/cache.h>
 #include <asm-generic/dma-coherent.h>
 
-#ifndef CONFIG_SGI_IP27	
+#ifndef CONFIG_SGI_IP27	/* Kludge to fix 2.6.39 build for IP27 */
 #include <dma-coherence.h>
 #endif
 
@@ -93,4 +93,4 @@ void *dma_alloc_noncoherent(struct device *dev, size_t size,
 void dma_free_noncoherent(struct device *dev, size_t size,
 			 void *vaddr, dma_addr_t dma_handle);
 
-#endif 
+#endif /* _ASM_DMA_MAPPING_H */

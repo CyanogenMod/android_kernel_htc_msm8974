@@ -26,7 +26,7 @@
 #include "rtl_core.h"
 #include "r8192E_phy.h"
 #include "r8192E_phyreg.h"
-#include "r8190P_rtl8256.h" 
+#include "r8190P_rtl8256.h" /* RTL8225 Radio frontend */
 #include "r8192E_cmdpkt.h"
 
 static void rtl8192_hw_sleep_down(struct net_device *dev)

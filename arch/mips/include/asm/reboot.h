@@ -12,4 +12,4 @@
 extern void (*_machine_restart)(char *command);
 extern void (*_machine_halt)(void);
 
-#endif 
+#endif /* _ASM_REBOOT_H */

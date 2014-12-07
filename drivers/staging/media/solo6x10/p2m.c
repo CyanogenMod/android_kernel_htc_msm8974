@@ -22,6 +22,7 @@
 #include <linux/scatterlist.h>
 #include "solo6x10.h"
 
+/* #define SOLO_TEST_P2M */
 
 int solo_p2m_dma(struct solo_dev *solo_dev, u8 id, int wr,
 		 void *sys_addr, u32 ext_addr, u32 size)
@@ -72,7 +73,7 @@ void solo_p2m_push_desc(struct p2m_desc *desc, int wr, dma_addr_t dma_addr,
 	desc->ctrl = cpu_to_le32(SOLO_P2M_BURST_SIZE(SOLO_P2M_BURST_256) |
 				 (wr ? SOLO_P2M_WRITE : 0) | SOLO_P2M_TRANS_ON);
 
-	
+	/* Ext size only matters when we're repeating */
 	if (repeat) {
 		desc->ext |= cpu_to_le32(SOLO_P2M_EXT_INC(ext_size >> 2));
 		desc->ctrl |=  cpu_to_le32(SOLO_P2M_PCI_INC(size >> 2) |
@@ -101,7 +102,7 @@ int solo_p2m_dma_desc(struct solo_dev *solo_dev, u8 id,
 	INIT_COMPLETION(p2m_dev->completion);
 	p2m_dev->error = 0;
 
-	
+	/* Enable the descriptors */
 	config = solo_reg_read(solo_dev, SOLO_P2M_CONFIG(id));
 	desc_dma = pci_map_single(solo_dev->pdev, desc,
 				  desc_count * sizeof(*desc),
@@ -111,12 +112,12 @@ int solo_p2m_dma_desc(struct solo_dev *solo_dev, u8 id,
 	solo_reg_write(solo_dev, SOLO_P2M_CONFIG(id), config |
 		       SOLO_P2M_DESC_MODE);
 
-	
+	/* Should have all descriptors completed from one interrupt */
 	timeout = wait_for_completion_timeout(&p2m_dev->completion, HZ);
 
 	solo_reg_write(solo_dev, SOLO_P2M_CONTROL(id), 0);
 
-	
+	/* Reset back to non-descriptor mode */
 	solo_reg_write(solo_dev, SOLO_P2M_CONFIG(id), config);
 	solo_reg_write(solo_dev, SOLO_P2M_DESC_ID(id), 0);
 	solo_reg_write(solo_dev, SOLO_P2M_DES_ADR(id), 0);
@@ -151,7 +152,7 @@ int solo_p2m_dma_sg(struct solo_dev *solo_dev, u8 id,
 
 	memset(pdesc, 0, sizeof(*pdesc));
 
-	
+	/* Should rewrite this to handle > SOLO_NR_P2M_DESC transactions */
 	for (i = 0, idx = 1; idx < SOLO_NR_P2M_DESC && sg && size > 0;
 	     i++, sg = sg_next(sg)) {
 		struct p2m_desc *desc = &pdesc[idx];

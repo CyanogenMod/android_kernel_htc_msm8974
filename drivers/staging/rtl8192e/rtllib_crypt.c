@@ -84,6 +84,9 @@ void rtllib_crypt_delayed_deinit(struct lib80211_crypt_info *info,
 	tmp = *crypt;
 	*crypt = NULL;
 
+	/* must not run ops->deinit() while there may be pending encrypt or
+	 * decrypt operations. Use a list of delayed deinits to avoid needing
+	 * locking. */
 
 	spin_lock_irqsave(info->lock, flags);
 	list_add(&tmp->list, &info->crypt_deinit_list);

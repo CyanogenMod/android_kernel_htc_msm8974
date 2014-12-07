@@ -48,25 +48,26 @@ HW_DECLARE_SPINLOCK(gpio)
     EXPORT_SYMBOL(bcmring_gpio_reg_lock);
 #endif
 
-static int bcmring_arch_warm_reboot;	
+/* sysctl */
+static int bcmring_arch_warm_reboot;	/* do a warm reboot on hard reset */
 
 static void bcmring_restart(char mode, const char *cmd)
 {
 	printk("arch_reset:%c %x\n", mode, bcmring_arch_warm_reboot);
 
 	if (mode == 'h') {
-		
+		/* Reboot configured in proc entry */
 		if (bcmring_arch_warm_reboot) {
 			printk("warm reset\n");
-			
+			/* Issue Warm reset (do not reset ethernet switch, keep alive) */
 			chipcHw_reset(chipcHw_REG_SOFT_RESET_CHIP_WARM);
 		} else {
-			
+			/* Force reset of everything */
 			printk("force reset\n");
 			chipcHw_reset(chipcHw_REG_SOFT_RESET_CHIP_SOFT);
 		}
 	} else {
-		
+		/* Force reset of everything */
 		printk("force reset\n");
 		chipcHw_reset(chipcHw_REG_SOFT_RESET_CHIP_SOFT);
 	}
@@ -126,12 +127,21 @@ static struct platform_device *devices[] __initdata = {
 	&pmu_device,
 };
 
+/****************************************************************************
+*
+*   Called from the customize_machine function in arch/arm/kernel/setup.c
+*
+*   The customize_machine function is tagged as an arch_initcall
+*   (see include/linux/init.h for the order that the various init sections
+*   are called in.
+*
+*****************************************************************************/
 static void __init bcmring_init_machine(void)
 {
 
 	bcmring_sysctl_header = register_sysctl_table(bcmring_sysctl_reboot);
 
-	
+	/* Enable spread spectrum */
 	chipcHw_enableSpreadSpectrum();
 
 	platform_add_devices(devices, ARRAY_SIZE(devices));
@@ -141,6 +151,12 @@ static void __init bcmring_init_machine(void)
 	dma_init();
 }
 
+/****************************************************************************
+*
+*   Called from setup_arch (in arch/arm/kernel/setup.c) to fixup any tags
+*   passed in by the boot loader.
+*
+*****************************************************************************/
 
 static void __init bcmring_fixup(struct tag *t, char **cmdline,
 	struct meminfo *mi) {
@@ -165,9 +181,14 @@ static void __init bcmring_fixup(struct tag *t, char **cmdline,
 #endif
 }
 
+/****************************************************************************
+*
+*   Machine Description
+*
+*****************************************************************************/
 
 MACHINE_START(BCMRING, "BCMRING")
-	
+	/* Maintainer: Broadcom Corporation */
 	.fixup = bcmring_fixup,
 	.map_io = bcmring_map_io,
 	.init_early = bcmring_init_early,

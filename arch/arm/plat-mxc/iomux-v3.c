@@ -31,6 +31,9 @@
 
 static void __iomem *base;
 
+/*
+ * configures a single pad in the iomuxer
+ */
 int mxc_iomux_v3_setup_pad(iomux_v3_cfg_t pad)
 {
 	u32 mux_ctrl_ofs = (pad & MUX_CTRL_OFS_MASK) >> MUX_CTRL_OFS_SHIFT;

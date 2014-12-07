@@ -57,7 +57,7 @@ struct mtd_blktrans_ops {
 	int blksize;
 	int blkshift;
 
-	
+	/* Access functions */
 	int (*readsect)(struct mtd_blktrans_dev *dev,
 		    unsigned long block, char *buffer);
 	int (*writesect)(struct mtd_blktrans_dev *dev,
@@ -66,14 +66,16 @@ struct mtd_blktrans_ops {
 		       unsigned long block, unsigned nr_blocks);
 	void (*background)(struct mtd_blktrans_dev *dev);
 
-	
+	/* Block layer ioctls */
 	int (*getgeo)(struct mtd_blktrans_dev *dev, struct hd_geometry *geo);
 	int (*flush)(struct mtd_blktrans_dev *dev);
 
-	
+	/* Called with mtd_table_mutex held; no race with add/remove */
 	int (*open)(struct mtd_blktrans_dev *dev);
 	int (*release)(struct mtd_blktrans_dev *dev);
 
+	/* Called on {de,}registration and on subsequent addition/removal
+	   of devices, with mtd_table_mutex held. */
 	void (*add_mtd)(struct mtd_blktrans_ops *tr, struct mtd_info *mtd);
 	void (*remove_dev)(struct mtd_blktrans_dev *dev);
 
@@ -89,4 +91,4 @@ extern int del_mtd_blktrans_dev(struct mtd_blktrans_dev *dev);
 extern int mtd_blktrans_cease_background(struct mtd_blktrans_dev *dev);
 
 
-#endif 
+#endif /* __MTD_TRANS_H__ */

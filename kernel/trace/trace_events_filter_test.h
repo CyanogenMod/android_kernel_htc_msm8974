@@ -39,11 +39,12 @@ TRACE_EVENT(ftrace_test_filter,
 		  __entry->e, __entry->f, __entry->g, __entry->h)
 );
 
-#endif 
+#endif /* _TRACE_TEST_H || TRACE_HEADER_MULTI_READ */
 
 #undef TRACE_INCLUDE_PATH
 #undef TRACE_INCLUDE_FILE
 #define TRACE_INCLUDE_PATH .
 #define TRACE_INCLUDE_FILE trace_events_filter_test
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

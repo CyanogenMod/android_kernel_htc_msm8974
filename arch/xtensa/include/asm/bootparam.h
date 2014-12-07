@@ -17,22 +17,23 @@
 
 #define BP_VERSION 0x0001
 
-#define BP_TAG_COMMAND_LINE	0x1001	
-#define BP_TAG_INITRD		0x1002	
-#define BP_TAG_MEMORY		0x1003	
-#define BP_TAG_SERIAL_BAUSRATE	0x1004	
-#define BP_TAG_SERIAL_PORT	0x1005	
+#define BP_TAG_COMMAND_LINE	0x1001	/* command line (0-terminated string)*/
+#define BP_TAG_INITRD		0x1002	/* ramdisk addr and size (bp_meminfo) */
+#define BP_TAG_MEMORY		0x1003	/* memory addr and size (bp_meminfo) */
+#define BP_TAG_SERIAL_BAUSRATE	0x1004	/* baud rate of current console. */
+#define BP_TAG_SERIAL_PORT	0x1005	/* serial device of current console */
 
-#define BP_TAG_FIRST		0x7B0B  
-#define BP_TAG_LAST 		0x7E0B	
+#define BP_TAG_FIRST		0x7B0B  /* first tag with a version number */
+#define BP_TAG_LAST 		0x7E0B	/* last tag */
 
 #ifndef __ASSEMBLY__
 
+/* All records are aligned to 4 bytes */
 
 typedef struct bp_tag {
-  unsigned short id;		
-  unsigned short size;		
-  unsigned long data[0];	
+  unsigned short id;		/* tag id */
+  unsigned short size;		/* size of this record excluding the structure*/
+  unsigned long data[0];	/* data */
 } bp_tag_t;
 
 typedef struct meminfo {

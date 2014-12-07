@@ -31,6 +31,7 @@
 #include <typedefs.h>
 #endif
 
+/* This marks the start of a packed structure section. */
 #include <packed_section_start.h>
 
 #define ICMPV6_HEADER_TYPE 	0x3A
@@ -48,11 +49,13 @@
 							 a[10] | a[11] | a[12] | a[13] | \
 							 a[14] | a[15]) == 0)
 
+/* IPV6 address */
 BWL_PRE_PACKED_STRUCT struct ipv6_addr {
 		uint8		addr[16];
 } BWL_POST_PACKED_STRUCT;
 
 
+/* ICMPV6 Header */
 BWL_PRE_PACKED_STRUCT struct icmp6_hdr {
 	uint8	icmp6_type;
 	uint8	icmp6_code;
@@ -69,6 +72,7 @@ BWL_PRE_PACKED_STRUCT struct icmp6_hdr {
 	} BWL_POST_PACKED_STRUCT opt;
 } BWL_POST_PACKED_STRUCT;
 
+/* Ipv6 Header Format */
 BWL_PRE_PACKED_STRUCT struct ipv6_hdr {
 	uint8	priority:4,
 		version:4;
@@ -80,18 +84,21 @@ BWL_PRE_PACKED_STRUCT struct ipv6_hdr {
 	struct	ipv6_addr	daddr;
 } BWL_POST_PACKED_STRUCT;
 
+/* Neighbor Advertisement/Solicitation Packet Structure */
 BWL_PRE_PACKED_STRUCT struct nd_msg {
 	struct icmp6_hdr	icmph;
 	struct ipv6_addr target;
 } BWL_POST_PACKED_STRUCT;
 
 
+/* Neighibor Solicitation/Advertisement Optional Structure */
 BWL_PRE_PACKED_STRUCT struct nd_msg_opt {
 	uint8 type;
 	uint8 len;
 	uint8 mac_addr[ETHER_ADDR_LEN];
 } BWL_POST_PACKED_STRUCT;
 
+/* This marks the end of a packed structure section. */
 #include <packed_section_end.h>
 
-#endif	
+#endif	/* !defined(_bcmipv6_h_) */

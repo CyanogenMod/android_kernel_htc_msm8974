@@ -29,9 +29,10 @@ struct budget_info {
 	int type;
 };
 
+/* place to store all the necessary device information */
 struct budget {
 
-	
+	/* devices */
 	struct dvb_device dvb_dev;
 	struct dvb_net dvb_net;
 

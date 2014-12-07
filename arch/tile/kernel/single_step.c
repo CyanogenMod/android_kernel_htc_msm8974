@@ -15,8 +15,9 @@
  * Derived from iLib's single-stepping code.
  */
 
-#ifndef __tilegx__   
+#ifndef __tilegx__   /* Hardware support for single step unavailable. */
 
+/* These functions are only used on the TILE platform */
 #include <linux/slab.h>
 #include <linux/thread_info.h>
 #include <linux/uaccess.h>
@@ -59,11 +60,11 @@ static inline tile_bundle_bits set_BrOff_X1(tile_bundle_bits n, s32 offset)
 {
 	tile_bundle_bits result;
 
-	
+	/* mask out the old offset */
 	tile_bundle_bits mask = create_BrOff_X1(-1);
 	result = n & (~mask);
 
-	
+	/* or in the new offset */
 	result |= create_BrOff_X1(offset);
 
 	return result;
@@ -116,7 +117,7 @@ static tile_bundle_bits rewrite_load_store_unaligned(
 	unsigned char __user *addr;
 	int val_reg, addr_reg, err, val;
 
-	
+	/* Get address and value registers */
 	if (bundle & TILEPRO_BUNDLE_Y_ENCODING_MASK) {
 		addr_reg = get_SrcA_Y2(bundle);
 		val_reg = get_SrcBDest_Y2(bundle);
@@ -128,6 +129,18 @@ static tile_bundle_bits rewrite_load_store_unaligned(
 		val_reg  = get_SrcB_X1(bundle);
 	}
 
+	/*
+	 * If registers are not GPRs, don't try to handle it.
+	 *
+	 * FIXME: we could handle non-GPR loads by getting the real value
+	 * from memory, writing it to the single step buffer, using a
+	 * temp_reg to hold a pointer to that memory, then executing that
+	 * instruction and resetting temp_reg.  For non-GPR stores, it's a
+	 * little trickier; we could use the single step buffer for that
+	 * too, but we'd have to add some more state bits so that we could
+	 * call back in here to copy that value to the real target.  For
+	 * now, we just handle the simple case.
+	 */
 	if ((val_reg >= PTREGS_NR_GPRS &&
 	     (val_reg != TREG_ZERO ||
 	      mem_op == MEMOP_LOAD ||
@@ -135,11 +148,18 @@ static tile_bundle_bits rewrite_load_store_unaligned(
 	    addr_reg >= PTREGS_NR_GPRS)
 		return bundle;
 
-	
+	/* If it's aligned, don't handle it specially */
 	addr = (void __user *)regs->regs[addr_reg];
 	if (((unsigned long)addr % size) == 0)
 		return bundle;
 
+	/*
+	 * Return SIGBUS with the unaligned address, if requested.
+	 * Note that we return SIGBUS even for completely invalid addresses
+	 * as long as they are in fact unaligned; this matches what the
+	 * tilepro hardware would be doing, if it could provide us with the
+	 * actual bad address in an SPR, which it doesn't.
+	 */
 	if (unaligned_fixup == 0) {
 		siginfo_t info = {
 			.si_signo = SIGBUS,
@@ -155,7 +175,7 @@ static tile_bundle_bits rewrite_load_store_unaligned(
 #ifndef __LITTLE_ENDIAN
 # error We assume little-endian representation with copy_xx_user size 2 here
 #endif
-	
+	/* Handle unaligned load/store */
 	if (mem_op == MEMOP_LOAD || mem_op == MEMOP_LOAD_POSTINCR) {
 		unsigned short val_16;
 		switch (size) {
@@ -217,21 +237,21 @@ P("\n");
 	++unaligned_fixup_count;
 
 	if (bundle & TILEPRO_BUNDLE_Y_ENCODING_MASK) {
-		
+		/* Convert the Y2 instruction to a prefetch. */
 		bundle &= ~(create_SrcBDest_Y2(-1) |
 			    create_Opcode_Y2(-1));
 		bundle |= (create_SrcBDest_Y2(TREG_ZERO) |
 			   create_Opcode_Y2(LW_OPCODE_Y2));
-	
+	/* Replace the load postincr with an addi */
 	} else if (mem_op == MEMOP_LOAD_POSTINCR) {
 		bundle = addi_X1(bundle, addr_reg, addr_reg,
 				 get_Imm8_X1(bundle));
-	
+	/* Replace the store postincr with an addi */
 	} else if (mem_op == MEMOP_STORE_POSTINCR) {
 		bundle = addi_X1(bundle, addr_reg, addr_reg,
 				 get_Dest_Imm8_X1(bundle));
 	} else {
-		
+		/* Convert the X1 instruction to a nop. */
 		bundle &= ~(create_Opcode_X1(-1) |
 			    create_UnShOpcodeExtension_X1(-1) |
 			    create_UnOpcodeExtension_X1(-1));
@@ -245,6 +265,11 @@ P("\n");
 	return bundle;
 }
 
+/*
+ * Called after execve() has started the new image.  This allows us
+ * to reset the info state.  Note that the the mmap'ed memory, if there
+ * was any, has already been unmapped by the exec.
+ */
 void single_step_execve(void)
 {
 	struct thread_info *ti = current_thread_info();
@@ -284,7 +309,7 @@ void single_step_once(struct pt_regs *regs)
 	int target_reg = TREG_LR;
 	int err;
 	enum mem_op mem_op = MEMOP_NONE;
-	int size = 0, sign_ext = 0;  
+	int size = 0, sign_ext = 0;  /* happy compiler */
 
 	asm(
 "    .pushsection .rodata.single_step\n"
@@ -304,17 +329,23 @@ void single_step_once(struct pt_regs *regs)
 "    .popsection\n"
 	);
 
+	/*
+	 * Enable interrupts here to allow touching userspace and the like.
+	 * The callers expect this: do_trap() already has interrupts
+	 * enabled, and do_work_pending() handles functions that enable
+	 * interrupts internally.
+	 */
 	local_irq_enable();
 
 	if (state == NULL) {
-		
+		/* allocate a page of writable, executable memory */
 		state = kmalloc(sizeof(struct single_step_state), GFP_KERNEL);
 		if (state == NULL) {
 			pr_err("Out of kernel memory trying to single-step\n");
 			return;
 		}
 
-		
+		/* allocate a cache line of writable, executable memory */
 		buffer = (void __user *) vm_mmap(NULL, 0, 64,
 					  PROT_EXEC | PROT_READ | PROT_WRITE,
 					  MAP_PRIVATE | MAP_ANONYMOUS,
@@ -331,7 +362,7 @@ void single_step_once(struct pt_regs *regs)
 
 		info->step_state = state;
 
-		
+		/* Validate our stored instruction patterns */
 		BUG_ON(get_Opcode_X1(__single_step_addli_insn) !=
 		       ADDLI_OPCODE_X1);
 		BUG_ON(get_Opcode_X1(__single_step_auli_insn) !=
@@ -341,6 +372,13 @@ void single_step_once(struct pt_regs *regs)
 		BUG_ON(get_JOffLong_X1(__single_step_j_insn) != 0);
 	}
 
+	/*
+	 * If we are returning from a syscall, we still haven't hit the
+	 * "ill" for the swint1 instruction.  So back the PC up to be
+	 * pointing at the swint1, but we'll actually return directly
+	 * back to the "ill" so we come back in via SIGILL as if we
+	 * had "executed" the swint1 without ever being in kernel space.
+	 */
 	if (regs->faultnum == INT_SWINT_1)
 		regs->pc -= 8;
 
@@ -350,18 +388,18 @@ void single_step_once(struct pt_regs *regs)
 		return;
 	}
 
-	
+	/* We'll follow the instruction with 2 ill op bundles */
 	state->orig_pc = (unsigned long)pc;
 	state->next_pc = (unsigned long)(pc + 1);
 	state->branch_next_pc = 0;
 	state->update = 0;
 
 	if (!(bundle & TILEPRO_BUNDLE_Y_ENCODING_MASK)) {
-		
+		/* two wide, check for control flow */
 		int opcode = get_Opcode_X1(bundle);
 
 		switch (opcode) {
-		
+		/* branches */
 		case BRANCH_OPCODE_X1:
 		{
 			s32 offset = signExtend17(get_BrOff_X1(bundle));
@@ -389,12 +427,12 @@ void single_step_once(struct pt_regs *regs)
 			 */
 			state->branch_next_pc = (unsigned long)(pc + offset);
 
-			
+			/* rewrite branch offset to go forward one bundle */
 			bundle = set_BrOff_X1(bundle, 2);
 		}
 		break;
 
-		
+		/* jumps */
 		case JALB_OPCODE_X1:
 		case JALF_OPCODE_X1:
 			state->update = 1;
@@ -411,7 +449,7 @@ void single_step_once(struct pt_regs *regs)
 
 		case SPECIAL_0_OPCODE_X1:
 			switch (get_RRROpcodeExtension_X1(bundle)) {
-			
+			/* jump-register */
 			case JALRP_SPECIAL_0_OPCODE_X1:
 			case JALR_SPECIAL_0_OPCODE_X1:
 				state->update = 1;
@@ -431,7 +469,7 @@ void single_step_once(struct pt_regs *regs)
 				target_reg = get_Dest_X1(bundle);
 				break;
 
-			
+			/* stores */
 			case SH_SPECIAL_0_OPCODE_X1:
 				mem_op = MEMOP_STORE;
 				size = 2;
@@ -444,7 +482,7 @@ void single_step_once(struct pt_regs *regs)
 			}
 			break;
 
-		
+		/* loads and iret */
 		case SHUN_0_OPCODE_X1:
 			if (get_UnShOpcodeExtension_X1(bundle) ==
 			    UN_0_SHUN_0_OPCODE_X1) {
@@ -472,6 +510,11 @@ void single_step_once(struct pt_regs *regs)
 						SPR_EX_CONTEXT_0_0);
 					unsigned long ex0_1 = __insn_mfspr(
 						SPR_EX_CONTEXT_0_1);
+					/*
+					 * Special-case it if we're iret'ing
+					 * to PL0 again.  Otherwise just let
+					 * it run and it will generate SIGILL.
+					 */
 					if (EX1_PL(ex0_1) == USER_PL) {
 						state->next_pc = ex0_0;
 						regs->ex1 = ex0_1;
@@ -483,7 +526,7 @@ void single_step_once(struct pt_regs *regs)
 			break;
 
 #if CHIP_HAS_WH64()
-		
+		/* postincrement operations */
 		case IMM_0_OPCODE_X1:
 			switch (get_ImmOpcodeExtension_X1(bundle)) {
 			case LWADD_IMM_0_OPCODE_X1:
@@ -517,10 +560,17 @@ void single_step_once(struct pt_regs *regs)
 				break;
 			}
 			break;
-#endif 
+#endif /* CHIP_HAS_WH64() */
 		}
 
 		if (state->update) {
+			/*
+			 * Get an available register.  We start with a
+			 * bitmask with 1's for available registers.
+			 * We truncate to the low 32 registers since
+			 * we are guaranteed to have set bits in the
+			 * low 32 bits, then use ctz to pick the first.
+			 */
 			u32 mask = (u32) ~((1ULL << get_Dest_X0(bundle)) |
 					   (1ULL << get_SrcA_X0(bundle)) |
 					   (1ULL << get_SrcB_X0(bundle)) |
@@ -536,7 +586,7 @@ void single_step_once(struct pt_regs *regs)
 		int opcode = get_Opcode_Y2(bundle);
 
 		switch (opcode) {
-		
+		/* loads */
 		case LH_OPCODE_Y2:
 			mem_op = MEMOP_LOAD;
 			size = 2;
@@ -554,7 +604,7 @@ void single_step_once(struct pt_regs *regs)
 			size = 4;
 			break;
 
-		
+		/* stores */
 		case SH_OPCODE_Y2:
 			mem_op = MEMOP_STORE;
 			size = 2;
@@ -567,6 +617,10 @@ void single_step_once(struct pt_regs *regs)
 		}
 	}
 
+	/*
+	 * Check if we need to rewrite an unaligned load/store.
+	 * Returning zero is a special value meaning we need to SIGSEGV.
+	 */
 	if (mem_op != MEMOP_NONE && unaligned_fixup >= 0) {
 		bundle = rewrite_load_store_unaligned(state, bundle, regs,
 						      mem_op, size, sign_ext);
@@ -574,10 +628,15 @@ void single_step_once(struct pt_regs *regs)
 			return;
 	}
 
-	
+	/* write the bundle to our execution area */
 	buffer = state->buffer;
 	err = __put_user(bundle, buffer++);
 
+	/*
+	 * If we're really single-stepping, we take an INT_ILL after.
+	 * If we're just handling an unaligned access, we can just
+	 * jump directly back to where we were in user code.
+	 */
 	if (is_single_step) {
 		err |= __put_user(__single_step_ill_insn, buffer++);
 		err |= __put_user(__single_step_ill_insn, buffer++);
@@ -585,7 +644,7 @@ void single_step_once(struct pt_regs *regs)
 		long delta;
 
 		if (state->update) {
-			
+			/* We have some state to update; do it inline */
 			int ha16;
 			bundle = __single_step_addli_insn;
 			bundle |= create_Dest_X1(state->update_reg);
@@ -600,7 +659,7 @@ void single_step_once(struct pt_regs *regs)
 			state->update = 0;
 		}
 
-		
+		/* End with a jump back to the next instruction */
 		delta = ((regs->pc + TILE_BUNDLE_SIZE_IN_BYTES) -
 			(unsigned long)buffer) >>
 			TILE_LOG2_BUNDLE_ALIGNMENT_IN_BYTES;
@@ -614,14 +673,18 @@ void single_step_once(struct pt_regs *regs)
 		return;
 	}
 
+	/*
+	 * Flush the buffer.
+	 * We do a local flush only, since this is a thread-specific buffer.
+	 */
 	__flush_icache_range((unsigned long)state->buffer,
 			     (unsigned long)buffer);
 
-	
+	/* Indicate enabled */
 	state->is_enabled = is_single_step;
 	regs->pc = (unsigned long)state->buffer;
 
-	
+	/* Fault immediately if we are coming back from a syscall. */
 	if (regs->faultnum == INT_SWINT_1)
 		regs->pc += 8;
 }
@@ -634,6 +697,30 @@ void single_step_once(struct pt_regs *regs)
 static DEFINE_PER_CPU(unsigned long, ss_saved_pc);
 
 
+/*
+ * Called directly on the occasion of an interrupt.
+ *
+ * If the process doesn't have single step set, then we use this as an
+ * opportunity to turn single step off.
+ *
+ * It has been mentioned that we could conditionally turn off single stepping
+ * on each entry into the kernel and rely on single_step_once to turn it
+ * on for the processes that matter (as we already do), but this
+ * implementation is somewhat more efficient in that we muck with registers
+ * once on a bum interrupt rather than on every entry into the kernel.
+ *
+ * If SINGLE_STEP_CONTROL_K has CANCELED set, then an interrupt occurred,
+ * so we have to run through this process again before we can say that an
+ * instruction has executed.
+ *
+ * swint will set CANCELED, but it's a legitimate instruction.  Fortunately
+ * it changes the PC.  If it hasn't changed, then we know that the interrupt
+ * wasn't generated by swint and we'll need to run this process again before
+ * we can say an instruction has executed.
+ *
+ * If either CANCELED == 0 or the PC's changed, we send out SIGTRAPs and get
+ * on with our lives.
+ */
 
 void gx_singlestep_handle(struct pt_regs *regs, int fault_num)
 {
@@ -656,6 +743,10 @@ void gx_singlestep_handle(struct pt_regs *regs, int fault_num)
 }
 
 
+/*
+ * Called from need_singlestep.  Set up the control registers and the enable
+ * register, then return back.
+ */
 
 void single_step_once(struct pt_regs *regs)
 {
@@ -671,7 +762,7 @@ void single_step_once(struct pt_regs *regs)
 
 void single_step_execve(void)
 {
-	
+	/* Nothing */
 }
 
-#endif 
+#endif /* !__tilegx__ */

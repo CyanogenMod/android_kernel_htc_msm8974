@@ -1,4 +1,11 @@
+/* Kernel module to match running CPU */
 
+/*
+ * Might be used to distribute connections on several daemons, if
+ * RPS (Remote Packet Steering) is enabled or NIC is multiqueue capable,
+ * each RX queue IRQ affined to one CPU (1:1 mapping)
+ *
+ */
 
 /* (C) 2010 Eric Dumazet
  *

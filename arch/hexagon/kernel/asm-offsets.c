@@ -31,11 +31,13 @@
 #include <asm/ptrace.h>
 #include <asm/processor.h>
 
+/*  This file is used to produce asm/linkerscript constants from header
+    files typically used in c.  Specifically, it generates asm-offsets.h  */
 
 int main(void)
 {
 	COMMENT("This is a comment.");
-	
+	/*  might get these from somewhere else.  */
 	DEFINE(_PAGE_SIZE, PAGE_SIZE);
 	DEFINE(_PAGE_SHIFT, PAGE_SHIFT);
 	BLANK();

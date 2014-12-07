@@ -29,14 +29,15 @@
 
 #include "videocodec.h"
 
+/* data stored for each zoran jpeg codec chip */
 struct zr36060 {
 	char name[32];
 	int num;
-	
+	/* io datastructure */
 	struct videocodec *codec;
-	
+	// last coder status
 	__u8 status;
-	
+	// actual coder setup
 	int mode;
 
 	__u16 width;
@@ -53,11 +54,12 @@ struct zr36060 {
 	__u16 scalefact;
 	__u16 dri;
 
-	
+	/* app/com marker data */
 	struct jpeg_app_marker app;
 	struct jpeg_com_marker com;
 };
 
+/* ZR36060 register addresses */
 #define ZR060_LOAD			0x000
 #define ZR060_CFSR			0x001
 #define ZR060_CIR			0x002
@@ -139,21 +141,25 @@ struct zr36060 {
 #define ZR060_APP_IDX			0x380
 #define ZR060_COM_IDX			0x3c0
 
+/* ZR36060 LOAD register bits */
 
 #define ZR060_LOAD_Load			(1 << 7)
 #define ZR060_LOAD_SyncRst		(1 << 0)
 
+/* ZR36060 Code FIFO Status register bits */
 
 #define ZR060_CFSR_Busy			(1 << 7)
 #define ZR060_CFSR_CBusy		(1 << 2)
 #define ZR060_CFSR_CFIFO		(3 << 0)
 
+/* ZR36060 Code Interface register */
 
 #define ZR060_CIR_Code16		(1 << 7)
 #define ZR060_CIR_Endian		(1 << 6)
 #define ZR060_CIR_CFIS			(1 << 2)
 #define ZR060_CIR_CodeMstr		(1 << 0)
 
+/* ZR36060 Codec Mode register */
 
 #define ZR060_CMR_Comp			(1 << 7)
 #define ZR060_CMR_ATP			(1 << 6)
@@ -162,6 +168,7 @@ struct zr36060 {
 #define ZR060_CMR_BRB			(1 << 2)
 #define ZR060_CMR_FSF			(1 << 1)
 
+/* ZR36060 Markers Enable register */
 
 #define ZR060_MER_App			(1 << 7)
 #define ZR060_MER_Com			(1 << 6)
@@ -169,12 +176,14 @@ struct zr36060 {
 #define ZR060_MER_DQT			(1 << 4)
 #define ZR060_MER_DHT			(1 << 3)
 
+/* ZR36060 Interrupt Mask register */
 
 #define ZR060_IMR_EOAV			(1 << 3)
 #define ZR060_IMR_EOI			(1 << 2)
 #define ZR060_IMR_End			(1 << 1)
 #define ZR060_IMR_DataErr		(1 << 0)
 
+/* ZR36060 Interrupt Status register */
 
 #define ZR060_ISR_ProCnt		(3 << 6)
 #define ZR060_ISR_EOAV			(1 << 3)
@@ -182,6 +191,7 @@ struct zr36060 {
 #define ZR060_ISR_End			(1 << 1)
 #define ZR060_ISR_DataErr		(1 << 0)
 
+/* ZR36060 Video Control register */
 
 #define ZR060_VCR_Video8		(1 << 7)
 #define ZR060_VCR_Range			(1 << 6)
@@ -190,6 +200,7 @@ struct zr36060 {
 #define ZR060_VCR_FIExt			(1 << 1)
 #define ZR060_VCR_SyncMstr		(1 << 0)
 
+/* ZR36060 Video Polarity register */
 
 #define ZR060_VPR_VCLKPol		(1 << 7)
 #define ZR060_VPR_PValPol		(1 << 6)
@@ -200,9 +211,10 @@ struct zr36060 {
 #define ZR060_VPR_HSPol			(1 << 1)
 #define ZR060_VPR_VSPol			(1 << 0)
 
+/* ZR36060 Scaling register */
 
 #define ZR060_SR_VScale			(1 << 2)
 #define ZR060_SR_HScale2		(1 << 0)
 #define ZR060_SR_HScale4		(2 << 0)
 
-#endif				
+#endif				/*fndef ZR36060_H */

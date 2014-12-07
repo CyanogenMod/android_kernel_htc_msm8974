@@ -65,13 +65,20 @@ static void check_hw_pbc(struct _adapter *padapter)
 	if (tmp1byte == 0xff)
 		return ;
 	if (tmp1byte&HAL_8192S_HW_GPIO_WPS_BIT) {
+		/* Here we only set bPbcPressed to true
+		 * After trigger PBC, the variable will be set to false */
 		DBG_8712("CheckPbcGPIO - PBC is pressed !!!!\n");
+		/* 0 is the default value and it means the application monitors
+		 * the HW PBC doesn't privde its pid to driver. */
 		if (padapter->pid == 0)
 			return;
 		kill_pid(find_vpid(padapter->pid), SIGUSR1, 1);
 	}
 }
 
+/* query rx phy status from fw.
+ * Adhoc mode: beacon.
+ * Infrastructure mode: beacon , data. */
 static void query_fw_rx_phy_status(struct _adapter *padapter)
 {
 	u32 val32 = 0;
@@ -80,7 +87,7 @@ static void query_fw_rx_phy_status(struct _adapter *padapter)
 	if (check_fwstate(&padapter->mlmepriv, _FW_LINKED) == true) {
 		r8712_write32(padapter, IOCMD_CTRL_REG, 0xf4000001);
 		msleep(100);
-		
+		/* Wait FW complete IO Cmd */
 		while ((r8712_read32(padapter, IOCMD_CTRL_REG)) &&
 		       (pollingcnts > 0)) {
 			pollingcnts--;
@@ -88,7 +95,7 @@ static void query_fw_rx_phy_status(struct _adapter *padapter)
 		}
 		if (pollingcnts != 0)
 			val32 = r8712_read32(padapter, IOCMD_DATA_REG);
-		else 
+		else /* time out */
 			val32 = 0;
 		val32 = val32 >> 4;
 		padapter->recvpriv.fw_rssi =
@@ -96,6 +103,7 @@ static void query_fw_rx_phy_status(struct _adapter *padapter)
 	}
 }
 
+/* check mlme, hw, phy, or dynamic algorithm status. */
 static void StatusWatchdogCallback(struct _adapter *padapter)
 {
 	check_hw_pbc(padapter);
@@ -124,7 +132,7 @@ static u8 read_macreg_hdl(struct _adapter *padapter, u8 *pbuf)
 	void (*pcmd_callback)(struct _adapter *dev, struct cmd_obj	*pcmd);
 	struct cmd_obj *pcmd  = (struct cmd_obj *)pbuf;
 
-	
+	/*  invoke cmd->callback function */
 	pcmd_callback = cmd_callback[pcmd->cmdcode].callback;
 	if (pcmd_callback == NULL)
 		r8712_free_cmd_obj(pcmd);
@@ -138,7 +146,7 @@ static u8 write_macreg_hdl(struct _adapter *padapter, u8 *pbuf)
 	void (*pcmd_callback)(struct _adapter *dev, struct cmd_obj	*pcmd);
 	struct cmd_obj *pcmd  = (struct cmd_obj *)pbuf;
 
-	
+	/*  invoke cmd->callback function */
 	pcmd_callback = cmd_callback[pcmd->cmdcode].callback;
 	if (pcmd_callback == NULL)
 		r8712_free_cmd_obj(pcmd);
@@ -258,6 +266,10 @@ static struct cmd_obj *cmd_hdl_filter(struct _adapter *padapter,
 		break;
 	case GEN_CMD_CODE(_JoinBss):
 		r8712_joinbss_reset(padapter);
+		/* Before set JoinBss_CMD to FW, driver must ensure FW is in
+		 * PS_MODE_ACTIVE. Directly write rpwm to radio on and assign
+		 * new pwr_mode to Driver, instead of use workitem to change
+		 * state. */
 		if (padapter->pwrctrlpriv.pwr_mode > PS_MODE_ACTIVE) {
 			padapter->pwrctrlpriv.pwr_mode = PS_MODE_ACTIVE;
 			_enter_pwrlock(&(padapter->pwrctrlpriv.lock));
@@ -275,7 +287,7 @@ static struct cmd_obj *cmd_hdl_filter(struct _adapter *padapter,
 		pcmd_r = pcmd;
 		break;
 	}
-	return pcmd_r; 
+	return pcmd_r; /* if returning pcmd_r == NULL, pcmd must be free. */
 }
 
 static u8 check_cmd_fifo(struct _adapter *padapter, uint sz)
@@ -302,9 +314,9 @@ u8 r8712_fw_cmd(struct _adapter *pAdapter, u32 cmd)
 
 void r8712_fw_cmd_data(struct _adapter *pAdapter, u32 *value, u8 flag)
 {
-	if (flag == 0)	
+	if (flag == 0)	/* set */
 		r8712_write32(pAdapter, IOCMD_DATA_REG, *value);
-	else		
+	else		/* query */
 		*value = r8712_read32(pAdapter, IOCMD_DATA_REG);
 }
 
@@ -337,12 +349,12 @@ _next:
 		pdesc = (struct tx_desc *)pcmdbuf;
 		memset(pdesc, 0, TXDESC_SIZE);
 		pcmd = cmd_hdl_filter(padapter, pcmd);
-		if (pcmd) { 
+		if (pcmd) { /* if pcmd != NULL, cmd will be handled by f/w */
 			struct dvobj_priv *pdvobj = (struct dvobj_priv *)
 						    &padapter->dvobjpriv;
 			u8 blnPending = 0;
 			pcmdpriv->cmd_issued_cnt++;
-			cmdsz = _RND8((pcmd->cmdsz)); 
+			cmdsz = _RND8((pcmd->cmdsz)); /* _RND8	*/
 			wr_sz = TXDESC_SIZE + 8 + cmdsz;
 			pdesc->txdw0 |= cpu_to_le32((wr_sz-TXDESC_SIZE) &
 						     0x0000ffff);
@@ -353,7 +365,7 @@ _next:
 				if ((wr_sz % 64) == 0)
 					blnPending = 1;
 			}
-			if (blnPending) 
+			if (blnPending) /* 32 bytes for TX Desc - 8 offset */
 				pdesc->txdw0 |= cpu_to_le32(((TXDESC_SIZE +
 						OFFSET_SZ + 8) << OFFSET_SHT) &
 						0x00ff0000);
@@ -370,7 +382,7 @@ _next:
 			*pcmdbuf = cpu_to_le32((cmdsz & 0x0000ffff) |
 					       (pcmd->cmdcode << 16) |
 					       (pcmdpriv->cmd_seq << 24));
-			pcmdbuf += 2 ; 
+			pcmdbuf += 2 ; /* 8 bytes aligment */
 			memcpy((u8 *)pcmdbuf, pcmd->parmbuf, pcmd->cmdsz);
 			while (check_cmd_fifo(padapter, wr_sz) == _FAIL) {
 				if ((padapter->bDriverStopped == true) ||
@@ -380,7 +392,7 @@ _next:
 				continue;
 			}
 			if (blnPending)
-				wr_sz += 8;   
+				wr_sz += 8;   /* Append 8 bytes */
 			r8712_write_mem(padapter, RTL8712_DMA_H2CCMD, wr_sz,
 				       (u8 *)pdesc);
 			pcmdpriv->cmd_seq++;
@@ -410,7 +422,7 @@ _next:
 			goto _next;
 		flush_signals_thread();
 	}
-	
+	/* free all cmd_obj resources */
 	do {
 		pcmd = r8712_dequeue_cmd(&(pcmdpriv->cmd_queue));
 		if (pcmd == NULL)
@@ -433,12 +445,12 @@ void r8712_event_handle(struct _adapter *padapter, uint *peventbuf)
 	evt_sz = (u16)(le32_to_cpu(*peventbuf) & 0xffff);
 	evt_seq = (u8)((le32_to_cpu(*peventbuf) >> 24) & 0x7f);
 	evt_code = (u8)((le32_to_cpu(*peventbuf) >> 16) & 0xff);
-	
+	/* checking event sequence... */
 	if ((evt_seq & 0x7f) != pevt_priv->event_seq) {
 		pevt_priv->event_seq = ((evt_seq + 1) & 0x7f);
 		goto _abort_event_;
 	}
-	
+	/* checking if event code is valid */
 	if (evt_code >= MAX_C2HEVT) {
 		pevt_priv->event_seq = ((evt_seq+1) & 0x7f);
 		goto _abort_event_;
@@ -447,7 +459,7 @@ void r8712_event_handle(struct _adapter *padapter, uint *peventbuf)
 		pevt_priv->event_seq = ((evt_seq+1)&0x7f);
 		goto _abort_event_;
 	}
-	
+	/* checking if event size match the event parm size */
 	if ((wlanevents[evt_code].parmsize) &&
 	    (wlanevents[evt_code].parmsize != evt_sz)) {
 		pevt_priv->event_seq = ((evt_seq+1)&0x7f);
@@ -456,10 +468,10 @@ void r8712_event_handle(struct _adapter *padapter, uint *peventbuf)
 		pevt_priv->event_seq = ((evt_seq+1)&0x7f);
 		goto _abort_event_;
 	}
-	pevt_priv->event_seq++;	
+	pevt_priv->event_seq++;	/* update evt_seq */
 	if (pevt_priv->event_seq > 127)
 		pevt_priv->event_seq = 0;
-	peventbuf = peventbuf + 2; 
+	peventbuf = peventbuf + 2; /* move to event content, 8 bytes aligment */
 	if (peventbuf) {
 		event_callback = wlanevents[evt_code].event_callback;
 		if (event_callback)

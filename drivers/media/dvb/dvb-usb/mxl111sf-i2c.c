@@ -21,6 +21,7 @@
 #include "mxl111sf-i2c.h"
 #include "mxl111sf.h"
 
+/* SW-I2C ----------------------------------------------------------------- */
 
 #define SW_I2C_ADDR		0x1a
 #define SW_I2C_EN		0x02
@@ -63,7 +64,7 @@ static int mxl111sf_i2c_bitbang_sendbyte(struct mxl111sf_state *state,
 			goto fail;
 	}
 
-	
+	/* last bit was 0 so we need to release SDA */
 	if (!(byte & 1)) {
 		ret = mxl111sf_write_reg(state, SW_I2C_ADDR,
 					 0x10 | SW_I2C_EN | SW_SDA_OUT);
@@ -71,7 +72,7 @@ static int mxl111sf_i2c_bitbang_sendbyte(struct mxl111sf_state *state,
 			goto fail;
 	}
 
-	
+	/* CLK high for ACK readback */
 	ret = mxl111sf_write_reg(state, SW_I2C_ADDR,
 				 0x10 | SW_I2C_EN | SW_SCL_OUT | SW_SDA_OUT);
 	if (mxl_fail(ret))
@@ -81,7 +82,7 @@ static int mxl111sf_i2c_bitbang_sendbyte(struct mxl111sf_state *state,
 	if (mxl_fail(ret))
 		goto fail;
 
-	
+	/* drop the CLK after getting ACK, SDA will go high right away */
 	ret = mxl111sf_write_reg(state, SW_I2C_ADDR,
 				 0x10 | SW_I2C_EN | SW_SDA_OUT);
 	if (mxl_fail(ret))
@@ -150,7 +151,7 @@ static int mxl111sf_i2c_start(struct mxl111sf_state *state)
 		goto fail;
 
 	ret = mxl111sf_write_reg(state, SW_I2C_ADDR,
-				 0x10 | SW_I2C_EN); 
+				 0x10 | SW_I2C_EN); /* start */
 	mxl_fail(ret);
 fail:
 	return ret;
@@ -163,7 +164,7 @@ static int mxl111sf_i2c_stop(struct mxl111sf_state *state)
 	mxl_i2c("()");
 
 	ret = mxl111sf_write_reg(state, SW_I2C_ADDR,
-				 0x10 | SW_I2C_EN); 
+				 0x10 | SW_I2C_EN); /* stop */
 	if (mxl_fail(ret))
 		goto fail;
 
@@ -200,7 +201,7 @@ static int mxl111sf_i2c_ack(struct mxl111sf_state *state)
 	if (mxl_fail(ret))
 		goto fail;
 
-	
+	/* pull SDA low */
 	ret = mxl111sf_write_reg(state, SW_I2C_ADDR,
 				 0x10 | SW_I2C_EN | SW_SCL_OUT);
 	if (mxl_fail(ret))
@@ -219,7 +220,7 @@ static int mxl111sf_i2c_nack(struct mxl111sf_state *state)
 
 	mxl_i2c("()");
 
-	
+	/* SDA high to signal last byte read from slave */
 	ret = mxl111sf_write_reg(state, SW_I2C_ADDR,
 				 0x10 | SW_I2C_EN | SW_SCL_OUT | SW_SDA_OUT);
 	if (mxl_fail(ret))
@@ -232,6 +233,7 @@ fail:
 	return ret;
 }
 
+/* ------------------------------------------------------------------------ */
 
 static int mxl111sf_i2c_sw_xfer_msg(struct mxl111sf_state *state,
 				    struct i2c_msg *msg)
@@ -293,13 +295,14 @@ static int mxl111sf_i2c_sw_xfer_msg(struct mxl111sf_state *state,
 			}
 		}
 
-		
+		/* FIXME: we only want to do this on the last transaction */
 		mxl111sf_i2c_stop(state);
 	}
 fail:
 	return ret;
 }
 
+/* HW-I2C ----------------------------------------------------------------- */
 
 #define USB_WRITE_I2C_CMD     0x99
 #define USB_READ_I2C_CMD      0xdd
@@ -383,7 +386,7 @@ static u8 mxl111sf_i2c_check_fifo(struct mxl111sf_state *state)
 		status = 1;
 
 	if ((buf[5] & 0x02) == 0x02)
-		mxl_i2c("(buf[5] & 0x02) == 0x02"); 
+		mxl_i2c("(buf[5] & 0x02) == 0x02"); /* FIXME */
 
 	return status;
 }
@@ -416,7 +419,7 @@ static int mxl111sf_i2c_readagain(struct mxl111sf_state *state,
 
 	mxl111sf_i2c_get_data(state, 0, i2c_w_data, i2c_r_data);
 
-	
+	/* Check for I2C NACK status */
 	if (mxl111sf_i2c_check_status(state) == 1) {
 		mxl_i2c("error!");
 	} else {
@@ -454,26 +457,26 @@ static int mxl111sf_i2c_hw_xfer_msg(struct mxl111sf_state *state,
 	for (index = 0; index < 26; index++)
 		buf[index] = USB_END_I2C_CMD;
 
-	
+	/* command to indicate data payload is destined for I2C interface */
 	buf[0] = USB_WRITE_I2C_CMD;
 	buf[1] = 0x00;
 
-	
+	/* enable I2C interface */
 	buf[2] = I2C_MUX_REG;
 	buf[3] = 0x80;
 	buf[4] = 0x00;
 
-	
+	/* enable I2C interface */
 	buf[5] = I2C_MUX_REG;
 	buf[6] = 0x81;
 	buf[7] = 0x00;
 
-	
+	/* set Timeout register on I2C interface */
 	buf[8] = 0x14;
 	buf[9] = 0xff;
 	buf[10] = 0x00;
 #if 0
-	
+	/* enable Interrupts on I2C interface */
 	buf[8] = 0x24;
 	buf[9] = 0xF7;
 	buf[10] = 0x00;
@@ -484,27 +487,27 @@ static int mxl111sf_i2c_hw_xfer_msg(struct mxl111sf_state *state,
 
 	ret = mxl111sf_i2c_send_data(state, 0, buf);
 
-	
+	/* write data on I2C bus */
 	if (!(msg->flags & I2C_M_RD) && (msg->len > 0)) {
 		mxl_i2c("%d\t%02x", msg->len, msg->buf[0]);
 
-		
+		/* control register on I2C interface to initialize I2C bus */
 		buf[2] = I2C_CONTROL_REG;
 		buf[3] = 0x5E;
 		buf[4] = (HWI2C400) ? 0x03 : 0x0D;
 
-		
+		/* I2C Slave device Address */
 		buf[5] = I2C_SLAVE_ADDR_REG;
 		buf[6] = (msg->addr);
 		buf[7] = 0x00;
 		buf[8] = USB_END_I2C_CMD;
 		ret = mxl111sf_i2c_send_data(state, 0, buf);
 
-		
+		/* check for slave device status */
 		if (mxl111sf_i2c_check_status(state) == 1) {
 			mxl_i2c("NACK writing slave address %02x",
 				msg->addr);
-			
+			/* if NACK, stop I2C bus and exit */
 			buf[2] = I2C_CONTROL_REG;
 			buf[3] = 0x4E;
 			buf[4] = (HWI2C400) ? 0x03 : 0x0D;
@@ -512,6 +515,9 @@ static int mxl111sf_i2c_hw_xfer_msg(struct mxl111sf_state *state,
 			goto exit;
 		}
 
+		/* I2C interface can do I2C operations in block of 8 bytes of
+		   I2C data. calculation to figure out number of blocks of i2c
+		   data required to program */
 		block_len = (msg->len / 8);
 		left_over_len = (msg->len % 8);
 		index = 0;
@@ -521,7 +527,7 @@ static int mxl111sf_i2c_hw_xfer_msg(struct mxl111sf_state *state,
 
 		for (index = 0; index < block_len; index++) {
 			for (i = 0; i < 8; i++) {
-				
+				/* write data on I2C interface */
 				buf[2+(i*3)] = I2C_DATA_REG;
 				buf[3+(i*3)] = msg->buf[(index*8)+i];
 				buf[4+(i*3)] = 0x00;
@@ -529,12 +535,12 @@ static int mxl111sf_i2c_hw_xfer_msg(struct mxl111sf_state *state,
 
 			ret = mxl111sf_i2c_send_data(state, 0, buf);
 
-			
+			/* check for I2C NACK status */
 			if (mxl111sf_i2c_check_status(state) == 1) {
 				mxl_i2c("NACK writing slave address %02x",
 					msg->addr);
 
-				
+				/* if NACK, stop I2C bus and exit */
 				buf[2] = I2C_CONTROL_REG;
 				buf[3] = 0x4E;
 				buf[4] = (HWI2C400) ? 0x03 : 0x0D;
@@ -560,12 +566,12 @@ static int mxl111sf_i2c_hw_xfer_msg(struct mxl111sf_state *state,
 			}
 			ret = mxl111sf_i2c_send_data(state, 0, buf);
 
-			
+			/* check for I2C NACK status */
 			if (mxl111sf_i2c_check_status(state) == 1) {
 				mxl_i2c("NACK writing slave address %02x",
 					msg->addr);
 
-				
+				/* if NACK, stop I2C bus and exit */
 				buf[2] = I2C_CONTROL_REG;
 				buf[3] = 0x4E;
 				buf[4] = (HWI2C400) ? 0x03 : 0x0D;
@@ -575,39 +581,41 @@ static int mxl111sf_i2c_hw_xfer_msg(struct mxl111sf_state *state,
 
 		}
 
-		
+		/* issue I2C STOP after write */
 		buf[2] = I2C_CONTROL_REG;
 		buf[3] = 0x4E;
 		buf[4] = (HWI2C400) ? 0x03 : 0x0D;
 
 	}
 
-	
+	/* read data from I2C bus */
 	if ((msg->flags & I2C_M_RD) && (msg->len > 0)) {
 		mxl_i2c("read buf len %d", msg->len);
 
+		/* command to indicate data payload is
+		   destined for I2C interface */
 		buf[2] = I2C_CONTROL_REG;
 		buf[3] = 0xDF;
 		buf[4] = (HWI2C400) ? 0x03 : 0x0D;
 
-		
+		/* I2C xfer length */
 		buf[5] = 0x14;
 		buf[6] = (msg->len & 0xFF);
 		buf[7] = 0;
 
-		
+		/* I2C slave device Address */
 		buf[8] = I2C_SLAVE_ADDR_REG;
 		buf[9] = msg->addr;
 		buf[10] = 0x00;
 		buf[11] = USB_END_I2C_CMD;
 		ret = mxl111sf_i2c_send_data(state, 0, buf);
 
-		
+		/* check for I2C NACK status */
 		if (mxl111sf_i2c_check_status(state) == 1) {
 			mxl_i2c("NACK reading slave address %02x",
 				msg->addr);
 
-			
+			/* if NACK, stop I2C bus and exit */
 			buf[2] = I2C_CONTROL_REG;
 			buf[3] = 0xC7;
 			buf[4] = (HWI2C400) ? 0x03 : 0x0D;
@@ -615,6 +623,9 @@ static int mxl111sf_i2c_hw_xfer_msg(struct mxl111sf_state *state,
 			goto exit;
 		}
 
+		/* I2C interface can do I2C operations in block of 8 bytes of
+		   I2C data. calculation to figure out number of blocks of
+		   i2c data required to program */
 		block_len = ((msg->len) / 8);
 		left_over_len = ((msg->len) % 8);
 		index = 0;
@@ -622,12 +633,12 @@ static int mxl111sf_i2c_hw_xfer_msg(struct mxl111sf_state *state,
 		mxl_i2c("block_len %d, left_over_len %d",
 			block_len, left_over_len);
 
-		
+		/* command to read data from I2C interface */
 		buf[0] = USB_READ_I2C_CMD;
 		buf[1] = 0x00;
 
 		for (index = 0; index < block_len; index++) {
-			
+			/* setup I2C read request packet on I2C interface */
 			for (i = 0; i < 8; i++) {
 				buf[2+(i*3)] = I2C_DATA_REG;
 				buf[3+(i*3)] = 0x00;
@@ -636,12 +647,12 @@ static int mxl111sf_i2c_hw_xfer_msg(struct mxl111sf_state *state,
 
 			ret = mxl111sf_i2c_get_data(state, 0, buf, i2c_r_data);
 
-			
+			/* check for I2C NACK status */
 			if (mxl111sf_i2c_check_status(state) == 1) {
 				mxl_i2c("NACK reading slave address %02x",
 					msg->addr);
 
-				
+				/* if NACK, stop I2C bus and exit */
 				buf[2] = I2C_CONTROL_REG;
 				buf[3] = 0xC7;
 				buf[4] = (HWI2C400) ? 0x03 : 0x0D;
@@ -649,7 +660,7 @@ static int mxl111sf_i2c_hw_xfer_msg(struct mxl111sf_state *state,
 				goto exit;
 			}
 
-			
+			/* copy data from i2c data payload to read buffer */
 			for (i = 0; i < 8; i++) {
 				rd_status[i] = i2c_r_data[(i*3)+2];
 
@@ -659,7 +670,7 @@ static int mxl111sf_i2c_hw_xfer_msg(struct mxl111sf_state *state,
 							" @ %d", i);
 						msg->buf[(index*8)+i] =
 							i2c_r_data[(i*3)+1];
-						
+						/* read again */
 						ret_status =
 							mxl111sf_i2c_readagain(
 								state, 8-(i+1),
@@ -713,12 +724,12 @@ stop_copy:
 			ret = mxl111sf_i2c_get_data(state, 0, buf,
 						    i2c_r_data);
 
-			
+			/* check for I2C NACK status */
 			if (mxl111sf_i2c_check_status(state) == 1) {
 				mxl_i2c("NACK reading slave address %02x",
 					msg->addr);
 
-				
+				/* if NACK, stop I2C bus and exit */
 				buf[2] = I2C_CONTROL_REG;
 				buf[3] = 0xC7;
 				buf[4] = (HWI2C400) ? 0x03 : 0x0D;
@@ -735,10 +746,12 @@ stop_copy:
 			}
 		}
 
+		/* indicate I2C interface to issue NACK
+		   after next I2C read op */
 		buf[0] = USB_WRITE_I2C_CMD;
 		buf[1] = 0x00;
 
-		
+		/* control register */
 		buf[2] = I2C_CONTROL_REG;
 		buf[3] = 0x17;
 		buf[4] = (HWI2C400) ? 0x03 : 0x0D;
@@ -746,46 +759,46 @@ stop_copy:
 		buf[5] = USB_END_I2C_CMD;
 		ret = mxl111sf_i2c_send_data(state, 0, buf);
 
-		
+		/* control register */
 		buf[2] = I2C_CONTROL_REG;
 		buf[3] = 0xC7;
 		buf[4] = (HWI2C400) ? 0x03 : 0x0D;
 
 	}
 exit:
-	
+	/* STOP and disable I2C MUX */
 	buf[0] = USB_WRITE_I2C_CMD;
 	buf[1] = 0x00;
 
-	
+	/* de-initilize I2C BUS */
 	buf[5] = USB_END_I2C_CMD;
 	mxl111sf_i2c_send_data(state, 0, buf);
 
-	
+	/* Control Register */
 	buf[2] = I2C_CONTROL_REG;
 	buf[3] = 0xDF;
 	buf[4] = 0x03;
 
-	
+	/* disable I2C interface */
 	buf[5] = I2C_MUX_REG;
 	buf[6] = 0x00;
 	buf[7] = 0x00;
 
-	
+	/* de-initilize I2C BUS */
 	buf[8] = USB_END_I2C_CMD;
 	mxl111sf_i2c_send_data(state, 0, buf);
 
-	
+	/* disable I2C interface */
 	buf[2] = I2C_MUX_REG;
 	buf[3] = 0x81;
 	buf[4] = 0x00;
 
-	
+	/* disable I2C interface */
 	buf[5] = I2C_MUX_REG;
 	buf[6] = 0x00;
 	buf[7] = 0x00;
 
-	
+	/* disable I2C interface */
 	buf[8] = I2C_MUX_REG;
 	buf[9] = 0x00;
 	buf[10] = 0x00;
@@ -796,6 +809,7 @@ exit:
 	return ret;
 }
 
+/* ------------------------------------------------------------------------ */
 
 int mxl111sf_i2c_xfer(struct i2c_adapter *adap,
 		      struct i2c_msg msg[], int num)
@@ -829,3 +843,8 @@ int mxl111sf_i2c_xfer(struct i2c_adapter *adap,
 	return i == num ? num : -EREMOTEIO;
 }
 
+/*
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

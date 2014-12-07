@@ -36,7 +36,7 @@ static ssize_t led_brightness_show(struct device *dev,
 {
 	struct led_classdev *led_cdev = dev_get_drvdata(dev);
 
-	
+	/* no lock needed for this */
 	led_update_brightness(led_cdev);
 
 	return snprintf(buf, LED_BUFF_SIZE, "%u\n", led_cdev->brightness);
@@ -115,10 +115,13 @@ static void led_timer_function(unsigned long data)
 
 	brightness = led_get_brightness(led_cdev);
 	if (!brightness) {
-		
+		/* Time to switch the LED on. */
 		brightness = led_cdev->blink_brightness;
 		delay = led_cdev->blink_delay_on;
 	} else {
+		/* Store the current brightness value to be able
+		 * to restore it when the delay_off period is over.
+		 */
 		led_cdev->blink_brightness = brightness;
 		brightness = LED_OFF;
 		delay = led_cdev->blink_delay_off;
@@ -129,6 +132,10 @@ static void led_timer_function(unsigned long data)
 	mod_timer(&led_cdev->blink_timer, jiffies + msecs_to_jiffies(delay));
 }
 
+/**
+ * led_classdev_suspend - suspend an led_classdev.
+ * @led_cdev: the led_classdev to suspend.
+ */
 void led_classdev_suspend(struct led_classdev *led_cdev)
 {
 	led_cdev->flags |= LED_SUSPENDED;
@@ -136,6 +143,10 @@ void led_classdev_suspend(struct led_classdev *led_cdev)
 }
 EXPORT_SYMBOL_GPL(led_classdev_suspend);
 
+/**
+ * led_classdev_resume - resume an led_classdev.
+ * @led_cdev: the led_classdev to resume.
+ */
 void led_classdev_resume(struct led_classdev *led_cdev)
 {
 	led_cdev->brightness_set(led_cdev, led_cdev->brightness);
@@ -163,6 +174,11 @@ static int led_resume(struct device *dev)
 	return 0;
 }
 
+/**
+ * led_classdev_register - register a new object of led_classdev class.
+ * @parent: The device to register.
+ * @led_cdev: the led_classdev structure for this device.
+ */
 int led_classdev_register(struct device *parent, struct led_classdev *led_cdev)
 {
 	led_cdev->dev = device_create(leds_class, parent, 0, led_cdev,
@@ -173,7 +189,7 @@ int led_classdev_register(struct device *parent, struct led_classdev *led_cdev)
 #ifdef CONFIG_LEDS_TRIGGERS
 	init_rwsem(&led_cdev->trigger_lock);
 #endif
-	
+	/* add to the list of leds */
 	down_write(&leds_list_lock);
 	list_add_tail(&led_cdev->node, &leds_list);
 	up_write(&leds_list_lock);
@@ -198,6 +214,12 @@ int led_classdev_register(struct device *parent, struct led_classdev *led_cdev)
 }
 EXPORT_SYMBOL_GPL(led_classdev_register);
 
+/**
+ * led_classdev_unregister - unregisters a object of led_properties class.
+ * @led_cdev: the led device to unregister
+ *
+ * Unregisters a previously registered via led_classdev_register object.
+ */
 void led_classdev_unregister(struct led_classdev *led_cdev)
 {
 #ifdef CONFIG_LEDS_TRIGGERS
@@ -207,7 +229,7 @@ void led_classdev_unregister(struct led_classdev *led_cdev)
 	up_write(&led_cdev->trigger_lock);
 #endif
 
-	
+	/* Stop blinking */
 	led_brightness_set(led_cdev, LED_OFF);
 
 	device_unregister(led_cdev->dev);

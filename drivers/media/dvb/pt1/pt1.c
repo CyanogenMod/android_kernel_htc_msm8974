@@ -561,17 +561,17 @@ pt1_update_power(struct pt1 *pt1)
 	for (i = 0; i < PT1_NR_ADAPS; i++) {
 		adap = pt1->adaps[i];
 		switch (adap->voltage) {
-		case SEC_VOLTAGE_13: 
+		case SEC_VOLTAGE_13: /* actually 11V */
 			bits |= 1 << 1;
 			break;
-		case SEC_VOLTAGE_18: 
+		case SEC_VOLTAGE_18: /* actually 15V */
 			bits |= 1 << 1 | 1 << 2;
 			break;
 		default:
 			break;
 		}
 
-		
+		/* XXX: The bits should be changed depending on adap->sleep. */
 		bits |= sleep_bits[i];
 	}
 	pt1_write_reg(pt1, 1, bits);
@@ -837,7 +837,7 @@ static int pt1_init_frontends(struct pt1 *pt1)
 		fe[i] = va1j5jf8007s_attach(&config->va1j5jf8007s_config,
 					    i2c_adap);
 		if (!fe[i]) {
-			ret = -ENODEV; 
+			ret = -ENODEV; /* This does not sound nice... */
 			goto err;
 		}
 		i++;
@@ -970,7 +970,7 @@ static void pt1_i2c_begin(struct pt1 *pt1, int *addrp)
 	int addr;
 	addr = 0;
 
-	pt1_i2c_emit(pt1, addr,     0, 0, 1, 1, addr );
+	pt1_i2c_emit(pt1, addr,     0, 0, 1, 1, addr /* itself */);
 	addr = addr + 1;
 
 	if (!pt1->i2c_running) {

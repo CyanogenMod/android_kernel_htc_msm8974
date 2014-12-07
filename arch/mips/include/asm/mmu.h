@@ -6,4 +6,4 @@ typedef struct {
 	void *vdso;
 } mm_context_t;
 
-#endif 
+#endif /* __ASM_MMU_H */

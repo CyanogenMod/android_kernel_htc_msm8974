@@ -29,6 +29,7 @@
 static void lasat_machine_restart(char *command);
 static void lasat_machine_halt(void);
 
+/* Used to set machine to boot in service mode via /proc interface */
 int lasat_boot_to_service;
 
 static void lasat_machine_restart(char *command)

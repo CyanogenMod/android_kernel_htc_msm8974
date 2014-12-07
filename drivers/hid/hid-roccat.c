@@ -11,6 +11,15 @@
  * any later version.
  */
 
+/*
+ * Module roccat is a char device used to report special events of roccat
+ * hardware to userland. These events include requests for on-screen-display of
+ * profile or dpi settings or requests for execution of macro sequences that are
+ * not stored in device. The information in these events depends on hid device
+ * implementation and contains data that is not available in a single hid event
+ * or else hidraw could have been used.
+ * It is inspired by hidraw, but uses only one circular buffer for all readers.
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -23,6 +32,7 @@
 #define ROCCAT_FIRST_MINOR 0
 #define ROCCAT_MAX_DEVICES 8
 
+/* should be a power of 2 for performance reason */
 #define ROCCAT_CBUF_SIZE 16
 
 struct roccat_report {
@@ -38,9 +48,13 @@ struct roccat_device {
 	struct device *dev;
 	struct hid_device *hid;
 	struct list_head readers;
-	
+	/* protects modifications of readers list */
 	struct mutex readers_lock;
 
+	/*
+	 * circular_buffer has one writer and multiple readers with their own
+	 * read pointers
+	 */
 	struct roccat_report cbuf[ROCCAT_CBUF_SIZE];
 	int cbuf_end;
 	struct mutex cbuf_lock;
@@ -56,6 +70,7 @@ static int roccat_major;
 static struct cdev roccat_cdev;
 
 static struct roccat_device *devices[ROCCAT_MAX_DEVICES];
+/* protects modifications of devices array */
 static DEFINE_MUTEX(devices_lock);
 
 static ssize_t roccat_read(struct file *file, char __user *buffer,
@@ -69,12 +84,12 @@ static ssize_t roccat_read(struct file *file, char __user *buffer,
 
 	mutex_lock(&device->cbuf_lock);
 
-	
+	/* no data? */
 	if (reader->cbuf_start == device->cbuf_end) {
 		add_wait_queue(&device->wait, &wait);
 		set_current_state(TASK_INTERRUPTIBLE);
 
-		
+		/* wait for data */
 		while (reader->cbuf_start == device->cbuf_end) {
 			if (file->f_flags & O_NONBLOCK) {
 				retval = -EAGAIN;
@@ -99,11 +114,15 @@ static ssize_t roccat_read(struct file *file, char __user *buffer,
 		remove_wait_queue(&device->wait, &wait);
 	}
 
-	
+	/* here we either have data or a reason to return if retval is set */
 	if (retval)
 		goto exit_unlock;
 
 	report = &device->cbuf[reader->cbuf_start];
+	/*
+	 * If report is larger than requested amount of data, rest of report
+	 * is lost!
+	 */
 	len = device->report_size > count ? count : device->report_size;
 
 	if (copy_to_user(buffer, report->value, len)) {
@@ -153,7 +172,7 @@ static int roccat_open(struct inode *inode, struct file *file)
 	mutex_lock(&device->readers_lock);
 
 	if (!device->open++) {
-		
+		/* power on device on adding first reader */
 		error = hid_hw_power(device->hid, PM_HINT_FULLON);
 		if (error < 0) {
 			--device->open;
@@ -169,7 +188,7 @@ static int roccat_open(struct inode *inode, struct file *file)
 	}
 
 	reader->device = device;
-	
+	/* new reader doesn't get old events */
 	reader->cbuf_start = device->cbuf_end;
 
 	list_add_tail(&reader->node, &device->readers);
@@ -205,7 +224,7 @@ static int roccat_release(struct inode *inode, struct file *file)
 	kfree(reader);
 
 	if (!--device->open) {
-		
+		/* removing last reader */
 		if (device->exist) {
 			hid_hw_power(device->hid, PM_HINT_NORMAL);
 			hid_hw_close(device->hid);
@@ -219,6 +238,16 @@ static int roccat_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ * roccat_report_event() - output data to readers
+ * @minor: minor device number returned by roccat_connect()
+ * @data: pointer to data
+ * @len: size of data
+ *
+ * Return value is zero on success, a negative error code on failure.
+ *
+ * This is called from interrupt handler.
+ */
 int roccat_report_event(int minor, u8 const *data)
 {
 	struct roccat_device *device;
@@ -234,13 +263,19 @@ int roccat_report_event(int minor, u8 const *data)
 
 	report = &device->cbuf[device->cbuf_end];
 
-	
+	/* passing NULL is safe */
 	kfree(report->value);
 
 	report->value = new_value;
 	device->cbuf_end = (device->cbuf_end + 1) % ROCCAT_CBUF_SIZE;
 
 	list_for_each_entry(reader, &device->readers, node) {
+		/*
+		 * As we already inserted one element, the buffer can't be
+		 * empty. If start and end are equal, buffer is full and we
+		 * increase start, so that slow reader misses one event, but
+		 * gets the newer ones in the right order.
+		 */
 		if (reader->cbuf_start == device->cbuf_end)
 			reader->cbuf_start = (reader->cbuf_start + 1) % ROCCAT_CBUF_SIZE;
 	}
@@ -250,6 +285,15 @@ int roccat_report_event(int minor, u8 const *data)
 }
 EXPORT_SYMBOL_GPL(roccat_report_event);
 
+/*
+ * roccat_connect() - create a char device for special event output
+ * @class: the class thats used to create the device. Meant to hold device
+ * specific sysfs attributes.
+ * @hid: the hid device the char device should be connected to.
+ *
+ * Return value is minor device number in Range [0, ROCCAT_MAX_DEVICES] on
+ * success, a negative error code on failure.
+ */
 int roccat_connect(struct class *klass, struct hid_device *hid, int report_size)
 {
 	unsigned int minor;
@@ -304,6 +348,9 @@ int roccat_connect(struct class *klass, struct hid_device *hid, int report_size)
 }
 EXPORT_SYMBOL_GPL(roccat_connect);
 
+/* roccat_disconnect() - remove char device from hid device
+ * @minor: the minor device number returned by roccat_connect()
+ */
 void roccat_disconnect(int minor)
 {
 	struct roccat_device *device;
@@ -312,7 +359,7 @@ void roccat_disconnect(int minor)
 	device = devices[minor];
 	mutex_unlock(&devices_lock);
 
-	device->exist = 0; 
+	device->exist = 0; /* TODO exist maybe not needed */
 
 	device_destroy(device->dev->class, MKDEV(roccat_major, minor));
 

@@ -187,7 +187,7 @@ static int vv6410_start(struct sd *sd)
 
 	}
 
-	
+	/* Turn on LED */
 	err = stv06xx_write_bridge(sd, STV_LED_CTRL, LED_ON);
 	if (err < 0)
 		return err;
@@ -205,7 +205,7 @@ static int vv6410_stop(struct sd *sd)
 {
 	int err;
 
-	
+	/* Turn off LED */
 	err = stv06xx_write_bridge(sd, STV_LED_CTRL, LED_OFF);
 	if (err < 0)
 		return err;

@@ -1,3 +1,15 @@
+/*
+ *  ebt_limit
+ *
+ *	Authors:
+ *	Tom Marshall <tommy@home.tig-grr.com>
+ *
+ *	Mostly copied from netfilter's ipt_limit.c, see that file for
+ *	more explanation
+ *
+ *  September, 2003
+ *
+ */
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 #include <linux/module.h>
 #include <linux/netdevice.h>
@@ -31,7 +43,7 @@ ebt_limit_mt(const struct sk_buff *skb, struct xt_action_param *par)
 		info->credit = info->credit_cap;
 
 	if (info->credit >= info->cost) {
-		
+		/* We're not limited. */
 		info->credit -= info->cost;
 		spin_unlock_bh(&limit_lock);
 		return true;
@@ -41,12 +53,13 @@ ebt_limit_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	return false;
 }
 
+/* Precision saver. */
 static u_int32_t
 user2credits(u_int32_t user)
 {
-	
+	/* If multiplying would overflow... */
 	if (user > 0xFFFFFFFF / (HZ*CREDITS_PER_JIFFY))
-		
+		/* Divide first. */
 		return (user / EBT_LIMIT_SCALE) * HZ * CREDITS_PER_JIFFY;
 
 	return (user * HZ * CREDITS_PER_JIFFY) / EBT_LIMIT_SCALE;
@@ -56,7 +69,7 @@ static int ebt_limit_mt_check(const struct xt_mtchk_param *par)
 {
 	struct ebt_limit_info *info = par->matchinfo;
 
-	
+	/* Check for overflow. */
 	if (info->burst == 0 ||
 	    user2credits(info->avg * info->burst) < user2credits(info->avg)) {
 		pr_info("overflow, try lower: %u/%u\n",
@@ -64,7 +77,7 @@ static int ebt_limit_mt_check(const struct xt_mtchk_param *par)
 		return -EINVAL;
 	}
 
-	
+	/* User avg in seconds * EBT_LIMIT_SCALE: convert to jiffies * 128. */
 	info->prev = jiffies;
 	info->credit = user2credits(info->avg * info->burst);
 	info->credit_cap = user2credits(info->avg * info->burst);
@@ -74,6 +87,10 @@ static int ebt_limit_mt_check(const struct xt_mtchk_param *par)
 
 
 #ifdef CONFIG_COMPAT
+/*
+ * no conversion function needed --
+ * only avg/burst have meaningful values in userspace.
+ */
 struct ebt_compat_limit_info {
 	compat_uint_t avg, burst;
 	compat_ulong_t prev;

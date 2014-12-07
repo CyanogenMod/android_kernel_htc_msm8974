@@ -46,11 +46,16 @@ static int fifo_open(struct inode *inode, struct file *filp)
 	}
 	filp->f_version = 0;
 
-	
+	/* We can only do regular read/write on fifos */
 	filp->f_mode &= (FMODE_READ | FMODE_WRITE);
 
 	switch (filp->f_mode) {
 	case FMODE_READ:
+	/*
+	 *  O_RDONLY
+	 *  POSIX.1 says that O_NONBLOCK means return with the FIFO
+	 *  opened, even when there is no process writing the FIFO.
+	 */
 		filp->f_op = &read_pipefifo_fops;
 		pipe->r_counter++;
 		if (pipe->readers++ == 0)
@@ -58,6 +63,8 @@ static int fifo_open(struct inode *inode, struct file *filp)
 
 		if (!pipe->writers) {
 			if ((filp->f_flags & O_NONBLOCK)) {
+				/* suppress POLLHUP until we have
+				 * seen a writer */
 				filp->f_version = pipe->w_counter;
 			} else {
 				wait_for_partner(inode, &pipe->w_counter);
@@ -68,6 +75,11 @@ static int fifo_open(struct inode *inode, struct file *filp)
 		break;
 	
 	case FMODE_WRITE:
+	/*
+	 *  O_WRONLY
+	 *  POSIX.1 says that O_NONBLOCK means return -1 with
+	 *  errno=ENXIO when there is no process reading the FIFO.
+	 */
 		ret = -ENXIO;
 		if ((filp->f_flags & O_NONBLOCK) && !pipe->readers)
 			goto err;
@@ -85,6 +97,12 @@ static int fifo_open(struct inode *inode, struct file *filp)
 		break;
 	
 	case FMODE_READ | FMODE_WRITE:
+	/*
+	 *  O_RDWR
+	 *  POSIX.1 leaves this case "undefined" when O_NONBLOCK is set.
+	 *  This implementation will NEVER block on a O_RDWR open, since
+	 *  the process can at least talk to itself.
+	 */
 		filp->f_op = &rdwr_pipefifo_fops;
 
 		pipe->readers++;
@@ -100,7 +118,7 @@ static int fifo_open(struct inode *inode, struct file *filp)
 		goto err;
 	}
 
-	
+	/* Ok! */
 	mutex_unlock(&inode->i_mutex);
 	return 0;
 
@@ -125,7 +143,12 @@ err_nocleanup:
 	return ret;
 }
 
+/*
+ * Dummy default file-operations: the only thing this does
+ * is contain the open that then fills in the correct operations
+ * depending on the access mode of the file...
+ */
 const struct file_operations def_fifo_fops = {
-	.open		= fifo_open,	
+	.open		= fifo_open,	/* will set read_ or write_pipefifo_fops */
 	.llseek		= noop_llseek,
 };

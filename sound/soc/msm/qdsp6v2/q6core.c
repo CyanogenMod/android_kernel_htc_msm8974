@@ -123,7 +123,7 @@ static int32_t aprv2_core_fn_q(struct apr_client_data *data, void *priv)
 		q6core_lcl.param = payload1[0];
 		pr_debug("%s: Received ADSP get state response 0x%x\n",
 			 __func__, q6core_lcl.param);
-		
+		/* ensure .param is updated prior to .bus_bw_resp_received */
 		wmb();
 		q6core_lcl.bus_bw_resp_received = 1;
 		wake_up(&q6core_lcl.bus_bw_req_wait);
@@ -253,7 +253,7 @@ bool q6core_is_adsp_ready(void)
 				(q6core_lcl.bus_bw_resp_received == 1),
 				msecs_to_jiffies(Q6_READY_TIMEOUT_MS));
 	if (rc > 0 && q6core_lcl.bus_bw_resp_received) {
-		
+		/* ensure to read updated param by callback thread */
 		rmb();
 		ret = !!q6core_lcl.param;
 	}

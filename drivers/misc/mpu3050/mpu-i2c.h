@@ -16,6 +16,16 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
   $
  */
+/**
+ * @defgroup
+ * @brief
+ *
+ * @{
+ * @file     mpu-i2c.c
+ * @brief
+ *
+ *
+ */
 
 #ifndef __MPU_I2C_H__
 #define __MPU_I2C_H__
@@ -45,4 +55,4 @@ int mpu_memory_write(struct i2c_adapter *i2c_adap,
 		     unsigned short mem_addr,
 		     unsigned int len, unsigned char const *data);
 
-#endif	
+#endif	/* __MPU_I2C_H__ */

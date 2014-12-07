@@ -16,7 +16,7 @@ static void dump_trace(struct task_struct *task, struct stack_trace *trace)
 {
 	struct unwind_frame_info info;
 
-	
+	/* initialize unwind info */
 	if (task == current) {
 		unsigned long sp;
 		struct pt_regs r;
@@ -31,7 +31,7 @@ HERE:
 		unwind_frame_init_from_blocked_task(&info, task);
 	}
 
-	
+	/* unwind stack and save entries in stack_trace struct */
 	trace->nr_entries = 0;
 	while (trace->nr_entries < trace->max_entries) {
 		if (unwind_once(&info) < 0 || info.ip == 0)
@@ -43,6 +43,9 @@ HERE:
 }
 
 
+/*
+ * Save stack-backtrace addresses into a stack_trace buffer.
+ */
 void save_stack_trace(struct stack_trace *trace)
 {
 	dump_trace(current, trace);

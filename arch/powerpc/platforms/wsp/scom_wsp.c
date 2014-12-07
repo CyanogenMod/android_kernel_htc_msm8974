@@ -39,7 +39,7 @@ static scom_map_t wsp_scom_map(struct device_node *dev, u64 reg, u64 count)
 		return 0;
 	}
 
-	
+	/* Transform the SCOM address into an XSCOM offset */
 	xscom_addr = ((reg & 0x7f000000) >> 1) | ((reg & 0xfffff) << 3);
 
 	return (scom_map_t)ioremap(r.start + xscom_addr, count << 3);

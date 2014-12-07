@@ -22,6 +22,7 @@
  * in the file called LICENSE.GPL.
  */
 
+/* probe_roms - scan for oem parameters */
 
 #include <linux/kernel.h>
 #include <linux/firmware.h>
@@ -61,7 +62,7 @@ struct isci_orom *isci_request_oprom(struct pci_dev *pdev)
 	for (i = 0; i < len && rom; i += ISCI_OEM_SIG_SIZE) {
 		memcpy_fromio(oem_sig, oprom + i, ISCI_OEM_SIG_SIZE);
 
-		
+		/* we think we found the OEM table */
 		if (memcmp(oem_sig, ISCI_OEM_SIG, ISCI_OEM_SIG_SIZE) == 0) {
 			size_t copy_len;
 
@@ -74,7 +75,7 @@ struct isci_orom *isci_request_oprom(struct pci_dev *pdev)
 				      oprom + i + sizeof(oem_hdr),
 				      copy_len);
 
-			
+			/* calculate checksum */
 			tmp = (u8 *)&oem_hdr;
 			for (j = 0, sum = 0; j < sizeof(oem_hdr); j++, tmp++)
 				sum += *tmp;
@@ -89,7 +90,7 @@ struct isci_orom *isci_request_oprom(struct pci_dev *pdev)
 				continue;
 			}
 
-			
+			/* keep going if that's not the oem param table */
 			if (memcmp(rom->hdr.signature,
 				   ISCI_ROM_SIG,
 				   ISCI_ROM_SIG_SIZE) != 0)
@@ -114,7 +115,7 @@ struct isci_orom *isci_request_oprom(struct pci_dev *pdev)
 enum sci_status isci_parse_oem_parameters(struct sci_oem_params *oem,
 					  struct isci_orom *orom, int scu_index)
 {
-	
+	/* check for valid inputs */
 	if (scu_index < 0 || scu_index >= SCI_MAX_CONTROLLERS ||
 	    scu_index > orom->hdr.num_elements || !oem)
 		return -EINVAL;
@@ -149,6 +150,10 @@ struct isci_orom *isci_request_firmware(struct pci_dev *pdev, const struct firmw
 	if (is_c0(pdev) || is_c1(pdev))
 		goto out;
 
+	/*
+	 * deprecated: override default amp_control for pre-preproduction
+	 * silicon revisions
+	 */
 	for (i = 0; i < ARRAY_SIZE(orom->ctrl); i++)
 		for (j = 0; j < ARRAY_SIZE(orom->ctrl[i].phys); j++) {
 			orom->ctrl[i].phys[j].afe_tx_amp_control0 = 0xe7c03;
@@ -215,7 +220,7 @@ struct isci_orom *isci_get_efi_var(struct pci_dev *pdev)
 		return NULL;
 	}
 
-	
+	/* calculate checksum */
 	tmp = (u8 *)efi_data;
 	for (j = 0, sum = 0; j < (sizeof(*oem_hdr) + sizeof(*rom)); j++, tmp++)
 		sum += *tmp;

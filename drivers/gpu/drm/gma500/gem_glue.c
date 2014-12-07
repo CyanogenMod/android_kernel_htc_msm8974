@@ -23,7 +23,7 @@
 
 void drm_gem_object_release_wrap(struct drm_gem_object *obj)
 {
-	
+	/* Remove the list map if one is present */
 	if (obj->map_list.map) {
 		struct drm_gem_mm *mm = obj->dev->mm_private;
 		struct drm_map_list *list = &obj->map_list;
@@ -35,6 +35,13 @@ void drm_gem_object_release_wrap(struct drm_gem_object *obj)
 	drm_gem_object_release(obj);
 }
 
+/**
+ *	gem_create_mmap_offset		-	invent an mmap offset
+ *	@obj: our object
+ *
+ *	Standard implementation of offset generation for mmap as is
+ *	duplicated in several drivers. This belongs in GEM.
+ */
 int gem_create_mmap_offset(struct drm_gem_object *obj)
 {
 	struct drm_device *dev = obj->dev;

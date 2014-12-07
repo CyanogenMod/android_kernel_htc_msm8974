@@ -549,7 +549,7 @@ static ssize_t read_file_xmit(struct file *file, char __user *user_buf,
 		PRQLE(tmp, txq_fifo[i]);
 	}
 
-	
+	/* Print out more detailed queue-info */
 	for (i = 0; i <= WME_AC_BK; i++) {
 		struct ath_txq *txq = &(sc->tx.txq[i]);
 		struct ath_atx_ac *ac;
@@ -608,7 +608,7 @@ static ssize_t read_file_stations(struct file *file, char __user *user_buf,
 	list_for_each_entry(an, &sc->nodes, list) {
 		unsigned short ma = an->maxampdu;
 		if (ma == 0)
-			ma = 65535; 
+			ma = 65535; /* see ath_lookup_rate */
 		len += snprintf(buf + len, size - len,
 				"iface: %pM  sta: %pM max-ampdu: %hu mpdu-density: %uus\n",
 				an->vif->addr, an->sta->addr, ma,
@@ -1135,7 +1135,7 @@ static const struct file_operations fops_regdump = {
 	.read = ath9k_debugfs_read_buf,
 	.release = ath9k_debugfs_release_buf,
 	.owner = THIS_MODULE,
-	.llseek = default_llseek,
+	.llseek = default_llseek,/* read accesses f_pos */
 };
 
 static ssize_t read_file_dump_nfcal(struct file *file, char __user *user_buf,
@@ -1321,7 +1321,7 @@ static int open_file_bb_mac_samps(struct inode *inode, struct file *file)
 		vfree(buf);
 		return -ENOMEM;
 	}
-	
+	/* Account the current state too */
 	ath9k_debug_samp_bb_mac(sc);
 
 	spin_lock_bh(&sc->debug.samp_lock);

@@ -24,12 +24,12 @@ struct frv_dma_channel {
 #define FRV_DMA_FLAGS_RESERVED	0x01
 #define FRV_DMA_FLAGS_INUSE	0x02
 #define FRV_DMA_FLAGS_PAUSED	0x04
-	uint8_t			cap;		
-	int			irq;		
+	uint8_t			cap;		/* capabilities available */
+	int			irq;		/* completion IRQ */
 	uint32_t		dreqbit;
 	uint32_t		dackbit;
 	uint32_t		donebit;
-	const unsigned long	ioaddr;		
+	const unsigned long	ioaddr;		/* DMA controller regs addr */
 	const char		*devname;
 	dma_irq_handler_t	handler;
 	void			*data;
@@ -117,6 +117,10 @@ unsigned long frv_dma_inprogress;
 #define frv_set_dma_inprogress(channel) \
 	atomic_set_mask(1 << (channel), &frv_dma_inprogress);
 
+/*****************************************************************************/
+/*
+ * DMA irq handler - determine channel involved, grab status and call real handler
+ */
 static irqreturn_t dma_irq_handler(int irq, void *_channel)
 {
 	struct frv_dma_channel *channel = _channel;
@@ -126,14 +130,18 @@ static irqreturn_t dma_irq_handler(int irq, void *_channel)
 				__get_DMAC(channel->ioaddr, CSTR),
 				channel->data);
 
-} 
+} /* end dma_irq_handler() */
 
+/*****************************************************************************/
+/*
+ * Determine which DMA controllers are present on this CPU
+ */
 void __init frv_dma_init(void)
 {
 	unsigned long psr = __get_PSR();
 	int num_dma, i;
 
-	
+	/* First, determine how many DMA channels are available */
 	switch (PSR_IMPLE(psr)) {
 	case PSR_IMPLE_FR405:
 	case PSR_IMPLE_FR451:
@@ -148,12 +156,16 @@ void __init frv_dma_init(void)
 		break;
 	}
 
-	
+	/* Now mark all of the non-existent channels as reserved */
 	for(i = num_dma; i < FRV_DMA_NCHANS; i++)
 		frv_dma_channels[i].flags = FRV_DMA_FLAGS_RESERVED;
 
-} 
+} /* end frv_dma_init() */
 
+/*****************************************************************************/
+/*
+ * allocate a DMA controller channel and the IRQ associated with it
+ */
 int frv_dma_open(const char *devname,
 		 unsigned long dmamask,
 		 int dmacap,
@@ -189,7 +201,7 @@ int frv_dma_open(const char *devname,
 	if (ret < 0)
 		goto out;
 
-	
+	/* okay, we've allocated all the resources */
 	channel = &frv_dma_channels[dma];
 
 	channel->flags		|= FRV_DMA_FLAGS_INUSE;
@@ -197,10 +209,10 @@ int frv_dma_open(const char *devname,
 	channel->handler	= handler;
 	channel->data		= data;
 
-	
-	
+	/* Now make sure we are set up for DMA and not GPIO */
+	/* SIR bit must be set for DMA to work */
 	__set_SIR(channel->dreqbit | __get_SIR());
-	
+	/* SOR bits depend on what the caller requests */
 	val = __get_SOR();
 	if(dmacap & FRV_DMA_CAP_DACK)
 		val |= channel->dackbit;
@@ -216,10 +228,14 @@ int frv_dma_open(const char *devname,
  out:
 	write_unlock(&frv_dma_channels_lock);
 	return ret;
-} 
+} /* end frv_dma_open() */
 
 EXPORT_SYMBOL(frv_dma_open);
 
+/*****************************************************************************/
+/*
+ * close a DMA channel and its associated interrupt
+ */
 void frv_dma_close(int dma)
 {
 	struct frv_dma_channel *channel = &frv_dma_channels[dma];
@@ -233,10 +249,14 @@ void frv_dma_close(int dma)
 	channel->flags &= ~FRV_DMA_FLAGS_INUSE;
 
 	write_unlock_irqrestore(&frv_dma_channels_lock, flags);
-} 
+} /* end frv_dma_close() */
 
 EXPORT_SYMBOL(frv_dma_close);
 
+/*****************************************************************************/
+/*
+ * set static configuration on a DMA channel
+ */
 void frv_dma_config(int dma, unsigned long ccfr, unsigned long cctr, unsigned long apr)
 {
 	unsigned long ioaddr = frv_dma_channels[dma].ioaddr;
@@ -246,10 +266,14 @@ void frv_dma_config(int dma, unsigned long ccfr, unsigned long cctr, unsigned lo
 	___set_DMAC(ioaddr, APR,  apr);
 	mb();
 
-} 
+} /* end frv_dma_config() */
 
 EXPORT_SYMBOL(frv_dma_config);
 
+/*****************************************************************************/
+/*
+ * start a DMA channel
+ */
 void frv_dma_start(int dma,
 		   unsigned long sba, unsigned long dba,
 		   unsigned long pix, unsigned long six, unsigned long bcl)
@@ -267,10 +291,14 @@ void frv_dma_start(int dma,
 	__set_DMAC(ioaddr, CCTR, __get_DMAC(ioaddr, CCTR) | DMAC_CCTRx_ACT);
 	frv_set_dma_inprogress(dma);
 
-} 
+} /* end frv_dma_start() */
 
 EXPORT_SYMBOL(frv_dma_start);
 
+/*****************************************************************************/
+/*
+ * restart a DMA channel that's been stopped in circular addressing mode by comparison-end
+ */
 void frv_dma_restart_circular(int dma, unsigned long six)
 {
 	unsigned long ioaddr = frv_dma_channels[dma].ioaddr;
@@ -282,10 +310,14 @@ void frv_dma_restart_circular(int dma, unsigned long six)
 	__set_DMAC(ioaddr, CCTR, __get_DMAC(ioaddr, CCTR) | DMAC_CCTRx_ACT);
 	frv_set_dma_inprogress(dma);
 
-} 
+} /* end frv_dma_restart_circular() */
 
 EXPORT_SYMBOL(frv_dma_restart_circular);
 
+/*****************************************************************************/
+/*
+ * stop a DMA channel
+ */
 void frv_dma_stop(int dma)
 {
 	unsigned long ioaddr = frv_dma_channels[dma].ioaddr;
@@ -294,24 +326,32 @@ void frv_dma_stop(int dma)
 	___set_DMAC(ioaddr, CSTR, 0);
 	cctr = __get_DMAC(ioaddr, CCTR);
 	cctr &= ~(DMAC_CCTRx_IE | DMAC_CCTRx_ACT);
-	cctr |= DMAC_CCTRx_FC; 	
+	cctr |= DMAC_CCTRx_FC; 	/* fifo clear */
 	__set_DMAC(ioaddr, CCTR, cctr);
 	__set_DMAC(ioaddr, BCL,  0);
 	frv_clear_dma_inprogress(dma);
-} 
+} /* end frv_dma_stop() */
 
 EXPORT_SYMBOL(frv_dma_stop);
 
+/*****************************************************************************/
+/*
+ * test interrupt status of DMA channel
+ */
 int is_frv_dma_interrupting(int dma)
 {
 	unsigned long ioaddr = frv_dma_channels[dma].ioaddr;
 
 	return __get_DMAC(ioaddr, CSTR) & (1 << 23);
 
-} 
+} /* end is_frv_dma_interrupting() */
 
 EXPORT_SYMBOL(is_frv_dma_interrupting);
 
+/*****************************************************************************/
+/*
+ * dump data about a DMA channel
+ */
 void frv_dma_dump(int dma)
 {
 	unsigned long ioaddr = frv_dma_channels[dma].ioaddr;
@@ -324,10 +364,16 @@ void frv_dma_dump(int dma)
 
 	printk("DMA[%d] cstr=%lx pix=%lx six=%lx bcl=%lx\n", dma, cstr, pix, six, bcl);
 
-} 
+} /* end frv_dma_dump() */
 
 EXPORT_SYMBOL(frv_dma_dump);
 
+/*****************************************************************************/
+/*
+ * pause all DMA controllers
+ * - called by clock mangling routines
+ * - caller must be holding interrupts disabled
+ */
 void frv_dma_pause_all(void)
 {
 	struct frv_dma_channel *channel;
@@ -359,10 +405,16 @@ void frv_dma_pause_all(void)
 		}
 	}
 
-} 
+} /* end frv_dma_pause_all() */
 
 EXPORT_SYMBOL(frv_dma_pause_all);
 
+/*****************************************************************************/
+/*
+ * resume paused DMA controllers
+ * - called by clock mangling routines
+ * - caller must be holding interrupts disabled
+ */
 void frv_dma_resume_all(void)
 {
 	struct frv_dma_channel *channel;
@@ -391,10 +443,14 @@ void frv_dma_resume_all(void)
 
 	write_unlock(&frv_dma_channels_lock);
 
-} 
+} /* end frv_dma_resume_all() */
 
 EXPORT_SYMBOL(frv_dma_resume_all);
 
+/*****************************************************************************/
+/*
+ * dma status clear
+ */
 void frv_dma_status_clear(int dma)
 {
 	unsigned long ioaddr = frv_dma_channels[dma].ioaddr;
@@ -402,6 +458,6 @@ void frv_dma_status_clear(int dma)
 	___set_DMAC(ioaddr, CSTR, 0);
 
 	cctr = __get_DMAC(ioaddr, CCTR);
-} 
+} /* end frv_dma_status_clear() */
 
 EXPORT_SYMBOL(frv_dma_status_clear);

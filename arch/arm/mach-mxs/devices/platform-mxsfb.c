@@ -27,7 +27,7 @@ struct platform_device *__init mx23_add_mxsfb(
 	return mxs_add_platform_device_dmamask("imx23-fb", -1,
 			res, ARRAY_SIZE(res), pdata, sizeof(*pdata), DMA_BIT_MASK(32));
 }
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX23 */
 
 #ifdef CONFIG_SOC_IMX28
 struct platform_device *__init mx28_add_mxsfb(
@@ -44,4 +44,4 @@ struct platform_device *__init mx28_add_mxsfb(
 	return mxs_add_platform_device_dmamask("imx28-fb", -1,
 			res, ARRAY_SIZE(res), pdata, sizeof(*pdata), DMA_BIT_MASK(32));
 }
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX28 */

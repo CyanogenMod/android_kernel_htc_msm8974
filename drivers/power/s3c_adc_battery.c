@@ -24,8 +24,8 @@
 
 #include <plat/adc.h>
 
-#define BAT_POLL_INTERVAL		10000 
-#define JITTER_DELAY			500 
+#define BAT_POLL_INTERVAL		10000 /* ms */
+#define JITTER_DELAY			500 /* ms */
 
 struct s3c_adc_bat {
 	struct power_supply		psy;
@@ -51,7 +51,7 @@ static int gather_samples(struct s3c_adc_client *client, int num, int channel)
 {
 	int value, i;
 
-	
+	/* default to 1 if nothing is set */
 	if (num < 1)
 		num = 1;
 
@@ -343,7 +343,7 @@ static int __devinit s3c_adc_bat_probe(struct platform_device *pdev)
 	dev_info(&pdev->dev, "successfully loaded\n");
 	device_init_wakeup(&pdev->dev, 1);
 
-	
+	/* Schedule timer to check current status */
 	schedule_delayed_work(&bat_work,
 		msecs_to_jiffies(JITTER_DELAY));
 
@@ -419,7 +419,7 @@ static int s3c_adc_bat_resume(struct platform_device *pdev)
 			enable_irq(gpio_to_irq(pdata->gpio_charge_finished));
 	}
 
-	
+	/* Schedule timer to check current status */
 	schedule_delayed_work(&bat_work,
 		msecs_to_jiffies(JITTER_DELAY));
 

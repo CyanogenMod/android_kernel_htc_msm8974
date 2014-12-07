@@ -17,6 +17,7 @@
 #ifndef _LINUX_PATCHKEY_H
 #define _LINUX_PATCHKEY_H
 
+/* Endian macros. */
 #ifdef __KERNEL__
 #  include <asm/byteorder.h>
 #else
@@ -43,4 +44,4 @@
 #endif
 #endif
 
-#endif 
+#endif /* _LINUX_PATCHKEY_H */

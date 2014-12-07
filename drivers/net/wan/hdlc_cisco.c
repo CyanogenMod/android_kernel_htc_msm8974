@@ -23,13 +23,13 @@
 
 #undef DEBUG_HARD_HEADER
 
-#define CISCO_MULTICAST		0x8F	
-#define CISCO_UNICAST		0x0F	
-#define CISCO_KEEPALIVE		0x8035	
-#define CISCO_SYS_INFO		0x2000	
-#define CISCO_ADDR_REQ		0	
-#define CISCO_ADDR_REPLY	1	
-#define CISCO_KEEPALIVE_REQ	2	
+#define CISCO_MULTICAST		0x8F	/* Cisco multicast address */
+#define CISCO_UNICAST		0x0F	/* Cisco unicast address */
+#define CISCO_KEEPALIVE		0x8035	/* Cisco keepalive protocol */
+#define CISCO_SYS_INFO		0x2000	/* Cisco interface/system info */
+#define CISCO_ADDR_REQ		0	/* Cisco address request */
+#define CISCO_ADDR_REPLY	1	/* Cisco address reply */
+#define CISCO_KEEPALIVE_REQ	2	/* Cisco keepalive request */
 
 
 struct hdlc_header {
@@ -40,10 +40,10 @@ struct hdlc_header {
 
 
 struct cisco_packet {
-	__be32 type;		
+	__be32 type;		/* code */
 	__be32 par1;
 	__be32 par2;
-	__be16 rel;		
+	__be16 rel;		/* reliability */
 	__be32 time;
 }__packed;
 #define	CISCO_PACKET_LEN	18
@@ -57,8 +57,8 @@ struct cisco_state {
 	spinlock_t lock;
 	unsigned long last_poll;
 	int up;
-	u32 txseq; 
-	u32 rxseq; 
+	u32 txseq; /* TX sequence number, 0 = none */
+	u32 rxseq; /* RX sequence number */
 };
 
 
@@ -114,7 +114,7 @@ static void cisco_keepalive_send(struct net_device *dev, u32 type,
 	data->par1 = par1;
 	data->par2 = par2;
 	data->rel = cpu_to_be16(0xFFFF);
-	
+	/* we will need do_div here if 1000 % HZ != 0 */
 	data->time = htonl((jiffies - INITIAL_JIFFIES) * (1000 / HZ));
 
 	skb_put(skb, sizeof(struct cisco_packet));
@@ -170,7 +170,7 @@ static int cisco_rx(struct sk_buff *skb)
 
 	switch (ntohs(data->protocol)) {
 	case CISCO_SYS_INFO:
-		
+		/* Packet is not needed, drop it. */
 		dev_kfree_skb_any(skb);
 		return NET_RX_SUCCESS;
 
@@ -188,11 +188,11 @@ static int cisco_rx(struct sk_buff *skb)
 						    (struct hdlc_header));
 
 		switch (ntohl (cisco_data->type)) {
-		case CISCO_ADDR_REQ: 
+		case CISCO_ADDR_REQ: /* Stolen from syncppp.c :-) */
 			rcu_read_lock();
 			in_dev = __in_dev_get_rcu(dev);
 			addr = 0;
-			mask = ~cpu_to_be32(0); 
+			mask = ~cpu_to_be32(0); /* is the mask correct? */
 
 			if (in_dev != NULL) {
 				struct in_ifaddr **ifap = &in_dev->ifa_list;
@@ -223,7 +223,7 @@ static int cisco_rx(struct sk_buff *skb)
 			st->rxseq = ntohl(cisco_data->par1);
 			ack = ntohl(cisco_data->par2);
 			if (ack && (ack == st->txseq ||
-				    
+				    /* our current REQ may be in transit */
 				    ack == st->txseq - 1)) {
 				st->last_poll = jiffies;
 				if (!st->up) {
@@ -242,15 +242,15 @@ static int cisco_rx(struct sk_buff *skb)
 
 			dev_kfree_skb_any(skb);
 			return NET_RX_SUCCESS;
-		} 
-	} 
+		} /* switch (keepalive type) */
+	} /* switch (protocol) */
 
 	netdev_info(dev, "Unsupported protocol %x\n", ntohs(data->protocol));
 	dev_kfree_skb_any(skb);
 	return NET_RX_DROP;
 
 rx_error:
-	dev->stats.rx_errors++; 
+	dev->stats.rx_errors++; /* Mark error */
 	dev_kfree_skb_any(skb);
 	return NET_RX_DROP;
 }
@@ -294,7 +294,7 @@ static void cisco_start(struct net_device *dev)
 	spin_unlock_irqrestore(&st->lock, flags);
 
 	init_timer(&st->timer);
-	st->timer.expires = jiffies + HZ; 
+	st->timer.expires = jiffies + HZ; /* First poll after 1 s */
 	st->timer.function = cisco_timer;
 	st->timer.data = (unsigned long)dev;
 	add_timer(&st->timer);
@@ -344,7 +344,7 @@ static int cisco_ioctl(struct net_device *dev, struct ifreq *ifr)
 			return -EINVAL;
 		ifr->ifr_settings.type = IF_PROTO_CISCO;
 		if (ifr->ifr_settings.size < size) {
-			ifr->ifr_settings.size = size; 
+			ifr->ifr_settings.size = size; /* data size wanted */
 			return -ENOBUFS;
 		}
 		if (copy_to_user(cisco_s, &state(hdlc)->settings, size))

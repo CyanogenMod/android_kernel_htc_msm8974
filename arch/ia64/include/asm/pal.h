@@ -25,138 +25,159 @@
  *			Manual Rev 2.2 (Jan 2006)
  */
 
-#define PAL_CACHE_FLUSH		1	
-#define PAL_CACHE_INFO		2	
-#define PAL_CACHE_INIT		3	
-#define PAL_CACHE_SUMMARY	4	
-#define PAL_MEM_ATTRIB		5	
-#define PAL_PTCE_INFO		6	
-#define PAL_VM_INFO		7	
-#define PAL_VM_SUMMARY		8	
-#define PAL_BUS_GET_FEATURES	9	
-#define PAL_BUS_SET_FEATURES	10	
-#define PAL_DEBUG_INFO		11	
-#define PAL_FIXED_ADDR		12	
-#define PAL_FREQ_BASE		13	
-#define PAL_FREQ_RATIOS		14	
-#define PAL_PERF_MON_INFO	15	
-#define PAL_PLATFORM_ADDR	16	
-#define PAL_PROC_GET_FEATURES	17	
-#define PAL_PROC_SET_FEATURES	18	
-#define PAL_RSE_INFO		19	
-#define PAL_VERSION		20	
-#define PAL_MC_CLEAR_LOG	21	
-#define PAL_MC_DRAIN		22	
-#define PAL_MC_EXPECTED		23	
-#define PAL_MC_DYNAMIC_STATE	24	
-#define PAL_MC_ERROR_INFO	25	
-#define PAL_MC_RESUME		26	
-#define PAL_MC_REGISTER_MEM	27	
-#define PAL_HALT		28	
-#define PAL_HALT_LIGHT		29	
-#define PAL_COPY_INFO		30	
-#define PAL_CACHE_LINE_INIT	31	
-#define PAL_PMI_ENTRYPOINT	32	
-#define PAL_ENTER_IA_32_ENV	33	
-#define PAL_VM_PAGE_SIZE	34	
+/*
+ * Note that some of these calls use a static-register only calling
+ * convention which has nothing to do with the regular calling
+ * convention.
+ */
+#define PAL_CACHE_FLUSH		1	/* flush i/d cache */
+#define PAL_CACHE_INFO		2	/* get detailed i/d cache info */
+#define PAL_CACHE_INIT		3	/* initialize i/d cache */
+#define PAL_CACHE_SUMMARY	4	/* get summary of cache hierarchy */
+#define PAL_MEM_ATTRIB		5	/* list supported memory attributes */
+#define PAL_PTCE_INFO		6	/* purge TLB info */
+#define PAL_VM_INFO		7	/* return supported virtual memory features */
+#define PAL_VM_SUMMARY		8	/* return summary on supported vm features */
+#define PAL_BUS_GET_FEATURES	9	/* return processor bus interface features settings */
+#define PAL_BUS_SET_FEATURES	10	/* set processor bus features */
+#define PAL_DEBUG_INFO		11	/* get number of debug registers */
+#define PAL_FIXED_ADDR		12	/* get fixed component of processors's directed address */
+#define PAL_FREQ_BASE		13	/* base frequency of the platform */
+#define PAL_FREQ_RATIOS		14	/* ratio of processor, bus and ITC frequency */
+#define PAL_PERF_MON_INFO	15	/* return performance monitor info */
+#define PAL_PLATFORM_ADDR	16	/* set processor interrupt block and IO port space addr */
+#define PAL_PROC_GET_FEATURES	17	/* get configurable processor features & settings */
+#define PAL_PROC_SET_FEATURES	18	/* enable/disable configurable processor features */
+#define PAL_RSE_INFO		19	/* return rse information */
+#define PAL_VERSION		20	/* return version of PAL code */
+#define PAL_MC_CLEAR_LOG	21	/* clear all processor log info */
+#define PAL_MC_DRAIN		22	/* drain operations which could result in an MCA */
+#define PAL_MC_EXPECTED		23	/* set/reset expected MCA indicator */
+#define PAL_MC_DYNAMIC_STATE	24	/* get processor dynamic state */
+#define PAL_MC_ERROR_INFO	25	/* get processor MCA info and static state */
+#define PAL_MC_RESUME		26	/* Return to interrupted process */
+#define PAL_MC_REGISTER_MEM	27	/* Register memory for PAL to use during MCAs and inits */
+#define PAL_HALT		28	/* enter the low power HALT state */
+#define PAL_HALT_LIGHT		29	/* enter the low power light halt state*/
+#define PAL_COPY_INFO		30	/* returns info needed to relocate PAL */
+#define PAL_CACHE_LINE_INIT	31	/* init tags & data of cache line */
+#define PAL_PMI_ENTRYPOINT	32	/* register PMI memory entry points with the processor */
+#define PAL_ENTER_IA_32_ENV	33	/* enter IA-32 system environment */
+#define PAL_VM_PAGE_SIZE	34	/* return vm TC and page walker page sizes */
 
-#define PAL_MEM_FOR_TEST	37	
-#define PAL_CACHE_PROT_INFO	38	
-#define PAL_REGISTER_INFO	39	
-#define PAL_SHUTDOWN		40	
-#define PAL_PREFETCH_VISIBILITY	41	
-#define PAL_LOGICAL_TO_PHYSICAL 42	
-#define PAL_CACHE_SHARED_INFO	43	
-#define PAL_GET_HW_POLICY	48	
-#define PAL_SET_HW_POLICY	49	
-#define PAL_VP_INFO		50	
-#define PAL_MC_HW_TRACKING	51	
+#define PAL_MEM_FOR_TEST	37	/* get amount of memory needed for late processor test */
+#define PAL_CACHE_PROT_INFO	38	/* get i/d cache protection info */
+#define PAL_REGISTER_INFO	39	/* return AR and CR register information*/
+#define PAL_SHUTDOWN		40	/* enter processor shutdown state */
+#define PAL_PREFETCH_VISIBILITY	41	/* Make Processor Prefetches Visible */
+#define PAL_LOGICAL_TO_PHYSICAL 42	/* returns information on logical to physical processor mapping */
+#define PAL_CACHE_SHARED_INFO	43	/* returns information on caches shared by logical processor */
+#define PAL_GET_HW_POLICY	48	/* Get current hardware resource sharing policy */
+#define PAL_SET_HW_POLICY	49	/* Set current hardware resource sharing policy */
+#define PAL_VP_INFO		50	/* Information about virtual processor features */
+#define PAL_MC_HW_TRACKING	51	/* Hardware tracking status */
 
-#define PAL_COPY_PAL		256	
-#define PAL_HALT_INFO		257	
-#define PAL_TEST_PROC		258	
-#define PAL_CACHE_READ		259	
-#define PAL_CACHE_WRITE		260	
-#define PAL_VM_TR_READ		261	
-#define PAL_GET_PSTATE		262	
-#define PAL_SET_PSTATE		263	
-#define PAL_BRAND_INFO		274	
+#define PAL_COPY_PAL		256	/* relocate PAL procedures and PAL PMI */
+#define PAL_HALT_INFO		257	/* return the low power capabilities of processor */
+#define PAL_TEST_PROC		258	/* perform late processor self-test */
+#define PAL_CACHE_READ		259	/* read tag & data of cacheline for diagnostic testing */
+#define PAL_CACHE_WRITE		260	/* write tag & data of cacheline for diagnostic testing */
+#define PAL_VM_TR_READ		261	/* read contents of translation register */
+#define PAL_GET_PSTATE		262	/* get the current P-state */
+#define PAL_SET_PSTATE		263	/* set the P-state */
+#define PAL_BRAND_INFO		274	/* Processor branding information */
 
 #define PAL_GET_PSTATE_TYPE_LASTSET	0
 #define PAL_GET_PSTATE_TYPE_AVGANDRESET	1
 #define PAL_GET_PSTATE_TYPE_AVGNORESET	2
 #define PAL_GET_PSTATE_TYPE_INSTANT	3
 
-#define PAL_MC_ERROR_INJECT	276	
+#define PAL_MC_ERROR_INJECT	276	/* Injects processor error or returns injection capabilities */
 
 #ifndef __ASSEMBLY__
 
 #include <linux/types.h>
 #include <asm/fpu.h>
 
+/*
+ * Data types needed to pass information into PAL procedures and
+ * interpret information returned by them.
+ */
 
+/* Return status from the PAL procedure */
 typedef s64				pal_status_t;
 
-#define PAL_STATUS_SUCCESS		0	
-#define PAL_STATUS_UNIMPLEMENTED	(-1)	
-#define PAL_STATUS_EINVAL		(-2)	
-#define PAL_STATUS_ERROR		(-3)	
-#define PAL_STATUS_CACHE_INIT_FAIL	(-4)	
-#define PAL_STATUS_REQUIRES_MEMORY	(-9)	
+#define PAL_STATUS_SUCCESS		0	/* No error */
+#define PAL_STATUS_UNIMPLEMENTED	(-1)	/* Unimplemented procedure */
+#define PAL_STATUS_EINVAL		(-2)	/* Invalid argument */
+#define PAL_STATUS_ERROR		(-3)	/* Error */
+#define PAL_STATUS_CACHE_INIT_FAIL	(-4)	/* Could not initialize the
+						 * specified level and type of
+						 * cache without sideeffects
+						 * and "restrict" was 1
+						 */
+#define PAL_STATUS_REQUIRES_MEMORY	(-9)	/* Call requires PAL memory buffer */
 
+/* Processor cache level in the hierarchy */
 typedef u64				pal_cache_level_t;
-#define PAL_CACHE_LEVEL_L0		0	
-#define PAL_CACHE_LEVEL_L1		1	
-#define PAL_CACHE_LEVEL_L2		2	
+#define PAL_CACHE_LEVEL_L0		0	/* L0 */
+#define PAL_CACHE_LEVEL_L1		1	/* L1 */
+#define PAL_CACHE_LEVEL_L2		2	/* L2 */
 
 
+/* Processor cache type at a particular level in the hierarchy */
 
 typedef u64				pal_cache_type_t;
-#define PAL_CACHE_TYPE_INSTRUCTION	1	
-#define PAL_CACHE_TYPE_DATA		2	
-#define PAL_CACHE_TYPE_INSTRUCTION_DATA	3	
+#define PAL_CACHE_TYPE_INSTRUCTION	1	/* Instruction cache */
+#define PAL_CACHE_TYPE_DATA		2	/* Data or unified cache */
+#define PAL_CACHE_TYPE_INSTRUCTION_DATA	3	/* Both Data & Instruction */
 
 
-#define PAL_CACHE_FLUSH_INVALIDATE	1	
-#define PAL_CACHE_FLUSH_CHK_INTRS	2	
+#define PAL_CACHE_FLUSH_INVALIDATE	1	/* Invalidate clean lines */
+#define PAL_CACHE_FLUSH_CHK_INTRS	2	/* check for interrupts/mc while flushing */
 
+/* Processor cache line size in bytes  */
 typedef int				pal_cache_line_size_t;
 
+/* Processor cache line state */
 typedef u64				pal_cache_line_state_t;
-#define PAL_CACHE_LINE_STATE_INVALID	0	
-#define PAL_CACHE_LINE_STATE_SHARED	1	
-#define PAL_CACHE_LINE_STATE_EXCLUSIVE	2	
-#define PAL_CACHE_LINE_STATE_MODIFIED	3	
+#define PAL_CACHE_LINE_STATE_INVALID	0	/* Invalid */
+#define PAL_CACHE_LINE_STATE_SHARED	1	/* Shared */
+#define PAL_CACHE_LINE_STATE_EXCLUSIVE	2	/* Exclusive */
+#define PAL_CACHE_LINE_STATE_MODIFIED	3	/* Modified */
 
 typedef struct pal_freq_ratio {
-	u32 den, num;		
+	u32 den, num;		/* numerator & denominator */
 } itc_ratio, proc_ratio;
 
 typedef	union  pal_cache_config_info_1_s {
 	struct {
-		u64		u		: 1,	
-				at		: 2,	
-				reserved	: 5,	
-				associativity	: 8,	
-				line_size	: 8,	
-				stride		: 8,	
-				store_latency	: 8,	
-				load_latency	: 8,	
-				store_hints	: 8,	
-				load_hints	: 8;	
+		u64		u		: 1,	/* 0 Unified cache ? */
+				at		: 2,	/* 2-1 Cache mem attr*/
+				reserved	: 5,	/* 7-3 Reserved */
+				associativity	: 8,	/* 16-8 Associativity*/
+				line_size	: 8,	/* 23-17 Line size */
+				stride		: 8,	/* 31-24 Stride */
+				store_latency	: 8,	/*39-32 Store latency*/
+				load_latency	: 8,	/* 47-40 Load latency*/
+				store_hints	: 8,	/* 55-48 Store hints*/
+				load_hints	: 8;	/* 63-56 Load hints */
 	} pcci1_bits;
 	u64			pcci1_data;
 } pal_cache_config_info_1_t;
 
 typedef	union  pal_cache_config_info_2_s {
 	struct {
-		u32		cache_size;		
+		u32		cache_size;		/*cache size in bytes*/
 
 
-		u32		alias_boundary	: 8,	
-				tag_ls_bit	: 8,	
-				tag_ms_bit	: 8,	
-				reserved	: 8;	
+		u32		alias_boundary	: 8,	/* 39-32 aliased addr
+							 * separation for max
+							 * performance.
+							 */
+				tag_ls_bit	: 8,	/* 47-40 LSb of addr*/
+				tag_ms_bit	: 8,	/* 55-48 MSb of addr*/
+				reserved	: 8;	/* 63-56 Reserved */
 	} pcci2_bits;
 	u64			pcci2_data;
 } pal_cache_config_info_2_t;
@@ -185,27 +206,42 @@ typedef struct pal_cache_config_info_s {
 
 
 
+/* Possible values for cache attributes */
 
-#define PAL_CACHE_ATTR_WT		0	
-#define PAL_CACHE_ATTR_WB		1	
-#define PAL_CACHE_ATTR_WT_OR_WB		2	
+#define PAL_CACHE_ATTR_WT		0	/* Write through cache */
+#define PAL_CACHE_ATTR_WB		1	/* Write back cache */
+#define PAL_CACHE_ATTR_WT_OR_WB		2	/* Either write thru or write
+						 * back depending on TLB
+						 * memory attributes
+						 */
 
 
+/* Possible values for cache hints */
 
-#define PAL_CACHE_HINT_TEMP_1		0	
-#define PAL_CACHE_HINT_NTEMP_1		1	
-#define PAL_CACHE_HINT_NTEMP_ALL	3	
+#define PAL_CACHE_HINT_TEMP_1		0	/* Temporal level 1 */
+#define PAL_CACHE_HINT_NTEMP_1		1	/* Non-temporal level 1 */
+#define PAL_CACHE_HINT_NTEMP_ALL	3	/* Non-temporal all levels */
 
+/* Processor cache protection  information */
 typedef union pal_cache_protection_element_u {
 	u32			pcpi_data;
 	struct {
-		u32		data_bits	: 8, 
+		u32		data_bits	: 8, /* # data bits covered by
+						      * each unit of protection
+						      */
 
-				tagprot_lsb	: 6, 
-				tagprot_msb	: 6, 
-				prot_bits	: 6, 
-				method		: 4, 
-				t_d		: 2; 
+				tagprot_lsb	: 6, /* Least -do- */
+				tagprot_msb	: 6, /* Most Sig. tag address
+						      * bit that this
+						      * protection covers.
+						      */
+				prot_bits	: 6, /* # of protection bits */
+				method		: 4, /* Protection method */
+				t_d		: 2; /* Indicates which part
+						      * of the cache this
+						      * protection encoding
+						      * applies.
+						      */
 	} pcp_info;
 } pal_cache_protection_element_t;
 
@@ -216,10 +252,15 @@ typedef union pal_cache_protection_element_u {
 #define pcpi_tagprot_lsb	pcp_info.tagprot_lsb
 #define pcpi_data_bits		pcp_info.data_bits
 
-#define PAL_CACHE_PROT_PART_DATA	0	
-#define PAL_CACHE_PROT_PART_TAG		1	
-#define PAL_CACHE_PROT_PART_TAG_DATA	2	
-#define PAL_CACHE_PROT_PART_DATA_TAG	3	
+/* Processor cache part encodings */
+#define PAL_CACHE_PROT_PART_DATA	0	/* Data protection  */
+#define PAL_CACHE_PROT_PART_TAG		1	/* Tag  protection */
+#define PAL_CACHE_PROT_PART_TAG_DATA	2	/* Tag+data protection (tag is
+						 * more significant )
+						 */
+#define PAL_CACHE_PROT_PART_DATA_TAG	3	/* Data+tag protection (data is
+						 * more significant )
+						 */
 #define PAL_CACHE_PROT_PART_MAX		6
 
 
@@ -229,30 +270,53 @@ typedef struct pal_cache_protection_info_s {
 } pal_cache_protection_info_t;
 
 
-#define PAL_CACHE_PROT_METHOD_NONE		0	
-#define PAL_CACHE_PROT_METHOD_ODD_PARITY	1	
-#define PAL_CACHE_PROT_METHOD_EVEN_PARITY	2	
-#define PAL_CACHE_PROT_METHOD_ECC		3	
+/* Processor cache protection method encodings */
+#define PAL_CACHE_PROT_METHOD_NONE		0	/* No protection */
+#define PAL_CACHE_PROT_METHOD_ODD_PARITY	1	/* Odd parity */
+#define PAL_CACHE_PROT_METHOD_EVEN_PARITY	2	/* Even parity */
+#define PAL_CACHE_PROT_METHOD_ECC		3	/* ECC protection */
 
 
+/* Processor cache line identification in the hierarchy */
 typedef union pal_cache_line_id_u {
 	u64			pclid_data;
 	struct {
-		u64		cache_type	: 8,	
-				level		: 8,	
-				way		: 8,	
-				part		: 8,	
-				reserved	: 32;	
+		u64		cache_type	: 8,	/* 7-0 cache type */
+				level		: 8,	/* 15-8 level of the
+							 * cache in the
+							 * hierarchy.
+							 */
+				way		: 8,	/* 23-16 way in the set
+							 */
+				part		: 8,	/* 31-24 part of the
+							 * cache
+							 */
+				reserved	: 32;	/* 63-32 is reserved*/
 	} pclid_info_read;
 	struct {
-		u64		cache_type	: 8,	
-				level		: 8,	
-				way		: 8,	
-				part		: 8,	
-				mesi		: 8,	
-				start		: 8,	
-				length		: 8,	
-				trigger		: 8;	
+		u64		cache_type	: 8,	/* 7-0 cache type */
+				level		: 8,	/* 15-8 level of the
+							 * cache in the
+							 * hierarchy.
+							 */
+				way		: 8,	/* 23-16 way in the set
+							 */
+				part		: 8,	/* 31-24 part of the
+							 * cache
+							 */
+				mesi		: 8,	/* 39-32 cache line
+							 * state
+							 */
+				start		: 8,	/* 47-40 lsb of data to
+							 * invert
+							 */
+				length		: 8,	/* 55-48 #bits to
+							 * invert
+							 */
+				trigger		: 8;	/* 63-56 Trigger error
+							 * by doing a load
+							 * after the write
+							 */
 
 	} pclid_info_write;
 } pal_cache_line_id_u_t;
@@ -271,214 +335,334 @@ typedef union pal_cache_line_id_u {
 #define pclid_write_level	pclid_info_write.level
 #define pclid_write_cache_type	pclid_info_write.cache_type
 
-#define PAL_CACHE_LINE_ID_PART_DATA		0	
-#define PAL_CACHE_LINE_ID_PART_TAG		1	
-#define PAL_CACHE_LINE_ID_PART_DATA_PROT	2	
-#define PAL_CACHE_LINE_ID_PART_TAG_PROT		3	
-#define PAL_CACHE_LINE_ID_PART_DATA_TAG_PROT	4	
+/* Processor cache line part encodings */
+#define PAL_CACHE_LINE_ID_PART_DATA		0	/* Data */
+#define PAL_CACHE_LINE_ID_PART_TAG		1	/* Tag */
+#define PAL_CACHE_LINE_ID_PART_DATA_PROT	2	/* Data protection */
+#define PAL_CACHE_LINE_ID_PART_TAG_PROT		3	/* Tag protection */
+#define PAL_CACHE_LINE_ID_PART_DATA_TAG_PROT	4	/* Data+tag
+							 * protection
+							 */
 typedef struct pal_cache_line_info_s {
-	pal_status_t		pcli_status;		
-	u64			pcli_data;		
-	u64			pcli_data_len;		
-	pal_cache_line_state_t	pcli_cache_line_state;	
+	pal_status_t		pcli_status;		/* Return status of the read cache line
+							 * info call.
+							 */
+	u64			pcli_data;		/* 64-bit data, tag, protection bits .. */
+	u64			pcli_data_len;		/* data length in bits */
+	pal_cache_line_state_t	pcli_cache_line_state;	/* mesi state */
 
 } pal_cache_line_info_t;
 
 
+/* Machine Check related crap */
 
+/* Pending event status bits  */
 typedef u64					pal_mc_pending_events_t;
 
 #define PAL_MC_PENDING_MCA			(1 << 0)
 #define PAL_MC_PENDING_INIT			(1 << 1)
 
+/* Error information type */
 typedef u64					pal_mc_info_index_t;
 
-#define PAL_MC_INFO_PROCESSOR			0	
-#define PAL_MC_INFO_CACHE_CHECK			1	
-#define PAL_MC_INFO_TLB_CHECK			2	
-#define PAL_MC_INFO_BUS_CHECK			3	
-#define PAL_MC_INFO_REQ_ADDR			4	
-#define PAL_MC_INFO_RESP_ADDR			5	
-#define PAL_MC_INFO_TARGET_ADDR			6	
-#define PAL_MC_INFO_IMPL_DEP			7	
+#define PAL_MC_INFO_PROCESSOR			0	/* Processor */
+#define PAL_MC_INFO_CACHE_CHECK			1	/* Cache check */
+#define PAL_MC_INFO_TLB_CHECK			2	/* Tlb check */
+#define PAL_MC_INFO_BUS_CHECK			3	/* Bus check */
+#define PAL_MC_INFO_REQ_ADDR			4	/* Requestor address */
+#define PAL_MC_INFO_RESP_ADDR			5	/* Responder address */
+#define PAL_MC_INFO_TARGET_ADDR			6	/* Target address */
+#define PAL_MC_INFO_IMPL_DEP			7	/* Implementation
+							 * dependent
+							 */
 
 #define PAL_TLB_CHECK_OP_PURGE			8
 
 typedef struct pal_process_state_info_s {
 	u64		reserved1	: 2,
-			rz		: 1,	
+			rz		: 1,	/* PAL_CHECK processor
+						 * rendezvous
+						 * successful.
+						 */
 
-			ra		: 1,	
-			me		: 1,	
+			ra		: 1,	/* PAL_CHECK attempted
+						 * a rendezvous.
+						 */
+			me		: 1,	/* Distinct multiple
+						 * errors occurred
+						 */
 
-			mn		: 1,	
+			mn		: 1,	/* Min. state save
+						 * area has been
+						 * registered with PAL
+						 */
 
-			sy		: 1,	
-
-
-			co		: 1,	
-			ci		: 1,	
-			us		: 1,	
-
-
-			hd		: 1,	
-
-			tl		: 1,	
-			mi		: 1,	
-			pi		: 1,	
-			pm		: 1,	
-
-			dy		: 1,	
+			sy		: 1,	/* Storage integrity
+						 * synched
+						 */
 
 
-			in		: 1,	
-			rs		: 1,	
-			cm		: 1,	
-			ex		: 1,	
-			cr		: 1,	
-			pc		: 1,	
-			dr		: 1,	
-			tr		: 1,	
-			rr		: 1,	
-			ar		: 1,	
-			br		: 1,	
-			pr		: 1,	
+			co		: 1,	/* Continuable */
+			ci		: 1,	/* MC isolated */
+			us		: 1,	/* Uncontained storage
+						 * damage.
+						 */
 
-			fp		: 1,	
-			b1		: 1,	
-			b0		: 1,	
-			gr		: 1,	
-			dsize		: 16,	
 
-			se		: 1,	
+			hd		: 1,	/* Non-essential hw
+						 * lost (no loss of
+						 * functionality)
+						 * causing the
+						 * processor to run in
+						 * degraded mode.
+						 */
+
+			tl		: 1,	/* 1 => MC occurred
+						 * after an instr was
+						 * executed but before
+						 * the trap that
+						 * resulted from instr
+						 * execution was
+						 * generated.
+						 * (Trap Lost )
+						 */
+			mi		: 1,	/* More information available
+						 * call PAL_MC_ERROR_INFO
+						 */
+			pi		: 1,	/* Precise instruction pointer */
+			pm		: 1,	/* Precise min-state save area */
+
+			dy		: 1,	/* Processor dynamic
+						 * state valid
+						 */
+
+
+			in		: 1,	/* 0 = MC, 1 = INIT */
+			rs		: 1,	/* RSE valid */
+			cm		: 1,	/* MC corrected */
+			ex		: 1,	/* MC is expected */
+			cr		: 1,	/* Control regs valid*/
+			pc		: 1,	/* Perf cntrs valid */
+			dr		: 1,	/* Debug regs valid */
+			tr		: 1,	/* Translation regs
+						 * valid
+						 */
+			rr		: 1,	/* Region regs valid */
+			ar		: 1,	/* App regs valid */
+			br		: 1,	/* Branch regs valid */
+			pr		: 1,	/* Predicate registers
+						 * valid
+						 */
+
+			fp		: 1,	/* fp registers valid*/
+			b1		: 1,	/* Preserved bank one
+						 * general registers
+						 * are valid
+						 */
+			b0		: 1,	/* Preserved bank zero
+						 * general registers
+						 * are valid
+						 */
+			gr		: 1,	/* General registers
+						 * are valid
+						 * (excl. banked regs)
+						 */
+			dsize		: 16,	/* size of dynamic
+						 * state returned
+						 * by the processor
+						 */
+
+			se		: 1,	/* Shared error.  MCA in a
+						   shared structure */
 			reserved2	: 10,
-			cc		: 1,	
-			tc		: 1,	
-			bc		: 1,	
-			rc		: 1,	
-			uc		: 1;	
+			cc		: 1,	/* Cache check */
+			tc		: 1,	/* TLB check */
+			bc		: 1,	/* Bus check */
+			rc		: 1,	/* Register file check */
+			uc		: 1;	/* Uarch check */
 
 } pal_processor_state_info_t;
 
 typedef struct pal_cache_check_info_s {
-	u64		op		: 4,	
-			level		: 2,	
+	u64		op		: 4,	/* Type of cache
+						 * operation that
+						 * caused the machine
+						 * check.
+						 */
+			level		: 2,	/* Cache level */
 			reserved1	: 2,
-			dl		: 1,	
-			tl		: 1,	
-			dc		: 1,	
-			ic		: 1,	
-			mesi		: 3,	
-			mv		: 1,	
-			way		: 5,	
-			wiv		: 1,	
+			dl		: 1,	/* Failure in data part
+						 * of cache line
+						 */
+			tl		: 1,	/* Failure in tag part
+						 * of cache line
+						 */
+			dc		: 1,	/* Failure in dcache */
+			ic		: 1,	/* Failure in icache */
+			mesi		: 3,	/* Cache line state */
+			mv		: 1,	/* mesi valid */
+			way		: 5,	/* Way in which the
+						 * error occurred
+						 */
+			wiv		: 1,	/* Way field valid */
 			reserved2	: 1,
-			dp		: 1,	
+			dp		: 1,	/* Data poisoned on MBE */
 			reserved3	: 6,
-			hlth		: 2,	
+			hlth		: 2,	/* Health indicator */
 
-			index		: 20,	
+			index		: 20,	/* Cache line index */
 			reserved4	: 2,
 
-			is		: 1,	
-			iv		: 1,	
-			pl		: 2,	
-			pv		: 1,	
-			mcc		: 1,	
-			tv		: 1,	
-			rq		: 1,	
-			rp		: 1,	
-			pi		: 1;	
+			is		: 1,	/* instruction set (1 == ia32) */
+			iv		: 1,	/* instruction set field valid */
+			pl		: 2,	/* privilege level */
+			pv		: 1,	/* privilege level field valid */
+			mcc		: 1,	/* Machine check corrected */
+			tv		: 1,	/* Target address
+						 * structure is valid
+						 */
+			rq		: 1,	/* Requester identifier
+						 * structure is valid
+						 */
+			rp		: 1,	/* Responder identifier
+						 * structure is valid
+						 */
+			pi		: 1;	/* Precise instruction pointer
+						 * structure is valid
+						 */
 } pal_cache_check_info_t;
 
 typedef struct pal_tlb_check_info_s {
 
-	u64		tr_slot		: 8,	
-			trv		: 1,	
+	u64		tr_slot		: 8,	/* Slot# of TR where
+						 * error occurred
+						 */
+			trv		: 1,	/* tr_slot field is valid */
 			reserved1	: 1,
-			level		: 2,	
+			level		: 2,	/* TLB level where failure occurred */
 			reserved2	: 4,
-			dtr		: 1,	
-			itr		: 1,	
-			dtc		: 1,	
-			itc		: 1,	
-			op		: 4,	
+			dtr		: 1,	/* Fail in data TR */
+			itr		: 1,	/* Fail in inst TR */
+			dtc		: 1,	/* Fail in data TC */
+			itc		: 1,	/* Fail in inst. TC */
+			op		: 4,	/* Cache operation */
 			reserved3	: 6,
-			hlth		: 2,	
+			hlth		: 2,	/* Health indicator */
 			reserved4	: 22,
 
-			is		: 1,	
-			iv		: 1,	
-			pl		: 2,	
-			pv		: 1,	
-			mcc		: 1,	
-			tv		: 1,	
-			rq		: 1,	
-			rp		: 1,	
-			pi		: 1;	
+			is		: 1,	/* instruction set (1 == ia32) */
+			iv		: 1,	/* instruction set field valid */
+			pl		: 2,	/* privilege level */
+			pv		: 1,	/* privilege level field valid */
+			mcc		: 1,	/* Machine check corrected */
+			tv		: 1,	/* Target address
+						 * structure is valid
+						 */
+			rq		: 1,	/* Requester identifier
+						 * structure is valid
+						 */
+			rp		: 1,	/* Responder identifier
+						 * structure is valid
+						 */
+			pi		: 1;	/* Precise instruction pointer
+						 * structure is valid
+						 */
 } pal_tlb_check_info_t;
 
 typedef struct pal_bus_check_info_s {
-	u64		size		: 5,	
-			ib		: 1,	
-			eb		: 1,	
-			cc		: 1,	
-			type		: 8,	
-			sev		: 5,	
-			hier		: 2,	
-			dp		: 1,	
-			bsi		: 8,	
+	u64		size		: 5,	/* Xaction size */
+			ib		: 1,	/* Internal bus error */
+			eb		: 1,	/* External bus error */
+			cc		: 1,	/* Error occurred
+						 * during cache-cache
+						 * transfer.
+						 */
+			type		: 8,	/* Bus xaction type*/
+			sev		: 5,	/* Bus error severity*/
+			hier		: 2,	/* Bus hierarchy level */
+			dp		: 1,	/* Data poisoned on MBE */
+			bsi		: 8,	/* Bus error status
+						 * info
+						 */
 			reserved2	: 22,
 
-			is		: 1,	
-			iv		: 1,	
-			pl		: 2,	
-			pv		: 1,	
-			mcc		: 1,	
-			tv		: 1,	
-			rq		: 1,	
-			rp		: 1,	
-			pi		: 1;	
+			is		: 1,	/* instruction set (1 == ia32) */
+			iv		: 1,	/* instruction set field valid */
+			pl		: 2,	/* privilege level */
+			pv		: 1,	/* privilege level field valid */
+			mcc		: 1,	/* Machine check corrected */
+			tv		: 1,	/* Target address
+						 * structure is valid
+						 */
+			rq		: 1,	/* Requester identifier
+						 * structure is valid
+						 */
+			rp		: 1,	/* Responder identifier
+						 * structure is valid
+						 */
+			pi		: 1;	/* Precise instruction pointer
+						 * structure is valid
+						 */
 } pal_bus_check_info_t;
 
 typedef struct pal_reg_file_check_info_s {
-	u64		id		: 4,	
-			op		: 4,	
-			reg_num		: 7,	
-			rnv		: 1,	
+	u64		id		: 4,	/* Register file identifier */
+			op		: 4,	/* Type of register
+						 * operation that
+						 * caused the machine
+						 * check.
+						 */
+			reg_num		: 7,	/* Register number */
+			rnv		: 1,	/* reg_num valid */
 			reserved2	: 38,
 
-			is		: 1,	
-			iv		: 1,	
-			pl		: 2,	
-			pv		: 1,	
-			mcc		: 1,	
+			is		: 1,	/* instruction set (1 == ia32) */
+			iv		: 1,	/* instruction set field valid */
+			pl		: 2,	/* privilege level */
+			pv		: 1,	/* privilege level field valid */
+			mcc		: 1,	/* Machine check corrected */
 			reserved3	: 3,
-			pi		: 1;	
+			pi		: 1;	/* Precise instruction pointer
+						 * structure is valid
+						 */
 } pal_reg_file_check_info_t;
 
 typedef struct pal_uarch_check_info_s {
-	u64		sid		: 5,	
-			level		: 3,	
-			array_id	: 4,	
-			op		: 4,	
-			way		: 6,	
-			wv		: 1,	
-			xv		: 1,	
+	u64		sid		: 5,	/* Structure identification */
+			level		: 3,	/* Level of failure */
+			array_id	: 4,	/* Array identification */
+			op		: 4,	/* Type of
+						 * operation that
+						 * caused the machine
+						 * check.
+						 */
+			way		: 6,	/* Way of structure */
+			wv		: 1,	/* way valid */
+			xv		: 1,	/* index valid */
 			reserved1	: 6,
-			hlth		: 2,	
-			index		: 8,	
+			hlth		: 2,	/* Health indicator */
+			index		: 8,	/* Index or set of the uarch
+						 * structure that failed.
+						 */
 			reserved2	: 24,
 
-			is		: 1,	
-			iv		: 1,	
-			pl		: 2,	
-			pv		: 1,	
-			mcc		: 1,	
-			tv		: 1,	
-			rq		: 1,	
-			rp		: 1,	
-			pi		: 1;	
+			is		: 1,	/* instruction set (1 == ia32) */
+			iv		: 1,	/* instruction set field valid */
+			pl		: 2,	/* privilege level */
+			pv		: 1,	/* privilege level field valid */
+			mcc		: 1,	/* Machine check corrected */
+			tv		: 1,	/* Target address
+						 * structure is valid
+						 */
+			rq		: 1,	/* Requester identifier
+						 * structure is valid
+						 */
+			rp		: 1,	/* Responder identifier
+						 * structure is valid
+						 */
+			pi		: 1;	/* Precise instruction pointer
+						 * structure is valid
+						 */
 } pal_uarch_check_info_t;
 
 typedef union pal_mc_error_info_u {
@@ -559,33 +743,51 @@ typedef union pal_mc_error_info_u {
 #define pmci_bus_external_error			pme_bus.eb
 #define pmci_bus_mc				pme_bus.mc
 
+/*
+ * NOTE: this min_state_save area struct only includes the 1KB
+ * architectural state save area.  The other 3 KB is scratch space
+ * for PAL.
+ */
 
 typedef struct pal_min_state_area_s {
-	u64	pmsa_nat_bits;		
-	u64	pmsa_gr[15];		
-	u64	pmsa_bank0_gr[16];	
-	u64	pmsa_bank1_gr[16];	
-	u64	pmsa_pr;		
-	u64	pmsa_br0;		
-	u64	pmsa_rsc;		
-	u64	pmsa_iip;		
-	u64	pmsa_ipsr;		
-	u64	pmsa_ifs;		
-	u64	pmsa_xip;		
-	u64	pmsa_xpsr;		
-	u64	pmsa_xfs;		
-	u64	pmsa_br1;		
-	u64	pmsa_reserved[70];	
+	u64	pmsa_nat_bits;		/* nat bits for saved GRs  */
+	u64	pmsa_gr[15];		/* GR1	- GR15		   */
+	u64	pmsa_bank0_gr[16];	/* GR16 - GR31		   */
+	u64	pmsa_bank1_gr[16];	/* GR16 - GR31		   */
+	u64	pmsa_pr;		/* predicate registers	   */
+	u64	pmsa_br0;		/* branch register 0	   */
+	u64	pmsa_rsc;		/* ar.rsc		   */
+	u64	pmsa_iip;		/* cr.iip		   */
+	u64	pmsa_ipsr;		/* cr.ipsr		   */
+	u64	pmsa_ifs;		/* cr.ifs		   */
+	u64	pmsa_xip;		/* previous iip		   */
+	u64	pmsa_xpsr;		/* previous psr		   */
+	u64	pmsa_xfs;		/* previous ifs		   */
+	u64	pmsa_br1;		/* branch register 1	   */
+	u64	pmsa_reserved[70];	/* pal_min_state_area should total to 1KB */
 } pal_min_state_area_t;
 
 
 struct ia64_pal_retval {
+	/*
+	 * A zero status value indicates call completed without error.
+	 * A negative status value indicates reason of call failure.
+	 * A positive status value indicates success but an
+	 * informational value should be printed (e.g., "reboot for
+	 * change to take effect").
+	 */
 	s64 status;
 	u64 v0;
 	u64 v1;
 	u64 v2;
 };
 
+/*
+ * Note: Currently unused PAL arguments are generally labeled
+ * "reserved" so the value specified in the PAL documentation
+ * (generally 0) MUST be passed.  Reserved parameters are not optional
+ * parameters.
+ */
 extern struct ia64_pal_retval ia64_pal_call_static (u64, u64, u64, u64);
 extern struct ia64_pal_retval ia64_pal_call_stacked (u64, u64, u64, u64);
 extern struct ia64_pal_retval ia64_pal_call_phys_static (u64, u64, u64, u64);
@@ -647,6 +849,7 @@ extern pal_cache_protection_info_t	pal_cache_protection_info_get(pal_cache_level
 extern void				pal_error(int);
 
 
+/* Useful wrappers for the current list of pal procedures */
 
 typedef union pal_bus_features_u {
 	u64	pal_bus_features_val;
@@ -673,6 +876,7 @@ typedef union pal_bus_features_u {
 
 extern void pal_bus_features_print (u64);
 
+/* Provide information about configurable processor bus features */
 static inline s64
 ia64_pal_bus_get_features (pal_bus_features_u_t *features_avail,
 			   pal_bus_features_u_t *features_status,
@@ -689,6 +893,7 @@ ia64_pal_bus_get_features (pal_bus_features_u_t *features_avail,
 	return iprv.status;
 }
 
+/* Enables/disables specific processor bus features */
 static inline s64
 ia64_pal_bus_set_features (pal_bus_features_u_t feature_select)
 {
@@ -697,6 +902,7 @@ ia64_pal_bus_set_features (pal_bus_features_u_t feature_select)
 	return iprv.status;
 }
 
+/* Get detailed cache information */
 static inline s64
 ia64_pal_cache_config_info (u64 cache_level, u64 cache_type, pal_cache_config_info_t *conf)
 {
@@ -714,6 +920,7 @@ ia64_pal_cache_config_info (u64 cache_level, u64 cache_type, pal_cache_config_in
 
 }
 
+/* Get detailed cche protection information */
 static inline s64
 ia64_pal_cache_prot_info (u64 cache_level, u64 cache_type, pal_cache_protection_info_t *prot)
 {
@@ -733,6 +940,10 @@ ia64_pal_cache_prot_info (u64 cache_level, u64 cache_type, pal_cache_protection_
 	return iprv.status;
 }
 
+/*
+ * Flush the processor instruction or data caches.  *PROGRESS must be
+ * initialized to zero before calling this for the first time..
+ */
 static inline s64
 ia64_pal_cache_flush (u64 cache_type, u64 invalidate, u64 *progress, u64 *vector)
 {
@@ -745,6 +956,7 @@ ia64_pal_cache_flush (u64 cache_type, u64 invalidate, u64 *progress, u64 *vector
 }
 
 
+/* Initialize the processor controlled caches */
 static inline s64
 ia64_pal_cache_init (u64 level, u64 cache_type, u64 rest)
 {
@@ -753,6 +965,10 @@ ia64_pal_cache_init (u64 level, u64 cache_type, u64 rest)
 	return iprv.status;
 }
 
+/* Initialize the tags and data of a data or unified cache line of
+ * processor controlled cache to known values without the availability
+ * of backing memory.
+ */
 static inline s64
 ia64_pal_cache_line_init (u64 physical_addr, u64 data_value)
 {
@@ -762,6 +978,7 @@ ia64_pal_cache_line_init (u64 physical_addr, u64 data_value)
 }
 
 
+/* Read the data and tag of a processor controlled cache line for diags */
 static inline s64
 ia64_pal_cache_read (pal_cache_line_id_u_t line_id, u64 physical_addr)
 {
@@ -771,6 +988,7 @@ ia64_pal_cache_read (pal_cache_line_id_u_t line_id, u64 physical_addr)
 	return iprv.status;
 }
 
+/* Return summary information about the hierarchy of caches controlled by the processor */
 static inline long ia64_pal_cache_summary(unsigned long *cache_levels,
 						unsigned long *unique_caches)
 {
@@ -783,6 +1001,7 @@ static inline long ia64_pal_cache_summary(unsigned long *cache_levels,
 	return iprv.status;
 }
 
+/* Write the data and tag of a processor-controlled cache line for diags */
 static inline s64
 ia64_pal_cache_write (pal_cache_line_id_u_t line_id, u64 physical_addr, u64 data)
 {
@@ -793,6 +1012,7 @@ ia64_pal_cache_write (pal_cache_line_id_u_t line_id, u64 physical_addr, u64 data
 }
 
 
+/* Return the parameters needed to copy relocatable PAL procedures from ROM to memory */
 static inline s64
 ia64_pal_copy_info (u64 copy_type, u64 num_procs, u64 num_iopics,
 		    u64 *buffer_size, u64 *buffer_align)
@@ -806,6 +1026,7 @@ ia64_pal_copy_info (u64 copy_type, u64 num_procs, u64 num_iopics,
 	return iprv.status;
 }
 
+/* Copy relocatable PAL procedures from ROM to memory */
 static inline s64
 ia64_pal_copy_pal (u64 target_addr, u64 alloc_size, u64 processor, u64 *pal_proc_offset)
 {
@@ -816,6 +1037,7 @@ ia64_pal_copy_pal (u64 target_addr, u64 alloc_size, u64 processor, u64 *pal_proc
 	return iprv.status;
 }
 
+/* Return the number of instruction and data debug register pairs */
 static inline long ia64_pal_debug_info(unsigned long *inst_regs,
 						unsigned long *data_regs)
 {
@@ -830,6 +1052,7 @@ static inline long ia64_pal_debug_info(unsigned long *inst_regs,
 }
 
 #ifdef TBD
+/* Switch from IA64-system environment to IA-32 system environment */
 static inline s64
 ia64_pal_enter_ia32_env (ia32_env1, ia32_env2, ia32_env3)
 {
@@ -839,6 +1062,7 @@ ia64_pal_enter_ia32_env (ia32_env1, ia32_env2, ia32_env3)
 }
 #endif
 
+/* Get unique geographical address of this processor on its bus */
 static inline s64
 ia64_pal_fixed_addr (u64 *global_unique_addr)
 {
@@ -849,6 +1073,7 @@ ia64_pal_fixed_addr (u64 *global_unique_addr)
 	return iprv.status;
 }
 
+/* Get base frequency of the platform if generated by the processor */
 static inline long ia64_pal_freq_base(unsigned long *platform_base_freq)
 {
 	struct ia64_pal_retval iprv;
@@ -858,6 +1083,10 @@ static inline long ia64_pal_freq_base(unsigned long *platform_base_freq)
 	return iprv.status;
 }
 
+/*
+ * Get the ratios for processor frequency, bus frequency and interval timer to
+ * to base frequency of the platform
+ */
 static inline s64
 ia64_pal_freq_ratios (struct pal_freq_ratio *proc_ratio, struct pal_freq_ratio *bus_ratio,
 		      struct pal_freq_ratio *itc_ratio)
@@ -873,6 +1102,9 @@ ia64_pal_freq_ratios (struct pal_freq_ratio *proc_ratio, struct pal_freq_ratio *
 	return iprv.status;
 }
 
+/*
+ * Get the current hardware resource sharing policy of the processor
+ */
 static inline s64
 ia64_pal_get_hw_policy (u64 proc_num, u64 *cur_policy, u64 *num_impacted,
 			u64 *la)
@@ -888,6 +1120,10 @@ ia64_pal_get_hw_policy (u64 proc_num, u64 *cur_policy, u64 *num_impacted,
 	return iprv.status;
 }
 
+/* Make the processor enter HALT or one of the implementation dependent low
+ * power states where prefetching and execution are suspended and cache and
+ * TLB coherency is not maintained.
+ */
 static inline s64
 ia64_pal_halt (u64 halt_state)
 {
@@ -908,6 +1144,7 @@ typedef union pal_power_mgmt_info_u {
 	} pal_power_mgmt_info_s;
 } pal_power_mgmt_info_u_t;
 
+/* Return information about processor's optional power management capabilities. */
 static inline s64
 ia64_pal_halt_info (pal_power_mgmt_info_u_t *power_buf)
 {
@@ -916,6 +1153,7 @@ ia64_pal_halt_info (pal_power_mgmt_info_u_t *power_buf)
 	return iprv.status;
 }
 
+/* Get the current P-state information */
 static inline s64
 ia64_pal_get_pstate (u64 *pstate_index, unsigned long type)
 {
@@ -925,6 +1163,7 @@ ia64_pal_get_pstate (u64 *pstate_index, unsigned long type)
 	return iprv.status;
 }
 
+/* Set the P-state */
 static inline s64
 ia64_pal_set_pstate (u64 pstate_index)
 {
@@ -933,6 +1172,7 @@ ia64_pal_set_pstate (u64 pstate_index)
 	return iprv.status;
 }
 
+/* Processor branding information*/
 static inline s64
 ia64_pal_get_brand_info (char *brand_info)
 {
@@ -941,6 +1181,9 @@ ia64_pal_get_brand_info (char *brand_info)
 	return iprv.status;
 }
 
+/* Cause the processor to enter LIGHT HALT state, where prefetching and execution are
+ * suspended, but cache and TLB coherency is maintained.
+ */
 static inline s64
 ia64_pal_halt_light (void)
 {
@@ -963,6 +1206,9 @@ ia64_pal_mc_clear_log (u64 *pending_vector)
 	return iprv.status;
 }
 
+/* Ensure that all outstanding transactions in a processor are completed or that any
+ * MCA due to thes outstanding transaction is taken.
+ */
 static inline s64
 ia64_pal_mc_drain (void)
 {
@@ -971,6 +1217,7 @@ ia64_pal_mc_drain (void)
 	return iprv.status;
 }
 
+/* Return the machine check dynamic processor state */
 static inline s64
 ia64_pal_mc_dynamic_state (u64 info_type, u64 dy_buffer, u64 *size)
 {
@@ -981,6 +1228,7 @@ ia64_pal_mc_dynamic_state (u64 info_type, u64 dy_buffer, u64 *size)
 	return iprv.status;
 }
 
+/* Return processor machine check information */
 static inline s64
 ia64_pal_mc_error_info (u64 info_index, u64 type_index, u64 *size, u64 *error_info)
 {
@@ -993,6 +1241,9 @@ ia64_pal_mc_error_info (u64 info_index, u64 type_index, u64 *size, u64 *error_in
 	return iprv.status;
 }
 
+/* Injects the requested processor error or returns info on
+ * supported injection capabilities for current processor implementation
+ */
 static inline s64
 ia64_pal_mc_error_inject_phys (u64 err_type_info, u64 err_struct_info,
 			u64 err_data_buffer, u64 *capabilities, u64 *resources)
@@ -1021,6 +1272,9 @@ ia64_pal_mc_error_inject_virt (u64 err_type_info, u64 err_struct_info,
 	return iprv.status;
 }
 
+/* Inform PALE_CHECK whether a machine check is expected so that PALE_CHECK willnot
+ * attempt to correct any expected machine checks.
+ */
 static inline s64
 ia64_pal_mc_expected (u64 expected, u64 *previous)
 {
@@ -1034,14 +1288,17 @@ ia64_pal_mc_expected (u64 expected, u64 *previous)
 typedef union pal_hw_tracking_u {
 	u64			pht_data;
 	struct {
-		u64		itc	:4,	
-				dct	:4,	
-				itt	:4,	
-				ddt	:4,	
+		u64		itc	:4,	/* Instruction cache tracking */
+				dct	:4,	/* Date cache tracking */
+				itt	:4,	/* Instruction TLB tracking */
+				ddt	:4,	/* Data TLB tracking */
 				reserved:48;
 	} pal_hw_tracking_s;
 } pal_hw_tracking_u_t;
 
+/*
+ * Hardware tracking status.
+ */
 static inline s64
 ia64_pal_mc_hw_tracking (u64 *status)
 {
@@ -1052,6 +1309,10 @@ ia64_pal_mc_hw_tracking (u64 *status)
 	return iprv.status;
 }
 
+/* Register a platform dependent location with PAL to which it can save
+ * minimal processor state in the event of a machine check or initialization
+ * event.
+ */
 static inline s64
 ia64_pal_mc_register_mem (u64 physical_addr, u64 size, u64 *req_size)
 {
@@ -1062,6 +1323,9 @@ ia64_pal_mc_register_mem (u64 physical_addr, u64 size, u64 *req_size)
 	return iprv.status;
 }
 
+/* Restore minimal architectural processor state, set CMC interrupt if necessary
+ * and resume execution
+ */
 static inline s64
 ia64_pal_mc_resume (u64 set_cmci, u64 save_ptr)
 {
@@ -1070,6 +1334,7 @@ ia64_pal_mc_resume (u64 set_cmci, u64 save_ptr)
 	return iprv.status;
 }
 
+/* Return the memory attributes implemented by the processor */
 static inline s64
 ia64_pal_mem_attrib (u64 *mem_attrib)
 {
@@ -1080,6 +1345,9 @@ ia64_pal_mem_attrib (u64 *mem_attrib)
 	return iprv.status;
 }
 
+/* Return the amount of memory needed for second phase of processor
+ * self-test and the required alignment of memory.
+ */
 static inline s64
 ia64_pal_mem_for_test (u64 *bytes_needed, u64 *alignment)
 {
@@ -1103,6 +1371,9 @@ typedef union pal_perf_mon_info_u {
 	} pal_perf_mon_info_s;
 } pal_perf_mon_info_u_t;
 
+/* Return the performance monitor information about what can be counted
+ * and how to configure the monitors to count the desired events.
+ */
 static inline s64
 ia64_pal_perf_mon_info (u64 *pm_buffer, pal_perf_mon_info_u_t *pm_info)
 {
@@ -1113,6 +1384,9 @@ ia64_pal_perf_mon_info (u64 *pm_buffer, pal_perf_mon_info_u_t *pm_info)
 	return iprv.status;
 }
 
+/* Specifies the physical address of the processor interrupt block
+ * and I/O port space.
+ */
 static inline s64
 ia64_pal_platform_addr (u64 type, u64 physical_addr)
 {
@@ -1121,6 +1395,7 @@ ia64_pal_platform_addr (u64 type, u64 physical_addr)
 	return iprv.status;
 }
 
+/* Set the SAL PMI entrypoint in memory */
 static inline s64
 ia64_pal_pmi_entrypoint (u64 sal_pmi_entry_addr)
 {
@@ -1130,6 +1405,7 @@ ia64_pal_pmi_entrypoint (u64 sal_pmi_entry_addr)
 }
 
 struct pal_features_s;
+/* Provide information about configurable processor features */
 static inline s64
 ia64_pal_proc_get_features (u64 *features_avail,
 			    u64 *features_status,
@@ -1146,6 +1422,7 @@ ia64_pal_proc_get_features (u64 *features_avail,
 	return iprv.status;
 }
 
+/* Enable/disable processor dependent features */
 static inline s64
 ia64_pal_proc_set_features (u64 feature_select)
 {
@@ -1154,12 +1431,19 @@ ia64_pal_proc_set_features (u64 feature_select)
 	return iprv.status;
 }
 
+/*
+ * Put everything in a struct so we avoid the global offset table whenever
+ * possible.
+ */
 typedef struct ia64_ptce_info_s {
 	unsigned long	base;
 	u32		count[2];
 	u32		stride[2];
 } ia64_ptce_info_t;
 
+/* Return the information required for the architected loop used to purge
+ * (initialize) the entire TC
+ */
 static inline s64
 ia64_get_ptce (ia64_ptce_info_t *ptce)
 {
@@ -1179,6 +1463,7 @@ ia64_get_ptce (ia64_ptce_info_t *ptce)
 	return iprv.status;
 }
 
+/* Return info about implemented application and control registers. */
 static inline s64
 ia64_pal_register_info (u64 info_request, u64 *reg_info_1, u64 *reg_info_2)
 {
@@ -1200,6 +1485,9 @@ typedef union pal_hints_u {
 	} pal_hints_s;
 } pal_hints_u_t;
 
+/* Return information about the register stack and RSE for this processor
+ * implementation.
+ */
 static inline long ia64_pal_rse_info(unsigned long *num_phys_stacked,
 							pal_hints_u_t *hints)
 {
@@ -1212,6 +1500,9 @@ static inline long ia64_pal_rse_info(unsigned long *num_phys_stacked,
 	return iprv.status;
 }
 
+/*
+ * Set the current hardware resource sharing policy of the processor
+ */
 static inline s64
 ia64_pal_set_hw_policy (u64 policy)
 {
@@ -1220,6 +1511,10 @@ ia64_pal_set_hw_policy (u64 policy)
 	return iprv.status;
 }
 
+/* Cause the processor to enter	SHUTDOWN state, where prefetching and execution are
+ * suspended, but cause cache and TLB coherency to be maintained.
+ * This is usually called in IA-32 mode.
+ */
 static inline s64
 ia64_pal_shutdown (void)
 {
@@ -1228,6 +1523,7 @@ ia64_pal_shutdown (void)
 	return iprv.status;
 }
 
+/* Perform the second phase of processor self-test. */
 static inline s64
 ia64_pal_test_proc (u64 test_addr, u64 test_size, u64 attributes, u64 *self_test_state)
 {
@@ -1252,6 +1548,12 @@ typedef union  pal_version_u {
 } pal_version_u_t;
 
 
+/*
+ * Return PAL version information.  While the documentation states that
+ * PAL_VERSION can be called in either physical or virtual mode, some
+ * implementations only allow physical calls.  We don't call it very often,
+ * so the overhead isn't worth eliminating.
+ */
 static inline s64
 ia64_pal_version (pal_version_u_t *pal_min_version, pal_version_u_t *pal_cur_version)
 {
@@ -1287,6 +1589,9 @@ typedef union pal_tc_info_u {
 #define tc_num_sets		pal_tc_info_s.num_sets
 
 
+/* Return information about the virtual memory characteristics of the processor
+ * implementation.
+ */
 static inline s64
 ia64_pal_vm_info (u64 tc_level, u64 tc_type,  pal_tc_info_u_t *tc_info, u64 *tc_pages)
 {
@@ -1299,6 +1604,9 @@ ia64_pal_vm_info (u64 tc_level, u64 tc_type,  pal_tc_info_u_t *tc_info, u64 *tc_
 	return iprv.status;
 }
 
+/* Get page size information about the virtual memory characteristics of the processor
+ * implementation.
+ */
 static inline s64 ia64_pal_vm_page_size(u64 *tr_pages, u64 *vw_pages)
 {
 	struct ia64_pal_retval iprv;
@@ -1325,7 +1633,7 @@ typedef union pal_vm_info_1_u {
 	} pal_vm_info_1_s;
 } pal_vm_info_1_u_t;
 
-#define PAL_MAX_PURGES		0xFFFF		
+#define PAL_MAX_PURGES		0xFFFF		/* all ones is means unlimited */
 
 typedef union pal_vm_info_2_u {
 	u64			pvi2_val;
@@ -1337,6 +1645,9 @@ typedef union pal_vm_info_2_u {
 	} pal_vm_info_2_s;
 } pal_vm_info_2_u_t;
 
+/* Get summary information about the virtual memory characteristics of the processor
+ * implementation.
+ */
 static inline s64
 ia64_pal_vm_summary (pal_vm_info_1_u_t *vm_info_1, pal_vm_info_2_u_t *vm_info_2)
 {
@@ -1352,11 +1663,14 @@ ia64_pal_vm_summary (pal_vm_info_1_u_t *vm_info_1, pal_vm_info_2_u_t *vm_info_2)
 typedef union pal_vp_info_u {
 	u64			pvi_val;
 	struct {
-		u64		index:		48,	
-				vmm_id:		16;	
+		u64		index:		48,	/* virtual feature set info */
+				vmm_id:		16;	/* feature set id */
 	} pal_vp_info_s;
 } pal_vp_info_u_t;
 
+/*
+ * Returns information about virtual processor features
+ */
 static inline s64
 ia64_pal_vp_info (u64 feature_set, u64 vp_buffer, u64 *vp_info, u64 *vmm_id)
 {
@@ -1380,6 +1694,7 @@ typedef union pal_itr_valid_u {
 	} pal_tr_valid_s;
 } pal_tr_valid_u_t;
 
+/* Read a translation register */
 static inline s64
 ia64_pal_tr_read (u64 reg_num, u64 tr_type, u64 *tr_buffer, pal_tr_valid_u_t *tr_valid)
 {
@@ -1390,9 +1705,15 @@ ia64_pal_tr_read (u64 reg_num, u64 tr_type, u64 *tr_buffer, pal_tr_valid_u_t *tr
 	return iprv.status;
 }
 
+/*
+ * PAL_PREFETCH_VISIBILITY transaction types
+ */
 #define PAL_VISIBILITY_VIRTUAL		0
 #define PAL_VISIBILITY_PHYSICAL		1
 
+/*
+ * PAL_PREFETCH_VISIBILITY return codes
+ */
 #define PAL_VISIBILITY_OK		1
 #define PAL_VISIBILITY_OK_REMOTE_NEEDED	0
 #define PAL_VISIBILITY_INVAL_ARG	-2
@@ -1406,33 +1727,36 @@ ia64_pal_prefetch_visibility (s64 trans_type)
 	return iprv.status;
 }
 
+/* data structure for getting information on logical to physical mappings */
 typedef union pal_log_overview_u {
 	struct {
-		u64	num_log		:16,	
-			tpc		:8,	
-			reserved3	:8,	
-			cpp		:8,	
-			reserved2	:8,	
-			ppid		:8,	
-			reserved1	:8;	
+		u64	num_log		:16,	/* Total number of logical
+						 * processors on this die
+						 */
+			tpc		:8,	/* Threads per core */
+			reserved3	:8,	/* Reserved */
+			cpp		:8,	/* Cores per processor */
+			reserved2	:8,	/* Reserved */
+			ppid		:8,	/* Physical processor ID */
+			reserved1	:8;	/* Reserved */
 	} overview_bits;
 	u64 overview_data;
 } pal_log_overview_t;
 
 typedef union pal_proc_n_log_info1_u{
 	struct {
-		u64	tid		:16,	
-			reserved2	:16,	
-			cid		:16,	
-			reserved1	:16;	
+		u64	tid		:16,	/* Thread id */
+			reserved2	:16,	/* Reserved */
+			cid		:16,	/* Core id */
+			reserved1	:16;	/* Reserved */
 	} ppli1_bits;
 	u64	ppli1_data;
 } pal_proc_n_log_info1_t;
 
 typedef union pal_proc_n_log_info2_u {
 	struct {
-		u64	la		:16,	
-			reserved	:48;	
+		u64	la		:16,	/* Logical address */
+			reserved	:48;	/* Reserved */
 	} ppli2_bits;
 	u64	ppli2_data;
 } pal_proc_n_log_info2_t;
@@ -1452,6 +1776,7 @@ typedef struct pal_logical_to_physical_s
 #define log1_cid		ppli1.ppli1_bits.cid
 #define log2_la			ppli2.ppli2_bits.la
 
+/* Get information on logical to physical processor mappings. */
 static inline s64
 ia64_pal_logical_to_phys(u64 proc_number, pal_logical_to_physical_t *mapping)
 {
@@ -1476,6 +1801,7 @@ typedef struct pal_cache_shared_info_s
 	pal_proc_n_log_info2_t ppli2;
 } pal_cache_shared_info_t;
 
+/* Get information on logical to physical processor mappings. */
 static inline s64
 ia64_pal_cache_shared_info(u64 level,
 		u64 type,
@@ -1494,6 +1820,6 @@ ia64_pal_cache_shared_info(u64 level,
 
 	return iprv.status;
 }
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_IA64_PAL_H */

@@ -30,6 +30,7 @@
 #define SOLO_HW_BPL		2048
 #define SOLO_DISP_PIX_FIELD	V4L2_FIELD_INTERLACED
 
+/* Image size is two fields, SOLO_HW_BPL is one horizontal line */
 #define solo_vlines(__solo)	(__solo->video_vsize * 2)
 #define solo_image_size(__solo) (solo_bytesperline(__solo) * \
 				 solo_vlines(__solo))
@@ -37,6 +38,7 @@
 
 #define MIN_VID_BUFFERS		4
 
+/* Simple file handle */
 struct solo_filehandle {
 	struct solo_dev		*solo_dev;
 	struct videobuf_queue	vidq;
@@ -64,10 +66,10 @@ static int erase_off(struct solo_dev *solo_dev)
 	if (!solo_dev->erasing)
 		return 0;
 
-	
+	/* First time around, assert erase off */
 	if (!solo_dev->frame_blank)
 		solo_reg_write(solo_dev, SOLO_VO_DISP_ERASE, 0);
-	
+	/* Keep the erasing flag on for 8 frames minimum */
 	if (solo_dev->frame_blank++ >= 8)
 		solo_dev->erasing = 0;
 
@@ -86,7 +88,7 @@ static void solo_win_setup(struct solo_dev *solo_dev, u8 ch,
 	if (ch >= solo_dev->nr_chans)
 		return;
 
-	
+	/* Here, we just keep window/channel the same */
 	solo_reg_write(solo_dev, SOLO_VI_WIN_CTRL0(ch),
 		       SOLO_VI_WIN_CHANNEL(ch) |
 		       SOLO_VI_WIN_SX(sx) |
@@ -115,12 +117,12 @@ static int solo_v4l2_ch_ext_4up(struct solo_dev *solo_dev, u8 idx, int on)
 		return 0;
 	}
 
-	
+	/* Row 1 */
 	solo_win_setup(solo_dev, ch, 0, 0, solo_dev->video_hsize / 2,
 		       solo_vlines(solo_dev) / 2, 3);
 	solo_win_setup(solo_dev, ch + 1, solo_dev->video_hsize / 2, 0,
 		       solo_dev->video_hsize, solo_vlines(solo_dev) / 2, 3);
-	
+	/* Row 2 */
 	solo_win_setup(solo_dev, ch + 2, 0, solo_vlines(solo_dev) / 2,
 		       solo_dev->video_hsize / 2, solo_vlines(solo_dev), 3);
 	solo_win_setup(solo_dev, ch + 3, solo_dev->video_hsize / 2,
@@ -177,11 +179,11 @@ static int solo_v4l2_ch(struct solo_dev *solo_dev, u8 ch, int on)
 
 	ext_ch = ch - solo_dev->nr_chans;
 
-	
+	/* 4up's first */
 	if (ext_ch < 4)
 		return solo_v4l2_ch_ext_4up(solo_dev, ext_ch, on);
 
-	
+	/* Remaining case is 16up for 16-port */
 	return solo_v4l2_ch_ext_16up(solo_dev, on);
 }
 
@@ -202,7 +204,7 @@ static int solo_v4l2_set_ch(struct solo_dev *solo_dev, u8 ch)
 
 static void disp_reset_desc(struct solo_filehandle *fh)
 {
-	
+	/* We use desc mode, which ignores desc 0 */
 	memset(fh->desc, 0, sizeof(*fh->desc));
 	fh->desc_idx = 1;
 }
@@ -256,7 +258,7 @@ static void solo_fillbuf(struct solo_filehandle *fh,
 	if (erase_off(solo_dev)) {
 		int i;
 
-		
+		/* Just blit to the entire sg list, ignoring size */
 		for_each_sg(vbuf->sglist, sg, vbuf->sglen, i) {
 			void *p = sg_virt(sg);
 			size_t len = sg_dma_len(sg);
@@ -291,7 +293,7 @@ static void solo_fillbuf(struct solo_filehandle *fh,
 			sg_size_left = sg_dma_len(sg);
 		}
 
-		
+		/* No room for an entire line, so chunk it up */
 		if (sg_size_left < line_len) {
 			int this_addr = fdma_addr;
 
@@ -322,7 +324,7 @@ static void solo_fillbuf(struct solo_filehandle *fh,
 			continue;
 		}
 
-		
+		/* Shove as many lines into a repeating descriptor as possible */
 		lines = min(sg_size_left / line_len,
 			    solo_vlines(solo_dev) - i);
 
@@ -451,7 +453,7 @@ static int solo_buf_prepare(struct videobuf_queue *vq,
 	if (vb->baddr != 0 && vb->bsize < vb->size)
 		return -EINVAL;
 
-	
+	/* XXX: These properties only change when queue is idle */
 	vb->width  = solo_dev->video_hsize;
 	vb->height = solo_vlines(solo_dev);
 	vb->bytesperline = solo_bytesperline(solo_dev);
@@ -623,7 +625,7 @@ static int solo_enum_input(struct file *file, void *priv,
 		snprintf(input->name, sizeof(input->name), "Camera %d",
 			 input->index + 1);
 
-		
+		/* We can only check this for normal inputs */
 		if (!tw28_get_video_status(solo_dev, input->index))
 			input->status = V4L2_IN_ST_NO_SIGNAL;
 	}
@@ -674,7 +676,7 @@ static int solo_try_fmt_cap(struct file *file, void *priv,
 	struct v4l2_pix_format *pix = &f->fmt.pix;
 	int image_size = solo_image_size(solo_dev);
 
-	
+	/* Check supported sizes */
 	if (pix->width != solo_dev->video_hsize)
 		pix->width = solo_dev->video_hsize;
 	if (pix->height != solo_vlines(solo_dev))
@@ -682,7 +684,7 @@ static int solo_try_fmt_cap(struct file *file, void *priv,
 	if (pix->sizeimage != image_size)
 		pix->sizeimage = image_size;
 
-	
+	/* Check formats */
 	if (pix->field == V4L2_FIELD_ANY)
 		pix->field = SOLO_DISP_PIX_FIELD;
 
@@ -702,6 +704,8 @@ static int solo_set_fmt_cap(struct file *file, void *priv,
 	if (videobuf_queue_is_busy(&fh->vidq))
 		return -EBUSY;
 
+	/* For right now, if it doesn't match our running config,
+	 * then fail */
 	return solo_try_fmt_cap(file, priv, f);
 }
 
@@ -867,23 +871,23 @@ static const struct v4l2_file_operations solo_v4l2_fops = {
 static const struct v4l2_ioctl_ops solo_v4l2_ioctl_ops = {
 	.vidioc_querycap		= solo_querycap,
 	.vidioc_s_std			= solo_s_std,
-	
+	/* Input callbacks */
 	.vidioc_enum_input		= solo_enum_input,
 	.vidioc_s_input			= solo_set_input,
 	.vidioc_g_input			= solo_get_input,
-	
+	/* Video capture format callbacks */
 	.vidioc_enum_fmt_vid_cap	= solo_enum_fmt_cap,
 	.vidioc_try_fmt_vid_cap		= solo_try_fmt_cap,
 	.vidioc_s_fmt_vid_cap		= solo_set_fmt_cap,
 	.vidioc_g_fmt_vid_cap		= solo_get_fmt_cap,
-	
+	/* Streaming I/O */
 	.vidioc_reqbufs			= solo_reqbufs,
 	.vidioc_querybuf		= solo_querybuf,
 	.vidioc_qbuf			= solo_qbuf,
 	.vidioc_dqbuf			= solo_dqbuf,
 	.vidioc_streamon		= solo_streamon,
 	.vidioc_streamoff		= solo_streamoff,
-	
+	/* Controls */
 	.vidioc_queryctrl		= solo_disp_queryctrl,
 	.vidioc_g_ctrl			= solo_disp_g_ctrl,
 	.vidioc_s_ctrl			= solo_disp_s_ctrl,
@@ -933,17 +937,17 @@ int solo_v4l2_init(struct solo_dev *solo_dev)
 		 "%d inputs (%d extended)\n", solo_dev->vfd->num,
 		 solo_dev->nr_chans, solo_dev->nr_ext);
 
-	
+	/* Cycle all the channels and clear */
 	for (i = 0; i < solo_dev->nr_chans; i++) {
 		solo_v4l2_set_ch(solo_dev, i);
 		while (erase_off(solo_dev))
-			;
+			;/* Do nothing */
 	}
 
-	
+	/* Set the default display channel */
 	solo_v4l2_set_ch(solo_dev, 0);
 	while (erase_off(solo_dev))
-		;
+		;/* Do nothing */
 
 	solo_irq_on(solo_dev, SOLO_IRQ_VIDEO_IN);
 

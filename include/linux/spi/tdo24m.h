@@ -10,4 +10,4 @@ struct tdo24m_platform_data {
 	enum tdo24m_model model;
 };
 
-#endif 
+#endif /* __TDO24M_H__ */

@@ -39,23 +39,26 @@ MODULE_AUTHOR("SGI (prarit@sgi.com, dickie@sgi.com, habeck@sgi.com)");
 MODULE_DESCRIPTION("SGI Altix Hot Plug PCI Controller Driver");
 
 
-#define PCI_SLOT_ALREADY_UP		2	
-#define PCI_SLOT_ALREADY_DOWN		3	
-#define PCI_L1_ERR			7	
-#define PCI_EMPTY_33MHZ			15	
+/* SAL call error codes. Keep in sync with prom header io/include/pcibr.h */
+#define PCI_SLOT_ALREADY_UP		2	/* slot already up */
+#define PCI_SLOT_ALREADY_DOWN		3	/* slot already down */
+#define PCI_L1_ERR			7	/* L1 console command error */
+#define PCI_EMPTY_33MHZ			15	/* empty 33 MHz bus */
 
 
 #define PCIIO_ASIC_TYPE_TIOCA		4
-#define PCI_L1_QSIZE			128	
-#define SN_MAX_HP_SLOTS			32	
-#define SN_SLOT_NAME_SIZE		33	
+#define PCI_L1_QSIZE			128	/* our L1 message buffer size */
+#define SN_MAX_HP_SLOTS			32	/* max hotplug slots */
+#define SN_SLOT_NAME_SIZE		33	/* size of name string */
 
+/* internal list head */
 static struct list_head sn_hp_list;
 
+/* hotplug_slot struct's private pointer */
 struct slot {
 	int device_num;
 	struct pci_bus *pci_bus;
-	
+	/* this struct for glue internal only */
 	struct hotplug_slot *hotplug_slot;
 	struct list_head hp_list;
 	char physical_path[SN_SLOT_NAME_SIZE];
@@ -109,7 +112,7 @@ static int sn_pci_slot_valid(struct pci_bus *pci_bus, int device)
 
 	pcibus_info = SN_PCIBUS_BUSSOFT_INFO(pci_bus);
 
-	
+	/* Check to see if this is a valid slot on 'pci_bus' */
 	if (!(pcibus_info->pbi_valid_devices & (1 << device)))
 		return -EPERM;
 
@@ -117,7 +120,7 @@ static int sn_pci_slot_valid(struct pci_bus *pci_bus, int device)
 	busnum = pcibus_info->pbi_buscommon.bs_persist_busnum;
 	segment = pci_domain_nr(pci_bus) & 0xf;
 
-	
+	/* Do not allow hotplug operations on base I/O cards */
 	if ((ioboard_type == L1_BRICKTYPE_IX ||
 	     ioboard_type == L1_BRICKTYPE_IA) &&
 	    (segment == 1 && busnum == 0 && device != 1))
@@ -132,13 +135,13 @@ static int sn_pci_bus_valid(struct pci_bus *pci_bus)
 	u32 asic_type;
 	u16 ioboard_type;
 
-	
+	/* Don't register slots hanging off the TIOCA bus */
 	pcibus_info = SN_PCIBUS_BUSSOFT_INFO(pci_bus);
 	asic_type = pcibus_info->pbi_buscommon.bs_asic_type;
 	if (asic_type == PCIIO_ASIC_TYPE_TIOCA)
 		return -EPERM;
 
-	
+	/* Only register slots in I/O Bricks that support hotplug */
 	ioboard_type = sn_ioboard_to_pci_bus(pci_bus);
 	switch (ioboard_type) {
 		case L1_BRICKTYPE_IX:
@@ -208,12 +211,18 @@ static void sn_bus_free_data(struct pci_dev *dev)
 	struct pci_bus *subordinate_bus;
 	struct pci_dev *child;
 
-	
+	/* Recursively clean up sn_irq_info structs */
 	if (dev->subordinate) {
 		subordinate_bus = dev->subordinate;
 		list_for_each_entry(child, &subordinate_bus->devices, bus_list)
 			sn_bus_free_data(child);
 	}
+	/*
+	 * Some drivers may use dma accesses during the
+	 * driver remove function. We release the sysdata
+	 * areas after the driver remove functions have
+	 * been called.
+	 */
 	sn_bus_store_sysdata(dev);
 	sn_pci_unfixup_slot(dev);
 }
@@ -228,12 +237,16 @@ static int sn_slot_enable(struct hotplug_slot *bss_hotplug_slot,
 
 	pcibus_info = SN_PCIBUS_BUSSOFT_INFO(slot->pci_bus);
 
+	/*
+	 * Power-on and initialize the slot in the SN
+	 * PCI infrastructure.
+	 */
 	rc = sal_pcibr_slot_enable(pcibus_info, device_num, &resp, ssdt);
 
 
 	if (rc == PCI_SLOT_ALREADY_UP) {
 		dev_dbg(&slot->pci_bus->self->dev, "is already active\n");
-		return 1; 
+		return 1; /* return 1 to user */
 	}
 
 	if (rc == PCI_L1_ERR) {
@@ -271,7 +284,7 @@ static int sn_slot_disable(struct hotplug_slot *bss_hotplug_slot,
 	if ((action == PCI_REQ_SLOT_ELIGIBLE) &&
 	    (rc == PCI_SLOT_ALREADY_DOWN)) {
 		dev_dbg(&slot->pci_bus->self->dev, "Slot %s already inactive\n", slot->physical_path);
-		return 1; 
+		return 1; /* return 1 to user */
 	}
 
 	if ((action == PCI_REQ_SLOT_ELIGIBLE) && (rc == PCI_EMPTY_33MHZ)) {
@@ -311,6 +324,11 @@ static int sn_slot_disable(struct hotplug_slot *bss_hotplug_slot,
 	return rc;
 }
 
+/*
+ * Power up and configure the slot via a SAL call to PROM.
+ * Scan slot (and any children), do any platform specific fixup,
+ * and find device driver.
+ */
 static int enable_slot(struct hotplug_slot *bss_hotplug_slot)
 {
 	struct slot *slot = bss_hotplug_slot->private;
@@ -322,9 +340,14 @@ static int enable_slot(struct hotplug_slot *bss_hotplug_slot)
 	char *ssdt = NULL;
 	void pcibios_fixup_device_resources(struct pci_dev *);
 
-	
+	/* Serialize the Linux PCI infrastructure */
 	mutex_lock(&sn_hotplug_mutex);
 
+	/*
+	 * Power-on and initialize the slot in the SN
+	 * PCI infrastructure. Also, retrieve the ACPI SSDT
+	 * table for the slot (if ACPI capable PROM).
+	 */
 	rc = sn_slot_enable(bss_hotplug_slot, slot->device_num, &ssdt);
 	if (rc) {
 		mutex_unlock(&sn_hotplug_mutex);
@@ -333,7 +356,7 @@ static int enable_slot(struct hotplug_slot *bss_hotplug_slot)
 
 	if (ssdt)
 		ssdt = __va(ssdt);
-	
+	/* Add the new SSDT for the slot to the ACPI namespace */
 	if (SN_ACPI_BASE_SUPPORT() && ssdt) {
 		acpi_status ret;
 
@@ -341,7 +364,7 @@ static int enable_slot(struct hotplug_slot *bss_hotplug_slot)
 		if (ACPI_FAILURE(ret)) {
 			printk(KERN_ERR "%s: acpi_load_table failed (0x%x)\n",
 			       __func__, ret);
-			
+			/* try to continue on */
 		}
 	}
 
@@ -353,11 +376,21 @@ static int enable_slot(struct hotplug_slot *bss_hotplug_slot)
 		return -ENODEV;
 	}
 
+	/*
+	 * Map SN resources for all functions on the card
+	 * to the Linux PCI interface and tell the drivers
+	 * about them.
+	 */
 	for (func = 0; func < num_funcs;  func++) {
 		dev = pci_get_slot(slot->pci_bus,
 				   PCI_DEVFN(slot->device_num + 1,
 					     PCI_FUNC(func)));
 		if (dev) {
+			/* Need to do slot fixup on PPB before fixup of children
+			 * (PPB's pcidev_info needs to be in pcidev_info list
+			 * before child's SN_PCIDEV_INFO() call to setup
+			 * pdi_host_pcidev_info).
+			 */
 			pcibios_fixup_device_resources(dev);
 			if (SN_ACPI_BASE_SUPPORT())
 				sn_acpi_slot_fixup(dev);
@@ -376,6 +409,8 @@ static int enable_slot(struct hotplug_slot *bss_hotplug_slot)
 		}
 	}
 
+	/*
+	 * Add the slot's devices to the ACPI infrastructure */
 	if (SN_ACPI_BASE_SUPPORT() && ssdt) {
 		unsigned long long adr;
 		struct acpi_device *pdevice;
@@ -393,6 +428,11 @@ static int enable_slot(struct hotplug_slot *bss_hotplug_slot)
 			pdevice = NULL;
 		}
 
+		/*
+		 * Walk the rootbus node's immediate children looking for
+		 * the slot's device node(s). There can be more than
+		 * one for multifunction devices.
+		 */
 		for (;;) {
 			rethandle = NULL;
 			ret = acpi_get_next_object(ACPI_TYPE_DEVICE,
@@ -418,7 +458,7 @@ static int enable_slot(struct hotplug_slot *bss_hotplug_slot)
 					       "func %d\n", __func__,
 					       ret, (int)(adr>>16),
 					       (int)(adr&0xffff));
-					
+					/* try to continue on */
 				} else {
 					acpi_bus_start(device);
 				}
@@ -426,9 +466,9 @@ static int enable_slot(struct hotplug_slot *bss_hotplug_slot)
 		}
 	}
 
-	
+	/* Call the driver for the new device */
 	pci_bus_add_devices(slot->pci_bus);
-	
+	/* Call the drivers for the new devices subordinate to PPB */
 	if (new_ppb)
 		pci_bus_add_devices(new_bus);
 
@@ -452,16 +492,16 @@ static int disable_slot(struct hotplug_slot *bss_hotplug_slot)
 	int rc;
 	acpi_owner_id ssdt_id = 0;
 
-	
+	/* Acquire update access to the bus */
 	mutex_lock(&sn_hotplug_mutex);
 
-	
+	/* is it okay to bring this slot down? */
 	rc = sn_slot_disable(bss_hotplug_slot, slot->device_num,
 			     PCI_REQ_SLOT_ELIGIBLE);
 	if (rc)
 		goto leaving;
 
-	
+	/* free the ACPI resources for the slot */
 	if (SN_ACPI_BASE_SUPPORT() &&
             PCI_CONTROLLER(slot->pci_bus)->acpi_handle) {
 		unsigned long long adr;
@@ -471,9 +511,14 @@ static int disable_slot(struct hotplug_slot *bss_hotplug_slot)
 		acpi_handle rethandle;
 		acpi_status ret;
 
-		
+		/* Get the rootbus node pointer */
 		phandle = PCI_CONTROLLER(slot->pci_bus)->acpi_handle;
 
+		/*
+		 * Walk the rootbus node's immediate children looking for
+		 * the slot's device node(s). There can be more than
+		 * one for multifunction devices.
+		 */
 		for (;;) {
 			rethandle = NULL;
 			ret = acpi_get_next_object(ACPI_TYPE_DEVICE,
@@ -490,7 +535,7 @@ static int disable_slot(struct hotplug_slot *bss_hotplug_slot)
 						    NULL, &adr);
 			if (ACPI_SUCCESS(ret) &&
 			    (adr>>16) == (slot->device_num + 1)) {
-				
+				/* retain the owner id */
 				acpi_get_id(chandle, &ssdt_id);
 
 				ret = acpi_bus_get_device(chandle,
@@ -502,7 +547,7 @@ static int disable_slot(struct hotplug_slot *bss_hotplug_slot)
 
 	}
 
-	
+	/* Free the SN resources assigned to the Linux device.*/
 	for (func = 0; func < 8;  func++) {
 		dev = pci_get_slot(slot->pci_bus,
 				   PCI_DEVFN(slot->device_num + 1,
@@ -514,7 +559,7 @@ static int disable_slot(struct hotplug_slot *bss_hotplug_slot)
 		}
 	}
 
-	
+	/* Remove the SSDT for the slot from the ACPI namespace */
 	if (SN_ACPI_BASE_SUPPORT() && ssdt_id) {
 		acpi_status ret;
 		ret = acpi_unload_table_id(ssdt_id);
@@ -522,18 +567,18 @@ static int disable_slot(struct hotplug_slot *bss_hotplug_slot)
 			printk(KERN_ERR "%s: acpi_unload_table_id "
 			       "failed (0x%x) for id %d\n",
 			       __func__, ret, ssdt_id);
-			
+			/* try to continue on */
 		}
 	}
 
-	
+	/* free the collected sysdata pointers */
 	sn_bus_free_sysdata();
 
-	
+	/* Deactivate slot */
 	rc = sn_slot_disable(bss_hotplug_slot, slot->device_num,
 			     PCI_REQ_SLOT_DISABLE);
  leaving:
-	
+	/* Release the bus lock */
 	mutex_unlock(&sn_hotplug_mutex);
 
 	return rc;
@@ -569,6 +614,10 @@ static int sn_hotplug_slot_register(struct pci_bus *pci_bus)
 	char name[SN_SLOT_NAME_SIZE];
 	int rc = 0;
 
+	/*
+	 * Currently only four devices are supported,
+	 * in the future there maybe more -- up to 32.
+	 */
 
 	for (device = 0; device < SN_MAX_HP_SLOTS ; device++) {
 		if (sn_pci_slot_valid(pci_bus, device) != 1)
@@ -618,11 +667,11 @@ alloc_err:
 	if (rc == -ENOMEM)
 		dev_dbg(&pci_bus->self->dev, "Memory allocation error\n");
 
-	
+	/* destroy THIS element */
 	if (bss_hotplug_slot)
 		sn_release_slot(bss_hotplug_slot);
 
-	
+	/* destroy anything else on the list */
 	while ((bss_hotplug_slot = sn_hp_destroy()))
 		pci_hp_deregister(bss_hotplug_slot);
 

@@ -20,12 +20,15 @@
 
 #include "dtc.h"
 
+/*
+ * Tree building functions
+ */
 
 void add_label(struct label **labels, char *label)
 {
 	struct label *new;
 
-	
+	/* Make sure the label isn't already there */
 	for_each_label_withdel(*labels, new)
 		if (streq(new->label, label)) {
 			new->deleted = 0;
@@ -139,12 +142,14 @@ struct node *merge_nodes(struct node *old_node, struct node *new_node)
 
 	old_node->deleted = 0;
 
-	
+	/* Add new node labels to old node */
 	for_each_label_withdel(new_node->labels, l)
 		add_label(&old_node->labels, l->label);
 
+	/* Move properties from the new node to the old node.  If there
+	 * is a collision, replace the old value with the new */
 	while (new_node->proplist) {
-		
+		/* Pop the property off the list */
 		new_prop = new_node->proplist;
 		new_node->proplist = new_prop->next;
 		new_prop->next = NULL;
@@ -155,10 +160,10 @@ struct node *merge_nodes(struct node *old_node, struct node *new_node)
 			continue;
 		}
 
-		
+		/* Look for a collision, set new value if there is */
 		for_each_property_withdel(old_node, old_prop) {
 			if (streq(old_prop->name, new_prop->name)) {
-				
+				/* Add new labels to old property */
 				for_each_label_withdel(new_prop->labels, l)
 					add_label(&old_prop->labels, l->label);
 
@@ -170,13 +175,15 @@ struct node *merge_nodes(struct node *old_node, struct node *new_node)
 			}
 		}
 
-		
+		/* if no collision occurred, add property to the old node. */
 		if (new_prop)
 			add_property(old_node, new_prop);
 	}
 
+	/* Move the override child nodes into the primary node.  If
+	 * there is a collision, then merge the nodes. */
 	while (new_node->children) {
-		
+		/* Pop the child node off the list */
 		new_child = new_node->children;
 		new_node->children = new_child->next_sibling;
 		new_child->parent = NULL;
@@ -188,7 +195,7 @@ struct node *merge_nodes(struct node *old_node, struct node *new_node)
 			continue;
 		}
 
-		
+		/* Search for a collision.  Merge if there is */
 		for_each_child_withdel(old_node, old_child) {
 			if (streq(old_child->name, new_child->name)) {
 				merge_nodes(old_child, new_child);
@@ -197,11 +204,13 @@ struct node *merge_nodes(struct node *old_node, struct node *new_node)
 			}
 		}
 
-		
+		/* if no collision occured, add child to the old node. */
 		if (new_child)
 			add_child(old_node, new_child);
 	}
 
+	/* The new node contents are now merged into the old node.  Free
+	 * the new node. */
 	free(new_node);
 
 	return old_node;
@@ -339,6 +348,9 @@ struct boot_info *build_boot_info(struct reserve_info *reservelist,
 	return bi;
 }
 
+/*
+ * Tree accessor functions
+ */
 
 const char *get_unitname(struct node *node)
 {
@@ -507,7 +519,7 @@ struct node *get_node_by_ref(struct node *tree, const char *ref)
 
 cell_t get_node_phandle(struct node *root, struct node *node)
 {
-	static cell_t phandle = 1; 
+	static cell_t phandle = 1; /* FIXME: ick, static local */
 
 	if ((node->phandle != 0) && (node->phandle != -1))
 		return node->phandle;
@@ -529,6 +541,9 @@ cell_t get_node_phandle(struct node *root, struct node *node)
 			     build_property("phandle",
 					    data_append_cell(empty_data, phandle)));
 
+	/* If the node *does* have a phandle property, we must
+	 * be dealing with a self-referencing phandle, which will be
+	 * fixed up momentarily in the caller */
 
 	return node->phandle;
 }
@@ -551,7 +566,7 @@ uint32_t guess_boot_cpuid(struct node *tree)
 	if (!reg || (reg->val.len != sizeof(uint32_t)))
 		return 0;
 
-	
+	/* FIXME: Sanity check node? */
 
 	return propval_cell(reg);
 }

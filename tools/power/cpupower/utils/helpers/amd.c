@@ -56,6 +56,19 @@ static int get_cof(int family, union msr_pstate pstate)
 	return (100 * (fid + t)) >> did;
 }
 
+/* Needs:
+ * cpu          -> the cpu that gets evaluated
+ * cpu_family   -> The cpu's family (0x10, 0x12,...)
+ * boots_states -> how much boost states the machines support
+ *
+ * Fills up:
+ * pstates -> a pointer to an array of size MAX_HW_PSTATES
+ *            must be initialized with zeros.
+ *            All available  HW pstates (including boost states)
+ * no      -> amount of pstates above array got filled up with
+ *
+ * returns zero on success, -1 on failure
+ */
 int decode_pstates(unsigned int cpu, unsigned int cpu_family,
 		   int boost_states, unsigned long *pstates, int *no)
 {
@@ -63,6 +76,10 @@ int decode_pstates(unsigned int cpu, unsigned int cpu_family,
 	union msr_pstate pstate;
 	unsigned long long val;
 
+	/* Only read out frequencies from HW when CPU might be boostable
+	   to keep the code as short and clean as possible.
+	   Otherwise frequencies are exported via ACPI tables.
+	*/
 	if (cpu_family < 0x10 || cpu_family == 0x14)
 		return -1;
 
@@ -115,4 +132,4 @@ int amd_pci_get_num_boost_states(int *active, int *states)
 	pci_cleanup(pci_acc);
 	return 0;
 }
-#endif 
+#endif /* defined(__i386__) || defined(__x86_64__) */

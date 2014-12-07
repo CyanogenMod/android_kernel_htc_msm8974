@@ -30,15 +30,26 @@
 #define LOW_WATERMARK		3
 #define HIGH_WATERMARK		4
 
+/* Maximum number of CAIF buffers per shared memory buffer. */
 #define SHM_MAX_FRMS_PER_BUF	10
 
+/*
+ * Size in bytes of the descriptor area
+ * (With end of descriptor signalling)
+ */
 #define SHM_CAIF_DESC_SIZE	((SHM_MAX_FRMS_PER_BUF + 1) * \
 					sizeof(struct shm_pck_desc))
 
+/*
+ * Offset to the first CAIF frame within a shared memory buffer.
+ * Aligned on 32 bytes.
+ */
 #define SHM_CAIF_FRM_OFS	(SHM_CAIF_DESC_SIZE + (SHM_CAIF_DESC_SIZE % 32))
 
+/* Number of bytes for CAIF shared memory header. */
 #define SHM_HDR_LEN		1
 
+/* Number of padding bytes for the complete CAIF frame. */
 #define SHM_FRM_PAD_LEN		4
 
 #define CAIF_MAX_MTU		4096
@@ -53,6 +64,10 @@
 #define SHM_EMPTY_MASK		(0x0F << 4)
 
 struct shm_pck_desc {
+	/*
+	 * Offset from start of shared memory area to start of
+	 * shared memory CAIF frame.
+	 */
 	u32 frm_ofs;
 	u32 frm_len;
 };
@@ -68,12 +83,12 @@ struct buf_list {
 };
 
 struct shm_caif_frm {
-	
+	/* Number of bytes of padding before the CAIF frame. */
 	u8 hdr_ofs;
 };
 
 struct shmdrv_layer {
-	
+	/* caif_dev_common must always be first in the structure*/
 	struct caif_dev_common cfdev;
 
 	u32 shm_tx_addr;
@@ -121,23 +136,23 @@ int caif_shmdrv_rx_cb(u32 mbx_msg, void *priv)
 
 	pshm_drv = priv;
 
-	
+	/* Check for received buffers. */
 	if (mbx_msg & SHM_FULL_MASK) {
 		int idx;
 
 		spin_lock_irqsave(&pshm_drv->lock, flags);
 
-		
+		/* Check whether we have any outstanding buffers. */
 		if (list_empty(&pshm_drv->rx_empty_list)) {
 
-			
+			/* Release spin lock. */
 			spin_unlock_irqrestore(&pshm_drv->lock, flags);
 
-			
+			/* We print even in IRQ context... */
 			pr_warn("No empty Rx buffers to fill: "
 					"mbx_msg:%x\n", mbx_msg);
 
-			
+			/* Bail out. */
 			goto err_sync;
 		}
 
@@ -146,10 +161,10 @@ int caif_shmdrv_rx_cb(u32 mbx_msg, void *priv)
 					struct buf_list, list);
 		idx = pbuf->index;
 
-		
+		/* Check buffer synchronization. */
 		if (idx != SHM_GET_FULL(mbx_msg)) {
 
-			
+			/* We print even in IRQ context... */
 			pr_warn(
 			"phyif_shm_mbx_msg_cb: RX full out of sync:"
 			" idx:%d, msg:%x SHM_GET_FULL(mbx_msg):%x\n",
@@ -157,7 +172,7 @@ int caif_shmdrv_rx_cb(u32 mbx_msg, void *priv)
 
 			spin_unlock_irqrestore(&pshm_drv->lock, flags);
 
-			
+			/* Bail out. */
 			goto err_sync;
 		}
 
@@ -166,27 +181,27 @@ int caif_shmdrv_rx_cb(u32 mbx_msg, void *priv)
 
 		spin_unlock_irqrestore(&pshm_drv->lock, flags);
 
-		
+		/* Schedule RX work queue. */
 		if (!work_pending(&pshm_drv->shm_rx_work))
 			queue_work(pshm_drv->pshm_rx_workqueue,
 						&pshm_drv->shm_rx_work);
 	}
 
-	
+	/* Check for emptied buffers. */
 	if (mbx_msg & SHM_EMPTY_MASK) {
 		int idx;
 
 		spin_lock_irqsave(&pshm_drv->lock, flags);
 
-		
+		/* Check whether we have any outstanding buffers. */
 		if (list_empty(&pshm_drv->tx_full_list)) {
 
-			
+			/* We print even in IRQ context... */
 			pr_warn("No TX to empty: msg:%x\n", mbx_msg);
 
 			spin_unlock_irqrestore(&pshm_drv->lock, flags);
 
-			
+			/* Bail out. */
 			goto err_sync;
 		}
 
@@ -195,31 +210,31 @@ int caif_shmdrv_rx_cb(u32 mbx_msg, void *priv)
 					struct buf_list, list);
 		idx = pbuf->index;
 
-		
+		/* Check buffer synchronization. */
 		if (idx != SHM_GET_EMPTY(mbx_msg)) {
 
 			spin_unlock_irqrestore(&pshm_drv->lock, flags);
 
-			
+			/* We print even in IRQ context... */
 			pr_warn("TX empty "
 				"out of sync:idx:%d, msg:%x\n", idx, mbx_msg);
 
-			
+			/* Bail out. */
 			goto err_sync;
 		}
 		list_del_init(&pbuf->list);
 
-		
+		/* Reset buffer parameters. */
 		pbuf->frames = 0;
 		pbuf->frm_ofs = SHM_CAIF_FRM_OFS;
 
 		list_add_tail(&pbuf->list, &pshm_drv->tx_empty_list);
 
-		
+		/* Check the available no. of buffers in the empty list */
 		list_for_each(pos, &pshm_drv->tx_empty_list)
 			avail_emptybuff++;
 
-		
+		/* Check whether we have to wake up the transmitter. */
 		if ((avail_emptybuff > HIGH_WATERMARK) &&
 					(!pshm_drv->tx_empty_available)) {
 			pshm_drv->tx_empty_available = 1;
@@ -229,7 +244,7 @@ int caif_shmdrv_rx_cb(u32 mbx_msg, void *priv)
 								CAIF_FLOW_ON);
 
 
-			
+			/* Schedule the work queue. if required */
 			if (!work_pending(&pshm_drv->shm_tx_work))
 				queue_work(pshm_drv->pshm_tx_workqueue,
 							&pshm_drv->shm_tx_work);
@@ -260,7 +275,7 @@ static void shm_rx_work_func(struct work_struct *rx_work)
 
 		spin_lock_irqsave(&pshm_drv->lock, flags);
 
-		
+		/* Check for received buffers. */
 		if (list_empty(&pshm_drv->rx_full_list)) {
 			spin_unlock_irqrestore(&pshm_drv->lock, flags);
 			break;
@@ -272,26 +287,42 @@ static void shm_rx_work_func(struct work_struct *rx_work)
 		list_del_init(&pbuf->list);
 		spin_unlock_irqrestore(&pshm_drv->lock, flags);
 
-		
+		/* Retrieve pointer to start of the packet descriptor area. */
 		pck_desc = (struct shm_pck_desc *) pbuf->desc_vptr;
 
+		/*
+		 * Check whether descriptor contains a CAIF shared memory
+		 * frame.
+		 */
 		while (pck_desc->frm_ofs) {
 			unsigned int frm_buf_ofs;
 			unsigned int frm_pck_ofs;
 			unsigned int frm_pck_len;
+			/*
+			 * Check whether offset is within buffer limits
+			 * (lower).
+			 */
 			if (pck_desc->frm_ofs <
 				(pbuf->phy_addr - pshm_drv->shm_base_addr))
 				break;
+			/*
+			 * Check whether offset is within buffer limits
+			 * (higher).
+			 */
 			if (pck_desc->frm_ofs >
 				((pbuf->phy_addr - pshm_drv->shm_base_addr) +
 					pbuf->len))
 				break;
 
-			
+			/* Calculate offset from start of buffer. */
 			frm_buf_ofs =
 				pck_desc->frm_ofs - (pbuf->phy_addr -
 						pshm_drv->shm_base_addr);
 
+			/*
+			 * Calculate offset and length of CAIF packet while
+			 * taking care of the shared memory header.
+			 */
 			frm_pck_ofs =
 				frm_buf_ofs + SHM_HDR_LEN +
 				(*(pbuf->desc_vptr + frm_buf_ofs));
@@ -299,11 +330,11 @@ static void shm_rx_work_func(struct work_struct *rx_work)
 				(pck_desc->frm_len - SHM_HDR_LEN -
 				(*(pbuf->desc_vptr + frm_buf_ofs)));
 
-			
+			/* Check whether CAIF packet is within buffer limits */
 			if ((frm_pck_ofs + pck_desc->frm_len) > pbuf->len)
 				break;
 
-			
+			/* Get a suitable CAIF packet and copy in data. */
 			skb = netdev_alloc_skb(pshm_drv->pshm_dev->pshm_netdev,
 							frm_pck_len + 1);
 
@@ -319,7 +350,7 @@ static void shm_rx_work_func(struct work_struct *rx_work)
 			skb_reset_mac_header(skb);
 			skb->dev = pshm_drv->pshm_dev->pshm_netdev;
 
-			
+			/* Push received packet up the stack. */
 			ret = netif_rx_ni(skb);
 
 			if (!ret) {
@@ -330,7 +361,7 @@ static void shm_rx_work_func(struct work_struct *rx_work)
 			} else
 				++pshm_drv->pshm_dev->pshm_netdev->stats.
 								rx_dropped;
-			
+			/* Move to next packet descriptor. */
 			pck_desc++;
 		}
 
@@ -341,7 +372,7 @@ static void shm_rx_work_func(struct work_struct *rx_work)
 
 	}
 
-	
+	/* Schedule the work queue. if required */
 	if (!work_pending(&pshm_drv->shm_tx_work))
 		queue_work(pshm_drv->pshm_tx_workqueue, &pshm_drv->shm_tx_work);
 
@@ -362,13 +393,13 @@ static void shm_tx_work_func(struct work_struct *tx_work)
 	pshm_drv = container_of(tx_work, struct shmdrv_layer, shm_tx_work);
 
 	do {
-		
+		/* Initialize mailbox message. */
 		mbox_msg = 0x00;
 		avail_emptybuff = 0;
 
 		spin_lock_irqsave(&pshm_drv->lock, flags);
 
-		
+		/* Check for pending receive buffers. */
 		if (!list_empty(&pshm_drv->rx_pend_list)) {
 
 			pbuf = list_entry(pshm_drv->rx_pend_list.next,
@@ -376,6 +407,10 @@ static void shm_tx_work_func(struct work_struct *tx_work)
 
 			list_del_init(&pbuf->list);
 			list_add_tail(&pbuf->list, &pshm_drv->rx_empty_list);
+			/*
+			 * Value index is never changed,
+			 * so read access should be safe.
+			 */
 			mbox_msg |= SHM_SET_EMPTY(pbuf->index);
 		}
 
@@ -383,13 +418,13 @@ static void shm_tx_work_func(struct work_struct *tx_work)
 
 		if (skb == NULL)
 			goto send_msg;
-		
+		/* Check the available no. of buffers in the empty list */
 		list_for_each(pos, &pshm_drv->tx_empty_list)
 			avail_emptybuff++;
 
 		if ((avail_emptybuff < LOW_WATERMARK) &&
 					pshm_drv->tx_empty_available) {
-			
+			/* Update blocking condition. */
 			pshm_drv->tx_empty_available = 0;
 			spin_unlock_irqrestore(&pshm_drv->lock, flags);
 			pshm_drv->cfdev.flowctrl
@@ -397,10 +432,16 @@ static void shm_tx_work_func(struct work_struct *tx_work)
 					CAIF_FLOW_OFF);
 			spin_lock_irqsave(&pshm_drv->lock, flags);
 		}
+		/*
+		 * We simply return back to the caller if we do not have space
+		 * either in Tx pending list or Tx empty list. In this case,
+		 * we hold the received skb in the skb list, waiting to
+		 * be transmitted once Tx buffers become available
+		 */
 		if (list_empty(&pshm_drv->tx_empty_list))
 			goto send_msg;
 
-		
+		/* Get the first free Tx buffer. */
 		pbuf = list_entry(pshm_drv->tx_empty_list.next,
 						struct buf_list, list);
 		do {
@@ -417,11 +458,15 @@ static void shm_tx_work_func(struct work_struct *tx_work)
 			frmlen = 0;
 			frmlen += SHM_HDR_LEN + frm->hdr_ofs + skb->len;
 
-			
+			/* Add tail padding if needed. */
 			if (frmlen % SHM_FRM_PAD_LEN)
 				frmlen += SHM_FRM_PAD_LEN -
 						(frmlen % SHM_FRM_PAD_LEN);
 
+			/*
+			 * Verify that packet, header and additional padding
+			 * can fit within the buffer frame area.
+			 */
 			if (frmlen >= (pbuf->len - pbuf->frm_ofs))
 				break;
 
@@ -433,7 +478,7 @@ static void shm_tx_work_func(struct work_struct *tx_work)
 			skb = skb_dequeue(&pshm_drv->sk_qhead);
 			if (skb == NULL)
 				break;
-			
+			/* Copy in CAIF frame. */
 			skb_copy_bits(skb, 0, pbuf->desc_vptr +
 					pbuf->frm_ofs + SHM_HDR_LEN +
 						frm->hdr_ofs, skb->len);
@@ -443,24 +488,24 @@ static void shm_tx_work_func(struct work_struct *tx_work)
 									frmlen;
 			dev_kfree_skb_irq(skb);
 
-			
+			/* Fill in the shared memory packet descriptor area. */
 			pck_desc = (struct shm_pck_desc *) (pbuf->desc_vptr);
-			
+			/* Forward to current frame. */
 			pck_desc += pbuf->frames;
 			pck_desc->frm_ofs = (pbuf->phy_addr -
 						pshm_drv->shm_base_addr) +
 								pbuf->frm_ofs;
 			pck_desc->frm_len = frmlen;
-			
+			/* Terminate packet descriptor area. */
 			pck_desc++;
 			pck_desc->frm_ofs = 0;
-			
+			/* Update buffer parameters. */
 			pbuf->frames++;
 			pbuf->frm_ofs += frmlen + (frmlen % 32);
 
 		} while (pbuf->frames < SHM_MAX_FRMS_PER_BUF);
 
-		
+		/* Assign buffer as full. */
 		list_add_tail(&pbuf->list, &pshm_drv->tx_full_list);
 		append = 0;
 		mbox_msg |= SHM_SET_FULL(pbuf->index);
@@ -481,7 +526,7 @@ static int shm_netdev_tx(struct sk_buff *skb, struct net_device *shm_netdev)
 
 	skb_queue_tail(&pshm_drv->sk_qhead, skb);
 
-	
+	/* Schedule Tx work queue. for deferred processing of skbs*/
 	if (!work_pending(&pshm_drv->shm_tx_work))
 		queue_work(pshm_drv->pshm_tx_workqueue, &pshm_drv->shm_tx_work);
 
@@ -507,7 +552,7 @@ static void shm_netdev_setup(struct net_device *pshm_netdev)
 
 	pshm_drv = netdev_priv(pshm_netdev);
 
-	
+	/* Initialize structures in a clean state. */
 	memset(pshm_drv, 0, sizeof(struct shmdrv_layer));
 
 	pshm_drv->cfdev.link_select = CAIF_LINK_LOW_LATENCY;
@@ -526,6 +571,12 @@ int caif_shmcore_probe(struct shmdev_layer *pshm_dev)
 	pshm_drv = netdev_priv(pshm_dev->pshm_netdev);
 	pshm_drv->pshm_dev = pshm_dev;
 
+	/*
+	 * Initialization starts with the verification of the
+	 * availability of MBX driver by calling its setup function.
+	 * MBX driver must be available by this time for proper
+	 * functioning of SHM driver.
+	 */
 	if ((pshm_dev->pshmdev_mbxsetup
 				(caif_shmdrv_rx_cb, pshm_dev, pshm_drv)) != 0) {
 		pr_warn("Could not config. SHM Mailbox,"
@@ -690,7 +741,7 @@ void caif_shmcore_remove(struct net_device *pshm_netdev)
 		kfree(pbuf);
 	}
 
-	
+	/* Destroy work queues. */
 	destroy_workqueue(pshm_drv->pshm_tx_workqueue);
 	destroy_workqueue(pshm_drv->pshm_rx_workqueue);
 

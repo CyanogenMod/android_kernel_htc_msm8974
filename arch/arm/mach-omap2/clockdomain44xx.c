@@ -53,7 +53,7 @@ static int omap4_clkdm_clear_all_wkup_sleep_deps(struct clockdomain *clkdm)
 
 	for (cd = clkdm->wkdep_srcs; cd && cd->clkdm_name; cd++) {
 		if (!cd->clkdm)
-			continue; 
+			continue; /* only happens if data is erroneous */
 
 		mask |= 1 << cd->clkdm->dep_bit;
 		atomic_set(&cd->wkdep_usecount, 0);

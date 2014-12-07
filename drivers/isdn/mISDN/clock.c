@@ -44,9 +44,9 @@
 static u_int *debug;
 static LIST_HEAD(iclock_list);
 static DEFINE_RWLOCK(iclock_lock);
-static u16 iclock_count;		
-static struct timeval iclock_tv;	
-static int iclock_tv_valid;		
+static u16 iclock_count;		/* counter of last clock */
+static struct timeval iclock_tv;	/* time stamp of last clock */
+static int iclock_tv_valid;		/* already received one timestamp */
 static struct mISDNclock *iclock_current;
 
 void
@@ -71,21 +71,21 @@ select_iclock(void)
 			lastclock = iclock;
 	}
 	if (lastclock && bestclock != lastclock) {
-		
+		/* last used clock source still exists but changes, disable */
 		if (*debug & DEBUG_CLOCK)
 			printk(KERN_DEBUG "Old clock source '%s' disable.\n",
 			       lastclock->name);
 		lastclock->ctl(lastclock->priv, 0);
 	}
 	if (bestclock && bestclock != iclock_current) {
-		
+		/* new clock source selected, enable */
 		if (*debug & DEBUG_CLOCK)
 			printk(KERN_DEBUG "New clock source '%s' enable.\n",
 			       bestclock->name);
 		bestclock->ctl(bestclock->priv, 1);
 	}
 	if (bestclock != iclock_current) {
-		
+		/* no clock received yet */
 		iclock_tv_valid = 0;
 	}
 	iclock_current = bestclock;
@@ -157,16 +157,16 @@ mISDN_clock_update(struct mISDNclock *iclock, int samples, struct timeval *tv)
 		return;
 	}
 	if (iclock_tv_valid) {
-		
+		/* increment sample counter by given samples */
 		iclock_count += samples;
-		if (tv) { 
+		if (tv) { /* tv must be set, if function call is delayed */
 			iclock_tv.tv_sec = tv->tv_sec;
 			iclock_tv.tv_usec = tv->tv_usec;
 		} else
 			do_gettimeofday(&iclock_tv);
 	} else {
-		
-		if (tv) { 
+		/* calc elapsed time by system clock */
+		if (tv) { /* tv must be set, if function call is delayed */
 			tv_now.tv_sec = tv->tv_sec;
 			tv_now.tv_usec = tv->tv_usec;
 		} else
@@ -178,7 +178,7 @@ mISDN_clock_update(struct mISDNclock *iclock, int samples, struct timeval *tv)
 			elapsed_sec -= 1;
 			elapsed_8000th += 8000;
 		}
-		
+		/* add elapsed time to counter and set new timestamp */
 		iclock_count += elapsed_sec * 8000 + elapsed_8000th;
 		iclock_tv.tv_sec = tv_now.tv_sec;
 		iclock_tv.tv_usec = tv_now.tv_usec;
@@ -201,7 +201,7 @@ mISDN_clock_get(void)
 	u16		count;
 
 	read_lock_irqsave(&iclock_lock, flags);
-	
+	/* calc elapsed time by system clock */
 	do_gettimeofday(&tv_now);
 	elapsed_sec = tv_now.tv_sec - iclock_tv.tv_sec;
 	elapsed_8000th = (tv_now.tv_usec / 125) - (iclock_tv.tv_usec / 125);
@@ -209,7 +209,7 @@ mISDN_clock_get(void)
 		elapsed_sec -= 1;
 		elapsed_8000th += 8000;
 	}
-	
+	/* add elapsed time to counter */
 	count =	iclock_count + elapsed_sec * 8000 + elapsed_8000th;
 	read_unlock_irqrestore(&iclock_lock, flags);
 	return count;

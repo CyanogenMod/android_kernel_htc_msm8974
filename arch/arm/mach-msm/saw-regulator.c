@@ -34,7 +34,10 @@
 
 #define FTSMPS_BAND1_UV_MIN		350000
 #define FTSMPS_BAND1_UV_MAX		650000
+/* 3 LSB's of program voltage must be 0 in band 1. */
+/* Logical step size */
 #define FTSMPS_BAND1_UV_LOG_STEP	50000
+/* Physical step size */
 #define FTSMPS_BAND1_UV_PHYS_STEP	6250
 
 #define FTSMPS_BAND2_UV_MIN		700000
@@ -56,10 +59,13 @@ struct saw_vreg {
 	bool				online;
 };
 
+/* Minimum core operating voltage */
 #define MIN_CORE_VOLTAGE		950000
 
+/* Specifies an uninitialized voltage */
 #define INVALID_VOLTAGE			-1
 
+/* Specifies the PMIC internal slew rate in uV/us. */
 #define REGULATOR_SLEW_RATE		1250
 
 static int saw_get_voltage(struct regulator_dev *rdev)
@@ -77,7 +83,7 @@ static int _set_voltage(struct regulator_dev *rdev)
 	rc = msm_spm_set_vdd(rdev_get_id(rdev), vreg->vlevel);
 	if (!rc) {
 		if (vreg->uV > vreg->last_set_uV) {
-			
+			/* Wait for voltage to stabalize. */
 			udelay((vreg->uV - vreg->last_set_uV) /
 						REGULATOR_SLEW_RATE);
 		}
@@ -107,7 +113,7 @@ static int saw_set_voltage(struct regulator_dev *rdev, int min_uV, int max_uV,
 		return -EINVAL;
 	}
 
-	
+	/* Round up for set points in the gaps between bands. */
 	if (uV > FTSMPS_BAND1_UV_MAX && uV < FTSMPS_BAND2_UV_MIN)
 		uV = FTSMPS_BAND2_UV_MIN;
 	else if (uV > FTSMPS_BAND2_UV_MAX

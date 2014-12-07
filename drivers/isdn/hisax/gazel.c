@@ -26,16 +26,16 @@ static const char *gazel_revision = "$Revision: 2.19.2.4 $";
 #define R753      3
 #define R742      4
 
-#define PLX_CNTRL    0x50	
+#define PLX_CNTRL    0x50	/* registre de controle PLX */
 #define RESET_GAZEL  0x4
 #define RESET_9050   0x40000000
-#define PLX_INCSR    0x4C	
-#define INT_ISAC_EN  0x8	
-#define INT_ISAC     0x20	
-#define INT_HSCX_EN  0x1	
-#define INT_HSCX     0x4	
-#define INT_PCI_EN   0x40	
-#define INT_IPAC_EN  0x3	
+#define PLX_INCSR    0x4C	/* registre d'IT du 9050 */
+#define INT_ISAC_EN  0x8	/* 1 = enable IT isac */
+#define INT_ISAC     0x20	/* 1 = IT isac en cours */
+#define INT_HSCX_EN  0x1	/* 1 = enable IT hscx */
+#define INT_HSCX     0x4	/* 1 = IT hscx en cours */
+#define INT_PCI_EN   0x40	/* 1 = enable IT PCI */
+#define INT_IPAC_EN  0x3	/* enable IT ipac */
 
 
 #define byteout(addr, val) outb(val, addr)
@@ -98,6 +98,7 @@ write_fifo_ipac(unsigned int adr, u_short off, u_char *data, int size)
 	outsb(adr + 4, data, size);
 }
 
+/* Interface functions */
 
 static u_char
 ReadISAC(struct IsdnCardState *cs, u_char offset)
@@ -229,6 +230,9 @@ WriteHSCX(struct IsdnCardState *cs, int hscx, u_char offset, u_char value)
 	}
 }
 
+/*
+ * fast interrupt HSCX stuff goes here
+ */
 
 #define READHSCX(cs, nr, reg) ReadHSCX(cs, nr, reg)
 #define WRITEHSCX(cs, nr, reg, data) WriteHSCX(cs, nr, reg, data)
@@ -483,10 +487,10 @@ static int __devinit
 setup_gazelisa(struct IsdnCard *card, struct IsdnCardState *cs)
 {
 	printk(KERN_INFO "Gazel: ISA PnP card automatic recognition\n");
-	
-	
-	
-	
+	// we got an irq parameter, assume it is an ISA card
+	// R742 decodes address even in not started...
+	// R647 returns FF if not present or not started
+	// eventually needs improvment
 	if (readreg_ipac(card->para[1], IPAC_ID) == 1)
 		cs->subtyp = R742;
 	else
@@ -616,7 +620,7 @@ setup_gazelpci(struct IsdnCardState *cs)
 
 	return (0);
 }
-#endif 
+#endif /* CONFIG_PCI */
 
 int __devinit
 setup_gazel(struct IsdnCard *card)
@@ -642,7 +646,7 @@ setup_gazel(struct IsdnCard *card)
 #else
 		printk(KERN_WARNING "Gazel: Card PCI requested and NO_PCI_BIOS, unable to config\n");
 		return (0);
-#endif				
+#endif				/* CONFIG_PCI */
 	}
 
 	if (reserve_regions(card, cs)) {

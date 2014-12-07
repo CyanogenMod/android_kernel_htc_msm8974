@@ -40,7 +40,7 @@ static unsigned long oprofile_sdbt_blocks = DEFAULT_SDBT_BLOCKS;
 static unsigned long oprofile_sdb_blocks = DEFAULT_SDB_BLOCKS;
 
 static int hwsampler_enabled;
-static int hwsampler_running;	
+static int hwsampler_running;	/* start_mutex must be held to change */
 static int hwsampler_available;
 
 static struct oprofile_operations timer_ops;
@@ -48,7 +48,7 @@ static struct oprofile_operations timer_ops;
 struct op_counter_config counter_config;
 
 enum __force_cpu_type {
-	reserved = 0,		
+	reserved = 0,		/* do not force */
 	timer,
 };
 static int force_cpu_type;
@@ -101,6 +101,11 @@ static void oprofile_hwsampler_stop(void)
 	return;
 }
 
+/*
+ * File ops used for:
+ * /dev/oprofile/0/enabled
+ * /dev/oprofile/hwsampling/hwsampler  (cpu_type = timer)
+ */
 
 static ssize_t hwsampler_read(struct file *file, char __user *buf,
 		size_t count, loff_t *offset)
@@ -125,6 +130,11 @@ static ssize_t hwsampler_write(struct file *file, char const __user *buf,
 		return -EINVAL;
 
 	if (oprofile_started)
+		/*
+		 * save to do without locking as we set
+		 * hwsampler_running in start() when start_mutex is
+		 * held
+		 */
 		return -EBUSY;
 
 	hwsampler_enabled = val;
@@ -137,6 +147,13 @@ static const struct file_operations hwsampler_fops = {
 	.write		= hwsampler_write,
 };
 
+/*
+ * File ops used for:
+ * /dev/oprofile/0/count
+ * /dev/oprofile/hwsampling/hw_interval  (cpu_type = timer)
+ *
+ * Make sure that the value is within the hardware range.
+ */
 
 static ssize_t hw_interval_read(struct file *file, char __user *buf,
 				size_t count, loff_t *offset)
@@ -171,6 +188,15 @@ static const struct file_operations hw_interval_fops = {
 	.write		= hw_interval_write,
 };
 
+/*
+ * File ops used for:
+ * /dev/oprofile/0/event
+ * Only a single event with number 0 is supported with this counter.
+ *
+ * /dev/oprofile/0/unit_mask
+ * This is a dummy file needed by the user space tools.
+ * No value other than 0 is accepted or returned.
+ */
 
 static ssize_t hwsampler_zero_read(struct file *file, char __user *buf,
 				    size_t count, loff_t *offset)
@@ -200,6 +226,7 @@ static const struct file_operations zero_fops = {
 	.write		= hwsampler_zero_write,
 };
 
+/* /dev/oprofile/0/kernel file ops.  */
 
 static ssize_t hwsampler_kernel_read(struct file *file, char __user *buf,
 				     size_t count, loff_t *offset)
@@ -234,6 +261,7 @@ static const struct file_operations kernel_fops = {
 	.write		= hwsampler_kernel_write,
 };
 
+/* /dev/oprofile/0/user file ops. */
 
 static ssize_t hwsampler_user_read(struct file *file, char __user *buf,
 				   size_t count, loff_t *offset)
@@ -269,6 +297,11 @@ static const struct file_operations user_fops = {
 };
 
 
+/*
+ * File ops used for: /dev/oprofile/timer/enabled
+ * The value always has to be the inverted value of hwsampler_enabled. So
+ * no separate variable is created. That way we do not need locking.
+ */
 
 static ssize_t timer_enabled_read(struct file *file, char __user *buf,
 				  size_t count, loff_t *offset)
@@ -292,11 +325,16 @@ static ssize_t timer_enabled_write(struct file *file, char const __user *buf,
 	if (val != 0 && val != 1)
 		return -EINVAL;
 
-	
+	/* Timer cannot be disabled without having hardware sampling.  */
 	if (val == 0 && !hwsampler_available)
 		return -EINVAL;
 
 	if (oprofile_started)
+		/*
+		 * save to do without locking as we set
+		 * hwsampler_running in start() when start_mutex is
+		 * held
+		 */
 		return -EBUSY;
 
 	hwsampler_enabled = !val;
@@ -324,12 +362,21 @@ static int oprofile_create_hwsampling_files(struct super_block *sb,
 	if (!hwsampler_available)
 		return 0;
 
-	
+	/* reinitialize default values */
 	hwsampler_enabled = 1;
 	counter_config.kernel = 1;
 	counter_config.user = 1;
 
 	if (!force_cpu_type) {
+		/*
+		 * Create the counter file system.  A single virtual
+		 * counter is created which can be used to
+		 * enable/disable hardware sampling dynamically from
+		 * user space.  The user space will configure a single
+		 * counter with a single event.  The value of 'event'
+		 * and 'unit_mask' are not evaluated by the kernel code
+		 * and can only be set to 0.
+		 */
 
 		dir = oprofilefs_mkdir(sb, root, "0");
 		if (!dir)
@@ -345,6 +392,12 @@ static int oprofile_create_hwsampling_files(struct super_block *sb,
 					&oprofile_sdbt_blocks);
 
 	} else {
+		/*
+		 * Hardware sampling can be used but the cpu_type is
+		 * forced to timer in order to deal with legacy user
+		 * space tools.  The /dev/oprofile/hwsampling fs is
+		 * provided in that case.
+		 */
 		dir = oprofilefs_mkdir(sb, root, "hwsampling");
 		if (!dir)
 			return -EINVAL;
@@ -365,12 +418,22 @@ static int oprofile_create_hwsampling_files(struct super_block *sb,
 
 static int oprofile_hwsampler_init(struct oprofile_operations *ops)
 {
+	/*
+	 * Initialize the timer mode infrastructure as well in order
+	 * to be able to switch back dynamically.  oprofile_timer_init
+	 * is not supposed to fail.
+	 */
 	if (oprofile_timer_init(ops))
 		BUG();
 
 	memcpy(&timer_ops, ops, sizeof(timer_ops));
 	ops->create_files = oprofile_create_hwsampling_files;
 
+	/*
+	 * If the user space tools do not support newer cpu types,
+	 * the force_cpu_type module parameter
+	 * can be used to always return \"timer\" as cpu type.
+	 */
 	if (force_cpu_type != timer) {
 		struct cpuid id;
 
@@ -386,6 +449,10 @@ static int oprofile_hwsampler_init(struct oprofile_operations *ops)
 	if (hwsampler_setup())
 		return -ENODEV;
 
+	/*
+	 * Query the range for the sampling interval from the
+	 * hardware.
+	 */
 	oprofile_min_interval = hwsampler_query_min_interval();
 	if (oprofile_min_interval == 0)
 		return -ENODEV;
@@ -393,7 +460,7 @@ static int oprofile_hwsampler_init(struct oprofile_operations *ops)
 	if (oprofile_max_interval == 0)
 		return -ENODEV;
 
-	
+	/* The initial value should be sane */
 	if (oprofile_hw_interval < oprofile_min_interval)
 		oprofile_hw_interval = oprofile_min_interval;
 	if (oprofile_hw_interval > oprofile_max_interval)
@@ -413,7 +480,7 @@ static void oprofile_hwsampler_exit(void)
 	hwsampler_shutdown();
 }
 
-#endif 
+#endif /* CONFIG_64BIT */
 
 int __init oprofile_arch_init(struct oprofile_operations *ops)
 {
@@ -421,6 +488,11 @@ int __init oprofile_arch_init(struct oprofile_operations *ops)
 
 #ifdef CONFIG_64BIT
 
+	/*
+	 * -ENODEV is not reported to the caller.  The module itself
+         * will use the timer mode sampling as fallback and this is
+         * always available.
+	 */
 	hwsampler_available = oprofile_hwsampler_init(ops) == 0;
 
 	return 0;

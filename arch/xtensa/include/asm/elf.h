@@ -16,10 +16,12 @@
 #include <asm/ptrace.h>
 #include <asm/coprocessor.h>
 
+/* Xtensa processor ELF architecture-magic number */
 
 #define EM_XTENSA	94
 #define EM_XTENSA_OLD	0xABC7
 
+/* Xtensa relocations defined by the ABIs */
 
 #define R_XTENSA_NONE           0
 #define R_XTENSA_32             1
@@ -69,6 +71,7 @@
 #define R_XTENSA_SLOT13_ALT	48
 #define R_XTENSA_SLOT14_ALT	49
 
+/* ELF register definitions. This is needed for core dump support.  */
 
 typedef unsigned long elf_greg_t;
 
@@ -99,10 +102,16 @@ typedef elf_fpreg_t elf_fpregset_t[ELF_NFPREG];
 
 extern void xtensa_elf_core_copy_regs (xtensa_gregset_t *, struct pt_regs *);
 
+/*
+ * This is used to ensure we don't load something for the wrong architecture.
+ */
 
 #define elf_check_arch(x) ( ( (x)->e_machine == EM_XTENSA )  || \
 			    ( (x)->e_machine == EM_XTENSA_OLD ) )
 
+/*
+ * These are used to set parameters in the core dumps.
+ */
 
 #ifdef __XTENSA_EL__
 # define ELF_DATA	ELFDATA2LSB
@@ -117,18 +126,49 @@ extern void xtensa_elf_core_copy_regs (xtensa_gregset_t *, struct pt_regs *);
 
 #define ELF_EXEC_PAGESIZE	PAGE_SIZE
 
+/*
+ * This is the location that an ET_DYN program is loaded if exec'ed.  Typical
+ * use of this is to invoke "./ld.so someprog" to test out a new version of
+ * the loader.  We need to make sure that it is out of the way of the program
+ * that it will "exec", and that there is sufficient room for the brk.
+ */
 
 #define ELF_ET_DYN_BASE         (2 * TASK_SIZE / 3)
 
+/*
+ * This yields a mask that user programs can use to figure out what
+ * instruction set this CPU supports.  This could be done in user space,
+ * but it's not easy, and we've already done it here.
+ */
 
 #define ELF_HWCAP	(0)
 
+/*
+ * This yields a string that ld.so will use to load implementation
+ * specific libraries for optimization.  This is more specific in
+ * intent than poking at uname or /proc/cpuinfo.
+ * For the moment, we have only optimizations for the Intel generations,
+ * but that could change...
+ */
 
 #define ELF_PLATFORM  (NULL)
 
+/*
+ * The Xtensa processor ABI says that when the program starts, a2
+ * contains a pointer to a function which might be registered using
+ * `atexit'.  This provides a mean for the dynamic linker to call
+ * DT_FINI functions for shared libraries that have been loaded before
+ * the code runs.
+ *
+ * A value of 0 tells we have no such handler.
+ *
+ * We might as well make sure everything else is cleared too (except
+ * for the stack pointer in a1), just to make things more
+ * deterministic.  Also, clearing a0 terminates debugger backtraces.
+ */
 
 #define ELF_PLAT_INIT(_r, load_addr) \
-  do { _r->areg[0]=0;  _r->areg[2]=0;  _r->areg[3]=0;  \
+  do { _r->areg[0]=0; /*_r->areg[1]=0;*/ _r->areg[2]=0;  _r->areg[3]=0;  \
        _r->areg[4]=0;  _r->areg[5]=0;    _r->areg[6]=0;  _r->areg[7]=0;  \
        _r->areg[8]=0;  _r->areg[9]=0;    _r->areg[10]=0; _r->areg[11]=0; \
        _r->areg[12]=0; _r->areg[13]=0;   _r->areg[14]=0; _r->areg[15]=0; \
@@ -162,4 +202,4 @@ extern void do_save_fpregs (elf_fpregset_t*, struct pt_regs*,
 extern int do_restore_fpregs (elf_fpregset_t*, struct pt_regs*,
 			      struct task_struct*);
 
-#endif	
+#endif	/* _XTENSA_ELF_H */

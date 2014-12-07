@@ -20,6 +20,13 @@
 #define PTR_SUB(x, y) (((char *) (x)) - ((unsigned long) (y)))
 #define PTR_DIFF(x, y) ((unsigned long)(((char *) (x)) - ((unsigned long) (y))))
 
+/*
+ * Copy one page from "oldmem"
+ *
+ * For the kdump reserved memory this functions performs a swap operation:
+ *  - [OLDMEM_BASE - OLDMEM_BASE + OLDMEM_SIZE] is mapped to [0 - OLDMEM_SIZE].
+ *  - [0 - OLDMEM_SIZE] is mapped to [OLDMEM_BASE - OLDMEM_BASE + OLDMEM_SIZE]
+ */
 ssize_t copy_oldmem_page(unsigned long pfn, char *buf,
 			 size_t csize, unsigned long offset, int userbuf)
 {
@@ -42,6 +49,9 @@ ssize_t copy_oldmem_page(unsigned long pfn, char *buf,
 	return csize;
 }
 
+/*
+ * Copy memory from old kernel
+ */
 int copy_from_oldmem(void *dest, void *src, size_t count)
 {
 	unsigned long copied = 0;
@@ -56,6 +66,9 @@ int copy_from_oldmem(void *dest, void *src, size_t count)
 	return memcpy_real(dest + copied, src + copied, count - copied);
 }
 
+/*
+ * Alloc memory and panic in case of ENOMEM
+ */
 static void *kzalloc_panic(int len)
 {
 	void *rc;
@@ -66,6 +79,9 @@ static void *kzalloc_panic(int len)
 	return rc;
 }
 
+/*
+ * Get memory layout and create hole for oldmem
+ */
 static struct mem_chunk *get_memory_layout(void)
 {
 	struct mem_chunk *chunk_array;
@@ -76,6 +92,9 @@ static struct mem_chunk *get_memory_layout(void)
 	return chunk_array;
 }
 
+/*
+ * Initialize ELF note
+ */
 static void *nt_init(void *buf, Elf64_Word type, void *desc, int d_len,
 		     const char *name)
 {
@@ -97,6 +116,9 @@ static void *nt_init(void *buf, Elf64_Word type, void *desc, int d_len,
 	return PTR_ADD(buf, len);
 }
 
+/*
+ * Initialize prstatus note
+ */
 static void *nt_prstatus(void *ptr, struct save_area *sa)
 {
 	struct elf_prstatus nt_prstatus;
@@ -113,6 +135,9 @@ static void *nt_prstatus(void *ptr, struct save_area *sa)
 			 "CORE");
 }
 
+/*
+ * Initialize fpregset (floating point) note
+ */
 static void *nt_fpregset(void *ptr, struct save_area *sa)
 {
 	elf_fpregset_t nt_fpregset;
@@ -125,36 +150,54 @@ static void *nt_fpregset(void *ptr, struct save_area *sa)
 		       "CORE");
 }
 
+/*
+ * Initialize timer note
+ */
 static void *nt_s390_timer(void *ptr, struct save_area *sa)
 {
 	return nt_init(ptr, NT_S390_TIMER, &sa->timer, sizeof(sa->timer),
 			 KEXEC_CORE_NOTE_NAME);
 }
 
+/*
+ * Initialize TOD clock comparator note
+ */
 static void *nt_s390_tod_cmp(void *ptr, struct save_area *sa)
 {
 	return nt_init(ptr, NT_S390_TODCMP, &sa->clk_cmp,
 		       sizeof(sa->clk_cmp), KEXEC_CORE_NOTE_NAME);
 }
 
+/*
+ * Initialize TOD programmable register note
+ */
 static void *nt_s390_tod_preg(void *ptr, struct save_area *sa)
 {
 	return nt_init(ptr, NT_S390_TODPREG, &sa->tod_reg,
 		       sizeof(sa->tod_reg), KEXEC_CORE_NOTE_NAME);
 }
 
+/*
+ * Initialize control register note
+ */
 static void *nt_s390_ctrs(void *ptr, struct save_area *sa)
 {
 	return nt_init(ptr, NT_S390_CTRS, &sa->ctrl_regs,
 		       sizeof(sa->ctrl_regs), KEXEC_CORE_NOTE_NAME);
 }
 
+/*
+ * Initialize prefix register note
+ */
 static void *nt_s390_prefix(void *ptr, struct save_area *sa)
 {
 	return nt_init(ptr, NT_S390_PREFIX, &sa->pref_reg,
 			 sizeof(sa->pref_reg), KEXEC_CORE_NOTE_NAME);
 }
 
+/*
+ * Fill ELF notes for one CPU with save area registers
+ */
 void *fill_cpu_elf_notes(void *ptr, struct save_area *sa)
 {
 	ptr = nt_prstatus(ptr, sa);
@@ -167,6 +210,9 @@ void *fill_cpu_elf_notes(void *ptr, struct save_area *sa)
 	return ptr;
 }
 
+/*
+ * Initialize prpsinfo note (new kernel)
+ */
 static void *nt_prpsinfo(void *ptr)
 {
 	struct elf_prpsinfo prpsinfo;
@@ -178,6 +224,9 @@ static void *nt_prpsinfo(void *ptr)
 		       KEXEC_CORE_NOTE_NAME);
 }
 
+/*
+ * Get vmcoreinfo using lowcore->vmcore_info (new kernel)
+ */
 static void *get_vmcoreinfo_old(unsigned long *size)
 {
 	char nt_name[11], *vmcoreinfo;
@@ -200,6 +249,9 @@ static void *get_vmcoreinfo_old(unsigned long *size)
 	return vmcoreinfo;
 }
 
+/*
+ * Initialize vmcoreinfo note (new kernel)
+ */
 static void *nt_vmcoreinfo(void *ptr)
 {
 	unsigned long size;
@@ -213,6 +265,9 @@ static void *nt_vmcoreinfo(void *ptr)
 	return nt_init(ptr, 0, vmcoreinfo, size, "VMCOREINFO");
 }
 
+/*
+ * Initialize ELF header (new kernel)
+ */
 static void *ehdr_init(Elf64_Ehdr *ehdr, int mem_chunk_cnt)
 {
 	memset(ehdr, 0, sizeof(*ehdr));
@@ -231,6 +286,9 @@ static void *ehdr_init(Elf64_Ehdr *ehdr, int mem_chunk_cnt)
 	return ehdr + 1;
 }
 
+/*
+ * Return CPU count for ELF header (new kernel)
+ */
 static int get_cpu_cnt(void)
 {
 	int i, cpus = 0;
@@ -243,6 +301,9 @@ static int get_cpu_cnt(void)
 	return cpus;
 }
 
+/*
+ * Return memory chunk count for ELF header (new kernel)
+ */
 static int get_mem_chunk_cnt(void)
 {
 	struct mem_chunk *chunk_array, *mem_chunk;
@@ -262,11 +323,17 @@ static int get_mem_chunk_cnt(void)
 	return cnt;
 }
 
+/*
+ * Relocate pointer in order to allow vmcore code access the data
+ */
 static inline unsigned long relocate(unsigned long addr)
 {
 	return OLDMEM_BASE + addr;
 }
 
+/*
+ * Initialize ELF loads (new kernel)
+ */
 static int loads_init(Elf64_Phdr *phdr, u64 loads_offset)
 {
 	struct mem_chunk *chunk_array, *mem_chunk;
@@ -295,6 +362,9 @@ static int loads_init(Elf64_Phdr *phdr, u64 loads_offset)
 	return i;
 }
 
+/*
+ * Initialize notes (new kernel)
+ */
 static void *notes_init(Elf64_Phdr *phdr, void *ptr, u64 notes_offset)
 {
 	struct save_area *sa;
@@ -318,6 +388,9 @@ static void *notes_init(Elf64_Phdr *phdr, void *ptr, u64 notes_offset)
 	return ptr;
 }
 
+/*
+ * Create ELF core header (new kernel)
+ */
 static void s390_elf_corehdr_create(char **elfcorebuf, size_t *elfcorebuf_sz)
 {
 	Elf64_Phdr *phdr_notes, *phdr_loads;
@@ -331,17 +404,17 @@ static void s390_elf_corehdr_create(char **elfcorebuf, size_t *elfcorebuf_sz)
 	alloc_size = 0x1000 + get_cpu_cnt() * 0x300 +
 		mem_chunk_cnt * sizeof(Elf64_Phdr);
 	hdr = kzalloc_panic(alloc_size);
-	
+	/* Init elf header */
 	ptr = ehdr_init(hdr, mem_chunk_cnt);
-	
+	/* Init program headers */
 	phdr_notes = ptr;
 	ptr = PTR_ADD(ptr, sizeof(Elf64_Phdr));
 	phdr_loads = ptr;
 	ptr = PTR_ADD(ptr, sizeof(Elf64_Phdr) * mem_chunk_cnt);
-	
+	/* Init notes */
 	hdr_off = PTR_DIFF(ptr, hdr);
 	ptr = notes_init(phdr_notes, ptr, ((unsigned long) hdr) + hdr_off);
-	
+	/* Init loads */
 	hdr_off = PTR_DIFF(ptr, hdr);
 	loads_init(phdr_loads, ((unsigned long) hdr) + hdr_off);
 	*elfcorebuf_sz = hdr_off;
@@ -349,6 +422,10 @@ static void s390_elf_corehdr_create(char **elfcorebuf, size_t *elfcorebuf_sz)
 	BUG_ON(*elfcorebuf_sz > alloc_size);
 }
 
+/*
+ * Create kdump ELF core header in new kernel, if it has not been passed via
+ * the "elfcorehdr" kernel parameter
+ */
 static int setup_kdump_elfcorehdr(void)
 {
 	size_t elfcorebuf_sz;

@@ -21,7 +21,7 @@
 #define SSB_OHCI_TMSLOW_HOSTMODE	(1 << 29)
 
 struct ssb_ohci_device {
-	struct ohci_hcd ohci; 
+	struct ohci_hcd ohci; /* _must_ be at the beginning. */
 
 	u32 enable_flags;
 };
@@ -114,20 +114,27 @@ static int ssb_ohci_attach(struct ssb_device *dev)
 		return -EOPNOTSUPP;
 
 	if (dev->id.coreid == SSB_DEV_USB11_HOSTDEV) {
-		
+		/* Put the device into host-mode. */
 		flags |= SSB_OHCI_TMSLOW_HOSTMODE;
 		ssb_device_enable(dev, flags);
 	} else if (dev->id.coreid == SSB_DEV_USB20_HOST) {
+		/*
+		 * USB 2.0 special considerations:
+		 *
+		 * In addition to the standard SSB reset sequence, the Host
+		 * Control Register must be programmed to bring the USB core
+		 * and various phy components out of reset.
+		 */
 		ssb_device_enable(dev, 0);
 		ssb_write32(dev, 0x200, 0x7ff);
 
-		
+		/* Change Flush control reg */
 		tmp = ssb_read32(dev, 0x400);
 		tmp &= ~8;
 		ssb_write32(dev, 0x400, tmp);
 		tmp = ssb_read32(dev, 0x400);
 
-		
+		/* Change Shim control reg */
 		tmp = ssb_read32(dev, 0x304);
 		tmp &= ~0x100;
 		ssb_write32(dev, 0x304, tmp);
@@ -135,13 +142,13 @@ static int ssb_ohci_attach(struct ssb_device *dev)
 
 		udelay(1);
 
-		
+		/* Work around for 5354 failures */
 		if (dev->id.revision == 2 && dev->bus->chip_id == 0x5354) {
-			
+			/* Change syn01 reg */
 			tmp = 0x00fe00fe;
 			ssb_write32(dev, 0x894, tmp);
 
-			
+			/* Change syn03 reg */
 			tmp = ssb_read32(dev, 0x89c);
 			tmp |= 0x1;
 			ssb_write32(dev, 0x89c, tmp);
@@ -185,12 +192,12 @@ static int ssb_ohci_probe(struct ssb_device *dev,
 	int err;
 	u16 chipid_top;
 
-	
+	/* USBcores are only connected on embedded devices. */
 	chipid_top = (dev->bus->chip_id & 0xFF00);
 	if (chipid_top != 0x4700 && chipid_top != 0x5300)
 		return -ENODEV;
 
-	
+	/* TODO: Probably need checks here; is the core connected? */
 
 	if (usb_disabled())
 		return -ENODEV;
@@ -230,10 +237,10 @@ static int ssb_ohci_resume(struct ssb_device *dev)
 	return 0;
 }
 
-#else 
+#else /* !CONFIG_PM */
 #define ssb_ohci_suspend	NULL
 #define ssb_ohci_resume	NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static const struct ssb_device_id ssb_ohci_table[] = {
 	SSB_DEVICE(SSB_VENDOR_BROADCOM, SSB_DEV_USB11_HOSTDEV, SSB_ANY_REV),

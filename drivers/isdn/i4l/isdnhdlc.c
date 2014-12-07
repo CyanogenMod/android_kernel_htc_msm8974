@@ -28,6 +28,7 @@
 #include <linux/isdn/hdlc.h>
 #include <linux/bitrev.h>
 
+/*-------------------------------------------------------------------*/
 
 MODULE_AUTHOR("Wolfgang Mües <wolfgang@iksw-muees.de>, "
 	      "Frode Isaksen <fisaksen@bewan.com>, "
@@ -35,6 +36,7 @@ MODULE_AUTHOR("Wolfgang Mües <wolfgang@iksw-muees.de>, "
 MODULE_DESCRIPTION("General purpose ISDN HDLC decoder");
 MODULE_LICENSE("GPL");
 
+/*-------------------------------------------------------------------*/
 
 enum {
 	HDLC_FAST_IDLE, HDLC_GET_FLAG_B0, HDLC_GETFLAG_B1A6, HDLC_GETFLAG_B7,
@@ -86,19 +88,46 @@ check_frame(struct isdnhdlc_vars *hdlc)
 {
 	int status;
 
-	if (hdlc->dstpos < 2)	
+	if (hdlc->dstpos < 2)	/* too small - framing error */
 		status = -HDLC_FRAMING_ERROR;
-	else if (hdlc->crc != 0xf0b8)	
+	else if (hdlc->crc != 0xf0b8)	/* crc error */
 		status = -HDLC_CRC_ERROR;
 	else {
-		
+		/* remove CRC */
 		hdlc->dstpos -= 2;
-		
+		/* good frame */
 		status = hdlc->dstpos;
 	}
 	return status;
 }
 
+/*
+  isdnhdlc_decode - decodes HDLC frames from a transparent bit stream.
+
+  The source buffer is scanned for valid HDLC frames looking for
+  flags (01111110) to indicate the start of a frame. If the start of
+  the frame is found, the bit stuffing is removed (0 after 5 1's).
+  When a new flag is found, the complete frame has been received
+  and the CRC is checked.
+  If a valid frame is found, the function returns the frame length
+  excluding the CRC with the bit HDLC_END_OF_FRAME set.
+  If the beginning of a valid frame is found, the function returns
+  the length.
+  If a framing error is found (too many 1s and not a flag) the function
+  returns the length with the bit HDLC_FRAMING_ERROR set.
+  If a CRC error is found the function returns the length with the
+  bit HDLC_CRC_ERROR set.
+  If the frame length exceeds the destination buffer size, the function
+  returns the length with the bit HDLC_LENGTH_ERROR set.
+
+  src - source buffer
+  slen - source buffer length
+  count - number of bytes removed (decoded) from the source buffer
+  dst _ destination buffer
+  dsize - destination buffer size
+  returns - number of decoded bytes in the destination buffer and status
+  flag.
+*/
 int isdnhdlc_decode(struct isdnhdlc_vars *hdlc, const u8 *src, int slen,
 		    int *count, u8 *dst, int dsize)
 {
@@ -144,7 +173,7 @@ int isdnhdlc_decode(struct isdnhdlc_vars *hdlc, const u8 *src, int slen,
 
 	while (slen > 0) {
 		if (hdlc->bit_shift == 0) {
-			
+			/* the code is for bitreverse streams */
 			if (hdlc->do_bitreverse == 0)
 				hdlc->cbin = bitrev8(*src++);
 			else
@@ -212,7 +241,7 @@ int isdnhdlc_decode(struct isdnhdlc_vars *hdlc, const u8 *src, int slen,
 					break;
 				case 7:
 					if (hdlc->data_received)
-						
+						/* bad frame */
 						status = -HDLC_FRAMING_ERROR;
 					if (!hdlc->do_adapt56) {
 						if (hdlc->cbin == fast_abort
@@ -268,11 +297,11 @@ int isdnhdlc_decode(struct isdnhdlc_vars *hdlc, const u8 *src, int slen,
 				hdlc->crc = crc_ccitt_byte(hdlc->crc,
 							   hdlc->shift_reg);
 
-				
+				/* good byte received */
 				if (hdlc->dstpos < dsize)
 					dst[hdlc->dstpos++] = hdlc->shift_reg;
 				else {
-					
+					/* frame too long */
 					status = -HDLC_LENGTH_ERROR;
 					hdlc->dstpos = 0;
 				}
@@ -303,6 +332,25 @@ int isdnhdlc_decode(struct isdnhdlc_vars *hdlc, const u8 *src, int slen,
 	return 0;
 }
 EXPORT_SYMBOL(isdnhdlc_decode);
+/*
+  isdnhdlc_encode - encodes HDLC frames to a transparent bit stream.
+
+  The bit stream starts with a beginning flag (01111110). After
+  that each byte is added to the bit stream with bit stuffing added
+  (0 after 5 1's).
+  When the last byte has been removed from the source buffer, the
+  CRC (2 bytes is added) and the frame terminates with the ending flag.
+  For the dchannel, the idle character (all 1's) is also added at the end.
+  If this function is called with empty source buffer (slen=0), flags or
+  idle character will be generated.
+
+  src - source buffer
+  slen - source buffer length
+  count - number of bytes removed (encoded) from source buffer
+  dst _ destination buffer
+  dsize - destination buffer size
+  returns - number of encoded bytes in the destination buffer
+*/
 int isdnhdlc_encode(struct isdnhdlc_vars *hdlc, const u8 *src, u16 slen,
 		    int *count, u8 *dst, int dsize)
 {
@@ -314,7 +362,7 @@ int isdnhdlc_encode(struct isdnhdlc_vars *hdlc, const u8 *src, u16 slen,
 
 	*count = slen;
 
-	
+	/* special handling for one byte frames */
 	if ((slen == 1) && (hdlc->state == HDLC_SEND_FAST_FLAG))
 		hdlc->state = HDLC_SENDFLAG_ONE;
 	while (dsize > 0) {
@@ -323,7 +371,7 @@ int isdnhdlc_encode(struct isdnhdlc_vars *hdlc, const u8 *src, u16 slen,
 				hdlc->shift_reg = *src++;
 				slen--;
 				if (slen == 0)
-					
+					/* closing sequence, CRC + flag(s) */
 					hdlc->do_closing = 1;
 				hdlc->bit_shift = 8;
 			} else {
@@ -353,7 +401,7 @@ int isdnhdlc_encode(struct isdnhdlc_vars *hdlc, const u8 *src, u16 slen,
 		case HDLC_SEND_FAST_FLAG:
 			hdlc->do_closing = 0;
 			if (slen == 0) {
-				
+				/* the code is for bitreverse streams */
 				if (hdlc->do_bitreverse == 0)
 					*dst++ = bitrev8(hdlc->ffvalue);
 				else
@@ -362,7 +410,7 @@ int isdnhdlc_encode(struct isdnhdlc_vars *hdlc, const u8 *src, u16 slen,
 				dsize--;
 				break;
 			}
-			
+			/* fall through */
 		case HDLC_SENDFLAG_ONE:
 			if (hdlc->bit_shift == 8) {
 				hdlc->cbin = hdlc->ffvalue >>
@@ -518,7 +566,7 @@ int isdnhdlc_encode(struct isdnhdlc_vars *hdlc, const u8 *src, u16 slen,
 						hdlc->state = HDLC_SENDFLAG_B0;
 						hdlc->data_received = 0;
 					}
-					
+					/* Finished this frame, send flags */
 					if (dsize > 1)
 						dsize = 1;
 				}
@@ -543,7 +591,7 @@ int isdnhdlc_encode(struct isdnhdlc_vars *hdlc, const u8 *src, u16 slen,
 				hdlc->cbin = 0x7e;
 				hdlc->state = HDLC_SEND_FIRST_FLAG;
 			} else {
-				
+				/* the code is for bitreverse streams */
 				if (hdlc->do_bitreverse == 0)
 					*dst++ = bitrev8(hdlc->cbin);
 				else
@@ -565,7 +613,7 @@ int isdnhdlc_encode(struct isdnhdlc_vars *hdlc, const u8 *src, u16 slen,
 			}
 		}
 		if (hdlc->data_bits == 8) {
-			
+			/* the code is for bitreverse streams */
 			if (hdlc->do_bitreverse == 0)
 				*dst++ = bitrev8(hdlc->cbin);
 			else

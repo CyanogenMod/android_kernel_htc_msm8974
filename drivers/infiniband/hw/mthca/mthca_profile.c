@@ -128,6 +128,12 @@ s64 mthca_make_profile(struct mthca_dev *dev,
 		mem_avail = dev->fw.tavor.fw_start - dev->ddr_start;
 	}
 
+	/*
+	 * Sort the resources in decreasing order of size.  Since they
+	 * all have sizes that are powers of 2, we'll be able to keep
+	 * resources aligned to their size and pack them without gaps
+	 * using the sorted order.
+	 */
 	for (i = MTHCA_RES_NUM; i > 0; --i)
 		for (j = 1; j < i; ++j) {
 			if (profile[j].size > profile[j - 1].size) {
@@ -204,7 +210,7 @@ s64 mthca_make_profile(struct mthca_dev *dev,
 			for (dev->qp_table.rdb_shift = 0;
 			     request->num_qp << dev->qp_table.rdb_shift < profile[i].num;
 			     ++dev->qp_table.rdb_shift)
-				; 
+				; /* nothing */
 			dev->qp_table.rdb_base    = (u32) profile[i].start;
 			init_hca->rdb_base        = profile[i].start;
 			break;
@@ -248,6 +254,10 @@ s64 mthca_make_profile(struct mthca_dev *dev,
 		}
 	}
 
+	/*
+	 * PDs don't take any HCA memory, but we assign them as part
+	 * of the HCA profile anyway.
+	 */
 	dev->limits.num_pds = MTHCA_NUM_PDS;
 
 	if (dev->mthca_flags & MTHCA_FLAG_SINAI_OPT &&
@@ -258,6 +268,13 @@ s64 mthca_make_profile(struct mthca_dev *dev,
 		dev->mthca_flags &= ~MTHCA_FLAG_SINAI_OPT;
 	}
 
+	/*
+	 * For Tavor, FMRs use ioremapped PCI memory. For 32 bit
+	 * systems it may use too much vmalloc space to map all MTT
+	 * memory, so we reserve some MTTs for FMR access, taking them
+	 * out of the MR pool. They don't use additional memory, but
+	 * we assign them as part of the HCA profile anyway.
+	 */
 	if (mthca_is_memfree(dev) || BITS_PER_LONG == 64)
 		dev->limits.fmr_reserved_mtts = 0;
 	else

@@ -18,12 +18,18 @@
 #include "tulip.h"
 
 
+/* The maximum data clock rate is 2.5 Mhz.  The minimum timing is usually
+   met by back-to-back PCI I/O cycles, but we insert a delay to avoid
+   "overclocking" issues or future 66Mhz PCI. */
 #define mdio_delay() ioread32(mdio_addr)
 
+/* Read and write the MII registers using software-generated serial
+   MDIO protocol.  It is just different enough from the EEPROM protocol
+   to not share code.  The maxium data clock rate is 2.5 Mhz. */
 #define MDIO_SHIFT_CLK		0x10000
 #define MDIO_DATA_WRITE0	0x00000
 #define MDIO_DATA_WRITE1	0x20000
-#define MDIO_ENB		0x00000 
+#define MDIO_ENB		0x00000 /* Ignore the 0x02000 databook setting. */
 #define MDIO_ENB_IN		0x40000
 #define MDIO_DATA_READ		0x80000
 
@@ -32,6 +38,12 @@ static const unsigned char comet_miireg2offset[32] = {
 	0,0xD0,0,0,  0,0,0,0,  0,0,0,0, 0, 0xD4, 0xD8, 0xDC, };
 
 
+/* MII transceiver control section.
+   Read and write the MII registers using software-generated serial
+   MDIO protocol.
+   See IEEE 802.3-2002.pdf (Section 2, Chapter "22.2.4 Management functions")
+   or DP83840A data sheet for more details.
+   */
 
 int tulip_mdio_read(struct net_device *dev, int phy_id, int location)
 {
@@ -66,14 +78,14 @@ int tulip_mdio_read(struct net_device *dev, int phy_id, int location)
 		return retval & 0xffff;
 	}
 
-	
+	/* Establish sync by sending at least 32 logic ones. */
 	for (i = 32; i >= 0; i--) {
 		iowrite32(MDIO_ENB | MDIO_DATA_WRITE1, mdio_addr);
 		mdio_delay();
 		iowrite32(MDIO_ENB | MDIO_DATA_WRITE1 | MDIO_SHIFT_CLK, mdio_addr);
 		mdio_delay();
 	}
-	
+	/* Shift the read command bits out. */
 	for (i = 15; i >= 0; i--) {
 		int dataval = (read_cmd & (1 << i)) ? MDIO_DATA_WRITE1 : 0;
 
@@ -82,7 +94,7 @@ int tulip_mdio_read(struct net_device *dev, int phy_id, int location)
 		iowrite32(MDIO_ENB | dataval | MDIO_SHIFT_CLK, mdio_addr);
 		mdio_delay();
 	}
-	
+	/* Read the two transition, 16 data, and wire-idle bits. */
 	for (i = 19; i > 0; i--) {
 		iowrite32(MDIO_ENB_IN, mdio_addr);
 		mdio_delay();
@@ -125,14 +137,14 @@ void tulip_mdio_write(struct net_device *dev, int phy_id, int location, int val)
 		return;
 	}
 
-	
+	/* Establish sync by sending 32 logic ones. */
 	for (i = 32; i >= 0; i--) {
 		iowrite32(MDIO_ENB | MDIO_DATA_WRITE1, mdio_addr);
 		mdio_delay();
 		iowrite32(MDIO_ENB | MDIO_DATA_WRITE1 | MDIO_SHIFT_CLK, mdio_addr);
 		mdio_delay();
 	}
-	
+	/* Shift the command bits out. */
 	for (i = 31; i >= 0; i--) {
 		int dataval = (cmd & (1 << i)) ? MDIO_DATA_WRITE1 : 0;
 		iowrite32(MDIO_ENB | dataval, mdio_addr);
@@ -140,7 +152,7 @@ void tulip_mdio_write(struct net_device *dev, int phy_id, int location, int val)
 		iowrite32(MDIO_ENB | dataval | MDIO_SHIFT_CLK, mdio_addr);
 		mdio_delay();
 	}
-	
+	/* Clear out extra bits. */
 	for (i = 2; i > 0; i--) {
 		iowrite32(MDIO_ENB_IN, mdio_addr);
 		mdio_delay();
@@ -152,6 +164,7 @@ void tulip_mdio_write(struct net_device *dev, int phy_id, int location, int val)
 }
 
 
+/* Set up the transceiver control registers for the selected media type. */
 void tulip_select_media(struct net_device *dev, int startup)
 {
 	struct tulip_private *tp = netdev_priv(dev);
@@ -164,7 +177,7 @@ void tulip_select_media(struct net_device *dev, int startup)
 		struct medialeaf *mleaf = &mtable->mleaf[tp->cur_index];
 		unsigned char *p = mleaf->leafdata;
 		switch (mleaf->type) {
-		case 0:					
+		case 0:					/* 21140 non-MII xcvr. */
 			if (tulip_debug > 1)
 				netdev_dbg(dev, "Using a 21140 non-MII transceiver with control setting %02x\n",
 					   p[1]);
@@ -196,15 +209,15 @@ void tulip_select_media(struct net_device *dev, int startup)
 				netdev_dbg(dev, "21143 non-MII %s transceiver control %04x/%04x\n",
 					   medianame[dev->if_port],
 					   setup[0], setup[1]);
-			if (p[0] & 0x40) {	
+			if (p[0] & 0x40) {	/* SIA (CSR13-15) setup values are provided. */
 				csr13val = setup[0];
 				csr14val = setup[1];
 				csr15dir = (setup[3]<<16) | setup[2];
 				csr15val = (setup[4]<<16) | setup[2];
 				iowrite32(0, ioaddr + CSR13);
 				iowrite32(csr14val, ioaddr + CSR14);
-				iowrite32(csr15dir, ioaddr + CSR15);	
-				iowrite32(csr15val, ioaddr + CSR15);	
+				iowrite32(csr15dir, ioaddr + CSR15);	/* Direction */
+				iowrite32(csr15val, ioaddr + CSR15);	/* Data */
 				iowrite32(csr13val, ioaddr + CSR13);
 			} else {
 				csr13val = 1;
@@ -217,8 +230,8 @@ void tulip_select_media(struct net_device *dev, int startup)
 					iowrite32(0, ioaddr + CSR13);
 					iowrite32(csr14val, ioaddr + CSR14);
 				}
-				iowrite32(csr15dir, ioaddr + CSR15);	
-				iowrite32(csr15val, ioaddr + CSR15);	
+				iowrite32(csr15dir, ioaddr + CSR15);	/* Direction */
+				iowrite32(csr15val, ioaddr + CSR15);	/* Data */
 				if (startup) iowrite32(csr13val, ioaddr + CSR13);
 			}
 			if (tulip_debug > 1)
@@ -237,24 +250,24 @@ void tulip_select_media(struct net_device *dev, int startup)
 
 			dev->if_port = 11;
 			new_csr6 = 0x020E0000;
-			if (mleaf->type == 3) {	
+			if (mleaf->type == 3) {	/* 21142 */
 				u16 *init_sequence = (u16*)(p+2);
 				u16 *reset_sequence = &((u16*)(p+3))[init_length];
 				int reset_length = p[2 + init_length*2];
 				misc_info = reset_sequence + reset_length;
 				if (startup) {
-					int timeout = 10;	
+					int timeout = 10;	/* max 1 ms */
 					for (i = 0; i < reset_length; i++)
 						iowrite32(get_u16(&reset_sequence[i]) << 16, ioaddr + CSR15);
 
-					
+					/* flush posted writes */
 					ioread32(ioaddr + CSR15);
 
-					
+					/* Sect 3.10.3 in DP83840A.pdf (p39) */
 					udelay(500);
 
-					
-					
+					/* Section 4.2 in DP83840A.pdf (p43) */
+					/* and IEEE 802.3 "22.2.4.1.1 Reset" */
 					while (timeout-- &&
 						(tulip_mdio_read (dev, phy_num, MII_BMCR) & BMCR_RESET))
 						udelay(100);
@@ -262,26 +275,26 @@ void tulip_select_media(struct net_device *dev, int startup)
 				for (i = 0; i < init_length; i++)
 					iowrite32(get_u16(&init_sequence[i]) << 16, ioaddr + CSR15);
 
-				ioread32(ioaddr + CSR15);	
+				ioread32(ioaddr + CSR15);	/* flush posted writes */
 			} else {
 				u8 *init_sequence = p + 2;
 				u8 *reset_sequence = p + 3 + init_length;
 				int reset_length = p[2 + init_length];
 				misc_info = (u16*)(reset_sequence + reset_length);
 				if (startup) {
-					int timeout = 10;	
+					int timeout = 10;	/* max 1 ms */
 					iowrite32(mtable->csr12dir | 0x100, ioaddr + CSR12);
 					for (i = 0; i < reset_length; i++)
 						iowrite32(reset_sequence[i], ioaddr + CSR12);
 
-					
+					/* flush posted writes */
 					ioread32(ioaddr + CSR12);
 
-					
+					/* Sect 3.10.3 in DP83840A.pdf (p39) */
 					udelay(500);
 
-					
-					
+					/* Section 4.2 in DP83840A.pdf (p43) */
+					/* and IEEE 802.3 "22.2.4.1.1 Reset" */
 					while (timeout-- &&
 						(tulip_mdio_read (dev, phy_num, MII_BMCR) & BMCR_RESET))
 						udelay(100);
@@ -289,7 +302,7 @@ void tulip_select_media(struct net_device *dev, int startup)
 				for (i = 0; i < init_length; i++)
 					iowrite32(init_sequence[i], ioaddr + CSR12);
 
-				ioread32(ioaddr + CSR12);	
+				ioread32(ioaddr + CSR12);	/* flush posted writes */
 			}
 
 			tmp_info = get_u16(&misc_info[1]);
@@ -309,7 +322,7 @@ void tulip_select_media(struct net_device *dev, int startup)
 		case 5: case 6: {
 			u16 setup[5];
 
-			new_csr6 = 0; 
+			new_csr6 = 0; /* FIXME */
 
 			for (i = 0; i < 5; i++)
 				setup[i] = get_u16(&p[i*2 + 1]);
@@ -346,7 +359,7 @@ void tulip_select_media(struct net_device *dev, int startup)
 			iowrite32(0x0001, ioaddr + CSR15);
 			iowrite32(0x0201B07A, ioaddr + 0xB8);
 		} else if (startup) {
-			
+			/* Start with 10mbps to do autonegotiation. */
 			iowrite32(0x32, ioaddr + CSR12);
 			new_csr6 = 0x00420000;
 			iowrite32(0x0001B078, ioaddr + 0xB8);
@@ -354,14 +367,14 @@ void tulip_select_media(struct net_device *dev, int startup)
 		} else if (dev->if_port == 3  ||  dev->if_port == 5) {
 			iowrite32(0x33, ioaddr + CSR12);
 			new_csr6 = 0x01860000;
-			
+			/* Trigger autonegotiation. */
 			iowrite32(startup ? 0x0201F868 : 0x0001F868, ioaddr + 0xB8);
 		} else {
 			iowrite32(0x32, ioaddr + CSR12);
 			new_csr6 = 0x00420000;
 			iowrite32(0x1F078, ioaddr + 0xB8);
 		}
-	} else {					
+	} else {					/* Unknown chip type with no media table. */
 		if (tp->default_port == 0)
 			dev->if_port = tp->mii_cnt ? 11 : 3;
 		if (tulip_media_cap[dev->if_port] & MediaIsMII) {
@@ -381,6 +394,12 @@ void tulip_select_media(struct net_device *dev, int startup)
 	mdelay(1);
 }
 
+/*
+  Check the MII negotiated duplex and change the CSR6 setting if
+  required.
+  Return 0 if everything is OK.
+  Return < 0 if the transceiver is missing or has no link beat.
+  */
 int tulip_check_duplex(struct net_device *dev)
 {
 	struct tulip_private *tp = netdev_priv(dev);
@@ -436,13 +455,16 @@ void __devinit tulip_find_mii (struct net_device *dev, int board_idx)
 	int mii_advert;
 	unsigned int to_advert, new_bmcr, ane_switch;
 
+	/* Find the connected MII xcvrs.
+	   Doing this in open() would allow detecting external xcvrs later,
+	   but takes much time. */
 	for (phyn = 1; phyn <= 32 && phy_idx < sizeof (tp->phys); phyn++) {
 		int phy = phyn & 0x1f;
 		int mii_status = tulip_mdio_read (dev, phy, MII_BMSR);
 		if ((mii_status & 0x8301) == 0x8001 ||
 		    ((mii_status & BMSR_100BASE4) == 0 &&
 		     (mii_status & 0x7800) != 0)) {
-			
+			/* preserve Becker logic, gain indentation level */
 		} else {
 			continue;
 		}
@@ -451,6 +473,10 @@ void __devinit tulip_find_mii (struct net_device *dev, int board_idx)
 		mii_advert = tulip_mdio_read (dev, phy, MII_ADVERTISE);
 		ane_switch = 0;
 
+		/* if not advertising at all, gen an
+		 * advertising value from the capability
+		 * bits in BMSR
+		 */
 		if ((mii_advert & ADVERTISE_ALL) == 0) {
 			unsigned int tmpadv = tulip_mdio_read (dev, phy, MII_BMSR);
 			mii_advert = ((tmpadv >> 6) & 0x3e0) | 1;
@@ -472,14 +498,14 @@ void __devinit tulip_find_mii (struct net_device *dev, int board_idx)
 		pr_info("tulip%d:  MII transceiver #%d config %04x status %04x advertising %04x\n",
 			board_idx, phy, mii_reg0, mii_status, mii_advert);
 
-		
+		/* Fixup for DLink with miswired PHY. */
 		if (mii_advert != to_advert) {
 			pr_debug("tulip%d:  Advertising %04x on PHY %d, previously advertising %04x\n",
 				 board_idx, to_advert, phy, mii_advert);
 			tulip_mdio_write (dev, phy, 4, to_advert);
 		}
 
-		
+		/* Enable autonegotiation: some boards default to off. */
 		if (tp->default_port == 0) {
 			new_bmcr = mii_reg0 | BMCR_ANENABLE;
 			if (new_bmcr != mii_reg0) {
@@ -487,14 +513,14 @@ void __devinit tulip_find_mii (struct net_device *dev, int board_idx)
 				ane_switch = 1;
 			}
 		}
-		
+		/* ...or disable nway, if forcing media */
 		else {
 			new_bmcr = mii_reg0 & ~BMCR_ANENABLE;
 			if (new_bmcr != mii_reg0)
 				ane_switch = 1;
 		}
 
-		
+		/* clear out bits we never want at this point */
 		new_bmcr &= ~(BMCR_CTST | BMCR_FULLDPLX | BMCR_ISOLATE |
 			      BMCR_PDOWN | BMCR_SPEED100 | BMCR_LOOPBACK |
 			      BMCR_RESET);
@@ -505,6 +531,12 @@ void __devinit tulip_find_mii (struct net_device *dev, int board_idx)
 			new_bmcr |= BMCR_SPEED100;
 
 		if (new_bmcr != mii_reg0) {
+			/* some phys need the ANE switch to
+			 * happen before forced media settings
+			 * will "take."  However, we write the
+			 * same value twice in order not to
+			 * confuse the sane phys.
+			 */
 			if (ane_switch) {
 				tulip_mdio_write (dev, phy, MII_BMCR, new_bmcr);
 				udelay (10);

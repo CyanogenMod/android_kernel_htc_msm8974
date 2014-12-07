@@ -35,14 +35,26 @@
 #include "tmacro.h"
 #include "tkip.h"
 
+/*---------------------  Static Definitions -------------------------*/
 
+/*---------------------  Static Classes  ----------------------------*/
 
+/*---------------------  Static Variables  --------------------------*/
 
+/*---------------------  Static Functions  --------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Static Definitions -------------------------*/
 
+/*---------------------  Static Classes  ----------------------------*/
 
+/*---------------------  Static Variables  --------------------------*/
 
+/* The Sbox is reduced to 2 16-bit wide tables, each with 256 entries. */
+/* The 2nd table is the same as the 1st but with the upper and lower   */
+/* bytes swapped. To allow an endian tolerant implementation, the byte */
+/* halves have been expressed independently here.                      */
 const unsigned char TKIP_Sbox_Lower[256] = {
     0xA5,0x84,0x99,0x8D,0x0D,0xBD,0xB1,0x54,
     0x50,0x03,0xA9,0x7D,0x19,0x62,0xE6,0x9A,
@@ -114,11 +126,19 @@ const unsigned char TKIP_Sbox_Upper[256] = {
 };
 
 
+//STKIPKeyManagement  sTKIPKeyTable[MAX_TKIP_KEY];
 
+/*---------------------  Static Functions  --------------------------*/
 unsigned int tkip_sbox(unsigned int index);
 unsigned int rotr1(unsigned int a);
 
+/*---------------------  Export Variables  --------------------------*/
 
+/************************************************************/
+/* tkip_sbox()                                              */
+/* Returns a 16 bit value from a 64K entry table. The Table */
+/* is synthesized from two 256 entry byte wide tables.      */
+/************************************************************/
 unsigned int tkip_sbox(unsigned int index)
 {
     unsigned int index_low;
@@ -149,6 +169,20 @@ unsigned int rotr1(unsigned int a)
 }
 
 
+/*
+ * Description: Caculate RC4Key fom TK, TA, and TSC
+ *
+ * Parameters:
+ *  In:
+ *      pbyTKey         - TKey
+ *      pbyTA           - TA
+ *      dwTSC           - TSC
+ *  Out:
+ *      pbyRC4Key       - RC4Key
+ *
+ * Return Value: none
+ *
+ */
 void TKIPvMixKey(
     unsigned char *pbyTKey,
     unsigned char *pbyTA,
@@ -158,6 +192,7 @@ void TKIPvMixKey(
     )
 {
     unsigned int p1k[5];
+//    unsigned int ttak0, ttak1, ttak2, ttak3, ttak4;
     unsigned int tsc0, tsc1, tsc2;
     unsigned int ppk0, ppk1, ppk2, ppk3, ppk4, ppk5;
     unsigned long int pnl,pnh;
@@ -167,18 +202,18 @@ void TKIPvMixKey(
     pnl = wTSC15_0;
     pnh = dwTSC47_16;
 
-    tsc0 = (unsigned int)((pnh >> 16) % 65536); 
+    tsc0 = (unsigned int)((pnh >> 16) % 65536); /* msb */
     tsc1 = (unsigned int)(pnh % 65536);
-    tsc2 = (unsigned int)(pnl % 65536); 
+    tsc2 = (unsigned int)(pnl % 65536); /* lsb */
 
-    
+    /* Phase 1, step 1 */
     p1k[0] = tsc1;
     p1k[1] = tsc0;
     p1k[2] = (unsigned int)(pbyTA[0] + (pbyTA[1]*256));
     p1k[3] = (unsigned int)(pbyTA[2] + (pbyTA[3]*256));
     p1k[4] = (unsigned int)(pbyTA[4] + (pbyTA[5]*256));
 
-    
+    /* Phase 1, step 2 */
     for (i=0; i<8; i++) {
         j = 2*(i & 1);
         p1k[0] = (p1k[0] + tkip_sbox( (p1k[4] ^ ((256*pbyTKey[1+j]) + pbyTKey[j])) % 65536 )) % 65536;
@@ -188,7 +223,7 @@ void TKIPvMixKey(
         p1k[4] = (p1k[4] + tkip_sbox( (p1k[3] ^ (((256*pbyTKey[1+j]) + pbyTKey[j]))) % 65536 )) % 65536;
         p1k[4] = (p1k[4] + i) % 65536;
     }
-    
+    /* Phase 2, Step 1 */
     ppk0 = p1k[0];
     ppk1 = p1k[1];
     ppk2 = p1k[2];
@@ -196,7 +231,7 @@ void TKIPvMixKey(
     ppk4 = p1k[4];
     ppk5 = (p1k[4] + tsc2) % 65536;
 
-    
+    /* Phase2, Step 2 */
     ppk0 = ppk0 + tkip_sbox( (ppk5 ^ ((256*pbyTKey[1]) + pbyTKey[0])) % 65536);
     ppk1 = ppk1 + tkip_sbox( (ppk0 ^ ((256*pbyTKey[3]) + pbyTKey[2])) % 65536);
     ppk2 = ppk2 + tkip_sbox( (ppk1 ^ ((256*pbyTKey[5]) + pbyTKey[4])) % 65536);
@@ -211,7 +246,7 @@ void TKIPvMixKey(
     ppk4 = ppk4 + rotr1(ppk3);
     ppk5 = ppk5 + rotr1(ppk4);
 
-    
+    /* Phase 2, Step 3 */
     pbyRC4Key[0] = (tsc2 >> 8) % 256;
     pbyRC4Key[1] = (((tsc2 >> 8) % 256) | 0x20) & 0x7f;
     pbyRC4Key[2] = tsc2 % 256;

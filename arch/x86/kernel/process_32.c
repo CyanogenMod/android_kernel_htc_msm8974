@@ -5,6 +5,9 @@
  *	Gareth Hughes <gareth@valinux.com>, May 2000
  */
 
+/*
+ * This file handles the architecture-dependent parts of process handling..
+ */
 
 #include <linux/cpu.h>
 #include <linux/errno.h>
@@ -55,6 +58,9 @@
 
 asmlinkage void ret_from_fork(void) __asm__("ret_from_fork");
 
+/*
+ * Return saved PC of a blocked thread.
+ */
 unsigned long thread_saved_pc(struct task_struct *tsk)
 {
 	return ((unsigned long *)tsk->thread.sp)[3];
@@ -120,6 +126,10 @@ void release_thread(struct task_struct *dead_task)
 	release_vm86_irqs(dead_task);
 }
 
+/*
+ * This gets called before we allocate a new thread and copy
+ * the current task into it.
+ */
 void prepare_to_copy(struct task_struct *tsk)
 {
 	unlazy_fpu(tsk);
@@ -164,6 +174,9 @@ int copy_thread(unsigned long clone_flags, unsigned long sp,
 
 	err = 0;
 
+	/*
+	 * Set a new TLS for the child thread?
+	 */
 	if (clone_flags & CLONE_SETTLS)
 		err = do_set_thread_area(p, -1,
 			(struct user_desc __user *)childregs->si, 0);
@@ -186,11 +199,41 @@ start_thread(struct pt_regs *regs, unsigned long new_ip, unsigned long new_sp)
 	regs->cs		= __USER_CS;
 	regs->ip		= new_ip;
 	regs->sp		= new_sp;
+	/*
+	 * Free the old FP and other extended state
+	 */
 	free_thread_xstate(current);
 }
 EXPORT_SYMBOL_GPL(start_thread);
 
 
+/*
+ *	switch_to(x,y) should switch tasks from x to y.
+ *
+ * We fsave/fwait so that an exception goes off at the right time
+ * (as a call from the fsave or fwait in effect) rather than to
+ * the wrong process. Lazy FP saving no longer makes any sense
+ * with modern CPU's, and this simplifies a lot of things (SMP
+ * and UP become the same).
+ *
+ * NOTE! We used to use the x86 hardware context switching. The
+ * reason for not using it any more becomes apparent when you
+ * try to recover gracefully from saved state that is no longer
+ * valid (stale segment register values in particular). With the
+ * hardware task-switch, there is no way to fix up bad state in
+ * a reasonable manner.
+ *
+ * The fact that Intel documents the hardware task-switching to
+ * be slow is a fairly red herring - this code is not noticeably
+ * faster. However, there _is_ some room for improvement here,
+ * so the performance issues may eventually be a valid point.
+ * More important, however, is the fact that this allows us much
+ * more flexibility.
+ *
+ * The return value (in %ax) will be the "prev" task after
+ * the task-switch, and shows up in ret_from_fork in entry.S,
+ * for example.
+ */
 __notrace_funcgraph struct task_struct *
 __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 {
@@ -200,25 +243,60 @@ __switch_to(struct task_struct *prev_p, struct task_struct *next_p)
 	struct tss_struct *tss = &per_cpu(init_tss, cpu);
 	fpu_switch_t fpu;
 
-	
+	/* never put a printk in __switch_to... printk() calls wake_up*() indirectly */
 
 	fpu = switch_fpu_prepare(prev_p, next_p, cpu);
 
+	/*
+	 * Reload esp0.
+	 */
 	load_sp0(tss, next);
 
+	/*
+	 * Save away %gs. No need to save %fs, as it was saved on the
+	 * stack on entry.  No need to save %es and %ds, as those are
+	 * always kernel segments while inside the kernel.  Doing this
+	 * before setting the new TLS descriptors avoids the situation
+	 * where we temporarily have non-reloadable segments in %fs
+	 * and %gs.  This could be an issue if the NMI handler ever
+	 * used %fs or %gs (it does not today), or if the kernel is
+	 * running inside of a hypervisor layer.
+	 */
 	lazy_save_gs(prev->gs);
 
+	/*
+	 * Load the per-thread Thread-Local Storage descriptor.
+	 */
 	load_TLS(next, cpu);
 
+	/*
+	 * Restore IOPL if needed.  In normal use, the flags restore
+	 * in the switch assembly will handle this.  But if the kernel
+	 * is running virtualized at a non-zero CPL, the popf will
+	 * not restore flags, so it must be done in a separate step.
+	 */
 	if (get_kernel_rpl() && unlikely(prev->iopl != next->iopl))
 		set_iopl_mask(next->iopl);
 
+	/*
+	 * Now maybe handle debug registers and/or IO bitmaps
+	 */
 	if (unlikely(task_thread_info(prev_p)->flags & _TIF_WORK_CTXSW_PREV ||
 		     task_thread_info(next_p)->flags & _TIF_WORK_CTXSW_NEXT))
 		__switch_to_xtra(prev_p, next_p, tss);
 
+	/*
+	 * Leave lazy mode, flushing any hypercalls made here.
+	 * This must be done before restoring TLS segments so
+	 * the GDT and LDT are properly updated, and must be
+	 * done before math_state_restore, so the TS bit is up
+	 * to date.
+	 */
 	arch_end_context_switch(next_p);
 
+	/*
+	 * Restore %gs if needed (which is common)
+	 */
 	if (prev->gs | next->gs)
 		lazy_load_gs(next->gs);
 
@@ -243,7 +321,7 @@ unsigned long get_wchan(struct task_struct *p)
 	sp = p->thread.sp;
 	if (!stack_page || sp < stack_page || sp > top_esp+stack_page)
 		return 0;
-	
+	/* include/asm-i386/system.h:switch_to() pushes bp last. */
 	bp = *(unsigned long *) sp;
 	do {
 		if (bp < stack_page || bp > top_ebp+stack_page)

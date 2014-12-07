@@ -40,30 +40,44 @@
 #include <linux/types.h>
 #include <linux/list.h>
 
+/*  ----------------------------------- Host OS */
 #include <dspbridge/host_os.h>
 
+/*  ----------------------------------- DSP/BIOS Bridge */
 #include <dspbridge/dbdefs.h>
 
+/*  ----------------------------------- This */
 #include <dspbridge/rmm.h>
 
+/*
+ *  ======== rmm_header ========
+ *  This header is used to maintain a list of free memory blocks.
+ */
 struct rmm_header {
-	struct rmm_header *next;	
-	u32 size;		
-	u32 addr;		
+	struct rmm_header *next;	/* form a free memory link list */
+	u32 size;		/* size of the free memory */
+	u32 addr;		/* DSP address of memory block */
 };
 
+/*
+ *  ======== rmm_ovly_sect ========
+ *  Keeps track of memory occupied by overlay section.
+ */
 struct rmm_ovly_sect {
 	struct list_head list_elem;
-	u32 addr;		
-	u32 size;		
-	s32 page;		
+	u32 addr;		/* Start of memory section */
+	u32 size;		/* Length (target MAUs) of section */
+	s32 page;		/* Memory page */
 };
 
+/*
+ *  ======== rmm_target_obj ========
+ */
 struct rmm_target_obj {
 	struct rmm_segment *seg_tab;
 	struct rmm_header **free_list;
 	u32 num_segs;
-	struct list_head ovly_list;	
+	struct list_head ovly_list;	/* List of overlay memory in use */
 };
 
 static bool alloc_block(struct rmm_target_obj *target, u32 segid, u32 size,
@@ -71,6 +85,9 @@ static bool alloc_block(struct rmm_target_obj *target, u32 segid, u32 size,
 static bool free_block(struct rmm_target_obj *target, u32 segid, u32 addr,
 		       u32 size);
 
+/*
+ *  ======== rmm_alloc ========
+ */
 int rmm_alloc(struct rmm_target_obj *target, u32 segid, u32 size,
 		     u32 align, u32 *dsp_address, bool reserve)
 {
@@ -83,14 +100,20 @@ int rmm_alloc(struct rmm_target_obj *target, u32 segid, u32 size,
 		if (!alloc_block(target, segid, size, align, dsp_address)) {
 			status = -ENOMEM;
 		} else {
+			/* Increment the number of allocated blocks in this
+			 * segment */
 			target->seg_tab[segid].number++;
 		}
 		goto func_end;
 	}
+	/* An overlay section - See if block is already in use. If not,
+	 * insert into the list in ascending address size. */
 	addr = *dsp_address;
+	/*  Find place to insert new list element. List is sorted from
+	 *  smallest to largest address. */
 	list_for_each_entry(sect, &target->ovly_list, list_elem) {
 		if (addr <= sect->addr) {
-			
+			/* Check for overlap with sect */
 			if ((addr + size > sect->addr) || (prev_sect &&
 							   (prev_sect->addr +
 							    prev_sect->size >
@@ -102,7 +125,7 @@ int rmm_alloc(struct rmm_target_obj *target, u32 segid, u32 size,
 		prev_sect = sect;
 	}
 	if (!status) {
-		
+		/* No overlap - allocate list element for new section. */
 		new_sect = kzalloc(sizeof(struct rmm_ovly_sect), GFP_KERNEL);
 		if (new_sect == NULL) {
 			status = -ENOMEM;
@@ -111,11 +134,11 @@ int rmm_alloc(struct rmm_target_obj *target, u32 segid, u32 size,
 			new_sect->size = size;
 			new_sect->page = segid;
 			if (list_is_last(&sect->list_elem, &target->ovly_list))
-				
+				/* Put new section at the end of the list */
 				list_add_tail(&new_sect->list_elem,
 						&target->ovly_list);
 			else
-				
+				/* Put new section just before sect */
 				list_add_tail(&new_sect->list_elem,
 						&sect->list_elem);
 		}
@@ -124,6 +147,9 @@ func_end:
 	return status;
 }
 
+/*
+ *  ======== rmm_create ========
+ */
 int rmm_create(struct rmm_target_obj **target_obj,
 		      struct rmm_segment seg_tab[], u32 num_segs)
 {
@@ -133,7 +159,7 @@ int rmm_create(struct rmm_target_obj **target_obj,
 	s32 i;
 	int status = 0;
 
-	
+	/* Allocate DBL target object */
 	target = kzalloc(sizeof(struct rmm_target_obj), GFP_KERNEL);
 
 	if (target == NULL)
@@ -146,13 +172,13 @@ int rmm_create(struct rmm_target_obj **target_obj,
 	if (!(num_segs > 0))
 		goto func_cont;
 
-	
+	/* Allocate the memory for freelist from host's memory */
 	target->free_list = kzalloc(num_segs * sizeof(struct rmm_header *),
 							GFP_KERNEL);
 	if (target->free_list == NULL) {
 		status = -ENOMEM;
 	} else {
-		
+		/* Allocate headers for each element on the free list */
 		for (i = 0; i < (s32) num_segs; i++) {
 			target->free_list[i] =
 				kzalloc(sizeof(struct rmm_header), GFP_KERNEL);
@@ -161,13 +187,13 @@ int rmm_create(struct rmm_target_obj **target_obj,
 				break;
 			}
 		}
-		
+		/* Allocate memory for initial segment table */
 		target->seg_tab = kzalloc(num_segs * sizeof(struct rmm_segment),
 								GFP_KERNEL);
 		if (target->seg_tab == NULL) {
 			status = -ENOMEM;
 		} else {
-			
+			/* Initialize segment table and free list */
 			sptr = target->seg_tab;
 			for (i = 0, tmp = seg_tab; num_segs > 0;
 			     num_segs--, i++) {
@@ -182,7 +208,7 @@ int rmm_create(struct rmm_target_obj **target_obj,
 		}
 	}
 func_cont:
-	
+	/* Initialize overlay memory list */
 	if (!status)
 		INIT_LIST_HEAD(&target->ovly_list);
 
@@ -198,6 +224,9 @@ func_cont:
 	return status;
 }
 
+/*
+ *  ======== rmm_delete ========
+ */
 void rmm_delete(struct rmm_target_obj *target)
 {
 	struct rmm_ovly_sect *sect, *tmp;
@@ -213,7 +242,7 @@ void rmm_delete(struct rmm_target_obj *target)
 	}
 
 	if (target->free_list != NULL) {
-		
+		/* Free elements on freelist */
 		for (i = 0; i < target->num_segs; i++) {
 			hptr = next = target->free_list[i];
 			while (next) {
@@ -228,23 +257,29 @@ void rmm_delete(struct rmm_target_obj *target)
 	kfree(target);
 }
 
+/*
+ *  ======== rmm_free ========
+ */
 bool rmm_free(struct rmm_target_obj *target, u32 segid, u32 dsp_addr, u32 size,
 	      bool reserved)
 {
 	struct rmm_ovly_sect *sect, *tmp;
 	bool ret = false;
 
+	/*
+	 *  Free or unreserve memory.
+	 */
 	if (!reserved) {
 		ret = free_block(target, segid, dsp_addr, size);
 		if (ret)
 			target->seg_tab[segid].number--;
 
 	} else {
-		
+		/* Unreserve memory */
 		list_for_each_entry_safe(sect, tmp, &target->ovly_list,
 				list_elem) {
 			if (dsp_addr == sect->addr) {
-				
+				/* Remove from list */
 				list_del(&sect->list_elem);
 				kfree(sect);
 				return true;
@@ -254,6 +289,9 @@ bool rmm_free(struct rmm_target_obj *target, u32 segid, u32 dsp_addr, u32 size,
 	return ret;
 }
 
+/*
+ *  ======== rmm_stat ========
+ */
 bool rmm_stat(struct rmm_target_obj *target, enum dsp_memtype segid,
 	      struct dsp_memstat *mem_stat_buf)
 {
@@ -266,7 +304,7 @@ bool rmm_stat(struct rmm_target_obj *target, enum dsp_memtype segid,
 	if ((u32) segid < target->num_segs) {
 		head = target->free_list[segid];
 
-		
+		/* Collect data from free_list */
 		while (head != NULL) {
 			max_free_size = max(max_free_size, head->size);
 			total_free_size += head->size;
@@ -274,19 +312,19 @@ bool rmm_stat(struct rmm_target_obj *target, enum dsp_memtype segid,
 			head = head->next;
 		}
 
-		
+		/* ul_size */
 		mem_stat_buf->size = target->seg_tab[segid].length;
 
-		
+		/* num_free_blocks */
 		mem_stat_buf->num_free_blocks = free_blocks;
 
-		
+		/* total_free_size */
 		mem_stat_buf->total_free_size = total_free_size;
 
-		
+		/* len_max_free_block */
 		mem_stat_buf->len_max_free_block = max_free_size;
 
-		
+		/* num_alloc_blocks */
 		mem_stat_buf->num_alloc_blocks =
 		    target->seg_tab[segid].number;
 
@@ -296,6 +334,11 @@ bool rmm_stat(struct rmm_target_obj *target, enum dsp_memtype segid,
 	return ret;
 }
 
+/*
+ *  ======== balloc ========
+ *  This allocation function allocates memory from the lowest addresses
+ *  first.
+ */
 static bool alloc_block(struct rmm_target_obj *target, u32 segid, u32 size,
 			u32 align, u32 *dsp_address)
 {
@@ -316,16 +359,16 @@ static bool alloc_block(struct rmm_target_obj *target, u32 segid, u32 size,
 		hsize = head->size;
 		next = head->next;
 
-		addr = head->addr;	
+		addr = head->addr;	/* alloc from the bottom */
 
-		
+		/* align allocation */
 		(tmpalign = (u32) addr % alignbytes);
 		if (tmpalign != 0)
 			tmpalign = alignbytes - tmpalign;
 
 		allocsize = size + tmpalign;
 
-		if (hsize >= allocsize) {	
+		if (hsize >= allocsize) {	/* big enough */
 			if (hsize == allocsize && prevhead != NULL) {
 				prevhead->next = next;
 				kfree(head);
@@ -334,7 +377,7 @@ static bool alloc_block(struct rmm_target_obj *target, u32 segid, u32 size,
 				head->addr += allocsize;
 			}
 
-			
+			/* free up any hole created by alignment */
 			if (tmpalign)
 				free_block(target, segid, addr, tmpalign);
 
@@ -350,6 +393,13 @@ static bool alloc_block(struct rmm_target_obj *target, u32 segid, u32 size,
 	return false;
 }
 
+/*
+ *  ======== free_block ========
+ *  TO DO: free_block() allocates memory, which could result in failure.
+ *  Could allocate an rmm_header in rmm_alloc(), to be kept in a pool.
+ *  free_block() could use an rmm_header from the pool, freeing as blocks
+ *  are coalesced.
+ */
 static bool free_block(struct rmm_target_obj *target, u32 segid, u32 addr,
 		       u32 size)
 {
@@ -358,12 +408,12 @@ static bool free_block(struct rmm_target_obj *target, u32 segid, u32 addr,
 	struct rmm_header *rhead;
 	bool ret = true;
 
-	
+	/* Create a memory header to hold the newly free'd block. */
 	rhead = kzalloc(sizeof(struct rmm_header), GFP_KERNEL);
 	if (rhead == NULL) {
 		ret = false;
 	} else {
-		
+		/* search down the free list to find the right place for addr */
 		head = target->free_list[segid];
 
 		if (addr >= head->addr) {
@@ -384,7 +434,7 @@ static bool free_block(struct rmm_target_obj *target, u32 segid, u32 addr,
 			thead = rhead->next;
 		}
 
-		
+		/* join with upper block, if possible */
 		if (thead != NULL && (rhead->addr + rhead->size) ==
 		    thead->addr) {
 			head->next = rhead->next;
@@ -394,7 +444,7 @@ static bool free_block(struct rmm_target_obj *target, u32 segid, u32 addr,
 			rhead = thead;
 		}
 
-		
+		/* join with the lower block, if possible */
 		if ((head->addr + head->size) == rhead->addr) {
 			head->next = rhead->next;
 			head->size = head->size + rhead->size;

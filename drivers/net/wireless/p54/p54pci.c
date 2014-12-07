@@ -34,15 +34,15 @@ MODULE_ALIAS("prism54pci");
 MODULE_FIRMWARE("isl3886pci");
 
 static DEFINE_PCI_DEVICE_TABLE(p54p_table) = {
-	
+	/* Intersil PRISM Duette/Prism GT Wireless LAN adapter */
 	{ PCI_DEVICE(0x1260, 0x3890) },
-	
+	/* 3COM 3CRWE154G72 Wireless LAN adapter */
 	{ PCI_DEVICE(0x10b7, 0x6001) },
-	
+	/* Intersil PRISM Indigo Wireless LAN adapter */
 	{ PCI_DEVICE(0x1260, 0x3877) },
-	
+	/* Intersil PRISM Javelin/Xbow Wireless LAN adapter */
 	{ PCI_DEVICE(0x1260, 0x3886) },
-	
+	/* Intersil PRISM Xbow Wireless LAN adapter (Symbol AP-300) */
 	{ PCI_DEVICE(0x1260, 0xffff) },
 	{ },
 };
@@ -77,7 +77,7 @@ static int p54p_upload_firmware(struct ieee80211_hw *dev)
 	P54P_WRITE(ctrl_stat, reg);
 	wmb();
 
-	
+	/* wait for the firmware to reset properly */
 	mdelay(10);
 
 	err = p54_parse_firmware(dev, priv->firmware);
@@ -127,7 +127,7 @@ static int p54p_upload_firmware(struct ieee80211_hw *dev)
 	wmb();
 	udelay(10);
 
-	
+	/* wait for the firmware to boot properly */
 	mdelay(100);
 
 	return 0;
@@ -170,7 +170,7 @@ static void p54p_refill_rx_ring(struct ieee80211_hw *dev,
 			}
 
 			desc->host_addr = cpu_to_le32(mapping);
-			desc->device_addr = 0;	
+			desc->device_addr = 0;	// FIXME: necessary?
 			desc->len = cpu_to_le16(priv->common.rx_mtu + 32);
 			desc->flags = 0;
 			rx_buf[i] = skb;
@@ -657,7 +657,7 @@ static const struct dev_pm_ops p54pci_pm_ops = {
 #define P54P_PM_OPS (&p54pci_pm_ops)
 #else
 #define P54P_PM_OPS (NULL)
-#endif 
+#endif /* CONFIG_PM */
 
 static struct pci_driver p54p_driver = {
 	.name		= "p54pci",

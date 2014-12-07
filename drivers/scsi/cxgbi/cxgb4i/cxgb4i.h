@@ -19,6 +19,7 @@
 #define	CXGB4I_MAX_TARGET	CXGB4I_MAX_CONN
 #define	CXGB4I_MAX_LUN		0x1000
 
+/* for TX: a skb must have a headroom of at least TX_HEADER_LEN bytes */
 #define CXGB4I_TX_HEADER_LEN \
 	(sizeof(struct fw_ofld_tx_data_wr) + sizeof(struct sge_opaque_hdr))
 
@@ -39,4 +40,4 @@ struct cpl_rx_data_ddp {
 	__be32 ulp_crc;
 	__be32 ddpvld;
 };
-#endif	
+#endif	/* __CXGB4I_H__ */

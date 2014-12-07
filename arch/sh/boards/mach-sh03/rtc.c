@@ -90,16 +90,16 @@ static int set_rtc_mmss(unsigned long nowtime)
 	int real_seconds, real_minutes, cmos_minutes;
 	int i;
 
-	
+	/* gets recalled with irq locally disabled */
 	spin_lock(&sh03_rtc_lock);
-	for (i = 0 ; i < 1000000 ; i++)	
+	for (i = 0 ; i < 1000000 ; i++)	/* may take up to 1 second... */
 		if (!(__raw_readb(RTC_CTL) & RTC_BUSY))
 			break;
 	cmos_minutes = (__raw_readb(RTC_MIN1) & 0xf) + (__raw_readb(RTC_MIN10) & 0xf) * 10;
 	real_seconds = nowtime % 60;
 	real_minutes = nowtime / 60;
 	if (((abs(real_minutes - cmos_minutes) + 15)/30) & 1)
-		real_minutes += 30;		
+		real_minutes += 30;		/* correct for half hour time zone */
 	real_minutes %= 60;
 
 	if (abs(real_minutes - cmos_minutes) < 30) {

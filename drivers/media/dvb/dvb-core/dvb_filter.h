@@ -74,6 +74,7 @@ int dvb_filter_pes2ts(struct dvb_filter_pes2ts *p2ts, unsigned char *pes,
 #define B_FRAME 0x02
 #define P_FRAME 0x03
 
+/* Initialize sequence_data */
 #define INIT_HORIZONTAL_SIZE        720
 #define INIT_VERTICAL_SIZE          576
 #define INIT_ASPECT_RATIO          0x02
@@ -82,6 +83,7 @@ int dvb_filter_pes2ts(struct dvb_filter_pes2ts *p2ts, unsigned char *pes,
 #define INIT_DISP_VERTICAL_SIZE     576
 
 
+//flags2
 #define PTS_DTS_FLAGS    0xC0
 #define ESCR_FLAG        0x20
 #define ES_RATE_FLAG     0x10
@@ -90,6 +92,7 @@ int dvb_filter_pes2ts(struct dvb_filter_pes2ts *p2ts, unsigned char *pes,
 #define PES_CRC_FLAG     0x02
 #define PES_EXT_FLAG     0x01
 
+//pts_dts flags
 #define PTS_ONLY         0x80
 #define PTS_DTS          0xC0
 
@@ -98,12 +101,14 @@ int dvb_filter_pes2ts(struct dvb_filter_pes2ts *p2ts, unsigned char *pes,
 #define PAY_START      0x40
 #define TRANS_PRIO     0x20
 #define PID_MASK_HI    0x1F
+//flags
 #define TRANS_SCRMBL1  0x80
 #define TRANS_SCRMBL2  0x40
 #define ADAPT_FIELD    0x20
 #define PAYLOAD        0x10
 #define COUNT_MASK     0x0F
 
+// adaptation flags
 #define DISCON_IND     0x80
 #define RAND_ACC_IND   0x40
 #define ES_PRI_IND     0x20
@@ -113,6 +118,7 @@ int dvb_filter_pes2ts(struct dvb_filter_pes2ts *p2ts, unsigned char *pes,
 #define TRANS_PRIV     0x02
 #define ADAP_EXT_FLAG  0x01
 
+// adaptation extension flags
 #define LTW_FLAG       0x80
 #define PIECE_RATE     0x40
 #define SEAM_SPLICE    0x20
@@ -185,6 +191,10 @@ struct mpg_picture {
 	s8        matrix_change_flag;
 
 	u8        picture_header_parameter;
+  /* bit 0 - 2: bwd f code
+     bit 3    : fpb vector
+     bit 4 - 6: fwd f code
+     bit 7    : fpf vector */
 
 	int       mpeg1_flag;
 	int       progressive_sequence;
@@ -193,7 +203,7 @@ struct mpg_picture {
 	s16       last_frame_centre_horizontal_offset;
 	s16       last_frame_centre_vertical_offset;
 
-	u32       pts[2]; 
+	u32       pts[2]; /* [0] 1st field, [1] 2nd field */
 	int       top_field_first;
 	int       repeat_first_field;
 	int       progressive_frame;
@@ -202,21 +212,21 @@ struct mpg_picture {
 	int       backward_bank;
 	int       compress;
 	s16       frame_centre_horizontal_offset[OFF_SIZE];
-		  
+		  /* [0-2] 1st field, [3] 2nd field */
 	s16       frame_centre_vertical_offset[OFF_SIZE];
-		  
+		  /* [0-2] 1st field, [3] 2nd field */
 	s16       temporal_reference[2];
-		  
+		  /* [0] 1st field, [1] 2nd field */
 
 	s8        picture_coding_type[2];
-		  
+		  /* [0] 1st field, [1] 2nd field */
 	s8        picture_structure[2];
-		  
+		  /* [0] 1st field, [1] 2nd field */
 	s8        picture_display_extension_flag[2];
-		  
-		  
+		  /* [0] 1st field, [1] 2nd field */
+		  /* picture_display_extenion() 0:no 1:exit*/
 	s8        pts_flag[2];
-		  
+		  /* [0] 1st field, [1] 2nd field */
 };
 
 struct dvb_audio_info {

@@ -51,6 +51,7 @@
 #define RTS51X_POLLING_THREAD	"rts5139-polling"
 
 #define POLLING_IN_THREAD
+/* #define SCSI_SCAN_DELAY */
 #define SUPPORT_FILE_OP
 
 #define wait_timeout_x(task_state, msecs)	\
@@ -63,54 +64,61 @@ do {						\
 
 #define SCSI_LUN(srb)		((srb)->device->lun)
 
+/* Size of the DMA-mapped I/O buffer */
 #define RTS51X_IOBUF_SIZE	1024
+/* Size of the autosense data buffer */
 #define RTS51X_SENSE_SIZE	18
 
-#define FLIDX_URB_ACTIVE	0	
-#define FLIDX_SG_ACTIVE		1	
-#define FLIDX_ABORTING		2	
-#define FLIDX_DISCONNECTING	3	
-#define FLIDX_RESETTING		4	
-#define FLIDX_TIMED_OUT		5	
-#define FLIDX_DONT_SCAN		6	
+/* Dynamic bitflag definitions (dflags): used in set_bit() etc. */
+#define FLIDX_URB_ACTIVE	0	/* current_urb is in use    */
+#define FLIDX_SG_ACTIVE		1	/* current_sg is in use     */
+#define FLIDX_ABORTING		2	/* abort is in progress     */
+#define FLIDX_DISCONNECTING	3	/* disconnect in progress   */
+#define FLIDX_RESETTING		4	/* device reset in progress */
+#define FLIDX_TIMED_OUT		5	/* SCSI midlayer timed out  */
+#define FLIDX_DONT_SCAN		6	/* don't scan (disconnect)  */
 
 struct rts51x_chip;
 
 struct rts51x_usb {
-	struct mutex dev_mutex;	
-	struct usb_device *pusb_dev;	
-	struct usb_interface *pusb_intf;	
+	/* The device we're working with
+	 * It's important to note:
+	 *    (o) you must hold dev_mutex to change pusb_dev
+	 */
+	struct mutex dev_mutex;	/* protect pusb_dev */
+	struct usb_device *pusb_dev;	/* this usb_device */
+	struct usb_interface *pusb_intf;	/* this interface */
 
-	unsigned long dflags;	
+	unsigned long dflags;	/* dynamic atomic bitflags */
 
-	unsigned int send_bulk_pipe;	
+	unsigned int send_bulk_pipe;	/* cached pipe values */
 	unsigned int recv_bulk_pipe;
 	unsigned int send_ctrl_pipe;
 	unsigned int recv_ctrl_pipe;
 	unsigned int recv_intr_pipe;
 
-	u8 ifnum;		
-	u8 ep_bInterval;	
+	u8 ifnum;		/* interface number   */
+	u8 ep_bInterval;	/* interrupt interval */
 
-	
-	struct urb *current_urb;	
-	struct urb *intr_urb;	
-	struct usb_ctrlrequest *cr;	
-	struct usb_sg_request current_sg;	
-	unsigned char *iobuf;	
-	dma_addr_t cr_dma;	
+	/* control and bulk communications data */
+	struct urb *current_urb;	/* USB requests         */
+	struct urb *intr_urb;	/* Interrupt USB request */
+	struct usb_ctrlrequest *cr;	/* control requests     */
+	struct usb_sg_request current_sg;	/* scatter-gather req.  */
+	unsigned char *iobuf;	/* I/O buffer           */
+	dma_addr_t cr_dma;	/* buffer DMA addresses */
 	dma_addr_t iobuf_dma;
-	struct task_struct *ctl_thread;	
-	struct task_struct *polling_thread;	
+	struct task_struct *ctl_thread;	/* the control thread   */
+	struct task_struct *polling_thread;	/* the polling thread   */
 
-	
-	struct completion cmnd_ready;	
-	struct completion control_exit;	
-	struct completion polling_exit;	
-	struct completion notify;	
+	/* mutual exclusion and synchronization structures */
+	struct completion cmnd_ready;	/* to sleep thread on      */
+	struct completion control_exit;	/* control thread exit     */
+	struct completion polling_exit;	/* polling thread exit     */
+	struct completion notify;	/* thread begin/end        */
 #ifdef SCSI_SCAN_DELAY
-	wait_queue_head_t delay_wait;	
-	struct completion scanning_done;	
+	wait_queue_head_t delay_wait;	/* wait during scan, reset */
+	struct completion scanning_done;	/* wait for scan thread    */
 #endif
 };
 
@@ -141,6 +149,8 @@ static inline void get_current_time(u8 *timeval_buf, int buf_len)
 #define RCV_BULK_PIPE(chip)	((chip)->usb->recv_bulk_pipe)
 #define RCV_INTR_PIPE(chip)	((chip)->usb->recv_intr_pipe)
 
+/* The scsi_lock() and scsi_unlock() macros protect the sm_state and the
+ * single queue element srb for write access */
 #define scsi_unlock(host)	spin_unlock_irq(host->host_lock)
 #define scsi_lock(host)		spin_lock_irq(host->host_lock)
 
@@ -149,6 +159,7 @@ static inline void get_current_time(u8 *timeval_buf, int buf_len)
 #define SET_PM_USAGE_CNT(chip, cnt)	\
 	atomic_set(&((chip)->usb->pusb_intf->pm_usage_cnt), (cnt))
 
+/* Compatible macros while we switch over */
 static inline void *usb_buffer_alloc(struct usb_device *dev, size_t size,
 				     gfp_t mem_flags, dma_addr_t *dma)
 {
@@ -161,6 +172,7 @@ static inline void usb_buffer_free(struct usb_device *dev, size_t size,
 	return usb_free_coherent(dev, size, addr, dma);
 }
 
+/* Convert between us_data and the corresponding Scsi_Host */
 static inline struct Scsi_Host *rts51x_to_host(struct rts51x_chip *chip)
 {
 	return container_of((void *)chip, struct Scsi_Host, hostdata);
@@ -171,8 +183,10 @@ static inline struct rts51x_chip *host_to_rts51x(struct Scsi_Host *host)
 	return (struct rts51x_chip *)(host->hostdata);
 }
 
+/* struct scsi_cmnd transfer buffer access utilities */
 enum xfer_buf_dir { TO_XFER_BUF, FROM_XFER_BUF };
 
+/* General routines provided by the usb-storage standard core */
 #ifdef CONFIG_PM
 void rts51x_try_to_enter_ss(struct rts51x_chip *chip);
 void rts51x_try_to_exit_ss(struct rts51x_chip *chip);
@@ -187,4 +201,4 @@ int rts51x_reset_resume(struct usb_interface *iface);
 
 extern struct scsi_host_template rts51x_host_template;
 
-#endif 
+#endif /* __RTS51X_H */

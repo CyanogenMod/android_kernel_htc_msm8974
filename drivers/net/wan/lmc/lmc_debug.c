@@ -4,6 +4,9 @@
 
 #include "lmc_debug.h"
 
+/*
+ * Prints out len, max to 80 octets using printk, 20 per line
+ */
 #ifdef DEBUG
 #ifdef LMC_PACKET_LOG
 void lmcConsoleLog(char *type, unsigned char *ucData, int iLen)
@@ -56,14 +59,16 @@ void lmcEventLog(u32 EventNum, u32 arg2, u32 arg3)
 
   lmcEventLogIndex &= (LMC_EVENTLOGSIZE * LMC_EVENTLOGARGS) - 1;
 }
-#endif  
+#endif  /*  DEBUG  */
 
 void lmc_trace(struct net_device *dev, char *msg){
 #ifdef LMC_TRACE
-    unsigned long j = jiffies + 3; 
+    unsigned long j = jiffies + 3; /* Wait for 50 ms */
 
     if(in_interrupt()){
         printk("%s: * %s\n", dev->name, msg);
+//        while(time_before(jiffies, j+10))
+//            ;
     }
     else {
         printk("%s: %s\n", dev->name, msg);
@@ -74,3 +79,4 @@ void lmc_trace(struct net_device *dev, char *msg){
 }
 
 
+/* --------------------------- end if_lmc_linux.c ------------------------ */

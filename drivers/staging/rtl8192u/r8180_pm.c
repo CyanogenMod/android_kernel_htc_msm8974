@@ -45,4 +45,4 @@ int rtl8180_enable_wake (struct pci_dev *dev, u32 state, int enable)
 
 
 
-#endif 
+#endif //CONFIG_RTL8180_PM

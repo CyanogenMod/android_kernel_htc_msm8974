@@ -48,6 +48,7 @@ typedef unsigned char cisdata_t;
 #define CISTPL_FUNCE		0x22
 #define CISTPL_SWIL		0x23
 #define CISTPL_END		0xff
+/* Layer 2 tuples */
 #define CISTPL_VERS_2		0x40
 #define CISTPL_FORMAT		0x41
 #define CISTPL_GEOMETRY		0x42
@@ -55,6 +56,7 @@ typedef unsigned char cisdata_t;
 #define CISTPL_DATE		0x44
 #define CISTPL_BATTERY		0x45
 #define CISTPL_FORMAT_A		0x47
+/* Layer 3 tuples */
 #define CISTPL_ORG		0x46
 #define CISTPL_SPCL		0x90
 
@@ -165,6 +167,11 @@ typedef struct cistpl_funce_t {
     u_char	data[0];
 } cistpl_funce_t;
 
+/*======================================================================
+
+    Modem Function Extension Tuples
+
+======================================================================*/
 
 #define CISTPL_FUNCE_SERIAL_IF		0x00
 #define CISTPL_FUNCE_SERIAL_CAP		0x01
@@ -178,6 +185,7 @@ typedef struct cistpl_funce_t {
 #define CISTPL_FUNCE_SERIAL_IF_FAX	0x09
 #define CISTPL_FUNCE_SERIAL_IF_VOICE	0x0a
 
+/* UART identification */
 #define CISTPL_SERIAL_UART_8250		0x00
 #define CISTPL_SERIAL_UART_16450	0x01
 #define CISTPL_SERIAL_UART_16550	0x02
@@ -185,6 +193,7 @@ typedef struct cistpl_funce_t {
 #define CISTPL_SERIAL_UART_8530		0x04
 #define CISTPL_SERIAL_UART_85230	0x05
 
+/* UART capabilities */
 #define CISTPL_SERIAL_UART_SPACE	0x01
 #define CISTPL_SERIAL_UART_MARK		0x02
 #define CISTPL_SERIAL_UART_ODD		0x04
@@ -267,6 +276,11 @@ typedef struct cistpl_voice_serv_t {
     u_char	max_data_1;
 } cistpl_voice_serv_t;
 
+/*======================================================================
+
+    LAN Function Extension Tuples
+
+======================================================================*/
 
 #define CISTPL_FUNCE_LAN_TECH		0x01
 #define CISTPL_FUNCE_LAN_SPEED		0x02
@@ -274,6 +288,7 @@ typedef struct cistpl_voice_serv_t {
 #define CISTPL_FUNCE_LAN_NODE_ID	0x04
 #define CISTPL_FUNCE_LAN_CONNECTOR	0x05
 
+/* LAN technologies */
 #define CISTPL_LAN_TECH_ARCNET		0x01
 #define CISTPL_LAN_TECH_ETHERNET	0x02
 #define CISTPL_LAN_TECH_TOKENRING	0x03
@@ -290,6 +305,7 @@ typedef struct cistpl_lan_speed_t {
     u_int	speed;
 } cistpl_lan_speed_t;
 
+/* LAN media definitions */
 #define CISTPL_LAN_MEDIA_UTP		0x01
 #define CISTPL_LAN_MEDIA_STP		0x02
 #define CISTPL_LAN_MEDIA_THIN_COAX	0x03
@@ -314,6 +330,11 @@ typedef struct cistpl_lan_connector_t {
     u_char	code;
 } cistpl_lan_connector_t;
 
+/*======================================================================
+
+    IDE Function Extension Tuples
+
+======================================================================*/
 
 #define CISTPL_IDE_INTERFACE		0x01
 
@@ -321,10 +342,12 @@ typedef struct cistpl_ide_interface_t {
     u_char	interface;
 } cistpl_ide_interface_t;
 
+/* First feature byte */
 #define CISTPL_IDE_SILICON		0x04
 #define CISTPL_IDE_UNIQUE		0x08
 #define CISTPL_IDE_DUAL			0x10
 
+/* Second feature byte */
 #define CISTPL_IDE_HAS_SLEEP		0x01
 #define CISTPL_IDE_HAS_STANDBY		0x02
 #define CISTPL_IDE_HAS_IDLE		0x04
@@ -342,6 +365,11 @@ typedef struct cistpl_ide_feature_t {
 #define CISTPL_FUNCE_IDE_MASTER		0x02
 #define CISTPL_FUNCE_IDE_SLAVE		0x03
 
+/*======================================================================
+
+    Configuration Table Entries
+
+======================================================================*/
 
 #define CISTPL_BAR_SPACE	0x07
 #define CISTPL_BAR_SPACE_IO	0x10
@@ -361,6 +389,7 @@ typedef struct cistpl_config_t {
     u_char	subtuples;
 } cistpl_config_t;
 
+/* These are bits in the 'present' field, and indices in 'param' */
 #define CISTPL_POWER_VNOM	0
 #define CISTPL_POWER_VMIN	1
 #define CISTPL_POWER_VMAX	2
@@ -528,9 +557,9 @@ typedef union cisparse_t {
 typedef struct tuple_t {
     u_int	Attributes;
     cisdata_t 	DesiredTuple;
-    u_int	Flags;		
-    u_int	LinkOffset;	
-    u_int	CISOffset;	
+    u_int	Flags;		/* internal use */
+    u_int	LinkOffset;	/* internal use */
+    u_int	CISOffset;	/* internal use */
     cisdata_t	TupleCode;
     cisdata_t	TupleLink;
     cisdata_t	TupleOffset;
@@ -539,11 +568,13 @@ typedef struct tuple_t {
     cisdata_t	*TupleData;
 } tuple_t;
 
+/* Special cisdata_t value */
 #define RETURN_FIRST_TUPLE	0xff
 
+/* Attributes for tuple calls */
 #define TUPLE_RETURN_LINK	0x01
 #define TUPLE_RETURN_COMMON	0x02
 
 #define CISTPL_MAX_CIS_SIZE	0x200
 
-#endif 
+#endif /* LINUX_CISTPL_H */

@@ -41,17 +41,17 @@ static size_t copy_from_user_mvcos(size_t size, const void __user *ptr, void *x)
 		"  "SLR"  %1,%3\n"
 		"  "SLR"  %2,%3\n"
 		"   j     0b\n"
-		"2: la    %4,4095(%1)\n"
-		"   nr    %4,%3\n"	
+		"2: la    %4,4095(%1)\n"/* %4 = ptr + 4095 */
+		"   nr    %4,%3\n"	/* %4 = (ptr + 4095) & -4096 */
 		"  "SLR"  %4,%1\n"
-		"  "CLR"  %0,%4\n"	
+		"  "CLR"  %0,%4\n"	/* copy crosses next page boundary? */
 		"   jnh   4f\n"
 		"3: .insn ss,0xc80000000000,0(%4,%2),0(%1),0\n"
 		"10:"SLR"  %0,%4\n"
 		"  "ALR"  %2,%4\n"
 		"4:"LHI"  %4,-1\n"
-		"  "ALR"  %4,%0\n"	
-		"   bras  %3,6f\n"	
+		"  "ALR"  %4,%0\n"	/* copy remaining size, subtract 1 */
+		"   bras  %3,6f\n"	/* memset loop */
 		"   xc    0(1,%2),0(%2)\n"
 		"5: xc    0(256,%2),0(%2)\n"
 		"   la    %2,256(%2)\n"
@@ -87,10 +87,10 @@ static size_t copy_to_user_mvcos(size_t size, void __user *ptr, const void *x)
 		"  "SLR"  %1,%3\n"
 		"  "SLR"  %2,%3\n"
 		"   j     0b\n"
-		"2: la    %4,4095(%1)\n"
-		"   nr    %4,%3\n"	
+		"2: la    %4,4095(%1)\n"/* %4 = ptr + 4095 */
+		"   nr    %4,%3\n"	/* %4 = (ptr + 4095) & -4096 */
 		"  "SLR"  %4,%1\n"
-		"  "CLR"  %0,%4\n"	
+		"  "CLR"  %0,%4\n"	/* copy crosses next page boundary? */
 		"   jnh   5f\n"
 		"3: .insn ss,0xc80000000000,0(%4,%1),0(%2),0\n"
 		"7:"SLR"  %0,%4\n"
@@ -118,7 +118,7 @@ static size_t copy_in_user_mvcos(size_t size, void __user *to,
 	unsigned long tmp1, tmp2;
 
 	tmp1 = -4096UL;
-	
+	/* FIXME: copy with reduced length. */
 	asm volatile(
 		"0: .insn ss,0xc80000000000,0(%0,%1),0(%2),0\n"
 		"   jz    2f\n"
@@ -146,10 +146,10 @@ static size_t clear_user_mvcos(size_t size, void __user *to)
 		"1:"ALR"  %0,%2\n"
 		"  "SLR"  %1,%2\n"
 		"   j     0b\n"
-		"2: la    %3,4095(%1)\n"
-		"   nr    %3,%2\n"	
+		"2: la    %3,4095(%1)\n"/* %4 = to + 4095 */
+		"   nr    %3,%2\n"	/* %4 = (to + 4095) & -4096 */
 		"  "SLR"  %3,%1\n"
-		"  "CLR"  %0,%3\n"	
+		"  "CLR"  %0,%3\n"	/* copy crosses next page boundary? */
 		"   jnh   5f\n"
 		"3: .insn ss,0xc80000000000,0(%3,%1),0(%4),0\n"
 		"  "SLR"  %0,%3\n"

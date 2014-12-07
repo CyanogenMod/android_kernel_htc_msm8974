@@ -134,29 +134,29 @@ static int upmix_get(struct snd_kcontrol *ctl, struct snd_ctl_elem_value *value)
 
 void oxygen_update_dac_routing(struct oxygen *chip)
 {
-	
+	/* DAC 0: front, DAC 1: surround, DAC 2: center/LFE, DAC 3: back */
 	static const unsigned int reg_values[5] = {
-		
+		/* stereo -> front */
 		(0 << OXYGEN_PLAY_DAC0_SOURCE_SHIFT) |
 		(1 << OXYGEN_PLAY_DAC1_SOURCE_SHIFT) |
 		(2 << OXYGEN_PLAY_DAC2_SOURCE_SHIFT) |
 		(3 << OXYGEN_PLAY_DAC3_SOURCE_SHIFT),
-		
+		/* stereo -> front+surround */
 		(0 << OXYGEN_PLAY_DAC0_SOURCE_SHIFT) |
 		(0 << OXYGEN_PLAY_DAC1_SOURCE_SHIFT) |
 		(2 << OXYGEN_PLAY_DAC2_SOURCE_SHIFT) |
 		(3 << OXYGEN_PLAY_DAC3_SOURCE_SHIFT),
-		
+		/* stereo -> front+surround+back */
 		(0 << OXYGEN_PLAY_DAC0_SOURCE_SHIFT) |
 		(0 << OXYGEN_PLAY_DAC1_SOURCE_SHIFT) |
 		(2 << OXYGEN_PLAY_DAC2_SOURCE_SHIFT) |
 		(0 << OXYGEN_PLAY_DAC3_SOURCE_SHIFT),
-		
+		/* stereo -> front+surround+center/LFE */
 		(0 << OXYGEN_PLAY_DAC0_SOURCE_SHIFT) |
 		(0 << OXYGEN_PLAY_DAC1_SOURCE_SHIFT) |
 		(0 << OXYGEN_PLAY_DAC2_SOURCE_SHIFT) |
 		(3 << OXYGEN_PLAY_DAC3_SOURCE_SHIFT),
-		
+		/* stereo -> front+surround+center/LFE+back */
 		(0 << OXYGEN_PLAY_DAC0_SOURCE_SHIFT) |
 		(0 << OXYGEN_PLAY_DAC1_SOURCE_SHIFT) |
 		(0 << OXYGEN_PLAY_DAC2_SOURCE_SHIFT) |
@@ -170,7 +170,7 @@ void oxygen_update_dac_routing(struct oxygen *chip)
 	if (channels == OXYGEN_PLAY_CHANNELS_2)
 		reg_value = reg_values[chip->dac_routing];
 	else if (channels == OXYGEN_PLAY_CHANNELS_8)
-		
+		/* in 7.1 mode, "rear" channels go to the "back" jack */
 		reg_value = (0 << OXYGEN_PLAY_DAC0_SOURCE_SHIFT) |
 			    (3 << OXYGEN_PLAY_DAC1_SOURCE_SHIFT) |
 			    (2 << OXYGEN_PLAY_DAC2_SOURCE_SHIFT) |
@@ -227,7 +227,7 @@ static unsigned int oxygen_spdif_rate(unsigned int oxygen_rate)
 		return IEC958_AES3_CON_FS_32000 << OXYGEN_SPDIF_CS_RATE_SHIFT;
 	case OXYGEN_RATE_44100:
 		return IEC958_AES3_CON_FS_44100 << OXYGEN_SPDIF_CS_RATE_SHIFT;
-	default: 
+	default: /* OXYGEN_RATE_48000 */
 		return IEC958_AES3_CON_FS_48000 << OXYGEN_SPDIF_CS_RATE_SHIFT;
 	case OXYGEN_RATE_64000:
 		return 0xb << OXYGEN_SPDIF_CS_RATE_SHIFT;
@@ -256,7 +256,7 @@ void oxygen_update_spdif_source(struct oxygen *chip)
 			| OXYGEN_PLAY_SPDIF_SPDIF;
 		oxygen_rate = (old_control >> OXYGEN_SPDIF_OUT_RATE_SHIFT)
 			& OXYGEN_I2S_RATE_MASK;
-		
+		/* S/PDIF rate was already set by the caller */
 	} else if ((chip->pcm_active & (1 << PCM_MULTICH)) &&
 		   chip->spdif_playback_enable) {
 		new_routing = (old_routing & ~OXYGEN_PLAY_SPDIF_MASK)
@@ -314,7 +314,7 @@ static void oxygen_to_iec958(u32 bits, struct snd_ctl_elem_value *value)
 	value->value.iec958.status[0] =
 		bits & (OXYGEN_SPDIF_NONAUDIO | OXYGEN_SPDIF_C |
 			OXYGEN_SPDIF_PREEMPHASIS);
-	value->value.iec958.status[1] = 
+	value->value.iec958.status[1] = /* category and original */
 		bits >> OXYGEN_SPDIF_CATEGORY_SHIFT;
 }
 
@@ -1002,7 +1002,7 @@ static void oxygen_any_ctl_free(struct snd_kcontrol *ctl)
 	struct oxygen *chip = ctl->private_data;
 	unsigned int i;
 
-	
+	/* I'm too lazy to write a function for each control :-) */
 	for (i = 0; i < ARRAY_SIZE(chip->controls); ++i)
 		chip->controls[i] = NULL;
 }

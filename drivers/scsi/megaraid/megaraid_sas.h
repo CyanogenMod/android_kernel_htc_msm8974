@@ -30,10 +30,16 @@
 #ifndef LSI_MEGARAID_SAS_H
 #define LSI_MEGARAID_SAS_H
 
+/*
+ * MegaRAID SAS Driver meta data
+ */
 #define MEGASAS_VERSION				"00.00.06.14-rc1"
 #define MEGASAS_RELDATE				"Jan. 6, 2012"
 #define MEGASAS_EXT_VERSION			"Fri. Jan. 6 17:00:00 PDT 2012"
 
+/*
+ * Device IDs
+ */
 #define	PCI_DEVICE_ID_LSI_SAS1078R		0x0060
 #define	PCI_DEVICE_ID_LSI_SAS1078DE		0x007C
 #define	PCI_DEVICE_ID_LSI_VERDE_ZCR		0x0413
@@ -44,8 +50,21 @@
 #define	PCI_DEVICE_ID_LSI_FUSION		0x005b
 #define PCI_DEVICE_ID_LSI_INVADER		0x005d
 
+/*
+ * =====================================
+ * MegaRAID SAS MFI firmware definitions
+ * =====================================
+ */
 
+/*
+ * MFI stands for  MegaRAID SAS FW Interface. This is just a moniker for 
+ * protocol between the software and firmware. Commands are issued using
+ * "message frames"
+ */
 
+/*
+ * FW posts its state in upper 4 bits of outbound_msg_0 register
+ */
 #define MFI_STATE_MASK				0xF0000000
 #define MFI_STATE_UNDEFINED			0x00000000
 #define MFI_STATE_BB_INIT			0x10000000
@@ -62,8 +81,18 @@
 #define MFI_RESET_ADAPTER			0x00000002
 #define MEGAMFI_FRAME_SIZE			64
 
-#define WRITE_SEQUENCE_OFFSET		(0x0000000FC) 
-#define HOST_DIAGNOSTIC_OFFSET		(0x000000F8)  
+/*
+ * During FW init, clear pending cmds & reset state using inbound_msg_0
+ *
+ * ABORT	: Abort all pending cmds
+ * READY	: Move from OPERATIONAL to READY state; discard queue info
+ * MFIMODE	: Discard (possible) low MFA posted in 64-bit mode (??)
+ * CLR_HANDSHAKE: FW is waiting for HANDSHAKE from BIOS or Driver
+ * HOTPLUG	: Resume from Hotplug
+ * MFI_STOP_ADP	: Send signal to FW to stop processing
+ */
+#define WRITE_SEQUENCE_OFFSET		(0x0000000FC) /* I20 */
+#define HOST_DIAGNOSTIC_OFFSET		(0x000000F8)  /* I20 */
 #define DIAG_WRITE_ENABLE			(0x00000080)
 #define DIAG_RESET_ADAPTER			(0x00000004)
 
@@ -78,6 +107,9 @@
 						MFI_INIT_MFIMODE| \
 						MFI_INIT_ABORT
 
+/*
+ * MFI frame flags
+ */
 #define MFI_FRAME_POST_IN_REPLY_QUEUE		0x0000
 #define MFI_FRAME_DONT_POST_IN_REPLY_QUEUE	0x0001
 #define MFI_FRAME_SGL32				0x0000
@@ -90,8 +122,14 @@
 #define MFI_FRAME_DIR_BOTH			0x0018
 #define MFI_FRAME_IEEE                          0x0020
 
+/*
+ * Definition for cmd_status
+ */
 #define MFI_CMD_STATUS_POLL_MODE		0xFF
 
+/*
+ * MFI command opcodes
+ */
 #define MFI_CMD_INIT				0x00
 #define MFI_CMD_LD_READ				0x01
 #define MFI_CMD_LD_WRITE			0x02
@@ -124,6 +162,9 @@
 #define MR_DCMD_CLUSTER_RESET_LD		0x08010200
 #define MR_DCMD_PD_LIST_QUERY                   0x02010100
 
+/*
+ * MFI command completion codes
+ */
 enum MFI_STAT {
 	MFI_STAT_OK = 0x00,
 	MFI_STAT_INVALID_CMD = 0x01,
@@ -187,6 +228,9 @@ enum MFI_STAT {
 	MFI_STAT_INVALID_STATUS = 0xFF
 };
 
+/*
+ * Number of mailbox bytes in DCMD message frame
+ */
 #define MFI_MBOX_SIZE				12
 
 enum MR_EVT_CLASS {
@@ -256,6 +300,9 @@ enum MR_EVT_ARGS {
 	MR_EVT_ARGS_GENERIC,
 };
 
+/*
+ * define constants for device list query options
+ */
 enum MR_PD_QUERY_TYPE {
 	MR_PD_QUERY_TYPE_ALL                = 0,
 	MR_PD_QUERY_TYPE_STATE              = 1,
@@ -289,6 +336,9 @@ enum MR_PD_STATE {
  };
 
 
+ /*
+ * defines the physical drive address structure
+ */
 struct MR_PD_ADDRESS {
 	u16     deviceId;
 	u16     enclDeviceId;
@@ -311,6 +361,9 @@ struct MR_PD_ADDRESS {
 	u64     sasAddr[2];
 } __packed;
 
+/*
+ * defines the physical drive list structure
+ */
 struct MR_PD_LIST {
 	u32             size;
 	u32             count;
@@ -323,6 +376,9 @@ struct megasas_pd_list {
 	u8             driveState;
 } __packed;
 
+ /*
+ * defines the logical drive reference structure
+ */
 union  MR_LD_REF {
 	struct {
 		u8      targetId;
@@ -332,6 +388,9 @@ union  MR_LD_REF {
 	u32     ref;
 } __packed;
 
+/*
+ * defines the logical drive list structure
+ */
 struct MR_LD_LIST {
 	u32     ldCount;
 	u32     reserved;
@@ -343,6 +402,9 @@ struct MR_LD_LIST {
 	} ldList[MAX_LOGICAL_DRIVES];
 } __packed;
 
+/*
+ * SAS controller properties
+ */
 struct megasas_ctrl_prop {
 
 	u16 seq_num;
@@ -374,6 +436,10 @@ struct megasas_ctrl_prop {
 
 	u8 snapVDSpace;
 
+	/*
+	* Add properties that can be controlled by
+	* a bit in the following structure.
+	*/
 	struct {
 		u32     copyBackDisabled            : 1;
 		u32     SMARTerEnabled              : 1;
@@ -397,8 +463,14 @@ struct megasas_ctrl_prop {
 	u8  reserved[24];
 } __packed;
 
+/*
+ * SAS controller information
+ */
 struct megasas_ctrl_info {
 
+	/*
+	 * PCI device information
+	 */
 	struct {
 
 		u16 vendor_id;
@@ -409,6 +481,9 @@ struct megasas_ctrl_info {
 
 	} __attribute__ ((packed)) pci;
 
+	/*
+	 * Host interface information
+	 */
 	struct {
 
 		u8 PCIX:1;
@@ -422,6 +497,9 @@ struct megasas_ctrl_info {
 
 	} __attribute__ ((packed)) host_interface;
 
+	/*
+	 * Device (backend) interface information
+	 */
 	struct {
 
 		u8 SPI:1;
@@ -435,6 +513,9 @@ struct megasas_ctrl_info {
 
 	} __attribute__ ((packed)) device_interface;
 
+	/*
+	 * List of components residing in flash. All str are null terminated
+	 */
 	u32 image_check_word;
 	u32 image_component_count;
 
@@ -447,6 +528,12 @@ struct megasas_ctrl_info {
 
 	} __attribute__ ((packed)) image_component[8];
 
+	/*
+	 * List of flash components that have been flashed on the card, but
+	 * are not in use, pending reset of the adapter. This list will be
+	 * empty if a flash operation has not occurred. All stings are null
+	 * terminated
+	 */
 	u32 pending_image_component_count;
 
 	struct {
@@ -466,6 +553,10 @@ struct megasas_ctrl_info {
 	char product_name[80];
 	char serial_no[32];
 
+	/*
+	 * Other physical/controller/operation information. Indicates the
+	 * presence of the hardware
+	 */
 	struct {
 
 		u32 bbu:1;
@@ -478,10 +569,16 @@ struct megasas_ctrl_info {
 
 	u32 current_fw_time;
 
+	/*
+	 * Maximum data transfer sizes
+	 */
 	u16 max_concurrent_cmds;
 	u16 max_sge_count;
 	u32 max_request_size;
 
+	/*
+	 * Logical and physical device counts
+	 */
 	u16 ld_present_count;
 	u16 ld_degraded_count;
 	u16 ld_offline_count;
@@ -491,18 +588,33 @@ struct megasas_ctrl_info {
 	u16 pd_disk_pred_failure_count;
 	u16 pd_disk_failed_count;
 
+	/*
+	 * Memory size information
+	 */
 	u16 nvram_size;
 	u16 memory_size;
 	u16 flash_size;
 
+	/*
+	 * Error counters
+	 */
 	u16 mem_correctable_error_count;
 	u16 mem_uncorrectable_error_count;
 
+	/*
+	 * Cluster information
+	 */
 	u8 cluster_permitted;
 	u8 cluster_active;
 
+	/*
+	 * Additional max data transfer sizes
+	 */
 	u16 max_strips_per_io;
 
+	/*
+	 * Controller capabilities structures
+	 */
 	struct {
 
 		u32 raid_level_0:1;
@@ -574,17 +686,31 @@ struct megasas_ctrl_info {
 
 	} __attribute__ ((packed)) pd_mix_support;
 
+	/*
+	 * Define ECC single-bit-error bucket information
+	 */
 	u8 ecc_bucket_count;
 	u8 reserved_2[11];
 
+	/*
+	 * Include the controller properties (changeable items)
+	 */
 	struct megasas_ctrl_prop properties;
 
+	/*
+	 * Define FW pkg version (set in envt v'bles on OEM basis)
+	 */
 	char package_version[0x60];
 
 	u8 pad[0x800 - 0x6a0];
 
 } __packed;
 
+/*
+ * ===============================
+ * MegaRAID SAS driver definitions
+ * ===============================
+ */
 #define MEGASAS_MAX_PD_CHANNELS			2
 #define MEGASAS_MAX_LD_CHANNELS			2
 #define MEGASAS_MAX_CHANNELS			(MEGASAS_MAX_PD_CHANNELS + \
@@ -605,19 +731,38 @@ struct megasas_ctrl_info {
 
 #define MEGASAS_FW_BUSY				1
 
+/* Frame Type */
 #define IO_FRAME				0
 #define PTHRU_FRAME				1
 
+/*
+ * When SCSI mid-layer calls driver's reset routine, driver waits for
+ * MEGASAS_RESET_WAIT_TIME seconds for all outstanding IO to complete. Note
+ * that the driver cannot _actually_ abort or reset pending commands. While
+ * it is waiting for the commands to complete, it prints a diagnostic message
+ * every MEGASAS_RESET_NOTICE_INTERVAL seconds
+ */
 #define MEGASAS_RESET_WAIT_TIME			180
 #define MEGASAS_INTERNAL_CMD_WAIT_TIME		180
 #define	MEGASAS_RESET_NOTICE_INTERVAL		5
 #define MEGASAS_IOCTL_CMD			0
 #define MEGASAS_DEFAULT_CMD_TIMEOUT		90
 
+/*
+ * FW reports the maximum of number of commands that it can accept (maximum
+ * commands that can be outstanding) at any time. The driver must report a
+ * lower number to the mid layer because it can issue a few internal commands
+ * itself (E.g, AEN, abort cmd, IOCTLs etc). The number of commands it needs
+ * is shown below
+ */
 #define MEGASAS_INT_CMDS			32
 #define MEGASAS_SKINNY_INT_CMDS			5
 
 #define MEGASAS_MAX_MSIX_QUEUES			16
+/*
+ * FW can accept both 32 and 64 bit SGLs. We want to allocate 32/64 bit
+ * SGLs based on the size of dma_addr_t
+ */
 #define IS_DMA64				(sizeof(dma_addr_t) == 8)
 
 #define MFI_XSCALE_OMR0_CHANGE_INTERRUPT		0x00000001
@@ -638,53 +783,57 @@ struct megasas_ctrl_info {
 #define MFI_1068_PCSR_OFFSET			0x84
 #define MFI_1068_FW_HANDSHAKE_OFFSET		0x64
 #define MFI_1068_FW_READY			0xDDDD0000
+/*
+* register set for both 1068 and 1078 controllers
+* structure extended for 1078 registers
+*/
  
 struct megasas_register_set {
-	u32	doorbell;                       
-	u32	fusion_seq_offset;		
-	u32	fusion_host_diag;		
-	u32	reserved_01;			
+	u32	doorbell;                       /*0000h*/
+	u32	fusion_seq_offset;		/*0004h*/
+	u32	fusion_host_diag;		/*0008h*/
+	u32	reserved_01;			/*000Ch*/
 
-	u32 	inbound_msg_0;			
-	u32 	inbound_msg_1;			
-	u32 	outbound_msg_0;			
-	u32 	outbound_msg_1;			
+	u32 	inbound_msg_0;			/*0010h*/
+	u32 	inbound_msg_1;			/*0014h*/
+	u32 	outbound_msg_0;			/*0018h*/
+	u32 	outbound_msg_1;			/*001Ch*/
 
-	u32 	inbound_doorbell;		
-	u32 	inbound_intr_status;		
-	u32 	inbound_intr_mask;		
+	u32 	inbound_doorbell;		/*0020h*/
+	u32 	inbound_intr_status;		/*0024h*/
+	u32 	inbound_intr_mask;		/*0028h*/
 
-	u32 	outbound_doorbell;		
-	u32 	outbound_intr_status;		
-	u32 	outbound_intr_mask;		
+	u32 	outbound_doorbell;		/*002Ch*/
+	u32 	outbound_intr_status;		/*0030h*/
+	u32 	outbound_intr_mask;		/*0034h*/
 
-	u32 	reserved_1[2];			
+	u32 	reserved_1[2];			/*0038h*/
 
-	u32 	inbound_queue_port;		
-	u32 	outbound_queue_port;		
+	u32 	inbound_queue_port;		/*0040h*/
+	u32 	outbound_queue_port;		/*0044h*/
 
-	u32	reserved_2[9];			
-	u32	reply_post_host_index;		
-	u32	reserved_2_2[12];		
+	u32	reserved_2[9];			/*0048h*/
+	u32	reply_post_host_index;		/*006Ch*/
+	u32	reserved_2_2[12];		/*0070h*/
 
-	u32 	outbound_doorbell_clear;	
+	u32 	outbound_doorbell_clear;	/*00A0h*/
 
-	u32 	reserved_3[3];			
+	u32 	reserved_3[3];			/*00A4h*/
 
-	u32 	outbound_scratch_pad ;		
-	u32	outbound_scratch_pad_2;         
+	u32 	outbound_scratch_pad ;		/*00B0h*/
+	u32	outbound_scratch_pad_2;         /*00B4h*/
 
-	u32	reserved_4[2];			
+	u32	reserved_4[2];			/*00B8h*/
 
-	u32 	inbound_low_queue_port ;	
+	u32 	inbound_low_queue_port ;	/*00C0h*/
 
-	u32 	inbound_high_queue_port ;	
+	u32 	inbound_high_queue_port ;	/*00C4h*/
 
-	u32 	reserved_5;			
-	u32	res_6[11];			
+	u32 	reserved_5;			/*00C8h*/
+	u32	res_6[11];			/*CCh*/
 	u32	host_diag;
 	u32	seq_offset;
-	u32 	index_registers[807];		
+	u32 	index_registers[807];		/*00CCh*/
 } __attribute__ ((packed));
 
 struct megasas_sge32 {
@@ -717,22 +866,22 @@ union megasas_sgl {
 
 struct megasas_header {
 
-	u8 cmd;			
-	u8 sense_len;		
-	u8 cmd_status;		
-	u8 scsi_status;		
+	u8 cmd;			/*00h */
+	u8 sense_len;		/*01h */
+	u8 cmd_status;		/*02h */
+	u8 scsi_status;		/*03h */
 
-	u8 target_id;		
-	u8 lun;			
-	u8 cdb_len;		
-	u8 sge_count;		
+	u8 target_id;		/*04h */
+	u8 lun;			/*05h */
+	u8 cdb_len;		/*06h */
+	u8 sge_count;		/*07h */
 
-	u32 context;		
-	u32 pad_0;		
+	u32 context;		/*08h */
+	u32 pad_0;		/*0Ch */
 
-	u16 flags;		
-	u16 timeout;		
-	u32 data_xferlen;	
+	u16 flags;		/*10h */
+	u16 timeout;		/*12h */
+	u32 data_xferlen;	/*14h */
 
 } __attribute__ ((packed));
 
@@ -745,203 +894,203 @@ union megasas_sgl_frame {
 
 struct megasas_init_frame {
 
-	u8 cmd;			
-	u8 reserved_0;		
-	u8 cmd_status;		
+	u8 cmd;			/*00h */
+	u8 reserved_0;		/*01h */
+	u8 cmd_status;		/*02h */
 
-	u8 reserved_1;		
-	u32 reserved_2;		
+	u8 reserved_1;		/*03h */
+	u32 reserved_2;		/*04h */
 
-	u32 context;		
-	u32 pad_0;		
+	u32 context;		/*08h */
+	u32 pad_0;		/*0Ch */
 
-	u16 flags;		
-	u16 reserved_3;		
-	u32 data_xfer_len;	
+	u16 flags;		/*10h */
+	u16 reserved_3;		/*12h */
+	u32 data_xfer_len;	/*14h */
 
-	u32 queue_info_new_phys_addr_lo;	
-	u32 queue_info_new_phys_addr_hi;	
-	u32 queue_info_old_phys_addr_lo;	
-	u32 queue_info_old_phys_addr_hi;	
+	u32 queue_info_new_phys_addr_lo;	/*18h */
+	u32 queue_info_new_phys_addr_hi;	/*1Ch */
+	u32 queue_info_old_phys_addr_lo;	/*20h */
+	u32 queue_info_old_phys_addr_hi;	/*24h */
 
-	u32 reserved_4[6];	
+	u32 reserved_4[6];	/*28h */
 
 } __attribute__ ((packed));
 
 struct megasas_init_queue_info {
 
-	u32 init_flags;		
-	u32 reply_queue_entries;	
+	u32 init_flags;		/*00h */
+	u32 reply_queue_entries;	/*04h */
 
-	u32 reply_queue_start_phys_addr_lo;	
-	u32 reply_queue_start_phys_addr_hi;	
-	u32 producer_index_phys_addr_lo;	
-	u32 producer_index_phys_addr_hi;	
-	u32 consumer_index_phys_addr_lo;	
-	u32 consumer_index_phys_addr_hi;	
+	u32 reply_queue_start_phys_addr_lo;	/*08h */
+	u32 reply_queue_start_phys_addr_hi;	/*0Ch */
+	u32 producer_index_phys_addr_lo;	/*10h */
+	u32 producer_index_phys_addr_hi;	/*14h */
+	u32 consumer_index_phys_addr_lo;	/*18h */
+	u32 consumer_index_phys_addr_hi;	/*1Ch */
 
 } __attribute__ ((packed));
 
 struct megasas_io_frame {
 
-	u8 cmd;			
-	u8 sense_len;		
-	u8 cmd_status;		
-	u8 scsi_status;		
+	u8 cmd;			/*00h */
+	u8 sense_len;		/*01h */
+	u8 cmd_status;		/*02h */
+	u8 scsi_status;		/*03h */
 
-	u8 target_id;		
-	u8 access_byte;		
-	u8 reserved_0;		
-	u8 sge_count;		
+	u8 target_id;		/*04h */
+	u8 access_byte;		/*05h */
+	u8 reserved_0;		/*06h */
+	u8 sge_count;		/*07h */
 
-	u32 context;		
-	u32 pad_0;		
+	u32 context;		/*08h */
+	u32 pad_0;		/*0Ch */
 
-	u16 flags;		
-	u16 timeout;		
-	u32 lba_count;		
+	u16 flags;		/*10h */
+	u16 timeout;		/*12h */
+	u32 lba_count;		/*14h */
 
-	u32 sense_buf_phys_addr_lo;	
-	u32 sense_buf_phys_addr_hi;	
+	u32 sense_buf_phys_addr_lo;	/*18h */
+	u32 sense_buf_phys_addr_hi;	/*1Ch */
 
-	u32 start_lba_lo;	
-	u32 start_lba_hi;	
+	u32 start_lba_lo;	/*20h */
+	u32 start_lba_hi;	/*24h */
 
-	union megasas_sgl sgl;	
+	union megasas_sgl sgl;	/*28h */
 
 } __attribute__ ((packed));
 
 struct megasas_pthru_frame {
 
-	u8 cmd;			
-	u8 sense_len;		
-	u8 cmd_status;		
-	u8 scsi_status;		
+	u8 cmd;			/*00h */
+	u8 sense_len;		/*01h */
+	u8 cmd_status;		/*02h */
+	u8 scsi_status;		/*03h */
 
-	u8 target_id;		
-	u8 lun;			
-	u8 cdb_len;		
-	u8 sge_count;		
+	u8 target_id;		/*04h */
+	u8 lun;			/*05h */
+	u8 cdb_len;		/*06h */
+	u8 sge_count;		/*07h */
 
-	u32 context;		
-	u32 pad_0;		
+	u32 context;		/*08h */
+	u32 pad_0;		/*0Ch */
 
-	u16 flags;		
-	u16 timeout;		
-	u32 data_xfer_len;	
+	u16 flags;		/*10h */
+	u16 timeout;		/*12h */
+	u32 data_xfer_len;	/*14h */
 
-	u32 sense_buf_phys_addr_lo;	
-	u32 sense_buf_phys_addr_hi;	
+	u32 sense_buf_phys_addr_lo;	/*18h */
+	u32 sense_buf_phys_addr_hi;	/*1Ch */
 
-	u8 cdb[16];		
-	union megasas_sgl sgl;	
+	u8 cdb[16];		/*20h */
+	union megasas_sgl sgl;	/*30h */
 
 } __attribute__ ((packed));
 
 struct megasas_dcmd_frame {
 
-	u8 cmd;			
-	u8 reserved_0;		
-	u8 cmd_status;		
-	u8 reserved_1[4];	
-	u8 sge_count;		
+	u8 cmd;			/*00h */
+	u8 reserved_0;		/*01h */
+	u8 cmd_status;		/*02h */
+	u8 reserved_1[4];	/*03h */
+	u8 sge_count;		/*07h */
 
-	u32 context;		
-	u32 pad_0;		
+	u32 context;		/*08h */
+	u32 pad_0;		/*0Ch */
 
-	u16 flags;		
-	u16 timeout;		
+	u16 flags;		/*10h */
+	u16 timeout;		/*12h */
 
-	u32 data_xfer_len;	
-	u32 opcode;		
+	u32 data_xfer_len;	/*14h */
+	u32 opcode;		/*18h */
 
-	union {			
+	union {			/*1Ch */
 		u8 b[12];
 		u16 s[6];
 		u32 w[3];
 	} mbox;
 
-	union megasas_sgl sgl;	
+	union megasas_sgl sgl;	/*28h */
 
 } __attribute__ ((packed));
 
 struct megasas_abort_frame {
 
-	u8 cmd;			
-	u8 reserved_0;		
-	u8 cmd_status;		
+	u8 cmd;			/*00h */
+	u8 reserved_0;		/*01h */
+	u8 cmd_status;		/*02h */
 
-	u8 reserved_1;		
-	u32 reserved_2;		
+	u8 reserved_1;		/*03h */
+	u32 reserved_2;		/*04h */
 
-	u32 context;		
-	u32 pad_0;		
+	u32 context;		/*08h */
+	u32 pad_0;		/*0Ch */
 
-	u16 flags;		
-	u16 reserved_3;		
-	u32 reserved_4;		
+	u16 flags;		/*10h */
+	u16 reserved_3;		/*12h */
+	u32 reserved_4;		/*14h */
 
-	u32 abort_context;	
-	u32 pad_1;		
+	u32 abort_context;	/*18h */
+	u32 pad_1;		/*1Ch */
 
-	u32 abort_mfi_phys_addr_lo;	
-	u32 abort_mfi_phys_addr_hi;	
+	u32 abort_mfi_phys_addr_lo;	/*20h */
+	u32 abort_mfi_phys_addr_hi;	/*24h */
 
-	u32 reserved_5[6];	
+	u32 reserved_5[6];	/*28h */
 
 } __attribute__ ((packed));
 
 struct megasas_smp_frame {
 
-	u8 cmd;			
-	u8 reserved_1;		
-	u8 cmd_status;		
-	u8 connection_status;	
+	u8 cmd;			/*00h */
+	u8 reserved_1;		/*01h */
+	u8 cmd_status;		/*02h */
+	u8 connection_status;	/*03h */
 
-	u8 reserved_2[3];	
-	u8 sge_count;		
+	u8 reserved_2[3];	/*04h */
+	u8 sge_count;		/*07h */
 
-	u32 context;		
-	u32 pad_0;		
+	u32 context;		/*08h */
+	u32 pad_0;		/*0Ch */
 
-	u16 flags;		
-	u16 timeout;		
+	u16 flags;		/*10h */
+	u16 timeout;		/*12h */
 
-	u32 data_xfer_len;	
-	u64 sas_addr;		
+	u32 data_xfer_len;	/*14h */
+	u64 sas_addr;		/*18h */
 
 	union {
-		struct megasas_sge32 sge32[2];	
-		struct megasas_sge64 sge64[2];	
+		struct megasas_sge32 sge32[2];	/* [0]: resp [1]: req */
+		struct megasas_sge64 sge64[2];	/* [0]: resp [1]: req */
 	} sgl;
 
 } __attribute__ ((packed));
 
 struct megasas_stp_frame {
 
-	u8 cmd;			
-	u8 reserved_1;		
-	u8 cmd_status;		
-	u8 reserved_2;		
+	u8 cmd;			/*00h */
+	u8 reserved_1;		/*01h */
+	u8 cmd_status;		/*02h */
+	u8 reserved_2;		/*03h */
 
-	u8 target_id;		
-	u8 reserved_3[2];	
-	u8 sge_count;		
+	u8 target_id;		/*04h */
+	u8 reserved_3[2];	/*05h */
+	u8 sge_count;		/*07h */
 
-	u32 context;		
-	u32 pad_0;		
+	u32 context;		/*08h */
+	u32 pad_0;		/*0Ch */
 
-	u16 flags;		
-	u16 timeout;		
+	u16 flags;		/*10h */
+	u16 timeout;		/*12h */
 
-	u32 data_xfer_len;	
+	u32 data_xfer_len;	/*14h */
 
-	u16 fis[10];		
+	u16 fis[10];		/*18h */
 	u32 stp_flags;
 
 	union {
-		struct megasas_sge32 sge32[2];	
-		struct megasas_sge64 sge64[2];	
+		struct megasas_sge32 sge32[2];	/* [0]: resp [1]: data */
+		struct megasas_sge64 sge64[2];	/* [0]: resp [1]: data */
 	} sgl;
 
 } __attribute__ ((packed));
@@ -1154,17 +1303,19 @@ struct megasas_instance {
 
 	u16 max_num_sge;
 	u16 max_fw_cmds;
+	/* For Fusion its num IOCTL cmds, for others MFI based its
+	   max_fw_cmds */
 	u16 max_mfi_cmds;
 	u32 max_sectors_per_req;
 	struct megasas_aen_event *ev;
 
 	struct megasas_cmd **cmd_list;
 	struct list_head cmd_pool;
-	
+	/* used to sync fire the cmd to fw */
 	spinlock_t cmd_pool_lock;
-	
+	/* used to sync fire the cmd to fw */
 	spinlock_t hba_lock;
-	
+	/* used to synch producer, consumer ptrs in dpc */
 	spinlock_t completion_lock;
 	struct dma_pool *frame_dma_pool;
 	struct dma_pool *sense_dma_pool;
@@ -1203,7 +1354,7 @@ struct megasas_instance {
 
 	struct list_head internal_reset_pending_q;
 
-	
+	/* Ptr to hba specific information */
 	void *ctrl_context;
 	unsigned int msix_vectors;
 	struct msix_entry msixentry[MEGASAS_MAX_MSIX_QUEUES];
@@ -1338,4 +1489,4 @@ struct megasas_mgmt_info {
 #define msi_control_reg(base) (base + PCI_MSI_FLAGS)
 #define PCI_MSIX_FLAGS_ENABLE (1 << 15)
 
-#endif				
+#endif				/*LSI_MEGARAID_SAS_H */

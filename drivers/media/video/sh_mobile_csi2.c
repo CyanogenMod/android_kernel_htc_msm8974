@@ -57,27 +57,27 @@ static int sh_csi2_try_fmt(struct v4l2_subdev *sd,
 	switch (pdata->type) {
 	case SH_CSI2C:
 		switch (mf->code) {
-		case V4L2_MBUS_FMT_UYVY8_2X8:		
-		case V4L2_MBUS_FMT_YUYV8_1_5X8:		
-		case V4L2_MBUS_FMT_Y8_1X8:		
+		case V4L2_MBUS_FMT_UYVY8_2X8:		/* YUV422 */
+		case V4L2_MBUS_FMT_YUYV8_1_5X8:		/* YUV420 */
+		case V4L2_MBUS_FMT_Y8_1X8:		/* RAW8 */
 		case V4L2_MBUS_FMT_SBGGR8_1X8:
 		case V4L2_MBUS_FMT_SGRBG8_1X8:
 			break;
 		default:
-			
+			/* All MIPI CSI-2 devices must support one of primary formats */
 			mf->code = V4L2_MBUS_FMT_YUYV8_2X8;
 		}
 		break;
 	case SH_CSI2I:
 		switch (mf->code) {
-		case V4L2_MBUS_FMT_Y8_1X8:		
+		case V4L2_MBUS_FMT_Y8_1X8:		/* RAW8 */
 		case V4L2_MBUS_FMT_SBGGR8_1X8:
 		case V4L2_MBUS_FMT_SGRBG8_1X8:
-		case V4L2_MBUS_FMT_SBGGR10_1X10:	
-		case V4L2_MBUS_FMT_SBGGR12_1X12:	
+		case V4L2_MBUS_FMT_SBGGR10_1X10:	/* RAW10 */
+		case V4L2_MBUS_FMT_SBGGR12_1X12:	/* RAW12 */
 			break;
 		default:
-			
+			/* All MIPI CSI-2 devices must support one of primary formats */
 			mf->code = V4L2_MBUS_FMT_SBGGR8_1X8;
 		}
 		break;
@@ -86,6 +86,11 @@ static int sh_csi2_try_fmt(struct v4l2_subdev *sd,
 	return 0;
 }
 
+/*
+ * We have done our best in try_fmt to try and tell the sensor, which formats
+ * we support. If now the configuration is unsuitable for us we can only
+ * error out.
+ */
 static int sh_csi2_s_fmt(struct v4l2_subdev *sd,
 			 struct v4l2_mbus_framefmt *mf)
 {
@@ -98,21 +103,21 @@ static int sh_csi2_s_fmt(struct v4l2_subdev *sd,
 
 	switch (mf->code) {
 	case V4L2_MBUS_FMT_UYVY8_2X8:
-		tmp |= 0x1e;	
+		tmp |= 0x1e;	/* YUV422 8 bit */
 		break;
 	case V4L2_MBUS_FMT_YUYV8_1_5X8:
-		tmp |= 0x18;	
+		tmp |= 0x18;	/* YUV420 8 bit */
 		break;
 	case V4L2_MBUS_FMT_RGB555_2X8_PADHI_BE:
-		tmp |= 0x21;	
+		tmp |= 0x21;	/* RGB555 */
 		break;
 	case V4L2_MBUS_FMT_RGB565_2X8_BE:
-		tmp |= 0x22;	
+		tmp |= 0x22;	/* RGB565 */
 		break;
 	case V4L2_MBUS_FMT_Y8_1X8:
 	case V4L2_MBUS_FMT_SBGGR8_1X8:
 	case V4L2_MBUS_FMT_SGRBG8_1X8:
-		tmp |= 0x2a;	
+		tmp |= 0x2a;	/* RAW8 */
 		break;
 	default:
 		return -EINVAL;
@@ -156,11 +161,11 @@ static struct v4l2_subdev_video_ops sh_csi2_subdev_video_ops = {
 static void sh_csi2_hwinit(struct sh_csi2 *priv)
 {
 	struct sh_csi2_pdata *pdata = priv->pdev->dev.platform_data;
-	__u32 tmp = 0x10; 
+	__u32 tmp = 0x10; /* Enable MIPI CSI clock lane */
 
-	
+	/* Reflect registers immediately */
 	iowrite32(0x00000001, priv->base + SH_CSI2_TREF);
-	
+	/* reset CSI2 harware */
 	iowrite32(0x00000001, priv->base + SH_CSI2_SRST);
 	udelay(5);
 	iowrite32(0x00000000, priv->base + SH_CSI2_SRST);
@@ -170,12 +175,12 @@ static void sh_csi2_hwinit(struct sh_csi2 *priv)
 		if (priv->client->lanes == 1)
 			tmp |= 1;
 		else
-			
+			/* Default - both lanes */
 			tmp |= 3;
 		break;
 	case SH_CSI2I:
 		if (!priv->client->lanes || priv->client->lanes > 4)
-			
+			/* Default - all 4 lanes */
 			tmp |= 0xf;
 		else
 			tmp |= (1 << priv->client->lanes) - 1;
@@ -216,7 +221,7 @@ static int sh_csi2_client_connect(struct sh_csi2 *priv)
 	if (i == pdata->num_clients)
 		return -ENODEV;
 
-	
+	/* Check if we can support this camera */
 	csi2_flags = V4L2_MBUS_CSI2_CONTINUOUS_CLOCK | V4L2_MBUS_CSI2_1_LANE;
 
 	switch (pdata->type) {
@@ -248,7 +253,7 @@ static int sh_csi2_client_connect(struct sh_csi2 *priv)
 	if (!common_flags)
 		return -EINVAL;
 
-	
+	/* All good: camera MIPI configuration supported */
 	priv->mipi_flags = common_flags;
 	priv->client = pdata->clients + i;
 
@@ -295,11 +300,11 @@ static __devinit int sh_csi2_probe(struct platform_device *pdev)
 	unsigned int irq;
 	int ret;
 	struct sh_csi2 *priv;
-	
+	/* Platform data specify the PHY, lanes, ECC, CRC */
 	struct sh_csi2_pdata *pdata = pdev->dev.platform_data;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	
+	/* Interrupt unused so far */
 	irq = platform_get_irq(pdev, 0);
 
 	if (!res || (int)irq <= 0 || !pdata) {
@@ -307,7 +312,7 @@ static __devinit int sh_csi2_probe(struct platform_device *pdev)
 		return -ENODEV;
 	}
 
-	
+	/* TODO: Add support for CSI2I. Careful: different register layout! */
 	if (pdata->type != SH_CSI2C) {
 		dev_err(&pdev->dev, "Only CSI2C supported ATM.\n");
 		return -EINVAL;

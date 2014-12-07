@@ -32,13 +32,14 @@
 
 #define TO_USER		0
 #define TO_KERNEL	1
-#define CHUNK_INFO_SIZE	34 
+#define CHUNK_INFO_SIZE	34 /* 2 16-byte char, each followed by blank */
 
 enum arch_id {
 	ARCH_S390	= 0,
 	ARCH_S390X	= 1,
 };
 
+/* dump system info */
 
 struct sys_info {
 	enum arch_id	 arch;
@@ -63,6 +64,14 @@ static struct dentry *zcore_memmap_file;
 static struct dentry *zcore_reipl_file;
 static struct ipl_parameter_block *ipl_block;
 
+/*
+ * Copy memory from HSA to kernel or user memory (not reentrant):
+ *
+ * @dest:  Kernel or user buffer where memory should be copied to
+ * @src:   Start address within HSA where data should be copied
+ * @count: Size of buffer, which should be copied
+ * @mode:  Either TO_KERNEL or TO_USER
+ */
 static int memcpy_hsa(void *dest, unsigned long src, size_t count, int mode)
 {
 	int offs, blk_num;
@@ -71,7 +80,7 @@ static int memcpy_hsa(void *dest, unsigned long src, size_t count, int mode)
 	if (count == 0)
 		return 0;
 
-	
+	/* copy first block */
 	offs = 0;
 	if ((src % PAGE_SIZE) != 0) {
 		blk_num = src / PAGE_SIZE + 2;
@@ -90,7 +99,7 @@ static int memcpy_hsa(void *dest, unsigned long src, size_t count, int mode)
 	if (offs == count)
 		goto out;
 
-	
+	/* copy middle */
 	for (; (offs + PAGE_SIZE) <= count; offs += PAGE_SIZE) {
 		blk_num = (src + offs) / PAGE_SIZE + 2;
 		if (sclp_sdias_copy(buf, blk_num, 1)) {
@@ -107,7 +116,7 @@ static int memcpy_hsa(void *dest, unsigned long src, size_t count, int mode)
 	if (offs == count)
 		goto out;
 
-	
+	/* copy last block */
 	blk_num = (src + offs) / PAGE_SIZE + 2;
 	if (sclp_sdias_copy(buf, blk_num, 1)) {
 		TRACE("sclp_sdias_copy() failed\n");
@@ -137,7 +146,7 @@ static int __init init_cpu_info(enum arch_id arch)
 {
 	struct save_area *sa;
 
-	
+	/* get info for boot cpu from lowcore, stored in the HSA */
 
 	sa = kmalloc(sizeof(*sa), GFP_KERNEL);
 	if (!sa)
@@ -159,6 +168,7 @@ static DEFINE_MUTEX(zcore_mutex);
 #define DUMP_ARCH_S390	1
 #define HEADER_SIZE	4096
 
+/* dump header dumped according to s390 crash dump format */
 
 struct zcore_header {
 	u64 magic;
@@ -201,6 +211,14 @@ static struct zcore_header zcore_header = {
 #endif
 };
 
+/*
+ * Copy lowcore info to buffer. Use map in order to copy only register parts.
+ *
+ * @buf:    User buffer
+ * @sa:     Pointer to save area
+ * @sa_off: Offset in save area to copy
+ * @len:    Number of bytes to copy
+ */
 static int copy_lc(void __user *buf, void *sa, int sa_off, int len)
 {
 	int i;
@@ -215,6 +233,13 @@ static int copy_lc(void __user *buf, void *sa, int sa_off, int len)
 	return 0;
 }
 
+/*
+ * Copy lowcores info to memory, if necessary
+ *
+ * @buf:   User buffer
+ * @addr:  Start address of buffer in dump memory
+ * @count: Size of buffer
+ */
 static int zcore_add_lc(char __user *buf, unsigned long start, size_t count)
 {
 	unsigned long end;
@@ -225,8 +250,8 @@ static int zcore_add_lc(char __user *buf, unsigned long start, size_t count)
 
 	end = start + count;
 	while (zfcpdump_save_areas[i]) {
-		unsigned long cp_start, cp_end; 
-		unsigned long sa_start, sa_end; 
+		unsigned long cp_start, cp_end; /* copy range */
+		unsigned long sa_start, sa_end; /* save area range */
 		unsigned long prefix;
 		unsigned long sa_off, len, buf_off;
 
@@ -252,12 +277,18 @@ next:
 	return 0;
 }
 
+/*
+ * Read routine for zcore character device
+ * First 4K are dump header
+ * Next 32MB are HSA Memory
+ * Rest is read from absolute Memory
+ */
 static ssize_t zcore_read(struct file *file, char __user *buf, size_t count,
 			  loff_t *ppos)
 {
-	unsigned long mem_start; 
-	size_t mem_offs;	 
-	size_t hdr_count;	 
+	unsigned long mem_start; /* Start address in memory */
+	size_t mem_offs;	 /* Offset in dump memory */
+	size_t hdr_count;	 /* Size of header part of output buffer */
 	size_t size;
 	int rc;
 
@@ -270,7 +301,7 @@ static ssize_t zcore_read(struct file *file, char __user *buf, size_t count,
 
 	count = min(count, (size_t) (sys_info.mem_size + HEADER_SIZE - *ppos));
 
-	
+	/* Copy dump header */
 	if (*ppos < HEADER_SIZE) {
 		size = min(count, (size_t) (HEADER_SIZE - *ppos));
 		if (copy_to_user(buf, &zcore_header + *ppos, size)) {
@@ -286,7 +317,7 @@ static ssize_t zcore_read(struct file *file, char __user *buf, size_t count,
 
 	mem_offs = 0;
 
-	
+	/* Copy from HSA data */
 	if (*ppos < (ZFCPDUMP_HSA_SIZE + HEADER_SIZE)) {
 		size = min((count - hdr_count), (size_t) (ZFCPDUMP_HSA_SIZE
 			   - mem_start));
@@ -297,13 +328,21 @@ static ssize_t zcore_read(struct file *file, char __user *buf, size_t count,
 		mem_offs += size;
 	}
 
-	
+	/* Copy from real mem */
 	size = count - mem_offs - hdr_count;
 	rc = copy_to_user_real(buf + hdr_count + mem_offs,
 			       (void *) mem_start + mem_offs, size);
 	if (rc)
 		goto fail;
 
+	/*
+	 * Since s390 dump analysis tools like lcrash or crash
+	 * expect register sets in the prefix pages of the cpus,
+	 * we copy them into the read buffer, if necessary.
+	 * buf + hdr_count: Start of memory part of output buffer
+	 * mem_start: Start memory address to copy from
+	 * count - hdr_count: Size of memory area to copy
+	 */
 	if (zcore_add_lc(buf + hdr_count, mem_start, count - hdr_count)) {
 		rc = -EFAULT;
 		goto fail;
@@ -450,7 +489,7 @@ static void __init set_lc_mask(struct save_area *map)
 	memset(&map->ctrl_regs, 0xff, sizeof(map->ctrl_regs));
 }
 
-#else 
+#else /* CONFIG_32BIT */
 
 static void __init set_lc_mask(struct save_area *map)
 {
@@ -466,8 +505,11 @@ static void __init set_lc_mask(struct save_area *map)
 	memset(&map->ctrl_regs, 0xff, sizeof(map->ctrl_regs));
 }
 
-#endif 
+#endif /* CONFIG_32BIT */
 
+/*
+ * Initialize dump globals for a given architecture
+ */
 static int __init sys_info_init(enum arch_id arch)
 {
 	int rc;
@@ -561,6 +603,10 @@ static int __init zcore_header_init(int arch, struct zcore_header *hdr)
 	return 0;
 }
 
+/*
+ * Provide IPL parameter information block from either HSA or memory
+ * for future reipl
+ */
 static int __init zcore_reipl_init(void)
 {
 	struct ipib_info ipib_info;
@@ -624,14 +670,14 @@ static int __init zcore_init(void)
 		rc = -EINVAL;
 		goto fail;
 	}
-#else 
+#else /* CONFIG_64BIT */
 	if (arch == ARCH_S390X) {
 		pr_alert("The 32-bit dump tool cannot be used for a "
 			 "64-bit system\n");
 		rc = -EINVAL;
 		goto fail;
 	}
-#endif 
+#endif /* CONFIG_64BIT */
 
 	rc = sys_info_init(arch);
 	if (rc)

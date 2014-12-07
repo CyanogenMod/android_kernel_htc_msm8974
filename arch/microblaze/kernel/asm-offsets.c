@@ -20,7 +20,7 @@
 
 int main(int argc, char *argv[])
 {
-	
+	/* struct pt_regs */
 	DEFINE(PT_SIZE, sizeof(struct pt_regs));
 	DEFINE(PT_MSR, offsetof(struct pt_regs, msr));
 	DEFINE(PT_EAR, offsetof(struct pt_regs, ear));
@@ -62,13 +62,13 @@ int main(int argc, char *argv[])
 	DEFINE(PT_MODE, offsetof(struct pt_regs, pt_mode));
 	BLANK();
 
-	
+	/* Magic offsets for PTRACE PEEK/POKE etc */
 	DEFINE(PT_TEXT_ADDR, sizeof(struct pt_regs) + 1);
 	DEFINE(PT_TEXT_LEN, sizeof(struct pt_regs) + 2);
 	DEFINE(PT_DATA_ADDR, sizeof(struct pt_regs) + 3);
 	BLANK();
 
-	
+	/* struct task_struct */
 	DEFINE(TS_THREAD_INFO, offsetof(struct task_struct, stack));
 #ifdef CONFIG_MMU
 	DEFINE(TASK_STATE, offsetof(struct task_struct, state));
@@ -86,7 +86,7 @@ int main(int argc, char *argv[])
 	BLANK();
 #endif
 
-	
+	/* struct thread_info */
 	DEFINE(TI_TASK, offsetof(struct thread_info, task));
 	DEFINE(TI_FLAGS, offsetof(struct thread_info, flags));
 	DEFINE(TI_ADDR_LIMIT, offsetof(struct thread_info, addr_limit));
@@ -94,17 +94,17 @@ int main(int argc, char *argv[])
 	DEFINE(TI_PREEMPT_COUNT, offsetof(struct thread_info, preempt_count));
 	BLANK();
 
-	
-	DEFINE(CC_R1, offsetof(struct cpu_context, r1)); 
+	/* struct cpu_context */
+	DEFINE(CC_R1, offsetof(struct cpu_context, r1)); /* r1 */
 	DEFINE(CC_R2, offsetof(struct cpu_context, r2));
-	
+	/* dedicated registers */
 	DEFINE(CC_R13, offsetof(struct cpu_context, r13));
 	DEFINE(CC_R14, offsetof(struct cpu_context, r14));
 	DEFINE(CC_R15, offsetof(struct cpu_context, r15));
 	DEFINE(CC_R16, offsetof(struct cpu_context, r16));
 	DEFINE(CC_R17, offsetof(struct cpu_context, r17));
 	DEFINE(CC_R18, offsetof(struct cpu_context, r18));
-	
+	/* non-volatile registers */
 	DEFINE(CC_R19, offsetof(struct cpu_context, r19));
 	DEFINE(CC_R20, offsetof(struct cpu_context, r20));
 	DEFINE(CC_R21, offsetof(struct cpu_context, r21));
@@ -117,7 +117,7 @@ int main(int argc, char *argv[])
 	DEFINE(CC_R28, offsetof(struct cpu_context, r28));
 	DEFINE(CC_R29, offsetof(struct cpu_context, r29));
 	DEFINE(CC_R30, offsetof(struct cpu_context, r30));
-	
+	/* special purpose registers */
 	DEFINE(CC_MSR, offsetof(struct cpu_context, msr));
 	DEFINE(CC_EAR, offsetof(struct cpu_context, ear));
 	DEFINE(CC_ESR, offsetof(struct cpu_context, esr));

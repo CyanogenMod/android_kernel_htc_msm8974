@@ -28,9 +28,9 @@
 struct iomd_dma {
 	struct dma_struct	dma;
 	unsigned int		state;
-	unsigned long		base;		
-	int			irq;		
-	struct scatterlist	cur_sg;		
+	unsigned long		base;		/* Controller base address */
+	int			irq;		/* Controller IRQ */
+	struct scatterlist	cur_sg;		/* Current controller buffer */
 	dma_addr_t		dma_addr;
 	unsigned int		dma_len;
 };
@@ -110,15 +110,15 @@ static irqreturn_t iomd_dma_handle(int irq, void *dev_id)
 			iomd_get_next_sg(&idma->cur_sg, idma);
 
 		switch (status & (DMA_ST_OFL | DMA_ST_AB)) {
-		case DMA_ST_OFL:			
-		case DMA_ST_AB:				
+		case DMA_ST_OFL:			/* OIA */
+		case DMA_ST_AB:				/* .IB */
 			iomd_writel(idma->cur_sg.dma_address, base + CURA);
 			iomd_writel(idma->cur_sg.length, base + ENDA);
 			idma->state = DMA_ST_AB;
 			break;
 
-		case DMA_ST_OFL | DMA_ST_AB:		
-		case 0:					
+		case DMA_ST_OFL | DMA_ST_AB:		/* OIB */
+		case 0:					/* .IA */
 			iomd_writel(idma->cur_sg.dma_address, base + CURB);
 			iomd_writel(idma->cur_sg.length, base + ENDB);
 			idma->state = 0;
@@ -160,6 +160,10 @@ static void iomd_enable_dma(unsigned int chan, dma_t *dma)
 	if (idma->dma.invalid) {
 		idma->dma.invalid = 0;
 
+		/*
+		 * Cope with ISA-style drivers which expect cache
+		 * coherence.
+		 */
 		if (!idma->dma.sg) {
 			idma->dma.sg = &idma->dma.buf;
 			idma->dma.sgcount = 1;
@@ -309,6 +313,9 @@ static struct dma_ops floppy_dma_ops = {
 	.residue	= floppy_get_residue,
 };
 
+/*
+ * This is virtual DMA - we don't need anything here.
+ */
 static void sound_enable_disable_dma(unsigned int chan, dma_t *dma)
 {
 }
@@ -344,6 +351,10 @@ static int __init rpc_dma_init(void)
 
 	iomd_writeb(0xa0, IOMD_DMATCR);
 
+	/*
+	 * Setup DMA channels 2,3 to be for podules
+	 * and channels 0,1 for internal devices
+	 */
 	iomd_writeb(DMA_EXT_IO3|DMA_EXT_IO2, IOMD_DMAEXT);
 
 	iomd_dma[DMA_0].base	= IOMD_IO0CURA;

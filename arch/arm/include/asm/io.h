@@ -29,10 +29,17 @@
 #include <asm-generic/pci_iomap.h>
 #include <mach/msm_rtb.h>
 
+/*
+ * ISA I/O bus memory addresses are 1:1 with the physical address.
+ */
 #define isa_virt_to_bus virt_to_phys
 #define isa_page_to_bus page_to_phys
 #define isa_bus_to_virt phys_to_virt
 
+/*
+ * Generic IO read/write.  These perform native-endian accesses.  Note
+ * that some architectures will want to re-define __raw_{read,write}w.
+ */
 extern void __raw_writesb(void __iomem *addr, const void *data, int bytelen);
 extern void __raw_writesw(void __iomem *addr, const void *data, int wordlen);
 extern void __raw_writesl(void __iomem *addr, const void *data, int longlen);
@@ -41,6 +48,11 @@ extern void __raw_readsb(const void __iomem *addr, void *data, int bytelen);
 extern void __raw_readsw(const void __iomem *addr, void *data, int wordlen);
 extern void __raw_readsl(const void __iomem *addr, void *data, int longlen);
 
+/*
+ * There may be cases when clients don't want to support or can't support the
+ * logging. The appropriate functions can be used but clients should carefully
+ * consider why they can't support the logging.
+ */
 
 #define __raw_write_logged(v, a, _t)	({ \
 	int _ret; \
@@ -87,11 +99,24 @@ extern void __raw_readsl(const void __iomem *addr, void *data, int longlen);
 #define __raw_readl(a)		__raw_read_logged((a), l, int)
 #define __raw_readll(a)		__raw_read_logged((a), ll, long long)
 
+/*
+ * Architecture ioremap implementation.
+ */
 #define MT_DEVICE		0
 #define MT_DEVICE_NONSHARED	1
 #define MT_DEVICE_CACHED	2
 #define MT_DEVICE_WC		3
+/*
+ * types 4 onwards can be found in asm/mach/map.h and are undefined
+ * for ioremap
+ */
 
+/*
+ * __arm_ioremap takes CPU physical address.
+ * __arm_ioremap_pfn takes a Page Frame Number and an offset into that page
+ * The _caller variety takes a __builtin_return_address(0) value for
+ * /proc/vmalloc to use - and should only be used in non-inline functions.
+ */
 extern void __iomem *__arm_ioremap_pfn_caller(unsigned long, unsigned long,
 	size_t, unsigned int, void *);
 extern void __iomem *__arm_ioremap_caller(phys_addr_t, size_t, unsigned int,
@@ -107,8 +132,14 @@ extern void __iomem * (*arch_ioremap_caller)(phys_addr_t, size_t,
 	unsigned int, void *);
 extern void (*arch_iounmap)(volatile void __iomem *);
 
+/*
+ * Bad read/write accesses...
+ */
 extern void __readwrite_bug(const char *fn);
 
+/*
+ * A typesafe __io() helper
+ */
 static inline void __iomem *__typesafe_io(unsigned long addr)
 {
 	return (void __iomem *)addr;
@@ -116,6 +147,7 @@ static inline void __iomem *__typesafe_io(unsigned long addr)
 
 #define IOMEM(x)	((void __force __iomem *)(x))
 
+/* IO barriers */
 #ifdef CONFIG_ARM_DMA_MEM_BUFFERABLE
 #include <asm/barrier.h>
 #define __iormb()		rmb()
@@ -125,12 +157,26 @@ static inline void __iomem *__typesafe_io(unsigned long addr)
 #define __iowmb()		do { } while (0)
 #endif
 
+/*
+ * Now, pick up the machine-defined IO definitions
+ */
 #ifdef CONFIG_NEED_MACH_IO_H
 #include <mach/io.h>
 #else
 #define __io(a)		__typesafe_io((a) & IO_SPACE_LIMIT)
 #endif
 
+/*
+ * This is the limit of PC card/PCI/ISA IO space, which is by default
+ * 64K if we have PC card, PCI or ISA support.  Otherwise, default to
+ * zero to prevent ISA/PCI drivers claiming IO space (and potentially
+ * oopsing.)
+ *
+ * Only set this larger if you really need inb() et.al. to operate over
+ * a larger address space.  Note that SOC_COMMON ioremaps each sockets
+ * IO space area, and so inb() et.al. must be defined to operate as per
+ * readb() et.al. on such platforms.
+ */
 #ifndef IO_SPACE_LIMIT
 #if defined(CONFIG_PCMCIA_SOC_COMMON) || defined(CONFIG_PCMCIA_SOC_COMMON_MODULE)
 #define IO_SPACE_LIMIT ((resource_size_t)0xffffffff)
@@ -141,6 +187,30 @@ static inline void __iomem *__typesafe_io(unsigned long addr)
 #endif
 #endif
 
+/*
+ *  IO port access primitives
+ *  -------------------------
+ *
+ * The ARM doesn't have special IO access instructions; all IO is memory
+ * mapped.  Note that these are defined to perform little endian accesses
+ * only.  Their primary purpose is to access PCI and ISA peripherals.
+ *
+ * Note that for a big endian machine, this implies that the following
+ * big endian mode connectivity is in place, as described by numerous
+ * ARM documents:
+ *
+ *    PCI:  D0-D7   D8-D15 D16-D23 D24-D31
+ *    ARM: D24-D31 D16-D23  D8-D15  D0-D7
+ *
+ * The machine specific io.h include defines __io to translate an "IO"
+ * address to a memory address.
+ *
+ * Note that we prevent GCC re-ordering or caching values in expressions
+ * by introducing sequence points into the in*() definitions.  Note that
+ * __raw_* do not guarantee this behaviour.
+ *
+ * The {in,out}[bwl] macros are for emulating x86-style PCI/ISA IO space.
+ */
 #ifdef __io
 #define outb(v,p)	({ __iowmb(); __raw_writeb(v,__io(p)); })
 #define outw(v,p)	({ __iowmb(); __raw_writew((__force __u16) \
@@ -177,12 +247,25 @@ static inline void __iomem *__typesafe_io(unsigned long addr)
 #define insw_p(port,to,len)	insw(port,to,len)
 #define insl_p(port,to,len)	insl(port,to,len)
 
+/*
+ * String version of IO memory access ops:
+ */
 extern void _memcpy_fromio(void *, const volatile void __iomem *, size_t);
 extern void _memcpy_toio(volatile void __iomem *, const void *, size_t);
 extern void _memset_io(volatile void __iomem *, int, size_t);
 
 #define mmiowb()
 
+/*
+ *  Memory access primitives
+ *  ------------------------
+ *
+ * These perform PCI memory accesses via an ioremap region.  They don't
+ * take an address as such, but a cookie.
+ *
+ * Again, this are defined to perform little endian accesses.  See the
+ * IO port primitives for more information.
+ */
 #ifndef readl
 #define readb_relaxed(c) ({ u8  __r = __raw_readb(c); __r; })
 #define readw_relaxed(c) ({ u16 __r = le16_to_cpu((__force __le16) \
@@ -231,14 +314,24 @@ extern void _memset_io(volatile void __iomem *, int, size_t);
 #define memcpy_fromio(a,c,l)	_memcpy_fromio((a),c,(l))
 #define memcpy_toio(c,a,l)	_memcpy_toio(c,(a),(l))
 
-#endif	
+#endif	/* readl */
 
+/*
+ * ioremap and friends.
+ *
+ * ioremap takes a PCI memory address, as specified in
+ * Documentation/io-mapping.txt.
+ *
+ */
 #define ioremap(cookie,size)		__arm_ioremap((cookie), (size), MT_DEVICE)
 #define ioremap_nocache(cookie,size)	__arm_ioremap((cookie), (size), MT_DEVICE)
 #define ioremap_cached(cookie,size)	__arm_ioremap((cookie), (size), MT_DEVICE_CACHED)
 #define ioremap_wc(cookie,size)		__arm_ioremap((cookie), (size), MT_DEVICE_WC)
 #define iounmap				__arm_iounmap
 
+/*
+ * io{read,write}{8,16,32,64} macros
+ */
 #ifndef ioread8
 #define ioread8(p)	({ unsigned int __v = __raw_readb(p); __iormb(); __v; })
 #define ioread16(p)	({ unsigned int __v = le16_to_cpu((__force __le16)__raw_readw(p)); __iormb(); __v; })
@@ -274,6 +367,10 @@ struct pci_dev;
 
 extern void pci_iounmap(struct pci_dev *dev, void __iomem *addr);
 
+/*
+ * can the hardware map this into one segment or not, given no other
+ * constraints.
+ */
 #define BIOVEC_MERGEABLE(vec1, vec2)	\
 	((bvec_to_phys((vec1)) + (vec1)->bv_len) == bvec_to_phys((vec2)))
 
@@ -284,12 +381,23 @@ extern int valid_mmap_phys_addr_range(unsigned long pfn, size_t size);
 extern int devmem_is_allowed(unsigned long pfn);
 #endif
 
+/*
+ * Convert a physical pointer to a virtual kernel pointer for /dev/mem
+ * access
+ */
 #define xlate_dev_mem_ptr(p)	__va(p)
 
+/*
+ * Convert a virtual cached pointer to an uncached pointer
+ */
 #define xlate_dev_kmem_ptr(p)	p
 
+/*
+ * Register ISA memory and port locations for glibc iopl/inb/outb
+ * emulation.
+ */
 extern void register_isa_ports(unsigned int mmio, unsigned int io,
 			       unsigned int io_shift);
 
-#endif	
-#endif	
+#endif	/* __KERNEL__ */
+#endif	/* __ASM_ARM_IO_H */

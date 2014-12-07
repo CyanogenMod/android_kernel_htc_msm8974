@@ -40,6 +40,7 @@ static inline unsigned int strlist__nr_entries(const struct strlist *self)
 	return self->nr_entries;
 }
 
+/* For strlist iteration */
 static inline struct str_node *strlist__first(struct strlist *self)
 {
 	struct rb_node *rn = rb_first(&self->entries);
@@ -54,12 +55,24 @@ static inline struct str_node *strlist__next(struct str_node *sn)
 	return rn ? rb_entry(rn, struct str_node, rb_node) : NULL;
 }
 
+/**
+ * strlist_for_each      - iterate over a strlist
+ * @pos:	the &struct str_node to use as a loop cursor.
+ * @self:	the &struct strlist for loop.
+ */
 #define strlist__for_each(pos, self)	\
 	for (pos = strlist__first(self); pos; pos = strlist__next(pos))
 
+/**
+ * strlist_for_each_safe - iterate over a strlist safe against removal of
+ *                         str_node
+ * @pos:	the &struct str_node to use as a loop cursor.
+ * @n:		another &struct str_node to use as temporary storage.
+ * @self:	the &struct strlist for loop.
+ */
 #define strlist__for_each_safe(pos, n, self)	\
 	for (pos = strlist__first(self), n = strlist__next(pos); pos;\
 	     pos = n, n = strlist__next(n))
 
 int strlist__parse_list(struct strlist *self, const char *s);
-#endif 
+#endif /* __PERF_STRLIST_H */

@@ -17,6 +17,9 @@
 #define BITOP_WORD(nr)		((nr) / BITS_PER_LONG)
 
 #ifndef find_next_bit
+/*
+ * Find the next set bit in a memory region.
+ */
 unsigned long find_next_bit(const unsigned long *addr, unsigned long size,
 			    unsigned long offset)
 {
@@ -50,8 +53,8 @@ unsigned long find_next_bit(const unsigned long *addr, unsigned long size,
 
 found_first:
 	tmp &= (~0UL >> (BITS_PER_LONG - size));
-	if (tmp == 0UL)		
-		return result + size;	
+	if (tmp == 0UL)		/* Are any bits set? */
+		return result + size;	/* Nope. */
 found_middle:
 	return result + __ffs(tmp);
 }
@@ -59,6 +62,10 @@ EXPORT_SYMBOL(find_next_bit);
 #endif
 
 #ifndef find_next_zero_bit
+/*
+ * This implementation of find_{first,next}_zero_bit was stolen from
+ * Linus' asm-alpha/bitops.h.
+ */
 unsigned long find_next_zero_bit(const unsigned long *addr, unsigned long size,
 				 unsigned long offset)
 {
@@ -92,8 +99,8 @@ unsigned long find_next_zero_bit(const unsigned long *addr, unsigned long size,
 
 found_first:
 	tmp |= ~0UL << size;
-	if (tmp == ~0UL)	
-		return result + size;	
+	if (tmp == ~0UL)	/* Are any bits zero? */
+		return result + size;	/* Nope. */
 found_middle:
 	return result + ffz(tmp);
 }
@@ -101,6 +108,9 @@ EXPORT_SYMBOL(find_next_zero_bit);
 #endif
 
 #ifndef find_first_bit
+/*
+ * Find the first set bit in a memory region.
+ */
 unsigned long find_first_bit(const unsigned long *addr, unsigned long size)
 {
 	const unsigned long *p = addr;
@@ -117,8 +127,8 @@ unsigned long find_first_bit(const unsigned long *addr, unsigned long size)
 		return result;
 
 	tmp = (*p) & (~0UL >> (BITS_PER_LONG - size));
-	if (tmp == 0UL)		
-		return result + size;	
+	if (tmp == 0UL)		/* Are any bits set? */
+		return result + size;	/* Nope. */
 found:
 	return result + __ffs(tmp);
 }
@@ -126,6 +136,9 @@ EXPORT_SYMBOL(find_first_bit);
 #endif
 
 #ifndef find_first_zero_bit
+/*
+ * Find the first cleared bit in a memory region.
+ */
 unsigned long find_first_zero_bit(const unsigned long *addr, unsigned long size)
 {
 	const unsigned long *p = addr;
@@ -142,8 +155,8 @@ unsigned long find_first_zero_bit(const unsigned long *addr, unsigned long size)
 		return result;
 
 	tmp = (*p) | (~0UL << size);
-	if (tmp == ~0UL)	
-		return result + size;	
+	if (tmp == ~0UL)	/* Are any bits zero? */
+		return result + size;	/* Nope. */
 found:
 	return result + ffz(tmp);
 }
@@ -152,6 +165,7 @@ EXPORT_SYMBOL(find_first_zero_bit);
 
 #ifdef __BIG_ENDIAN
 
+/* include/linux/byteorder does not support "unsigned long" type */
 static inline unsigned long ext2_swabp(const unsigned long * x)
 {
 #if BITS_PER_LONG == 64
@@ -163,6 +177,7 @@ static inline unsigned long ext2_swabp(const unsigned long * x)
 #endif
 }
 
+/* include/linux/byteorder doesn't support "unsigned long" type */
 static inline unsigned long ext2_swab(const unsigned long y)
 {
 #if BITS_PER_LONG == 64
@@ -209,8 +224,8 @@ unsigned long find_next_zero_bit_le(const void *addr, unsigned
 	tmp = ext2_swabp(p);
 found_first:
 	tmp |= ~0UL << size;
-	if (tmp == ~0UL)	
-		return result + size; 
+	if (tmp == ~0UL)	/* Are any bits zero? */
+		return result + size; /* Nope. Skip ffz */
 found_middle:
 	return result + ffz(tmp);
 
@@ -256,8 +271,8 @@ unsigned long find_next_bit_le(const void *addr, unsigned
 	tmp = ext2_swabp(p);
 found_first:
 	tmp &= (~0UL >> (BITS_PER_LONG - size));
-	if (tmp == 0UL)		
-		return result + size; 
+	if (tmp == 0UL)		/* Are any bits set? */
+		return result + size; /* Nope. */
 found_middle:
 	return result + __ffs(tmp);
 
@@ -267,4 +282,4 @@ found_middle_swap:
 EXPORT_SYMBOL(find_next_bit_le);
 #endif
 
-#endif 
+#endif /* __BIG_ENDIAN */

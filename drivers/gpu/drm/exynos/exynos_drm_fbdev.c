@@ -72,7 +72,7 @@ static int exynos_drm_fbdev_update(struct drm_fb_helper *helper,
 	drm_fb_helper_fill_fix(fbi, fb->pitches[0], fb->depth);
 	drm_fb_helper_fill_var(fbi, helper, fb->width, fb->height);
 
-	
+	/* RGB formats use only one buffer */
 	buffer = exynos_drm_fb_buffer(fb, 0);
 	if (!buffer) {
 		DRM_LOG_KMS("buffer is null.\n");
@@ -126,7 +126,7 @@ static int exynos_drm_fbdev_create(struct drm_fb_helper *helper,
 
 	size = mode_cmd.pitches[0] * mode_cmd.height;
 
-	
+	/* 0 means to allocate physically continuous memory */
 	exynos_gem_obj = exynos_drm_gem_create(dev, 0, size);
 	if (IS_ERR(exynos_gem_obj)) {
 		ret = PTR_ERR(exynos_gem_obj);
@@ -161,6 +161,11 @@ static int exynos_drm_fbdev_create(struct drm_fb_helper *helper,
 		goto out;
 	}
 
+/*
+ * if failed, all resources allocated above would be released by
+ * drm_mode_config_cleanup() when drm_load() had been called prior
+ * to any specific driver such as fimd or hdmi driver.
+ */
 out:
 	mutex_unlock(&dev->struct_mutex);
 	return ret;
@@ -173,6 +178,10 @@ static int exynos_drm_fbdev_probe(struct drm_fb_helper *helper,
 
 	DRM_DEBUG_KMS("%s\n", __FILE__);
 
+	/*
+	 * with !helper->fb, it means that this funcion is called first time
+	 * and after that, the helper->fb would be used as clone mode.
+	 */
 	if (!helper->fb) {
 		ret = exynos_drm_fbdev_create(helper, sizes);
 		if (ret < 0) {
@@ -180,6 +189,10 @@ static int exynos_drm_fbdev_probe(struct drm_fb_helper *helper,
 			return ret;
 		}
 
+		/*
+		 * fb_helper expects a value more than 1 if succeed
+		 * because register_framebuffer() should be called.
+		 */
 		ret = 1;
 	}
 
@@ -250,14 +263,14 @@ static void exynos_drm_fbdev_destroy(struct drm_device *dev,
 {
 	struct drm_framebuffer *fb;
 
-	
+	/* release drm framebuffer and real buffer */
 	if (fb_helper->fb && fb_helper->fb->funcs) {
 		fb = fb_helper->fb;
 		if (fb && fb->funcs->destroy)
 			fb->funcs->destroy(fb);
 	}
 
-	
+	/* release linux framebuffer */
 	if (fb_helper->fbdev) {
 		struct fb_info *info;
 		int ret;

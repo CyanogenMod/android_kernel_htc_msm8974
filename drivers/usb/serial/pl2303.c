@@ -31,6 +31,9 @@
 #include <linux/usb/serial.h>
 #include "pl2303.h"
 
+/*
+ * Version Information
+ */
 #define DRIVER_DESC "Prolific PL2303 USB to serial adaptor driver"
 
 static bool debug;
@@ -68,7 +71,7 @@ static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(SIEMENS_VENDOR_ID, SIEMENS_PRODUCT_ID_X65) },
 	{ USB_DEVICE(SIEMENS_VENDOR_ID, SIEMENS_PRODUCT_ID_X75) },
 	{ USB_DEVICE(SIEMENS_VENDOR_ID, SIEMENS_PRODUCT_ID_EF81) },
-	{ USB_DEVICE(BENQ_VENDOR_ID, BENQ_PRODUCT_ID_S81) }, 
+	{ USB_DEVICE(BENQ_VENDOR_ID, BENQ_PRODUCT_ID_S81) }, /* Benq/Siemens S81 */
 	{ USB_DEVICE(SYNTECH_VENDOR_ID, SYNTECH_PRODUCT_ID) },
 	{ USB_DEVICE(NOKIA_CA42_VENDOR_ID, NOKIA_CA42_PRODUCT_ID) },
 	{ USB_DEVICE(CA_42_CA42_VENDOR_ID, CA_42_CA42_PRODUCT_ID) },
@@ -89,7 +92,7 @@ static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(SANWA_VENDOR_ID, SANWA_PRODUCT_ID) },
 	{ USB_DEVICE(ADLINK_VENDOR_ID, ADLINK_ND6530_PRODUCT_ID) },
 	{ USB_DEVICE(SMART_VENDOR_ID, SMART_PRODUCT_ID) },
-	{ }					
+	{ }					/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, id_table);
@@ -139,9 +142,9 @@ static struct usb_driver pl2303_driver = {
 
 
 enum pl2303_type {
-	type_0,		
-	type_1,		
-	HX,		
+	type_0,		/* don't know the difference between type 0 and */
+	type_1,		/* type 1, until someone from prolific tells us... */
+	HX,		/* HX version of the pl2303 chip */
 };
 
 struct pl2303_private {
@@ -264,6 +267,9 @@ static void pl2303_set_termios(struct tty_struct *tty,
 
 	dbg("%s -  port %d", __func__, port->number);
 
+	/* The PL2303 is reported to lose bytes if you change
+	   serial settings even to the same values as before. Thus
+	   we actually need to filter in this specific case */
 
 	if (!tty_termios_hw_change(tty->termios, old_termios))
 		return;
@@ -273,7 +279,7 @@ static void pl2303_set_termios(struct tty_struct *tty,
 	buf = kzalloc(7, GFP_KERNEL);
 	if (!buf) {
 		dev_err(&port->dev, "%s - out of memory.\n", __func__);
-		
+		/* Report back no change occurred */
 		*tty->termios = *old_termios;
 		return;
 	}
@@ -303,11 +309,15 @@ static void pl2303_set_termios(struct tty_struct *tty,
 		dbg("%s - data bits = %d", __func__, buf[6]);
 	}
 
-	
+	/* For reference buf[0]:buf[3] baud rate value */
+	/* NOTE: Only the values defined in baud_sup are supported !
+	 *       => if unsupported values are set, the PL2303 seems to use
+	 *          9600 baud (at least my PL2303X always does)
+	 */
 	baud = tty_get_baud_rate(tty);
 	dbg("%s - baud requested = %d", __func__, baud);
 	if (baud) {
-		
+		/* Set baudrate to nearest supported value */
 		for (k=0; k<ARRAY_SIZE(baud_sup); k++) {
 			if (baud_sup[k] / baud) {
 				baud_ceil = baud_sup[k];
@@ -325,7 +335,7 @@ static void pl2303_set_termios(struct tty_struct *tty,
 			}
 		}
 		if (baud > 1228800) {
-			
+			/* type_0, type_1 only support up to 1228800 baud */
 			if (priv->type != HX)
 				baud = 1228800;
 			else if (baud > 6000000)
@@ -338,6 +348,9 @@ static void pl2303_set_termios(struct tty_struct *tty,
 			buf[2] = (baud >> 16) & 0xff;
 			buf[3] = (baud >> 24) & 0xff;
 		} else {
+			/* apparently the formula for higher speeds is:
+			 * baudrate = 12M * 32 / (2^buf[1]) / buf[0]
+			 */
 			unsigned tmp = 12*1000*1000*32 / baud;
 			buf[3] = 0x80;
 			buf[2] = 0;
@@ -350,10 +363,13 @@ static void pl2303_set_termios(struct tty_struct *tty,
 		}
 	}
 
-	
-	
-	
+	/* For reference buf[4]=0 is 1 stop bits */
+	/* For reference buf[4]=1 is 1.5 stop bits */
+	/* For reference buf[4]=2 is 2 stop bits */
 	if (cflag & CSTOPB) {
+		/* NOTE: Comply with "real" UARTs / RS232:
+		 *       use 1.5 instead of 2 stop bits with 5 data bits
+		 */
 		if ((cflag & CSIZE) == CS5) {
 			buf[4] = 1;
 			dbg("%s - stop bits = 1.5", __func__);
@@ -367,11 +383,11 @@ static void pl2303_set_termios(struct tty_struct *tty,
 	}
 
 	if (cflag & PARENB) {
-		
-		
-		
-		
-		
+		/* For reference buf[5]=0 is none parity */
+		/* For reference buf[5]=1 is odd parity */
+		/* For reference buf[5]=2 is even parity */
+		/* For reference buf[5]=3 is mark parity */
+		/* For reference buf[5]=4 is space parity */
 		if (cflag & PARODD) {
 			if (cflag & CMSPAR) {
 				buf[5] = 3;
@@ -399,7 +415,7 @@ static void pl2303_set_termios(struct tty_struct *tty,
 			    0, 0, buf, 7, 100);
 	dbg("0x21:0x20:0:0  %d", i);
 
-	
+	/* change control lines if we are switching to or from B0 */
 	spin_lock_irqsave(&priv->lock, flags);
 	control = priv->line_control;
 	if ((cflag & CBAUD) == B0)
@@ -431,7 +447,7 @@ static void pl2303_set_termios(struct tty_struct *tty,
 		pl2303_vendor_write(0x0, 0x0, serial);
 	}
 
-	
+	/* Save resulting baud rate */
 	if (baud)
 		tty_encode_baud_rate(tty, baud, baud);
 
@@ -445,7 +461,7 @@ static void pl2303_dtr_rts(struct usb_serial_port *port, int on)
 	u8 control;
 
 	spin_lock_irqsave(&priv->lock, flags);
-	
+	/* Change DTR and RTS */
 	if (on)
 		priv->line_control |= (CONTROL_DTR | CONTROL_RTS);
 	else
@@ -476,12 +492,12 @@ static int pl2303_open(struct tty_struct *tty, struct usb_serial_port *port)
 		usb_clear_halt(serial->dev, port->write_urb->pipe);
 		usb_clear_halt(serial->dev, port->read_urb->pipe);
 	} else {
-		
+		/* reset upstream data pipes */
 		pl2303_vendor_write(8, 0, serial);
 		pl2303_vendor_write(9, 0, serial);
 	}
 
-	
+	/* Setup termios */
 	if (tty)
 		pl2303_set_termios(tty, port, &tmp_termios);
 
@@ -582,7 +598,7 @@ static int wait_modem_info(struct usb_serial_port *port, unsigned int arg)
 
 	while (1) {
 		interruptible_sleep_on(&priv->delta_msr_wait);
-		
+		/* see if a signal did it */
 		if (signal_pending(current))
 			return -ERESTARTSYS;
 
@@ -600,7 +616,7 @@ static int wait_modem_info(struct usb_serial_port *port, unsigned int arg)
 		}
 		prevstatus = status;
 	}
-	
+	/* NOTREACHED */
 	return 0;
 }
 
@@ -700,7 +716,7 @@ static void pl2303_update_line_status(struct usb_serial_port *port,
 	if (actual_length < length)
 		return;
 
-	
+	/* Save off the uart status for others to look at */
 	spin_lock_irqsave(&priv->lock, flags);
 	prev_line_status = priv->line_status;
 	priv->line_status = data[status_idx];
@@ -730,12 +746,12 @@ static void pl2303_read_int_callback(struct urb *urb)
 
 	switch (status) {
 	case 0:
-		
+		/* success */
 		break;
 	case -ECONNRESET:
 	case -ENOENT:
 	case -ESHUTDOWN:
-		
+		/* this urb is terminated, clean up */
 		dbg("%s - urb shutting down with status: %d", __func__,
 		    status);
 		return;
@@ -769,7 +785,7 @@ static void pl2303_process_read_urb(struct urb *urb)
 	u8 line_status;
 	int i;
 
-	
+	/* update line status */
 	spin_lock_irqsave(&priv->lock, flags);
 	line_status = priv->line_status;
 	priv->line_status &= ~UART_STATE_TRANSIENT_MASK;
@@ -783,8 +799,8 @@ static void pl2303_process_read_urb(struct urb *urb)
 	if (!tty)
 		return;
 
-	
-	
+	/* break takes precedence over parity, */
+	/* which takes precedence over framing errors */
 	if (line_status & UART_BREAK_ERROR)
 		tty_flag = TTY_BREAK;
 	else if (line_status & UART_PARITY_ERROR)
@@ -793,7 +809,7 @@ static void pl2303_process_read_urb(struct urb *urb)
 		tty_flag = TTY_FRAME;
 	dbg("%s - tty_flag = %d", __func__, tty_flag);
 
-	
+	/* overrun is special, not associated with a char */
 	if (line_status & UART_OVERRUN_ERROR)
 		tty_insert_flip_char(tty, 0, TTY_OVERRUN);
 
@@ -810,6 +826,7 @@ static void pl2303_process_read_urb(struct urb *urb)
 	tty_kref_put(tty);
 }
 
+/* All of the device info needed for the PL2303 SIO serial converter */
 static struct usb_serial_driver pl2303_device = {
 	.driver = {
 		.owner =	THIS_MODULE,

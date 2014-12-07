@@ -19,6 +19,16 @@
 
 static struct dentry *evm_init_tpm;
 
+/**
+ * evm_read_key - read() for <securityfs>/evm
+ *
+ * @filp: file pointer, not actually used
+ * @buf: where to put the result
+ * @count: maximum to send along
+ * @ppos: where to start
+ *
+ * Returns number of bytes read or error code, as appropriate
+ */
 static ssize_t evm_read_key(struct file *filp, char __user *buf,
 			    size_t count, loff_t *ppos)
 {

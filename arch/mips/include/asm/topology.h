@@ -14,4 +14,4 @@
 #define smt_capable()   (smp_num_siblings > 1)
 #endif
 
-#endif 
+#endif /* __ASM_TOPOLOGY_H */

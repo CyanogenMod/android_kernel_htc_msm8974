@@ -181,7 +181,7 @@ static int ade7854_reset(struct device *dev)
 	u16 val;
 
 	st->read_reg_16(dev, ADE7854_CONFIG, &val);
-	val |= 1 << 7; 
+	val |= 1 << 7; /* Software Chip Reset */
 
 	return st->write_reg_16(dev, ADE7854_CONFIG, val);
 }
@@ -436,7 +436,8 @@ static int ade7854_set_irq(struct device *dev, bool enable)
 		goto error_ret;
 
 	if (enable)
-		irqen |= 1 << 17; 
+		irqen |= 1 << 17; /* 1: interrupt enabled when all periodical
+				     (at 8 kHz rate) DSP computations finish. */
 	else
 		irqen &= ~(1 << 17);
 
@@ -453,7 +454,7 @@ static int ade7854_initial_setup(struct iio_dev *indio_dev)
 	int ret;
 	struct device *dev = &indio_dev->dev;
 
-	
+	/* Disable IRQ */
 	ret = ade7854_set_irq(dev, false);
 	if (ret) {
 		dev_err(dev, "disable irq failed");
@@ -559,7 +560,7 @@ int ade7854_probe(struct iio_dev *indio_dev, struct device *dev)
 {
 	int ret;
 	struct ade7854_state *st = iio_priv(indio_dev);
-	
+	/* setup the industrialio driver allocated elements */
 	mutex_init(&st->buf_lock);
 
 	indio_dev->dev.parent = dev;
@@ -570,7 +571,7 @@ int ade7854_probe(struct iio_dev *indio_dev, struct device *dev)
 	if (ret)
 		goto error_free_dev;
 
-	
+	/* Get the device into a sane initial state */
 	ret = ade7854_initial_setup(indio_dev);
 	if (ret)
 		goto error_unreg_dev;

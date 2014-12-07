@@ -106,6 +106,12 @@ static inline bool u64_stats_fetch_retry(const struct u64_stats_sync *syncp,
 #endif
 }
 
+/*
+ * In case softirq handlers can update u64 counters, readers can use following helpers
+ * - SMP 32bit arches use seqcount protection, irq safe.
+ * - UP 32bit must disable BH.
+ * - 64bit have no problem atomically reading u64 values, irq safe.
+ */
 static inline unsigned int u64_stats_fetch_begin_bh(const struct u64_stats_sync *syncp)
 {
 #if BITS_PER_LONG==32 && defined(CONFIG_SMP)
@@ -131,4 +137,4 @@ static inline bool u64_stats_fetch_retry_bh(const struct u64_stats_sync *syncp,
 #endif
 }
 
-#endif 
+#endif /* _LINUX_U64_STATS_SYNC_H */

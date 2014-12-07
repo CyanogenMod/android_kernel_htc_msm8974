@@ -15,12 +15,24 @@
 
 extern void ____unhandled_size_in_do_div___(void);
 
+/*
+ * Beginning with gcc 4.6, the MDR register is represented explicitly.  We
+ * must, therefore, at least explicitly clobber the register when we make
+ * changes to it.  The following assembly fragments *could* be rearranged in
+ * order to leave the moves to/from the MDR register to the compiler, but the
+ * gains would be minimal at best.
+ */
 #if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)
 # define CLOBBER_MDR_CC		"mdr", "cc"
 #else
 # define CLOBBER_MDR_CC		"cc"
 #endif
 
+/*
+ * divide n by base, leaving the result in n and returning the remainder
+ * - we can do this quite efficiently on the MN10300 by cascading the divides
+ *   through the MDR register
+ */
 #define do_div(n, base)							\
 ({									\
 	unsigned __rem = 0;						\
@@ -38,13 +50,13 @@ extern void ____unhandled_size_in_do_div___(void);
 			u32 w[2];					\
 		} __quot;						\
 		__quot.l = n;						\
-		asm("mov	%0,mdr	\n"			\
+		asm("mov	%0,mdr	\n"	/* MDR = 0 */		\
 		    "divu	%3,%1	\n"				\
-		    		\
-		    			\
+		    /* __quot.MSL = __div.MSL / base, */		\
+		    /* MDR = MDR:__div.MSL % base */			\
 		    "divu	%3,%2	\n"				\
-		    		\
-		    			\
+		    /* __quot.LSL = MDR:__div.LSL / base, */		\
+		    /* MDR = MDR:__div.LSL % base */			\
 		    "mov	mdr,%0	\n"				\
 		    : "=d"(__rem), "=r"(__quot.w[1]), "=r"(__quot.w[0])	\
 		    : "r"(base), "0"(__rem), "1"(__quot.w[1]),		\
@@ -58,13 +70,19 @@ extern void ____unhandled_size_in_do_div___(void);
 	__rem;								\
 })
 
+/*
+ * do an unsigned 32-bit multiply and divide with intermediate 64-bit product
+ * so as not to lose accuracy
+ * - we use the MDR register to hold the MSW of the product
+ */
 static inline __attribute__((const))
 unsigned __muldiv64u(unsigned val, unsigned mult, unsigned div)
 {
 	unsigned result;
 
-	asm("mulu	%2,%0	\n"	
-	    "divu	%3,%0	\n"	
+	asm("mulu	%2,%0	\n"	/* MDR:val = val*mult */
+	    "divu	%3,%0	\n"	/* val = MDR:val/div;
+					 * MDR = MDR:val%div */
 	    : "=r"(result)
 	    : "0"(val), "ir"(mult), "r"(div)
 	    : CLOBBER_MDR_CC
@@ -73,13 +91,19 @@ unsigned __muldiv64u(unsigned val, unsigned mult, unsigned div)
 	return result;
 }
 
+/*
+ * do a signed 32-bit multiply and divide with intermediate 64-bit product so
+ * as not to lose accuracy
+ * - we use the MDR register to hold the MSW of the product
+ */
 static inline __attribute__((const))
 signed __muldiv64s(signed val, signed mult, signed div)
 {
 	signed result;
 
-	asm("mul	%2,%0	\n"	
-	    "div	%3,%0	\n"	
+	asm("mul	%2,%0	\n"	/* MDR:val = val*mult */
+	    "div	%3,%0	\n"	/* val = MDR:val/div;
+					 * MDR = MDR:val%div */
 	    : "=r"(result)
 	    : "0"(val), "ir"(mult), "r"(div)
 	    : CLOBBER_MDR_CC
@@ -88,4 +112,4 @@ signed __muldiv64s(signed val, signed mult, signed div)
 	return result;
 }
 
-#endif 
+#endif /* _ASM_DIV64 */

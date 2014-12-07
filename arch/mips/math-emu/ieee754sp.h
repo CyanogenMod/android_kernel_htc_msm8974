@@ -1,4 +1,8 @@
 /*
+ * IEEE754 floating point
+ * double precision internal header file
+ */
+/*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.
  *
@@ -25,6 +29,7 @@
 
 #define assert(expr) ((void)0)
 
+/* 3bit extended single precision sticky right shift */
 #define SPXSRSXn(rs) \
   (xe += rs, \
    xm = (rs > (SP_MBITS+3))?1:((xm) >> (rs)) | ((xm) << (32-(rs)) != 0))
@@ -39,6 +44,7 @@
 #define SPXSRSY1() \
    (ye++, (ym = (ym >> 1) | (ym & 1)))
 
+/* convert denormal to normalized with extended exponent */
 #define SPDNORMx(m,e) \
   while( (m >> SP_MBITS) == 0) { m <<= 1; e--; }
 #define SPDNORMX	SPDNORMx(xm, xe)

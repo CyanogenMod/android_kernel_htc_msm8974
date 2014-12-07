@@ -18,9 +18,9 @@
 #include <asm/ldc.h>
 
 struct {
-	long prom_callback;			
-	void (*prom_cif_handler)(long *);	
-	unsigned long prom_cif_stack;		
+	long prom_callback;			/* 0x00 */
+	void (*prom_cif_handler)(long *);	/* 0x08 */
+	unsigned long prom_cif_stack;		/* 0x10 */
 } p1275buf;
 
 extern void prom_world(int);
@@ -28,6 +28,9 @@ extern void prom_world(int);
 extern void prom_cif_direct(unsigned long *args);
 extern void prom_cif_callback(void);
 
+/*
+ * This provides SMP safety on the p1275buf.
+ */
 DEFINE_RAW_SPINLOCK(prom_entry_lock);
 
 void p1275_cmd_direct(unsigned long *args)

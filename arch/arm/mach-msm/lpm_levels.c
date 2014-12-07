@@ -82,6 +82,7 @@ struct lpm_system_state {
 
 static struct lpm_system_state sys_state;
 static bool suspend_in_progress;
+static int64_t suspend_time;
 
 struct lpm_lookup_table {
 	uint32_t modes;
@@ -160,7 +161,7 @@ static ssize_t lpm_levels_attr_store(struct kobject *kobj,
 	struct kobj_attribute *attr, const char *buf, size_t count)
 {
 	struct kernel_param kp;
-	unsigned int temp;
+	unsigned int temp = 0;
 	int rc;
 
 	kp.arg = &temp;
@@ -270,7 +271,7 @@ static int lpm_system_mode_select(
 {
 	int best_level = -1;
 	int i;
-	uint32_t best_level_pwr = ~0UL;
+	uint32_t best_level_pwr = ~0U;
 	uint32_t pwr;
 	uint32_t latency_us = pm_qos_request(PM_QOS_CPU_DMA_LATENCY);
 
@@ -479,7 +480,7 @@ static void msm_pm_set_timer(uint32_t modified_time_us)
 static noinline int lpm_cpu_power_select(struct cpuidle_device *dev, int *index)
 {
 	int best_level = -1;
-	uint32_t best_level_pwr = ~0UL;
+	uint32_t best_level_pwr = ~0U;
 	uint32_t latency_us = pm_qos_request(PM_QOS_CPU_DMA_LATENCY);
 	uint32_t sleep_us =
 		(uint32_t)(ktime_to_us(tick_nohz_get_sleep_length()));
@@ -513,7 +514,7 @@ static noinline int lpm_cpu_power_select(struct cpuidle_device *dev, int *index)
 		if (latency_us < pwr->latency_us)
 			continue;
 
-		if (next_event_us)
+		if (next_event_us) {
 			if (next_event_us < pwr->latency_us)
 				continue;
 
@@ -522,6 +523,7 @@ static noinline int lpm_cpu_power_select(struct cpuidle_device *dev, int *index)
 				next_wakeup_us = next_event_us
 					- pwr->latency_us;
 			}
+		}
 
 		if (next_wakeup_us <= pwr->time_overhead_us)
 			continue;
@@ -531,11 +533,11 @@ static noinline int lpm_cpu_power_select(struct cpuidle_device *dev, int *index)
 			if (!dev->cpu && msm_rpm_waiting_for_ack())
 					break;
 
-		if ((next_wakeup_us >> 10) > pwr->latency_us) {
+		if ((next_wakeup_us >> 10) > pwr->time_overhead_us) {
 			power = pwr->ss_power;
 		} else {
 			power = pwr->ss_power;
-			power -= (pwr->latency_us * pwr->ss_power)
+			power -= (pwr->time_overhead_us * pwr->ss_power)
 					/ next_wakeup_us;
 			power += pwr->energy_overhead / next_wakeup_us;
 		}
@@ -704,8 +706,6 @@ static void lpm_enter_low_power(struct lpm_system_state *system_state,
 	int idx;
 	struct lpm_cpu_level *cpu_level = &system_state->cpu_level[cpu_index];
 
-	cpu_level = &system_state->cpu_level[cpu_index];
-
 	lpm_cpu_prepare(system_state, cpu_index, from_idle);
 
 	idx = lpm_system_select(system_state, cpu_index, from_idle);
@@ -738,7 +738,7 @@ static int lpm_cpuidle_enter(struct cpuidle_device *dev,
 	do_div(time, 1000);
 	dev->last_residency = (int)time;
 	local_irq_enable();
-	return index;
+	return idx;
 }
 
 static int lpm_suspend_enter(suspend_state_t state)
@@ -762,6 +762,11 @@ static int lpm_suspend_enter(suspend_state_t state)
 
 static int lpm_suspend_prepare(void)
 {
+	struct timespec ts;
+
+	getnstimeofday(&ts);
+	suspend_time = timespec_to_ns(&ts);
+
 	suspend_in_progress = true;
 	msm_mpm_suspend_prepare();
 	return 0;
@@ -769,6 +774,12 @@ static int lpm_suspend_prepare(void)
 
 static void lpm_suspend_wake(void)
 {
+	struct timespec ts;
+
+	getnstimeofday(&ts);
+	suspend_time = timespec_to_ns(&ts) - suspend_time;
+	msm_pm_add_stat(MSM_PM_STAT_SUSPEND, suspend_time);
+
 	msm_mpm_suspend_wake();
 	suspend_in_progress = false;
 }
@@ -952,9 +963,8 @@ static int lpm_system_probe(struct platform_device *pdev)
 			goto fail;
 		}
 
-		if (l->l2_mode == MSM_SPM_L2_MODE_GDHS ||
-				l->l2_mode == MSM_SPM_L2_MODE_POWER_COLLAPSE)
-			l->notify_rpm = true;
+		key = "qcom,send-rpm-sleep-set";
+		l->notify_rpm = of_property_read_bool(node, key);
 
 		if (l->l2_mode >= MSM_SPM_L2_MODE_GDHS)
 			l->sync = true;

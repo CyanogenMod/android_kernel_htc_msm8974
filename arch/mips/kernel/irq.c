@@ -47,6 +47,11 @@ again:
 	return irq;
 }
 
+/*
+ * Allocate the 16 legacy interrupts for i8259 devices.  This happens early
+ * in the kernel initialization so treating allocation failure as BUG() is
+ * ok.
+ */
 void __init alloc_legacy_irqno(void)
 {
 	int i;
@@ -62,6 +67,10 @@ void free_irqno(unsigned int irq)
 	smp_mb__after_clear_bit();
 }
 
+/*
+ * 'what should we do if we get a hw irq event on an illegal vector'.
+ * each architecture has to answer this themselves.
+ */
 void ack_bad_irq(unsigned int irq)
 {
 	smtc_im_ack_irq(irq);
@@ -109,6 +118,10 @@ static inline void check_stack_overflow(void)
 	__asm__ __volatile__("move %0, $sp" : "=r" (sp));
 	sp &= THREAD_MASK;
 
+	/*
+	 * Check for stack overflow: is there less than STACK_WARN free?
+	 * STACK_WARN is defined as 1/8 of THREAD_SIZE by default.
+	 */
 	if (unlikely(sp < (sizeof(struct thread_info) + STACK_WARN))) {
 		printk("do_IRQ: stack overflow: %ld\n",
 		       sp - sizeof(struct thread_info));
@@ -120,6 +133,11 @@ static inline void check_stack_overflow(void) {}
 #endif
 
 
+/*
+ * do_IRQ handles all normal device IRQ's (the special
+ * SMP cross-CPU interrupts have their own specific
+ * handlers).
+ */
 void __irq_entry do_IRQ(unsigned int irq)
 {
 	irq_enter();
@@ -130,6 +148,10 @@ void __irq_entry do_IRQ(unsigned int irq)
 }
 
 #ifdef CONFIG_MIPS_MT_SMTC_IRQAFF
+/*
+ * To avoid inefficient and in some cases pathological re-checking of
+ * IRQ affinity, we have this variant that skips the affinity check.
+ */
 
 void __irq_entry do_IRQ_no_affinity(unsigned int irq)
 {
@@ -139,4 +161,4 @@ void __irq_entry do_IRQ_no_affinity(unsigned int irq)
 	irq_exit();
 }
 
-#endif 
+#endif /* CONFIG_MIPS_MT_SMTC_IRQAFF */

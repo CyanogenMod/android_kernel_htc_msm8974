@@ -14,6 +14,9 @@
  *
  ******************************************************************************/
 
+/*
+	SMT/CMT defaults
+*/
 
 #include "h/types.h"
 #include "h/fddi.h"
@@ -27,6 +30,9 @@
 static const char ID_sccs[] = "@(#)smtdef.c	2.53 99/08/11 (C) SK " ;
 #endif
 
+/*
+ * defaults
+ */
 #define TTMS(x)	((u_long)(x)*1000L)
 #define TTS(x)	((u_long)(x)*1000000L)
 #define TTUS(x)	((u_long)(x))
@@ -57,11 +63,15 @@ static const char ID_sccs[] = "@(#)smtdef.c	2.53 99/08/11 (C) SK " ;
 #define DEFAULT_CHECK_POLL	TTS(1)
 #define DEFAULT_POLL		TTMS(50)
 
+/*
+ * LCT errors threshold
+ */
 #define DEFAULT_LCT_SHORT	1
 #define DEFAULT_LCT_MEDIUM	3
 #define DEFAULT_LCT_LONG	5
 #define DEFAULT_LCT_EXTEND	50
 
+/* Forward declarations */
 void smt_reset_defaults(struct s_smc *smc, int level);
 static void smt_init_mib(struct s_smc *smc, int level);
 static int set_min_max(int maxflag, u_long mib, u_long limit, u_long *oper);
@@ -109,7 +119,7 @@ void smt_reset_defaults(struct s_smc *smc, int level)
 	smt->rmt_t_jam = DEFAULT_T_JAM ;
 	smt->rmt_t_announce = DEFAULT_T_ANNOUNCE ;
 	smt->rmt_t_poll = DEFAULT_POLL ;
-        smt->rmt_dup_mac_behavior = FALSE ;  
+        smt->rmt_dup_mac_behavior = FALSE ;  /* See Struct smt_config */
 	smt->mac_d_max = DEFAULT_D_MAX ;
 
 	smt->lct_short = DEFAULT_LCT_SHORT ;
@@ -128,7 +138,7 @@ void smt_reset_defaults(struct s_smc *smc, int level)
 		smc->mib.fddiESSCategory = SB_STATIC ;
 		smc->mib.fddiESSSynchTxMode = FALSE ;
 		smc->ess.raf_act_timer_poll = FALSE ;
-		smc->ess.timer_count = 7 ; 	
+		smc->ess.timer_count = 7 ; 	/* first RAF alc req after 3s */
 	}
 	smc->ess.local_sba_active = FALSE ;
 	smc->ess.sba_reply_pend = NULL ;
@@ -136,7 +146,7 @@ void smt_reset_defaults(struct s_smc *smc, int level)
 #ifdef	SBA
 	smt_init_sba(smc,level) ;
 #endif
-#endif	
+#endif	/* no SLIM_SMT */
 #ifdef	TAG_MODE
 	if (level == 0) {
 		smc->hw.pci_fix_value = 0 ;
@@ -144,7 +154,11 @@ void smt_reset_defaults(struct s_smc *smc, int level)
 #endif
 }
 
+/*
+ * manufacturer data
+ */
 static const char man_data[32] =
+/*	 01234567890123456789012345678901	*/
 	"xxxSK-NET FDDI SMT 7.3 - V2.8.8" ;
 
 static void smt_init_mib(struct s_smc *smc, int level)
@@ -156,6 +170,10 @@ static void smt_init_mib(struct s_smc *smc, int level)
 
 	mib = &smc->mib ;
 	if (level == 0) {
+		/*
+		 * set EVERYTHING to ZERO
+		 * EXCEPT hw and os
+		 */
 		memset(((char *)smc)+
 			sizeof(struct s_smt_os)+sizeof(struct s_smt_hw), 0,
 			sizeof(struct s_smc) -
@@ -177,14 +195,18 @@ static void smt_init_mib(struct s_smc *smc, int level)
 	mib->fddiSMTMac_Ct = NUMMACS ;
 	mib->fddiSMTConnectionPolicy = POLICY_MM | POLICY_AA | POLICY_BB ;
 
+	/*
+	 * fddiSMTNonMaster_Ct and fddiSMTMaster_Ct are set in smt_fixup_mib
+	 * s.sas is not set yet (is set in init driver)
+	 */
 	mib->fddiSMTAvailablePaths = MIB_PATH_P | MIB_PATH_S ;
 
-	mib->fddiSMTConfigCapabilities = 0 ;	
+	mib->fddiSMTConfigCapabilities = 0 ;	/* no hold,no wrap_ab*/
 	mib->fddiSMTTT_Notify = 10 ;
 	mib->fddiSMTStatRptPolicy = TRUE ;
 	mib->fddiSMTTrace_MaxExpiration = SEC2MIB(7) ;
 	mib->fddiSMTMACIndexes = INDEX_MAC ;
-	mib->fddiSMTStationStatus = MIB_SMT_STASTA_SEPA ;	
+	mib->fddiSMTStationStatus = MIB_SMT_STASTA_SEPA ;	/* separated */
 
 	mib->m[MAC0].fddiMACIndex = INDEX_MAC ;
 	mib->m[MAC0].fddiMACFrameStatusFunctions = FSC_TYPE0 ;
@@ -209,6 +231,9 @@ static void smt_init_mib(struct s_smc *smc, int level)
 	mib->m[MAC0].fddiMACMA_UnitdataEnable = TRUE ;
 	mib->m[MAC0].fddiMACFrameErrorThreshold = 1 ;
 	mib->m[MAC0].fddiMACNotCopiedThreshold = 1 ;
+	/*
+	 * Path attributes
+	 */
 	for (path = 0 ; path < NUMPATHS ; path++) {
 		mib->a[path].fddiPATHIndex = INDEX_PATH + path ;
 		if (level == 0) {
@@ -222,10 +247,16 @@ static void smt_init_mib(struct s_smc *smc, int level)
 	}
 
 
+	/*
+	 * Port attributes
+	 */
 	pm = mib->p ;
 	for (port = 0 ; port <  NUMPHYS ; port++) {
-		
-		
+		/*
+		 * set MIB pointer in phy
+		 */
+		/* Attention: don't initialize mib pointer here! */
+		/*  It must be initialized during phase 2 */
 		smc->y[port].mib = NULL;
 		mib->fddiSMTPORTIndexes[port] = port+INDEX_PORT ;
 
@@ -235,6 +266,10 @@ static void smt_init_mib(struct s_smc *smc, int level)
 			pm->fddiPORTLer_Alarm = DEFAULT_LEM_ALARM ;
 			pm->fddiPORTLer_Cutoff = DEFAULT_LEM_CUTOFF ;
 		}
+		/*
+		 * fddiPORTRequestedPaths are set in pcmplc.c
+		 * we don't know the port type yet !
+		 */
 		pm->fddiPORTRequestedPaths[1] = 0 ;
 		pm->fddiPORTRequestedPaths[2] = 0 ;
 		pm->fddiPORTRequestedPaths[3] = 0 ;
@@ -261,6 +296,9 @@ int smt_set_mac_opvalues(struct s_smc *smc)
 		smc->mib.a[PATH0].fddiPATHMaxT_Req,
 		&smc->mib.m[MAC0].fddiMACT_Req)) ;
 	if (st2) {
+		/* Treq attribute changed remotely. So send an AIX_EVENT to the
+		 * user
+		 */
 		AIX_EVENT(smc, (u_long) FDDI_RING_STATUS, (u_long)
 			FDDI_SMT_EVENT, (u_long) FDDI_REMOTE_T_REQ,
 			smt_get_event_word(smc));
@@ -296,6 +334,14 @@ void smt_fixup_mib(struct s_smc *smc)
 #endif
 }
 
+/*
+ * determine new setting for operational value
+ * if limit is lower than mib
+ *	use limit
+ * else
+ *	use mib
+ * NOTE : numbers are negative, negate comparison !
+ */
 static int set_min_max(int maxflag, u_long mib, u_long limit, u_long *oper)
 {
 	u_long	old ;

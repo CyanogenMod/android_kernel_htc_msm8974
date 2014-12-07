@@ -19,6 +19,10 @@
 #include <asm/types.h>
 #include <cpu/registers.h>
 
+/*
+ * Default implementation of macro that returns current
+ * instruction pointer ("program counter").
+ */
 #define current_text_addr() ({ \
 void *pc; \
 unsigned long long __dummy = 0; \
@@ -32,13 +36,33 @@ pc; })
 
 #endif
 
+/*
+ * User space process size: 2GB - 4k.
+ */
 #define TASK_SIZE	0x7ffff000UL
 
 #define STACK_TOP	TASK_SIZE
 #define STACK_TOP_MAX	STACK_TOP
 
+/* This decides where the kernel will search for a free chunk of vm
+ * space during mmap's.
+ */
 #define TASK_UNMAPPED_BASE	(TASK_SIZE / 3)
 
+/*
+ * Bit of SR register
+ *
+ * FD-bit:
+ *     When it's set, it means the processor doesn't have right to use FPU,
+ *     and it results exception when the floating operation is executed.
+ *
+ * IMASK-bit:
+ *     Interrupt level mask
+ *
+ * STEP-bit:
+ *     Single step bit
+ *
+ */
 #if defined(CONFIG_SH64_SR_WATCH)
 #define SR_MMU   0x84000000
 #else
@@ -51,13 +75,18 @@ pc; })
 
 #ifndef __ASSEMBLY__
 
+/*
+ * FPU structure and data : require 8-byte alignment as we need to access it
+   with fld.p, fst.p
+ */
 
 struct sh_fpu_hard_struct {
 	unsigned long fp_regs[64];
 	unsigned int fpscr;
-	
+	/* long status; * software status information */
 };
 
+/* Dummy fpu emulator  */
 struct sh_fpu_soft_struct {
 	unsigned long fp_regs[64];
 	unsigned int fpscr;
@@ -68,6 +97,10 @@ struct sh_fpu_soft_struct {
 union thread_xstate {
 	struct sh_fpu_hard_struct hardfpu;
 	struct sh_fpu_soft_struct softfpu;
+	/*
+	 * The structure definitions only produce 32 bit alignment, yet we need
+	 * to access them using 64 bit load/store as well.
+	 */
 	unsigned long long alignment_dummy;
 };
 
@@ -75,17 +108,24 @@ struct thread_struct {
 	unsigned long sp;
 	unsigned long pc;
 
-	
+	/* Various thread flags, see SH_THREAD_xxx */
 	unsigned long flags;
 
+	/* This stores the address of the pt_regs built during a context
+	   switch, or of the register save area built for a kernel mode
+	   exception.  It is used for backtracing the stack of a sleeping task
+	   or one that traps in kernel mode. */
         struct pt_regs *kregs;
+	/* This stores the address of the pt_regs constructed on entry from
+	   user mode.  It is a fixed value over the lifetime of a process, or
+	   NULL for a kernel thread. */
 	struct pt_regs *uregs;
 
 	unsigned long trap_no, error_code;
 	unsigned long address;
-	
+	/* Hardware debugging registers may come here */
 
-	
+	/* floating point info */
 	union thread_xstate *xstate;
 };
 
@@ -104,32 +144,44 @@ struct thread_struct {
 	.flags		= 0,			\
 }
 
+/*
+ * Do necessary setup to start up a newly executed thread.
+ */
 #define SR_USER (SR_MMU | SR_FD)
 
 #define start_thread(_regs, new_pc, new_sp)			\
-	_regs->sr = SR_USER;			\
-	_regs->pc = new_pc - 4;		\
-	_regs->pc |= 1;				\
+	_regs->sr = SR_USER;	/* User mode. */		\
+	_regs->pc = new_pc - 4;	/* Compensate syscall exit */	\
+	_regs->pc |= 1;		/* Set SHmedia ! */		\
 	_regs->regs[18] = 0;					\
 	_regs->regs[15] = new_sp
 
+/* Forward declaration, a strange C thing */
 struct task_struct;
 struct mm_struct;
 
+/* Free all resources held by a thread. */
 extern void release_thread(struct task_struct *);
+/*
+ * create a kernel thread without removing it from tasklists
+ */
 extern int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags);
 
 
+/* Copy and release all segment info associated with a VM */
 #define copy_segments(p, mm)	do { } while (0)
 #define release_segments(mm)	do { } while (0)
 #define forget_segments()	do { } while (0)
 #define prepare_to_copy(tsk)	do { } while (0)
+/*
+ * FPU lazy state save handling.
+ */
 
 static inline void disable_fpu(void)
 {
 	unsigned long long __dummy;
 
-	
+	/* Set FD flag in SR */
 	__asm__ __volatile__("getcon	" __SR ", %0\n\t"
 			     "or	%0, %1, %0\n\t"
 			     "putcon	%0, " __SR "\n\t"
@@ -141,7 +193,7 @@ static inline void enable_fpu(void)
 {
 	unsigned long long __dummy;
 
-	
+	/* Clear out FD flag in SR */
 	__asm__ __volatile__("getcon	" __SR ", %0\n\t"
 			     "and	%0, %1, %0\n\t"
 			     "putcon	%0, " __SR "\n\t"
@@ -149,6 +201,9 @@ static inline void enable_fpu(void)
 			     : "r" (~SR_FD));
 }
 
+/* Round to nearest, no exceptions on inexact, overflow, underflow,
+   zero-divide, invalid.  Configure option for whether to flush denorms to
+   zero, or except if a denorm is encountered.  */
 #if defined(CONFIG_SH64_FPU_DENORM_FLUSH)
 #define FPSCR_INIT  0x00040000
 #else
@@ -156,6 +211,7 @@ static inline void enable_fpu(void)
 #endif
 
 #ifdef CONFIG_SH_FPU
+/* Initialise the FP state of a task */
 void fpinit(struct sh_fpu_hard_struct *fpregs);
 #else
 #define fpinit(fpregs)	do { } while (0)
@@ -163,6 +219,9 @@ void fpinit(struct sh_fpu_hard_struct *fpregs);
 
 extern struct task_struct *last_task_used_math;
 
+/*
+ * Return saved PC of a blocked thread.
+ */
 #define thread_saved_pc(tsk)	(tsk->thread.pc)
 
 extern unsigned long get_wchan(struct task_struct *p);
@@ -170,5 +229,5 @@ extern unsigned long get_wchan(struct task_struct *p);
 #define KSTK_EIP(tsk)  ((tsk)->thread.pc)
 #define KSTK_ESP(tsk)  ((tsk)->thread.sp)
 
-#endif	
-#endif 
+#endif	/* __ASSEMBLY__ */
+#endif /* __ASM_SH_PROCESSOR_64_H */

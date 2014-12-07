@@ -90,6 +90,10 @@ static int ocfs2_readlink(struct dentry *dentry,
 		goto out;
 	}
 
+	/*
+	 * Without vfsmount we can't update atime now,
+	 * but we will update atime here ultimately.
+	 */
 	ret = vfs_readlink(dentry, buffer, buflen, link);
 
 	brelse(bh);
@@ -116,7 +120,7 @@ static void *ocfs2_fast_follow_link(struct dentry *dentry,
 		goto bail;
 	}
 
-	
+	/* Fast symlinks can't be large */
 	len = strnlen(target, ocfs2_fast_symlink_chars(inode->i_sb));
 	link = kzalloc(len + 1, GFP_NOFS);
 	if (!link) {

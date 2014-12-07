@@ -24,7 +24,7 @@
 #define DRV_VERSION		"1.0"
 
 struct m48t35_rtc {
-	u8	pad[0x7ff8];    
+	u8	pad[0x7ff8];    /* starts at 0x7ff8 */
 	u8	control;
 	u8	sec;
 	u8	min;
@@ -51,6 +51,12 @@ static int m48t35_read_time(struct device *dev, struct rtc_time *tm)
 	struct m48t35_priv *priv = dev_get_drvdata(dev);
 	u8 control;
 
+	/*
+	 * Only the values that we read from the RTC are set. We leave
+	 * tm_wday, tm_yday and tm_isdst untouched. Even though the
+	 * RTC has RTC_DAY_OF_WEEK, we ignore it, as it is only updated
+	 * by the RTC when initially set to a non-zero value.
+	 */
 	spin_lock_irq(&priv->lock);
 	control = readb(&priv->reg->control);
 	writeb(control | M48T35_RTC_READ, &priv->reg->control);
@@ -70,6 +76,10 @@ static int m48t35_read_time(struct device *dev, struct rtc_time *tm)
 	tm->tm_mon = bcd2bin(tm->tm_mon);
 	tm->tm_year = bcd2bin(tm->tm_year);
 
+	/*
+	 * Account for differences between how the RTC uses the values
+	 * and how they are defined in a struct rtc_time;
+	 */
 	tm->tm_year += 70;
 	if (tm->tm_year <= 69)
 		tm->tm_year += 100;
@@ -86,7 +96,7 @@ static int m48t35_set_time(struct device *dev, struct rtc_time *tm)
 	u8 control;
 
 	yrs = tm->tm_year + 1900;
-	mon = tm->tm_mon + 1;   
+	mon = tm->tm_mon + 1;   /* tm_mon starts at zero */
 	day = tm->tm_mday;
 	hrs = tm->tm_hour;
 	min = tm->tm_min;
@@ -96,7 +106,7 @@ static int m48t35_set_time(struct device *dev, struct rtc_time *tm)
 		return -EINVAL;
 
 	yrs -= 1970;
-	if (yrs > 255)    
+	if (yrs > 255)    /* They are unsigned */
 		return -EINVAL;
 
 	if (yrs > 169)
@@ -145,6 +155,10 @@ static int __devinit m48t35_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	priv->size = resource_size(res);
+	/*
+	 * kludge: remove the #ifndef after ioc3 resource
+	 * conflicts are resolved
+	 */
 #ifndef CONFIG_SGI_IP27
 	if (!request_mem_region(res->start, priv->size, pdev->name)) {
 		ret = -EBUSY;

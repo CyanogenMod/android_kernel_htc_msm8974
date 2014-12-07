@@ -8,13 +8,18 @@
  *
  * ----------------------------------------------------------------------- */
 
+/*
+ * raid6test.c
+ *
+ * Test RAID-6 recovery with various algorithms
+ */
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <linux/raid/pq.h>
 
-#define NDISKS		16	
+#define NDISKS		16	/* Including P and Q */
 
 const char raid6_empty_zero_page[PAGE_SIZE] __attribute__((aligned(256)));
 struct raid6_calls raid6_call;
@@ -63,6 +68,8 @@ static int test_disks(int i, int j)
 	errb = memcmp(data[j], recovj, PAGE_SIZE);
 
 	if (i < NDISKS-2 && j == NDISKS-1) {
+		/* We don't implement the DQ failure scenario, since it's
+		   equivalent to a RAID-5 failure (XOR, then recompute Q) */
 		erra = errb = 0;
 	} else {
 		printf("algo=%-8s  faila=%3d(%c)  failb=%3d(%c)  %s\n",
@@ -92,10 +99,10 @@ int main(int argc, char *argv[])
 		if (!(*algo)->valid || (*algo)->valid()) {
 			raid6_call = **algo;
 
-			
+			/* Nuke syndromes */
 			memset(data[NDISKS-2], 0xee, 2*PAGE_SIZE);
 
-			
+			/* Generate assumed good syndrome */
 			raid6_call.gen_syndrome(NDISKS, PAGE_SIZE,
 						(void **)&dataptrs);
 
@@ -107,7 +114,7 @@ int main(int argc, char *argv[])
 	}
 
 	printf("\n");
-	
+	/* Pick the best algorithm test */
 	raid6_select_algo();
 
 	if (err)

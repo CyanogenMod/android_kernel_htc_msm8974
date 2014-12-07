@@ -13,7 +13,11 @@
 
 struct pci_dev;
 #ifdef CONFIG_PCI
+/* Create a virtual mapping cookie for a PCI BAR (memory or IO) */
 extern void __iomem *pci_iomap(struct pci_dev *dev, int bar, unsigned long max);
+/* Create a virtual mapping cookie for a port on a given PCI device.
+ * Do not call this directly, it exists to make it easier for architectures
+ * to override */
 #ifdef CONFIG_NO_GENERIC_PCI_IOPORT_MAP
 extern void __iomem *__pci_ioport_map(struct pci_dev *dev, unsigned long port,
 				      unsigned int nr);
@@ -28,4 +32,4 @@ static inline void __iomem *pci_iomap(struct pci_dev *dev, int bar, unsigned lon
 }
 #endif
 
-#endif 
+#endif /* __ASM_GENERIC_IO_H */

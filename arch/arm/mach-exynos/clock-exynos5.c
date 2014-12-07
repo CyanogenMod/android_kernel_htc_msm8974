@@ -30,7 +30,7 @@
 
 #ifdef CONFIG_PM_SLEEP
 static struct sleep_save exynos5_clock_save[] = {
-	
+	/* will be implemented */
 };
 #endif
 
@@ -127,6 +127,7 @@ static int exynos5_clk_ip_peris_ctrl(struct clk *clk, int enable)
 	return s5p_gatectrl(EXYNOS5_CLKGATE_IP_PERIS, clk, enable);
 }
 
+/* Core list of CMU_CPU side */
 
 static struct clksrc_clk exynos5_clk_mout_apll = {
 	.clk	= {
@@ -322,6 +323,7 @@ static struct clk exynos5_clk_armclk = {
 	.parent		= &exynos5_clk_dout_arm2clk.clk,
 };
 
+/* Core list of CMU_CDREX side */
 
 static struct clk *exynos5_clkset_cdrex_list[] = {
 	[0] = &exynos5_clk_mout_mpll.clk,
@@ -358,6 +360,7 @@ static struct clksrc_clk exynos5_clk_pclk_acp = {
 	.reg_div = { .reg = EXYNOS5_CLKDIV_ACP, .shift = 4, .size = 3 },
 };
 
+/* Core list of CMU_TOP side */
 
 struct clk *exynos5_clkset_aclk_top_list[] = {
 	[0] = &exynos5_clk_mout_mpll_user.clk,
@@ -703,6 +706,7 @@ struct clksrc_sources exynos5_clkset_group = {
 	.nr_sources	= ARRAY_SIZE(exynos5_clkset_group_list),
 };
 
+/* Possible clock sources for aclk_266_gscl_sub Mux */
 static struct clk *clk_src_gscl_266_list[] = {
 	[0] = &clk_ext_xtal_mux,
 	[1] = &exynos5_clk_aclk_266.clk,
@@ -932,6 +936,7 @@ static struct clksrc_clk exynos5_clksrcs[] = {
 	},
 };
 
+/* Clock initialization code */
 static struct clksrc_clk *exynos5_sysclks[] = {
 	&exynos5_clk_mout_apll,
 	&exynos5_clk_sclk_apll,
@@ -1026,7 +1031,7 @@ static int exynos5_epll_set_rate(struct clk *clk, unsigned long rate)
 	unsigned int locktime;
 	unsigned int lockcnt;
 
-	
+	/* Return if nothing changed */
 	if (clk->rate == rate)
 		return 0;
 
@@ -1065,7 +1070,7 @@ static int exynos5_epll_set_rate(struct clk *clk, unsigned long rate)
 
 	epll_rate /= 1000000;
 
-	
+	/* 3000 max_cycls : specification data */
 	locktime = 3000 / epll_rate * epll_div[i][3];
 	lockcnt = locktime * 10000 / (10000 / epll_rate);
 

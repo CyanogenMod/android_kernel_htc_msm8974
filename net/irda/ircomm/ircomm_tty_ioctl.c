@@ -46,6 +46,12 @@
 
 #define RELEVANT_IFLAG(iflag) (iflag & (IGNBRK|BRKINT|IGNPAR|PARMRK|INPCK))
 
+/*
+ * Function ircomm_tty_change_speed (driver)
+ *
+ *    Change speed of the driver. If the remote device is a DCE, then this
+ *    should make it change the speed of its serial port
+ */
 static void ircomm_tty_change_speed(struct ircomm_tty_cb *self)
 {
 	unsigned cflag, cval;
@@ -58,7 +64,7 @@ static void ircomm_tty_change_speed(struct ircomm_tty_cb *self)
 
 	cflag = self->tty->termios->c_cflag;
 
-	
+	/*  byte size and parity */
 	switch (cflag & CSIZE) {
 	case CS5: cval = IRCOMM_WSIZE_5; break;
 	case CS6: cval = IRCOMM_WSIZE_6; break;
@@ -74,19 +80,19 @@ static void ircomm_tty_change_speed(struct ircomm_tty_cb *self)
 	if (!(cflag & PARODD))
 		cval |= IRCOMM_PARITY_EVEN;
 
-	
+	/* Determine divisor based on baud rate */
 	baud = tty_get_baud_rate(self->tty);
 	if (!baud)
-		baud = 9600;	
+		baud = 9600;	/* B0 transition handled in rs_set_termios */
 
 	self->settings.data_rate = baud;
 	ircomm_param_request(self, IRCOMM_DATA_RATE, FALSE);
 
-	
+	/* CTS flow control flag and modem status interrupts */
 	if (cflag & CRTSCTS) {
 		self->flags |= ASYNC_CTS_FLOW;
 		self->settings.flow_control |= IRCOMM_RTS_CTS_IN;
-		
+		/* This got me. Bummer. Jean II */
 		if (self->service_type == IRCOMM_3_WIRE_RAW)
 			IRDA_WARNING("%s(), enabling RTS/CTS on link that doesn't support it (3-wire-raw)\n", __func__);
 	} else {
@@ -98,18 +104,28 @@ static void ircomm_tty_change_speed(struct ircomm_tty_cb *self)
 	else
 		self->flags |= ASYNC_CHECK_CD;
 #if 0
+	/*
+	 * Set up parity check flag
+	 */
 
 	if (I_INPCK(self->tty))
 		driver->read_status_mask |= LSR_FE | LSR_PE;
 	if (I_BRKINT(driver->tty) || I_PARMRK(driver->tty))
 		driver->read_status_mask |= LSR_BI;
 
+	/*
+	 * Characters to ignore
+	 */
 	driver->ignore_status_mask = 0;
 	if (I_IGNPAR(driver->tty))
 		driver->ignore_status_mask |= LSR_PE | LSR_FE;
 
 	if (I_IGNBRK(self->tty)) {
 		self->ignore_status_mask |= LSR_BI;
+		/*
+		 * If we're ignore parity and break indicators, ignore
+		 * overruns too. (For real raw support).
+		 */
 		if (I_IGNPAR(self->tty))
 			self->ignore_status_mask |= LSR_OE;
 	}
@@ -120,6 +136,14 @@ static void ircomm_tty_change_speed(struct ircomm_tty_cb *self)
 	ircomm_param_request(self, IRCOMM_FLOW_CONTROL, TRUE);
 }
 
+/*
+ * Function ircomm_tty_set_termios (tty, old_termios)
+ *
+ *    This routine allows the tty driver to be notified when device's
+ *    termios settings have changed.  Note that a well-designed tty driver
+ *    should be prepared to accept the case where old == NULL, and try to
+ *    do something rational.
+ */
 void ircomm_tty_set_termios(struct tty_struct *tty,
 			    struct ktermios *old_termios)
 {
@@ -137,14 +161,14 @@ void ircomm_tty_set_termios(struct tty_struct *tty,
 
 	ircomm_tty_change_speed(self);
 
-	
+	/* Handle transition to B0 status */
 	if ((old_termios->c_cflag & CBAUD) &&
 	    !(cflag & CBAUD)) {
 		self->settings.dte &= ~(IRCOMM_DTR|IRCOMM_RTS);
 		ircomm_param_request(self, IRCOMM_DTE, TRUE);
 	}
 
-	
+	/* Handle transition away from B0 status */
 	if (!(old_termios->c_cflag & CBAUD) &&
 	    (cflag & CBAUD)) {
 		self->settings.dte |= IRCOMM_DTR;
@@ -155,7 +179,7 @@ void ircomm_tty_set_termios(struct tty_struct *tty,
 		ircomm_param_request(self, IRCOMM_DTE, TRUE);
 	}
 
-	
+	/* Handle turning off CRTSCTS */
 	if ((old_termios->c_cflag & CRTSCTS) &&
 	    !(tty->termios->c_cflag & CRTSCTS))
 	{
@@ -164,6 +188,12 @@ void ircomm_tty_set_termios(struct tty_struct *tty,
 	}
 }
 
+/*
+ * Function ircomm_tty_tiocmget (tty)
+ *
+ *
+ *
+ */
 int ircomm_tty_tiocmget(struct tty_struct *tty)
 {
 	struct ircomm_tty_cb *self = (struct ircomm_tty_cb *) tty->driver_data;
@@ -183,6 +213,12 @@ int ircomm_tty_tiocmget(struct tty_struct *tty)
 	return result;
 }
 
+/*
+ * Function ircomm_tty_tiocmset (tty, set, clear)
+ *
+ *
+ *
+ */
 int ircomm_tty_tiocmset(struct tty_struct *tty,
 			unsigned int set, unsigned int clear)
 {
@@ -216,6 +252,12 @@ int ircomm_tty_tiocmset(struct tty_struct *tty,
 	return 0;
 }
 
+/*
+ * Function get_serial_info (driver, retinfo)
+ *
+ *
+ *
+ */
 static int ircomm_tty_get_serial_info(struct ircomm_tty_cb *self,
 				      struct serial_struct __user *retinfo)
 {
@@ -233,7 +275,7 @@ static int ircomm_tty_get_serial_info(struct ircomm_tty_cb *self,
 	info.close_delay = self->close_delay;
 	info.closing_wait = self->closing_wait;
 
-	
+	/* For compatibility  */
 	info.type = PORT_16550A;
 	info.port = 0;
 	info.irq = 0;
@@ -247,6 +289,12 @@ static int ircomm_tty_get_serial_info(struct ircomm_tty_cb *self,
 	return 0;
 }
 
+/*
+ * Function set_serial_info (driver, new_info)
+ *
+ *
+ *
+ */
 static int ircomm_tty_set_serial_info(struct ircomm_tty_cb *self,
 				      struct serial_struct __user *new_info)
 {
@@ -273,10 +321,14 @@ static int ircomm_tty_set_serial_info(struct ircomm_tty_cb *self,
 				 (new_serial.flags & ASYNC_USR_MASK));
 		self->flags = ((self->flags & ~ASYNC_USR_MASK) |
 			       (new_serial.flags & ASYNC_USR_MASK));
-		
+		/* self->custom_divisor = new_serial.custom_divisor; */
 		goto check_and_exit;
 	}
 
+	/*
+	 * OK, past this point, all the error checking has been done.
+	 * At this point, we start making changes.....
+	 */
 
 	if (self->settings.data_rate != new_serial.baud_base) {
 		self->settings.data_rate = new_serial.baud_base;
@@ -285,7 +337,7 @@ static int ircomm_tty_set_serial_info(struct ircomm_tty_cb *self,
 
 	self->close_delay = new_serial.close_delay * HZ/100;
 	self->closing_wait = new_serial.closing_wait * HZ/100;
-	
+	/* self->custom_divisor = new_serial.custom_divisor; */
 
 	self->flags = ((self->flags & ~ASYNC_FLAGS) |
 		       (new_serial.flags & ASYNC_FLAGS));
@@ -312,6 +364,12 @@ static int ircomm_tty_set_serial_info(struct ircomm_tty_cb *self,
 	return 0;
 }
 
+/*
+ * Function ircomm_tty_ioctl (tty, cmd, arg)
+ *
+ *
+ *
+ */
 int ircomm_tty_ioctl(struct tty_struct *tty,
 		     unsigned int cmd, unsigned long arg)
 {
@@ -360,7 +418,7 @@ int ircomm_tty_ioctl(struct tty_struct *tty,
 #endif
 		return 0;
 	default:
-		ret = -ENOIOCTLCMD;  
+		ret = -ENOIOCTLCMD;  /* ioctls which we must ignore */
 	}
 	return ret;
 }

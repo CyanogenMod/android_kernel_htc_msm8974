@@ -35,13 +35,17 @@
 #ifdef CONFIG_HYPERTRANSPORT
 
 
+/*
+ * This function check if the Hypertransport Link Initialization completed. If
+ * it did, then proceed further with scanning bus #2
+ */
 static __inline__ int check_titan_htlink(void)
 {
         u32 val;
 
         val = *(volatile uint32_t *)(RM9000x2_HTLINK_REG);
         if (val & 0x00000020)
-                
+                /* HT Link Initialization completed */
                 return 1;
         else
                 return 0;
@@ -58,7 +62,7 @@ static int titan_ht_config_read_dword(struct pci_dev *device,
         dev = PCI_SLOT(device->devfn);
         func = PCI_FUNC(device->devfn);
 
-	
+	/* XXX Need to change the Bus # */
         if (bus > 2)
                 address = (bus << 16) | (dev << 11) | (func << 8) | (offset & 0xfc) |
                                                         0x80000000 | 0x1;
@@ -86,7 +90,7 @@ static int titan_ht_config_read_word(struct pci_dev *device,
         dev = PCI_SLOT(device->devfn);
         func = PCI_FUNC(device->devfn);
 
-	
+	/* XXX Need to change the Bus # */
         if (bus > 2)
                 address = (bus << 16) | (dev << 11) | (func << 8) | (offset & 0xfc) |
                                                 0x80000000 | 0x1;
@@ -133,7 +137,7 @@ static int titan_ht_config_read_byte(struct pci_dev *device,
         dev = PCI_SLOT(device->devfn);
         func = PCI_FUNC(device->devfn);
 
-	
+	/* XXX Need to change the Bus # */
         if (bus > 2)
                 address = (bus << 16) | (dev << 11) | (func << 8) | (offset & 0xfc) |
                                                         0x80000000 | 0x1;
@@ -174,7 +178,7 @@ static int titan_ht_config_write_dword(struct pci_dev *device,
         dev = PCI_SLOT(device->devfn);
         func = PCI_FUNC(device->devfn);
 
-	
+	/* XXX Need to change the Bus # */
         if (bus > 2)
                 address = (bus << 16) | (dev << 11) | (func << 8) | (offset & 0xfc) |
                                                         0x80000000 | 0x1;
@@ -201,7 +205,7 @@ static int titan_ht_config_write_word(struct pci_dev *device,
         dev = PCI_SLOT(device->devfn);
         func = PCI_FUNC(device->devfn);
 
-	
+	/* XXX Need to change the Bus # */
         if (bus > 2)
                 address = (bus << 16) | (dev << 11) | (func << 8) | (offset & 0xfc) |
                                 0x80000000 | 0x1;
@@ -234,7 +238,7 @@ static int titan_ht_config_write_byte(struct pci_dev *device,
         dev = PCI_SLOT(device->devfn);
         func = PCI_FUNC(device->devfn);
 
-	
+	/* XXX Need to change the Bus # */
         if (bus > 2)
                 address = (bus << 16) | (dev << 11) | (func << 8) | (offset & 0xfc) |
                                 0x80000000 | 0x1;
@@ -347,6 +351,9 @@ resource_size_t pcibios_align_resource(void *data, const struct resource *res,
 	resource_size_t start = res->start;
 
         if (res->flags & IORESOURCE_IO) {
+                /* We need to avoid collisions with `mirrored' VGA ports
+                   and other strange ISA hardware, so we always want the
+                   addresses kilobyte aligned.  */
                 if (size > 0x100) {
                         printk(KERN_ERR "PCI: I/O Region %s/%d too large"
                                " (%ld bytes)\n", pci_name(dev),
@@ -376,30 +383,33 @@ void __init pcibios_fixup_bus(struct pci_bus *c)
 void __init pcibios_init(void)
 {
 
-        
-	
+        /* Reset PCI I/O and PCI MEM values */
+	/* XXX Need to add the proper values here */
         ioport_resource.start = 0xe0000000;
         ioport_resource.end   = 0xe0000000 + 0x20000000 - 1;
         iomem_resource.start  = 0xc0000000;
         iomem_resource.end    = 0xc0000000 + 0x20000000 - 1;
 
-	
+	/* XXX Need to add bus values */
         pci_scan_bus(2, &titan_pci_ops, NULL);
         pci_scan_bus(3, &titan_pci_ops, NULL);
 }
 
+/*
+ * for parsing "pci=" kernel boot arguments.
+ */
 char *pcibios_setup(char *str)
 {
         printk(KERN_INFO "rr: pcibios_setup\n");
-        
+        /* Nothing to do for now.  */
 
         return str;
 }
 
 unsigned __init int pcibios_assign_all_busses(void)
 {
-        
+        /* We want to use the PCI bus detection done by PMON */
         return 0;
 }
 
-#endif 
+#endif /* CONFIG_HYPERTRANSPORT */

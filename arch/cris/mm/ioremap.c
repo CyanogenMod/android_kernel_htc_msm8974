@@ -14,22 +14,40 @@
 #include <asm/pgalloc.h>
 #include <arch/memmap.h>
 
+/*
+ * Generic mapping function (not visible outside):
+ */
 
+/*
+ * Remap an arbitrary physical address space into the kernel virtual
+ * address space. Needed when the kernel wants to access high addresses
+ * directly.
+ *
+ * NOTE! We need to allow non-page-aligned mappings too: we will obviously
+ * have to convert them into an offset in a page-aligned mapping, but the
+ * caller shouldn't need to know that small detail.
+ */
 void __iomem * __ioremap_prot(unsigned long phys_addr, unsigned long size, pgprot_t prot)
 {
 	void __iomem * addr;
 	struct vm_struct * area;
 	unsigned long offset, last_addr;
 
-	
+	/* Don't allow wraparound or zero size */
 	last_addr = phys_addr + size - 1;
 	if (!size || last_addr < phys_addr)
 		return NULL;
 
+	/*
+	 * Mappings have to be page-aligned
+	 */
 	offset = phys_addr & ~PAGE_MASK;
 	phys_addr &= PAGE_MASK;
 	size = PAGE_ALIGN(last_addr+1) - phys_addr;
 
+	/*
+	 * Ok, go for it..
+	 */
 	area = get_vm_area(size, VM_IOREMAP);
 	if (!area)
 		return NULL;
@@ -50,6 +68,13 @@ void __iomem * __ioremap(unsigned long phys_addr, unsigned long size, unsigned l
 				       _PAGE_KERNEL | flags));
 }
 
+/**
+ * ioremap_nocache     -   map bus memory into CPU space
+ * @offset:    bus address of the memory
+ * @size:      size of the resource to map
+ *
+ * Must be freed with iounmap.
+ */
 
 void __iomem *ioremap_nocache (unsigned long phys_addr, unsigned long size)
 {

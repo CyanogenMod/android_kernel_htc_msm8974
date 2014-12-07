@@ -33,6 +33,16 @@
 
 extern unsigned long asid_cache;
 
+/*
+ * NO_CONTEXT is the invalid ASID value that we don't ever assign to
+ * any user or kernel context.
+ *
+ * 0 invalid
+ * 1 kernel
+ * 2 reserved
+ * 3 reserved
+ * 4...255 available
+ */
 
 #define NO_CONTEXT	0
 #define ASID_USER_FIRST	4
@@ -57,7 +67,7 @@ __get_new_mmu_context(struct mm_struct *mm)
 {
 	extern void flush_tlb_all(void);
 	if (! (++asid_cache & ASID_MASK) ) {
-		flush_tlb_all(); 
+		flush_tlb_all(); /* start new asid cycle */
 		asid_cache += ASID_USER_FIRST;
 	}
 	mm->context = asid_cache;
@@ -70,6 +80,10 @@ __load_mmu_context(struct mm_struct *mm)
 	invalidate_page_directory();
 }
 
+/*
+ * Initialize the context related info for a new mm_struct
+ * instance.
+ */
 
 static inline int
 init_new_context(struct task_struct *tsk, struct mm_struct *mm)
@@ -78,10 +92,14 @@ init_new_context(struct task_struct *tsk, struct mm_struct *mm)
 	return 0;
 }
 
+/*
+ * After we have set current->mm to a new value, this activates
+ * the context for the new mm so we see the new mappings.
+ */
 static inline void
 activate_mm(struct mm_struct *prev, struct mm_struct *next)
 {
-	
+	/* Unconditionally get a new ASID.  */
 
 	__get_new_mmu_context(next);
 	__load_mmu_context(next);
@@ -93,7 +111,7 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 {
 	unsigned long asid = asid_cache;
 
-	
+	/* Check if our ASID is of an older version and thus invalid */
 
 	if (next->context == NO_CONTEXT || ((next->context^asid) & ~ASID_MASK))
 		__get_new_mmu_context(next);
@@ -103,6 +121,10 @@ static inline void switch_mm(struct mm_struct *prev, struct mm_struct *next,
 
 #define deactivate_mm(tsk, mm)	do { } while(0)
 
+/*
+ * Destroy context related info for an mm_struct that is about
+ * to be put to rest.
+ */
 static inline void destroy_context(struct mm_struct *mm)
 {
 	invalidate_page_directory();
@@ -111,9 +133,9 @@ static inline void destroy_context(struct mm_struct *mm)
 
 static inline void enter_lazy_tlb(struct mm_struct *mm, struct task_struct *tsk)
 {
-	
+	/* Nothing to do. */
 
 }
 
-#endif 
-#endif 
+#endif /* CONFIG_MMU */
+#endif /* _XTENSA_MMU_CONTEXT_H */

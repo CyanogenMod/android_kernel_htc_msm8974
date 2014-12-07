@@ -84,22 +84,27 @@ static void rds_recv_rcvbuf_delta(struct rds_sock *rs, struct sock *sk,
 	  ntohs(rs->rs_bound_port), rs->rs_rcv_bytes,
 	  rds_sk_rcvbuf(rs), now_congested, delta);
 
-	
+	/* wasn't -> am congested */
 	if (!rs->rs_congested && now_congested) {
 		rs->rs_congested = 1;
 		rds_cong_set_bit(map, port);
 		rds_cong_queue_updates(map);
 	}
-	
+	/* was -> aren't congested */
+	/* Require more free space before reporting uncongested to prevent
+	   bouncing cong/uncong state too often */
 	else if (rs->rs_congested && (rs->rs_rcv_bytes < (rds_sk_rcvbuf(rs)/2))) {
 		rs->rs_congested = 0;
 		rds_cong_clear_bit(map, port);
 		rds_cong_queue_updates(map);
 	}
 
-	
+	/* do nothing if no change in cong state */
 }
 
+/*
+ * Process all extension headers that come with this message.
+ */
 static void rds_recv_incoming_exthdrs(struct rds_incoming *inc, struct rds_sock *rs)
 {
 	struct rds_header *hdr = &inc->i_hdr;
@@ -115,13 +120,15 @@ static void rds_recv_incoming_exthdrs(struct rds_incoming *inc, struct rds_sock 
 		type = rds_message_next_extension(hdr, &pos, &buffer, &len);
 		if (type == RDS_EXTHDR_NONE)
 			break;
-		
+		/* Process extension header here */
 		switch (type) {
 		case RDS_EXTHDR_RDMA:
 			rds_rdma_unuse(rs, be32_to_cpu(buffer.rdma.h_rdma_rkey), 0);
 			break;
 
 		case RDS_EXTHDR_RDMA_DEST:
+			/* We ignore the size for now. We could stash it
+			 * somewhere and use it for error checking. */
 			inc->i_rdma_cookie = rds_rdma_make_cookie(
 					be32_to_cpu(buffer.rdma_dest.h_rdma_rkey),
 					be32_to_cpu(buffer.rdma_dest.h_rdma_offset));
@@ -131,6 +138,22 @@ static void rds_recv_incoming_exthdrs(struct rds_incoming *inc, struct rds_sock 
 	}
 }
 
+/*
+ * The transport must make sure that this is serialized against other
+ * rx and conn reset on this specific conn.
+ *
+ * We currently assert that only one fragmented message will be sent
+ * down a connection at a time.  This lets us reassemble in the conn
+ * instead of per-flow which means that we don't have to go digging through
+ * flows to tear down partial reassembly progress on conn failure and
+ * we save flow lookup and locking for each frag arrival.  It does mean
+ * that small messages will wait behind large ones.  Fragmenting at all
+ * is only to reduce the memory consumption of pre-posted buffers.
+ *
+ * The caller passes in saddr and daddr instead of us getting it from the
+ * conn.  This lets loopback, who only has one conn for both directions,
+ * tell us which roles the addrs in the conn are playing for this message.
+ */
 void rds_recv_incoming(struct rds_connection *conn, __be32 saddr, __be32 daddr,
 		       struct rds_incoming *inc, gfp_t gfp)
 {
@@ -152,6 +175,26 @@ void rds_recv_incoming(struct rds_connection *conn, __be32 saddr, __be32 daddr,
 		 inc->i_hdr.h_flags,
 		 inc->i_rx_jiffies);
 
+	/*
+	 * Sequence numbers should only increase.  Messages get their
+	 * sequence number as they're queued in a sending conn.  They
+	 * can be dropped, though, if the sending socket is closed before
+	 * they hit the wire.  So sequence numbers can skip forward
+	 * under normal operation.  They can also drop back in the conn
+	 * failover case as previously sent messages are resent down the
+	 * new instance of a conn.  We drop those, otherwise we have
+	 * to assume that the next valid seq does not come after a
+	 * hole in the fragment stream.
+	 *
+	 * The headers don't give us a way to realize if fragments of
+	 * a message have been dropped.  We assume that frags that arrive
+	 * to a flow are part of the current message on the flow that is
+	 * being reassembled.  This means that senders can't drop messages
+	 * from the sending conn until all their frags are sent.
+	 *
+	 * XXX we could spend more on the wire to get more robust failure
+	 * detection, arguably worth it to avoid data corruption.
+	 */
 	if (be64_to_cpu(inc->i_hdr.h_sequence) < conn->c_next_rx_seq &&
 	    (inc->i_hdr.h_flags & RDS_FLAG_RETRANSMITTED)) {
 		rds_stats_inc(s_recv_drop_old_seq);
@@ -171,13 +214,13 @@ void rds_recv_incoming(struct rds_connection *conn, __be32 saddr, __be32 daddr,
 		goto out;
 	}
 
-	
+	/* Process extension headers */
 	rds_recv_incoming_exthdrs(inc, rs);
 
-	
+	/* We can be racing with rds_release() which marks the socket dead. */
 	sk = rds_rs_to_sk(rs);
 
-	
+	/* serialize with rds_release -> sock_orphan */
 	write_lock_irqsave(&rs->rs_recv_lock, flags);
 	if (!sock_flag(sk, SOCK_DEAD)) {
 		rdsdebug("adding inc %p to rs %p's recv queue\n", inc, rs);
@@ -199,6 +242,10 @@ out:
 }
 EXPORT_SYMBOL_GPL(rds_recv_incoming);
 
+/*
+ * be very careful here.  This is being called as the condition in
+ * wait_event_*() needs to cope with being called many times.
+ */
 static int rds_next_incoming(struct rds_sock *rs, struct rds_incoming **inc)
 {
 	unsigned long flags;
@@ -228,7 +275,7 @@ static int rds_still_queued(struct rds_sock *rs, struct rds_incoming *inc,
 	if (!list_empty(&inc->i_item)) {
 		ret = 1;
 		if (drop) {
-			
+			/* XXX make sure this i_conn is reliable */
 			rds_recv_rcvbuf_delta(rs, sk, inc->i_conn->c_lcong,
 					      -be32_to_cpu(inc->i_hdr.h_len),
 					      inc->i_hdr.h_dport);
@@ -242,16 +289,27 @@ static int rds_still_queued(struct rds_sock *rs, struct rds_incoming *inc,
 	return ret;
 }
 
+/*
+ * Pull errors off the error queue.
+ * If msghdr is NULL, we will just purge the error queue.
+ */
 int rds_notify_queue_get(struct rds_sock *rs, struct msghdr *msghdr)
 {
 	struct rds_notifier *notifier;
-	struct rds_rdma_notify cmsg = { 0 }; 
+	struct rds_rdma_notify cmsg = { 0 }; /* fill holes with zero */
 	unsigned int count = 0, max_messages = ~0U;
 	unsigned long flags;
 	LIST_HEAD(copy);
 	int err = 0;
 
 
+	/* put_cmsg copies to user space and thus may sleep. We can't do this
+	 * with rs_lock held, so first grab as many notifications as we can stuff
+	 * in the user provided cmsg buffer. We don't try to copy more, to avoid
+	 * losing notifications - except when the buffer is so small that it wouldn't
+	 * even hold a single notification. Then we give him as much of this single
+	 * msg as we can squeeze in, and set MSG_CTRUNC.
+	 */
 	if (msghdr) {
 		max_messages = msghdr->msg_controllen / CMSG_SPACE(sizeof(cmsg));
 		if (!max_messages)
@@ -287,6 +345,9 @@ int rds_notify_queue_get(struct rds_sock *rs, struct msghdr *msghdr)
 		kfree(notifier);
 	}
 
+	/* If we bailed out because of an error in put_cmsg,
+	 * we may be left with one or more notifications that we
+	 * didn't process. Return them to the head of the list. */
 	if (!list_empty(&copy)) {
 		spin_lock_irqsave(&rs->rs_lock, flags);
 		list_splice(&copy, &rs->rs_notify_queue);
@@ -296,6 +357,9 @@ int rds_notify_queue_get(struct rds_sock *rs, struct msghdr *msghdr)
 	return err;
 }
 
+/*
+ * Queue a congestion notification
+ */
 static int rds_notify_cong(struct rds_sock *rs, struct msghdr *msghdr)
 {
 	uint64_t notify = rs->rs_cong_notify;
@@ -314,6 +378,9 @@ static int rds_notify_cong(struct rds_sock *rs, struct msghdr *msghdr)
 	return 0;
 }
 
+/*
+ * Receive any control messages.
+ */
 static int rds_cmsg_recv(struct rds_incoming *inc, struct msghdr *msg)
 {
 	int ret = 0;
@@ -338,7 +405,7 @@ int rds_recvmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg,
 	struct sockaddr_in *sin;
 	struct rds_incoming *inc = NULL;
 
-	
+	/* udp_recvmsg()->sock_recvtimeo() gets away without locking too.. */
 	timeo = sock_rcvtimeo(sk, nonblock);
 
 	rdsdebug("size %zu flags 0x%x timeo %ld\n", size, msg_flags, timeo);
@@ -347,7 +414,7 @@ int rds_recvmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg,
 		goto out;
 
 	while (1) {
-		
+		/* If there are pending notifications, do those - and nothing else */
 		if (!list_empty(&rs->rs_notify_queue)) {
 			ret = rds_notify_queue_get(rs, msg);
 			break;
@@ -387,6 +454,11 @@ int rds_recvmsg(struct kiocb *iocb, struct socket *sock, struct msghdr *msg,
 		if (ret < 0)
 			break;
 
+		/*
+		 * if the message we just copied isn't at the head of the
+		 * recv queue then someone else raced us to return it, try
+		 * to get the next message.
+		 */
 		if (!rds_still_queued(rs, inc, !(msg_flags & MSG_PEEK))) {
 			rds_inc_put(inc);
 			inc = NULL;
@@ -424,6 +496,11 @@ out:
 	return ret;
 }
 
+/*
+ * The socket is being shut down and we're asked to drop messages that were
+ * queued for recvmsg.  The caller has unbound the socket so the receive path
+ * won't queue any more incoming fragments or messages on the socket.
+ */
 void rds_clear_recv_queue(struct rds_sock *rs)
 {
 	struct sock *sk = rds_rs_to_sk(rs);
@@ -441,6 +518,10 @@ void rds_clear_recv_queue(struct rds_sock *rs)
 	write_unlock_irqrestore(&rs->rs_recv_lock, flags);
 }
 
+/*
+ * inc->i_saddr isn't used here because it is only set in the receive
+ * path.
+ */
 void rds_inc_info_copy(struct rds_incoming *inc,
 		       struct rds_info_iterator *iter,
 		       __be32 saddr, __be32 daddr, int flip)

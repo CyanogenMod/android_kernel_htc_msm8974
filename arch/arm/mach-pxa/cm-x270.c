@@ -27,19 +27,23 @@
 
 #include "generic.h"
 
+/* physical address if local-bus attached devices */
 #define RTC_PHYS_BASE		(PXA_CS1_PHYS + (5 << 22))
 
+/* GPIO IRQ usage */
 #define GPIO83_MMC_IRQ		(83)
 
 #define CMX270_MMC_IRQ		PXA_GPIO_TO_IRQ(GPIO83_MMC_IRQ)
 
+/* MMC power enable */
 #define GPIO105_MMC_POWER	(105)
 
+/* WLAN GPIOS */
 #define GPIO19_WLAN_STRAP	(19)
 #define GPIO102_WLAN_RST	(102)
 
 static unsigned long cmx270_pin_config[] = {
-	
+	/* AC'97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
@@ -47,17 +51,17 @@ static unsigned long cmx270_pin_config[] = {
 	GPIO98_AC97_SYSCLK,
 	GPIO113_AC97_nRESET,
 
-	
+	/* BTUART */
 	GPIO42_BTUART_RXD,
 	GPIO43_BTUART_TXD,
 	GPIO44_BTUART_CTS,
 	GPIO45_BTUART_RTS,
 
-	
+	/* STUART */
 	GPIO46_STUART_RXD,
 	GPIO47_STUART_TXD,
 
-	
+	/* MCI controller */
 	GPIO32_MMC_CLK,
 	GPIO112_MMC_CMD,
 	GPIO92_MMC_DAT_0,
@@ -65,26 +69,26 @@ static unsigned long cmx270_pin_config[] = {
 	GPIO110_MMC_DAT_2,
 	GPIO111_MMC_DAT_3,
 
-	
+	/* LCD */
 	GPIOxx_LCD_TFT_16BPP,
 
-	
+	/* I2C */
 	GPIO117_I2C_SCL,
 	GPIO118_I2C_SDA,
 
-	
+	/* SSP1 */
 	GPIO23_SSP1_SCLK,
 	GPIO24_SSP1_SFRM,
 	GPIO25_SSP1_TXD,
 	GPIO26_SSP1_RXD,
 
-	
-	GPIO19_GPIO,	
+	/* SSP2 */
+	GPIO19_GPIO,	/* SSP2 clock is used as GPIO for Libertas pin-strap */
 	GPIO14_GPIO,
 	GPIO87_SSP2_TXD,
 	GPIO88_SSP2_RXD,
 
-	
+	/* PC Card */
 	GPIO48_nPOE,
 	GPIO49_nPWE,
 	GPIO50_nPIOR,
@@ -95,7 +99,7 @@ static unsigned long cmx270_pin_config[] = {
 	GPIO56_nPWAIT,
 	GPIO57_nIOIS16,
 
-	
+	/* SDRAM and local bus */
 	GPIO15_nCS_1,
 	GPIO78_nCS_2,
 	GPIO79_nCS_3,
@@ -104,22 +108,23 @@ static unsigned long cmx270_pin_config[] = {
 	GPIO49_nPWE,
 	GPIO18_RDY,
 
-	
+	/* GPIO */
 	GPIO0_GPIO	| WAKEUP_ON_EDGE_BOTH,
-	GPIO105_GPIO	| MFP_LPM_DRIVE_HIGH,	
-	GPIO53_GPIO,				
-	GPIO102_GPIO,				
+	GPIO105_GPIO	| MFP_LPM_DRIVE_HIGH,	/* MMC/SD power */
+	GPIO53_GPIO,				/* PC card reset */
+	GPIO102_GPIO,				/* WLAN reset */
 
-	
-	GPIO11_GPIO	| MFP_LPM_DRIVE_HIGH,	
-	GPIO89_GPIO,				
+	/* NAND controls */
+	GPIO11_GPIO	| MFP_LPM_DRIVE_HIGH,	/* NAND CE# */
+	GPIO89_GPIO,				/* NAND Ready/Busy */
 
-	
-	GPIO10_GPIO,	
-	GPIO83_GPIO,	
-	GPIO95_GPIO,	
+	/* interrupts */
+	GPIO10_GPIO,	/* DM9000 interrupt */
+	GPIO83_GPIO,	/* MMC card detect */
+	GPIO95_GPIO,	/* WLAN interrupt */
 };
 
+/* V3020 RTC */
 #if defined(CONFIG_RTC_DRV_V3020) || defined(CONFIG_RTC_DRV_V3020_MODULE)
 static struct resource cmx270_v3020_resource[] = {
 	[0] = {
@@ -151,17 +156,18 @@ static void __init cmx270_init_rtc(void)
 static inline void cmx270_init_rtc(void) {}
 #endif
 
+/* 2700G graphics */
 #if defined(CONFIG_FB_MBX) || defined(CONFIG_FB_MBX_MODULE)
 static u64 fb_dma_mask = ~(u64)0;
 
 static struct resource cmx270_2700G_resource[] = {
-	
+	/* frame buffer memory including ODFB and External SDRAM */
 	[0] = {
 		.start = PXA_CS2_PHYS,
 		.end   = PXA_CS2_PHYS + 0x01ffffff,
 		.flags = IORESOURCE_MEM,
 	},
-	
+	/* Marathon registers */
 	[1] = {
 		.start = PXA_CS2_PHYS + 0x03fe0000,
 		.end   = PXA_CS2_PHYS + 0x03ffffff,
@@ -264,6 +270,7 @@ static void __init cmx270_init_2700G(void)
 static inline void cmx270_init_2700G(void) {}
 #endif
 
+/* PXA27x OHCI controller setup */
 #if defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
 static struct pxaohci_platform_data cmx270_ohci_platform_data = {
 	.port_mode	= PMM_PERPORT_MODE,
@@ -309,7 +316,7 @@ static struct pxa2xx_spi_chip cm_x270_libertas_chip = {
 };
 
 static unsigned long cm_x270_libertas_pin_config[] = {
-	
+	/* SSP2 */
 	GPIO19_SSP2_SCLK,
 	GPIO14_GPIO,
 	GPIO87_SSP2_TXD,

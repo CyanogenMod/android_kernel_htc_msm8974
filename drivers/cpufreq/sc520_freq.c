@@ -25,8 +25,8 @@
 #include <asm/cpu_device_id.h>
 #include <asm/msr.h>
 
-#define MMCR_BASE	0xfffef000	
-#define OFFS_CPUCTL	0x2   
+#define MMCR_BASE	0xfffef000	/* The default base address */
+#define OFFS_CPUCTL	0x2   /* CPU Control Register */
 
 static __u8 __iomem *cpuctl;
 
@@ -61,7 +61,7 @@ static void sc520_freq_set_cpu_state(unsigned int state)
 
 	freqs.old = sc520_freq_get_cpu_frequency(0);
 	freqs.new = sc520_freq_table[state].frequency;
-	freqs.cpu = 0; 
+	freqs.cpu = 0; /* AMD Elan is UP */
 
 	cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
@@ -99,19 +99,22 @@ static int sc520_freq_target(struct cpufreq_policy *policy,
 }
 
 
+/*
+ *	Module init and exit code
+ */
 
 static int sc520_freq_cpu_init(struct cpufreq_policy *policy)
 {
 	struct cpuinfo_x86 *c = &cpu_data(0);
 	int result;
 
-	
+	/* capability check */
 	if (c->x86_vendor != X86_VENDOR_AMD ||
 	    c->x86 != 4 || c->x86_model != 9)
 		return -ENODEV;
 
-	
-	policy->cpuinfo.transition_latency = 1000000; 
+	/* cpuinfo and default policy values */
+	policy->cpuinfo.transition_latency = 1000000; /* 1ms */
 	policy->cur = sc520_freq_get_cpu_frequency(0);
 
 	result = cpufreq_frequency_table_cpuinfo(policy, sc520_freq_table);

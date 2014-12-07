@@ -28,6 +28,11 @@
 
 #include "wm8510.h"
 
+/*
+ * wm8510 register cache
+ * We can't read the WM8510 register space when we are
+ * using 2 wire for device control, so we cache them instead.
+ */
 static const u16 wm8510_reg[WM8510_CACHEREGNUM] = {
 	0x0000, 0x0000, 0x0000, 0x0000,
 	0x0050, 0x0000, 0x0140, 0x0000,
@@ -51,6 +56,7 @@ static const u16 wm8510_reg[WM8510_CACHEREGNUM] = {
 
 #define wm8510_reset(c)	snd_soc_write(c, WM8510_RESET, 0)
 
+/* codec private data */
 struct wm8510_priv {
 	enum snd_soc_control_type control_type;
 };
@@ -60,8 +66,8 @@ static const char *wm8510_deemp[] = { "None", "32kHz", "44.1kHz", "48kHz" };
 static const char *wm8510_alc[] = { "ALC", "Limiter" };
 
 static const struct soc_enum wm8510_enum[] = {
-	SOC_ENUM_SINGLE(WM8510_COMP, 1, 4, wm8510_companding), 
-	SOC_ENUM_SINGLE(WM8510_COMP, 3, 4, wm8510_companding), 
+	SOC_ENUM_SINGLE(WM8510_COMP, 1, 4, wm8510_companding), /* adc */
+	SOC_ENUM_SINGLE(WM8510_COMP, 3, 4, wm8510_companding), /* dac */
 	SOC_ENUM_SINGLE(WM8510_DAC,  4, 4, wm8510_deemp),
 	SOC_ENUM_SINGLE(WM8510_ALC3,  8, 2, wm8510_alc),
 };
@@ -118,12 +124,14 @@ SOC_SINGLE("Capture Boost(+20dB)", WM8510_ADCBOOST,  8, 1, 0),
 SOC_SINGLE("Mono Playback Switch", WM8510_MONOMIX, 6, 1, 1),
 };
 
+/* Speaker Output Mixer */
 static const struct snd_kcontrol_new wm8510_speaker_mixer_controls[] = {
 SOC_DAPM_SINGLE("Line Bypass Switch", WM8510_SPKMIX, 1, 1, 0),
 SOC_DAPM_SINGLE("Aux Playback Switch", WM8510_SPKMIX, 5, 1, 0),
 SOC_DAPM_SINGLE("PCM Playback Switch", WM8510_SPKMIX, 0, 1, 0),
 };
 
+/* Mono Output Mixer */
 static const struct snd_kcontrol_new wm8510_mono_mixer_controls[] = {
 SOC_DAPM_SINGLE("Line Bypass Switch", WM8510_MONOMIX, 1, 1, 0),
 SOC_DAPM_SINGLE("Aux Playback Switch", WM8510_MONOMIX, 2, 1, 0),
@@ -174,17 +182,17 @@ SND_SOC_DAPM_OUTPUT("SPKOUTN"),
 };
 
 static const struct snd_soc_dapm_route wm8510_dapm_routes[] = {
-	
+	/* Mono output mixer */
 	{"Mono Mixer", "PCM Playback Switch", "DAC"},
 	{"Mono Mixer", "Aux Playback Switch", "Aux Input"},
 	{"Mono Mixer", "Line Bypass Switch", "Boost Mixer"},
 
-	
+	/* Speaker output mixer */
 	{"Speaker Mixer", "PCM Playback Switch", "DAC"},
 	{"Speaker Mixer", "Aux Playback Switch", "Aux Input"},
 	{"Speaker Mixer", "Line Bypass Switch", "Boost Mixer"},
 
-	
+	/* Outputs */
 	{"Mono Out", NULL, "Mono Mixer"},
 	{"MONOOUT", NULL, "Mono Out"},
 	{"SpkN Out", NULL, "Speaker Mixer"},
@@ -192,12 +200,12 @@ static const struct snd_soc_dapm_route wm8510_dapm_routes[] = {
 	{"SPKOUTN", NULL, "SpkN Out"},
 	{"SPKOUTP", NULL, "SpkP Out"},
 
-	
+	/* Microphone PGA */
 	{"Mic PGA", "MICN Switch", "MICN"},
 	{"Mic PGA", "MICP Switch", "MICP"},
 	{ "Mic PGA", "AUX Switch", "Aux Input" },
 
-	
+	/* Boost Mixer */
 	{"Boost Mixer", "Mic PGA Switch", "Mic PGA"},
 	{"Boost Mixer", "Mic Volume", "MICP"},
 	{"Boost Mixer", "Aux Volume", "Aux Input"},
@@ -206,13 +214,15 @@ static const struct snd_soc_dapm_route wm8510_dapm_routes[] = {
 };
 
 struct pll_ {
-	unsigned int pre_div:4; 
+	unsigned int pre_div:4; /* prescale - 1 */
 	unsigned int n:4;
 	unsigned int k;
 };
 
 static struct pll_ pll_div;
 
+/* The size in bits of the pll divide multiplied by 10
+ * to allow rounding later */
 #define FIXED_PLL_SIZE ((1 << 24) * 10)
 
 static void pll_factors(unsigned int target, unsigned int source)
@@ -241,11 +251,11 @@ static void pll_factors(unsigned int target, unsigned int source)
 
 	K = Kpart & 0xFFFFFFFF;
 
-	
+	/* Check if we need to round */
 	if ((K % 10) >= 5)
 		K += 5;
 
-	
+	/* Move down to proper range now rounding is done */
 	K /= 10;
 
 	pll_div.k = K;
@@ -258,11 +268,11 @@ static int wm8510_set_dai_pll(struct snd_soc_dai *codec_dai, int pll_id,
 	u16 reg;
 
 	if (freq_in == 0 || freq_out == 0) {
-		
+		/* Clock CODEC directly from MCLK */
 		reg = snd_soc_read(codec, WM8510_CLOCK);
 		snd_soc_write(codec, WM8510_CLOCK, reg & 0x0ff);
 
-		
+		/* Turn off PLL */
 		reg = snd_soc_read(codec, WM8510_POWER1);
 		snd_soc_write(codec, WM8510_POWER1, reg & 0x1df);
 		return 0;
@@ -277,13 +287,16 @@ static int wm8510_set_dai_pll(struct snd_soc_dai *codec_dai, int pll_id,
 	reg = snd_soc_read(codec, WM8510_POWER1);
 	snd_soc_write(codec, WM8510_POWER1, reg | 0x020);
 
-	
+	/* Run CODEC from PLL instead of MCLK */
 	reg = snd_soc_read(codec, WM8510_CLOCK);
 	snd_soc_write(codec, WM8510_CLOCK, reg | 0x100);
 
 	return 0;
 }
 
+/*
+ * Configure WM8510 clock dividers.
+ */
 static int wm8510_set_dai_clkdiv(struct snd_soc_dai *codec_dai,
 		int div_id, int div)
 {
@@ -325,7 +338,7 @@ static int wm8510_set_dai_fmt(struct snd_soc_dai *codec_dai,
 	u16 iface = 0;
 	u16 clk = snd_soc_read(codec, WM8510_CLOCK) & 0x1fe;
 
-	
+	/* set master/slave audio interface */
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBM_CFM:
 		clk |= 0x0001;
@@ -336,7 +349,7 @@ static int wm8510_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		return -EINVAL;
 	}
 
-	
+	/* interface format */
 	switch (fmt & SND_SOC_DAIFMT_FORMAT_MASK) {
 	case SND_SOC_DAIFMT_I2S:
 		iface |= 0x0010;
@@ -353,7 +366,7 @@ static int wm8510_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		return -EINVAL;
 	}
 
-	
+	/* clock inversion */
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_NB_NF:
 		break;
@@ -384,7 +397,7 @@ static int wm8510_pcm_hw_params(struct snd_pcm_substream *substream,
 	u16 iface = snd_soc_read(codec, WM8510_IFACE) & 0x19f;
 	u16 adn = snd_soc_read(codec, WM8510_ADD) & 0x1f1;
 
-	
+	/* bit size */
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 		break;
@@ -399,7 +412,7 @@ static int wm8510_pcm_hw_params(struct snd_pcm_substream *substream,
 		break;
 	}
 
-	
+	/* filter coefficient */
 	switch (params_rate(params)) {
 	case 8000:
 		adn |= 0x5 << 1;
@@ -438,6 +451,7 @@ static int wm8510_mute(struct snd_soc_dai *dai, int mute)
 	return 0;
 }
 
+/* liam need to make this lower power with dapm */
 static int wm8510_set_bias_level(struct snd_soc_codec *codec,
 	enum snd_soc_bias_level level)
 {
@@ -446,7 +460,7 @@ static int wm8510_set_bias_level(struct snd_soc_codec *codec,
 	switch (level) {
 	case SND_SOC_BIAS_ON:
 	case SND_SOC_BIAS_PREPARE:
-		power1 |= 0x1;  
+		power1 |= 0x1;  /* VMID 50k */
 		snd_soc_write(codec, WM8510_POWER1, power1);
 		break;
 
@@ -456,12 +470,12 @@ static int wm8510_set_bias_level(struct snd_soc_codec *codec,
 		if (codec->dapm.bias_level == SND_SOC_BIAS_OFF) {
 			snd_soc_cache_sync(codec);
 
-			
+			/* Initial cap charge at VMID 5k */
 			snd_soc_write(codec, WM8510_POWER1, power1 | 0x3);
 			mdelay(100);
 		}
 
-		power1 |= 0x2;  
+		power1 |= 0x2;  /* VMID 500k */
 		snd_soc_write(codec, WM8510_POWER1, power1);
 		break;
 
@@ -534,12 +548,13 @@ static int wm8510_probe(struct snd_soc_codec *codec)
 
 	wm8510_reset(codec);
 
-	
+	/* power on device */
 	wm8510_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
 	return ret;
 }
 
+/* power down chip */
 static int wm8510_remove(struct snd_soc_codec *codec)
 {
 	struct wm8510_priv *wm8510 = snd_soc_codec_get_drvdata(codec);
@@ -607,7 +622,7 @@ static struct spi_driver wm8510_spi_driver = {
 	.probe		= wm8510_spi_probe,
 	.remove		= __devexit_p(wm8510_spi_remove),
 };
-#endif 
+#endif /* CONFIG_SPI_MASTER */
 
 #if defined(CONFIG_I2C) || defined(CONFIG_I2C_MODULE)
 static __devinit int wm8510_i2c_probe(struct i2c_client *i2c,

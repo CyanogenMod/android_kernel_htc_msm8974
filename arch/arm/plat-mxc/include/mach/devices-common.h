@@ -250,6 +250,11 @@ struct platform_device *__init imx_add_mxc_mmc(
 
 #include <mach/mxc_nand.h>
 struct imx_mxc_nand_data {
+	/*
+	 * id is traditionally 0, but -1 is more appropriate.  We use -1 for new
+	 * machines but don't change existing devices as the nand device usually
+	 * appears in the kernel command line to pass its partitioning.
+	 */
 	int id;
 	resource_size_t iobase;
 	resource_size_t iosize;
@@ -277,6 +282,7 @@ struct imx_mxc_pwm_data {
 struct platform_device *__init imx_add_mxc_pwm(
 		const struct imx_mxc_pwm_data *data);
 
+/* mxc_rtc */
 struct imx_mxc_rtc_data {
 	resource_size_t iobase;
 	resource_size_t irq;
@@ -284,6 +290,7 @@ struct imx_mxc_rtc_data {
 struct platform_device *__init imx_add_mxc_rtc(
 		const struct imx_mxc_rtc_data *data);
 
+/* mxc_w1 */
 struct imx_mxc_w1_data {
 	resource_size_t iobase;
 };

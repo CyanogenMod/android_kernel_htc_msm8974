@@ -65,7 +65,7 @@ extern void xfs_qm_exit(void);
 				XFS_SECURITY_STRING \
 				XFS_REALTIME_STRING \
 				XFS_BIGFS_STRING \
-				XFS_DBG_STRING 
+				XFS_DBG_STRING /* DBG must be last */
 
 struct xfs_inode;
 struct xfs_mount;
@@ -82,4 +82,4 @@ extern const struct quotactl_ops xfs_quotactl_operations;
 
 #define XFS_M(sb)		((struct xfs_mount *)((sb)->s_fs_info))
 
-#endif	
+#endif	/* __XFS_SUPER_H__ */

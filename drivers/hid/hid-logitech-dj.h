@@ -39,13 +39,16 @@
 #define REPORT_TYPE_RFREPORT_FIRST		0x01
 #define REPORT_TYPE_RFREPORT_LAST		0x1F
 
+/* Command Switch to DJ mode */
 #define REPORT_TYPE_CMD_SWITCH			0x80
 #define CMD_SWITCH_PARAM_DEVBITFIELD		0x00
 #define CMD_SWITCH_PARAM_TIMEOUT_SECONDS	0x01
 #define TIMEOUT_NO_KEEPALIVE			0x00
 
+/* Command to Get the list of Paired devices */
 #define REPORT_TYPE_CMD_GET_PAIRED_DEVICES	0x81
 
+/* Device Paired Notification */
 #define REPORT_TYPE_NOTIF_DEVICE_PAIRED		0x41
 #define SPFUNCTION_MORE_NOTIF_EXPECTED		0x01
 #define SPFUNCTION_DEVICE_LIST_EMPTY		0x02
@@ -54,17 +57,21 @@
 #define DEVICE_PAIRED_PARAM_EQUAD_ID_MSB	0x02
 #define DEVICE_PAIRED_RF_REPORT_TYPE		0x03
 
+/* Device Un-Paired Notification */
 #define REPORT_TYPE_NOTIF_DEVICE_UNPAIRED	0x40
 
 
+/* Connection Status Notification */
 #define REPORT_TYPE_NOTIF_CONNECTION_STATUS	0x42
 #define CONNECTION_STATUS_PARAM_STATUS		0x00
 #define STATUS_LINKLOSS				0x01
 
+/* Error Notification */
 #define REPORT_TYPE_NOTIF_ERROR			0x7F
 #define NOTIF_ERROR_PARAM_ETYPE			0x00
 #define ETYPE_KEEPALIVE_TIMEOUT			0x01
 
+/* supported DJ HID && RF report types */
 #define REPORT_TYPE_KEYBOARD			0x01
 #define REPORT_TYPE_MOUSE			0x02
 #define REPORT_TYPE_CONSUMER_CONTROL		0x03
@@ -72,6 +79,7 @@
 #define REPORT_TYPE_MEDIA_CENTER		0x08
 #define REPORT_TYPE_LEDS			0x0E
 
+/* RF Report types bitfield */
 #define STD_KEYBOARD				0x00000002
 #define STD_MOUSE				0x00000004
 #define MULTIMEDIA				0x00000008
@@ -102,6 +110,13 @@ struct dj_device {
 	u8 device_index;
 };
 
+/**
+ * is_dj_device - know if the given dj_device is not the receiver.
+ * @dj_dev: the dj device to test
+ *
+ * This macro tests if a struct dj_device pointer is a device created
+ * by the bus enumarator.
+ */
 #define is_dj_device(dj_dev) \
 	(&(dj_dev)->dj_receiver_dev->hdev->dev == (dj_dev)->hdev->dev.parent)
 

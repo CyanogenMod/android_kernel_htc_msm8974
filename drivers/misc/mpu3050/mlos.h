@@ -30,11 +30,11 @@
 extern "C" {
 #endif
 
-	
-	
-	
+	/* ------------ */
+	/* - Defines. - */
+	/* ------------ */
 
-	
+	/* - MLOSCreateFile defines. - */
 
 #define MLOS_GENERIC_READ         ((unsigned int)0x80000000)
 #define MLOS_GENERIC_WRITE        ((unsigned int)0x40000000)
@@ -42,17 +42,17 @@ extern "C" {
 #define MLOS_FILE_SHARE_WRITE     ((unsigned int)0x00000002)
 #define MLOS_OPEN_EXISTING        ((unsigned int)0x00000003)
 
-	
-	
-	
+	/* ---------- */
+	/* - Enums. - */
+	/* ---------- */
 
-	
-	
-	
+	/* --------------- */
+	/* - Structures. - */
+	/* --------------- */
 
-	
-	
-	
+	/* --------------------- */
+	/* - Function p-types. - */
+	/* --------------------- */
 
 	void *MLOSMalloc(unsigned int numBytes);
 	tMLError MLOSFree(void *ptr);
@@ -70,4 +70,4 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
-#endif				
+#endif				/* _MLOS_H */

@@ -51,8 +51,8 @@ static int kgdb_transition_check(char *buffer)
 static int kdb_read_get_key(char *buffer, size_t bufsize)
 {
 #define ESCAPE_UDELAY 1000
-#define ESCAPE_DELAY (2*1000000/ESCAPE_UDELAY) 
-	char escape_data[5];	
+#define ESCAPE_DELAY (2*1000000/ESCAPE_UDELAY) /* 2 seconds worth of udelays */
+	char escape_data[5];	/* longest vt100 escape sequence is 4 bytes */
 	char *ped = escape_data;
 	int escape_delay = 0;
 	get_char_func *f, *f_escape = NULL;
@@ -60,7 +60,7 @@ static int kdb_read_get_key(char *buffer, size_t bufsize)
 
 	for (f = &kdb_poll_funcs[0]; ; ++f) {
 		if (*f == NULL) {
-			
+			/* Reset NMI watchdog once per poll loop */
 			touch_nmi_watchdog();
 			f = &kdb_poll_funcs[0];
 		}
@@ -102,32 +102,32 @@ static int kdb_read_get_key(char *buffer, size_t bufsize)
 				continue;
 			}
 			if (ped - escape_data == 1) {
-				
+				/* \e */
 				continue;
 			} else if (ped - escape_data == 2) {
-				
+				/* \e<something> */
 				if (key != '[')
 					escape_delay = 2;
 				continue;
 			} else if (ped - escape_data == 3) {
-				
+				/* \e[<something> */
 				int mapkey = 0;
 				switch (key) {
-				case 'A': 
+				case 'A': /* \e[A, up arrow */
 					mapkey = 16;
 					break;
-				case 'B': 
+				case 'B': /* \e[B, down arrow */
 					mapkey = 14;
 					break;
-				case 'C': 
+				case 'C': /* \e[C, right arrow */
 					mapkey = 6;
 					break;
-				case 'D': 
+				case 'D': /* \e[D, left arrow */
 					mapkey = 2;
 					break;
-				case '1': 
-				case '3': 
-				
+				case '1': /* dropthrough */
+				case '3': /* dropthrough */
+				/* \e[<1,3,4>], may be home, del, end */
 				case '4':
 					mapkey = -1;
 					break;
@@ -141,17 +141,17 @@ static int kdb_read_get_key(char *buffer, size_t bufsize)
 				}
 				continue;
 			} else if (ped - escape_data == 4) {
-				
+				/* \e[<1,3,4><something> */
 				int mapkey = 0;
 				if (key == '~') {
 					switch (escape_data[2]) {
-					case '1': 
+					case '1': /* \e[1~, home */
 						mapkey = 1;
 						break;
-					case '3': 
+					case '3': /* \e[3~, del */
 						mapkey = 4;
 						break;
-					case '4': 
+					case '4': /* \e[4~, end */
 						mapkey = 5;
 						break;
 					}
@@ -164,16 +164,47 @@ static int kdb_read_get_key(char *buffer, size_t bufsize)
 				continue;
 			}
 		}
-		break;	
+		break;	/* A key to process */
 	}
 	return key;
 }
 
+/*
+ * kdb_read
+ *
+ *	This function reads a string of characters, terminated by
+ *	a newline, or by reaching the end of the supplied buffer,
+ *	from the current kernel debugger console device.
+ * Parameters:
+ *	buffer	- Address of character buffer to receive input characters.
+ *	bufsize - size, in bytes, of the character buffer
+ * Returns:
+ *	Returns a pointer to the buffer containing the received
+ *	character string.  This string will be terminated by a
+ *	newline character.
+ * Locking:
+ *	No locks are required to be held upon entry to this
+ *	function.  It is not reentrant - it relies on the fact
+ *	that while kdb is running on only one "master debug" cpu.
+ * Remarks:
+ *
+ * The buffer size must be >= 2.  A buffer size of 2 means that the caller only
+ * wants a single key.
+ *
+ * An escape key could be the start of a vt100 control sequence such as \e[D
+ * (left arrow) or it could be a character in its own right.  The standard
+ * method for detecting the difference is to wait for 2 seconds to see if there
+ * are any other characters.  kdb is complicated by the lack of a timer service
+ * (interrupts are off), by multiple input sources and by the need to sometimes
+ * return after just one key.  Escape sequence processing has to be done as
+ * states in the polling loop.
+ */
 
 static char *kdb_read(char *buffer, size_t bufsize)
 {
 	char *cp = buffer;
-	char *bufend = buffer+bufsize-2;	
+	char *bufend = buffer+bufsize-2;	/* Reserve space for newline
+						 * and null byte */
 	char *lastchar;
 	char *p_tmp;
 	char tmp;
@@ -210,7 +241,7 @@ poll_again:
 		last_crlf = 0;
 
 	switch (key) {
-	case 8: 
+	case 8: /* backspace */
 		if (cp > buffer) {
 			if (cp < lastchar) {
 				memcpy(tmpbuffer, cp, lastchar - cp);
@@ -226,9 +257,9 @@ poll_again:
 			*cp = tmp;
 		}
 		break;
-	case 10: 
-	case 13: 
-		
+	case 10: /* new line */
+	case 13: /* carriage return */
+		/* handle \n after \r */
 		if (last_crlf && last_crlf != key)
 			break;
 		last_crlf = key;
@@ -240,7 +271,7 @@ poll_again:
 		}
 		kdb_printf("\n");
 		return buffer;
-	case 4: 
+	case 4: /* Del */
 		if (cp < lastchar) {
 			memcpy(tmpbuffer, cp+1, lastchar - cp - 1);
 			memcpy(cp, tmpbuffer, lastchar - cp - 1);
@@ -253,26 +284,26 @@ poll_again:
 			*cp = tmp;
 		}
 		break;
-	case 1: 
+	case 1: /* Home */
 		if (cp > buffer) {
 			kdb_printf("\r");
 			kdb_printf(kdb_prompt_str);
 			cp = buffer;
 		}
 		break;
-	case 5: 
+	case 5: /* End */
 		if (cp < lastchar) {
 			kdb_printf("%s", cp);
 			cp = lastchar;
 		}
 		break;
-	case 2: 
+	case 2: /* Left */
 		if (cp > buffer) {
 			kdb_printf("\b");
 			--cp;
 		}
 		break;
-	case 14: 
+	case 14: /* Down */
 		memset(tmpbuffer, ' ',
 		       strlen(kdb_prompt_str) + (lastchar-buffer));
 		*(tmpbuffer+strlen(kdb_prompt_str) +
@@ -281,13 +312,13 @@ poll_again:
 		*lastchar = (char)key;
 		*(lastchar+1) = '\0';
 		return lastchar;
-	case 6: 
+	case 6: /* Right */
 		if (cp < lastchar) {
 			kdb_printf("%c", *cp);
 			++cp;
 		}
 		break;
-	case 16: 
+	case 16: /* Up */
 		memset(tmpbuffer, ' ',
 		       strlen(kdb_prompt_str) + (lastchar-buffer));
 		*(tmpbuffer+strlen(kdb_prompt_str) +
@@ -296,7 +327,7 @@ poll_again:
 		*lastchar = (char)key;
 		*(lastchar+1) = '\0';
 		return lastchar;
-	case 9: 
+	case 9: /* Tab */
 		if (tab < 2)
 			++tab;
 		p_tmp = buffer;
@@ -346,7 +377,7 @@ poll_again:
 			cp += len;
 			lastchar += len;
 		}
-		kdb_nextline = 1; 
+		kdb_nextline = 1; /* reset output line number */
 		break;
 	default:
 		if (key >= 32 && lastchar < bufend) {
@@ -365,6 +396,10 @@ poll_again:
 			} else {
 				*++lastchar = '\0';
 				*cp++ = key;
+				/* The kgdb transition check will hide
+				 * printed characters if we think that
+				 * kgdb is connecting, until the check
+				 * fails */
 				if (!KDB_STATE(KGDB_TRANS)) {
 					if (kgdb_transition_check(buffer))
 						return buffer;
@@ -372,7 +407,7 @@ poll_again:
 					kdb_printf("%c", key);
 				}
 			}
-			
+			/* Special escape to kgdb */
 			if (lastchar - buffer >= 5 &&
 			    strcmp(lastchar - 5, "$?#3f") == 0) {
 				kdb_gdb_state_pass(lastchar - 5);
@@ -393,16 +428,50 @@ poll_again:
 	goto poll_again;
 }
 
+/*
+ * kdb_getstr
+ *
+ *	Print the prompt string and read a command from the
+ *	input device.
+ *
+ * Parameters:
+ *	buffer	Address of buffer to receive command
+ *	bufsize Size of buffer in bytes
+ *	prompt	Pointer to string to use as prompt string
+ * Returns:
+ *	Pointer to command buffer.
+ * Locking:
+ *	None.
+ * Remarks:
+ *	For SMP kernels, the processor number will be
+ *	substituted for %d, %x or %o in the prompt.
+ */
 
 char *kdb_getstr(char *buffer, size_t bufsize, char *prompt)
 {
 	if (prompt && kdb_prompt_str != prompt)
 		strncpy(kdb_prompt_str, prompt, CMD_BUFLEN);
 	kdb_printf(kdb_prompt_str);
-	kdb_nextline = 1;	
+	kdb_nextline = 1;	/* Prompt and input resets line number */
 	return kdb_read(buffer, bufsize);
 }
 
+/*
+ * kdb_input_flush
+ *
+ *	Get rid of any buffered console input.
+ *
+ * Parameters:
+ *	none
+ * Returns:
+ *	nothing
+ * Locking:
+ *	none
+ * Remarks:
+ *	Call this function whenever you want to flush input.  If there is any
+ *	outstanding input, it ignores all characters until there has been no
+ *	data for approximately 1ms.
+ */
 
 static void kdb_input_flush(void)
 {
@@ -425,18 +494,44 @@ empty:
 	}
 }
 
+/*
+ * kdb_printf
+ *
+ *	Print a string to the output device(s).
+ *
+ * Parameters:
+ *	printf-like format and optional args.
+ * Returns:
+ *	0
+ * Locking:
+ *	None.
+ * Remarks:
+ *	use 'kdbcons->write()' to avoid polluting 'log_buf' with
+ *	kdb output.
+ *
+ *  If the user is doing a cmd args | grep srch
+ *  then kdb_grepping_flag is set.
+ *  In that case we need to accumulate full lines (ending in \n) before
+ *  searching for the pattern.
+ */
 
-static char kdb_buffer[256];	
+static char kdb_buffer[256];	/* A bit too big to go on stack */
 static char *next_avail = kdb_buffer;
 static int  size_avail;
 static int  suspend_grep;
 
+/*
+ * search arg1 to see if it contains arg2
+ * (kdmain.c provides flags for ^pat and pat$)
+ *
+ * return 1 for found, 0 for not found
+ */
 static int kdb_search_string(char *searched, char *searchfor)
 {
 	char firstchar, *cp;
 	int len1, len2;
 
-	
+	/* not counting the newline at the end of "searched" */
 	len1 = strlen(searched)-1;
 	len2 = strlen(searchfor);
 	if (len1 < len2)
@@ -480,6 +575,10 @@ int vkdb_printf(const char *fmt, va_list ap)
 	saved_trap_printk = kdb_trap_printk;
 	kdb_trap_printk = 0;
 
+	/* Serialize kdb_printf if multiple cpus try to write at once.
+	 * But if any cpu goes recursive in kdb, just print the output,
+	 * even if it is interleaved with any other text.
+	 */
 	if (!KDB_STATE(PRINTF_LOCK)) {
 		KDB_STATE_SET(PRINTF_LOCK);
 		spin_lock_irqsave(&kdb_printf_lock, flags);
@@ -498,14 +597,21 @@ int vkdb_printf(const char *fmt, va_list ap)
 		logging = 0;
 
 	if (!kdb_grepping_flag || suspend_grep) {
-		
+		/* normally, every vsnprintf starts a new buffer */
 		next_avail = kdb_buffer;
 		size_avail = sizeof(kdb_buffer);
 	}
 	vsnprintf(next_avail, size_avail, fmt, ap);
 
+	/*
+	 * If kdb_parse() found that the command was cmd xxx | grep yyy
+	 * then kdb_grepping_flag is set, and kdb_grep_string contains yyy
+	 *
+	 * Accumulate the print data up to a newline before searching it.
+	 * (vsnprintf does null-terminate the string that it generates)
+	 */
 
-	
+	/* skip the search if prints are temporarily unconditional */
 	if (!suspend_grep && kdb_grepping_flag) {
 		cp = strchr(kdb_buffer, '\n');
 		if (!cp) {
@@ -523,26 +629,53 @@ int vkdb_printf(const char *fmt, va_list ap)
 			 *
 			 */
 			if (next_avail == kdb_buffer) {
+				/*
+				 * these should occur after a newline,
+				 * so they will be at the front of the
+				 * buffer
+				 */
 				cp2 = kdb_buffer;
 				len = strlen(kdb_prompt_str);
 				if (!strncmp(cp2, kdb_prompt_str, len)) {
+					/*
+					 * We're about to start a new
+					 * command, so we can go back
+					 * to normal mode.
+					 */
 					kdb_grepping_flag = 0;
 					goto kdb_printit;
 				}
 			}
+			/* no newline; don't search/write the buffer
+			   until one is there */
 			len = strlen(kdb_buffer);
 			next_avail = kdb_buffer + len;
 			size_avail = sizeof(kdb_buffer) - len;
 			goto kdb_print_out;
 		}
 
-		cp++;	 	     
-		replaced_byte = *cp; 
+		/*
+		 * The newline is present; print through it or discard
+		 * it, depending on the results of the search.
+		 */
+		cp++;	 	     /* to byte after the newline */
+		replaced_byte = *cp; /* remember what/where it was */
 		cphold = cp;
-		*cp = '\0';	     
+		*cp = '\0';	     /* end the string for our search */
 
+		/*
+		 * We now have a newline at the end of the string
+		 * Only continue with this output if it contains the
+		 * search string.
+		 */
 		fnd = kdb_search_string(kdb_buffer, kdb_grep_string);
 		if (!fnd) {
+			/*
+			 * At this point the complete line at the start
+			 * of kdb_buffer can be discarded, as it does
+			 * not contain what the user is looking for.
+			 * Shift the buffer left.
+			 */
 			*cphold = replaced_byte;
 			strcpy(kdb_buffer, cphold);
 			len = strlen(kdb_buffer);
@@ -550,9 +683,16 @@ int vkdb_printf(const char *fmt, va_list ap)
 			size_avail = sizeof(kdb_buffer) - len;
 			goto kdb_print_out;
 		}
+		/*
+		 * at this point the string is a full line and
+		 * should be printed, up to the null.
+		 */
 	}
 kdb_printit:
 
+	/*
+	 * Write to all consoles.
+	 */
 	retlen = strlen(kdb_buffer);
 	if (!dbg_kdb_mode && kgdb_connected) {
 		gdbstub_msg_write(kdb_buffer, retlen);
@@ -580,15 +720,22 @@ kdb_printit:
 	if (KDB_STATE(PAGER) && strchr(kdb_buffer, '\n'))
 		kdb_nextline++;
 
-	
+	/* check for having reached the LINES number of printed lines */
 	if (kdb_nextline == linecount) {
 		char buf1[16] = "";
 #if defined(CONFIG_SMP)
 		char buf2[32];
 #endif
 
-		kdb_nextline = 1;	
+		/* Watch out for recursion here.  Any routine that calls
+		 * kdb_printf will come back through here.  And kdb_read
+		 * uses kdb_printf to echo on serial consoles ...
+		 */
+		kdb_nextline = 1;	/* In case of recursion */
 
+		/*
+		 * Pause until cr.
+		 */
 		moreprompt = kdbgetenv("MOREPROMPT");
 		if (moreprompt == NULL)
 			moreprompt = "more> ";
@@ -621,35 +768,36 @@ kdb_printit:
 		if (logging)
 			printk("%s", moreprompt);
 
-		kdb_read(buf1, 2); 
-		kdb_nextline = 1;	
+		kdb_read(buf1, 2); /* '2' indicates to return
+				    * immediately after getting one key. */
+		kdb_nextline = 1;	/* Really set output line 1 */
 
-		
+		/* empty and reset the buffer: */
 		kdb_buffer[0] = '\0';
 		next_avail = kdb_buffer;
 		size_avail = sizeof(kdb_buffer);
 		if ((buf1[0] == 'q') || (buf1[0] == 'Q')) {
-			
-			KDB_FLAG_SET(CMD_INTERRUPT); 
+			/* user hit q or Q */
+			KDB_FLAG_SET(CMD_INTERRUPT); /* command interrupted */
 			KDB_STATE_CLEAR(PAGER);
-			
+			/* end of command output; back to normal mode */
 			kdb_grepping_flag = 0;
 			kdb_printf("\n");
 		} else if (buf1[0] == ' ') {
 			kdb_printf("\n");
-			suspend_grep = 1; 
+			suspend_grep = 1; /* for this recursion */
 		} else if (buf1[0] == '\n') {
 			kdb_nextline = linecount - 1;
 			kdb_printf("\r");
-			suspend_grep = 1; 
+			suspend_grep = 1; /* for this recursion */
 		} else if (buf1[0] && buf1[0] != '\n') {
-			
-			suspend_grep = 1; 
+			/* user hit something other than enter */
+			suspend_grep = 1; /* for this recursion */
 			kdb_printf("\nOnly 'q' or 'Q' are processed at more "
 				   "prompt, input ignored\n");
 		} else if (kdb_grepping_flag) {
-			
-			suspend_grep = 1; 
+			/* user hit enter */
+			suspend_grep = 1; /* for this recursion */
 			kdb_printf("\n");
 		}
 		kdb_input_flush();
@@ -670,7 +818,7 @@ kdb_printit:
 	}
 
 kdb_print_out:
-	suspend_grep = 0; 
+	suspend_grep = 0; /* end of what may have been a recursive call */
 	if (logging)
 		console_loglevel = saved_loglevel;
 	if (KDB_STATE(PRINTF_LOCK) && got_printf_lock) {

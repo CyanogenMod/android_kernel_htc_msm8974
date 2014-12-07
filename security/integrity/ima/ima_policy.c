@@ -19,6 +19,7 @@
 
 #include "ima.h"
 
+/* flags definitions */
 #define IMA_FUNC 	0x0001
 #define IMA_MASK 	0x0002
 #define IMA_FSMAGIC	0x0004
@@ -40,8 +41,8 @@ struct ima_measure_rule_entry {
 	unsigned long fsmagic;
 	uid_t uid;
 	struct {
-		void *rule;	
-		int type;	
+		void *rule;	/* LSM file metadata specific */
+		int type;	/* audit type */
 	} lsm[MAX_LSM_RULES];
 };
 
@@ -50,6 +51,12 @@ struct ima_measure_rule_entry {
  * written in terms of .action, .func, .mask, .fsmagic, and .uid
  */
 
+/*
+ * The minimum rule set to allow for full TCB coverage.  Measures all files
+ * opened or mmap for exec and everything read by root.  Dangerous because
+ * normal users can easily run the machine out of memory simply building
+ * and running executables.
+ */
 static struct ima_measure_rule_entry default_rules[] = {
 	{.action = DONT_MEASURE,.fsmagic = PROC_SUPER_MAGIC,.flags = IMA_FSMAGIC},
 	{.action = DONT_MEASURE,.fsmagic = SYSFS_MAGIC,.flags = IMA_FSMAGIC},
@@ -80,6 +87,15 @@ static int __init default_policy_setup(char *str)
 }
 __setup("ima_tcb", default_policy_setup);
 
+/**
+ * ima_match_rules - determine whether an inode matches the measure rule.
+ * @rule: a pointer to a rule
+ * @inode: a pointer to an inode
+ * @func: LIM hook identifier
+ * @mask: requested action (MAY_READ | MAY_WRITE | MAY_APPEND | MAY_EXEC)
+ *
+ * Returns true on rule match, false on failure.
+ */
 static bool ima_match_rules(struct ima_measure_rule_entry *rule,
 			    struct inode *inode, enum ima_hooks func, int mask)
 {
@@ -132,6 +148,19 @@ static bool ima_match_rules(struct ima_measure_rule_entry *rule,
 	return true;
 }
 
+/**
+ * ima_match_policy - decision based on LSM and other conditions
+ * @inode: pointer to an inode for which the policy decision is being made
+ * @func: IMA hook identifier
+ * @mask: requested action (MAY_READ | MAY_WRITE | MAY_APPEND | MAY_EXEC)
+ *
+ * Measure decision based on func/mask/fsmagic and LSM(subj/obj/type)
+ * conditions.
+ *
+ * (There is no need for locking when walking the policy list,
+ * as elements in the list are never deleted, nor does the list
+ * change.)
+ */
 int ima_match_policy(struct inode *inode, enum ima_hooks func, int mask)
 {
 	struct ima_measure_rule_entry *entry;
@@ -146,11 +175,17 @@ int ima_match_policy(struct inode *inode, enum ima_hooks func, int mask)
 	return 0;
 }
 
+/**
+ * ima_init_policy - initialize the default measure rules.
+ *
+ * ima_measure points to either the measure_default_rules or the
+ * the new measure_policy_rules.
+ */
 void __init ima_init_policy(void)
 {
 	int i, entries;
 
-	
+	/* if !ima_use_tcb set entries = 0 so we load NO default rules */
 	if (ima_use_tcb)
 		entries = ARRAY_SIZE(default_rules);
 	else
@@ -161,6 +196,13 @@ void __init ima_init_policy(void)
 	ima_measure = &measure_default_rules;
 }
 
+/**
+ * ima_update_policy - update default_rules with new measure rules
+ *
+ * Called on file .release to update the default rules with a complete new
+ * policy.  Once updated, the policy is locked, no additional rules can be
+ * added to the policy.
+ */
 void ima_update_policy(void)
 {
 	const char *op = "policy_update";
@@ -270,7 +312,7 @@ static int ima_parse_rule(char *rule, struct ima_measure_rule_entry *entry)
 
 			if (strcmp(args[0].from, "FILE_CHECK") == 0)
 				entry->func = FILE_CHECK;
-			
+			/* PATH_CHECK is for backwards compat */
 			else if (strcmp(args[0].from, "PATH_CHECK") == 0)
 				entry->func = FILE_CHECK;
 			else if (strcmp(args[0].from, "FILE_MMAP") == 0)
@@ -381,6 +423,13 @@ static int ima_parse_rule(char *rule, struct ima_measure_rule_entry *entry)
 	return result;
 }
 
+/**
+ * ima_parse_add_rule - add a rule to measure_policy_rules
+ * @rule - ima measurement policy rule
+ *
+ * Uses a mutex to protect the policy list from multiple concurrent writers.
+ * Returns the length of the rule parsed, an error code on failure
+ */
 ssize_t ima_parse_add_rule(char *rule)
 {
 	const char *op = "update_policy";
@@ -389,7 +438,7 @@ ssize_t ima_parse_add_rule(char *rule)
 	ssize_t result, len;
 	int audit_info = 0;
 
-	
+	/* Prevent installed policy from changing */
 	if (ima_measure != &measure_default_rules) {
 		integrity_audit_msg(AUDIT_INTEGRITY_STATUS, NULL,
 				    NULL, op, "already exists",
@@ -430,6 +479,7 @@ ssize_t ima_parse_add_rule(char *rule)
 	return len;
 }
 
+/* ima_delete_rules called to cleanup invalid policy */
 void ima_delete_rules(void)
 {
 	struct ima_measure_rule_entry *entry, *tmp;

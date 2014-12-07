@@ -26,19 +26,25 @@
 #include "gen_bd.h"
 
 
+/* ======================================================================== */
+/* Task image/var/inc                                                       */
+/* ======================================================================== */
 
+/* gen_bd tasks images */
 extern u32 bcom_gen_bd_rx_task[];
 extern u32 bcom_gen_bd_tx_task[];
 
+/* rx task vars that need to be set before enabling the task */
 struct bcom_gen_bd_rx_var {
-	u32 enable;		
-	u32 fifo;		
-	u32 bd_base;		
-	u32 bd_last;		
-	u32 bd_start;		
-	u32 buffer_size;	
+	u32 enable;		/* (u16*) address of task's control register */
+	u32 fifo;		/* (u32*) address of gen_bd's fifo */
+	u32 bd_base;		/* (struct bcom_bd*) beginning of ring buffer */
+	u32 bd_last;		/* (struct bcom_bd*) end of ring buffer */
+	u32 bd_start;		/* (struct bcom_bd*) current bd */
+	u32 buffer_size;	/* size of receive buffer */
 };
 
+/* rx task incs that need to be set before enabling the task */
 struct bcom_gen_bd_rx_inc {
 	u16 pad0;
 	s16 incr_bytes;
@@ -46,15 +52,17 @@ struct bcom_gen_bd_rx_inc {
 	s16 incr_dst;
 };
 
+/* tx task vars that need to be set before enabling the task */
 struct bcom_gen_bd_tx_var {
-	u32 fifo;		
-	u32 enable;		
-	u32 bd_base;		
-	u32 bd_last;		
-	u32 bd_start;		
-	u32 buffer_size;	
+	u32 fifo;		/* (u32*) address of gen_bd's fifo */
+	u32 enable;		/* (u16*) address of task's control register */
+	u32 bd_base;		/* (struct bcom_bd*) beginning of ring buffer */
+	u32 bd_last;		/* (struct bcom_bd*) end of ring buffer */
+	u32 bd_start;		/* (struct bcom_bd*) current bd */
+	u32 buffer_size;	/* set by uCode for each packet */
 };
 
+/* tx task incs that need to be set before enabling the task */
 struct bcom_gen_bd_tx_inc {
 	u16 pad0;
 	s16 incr_bytes;
@@ -64,6 +72,7 @@ struct bcom_gen_bd_tx_inc {
 	s16 incr_src_ma;
 };
 
+/* private structure */
 struct bcom_gen_bd_priv {
 	phys_addr_t	fifo;
 	int		initiator;
@@ -72,6 +81,9 @@ struct bcom_gen_bd_priv {
 };
 
 
+/* ======================================================================== */
+/* Task support code                                                        */
+/* ======================================================================== */
 
 struct bcom_task *
 bcom_gen_bd_rx_init(int queue_len, phys_addr_t fifo,
@@ -109,10 +121,10 @@ bcom_gen_bd_rx_reset(struct bcom_task *tsk)
 	struct bcom_gen_bd_rx_var *var;
 	struct bcom_gen_bd_rx_inc *inc;
 
-	
+	/* Shutdown the task */
 	bcom_disable_task(tsk->tasknum);
 
-	
+	/* Reset the microcode */
 	var = (struct bcom_gen_bd_rx_var *) bcom_task_var(tsk->tasknum);
 	inc = (struct bcom_gen_bd_rx_inc *) bcom_task_inc(tsk->tasknum);
 
@@ -130,20 +142,20 @@ bcom_gen_bd_rx_reset(struct bcom_task *tsk)
 	inc->incr_bytes	= -(s16)sizeof(u32);
 	inc->incr_dst	= sizeof(u32);
 
-	
+	/* Reset the BDs */
 	tsk->index = 0;
 	tsk->outdex = 0;
 
 	memset(tsk->bd, 0x00, tsk->num_bd * tsk->bd_size);
 
-	
+	/* Configure some stuff */
 	bcom_set_task_pragma(tsk->tasknum, BCOM_GEN_RX_BD_PRAGMA);
 	bcom_set_task_auto_start(tsk->tasknum, tsk->tasknum);
 
 	out_8(&bcom_eng->regs->ipr[priv->initiator], priv->ipr);
 	bcom_set_initiator(tsk->tasknum, priv->initiator);
 
-	out_be32(&bcom_eng->regs->IntPend, 1<<tsk->tasknum);	
+	out_be32(&bcom_eng->regs->IntPend, 1<<tsk->tasknum);	/* Clear ints */
 
 	return 0;
 }
@@ -152,7 +164,7 @@ EXPORT_SYMBOL_GPL(bcom_gen_bd_rx_reset);
 void
 bcom_gen_bd_rx_release(struct bcom_task *tsk)
 {
-	
+	/* Nothing special for the GenBD tasks */
 	bcom_task_free(tsk);
 }
 EXPORT_SYMBOL_GPL(bcom_gen_bd_rx_release);
@@ -193,10 +205,10 @@ bcom_gen_bd_tx_reset(struct bcom_task *tsk)
 	struct bcom_gen_bd_tx_var *var;
 	struct bcom_gen_bd_tx_inc *inc;
 
-	
+	/* Shutdown the task */
 	bcom_disable_task(tsk->tasknum);
 
-	
+	/* Reset the microcode */
 	var = (struct bcom_gen_bd_tx_var *) bcom_task_var(tsk->tasknum);
 	inc = (struct bcom_gen_bd_tx_inc *) bcom_task_inc(tsk->tasknum);
 
@@ -214,20 +226,20 @@ bcom_gen_bd_tx_reset(struct bcom_task *tsk)
 	inc->incr_src	= sizeof(u32);
 	inc->incr_src_ma = sizeof(u8);
 
-	
+	/* Reset the BDs */
 	tsk->index = 0;
 	tsk->outdex = 0;
 
 	memset(tsk->bd, 0x00, tsk->num_bd * tsk->bd_size);
 
-	
+	/* Configure some stuff */
 	bcom_set_task_pragma(tsk->tasknum, BCOM_GEN_TX_BD_PRAGMA);
 	bcom_set_task_auto_start(tsk->tasknum, tsk->tasknum);
 
 	out_8(&bcom_eng->regs->ipr[priv->initiator], priv->ipr);
 	bcom_set_initiator(tsk->tasknum, priv->initiator);
 
-	out_be32(&bcom_eng->regs->IntPend, 1<<tsk->tasknum);	
+	out_be32(&bcom_eng->regs->IntPend, 1<<tsk->tasknum);	/* Clear ints */
 
 	return 0;
 }
@@ -236,12 +248,21 @@ EXPORT_SYMBOL_GPL(bcom_gen_bd_tx_reset);
 void
 bcom_gen_bd_tx_release(struct bcom_task *tsk)
 {
-	
+	/* Nothing special for the GenBD tasks */
 	bcom_task_free(tsk);
 }
 EXPORT_SYMBOL_GPL(bcom_gen_bd_tx_release);
 
+/* ---------------------------------------------------------------------
+ * PSC support code
+ */
 
+/**
+ * bcom_psc_parameters - Bestcomm initialization value table for PSC devices
+ *
+ * This structure is only used internally.  It is a lookup table for PSC
+ * specific parameters to bestcomm tasks.
+ */
 static struct bcom_psc_params {
 	int rx_initiator;
 	int rx_ipr;
@@ -286,6 +307,15 @@ static struct bcom_psc_params {
 	},
 };
 
+/**
+ * bcom_psc_gen_bd_rx_init - Allocate a receive bcom_task for a PSC port
+ * @psc_num:	Number of the PSC to allocate a task for
+ * @queue_len:	number of buffer descriptors to allocate for the task
+ * @fifo:	physical address of FIFO register
+ * @maxbufsize:	Maximum receive data size in bytes.
+ *
+ * Allocate a bestcomm task structure for receiving data from a PSC.
+ */
 struct bcom_task * bcom_psc_gen_bd_rx_init(unsigned psc_num, int queue_len,
 					   phys_addr_t fifo, int maxbufsize)
 {
@@ -299,6 +329,14 @@ struct bcom_task * bcom_psc_gen_bd_rx_init(unsigned psc_num, int queue_len,
 }
 EXPORT_SYMBOL_GPL(bcom_psc_gen_bd_rx_init);
 
+/**
+ * bcom_psc_gen_bd_tx_init - Allocate a transmit bcom_task for a PSC port
+ * @psc_num:	Number of the PSC to allocate a task for
+ * @queue_len:	number of buffer descriptors to allocate for the task
+ * @fifo:	physical address of FIFO register
+ *
+ * Allocate a bestcomm task structure for transmitting data to a PSC.
+ */
 struct bcom_task *
 bcom_psc_gen_bd_tx_init(unsigned psc_num, int queue_len, phys_addr_t fifo)
 {

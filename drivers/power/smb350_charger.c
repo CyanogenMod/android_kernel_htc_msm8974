@@ -30,46 +30,49 @@
 #include <linux/of_gpio.h>
 #include <linux/printk.h>
 
-#define CHG_CURRENT_REG			0x00	
-#define CHG_OTHER_CURRENT_REG		0x01	
-#define VAR_FUNC_REG			0x02	
-#define FLOAT_VOLTAGE_REG		0x03	
-#define CHG_CTRL_REG			0x04	
-#define STAT_TIMER_REG			0x05	
-#define PIN_ENABLE_CTRL_REG		0x06	
-#define THERM_CTRL_A_REG		0x07	
-#define SYSOK_USB3_SELECT_REG		0x08	
-#define CTRL_FUNCTIONS_REG		0x09	
-#define OTG_TLIM_THERM_CNTRL_REG	0x0A	
-#define TEMP_MONITOR_REG		0x0B	
-#define FAULT_IRQ_REG			0x0C	
-#define IRQ_ENABLE_REG			0x0D	
-#define SYSOK_REG			0x0E	
+/* Register definitions */
+#define CHG_CURRENT_REG			0x00	/* Non-Volatile + mirror */
+#define CHG_OTHER_CURRENT_REG		0x01	/* Non-Volatile + mirror */
+#define VAR_FUNC_REG			0x02	/* Non-Volatile + mirror */
+#define FLOAT_VOLTAGE_REG		0x03	/* Non-Volatile + mirror */
+#define CHG_CTRL_REG			0x04	/* Non-Volatile + mirror */
+#define STAT_TIMER_REG			0x05	/* Non-Volatile + mirror */
+#define PIN_ENABLE_CTRL_REG		0x06	/* Non-Volatile + mirror */
+#define THERM_CTRL_A_REG		0x07	/* Non-Volatile + mirror */
+#define SYSOK_USB3_SELECT_REG		0x08	/* Non-Volatile + mirror */
+#define CTRL_FUNCTIONS_REG		0x09	/* Non-Volatile + mirror */
+#define OTG_TLIM_THERM_CNTRL_REG	0x0A	/* Non-Volatile + mirror */
+#define TEMP_MONITOR_REG		0x0B	/* Non-Volatile + mirror */
+#define FAULT_IRQ_REG			0x0C	/* Non-Volatile */
+#define IRQ_ENABLE_REG			0x0D	/* Non-Volatile */
+#define SYSOK_REG			0x0E	/* Non-Volatile + mirror */
 
-#define AUTO_INPUT_VOLT_DETECT_REG	0x10	
-#define STATUS_IRQ_REG			0x11	
-#define I2C_SLAVE_ADDR_REG		0x12	
+#define AUTO_INPUT_VOLT_DETECT_REG	0x10	/* Non-Volatile Read-Only */
+#define STATUS_IRQ_REG			0x11	/* Non-Volatile Read-Only */
+#define I2C_SLAVE_ADDR_REG		0x12	/* Non-Volatile Read-Only */
 
-#define CMD_A_REG			0x30	
-#define CMD_B_REG			0x31	
-#define CMD_C_REG			0x33	
+#define CMD_A_REG			0x30	/* Volatile Read-Write */
+#define CMD_B_REG			0x31	/* Volatile Read-Write */
+#define CMD_C_REG			0x33	/* Volatile Read-Write */
 
-#define HW_VERSION_REG			0x34	
+#define HW_VERSION_REG			0x34	/* Volatile Read-Only */
 
-#define IRQ_STATUS_A_REG		0x35	
-#define IRQ_STATUS_B_REG		0x36	
-#define IRQ_STATUS_C_REG		0x37	
-#define IRQ_STATUS_D_REG		0x38	
-#define IRQ_STATUS_E_REG		0x39	
-#define IRQ_STATUS_F_REG		0x3A	
+#define IRQ_STATUS_A_REG		0x35	/* Volatile Read-Only */
+#define IRQ_STATUS_B_REG		0x36	/* Volatile Read-Only */
+#define IRQ_STATUS_C_REG		0x37	/* Volatile Read-Only */
+#define IRQ_STATUS_D_REG		0x38	/* Volatile Read-Only */
+#define IRQ_STATUS_E_REG		0x39	/* Volatile Read-Only */
+#define IRQ_STATUS_F_REG		0x3A	/* Volatile Read-Only */
 
-#define STATUS_A_REG			0x3B	
-#define STATUS_B_REG			0x3D	
-#define STATUS_D_REG			0x3E	
-#define STATUS_E_REG			0x3F	
+#define STATUS_A_REG			0x3B	/* Volatile Read-Only */
+#define STATUS_B_REG			0x3D	/* Volatile Read-Only */
+/* Note: STATUS_C_REG was removed from SMB349 to SMB350 */
+#define STATUS_D_REG			0x3E	/* Volatile Read-Only */
+#define STATUS_E_REG			0x3F	/* Volatile Read-Only */
 
 #define IRQ_STATUS_NUM (IRQ_STATUS_F_REG - IRQ_STATUS_A_REG + 1)
 
+/* Status bits and masks */
 #define SMB350_MASK(BITS, POS)		((u8)(((1 << BITS) - 1) << POS))
 #define FAST_CHG_CURRENT_MASK		SMB350_MASK(4, 4)
 
@@ -101,14 +104,14 @@ static const char * const smb350_chg_status[] = {
 };
 
 struct smb350_device {
-	
+	/* setup */
 	int			chg_current_ma;
 	int			term_current_ma;
 	int			chg_en_n_gpio;
 	int			chg_susp_n_gpio;
 	int			stat_gpio;
 	int			irq;
-	
+	/* internal */
 	enum smb350_chg_status	chg_status;
 	struct i2c_client	*client;
 	struct delayed_work	irq_work;
@@ -161,6 +164,9 @@ static struct debug_reg smb350_debug_regs[] = {
 	SMB350_DEBUG_REG(STATUS_E),
 };
 
+/*
+ * Read 8-bit register value. return negative value on error.
+ */
 static int smb350_read_reg(struct i2c_client *client, u8 reg)
 {
 	int val;
@@ -174,6 +180,9 @@ static int smb350_read_reg(struct i2c_client *client, u8 reg)
 	return val;
 }
 
+/*
+ * Write 8-bit register value. return negative value on error.
+ */
 static int smb350_write_reg(struct i2c_client *client, u8 reg, u8 val)
 {
 	int ret;
@@ -211,7 +220,7 @@ static bool smb350_is_dc_present(struct i2c_client *client)
 	u16 irq_status_f = smb350_read_reg(client, IRQ_STATUS_F_REG);
 	bool power_ok = irq_status_f & 0x01;
 
-	
+	/* Power-ok , IRQ_STATUS_F_REG bit#0 */
 	if (power_ok)
 		pr_debug("DC is present.\n");
 	else
@@ -224,6 +233,9 @@ static bool smb350_is_charger_present(struct i2c_client *client)
 {
 	int val;
 
+	/* Normally the device is non-removable and embedded on the board.
+	 * Verify that charger is present by getting I2C response.
+	 */
 	val = smb350_read_reg(client, STATUS_B_REG);
 	if (val < 0)
 		return false;
@@ -251,7 +263,7 @@ static int smb350_get_prop_charge_type(struct smb350_device *dev)
 
 	if (!chg_enabled) {
 		pr_warn("Charging not enabled.\n");
-		
+		/* release the wake-lock when DC power removed */
 		if (wake_lock_active(&dev->chg_wake_lock))
 			wake_unlock(&dev->chg_wake_lock);
 		return POWER_SUPPLY_CHARGE_TYPE_NONE;
@@ -266,16 +278,16 @@ static int smb350_get_prop_charge_type(struct smb350_device *dev)
 
 	if (status == SMB_CHG_STATUS_NONE)
 		chg_type = POWER_SUPPLY_CHARGE_TYPE_NONE;
-	else if (status == SMB_CHG_STATUS_FAST_CHARGE) 
+	else if (status == SMB_CHG_STATUS_FAST_CHARGE) /* constant current */
 		chg_type = POWER_SUPPLY_CHARGE_TYPE_FAST;
-	else if (status == SMB_CHG_STATUS_TAPER_CHARGE) 
+	else if (status == SMB_CHG_STATUS_TAPER_CHARGE) /* constant voltage */
 		chg_type = POWER_SUPPLY_CHARGE_TYPE_FAST;
 	else if (status == SMB_CHG_STATUS_PRE_CHARGE)
 		chg_type = POWER_SUPPLY_CHARGE_TYPE_TRICKLE;
 
 	pr_debug("smb-chg-status=%d=%s.\n", status, smb350_chg_status[status]);
 
-	if (dev->chg_status != status) { 
+	if (dev->chg_status != status) { /* Status changed */
 		if (status == SMB_CHG_STATUS_NONE) {
 			pr_debug("Charging stopped.\n");
 			wake_unlock(&dev->chg_wake_lock);
@@ -292,13 +304,16 @@ static int smb350_get_prop_charge_type(struct smb350_device *dev)
 
 static void smb350_enable_charging(struct smb350_device *dev, bool enable)
 {
-	int val = !enable; 
+	int val = !enable; /* active low */
 
 	pr_debug("enable=%d.\n", enable);
 
 	gpio_set_value_cansleep(dev->chg_en_n_gpio, val);
 }
 
+/* When the status bit of a certain condition is read,
+ * the corresponding IRQ signal is cleared.
+ */
 static int smb350_clear_irq(struct i2c_client *client)
 {
 	int ret;
@@ -325,6 +340,17 @@ static int smb350_clear_irq(struct i2c_client *client)
 	return 0;
 }
 
+/*
+ * Do the IRQ work from a thread context rather than interrupt context.
+ * Read status registers to clear interrupt source.
+ * Notify the power-supply driver about change detected.
+ * Relevant events for start/stop charging:
+ * 1. DC insert/remove
+ * 2. End-Of-Charging
+ * 3. Battery insert/remove
+ * 4. Temperture too hot/cold
+ * 5. Charging timeout expired.
+ */
 static void smb350_irq_worker(struct work_struct *work)
 {
 	int ret = 0;
@@ -332,31 +358,36 @@ static void smb350_irq_worker(struct work_struct *work)
 		container_of(work, struct smb350_device, irq_work.work);
 
 	ret = smb350_clear_irq(dev->client);
-	if (ret == 0) { 
-		
+	if (ret == 0) { /* Cleared ok */
+		/* Notify Battery-psy about status changed */
 		pr_debug("Notify power_supply_changed.\n");
 		power_supply_changed(&dev->dc_psy);
 	}
 }
 
+/*
+ * The STAT pin is low when charging and high when not charging.
+ * When the smb350 start/stop charging the STAT pin triggers an interrupt.
+ * Interrupt is triggered on both rising or falling edge.
+ */
 static irqreturn_t smb350_irq(int irq, void *dev_id)
 {
 	struct smb350_device *dev = dev_id;
 
 	pr_debug("\n");
 
-	
+	/* I2C transfers API should not run in interrupt context */
 	schedule_delayed_work(&dev->irq_work, msecs_to_jiffies(100));
 
 	return IRQ_HANDLED;
 }
 
 static enum power_supply_property pm_power_props[] = {
-	
+	/* real time */
 	POWER_SUPPLY_PROP_PRESENT,
 	POWER_SUPPLY_PROP_ONLINE,
 	POWER_SUPPLY_PROP_CHARGE_TYPE,
-	
+	/* fixed */
 	POWER_SUPPLY_PROP_MANUFACTURER,
 	POWER_SUPPLY_PROP_MODEL_NAME,
 	POWER_SUPPLY_PROP_CURRENT_MAX,
@@ -413,6 +444,12 @@ static int smb350_set_property(struct power_supply *psy,
 		container_of(psy, struct smb350_device, dc_psy);
 
 	switch (psp) {
+	/*
+	 *  Allow a smart battery to Start/Stop charging.
+	 *  i.e. when End-Of-Charging detected.
+	 *  The SMB350 can be configured to terminate charging
+	 *  when charge-current reaching Termination-Current.
+	 */
 	case POWER_SUPPLY_PROP_ONLINE:
 		smb350_enable_charging(dev, val->intval);
 		break;
@@ -532,33 +569,36 @@ static int smb350_set_volatile_params(struct smb350_device *dev)
 		return ret;
 	}
 
-	
+	/* Disable SMB350 pulse-IRQ mechanism,
+	 * we use interrupts based on charging-status-transition
+	 */
+	/* Enable STATUS output (regardless of IRQ-pulses) */
 	smb350_masked_write(client, CMD_A_REG, BIT(0), 0);
 
-	
+	/* Disable LED blinking - avoid periodic irq */
 	smb350_masked_write(client, PIN_ENABLE_CTRL_REG, BIT(7), 0);
 
-	
+	/* Disable Failure SMB-IRQ */
 	ret = smb350_write_reg(client, FAULT_IRQ_REG, 0x00);
 	if (ret) {
 		pr_err("Failed to set FAULT_IRQ_REG ret=%d\n", ret);
 		return ret;
 	}
 
-	
+	/* Disable Event IRQ */
 	ret = smb350_write_reg(client, IRQ_ENABLE_REG, 0x00);
 	if (ret) {
 		pr_err("Failed to set IRQ_ENABLE_REG ret=%d\n", ret);
 		return ret;
 	}
 
-	
+	/* Enable charging/not-charging status output via STAT pin */
 	smb350_masked_write(client, STAT_TIMER_REG, BIT(5), 0);
 
-	
+	/* Disable Automatic Recharge */
 	smb350_masked_write(client, CHG_CTRL_REG, BIT(7), 1);
 
-	
+	/* Set fast-charge current */
 	ret = smb350_set_chg_current(client, dev->chg_current_ma);
 	if (ret) {
 		pr_err("Failed to set FAST_CHG_CURRENT ret=%d\n", ret);
@@ -566,13 +606,13 @@ static int smb350_set_volatile_params(struct smb350_device *dev)
 	}
 
 	if (dev->term_current_ma > 0) {
-		
+		/* Enable Current Termination */
 		smb350_masked_write(client, CHG_CTRL_REG, BIT(6), 0);
 
-		
+		/* Set Termination current */
 		smb350_set_term_current(client, dev->term_current_ma);
 	} else {
-		
+		/* Disable Current Termination */
 		smb350_masked_write(client, CHG_CTRL_REG, BIT(6), 1);
 	}
 
@@ -611,7 +651,7 @@ static int __devinit smb350_probe(struct i2c_client *client,
 	struct smb350_device *dev;
 	u8 version;
 
-	
+	/* STAT pin change on start/stop charging */
 	u32 irq_flags = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING;
 
 	if (!i2c_check_functionality(client->adapter,
@@ -698,12 +738,16 @@ static int __devinit smb350_probe(struct i2c_client *client,
 
 	i2c_set_clientdata(client, dev);
 
+	/* Disable battery charging by default on power up.
+	 * Battery charging is enabled by BMS or Battery-Gauge
+	 * by using the set_property callback.
+	 */
 	smb350_enable_charging(dev, false);
 	msleep(100);
-	gpio_set_value_cansleep(dev->chg_susp_n_gpio, 1); 
-	msleep(100); 
+	gpio_set_value_cansleep(dev->chg_susp_n_gpio, 1); /* Normal */
+	msleep(100); /* Allow the device to exist shutdown */
 
-	
+	/* I2C transaction allowed only after device exit suspend */
 	ret = smb350_read_reg(client, I2C_SLAVE_ADDR_REG);
 	if ((ret>>1) != client->addr) {
 		pr_err("No device.\n");
@@ -712,7 +756,7 @@ static int __devinit smb350_probe(struct i2c_client *client,
 	}
 
 	version = smb350_read_reg(client, HW_VERSION_REG);
-	version &= 0x0F; 
+	version &= 0x0F; /* bits 0..3 */
 
 	ret = smb350_set_volatile_params(dev);
 	if (ret)

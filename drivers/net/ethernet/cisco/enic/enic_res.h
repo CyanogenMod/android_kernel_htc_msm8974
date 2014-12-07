@@ -54,7 +54,7 @@ static inline void enic_queue_wq_desc_ex(struct vnic_wq *wq,
 		(u16)mss_or_csum_offset,
 		(u16)hdr_len, (u8)offload_mode,
 		(u8)eop, (u8)cq_entry,
-		0, 
+		0, /* fcoe_encap */
 		(u8)vlan_tag_insert,
 		(u16)vlan_tag,
 		(u8)loopback);
@@ -68,7 +68,7 @@ static inline void enic_queue_wq_desc_cont(struct vnic_wq *wq,
 {
 	enic_queue_wq_desc_ex(wq, os_buf, dma_addr, len,
 		0, 0, 0, 0, 0,
-		eop, 0 , eop, loopback);
+		eop, 0 /* !SOP */, eop, loopback);
 }
 
 static inline void enic_queue_wq_desc(struct vnic_wq *wq, void *os_buf,
@@ -78,7 +78,7 @@ static inline void enic_queue_wq_desc(struct vnic_wq *wq, void *os_buf,
 	enic_queue_wq_desc_ex(wq, os_buf, dma_addr, len,
 		0, 0, vlan_tag_insert, vlan_tag,
 		WQ_ENET_OFFLOAD_MODE_CSUM,
-		eop, 1 , eop, loopback);
+		eop, 1 /* SOP */, eop, loopback);
 }
 
 static inline void enic_queue_wq_desc_csum(struct vnic_wq *wq,
@@ -90,7 +90,7 @@ static inline void enic_queue_wq_desc_csum(struct vnic_wq *wq,
 		(ip_csum ? 1 : 0) + (tcpudp_csum ? 2 : 0),
 		0, vlan_tag_insert, vlan_tag,
 		WQ_ENET_OFFLOAD_MODE_CSUM,
-		eop, 1 , eop, loopback);
+		eop, 1 /* SOP */, eop, loopback);
 }
 
 static inline void enic_queue_wq_desc_csum_l4(struct vnic_wq *wq,
@@ -101,7 +101,7 @@ static inline void enic_queue_wq_desc_csum_l4(struct vnic_wq *wq,
 	enic_queue_wq_desc_ex(wq, os_buf, dma_addr, len,
 		csum_offset, hdr_len, vlan_tag_insert, vlan_tag,
 		WQ_ENET_OFFLOAD_MODE_CSUM_L4,
-		eop, 1 , eop, loopback);
+		eop, 1 /* SOP */, eop, loopback);
 }
 
 static inline void enic_queue_wq_desc_tso(struct vnic_wq *wq,
@@ -112,7 +112,7 @@ static inline void enic_queue_wq_desc_tso(struct vnic_wq *wq,
 	enic_queue_wq_desc_ex(wq, os_buf, dma_addr, len,
 		mss, hdr_len, vlan_tag_insert, vlan_tag,
 		WQ_ENET_OFFLOAD_MODE_TSO,
-		eop, 1 , eop, loopback);
+		eop, 1 /* SOP */, eop, loopback);
 }
 
 static inline void enic_queue_rq_desc(struct vnic_rq *rq,
@@ -145,4 +145,4 @@ void enic_init_vnic_resources(struct enic *enic);
 int enic_alloc_vnic_resources(struct enic *);
 void enic_free_vnic_resources(struct enic *);
 
-#endif 
+#endif /* _ENIC_RES_H_ */

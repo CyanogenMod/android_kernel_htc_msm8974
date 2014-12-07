@@ -1,3 +1,4 @@
+/* -*- mode: c; c-basic-offset: 8 -*- */
 
 /*
  * MCA device support functions
@@ -30,6 +31,15 @@
 #include <linux/mca.h>
 #include <linux/string.h>
 
+/**
+ *	mca_device_read_stored_pos - read POS register from stored data
+ *	@mca_dev: device to read from
+ *	@reg:  register to read from
+ *
+ *	Fetch a POS value that was stored at boot time by the kernel
+ *	when it scanned the MCA space. The register value is returned.
+ *	Missing or invalid registers report 0.
+ */
 unsigned char mca_device_read_stored_pos(struct mca_device *mca_dev, int reg)
 {
 	if(reg < 0 || reg >= 8)
@@ -39,6 +49,17 @@ unsigned char mca_device_read_stored_pos(struct mca_device *mca_dev, int reg)
 }
 EXPORT_SYMBOL(mca_device_read_stored_pos);
 
+/**
+ *	mca_device_read_pos - read POS register from card
+ *	@mca_dev: device to read from
+ *	@reg:  register to read from
+ *
+ *	Fetch a POS value directly from the hardware to obtain the
+ *	current value. This is much slower than
+ *	mca_device_read_stored_pos and may not be invoked from
+ *	interrupt context. It handles the deep magic required for
+ *	onboard devices transparently.
+ */
 unsigned char mca_device_read_pos(struct mca_device *mca_dev, int reg)
 {
 	struct mca_bus *mca_bus = to_mca_bus(mca_dev->dev.parent);
@@ -50,6 +71,20 @@ unsigned char mca_device_read_pos(struct mca_device *mca_dev, int reg)
 EXPORT_SYMBOL(mca_device_read_pos);
 
 
+/**
+ *	mca_device_write_pos - read POS register from card
+ *	@mca_dev: device to write pos register to
+ *	@reg:  register to write to
+ *	@byte: byte to write to the POS registers
+ *
+ *	Store a POS value directly to the hardware. You should not
+ *	normally need to use this function and should have a very good
+ *	knowledge of MCA bus before you do so. Doing this wrongly can
+ *	damage the hardware.
+ *
+ *	This function may not be used from interrupt context.
+ *
+ */
 void mca_device_write_pos(struct mca_device *mca_dev, int reg,
 			  unsigned char byte)
 {
@@ -59,6 +94,19 @@ void mca_device_write_pos(struct mca_device *mca_dev, int reg,
 }
 EXPORT_SYMBOL(mca_device_write_pos);
 
+/**
+ *	mca_device_transform_irq - transform the ADF obtained IRQ
+ *	@mca_device: device whose irq needs transforming
+ *	@irq: input irq from ADF
+ *
+ *	MCA Adapter Definition Files (ADF) contain irq, ioport, memory
+ *	etc. definitions.  In systems with more than one bus, these need
+ *	to be transformed through bus mapping functions to get the real
+ *	system global quantities.
+ *
+ *	This function transforms the interrupt number and returns the
+ *	transformed system global interrupt
+ */
 int mca_device_transform_irq(struct mca_device *mca_dev, int irq)
 {
 	struct mca_bus *mca_bus = to_mca_bus(mca_dev->dev.parent);
@@ -67,6 +115,21 @@ int mca_device_transform_irq(struct mca_device *mca_dev, int irq)
 }
 EXPORT_SYMBOL(mca_device_transform_irq);
 
+/**
+ *	mca_device_transform_ioport - transform the ADF obtained I/O port
+ *	@mca_device: device whose port needs transforming
+ *	@ioport: input I/O port from ADF
+ *
+ *	MCA Adapter Definition Files (ADF) contain irq, ioport, memory
+ *	etc. definitions.  In systems with more than one bus, these need
+ *	to be transformed through bus mapping functions to get the real
+ *	system global quantities.
+ *
+ *	This function transforms the I/O port number and returns the
+ *	transformed system global port number.
+ *
+ *	This transformation can be assumed to be linear for port ranges.
+ */
 int mca_device_transform_ioport(struct mca_device *mca_dev, int port)
 {
 	struct mca_bus *mca_bus = to_mca_bus(mca_dev->dev.parent);
@@ -75,6 +138,21 @@ int mca_device_transform_ioport(struct mca_device *mca_dev, int port)
 }
 EXPORT_SYMBOL(mca_device_transform_ioport);
 
+/**
+ *	mca_device_transform_memory - transform the ADF obtained memory
+ *	@mca_device: device whose memory region needs transforming
+ *	@mem: memory region start from ADF
+ *
+ *	MCA Adapter Definition Files (ADF) contain irq, ioport, memory
+ *	etc. definitions.  In systems with more than one bus, these need
+ *	to be transformed through bus mapping functions to get the real
+ *	system global quantities.
+ *
+ *	This function transforms the memory region start and returns the
+ *	transformed system global memory region (physical).
+ *
+ *	This transformation can be assumed to be linear for region ranges.
+ */
 void *mca_device_transform_memory(struct mca_device *mca_dev, void *mem)
 {
 	struct mca_bus *mca_bus = to_mca_bus(mca_dev->dev.parent);
@@ -84,6 +162,12 @@ void *mca_device_transform_memory(struct mca_device *mca_dev, void *mem)
 EXPORT_SYMBOL(mca_device_transform_memory);
 
 
+/**
+ *	mca_device_claimed - check if claimed by driver
+ *	@mca_dev:	device to check
+ *
+ *	Returns 1 if the slot has been claimed by a driver
+ */
 
 int mca_device_claimed(struct mca_device *mca_dev)
 {
@@ -91,18 +175,39 @@ int mca_device_claimed(struct mca_device *mca_dev)
 }
 EXPORT_SYMBOL(mca_device_claimed);
 
+/**
+ *	mca_device_set_claim - set the claim value of the driver
+ *	@mca_dev:	device to set value for
+ *	@val:		claim value to set (1 claimed, 0 unclaimed)
+ */
 void mca_device_set_claim(struct mca_device *mca_dev, int val)
 {
 	mca_dev->driver_loaded = val;
 }
 EXPORT_SYMBOL(mca_device_set_claim);
 
+/**
+ *	mca_device_status - get the status of the device
+ *	@mca_device:	device to get
+ *
+ *	returns an enumeration of the device status:
+ *
+ *	MCA_ADAPTER_NORMAL	adapter is OK.
+ *	MCA_ADAPTER_NONE	no adapter at device (should never happen).
+ *	MCA_ADAPTER_DISABLED	adapter is disabled.
+ *	MCA_ADAPTER_ERROR	adapter cannot be initialised.
+ */
 enum MCA_AdapterStatus mca_device_status(struct mca_device *mca_dev)
 {
 	return mca_dev->status;
 }
 EXPORT_SYMBOL(mca_device_status);
 
+/**
+ *	mca_device_set_name - set the name of the device
+ *	@mca_device:	device to set the name of
+ *	@name:		name to set
+ */
 void mca_device_set_name(struct mca_device *mca_dev, const char *name)
 {
 	if(!mca_dev)

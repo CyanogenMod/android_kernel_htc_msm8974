@@ -14,4 +14,4 @@ extern asmlinkage void do_notify_resume(struct pt_regs *regs,
 					int syscall);
 #endif
 
-#endif 
+#endif /* _ASM_C6X_SIGNAL_H */

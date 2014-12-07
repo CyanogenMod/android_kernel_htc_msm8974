@@ -76,6 +76,11 @@ static void mdp_dma2_update_lcd(struct msm_fb_data_type *mfd)
 #endif
 
 #ifdef CONFIG_FB_MSM_MDP30
+	/*
+	 * Software workaround:  On 7x25/7x27, the MDP will not
+	 * respond if dma_w is 1 pixel.  Set the update width to
+	 * 2 pixels and adjust the x offset if needed.
+	 */
 	if (iBuf->dma_w == 1) {
 		iBuf->dma_w = 2;
 		if (iBuf->dma_x == (iBuf->ibuf_width - 2))
@@ -146,13 +151,13 @@ static void mdp_dma2_update_lcd(struct msm_fb_data_type *mfd)
 	}
 
 	src = (uint8 *) iBuf->buf;
-	
+	/* starting input address */
 	src += iBuf->dma_x * outBpp + iBuf->dma_y * ystride;
 
 	mdp_curr_dma2_update_width = iBuf->dma_w;
 	mdp_curr_dma2_update_height = iBuf->dma_h;
 
-	
+	/* MDP cmd block enable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
 #ifdef CONFIG_FB_MSM_MDP22
@@ -173,15 +178,15 @@ static void mdp_dma2_update_lcd(struct msm_fb_data_type *mfd)
 
 	if (mfd->panel_info.bpp == 18) {
 		mddi_pkt_desc = MDDI_VDO_PACKET_DESC;
-		dma2_cfg_reg |= DMA_DSTC0G_6BITS |	
+		dma2_cfg_reg |= DMA_DSTC0G_6BITS |	/* 666 18BPP */
 		    DMA_DSTC1B_6BITS | DMA_DSTC2R_6BITS;
 	} else if (mfd->panel_info.bpp == 24) {
 		mddi_pkt_desc = MDDI_VDO_PACKET_DESC_24;
-		dma2_cfg_reg |= DMA_DSTC0G_8BITS |      
+		dma2_cfg_reg |= DMA_DSTC0G_8BITS |      /* 888 24BPP */
 			DMA_DSTC1B_8BITS | DMA_DSTC2R_8BITS;
 	} else {
 		mddi_pkt_desc = MDDI_VDO_PACKET_DESC_16;
-		dma2_cfg_reg |= DMA_DSTC0G_6BITS |	
+		dma2_cfg_reg |= DMA_DSTC0G_6BITS |	/* 565 16BPP */
 		    DMA_DSTC1B_5BITS | DMA_DSTC2R_5BITS;
 	}
 
@@ -201,20 +206,20 @@ static void mdp_dma2_update_lcd(struct msm_fb_data_type *mfd)
 			 (mddi_pkt_desc << 16) | mddi_vdo_packet_reg);
 #endif
 	} else {
-		
+		/* setting EBI2 LCDC write window */
 		pdata->set_rect(iBuf->dma_x, iBuf->dma_y, iBuf->dma_w,
 				iBuf->dma_h);
 	}
 #else
 	if (mfd->panel_info.type == MIPI_CMD_PANEL) {
-		
+		/* dma_p = 0, dma_s = 1 */
 		 MDP_OUTP(MDP_BASE + 0xF1000, 0x10);
-		 
+		 /* enable dsi trigger on dma_p */
 		 MDP_OUTP(MDP_BASE + 0xF1004, 0x01);
 	}
 #endif
 
-	
+	/* dma2 config register */
 #ifdef MDP_HW_VSYNC
 	MDP_OUTP(MDP_BASE + 0x90000, dma2_cfg_reg);
 
@@ -229,10 +234,14 @@ static void mdp_dma2_update_lcd(struct msm_fb_data_type *mfd)
 			    (mfd->total_lcd_lines - 1) - (vsync_start_y_adjust -
 							  iBuf->dma_y);
 
+		/*
+		 * MDP VSYNC clock must be On by now so, we don't have to
+		 * re-enable it
+		 */
 		MDP_OUTP(MDP_BASE + 0x210, start_y);
-		MDP_OUTP(MDP_BASE + 0x20c, 1);	
+		MDP_OUTP(MDP_BASE + 0x20c, 1);	/* enable prim vsync */
 	} else {
-		MDP_OUTP(MDP_BASE + 0x20c, 0);	
+		MDP_OUTP(MDP_BASE + 0x20c, 0);	/* disable prim vsync */
 	}
 #else
 #ifdef CONFIG_FB_MSM_MDP22
@@ -240,9 +249,9 @@ static void mdp_dma2_update_lcd(struct msm_fb_data_type *mfd)
 #else
 	MDP_OUTP(MDP_BASE + 0x90000, dma2_cfg_reg);
 #endif
-#endif 
+#endif /* MDP_HW_VSYNC */
 
-	
+	/* MDP cmd block disable */
 	mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 }
 
@@ -287,7 +296,7 @@ void	mdp3_dsi_cmd_dma_busy_wait(struct msm_fb_data_type *mfd)
 	int need_wait = 0;
 
 #ifdef DSI_CLK_CTRL
-	mod_timer(&dsi_clock_timer, jiffies + HZ); 
+	mod_timer(&dsi_clock_timer, jiffies + HZ); /* one second */
 #endif
 
 	spin_lock_irqsave(&mdp_spin_lock, flag);
@@ -308,7 +317,7 @@ void	mdp3_dsi_cmd_dma_busy_wait(struct msm_fb_data_type *mfd)
 	spin_unlock_irqrestore(&mdp_spin_lock, flag);
 
 	if (need_wait) {
-		
+		/* wait until DMA finishes the current job */
 		wait_for_completion(&mfd->dma->comp);
 	}
 }
@@ -316,10 +325,21 @@ void	mdp3_dsi_cmd_dma_busy_wait(struct msm_fb_data_type *mfd)
 
 static void mdp_dma_schedule(struct msm_fb_data_type *mfd, uint32 term)
 {
+	/*
+	 * dma2 configure VSYNC block
+	 * vsync supported on Primary LCD only for now
+	 */
 	int32 mdp_lcd_rd_cnt;
 	uint32 usec_wait_time;
 	uint32 start_y;
 
+	/*
+	 * ToDo: if we can move HRT timer callback to workqueue, we can
+	 * move DMA2 power on under mdp_pipe_kickoff().
+	 * This will save a power for hrt time wait.
+	 * However if the latency for context switch (hrt irq -> workqueue)
+	 * is too big, we will miss the vsync timing.
+	 */
 	if (term == MDP_DMA2_TERM)
 		mdp_pipe_ctrl(MDP_DMA2_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 
@@ -330,13 +350,18 @@ static void mdp_dma_schedule(struct msm_fb_data_type *mfd, uint32 term)
 		mdp_pipe_kickoff(term, mfd);
 		return;
 	}
-	
+	/* SW vsync logic starts here */
 
-	
+	/* get current rd counter */
 	mdp_lcd_rd_cnt = mdp_get_lcd_line_counter(mfd);
 	if (mdp_dma2_update_time_in_usec != 0) {
 		uint32 num, den;
 
+		/*
+		 * roi width boundary calculation to know the size of pixel
+		 * width that MDP can send faster or slower than LCD read
+		 * pointer
+		 */
 
 		num = mdp_last_dma2_update_width * mdp_last_dma2_update_height;
 		den =
@@ -353,10 +378,10 @@ static void mdp_dma_schedule(struct msm_fb_data_type *mfd, uint32 term)
 
 	if (mfd->vsync_width_boundary[mdp_last_dma2_update_width] >
 	    mdp_curr_dma2_update_width) {
-		
+		/* MDP wrp is faster than LCD rdp */
 		mdp_lcd_rd_cnt += mdp_lcd_rd_cnt_offset_fast;
 	} else {
-		
+		/* MDP wrp is slower than LCD rdp */
 		mdp_lcd_rd_cnt -= mdp_lcd_rd_cnt_offset_slow;
 	}
 
@@ -365,11 +390,15 @@ static void mdp_dma_schedule(struct msm_fb_data_type *mfd, uint32 term)
 	else if (mdp_lcd_rd_cnt > mfd->total_lcd_lines)
 		mdp_lcd_rd_cnt = mdp_lcd_rd_cnt - mfd->total_lcd_lines - 1;
 
-	
+	/* get wrt pointer position */
 	start_y = mfd->ibuf.dma_y;
 
-	
+	/* measure line difference between start_y and rd counter */
 	if (start_y > mdp_lcd_rd_cnt) {
+		/*
+		 * *100 for lcd_ref_hzx100 was already multiplied by 100
+		 * *1000000 is for usec conversion
+		 */
 
 		if ((start_y - mdp_lcd_rd_cnt) <=
 		    mdp_vsync_usec_wait_line_too_short)
@@ -434,12 +463,12 @@ void mdp_dma2_update(struct msm_fb_data_type *mfd)
 	} else {
 		uint32 lower_height;
 
-		
+		/* sending the upper region first */
 		lower_height = iBuf->dma_h - upper_height;
 		iBuf->dma_h = upper_height;
 		mdp_dma2_update_sub(mfd);
 
-		
+		/* sending the lower region second */
 		iBuf->dma_h = lower_height;
 		iBuf->dma_y += lower_height;
 		iBuf->vsync_enable = FALSE;
@@ -467,7 +496,7 @@ void mdp_dma2_update(struct msm_fb_data_type *mfd)
 		if (need_wait)
 			wait_for_completion_killable(&mfd->dma->comp);
 
-		
+		/* schedule DMA to start */
 		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_ON, FALSE);
 		mfd->ibuf_flushed = TRUE;
 		mdp_dma2_update_lcd(mfd);
@@ -479,7 +508,7 @@ void mdp_dma2_update(struct msm_fb_data_type *mfd)
 		INIT_COMPLETION(vsync_cntrl.vsync_comp);
 		if (!vsync_cntrl.vsync_irq_enabled &&
 				vsync_cntrl.disabled_clocks) {
-			MDP_OUTP(MDP_BASE + 0x021c, 0x10); 
+			MDP_OUTP(MDP_BASE + 0x021c, 0x10); /* read pointer */
 			outp32(MDP_INTR_CLEAR, MDP_PRIM_RDPTR);
 			mdp_intr_mask |= MDP_PRIM_RDPTR;
 			outp32(MDP_INTR_ENABLE, mdp_intr_mask);
@@ -487,11 +516,11 @@ void mdp_dma2_update(struct msm_fb_data_type *mfd)
 			vsync_cntrl.vsync_dma_enabled = 1;
 		}
 		spin_unlock_irqrestore(&mdp_spin_lock, flag);
-		
+		/* schedule DMA to start */
 		mdp_dma_schedule(mfd, MDP_DMA2_TERM);
 		up(&mfd->sem);
 
-		
+		/* wait until Vsync finishes the current job */
 		if (first_vsync) {
 			if (!wait_for_completion_killable_timeout
 					(&vsync_cntrl.vsync_comp, HZ/10))
@@ -502,7 +531,7 @@ void mdp_dma2_update(struct msm_fb_data_type *mfd)
 		}
 		mdp_pipe_ctrl(MDP_CMD_BLOCK, MDP_BLOCK_POWER_OFF, FALSE);
 
-	
+	/* signal if pan function is waiting for the update completion */
 		if (mfd->pan_waiting) {
 			mfd->pan_waiting = FALSE;
 			complete(&mfd->pan_comp);
@@ -532,7 +561,7 @@ void mdp_dma_vsync_ctrl(int enable)
 	spin_lock_irqsave(&mdp_spin_lock, flag);
 	if (enable && vsync_cntrl.disabled_clocks &&
 			!vsync_cntrl.vsync_dma_enabled) {
-		MDP_OUTP(MDP_BASE + 0x021c, 0x10); 
+		MDP_OUTP(MDP_BASE + 0x021c, 0x10); /* read pointer */
 		outp32(MDP_INTR_CLEAR, MDP_PRIM_RDPTR);
 		mdp_intr_mask |= MDP_PRIM_RDPTR;
 		outp32(MDP_INTR_ENABLE, mdp_intr_mask);
@@ -581,6 +610,10 @@ void mdp_set_dma_pan_info(struct fb_info *info, struct mdp_dirty_region *dirty,
 	iBuf->vsync_enable = sync;
 
 	if (dirty) {
+		/*
+		 * ToDo: dirty region check inside var.xoffset+xres
+		 * <-> var.yoffset+yres
+		 */
 		iBuf->dma_x = dirty->xoffset % info->var.xres;
 		iBuf->dma_y = dirty->yoffset % info->var.yres;
 		iBuf->dma_w = dirty->width;
@@ -603,12 +636,12 @@ void mdp_dma_pan_update(struct fb_info *info)
 	iBuf = &mfd->ibuf;
 
 	if (mfd->sw_currently_refreshing) {
-		
+		/* we need to wait for the pending update */
 		mfd->pan_waiting = TRUE;
 		if (!mfd->ibuf_flushed) {
 			wait_for_completion_killable(&mfd->pan_comp);
 		}
-		
+		/* waiting for this update to complete */
 		mfd->pan_waiting = TRUE;
 		wait_for_completion_killable(&mfd->pan_comp);
 	} else
@@ -625,7 +658,7 @@ void mdp_refresh_screen(unsigned long data)
 		mfd->refresh_timer.data = data;
 
 		if (mfd->dma->busy)
-			
+			/* come back in 1 msec */
 			mfd->refresh_timer.expires = jiffies + (HZ / 1000);
 		else
 			mfd->refresh_timer.expires =

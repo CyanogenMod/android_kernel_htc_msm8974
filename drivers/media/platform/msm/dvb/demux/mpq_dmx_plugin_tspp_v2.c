@@ -20,8 +20,10 @@
 
 #define BAM_INPUT_COUNT			4
 
+/* Max number of PID filters */
 #define TSPP_MAX_PID_FILTER_NUM		128
 
+/* Max number of section filters */
 #define TSPP_MAX_SECTION_FILTER_NUM		64
 
 
@@ -32,6 +34,9 @@ static int mpq_tspp_dmx_start_filtering(struct dvb_demux_feed *feed)
 		__func__,
 		feed->pid);
 
+	/* Always feed sections/PES starting from a new one and
+	 * do not partial transfer data from older one
+	 */
 	feed->pusi_seen = 0;
 	return 0;
 }
@@ -46,6 +51,14 @@ static int mpq_tspp_dmx_stop_filtering(struct dvb_demux_feed *feed)
 	return 0;
 }
 
+/**
+ * Returns demux capabilities of TSPPv2 plugin
+ *
+ * @demux: demux device
+ * @caps: Returned capbabilities
+ *
+ * Return     error code
+ */
 static int mpq_tspp_dmx_get_caps(struct dmx_demux *demux,
 				struct dmx_caps *caps)
 {
@@ -75,12 +88,20 @@ static int mpq_tspp_dmx_get_caps(struct dmx_demux *demux,
 	caps->memory_input_max_bitrate = 80;
 	caps->num_cipher_ops = DMX_MAX_CIPHER_OPERATIONS_COUNT;
 
-	
+	/* TSIF reports 7 bytes STC at unit of 27MHz */
 	caps->max_stc = 0x00FFFFFFFFFFFFFF;
 
 	return 0;
 }
 
+/**
+ * Initialize a single demux device.
+ *
+ * @mpq_adapter: MPQ DVB adapter
+ * @mpq_demux: The demux device to initialize
+ *
+ * Return     error code
+ */
 static int mpq_tspp_dmx_init(
 				struct dvb_adapter *mpq_adapter,
 				struct mpq_demux *mpq_demux)
@@ -89,7 +110,7 @@ static int mpq_tspp_dmx_init(
 
 	MPQ_DVB_DBG_PRINT("%s executed\n", __func__);
 
-	
+	/* Set the kernel-demux object capabilities */
 	mpq_demux->demux.dmx.capabilities =
 		DMX_TS_FILTERING			|
 		DMX_PES_FILTERING			|
@@ -98,7 +119,7 @@ static int mpq_tspp_dmx_init(
 		DMX_CRC_CHECKING			|
 		DMX_TS_DESCRAMBLING;
 
-	
+	/* Set dvb-demux "virtual" function pointers */
 	mpq_demux->demux.priv = (void *)mpq_demux;
 	mpq_demux->demux.filternum = TSPP_MAX_SECTION_FILTER_NUM;
 	mpq_demux->demux.feednum = MPQ_MAX_DMX_FILES;
@@ -114,14 +135,14 @@ static int mpq_tspp_dmx_init(
 	mpq_demux->demux.oob_command = NULL;
 	mpq_demux->demux.convert_ts = NULL;
 
-	
+	/* Initialize dvb_demux object */
 	result = dvb_dmx_init(&mpq_demux->demux);
 	if (result < 0) {
 		MPQ_ERR_PRINT("%s: dvb_dmx_init failed\n", __func__);
 		goto init_failed;
 	}
 
-	
+	/* Now initailize the dmx-dev object */
 	mpq_demux->dmxdev.filternum = MPQ_MAX_DMX_FILES;
 	mpq_demux->dmxdev.demux = &mpq_demux->demux.dmx;
 	mpq_demux->dmxdev.capabilities = DMXDEV_CAP_DUPLEX;

@@ -29,6 +29,19 @@
 
 static int suspend_heartbeats = 0;
 
+/*
+ * Once the driver indicates to the service processor that it is running
+ * - see send_os_state() - the service processor sends periodic heartbeats
+ * to the driver. The driver must respond to the heartbeats or else the OS
+ * will be rebooted.
+ * In the case of a panic the interrupt handler continues to work and thus
+ * continues to respond to heartbeats, making the service processor believe
+ * the OS is still running and thus preventing a reboot.
+ * To prevent this from happening a callback is added the panic_notifier_list.
+ * Before responding to a heartbeat the driver checks if a panic has happened,
+ * if yes it suspends heartbeat, causing the service processor to reboot as
+ * expected.
+ */
 static int panic_happened(struct notifier_block *n, unsigned long val, void *v)
 {
 	suspend_heartbeats = 1;
@@ -79,7 +92,7 @@ void ibmasm_receive_heartbeat(struct service_processor *sp,  void *message, size
 	if (suspend_heartbeats)
 		return;
 
-	
+	/* return the received dot command to sender */
 	cmd->status = IBMASM_CMD_PENDING;
 	size = min(size, cmd->buffer_size);
 	memcpy_fromio(cmd->buffer, message, size);

@@ -11,6 +11,7 @@
 
 #include <asm/mmu_context.h>
 
+/* TODO: Get the correct number from the CONFIG1 system register */
 #define NR_TLB_ENTRIES 32
 
 static void show_dtlb_entry(unsigned int index)
@@ -64,18 +65,22 @@ static void update_dtlb(unsigned long address, pte_t pte)
 	u32 tlbehi;
 	u32 mmucr;
 
+	/*
+	 * We're not changing the ASID here, so no need to flush the
+	 * pipeline.
+	 */
 	tlbehi = sysreg_read(TLBEHI);
 	tlbehi = SYSREG_BF(ASID, SYSREG_BFEXT(ASID, tlbehi));
 	tlbehi |= address & MMU_VPN_MASK;
 	tlbehi |= SYSREG_BIT(TLBEHI_V);
 	sysreg_write(TLBEHI, tlbehi);
 
-	
+	/* Does this mapping already exist? */
 	__builtin_tlbs();
 	mmucr = sysreg_read(MMUCR);
 
 	if (mmucr & SYSREG_BIT(MMUCR_N)) {
-		
+		/* Not found -- pick a not-recently-accessed entry */
 		unsigned int rp;
 		u32 tlbar = sysreg_read(TLBARLO);
 
@@ -91,7 +96,7 @@ static void update_dtlb(unsigned long address, pte_t pte)
 
 	sysreg_write(TLBELO, pte_val(pte) & _PAGE_FLAGS_HARDWARE_MASK);
 
-	
+	/* Let's go */
 	__builtin_tlbw();
 }
 
@@ -100,7 +105,7 @@ void update_mmu_cache(struct vm_area_struct *vma,
 {
 	unsigned long flags;
 
-	
+	/* ptrace may call this routine */
 	if (vma && current->active_mm != vma->vm_mm)
 		return;
 
@@ -113,6 +118,11 @@ static void __flush_tlb_page(unsigned long asid, unsigned long page)
 {
 	u32 mmucr, tlbehi;
 
+	/*
+	 * Caller is responsible for masking out non-PFN bits in page
+	 * and changing the current ASID if necessary. This means that
+	 * we don't need to flush the pipeline after writing TLBEHI.
+	 */
 	tlbehi = page | asid;
 	sysreg_write(TLBEHI, tlbehi);
 
@@ -123,16 +133,16 @@ static void __flush_tlb_page(unsigned long asid, unsigned long page)
 		unsigned int entry;
 		u32 tlbarlo;
 
-		
+		/* Clear the "valid" bit */
 		sysreg_write(TLBEHI, tlbehi);
 
-		
+		/* mark the entry as "not accessed" */
 		entry = SYSREG_BFEXT(DRP, mmucr);
 		tlbarlo = sysreg_read(TLBARLO);
 		tlbarlo |= (0x80000000UL >> entry);
 		sysreg_write(TLBARLO, tlbarlo);
 
-		
+		/* update the entry with valid bit clear */
 		__builtin_tlbw();
 	}
 }
@@ -172,7 +182,7 @@ void flush_tlb_range(struct vm_area_struct *vma, unsigned long start,
 		local_irq_save(flags);
 		size = (end - start + (PAGE_SIZE - 1)) >> PAGE_SHIFT;
 
-		if (size > (MMU_DTLB_ENTRIES / 4)) { 
+		if (size > (MMU_DTLB_ENTRIES / 4)) { /* Too many entries to flush */
 			mm->context = NO_CONTEXT;
 			if (mm == current->mm)
 				activate_context(mm);
@@ -203,13 +213,18 @@ void flush_tlb_range(struct vm_area_struct *vma, unsigned long start,
 	}
 }
 
+/*
+ * This function depends on the pages to be flushed having the G
+ * (global) bit set in their pte. This is true for all
+ * PAGE_KERNEL(_RO) pages.
+ */
 void flush_tlb_kernel_range(unsigned long start, unsigned long end)
 {
 	unsigned long flags;
 	int size;
 
 	size = (end - start + (PAGE_SIZE - 1)) >> PAGE_SHIFT;
-	if (size > (MMU_DTLB_ENTRIES / 4)) { 
+	if (size > (MMU_DTLB_ENTRIES / 4)) { /* Too many entries to flush */
 		flush_tlb_all();
 	} else {
 		unsigned long asid;
@@ -231,7 +246,7 @@ void flush_tlb_kernel_range(unsigned long start, unsigned long end)
 
 void flush_tlb_mm(struct mm_struct *mm)
 {
-	
+	/* Invalidate all TLB entries of this process by getting a new ASID */
 	if (mm->context != NO_CONTEXT) {
 		unsigned long flags;
 
@@ -303,7 +318,7 @@ static int tlb_show(struct seq_file *tlb, void *v)
 	mmucr = SYSREG_BFINS(DRP, *index, mmucr_save);
 	sysreg_write(MMUCR, mmucr);
 
-	
+	/* TLBR might change the ASID */
 	__builtin_tlbr();
 	cpu_sync_pipeline();
 
@@ -357,4 +372,4 @@ static int __init proctlb_init(void)
 	return 0;
 }
 late_initcall(proctlb_init);
-#endif 
+#endif /* CONFIG_PROC_FS */

@@ -23,7 +23,7 @@ connbytes_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	const struct xt_connbytes_info *sinfo = par->matchinfo;
 	const struct nf_conn *ct;
 	enum ip_conntrack_info ctinfo;
-	u_int64_t what = 0;	
+	u_int64_t what = 0;	/* initialize to make gcc happy */
 	u_int64_t bytes = 0;
 	u_int64_t pkts = 0;
 	const struct nf_conn_counter *counters;
@@ -89,7 +89,7 @@ connbytes_mt(const struct sk_buff *skb, struct xt_action_param *par)
 
 	if (sinfo->count.to >= sinfo->count.from)
 		return what <= sinfo->count.to && what >= sinfo->count.from;
-	else 
+	else /* inverted */
 		return what < sinfo->count.to || what > sinfo->count.from;
 }
 
@@ -113,6 +113,10 @@ static int connbytes_mt_check(const struct xt_mtchk_param *par)
 		pr_info("cannot load conntrack support for proto=%u\n",
 			par->family);
 
+	/*
+	 * This filter cannot function correctly unless connection tracking
+	 * accounting is enabled, so complain in the hope that someone notices.
+	 */
 	if (!nf_ct_acct_enabled(par->net)) {
 		pr_warning("Forcing CT accounting to be enabled\n");
 		nf_ct_set_acct(par->net, true);

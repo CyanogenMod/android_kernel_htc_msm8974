@@ -18,6 +18,7 @@ static const struct xt_table packet_raw = {
 	.priority = NF_IP_PRI_RAW,
 };
 
+/* The work comes in here from netfilter.c. */
 static unsigned int
 iptable_raw_hook(unsigned int hook, struct sk_buff *skb,
 		 const struct net_device *in, const struct net_device *out,
@@ -28,7 +29,7 @@ iptable_raw_hook(unsigned int hook, struct sk_buff *skb,
 	if (hook == NF_INET_LOCAL_OUT && 
 	    (skb->len < sizeof(struct iphdr) ||
 	     ip_hdrlen(skb) < sizeof(struct iphdr)))
-		
+		/* root is playing with raw sockets. */
 		return NF_ACCEPT;
 
 	net = dev_net((in != NULL) ? in : out);
@@ -70,7 +71,7 @@ static int __init iptable_raw_init(void)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Register hooks */
 	rawtable_ops = xt_hook_link(&packet_raw, iptable_raw_hook);
 	if (IS_ERR(rawtable_ops)) {
 		ret = PTR_ERR(rawtable_ops);

@@ -90,10 +90,10 @@ crisv32_pinmux_alloc_fixed(enum fixed_function function)
 
 	spin_lock_irqsave(&pinmux_lock, flags);
 
-	
+	/* Save internal data for recovery */
 	memcpy(saved, pins, sizeof pins);
 
-	crisv32_pinmux_init(); 
+	crisv32_pinmux_init(); /* must be done before we read rw_hwprot */
 
 	hwprot = REG_RD(pinmux, regi_pinmux, rw_hwprot);
 	clk_ctrl = REG_RD(clkgen, regi_clkgen, rw_clk_ctrl);
@@ -267,10 +267,10 @@ crisv32_pinmux_dealloc_fixed(enum fixed_function function)
 
 	spin_lock_irqsave(&pinmux_lock, flags);
 
-	
+	/* Save internal data for recovery */
 	memcpy(saved, pins, sizeof pins);
 
-	crisv32_pinmux_init(); 
+	crisv32_pinmux_init(); /* must be done before we read rw_hwprot */
 
 	hwprot = REG_RD(pinmux, regi_pinmux, rw_hwprot);
 

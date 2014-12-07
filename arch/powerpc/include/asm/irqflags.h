@@ -1,12 +1,23 @@
+/*
+ * IRQ flags handling
+ */
 #ifndef _ASM_IRQFLAGS_H
 #define _ASM_IRQFLAGS_H
 
 #ifndef __ASSEMBLY__
+/*
+ * Get definitions for arch_local_save_flags(x), etc.
+ */
 #include <asm/hw_irq.h>
 
 #else
 #ifdef CONFIG_TRACE_IRQFLAGS
 #ifdef CONFIG_IRQSOFF_TRACER
+/*
+ * Since the ftrace irqsoff latency trace checks CALLER_ADDR1,
+ * which is the stack frame here, we need to force a stack frame
+ * in case we came from user space.
+ */
 #define TRACE_WITH_FRAME_BUFFER(func)		\
 	mflr	r0;				\
 	stdu	r1, -32(r1);			\
@@ -20,9 +31,17 @@
 	bl func;
 #endif
 
+/*
+ * Most of the CPU's IRQ-state tracing is done from assembly code; we
+ * have to call a C function so call a wrapper that saves all the
+ * C-clobbered registers.
+ */
 #define TRACE_ENABLE_INTS	TRACE_WITH_FRAME_BUFFER(.trace_hardirqs_on)
 #define TRACE_DISABLE_INTS	TRACE_WITH_FRAME_BUFFER(.trace_hardirqs_off)
 
+/*
+ * This is used by assembly code to soft-disable interrupts
+ */
 #define SOFT_DISABLE_INTS(__rA, __rB)		\
 	lbz	__rA,PACASOFTIRQEN(r13);	\
 	lbz	__rB,PACAIRQHAPPENED(r13);	\

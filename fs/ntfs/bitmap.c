@@ -28,6 +28,22 @@
 #include "aops.h"
 #include "ntfs.h"
 
+/**
+ * __ntfs_bitmap_set_bits_in_run - set a run of bits in a bitmap to a value
+ * @vi:			vfs inode describing the bitmap
+ * @start_bit:		first bit to set
+ * @count:		number of bits to set
+ * @value:		value to set the bits to (i.e. 0 or 1)
+ * @is_rollback:	if 'true' this is a rollback operation
+ *
+ * Set @count bits starting at bit @start_bit in the bitmap described by the
+ * vfs inode @vi to @value, where @value is either 0 or 1.
+ *
+ * @is_rollback should always be 'false', it is for internal use to rollback
+ * errors.  You probably want to use ntfs_bitmap_set_bits_in_run() instead.
+ *
+ * Return 0 on success and -errno on error.
+ */
 int __ntfs_bitmap_set_bits_in_run(struct inode *vi, const s64 start_bit,
 		const s64 count, const u8 value, const bool is_rollback)
 {
@@ -47,10 +63,14 @@ int __ntfs_bitmap_set_bits_in_run(struct inode *vi, const s64 start_bit,
 	BUG_ON(start_bit < 0);
 	BUG_ON(cnt < 0);
 	BUG_ON(value > 1);
+	/*
+	 * Calculate the indices for the pages containing the first and last
+	 * bits, i.e. @start_bit and @start_bit + @cnt - 1, respectively.
+	 */
 	index = start_bit >> (3 + PAGE_CACHE_SHIFT);
 	end_index = (start_bit + cnt - 1) >> (3 + PAGE_CACHE_SHIFT);
 
-	
+	/* Get the page containing the first bit (@start_bit). */
 	mapping = vi->i_mapping;
 	page = ntfs_map_page(mapping, index);
 	if (IS_ERR(page)) {
@@ -61,13 +81,13 @@ int __ntfs_bitmap_set_bits_in_run(struct inode *vi, const s64 start_bit,
 	}
 	kaddr = page_address(page);
 
-	
+	/* Set @pos to the position of the byte containing @start_bit. */
 	pos = (start_bit >> 3) & ~PAGE_CACHE_MASK;
 
-	
+	/* Calculate the position of @start_bit in the first byte. */
 	bit = start_bit & 7;
 
-	
+	/* If the first byte is partial, modify the appropriate bits in it. */
 	if (bit) {
 		u8 *byte = kaddr + pos;
 		while ((bit & 7) && cnt) {
@@ -77,26 +97,30 @@ int __ntfs_bitmap_set_bits_in_run(struct inode *vi, const s64 start_bit,
 			else
 				*byte &= ~(1 << bit++);
 		}
-		
+		/* If we are done, unmap the page and return success. */
 		if (!cnt)
 			goto done;
 
-		
+		/* Update @pos to the new position. */
 		pos++;
 	}
+	/*
+	 * Depending on @value, modify all remaining whole bytes in the page up
+	 * to @cnt.
+	 */
 	len = min_t(s64, cnt >> 3, PAGE_CACHE_SIZE - pos);
 	memset(kaddr + pos, value ? 0xff : 0, len);
 	cnt -= len << 3;
 
-	
+	/* Update @len to point to the first not-done byte in the page. */
 	if (cnt < 8)
 		len += pos;
 
-	
+	/* If we are not in the last page, deal with all subsequent pages. */
 	while (index < end_index) {
 		BUG_ON(cnt <= 0);
 
-		
+		/* Update @index and get the next page. */
 		flush_dcache_page(page);
 		set_page_dirty(page);
 		ntfs_unmap_page(page);
@@ -104,10 +128,19 @@ int __ntfs_bitmap_set_bits_in_run(struct inode *vi, const s64 start_bit,
 		if (IS_ERR(page))
 			goto rollback;
 		kaddr = page_address(page);
+		/*
+		 * Depending on @value, modify all remaining whole bytes in the
+		 * page up to @cnt.
+		 */
 		len = min_t(s64, cnt >> 3, PAGE_CACHE_SIZE);
 		memset(kaddr, value ? 0xff : 0, len);
 		cnt -= len << 3;
 	}
+	/*
+	 * The currently mapped page is the last one.  If the last byte is
+	 * partial, modify the appropriate bits in it.  Note, @len is the
+	 * position of the last byte inside the page.
+	 */
 	if (cnt) {
 		u8 *byte;
 
@@ -123,13 +156,18 @@ int __ntfs_bitmap_set_bits_in_run(struct inode *vi, const s64 start_bit,
 		}
 	}
 done:
-	
+	/* We are done.  Unmap the page and return success. */
 	flush_dcache_page(page);
 	set_page_dirty(page);
 	ntfs_unmap_page(page);
 	ntfs_debug("Done.");
 	return 0;
 rollback:
+	/*
+	 * Current state:
+	 *	- no pages are mapped
+	 *	- @count - @cnt is the number of bits that have been modified
+	 */
 	if (is_rollback)
 		return PTR_ERR(page);
 	if (count != cnt)
@@ -138,11 +176,11 @@ rollback:
 	else
 		pos = 0;
 	if (!pos) {
-		
+		/* Rollback was successful. */
 		ntfs_error(vi->i_sb, "Failed to map subsequent page (error "
 				"%li), aborting.", PTR_ERR(page));
 	} else {
-		
+		/* Rollback failed. */
 		ntfs_error(vi->i_sb, "Failed to map subsequent page (error "
 				"%li) and rollback failed (error %i).  "
 				"Aborting and leaving inconsistent metadata.  "
@@ -152,4 +190,4 @@ rollback:
 	return PTR_ERR(page);
 }
 
-#endif 
+#endif /* NTFS_RW */

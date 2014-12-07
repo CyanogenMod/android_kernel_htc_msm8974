@@ -38,14 +38,35 @@
 
 extern struct dev_pm_domain omap_device_pm_domain;
 
+/* omap_device._state values */
 #define OMAP_DEVICE_STATE_UNKNOWN	0
 #define OMAP_DEVICE_STATE_ENABLED	1
 #define OMAP_DEVICE_STATE_IDLE		2
 #define OMAP_DEVICE_STATE_SHUTDOWN	3
 
+/* omap_device.flags values */
 #define OMAP_DEVICE_SUSPENDED BIT(0)
 #define OMAP_DEVICE_NO_IDLE_ON_SUSPEND BIT(1)
 
+/**
+ * struct omap_device - omap_device wrapper for platform_devices
+ * @pdev: platform_device
+ * @hwmods: (one .. many per omap_device)
+ * @hwmods_cnt: ARRAY_SIZE() of @hwmods
+ * @pm_lats: ptr to an omap_device_pm_latency table
+ * @pm_lats_cnt: ARRAY_SIZE() of what is passed to @pm_lats
+ * @pm_lat_level: array index of the last odpl entry executed - -1 if never
+ * @dev_wakeup_lat: dev wakeup latency in nanoseconds
+ * @_dev_wakeup_lat_limit: dev wakeup latency limit in nsec - set by OMAP PM
+ * @_state: one of OMAP_DEVICE_STATE_* (see above)
+ * @flags: device flags
+ *
+ * Integrates omap_hwmod data into Linux platform_device.
+ *
+ * Field names beginning with underscores are for the internal use of
+ * the omap_device code.
+ *
+ */
 struct omap_device {
 	struct platform_device		*pdev;
 	struct omap_hwmod		**hwmods;
@@ -59,11 +80,13 @@ struct omap_device {
 	u8                              flags;
 };
 
+/* Device driver interface (call via platform_data fn ptrs) */
 
 int omap_device_enable(struct platform_device *pdev);
 int omap_device_idle(struct platform_device *pdev);
 int omap_device_shutdown(struct platform_device *pdev);
 
+/* Core code interface */
 
 struct platform_device *omap_device_build(const char *pdev_name, int pdev_id,
 				      struct omap_hwmod *oh, void *pdata,
@@ -87,11 +110,13 @@ int omap_device_register(struct platform_device *pdev);
 void __iomem *omap_device_get_rt_va(struct omap_device *od);
 struct device *omap_device_get_by_hwmod_name(const char *oh_name);
 
+/* OMAP PM interface */
 int omap_device_align_pm_lat(struct platform_device *pdev,
 			     u32 new_wakeup_lat_limit);
 struct powerdomain *omap_device_get_pwrdm(struct omap_device *od);
 int omap_device_get_context_loss_count(struct platform_device *pdev);
 
+/* Other */
 
 int omap_device_idle_hwmods(struct omap_device *od);
 int omap_device_enable_hwmods(struct omap_device *od);
@@ -99,6 +124,23 @@ int omap_device_enable_hwmods(struct omap_device *od);
 int omap_device_disable_clocks(struct omap_device *od);
 int omap_device_enable_clocks(struct omap_device *od);
 
+/*
+ * Entries should be kept in latency order ascending
+ *
+ * deact_lat is the maximum number of microseconds required to complete
+ * deactivate_func() at the device's slowest OPP.
+ *
+ * act_lat is the maximum number of microseconds required to complete
+ * activate_func() at the device's slowest OPP.
+ *
+ * This will result in some suboptimal power management decisions at fast
+ * OPPs, but avoids having to recompute all device power management decisions
+ * if the system shifts from a fast OPP to a slow OPP (in order to meet
+ * latency requirements).
+ *
+ * XXX should deactivate_func/activate_func() take platform_device pointers
+ * rather than omap_device pointers?
+ */
 struct omap_device_pm_latency {
 	u32 deactivate_lat;
 	u32 deactivate_lat_worst;
@@ -111,6 +153,7 @@ struct omap_device_pm_latency {
 
 #define OMAP_DEVICE_LATENCY_AUTO_ADJUST BIT(1)
 
+/* Get omap_device pointer from platform_device pointer */
 static inline struct omap_device *to_omap_device(struct platform_device *pdev)
 {
 	return pdev ? pdev->archdata.od : NULL;

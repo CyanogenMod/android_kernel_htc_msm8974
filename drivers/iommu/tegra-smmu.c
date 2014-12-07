@@ -37,6 +37,7 @@
 #include <mach/iomap.h>
 #include <mach/smmu.h>
 
+/* bitmap of the page sizes currently supported */
 #define SMMU_IOMMU_PGSIZES	(SZ_4K)
 
 #define SMMU_CONFIG				0x10
@@ -91,34 +92,35 @@
 #define SMMU_TRANSLATION_ENABLE_1		0x22c
 #define SMMU_TRANSLATION_ENABLE_2		0x230
 
-#define SMMU_AFI_ASID	0x238   
-#define SMMU_AVPC_ASID	0x23c   
-#define SMMU_DC_ASID	0x240   
-#define SMMU_DCB_ASID	0x244   
-#define SMMU_EPP_ASID	0x248   
-#define SMMU_G2_ASID	0x24c   
-#define SMMU_HC_ASID	0x250   
-#define SMMU_HDA_ASID	0x254   
-#define SMMU_ISP_ASID	0x258   
-#define SMMU_MPE_ASID	0x264   
-#define SMMU_NV_ASID	0x268   
-#define SMMU_NV2_ASID	0x26c   
-#define SMMU_PPCS_ASID	0x270   
-#define SMMU_SATA_ASID	0x278   
-#define SMMU_VDE_ASID	0x27c   
-#define SMMU_VI_ASID	0x280   
+#define SMMU_AFI_ASID	0x238   /* PCIE */
+#define SMMU_AVPC_ASID	0x23c   /* AVP */
+#define SMMU_DC_ASID	0x240   /* Display controller */
+#define SMMU_DCB_ASID	0x244   /* Display controller B */
+#define SMMU_EPP_ASID	0x248   /* Encoder pre-processor */
+#define SMMU_G2_ASID	0x24c   /* 2D engine */
+#define SMMU_HC_ASID	0x250   /* Host1x */
+#define SMMU_HDA_ASID	0x254   /* High-def audio */
+#define SMMU_ISP_ASID	0x258   /* Image signal processor */
+#define SMMU_MPE_ASID	0x264   /* MPEG encoder */
+#define SMMU_NV_ASID	0x268   /* (3D) */
+#define SMMU_NV2_ASID	0x26c   /* (3D) */
+#define SMMU_PPCS_ASID	0x270   /* AHB */
+#define SMMU_SATA_ASID	0x278   /* SATA */
+#define SMMU_VDE_ASID	0x27c   /* Video decoder */
+#define SMMU_VI_ASID	0x280   /* Video input */
 
 #define SMMU_PDE_NEXT_SHIFT		28
 
+/* AHB Arbiter Registers */
 #define AHB_XBAR_CTRL				0xe0
 #define AHB_XBAR_CTRL_SMMU_INIT_DONE_DONE	1
 #define AHB_XBAR_CTRL_SMMU_INIT_DONE_SHIFT	17
 
 #define SMMU_NUM_ASIDS				4
 #define SMMU_TLB_FLUSH_VA_SECTION__MASK		0xffc00000
-#define SMMU_TLB_FLUSH_VA_SECTION__SHIFT	12 
+#define SMMU_TLB_FLUSH_VA_SECTION__SHIFT	12 /* right shift */
 #define SMMU_TLB_FLUSH_VA_GROUP__MASK		0xffffc000
-#define SMMU_TLB_FLUSH_VA_GROUP__SHIFT		12 
+#define SMMU_TLB_FLUSH_VA_GROUP__SHIFT		12 /* right shift */
 #define SMMU_TLB_FLUSH_VA(iova, which)	\
 	((((iova) & SMMU_TLB_FLUSH_VA_##which##__MASK) >> \
 		SMMU_TLB_FLUSH_VA_##which##__SHIFT) |	\
@@ -202,6 +204,9 @@ static const u32 smmu_hwgrp_asid_reg[] = {
 };
 #define HWGRP_ASID_REG(x) (smmu_hwgrp_asid_reg[x])
 
+/*
+ * Per client for address space
+ */
 struct smmu_client {
 	struct device		*dev;
 	struct list_head	list;
@@ -209,10 +214,13 @@ struct smmu_client {
 	u32			hwgrp;
 };
 
+/*
+ * Per address space
+ */
 struct smmu_as {
-	struct smmu_device	*smmu;	
+	struct smmu_device	*smmu;	/* back pointer to container */
 	unsigned int		asid;
-	spinlock_t		lock;	
+	spinlock_t		lock;	/* for pagetable */
 	struct page		*pdir_page;
 	unsigned long		pdir_attr;
 	unsigned long		pde_attr;
@@ -220,28 +228,37 @@ struct smmu_as {
 	unsigned int		*pte_count;
 
 	struct list_head	client;
-	spinlock_t		client_lock; 
+	spinlock_t		client_lock; /* for client list */
 };
 
+/*
+ * Per SMMU device - IOMMU device
+ */
 struct smmu_device {
 	void __iomem	*regs, *regs_ahbarb;
-	unsigned long	iovmm_base;	
-	unsigned long	page_count;	
+	unsigned long	iovmm_base;	/* remappable base address */
+	unsigned long	page_count;	/* total remappable size */
 	spinlock_t	lock;
 	char		*name;
 	struct device	*dev;
 	int		num_as;
-	struct smmu_as	*as;		
-	struct page *avp_vector_page;	
+	struct smmu_as	*as;		/* Run-time allocated array */
+	struct page *avp_vector_page;	/* dummy page shared by all AS's */
 
+	/*
+	 * Register image savers for suspend/resume
+	 */
 	unsigned long translation_enable_0;
 	unsigned long translation_enable_1;
 	unsigned long translation_enable_2;
 	unsigned long asid_security;
 };
 
-static struct smmu_device *smmu_handle; 
+static struct smmu_device *smmu_handle; /* unique for a system */
 
+/*
+ *	SMMU/AHB register accessors
+ */
 static inline u32 smmu_read(struct smmu_device *smmu, size_t offs)
 {
 	return readl(smmu->regs + offs);
@@ -270,6 +287,12 @@ static inline void ahb_write(struct smmu_device *smmu, u32 val, size_t offs)
 		outer_flush_range(_pa_, _pa_+(size_t)(size));		\
 	} while (0)
 
+/*
+ * Any interaction between any block on PPSB and a block on APB or AHB
+ * must have these read-back barriers to ensure the APB/AHB bus
+ * transaction is complete before initiating activity on the PPSB
+ * block.
+ */
 #define FLUSH_SMMU_REGS(smmu)	smmu_read(smmu, SMMU_CONFIG)
 
 #define smmu_client_hwgrp(c) (u32)((c)->dev->platform_data)
@@ -328,6 +351,10 @@ static int smmu_client_set_hwgrp(struct smmu_client *c, u32 map, int on)
 	return val;
 }
 
+/*
+ * Flush all TLB entries and all PTC entries
+ * Caller must lock smmu
+ */
 static void smmu_flush_regs(struct smmu_device *smmu, int enable)
 {
 	u32 val;
@@ -435,6 +462,10 @@ static void free_pdir(struct smmu_as *as)
 	as->pte_count = NULL;
 }
 
+/*
+ * Maps PTBL for given iova and returns the PTE address
+ * Caller must unmap the mapped PTBL returned in *ptbl_page_p
+ */
 static unsigned long *locate_pte(struct smmu_as *as,
 				 dma_addr_t iova, bool allocate,
 				 struct page **ptbl_page_p,
@@ -446,7 +477,7 @@ static unsigned long *locate_pte(struct smmu_as *as,
 	unsigned long *ptbl;
 
 	if (pdir[pdn] != _PDE_VACANT(pdn)) {
-		
+		/* Mapped entry table already exists */
 		*ptbl_page_p = SMMU_EX_PTBL_PAGE(pdir[pdn]);
 		ptbl = page_address(*ptbl_page_p);
 	} else if (!allocate) {
@@ -455,7 +486,7 @@ static unsigned long *locate_pte(struct smmu_as *as,
 		int pn;
 		unsigned long addr = SMMU_PDN_TO_ADDR(pdn);
 
-		
+		/* Vacant - allocate a new page table */
 		dev_dbg(as->smmu->dev, "New PTBL pdn: %lx\n", pdn);
 
 		*ptbl_page_p = alloc_page(GFP_ATOMIC);
@@ -505,6 +536,9 @@ static inline void put_signature(struct smmu_as *as,
 }
 #endif
 
+/*
+ * Caller must lock/unlock as
+ */
 static int alloc_pdir(struct smmu_as *as)
 {
 	unsigned long *pdir;
@@ -686,6 +720,10 @@ static int smmu_iommu_attach_dev(struct iommu_domain *domain,
 	list_add(&client->list, &as->client);
 	spin_unlock(&as->client_lock);
 
+	/*
+	 * Reserve "page zero" for AVP vectors using a common dummy
+	 * page.
+	 */
 	if (map & HWG_AVPC) {
 		struct page *page;
 
@@ -738,7 +776,7 @@ static int smmu_iommu_domain_init(struct iommu_domain *domain)
 	struct smmu_as *as;
 	struct smmu_device *smmu = smmu_handle;
 
-	
+	/* Look for a free AS with lock held */
 	for  (i = 0; i < smmu->num_as; i++) {
 		struct smmu_as *tmp = &smmu->as[i];
 
@@ -758,7 +796,7 @@ found:
 
 	spin_lock(&smmu->lock);
 
-	
+	/* Update PDIR register */
 	smmu_write(smmu, SMMU_PTB_ASID_CUR(as->asid), SMMU_PTB_ASID);
 	smmu_write(smmu,
 		   SMMU_MK_PDIR(as->pdir_page, as->pdir_attr), SMMU_PTB_DATA);

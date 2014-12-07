@@ -72,12 +72,17 @@ int ceph_pagelist_append(struct ceph_pagelist *pl, const void *buf, size_t len)
 }
 EXPORT_SYMBOL(ceph_pagelist_append);
 
+/**
+ * Allocate enough pages for a pagelist to append the given amount
+ * of data without without allocating.
+ * Returns: 0 on success, -ENOMEM on error.
+ */
 int ceph_pagelist_reserve(struct ceph_pagelist *pl, size_t space)
 {
 	if (space <= pl->room)
 		return 0;
 	space -= pl->room;
-	space = (space + PAGE_SIZE - 1) >> PAGE_SHIFT;   
+	space = (space + PAGE_SIZE - 1) >> PAGE_SHIFT;   /* conv to num pages */
 
 	while (space > pl->num_pages_free) {
 		struct page *page = __page_cache_alloc(GFP_NOFS);
@@ -90,6 +95,9 @@ int ceph_pagelist_reserve(struct ceph_pagelist *pl, size_t space)
 }
 EXPORT_SYMBOL(ceph_pagelist_reserve);
 
+/**
+ * Free any pages that have been preallocated.
+ */
 int ceph_pagelist_free_reserve(struct ceph_pagelist *pl)
 {
 	while (!list_empty(&pl->free_list)) {
@@ -104,6 +112,9 @@ int ceph_pagelist_free_reserve(struct ceph_pagelist *pl)
 }
 EXPORT_SYMBOL(ceph_pagelist_free_reserve);
 
+/**
+ * Create a truncation point.
+ */
 void ceph_pagelist_set_cursor(struct ceph_pagelist *pl,
 			      struct ceph_pagelist_cursor *c)
 {
@@ -113,6 +124,12 @@ void ceph_pagelist_set_cursor(struct ceph_pagelist *pl,
 }
 EXPORT_SYMBOL(ceph_pagelist_set_cursor);
 
+/**
+ * Truncate a pagelist to the given point. Move extra pages to reserve.
+ * This won't sleep.
+ * Returns: 0 on success,
+ *          -EINVAL if the pagelist doesn't match the trunc point pagelist
+ */
 int ceph_pagelist_truncate(struct ceph_pagelist *pl,
 			   struct ceph_pagelist_cursor *c)
 {
@@ -123,8 +140,8 @@ int ceph_pagelist_truncate(struct ceph_pagelist *pl,
 	ceph_pagelist_unmap_tail(pl);
 	while (pl->head.prev != c->page_lru) {
 		page = list_entry(pl->head.prev, struct page, lru);
-		list_del(&page->lru);                
-		list_add_tail(&page->lru, &pl->free_list); 
+		list_del(&page->lru);                /* remove from pagelist */
+		list_add_tail(&page->lru, &pl->free_list); /* add to reserve */
 		++pl->num_pages_free;
 	}
 	pl->room = c->room;

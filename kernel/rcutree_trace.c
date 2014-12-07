@@ -55,7 +55,7 @@ static char convert_kthread_status(unsigned int kthread_status)
 	return "SRWOY"[kthread_status];
 }
 
-#endif 
+#endif /* #ifdef CONFIG_RCU_BOOST */
 
 static void print_one_rcu_data(struct seq_file *m, struct rcu_data *rdp)
 {
@@ -89,7 +89,7 @@ static void print_one_rcu_data(struct seq_file *m, struct rcu_data *rdp)
 					  rdp->cpu)),
 		   per_cpu(rcu_cpu_kthread_cpu, rdp->cpu),
 		   per_cpu(rcu_cpu_kthread_loops, rdp->cpu) & 0xffff);
-#endif 
+#endif /* #ifdef CONFIG_RCU_BOOST */
 	seq_printf(m, " b=%ld", rdp->blimit);
 	seq_printf(m, " ci=%lu co=%lu ca=%lu\n",
 		   rdp->n_cbs_invoked, rdp->n_cbs_orphaned, rdp->n_cbs_adopted);
@@ -108,7 +108,7 @@ static int show_rcudata(struct seq_file *m, void *unused)
 #ifdef CONFIG_TREE_PREEMPT_RCU
 	seq_puts(m, "rcu_preempt:\n");
 	PRINT_RCU_DATA(rcu_preempt_data, print_one_rcu_data, m);
-#endif 
+#endif /* #ifdef CONFIG_TREE_PREEMPT_RCU */
 	seq_puts(m, "rcu_sched:\n");
 	PRINT_RCU_DATA(rcu_sched_data, print_one_rcu_data, m);
 	seq_puts(m, "rcu_bh:\n");
@@ -158,7 +158,7 @@ static void print_one_rcu_data_csv(struct seq_file *m, struct rcu_data *rdp)
 		   per_cpu(rcu_cpu_has_work, rdp->cpu),
 		   convert_kthread_status(per_cpu(rcu_cpu_kthread_status,
 					  rdp->cpu)));
-#endif 
+#endif /* #ifdef CONFIG_RCU_BOOST */
 	seq_printf(m, ",%ld", rdp->blimit);
 	seq_printf(m, ",%lu,%lu,%lu\n",
 		   rdp->n_cbs_invoked, rdp->n_cbs_orphaned, rdp->n_cbs_adopted);
@@ -171,12 +171,12 @@ static int show_rcudata_csv(struct seq_file *m, void *unused)
 	seq_puts(m, "\"of\",\"qll\",\"ql\",\"qs\"");
 #ifdef CONFIG_RCU_BOOST
 	seq_puts(m, "\"kt\",\"ktl\"");
-#endif 
+#endif /* #ifdef CONFIG_RCU_BOOST */
 	seq_puts(m, ",\"b\",\"ci\",\"co\",\"ca\"\n");
 #ifdef CONFIG_TREE_PREEMPT_RCU
 	seq_puts(m, "\"rcu_preempt:\"\n");
 	PRINT_RCU_DATA(rcu_preempt_data, print_one_rcu_data_csv, m);
-#endif 
+#endif /* #ifdef CONFIG_TREE_PREEMPT_RCU */
 	seq_puts(m, "\"rcu_sched:\"\n");
 	PRINT_RCU_DATA(rcu_sched_data, print_one_rcu_data_csv, m);
 	seq_puts(m, "\"rcu_bh:\"\n");
@@ -245,20 +245,23 @@ static const struct file_operations rcu_node_boost_fops = {
 	.release = single_release,
 };
 
+/*
+ * Create the rcuboost debugfs entry.  Standard error return.
+ */
 static int rcu_boost_trace_create_file(struct dentry *rcudir)
 {
 	return !debugfs_create_file("rcuboost", 0444, rcudir, NULL,
 				    &rcu_node_boost_fops);
 }
 
-#else 
+#else /* #ifdef CONFIG_RCU_BOOST */
 
 static int rcu_boost_trace_create_file(struct dentry *rcudir)
 {
-	return 0;  
+	return 0;  /* There cannot be an error if we didn't create it! */
 }
 
-#endif 
+#endif /* #else #ifdef CONFIG_RCU_BOOST */
 
 static void print_one_rcu_state(struct seq_file *m, struct rcu_state *rsp)
 {
@@ -268,13 +271,13 @@ static void print_one_rcu_state(struct seq_file *m, struct rcu_state *rsp)
 
 	gpnum = rsp->gpnum;
 	seq_printf(m, "c=%lu g=%lu s=%d jfq=%ld j=%x "
-		      "nfqs=%lu/nfqsng=%lu(%lu) fqlh=%lu oqlen=%ld/%ld\n",
+		      "nfqs=%lu/nfqsng=%lu(%lu) fqlh=%lu\n",
 		   rsp->completed, gpnum, rsp->fqs_state,
 		   (long)(rsp->jiffies_force_qs - jiffies),
 		   (int)(jiffies & 0xffff),
 		   rsp->n_force_qs, rsp->n_force_qs_ngp,
 		   rsp->n_force_qs - rsp->n_force_qs_ngp,
-		   rsp->n_force_qs_lh, rsp->qlen_lazy, rsp->qlen);
+		   rsp->n_force_qs_lh);
 	for (rnp = &rsp->node[0]; rnp - &rsp->node[0] < NUM_RCU_NODES; rnp++) {
 		if (rnp->level != level) {
 			seq_puts(m, "\n");
@@ -295,7 +298,7 @@ static int show_rcuhier(struct seq_file *m, void *unused)
 #ifdef CONFIG_TREE_PREEMPT_RCU
 	seq_puts(m, "rcu_preempt:\n");
 	print_one_rcu_state(m, &rcu_preempt_state);
-#endif 
+#endif /* #ifdef CONFIG_TREE_PREEMPT_RCU */
 	seq_puts(m, "rcu_sched:\n");
 	print_one_rcu_state(m, &rcu_sched_state);
 	seq_puts(m, "rcu_bh:\n");
@@ -342,7 +345,7 @@ static int show_rcugp(struct seq_file *m, void *unused)
 {
 #ifdef CONFIG_TREE_PREEMPT_RCU
 	show_one_rcugp(m, &rcu_preempt_state);
-#endif 
+#endif /* #ifdef CONFIG_TREE_PREEMPT_RCU */
 	show_one_rcugp(m, &rcu_sched_state);
 	show_one_rcugp(m, &rcu_bh_state);
 	return 0;
@@ -396,7 +399,7 @@ static int show_rcu_pending(struct seq_file *m, void *unused)
 #ifdef CONFIG_TREE_PREEMPT_RCU
 	seq_puts(m, "rcu_preempt:\n");
 	print_rcu_pendings(m, &rcu_preempt_state);
-#endif 
+#endif /* #ifdef CONFIG_TREE_PREEMPT_RCU */
 	seq_puts(m, "rcu_sched:\n");
 	print_rcu_pendings(m, &rcu_sched_state);
 	seq_puts(m, "rcu_bh:\n");

@@ -1,6 +1,9 @@
 #ifndef __ARM_KMAP_TYPES_H
 #define __ARM_KMAP_TYPES_H
 
+/*
+ * This is the "bare minimum".  AIO seems to require this.
+ */
 enum km_type {
 	KM_BOUNCE_READ,
 	KM_SKB_SUNRPC_DATA,

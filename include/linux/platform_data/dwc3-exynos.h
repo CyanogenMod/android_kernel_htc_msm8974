@@ -21,4 +21,4 @@ struct dwc3_exynos_data {
 	int (*phy_exit)(struct platform_device *pdev, int type);
 };
 
-#endif 
+#endif /* _DWC3_EXYNOS_H_ */

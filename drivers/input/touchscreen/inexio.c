@@ -12,6 +12,10 @@
  * the Free Software Foundation.
  */
 
+/*
+ * 2008/06/19 Richard Lemon <richard@codelemon.com>
+ *   Copied mtouch.c and edited for iNexio protocol
+ */
 
 #include <linux/errno.h>
 #include <linux/kernel.h>
@@ -27,11 +31,15 @@ MODULE_AUTHOR("Richard Lemon <richard@codelemon.com>");
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
+/*
+ * Definitions & global arrays.
+ */
 
 #define INEXIO_FORMAT_TOUCH_BIT 0x01
 #define INEXIO_FORMAT_LENGTH 5
 #define INEXIO_RESPONSE_BEGIN_BYTE 0x80
 
+/* todo: check specs for max length of all responses */
 #define INEXIO_MAX_LENGTH 16
 
 #define INEXIO_MIN_XC 0
@@ -43,6 +51,9 @@ MODULE_LICENSE("GPL");
 #define INEXIO_GET_YC(data) (((data[3])<<7) | data[4])
 #define INEXIO_GET_TOUCHED(data) (INEXIO_FORMAT_TOUCH_BIT & data[0])
 
+/*
+ * Per-touchscreen data.
+ */
 
 struct inexio {
 	struct input_dev *dev;
@@ -81,6 +92,9 @@ static irqreturn_t inexio_interrupt(struct serio *serio,
 	return IRQ_HANDLED;
 }
 
+/*
+ * inexio_disconnect() is the opposite of inexio_connect()
+ */
 
 static void inexio_disconnect(struct serio *serio)
 {
@@ -94,6 +108,11 @@ static void inexio_disconnect(struct serio *serio)
 	kfree(pinexio);
 }
 
+/*
+ * inexio_connect() is the routine that is called when someone adds a
+ * new serio device that supports iNexio protocol and registers it as
+ * an input device. This is usually accomplished using inputattach.
+ */
 
 static int inexio_connect(struct serio *serio, struct serio_driver *drv)
 {
@@ -143,6 +162,9 @@ static int inexio_connect(struct serio *serio, struct serio_driver *drv)
 	return err;
 }
 
+/*
+ * The serio driver structure.
+ */
 
 static struct serio_device_id inexio_serio_ids[] = {
 	{
@@ -167,6 +189,9 @@ static struct serio_driver inexio_drv = {
 	.disconnect	= inexio_disconnect,
 };
 
+/*
+ * The functions for inserting/removing us as a module.
+ */
 
 static int __init inexio_init(void)
 {

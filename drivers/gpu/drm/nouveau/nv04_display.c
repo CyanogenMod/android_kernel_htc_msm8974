@@ -45,8 +45,8 @@ nv04_display_store_initial_head_owner(struct drm_device *dev)
 		return;
 	}
 
-	
-	if (nvReadMC(dev, NV_PBUS_DEBUG_1) & (1 << 28))	
+	/* reading CR44 is broken on nv11, so we attempt to infer it */
+	if (nvReadMC(dev, NV_PBUS_DEBUG_1) & (1 << 28))	/* heads tied, restore both */
 		dev_priv->crtc_owner = 0x4;
 	else {
 		uint8_t slaved_on_A, slaved_on_B;
@@ -81,7 +81,7 @@ nv04_display_store_initial_head_owner(struct drm_device *dev)
 int
 nv04_display_early_init(struct drm_device *dev)
 {
-	
+	/* Make the I2C buses accessible. */
 	if (!nv_gf4_disp_arch(dev)) {
 		uint32_t pmc_enable = nv_rd32(dev, NV03_PMC_ENABLE);
 
@@ -89,10 +89,10 @@ nv04_display_early_init(struct drm_device *dev)
 			nv_wr32(dev, NV03_PMC_ENABLE, pmc_enable | 1);
 	}
 
-	
+	/* Unlock the VGA CRTCs. */
 	NVLockVgaCrtcs(dev, false);
 
-	
+	/* Make sure the CRTCs aren't in slaved mode. */
 	if (nv_two_heads(dev)) {
 		nv04_display_store_initial_head_owner(dev);
 		NVSetOwner(dev, 0);
@@ -169,7 +169,7 @@ nv04_display_create(struct drm_device *dev)
 		}
 	}
 
-	
+	/* Save previous state */
 	list_for_each_entry(crtc, &dev->mode_config.crtc_list, head)
 		crtc->funcs->save(crtc);
 
@@ -195,7 +195,7 @@ nv04_display_destroy(struct drm_device *dev)
 	nouveau_irq_unregister(dev, 24);
 	nouveau_irq_unregister(dev, 25);
 
-	
+	/* Turn every CRTC off. */
 	list_for_each_entry(crtc, &dev->mode_config.crtc_list, head) {
 		struct drm_mode_set modeset = {
 			.crtc = crtc,
@@ -204,7 +204,7 @@ nv04_display_destroy(struct drm_device *dev)
 		crtc->funcs->set_config(&modeset);
 	}
 
-	
+	/* Restore state */
 	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
 		struct drm_encoder_helper_funcs *func = encoder->helper_private;
 
@@ -223,6 +223,14 @@ nv04_display_init(struct drm_device *dev)
 	struct drm_encoder *encoder;
 	struct drm_crtc *crtc;
 
+	/* meh.. modeset apparently doesn't setup all the regs and depends
+	 * on pre-existing state, for now load the state of the card *before*
+	 * nouveau was loaded, and then do a modeset.
+	 *
+	 * best thing to do probably is to make save/restore routines not
+	 * save/restore "pre-load" state, but more general so we can save
+	 * on suspend too.
+	 */
 	list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
 		struct drm_encoder_helper_funcs *func = encoder->helper_private;
 

@@ -22,6 +22,7 @@
 #include <linux/interrupt.h>
 #include <linux/i2c/mpr121_touchkey.h>
 
+/* Register definitions */
 #define ELE_TOUCH_STATUS_0_ADDR	0x0
 #define ELE_TOUCH_STATUS_1_ADDR	0X1
 #define MHD_RISING_ADDR		0x2b
@@ -37,6 +38,10 @@
 #define AFE_CONF_ADDR			0x5c
 #define FILTER_CONF_ADDR		0x5d
 
+/*
+ * ELECTRODE_CONF_ADDR: This register configures the number of
+ * enabled capacitance sensing inputs and its run/suspend mode.
+ */
 #define ELECTRODE_CONF_ADDR		0x5e
 #define ELECTRODE_CONF_QUICK_CHARGE	0x80
 #define AUTO_CONFIG_CTRL_ADDR		0x7b
@@ -44,9 +49,12 @@
 #define AUTO_CONFIG_LSL_ADDR		0x7e
 #define AUTO_CONFIG_TL_ADDR		0x7f
 
+/* Threshold of touch/release trigger */
 #define TOUCH_THRESHOLD			0x08
 #define RELEASE_THRESHOLD		0x05
+/* Masks for touch and release triggers */
 #define TOUCH_STATUS_MASK		0xfff
+/* MPR121 has 12 keys */
 #define MPR121_MAX_KEY_COUNT		12
 
 struct mpr121_touchkey {
@@ -97,7 +105,7 @@ static irqreturn_t mpr_touchkey_interrupt(int irq, void *dev_id)
 	}
 
 	reg &= TOUCH_STATUS_MASK;
-	
+	/* use old press bit to figure out which bit changed */
 	key_num = ffs(reg ^ mpr121->statusbits) - 1;
 	pressed = reg & (1 << key_num);
 	mpr121->statusbits = reg;
@@ -123,7 +131,7 @@ static int __devinit mpr121_phys_init(const struct mpr121_platform_data *pdata,
 	unsigned char usl, lsl, tl, eleconf;
 	int i, t, vdd, ret;
 
-	
+	/* Set up touch/release threshold for ele0-ele11 */
 	for (i = 0; i <= MPR121_MAX_KEY_COUNT; i++) {
 		t = ELE0_TOUCH_THRESHOLD_ADDR + (i * 2);
 		ret = i2c_smbus_write_byte_data(client, t, TOUCH_THRESHOLD);
@@ -135,7 +143,7 @@ static int __devinit mpr121_phys_init(const struct mpr121_platform_data *pdata,
 			goto err_i2c_write;
 	}
 
-	
+	/* Set up init register */
 	for (i = 0; i < ARRAY_SIZE(init_reg_table); i++) {
 		reg = &init_reg_table[i];
 		ret = i2c_smbus_write_byte_data(client, reg->addr, reg->val);
@@ -144,6 +152,11 @@ static int __devinit mpr121_phys_init(const struct mpr121_platform_data *pdata,
 	}
 
 
+	/*
+	 * Capacitance on sensing input varies and needs to be compensated.
+	 * The internal MPR121-auto-configuration can do this if it's
+	 * registers are set properly (based on pdata->vdd_uv).
+	 */
 	vdd = pdata->vdd_uv / 1000;
 	usl = ((vdd - 700) * 256) / vdd;
 	lsl = (usl * 65) / 100;
@@ -152,6 +165,11 @@ static int __devinit mpr121_phys_init(const struct mpr121_platform_data *pdata,
 	ret |= i2c_smbus_write_byte_data(client, AUTO_CONFIG_LSL_ADDR, lsl);
 	ret |= i2c_smbus_write_byte_data(client, AUTO_CONFIG_TL_ADDR, tl);
 
+	/*
+	 * Quick charge bit will let the capacitive charge to ready
+	 * state quickly, or the buttons may not function after system
+	 * boot.
+	 */
 	eleconf = mpr121->keycount | ELECTRODE_CONF_QUICK_CHARGE;
 	ret |= i2c_smbus_write_byte_data(client, ELECTRODE_CONF_ADDR,
 					 eleconf);

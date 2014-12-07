@@ -130,7 +130,7 @@ static void bcma_host_soc_block_write(struct bcma_device *core,
 		WARN_ON(1);
 	}
 }
-#endif 
+#endif /* CONFIG_BCMA_BLOCKIO */
 
 static u32 bcma_host_soc_aread32(struct bcma_device *core, u16 offset)
 {
@@ -163,15 +163,18 @@ int __init bcma_host_soc_register(struct bcma_soc *soc)
 	struct bcma_bus *bus = &soc->bus;
 	int err;
 
+	/* iomap only first core. We have to read some register on this core
+	 * to scan the bus.
+	 */
 	bus->mmio = ioremap_nocache(BCMA_ADDR_BASE, BCMA_CORE_SIZE * 1);
 	if (!bus->mmio)
 		return -ENOMEM;
 
-	
+	/* Host specific */
 	bus->hosttype = BCMA_HOSTTYPE_SOC;
 	bus->ops = &bcma_host_soc_ops;
 
-	
+	/* Register */
 	err = bcma_bus_early_register(bus, &soc->core_cc, &soc->core_mips);
 	if (err)
 		iounmap(bus->mmio);

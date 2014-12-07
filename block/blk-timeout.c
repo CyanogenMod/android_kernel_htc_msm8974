@@ -1,3 +1,6 @@
+/*
+ * Functions related to generic timeout handling of requests.
+ */
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/blkdev.h>
@@ -64,8 +67,13 @@ ssize_t part_timeout_store(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
-#endif 
+#endif /* CONFIG_FAIL_IO_TIMEOUT */
 
+/*
+ * blk_delete_timer - Delete/cancel timer for a given function.
+ * @req:	request that we are canceling timer for
+ *
+ */
 void blk_delete_timer(struct request *req)
 {
 	list_del_init(&req->timeout_list);
@@ -86,6 +94,12 @@ static void blk_rq_timed_out(struct request *req)
 		blk_add_timer(req);
 		break;
 	case BLK_EH_NOT_HANDLED:
+		/*
+		 * LLD handles this for now but in the future
+		 * we can send a request msg to abort the command
+		 * and we can move more of the generic scsi eh code to
+		 * the blk layer.
+		 */
 		break;
 	default:
 		printk(KERN_ERR "block: bad eh return: %d\n", ret);
@@ -106,6 +120,9 @@ void blk_rq_timed_out_timer(unsigned long data)
 		if (time_after_eq(jiffies, rq->deadline)) {
 			list_del_init(&rq->timeout_list);
 
+			/*
+			 * Check if we raced with end io completion
+			 */
 			if (blk_mark_rq_complete(rq))
 				continue;
 			blk_rq_timed_out(rq);
@@ -121,6 +138,15 @@ void blk_rq_timed_out_timer(unsigned long data)
 	spin_unlock_irqrestore(q->queue_lock, flags);
 }
 
+/**
+ * blk_abort_request -- Request request recovery for the specified command
+ * @req:	pointer to the request of interest
+ *
+ * This function requests that the block layer start recovery for the
+ * request by deleting the timer and calling the q's timeout function.
+ * LLDDs who implement their own error recovery MAY ignore the timeout
+ * event if they generated blk_abort_req. Must hold queue lock.
+ */
 void blk_abort_request(struct request *req)
 {
 	if (blk_mark_rq_complete(req))
@@ -130,6 +156,14 @@ void blk_abort_request(struct request *req)
 }
 EXPORT_SYMBOL_GPL(blk_abort_request);
 
+/**
+ * blk_add_timer - Start timeout timer for a single request
+ * @req:	request that is about to start running.
+ *
+ * Notes:
+ *    Each request has its own timer, and as it is added to the queue, we
+ *    set up the timer. When the request completes, we cancel the timer.
+ */
 void blk_add_timer(struct request *req)
 {
 	struct request_queue *q = req->q;
@@ -141,12 +175,21 @@ void blk_add_timer(struct request *req)
 	BUG_ON(!list_empty(&req->timeout_list));
 	BUG_ON(test_bit(REQ_ATOM_COMPLETE, &req->atomic_flags));
 
+	/*
+	 * Some LLDs, like scsi, peek at the timeout to prevent a
+	 * command from being retried forever.
+	 */
 	if (!req->timeout)
 		req->timeout = q->rq_timeout;
 
 	req->deadline = jiffies + req->timeout;
 	list_add_tail(&req->timeout_list, &q->timeout_list);
 
+	/*
+	 * If the timer isn't already pending or this timeout is earlier
+	 * than an existing one, modify the timer. Round up to next nearest
+	 * second.
+	 */
 	expiry = round_jiffies_up(req->deadline);
 
 	if (!timer_pending(&q->timeout) ||
@@ -154,12 +197,20 @@ void blk_add_timer(struct request *req)
 		mod_timer(&q->timeout, expiry);
 }
 
+/**
+ * blk_abort_queue -- Abort all request on given queue
+ * @queue:	pointer to queue
+ *
+ */
 void blk_abort_queue(struct request_queue *q)
 {
 	unsigned long flags;
 	struct request *rq, *tmp;
 	LIST_HEAD(list);
 
+	/*
+	 * Not a request based block device, nothing to abort
+	 */
 	if (!q->request_fn)
 		return;
 
@@ -167,11 +218,20 @@ void blk_abort_queue(struct request_queue *q)
 
 	elv_abort_queue(q);
 
+	/*
+	 * Splice entries to local list, to avoid deadlocking if entries
+	 * get readded to the timeout list by error handling
+	 */
 	list_splice_init(&q->timeout_list, &list);
 
 	list_for_each_entry_safe(rq, tmp, &list, timeout_list)
 		blk_abort_request(rq);
 
+	/*
+	 * Occasionally, blk_abort_request() will return without
+	 * deleting the element from the list. Make sure we add those back
+	 * instead of leaving them on the local stack list.
+	 */
 	list_splice(&list, &q->timeout_list);
 
 	spin_unlock_irqrestore(q->queue_lock, flags);

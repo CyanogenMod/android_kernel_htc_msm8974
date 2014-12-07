@@ -197,7 +197,7 @@ static int mt9v032_power_on(struct mt9v032 *mt9v032)
 		udelay(1);
 	}
 
-	
+	/* Reset the chip and stop data read out */
 	ret = mt9v032_write(client, MT9V032_RESET, 1);
 	if (ret < 0)
 		return ret;
@@ -229,7 +229,7 @@ static int __mt9v032_set_power(struct mt9v032 *mt9v032, bool on)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Configure the pixel clock polarity */
 	if (mt9v032->pdata && mt9v032->pdata->clk_pol) {
 		ret = mt9v032_write(client, MT9V032_PIXEL_CLOCK,
 				MT9V032_PIXEL_CLOCK_INV_PXL_CLK);
@@ -237,7 +237,7 @@ static int __mt9v032_set_power(struct mt9v032 *mt9v032, bool on)
 			return ret;
 	}
 
-	
+	/* Disable the noise correction algorithm and restore the controls. */
 	ret = mt9v032_write(client, MT9V032_ROW_NOISE_CORR_CONTROL, 0);
 	if (ret < 0)
 		return ret;
@@ -245,6 +245,9 @@ static int __mt9v032_set_power(struct mt9v032 *mt9v032, bool on)
 	return v4l2_ctrl_handler_setup(&mt9v032->ctrls);
 }
 
+/* -----------------------------------------------------------------------------
+ * V4L2 subdev video operations
+ */
 
 static struct v4l2_mbus_framefmt *
 __mt9v032_get_pad_format(struct mt9v032 *mt9v032, struct v4l2_subdev_fh *fh,
@@ -290,7 +293,7 @@ static int mt9v032_s_stream(struct v4l2_subdev *subdev, int enable)
 	if (!enable)
 		return mt9v032_set_chip_control(mt9v032, mode, 0);
 
-	
+	/* Configure the window size and row/column bin */
 	hratio = DIV_ROUND_CLOSEST(crop->width, format->width);
 	vratio = DIV_ROUND_CLOSEST(crop->height, format->height);
 
@@ -321,7 +324,7 @@ static int mt9v032_s_stream(struct v4l2_subdev *subdev, int enable)
 	if (ret < 0)
 		return ret;
 
-	
+	/* Switch to master "normal" mode */
 	return mt9v032_set_chip_control(mt9v032, 0, mode);
 }
 
@@ -377,7 +380,7 @@ static int mt9v032_set_format(struct v4l2_subdev *subdev,
 	__crop = __mt9v032_get_pad_crop(mt9v032, fh, format->pad,
 					format->which);
 
-	
+	/* Clamp the width and height to avoid dividing by zero. */
 	width = clamp_t(unsigned int, ALIGN(format->format.width, 2),
 			max(__crop->width / 8, MT9V032_WINDOW_WIDTH_MIN),
 			__crop->width);
@@ -418,6 +421,9 @@ static int mt9v032_set_crop(struct v4l2_subdev *subdev,
 	struct v4l2_rect *__crop;
 	struct v4l2_rect rect;
 
+	/* Clamp the crop rectangle boundaries and align them to a non multiple
+	 * of 2 pixels to ensure a GRBG Bayer pattern.
+	 */
 	rect.left = clamp(ALIGN(crop->rect.left + 1, 2) - 1,
 			  MT9V032_COLUMN_START_MIN,
 			  MT9V032_COLUMN_START_MAX);
@@ -437,6 +443,9 @@ static int mt9v032_set_crop(struct v4l2_subdev *subdev,
 	__crop = __mt9v032_get_pad_crop(mt9v032, fh, crop->pad, crop->which);
 
 	if (rect.width != __crop->width || rect.height != __crop->height) {
+		/* Reset the output image size if the crop rectangle size has
+		 * been modified.
+		 */
 		__format = __mt9v032_get_pad_format(mt9v032, fh, crop->pad,
 						    crop->which);
 		__format->width = rect.width;
@@ -449,6 +458,9 @@ static int mt9v032_set_crop(struct v4l2_subdev *subdev,
 	return 0;
 }
 
+/* -----------------------------------------------------------------------------
+ * V4L2 subdev control operations
+ */
 
 #define V4L2_CID_TEST_PATTERN		(V4L2_CID_USER_BASE | 0x1001)
 
@@ -524,6 +536,9 @@ static const struct v4l2_ctrl_config mt9v032_ctrls[] = {
 	}
 };
 
+/* -----------------------------------------------------------------------------
+ * V4L2 subdev core operations
+ */
 
 static int mt9v032_set_power(struct v4l2_subdev *subdev, int on)
 {
@@ -532,13 +547,16 @@ static int mt9v032_set_power(struct v4l2_subdev *subdev, int on)
 
 	mutex_lock(&mt9v032->power_lock);
 
+	/* If the power count is modified from 0 to != 0 or from != 0 to 0,
+	 * update the power state.
+	 */
 	if (mt9v032->power_count == !on) {
 		ret = __mt9v032_set_power(mt9v032, !!on);
 		if (ret < 0)
 			goto done;
 	}
 
-	
+	/* Update the power count. */
 	mt9v032->power_count += on ? 1 : -1;
 	WARN_ON(mt9v032->power_count < 0);
 
@@ -547,6 +565,9 @@ done:
 	return ret;
 }
 
+/* -----------------------------------------------------------------------------
+ * V4L2 subdev internal operations
+ */
 
 static int mt9v032_registered(struct v4l2_subdev *subdev)
 {
@@ -564,7 +585,7 @@ static int mt9v032_registered(struct v4l2_subdev *subdev)
 		return ret;
 	}
 
-	
+	/* Read and check the sensor version */
 	data = mt9v032_read(client, MT9V032_CHIP_VERSION);
 	if (data != MT9V032_CHIP_ID_REV1 && data != MT9V032_CHIP_ID_REV3) {
 		dev_err(&client->dev, "MT9V032 not detected, wrong version "
@@ -635,6 +656,9 @@ static const struct v4l2_subdev_internal_ops mt9v032_subdev_internal_ops = {
 	.close = mt9v032_close,
 };
 
+/* -----------------------------------------------------------------------------
+ * Driver initialization and probing
+ */
 
 static int mt9v032_probe(struct i2c_client *client,
 		const struct i2c_device_id *did)

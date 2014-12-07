@@ -225,6 +225,14 @@ static void qe_ic_mask_irq(struct irq_data *d)
 	qe_ic_write(qe_ic->regs, qe_ic_info[src].mask_reg,
 		    temp & ~qe_ic_info[src].mask);
 
+	/* Flush the above write before enabling interrupts; otherwise,
+	 * spurious interrupts will sometimes happen.  To be 100% sure
+	 * that the write has reached the device before interrupts are
+	 * enabled, the mask register would have to be read back; however,
+	 * this is not required for correctness, only to avoid wasting
+	 * time on a large number of spurious interrupts.  In testing,
+	 * a sync reduced the observed spurious interrupts to zero.
+	 */
 	mb();
 
 	raw_spin_unlock_irqrestore(&qe_ic_lock, flags);
@@ -239,7 +247,7 @@ static struct irq_chip qe_ic_irq_chip = {
 
 static int qe_ic_host_match(struct irq_domain *h, struct device_node *node)
 {
-	
+	/* Exact match, unless qe_ic node is NULL */
 	return h->of_node == NULL || h->of_node == node;
 }
 
@@ -253,7 +261,7 @@ static int qe_ic_host_map(struct irq_domain *h, unsigned int virq,
 		printk(KERN_ERR "Can't map reserved IRQ\n");
 		return -EINVAL;
 	}
-	
+	/* Default chip */
 	chip = &qe_ic->hc_irq;
 
 	irq_set_chip_data(virq, qe_ic);
@@ -270,13 +278,14 @@ static struct irq_domain_ops qe_ic_host_ops = {
 	.xlate = irq_domain_xlate_onetwocell,
 };
 
+/* Return an interrupt vector or NO_IRQ if no interrupt is pending. */
 unsigned int qe_ic_get_low_irq(struct qe_ic *qe_ic)
 {
 	int irq;
 
 	BUG_ON(qe_ic == NULL);
 
-	
+	/* get the interrupt source vector. */
 	irq = qe_ic_read(qe_ic->regs, QEIC_CIVEC) >> 26;
 
 	if (irq == 0)
@@ -285,13 +294,14 @@ unsigned int qe_ic_get_low_irq(struct qe_ic *qe_ic)
 	return irq_linear_revmap(qe_ic->irqhost, irq);
 }
 
+/* Return an interrupt vector or NO_IRQ if no interrupt is pending. */
 unsigned int qe_ic_get_high_irq(struct qe_ic *qe_ic)
 {
 	int irq;
 
 	BUG_ON(qe_ic == NULL);
 
-	
+	/* get the interrupt source vector. */
 	irq = qe_ic_read(qe_ic->regs, QEIC_CHIVEC) >> 26;
 
 	if (irq == 0)
@@ -336,8 +346,8 @@ void __init qe_ic_init(struct device_node *node, unsigned int flags,
 		return;
 	}
 
-	
-	
+	/* default priority scheme is grouped. If spread mode is    */
+	/* required, configure cicr accordingly.                    */
 	if (flags & QE_IC_SPREADMODE_GRP_W)
 		temp |= CICR_GWCC;
 	if (flags & QE_IC_SPREADMODE_GRP_X)
@@ -351,7 +361,7 @@ void __init qe_ic_init(struct device_node *node, unsigned int flags,
 	if (flags & QE_IC_SPREADMODE_GRP_RISCB)
 		temp |= CICR_GRTB;
 
-	
+	/* choose destination signal for highest priority interrupt */
 	if (flags & QE_IC_HIGH_SIGNAL) {
 		temp |= (SIGNAL_HIGH << CICR_HPIT_SHIFT);
 		high_active = 1;
@@ -386,6 +396,7 @@ void qe_ic_set_highest_priority(unsigned int virq, int high)
 	qe_ic_write(qe_ic->regs, QEIC_CICR, temp);
 }
 
+/* Set Priority level within its group, from 1 to 8 */
 int qe_ic_set_priority(unsigned int virq, unsigned int priority)
 {
 	struct qe_ic *qe_ic = qe_ic_from_irq(virq);
@@ -414,6 +425,7 @@ int qe_ic_set_priority(unsigned int virq, unsigned int priority)
 	return 0;
 }
 
+/* Set a QE priority to use high irq, only priority 1~2 can use high irq */
 int qe_ic_set_high_priority(unsigned int virq, unsigned int priority, int high)
 {
 	struct qe_ic *qe_ic = qe_ic_from_irq(virq);

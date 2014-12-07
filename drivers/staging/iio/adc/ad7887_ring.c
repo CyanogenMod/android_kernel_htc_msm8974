@@ -19,6 +19,13 @@
 
 #include "ad7887.h"
 
+/**
+ * ad7887_ring_preenable() setup the parameters of the ring before enabling
+ *
+ * The complex nature of the setting of the nuber of bytes per datum is due
+ * to this driver currently ensuring that the timestamp is stored at an 8
+ * byte boundary.
+ **/
 static int ad7887_ring_preenable(struct iio_dev *indio_dev)
 {
 	struct ad7887_state *st = iio_priv(indio_dev);
@@ -39,14 +46,14 @@ static int ad7887_ring_preenable(struct iio_dev *indio_dev)
 		indio_dev->buffer->access->
 			set_bytes_per_datum(indio_dev->buffer, st->d_size);
 
-	
+	/* We know this is a single long so can 'cheat' */
 	switch (*indio_dev->active_scan_mask) {
 	case (1 << 0):
 		st->ring_msg = &st->msg[AD7887_CH0];
 		break;
 	case (1 << 1):
 		st->ring_msg = &st->msg[AD7887_CH1];
-		
+		/* Dummy read: push CH1 setting down to hardware */
 		spi_sync(st->spi, st->ring_msg);
 		break;
 	case ((1 << 1) | (1 << 0)):
@@ -61,10 +68,16 @@ static int ad7887_ring_postdisable(struct iio_dev *indio_dev)
 {
 	struct ad7887_state *st = iio_priv(indio_dev);
 
-	
+	/* dummy read: restore default CH0 settin */
 	return spi_sync(st->spi, &st->msg[AD7887_CH0]);
 }
 
+/**
+ * ad7887_trigger_handler() bh of trigger launched polling to ring buffer
+ *
+ * Currently there is no option in this driver to disable the saving of
+ * timestamps within the ring.
+ **/
 static irqreturn_t ad7887_trigger_handler(int irq, void *p)
 {
 	struct iio_poll_func *pf = p;
@@ -128,10 +141,10 @@ int ad7887_register_ring_funcs_and_init(struct iio_dev *indio_dev)
 		ret = -ENOMEM;
 		goto error_deallocate_sw_rb;
 	}
-	
+	/* Ring buffer functions - here trigger setup related */
 	indio_dev->setup_ops = &ad7887_ring_setup_ops;
 
-	
+	/* Flag that polled ring buffering is possible */
 	indio_dev->modes |= INDIO_BUFFER_TRIGGERED;
 	return 0;
 

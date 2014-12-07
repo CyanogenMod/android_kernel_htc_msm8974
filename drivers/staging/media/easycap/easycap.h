@@ -1,3 +1,8 @@
+/*****************************************************************************
+*                                                                            *
+*  easycap.h                                                                 *
+*                                                                            *
+*****************************************************************************/
 /*
  *
  *  Copyright (C) 2010 R.M. Thomas  <rmthomas@sciolus.org>
@@ -18,13 +23,35 @@
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
 */
+/*****************************************************************************/
+/*---------------------------------------------------------------------------*/
+/*
+ *  THE FOLLOWING PARAMETERS ARE UNDEFINED:
+ *
+ *                EASYCAP_DEBUG
+ *
+ *  IF REQUIRED THEY MUST BE EXTERNALLY DEFINED, FOR EXAMPLE AS COMPILER
+ *  OPTIONS.
+ */
+/*---------------------------------------------------------------------------*/
 
 #ifndef __EASYCAP_H__
 #define __EASYCAP_H__
 
+/*---------------------------------------------------------------------------*/
+/*
+ *  THESE ARE NORMALLY DEFINED
+ */
+/*---------------------------------------------------------------------------*/
 #define  PATIENCE  500
 #define  PERSEVERE
+/*---------------------------------------------------------------------------*/
+/*
+ *  THESE ARE FOR MAINTENANCE ONLY - NORMALLY UNDEFINED:
+ */
+/*---------------------------------------------------------------------------*/
 #undef  EASYCAP_TESTCARD
+/*---------------------------------------------------------------------------*/
 #include <linux/kernel.h>
 #include <linux/errno.h>
 #include <linux/init.h>
@@ -55,6 +82,16 @@
 #include <linux/videodev2.h>
 #include <linux/soundcard.h>
 
+/*---------------------------------------------------------------------------*/
+/*  VENDOR, PRODUCT:  Syntek Semiconductor Co., Ltd
+ *
+ *      EITHER        EasyCAP USB 2.0 Video Adapter with Audio, Model No. DC60
+ *               with input cabling:  AUDIO(L), AUDIO(R), CVBS, S-VIDEO.
+ *
+ *          OR        EasyCAP 4CHANNEL USB 2.0 DVR, Model No. EasyCAP002
+ *               with input cabling:  MICROPHONE, CVBS1, CVBS2, CVBS3, CVBS4.
+ */
+/*---------------------------------------------------------------------------*/
 #define USB_EASYCAP_VENDOR_ID	0x05e1
 #define USB_EASYCAP_PRODUCT_ID	0x0408
 
@@ -63,10 +100,22 @@
 
 #define DONGLE_MANY 8
 #define INPUT_MANY 6
+/*---------------------------------------------------------------------------*/
+/*
+ *  DEFAULT LUMINANCE, CONTRAST, SATURATION AND HUE
+ */
+/*---------------------------------------------------------------------------*/
 #define SAA_0A_DEFAULT 0x7F
 #define SAA_0B_DEFAULT 0x3F
 #define SAA_0C_DEFAULT 0x2F
 #define SAA_0D_DEFAULT 0x00
+/*---------------------------------------------------------------------------*/
+/*
+ *  VIDEO STREAMING PARAMETERS:
+ *  USB 2.0 PROVIDES FOR HIGH-BANDWIDTH ENDPOINTS WITH AN UPPER LIMIT
+ *  OF 3072 BYTES PER MICROFRAME for wMaxPacketSize.
+ */
+/*---------------------------------------------------------------------------*/
 #define VIDEO_ISOC_BUFFER_MANY 16
 #define VIDEO_ISOC_ORDER 3
 #define VIDEO_ISOC_FRAMESPERDESC ((unsigned int) 1 << VIDEO_ISOC_ORDER)
@@ -76,16 +125,44 @@
 #endif
 #define VIDEO_JUNK_TOLERATE VIDEO_ISOC_BUFFER_MANY
 #define VIDEO_LOST_TOLERATE 50
+/*---------------------------------------------------------------------------*/
+/*
+ *  VIDEO BUFFERS
+ */
+/*---------------------------------------------------------------------------*/
 #define FIELD_BUFFER_SIZE (203 * PAGE_SIZE)
 #define FRAME_BUFFER_SIZE (405 * PAGE_SIZE)
 #define FIELD_BUFFER_MANY 4
 #define FRAME_BUFFER_MANY 6
+/*---------------------------------------------------------------------------*/
+/*
+ *  AUDIO STREAMING PARAMETERS
+ */
+/*---------------------------------------------------------------------------*/
 #define AUDIO_ISOC_BUFFER_MANY 16
 #define AUDIO_ISOC_ORDER 1
 #define AUDIO_ISOC_FRAMESPERDESC 32
 #define AUDIO_ISOC_BUFFER_SIZE (PAGE_SIZE << AUDIO_ISOC_ORDER)
+/*---------------------------------------------------------------------------*/
+/*
+ *  AUDIO BUFFERS
+ */
+/*---------------------------------------------------------------------------*/
 #define AUDIO_FRAGMENT_MANY 32
 #define PAGES_PER_AUDIO_FRAGMENT 4
+/*---------------------------------------------------------------------------*/
+/*
+ *  IT IS ESSENTIAL THAT EVEN-NUMBERED STANDARDS ARE 25 FRAMES PER SECOND,
+ *                        ODD-NUMBERED STANDARDS ARE 30 FRAMES PER SECOND.
+ *  THE NUMBERING OF STANDARDS MUST NOT BE CHANGED WITHOUT DUE CARE.  NOT
+ *  ONLY MUST THE PARAMETER
+ *                             STANDARD_MANY
+ *  BE CHANGED TO CORRESPOND TO THE NEW NUMBER OF STANDARDS, BUT ALSO THE
+ *  NUMBERING MUST REMAIN AN UNBROKEN ASCENDING SEQUENCE:  DUMMY STANDARDS
+ *  MAY NEED TO BE ADDED.   APPROPRIATE CHANGES WILL ALWAYS BE REQUIRED IN
+ *  ROUTINE fillin_formats() AND POSSIBLY ELSEWHERE.  BEWARE.
+ */
+/*---------------------------------------------------------------------------*/
 #define  PAL_BGHIN      0
 #define  PAL_Nc         2
 #define  SECAM          4
@@ -107,6 +184,11 @@
 #define  PAL_60_SLOW       17
 #define  PAL_M_SLOW        19
 #define  STANDARD_MANY 20
+/*---------------------------------------------------------------------------*/
+/*
+ *  ENUMS
+ */
+/*---------------------------------------------------------------------------*/
 enum {
 	AT_720x576,
 	AT_704x576,
@@ -136,11 +218,17 @@ enum {
 			2 * \
 			PIXELFORMAT_MANY * \
 			INTERLACE_MANY)
+/*---------------------------------------------------------------------------*/
+/*
+ *  STRUCTURE DEFINITIONS
+ */
+/*---------------------------------------------------------------------------*/
 struct easycap_dongle {
 	struct easycap *peasycap;
 	struct mutex mutex_video;
 	struct mutex mutex_audio;
 };
+/*---------------------------------------------------------------------------*/
 struct data_buffer {
 	struct list_head list_head;
 	void *pgo;
@@ -148,12 +236,14 @@ struct data_buffer {
 	u16 kount;
 	u16 input;
 };
+/*---------------------------------------------------------------------------*/
 struct data_urb {
 	struct list_head list_head;
 	struct urb *purb;
 	int isbuf;
 	int length;
 };
+/*---------------------------------------------------------------------------*/
 struct easycap_standard {
 	u16 mask;
 struct v4l2_standard v4l2_standard;
@@ -179,6 +269,13 @@ struct inputset {
 	int hue;
 	int hue_ok;
 };
+/*---------------------------------------------------------------------------*/
+/*
+ *   easycap.ilk == 0   =>  CVBS+S-VIDEO HARDWARE, AUDIO wMaxPacketSize=256
+ *   easycap.ilk == 2   =>  CVBS+S-VIDEO HARDWARE, AUDIO wMaxPacketSize=9
+ *   easycap.ilk == 3   =>     FOUR-CVBS HARDWARE, AUDIO wMaxPacketSize=9
+ */
+/*---------------------------------------------------------------------------*/
 struct easycap {
 	int isdongle;
 	int minor;
@@ -194,7 +291,7 @@ struct easycap {
 #define UPSAMPLE
 #ifdef UPSAMPLE
 	s16 oldaudio;
-#endif 
+#endif /*UPSAMPLE*/
 
 	int ilk;
 	bool microphone;
@@ -256,18 +353,28 @@ struct easycap {
 	u32 isequence;
 
 	int vma_many;
-	int field_fill;	
-			
-	int field_page;	
-			
-	int field_read;	
-			
-	int frame_fill;	
-			
-			
-	int frame_read;	
-			
-	int frame_lock;	
+/*---------------------------------------------------------------------------*/
+/*
+ *  BUFFER INDICATORS
+ */
+/*---------------------------------------------------------------------------*/
+	int field_fill;	/* Field buffer being filled by easycap_complete().  */
+			/*   Bumped only by easycap_complete().              */
+	int field_page;	/* Page of field buffer page being filled by         */
+			/*   easycap_complete().                             */
+	int field_read;	/* Field buffer to be read by field2frame().         */
+			/*   Bumped only by easycap_complete().              */
+	int frame_fill;	/* Frame buffer being filled by field2frame().       */
+			/*   Bumped only by easycap_dqbuf() when             */
+			/*   field2frame() has created a complete frame.     */
+	int frame_read;	/* Frame buffer offered to user by DQBUF.            */
+			/*   Set only by easycap_dqbuf() to trail frame_fill.*/
+	int frame_lock;	/* Flag set to 1 by DQBUF and cleared by QBUF        */
+/*---------------------------------------------------------------------------*/
+/*
+ *  IMAGE PROPERTIES
+ */
+/*---------------------------------------------------------------------------*/
 	u32                   pixelformat;
 	int                     width;
 	int                     height;
@@ -288,6 +395,11 @@ struct easycap {
 	int allocation_video_page;
 	int allocation_video_struct;
 	int registered_video;
+/*---------------------------------------------------------------------------*/
+/*
+ *  ALSA
+ */
+/*---------------------------------------------------------------------------*/
 	struct snd_pcm_hardware alsa_hardware;
 	struct snd_card *psnd_card;
 	struct snd_pcm *psnd_pcm;
@@ -295,6 +407,11 @@ struct easycap {
 	int dma_fill;
 	int dma_next;
 	int dma_read;
+/*---------------------------------------------------------------------------*/
+/*
+ *  SOUND PROPERTIES
+ */
+/*---------------------------------------------------------------------------*/
 	int audio_interface;
 	int audio_altsetting_on;
 	int audio_altsetting_off;
@@ -314,11 +431,21 @@ struct easycap {
 
 	struct list_head urb_audio_head;
 	struct list_head *purb_audio_head;
-	int audio_fill;	
-			
-	int audio_read;	
-			
-			
+/*---------------------------------------------------------------------------*/
+/*
+ *  BUFFER INDICATORS
+ */
+/*---------------------------------------------------------------------------*/
+	int audio_fill;	/* Audio buffer being filled by easycap_complete().  */
+			/*   Bumped only by easycap_complete().              */
+	int audio_read;	/* Audio buffer page being read by easycap_read().   */
+			/*   Set by easycap_read() to trail audio_fill by    */
+			/*   one fragment.                                   */
+/*---------------------------------------------------------------------------*/
+/*
+ *  SOUND PROPERTIES
+ */
+/*---------------------------------------------------------------------------*/
 	int allocation_audio_urb;
 	int allocation_audio_page;
 	int allocation_audio_struct;
@@ -330,6 +457,11 @@ struct easycap {
 
 	struct data_buffer audio_buffer[];
 };
+/*---------------------------------------------------------------------------*/
+/*
+ *  VIDEO FUNCTION PROTOTYPES
+ */
+/*^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^*/
 int easycap_newinput(struct easycap *, int);
 void easycap_testcard(struct easycap *, int);
 int easycap_isdongle(struct easycap *);
@@ -347,9 +479,19 @@ int adjust_brightness(struct easycap *, int);
 int adjust_contrast(struct easycap *, int);
 int adjust_saturation(struct easycap *, int);
 int adjust_hue(struct easycap *, int);
+/*---------------------------------------------------------------------------*/
+/*
+ *  AUDIO FUNCTION PROTOTYPES
+ */
+/*---------------------------------------------------------------------------*/
 int easycap_alsa_probe(struct easycap *);
 int easycap_audio_kill_urbs(struct easycap *);
 void easycap_alsa_complete(struct urb *);
+/*---------------------------------------------------------------------------*/
+/*
+ *  LOW-LEVEL FUNCTION PROTOTYPES
+ */
+/*---------------------------------------------------------------------------*/
 int easycap_audio_gainset(struct usb_device *, s8);
 int easycap_audio_setup(struct easycap *);
 
@@ -367,8 +509,17 @@ int read_saa(struct usb_device *, u16);
 int write_saa(struct usb_device *, u16, u16);
 int start_100(struct usb_device *);
 int stop_100(struct usb_device *);
+/*---------------------------------------------------------------------------*/
 
 
+/*---------------------------------------------------------------------------*/
+/*
+ *  MACROS SAM(...) AND JOM(...) ALLOW DIAGNOSTIC OUTPUT TO BE TAGGED WITH
+ *  THE IDENTITY OF THE DONGLE TO WHICH IT APPLIES, BUT IF INVOKED WHEN THE
+ *  POINTER peasycap IS INVALID AN Oops IS LIKELY, AND ITS CAUSE MAY NOT BE
+ *  IMMEDIATELY OBVIOUS FROM A CASUAL READING OF THE SOURCE CODE.  BEWARE.
+*/
+/*---------------------------------------------------------------------------*/
 const char *strerror(int err);
 
 #define SAY(format, args...) do { \
@@ -398,9 +549,14 @@ extern int easycap_debug;
 #else
 #define JOT(n, format, args...) do {} while (0)
 #define JOM(n, format, args...) do {} while (0)
-#endif 
+#endif /* CONFIG_EASYCAP_DEBUG */
 
+/*---------------------------------------------------------------------------*/
 
+/*---------------------------------------------------------------------------*/
+/* globals
+ */
+/*---------------------------------------------------------------------------*/
 
 extern bool easycap_readback;
 extern const struct easycap_standard easycap_standard[];
@@ -408,4 +564,4 @@ extern struct easycap_format easycap_format[];
 extern struct v4l2_queryctrl easycap_control[];
 extern struct easycap_dongle easycapdc60_dongle[];
 
-#endif 
+#endif /* !__EASYCAP_H__  */

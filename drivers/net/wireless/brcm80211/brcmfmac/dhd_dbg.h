@@ -17,6 +17,7 @@
 #ifndef _BRCMF_DBG_H_
 #define _BRCMF_DBG_H_
 
+/* message levels */
 #define BRCMF_ERROR_VAL	0x0001
 #define BRCMF_TRACE_VAL	0x0002
 #define BRCMF_INFO_VAL	0x0004
@@ -55,7 +56,7 @@ do {									\
 #define BRCMF_BYTES_ON()	(brcmf_msg_level & BRCMF_BYTES_VAL)
 #define BRCMF_GLOM_ON()		(brcmf_msg_level & BRCMF_GLOM_VAL)
 
-#else	
+#else	/* (defined DEBUG) || (defined DEBUG) */
 
 #define brcmf_dbg(level, fmt, ...) no_printk(fmt, ##__VA_ARGS__)
 
@@ -65,7 +66,7 @@ do {									\
 #define BRCMF_BYTES_ON()	0
 #define BRCMF_GLOM_ON()		0
 
-#endif				
+#endif				/* defined(DEBUG) */
 
 #define brcmf_dbg_hex_dump(test, data, len, fmt, ...)			\
 do {									\
@@ -75,4 +76,4 @@ do {									\
 
 extern int brcmf_msg_level;
 
-#endif				
+#endif				/* _BRCMF_DBG_H_ */

@@ -1,3 +1,9 @@
+/*
+ * Atmel AT93C46 serial eeprom driver
+ *
+ * Brian Murphy <brian.murphy@eicon.com>
+ *
+ */
 
 extern struct at93c_defs {
 	volatile u32 *reg;

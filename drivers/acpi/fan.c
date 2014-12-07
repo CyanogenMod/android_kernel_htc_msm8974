@@ -67,10 +67,11 @@ static struct acpi_driver acpi_fan_driver = {
 		},
 };
 
+/* thermal cooling device callbacks */
 static int fan_get_max_state(struct thermal_cooling_device *cdev, unsigned long
 			     *state)
 {
-	
+	/* ACPI fan device only support two states: ON/OFF */
 	*state = 1;
 	return 0;
 }
@@ -115,6 +116,9 @@ static const struct thermal_cooling_device_ops fan_cooling_ops = {
 	.set_cur_state = fan_set_cur_state,
 };
 
+/* --------------------------------------------------------------------------
+                                 Driver Interface
+   -------------------------------------------------------------------------- */
 
 static int acpi_fan_add(struct acpi_device *device)
 {

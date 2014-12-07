@@ -36,21 +36,25 @@ struct pat_area {
 };
 
 struct tiler_block {
-	struct list_head alloc_node;	
-	struct tcm_area area;		
-	enum tiler_fmt fmt;		
+	struct list_head alloc_node;	/* node for global block list */
+	struct tcm_area area;		/* area */
+	enum tiler_fmt fmt;		/* format */
 };
 
+/* bits representing the same slot in DMM-TILER hw-block */
 #define SLOT_WIDTH_BITS         6
 #define SLOT_HEIGHT_BITS        6
 
+/* bits reserved to describe coordinates in DMM-TILER hw-block */
 #define CONT_WIDTH_BITS         14
 #define CONT_HEIGHT_BITS        13
 
+/* calculated constants */
 #define TILER_PAGE              (1 << (SLOT_WIDTH_BITS + SLOT_HEIGHT_BITS))
 #define TILER_WIDTH             (1 << (CONT_WIDTH_BITS - SLOT_WIDTH_BITS))
 #define TILER_HEIGHT            (1 << (CONT_HEIGHT_BITS - SLOT_HEIGHT_BITS))
 
+/* tiler space addressing bitfields */
 #define MASK_XY_FLIP		(1 << 31)
 #define MASK_Y_INVERT		(1 << 30)
 #define MASK_X_INVERT		(1 << 29)
@@ -65,6 +69,7 @@ struct tiler_block {
 #define TILVIEW_PAGE    (TILVIEW_32BIT + VIEW_SIZE)
 #define TILVIEW_END     (TILVIEW_PAGE  + VIEW_SIZE)
 
+/* create tsptr by adding view orientation and access mode */
 #define TIL_ADDR(x, orient, a)\
 	((u32) (x) | (orient) | ((a) << SHIFT_ACC_MODE))
 
@@ -72,15 +77,18 @@ struct tiler_block {
 int tiler_map_show(struct seq_file *s, void *arg);
 #endif
 
+/* pin/unpin */
 int tiler_pin(struct tiler_block *block, struct page **pages,
 		uint32_t npages, uint32_t roll, bool wait);
 int tiler_unpin(struct tiler_block *block);
 
+/* reserve/release */
 struct tiler_block *tiler_reserve_2d(enum tiler_fmt fmt, uint16_t w, uint16_t h,
 				uint16_t align);
 struct tiler_block *tiler_reserve_1d(size_t size);
 int tiler_release(struct tiler_block *block);
 
+/* utilities */
 dma_addr_t tiler_ssptr(struct tiler_block *block);
 uint32_t tiler_stride(enum tiler_fmt fmt);
 size_t tiler_size(enum tiler_fmt fmt, uint16_t w, uint16_t h);
@@ -90,6 +98,7 @@ bool dmm_is_initialized(void);
 
 extern struct platform_driver omap_dmm_driver;
 
+/* GEM bo flags -> tiler fmt */
 static inline enum tiler_fmt gem2fmt(uint32_t flags)
 {
 	switch (flags & OMAP_BO_TILED) {

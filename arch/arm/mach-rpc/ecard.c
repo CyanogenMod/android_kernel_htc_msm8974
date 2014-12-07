@@ -75,6 +75,9 @@ static ecard_t *cards;
 static ecard_t *slot_to_expcard[MAX_ECARDS];
 static unsigned int ectcr;
 
+/* List of descriptions of cards which don't have an extended
+ * identification, or chunk directories containing a description.
+ */
 static struct expcard_blacklist __initdata blacklist[] = {
 	{ MANU_ACORN, PROD_ACORN_ETHER1, "Acorn Ether1" }
 };
@@ -99,6 +102,18 @@ static inline ecard_t *slot_to_ecard(unsigned int slot)
 	return slot < MAX_ECARDS ? slot_to_expcard[slot] : NULL;
 }
 
+/* ===================== Expansion card daemon ======================== */
+/*
+ * Since the loader programs on the expansion cards need to be run
+ * in a specific environment, create a separate task with this
+ * environment up, and pass requests to this task as and when we
+ * need to.
+ *
+ * This should allow 99% of loaders to be called from Linux.
+ *
+ * From a security standpoint, we trust the card vendors.  This
+ * may be a misplaced trust.
+ */
 static void ecard_task_reset(struct ecard_request *req)
 {
 	struct expansion_card *ec = req->ec;
@@ -124,6 +139,11 @@ static void ecard_task_readbytes(struct ecard_request *req)
 		void __iomem *base = (void __iomem *)
 				ec->resource[ECARD_RES_MEMC].start;
 
+		/*
+		 * The card maintains an index which increments the address
+		 * into a 4096-byte page on each access.  We need to keep
+		 * track of the counter.
+		 */
 		static unsigned int index;
 		unsigned int page;
 
@@ -133,11 +153,19 @@ static void ecard_task_readbytes(struct ecard_request *req)
 
 		off &= 4095;
 
+		/*
+		 * If we are reading offset 0, or our current index is
+		 * greater than the offset, reset the hardware index counter.
+		 */
 		if (off == 0 || index > off) {
 			writeb(0, base);
 			index = 0;
 		}
 
+		/*
+		 * Increment the hardware index counter until we get to the
+		 * required offset.  The read bytes are discarded.
+		 */
 		while (index < off) {
 			readb(base + page);
 			index += 1;
@@ -161,6 +189,10 @@ static void ecard_task_readbytes(struct ecard_request *req)
 			}
 		} else {
 			while(len--) {
+				/*
+				 * The following is required by some
+				 * expansion card loader programs.
+				 */
 				*(unsigned long *)0x108 = 0;
 				*buf++ = ecard_loader_read(off++, base,
 							   ec->loader);
@@ -174,10 +206,24 @@ static DECLARE_WAIT_QUEUE_HEAD(ecard_wait);
 static struct ecard_request *ecard_req;
 static DEFINE_MUTEX(ecard_mutex);
 
+/*
+ * Set up the expansion card daemon's page tables.
+ */
 static void ecard_init_pgtables(struct mm_struct *mm)
 {
 	struct vm_area_struct vma;
 
+	/* We want to set up the page tables for the following mapping:
+	 *  Virtual	Physical
+	 *  0x03000000	0x03000000
+	 *  0x03010000	unmapped
+	 *  0x03210000	0x03210000
+	 *  0x03400000	unmapped
+	 *  0x08000000	0x08000000
+	 *  0x10000000	unmapped
+	 *
+	 * FIXME: we don't follow this 100% yet.
+	 */
 	pgd_t *src_pgd, *dst_pgd;
 
 	src_pgd = pgd_offset(mm, (unsigned long)IO_BASE);
@@ -216,6 +262,12 @@ static int ecard_init_mm(void)
 static int
 ecard_task(void * unused)
 {
+	/*
+	 * Allocate a mm.  We're not a lazy-TLB kernel task since we need
+	 * to set page table entries where the user space would be.  Note
+	 * that this also creates the page tables.  Failure is not an
+	 * option here.
+	 */
 	if (ecard_init_mm())
 		panic("kecardd: unable to alloc mm\n");
 
@@ -232,6 +284,12 @@ ecard_task(void * unused)
 	}
 }
 
+/*
+ * Wake the expansion card daemon to action our request.
+ *
+ * FIXME: The test here is not sufficient to detect if the
+ * kcardd is running.
+ */
 static void ecard_call(struct ecard_request *req)
 {
 	DECLARE_COMPLETION_ONSTACK(completion);
@@ -242,10 +300,14 @@ static void ecard_call(struct ecard_request *req)
 	ecard_req = req;
 	wake_up(&ecard_wait);
 
+	/*
+	 * Now wait for kecardd to run.
+	 */
 	wait_for_completion(&completion);
 	mutex_unlock(&ecard_mutex);
 }
 
+/* ======================= Mid-level card control ===================== */
 
 static void
 ecard_readbytes(void *addr, ecard_t *ec, int off, int len, int useld)
@@ -282,11 +344,11 @@ int ecard_readchunk(struct in_chunk_dir *cd, ecard_t *ec, int id, int num)
 			}
 			return 0;
 		}
-		if (c_id(&excd) == 0xf0) { 
+		if (c_id(&excd) == 0xf0) { /* link */
 			index = c_start(&excd);
 			continue;
 		}
-		if (c_id(&excd) == 0x80) { 
+		if (c_id(&excd) == 0x80) { /* loader */
 			if (!ec->loader) {
 				ec->loader = kmalloc(c_len(&excd),
 							       GFP_KERNEL);
@@ -319,6 +381,7 @@ int ecard_readchunk(struct in_chunk_dir *cd, ecard_t *ec, int id, int num)
 	return 1;
 }
 
+/* ======================= Interrupt control ============================ */
 
 static void ecard_def_irq_enable(ecard_t *ec, int irqnr)
 {
@@ -357,6 +420,12 @@ static expansioncard_ops_t ecard_default_ops = {
 	ecard_def_fiq_pending
 };
 
+/*
+ * Enable and disable interrupts from expansion cards.
+ * (interrupts are disabled for these functions).
+ *
+ * They are not meant to be called directly, but via enable/disable_irq.
+ */
 static void ecard_irq_unmask(struct irq_data *d)
 {
 	ecard_t *ec = irq_data_get_irq_chip_data(d);
@@ -450,6 +519,15 @@ static void ecard_check_lockup(struct irq_desc *desc)
 	static unsigned long last;
 	static int lockup;
 
+	/*
+	 * If the timer interrupt has not run since the last million
+	 * unrecognised expansion card interrupts, then there is
+	 * something seriously wrong.  Disable the expansion card
+	 * interrupts so at least we can continue.
+	 *
+	 * Maybe we ought to start a timer to re-enable them some time
+	 * later?
+	 */
 	if (last == jiffies) {
 		lockup += 1;
 		if (lockup > 1000000) {
@@ -462,6 +540,10 @@ static void ecard_check_lockup(struct irq_desc *desc)
 	} else
 		lockup = 0;
 
+	/*
+	 * If we did not recognise the source of this interrupt,
+	 * warn the user, but don't flood the user with these messages.
+	 */
 	if (!last || time_after(jiffies, last + 5*HZ)) {
 		last = jiffies;
 		printk(KERN_WARNING "Unrecognised interrupt from backplane\n");
@@ -795,6 +877,12 @@ void __iomem *ecardm_iomap(struct expansion_card *ec, unsigned int res,
 }
 EXPORT_SYMBOL(ecardm_iomap);
 
+/*
+ * Probe for an expansion card.
+ *
+ * If bit 1 of the first byte of the card is set, then the
+ * card does not exist.
+ */
 static int __init ecard_probe(int slot, unsigned irq, card_type_t type)
 {
 	ecard_t **ecp;
@@ -851,6 +939,9 @@ static int __init ecard_probe(int slot, unsigned irq, card_type_t type)
 
 	ec->irq = irq;
 
+	/*
+	 * hook the interrupt handlers
+	 */
 	if (slot < 8) {
 		irq_set_chip_and_handler(ec->irq, &ecard_chip,
 					 handle_level_irq);
@@ -859,7 +950,7 @@ static int __init ecard_probe(int slot, unsigned irq, card_type_t type)
 	}
 
 #ifdef CONFIG_ARCH_RPC
-	
+	/* On RiscPC, only first two slots have DMA capability */
 	if (slot < 2)
 		ec->dma = 2 + slot;
 #endif
@@ -879,6 +970,11 @@ static int __init ecard_probe(int slot, unsigned irq, card_type_t type)
 	return rc;
 }
 
+/*
+ * Initialise the expansion card system.
+ * Locate all hardware - interrupt management and
+ * actual cards.
+ */
 static int __init ecard_init(void)
 {
 	struct task_struct *task;
@@ -914,6 +1010,9 @@ static int __init ecard_init(void)
 
 subsys_initcall(ecard_init);
 
+/*
+ *	ECARD "bus"
+ */
 static const struct ecard_id *
 ecard_match_device(const struct ecard_id *ids, struct expansion_card *ec)
 {
@@ -951,6 +1050,10 @@ static int ecard_drv_remove(struct device *dev)
 	drv->remove(ec);
 	ec->claimed = 0;
 
+	/*
+	 * Restore the default operations.  We ensure that the
+	 * ops are set before we change the data.
+	 */
 	ec->ops = &ecard_default_ops;
 	barrier();
 	ec->irq_data = NULL;
@@ -958,6 +1061,12 @@ static int ecard_drv_remove(struct device *dev)
 	return 0;
 }
 
+/*
+ * Before rebooting, we must make sure that the expansion card is in a
+ * sensible state, so it can be re-detected.  This means that the first
+ * page of the ROM must be visible.  We call the expansion cards reset
+ * handler, if any.
+ */
 static void ecard_drv_shutdown(struct device *dev)
 {
 	struct expansion_card *ec = ECARD_DEV(dev);
@@ -970,6 +1079,9 @@ static void ecard_drv_shutdown(struct device *dev)
 		ec->claimed = 0;
 	}
 
+	/*
+	 * If this card has a loader, call the reset handler.
+	 */
 	if (ec->loader) {
 		req.fn = ecard_task_reset;
 		req.ec = ec;

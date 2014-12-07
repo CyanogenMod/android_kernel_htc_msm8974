@@ -25,16 +25,18 @@
 #define ECHOCARD_HAS_EXTERNAL_CLOCK
 #define ECHOCARD_HAS_ADAT	FALSE
 
-#define PX_ANALOG_OUT	0	
-#define PX_DIGITAL_OUT	8	
-#define PX_ANALOG_IN	10	
-#define PX_DIGITAL_IN	12	
+/* Pipe indexes */
+#define PX_ANALOG_OUT	0	/* 8 */
+#define PX_DIGITAL_OUT	8	/* 2 */
+#define PX_ANALOG_IN	10	/* 2 */
+#define PX_DIGITAL_IN	12	/* 2 */
 #define PX_NUM		14
 
-#define BX_ANALOG_OUT	0	
-#define BX_DIGITAL_OUT	8	
-#define BX_ANALOG_IN	10	
-#define BX_DIGITAL_IN	12	
+/* Bus indexes */
+#define BX_ANALOG_OUT	0	/* 8 */
+#define BX_DIGITAL_OUT	8	/* 2 */
+#define BX_ANALOG_IN	10	/* 2 */
+#define BX_DIGITAL_IN	12	/* 2 */
 #define BX_NUM		14
 
 
@@ -66,7 +68,7 @@ static const struct firmware card_fw[] = {
 };
 
 static DEFINE_PCI_DEVICE_TABLE(snd_echo_ids) = {
-	{0x1057, 0x1801, 0xECC0, 0x0020, 0, 0, 0},	
+	{0x1057, 0x1801, 0xECC0, 0x0020, 0, 0, 0},	/* DSP 56301 Gina20 rev.0 */
 	{0,}
 };
 
@@ -92,6 +94,9 @@ static struct snd_pcm_hardware pcm_hardware_skel = {
 	.period_bytes_max = 131072,
 	.periods_min = 2,
 	.periods_max = 220,
+	/* One page (4k) contains 512 instructions. I don't know if the hw
+	supports lists longer than this. In this case periods_max=220 is a
+	safe limit to make sure the list never exceeds 512 instructions. */
 };
 
 

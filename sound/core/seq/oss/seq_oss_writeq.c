@@ -30,6 +30,9 @@
 #include <linux/slab.h>
 
 
+/*
+ * create a write queue record
+ */
 struct seq_oss_writeq *
 snd_seq_oss_writeq_new(struct seq_oss_devinfo *dp, int maxlen)
 {
@@ -55,29 +58,38 @@ snd_seq_oss_writeq_new(struct seq_oss_devinfo *dp, int maxlen)
 	return q;
 }
 
+/*
+ * delete the write queue
+ */
 void
 snd_seq_oss_writeq_delete(struct seq_oss_writeq *q)
 {
 	if (q) {
-		snd_seq_oss_writeq_clear(q);	
+		snd_seq_oss_writeq_clear(q);	/* to be sure */
 		kfree(q);
 	}
 }
 
 
+/*
+ * reset the write queue
+ */
 void
 snd_seq_oss_writeq_clear(struct seq_oss_writeq *q)
 {
 	struct snd_seq_remove_events reset;
 
 	memset(&reset, 0, sizeof(reset));
-	reset.remove_mode = SNDRV_SEQ_REMOVE_OUTPUT; 
+	reset.remove_mode = SNDRV_SEQ_REMOVE_OUTPUT; /* remove all */
 	snd_seq_oss_control(q->dp, SNDRV_SEQ_IOCTL_REMOVE_EVENTS, &reset);
 
-	
+	/* wake up sleepers if any */
 	snd_seq_oss_writeq_wakeup(q, 0);
 }
 
+/*
+ * wait until the write buffer has enough room
+ */
 int
 snd_seq_oss_writeq_sync(struct seq_oss_writeq *q)
 {
@@ -86,18 +98,18 @@ snd_seq_oss_writeq_sync(struct seq_oss_writeq *q)
 
 	time = snd_seq_oss_timer_cur_tick(dp->timer);
 	if (q->sync_time >= time)
-		return 0; 
+		return 0; /* already finished */
 
 	if (! q->sync_event_put) {
 		struct snd_seq_event ev;
 		union evrec *rec;
 
-		
+		/* put echoback event */
 		memset(&ev, 0, sizeof(ev));
 		ev.flags = 0;
 		ev.type = SNDRV_SEQ_EVENT_ECHO;
 		ev.time.tick = time;
-		
+		/* echo back to itself */
 		snd_seq_oss_fill_addr(dp, &ev, dp->addr.client, dp->addr.port);
 		rec = (union evrec *)&ev.data;
 		rec->t.code = SEQ_SYNCTIMER;
@@ -108,13 +120,16 @@ snd_seq_oss_writeq_sync(struct seq_oss_writeq *q)
 
 	wait_event_interruptible_timeout(q->sync_sleep, ! q->sync_event_put, HZ);
 	if (signal_pending(current))
-		
+		/* interrupted - return 0 to finish sync */
 		q->sync_event_put = 0;
 	if (! q->sync_event_put || q->sync_time >= time)
 		return 0;
 	return 1;
 }
 
+/*
+ * wake up sync - echo event was catched
+ */
 void
 snd_seq_oss_writeq_wakeup(struct seq_oss_writeq *q, abstime_t time)
 {
@@ -130,6 +145,9 @@ snd_seq_oss_writeq_wakeup(struct seq_oss_writeq *q, abstime_t time)
 }
 
 
+/*
+ * return the unused pool size
+ */
 int
 snd_seq_oss_writeq_get_free_size(struct seq_oss_writeq *q)
 {
@@ -140,6 +158,9 @@ snd_seq_oss_writeq_get_free_size(struct seq_oss_writeq *q)
 }
 
 
+/*
+ * set output threshold size from ioctl
+ */
 void
 snd_seq_oss_writeq_set_output(struct seq_oss_writeq *q, int val)
 {

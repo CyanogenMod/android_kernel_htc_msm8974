@@ -13,4 +13,4 @@
 
 #include <mc146818rtc.h>
 
-#endif 
+#endif /* _ASM_MC146818RTC_H */

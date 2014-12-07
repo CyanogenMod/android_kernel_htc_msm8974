@@ -11,6 +11,9 @@
 #ifndef _MAX98088_H
 #define _MAX98088_H
 
+/*
+ * MAX98088 Registers Definition
+ */
 #define M98088_REG_00_IRQ_STATUS            0x00
 #define M98088_REG_01_MIC_STATUS            0x01
 #define M98088_REG_02_JACK_STAUS            0x02
@@ -90,9 +93,12 @@
 
 #define M98088_REG_CNT                      (0xFF+1)
 
+/* MAX98088 Registers Bit Fields */
 
+/* M98088_REG_11_DAI1_CLKMODE, M98088_REG_19_DAI2_CLKMODE */
        #define M98088_CLKMODE_MASK             0xFF
 
+/* M98088_REG_14_DAI1_FORMAT, M98088_REG_1C_DAI2_FORMAT */
        #define M98088_DAI_MAS                  (1<<7)
        #define M98088_DAI_WCI                  (1<<6)
        #define M98088_DAI_BCI                  (1<<5)
@@ -101,15 +107,19 @@
        #define M98088_DAI_FSW                  (1<<1)
        #define M98088_DAI_WS                   (1<<0)
 
+/* M98088_REG_15_DAI1_CLOCK, M98088_REG_1D_DAI2_CLOCK */
        #define M98088_DAI_BSEL64               (1<<0)
        #define M98088_DAI_OSR64                (1<<6)
 
+/* M98088_REG_16_DAI1_IOCFG, M98088_REG_1E_DAI2_IOCFG */
        #define M98088_S1NORMAL                 (1<<6)
        #define M98088_S2NORMAL                 (2<<6)
        #define M98088_SDATA                    (3<<0)
 
+/* M98088_REG_18_DAI1_FILTERS, M98088_REG_20_DAI2_FILTERS */
        #define M98088_DAI_DHF                  (1<<3)
 
+/* M98088_REG_22_MIX_DAC */
        #define M98088_DAI1L_TO_DACL            (1<<7)
        #define M98088_DAI1R_TO_DACL            (1<<6)
        #define M98088_DAI2L_TO_DACL            (1<<5)
@@ -119,44 +129,55 @@
        #define M98088_DAI2L_TO_DACR            (1<<1)
        #define M98088_DAI2R_TO_DACR            (1<<0)
 
+/* M98088_REG_2A_MIC_REC_CNTL */
        #define M98088_REC_LINEMODE             (1<<7)
        #define M98088_REC_LINEMODE_MASK        (1<<7)
 
+/* M98088_REG_2D_MIX_SPK_CNTL */
        #define M98088_MIX_SPKR_GAIN_MASK       (3<<2)
        #define M98088_MIX_SPKR_GAIN_SHIFT      2
        #define M98088_MIX_SPKL_GAIN_MASK       (3<<0)
        #define M98088_MIX_SPKL_GAIN_SHIFT      0
 
+/* M98088_REG_2F_LVL_DAI1_PLAY, M98088_REG_31_LVL_DAI2_PLAY */
        #define M98088_DAI_MUTE                 (1<<7)
        #define M98088_DAI_MUTE_MASK            (1<<7)
        #define M98088_DAI_VOICE_GAIN_MASK      (3<<4)
        #define M98088_DAI_ATTENUATION_MASK     (0xF<<0)
        #define M98088_DAI_ATTENUATION_SHIFT    0
 
+/* M98088_REG_35_LVL_MIC1, M98088_REG_36_LVL_MIC2 */
        #define M98088_MICPRE_MASK              (3<<5)
        #define M98088_MICPRE_SHIFT             5
 
+/* M98088_REG_3A_LVL_HP_R */
        #define M98088_HP_MUTE                  (1<<7)
 
+/* M98088_REG_3C_LVL_REC_R */
        #define M98088_REC_MUTE                 (1<<7)
 
+/* M98088_REG_3E_LVL_SPK_R */
        #define M98088_SP_MUTE                  (1<<7)
 
+/* M98088_REG_48_CFG_MIC */
        #define M98088_EXTMIC_MASK              (3<<0)
        #define M98088_DIGMIC_L                 (1<<5)
        #define M98088_DIGMIC_R                 (1<<4)
 
+/* M98088_REG_49_CFG_LEVEL */
        #define M98088_VSEN                     (1<<6)
        #define M98088_ZDEN                     (1<<5)
        #define M98088_EQ2EN                    (1<<1)
        #define M98088_EQ1EN                    (1<<0)
 
+/* M98088_REG_4C_PWR_EN_IN */
        #define M98088_INAEN                    (1<<7)
        #define M98088_INBEN                    (1<<6)
        #define M98088_MBEN                     (1<<3)
        #define M98088_ADLEN                    (1<<1)
        #define M98088_ADREN                    (1<<0)
 
+/* M98088_REG_4D_PWR_EN_OUT */
        #define M98088_HPLEN                    (1<<7)
        #define M98088_HPREN                    (1<<6)
        #define M98088_HPEN                     ((1<<7)|(1<<6))
@@ -166,12 +187,14 @@
        #define M98088_DALEN                    (1<<1)
        #define M98088_DAREN                    (1<<0)
 
+/* M98088_REG_51_PWR_SYS */
        #define M98088_SHDNRUN                  (1<<7)
        #define M98088_PERFMODE                 (1<<3)
        #define M98088_HPPLYBACK                (1<<2)
        #define M98088_PWRSV8K                  (1<<1)
        #define M98088_PWRSV                    (1<<0)
 
+/* Line inputs */
 #define LINE_INA  0
 #define LINE_INB  1
 

@@ -23,11 +23,14 @@
 #include <linux/scatterlist.h>
 #include <linux/spinlock.h>
 
+/* Definitions for values the CTRL_SDIO_STATUS register can take. */
 #define TMIO_SDIO_STAT_IOIRQ	0x0001
 #define TMIO_SDIO_STAT_EXPUB52	0x4000
 #define TMIO_SDIO_STAT_EXWT	0x8000
 #define TMIO_SDIO_MASK_ALL	0xc007
 
+/* Define some IRQ masks */
+/* This is the mask used at reset by the chip */
 #define TMIO_MASK_ALL           0x837f031d
 #define TMIO_MASK_READOP  (TMIO_STAT_RXRDY | TMIO_STAT_DATAEND)
 #define TMIO_MASK_WRITEOP (TMIO_STAT_TXRQ | TMIO_STAT_DATAEND)
@@ -45,14 +48,14 @@ struct tmio_mmc_host {
 	struct mmc_data         *data;
 	struct mmc_host         *mmc;
 
-	
+	/* Controller power state */
 	bool			power;
 
-	
+	/* Callbacks for clock / power control */
 	void (*set_pwr)(struct platform_device *host, int state);
 	void (*set_clk_div)(struct platform_device *host, int state);
 
-	
+	/* pio related stuff */
 	struct scatterlist      *sg_ptr;
 	struct scatterlist      *sg_orig;
 	unsigned int            sg_len;
@@ -61,7 +64,7 @@ struct tmio_mmc_host {
 	struct platform_device *pdev;
 	struct tmio_mmc_data *pdata;
 
-	
+	/* DMA support */
 	bool			force_pio;
 	struct dma_chan		*chan_rx;
 	struct dma_chan		*chan_tx;
@@ -70,17 +73,17 @@ struct tmio_mmc_host {
 	struct scatterlist	bounce_sg;
 	u8			*bounce_buf;
 
-	
+	/* Track lost interrupts */
 	struct delayed_work	delayed_reset_work;
 	struct work_struct	done;
 
-	
+	/* Cache IRQ mask */
 	u32			sdcard_irq_mask;
 	u32			sdio_irq_mask;
 
-	spinlock_t		lock;		
+	spinlock_t		lock;		/* protect host private data */
 	unsigned long		last_req_ts;
-	struct mutex		ios_lock;	
+	struct mutex		ios_lock;	/* protect set_ios() context */
 	bool			native_hotplug;
 };
 
@@ -173,6 +176,9 @@ static inline u32 sd_ctrl_read32(struct tmio_mmc_host *host, int addr)
 
 static inline void sd_ctrl_write16(struct tmio_mmc_host *host, int addr, u16 val)
 {
+	/* If there is a hook and it returns non-zero then there
+	 * is an error and the write should be skipped
+	 */
 	if (host->pdata->write16_hook && host->pdata->write16_hook(host, addr))
 		return;
 	writew(val, host->ctl + (addr << host->bus_shift));

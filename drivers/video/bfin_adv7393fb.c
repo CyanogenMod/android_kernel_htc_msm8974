@@ -5,6 +5,10 @@
  * Licensed under the GPL-2 or late.
  */
 
+/*
+ * TODO: Remove Globals
+ * TODO: Code Cleanup
+ */
 
 #define pr_fmt(fmt) DRIVER_NAME ": " fmt
 
@@ -49,14 +53,20 @@ static const unsigned short ppi_pins[] = {
 	0
 };
 
+/*
+ * card parameters
+ */
 
 static struct bfin_adv7393_fb_par {
+	/* structure holding blackfin / adv7393 paramters when
+	   screen is blanked */
 	struct {
-		u8 Mode;	
+		u8 Mode;	/* ntsc/pal/? */
 	} vga_state;
 	atomic_t ref_count;
 } bfin_par;
 
+/* --------------------------------------------------------------------- */
 
 static struct fb_var_screeninfo bfin_adv7393_fb_defined = {
 	.xres = 720,
@@ -105,7 +115,7 @@ static struct fb_ops bfin_adv7393_fb_ops = {
 
 static int dma_desc_list(struct adv7393fb_device *fbdev, u16 arg)
 {
-	if (arg == BUILD) {	
+	if (arg == BUILD) {	/* Build */
 		fbdev->vb1 = l1_data_sram_zalloc(sizeof(struct dmasg));
 		if (fbdev->vb1 == NULL)
 			goto error;
@@ -122,16 +132,16 @@ static int dma_desc_list(struct adv7393fb_device *fbdev, u16 arg)
 		if (fbdev->av2 == NULL)
 			goto error;
 
-		
+		/* Build linked DMA descriptor list */
 		fbdev->vb1->next_desc_addr = fbdev->av1;
 		fbdev->av1->next_desc_addr = fbdev->vb2;
 		fbdev->vb2->next_desc_addr = fbdev->av2;
 		fbdev->av2->next_desc_addr = fbdev->vb1;
 
-		
+		/* Save list head */
 		fbdev->descriptor_list_head = fbdev->av2;
 
-		
+		/* Vertical Blanking Field 1 */
 		fbdev->vb1->start_addr = VB_DUMMY_MEMORY_SOURCE;
 		fbdev->vb1->cfg = DMA_CFG_VAL;
 
@@ -142,7 +152,7 @@ static int dma_desc_list(struct adv7393fb_device *fbdev, u16 arg)
 		fbdev->vb1->y_count = fbdev->modes[mode].vb1_lines;
 		fbdev->vb1->y_modify = 0;
 
-		
+		/* Active Video Field 1 */
 
 		fbdev->av1->start_addr = (unsigned long)fbdev->fb_mem;
 		fbdev->av1->cfg = DMA_CFG_VAL;
@@ -154,7 +164,7 @@ static int dma_desc_list(struct adv7393fb_device *fbdev, u16 arg)
 		    (fbdev->modes[mode].xres - fbdev->modes[mode].boeft_blank +
 		     1) * (fbdev->modes[mode].bpp / 8);
 
-		
+		/* Vertical Blanking Field 2 */
 
 		fbdev->vb2->start_addr = VB_DUMMY_MEMORY_SOURCE;
 		fbdev->vb2->cfg = DMA_CFG_VAL;
@@ -165,7 +175,7 @@ static int dma_desc_list(struct adv7393fb_device *fbdev, u16 arg)
 		fbdev->vb2->y_count = fbdev->modes[mode].vb2_lines;
 		fbdev->vb2->y_modify = 0;
 
-		
+		/* Active Video Field 2 */
 
 		fbdev->av2->start_addr =
 		    (unsigned long)fbdev->fb_mem + fbdev->line_len;
@@ -270,16 +280,16 @@ adv7393_write_block(struct i2c_client *client,
 static int adv7393_mode(struct i2c_client *client, u16 mode)
 {
 	switch (mode) {
-	case POWER_ON:		
+	case POWER_ON:		/* ADV7393 Sleep mode OFF */
 		adv7393_write(client, 0x00, 0x1E);
 		break;
-	case POWER_DOWN:	
+	case POWER_DOWN:	/* ADV7393 Sleep mode ON */
 		adv7393_write(client, 0x00, 0x1F);
 		break;
-	case BLANK_OFF:		
+	case BLANK_OFF:		/* Pixel Data Valid */
 		adv7393_write(client, 0x82, 0xCB);
 		break;
-	case BLANK_ON:		
+	case BLANK_ON:		/* Pixel Data Invalid */
 		adv7393_write(client, 0x82, 0x8B);
 		break;
 	default:
@@ -299,7 +309,7 @@ static irqreturn_t ppi_irq_error(int irq, void *dev_id)
 	pr_debug("%s: PPI Status = 0x%X\n", __func__, status);
 
 	if (status) {
-		bfin_disable_dma();	
+		bfin_disable_dma();	/* TODO: Check Sequence */
 		bfin_disable_ppi();
 		bfin_clear_PPI_STATUS();
 		bfin_config_dma(fbdev);
@@ -397,7 +407,7 @@ static int __devinit bfin_adv7393_fb_probe(struct i2c_client *client,
 	fbdev->line_len =
 	    fbdev->modes[mode].xres * (fbdev->modes[mode].bpp / 8);
 
-	
+	/* Workaround "PPI Does Not Start Properly In Specific Mode" */
 	if (ANOMALY_05000400) {
 		ret = gpio_request_one(P_IDENT(P_PPI0_FS3), GPIOF_OUT_INIT_LOW,
 					"PPI0_FS3")
@@ -569,7 +579,7 @@ bfin_adv7393_fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 {
 
 	switch (var->bits_per_pixel) {
-	case 16:
+	case 16:/* DIRECTCOLOUR, 64k */
 		var->red.offset = info->var.red.offset;
 		var->green.offset = info->var.green.offset;
 		var->blue.offset = info->var.blue.offset;
@@ -598,6 +608,9 @@ bfin_adv7393_fb_check_var(struct fb_var_screeninfo *var, struct fb_info *info)
 		return -EINVAL;
 	}
 
+	/*
+	 *  Memory limit
+	 */
 
 	if ((info->fix.line_length * var->yres_virtual) > info->fix.smem_len) {
 		pr_debug("%s: Memory Limit requested yres_virtual = %u\n",
@@ -619,7 +632,7 @@ bfin_adv7393_fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 		return -EINVAL;
 
 	if (var->xoffset - info->var.xoffset) {
-		
+		/* No support for X panning for now! */
 		return -EINVAL;
 	}
 	dy = var->yoffset - info->var.yoffset;
@@ -629,7 +642,7 @@ bfin_adv7393_fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 
 		dmaaddr = fbdev->av1->start_addr;
 		dmaaddr += (info->fix.line_length * dy);
-		
+		/* TODO: Wait for current frame to finished */
 
 		fbdev->av1->start_addr = (unsigned long)dmaaddr;
 		fbdev->av2->start_addr = (unsigned long)dmaaddr + fbdev->line_len;
@@ -639,6 +652,7 @@ bfin_adv7393_fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info)
 
 }
 
+/* 0 unblank, 1 blank, 2 no vsync, 3 no hsync, 4 off */
 static int bfin_adv7393_fb_blank(int blank, struct fb_info *info)
 {
 	struct adv7393fb_device *fbdev = to_adv7393fb_device(info);
@@ -646,14 +660,14 @@ static int bfin_adv7393_fb_blank(int blank, struct fb_info *info)
 	switch (blank) {
 
 	case VESA_NO_BLANKING:
-		
+		/* Turn on panel */
 		adv7393_mode(fbdev->client, BLANK_OFF);
 		break;
 
 	case VESA_VSYNC_SUSPEND:
 	case VESA_HSYNC_SUSPEND:
 	case VESA_POWERDOWN:
-		
+		/* Turn off panel */
 		adv7393_mode(fbdev->client, BLANK_ON);
 		break;
 
@@ -669,7 +683,7 @@ int bfin_adv7393_fb_cursor(struct fb_info *info, struct fb_cursor *cursor)
 	if (nocursor)
 		return 0;
 	else
-		return -EINVAL;	
+		return -EINVAL;	/* just to force soft_cursor() call */
 }
 
 static int bfin_adv7393_fb_setcolreg(u_int regno, u_int red, u_int green,
@@ -680,12 +694,12 @@ static int bfin_adv7393_fb_setcolreg(u_int regno, u_int red, u_int green,
 		return -EINVAL;
 
 	if (info->var.grayscale)
-		
+		/* grayscale = 0.30*R + 0.59*G + 0.11*B */
 		red = green = blue = (red * 77 + green * 151 + blue * 28) >> 8;
 
 	if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
 		u32 value;
-		
+		/* Place color in the pseudopalette */
 		if (regno > 16)
 			return -EINVAL;
 
@@ -720,7 +734,7 @@ static int __devexit bfin_adv7393_fb_remove(struct i2c_client *client)
 	kfree(fbdev->info.pseudo_palette);
 
 	if (ANOMALY_05000400)
-		gpio_free(P_IDENT(P_PPI0_FS3));	
+		gpio_free(P_IDENT(P_PPI0_FS3));	/* FS3 */
 	peripheral_free_list(ppi_pins);
 	kfree(fbdev);
 

@@ -16,6 +16,7 @@
 #include <asm/tlbflush.h>
 #include <asm/pgtable.h>
 
+/* platform dependent support */
 EXPORT_SYMBOL(boot_cpu_data);
 EXPORT_SYMBOL(dump_fpu);
 EXPORT_SYMBOL(__ioremap);
@@ -37,9 +38,11 @@ EXPORT_SYMBOL(dcache_dummy);
 #endif
 EXPORT_SYMBOL(cpu_data);
 
+/* TLB flushing */
 EXPORT_SYMBOL(smp_flush_tlb_page);
 #endif
 
+/* compiler generated symbol */
 extern void __ashldi3(void);
 extern void __ashrdi3(void);
 extern void __lshldi3(void);
@@ -51,6 +54,7 @@ EXPORT_SYMBOL(__lshldi3);
 EXPORT_SYMBOL(__lshrdi3);
 EXPORT_SYMBOL(__muldi3);
 
+/* memory and string operations */
 EXPORT_SYMBOL(memcpy);
 EXPORT_SYMBOL(memset);
 EXPORT_SYMBOL(copy_page);

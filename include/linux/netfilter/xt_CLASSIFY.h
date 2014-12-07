@@ -7,4 +7,4 @@ struct xt_classify_target_info {
 	__u32 priority;
 };
 
-#endif 
+#endif /*_XT_CLASSIFY_H */

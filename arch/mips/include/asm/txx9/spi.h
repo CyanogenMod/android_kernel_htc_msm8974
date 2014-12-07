@@ -31,4 +31,4 @@ static inline int spi_eeprom_read(int busid, int chipid,
 }
 #endif
 
-#endif 
+#endif /* __ASM_TXX9_SPI_H */

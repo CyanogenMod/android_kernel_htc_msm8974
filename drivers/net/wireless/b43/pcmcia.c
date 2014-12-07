@@ -55,10 +55,10 @@ static int b43_pcmcia_resume(struct pcmcia_device *dev)
 
 	return ssb_bus_resume(ssb);
 }
-#else 
+#else /* CONFIG_PM */
 # define b43_pcmcia_suspend		NULL
 # define b43_pcmcia_resume		NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static int __devinit b43_pcmcia_probe(struct pcmcia_device *dev)
 {

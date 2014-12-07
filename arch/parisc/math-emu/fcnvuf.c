@@ -18,6 +18,28 @@
  *    along with this program; if not, write to the Free Software
  *    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
+/*
+ * BEGIN_DESC
+ *
+ *  File:
+ *	@(#)	pa/spmath/fcnvuf.c		$Revision: 1.1 $
+ *
+ *  Purpose:
+ *	Fixed point to Floating-point Converts
+ *
+ *  External Interfaces:
+ *	dbl_to_dbl_fcnvuf(srcptr,nullptr,dstptr,status)
+ *	dbl_to_sgl_fcnvuf(srcptr,nullptr,dstptr,status)
+ *	sgl_to_dbl_fcnvuf(srcptr,nullptr,dstptr,status)
+ *	sgl_to_sgl_fcnvuf(srcptr,nullptr,dstptr,status)
+ *
+ *  Internal Interfaces:
+ *
+ *  Theory:
+ *	<<please update with a overview of the operation of this file>>
+ *
+ * END_DESC
+*/
 
 
 #include "float.h"
@@ -25,7 +47,13 @@
 #include "dbl_float.h"
 #include "cnv_float.h"
 
+/************************************************************************
+ *  Fixed point to Floating-point Converts				*
+ ************************************************************************/
 
+/*
+ *  Convert Single Unsigned Fixed to Single Floating-point format
+ */
 
 int
 sgl_to_sgl_fcnvuf(
@@ -39,26 +67,34 @@ sgl_to_sgl_fcnvuf(
 
 	src = *srcptr;
 
-	 
+	/* Check for zero */ 
 	if (src == 0) { 
 	       	Sgl_setzero(result); 
 		*dstptr = result;
 	       	return(NOEXCEPTION); 
 	} 
-	dst_exponent = 16;    
+	/*
+	 * Generate exponent and normalized mantissa
+	 */
+	dst_exponent = 16;    /* initialize for normalization */
+	/*
+	 * Check word for most significant bit set.  Returns
+	 * a value in dst_exponent indicating the bit position,
+	 * between -1 and 30.
+	 */
 	Find_ms_one_bit(src,dst_exponent);
-	
+	/*  left justify source, with msb at bit position 0  */
 	src <<= dst_exponent+1;
 	Sgl_set_mantissa(result, src >> SGL_EXP_LENGTH);
 	Sgl_set_exponent(result, 30+SGL_BIAS - dst_exponent);
 
-	
+	/* check for inexact */
 	if (Suint_isinexact_to_sgl(src)) {
 		switch (Rounding_mode()) {
 			case ROUNDPLUS: 
 				Sgl_increment(result);
 				break;
-			case ROUNDMINUS: 
+			case ROUNDMINUS: /* never negative */
 				break;
 			case ROUNDNEAREST:
 				Sgl_roundnearest_from_suint(src,result);
@@ -74,6 +110,9 @@ sgl_to_sgl_fcnvuf(
 	return(NOEXCEPTION);
 }
 
+/*
+ *  Single Unsigned Fixed to Double Floating-point 
+ */
 
 int
 sgl_to_dbl_fcnvuf(
@@ -87,15 +126,23 @@ sgl_to_dbl_fcnvuf(
 
 	src = *srcptr;
 
-	
+	/* Check for zero */
 	if (src == 0) {
 	       	Dbl_setzero(resultp1,resultp2);
 	       	Dbl_copytoptr(resultp1,resultp2,dstptr);
 	       	return(NOEXCEPTION);
 	}
-	dst_exponent = 16;    
+	/*
+	 * Generate exponent and normalized mantissa
+	 */
+	dst_exponent = 16;    /* initialize for normalization */
+	/*
+	 * Check word for most significant bit set.  Returns
+	 * a value in dst_exponent indicating the bit position,
+	 * between -1 and 30.
+	 */
 	Find_ms_one_bit(src,dst_exponent);
-	
+	/*  left justify source, with msb at bit position 0  */
 	src <<= dst_exponent+1;
 	Dbl_set_mantissap1(resultp1, src >> DBL_EXP_LENGTH);
 	Dbl_set_mantissap2(resultp2, src << (32-DBL_EXP_LENGTH));
@@ -104,6 +151,9 @@ sgl_to_dbl_fcnvuf(
 	return(NOEXCEPTION);
 }
 
+/*
+ *  Double Unsigned Fixed to Single Floating-point 
+ */
 
 int
 dbl_to_sgl_fcnvuf(
@@ -117,23 +167,41 @@ dbl_to_sgl_fcnvuf(
 
 	Duint_copyfromptr(srcptr,srcp1,srcp2);
 
-	
+	/* Check for zero */
 	if (srcp1 == 0 && srcp2 == 0) {
 	       	Sgl_setzero(result);
 	       	*dstptr = result;
 	       	return(NOEXCEPTION);
 	}
-	dst_exponent = 16;    
+	/*
+	 * Generate exponent and normalized mantissa
+	 */
+	dst_exponent = 16;    /* initialize for normalization */
 	if (srcp1 == 0) {
+		/*
+		 * Check word for most significant bit set.  Returns
+		 * a value in dst_exponent indicating the bit position,
+		 * between -1 and 30.
+		 */
 		Find_ms_one_bit(srcp2,dst_exponent);
-		
+		/*  left justify source, with msb at bit position 0  */
 		srcp1 = srcp2 << dst_exponent+1;    
 		srcp2 = 0;
+		/*
+		 *  since msb set is in second word, need to 
+		 *  adjust bit position count
+		 */
 		dst_exponent += 32;
 	}
 	else {
+		/*
+		 * Check word for most significant bit set.  Returns
+		 * a value in dst_exponent indicating the bit position,
+		 * between -1 and 30.
+		 *
+		 */
 		Find_ms_one_bit(srcp1,dst_exponent);
-		
+		/*  left justify source, with msb at bit position 0  */
 		if (dst_exponent >= 0) {
 			Variable_shift_double(srcp1,srcp2,(31-dst_exponent),
 			 srcp1); 
@@ -143,13 +211,13 @@ dbl_to_sgl_fcnvuf(
 	Sgl_set_mantissa(result, srcp1 >> SGL_EXP_LENGTH);
 	Sgl_set_exponent(result, (62+SGL_BIAS) - dst_exponent);
 
-	
+	/* check for inexact */
 	if (Duint_isinexact_to_sgl(srcp1,srcp2)) {
 		switch (Rounding_mode()) {
 			case ROUNDPLUS: 
 				Sgl_increment(result);
 				break;
-			case ROUNDMINUS: 
+			case ROUNDMINUS: /* never negative */
 				break;
 			case ROUNDNEAREST:
 				Sgl_roundnearest_from_duint(srcp1,srcp2,result);
@@ -165,6 +233,9 @@ dbl_to_sgl_fcnvuf(
 	return(NOEXCEPTION);
 }
 
+/*
+ *  Double Unsigned Fixed to Double Floating-point 
+ */
 
 int
 dbl_to_dbl_fcnvuf(
@@ -178,23 +249,40 @@ dbl_to_dbl_fcnvuf(
 
 	Duint_copyfromptr(srcptr,srcp1,srcp2);
 
-	
+	/* Check for zero */
 	if (srcp1 == 0 && srcp2 ==0) {
 	       	Dbl_setzero(resultp1,resultp2);
 	       	Dbl_copytoptr(resultp1,resultp2,dstptr);
 	       	return(NOEXCEPTION);
 	}
-	dst_exponent = 16;    
+	/*
+	 * Generate exponent and normalized mantissa
+	 */
+	dst_exponent = 16;    /* initialize for normalization */
 	if (srcp1 == 0) {
+		/*
+		 * Check word for most significant bit set.  Returns
+		 * a value in dst_exponent indicating the bit position,
+		 * between -1 and 30.
+		 */
 		Find_ms_one_bit(srcp2,dst_exponent);
-		
+		/*  left justify source, with msb at bit position 0  */
 		srcp1 = srcp2 << dst_exponent+1;
 		srcp2 = 0;
+		/*
+		 *  since msb set is in second word, need to 
+		 *  adjust bit position count
+		 */
 		dst_exponent += 32;
 	}
 	else {
+		/*
+		 * Check word for most significant bit set.  Returns
+		 * a value in dst_exponent indicating the bit position,
+		 * between -1 and 30.
+		 */
 		Find_ms_one_bit(srcp1,dst_exponent);
-		
+		/*  left justify source, with msb at bit position 0  */
 		if (dst_exponent >= 0) {
 			Variable_shift_double(srcp1,srcp2,(31-dst_exponent),
 			 srcp1); 
@@ -205,13 +293,13 @@ dbl_to_dbl_fcnvuf(
 	Shiftdouble(srcp1,srcp2,DBL_EXP_LENGTH,resultp2);
 	Dbl_set_exponent(resultp1, (62+DBL_BIAS) - dst_exponent);
 
-	
+	/* check for inexact */
 	if (Duint_isinexact_to_dbl(srcp2)) {
 		switch (Rounding_mode()) {
 			case ROUNDPLUS: 
 				Dbl_increment(resultp1,resultp2);
 				break;
-			case ROUNDMINUS: 
+			case ROUNDMINUS: /* never negative */
 				break;
 			case ROUNDNEAREST:
 				Dbl_roundnearest_from_duint(srcp2,resultp1,

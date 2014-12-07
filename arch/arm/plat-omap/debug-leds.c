@@ -20,6 +20,17 @@
 #include <plat/fpga.h>
 
 
+/* Many OMAP development platforms reuse the same "debug board"; these
+ * platforms include H2, H3, H4, and Perseus2.  There are 16 LEDs on the
+ * debug board (all green), accessed through FPGA registers.
+ *
+ * The "surfer" expansion board and H2 sample board also have two-color
+ * green+red LEDs (in parallel), used here for timer and idle indicators
+ * in preference to the ones on the debug board, for a "Disco LED" effect.
+ *
+ * This driver exports either the original ARM LED API, the new generic
+ * one, or both.
+ */
 
 static spinlock_t			lock;
 static struct h2p2_dbg_fpga __iomem	*fpga;
@@ -33,7 +44,12 @@ static u16				led_state, hw_led_state;
 #endif
 
 
+/*-------------------------------------------------------------------------*/
 
+/* original ARM debug LED API:
+ *  - timer and idle leds (some boards use non-FPGA leds here);
+ *  - up to 4 generic leds, easily accessed in-kernel (any context)
+ */
 
 #define GPIO_LED_RED		3
 #define GPIO_LED_GREEN		OMAP_MPUIO(4)
@@ -62,7 +78,7 @@ static void h2p2_dbg_leds_event(led_event_t evt)
 
 	case led_stop:
 	case led_halted:
-		
+		/* all leds off during suspend or shutdown */
 
 		if (!(machine_is_omap_perseus2() || machine_is_omap_h4())) {
 			gpio_set_value(GPIO_TIMER, 0);
@@ -98,7 +114,7 @@ static void h2p2_dbg_leds_event(led_event_t evt)
 #endif
 
 #ifdef CONFIG_LEDS_CPU
-	
+	/* LED lit iff busy */
 	case led_idle_start:
 		if (machine_is_omap_perseus2() || machine_is_omap_h4())
 			hw_led_state &= ~H2P2_DBG_FPGA_P2_LED_IDLE;
@@ -153,6 +169,9 @@ static void h2p2_dbg_leds_event(led_event_t evt)
 	}
 
 
+	/*
+	 *  Actually burn the LEDs
+	 */
 	if (led_state & LED_STATE_ENABLED)
 		__raw_writew(~hw_led_state, &fpga->leds);
 
@@ -160,7 +179,12 @@ done:
 	spin_unlock_irqrestore(&lock, flags);
 }
 
+/*-------------------------------------------------------------------------*/
 
+/* "new" LED API
+ *  - with syfs access and generic triggering
+ *  - not readily accessible to in-kernel drivers
+ */
 
 struct dbg_led {
 	struct led_classdev	cdev;
@@ -168,13 +192,13 @@ struct dbg_led {
 };
 
 static struct dbg_led dbg_leds[] = {
-	
+	/* REVISIT at least H2 uses different timer & cpu leds... */
 #ifndef CONFIG_LEDS_TIMER
 	{ .mask = 1 << 0,  .cdev.name =  "d4:green",
 		.cdev.default_trigger = "heartbeat", },
 #endif
 #ifndef CONFIG_LEDS_CPU
-	{ .mask = 1 << 1,  .cdev.name =  "d5:green", },		
+	{ .mask = 1 << 1,  .cdev.name =  "d5:green", },		/* !idle */
 #endif
 	{ .mask = 1 << 2,  .cdev.name =  "d6:green", },
 	{ .mask = 1 << 3,  .cdev.name =  "d7:green", },
@@ -228,8 +252,9 @@ static void __init newled_init(struct device *dev)
 }
 
 
+/*-------------------------------------------------------------------------*/
 
-static int  fpga_probe(struct platform_device *pdev)
+static int /* __init */ fpga_probe(struct platform_device *pdev)
 {
 	struct resource	*iomem;
 

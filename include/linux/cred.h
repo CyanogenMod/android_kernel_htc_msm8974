@@ -22,6 +22,9 @@ struct user_struct;
 struct cred;
 struct inode;
 
+/*
+ * COW Supplementary groups list
+ */
 #define NGROUPS_SMALL		32
 #define NGROUPS_PER_BLOCK	((unsigned int)(PAGE_SIZE / sizeof(gid_t)))
 
@@ -33,12 +36,25 @@ struct group_info {
 	gid_t		*blocks[0];
 };
 
+/**
+ * get_group_info - Get a reference to a group info structure
+ * @group_info: The group info to reference
+ *
+ * This gets a reference to a set of supplementary groups.
+ *
+ * If the caller is accessing a task's credentials, they must hold the RCU read
+ * lock when reading.
+ */
 static inline struct group_info *get_group_info(struct group_info *gi)
 {
 	atomic_inc(&gi->usage);
 	return gi;
 }
 
+/**
+ * put_group_info - Release a reference to a group info structure
+ * @group_info: The group info to release
+ */
 #define put_group_info(group_info)			\
 do {							\
 	if (atomic_dec_and_test(&(group_info)->usage))	\
@@ -52,58 +68,87 @@ extern int set_current_groups(struct group_info *);
 extern int set_groups(struct cred *, struct group_info *);
 extern int groups_search(const struct group_info *, gid_t);
 
+/* access the groups "array" with this macro */
 #define GROUP_AT(gi, i) \
 	((gi)->blocks[(i) / NGROUPS_PER_BLOCK][(i) % NGROUPS_PER_BLOCK])
 
 extern int in_group_p(gid_t);
 extern int in_egroup_p(gid_t);
 
+/*
+ * The common credentials for a thread group
+ * - shared by CLONE_THREAD
+ */
 #ifdef CONFIG_KEYS
 struct thread_group_cred {
 	atomic_t	usage;
-	pid_t		tgid;			
+	pid_t		tgid;			/* thread group process ID */
 	spinlock_t	lock;
-	struct key __rcu *session_keyring;	
-	struct key	*process_keyring;	
-	struct rcu_head	rcu;			
+	struct key __rcu *session_keyring;	/* keyring inherited over fork */
+	struct key	*process_keyring;	/* keyring private to this process */
+	struct rcu_head	rcu;			/* RCU deletion hook */
 };
 #endif
 
+/*
+ * The security context of a task
+ *
+ * The parts of the context break down into two categories:
+ *
+ *  (1) The objective context of a task.  These parts are used when some other
+ *	task is attempting to affect this one.
+ *
+ *  (2) The subjective context.  These details are used when the task is acting
+ *	upon another object, be that a file, a task, a key or whatever.
+ *
+ * Note that some members of this structure belong to both categories - the
+ * LSM security pointer for instance.
+ *
+ * A task has two security pointers.  task->real_cred points to the objective
+ * context that defines that task's actual details.  The objective part of this
+ * context is used whenever that task is acted upon.
+ *
+ * task->cred points to the subjective context that defines the details of how
+ * that task is going to act upon another object.  This may be overridden
+ * temporarily to point to another security context, but normally points to the
+ * same context as task->real_cred.
+ */
 struct cred {
 	atomic_t	usage;
 #ifdef CONFIG_DEBUG_CREDENTIALS
-	atomic_t	subscribers;	
+	atomic_t	subscribers;	/* number of processes subscribed */
 	void		*put_addr;
 	unsigned	magic;
 #define CRED_MAGIC	0x43736564
 #define CRED_MAGIC_DEAD	0x44656144
 #endif
-	uid_t		uid;		
-	gid_t		gid;		
-	uid_t		suid;		
-	gid_t		sgid;		
-	uid_t		euid;		
-	gid_t		egid;		
-	uid_t		fsuid;		
-	gid_t		fsgid;		
-	unsigned	securebits;	
-	kernel_cap_t	cap_inheritable; 
-	kernel_cap_t	cap_permitted;	
-	kernel_cap_t	cap_effective;	
-	kernel_cap_t	cap_bset;	
+	uid_t		uid;		/* real UID of the task */
+	gid_t		gid;		/* real GID of the task */
+	uid_t		suid;		/* saved UID of the task */
+	gid_t		sgid;		/* saved GID of the task */
+	uid_t		euid;		/* effective UID of the task */
+	gid_t		egid;		/* effective GID of the task */
+	uid_t		fsuid;		/* UID for VFS ops */
+	gid_t		fsgid;		/* GID for VFS ops */
+	unsigned	securebits;	/* SUID-less security management */
+	kernel_cap_t	cap_inheritable; /* caps our children can inherit */
+	kernel_cap_t	cap_permitted;	/* caps we're permitted */
+	kernel_cap_t	cap_effective;	/* caps we can actually use */
+	kernel_cap_t	cap_bset;	/* capability bounding set */
 #ifdef CONFIG_KEYS
-	unsigned char	jit_keyring;	
-	struct key	*thread_keyring; 
-	struct key	*request_key_auth; 
-	struct thread_group_cred *tgcred; 
+	unsigned char	jit_keyring;	/* default keyring to attach requested
+					 * keys to */
+	struct key	*thread_keyring; /* keyring private to this thread */
+	struct key	*request_key_auth; /* assumed request_key authority */
+	struct thread_group_cred *tgcred; /* thread-group shared credentials */
 #endif
 #ifdef CONFIG_SECURITY
-	void		*security;	
+	void		*security;	/* subjective LSM security */
 #endif
-	struct user_struct *user;	
-	struct user_namespace *user_ns; 
-	struct group_info *group_info;	
-	struct rcu_head	rcu;		
+	struct user_struct *user;	/* real user ID subscription */
+	struct user_namespace *user_ns; /* cached user->user_ns */
+	struct group_info *group_info;	/* supplementary groups for euid/fsgid */
+	struct rcu_head	rcu;		/* RCU deletion hook */
 };
 
 extern void __put_cred(struct cred *);
@@ -124,6 +169,9 @@ extern int set_security_override_from_ctx(struct cred *, const char *);
 extern int set_create_files_as(struct cred *, struct inode *);
 extern void __init cred_init(void);
 
+/*
+ * check for validity of credentials
+ */
 #ifdef CONFIG_DEBUG_CREDENTIALS
 extern void __invalid_creds(const struct cred *, const char *, unsigned);
 extern void __validate_process_creds(struct task_struct *,
@@ -161,12 +209,32 @@ static inline void validate_process_creds(void)
 }
 #endif
 
+/**
+ * get_new_cred - Get a reference on a new set of credentials
+ * @cred: The new credentials to reference
+ *
+ * Get a reference on the specified set of new credentials.  The caller must
+ * release the reference.
+ */
 static inline struct cred *get_new_cred(struct cred *cred)
 {
 	atomic_inc(&cred->usage);
 	return cred;
 }
 
+/**
+ * get_cred - Get a reference on a set of credentials
+ * @cred: The credentials to reference
+ *
+ * Get a reference on the specified set of credentials.  The caller must
+ * release the reference.
+ *
+ * This is used to deal with a committed set of credentials.  Although the
+ * pointer is const, this will temporarily discard the const and increment the
+ * usage count.  The purpose of this is to attempt to catch at compile time the
+ * accidental alteration of a set of credentials that should be considered
+ * immutable.
+ */
 static inline const struct cred *get_cred(const struct cred *cred)
 {
 	struct cred *nonconst_cred = (struct cred *) cred;
@@ -174,6 +242,17 @@ static inline const struct cred *get_cred(const struct cred *cred)
 	return get_new_cred(nonconst_cred);
 }
 
+/**
+ * put_cred - Release a reference to a set of credentials
+ * @cred: The credentials to release
+ *
+ * Release a reference to a set of credentials, deleting them when the last ref
+ * is released.
+ *
+ * This takes a const pointer to a set of credentials because the credentials
+ * on task_struct are attached by const pointers to prevent accidental
+ * alteration of otherwise immutable credential sets.
+ */
 static inline void put_cred(const struct cred *_cred)
 {
 	struct cred *cred = (struct cred *) _cred;
@@ -183,9 +262,25 @@ static inline void put_cred(const struct cred *_cred)
 		__put_cred(cred);
 }
 
+/**
+ * current_cred - Access the current task's subjective credentials
+ *
+ * Access the subjective credentials of the current task.  RCU-safe,
+ * since nobody else can modify it.
+ */
 #define current_cred() \
 	rcu_dereference_protected(current->cred, 1)
 
+/**
+ * __task_cred - Access a task's objective credentials
+ * @task: The task to query
+ *
+ * Access the objective credentials of a task.  The caller must hold the RCU
+ * readlock or the task must be dead and unable to change its own credentials.
+ *
+ * The result of this function should not be passed directly to get_cred();
+ * rather get_task_cred() should be used instead.
+ */
 #define __task_cred(task)						\
 	({								\
 		const struct task_struct *__t = (task);			\
@@ -193,9 +288,22 @@ static inline void put_cred(const struct cred *_cred)
 				      task_is_dead(__t));		\
 	})
 
+/**
+ * get_current_cred - Get the current task's subjective credentials
+ *
+ * Get the subjective credentials of the current task, pinning them so that
+ * they can't go away.  Accessing the current task's credentials directly is
+ * not permitted.
+ */
 #define get_current_cred()				\
 	(get_cred(current_cred()))
 
+/**
+ * get_current_user - Get the current task's user_struct
+ *
+ * Get the user record of the current task, pinning it so that it can't go
+ * away.
+ */
 #define get_current_user()				\
 ({							\
 	struct user_struct *__u;			\
@@ -205,6 +313,12 @@ static inline void put_cred(const struct cred *_cred)
 	__u;						\
 })
 
+/**
+ * get_current_groups - Get the current task's supplementary group list
+ *
+ * Get the supplementary group list of the current task, pinning it so that it
+ * can't go away.
+ */
 #define get_current_groups()				\
 ({							\
 	struct group_info *__groups;			\
@@ -277,4 +391,4 @@ do {						\
 	*(_fsgid) = __cred->fsgid;		\
 } while(0)
 
-#endif 
+#endif /* _LINUX_CRED_H */

@@ -26,6 +26,26 @@
 #ifndef _TVP7002_H_
 #define _TVP7002_H_
 
+/* Platform-dependent data
+ *
+ * clk_polarity:
+ * 			0 -> data clocked out on rising edge of DATACLK signal
+ * 			1 -> data clocked out on falling edge of DATACLK signal
+ * hs_polarity:
+ * 			0 -> active low HSYNC output
+ * 			1 -> active high HSYNC output
+ * sog_polarity:
+ * 			0 -> normal operation
+ * 			1 -> operation with polarity inverted
+ * vs_polarity:
+ * 			0 -> active low VSYNC output
+ * 			1 -> active high VSYNC output
+ * fid_polarity:
+ *			0 -> the field ID output is set to logic 1 for an odd
+ *			     field (field 1) and set to logic 0 for an even
+ *			     field (field 0).
+ *			1 -> operation with polarity inverted.
+ */
 struct tvp7002_config {
 	u8 clk_polarity;
 	u8 hs_polarity;

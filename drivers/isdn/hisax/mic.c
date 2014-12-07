@@ -25,7 +25,8 @@ static const char *mic_revision = "$Revision: 1.12.2.4 $";
 #define MIC_HSCX	1
 #define MIC_ADR		7
 
-#define MIC_RESET      0x3	
+/* CARD_ADR (Write) */
+#define MIC_RESET      0x3	/* same as DOS driver */
 
 static inline u_char
 readreg(unsigned int ale, unsigned int adr, u_char off)
@@ -59,6 +60,7 @@ writefifo(unsigned int ale, unsigned int adr, u_char off, u_char *data, int size
 	outsb(adr, data, size);
 }
 
+/* Interface functions */
 
 static u_char
 ReadISAC(struct IsdnCardState *cs, u_char offset)
@@ -98,6 +100,9 @@ WriteHSCX(struct IsdnCardState *cs, int hscx, u_char offset, u_char value)
 		 cs->hw.mic.hscx, offset + (hscx ? 0x40 : 0), value);
 }
 
+/*
+ * fast interrupt HSCX stuff goes here
+ */
 
 #define READHSCX(cs, nr, reg) readreg(cs->hw.mic.adr,			\
 				      cs->hw.mic.hscx, reg + (nr ? 0x40 : 0))
@@ -172,7 +177,7 @@ mic_card_msg(struct IsdnCardState *cs, int mt, void *arg)
 		return (0);
 	case CARD_INIT:
 		spin_lock_irqsave(&cs->lock, flags);
-		inithscx(cs); 
+		inithscx(cs); /* /RTSA := ISAC RST */
 		inithscxisac(cs, 3);
 		spin_unlock_irqrestore(&cs->lock, flags);
 		return (0);

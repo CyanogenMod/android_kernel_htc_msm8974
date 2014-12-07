@@ -8,6 +8,25 @@
  *
  */
 
+/*
+ * Driver to use 4CH RC transmitter using Zhen Hua 5-byte protocol (Walkera Lama,
+ * EasyCopter etc.) as a joystick under Linux.
+ *
+ * RC transmitters using Zhen Hua 5-byte protocol are cheap four channels
+ * transmitters for control a RC planes or RC helicopters with possibility to
+ * connect on a serial port.
+ * Data coming from transmitter is in this order:
+ * 1. byte = synchronisation byte
+ * 2. byte = X axis
+ * 3. byte = Y axis
+ * 4. byte = RZ axis
+ * 5. byte = Z axis
+ * (and this is repeated)
+ *
+ * For questions or feedback regarding this driver module please contact:
+ * Martin Kebert <gkmarty@gmail.com> - but I am not a C-programmer nor kernel
+ * coder :-(
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -37,9 +56,15 @@
 MODULE_DESCRIPTION(DRIVER_DESC);
 MODULE_LICENSE("GPL");
 
+/*
+ * Constants.
+ */
 
 #define ZHENHUA_MAX_LENGTH 5
 
+/*
+ * Zhen Hua data.
+ */
 
 struct zhenhua {
 	struct input_dev *dev;
@@ -49,6 +74,7 @@ struct zhenhua {
 };
 
 
+/* bits in all incoming bytes needs to be "reversed" */
 static int zhenhua_bitreverse(int x)
 {
 	x = ((x & 0xaa) >> 1) | ((x & 0x55) << 1);
@@ -57,6 +83,10 @@ static int zhenhua_bitreverse(int x)
 	return x;
 }
 
+/*
+ * zhenhua_process_packet() decodes packets the driver receives from the
+ * RC transmitter. It updates the data accordingly.
+ */
 
 static void zhenhua_process_packet(struct zhenhua *zhenhua)
 {
@@ -71,16 +101,24 @@ static void zhenhua_process_packet(struct zhenhua *zhenhua)
 	input_sync(dev);
 }
 
+/*
+ * zhenhua_interrupt() is called by the low level driver when characters
+ * are ready for us. We then buffer them for further processing, or call the
+ * packet processing routine.
+ */
 
 static irqreturn_t zhenhua_interrupt(struct serio *serio, unsigned char data, unsigned int flags)
 {
 	struct zhenhua *zhenhua = serio_get_drvdata(serio);
 
+	/* All Zhen Hua packets are 5 bytes. The fact that the first byte
+	 * is allways 0xf7 and all others are in range 0x32 - 0xc8 (50-200)
+	 * can be used to check and regain sync. */
 
 	if (data == 0xef)
-		zhenhua->idx = 0;	
+		zhenhua->idx = 0;	/* this byte starts a new packet */
 	else if (zhenhua->idx == 0)
-		return IRQ_HANDLED;	
+		return IRQ_HANDLED;	/* wrong MSB -- ignore this byte */
 
 	if (zhenhua->idx < ZHENHUA_MAX_LENGTH)
 		zhenhua->data[zhenhua->idx++] = zhenhua_bitreverse(data);
@@ -93,6 +131,9 @@ static irqreturn_t zhenhua_interrupt(struct serio *serio, unsigned char data, un
 	return IRQ_HANDLED;
 }
 
+/*
+ * zhenhua_disconnect() is the opposite of zhenhua_connect()
+ */
 
 static void zhenhua_disconnect(struct serio *serio)
 {
@@ -104,6 +145,11 @@ static void zhenhua_disconnect(struct serio *serio)
 	kfree(zhenhua);
 }
 
+/*
+ * zhenhua_connect() is the routine that is called when someone adds a
+ * new serio device. It looks for the Twiddler, and if found, registers
+ * it as an input device.
+ */
 
 static int zhenhua_connect(struct serio *serio, struct serio_driver *drv)
 {
@@ -152,6 +198,9 @@ static int zhenhua_connect(struct serio *serio, struct serio_driver *drv)
 	return err;
 }
 
+/*
+ * The serio driver structure.
+ */
 
 static struct serio_device_id zhenhua_serio_ids[] = {
 	{
@@ -176,6 +225,9 @@ static struct serio_driver zhenhua_drv = {
 	.disconnect	= zhenhua_disconnect,
 };
 
+/*
+ * The functions for inserting/removing us as a module.
+ */
 
 static int __init zhenhua_init(void)
 {

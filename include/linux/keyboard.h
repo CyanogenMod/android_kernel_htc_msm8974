@@ -18,7 +18,9 @@
 
 #define NR_KEYS		256
 #define MAX_NR_KEYMAPS	256
-#define MAX_NR_OF_USER_KEYMAPS 256 	
+/* This means 128Kb if all keymaps are allocated. Only the superuser
+	may increase the number of keymaps beyond MAX_NR_OF_USER_KEYMAPS. */
+#define MAX_NR_OF_USER_KEYMAPS 256 	/* should be at least 7 */
 
 #ifdef __KERNEL__
 struct notifier_block;
@@ -26,21 +28,21 @@ extern unsigned short *key_maps[MAX_NR_KEYMAPS];
 extern unsigned short plain_map[NR_KEYS];
 
 struct keyboard_notifier_param {
-	struct vc_data *vc;	
-	int down;		
-	int shift;		
-	int ledstate;		
-	unsigned int value;	
+	struct vc_data *vc;	/* VC on which the keyboard press was done */
+	int down;		/* Pressure of the key? */
+	int shift;		/* Current shift mask */
+	int ledstate;		/* Current led state */
+	unsigned int value;	/* keycode, unicode value or keysym */
 };
 
 extern int register_keyboard_notifier(struct notifier_block *nb);
 extern int unregister_keyboard_notifier(struct notifier_block *nb);
 #endif
 
-#define MAX_NR_FUNC	256	
+#define MAX_NR_FUNC	256	/* max nr of strings assigned to keys */
 
-#define KT_LATIN	0	
-#define KT_LETTER	11	
+#define KT_LATIN	0	/* we depend on this being zero */
+#define KT_LETTER	11	/* symbol that can be acted upon by CapsLock */
 #define KT_FN		1
 #define KT_SPEC		2
 #define KT_PAD		3
@@ -83,8 +85,8 @@ extern int unregister_keyboard_notifier(struct notifier_block *nb);
 #define K_INSERT	K(KT_FN,21)
 #define K_REMOVE	K(KT_FN,22)
 #define K_SELECT	K(KT_FN,23)
-#define K_PGUP		K(KT_FN,24) 
-#define K_PGDN		K(KT_FN,25) 
+#define K_PGUP		K(KT_FN,24) /* PGUP is a synonym for PRIOR */
+#define K_PGDN		K(KT_FN,25) /* PGDN is a synonym for NEXT */
 #define K_MACRO	 	K(KT_FN,26)
 #define K_HELP		K(KT_FN,27)
 #define K_DO		K(KT_FN,28)
@@ -338,8 +340,8 @@ extern int unregister_keyboard_notifier(struct notifier_block *nb);
 #define K_SPAWNCONSOLE	K(KT_SPEC,18)
 #define K_BARENUMLOCK	K(KT_SPEC,19)
 
-#define K_ALLOCATED	K(KT_SPEC,126) 
-#define K_NOSUCHMAP	K(KT_SPEC,127) 
+#define K_ALLOCATED	K(KT_SPEC,126) /* dynamically allocated keymap */
+#define K_NOSUCHMAP	K(KT_SPEC,127) /* returned by KDGKBENT */
 
 #define K_P0		K(KT_PAD,0)
 #define K_P1		K(KT_PAD,1)
@@ -351,16 +353,16 @@ extern int unregister_keyboard_notifier(struct notifier_block *nb);
 #define K_P7		K(KT_PAD,7)
 #define K_P8		K(KT_PAD,8)
 #define K_P9		K(KT_PAD,9)
-#define K_PPLUS		K(KT_PAD,10)	
-#define K_PMINUS	K(KT_PAD,11)	
-#define K_PSTAR		K(KT_PAD,12)	
-#define K_PSLASH	K(KT_PAD,13)	
-#define K_PENTER	K(KT_PAD,14)	
-#define K_PCOMMA	K(KT_PAD,15)	
-#define K_PDOT		K(KT_PAD,16)	
-#define K_PPLUSMINUS	K(KT_PAD,17)	
-#define K_PPARENL	K(KT_PAD,18)	
-#define K_PPARENR	K(KT_PAD,19)	
+#define K_PPLUS		K(KT_PAD,10)	/* key-pad plus */
+#define K_PMINUS	K(KT_PAD,11)	/* key-pad minus */
+#define K_PSTAR		K(KT_PAD,12)	/* key-pad asterisk (star) */
+#define K_PSLASH	K(KT_PAD,13)	/* key-pad slash */
+#define K_PENTER	K(KT_PAD,14)	/* key-pad enter */
+#define K_PCOMMA	K(KT_PAD,15)	/* key-pad comma: kludge... */
+#define K_PDOT		K(KT_PAD,16)	/* key-pad dot (period): kludge... */
+#define K_PPLUSMINUS	K(KT_PAD,17)	/* key-pad plus/minus */
+#define K_PPARENL	K(KT_PAD,18)	/* key-pad left parenthesis */
+#define K_PPARENR	K(KT_PAD,19)	/* key-pad right parenthesis */
 
 #define NR_PAD		20
 

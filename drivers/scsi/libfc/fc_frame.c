@@ -17,6 +17,9 @@
  * Maintained at www.Open-FCoE.org
  */
 
+/*
+ * Frame allocation.
+ */
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/skbuff.h>
@@ -25,6 +28,9 @@
 
 #include <scsi/fc_frame.h>
 
+/*
+ * Check the CRC in a frame.
+ */
 u32 fc_frame_crc_check(struct fc_frame *fp)
 {
 	u32 crc;
@@ -34,7 +40,7 @@ u32 fc_frame_crc_check(struct fc_frame *fp)
 
 	WARN_ON(!fc_frame_is_linear(fp));
 	fr_flags(fp) &= ~FCPHF_CRC_UNCHECKED;
-	len = (fr_len(fp) + 3) & ~3;	
+	len = (fr_len(fp) + 3) & ~3;	/* round up length to include fill */
 	bp = (const u8 *) fr_hdr(fp);
 	crc = ~crc32(~0, bp, len);
 	error = crc ^ fr_crc(fp);
@@ -42,6 +48,10 @@ u32 fc_frame_crc_check(struct fc_frame *fp)
 }
 EXPORT_SYMBOL(fc_frame_crc_check);
 
+/*
+ * Allocate a frame intended to be sent via fcoe_xmit.
+ * Get an sk_buff for the frame and set the length.
+ */
 struct fc_frame *_fc_frame_alloc(size_t len)
 {
 	struct fc_frame *fp;
@@ -72,7 +82,7 @@ struct fc_frame *fc_frame_alloc_fill(struct fc_lport *lp, size_t payload_len)
 	fp = _fc_frame_alloc(payload_len + fill);
 	if (fp) {
 		memset((char *) fr_hdr(fp) + payload_len, 0, fill);
-		
+		/* trim is OK, we just allocated it so there are no fragments */
 		skb_trim(fp_skb(fp),
 			 payload_len + sizeof(struct fc_frame_header));
 	}

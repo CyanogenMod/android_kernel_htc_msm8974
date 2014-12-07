@@ -61,7 +61,7 @@ struct dib0070_state {
     enum frontend_tune_state tune_state;
     u32 current_rf;
 
-    
+    /* for the captrim binary search */
 	s8 step;
 	u16 adc_diff;
 
@@ -75,7 +75,7 @@ struct dib0070_state {
     u8  wbd_gain_current;
 	u16 wbd_offset_3_3[2];
 
-	
+	/* for the I2C transfer */
 	struct i2c_msg msg[2];
 	u8 i2c_write_buffer[3];
 	u8 i2c_read_buffer[2];
@@ -166,7 +166,7 @@ static int dib0070_set_bandwidth(struct dvb_frontend *fe)
 
     dib0070_write_reg(state, 0x02, tmp);
 
-    
+    /* sharpen the BB filter in ISDB-T to have higher immunity to adjacent channels */
     if (state->fe->dtv_property_cache.delivery_system == SYS_ISDBT) {
 	u16 value = dib0070_read_reg(state, 0x17);
 
@@ -267,7 +267,7 @@ void dib0070_ctrl_agc_filter(struct dvb_frontend *fe, u8 open)
 
 EXPORT_SYMBOL(dib0070_ctrl_agc_filter);
 struct dib0070_tuning {
-    u32 max_freq; 
+    u32 max_freq; /* for every frequency less than or equal to that field: this information is correct */
     u8 switch_trim;
     u8 vco_band;
     u8 hfdiv;
@@ -278,57 +278,57 @@ struct dib0070_tuning {
 };
 
 struct dib0070_lna_match {
-    u32 max_freq; 
+    u32 max_freq; /* for every frequency less than or equal to that field: this information is correct */
     u8 lna_band;
 };
 
 static const struct dib0070_tuning dib0070s_tuning_table[] = {
-    {     570000, 2, 1, 3, 6, 6, 2, 0x4000 | 0x0800 }, 
+    {     570000, 2, 1, 3, 6, 6, 2, 0x4000 | 0x0800 }, /* UHF */
     {     700000, 2, 0, 2, 4, 2, 2, 0x4000 | 0x0800 },
     {     863999, 2, 1, 2, 4, 2, 2, 0x4000 | 0x0800 },
-    {    1500000, 0, 1, 1, 2, 2, 4, 0x2000 | 0x0400 }, 
+    {    1500000, 0, 1, 1, 2, 2, 4, 0x2000 | 0x0400 }, /* LBAND */
     {    1600000, 0, 1, 1, 2, 2, 4, 0x2000 | 0x0400 },
     {    2000000, 0, 1, 1, 2, 2, 4, 0x2000 | 0x0400 },
-    { 0xffffffff, 0, 0, 8, 1, 2, 1, 0x8000 | 0x1000 }, 
+    { 0xffffffff, 0, 0, 8, 1, 2, 1, 0x8000 | 0x1000 }, /* SBAND */
 };
 
 static const struct dib0070_tuning dib0070_tuning_table[] = {
-    {     115000, 1, 0, 7, 24, 2, 1, 0x8000 | 0x1000 }, 
-    {     179500, 1, 0, 3, 16, 2, 1, 0x8000 | 0x1000 }, 
+    {     115000, 1, 0, 7, 24, 2, 1, 0x8000 | 0x1000 }, /* FM below 92MHz cannot be tuned */
+    {     179500, 1, 0, 3, 16, 2, 1, 0x8000 | 0x1000 }, /* VHF */
     {     189999, 1, 1, 3, 16, 2, 1, 0x8000 | 0x1000 },
     {     250000, 1, 0, 6, 12, 2, 1, 0x8000 | 0x1000 },
-    {     569999, 2, 1, 5,  6, 2, 2, 0x4000 | 0x0800 }, 
+    {     569999, 2, 1, 5,  6, 2, 2, 0x4000 | 0x0800 }, /* UHF */
     {     699999, 2, 0, 1,  4, 2, 2, 0x4000 | 0x0800 },
     {     863999, 2, 1, 1,  4, 2, 2, 0x4000 | 0x0800 },
-    { 0xffffffff, 0, 1, 0,  2, 2, 4, 0x2000 | 0x0400 }, 
+    { 0xffffffff, 0, 1, 0,  2, 2, 4, 0x2000 | 0x0400 }, /* LBAND or everything higher than UHF */
 };
 
 static const struct dib0070_lna_match dib0070_lna_flip_chip[] = {
-    {     180000, 0 }, 
+    {     180000, 0 }, /* VHF */
     {     188000, 1 },
     {     196400, 2 },
     {     250000, 3 },
-    {     550000, 0 }, 
+    {     550000, 0 }, /* UHF */
     {     590000, 1 },
     {     666000, 3 },
     {     864000, 5 },
-    {    1500000, 0 }, 
+    {    1500000, 0 }, /* LBAND or everything higher than UHF */
     {    1600000, 1 },
     {    2000000, 3 },
     { 0xffffffff, 7 },
 };
 
 static const struct dib0070_lna_match dib0070_lna[] = {
-    {     180000, 0 }, 
+    {     180000, 0 }, /* VHF */
     {     188000, 1 },
     {     196400, 2 },
     {     250000, 3 },
-    {     550000, 2 }, 
+    {     550000, 2 }, /* UHF */
     {     650000, 3 },
     {     750000, 5 },
     {     850000, 6 },
     {     864000, 7 },
-    {    1500000, 0 }, 
+    {    1500000, 0 }, /* LBAND or everything higher than UHF */
     {    1600000, 1 },
     {    2000000, 3 },
     { 0xffffffff, 7 },
@@ -343,7 +343,7 @@ static int dib0070_tune_digital(struct dvb_frontend *fe)
     const struct dib0070_lna_match *lna_match;
 
     enum frontend_tune_state *tune_state = &state->tune_state;
-    int ret = 10; 
+    int ret = 10; /* 1ms is the default delay most of the time */
 
     u8  band = (u8)BAND_OF_FREQUENCY(fe->dtv_property_cache.frequency/1000);
     u32 freq = fe->dtv_property_cache.frequency/1000 + (band == BAND_VHF ? state->cfg->freq_offset_khz_vhf : state->cfg->freq_offset_khz_uhf);
@@ -373,9 +373,9 @@ static int dib0070_tune_digital(struct dvb_frontend *fe)
 		lna_match = dib0070_lna;
 	    break;
 	}
-	while (freq > tune->max_freq) 
+	while (freq > tune->max_freq) /* find the right one */
 	    tune++;
-	while (freq > lna_match->max_freq) 
+	while (freq > lna_match->max_freq) /* find the right one */
 	    lna_match++;
 
 	state->current_tune_table_index = tune;
@@ -469,8 +469,8 @@ static int dib0070_tune_digital(struct dvb_frontend *fe)
 		dprintk("VCOF: ((%hd*%d) << 1))", state->current_tune_table_index->vco_multi, freq);
 
 		*tune_state = CT_TUNER_STEP_0;
-	} else { 
-		ret = 50; 
+	} else { /* we are already tuned to this frequency - the configuration is correct  */
+		ret = 50; /* wakeup time */
 		*tune_state = CT_TUNER_STEP_5;
 	}
     } else if ((*tune_state > CT_TUNER_START) && (*tune_state < CT_TUNER_STEP_4)) {
@@ -480,7 +480,7 @@ static int dib0070_tune_digital(struct dvb_frontend *fe)
     } else if (*tune_state == CT_TUNER_STEP_4) {
 	const struct dib0070_wbd_gain_cfg *tmp = state->cfg->wbd_gain;
 	if (tmp != NULL) {
-		while (freq/1000 > tmp->freq) 
+		while (freq/1000 > tmp->freq) /* find the right one */
 			tmp++;
 		dib0070_write_reg(state, 0x0f,
 			(0 << 15) | (1 << 14) | (3 << 12)
@@ -510,7 +510,7 @@ static int dib0070_tune_digital(struct dvb_frontend *fe)
 	dib0070_set_bandwidth(fe);
 	*tune_state = CT_TUNER_STOP;
     } else {
-	ret = FE_CALLBACK_TIME_NEVER; 
+	ret = FE_CALLBACK_TIME_NEVER; /* tuner finished, time to call again infinite */
     }
     return ret;
 }
@@ -638,7 +638,7 @@ u16 dib0070_wbd_offset(struct dvb_frontend *fe)
     u32 freq = fe->dtv_property_cache.frequency/1000;
 
     if (tmp != NULL) {
-	while (freq/1000 > tmp->freq) 
+	while (freq/1000 > tmp->freq) /* find the right one */
 	    tmp++;
 	state->wbd_gain_current = tmp->wbd_gain_val;
 	} else
@@ -666,7 +666,7 @@ static int dib0070_reset(struct dvb_frontend *fe)
 #endif
 		state->revision = DIB0070S_P1A;
 
-	
+	/* P1F or not */
 	dprintk("Revision: %x", state->revision);
 
 	if (state->revision == DIB0070_P1D) {
@@ -744,6 +744,7 @@ static const struct dvb_tuner_ops dib0070_ops = {
 	.set_params    = dib0070_tune,
 
 	.get_frequency = dib0070_get_frequency,
+//      .get_bandwidth = dib0070_get_bandwidth
 };
 
 struct dvb_frontend *dib0070_attach(struct dvb_frontend *fe, struct i2c_adapter *i2c, struct dib0070_config *cfg)

@@ -25,7 +25,9 @@ struct lirc_buffer {
 	wait_queue_head_t wait_poll;
 	spinlock_t fifo_lock;
 	unsigned int chunk_size;
-	unsigned int size; 
+	unsigned int size; /* in chunks */
+	/* Using chunks instead of bytes pretends to simplify boundary checking
+	 * And should allow for some performance fine tunning later */
 	struct kfifo fifo;
 	u8 fifo_initialized;
 };
@@ -124,7 +126,7 @@ struct lirc_driver {
 	char name[40];
 	int minor;
 	__u32 code_length;
-	unsigned int buffer_size; 
+	unsigned int buffer_size; /* in chunks holding one code each */
 	int sample_rate;
 	__u32 features;
 
@@ -142,14 +144,75 @@ struct lirc_driver {
 	struct module *owner;
 };
 
+/* name:
+ * this string will be used for logs
+ *
+ * minor:
+ * indicates minor device (/dev/lirc) number for registered driver
+ * if caller fills it with negative value, then the first free minor
+ * number will be used (if available)
+ *
+ * code_length:
+ * length of the remote control key code expressed in bits
+ *
+ * sample_rate:
+ *
+ * data:
+ * it may point to any driver data and this pointer will be passed to
+ * all callback functions
+ *
+ * add_to_buf:
+ * add_to_buf will be called after specified period of the time or
+ * triggered by the external event, this behavior depends on value of
+ * the sample_rate this function will be called in user context. This
+ * routine should return 0 if data was added to the buffer and
+ * -ENODATA if none was available. This should add some number of bits
+ * evenly divisible by code_length to the buffer
+ *
+ * rbuf:
+ * if not NULL, it will be used as a read buffer, you will have to
+ * write to the buffer by other means, like irq's (see also
+ * lirc_serial.c).
+ *
+ * set_use_inc:
+ * set_use_inc will be called after device is opened
+ *
+ * set_use_dec:
+ * set_use_dec will be called after device is closed
+ *
+ * fops:
+ * file_operations for drivers which don't fit the current driver model.
+ *
+ * Some ioctl's can be directly handled by lirc_dev if the driver's
+ * ioctl function is NULL or if it returns -ENOIOCTLCMD (see also
+ * lirc_serial.c).
+ *
+ * owner:
+ * the module owning this struct
+ *
+ */
 
 
+/* following functions can be called ONLY from user context
+ *
+ * returns negative value on error or minor number
+ * of the registered device if success
+ * contents of the structure pointed by p is copied
+ */
 extern int lirc_register_driver(struct lirc_driver *d);
 
+/* returns negative value on error or 0 if success
+*/
 extern int lirc_unregister_driver(int minor);
 
+/* Returns the private data stored in the lirc_driver
+ * associated with the given device file pointer.
+ */
 void *lirc_get_pdata(struct file *file);
 
+/* default file operations
+ * used by drivers if they override only some operations
+ */
 int lirc_dev_fop_open(struct inode *inode, struct file *file);
 int lirc_dev_fop_close(struct inode *inode, struct file *file);
 unsigned int lirc_dev_fop_poll(struct file *file, poll_table *wait);

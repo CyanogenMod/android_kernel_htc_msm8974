@@ -67,6 +67,9 @@ static int ad7887_read_raw(struct iio_dev *indio_dev,
 
 
 static const struct ad7887_chip_info ad7887_chip_info_tbl[] = {
+	/*
+	 * More devices added in future
+	 */
 	[ID_AD7887] = {
 		.channel[0] = {
 			.type = IIO_VOLTAGE,
@@ -123,13 +126,13 @@ static int __devinit ad7887_probe(struct spi_device *spi)
 	spi_set_drvdata(spi, indio_dev);
 	st->spi = spi;
 
-	
+	/* Estabilish that the iio_dev is a child of the spi device */
 	indio_dev->dev.parent = &spi->dev;
 	indio_dev->name = spi_get_device_id(spi)->name;
 	indio_dev->info = &ad7887_info;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 
-	
+	/* Setup default message */
 
 	st->tx_cmd_buf[0] = AD7887_CH_AIN0 | AD7887_PM_MODE4 |
 			    ((pdata && pdata->use_onchip_ref) ?

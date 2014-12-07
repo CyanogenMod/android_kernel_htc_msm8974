@@ -14,6 +14,9 @@
 
 #include <mach/hardware.h>
 
+/*
+ * Physical DRAM offset.
+ */
 #define PLAT_PHYS_OFFSET		(0x00000000)
 
 #define IXP23XX_PCI_SDRAM_OFFSET (*((volatile int *)IXP23XX_PCI_SDRAM_BAR) & 0xfffffff0)

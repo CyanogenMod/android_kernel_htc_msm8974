@@ -1,6 +1,9 @@
 #ifndef _ASM_X86_VISWS_PIIX4_H
 #define _ASM_X86_VISWS_PIIX4_H
 
+/*
+ * PIIX4 as used on SGI Visual Workstations
+ */
 
 #define	PIIX_PM_START		0x0F80
 
@@ -55,30 +58,50 @@
 
 
 
+/*
+ * This is the dev/reg where generating a config cycle will
+ * result in a PCI special cycle.
+ */
 #define SPECIAL_DEV		0xff
 #define SPECIAL_REG		0x00
 
+/*
+ * PIIX4 needs to see a special cycle with the following data
+ * to be convinced the processor has gone into the stop grant
+ * state.  PIIX4 insists on seeing this before it will power
+ * down a system.
+ */
 #define PIIX_SPECIAL_STOP		0x00120002
 
 #define PIIX4_RESET_PORT	0xcf9
 #define PIIX4_RESET_VAL		0x6
 
-#define PMSTS_PORT		0xf80	
-#define PMEN_PORT		0xf82	
-#define	PMCNTRL_PORT		0xf84	
+#define PMSTS_PORT		0xf80	// 2 bytes	PM Status
+#define PMEN_PORT		0xf82	// 2 bytes	PM Enable
+#define	PMCNTRL_PORT		0xf84	// 2 bytes	PM Control
 
-#define PM_SUSPEND_ENABLE	0x2000	
+#define PM_SUSPEND_ENABLE	0x2000	// start sequence to suspend state
 
-#define PM_STS_RSM		(1<<15)	
-#define PM_STS_PWRBTNOR		(1<<11)	
-#define PM_STS_RTC		(1<<10)	
-#define PM_STS_PWRBTN		(1<<8)	
-#define PM_STS_GBL		(1<<5)	
-#define PM_STS_BM		(1<<4)	
-#define PM_STS_TMROF		(1<<0)	
+/*
+ * PMSTS and PMEN I/O bit definitions.
+ * (Bits are the same in both registers)
+ */
+#define PM_STS_RSM		(1<<15)	// Resume Status
+#define PM_STS_PWRBTNOR		(1<<11)	// Power Button Override
+#define PM_STS_RTC		(1<<10)	// RTC status
+#define PM_STS_PWRBTN		(1<<8)	// Power Button Pressed?
+#define PM_STS_GBL		(1<<5)	// Global Status
+#define PM_STS_BM		(1<<4)	// Bus Master Status
+#define PM_STS_TMROF		(1<<0)	// Timer Overflow Status.
 
+/*
+ * Stop clock GPI register
+ */
 #define PIIX_GPIREG0			(0xf80 + 0x30)
 
-#define	PIIX_GPI_STPCLK		0x4	
+/*
+ * Stop clock GPI bit in GPIREG0
+ */
+#define	PIIX_GPI_STPCLK		0x4	// STPCLK signal routed back in
 
-#endif 
+#endif /* _ASM_X86_VISWS_PIIX4_H */

@@ -29,7 +29,7 @@ HPI Operating System function implementation for Linux
 void hpios_delay_micro_seconds(u32 num_micro_sec)
 {
 	if ((usecs_to_jiffies(num_micro_sec) > 1) && !in_interrupt()) {
-		
+		/* MUST NOT SCHEDULE IN INTERRUPT CONTEXT! */
 		schedule_timeout_uninterruptible(usecs_to_jiffies
 			(num_micro_sec));
 	} else if (num_micro_sec <= 2000)
@@ -39,10 +39,14 @@ void hpios_delay_micro_seconds(u32 num_micro_sec)
 
 }
 
+/** Allocate an area of locked memory for bus master DMA operations.
+
+If allocation fails, return 1, and *pMemArea.size = 0
+*/
 u16 hpios_locked_mem_alloc(struct consistent_dma_area *p_mem_area, u32 size,
 	struct pci_dev *pdev)
 {
-	
+	/*?? any benefit in using managed dmam_alloc_coherent? */
 	p_mem_area->vaddr =
 		dma_alloc_coherent(&pdev->dev, size, &p_mem_area->dma_handle,
 		GFP_DMA32 | GFP_KERNEL);

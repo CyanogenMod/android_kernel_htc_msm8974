@@ -89,15 +89,24 @@ ip_vs_update_conntrack(struct sk_buff *skb, struct ip_vs_conn *cp, int outin)
 	    nf_ct_is_dying(ct))
 		return;
 
-	
+	/* Never alter conntrack for non-NAT conns */
 	if (IP_VS_FWD_METHOD(cp) != IP_VS_CONN_F_MASQ)
 		return;
 
-	
+	/* Alter reply only in original direction */
 	if (CTINFO2DIR(ctinfo) != IP_CT_DIR_ORIGINAL)
 		return;
 
+	/*
+	 * The connection is not yet in the hashtable, so we update it.
+	 * CIP->VIP will remain the same, so leave the tuple in
+	 * IP_CT_DIR_ORIGINAL untouched.  When the reply comes back from the
+	 * real-server we will see RIP->DIP.
+	 */
 	new_tuple = ct->tuplehash[IP_CT_DIR_REPLY].tuple;
+	/*
+	 * This will also take care of UDP and other protocols.
+	 */
 	if (outin) {
 		new_tuple.src.u3 = cp->daddr;
 		if (new_tuple.dst.protonum != IPPROTO_ICMP &&
@@ -123,6 +132,9 @@ int ip_vs_confirm_conntrack(struct sk_buff *skb)
 	return nf_conntrack_confirm(skb);
 }
 
+/*
+ * Called from init_conntrack() as expectfn handler.
+ */
 static void ip_vs_nfct_expect_callback(struct nf_conn *ct,
 	struct nf_conntrack_expect *exp)
 {
@@ -134,15 +146,22 @@ static void ip_vs_nfct_expect_callback(struct nf_conn *ct,
 	if (exp->tuple.src.l3num != PF_INET)
 		return;
 
+	/*
+	 * We assume that no NF locks are held before this callback.
+	 * ip_vs_conn_out_get and ip_vs_conn_in_get should match their
+	 * expectations even if they use wildcard values, now we provide the
+	 * actual values from the newly created original conntrack direction.
+	 * The conntrack is confirmed when packet reaches IPVS hooks.
+	 */
 
-	
+	/* RS->CLIENT */
 	orig = &ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple;
 	ip_vs_conn_fill_param(net, exp->tuple.src.l3num, orig->dst.protonum,
 			      &orig->src.u3, orig->src.u.tcp.port,
 			      &orig->dst.u3, orig->dst.u.tcp.port, &p);
 	cp = ip_vs_conn_out_get(&p);
 	if (cp) {
-		
+		/* Change reply CLIENT->RS to CLIENT->VS */
 		new_reply = ct->tuplehash[IP_CT_DIR_REPLY].tuple;
 		IP_VS_DBG(7, "%s: ct=%p, status=0x%lX, tuples=" FMT_TUPLE ", "
 			  FMT_TUPLE ", found inout cp=" FMT_CONN "\n",
@@ -159,10 +178,10 @@ static void ip_vs_nfct_expect_callback(struct nf_conn *ct,
 		goto alter;
 	}
 
-	
+	/* CLIENT->VS */
 	cp = ip_vs_conn_in_get(&p);
 	if (cp) {
-		
+		/* Change reply VS->CLIENT to RS->CLIENT */
 		new_reply = ct->tuplehash[IP_CT_DIR_REPLY].tuple;
 		IP_VS_DBG(7, "%s: ct=%p, status=0x%lX, tuples=" FMT_TUPLE ", "
 			  FMT_TUPLE ", found outin cp=" FMT_CONN "\n",
@@ -185,13 +204,19 @@ static void ip_vs_nfct_expect_callback(struct nf_conn *ct,
 	return;
 
 alter:
-	
+	/* Never alter conntrack for non-NAT conns */
 	if (IP_VS_FWD_METHOD(cp) == IP_VS_CONN_F_MASQ)
 		nf_conntrack_alter_reply(ct, &new_reply);
 	ip_vs_conn_put(cp);
 	return;
 }
 
+/*
+ * Create NF conntrack expectation with wildcard (optional) source port.
+ * Then the default callback function will alter the reply and will confirm
+ * the conntrack entry when the first packet comes.
+ * Use port 0 to expect connection from any port.
+ */
 void ip_vs_nfct_expect_related(struct sk_buff *skb, struct nf_conn *ct,
 			       struct ip_vs_conn *cp, u_int8_t proto,
 			       const __be16 port, int from_rs)
@@ -220,6 +245,9 @@ void ip_vs_nfct_expect_related(struct sk_buff *skb, struct nf_conn *ct,
 }
 EXPORT_SYMBOL(ip_vs_nfct_expect_related);
 
+/*
+ * Our connection was terminated, try to drop the conntrack immediately
+ */
 void ip_vs_conn_drop_conntrack(struct ip_vs_conn *cp)
 {
 	struct nf_conntrack_tuple_hash *h;
@@ -245,7 +273,7 @@ void ip_vs_conn_drop_conntrack(struct ip_vs_conn *cp)
 				  &tuple);
 	if (h) {
 		ct = nf_ct_tuplehash_to_ctrack(h);
-		
+		/* Show what happens instead of calling nf_ct_kill() */
 		if (del_timer(&ct->timeout)) {
 			IP_VS_DBG(7, "%s: ct=%p, deleted conntrack timer for tuple="
 				FMT_TUPLE "\n",

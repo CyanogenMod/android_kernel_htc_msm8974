@@ -14,6 +14,7 @@
 #include <linux/spinlock.h>
 #include <asm/div64.h>
 
+/* We want to use full resolution of the CPU timer: 2**-12 micro-seconds. */
 
 typedef unsigned long long __nocast cputime_t;
 typedef unsigned long long __nocast cputime64_t;
@@ -26,13 +27,16 @@ static inline unsigned long __div(unsigned long long n, unsigned long base)
 	rp.pair = n >> 1;
 	asm ("dr %0,%1" : "+d" (rp) : "d" (base >> 1));
 	return rp.subreg.odd;
-#else 
+#else /* __s390x__ */
 	return n / base;
-#endif 
+#endif /* __s390x__ */
 }
 
 #define cputime_one_jiffy		jiffies_to_cputime(1)
 
+/*
+ * Convert cputime to jiffies and back.
+ */
 static inline unsigned long cputime_to_jiffies(const cputime_t cputime)
 {
 	return __div((__force unsigned long long) cputime, 4096000000ULL / HZ);
@@ -55,6 +59,9 @@ static inline cputime64_t jiffies64_to_cputime64(const u64 jif)
 	return (__force cputime64_t)(jif * (4096000000ULL / HZ));
 }
 
+/*
+ * Convert cputime to microseconds and back.
+ */
 static inline unsigned int cputime_to_usecs(const cputime_t cputime)
 {
 	return (__force unsigned long long) cputime >> 12;
@@ -67,6 +74,9 @@ static inline cputime_t usecs_to_cputime(const unsigned int m)
 
 #define usecs_to_cputime64(m)		usecs_to_cputime(m)
 
+/*
+ * Convert cputime to milliseconds and back.
+ */
 static inline unsigned int cputime_to_secs(const cputime_t cputime)
 {
 	return __div((__force unsigned long long) cputime, 2048000000) >> 1;
@@ -77,6 +87,9 @@ static inline cputime_t secs_to_cputime(const unsigned int s)
 	return (__force cputime_t)(s * 4096000000ULL);
 }
 
+/*
+ * Convert cputime to timespec and back.
+ */
 static inline cputime_t timespec_to_cputime(const struct timespec *value)
 {
 	unsigned long long ret = value->tv_sec * 4096000000ULL;
@@ -100,6 +113,11 @@ static inline void cputime_to_timespec(const cputime_t cputime,
 #endif
 }
 
+/*
+ * Convert cputime to timeval and back.
+ * Since cputime and timeval have the same resolution (microseconds)
+ * this is easy.
+ */
 static inline cputime_t timeval_to_cputime(const struct timeval *value)
 {
 	unsigned long long ret = value->tv_sec * 4096000000ULL;
@@ -123,6 +141,9 @@ static inline void cputime_to_timeval(const cputime_t cputime,
 #endif
 }
 
+/*
+ * Convert cputime to clock and back.
+ */
 static inline clock_t cputime_to_clock_t(cputime_t cputime)
 {
 	unsigned long long clock = (__force unsigned long long) cputime;
@@ -135,6 +156,9 @@ static inline cputime_t clock_t_to_cputime(unsigned long x)
 	return (__force cputime_t)(x * (4096000000ULL / USER_HZ));
 }
 
+/*
+ * Convert cputime64 to clock.
+ */
 static inline clock_t cputime64_to_clock_t(cputime64_t cputime)
 {
 	unsigned long long clock = (__force unsigned long long) cputime;
@@ -164,4 +188,4 @@ static inline int s390_nohz_delay(int cpu)
 
 #define arch_needs_cpu(cpu) s390_nohz_delay(cpu)
 
-#endif 
+#endif /* _S390_CPUTIME_H */

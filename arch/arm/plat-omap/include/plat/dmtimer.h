@@ -40,20 +40,28 @@
 #ifndef __ASM_ARCH_DMTIMER_H
 #define __ASM_ARCH_DMTIMER_H
 
+/* clock sources */
 #define OMAP_TIMER_SRC_SYS_CLK			0x00
 #define OMAP_TIMER_SRC_32_KHZ			0x01
 #define OMAP_TIMER_SRC_EXT_CLK			0x02
 
+/* timer interrupt enable bits */
 #define OMAP_TIMER_INT_CAPTURE			(1 << 2)
 #define OMAP_TIMER_INT_OVERFLOW			(1 << 1)
 #define OMAP_TIMER_INT_MATCH			(1 << 0)
 
+/* trigger types */
 #define OMAP_TIMER_TRIGGER_NONE			0x00
 #define OMAP_TIMER_TRIGGER_OVERFLOW		0x01
 #define OMAP_TIMER_TRIGGER_OVERFLOW_AND_COMPARE	0x02
 
+/*
+ * IP revision identifier so that Highlander IP
+ * in OMAP4 can be distinguished.
+ */
 #define OMAP_TIMER_IP_VERSION_1                        0x1
 
+/* timer capabilities used in hwmod database */
 #define OMAP_TIMER_SECURE				0x80000000
 #define OMAP_TIMER_ALWON				0x40000000
 #define OMAP_TIMER_HAS_PWM				0x20000000
@@ -130,7 +138,15 @@ int omap_dm_timer_write_counter(struct omap_dm_timer *timer, unsigned int value)
 
 int omap_dm_timers_active(void);
 
+/*
+ * Do not use the defines below, they are not needed. They should be only
+ * used by dmtimer.c and sys_timer related code.
+ */
 
+/*
+ * The interrupt registers are different between v1 and v2 ip.
+ * These registers are offsets from timer->iobase.
+ */
 #define OMAP_TIMER_ID_OFFSET		0x00
 #define OMAP_TIMER_OCP_CFG_OFFSET	0x10
 
@@ -143,6 +159,12 @@ int omap_dm_timers_active(void);
 #define OMAP_TIMER_V2_IRQENABLE_SET	0x2c
 #define OMAP_TIMER_V2_IRQENABLE_CLR	0x30
 
+/*
+ * The functional registers have a different base on v1 and v2 ip.
+ * These registers are offsets from timer->func_base. The func_base
+ * is samae as io_base for v1 and io_base + 0x14 for v2 ip.
+ *
+ */
 #define OMAP_TIMER_V2_FUNC_OFFSET		0x14
 
 #define _OMAP_TIMER_WAKEUP_EN_OFFSET	0x20
@@ -154,17 +176,17 @@ int omap_dm_timers_active(void);
 #define		OMAP_TIMER_CTRL_TCM_HIGHTOLOW	(0x2 << 8)
 #define		OMAP_TIMER_CTRL_TCM_BOTHEDGES	(0x3 << 8)
 #define		OMAP_TIMER_CTRL_SCPWM		(1 << 7)
-#define		OMAP_TIMER_CTRL_CE		(1 << 6) 
-#define		OMAP_TIMER_CTRL_PRE		(1 << 5) 
-#define		OMAP_TIMER_CTRL_PTV_SHIFT	2 
+#define		OMAP_TIMER_CTRL_CE		(1 << 6) /* compare enable */
+#define		OMAP_TIMER_CTRL_PRE		(1 << 5) /* prescaler enable */
+#define		OMAP_TIMER_CTRL_PTV_SHIFT	2 /* prescaler value shift */
 #define		OMAP_TIMER_CTRL_POSTED		(1 << 2)
-#define		OMAP_TIMER_CTRL_AR		(1 << 1) 
-#define		OMAP_TIMER_CTRL_ST		(1 << 0) 
+#define		OMAP_TIMER_CTRL_AR		(1 << 1) /* auto-reload enable */
+#define		OMAP_TIMER_CTRL_ST		(1 << 0) /* start timer */
 #define _OMAP_TIMER_COUNTER_OFFSET	0x28
 #define _OMAP_TIMER_LOAD_OFFSET		0x2c
 #define _OMAP_TIMER_TRIGGER_OFFSET	0x30
 #define _OMAP_TIMER_WRITE_PEND_OFFSET	0x34
-#define		WP_NONE			0	
+#define		WP_NONE			0	/* no write pending bit */
 #define		WP_TCLR			(1 << 0)
 #define		WP_TCRR			(1 << 1)
 #define		WP_TLDR			(1 << 2)
@@ -178,13 +200,14 @@ int omap_dm_timers_active(void);
 #define _OMAP_TIMER_MATCH_OFFSET	0x38
 #define _OMAP_TIMER_CAPTURE_OFFSET	0x3c
 #define _OMAP_TIMER_IF_CTRL_OFFSET	0x40
-#define _OMAP_TIMER_CAPTURE2_OFFSET		0x44	
-#define _OMAP_TIMER_TICK_POS_OFFSET		0x48	
-#define _OMAP_TIMER_TICK_NEG_OFFSET		0x4c	
-#define _OMAP_TIMER_TICK_COUNT_OFFSET		0x50	
-#define _OMAP_TIMER_TICK_INT_MASK_SET_OFFSET	0x54	
-#define _OMAP_TIMER_TICK_INT_MASK_COUNT_OFFSET	0x58	
+#define _OMAP_TIMER_CAPTURE2_OFFSET		0x44	/* TCAR2, 34xx only */
+#define _OMAP_TIMER_TICK_POS_OFFSET		0x48	/* TPIR, 34xx only */
+#define _OMAP_TIMER_TICK_NEG_OFFSET		0x4c	/* TNIR, 34xx only */
+#define _OMAP_TIMER_TICK_COUNT_OFFSET		0x50	/* TCVR, 34xx only */
+#define _OMAP_TIMER_TICK_INT_MASK_SET_OFFSET	0x54	/* TOCR, 34xx only */
+#define _OMAP_TIMER_TICK_INT_MASK_COUNT_OFFSET	0x58	/* TOWR, 34xx only */
 
+/* register offsets with the write pending bit encoded */
 #define	WPSHIFT					16
 
 #define OMAP_TIMER_WAKEUP_EN_REG		(_OMAP_TIMER_WAKEUP_EN_OFFSET \
@@ -239,12 +262,12 @@ struct omap_dm_timer {
 	struct clk *iclk, *fclk;
 
 	void __iomem	*io_base;
-	void __iomem	*sys_stat;	
-	void __iomem	*irq_stat;	
-	void __iomem	*irq_ena;	
-	void __iomem	*irq_dis;	
-	void __iomem	*pend;		
-	void __iomem	*func_base;	
+	void __iomem	*sys_stat;	/* TISTAT timer status */
+	void __iomem	*irq_stat;	/* TISR/IRQSTATUS interrupt status */
+	void __iomem	*irq_ena;	/* irq enable */
+	void __iomem	*irq_dis;	/* irq disable, only on v2 ip */
+	void __iomem	*pend;		/* write pending */
+	void __iomem	*func_base;	/* function register base */
 
 	unsigned long rate;
 	unsigned reserved:1;
@@ -285,7 +308,7 @@ static inline void __omap_dm_timer_init_regs(struct omap_dm_timer *timer)
 {
 	u32 tidr;
 
-	
+	/* Assume v1 ip if bits [31:16] are zero */
 	tidr = __raw_readl(timer->io_base);
 	if (!(tidr >> 16)) {
 		timer->revision = 1;
@@ -309,14 +332,15 @@ static inline void __omap_dm_timer_init_regs(struct omap_dm_timer *timer)
 	}
 }
 
+/* Assumes the source clock has been set by caller */
 static inline void __omap_dm_timer_reset(struct omap_dm_timer *timer,
 					int autoidle, int wakeup)
 {
 	u32 l;
 
 	l = __raw_readl(timer->io_base + OMAP_TIMER_OCP_CFG_OFFSET);
-	l |= 0x02 << 3;  
-	l |= 0x2 << 8;   
+	l |= 0x02 << 3;  /* Set to smart-idle mode */
+	l |= 0x2 << 8;   /* Set clock activity to perserve f-clock on idle */
 
 	if (autoidle)
 		l |= 0x1 << 0;
@@ -326,7 +350,7 @@ static inline void __omap_dm_timer_reset(struct omap_dm_timer *timer,
 
 	__raw_writel(l, timer->io_base + OMAP_TIMER_OCP_CFG_OFFSET);
 
-	
+	/* Match hardware reset default of posted mode */
 	__omap_dm_timer_write(timer, OMAP_TIMER_IF_CTRL_REG,
 					OMAP_TIMER_CTRL_POSTED, 0);
 }
@@ -340,6 +364,10 @@ static inline int __omap_dm_timer_set_source(struct clk *timer_fck,
 	ret = clk_set_parent(timer_fck, parent);
 	clk_enable(timer_fck);
 
+	/*
+	 * When the functional clock disappears, too quick writes seem
+	 * to cause an abort. XXX Is this still necessary?
+	 */
 	__delay(300000);
 
 	return ret;
@@ -355,13 +383,17 @@ static inline void __omap_dm_timer_stop(struct omap_dm_timer *timer,
 		l &= ~0x1;
 		__omap_dm_timer_write(timer, OMAP_TIMER_CTRL_REG, l, posted);
 #ifdef CONFIG_ARCH_OMAP2PLUS
-		
+		/* Readback to make sure write has completed */
 		__omap_dm_timer_read(timer, OMAP_TIMER_CTRL_REG, posted);
+		/*
+		 * Wait for functional clock period x 3.5 to make sure that
+		 * timer is stopped
+		 */
 		udelay(3500000 / rate + 1);
 #endif
 	}
 
-	
+	/* Ack possibly pending interrupt */
 	__raw_writel(OMAP_TIMER_INT_OVERFLOW, timer->irq_stat);
 }
 
@@ -392,4 +424,4 @@ static inline void __omap_dm_timer_write_status(struct omap_dm_timer *timer,
 	__raw_writel(value, timer->irq_stat);
 }
 
-#endif 
+#endif /* __ASM_ARCH_DMTIMER_H */

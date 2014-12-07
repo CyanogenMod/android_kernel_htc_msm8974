@@ -34,7 +34,12 @@
 #define DATA_S3 sample_special3
 #define SIZE_S3 (&sizeof_special3)
 
+/***************/
+/* tones loops */
+/***************/
 
+/* all tones are alaw encoded */
+/* the last sample+1 is in phase with the first sample. the error is low */
 
 static u8 sample_german_all[] = {
 	0x80, 0xab, 0x81, 0x6d, 0xfd, 0xdd, 0x5d, 0x9d,
@@ -201,6 +206,9 @@ tones_samples samples[] = {
 	{NULL, NULL},
 };
 
+/***********************************
+ * generate ulaw from alaw samples *
+ ***********************************/
 
 void
 dsp_audio_generate_ulaw_samples(void)
@@ -220,6 +228,9 @@ dsp_audio_generate_ulaw_samples(void)
 }
 
 
+/****************************
+ * tone sequence definition *
+ ****************************/
 
 static struct pattern {
 	int tone;
@@ -344,35 +355,51 @@ static struct pattern {
 	 {0, 0, 0, 0, 0, 0, 0, 0, 0, 0} },
 };
 
+/******************
+ * copy tone data *
+ ******************/
 
+/* an sk_buff is generated from the number of samples needed.
+ * the count will be changed and may begin from 0 each pattern period.
+ * the clue is to precalculate the pointers and legths to use only one
+ * memcpy per function call, or two memcpy if the tone sequence changes.
+ *
+ * pattern - the type of the pattern
+ * count - the sample from the beginning of the pattern (phase)
+ * len - the number of bytes
+ *
+ * return - the sk_buff with the sample
+ *
+ * if tones has finished (e.g. knocking tone), dsp->tones is turned off
+ */
 void dsp_tone_copy(struct dsp *dsp, u8 *data, int len)
 {
 	int index, count, start, num;
 	struct pattern *pat;
 	struct dsp_tone *tone = &dsp->tone;
 
-	
+	/* if we have no tone, we copy silence */
 	if (!tone->tone) {
 		memset(data, dsp_silence, len);
 		return;
 	}
 
-	
+	/* process pattern */
 	pat = (struct pattern *)tone->pattern;
-	
-	index = tone->index; 
-	count = tone->count; 
+	/* points to the current pattern */
+	index = tone->index; /* gives current sequence index */
+	count = tone->count; /* gives current sample */
 
-	
+	/* copy sample */
 	while (len) {
-		
+		/* find sample to start with */
 		while (42) {
-			
+			/* wrap around */
 			if (!pat->seq[index]) {
 				count = 0;
 				index = 0;
 			}
-			
+			/* check if we are currently playing this tone */
 			if (count < pat->seq[index])
 				break;
 			if (dsp_debug & DEBUG_DSP_TONE)
@@ -381,16 +408,16 @@ void dsp_tone_copy(struct dsp *dsp, u8 *data, int len)
 			count -= pat->seq[index];
 			index++;
 		}
-		
+		/* calculate start and number of samples */
 		start = count % (*(pat->siz[index]));
 		num = len;
 		if (num + count > pat->seq[index])
 			num = pat->seq[index] - count;
 		if (num + start > (*(pat->siz[index])))
 			num = (*(pat->siz[index])) - start;
-		
+		/* copy memory */
 		memcpy(data, pat->data[index] + start, num);
-		
+		/* reduce length */
 		data += num;
 		count += num;
 		len -= num;
@@ -398,18 +425,21 @@ void dsp_tone_copy(struct dsp *dsp, u8 *data, int len)
 	tone->index = index;
 	tone->count = count;
 
-	
+	/* return sk_buff */
 	return;
 }
 
 
+/*******************************
+ * send HW message to hfc card *
+ *******************************/
 
 static void
 dsp_tone_hw_message(struct dsp *dsp, u8 *sample, int len)
 {
 	struct sk_buff *nskb;
 
-	
+	/* unlocking is not required, because we don't expect a response */
 	nskb = _alloc_mISDN_skb(PH_CONTROL_REQ,
 				(len) ? HFC_SPL_LOOP_ON : HFC_SPL_LOOP_OFF, len, sample,
 				GFP_ATOMIC);
@@ -423,6 +453,9 @@ dsp_tone_hw_message(struct dsp *dsp, u8 *sample, int len)
 }
 
 
+/*****************
+ * timer expires *
+ *****************/
 void
 dsp_tone_timeout(void *arg)
 {
@@ -439,19 +472,27 @@ dsp_tone_timeout(void *arg)
 		index = 0;
 	tone->index = index;
 
-	
+	/* set next tone */
 	if (pat->data[index] == DATA_S)
 		dsp_tone_hw_message(dsp, NULL, 0);
 	else
 		dsp_tone_hw_message(dsp, pat->data[index], *(pat->siz[index]));
-	
+	/* set timer */
 	init_timer(&tone->tl);
 	tone->tl.expires = jiffies + (pat->seq[index] * HZ) / 8000;
 	add_timer(&tone->tl);
 }
 
 
+/********************
+ * set/release tone *
+ ********************/
 
+/*
+ * tones are relaized by streaming or by special loop commands if supported
+ * by hardware. when hardware is used, the patterns will be controlled by
+ * timers.
+ */
 int
 dsp_tone(struct dsp *dsp, int tone)
 {
@@ -462,7 +503,7 @@ dsp_tone(struct dsp *dsp, int tone)
 	tonet->software = 0;
 	tonet->hardware = 0;
 
-	
+	/* we turn off the tone */
 	if (!tone) {
 		if (dsp->features.hfc_loops && timer_pending(&tonet->tl))
 			del_timer(&tonet->tl);
@@ -495,9 +536,9 @@ dsp_tone(struct dsp *dsp, int tone)
 
 	if (dsp->features.hfc_loops) {
 		tonet->hardware = 1;
-		
+		/* set first tone */
 		dsp_tone_hw_message(dsp, pat->data[0], *(pat->siz[0]));
-		
+		/* set timer */
 		if (timer_pending(&tonet->tl))
 			del_timer(&tonet->tl);
 		init_timer(&tonet->tl);

@@ -28,7 +28,7 @@ static int logfs_write_begin(struct file *file, struct address_space *mapping,
 		unsigned start = pos & (PAGE_CACHE_SIZE - 1);
 		unsigned end = start + len;
 
-		
+		/* Reading beyond i_size is simple: memset to zero */
 		zero_user_segments(page, 0, start, end, PAGE_CACHE_SIZE);
 		return 0;
 	}
@@ -49,13 +49,17 @@ static int logfs_write_end(struct file *file, struct address_space *mapping,
 	BUG_ON(page->index > I3_BLOCKS);
 
 	if (copied < len) {
+		/*
+		 * Short write of a non-initialized paged.  Just tell userspace
+		 * to retry the entire page.
+		 */
 		if (!PageUptodate(page)) {
 			copied = 0;
 			goto out;
 		}
 	}
 	if (copied == 0)
-		goto out; 
+		goto out; /* FIXME: do we need to update inode? */
 
 	if (i_size_read(inode) < (index << PAGE_CACHE_SHIFT) + end) {
 		i_size_write(inode, (index << PAGE_CACHE_SHIFT) + end);
@@ -84,6 +88,11 @@ int logfs_readpage(struct file *file, struct page *page)
 	return ret;
 }
 
+/* Clear the page's dirty flag in the radix tree. */
+/* TODO: mucking with PageWriteback is silly.  Add a generic function to clear
+ * the dirty bit from the radix tree for filesystems that don't have to wait
+ * for page writeback to finish (i.e. any compressing filesystem).
+ */
 static void clear_radix_tree_dirty(struct page *page)
 {
 	BUG_ON(PagePrivate(page) || page->private);
@@ -119,20 +128,24 @@ static int logfs_writepage(struct page *page, struct writeback_control *wbc)
 
 	logfs_unpack_index(page->index, &bix, &level);
 
-	
+	/* Indirect blocks are never truncated */
 	if (level != 0)
 		return __logfs_writepage(page);
 
+	/*
+	 * TODO: everything below is a near-verbatim copy of nobh_writepage().
+	 * The relevant bits should be factored out after logfs is merged.
+	 */
 
-	
+	/* Is the page fully inside i_size? */
 	if (bix < end_index)
 		return __logfs_writepage(page);
 
-	 
+	 /* Is the page fully outside i_size? (truncate in progress) */
 	offset = i_size & (PAGE_CACHE_SIZE-1);
 	if (bix > end_index || offset == 0) {
 		unlock_page(page);
-		return 0; 
+		return 0; /* don't care */
 	}
 
 	/*
@@ -164,7 +177,7 @@ static void logfs_invalidatepage(struct page *page, unsigned long offset)
 
 static int logfs_releasepage(struct page *page, gfp_t only_xfs_uses_this)
 {
-	return 0; 
+	return 0; /* None of these are easy to release */
 }
 
 

@@ -1,3 +1,10 @@
+/*
+ *  include/asm-s390/statfs.h
+ *
+ *  S390 version
+ *
+ *  Derived from "include/asm-i386/statfs.h"
+ */
 
 #ifndef _S390_STATFS_H
 #define _S390_STATFS_H
@@ -5,6 +12,10 @@
 #ifndef __s390x__
 #include <asm-generic/statfs.h>
 #else
+/*
+ * We can't use <asm-generic/statfs.h> because in 64-bit mode
+ * we mix ints of different sizes in our struct statfs.
+ */
 
 #ifndef __KERNEL_STRICT_NAMES
 #include <linux/types.h>
@@ -56,5 +67,5 @@ struct compat_statfs64 {
 	__u32 f_spare[4];
 };
 
-#endif 
+#endif /* __s390x__ */
 #endif

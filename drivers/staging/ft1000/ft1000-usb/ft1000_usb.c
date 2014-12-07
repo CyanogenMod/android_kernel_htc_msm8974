@@ -25,9 +25,10 @@ MODULE_SUPPORTED_DEVICE("QFT FT1000 Express Cards");
 void *pFileStart;
 size_t FileLength;
 
-#define VENDOR_ID 0x1291	
-#define PRODUCT_ID 0x11		
+#define VENDOR_ID 0x1291	/* Qualcomm vendor id */
+#define PRODUCT_ID 0x11		/* fake product id */
 
+/* table of devices that work with this driver */
 static struct usb_device_id id_table[] = {
 	{USB_DEVICE(VENDOR_ID, PRODUCT_ID)},
 	{},

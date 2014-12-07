@@ -35,7 +35,7 @@ unsigned long __xchg32(int x, int *ptr)
 	long temp;
 
 	_atomic_spin_lock_irqsave(ptr, flags);
-	temp = (long) *ptr;	
+	temp = (long) *ptr;	/* XXX - sign extension wanted? */
 	*ptr = x;
 	_atomic_spin_unlock_irqrestore(ptr, flags);
 	return (unsigned long)temp;
@@ -48,7 +48,7 @@ unsigned long __xchg8(char x, char *ptr)
 	long temp;
 
 	_atomic_spin_lock_irqsave(ptr, flags);
-	temp = (long) *ptr;	
+	temp = (long) *ptr;	/* XXX - sign extension wanted? */
 	*ptr = x;
 	_atomic_spin_unlock_irqrestore(ptr, flags);
 	return (unsigned long)temp;

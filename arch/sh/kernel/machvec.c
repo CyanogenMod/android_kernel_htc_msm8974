@@ -61,7 +61,7 @@ static int __init early_parse_mv(char *from)
 
 	machvec_selected = 1;
 
-	
+	/* Boot with the generic vector */
 	if (strcmp(mv_name, "generic") == 0)
 		return 0;
 
@@ -82,21 +82,37 @@ early_param("sh_mv", early_parse_mv);
 
 void __init sh_mv_setup(void)
 {
+	/*
+	 * Only overload the machvec if one hasn't been selected on
+	 * the command line with sh_mv=
+	 */
 	if (!machvec_selected) {
 		unsigned long machvec_size;
 
 		machvec_size = ((unsigned long)&__machvec_end -
 				(unsigned long)&__machvec_start);
 
+		/*
+		 * Sanity check for machvec section alignment. Ensure
+		 * __initmv hasn't been misused.
+		 */
 		if (machvec_size % sizeof(struct sh_machine_vector))
 			panic("machvec misaligned, invalid __initmv use?");
 
+		/*
+		 * If the machvec hasn't been preselected, use the first
+		 * vector (usually the only one) from .machvec.init.
+		 */
 		if (machvec_size >= sizeof(struct sh_machine_vector))
 			sh_mv = *(struct sh_machine_vector *)&__machvec_start;
 	}
 
 	printk(KERN_NOTICE "Booting machvec: %s\n", get_system_type());
 
+	/*
+	 * Manually walk the vec, fill in anything that the board hasn't yet
+	 * by hand, wrapping to the generic implementation.
+	 */
 #define mv_set(elem) do { \
 	if (!sh_mv.mv_##elem) \
 		sh_mv.mv_##elem = generic_##elem; \

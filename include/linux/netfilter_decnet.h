@@ -9,22 +9,36 @@
 
 #include <linux/netfilter.h>
 
+/* only for userspace compatibility */
 #ifndef __KERNEL__
 
-#include <limits.h> 
+#include <limits.h> /* for INT_MIN, INT_MAX */
 
+/* IP Cache bits. */
+/* Src IP address. */
 #define NFC_DN_SRC		0x0001
+/* Dest IP address. */
 #define NFC_DN_DST		0x0002
+/* Input device. */
 #define NFC_DN_IF_IN		0x0004
+/* Output device. */
 #define NFC_DN_IF_OUT		0x0008
-#endif 
+#endif /* ! __KERNEL__ */
 
+/* DECnet Hooks */
+/* After promisc drops, checksum checks. */
 #define NF_DN_PRE_ROUTING	0
+/* If the packet is destined for this box. */
 #define NF_DN_LOCAL_IN		1
+/* If the packet is destined for another interface. */
 #define NF_DN_FORWARD		2
+/* Packets coming from a local process. */
 #define NF_DN_LOCAL_OUT		3
+/* Packets about to hit the wire. */
 #define NF_DN_POST_ROUTING	4
+/* Input Hello Packets */
 #define NF_DN_HELLO		5
+/* Input Routing Packets */
 #define NF_DN_ROUTE		6
 #define NF_DN_NUMHOOKS		7
 
@@ -46,6 +60,7 @@ struct nf_dn_rtmsg {
 #define NFDN_RTMSG(r) ((unsigned char *)(r) + NLMSG_ALIGN(sizeof(struct nf_dn_rtmsg)))
 
 #ifndef __KERNEL__
+/* backwards compatibility for userspace */
 #define DNRMG_L1_GROUP 0x01
 #define DNRMG_L2_GROUP 0x02
 #endif
@@ -61,4 +76,4 @@ enum {
 };
 #define DNRNG_NLGRP_MAX	(__DNRNG_NLGRP_MAX - 1)
 
-#endif 
+#endif /*__LINUX_DECNET_NETFILTER_H*/

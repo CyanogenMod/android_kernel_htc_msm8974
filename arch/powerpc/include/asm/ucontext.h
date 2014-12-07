@@ -23,13 +23,13 @@ struct ucontext {
 	stack_t		uc_stack;
 #ifndef __powerpc64__
 	int		uc_pad[7];
-	struct mcontext	__user *uc_regs;
+	struct mcontext	__user *uc_regs;/* points to uc_mcontext field */
 #endif
 	sigset_t	uc_sigmask;
-	
+	/* glibc has 1024-bit signal masks, ours are 64-bit */
 #ifdef __powerpc64__
-	sigset_t	__unused[15];	
-	struct sigcontext uc_mcontext;	
+	sigset_t	__unused[15];	/* Allow for uc_sigmask growth */
+	struct sigcontext uc_mcontext;	/* last for extensibility */
 #else
 	int		uc_maskext[30];
 	int		uc_pad2[3];
@@ -37,4 +37,4 @@ struct ucontext {
 #endif
 };
 
-#endif 
+#endif /* _ASM_POWERPC_UCONTEXT_H */

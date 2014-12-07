@@ -14,19 +14,20 @@
 
 #include <asm/facility.h>
 
-#define CPU_MF_INT_SF_IAE	(1 << 31)	
-#define CPU_MF_INT_SF_ISE	(1 << 30)	
-#define CPU_MF_INT_SF_PRA	(1 << 29)	
-#define CPU_MF_INT_SF_SACA	(1 << 23)	
-#define CPU_MF_INT_SF_LSDA	(1 << 22)	
-#define CPU_MF_INT_CF_CACA	(1 <<  7)	
-#define CPU_MF_INT_CF_LCDA	(1 <<  6)	
+#define CPU_MF_INT_SF_IAE	(1 << 31)	/* invalid entry address */
+#define CPU_MF_INT_SF_ISE	(1 << 30)	/* incorrect SDBT entry */
+#define CPU_MF_INT_SF_PRA	(1 << 29)	/* program request alert */
+#define CPU_MF_INT_SF_SACA	(1 << 23)	/* sampler auth. change alert */
+#define CPU_MF_INT_SF_LSDA	(1 << 22)	/* loss of sample data alert */
+#define CPU_MF_INT_CF_CACA	(1 <<  7)	/* counter auth. change alert */
+#define CPU_MF_INT_CF_LCDA	(1 <<  6)	/* loss of counter data alert */
 
 #define CPU_MF_INT_CF_MASK	(CPU_MF_INT_CF_CACA|CPU_MF_INT_CF_LCDA)
 #define CPU_MF_INT_SF_MASK	(CPU_MF_INT_SF_IAE|CPU_MF_INT_SF_ISE|	\
 				 CPU_MF_INT_SF_PRA|CPU_MF_INT_SF_SACA|	\
 				 CPU_MF_INT_SF_LSDA)
 
+/* CPU measurement facility support */
 static inline int cpum_cf_avail(void)
 {
 	return MACHINE_HAS_SPP && test_facility(67);
@@ -50,6 +51,7 @@ struct cpumf_ctr_info {
 	u32   reserved2[12];
 } __packed;
 
+/* Query counter information */
 static inline int qctri(struct cpumf_ctr_info *info)
 {
 	int rc = -EINVAL;
@@ -63,6 +65,7 @@ static inline int qctri(struct cpumf_ctr_info *info)
 	return rc;
 }
 
+/* Load CPU-counter-set controls */
 static inline int lcctl(u64 ctl)
 {
 	int cc;
@@ -75,6 +78,7 @@ static inline int lcctl(u64 ctl)
 	return cc;
 }
 
+/* Extract CPU counter */
 static inline int ecctr(u64 ctr, u64 *val)
 {
 	register u64 content asm("4") = 0;
@@ -90,4 +94,4 @@ static inline int ecctr(u64 ctr, u64 *val)
 	return cc;
 }
 
-#endif 
+#endif /* _ASM_S390_CPU_MF_H */

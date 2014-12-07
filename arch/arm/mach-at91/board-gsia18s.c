@@ -42,35 +42,67 @@ static void __init gsia18s_init_early(void)
 {
 	stamp9g20_init_early();
 
+	/*
+	 * USART0 on ttyS1 (Rx, Tx, CTS, RTS, DTR, DSR, DCD, RI).
+	 * Used for Internal Analog Modem.
+	 */
 	at91_register_uart(AT91SAM9260_ID_US0, 1,
 				ATMEL_UART_CTS | ATMEL_UART_RTS |
 				ATMEL_UART_DTR | ATMEL_UART_DSR |
 				ATMEL_UART_DCD | ATMEL_UART_RI);
+	/*
+	 * USART1 on ttyS2 (Rx, Tx, CTS, RTS).
+	 * Used for GPS or WiFi or Data stream.
+	 */
 	at91_register_uart(AT91SAM9260_ID_US1, 2,
 				ATMEL_UART_CTS | ATMEL_UART_RTS);
+	/*
+	 * USART2 on ttyS3 (Rx, Tx, CTS, RTS).
+	 * Used for External Modem.
+	 */
 	at91_register_uart(AT91SAM9260_ID_US2, 3,
 				ATMEL_UART_CTS | ATMEL_UART_RTS);
+	/*
+	 * USART3 on ttyS4 (Rx, Tx, RTS).
+	 * Used for RS-485.
+	 */
 	at91_register_uart(AT91SAM9260_ID_US3, 4, ATMEL_UART_RTS);
 
+	/*
+	 * USART4 on ttyS5 (Rx, Tx).
+	 * Used for TRX433 Radio Module.
+	 */
 	at91_register_uart(AT91SAM9260_ID_US4, 5, 0);
 }
 
+/*
+ * Two USB Host ports
+ */
 static struct at91_usbh_data __initdata usbh_data = {
 	.ports		= 2,
 	.vbus_pin	= {-EINVAL, -EINVAL},
 	.overcurrent_pin= {-EINVAL, -EINVAL},
 };
 
+/*
+ * USB Device port
+ */
 static struct at91_udc_data __initdata udc_data = {
 	.vbus_pin	= AT91_PIN_PA22,
-	.pullup_pin	= -EINVAL,		
+	.pullup_pin	= -EINVAL,		/* pull-up driven by UDC */
 };
 
+/*
+ * MACB Ethernet device
+ */
 static struct macb_platform_data __initdata macb_data = {
 	.phy_irq_pin	= AT91_PIN_PA28,
 	.is_rmii	= 1,
 };
 
+/*
+ * LEDs and GPOs
+ */
 static struct gpio_led gpio_leds[] = {
 	{
 		.name			= "gpo:spi1reset",
@@ -141,51 +173,52 @@ static void __init gsia18s_leds_init(void)
 	platform_device_register(&leds);
 }
 
+/* PCF8574 0x20 GPIO - U1 on the GS_IA18-CB_V3 board */
 static struct gpio_led pcf_gpio_leds1[] = {
-	{ 
+	{ /* bit 0 */
 		.name			= "gpo:hdc_power",
 		.gpio			= PCF_GPIO_HDC_POWER,
 		.active_low		= 0,
 		.default_trigger	= "none",
 		.default_state		= LEDS_GPIO_DEFSTATE_OFF,
 	},
-	{ 
+	{ /* bit 1 */
 		.name			= "gpo:wifi_setup",
 		.gpio			= PCF_GPIO_WIFI_SETUP,
 		.active_low		= 1,
 		.default_trigger	= "none",
 		.default_state		= LEDS_GPIO_DEFSTATE_OFF,
 	},
-	{ 
+	{ /* bit 2 */
 		.name			= "gpo:wifi_enable",
 		.gpio			= PCF_GPIO_WIFI_ENABLE,
 		.active_low		= 1,
 		.default_trigger	= "none",
 		.default_state		= LEDS_GPIO_DEFSTATE_OFF,
 	},
-	{ 
+	{ /* bit 3	*/
 		.name			= "gpo:wifi_reset",
 		.gpio			= PCF_GPIO_WIFI_RESET,
 		.active_low		= 1,
 		.default_trigger	= "none",
 		.default_state		= LEDS_GPIO_DEFSTATE_ON,
 	},
-	
-	{ 
+	/* bit 4 used as GPI	*/
+	{ /* bit 5 */
 		.name			= "gpo:gps_setup",
 		.gpio			= PCF_GPIO_GPS_SETUP,
 		.active_low		= 1,
 		.default_trigger	= "none",
 		.default_state		= LEDS_GPIO_DEFSTATE_OFF,
 	},
-	{ 
+	{ /* bit 6 */
 		.name			= "gpo:gps_standby",
 		.gpio			= PCF_GPIO_GPS_STANDBY,
 		.active_low		= 0,
 		.default_trigger	= "none",
 		.default_state		= LEDS_GPIO_DEFSTATE_ON,
 	},
-	{ 
+	{ /* bit 7 */
 		.name			= "gpo:gps_power",
 		.gpio			= PCF_GPIO_GPS_POWER,
 		.active_low		= 0,
@@ -200,44 +233,45 @@ static struct gpio_led_platform_data pcf_gpio_led_info1 = {
 };
 
 static struct platform_device pcf_leds1 = {
-	.name	= "leds-gpio", 
+	.name	= "leds-gpio", /* GS_IA18-CB_board */
 	.id	= 1,
 	.dev	= {
 		.platform_data	= &pcf_gpio_led_info1,
 	}
 };
 
+/* PCF8574 0x22 GPIO - U1 on the GS_2G_OPT1-A_V0 board (Alarm) */
 static struct gpio_led pcf_gpio_leds2[] = {
-	{ 
+	{ /* bit 0 */
 		.name			= "gpo:alarm_1",
 		.gpio			= PCF_GPIO_ALARM1,
 		.active_low		= 1,
 		.default_trigger	= "none",
 		.default_state		= LEDS_GPIO_DEFSTATE_OFF,
 	},
-	{ 
+	{ /* bit 1 */
 		.name			= "gpo:alarm_2",
 		.gpio			= PCF_GPIO_ALARM2,
 		.active_low		= 1,
 		.default_trigger	= "none",
 		.default_state		= LEDS_GPIO_DEFSTATE_OFF,
 	},
-	{ 
+	{ /* bit 2 */
 		.name			= "gpo:alarm_3",
 		.gpio			= PCF_GPIO_ALARM3,
 		.active_low		= 1,
 		.default_trigger	= "none",
 		.default_state		= LEDS_GPIO_DEFSTATE_OFF,
 	},
-	{ 
+	{ /* bit 3 */
 		.name			= "gpo:alarm_4",
 		.gpio			= PCF_GPIO_ALARM4,
 		.active_low		= 1,
 		.default_trigger	= "none",
 		.default_state		= LEDS_GPIO_DEFSTATE_OFF,
 	},
-	
-	{ 
+	/* bits 4, 5, 6 not used */
+	{ /* bit 7 */
 		.name			= "gpo:alarm_v_relay_on",
 		.gpio			= PCF_GPIO_ALARM_V_RELAY_ON,
 		.active_low		= 0,
@@ -259,24 +293,25 @@ static struct platform_device pcf_leds2 = {
 	}
 };
 
+/* PCF8574 0x24 GPIO U1 on the GS_2G-OPT23-A_V0 board (Modem) */
 static struct gpio_led pcf_gpio_leds3[] = {
-	{ 
+	{ /* bit 0 */
 		.name			= "gpo:modem_power",
 		.gpio			= PCF_GPIO_MODEM_POWER,
 		.active_low		= 1,
 		.default_trigger	= "none",
 		.default_state		= LEDS_GPIO_DEFSTATE_OFF,
 	},
-		
-	{ 
+		/* bits 1 and 2 not used */
+	{ /* bit 3 */
 		.name			= "gpo:modem_reset",
 		.gpio			= PCF_GPIO_MODEM_RESET,
 		.active_low		= 1,
 		.default_trigger	= "none",
 		.default_state		= LEDS_GPIO_DEFSTATE_ON,
 	},
-		
-	{ 
+		/* bits 4, 5 and 6 not used */
+	{ /* bit 7 */
 		.name			= "gpo:trx_reset",
 		.gpio			= PCF_GPIO_TRX_RESET,
 		.active_low		= 1,
@@ -305,36 +340,39 @@ static void __init gsia18s_pcf_leds_init(void)
 	platform_device_register(&pcf_leds3);
 }
 
+/*
+ * SPI busses.
+ */
 static struct spi_board_info gsia18s_spi_devices[] = {
-	{ 
+	{ /* User accessible spi0, cs0 used for communication with MSP RTC */
 		.modalias	= "spidev",
 		.bus_num	= 0,
 		.chip_select	= 0,
 		.max_speed_hz	= 580000,
 		.mode		= SPI_MODE_1,
 	},
-	{ 
+	{ /* User accessible spi1, cs0 used for communication with int. DSP */
 		.modalias	= "spidev",
 		.bus_num	= 1,
 		.chip_select	= 0,
 		.max_speed_hz	= 5600000,
 		.mode		= SPI_MODE_0,
 	},
-	{ 
+	{ /* User accessible spi1, cs1 used for communication with ext. DSP */
 		.modalias	= "spidev",
 		.bus_num	= 1,
 		.chip_select	= 1,
 		.max_speed_hz	= 5600000,
 		.mode		= SPI_MODE_0,
 	},
-	{ 
+	{ /* User accessible spi1, cs2 used for communication with ext. DSP */
 		.modalias	= "spidev",
 		.bus_num	= 1,
 		.chip_select	= 2,
 		.max_speed_hz	= 5600000,
 		.mode		= SPI_MODE_0,
 	},
-	{ 
+	{ /* User accessible spi1, cs3 used for communication with ext. DSP */
 		.modalias	= "spidev",
 		.bus_num	= 1,
 		.chip_select	= 3,
@@ -343,6 +381,9 @@ static struct spi_board_info gsia18s_spi_devices[] = {
 	}
 };
 
+/*
+ * GPI Buttons
+ */
 static struct gpio_keys_button buttons[] = {
 	{
 		.gpio		= GPIO_TRIG_NET_IN,
@@ -352,7 +393,7 @@ static struct gpio_keys_button buttons[] = {
 		.active_low	= 0,
 		.wakeup		= 1,
 	},
-	{ 
+	{ /* SW80 on the GS_IA18_S-MN board*/
 		.gpio		= GPIO_CARD_UNMOUNT_0,
 		.code		= BTN_2,
 		.desc		= "Card umount 0",
@@ -360,7 +401,7 @@ static struct gpio_keys_button buttons[] = {
 		.active_low	= 1,
 		.wakeup		= 1,
 	},
-	{ 
+	{ /* SW79 on the GS_IA18_S-MN board*/
 		.gpio		= GPIO_CARD_UNMOUNT_1,
 		.code		= BTN_3,
 		.desc		= "Card umount 1",
@@ -368,7 +409,7 @@ static struct gpio_keys_button buttons[] = {
 		.active_low	= 1,
 		.wakeup		= 1,
 	},
-	{ 
+	{ /* SW280 on the GS_IA18-CB board*/
 		.gpio		= GPIO_KEY_POWER,
 		.code		= KEY_POWER,
 		.desc		= "Power Off Button",
@@ -406,6 +447,9 @@ static void __init gsia18s_add_device_buttons(void)
 	platform_device_register(&button_device);
 }
 
+/*
+ * I2C
+ */
 static int pcf8574x_0x20_setup(struct i2c_client *client, int gpio,
 				unsigned int ngpio, void *context)
 {
@@ -462,26 +506,29 @@ static struct pcf857x_platform_data pcf24_pdata = {
 };
 
 static struct i2c_board_info __initdata gsia18s_i2c_devices[] = {
-	{ 
+	{ /* U1 on the GS_IA18-CB_V3 board */
 		I2C_BOARD_INFO("pcf8574", 0x20),
 		.platform_data = &pcf20_pdata,
 	},
-	{ 
+	{ /* U1 on the GS_2G_OPT1-A_V0 board (Alarm) */
 		I2C_BOARD_INFO("pcf8574", 0x22),
 		.platform_data = &pcf22_pdata,
 	},
-	{ 
+	{ /* U1 on the GS_2G-OPT23-A_V0 board (Modem) */
 		I2C_BOARD_INFO("pcf8574", 0x24),
 		.platform_data = &pcf24_pdata,
 	},
-	{ 
+	{ /* U161 on the GS_IA18_S-MN board */
 		I2C_BOARD_INFO("24c1024", 0x50),
 	},
-	{ 
+	{ /* U162 on the GS_IA18_S-MN board */
 		I2C_BOARD_INFO("24c01", 0x53),
 	},
 };
 
+/*
+ * Compact Flash
+ */
 static struct at91_cf_data __initdata gsia18s_cf1_data = {
 	.irq_pin	= AT91_PIN_PA27,
 	.det_pin	= AT91_PIN_PB30,
@@ -491,11 +538,12 @@ static struct at91_cf_data __initdata gsia18s_cf1_data = {
 	.flags		= AT91_CF_TRUE_IDE,
 };
 
+/* Power Off by RTC */
 static void gsia18s_power_off(void)
 {
 	pr_notice("Power supply will be switched off automatically now or after 60 seconds without ArmDAS.\n");
 	at91_set_gpio_output(AT91_PIN_PA25, 1);
-	
+	/* Spin to death... */
 	while (1)
 		;
 }
@@ -506,6 +554,7 @@ static int __init gsia18s_power_off_init(void)
 	return 0;
 }
 
+/* ---------------------------------------------------------------------------*/
 
 static void __init gsia18s_board_init(void)
 {

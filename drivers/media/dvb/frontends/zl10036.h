@@ -24,6 +24,13 @@
 #include <linux/i2c.h>
 #include "dvb_frontend.h"
 
+/**
+ * Attach a zl10036 tuner to the supplied frontend structure.
+ *
+ * @param fe Frontend to attach to.
+ * @param config zl10036_config structure
+ * @return FE pointer on success, NULL on failure.
+ */
 
 struct zl10036_config {
 	u8 tuner_address;
@@ -43,4 +50,4 @@ static inline struct dvb_frontend *zl10036_attach(struct dvb_frontend *fe,
 }
 #endif
 
-#endif 
+#endif /* DVB_ZL10036_H */

@@ -38,6 +38,7 @@ static const char *wm8737_supply_names[WM8737_NUM_SUPPLIES] = {
 	"MVDD",
 };
 
+/* codec private data */
 struct wm8737_priv {
 	enum snd_soc_control_type control_type;
 	struct regulator_bulk_data supplies[WM8737_NUM_SUPPLIES];
@@ -45,21 +46,21 @@ struct wm8737_priv {
 };
 
 static const u16 wm8737_reg[WM8737_REGISTER_COUNT] = {
-	0x00C3,     
-	0x00C3,     
-	0x0007,     
-	0x0007,     
-	0x0000,     
-	0x0000,     
-	0x0000,     
-	0x000A,     
-	0x0000,     
-	0x000F,     
-	0x0003,     
-	0x0000,     
-	0x007C,     
-	0x0000,     
-	0x0032,     
+	0x00C3,     /* R0  - Left PGA volume */
+	0x00C3,     /* R1  - Right PGA volume */
+	0x0007,     /* R2  - AUDIO path L */
+	0x0007,     /* R3  - AUDIO path R */
+	0x0000,     /* R4  - 3D Enhance */
+	0x0000,     /* R5  - ADC Control */
+	0x0000,     /* R6  - Power Management */
+	0x000A,     /* R7  - Audio Format */
+	0x0000,     /* R8  - Clocking */
+	0x000F,     /* R9  - MIC Preamp Control */
+	0x0003,     /* R10 - Misc Bias Control */
+	0x0000,     /* R11 - Noise Gate */
+	0x007C,     /* R12 - ALC1 */
+	0x0000,     /* R13 - ALC2 */
+	0x0032,     /* R14 - ALC3 */
 };
 
 static int wm8737_reset(struct snd_soc_codec *codec)
@@ -276,6 +277,7 @@ static int wm8737_add_widgets(struct snd_soc_codec *codec)
 	return 0;
 }
 
+/* codec mclk clock divider coefficients */
 static const struct {
 	u32 mclk;
 	u32 rate;
@@ -462,7 +464,7 @@ static int wm8737_set_bias_level(struct snd_soc_codec *codec,
 		break;
 
 	case SND_SOC_BIAS_PREPARE:
-		
+		/* VMID at 2*75k */
 		snd_soc_update_bits(codec, WM8737_MISC_BIAS_CONTROL,
 				    WM8737_VMIDSEL_MASK, 0);
 		break;
@@ -480,11 +482,11 @@ static int wm8737_set_bias_level(struct snd_soc_codec *codec,
 
 			snd_soc_cache_sync(codec);
 
-			
+			/* Fast VMID ramp at 2*2.5k */
 			snd_soc_update_bits(codec, WM8737_MISC_BIAS_CONTROL,
 					    WM8737_VMIDSEL_MASK, 0x4);
 
-			
+			/* Bring VMID up */
 			snd_soc_update_bits(codec, WM8737_POWER_MANAGEMENT,
 					    WM8737_VMID_MASK |
 					    WM8737_VREF_MASK,
@@ -494,7 +496,7 @@ static int wm8737_set_bias_level(struct snd_soc_codec *codec,
 			msleep(500);
 		}
 
-		
+		/* VMID at 2*300k */
 		snd_soc_update_bits(codec, WM8737_MISC_BIAS_CONTROL,
 				    WM8737_VMIDSEL_MASK, 2);
 
@@ -528,7 +530,7 @@ static struct snd_soc_dai_driver wm8737_dai = {
 	.name = "wm8737",
 	.capture = {
 		.stream_name = "Capture",
-		.channels_min = 2,  
+		.channels_min = 2,  /* Mono modes not yet supported */
 		.channels_max = 2,
 		.rates = WM8737_RATES,
 		.formats = WM8737_FORMATS,
@@ -594,7 +596,7 @@ static int wm8737_probe(struct snd_soc_codec *codec)
 
 	wm8737_set_bias_level(codec, SND_SOC_BIAS_STANDBY);
 
-	
+	/* Bias level configuration will have done an extra enable */
 	regulator_bulk_disable(ARRAY_SIZE(wm8737->supplies), wm8737->supplies);
 
 	snd_soc_add_codec_controls(codec, wm8737_snd_controls,
@@ -627,7 +629,7 @@ static struct snd_soc_codec_driver soc_codec_dev_wm8737 = {
 	.resume		= wm8737_resume,
 	.set_bias_level = wm8737_set_bias_level,
 
-	.reg_cache_size = WM8737_REGISTER_COUNT - 1, 
+	.reg_cache_size = WM8737_REGISTER_COUNT - 1, /* Skip reset */
 	.reg_word_size	= sizeof(u16),
 	.reg_cache_default = wm8737_reg,
 };
@@ -722,7 +724,7 @@ static struct spi_driver wm8737_spi_driver = {
 	.probe		= wm8737_spi_probe,
 	.remove		= __devexit_p(wm8737_spi_remove),
 };
-#endif 
+#endif /* CONFIG_SPI_MASTER */
 
 static int __init wm8737_modinit(void)
 {

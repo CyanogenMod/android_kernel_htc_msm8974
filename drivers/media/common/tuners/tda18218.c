@@ -25,6 +25,7 @@ static int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Turn on/off debugging (default:off).");
 
+/* write multiple registers */
 static int tda18218_wr_regs(struct tda18218_priv *priv, u8 reg, u8 *val, u8 len)
 {
 	int ret = 0;
@@ -42,7 +43,7 @@ static int tda18218_wr_regs(struct tda18218_priv *priv, u8 reg, u8 *val, u8 len)
 	remainder = len % msg_len_max;
 	msg_len = msg_len_max;
 	for (i = 0; (i <= quotient && remainder); i++) {
-		if (i == quotient)  
+		if (i == quotient)  /* set len of the last msg */
 			msg_len = remainder;
 
 		msg[0].len = msg_len + 1;
@@ -64,10 +65,11 @@ static int tda18218_wr_regs(struct tda18218_priv *priv, u8 reg, u8 *val, u8 len)
 	return ret;
 }
 
+/* read multiple registers */
 static int tda18218_rd_regs(struct tda18218_priv *priv, u8 reg, u8 *val, u8 len)
 {
 	int ret;
-	u8 buf[reg+len]; 
+	u8 buf[reg+len]; /* we must start read always from reg 0x00 */
 	struct i2c_msg msg[2] = {
 		{
 			.addr = priv->cfg->i2c_address,
@@ -94,11 +96,13 @@ static int tda18218_rd_regs(struct tda18218_priv *priv, u8 reg, u8 *val, u8 len)
 	return ret;
 }
 
+/* write single register */
 static int tda18218_wr_reg(struct tda18218_priv *priv, u8 reg, u8 val)
 {
 	return tda18218_wr_regs(priv, reg, &val, 1);
 }
 
+/* read single register */
 
 static int tda18218_rd_reg(struct tda18218_priv *priv, u8 reg, u8 *val)
 {
@@ -113,7 +117,7 @@ static int tda18218_set_params(struct dvb_frontend *fe)
 	int ret;
 	u8 buf[3], i, BP_Filter, LP_Fc;
 	u32 LO_Frac;
-	
+	/* TODO: find out correct AGC algorithm */
 	u8 agc[][2] = {
 		{ R20_AGC11, 0x60 },
 		{ R23_AGC21, 0x02 },
@@ -132,9 +136,9 @@ static int tda18218_set_params(struct dvb_frontend *fe)
 	};
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1); 
+		fe->ops.i2c_gate_ctrl(fe, 1); /* open I2C-gate */
 
-	
+	/* low-pass filter cut-off frequency */
 	if (bw <= 6000000) {
 		LP_Fc = 0;
 		priv->if_frequency = 3000000;
@@ -148,7 +152,7 @@ static int tda18218_set_params(struct dvb_frontend *fe)
 
 	LO_Frac = c->frequency + priv->if_frequency;
 
-	
+	/* band-pass filter */
 	if (LO_Frac < 188000000)
 		BP_Filter = 3;
 	else if (LO_Frac < 253000000)
@@ -158,32 +162,32 @@ static int tda18218_set_params(struct dvb_frontend *fe)
 	else
 		BP_Filter = 6;
 
-	buf[0] = (priv->regs[R1A_IF1] & ~7) | BP_Filter; 
-	buf[1] = (priv->regs[R1B_IF2] & ~3) | LP_Fc; 
+	buf[0] = (priv->regs[R1A_IF1] & ~7) | BP_Filter; /* BP_Filter */
+	buf[1] = (priv->regs[R1B_IF2] & ~3) | LP_Fc; /* LP_Fc */
 	buf[2] = priv->regs[R1C_AGC2B];
 	ret = tda18218_wr_regs(priv, R1A_IF1, buf, 3);
 	if (ret)
 		goto error;
 
-	buf[0] = (LO_Frac / 1000) >> 12; 
-	buf[1] = (LO_Frac / 1000) >> 4; 
+	buf[0] = (LO_Frac / 1000) >> 12; /* LO_Frac_0 */
+	buf[1] = (LO_Frac / 1000) >> 4; /* LO_Frac_1 */
 	buf[2] = (LO_Frac / 1000) << 4 |
-		(priv->regs[R0C_MD5] & 0x0f); 
+		(priv->regs[R0C_MD5] & 0x0f); /* LO_Frac_2 */
 	ret = tda18218_wr_regs(priv, R0A_MD3, buf, 3);
 	if (ret)
 		goto error;
 
-	buf[0] = priv->regs[R0F_MD8] | (1 << 6); 
+	buf[0] = priv->regs[R0F_MD8] | (1 << 6); /* Freq_prog_Start */
 	ret = tda18218_wr_regs(priv, R0F_MD8, buf, 1);
 	if (ret)
 		goto error;
 
-	buf[0] = priv->regs[R0F_MD8] & ~(1 << 6); 
+	buf[0] = priv->regs[R0F_MD8] & ~(1 << 6); /* Freq_prog_Start */
 	ret = tda18218_wr_regs(priv, R0F_MD8, buf, 1);
 	if (ret)
 		goto error;
 
-	
+	/* trigger AGC */
 	for (i = 0; i < ARRAY_SIZE(agc); i++) {
 		ret = tda18218_wr_reg(priv, agc[i][0], agc[i][1]);
 		if (ret)
@@ -192,7 +196,7 @@ static int tda18218_set_params(struct dvb_frontend *fe)
 
 error:
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0); 
+		fe->ops.i2c_gate_ctrl(fe, 0); /* close I2C-gate */
 
 	if (ret)
 		dbg("%s: failed ret:%d", __func__, ret);
@@ -214,13 +218,13 @@ static int tda18218_sleep(struct dvb_frontend *fe)
 	int ret;
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1); 
+		fe->ops.i2c_gate_ctrl(fe, 1); /* open I2C-gate */
 
-	
+	/* standby */
 	ret = tda18218_wr_reg(priv, R17_PD1, priv->regs[R17_PD1] | (1 << 0));
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0); 
+		fe->ops.i2c_gate_ctrl(fe, 0); /* close I2C-gate */
 
 	if (ret)
 		dbg("%s: failed ret:%d", __func__, ret);
@@ -233,15 +237,15 @@ static int tda18218_init(struct dvb_frontend *fe)
 	struct tda18218_priv *priv = fe->tuner_priv;
 	int ret;
 
-	
+	/* TODO: calibrations */
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1); 
+		fe->ops.i2c_gate_ctrl(fe, 1); /* open I2C-gate */
 
 	ret = tda18218_wr_regs(priv, R00_ID, priv->regs, TDA18218_NUM_REGS);
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0); 
+		fe->ops.i2c_gate_ctrl(fe, 0); /* close I2C-gate */
 
 	if (ret)
 		dbg("%s: failed ret:%d", __func__, ret);
@@ -280,7 +284,7 @@ struct dvb_frontend *tda18218_attach(struct dvb_frontend *fe,
 	struct tda18218_priv *priv = NULL;
 	u8 val;
 	int ret;
-	
+	/* chip default registers values */
 	static u8 def_regs[] = {
 		0xc0, 0x88, 0x00, 0x8e, 0x03, 0x00, 0x00, 0xd0, 0x00, 0x40,
 		0x00, 0x00, 0x07, 0xff, 0x84, 0x09, 0x00, 0x13, 0x00, 0x00,
@@ -299,9 +303,9 @@ struct dvb_frontend *tda18218_attach(struct dvb_frontend *fe,
 	fe->tuner_priv = priv;
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 1); 
+		fe->ops.i2c_gate_ctrl(fe, 1); /* open I2C-gate */
 
-	
+	/* check if the tuner is there */
 	ret = tda18218_rd_reg(priv, R00_ID, &val);
 	dbg("%s: ret:%d chip ID:%02x", __func__, ret, val);
 	if (ret || val != def_regs[R00_ID]) {
@@ -315,19 +319,19 @@ struct dvb_frontend *tda18218_attach(struct dvb_frontend *fe,
 		sizeof(struct dvb_tuner_ops));
 	memcpy(priv->regs, def_regs, sizeof(def_regs));
 
-	
+	/* loop-through enabled chip default register values */
 	if (priv->cfg->loop_through) {
 		priv->regs[R17_PD1] = 0xb0;
 		priv->regs[R18_PD2] = 0x59;
 	}
 
-	
+	/* standby */
 	ret = tda18218_wr_reg(priv, R17_PD1, priv->regs[R17_PD1] | (1 << 0));
 	if (ret)
 		dbg("%s: failed ret:%d", __func__, ret);
 
 	if (fe->ops.i2c_gate_ctrl)
-		fe->ops.i2c_gate_ctrl(fe, 0); 
+		fe->ops.i2c_gate_ctrl(fe, 0); /* close I2C-gate */
 
 	return fe;
 }

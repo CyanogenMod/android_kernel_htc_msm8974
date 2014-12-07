@@ -18,15 +18,16 @@
 static struct msm_panel_info pinfo;
 
 static struct mipi_dsi_phy_ctrl dsi_cmd_mode_phy_db = {
+/* DSI_BIT_CLK at 507MHz, 4 lane, RGB888 */
 	{0x03, 0x0a, 0x04, 0x00, 0x20},
-	
+	/* timing */
 	{0x8c, 0x34, 0x15, 0x00, 0x46, 0x50, 0x1a, 0x38,
 	0x24, 0x03, 0x04, 0xa0},
-    
+    /* phy ctrl */
 	{0x5f, 0x00, 0x00, 0x10},
-    
+    /* strength */
 	{0xff, 0x00, 0x06, 0x00},
-	
+	/* pll control */
 		{0x0, 0xf9, 0x30, 0xda, 0x00, 0x40, 0x03, 0x62,
 	0x40, 0x07, 0x03,
 	0x00, 0x1a, 0x00, 0x00, 0x02, 0x00, 0x20, 0x00, 0x01 },
@@ -51,8 +52,8 @@ static int __init mipi_cmd_orise_720p_pt_init(void)
 	pinfo.lcdc.v_back_porch = 32;
 	pinfo.lcdc.v_front_porch = 32;
 	pinfo.lcdc.v_pulse_width = 1;
-	pinfo.lcdc.border_clr = 0;	
-	pinfo.lcdc.underflow_clr = 0xff;	
+	pinfo.lcdc.border_clr = 0;	/* blk */
+	pinfo.lcdc.underflow_clr = 0xff;	/* blue */
 	pinfo.lcdc.hsync_skew = 0;
 	pinfo.bl_max = 200;
 	pinfo.bl_min = 1;
@@ -60,7 +61,7 @@ static int __init mipi_cmd_orise_720p_pt_init(void)
 	pinfo.clk_rate = 507000000;
 	pinfo.lcd.vsync_enable = TRUE;
 	pinfo.lcd.hw_vsync_mode = TRUE;
-	pinfo.lcd.refx100 = 6000; 
+	pinfo.lcd.refx100 = 6000; /* adjust refx100 to prevent tearing */
 	pinfo.lcd.v_back_porch = 32;
 	pinfo.lcd.v_front_porch = 32;
 	pinfo.lcd.v_pulse_width = 1;
@@ -74,10 +75,10 @@ static int __init mipi_cmd_orise_720p_pt_init(void)
 	pinfo.mipi.data_lane3 = TRUE;
 	pinfo.mipi.t_clk_post = 0x04;
 	pinfo.mipi.t_clk_pre = 0x1e;
-	pinfo.mipi.stream = 0;	
+	pinfo.mipi.stream = 0;	/* dma_p */
 	pinfo.mipi.mdp_trigger = DSI_CMD_TRIGGER_NONE;
 	pinfo.mipi.dma_trigger = DSI_CMD_TRIGGER_SW;
-	pinfo.mipi.te_sel = 1; 
+	pinfo.mipi.te_sel = 1; /* TE from vsycn gpio */
 	pinfo.mipi.interleave_max = 1;
 	pinfo.mipi.insert_dcs_cmd = TRUE;
 	pinfo.mipi.wr_mem_continue = 0x3c;

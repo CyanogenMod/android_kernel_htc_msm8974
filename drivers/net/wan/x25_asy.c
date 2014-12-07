@@ -1,3 +1,18 @@
+/*
+ *	Things to sort out:
+ *
+ *	o	tbusy handling
+ *	o	allow users to set the parameters
+ *	o	sync/async switching ?
+ *
+ *	Note: This does _not_ implement CCITT X.25 asynchronous framing
+ *	recommendations. Its primarily for testing purposes. If you wanted
+ *	to do CCITT then in theory all you need is to nick the HDLC async
+ *	checksum routines from ppp.c
+ *      Changes:
+ *
+ *	2000-10-29	Henner Eisen	lapb_data_indication() return status.
+ */
 
 #define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
 
@@ -33,6 +48,7 @@ static int x25_asy_esc(unsigned char *p, unsigned char *d, int len);
 static void x25_asy_unesc(struct x25_asy *sl, unsigned char c);
 static void x25_asy_setup(struct net_device *dev);
 
+/* Find a free X.25 channel, and link in this `tty' line. */
 static struct x25_asy *x25_asy_alloc(void)
 {
 	struct net_device *dev = NULL;
@@ -40,27 +56,27 @@ static struct x25_asy *x25_asy_alloc(void)
 	int i;
 
 	if (x25_asy_devs == NULL)
-		return NULL;	
+		return NULL;	/* Master array missing ! */
 
 	for (i = 0; i < x25_asy_maxdev; i++) {
 		dev = x25_asy_devs[i];
 
-		
+		/* Not allocated ? */
 		if (dev == NULL)
 			break;
 
 		sl = netdev_priv(dev);
-		
+		/* Not in use ? */
 		if (!test_and_set_bit(SLF_INUSE, &sl->flags))
 			return sl;
 	}
 
 
-	
+	/* Sorry, too many, all slots in use */
 	if (i >= x25_asy_maxdev)
 		return NULL;
 
-	
+	/* If no channels are available, allocate one */
 	if (!dev) {
 		char name[IFNAMSIZ];
 		sprintf(name, "x25asy%d", i);
@@ -70,13 +86,13 @@ static struct x25_asy *x25_asy_alloc(void)
 		if (!dev)
 			return NULL;
 
-		
+		/* Initialize channel control data */
 		sl = netdev_priv(dev);
 		dev->base_addr    = i;
 
-		
+		/* register device so that it can be ifconfig'ed       */
 		if (register_netdev(dev) == 0) {
-			
+			/* (Re-)Set the INUSE bit.   Very Important! */
 			set_bit(SLF_INUSE, &sl->flags);
 			x25_asy_devs[i] = dev;
 			return sl;
@@ -89,9 +105,10 @@ static struct x25_asy *x25_asy_alloc(void)
 }
 
 
+/* Free an X.25 channel. */
 static void x25_asy_free(struct x25_asy *sl)
 {
-	
+	/* Free all X.25 frame buffers. */
 	kfree(sl->rbuff);
 	sl->rbuff = NULL;
 	kfree(sl->xbuff);
@@ -151,6 +168,7 @@ static int x25_asy_change_mtu(struct net_device *dev, int newmtu)
 }
 
 
+/* Set the "sending" flag.  This must be atomic, hence the ASM. */
 
 static inline void x25_asy_lock(struct x25_asy *sl)
 {
@@ -158,12 +176,14 @@ static inline void x25_asy_lock(struct x25_asy *sl)
 }
 
 
+/* Clear the "sending" flag.  This must be atomic, hence the ASM. */
 
 static inline void x25_asy_unlock(struct x25_asy *sl)
 {
 	netif_wake_queue(sl->dev);
 }
 
+/* Send one completely decapsulated IP datagram to the IP layer. */
 
 static void x25_asy_bump(struct x25_asy *sl)
 {
@@ -181,7 +201,7 @@ static void x25_asy_bump(struct x25_asy *sl)
 		dev->stats.rx_dropped++;
 		return;
 	}
-	skb_push(skb, 1);	
+	skb_push(skb, 1);	/* LAPB internal control */
 	memcpy(skb_put(skb, count), sl->rbuff, count);
 	skb->protocol = x25_type_trans(skb, sl->dev);
 	err = lapb_data_received(skb->dev, skb);
@@ -194,13 +214,14 @@ static void x25_asy_bump(struct x25_asy *sl)
 	}
 }
 
+/* Encapsulate one IP datagram and stuff into a TTY queue. */
 static void x25_asy_encaps(struct x25_asy *sl, unsigned char *icp, int len)
 {
 	unsigned char *p;
 	int actual, count, mtu = sl->dev->mtu;
 
 	if (len > mtu) {
-		
+		/* Sigh, shouldn't occur BUT ... */
 		len = mtu;
 		printk(KERN_DEBUG "%s: truncating oversized transmit packet!\n",
 					sl->dev->name);
@@ -212,24 +233,38 @@ static void x25_asy_encaps(struct x25_asy *sl, unsigned char *icp, int len)
 	p = icp;
 	count = x25_asy_esc(p, (unsigned char *) sl->xbuff, len);
 
+	/* Order of next two lines is *very* important.
+	 * When we are sending a little amount of data,
+	 * the transfer may be completed inside driver.write()
+	 * routine, because it's running with interrupts enabled.
+	 * In this case we *never* got WRITE_WAKEUP event,
+	 * if we did not request it before write operation.
+	 *       14 Oct 1994  Dmitry Gorodchanin.
+	 */
 	set_bit(TTY_DO_WRITE_WAKEUP, &sl->tty->flags);
 	actual = sl->tty->ops->write(sl->tty, sl->xbuff, count);
 	sl->xleft = count - actual;
 	sl->xhead = sl->xbuff + actual;
-	
-	clear_bit(SLF_OUTWAIT, &sl->flags);	
+	/* VSV */
+	clear_bit(SLF_OUTWAIT, &sl->flags);	/* reset outfill flag */
 }
 
+/*
+ * Called by the driver when there's room for more data.  If we have
+ * more packets to send, we send them here.
+ */
 static void x25_asy_write_wakeup(struct tty_struct *tty)
 {
 	int actual;
 	struct x25_asy *sl = tty->disc_data;
 
-	
+	/* First make sure we're connected. */
 	if (!sl || sl->magic != X25_ASY_MAGIC || !netif_running(sl->dev))
 		return;
 
 	if (sl->xleft <= 0) {
+		/* Now serial buffer is almost free & we can start
+		 * transmission of another packet */
 		sl->dev->stats.tx_packets++;
 		clear_bit(TTY_DO_WRITE_WAKEUP, &tty->flags);
 		x25_asy_unlock(sl);
@@ -247,6 +282,9 @@ static void x25_asy_timeout(struct net_device *dev)
 
 	spin_lock(&sl->lock);
 	if (netif_queue_stopped(dev)) {
+		/* May be we must check transmitter timeout here ?
+		 *      14 Oct 1994 Dmitry Gorodchanin.
+		 */
 		netdev_warn(dev, "transmit timed out, %s?\n",
 			    (tty_chars_in_buffer(sl->tty) || sl->xleft) ?
 			    "bad line quality" : "driver error");
@@ -257,6 +295,7 @@ static void x25_asy_timeout(struct net_device *dev)
 	spin_unlock(&sl->lock);
 }
 
+/* Encapsulate an IP datagram and kick it into a TTY queue. */
 
 static netdev_tx_t x25_asy_xmit(struct sk_buff *skb,
 				      struct net_device *dev)
@@ -273,14 +312,14 @@ static netdev_tx_t x25_asy_xmit(struct sk_buff *skb,
 	switch (skb->data[0]) {
 	case X25_IFACE_DATA:
 		break;
-	case X25_IFACE_CONNECT: 
+	case X25_IFACE_CONNECT: /* Connection request .. do nothing */
 		err = lapb_connect_request(dev);
 		if (err != LAPB_OK)
 			netdev_err(dev, "lapb_connect_request error: %d\n",
 				   err);
 		kfree_skb(skb);
 		return NETDEV_TX_OK;
-	case X25_IFACE_DISCONNECT: 
+	case X25_IFACE_DISCONNECT: /* do nothing - hang up ?? */
 		err = lapb_disconnect_request(dev);
 		if (err != LAPB_OK)
 			netdev_err(dev, "lapb_disconnect_request error: %d\n",
@@ -289,7 +328,17 @@ static netdev_tx_t x25_asy_xmit(struct sk_buff *skb,
 		kfree_skb(skb);
 		return NETDEV_TX_OK;
 	}
-	skb_pull(skb, 1);	
+	skb_pull(skb, 1);	/* Remove control byte */
+	/*
+	 * If we are busy already- too bad.  We ought to be able
+	 * to queue things at this point, to allow for a little
+	 * frame buffer.  Oh well...
+	 * -----------------------------------------------------
+	 * I hate queues in X.25 driver. May be it's efficient,
+	 * but for me latency is more important. ;)
+	 * So, no queues !
+	 *        14 Oct 1994  Dmitry Gorodchanin.
+	 */
 
 	err = lapb_data_request(dev, skb);
 	if (err != LAPB_OK) {
@@ -301,13 +350,25 @@ static netdev_tx_t x25_asy_xmit(struct sk_buff *skb,
 }
 
 
+/*
+ *	LAPB interface boilerplate
+ */
 
+/*
+ *	Called when I frame data arrives. We did the work above - throw it
+ *	at the net layer.
+ */
 
 static int x25_asy_data_indication(struct net_device *dev, struct sk_buff *skb)
 {
 	return netif_rx(skb);
 }
 
+/*
+ *	Data has emerged from the LAPB protocol machine. We don't handle
+ *	busy cases too well. Its tricky to see how to do this nicely -
+ *	perhaps lapb should allow us to bounce this ?
+ */
 
 static void x25_asy_data_transmit(struct net_device *dev, struct sk_buff *skb)
 {
@@ -320,7 +381,7 @@ static void x25_asy_data_transmit(struct net_device *dev, struct sk_buff *skb)
 		kfree_skb(skb);
 		return;
 	}
-	
+	/* We were not busy, so we are now... :-) */
 	if (skb != NULL) {
 		x25_asy_lock(sl);
 		dev->stats.tx_bytes += skb->len;
@@ -330,6 +391,9 @@ static void x25_asy_data_transmit(struct net_device *dev, struct sk_buff *skb)
 	spin_unlock(&sl->lock);
 }
 
+/*
+ *	LAPB connection establish/down information.
+ */
 
 static void x25_asy_connected(struct net_device *dev, int reason)
 {
@@ -379,6 +443,7 @@ static const struct lapb_register_struct x25_asy_callbacks = {
 };
 
 
+/* Open the low-level part of the X.25 channel. Easy! */
 static int x25_asy_open(struct net_device *dev)
 {
 	struct x25_asy *sl = netdev_priv(dev);
@@ -388,6 +453,12 @@ static int x25_asy_open(struct net_device *dev)
 	if (sl->tty == NULL)
 		return -ENODEV;
 
+	/*
+	 * Allocate the X.25 frame buffers:
+	 *
+	 * rbuff	Receive buffer.
+	 * xbuff	Transmit buffer.
+	 */
 
 	len = dev->mtu * 2;
 
@@ -401,15 +472,18 @@ static int x25_asy_open(struct net_device *dev)
 	sl->buffsize = len;
 	sl->rcount   = 0;
 	sl->xleft    = 0;
-	sl->flags   &= (1 << SLF_INUSE);      
+	sl->flags   &= (1 << SLF_INUSE);      /* Clear ESCAPE & ERROR flags */
 
 	netif_start_queue(dev);
 
+	/*
+	 *	Now attach LAPB
+	 */
 	err = lapb_register(dev, &x25_asy_callbacks);
 	if (err == LAPB_OK)
 		return 0;
 
-	
+	/* Cleanup */
 	kfree(sl->xbuff);
 noxbuff:
 	kfree(sl->rbuff);
@@ -418,6 +492,7 @@ norbuff:
 }
 
 
+/* Close the low-level part of the X.25 channel. Easy! */
 static int x25_asy_close(struct net_device *dev)
 {
 	struct x25_asy *sl = netdev_priv(dev);
@@ -433,6 +508,12 @@ static int x25_asy_close(struct net_device *dev)
 	return 0;
 }
 
+/*
+ * Handle the 'receiver data ready' interrupt.
+ * This function is called by the 'tty_io' module in the kernel when
+ * a block of X.25 data has been received, which can now be decapsulated
+ * and sent on to some IP layer for further processing.
+ */
 
 static void x25_asy_receive_buf(struct tty_struct *tty,
 				const unsigned char *cp, char *fp, int count)
@@ -443,7 +524,7 @@ static void x25_asy_receive_buf(struct tty_struct *tty,
 		return;
 
 
-	
+	/* Read the characters out of the buffer */
 	while (count--) {
 		if (fp && *fp++) {
 			if (!test_and_set_bit(SLF_ERROR, &sl->flags))
@@ -455,6 +536,13 @@ static void x25_asy_receive_buf(struct tty_struct *tty,
 	}
 }
 
+/*
+ * Open the high-level part of the X.25 channel.
+ * This function is called by the TTY module when the
+ * X.25 line discipline is called for.  Because we are
+ * sure the tty line exists, we only have to link it to
+ * a free X.25 channel...
+ */
 
 static int x25_asy_open_tty(struct tty_struct *tty)
 {
@@ -464,11 +552,11 @@ static int x25_asy_open_tty(struct tty_struct *tty)
 	if (tty->ops->write == NULL)
 		return -EOPNOTSUPP;
 
-	
+	/* First make sure we're not already connected. */
 	if (sl && sl->magic == X25_ASY_MAGIC)
 		return -EEXIST;
 
-	
+	/* OK.  Find a free X.25 channel to use. */
 	sl = x25_asy_alloc();
 	if (sl == NULL)
 		return -ENFILE;
@@ -479,24 +567,30 @@ static int x25_asy_open_tty(struct tty_struct *tty)
 	tty_driver_flush_buffer(tty);
 	tty_ldisc_flush(tty);
 
-	
+	/* Restore default settings */
 	sl->dev->type = ARPHRD_X25;
 
-	
+	/* Perform the low-level X.25 async init */
 	err = x25_asy_open(sl->dev);
 	if (err)
 		return err;
-	
+	/* Done.  We have linked the TTY line to a channel. */
 	return 0;
 }
 
 
+/*
+ * Close down an X.25 channel.
+ * This means flushing out any pending queues, and then restoring the
+ * TTY line discipline to what it was before it got hooked to X.25
+ * (which usually is TTY again).
+ */
 static void x25_asy_close_tty(struct tty_struct *tty)
 {
 	struct x25_asy *sl = tty->disc_data;
 	int err;
 
-	
+	/* First make sure we're connected. */
 	if (!sl || sl->magic != X25_ASY_MAGIC)
 		return;
 
@@ -515,15 +609,27 @@ static void x25_asy_close_tty(struct tty_struct *tty)
 	x25_asy_free(sl);
 }
 
+ /************************************************************************
+  *			STANDARD X.25 ENCAPSULATION		  	 *
+  ************************************************************************/
 
 static int x25_asy_esc(unsigned char *s, unsigned char *d, int len)
 {
 	unsigned char *ptr = d;
 	unsigned char c;
 
+	/*
+	 * Send an initial END character to flush out any
+	 * data that may have accumulated in the receiver
+	 * due to line noise.
+	 */
 
-	*ptr++ = X25_END;	
+	*ptr++ = X25_END;	/* Send 10111110 bit seq */
 
+	/*
+	 * For each byte in the packet, send the appropriate
+	 * character sequence, according to the X.25 protocol.
+	 */
 
 	while (len-- > 0) {
 		switch (c = *s++) {
@@ -575,12 +681,13 @@ static void x25_asy_unesc(struct x25_asy *sl, unsigned char s)
 }
 
 
+/* Perform I/O control on an active X.25 channel. */
 static int x25_asy_ioctl(struct tty_struct *tty, struct file *file,
 			 unsigned int cmd,  unsigned long arg)
 {
 	struct x25_asy *sl = tty->disc_data;
 
-	
+	/* First make sure we're connected. */
 	if (!sl || sl->magic != X25_ASY_MAGIC)
 		return -EINVAL;
 
@@ -628,6 +735,7 @@ static const struct net_device_ops x25_asy_netdev_ops = {
 	.ndo_change_mtu	= x25_asy_change_mtu,
 };
 
+/* Initialise the X.25 driver.  Called by the device init code */
 static void x25_asy_setup(struct net_device *dev)
 {
 	struct x25_asy *sl = netdev_priv(dev);
@@ -637,6 +745,9 @@ static void x25_asy_setup(struct net_device *dev)
 	spin_lock_init(&sl->lock);
 	set_bit(SLF_INUSE, &sl->flags);
 
+	/*
+	 *	Finish setting up the DEVICE info.
+	 */
 
 	dev->mtu		= SL_MTU;
 	dev->netdev_ops		= &x25_asy_netdev_ops;
@@ -646,7 +757,7 @@ static void x25_asy_setup(struct net_device *dev)
 	dev->type		= ARPHRD_X25;
 	dev->tx_queue_len	= 10;
 
-	
+	/* New-style flags. */
 	dev->flags		= IFF_NOARP;
 }
 
@@ -667,7 +778,7 @@ static struct tty_ldisc_ops x25_ldisc = {
 static int __init init_x25_asy(void)
 {
 	if (x25_asy_maxdev < 4)
-		x25_asy_maxdev = 4; 
+		x25_asy_maxdev = 4; /* Sanity */
 
 	pr_info("X.25 async: version 0.00 ALPHA (dynamic channels, max=%d)\n",
 		x25_asy_maxdev);
@@ -696,6 +807,10 @@ static void __exit exit_x25_asy(void)
 				tty_hangup(sl->tty);
 
 			spin_unlock_bh(&sl->lock);
+			/*
+			 * VSV = if dev->start==0, then device
+			 * unregistered while close proc.
+			 */
 			unregister_netdev(dev);
 			free_netdev(dev);
 		}

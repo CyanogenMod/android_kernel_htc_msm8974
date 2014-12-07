@@ -16,8 +16,10 @@
 #ifndef __MACH_SPEAR300_H
 #define __MACH_SPEAR300_H
 
+/* Base address of various IPs */
 #define SPEAR300_TELECOM_BASE		UL(0x50000000)
 
+/* Interrupt registers offsets and masks */
 #define SPEAR300_INT_ENB_MASK_REG	0x54
 #define SPEAR300_INT_STS_MASK_REG	0x58
 #define SPEAR300_IT_PERS_S_IRQ_MASK	(1 << 0)
@@ -47,6 +49,6 @@
 #define SPEAR300_KEYBOARD_BASE		UL(0xA0000000)
 #define SPEAR300_GPIO_BASE		UL(0xA9000000)
 
-#endif 
+#endif /* __MACH_SPEAR300_H */
 
-#endif 
+#endif /* CONFIG_MACH_SPEAR300 */

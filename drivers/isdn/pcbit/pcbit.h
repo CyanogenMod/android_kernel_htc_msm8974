@@ -23,11 +23,11 @@
 
 struct pcbit_chan {
 	unsigned short id;
-	unsigned short callref;                   
-	unsigned char  proto;                     
-	unsigned char  queued;                    
-	unsigned char  layer2link;                
-	unsigned char  snum;                      
+	unsigned short callref;                   /* Call Reference */
+	unsigned char  proto;                     /* layer2protocol  */
+	unsigned char  queued;                    /* unacked data messages */
+	unsigned char  layer2link;                /* used in TData */
+	unsigned char  snum;                      /* used in TData */
 	unsigned short s_refnum;
 	unsigned short r_refnum;
 	unsigned short fsm_state;
@@ -43,31 +43,32 @@ struct msn_entry {
 };
 
 struct pcbit_dev {
-	
+	/* board */
 
-	volatile unsigned char __iomem *sh_mem;		
+	volatile unsigned char __iomem *sh_mem;		/* RDP address	*/
 	unsigned long ph_mem;
 	unsigned int irq;
 	unsigned int id;
-	unsigned int interrupt;			
+	unsigned int interrupt;			/* set during interrupt
+						   processing */
 	spinlock_t lock;
-	
+	/* isdn4linux */
 
-	struct msn_entry *msn_list;		
+	struct msn_entry *msn_list;		/* ISDN address list */
 
 	isdn_if *dev_if;
 
 	ushort ll_hdrlen;
 	ushort hl_hdrlen;
 
-	
+	/* link layer */
 	unsigned char l2_state;
 
 	struct frame_buf *read_queue;
 	struct frame_buf *read_frame;
 	struct frame_buf *write_queue;
 
-	
+	/* Protocol start */
 	wait_queue_head_t set_running_wq;
 	struct timer_list set_running_timer;
 
@@ -83,7 +84,7 @@ struct pcbit_dev {
 
 	ushort loadptr;
 
-	unsigned short fsize[8];		
+	unsigned short fsize[8];		/* sent layer2 frames size */
 
 	unsigned char send_seq;
 	unsigned char rcv_seq;
@@ -91,7 +92,7 @@ struct pcbit_dev {
 
 	unsigned short free;
 
-	
+	/* channels */
 
 	struct pcbit_chan *b1;
 	struct pcbit_chan *b2;
@@ -100,13 +101,18 @@ struct pcbit_dev {
 #define STATS_TIMER (10 * HZ)
 #define ERRTIME     (HZ / 10)
 
+/* MRU */
 #define MAXBUFSIZE  1534
 #define MRU   MAXBUFSIZE
 
 #define STATBUF_LEN 2048
+/*
+ *
+ */
 
-#endif 
+#endif /* __KERNEL__ */
 
+/* isdn_ctrl only allows a long sized argument */
 
 struct pcbit_ioctl {
 	union {
@@ -120,18 +126,18 @@ struct pcbit_ioctl {
 
 
 
-#define PCBIT_IOCTL_GETSTAT  0x01    
-#define PCBIT_IOCTL_LWMODE   0x02    
-#define PCBIT_IOCTL_STRLOAD  0x03    
-#define PCBIT_IOCTL_ENDLOAD  0x04    
-#define PCBIT_IOCTL_SETBYTE  0x05    
-#define PCBIT_IOCTL_GETBYTE  0x06    
-#define PCBIT_IOCTL_RUNNING  0x07    
-#define PCBIT_IOCTL_WATCH188 0x08    
-#define PCBIT_IOCTL_PING188  0x09    
-#define PCBIT_IOCTL_FWMODE   0x0A    
-#define PCBIT_IOCTL_STOP     0x0B    
-#define PCBIT_IOCTL_APION    0x0C    
+#define PCBIT_IOCTL_GETSTAT  0x01    /* layer2 status */
+#define PCBIT_IOCTL_LWMODE   0x02    /* linear write mode */
+#define PCBIT_IOCTL_STRLOAD  0x03    /* start load mode */
+#define PCBIT_IOCTL_ENDLOAD  0x04    /* end load mode */
+#define PCBIT_IOCTL_SETBYTE  0x05    /* set byte */
+#define PCBIT_IOCTL_GETBYTE  0x06    /* get byte */
+#define PCBIT_IOCTL_RUNNING  0x07    /* set protocol running */
+#define PCBIT_IOCTL_WATCH188 0x08    /* set watch 188 */
+#define PCBIT_IOCTL_PING188  0x09    /* ping 188 */
+#define PCBIT_IOCTL_FWMODE   0x0A    /* firmware write mode */
+#define PCBIT_IOCTL_STOP     0x0B    /* stop protocol */
+#define PCBIT_IOCTL_APION    0x0C    /* issue API_ON  */
 
 #ifndef __KERNEL__
 

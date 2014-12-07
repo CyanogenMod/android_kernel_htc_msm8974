@@ -126,7 +126,7 @@ static ssize_t codec_debug_write(struct file *filp,
 	lbuf[cnt] = '\0';
 
 	if (!strcmp(access_str, "poke")) {
-		
+		/* write */
 		rc = get_parameters(lbuf, param, 2);
 		if ((param[0] <= 0xFF) && (param[1] <= 0xFF) &&
 			(rc == 0))
@@ -134,7 +134,7 @@ static ssize_t codec_debug_write(struct file *filp,
 		else
 			rc = -EINVAL;
 	} else if (!strcmp(access_str, "peek")) {
-		
+		/* read */
 		rc = get_parameters(lbuf, param, 1);
 		if ((param[0] <= 0xFF) && (rc == 0)) {
 			reg_idx[0] = param[0];
@@ -192,7 +192,7 @@ static int tpa6185_i2c_write(char *txData, int length)
 		},
 	};
 	for (i = 1; i < length; i++) {
-		if (i == 2)  
+		if (i == 2)  /* According to tpa6185 Spec */
 			mdelay(1);
 		buf[0] = i;
 		buf[1] = txData[i];
@@ -233,7 +233,7 @@ static int tpa6185_i2c_write_for_read(char *txData, int length)
 		},
 	};
 	for (i = 0; i < length; i++) {
-		if (i == 2)  
+		if (i == 2)  /* According to tpa6185 Spec */
 			mdelay(1);
 		buf[0] = i;
 		buf[1] = txData[i];
@@ -406,7 +406,7 @@ static long tpa6185_ioctl(struct file *file, unsigned int cmd,
 		pr_info("%s: TPA6185_WRITE_REG\n", __func__);
 		mutex_lock(&hp_amp_lock);
 		if (!last_spkamp_state) {
-			
+			/* According to tpa6185 Spec */
 			mdelay(30);
 		}
 		if (copy_from_user(reg_value, argp, sizeof(reg_value)))
@@ -439,7 +439,7 @@ err1:
 	case TPA6185_READ_CONFIG:
 		mutex_lock(&hp_amp_lock);
 		if (!last_spkamp_state) {
-			
+			/* According to tpa6185 Spec */
 			mdelay(30);
 		}
 
@@ -495,7 +495,7 @@ err2:
 		tpa6185_mode_cnt = cfg.mode_num;
 		pr_info("%s: update tpa6185 i2c commands #%d success.\n",
 				__func__, cfg.data_len);
-		
+		/* update default paramater from csv*/
 		update_amp_parameter(TPA6185_MODE_PLAYBACK_SPKR);
 		update_amp_parameter(TPA6185_MODE_PLAYBACK_HEADSET);
 		update_amp_parameter(TPA6185_MODE_RING);
@@ -596,7 +596,7 @@ int tpa6185_probe(struct i2c_client *client, const struct i2c_device_id *id)
             }
         }
 
-	if (pdata->spkr_cmd[1] != 0)  
+	if (pdata->spkr_cmd[1] != 0)  /* path id != 0 */
 		memcpy(SPK_AMP_ON, pdata->spkr_cmd, sizeof(SPK_AMP_ON));
 	if (pdata->hsed_cmd[1] != 0)
 		memcpy(HEADSET_AMP_ON, pdata->hsed_cmd, sizeof(HEADSET_AMP_ON));

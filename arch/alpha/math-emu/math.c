@@ -82,9 +82,18 @@ void cleanup_module(void)
 #undef  alpha_fp_emul
 #define alpha_fp_emul			do_alpha_fp_emul
 
-#endif 
+#endif /* MODULE */
 
 
+/*
+ * Emulate the floating point instruction at address PC.  Returns -1 if the
+ * instruction to be emulated is illegal (such as with the opDEC trap), else
+ * the SI_CODE for a SIGFPE signal, else 0 if everything's ok.
+ *
+ * Notice that the kernel does not and cannot use FP regs.  This is good
+ * because it means that instead of saving/restoring all fp regs, we simply
+ * stick the result of the operation into the appropriate register.
+ */
 long
 alpha_fp_emul (unsigned long pc)
 {
@@ -98,7 +107,7 @@ alpha_fp_emul (unsigned long pc)
 	long si_code;
 
 	get_user(insn, (__u32 __user *)pc);
-	fc     = (insn >>  0) & 0x1f;	
+	fc     = (insn >>  0) & 0x1f;	/* destination register */
 	fb     = (insn >> 16) & 0x1f;
 	fa     = (insn >> 21) & 0x1f;
 	func   = (insn >>  5) & 0xf;
@@ -109,7 +118,7 @@ alpha_fp_emul (unsigned long pc)
 	swcr = swcr_update_status(current_thread_info()->ieee_state, fpcr);
 
 	if (mode == 3) {
-		
+		/* Dynamic -- get rounding mode from fpcr.  */
 		mode = (fpcr >> FPCR_DYN_SHIFT) & 3;
 	}
 
@@ -163,6 +172,8 @@ alpha_fp_emul (unsigned long pc)
 			}
 			FP_CMP_D(res, DA, DB, 3);
 			vc = 0x4000000000000000UL;
+			/* CMPTEQ, CMPTUN don't trap on QNaN,
+			   while CMPTLT and CMPTLE do */
 			if (res == 3
 			    && ((func & 3) >= 2
 				|| FP_ISSIGNAN_D(DA)
@@ -203,6 +214,9 @@ alpha_fp_emul (unsigned long pc)
 			goto pack_d;
 
 		case FOP_FNC_CVTxS:
+			/* It is irritating that DEC encoded CVTST with
+			   SRC == T_floating.  It is also interesting that
+			   the bit used to tell the two apart is /U... */
 			if (insn & 0x2000) {
 				FP_CONV(S,D,1,1,SR,DB);
 				goto pack_s;
@@ -219,7 +233,7 @@ alpha_fp_emul (unsigned long pc)
 		case FOP_FNC_CVTxQ:
 			if (DB_c == FP_CLS_NAN
 			    && (_FP_FRAC_HIGH_RAW_D(DB) & _FP_QNANBIT_D)) {
-			  
+			  /* AAHB Table B-2 says QNaN should not trigger INV */
 				vc = 0;
 			} else
 				FP_TO_INT_ROUND_D(vc, DB, 64, 2);
@@ -232,8 +246,12 @@ alpha_fp_emul (unsigned long pc)
 
 		switch (func) {
 		case FOP_FNC_CVTQL:
-			vc = ((vb & 0xc0000000) << 32 |	
-			      (vb & 0x3fffffff) << 29);	
+			/* Notice: We can get here only due to an integer
+			   overflow.  Such overflows are reported as invalid
+			   ops.  We return the result the hw would have
+			   computed.  */
+			vc = ((vb & 0xc0000000) << 32 |	/* sign and msb */
+			      (vb & 0x3fffffff) << 29);	/* rest of the int */
 			FP_SET_EXCEPTION (FP_EX_INVALID);
 			goto done_d;
 
@@ -264,19 +282,31 @@ done_d:
 	alpha_write_fp_reg(fc, vc);
 	goto done;
 
+	/*
+	 * Take the appropriate action for each possible
+	 * floating-point result:
+	 *
+	 *	- Set the appropriate bits in the FPCR
+	 *	- If the specified exception is enabled in the FPCR,
+	 *	  return.  The caller (entArith) will dispatch
+	 *	  the appropriate signal to the translated program.
+	 *
+	 * In addition, properly track the exception state in software
+	 * as described in the Alpha Architecture Handbook section 4.7.7.3.
+	 */
 done:
 	if (_fex) {
-		
+		/* Record exceptions in software control word.  */
 		swcr |= (_fex << IEEE_STATUS_TO_EXCSUM_SHIFT);
 		current_thread_info()->ieee_state
 		  |= (_fex << IEEE_STATUS_TO_EXCSUM_SHIFT);
 
-		
+		/* Update hardware control register.  */
 		fpcr &= (~FPCR_MASK | FPCR_DYN_MASK);
 		fpcr |= ieee_swcr_to_fpcr(swcr);
 		wrfpcr(fpcr);
 
-		
+		/* Do we generate a signal?  */
 		_fex = _fex & swcr & IEEE_TRAP_ENABLE_MASK;
 		si_code = 0;
 		if (_fex) {
@@ -328,7 +358,7 @@ alpha_fp_emul_imprecise (struct pt_regs *regs, unsigned long write_mask)
 		switch (opcode) {
 		      case OPC_PAL:
 		      case OPC_JSR:
-		      case 0x30 ... 0x3f:	
+		      case 0x30 ... 0x3f:	/* branches */
 			goto egress;
 
 		      case OPC_MISC:
@@ -357,7 +387,7 @@ alpha_fp_emul_imprecise (struct pt_regs *regs, unsigned long write_mask)
 			break;
 		}
 		if (!write_mask) {
-			
+			/* Re-execute insns in the trap-shadow.  */
 			regs->pc = trigger_pc + 4;
 			si_code = alpha_fp_emul(trigger_pc);
 			goto egress;

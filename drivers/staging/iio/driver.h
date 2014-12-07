@@ -13,9 +13,21 @@
 
 struct iio_map;
 
+/**
+ * iio_map_array_register() - tell the core about inkernel consumers
+ * @indio_dev:	provider device
+ * @map:	array of mappings specifying association of channel with client
+ */
 int iio_map_array_register(struct iio_dev *indio_dev,
 			   struct iio_map *map);
 
+/**
+ * iio_map_array_unregister() - tell the core to remove consumer mappings
+ * @indio_dev:	provider device
+ * @map:	array of mappings to remove. Note these must have same memory
+ *		addresses as those originally added not just equal parameter
+ *		values.
+ */
 int iio_map_array_unregister(struct iio_dev *indio_dev,
 			     struct iio_map *map);
 

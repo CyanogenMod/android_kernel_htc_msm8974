@@ -43,7 +43,7 @@ dccp_manip_pkt(struct sk_buff *skb,
 	unsigned int hdroff = iphdroff + iph->ihl * 4;
 	__be32 oldip, newip;
 	__be16 *portptr, oldport, newport;
-	int hdrsize = 8; 
+	int hdrsize = 8; /* DCCP connection tracking guarantees this much */
 
 	if (skb->len >= hdroff + sizeof(struct dccp_hdr))
 		hdrsize = sizeof(struct dccp_hdr);

@@ -27,6 +27,13 @@
 
 #include "ad7793.h"
 
+/* NOTE:
+ * The AD7792/AD7793 features a dual use data out ready DOUT/RDY output.
+ * In order to avoid contentions on the SPI bus, it's therefore necessary
+ * to use spi bus locking.
+ *
+ * The DOUT/RDY output must also be wired to an interrupt capable GPIO.
+ */
 
 struct ad7793_chip_info {
 	struct iio_chan_spec		channel[7];
@@ -45,8 +52,12 @@ struct ad7793_state {
 	u16				mode;
 	u16				conf;
 	u32				scale_avail[8][2];
-	
+	/* Note this uses fact that 8 the mask always fits in a long */
 	unsigned long			available_scan_masks[7];
+	/*
+	 * DMA (thus cache coherency maintenance) requires the
+	 * transfer buffers to live in their own cache lines.
+	 */
 	u8				data[4] ____cacheline_aligned;
 };
 
@@ -249,13 +260,13 @@ static int ad7793_setup(struct ad7793_state *st)
 	unsigned long long scale_uv;
 	u32 id;
 
-	
+	/* reset the serial interface */
 	ret = spi_write(st->spi, (u8 *)&ret, sizeof(ret));
 	if (ret < 0)
 		goto out;
-	msleep(1); 
+	msleep(1); /* Wait for at least 500us */
 
-	
+	/* write/read test for device presence */
 	ret = ad7793_read_reg(st, AD7793_REG_ID, &id, 1);
 	if (ret)
 		goto out;
@@ -288,7 +299,7 @@ static int ad7793_setup(struct ad7793_state *st)
 	if (ret)
 		goto out;
 
-	
+	/* Populate available ADC input ranges */
 	for (i = 0; i < ARRAY_SIZE(st->scale_avail); i++) {
 		scale_uv = ((u64)st->int_vref_mv * 100000000)
 			>> (st->chip_info->channel[0].scan_type.realbits -
@@ -369,6 +380,9 @@ static int ad7793_ring_postdisable(struct iio_dev *indio_dev)
 	return spi_bus_unlock(st->spi->master);
 }
 
+/**
+ * ad7793_trigger_handler() bh of trigger launched polling to ring buffer
+ **/
 
 static irqreturn_t ad7793_trigger_handler(int irq, void *p)
 {
@@ -384,7 +398,7 @@ static irqreturn_t ad7793_trigger_handler(int irq, void *p)
 				  dat32,
 				  indio_dev->channels[0].scan_type.realbits/8);
 
-	
+	/* Guaranteed to be aligned with 8 byte boundary */
 	if (ring->scan_timestamp)
 		dat64[1] = pf->timestamp;
 
@@ -424,10 +438,10 @@ static int ad7793_register_ring_funcs_and_init(struct iio_dev *indio_dev)
 		goto error_deallocate_sw_rb;
 	}
 
-	
+	/* Ring buffer functions - here trigger setup related */
 	indio_dev->setup_ops = &ad7793_ring_setup_ops;
 
-	
+	/* Flag that polled ring buffering is possible */
 	indio_dev->modes |= INDIO_BUFFER_TRIGGERED;
 	return 0;
 
@@ -443,6 +457,9 @@ static void ad7793_ring_cleanup(struct iio_dev *indio_dev)
 	iio_sw_rb_free(indio_dev->buffer);
 }
 
+/**
+ * ad7793_data_rdy_trig_poll() the event handler for the data rdy trig
+ **/
 static irqreturn_t ad7793_data_rdy_trig_poll(int irq, void *private)
 {
 	struct ad7793_state *st = iio_priv(private);
@@ -489,7 +506,7 @@ static int ad7793_probe_trigger(struct iio_dev *indio_dev)
 
 	ret = iio_trigger_register(st->trig);
 
-	
+	/* select default trigger */
 	indio_dev->trig = st->trig;
 	if (ret)
 		goto error_free_irq;
@@ -643,14 +660,14 @@ static int ad7793_read_raw(struct iio_dev *indio_dev,
 					scale_avail[(st->conf >> 8) & 0x7][1];
 				return IIO_VAL_INT_PLUS_NANO;
 			} else {
-				
+				/* 1170mV / 2^23 * 6 */
 				scale_uv = (1170ULL * 100000000ULL * 6ULL)
 					>> (chan->scan_type.realbits -
 					    (unipolar ? 0 : 1));
 			}
 			break;
 		case IIO_TEMP:
-			
+			/* Always uses unity gain and internal ref */
 			scale_uv = (2500ULL * 100000000ULL)
 				>> (chan->scan_type.realbits -
 				(unipolar ? 0 : 1));
@@ -913,7 +930,7 @@ static int __devinit ad7793_probe(struct spi_device *spi)
 	else if (voltage_uv)
 		st->int_vref_mv = voltage_uv / 1000;
 	else
-		st->int_vref_mv = 2500; 
+		st->int_vref_mv = 2500; /* Build-in ref */
 
 	spi_set_drvdata(spi, indio_dev);
 	st->spi = spi;

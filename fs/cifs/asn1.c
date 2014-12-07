@@ -27,38 +27,49 @@
 #include "cifs_debug.h"
 #include "cifsproto.h"
 
+/*****************************************************************************
+ *
+ * Basic ASN.1 decoding routines (gxsnmp author Dirk Wisse)
+ *
+ *****************************************************************************/
 
-#define ASN1_UNI	0	
-#define ASN1_APL	1	
-#define ASN1_CTX	2	
-#define ASN1_PRV	3	
+/* Class */
+#define ASN1_UNI	0	/* Universal */
+#define ASN1_APL	1	/* Application */
+#define ASN1_CTX	2	/* Context */
+#define ASN1_PRV	3	/* Private */
 
-#define ASN1_EOC	0	
-#define ASN1_BOL	1	
-#define ASN1_INT	2	
-#define ASN1_BTS	3	
-#define ASN1_OTS	4	
-#define ASN1_NUL	5	
-#define ASN1_OJI	6	
-#define ASN1_OJD	7	
-#define ASN1_EXT	8	
-#define ASN1_ENUM	10	
-#define ASN1_SEQ	16	
-#define ASN1_SET	17	
-#define ASN1_NUMSTR	18	
-#define ASN1_PRNSTR	19	
-#define ASN1_TEXSTR	20	
-#define ASN1_VIDSTR	21	
-#define ASN1_IA5STR	22	
-#define ASN1_UNITIM	23	
-#define ASN1_GENTIM	24	
-#define ASN1_GRASTR	25	
-#define ASN1_VISSTR	26	
-#define ASN1_GENSTR	27	
+/* Tag */
+#define ASN1_EOC	0	/* End Of Contents or N/A */
+#define ASN1_BOL	1	/* Boolean */
+#define ASN1_INT	2	/* Integer */
+#define ASN1_BTS	3	/* Bit String */
+#define ASN1_OTS	4	/* Octet String */
+#define ASN1_NUL	5	/* Null */
+#define ASN1_OJI	6	/* Object Identifier  */
+#define ASN1_OJD	7	/* Object Description */
+#define ASN1_EXT	8	/* External */
+#define ASN1_ENUM	10	/* Enumerated */
+#define ASN1_SEQ	16	/* Sequence */
+#define ASN1_SET	17	/* Set */
+#define ASN1_NUMSTR	18	/* Numerical String */
+#define ASN1_PRNSTR	19	/* Printable String */
+#define ASN1_TEXSTR	20	/* Teletext String */
+#define ASN1_VIDSTR	21	/* Video String */
+#define ASN1_IA5STR	22	/* IA5 String */
+#define ASN1_UNITIM	23	/* Universal Time */
+#define ASN1_GENTIM	24	/* General Time */
+#define ASN1_GRASTR	25	/* Graphical String */
+#define ASN1_VISSTR	26	/* Visible String */
+#define ASN1_GENSTR	27	/* General String */
 
-#define ASN1_PRI	0	
-#define ASN1_CON	1	
+/* Primitive / Constructed methods*/
+#define ASN1_PRI	0	/* Primitive */
+#define ASN1_CON	1	/* Constructed */
 
+/*
+ * Error codes.
+ */
 #define ASN1_ERR_NOERROR		0
 #define ASN1_ERR_DEC_EMPTY		2
 #define ASN1_ERR_DEC_EOC_MISMATCH	3
@@ -76,13 +87,19 @@ static unsigned long KRB5_OID[7] = { 1, 2, 840, 113554, 1, 2, 2 };
 static unsigned long KRB5U2U_OID[8] = { 1, 2, 840, 113554, 1, 2, 2, 3 };
 static unsigned long MSKRB5_OID[7] = { 1, 2, 840, 48018, 1, 2, 2 };
 
+/*
+ * ASN.1 context.
+ */
 struct asn1_ctx {
-	int error;		
-	unsigned char *pointer;	
-	unsigned char *begin;	
-	unsigned char *end;	
+	int error;		/* Error condition */
+	unsigned char *pointer;	/* Octet just to be decoded */
+	unsigned char *begin;	/* First octet */
+	unsigned char *end;	/* Octet after last octet */
 };
 
+/*
+ * Octet string (not null terminated)
+ */
 struct asn1_octstr {
 	unsigned char *data;
 	unsigned int len;
@@ -108,7 +125,7 @@ asn1_octet_decode(struct asn1_ctx *ctx, unsigned char *ch)
 	return 1;
 }
 
-#if 0 
+#if 0 /* will be needed later by spnego decoding/encoding of ntlmssp */
 static unsigned char
 asn1_enum_decode(struct asn1_ctx *ctx, __le32 *val)
 {
@@ -119,9 +136,9 @@ asn1_enum_decode(struct asn1_ctx *ctx, __le32 *val)
 		return 0;
 	}
 
-	ch = *(ctx->pointer)++; 
-	if ((ch) == ASN1_ENUM)  
-		*val = *(++(ctx->pointer)); 
+	ch = *(ctx->pointer)++; /* ch has 0xa, ptr points to length octet */
+	if ((ch) == ASN1_ENUM)  /* if ch value is ENUM, 0xa */
+		*val = *(++(ctx->pointer)); /* value has enum value */
 	else
 		return 0;
 
@@ -195,7 +212,7 @@ asn1_length_decode(struct asn1_ctx *ctx, unsigned int *def, unsigned int *len)
 		}
 	}
 
-	
+	/* don't trust len bigger than ctx buffer */
 	if (*len > ctx->end - ctx->pointer)
 		return 0;
 
@@ -216,7 +233,7 @@ asn1_header_decode(struct asn1_ctx *ctx,
 	if (!asn1_length_decode(ctx, &def, &len))
 		return 0;
 
-	
+	/* primitive shall be definite, indefinite shall be constructed */
 	if (*con == ASN1_PRI && !def)
 		return 0;
 
@@ -258,6 +275,127 @@ asn1_eoc_decode(struct asn1_ctx *ctx, unsigned char *eoc)
 	}
 }
 
+/* static unsigned char asn1_null_decode(struct asn1_ctx *ctx,
+				      unsigned char *eoc)
+{
+	ctx->pointer = eoc;
+	return 1;
+}
+
+static unsigned char asn1_long_decode(struct asn1_ctx *ctx,
+				      unsigned char *eoc, long *integer)
+{
+	unsigned char ch;
+	unsigned int len;
+
+	if (!asn1_octet_decode(ctx, &ch))
+		return 0;
+
+	*integer = (signed char) ch;
+	len = 1;
+
+	while (ctx->pointer < eoc) {
+		if (++len > sizeof(long)) {
+			ctx->error = ASN1_ERR_DEC_BADVALUE;
+			return 0;
+		}
+
+		if (!asn1_octet_decode(ctx, &ch))
+			return 0;
+
+		*integer <<= 8;
+		*integer |= ch;
+	}
+	return 1;
+}
+
+static unsigned char asn1_uint_decode(struct asn1_ctx *ctx,
+				      unsigned char *eoc,
+				      unsigned int *integer)
+{
+	unsigned char ch;
+	unsigned int len;
+
+	if (!asn1_octet_decode(ctx, &ch))
+		return 0;
+
+	*integer = ch;
+	if (ch == 0)
+		len = 0;
+	else
+		len = 1;
+
+	while (ctx->pointer < eoc) {
+		if (++len > sizeof(unsigned int)) {
+			ctx->error = ASN1_ERR_DEC_BADVALUE;
+			return 0;
+		}
+
+		if (!asn1_octet_decode(ctx, &ch))
+			return 0;
+
+		*integer <<= 8;
+		*integer |= ch;
+	}
+	return 1;
+}
+
+static unsigned char asn1_ulong_decode(struct asn1_ctx *ctx,
+				       unsigned char *eoc,
+				       unsigned long *integer)
+{
+	unsigned char ch;
+	unsigned int len;
+
+	if (!asn1_octet_decode(ctx, &ch))
+		return 0;
+
+	*integer = ch;
+	if (ch == 0)
+		len = 0;
+	else
+		len = 1;
+
+	while (ctx->pointer < eoc) {
+		if (++len > sizeof(unsigned long)) {
+			ctx->error = ASN1_ERR_DEC_BADVALUE;
+			return 0;
+		}
+
+		if (!asn1_octet_decode(ctx, &ch))
+			return 0;
+
+		*integer <<= 8;
+		*integer |= ch;
+	}
+	return 1;
+}
+
+static unsigned char
+asn1_octets_decode(struct asn1_ctx *ctx,
+		   unsigned char *eoc,
+		   unsigned char **octets, unsigned int *len)
+{
+	unsigned char *ptr;
+
+	*len = 0;
+
+	*octets = kmalloc(eoc - ctx->pointer, GFP_ATOMIC);
+	if (*octets == NULL) {
+		return 0;
+	}
+
+	ptr = *octets;
+	while (ctx->pointer < eoc) {
+		if (!asn1_octet_decode(ctx, (unsigned char *) ptr++)) {
+			kfree(*octets);
+			*octets = NULL;
+			return 0;
+		}
+		(*len)++;
+	}
+	return 1;
+} */
 
 static unsigned char
 asn1_subid_decode(struct asn1_ctx *ctx, unsigned long *subid)
@@ -286,7 +424,7 @@ asn1_oid_decode(struct asn1_ctx *ctx,
 
 	size = eoc - ctx->pointer + 1;
 
-	
+	/* first subid actually encodes first two subids */
 	if (size < 2 || size > UINT_MAX/sizeof(unsigned long))
 		return 0;
 
@@ -350,7 +488,7 @@ compare_oid(unsigned long *oid1, unsigned int oid1len,
 	}
 }
 
-	
+	/* BB check for endian conversion issues here */
 
 int
 decode_negTokenInit(unsigned char *security_blob, int length,
@@ -362,11 +500,11 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 	unsigned long *oid = NULL;
 	unsigned int cls, con, tag, oidlen, rc;
 
-	
+	/* cifs_dump_mem(" Received SecBlob ", security_blob, length); */
 
 	asn1_open(&ctx, security_blob, length);
 
-	
+	/* GSSAPI header */
 	if (asn1_header_decode(&ctx, &end, &cls, &con, &tag) == 0) {
 		cFYI(1, "Error decoding negTokenInit header");
 		return 0;
@@ -376,7 +514,7 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 		return 0;
 	}
 
-	
+	/* Check for SPNEGO OID -- remember to free obj->oid */
 	rc = asn1_header_decode(&ctx, &end, &cls, &con, &tag);
 	if (rc) {
 		if ((tag == ASN1_OJI) && (con == ASN1_PRI) &&
@@ -391,13 +529,13 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 			rc = 0;
 	}
 
-	
+	/* SPNEGO OID not present or garbled -- bail out */
 	if (!rc) {
 		cFYI(1, "Error decoding negTokenInit header");
 		return 0;
 	}
 
-	
+	/* SPNEGO */
 	if (asn1_header_decode(&ctx, &end, &cls, &con, &tag) == 0) {
 		cFYI(1, "Error decoding negTokenInit");
 		return 0;
@@ -408,7 +546,7 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 		return 0;
 	}
 
-	
+	/* negTokenInit */
 	if (asn1_header_decode(&ctx, &end, &cls, &con, &tag) == 0) {
 		cFYI(1, "Error decoding negTokenInit");
 		return 0;
@@ -419,7 +557,7 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 		return 0;
 	}
 
-	
+	/* sequence */
 	if (asn1_header_decode(&ctx, &end, &cls, &con, &tag) == 0) {
 		cFYI(1, "Error decoding 2nd part of negTokenInit");
 		return 0;
@@ -430,7 +568,7 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 		return 0;
 	}
 
-	
+	/* sequence of */
 	if (asn1_header_decode
 	    (&ctx, &sequence_end, &cls, &con, &tag) == 0) {
 		cFYI(1, "Error decoding 2nd part of negTokenInit");
@@ -442,7 +580,7 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 		return 0;
 	}
 
-	
+	/* list of security mechanisms */
 	while (!asn1_eoc_decode(&ctx, sequence_end)) {
 		rc = asn1_header_decode(&ctx, &end, &cls, &con, &tag);
 		if (!rc) {
@@ -476,20 +614,22 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 		}
 	}
 
-	
+	/* mechlistMIC */
 	if (asn1_header_decode(&ctx, &end, &cls, &con, &tag) == 0) {
+		/* Check if we have reached the end of the blob, but with
+		   no mechListMic (e.g. NTLMSSP instead of KRB5) */
 		if (ctx.error == ASN1_ERR_DEC_EMPTY)
 			goto decode_negtoken_exit;
 		cFYI(1, "Error decoding last part negTokenInit exit3");
 		return 0;
 	} else if ((cls != ASN1_CTX) || (con != ASN1_CON)) {
-		
+		/* tag = 3 indicating mechListMIC */
 		cFYI(1, "Exit 4 cls = %d con = %d tag = %d end = %p (%d)",
 			cls, con, tag, end, *end);
 		return 0;
 	}
 
-	
+	/* sequence */
 	if (asn1_header_decode(&ctx, &end, &cls, &con, &tag) == 0) {
 		cFYI(1, "Error decoding last part negTokenInit exit5");
 		return 0;
@@ -499,7 +639,7 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 			cls, con, tag, end, *end);
 	}
 
-	
+	/* sequence of */
 	if (asn1_header_decode(&ctx, &end, &cls, &con, &tag) == 0) {
 		cFYI(1, "Error decoding last part negTokenInit exit 7");
 		return 0;
@@ -509,7 +649,7 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 		return 0;
 	}
 
-	
+	/* general string */
 	if (asn1_header_decode(&ctx, &end, &cls, &con, &tag) == 0) {
 		cFYI(1, "Error decoding last part negTokenInit exit9");
 		return 0;
@@ -520,7 +660,7 @@ decode_negTokenInit(unsigned char *security_blob, int length,
 		return 0;
 	}
 	cFYI(1, "Need to call asn1_octets_decode() function for %s",
-		ctx.pointer);	
+		ctx.pointer);	/* is this UTF-8 or ASCII? */
 decode_negtoken_exit:
 	return 1;
 }

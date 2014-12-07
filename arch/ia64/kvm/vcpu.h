@@ -43,6 +43,9 @@ typedef union U_IA64_BUNDLE {
 	unsigned long i64[2];
 	struct { unsigned long template:5, slot0:41, slot1a:18,
 		slot1b:23, slot2:41; };
+	/* NOTE: following doesn't work because bitfields can't cross natural
+	   size boundaries
+	   struct { unsigned long template:5, slot0:41, slot1:41, slot2:41; }; */
 } IA64_BUNDLE;
 
 typedef union U_INST64_A5 {
@@ -82,7 +85,7 @@ typedef union U_INST64_I27 {
 	struct { unsigned long qp:6, :7, imm:7, ar3:7, x6:6, x3:3, s:1, major:4; };
 } INST64_I27;
 
-typedef union U_INST64_I28 { 
+typedef union U_INST64_I28 { /* not privileged (mov from AR) */
 	IA64_INST inst;
 	struct { unsigned long qp:6, r1:7, :7, ar3:7, x6:6, x3:3, :1, major:4; };
 } INST64_I28;
@@ -234,44 +237,45 @@ typedef union U_INST64_M15 {
 typedef union U_INST64 {
 	IA64_INST inst;
 	struct { unsigned long :37, major:4; } generic;
-	INST64_A5 A5;	
-	INST64_B4 B4;	
-	INST64_B8 B8;	
-	INST64_B9 B9;	
-	INST64_I19 I19;	
-	INST64_I26 I26;	
-	INST64_I27 I27;	
-	INST64_I28 I28;	
-	INST64_M1  M1;	
+	INST64_A5 A5;	/* used in build_hypercall_bundle only */
+	INST64_B4 B4;	/* used in build_hypercall_bundle only */
+	INST64_B8 B8;	/* rfi, bsw.[01] */
+	INST64_B9 B9;	/* break.b */
+	INST64_I19 I19;	/* used in build_hypercall_bundle only */
+	INST64_I26 I26;	/* mov register to ar (I unit) */
+	INST64_I27 I27;	/* mov immediate to ar (I unit) */
+	INST64_I28 I28;	/* mov from ar (I unit) */
+	INST64_M1  M1;	/* ld integer */
 	INST64_M2  M2;
 	INST64_M3  M3;
-	INST64_M4  M4;	
+	INST64_M4  M4;	/* st integer */
 	INST64_M5  M5;
-	INST64_M6  M6;	
-	INST64_M9  M9;	
-	INST64_M10 M10;	
-	INST64_M12 M12;     
-	INST64_M15 M15;	
-	INST64_M28 M28;	
-	INST64_M29 M29;	
-	INST64_M30 M30;	
-	INST64_M31 M31;	
-	INST64_M32 M32;	
-	INST64_M33 M33;	
-	INST64_M35 M35;	
-	INST64_M36 M36;	
-	INST64_M37 M37;	
-	INST64_M41 M41;	
-	INST64_M42 M42;	
-	INST64_M43 M43;	
-	INST64_M44 M44;	
-	INST64_M45 M45;	
-	INST64_M46 M46;	
-	INST64_M47 M47;	
+	INST64_M6  M6;	/* ldfd floating pointer 		*/
+	INST64_M9  M9;	/* stfd floating pointer		*/
+	INST64_M10 M10;	/* stfd floating pointer		*/
+	INST64_M12 M12;     /* ldfd pair floating pointer		*/
+	INST64_M15 M15;	/* lfetch + imm update			*/
+	INST64_M28 M28;	/* purge translation cache entry	*/
+	INST64_M29 M29;	/* mov register to ar (M unit)		*/
+	INST64_M30 M30;	/* mov immediate to ar (M unit)		*/
+	INST64_M31 M31;	/* mov from ar (M unit)			*/
+	INST64_M32 M32;	/* mov reg to cr			*/
+	INST64_M33 M33;	/* mov from cr				*/
+	INST64_M35 M35;	/* mov to psr				*/
+	INST64_M36 M36;	/* mov from psr				*/
+	INST64_M37 M37;	/* break.m				*/
+	INST64_M41 M41;	/* translation cache insert		*/
+	INST64_M42 M42;	/* mov to indirect reg/translation reg insert*/
+	INST64_M43 M43;	/* mov from indirect reg		*/
+	INST64_M44 M44;	/* set/reset system mask		*/
+	INST64_M45 M45;	/* translation purge			*/
+	INST64_M46 M46;	/* translation access (tpa,tak)		*/
+	INST64_M47 M47;	/* purge translation entry		*/
 } INST64;
 
 #define MASK_41 ((unsigned long)0x1ffffffffff)
 
+/* Virtual address memory attributes encoding */
 #define VA_MATTR_WB         0x0
 #define VA_MATTR_UC         0x4
 #define VA_MATTR_UCE        0x5
@@ -283,7 +287,7 @@ typedef union U_INST64 {
 #define CLEARLSB(ppn, nbits)    (((ppn) >> (nbits)) << (nbits))
 #define PAGEALIGN(va, ps)	CLEARLSB(va, ps)
 #define PAGE_FLAGS_RV_MASK   (0x2|(0x3UL<<50)|(((1UL<<11)-1)<<53))
-#define _PAGE_MA_ST     (0x1 <<  2) 
+#define _PAGE_MA_ST     (0x1 <<  2) /* is reserved for software use */
 
 #define ARCH_PAGE_SHIFT   12
 
@@ -311,6 +315,7 @@ static inline void vcpu_set_tr(struct thash_data *trp, u64 pte, u64 itir,
 
 extern u64 kvm_get_mpt_entry(u64 gpfn);
 
+/* Return I/ */
 static inline u64 __gpfn_is_io(u64 gpfn)
 {
 	u64  pte;
@@ -328,11 +333,11 @@ static inline u64 __gpfn_is_io(u64 gpfn)
 
 #define VMM_RBS_OFFSET  ((VMM_TASK_SIZE + 15) & ~15)
 
-#define SW_BAD  0   
-#define SW_V2P  1   
-#define SW_P2V  2   
-#define SW_SELF 3   
-#define SW_NOP  4   
+#define SW_BAD  0   /* Bad mode transitition */
+#define SW_V2P  1   /* Physical emulatino is activated */
+#define SW_P2V  2   /* Exit physical mode emulation */
+#define SW_SELF 3   /* No mode transition */
+#define SW_NOP  4   /* Mode transition, but without action required */
 
 #define GUEST_IN_PHY    0x1
 #define GUEST_PHY_EMUL  0x2
@@ -352,13 +357,14 @@ static inline u64 __gpfn_is_io(u64 gpfn)
 
 #define IRQ_NO_MASKED         0
 #define IRQ_MASKED_BY_VTPR    1
-#define IRQ_MASKED_BY_INSVC   2   
+#define IRQ_MASKED_BY_INSVC   2   /* masked by inservice IRQ */
 
 #define PTA_BASE_SHIFT      15
 
 #define IA64_PSR_VM_BIT     46
 #define IA64_PSR_VM (__IA64_UL(1) << IA64_PSR_VM_BIT)
 
+/* Interruption Function State */
 #define IA64_IFS_V_BIT      63
 #define IA64_IFS_V  (__IA64_UL(1) << IA64_IFS_V_BIT)
 
@@ -415,8 +421,8 @@ enum {
 
 union kvm_va {
 	struct {
-		unsigned long off : 60;		
-		unsigned long reg :  4;		
+		unsigned long off : 60;		/* intra-region offset */
+		unsigned long reg :  4;		/* region number */
 	} f;
 	unsigned long l;
 	void *p;
@@ -449,6 +455,9 @@ static inline unsigned long itir_ps(unsigned long itir)
 }
 
 
+/**************************************************************************
+  VCPU control register access routines
+ **************************************************************************/
 
 static inline u64 vcpu_get_itir(struct kvm_vcpu *vcpu)
 {
@@ -492,7 +501,7 @@ static inline u64 vcpu_get_tpr(struct kvm_vcpu *vcpu)
 
 static inline u64 vcpu_get_eoi(struct kvm_vcpu *vcpu)
 {
-	return (0UL);		
+	return (0UL);		/*reads of eoi always return 0 */
 }
 
 static inline u64 vcpu_get_irr0(struct kvm_vcpu *vcpu)
@@ -561,6 +570,9 @@ static inline u64 vcpu_get_rr(struct kvm_vcpu *vcpu, u64 reg)
 	return vcpu->arch.vrr[reg>>61];
 }
 
+/**************************************************************************
+  VCPU debug breakpoint register access routines
+ **************************************************************************/
 
 static inline void vcpu_set_dbr(struct kvm_vcpu *vcpu, u64 reg, u64 val)
 {
@@ -582,27 +594,30 @@ static inline u64 vcpu_get_ibr(struct kvm_vcpu *vcpu, u64 reg)
 	return ((u64)ia64_get_ibr(reg));
 }
 
+/**************************************************************************
+  VCPU performance monitor register access routines
+ **************************************************************************/
 static inline void vcpu_set_pmc(struct kvm_vcpu *vcpu, u64 reg, u64 val)
 {
-	
+	/* NOTE: Writes to unimplemented PMC registers are discarded */
 	ia64_set_pmc(reg, val);
 }
 
 static inline void vcpu_set_pmd(struct kvm_vcpu *vcpu, u64 reg, u64 val)
 {
-	
+	/* NOTE: Writes to unimplemented PMD registers are discarded */
 	ia64_set_pmd(reg, val);
 }
 
 static inline u64 vcpu_get_pmc(struct kvm_vcpu *vcpu, u64 reg)
 {
-	
+	/* NOTE: Reads from unimplemented PMC registers return zero */
 	return ((u64)ia64_get_pmc(reg));
 }
 
 static inline u64 vcpu_get_pmd(struct kvm_vcpu *vcpu, u64 reg)
 {
-	
+	/* NOTE: Reads from unimplemented PMD registers return zero */
 	return ((u64)ia64_get_pmd(reg));
 }
 
@@ -623,7 +638,7 @@ static inline int highest_bits(int *dat)
 	u32  bits, bitnum;
 	int i;
 
-	
+	/* loop for all 256 bits */
 	for (i = 7; i >= 0 ; i--) {
 		bits = dat[i];
 		if (bits) {
@@ -634,6 +649,10 @@ static inline int highest_bits(int *dat)
 	return NULL_VECTOR;
 }
 
+/*
+ * The pending irq is higher than the inservice one.
+ *
+ */
 static inline int is_higher_irq(int pending, int inservice)
 {
 	return ((pending > inservice)
@@ -646,6 +665,10 @@ static inline int is_higher_class(int pending, int mic)
 	return ((pending >> 4) > mic);
 }
 
+/*
+ * Return 0-255 for pending irq.
+ *        NULL_VECTOR: when no pending.
+ */
 static inline int highest_pending_irq(struct kvm_vcpu *vcpu)
 {
 	if (VCPU(vcpu, irr[0]) & (1UL<<NMI_VECTOR))
@@ -726,4 +749,4 @@ extern u64 ia64_call_vsa(u64 proc, u64 arg1, u64 arg2, u64 arg3,
 extern long vmm_sanity;
 
 #endif
-#endif	
+#endif	/* __VCPU_H__ */

@@ -37,6 +37,20 @@ static irqreturn_t ssp_interrupt(int irq, void *dev_id)
 	return status ? IRQ_HANDLED : IRQ_NONE;
 }
 
+/**
+ * ssp_write_word - write a word to the SSP port
+ * @data: 16-bit, MSB justified data to write.
+ *
+ * Wait for a free entry in the SSP transmit FIFO, and write a data
+ * word to the SSP port.  Wait for the SSP port to start sending
+ * the data.
+ *
+ * The caller is expected to perform the necessary locking.
+ *
+ * Returns:
+ *   %-ETIMEDOUT	timeout occurred
+ *   0			success
+ */
 int ssp_write_word(u16 data)
 {
 	int timeout = TIMEOUT;
@@ -59,6 +73,21 @@ int ssp_write_word(u16 data)
 	return 0;
 }
 
+/**
+ * ssp_read_word - read a word from the SSP port
+ *
+ * Wait for a data word in the SSP receive FIFO, and return the
+ * received data.  Data is LSB justified.
+ *
+ * Note: Currently, if data is not expected to be received, this
+ * function will wait for ever.
+ *
+ * The caller is expected to perform the necessary locking.
+ *
+ * Returns:
+ *   %-ETIMEDOUT	timeout occurred
+ *   16-bit data	success
+ */
 int ssp_read_word(u16 *data)
 {
 	int timeout = TIMEOUT;
@@ -74,6 +103,18 @@ int ssp_read_word(u16 *data)
 	return 0;
 }
 
+/**
+ * ssp_flush - flush the transmit and receive FIFOs
+ *
+ * Wait for the SSP to idle, and ensure that the receive FIFO
+ * is empty.
+ *
+ * The caller is expected to perform the necessary locking.
+ *
+ * Returns:
+ *   %-ETIMEDOUT	timeout occurred
+ *   0			success
+ */
 int ssp_flush(void)
 {
 	int timeout = TIMEOUT * 2;
@@ -91,16 +132,32 @@ int ssp_flush(void)
 	return 0;
 }
 
+/**
+ * ssp_enable - enable the SSP port
+ *
+ * Turn on the SSP port.
+ */
 void ssp_enable(void)
 {
 	Ser4SSCR0 |= SSCR0_SSE;
 }
 
+/**
+ * ssp_disable - shut down the SSP port
+ *
+ * Turn off the SSP port, optionally powering it down.
+ */
 void ssp_disable(void)
 {
 	Ser4SSCR0 &= ~SSCR0_SSE;
 }
 
+/**
+ * ssp_save_state - save the SSP configuration
+ * @ssp: pointer to structure to save SSP configuration
+ *
+ * Save the configured SSP state for suspend.
+ */
 void ssp_save_state(struct ssp_state *ssp)
 {
 	ssp->cr0 = Ser4SSCR0;
@@ -109,6 +166,12 @@ void ssp_save_state(struct ssp_state *ssp)
 	Ser4SSCR0 &= ~SSCR0_SSE;
 }
 
+/**
+ * ssp_restore_state - restore a previously saved SSP configuration
+ * @ssp: pointer to configuration saved by ssp_save_state
+ *
+ * Restore the SSP configuration saved previously by ssp_save_state.
+ */
 void ssp_restore_state(struct ssp_state *ssp)
 {
 	Ser4SSSR = SSSR_ROR;
@@ -118,6 +181,16 @@ void ssp_restore_state(struct ssp_state *ssp)
 	Ser4SSCR0 = ssp->cr0;
 }
 
+/**
+ * ssp_init - setup the SSP port
+ *
+ * initialise and claim resources for the SSP port.
+ *
+ * Returns:
+ *   %-ENODEV	if the SSP port is unavailable
+ *   %-EBUSY	if the resources are already in use
+ *   %0		on success
+ */
 int ssp_init(void)
 {
 	int ret;
@@ -142,6 +215,11 @@ int ssp_init(void)
 	return ret;
 }
 
+/**
+ * ssp_exit - undo the effects of ssp_init
+ *
+ * release and free resources for the SSP port.
+ */
 void ssp_exit(void)
 {
 	Ser4SSCR0 &= ~SSCR0_SSE;

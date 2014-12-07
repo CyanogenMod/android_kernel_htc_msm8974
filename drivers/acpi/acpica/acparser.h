@@ -1,3 +1,8 @@
+/******************************************************************************
+ *
+ * Module Name: acparser.h - AML Parser subcomponent prototypes and defines
+ *
+ *****************************************************************************/
 
 /*
  * Copyright (C) 2000 - 2012, Intel Corp.
@@ -41,6 +46,7 @@
 
 #define OP_HAS_RETURN_VALUE             1
 
+/* Variable number of arguments. This field must be 32 bits */
 
 #define ACPI_VAR_ARGS                   ACPI_UINT32_MAX
 
@@ -58,9 +64,20 @@
 
 #define ACPI_PARSE_MODULE_LEVEL         0x0400
 
+/******************************************************************************
+ *
+ * Parser interfaces
+ *
+ *****************************************************************************/
 
+/*
+ * psxface - Parser external interfaces
+ */
 acpi_status acpi_ps_execute_method(struct acpi_evaluate_info *info);
 
+/*
+ * psargs - Parse AML opcode arguments
+ */
 u8 *acpi_ps_get_next_package_end(struct acpi_parse_state *parser_state);
 
 char *acpi_ps_get_next_namestring(struct acpi_parse_state *parser_state);
@@ -79,17 +96,26 @@ acpi_ps_get_next_arg(struct acpi_walk_state *walk_state,
 		     struct acpi_parse_state *parser_state,
 		     u32 arg_type, union acpi_parse_object **return_arg);
 
+/*
+ * psfind
+ */
 union acpi_parse_object *acpi_ps_find_name(union acpi_parse_object *scope,
 					   u32 name, u32 opcode);
 
 union acpi_parse_object *acpi_ps_get_parent(union acpi_parse_object *op);
 
+/*
+ * psopcode - AML Opcode information
+ */
 const struct acpi_opcode_info *acpi_ps_get_opcode_info(u16 opcode);
 
 char *acpi_ps_get_opcode_name(u16 opcode);
 
 u8 acpi_ps_get_argument_count(u32 op_type);
 
+/*
+ * psparse - top level parsing routines
+ */
 acpi_status acpi_ps_parse_aml(struct acpi_walk_state *walk_state);
 
 u32 acpi_ps_get_opcode_size(u32 opcode);
@@ -105,8 +131,14 @@ acpi_ps_next_parse_state(struct acpi_walk_state *walk_state,
 			 union acpi_parse_object *op,
 			 acpi_status callback_status);
 
+/*
+ * psloop - main parse loop
+ */
 acpi_status acpi_ps_parse_loop(struct acpi_walk_state *walk_state);
 
+/*
+ * psscope - Scope stack management routines
+ */
 acpi_status
 acpi_ps_init_scope(struct acpi_parse_state *parser_state,
 		   union acpi_parse_object *root);
@@ -128,6 +160,9 @@ acpi_ps_push_scope(struct acpi_parse_state *parser_state,
 
 void acpi_ps_cleanup_scope(struct acpi_parse_state *state);
 
+/*
+ * pstree - parse tree manipulation routines
+ */
 void
 acpi_ps_append_arg(union acpi_parse_object *op, union acpi_parse_object *arg);
 
@@ -139,8 +174,11 @@ union acpi_parse_object *acpi_ps_get_arg(union acpi_parse_object *op, u32 argn);
 #ifdef	ACPI_FUTURE_USAGE
 union acpi_parse_object *acpi_ps_get_depth_next(union acpi_parse_object *origin,
 						union acpi_parse_object *op);
-#endif				
+#endif				/* ACPI_FUTURE_USAGE */
 
+/*
+ * pswalk - parse tree walk routines
+ */
 acpi_status
 acpi_ps_walk_parsed_aml(union acpi_parse_object *start_op,
 			union acpi_parse_object *end_op,
@@ -161,6 +199,9 @@ acpi_status acpi_ps_delete_completed_op(struct acpi_walk_state *walk_state);
 
 void acpi_ps_delete_parse_tree(union acpi_parse_object *root);
 
+/*
+ * psutils - parser utilities
+ */
 union acpi_parse_object *acpi_ps_create_scope_op(void);
 
 void acpi_ps_init_op(union acpi_parse_object *op, u16 opcode);
@@ -175,10 +216,13 @@ u8 acpi_ps_is_prefix_char(u32 c);
 
 #ifdef	ACPI_FUTURE_USAGE
 u32 acpi_ps_get_name(union acpi_parse_object *op);
-#endif				
+#endif				/* ACPI_FUTURE_USAGE */
 
 void acpi_ps_set_name(union acpi_parse_object *op, u32 name);
 
+/*
+ * psdump - display parser tree
+ */
 u32
 acpi_ps_sprint_path(char *buffer_start,
 		    u32 buffer_size, union acpi_parse_object *op);
@@ -189,4 +233,4 @@ acpi_ps_sprint_op(char *buffer_start,
 
 void acpi_ps_show(union acpi_parse_object *op);
 
-#endif				
+#endif				/* __ACPARSER_H__ */

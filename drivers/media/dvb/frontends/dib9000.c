@@ -31,6 +31,7 @@ struct i2c_device {
 	u8 *i2c_write_buffer;
 };
 
+/* lock */
 #define DIB_LOCK struct mutex
 #define DibAcquireLock(lock) mutex_lock_interruptible(lock)
 #define DibReleaseLock(lock) mutex_unlock(lock)
@@ -69,7 +70,7 @@ struct dib9000_state {
 #define DIB9000_GPIO_DEFAULT_PWM_POS    0xffff
 	u16 gpio_pwm_pos;
 
-	union {			
+	union {			/* common for all chips */
 		struct {
 			u8 mobile_mode:1;
 		} host;
@@ -81,11 +82,11 @@ struct dib9000_state {
 			} fe_mm[18];
 			u8 memcmd;
 
-			DIB_LOCK mbx_if_lock;	
-			DIB_LOCK mbx_lock;	
+			DIB_LOCK mbx_if_lock;	/* to protect read/write operations */
+			DIB_LOCK mbx_lock;	/* to protect the whole mailbox handling */
 
-			DIB_LOCK mem_lock;	
-			DIB_LOCK mem_mbx_lock;	
+			DIB_LOCK mem_lock;	/* to protect the memory accesses */
+			DIB_LOCK mem_mbx_lock;	/* to protect the memory-based mailbox */
 
 #define MBX_MAX_WORDS (256 - 200 - 2)
 #define DIB9000_MSG_CACHE_SIZE 2
@@ -94,7 +95,7 @@ struct dib9000_state {
 		} risc;
 	} platform;
 
-	union {			
+	union {			/* common for all platforms */
 		struct {
 			struct dib9000_config cfg;
 		} d9;
@@ -103,14 +104,14 @@ struct dib9000_state {
 	struct dvb_frontend *fe[MAX_NUMBER_OF_FRONTENDS];
 	u16 component_bus_speed;
 
-	
+	/* for the I2C transfer */
 	struct i2c_msg msg[2];
 	u8 i2c_write_buffer[255];
 	u8 i2c_read_buffer[255];
 	DIB_LOCK demod_lock;
 	u8 get_frontend_internal;
 	struct dib9000_pid_ctrl pid_ctrl[10];
-	s8 pid_ctrl_index; 
+	s8 pid_ctrl_index; /* -1: empty list; -2: do not use the list */
 };
 
 static const u32 fe_info[44] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -179,6 +180,7 @@ enum dib9000_in_messages {
 	IN_MSG_HBM_PROF,
 };
 
+/* memory_access requests */
 #define FE_MM_W_CHANNEL                   0
 #define FE_MM_W_FE_INFO                   1
 #define FE_MM_RW_SYNC                     2
@@ -402,30 +404,38 @@ static void dib9000_risc_mem_setup_cmd(struct dib9000_state *state, u32 addr, u3
 {
 	u8 b[14] = { 0 };
 
+/*      dprintk("%d memcmd: %d %d %d\n", state->fe_id, addr, addr+len, len); */
+/*      b[0] = 0 << 7; */
 	b[1] = 1;
 
+/*      b[2] = 0; */
+/*      b[3] = 0; */
 	b[4] = (u8) (addr >> 8);
 	b[5] = (u8) (addr & 0xff);
 
+/*      b[10] = 0; */
+/*      b[11] = 0; */
 	b[12] = (u8) (addr >> 8);
 	b[13] = (u8) (addr & 0xff);
 
 	addr += len;
+/*      b[6] = 0; */
+/*      b[7] = 0; */
 	b[8] = (u8) (addr >> 8);
 	b[9] = (u8) (addr & 0xff);
 
 	dib9000_write(state, 1056, b, 14);
 	if (reading)
 		dib9000_write_word(state, 1056, (1 << 15) | 1);
-	state->platform.risc.memcmd = -1;	
+	state->platform.risc.memcmd = -1;	/* if it was called directly reset it - to force a future setup-call to set it */
 }
 
 static void dib9000_risc_mem_setup(struct dib9000_state *state, u8 cmd)
 {
 	struct dib9000_fe_memory_map *m = &state->platform.risc.fe_mm[cmd & 0x7f];
-	
-	if (state->platform.risc.memcmd == cmd &&	
-	    !(cmd & 0x80 && m->size < 67))	
+	/* decide whether we need to "refresh" the memory controller */
+	if (state->platform.risc.memcmd == cmd &&	/* same command */
+	    !(cmd & 0x80 && m->size < 67))	/* and we do not want to read something with less than 67 bytes looping - working around a bug in the memory controller */
 		return;
 	dib9000_risc_mem_setup_cmd(state, m->addr, m->size, cmd & 0x80);
 	state->platform.risc.memcmd = cmd;
@@ -471,7 +481,7 @@ static int dib9000_firmware_download(struct dib9000_state *state, u8 risc_id, u1
 	else
 		offs = 0;
 
-	
+	/* config crtl reg */
 	dib9000_write_word(state, 1024 + offs, 0x000f);
 	dib9000_write_word(state, 1025 + offs, 0);
 	dib9000_write_word(state, 1031 + offs, key);
@@ -498,10 +508,10 @@ static int dib9000_mbx_host_init(struct dib9000_state *state, u8 risc_id)
 	else
 		mbox_offs = 0;
 
-	
+	/* Reset mailbox  */
 	dib9000_write_word(state, 1027 + mbox_offs, 0x8000);
 
-	
+	/* Read reset status */
 	do {
 		reset_reg = dib9000_read_word(state, 1027 + mbox_offs);
 		msleep(100);
@@ -541,7 +551,7 @@ static int dib9000_mbx_send_attr(struct dib9000_state *state, u8 id, u16 * data,
 			break;
 	} while (1);
 
-	
+	/*dprintk( "MBX: size: %d", size); */
 
 	if (tmp == 0) {
 		ret = -EINVAL;
@@ -554,7 +564,7 @@ static int dib9000_mbx_send_attr(struct dib9000_state *state, u8 id, u16 * data,
 	dprintk("\n");
 #endif
 
-	
+	/* byte-order conversion - works on big (where it is not necessary) or little endian */
 	d = (u8 *) data;
 	for (i = 0; i < len; i++) {
 		tmp = data[i];
@@ -562,7 +572,7 @@ static int dib9000_mbx_send_attr(struct dib9000_state *state, u8 id, u16 * data,
 		*d++ = tmp & 0xff;
 	}
 
-	
+	/* write msg */
 	b[0] = id;
 	b[1] = len + 1;
 	if (dib9000_write16_noinc_attr(state, 1045, b, 2, attr) != 0 || dib9000_write16_noinc_attr(state, 1045, (u8 *) data, len * 2, attr) != 0) {
@@ -570,7 +580,7 @@ static int dib9000_mbx_send_attr(struct dib9000_state *state, u8 id, u16 * data,
 		goto out;
 	}
 
-	
+	/* update register nb_mes_in_RX */
 	ret = (u8) dib9000_write_word_attr(state, 1043, 1 << 14, attr);
 
 out:
@@ -601,17 +611,17 @@ static u8 dib9000_mbx_read(struct dib9000_state *state, u16 * data, u8 risc_id, 
 	else
 		mc_base = 0;
 
-	
+	/* Length and type in the first word */
 	*data = dib9000_read_word_attr(state, 1029 + mc_base, attr);
 
 	size = *data & 0xff;
 	if (size <= MBX_MAX_WORDS) {
 		data++;
-		size--;		
+		size--;		/* Initial word already read */
 
 		dib9000_read16_noinc_attr(state, 1029 + mc_base, (u8 *) data, size * 2, attr);
 
-		
+		/* to word conversion */
 		for (i = 0; i < size; i++) {
 			tmp = *data;
 			*data = (tmp >> 8) | (tmp << 8);
@@ -626,11 +636,11 @@ static u8 dib9000_mbx_read(struct dib9000_state *state, u16 * data, u8 risc_id, 
 #endif
 	} else {
 		dprintk("MBX: message is too big for message cache (%d), flushing message", size);
-		size--;		
+		size--;		/* Initial word already read */
 		while (size--)
 			dib9000_read16_noinc_attr(state, 1029 + mc_base, (u8 *) data, 2, attr);
 	}
-	
+	/* Update register nb_mes_in_TX */
 	dib9000_write_word_attr(state, 1028 + mc_base, 1 << 14, attr);
 
 	DibReleaseLock(&state->platform.risc.mbx_if_lock);
@@ -643,7 +653,7 @@ static int dib9000_risc_debug_buf(struct dib9000_state *state, u16 * data, u8 si
 	u32 ts = data[1] << 16 | data[0];
 	char *b = (char *)&data[2];
 
-	b[2 * (size - 2) - 1] = '\0';	
+	b[2 * (size - 2) - 1] = '\0';	/* Bullet proof the buffer */
 	if (*b == '~') {
 		b++;
 		dprintk(b);
@@ -657,20 +667,21 @@ static int dib9000_mbx_fetch_to_cache(struct dib9000_state *state, u16 attr)
 	int i;
 	u8 size;
 	u16 *block;
-	
+	/* find a free slot */
 	for (i = 0; i < DIB9000_MSG_CACHE_SIZE; i++) {
 		block = state->platform.risc.message_cache[i];
 		if (*block == 0) {
 			size = dib9000_mbx_read(state, block, 1, attr);
 
+/*                      dprintk( "MBX: fetched %04x message to cache", *block); */
 
 			switch (*block >> 8) {
 			case IN_MSG_DEBUG_BUF:
-				dib9000_risc_debug_buf(state, block + 1, size);	
-				*block = 0;	
+				dib9000_risc_debug_buf(state, block + 1, size);	/* debug-messages are going to be printed right away */
+				*block = 0;	/* free the block */
 				break;
 #if 0
-			case IN_MSG_DATA:	
+			case IN_MSG_DATA:	/* FE-TRACE */
 				dib9000_risc_data_process(state, block + 1, size);
 				*block = 0;
 				break;
@@ -689,9 +700,9 @@ static int dib9000_mbx_fetch_to_cache(struct dib9000_state *state, u16 attr)
 static u8 dib9000_mbx_count(struct dib9000_state *state, u8 risc_id, u16 attr)
 {
 	if (risc_id == 0)
-		return (u8) (dib9000_read_word_attr(state, 1028, attr) >> 10) & 0x1f;	
+		return (u8) (dib9000_read_word_attr(state, 1028, attr) >> 10) & 0x1f;	/* 5 bit field */
 	else
-		return (u8) (dib9000_read_word_attr(state, 1044, attr) >> 8) & 0x7f;	
+		return (u8) (dib9000_read_word_attr(state, 1044, attr) >> 8) & 0x7f;	/* 7 bit field */
 }
 
 static int dib9000_mbx_process(struct dib9000_state *state, u16 attr)
@@ -707,10 +718,12 @@ static int dib9000_mbx_process(struct dib9000_state *state, u16 attr)
 		return -1;
 	}
 
-	if (dib9000_mbx_count(state, 1, attr))	
+	if (dib9000_mbx_count(state, 1, attr))	/* 1=RiscB */
 		ret = dib9000_mbx_fetch_to_cache(state, attr);
 
-	tmp = dib9000_read_word_attr(state, 1229, attr);	
+	tmp = dib9000_read_word_attr(state, 1229, attr);	/* Clear the IRQ */
+/*      if (tmp) */
+/*              dprintk( "cleared IRQ: %x", tmp); */
 	DibReleaseLock(&state->platform.risc.mbx_lock);
 
 	return ret;
@@ -724,14 +737,14 @@ static int dib9000_mbx_get_message_attr(struct dib9000_state *state, u16 id, u16
 
 	*msg = 0;
 	do {
-		
+		/* dib9000_mbx_get_from_cache(); */
 		for (i = 0; i < DIB9000_MSG_CACHE_SIZE; i++) {
 			block = state->platform.risc.message_cache[i];
 			if ((*block >> 8) == id) {
 				*size = (*block & 0xff) - 1;
 				memcpy(msg, block + 1, (*size) * 2);
-				*block = 0;	
-				i = 0;	
+				*block = 0;	/* free the block */
+				i = 0;	/* signal that we found a message */
 				break;
 			}
 		}
@@ -739,7 +752,7 @@ static int dib9000_mbx_get_message_attr(struct dib9000_state *state, u16 id, u16
 		if (i == 0)
 			break;
 
-		if (dib9000_mbx_process(state, attr) == -1)	
+		if (dib9000_mbx_process(state, attr) == -1)	/* try to fetch one message - if any */
 			return -1;
 
 	} while (--timeout);
@@ -789,21 +802,21 @@ static int dib9000_risc_check_version(struct dib9000_state *state)
 
 static int dib9000_fw_boot(struct dib9000_state *state, const u8 * codeA, u32 lenA, const u8 * codeB, u32 lenB)
 {
-	
-	dib9000_write_word(state, 1225, 0x02);	
+	/* Reconfig pool mac ram */
+	dib9000_write_word(state, 1225, 0x02);	/* A: 8k C, 4 k D - B: 32k C 6 k D - IRAM 96k */
 	dib9000_write_word(state, 1226, 0x05);
 
-	
+	/* Toggles IP crypto to Host APB interface. */
 	dib9000_write_word(state, 1542, 1);
 
-	
+	/* Set jump and no jump in the dma box */
 	dib9000_write_word(state, 1074, 0);
 	dib9000_write_word(state, 1075, 0);
 
-	
+	/* Set MAC as APB Master. */
 	dib9000_write_word(state, 1237, 0);
 
-	
+	/* Reset the RISCs */
 	if (codeA != NULL)
 		dib9000_write_word(state, 1024, 2);
 	else
@@ -816,7 +829,7 @@ static int dib9000_fw_boot(struct dib9000_state *state, const u8 * codeA, u32 le
 	if (codeB != NULL)
 		dib9000_firmware_download(state, 1, 0x1234, codeB, lenB);
 
-	
+	/* Run the RISCs */
 	if (codeA != NULL)
 		dib9000_write_word(state, 1024, 0);
 	if (codeB != NULL)
@@ -855,7 +868,7 @@ static u16 dib9000_identify(struct i2c_device *client)
 		return 0;
 	}
 
-	
+	/* protect this driver to be used with 7000PC */
 	if (value == 0x4000 && dib9000_i2c_read16(client, 769) == 0x4000) {
 		dprintk("this driver does not work with DiB7000PC");
 		return 0;
@@ -887,7 +900,7 @@ static u16 dib9000_identify(struct i2c_device *client)
 
 static void dib9000_set_power_mode(struct dib9000_state *state, enum dib9000_power_mode mode)
 {
-	
+	/* by default everything is going to be powered off */
 	u16 reg_903 = 0x3fff, reg_904 = 0xffff, reg_905 = 0xffff, reg_906;
 	u8 offset;
 
@@ -896,11 +909,11 @@ static void dib9000_set_power_mode(struct dib9000_state *state, enum dib9000_pow
 	else
 		offset = 0;
 
-	reg_906 = dib9000_read_word(state, 906 + offset) | 0x3;	
+	reg_906 = dib9000_read_word(state, 906 + offset) | 0x3;	/* keep settings for RISC */
 
-	
+	/* now, depending on the requested mode, we power on */
 	switch (mode) {
-		
+		/* power up everything in the demod */
 	case DIB9000_POWER_ALL:
 		reg_903 = 0x0000;
 		reg_904 = 0x0000;
@@ -908,8 +921,8 @@ static void dib9000_set_power_mode(struct dib9000_state *state, enum dib9000_pow
 		reg_906 = 0x0000;
 		break;
 
-		
-	case DIB9000_POWER_INTERFACE_ONLY:	
+		/* just leave power on the control-interfaces: GPIO and (I2C or SDIO or SRAM) */
+	case DIB9000_POWER_INTERFACE_ONLY:	/* TODO power up either SDIO or I2C or SRAM */
 		reg_905 &= ~((1 << 7) | (1 << 6) | (1 << 5) | (1 << 2));
 		break;
 
@@ -937,11 +950,11 @@ static void dib9000_set_power_mode(struct dib9000_state *state, enum dib9000_pow
 		break;
 	}
 
-	
+	/* always power down unused parts */
 	if (!state->platform.host.mobile_mode)
 		reg_904 |= (1 << 7) | (1 << 6) | (1 << 4) | (1 << 2) | (1 << 1);
 
-	
+	/* P_sdio_select_clk = 0 on MC and after */
 	if (state->revision != 0x4000)
 		reg_906 <<= 1;
 
@@ -970,17 +983,17 @@ static int dib9000_fw_reset(struct dvb_frontend *fe)
 		return -EINVAL;
 	}
 
-	
+	/* reset the i2c-master to use the host interface */
 	dibx000_reset_i2c_master(&state->i2c_master);
 
 	dib9000_set_power_mode(state, DIB9000_POWER_ALL);
 
-	
+	/* unforce divstr regardless whether i2c enumeration was done or not */
 	dib9000_write_word(state, 1794, dib9000_read_word(state, 1794) & ~(1 << 1));
 	dib9000_write_word(state, 1796, 0);
 	dib9000_write_word(state, 1805, 0x805);
 
-	
+	/* restart all parts */
 	dib9000_write_word(state, 898, 0xffff);
 	dib9000_write_word(state, 899, 0xffff);
 	dib9000_write_word(state, 900, 0x0001);
@@ -1008,7 +1021,7 @@ static int dib9000_risc_apb_access_read(struct dib9000_state *state, u32 address
 	if (address >= 1024 || !state->platform.risc.fw_is_running)
 		return -EINVAL;
 
-	
+	/* dprintk( "APB access thru rd fw %d %x", address, attribute); */
 
 	mb[0] = (u16) address;
 	mb[1] = len / 2;
@@ -1035,7 +1048,7 @@ static int dib9000_risc_apb_access_write(struct dib9000_state *state, u32 addres
 	if (address >= 1024 || !state->platform.risc.fw_is_running)
 		return -EINVAL;
 
-	
+	/* dprintk( "APB access thru wr fw %d %x", address, attribute); */
 
 	mb[0] = (unsigned short)address;
 	for (i = 0; i < len && i < 20; i += 2)
@@ -1071,7 +1084,7 @@ static int dib9000_fw_init(struct dib9000_state *state)
 	if (dib9000_fw_boot(state, NULL, 0, state->chip.d9.cfg.microcode_B_fe_buffer, state->chip.d9.cfg.microcode_B_fe_size) != 0)
 		return -EIO;
 
-	
+	/* initialize the firmware */
 	for (i = 0; i < ARRAY_SIZE(state->chip.d9.cfg.gpio_function); i++) {
 		f = &state->chip.d9.cfg.gpio_function[i];
 		if (f->mask) {
@@ -1092,21 +1105,21 @@ static int dib9000_fw_init(struct dib9000_state *state)
 	if (dib9000_mbx_send(state, OUT_MSG_CONF_GPIO, b, 15) != 0)
 		return -EIO;
 
-	
-	b[0] = state->chip.d9.cfg.subband.size;	
+	/* subband */
+	b[0] = state->chip.d9.cfg.subband.size;	/* type == 0 -> GPIO - PWM not yet supported */
 	for (i = 0; i < state->chip.d9.cfg.subband.size; i++) {
 		b[1 + i * 4] = state->chip.d9.cfg.subband.subband[i].f_mhz;
 		b[2 + i * 4] = (u16) state->chip.d9.cfg.subband.subband[i].gpio.mask;
 		b[3 + i * 4] = (u16) state->chip.d9.cfg.subband.subband[i].gpio.direction;
 		b[4 + i * 4] = (u16) state->chip.d9.cfg.subband.subband[i].gpio.value;
 	}
-	b[1 + i * 4] = 0;	
+	b[1 + i * 4] = 0;	/* fe_id */
 	if (dib9000_mbx_send(state, OUT_MSG_SUBBAND_SEL, b, 2 + 4 * i) != 0)
 		return -EIO;
 
-	
+	/* 0 - id, 1 - no_of_frontends */
 	b[0] = (0 << 8) | 1;
-	
+	/* 0 = i2c-address demod, 0 = tuner */
 	b[1] = (0 << 8) | (0);
 	b[2] = (u16) (((state->chip.d9.cfg.xtal_clock_khz * 1000) >> 16) & 0xffff);
 	b[3] = (u16) (((state->chip.d9.cfg.xtal_clock_khz * 1000)) & 0xffff);
@@ -1153,7 +1166,7 @@ static void dib9000_fw_set_channel_head(struct dib9000_state *state)
 	b[5] = (u8) ((state->fe[0]->dtv_property_cache.bandwidth_hz / 1000 >> 8) & 0xff);
 	b[6] = (u8) ((state->fe[0]->dtv_property_cache.bandwidth_hz / 1000 >> 16) & 0xff);
 	b[7] = (u8) ((state->fe[0]->dtv_property_cache.bandwidth_hz / 1000 >> 24) & 0xff);
-	b[8] = 0x80;		
+	b[8] = 0x80;		/* do not wait for CELL ID when doing autosearch */
 	if (state->fe[0]->dtv_property_cache.delivery_system == SYS_DVBT)
 		b[8] |= 1;
 	dib9000_risc_mem_write(state, FE_MM_W_CHANNEL_HEAD, b);
@@ -1469,7 +1482,7 @@ static int dib9000_fw_tune(struct dvb_frontend *fe)
 	case CT_DEMOD_START:
 		dib9000_fw_set_channel_head(state);
 
-		
+		/* write the channel context - a channel is initialized to 0, so it is OK */
 		dib9000_risc_mem_write(state, FE_MM_W_CHANNEL_CONTEXT, (u8 *) fe_info);
 		dib9000_risc_mem_write(state, FE_MM_W_FE_INFO, (u8 *) fe_info);
 
@@ -1487,10 +1500,10 @@ static int dib9000_fw_tune(struct dvb_frontend *fe)
 		else
 			dib9000_risc_mem_read(state, FE_MM_R_CHANNEL_TUNE_STATE, state->i2c_read_buffer, 1);
 		i = (s8)state->i2c_read_buffer[0];
-		switch (i) {	
+		switch (i) {	/* something happened */
 		case 0:
 			break;
-		case -2:	
+		case -2:	/* tps locks are "slower" than MPEG locks -> even in autosearch data is OK here */
 			if (search)
 				state->status = FE_STATUS_DEMOD_SUCCESS;
 			else {
@@ -1528,16 +1541,16 @@ static int dib9000_fw_set_output_mode(struct dvb_frontend *fe, int mode)
 
 	switch (mode) {
 	case OUTMODE_MPEG2_PAR_GATED_CLK:
-		outreg = (1 << 10);	
+		outreg = (1 << 10);	/* 0x0400 */
 		break;
 	case OUTMODE_MPEG2_PAR_CONT_CLK:
-		outreg = (1 << 10) | (1 << 6);	
+		outreg = (1 << 10) | (1 << 6);	/* 0x0440 */
 		break;
 	case OUTMODE_MPEG2_SERIAL:
-		outreg = (1 << 10) | (2 << 6) | (0 << 1);	
+		outreg = (1 << 10) | (2 << 6) | (0 << 1);	/* 0x0482 */
 		break;
 	case OUTMODE_DIVERSITY:
-		outreg = (1 << 10) | (4 << 6);	
+		outreg = (1 << 10) | (4 << 6);	/* 0x0500 */
 		break;
 	case OUTMODE_MPEG2_FIFO:
 		outreg = (1 << 10) | (5 << 6);
@@ -1574,7 +1587,7 @@ static int dib9000_tuner_xfer(struct i2c_adapter *i2c_adap, struct i2c_msg msg[]
 	u16 i, len, t, index_msg;
 
 	for (index_msg = 0; index_msg < num; index_msg++) {
-		if (msg[index_msg].flags & I2C_M_RD) {	
+		if (msg[index_msg].flags & I2C_M_RD) {	/* read */
 			len = msg[index_msg].len;
 			if (len > 16)
 				len = 16;
@@ -1584,7 +1597,7 @@ static int dib9000_tuner_xfer(struct i2c_adapter *i2c_adap, struct i2c_msg msg[]
 
 			dib9000_write_word(state, 784, (u16) (msg[index_msg].addr));
 			dib9000_write_word(state, 787, (len / 2) - 1);
-			dib9000_write_word(state, 786, 1);	
+			dib9000_write_word(state, 786, 1);	/* start read */
 
 			i = 1000;
 			while (dib9000_read_word(state, 790) != (len / 2) && i)
@@ -1615,7 +1628,7 @@ static int dib9000_tuner_xfer(struct i2c_adapter *i2c_adap, struct i2c_msg msg[]
 				dib9000_write_word(state, 785, (msg[index_msg].buf[i] << 8) | msg[index_msg].buf[i + 1]);
 			dib9000_write_word(state, 784, (u16) msg[index_msg].addr);
 			dib9000_write_word(state, 787, (len / 2) - 1);
-			dib9000_write_word(state, 786, 0);	
+			dib9000_write_word(state, 786, 0);	/* start write */
 
 			i = 1000;
 			while (dib9000_read_word(state, 791) > 0 && i)
@@ -1639,9 +1652,9 @@ EXPORT_SYMBOL(dib9000_fw_set_component_bus_speed);
 static int dib9000_fw_component_bus_xfer(struct i2c_adapter *i2c_adap, struct i2c_msg msg[], int num)
 {
 	struct dib9000_state *state = i2c_get_adapdata(i2c_adap);
-	u8 type = 0;		
+	u8 type = 0;		/* I2C */
 	u8 port = DIBX000_I2C_INTERFACE_GPIO_3_4;
-	u16 scl = state->component_bus_speed;	
+	u16 scl = state->component_bus_speed;	/* SCL frequency */
 	struct dib9000_fe_memory_map *m = &state->platform.risc.fe_mm[FE_MM_RW_COMPONENT_ACCESS_BUFFER];
 	u8 p[13] = { 0 };
 
@@ -1649,7 +1662,7 @@ static int dib9000_fw_component_bus_xfer(struct i2c_adapter *i2c_adap, struct i2
 	p[1] = port;
 	p[2] = msg[0].addr << 1;
 
-	p[3] = (u8) scl & 0xff;	
+	p[3] = (u8) scl & 0xff;	/* scl */
 	p[4] = (u8) (scl >> 8);
 
 	p[7] = 0;
@@ -1672,18 +1685,18 @@ static int dib9000_fw_component_bus_xfer(struct i2c_adapter *i2c_adap, struct i2
 
 	dib9000_risc_mem_write(state, FE_MM_W_COMPONENT_ACCESS, p);
 
-	{			
+	{			/* write-part */
 		dib9000_risc_mem_setup_cmd(state, m->addr, msg[0].len, 0);
 		dib9000_risc_mem_write_chunks(state, msg[0].buf, msg[0].len);
 	}
 
-	
+	/* do the transaction */
 	if (dib9000_fw_memmbx_sync(state, FE_SYNC_COMPONENT_ACCESS) < 0) {
 		DibReleaseLock(&state->platform.risc.mem_mbx_lock);
 		return 0;
 	}
 
-	
+	/* read back any possible result */
 	if ((num > 1) && (msg[1].flags & I2C_M_RD))
 		dib9000_risc_mem_read(state, FE_MM_RW_COMPONENT_ACCESS_BUFFER, msg[1].buf, msg[1].len);
 
@@ -1740,13 +1753,13 @@ EXPORT_SYMBOL(dib9000_set_i2c_adapter);
 static int dib9000_cfg_gpio(struct dib9000_state *st, u8 num, u8 dir, u8 val)
 {
 	st->gpio_dir = dib9000_read_word(st, 773);
-	st->gpio_dir &= ~(1 << num);	
-	st->gpio_dir |= (dir & 0x1) << num;	
+	st->gpio_dir &= ~(1 << num);	/* reset the direction bit */
+	st->gpio_dir |= (dir & 0x1) << num;	/* set the new direction */
 	dib9000_write_word(st, 773, st->gpio_dir);
 
 	st->gpio_val = dib9000_read_word(st, 774);
-	st->gpio_val &= ~(1 << num);	
-	st->gpio_val |= (val & 0x01) << num;	
+	st->gpio_val &= ~(1 << num);	/* reset the direction bit */
+	st->gpio_val |= (val & 0x01) << num;	/* set the new value */
 	dib9000_write_word(st, 774, st->gpio_val);
 
 	dprintk("gpio dir: %04x: gpio val: %04x", st->gpio_dir, st->gpio_val);
@@ -1768,7 +1781,7 @@ int dib9000_fw_pid_filter_ctrl(struct dvb_frontend *fe, u8 onoff)
 	int ret;
 
 	if ((state->pid_ctrl_index != -2) && (state->pid_ctrl_index < 9)) {
-		
+		/* postpone the pid filtering cmd */
 		dprintk("pid filter cmd postpone");
 		state->pid_ctrl_index++;
 		state->pid_ctrl[state->pid_ctrl_index].cmd = DIB9000_PID_FILTER_CTRL;
@@ -1798,7 +1811,7 @@ int dib9000_fw_pid_filter(struct dvb_frontend *fe, u8 id, u16 pid, u8 onoff)
 	int ret;
 
 	if (state->pid_ctrl_index != -2) {
-		
+		/* postpone the pid filtering cmd */
 		dprintk("pid filter postpone");
 		if (state->pid_ctrl_index < 9) {
 			state->pid_ctrl_index++;
@@ -1903,7 +1916,7 @@ static int dib9000_get_frontend(struct dvb_frontend *fe)
 		if (stat & FE_HAS_SYNC) {
 			dprintk("TPS lock on the slave%i", index_frontend);
 
-			
+			/* synchronize the cache with the other frontends */
 			state->fe[index_frontend]->ops.get_frontend(state->fe[index_frontend]);
 			for (sub_index_frontend = 0; (sub_index_frontend < MAX_NUMBER_OF_FRONTENDS) && (state->fe[sub_index_frontend] != NULL);
 			     sub_index_frontend++) {
@@ -1931,12 +1944,12 @@ static int dib9000_get_frontend(struct dvb_frontend *fe)
 		}
 	}
 
-	
+	/* get the channel from master chip */
 	ret = dib9000_fw_get_channel(fe);
 	if (ret != 0)
 		goto return_value;
 
-	
+	/* synchronize the cache with the other frontends */
 	for (index_frontend = 1; (index_frontend < MAX_NUMBER_OF_FRONTENDS) && (state->fe[index_frontend] != NULL); index_frontend++) {
 		state->fe[index_frontend]->dtv_property_cache.inversion = fe->dtv_property_cache.inversion;
 		state->fe[index_frontend]->dtv_property_cache.transmission_mode = fe->dtv_property_cache.transmission_mode;
@@ -1987,7 +2000,7 @@ static int dib9000_set_frontend(struct dvb_frontend *fe)
 	u8 nbr_pending, exit_condition, index_frontend, index_frontend_success;
 	struct dvb_frontend_parametersContext channel_status;
 
-	
+	/* check that the correct parameters are set */
 	if (state->fe[0]->dtv_property_cache.frequency == 0) {
 		dprintk("dib9000: must specify frequency ");
 		return 0;
@@ -1998,7 +2011,7 @@ static int dib9000_set_frontend(struct dvb_frontend *fe)
 		return 0;
 	}
 
-	state->pid_ctrl_index = -1; 
+	state->pid_ctrl_index = -1; /* postpone the pid filtering cmd */
 	if (DibAcquireLock(&state->demod_lock) < 0) {
 		dprintk("could not get the lock");
 		return 0;
@@ -2006,21 +2019,21 @@ static int dib9000_set_frontend(struct dvb_frontend *fe)
 
 	fe->dtv_property_cache.delivery_system = SYS_DVBT;
 
-	
+	/* set the master status */
 	if (state->fe[0]->dtv_property_cache.transmission_mode == TRANSMISSION_MODE_AUTO ||
 	    state->fe[0]->dtv_property_cache.guard_interval == GUARD_INTERVAL_AUTO ||
 	    state->fe[0]->dtv_property_cache.modulation == QAM_AUTO ||
 	    state->fe[0]->dtv_property_cache.code_rate_HP == FEC_AUTO) {
-		
+		/* no channel specified, autosearch the channel */
 		state->channel_status.status = CHANNEL_STATUS_PARAMETERS_UNKNOWN;
 	} else
 		state->channel_status.status = CHANNEL_STATUS_PARAMETERS_SET;
 
-	
+	/* set mode and status for the different frontends */
 	for (index_frontend = 0; (index_frontend < MAX_NUMBER_OF_FRONTENDS) && (state->fe[index_frontend] != NULL); index_frontend++) {
 		dib9000_fw_set_diversity_in(state->fe[index_frontend], 1);
 
-		
+		/* synchronization of the cache */
 		memcpy(&state->fe[index_frontend]->dtv_property_cache, &fe->dtv_property_cache, sizeof(struct dtv_frontend_properties));
 
 		state->fe[index_frontend]->dtv_property_cache.delivery_system = SYS_DVBT;
@@ -2030,8 +2043,8 @@ static int dib9000_set_frontend(struct dvb_frontend *fe)
 		dib9000_set_tune_state(state->fe[index_frontend], CT_DEMOD_START);
 	}
 
-	
-	exit_condition = 0;	
+	/* actual tune */
+	exit_condition = 0;	/* 0: tune pending; 1: tune failed; 2:tune success */
 	index_frontend_success = 0;
 	do {
 		sleep_time = dib9000_fw_tune(state->fe[0]);
@@ -2053,38 +2066,38 @@ static int dib9000_set_frontend(struct dvb_frontend *fe)
 		for (index_frontend = 0; (index_frontend < MAX_NUMBER_OF_FRONTENDS) && (state->fe[index_frontend] != NULL); index_frontend++) {
 			frontend_status = -dib9000_get_status(state->fe[index_frontend]);
 			if (frontend_status > -FE_STATUS_TUNE_PENDING) {
-				exit_condition = 2;	
+				exit_condition = 2;	/* tune success */
 				index_frontend_success = index_frontend;
 				break;
 			}
 			if (frontend_status == -FE_STATUS_TUNE_PENDING)
-				nbr_pending++;	
+				nbr_pending++;	/* some frontends are still tuning */
 		}
 		if ((exit_condition != 2) && (nbr_pending == 0))
-			exit_condition = 1;	
+			exit_condition = 1;	/* if all tune are done and no success, exit: tune failed */
 
 	} while (exit_condition == 0);
 
-	
-	if (exit_condition == 1) {	
+	/* check the tune result */
+	if (exit_condition == 1) {	/* tune failed */
 		dprintk("tune failed");
 		DibReleaseLock(&state->demod_lock);
-		
+		/* tune failed; put all the pid filtering cmd to junk */
 		state->pid_ctrl_index = -1;
 		return 0;
 	}
 
 	dprintk("tune success on frontend%i", index_frontend_success);
 
-	
+	/* synchronize all the channel cache */
 	state->get_frontend_internal = 1;
 	dib9000_get_frontend(state->fe[0]);
 	state->get_frontend_internal = 0;
 
-	
+	/* retune the other frontends with the found channel */
 	channel_status.status = CHANNEL_STATUS_PARAMETERS_SET;
 	for (index_frontend = 0; (index_frontend < MAX_NUMBER_OF_FRONTENDS) && (state->fe[index_frontend] != NULL); index_frontend++) {
-		
+		/* only retune the frontends which was not tuned success */
 		if (index_frontend != index_frontend_success) {
 			dib9000_set_channel_status(state->fe[index_frontend], &channel_status);
 			dib9000_set_tune_state(state->fe[index_frontend], CT_DEMOD_START);
@@ -2111,17 +2124,17 @@ static int dib9000_set_frontend(struct dvb_frontend *fe)
 			if (index_frontend != index_frontend_success) {
 				frontend_status = -dib9000_get_status(state->fe[index_frontend]);
 				if ((index_frontend != index_frontend_success) && (frontend_status == -FE_STATUS_TUNE_PENDING))
-					nbr_pending++;	
+					nbr_pending++;	/* some frontends are still tuning */
 			}
 		}
 	} while (nbr_pending != 0);
 
-	
+	/* set the output mode */
 	dib9000_fw_set_output_mode(state->fe[0], state->chip.d9.cfg.output_mode);
 	for (index_frontend = 1; (index_frontend < MAX_NUMBER_OF_FRONTENDS) && (state->fe[index_frontend] != NULL); index_frontend++)
 		dib9000_fw_set_output_mode(state->fe[index_frontend], OUTMODE_DIVERSITY);
 
-	
+	/* turn off the diversity for the last frontend */
 	dib9000_fw_set_diversity_in(state->fe[index_frontend - 1], 0);
 
 	DibReleaseLock(&state->demod_lock);
@@ -2143,7 +2156,7 @@ static int dib9000_set_frontend(struct dvb_frontend *fe)
 						state->pid_ctrl[index_pid_filter_cmd].onoff);
 		}
 	}
-	
+	/* do not postpone any more the pid filtering */
 	state->pid_ctrl_index = -2;
 
 	return 0;
@@ -2384,7 +2397,7 @@ int dib9000_i2c_enumeration(struct i2c_adapter *i2c, int no_of_demods, u8 defaul
 	dib9000_i2c_write16(&client, 1796, 0x0);
 
 	for (k = no_of_demods - 1; k >= 0; k--) {
-		
+		/* designated i2c address */
 		new_addr = first_addr + (k << 1);
 		client.i2c_addr = default_addr;
 
@@ -2514,6 +2527,9 @@ struct dvb_frontend *dib9000_attach(struct i2c_adapter *i2c_adap, u8 i2c_addr, c
 	fe->demodulator_priv = st;
 	memcpy(&st->fe[0]->ops, &dib9000_ops, sizeof(struct dvb_frontend_ops));
 
+	/* Ensure the output mode remains at the previous default if it's
+	 * not specifically set by the caller.
+	 */
 	if ((st->chip.d9.cfg.output_mode != OUTMODE_MPEG2_SERIAL) && (st->chip.d9.cfg.output_mode != OUTMODE_MPEG2_PAR_GATED_CLK))
 		st->chip.d9.cfg.output_mode = OUTMODE_MPEG2_FIFO;
 

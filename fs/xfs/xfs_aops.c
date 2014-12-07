@@ -71,6 +71,12 @@ xfs_find_bdev_for_inode(
 		return mp->m_ddev_targp->bt_bdev;
 }
 
+/*
+ * We're now finished for good with this ioend structure.
+ * Update the page state via the associated buffer_heads,
+ * release holds on the inode and bio, and finally free
+ * up memory.  Do not use the ioend after this.
+ */
 STATIC void
 xfs_destroy_ioend(
 	xfs_ioend_t		*ioend)
@@ -93,6 +99,9 @@ xfs_destroy_ioend(
 	mempool_free(ioend, xfs_ioend_pool);
 }
 
+/*
+ * Fast and loose check if this write could update the on-disk inode size.
+ */
 static inline bool xfs_ioend_is_append(struct xfs_ioend *ioend)
 {
 	return ioend->io_offset + ioend->io_size >
@@ -117,6 +126,10 @@ xfs_setfilesize_trans_alloc(
 
 	ioend->io_append_trans = tp;
 
+	/*
+	 * We hand off the transaction to the completion thread now, so
+	 * clear the flag here.
+	 */
 	current_restore_flags_nested(&tp->t_pflags, PF_FSTRANS);
 	return 0;
 }
@@ -132,6 +145,11 @@ xfs_setfilesize(
 	struct xfs_trans	*tp = ioend->io_append_trans;
 	xfs_fsize_t		isize;
 
+	/*
+	 * The transaction was allocated in the I/O submission thread,
+	 * thus we need to mark ourselves as beeing in a transaction
+	 * manually.
+	 */
 	current_set_flags_nested(&tp->t_pflags, PF_FSTRANS);
 
 	xfs_ilock(ip, XFS_ILOCK_EXCL);
@@ -151,6 +169,12 @@ xfs_setfilesize(
 	return xfs_trans_commit(tp, 0);
 }
 
+/*
+ * Schedule IO completion handling on the final put of an ioend.
+ *
+ * If there is no work to do we might as well call it a day and free the
+ * ioend right now.
+ */
 STATIC void
 xfs_finish_ioend(
 	struct xfs_ioend	*ioend)
@@ -167,6 +191,9 @@ xfs_finish_ioend(
 	}
 }
 
+/*
+ * IO write completion.
+ */
 STATIC void
 xfs_end_io(
 	struct work_struct *work)
@@ -219,6 +246,9 @@ done:
 	xfs_destroy_ioend(ioend);
 }
 
+/*
+ * Call IO completion handling in caller context on the final put of an ioend.
+ */
 STATIC void
 xfs_finish_ioend_sync(
 	struct xfs_ioend	*ioend)
@@ -242,6 +272,11 @@ xfs_alloc_ioend(
 
 	ioend = mempool_alloc(xfs_ioend_pool, GFP_NOFS);
 
+	/*
+	 * Set the count to 1 initially, which will prevent an I/O
+	 * completion callback from happening before we have started
+	 * all the I/O from calling the completion routine too early.
+	 */
 	atomic_set(&ioend->io_remaining, 1);
 	ioend->io_isasync = 0;
 	ioend->io_isdirect = 0;
@@ -336,6 +371,9 @@ xfs_imap_valid(
 		offset < imap->br_startoff + imap->br_blockcount;
 }
 
+/*
+ * BIO completion handler for buffered IO.
+ */
 STATIC void
 xfs_end_bio(
 	struct bio		*bio,
@@ -346,7 +384,7 @@ xfs_end_bio(
 	ASSERT(atomic_read(&bio->bi_cnt) >= 1);
 	ioend->io_error = test_bit(BIO_UPTODATE, &bio->bi_flags) ? 0 : error;
 
-	
+	/* Toss bio and pass work off to an xfsdatad thread */
 	bio->bi_private = NULL;
 	bio->bi_end_io = NULL;
 	bio_put(bio);
@@ -415,6 +453,23 @@ static inline int bio_add_buffer(struct bio *bio, struct buffer_head *bh)
 	return bio_add_page(bio, bh->b_page, bh->b_size, bh_offset(bh));
 }
 
+/*
+ * Submit all of the bios for all of the ioends we have saved up, covering the
+ * initial writepage page and also any probed pages.
+ *
+ * Because we may have multiple ioends spanning a page, we need to start
+ * writeback on all the buffers before we submit them for I/O. If we mark the
+ * buffers as we got, then we can end up with a page that only has buffers
+ * marked async write and I/O complete on can occur before we mark the other
+ * buffers async write.
+ *
+ * The end result of this is that we trip a bug in end_page_writeback() because
+ * we call it twice for the one page as the code in end_buffer_async_write()
+ * assumes that all buffers on the page are started at the same time.
+ *
+ * The fix is two passes across the ioend list - one to start writeback on the
+ * buffer_heads, and then submit them for I/O on the second pass.
+ */
 STATIC void
 xfs_submit_ioend(
 	struct writeback_control *wbc,
@@ -426,14 +481,14 @@ xfs_submit_ioend(
 	struct bio		*bio;
 	sector_t		lastblock = 0;
 
-	
+	/* Pass 1 - start writeback */
 	do {
 		next = ioend->io_list;
 		for (bh = ioend->io_buffer_head; bh; bh = bh->b_private)
 			xfs_start_buffer_writeback(bh);
 	} while ((ioend = next) != NULL);
 
-	
+	/* Pass 2 - submit I/O */
 	ioend = head;
 	do {
 		next = ioend->io_list;
@@ -462,6 +517,11 @@ xfs_submit_ioend(
 	} while ((ioend = next) != NULL);
 }
 
+/*
+ * Cancel submission of all buffer_heads so far in this endio.
+ * Toss the endio too.  Only ever called for the initial page
+ * in a writepage request, so only ever one page.
+ */
 STATIC void
 xfs_cancel_ioend(
 	xfs_ioend_t		*ioend)
@@ -482,6 +542,12 @@ xfs_cancel_ioend(
 	} while ((ioend = next) != NULL);
 }
 
+/*
+ * Test to see if we've been building up a completion structure for
+ * earlier buffers -- if so, we try to append to this ioend if we
+ * can, otherwise we finish off any current ioend and start another.
+ * Return true if we've finished the given ioend.
+ */
 STATIC void
 xfs_add_to_ioend(
 	struct inode		*inode,
@@ -621,6 +687,19 @@ xfs_convert_page(
 	if (!xfs_is_delayed_page(page, (*ioendp)->io_type))
 		goto fail_unlock_page;
 
+	/*
+	 * page_dirty is initially a count of buffers on the page before
+	 * EOF and is decremented as we move each into a cleanable state.
+	 *
+	 * Derivation:
+	 *
+	 * End offset is the highest offset that this page should represent.
+	 * If we are on the last page, (end_offset & (PAGE_CACHE_SIZE - 1))
+	 * will evaluate non-zero and be less than PAGE_CACHE_SIZE and
+	 * hence give us the correct page_dirty count. On any other page,
+	 * it will be zero and in that case we need page_dirty to be the
+	 * count of buffers on the page.
+	 */
 	end_offset = min_t(unsigned long long,
 			(xfs_off_t)(page->index + 1) << PAGE_CACHE_SHIFT,
 			i_size_read(inode));
@@ -686,6 +765,10 @@ xfs_convert_page(
 	return 1;
 }
 
+/*
+ * Convert & write out a cluster of pages in the same extent as defined
+ * by mp and following the start page.
+ */
 STATIC void
 xfs_cluster_write(
 	struct inode		*inode,
@@ -726,6 +809,22 @@ xfs_vm_invalidatepage(
 	block_invalidatepage(page, offset);
 }
 
+/*
+ * If the page has delalloc buffers on it, we need to punch them out before we
+ * invalidate the page. If we don't, we leave a stale delalloc mapping on the
+ * inode that can trip a BUG() in xfs_get_blocks() later on if a direct IO read
+ * is done on that same region - the delalloc extent is returned when none is
+ * supposed to be there.
+ *
+ * We prevent this by truncating away the delalloc regions on the page before
+ * invalidating it. Because they are delalloc, we can do this without needing a
+ * transaction. Indeed - if we get ENOSPC errors, we have to be able to do this
+ * truncation without a transaction as there is no space left for block
+ * reservation (typically why we see a ENOSPC in writeback).
+ *
+ * This is not a performance critical path, so for now just do the punching a
+ * buffer head at a time.
+ */
 STATIC void
 xfs_aops_discard_page(
 	struct page		*page)
@@ -757,7 +856,7 @@ xfs_aops_discard_page(
 		start_fsb = XFS_B_TO_FSBT(ip->i_mount, offset);
 		error = xfs_bmap_punch_delalloc_range(ip, start_fsb, 1);
 		if (error) {
-			
+			/* something screwed, just bail */
 			if (!XFS_FORCED_SHUTDOWN(ip->i_mount)) {
 				xfs_alert(ip->i_mount,
 			"page discard unable to remove delalloc mapping.");
@@ -805,14 +904,28 @@ xfs_vm_writepage(
 
 	ASSERT(page_has_buffers(page));
 
+	/*
+	 * Refuse to write the page out if we are called from reclaim context.
+	 *
+	 * This avoids stack overflows when called from deeply used stacks in
+	 * random callers for direct reclaim or memcg reclaim.  We explicitly
+	 * allow reclaim from kswapd as the stack usage there is relatively low.
+	 *
+	 * This should never happen except in the case of a VM regression so
+	 * warn about it.
+	 */
 	if (WARN_ON_ONCE((current->flags & (PF_MEMALLOC|PF_KSWAPD)) ==
 			PF_MEMALLOC))
 		goto redirty;
 
+	/*
+	 * Given that we do not allow direct reclaim to call us, we should
+	 * never be called while in a filesystem transaction.
+	 */
 	if (WARN_ON(current->flags & PF_FSTRANS))
 		goto redirty;
 
-	
+	/* Is this page beyond the end of the file? */
 	offset = i_size_read(inode);
 	end_index = offset >> PAGE_CACHE_SHIFT;
 	last_index = (offset - 1) >> PAGE_CACHE_SHIFT;
@@ -844,6 +957,12 @@ xfs_vm_writepage(
 		if (!buffer_uptodate(bh))
 			uptodate = 0;
 
+		/*
+		 * set_page_dirty dirties all buffers in a page, independent
+		 * of their state.  The dirty state however is entirely
+		 * meaningless for holes (!mapped && uptodate), so skip
+		 * buffers covering holes here.
+		 */
 		if (!buffer_mapped(bh) && buffer_uptodate(bh)) {
 			imap_valid = 0;
 			continue;
@@ -914,13 +1033,13 @@ xfs_vm_writepage(
 
 		end_index = imap.br_startoff + imap.br_blockcount;
 
-		
+		/* to bytes */
 		end_index <<= inode->i_blkbits;
 
-		
+		/* to pages */
 		end_index = (end_index - 1) >> PAGE_CACHE_SHIFT;
 
-		
+		/* check against file size */
 		if (end_index > last_index)
 			end_index = last_index;
 
@@ -929,6 +1048,10 @@ xfs_vm_writepage(
 	}
 
 	if (iohead) {
+		/*
+		 * Reserve log space if we might write beyond the on-disk
+		 * inode size.
+		 */
 		if (ioend->io_type != IO_UNWRITTEN &&
 		    xfs_ioend_is_append(ioend)) {
 			err = xfs_setfilesize_trans_alloc(ioend);
@@ -968,6 +1091,13 @@ xfs_vm_writepages(
 	return generic_writepages(mapping, wbc);
 }
 
+/*
+ * Called to move a page into cleanable state - and from there
+ * to be released. The page should already be clean. We always
+ * have buffer heads in this call.
+ *
+ * Returns 1 if the page is ok to release, 0 otherwise.
+ */
 STATIC int
 xfs_vm_releasepage(
 	struct page		*page,
@@ -1071,6 +1201,10 @@ __xfs_get_blocks(
 		}
 	}
 
+	/*
+	 * If this is a realtime file, data may be on a different device.
+	 * to that pointed to from the buffer_head b_bdev currently.
+	 */
 	bh_result->b_bdev = xfs_find_bdev_for_inode(inode);
 
 	/*
@@ -1097,6 +1231,10 @@ __xfs_get_blocks(
 		}
 	}
 
+	/*
+	 * If this is O_DIRECT or the mpage code calling tell them how large
+	 * the mapping is, so that we can avoid repeated get_blocks calls.
+	 */
 	if (direct || size > (1 << inode->i_blkbits)) {
 		xfs_off_t		mapping_size;
 
@@ -1161,9 +1299,20 @@ xfs_end_io_direct_write(
 {
 	struct xfs_ioend	*ioend = iocb->private;
 
+	/*
+	 * While the generic direct I/O code updates the inode size, it does
+	 * so only after the end_io handler is called, which means our
+	 * end_io handler thinks the on-disk size is outside the in-core
+	 * size.  To prevent this just update it a little bit earlier here.
+	 */
 	if (offset + size > i_size_read(ioend->io_inode))
 		i_size_write(ioend->io_inode, offset + size);
 
+	/*
+	 * blockdev_direct_IO can return an error even after the I/O
+	 * completion handler was called.  Thus we need to protect
+	 * against double-freeing.
+	 */
 	iocb->private = NULL;
 
 	ioend->io_offset = offset;
@@ -1245,6 +1394,13 @@ xfs_vm_write_failed(
 	struct inode		*inode = mapping->host;
 
 	if (to > inode->i_size) {
+		/*
+		 * Punch out the delalloc blocks we have already allocated.
+		 *
+		 * Don't bother with xfs_setattr given that nothing can have
+		 * made it to disk yet as the page is still locked at this
+		 * point.
+		 */
 		struct xfs_inode	*ip = XFS_I(inode);
 		xfs_fileoff_t		start_fsb;
 		xfs_fileoff_t		end_fsb;
@@ -1252,6 +1408,10 @@ xfs_vm_write_failed(
 
 		truncate_pagecache(inode, to, inode->i_size);
 
+		/*
+		 * Check if there are any blocks that are outside of i_size
+		 * that need to be trimmed back.
+		 */
 		start_fsb = XFS_B_TO_FSB(ip->i_mount, inode->i_size) + 1;
 		end_fsb = XFS_B_TO_FSB(ip->i_mount, to);
 		if (end_fsb <= start_fsb)
@@ -1261,7 +1421,7 @@ xfs_vm_write_failed(
 		error = xfs_bmap_punch_delalloc_range(ip, start_fsb,
 							end_fsb - start_fsb);
 		if (error) {
-			
+			/* something screwed, just bail */
 			if (!XFS_FORCED_SHUTDOWN(ip->i_mount)) {
 				xfs_alert(ip->i_mount,
 			"xfs_vm_write_failed: unable to clean up ino %lld",

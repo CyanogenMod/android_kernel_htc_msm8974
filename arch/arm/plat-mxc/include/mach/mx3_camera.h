@@ -33,6 +33,12 @@
 #define MX3_CAMERA_DATAWIDTH_MASK (MX3_CAMERA_DATAWIDTH_4 | MX3_CAMERA_DATAWIDTH_8 | \
 				   MX3_CAMERA_DATAWIDTH_10 | MX3_CAMERA_DATAWIDTH_15)
 
+/**
+ * struct mx3_camera_pdata - i.MX3x camera platform data
+ * @flags:	MX3_CAMERA_* flags
+ * @mclk_10khz:	master clock frequency in 10kHz units
+ * @dma_dev:	IPU DMA device to match against in channel allocation
+ */
 struct mx3_camera_pdata {
 	unsigned long flags;
 	unsigned long mclk_10khz;

@@ -39,7 +39,7 @@ void dss_reg_w(struct dss_io_data *io, u32 offset, u32 value, u32 debug)
 		DEV_DBG("[%08x] => %08x [%08x]\n", (u32)(io->base + offset),
 			value, in_val);
 	}
-} 
+} /* dss_reg_w */
 
 u32 dss_reg_r(struct dss_io_data *io, u32 offset, u32 debug)
 {
@@ -61,7 +61,7 @@ u32 dss_reg_r(struct dss_io_data *io, u32 offset, u32 debug)
 		DEV_DBG("[%08x] <= %08x\n", (u32)(io->base + offset), value);
 
 	return value;
-} 
+} /* dss_reg_r */
 
 void dss_reg_dump(void __iomem *base, u32 length, const char *prefix,
 	u32 debug)
@@ -69,7 +69,7 @@ void dss_reg_dump(void __iomem *base, u32 length, const char *prefix,
 	if (debug)
 		print_hex_dump(KERN_INFO, prefix, DUMP_PREFIX_OFFSET, 32, 4,
 			(void *)base, length, false);
-} 
+} /* dss_reg_dump */
 
 static struct resource *msm_dss_get_res_byname(struct platform_device *pdev,
 	unsigned int type, const char *name)
@@ -81,7 +81,7 @@ static struct resource *msm_dss_get_res_byname(struct platform_device *pdev,
 		DEV_ERR("%s: '%s' resource not found\n", __func__, name);
 
 	return res;
-} 
+} /* msm_dss_get_res_byname */
 
 int msm_dss_ioremap_byname(struct platform_device *pdev,
 	struct dss_io_data *io_data, const char *name)
@@ -110,7 +110,7 @@ int msm_dss_ioremap_byname(struct platform_device *pdev,
 	}
 
 	return 0;
-} 
+} /* msm_dss_ioremap_byname */
 
 void msm_dss_iounmap(struct dss_io_data *io_data)
 {
@@ -125,7 +125,7 @@ void msm_dss_iounmap(struct dss_io_data *io_data)
 		io_data->base = NULL;
 	}
 	io_data->len = 0;
-} 
+} /* msm_dss_iounmap */
 
 int msm_dss_config_vreg(struct device *dev, struct dss_vreg *in_vreg,
 	int num_vreg, int config)
@@ -197,7 +197,7 @@ vreg_get_fail:
 		goto vreg_unconfig;
 	}
 	return rc;
-} 
+} /* msm_dss_config_vreg */
 
 int msm_dss_enable_vreg(struct dss_vreg *in_vreg, int num_vreg, int enable)
 {
@@ -260,7 +260,7 @@ vreg_set_opt_mode_fail:
 	}
 
 	return rc;
-} 
+} /* msm_dss_enable_vreg */
 
 int msm_dss_enable_gpio(struct dss_gpio *in_gpio, int num_gpio, int enable)
 {
@@ -298,7 +298,7 @@ disable_gpio:
 			gpio_free(in_gpio[i].gpio);
 
 	return rc;
-} 
+} /* msm_dss_enable_gpio */
 
 void msm_dss_put_clk(struct dss_clk *clk_arry, int num_clk)
 {
@@ -309,7 +309,7 @@ void msm_dss_put_clk(struct dss_clk *clk_arry, int num_clk)
 			clk_put(clk_arry[i].clk);
 		clk_arry[i].clk = NULL;
 	}
-} 
+} /* msm_dss_put_clk */
 
 int msm_dss_get_clk(struct device *dev, struct dss_clk *clk_arry, int num_clk)
 {
@@ -332,7 +332,7 @@ error:
 	msm_dss_put_clk(clk_arry, num_clk);
 
 	return rc;
-} 
+} /* msm_dss_get_clk */
 
 int msm_dss_clk_set_rate(struct dss_clk *clk_arry, int num_clk)
 {
@@ -365,7 +365,7 @@ int msm_dss_clk_set_rate(struct dss_clk *clk_arry, int num_clk)
 	}
 
 	return rc;
-} 
+} /* msm_dss_clk_set_rate */
 
 int msm_dss_enable_clk(struct dss_clk *clk_arry, int num_clk, int enable)
 {
@@ -412,7 +412,7 @@ int msm_dss_enable_clk(struct dss_clk *clk_arry, int num_clk, int enable)
 	}
 
 	return rc;
-} 
+} /* msm_dss_enable_clk */
 
 
 int mdss_i2c_byte_read(struct i2c_client *client, uint8_t slave_addr,

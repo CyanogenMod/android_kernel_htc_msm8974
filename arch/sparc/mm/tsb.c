@@ -27,6 +27,10 @@ static inline int tag_compare(unsigned long tag, unsigned long vaddr)
 	return (tag == (vaddr >> 22));
 }
 
+/* TSB flushes need only occur on the processor initiating the address
+ * space modification, not on each cpu the address space has run on.
+ * Only the TLB flush needs that treatment.
+ */
 
 void flush_tsb_kernel_range(unsigned long start, unsigned long end)
 {
@@ -124,6 +128,9 @@ static void setup_tsb_params(struct mm_struct *mm, unsigned long tsb_idx, unsign
 	tsb_paddr = __pa(mm->context.tsb_block[tsb_idx].tsb);
 	BUG_ON(tsb_paddr & (tsb_bytes - 1UL));
 
+	/* Use the smallest page size that can map the whole TSB
+	 * in one TLB entry.
+	 */
 	switch (tsb_bytes) {
 	case 8192 << 0:
 		tsb_reg = 0x0UL;
@@ -176,7 +183,7 @@ static void setup_tsb_params(struct mm_struct *mm, unsigned long tsb_idx, unsign
 	tte |= pte_sz_bits(page_sz);
 
 	if (tlb_type == cheetah_plus || tlb_type == hypervisor) {
-		
+		/* Physical mapping, no locked TLB entry for TSB.  */
 		tsb_reg |= tsb_paddr;
 
 		mm->context.tsb_block[tsb_idx].tsb_reg_val = tsb_reg;
@@ -192,7 +199,7 @@ static void setup_tsb_params(struct mm_struct *mm, unsigned long tsb_idx, unsign
 		mm->context.tsb_block[tsb_idx].tsb_map_pte = tte;
 	}
 
-	
+	/* Setup the Hypervisor TSB descriptor.  */
 	if (tlb_type == hypervisor) {
 		struct hv_tsb_descr *hp = &mm->context.tsb_descr[tsb_idx];
 
@@ -282,6 +289,22 @@ static unsigned long tsb_size_to_rss_limit(unsigned long new_size)
 		return num_ents + (num_ents >> sysctl_tsb_ratio);
 }
 
+/* When the RSS of an address space exceeds tsb_rss_limit for a TSB,
+ * do_sparc64_fault() invokes this routine to try and grow it.
+ *
+ * When we reach the maximum TSB size supported, we stick ~0UL into
+ * tsb_rss_limit for that TSB so the grow checks in do_sparc64_fault()
+ * will not trigger any longer.
+ *
+ * The TSB can be anywhere from 8K to 1MB in size, in increasing powers
+ * of two.  The TSB must be aligned to it's size, so f.e. a 512K TSB
+ * must be 512K aligned.  It also must be physically contiguous, so we
+ * cannot use vmalloc().
+ *
+ * The idea here is to grow the TSB when the RSS of the process approaches
+ * the number of entries that the current TSB can hold at once.  Currently,
+ * we trigger when the RSS hits 3/4 of the TSB capacity.
+ */
 void tsb_grow(struct mm_struct *mm, unsigned long tsb_index, unsigned long rss)
 {
 	unsigned long max_tsb_size = 1 * 1024 * 1024;
@@ -313,6 +336,11 @@ retry_tsb_alloc:
 	new_tsb = kmem_cache_alloc_node(tsb_caches[new_cache_index],
 					gfp_flags, numa_node_id());
 	if (unlikely(!new_tsb)) {
+		/* Not being able to fork due to a high-order TSB
+		 * allocation failure is very bad behavior.  Just back
+		 * down to a 0-order allocation and force no TSB
+		 * growing for this address space.
+		 */
 		if (mm->context.tsb_block[tsb_index].tsb == NULL &&
 		    new_cache_index > 0) {
 			new_cache_index = 0;
@@ -321,14 +349,39 @@ retry_tsb_alloc:
 			goto retry_tsb_alloc;
 		}
 
+		/* If we failed on a TSB grow, we are under serious
+		 * memory pressure so don't try to grow any more.
+		 */
 		if (mm->context.tsb_block[tsb_index].tsb != NULL)
 			mm->context.tsb_block[tsb_index].tsb_rss_limit = ~0UL;
 		return;
 	}
 
-	
+	/* Mark all tags as invalid.  */
 	tsb_init(new_tsb, new_size);
 
+	/* Ok, we are about to commit the changes.  If we are
+	 * growing an existing TSB the locking is very tricky,
+	 * so WATCH OUT!
+	 *
+	 * We have to hold mm->context.lock while committing to the
+	 * new TSB, this synchronizes us with processors in
+	 * flush_tsb_user() and switch_mm() for this address space.
+	 *
+	 * But even with that lock held, processors run asynchronously
+	 * accessing the old TSB via TLB miss handling.  This is OK
+	 * because those actions are just propagating state from the
+	 * Linux page tables into the TSB, page table mappings are not
+	 * being changed.  If a real fault occurs, the processor will
+	 * synchronize with us when it hits flush_tsb_user(), this is
+	 * also true for the case where vmscan is modifying the page
+	 * tables.  The only thing we need to be careful with is to
+	 * skip any locked TSB entries during copy_tsb().
+	 *
+	 * When we finish committing to the new TSB, we have to drop
+	 * the lock and ask all other cpus running this address space
+	 * to run tsb_context_switch() to see the new TSB table.
+	 */
 	spin_lock_irqsave(&mm->context.lock, flags);
 
 	old_tsb = mm->context.tsb_block[tsb_index].tsb;
@@ -338,6 +391,10 @@ retry_tsb_alloc:
 		    sizeof(struct tsb));
 
 
+	/* Handle multiple threads trying to grow the TSB at the same time.
+	 * One will get in here first, and bump the size and the RSS limit.
+	 * The others will get in here next and hit this check.
+	 */
 	if (unlikely(old_tsb &&
 		     (rss < mm->context.tsb_block[tsb_index].tsb_rss_limit))) {
 		spin_unlock_irqrestore(&mm->context.lock, flags);
@@ -368,16 +425,19 @@ retry_tsb_alloc:
 
 	spin_unlock_irqrestore(&mm->context.lock, flags);
 
+	/* If old_tsb is NULL, we're being invoked for the first time
+	 * from init_new_context().
+	 */
 	if (old_tsb) {
-		
+		/* Reload it on the local cpu.  */
 		tsb_context_switch(mm);
 
-		
+		/* Now force other processors to do the same.  */
 		preempt_disable();
 		smp_tsb_sync(mm);
 		preempt_enable();
 
-		
+		/* Now it is safe to free the old tsb.  */
 		kmem_cache_free(tsb_caches[old_cache_index], old_tsb);
 	}
 }
@@ -394,13 +454,24 @@ int init_new_context(struct task_struct *tsk, struct mm_struct *mm)
 	mm->context.sparc64_ctx_val = 0UL;
 
 #ifdef CONFIG_HUGETLB_PAGE
+	/* We reset it to zero because the fork() page copying
+	 * will re-increment the counters as the parent PTEs are
+	 * copied into the child address space.
+	 */
 	huge_pte_count = mm->context.huge_pte_count;
 	mm->context.huge_pte_count = 0;
 #endif
 
+	/* copy_mm() copies over the parent's mm_struct before calling
+	 * us, so we need to zero out the TSB pointer or else tsb_grow()
+	 * will be confused and think there is an older TSB to free up.
+	 */
 	for (i = 0; i < MM_NUM_TSBS; i++)
 		mm->context.tsb_block[i].tsb = NULL;
 
+	/* If this is fork, inherit the parent's TSB size.  We would
+	 * grow it to that size on the first page fault anyways.
+	 */
 	tsb_grow(mm, MM_TSB_BASE, get_mm_rss(mm));
 
 #ifdef CONFIG_HUGETLB_PAGE

@@ -297,7 +297,7 @@ static int adau1701_set_dai_fmt(struct snd_soc_dai *codec_dai,
 
 	switch (fmt & SND_SOC_DAIFMT_MASTER_MASK) {
 	case SND_SOC_DAIFMT_CBM_CFM:
-		
+		/* master, 64-bits per sample, 1 frame per sample */
 		seroctl |= ADAU1701_SEROCTL_MASTER | ADAU1701_SEROCTL_OBF16
 				| ADAU1701_SEROCTL_OLF1024;
 		break;
@@ -307,7 +307,7 @@ static int adau1701_set_dai_fmt(struct snd_soc_dai *codec_dai,
 		return -EINVAL;
 	}
 
-	
+	/* clock inversion */
 	switch (fmt & SND_SOC_DAIFMT_INV_MASK) {
 	case SND_SOC_DAIFMT_NB_NF:
 		invert_lrclk = false;
@@ -371,11 +371,11 @@ static int adau1701_set_bias_level(struct snd_soc_codec *codec,
 	case SND_SOC_BIAS_PREPARE:
 		break;
 	case SND_SOC_BIAS_STANDBY:
-		
+		/* Enable VREF and VREF buffer */
 		snd_soc_update_bits(codec, ADAU1701_AUXNPOW, mask, 0x00);
 		break;
 	case SND_SOC_BIAS_OFF:
-		
+		/* Disable VREF and VREF buffer */
 		snd_soc_update_bits(codec, ADAU1701_AUXNPOW, mask, mask);
 		break;
 	}

@@ -19,52 +19,94 @@
 */
 
 
+/*
+  Define the maximum number of DAC960 Controllers supported by this driver.
+*/
 
 #define DAC960_MaxControllers			8
 
 
+/*
+  Define the maximum number of Controller Channels supported by DAC960
+  V1 and V2 Firmware Controllers.
+*/
 
 #define DAC960_V1_MaxChannels			3
 #define DAC960_V2_MaxChannels			4
 
 
+/*
+  Define the maximum number of Targets per Channel supported by DAC960
+  V1 and V2 Firmware Controllers.
+*/
 
 #define DAC960_V1_MaxTargets			16
 #define DAC960_V2_MaxTargets			128
 
 
+/*
+  Define the maximum number of Logical Drives supported by DAC960
+  V1 and V2 Firmware Controllers.
+*/
 
 #define DAC960_MaxLogicalDrives			32
 
 
+/*
+  Define the maximum number of Physical Devices supported by DAC960
+  V1 and V2 Firmware Controllers.
+*/
 
 #define DAC960_V1_MaxPhysicalDevices		45
 #define DAC960_V2_MaxPhysicalDevices		272
 
+/*
+  Define a 32/64 bit I/O Address data type.
+*/
 
 typedef unsigned long DAC960_IO_Address_T;
 
 
+/*
+  Define a 32/64 bit PCI Bus Address data type.
+*/
 
 typedef unsigned long DAC960_PCI_Address_T;
 
 
+/*
+  Define a 32 bit Bus Address data type.
+*/
 
 typedef unsigned int DAC960_BusAddress32_T;
 
 
+/*
+  Define a 64 bit Bus Address data type.
+*/
 
 typedef unsigned long long DAC960_BusAddress64_T;
 
 
+/*
+  Define a 32 bit Byte Count data type.
+*/
 
 typedef unsigned int DAC960_ByteCount32_T;
 
 
+/*
+  Define a 64 bit Byte Count data type.
+*/
 
 typedef unsigned long long DAC960_ByteCount64_T;
 
 
+/*
+  dma_loaf is used by helper routines to divide a region of
+  dma mapped memory into smaller pieces, where those pieces
+  are not of uniform size.
+ */
 
 struct dma_loaf {
 	void	*cpu_base;
@@ -74,51 +116,60 @@ struct dma_loaf {
 	dma_addr_t dma_free;
 };
 
+/*
+  Define the SCSI INQUIRY Standard Data structure.
+*/
 
 typedef struct DAC960_SCSI_Inquiry
 {
-  unsigned char PeripheralDeviceType:5;			
-  unsigned char PeripheralQualifier:3;			
-  unsigned char DeviceTypeModifier:7;			
-  bool RMB:1;						
-  unsigned char ANSI_ApprovedVersion:3;			
-  unsigned char ECMA_Version:3;				
-  unsigned char ISO_Version:2;				
-  unsigned char ResponseDataFormat:4;			
-  unsigned char :2;					
-  bool TrmIOP:1;					
-  bool AENC:1;						
-  unsigned char AdditionalLength;			
-  unsigned char :8;					
-  unsigned char :8;					
-  bool SftRe:1;						
-  bool CmdQue:1;					
-  bool :1;						
-  bool Linked:1;					
-  bool Sync:1;						
-  bool WBus16:1;					
-  bool WBus32:1;					
-  bool RelAdr:1;					
-  unsigned char VendorIdentification[8];		
-  unsigned char ProductIdentification[16];		
-  unsigned char ProductRevisionLevel[4];		
+  unsigned char PeripheralDeviceType:5;			/* Byte 0 Bits 0-4 */
+  unsigned char PeripheralQualifier:3;			/* Byte 0 Bits 5-7 */
+  unsigned char DeviceTypeModifier:7;			/* Byte 1 Bits 0-6 */
+  bool RMB:1;						/* Byte 1 Bit 7 */
+  unsigned char ANSI_ApprovedVersion:3;			/* Byte 2 Bits 0-2 */
+  unsigned char ECMA_Version:3;				/* Byte 2 Bits 3-5 */
+  unsigned char ISO_Version:2;				/* Byte 2 Bits 6-7 */
+  unsigned char ResponseDataFormat:4;			/* Byte 3 Bits 0-3 */
+  unsigned char :2;					/* Byte 3 Bits 4-5 */
+  bool TrmIOP:1;					/* Byte 3 Bit 6 */
+  bool AENC:1;						/* Byte 3 Bit 7 */
+  unsigned char AdditionalLength;			/* Byte 4 */
+  unsigned char :8;					/* Byte 5 */
+  unsigned char :8;					/* Byte 6 */
+  bool SftRe:1;						/* Byte 7 Bit 0 */
+  bool CmdQue:1;					/* Byte 7 Bit 1 */
+  bool :1;						/* Byte 7 Bit 2 */
+  bool Linked:1;					/* Byte 7 Bit 3 */
+  bool Sync:1;						/* Byte 7 Bit 4 */
+  bool WBus16:1;					/* Byte 7 Bit 5 */
+  bool WBus32:1;					/* Byte 7 Bit 6 */
+  bool RelAdr:1;					/* Byte 7 Bit 7 */
+  unsigned char VendorIdentification[8];		/* Bytes 8-15 */
+  unsigned char ProductIdentification[16];		/* Bytes 16-31 */
+  unsigned char ProductRevisionLevel[4];		/* Bytes 32-35 */
 }
 DAC960_SCSI_Inquiry_T;
 
 
+/*
+  Define the SCSI INQUIRY Unit Serial Number structure.
+*/
 
 typedef struct DAC960_SCSI_Inquiry_UnitSerialNumber
 {
-  unsigned char PeripheralDeviceType:5;			
-  unsigned char PeripheralQualifier:3;			
-  unsigned char PageCode;				
-  unsigned char :8;					
-  unsigned char PageLength;				
-  unsigned char ProductSerialNumber[28];		
+  unsigned char PeripheralDeviceType:5;			/* Byte 0 Bits 0-4 */
+  unsigned char PeripheralQualifier:3;			/* Byte 0 Bits 5-7 */
+  unsigned char PageCode;				/* Byte 1 */
+  unsigned char :8;					/* Byte 2 */
+  unsigned char PageLength;				/* Byte 3 */
+  unsigned char ProductSerialNumber[28];		/* Bytes 4-31 */
 }
 DAC960_SCSI_Inquiry_UnitSerialNumber_T;
 
 
+/*
+  Define the SCSI REQUEST SENSE Sense Key type.
+*/
 
 typedef enum
 {
@@ -143,30 +194,36 @@ __attribute__ ((packed))
 DAC960_SCSI_RequestSenseKey_T;
 
 
+/*
+  Define the SCSI REQUEST SENSE structure.
+*/
 
 typedef struct DAC960_SCSI_RequestSense
 {
-  unsigned char ErrorCode:7;				
-  bool Valid:1;						
-  unsigned char SegmentNumber;				
-  DAC960_SCSI_RequestSenseKey_T SenseKey:4;		
-  unsigned char :1;					
-  bool ILI:1;						
-  bool EOM:1;						
-  bool Filemark:1;					
-  unsigned char Information[4];				
-  unsigned char AdditionalSenseLength;			
-  unsigned char CommandSpecificInformation[4];		
-  unsigned char AdditionalSenseCode;			
-  unsigned char AdditionalSenseCodeQualifier;		
+  unsigned char ErrorCode:7;				/* Byte 0 Bits 0-6 */
+  bool Valid:1;						/* Byte 0 Bit 7 */
+  unsigned char SegmentNumber;				/* Byte 1 */
+  DAC960_SCSI_RequestSenseKey_T SenseKey:4;		/* Byte 2 Bits 0-3 */
+  unsigned char :1;					/* Byte 2 Bit 4 */
+  bool ILI:1;						/* Byte 2 Bit 5 */
+  bool EOM:1;						/* Byte 2 Bit 6 */
+  bool Filemark:1;					/* Byte 2 Bit 7 */
+  unsigned char Information[4];				/* Bytes 3-6 */
+  unsigned char AdditionalSenseLength;			/* Byte 7 */
+  unsigned char CommandSpecificInformation[4];		/* Bytes 8-11 */
+  unsigned char AdditionalSenseCode;			/* Byte 12 */
+  unsigned char AdditionalSenseCodeQualifier;		/* Byte 13 */
 }
 DAC960_SCSI_RequestSense_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Command Opcodes.
+*/
 
 typedef enum
 {
-  
+  /* I/O Commands */
   DAC960_V1_ReadExtended =			0x33,
   DAC960_V1_WriteExtended =			0x34,
   DAC960_V1_ReadAheadExtended =			0x35,
@@ -179,7 +236,7 @@ typedef enum
   DAC960_V1_DCDB =				0x04,
   DAC960_V1_DCDBWithScatterGather =		0x84,
   DAC960_V1_Flush =				0x0A,
-  
+  /* Controller Status Related Commands */
   DAC960_V1_Enquiry =				0x53,
   DAC960_V1_Enquiry2 =				0x1C,
   DAC960_V1_GetLogicalDriveElement =		0x55,
@@ -189,13 +246,13 @@ typedef enum
   DAC960_V1_GetSDStats =			0x3E,
   DAC960_V1_GetPDStats =			0x3F,
   DAC960_V1_PerformEventLogOperation =		0x72,
-  
+  /* Device Related Commands */
   DAC960_V1_StartDevice =			0x10,
   DAC960_V1_GetDeviceState =			0x50,
   DAC960_V1_StopChannel =			0x13,
   DAC960_V1_StartChannel =			0x12,
   DAC960_V1_ResetChannel =			0x1A,
-  
+  /* Commands Associated with Data Consistency and Errors */
   DAC960_V1_Rebuild =				0x09,
   DAC960_V1_RebuildAsync =			0x16,
   DAC960_V1_CheckConsistency =			0x0F,
@@ -209,7 +266,7 @@ typedef enum
   DAC960_V1_GetErrorTable =			0x17,
   DAC960_V1_AddCapacityAsync =			0x2A,
   DAC960_V1_BackgroundInitializationControl =	0x2B,
-  
+  /* Configuration Related Commands */
   DAC960_V1_ReadConfig2 =			0x3D,
   DAC960_V1_WriteConfig2 =			0x3C,
   DAC960_V1_ReadConfigurationOnDisk =		0x4A,
@@ -220,17 +277,17 @@ typedef enum
   DAC960_V1_AddConfiguration =			0x4C,
   DAC960_V1_ReadConfigurationLabel =		0x48,
   DAC960_V1_WriteConfigurationLabel =		0x49,
-  
+  /* Firmware Upgrade Related Commands */
   DAC960_V1_LoadImage =				0x20,
   DAC960_V1_StoreImage =			0x21,
   DAC960_V1_ProgramImage =			0x22,
-  
+  /* Diagnostic Commands */
   DAC960_V1_SetDiagnosticMode =			0x31,
   DAC960_V1_RunDiagnostic =			0x32,
-  
+  /* Subsystem Service Commands */
   DAC960_V1_GetSubsystemData =			0x70,
   DAC960_V1_SetSubsystemParameters =		0x71,
-  
+  /* Version 2.xx Firmware Commands */
   DAC960_V1_Enquiry_Old =			0x05,
   DAC960_V1_GetDeviceState_Old =		0x14,
   DAC960_V1_Read_Old =				0x02,
@@ -242,72 +299,81 @@ __attribute__ ((packed))
 DAC960_V1_CommandOpcode_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Command Identifier type.
+*/
 
 typedef unsigned char DAC960_V1_CommandIdentifier_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Command Status Codes.
+*/
 
-#define DAC960_V1_NormalCompletion		0x0000	
-#define DAC960_V1_CheckConditionReceived	0x0002	
-#define DAC960_V1_NoDeviceAtAddress		0x0102	
-#define DAC960_V1_InvalidDeviceAddress		0x0105	
-#define DAC960_V1_InvalidParameter		0x0105	
-#define DAC960_V1_IrrecoverableDataError	0x0001	
-#define DAC960_V1_LogicalDriveNonexistentOrOffline 0x0002 
-#define DAC960_V1_AccessBeyondEndOfLogicalDrive	0x0105	
-#define DAC960_V1_BadDataEncountered		0x010C	
-#define DAC960_V1_DeviceBusy			0x0008	
-#define DAC960_V1_DeviceNonresponsive		0x000E	
-#define DAC960_V1_CommandTerminatedAbnormally	0x000F	
-#define DAC960_V1_UnableToStartDevice		0x0002	
-#define DAC960_V1_InvalidChannelOrTargetOrModifier 0x0105 
-#define DAC960_V1_ChannelBusy			0x0106	
-#define DAC960_V1_ChannelNotStopped		0x0002	
-#define DAC960_V1_AttemptToRebuildOnlineDrive	0x0002	
-#define DAC960_V1_RebuildBadBlocksEncountered	0x0003	
-#define DAC960_V1_NewDiskFailedDuringRebuild	0x0004	
-#define DAC960_V1_RebuildOrCheckAlreadyInProgress 0x0106 
-#define DAC960_V1_DependentDiskIsDead		0x0002	
-#define DAC960_V1_InconsistentBlocksFound	0x0003	
-#define DAC960_V1_InvalidOrNonredundantLogicalDrive 0x0105 
-#define DAC960_V1_NoRebuildOrCheckInProgress	0x0105	
-#define DAC960_V1_RebuildInProgress_DataValid	0x0000	
-#define DAC960_V1_RebuildFailed_LogicalDriveFailure 0x0002 
-#define DAC960_V1_RebuildFailed_BadBlocksOnOther 0x0003	
-#define DAC960_V1_RebuildFailed_NewDriveFailed	0x0004	
-#define DAC960_V1_RebuildSuccessful		0x0100	
-#define DAC960_V1_RebuildSuccessfullyTerminated	0x0107	
-#define DAC960_V1_BackgroundInitSuccessful	0x0100	
-#define DAC960_V1_BackgroundInitAborted		0x0005	
-#define DAC960_V1_NoBackgroundInitInProgress	0x0105	
-#define DAC960_V1_AddCapacityInProgress		0x0004	
-#define DAC960_V1_AddCapacityFailedOrSuspended	0x00F4	
-#define DAC960_V1_Config2ChecksumError		0x0002	
-#define DAC960_V1_ConfigurationSuspended	0x0106	
-#define DAC960_V1_FailedToConfigureNVRAM	0x0105	
-#define DAC960_V1_ConfigurationNotSavedStateChange 0x0106 
-#define DAC960_V1_SubsystemNotInstalled		0x0001	
-#define DAC960_V1_SubsystemFailed		0x0002	
-#define DAC960_V1_SubsystemBusy			0x0106	
+#define DAC960_V1_NormalCompletion		0x0000	/* Common */
+#define DAC960_V1_CheckConditionReceived	0x0002	/* Common */
+#define DAC960_V1_NoDeviceAtAddress		0x0102	/* Common */
+#define DAC960_V1_InvalidDeviceAddress		0x0105	/* Common */
+#define DAC960_V1_InvalidParameter		0x0105	/* Common */
+#define DAC960_V1_IrrecoverableDataError	0x0001	/* I/O */
+#define DAC960_V1_LogicalDriveNonexistentOrOffline 0x0002 /* I/O */
+#define DAC960_V1_AccessBeyondEndOfLogicalDrive	0x0105	/* I/O */
+#define DAC960_V1_BadDataEncountered		0x010C	/* I/O */
+#define DAC960_V1_DeviceBusy			0x0008	/* DCDB */
+#define DAC960_V1_DeviceNonresponsive		0x000E	/* DCDB */
+#define DAC960_V1_CommandTerminatedAbnormally	0x000F	/* DCDB */
+#define DAC960_V1_UnableToStartDevice		0x0002	/* Device */
+#define DAC960_V1_InvalidChannelOrTargetOrModifier 0x0105 /* Device */
+#define DAC960_V1_ChannelBusy			0x0106	/* Device */
+#define DAC960_V1_ChannelNotStopped		0x0002	/* Device */
+#define DAC960_V1_AttemptToRebuildOnlineDrive	0x0002	/* Consistency */
+#define DAC960_V1_RebuildBadBlocksEncountered	0x0003	/* Consistency */
+#define DAC960_V1_NewDiskFailedDuringRebuild	0x0004	/* Consistency */
+#define DAC960_V1_RebuildOrCheckAlreadyInProgress 0x0106 /* Consistency */
+#define DAC960_V1_DependentDiskIsDead		0x0002	/* Consistency */
+#define DAC960_V1_InconsistentBlocksFound	0x0003	/* Consistency */
+#define DAC960_V1_InvalidOrNonredundantLogicalDrive 0x0105 /* Consistency */
+#define DAC960_V1_NoRebuildOrCheckInProgress	0x0105	/* Consistency */
+#define DAC960_V1_RebuildInProgress_DataValid	0x0000	/* Consistency */
+#define DAC960_V1_RebuildFailed_LogicalDriveFailure 0x0002 /* Consistency */
+#define DAC960_V1_RebuildFailed_BadBlocksOnOther 0x0003	/* Consistency */
+#define DAC960_V1_RebuildFailed_NewDriveFailed	0x0004	/* Consistency */
+#define DAC960_V1_RebuildSuccessful		0x0100	/* Consistency */
+#define DAC960_V1_RebuildSuccessfullyTerminated	0x0107	/* Consistency */
+#define DAC960_V1_BackgroundInitSuccessful	0x0100	/* Consistency */
+#define DAC960_V1_BackgroundInitAborted		0x0005	/* Consistency */
+#define DAC960_V1_NoBackgroundInitInProgress	0x0105	/* Consistency */
+#define DAC960_V1_AddCapacityInProgress		0x0004	/* Consistency */
+#define DAC960_V1_AddCapacityFailedOrSuspended	0x00F4	/* Consistency */
+#define DAC960_V1_Config2ChecksumError		0x0002	/* Configuration */
+#define DAC960_V1_ConfigurationSuspended	0x0106	/* Configuration */
+#define DAC960_V1_FailedToConfigureNVRAM	0x0105	/* Configuration */
+#define DAC960_V1_ConfigurationNotSavedStateChange 0x0106 /* Configuration */
+#define DAC960_V1_SubsystemNotInstalled		0x0001	/* Subsystem */
+#define DAC960_V1_SubsystemFailed		0x0002	/* Subsystem */
+#define DAC960_V1_SubsystemBusy			0x0106	/* Subsystem */
 
 typedef unsigned short DAC960_V1_CommandStatus_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Enquiry Command reply structure.
+*/
 
 typedef struct DAC960_V1_Enquiry
 {
-  unsigned char NumberOfLogicalDrives;			
-  unsigned int :24;					
-  unsigned int LogicalDriveSizes[32];			
-  unsigned short FlashAge;				
+  unsigned char NumberOfLogicalDrives;			/* Byte 0 */
+  unsigned int :24;					/* Bytes 1-3 */
+  unsigned int LogicalDriveSizes[32];			/* Bytes 4-131 */
+  unsigned short FlashAge;				/* Bytes 132-133 */
   struct {
-    bool DeferredWriteError:1;				
-    bool BatteryLow:1;					
-    unsigned char :6;					
+    bool DeferredWriteError:1;				/* Byte 134 Bit 0 */
+    bool BatteryLow:1;					/* Byte 134 Bit 1 */
+    unsigned char :6;					/* Byte 134 Bits 2-7 */
   } StatusFlags;
-  unsigned char :8;					
-  unsigned char MinorFirmwareVersion;			
-  unsigned char MajorFirmwareVersion;			
+  unsigned char :8;					/* Byte 135 */
+  unsigned char MinorFirmwareVersion;			/* Byte 136 */
+  unsigned char MajorFirmwareVersion;			/* Byte 137 */
   enum {
     DAC960_V1_NoStandbyRebuildOrCheckInProgress =		    0x00,
     DAC960_V1_StandbyRebuildInProgress =			    0x01,
@@ -318,32 +384,35 @@ typedef struct DAC960_V1_Enquiry
     DAC960_V1_BackgroundRebuildOrCheckFailed_LogicalDriveFailed =   0xF1,
     DAC960_V1_BackgroundRebuildOrCheckFailed_OtherCauses =	    0xF2,
     DAC960_V1_BackgroundRebuildOrCheckSuccessfullyTerminated =	    0xF3
-  } __attribute__ ((packed)) RebuildFlag;		
-  unsigned char MaxCommands;				
-  unsigned char OfflineLogicalDriveCount;		
-  unsigned char :8;					
-  unsigned short EventLogSequenceNumber;		
-  unsigned char CriticalLogicalDriveCount;		
-  unsigned int :24;					
-  unsigned char DeadDriveCount;				
-  unsigned char :8;					
-  unsigned char RebuildCount;				
+  } __attribute__ ((packed)) RebuildFlag;		/* Byte 138 */
+  unsigned char MaxCommands;				/* Byte 139 */
+  unsigned char OfflineLogicalDriveCount;		/* Byte 140 */
+  unsigned char :8;					/* Byte 141 */
+  unsigned short EventLogSequenceNumber;		/* Bytes 142-143 */
+  unsigned char CriticalLogicalDriveCount;		/* Byte 144 */
+  unsigned int :24;					/* Bytes 145-147 */
+  unsigned char DeadDriveCount;				/* Byte 148 */
+  unsigned char :8;					/* Byte 149 */
+  unsigned char RebuildCount;				/* Byte 150 */
   struct {
-    unsigned char :3;					
-    bool BatteryBackupUnitPresent:1;			
-    unsigned char :3;					
-    unsigned char :1;					
+    unsigned char :3;					/* Byte 151 Bits 0-2 */
+    bool BatteryBackupUnitPresent:1;			/* Byte 151 Bit 3 */
+    unsigned char :3;					/* Byte 151 Bits 4-6 */
+    unsigned char :1;					/* Byte 151 Bit 7 */
   } MiscFlags;
   struct {
     unsigned char TargetID;
     unsigned char Channel;
-  } DeadDrives[21];					
-  unsigned char Reserved[62];				
+  } DeadDrives[21];					/* Bytes 152-194 */
+  unsigned char Reserved[62];				/* Bytes 195-255 */
 }
 __attribute__ ((packed))
 DAC960_V1_Enquiry_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Enquiry2 Command reply structure.
+*/
 
 typedef struct DAC960_V1_Enquiry2
 {
@@ -359,108 +428,108 @@ typedef struct DAC960_V1_Enquiry2
       DAC960_V1_PRL =				0x15,
       DAC960_V1_PTL1 =				0x16,
       DAC960_V1_1164P =				0x20
-    } __attribute__ ((packed)) SubModel;		
-    unsigned char ActualChannels;			
+    } __attribute__ ((packed)) SubModel;		/* Byte 0 */
+    unsigned char ActualChannels;			/* Byte 1 */
     enum {
       DAC960_V1_FiveChannelBoard =		0x01,
       DAC960_V1_ThreeChannelBoard =		0x02,
       DAC960_V1_TwoChannelBoard =		0x03,
       DAC960_V1_ThreeChannelASIC_DAC =		0x04
-    } __attribute__ ((packed)) Model;			
+    } __attribute__ ((packed)) Model;			/* Byte 2 */
     enum {
       DAC960_V1_EISA_Controller =		0x01,
       DAC960_V1_MicroChannel_Controller =	0x02,
       DAC960_V1_PCI_Controller =		0x03,
       DAC960_V1_SCSItoSCSI_Controller =		0x08
-    } __attribute__ ((packed)) ProductFamily;		
-  } HardwareID;						
-  
+    } __attribute__ ((packed)) ProductFamily;		/* Byte 3 */
+  } HardwareID;						/* Bytes 0-3 */
+  /* MajorVersion.MinorVersion-FirmwareType-TurnID */
   struct {
-    unsigned char MajorVersion;				
-    unsigned char MinorVersion;				
-    unsigned char TurnID;				
-    char FirmwareType;					
-  } FirmwareID;						
-  unsigned char :8;					
-  unsigned int :24;					
-  unsigned char ConfiguredChannels;			
-  unsigned char ActualChannels;				
-  unsigned char MaxTargets;				
-  unsigned char MaxTags;				
-  unsigned char MaxLogicalDrives;			
-  unsigned char MaxArms;				
-  unsigned char MaxSpans;				
-  unsigned char :8;					
-  unsigned int :32;					
-  unsigned int MemorySize;				
-  unsigned int CacheSize;				
-  unsigned int FlashMemorySize;				
-  unsigned int NonVolatileMemorySize;			
+    unsigned char MajorVersion;				/* Byte 4 */
+    unsigned char MinorVersion;				/* Byte 5 */
+    unsigned char TurnID;				/* Byte 6 */
+    char FirmwareType;					/* Byte 7 */
+  } FirmwareID;						/* Bytes 4-7 */
+  unsigned char :8;					/* Byte 8 */
+  unsigned int :24;					/* Bytes 9-11 */
+  unsigned char ConfiguredChannels;			/* Byte 12 */
+  unsigned char ActualChannels;				/* Byte 13 */
+  unsigned char MaxTargets;				/* Byte 14 */
+  unsigned char MaxTags;				/* Byte 15 */
+  unsigned char MaxLogicalDrives;			/* Byte 16 */
+  unsigned char MaxArms;				/* Byte 17 */
+  unsigned char MaxSpans;				/* Byte 18 */
+  unsigned char :8;					/* Byte 19 */
+  unsigned int :32;					/* Bytes 20-23 */
+  unsigned int MemorySize;				/* Bytes 24-27 */
+  unsigned int CacheSize;				/* Bytes 28-31 */
+  unsigned int FlashMemorySize;				/* Bytes 32-35 */
+  unsigned int NonVolatileMemorySize;			/* Bytes 36-39 */
   struct {
     enum {
       DAC960_V1_RamType_DRAM =			0x0,
       DAC960_V1_RamType_EDO =			0x1,
       DAC960_V1_RamType_SDRAM =			0x2,
       DAC960_V1_RamType_Last =			0x7
-    } __attribute__ ((packed)) RamType:3;		
+    } __attribute__ ((packed)) RamType:3;		/* Byte 40 Bits 0-2 */
     enum {
       DAC960_V1_ErrorCorrection_None =		0x0,
       DAC960_V1_ErrorCorrection_Parity =	0x1,
       DAC960_V1_ErrorCorrection_ECC =		0x2,
       DAC960_V1_ErrorCorrection_Last =		0x7
-    } __attribute__ ((packed)) ErrorCorrection:3;	
-    bool FastPageMode:1;				
-    bool LowPowerMemory:1;				
-    unsigned char :8;					
+    } __attribute__ ((packed)) ErrorCorrection:3;	/* Byte 40 Bits 3-5 */
+    bool FastPageMode:1;				/* Byte 40 Bit 6 */
+    bool LowPowerMemory:1;				/* Byte 40 Bit 7 */
+    unsigned char :8;					/* Bytes 41 */
   } MemoryType;
-  unsigned short ClockSpeed;				
-  unsigned short MemorySpeed;				
-  unsigned short HardwareSpeed;				
-  unsigned int :32;					
-  unsigned int :32;					
-  unsigned char :8;					
-  unsigned char :8;					
-  unsigned short :16;					
-  unsigned short MaxCommands;				
-  unsigned short MaxScatterGatherEntries;		
-  unsigned short MaxDriveCommands;			
-  unsigned short MaxIODescriptors;			
-  unsigned short MaxCombinedSectors;			
-  unsigned char Latency;				
-  unsigned char :8;					
-  unsigned char SCSITimeout;				
-  unsigned char :8;					
-  unsigned short MinFreeLines;				
-  unsigned int :32;					
-  unsigned int :32;					
-  unsigned char RebuildRateConstant;			
-  unsigned char :8;					
-  unsigned char :8;					
-  unsigned char :8;					
-  unsigned int :32;					
-  unsigned int :32;					
-  unsigned short PhysicalDriveBlockSize;		
-  unsigned short LogicalDriveBlockSize;			
-  unsigned short MaxBlocksPerCommand;			
-  unsigned short BlockFactor;				
-  unsigned short CacheLineSize;				
+  unsigned short ClockSpeed;				/* Bytes 42-43 */
+  unsigned short MemorySpeed;				/* Bytes 44-45 */
+  unsigned short HardwareSpeed;				/* Bytes 46-47 */
+  unsigned int :32;					/* Bytes 48-51 */
+  unsigned int :32;					/* Bytes 52-55 */
+  unsigned char :8;					/* Byte 56 */
+  unsigned char :8;					/* Byte 57 */
+  unsigned short :16;					/* Bytes 58-59 */
+  unsigned short MaxCommands;				/* Bytes 60-61 */
+  unsigned short MaxScatterGatherEntries;		/* Bytes 62-63 */
+  unsigned short MaxDriveCommands;			/* Bytes 64-65 */
+  unsigned short MaxIODescriptors;			/* Bytes 66-67 */
+  unsigned short MaxCombinedSectors;			/* Bytes 68-69 */
+  unsigned char Latency;				/* Byte 70 */
+  unsigned char :8;					/* Byte 71 */
+  unsigned char SCSITimeout;				/* Byte 72 */
+  unsigned char :8;					/* Byte 73 */
+  unsigned short MinFreeLines;				/* Bytes 74-75 */
+  unsigned int :32;					/* Bytes 76-79 */
+  unsigned int :32;					/* Bytes 80-83 */
+  unsigned char RebuildRateConstant;			/* Byte 84 */
+  unsigned char :8;					/* Byte 85 */
+  unsigned char :8;					/* Byte 86 */
+  unsigned char :8;					/* Byte 87 */
+  unsigned int :32;					/* Bytes 88-91 */
+  unsigned int :32;					/* Bytes 92-95 */
+  unsigned short PhysicalDriveBlockSize;		/* Bytes 96-97 */
+  unsigned short LogicalDriveBlockSize;			/* Bytes 98-99 */
+  unsigned short MaxBlocksPerCommand;			/* Bytes 100-101 */
+  unsigned short BlockFactor;				/* Bytes 102-103 */
+  unsigned short CacheLineSize;				/* Bytes 104-105 */
   struct {
     enum {
       DAC960_V1_Narrow_8bit =			0x0,
       DAC960_V1_Wide_16bit =			0x1,
       DAC960_V1_Wide_32bit =			0x2
-    } __attribute__ ((packed)) BusWidth:2;		
+    } __attribute__ ((packed)) BusWidth:2;		/* Byte 106 Bits 0-1 */
     enum {
       DAC960_V1_Fast =				0x0,
       DAC960_V1_Ultra =				0x1,
       DAC960_V1_Ultra2 =			0x2
-    } __attribute__ ((packed)) BusSpeed:2;		
-    bool Differential:1;				
-    unsigned char :3;					
+    } __attribute__ ((packed)) BusSpeed:2;		/* Byte 106 Bits 2-3 */
+    bool Differential:1;				/* Byte 106 Bit 4 */
+    unsigned char :3;					/* Byte 106 Bits 5-7 */
   } SCSICapability;
-  unsigned char :8;					
-  unsigned int :32;					
-  unsigned short FirmwareBuildNumber;			
+  unsigned char :8;					/* Byte 107 */
+  unsigned int :32;					/* Bytes 108-111 */
+  unsigned short FirmwareBuildNumber;			/* Bytes 112-113 */
   enum {
     DAC960_V1_AEMI =				0x01,
     DAC960_V1_OEM1 =				0x02,
@@ -468,21 +537,24 @@ typedef struct DAC960_V1_Enquiry2
     DAC960_V1_OEM3 =				0x08,
     DAC960_V1_Conner =				0x10,
     DAC960_V1_SAFTE =				0x20
-  } __attribute__ ((packed)) FaultManagementType;	
-  unsigned char :8;					
+  } __attribute__ ((packed)) FaultManagementType;	/* Byte 114 */
+  unsigned char :8;					/* Byte 115 */
   struct {
-    bool Clustering:1;					
-    bool MylexOnlineRAIDExpansion:1;			
-    bool ReadAhead:1;					
-    bool BackgroundInitialization:1;			
-    unsigned int :28;					
+    bool Clustering:1;					/* Byte 116 Bit 0 */
+    bool MylexOnlineRAIDExpansion:1;			/* Byte 116 Bit 1 */
+    bool ReadAhead:1;					/* Byte 116 Bit 2 */
+    bool BackgroundInitialization:1;			/* Byte 116 Bit 3 */
+    unsigned int :28;					/* Bytes 116-119 */
   } FirmwareFeatures;
-  unsigned int :32;					
-  unsigned int :32;					
+  unsigned int :32;					/* Bytes 120-123 */
+  unsigned int :32;					/* Bytes 124-127 */
 }
 DAC960_V1_Enquiry2_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Logical Drive State type.
+*/
 
 typedef enum
 {
@@ -494,23 +566,33 @@ __attribute__ ((packed))
 DAC960_V1_LogicalDriveState_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Logical Drive Information structure.
+*/
 
 typedef struct DAC960_V1_LogicalDriveInformation
 {
-  unsigned int LogicalDriveSize;			
-  DAC960_V1_LogicalDriveState_T LogicalDriveState;	
-  unsigned char RAIDLevel:7;				
-  bool WriteBack:1;					
-  unsigned short :16;					
+  unsigned int LogicalDriveSize;			/* Bytes 0-3 */
+  DAC960_V1_LogicalDriveState_T LogicalDriveState;	/* Byte 4 */
+  unsigned char RAIDLevel:7;				/* Byte 5 Bits 0-6 */
+  bool WriteBack:1;					/* Byte 5 Bit 7 */
+  unsigned short :16;					/* Bytes 6-7 */
 }
 DAC960_V1_LogicalDriveInformation_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Get Logical Drive Information Command
+  reply structure.
+*/
 
 typedef DAC960_V1_LogicalDriveInformation_T
 	DAC960_V1_LogicalDriveInformationArray_T[DAC960_MaxLogicalDrives];
 
 
+/*
+  Define the DAC960 V1 Firmware Perform Event Log Operation Types.
+*/
 
 typedef enum
 {
@@ -520,34 +602,40 @@ __attribute__ ((packed))
 DAC960_V1_PerformEventLogOpType_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Get Event Log Entry Command reply structure.
+*/
 
 typedef struct DAC960_V1_EventLogEntry
 {
-  unsigned char MessageType;				
-  unsigned char MessageLength;				
-  unsigned char TargetID:5;				
-  unsigned char Channel:3;				
-  unsigned char LogicalUnit:6;				
-  unsigned char :2;					
-  unsigned short SequenceNumber;			
-  unsigned char ErrorCode:7;				
-  bool Valid:1;						
-  unsigned char SegmentNumber;				
-  DAC960_SCSI_RequestSenseKey_T SenseKey:4;		
-  unsigned char :1;					
-  bool ILI:1;						
-  bool EOM:1;						
-  bool Filemark:1;					
-  unsigned char Information[4];				
-  unsigned char AdditionalSenseLength;			
-  unsigned char CommandSpecificInformation[4];		
-  unsigned char AdditionalSenseCode;			
-  unsigned char AdditionalSenseCodeQualifier;		
-  unsigned char Dummy[12];				
+  unsigned char MessageType;				/* Byte 0 */
+  unsigned char MessageLength;				/* Byte 1 */
+  unsigned char TargetID:5;				/* Byte 2 Bits 0-4 */
+  unsigned char Channel:3;				/* Byte 2 Bits 5-7 */
+  unsigned char LogicalUnit:6;				/* Byte 3 Bits 0-5 */
+  unsigned char :2;					/* Byte 3 Bits 6-7 */
+  unsigned short SequenceNumber;			/* Bytes 4-5 */
+  unsigned char ErrorCode:7;				/* Byte 6 Bits 0-6 */
+  bool Valid:1;						/* Byte 6 Bit 7 */
+  unsigned char SegmentNumber;				/* Byte 7 */
+  DAC960_SCSI_RequestSenseKey_T SenseKey:4;		/* Byte 8 Bits 0-3 */
+  unsigned char :1;					/* Byte 8 Bit 4 */
+  bool ILI:1;						/* Byte 8 Bit 5 */
+  bool EOM:1;						/* Byte 8 Bit 6 */
+  bool Filemark:1;					/* Byte 8 Bit 7 */
+  unsigned char Information[4];				/* Bytes 9-12 */
+  unsigned char AdditionalSenseLength;			/* Byte 13 */
+  unsigned char CommandSpecificInformation[4];		/* Bytes 14-17 */
+  unsigned char AdditionalSenseCode;			/* Byte 18 */
+  unsigned char AdditionalSenseCodeQualifier;		/* Byte 19 */
+  unsigned char Dummy[12];				/* Bytes 20-31 */
 }
 DAC960_V1_EventLogEntry_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Physical Device State type.
+*/
 
 typedef enum
 {
@@ -560,75 +648,93 @@ __attribute__ ((packed))
 DAC960_V1_PhysicalDeviceState_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Get Device State Command reply structure.
+  The structure is padded by 2 bytes for compatibility with Version 2.xx
+  Firmware.
+*/
 
 typedef struct DAC960_V1_DeviceState
 {
-  bool Present:1;					
-  unsigned char :7;					
+  bool Present:1;					/* Byte 0 Bit 0 */
+  unsigned char :7;					/* Byte 0 Bits 1-7 */
   enum {
     DAC960_V1_OtherType =			0x0,
     DAC960_V1_DiskType =			0x1,
     DAC960_V1_SequentialType =			0x2,
     DAC960_V1_CDROM_or_WORM_Type =		0x3
-    } __attribute__ ((packed)) DeviceType:2;		
-  bool :1;						
-  bool Fast20:1;					
-  bool Sync:1;						
-  bool Fast:1;						
-  bool Wide:1;						
-  bool TaggedQueuingSupported:1;			
-  DAC960_V1_PhysicalDeviceState_T DeviceState;		
-  unsigned char :8;					
-  unsigned char SynchronousMultiplier;			
-  unsigned char SynchronousOffset:5;			
-  unsigned char :3;					
-  unsigned int DiskSize __attribute__ ((packed));	
-  unsigned short :16;					
+    } __attribute__ ((packed)) DeviceType:2;		/* Byte 1 Bits 0-1 */
+  bool :1;						/* Byte 1 Bit 2 */
+  bool Fast20:1;					/* Byte 1 Bit 3 */
+  bool Sync:1;						/* Byte 1 Bit 4 */
+  bool Fast:1;						/* Byte 1 Bit 5 */
+  bool Wide:1;						/* Byte 1 Bit 6 */
+  bool TaggedQueuingSupported:1;			/* Byte 1 Bit 7 */
+  DAC960_V1_PhysicalDeviceState_T DeviceState;		/* Byte 2 */
+  unsigned char :8;					/* Byte 3 */
+  unsigned char SynchronousMultiplier;			/* Byte 4 */
+  unsigned char SynchronousOffset:5;			/* Byte 5 Bits 0-4 */
+  unsigned char :3;					/* Byte 5 Bits 5-7 */
+  unsigned int DiskSize __attribute__ ((packed));	/* Bytes 6-9 */
+  unsigned short :16;					/* Bytes 10-11 */
 }
 DAC960_V1_DeviceState_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Get Rebuild Progress Command reply structure.
+*/
 
 typedef struct DAC960_V1_RebuildProgress
 {
-  unsigned int LogicalDriveNumber;			
-  unsigned int LogicalDriveSize;			
-  unsigned int RemainingBlocks;				
+  unsigned int LogicalDriveNumber;			/* Bytes 0-3 */
+  unsigned int LogicalDriveSize;			/* Bytes 4-7 */
+  unsigned int RemainingBlocks;				/* Bytes 8-11 */
 }
 DAC960_V1_RebuildProgress_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Background Initialization Status Command
+  reply structure.
+*/
 
 typedef struct DAC960_V1_BackgroundInitializationStatus
 {
-  unsigned int LogicalDriveSize;			
-  unsigned int BlocksCompleted;				
-  unsigned char Reserved1[12];				
-  unsigned int LogicalDriveNumber;			
-  unsigned char RAIDLevel;				
+  unsigned int LogicalDriveSize;			/* Bytes 0-3 */
+  unsigned int BlocksCompleted;				/* Bytes 4-7 */
+  unsigned char Reserved1[12];				/* Bytes 8-19 */
+  unsigned int LogicalDriveNumber;			/* Bytes 20-23 */
+  unsigned char RAIDLevel;				/* Byte 24 */
   enum {
     DAC960_V1_BackgroundInitializationInvalid =	    0x00,
     DAC960_V1_BackgroundInitializationStarted =	    0x02,
     DAC960_V1_BackgroundInitializationInProgress =  0x04,
     DAC960_V1_BackgroundInitializationSuspended =   0x05,
     DAC960_V1_BackgroundInitializationCancelled =   0x06
-  } __attribute__ ((packed)) Status;			
-  unsigned char Reserved2[6];				
+  } __attribute__ ((packed)) Status;			/* Byte 25 */
+  unsigned char Reserved2[6];				/* Bytes 26-31 */
 }
 DAC960_V1_BackgroundInitializationStatus_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Error Table Entry structure.
+*/
 
 typedef struct DAC960_V1_ErrorTableEntry
 {
-  unsigned char ParityErrorCount;			
-  unsigned char SoftErrorCount;				
-  unsigned char HardErrorCount;				
-  unsigned char MiscErrorCount;				
+  unsigned char ParityErrorCount;			/* Byte 0 */
+  unsigned char SoftErrorCount;				/* Byte 1 */
+  unsigned char HardErrorCount;				/* Byte 2 */
+  unsigned char MiscErrorCount;				/* Byte 3 */
 }
 DAC960_V1_ErrorTableEntry_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Get Error Table Command reply structure.
+*/
 
 typedef struct DAC960_V1_ErrorTable
 {
@@ -638,20 +744,23 @@ typedef struct DAC960_V1_ErrorTable
 DAC960_V1_ErrorTable_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Read Config2 Command reply structure.
+*/
 
 typedef struct DAC960_V1_Config2
 {
-  unsigned char :1;					
-  bool ActiveNegationEnabled:1;				
-  unsigned char :5;					
-  bool NoRescanIfResetReceivedDuringScan:1;		
-  bool StorageWorksSupportEnabled:1;			
-  bool HewlettPackardSupportEnabled:1;			
-  bool NoDisconnectOnFirstCommand:1;			
-  unsigned char :2;					
-  bool AEMI_ARM:1;					
-  bool AEMI_OFM:1;					
-  unsigned char :1;					
+  unsigned char :1;					/* Byte 0 Bit 0 */
+  bool ActiveNegationEnabled:1;				/* Byte 0 Bit 1 */
+  unsigned char :5;					/* Byte 0 Bits 2-6 */
+  bool NoRescanIfResetReceivedDuringScan:1;		/* Byte 0 Bit 7 */
+  bool StorageWorksSupportEnabled:1;			/* Byte 1 Bit 0 */
+  bool HewlettPackardSupportEnabled:1;			/* Byte 1 Bit 1 */
+  bool NoDisconnectOnFirstCommand:1;			/* Byte 1 Bit 2 */
+  unsigned char :2;					/* Byte 1 Bits 3-4 */
+  bool AEMI_ARM:1;					/* Byte 1 Bit 5 */
+  bool AEMI_OFM:1;					/* Byte 1 Bit 6 */
+  unsigned char :1;					/* Byte 1 Bit 7 */
   enum {
     DAC960_V1_OEMID_Mylex =			0x00,
     DAC960_V1_OEMID_IBM =			0x08,
@@ -659,205 +768,220 @@ typedef struct DAC960_V1_Config2
     DAC960_V1_OEMID_DEC =			0x0C,
     DAC960_V1_OEMID_Siemens =			0x10,
     DAC960_V1_OEMID_Intel =			0x12
-  } __attribute__ ((packed)) OEMID;			
-  unsigned char OEMModelNumber;				
-  unsigned char PhysicalSector;				
-  unsigned char LogicalSector;				
-  unsigned char BlockFactor;				
-  bool ReadAheadEnabled:1;				
-  bool LowBIOSDelay:1;					
-  unsigned char :2;					
-  bool ReassignRestrictedToOneSector:1;			
-  unsigned char :1;					
-  bool ForceUnitAccessDuringWriteRecovery:1;		
-  bool EnableLeftSymmetricRAID5Algorithm:1;		
-  unsigned char DefaultRebuildRate;			
-  unsigned char :8;					
-  unsigned char BlocksPerCacheLine;			
-  unsigned char BlocksPerStripe;			
+  } __attribute__ ((packed)) OEMID;			/* Byte 2 */
+  unsigned char OEMModelNumber;				/* Byte 3 */
+  unsigned char PhysicalSector;				/* Byte 4 */
+  unsigned char LogicalSector;				/* Byte 5 */
+  unsigned char BlockFactor;				/* Byte 6 */
+  bool ReadAheadEnabled:1;				/* Byte 7 Bit 0 */
+  bool LowBIOSDelay:1;					/* Byte 7 Bit 1 */
+  unsigned char :2;					/* Byte 7 Bits 2-3 */
+  bool ReassignRestrictedToOneSector:1;			/* Byte 7 Bit 4 */
+  unsigned char :1;					/* Byte 7 Bit 5 */
+  bool ForceUnitAccessDuringWriteRecovery:1;		/* Byte 7 Bit 6 */
+  bool EnableLeftSymmetricRAID5Algorithm:1;		/* Byte 7 Bit 7 */
+  unsigned char DefaultRebuildRate;			/* Byte 8 */
+  unsigned char :8;					/* Byte 9 */
+  unsigned char BlocksPerCacheLine;			/* Byte 10 */
+  unsigned char BlocksPerStripe;			/* Byte 11 */
   struct {
     enum {
       DAC960_V1_Async =				0x0,
       DAC960_V1_Sync_8MHz =			0x1,
       DAC960_V1_Sync_5MHz =			0x2,
-      DAC960_V1_Sync_10or20MHz =		0x3	
+      DAC960_V1_Sync_10or20MHz =		0x3	/* Byte 11 Bits 0-1 */
     } __attribute__ ((packed)) Speed:2;
-    bool Force8Bit:1;					
-    bool DisableFast20:1;				
-    unsigned char :3;					
-    bool EnableTaggedQueuing:1;				
-  } __attribute__ ((packed)) ChannelParameters[6];	
-  unsigned char SCSIInitiatorID;			
-  unsigned char :8;					
+    bool Force8Bit:1;					/* Byte 11 Bit 2 */
+    bool DisableFast20:1;				/* Byte 11 Bit 3 */
+    unsigned char :3;					/* Byte 11 Bits 4-6 */
+    bool EnableTaggedQueuing:1;				/* Byte 11 Bit 7 */
+  } __attribute__ ((packed)) ChannelParameters[6];	/* Bytes 12-17 */
+  unsigned char SCSIInitiatorID;			/* Byte 18 */
+  unsigned char :8;					/* Byte 19 */
   enum {
     DAC960_V1_StartupMode_ControllerSpinUp =	0x00,
     DAC960_V1_StartupMode_PowerOnSpinUp =	0x01
-  } __attribute__ ((packed)) StartupMode;		
-  unsigned char SimultaneousDeviceSpinUpCount;		
-  unsigned char SecondsDelayBetweenSpinUps;		
-  unsigned char Reserved1[29];				
-  bool BIOSDisabled:1;					
-  bool CDROMBootEnabled:1;				
-  unsigned char :3;					
+  } __attribute__ ((packed)) StartupMode;		/* Byte 20 */
+  unsigned char SimultaneousDeviceSpinUpCount;		/* Byte 21 */
+  unsigned char SecondsDelayBetweenSpinUps;		/* Byte 22 */
+  unsigned char Reserved1[29];				/* Bytes 23-51 */
+  bool BIOSDisabled:1;					/* Byte 52 Bit 0 */
+  bool CDROMBootEnabled:1;				/* Byte 52 Bit 1 */
+  unsigned char :3;					/* Byte 52 Bits 2-4 */
   enum {
     DAC960_V1_Geometry_128_32 =			0x0,
     DAC960_V1_Geometry_255_63 =			0x1,
     DAC960_V1_Geometry_Reserved1 =		0x2,
     DAC960_V1_Geometry_Reserved2 =		0x3
-  } __attribute__ ((packed)) DriveGeometry:2;		
-  unsigned char :1;					
-  unsigned char Reserved2[9];				
-  unsigned short Checksum;				
+  } __attribute__ ((packed)) DriveGeometry:2;		/* Byte 52 Bits 5-6 */
+  unsigned char :1;					/* Byte 52 Bit 7 */
+  unsigned char Reserved2[9];				/* Bytes 53-61 */
+  unsigned short Checksum;				/* Bytes 62-63 */
 }
 DAC960_V1_Config2_T;
 
 
+/*
+  Define the DAC960 V1 Firmware DCDB request structure.
+*/
 
 typedef struct DAC960_V1_DCDB
 {
-  unsigned char TargetID:4;				 
-  unsigned char Channel:4;				 
+  unsigned char TargetID:4;				 /* Byte 0 Bits 0-3 */
+  unsigned char Channel:4;				 /* Byte 0 Bits 4-7 */
   enum {
     DAC960_V1_DCDB_NoDataTransfer =		0,
     DAC960_V1_DCDB_DataTransferDeviceToSystem = 1,
     DAC960_V1_DCDB_DataTransferSystemToDevice = 2,
     DAC960_V1_DCDB_IllegalDataTransfer =	3
-  } __attribute__ ((packed)) Direction:2;		 
-  bool EarlyStatus:1;					 
-  unsigned char :1;					 
+  } __attribute__ ((packed)) Direction:2;		 /* Byte 1 Bits 0-1 */
+  bool EarlyStatus:1;					 /* Byte 1 Bit 2 */
+  unsigned char :1;					 /* Byte 1 Bit 3 */
   enum {
     DAC960_V1_DCDB_Timeout_24_hours =		0,
     DAC960_V1_DCDB_Timeout_10_seconds =		1,
     DAC960_V1_DCDB_Timeout_60_seconds =		2,
     DAC960_V1_DCDB_Timeout_10_minutes =		3
-  } __attribute__ ((packed)) Timeout:2;			 
-  bool NoAutomaticRequestSense:1;			 
-  bool DisconnectPermitted:1;				 
-  unsigned short TransferLength;			 
-  DAC960_BusAddress32_T BusAddress;			 
-  unsigned char CDBLength:4;				 
-  unsigned char TransferLengthHigh4:4;			 
-  unsigned char SenseLength;				 
-  unsigned char CDB[12];				 
-  unsigned char SenseData[64];				 
-  unsigned char Status;					 
-  unsigned char :8;					 
+  } __attribute__ ((packed)) Timeout:2;			 /* Byte 1 Bits 4-5 */
+  bool NoAutomaticRequestSense:1;			 /* Byte 1 Bit 6 */
+  bool DisconnectPermitted:1;				 /* Byte 1 Bit 7 */
+  unsigned short TransferLength;			 /* Bytes 2-3 */
+  DAC960_BusAddress32_T BusAddress;			 /* Bytes 4-7 */
+  unsigned char CDBLength:4;				 /* Byte 8 Bits 0-3 */
+  unsigned char TransferLengthHigh4:4;			 /* Byte 8 Bits 4-7 */
+  unsigned char SenseLength;				 /* Byte 9 */
+  unsigned char CDB[12];				 /* Bytes 10-21 */
+  unsigned char SenseData[64];				 /* Bytes 22-85 */
+  unsigned char Status;					 /* Byte 86 */
+  unsigned char :8;					 /* Byte 87 */
 }
 DAC960_V1_DCDB_T;
 
 
+/*
+  Define the DAC960 V1 Firmware Scatter/Gather List Type 1 32 Bit Address
+  32 Bit Byte Count structure.
+*/
 
 typedef struct DAC960_V1_ScatterGatherSegment
 {
-  DAC960_BusAddress32_T SegmentDataPointer;		
-  DAC960_ByteCount32_T SegmentByteCount;		
+  DAC960_BusAddress32_T SegmentDataPointer;		/* Bytes 0-3 */
+  DAC960_ByteCount32_T SegmentByteCount;		/* Bytes 4-7 */
 }
 DAC960_V1_ScatterGatherSegment_T;
 
 
+/*
+  Define the 13 Byte DAC960 V1 Firmware Command Mailbox structure.  Bytes 13-15
+  are not used.  The Command Mailbox structure is padded to 16 bytes for
+  efficient access.
+*/
 
 typedef union DAC960_V1_CommandMailbox
 {
-  unsigned int Words[4];				
-  unsigned char Bytes[16];				
+  unsigned int Words[4];				/* Words 0-3 */
+  unsigned char Bytes[16];				/* Bytes 0-15 */
   struct {
-    DAC960_V1_CommandOpcode_T CommandOpcode;		
-    DAC960_V1_CommandIdentifier_T CommandIdentifier;	
-    unsigned char Dummy[14];				
+    DAC960_V1_CommandOpcode_T CommandOpcode;		/* Byte 0 */
+    DAC960_V1_CommandIdentifier_T CommandIdentifier;	/* Byte 1 */
+    unsigned char Dummy[14];				/* Bytes 2-15 */
   } __attribute__ ((packed)) Common;
   struct {
-    DAC960_V1_CommandOpcode_T CommandOpcode;		
-    DAC960_V1_CommandIdentifier_T CommandIdentifier;	
-    unsigned char Dummy1[6];				
-    DAC960_BusAddress32_T BusAddress;			
-    unsigned char Dummy2[4];				
+    DAC960_V1_CommandOpcode_T CommandOpcode;		/* Byte 0 */
+    DAC960_V1_CommandIdentifier_T CommandIdentifier;	/* Byte 1 */
+    unsigned char Dummy1[6];				/* Bytes 2-7 */
+    DAC960_BusAddress32_T BusAddress;			/* Bytes 8-11 */
+    unsigned char Dummy2[4];				/* Bytes 12-15 */
   } __attribute__ ((packed)) Type3;
   struct {
-    DAC960_V1_CommandOpcode_T CommandOpcode;		
-    DAC960_V1_CommandIdentifier_T CommandIdentifier;	
-    unsigned char CommandOpcode2;			
-    unsigned char Dummy1[5];				
-    DAC960_BusAddress32_T BusAddress;			
-    unsigned char Dummy2[4];				
+    DAC960_V1_CommandOpcode_T CommandOpcode;		/* Byte 0 */
+    DAC960_V1_CommandIdentifier_T CommandIdentifier;	/* Byte 1 */
+    unsigned char CommandOpcode2;			/* Byte 2 */
+    unsigned char Dummy1[5];				/* Bytes 3-7 */
+    DAC960_BusAddress32_T BusAddress;			/* Bytes 8-11 */
+    unsigned char Dummy2[4];				/* Bytes 12-15 */
   } __attribute__ ((packed)) Type3B;
   struct {
-    DAC960_V1_CommandOpcode_T CommandOpcode;		
-    DAC960_V1_CommandIdentifier_T CommandIdentifier;	
-    unsigned char Dummy1[5];				
-    unsigned char LogicalDriveNumber:6;			
-    bool AutoRestore:1;					
-    unsigned char Dummy2[8];				
+    DAC960_V1_CommandOpcode_T CommandOpcode;		/* Byte 0 */
+    DAC960_V1_CommandIdentifier_T CommandIdentifier;	/* Byte 1 */
+    unsigned char Dummy1[5];				/* Bytes 2-6 */
+    unsigned char LogicalDriveNumber:6;			/* Byte 7 Bits 0-6 */
+    bool AutoRestore:1;					/* Byte 7 Bit 7 */
+    unsigned char Dummy2[8];				/* Bytes 8-15 */
   } __attribute__ ((packed)) Type3C;
   struct {
-    DAC960_V1_CommandOpcode_T CommandOpcode;		
-    DAC960_V1_CommandIdentifier_T CommandIdentifier;	
-    unsigned char Channel;				
-    unsigned char TargetID;				
-    DAC960_V1_PhysicalDeviceState_T DeviceState:5;	
-    unsigned char Modifier:3;				
-    unsigned char Dummy1[3];				
-    DAC960_BusAddress32_T BusAddress;			
-    unsigned char Dummy2[4];				
+    DAC960_V1_CommandOpcode_T CommandOpcode;		/* Byte 0 */
+    DAC960_V1_CommandIdentifier_T CommandIdentifier;	/* Byte 1 */
+    unsigned char Channel;				/* Byte 2 */
+    unsigned char TargetID;				/* Byte 3 */
+    DAC960_V1_PhysicalDeviceState_T DeviceState:5;	/* Byte 4 Bits 0-4 */
+    unsigned char Modifier:3;				/* Byte 4 Bits 5-7 */
+    unsigned char Dummy1[3];				/* Bytes 5-7 */
+    DAC960_BusAddress32_T BusAddress;			/* Bytes 8-11 */
+    unsigned char Dummy2[4];				/* Bytes 12-15 */
   } __attribute__ ((packed)) Type3D;
   struct {
-    DAC960_V1_CommandOpcode_T CommandOpcode;		
-    DAC960_V1_CommandIdentifier_T CommandIdentifier;	
-    DAC960_V1_PerformEventLogOpType_T OperationType;	
-    unsigned char OperationQualifier;			
-    unsigned short SequenceNumber;			
-    unsigned char Dummy1[2];				
-    DAC960_BusAddress32_T BusAddress;			
-    unsigned char Dummy2[4];				
+    DAC960_V1_CommandOpcode_T CommandOpcode;		/* Byte 0 */
+    DAC960_V1_CommandIdentifier_T CommandIdentifier;	/* Byte 1 */
+    DAC960_V1_PerformEventLogOpType_T OperationType;	/* Byte 2 */
+    unsigned char OperationQualifier;			/* Byte 3 */
+    unsigned short SequenceNumber;			/* Bytes 4-5 */
+    unsigned char Dummy1[2];				/* Bytes 6-7 */
+    DAC960_BusAddress32_T BusAddress;			/* Bytes 8-11 */
+    unsigned char Dummy2[4];				/* Bytes 12-15 */
   } __attribute__ ((packed)) Type3E;
   struct {
-    DAC960_V1_CommandOpcode_T CommandOpcode;		
-    DAC960_V1_CommandIdentifier_T CommandIdentifier;	
-    unsigned char Dummy1[2];				
-    unsigned char RebuildRateConstant;			
-    unsigned char Dummy2[3];				
-    DAC960_BusAddress32_T BusAddress;			
-    unsigned char Dummy3[4];				
+    DAC960_V1_CommandOpcode_T CommandOpcode;		/* Byte 0 */
+    DAC960_V1_CommandIdentifier_T CommandIdentifier;	/* Byte 1 */
+    unsigned char Dummy1[2];				/* Bytes 2-3 */
+    unsigned char RebuildRateConstant;			/* Byte 4 */
+    unsigned char Dummy2[3];				/* Bytes 5-7 */
+    DAC960_BusAddress32_T BusAddress;			/* Bytes 8-11 */
+    unsigned char Dummy3[4];				/* Bytes 12-15 */
   } __attribute__ ((packed)) Type3R;
   struct {
-    DAC960_V1_CommandOpcode_T CommandOpcode;		
-    DAC960_V1_CommandIdentifier_T CommandIdentifier;	
-    unsigned short TransferLength;			
-    unsigned int LogicalBlockAddress;			
-    DAC960_BusAddress32_T BusAddress;			
-    unsigned char LogicalDriveNumber;			
-    unsigned char Dummy[3];				
+    DAC960_V1_CommandOpcode_T CommandOpcode;		/* Byte 0 */
+    DAC960_V1_CommandIdentifier_T CommandIdentifier;	/* Byte 1 */
+    unsigned short TransferLength;			/* Bytes 2-3 */
+    unsigned int LogicalBlockAddress;			/* Bytes 4-7 */
+    DAC960_BusAddress32_T BusAddress;			/* Bytes 8-11 */
+    unsigned char LogicalDriveNumber;			/* Byte 12 */
+    unsigned char Dummy[3];				/* Bytes 13-15 */
   } __attribute__ ((packed)) Type4;
   struct {
-    DAC960_V1_CommandOpcode_T CommandOpcode;		
-    DAC960_V1_CommandIdentifier_T CommandIdentifier;	
+    DAC960_V1_CommandOpcode_T CommandOpcode;		/* Byte 0 */
+    DAC960_V1_CommandIdentifier_T CommandIdentifier;	/* Byte 1 */
     struct {
-      unsigned short TransferLength:11;			
-      unsigned char LogicalDriveNumber:5;		
+      unsigned short TransferLength:11;			/* Bytes 2-3 */
+      unsigned char LogicalDriveNumber:5;		/* Byte 3 Bits 3-7 */
     } __attribute__ ((packed)) LD;
-    unsigned int LogicalBlockAddress;			
-    DAC960_BusAddress32_T BusAddress;			
-    unsigned char ScatterGatherCount:6;			
+    unsigned int LogicalBlockAddress;			/* Bytes 4-7 */
+    DAC960_BusAddress32_T BusAddress;			/* Bytes 8-11 */
+    unsigned char ScatterGatherCount:6;			/* Byte 12 Bits 0-5 */
     enum {
       DAC960_V1_ScatterGather_32BitAddress_32BitByteCount = 0x0,
       DAC960_V1_ScatterGather_32BitAddress_16BitByteCount = 0x1,
       DAC960_V1_ScatterGather_32BitByteCount_32BitAddress = 0x2,
       DAC960_V1_ScatterGather_16BitByteCount_32BitAddress = 0x3
-    } __attribute__ ((packed)) ScatterGatherType:2;	
-    unsigned char Dummy[3];				
+    } __attribute__ ((packed)) ScatterGatherType:2;	/* Byte 12 Bits 6-7 */
+    unsigned char Dummy[3];				/* Bytes 13-15 */
   } __attribute__ ((packed)) Type5;
   struct {
-    DAC960_V1_CommandOpcode_T CommandOpcode;		
-    DAC960_V1_CommandIdentifier_T CommandIdentifier;	
-    unsigned char CommandOpcode2;			
-    unsigned char :8;					
-    DAC960_BusAddress32_T CommandMailboxesBusAddress;	
-    DAC960_BusAddress32_T StatusMailboxesBusAddress;	
-    unsigned char Dummy[4];				
+    DAC960_V1_CommandOpcode_T CommandOpcode;		/* Byte 0 */
+    DAC960_V1_CommandIdentifier_T CommandIdentifier;	/* Byte 1 */
+    unsigned char CommandOpcode2;			/* Byte 2 */
+    unsigned char :8;					/* Byte 3 */
+    DAC960_BusAddress32_T CommandMailboxesBusAddress;	/* Bytes 4-7 */
+    DAC960_BusAddress32_T StatusMailboxesBusAddress;	/* Bytes 8-11 */
+    unsigned char Dummy[4];				/* Bytes 12-15 */
   } __attribute__ ((packed)) TypeX;
 }
 DAC960_V1_CommandMailbox_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Command Opcodes.
+*/
 
 typedef enum
 {
@@ -872,6 +996,9 @@ __attribute__ ((packed))
 DAC960_V2_CommandOpcode_T;
 
 
+/*
+  Define the DAC960 V2 Firmware IOCTL Opcodes.
+*/
 
 typedef enum
 {
@@ -894,10 +1021,16 @@ __attribute__ ((packed))
 DAC960_V2_IOCTL_Opcode_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Command Identifier type.
+*/
 
 typedef unsigned short DAC960_V2_CommandIdentifier_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Command Status Codes.
+*/
 
 #define DAC960_V2_NormalCompletion		0x00
 #define DAC960_V2_AbormalCompletion		0x02
@@ -909,6 +1042,9 @@ typedef unsigned short DAC960_V2_CommandIdentifier_T;
 typedef unsigned char DAC960_V2_CommandStatus_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Memory Type structure.
+*/
 
 typedef struct DAC960_V2_MemoryType
 {
@@ -919,14 +1055,17 @@ typedef struct DAC960_V2_MemoryType
     DAC960_V2_MemoryType_EDO =			0x03,
     DAC960_V2_MemoryType_SDRAM =		0x04,
     DAC960_V2_MemoryType_Last =			0x1F
-  } __attribute__ ((packed)) MemoryType:5;		
-  bool :1;						
-  bool MemoryParity:1;					
-  bool MemoryECC:1;					
+  } __attribute__ ((packed)) MemoryType:5;		/* Byte 0 Bits 0-4 */
+  bool :1;						/* Byte 0 Bit 5 */
+  bool MemoryParity:1;					/* Byte 0 Bit 6 */
+  bool MemoryECC:1;					/* Byte 0 Bit 7 */
 }
 DAC960_V2_MemoryType_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Processor Type structure.
+*/
 
 typedef enum
 {
@@ -942,15 +1081,18 @@ __attribute__ ((packed))
 DAC960_V2_ProcessorType_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Get Controller Info reply structure.
+*/
 
 typedef struct DAC960_V2_ControllerInfo
 {
-  unsigned char :8;					
+  unsigned char :8;					/* Byte 0 */
   enum {
     DAC960_V2_SCSI_Bus =			0x00,
     DAC960_V2_Fibre_Bus =			0x01,
     DAC960_V2_PCI_Bus =				0x03
-  } __attribute__ ((packed)) BusInterfaceType;		
+  } __attribute__ ((packed)) BusInterfaceType;		/* Byte 1 */
   enum {
     DAC960_V2_DAC960E =				0x01,
     DAC960_V2_DAC960M =				0x08,
@@ -983,181 +1125,184 @@ typedef struct DAC960_V2_ControllerInfo
     DAC960_V2_RAIDBRICK =			0x69,
     DAC960_V2_METEOR_FL =			0x6A,
     DAC960_V2_METEOR_FF =			0x6B
-  } __attribute__ ((packed)) ControllerType;		
-  unsigned char :8;					
-  unsigned short BusInterfaceSpeedMHz;			
-  unsigned char BusWidthBits;				
-  unsigned char FlashCodeTypeOrProductID;		
-  unsigned char NumberOfHostPortsPresent;		
-  unsigned char Reserved1[7];				
-  unsigned char BusInterfaceName[16];			
-  unsigned char ControllerName[16];			
-  unsigned char Reserved2[16];				
-  
-  unsigned char FirmwareMajorVersion;			
-  unsigned char FirmwareMinorVersion;			
-  unsigned char FirmwareTurnNumber;			
-  unsigned char FirmwareBuildNumber;			
-  unsigned char FirmwareReleaseDay;			
-  unsigned char FirmwareReleaseMonth;			
-  unsigned char FirmwareReleaseYearHigh2Digits;		
-  unsigned char FirmwareReleaseYearLow2Digits;		
-  
-  unsigned char HardwareRevision;			
-  unsigned int :24;					
-  unsigned char HardwareReleaseDay;			
-  unsigned char HardwareReleaseMonth;			
-  unsigned char HardwareReleaseYearHigh2Digits;		
-  unsigned char HardwareReleaseYearLow2Digits;		
-  
-  unsigned char ManufacturingBatchNumber;		
-  unsigned char :8;					
-  unsigned char ManufacturingPlantNumber;		
-  unsigned char :8;					
-  unsigned char HardwareManufacturingDay;		
-  unsigned char HardwareManufacturingMonth;		
-  unsigned char HardwareManufacturingYearHigh2Digits;	
-  unsigned char HardwareManufacturingYearLow2Digits;	
-  unsigned char MaximumNumberOfPDDperXLD;		
-  unsigned char MaximumNumberOfILDperXLD;		
-  unsigned short NonvolatileMemorySizeKB;		
-  unsigned char MaximumNumberOfXLD;			
-  unsigned int :24;					
-  
-  unsigned char ControllerSerialNumber[16];		
-  unsigned char Reserved3[16];				
-  
-  unsigned int :24;					
-  unsigned char OEM_Code;				
-  unsigned char VendorName[16];				
-  
-  bool BBU_Present:1;					
-  bool ActiveActiveClusteringMode:1;			
-  unsigned char :6;					
-  unsigned char :8;					
-  unsigned short :16;					
-  
-  bool PhysicalScanActive:1;				
-  unsigned char :7;					
-  unsigned char PhysicalDeviceChannelNumber;		
-  unsigned char PhysicalDeviceTargetID;			
-  unsigned char PhysicalDeviceLogicalUnit;		
-  
-  unsigned short MaximumDataTransferSizeInBlocks;	
-  unsigned short MaximumScatterGatherEntries;		
-  
-  unsigned short LogicalDevicesPresent;			
-  unsigned short LogicalDevicesCritical;		
-  unsigned short LogicalDevicesOffline;			
-  unsigned short PhysicalDevicesPresent;		
-  unsigned short PhysicalDisksPresent;			
-  unsigned short PhysicalDisksCritical;			
-  unsigned short PhysicalDisksOffline;			
-  unsigned short MaximumParallelCommands;		
-  
-  unsigned char NumberOfPhysicalChannelsPresent;	
-  unsigned char NumberOfVirtualChannelsPresent;		
-  unsigned char NumberOfPhysicalChannelsPossible;	
-  unsigned char NumberOfVirtualChannelsPossible;	
-  unsigned char MaximumTargetsPerChannel[16];		
-  unsigned char Reserved4[12];				
-  
-  unsigned short MemorySizeMB;				
-  unsigned short CacheSizeMB;				
-  unsigned int ValidCacheSizeInBytes;			
-  unsigned int DirtyCacheSizeInBytes;			
-  unsigned short MemorySpeedMHz;			
-  unsigned char MemoryDataWidthBits;			
-  DAC960_V2_MemoryType_T MemoryType;			
-  unsigned char CacheMemoryTypeName[16];		
-  
-  unsigned short ExecutionMemorySizeMB;			
-  unsigned short ExecutionL2CacheSizeMB;		
-  unsigned char Reserved5[8];				
-  unsigned short ExecutionMemorySpeedMHz;		
-  unsigned char ExecutionMemoryDataWidthBits;		
-  DAC960_V2_MemoryType_T ExecutionMemoryType;		
-  unsigned char ExecutionMemoryTypeName[16];		
-  
-  unsigned short FirstProcessorSpeedMHz;		
-  DAC960_V2_ProcessorType_T FirstProcessorType;		
-  unsigned char FirstProcessorCount;			
-  unsigned char Reserved6[12];				
-  unsigned char FirstProcessorName[16];			
-  
-  unsigned short SecondProcessorSpeedMHz;		
-  DAC960_V2_ProcessorType_T SecondProcessorType;	
-  unsigned char SecondProcessorCount;			
-  unsigned char Reserved7[12];				
-  unsigned char SecondProcessorName[16];		
-  
-  unsigned short CurrentProfilingDataPageNumber;	
-  unsigned short ProgramsAwaitingProfilingData;		
-  unsigned short CurrentCommandTimeTraceDataPageNumber;	
-  unsigned short ProgramsAwaitingCommandTimeTraceData;	
-  unsigned char Reserved8[8];				
-  
-  unsigned short PhysicalDeviceBusResets;		
-  unsigned short PhysicalDeviceParityErrors;		
-  unsigned short PhysicalDeviceSoftErrors;		
-  unsigned short PhysicalDeviceCommandsFailed;		
-  unsigned short PhysicalDeviceMiscellaneousErrors;	
-  unsigned short PhysicalDeviceCommandTimeouts;		
-  unsigned short PhysicalDeviceSelectionTimeouts;	
-  unsigned short PhysicalDeviceRetriesDone;		
-  unsigned short PhysicalDeviceAbortsDone;		
-  unsigned short PhysicalDeviceHostCommandAbortsDone;	
-  unsigned short PhysicalDevicePredictedFailuresDetected; 
-  unsigned short PhysicalDeviceHostCommandsFailed;	
-  unsigned short PhysicalDeviceHardErrors;		
-  unsigned char Reserved9[6];				
-  
-  unsigned short LogicalDeviceSoftErrors;		
-  unsigned short LogicalDeviceCommandsFailed;		
-  unsigned short LogicalDeviceHostCommandAbortsDone;	
-  unsigned short :16;					
-  
-  unsigned short ControllerMemoryErrors;		
-  unsigned short ControllerHostCommandAbortsDone;	
-  unsigned int :32;					
-  
-  unsigned short BackgroundInitializationsActive;	
-  unsigned short LogicalDeviceInitializationsActive;	
-  unsigned short PhysicalDeviceInitializationsActive;	
-  unsigned short ConsistencyChecksActive;		
-  unsigned short RebuildsActive;			
-  unsigned short OnlineExpansionsActive;		
-  unsigned short PatrolActivitiesActive;		
-  unsigned short :16;					
-  
-  unsigned char FlashType;				
-  unsigned char :8;					
-  unsigned short FlashSizeMB;				
-  unsigned int FlashLimit;				
-  unsigned int FlashCount;				
-  unsigned int :32;					
-  unsigned char FlashTypeName[16];			
-  
-  unsigned char RebuildRate;				
-  unsigned char BackgroundInitializationRate;		
-  unsigned char ForegroundInitializationRate;		
-  unsigned char ConsistencyCheckRate;			
-  unsigned int :32;					
-  unsigned int MaximumDP;				
-  unsigned int FreeDP;					
-  unsigned int MaximumIOP;				
-  unsigned int FreeIOP;					
-  unsigned short MaximumCombLengthInBlocks;		
-  unsigned short NumberOfConfigurationGroups;		
-  bool InstallationAbortStatus:1;			
-  bool MaintenanceModeStatus:1;				
-  unsigned int :24;					
-  unsigned char Reserved10[32];				
-  unsigned char Reserved11[512];			
+  } __attribute__ ((packed)) ControllerType;		/* Byte 2 */
+  unsigned char :8;					/* Byte 3 */
+  unsigned short BusInterfaceSpeedMHz;			/* Bytes 4-5 */
+  unsigned char BusWidthBits;				/* Byte 6 */
+  unsigned char FlashCodeTypeOrProductID;		/* Byte 7 */
+  unsigned char NumberOfHostPortsPresent;		/* Byte 8 */
+  unsigned char Reserved1[7];				/* Bytes 9-15 */
+  unsigned char BusInterfaceName[16];			/* Bytes 16-31 */
+  unsigned char ControllerName[16];			/* Bytes 32-47 */
+  unsigned char Reserved2[16];				/* Bytes 48-63 */
+  /* Firmware Release Information */
+  unsigned char FirmwareMajorVersion;			/* Byte 64 */
+  unsigned char FirmwareMinorVersion;			/* Byte 65 */
+  unsigned char FirmwareTurnNumber;			/* Byte 66 */
+  unsigned char FirmwareBuildNumber;			/* Byte 67 */
+  unsigned char FirmwareReleaseDay;			/* Byte 68 */
+  unsigned char FirmwareReleaseMonth;			/* Byte 69 */
+  unsigned char FirmwareReleaseYearHigh2Digits;		/* Byte 70 */
+  unsigned char FirmwareReleaseYearLow2Digits;		/* Byte 71 */
+  /* Hardware Release Information */
+  unsigned char HardwareRevision;			/* Byte 72 */
+  unsigned int :24;					/* Bytes 73-75 */
+  unsigned char HardwareReleaseDay;			/* Byte 76 */
+  unsigned char HardwareReleaseMonth;			/* Byte 77 */
+  unsigned char HardwareReleaseYearHigh2Digits;		/* Byte 78 */
+  unsigned char HardwareReleaseYearLow2Digits;		/* Byte 79 */
+  /* Hardware Manufacturing Information */
+  unsigned char ManufacturingBatchNumber;		/* Byte 80 */
+  unsigned char :8;					/* Byte 81 */
+  unsigned char ManufacturingPlantNumber;		/* Byte 82 */
+  unsigned char :8;					/* Byte 83 */
+  unsigned char HardwareManufacturingDay;		/* Byte 84 */
+  unsigned char HardwareManufacturingMonth;		/* Byte 85 */
+  unsigned char HardwareManufacturingYearHigh2Digits;	/* Byte 86 */
+  unsigned char HardwareManufacturingYearLow2Digits;	/* Byte 87 */
+  unsigned char MaximumNumberOfPDDperXLD;		/* Byte 88 */
+  unsigned char MaximumNumberOfILDperXLD;		/* Byte 89 */
+  unsigned short NonvolatileMemorySizeKB;		/* Bytes 90-91 */
+  unsigned char MaximumNumberOfXLD;			/* Byte 92 */
+  unsigned int :24;					/* Bytes 93-95 */
+  /* Unique Information per Controller */
+  unsigned char ControllerSerialNumber[16];		/* Bytes 96-111 */
+  unsigned char Reserved3[16];				/* Bytes 112-127 */
+  /* Vendor Information */
+  unsigned int :24;					/* Bytes 128-130 */
+  unsigned char OEM_Code;				/* Byte 131 */
+  unsigned char VendorName[16];				/* Bytes 132-147 */
+  /* Other Physical/Controller/Operation Information */
+  bool BBU_Present:1;					/* Byte 148 Bit 0 */
+  bool ActiveActiveClusteringMode:1;			/* Byte 148 Bit 1 */
+  unsigned char :6;					/* Byte 148 Bits 2-7 */
+  unsigned char :8;					/* Byte 149 */
+  unsigned short :16;					/* Bytes 150-151 */
+  /* Physical Device Scan Information */
+  bool PhysicalScanActive:1;				/* Byte 152 Bit 0 */
+  unsigned char :7;					/* Byte 152 Bits 1-7 */
+  unsigned char PhysicalDeviceChannelNumber;		/* Byte 153 */
+  unsigned char PhysicalDeviceTargetID;			/* Byte 154 */
+  unsigned char PhysicalDeviceLogicalUnit;		/* Byte 155 */
+  /* Maximum Command Data Transfer Sizes */
+  unsigned short MaximumDataTransferSizeInBlocks;	/* Bytes 156-157 */
+  unsigned short MaximumScatterGatherEntries;		/* Bytes 158-159 */
+  /* Logical/Physical Device Counts */
+  unsigned short LogicalDevicesPresent;			/* Bytes 160-161 */
+  unsigned short LogicalDevicesCritical;		/* Bytes 162-163 */
+  unsigned short LogicalDevicesOffline;			/* Bytes 164-165 */
+  unsigned short PhysicalDevicesPresent;		/* Bytes 166-167 */
+  unsigned short PhysicalDisksPresent;			/* Bytes 168-169 */
+  unsigned short PhysicalDisksCritical;			/* Bytes 170-171 */
+  unsigned short PhysicalDisksOffline;			/* Bytes 172-173 */
+  unsigned short MaximumParallelCommands;		/* Bytes 174-175 */
+  /* Channel and Target ID Information */
+  unsigned char NumberOfPhysicalChannelsPresent;	/* Byte 176 */
+  unsigned char NumberOfVirtualChannelsPresent;		/* Byte 177 */
+  unsigned char NumberOfPhysicalChannelsPossible;	/* Byte 178 */
+  unsigned char NumberOfVirtualChannelsPossible;	/* Byte 179 */
+  unsigned char MaximumTargetsPerChannel[16];		/* Bytes 180-195 */
+  unsigned char Reserved4[12];				/* Bytes 196-207 */
+  /* Memory/Cache Information */
+  unsigned short MemorySizeMB;				/* Bytes 208-209 */
+  unsigned short CacheSizeMB;				/* Bytes 210-211 */
+  unsigned int ValidCacheSizeInBytes;			/* Bytes 212-215 */
+  unsigned int DirtyCacheSizeInBytes;			/* Bytes 216-219 */
+  unsigned short MemorySpeedMHz;			/* Bytes 220-221 */
+  unsigned char MemoryDataWidthBits;			/* Byte 222 */
+  DAC960_V2_MemoryType_T MemoryType;			/* Byte 223 */
+  unsigned char CacheMemoryTypeName[16];		/* Bytes 224-239 */
+  /* Execution Memory Information */
+  unsigned short ExecutionMemorySizeMB;			/* Bytes 240-241 */
+  unsigned short ExecutionL2CacheSizeMB;		/* Bytes 242-243 */
+  unsigned char Reserved5[8];				/* Bytes 244-251 */
+  unsigned short ExecutionMemorySpeedMHz;		/* Bytes 252-253 */
+  unsigned char ExecutionMemoryDataWidthBits;		/* Byte 254 */
+  DAC960_V2_MemoryType_T ExecutionMemoryType;		/* Byte 255 */
+  unsigned char ExecutionMemoryTypeName[16];		/* Bytes 256-271 */
+  /* First CPU Type Information */
+  unsigned short FirstProcessorSpeedMHz;		/* Bytes 272-273 */
+  DAC960_V2_ProcessorType_T FirstProcessorType;		/* Byte 274 */
+  unsigned char FirstProcessorCount;			/* Byte 275 */
+  unsigned char Reserved6[12];				/* Bytes 276-287 */
+  unsigned char FirstProcessorName[16];			/* Bytes 288-303 */
+  /* Second CPU Type Information */
+  unsigned short SecondProcessorSpeedMHz;		/* Bytes 304-305 */
+  DAC960_V2_ProcessorType_T SecondProcessorType;	/* Byte 306 */
+  unsigned char SecondProcessorCount;			/* Byte 307 */
+  unsigned char Reserved7[12];				/* Bytes 308-319 */
+  unsigned char SecondProcessorName[16];		/* Bytes 320-335 */
+  /* Debugging/Profiling/Command Time Tracing Information */
+  unsigned short CurrentProfilingDataPageNumber;	/* Bytes 336-337 */
+  unsigned short ProgramsAwaitingProfilingData;		/* Bytes 338-339 */
+  unsigned short CurrentCommandTimeTraceDataPageNumber;	/* Bytes 340-341 */
+  unsigned short ProgramsAwaitingCommandTimeTraceData;	/* Bytes 342-343 */
+  unsigned char Reserved8[8];				/* Bytes 344-351 */
+  /* Error Counters on Physical Devices */
+  unsigned short PhysicalDeviceBusResets;		/* Bytes 352-353 */
+  unsigned short PhysicalDeviceParityErrors;		/* Bytes 355-355 */
+  unsigned short PhysicalDeviceSoftErrors;		/* Bytes 356-357 */
+  unsigned short PhysicalDeviceCommandsFailed;		/* Bytes 358-359 */
+  unsigned short PhysicalDeviceMiscellaneousErrors;	/* Bytes 360-361 */
+  unsigned short PhysicalDeviceCommandTimeouts;		/* Bytes 362-363 */
+  unsigned short PhysicalDeviceSelectionTimeouts;	/* Bytes 364-365 */
+  unsigned short PhysicalDeviceRetriesDone;		/* Bytes 366-367 */
+  unsigned short PhysicalDeviceAbortsDone;		/* Bytes 368-369 */
+  unsigned short PhysicalDeviceHostCommandAbortsDone;	/* Bytes 370-371 */
+  unsigned short PhysicalDevicePredictedFailuresDetected; /* Bytes 372-373 */
+  unsigned short PhysicalDeviceHostCommandsFailed;	/* Bytes 374-375 */
+  unsigned short PhysicalDeviceHardErrors;		/* Bytes 376-377 */
+  unsigned char Reserved9[6];				/* Bytes 378-383 */
+  /* Error Counters on Logical Devices */
+  unsigned short LogicalDeviceSoftErrors;		/* Bytes 384-385 */
+  unsigned short LogicalDeviceCommandsFailed;		/* Bytes 386-387 */
+  unsigned short LogicalDeviceHostCommandAbortsDone;	/* Bytes 388-389 */
+  unsigned short :16;					/* Bytes 390-391 */
+  /* Error Counters on Controller */
+  unsigned short ControllerMemoryErrors;		/* Bytes 392-393 */
+  unsigned short ControllerHostCommandAbortsDone;	/* Bytes 394-395 */
+  unsigned int :32;					/* Bytes 396-399 */
+  /* Long Duration Activity Information */
+  unsigned short BackgroundInitializationsActive;	/* Bytes 400-401 */
+  unsigned short LogicalDeviceInitializationsActive;	/* Bytes 402-403 */
+  unsigned short PhysicalDeviceInitializationsActive;	/* Bytes 404-405 */
+  unsigned short ConsistencyChecksActive;		/* Bytes 406-407 */
+  unsigned short RebuildsActive;			/* Bytes 408-409 */
+  unsigned short OnlineExpansionsActive;		/* Bytes 410-411 */
+  unsigned short PatrolActivitiesActive;		/* Bytes 412-413 */
+  unsigned short :16;					/* Bytes 414-415 */
+  /* Flash ROM Information */
+  unsigned char FlashType;				/* Byte 416 */
+  unsigned char :8;					/* Byte 417 */
+  unsigned short FlashSizeMB;				/* Bytes 418-419 */
+  unsigned int FlashLimit;				/* Bytes 420-423 */
+  unsigned int FlashCount;				/* Bytes 424-427 */
+  unsigned int :32;					/* Bytes 428-431 */
+  unsigned char FlashTypeName[16];			/* Bytes 432-447 */
+  /* Firmware Run Time Information */
+  unsigned char RebuildRate;				/* Byte 448 */
+  unsigned char BackgroundInitializationRate;		/* Byte 449 */
+  unsigned char ForegroundInitializationRate;		/* Byte 450 */
+  unsigned char ConsistencyCheckRate;			/* Byte 451 */
+  unsigned int :32;					/* Bytes 452-455 */
+  unsigned int MaximumDP;				/* Bytes 456-459 */
+  unsigned int FreeDP;					/* Bytes 460-463 */
+  unsigned int MaximumIOP;				/* Bytes 464-467 */
+  unsigned int FreeIOP;					/* Bytes 468-471 */
+  unsigned short MaximumCombLengthInBlocks;		/* Bytes 472-473 */
+  unsigned short NumberOfConfigurationGroups;		/* Bytes 474-475 */
+  bool InstallationAbortStatus:1;			/* Byte 476 Bit 0 */
+  bool MaintenanceModeStatus:1;				/* Byte 476 Bit 1 */
+  unsigned int :24;					/* Bytes 476-479 */
+  unsigned char Reserved10[32];				/* Bytes 480-511 */
+  unsigned char Reserved11[512];			/* Bytes 512-1023 */
 }
 DAC960_V2_ControllerInfo_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Logical Device State type.
+*/
 
 typedef enum
 {
@@ -1169,17 +1314,20 @@ __attribute__ ((packed))
 DAC960_V2_LogicalDeviceState_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Get Logical Device Info reply structure.
+*/
 
 typedef struct DAC960_V2_LogicalDeviceInfo
 {
-  unsigned char :8;					
-  unsigned char Channel;				
-  unsigned char TargetID;				
-  unsigned char LogicalUnit;				
-  DAC960_V2_LogicalDeviceState_T LogicalDeviceState;	
-  unsigned char RAIDLevel;				
-  unsigned char StripeSize;				
-  unsigned char CacheLineSize;				
+  unsigned char :8;					/* Byte 0 */
+  unsigned char Channel;				/* Byte 1 */
+  unsigned char TargetID;				/* Byte 2 */
+  unsigned char LogicalUnit;				/* Byte 3 */
+  DAC960_V2_LogicalDeviceState_T LogicalDeviceState;	/* Byte 4 */
+  unsigned char RAIDLevel;				/* Byte 5 */
+  unsigned char StripeSize;				/* Byte 6 */
+  unsigned char CacheLineSize;				/* Byte 7 */
   struct {
     enum {
       DAC960_V2_ReadCacheDisabled =		0x0,
@@ -1187,71 +1335,74 @@ typedef struct DAC960_V2_LogicalDeviceInfo
       DAC960_V2_ReadAheadEnabled =		0x2,
       DAC960_V2_IntelligentReadAheadEnabled =	0x3,
       DAC960_V2_ReadCache_Last =		0x7
-    } __attribute__ ((packed)) ReadCache:3;		
+    } __attribute__ ((packed)) ReadCache:3;		/* Byte 8 Bits 0-2 */
     enum {
       DAC960_V2_WriteCacheDisabled =		0x0,
       DAC960_V2_LogicalDeviceReadOnly =		0x1,
       DAC960_V2_WriteCacheEnabled =		0x2,
       DAC960_V2_IntelligentWriteCacheEnabled =	0x3,
       DAC960_V2_WriteCache_Last =		0x7
-    } __attribute__ ((packed)) WriteCache:3;		
-    bool :1;						
-    bool LogicalDeviceInitialized:1;			
-  } LogicalDeviceControl;				
-  
-  bool ConsistencyCheckInProgress:1;			
-  bool RebuildInProgress:1;				
-  bool BackgroundInitializationInProgress:1;		
-  bool ForegroundInitializationInProgress:1;		
-  bool DataMigrationInProgress:1;			
-  bool PatrolOperationInProgress:1;			
-  unsigned char :2;					
-  unsigned char RAID5WriteUpdate;			
-  unsigned char RAID5Algorithm;				
-  unsigned short LogicalDeviceNumber;			
-  
-  bool BIOSDisabled:1;					
-  bool CDROMBootEnabled:1;				
-  bool DriveCoercionEnabled:1;				
-  bool WriteSameDisabled:1;				
-  bool HBA_ModeEnabled:1;				
+    } __attribute__ ((packed)) WriteCache:3;		/* Byte 8 Bits 3-5 */
+    bool :1;						/* Byte 8 Bit 6 */
+    bool LogicalDeviceInitialized:1;			/* Byte 8 Bit 7 */
+  } LogicalDeviceControl;				/* Byte 8 */
+  /* Logical Device Operations Status */
+  bool ConsistencyCheckInProgress:1;			/* Byte 9 Bit 0 */
+  bool RebuildInProgress:1;				/* Byte 9 Bit 1 */
+  bool BackgroundInitializationInProgress:1;		/* Byte 9 Bit 2 */
+  bool ForegroundInitializationInProgress:1;		/* Byte 9 Bit 3 */
+  bool DataMigrationInProgress:1;			/* Byte 9 Bit 4 */
+  bool PatrolOperationInProgress:1;			/* Byte 9 Bit 5 */
+  unsigned char :2;					/* Byte 9 Bits 6-7 */
+  unsigned char RAID5WriteUpdate;			/* Byte 10 */
+  unsigned char RAID5Algorithm;				/* Byte 11 */
+  unsigned short LogicalDeviceNumber;			/* Bytes 12-13 */
+  /* BIOS Info */
+  bool BIOSDisabled:1;					/* Byte 14 Bit 0 */
+  bool CDROMBootEnabled:1;				/* Byte 14 Bit 1 */
+  bool DriveCoercionEnabled:1;				/* Byte 14 Bit 2 */
+  bool WriteSameDisabled:1;				/* Byte 14 Bit 3 */
+  bool HBA_ModeEnabled:1;				/* Byte 14 Bit 4 */
   enum {
     DAC960_V2_Geometry_128_32 =			0x0,
     DAC960_V2_Geometry_255_63 =			0x1,
     DAC960_V2_Geometry_Reserved1 =		0x2,
     DAC960_V2_Geometry_Reserved2 =		0x3
-  } __attribute__ ((packed)) DriveGeometry:2;		
-  bool SuperReadAheadEnabled:1;				
-  unsigned char :8;					
-  
-  unsigned short SoftErrors;				
-  unsigned short CommandsFailed;			
-  unsigned short HostCommandAbortsDone;			
-  unsigned short DeferredWriteErrors;			
-  unsigned int :32;					
-  unsigned int :32;					
-  
-  unsigned short :16;					
-  unsigned short DeviceBlockSizeInBytes;		
-  unsigned int OriginalDeviceSize;			
-  unsigned int ConfigurableDeviceSize;			
-  unsigned int :32;					
-  unsigned char LogicalDeviceName[32];			
-  unsigned char SCSI_InquiryData[36];			
-  unsigned char Reserved1[12];				
-  DAC960_ByteCount64_T LastReadBlockNumber;		
-  DAC960_ByteCount64_T LastWrittenBlockNumber;		
-  DAC960_ByteCount64_T ConsistencyCheckBlockNumber;	
-  DAC960_ByteCount64_T RebuildBlockNumber;		
-  DAC960_ByteCount64_T BackgroundInitializationBlockNumber; 
-  DAC960_ByteCount64_T ForegroundInitializationBlockNumber; 
-  DAC960_ByteCount64_T DataMigrationBlockNumber;	
-  DAC960_ByteCount64_T PatrolOperationBlockNumber;	
-  unsigned char Reserved2[64];				
+  } __attribute__ ((packed)) DriveGeometry:2;		/* Byte 14 Bits 5-6 */
+  bool SuperReadAheadEnabled:1;				/* Byte 14 Bit 7 */
+  unsigned char :8;					/* Byte 15 */
+  /* Error Counters */
+  unsigned short SoftErrors;				/* Bytes 16-17 */
+  unsigned short CommandsFailed;			/* Bytes 18-19 */
+  unsigned short HostCommandAbortsDone;			/* Bytes 20-21 */
+  unsigned short DeferredWriteErrors;			/* Bytes 22-23 */
+  unsigned int :32;					/* Bytes 24-27 */
+  unsigned int :32;					/* Bytes 28-31 */
+  /* Device Size Information */
+  unsigned short :16;					/* Bytes 32-33 */
+  unsigned short DeviceBlockSizeInBytes;		/* Bytes 34-35 */
+  unsigned int OriginalDeviceSize;			/* Bytes 36-39 */
+  unsigned int ConfigurableDeviceSize;			/* Bytes 40-43 */
+  unsigned int :32;					/* Bytes 44-47 */
+  unsigned char LogicalDeviceName[32];			/* Bytes 48-79 */
+  unsigned char SCSI_InquiryData[36];			/* Bytes 80-115 */
+  unsigned char Reserved1[12];				/* Bytes 116-127 */
+  DAC960_ByteCount64_T LastReadBlockNumber;		/* Bytes 128-135 */
+  DAC960_ByteCount64_T LastWrittenBlockNumber;		/* Bytes 136-143 */
+  DAC960_ByteCount64_T ConsistencyCheckBlockNumber;	/* Bytes 144-151 */
+  DAC960_ByteCount64_T RebuildBlockNumber;		/* Bytes 152-159 */
+  DAC960_ByteCount64_T BackgroundInitializationBlockNumber; /* Bytes 160-167 */
+  DAC960_ByteCount64_T ForegroundInitializationBlockNumber; /* Bytes 168-175 */
+  DAC960_ByteCount64_T DataMigrationBlockNumber;	/* Bytes 176-183 */
+  DAC960_ByteCount64_T PatrolOperationBlockNumber;	/* Bytes 184-191 */
+  unsigned char Reserved2[64];				/* Bytes 192-255 */
 }
 DAC960_V2_LogicalDeviceInfo_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Physical Device State type.
+*/
 
 typedef enum
 {
@@ -1270,163 +1421,187 @@ __attribute__ ((packed))
 DAC960_V2_PhysicalDeviceState_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Get Physical Device Info reply structure.
+*/
 
 typedef struct DAC960_V2_PhysicalDeviceInfo
 {
-  unsigned char :8;					
-  unsigned char Channel;				
-  unsigned char TargetID;				
-  unsigned char LogicalUnit;				
-  
-  bool PhysicalDeviceFaultTolerant:1;			
-  bool PhysicalDeviceConnected:1;			
-  bool PhysicalDeviceLocalToController:1;		
-  unsigned char :5;					
-  
-  bool RemoteHostSystemDead:1;				
-  bool RemoteControllerDead:1;				
-  unsigned char :6;					
-  DAC960_V2_PhysicalDeviceState_T PhysicalDeviceState;	
-  unsigned char NegotiatedDataWidthBits;		
-  unsigned short NegotiatedSynchronousMegaTransfers;	
-  
-  unsigned char NumberOfPortConnections;		
-  unsigned char DriveAccessibilityBitmap;		
-  unsigned int :32;					
-  unsigned char NetworkAddress[16];			
-  unsigned short MaximumTags;				
-  
-  bool ConsistencyCheckInProgress:1;			
-  bool RebuildInProgress:1;				
-  bool MakingDataConsistentInProgress:1;		
-  bool PhysicalDeviceInitializationInProgress:1;	
-  bool DataMigrationInProgress:1;			
-  bool PatrolOperationInProgress:1;			
-  unsigned char :2;					
-  unsigned char LongOperationStatus;			
-  unsigned char ParityErrors;				
-  unsigned char SoftErrors;				
-  unsigned char HardErrors;				
-  unsigned char MiscellaneousErrors;			
-  unsigned char CommandTimeouts;			
-  unsigned char Retries;				
-  unsigned char Aborts;					
-  unsigned char PredictedFailuresDetected;		
-  unsigned int :32;					
-  unsigned short :16;					
-  unsigned short DeviceBlockSizeInBytes;		
-  unsigned int OriginalDeviceSize;			
-  unsigned int ConfigurableDeviceSize;			
-  unsigned int :32;					
-  unsigned char PhysicalDeviceName[16];			
-  unsigned char Reserved1[16];				
-  unsigned char Reserved2[32];				
-  unsigned char SCSI_InquiryData[36];			
-  unsigned char Reserved3[20];				
-  unsigned char Reserved4[8];				
-  DAC960_ByteCount64_T LastReadBlockNumber;		
-  DAC960_ByteCount64_T LastWrittenBlockNumber;		
-  DAC960_ByteCount64_T ConsistencyCheckBlockNumber;	
-  DAC960_ByteCount64_T RebuildBlockNumber;		
-  DAC960_ByteCount64_T MakingDataConsistentBlockNumber;	
-  DAC960_ByteCount64_T DeviceInitializationBlockNumber; 
-  DAC960_ByteCount64_T DataMigrationBlockNumber;	
-  DAC960_ByteCount64_T PatrolOperationBlockNumber;	
-  unsigned char Reserved5[256];				
+  unsigned char :8;					/* Byte 0 */
+  unsigned char Channel;				/* Byte 1 */
+  unsigned char TargetID;				/* Byte 2 */
+  unsigned char LogicalUnit;				/* Byte 3 */
+  /* Configuration Status Bits */
+  bool PhysicalDeviceFaultTolerant:1;			/* Byte 4 Bit 0 */
+  bool PhysicalDeviceConnected:1;			/* Byte 4 Bit 1 */
+  bool PhysicalDeviceLocalToController:1;		/* Byte 4 Bit 2 */
+  unsigned char :5;					/* Byte 4 Bits 3-7 */
+  /* Multiple Host/Controller Status Bits */
+  bool RemoteHostSystemDead:1;				/* Byte 5 Bit 0 */
+  bool RemoteControllerDead:1;				/* Byte 5 Bit 1 */
+  unsigned char :6;					/* Byte 5 Bits 2-7 */
+  DAC960_V2_PhysicalDeviceState_T PhysicalDeviceState;	/* Byte 6 */
+  unsigned char NegotiatedDataWidthBits;		/* Byte 7 */
+  unsigned short NegotiatedSynchronousMegaTransfers;	/* Bytes 8-9 */
+  /* Multiported Physical Device Information */
+  unsigned char NumberOfPortConnections;		/* Byte 10 */
+  unsigned char DriveAccessibilityBitmap;		/* Byte 11 */
+  unsigned int :32;					/* Bytes 12-15 */
+  unsigned char NetworkAddress[16];			/* Bytes 16-31 */
+  unsigned short MaximumTags;				/* Bytes 32-33 */
+  /* Physical Device Operations Status */
+  bool ConsistencyCheckInProgress:1;			/* Byte 34 Bit 0 */
+  bool RebuildInProgress:1;				/* Byte 34 Bit 1 */
+  bool MakingDataConsistentInProgress:1;		/* Byte 34 Bit 2 */
+  bool PhysicalDeviceInitializationInProgress:1;	/* Byte 34 Bit 3 */
+  bool DataMigrationInProgress:1;			/* Byte 34 Bit 4 */
+  bool PatrolOperationInProgress:1;			/* Byte 34 Bit 5 */
+  unsigned char :2;					/* Byte 34 Bits 6-7 */
+  unsigned char LongOperationStatus;			/* Byte 35 */
+  unsigned char ParityErrors;				/* Byte 36 */
+  unsigned char SoftErrors;				/* Byte 37 */
+  unsigned char HardErrors;				/* Byte 38 */
+  unsigned char MiscellaneousErrors;			/* Byte 39 */
+  unsigned char CommandTimeouts;			/* Byte 40 */
+  unsigned char Retries;				/* Byte 41 */
+  unsigned char Aborts;					/* Byte 42 */
+  unsigned char PredictedFailuresDetected;		/* Byte 43 */
+  unsigned int :32;					/* Bytes 44-47 */
+  unsigned short :16;					/* Bytes 48-49 */
+  unsigned short DeviceBlockSizeInBytes;		/* Bytes 50-51 */
+  unsigned int OriginalDeviceSize;			/* Bytes 52-55 */
+  unsigned int ConfigurableDeviceSize;			/* Bytes 56-59 */
+  unsigned int :32;					/* Bytes 60-63 */
+  unsigned char PhysicalDeviceName[16];			/* Bytes 64-79 */
+  unsigned char Reserved1[16];				/* Bytes 80-95 */
+  unsigned char Reserved2[32];				/* Bytes 96-127 */
+  unsigned char SCSI_InquiryData[36];			/* Bytes 128-163 */
+  unsigned char Reserved3[20];				/* Bytes 164-183 */
+  unsigned char Reserved4[8];				/* Bytes 184-191 */
+  DAC960_ByteCount64_T LastReadBlockNumber;		/* Bytes 192-199 */
+  DAC960_ByteCount64_T LastWrittenBlockNumber;		/* Bytes 200-207 */
+  DAC960_ByteCount64_T ConsistencyCheckBlockNumber;	/* Bytes 208-215 */
+  DAC960_ByteCount64_T RebuildBlockNumber;		/* Bytes 216-223 */
+  DAC960_ByteCount64_T MakingDataConsistentBlockNumber;	/* Bytes 224-231 */
+  DAC960_ByteCount64_T DeviceInitializationBlockNumber; /* Bytes 232-239 */
+  DAC960_ByteCount64_T DataMigrationBlockNumber;	/* Bytes 240-247 */
+  DAC960_ByteCount64_T PatrolOperationBlockNumber;	/* Bytes 248-255 */
+  unsigned char Reserved5[256];				/* Bytes 256-511 */
 }
 DAC960_V2_PhysicalDeviceInfo_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Health Status Buffer structure.
+*/
 
 typedef struct DAC960_V2_HealthStatusBuffer
 {
-  unsigned int MicrosecondsFromControllerStartTime;	
-  unsigned int MillisecondsFromControllerStartTime;	
-  unsigned int SecondsFrom1January1970;			
-  unsigned int :32;					
-  unsigned int StatusChangeCounter;			
-  unsigned int :32;					
-  unsigned int DebugOutputMessageBufferIndex;		
-  unsigned int CodedMessageBufferIndex;			
-  unsigned int CurrentTimeTracePageNumber;		
-  unsigned int CurrentProfilerPageNumber;		
-  unsigned int NextEventSequenceNumber;			
-  unsigned int :32;					
-  unsigned char Reserved1[16];				
-  unsigned char Reserved2[64];				
+  unsigned int MicrosecondsFromControllerStartTime;	/* Bytes 0-3 */
+  unsigned int MillisecondsFromControllerStartTime;	/* Bytes 4-7 */
+  unsigned int SecondsFrom1January1970;			/* Bytes 8-11 */
+  unsigned int :32;					/* Bytes 12-15 */
+  unsigned int StatusChangeCounter;			/* Bytes 16-19 */
+  unsigned int :32;					/* Bytes 20-23 */
+  unsigned int DebugOutputMessageBufferIndex;		/* Bytes 24-27 */
+  unsigned int CodedMessageBufferIndex;			/* Bytes 28-31 */
+  unsigned int CurrentTimeTracePageNumber;		/* Bytes 32-35 */
+  unsigned int CurrentProfilerPageNumber;		/* Bytes 36-39 */
+  unsigned int NextEventSequenceNumber;			/* Bytes 40-43 */
+  unsigned int :32;					/* Bytes 44-47 */
+  unsigned char Reserved1[16];				/* Bytes 48-63 */
+  unsigned char Reserved2[64];				/* Bytes 64-127 */
 }
 DAC960_V2_HealthStatusBuffer_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Get Event reply structure.
+*/
 
 typedef struct DAC960_V2_Event
 {
-  unsigned int EventSequenceNumber;			
-  unsigned int EventTime;				
-  unsigned int EventCode;				
-  unsigned char :8;					
-  unsigned char Channel;				
-  unsigned char TargetID;				
-  unsigned char LogicalUnit;				
-  unsigned int :32;					
-  unsigned int EventSpecificParameter;			
-  unsigned char RequestSenseData[40];			
+  unsigned int EventSequenceNumber;			/* Bytes 0-3 */
+  unsigned int EventTime;				/* Bytes 4-7 */
+  unsigned int EventCode;				/* Bytes 8-11 */
+  unsigned char :8;					/* Byte 12 */
+  unsigned char Channel;				/* Byte 13 */
+  unsigned char TargetID;				/* Byte 14 */
+  unsigned char LogicalUnit;				/* Byte 15 */
+  unsigned int :32;					/* Bytes 16-19 */
+  unsigned int EventSpecificParameter;			/* Bytes 20-23 */
+  unsigned char RequestSenseData[40];			/* Bytes 24-63 */
 }
 DAC960_V2_Event_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Command Control Bits structure.
+*/
 
 typedef struct DAC960_V2_CommandControlBits
 {
-  bool ForceUnitAccess:1;				
-  bool DisablePageOut:1;				
-  bool :1;						
-  bool AdditionalScatterGatherListMemory:1;		
-  bool DataTransferControllerToHost:1;			
-  bool :1;						
-  bool NoAutoRequestSense:1;				
-  bool DisconnectProhibited:1;				
+  bool ForceUnitAccess:1;				/* Byte 0 Bit 0 */
+  bool DisablePageOut:1;				/* Byte 0 Bit 1 */
+  bool :1;						/* Byte 0 Bit 2 */
+  bool AdditionalScatterGatherListMemory:1;		/* Byte 0 Bit 3 */
+  bool DataTransferControllerToHost:1;			/* Byte 0 Bit 4 */
+  bool :1;						/* Byte 0 Bit 5 */
+  bool NoAutoRequestSense:1;				/* Byte 0 Bit 6 */
+  bool DisconnectProhibited:1;				/* Byte 0 Bit 7 */
 }
 DAC960_V2_CommandControlBits_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Command Timeout structure.
+*/
 
 typedef struct DAC960_V2_CommandTimeout
 {
-  unsigned char TimeoutValue:6;				
+  unsigned char TimeoutValue:6;				/* Byte 0 Bits 0-5 */
   enum {
     DAC960_V2_TimeoutScale_Seconds =		0,
     DAC960_V2_TimeoutScale_Minutes =		1,
     DAC960_V2_TimeoutScale_Hours =		2,
     DAC960_V2_TimeoutScale_Reserved =		3
-  } __attribute__ ((packed)) TimeoutScale:2;		
+  } __attribute__ ((packed)) TimeoutScale:2;		/* Byte 0 Bits 6-7 */
 }
 DAC960_V2_CommandTimeout_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Physical Device structure.
+*/
 
 typedef struct DAC960_V2_PhysicalDevice
 {
-  unsigned char LogicalUnit;				
-  unsigned char TargetID;				
-  unsigned char Channel:3;				
-  unsigned char Controller:5;				
+  unsigned char LogicalUnit;				/* Byte 0 */
+  unsigned char TargetID;				/* Byte 1 */
+  unsigned char Channel:3;				/* Byte 2 Bits 0-2 */
+  unsigned char Controller:5;				/* Byte 2 Bits 3-7 */
 }
 __attribute__ ((packed))
 DAC960_V2_PhysicalDevice_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Logical Device structure.
+*/
 
 typedef struct DAC960_V2_LogicalDevice
 {
-  unsigned short LogicalDeviceNumber;			
-  unsigned char :3;					
-  unsigned char Controller:5;				
+  unsigned short LogicalDeviceNumber;			/* Bytes 0-1 */
+  unsigned char :3;					/* Byte 2 Bits 0-2 */
+  unsigned char Controller:5;				/* Byte 2 Bits 3-7 */
 }
 __attribute__ ((packed))
 DAC960_V2_LogicalDevice_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Operation Device type.
+*/
 
 typedef enum
 {
@@ -1443,235 +1618,250 @@ __attribute__ ((packed))
 DAC960_V2_OperationDevice_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Translate Physical To Logical Device structure.
+*/
 
 typedef struct DAC960_V2_PhysicalToLogicalDevice
 {
-  unsigned short LogicalDeviceNumber;			
-  unsigned short :16;					
-  unsigned char PreviousBootController;			
-  unsigned char PreviousBootChannel;			
-  unsigned char PreviousBootTargetID;			
-  unsigned char PreviousBootLogicalUnit;		
+  unsigned short LogicalDeviceNumber;			/* Bytes 0-1 */
+  unsigned short :16;					/* Bytes 2-3 */
+  unsigned char PreviousBootController;			/* Byte 4 */
+  unsigned char PreviousBootChannel;			/* Byte 5 */
+  unsigned char PreviousBootTargetID;			/* Byte 6 */
+  unsigned char PreviousBootLogicalUnit;		/* Byte 7 */
 }
 DAC960_V2_PhysicalToLogicalDevice_T;
 
 
 
+/*
+  Define the DAC960 V2 Firmware Scatter/Gather List Entry structure.
+*/
 
 typedef struct DAC960_V2_ScatterGatherSegment
 {
-  DAC960_BusAddress64_T SegmentDataPointer;		
-  DAC960_ByteCount64_T SegmentByteCount;		
+  DAC960_BusAddress64_T SegmentDataPointer;		/* Bytes 0-7 */
+  DAC960_ByteCount64_T SegmentByteCount;		/* Bytes 8-15 */
 }
 DAC960_V2_ScatterGatherSegment_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Data Transfer Memory Address structure.
+*/
 
 typedef union DAC960_V2_DataTransferMemoryAddress
 {
-  DAC960_V2_ScatterGatherSegment_T ScatterGatherSegments[2]; 
+  DAC960_V2_ScatterGatherSegment_T ScatterGatherSegments[2]; /* Bytes 0-31 */
   struct {
-    unsigned short ScatterGatherList0Length;		
-    unsigned short ScatterGatherList1Length;		
-    unsigned short ScatterGatherList2Length;		
-    unsigned short :16;					
-    DAC960_BusAddress64_T ScatterGatherList0Address;	
-    DAC960_BusAddress64_T ScatterGatherList1Address;	
-    DAC960_BusAddress64_T ScatterGatherList2Address;	
+    unsigned short ScatterGatherList0Length;		/* Bytes 0-1 */
+    unsigned short ScatterGatherList1Length;		/* Bytes 2-3 */
+    unsigned short ScatterGatherList2Length;		/* Bytes 4-5 */
+    unsigned short :16;					/* Bytes 6-7 */
+    DAC960_BusAddress64_T ScatterGatherList0Address;	/* Bytes 8-15 */
+    DAC960_BusAddress64_T ScatterGatherList1Address;	/* Bytes 16-23 */
+    DAC960_BusAddress64_T ScatterGatherList2Address;	/* Bytes 24-31 */
   } ExtendedScatterGather;
 }
 DAC960_V2_DataTransferMemoryAddress_T;
 
 
+/*
+  Define the 64 Byte DAC960 V2 Firmware Command Mailbox structure.
+*/
 
 typedef union DAC960_V2_CommandMailbox
 {
-  unsigned int Words[16];				
+  unsigned int Words[16];				/* Words 0-15 */
   struct {
-    DAC960_V2_CommandIdentifier_T CommandIdentifier;	
-    DAC960_V2_CommandOpcode_T CommandOpcode;		
-    DAC960_V2_CommandControlBits_T CommandControlBits;	
-    DAC960_ByteCount32_T DataTransferSize:24;		
-    unsigned char DataTransferPageNumber;		
-    DAC960_BusAddress64_T RequestSenseBusAddress;	
-    unsigned int :24;					
-    DAC960_V2_CommandTimeout_T CommandTimeout;		
-    unsigned char RequestSenseSize;			
-    unsigned char IOCTL_Opcode;				
-    unsigned char Reserved[10];				
+    DAC960_V2_CommandIdentifier_T CommandIdentifier;	/* Bytes 0-1 */
+    DAC960_V2_CommandOpcode_T CommandOpcode;		/* Byte 2 */
+    DAC960_V2_CommandControlBits_T CommandControlBits;	/* Byte 3 */
+    DAC960_ByteCount32_T DataTransferSize:24;		/* Bytes 4-6 */
+    unsigned char DataTransferPageNumber;		/* Byte 7 */
+    DAC960_BusAddress64_T RequestSenseBusAddress;	/* Bytes 8-15 */
+    unsigned int :24;					/* Bytes 16-18 */
+    DAC960_V2_CommandTimeout_T CommandTimeout;		/* Byte 19 */
+    unsigned char RequestSenseSize;			/* Byte 20 */
+    unsigned char IOCTL_Opcode;				/* Byte 21 */
+    unsigned char Reserved[10];				/* Bytes 22-31 */
     DAC960_V2_DataTransferMemoryAddress_T
-      DataTransferMemoryAddress;			
+      DataTransferMemoryAddress;			/* Bytes 32-63 */
   } Common;
   struct {
-    DAC960_V2_CommandIdentifier_T CommandIdentifier;	
-    DAC960_V2_CommandOpcode_T CommandOpcode;		
-    DAC960_V2_CommandControlBits_T CommandControlBits;	
-    DAC960_ByteCount32_T DataTransferSize;		
-    DAC960_BusAddress64_T RequestSenseBusAddress;	
-    DAC960_V2_PhysicalDevice_T PhysicalDevice;		
-    DAC960_V2_CommandTimeout_T CommandTimeout;		
-    unsigned char RequestSenseSize;			
-    unsigned char CDBLength;				
-    unsigned char SCSI_CDB[10];				
+    DAC960_V2_CommandIdentifier_T CommandIdentifier;	/* Bytes 0-1 */
+    DAC960_V2_CommandOpcode_T CommandOpcode;		/* Byte 2 */
+    DAC960_V2_CommandControlBits_T CommandControlBits;	/* Byte 3 */
+    DAC960_ByteCount32_T DataTransferSize;		/* Bytes 4-7 */
+    DAC960_BusAddress64_T RequestSenseBusAddress;	/* Bytes 8-15 */
+    DAC960_V2_PhysicalDevice_T PhysicalDevice;		/* Bytes 16-18 */
+    DAC960_V2_CommandTimeout_T CommandTimeout;		/* Byte 19 */
+    unsigned char RequestSenseSize;			/* Byte 20 */
+    unsigned char CDBLength;				/* Byte 21 */
+    unsigned char SCSI_CDB[10];				/* Bytes 22-31 */
     DAC960_V2_DataTransferMemoryAddress_T
-      DataTransferMemoryAddress;			
+      DataTransferMemoryAddress;			/* Bytes 32-63 */
   } SCSI_10;
   struct {
-    DAC960_V2_CommandIdentifier_T CommandIdentifier;	
-    DAC960_V2_CommandOpcode_T CommandOpcode;		
-    DAC960_V2_CommandControlBits_T CommandControlBits;	
-    DAC960_ByteCount32_T DataTransferSize;		
-    DAC960_BusAddress64_T RequestSenseBusAddress;	
-    DAC960_V2_PhysicalDevice_T PhysicalDevice;		
-    DAC960_V2_CommandTimeout_T CommandTimeout;		
-    unsigned char RequestSenseSize;			
-    unsigned char CDBLength;				
-    unsigned short :16;					
-    DAC960_BusAddress64_T SCSI_CDB_BusAddress;		
+    DAC960_V2_CommandIdentifier_T CommandIdentifier;	/* Bytes 0-1 */
+    DAC960_V2_CommandOpcode_T CommandOpcode;		/* Byte 2 */
+    DAC960_V2_CommandControlBits_T CommandControlBits;	/* Byte 3 */
+    DAC960_ByteCount32_T DataTransferSize;		/* Bytes 4-7 */
+    DAC960_BusAddress64_T RequestSenseBusAddress;	/* Bytes 8-15 */
+    DAC960_V2_PhysicalDevice_T PhysicalDevice;		/* Bytes 16-18 */
+    DAC960_V2_CommandTimeout_T CommandTimeout;		/* Byte 19 */
+    unsigned char RequestSenseSize;			/* Byte 20 */
+    unsigned char CDBLength;				/* Byte 21 */
+    unsigned short :16;					/* Bytes 22-23 */
+    DAC960_BusAddress64_T SCSI_CDB_BusAddress;		/* Bytes 24-31 */
     DAC960_V2_DataTransferMemoryAddress_T
-      DataTransferMemoryAddress;			
+      DataTransferMemoryAddress;			/* Bytes 32-63 */
   } SCSI_255;
   struct {
-    DAC960_V2_CommandIdentifier_T CommandIdentifier;	
-    DAC960_V2_CommandOpcode_T CommandOpcode;		
-    DAC960_V2_CommandControlBits_T CommandControlBits;	
-    DAC960_ByteCount32_T DataTransferSize:24;		
-    unsigned char DataTransferPageNumber;		
-    DAC960_BusAddress64_T RequestSenseBusAddress;	
-    unsigned short :16;					
-    unsigned char ControllerNumber;			
-    DAC960_V2_CommandTimeout_T CommandTimeout;		
-    unsigned char RequestSenseSize;			
-    unsigned char IOCTL_Opcode;				
-    unsigned char Reserved[10];				
+    DAC960_V2_CommandIdentifier_T CommandIdentifier;	/* Bytes 0-1 */
+    DAC960_V2_CommandOpcode_T CommandOpcode;		/* Byte 2 */
+    DAC960_V2_CommandControlBits_T CommandControlBits;	/* Byte 3 */
+    DAC960_ByteCount32_T DataTransferSize:24;		/* Bytes 4-6 */
+    unsigned char DataTransferPageNumber;		/* Byte 7 */
+    DAC960_BusAddress64_T RequestSenseBusAddress;	/* Bytes 8-15 */
+    unsigned short :16;					/* Bytes 16-17 */
+    unsigned char ControllerNumber;			/* Byte 18 */
+    DAC960_V2_CommandTimeout_T CommandTimeout;		/* Byte 19 */
+    unsigned char RequestSenseSize;			/* Byte 20 */
+    unsigned char IOCTL_Opcode;				/* Byte 21 */
+    unsigned char Reserved[10];				/* Bytes 22-31 */
     DAC960_V2_DataTransferMemoryAddress_T
-      DataTransferMemoryAddress;			
+      DataTransferMemoryAddress;			/* Bytes 32-63 */
   } ControllerInfo;
   struct {
-    DAC960_V2_CommandIdentifier_T CommandIdentifier;	
-    DAC960_V2_CommandOpcode_T CommandOpcode;		
-    DAC960_V2_CommandControlBits_T CommandControlBits;	
-    DAC960_ByteCount32_T DataTransferSize:24;		
-    unsigned char DataTransferPageNumber;		
-    DAC960_BusAddress64_T RequestSenseBusAddress;	
-    DAC960_V2_LogicalDevice_T LogicalDevice;		
-    DAC960_V2_CommandTimeout_T CommandTimeout;		
-    unsigned char RequestSenseSize;			
-    unsigned char IOCTL_Opcode;				
-    unsigned char Reserved[10];				
+    DAC960_V2_CommandIdentifier_T CommandIdentifier;	/* Bytes 0-1 */
+    DAC960_V2_CommandOpcode_T CommandOpcode;		/* Byte 2 */
+    DAC960_V2_CommandControlBits_T CommandControlBits;	/* Byte 3 */
+    DAC960_ByteCount32_T DataTransferSize:24;		/* Bytes 4-6 */
+    unsigned char DataTransferPageNumber;		/* Byte 7 */
+    DAC960_BusAddress64_T RequestSenseBusAddress;	/* Bytes 8-15 */
+    DAC960_V2_LogicalDevice_T LogicalDevice;		/* Bytes 16-18 */
+    DAC960_V2_CommandTimeout_T CommandTimeout;		/* Byte 19 */
+    unsigned char RequestSenseSize;			/* Byte 20 */
+    unsigned char IOCTL_Opcode;				/* Byte 21 */
+    unsigned char Reserved[10];				/* Bytes 22-31 */
     DAC960_V2_DataTransferMemoryAddress_T
-      DataTransferMemoryAddress;			
+      DataTransferMemoryAddress;			/* Bytes 32-63 */
   } LogicalDeviceInfo;
   struct {
-    DAC960_V2_CommandIdentifier_T CommandIdentifier;	
-    DAC960_V2_CommandOpcode_T CommandOpcode;		
-    DAC960_V2_CommandControlBits_T CommandControlBits;	
-    DAC960_ByteCount32_T DataTransferSize:24;		
-    unsigned char DataTransferPageNumber;		
-    DAC960_BusAddress64_T RequestSenseBusAddress;	
-    DAC960_V2_PhysicalDevice_T PhysicalDevice;		
-    DAC960_V2_CommandTimeout_T CommandTimeout;		
-    unsigned char RequestSenseSize;			
-    unsigned char IOCTL_Opcode;				
-    unsigned char Reserved[10];				
+    DAC960_V2_CommandIdentifier_T CommandIdentifier;	/* Bytes 0-1 */
+    DAC960_V2_CommandOpcode_T CommandOpcode;		/* Byte 2 */
+    DAC960_V2_CommandControlBits_T CommandControlBits;	/* Byte 3 */
+    DAC960_ByteCount32_T DataTransferSize:24;		/* Bytes 4-6 */
+    unsigned char DataTransferPageNumber;		/* Byte 7 */
+    DAC960_BusAddress64_T RequestSenseBusAddress;	/* Bytes 8-15 */
+    DAC960_V2_PhysicalDevice_T PhysicalDevice;		/* Bytes 16-18 */
+    DAC960_V2_CommandTimeout_T CommandTimeout;		/* Byte 19 */
+    unsigned char RequestSenseSize;			/* Byte 20 */
+    unsigned char IOCTL_Opcode;				/* Byte 21 */
+    unsigned char Reserved[10];				/* Bytes 22-31 */
     DAC960_V2_DataTransferMemoryAddress_T
-      DataTransferMemoryAddress;			
+      DataTransferMemoryAddress;			/* Bytes 32-63 */
   } PhysicalDeviceInfo;
   struct {
-    DAC960_V2_CommandIdentifier_T CommandIdentifier;	
-    DAC960_V2_CommandOpcode_T CommandOpcode;		
-    DAC960_V2_CommandControlBits_T CommandControlBits;	
-    DAC960_ByteCount32_T DataTransferSize:24;		
-    unsigned char DataTransferPageNumber;		
-    DAC960_BusAddress64_T RequestSenseBusAddress;	
-    unsigned short EventSequenceNumberHigh16;		
-    unsigned char ControllerNumber;			
-    DAC960_V2_CommandTimeout_T CommandTimeout;		
-    unsigned char RequestSenseSize;			
-    unsigned char IOCTL_Opcode;				
-    unsigned short EventSequenceNumberLow16;		
-    unsigned char Reserved[8];				
+    DAC960_V2_CommandIdentifier_T CommandIdentifier;	/* Bytes 0-1 */
+    DAC960_V2_CommandOpcode_T CommandOpcode;		/* Byte 2 */
+    DAC960_V2_CommandControlBits_T CommandControlBits;	/* Byte 3 */
+    DAC960_ByteCount32_T DataTransferSize:24;		/* Bytes 4-6 */
+    unsigned char DataTransferPageNumber;		/* Byte 7 */
+    DAC960_BusAddress64_T RequestSenseBusAddress;	/* Bytes 8-15 */
+    unsigned short EventSequenceNumberHigh16;		/* Bytes 16-17 */
+    unsigned char ControllerNumber;			/* Byte 18 */
+    DAC960_V2_CommandTimeout_T CommandTimeout;		/* Byte 19 */
+    unsigned char RequestSenseSize;			/* Byte 20 */
+    unsigned char IOCTL_Opcode;				/* Byte 21 */
+    unsigned short EventSequenceNumberLow16;		/* Bytes 22-23 */
+    unsigned char Reserved[8];				/* Bytes 24-31 */
     DAC960_V2_DataTransferMemoryAddress_T
-      DataTransferMemoryAddress;			
+      DataTransferMemoryAddress;			/* Bytes 32-63 */
   } GetEvent;
   struct {
-    DAC960_V2_CommandIdentifier_T CommandIdentifier;	
-    DAC960_V2_CommandOpcode_T CommandOpcode;		
-    DAC960_V2_CommandControlBits_T CommandControlBits;	
-    DAC960_ByteCount32_T DataTransferSize:24;		
-    unsigned char DataTransferPageNumber;		
-    DAC960_BusAddress64_T RequestSenseBusAddress;	
-    DAC960_V2_LogicalDevice_T LogicalDevice;		
-    DAC960_V2_CommandTimeout_T CommandTimeout;		
-    unsigned char RequestSenseSize;			
-    unsigned char IOCTL_Opcode;				
+    DAC960_V2_CommandIdentifier_T CommandIdentifier;	/* Bytes 0-1 */
+    DAC960_V2_CommandOpcode_T CommandOpcode;		/* Byte 2 */
+    DAC960_V2_CommandControlBits_T CommandControlBits;	/* Byte 3 */
+    DAC960_ByteCount32_T DataTransferSize:24;		/* Bytes 4-6 */
+    unsigned char DataTransferPageNumber;		/* Byte 7 */
+    DAC960_BusAddress64_T RequestSenseBusAddress;	/* Bytes 8-15 */
+    DAC960_V2_LogicalDevice_T LogicalDevice;		/* Bytes 16-18 */
+    DAC960_V2_CommandTimeout_T CommandTimeout;		/* Byte 19 */
+    unsigned char RequestSenseSize;			/* Byte 20 */
+    unsigned char IOCTL_Opcode;				/* Byte 21 */
     union {
       DAC960_V2_LogicalDeviceState_T LogicalDeviceState;
       DAC960_V2_PhysicalDeviceState_T PhysicalDeviceState;
-    } DeviceState;					
-    unsigned char Reserved[9];				
+    } DeviceState;					/* Byte 22 */
+    unsigned char Reserved[9];				/* Bytes 23-31 */
     DAC960_V2_DataTransferMemoryAddress_T
-      DataTransferMemoryAddress;			
+      DataTransferMemoryAddress;			/* Bytes 32-63 */
   } SetDeviceState;
   struct {
-    DAC960_V2_CommandIdentifier_T CommandIdentifier;	
-    DAC960_V2_CommandOpcode_T CommandOpcode;		
-    DAC960_V2_CommandControlBits_T CommandControlBits;	
-    DAC960_ByteCount32_T DataTransferSize:24;		
-    unsigned char DataTransferPageNumber;		
-    DAC960_BusAddress64_T RequestSenseBusAddress;	
-    DAC960_V2_LogicalDevice_T LogicalDevice;		
-    DAC960_V2_CommandTimeout_T CommandTimeout;		
-    unsigned char RequestSenseSize;			
-    unsigned char IOCTL_Opcode;				
-    bool RestoreConsistency:1;				
-    bool InitializedAreaOnly:1;				
-    unsigned char :6;					
-    unsigned char Reserved[9];				
+    DAC960_V2_CommandIdentifier_T CommandIdentifier;	/* Bytes 0-1 */
+    DAC960_V2_CommandOpcode_T CommandOpcode;		/* Byte 2 */
+    DAC960_V2_CommandControlBits_T CommandControlBits;	/* Byte 3 */
+    DAC960_ByteCount32_T DataTransferSize:24;		/* Bytes 4-6 */
+    unsigned char DataTransferPageNumber;		/* Byte 7 */
+    DAC960_BusAddress64_T RequestSenseBusAddress;	/* Bytes 8-15 */
+    DAC960_V2_LogicalDevice_T LogicalDevice;		/* Bytes 16-18 */
+    DAC960_V2_CommandTimeout_T CommandTimeout;		/* Byte 19 */
+    unsigned char RequestSenseSize;			/* Byte 20 */
+    unsigned char IOCTL_Opcode;				/* Byte 21 */
+    bool RestoreConsistency:1;				/* Byte 22 Bit 0 */
+    bool InitializedAreaOnly:1;				/* Byte 22 Bit 1 */
+    unsigned char :6;					/* Byte 22 Bits 2-7 */
+    unsigned char Reserved[9];				/* Bytes 23-31 */
     DAC960_V2_DataTransferMemoryAddress_T
-      DataTransferMemoryAddress;			
+      DataTransferMemoryAddress;			/* Bytes 32-63 */
   } ConsistencyCheck;
   struct {
-    DAC960_V2_CommandIdentifier_T CommandIdentifier;	
-    DAC960_V2_CommandOpcode_T CommandOpcode;		
-    DAC960_V2_CommandControlBits_T CommandControlBits;	
-    unsigned char FirstCommandMailboxSizeKB;		
-    unsigned char FirstStatusMailboxSizeKB;		
-    unsigned char SecondCommandMailboxSizeKB;		
-    unsigned char SecondStatusMailboxSizeKB;		
-    DAC960_BusAddress64_T RequestSenseBusAddress;	
-    unsigned int :24;					
-    DAC960_V2_CommandTimeout_T CommandTimeout;		
-    unsigned char RequestSenseSize;			
-    unsigned char IOCTL_Opcode;				
-    unsigned char HealthStatusBufferSizeKB;		
-    unsigned char :8;					
-    DAC960_BusAddress64_T HealthStatusBufferBusAddress; 
-    DAC960_BusAddress64_T FirstCommandMailboxBusAddress; 
-    DAC960_BusAddress64_T FirstStatusMailboxBusAddress; 
-    DAC960_BusAddress64_T SecondCommandMailboxBusAddress; 
-    DAC960_BusAddress64_T SecondStatusMailboxBusAddress; 
+    DAC960_V2_CommandIdentifier_T CommandIdentifier;	/* Bytes 0-1 */
+    DAC960_V2_CommandOpcode_T CommandOpcode;		/* Byte 2 */
+    DAC960_V2_CommandControlBits_T CommandControlBits;	/* Byte 3 */
+    unsigned char FirstCommandMailboxSizeKB;		/* Byte 4 */
+    unsigned char FirstStatusMailboxSizeKB;		/* Byte 5 */
+    unsigned char SecondCommandMailboxSizeKB;		/* Byte 6 */
+    unsigned char SecondStatusMailboxSizeKB;		/* Byte 7 */
+    DAC960_BusAddress64_T RequestSenseBusAddress;	/* Bytes 8-15 */
+    unsigned int :24;					/* Bytes 16-18 */
+    DAC960_V2_CommandTimeout_T CommandTimeout;		/* Byte 19 */
+    unsigned char RequestSenseSize;			/* Byte 20 */
+    unsigned char IOCTL_Opcode;				/* Byte 21 */
+    unsigned char HealthStatusBufferSizeKB;		/* Byte 22 */
+    unsigned char :8;					/* Byte 23 */
+    DAC960_BusAddress64_T HealthStatusBufferBusAddress; /* Bytes 24-31 */
+    DAC960_BusAddress64_T FirstCommandMailboxBusAddress; /* Bytes 32-39 */
+    DAC960_BusAddress64_T FirstStatusMailboxBusAddress; /* Bytes 40-47 */
+    DAC960_BusAddress64_T SecondCommandMailboxBusAddress; /* Bytes 48-55 */
+    DAC960_BusAddress64_T SecondStatusMailboxBusAddress; /* Bytes 56-63 */
   } SetMemoryMailbox;
   struct {
-    DAC960_V2_CommandIdentifier_T CommandIdentifier;	
-    DAC960_V2_CommandOpcode_T CommandOpcode;		
-    DAC960_V2_CommandControlBits_T CommandControlBits;	
-    DAC960_ByteCount32_T DataTransferSize:24;		
-    unsigned char DataTransferPageNumber;		
-    DAC960_BusAddress64_T RequestSenseBusAddress;	
-    DAC960_V2_PhysicalDevice_T PhysicalDevice;		
-    DAC960_V2_CommandTimeout_T CommandTimeout;		
-    unsigned char RequestSenseSize;			
-    unsigned char IOCTL_Opcode;				
-    DAC960_V2_OperationDevice_T OperationDevice;	
-    unsigned char Reserved[9];				
+    DAC960_V2_CommandIdentifier_T CommandIdentifier;	/* Bytes 0-1 */
+    DAC960_V2_CommandOpcode_T CommandOpcode;		/* Byte 2 */
+    DAC960_V2_CommandControlBits_T CommandControlBits;	/* Byte 3 */
+    DAC960_ByteCount32_T DataTransferSize:24;		/* Bytes 4-6 */
+    unsigned char DataTransferPageNumber;		/* Byte 7 */
+    DAC960_BusAddress64_T RequestSenseBusAddress;	/* Bytes 8-15 */
+    DAC960_V2_PhysicalDevice_T PhysicalDevice;		/* Bytes 16-18 */
+    DAC960_V2_CommandTimeout_T CommandTimeout;		/* Byte 19 */
+    unsigned char RequestSenseSize;			/* Byte 20 */
+    unsigned char IOCTL_Opcode;				/* Byte 21 */
+    DAC960_V2_OperationDevice_T OperationDevice;	/* Byte 22 */
+    unsigned char Reserved[9];				/* Bytes 23-31 */
     DAC960_V2_DataTransferMemoryAddress_T
-      DataTransferMemoryAddress;			
+      DataTransferMemoryAddress;			/* Bytes 32-63 */
   } DeviceOperation;
 }
 DAC960_V2_CommandMailbox_T;
 
 
+/*
+  Define the DAC960 Driver IOCTL requests.
+*/
 
 #define DAC960_IOCTL_GET_CONTROLLER_COUNT	0xDAC001
 #define DAC960_IOCTL_GET_CONTROLLER_INFO	0xDAC002
@@ -1680,6 +1870,9 @@ DAC960_V2_CommandMailbox_T;
 #define DAC960_IOCTL_V2_GET_HEALTH_STATUS	0xDAC005
 
 
+/*
+  Define the DAC960_IOCTL_GET_CONTROLLER_INFO reply structure.
+*/
 
 typedef struct DAC960_ControllerInfo
 {
@@ -1698,6 +1891,9 @@ typedef struct DAC960_ControllerInfo
 DAC960_ControllerInfo_T;
 
 
+/*
+  Define the User Mode DAC960_IOCTL_V1_EXECUTE_COMMAND request structure.
+*/
 
 typedef struct DAC960_V1_UserCommand
 {
@@ -1710,6 +1906,9 @@ typedef struct DAC960_V1_UserCommand
 DAC960_V1_UserCommand_T;
 
 
+/*
+  Define the Kernel Mode DAC960_IOCTL_V1_EXECUTE_COMMAND request structure.
+*/
 
 typedef struct DAC960_V1_KernelCommand
 {
@@ -1725,6 +1924,9 @@ typedef struct DAC960_V1_KernelCommand
 DAC960_V1_KernelCommand_T;
 
 
+/*
+  Define the User Mode DAC960_IOCTL_V2_EXECUTE_COMMAND request structure.
+*/
 
 typedef struct DAC960_V2_UserCommand
 {
@@ -1738,6 +1940,9 @@ typedef struct DAC960_V2_UserCommand
 DAC960_V2_UserCommand_T;
 
 
+/*
+  Define the Kernel Mode DAC960_IOCTL_V2_EXECUTE_COMMAND request structure.
+*/
 
 typedef struct DAC960_V2_KernelCommand
 {
@@ -1754,6 +1959,9 @@ typedef struct DAC960_V2_KernelCommand
 DAC960_V2_KernelCommand_T;
 
 
+/*
+  Define the User Mode DAC960_IOCTL_V2_GET_HEALTH_STATUS request structure.
+*/
 
 typedef struct DAC960_V2_GetHealthStatus
 {
@@ -1763,24 +1971,42 @@ typedef struct DAC960_V2_GetHealthStatus
 DAC960_V2_GetHealthStatus_T;
 
 
+/*
+  Import the Kernel Mode IOCTL interface.
+*/
 
 extern int DAC960_KernelIOCTL(unsigned int Request, void *Argument);
 
 
+/*
+  DAC960_DriverVersion protects the private portion of this file.
+*/
 
 #ifdef DAC960_DriverVersion
 
 
+/*
+  Define the maximum Driver Queue Depth and Controller Queue Depth supported
+  by DAC960 V1 and V2 Firmware Controllers.
+*/
 
 #define DAC960_MaxDriverQueueDepth		511
 #define DAC960_MaxControllerQueueDepth		512
 
 
+/*
+  Define the maximum number of Scatter/Gather Segments supported for any
+  DAC960 V1 and V2 Firmware controller.
+*/
 
 #define DAC960_V1_ScatterGatherLimit		33
 #define DAC960_V2_ScatterGatherLimit		128
 
 
+/*
+  Define the number of Command Mailboxes and Status Mailboxes used by the
+  DAC960 V1 and V2 Firmware Memory Mailbox Interface.
+*/
 
 #define DAC960_V1_CommandMailboxCount		256
 #define DAC960_V1_StatusMailboxCount		1024
@@ -1788,36 +2014,62 @@ extern int DAC960_KernelIOCTL(unsigned int Request, void *Argument);
 #define DAC960_V2_StatusMailboxCount		512
 
 
+/*
+  Define the DAC960 Controller Monitoring Timer Interval.
+*/
 
 #define DAC960_MonitoringTimerInterval		(10 * HZ)
 
 
+/*
+  Define the DAC960 Controller Secondary Monitoring Interval.
+*/
 
 #define DAC960_SecondaryMonitoringInterval	(60 * HZ)
 
 
+/*
+  Define the DAC960 Controller Health Status Monitoring Interval.
+*/
 
 #define DAC960_HealthStatusMonitoringInterval	(1 * HZ)
 
 
+/*
+  Define the DAC960 Controller Progress Reporting Interval.
+*/
 
 #define DAC960_ProgressReportingInterval	(60 * HZ)
 
 
+/*
+  Define the maximum number of Partitions allowed for each Logical Drive.
+*/
 
 #define DAC960_MaxPartitions			8
 #define DAC960_MaxPartitionsBits		3
 
+/*
+  Define the DAC960 Controller fixed Block Size and Block Size Bits.
+*/
 
 #define DAC960_BlockSize			512
 #define DAC960_BlockSizeBits			9
 
 
+/*
+  Define the number of Command structures that should be allocated as a
+  group to optimize kernel memory allocation.
+*/
 
 #define DAC960_V1_CommandAllocationGroupSize	11
 #define DAC960_V2_CommandAllocationGroupSize	29
 
 
+/*
+  Define the Controller Line Buffer, Progress Buffer, User Message, and
+  Initial Status Buffer sizes.
+*/
 
 #define DAC960_LineBufferSize			100
 #define DAC960_ProgressBufferSize		200
@@ -1825,6 +2077,9 @@ extern int DAC960_KernelIOCTL(unsigned int Request, void *Argument);
 #define DAC960_InitialStatusBufferSize		(8192-32)
 
 
+/*
+  Define the DAC960 Controller Firmware Types.
+*/
 
 typedef enum
 {
@@ -1834,20 +2089,26 @@ typedef enum
 DAC960_FirmwareType_T;
 
 
+/*
+  Define the DAC960 Controller Hardware Types.
+*/
 
 typedef enum
 {
-  DAC960_BA_Controller =			1,	
-  DAC960_LP_Controller =			2,	
-  DAC960_LA_Controller =			3,	
-  DAC960_PG_Controller =			4,	
-  DAC960_PD_Controller =			5,	
-  DAC960_P_Controller =				6,	
-  DAC960_GEM_Controller =			7,	
+  DAC960_BA_Controller =			1,	/* eXtremeRAID 2000 */
+  DAC960_LP_Controller =			2,	/* AcceleRAID 352 */
+  DAC960_LA_Controller =			3,	/* DAC1164P */
+  DAC960_PG_Controller =			4,	/* DAC960PTL/PJ/PG */
+  DAC960_PD_Controller =			5,	/* DAC960PU/PD/PL/P */
+  DAC960_P_Controller =				6,	/* DAC960PU/PD/PL/P */
+  DAC960_GEM_Controller =			7,	/* AcceleRAID 4/5/600 */
 }
 DAC960_HardwareType_T;
 
 
+/*
+  Define the Driver Message Levels.
+*/
 
 typedef enum DAC960_MessageLevel
 {
@@ -1868,6 +2129,9 @@ static char
       KERN_ERR, KERN_CRIT, KERN_CRIT, KERN_CRIT };
 
 
+/*
+  Define Driver Message macros.
+*/
 
 #define DAC960_Announce(Format, Arguments...) \
   DAC960_Message(DAC960_AnnounceLevel, Format, ##Arguments)
@@ -1902,34 +2166,43 @@ struct DAC960_privdata {
 };
 
 
+/*
+  Define the DAC960 V1 Firmware Controller Status Mailbox structure.
+*/
 
 typedef union DAC960_V1_StatusMailbox
 {
-  unsigned int Word;					
+  unsigned int Word;					/* Word 0 */
   struct {
-    DAC960_V1_CommandIdentifier_T CommandIdentifier;	
-    unsigned char :7;					
-    bool Valid:1;					
-    DAC960_V1_CommandStatus_T CommandStatus;		
+    DAC960_V1_CommandIdentifier_T CommandIdentifier;	/* Byte 0 */
+    unsigned char :7;					/* Byte 1 Bits 0-6 */
+    bool Valid:1;					/* Byte 1 Bit 7 */
+    DAC960_V1_CommandStatus_T CommandStatus;		/* Bytes 2-3 */
   } Fields;
 }
 DAC960_V1_StatusMailbox_T;
 
 
+/*
+  Define the DAC960 V2 Firmware Controller Status Mailbox structure.
+*/
 
 typedef union DAC960_V2_StatusMailbox
 {
-  unsigned int Words[2];				
+  unsigned int Words[2];				/* Words 0-1 */
   struct {
-    DAC960_V2_CommandIdentifier_T CommandIdentifier;	
-    DAC960_V2_CommandStatus_T CommandStatus;		
-    unsigned char RequestSenseLength;			
-    int DataTransferResidue;				
+    DAC960_V2_CommandIdentifier_T CommandIdentifier;	/* Bytes 0-1 */
+    DAC960_V2_CommandStatus_T CommandStatus;		/* Byte 2 */
+    unsigned char RequestSenseLength;			/* Byte 3 */
+    int DataTransferResidue;				/* Bytes 4-7 */
   } Fields;
 }
 DAC960_V2_StatusMailbox_T;
 
 
+/*
+  Define the DAC960 Driver Command Types.
+*/
 
 typedef enum
 {
@@ -1944,6 +2217,9 @@ typedef enum
 DAC960_CommandType_T;
 
 
+/*
+  Define the DAC960 Driver Command structure.
+*/
 
 typedef struct DAC960_Command
 {
@@ -1987,6 +2263,9 @@ typedef struct DAC960_Command
 DAC960_Command_T;
 
 
+/*
+  Define the DAC960 Driver Controller structure.
+*/
 
 typedef struct DAC960_Controller
 {
@@ -2203,6 +2482,10 @@ typedef struct DAC960_Controller
 DAC960_Controller_T;
 
 
+/*
+  Simplify access to Firmware Version Dependent Data Structure Components
+  and Functions.
+*/
 
 #define V1				FW.V1
 #define V2				FW.V2
@@ -2244,6 +2527,9 @@ void dma_addr_writeql(dma_addr_t addr, void __iomem *write_address)
 	writel(u.wl[1], write_address + 4);
 }
 
+/*
+  Define the DAC960 GEM Series Controller Interface Register Offsets.
+ */
 
 #define DAC960_GEM_RegisterWindowSize	0x600
 
@@ -2263,6 +2549,9 @@ typedef enum
 }
 DAC960_GEM_RegisterOffsets_T;
 
+/*
+  Define the structure of the DAC960 GEM Series Inbound Door Bell
+ */
 
 typedef union DAC960_GEM_InboundDoorBellRegister
 {
@@ -2285,6 +2574,9 @@ typedef union DAC960_GEM_InboundDoorBellRegister
 }
 DAC960_GEM_InboundDoorBellRegister_T;
 
+/*
+  Define the structure of the DAC960 GEM Series Outbound Door Bell Register.
+ */
 typedef union DAC960_GEM_OutboundDoorBellRegister
 {
   unsigned int All;
@@ -2303,6 +2595,9 @@ typedef union DAC960_GEM_OutboundDoorBellRegister
 }
 DAC960_GEM_OutboundDoorBellRegister_T;
 
+/*
+  Define the structure of the DAC960 GEM Series Interrupt Mask Register.
+ */
 typedef union DAC960_GEM_InterruptMaskRegister
 {
   unsigned int All;
@@ -2316,6 +2611,9 @@ typedef union DAC960_GEM_InterruptMaskRegister
 }
 DAC960_GEM_InterruptMaskRegister_T;
 
+/*
+  Define the structure of the DAC960 GEM Series Error Status Register.
+ */
 
 typedef union DAC960_GEM_ErrorStatusRegister
 {
@@ -2329,6 +2627,10 @@ typedef union DAC960_GEM_ErrorStatusRegister
 }
 DAC960_GEM_ErrorStatusRegister_T;
 
+/*
+  Define inline functions to provide an abstraction for reading and writing the
+  DAC960 GEM Series Controller Interface Registers.
+*/
 
 static inline
 void DAC960_GEM_HardwareMailboxNewCommand(void __iomem *ControllerBaseAddress)
@@ -2539,6 +2841,9 @@ DAC960_GEM_ReadErrorStatus(void __iomem *ControllerBaseAddress,
   return true;
 }
 
+/*
+  Define the DAC960 BA Series Controller Interface Register Offsets.
+*/
 
 #define DAC960_BA_RegisterWindowSize		0x80
 
@@ -2555,72 +2860,88 @@ typedef enum
 DAC960_BA_RegisterOffsets_T;
 
 
+/*
+  Define the structure of the DAC960 BA Series Inbound Door Bell Register.
+*/
 
 typedef union DAC960_BA_InboundDoorBellRegister
 {
   unsigned char All;
   struct {
-    bool HardwareMailboxNewCommand:1;			
-    bool AcknowledgeHardwareMailboxStatus:1;		
-    bool GenerateInterrupt:1;				
-    bool ControllerReset:1;				
-    bool MemoryMailboxNewCommand:1;			
-    unsigned char :3;					
+    bool HardwareMailboxNewCommand:1;			/* Bit 0 */
+    bool AcknowledgeHardwareMailboxStatus:1;		/* Bit 1 */
+    bool GenerateInterrupt:1;				/* Bit 2 */
+    bool ControllerReset:1;				/* Bit 3 */
+    bool MemoryMailboxNewCommand:1;			/* Bit 4 */
+    unsigned char :3;					/* Bits 5-7 */
   } Write;
   struct {
-    bool HardwareMailboxEmpty:1;			
-    bool InitializationNotInProgress:1;			
-    unsigned char :6;					
+    bool HardwareMailboxEmpty:1;			/* Bit 0 */
+    bool InitializationNotInProgress:1;			/* Bit 1 */
+    unsigned char :6;					/* Bits 2-7 */
   } Read;
 }
 DAC960_BA_InboundDoorBellRegister_T;
 
 
+/*
+  Define the structure of the DAC960 BA Series Outbound Door Bell Register.
+*/
 
 typedef union DAC960_BA_OutboundDoorBellRegister
 {
   unsigned char All;
   struct {
-    bool AcknowledgeHardwareMailboxInterrupt:1;		
-    bool AcknowledgeMemoryMailboxInterrupt:1;		
-    unsigned char :6;					
+    bool AcknowledgeHardwareMailboxInterrupt:1;		/* Bit 0 */
+    bool AcknowledgeMemoryMailboxInterrupt:1;		/* Bit 1 */
+    unsigned char :6;					/* Bits 2-7 */
   } Write;
   struct {
-    bool HardwareMailboxStatusAvailable:1;		
-    bool MemoryMailboxStatusAvailable:1;		
-    unsigned char :6;					
+    bool HardwareMailboxStatusAvailable:1;		/* Bit 0 */
+    bool MemoryMailboxStatusAvailable:1;		/* Bit 1 */
+    unsigned char :6;					/* Bits 2-7 */
   } Read;
 }
 DAC960_BA_OutboundDoorBellRegister_T;
 
 
+/*
+  Define the structure of the DAC960 BA Series Interrupt Mask Register.
+*/
 
 typedef union DAC960_BA_InterruptMaskRegister
 {
   unsigned char All;
   struct {
-    unsigned int :2;					
-    bool DisableInterrupts:1;				
-    bool DisableInterruptsI2O:1;			
-    unsigned int :4;					
+    unsigned int :2;					/* Bits 0-1 */
+    bool DisableInterrupts:1;				/* Bit 2 */
+    bool DisableInterruptsI2O:1;			/* Bit 3 */
+    unsigned int :4;					/* Bits 4-7 */
   } Bits;
 }
 DAC960_BA_InterruptMaskRegister_T;
 
 
+/*
+  Define the structure of the DAC960 BA Series Error Status Register.
+*/
 
 typedef union DAC960_BA_ErrorStatusRegister
 {
   unsigned char All;
   struct {
-    unsigned int :2;					
-    bool ErrorStatusPending:1;				
-    unsigned int :5;					
+    unsigned int :2;					/* Bits 0-1 */
+    bool ErrorStatusPending:1;				/* Bit 2 */
+    unsigned int :5;					/* Bits 3-7 */
   } Bits;
 }
 DAC960_BA_ErrorStatusRegister_T;
 
 
+/*
+  Define inline functions to provide an abstraction for reading and writing the
+  DAC960 BA Series Controller Interface Registers.
+*/
 
 static inline
 void DAC960_BA_HardwareMailboxNewCommand(void __iomem *ControllerBaseAddress)
@@ -2826,6 +3147,9 @@ DAC960_BA_ReadErrorStatus(void __iomem *ControllerBaseAddress,
 }
 
 
+/*
+  Define the DAC960 LP Series Controller Interface Register Offsets.
+*/
 
 #define DAC960_LP_RegisterWindowSize		0x80
 
@@ -2842,71 +3166,87 @@ typedef enum
 DAC960_LP_RegisterOffsets_T;
 
 
+/*
+  Define the structure of the DAC960 LP Series Inbound Door Bell Register.
+*/
 
 typedef union DAC960_LP_InboundDoorBellRegister
 {
   unsigned char All;
   struct {
-    bool HardwareMailboxNewCommand:1;			
-    bool AcknowledgeHardwareMailboxStatus:1;		
-    bool GenerateInterrupt:1;				
-    bool ControllerReset:1;				
-    bool MemoryMailboxNewCommand:1;			
-    unsigned char :3;					
+    bool HardwareMailboxNewCommand:1;			/* Bit 0 */
+    bool AcknowledgeHardwareMailboxStatus:1;		/* Bit 1 */
+    bool GenerateInterrupt:1;				/* Bit 2 */
+    bool ControllerReset:1;				/* Bit 3 */
+    bool MemoryMailboxNewCommand:1;			/* Bit 4 */
+    unsigned char :3;					/* Bits 5-7 */
   } Write;
   struct {
-    bool HardwareMailboxFull:1;				
-    bool InitializationInProgress:1;			
-    unsigned char :6;					
+    bool HardwareMailboxFull:1;				/* Bit 0 */
+    bool InitializationInProgress:1;			/* Bit 1 */
+    unsigned char :6;					/* Bits 2-7 */
   } Read;
 }
 DAC960_LP_InboundDoorBellRegister_T;
 
 
+/*
+  Define the structure of the DAC960 LP Series Outbound Door Bell Register.
+*/
 
 typedef union DAC960_LP_OutboundDoorBellRegister
 {
   unsigned char All;
   struct {
-    bool AcknowledgeHardwareMailboxInterrupt:1;		
-    bool AcknowledgeMemoryMailboxInterrupt:1;		
-    unsigned char :6;					
+    bool AcknowledgeHardwareMailboxInterrupt:1;		/* Bit 0 */
+    bool AcknowledgeMemoryMailboxInterrupt:1;		/* Bit 1 */
+    unsigned char :6;					/* Bits 2-7 */
   } Write;
   struct {
-    bool HardwareMailboxStatusAvailable:1;		
-    bool MemoryMailboxStatusAvailable:1;		
-    unsigned char :6;					
+    bool HardwareMailboxStatusAvailable:1;		/* Bit 0 */
+    bool MemoryMailboxStatusAvailable:1;		/* Bit 1 */
+    unsigned char :6;					/* Bits 2-7 */
   } Read;
 }
 DAC960_LP_OutboundDoorBellRegister_T;
 
 
+/*
+  Define the structure of the DAC960 LP Series Interrupt Mask Register.
+*/
 
 typedef union DAC960_LP_InterruptMaskRegister
 {
   unsigned char All;
   struct {
-    unsigned int :2;					
-    bool DisableInterrupts:1;				
-    unsigned int :5;					
+    unsigned int :2;					/* Bits 0-1 */
+    bool DisableInterrupts:1;				/* Bit 2 */
+    unsigned int :5;					/* Bits 3-7 */
   } Bits;
 }
 DAC960_LP_InterruptMaskRegister_T;
 
 
+/*
+  Define the structure of the DAC960 LP Series Error Status Register.
+*/
 
 typedef union DAC960_LP_ErrorStatusRegister
 {
   unsigned char All;
   struct {
-    unsigned int :2;					
-    bool ErrorStatusPending:1;				
-    unsigned int :5;					
+    unsigned int :2;					/* Bits 0-1 */
+    bool ErrorStatusPending:1;				/* Bit 2 */
+    unsigned int :5;					/* Bits 3-7 */
   } Bits;
 }
 DAC960_LP_ErrorStatusRegister_T;
 
 
+/*
+  Define inline functions to provide an abstraction for reading and writing the
+  DAC960 LP Series Controller Interface Registers.
+*/
 
 static inline
 void DAC960_LP_HardwareMailboxNewCommand(void __iomem *ControllerBaseAddress)
@@ -3109,6 +3449,9 @@ DAC960_LP_ReadErrorStatus(void __iomem *ControllerBaseAddress,
 }
 
 
+/*
+  Define the DAC960 LA Series Controller Interface Register Offsets.
+*/
 
 #define DAC960_LA_RegisterWindowSize		0x80
 
@@ -3137,71 +3480,87 @@ typedef enum
 DAC960_LA_RegisterOffsets_T;
 
 
+/*
+  Define the structure of the DAC960 LA Series Inbound Door Bell Register.
+*/
 
 typedef union DAC960_LA_InboundDoorBellRegister
 {
   unsigned char All;
   struct {
-    bool HardwareMailboxNewCommand:1;			
-    bool AcknowledgeHardwareMailboxStatus:1;		
-    bool GenerateInterrupt:1;				
-    bool ControllerReset:1;				
-    bool MemoryMailboxNewCommand:1;			
-    unsigned char :3;					
+    bool HardwareMailboxNewCommand:1;			/* Bit 0 */
+    bool AcknowledgeHardwareMailboxStatus:1;		/* Bit 1 */
+    bool GenerateInterrupt:1;				/* Bit 2 */
+    bool ControllerReset:1;				/* Bit 3 */
+    bool MemoryMailboxNewCommand:1;			/* Bit 4 */
+    unsigned char :3;					/* Bits 5-7 */
   } Write;
   struct {
-    bool HardwareMailboxEmpty:1;			
-    bool InitializationNotInProgress:1;		
-    unsigned char :6;					
+    bool HardwareMailboxEmpty:1;			/* Bit 0 */
+    bool InitializationNotInProgress:1;		/* Bit 1 */
+    unsigned char :6;					/* Bits 2-7 */
   } Read;
 }
 DAC960_LA_InboundDoorBellRegister_T;
 
 
+/*
+  Define the structure of the DAC960 LA Series Outbound Door Bell Register.
+*/
 
 typedef union DAC960_LA_OutboundDoorBellRegister
 {
   unsigned char All;
   struct {
-    bool AcknowledgeHardwareMailboxInterrupt:1;		
-    bool AcknowledgeMemoryMailboxInterrupt:1;		
-    unsigned char :6;					
+    bool AcknowledgeHardwareMailboxInterrupt:1;		/* Bit 0 */
+    bool AcknowledgeMemoryMailboxInterrupt:1;		/* Bit 1 */
+    unsigned char :6;					/* Bits 2-7 */
   } Write;
   struct {
-    bool HardwareMailboxStatusAvailable:1;		
-    bool MemoryMailboxStatusAvailable:1;		
-    unsigned char :6;					
+    bool HardwareMailboxStatusAvailable:1;		/* Bit 0 */
+    bool MemoryMailboxStatusAvailable:1;		/* Bit 1 */
+    unsigned char :6;					/* Bits 2-7 */
   } Read;
 }
 DAC960_LA_OutboundDoorBellRegister_T;
 
 
+/*
+  Define the structure of the DAC960 LA Series Interrupt Mask Register.
+*/
 
 typedef union DAC960_LA_InterruptMaskRegister
 {
   unsigned char All;
   struct {
-    unsigned char :2;					
-    bool DisableInterrupts:1;				
-    unsigned char :5;					
+    unsigned char :2;					/* Bits 0-1 */
+    bool DisableInterrupts:1;				/* Bit 2 */
+    unsigned char :5;					/* Bits 3-7 */
   } Bits;
 }
 DAC960_LA_InterruptMaskRegister_T;
 
 
+/*
+  Define the structure of the DAC960 LA Series Error Status Register.
+*/
 
 typedef union DAC960_LA_ErrorStatusRegister
 {
   unsigned char All;
   struct {
-    unsigned int :2;					
-    bool ErrorStatusPending:1;				
-    unsigned int :5;					
+    unsigned int :2;					/* Bits 0-1 */
+    bool ErrorStatusPending:1;				/* Bit 2 */
+    unsigned int :5;					/* Bits 3-7 */
   } Bits;
 }
 DAC960_LA_ErrorStatusRegister_T;
 
 
+/*
+  Define inline functions to provide an abstraction for reading and writing the
+  DAC960 LA Series Controller Interface Registers.
+*/
 
 static inline
 void DAC960_LA_HardwareMailboxNewCommand(void __iomem *ControllerBaseAddress)
@@ -3410,6 +3769,9 @@ DAC960_LA_ReadErrorStatus(void __iomem *ControllerBaseAddress,
   return true;
 }
 
+/*
+  Define the DAC960 PG Series Controller Interface Register Offsets.
+*/
 
 #define DAC960_PG_RegisterWindowSize		0x2000
 
@@ -3438,72 +3800,88 @@ typedef enum
 DAC960_PG_RegisterOffsets_T;
 
 
+/*
+  Define the structure of the DAC960 PG Series Inbound Door Bell Register.
+*/
 
 typedef union DAC960_PG_InboundDoorBellRegister
 {
   unsigned int All;
   struct {
-    bool HardwareMailboxNewCommand:1;			
-    bool AcknowledgeHardwareMailboxStatus:1;		
-    bool GenerateInterrupt:1;				
-    bool ControllerReset:1;				
-    bool MemoryMailboxNewCommand:1;			
-    unsigned int :27;					
+    bool HardwareMailboxNewCommand:1;			/* Bit 0 */
+    bool AcknowledgeHardwareMailboxStatus:1;		/* Bit 1 */
+    bool GenerateInterrupt:1;				/* Bit 2 */
+    bool ControllerReset:1;				/* Bit 3 */
+    bool MemoryMailboxNewCommand:1;			/* Bit 4 */
+    unsigned int :27;					/* Bits 5-31 */
   } Write;
   struct {
-    bool HardwareMailboxFull:1;				
-    bool InitializationInProgress:1;			
-    unsigned int :30;					
+    bool HardwareMailboxFull:1;				/* Bit 0 */
+    bool InitializationInProgress:1;			/* Bit 1 */
+    unsigned int :30;					/* Bits 2-31 */
   } Read;
 }
 DAC960_PG_InboundDoorBellRegister_T;
 
 
+/*
+  Define the structure of the DAC960 PG Series Outbound Door Bell Register.
+*/
 
 typedef union DAC960_PG_OutboundDoorBellRegister
 {
   unsigned int All;
   struct {
-    bool AcknowledgeHardwareMailboxInterrupt:1;		
-    bool AcknowledgeMemoryMailboxInterrupt:1;		
-    unsigned int :30;					
+    bool AcknowledgeHardwareMailboxInterrupt:1;		/* Bit 0 */
+    bool AcknowledgeMemoryMailboxInterrupt:1;		/* Bit 1 */
+    unsigned int :30;					/* Bits 2-31 */
   } Write;
   struct {
-    bool HardwareMailboxStatusAvailable:1;		
-    bool MemoryMailboxStatusAvailable:1;		
-    unsigned int :30;					
+    bool HardwareMailboxStatusAvailable:1;		/* Bit 0 */
+    bool MemoryMailboxStatusAvailable:1;		/* Bit 1 */
+    unsigned int :30;					/* Bits 2-31 */
   } Read;
 }
 DAC960_PG_OutboundDoorBellRegister_T;
 
 
+/*
+  Define the structure of the DAC960 PG Series Interrupt Mask Register.
+*/
 
 typedef union DAC960_PG_InterruptMaskRegister
 {
   unsigned int All;
   struct {
-    unsigned int MessageUnitInterruptMask1:2;		
-    bool DisableInterrupts:1;				
-    unsigned int MessageUnitInterruptMask2:5;		
-    unsigned int Reserved0:24;				
+    unsigned int MessageUnitInterruptMask1:2;		/* Bits 0-1 */
+    bool DisableInterrupts:1;				/* Bit 2 */
+    unsigned int MessageUnitInterruptMask2:5;		/* Bits 3-7 */
+    unsigned int Reserved0:24;				/* Bits 8-31 */
   } Bits;
 }
 DAC960_PG_InterruptMaskRegister_T;
 
 
+/*
+  Define the structure of the DAC960 PG Series Error Status Register.
+*/
 
 typedef union DAC960_PG_ErrorStatusRegister
 {
   unsigned char All;
   struct {
-    unsigned int :2;					
-    bool ErrorStatusPending:1;				
-    unsigned int :5;					
+    unsigned int :2;					/* Bits 0-1 */
+    bool ErrorStatusPending:1;				/* Bit 2 */
+    unsigned int :5;					/* Bits 3-7 */
   } Bits;
 }
 DAC960_PG_ErrorStatusRegister_T;
 
 
+/*
+  Define inline functions to provide an abstraction for reading and writing the
+  DAC960 PG Series Controller Interface Registers.
+*/
 
 static inline
 void DAC960_PG_HardwareMailboxNewCommand(void __iomem *ControllerBaseAddress)
@@ -3716,6 +4094,9 @@ DAC960_PG_ReadErrorStatus(void __iomem *ControllerBaseAddress,
   return true;
 }
 
+/*
+  Define the DAC960 PD Series Controller Interface Register Offsets.
+*/
 
 #define DAC960_PD_RegisterWindowSize		0x80
 
@@ -3744,67 +4125,83 @@ typedef enum
 DAC960_PD_RegisterOffsets_T;
 
 
+/*
+  Define the structure of the DAC960 PD Series Inbound Door Bell Register.
+*/
 
 typedef union DAC960_PD_InboundDoorBellRegister
 {
   unsigned char All;
   struct {
-    bool NewCommand:1;					
-    bool AcknowledgeStatus:1;				
-    bool GenerateInterrupt:1;				
-    bool ControllerReset:1;				
-    unsigned char :4;					
+    bool NewCommand:1;					/* Bit 0 */
+    bool AcknowledgeStatus:1;				/* Bit 1 */
+    bool GenerateInterrupt:1;				/* Bit 2 */
+    bool ControllerReset:1;				/* Bit 3 */
+    unsigned char :4;					/* Bits 4-7 */
   } Write;
   struct {
-    bool MailboxFull:1;					
-    bool InitializationInProgress:1;			
-    unsigned char :6;					
+    bool MailboxFull:1;					/* Bit 0 */
+    bool InitializationInProgress:1;			/* Bit 1 */
+    unsigned char :6;					/* Bits 2-7 */
   } Read;
 }
 DAC960_PD_InboundDoorBellRegister_T;
 
 
+/*
+  Define the structure of the DAC960 PD Series Outbound Door Bell Register.
+*/
 
 typedef union DAC960_PD_OutboundDoorBellRegister
 {
   unsigned char All;
   struct {
-    bool AcknowledgeInterrupt:1;			
-    unsigned char :7;					
+    bool AcknowledgeInterrupt:1;			/* Bit 0 */
+    unsigned char :7;					/* Bits 1-7 */
   } Write;
   struct {
-    bool StatusAvailable:1;				
-    unsigned char :7;					
+    bool StatusAvailable:1;				/* Bit 0 */
+    unsigned char :7;					/* Bits 1-7 */
   } Read;
 }
 DAC960_PD_OutboundDoorBellRegister_T;
 
 
+/*
+  Define the structure of the DAC960 PD Series Interrupt Enable Register.
+*/
 
 typedef union DAC960_PD_InterruptEnableRegister
 {
   unsigned char All;
   struct {
-    bool EnableInterrupts:1;				
-    unsigned char :7;					
+    bool EnableInterrupts:1;				/* Bit 0 */
+    unsigned char :7;					/* Bits 1-7 */
   } Bits;
 }
 DAC960_PD_InterruptEnableRegister_T;
 
 
+/*
+  Define the structure of the DAC960 PD Series Error Status Register.
+*/
 
 typedef union DAC960_PD_ErrorStatusRegister
 {
   unsigned char All;
   struct {
-    unsigned int :2;					
-    bool ErrorStatusPending:1;				
-    unsigned int :5;					
+    unsigned int :2;					/* Bits 0-1 */
+    bool ErrorStatusPending:1;				/* Bit 2 */
+    unsigned int :5;					/* Bits 3-7 */
   } Bits;
 }
 DAC960_PD_ErrorStatusRegister_T;
 
 
+/*
+  Define inline functions to provide an abstraction for reading and writing the
+  DAC960 PD Series Controller Interface Registers.
+*/
 
 static inline
 void DAC960_PD_NewCommand(void __iomem *ControllerBaseAddress)
@@ -3993,6 +4390,9 @@ void DAC960_P_To_PD_TranslateReadWriteCommand(DAC960_V1_CommandMailbox_T
 }
 
 
+/*
+  Define prototypes for the forward referenced DAC960 Driver Internal Functions.
+*/
 
 static void DAC960_FinalizeController(DAC960_Controller_T *);
 static void DAC960_V1_QueueReadWriteCommand(DAC960_Command_T *);
@@ -4012,4 +4412,4 @@ static void DAC960_Message(DAC960_MessageLevel_T, unsigned char *,
 static void DAC960_CreateProcEntries(DAC960_Controller_T *);
 static void DAC960_DestroyProcEntries(DAC960_Controller_T *);
 
-#endif 
+#endif /* DAC960_DriverVersion */

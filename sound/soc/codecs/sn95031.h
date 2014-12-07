@@ -26,6 +26,7 @@
 #ifndef _SN95031_H
 #define _SN95031_H
 
+/*register map*/
 #define SN95031_VAUD			0xDB
 #define SN95031_VHSP			0xDC
 #define SN95031_VHSN			0xDD
@@ -87,12 +88,15 @@
 #define SN95031_PCM1C3			0x27A
 #define SN95031_PCM2C1			0x27B
 #define SN95031_PCM2C2			0x27C
+/*end codec register defn*/
 
+/*vendor defn these are not part of avp*/
 #define SN95031_SSR2			0x381
 #define SN95031_SSR3			0x382
 #define SN95031_SSR5			0x384
 #define SN95031_SSR6			0x385
 
+/* ADC registers */
 
 #define SN95031_ADC1CNTL1 0x1C0
 #define SN95031_ADC_ENBL 0x10
@@ -102,15 +106,18 @@
 #define SN95031_ADCRRDATA_ENBL 0x05
 #define SN95031_STOPBIT_MASK 16
 #define SN95031_ADCTHERM_MASK 4
-#define SN95031_ADC_CHANLS_MAX 15 
+#define SN95031_ADC_CHANLS_MAX 15 /* Number of ADC channels */
 #define SN95031_ADC_LOOP_MAX (SN95031_ADC_CHANLS_MAX - 1)
 #define SN95031_ADC_NO_LOOP 0x07
 #define SN95031_AUDIO_GPIO_CTRL 0x070
 
+/* ADC channel code values */
 #define SN95031_AUDIO_DETECT_CODE 0x06
 
-#define SN95031_ADC_CHNL_START_ADDR 0x1C5 
-#define SN95031_ADC_DATA_START_ADDR 0x1D4  
+/* ADC base addresses */
+#define SN95031_ADC_CHNL_START_ADDR 0x1C5 /* increments by 1 */
+#define SN95031_ADC_DATA_START_ADDR 0x1D4  /* increments by 2 */
+/* multipier to convert to mV */
 #define SN95031_ADC_ONE_LSB_MULTIPLIER 2346
 
 

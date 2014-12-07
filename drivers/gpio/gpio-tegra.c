@@ -253,6 +253,10 @@ static void tegra_gpio_irq_handler(unsigned int irq, struct irq_desc *desc)
 		for_each_set_bit(pin, &sta, 8) {
 			tegra_gpio_writel(1 << pin, GPIO_INT_CLR(gpio));
 
+			/* if gpio is edge triggered, clear condition
+			 * before executing the hander so that we don't
+			 * miss edges
+			 */
 			if (lvl & (0x100 << pin)) {
 				unmasked = 1;
 				chained_irq_exit(chip, desc);
@@ -353,6 +357,9 @@ static struct of_device_id tegra_gpio_of_match[] __devinitdata = {
 	{ },
 };
 
+/* This lock class tells lockdep that GPIO irqs are in a different
+ * category than their parents, so it won't report false recursion.
+ */
 static struct lock_class_key gpio_lock_class;
 
 static int __devinit tegra_gpio_probe(struct platform_device *pdev)
@@ -444,7 +451,7 @@ static int __devinit tegra_gpio_probe(struct platform_device *pdev)
 
 	for (gpio = 0; gpio < tegra_gpio_chip.ngpio; gpio++) {
 		int irq = irq_find_mapping(irq_domain, gpio);
-		
+		/* No validity check; all Tegra GPIOs are valid IRQs */
 
 		bank = &tegra_gpio_banks[GPIO_BANK(gpio)];
 

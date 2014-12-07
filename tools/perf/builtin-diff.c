@@ -1,3 +1,9 @@
+/*
+ * builtin-diff.c
+ *
+ * Builtin diff command: Analyze two perf.data input files, look up and read
+ * DSOs and symbol information, sort them and produce a diff.
+ */
 #include "builtin.h"
 
 #include "util/debug.h"

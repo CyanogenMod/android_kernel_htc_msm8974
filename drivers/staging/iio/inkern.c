@@ -54,6 +54,10 @@ error_ret:
 EXPORT_SYMBOL_GPL(iio_map_array_register);
 
 
+/* Assumes the exact same array (e.g. memory locations)
+ * used at unregistration as used at registration rather than
+ * more complex checking of contents.
+ */
 int iio_map_array_unregister(struct iio_dev *indio_dev,
 			     struct iio_map *maps)
 {
@@ -113,7 +117,7 @@ struct iio_channel *iio_st_channel_get(const char *name,
 	if (name == NULL && channel_name == NULL)
 		return ERR_PTR(-ENODEV);
 
-	
+	/* first find matching entry the channel map */
 	mutex_lock(&iio_map_list_lock);
 	list_for_each_entry(c_i, &iio_map_list, l) {
 		if ((name && strcmp(name, c_i->map->consumer_dev_name) != 0) ||
@@ -162,7 +166,7 @@ struct iio_channel *iio_st_channel_get_all(const char *name)
 		return ERR_PTR(-EINVAL);
 
 	mutex_lock(&iio_map_list_lock);
-	
+	/* first count the matching maps */
 	list_for_each_entry(c, &iio_map_list, l)
 		if (name && strcmp(name, c->map->consumer_dev_name) != 0)
 			continue;
@@ -174,14 +178,14 @@ struct iio_channel *iio_st_channel_get_all(const char *name)
 		goto error_ret;
 	}
 
-	
+	/* NULL terminated array to save passing size */
 	chans = kzalloc(sizeof(*chans)*(nummaps + 1), GFP_KERNEL);
 	if (chans == NULL) {
 		ret = -ENOMEM;
 		goto error_ret;
 	}
 
-	
+	/* for each map fill in the chans element */
 	list_for_each_entry(c, &iio_map_list, l) {
 		if (name && strcmp(name, c->map->consumer_dev_name) != 0)
 			continue;
@@ -272,7 +276,7 @@ int iio_st_get_channel_type(struct iio_channel *chan,
 			    enum iio_chan_type *type)
 {
 	int ret = 0;
-	
+	/* Need to verify underlying driver has not gone away */
 
 	mutex_lock(&chan->indio_dev->info_exist_lock);
 	if (chan->indio_dev->info == NULL) {

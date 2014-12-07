@@ -9,6 +9,7 @@
  * published by the Free Software Foundation.
  */
 
+/*#define DEBUG*/
 
 #include <linux/kernel.h>
 #include <linux/types.h>
@@ -33,7 +34,7 @@ static int at32_verify_speed(struct cpufreq_policy *policy)
 
 static unsigned int at32_get_speed(unsigned int cpu)
 {
-	
+	/* No SMP support */
 	if (cpu)
 		return 0;
 	return (unsigned int)((clk_get_rate(cpuclk) + 500) / 1000);
@@ -49,10 +50,10 @@ static int at32_set_target(struct cpufreq_policy *policy,
 	struct cpufreq_freqs freqs;
 	long freq;
 
-	
+	/* Convert target_freq from kHz to Hz */
 	freq = clk_round_rate(cpuclk, target_freq * 1000);
 
-	
+	/* Check if policy->min <= new_freq <= policy->max */
 	if(freq < (policy->min * 1000) || freq > (policy->max * 1000))
 		return -EINVAL;
 

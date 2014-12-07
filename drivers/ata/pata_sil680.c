@@ -36,6 +36,17 @@
 
 #define SIL680_MMIO_BAR		5
 
+/**
+ *	sil680_selreg		-	return register base
+ *	@ap: ATA interface
+ *	@r: config offset
+ *
+ *	Turn a config register offset into the right address in PCI space
+ *	to access the control register in question.
+ *
+ *	Thankfully this is a configuration operation so isn't performance
+ *	criticial.
+ */
 
 static unsigned long sil680_selreg(struct ata_port *ap, int r)
 {
@@ -44,6 +55,15 @@ static unsigned long sil680_selreg(struct ata_port *ap, int r)
 	return base;
 }
 
+/**
+ *	sil680_seldev		-	return register base
+ *	@ap: ATA interface
+ *	@r: config offset
+ *
+ *	Turn a config register offset into the right address in PCI space
+ *	to access the control register in question including accounting for
+ *	the unit shift.
+ */
 
 static unsigned long sil680_seldev(struct ata_port *ap, struct ata_device *adev, int r)
 {
@@ -54,6 +74,13 @@ static unsigned long sil680_seldev(struct ata_port *ap, struct ata_device *adev,
 }
 
 
+/**
+ *	sil680_cable_detect	-	cable detection
+ *	@ap: ATA port
+ *
+ *	Perform cable detection. The SIL680 stores this in PCI config
+ *	space for us.
+ */
 
 static int sil680_cable_detect(struct ata_port *ap)
 {
@@ -67,6 +94,15 @@ static int sil680_cable_detect(struct ata_port *ap)
 		return ATA_CBL_PATA40;
 }
 
+/**
+ *	sil680_set_piomode	-	set PIO mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Program the SIL680 registers for PIO mode. Note that the task speed
+ *	registers are shared between the devices so we must pick the lowest
+ *	mode for command work.
+ */
 
 static void sil680_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -98,23 +134,33 @@ static void sil680_set_piomode(struct ata_port *ap, struct ata_device *adev)
 	pci_read_config_word(pdev, tfaddr-2, &reg);
 	pci_read_config_byte(pdev, addr_mask, &mode);
 
-	reg &= ~0x0200;			
-	mode &= ~(3 << port_shift);	
+	reg &= ~0x0200;			/* Clear IORDY */
+	mode &= ~(3 << port_shift);	/* Clear IORDY and DMA bits */
 
 	if (ata_pio_need_iordy(adev)) {
-		reg |= 0x0200;		
+		reg |= 0x0200;		/* Enable IORDY */
 		mode |= 1 << port_shift;
 	}
 	pci_write_config_word(pdev, tfaddr-2, reg);
 	pci_write_config_byte(pdev, addr_mask, mode);
 }
 
+/**
+ *	sil680_set_dmamode	-	set DMA mode data
+ *	@ap: ATA interface
+ *	@adev: ATA device
+ *
+ *	Program the MWDMA/UDMA modes for the sil680 chipset.
+ *
+ *	The MWDMA mode values are pulled from a lookup table
+ *	while the chipset uses mode number for UDMA.
+ */
 
 static void sil680_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 {
 	static const u8 ultra_table[2][7] = {
-		{ 0x0C, 0x07, 0x05, 0x04, 0x02, 0x01, 0xFF },	
-		{ 0x0F, 0x0B, 0x07, 0x05, 0x03, 0x02, 0x01 },	
+		{ 0x0C, 0x07, 0x05, 0x04, 0x02, 0x01, 0xFF },	/* 100MHz */
+		{ 0x0F, 0x0B, 0x07, 0x05, 0x03, 0x02, 0x01 },	/* 133Mhz */
 	};
 	static const u16 dma_table[3] = { 0x2208, 0x10C2, 0x10C1 };
 
@@ -131,11 +177,11 @@ static void sil680_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 	pci_read_config_word(pdev, ma, &multi);
 	pci_read_config_word(pdev, ua, &ultra);
 
-	
+	/* Mask timing bits */
 	ultra &= ~0x3F;
 	mode &= ~(0x03 << port_shift);
 
-	
+	/* Extract scsc */
 	scsc = (scsc & 0x30) ? 1 : 0;
 
 	if (adev->dma_mode >= XFER_UDMA_0) {
@@ -151,6 +197,18 @@ static void sil680_set_dmamode(struct ata_port *ap, struct ata_device *adev)
 	pci_write_config_word(pdev, ua, ultra);
 }
 
+/**
+ *	sil680_sff_exec_command - issue ATA command to host controller
+ *	@ap: port to which command is being issued
+ *	@tf: ATA taskfile register set
+ *
+ *	Issues ATA command, with proper synchronization with interrupt
+ *	handler / other threads. Use our MMIO space for PCI posting to avoid
+ *	a hideously slow cycle all the way to the device.
+ *
+ *	LOCKING:
+ *	spin_lock_irqsave(host lock)
+ */
 static void sil680_sff_exec_command(struct ata_port *ap,
 				    const struct ata_taskfile *tf)
 {
@@ -184,12 +242,20 @@ static struct ata_port_operations sil680_port_ops = {
 	.set_dmamode		= sil680_set_dmamode,
 };
 
+/**
+ *	sil680_init_chip		-	chip setup
+ *	@pdev: PCI device
+ *
+ *	Perform all the chip setup which must be done both when the device
+ *	is powered up on boot and when we resume in case we resumed from RAM.
+ *	Returns the final clock settings.
+ */
 
 static u8 sil680_init_chip(struct pci_dev *pdev, int *try_mmio)
 {
 	u8 tmpbyte	= 0;
 
-	
+	/* FIXME: double check */
 	pci_write_config_byte(pdev, PCI_CACHE_LINE_SIZE,
 			      pdev->revision ? 1 : 255);
 
@@ -209,19 +275,19 @@ static u8 sil680_init_chip(struct pci_dev *pdev, int *try_mmio)
 
 	switch (tmpbyte & 0x30) {
 	case 0x00:
-		
+		/* 133 clock attempt to force it on */
 		pci_write_config_byte(pdev, 0x8A, tmpbyte|0x10);
 		break;
 	case 0x30:
-		
-		
+		/* if clocking is disabled */
+		/* 133 clock attempt to force it on */
 		pci_write_config_byte(pdev, 0x8A, tmpbyte & ~0x20);
 		break;
 	case 0x10:
-		
+		/* 133 already */
 		break;
 	case 0x20:
-		
+		/* BIOS set PCI x2 clocking */
 		break;
 	}
 
@@ -250,7 +316,7 @@ static u8 sil680_init_chip(struct pci_dev *pdev, int *try_mmio)
 	case 0x20:
 		printk(KERN_INFO "sil680: Using PCI clock.\n");
 		break;
-	
+	/* This last case is _NOT_ ok */
 	case 0x30:
 		printk(KERN_ERR "sil680: Clock disabled ?\n");
 	}
@@ -296,17 +362,20 @@ static int __devinit sil680_init_one(struct pci_dev *pdev,
 	if (!try_mmio)
 		goto use_ioports;
 
+	/* Try to acquire MMIO resources and fallback to PIO if
+	 * that fails
+	 */
 	rc = pcim_iomap_regions(pdev, 1 << SIL680_MMIO_BAR, DRV_NAME);
 	if (rc)
 		goto use_ioports;
 
-	
+	/* Allocate host and set it up */
 	host = ata_host_alloc_pinfo(&pdev->dev, ppi, 2);
 	if (!host)
 		return -ENOMEM;
 	host->iomap = pcim_iomap_table(pdev);
 
-	
+	/* Setup DMA masks */
 	rc = pci_set_dma_mask(pdev, ATA_DMA_MASK);
 	if (rc)
 		return rc;
@@ -315,7 +384,7 @@ static int __devinit sil680_init_one(struct pci_dev *pdev,
 		return rc;
 	pci_set_master(pdev);
 
-	
+	/* Get MMIO base and initialize port addresses */
 	mmio_base = host->iomap[SIL680_MMIO_BAR];
 	host->ports[0]->ioaddr.bmdma_addr = mmio_base + 0x00;
 	host->ports[0]->ioaddr.cmd_addr = mmio_base + 0x80;
@@ -328,7 +397,7 @@ static int __devinit sil680_init_one(struct pci_dev *pdev,
 	host->ports[1]->ioaddr.altstatus_addr = mmio_base + 0xca;
 	ata_sff_std_ports(&host->ports[1]->ioaddr);
 
-	
+	/* Register & activate */
 	return ata_host_activate(host, pdev->irq, ata_bmdma_interrupt,
 				 IRQF_SHARED, &sil680_sht);
 

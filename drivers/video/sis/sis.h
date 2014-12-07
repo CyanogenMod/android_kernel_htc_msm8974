@@ -37,7 +37,7 @@
 
 #ifdef CONFIG_COMPAT
 #define SIS_NEW_CONFIG_COMPAT
-#endif	
+#endif	/* CONFIG_COMPAT */
 
 #undef SISFBDEBUG
 
@@ -51,6 +51,7 @@
 
 #define SISFAIL(x) do { printk(x "\n"); return -EINVAL; } while(0)
 
+/* To be included in pci_ids.h */
 #ifndef PCI_DEVICE_ID_SI_650_VGA
 #define PCI_DEVICE_ID_SI_650_VGA	0x6325
 #endif
@@ -97,31 +98,35 @@
 #define PCI_DEVICE_ID_XGI_40		0x0040
 #endif
 
+/* To be included in fb.h */
 #ifndef FB_ACCEL_SIS_GLAMOUR_2
-#define FB_ACCEL_SIS_GLAMOUR_2	40	
+#define FB_ACCEL_SIS_GLAMOUR_2	40	/* SiS 315, 65x, 740, 661, 741  */
 #endif
 #ifndef FB_ACCEL_SIS_XABRE
-#define FB_ACCEL_SIS_XABRE	41	
+#define FB_ACCEL_SIS_XABRE	41	/* SiS 330 ("Xabre"), 76x 	*/
 #endif
 #ifndef FB_ACCEL_XGI_VOLARI_V
-#define FB_ACCEL_XGI_VOLARI_V	47	
+#define FB_ACCEL_XGI_VOLARI_V	47	/* XGI Volari Vx (V3XT, V5, V8)	*/
 #endif
 #ifndef FB_ACCEL_XGI_VOLARI_Z
-#define FB_ACCEL_XGI_VOLARI_Z	48	
+#define FB_ACCEL_XGI_VOLARI_Z	48	/* XGI Volari Z7		*/
 #endif
 
+/* ivideo->caps */
 #define HW_CURSOR_CAP		0x80
 #define TURBO_QUEUE_CAP		0x40
 #define AGP_CMD_QUEUE_CAP	0x20
 #define VM_CMD_QUEUE_CAP	0x10
 #define MMIO_CMD_QUEUE_CAP	0x08
 
-#define TURBO_QUEUE_AREA_SIZE	(512 * 1024)	
-#define HW_CURSOR_AREA_SIZE_300	4096		
+/* For 300 series */
+#define TURBO_QUEUE_AREA_SIZE	(512 * 1024)	/* 512K */
+#define HW_CURSOR_AREA_SIZE_300	4096		/* 4K */
 
-#define COMMAND_QUEUE_AREA_SIZE	(512 * 1024)	
-#define COMMAND_QUEUE_AREA_SIZE_Z7 (128 * 1024)	
-#define HW_CURSOR_AREA_SIZE_315	16384		
+/* For 315/Xabre series */
+#define COMMAND_QUEUE_AREA_SIZE	(512 * 1024)	/* 512K */
+#define COMMAND_QUEUE_AREA_SIZE_Z7 (128 * 1024)	/* 128k for XGI Z7 */
+#define HW_CURSOR_AREA_SIZE_315	16384		/* 16K */
 #define COMMAND_QUEUE_THRESHOLD	0x1F
 
 #define SIS_OH_ALLOC_SIZE	4000
@@ -163,7 +168,7 @@
 #define SISVID			(ivideo->SiS_Pr.RelIO + 0x02 - 0x30)
 #define SISCAP			(ivideo->SiS_Pr.RelIO + 0x00 - 0x30)
 
-#define IND_SIS_PASSWORD		0x05  
+#define IND_SIS_PASSWORD		0x05  /* SRs */
 #define IND_SIS_COLOR_MODE		0x06
 #define IND_SIS_RAMDAC_CONTROL		0x07
 #define IND_SIS_DRAM_SIZE		0x14
@@ -178,23 +183,23 @@
 
 #define IND_SIS_AGP_IO_PAD	0x48
 
-#define SIS_CRT2_WENABLE_300	0x24  
+#define SIS_CRT2_WENABLE_300	0x24  /* Part1 */
 #define SIS_CRT2_WENABLE_315	0x2F
 
-#define SIS_PASSWORD		0x86  
+#define SIS_PASSWORD		0x86  /* SR05 */
 
-#define SIS_INTERLACED_MODE	0x20  
+#define SIS_INTERLACED_MODE	0x20  /* SR06 */
 #define SIS_8BPP_COLOR_MODE	0x0
 #define SIS_15BPP_COLOR_MODE	0x1
 #define SIS_16BPP_COLOR_MODE	0x2
 #define SIS_32BPP_COLOR_MODE	0x4
 
-#define SIS_ENABLE_2D		0x40  
+#define SIS_ENABLE_2D		0x40  /* SR1E */
 
-#define SIS_MEM_MAP_IO_ENABLE	0x01  
+#define SIS_MEM_MAP_IO_ENABLE	0x01  /* SR20 */
 #define SIS_PCI_ADDR_ENABLE	0x80
 
-#define SIS_AGP_CMDQUEUE_ENABLE		0x80  
+#define SIS_AGP_CMDQUEUE_ENABLE		0x80  /* 315/330/340 series SR26 */
 #define SIS_VRAM_CMDQUEUE_ENABLE	0x40
 #define SIS_MMIO_CMD_ENABLE		0x20
 #define SIS_CMD_QUEUE_SIZE_512k		0x00
@@ -204,10 +209,10 @@
 #define SIS_CMD_QUEUE_RESET		0x01
 #define SIS_CMD_AUTO_CORR		0x02
 
-#define SIS_CMD_QUEUE_SIZE_Z7_64k	0x00 
+#define SIS_CMD_QUEUE_SIZE_Z7_64k	0x00 /* XGI Z7 */
 #define SIS_CMD_QUEUE_SIZE_Z7_128k	0x04
 
-#define SIS_SIMULTANEOUS_VIEW_ENABLE	0x01  
+#define SIS_SIMULTANEOUS_VIEW_ENABLE	0x01  /* CR30 */
 #define SIS_MODE_SELECT_CRT2		0x02
 #define SIS_VB_OUTPUT_COMPOSITE		0x04
 #define SIS_VB_OUTPUT_SVIDEO		0x08
@@ -216,10 +221,10 @@
 #define SIS_VB_OUTPUT_CRT2		0x40
 #define SIS_VB_OUTPUT_HIVISION		0x80
 
-#define SIS_VB_OUTPUT_DISABLE	0x20  
+#define SIS_VB_OUTPUT_DISABLE	0x20  /* CR31 */
 #define SIS_DRIVER_MODE		0x40
 
-#define SIS_VB_COMPOSITE	0x01  
+#define SIS_VB_COMPOSITE	0x01  /* CR32 */
 #define SIS_VB_SVIDEO		0x02
 #define SIS_VB_SCART		0x04
 #define SIS_VB_LCD		0x08
@@ -230,8 +235,8 @@
 #define SIS_VB_TV		(SIS_VB_COMPOSITE | SIS_VB_SVIDEO | \
 				SIS_VB_SCART | SIS_VB_HIVISION | SIS_VB_YPBPR)
 
-#define SIS_EXTERNAL_CHIP_MASK			0x0E  
-#define SIS_EXTERNAL_CHIP_SIS301		0x01  
+#define SIS_EXTERNAL_CHIP_MASK			0x0E  /* CR37 (< SiS 660) */
+#define SIS_EXTERNAL_CHIP_SIS301		0x01  /* in CR37 << 1 ! */
 #define SIS_EXTERNAL_CHIP_LVDS			0x02
 #define SIS_EXTERNAL_CHIP_TRUMPION		0x03
 #define SIS_EXTERNAL_CHIP_LVDS_CHRONTEL		0x04
@@ -239,15 +244,16 @@
 #define SIS310_EXTERNAL_CHIP_LVDS		0x02
 #define SIS310_EXTERNAL_CHIP_LVDS_CHRONTEL	0x03
 
-#define SIS_AGP_2X		0x20  
+#define SIS_AGP_2X		0x20  /* CR48 */
 
-#define VB_CONEXANT		0x00000800	
-#define VB_TRUMPION		VB_CONEXANT	
+/* vbflags, private entries (others in sisfb.h) */
+#define VB_CONEXANT		0x00000800	/* 661 series only */
+#define VB_TRUMPION		VB_CONEXANT	/* 300 series only */
 #define VB_302ELV		0x00004000
-#define VB_301			0x00100000	
+#define VB_301			0x00100000	/* Video bridge type */
 #define VB_301B			0x00200000
 #define VB_302B			0x00400000
-#define VB_30xBDH		0x00800000	
+#define VB_30xBDH		0x00800000	/* 30xB DH version (w/o LCD support) */
 #define VB_LVDS			0x01000000
 #define VB_CHRONTEL		0x02000000
 #define VB_301LV		0x04000000
@@ -257,8 +263,9 @@
 #define VB_SISBRIDGE		(VB_301|VB_301B|VB_301C|VB_302B|VB_301LV|VB_302LV|VB_302ELV)
 #define VB_VIDEOBRIDGE		(VB_SISBRIDGE | VB_LVDS | VB_CHRONTEL | VB_CONEXANT)
 
+/* vbflags2 (static stuff only!) */
 #define VB2_SISUMC		0x00000001
-#define VB2_301			0x00000002	
+#define VB2_301			0x00000002	/* Video bridge type */
 #define VB2_301B		0x00000004
 #define VB2_301C		0x00000008
 #define VB2_307T		0x00000010
@@ -267,7 +274,7 @@
 #define VB2_302LV		0x00002000
 #define VB2_302ELV		0x00004000
 #define VB2_307LV		0x00008000
-#define VB2_30xBDH		0x08000000      
+#define VB2_30xBDH		0x08000000      /* 30xB DH version (w/o LCD support) */
 #define VB2_CONEXANT		0x10000000
 #define VB2_TRUMPION		0x20000000
 #define VB2_LVDS		0x40000000
@@ -300,6 +307,7 @@
 #define VB2_LCDOVER1600BRIDGE	(VB2_307T  | VB2_307LV)
 #define VB2_RAMDAC202MHZBRIDGE	(VB2_301C  | VB2_307T)
 
+/* I/O port access functions */
 
 void SiS_SetReg(SISIOADDRESS, u8, u8);
 void SiS_SetRegByte(SISIOADDRESS, u8);
@@ -313,6 +321,7 @@ u8 SiS_GetRegByte(SISIOADDRESS);
 u16 SiS_GetRegShort(SISIOADDRESS);
 u32 SiS_GetRegLong(SISIOADDRESS);
 
+/* MMIO access macros */
 #define MMIO_IN8(base, offset)  readb((base+offset))
 #define MMIO_IN16(base, offset) readw((base+offset))
 #define MMIO_IN32(base, offset) readl((base+offset))
@@ -321,10 +330,11 @@ u32 SiS_GetRegLong(SISIOADDRESS);
 #define MMIO_OUT16(base, offset, val) writew(((u16)(val)), (base+offset))
 #define MMIO_OUT32(base, offset, val) writel(((u32)(val)), (base+offset))
 
-#define Q_BASE_ADDR		0x85C0  
-#define Q_WRITE_PTR		0x85C4  
-#define Q_READ_PTR		0x85C8  
-#define Q_STATUS		0x85CC  
+/* Queue control MMIO registers */
+#define Q_BASE_ADDR		0x85C0  /* Base address of software queue */
+#define Q_WRITE_PTR		0x85C4  /* Current write pointer */
+#define Q_READ_PTR		0x85C8  /* Current read pointer */
+#define Q_STATUS		0x85CC  /* queue status */
 
 #define MMIO_QUEUE_PHYBASE      Q_BASE_ADDR
 #define MMIO_QUEUE_WRITEPORT    Q_WRITE_PTR
@@ -356,14 +366,14 @@ enum _SIS_LCD_TYPE {
     LCD_1600x1200,
     LCD_1920x1440,
     LCD_2048x1536,
-    LCD_320x240,	
+    LCD_320x240,	/* FSTN */
     LCD_1400x1050,
     LCD_1152x864,
     LCD_1152x768,
     LCD_1280x768,
     LCD_1024x600,
-    LCD_320x240_2,	
-    LCD_320x240_3,	
+    LCD_320x240_2,	/* DSTN */
+    LCD_320x240_3,	/* DSTN */
     LCD_848x480,
     LCD_1280x800,
     LCD_1680x1050,
@@ -400,13 +410,14 @@ struct SIS_HEAP {
 	struct sis_video_info *vinfo;
 };
 
+/* Our "par" */
 struct sis_video_info {
 	int		cardnumber;
 	struct fb_info  *memyselfandi;
 
 	struct SiS_Private SiS_Pr;
 
-	struct sisfb_info sisfbinfo;	
+	struct sisfb_info sisfbinfo;	/* For ioctl SISFB_GET_INFO */
 
 	struct fb_var_screeninfo default_var;
 
@@ -423,14 +434,14 @@ struct sis_video_info {
 		bool datavalid;
 	}		sisfb_thismonitor;
 
-	unsigned short	chip_id;	
-	unsigned short	chip_vendor;	
+	unsigned short	chip_id;	/* PCI ID of chip */
+	unsigned short	chip_vendor;	/* PCI ID of vendor */
 	char		myid[40];
 
 	struct pci_dev  *nbridge;
 	struct pci_dev  *lpcdev;
 
-	int		mni;	
+	int		mni;	/* Mode number index */
 
 	unsigned long	video_size;
 	unsigned long	video_base;
@@ -469,13 +480,13 @@ struct sis_video_info {
 	int		sisfb_tvstd;
 	int		sisfb_nocrt2rate;
 
-	u32		heapstart;		
-	void __iomem	*sisfb_heap_start;	
-	void __iomem	*sisfb_heap_end;	
+	u32		heapstart;		/* offset  */
+	void __iomem	*sisfb_heap_start;	/* address */
+	void __iomem	*sisfb_heap_end;	/* address */
 	u32		sisfb_heap_size;
 	int		havenoheap;
 
-	struct SIS_HEAP	sisfb_heap;		
+	struct SIS_HEAP	sisfb_heap;		/* This card's vram heap */
 
 	int		video_bpp;
 	int		video_cmap_len;
@@ -486,18 +497,18 @@ struct sis_video_info {
 	unsigned int	chip;
 	unsigned int	chip_real_id;
 	u8		revision_id;
-	int		sisvga_enabled;		
+	int		sisvga_enabled;		/* PCI device was enabled */
 
-	int		video_linelength;	
-	int		scrnpitchCRT1;		
+	int		video_linelength;	/* real pitch */
+	int		scrnpitchCRT1;		/* pitch regarding interlace */
 
-	u16		DstColor;		
+	u16		DstColor;		/* For 2d acceleration */
 	u32		SiS310_AccelDepth;
 	u32		CommandReg;
-	int		cmdqueuelength;		
-	u32		cmdQueueSize;		
+	int		cmdqueuelength;		/* Current (for accel) */
+	u32		cmdQueueSize;		/* Total size in KB */
 
-	spinlock_t	lockaccel;		
+	spinlock_t	lockaccel;		/* Do not use outside of kernel! */
 
 	unsigned int	pcibus;
 	unsigned int	pcislot;
@@ -509,13 +520,13 @@ struct sis_video_info {
 	u16		subsysvendor;
 	u16		subsysdevice;
 
-	u32		vbflags;		
+	u32		vbflags;		/* Replacing deprecated stuff from above */
 	u32		currentvbflags;
 	u32		vbflags2;
 
 	int		lcdxres, lcdyres;
 	int		lcddefmodeidx, tvdefmodeidx, defmodeidx;
-	u32		CRT2LCDType;		
+	u32		CRT2LCDType;		/* defined in "SIS_LCD_TYPE" */
 	u32		curFSTN, curDSTN;
 
 	int		current_bpp;

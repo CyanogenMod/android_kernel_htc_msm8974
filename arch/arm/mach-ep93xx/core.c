@@ -48,6 +48,9 @@
 
 #include "soc.h"
 
+/*************************************************************************
+ * Static I/O mappings that are needed for all EP93xx platforms
+ *************************************************************************/
 static struct map_desc ep93xx_io_desc[] __initdata = {
 	{
 		.virtual	= EP93XX_AHB_VIRT_BASE,
@@ -68,6 +71,25 @@ void __init ep93xx_map_io(void)
 }
 
 
+/*************************************************************************
+ * Timer handling for EP93xx
+ *************************************************************************
+ * The ep93xx has four internal timers.  Timers 1, 2 (both 16 bit) and
+ * 3 (32 bit) count down at 508 kHz, are self-reloading, and can generate
+ * an interrupt on underflow.  Timer 4 (40 bit) counts down at 983.04 kHz,
+ * is free-running, and can't generate interrupts.
+ *
+ * The 508 kHz timers are ideal for use for the timer interrupt, as the
+ * most common values of HZ divide 508 kHz nicely.  We pick one of the 16
+ * bit timers (timer 1) since we don't need more than 16 bits of reload
+ * value as long as HZ >= 8.
+ *
+ * The higher clock rate of timer 4 makes it a better choice than the
+ * other timers for use in gettimeoffset(), while the fact that it can't
+ * generate interrupts means we don't have to worry about not being able
+ * to use this timer for something else.  We also use timer 4 for keeping
+ * track of lost jiffies.
+ */
 #define EP93XX_TIMER_REG(x)		(EP93XX_TIMER_BASE + (x))
 #define EP93XX_TIMER1_LOAD		EP93XX_TIMER_REG(0x00)
 #define EP93XX_TIMER1_VALUE		EP93XX_TIMER_REG(0x04)
@@ -98,10 +120,10 @@ static unsigned int last_jiffy_time;
 
 static irqreturn_t ep93xx_timer_interrupt(int irq, void *dev_id)
 {
-	
+	/* Writing any value clears the timer interrupt */
 	__raw_writel(1, EP93XX_TIMER1_CLEAR);
 
-	
+	/* Recover lost jiffies */
 	while ((signed long)
 		(__raw_readl(EP93XX_TIMER4_VALUE_LOW) - last_jiffy_time)
 						>= TIMER4_TICKS_PER_JIFFY) {
@@ -123,13 +145,13 @@ static void __init ep93xx_timer_init(void)
 	u32 tmode = EP93XX_TIMER123_CONTROL_MODE |
 		    EP93XX_TIMER123_CONTROL_CLKSEL;
 
-	
+	/* Enable periodic HZ timer.  */
 	__raw_writel(tmode, EP93XX_TIMER1_CONTROL);
 	__raw_writel(TIMER1_RELOAD, EP93XX_TIMER1_LOAD);
 	__raw_writel(tmode | EP93XX_TIMER123_CONTROL_ENABLE,
 			EP93XX_TIMER1_CONTROL);
 
-	
+	/* Enable lost jiffy timer.  */
 	__raw_writel(EP93XX_TIMER4_VALUE_HIGH_ENABLE,
 			EP93XX_TIMER4_VALUE_HIGH);
 
@@ -142,7 +164,7 @@ static unsigned long ep93xx_gettimeoffset(void)
 
 	offset = __raw_readl(EP93XX_TIMER4_VALUE_LOW) - last_jiffy_time;
 
-	
+	/* Calculate (1000000 / 983040) * offset.  */
 	return offset + (53 * offset / 3072);
 }
 
@@ -152,6 +174,9 @@ struct sys_timer ep93xx_timer = {
 };
 
 
+/*************************************************************************
+ * EP93xx IRQ handling
+ *************************************************************************/
 void __init ep93xx_init_irq(void)
 {
 	vic_init(EP93XX_VIC1_BASE, 0, EP93XX_VIC1_VALID_IRQ_MASK, 0);
@@ -159,6 +184,9 @@ void __init ep93xx_init_irq(void)
 }
 
 
+/*************************************************************************
+ * EP93xx System Controller Software Locked register handling
+ *************************************************************************/
 
 /*
  * syscon_swlock prevents anything else from writing to the syscon
@@ -194,6 +222,11 @@ void ep93xx_devcfg_set_clear(unsigned int set_bits, unsigned int clear_bits)
 	spin_unlock_irqrestore(&syscon_swlock, flags);
 }
 
+/**
+ * ep93xx_chip_revision() - returns the EP93xx chip revision
+ *
+ * See <mach/platform.h> for more information.
+ */
 unsigned int ep93xx_chip_revision(void)
 {
 	unsigned int v;
@@ -204,6 +237,9 @@ unsigned int ep93xx_chip_revision(void)
 	return v;
 }
 
+/*************************************************************************
+ * EP93xx GPIO
+ *************************************************************************/
 static struct resource ep93xx_gpio_resource[] = {
 	{
 		.start		= EP93XX_GPIO_PHYS_BASE,
@@ -219,6 +255,9 @@ static struct platform_device ep93xx_gpio_device = {
 	.resource	= ep93xx_gpio_resource,
 };
 
+/*************************************************************************
+ * EP93xx peripheral handling
+ *************************************************************************/
 #define EP93XX_UART_MCR_OFFSET		(0x0100)
 
 static void ep93xx_uart_set_mctrl(struct amba_device *dev,
@@ -290,6 +329,9 @@ static struct platform_device ep93xx_ohci_device = {
 };
 
 
+/*************************************************************************
+ * EP93xx physmap'ed flash
+ *************************************************************************/
 static struct physmap_flash_data ep93xx_flash_data;
 
 static struct resource ep93xx_flash_resource = {
@@ -306,6 +348,12 @@ static struct platform_device ep93xx_flash = {
 	.resource	= &ep93xx_flash_resource,
 };
 
+/**
+ * ep93xx_register_flash() - Register the external flash device.
+ * @width:	bank width in octets
+ * @start:	resource start address
+ * @size:	resource size
+ */
 void __init ep93xx_register_flash(unsigned int width,
 				  resource_size_t start, resource_size_t size)
 {
@@ -318,6 +366,9 @@ void __init ep93xx_register_flash(unsigned int width,
 }
 
 
+/*************************************************************************
+ * EP93xx ethernet peripheral handling
+ *************************************************************************/
 static struct ep93xx_eth_data ep93xx_eth_data;
 
 static struct resource ep93xx_eth_resource[] = {
@@ -346,6 +397,12 @@ static struct platform_device ep93xx_eth_device = {
 	.resource	= ep93xx_eth_resource,
 };
 
+/**
+ * ep93xx_register_eth - Register the built-in ethernet platform device.
+ * @data:	platform specific ethernet configuration (__initdata)
+ * @copy_addr:	flag indicating that the MAC address should be copied
+ *		from the IndAd registers (as programmed by the bootloader)
+ */
 void __init ep93xx_register_eth(struct ep93xx_eth_data *data, int copy_addr)
 {
 	if (copy_addr)
@@ -356,6 +413,9 @@ void __init ep93xx_register_eth(struct ep93xx_eth_data *data, int copy_addr)
 }
 
 
+/*************************************************************************
+ * EP93xx i2c peripheral handling
+ *************************************************************************/
 static struct i2c_gpio_platform_data ep93xx_i2c_data;
 
 static struct platform_device ep93xx_i2c_device = {
@@ -366,9 +426,21 @@ static struct platform_device ep93xx_i2c_device = {
 	},
 };
 
+/**
+ * ep93xx_register_i2c - Register the i2c platform device.
+ * @data:	platform specific i2c-gpio configuration (__initdata)
+ * @devices:	platform specific i2c bus device information (__initdata)
+ * @num:	the number of devices on the i2c bus
+ */
 void __init ep93xx_register_i2c(struct i2c_gpio_platform_data *data,
 				struct i2c_board_info *devices, int num)
 {
+	/*
+	 * Set the EEPROM interface pin drive type control.
+	 * Defines the driver type for the EECLK and EEDAT pins as either
+	 * open drain, which will require an external pull-up, or a normal
+	 * CMOS driver.
+	 */
 	if (data->sda_is_open_drain && data->sda_pin != EP93XX_GPIO_LINE_EEDAT)
 		pr_warning("sda != EEDAT, open drain has no effect\n");
 	if (data->scl_is_open_drain && data->scl_pin != EP93XX_GPIO_LINE_EECLK)
@@ -383,6 +455,9 @@ void __init ep93xx_register_i2c(struct i2c_gpio_platform_data *data,
 	platform_device_register(&ep93xx_i2c_device);
 }
 
+/*************************************************************************
+ * EP93xx SPI peripheral handling
+ *************************************************************************/
 static struct ep93xx_spi_info ep93xx_spi_master_data;
 
 static struct resource ep93xx_spi_resources[] = {
@@ -412,9 +487,22 @@ static struct platform_device ep93xx_spi_device = {
 	.resource	= ep93xx_spi_resources,
 };
 
+/**
+ * ep93xx_register_spi() - registers spi platform device
+ * @info: ep93xx board specific spi master info (__initdata)
+ * @devices: SPI devices to register (__initdata)
+ * @num: number of SPI devices to register
+ *
+ * This function registers platform device for the EP93xx SPI controller and
+ * also makes sure that SPI pins are muxed so that I2S is not using those pins.
+ */
 void __init ep93xx_register_spi(struct ep93xx_spi_info *info,
 				struct spi_board_info *devices, int num)
 {
+	/*
+	 * When SPI is used, we need to make sure that I2S is muxed off from
+	 * SPI pins.
+	 */
 	ep93xx_devcfg_clear_bits(EP93XX_SYSCON_DEVCFG_I2SONSSP);
 
 	ep93xx_spi_master_data = *info;
@@ -422,6 +510,9 @@ void __init ep93xx_register_spi(struct ep93xx_spi_info *info,
 	platform_device_register(&ep93xx_spi_device);
 }
 
+/*************************************************************************
+ * EP93xx LEDs
+ *************************************************************************/
 static struct gpio_led ep93xx_led_pins[] = {
 	{
 		.name	= "platform:grled",
@@ -446,6 +537,9 @@ static struct platform_device ep93xx_leds = {
 };
 
 
+/*************************************************************************
+ * EP93xx pwm peripheral handling
+ *************************************************************************/
 static struct resource ep93xx_pwm0_resource[] = {
 	{
 		.start	= EP93XX_PWM_PHYS_BASE,
@@ -481,7 +575,7 @@ void __init ep93xx_register_pwm(int pwm0, int pwm1)
 	if (pwm0)
 		platform_device_register(&ep93xx_pwm0_device);
 
-	
+	/* NOTE: EP9307 does not have PWMOUT1 (pin EGPIO14) */
 	if (pwm1)
 		platform_device_register(&ep93xx_pwm1_device);
 }
@@ -501,7 +595,7 @@ int ep93xx_pwm_acquire_gpio(struct platform_device *pdev)
 		if (err)
 			goto fail;
 
-		
+		/* PWM 1 output on EGPIO[14] */
 		ep93xx_devcfg_set_bits(EP93XX_SYSCON_DEVCFG_PONG);
 	} else {
 		err = -ENODEV;
@@ -521,13 +615,16 @@ void ep93xx_pwm_release_gpio(struct platform_device *pdev)
 		gpio_direction_input(EP93XX_GPIO_LINE_EGPIO14);
 		gpio_free(EP93XX_GPIO_LINE_EGPIO14);
 
-		
+		/* EGPIO[14] used for GPIO */
 		ep93xx_devcfg_clear_bits(EP93XX_SYSCON_DEVCFG_PONG);
 	}
 }
 EXPORT_SYMBOL(ep93xx_pwm_release_gpio);
 
 
+/*************************************************************************
+ * EP93xx video peripheral handling
+ *************************************************************************/
 static struct ep93xxfb_mach_info ep93xxfb_data;
 
 static struct resource ep93xx_fb_resource[] = {
@@ -550,6 +647,7 @@ static struct platform_device ep93xx_fb_device = {
 	.resource		= ep93xx_fb_resource,
 };
 
+/* The backlight use a single register in the framebuffer's register space */
 #define EP93XX_RASTER_REG_BRIGHTNESS 0x20
 
 static struct resource ep93xx_bl_resources[] = {
@@ -564,6 +662,10 @@ static struct platform_device ep93xx_bl_device = {
 	.resource	= ep93xx_bl_resources,
 };
 
+/**
+ * ep93xx_register_fb - Register the framebuffer platform device.
+ * @data:	platform specific framebuffer configuration (__initdata)
+ */
 void __init ep93xx_register_fb(struct ep93xxfb_mach_info *data)
 {
 	ep93xxfb_data = *data;
@@ -572,6 +674,9 @@ void __init ep93xx_register_fb(struct ep93xxfb_mach_info *data)
 }
 
 
+/*************************************************************************
+ * EP93xx matrix keypad peripheral handling
+ *************************************************************************/
 static struct ep93xx_keypad_platform_data ep93xx_keypad_data;
 
 static struct resource ep93xx_keypad_resource[] = {
@@ -596,6 +701,10 @@ static struct platform_device ep93xx_keypad_device = {
 	.resource	= ep93xx_keypad_resource,
 };
 
+/**
+ * ep93xx_register_keypad - Register the keypad platform device.
+ * @data:	platform specific keypad configuration (__initdata)
+ */
 void __init ep93xx_register_keypad(struct ep93xx_keypad_platform_data *data)
 {
 	ep93xx_keypad_data = *data;
@@ -616,7 +725,7 @@ int ep93xx_keypad_acquire_gpio(struct platform_device *pdev)
 			goto fail_gpio_d;
 	}
 
-	
+	/* Enable the keypad controller; GPIO ports C and D used for keypad */
 	ep93xx_devcfg_clear_bits(EP93XX_SYSCON_DEVCFG_KEYS |
 				 EP93XX_SYSCON_DEVCFG_GONK);
 
@@ -642,12 +751,15 @@ void ep93xx_keypad_release_gpio(struct platform_device *pdev)
 		gpio_free(EP93XX_GPIO_LINE_D(i));
 	}
 
-	
+	/* Disable the keypad controller; GPIO ports C and D used for GPIO */
 	ep93xx_devcfg_set_bits(EP93XX_SYSCON_DEVCFG_KEYS |
 			       EP93XX_SYSCON_DEVCFG_GONK);
 }
 EXPORT_SYMBOL(ep93xx_keypad_release_gpio);
 
+/*************************************************************************
+ * EP93xx I2S audio peripheral handling
+ *************************************************************************/
 static struct resource ep93xx_i2s_resource[] = {
 	{
 		.start	= EP93XX_I2S_PHYS_BASE,
@@ -687,6 +799,12 @@ int ep93xx_i2s_acquire(void)
 	ep93xx_devcfg_set_clear(EP93XX_SYSCON_DEVCFG_I2SONAC97,
 			EP93XX_SYSCON_DEVCFG_I2S_MASK);
 
+	/*
+	 * This is potentially racy with the clock api for i2s_mclk, sclk and 
+	 * lrclk. Since the i2s driver is the only user of those clocks we
+	 * rely on it to prevent parallel use of this function and the 
+	 * clock api for the i2s clocks.
+	 */
 	val = __raw_readl(EP93XX_SYSCON_I2SCLKDIV);
 	val &= ~EP93XX_I2SCLKDIV_MASK;
 	val |= EP93XX_SYSCON_I2SCLKDIV_ORIDE | EP93XX_SYSCON_I2SCLKDIV_SPOL;
@@ -702,6 +820,9 @@ void ep93xx_i2s_release(void)
 }
 EXPORT_SYMBOL(ep93xx_i2s_release);
 
+/*************************************************************************
+ * EP93xx AC97 audio peripheral handling
+ *************************************************************************/
 static struct resource ep93xx_ac97_resources[] = {
 	{
 		.start	= EP93XX_AAC_PHYS_BASE,
@@ -724,12 +845,18 @@ static struct platform_device ep93xx_ac97_device = {
 
 void __init ep93xx_register_ac97(void)
 {
+	/*
+	 * Make sure that the AC97 pins are not used by I2S.
+	 */
 	ep93xx_devcfg_clear_bits(EP93XX_SYSCON_DEVCFG_I2SONAC97);
 
 	platform_device_register(&ep93xx_ac97_device);
 	platform_device_register(&ep93xx_pcm_device);
 }
 
+/*************************************************************************
+ * EP93xx Watchdog
+ *************************************************************************/
 static struct resource ep93xx_wdt_resources[] = {
 	DEFINE_RES_MEM(EP93XX_WATCHDOG_PHYS_BASE, 0x08),
 };
@@ -743,17 +870,17 @@ static struct platform_device ep93xx_wdt_device = {
 
 void __init ep93xx_init_devices(void)
 {
-	
+	/* Disallow access to MaverickCrunch initially */
 	ep93xx_devcfg_clear_bits(EP93XX_SYSCON_DEVCFG_CPENA);
 
-	
+	/* Default all ports to GPIO */
 	ep93xx_devcfg_set_bits(EP93XX_SYSCON_DEVCFG_KEYS |
 			       EP93XX_SYSCON_DEVCFG_GONK |
 			       EP93XX_SYSCON_DEVCFG_EONIDE |
 			       EP93XX_SYSCON_DEVCFG_GONIDE |
 			       EP93XX_SYSCON_DEVCFG_HONIDE);
 
-	
+	/* Get the GPIO working early, other devices need it */
 	platform_device_register(&ep93xx_gpio_device);
 
 	amba_device_register(&uart1_device, &iomem_resource);
@@ -768,6 +895,9 @@ void __init ep93xx_init_devices(void)
 
 void ep93xx_restart(char mode, const char *cmd)
 {
+	/*
+	 * Set then clear the SWRST bit to initiate a software reset
+	 */
 	ep93xx_devcfg_set_bits(EP93XX_SYSCON_DEVCFG_SWRST);
 	ep93xx_devcfg_clear_bits(EP93XX_SYSCON_DEVCFG_SWRST);
 

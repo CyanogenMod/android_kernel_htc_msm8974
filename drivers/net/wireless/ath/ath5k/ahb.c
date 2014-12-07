@@ -26,6 +26,7 @@
 #include "base.h"
 #include "reg.h"
 
+/* return bus cachesize in 4B word units */
 static void ath5k_ahb_read_cachesize(struct ath_common *common, int *csz)
 {
 	*csz = L1_CACHE_BYTES >> 2;
@@ -83,6 +84,7 @@ static const struct ath_bus_ops ath_ahb_bus_ops = {
 	.eeprom_read_mac = ath5k_ahb_eeprom_read_mac,
 };
 
+/*Initialization*/
 static int ath_ahb_probe(struct platform_device *pdev)
 {
 	struct ar231x_board_config *bcfg = pdev->dev.platform_data;
@@ -138,18 +140,18 @@ static int ath_ahb_probe(struct platform_device *pdev)
 	ah->devid = bcfg->devid;
 
 	if (bcfg->devid >= AR5K_SREV_AR2315_R6) {
-		
+		/* Enable WMAC AHB arbitration */
 		reg = ioread32((void __iomem *) AR5K_AR2315_AHB_ARB_CTL);
 		reg |= AR5K_AR2315_AHB_ARB_CTL_WLAN;
 		iowrite32(reg, (void __iomem *) AR5K_AR2315_AHB_ARB_CTL);
 
-		
+		/* Enable global WMAC swapping */
 		reg = ioread32((void __iomem *) AR5K_AR2315_BYTESWAP);
 		reg |= AR5K_AR2315_BYTESWAP_WMAC;
 		iowrite32(reg, (void __iomem *) AR5K_AR2315_BYTESWAP);
 	} else {
-		
-		
+		/* Enable WMAC DMA access (assuming 5312 or 231x*/
+		/* TODO: check other platforms */
 		reg = ioread32((void __iomem *) AR5K_AR5312_ENABLE);
 		if (to_platform_device(ah->dev)->id == 0)
 			reg |= AR5K_AR5312_ENABLE_WLAN0;
@@ -157,6 +159,11 @@ static int ath_ahb_probe(struct platform_device *pdev)
 			reg |= AR5K_AR5312_ENABLE_WLAN1;
 		iowrite32(reg, (void __iomem *) AR5K_AR5312_ENABLE);
 
+		/*
+		 * On a dual-band AR5312, the multiband radio is only
+		 * used as pass-through. Disable 2 GHz support in the
+		 * driver for it
+		 */
 		if (to_platform_device(ah->dev)->id == 0 &&
 		    (bcfg->config->flags & (BD_WLAN0 | BD_WLAN1)) ==
 		     (BD_WLAN1 | BD_WLAN0))
@@ -198,12 +205,12 @@ static int ath_ahb_remove(struct platform_device *pdev)
 	ah = hw->priv;
 
 	if (bcfg->devid >= AR5K_SREV_AR2315_R6) {
-		
+		/* Disable WMAC AHB arbitration */
 		reg = ioread32((void __iomem *) AR5K_AR2315_AHB_ARB_CTL);
 		reg &= ~AR5K_AR2315_AHB_ARB_CTL_WLAN;
 		iowrite32(reg, (void __iomem *) AR5K_AR2315_AHB_ARB_CTL);
 	} else {
-		
+		/*Stop DMA access */
 		reg = ioread32((void __iomem *) AR5K_AR5312_ENABLE);
 		if (to_platform_device(ah->dev)->id == 0)
 			reg &= ~AR5K_AR5312_ENABLE_WLAN0;

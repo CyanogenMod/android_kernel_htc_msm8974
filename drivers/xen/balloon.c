@@ -67,6 +67,13 @@
 #include <xen/features.h>
 #include <xen/page.h>
 
+/*
+ * balloon_process() state:
+ *
+ * BP_DONE: done or nothing to do,
+ * BP_EAGAIN: error, go to sleep,
+ * BP_ECANCELED: error, balloon operation canceled.
+ */
 
 enum bp_state {
 	BP_DONE,
@@ -80,6 +87,7 @@ static DEFINE_MUTEX(balloon_mutex);
 struct balloon_stats balloon_stats;
 EXPORT_SYMBOL_GPL(balloon_stats);
 
+/* We increase/decrease in batches which fit in a page */
 static unsigned long frame_list[PAGE_SIZE / sizeof(unsigned long)];
 
 #ifdef CONFIG_HIGHMEM
@@ -90,11 +98,15 @@ static unsigned long frame_list[PAGE_SIZE / sizeof(unsigned long)];
 #define dec_totalhigh_pages() do {} while (0)
 #endif
 
+/* List of ballooned pages, threaded through the mem_map array. */
 static LIST_HEAD(ballooned_pages);
 
+/* Main work function, always executed in process context. */
 static void balloon_process(struct work_struct *work);
 static DECLARE_DELAYED_WORK(balloon_worker, balloon_process);
 
+/* When ballooning out (allocating memory to return to Xen) we don't really
+   want the kernel to try too hard since that can trigger the oom killer. */
 #define GFP_BALLOON \
 	(GFP_HIGHUSER | __GFP_NOWARN | __GFP_NORETRY | __GFP_NOMEMALLOC)
 
@@ -105,9 +117,10 @@ static void scrub_page(struct page *page)
 #endif
 }
 
+/* balloon_append: add the given page to the balloon. */
 static void __balloon_append(struct page *page)
 {
-	
+	/* Lowmem is re-populated first, so highmem pages go at list tail. */
 	if (PageHighMem(page)) {
 		list_add_tail(&page->lru, &ballooned_pages);
 		balloon_stats.balloon_high++;
@@ -125,6 +138,7 @@ static void balloon_append(struct page *page)
 	totalram_pages--;
 }
 
+/* balloon_retrieve: rescue a page from the balloon, if it is not empty. */
 static struct page *balloon_retrieve(bool prefer_highmem)
 {
 	struct page *page;
@@ -205,6 +219,16 @@ static bool balloon_is_inflated(void)
 		return false;
 }
 
+/*
+ * reserve_additional_memory() adds memory region of size >= credit above
+ * max_pfn. New region is section aligned and size is modified to be multiple
+ * of section size. Those features allow optimal use of address space and
+ * establish proper alignment when this function is called first time after
+ * boot (last section not fully populated at boot time contains unused memory
+ * pages with PG_reserved bit not set; online_pages_range() does not allow page
+ * onlining in whole range if first onlined page does not have PG_reserved
+ * bit set). Real size of added memory is established at page onlining stage.
+ */
 
 static enum bp_state reserve_additional_memory(long credit)
 {
@@ -285,7 +309,7 @@ static enum bp_state reserve_additional_memory(long credit)
 	balloon_stats.target_pages = balloon_stats.current_pages;
 	return BP_DONE;
 }
-#endif 
+#endif /* CONFIG_XEN_BALLOON_MEMORY_HOTPLUG */
 
 static enum bp_state increase_reservation(unsigned long nr_pages)
 {
@@ -336,7 +360,7 @@ static enum bp_state increase_reservation(unsigned long nr_pages)
 
 		set_phys_to_machine(pfn, frame_list[i]);
 
-		
+		/* Link back into the page tables if not highmem. */
 		if (xen_pv_domain() && !PageHighMem(page)) {
 			int ret;
 			ret = HYPERVISOR_update_va_mapping(
@@ -346,7 +370,7 @@ static enum bp_state increase_reservation(unsigned long nr_pages)
 			BUG_ON(ret);
 		}
 
-		
+		/* Relinquish the page back to the allocator. */
 		ClearPageReserved(page);
 		init_page_count(page);
 		__free_page(page);
@@ -402,11 +426,11 @@ static enum bp_state decrease_reservation(unsigned long nr_pages, gfp_t gfp)
 
 	}
 
-	
+	/* Ensure that ballooned highmem pages don't have kmaps. */
 	kmap_flush_unused();
 	flush_tlb_all();
 
-	
+	/* No more mappings: invalidate P2M and add to balloon. */
 	for (i = 0; i < nr_pages; i++) {
 		pfn = mfn_to_pfn(frame_list[i]);
 		__set_phys_to_machine(pfn, INVALID_P2M_ENTRY);
@@ -423,6 +447,12 @@ static enum bp_state decrease_reservation(unsigned long nr_pages, gfp_t gfp)
 	return state;
 }
 
+/*
+ * We avoid multiple worker processes conflicting via the balloon mutex.
+ * We may of course race updates of the target counts (which are protected
+ * by the balloon lock), or with changes to the Xen hard limit, but we will
+ * recover from these in time.
+ */
 static void balloon_process(struct work_struct *work)
 {
 	enum bp_state state = BP_DONE;
@@ -451,21 +481,29 @@ static void balloon_process(struct work_struct *work)
 #endif
 	} while (credit && state == BP_DONE);
 
-	
+	/* Schedule more work if there is some still to be done. */
 	if (state == BP_EAGAIN)
 		schedule_delayed_work(&balloon_worker, balloon_stats.schedule_delay * HZ);
 
 	mutex_unlock(&balloon_mutex);
 }
 
+/* Resets the Xen limit, sets new target, and kicks off processing. */
 void balloon_set_new_target(unsigned long target)
 {
-	
+	/* No need for lock. Not read-modify-write updates. */
 	balloon_stats.target_pages = target;
 	schedule_delayed_work(&balloon_worker, 0);
 }
 EXPORT_SYMBOL_GPL(balloon_set_new_target);
 
+/**
+ * alloc_xenballooned_pages - get pages that have been ballooned out
+ * @nr_pages: Number of pages to get
+ * @pages: pages returned
+ * @highmem: allow highmem pages
+ * @return 0 on success, error otherwise
+ */
 int alloc_xenballooned_pages(int nr_pages, struct page **pages, bool highmem)
 {
 	int pgno = 0;
@@ -490,13 +528,18 @@ int alloc_xenballooned_pages(int nr_pages, struct page **pages, bool highmem)
  out_undo:
 	while (pgno)
 		balloon_append(pages[--pgno]);
-	
+	/* Free the memory back to the kernel soon */
 	schedule_delayed_work(&balloon_worker, 0);
 	mutex_unlock(&balloon_mutex);
 	return -ENOMEM;
 }
 EXPORT_SYMBOL(alloc_xenballooned_pages);
 
+/**
+ * free_xenballooned_pages - return pages retrieved with get_ballooned_pages
+ * @nr_pages: Number of pages
+ * @pages: pages to return
+ */
 void free_xenballooned_pages(int nr_pages, struct page **pages)
 {
 	int i;
@@ -508,7 +551,7 @@ void free_xenballooned_pages(int nr_pages, struct page **pages)
 			balloon_append(pages[i]);
 	}
 
-	
+	/* The balloon may be too large now. Shrink it if needed. */
 	if (current_credit())
 		schedule_delayed_work(&balloon_worker, 0);
 
@@ -522,10 +565,18 @@ static void __init balloon_add_region(unsigned long start_pfn,
 	unsigned long pfn, extra_pfn_end;
 	struct page *page;
 
+	/*
+	 * If the amount of usable memory has been limited (e.g., with
+	 * the 'mem' command line parameter), don't add pages beyond
+	 * this limit.
+	 */
 	extra_pfn_end = min(max_pfn, start_pfn + pages);
 
 	for (pfn = start_pfn; pfn < extra_pfn_end; pfn++) {
 		page = pfn_to_page(pfn);
+		/* totalram_pages and totalhigh_pages do not
+		   include the boot-time balloon extension, so
+		   don't subtract from it. */
 		__balloon_append(page);
 	}
 }
@@ -559,6 +610,10 @@ static int __init balloon_init(void)
 	register_memory_notifier(&xen_memory_nb);
 #endif
 
+	/*
+	 * Initialize the balloon with pages from the extra memory
+	 * regions (see arch/x86/xen/setup.c).
+	 */
 	for (i = 0; i < XEN_EXTRA_MEM_MAX_REGIONS; i++)
 		if (xen_extra_mem[i].size)
 			balloon_add_region(PFN_UP(xen_extra_mem[i].start),

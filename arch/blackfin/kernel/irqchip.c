@@ -28,6 +28,7 @@ static struct irq_desc bad_irq_desc = {
 };
 
 #ifdef CONFIG_CPUMASK_OFFSTACK
+/* We are not allocating a variable-sized bad_irq_desc.affinity */
 #error "Blackfin architecture does not support CONFIG_CPUMASK_OFFSTACK."
 #endif
 
@@ -70,7 +71,7 @@ int show_interrupts(struct seq_file *p, void *v)
 #ifdef CONFIG_DEBUG_STACKOVERFLOW
 static void check_stack_overflow(int irq)
 {
-	
+	/* Debugging check for stack overflow: is there less than STACK_WARN free? */
 	long sp = __get_SP() & (THREAD_SIZE - 1);
 
 	if (unlikely(sp < (sizeof(struct thread_info) + STACK_WARN))) {
@@ -88,6 +89,14 @@ static void maybe_lower_to_irq14(void)
 {
 	unsigned short pending, other_ints;
 
+	/*
+	 * If we're the only interrupt running (ignoring IRQ15 which
+	 * is for syscalls), lower our priority to IRQ14 so that
+	 * softirqs run at that level.  If there's another,
+	 * lower-level interrupt, irq_exit will defer softirqs to
+	 * that. If the interrupt pipeline is enabled, we are already
+	 * running at IRQ14 priority, so we don't need this code.
+	 */
 	CSYNC();
 	pending = bfin_read_IPEND() & ~0x8000;
 	other_ints = pending & (pending - 1);
@@ -98,6 +107,11 @@ static void maybe_lower_to_irq14(void)
 static inline void maybe_lower_to_irq14(void) { }
 #endif
 
+/*
+ * do_IRQ handles all hardware IRQs.  Decoded IRQs should not
+ * come via this function.  Instead, they should provide their
+ * own 'handler'
+ */
 #ifdef CONFIG_DO_IRQ_L1
 __attribute__((l1_text))
 #endif
@@ -109,6 +123,10 @@ asmlinkage void asm_do_IRQ(unsigned int irq, struct pt_regs *regs)
 
 	check_stack_overflow(irq);
 
+	/*
+	 * Some hardware gives randomly wrong interrupts.  Rather
+	 * than crashing, do something sensible.
+	 */
 	if (irq >= NR_IRQS)
 		handle_bad_irq(irq, &bad_irq_desc);
 	else
@@ -126,7 +144,7 @@ void __init init_IRQ(void)
 	init_arch_irq();
 
 #ifdef CONFIG_DEBUG_BFIN_HWTRACE_EXPAND
-	
+	/* Now that evt_ivhw is set up, turn this on */
 	trace_buff_offset = 0;
 	bfin_write_TBUFCTL(BFIN_TRACE_ON);
 	printk(KERN_INFO "Hardware Trace expanded to %ik\n",

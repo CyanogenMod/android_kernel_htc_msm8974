@@ -85,4 +85,4 @@ __delay (unsigned long loops)
 
 extern void udelay (unsigned long usecs);
 
-#endif 
+#endif /* _ASM_IA64_DELAY_H */

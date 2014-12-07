@@ -38,6 +38,47 @@ MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Anssi Hannula <anssi.hannula@iki.fi>");
 MODULE_DESCRIPTION("Force feedback support for Holtek On Line Grip based devices");
 
+/*
+ * These commands and parameters are currently known:
+ *
+ * byte 0: command id:
+ * 	01  set effect parameters
+ * 	02  play specified effect
+ * 	03  stop specified effect
+ * 	04  stop all effects
+ * 	06  stop all effects
+ * 	(the difference between 04 and 06 isn't known; win driver
+ * 	 sends 06,04 on application init, and 06 otherwise)
+ * 
+ * Commands 01 and 02 need to be sent as pairs, i.e. you need to send 01
+ * before each 02.
+ *
+ * The rest of the bytes are parameters. Command 01 takes all of them, and
+ * commands 02,03 take only the effect id.
+ *
+ * byte 1:
+ *	bits 0-3: effect id:
+ * 		1: very strong rumble
+ * 		2: periodic rumble, short intervals
+ * 		3: very strong rumble
+ * 		4: periodic rumble, long intervals
+ * 		5: weak periodic rumble, long intervals
+ * 		6: weak periodic rumble, short intervals
+ * 		7: periodic rumble, short intervals
+ * 		8: strong periodic rumble, short intervals
+ * 		9: very strong rumble
+ * 		a: causes an error
+ * 		b: very strong periodic rumble, very short intervals
+ * 		c-f: nothing
+ *	bit 6: right (weak) motor enabled
+ *	bit 7: left (strong) motor enabled
+ *
+ * bytes 2-3:  time in milliseconds, big-endian
+ * bytes 5-6:  unknown (win driver seems to use at least 10e0 with effect 1
+ * 		       and 0014 with effect 6)
+ * byte 7:
+ *	bits 0-3: effect magnitude
+ */
 
 #define HOLTEKFF_MSG_LENGTH     7
 
@@ -71,7 +112,7 @@ static int holtekff_play(struct input_dev *dev, void *data,
 	struct hid_device *hid = input_get_drvdata(dev);
 	struct holtekff_device *holtekff = data;
 	int left, right;
-	
+	/* effect type 1, length 65535 msec */
 	u8 buf[HOLTEKFF_MSG_LENGTH] =
 		{ 0x01, 0x01, 0xff, 0xff, 0x10, 0xe0, 0x00 };
 
@@ -89,7 +130,7 @@ static int holtekff_play(struct input_dev *dev, void *data,
 	if (right)
 		buf[1] |= 0x40;
 
-	
+	/* The device takes a single magnitude, so we just sum them up. */
 	buf[6] = min(0xf, (left >> 12) + (right >> 12));
 
 	holtekff_send(holtekff, hid, buf);
@@ -129,7 +170,7 @@ static int holtekff_init(struct hid_device *hid)
 
 	holtekff->field = report->field[0];
 
-	
+	/* initialize the same way as win driver does */
 	holtekff_send(holtekff, hid, stop_all4);
 	holtekff_send(holtekff, hid, stop_all6);
 

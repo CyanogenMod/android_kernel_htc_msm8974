@@ -18,8 +18,13 @@
 
 #include <linux/completion.h>
 
+#define HSML_VERSION_12             1
+
 #define HSML_PROTOCOL_VERSION		0x0006
-#define HSML_07_PROTOCOL_VERSION		0x0008
+#if HSML_VERSION_12
+#define HSML_12_PROTOCOL_VERSION	0x0100
+#endif
+#define HSML_07_PROTOCOL_VERSION	0x0008
 
 #define HTC_MODE_CONTROL_REQ		0x12
 
@@ -32,6 +37,13 @@
 #define HSML_SERVER_NONCE_SIZE 		20
 #define HSML_CLIENT_SIG_SIZE		168
 #define HSML_SERVER_SIG_SIZE		148
+
+#if HSML_VERSION_12
+enum {
+    cHSML_VER_08 = 0,
+    cHSML_VER_12,
+};
+#endif
 
 enum {
 	CLIENT_INFO_MESGID = 0,
@@ -202,11 +214,59 @@ struct set_display_info {
 	u16 wMaxGrayLevel;
 } __attribute__ ((__packed__));
 
+#if HSML_VERSION_12
+enum {
+    HSML_12_REQ_GET_VERSION = 0x40,
+    HSML_12_REQ_GET_PARAMETERS,
+    HSML_12_REQ_SET_PARAMETERS,
+    HSML_12_REQ_START_FB_TRANS,
+    HSML_12_REQ_PAUSE_FB_TRANS,
+    HSML_12_REQ_STOP_FB_TRANS,
+    HSML_12_REQ_SET_MAX_FRAME_RATE,
+    HSML_12_REQ_GET_ID,
+
+    HSML_12_REQ_COUNT,
+};
+
+enum {
+    HSML_12_PIXEL_FORMAT_ARGB888 = 0,
+    HSML_12_PIXEL_FORMAT_RGB888,
+    HSML_12_PIXEL_FORMAT_RGB565,
+    HSML_12_PIXEL_FORMAT_RGB555,
+    HSML_12_PIXEL_FORMAT_RGB444,
+    HSML_12_PIXEL_FORMAT_RGB343,
+};
+
+enum {
+    HSML_12_CAP_ENDIAN = 0,
+    HSML_12_CAP_FB_UPDATE,
+};
+
+struct get_parameters {
+	u32 capabilities;
+	u16 width;
+	u16 height;
+	u32 pixelFormatSupported;
+	u32 encodingSupported;
+} __attribute__ ((__packed__));
+
+struct set_parameters {
+	u32 capabilities;
+	u8 pixelFormat;
+	u8 paddings[3];
+	u32 encodingSupported;
+} __attribute__ ((__packed__));
+#endif
+
 struct hsml_protocol {
 	u16 version;
 	u16 vendor;
 	u8 request;
 	u32 MaxFPS;
+#if HSML_VERSION_12
+	struct get_parameters get_parameters_info;
+	struct set_parameters set_parameters_info;
+#endif
 	struct get_server_configuation get_server_configuation_info;
 	struct set_server_configuation set_server_configuation_info;
 	struct get_display_capabilities get_display_capabilities_info;

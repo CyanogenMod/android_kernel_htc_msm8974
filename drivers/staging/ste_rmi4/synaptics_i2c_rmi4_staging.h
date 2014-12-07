@@ -28,6 +28,15 @@
 #ifndef _SYNAPTICS_RMI4_H_INCLUDED_
 #define _SYNAPTICS_RMI4_H_INCLUDED_
 
+/**
+ * struct synaptics_rmi4_platform_data - contains the rmi4 platform data
+ * @irq_number: irq number
+ * @irq_type: irq type
+ * @x flip: x flip flag
+ * @y flip: y flip flag
+ *
+ * This structure gives platform data for rmi4.
+ */
 struct synaptics_rmi4_platform_data {
 	int irq_number;
 	int irq_type;

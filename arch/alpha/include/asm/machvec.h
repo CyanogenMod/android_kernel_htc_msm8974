@@ -3,9 +3,15 @@
 
 #include <linux/types.h>
 
+/*
+ *	This file gets pulled in by asm/io.h from user space. We don't
+ *	want most of this escaping.
+ */
  
 #ifdef __KERNEL__
 
+/* The following structure vectors all of the I/O and IRQ manipulation
+   from the generic kernel to the hardware specific backend.  */
 
 struct task_struct;
 struct mm_struct;
@@ -19,6 +25,9 @@ struct rtc_time;
 
 struct alpha_machine_vector
 {
+	/* This "belongs" down below with the rest of the runtime
+	   variables, but it is convenient for entry.S if these 
+	   two slots are at the beginning of the struct.  */
 	unsigned long hae_cache;
 	unsigned long *hae_register;
 
@@ -91,13 +100,13 @@ struct alpha_machine_vector
 
 	const char *vector_name;
 
-	
+	/* NUMA information */
 	int (*pa_to_nid)(unsigned long);
 	int (*cpuid_to_nid)(int);
 	unsigned long (*node_mem_start)(int);
 	unsigned long (*node_mem_size)(int);
 
-	
+	/* System specific parameters.  */
 	union {
 	    struct {
 		unsigned long gru_int_req_bits;
@@ -123,7 +132,7 @@ extern int alpha_using_srm;
 #else
 #define alpha_using_srm 0
 #endif
-#endif 
+#endif /* GENERIC */
 
 #endif
-#endif 
+#endif /* __ALPHA_MACHVEC_H */

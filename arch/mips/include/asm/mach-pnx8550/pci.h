@@ -37,6 +37,9 @@
 
 #define PCI_IO_TIMEOUT                  1000
 #define PCI_IO_RETRY			5
+/* Timeout for IO and CFG accesses.
+   This is in 1/1024 th of a jiffie(=10ms)
+   i.e. approx 10us */
 #define PCI_IO_JIFFIES_TIMEOUT          40
 #define PCI_IO_JIFFIES_SHIFT            10
 
@@ -161,14 +164,22 @@
 #define PCI_ISET        0x040FEC
 #define PCI_MOD_ID      0x040FFC
 
+/*
+ *  PCI configuration cycle AD bus definition
+ */
+/* Type 0 */
 #define PCI_CFG_TYPE0_REG_SHF           0
 #define PCI_CFG_TYPE0_FUNC_SHF          8
 
+/* Type 1 */
 #define PCI_CFG_TYPE1_REG_SHF           0
 #define PCI_CFG_TYPE1_FUNC_SHF          8
 #define PCI_CFG_TYPE1_DEV_SHF           11
 #define PCI_CFG_TYPE1_BUS_SHF           16
 
+/*
+ *  Ethernet device DP83816 definition
+ */
 #define DP83816_IRQ_ETHER               66
 
 #endif

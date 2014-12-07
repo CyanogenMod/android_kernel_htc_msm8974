@@ -1,8 +1,12 @@
+/* $Id: um_idi.h,v 1.6 2004/03/21 17:26:01 armin Exp $ */
 
 #ifndef __DIVA_USER_MODE_IDI_CORE_H__
 #define __DIVA_USER_MODE_IDI_CORE_H__
 
 
+/*
+  interface between UM IDI core and OS dependent part
+*/
 int diva_user_mode_idi_init(void);
 void diva_user_mode_idi_finit(void);
 void *divas_um_idi_create_entity(dword adapter_nr, void *file);

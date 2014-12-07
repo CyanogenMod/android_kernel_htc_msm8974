@@ -17,6 +17,7 @@
 
 extern struct geode_vid_ops cs5530_vid_ops;
 
+/* CS5530 Video device registers */
 
 #define CS5530_VIDEO_CONFIG	0x0000
 #  define CS5530_VCFG_VID_EN			0x00000001
@@ -71,4 +72,4 @@ extern struct geode_vid_ops cs5530_vid_ops;
 #define CS5530_DOT_CLK_CONFIG	0x0024
 #define CS5530_CRCSIG_TFT_TV	0x0028
 
-#endif 
+#endif /* !__VIDEO_CS5530_H__ */

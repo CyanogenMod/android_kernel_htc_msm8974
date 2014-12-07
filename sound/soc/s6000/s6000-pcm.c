@@ -44,13 +44,13 @@ static struct snd_pcm_hardware s6000_pcm_hardware = {
 	.period_bytes_min = 16,
 	.period_bytes_max = 0xfffff0,
 	.periods_min = 2,
-	.periods_max = 1024, 
+	.periods_max = 1024, /* no limit */
 	.fifo_size = 0,
 };
 
 struct s6000_runtime_data {
 	spinlock_t lock;
-	int period;		
+	int period;		/* current DMA period */
 };
 
 static void s6000_pcm_enqueue_dma(struct snd_pcm_substream *substream)
@@ -194,18 +194,18 @@ static int s6000_pcm_start(struct snd_pcm_substream *substream)
 		dma = par->dma_in;
 	}
 	s6dmac_enable_chan(DMA_MASK_DMAC(dma), DMA_INDEX_CHNL(dma),
-			   1 ,
-			   0 ,
-			   srcinc ,
-			   srcinc^1 ,
-			   0 ,
-			   0 ,
-			   0 ,
-			   4 ,
-			   -1 ,
-			   0 ,
-			   0 ,
-			   1 );
+			   1 /* priority 1 (0 is max) */,
+			   0 /* peripheral requests w/o xfer length mode */,
+			   srcinc /* source address increment */,
+			   srcinc^1 /* destination address increment */,
+			   0 /* chunksize 0 (skip impossible on this dma) */,
+			   0 /* source skip after chunk (impossible) */,
+			   0 /* destination skip after chunk (impossible) */,
+			   4 /* 16 byte burst size */,
+			   -1 /* don't conserve bandwidth */,
+			   0 /* low watermark irq descriptor threshold */,
+			   0 /* disable hardware timestamps */,
+			   1 /* enable channel */);
 
 	s6000_pcm_enqueue_dma(substream);
 	s6000_pcm_enqueue_dma(substream);
@@ -341,7 +341,7 @@ static int s6000_pcm_open(struct snd_pcm_substream *substream)
 
 	if (par->same_rate) {
 		int rate;
-		spin_lock(&par->lock); 
+		spin_lock(&par->lock); /* needed? */
 		rate = par->rate;
 		spin_unlock(&par->lock);
 		if (rate != -1) {

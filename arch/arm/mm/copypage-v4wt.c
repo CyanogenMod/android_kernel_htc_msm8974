@@ -13,6 +13,13 @@
 #include <linux/init.h>
 #include <linux/highmem.h>
 
+/*
+ * ARMv4 optimised copy_user_highpage
+ *
+ * Since we have writethrough caches, we don't have to worry about
+ * dirty data in the cache.  However, we do have to ensure that
+ * subsequent reads are up to date.
+ */
 static void __naked
 v4wt_copy_user_page(void *kto, const void *kfrom)
 {
@@ -48,6 +55,11 @@ void v4wt_copy_user_highpage(struct page *to, struct page *from,
 	kunmap_atomic(kto);
 }
 
+/*
+ * ARMv4 optimised clear_user_page
+ *
+ * Same story as above.
+ */
 void v4wt_clear_user_highpage(struct page *page, unsigned long vaddr)
 {
 	void *ptr, *kaddr = kmap_atomic(page);

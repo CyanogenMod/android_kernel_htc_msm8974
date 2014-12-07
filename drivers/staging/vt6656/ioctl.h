@@ -31,12 +31,24 @@
 
 #include "device.h"
 
+/*---------------------  Export Definitions -------------------------*/
 
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 int private_ioctl(PSDevice pDevice, struct ifreq *rq);
 
+/*
+void vConfigWEPKey (
+     PSDevice pDevice,
+     DWORD    dwKeyIndex,
+     PBYTE    pbyKey,
+     unsigned long    uKeyLength
+    );
+*/
 
-#endif 
+#endif /* __IOCTL_H__ */

@@ -59,6 +59,9 @@
  *
  ******************************************************************************/
 
+/*******************************************************************************
+ *  include files
+ ******************************************************************************/
 #include <linux/string.h>
 #include <wl_version.h>
 
@@ -70,15 +73,38 @@
 
 
 
+/*******************************************************************************
+ *  global definitions
+ ******************************************************************************/
 #if DBG
 
 extern dbg_info_t *DbgInfo;
 
-#endif  
+#endif  /* DBG */
 
 
 
 
+/*******************************************************************************
+ *	wl_wep_code()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      This function encodes a set of wep keys for privacy
+ *
+ *  PARAMETERS:
+ *
+ *      szCrypt -
+ *      szDest  -
+ *      Data    -
+ *      nLen    -
+ *
+ *  RETURNS:
+ *
+ *      OK
+ *
+ ******************************************************************************/
 int wl_wep_code( char *szCrypt, char *szDest, void *Data, int nLen )
 {
     int     i;
@@ -86,7 +112,7 @@ int wl_wep_code( char *szCrypt, char *szDest, void *Data, int nLen )
     int     k ;
     char    bits;
     char    *szData = (char *) Data;
-    
+    /*------------------------------------------------------------------------*/
 
 
     for( i = bits = 0 ; i < MACADDRESS_STR_LEN; i++ ) {
@@ -132,10 +158,30 @@ int wl_wep_code( char *szCrypt, char *szDest, void *Data, int nLen )
     return( strlen( szDest )) ;
 
 }
+/*============================================================================*/
 
 
 
 
+/*******************************************************************************
+ *	wl_wep_decode()
+ *******************************************************************************
+ *
+ *  DESCRIPTION:
+ *
+ *      This function decodes a set of WEP keys for use by the card.
+ *
+ *  PARAMETERS:
+ *
+ *      szCrypt -
+ *      szDest  -
+ *      Data    -
+ *
+ *  RETURNS:
+ *
+ *      OK
+ *
+ ******************************************************************************/
 int wl_wep_decode( char *szCrypt, void *Dest, char *szData )
 {
     int     i;
@@ -143,7 +189,7 @@ int wl_wep_decode( char *szCrypt, void *Dest, char *szData )
     int     nLen;
     char    bits;
     char    *szDest = Dest;
-  
+  /*------------------------------------------------------------------------*/
 
 
   for( i = bits = 0 ; i < 12; i++ ) {
@@ -182,4 +228,5 @@ int wl_wep_decode( char *szCrypt, void *Dest, char *szData )
   return( i ) ;
 
 }
+/*============================================================================*/
 

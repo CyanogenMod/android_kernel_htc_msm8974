@@ -50,4 +50,4 @@ void ib_copy_path_rec_to_user(struct ib_user_path_rec *dst,
 void ib_copy_path_rec_from_user(struct ib_sa_path_rec *dst,
 				struct ib_user_path_rec *src);
 
-#endif 
+#endif /* IB_USER_MARSHALL_H */

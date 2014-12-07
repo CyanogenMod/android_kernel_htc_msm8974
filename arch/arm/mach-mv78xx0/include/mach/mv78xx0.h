@@ -12,6 +12,33 @@
 #ifndef __ASM_ARCH_MV78XX0_H
 #define __ASM_ARCH_MV78XX0_H
 
+/*
+ * Marvell MV78xx0 address maps.
+ *
+ * phys
+ * c0000000	PCIe Memory space
+ * f0800000	PCIe #0 I/O space
+ * f0900000	PCIe #1 I/O space
+ * f0a00000	PCIe #2 I/O space
+ * f0b00000	PCIe #3 I/O space
+ * f0c00000	PCIe #4 I/O space
+ * f0d00000	PCIe #5 I/O space
+ * f0e00000	PCIe #6 I/O space
+ * f0f00000	PCIe #7 I/O space
+ * f1000000	on-chip peripheral registers
+ *
+ * virt		phys		size
+ * fe400000	f102x000	16K	core-specific peripheral registers
+ * fe700000	f0800000	1M	PCIe #0 I/O space
+ * fe800000	f0900000	1M	PCIe #1 I/O space
+ * fe900000	f0a00000	1M	PCIe #2 I/O space
+ * fea00000	f0b00000	1M	PCIe #3 I/O space
+ * feb00000	f0c00000	1M	PCIe #4 I/O space
+ * fec00000	f0d00000	1M	PCIe #5 I/O space
+ * fed00000	f0e00000	1M	PCIe #6 I/O space
+ * fee00000	f0f00000	1M	PCIe #7 I/O space
+ * fef00000	f1000000	1M	on-chip peripheral registers
+ */
 #define MV78XX0_CORE0_REGS_PHYS_BASE	0xf1020000
 #define MV78XX0_CORE1_REGS_PHYS_BASE	0xf1024000
 #define MV78XX0_CORE_REGS_VIRT_BASE	0xfe400000
@@ -28,8 +55,14 @@
 #define MV78XX0_PCIE_MEM_PHYS_BASE	0xc0000000
 #define MV78XX0_PCIE_MEM_SIZE		0x30000000
 
+/*
+ * Core-specific peripheral registers.
+ */
 #define BRIDGE_VIRT_BASE	(MV78XX0_CORE_REGS_VIRT_BASE)
 
+/*
+ * Register Map
+ */
 #define DDR_VIRT_BASE		(MV78XX0_REGS_VIRT_BASE | 0x00000)
 #define  DDR_WINDOW_CPU0_BASE	(DDR_VIRT_BASE | 0x1500)
 #define  DDR_WINDOW_CPU1_BASE	(DDR_VIRT_BASE | 0x1570)
@@ -72,6 +105,9 @@
 
 #define SATA_PHYS_BASE		(MV78XX0_REGS_PHYS_BASE | 0xa0000)
 
+/*
+ * Supported devices and revisions.
+ */
 #define MV78X00_Z0_DEV_ID	0x6381
 #define MV78X00_REV_Z0		1
 

@@ -18,8 +18,8 @@
 MODULE_LICENSE("GPL");
 
 static int mouse_emulate_buttons;
-static int mouse_button2_keycode = KEY_RIGHTCTRL;	
-static int mouse_button3_keycode = KEY_RIGHTALT;	
+static int mouse_button2_keycode = KEY_RIGHTCTRL;	/* right control key */
+static int mouse_button3_keycode = KEY_RIGHTALT;	/* right option key */
 
 static struct input_dev *mac_hid_emumouse_dev;
 
@@ -96,7 +96,7 @@ static int mac_hid_emumouse_connect(struct input_handler *handler,
 	struct input_handle *handle;
 	int error;
 
-	
+	/* Don't bind to ourselves */
 	if (dev == mac_hid_emumouse_dev)
 		return -ENODEV;
 
@@ -204,7 +204,7 @@ static int mac_hid_toggle_emumouse(ctl_table *table, int write,
 			rc = -EINVAL;
 	}
 
-	
+	/* Restore the old value in case of error */
 	if (rc)
 		*valp = old_val;
 
@@ -213,6 +213,7 @@ static int mac_hid_toggle_emumouse(ctl_table *table, int write,
 	return rc;
 }
 
+/* file(s) in /proc/sys/dev/mac_hid */
 static ctl_table mac_hid_files[] = {
 	{
 		.procname	= "mouse_button_emulation",
@@ -238,6 +239,7 @@ static ctl_table mac_hid_files[] = {
 	{ }
 };
 
+/* dir in /proc/sys/dev */
 static ctl_table mac_hid_dir[] = {
 	{
 		.procname	= "mac_hid",
@@ -248,6 +250,7 @@ static ctl_table mac_hid_dir[] = {
 	{ }
 };
 
+/* /proc/sys/dev itself, in case that is not there yet */
 static ctl_table mac_hid_root_dir[] = {
 	{
 		.procname	= "dev",

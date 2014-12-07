@@ -44,4 +44,4 @@ extern int gtm_set_exact_timer16(struct gtm_timer *tmr, u16 usec,
 extern void gtm_stop_timer16(struct gtm_timer *tmr);
 extern void gtm_ack_timer16(struct gtm_timer *tmr, u16 events);
 
-#endif 
+#endif /* __ASM_FSL_GTM_H */

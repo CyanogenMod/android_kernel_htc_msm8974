@@ -1,3 +1,4 @@
+/* -*- mode: c; c-basic-offset: 8 -*- */
 
 /* SNI RM driver
  *
@@ -21,6 +22,9 @@
 **-----------------------------------------------------------------------------
  */
 
+/*
+ * Based on lasi700.c
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>

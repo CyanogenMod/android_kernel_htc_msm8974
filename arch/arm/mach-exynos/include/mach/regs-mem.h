@@ -20,4 +20,4 @@
 #define S5P_DMC0_MEMTYPE_SHIFT		8
 #define S5P_DMC0_MEMTYPE_MASK		0xF
 
-#endif 
+#endif /* __ASM_ARCH_REGS_MEM_H */

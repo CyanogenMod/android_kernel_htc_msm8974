@@ -46,15 +46,19 @@
 #define AUDIO_AAC_SBR_PS_ON_FLAG_ON	0x0001
 #define AUDIO_AAC_SBR_PS_ON_FLAG_OFF	0x0000
 
+/* Primary channel on both left and right channels */
 #define AUDIO_AAC_DUAL_MONO_PL_PR  0
+/* Secondary channel on both left and right channels */
 #define AUDIO_AAC_DUAL_MONO_SL_SR  1
+/* Primary channel on right channel and 2nd on left channel */
 #define AUDIO_AAC_DUAL_MONO_SL_PR  2
+/* 2nd channel on right channel and primary on left channel */
 #define AUDIO_AAC_DUAL_MONO_PL_SR  3
 
 struct msm_audio_aac_config {
 	signed short format;
 	unsigned short audio_object;
-	unsigned short ep_config;	
+	unsigned short ep_config;	/* 0 ~ 3 useful only obj = ERLC */
 	unsigned short aac_section_data_resilience_flag;
 	unsigned short aac_scalefactor_data_resilience_flag;
 	unsigned short aac_spectral_data_resilience_flag;
@@ -64,4 +68,4 @@ struct msm_audio_aac_config {
 	unsigned short channel_configuration;
 };
 
-#endif 
+#endif /* __MSM_AUDIO_AAC_H */

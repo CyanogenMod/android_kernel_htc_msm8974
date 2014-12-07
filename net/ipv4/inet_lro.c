@@ -47,11 +47,14 @@ MODULE_DESCRIPTION("Large Receive Offload (ipv4 / tcp)");
 
 #define LRO_INC_STATS(lro_mgr, attr) { lro_mgr->stats.attr++; }
 
+/*
+ * Basic tcp checks whether packet is suitable for LRO
+ */
 
 static int lro_tcp_ip_check(const struct iphdr *iph, const struct tcphdr *tcph,
 			    int len, const struct net_lro_desc *lro_desc)
 {
-        
+        /* check ip header: don't aggregate padded frames */
 	if (ntohs(iph->tot_len) != len)
 		return -1;
 
@@ -72,7 +75,7 @@ static int lro_tcp_ip_check(const struct iphdr *iph, const struct tcphdr *tcph,
 	    tcph->doff != TCPH_LEN_W_TIMESTAMP)
 		return -1;
 
-	
+	/* check tcp options (only timestamp allowed) */
 	if (tcph->doff == TCPH_LEN_W_TIMESTAMP) {
 		__be32 *topt = (__be32 *)(tcph + 1);
 
@@ -81,13 +84,13 @@ static int lro_tcp_ip_check(const struct iphdr *iph, const struct tcphdr *tcph,
 				   | TCPOLEN_TIMESTAMP))
 			return -1;
 
-		
+		/* timestamp should be in right order */
 		topt++;
 		if (lro_desc && after(ntohl(lro_desc->tcp_rcv_tsval),
 				      ntohl(*topt)))
 			return -1;
 
-		
+		/* timestamp reply should not be zero */
 		topt++;
 		if (*topt == 0)
 			return -1;
@@ -192,7 +195,7 @@ static void lro_add_common(struct net_lro_desc *lro_desc, struct iphdr *iph,
 	lro_desc->tcp_window = tcph->window;
 	lro_desc->tcp_ack = tcph->ack_seq;
 
-	
+	/* don't update tcp_rcv_tsval, would not work with PAWS */
 	if (lro_desc->tcp_saw_tstamp) {
 		topt = (__be32 *) (tcph + 1);
 		lro_desc->tcp_rcv_tsecr = *(topt + 2);
@@ -337,7 +340,7 @@ static int __lro_proc_skb(struct net_lro_mgr *lro_mgr, struct sk_buff *skb,
 	    !(lro_mgr->features & LRO_F_EXTRACT_VLAN_ID))
 		vlan_hdr_len = VLAN_HLEN;
 
-	if (!lro_desc->active) { 
+	if (!lro_desc->active) { /* start new lro session */
 		if (lro_tcp_ip_check(iph, tcph, skb->len - vlan_hdr_len, NULL))
 			goto out;
 
@@ -362,7 +365,7 @@ static int __lro_proc_skb(struct net_lro_mgr *lro_mgr, struct sk_buff *skb,
 
 	return 0;
 
-out2: 
+out2: /* send aggregated SKBs to stack */
 	lro_flush(lro_mgr, lro_desc);
 
 out:
@@ -444,7 +447,7 @@ static struct sk_buff *__lro_proc_segment(struct net_lro_mgr *lro_mgr,
 	if (!lro_desc)
 		goto out1;
 
-	if (!lro_desc->active) { 
+	if (!lro_desc->active) { /* start new lro session */
 		if (lro_tcp_ip_check(iph, tcph, len - mac_hdr_len, NULL))
 			goto out1;
 
@@ -481,10 +484,10 @@ static struct sk_buff *__lro_proc_segment(struct net_lro_mgr *lro_mgr,
 
 	return NULL;
 
-out2: 
+out2: /* send aggregated packets to the stack */
 	lro_flush(lro_mgr, lro_desc);
 
-out1:  
+out1:  /* Original packet has to be posted to the stack */
 	skb = lro_gen_skb(lro_mgr, frags, len, true_size, mac_hdr,
 			  hdr_len, sum, lro_mgr->ip_summed);
 out:

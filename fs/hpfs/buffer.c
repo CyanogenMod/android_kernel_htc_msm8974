@@ -1,7 +1,15 @@
+/*
+ *  linux/fs/hpfs/buffer.c
+ *
+ *  Mikulas Patocka (mikulas@artax.karlin.mff.cuni.cz), 1998-1999
+ *
+ *  general buffer i/o
+ */
 #include <linux/sched.h>
 #include <linux/slab.h>
 #include "hpfs_fn.h"
 
+/* Map a sector into a buffer and return pointers to it and to the buffer. */
 
 void *hpfs_map_sector(struct super_block *s, unsigned secno, struct buffer_head **bhp,
 		 int ahead)
@@ -21,11 +29,12 @@ void *hpfs_map_sector(struct super_block *s, unsigned secno, struct buffer_head 
 	}
 }
 
+/* Like hpfs_map_sector but don't read anything */
 
 void *hpfs_get_sector(struct super_block *s, unsigned secno, struct buffer_head **bhp)
 {
 	struct buffer_head *bh;
-	
+	/*return hpfs_map_sector(s, secno, bhp, 0);*/
 
 	hpfs_lock_assert(s);
 
@@ -41,6 +50,7 @@ void *hpfs_get_sector(struct super_block *s, unsigned secno, struct buffer_head 
 	}
 }
 
+/* Map 4 sectors into a 4buffer and return pointers to it and to the buffer. */
 
 void *hpfs_map_4sectors(struct super_block *s, unsigned secno, struct quad_buffer_head *qbh,
 		   int ahead)
@@ -98,6 +108,7 @@ void *hpfs_map_4sectors(struct super_block *s, unsigned secno, struct quad_buffe
 	return NULL;
 }
 
+/* Don't read sectors */
 
 void *hpfs_get_4sectors(struct super_block *s, unsigned secno,
                           struct quad_buffer_head *qbh)
@@ -111,7 +122,7 @@ void *hpfs_get_4sectors(struct super_block *s, unsigned secno,
 		return NULL;
 	}
 
-	
+	/*return hpfs_map_4sectors(s, secno, qbh, 0);*/
 	if (!(qbh->data = kmalloc(2048, GFP_NOFS))) {
 		printk("HPFS: hpfs_get_4sectors: out of memory\n");
 		return NULL;

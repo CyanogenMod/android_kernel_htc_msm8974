@@ -35,6 +35,7 @@
 #include <asm/mach-au1x00/au1000.h>
 #include <asm/mach-au1x00/gpio-au1300.h>
 
+/* Interrupt Controller register offsets */
 #define IC_CFG0RD	0x40
 #define IC_CFG0SET	0x40
 #define IC_CFG0CLR	0x44
@@ -64,17 +65,24 @@
 #define IC_FALLINGCLR	0x7C
 #define IC_TESTBIT	0x80
 
+/* per-processor fixed function irqs */
 struct alchemy_irqmap {
-	int irq;	
-	int type;	
-	int prio;	
-	int internal;	
+	int irq;	/* linux IRQ number */
+	int type;	/* IRQ_TYPE_ */
+	int prio;	/* irq priority, 0 highest, 3 lowest */
+	int internal;	/* GPIC: internal source (no ext. pin)? */
 };
 
 static int au1x_ic_settype(struct irq_data *d, unsigned int type);
 static int au1300_gpic_settype(struct irq_data *d, unsigned int type);
 
 
+/* NOTE on interrupt priorities: The original writers of this code said:
+ *
+ * Because of the tight timing of SETUP token to reply transactions,
+ * the USB devices-side packet complete interrupt (USB_DEV_REQ_INT)
+ * needs the highest priority.
+ */
 struct alchemy_irqmap au1000_irqmap[] __initdata = {
 	{ AU1000_UART0_INT,	  IRQ_TYPE_LEVEL_HIGH,  1, 0 },
 	{ AU1000_UART1_INT,	  IRQ_TYPE_LEVEL_HIGH,  1, 0 },
@@ -238,7 +246,7 @@ struct alchemy_irqmap au1200_irqmap[] __initdata = {
 };
 
 static struct alchemy_irqmap au1300_irqmap[] __initdata = {
-	
+	/* multifunction: gpio pin or device */
 	{ AU1300_UART1_INT,	 IRQ_TYPE_LEVEL_HIGH,	1, 0, },
 	{ AU1300_UART2_INT,	 IRQ_TYPE_LEVEL_HIGH,	1, 0, },
 	{ AU1300_UART3_INT,	 IRQ_TYPE_LEVEL_HIGH,	1, 0, },
@@ -249,7 +257,7 @@ static struct alchemy_irqmap au1300_irqmap[] __initdata = {
 	{ AU1300_PSC2_INT,	 IRQ_TYPE_LEVEL_HIGH,	1, 0, },
 	{ AU1300_PSC3_INT,	 IRQ_TYPE_LEVEL_HIGH,	1, 0, },
 	{ AU1300_NAND_INT,	 IRQ_TYPE_LEVEL_HIGH,	1, 0, },
-	
+	/* au1300 internal */
 	{ AU1300_DDMA_INT,	 IRQ_TYPE_LEVEL_HIGH,	1, 1, },
 	{ AU1300_MMU_INT,	 IRQ_TYPE_LEVEL_HIGH,	1, 1, },
 	{ AU1300_MPU_INT,	 IRQ_TYPE_LEVEL_HIGH,	1, 1, },
@@ -272,9 +280,10 @@ static struct alchemy_irqmap au1300_irqmap[] __initdata = {
 	{ AU1300_ITE_INT,	 IRQ_TYPE_LEVEL_HIGH,	1, 1, },
 	{ AU1300_AES_INT,	 IRQ_TYPE_LEVEL_HIGH,	1, 1, },
 	{ AU1300_CIM_INT,	 IRQ_TYPE_LEVEL_HIGH,	1, 1, },
-	{ -1, },	
+	{ -1, },	/* terminator */
 };
 
+/******************************************************************************/
 
 static void au1x_ic0_unmask(struct irq_data *d)
 {
@@ -321,6 +330,10 @@ static void au1x_ic0_ack(struct irq_data *d)
 	unsigned int bit = d->irq - AU1000_INTC0_INT_BASE;
 	void __iomem *base = (void __iomem *)KSEG1ADDR(AU1000_IC0_PHYS_ADDR);
 
+	/*
+	 * This may assume that we don't get interrupts from
+	 * both edges at once, or if we do, that we don't care.
+	 */
 	__raw_writel(1 << bit, base + IC_FALLINGCLR);
 	__raw_writel(1 << bit, base + IC_RISINGCLR);
 	wmb();
@@ -331,6 +344,10 @@ static void au1x_ic1_ack(struct irq_data *d)
 	unsigned int bit = d->irq - AU1000_INTC1_INT_BASE;
 	void __iomem *base = (void __iomem *)KSEG1ADDR(AU1000_IC1_PHYS_ADDR);
 
+	/*
+	 * This may assume that we don't get interrupts from
+	 * both edges at once, or if we do, that we don't care.
+	 */
 	__raw_writel(1 << bit, base + IC_FALLINGCLR);
 	__raw_writel(1 << bit, base + IC_RISINGCLR);
 	wmb();
@@ -365,6 +382,9 @@ static int au1x_ic1_setwake(struct irq_data *d, unsigned int on)
 	int bit = d->irq - AU1000_INTC1_INT_BASE;
 	unsigned long wakemsk, flags;
 
+	/* only GPIO 0-7 can act as wakeup source.  Fortunately these
+	 * are wired up identically on all supported variants.
+	 */
 	if ((bit < 0) || (bit > 7))
 		return -EINVAL;
 
@@ -381,6 +401,10 @@ static int au1x_ic1_setwake(struct irq_data *d, unsigned int on)
 	return 0;
 }
 
+/*
+ * irq_chips for both ICs; this way the mask handlers can be
+ * as short as possible.
+ */
 static struct irq_chip au1x_ic0_chip = {
 	.name		= "Alchemy-IC0",
 	.irq_ack	= au1x_ic0_ack,
@@ -424,43 +448,43 @@ static int au1x_ic_settype(struct irq_data *d, unsigned int flow_type)
 
 	ret = 0;
 
-	switch (flow_type) {	
-	case IRQ_TYPE_EDGE_RISING:	
+	switch (flow_type) {	/* cfgregs 2:1:0 */
+	case IRQ_TYPE_EDGE_RISING:	/* 0:0:1 */
 		__raw_writel(1 << bit, base + IC_CFG2CLR);
 		__raw_writel(1 << bit, base + IC_CFG1CLR);
 		__raw_writel(1 << bit, base + IC_CFG0SET);
 		handler = handle_edge_irq;
 		name = "riseedge";
 		break;
-	case IRQ_TYPE_EDGE_FALLING:	
+	case IRQ_TYPE_EDGE_FALLING:	/* 0:1:0 */
 		__raw_writel(1 << bit, base + IC_CFG2CLR);
 		__raw_writel(1 << bit, base + IC_CFG1SET);
 		__raw_writel(1 << bit, base + IC_CFG0CLR);
 		handler = handle_edge_irq;
 		name = "falledge";
 		break;
-	case IRQ_TYPE_EDGE_BOTH:	
+	case IRQ_TYPE_EDGE_BOTH:	/* 0:1:1 */
 		__raw_writel(1 << bit, base + IC_CFG2CLR);
 		__raw_writel(1 << bit, base + IC_CFG1SET);
 		__raw_writel(1 << bit, base + IC_CFG0SET);
 		handler = handle_edge_irq;
 		name = "bothedge";
 		break;
-	case IRQ_TYPE_LEVEL_HIGH:	
+	case IRQ_TYPE_LEVEL_HIGH:	/* 1:0:1 */
 		__raw_writel(1 << bit, base + IC_CFG2SET);
 		__raw_writel(1 << bit, base + IC_CFG1CLR);
 		__raw_writel(1 << bit, base + IC_CFG0SET);
 		handler = handle_level_irq;
 		name = "hilevel";
 		break;
-	case IRQ_TYPE_LEVEL_LOW:	
+	case IRQ_TYPE_LEVEL_LOW:	/* 1:1:0 */
 		__raw_writel(1 << bit, base + IC_CFG2SET);
 		__raw_writel(1 << bit, base + IC_CFG1SET);
 		__raw_writel(1 << bit, base + IC_CFG0CLR);
 		handler = handle_level_irq;
 		name = "lowlevel";
 		break;
-	case IRQ_TYPE_NONE:		
+	case IRQ_TYPE_NONE:		/* 0:0:0 */
 		__raw_writel(1 << bit, base + IC_CFG2CLR);
 		__raw_writel(1 << bit, base + IC_CFG1CLR);
 		__raw_writel(1 << bit, base + IC_CFG0CLR);
@@ -475,7 +499,17 @@ static int au1x_ic_settype(struct irq_data *d, unsigned int flow_type)
 	return ret;
 }
 
+/******************************************************************************/
 
+/*
+ * au1300_gpic_chgcfg - change PIN configuration.
+ * @gpio:	pin to change (0-based GPIO number from datasheet).
+ * @clr:	clear all bits set in 'clr'.
+ * @set:	set these bits.
+ *
+ * modifies a pins' configuration register, bits set in @clr will
+ * be cleared in the register, bits in @set will be set.
+ */
 static inline void au1300_gpic_chgcfg(unsigned int gpio,
 				      unsigned long clr,
 				      unsigned long set)
@@ -483,7 +517,7 @@ static inline void au1300_gpic_chgcfg(unsigned int gpio,
 	void __iomem *r = AU1300_GPIC_ADDR;
 	unsigned long l;
 
-	r += gpio * 4;	
+	r += gpio * 4;	/* offset into pin config array */
 	l = __raw_readl(r + AU1300_GPIC_PINCFG);
 	l &= ~clr;
 	l |= set;
@@ -491,12 +525,28 @@ static inline void au1300_gpic_chgcfg(unsigned int gpio,
 	wmb();
 }
 
+/*
+ * au1300_pinfunc_to_gpio - assign a pin as GPIO input (GPIO ctrl).
+ * @pin:	pin (0-based GPIO number from datasheet).
+ *
+ * Assigns a GPIO pin to the GPIO controller, so its level can either
+ * be read or set through the generic GPIO functions.
+ * If you need a GPOUT, use au1300_gpio_set_value(pin, 0/1).
+ * REVISIT: is this function really necessary?
+ */
 void au1300_pinfunc_to_gpio(enum au1300_multifunc_pins gpio)
 {
 	au1300_gpio_direction_input(gpio + AU1300_GPIO_BASE);
 }
 EXPORT_SYMBOL_GPL(au1300_pinfunc_to_gpio);
 
+/*
+ * au1300_pinfunc_to_dev - assign a pin to the device function.
+ * @pin:	pin (0-based GPIO number from datasheet).
+ *
+ * Assigns a GPIO pin to its associated device function; the pin will be
+ * driven by the device and not through GPIO functions.
+ */
 void au1300_pinfunc_to_dev(enum au1300_multifunc_pins gpio)
 {
 	void __iomem *r = AU1300_GPIC_ADDR;
@@ -509,6 +559,11 @@ void au1300_pinfunc_to_dev(enum au1300_multifunc_pins gpio)
 }
 EXPORT_SYMBOL_GPL(au1300_pinfunc_to_dev);
 
+/*
+ * au1300_set_irq_priority -  set internal priority of IRQ.
+ * @irq:	irq to set priority (linux irq number).
+ * @p:		priority (0 = highest, 3 = lowest).
+ */
 void au1300_set_irq_priority(unsigned int irq, int p)
 {
 	irq -= ALCHEMY_GPIC_INT_BASE;
@@ -516,6 +571,14 @@ void au1300_set_irq_priority(unsigned int irq, int p)
 }
 EXPORT_SYMBOL_GPL(au1300_set_irq_priority);
 
+/*
+ * au1300_set_dbdma_gpio - assign a gpio to one of the DBDMA triggers.
+ * @dchan:	dbdma trigger select (0, 1).
+ * @gpio:	pin to assign as trigger.
+ *
+ * DBDMA controller has 2 external trigger sources; this function
+ * assigns a GPIO to the selected trigger.
+ */
 void au1300_set_dbdma_gpio(int dchan, unsigned int gpio)
 {
 	unsigned long r;
@@ -572,8 +635,8 @@ static void au1300_gpic_maskack(struct irq_data *d)
 	irq -= ALCHEMY_GPIC_INT_BASE;
 	r += GPIC_GPIO_BANKOFF(irq);
 	bit = GPIC_GPIO_TO_BIT(irq);
-	__raw_writel(bit, r + AU1300_GPIC_IPEND);	
-	__raw_writel(bit, r + AU1300_GPIC_IDIS);	
+	__raw_writel(bit, r + AU1300_GPIC_IPEND);	/* ack */
+	__raw_writel(bit, r + AU1300_GPIC_IDIS);	/* mask */
 	wmb();
 
 	gpic_pin_set_idlewake(irq, 0);
@@ -587,7 +650,7 @@ static void au1300_gpic_ack(struct irq_data *d)
 	irq -= ALCHEMY_GPIC_INT_BASE;
 	r += GPIC_GPIO_BANKOFF(irq);
 	bit = GPIC_GPIO_TO_BIT(irq);
-	__raw_writel(bit, r + AU1300_GPIC_IPEND);	
+	__raw_writel(bit, r + AU1300_GPIC_IPEND);	/* ack */
 	wmb();
 }
 
@@ -648,10 +711,11 @@ static int au1300_gpic_settype(struct irq_data *d, unsigned int type)
 	return 0;
 }
 
+/******************************************************************************/
 
 static inline void ic_init(void __iomem *base)
 {
-	
+	/* initialize interrupt controller to a safe state */
 	__raw_writel(0xffffffff, base + IC_CFG0CLR);
 	__raw_writel(0xffffffff, base + IC_CFG1CLR);
 	__raw_writel(0xffffffff, base + IC_CFG2CLR);
@@ -676,7 +740,7 @@ static inline void alchemy_ic_suspend_one(void __iomem *base, unsigned long *d)
 	d[4] = __raw_readl(base + IC_ASSIGNRD);
 	d[5] = __raw_readl(base + IC_WAKERD);
 	d[6] = __raw_readl(base + IC_MASKRD);
-	ic_init(base);		
+	ic_init(base);		/* shut it up too while at it */
 }
 
 static inline void alchemy_ic_resume_one(void __iomem *base, unsigned long *d)
@@ -717,23 +781,23 @@ static int alchemy_gpic_suspend(void)
 	void __iomem *base = (void __iomem *)KSEG1ADDR(AU1300_GPIC_PHYS_ADDR);
 	int i;
 
-	
+	/* save 4 interrupt mask status registers */
 	alchemy_gpic_pmdata[0] = __raw_readl(base + AU1300_GPIC_IEN + 0x0);
 	alchemy_gpic_pmdata[1] = __raw_readl(base + AU1300_GPIC_IEN + 0x4);
 	alchemy_gpic_pmdata[2] = __raw_readl(base + AU1300_GPIC_IEN + 0x8);
 	alchemy_gpic_pmdata[3] = __raw_readl(base + AU1300_GPIC_IEN + 0xc);
 
-	
+	/* save misc register(s) */
 	alchemy_gpic_pmdata[4] = __raw_readl(base + AU1300_GPIC_DMASEL);
 
-	
+	/* molto silenzioso */
 	__raw_writel(~0UL, base + AU1300_GPIC_IDIS + 0x0);
 	__raw_writel(~0UL, base + AU1300_GPIC_IDIS + 0x4);
 	__raw_writel(~0UL, base + AU1300_GPIC_IDIS + 0x8);
 	__raw_writel(~0UL, base + AU1300_GPIC_IDIS + 0xc);
 	wmb();
 
-	
+	/* save pin/int-type configuration */
 	base += AU1300_GPIC_PINCFG;
 	for (i = 0; i < ALCHEMY_GPIC_INT_NUM; i++)
 		alchemy_gpic_pmdata[i + 5] = __raw_readl(base + (i << 2));
@@ -748,25 +812,25 @@ static void alchemy_gpic_resume(void)
 	void __iomem *base = (void __iomem *)KSEG1ADDR(AU1300_GPIC_PHYS_ADDR);
 	int i;
 
-	
+	/* disable all first */
 	__raw_writel(~0UL, base + AU1300_GPIC_IDIS + 0x0);
 	__raw_writel(~0UL, base + AU1300_GPIC_IDIS + 0x4);
 	__raw_writel(~0UL, base + AU1300_GPIC_IDIS + 0x8);
 	__raw_writel(~0UL, base + AU1300_GPIC_IDIS + 0xc);
 	wmb();
 
-	
+	/* restore pin/int-type configurations */
 	base += AU1300_GPIC_PINCFG;
 	for (i = 0; i < ALCHEMY_GPIC_INT_NUM; i++)
 		__raw_writel(alchemy_gpic_pmdata[i + 5], base + (i << 2));
 	wmb();
 
-	
+	/* restore misc register(s) */
 	base = (void __iomem *)KSEG1ADDR(AU1300_GPIC_PHYS_ADDR);
 	__raw_writel(alchemy_gpic_pmdata[4], base + AU1300_GPIC_DMASEL);
 	wmb();
 
-	
+	/* finally restore masks */
 	__raw_writel(alchemy_gpic_pmdata[0], base + AU1300_GPIC_IEN + 0x0);
 	__raw_writel(alchemy_gpic_pmdata[1], base + AU1300_GPIC_IEN + 0x4);
 	__raw_writel(alchemy_gpic_pmdata[2], base + AU1300_GPIC_IEN + 0x8);
@@ -784,7 +848,9 @@ static struct syscore_ops alchemy_gpic_pmops = {
 	.resume		= alchemy_gpic_resume,
 };
 
+/******************************************************************************/
 
+/* create chained handlers for the 4 IC requests to the MIPS IRQ ctrl */
 #define DISP(name, base, addr)						      \
 static void au1000_##name##_dispatch(unsigned int irq, struct irq_desc *d)    \
 {									      \
@@ -806,6 +872,7 @@ static void alchemy_gpic_dispatch(unsigned int irq, struct irq_desc *d)
 	generic_handle_irq(ALCHEMY_GPIC_INT_BASE + i);
 }
 
+/******************************************************************************/
 
 static void __init au1000_init_irq(struct alchemy_irqmap *map)
 {
@@ -817,6 +884,9 @@ static void __init au1000_init_irq(struct alchemy_irqmap *map)
 	register_syscore_ops(&alchemy_ic_pmops);
 	mips_cpu_irq_init();
 
+	/* register all 64 possible IC0+IC1 irq sources as type "none".
+	 * Use set_irq_type() to set edge/level behaviour at runtime.
+	 */
 	for (irq_nr = AU1000_INTC0_INT_BASE;
 	     (irq_nr < AU1000_INTC0_INT_BASE + 32); irq_nr++)
 		au1x_ic_settype(irq_get_irq_data(irq_nr), IRQ_TYPE_NONE);
@@ -825,6 +895,9 @@ static void __init au1000_init_irq(struct alchemy_irqmap *map)
 	     (irq_nr < AU1000_INTC1_INT_BASE + 32); irq_nr++)
 		au1x_ic_settype(irq_get_irq_data(irq_nr), IRQ_TYPE_NONE);
 
+	/*
+	 * Initialize IC0, which is fixed per processor.
+	 */
 	while (map->irq != -1) {
 		irq_nr = map->irq;
 
@@ -856,7 +929,7 @@ static void __init alchemy_gpic_init_irq(const struct alchemy_irqmap *dints)
 	register_syscore_ops(&alchemy_gpic_pmops);
 	mips_cpu_irq_init();
 
-	
+	/* disable & ack all possible interrupt sources */
 	for (i = 0; i < 4; i++) {
 		bank_base = AU1300_GPIC_ADDR + (i * 4);
 		__raw_writel(~0UL, bank_base + AU1300_GPIC_IDIS);
@@ -865,13 +938,13 @@ static void __init alchemy_gpic_init_irq(const struct alchemy_irqmap *dints)
 		wmb();
 	}
 
-	
+	/* register an irq_chip for them, with 2nd highest priority */
 	for (i = ALCHEMY_GPIC_INT_BASE; i <= ALCHEMY_GPIC_INT_LAST; i++) {
 		au1300_set_irq_priority(i, 1);
 		au1300_gpic_settype(irq_get_irq_data(i), IRQ_TYPE_NONE);
 	}
 
-	
+	/* setup known on-chip sources */
 	while ((i = dints->irq) != -1) {
 		au1300_gpic_settype(irq_get_irq_data(i), dints->type);
 		au1300_set_irq_priority(i, dints->prio);
@@ -888,6 +961,7 @@ static void __init alchemy_gpic_init_irq(const struct alchemy_irqmap *dints)
 	irq_set_chained_handler(MIPS_CPU_IRQ_BASE + 5, alchemy_gpic_dispatch);
 }
 
+/******************************************************************************/
 
 void __init arch_init_irq(void)
 {

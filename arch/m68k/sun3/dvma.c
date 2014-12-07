@@ -30,6 +30,8 @@ static unsigned long dvma_page(unsigned long kaddr, unsigned long vaddr)
 
 	ptep = pfn_pte(virt_to_pfn(kaddr), PAGE_KERNEL);
 	pte = pte_val(ptep);
+//		printk("dvma_remap: addr %lx -> %lx pte %08lx len %x\n",
+//		       kaddr, vaddr, pte, len);
 	if(ptelist[(vaddr & 0xff000) >> PAGE_SHIFT] != pte) {
 		sun3_put_pte(vaddr, pte);
 		ptelist[(vaddr & 0xff000) >> PAGE_SHIFT] = pte;

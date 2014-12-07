@@ -7,6 +7,14 @@
 #include <linux/slab.h>
 #include "common.h"
 
+/**
+ * tomoyo_same_path_group - Check for duplicated "struct tomoyo_path_group" entry.
+ *
+ * @a: Pointer to "struct tomoyo_acl_head".
+ * @b: Pointer to "struct tomoyo_acl_head".
+ *
+ * Returns true if @a == @b, false otherwise.
+ */
 static bool tomoyo_same_path_group(const struct tomoyo_acl_head *a,
 				   const struct tomoyo_acl_head *b)
 {
@@ -14,6 +22,14 @@ static bool tomoyo_same_path_group(const struct tomoyo_acl_head *a,
 		container_of(b, struct tomoyo_path_group, head)->member_name;
 }
 
+/**
+ * tomoyo_same_number_group - Check for duplicated "struct tomoyo_number_group" entry.
+ *
+ * @a: Pointer to "struct tomoyo_acl_head".
+ * @b: Pointer to "struct tomoyo_acl_head".
+ *
+ * Returns true if @a == @b, false otherwise.
+ */
 static bool tomoyo_same_number_group(const struct tomoyo_acl_head *a,
 				     const struct tomoyo_acl_head *b)
 {
@@ -25,6 +41,14 @@ static bool tomoyo_same_number_group(const struct tomoyo_acl_head *a,
 			      ->number));
 }
 
+/**
+ * tomoyo_same_address_group - Check for duplicated "struct tomoyo_address_group" entry.
+ *
+ * @a: Pointer to "struct tomoyo_acl_head".
+ * @b: Pointer to "struct tomoyo_acl_head".
+ *
+ * Returns true if @a == @b, false otherwise.
+ */
 static bool tomoyo_same_address_group(const struct tomoyo_acl_head *a,
 				      const struct tomoyo_acl_head *b)
 {
@@ -36,6 +60,14 @@ static bool tomoyo_same_address_group(const struct tomoyo_acl_head *a,
 	return tomoyo_same_ipaddr_union(&p1->address, &p2->address);
 }
 
+/**
+ * tomoyo_write_group - Write "struct tomoyo_path_group"/"struct tomoyo_number_group"/"struct tomoyo_address_group" list.
+ *
+ * @param: Pointer to "struct tomoyo_acl_param".
+ * @type:  Type of this group.
+ *
+ * Returns 0 on success, negative value otherwise.
+ */
 int tomoyo_write_group(struct tomoyo_acl_param *param, const u8 type)
 {
 	struct tomoyo_group *group = tomoyo_get_group(param, type);
@@ -60,6 +92,10 @@ int tomoyo_write_group(struct tomoyo_acl_param *param, const u8 type)
 			goto out;
 		error = tomoyo_update_policy(&e.head, sizeof(e), param,
 					  tomoyo_same_number_group);
+		/*
+		 * tomoyo_put_number_union() is not needed because
+		 * param->data[0] != '@'.
+		 */
 	} else {
 		struct tomoyo_address_group e = { };
 
@@ -74,6 +110,17 @@ out:
 	return error;
 }
 
+/**
+ * tomoyo_path_matches_group - Check whether the given pathname matches members of the given pathname group.
+ *
+ * @pathname: The name of pathname.
+ * @group:    Pointer to "struct tomoyo_path_group".
+ *
+ * Returns matched member's pathname if @pathname matches pathnames in @group,
+ * NULL otherwise.
+ *
+ * Caller holds tomoyo_read_lock().
+ */
 const struct tomoyo_path_info *
 tomoyo_path_matches_group(const struct tomoyo_path_info *pathname,
 			  const struct tomoyo_group *group)
@@ -89,6 +136,17 @@ tomoyo_path_matches_group(const struct tomoyo_path_info *pathname,
 	return NULL;
 }
 
+/**
+ * tomoyo_number_matches_group - Check whether the given number matches members of the given number group.
+ *
+ * @min:   Min number.
+ * @max:   Max number.
+ * @group: Pointer to "struct tomoyo_number_group".
+ *
+ * Returns true if @min and @max partially overlaps @group, false otherwise.
+ *
+ * Caller holds tomoyo_read_lock().
+ */
 bool tomoyo_number_matches_group(const unsigned long min,
 				 const unsigned long max,
 				 const struct tomoyo_group *group)
@@ -107,6 +165,17 @@ bool tomoyo_number_matches_group(const unsigned long min,
 	return matched;
 }
 
+/**
+ * tomoyo_address_matches_group - Check whether the given address matches members of the given address group.
+ *
+ * @is_ipv6: True if @address is an IPv6 address.
+ * @address: An IPv4 or IPv6 address.
+ * @group:   Pointer to "struct tomoyo_address_group".
+ *
+ * Returns true if @address matches addresses in @group group, false otherwise.
+ *
+ * Caller holds tomoyo_read_lock().
+ */
 bool tomoyo_address_matches_group(const bool is_ipv6, const __be32 *address,
 				  const struct tomoyo_group *group)
 {

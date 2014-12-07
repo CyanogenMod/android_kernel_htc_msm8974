@@ -15,4 +15,4 @@
 
 #define EXYNOS4_AUDSS_INT_MEM	(0x03000000)
 
-#endif 
+#endif /* _PLAT_REGS_AUDSS_H */

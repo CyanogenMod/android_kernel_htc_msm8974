@@ -1,6 +1,10 @@
 #ifndef _ASM_POWERPC_MMU_BOOK3E_H_
 #define _ASM_POWERPC_MMU_BOOK3E_H_
+/*
+ * Freescale Book-E/Book-3e (ISA 2.06+) MMU support
+ */
 
+/* Book-3e defined page sizes */
 #define BOOK3E_PAGESZ_1K	0
 #define BOOK3E_PAGESZ_2K	1
 #define BOOK3E_PAGESZ_4K	2
@@ -34,6 +38,7 @@
 #define BOOK3E_PAGESZ_1TB	30
 #define BOOK3E_PAGESZ_2TB	31
 
+/* MAS registers bit definitions */
 
 #define MAS0_TLBSEL(x)		(((x) << 28) & 0x30000000)
 #define MAS0_ESEL_MASK		0x0FFF0000
@@ -82,7 +87,7 @@
 #define MAS3_SPSIZE_SHIFT	1
 
 #define MAS4_TLBSELD(x) 	MAS0_TLBSEL(x)
-#define MAS4_INDD		0x00008000	
+#define MAS4_INDD		0x00008000	/* Default IND */
 #define MAS4_TSIZED(x)		MAS1_TSIZE(x)
 #define MAS4_X0D		0x00000040
 #define MAS4_X1D		0x00000020
@@ -91,12 +96,12 @@
 #define MAS4_MD			0x00000004
 #define MAS4_GD			0x00000002
 #define MAS4_ED			0x00000001
-#define MAS4_WIMGED_MASK	0x0000001f	
+#define MAS4_WIMGED_MASK	0x0000001f	/* Default WIMGE */
 #define MAS4_WIMGED_SHIFT	0
-#define MAS4_VLED		MAS4_X1D	
-#define MAS4_ACMD		0x000000c0	
+#define MAS4_VLED		MAS4_X1D	/* Default VLE */
+#define MAS4_ACMD		0x000000c0	/* Default ACM */
 #define MAS4_ACMD_SHIFT		6
-#define MAS4_TSIZED_MASK	0x00000f80	
+#define MAS4_TSIZED_MASK	0x00000f80	/* Default TSIZE */
 #define MAS4_TSIZED_SHIFT	7
 
 #define MAS6_SPID0		0x3FFF0000
@@ -104,7 +109,7 @@
 #define MAS6_ISIZE(x)		MAS1_TSIZE(x)
 #define MAS6_SAS		0x00000001
 #define MAS6_SPID		MAS6_SPID0
-#define MAS6_SIND 		0x00000002	
+#define MAS6_SIND 		0x00000002	/* Indirect page */
 #define MAS6_SIND_SHIFT		1
 #define MAS6_SPID_MASK		0x3fff0000
 #define MAS6_SPID_SHIFT		16
@@ -113,27 +118,30 @@
 
 #define MAS7_RPN		0xFFFFFFFF
 
-#define MMUCFG_MAVN	0x00000003	
-#define MMUCFG_MAVN_V1	0x00000000	
-#define MMUCFG_MAVN_V2	0x00000001	
-#define MMUCFG_NTLBS	0x0000000c	
-#define MMUCFG_PIDSIZE	0x000007c0	
-#define MMUCFG_TWC	0x00008000	
-#define MMUCFG_LRAT	0x00010000	
-#define MMUCFG_RASIZE	0x00fe0000	
-#define MMUCFG_LPIDSIZE	0x0f000000	
+/* Bit definitions for MMUCFG */
+#define MMUCFG_MAVN	0x00000003	/* MMU Architecture Version Number */
+#define MMUCFG_MAVN_V1	0x00000000	/* v1.0 */
+#define MMUCFG_MAVN_V2	0x00000001	/* v2.0 */
+#define MMUCFG_NTLBS	0x0000000c	/* Number of TLBs */
+#define MMUCFG_PIDSIZE	0x000007c0	/* PID Reg Size */
+#define MMUCFG_TWC	0x00008000	/* TLB Write Conditional (v2.0) */
+#define MMUCFG_LRAT	0x00010000	/* LRAT Supported (v2.0) */
+#define MMUCFG_RASIZE	0x00fe0000	/* Real Addr Size */
+#define MMUCFG_LPIDSIZE	0x0f000000	/* LPID Reg Size */
 
-#define MMUCSR0_TLB1FI	0x00000002	
-#define MMUCSR0_TLB0FI	0x00000004	
-#define MMUCSR0_TLB2FI	0x00000040	
-#define MMUCSR0_TLB3FI	0x00000020	
+/* Bit definitions for MMUCSR0 */
+#define MMUCSR0_TLB1FI	0x00000002	/* TLB1 Flash invalidate */
+#define MMUCSR0_TLB0FI	0x00000004	/* TLB0 Flash invalidate */
+#define MMUCSR0_TLB2FI	0x00000040	/* TLB2 Flash invalidate */
+#define MMUCSR0_TLB3FI	0x00000020	/* TLB3 Flash invalidate */
 #define MMUCSR0_TLBFI	(MMUCSR0_TLB0FI | MMUCSR0_TLB1FI | \
 			 MMUCSR0_TLB2FI | MMUCSR0_TLB3FI)
-#define MMUCSR0_TLB0PS	0x00000780	
-#define MMUCSR0_TLB1PS	0x00007800	
-#define MMUCSR0_TLB2PS	0x00078000	
-#define MMUCSR0_TLB3PS	0x00780000	
+#define MMUCSR0_TLB0PS	0x00000780	/* TLB0 Page Size */
+#define MMUCSR0_TLB1PS	0x00007800	/* TLB1 Page Size */
+#define MMUCSR0_TLB2PS	0x00078000	/* TLB2 Page Size */
+#define MMUCSR0_TLB3PS	0x00780000	/* TLB3 Page Size */
 
+/* MMUCFG bits */
 #define MMUCFG_MAVN_NASK	0x00000003
 #define MMUCFG_MAVN_V1_0	0x00000000
 #define MMUCFG_MAVN_V2_0	0x00000001
@@ -148,19 +156,21 @@
 #define MMUCFG_LPIDSIZE_MASK	0x0f000000
 #define MMUCFG_LPIDSIZE_SHIFT	24
 
-#define TLBnCFG_N_ENTRY		0x00000fff	
-#define TLBnCFG_HES		0x00002000	
-#define TLBnCFG_IPROT		0x00008000	
-#define TLBnCFG_GTWE		0x00010000	
-#define TLBnCFG_IND		0x00020000	
-#define TLBnCFG_PT		0x00040000	
-#define TLBnCFG_MINSIZE		0x00f00000	
+/* TLBnCFG encoding */
+#define TLBnCFG_N_ENTRY		0x00000fff	/* number of entries */
+#define TLBnCFG_HES		0x00002000	/* HW select supported */
+#define TLBnCFG_IPROT		0x00008000	/* IPROT supported */
+#define TLBnCFG_GTWE		0x00010000	/* Guest can write */
+#define TLBnCFG_IND		0x00020000	/* IND entries supported */
+#define TLBnCFG_PT		0x00040000	/* Can load from page table */
+#define TLBnCFG_MINSIZE		0x00f00000	/* Minimum Page Size (v1.0) */
 #define TLBnCFG_MINSIZE_SHIFT	20
-#define TLBnCFG_MAXSIZE		0x000f0000	
+#define TLBnCFG_MAXSIZE		0x000f0000	/* Maximum Page Size (v1.0) */
 #define TLBnCFG_MAXSIZE_SHIFT	16
-#define TLBnCFG_ASSOC		0xff000000	
+#define TLBnCFG_ASSOC		0xff000000	/* Associativity */
 #define TLBnCFG_ASSOC_SHIFT	24
 
+/* TLBnPS encoding */
 #define TLBnPS_4K		0x00000004
 #define TLBnPS_8K		0x00000008
 #define TLBnPS_16K		0x00000010
@@ -189,6 +199,7 @@
 #define TLBnPS_128G		0x08000000
 #define TLBnPS_256G		0x10000000
 
+/* tlbilx action encoding */
 #define TLBILX_T_ALL			0
 #define TLBILX_T_TID			1
 #define TLBILX_T_FULLMATCH		3
@@ -206,27 +217,36 @@ typedef struct {
 	unsigned int	active;
 	unsigned long	vdso_base;
 #ifdef CONFIG_PPC_ICSWX
-	struct spinlock *cop_lockp;	
-	unsigned long acop;		
-#endif 
+	struct spinlock *cop_lockp;	/* guard cop related stuff */
+	unsigned long acop;		/* mask of enabled coprocessor types */
+#endif /* CONFIG_PPC_ICSWX */
 #ifdef CONFIG_PPC_MM_SLICES
-	u64 low_slices_psize;   
-	u64 high_slices_psize;  
-	u16 user_psize;         
+	u64 low_slices_psize;   /* SLB page size encodings */
+	u64 high_slices_psize;  /* 4 bits per slice for now */
+	u16 user_psize;         /* page size index */
 #endif
 } mm_context_t;
 
+/* Page size definitions, common between 32 and 64-bit
+ *
+ *    shift : is the "PAGE_SHIFT" value for that page size
+ *    penc  : is the pte encoding mask
+ *
+ */
 struct mmu_psize_def
 {
-	unsigned int	shift;	
-	unsigned int	enc;	
-	unsigned int    ind;    
+	unsigned int	shift;	/* number of bits */
+	unsigned int	enc;	/* PTE encoding */
+	unsigned int    ind;    /* Corresponding indirect page size shift */
 	unsigned int	flags;
-#define MMU_PAGE_SIZE_DIRECT	0x1	
-#define MMU_PAGE_SIZE_INDIRECT	0x2	
+#define MMU_PAGE_SIZE_DIRECT	0x1	/* Supported as a direct size */
+#define MMU_PAGE_SIZE_INDIRECT	0x2	/* Supported as an indirect size */
 };
 extern struct mmu_psize_def mmu_psize_defs[MMU_PAGE_COUNT];
 
+/* The page sizes use the same names as 64-bit hash but are
+ * constants
+ */
 #if defined(CONFIG_PPC_4K_PAGES)
 #define mmu_virtual_psize	MMU_PAGE_4K
 #elif defined(CONFIG_PPC_64K_PAGES)
@@ -241,9 +261,14 @@ extern int mmu_vmemmap_psize;
 #ifdef CONFIG_PPC64
 extern unsigned long linear_map_top;
 
+/*
+ * 64-bit booke platforms don't load the tlb in the tlb miss handler code.
+ * HUGETLB_NEED_PRELOAD handles this - it causes huge_ptep_set_access_flags to
+ * return 1, indicating that the tlb requires preloading.
+ */
 #define HUGETLB_NEED_PRELOAD
 #endif
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_POWERPC_MMU_BOOK3E_H_ */

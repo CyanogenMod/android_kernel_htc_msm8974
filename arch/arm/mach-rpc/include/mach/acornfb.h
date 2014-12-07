@@ -20,6 +20,9 @@ acornfb_valid_pixrate(struct fb_var_screeninfo *var)
 	if (!var->pixclock)
 		return 0;
 
+	/*
+	 * Limits below are taken from RISC OS bandwidthlimit file
+	 */
 	if (current_par.using_vram) {
 		if (current_par.vram_half_sam == 2048)
 			limit = 6578;
@@ -32,6 +35,12 @@ acornfb_valid_pixrate(struct fb_var_screeninfo *var)
 	return acornfb_bandwidth(var) >= limit;
 }
 
+/*
+ * Try to find the best PLL parameters for the pixel clock.
+ * This algorithm seems to give best predictable results,
+ * and produces the same values as detailed in the VIDC20
+ * data sheet.
+ */
 static inline u_int
 acornfb_vidc20_find_pll(u_int pixclk)
 {
@@ -75,16 +84,16 @@ acornfb_vidc20_find_rates(struct vidc_timing *vidc,
 {
 	u_int div;
 
-	
-	div = var->pixclock / 9090; 
+	/* Select pixel-clock divisor to keep PLL in range */
+	div = var->pixclock / 9090; /*9921*/
 
-	
+	/* Limit divisor */
 	if (div == 0)
 		div = 1;
 	if (div > 8)
 		div = 8;
 
-	
+	/* Encode divisor to VIDC20 setting */
 	switch (div) {
 	case 1:	vidc->control |= VIDC20_CTRL_PIX_CK;  break;
 	case 2:	vidc->control |= VIDC20_CTRL_PIX_CK2; break;
@@ -96,6 +105,14 @@ acornfb_vidc20_find_rates(struct vidc_timing *vidc,
 	case 8: vidc->control |= VIDC20_CTRL_PIX_CK8; break;
 	}
 
+	/*
+	 * With VRAM, the FIFO can be set to the highest possible setting
+	 * because there are no latency considerations for other memory
+	 * accesses. However, in 64 bit bus mode the FIFO preload value
+	 * must not be set to VIDC20_CTRL_FIFO_28 because this will let
+	 * the FIFO overflow. See VIDC20 manual page 33 (6.0 Setting the
+	 * FIFO preload value).
+	 */
 	if (current_par.using_vram) {
 		if (current_par.vram_half_sam == 2048)
 			vidc->control |= VIDC20_CTRL_FIFO_24;
@@ -104,18 +121,18 @@ acornfb_vidc20_find_rates(struct vidc_timing *vidc,
 	} else {
 		unsigned long bandwidth = acornfb_bandwidth(var);
 
-		
-		if (bandwidth > 33334)		
+		/* Encode bandwidth as VIDC20 setting */
+		if (bandwidth > 33334)		/* < 30.0MB/s */
 			vidc->control |= VIDC20_CTRL_FIFO_16;
-		else if (bandwidth > 26666)	
+		else if (bandwidth > 26666)	/* < 37.5MB/s */
 			vidc->control |= VIDC20_CTRL_FIFO_20;
-		else if (bandwidth > 22222)	
+		else if (bandwidth > 22222)	/* < 45.0MB/s */
 			vidc->control |= VIDC20_CTRL_FIFO_24;
-		else				
+		else				/* > 45.0MB/s */
 			vidc->control |= VIDC20_CTRL_FIFO_28;
 	}
 
-	
+	/* Find the PLL values */
 	vidc->pll_ctl = acornfb_vidc20_find_pll(var->pixclock / div);
 }
 

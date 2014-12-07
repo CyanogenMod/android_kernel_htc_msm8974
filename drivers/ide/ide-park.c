@@ -41,6 +41,10 @@ static void issue_park_cmd(ide_drive_t *drive, unsigned long timeout)
 	if (rc)
 		goto out;
 
+	/*
+	 * Make sure that *some* command is sent to the drive after the
+	 * timeout has expired, so power management will be reenabled.
+	 */
 	rq = blk_get_request(q, READ, GFP_NOWAIT);
 	if (unlikely(!rq))
 		goto out;
@@ -70,7 +74,7 @@ ide_startstop_t ide_do_park_unpark(ide_drive_t *drive, struct request *rq)
 		tf->lbah = 0x55;
 		cmd.valid.out.tf = IDE_VALID_OUT_TF | IDE_VALID_DEVICE;
 		cmd.valid.in.tf  = IDE_VALID_IN_TF  | IDE_VALID_DEVICE;
-	} else		
+	} else		/* cmd == REQ_UNPARK_HEADS */
 		tf->command = ATA_CMD_CHK_POWER;
 
 	cmd.tf_flags |= IDE_TFLAG_CUSTOM_HANDLER;

@@ -1,3 +1,6 @@
+/*
+ * USB
+ */
 #include <linux/init.h>
 #include <linux/platform_device.h>
 #include <linux/dma-mapping.h>
@@ -40,7 +43,7 @@ static struct musb_hdrc_config musb_config = {
 
 static struct musb_hdrc_platform_data usb_data = {
 #if defined(CONFIG_USB_MUSB_OTG)
-	
+	/* OTG requires a Mini-AB connector */
 	.mode           = MUSB_OTG,
 #elif defined(CONFIG_USB_MUSB_PERIPHERAL)
 	.mode           = MUSB_PERIPHERAL,
@@ -53,7 +56,7 @@ static struct musb_hdrc_platform_data usb_data = {
 
 static struct resource usb_resources[] = {
 	{
-		
+		/* physical address */
 		.start          = DAVINCI_USB_OTG_BASE,
 		.end            = DAVINCI_USB_OTG_BASE + 0x5ff,
 		.flags          = IORESOURCE_MEM,
@@ -64,7 +67,7 @@ static struct resource usb_resources[] = {
 		.name		= "mc"
 	},
 	{
-		
+		/* placeholder for the dedicated CPPI IRQ */
 		.flags          = IORESOURCE_IRQ,
 		.name		= "dma"
 	},
@@ -90,10 +93,10 @@ void __init davinci_setup_usb(unsigned mA, unsigned potpgt_ms)
 	usb_data.potpgt = (potpgt_ms + 1) / 2;
 
 	if (cpu_is_davinci_dm646x()) {
-		
+		/* Override the defaults as DM6467 uses different IRQs. */
 		usb_dev.resource[1].start = IRQ_DM646X_USBINT;
 		usb_dev.resource[2].start = IRQ_DM646X_USBDMAINT;
-	} else	
+	} else	/* other devices don't have dedicated CPPI IRQ */
 		usb_dev.num_resources = 2;
 
 	platform_device_register(&usb_dev);
@@ -125,7 +128,7 @@ int __init da8xx_register_usb20(unsigned mA, unsigned potpgt)
 
 	return platform_device_register(&usb_dev);
 }
-#endif	
+#endif	/* CONFIG_DAVINCI_DA8XX */
 
 #else
 
@@ -140,7 +143,7 @@ int __init da8xx_register_usb20(unsigned mA, unsigned potpgt)
 }
 #endif
 
-#endif  
+#endif  /* CONFIG_USB_MUSB_HDRC */
 
 #ifdef	CONFIG_ARCH_DAVINCI_DA8XX
 static struct resource da8xx_usb11_resources[] = {
@@ -174,4 +177,4 @@ int __init da8xx_register_usb11(struct da8xx_ohci_root_hub *pdata)
 	da8xx_usb11_device.dev.platform_data = pdata;
 	return platform_device_register(&da8xx_usb11_device);
 }
-#endif	
+#endif	/* CONFIG_DAVINCI_DA8XX */

@@ -44,26 +44,30 @@ struct vbi_data {
 	struct front_face	*front;
 
 	unsigned int		copied;
-	unsigned int		vbi_size; 
+	unsigned int		vbi_size; /* the whole size of two fields */
 	int 			users;
 };
 
+/*
+ * This is the running context of the video, it is useful for
+ * resume()
+ */
 struct running_context {
-	u32		freq;		
-	int		audio_idx;	
-	v4l2_std_id	tvnormid;	
-	int		sig_index;	
-	struct v4l2_pix_format pix;	
+	u32		freq;		/* VIDIOC_S_FREQUENCY */
+	int		audio_idx;	/* VIDIOC_S_TUNER    */
+	v4l2_std_id	tvnormid;	/* VIDIOC_S_STD     */
+	int		sig_index;	/* VIDIOC_S_INPUT  */
+	struct v4l2_pix_format pix;	/* VIDIOC_S_FMT   */
 };
 
 struct video_data {
-	
+	/* v4l2 video device */
 	struct video_device	*v_dev;
 
-	
+	/* the working context */
 	struct running_context	context;
 
-	
+	/* for data copy */
 	int		field_count;
 
 	char		*dst;
@@ -73,7 +77,7 @@ struct video_data {
 	int		lines_per_field;
 	int		lines_size;
 
-	
+	/* for communication */
 	u8			endpoint_addr;
 	struct urb 		*urb_array[SBUF_NUM];
 	struct vbi_data		*vbi;
@@ -83,7 +87,7 @@ struct video_data {
 	int			is_streaming;
 	int			users;
 
-	
+	/* for bubble handler */
 	struct work_struct	bubble_work;
 };
 
@@ -128,33 +132,33 @@ struct pd_dvb_adapter {
 	atomic_t		users;
 	atomic_t		active_feed;
 
-	
+	/* data transfer */
 	s32			is_streaming;
 	struct urb		*urb_array[DVB_SBUF_NUM];
 	struct poseidon		*pd_device;
 	u8			ep_addr;
 	u8			reserved[3];
 
-	
+	/* data for power resume*/
 	struct dtv_frontend_properties fe_param;
 
-	
+	/* for channel scanning */
 	int		prev_freq;
 	int		bandwidth;
 	unsigned long	last_jiffies;
 };
 
 struct front_face {
-	
+	/* use this field to distinguish VIDEO and VBI */
 	enum v4l2_buf_type	type;
 
-	
+	/* for host */
 	struct videobuf_queue	q;
 
-	
+	/* the bridge for host and device */
 	struct videobuf_buffer	*curr_frame;
 
-	
+	/* for device */
 	spinlock_t		queue_lock;
 	struct list_head	active;
 	struct poseidon		*pd;
@@ -166,22 +170,22 @@ struct poseidon {
 	struct mutex		lock;
 	struct kref		kref;
 
-	
+	/* for V4L2 */
 	struct v4l2_device	v4l2_dev;
 
-	
+	/* hardware info */
 	struct usb_device	*udev;
 	struct usb_interface	*interface;
 	int 			cur_transfer_mode;
 
-	struct video_data	video_data;	
-	struct vbi_data		vbi_data;	
-	struct poseidon_audio	audio;		
-	struct radio_data	radio_data;	
-	struct pd_dvb_adapter	dvb_data;	
+	struct video_data	video_data;	/* video */
+	struct vbi_data		vbi_data;	/* vbi	 */
+	struct poseidon_audio	audio;		/* audio (alsa) */
+	struct radio_data	radio_data;	/* FM	 */
+	struct pd_dvb_adapter	dvb_data;	/* DVB	 */
 
 	u32			state;
-	struct file		*file_for_stream; 
+	struct file		*file_for_stream; /* the active stream*/
 
 #ifdef CONFIG_PM
 	int (*pm_suspend)(struct poseidon *);
@@ -195,8 +199,8 @@ struct poseidon {
 
 struct poseidon_format {
 	char 	*name;
-	int	fourcc;		 
-	int	depth;		 
+	int	fourcc;		 /* video4linux 2	  */
+	int	depth;		 /* bit/pixel		  */
 	int	flags;
 };
 
@@ -206,10 +210,12 @@ struct poseidon_tvnorm {
 	u32		tlg_tvnorm;
 };
 
+/* video */
 int pd_video_init(struct poseidon *);
 void pd_video_exit(struct poseidon *);
 int stop_all_video_stream(struct poseidon *);
 
+/* alsa audio */
 int poseidon_audio_init(struct poseidon *);
 int poseidon_audio_free(struct poseidon *);
 #ifdef CONFIG_PM
@@ -217,26 +223,31 @@ int pm_alsa_suspend(struct poseidon *);
 int pm_alsa_resume(struct poseidon *);
 #endif
 
+/* dvb */
 int pd_dvb_usb_device_init(struct poseidon *);
 void pd_dvb_usb_device_exit(struct poseidon *);
 void pd_dvb_usb_device_cleanup(struct poseidon *);
 int pd_dvb_get_adapter_num(struct pd_dvb_adapter *);
 void dvb_stop_streaming(struct pd_dvb_adapter *);
 
+/* FM */
 int poseidon_fm_init(struct poseidon *);
 int poseidon_fm_exit(struct poseidon *);
 struct video_device *vdev_init(struct poseidon *, struct video_device *);
 
+/* vendor command ops */
 int send_set_req(struct poseidon*, u8, s32, s32*);
 int send_get_req(struct poseidon*, u8, s32, void*, s32*, s32);
 s32 set_tuner_mode(struct poseidon*, unsigned char);
 
+/* bulk urb alloc/free */
 int alloc_bulk_urbs_generic(struct urb **urb_array, int num,
 			struct usb_device *udev, u8 ep_addr,
 			int buf_size, gfp_t gfp_flags,
 			usb_complete_t complete_fn, void *context);
 void free_all_urb_generic(struct urb **urb_array, int num);
 
+/* misc */
 void poseidon_delete(struct kref *kref);
 void destroy_video_device(struct video_device **v_dev);
 extern int debug_mode;
@@ -252,6 +263,7 @@ void set_debug_mode(struct video_device *vfd, int debug_mode);
 #define log(a, ...) printk(KERN_DEBUG "\t[ %s : %.3d ] "a"\n", \
 				__func__, __LINE__,  ## __VA_ARGS__)
 
+/* for power management */
 #define logpm(pd) do {\
 			if (debug_mode & 0x10)\
 				log();\

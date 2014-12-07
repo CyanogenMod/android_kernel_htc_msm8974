@@ -34,7 +34,7 @@ struct mfc_cq_sr {
 	__u64 mfc_cq_data2_RW;
 	__u64 mfc_cq_data3_RW;
 };
-#endif 
+#endif /* __KERNEL__ */
 
 struct spu_dma_info {
 	__u64 dma_info_type;

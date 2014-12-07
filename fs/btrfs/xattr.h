@@ -40,4 +40,4 @@ extern int btrfs_xattr_security_init(struct btrfs_trans_handle *trans,
 				     struct inode *inode, struct inode *dir,
 				     const struct qstr *qstr);
 
-#endif 
+#endif /* __XATTR__ */

@@ -23,11 +23,14 @@ struct cipher_speed_template {
 };
 
 struct hash_speed {
-	unsigned int blen;	
-	unsigned int plen;	
-	unsigned int klen;	
+	unsigned int blen;	/* buffer length */
+	unsigned int plen;	/* per-update length */
+	unsigned int klen;	/* key length */
 };
 
+/*
+ * DES test vectors.
+ */
 #define DES3_SPEED_VECTORS	1
 
 static struct cipher_speed_template des3_speed_template[] = {
@@ -39,6 +42,9 @@ static struct cipher_speed_template des3_speed_template[] = {
 	}
 };
 
+/*
+ * Cipher speed tests
+ */
 static u8 speed_template_8[] = {8, 0};
 static u8 speed_template_24[] = {24, 0};
 static u8 speed_template_8_32[] = {8, 32, 0};
@@ -49,6 +55,9 @@ static u8 speed_template_32_48[] = {32, 48, 0};
 static u8 speed_template_32_48_64[] = {32, 48, 64, 0};
 static u8 speed_template_32_64[] = {32, 64, 0};
 
+/*
+ * Digest speed tests
+ */
 static struct hash_speed generic_hash_speed_template[] = {
 	{ .blen = 16,	.plen = 16, },
 	{ .blen = 64,	.plen = 16, },
@@ -73,7 +82,7 @@ static struct hash_speed generic_hash_speed_template[] = {
 	{ .blen = 8192,	.plen = 4096, },
 	{ .blen = 8192,	.plen = 8192, },
 
-	
+	/* End marker */
 	{  .blen = 0,	.plen = 0, }
 };
 
@@ -101,8 +110,8 @@ static struct hash_speed hash_speed_template_16[] = {
 	{ .blen = 8192,	.plen = 4096,	.klen = 16, },
 	{ .blen = 8192,	.plen = 8192,	.klen = 16, },
 
-	
+	/* End marker */
 	{  .blen = 0,	.plen = 0,	.klen = 0, }
 };
 
-#endif	
+#endif	/* _CRYPTO_TCRYPT_H */

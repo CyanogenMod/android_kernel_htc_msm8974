@@ -68,4 +68,4 @@ int qeth_l3_add_ip(struct qeth_card *, struct qeth_ipaddr *);
 int qeth_l3_delete_ip(struct qeth_card *, struct qeth_ipaddr *);
 void qeth_l3_set_ip_addr_list(struct qeth_card *);
 
-#endif 
+#endif /* __QETH_L3_H__ */

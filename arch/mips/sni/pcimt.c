@@ -45,6 +45,9 @@ static void __init sni_pcimt_sc_init(void)
 }
 
 
+/*
+ * A bit more gossip about the iron we're running on ...
+ */
 static inline void sni_pcimt_detect(void)
 {
 	char boardtype[80];
@@ -150,6 +153,10 @@ static struct resource pcimt_io_resources[] = {
 
 static struct resource pcimt_mem_resources[] = {
 	{
+		/*
+		 * this region should only be 4 bytes long,
+		 * but it's 16MB on all RM300C I've checked
+		 */
 		.start	= 0x1a000000,
 		.end	= 0x1affffff,
 		.name	= "PCI INT ACK",
@@ -168,10 +175,10 @@ static void __init sni_pcimt_resource_init(void)
 {
 	int i;
 
-	
+	/* request I/O space for devices used on all i[345]86 PCs */
 	for (i = 0; i < ARRAY_SIZE(pcimt_io_resources); i++)
 		request_resource(&sni_io_resource, pcimt_io_resources + i);
-	
+	/* request MEM space for devices used on all i[345]86 PCs */
 	for (i = 0; i < ARRAY_SIZE(pcimt_mem_resources); i++)
 		request_resource(&sni_mem_resource, pcimt_mem_resources + i);
 }
@@ -207,11 +214,20 @@ static struct irq_chip pcimt_irq_type = {
 	.irq_unmask = enable_pcimt_irq,
 };
 
+/*
+ * hwint0 should deal with MP agent, ASIC PCI, EISA NMI and debug
+ * button interrupts.  Later ...
+ */
 static void pcimt_hwint0(void)
 {
 	panic("Received int0 but no handler yet ...");
 }
 
+/*
+ * hwint 1 deals with EISA and SCSI interrupts,
+ *
+ * The EISA_INT bit in CSITPEND is high active, all others are low active.
+ */
 static void pcimt_hwint1(void)
 {
 	u8 pend = *(volatile char *)PCIMT_CSITPEND;
@@ -219,6 +235,11 @@ static void pcimt_hwint1(void)
 
 	if (pend & IT_EISA) {
 		int irq;
+		/*
+		 * Note: ASIC PCI's builtin interrupt acknowledge feature is
+		 * broken.  Using it may result in loss of some or all i8259
+		 * interrupts, so don't use PCIMT_INT_ACKNOWLEDGE ...
+		 */
 		irq = i8259_irq();
 		if (unlikely(irq < 0))
 			return;
@@ -234,6 +255,9 @@ static void pcimt_hwint1(void)
 	}
 }
 
+/*
+ * hwint 3 should deal with the PCI A - D interrupts,
+ */
 static void pcimt_hwint3(void)
 {
 	u8 pend = *(volatile char *)PCIMT_CSITPEND;
@@ -270,7 +294,7 @@ void __init sni_pcimt_irq_init(void)
 
 	*(volatile u8 *) PCIMT_IRQSEL = IT_ETH | IT_EISA;
 	mips_cpu_irq_init();
-	
+	/* Actually we've got more interrupts to handle ...  */
 	for (i = PCIMT_IRQ_INT2; i <= PCIMT_IRQ_SCSI; i++)
 		irq_set_chip_and_handler(i, &pcimt_irq_type, handle_level_irq);
 	sni_hwint = sni_pcimt_hwint;

@@ -317,4 +317,4 @@
 #define P_NAND_CLE	(P_DONTCARE)
 #define P_NAND_ALE	(P_DONTCARE)
 
-#endif 
+#endif /* _MACH_PORTMUX_H_ */

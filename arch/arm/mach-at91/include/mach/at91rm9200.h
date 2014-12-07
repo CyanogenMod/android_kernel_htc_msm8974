@@ -16,38 +16,44 @@
 #ifndef AT91RM9200_H
 #define AT91RM9200_H
 
-#define AT91RM9200_ID_PIOA	2	
-#define AT91RM9200_ID_PIOB	3	
-#define AT91RM9200_ID_PIOC	4	
-#define AT91RM9200_ID_PIOD	5	
-#define AT91RM9200_ID_US0	6	
-#define AT91RM9200_ID_US1	7	
-#define AT91RM9200_ID_US2	8	
-#define AT91RM9200_ID_US3	9	
-#define AT91RM9200_ID_MCI	10	
-#define AT91RM9200_ID_UDP	11	
-#define AT91RM9200_ID_TWI	12	
-#define AT91RM9200_ID_SPI	13	
-#define AT91RM9200_ID_SSC0	14	
-#define AT91RM9200_ID_SSC1	15	
-#define AT91RM9200_ID_SSC2	16	
-#define AT91RM9200_ID_TC0	17	
-#define AT91RM9200_ID_TC1	18	
-#define AT91RM9200_ID_TC2	19	
-#define AT91RM9200_ID_TC3	20	
-#define AT91RM9200_ID_TC4	21	
-#define AT91RM9200_ID_TC5	22	
-#define AT91RM9200_ID_UHP	23	
-#define AT91RM9200_ID_EMAC	24	
-#define AT91RM9200_ID_IRQ0	25	
-#define AT91RM9200_ID_IRQ1	26	
-#define AT91RM9200_ID_IRQ2	27	
-#define AT91RM9200_ID_IRQ3	28	
-#define AT91RM9200_ID_IRQ4	29	
-#define AT91RM9200_ID_IRQ5	30	
-#define AT91RM9200_ID_IRQ6	31	
+/*
+ * Peripheral identifiers/interrupts.
+ */
+#define AT91RM9200_ID_PIOA	2	/* Parallel IO Controller A */
+#define AT91RM9200_ID_PIOB	3	/* Parallel IO Controller B */
+#define AT91RM9200_ID_PIOC	4	/* Parallel IO Controller C */
+#define AT91RM9200_ID_PIOD	5	/* Parallel IO Controller D */
+#define AT91RM9200_ID_US0	6	/* USART 0 */
+#define AT91RM9200_ID_US1	7	/* USART 1 */
+#define AT91RM9200_ID_US2	8	/* USART 2 */
+#define AT91RM9200_ID_US3	9	/* USART 3 */
+#define AT91RM9200_ID_MCI	10	/* Multimedia Card Interface */
+#define AT91RM9200_ID_UDP	11	/* USB Device Port */
+#define AT91RM9200_ID_TWI	12	/* Two-Wire Interface */
+#define AT91RM9200_ID_SPI	13	/* Serial Peripheral Interface */
+#define AT91RM9200_ID_SSC0	14	/* Serial Synchronous Controller 0 */
+#define AT91RM9200_ID_SSC1	15	/* Serial Synchronous Controller 1 */
+#define AT91RM9200_ID_SSC2	16	/* Serial Synchronous Controller 2 */
+#define AT91RM9200_ID_TC0	17	/* Timer Counter 0 */
+#define AT91RM9200_ID_TC1	18	/* Timer Counter 1 */
+#define AT91RM9200_ID_TC2	19	/* Timer Counter 2 */
+#define AT91RM9200_ID_TC3	20	/* Timer Counter 3 */
+#define AT91RM9200_ID_TC4	21	/* Timer Counter 4 */
+#define AT91RM9200_ID_TC5	22	/* Timer Counter 5 */
+#define AT91RM9200_ID_UHP	23	/* USB Host port */
+#define AT91RM9200_ID_EMAC	24	/* Ethernet MAC */
+#define AT91RM9200_ID_IRQ0	25	/* Advanced Interrupt Controller (IRQ0) */
+#define AT91RM9200_ID_IRQ1	26	/* Advanced Interrupt Controller (IRQ1) */
+#define AT91RM9200_ID_IRQ2	27	/* Advanced Interrupt Controller (IRQ2) */
+#define AT91RM9200_ID_IRQ3	28	/* Advanced Interrupt Controller (IRQ3) */
+#define AT91RM9200_ID_IRQ4	29	/* Advanced Interrupt Controller (IRQ4) */
+#define AT91RM9200_ID_IRQ5	30	/* Advanced Interrupt Controller (IRQ5) */
+#define AT91RM9200_ID_IRQ6	31	/* Advanced Interrupt Controller (IRQ6) */
 
 
+/*
+ * Peripheral physical base addresses.
+ */
 #define AT91RM9200_BASE_TCB0	0xfffa0000
 #define AT91RM9200_BASE_TC0	0xfffa0000
 #define AT91RM9200_BASE_TC1	0xfffa0040
@@ -70,27 +76,33 @@
 #define AT91RM9200_BASE_SPI	0xfffe0000
 
 
-#define AT91RM9200_BASE_DBGU	AT91_BASE_DBGU0	
-#define AT91RM9200_BASE_PIOA	0xfffff400	
-#define AT91RM9200_BASE_PIOB	0xfffff600	
-#define AT91RM9200_BASE_PIOC	0xfffff800	
-#define AT91RM9200_BASE_PIOD	0xfffffa00	
-#define AT91RM9200_BASE_ST	0xfffffd00	
-#define AT91RM9200_BASE_RTC	0xfffffe00	
-#define AT91RM9200_BASE_MC	0xffffff00	
+/*
+ * System Peripherals
+ */
+#define AT91RM9200_BASE_DBGU	AT91_BASE_DBGU0	/* Debug Unit */
+#define AT91RM9200_BASE_PIOA	0xfffff400	/* PIO Controller A */
+#define AT91RM9200_BASE_PIOB	0xfffff600	/* PIO Controller B */
+#define AT91RM9200_BASE_PIOC	0xfffff800	/* PIO Controller C */
+#define AT91RM9200_BASE_PIOD	0xfffffa00	/* PIO Controller D */
+#define AT91RM9200_BASE_ST	0xfffffd00	/* System Timer */
+#define AT91RM9200_BASE_RTC	0xfffffe00	/* Real-Time Clock */
+#define AT91RM9200_BASE_MC	0xffffff00	/* Memory Controllers */
 
 #define AT91_USART0	AT91RM9200_BASE_US0
 #define AT91_USART1	AT91RM9200_BASE_US1
 #define AT91_USART2	AT91RM9200_BASE_US2
 #define AT91_USART3	AT91RM9200_BASE_US3
 
-#define AT91RM9200_ROM_BASE	0x00100000	
-#define AT91RM9200_ROM_SIZE	SZ_128K		
+/*
+ * Internal Memory.
+ */
+#define AT91RM9200_ROM_BASE	0x00100000	/* Internal ROM base address */
+#define AT91RM9200_ROM_SIZE	SZ_128K		/* Internal ROM size (128Kb) */
 
-#define AT91RM9200_SRAM_BASE	0x00200000	
-#define AT91RM9200_SRAM_SIZE	SZ_16K		
+#define AT91RM9200_SRAM_BASE	0x00200000	/* Internal SRAM base address */
+#define AT91RM9200_SRAM_SIZE	SZ_16K		/* Internal SRAM size (16Kb) */
 
-#define AT91RM9200_UHP_BASE	0x00300000	
+#define AT91RM9200_UHP_BASE	0x00300000	/* USB Host controller */
 
 
 #endif

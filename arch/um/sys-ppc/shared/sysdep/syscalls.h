@@ -18,6 +18,9 @@ typedef long syscall_handler_t(unsigned long arg1, unsigned long arg2,
 extern syscall_handler_t sys_mincore;
 extern syscall_handler_t sys_madvise;
 
+/* old_mmap needs the correct prototype since syscall_kern.c includes
+ * this file.
+ */
 int old_mmap(unsigned long addr, unsigned long len,
 	     unsigned long prot, unsigned long flags,
 	     unsigned long fd, unsigned long offset);

@@ -17,9 +17,10 @@
 #ifndef SPEAR_THERMAL_H
 #define SPEAR_THERMAL_H
 
+/* SPEAr Thermal Sensor Platform Data */
 struct spear_thermal_pdata {
-	
+	/* flags used to enable thermal sensor */
 	unsigned int thermal_flags;
 };
 
-#endif 
+#endif /* SPEAR_THERMAL_H */

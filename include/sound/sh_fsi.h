@@ -18,18 +18,44 @@
 #include <linux/clk.h>
 #include <sound/soc.h>
 
+/*
+ * flags format
+ *
+ * 0x000000BA
+ *
+ * A:  inversion
+ * B:  format mode
+ */
 
+/* A: clock inversion */
 #define SH_FSI_INVERSION_MASK	0x0000000F
 #define SH_FSI_LRM_INV		(1 << 0)
 #define SH_FSI_BRM_INV		(1 << 1)
 #define SH_FSI_LRS_INV		(1 << 2)
 #define SH_FSI_BRS_INV		(1 << 3)
 
+/* B: format mode */
 #define SH_FSI_FMT_MASK		0x000000F0
 #define SH_FSI_FMT_DAI		(0 << 4)
 #define SH_FSI_FMT_SPDIF	(1 << 4)
 
 
+/*
+ * set_rate return value
+ *
+ * see ACKMD/BPFMD on
+ *     ACK_MD (FSI2)
+ *     CKG1   (FSI)
+ *
+ * err		: return value <  0
+ * no change	: return value == 0
+ * change xMD	: return value >  0
+ *
+ * 0x-00000AB
+ *
+ * A:  ACKMD value
+ * B:  BPFMD value
+ */
 
 #define SH_FSI_ACKMD_MASK	(0xF << 0)
 #define SH_FSI_ACKMD_512	(1 << 0)
@@ -58,6 +84,9 @@ struct sh_fsi_platform_info {
 	struct sh_fsi_port_info port_b;
 };
 
+/*
+ * for fsi-ak4642
+ */
 struct fsi_ak4642_info {
 	const char *name;
 	const char *card;
@@ -67,4 +96,4 @@ struct fsi_ak4642_info {
 	int id;
 };
 
-#endif 
+#endif /* __SOUND_FSI_H */

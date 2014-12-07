@@ -39,7 +39,7 @@ extern char bfa_version[];
 
 #define	CNA_FW_FILE_CT	"ctfw.bin"
 #define	CNA_FW_FILE_CT2	"ct2fw.bin"
-#define FC_SYMNAME_MAX	256	
+#define FC_SYMNAME_MAX	256	/*!< max name server symbolic name size */
 
 #pragma pack(1)
 
@@ -51,11 +51,17 @@ typedef struct mac { u8 mac[ETH_ALEN]; } mac_t;
 #define bfa_q_next(_qe)	(((struct list_head *) (_qe))->next)
 #define bfa_q_prev(_qe) (((struct list_head *) (_qe))->prev)
 
+/*
+ * bfa_q_qe_init - to initialize a queue element
+ */
 #define bfa_q_qe_init(_qe) {						\
 	bfa_q_next(_qe) = (struct list_head *) NULL;			\
 	bfa_q_prev(_qe) = (struct list_head *) NULL;			\
 }
 
+/*
+ * bfa_q_deq - dequeue an element from head of the queue
+ */
 #define bfa_q_deq(_q, _qe) {						\
 	if (!list_empty(_q)) {						\
 		(*((struct list_head **) (_qe))) = bfa_q_next(_q);	\
@@ -68,6 +74,9 @@ typedef struct mac { u8 mac[ETH_ALEN]; } mac_t;
 	}								\
 }
 
+/*
+ * bfa_q_deq_tail - dequeue an element from tail of the queue
+ */
 #define bfa_q_deq_tail(_q, _qe) {					\
 	if (!list_empty(_q)) {						\
 		*((struct list_head **) (_qe)) = bfa_q_prev(_q);	\
@@ -80,6 +89,9 @@ typedef struct mac { u8 mac[ETH_ALEN]; } mac_t;
 	}								\
 }
 
+/*
+ * bfa_add_tail_head - enqueue an element at the head of queue
+ */
 #define bfa_q_enq_head(_q, _qe) {					\
 	if (!(bfa_q_next(_qe) == NULL) && (bfa_q_prev(_qe) == NULL))	\
 		pr_err("Assertion failure: %s:%d: %d",			\
@@ -91,4 +103,4 @@ typedef struct mac { u8 mac[ETH_ALEN]; } mac_t;
 	bfa_q_next(_q) = (struct list_head *) (_qe);			\
 }
 
-#endif 
+#endif /* __CNA_H__ */

@@ -69,6 +69,16 @@ int pcf50633_mbc_usb_curlim_set(struct pcf50633 *pcf, int ma)
 	else
 		dev_info(pcf->dev, "usb curlim to %d mA\n", ma);
 
+	/*
+	 * We limit the charging current to be the USB current limit.
+	 * The reason is that on pcf50633, when it enters PMU Standby mode,
+	 * which it does when the device goes "off", the USB current limit
+	 * reverts to the variant default.  In at least one common case, that
+	 * default is 500mA.  By setting the charging current to be the same
+	 * as the USB limit we set here before PMU standby, we enforce it only
+	 * using the correct amount of current even when the USB current limit
+	 * gets reset to the wrong thing
+	 */
 
 	if (mbc->pcf->pdata->charger_reference_current_ma) {
 		mbcc5 = (ma << 8) / mbc->pcf->pdata->charger_reference_current_ma;
@@ -80,6 +90,10 @@ int pcf50633_mbc_usb_curlim_set(struct pcf50633 *pcf, int ma)
 	mbcs2 = pcf50633_reg_read(mbc->pcf, PCF50633_REG_MBCS2);
 	chgmod = (mbcs2 & PCF50633_MBCS2_MBC_MASK);
 
+	/* If chgmod == BATFULL, setting chgena has no effect.
+	 * Datasheet says we need to set resume instead but when autoresume is
+	 * used resume doesn't work. Clear and set chgena instead.
+	 */
 	if (chgmod != PCF50633_MBCS2_MBC_BAT_FULL)
 		pcf50633_reg_set_bit_mask(pcf, PCF50633_REG_MBCC1,
 				PCF50633_MBCC1_CHGENA, PCF50633_MBCC1_CHGENA);
@@ -226,6 +240,11 @@ static ssize_t set_chglim(struct device *dev,
 	return count;
 }
 
+/*
+ * This attribute allows to change MBC charging limit on the fly
+ * independently of usb current limit. It also gets set automatically every
+ * time usb current limit is changed.
+ */
 static DEVICE_ATTR(chg_curlim, S_IRUGO | S_IWUSR, show_chglim, set_chglim);
 
 static struct attribute *pcf50633_mbc_sysfs_entries[] = {
@@ -236,7 +255,7 @@ static struct attribute *pcf50633_mbc_sysfs_entries[] = {
 };
 
 static struct attribute_group mbc_attr_group = {
-	.name	= NULL,			
+	.name	= NULL,			/* put in device directory */
 	.attrs	= pcf50633_mbc_sysfs_entries,
 };
 
@@ -245,7 +264,7 @@ pcf50633_mbc_irq_handler(int irq, void *data)
 {
 	struct pcf50633_mbc *mbc = data;
 
-	
+	/* USB */
 	if (irq == PCF50633_IRQ_USBINS) {
 		mbc->usb_online = 1;
 	} else if (irq == PCF50633_IRQ_USBREM) {
@@ -253,7 +272,7 @@ pcf50633_mbc_irq_handler(int irq, void *data)
 		pcf50633_mbc_usb_curlim_set(mbc->pcf, 0);
 	}
 
-	
+	/* Adapter */
 	if (irq == PCF50633_IRQ_ADPINS)
 		mbc->adapter_online = 1;
 	else if (irq == PCF50633_IRQ_ADPREM)
@@ -361,12 +380,12 @@ static int __devinit pcf50633_mbc_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, mbc);
 	mbc->pcf = dev_to_pcf50633(pdev->dev.parent);
 
-	
+	/* Set up IRQ handlers */
 	for (i = 0; i < ARRAY_SIZE(mbc_irq_handlers); i++)
 		pcf50633_register_irq(mbc->pcf, mbc_irq_handlers[i],
 					pcf50633_mbc_irq_handler, mbc);
 
-	
+	/* Create power supplies */
 	mbc->adapter.name		= "adapter";
 	mbc->adapter.type		= POWER_SUPPLY_TYPE_MAINS;
 	mbc->adapter.properties		= power_props;
@@ -433,7 +452,7 @@ static int __devexit pcf50633_mbc_remove(struct platform_device *pdev)
 	struct pcf50633_mbc *mbc = platform_get_drvdata(pdev);
 	int i;
 
-	
+	/* Remove IRQ handlers */
 	for (i = 0; i < ARRAY_SIZE(mbc_irq_handlers); i++)
 		pcf50633_free_irq(mbc->pcf, mbc_irq_handlers[i]);
 

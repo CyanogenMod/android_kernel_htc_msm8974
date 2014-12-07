@@ -34,7 +34,7 @@ static void pxa2xx_map_inval_cache(struct map_info *map, unsigned long from,
 
 	start &= ~(CACHELINESIZE - 1);
 	while (start < end) {
-		
+		/* invalidate D cache line */
 		asm volatile ("mcr p15, 0, %0, c7, c6, 1" : : "r" (start));
 		start += CACHELINESIZE;
 	}

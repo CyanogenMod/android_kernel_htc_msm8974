@@ -22,41 +22,47 @@
 #include <asm/sizes.h>
 #include <mach/hardware.h>
 
+/* Platform_data reserved for unifb registers. */
 #define UNIFB_REGS_NUM		10
-#define UNIFB_MEMSIZE		(SZ_4M)		
+/* RAM reserved for the frame buffer. */
+#define UNIFB_MEMSIZE		(SZ_4M)		/* 4 MB for 1024*768*32b */
 
+/*
+ * cause UNIGFX don not have EDID
+ * all the modes are organized as follow
+ */
 static const struct fb_videomode unifb_modes[] = {
-	
+	/* 0 640x480-60 VESA */
 	{ "640x480@60",  60,  640, 480,  25175000,  48, 16, 34, 10,  96, 1,
 	  0, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 1 640x480-75 VESA */
 	{ "640x480@75",  75,  640, 480,  31500000, 120, 16, 18,  1,  64, 1,
 	  0, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 2 800x600-60 VESA */
 	{ "800x600@60",  60,  800, 600,  40000000,  88, 40, 26,  1, 128, 1,
 	  0, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 3 800x600-75 VESA */
 	{ "800x600@75",  75,  800, 600,  49500000, 160, 16, 23,  1,  80, 1,
 	  0, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 4 1024x768-60 VESA */
 	{ "1024x768@60", 60, 1024, 768,  65000000, 160, 24, 34,  3, 136, 1,
 	  0, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 5 1024x768-75 VESA */
 	{ "1024x768@75", 75, 1024, 768,  78750000, 176, 16, 30,  1,  96, 1,
 	  0, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 6 1280x960-60 VESA */
 	{ "1280x960@60", 60, 1280, 960, 108000000, 312, 96, 38,  1, 112, 1,
 	  0, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 7 1440x900-60 VESA */
 	{ "1440x900@60", 60, 1440, 900, 106500000, 232, 80, 30,  3, 152, 1,
 	  0, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 8 FIXME 9 1024x600-60 VESA UNTESTED */
 	{ "1024x600@60", 60, 1024, 600,  50650000, 160, 24, 26,  1, 136, 1,
 	  0, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 9 FIXME 10 1024x600-75 VESA UNTESTED */
 	{ "1024x600@75", 75, 1024, 600,  61500000, 176, 16, 23,  1,  96, 1,
 	  0, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
-	
+	/* 10 FIXME 11 1366x768-60 VESA UNTESTED */
 	{ "1366x768@60", 60, 1366, 768,  85500000, 256, 58, 18,  1,  112, 3,
 	  0, FB_VMODE_NONINTERLACED, FB_MODE_IS_VESA },
 };
@@ -95,7 +101,7 @@ static struct fb_fix_screeninfo unifb_fix = {
 
 static void unifb_sync(struct fb_info *info)
 {
-	
+	/* TODO: may, this can be replaced by interrupt */
 	int cnt;
 
 	for (cnt = 0; cnt < 0x10000000; cnt++) {
@@ -114,7 +120,7 @@ static void unifb_prim_fillrect(struct fb_info *info,
 	int aheight = region->height;
 	int m_iBpp = info->var.bits_per_pixel;
 	int screen_width = info->var.xres;
-	int src_sel = 1;	
+	int src_sel = 1;	/* from fg_color */
 	int pat_sel = 1;
 	int src_x0 = 0;
 	int dst_x0 = region->dx;
@@ -202,7 +208,7 @@ static void unifb_prim_copyarea(struct fb_info *info,
 	int aheight = area->height;
 	int m_iBpp = info->var.bits_per_pixel;
 	int screen_width = info->var.xres;
-	int src_sel = 2;	
+	int src_sel = 2;	/* from mem */
 	int pat_sel = 0;
 	int src_x0 = area->sx;
 	int dst_x0 = area->dx;
@@ -325,11 +331,22 @@ static u_long get_line_length(int xres_virtual, int bpp)
 	return length;
 }
 
+/*
+ *  Setting the video mode has been split into two parts.
+ *  First part, xxxfb_check_var, must not write anything
+ *  to hardware, it should only verify and adjust var.
+ *  This means it doesn't alter par but it does use hardware
+ *  data from it to check this var.
+ */
 static int unifb_check_var(struct fb_var_screeninfo *var,
 			 struct fb_info *info)
 {
 	u_long line_length;
 
+	/*
+	 *  FB_VMODE_CONUPDATE and FB_VMODE_SMOOTH_XPAN are equal!
+	 *  as FB_VMODE_SMOOTH_XPAN is only used internally
+	 */
 
 	if (var->vmode & FB_VMODE_CONUPDATE) {
 		var->vmode |= FB_VMODE_YWRAP;
@@ -337,6 +354,9 @@ static int unifb_check_var(struct fb_var_screeninfo *var,
 		var->yoffset = info->var.yoffset;
 	}
 
+	/*
+	 *  Some very basic checks
+	 */
 	if (!var->xres)
 		var->xres = 1;
 	if (!var->yres)
@@ -363,11 +383,19 @@ static int unifb_check_var(struct fb_var_screeninfo *var,
 	if (var->yres_virtual < var->yoffset + var->yres)
 		var->yres_virtual = var->yoffset + var->yres;
 
+	/*
+	 *  Memory limit
+	 */
 	line_length =
 	    get_line_length(var->xres_virtual, var->bits_per_pixel);
 	if (line_length * var->yres_virtual > UNIFB_MEMSIZE)
 		return -ENOMEM;
 
+	/*
+	 * Now that we checked it we alter var. The reason being is that the
+	 * video mode passed in might not work but slight changes to it might
+	 * make it work. This way we let the user know what is acceptable.
+	 */
 	switch (var->bits_per_pixel) {
 	case 1:
 	case 8:
@@ -380,7 +408,7 @@ static int unifb_check_var(struct fb_var_screeninfo *var,
 		var->transp.offset = 0;
 		var->transp.length = 0;
 		break;
-	case 16:		
+	case 16:		/* RGBA 5551 */
 		if (var->transp.length) {
 			var->red.offset = 0;
 			var->red.length = 5;
@@ -390,7 +418,7 @@ static int unifb_check_var(struct fb_var_screeninfo *var,
 			var->blue.length = 5;
 			var->transp.offset = 15;
 			var->transp.length = 1;
-		} else {	
+		} else {	/* RGB 565 */
 			var->red.offset = 11;
 			var->red.length = 5;
 			var->green.offset = 5;
@@ -401,7 +429,7 @@ static int unifb_check_var(struct fb_var_screeninfo *var,
 			var->transp.length = 0;
 		}
 		break;
-	case 24:		
+	case 24:		/* RGB 888 */
 		var->red.offset = 0;
 		var->red.length = 8;
 		var->green.offset = 8;
@@ -411,7 +439,7 @@ static int unifb_check_var(struct fb_var_screeninfo *var,
 		var->transp.offset = 0;
 		var->transp.length = 0;
 		break;
-	case 32:		
+	case 32:		/* RGBA 8888 */
 		var->red.offset = 16;
 		var->red.length = 8;
 		var->green.offset = 8;
@@ -430,6 +458,11 @@ static int unifb_check_var(struct fb_var_screeninfo *var,
 	return 0;
 }
 
+/*
+ * This routine actually sets the video mode. It's in here where we
+ * the hardware state info->par and fix which can be affected by the
+ * change in par. For this driver it doesn't do much.
+ */
 static int unifb_set_par(struct fb_info *info)
 {
 	int hTotal, vTotal, hSyncStart, hSyncEnd, vSyncStart, vSyncEnd;
@@ -454,13 +487,13 @@ static int unifb_set_par(struct fb_info *info)
 		}
 	}
 
-	
+	/* set clock rate */
 	clk_vga = clk_get(info->device, "VGA_CLK");
 	if (clk_vga == ERR_PTR(-ENOENT))
 		return -ENOENT;
 
 	if (pixclk != 0) {
-		if (clk_set_rate(clk_vga, pixclk)) { 
+		if (clk_set_rate(clk_vga, pixclk)) { /* set clock failed */
 			info->fix = unifb_fix;
 			info->var = unifb_default;
 			if (clk_set_rate(clk_vga, unifb_default.pixclock))
@@ -501,7 +534,7 @@ static int unifb_set_par(struct fb_info *info)
 	writel(info->var.yres, UDE_LS);
 	writel(get_line_length(info->var.xres,
 			info->var.bits_per_pixel) >> 3, UDE_PS);
-			
+			/* >> 3 for hardware required. */
 	writel((hTotal << 16) | (info->var.xres), UDE_HAT);
 	writel(((hTotal - 1) << 16) | (info->var.xres - 1), UDE_HBT);
 	writel(((hSyncEnd - 1) << 16) | (hSyncStart - 1), UDE_HST);
@@ -514,15 +547,20 @@ static int unifb_set_par(struct fb_info *info)
 	return 0;
 }
 
+/*
+ *  Set a single color register. The values supplied are already
+ *  rounded down to the hardware's capabilities (according to the
+ *  entries in the var structure). Return != 0 for invalid regno.
+ */
 static int unifb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 			 u_int transp, struct fb_info *info)
 {
-	if (regno >= 256)	
+	if (regno >= 256)	/* no. of hw registers */
 		return 1;
 
-	
+	/* grayscale works only partially under directcolor */
 	if (info->var.grayscale) {
-		
+		/* grayscale = 0.30*R + 0.59*G + 0.11*B */
 		red = green = blue =
 		    (red * 77 + green * 151 + blue * 28) >> 8;
 	}
@@ -537,15 +575,15 @@ static int unifb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 		transp = CNVT_TOHW(transp, info->var.transp.length);
 		break;
 	case FB_VISUAL_DIRECTCOLOR:
-		red = CNVT_TOHW(red, 8);	
+		red = CNVT_TOHW(red, 8);	/* expect 8 bit DAC */
 		green = CNVT_TOHW(green, 8);
 		blue = CNVT_TOHW(blue, 8);
-		
+		/* hey, there is bug in transp handling... */
 		transp = CNVT_TOHW(transp, 8);
 		break;
 	}
 #undef CNVT_TOHW
-	
+	/* Truecolor has hardware independent palette */
 	if (info->fix.visual == FB_VISUAL_TRUECOLOR) {
 		u32 v;
 
@@ -572,6 +610,11 @@ static int unifb_setcolreg(u_int regno, u_int red, u_int green, u_int blue,
 	return 0;
 }
 
+/*
+ *  Pan or Wrap the Display
+ *
+ *  This call looks only at xoffset, yoffset and the FB_VMODE_YWRAP flag
+ */
 static int unifb_pan_display(struct fb_var_screeninfo *var,
 			   struct fb_info *info)
 {
@@ -610,7 +653,7 @@ int unifb_mmap(struct fb_info *info,
 				vma->vm_page_prot))
 		return -EAGAIN;
 
-	vma->vm_flags |= VM_RESERVED;	
+	vma->vm_flags |= VM_RESERVED;	/* avoid to swap out this VMA */
 	return 0;
 
 }
@@ -628,6 +671,9 @@ static struct fb_ops unifb_ops = {
 	.fb_mmap	= unifb_mmap,
 };
 
+/*
+ *  Initialisation
+ */
 static int unifb_probe(struct platform_device *dev)
 {
 	struct fb_info *info;
@@ -753,14 +799,14 @@ static int unifb_suspend(struct platform_device *dev, pm_message_t mesg)
 		return 0;
 
 	switch (mesg.event) {
-	case PM_EVENT_FREEZE:		
-	case PM_EVENT_PRETHAW:		
+	case PM_EVENT_FREEZE:		/* about to take snapshot */
+	case PM_EVENT_PRETHAW:		/* before restoring snapshot */
 		goto done;
 	}
 
 	console_lock();
 
-	
+	/* do nothing... */
 
 	console_unlock();
 

@@ -19,7 +19,14 @@
 
 #include <asm/cpu-info.h>
 
+/*
+ * If PCI_PROBE_ONLY in pci_flags is set, we don't change any PCI resource
+ * assignments.
+ */
 
+/*
+ * The PCI controller list.
+ */
 
 static struct pci_controller *hose_head, **hose_tail = &hose_head;
 
@@ -28,6 +35,19 @@ unsigned long PCIBIOS_MIN_MEM;
 
 static int pci_initialized;
 
+/*
+ * We need to avoid collisions with `mirrored' VGA ports
+ * and other strange ISA hardware, so we always want the
+ * addresses to be allocated in the 0x000-0x0ff region
+ * modulo 0x400.
+ *
+ * Why? Because some silly external IO cards only decode
+ * the low 10 bits of the IO address. The 0x00-0xff region
+ * is reserved for motherboard devices that decode all 16
+ * bits, so it's ok to allocate at, say, 0x2800-0x28ff,
+ * but we want to try to avoid allocating at 0x2900-0x2bff
+ * which might have be mirrored at 0x0100-0x03ff..
+ */
 resource_size_t
 pcibios_align_resource(void *data, const struct resource *res,
 		       resource_size_t size, resource_size_t align)
@@ -37,14 +57,17 @@ pcibios_align_resource(void *data, const struct resource *res,
 	resource_size_t start = res->start;
 
 	if (res->flags & IORESOURCE_IO) {
-		
+		/* Make sure we start at our min on all hoses */
 		if (start < PCIBIOS_MIN_IO + hose->io_resource->start)
 			start = PCIBIOS_MIN_IO + hose->io_resource->start;
 
+		/*
+		 * Put everything into 0x00-0xff region modulo 0x400
+		 */
 		if (start & 0x300)
 			start = (start + 0x3ff) & ~0x3ff;
 	} else if (res->flags & IORESOURCE_MEM) {
-		
+		/* Make sure we start at our min on all hoses */
 		if (start < PCIBIOS_MIN_MEM + hose->mem_resource->start)
 			start = PCIBIOS_MIN_MEM + hose->mem_resource->start;
 	}
@@ -79,6 +102,8 @@ static void __devinit pcibios_scanbus(struct pci_controller *hose)
 	hose->need_domain_info = need_domain_info;
 	if (bus) {
 		next_busno = bus->subordinate + 1;
+		/* Don't allow 8-bit bus number overflow inside the hose -
+		   reserve some space for bridges. */
 		if (next_busno > 224) {
 			next_busno = 0;
 			need_domain_info = 1;
@@ -106,11 +131,18 @@ void __devinit register_pci_controller(struct pci_controller *hose)
 	*hose_tail = hose;
 	hose_tail = &hose->next;
 
+	/*
+	 * Do not panic here but later - this might happen before console init.
+	 */
 	if (!hose->io_map_base) {
 		printk(KERN_WARNING
 		       "registering PCI controller with io_map_base unset\n");
 	}
 
+	/*
+	 * Scan the bus if it is register after the PCI subsystem
+	 * initialization.
+	 */
 	if (pci_initialized) {
 		mutex_lock(&pci_scan_mutex);
 		pcibios_scanbus(hose);
@@ -129,6 +161,10 @@ static void __init pcibios_set_cache_line_size(void)
 	struct cpuinfo_mips *c = &current_cpu_data;
 	unsigned int lsize;
 
+	/*
+	 * Set PCI cacheline size to that of the highest level in the
+	 * cache hierarchy.
+	 */
 	lsize = c->dcache.linesz;
 	lsize = c->scache.linesz ? : lsize;
 	lsize = c->tcache.linesz ? : lsize;
@@ -146,7 +182,7 @@ static int __init pcibios_init(void)
 
 	pcibios_set_cache_line_size();
 
-	
+	/* Scan all of the recorded PCI controllers.  */
 	for (hose = hose_head; hose; hose = hose->next)
 		pcibios_scanbus(hose);
 
@@ -168,7 +204,7 @@ static int pcibios_enable_resources(struct pci_dev *dev, int mask)
 	pci_read_config_word(dev, PCI_COMMAND, &cmd);
 	old_cmd = cmd;
 	for (idx=0; idx < PCI_NUM_RESOURCES; idx++) {
-		
+		/* Only set up the requested stuff */
 		if (!(mask & (1<<idx)))
 			continue;
 
@@ -238,9 +274,17 @@ int pci_mmap_page_range(struct pci_dev *dev, struct vm_area_struct *vma,
 {
 	unsigned long prot;
 
+	/*
+	 * I/O space can be accessed via normal processor loads and stores on
+	 * this platform but for now we elect not to do this and portable
+	 * drivers should not do this anyway.
+	 */
 	if (mmap_state == pci_mmap_io)
 		return -EINVAL;
 
+	/*
+	 * Ignore write-combine; for now only return uncached mappings.
+	 */
 	prot = pgprot_val(vma->vm_page_prot);
 	prot = (prot & ~_CACHE_MASK) | _CACHE_UNCACHED;
 	vma->vm_page_prot = __pgprot(prot);

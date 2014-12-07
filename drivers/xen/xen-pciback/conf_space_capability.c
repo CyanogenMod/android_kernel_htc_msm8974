@@ -1,3 +1,9 @@
+/*
+ * PCI Backend - Handles the virtual fields found on the capability lists
+ *               in the configuration space.
+ *
+ * Author: Ryan Wilson <hap9@epoch.ncsc.mil>
+ */
 
 #include <linux/kernel.h>
 #include <linux/pci.h>
@@ -10,14 +16,14 @@ struct xen_pcibk_config_capability {
 
 	int capability;
 
-	
+	/* If the device has the capability found above, add these fields */
 	const struct config_field *fields;
 };
 
 static const struct config_field caplist_header[] = {
 	{
 	 .offset    = PCI_CAP_LIST_ID,
-	 .size      = 2, 
+	 .size      = 2, /* encompass PCI_CAP_LIST_ID & PCI_CAP_LIST_NEXT */
 	 .u.w.read  = xen_pcibk_read_config_word,
 	 .u.w.write = NULL,
 	},
@@ -61,7 +67,7 @@ out:
 static int vpd_address_write(struct pci_dev *dev, int offset, u16 value,
 			     void *data)
 {
-	
+	/* Disallow writes to the vital product data */
 	if (value & PCI_VPD_ADDR_F)
 		return PCIBIOS_SET_FAILED;
 	else
@@ -100,6 +106,8 @@ out:
 	return err;
 }
 
+/* PM_OK_BITS specifies the bits that the driver domain is allowed to change.
+ * Can't allow driver domain to enable PMEs - they're shared */
 #define PM_OK_BITS (PCI_PM_CTRL_PME_STATUS|PCI_PM_CTRL_DATA_SEL_MASK)
 
 static int pm_ctrl_write(struct pci_dev *dev, int offset, u16 new_value,
@@ -124,7 +132,7 @@ static int pm_ctrl_write(struct pci_dev *dev, int offset, u16 new_value,
 			goto out;
 	}
 
-	
+	/* Let pci core handle the power management change */
 	dev_dbg(&dev->dev, "set power state to %x\n", new_state);
 	err = pci_set_power_state(dev, new_state);
 	if (err) {
@@ -136,6 +144,7 @@ static int pm_ctrl_write(struct pci_dev *dev, int offset, u16 new_value,
 	return err;
 }
 
+/* Ensure PMEs are disabled */
 static void *pm_ctrl_init(struct pci_dev *dev, int offset)
 {
 	int err;

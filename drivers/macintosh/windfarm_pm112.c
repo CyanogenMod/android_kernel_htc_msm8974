@@ -36,12 +36,17 @@
 #define DBG_LOTS(args...)	do { } while(0)
 #endif
 
+/* define this to force CPU overtemp to 60 degree, useful for testing
+ * the overtemp code
+ */
 #undef HACKED_OVERTEMP
 
+/* We currently only handle 2 chips, 4 cores... */
 #define NR_CHIPS	2
 #define NR_CORES	4
 #define NR_CPU_FANS	3 * NR_CHIPS
 
+/* Controls and sensors */
 static struct wf_sensor *sens_cpu_temp[NR_CORES];
 static struct wf_sensor *sens_cpu_power[NR_CORES];
 static struct wf_sensor *hd_temp;
@@ -59,25 +64,29 @@ static char *cpu_fan_names[NR_CPU_FANS] = {
 };
 static struct wf_control *cpufreq_clamp;
 
+/* Second pump isn't required (and isn't actually present) */
 #define CPU_FANS_REQD		(NR_CPU_FANS - 2)
 #define FIRST_PUMP		4
 #define LAST_PUMP		5
 
+/* We keep a temperature history for average calculation of 180s */
 #define CPU_TEMP_HIST_SIZE	180
 
+/* Scale factor for fan speed, *100 */
 static int cpu_fan_scale[NR_CPU_FANS] = {
 	100,
 	100,
-	97,		
+	97,		/* inlet fans run at 97% of exhaust fan */
 	97,
-	100,		
-	100,		
+	100,		/* updated later */
+	100,		/* updated later */
 };
 
 static struct wf_control *backside_fan;
 static struct wf_control *slots_fan;
 static struct wf_control *drive_bay_fan;
 
+/* PID loop state */
 static struct wf_cpu_pid_state cpu_pid[NR_CORES];
 static u32 cpu_thist[CPU_TEMP_HIST_SIZE];
 static int cpu_thist_pt;
@@ -103,6 +112,7 @@ static int failure_state;
 #define FAILURE_LOW_OVERTEMP	8
 #define FAILURE_HIGH_OVERTEMP	16
 
+/* Overtemp values */
 #define LOW_OVER_AVERAGE	0
 #define LOW_OVER_IMMEDIATE	(10 << 16)
 #define LOW_OVER_CLEAR		((-10) << 16)
@@ -111,6 +121,7 @@ static int failure_state;
 #define HIGH_OVER_IMMEDIATE	(14 << 16)
 
 
+/* Implementation... */
 static int create_cpu_loop(int cpu)
 {
 	int chip = cpu / 2;
@@ -122,7 +133,7 @@ static int create_cpu_loop(int cpu)
 	s32 tmax;
 	int fmin;
 
-	
+	/* Get PID params from the appropriate SAT */
 	hdr = smu_sat_get_sdb_partition(chip, 0xC8 + core, NULL);
 	if (hdr == NULL) {
 		printk(KERN_WARNING"windfarm: can't get CPU PID fan config\n");
@@ -130,22 +141,27 @@ static int create_cpu_loop(int cpu)
 	}
 	piddata = (struct smu_sdbp_cpupiddata *)&hdr[1];
 
-	
+	/* Get FVT params to get Tmax; if not found, assume default */
 	hdr = smu_sat_get_sdb_partition(chip, 0xC4 + core, NULL);
 	if (hdr) {
 		struct smu_sdbp_fvt *fvt = (struct smu_sdbp_fvt *)&hdr[1];
 		tmax = fvt->maxtemp << 16;
 	} else
-		tmax = 95 << 16;	
+		tmax = 95 << 16;	/* default to 95 degrees C */
 
-	
+	/* We keep a global tmax for overtemp calculations */
 	if (tmax < cpu_all_tmax)
 		cpu_all_tmax = tmax;
 
+	/*
+	 * Darwin has a minimum fan speed of 1000 rpm for the 4-way and
+	 * 515 for the 2-way.  That appears to be overkill, so for now,
+	 * impose a minimum of 750 or 515.
+	 */
 	fmin = (nr_cores > 2) ? 750 : 515;
 
-	
-	pid.interval = 1;	
+	/* Initialize PID loop */
+	pid.interval = 1;	/* seconds */
 	pid.history_len = piddata->history_len;
 	pid.gd = piddata->gd;
 	pid.gp = piddata->gp;
@@ -166,6 +182,10 @@ static void cpu_max_all_fans(void)
 {
 	int i;
 
+	/* We max all CPU fans in case of a sensor error. We also do the
+	 * cpufreq clamping now, even if it's supposedly done later by the
+	 * generic code anyway, we do it earlier here to react faster
+	 */
 	if (cpufreq_clamp)
 		wf_control_set_max(cpufreq_clamp);
 	for (i = 0; i < NR_CPU_FANS; ++i)
@@ -178,7 +198,7 @@ static int cpu_check_overtemp(s32 temp)
 	int new_state = 0;
 	s32 t_avg, t_old;
 
-	
+	/* First check for immediate overtemps */
 	if (temp >= (cpu_all_tmax + LOW_OVER_IMMEDIATE)) {
 		new_state |= FAILURE_LOW_OVERTEMP;
 		if ((failure_state & FAILURE_LOW_OVERTEMP) == 0)
@@ -192,6 +212,9 @@ static int cpu_check_overtemp(s32 temp)
 			       " immediate CPU temperature !\n");
 	}
 
+	/* We calculate a history of max temperatures and use that for the
+	 * overtemp management
+	 */
 	t_old = cpu_thist[cpu_thist_pt];
 	cpu_thist[cpu_thist_pt] = temp;
 	cpu_thist_pt = (cpu_thist_pt + 1) % CPU_TEMP_HIST_SIZE;
@@ -202,7 +225,7 @@ static int cpu_check_overtemp(s32 temp)
 	DBG_LOTS("t_avg = %d.%03d (out: %d.%03d, in: %d.%03d)\n",
 		 FIX32TOPRINT(t_avg), FIX32TOPRINT(t_old), FIX32TOPRINT(temp));
 
-	
+	/* Now check for average overtemps */
 	if (t_avg >= (cpu_all_tmax + LOW_OVER_AVERAGE)) {
 		new_state |= FAILURE_LOW_OVERTEMP;
 		if ((failure_state & FAILURE_LOW_OVERTEMP) == 0)
@@ -216,8 +239,12 @@ static int cpu_check_overtemp(s32 temp)
 			       " average CPU temperature !\n");
 	}
 
+	/* Now handle overtemp conditions. We don't currently use the windfarm
+	 * overtemp handling core as it's not fully suited to the needs of those
+	 * new machine. This will be fixed later.
+	 */
 	if (new_state) {
-		
+		/* High overtemp -> immediate shutdown */
 		if (new_state & FAILURE_HIGH_OVERTEMP)
 			machine_power_off();
 		if ((failure_state & new_state) != new_state)
@@ -244,7 +271,7 @@ static void cpu_fans_tick(void)
 
 	DBG_LOTS(KERN_DEBUG);
 	for (cpu = 0; cpu < nr_cores; ++cpu) {
-		
+		/* Get CPU core temperature */
 		sr = sens_cpu_temp[cpu];
 		err = sr->ops->get_value(sr, &temp);
 		if (err) {
@@ -256,10 +283,10 @@ static void cpu_fans_tick(void)
 			return;
 		}
 
-		
+		/* Keep track of highest temp */
 		t_max = max(t_max, temp);
 
-		
+		/* Get CPU power */
 		sr = sens_cpu_power[cpu];
 		err = sr->ops->get_value(sr, &power);
 		if (err) {
@@ -271,7 +298,7 @@ static void cpu_fans_tick(void)
 			return;
 		}
 
-		
+		/* Run PID */
 		sp = &cpu_pid[cpu];
 		t = wf_cpu_pid_run(sp, power, temp);
 
@@ -284,18 +311,18 @@ static void cpu_fans_tick(void)
 	}
 	DBG_LOTS("fans = %d, t_max = %d.%03d\n", target, FIX32TOPRINT(t_max));
 
-	
+	/* Darwin limits decrease to 20 per iteration */
 	if (target < (cpu_last_target - 20))
 		target = cpu_last_target - 20;
 	cpu_last_target = target;
 	for (cpu = 0; cpu < nr_cores; ++cpu)
 		cpu_pid[cpu].target = target;
 
-	
+	/* Handle possible overtemps */
 	if (cpu_check_overtemp(t_max))
 		return;
 
-	
+	/* Set fans */
 	for (i = 0; i < NR_CPU_FANS; ++i) {
 		ct = cpu_fans[i];
 		if (ct == NULL)
@@ -310,6 +337,7 @@ static void cpu_fans_tick(void)
 	}
 }
 
+/* Backside/U4 fan */
 static struct wf_pid_param backside_param = {
 	.interval	= 5,
 	.history_len	= 2,
@@ -329,7 +357,7 @@ static void backside_fan_tick(void)
 	if (!backside_fan || !u4_temp)
 		return;
 	if (!backside_tick) {
-		
+		/* first time; initialize things */
 		printk(KERN_INFO "windfarm: Backside control loop started.\n");
 		backside_param.min = backside_fan->ops->get_min(backside_fan);
 		backside_param.max = backside_fan->ops->get_max(backside_fan);
@@ -359,6 +387,7 @@ static void backside_fan_tick(void)
 	}
 }
 
+/* Drive bay fan */
 static struct wf_pid_param drive_bay_prm = {
 	.interval	= 5,
 	.history_len	= 2,
@@ -378,7 +407,7 @@ static void drive_bay_fan_tick(void)
 	if (!drive_bay_fan || !hd_temp)
 		return;
 	if (!drive_bay_tick) {
-		
+		/* first time; initialize things */
 		printk(KERN_INFO "windfarm: Drive bay control loop started.\n");
 		drive_bay_prm.min = drive_bay_fan->ops->get_min(drive_bay_fan);
 		drive_bay_prm.max = drive_bay_fan->ops->get_max(drive_bay_fan);
@@ -408,6 +437,8 @@ static void drive_bay_fan_tick(void)
 	}
 }
 
+/* PCI slots area fan */
+/* This makes the fan speed proportional to the power consumed */
 static struct wf_pid_param slots_param = {
 	.interval	= 1,
 	.history_len	= 2,
@@ -428,7 +459,7 @@ static void slots_fan_tick(void)
 	if (!slots_fan || !slots_power)
 		return;
 	if (!slots_started) {
-		
+		/* first time; initialize things */
 		printk(KERN_INFO "windfarm: Slots control loop started.\n");
 		wf_pid_init(&slots_pid, &slots_param);
 		slots_started = 1;
@@ -491,9 +522,12 @@ static void pm112_tick(void)
 #endif
 	}
 
-	
+	/* Permanent failure, bail out */
 	if (failure_state & FAILURE_PERM)
 		return;
+	/* Clear all failure bits except low overtemp which will be eventually
+	 * cleared by the control loop itself
+	 */
 	last_failure = failure_state;
 	failure_state &= FAILURE_LOW_OVERTEMP;
 	cpu_fans_tick();
@@ -504,12 +538,15 @@ static void pm112_tick(void)
 	DBG_LOTS("last_failure: 0x%x, failure_state: %x\n",
 		 last_failure, failure_state);
 
-	
+	/* Check for failures. Any failure causes cpufreq clamping */
 	if (failure_state && last_failure == 0 && cpufreq_clamp)
 		wf_control_set_max(cpufreq_clamp);
 	if (failure_state == 0 && last_failure && cpufreq_clamp)
 		wf_control_set_min(cpufreq_clamp);
 
+	/* That's it for now, we might want to deal with other failures
+	 * differently in the future though
+	 */
 }
 
 static void pm112_new_control(struct wf_control *ct)
@@ -529,7 +566,7 @@ static void pm112_new_control(struct wf_control *ct)
 		}
 	}
 	if (i >= NR_CPU_FANS) {
-		
+		/* not a CPU fan, try the others */
 		if (!strcmp(ct->name, "backside-fan")) {
 			if (backside_fan == NULL && wf_get_control(ct) == 0)
 				backside_fan = ct;
@@ -547,7 +584,7 @@ static void pm112_new_control(struct wf_control *ct)
 		if (cpu_fans[i] == NULL)
 			return;
 
-	
+	/* work out pump scaling factors */
 	max_exhaust = cpu_fans[0]->ops->get_max(cpu_fans[0]);
 	for (i = FIRST_PUMP; i <= LAST_PUMP; ++i)
 		if ((ct = cpu_fans[i]) != NULL)
@@ -584,7 +621,7 @@ static void pm112_new_sensor(struct wf_sensor *sr)
 	} else
 		return;
 
-	
+	/* check if we have all the sensors we need */
 	for (i = 0; i < nr_cores; ++i)
 		if (sens_cpu_temp[i] == NULL || sens_cpu_power[i] == NULL)
 			return;
@@ -622,7 +659,7 @@ static int wf_pm112_probe(struct platform_device *dev)
 static int __devexit wf_pm112_remove(struct platform_device *dev)
 {
 	wf_unregister_client(&pm112_events);
-	
+	/* should release all sensors and controls */
 	return 0;
 }
 
@@ -642,7 +679,7 @@ static int __init wf_pm112_init(void)
 	if (!of_machine_is_compatible("PowerMac11,2"))
 		return -ENODEV;
 
-	
+	/* Count the number of CPU cores */
 	nr_cores = 0;
 	for (cpu = NULL; (cpu = of_find_node_by_type(cpu, "cpu")) != NULL; )
 		++nr_cores;
@@ -657,7 +694,7 @@ static int __init wf_pm112_init(void)
 	request_module("windfarm_max6690_sensor");
 	request_module("windfarm_cpufreq_clamp");
 
-#endif 
+#endif /* MODULE */
 
 	platform_driver_register(&wf_pm112_driver);
 	return 0;

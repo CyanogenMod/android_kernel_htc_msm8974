@@ -47,19 +47,22 @@
 #include "generic.h"
 #include "devices.h"
 
+/******************************************************************************
+ * Pin configuration
+ ******************************************************************************/
 static unsigned long palmt5_pin_config[] __initdata = {
-	
+	/* MMC */
 	GPIO32_MMC_CLK,
 	GPIO92_MMC_DAT_0,
 	GPIO109_MMC_DAT_1,
 	GPIO110_MMC_DAT_2,
 	GPIO111_MMC_DAT_3,
 	GPIO112_MMC_CMD,
-	GPIO14_GPIO,	
-	GPIO114_GPIO,	
-	GPIO115_GPIO,	
+	GPIO14_GPIO,	/* SD detect */
+	GPIO114_GPIO,	/* SD power */
+	GPIO115_GPIO,	/* SD r/o switch */
 
-	
+	/* AC97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
@@ -67,16 +70,16 @@ static unsigned long palmt5_pin_config[] __initdata = {
 	GPIO89_AC97_SYSCLK,
 	GPIO95_AC97_nRESET,
 
-	
-	GPIO40_GPIO,	
+	/* IrDA */
+	GPIO40_GPIO,	/* ir disable */
 	GPIO46_FICP_RXD,
 	GPIO47_FICP_TXD,
 
-	
-	GPIO15_GPIO,	
-	GPIO93_GPIO,	
+	/* USB */
+	GPIO15_GPIO,	/* usb detect */
+	GPIO93_GPIO,	/* usb power */
 
-	
+	/* MATRIX KEYPAD */
 	GPIO100_KP_MKIN_0 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO101_KP_MKIN_1 | WAKEUP_ON_LEVEL_HIGH,
 	GPIO102_KP_MKIN_2 | WAKEUP_ON_LEVEL_HIGH,
@@ -85,22 +88,25 @@ static unsigned long palmt5_pin_config[] __initdata = {
 	GPIO104_KP_MKOUT_1,
 	GPIO105_KP_MKOUT_2,
 
-	
+	/* LCD */
 	GPIOxx_LCD_TFT_16BPP,
 
-	
+	/* PWM */
 	GPIO16_PWM0_OUT,
 
-	
+	/* FFUART */
 	GPIO34_FFUART_RXD,
 	GPIO39_FFUART_TXD,
 
-	
-	GPIO10_GPIO,	
-	GPIO90_GPIO,	
-	GPIO107_GPIO,	
+	/* MISC */
+	GPIO10_GPIO,	/* hotsync button */
+	GPIO90_GPIO,	/* power detect */
+	GPIO107_GPIO,	/* earphone detect */
 };
 
+/******************************************************************************
+ * GPIO keyboard
+ ******************************************************************************/
 #if defined(CONFIG_KEYBOARD_PXA27x) || defined(CONFIG_KEYBOARD_PXA27x_MODULE)
 static unsigned int palmt5_matrix_keys[] = {
 	KEY(0, 0, KEY_POWER),
@@ -135,6 +141,9 @@ static void __init palmt5_kpc_init(void)
 static inline void palmt5_kpc_init(void) {}
 #endif
 
+/******************************************************************************
+ * GPIO keys
+ ******************************************************************************/
 #if defined(CONFIG_KEYBOARD_GPIO) || defined(CONFIG_KEYBOARD_GPIO_MODULE)
 static struct gpio_keys_button palmt5_pxa_buttons[] = {
 	{KEY_F8, GPIO_NR_PALMT5_HOTSYNC_BUTTON_N, 1, "HotSync Button" },
@@ -161,6 +170,9 @@ static void __init palmt5_keys_init(void)
 static inline void palmt5_keys_init(void) {}
 #endif
 
+/******************************************************************************
+ * Machine init
+ ******************************************************************************/
 static void __init palmt5_reserve(void)
 {
 	memblock_reserve(0xa0200000, 0x1000);

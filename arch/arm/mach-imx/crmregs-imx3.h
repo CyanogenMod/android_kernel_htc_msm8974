@@ -27,6 +27,7 @@
 #define MXC_CCM_BASE		(cpu_is_mx31() ? \
 MX31_IO_ADDRESS(MX31_CCM_BASE_ADDR) : MX35_IO_ADDRESS(MX35_CCM_BASE_ADDR))
 
+/* Register addresses */
 #define MXC_CCM_CCMR		(MXC_CCM_BASE + 0x00)
 #define MXC_CCM_PDR0		(MXC_CCM_BASE + 0x04)
 #define MXC_CCM_PDR1		(MXC_CCM_BASE + 0x08)
@@ -66,6 +67,7 @@ MX31_IO_ADDRESS(MX31_CCM_BASE_ADDR) : MX35_IO_ADDRESS(MX35_CCM_BASE_ADDR))
 #define MXC_CCM_PMCR1		(MXC_CCM_BASE + 0x60)
 #define MXC_CCM_PDR2		(MXC_CCM_BASE + 0x64)
 
+/* Register bit definitions */
 #define MXC_CCM_CCMR_WBEN                       (1 << 27)
 #define MXC_CCM_CCMR_CSCS                       (1 << 25)
 #define MXC_CCM_CCMR_PERCS                      (1 << 24)
@@ -120,8 +122,12 @@ MX31_IO_ADDRESS(MX31_CCM_BASE_ADDR) : MX35_IO_ADDRESS(MX35_CCM_BASE_ADDR))
 #define MXC_CCM_PDR1_SSI1_PODF_OFFSET           0
 #define MXC_CCM_PDR1_SSI1_PODF_MASK             0x3F
 
+/* Bit definitions for RCSR */
 #define MXC_CCM_RCSR_NF16B			0x80000000
 
+/*
+ * LTR0 register offsets
+ */
 #define MXC_CCM_LTR0_DIV3CK_OFFSET              1
 #define MXC_CCM_LTR0_DIV3CK_MASK                (0x3 << 1)
 #define MXC_CCM_LTR0_DNTHR_OFFSET               16
@@ -129,6 +135,9 @@ MX31_IO_ADDRESS(MX31_CCM_BASE_ADDR) : MX35_IO_ADDRESS(MX35_CCM_BASE_ADDR))
 #define MXC_CCM_LTR0_UPTHR_OFFSET               22
 #define MXC_CCM_LTR0_UPTHR_MASK                 (0x3F << 22)
 
+/*
+ * LTR1 register offsets
+ */
 #define MXC_CCM_LTR1_PNCTHR_OFFSET              0
 #define MXC_CCM_LTR1_PNCTHR_MASK                0x3F
 #define MXC_CCM_LTR1_UPCNT_OFFSET               6
@@ -140,12 +149,18 @@ MX31_IO_ADDRESS(MX31_CCM_BASE_ADDR) : MX35_IO_ADDRESS(MX35_CCM_BASE_ADDR))
 #define MXC_CCM_LTR1_LTBRSR                     0x400000
 #define MXC_CCM_LTR1_LTBRSH                     0x800000
 
+/*
+ * LTR2 bit definitions. x ranges from 0 for WSW9 to 6 for WSW15
+ */
 #define MXC_CCM_LTR2_WSW_OFFSET(x)              (11 + (x) * 3)
 #define MXC_CCM_LTR2_WSW_MASK(x)                (0x7 << \
 					MXC_CCM_LTR2_WSW_OFFSET((x)))
 #define MXC_CCM_LTR2_EMAC_OFFSET                0
 #define MXC_CCM_LTR2_EMAC_MASK                  0x1FF
 
+/*
+ * LTR3 bit definitions. x ranges from 0 for WSW0 to 8 for WSW8
+ */
 #define MXC_CCM_LTR3_WSW_OFFSET(x)              (5 + (x) * 3)
 #define MXC_CCM_LTR3_WSW_MASK(x)                (0x7 << \
 					MXC_CCM_LTR3_WSW_OFFSET((x)))
@@ -237,8 +252,11 @@ MX31_IO_ADDRESS(MX31_CCM_BASE_ADDR) : MX35_IO_ADDRESS(MX35_CCM_BASE_ADDR))
 #define MXC_CCM_COSR_CLKOUTDIV_OFFSET           6
 #define MXC_CCM_COSR_CLKOEN                     (1 << 9)
 
+/*
+ * PMCR0 register offsets
+ */
 #define MXC_CCM_PMCR0_LBFL_OFFSET   20
 #define MXC_CCM_PMCR0_DFSUP0_OFFSET 30
 #define MXC_CCM_PMCR0_DFSUP1_OFFSET 31
 
-#endif				
+#endif				/* __ARCH_ARM_MACH_MX3_CRM_REGS_H__ */

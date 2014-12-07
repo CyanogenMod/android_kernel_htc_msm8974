@@ -23,10 +23,13 @@
 #include <linux/slab.h>
 #include "leds.h"
 
+/*
+ * Nests outside led_cdev->trigger_lock
+ */
 static DECLARE_RWSEM(triggers_list_lock);
 static LIST_HEAD(trigger_list);
 
- 
+ /* Used by LED Class */
 
 ssize_t led_trigger_store(struct device *dev, struct device_attribute *attr,
 		const char *buf, size_t count)
@@ -95,11 +98,12 @@ ssize_t led_trigger_show(struct device *dev, struct device_attribute *attr,
 }
 EXPORT_SYMBOL_GPL(led_trigger_show);
 
+/* Caller must ensure led_cdev->trigger_lock held */
 void led_trigger_set(struct led_classdev *led_cdev, struct led_trigger *trigger)
 {
 	unsigned long flags;
 
-	
+	/* Remove any existing trigger */
 	if (led_cdev->trigger) {
 		write_lock_irqsave(&led_cdev->trigger->leddev_list_lock, flags);
 		list_del(&led_cdev->trig_list);
@@ -147,6 +151,7 @@ void led_trigger_set_default(struct led_classdev *led_cdev)
 }
 EXPORT_SYMBOL_GPL(led_trigger_set_default);
 
+/* LED Trigger Interface */
 
 int led_trigger_register(struct led_trigger *trigger)
 {
@@ -157,18 +162,18 @@ int led_trigger_register(struct led_trigger *trigger)
 	INIT_LIST_HEAD(&trigger->led_cdevs);
 
 	down_write(&triggers_list_lock);
-	
+	/* Make sure the trigger's name isn't already in use */
 	list_for_each_entry(trig, &trigger_list, next_trig) {
 		if (!strcmp(trig->name, trigger->name)) {
 			up_write(&triggers_list_lock);
 			return -EEXIST;
 		}
 	}
-	
+	/* Add to the list of led triggers */
 	list_add_tail(&trigger->next_trig, &trigger_list);
 	up_write(&triggers_list_lock);
 
-	
+	/* Register with any LEDs that have this as a default trigger */
 	down_read(&leds_list_lock);
 	list_for_each_entry(led_cdev, &leds_list, node) {
 		down_write(&led_cdev->trigger_lock);
@@ -187,12 +192,12 @@ void led_trigger_unregister(struct led_trigger *trigger)
 {
 	struct led_classdev *led_cdev;
 
-	
+	/* Remove from the list of led triggers */
 	down_write(&triggers_list_lock);
 	list_del(&trigger->next_trig);
 	up_write(&triggers_list_lock);
 
-	
+	/* Remove anyone actively using this trigger */
 	down_read(&leds_list_lock);
 	list_for_each_entry(led_cdev, &leds_list, node) {
 		down_write(&led_cdev->trigger_lock);
@@ -204,6 +209,7 @@ void led_trigger_unregister(struct led_trigger *trigger)
 }
 EXPORT_SYMBOL_GPL(led_trigger_unregister);
 
+/* Simple LED Tigger Interface */
 
 void led_trigger_event(struct led_trigger *trigger,
 			enum led_brightness brightness)

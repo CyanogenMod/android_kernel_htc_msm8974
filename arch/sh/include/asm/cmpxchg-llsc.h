@@ -68,4 +68,4 @@ __cmpxchg_u32(volatile int *m, unsigned long old, unsigned long new)
 	return retval;
 }
 
-#endif 
+#endif /* __ASM_SH_CMPXCHG_LLSC_H */

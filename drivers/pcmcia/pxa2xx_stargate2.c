@@ -50,24 +50,24 @@ static int sg2_pcmcia_hw_init(struct soc_pcmcia_socket *skt)
 static void sg2_pcmcia_socket_state(struct soc_pcmcia_socket *skt,
 				    struct pcmcia_state *state)
 {
-	state->bvd1   = 0; 
-	state->bvd2   = 0; 
-	state->vs_3v  = 1; 
-	state->vs_Xv  = 0; 
+	state->bvd1   = 0; /* not available - battery detect on card */
+	state->bvd2   = 0; /* not available */
+	state->vs_3v  = 1; /* not available - voltage detect for card */
+	state->vs_Xv  = 0; /* not available */
 }
 
 static int sg2_pcmcia_configure_socket(struct soc_pcmcia_socket *skt,
 				       const socket_state_t *state)
 {
-	
+	/* Enable card power */
 	switch (state->Vcc) {
 	case 0:
-		
+		/* sets power ctl register high */
 		gpio_set_value(SG2_S0_POWER_CTL, 1);
 		break;
 	case 33:
 	case 50:
-		
+		/* sets power control register low (clear) */
 		gpio_set_value(SG2_S0_POWER_CTL, 0);
 		msleep(100);
 		break;
@@ -77,7 +77,7 @@ static int sg2_pcmcia_configure_socket(struct soc_pcmcia_socket *skt,
 		return -1;
 	}
 
-	
+	/* reset */
 	gpio_set_value(SG2_S0_GPIO_RESET, !!(state->flags & SS_RESET));
 
 	return 0;

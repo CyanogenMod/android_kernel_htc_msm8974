@@ -22,12 +22,12 @@ legacy_dvb_usb_get_keymap_index(const struct input_keymap_entry *ke,
 		if (input_scancode_to_scalar(ke, &scancode))
 			return keymap_size;
 
-		
+		/* See if we can match the raw key code. */
 		for (index = 0; index < keymap_size; index++)
 			if (keymap[index].scancode == scancode)
 				break;
 
-		
+		/* See if there is an unused hole in the map */
 		if (index >= keymap_size) {
 			for (index = 0; index < keymap_size; index++) {
 				if (keymap[index].keycode == KEY_RESERVED ||
@@ -73,6 +73,13 @@ static int legacy_dvb_usb_setkeycode(struct input_dev *dev,
 	unsigned int index;
 
 	index = legacy_dvb_usb_get_keymap_index(ke, keymap, keymap_size);
+	/*
+	 * FIXME: Currently, it is not possible to increase the size of
+	 * scancode table. For it to happen, one possibility
+	 * would be to allocate a table with key_map_size + 1,
+	 * copying data, appending the new key on it, and freeing
+	 * the old one - or maybe just allocating some spare space
+	 */
 	if (index >= keymap_size)
 		return -EINVAL;
 
@@ -93,6 +100,11 @@ static int legacy_dvb_usb_setkeycode(struct input_dev *dev,
 	return 0;
 }
 
+/* Remote-control poll function - called every dib->rc_query_interval ms to see
+ * whether the remote control has received anything.
+ *
+ * TODO: Fix the repeat rate of the input device.
+ */
 static void legacy_dvb_usb_read_remote_control(struct work_struct *work)
 {
 	struct dvb_usb_device *d =
@@ -100,8 +112,10 @@ static void legacy_dvb_usb_read_remote_control(struct work_struct *work)
 	u32 event;
 	int state;
 
+	/* TODO: need a lock here.  We can simply skip checking for the remote control
+	   if we're busy. */
 
-	
+	/* when the parameter has been set to 1 via sysfs while the driver was running */
 	if (dvb_usb_disable_rc_polling)
 		return;
 
@@ -128,6 +142,40 @@ static void legacy_dvb_usb_read_remote_control(struct work_struct *work)
 			break;
 	}
 
+/* improved repeat handling ???
+	switch (state) {
+		case REMOTE_NO_KEY_PRESSED:
+			deb_rc("NO KEY PRESSED\n");
+			if (d->last_state != REMOTE_NO_KEY_PRESSED) {
+				deb_rc("releasing event %d\n",d->last_event);
+				input_event(d->rc_input_dev, EV_KEY, d->last_event, 0);
+				input_sync(d->rc_input_dev);
+			}
+			d->last_state = REMOTE_NO_KEY_PRESSED;
+			d->last_event = 0;
+			break;
+		case REMOTE_KEY_PRESSED:
+			deb_rc("KEY PRESSED\n");
+			deb_rc("pressing event %d\n",event);
+
+			input_event(d->rc_input_dev, EV_KEY, event, 1);
+			input_sync(d->rc_input_dev);
+
+			d->last_event = event;
+			d->last_state = REMOTE_KEY_PRESSED;
+			break;
+		case REMOTE_KEY_REPEAT:
+			deb_rc("KEY_REPEAT\n");
+			if (d->last_state != REMOTE_NO_KEY_PRESSED) {
+				deb_rc("repeating event %d\n",d->last_event);
+				input_event(d->rc_input_dev, EV_KEY, d->last_event, 2);
+				input_sync(d->rc_input_dev);
+				d->last_state = REMOTE_KEY_REPEAT;
+			}
+		default:
+			break;
+	}
+*/
 
 schedule:
 	schedule_delayed_work(&d->rc_query_work,msecs_to_jiffies(d->props.rc.legacy.rc_interval));
@@ -153,7 +201,7 @@ static int legacy_dvb_usb_remote_init(struct dvb_usb_device *d)
 	input_dev->getkeycode = legacy_dvb_usb_getkeycode;
 	input_dev->setkeycode = legacy_dvb_usb_setkeycode;
 
-	
+	/* set the bits for the keys */
 	deb_rc("key map size: %d\n", d->props.rc.legacy.rc_map_size);
 	for (i = 0; i < d->props.rc.legacy.rc_map_size; i++) {
 		deb_rc("setting bit for event %d item %d\n",
@@ -161,7 +209,7 @@ static int legacy_dvb_usb_remote_init(struct dvb_usb_device *d)
 		set_bit(d->props.rc.legacy.rc_map_table[i].keycode, input_dev->keybit);
 	}
 
-	
+	/* setting these two values to non-zero, we have to manage key repeats */
 	input_dev->rep[REP_PERIOD] = d->props.rc.legacy.rc_interval;
 	input_dev->rep[REP_DELAY]  = d->props.rc.legacy.rc_interval + 150;
 
@@ -184,13 +232,23 @@ static int legacy_dvb_usb_remote_init(struct dvb_usb_device *d)
 	return err;
 }
 
+/* Remote-control poll function - called every dib->rc_query_interval ms to see
+ * whether the remote control has received anything.
+ *
+ * TODO: Fix the repeat rate of the input device.
+ */
 static void dvb_usb_read_remote_control(struct work_struct *work)
 {
 	struct dvb_usb_device *d =
 		container_of(work, struct dvb_usb_device, rc_query_work.work);
 	int err;
 
+	/* TODO: need a lock here.  We can simply skip checking for the remote control
+	   if we're busy. */
 
+	/* when the parameter has been set to 1 via sysfs while the
+	 * driver was running, or when bulk mode is enabled after IR init
+	 */
 	if (dvb_usb_disable_rc_polling || d->props.rc.core.bulk_mode)
 		return;
 
@@ -234,7 +292,7 @@ static int rc_core_dvb_usb_remote_init(struct dvb_usb_device *d)
 	if (!d->props.rc.core.rc_query || d->props.rc.core.bulk_mode)
 		return 0;
 
-	
+	/* Polling mode - initialize a work queue for handling it */
 	INIT_DELAYED_WORK(&d->rc_query_work, dvb_usb_read_remote_control);
 
 	rc_interval = d->props.rc.core.rc_interval;
@@ -263,9 +321,9 @@ int dvb_usb_remote_init(struct dvb_usb_device *d)
 	usb_make_path(d->udev, d->rc_phys, sizeof(d->rc_phys));
 	strlcat(d->rc_phys, "/ir0", sizeof(d->rc_phys));
 
-	
+	/* Start the remote-control polling. */
 	if (d->props.rc.legacy.rc_interval < 40)
-		d->props.rc.legacy.rc_interval = 100; 
+		d->props.rc.legacy.rc_interval = 100; /* default */
 
 	if (d->props.rc.mode == DVB_RC_LEGACY)
 		err = legacy_dvb_usb_remote_init(d);
@@ -311,7 +369,7 @@ int dvb_usb_nec_rc_key_to_event(struct dvb_usb_device *d,
 				deb_err("remote control checksum failed.\n");
 				break;
 			}
-			
+			/* See if we can match the raw key code. */
 			for (i = 0; i < d->props.rc.legacy.rc_map_size; i++)
 				if (rc5_custom(&keymap[i]) == keybuf[1] &&
 					rc5_data(&keymap[i]) == keybuf[3]) {

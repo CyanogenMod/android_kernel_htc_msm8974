@@ -1,3 +1,7 @@
+/*
+ * Zalon 53c7xx device driver.
+ * By Richard Hirst (rhirst@linuxcare.com)
+ */
 
 #include <linux/init.h>
 #include <linux/interrupt.h>
@@ -43,6 +47,14 @@ static struct ncr_chip zalon720_chip __initdata = {
 
 
 #if 0
+/* FIXME:
+ * Is this function dead code? or is someone planning on using it in the
+ * future.  The clock = (int) pdc_result[16] does not look correct to
+ * me ... I think it should be iodc_data[16].  Since this cause a compile
+ * error with the new encapsulated PDC, I'm not compiling in this function.
+ * - RB
+ */
+/* poke SCSI clock out of iodc data */
 
 static u8 iodc_data[32] __attribute__ ((aligned (64)));
 static unsigned long pdc_result[32] __attribute__ ((aligned (16))) ={0,0,0,0};
@@ -88,9 +100,12 @@ zalon_probe(struct parisc_device *dev)
 	__raw_writel(IOIIDATA_MINT5EN | IOIIDATA_PACKEN | IOIIDATA_PREFETCHEN,
 		zalon + IO_MODULE_II_CDATA);
 
-	
+	/* XXX: Save the Zalon version for bug workarounds? */
 	zalon_vers = (__raw_readl(zalon + IO_MODULE_II_CDATA) >> 24) & 0x07;
 
+	/* Setup the interrupts first.
+	** Later on request_irq() will register the handler.
+	*/
 	dev->irq = gsc_alloc_irq(&gsc_irq);
 
 	printk(KERN_INFO "%s: Zalon version %d, IRQ %d\n", __func__,
@@ -103,12 +118,12 @@ zalon_probe(struct parisc_device *dev)
 
 	memset(&device, 0, sizeof(struct ncr_device));
 
-	
-	__raw_writeb(0x20, io_port + 0x38); 
-	__raw_writeb(0x04, io_port + 0x1b); 
-	__raw_writeb(0x80, io_port + 0x22); 
+	/* The following three are needed before any other access. */
+	__raw_writeb(0x20, io_port + 0x38); /* DCNTL_REG,  EA  */
+	__raw_writeb(0x04, io_port + 0x1b); /* CTEST0_REG, EHP */
+	__raw_writeb(0x80, io_port + 0x22); /* CTEST4_REG, MUX */
 
-	
+	/* Initialise ncr_device structure with items required by ncr_attach. */
 	device.chip		= zalon720_chip;
 	device.host_id		= 7;
 	device.dev		= &dev->dev;

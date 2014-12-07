@@ -24,10 +24,16 @@
 #include "hpi_internal.h"
 #include "hpimsginit.h"
 
+/* The actual message size for each object type */
 static u16 msg_size[HPI_OBJ_MAXINDEX + 1] = HPI_MESSAGE_SIZE_BY_OBJECT;
+/* The actual response size for each object type */
 static u16 res_size[HPI_OBJ_MAXINDEX + 1] = HPI_RESPONSE_SIZE_BY_OBJECT;
+/* Flag to enable alternate message type for SSX2 bypass. */
 static u16 gwSSX2_bypass;
 
+/** \internal
+  * initialize the HPI message structure
+  */
 static void hpi_init_message(struct hpi_message *phm, u16 object,
 	u16 function)
 {
@@ -45,9 +51,12 @@ static void hpi_init_message(struct hpi_message *phm, u16 object,
 	phm->function = function;
 	phm->version = 0;
 	phm->adapter_index = HPI_ADAPTER_INDEX_INVALID;
-	
+	/* Expect actual adapter index to be set by caller */
 }
 
+/** \internal
+  * initialize the HPI response structure
+  */
 void hpi_init_response(struct hpi_response *phr, u16 object, u16 function,
 	u16 error)
 {
@@ -68,6 +77,8 @@ void hpi_init_message_response(struct hpi_message *phm,
 	struct hpi_response *phr, u16 object, u16 function)
 {
 	hpi_init_message(phm, object, function);
+	/* default error return if the response is
+	   not filled in by the callee */
 	hpi_init_response(phr, object, function,
 		HPI_ERROR_PROCESSING_MESSAGE);
 }
@@ -82,7 +93,7 @@ static void hpi_init_messageV1(struct hpi_message_header *phm, u16 size,
 		phm->object = object;
 		phm->function = function;
 		phm->version = 1;
-		
+		/* Expect adapter index to be set by caller */
 	}
 }
 

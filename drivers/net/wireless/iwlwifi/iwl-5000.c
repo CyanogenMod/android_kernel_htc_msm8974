@@ -47,12 +47,15 @@
 #include "iwl-cfg.h"
 #include "iwl-prph.h"
 
+/* Highest firmware API version supported */
 #define IWL5000_UCODE_API_MAX 5
 #define IWL5150_UCODE_API_MAX 2
 
+/* Oldest version we won't warn about */
 #define IWL5000_UCODE_API_OK 5
 #define IWL5150_UCODE_API_OK 2
 
+/* Lowest firmware API version supported */
 #define IWL5000_UCODE_API_MIN 1
 #define IWL5150_UCODE_API_MIN 1
 
@@ -62,10 +65,15 @@
 #define IWL5150_FW_PRE "iwlwifi-5150-"
 #define IWL5150_MODULE_FIRMWARE(api) IWL5150_FW_PRE __stringify(api) ".ucode"
 
+/* NIC configuration for 5000 series */
 static void iwl5000_nic_config(struct iwl_priv *priv)
 {
 	iwl_rf_config(priv);
 
+	/* W/A : NIC is stuck in a reset state after Early PCIe power off
+	 * (PCIe power is lost before PERST# is asserted),
+	 * causing ME FW to lose ownership and not being able to obtain it back.
+	 */
 	iwl_set_bits_mask_prph(trans(priv), APMG_PS_CTRL_REG,
 				APMG_PS_CTRL_EARLY_PWR_OFF_RESET_DIS,
 				~APMG_PS_CTRL_EARLY_PWR_OFF_RESET_DIS);
@@ -104,7 +112,7 @@ static struct iwl_sensitivity_ranges iwl5150_sensitivity = {
 
 	.auto_corr_max_ofdm = 120,
 	.auto_corr_max_ofdm_mrc = 210,
-	
+	/* max = min for performance bug in 5150 DSP */
 	.auto_corr_max_ofdm_x1 = 105,
 	.auto_corr_max_ofdm_mrc_x1 = 220,
 
@@ -131,7 +139,7 @@ static s32 iwl_temp_calib_to_offset(struct iwl_shared *shrd)
 	temperature = le16_to_cpu(temp_calib[0]);
 	voltage = le16_to_cpu(temp_calib[1]);
 
-	
+	/* offset = temp - volt / coeff */
 	return (s32)(temperature - voltage / IWL_5150_VOLTAGE_TO_TEMPERATURE_COEFF);
 }
 
@@ -146,7 +154,7 @@ static void iwl5150_set_ct_threshold(struct iwl_priv *priv)
 
 static void iwl5000_set_ct_threshold(struct iwl_priv *priv)
 {
-	
+	/* want Celsius */
 	hw_params(priv).ct_kill_threshold = CT_KILL_THRESHOLD_LEGACY;
 }
 
@@ -162,7 +170,7 @@ static void iwl5000_hw_set_hw_params(struct iwl_priv *priv)
 
 	iwl5000_set_ct_threshold(priv);
 
-	
+	/* Set initial sensitivity parameters */
 	hw_params(priv).sens = &iwl5000_sensitivity;
 }
 
@@ -178,7 +186,7 @@ static void iwl5150_hw_set_hw_params(struct iwl_priv *priv)
 
 	iwl5150_set_ct_threshold(priv);
 
-	
+	/* Set initial sensitivity parameters */
 	hw_params(priv).sens = &iwl5150_sensitivity;
 }
 
@@ -189,7 +197,7 @@ static void iwl5150_temperature(struct iwl_priv *priv)
 
 	vt = le32_to_cpu(priv->statistics.common.temperature);
 	vt = vt / IWL_5150_VOLTAGE_TO_TEMPERATURE_COEFF + offset;
-	
+	/* now vt hold the temperature in Kelvin */
 	priv->temperature = KELVIN_TO_CELSIUS(vt);
 	iwl_tt_handler(priv);
 }
@@ -197,6 +205,10 @@ static void iwl5150_temperature(struct iwl_priv *priv)
 static int iwl5000_hw_channel_switch(struct iwl_priv *priv,
 				     struct ieee80211_channel_switch *ch_switch)
 {
+	/*
+	 * MULTI-FIXME
+	 * See iwlagn_mac_channel_switch.
+	 */
 	struct iwl_rxon_context *ctx = &priv->contexts[IWL_RXON_CTX_BSS];
 	struct iwl5000_channel_switch_cmd cmd;
 	const struct iwl_channel_info *ch_info;
@@ -222,6 +234,10 @@ static int iwl5000_hw_channel_switch(struct iwl_priv *priv,
 	cmd.rxon_filter_flags = ctx->staging.filter_flags;
 	switch_count = ch_switch->count;
 	tsf_low = ch_switch->timestamp & 0x0ffffffff;
+	/*
+	 * calculate the ucode channel switch time
+	 * adding TSF as one of the factor for when to switch
+	 */
 	if ((priv->ucode_beacon_time > tsf_low) && beacon_interval) {
 		if (switch_count > ((priv->ucode_beacon_time - tsf_low) /
 		    beacon_interval)) {
@@ -327,32 +343,32 @@ static const struct iwl_ht_params iwl5000_ht_params = {
 const struct iwl_cfg iwl5300_agn_cfg = {
 	.name = "Intel(R) Ultimate N WiFi Link 5300 AGN",
 	IWL_DEVICE_5000,
-	
-	.valid_tx_ant = ANT_ABC,	
-	.valid_rx_ant = ANT_ABC,	
+	/* at least EEPROM 0x11A has wrong info */
+	.valid_tx_ant = ANT_ABC,	/* .cfg overwrite */
+	.valid_rx_ant = ANT_ABC,	/* .cfg overwrite */
 	.ht_params = &iwl5000_ht_params,
 };
 
 const struct iwl_cfg iwl5100_bgn_cfg = {
 	.name = "Intel(R) WiFi Link 5100 BGN",
 	IWL_DEVICE_5000,
-	.valid_tx_ant = ANT_B,		
-	.valid_rx_ant = ANT_AB,		
+	.valid_tx_ant = ANT_B,		/* .cfg overwrite */
+	.valid_rx_ant = ANT_AB,		/* .cfg overwrite */
 	.ht_params = &iwl5000_ht_params,
 };
 
 const struct iwl_cfg iwl5100_abg_cfg = {
 	.name = "Intel(R) WiFi Link 5100 ABG",
 	IWL_DEVICE_5000,
-	.valid_tx_ant = ANT_B,		
-	.valid_rx_ant = ANT_AB,		
+	.valid_tx_ant = ANT_B,		/* .cfg overwrite */
+	.valid_rx_ant = ANT_AB,		/* .cfg overwrite */
 };
 
 const struct iwl_cfg iwl5100_agn_cfg = {
 	.name = "Intel(R) WiFi Link 5100 AGN",
 	IWL_DEVICE_5000,
-	.valid_tx_ant = ANT_B,		
-	.valid_rx_ant = ANT_AB,		
+	.valid_tx_ant = ANT_B,		/* .cfg overwrite */
+	.valid_rx_ant = ANT_AB,		/* .cfg overwrite */
 	.ht_params = &iwl5000_ht_params,
 };
 

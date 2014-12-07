@@ -7,8 +7,10 @@
 #ifndef _CDEF_BF514_H
 #define _CDEF_BF514_H
 
+/* BF514 is BF512 + RSI */
 #include "cdefBF512.h"
 
+/* Removable Storage Interface Registers */
 
 #define bfin_read_RSI_PWR_CTL()        bfin_read16(RSI_PWR_CONTROL)
 #define bfin_write_RSI_PWR_CTL(val)    bfin_write16(RSI_PWR_CONTROL, val)
@@ -75,4 +77,4 @@
 #define bfin_read_RSI_PID7()           bfin_read16(RSI_PID7)
 #define bfin_write_RSI_PID7(val)       bfin_write16(RSI_PID7, val)
 
-#endif 
+#endif /* _CDEF_BF514_H */

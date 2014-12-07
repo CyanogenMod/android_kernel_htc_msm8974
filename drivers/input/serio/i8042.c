@@ -90,8 +90,20 @@ static bool i8042_bypass_aux_irq_test;
 
 #include "i8042.h"
 
+/*
+ * i8042_lock protects serialization between i8042_command and
+ * the interrupt handler.
+ */
 static DEFINE_SPINLOCK(i8042_lock);
 
+/*
+ * Writers to AUX and KBD ports as well as users issuing i8042_command
+ * directly should acquire i8042_mutex (by means of calling
+ * i8042_lock_chip() and i8042_unlock_ship() helpers) to ensure that
+ * they do not disturb each other (unfortunately in many i8042
+ * implementations write to one of the ports will immediately abort
+ * command that is being processed by another port).
+ */
 static DEFINE_MUTEX(i8042_mutex);
 
 struct i8042_port {
@@ -174,6 +186,11 @@ out:
 }
 EXPORT_SYMBOL(i8042_remove_filter);
 
+/*
+ * The i8042_wait_read() and i8042_wait_write functions wait for the i8042 to
+ * be ready for reading values from it / writing values to it.
+ * Called always with i8042_lock held.
+ */
 
 static int i8042_wait_read(void)
 {
@@ -197,6 +214,10 @@ static int i8042_wait_write(void)
 	return -(i == I8042_CTL_TIMEOUT);
 }
 
+/*
+ * i8042_flush() flushes all data that may be in the keyboard and mouse buffers
+ * of the i8042 down the toilet.
+ */
 
 static int i8042_flush(void)
 {
@@ -219,6 +240,13 @@ static int i8042_flush(void)
 	return i;
 }
 
+/*
+ * i8042_command() executes a command on the i8042. It also sends the input
+ * parameter(s) of the commands to it, and receives the output value(s). The
+ * parameters are to be stored in the param array, and the output is placed
+ * into the same array. The number of the parameters and output values is
+ * encoded in bits 8-11 of the command number.
+ */
 
 static int __i8042_command(unsigned char *param, int command)
 {
@@ -275,6 +303,9 @@ int i8042_command(unsigned char *param, int command)
 }
 EXPORT_SYMBOL(i8042_command);
 
+/*
+ * i8042_kbd_write() sends a byte out through the keyboard interface.
+ */
 
 static int i8042_kbd_write(struct serio *port, unsigned char c)
 {
@@ -293,6 +324,9 @@ static int i8042_kbd_write(struct serio *port, unsigned char c)
 	return retval;
 }
 
+/*
+ * i8042_aux_write() sends a byte out through the aux interface.
+ */
 
 static int i8042_aux_write(struct serio *serio, unsigned char c)
 {
@@ -304,6 +338,10 @@ static int i8042_aux_write(struct serio *serio, unsigned char c)
 }
 
 
+/*
+ * i8042_aux_close attempts to clear AUX or KBD port state by disabling
+ * and then re-enabling it.
+ */
 
 static void i8042_port_close(struct serio *serio)
 {
@@ -332,9 +370,18 @@ static void i8042_port_close(struct serio *serio)
 	if (i8042_command(&i8042_ctr, I8042_CMD_CTL_WCTR))
 		pr_err("Can't reactivate %s port\n", port_name);
 
+	/*
+	 * See if there is any data appeared while we were messing with
+	 * port state.
+	 */
 	i8042_interrupt(0, NULL);
 }
 
+/*
+ * i8042_start() is called by serio core when port is about to finish
+ * registering. It will mark port as existing so i8042_interrupt can
+ * start sending data through it.
+ */
 static int i8042_start(struct serio *serio)
 {
 	struct i8042_port *port = serio->port_data;
@@ -344,17 +391,32 @@ static int i8042_start(struct serio *serio)
 	return 0;
 }
 
+/*
+ * i8042_stop() marks serio port as non-existing so i8042_interrupt
+ * will not try to send data to the port that is about to go away.
+ * The function is called by serio core as part of unregister procedure.
+ */
 static void i8042_stop(struct serio *serio)
 {
 	struct i8042_port *port = serio->port_data;
 
 	port->exists = false;
 
+	/*
+	 * We synchronize with both AUX and KBD IRQs because there is
+	 * a (very unlikely) chance that AUX IRQ is raised for KBD port
+	 * and vice versa.
+	 */
 	synchronize_irq(I8042_AUX_IRQ);
 	synchronize_irq(I8042_KBD_IRQ);
 	port->serio = NULL;
 }
 
+/*
+ * i8042_filter() filters out unwanted bytes from the input data stream.
+ * It is called from i8042_interrupt and thus is running with interrupts
+ * off and i8042_lock held.
+ */
 static bool i8042_filter(unsigned char data, unsigned char str,
 			 struct serio *serio)
 {
@@ -375,6 +437,11 @@ static bool i8042_filter(unsigned char data, unsigned char str,
 	return false;
 }
 
+/*
+ * i8042_interrupt() is the most important function in this driver -
+ * it handles the interrupts from the i8042, and sends incoming bytes
+ * to the upper layers.
+ */
 
 static irqreturn_t i8042_interrupt(int irq, void *dev_id)
 {
@@ -408,6 +475,18 @@ static irqreturn_t i8042_interrupt(int irq, void *dev_id)
 		if (str & I8042_STR_MUXERR) {
 			dbg("MUX error, status is %02x, data is %02x\n",
 			    str, data);
+/*
+ * When MUXERR condition is signalled the data register can only contain
+ * 0xfd, 0xfe or 0xff if implementation follows the spec. Unfortunately
+ * it is not always the case. Some KBCs also report 0xfc when there is
+ * nothing connected to the port while others sometimes get confused which
+ * port the data came from and signal error leaving the data intact. They
+ * _do not_ revert to legacy mode (actually I've never seen KBC reverting
+ * to legacy mode yet, when we see one we'll add proper handling).
+ * Anyway, we process 0xfc, 0xfd, 0xfe and 0xff as timeouts, and for the
+ * rest assume that the data came from the same serio last byte
+ * was transmitted (if transmission happened not too long ago).
+ */
 
 			switch (data) {
 				default:
@@ -415,7 +494,7 @@ static irqreturn_t i8042_interrupt(int irq, void *dev_id)
 						str = last_str;
 						break;
 					}
-					
+					/* fall through - report timeout */
 				case 0xfc:
 				case 0xfd:
 				case 0xfe: dfl = SERIO_TIMEOUT; data = 0xfe; break;
@@ -454,6 +533,9 @@ static irqreturn_t i8042_interrupt(int irq, void *dev_id)
 	return IRQ_RETVAL(ret);
 }
 
+/*
+ * i8042_enable_kbd_port enables keyboard port on chip
+ */
 
 static int i8042_enable_kbd_port(void)
 {
@@ -470,6 +552,9 @@ static int i8042_enable_kbd_port(void)
 	return 0;
 }
 
+/*
+ * i8042_enable_aux_port enables AUX (mouse) port on chip
+ */
 
 static int i8042_enable_aux_port(void)
 {
@@ -486,6 +571,10 @@ static int i8042_enable_aux_port(void)
 	return 0;
 }
 
+/*
+ * i8042_enable_mux_ports enables 4 individual AUX ports after
+ * the controller has been switched into Multiplexed mode
+ */
 
 static int i8042_enable_mux_ports(void)
 {
@@ -500,14 +589,26 @@ static int i8042_enable_mux_ports(void)
 	return i8042_enable_aux_port();
 }
 
+/*
+ * i8042_set_mux_mode checks whether the controller has an
+ * active multiplexor and puts the chip into Multiplexed (true)
+ * or Legacy (false) mode.
+ */
 
 static int i8042_set_mux_mode(bool multiplex, unsigned char *mux_version)
 {
 
 	unsigned char param, val;
+/*
+ * Get rid of bytes in the queue.
+ */
 
 	i8042_flush();
 
+/*
+ * Internal loopback test - send three bytes, they should come back from the
+ * mouse interface, the last should be version.
+ */
 
 	param = val = 0xf0;
 	if (i8042_command(&param, I8042_CMD_AUX_LOOP) || param != val)
@@ -519,6 +620,10 @@ static int i8042_set_mux_mode(bool multiplex, unsigned char *mux_version)
 	if (i8042_command(&param, I8042_CMD_AUX_LOOP) || param == val)
 		return -1;
 
+/*
+ * Workaround for interference with USB Legacy emulation
+ * that causes a v10.12 MUX to be found.
+ */
 	if (param == 0xac)
 		return -1;
 
@@ -528,6 +633,11 @@ static int i8042_set_mux_mode(bool multiplex, unsigned char *mux_version)
 	return 0;
 }
 
+/*
+ * i8042_check_mux() checks whether the controller supports the PS/2 Active
+ * Multiplexing specification by Synaptics, Phoenix, Insyde and
+ * LCS/Telegraphics.
+ */
 
 static int __init i8042_check_mux(void)
 {
@@ -539,6 +649,9 @@ static int __init i8042_check_mux(void)
 	pr_info("Detected active multiplexing controller, rev %d.%d\n",
 		(mux_version >> 4) & 0xf, mux_version & 0xf);
 
+/*
+ * Disable all muxed ports by disabling AUX.
+ */
 	i8042_ctr |= I8042_CTR_AUXDIS;
 	i8042_ctr &= ~I8042_CTR_AUXINT;
 
@@ -552,6 +665,9 @@ static int __init i8042_check_mux(void)
 	return 0;
 }
 
+/*
+ * The following is used to test AUX IRQ delivery.
+ */
 static struct completion i8042_aux_irq_delivered __initdata;
 static bool i8042_irq_being_tested __initdata;
 
@@ -577,6 +693,11 @@ static irqreturn_t __init i8042_aux_test_irq(int irq, void *dev_id)
 	return IRQ_RETVAL(ret);
 }
 
+/*
+ * i8042_toggle_aux - enables or disables AUX port on i8042 via command and
+ * verifies success by readinng CTR. Used when testing for presence of AUX
+ * port.
+ */
 static int __init i8042_toggle_aux(bool on)
 {
 	unsigned char param;
@@ -586,7 +707,7 @@ static int __init i8042_toggle_aux(bool on)
 			on ? I8042_CMD_AUX_ENABLE : I8042_CMD_AUX_DISABLE))
 		return -1;
 
-	
+	/* some chips need some time to set the I8042_CTR_AUXDIS bit */
 	for (i = 0; i < 100; i++) {
 		udelay(50);
 
@@ -600,6 +721,10 @@ static int __init i8042_toggle_aux(bool on)
 	return -1;
 }
 
+/*
+ * i8042_check_aux() applies as much paranoia as it can at detecting
+ * the presence of an AUX interface.
+ */
 
 static int __init i8042_check_aux(void)
 {
@@ -609,23 +734,45 @@ static int __init i8042_check_aux(void)
 	unsigned long flags;
 	unsigned char param;
 
+/*
+ * Get rid of bytes in the queue.
+ */
 
 	i8042_flush();
 
+/*
+ * Internal loopback test - filters out AT-type i8042's. Unfortunately
+ * SiS screwed up and their 5597 doesn't support the LOOP command even
+ * though it has an AUX port.
+ */
 
 	param = 0x5a;
 	retval = i8042_command(&param, I8042_CMD_AUX_LOOP);
 	if (retval || param != 0x5a) {
 
+/*
+ * External connection test - filters out AT-soldered PS/2 i8042's
+ * 0x00 - no error, 0x01-0x03 - clock/data stuck, 0xff - general error
+ * 0xfa - no error on some notebooks which ignore the spec
+ * Because it's common for chipsets to return error on perfectly functioning
+ * AUX ports, we test for this only when the LOOP command failed.
+ */
 
 		if (i8042_command(&param, I8042_CMD_AUX_TEST) ||
 		    (param && param != 0xfa && param != 0xff))
 			return -1;
 
+/*
+ * If AUX_LOOP completed without error but returned unexpected data
+ * mark it as broken
+ */
 		if (!retval)
 			aux_loop_broken = true;
 	}
 
+/*
+ * Bit assignment test - filters out PS/2 i8042's in AT mode
+ */
 
 	if (i8042_toggle_aux(false)) {
 		pr_warn("Failed to disable AUX port, but continuing anyway... Is this a SiS?\n");
@@ -635,8 +782,16 @@ static int __init i8042_check_aux(void)
 	if (i8042_toggle_aux(true))
 		return -1;
 
+/*
+ * Test AUX IRQ delivery to make sure BIOS did not grab the IRQ and
+ * used it for a PCI card or somethig else.
+ */
 
 	if (i8042_noloop || i8042_bypass_aux_irq_test || aux_loop_broken) {
+/*
+ * Without LOOP command we can't test AUX IRQ delivery. Assume the port
+ * is working and hope we are right.
+ */
 		retval = 0;
 		goto out;
 	}
@@ -665,6 +820,10 @@ static int __init i8042_check_aux(void)
 
 	if (wait_for_completion_timeout(&i8042_aux_irq_delivered,
 					msecs_to_jiffies(250)) == 0) {
+/*
+ * AUX IRQ was never delivered so we need to flush the controller to
+ * get rid of the byte we put there; otherwise keyboard may not work.
+ */
 		dbg("     -- i8042 (aux irq test timeout)\n");
 		i8042_flush();
 		retval = -1;
@@ -672,6 +831,9 @@ static int __init i8042_check_aux(void)
 
  out:
 
+/*
+ * Disable the interface.
+ */
 
 	i8042_ctr |= I8042_CTR_AUXDIS;
 	i8042_ctr &= ~I8042_CTR_AUXINT;
@@ -700,6 +862,10 @@ static int i8042_controller_selftest(void)
 	unsigned char param;
 	int i = 0;
 
+	/*
+	 * We try this 5 times; on some really fragile systems this does not
+	 * take the first time...
+	 */
 	do {
 
 		if (i8042_command(&param, I8042_CMD_CTL_TEST)) {
@@ -716,6 +882,12 @@ static int i8042_controller_selftest(void)
 	} while (i++ < 5);
 
 #ifdef CONFIG_X86
+	/*
+	 * On x86, we don't fail entire i8042 initialization if controller
+	 * reset fails in hopes that keyboard port will still be functional
+	 * and user will still get a working keyboard. This is especially
+	 * important on netbooks. On other arches we trust hardware more.
+	 */
 	pr_info("giving up on controller selftest, continuing anyway...\n");
 	return 0;
 #else
@@ -724,6 +896,11 @@ static int i8042_controller_selftest(void)
 #endif
 }
 
+/*
+ * i8042_controller init initializes the i8042 controller, and,
+ * most importantly, sets it into non-xlated mode if that's
+ * desired.
+ */
 
 static int i8042_controller_init(void)
 {
@@ -731,6 +908,9 @@ static int i8042_controller_init(void)
 	int n = 0;
 	unsigned char ctr[2];
 
+/*
+ * Save the CTR for restore on unload / reboot.
+ */
 
 	do {
 		if (n >= 10) {
@@ -750,10 +930,16 @@ static int i8042_controller_init(void)
 
 	i8042_initial_ctr = i8042_ctr = ctr[0];
 
+/*
+ * Disable the keyboard interface and interrupt.
+ */
 
 	i8042_ctr |= I8042_CTR_KBDDIS;
 	i8042_ctr &= ~I8042_CTR_KBDINT;
 
+/*
+ * Handle keylock.
+ */
 
 	spin_lock_irqsave(&i8042_lock, flags);
 	if (~i8042_read_status() & I8042_STR_KEYLOCK) {
@@ -764,20 +950,36 @@ static int i8042_controller_init(void)
 	}
 	spin_unlock_irqrestore(&i8042_lock, flags);
 
+/*
+ * If the chip is configured into nontranslated mode by the BIOS, don't
+ * bother enabling translating and be happy.
+ */
 
 	if (~i8042_ctr & I8042_CTR_XLATE)
 		i8042_direct = true;
 
+/*
+ * Set nontranslated mode for the kbd interface if requested by an option.
+ * After this the kbd interface becomes a simple serial in/out, like the aux
+ * interface is. We don't do this by default, since it can confuse notebook
+ * BIOSes.
+ */
 
 	if (i8042_direct)
 		i8042_ctr &= ~I8042_CTR_XLATE;
 
+/*
+ * Write CTR back.
+ */
 
 	if (i8042_command(&i8042_ctr, I8042_CMD_CTL_WCTR)) {
 		pr_err("Can't write CTR while initializing i8042\n");
 		return -EIO;
 	}
 
+/*
+ * Flush whatever accumulated while we were disabling keyboard port.
+ */
 
 	i8042_flush();
 
@@ -785,11 +987,17 @@ static int i8042_controller_init(void)
 }
 
 
+/*
+ * Reset the controller and reset CRT to the original value set by BIOS.
+ */
 
 static void i8042_controller_reset(bool force_reset)
 {
 	i8042_flush();
 
+/*
+ * Disable both KBD and AUX interfaces so they don't get in the way
+ */
 
 	i8042_ctr |= I8042_CTR_KBDDIS | I8042_CTR_AUXDIS;
 	i8042_ctr &= ~(I8042_CTR_KBDINT | I8042_CTR_AUXINT);
@@ -797,20 +1005,38 @@ static void i8042_controller_reset(bool force_reset)
 	if (i8042_command(&i8042_ctr, I8042_CMD_CTL_WCTR))
 		pr_warn("Can't write CTR while resetting\n");
 
+/*
+ * Disable MUX mode if present.
+ */
 
 	if (i8042_mux_present)
 		i8042_set_mux_mode(false, NULL);
 
+/*
+ * Reset the controller if requested.
+ */
 
 	if (i8042_reset || force_reset)
 		i8042_controller_selftest();
 
+/*
+ * Restore the original control register setting.
+ */
 
 	if (i8042_command(&i8042_initial_ctr, I8042_CMD_CTL_WCTR))
 		pr_warn("Can't restore CTR\n");
 }
 
 
+/*
+ * i8042_panic_blink() will turn the keyboard LEDs on or off and is called
+ * when kernel panics. Flashing LEDs is useful for users running X who may
+ * not see the console and will help distingushing panics from "real"
+ * lockups.
+ *
+ * Note that DELAY has a limit of 10ms so we will not get stuck here
+ * waiting for KBC to free up even if KBD interrupt is off
+ */
 
 #define DELAY do { mdelay(1); if (++delay > 10) return delay; } while(0)
 
@@ -824,7 +1050,7 @@ static long i8042_panic_blink(int state)
 		DELAY;
 	dbg("%02x -> i8042 (panic blink)\n", 0xed);
 	i8042_suppress_kbd_ack = 2;
-	i8042_write_data(0xed); 
+	i8042_write_data(0xed); /* set leds */
 	DELAY;
 	while (i8042_read_status() & I8042_STR_IBF)
 		DELAY;
@@ -851,6 +1077,10 @@ static void i8042_dritek_enable(void)
 
 #ifdef CONFIG_PM
 
+/*
+ * Here we try to reset everything back to a state we had
+ * before suspending.
+ */
 
 static int i8042_controller_resume(bool force_reset)
 {
@@ -866,6 +1096,9 @@ static int i8042_controller_resume(bool force_reset)
 			return error;
 	}
 
+/*
+ * Restore original CTR value and disable all ports
+ */
 
 	i8042_ctr = i8042_initial_ctr;
 	if (i8042_direct)
@@ -901,6 +1134,10 @@ static int i8042_controller_resume(bool force_reset)
 	return 0;
 }
 
+/*
+ * Here we try to restore the original BIOS settings to avoid
+ * upsetting it.
+ */
 
 static int i8042_pm_suspend(struct device *dev)
 {
@@ -911,6 +1148,11 @@ static int i8042_pm_suspend(struct device *dev)
 
 static int i8042_pm_resume(struct device *dev)
 {
+	/*
+	 * On resume from S2R we always try to reset the controller
+	 * to bring it in a sane state. (In case of S2D we expect
+	 * BIOS to reset the controller for us.)
+	 */
 	return i8042_controller_resume(true);
 }
 
@@ -941,8 +1183,12 @@ static const struct dev_pm_ops i8042_pm_ops = {
 	.restore	= i8042_pm_restore,
 };
 
-#endif 
+#endif /* CONFIG_PM */
 
+/*
+ * We need to reset the 8042 back to original mode on system shutdown,
+ * because otherwise BIOSes will be confused.
+ */
 
 static void i8042_shutdown(struct platform_device *dev)
 {
@@ -1050,6 +1296,9 @@ static void __devexit i8042_unregister_ports(void)
 	}
 }
 
+/*
+ * Checks whether port belongs to i8042 controller.
+ */
 bool i8042_check_port_owner(const struct serio *port)
 {
 	int i;
@@ -1172,12 +1421,15 @@ static int __init i8042_probe(struct platform_device *dev)
 		if (error)
 			goto out_fail;
 	}
+/*
+ * Ok, everything is ready, let's register all serio ports
+ */
 	i8042_register_ports();
 
 	return 0;
 
  out_fail:
-	i8042_free_aux_ports();	
+	i8042_free_aux_ports();	/* in case KBD failed but AUX not */
 	i8042_free_irqs();
 	i8042_controller_reset(false);
 	i8042_platform_device = NULL;

@@ -30,6 +30,21 @@
 #include "drmP.h"
 #include "drm_crtc.h"
 
+/**
+ * struct drm_encoder_slave_funcs - Entry points exposed by a slave encoder driver
+ * @set_config:	Initialize any encoder-specific modesetting parameters.
+ *		The meaning of the @params parameter is implementation
+ *		dependent. It will usually be a structure with DVO port
+ *		data format settings or timings. It's not required for
+ *		the new parameters to take effect until the next mode
+ *		is set.
+ *
+ * Most of its members are analogous to the function pointers in
+ * &drm_encoder_helper_funcs and they can optionally be used to
+ * initialize the latter. Connector-like methods (e.g. @get_modes and
+ * @set_property) will typically be wrapped around and only be called
+ * if the encoder is the currently selected one for the connector.
+ */
 struct drm_encoder_slave_funcs {
 	void (*set_config)(struct drm_encoder *encoder,
 			   void *params);
@@ -60,6 +75,23 @@ struct drm_encoder_slave_funcs {
 
 };
 
+/**
+ * struct drm_encoder_slave - Slave encoder struct
+ * @base: DRM encoder object.
+ * @slave_funcs: Slave encoder callbacks.
+ * @slave_priv: Slave encoder private data.
+ * @bus_priv: Bus specific data.
+ *
+ * A &drm_encoder_slave has two sets of callbacks, @slave_funcs and the
+ * ones in @base. The former are never actually called by the common
+ * CRTC code, it's just a convenience for splitting the encoder
+ * functions in an upper, GPU-specific layer and a (hopefully)
+ * GPU-agnostic lower layer: It's the GPU driver responsibility to
+ * call the slave methods when appropriate.
+ *
+ * drm_i2c_encoder_init() provides a way to get an implementation of
+ * this.
+ */
 struct drm_encoder_slave {
 	struct drm_encoder base;
 
@@ -75,6 +107,16 @@ int drm_i2c_encoder_init(struct drm_device *dev,
 			 const struct i2c_board_info *info);
 
 
+/**
+ * struct drm_i2c_encoder_driver
+ *
+ * Describes a device driver for an encoder connected to the GPU
+ * through an I2C bus. In addition to the entry points in @i2c_driver
+ * an @encoder_init function should be provided. It will be called to
+ * give the driver an opportunity to allocate any per-encoder data
+ * structures and to initialize the @slave_funcs and (optionally)
+ * @slave_priv members of @encoder.
+ */
 struct drm_i2c_encoder_driver {
 	struct i2c_driver i2c_driver;
 
@@ -87,17 +129,29 @@ struct drm_i2c_encoder_driver {
 						  struct drm_i2c_encoder_driver, \
 						  i2c_driver)
 
+/**
+ * drm_i2c_encoder_get_client - Get the I2C client corresponding to an encoder
+ */
 static inline struct i2c_client *drm_i2c_encoder_get_client(struct drm_encoder *encoder)
 {
 	return (struct i2c_client *)to_encoder_slave(encoder)->bus_priv;
 }
 
+/**
+ * drm_i2c_encoder_register - Register an I2C encoder driver
+ * @owner:	Module containing the driver.
+ * @driver:	Driver to be registered.
+ */
 static inline int drm_i2c_encoder_register(struct module *owner,
 					   struct drm_i2c_encoder_driver *driver)
 {
 	return i2c_register_driver(owner, &driver->i2c_driver);
 }
 
+/**
+ * drm_i2c_encoder_unregister - Unregister an I2C encoder driver
+ * @driver:	Driver to be unregistered.
+ */
 static inline void drm_i2c_encoder_unregister(struct drm_i2c_encoder_driver *driver)
 {
 	i2c_del_driver(&driver->i2c_driver);

@@ -17,6 +17,7 @@
 
 extern void of_i2c_register_devices(struct i2c_adapter *adap);
 
+/* must call put_device() when done with returned i2c_client device */
 extern struct i2c_client *of_find_i2c_device_by_node(struct device_node *node);
 
 #else
@@ -24,6 +25,6 @@ static inline void of_i2c_register_devices(struct i2c_adapter *adap)
 {
 	return;
 }
-#endif 
+#endif /* CONFIG_OF_I2C */
 
-#endif 
+#endif /* __LINUX_OF_I2C_H */

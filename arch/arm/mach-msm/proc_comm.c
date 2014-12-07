@@ -28,7 +28,7 @@
 
 static inline void notify_other_proc_comm(void)
 {
-	
+	/* Make sure the write completes before interrupt */
 	wmb();
 #if defined(CONFIG_ARCH_MSM7X30)
 	__raw_writel(1 << 6, MSM_APCS_GCC_BASE + 0x8);
@@ -52,10 +52,18 @@ static inline void notify_other_proc_comm(void)
 static DEFINE_SPINLOCK(proc_comm_lock);
 static int msm_proc_comm_disable;
 
+/* Poll for a state change, checking for possible
+ * modem crashes along the way (so we don't wait
+ * forever while the ARM9 is blowing up.
+ *
+ * Return an error in the event of a modem crash and
+ * restart so the msm_proc_comm() routine can restart
+ * the operation from the beginning.
+ */
 static int proc_comm_wait_for(unsigned addr, unsigned value)
 {
 	while (1) {
-		
+		/* Barrier here prevents excessive spinning */
 		mb();
 		if (readl_relaxed(addr) == value)
 			return 0;
@@ -84,7 +92,7 @@ again:
 
 	spin_unlock_irqrestore(&proc_comm_lock, flags);
 
-	
+	/* Make sure the writes complete before notifying the other side */
 	wmb();
 	notify_other_proc_comm();
 
@@ -114,7 +122,7 @@ again:
 	writel_relaxed(data1 ? *data1 : 0, base + APP_DATA1);
 	writel_relaxed(data2 ? *data2 : 0, base + APP_DATA2);
 
-	
+	/* Make sure the writes complete before notifying the other side */
 	wmb();
 	notify_other_proc_comm();
 
@@ -142,7 +150,7 @@ again:
 		break;
 	}
 end:
-	
+	/* Make sure the writes complete before returning */
 	wmb();
 	spin_unlock_irqrestore(&proc_comm_lock, flags);
 	return ret;

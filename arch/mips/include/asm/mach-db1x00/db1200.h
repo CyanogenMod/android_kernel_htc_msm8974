@@ -28,6 +28,7 @@
 #include <asm/mach-au1x00/au1000.h>
 #include <asm/mach-au1x00/au1xxx_psc.h>
 
+/* Bit positions for the different interrupt sources */
 #define BCSR_INT_IDE		0x0001
 #define BCSR_INT_ETH		0x0002
 #define BCSR_INT_PC0		0x0004
@@ -56,6 +57,14 @@
 #define PB1200_ETH_PHYS_ADDR	0x0D000300
 #define PB1200_NAND_PHYS_ADDR	0x1C000000
 
+/*
+ * External Interrupts for DBAu1200 as of 8/6/2004.
+ * Bit positions in the CPLD registers can be calculated by taking
+ * the interrupt define and subtracting the DB1200_INT_BEGIN value.
+ *
+ *   Example: IDE bis pos is  = 64 - 64
+ *            ETH bit pos is  = 65 - 64
+ */
 enum external_db1200_ints {
 	DB1200_INT_BEGIN	= AU1000_MAX_INTR + 1,
 
@@ -79,4 +88,4 @@ enum external_db1200_ints {
 	DB1200_INT_END		= DB1200_INT_BEGIN + 15,
 };
 
-#endif 
+#endif /* __ASM_DB1200_H */

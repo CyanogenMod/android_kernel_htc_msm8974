@@ -28,10 +28,11 @@
 
 #include "atstk1000.h"
 
+/* Oscillator frequencies. These are board specific */
 unsigned long at32_board_osc_rates[3] = {
-	[0] = 32768,	
-	[1] = 20000000,	
-	[2] = 12000000,	
+	[0] = 32768,	/* 32.768 kHz on RTC osc */
+	[1] = 20000000,	/* 20 MHz on osc0 */
+	[2] = 12000000,	/* 12 MHz on osc1 */
 };
 
 #ifdef CONFIG_BOARD_ATSTK1000_EXTDAC
@@ -45,7 +46,7 @@ static struct at73c213_board_info at73c213_data = {
 static struct spi_board_info spi0_board_info[] __initdata = {
 #ifdef CONFIG_BOARD_ATSTK1000_EXTDAC
 	{
-		
+		/* AT73C213 */
 		.modalias	= "at73c213",
 		.max_speed_hz	= 200000,
 		.chip_select	= 0,
@@ -53,12 +54,16 @@ static struct spi_board_info spi0_board_info[] __initdata = {
 		.platform_data	= &at73c213_data,
 	},
 #endif
+	/*
+	 * We can control the LTV350QV LCD panel, but it isn't much
+	 * point since we don't have an LCD controller...
+	 */
 };
 #endif
 
 #ifdef CONFIG_BOARD_ATSTK100X_SPI1
 static struct spi_board_info spi1_board_info[] __initdata = { {
-	
+	/* patch in custom entries here */
 } };
 #endif
 
@@ -105,23 +110,27 @@ static void __init atstk1003_setup_extdac(void)
 {
 
 }
-#endif 
+#endif /* CONFIG_BOARD_ATSTK1000_EXTDAC */
 
 void __init setup_board(void)
 {
 #ifdef	CONFIG_BOARD_ATSTK100X_SW2_CUSTOM
-	at32_map_usart(0, 1, 0);	
+	at32_map_usart(0, 1, 0);	/* USART 0/B: /dev/ttyS1, IRDA */
 #else
-	at32_map_usart(1, 0, 0);	
+	at32_map_usart(1, 0, 0);	/* USART 1/A: /dev/ttyS0, DB9 */
 #endif
-	
-	at32_map_usart(3, 2, 0);	
+	/* USART 2/unused: expansion connector */
+	at32_map_usart(3, 2, 0);	/* USART 3/C: /dev/ttyS2, DB9 */
 
 	at32_setup_serial_console(0);
 }
 
 static int __init atstk1003_init(void)
 {
+	/*
+	 * ATSTK1000 uses 32-bit SDRAM interface. Reserve the
+	 * SDRAM-specific pins so that nobody messes with them.
+	 */
 	at32_reserve_pin(GPIO_PIOE_BASE, ATMEL_EBI_PE_DATA_ALL);
 
 #ifdef	CONFIG_BOARD_ATSTK100X_SW2_CUSTOM

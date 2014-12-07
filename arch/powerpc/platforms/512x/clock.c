@@ -32,8 +32,8 @@
 
 static int clocks_initialized;
 
-#define CLK_HAS_RATE	0x1	
-#define CLK_HAS_CTRL	0x2	
+#define CLK_HAS_RATE	0x1	/* has rate in MHz */
+#define CLK_HAS_CTRL	0x2	/* has control reg and bit */
 
 struct clk {
 	struct list_head node;
@@ -44,8 +44,8 @@ struct clk {
 	struct module *owner;
 	void (*calc) (struct clk *);
 	struct clk *parent;
-	int reg, bit;		
-	int div_shift;		
+	int reg, bit;		/* CLK_HAS_CTRL */
+	int div_shift;		/* only used by generic_div_clk_calc */
 };
 
 static LIST_HEAD(clocks);
@@ -108,16 +108,16 @@ static void mpc5121_clk_put(struct clk *clk)
 #define NRPSC 12
 
 struct mpc512x_clockctl {
-	u32 spmr;		
-	u32 sccr[2];		
-	u32 scfr1;		
-	u32 scfr2;		
+	u32 spmr;		/* System PLL Mode Reg */
+	u32 sccr[2];		/* System Clk Ctrl Reg 1 & 2 */
+	u32 scfr1;		/* System Clk Freq Reg 1 */
+	u32 scfr2;		/* System Clk Freq Reg 2 */
 	u32 reserved;
-	u32 bcr;		
-	u32 pccr[NRPSC];	
-	u32 spccr;		
-	u32 cccr;		
-	u32 dccr;		
+	u32 bcr;		/* Bread Crumb Reg */
+	u32 pccr[NRPSC];	/* PSC Clk Ctrl Reg 0-11 */
+	u32 spccr;		/* SPDIF Clk Ctrl Reg */
+	u32 cccr;		/* CFM Clk Ctrl Reg */
+	u32 dccr;		/* DIU Clk Cnfg Reg */
 };
 
 struct mpc512x_clockctl __iomem *clockctl;
@@ -173,6 +173,9 @@ static int clk_register(struct clk *clk)
 
 static unsigned long spmf_mult(void)
 {
+	/*
+	 * Convert spmf to multiplier
+	 */
 	static int spmf_to_mult[] = {
 		68, 1, 12, 16,
 		20, 24, 28, 32,
@@ -185,6 +188,11 @@ static unsigned long spmf_mult(void)
 
 static unsigned long sysdiv_div_x_2(void)
 {
+	/*
+	 * Convert sysdiv to divisor x 2
+	 * Some divisors have fractional parts so
+	 * multiply by 2 then divide by this value
+	 */
 	static int sysdiv_to_div_x_2[] = {
 		4, 5, 6, 7,
 		8, 9, 10, 14,
@@ -222,8 +230,8 @@ static long ips_to_ref(unsigned long rate)
 {
 	int ips_div = (clockctl->scfr1 >> 23) & 0x7;
 
-	rate *= ips_div;	
-	rate *= 2;		
+	rate *= ips_div;	/* csb_clk = ips_clk * ips_div */
+	rate *= 2;		/* sys_clk = csb_clk * 2 */
 	return sys_to_ref(rate);
 }
 
@@ -338,6 +346,9 @@ static struct clk ips_clk = {
 	.div_shift = 23,
 };
 
+/*
+ * Clocks controlled by SCCR1 (.reg = 0)
+ */
 static struct clk lpc_clk = {
 	.name = "lpc_clk",
 	.flags = CLK_HAS_CTRL,
@@ -367,6 +378,10 @@ static struct clk pata_clk = {
 	.parent = &ips_clk,
 };
 
+/*
+ * PSC clocks (bits 27 - 16)
+ * are setup elsewhere
+ */
 
 static struct clk sata_clk = {
 	.name = "sata_clk",
@@ -396,6 +411,9 @@ static struct clk pci_clk = {
 	.div_shift = 20,
 };
 
+/*
+ * Clocks controlled by SCCR2 (.reg = 1)
+ */
 static struct clk diu_clk = {
 	.name = "diu_clk",
 	.flags = CLK_HAS_CTRL,
@@ -522,7 +540,7 @@ static struct clk spdif_rxclk = {
 
 static void ac97_clk_calc(struct clk *clk)
 {
-	
+	/* ac97 bit clock is always 24.567 MHz */
 	clk->rate = 24567000;
 }
 
@@ -583,8 +601,16 @@ static void rate_clks_init(void)
 		rate_clk_init(clk);
 }
 
+/*
+ * There are two clk enable registers with 32 enable bits each
+ * psc clocks and device clocks are all stored in dev_clks
+ */
 struct clk dev_clks[2][32];
 
+/*
+ * Given a psc number return the dev_clk
+ * associated with it
+ */
 static struct clk *psc_dev_clk(int pscnum)
 {
 	int reg, bit;
@@ -599,11 +625,23 @@ static struct clk *psc_dev_clk(int pscnum)
 	return clk;
 }
 
+/*
+ * PSC clock rate calculation
+ */
 static void psc_calc_rate(struct clk *clk, int pscnum, struct device_node *np)
 {
 	unsigned long mclk_src = sys_clk.rate;
 	unsigned long mclk_div;
 
+	/*
+	 * Can only change value of mclk divider
+	 * when the divider is disabled.
+	 *
+	 * Zero is not a valid divider so minimum
+	 * divider is 1
+	 *
+	 * disable/set divider/enable
+	 */
 	out_be32(&clockctl->pccr[pscnum], 0);
 	out_be32(&clockctl->pccr[pscnum], 0x00020000);
 	out_be32(&clockctl->pccr[pscnum], 0x00030000);
@@ -632,6 +670,11 @@ static void psc_calc_rate(struct clk *clk, int pscnum, struct device_node *np)
 	clk->rate = mclk_src / mclk_div;
 }
 
+/*
+ * Find all psc nodes in device tree and assign a clock
+ * with name "psc%d_mclk" and dev pointing at the device
+ * returned from of_find_device_by_node
+ */
 static void psc_clks_init(void)
 {
 	struct device_node *np;
@@ -647,6 +690,10 @@ static void psc_clks_init(void)
 			clk->flags = CLK_HAS_RATE | CLK_HAS_CTRL;
 			ofdev = of_find_device_by_node(np);
 			clk->dev = &ofdev->dev;
+			/*
+			 * AC97 is special rate clock does
+			 * not go through normal path
+			 */
 			if (strcmp("ac97", np->name) == 0)
 				clk->rate = ac97_clk.rate;
 			else
@@ -688,8 +735,8 @@ int __init mpc5121_clk_init(void)
 	rate_clks_init();
 	psc_clks_init();
 
-	
-	
+	/* leave clockctl mapped forever */
+	/*iounmap(clockctl); */
 	DEBUG_CLK_DUMP();
 	clocks_initialized++;
 	clk_functions = mpc5121_clk_functions;

@@ -57,7 +57,7 @@ static int cfvidl_transmit(struct cflayer *layr, struct cfpkt *pkt)
 	}
 
 	cfpkt_add_head(pkt, &videoheader, 4);
-	
+	/* Add info for MUX-layer to route the packet out */
 	info = cfpkt_info(pkt);
 	info->channel_id = service->layer.id;
 	info->dev_info = &service->dev_info;

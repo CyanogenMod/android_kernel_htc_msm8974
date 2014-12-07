@@ -38,44 +38,44 @@
 
 struct lgs8gxx_config {
 
-	
+	/* product type */
 	u8 prod;
 
-	
+	/* the demodulator's i2c address */
 	u8 demod_address;
 
-	
+	/* parallel or serial transport stream */
 	u8 serial_ts;
 
-	
+	/* transport stream polarity*/
 	u8 ts_clk_pol;
 
-	
+	/* transport stream clock gated by ts_valid */
 	u8 ts_clk_gated;
 
-	
-	u32 if_clk_freq; 
+	/* A/D Clock frequency */
+	u32 if_clk_freq; /* in kHz */
 
-	
-	u32 if_freq; 
+	/* IF frequency */
+	u32 if_freq; /* in kHz */
 
-	
+	/*Use External ADC*/
 	u8 ext_adc;
 
-	
+	/*External ADC output two's complement*/
 	u8 adc_signed;
 
-	
+	/*Sample IF data at falling edge of IF_CLK*/
 	u8 if_neg_edge;
 
-	
+	/*IF use Negative center frequency*/
 	u8 if_neg_center;
 
-	
-	
+	/*8G75 internal ADC input range selection*/
+	/*0: 0.8Vpp, 1: 1.0Vpp, 2: 1.6Vpp, 3: 2.0Vpp*/
 	u8 adc_vpp;
 
-	
+	/* slave address and configuration of the tuner */
 	u8 tuner_address;
 };
 
@@ -90,6 +90,6 @@ struct dvb_frontend *lgs8gxx_attach(const struct lgs8gxx_config *config,
 	printk(KERN_WARNING "%s: driver disabled by Kconfig\n", __func__);
 	return NULL;
 }
-#endif 
+#endif /* CONFIG_DVB_LGS8GXX */
 
-#endif 
+#endif /* __LGS8GXX_H__ */

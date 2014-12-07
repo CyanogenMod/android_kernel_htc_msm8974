@@ -45,9 +45,14 @@ static const char * const processor_modes[] = {
 	"UK18", "UK19", "UK1A", "EXTN", "UK1C", "UK1D", "UK1E", "SUSR"
 };
 
+/*
+ * The idle thread, has rather strange semantics for calling pm_idle,
+ * but this is what x86 does and we need to do the same, so that
+ * things like cpuidle get called in the same way.
+ */
 void cpu_idle(void)
 {
-	
+	/* endless idle loop with no priority at all */
 	while (1) {
 		tick_nohz_idle_enter();
 		rcu_idle_enter();
@@ -81,6 +86,9 @@ void machine_halt(void)
 	gpio_set_value(GPO_SOFT_OFF, 0);
 }
 
+/*
+ * Function pointers to optional machine specific functions
+ */
 void (*pm_power_off)(void) = NULL;
 
 void machine_power_off(void)
@@ -92,30 +100,38 @@ void machine_power_off(void)
 
 void machine_restart(char *cmd)
 {
-	
+	/* Disable interrupts first */
 	local_irq_disable();
 
+	/*
+	 * Tell the mm system that we are going to reboot -
+	 * we may need it to insert some 1:1 mappings so that
+	 * soft boot works.
+	 */
 	setup_mm_for_reboot(reboot_mode);
 
-	
+	/* Clean and invalidate caches */
 	flush_cache_all();
 
-	
+	/* Turn off caching */
 	cpu_proc_fin();
 
-	
+	/* Push out any further dirty data, and ensure cache is empty */
 	flush_cache_all();
 
+	/*
+	 * Now handle reboot code.
+	 */
 	if (reboot_mode == 's') {
-		
+		/* Jump into ROM at address 0xffff0000 */
 		cpu_reset(VECTORS_BASE);
 	} else {
-		writel(0x00002001, PM_PLLSYSCFG); 
-		writel(0x00100800, PM_PLLDDRCFG); 
-		writel(0x00002001, PM_PLLVGACFG); 
+		writel(0x00002001, PM_PLLSYSCFG); /* cpu clk = 250M */
+		writel(0x00100800, PM_PLLDDRCFG); /* ddr clk =  44M */
+		writel(0x00002001, PM_PLLVGACFG); /* vga clk = 250M */
 
-		
-		
+		/* Use on-chip reset capability */
+		/* following instructions must be in one icache line */
 		__asm__ __volatile__(
 			"	.align 5\n\t"
 			"	stw	%1, [%0]\n\t"
@@ -124,7 +140,7 @@ void machine_restart(char *cmd)
 			"	bne	201b\n\t"
 			"	stw	%3, [%2]\n\t"
 			"	nop; nop; nop\n\t"
-			
+			/* prefetch 3 instructions at most */
 			:
 			: "r" (PM_PMCR),
 			  "r" (PM_PMCR_CFBSYS | PM_PMCR_CFBDDR
@@ -134,6 +150,10 @@ void machine_restart(char *cmd)
 			: "r0", "memory");
 	}
 
+	/*
+	 * Whoops - the architecture was unable to reboot.
+	 * Tell the user!
+	 */
 	mdelay(1000);
 	printk(KERN_EMERG "Reboot failed -- System halted\n");
 	do { } while (1);
@@ -214,6 +234,9 @@ void show_regs(struct pt_regs *regs)
 	__backtrace();
 }
 
+/*
+ * Free current thread data structures etc..
+ */
 void exit_thread(void)
 {
 }
@@ -257,12 +280,18 @@ copy_thread(unsigned long clone_flags, unsigned long stack_start,
 	return 0;
 }
 
+/*
+ * Fill in the task's elfregs structure for a core dump.
+ */
 int dump_task_regs(struct task_struct *t, elf_gregset_t *elfregs)
 {
 	elf_core_copy_regs(elfregs, task_pt_regs(t));
 	return 1;
 }
 
+/*
+ * fill in the fpe structure for a core dump...
+ */
 int dump_fpu(struct pt_regs *regs, elf_fpregset_t *fp)
 {
 	struct thread_info *thread = current_thread_info();
@@ -276,6 +305,11 @@ int dump_fpu(struct pt_regs *regs, elf_fpregset_t *fp)
 }
 EXPORT_SYMBOL(dump_fpu);
 
+/*
+ * Shuffle the argument into the correct register before calling the
+ * thread function.  r1 is the thread argument, r2 is the pointer to
+ * the thread function, and r3 points to the exit function.
+ */
 asm(".pushsection .text\n"
 "	.align\n"
 "	.type	kernel_thread_helper, #function\n"
@@ -287,6 +321,9 @@ asm(".pushsection .text\n"
 "	.size	kernel_thread_helper, . - kernel_thread_helper\n"
 "	.popsection");
 
+/*
+ * Create a kernel thread.
+ */
 pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 {
 	struct pt_regs regs;
@@ -313,7 +350,7 @@ unsigned long get_wchan(struct task_struct *p)
 
 	frame.fp = thread_saved_fp(p);
 	frame.sp = thread_saved_sp(p);
-	frame.lr = 0;			
+	frame.lr = 0;			/* recovered from the stack */
 	frame.pc = thread_saved_pc(p);
 	do {
 		int ret = unwind_frame(&frame);
@@ -331,6 +368,11 @@ unsigned long arch_randomize_brk(struct mm_struct *mm)
 	return randomize_range(mm->brk, range_end, 0) ? : mm->brk;
 }
 
+/*
+ * The vectors page is always readable from user space for the
+ * atomic helpers and the signal restart code.  Let's declare a mapping
+ * for it so it is visible through ptrace and /proc/<pid>/mem.
+ */
 
 int vectors_user_mapping(void)
 {

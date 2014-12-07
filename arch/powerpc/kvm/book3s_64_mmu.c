@@ -27,6 +27,7 @@
 #include <asm/kvm_ppc.h>
 #include <asm/kvm_book3s.h>
 
+/* #define DEBUG_MMU */
 
 #ifdef DEBUG_MMU
 #define dprintk(X...) printk(KERN_INFO X)
@@ -127,6 +128,8 @@ static hva_t kvmppc_mmu_book3s_64_get_pteg(
 	dprintk("MMU: page=0x%x sdr1=0x%llx pteg=0x%llx vsid=0x%llx\n",
 		page, vcpu_book3s->sdr1, pteg, slbe->vsid);
 
+	/* When running a PAPR guest, SDR1 contains a HVA address instead
+           of a GPA */
 	if (vcpu_book3s->vcpu.arch.papr_enabled)
 		r = pteg;
 	else
@@ -168,7 +171,7 @@ static int kvmppc_mmu_book3s_64_xlate(struct kvm_vcpu *vcpu, gva_t eaddr,
 	int second = 0;
 	ulong mp_ea = vcpu->arch.magic_page_ea;
 
-	
+	/* Magic page override */
 	if (unlikely(mp_ea) &&
 	    unlikely((eaddr & ~0xfffULL) == (mp_ea & ~0xfffULL)) &&
 	    !(vcpu->arch.shared->msr & MSR_PR)) {
@@ -208,14 +211,14 @@ do_second:
 		u64 v = pteg[i];
 		u64 r = pteg[i+1];
 
-		
+		/* Valid check */
 		if (!(v & HPTE_V_VALID))
 			continue;
-		
+		/* Hash check */
 		if ((v & HPTE_V_SECONDARY) != second)
 			continue;
 
-		
+		/* AVPN compare */
 		if (HPTE_V_AVPN_VAL(avpn) == HPTE_V_AVPN_VAL(v)) {
 			u8 pp = (r & HPTE_R_PP) | key;
 			int eaddr_mask = 0xFFF;
@@ -237,7 +240,7 @@ do_second:
 			case 2:
 			case 6:
 				gpte->may_write = true;
-				
+				/* fall through */
 			case 3:
 			case 5:
 			case 7:
@@ -258,21 +261,23 @@ do_second:
 		}
 	}
 
+	/* Update PTE R and C bits, so the guest's swapper knows we used the
+	 * page */
 	if (found) {
 		u32 oldr = pteg[i+1];
 
 		if (gpte->may_read) {
-			
+			/* Set the accessed flag */
 			pteg[i+1] |= HPTE_R_R;
 		}
 		if (gpte->may_write) {
-			
+			/* Set the dirty flag */
 			pteg[i+1] |= HPTE_R_C;
 		} else {
 			dprintk("KVM: Mapping read-only page!\n");
 		}
 
-		
+		/* Write back into the PTEG */
 		if (pteg[i+1] != oldr)
 			copy_to_user((void __user *)ptegp, pteg, sizeof(pteg));
 
@@ -339,7 +344,7 @@ static void kvmppc_mmu_book3s_64_slbmte(struct kvm_vcpu *vcpu, u64 rs, u64 rb)
 	slbe->orige = rb & (ESID_MASK | SLB_ESID_V);
 	slbe->origv = rs;
 
-	
+	/* Map the new segment */
 	kvmppc_mmu_map_segment(vcpu, esid << SID_SHIFT);
 }
 
@@ -405,19 +410,36 @@ static void kvmppc_mmu_book3s_64_mtsrin(struct kvm_vcpu *vcpu, u32 srnum,
 {
 	u64 rb = 0, rs = 0;
 
+	/*
+	 * According to Book3 2.01 mtsrin is implemented as:
+	 *
+	 * The SLB entry specified by (RB)32:35 is loaded from register
+	 * RS, as follows.
+	 *
+	 * SLBE Bit	Source			SLB Field
+	 *
+	 * 0:31		0x0000_0000		ESID-0:31
+	 * 32:35	(RB)32:35		ESID-32:35
+	 * 36		0b1			V
+	 * 37:61	0x00_0000|| 0b0		VSID-0:24
+	 * 62:88	(RS)37:63		VSID-25:51
+	 * 89:91	(RS)33:35		Ks Kp N
+	 * 92		(RS)36			L ((RS)36 must be 0b0)
+	 * 93		0b0			C
+	 */
 
 	dprintk("KVM MMU: mtsrin(0x%x, 0x%lx)\n", srnum, value);
 
-	
+	/* ESID = srnum */
 	rb |= (srnum & 0xf) << 28;
-	
+	/* Set the valid bit */
 	rb |= 1 << 27;
-	
+	/* Index = ESID */
 	rb |= srnum;
 
-	
+	/* VSID = VSID */
 	rs |= (value & 0xfffffff) << 12;
-	
+	/* flags = flags */
 	rs |= ((value >> 28) & 0x7) << 9;
 
 	kvmppc_mmu_book3s_64_slbmte(vcpu, rs, rb);
@@ -476,7 +498,7 @@ static int kvmppc_mmu_book3s_64_esid_to_vsid(struct kvm_vcpu *vcpu, ulong esid,
 	return 0;
 
 no_slb:
-	
+	/* Catch magic page case */
 	if (unlikely(mp_ea) &&
 	    unlikely(esid == (mp_ea >> SID_SHIFT)) &&
 	    !(vcpu->arch.shared->msr & MSR_PR)) {

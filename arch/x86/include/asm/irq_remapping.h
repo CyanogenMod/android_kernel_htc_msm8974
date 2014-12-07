@@ -12,6 +12,13 @@ static inline void prepare_irte(struct irte *irte, int vector,
 
 	irte->present = 1;
 	irte->dst_mode = apic->irq_dest_mode;
+	/*
+	 * Trigger mode in the IRTE will always be edge, and for IO-APIC, the
+	 * actual level or edge trigger will be setup in the IO-APIC
+	 * RTE. This will help simplify level triggered irq migration.
+	 * For more details, see the comments (in io_apic.c) explainig IO-APIC
+	 * irq migration in the presence of interrupt-remapping.
+	*/
 	irte->trigger_mode = 0;
 	irte->dlvry_mode = apic->irq_delivery_mode;
 	irte->vector = vector;
@@ -35,4 +42,4 @@ static inline void irq_remap_modify_chip_defaults(struct irq_chip *chip)
 }
 #endif
 
-#endif	
+#endif	/* _ASM_X86_IRQ_REMAPPING_H */

@@ -149,7 +149,7 @@ static int ili9341_panel_power_on(void)
 		pr_err("%s request te gpio failed\n", __func__);
 		return -EINVAL;
 	}
-	
+	/* wait for 20 ms after enable gpio as suggested by hw */
 	msleep(20);
 	return 0;
 }
@@ -172,49 +172,49 @@ int ili9341_on(void)
 	if (ret)
 		return ret;
 	qpic_panel_set_cmd_only(OP_SOFT_RESET);
-	
+	/* wait for 120 ms after reset as panel spec suggests */
 	msleep(120);
 	qpic_panel_set_cmd_only(OP_SET_DISPLAY_OFF);
-	
+	/* wait for 20 ms after disply off */
 	msleep(20);
 
-	
+	/* set memory access control */
 	param[0] = ((0x48)<<0) | ((0x00)<<8) | ((0x00)<<16) | ((0x00U)<<24U);
 	qpic_send_panel_cmd(OP_ILI9341_MEMORY_ACCESS_CONTROL, param, 0);
-	
+	/* wait for 20 ms after command sent as panel spec suggests */
 	msleep(20);
 
-	
+	/* set COLMOD: Pixel Format Set */
 	param[0] = ((0x66)<<0) | ((0x00)<<8) | ((0x00)<<16) | ((0x00U)<<24U);
 	qpic_send_panel_cmd(OP_ILI9341_COLMOD_PIXEL_FORMAT_SET, param, 0);
-	
+	/* wait for 20 ms after command sent as panel spec suggests */
 	msleep(20);
 
-	
+	/* set interface */
 	param[0] = ((0x01)<<0) | ((0x00)<<8) | ((0x00)<<16) | ((0x00U)<<24U);
 	qpic_send_panel_cmd(OP_ILI9341_INTERFACE_CONTROL, &param[0], 0);
-	
+	/* wait for 20 ms after command sent */
 	msleep(20);
 
-	
+	/* exit sleep mode */
 	qpic_panel_set_cmd_only(OP_EXIT_SLEEP_MODE);
-	
+	/* wait for 20 ms after command sent as panel spec suggests */
 	msleep(20);
 
-	
+	/* normal mode */
 	qpic_panel_set_cmd_only(OP_ENTER_NORMAL_MODE);
-	
+	/* wait for 20 ms after command sent as panel spec suggests */
 	msleep(20);
 
-	
+	/* display on */
 	qpic_panel_set_cmd_only(OP_SET_DISPLAY_ON);
-	
+	/* wait for 20 ms after command sent as panel spec suggests */
 	msleep(20);
 
-	
+	/* tearing effect  */
 	param[0] = ((0x00)<<0) | ((0x00)<<8) | ((0x00)<<16) | ((0x00U)<<24U);
 	qpic_send_panel_cmd(OP_ILI9341_TEARING_EFFECT_LINE_ON, param, 0);
-	
+	/* wait for 20 ms after command sent as panel spec suggests */
 	msleep(20);
 
 	return 0;

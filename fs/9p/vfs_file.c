@@ -46,6 +46,12 @@
 
 static const struct vm_operations_struct v9fs_file_vm_ops;
 
+/**
+ * v9fs_file_open - open a file (or directory)
+ * @inode: inode to be opened
+ * @file: file being opened
+ *
+ */
 
 int v9fs_file_open(struct inode *inode, struct file *file)
 {
@@ -87,6 +93,13 @@ int v9fs_file_open(struct inode *inode, struct file *file)
 	mutex_lock(&v9inode->v_mutex);
 	if (v9ses->cache && !v9inode->writeback_fid &&
 	    ((file->f_flags & O_ACCMODE) != O_RDONLY)) {
+		/*
+		 * clone a fid and add it to writeback_fid
+		 * we do it during open time instead of
+		 * page dirty time via write_begin/page_mkwrite
+		 * because we want write after unlink usecase
+		 * to work.
+		 */
 		fid = v9fs_writeback_fid(file->f_path.dentry);
 		if (IS_ERR(fid)) {
 			err = PTR_ERR(fid);
@@ -107,6 +120,15 @@ out_error:
 	return err;
 }
 
+/**
+ * v9fs_file_lock - lock a file (or directory)
+ * @filp: file to be locked
+ * @cmd: lock command
+ * @fl: file lock structure
+ *
+ * Bugs: this looks like a local only lock, we should extend into 9P
+ *       by using open exclusive
+ */
 
 static int v9fs_file_lock(struct file *filp, int cmd, struct file_lock *fl)
 {
@@ -115,7 +137,7 @@ static int v9fs_file_lock(struct file *filp, int cmd, struct file_lock *fl)
 
 	p9_debug(P9_DEBUG_VFS, "filp: %p lock: %p\n", filp, fl);
 
-	
+	/* No mandatory locks */
 	if (__mandatory_lock(inode) && fl->fl_type != F_UNLCK)
 		return -ENOLCK;
 
@@ -145,9 +167,9 @@ static int v9fs_file_do_lock(struct file *filp, int cmd, struct file_lock *fl)
 	if (res < 0)
 		goto out;
 
-	
+	/* convert posix lock to p9 tlock args */
 	memset(&flock, 0, sizeof(flock));
-	
+	/* map the lock type */
 	switch (fl->fl_type) {
 	case F_RDLCK:
 		flock.type = P9_LOCK_TYPE_RDLCK;
@@ -169,6 +191,10 @@ static int v9fs_file_do_lock(struct file *filp, int cmd, struct file_lock *fl)
 	if (IS_SETLKW(cmd))
 		flock.flags = P9_LOCK_FLAGS_BLOCK;
 
+	/*
+	 * if its a blocked request and we get P9_LOCK_BLOCKED as the status
+	 * for lock request, keep on trying
+	 */
 	for (;;) {
 		res = p9_client_lock_dotl(fid, &flock, &status);
 		if (res < 0)
@@ -182,7 +208,7 @@ static int v9fs_file_do_lock(struct file *filp, int cmd, struct file_lock *fl)
 			break;
 	}
 
-	
+	/* map 9p status to VFS status */
 	switch (status) {
 	case P9_LOCK_SUCCESS:
 		res = 0;
@@ -198,6 +224,10 @@ static int v9fs_file_do_lock(struct file *filp, int cmd, struct file_lock *fl)
 		BUG();
 	}
 
+	/*
+	 * incase server returned error for lock request, revert
+	 * it locally
+	 */
 	if (res < 0 && fl->fl_type != F_UNLCK) {
 		fl_type = fl->fl_type;
 		fl->fl_type = F_UNLCK;
@@ -218,10 +248,14 @@ static int v9fs_file_getlock(struct file *filp, struct file_lock *fl)
 	BUG_ON(fid == NULL);
 
 	posix_test_lock(filp, fl);
+	/*
+	 * if we have a conflicting lock locally, no need to validate
+	 * with server
+	 */
 	if (fl->fl_type != F_UNLCK)
 		return res;
 
-	
+	/* convert posix lock to p9 tgetlock args */
 	memset(&glock, 0, sizeof(glock));
 	glock.type  = P9_LOCK_TYPE_UNLCK;
 	glock.start = fl->fl_start;
@@ -235,7 +269,7 @@ static int v9fs_file_getlock(struct file *filp, struct file_lock *fl)
 	res = p9_client_getlock_dotl(fid, &glock);
 	if (res < 0)
 		return res;
-	
+	/* map 9p lock type to os lock type */
 	switch (glock.type) {
 	case P9_LOCK_TYPE_RDLCK:
 		fl->fl_type = F_RDLCK;
@@ -258,6 +292,13 @@ static int v9fs_file_getlock(struct file *filp, struct file_lock *fl)
 	return res;
 }
 
+/**
+ * v9fs_file_lock_dotl - lock a file (or directory)
+ * @filp: file to be locked
+ * @cmd: lock command
+ * @fl: file lock structure
+ *
+ */
 
 static int v9fs_file_lock_dotl(struct file *filp, int cmd, struct file_lock *fl)
 {
@@ -267,7 +308,7 @@ static int v9fs_file_lock_dotl(struct file *filp, int cmd, struct file_lock *fl)
 	p9_debug(P9_DEBUG_VFS, "filp: %p cmd:%d lock: %p name: %s\n",
 		 filp, cmd, fl, filp->f_path.dentry->d_name.name);
 
-	
+	/* No mandatory locks */
 	if (__mandatory_lock(inode) && fl->fl_type != F_UNLCK)
 		goto out_err;
 
@@ -286,6 +327,13 @@ out_err:
 	return ret;
 }
 
+/**
+ * v9fs_file_flock_dotl - lock a file
+ * @filp: file to be locked
+ * @cmd: lock command
+ * @fl: file lock structure
+ *
+ */
 
 static int v9fs_file_flock_dotl(struct file *filp, int cmd,
 	struct file_lock *fl)
@@ -296,7 +344,7 @@ static int v9fs_file_flock_dotl(struct file *filp, int cmd,
 	p9_debug(P9_DEBUG_VFS, "filp: %p cmd:%d lock: %p name: %s\n",
 		 filp, cmd, fl, filp->f_path.dentry->d_name.name);
 
-	
+	/* No mandatory locks */
 	if (__mandatory_lock(inode) && fl->fl_type != F_UNLCK)
 		goto out_err;
 
@@ -307,7 +355,7 @@ static int v9fs_file_flock_dotl(struct file *filp, int cmd,
 		filemap_write_and_wait(inode->i_mapping);
 		invalidate_mapping_pages(&inode->i_data, 0, -1);
 	}
-	
+	/* Convert flock to posix lock */
 	fl->fl_owner = (fl_owner_t)filp;
 	fl->fl_start = 0;
 	fl->fl_end = OFFSET_MAX;
@@ -322,6 +370,15 @@ out_err:
 	return ret;
 }
 
+/**
+ * v9fs_fid_readn - read from a fid
+ * @fid: fid to read
+ * @data: data buffer to read data into
+ * @udata: user data buffer to read data into
+ * @count: size of buffer
+ * @offset: offset at which to read data
+ *
+ */
 ssize_t
 v9fs_fid_readn(struct p9_fid *fid, char *data, char __user *udata, u32 count,
 	       u64 offset)
@@ -354,6 +411,15 @@ v9fs_fid_readn(struct p9_fid *fid, char *data, char __user *udata, u32 count,
 	return total;
 }
 
+/**
+ * v9fs_file_readn - read from a file
+ * @filp: file pointer to read
+ * @data: data buffer to read data into
+ * @udata: user data buffer to read data into
+ * @count: size of buffer
+ * @offset: offset at which to read data
+ *
+ */
 ssize_t
 v9fs_file_readn(struct file *filp, char *data, char __user *udata, u32 count,
 	       u64 offset)
@@ -361,6 +427,14 @@ v9fs_file_readn(struct file *filp, char *data, char __user *udata, u32 count,
 	return v9fs_fid_readn(filp->private_data, data, udata, count, offset);
 }
 
+/**
+ * v9fs_file_read - read from a file
+ * @filp: file pointer to read
+ * @udata: user data buffer to read data into
+ * @count: size of buffer
+ * @offset: offset at which to read data
+ *
+ */
 
 static ssize_t
 v9fs_file_read(struct file *filp, char __user *udata, size_t count,
@@ -428,6 +502,14 @@ v9fs_file_write_internal(struct inode *inode, struct p9_fid *fid,
 	return total;
 }
 
+/**
+ * v9fs_file_write - write to a file
+ * @filp: file pointer to write
+ * @data: data buffer to write data from
+ * @count: size of buffer
+ * @offset: offset at which to write data
+ *
+ */
 static ssize_t
 v9fs_file_write(struct file *filp, const char __user * data,
 		size_t count, loff_t *offset)
@@ -450,7 +532,7 @@ v9fs_file_write(struct file *filp, const char __user * data,
 	retval = v9fs_file_write_internal(filp->f_path.dentry->d_inode,
 					filp->private_data,
 					data, count, &origin, 1);
-	
+	/* update offset on successful write */
 	if (retval > 0)
 		*offset = origin;
 out:
@@ -529,7 +611,7 @@ v9fs_vm_page_mkwrite(struct vm_area_struct *vma, struct vm_fault *vmf)
 		 page, (unsigned long)filp->private_data);
 
 	v9inode = V9FS_I(inode);
-	
+	/* make sure the cache has finished storing the page */
 	v9fs_fscache_wait_on_page_write(inode, page);
 	BUG_ON(!v9inode->writeback_fid);
 	lock_page(page);
@@ -563,6 +645,14 @@ v9fs_direct_read(struct file *filp, char __user *udata, size_t count,
 	return v9fs_file_read(filp, udata, count, offsetp);
 }
 
+/**
+ * v9fs_cached_file_read - read from a file
+ * @filp: file pointer to read
+ * @udata: user data buffer to read data into
+ * @count: size of buffer
+ * @offset: offset at which to read data
+ *
+ */
 static ssize_t
 v9fs_cached_file_read(struct file *filp, char __user *data, size_t count,
 		      loff_t *offset)
@@ -592,12 +682,22 @@ v9fs_direct_write(struct file *filp, const char __user * data,
 					      offset + count - 1);
 	if (retval)
 		goto err_out;
+	/*
+	 * After a write we want buffered reads to be sure to go to disk to get
+	 * the new data.  We invalidate clean cached page from the region we're
+	 * about to write.  We do this *before* the write so that if we fail
+	 * here we fall back to buffered write
+	 */
 	if (mapping->nrpages) {
 		pgoff_t pg_start = offset >> PAGE_CACHE_SHIFT;
 		pgoff_t pg_end   = (offset + count - 1) >> PAGE_CACHE_SHIFT;
 
 		retval = invalidate_inode_pages2_range(mapping,
 							pg_start, pg_end);
+		/*
+		 * If a page can not be invalidated, fall back
+		 * to buffered write.
+		 */
 		if (retval) {
 			if (retval == -EBUSY)
 				goto buff_write;
@@ -614,6 +714,14 @@ buff_write:
 	return do_sync_write(filp, data, count, offsetp);
 }
 
+/**
+ * v9fs_cached_file_write - write to a file
+ * @filp: file pointer to write
+ * @data: data buffer to write data from
+ * @count: size of buffer
+ * @offset: offset at which to write data
+ *
+ */
 static ssize_t
 v9fs_cached_file_write(struct file *filp, const char __user * data,
 		       size_t count, loff_t *offset)

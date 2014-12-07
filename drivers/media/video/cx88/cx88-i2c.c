@@ -51,6 +51,7 @@ MODULE_PARM_DESC(i2c_udelay,"i2c delay at insmod time, in usecs "
 #define dprintk(level,fmt, arg...)	if (i2c_debug >= level) \
 	printk(KERN_DEBUG "%s: " fmt, core->name , ## arg)
 
+/* ----------------------------------------------------------------------- */
 
 static void cx8800_bit_setscl(void *data, int state)
 {
@@ -94,6 +95,7 @@ static int cx8800_bit_getsda(void *data)
 	return state & 0x01;
 }
 
+/* ----------------------------------------------------------------------- */
 
 static const struct i2c_algo_bit_data cx8800_i2c_algo_template = {
 	.setsda  = cx8800_bit_setsda,
@@ -104,6 +106,7 @@ static const struct i2c_algo_bit_data cx8800_i2c_algo_template = {
 	.timeout = 200,
 };
 
+/* ----------------------------------------------------------------------- */
 
 static const char * const i2c_devs[128] = {
 	[ 0x1c >> 1 ] = "lgdt330x",
@@ -129,9 +132,10 @@ static void do_i2c_scan(const char *name, struct i2c_client *c)
 	}
 }
 
+/* init + register i2c adapter */
 int cx88_i2c_init(struct cx88_core *core, struct pci_dev *pci)
 {
-	
+	/* Prevents usage of invalid delay values */
 	if (i2c_udelay<5)
 		i2c_udelay=5;
 

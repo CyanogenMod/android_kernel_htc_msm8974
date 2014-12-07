@@ -19,25 +19,35 @@
 #ifndef __BTRFS_ORDERED_DATA__
 #define __BTRFS_ORDERED_DATA__
 
+/* one of these per inode */
 struct btrfs_ordered_inode_tree {
 	spinlock_t lock;
 	struct rb_root tree;
 	struct rb_node *last;
 };
 
+/*
+ * these are used to collect checksums done just before bios submission.
+ * They are attached via a list into the ordered extent, and
+ * checksum items are inserted into the tree after all the blocks in
+ * the ordered extent are on disk
+ */
 struct btrfs_sector_sum {
-	
+	/* bytenr on disk */
 	u64 bytenr;
 	u32 sum;
 };
 
 struct btrfs_ordered_sum {
-	
+	/* bytenr is the start of this extent on disk */
 	u64 bytenr;
 
+	/*
+	 * this is the length in bytes covered by the sums array below.
+	 */
 	unsigned long len;
 	struct list_head list;
-	
+	/* last field is a variable length array of btrfs_sector_sums */
 	struct btrfs_sector_sum sums[];
 };
 
@@ -54,58 +64,62 @@ struct btrfs_ordered_sum {
  */
 #define BTRFS_ORDERED_IO_DONE 0 /* set when all the pages are written */
 
-#define BTRFS_ORDERED_COMPLETE 1 
+#define BTRFS_ORDERED_COMPLETE 1 /* set when removed from the tree */
 
-#define BTRFS_ORDERED_NOCOW 2 
+#define BTRFS_ORDERED_NOCOW 2 /* set when we want to write in place */
 
-#define BTRFS_ORDERED_COMPRESSED 3 
+#define BTRFS_ORDERED_COMPRESSED 3 /* writing a zlib compressed extent */
 
-#define BTRFS_ORDERED_PREALLOC 4 
+#define BTRFS_ORDERED_PREALLOC 4 /* set when writing to prealloced extent */
 
-#define BTRFS_ORDERED_DIRECT 5 
+#define BTRFS_ORDERED_DIRECT 5 /* set when we're doing DIO with this extent */
 
 struct btrfs_ordered_extent {
-	
+	/* logical offset in the file */
 	u64 file_offset;
 
-	
+	/* disk byte number */
 	u64 start;
 
-	
+	/* ram length of the extent in bytes */
 	u64 len;
 
-	
+	/* extent length on disk */
 	u64 disk_len;
 
-	
+	/* number of bytes that still need writing */
 	u64 bytes_left;
 
-	
+	/* flags (described above) */
 	unsigned long flags;
 
-	
+	/* compression algorithm */
 	int compress_type;
 
-	
+	/* reference count */
 	atomic_t refs;
 
-	
+	/* the inode we belong to */
 	struct inode *inode;
 
-	
+	/* list of checksums for insertion when the extent io is done */
 	struct list_head list;
 
-	
+	/* used to wait for the BTRFS_ORDERED_COMPLETE bit */
 	wait_queue_head_t wait;
 
-	
+	/* our friendly rbtree entry */
 	struct rb_node rb_node;
 
-	
+	/* a per root list of all the pending ordered extents */
 	struct list_head root_extent_list;
 };
 
 
+/*
+ * calculates the total size you need to allocate for an ordered sum
+ * structure spanning 'bytes' in the file
+ */
 static inline int btrfs_ordered_sum_size(struct btrfs_root *root,
 					 unsigned long bytes)
 {

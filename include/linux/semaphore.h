@@ -12,6 +12,7 @@
 #include <linux/list.h>
 #include <linux/spinlock.h>
 
+/* Please don't access any members of this structure directly */
 struct semaphore {
 	raw_spinlock_t		lock;
 	unsigned int		count;
@@ -42,4 +43,4 @@ extern int __must_check down_trylock(struct semaphore *sem);
 extern int __must_check down_timeout(struct semaphore *sem, long jiffies);
 extern void up(struct semaphore *sem);
 
-#endif 
+#endif /* __LINUX_SEMAPHORE_H */

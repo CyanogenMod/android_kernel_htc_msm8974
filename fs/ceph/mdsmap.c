@@ -13,20 +13,23 @@
 #include "super.h"
 
 
+/*
+ * choose a random mds that is "up" (i.e. has a state > 0), or -1.
+ */
 int ceph_mdsmap_get_random_mds(struct ceph_mdsmap *m)
 {
 	int n = 0;
 	int i;
 	char r;
 
-	
+	/* count */
 	for (i = 0; i < m->m_max_mds; i++)
 		if (m->m_info[i].state > 0)
 			n++;
 	if (n == 0)
 		return -1;
 
-	
+	/* pick */
 	get_random_bytes(&r, 1);
 	n = r % n;
 	i = 0;
@@ -37,6 +40,12 @@ int ceph_mdsmap_get_random_mds(struct ceph_mdsmap *m)
 	return i;
 }
 
+/*
+ * Decode an MDS map
+ *
+ * Ignore any fields we don't care about (there are quite a few of
+ * them).
+ */
 struct ceph_mdsmap *ceph_mdsmap_decode(void **p, void *end)
 {
 	struct ceph_mdsmap *m;
@@ -65,7 +74,7 @@ struct ceph_mdsmap *ceph_mdsmap_decode(void **p, void *end)
 	if (m->m_info == NULL)
 		goto badmem;
 
-	
+	/* pick out active nodes from mds_info (state > 0) */
 	n = ceph_decode_32(p);
 	for (i = 0; i < n; i++) {
 		u64 global_id;
@@ -82,7 +91,7 @@ struct ceph_mdsmap *ceph_mdsmap_decode(void **p, void *end)
 		global_id = ceph_decode_64(p);
 		infoversion = ceph_decode_8(p);
 		*p += sizeof(u64);
-		namelen = ceph_decode_32(p);  
+		namelen = ceph_decode_32(p);  /* skip mds name */
 		*p += namelen;
 
 		ceph_decode_need(p, end,
@@ -132,7 +141,7 @@ struct ceph_mdsmap *ceph_mdsmap_decode(void **p, void *end)
 		}
 	}
 
-	
+	/* pg_pools */
 	ceph_decode_32_safe(p, end, n, bad);
 	m->m_num_data_pg_pools = n;
 	m->m_data_pg_pools = kcalloc(n, sizeof(u32), GFP_NOFS);
@@ -143,7 +152,7 @@ struct ceph_mdsmap *ceph_mdsmap_decode(void **p, void *end)
 		m->m_data_pg_pools[i] = ceph_decode_32(p);
 	m->m_cas_pg_pool = ceph_decode_32(p);
 
-	
+	/* ok, we don't care about the rest. */
 	dout("mdsmap_decode success epoch %u\n", m->m_epoch);
 	return m;
 

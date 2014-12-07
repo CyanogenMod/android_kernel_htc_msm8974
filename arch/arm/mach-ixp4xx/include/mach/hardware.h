@@ -10,6 +10,9 @@
  *
  */
 
+/*
+ * Hardware definitions for IXP4xx based systems
+ */
 
 #ifndef __ASM_ARCH_HARDWARE_H__
 #define __ASM_ARCH_HARDWARE_H__
@@ -20,12 +23,14 @@
 #define PCIBIOS_MAX_MEM		0x4BFFFFFF
 #endif
 
+/* Register locations and bits */
 #include "ixp4xx-regs.h"
 
 #ifndef __ASSEMBLER__
 #include <mach/cpu.h>
 #endif
 
+/* Platform helper functions and definitions */
 #include "platform.h"
 
-#endif  
+#endif  /* _ASM_ARCH_HARDWARE_H */

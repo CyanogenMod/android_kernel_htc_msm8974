@@ -182,12 +182,12 @@ static void _rtl92de_query_rxphystatus(struct ieee80211_hw *hw,
 			}
 		}
 		pwdb_all = _rtl92d_query_rxpwrpercentage(rx_pwr_all);
-		
-		
+		/* CCK gain is smaller than OFDM/MCS gain,  */
+		/* so we add gain diff by experiences, the val is 6 */
 		pwdb_all += 6;
 		if (pwdb_all > 100)
 			pwdb_all = 100;
-		
+		/* modify the offset to make the same gain index with OFDM. */
 		if (pwdb_all > 34 && pwdb_all <= 42)
 			pwdb_all -= 2;
 		else if (pwdb_all > 26 && pwdb_all <= 34)
@@ -528,9 +528,9 @@ bool rtl92de_rx_query_desc(struct ieee80211_hw *hw,	struct rtl_stats *stats,
 						   skb, stats, pdesc,
 						   p_drvinfo);
 	}
-	
+	/*rx_status->qual = stats->signal; */
 	rx_status->signal = stats->rssi + 10;
-	
+	/*rx_status->noise = -stats->noise; */
 	return true;
 }
 
@@ -582,7 +582,7 @@ void rtl92de_tx_fill_desc(struct ieee80211_hw *hw,
 	}
 	seq_number = (le16_to_cpu(hdr->seq_ctrl) & IEEE80211_SCTL_SEQ) >> 4;
 	rtl_get_tcb_desc(hw, info, sta, skb, ptcb_desc);
-	
+	/* reserve 8 byte for AMPDU early mode */
 	if (rtlhal->earlymode_enable) {
 		skb_push(skb, EM_HDR_LEN);
 		memset(skb->data, 0, EM_HDR_LEN);
@@ -610,7 +610,7 @@ void rtl92de_tx_fill_desc(struct ieee80211_hw *hw,
 		} else {
 			SET_TX_DESC_OFFSET(pdesc, USB_HWDESC_HEADER_LEN);
 		}
-		
+		/* 5G have no CCK rate */
 		if (rtlhal->current_bandtype == BAND_ON_5G)
 			if (ptcb_desc->hw_rate < DESC92_RATE6M)
 				ptcb_desc->hw_rate = DESC92_RATE6M;
@@ -633,7 +633,7 @@ void rtl92de_tx_fill_desc(struct ieee80211_hw *hw,
 					  || ptcb_desc->cts_enable) ? 1 : 0));
 		SET_TX_DESC_CTS2SELF(pdesc, ((ptcb_desc->cts_enable) ? 1 : 0));
 		SET_TX_DESC_RTS_STBC(pdesc, ((ptcb_desc->rts_stbc) ? 1 : 0));
-		
+		/* 5G have no CCK rate */
 		if (rtlhal->current_bandtype == BAND_ON_5G)
 			if (ptcb_desc->rts_rate < DESC92_RATE6M)
 				ptcb_desc->rts_rate = DESC92_RATE6M;
@@ -690,12 +690,12 @@ void rtl92de_tx_fill_desc(struct ieee80211_hw *hw,
 				       1 : 0);
 		SET_TX_DESC_USE_RATE(pdesc, ptcb_desc->use_driver_rate ? 1 : 0);
 
-		
-		
+		/* Set TxRate and RTSRate in TxDesc  */
+		/* This prevent Tx initial rate of new-coming packets */
 		/* from being overwritten by retried  packet rate.*/
 		if (!ptcb_desc->use_driver_rate) {
 			SET_TX_DESC_RTS_RATE(pdesc, 0x08);
-			
+			/* SET_TX_DESC_TX_RATE(pdesc, 0x0b); */
 		}
 		if (ieee80211_is_data_qos(fc)) {
 			if (mac->rdg_en) {
@@ -746,6 +746,10 @@ void rtl92de_tx_fill_cmddesc(struct ieee80211_hw *hw,
 	CLEAR_PCI_TX_DESC_CONTENT(pdesc, TX_DESC_SIZE);
 	if (firstseg)
 		SET_TX_DESC_OFFSET(pdesc, USB_HWDESC_HEADER_LEN);
+	/* 5G have no CCK rate
+	 * Caution: The macros below are multi-line expansions.
+	 * The braces are needed no matter what checkpatch says
+	 */
 	if (rtlhal->current_bandtype == BAND_ON_5G) {
 		SET_TX_DESC_TX_RATE(pdesc, DESC92_RATE6M);
 	} else {

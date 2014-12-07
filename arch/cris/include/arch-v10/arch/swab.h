@@ -6,6 +6,10 @@
 
 #define __SWAB_64_THRU_32__
 
+/* we just define these two (as we can do the swap in a single
+ * asm instruction in CRIS) and the arch-independent files will put
+ * them together into ntohl etc.
+ */
 
 static inline __attribute_const__ __u32 __arch_swab32(__u32 x)
 {

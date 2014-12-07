@@ -15,6 +15,9 @@
 
 #include <crypto/hash.h>
 
+/*
+ * Prototypes for WLAN Security Interface Functions
+ */
 
 extern struct crypto_ahash *
 wcnss_wlan_crypto_alloc_ahash(const char *alg_name, u32 type, u32 mask);
@@ -27,4 +30,4 @@ extern struct crypto_ablkcipher *
 wcnss_wlan_crypto_alloc_ablkcipher(const char *alg_name, u32 type, u32 mask);
 extern void wcnss_wlan_ablkcipher_request_free(struct ablkcipher_request *req);
 
-#endif 
+#endif /* __QCOM_WLAN_SECIF_H__ */

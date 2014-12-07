@@ -24,10 +24,10 @@
 #include "devices-imx27.h"
 
 static const int mx27ipcam_pins[] __initconst = {
-	
+	/* UART1 */
 	PE12_PF_UART1_TXD,
 	PE13_PF_UART1_RXD,
-	
+	/* FEC */
 	PD0_AIN_FEC_TXD0,
 	PD1_AIN_FEC_TXD1,
 	PD2_AIN_FEC_TXD2,
@@ -70,7 +70,7 @@ static struct sys_timer mx27ipcam_timer = {
 };
 
 MACHINE_START(IMX27IPCAM, "Freescale IMX27IPCAM")
-	
+	/* maintainer: Freescale Semiconductor, Inc. */
 	.atag_offset = 0x100,
 	.map_io = mx27_map_io,
 	.init_early = imx27_init_early,

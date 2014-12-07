@@ -35,6 +35,11 @@
 #include <linux/types.h>
 #include <linux/ptrace.h>
 
+/*
+ * This routine handles page faults.  It determines the address,
+ * and the problem, and then passes it off to one of the appropriate
+ * routines.
+ */
 asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long write,
 				unsigned long address)
 {
@@ -47,6 +52,15 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long write,
 
 	info.si_code = SEGV_MAPERR;
 
+	/*
+	* We fault-in kernel-space virtual memory on-demand. The
+	* 'reference' page table is init_mm.pgd.
+	*
+	* NOTE! We MUST NOT take any locks for this case. We may
+	* be in an interrupt or a critical region, and should
+	* only copy the information from the master page table,
+	* nothing more.
+	*/
 	if (unlikely(address >= VMALLOC_START && address <= VMALLOC_END))
 		goto vmalloc_fault;
 #ifdef MODULE_START
@@ -54,6 +68,10 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long write,
 		goto vmalloc_fault;
 #endif
 
+	/*
+	* If we're in an interrupt or have no user
+	* context, we must not take the fault..
+	*/
 	if (in_atomic() || !mm)
 		goto bad_area_nosemaphore;
 
@@ -67,6 +85,10 @@ asmlinkage void do_page_fault(struct pt_regs *regs, unsigned long write,
 		goto bad_area;
 	if (expand_stack(vma, address))
 		goto bad_area;
+	/*
+	* Ok, we have a good vm_area for this memory access, so
+	* we can handle it..
+	 */
 good_area:
 	info.si_code = SEGV_ACCERR;
 
@@ -79,6 +101,11 @@ good_area:
 	}
 
 survive:
+	/*
+	* If for any reason at all we couldn't handle the fault,
+	* make sure we exit gracefully rather than endlessly redo
+	* the fault.
+	*/
 	fault = handle_mm_fault(mm, vma, address, write);
 	if (unlikely(fault & VM_FAULT_ERROR)) {
 		if (fault & VM_FAULT_OOM)
@@ -95,29 +122,37 @@ survive:
 	up_read(&mm->mmap_sem);
 	return;
 
+	/*
+	* Something tried to access memory that isn't in our memory map..
+	* Fix it, but check if it's kernel or user first..
+	 */
 bad_area:
 	up_read(&mm->mmap_sem);
 
 bad_area_nosemaphore:
-	
+	/* User mode accesses just cause a SIGSEGV */
 	if (user_mode(regs)) {
 		tsk->thread.cp0_badvaddr = address;
 		tsk->thread.error_code = write;
 		info.si_signo = SIGSEGV;
 		info.si_errno = 0;
-		
+		/* info.si_code has been set above */
 		info.si_addr = (void __user *) address;
 		force_sig_info(SIGSEGV, &info, tsk);
 		return;
 	}
 
 no_context:
-	
+	/* Are we prepared to handle this kernel fault? */
 	if (fixup_exception(regs)) {
 		current->thread.cp0_baduaddr = address;
 		return;
 	}
 
+	/*
+	* Oops. The kernel tried to access some bad page. We'll have to
+	* terminate things with extreme prejudice.
+	*/
 	bust_spinlocks(1);
 
 	printk(KERN_ALERT "CPU %d Unable to handle kernel paging request at "
@@ -126,6 +161,10 @@ no_context:
 			field, regs->regs[3]);
 	die("Oops", regs);
 
+	/*
+	* We ran out of memory, or some other thing happened to us that made
+	* us unable to handle the page fault gracefully.
+	*/
 out_of_memory:
 	up_read(&mm->mmap_sem);
 	if (is_global_init(tsk)) {
@@ -140,10 +179,14 @@ out_of_memory:
 
 do_sigbus:
 	up_read(&mm->mmap_sem);
-	
+	/* Kernel mode? Handle exceptions or die */
 	if (!user_mode(regs))
 		goto no_context;
 	else
+	/*
+	* Send a sigbus, regardless of whether we were in kernel
+	* or user mode.
+	*/
 	tsk->thread.cp0_badvaddr = address;
 	info.si_signo = SIGBUS;
 	info.si_errno = 0;
@@ -153,6 +196,13 @@ do_sigbus:
 	return;
 vmalloc_fault:
 	{
+		/*
+		* Synchronize this task's top level page-table
+		* with the 'reference' page table.
+		*
+		* Do _not_ use "tsk" here. We might be inside
+		* an interrupt in the middle of a task switch..
+		*/
 		int offset = __pgd_offset(address);
 		pgd_t *pgd, *pgd_k;
 		pud_t *pud, *pud_k;

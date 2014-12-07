@@ -10,6 +10,7 @@
  * Copyright (C) 2001 - 2005 Tensilica Inc.
  */
 
+/* We should optimize these. See arch/xtensa/lib/strncpy_user.S */
 
 #ifndef _XTENSA_STRING_H
 #define _XTENSA_STRING_H
@@ -114,6 +115,7 @@ extern void *memcpy(void *__to, __const__ void *__from, size_t __n);
 #define __HAVE_ARCH_MEMMOVE
 extern void *memmove(void *__dest, __const__ void *__src, size_t __n);
 
+/* Don't build bcopy at all ...  */
 #define __HAVE_ARCH_BCOPY
 
-#endif	
+#endif	/* _XTENSA_STRING_H */

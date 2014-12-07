@@ -1,3 +1,6 @@
+/*
+ * Platform data definitions for Atmel USBA gadget driver.
+ */
 #ifndef __LINUX_USB_USBA_H
 #define __LINUX_USB_USBA_H
 
@@ -17,4 +20,4 @@ struct usba_platform_data {
 	struct usba_ep_data	ep[0];
 };
 
-#endif 
+#endif /* __LINUX_USB_USBA_H */

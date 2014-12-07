@@ -83,7 +83,7 @@ static struct s5p_jpeg_fmt formats_dec[] = {
 #define NUM_FORMATS_DEC ARRAY_SIZE(formats_dec)
 
 static const unsigned char qtbl_luminance[4][64] = {
-	{
+	{/* level 1 - high quality */
 		 8,  6,  6,  8, 12, 14, 16, 17,
 		 6,  6,  6,  8, 10, 13, 12, 15,
 		 6,  6,  7,  8, 13, 14, 18, 24,
@@ -93,7 +93,7 @@ static const unsigned char qtbl_luminance[4][64] = {
 		16, 12, 18, 24, 34, 39, 39, 39,
 		17, 15, 24, 35, 39, 39, 39, 39
 	},
-	{
+	{/* level 2 */
 		12,  8,  8, 12, 17, 21, 24, 23,
 		 8,  9,  9, 11, 15, 19, 18, 23,
 		 8,  9, 10, 12, 19, 20, 27, 36,
@@ -103,7 +103,7 @@ static const unsigned char qtbl_luminance[4][64] = {
 		24, 18, 27, 36, 51, 59, 59, 59,
 		23, 23, 36, 53, 59, 59, 59, 59
 	},
-	{
+	{/* level 3 */
 		16, 11, 11, 16, 23, 27, 31, 30,
 		11, 12, 12, 15, 20, 23, 23, 30,
 		11, 12, 13, 16, 23, 26, 35, 47,
@@ -113,7 +113,7 @@ static const unsigned char qtbl_luminance[4][64] = {
 		31, 23, 35, 47, 64, 64, 64, 64,
 		30, 30, 47, 64, 64, 64, 64, 64
 	},
-	{
+	{/*level 4 - low quality */
 		20, 16, 25, 39, 50, 46, 62, 68,
 		16, 18, 23, 38, 38, 53, 65, 68,
 		25, 23, 31, 38, 53, 65, 68, 68,
@@ -126,7 +126,7 @@ static const unsigned char qtbl_luminance[4][64] = {
 };
 
 static const unsigned char qtbl_chrominance[4][64] = {
-	{
+	{/* level 1 - high quality */
 		 9,  8,  9, 11, 14, 17, 19, 24,
 		 8, 10,  9, 11, 14, 13, 17, 22,
 		 9,  9, 13, 14, 13, 15, 23, 26,
@@ -136,7 +136,7 @@ static const unsigned char qtbl_chrominance[4][64] = {
 		19, 17, 23, 26, 33, 39, 39, 39,
 		24, 22, 26, 33, 39, 39, 39, 39
 	},
-	{
+	{/* level 2 */
 		13, 11, 13, 16, 20, 20, 29, 37,
 		11, 14, 14, 14, 16, 20, 26, 32,
 		13, 14, 15, 17, 20, 23, 35, 40,
@@ -146,7 +146,7 @@ static const unsigned char qtbl_chrominance[4][64] = {
 		29, 26, 35, 40, 50, 59, 59, 59,
 		37, 32, 40, 50, 59, 59, 59, 59
 	},
-	{
+	{/* level 3 */
 		17, 15, 17, 21, 20, 26, 38, 48,
 		15, 19, 18, 17, 20, 26, 35, 43,
 		17, 18, 20, 22, 26, 30, 46, 53,
@@ -156,7 +156,7 @@ static const unsigned char qtbl_chrominance[4][64] = {
 		38, 35, 46, 53, 64, 64, 64, 64,
 		48, 43, 53, 64, 64, 64, 64, 64
 	},
-	{
+	{/*level 4 - low quality */
 		21, 25, 32, 38, 54, 68, 68, 68,
 		25, 28, 24, 38, 54, 68, 68, 68,
 		32, 24, 32, 43, 66, 68, 68, 68,
@@ -223,14 +223,14 @@ static inline void jpeg_set_qtbl(void __iomem *regs, const unsigned char *qtbl,
 
 static inline void jpeg_set_qtbl_lum(void __iomem *regs, int quality)
 {
-	
+	/* this driver fills quantisation table 0 with data for luma */
 	jpeg_set_qtbl(regs, qtbl_luminance[quality], S5P_JPG_QTBL_CONTENT(0),
 		      ARRAY_SIZE(qtbl_luminance[quality]));
 }
 
 static inline void jpeg_set_qtbl_chr(void __iomem *regs, int quality)
 {
-	
+	/* this driver fills quantisation table 1 with data for chroma */
 	jpeg_set_qtbl(regs, qtbl_chrominance[quality], S5P_JPG_QTBL_CONTENT(1),
 		      ARRAY_SIZE(qtbl_chrominance[quality]));
 }
@@ -246,28 +246,33 @@ static inline void jpeg_set_htbl(void __iomem *regs, const unsigned char *htbl,
 
 static inline void jpeg_set_hdctbl(void __iomem *regs)
 {
-	
+	/* this driver fills table 0 for this component */
 	jpeg_set_htbl(regs, hdctbl0, S5P_JPG_HDCTBL(0), ARRAY_SIZE(hdctbl0));
 }
 
 static inline void jpeg_set_hdctblg(void __iomem *regs)
 {
-	
+	/* this driver fills table 0 for this component */
 	jpeg_set_htbl(regs, hdctblg0, S5P_JPG_HDCTBLG(0), ARRAY_SIZE(hdctblg0));
 }
 
 static inline void jpeg_set_hactbl(void __iomem *regs)
 {
-	
+	/* this driver fills table 0 for this component */
 	jpeg_set_htbl(regs, hactbl0, S5P_JPG_HACTBL(0), ARRAY_SIZE(hactbl0));
 }
 
 static inline void jpeg_set_hactblg(void __iomem *regs)
 {
-	
+	/* this driver fills table 0 for this component */
 	jpeg_set_htbl(regs, hactblg0, S5P_JPG_HACTBLG(0), ARRAY_SIZE(hactblg0));
 }
 
+/*
+ * ============================================================================
+ * Device file operations
+ * ============================================================================
+ */
 
 static int queue_init(void *priv, struct vb2_queue *src_vq,
 		      struct vb2_queue *dst_vq);
@@ -288,7 +293,7 @@ static int s5p_jpeg_open(struct file *file)
 		return -ENOMEM;
 
 	v4l2_fh_init(&ctx->fh, vfd);
-	
+	/* Use separate control handler per file handle */
 	ctx->fh.ctrl_handler = &ctx->ctrl_handler;
 	file->private_data = &ctx->fh;
 	v4l2_fh_add(&ctx->fh);
@@ -360,6 +365,11 @@ static const struct v4l2_file_operations s5p_jpeg_fops = {
 	.mmap		= s5p_jpeg_mmap,
 };
 
+/*
+ * ============================================================================
+ * video ioctl operations
+ * ============================================================================
+ */
 
 static int get_byte(struct s5p_jpeg_buffer *buf)
 {
@@ -422,7 +432,7 @@ static bool s5p_jpeg_parse_hdr(struct s5p_jpeg_q_data *result,
 			continue;
 		length = 0;
 		switch (c) {
-		
+		/* SOF0: baseline JPEG */
 		case SOF0:
 			if (get_word_be(&jpeg_buffer, &word))
 				break;
@@ -440,14 +450,14 @@ static bool s5p_jpeg_parse_hdr(struct s5p_jpeg_q_data *result,
 			skip(&jpeg_buffer, components * 3);
 			break;
 
-		
+		/* skip payload-less markers */
 		case RST ... RST + 7:
 		case SOI:
 		case EOI:
 		case TEM:
 			break;
 
-		
+		/* skip uninteresting payload markers */
 		default:
 			if (get_word_be(&jpeg_buffer, &word))
 				break;
@@ -492,14 +502,16 @@ static int enum_fmt(struct s5p_jpeg_fmt *formats, int n,
 
 	for (i = 0; i < n; ++i) {
 		if (formats[i].types & type) {
-			
+			/* index-th format of type type found ? */
 			if (num == f->index)
 				break;
+			/* Correct type but haven't reached our index yet,
+			 * just increment per-type index */
 			++num;
 		}
 	}
 
-	
+	/* Format not found */
 	if (i >= n)
 		return -EINVAL;
 
@@ -633,6 +645,8 @@ static int vidioc_try_fmt(struct v4l2_format *f, struct s5p_jpeg_fmt *fmt,
 	else if (pix->field != V4L2_FIELD_NONE)
 		return -EINVAL;
 
+	/* V4L2 specification suggests the driver corrects the format struct
+	 * if any of the dimensions is unsupported */
 	if (q_type == MEM2MEM_OUTPUT)
 		jpeg_bound_align_image(&pix->width, S5P_JPEG_MIN_WIDTH,
 				       S5P_JPEG_MAX_WIDTH, 0,
@@ -652,9 +666,9 @@ static int vidioc_try_fmt(struct v4l2_format *f, struct s5p_jpeg_fmt *fmt,
 		u32 bpl = pix->bytesperline;
 
 		if (fmt->colplanes > 1 && bpl < pix->width)
-			bpl = pix->width; 
+			bpl = pix->width; /* planar */
 
-		if (fmt->colplanes == 1 && 
+		if (fmt->colplanes == 1 && /* packed */
 		    (bpl << 3) * fmt->depth < pix->width)
 			bpl = (pix->width * fmt->depth) >> 3;
 
@@ -808,7 +822,7 @@ int s5p_jpeg_g_selection(struct file *file, void *priv,
 	    s->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
 		return -EINVAL;
 
-	
+	/* For JPEG blob active == default == bounds */
 	switch (s->target) {
 	case V4L2_SEL_TGT_CROP_ACTIVE:
 	case V4L2_SEL_TGT_CROP_BOUNDS:
@@ -831,6 +845,9 @@ int s5p_jpeg_g_selection(struct file *file, void *priv,
 	return 0;
 }
 
+/*
+ * V4L2 controls
+ */
 
 static int s5p_jpeg_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 {
@@ -884,7 +901,7 @@ static const struct v4l2_ctrl_ops s5p_jpeg_ctrl_ops = {
 
 static int s5p_jpeg_controls_create(struct s5p_jpeg_ctx *ctx)
 {
-	unsigned int mask = ~0x27; 
+	unsigned int mask = ~0x27; /* 444, 422, 420, GRAY */
 	struct v4l2_ctrl *ctrl;
 
 	v4l2_ctrl_handler_init(&ctx->ctrl_handler, 3);
@@ -897,7 +914,7 @@ static int s5p_jpeg_controls_create(struct s5p_jpeg_ctx *ctx)
 		v4l2_ctrl_new_std(&ctx->ctrl_handler, &s5p_jpeg_ctrl_ops,
 				  V4L2_CID_JPEG_RESTART_INTERVAL,
 				  0, 3, 0xffff, 0);
-		mask = ~0x06; 
+		mask = ~0x06; /* 422, 420 */
 	}
 
 	ctrl = v4l2_ctrl_new_std_menu(&ctx->ctrl_handler, &s5p_jpeg_ctrl_ops,
@@ -941,6 +958,11 @@ static const struct v4l2_ioctl_ops s5p_jpeg_ioctl_ops = {
 	.vidioc_g_selection		= s5p_jpeg_g_selection,
 };
 
+/*
+ * ============================================================================
+ * mem2mem callbacks
+ * ============================================================================
+ */
 
 static void s5p_jpeg_device_run(void *priv)
 {
@@ -969,10 +991,10 @@ static void s5p_jpeg_device_run(void *priv)
 		jpeg_imgadr(jpeg->regs, src_addr);
 		jpeg_jpgadr(jpeg->regs, dst_addr);
 
-		
+		/* ultimately comes from sizeimage from userspace */
 		jpeg_enc_stream_int(jpeg->regs, ctx->cap_q.size);
 
-		
+		/* JPEG RGB to YCbCr conversion matrix */
 		jpeg_coef(jpeg->regs, 1, 1, S5P_JPEG_COEF11);
 		jpeg_coef(jpeg->regs, 1, 2, S5P_JPEG_COEF12);
 		jpeg_coef(jpeg->regs, 1, 3, S5P_JPEG_COEF13);
@@ -983,22 +1005,26 @@ static void s5p_jpeg_device_run(void *priv)
 		jpeg_coef(jpeg->regs, 3, 2, S5P_JPEG_COEF32);
 		jpeg_coef(jpeg->regs, 3, 3, S5P_JPEG_COEF33);
 
+		/*
+		 * JPEG IP allows storing 4 quantization tables
+		 * We fill table 0 for luma and table 1 for chroma
+		 */
 		jpeg_set_qtbl_lum(jpeg->regs, ctx->compr_quality);
 		jpeg_set_qtbl_chr(jpeg->regs, ctx->compr_quality);
-		
+		/* use table 0 for Y */
 		jpeg_qtbl(jpeg->regs, 1, 0);
-		
+		/* use table 1 for Cb and Cr*/
 		jpeg_qtbl(jpeg->regs, 2, 1);
 		jpeg_qtbl(jpeg->regs, 3, 1);
 
-		
+		/* Y, Cb, Cr use Huffman table 0 */
 		jpeg_htbl_ac(jpeg->regs, 1);
 		jpeg_htbl_dc(jpeg->regs, 1);
 		jpeg_htbl_ac(jpeg->regs, 2);
 		jpeg_htbl_dc(jpeg->regs, 2);
 		jpeg_htbl_ac(jpeg->regs, 3);
 		jpeg_htbl_dc(jpeg->regs, 3);
-	} else { 
+	} else { /* S5P_JPEG_DECODE */
 		jpeg_rst_int_enable(jpeg->regs, true);
 		jpeg_data_num_int_enable(jpeg->regs, true);
 		jpeg_final_mcu_num_int_enable(jpeg->regs, true);
@@ -1032,6 +1058,11 @@ static struct v4l2_m2m_ops s5p_jpeg_m2m_ops = {
 	.job_abort	= s5p_jpeg_job_abort,
 };
 
+/*
+ * ============================================================================
+ * Queue operations
+ * ============================================================================
+ */
 
 static int s5p_jpeg_queue_setup(struct vb2_queue *vq,
 			   const struct v4l2_format *fmt,
@@ -1047,6 +1078,10 @@ static int s5p_jpeg_queue_setup(struct vb2_queue *vq,
 
 	size = q_data->size;
 
+	/*
+	 * header is parsed during decoding and parsed information stored
+	 * in the context so we do not allow another buffer to overwrite it
+	 */
 	if (ctx->mode == S5P_JPEG_DECODE)
 		count = 1;
 
@@ -1185,6 +1220,11 @@ static int queue_init(void *priv, struct vb2_queue *src_vq,
 	return vb2_queue_init(dst_vq);
 }
 
+/*
+ * ============================================================================
+ * ISR
+ * ============================================================================
+ */
 
 static irqreturn_t s5p_jpeg_irq(int irq, void *dev_id)
 {
@@ -1237,6 +1277,11 @@ static irqreturn_t s5p_jpeg_irq(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * ============================================================================
+ * Driver basic infrastructure
+ * ============================================================================
+ */
 
 static int s5p_jpeg_probe(struct platform_device *pdev)
 {
@@ -1244,7 +1289,7 @@ static int s5p_jpeg_probe(struct platform_device *pdev)
 	struct resource *res;
 	int ret;
 
-	
+	/* JPEG IP abstraction struct */
 	jpeg = kzalloc(sizeof(struct s5p_jpeg), GFP_KERNEL);
 	if (!jpeg)
 		return -ENOMEM;
@@ -1253,7 +1298,7 @@ static int s5p_jpeg_probe(struct platform_device *pdev)
 	spin_lock_init(&jpeg->slock);
 	jpeg->dev = &pdev->dev;
 
-	
+	/* memory-mapped registers */
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!res) {
 		dev_err(&pdev->dev, "cannot find IO resource\n");
@@ -1279,7 +1324,7 @@ static int s5p_jpeg_probe(struct platform_device *pdev)
 	dev_dbg(&pdev->dev, "registers %p (%p, %p)\n",
 		jpeg->regs, jpeg->ioarea, res);
 
-	
+	/* interrupt service routine registration */
 	jpeg->irq = ret = platform_get_irq(pdev, 0);
 	if (ret < 0) {
 		dev_err(&pdev->dev, "cannot find IRQ\n");
@@ -1294,7 +1339,7 @@ static int s5p_jpeg_probe(struct platform_device *pdev)
 		goto ioremap_rollback;
 	}
 
-	
+	/* clocks */
 	jpeg->clk = clk_get(&pdev->dev, "jpeg");
 	if (IS_ERR(jpeg->clk)) {
 		dev_err(&pdev->dev, "cannot get clock\n");
@@ -1304,14 +1349,14 @@ static int s5p_jpeg_probe(struct platform_device *pdev)
 	dev_dbg(&pdev->dev, "clock source %p\n", jpeg->clk);
 	clk_enable(jpeg->clk);
 
-	
+	/* v4l2 device */
 	ret = v4l2_device_register(&pdev->dev, &jpeg->v4l2_dev);
 	if (ret) {
 		dev_err(&pdev->dev, "Failed to register v4l2 device\n");
 		goto clk_get_rollback;
 	}
 
-	
+	/* mem2mem device */
 	jpeg->m2m_dev = v4l2_m2m_init(&s5p_jpeg_m2m_ops);
 	if (IS_ERR(jpeg->m2m_dev)) {
 		v4l2_err(&jpeg->v4l2_dev, "Failed to init mem2mem device\n");
@@ -1326,7 +1371,7 @@ static int s5p_jpeg_probe(struct platform_device *pdev)
 		goto m2m_init_rollback;
 	}
 
-	
+	/* JPEG encoder /dev/videoX node */
 	jpeg->vfd_encoder = video_device_alloc();
 	if (!jpeg->vfd_encoder) {
 		v4l2_err(&jpeg->v4l2_dev, "Failed to allocate video device\n");
@@ -1353,7 +1398,7 @@ static int s5p_jpeg_probe(struct platform_device *pdev)
 		  "encoder device registered as /dev/video%d\n",
 		  jpeg->vfd_encoder->num);
 
-	
+	/* JPEG decoder /dev/videoX node */
 	jpeg->vfd_decoder = video_device_alloc();
 	if (!jpeg->vfd_decoder) {
 		v4l2_err(&jpeg->v4l2_dev, "Failed to allocate video device\n");
@@ -1380,7 +1425,7 @@ static int s5p_jpeg_probe(struct platform_device *pdev)
 		  "decoder device registered as /dev/video%d\n",
 		  jpeg->vfd_decoder->num);
 
-	
+	/* final statements & power management */
 	platform_set_drvdata(pdev, jpeg);
 
 	pm_runtime_enable(&pdev->dev);
@@ -1462,6 +1507,10 @@ static int s5p_jpeg_runtime_suspend(struct device *dev)
 static int s5p_jpeg_runtime_resume(struct device *dev)
 {
 	struct s5p_jpeg *jpeg = dev_get_drvdata(dev);
+	/*
+	 * JPEG IP allows storing two Huffman tables for each component
+	 * We fill table 0 for each component
+	 */
 	jpeg_set_hdctbl(jpeg->regs);
 	jpeg_set_hdctblg(jpeg->regs);
 	jpeg_set_hactbl(jpeg->regs);

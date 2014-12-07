@@ -1,7 +1,46 @@
+/**
+@file Transmit.c
+@defgroup tx_functions Transmission
+@section Queueing
+@dot
+digraph transmit1 {
+node[shape=box]
+edge[weight=5;color=red]
+
+bcm_transmit->GetPacketQueueIndex[label="IP Packet"]
+GetPacketQueueIndex->IpVersion4[label="IPV4"]
+GetPacketQueueIndex->IpVersion6[label="IPV6"]
+}
+
+@enddot
+
+@section De-Queueing
+@dot
+digraph transmit2 {
+node[shape=box]
+edge[weight=5;color=red]
+interrupt_service_thread->transmit_packets
+tx_pkt_hdler->transmit_packets
+transmit_packets->CheckAndSendPacketFromIndex
+transmit_packets->UpdateTokenCount
+CheckAndSendPacketFromIndex->PruneQueue
+CheckAndSendPacketFromIndex->IsPacketAllowedForFlow
+CheckAndSendPacketFromIndex->SendControlPacket[label="control pkt"]
+SendControlPacket->bcm_cmd53
+CheckAndSendPacketFromIndex->SendPacketFromQueue[label="data pkt"]
+SendPacketFromQueue->SetupNextSend->bcm_cmd53
+}
+@enddot
+*/
 
 #include "headers.h"
 
 
+/**
+@ingroup ctrl_pkt_functions
+This function dispatches control packet to the h/w interface
+@return zero(success) or -ve value(failure)
+*/
 INT SendControlPacket(PMINI_ADAPTER Adapter, char *pControlPacket)
 {
 	PLEADER PLeader = (PLEADER)pControlPacket;
@@ -19,8 +58,8 @@ INT SendControlPacket(PMINI_ADAPTER Adapter, char *pControlPacket)
         return STATUS_FAILURE;
     }
 
-	
-	
+	/* Update the netdevice statistics */
+	/* Dump Packet  */
 	BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, TX_CONTROL, DBG_LVL_ALL, "Leader Status: %x", PLeader->Status);
 	BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, TX_CONTROL, DBG_LVL_ALL, "Leader VCID: %x",PLeader->Vcid);
 	BCM_DEBUG_PRINT(Adapter,DBG_TYPE_TX, TX_CONTROL, DBG_LVL_ALL, "Leader Length: %x",PLeader->PLength);
@@ -39,6 +78,12 @@ INT SendControlPacket(PMINI_ADAPTER Adapter, char *pControlPacket)
 	return STATUS_SUCCESS;
 }
 
+/**
+@ingroup tx_functions
+This function despatches the IP packets with the given vcid
+to the target via the host h/w interface.
+@return  zero(success) or -ve value(failure)
+*/
 INT SetupNextSend(PMINI_ADAPTER Adapter,  struct sk_buff *Packet, USHORT Vcid)
 {
 	int		status=0;
@@ -53,7 +98,7 @@ INT SetupNextSend(PMINI_ADAPTER Adapter,  struct sk_buff *Packet, USHORT Vcid)
 		goto errExit;
 	}
 
-	
+	/* Get the Classifier Rule ID */
 	uiClassifierRuleID = *((UINT32*) (Packet->cb)+SKB_CB_CLASSIFICATION_OFFSET);
 
 	bHeaderSupressionEnabled = Adapter->PackInfo[QueueIndex].bHeaderSuppressionEnabled
@@ -142,13 +187,17 @@ static int tx_pending(PMINI_ADAPTER Adapter)
 		|| Adapter->device_removed || (1 == Adapter->downloadDDR);
 }
 
-int tx_pkt_handler(PMINI_ADAPTER Adapter  
+/**
+@ingroup tx_functions
+Transmit thread
+*/
+int tx_pkt_handler(PMINI_ADAPTER Adapter  /**< pointer to adapter object*/
 				)
 {
 	int status = 0;
 
 	while(! kthread_should_stop()) {
-		
+		/* FIXME - the timeout looks like workaround for racey usage of TxPktAvail */
 		if(Adapter->LinkUpStatus)
 			wait_event_timeout(Adapter->tx_packet_wait_queue,
 					   tx_pending(Adapter), msecs_to_jiffies(10));
@@ -168,7 +217,7 @@ int tx_pkt_handler(PMINI_ADAPTER Adapter
 			continue;
 		}
 
-		
+		//Check end point for halt/stall.
 		if(Adapter->bEndPointHalted == TRUE)
 		{
 			Bcm_clear_halt_of_endpoints(Adapter);

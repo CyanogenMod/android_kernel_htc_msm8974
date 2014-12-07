@@ -183,7 +183,10 @@ static int snd_ad1816a_trigger(struct snd_ad1816a *chip, unsigned char what,
 	case SNDRV_PCM_TRIGGER_STOP:
 		spin_lock(&chip->lock);
 		cmd = (cmd == SNDRV_PCM_TRIGGER_START) ? 0xff: 0x00;
-		
+		/* if (what & AD1816A_PLAYBACK_ENABLE) */
+		/* That is not valid, because playback and capture enable
+		 * are the same bit pattern, just to different addresses
+		 */
 		if (! iscapture)
 			snd_ad1816a_out_mask(chip, AD1816A_PLAYBACK_CONFIG,
 				AD1816A_PLAYBACK_ENABLE, cmd);
@@ -622,7 +625,7 @@ int __devinit snd_ad1816a_create(struct snd_card *card,
 
 	snd_ad1816a_init(chip);
 
-	
+	/* Register device */
 	if ((error = snd_device_new(card, SNDRV_DEV_LOWLEVEL, chip, &ops)) < 0) {
 		snd_ad1816a_free(chip);
 		return error;
@@ -703,6 +706,9 @@ int __devinit snd_ad1816a_timer(struct snd_ad1816a *chip, int device, struct snd
 	return 0;
 }
 
+/*
+ *
+ */
 
 static int snd_ad1816a_info_mux(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_info *uinfo)
 {

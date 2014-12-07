@@ -56,6 +56,11 @@ const char *get_system_type(void)
 }
 
 
+/*
+ * Setup essential system-specific memory addresses.  We need them
+ * early.  Semantically the functions belong to prom/init.c, but they
+ * are compact enough we want them inlined. --macro
+ */
 volatile u8 *dec_rtc_base;
 
 EXPORT_SYMBOL(dec_rtc_base);
@@ -128,40 +133,44 @@ void __init prom_identify_arch(u32 magic)
 	dec_firmrev = (dec_sysid & 0xff00) >> 8;
 	dec_etc = dec_sysid & 0xff;
 
+	/*
+	 * FIXME: This may not be an exhaustive list of DECStations/Servers!
+	 * Put all model-specific initialisation calls here.
+	 */
 	switch (dec_systype) {
 	case DS2100_3100:
 		mips_machtype = MACH_DS23100;
 		prom_init_kn01();
 		break;
-	case DS5100:		
+	case DS5100:		/* DS5100 MIPSMATE */
 		mips_machtype = MACH_DS5100;
 		prom_init_kn230();
 		break;
-	case DS5000_200:	
+	case DS5000_200:	/* DS5000 3max */
 		mips_machtype = MACH_DS5000_200;
 		prom_init_kn02();
 		break;
-	case DS5000_1XX:	
+	case DS5000_1XX:	/* DS5000/100 3min */
 		mips_machtype = MACH_DS5000_1XX;
 		prom_init_kn02xa();
 		break;
-	case DS5000_2X0:	
+	case DS5000_2X0:	/* DS5000/240 3max+ or DS5900 bigmax */
 		mips_machtype = MACH_DS5000_2X0;
 		prom_init_kn03();
 		if (!(ioasic_read(IO_REG_SIR) & KN03_IO_INR_3MAXP))
 			mips_machtype = MACH_DS5900;
 		break;
-	case DS5000_XX:		
+	case DS5000_XX:		/* Personal DS5000/xx maxine */
 		mips_machtype = MACH_DS5000_XX;
 		prom_init_kn02xa();
 		break;
-	case DS5800:		
+	case DS5800:		/* DS5800 Isis */
 		mips_machtype = MACH_DS5800;
 		break;
-	case DS5400:		
+	case DS5400:		/* DS5400 MIPSfair */
 		mips_machtype = MACH_DS5400;
 		break;
-	case DS5500:		
+	case DS5500:		/* DS5500 MIPSfair-2 */
 		mips_machtype = MACH_DS5500;
 		break;
 	default:

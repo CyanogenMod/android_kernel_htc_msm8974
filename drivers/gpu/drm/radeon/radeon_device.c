@@ -96,9 +96,12 @@ static const char radeon_family_name[][16] = {
 	"LAST",
 };
 
+/*
+ * Clear GPU surface registers.
+ */
 void radeon_surface_init(struct radeon_device *rdev)
 {
-	
+	/* FIXME: check this out */
 	if (rdev->family < CHIP_R600) {
 		int i;
 
@@ -108,16 +111,19 @@ void radeon_surface_init(struct radeon_device *rdev)
 			else
 				radeon_clear_surface_reg(rdev, i);
 		}
-		
+		/* enable surfaces */
 		WREG32(RADEON_SURFACE_CNTL, 0);
 	}
 }
 
+/*
+ * GPU scratch registers helpers function.
+ */
 void radeon_scratch_init(struct radeon_device *rdev)
 {
 	int i;
 
-	
+	/* FIXME: check this out */
 	if (rdev->family < CHIP_R300) {
 		rdev->scratch.num_reg = 5;
 	} else {
@@ -214,28 +220,28 @@ int radeon_wb_init(struct radeon_device *rdev)
 		return r;
 	}
 
-	
+	/* clear wb memory */
 	memset((char *)rdev->wb.wb, 0, RADEON_GPU_PAGE_SIZE);
-	
+	/* disable event_write fences */
 	rdev->wb.use_event = false;
-	
+	/* disabled via module param */
 	if (radeon_no_wb == 1)
 		rdev->wb.enabled = false;
 	else {
 		if (rdev->flags & RADEON_IS_AGP) {
-			
+			/* often unreliable on AGP */
 			rdev->wb.enabled = false;
 		} else if (rdev->family < CHIP_R300) {
-			
+			/* often unreliable on pre-r300 */
 			rdev->wb.enabled = false;
 		} else {
 			rdev->wb.enabled = true;
-			
+			/* event_write fences are only available on r600+ */
 			if (rdev->family >= CHIP_R600)
 				rdev->wb.use_event = true;
 		}
 	}
-	
+	/* always use writeback/events on NI, APUs */
 	if (rdev->family >= CHIP_PALM) {
 		rdev->wb.enabled = true;
 		rdev->wb.use_event = true;
@@ -246,6 +252,47 @@ int radeon_wb_init(struct radeon_device *rdev)
 	return 0;
 }
 
+/**
+ * radeon_vram_location - try to find VRAM location
+ * @rdev: radeon device structure holding all necessary informations
+ * @mc: memory controller structure holding memory informations
+ * @base: base address at which to put VRAM
+ *
+ * Function will place try to place VRAM at base address provided
+ * as parameter (which is so far either PCI aperture address or
+ * for IGP TOM base address).
+ *
+ * If there is not enough space to fit the unvisible VRAM in the 32bits
+ * address space then we limit the VRAM size to the aperture.
+ *
+ * If we are using AGP and if the AGP aperture doesn't allow us to have
+ * room for all the VRAM than we restrict the VRAM to the PCI aperture
+ * size and print a warning.
+ *
+ * This function will never fails, worst case are limiting VRAM.
+ *
+ * Note: GTT start, end, size should be initialized before calling this
+ * function on AGP platform.
+ *
+ * Note: We don't explicitly enforce VRAM start to be aligned on VRAM size,
+ * this shouldn't be a problem as we are using the PCI aperture as a reference.
+ * Otherwise this would be needed for rv280, all r3xx, and all r4xx, but
+ * not IGP.
+ *
+ * Note: we use mc_vram_size as on some board we need to program the mc to
+ * cover the whole aperture even if VRAM size is inferior to aperture size
+ * Novell bug 204882 + along with lots of ubuntu ones
+ *
+ * Note: when limiting vram it's safe to overwritte real_vram_size because
+ * we are not in case where real_vram_size is inferior to mc_vram_size (ie
+ * note afected by bogus hw of Novell bug 204882 + along with lots of ubuntu
+ * ones)
+ *
+ * Note: IGP TOM addr should be the same as the aperture addr, we don't
+ * explicitly check for that thought.
+ *
+ * FIXME: when reducing VRAM size align new size on power of 2.
+ */
 void radeon_vram_location(struct radeon_device *rdev, struct radeon_mc *mc, u64 base)
 {
 	mc->vram_start = base;
@@ -268,6 +315,18 @@ void radeon_vram_location(struct radeon_device *rdev, struct radeon_mc *mc, u64 
 			mc->vram_end, mc->real_vram_size >> 20);
 }
 
+/**
+ * radeon_gtt_location - try to find GTT location
+ * @rdev: radeon device structure holding all necessary informations
+ * @mc: memory controller structure holding memory informations
+ *
+ * Function will place try to place GTT before or after VRAM.
+ *
+ * If GTT size is bigger than space left then we ajust GTT size.
+ * Thus function will never fails.
+ *
+ * FIXME: when reducing GTT size align new size on power of 2.
+ */
 void radeon_gtt_location(struct radeon_device *rdev, struct radeon_mc *mc)
 {
 	u64 size_af, size_bf;
@@ -292,6 +351,9 @@ void radeon_gtt_location(struct radeon_device *rdev, struct radeon_mc *mc)
 			mc->gtt_size >> 20, mc->gtt_start, mc->gtt_end);
 }
 
+/*
+ * GPU helpers function.
+ */
 bool radeon_card_posted(struct radeon_device *rdev)
 {
 	uint32_t reg;
@@ -299,7 +361,7 @@ bool radeon_card_posted(struct radeon_device *rdev)
 	if (efi_enabled && rdev->pdev->subsystem_vendor == PCI_VENDOR_ID_APPLE)
 		return false;
 
-	
+	/* first check CRTCs */
 	if (ASIC_IS_DCE41(rdev)) {
 		reg = RREG32(EVERGREEN_CRTC_CONTROL + EVERGREEN_CRTC0_REGISTER_OFFSET) |
 			RREG32(EVERGREEN_CRTC_CONTROL + EVERGREEN_CRTC1_REGISTER_OFFSET);
@@ -328,7 +390,7 @@ bool radeon_card_posted(struct radeon_device *rdev)
 		}
 	}
 
-	
+	/* then check MEM_SIZE, in case the crtcs are off */
 	if (rdev->family >= CHIP_R600)
 		reg = RREG32(R600_CONFIG_MEMSIZE);
 	else
@@ -347,7 +409,7 @@ void radeon_update_bandwidth_info(struct radeon_device *rdev)
 	u32 sclk = rdev->pm.current_sclk;
 	u32 mclk = rdev->pm.current_mclk;
 
-	
+	/* sclk/mclk in Mhz */
 	a.full = dfixed_const(100);
 	rdev->pm.sclk.full = dfixed_const(sclk);
 	rdev->pm.sclk.full = dfixed_div(rdev->pm.sclk, a);
@@ -356,7 +418,7 @@ void radeon_update_bandwidth_info(struct radeon_device *rdev)
 
 	if (rdev->flags & RADEON_IS_IGP) {
 		a.full = dfixed_const(16);
-		
+		/* core_bandwidth = sclk(Mhz) * 16 */
 		rdev->pm.core_bandwidth.full = dfixed_div(rdev->pm.sclk, a);
 	}
 }
@@ -408,6 +470,7 @@ void radeon_dummy_page_fini(struct radeon_device *rdev)
 }
 
 
+/* ATOM accessor methods */
 static uint32_t cail_pll_read(struct card_info *info, uint32_t reg)
 {
 	struct radeon_device *rdev = info->dev->dev_private;
@@ -484,7 +547,7 @@ int radeon_atombios_init(struct radeon_device *rdev)
 	atom_card_info->dev = rdev->ddev;
 	atom_card_info->reg_read = cail_reg_read;
 	atom_card_info->reg_write = cail_reg_write;
-	
+	/* needed for iio ops */
 	if (rdev->rio_mem) {
 		atom_card_info->ioreg_read = cail_ioreg_read;
 		atom_card_info->ioreg_write = cail_ioreg_write;
@@ -524,6 +587,7 @@ void radeon_combios_fini(struct radeon_device *rdev)
 {
 }
 
+/* if we get transitioned to only one device, tak VGA back */
 static unsigned int radeon_vga_set_decode(void *cookie, bool state)
 {
 	struct radeon_device *rdev = cookie;
@@ -537,7 +601,7 @@ static unsigned int radeon_vga_set_decode(void *cookie, bool state)
 
 void radeon_check_arguments(struct radeon_device *rdev)
 {
-	
+	/* vramlimit must be a power of two */
 	switch (radeon_vram_limit) {
 	case 0:
 	case 4:
@@ -559,7 +623,7 @@ void radeon_check_arguments(struct radeon_device *rdev)
 		break;
 	}
 	radeon_vram_limit = radeon_vram_limit << 20;
-	
+	/* gtt size must be power of two and greater or equal to 32M */
 	switch (radeon_gart_size) {
 	case 4:
 	case 8:
@@ -584,7 +648,7 @@ void radeon_check_arguments(struct radeon_device *rdev)
 		break;
 	}
 	rdev->mc.gtt_size = radeon_gart_size * 1024 * 1024;
-	
+	/* AGP mode can only be -1, 1, 2, 4, 8 */
 	switch (radeon_agpmode) {
 	case -1:
 	case 0:
@@ -607,7 +671,7 @@ static void radeon_switcheroo_set_state(struct pci_dev *pdev, enum vga_switchero
 	pm_message_t pmm = { .event = PM_EVENT_SUSPEND };
 	if (state == VGA_SWITCHEROO_ON) {
 		printk(KERN_INFO "radeon: switched on\n");
-		
+		/* don't suspend or resume card normally */
 		dev->switch_power_state = DRM_SWITCH_POWER_CHANGING;
 		radeon_resume_kms(dev);
 		dev->switch_power_state = DRM_SWITCH_POWER_ON;
@@ -657,6 +721,8 @@ int radeon_device_init(struct radeon_device *rdev,
 		radeon_family_name[rdev->family], pdev->vendor, pdev->device,
 		pdev->subsystem_vendor, pdev->subsystem_device);
 
+	/* mutex initialization are all done here so we
+	 * can recall function without having locking issues */
 	radeon_mutex_init(&rdev->cs_mutex);
 	radeon_mutex_init(&rdev->ib_pool.mutex);
 	for (i = 0; i < RADEON_NUM_RINGS; ++i)
@@ -673,17 +739,20 @@ int radeon_device_init(struct radeon_device *rdev,
 	init_waitqueue_head(&rdev->irq.vblank_queue);
 	init_waitqueue_head(&rdev->irq.idle_queue);
 	INIT_LIST_HEAD(&rdev->semaphore_drv.bo);
-	
+	/* initialize vm here */
 	rdev->vm_manager.use_bitmap = 1;
 	rdev->vm_manager.max_pfn = 1 << 20;
 	INIT_LIST_HEAD(&rdev->vm_manager.lru_vm);
 
-	
+	/* Set asic functions */
 	r = radeon_asic_init(rdev);
 	if (r)
 		return r;
 	radeon_check_arguments(rdev);
 
+	/* all of the newer IGP chips have an internal gart
+	 * However some rs4xx report as AGP, so remove that here.
+	 */
 	if ((rdev->family >= CHIP_RS400) &&
 	    (rdev->flags & RADEON_IS_IGP)) {
 		rdev->flags &= ~RADEON_IS_AGP;
@@ -693,6 +762,12 @@ int radeon_device_init(struct radeon_device *rdev,
 		radeon_agp_disable(rdev);
 	}
 
+	/* set DMA mask + need_dma32 flags.
+	 * PCIE - can handle 40-bits.
+	 * IGP - can handle 40-bits
+	 * AGP - generally dma32 is safest
+	 * PCI - dma32 for legacy pci gart, 40 bits on newer asics
+	 */
 	rdev->need_dma32 = false;
 	if (rdev->flags & RADEON_IS_AGP)
 		rdev->need_dma32 = true;
@@ -713,8 +788,8 @@ int radeon_device_init(struct radeon_device *rdev,
 		printk(KERN_WARNING "radeon: No coherent DMA available.\n");
 	}
 
-	
-	
+	/* Registers mapping */
+	/* TODO: block userspace mapping of io register */
 	rdev->rmmio_base = pci_resource_start(rdev->pdev, 2);
 	rdev->rmmio_size = pci_resource_len(rdev->pdev, 2);
 	rdev->rmmio = ioremap(rdev->rmmio_base, rdev->rmmio_size);
@@ -724,7 +799,7 @@ int radeon_device_init(struct radeon_device *rdev,
 	DRM_INFO("register mmio base: 0x%08X\n", (uint32_t)rdev->rmmio_base);
 	DRM_INFO("register mmio size: %u\n", (unsigned)rdev->rmmio_size);
 
-	
+	/* io port mapping */
 	for (i = 0; i < DEVICE_COUNT_RESOURCE; i++) {
 		if (pci_resource_flags(rdev->pdev, i) & IORESOURCE_IO) {
 			rdev->rio_mem_size = pci_resource_len(rdev->pdev, i);
@@ -735,7 +810,9 @@ int radeon_device_init(struct radeon_device *rdev,
 	if (rdev->rio_mem == NULL)
 		DRM_ERROR("Unable to find PCI I/O BAR\n");
 
-	
+	/* if we have > 1 VGA cards, then disable the radeon VGA resources */
+	/* this will fail for cards that aren't VGA class devices, just
+	 * ignore it */
 	vga_client_register(rdev->pdev, rdev, NULL, radeon_vga_set_decode);
 	vga_switcheroo_register_client(rdev->pdev,
 				       radeon_switcheroo_set_state,
@@ -747,6 +824,9 @@ int radeon_device_init(struct radeon_device *rdev,
 		return r;
 
 	if (rdev->flags & RADEON_IS_AGP && !rdev->accel_working) {
+		/* Acceleration not working on AGP card try again
+		 * with fallback to PCI or PCIE GART
+		 */
 		radeon_asic_reset(rdev);
 		radeon_fini(rdev);
 		radeon_agp_disable(rdev);
@@ -772,7 +852,7 @@ void radeon_device_fini(struct radeon_device *rdev)
 {
 	DRM_INFO("radeon: finishing device.\n");
 	rdev->shutdown = true;
-	
+	/* evict vram memory */
 	radeon_bo_evict_vram(rdev);
 	radeon_fini(rdev);
 	vga_switcheroo_unregister_client(rdev->pdev);
@@ -786,6 +866,9 @@ void radeon_device_fini(struct radeon_device *rdev)
 }
 
 
+/*
+ * Suspend & resume.
+ */
 int radeon_suspend_kms(struct drm_device *dev, pm_message_t state)
 {
 	struct radeon_device *rdev;
@@ -806,12 +889,12 @@ int radeon_suspend_kms(struct drm_device *dev, pm_message_t state)
 
 	drm_kms_helper_poll_disable(dev);
 
-	
+	/* turn off display hw */
 	list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
 		drm_helper_connector_dpms(connector, DRM_MODE_DPMS_OFF);
 	}
 
-	
+	/* unpin the front buffers */
 	list_for_each_entry(crtc, &dev->mode_config.crtc_list, head) {
 		struct radeon_framebuffer *rfb = to_radeon_framebuffer(crtc->fb);
 		struct radeon_bo *robj;
@@ -820,7 +903,7 @@ int radeon_suspend_kms(struct drm_device *dev, pm_message_t state)
 			continue;
 		}
 		robj = gem_to_radeon_bo(rfb->obj);
-		
+		/* don't unpin kernel fb objects */
 		if (!radeon_fbdev_robj_is_fb(rdev, robj)) {
 			r = radeon_bo_reserve(robj, false);
 			if (r == 0) {
@@ -829,9 +912,9 @@ int radeon_suspend_kms(struct drm_device *dev, pm_message_t state)
 			}
 		}
 	}
-	
+	/* evict vram memory */
 	radeon_bo_evict_vram(rdev);
-	
+	/* wait for gpu to finish processing current batch */
 	for (i = 0; i < RADEON_NUM_RINGS; i++)
 		radeon_fence_wait_last(rdev, i);
 
@@ -840,14 +923,14 @@ int radeon_suspend_kms(struct drm_device *dev, pm_message_t state)
 	radeon_pm_suspend(rdev);
 	radeon_suspend(rdev);
 	radeon_hpd_fini(rdev);
-	
+	/* evict remaining vram memory */
 	radeon_bo_evict_vram(rdev);
 
 	radeon_agp_suspend(rdev);
 
 	pci_save_state(dev->pdev);
 	if (state.event == PM_EVENT_SUSPEND) {
-		
+		/* Shut down the device */
 		pci_disable_device(dev->pdev);
 		pci_set_power_state(dev->pdev, PCI_D3hot);
 	}
@@ -873,7 +956,7 @@ int radeon_resume_kms(struct drm_device *dev)
 		return -1;
 	}
 	pci_set_master(dev->pdev);
-	
+	/* resume AGP if in use */
 	radeon_agp_resume(rdev);
 	radeon_resume(rdev);
 	radeon_pm_resume(rdev);
@@ -882,16 +965,16 @@ int radeon_resume_kms(struct drm_device *dev)
 	radeon_fbdev_set_suspend(rdev, 0);
 	console_unlock();
 
-	
+	/* init dig PHYs, disp eng pll */
 	if (rdev->is_atom_bios) {
 		radeon_atom_encoder_init(rdev);
 		radeon_atom_disp_eng_pll_init(rdev);
 	}
-	
+	/* reset hpd state */
 	radeon_hpd_init(rdev);
-	
+	/* blat the mode back in */
 	drm_helper_resume_force_mode(dev);
-	
+	/* turn on display hw */
 	list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
 		drm_helper_connector_dpms(connector, DRM_MODE_DPMS_ON);
 	}
@@ -905,11 +988,11 @@ int radeon_gpu_reset(struct radeon_device *rdev)
 	int r;
 	int resched;
 
-	
+	/* Prevent CS ioctl from interfering */
 	radeon_mutex_lock(&rdev->cs_mutex);
 
 	radeon_save_bios_scratch_regs(rdev);
-	
+	/* block TTM */
 	resched = ttm_bo_lock_delayed_workqueue(&rdev->mman.bdev);
 	radeon_suspend(rdev);
 
@@ -925,7 +1008,7 @@ int radeon_gpu_reset(struct radeon_device *rdev)
 	radeon_mutex_unlock(&rdev->cs_mutex);
 
 	if (r) {
-		
+		/* bad news, how to tell it to userspace ? */
 		dev_info(rdev->dev, "GPU reset failed\n");
 	}
 
@@ -933,6 +1016,9 @@ int radeon_gpu_reset(struct radeon_device *rdev)
 }
 
 
+/*
+ * Debugfs
+ */
 int radeon_debugfs_add_files(struct radeon_device *rdev,
 			     struct drm_info_list *files,
 			     unsigned nfiles)
@@ -941,7 +1027,7 @@ int radeon_debugfs_add_files(struct radeon_device *rdev,
 
 	for (i = 0; i < rdev->debugfs_count; i++) {
 		if (rdev->debugfs[i].files == files) {
-			
+			/* Already registered */
 			return 0;
 		}
 	}

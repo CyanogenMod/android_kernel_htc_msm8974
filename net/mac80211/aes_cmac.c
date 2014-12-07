@@ -18,7 +18,7 @@
 #include "aes_cmac.h"
 
 #define AES_CMAC_KEY_LEN 16
-#define CMAC_TLEN 8 
+#define CMAC_TLEN 8 /* CMAC TLen = 64 bits (8 octets) */
 #define AAD_LEN 20
 
 

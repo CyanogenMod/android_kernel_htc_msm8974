@@ -23,11 +23,11 @@
 static long nfhd_id;
 
 enum {
-	
+	/* emulation entry points */
 	NFHD_READ_WRITE = 10,
 	NFHD_GET_CAPACITY = 14,
 
-	
+	/* skip ACSI devices */
 	NFHD_DEV_OFFSET = 8,
 };
 

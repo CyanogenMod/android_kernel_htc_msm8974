@@ -1,6 +1,9 @@
 #ifndef __M68K_UACCESS_H
 #define __M68K_UACCESS_H
 
+/*
+ * User space memory access functions
+ */
 #include <linux/compiler.h>
 #include <linux/errno.h>
 #include <linux/types.h>
@@ -10,18 +13,41 @@
 #define VERIFY_READ	0
 #define VERIFY_WRITE	1
 
+/* We let the MMU do all checking */
 static inline int access_ok(int type, const void __user *addr,
 			    unsigned long size)
 {
 	return 1;
 }
 
+/*
+ * Not all varients of the 68k family support the notion of address spaces.
+ * The traditional 680x0 parts do, and they use the sfc/dfc registers and
+ * the "moves" instruction to access user space from kernel space. Other
+ * family members like ColdFire don't support this, and only have a single
+ * address space, and use the usual "move" instruction for user space access.
+ *
+ * Outside of this difference the user space access functions are the same.
+ * So lets keep the code simple and just define in what we need to use.
+ */
 #ifdef CONFIG_CPU_HAS_ADDRESS_SPACES
 #define	MOVES	"moves"
 #else
 #define	MOVES	"move"
 #endif
 
+/*
+ * The exception table consists of pairs of addresses: the first is the
+ * address of an instruction that is allowed to fault, and the second is
+ * the address at which the program should continue.  No registers are
+ * modified, so it is entirely up to the continuation code to figure out
+ * what to do.
+ *
+ * All the routines below use bits of fixup code that are out of line
+ * with the main instruction path.  This means when everything is well,
+ * we don't even have to jump over them.  Further, they do not intrude
+ * on our cache or tlb entries.
+ */
 
 struct exception_table_entry
 {
@@ -49,6 +75,10 @@ asm volatile ("\n"					\
 	: "+d" (res), "=m" (*(ptr))			\
 	: #reg (x), "i" (err))
 
+/*
+ * These are the main single-value transfer routines.  They automatically
+ * use the right size if we just have the right pointer type.
+ */
 
 #define __put_user(x, ptr)						\
 ({									\
@@ -133,7 +163,34 @@ asm volatile ("\n"					\
 	case 4:								\
 		__get_user_asm(__gu_err, x, ptr, u32, l, r, -EFAULT);	\
 		break;							\
-							\
+/*	case 8:	disabled because gcc-4.1 has a broken typeof		\
+ 	    {								\
+ 		const void *__gu_ptr = (ptr);				\
+ 		u64 __gu_val;						\
+		asm volatile ("\n"					\
+			"1:	"MOVES".l	(%2)+,%1\n"		\
+			"2:	"MOVES".l	(%2),%R1\n"		\
+			"3:\n"						\
+			"	.section .fixup,\"ax\"\n"		\
+			"	.even\n"				\
+			"10:	move.l	%3,%0\n"			\
+			"	sub.l	%1,%1\n"			\
+			"	sub.l	%R1,%R1\n"			\
+			"	jra	3b\n"				\
+			"	.previous\n"				\
+			"\n"						\
+			"	.section __ex_table,\"a\"\n"		\
+			"	.align	4\n"				\
+			"	.long	1b,10b\n"			\
+			"	.long	2b,10b\n"			\
+			"	.previous"				\
+			: "+d" (__gu_err), "=&r" (__gu_val),		\
+			  "+a" (__gu_ptr)				\
+			: "i" (-EFAULT)					\
+			: "memory");					\
+		(x) = (typeof(*(ptr)))__gu_val;				\
+		break;							\
+	    }	*/							\
 	default:							\
 		__gu_err = __get_user_bad();				\
 		break;							\
@@ -218,7 +275,7 @@ __constant_copy_from_user(void *to, const void __user *from, unsigned long n)
 		__constant_copy_from_user_asm(res, to, from, tmp, 12, l, l, l);
 		break;
 	default:
-		
+		/* we limit the inlined version to 3 moves */
 		return __generic_copy_from_user(to, from, n);
 	}
 
@@ -299,7 +356,7 @@ __constant_copy_to_user(void __user *to, const void *from, unsigned long n)
 		__constant_copy_to_user_asm(res, to, from, tmp, 12, l, l, l);
 		break;
 	default:
-		
+		/* limit the inlined version to 3 moves */
 		return __generic_copy_to_user(to, from, n);
 	}
 
@@ -330,4 +387,4 @@ unsigned long __clear_user(void __user *to, unsigned long n);
 
 #define strlen_user(str) strnlen_user(str, 32767)
 
-#endif 
+#endif /* _M68K_UACCESS_H */

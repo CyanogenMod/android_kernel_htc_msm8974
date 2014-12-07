@@ -135,6 +135,12 @@ void * __init prom_early_alloc(unsigned long size)
 	if (free_mem < size) {
 		const size_t chunk_size = max(PAGE_SIZE, size);
 
+		/*
+		 * To mimimize the number of allocations, grab at least
+		 * PAGE_SIZE of memory (that's an arbitrary choice that's
+		 * fast enough on the platforms we care about while minimizing
+		 * wasted bootmem) and hand off chunks of it to callers.
+		 */
 		res = alloc_bootmem(chunk_size);
 		BUG_ON(!res);
 		prom_early_allocated += chunk_size;
@@ -143,7 +149,7 @@ void * __init prom_early_alloc(unsigned long size)
 		mem = res;
 	}
 
-	
+	/* allocate from the local cache */
 	free_mem -= size;
 	res = mem;
 	mem += size;
@@ -190,6 +196,10 @@ static int __init olpc_dt_interpret(const char *words)
 	return result;
 }
 
+/*
+ * Extract board revision directly from OFW device tree.
+ * We can't use olpc_platform_info because that hasn't been set up yet.
+ */
 static u32 __init olpc_dt_get_board_revision(void)
 {
 	phandle node;
@@ -219,13 +229,17 @@ void __init olpc_dt_fixup(void)
 	if (!node)
 		return;
 
+	/*
+	 * If the battery node has a compatible property, we are running a new
+	 * enough firmware and don't have fixups to make.
+	 */
 	r = olpc_dt_getproperty(node, "compatible", buf, sizeof(buf));
 	if (r > 0)
 		return;
 
 	pr_info("PROM DT: Old firmware detected, applying fixes\n");
 
-	
+	/* Add olpc,xo1-battery compatible marker to battery node */
 	olpc_dt_interpret("\" /battery@0\" find-device"
 		" \" olpc,xo1-battery\" +compatible"
 		" device-end");
@@ -235,13 +249,13 @@ void __init olpc_dt_fixup(void)
 		return;
 
 	if (board_rev >= olpc_board_pre(0xd0)) {
-		
+		/* XO-1.5: add dcon device */
 		olpc_dt_interpret("\" /pci/display@1\" find-device"
 			" new-device"
 			" \" dcon\" device-name \" olpc,xo1-dcon\" +compatible"
 			" finish-device device-end");
 	} else {
-		
+		/* XO-1: add dcon device, mark RTC as olpc,xo1-rtc */
 		olpc_dt_interpret("\" /pci/display@1,1\" find-device"
 			" new-device"
 			" \" dcon\" device-name \" olpc,xo1-dcon\" +compatible"
@@ -272,6 +286,7 @@ void __init olpc_dt_build_devicetree(void)
 			prom_early_allocated);
 }
 
+/* A list of DT node/bus matches that we want to expose as platform devices */
 static struct of_device_id __initdata of_ids[] = {
 	{ .compatible = "olpc,xo1-battery" },
 	{ .compatible = "olpc,xo1-dcon" },

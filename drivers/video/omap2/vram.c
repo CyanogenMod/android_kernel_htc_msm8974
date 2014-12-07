@@ -18,6 +18,7 @@
  * 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
+/*#define DEBUG*/
 
 #include <linux/kernel.h>
 #include <linux/mm.h>
@@ -41,6 +42,8 @@
 #define DBG(format, ...)
 #endif
 
+/* postponed regions are used to temporarily store region information at boot
+ * time when we cannot yet allocate the region list */
 #define MAX_POSTPONED_REGIONS 10
 
 static bool vram_initialized;
@@ -475,10 +478,13 @@ static __init int omap_vram_init(void)
 
 arch_initcall(omap_vram_init);
 
+/* boottime vram alloc stuff */
 
+/* set from board file */
 static u32 omap_vram_sdram_start __initdata;
 static u32 omap_vram_sdram_size __initdata;
 
+/* set from kernel cmdline */
 static u32 omap_vram_def_sdram_size __initdata;
 static u32 omap_vram_def_sdram_start __initdata;
 
@@ -491,12 +497,16 @@ static int __init omap_vram_early_vram(char *p)
 }
 early_param("vram", omap_vram_early_vram);
 
+/*
+ * Called from map_io. We need to call to this early enough so that we
+ * can reserve the fixed SDRAM regions before VM could get hold of them.
+ */
 void __init omap_vram_reserve_sdram_memblock(void)
 {
 	u32 paddr;
 	u32 size = 0;
 
-	
+	/* cmdline arg overrides the board file definition */
 	if (omap_vram_def_sdram_size) {
 		size = omap_vram_def_sdram_size;
 		paddr = omap_vram_def_sdram_start;

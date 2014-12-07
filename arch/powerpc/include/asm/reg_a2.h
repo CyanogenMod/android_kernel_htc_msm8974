@@ -13,56 +13,61 @@
 #define __ASM_POWERPC_REG_A2_H__
 
 #define SPRN_TENSR	0x1b5
-#define SPRN_TENS	0x1b6	
-#define SPRN_TENC	0x1b7	
+#define SPRN_TENS	0x1b6	/* Thread ENable Set */
+#define SPRN_TENC	0x1b7	/* Thread ENable Clear */
 
-#define SPRN_A2_CCR0	0x3f0	
-#define SPRN_A2_CCR1	0x3f1	
-#define SPRN_A2_CCR2	0x3f2	
-#define SPRN_MMUCR0	0x3fc	
-#define SPRN_MMUCR1	0x3fd	
-#define SPRN_MMUCR2	0x3fe	
-#define SPRN_MMUCR3	0x3ff	
+#define SPRN_A2_CCR0	0x3f0	/* Core Configuration Register 0 */
+#define SPRN_A2_CCR1	0x3f1	/* Core Configuration Register 1 */
+#define SPRN_A2_CCR2	0x3f2	/* Core Configuration Register 2 */
+#define SPRN_MMUCR0	0x3fc	/* MMU Control Register 0 */
+#define SPRN_MMUCR1	0x3fd	/* MMU Control Register 1 */
+#define SPRN_MMUCR2	0x3fe	/* MMU Control Register 2 */
+#define SPRN_MMUCR3	0x3ff	/* MMU Control Register 3 */
 
 #define SPRN_IAR	0x372
 
 #define SPRN_IUCR0	0x3f3
 #define IUCR0_ICBI_ACK	0x1000
 
-#define SPRN_XUCR0	0x3f6	
+#define SPRN_XUCR0	0x3f6	/* Execution Unit Config Register 0 */
 
 #define A2_IERAT_SIZE	16
 #define A2_DERAT_SIZE	32
 
-#define MMUCR0_ECL	0x80000000	
-#define MMUCR0_TID_NZ	0x40000000	
-#define MMUCR0_TS	0x10000000	
-#define MMUCR0_TGS	0x20000000	
-#define MMUCR0_TLBSEL	0x0c000000	
-#define MMUCR0_TLBSEL_U	0x00000000	
-#define MMUCR0_TLBSEL_I	0x08000000	
-#define MMUCR0_TLBSEL_D	0x0c000000	
-#define MMUCR0_LOCKSRSH	0x02000000	
-#define MMUCR0_TID_MASK	0x000000ff	
+/* A2 MMUCR0 bits */
+#define MMUCR0_ECL	0x80000000	/* Extended Class for TLB fills */
+#define MMUCR0_TID_NZ	0x40000000	/* TID is non-zero */
+#define MMUCR0_TS	0x10000000	/* Translation space for TLB fills */
+#define MMUCR0_TGS	0x20000000	/* Guest space for TLB fills */
+#define MMUCR0_TLBSEL	0x0c000000	/* TLB or ERAT target for TLB fills */
+#define MMUCR0_TLBSEL_U	0x00000000	/*  TLBSEL = UTLB */
+#define MMUCR0_TLBSEL_I	0x08000000	/*  TLBSEL = I-ERAT */
+#define MMUCR0_TLBSEL_D	0x0c000000	/*  TLBSEL = D-ERAT */
+#define MMUCR0_LOCKSRSH	0x02000000	/* Use TLB lock on tlbsx. */
+#define MMUCR0_TID_MASK	0x000000ff	/* TID field */
 
-#define MMUCR1_IRRE		0x80000000	
-#define MMUCR1_DRRE		0x40000000	
-#define MMUCR1_REE		0x20000000	
-#define MMUCR1_CEE		0x10000000	
-#define MMUCR1_CSINV_ALL	0x00000000	
-#define MMUCR1_CSINV_NISYNC	0x04000000	
-#define MMUCR1_CSINV_NEVER	0x0c000000	
-#define MMUCR1_ICTID		0x00080000	
-#define MMUCR1_ITTID		0x00040000	
-#define MMUCR1_DCTID		0x00020000	
-#define MMUCR1_DTTID		0x00010000	
-#define MMUCR1_DCCD		0x00008000	
-#define MMUCR1_TLBWE_BINV	0x00004000	
+/* A2 MMUCR1 bits */
+#define MMUCR1_IRRE		0x80000000	/* I-ERAT round robin enable */
+#define MMUCR1_DRRE		0x40000000	/* D-ERAT round robin enable */
+#define MMUCR1_REE		0x20000000	/* Reference Exception Enable*/
+#define MMUCR1_CEE		0x10000000	/* Change exception enable */
+#define MMUCR1_CSINV_ALL	0x00000000	/* Inval ERAT on all CS evts */
+#define MMUCR1_CSINV_NISYNC	0x04000000	/* Inval ERAT on all ex isync*/
+#define MMUCR1_CSINV_NEVER	0x0c000000	/* Don't inval ERAT on CS */
+#define MMUCR1_ICTID		0x00080000	/* IERAT class field as TID */
+#define MMUCR1_ITTID		0x00040000	/* IERAT thdid field as TID */
+#define MMUCR1_DCTID		0x00020000	/* DERAT class field as TID */
+#define MMUCR1_DTTID		0x00010000	/* DERAT thdid field as TID */
+#define MMUCR1_DCCD		0x00008000	/* DERAT class ignore */
+#define MMUCR1_TLBWE_BINV	0x00004000	/* back invalidate on tlbwe */
 
+/* A2 MMUCR2 bits */
 #define MMUCR2_PSSEL_SHIFT	4
 
-#define MMUCR3_THID		0x0000000f	
+/* A2 MMUCR3 bits */
+#define MMUCR3_THID		0x0000000f	/* Thread ID */
 
+/* *** ERAT TLB bits definitions */
 #define TLB0_EPN_MASK		ASM_CONST(0xfffffffffffff000)
 #define TLB0_CLASS_MASK		ASM_CONST(0x0000000000000c00)
 #define TLB0_CLASS_00		ASM_CONST(0x0000000000000000)
@@ -107,9 +112,14 @@
 
 #ifdef CONFIG_PPC_EARLY_DEBUG_WSP
 #define WSP_UART_PHYS	0xffc000c000
+/* This needs to be careful chosen to hit a !0 congruence class
+ * in the TLB since we bolt it in way 3, which is already occupied
+ * by our linear mapping primary bolted entry in CC 0.
+ */
 #define WSP_UART_VIRT	0xf000000000001000
 #endif
 
+/* A2 erativax attributes definitions */
 #define ERATIVAX_RS_IS_ALL		0x000
 #define ERATIVAX_RS_IS_TID		0x040
 #define ERATIVAX_RS_IS_CLASS		0x080
@@ -124,6 +134,7 @@
 #define ERATIVAX_PSIZE_16M		(TLB_PSIZE_16M >> 1)
 #define ERATIVAX_PSIZE_1G		(TLB_PSIZE_1G >> 1)
 
+/* A2 eratilx attributes definitions */
 #define ERATILX_T_ALL			0
 #define ERATILX_T_TID			1
 #define ERATILX_T_TGS			2
@@ -133,19 +144,22 @@
 #define ERATILX_T_CLASS2		6
 #define ERATILX_T_CLASS3		7
 
-#define XUCR0_TRACE_UM_T0		0x40000000	
-#define XUCR0_TRACE_UM_T1		0x20000000	
-#define XUCR0_TRACE_UM_T2		0x10000000	
-#define XUCR0_TRACE_UM_T3		0x08000000	
+/* XUCR0 bits */
+#define XUCR0_TRACE_UM_T0		0x40000000	/* Thread 0 */
+#define XUCR0_TRACE_UM_T1		0x20000000	/* Thread 1 */
+#define XUCR0_TRACE_UM_T2		0x10000000	/* Thread 2 */
+#define XUCR0_TRACE_UM_T3		0x08000000	/* Thread 3 */
 
+/* A2 CCR0 register */
 #define A2_CCR0_PME_DISABLED		0x00000000
 #define A2_CCR0_PME_SLEEP		0x40000000
 #define A2_CCR0_PME_RVW			0x80000000
 #define A2_CCR0_PME_DISABLED2		0xc0000000
 
+/* A2 CCR2 register */
 #define A2_CCR2_ERAT_ONLY_MODE		0x00000001
 #define A2_CCR2_ENABLE_ICSWX		0x00000002
 #define A2_CCR2_ENABLE_PC		0x20000000
 #define A2_CCR2_ENABLE_TRACE		0x40000000
 
-#endif 
+#endif /* __ASM_POWERPC_REG_A2_H__ */

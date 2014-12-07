@@ -15,18 +15,23 @@
 #ifndef _ASM_TILE_SIGCONTEXT_H
 #define _ASM_TILE_SIGCONTEXT_H
 
+/* Don't pollute the namespace since <signal.h> includes this file. */
 #define __need_int_reg_t
 #include <arch/abi.h>
 
+/*
+ * struct sigcontext has the same shape as struct pt_regs,
+ * but is simplified since we know the fault is from userspace.
+ */
 struct sigcontext {
-	__uint_reg_t gregs[53];	
-	__uint_reg_t tp;	
-	__uint_reg_t sp;	
-	__uint_reg_t lr;	
-	__uint_reg_t pc;	
-	__uint_reg_t ics;	
-	__uint_reg_t faultnum;	
+	__uint_reg_t gregs[53];	/* General-purpose registers.  */
+	__uint_reg_t tp;	/* Aliases gregs[TREG_TP].  */
+	__uint_reg_t sp;	/* Aliases gregs[TREG_SP].  */
+	__uint_reg_t lr;	/* Aliases gregs[TREG_LR].  */
+	__uint_reg_t pc;	/* Program counter.  */
+	__uint_reg_t ics;	/* In Interrupt Critical Section?  */
+	__uint_reg_t faultnum;	/* Fault number.  */
 	__uint_reg_t pad[5];
 };
 
-#endif 
+#endif /* _ASM_TILE_SIGCONTEXT_H */

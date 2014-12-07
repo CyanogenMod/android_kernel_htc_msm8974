@@ -27,6 +27,9 @@
 #include <plat/clock-clksrc.h>
 #include <plat/s5p-clock.h>
 
+/* fin_apll, fin_mpll and fin_epll are all the same clock, which we call
+ * clk_ext_xtal_mux.
+*/
 struct clk clk_ext_xtal_mux = {
 	.name		= "ext_xtal",
 	.id		= -1,
@@ -43,52 +46,65 @@ struct clk s5p_clk_27m = {
 	.rate		= 27000000,
 };
 
+/* 48MHz USB Phy clock output */
 struct clk clk_48m = {
 	.name		= "clk_48m",
 	.id		= -1,
 	.rate		= 48000000,
 };
 
+/* APLL clock output
+ * No need .ctrlbit, this is always on
+*/
 struct clk clk_fout_apll = {
 	.name		= "fout_apll",
 	.id		= -1,
 };
 
+/* BPLL clock output */
 
 struct clk clk_fout_bpll = {
 	.name		= "fout_bpll",
 	.id		= -1,
 };
 
+/* CPLL clock output */
 
 struct clk clk_fout_cpll = {
 	.name		= "fout_cpll",
 	.id		= -1,
 };
 
+/* MPLL clock output
+ * No need .ctrlbit, this is always on
+*/
 struct clk clk_fout_mpll = {
 	.name		= "fout_mpll",
 	.id		= -1,
 };
 
+/* EPLL clock output */
 struct clk clk_fout_epll = {
 	.name		= "fout_epll",
 	.id		= -1,
 	.ctrlbit	= (1 << 31),
 };
 
+/* DPLL clock output */
 struct clk clk_fout_dpll = {
 	.name		= "fout_dpll",
 	.id		= -1,
 	.ctrlbit	= (1 << 31),
 };
 
+/* VPLL clock output */
 struct clk clk_fout_vpll = {
 	.name		= "fout_vpll",
 	.id		= -1,
 	.ctrlbit	= (1 << 31),
 };
 
+/* Possible clock sources for APLL Mux */
 static struct clk *clk_src_apll_list[] = {
 	[0] = &clk_fin_apll,
 	[1] = &clk_fout_apll,
@@ -99,6 +115,7 @@ struct clksrc_sources clk_src_apll = {
 	.nr_sources	= ARRAY_SIZE(clk_src_apll_list),
 };
 
+/* Possible clock sources for BPLL Mux */
 static struct clk *clk_src_bpll_list[] = {
 	[0] = &clk_fin_bpll,
 	[1] = &clk_fout_bpll,
@@ -109,6 +126,7 @@ struct clksrc_sources clk_src_bpll = {
 	.nr_sources	= ARRAY_SIZE(clk_src_bpll_list),
 };
 
+/* Possible clock sources for CPLL Mux */
 static struct clk *clk_src_cpll_list[] = {
 	[0] = &clk_fin_cpll,
 	[1] = &clk_fout_cpll,
@@ -119,6 +137,7 @@ struct clksrc_sources clk_src_cpll = {
 	.nr_sources	= ARRAY_SIZE(clk_src_cpll_list),
 };
 
+/* Possible clock sources for MPLL Mux */
 static struct clk *clk_src_mpll_list[] = {
 	[0] = &clk_fin_mpll,
 	[1] = &clk_fout_mpll,
@@ -129,6 +148,7 @@ struct clksrc_sources clk_src_mpll = {
 	.nr_sources	= ARRAY_SIZE(clk_src_mpll_list),
 };
 
+/* Possible clock sources for EPLL Mux */
 static struct clk *clk_src_epll_list[] = {
 	[0] = &clk_fin_epll,
 	[1] = &clk_fout_epll,
@@ -139,6 +159,7 @@ struct clksrc_sources clk_src_epll = {
 	.nr_sources	= ARRAY_SIZE(clk_src_epll_list),
 };
 
+/* Possible clock sources for DPLL Mux */
 static struct clk *clk_src_dpll_list[] = {
 	[0] = &clk_fin_dpll,
 	[1] = &clk_fout_dpll,

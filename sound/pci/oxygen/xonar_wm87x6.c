@@ -16,7 +16,48 @@
  *  along with this driver; if not, see <http://www.gnu.org/licenses/>.
  */
 
+/*
+ * Xonar DS
+ * --------
+ *
+ * CMI8788:
+ *
+ *   SPI 0 -> WM8766 (surround, center/LFE, back)
+ *   SPI 1 -> WM8776 (front, input)
+ *
+ *   GPIO 4 <- headphone detect, 0 = plugged
+ *   GPIO 6 -> route input jack to mic-in (0) or line-in (1)
+ *   GPIO 7 -> enable output to front L/R speaker channels
+ *   GPIO 8 -> enable output to other speaker channels and front panel headphone
+ *
+ * WM8776:
+ *
+ *   input 1 <- line
+ *   input 2 <- mic
+ *   input 3 <- front mic
+ *   input 4 <- aux
+ */
 
+/*
+ * Xonar HDAV1.3 Slim
+ * ------------------
+ *
+ * CMI8788:
+ *
+ *   I²C <-> WM8776 (addr 0011010)
+ *
+ *   GPIO 0  -> disable HDMI output
+ *   GPIO 1  -> enable HP output
+ *   GPIO 6  -> firmware EEPROM I²C clock
+ *   GPIO 7 <-> firmware EEPROM I²C data
+ *
+ *   UART <-> HDMI controller
+ *
+ * WM8776:
+ *
+ *   input 1 <- mic
+ *   input 2 <- aux
+ */
 
 #include <linux/pci.h>
 #include <linux/delay.h>
@@ -41,7 +82,7 @@
 #define GPIO_SLIM_FIRMWARE_CLK	0x0040
 #define GPIO_SLIM_FIRMWARE_DATA	0x0080
 
-#define I2C_DEVICE_WM8776	0x34	
+#define I2C_DEVICE_WM8776	0x34	/* 001101, 0, /W=0 */
 
 #define LC_CONTROL_LIMITER	0x40000000
 #define LC_CONTROL_ALC		0x20000000
@@ -446,6 +487,10 @@ static void update_wm8766_center_lfe_mix(struct oxygen *chip, bool mixed)
 	struct xonar_wm87x6 *data = chip->model_data;
 	unsigned int reg;
 
+	/*
+	 * The WM8766 can mix left and right channels, but this setting
+	 * applies to all three stereo pairs.
+	 */
 	reg = data->wm8766_regs[WM8766_DAC_CTRL] &
 		~(WM8766_PL_LEFT_MASK | WM8766_PL_RIGHT_MASK);
 	if (mixed)
@@ -738,7 +783,7 @@ static int wm8776_input_mux_put(struct snd_kcontrol *ctl,
 	reg = data->wm8776_regs[WM8776_ADCMUX];
 	if (value->value.integer.value[0]) {
 		reg |= mux_bit;
-		
+		/* line-in and mic-in are exclusive */
 		mux_bit ^= 3;
 		if (reg & mux_bit) {
 			reg &= ~mux_bit;

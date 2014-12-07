@@ -11,6 +11,9 @@
  *
  */
 
+/*
+ * PING APPS SERVER Driver
+ */
 
 #include <linux/slab.h>
 #include <linux/module.h>
@@ -21,6 +24,7 @@
 #include <linux/workqueue.h>
 #include <mach/msm_rpcrouter.h>
 
+/* ping server definitions */
 
 #define PING_APPS_PROG 0x30000082
 #define PING_APPS_VERS 0x00010001

@@ -39,4 +39,4 @@
 #define DEVCAP_VAL_INT_STAT_SIZE   MHL_INT_AND_STATUS_SIZE
 #define DEVCAP_VAL_RESERVED        0
 
-#endif 
+#endif /* __MHL_DEVCAP_H__ */

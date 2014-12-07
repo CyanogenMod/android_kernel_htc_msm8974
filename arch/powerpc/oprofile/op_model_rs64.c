@@ -98,7 +98,7 @@ static int rs64_reg_setup(struct op_counter_config *ctr,
 	for (i = 0; i < num_counters; ++i)
 		reset_value[i] = 0x80000000UL - ctr[i].count;
 
-	
+	/* XXX setup user and kernel profiling */
 	return 0;
 }
 
@@ -106,18 +106,18 @@ static int rs64_cpu_setup(struct op_counter_config *ctr)
 {
 	unsigned int mmcr0;
 
-	
+	/* reset MMCR0 and set the freeze bit */
 	mmcr0 = MMCR0_FC;
 	mtspr(SPRN_MMCR0, mmcr0);
 
-	
+	/* reset MMCR1, MMCRA */
 	mtspr(SPRN_MMCR1, 0);
 
 	if (cpu_has_feature(CPU_FTR_MMCRA))
 		mtspr(SPRN_MMCRA, 0);
 
 	mmcr0 |= MMCR0_FCM1|MMCR0_PMXE|MMCR0_FCECE;
-	
+	/* Only applies to POWER3, but should be safe on RS64 */
 	mmcr0 |= MMCR0_PMC1CE|MMCR0_PMCjCE;
 	mtspr(SPRN_MMCR0, mmcr0);
 
@@ -134,7 +134,7 @@ static int rs64_start(struct op_counter_config *ctr)
 	int i;
 	unsigned int mmcr0;
 
-	
+	/* set the PMM bit (see comment below) */
 	mtmsrd(mfmsr() | MSR_PMM);
 
 	for (i = 0; i < num_counters; ++i) {
@@ -148,6 +148,11 @@ static int rs64_start(struct op_counter_config *ctr)
 
 	mmcr0 = mfspr(SPRN_MMCR0);
 
+	/*
+	 * now clear the freeze bit, counting will not start until we
+	 * rfid from this excetion, because only at that point will
+	 * the PMM bit be cleared
+	 */
 	mmcr0 &= ~MMCR0_FC;
 	mtspr(SPRN_MMCR0, mmcr0);
 
@@ -159,7 +164,7 @@ static void rs64_stop(void)
 {
 	unsigned int mmcr0;
 
-	
+	/* freeze counters */
 	mmcr0 = mfspr(SPRN_MMCR0);
 	mmcr0 |= MMCR0_FC;
 	mtspr(SPRN_MMCR0, mmcr0);
@@ -180,7 +185,7 @@ static void rs64_handle_interrupt(struct pt_regs *regs,
 
 	is_kernel = is_kernel_addr(pc);
 
-	
+	/* set the PMM bit (see comment below) */
 	mtmsrd(mfmsr() | MSR_PMM);
 
 	for (i = 0; i < num_counters; ++i) {
@@ -197,9 +202,14 @@ static void rs64_handle_interrupt(struct pt_regs *regs,
 
 	mmcr0 = mfspr(SPRN_MMCR0);
 
-	
+	/* reset the perfmon trigger */
 	mmcr0 |= MMCR0_PMXE;
 
+	/*
+	 * now clear the freeze bit, counting will not start until we
+	 * rfid from this exception, because only at that point will
+	 * the PMM bit be cleared
+	 */
 	mmcr0 &= ~MMCR0_FC;
 	mtspr(SPRN_MMCR0, mmcr0);
 }

@@ -36,7 +36,7 @@ struct rmnet_phys_ep_conf_s {
 	uint32_t	ingress_data_format;
 	uint32_t	egress_data_format;
 
-	
+	/* MAP specific */
 	uint16_t egress_agg_size;
 	uint16_t egress_agg_count;
 	spinlock_t agg_lock;
@@ -66,4 +66,4 @@ int rmnet_set_logical_endpoint_config(struct net_device *dev,
 void rmnet_config_netlink_msg_handler (struct sk_buff *skb);
 int rmnet_create_vnd(int id);
 
-#endif 
+#endif /* _RMNET_DATA_CONFIG_H_ */

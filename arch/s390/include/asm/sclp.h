@@ -55,4 +55,4 @@ int sclp_chp_deconfigure(struct chp_id chpid);
 int sclp_chp_read_info(struct sclp_chp_info *info);
 void sclp_get_ipl_info(struct sclp_ipl_info *info);
 
-#endif 
+#endif /* _ASM_S390_SCLP_H */

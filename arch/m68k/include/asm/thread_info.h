@@ -5,6 +5,11 @@
 #include <asm/page.h>
 #include <asm/segment.h>
 
+/*
+ * On machines with 4k pages we default to an 8k thread size, though we
+ * allow a 4k with config option. Any other machine page size then
+ * the thread size must match the page size (which is 8k and larger here).
+ */
 #if PAGE_SHIFT < 13
 #ifdef CONFIG_4KSTACKS
 #define THREAD_SIZE	4096
@@ -19,16 +24,16 @@
 #ifndef __ASSEMBLY__
 
 struct thread_info {
-	struct task_struct	*task;		
+	struct task_struct	*task;		/* main task structure */
 	unsigned long		flags;
-	struct exec_domain	*exec_domain;	
-	mm_segment_t		addr_limit;	
-	int			preempt_count;	
-	__u32			cpu;		
-	unsigned long		tp_value;	
+	struct exec_domain	*exec_domain;	/* execution domain */
+	mm_segment_t		addr_limit;	/* thread address space */
+	int			preempt_count;	/* 0 => preemptable, <0 => BUG */
+	__u32			cpu;		/* should always be 0 on m68k */
+	unsigned long		tp_value;	/* thread pointer */
 	struct restart_block    restart_block;
 };
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #define PREEMPT_ACTIVE		0x4000000
 
@@ -46,6 +51,7 @@ struct thread_info {
 #define init_stack		(init_thread_union.stack)
 
 #ifndef __ASSEMBLY__
+/* how to get the thread information struct from C */
 static inline struct thread_info *current_thread_info(void)
 {
 	struct thread_info *ti;
@@ -61,11 +67,15 @@ static inline struct thread_info *current_thread_info(void)
 
 #define init_thread_info	(init_thread_union.thread_info)
 
-#define TIF_SIGPENDING		6	
-#define TIF_NEED_RESCHED	7	
-#define TIF_DELAYED_TRACE	14	
-#define TIF_SYSCALL_TRACE	15	
-#define TIF_MEMDIE		16	
-#define TIF_RESTORE_SIGMASK	18	
+/* entry.S relies on these definitions!
+ * bits 0-7 are tested at every exception exit
+ * bits 8-15 are also tested at syscall exit
+ */
+#define TIF_SIGPENDING		6	/* signal pending */
+#define TIF_NEED_RESCHED	7	/* rescheduling necessary */
+#define TIF_DELAYED_TRACE	14	/* single step a syscall */
+#define TIF_SYSCALL_TRACE	15	/* syscall trace active */
+#define TIF_MEMDIE		16	/* is terminating due to OOM killer */
+#define TIF_RESTORE_SIGMASK	18	/* restore signal mask in do_signal */
 
-#endif	
+#endif	/* _ASM_M68K_THREAD_INFO_H */

@@ -38,10 +38,12 @@ enum srp_task_attributes {
 	SRP_ACA_TASK = 4
 };
 
+/* tmp - will replace with SCSI logging stuff */
 #define eprintk(fmt, args...)					\
 do {								\
 	printk("%s(%d) " fmt, __func__, __LINE__, ##args);	\
 } while (0)
+/* #define dprintk eprintk */
 #define dprintk(fmt, args...)
 
 static int srp_iu_pool_alloc(struct srp_queue *q, size_t max,
@@ -315,6 +317,10 @@ static int data_out_desc_size(struct srp_cmd *cmd)
 	return size;
 }
 
+/*
+ * TODO: this can be called multiple times for a single command if it
+ * has very long data.
+ */
 int srp_transfer_data(struct scsi_cmnd *sc, struct srp_cmd *cmd,
 		      srp_rdma_t rdma_io, int dma_map, int ext_desc)
 {

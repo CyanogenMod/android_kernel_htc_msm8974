@@ -77,24 +77,43 @@ scb2_fixup_mtd(struct mtd_info *mtd)
 	struct map_info *map = mtd->priv;
 	struct cfi_private *cfi = map->fldrv_priv;
 
-	
+	/* barf if this doesn't look right */
 	if (cfi->cfiq->InterfaceDesc != CFI_INTERFACE_X16_ASYNC) {
 		printk(KERN_ERR MODNAME ": unsupported InterfaceDesc: %#x\n",
 		    cfi->cfiq->InterfaceDesc);
 		return -1;
 	}
 
-	
+	/* I wasn't here. I didn't see. dwmw2. */
 
-	
+	/* the chip is sometimes bigger than the map - what a waste */
 	mtd->size = map->size;
 
+	/*
+	 * We only REALLY get half the chip, due to the way it is
+	 * wired up - D8-D15 are tossed away.  We read linear bytes,
+	 * but in reality we are getting 1/2 of each 16-bit read,
+	 * which LOOKS linear to us.  Because CFI code accounts for
+	 * things like lock/unlock/erase by eraseregions, we need to
+	 * fudge them to reflect this.  Erases go like this:
+	 *   * send an erase to an address
+	 *   * the chip samples the address and erases the block
+	 *   * add the block erasesize to the address and repeat
+	 *   -- the problem is that addresses are 16-bit addressable
+	 *   -- we end up erasing every-other block
+	 */
 	mtd->erasesize /= 2;
 	for (i = 0; i < mtd->numeraseregions; i++) {
 		struct mtd_erase_region_info *region = &mtd->eraseregions[i];
 		region->erasesize /= 2;
 	}
 
+	/*
+	 * If the chip is bigger than the map, it is wired with the high
+	 * address lines pulled up.  This makes us access the top portion of
+	 * the chip, so all our erase-region info is wrong.  Start cutting from
+	 * the bottom.
+	 */
 	for (i = 0; !done && i < mtd->numeraseregions; i++) {
 		struct mtd_erase_region_info *region = &mtd->eraseregions[i];
 
@@ -111,6 +130,7 @@ scb2_fixup_mtd(struct mtd_info *mtd)
 	return 0;
 }
 
+/* CSB5's 'Function Control Register' has bits for decoding @ >= 0xffc00000 */
 #define CSB5_FCR	0x41
 #define CSB5_FCR_DECODE_ALL 0x0e
 static int __devinit
@@ -118,17 +138,21 @@ scb2_flash_probe(struct pci_dev *dev, const struct pci_device_id *ent)
 {
 	u8 reg;
 
-	
+	/* enable decoding of the flash region in the south bridge */
 	pci_read_config_byte(dev, CSB5_FCR, &reg);
 	pci_write_config_byte(dev, CSB5_FCR, reg | CSB5_FCR_DECODE_ALL);
 
 	if (!request_mem_region(SCB2_ADDR, SCB2_WINDOW, scb2_map.name)) {
+		/*
+		 * The BIOS seems to mark the flash region as 'reserved'
+		 * in the e820 map.  Warn and go about our business.
+		 */
 		printk(KERN_WARNING MODNAME
 		    ": warning - can't reserve rom window, continuing\n");
 		region_fail = 1;
 	}
 
-	
+	/* remap the IO window (w/o caching) */
 	scb2_ioaddr = ioremap_nocache(SCB2_ADDR, SCB2_WINDOW);
 	if (!scb2_ioaddr) {
 		printk(KERN_ERR MODNAME ": Failed to ioremap window!\n");
@@ -143,7 +167,7 @@ scb2_flash_probe(struct pci_dev *dev, const struct pci_device_id *ent)
 
 	simple_map_init(&scb2_map);
 
-	
+	/* try to find a chip */
 	scb2_mtd = do_map_probe("cfi_probe", &scb2_map);
 
 	if (!scb2_mtd) {
@@ -179,7 +203,7 @@ scb2_flash_remove(struct pci_dev *dev)
 	if (!scb2_mtd)
 		return;
 
-	
+	/* disable flash writes */
 	mtd_lock(scb2_mtd, 0, scb2_mtd->size);
 
 	mtd_device_unregister(scb2_mtd);

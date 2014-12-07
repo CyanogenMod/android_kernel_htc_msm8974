@@ -42,6 +42,7 @@ static struct resource tc6387xb_mmc_resources[] = {
 	},
 };
 
+/*--------------------------------------------------------------------------*/
 
 #ifdef CONFIG_PM
 static int tc6387xb_suspend(struct platform_device *dev, pm_message_t state)
@@ -75,6 +76,7 @@ static int tc6387xb_resume(struct platform_device *dev)
 #define tc6387xb_resume   NULL
 #endif
 
+/*--------------------------------------------------------------------------*/
 
 static void tc6387xb_mmc_pwr(struct platform_device *mmc, int state)
 {
@@ -122,6 +124,7 @@ static struct tmio_mmc_data tc6387xb_mmc_data = {
 	.set_clk_div = tc6387xb_mmc_clk_div,
 };
 
+/*--------------------------------------------------------------------------*/
 
 static struct mfd_cell tc6387xb_cells[] = {
 	[TC6387XB_CELL_MMC] = {

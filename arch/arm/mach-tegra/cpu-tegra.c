@@ -33,6 +33,7 @@
 
 #include <mach/clk.h>
 
+/* Frequency table index must be sequential starting at 0 */
 static struct cpufreq_frequency_table freq_table[] = {
 	{ 0, 216000 },
 	{ 1, 312000 },
@@ -81,12 +82,16 @@ static int tegra_update_cpu_speed(unsigned long rate)
 	if (freqs.old == freqs.new)
 		return ret;
 
+	/*
+	 * Vote on memory bus frequency based on cpu frequency
+	 * This sets the minimum frequency, display or avp may request higher
+	 */
 	if (rate >= 816000)
-		clk_set_rate(emc_clk, 600000000); 
+		clk_set_rate(emc_clk, 600000000); /* cpu 816 MHz, emc max */
 	else if (rate >= 456000)
-		clk_set_rate(emc_clk, 300000000); 
+		clk_set_rate(emc_clk, 300000000); /* cpu 456 MHz, emc 150Mhz */
 	else
-		clk_set_rate(emc_clk, 100000000);  
+		clk_set_rate(emc_clk, 100000000);  /* emc 50Mhz */
 
 	for_each_online_cpu(freqs.cpu)
 		cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
@@ -192,7 +197,7 @@ static int tegra_cpu_init(struct cpufreq_policy *policy)
 	policy->cur = tegra_getspeed(policy->cpu);
 	target_cpu_speed[policy->cpu] = policy->cur;
 
-	
+	/* FIXME: what's the actual transition time? */
 	policy->cpuinfo.transition_latency = 300 * 1000;
 
 	policy->shared_type = CPUFREQ_SHARED_TYPE_ALL;

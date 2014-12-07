@@ -111,7 +111,11 @@ void __init plat_mem_setup(void)
 	int cputype;
 
 	set_io_port_base(SNI_PORT_BASE);
+//	ioport_resource.end = sni_io_resource.end;
 
+	/*
+	 * Setup (E)ISA I/O memory access stuff
+	 */
 #ifdef CONFIG_EISA
 	EISA_bus = 1;
 #endif
@@ -235,10 +239,15 @@ static void __devinit quirk_cirrus_ram_size(struct pci_dev *dev)
 {
 	u16 cmd;
 
+	/*
+	 * firmware doesn't set the ram size correct, so we
+	 * need to do it here, otherwise we get screen corruption
+	 * on older Cirrus chips
+	 */
 	pci_read_config_word(dev, PCI_COMMAND, &cmd);
 	if ((cmd & (PCI_COMMAND_IO|PCI_COMMAND_MEMORY))
 	        == (PCI_COMMAND_IO|PCI_COMMAND_MEMORY)) {
-		vga_wseq(NULL, CL_SEQR6, 0x12);	
+		vga_wseq(NULL, CL_SEQR6, 0x12);	/* unlock all extension registers */
 		vga_wseq(NULL, CL_SEQRF, 0x18);
 	}
 }

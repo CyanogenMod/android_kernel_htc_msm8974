@@ -65,12 +65,12 @@ int carl9170_read_mreg(struct ar9170 *ar, const int nregs,
 	int i, err;
 	__le32 *offs, *res;
 
-	
+	/* abuse "out" for the register offsets, must be same length */
 	offs = (__le32 *)out;
 	for (i = 0; i < nregs; i++)
 		offs[i] = cpu_to_le32(regs[i]);
 
-	
+	/* also use the same buffer for the input */
 	res = (__le32 *)out;
 
 	err = carl9170_exec_cmd(ar, CARL9170_CMD_RREG,
@@ -84,7 +84,7 @@ int carl9170_read_mreg(struct ar9170 *ar, const int nregs,
 		return err;
 	}
 
-	
+	/* convert result to cpu endian */
 	for (i = 0; i < nregs; i++)
 		out[i] = le32_to_cpu(res[i]);
 
@@ -210,10 +210,10 @@ int carl9170_powersave(struct ar9170 *ar, const bool ps)
 		return -ENOMEM;
 
 	if (ps) {
-		
+		/* Sleep until next TBTT */
 		state = CARL9170_PSM_SLEEP | 1;
 	} else {
-		
+		/* wake up immediately */
 		state = 1;
 	}
 

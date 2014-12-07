@@ -1,3 +1,8 @@
+/******************************************************************************
+*                                                                             *
+*  easycap_testcard.c                                                         *
+*                                                                             *
+******************************************************************************/
 /*
  *
  *  Copyright (C) 2010 R.M. Thomas  <rmthomas@sciolus.org>
@@ -18,9 +23,11 @@
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
 */
+/*****************************************************************************/
 
 #include "easycap.h"
 
+/*****************************************************************************/
 #define TESTCARD_BYTESPERLINE (2 * 720)
 void
 easycap_testcard(struct easycap *peasycap, int field)

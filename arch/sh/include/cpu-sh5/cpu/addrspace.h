@@ -6,5 +6,6 @@
 #define PHYS_PCI_BLOCK		0x60000000
 #define PHYS_EMI_BLOCK		0xff000000
 
+/* No segmentation.. */
 
-#endif 
+#endif /* __ASM_SH_CPU_SH5_ADDRSPACE_H */

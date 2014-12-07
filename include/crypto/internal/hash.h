@@ -219,5 +219,5 @@ static inline struct crypto_shash *__crypto_shash_cast(struct crypto_tfm *tfm)
 	return container_of(tfm, struct crypto_shash, base);
 }
 
-#endif	
+#endif	/* _CRYPTO_INTERNAL_HASH_H */
 

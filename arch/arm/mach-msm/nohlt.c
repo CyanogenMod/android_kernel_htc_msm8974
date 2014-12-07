@@ -10,6 +10,9 @@
  * GNU General Public License for more details.
  *
  */
+/*
+ * MSM architecture driver to control arm halt behavior
+ */
 
 #include <linux/module.h>
 #include <linux/debugfs.h>

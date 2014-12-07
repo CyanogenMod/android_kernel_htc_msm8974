@@ -64,11 +64,13 @@ extern void ipx_unregister_sysctl(void);
 #define ipx_unregister_sysctl()
 #endif
 
+/* Configuration Variables */
 static unsigned char ipxcfg_max_hops = 16;
 static char ipxcfg_auto_select_primary;
 static char ipxcfg_auto_create_interfaces;
 int sysctl_ipx_pprop_broadcasting = 1;
 
+/* Global Variables */
 static struct datalink_proto *p8022_datalink;
 static struct datalink_proto *pEII_datalink;
 static struct datalink_proto *p8023_datalink;
@@ -118,10 +120,15 @@ static int ipxcfg_get_config_data(struct ipx_config_data __user *arg)
 	return copy_to_user(arg, &vals, sizeof(vals)) ? -EFAULT : 0;
 }
 
+/*
+ * Note: Sockets may not be removed _during_ an interrupt or inet_bh
+ * handler using this technique. They can be added although we do not
+ * use this facility.
+ */
 
 static void ipx_remove_socket(struct sock *sk)
 {
-	
+	/* Determine interface with which socket is associated */
 	struct ipx_interface *intrfc = ipx_sk(sk)->intrfc;
 
 	if (!intrfc)
@@ -143,7 +150,12 @@ static void ipx_destroy_socket(struct sock *sk)
 	sk_refcnt_debug_dec(sk);
 }
 
+/*
+ * The following code is used to support IPX Interfaces (IPXITF).  An
+ * IPX interface is defined by a physical device and a frame type.
+ */
 
+/* ipxitf_clear_primary_net has to be called with ipx_interfaces_lock held */
 
 static void ipxitf_clear_primary_net(void)
 {
@@ -200,6 +212,7 @@ unlock:
 	return i;
 }
 
+/* Sockets are bound to a particular IPX interface. */
 static void ipxitf_insert_socket(struct ipx_interface *intrfc, struct sock *sk)
 {
 	ipxitf_hold(intrfc);
@@ -210,6 +223,7 @@ static void ipxitf_insert_socket(struct ipx_interface *intrfc, struct sock *sk)
 	ipxitf_put(intrfc);
 }
 
+/* caller must hold intrfc->if_sklist_lock */
 static struct sock *__ipxitf_find_socket(struct ipx_interface *intrfc,
 					 __be16 port)
 {
@@ -224,6 +238,7 @@ found:
 	return s;
 }
 
+/* caller must hold a reference to intrfc */
 static struct sock *ipxitf_find_socket(struct ipx_interface *intrfc,
 					__be16 port)
 {
@@ -269,11 +284,11 @@ static void __ipxitf_down(struct ipx_interface *intrfc)
 	struct sock *s;
 	struct hlist_node *node, *t;
 
-	
+	/* Delete all routes associated with this interface */
 	ipxrtr_del_routes(intrfc);
 
 	spin_lock_bh(&intrfc->if_sklist_lock);
-	
+	/* error sockets */
 	sk_for_each_safe(s, node, t, &intrfc->if_sklist) {
 		struct ipx_sock *ipxs = ipx_sk(s);
 
@@ -281,16 +296,16 @@ static void __ipxitf_down(struct ipx_interface *intrfc)
 		s->sk_error_report(s);
 		ipxs->intrfc = NULL;
 		ipxs->port   = 0;
-		sock_set_flag(s, SOCK_ZAPPED); 
+		sock_set_flag(s, SOCK_ZAPPED); /* Indicates it is no longer bound */
 		sk_del_node_init(s);
 	}
 	INIT_HLIST_HEAD(&intrfc->if_sklist);
 	spin_unlock_bh(&intrfc->if_sklist_lock);
 
-	
+	/* remove this interface from list */
 	list_del(&intrfc->node);
 
-	
+	/* remove this interface from *special* networks */
 	if (intrfc == ipx_primary_net)
 		ipxitf_clear_primary_net();
 	if (intrfc == ipx_internal_net)
@@ -356,7 +371,11 @@ static void ipxitf_def_skb_handler(struct sock *sock, struct sk_buff *skb)
 		kfree_skb(skb);
 }
 
+/*
+ * On input skb->sk is NULL. Nobody is charged for the memory.
+ */
 
+/* caller must hold a reference to intrfc */
 
 #ifdef CONFIG_IPX_INTERN
 static int ipxitf_demux_socket(struct ipx_interface *intrfc,
@@ -377,7 +396,7 @@ static int ipxitf_demux_socket(struct ipx_interface *intrfc,
 		if (ipxs->port == ipx->ipx_dest.sock &&
 		    (is_broadcast || !memcmp(ipx->ipx_dest.node,
 					     ipxs->node, IPX_NODE_LEN))) {
-			
+			/* We found a socket to which to send */
 			struct sk_buff *skb1;
 
 			if (copy) {
@@ -387,17 +406,17 @@ static int ipxitf_demux_socket(struct ipx_interface *intrfc,
 					goto out;
 			} else {
 				skb1 = skb;
-				copy = 1; 
+				copy = 1; /* skb may only be used once */
 			}
 			ipxitf_def_skb_handler(s, skb1);
 
-			
+			/* On an external interface, one socket can listen */
 			if (intrfc != ipx_internal_net)
 				break;
 		}
 	}
 
-	
+	/* skb was solely for us, and we did not make a copy, so free it. */
 	if (!copy)
 		kfree_skb(skb);
 
@@ -410,17 +429,27 @@ out:
 static struct sock *ncp_connection_hack(struct ipx_interface *intrfc,
 					struct ipxhdr *ipx)
 {
+	/* The packet's target is a NCP connection handler. We want to hand it
+	 * to the correct socket directly within the kernel, so that the
+	 * mars_nwe packet distribution process does not have to do it. Here we
+	 * only care about NCP and BURST packets.
+	 *
+	 * You might call this a hack, but believe me, you do not want a
+	 * complete NCP layer in the kernel, and this is VERY fast as well. */
 	struct sock *sk = NULL;
 	int connection = 0;
 	u8 *ncphdr = (u8 *)(ipx + 1);
 
-	if (*ncphdr == 0x22 && *(ncphdr + 1) == 0x22) 
+	if (*ncphdr == 0x22 && *(ncphdr + 1) == 0x22) /* NCP request */
 		connection = (((int) *(ncphdr + 5)) << 8) | (int) *(ncphdr + 3);
-	else if (*ncphdr == 0x77 && *(ncphdr + 1) == 0x77) 
+	else if (*ncphdr == 0x77 && *(ncphdr + 1) == 0x77) /* BURST packet */
 		connection = (((int) *(ncphdr + 9)) << 8) | (int) *(ncphdr + 8);
 
 	if (connection) {
 		struct hlist_node *node;
+		/* Now we have to look for a special NCP connection handling
+		 * socket. Only these sockets have ipx_ncp_conn != 0, set by
+		 * SIOCIPXNCPCONN. */
 		spin_lock_bh(&intrfc->if_sklist_lock);
 		sk_for_each(sk, node, &intrfc->if_sklist)
 			if (ipx_sk(sk)->ipx_ncp_conn == connection) {
@@ -445,18 +474,32 @@ static int ipxitf_demux_socket(struct ipx_interface *intrfc,
 	if (intrfc == ipx_primary_net && ntohs(ipx->ipx_dest.sock) == 0x451)
 		sock1 = ncp_connection_hack(intrfc, ipx);
 	if (!sock1)
-		
+		/* No special socket found, forward the packet the normal way */
 		sock1 = ipxitf_find_socket(intrfc, ipx->ipx_dest.sock);
 
+	/*
+	 * We need to check if there is a primary net and if
+	 * this is addressed to one of the *SPECIAL* sockets because
+	 * these need to be propagated to the primary net.
+	 * The *SPECIAL* socket list contains: 0x452(SAP), 0x453(RIP) and
+	 * 0x456(Diagnostic).
+	 */
 
 	if (ipx_primary_net && intrfc != ipx_primary_net) {
 		const int dsock = ntohs(ipx->ipx_dest.sock);
 
 		if (dsock == 0x452 || dsock == 0x453 || dsock == 0x456)
+			/* The appropriate thing to do here is to dup the
+			 * packet and route to the primary net interface via
+			 * ipxitf_send; however, we'll cheat and just demux it
+			 * here. */
 			sock2 = ipxitf_find_socket(ipx_primary_net,
 							ipx->ipx_dest.sock);
 	}
 
+	/*
+	 * If there is nothing to do return. The kfree will cancel any charging.
+	 */
 	rc = 0;
 	if (!sock1 && !sock2) {
 		if (!copy)
@@ -464,6 +507,13 @@ static int ipxitf_demux_socket(struct ipx_interface *intrfc,
 		goto out;
 	}
 
+	/*
+	 * This next segment of code is a little awkward, but it sets it up
+	 * so that the appropriate number of copies of the SKB are made and
+	 * that skb1 and skb2 point to it (them) so that it (they) can be
+	 * demuxed to sock1 and/or sock2.  If we are unable to make enough
+	 * copies, we do as much as is possible.
+	 */
 
 	if (copy)
 		skb1 = skb_clone(skb, GFP_ATOMIC);
@@ -474,7 +524,7 @@ static int ipxitf_demux_socket(struct ipx_interface *intrfc,
 	if (!skb1)
 		goto out_put;
 
-	
+	/* Do we need 2 SKBs? */
 	if (sock1 && sock2)
 		skb2 = skb_clone(skb1, GFP_ATOMIC);
 	else
@@ -498,7 +548,7 @@ out_put:
 out:
 	return rc;
 }
-#endif	
+#endif	/* CONFIG_IPX_INTERN */
 
 static struct sk_buff *ipxitf_adjust_skbuff(struct ipx_interface *intrfc,
 					    struct sk_buff *skb)
@@ -508,11 +558,11 @@ static struct sk_buff *ipxitf_adjust_skbuff(struct ipx_interface *intrfc,
 	int out_offset = intrfc->if_ipx_offset;
 	int len;
 
-	
+	/* Hopefully, most cases */
 	if (in_offset >= out_offset)
 		return skb;
 
-	
+	/* Need new SKB */
 	len  = skb->len + out_offset;
 	skb2 = alloc_skb(len, GFP_ATOMIC);
 	if (skb2) {
@@ -527,6 +577,7 @@ static struct sk_buff *ipxitf_adjust_skbuff(struct ipx_interface *intrfc,
 	return skb2;
 }
 
+/* caller must hold a reference to intrfc and the skb has to be unshared */
 int ipxitf_send(struct ipx_interface *intrfc, struct sk_buff *skb, char *node)
 {
 	struct ipxhdr *ipx = ipx_hdr(skb);
@@ -540,7 +591,7 @@ int ipxitf_send(struct ipx_interface *intrfc, struct sk_buff *skb, char *node)
 	ipx->ipx_dest.net = IPX_SKB_CB(skb)->ipx_dest_net;
 	ipx->ipx_source.net = IPX_SKB_CB(skb)->ipx_source_net;
 
-	
+	/* see if we need to include the netnum in the route list */
 	if (IPX_SKB_CB(skb)->last_hop.index >= 0) {
 		__be32 *last_hop = (__be32 *)(((u8 *) skb->data) +
 				sizeof(struct ipxhdr) +
@@ -550,22 +601,36 @@ int ipxitf_send(struct ipx_interface *intrfc, struct sk_buff *skb, char *node)
 		IPX_SKB_CB(skb)->last_hop.index = -1;
 	}
 
+	/*
+	 * We need to know how many skbuffs it will take to send out this
+	 * packet to avoid unnecessary copies.
+	 */
 
 	if (!dl || !dev || dev->flags & IFF_LOOPBACK)
-		send_to_wire = 0;	
+		send_to_wire = 0;	/* No non looped */
 
+	/*
+	 * See if this should be demuxed to sockets on this interface
+	 *
+	 * We want to ensure the original was eaten or that we only use
+	 * up clones.
+	 */
 
 	if (ipx->ipx_dest.net == intrfc->if_netnum) {
+		/*
+		 * To our own node, loop and free the original.
+		 * The internal net will receive on all node address.
+		 */
 		if (intrfc == ipx_internal_net ||
 		    !memcmp(intrfc->if_node, node, IPX_NODE_LEN)) {
-			
+			/* Don't charge sender */
 			skb_orphan(skb);
 
-			
+			/* Will charge receiver */
 			return ipxitf_demux_socket(intrfc, skb, 0);
 		}
 
-		
+		/* Broadcast, loop and possibly keep to send on. */
 		if (!memcmp(ipx_broadcast_node, node, IPX_NODE_LEN)) {
 			if (!send_to_wire)
 				skb_orphan(skb);
@@ -575,7 +640,16 @@ int ipxitf_send(struct ipx_interface *intrfc, struct sk_buff *skb, char *node)
 		}
 	}
 
+	/*
+	 * If the originating net is not equal to our net; this is routed
+	 * We are still charging the sender. Which is right - the driver
+	 * free will handle this fairly.
+	 */
 	if (ipx->ipx_source.net != intrfc->if_netnum) {
+		/*
+		 * Unshare the buffer before modifying the count in
+		 * case it's a flood or tcpdump
+		 */
 		skb = skb_unshare(skb, GFP_ATOMIC);
 		if (!skb)
 			goto out;
@@ -588,23 +662,23 @@ int ipxitf_send(struct ipx_interface *intrfc, struct sk_buff *skb, char *node)
 		goto out;
 	}
 
-	
+	/* Determine the appropriate hardware address */
 	addr_len = dev->addr_len;
 	if (!memcmp(ipx_broadcast_node, node, IPX_NODE_LEN))
 		memcpy(dest_node, dev->broadcast, addr_len);
 	else
 		memcpy(dest_node, &(node[IPX_NODE_LEN-addr_len]), addr_len);
 
-	
+	/* Make any compensation for differing physical/data link size */
 	skb = ipxitf_adjust_skbuff(intrfc, skb);
 	if (!skb)
 		goto out;
 
-	
+	/* set up data link and physical headers */
 	skb->dev	= dev;
 	skb->protocol	= htons(ETH_P_IPX);
 
-	
+	/* Send it out */
 	dl->request(dl, skb, dest_node);
 out:
 	return 0;
@@ -626,8 +700,8 @@ static int ipxitf_rcv(struct ipx_interface *intrfc, struct sk_buff *skb)
 
 	ipxitf_hold(intrfc);
 
-	
-	if (!intrfc->if_netnum) 
+	/* See if we should update our network number */
+	if (!intrfc->if_netnum) /* net number of intrfc not known yet */
 		ipxitf_discover_netnum(intrfc, skb);
 
 	IPX_SKB_CB(skb)->last_hop.index = -1;
@@ -637,15 +711,17 @@ static int ipxitf_rcv(struct ipx_interface *intrfc, struct sk_buff *skb)
 			goto out_free_skb;
 	}
 
-	
+	/* local processing follows */
 	if (!IPX_SKB_CB(skb)->ipx_dest_net)
 		IPX_SKB_CB(skb)->ipx_dest_net = intrfc->if_netnum;
 	if (!IPX_SKB_CB(skb)->ipx_source_net)
 		IPX_SKB_CB(skb)->ipx_source_net = intrfc->if_netnum;
 
+	/* it doesn't make sense to route a pprop packet, there's no meaning
+	 * in the ipx_dest_net for such packets */
 	if (ipx->ipx_type != IPX_TYPE_PPROP &&
 	    intrfc->if_netnum != IPX_SKB_CB(skb)->ipx_dest_net) {
-		
+		/* We only route point-to-point packets. */
 		if (skb->pkt_type == PACKET_HOST) {
 			skb = skb_unshare(skb, GFP_ATOMIC);
 			if (skb)
@@ -656,14 +732,14 @@ static int ipxitf_rcv(struct ipx_interface *intrfc, struct sk_buff *skb)
 		goto out_free_skb;
 	}
 
-	
+	/* see if we should keep it */
 	if (!memcmp(ipx_broadcast_node, ipx->ipx_dest.node, IPX_NODE_LEN) ||
 	    !memcmp(intrfc->if_node, ipx->ipx_dest.node, IPX_NODE_LEN)) {
 		rc = ipxitf_demux_socket(intrfc, skb, 0);
 		goto out_intrfc;
 	}
 
-	
+	/* we couldn't pawn it off so unload it */
 out_free_skb:
 	kfree_skb(skb);
 out_intrfc:
@@ -676,10 +752,13 @@ static void ipxitf_discover_netnum(struct ipx_interface *intrfc,
 {
 	const struct ipx_cb *cb = IPX_SKB_CB(skb);
 
-	
+	/* see if this is an intra packet: source_net == dest_net */
 	if (cb->ipx_source_net == cb->ipx_dest_net && cb->ipx_source_net) {
 		struct ipx_interface *i =
 				ipxitf_find_using_net(cb->ipx_source_net);
+		/* NB: NetWare servers lie about their hop count so we
+		 * dropped the test based on it. This is the best way
+		 * to determine this is a 0 hop count packet. */
 		if (!i) {
 			intrfc->if_netnum = cb->ipx_source_net;
 			ipxitf_add_local_route(intrfc);
@@ -696,6 +775,30 @@ static void ipxitf_discover_netnum(struct ipx_interface *intrfc,
 	}
 }
 
+/**
+ * ipxitf_pprop - Process packet propagation IPX packet type 0x14, used for
+ * 		  NetBIOS broadcasts
+ * @intrfc: IPX interface receiving this packet
+ * @skb: Received packet
+ *
+ * Checks if packet is valid: if its more than %IPX_MAX_PPROP_HOPS hops or if it
+ * is smaller than a IPX header + the room for %IPX_MAX_PPROP_HOPS hops we drop
+ * it, not even processing it locally, if it has exact %IPX_MAX_PPROP_HOPS we
+ * don't broadcast it, but process it locally. See chapter 5 of Novell's "IPX
+ * RIP and SAP Router Specification", Part Number 107-000029-001.
+ *
+ * If it is valid, check if we have pprop broadcasting enabled by the user,
+ * if not, just return zero for local processing.
+ *
+ * If it is enabled check the packet and don't broadcast it if we have already
+ * seen this packet.
+ *
+ * Broadcast: send it to the interfaces that aren't on the packet visited nets
+ * array, just after the IPX header.
+ *
+ * Returns -EINVAL for invalid packets, so that the calling function drops
+ * the packet without local processing. 0 if packet is to be locally processed.
+ */
 static int ipxitf_pprop(struct ipx_interface *intrfc, struct sk_buff *skb)
 {
 	struct ipxhdr *ipx = ipx_hdr(skb);
@@ -704,39 +807,50 @@ static int ipxitf_pprop(struct ipx_interface *intrfc, struct sk_buff *skb)
 	char *c;
 	__be32 *l;
 
-	
+	/* Illegal packet - too many hops or too short */
+	/* We decide to throw it away: no broadcasting, no local processing.
+	 * NetBIOS unaware implementations route them as normal packets -
+	 * tctrl <= 15, any data payload... */
 	if (IPX_SKB_CB(skb)->ipx_tctrl > IPX_MAX_PPROP_HOPS ||
 	    ntohs(ipx->ipx_pktsize) < sizeof(struct ipxhdr) +
 					IPX_MAX_PPROP_HOPS * sizeof(u32))
 		goto out;
-	
+	/* are we broadcasting this damn thing? */
 	rc = 0;
 	if (!sysctl_ipx_pprop_broadcasting)
 		goto out;
+	/* We do broadcast packet on the IPX_MAX_PPROP_HOPS hop, but we
+	 * process it locally. All previous hops broadcasted it, and process it
+	 * locally. */
 	if (IPX_SKB_CB(skb)->ipx_tctrl == IPX_MAX_PPROP_HOPS)
 		goto out;
 
 	c = ((u8 *) ipx) + sizeof(struct ipxhdr);
 	l = (__be32 *) c;
 
-	
+	/* Don't broadcast packet if already seen this net */
 	for (i = 0; i < IPX_SKB_CB(skb)->ipx_tctrl; i++)
 		if (*l++ == intrfc->if_netnum)
 			goto out;
 
+	/* < IPX_MAX_PPROP_HOPS hops && input interface not in list. Save the
+	 * position where we will insert recvd netnum into list, later on,
+	 * in ipxitf_send */
 	IPX_SKB_CB(skb)->last_hop.index = i;
 	IPX_SKB_CB(skb)->last_hop.netnum = intrfc->if_netnum;
-	
+	/* xmit on all other interfaces... */
 	spin_lock_bh(&ipx_interfaces_lock);
 	list_for_each_entry(ifcs, &ipx_interfaces, node) {
-		
+		/* Except unconfigured interfaces */
 		if (!ifcs->if_netnum)
 			continue;
 
-		
+		/* That aren't in the list */
 		if (ifcs == intrfc)
 			continue;
 		l = (__be32 *) c;
+		/* don't consider the last entry in the packet list,
+		 * it is our netnum, and it is not there yet */
 		for (i = 0; i < IPX_SKB_CB(skb)->ipx_tctrl; i++)
 			if (ifcs->if_netnum == *l++)
 				break;
@@ -793,11 +907,11 @@ static int ipxitf_create_internal(struct ipx_interface_definition *idef)
 	struct ipx_interface *intrfc;
 	int rc = -EEXIST;
 
-	
+	/* Only one primary network allowed */
 	if (ipx_primary_net)
 		goto out;
 
-	
+	/* Must have a valid network number */
 	rc = -EADDRNOTAVAIL;
 	if (!idef->ipx_network)
 		goto out;
@@ -872,7 +986,7 @@ static int ipxitf_create(struct ipx_interface_definition *idef)
 	case IPX_FRAME_TR_8022:
 		printk(KERN_WARNING "IPX frame type 802.2TR is "
 			"obsolete Use 802.2 instead.\n");
-		
+		/* fall through */
 	case IPX_FRAME_8022:
 		dlink_type 	= htons(ETH_P_802_2);
 		datalink 	= p8022_datalink;
@@ -886,7 +1000,7 @@ static int ipxitf_create(struct ipx_interface_definition *idef)
 			printk(KERN_WARNING "IPX frame type EtherII over "
 					"token-ring is obsolete. Use SNAP "
 					"instead.\n");
-		
+		/* fall through */
 	case IPX_FRAME_SNAP:
 		dlink_type 	= htons(ETH_P_SNAP);
 		datalink 	= pSNAP_datalink;
@@ -905,21 +1019,21 @@ static int ipxitf_create(struct ipx_interface_definition *idef)
 	if (!(dev->flags & IFF_UP))
 		goto out_dev;
 
-	
+	/* Check addresses are suitable */
 	rc = -EINVAL;
 	if (dev->addr_len > IPX_NODE_LEN)
 		goto out_dev;
 
 	intrfc = ipxitf_find_using_phys(dev, dlink_type);
 	if (!intrfc) {
-		
+		/* Ok now create */
 		intrfc = ipxitf_alloc(dev, idef->ipx_network, dlink_type,
 				      datalink, 0, dev->hard_header_len +
 					datalink->header_length);
 		rc = -EAGAIN;
 		if (!intrfc)
 			goto out_dev;
-		
+		/* Setup primary if necessary */
 		if (idef->ipx_special == IPX_PRIMARY)
 			ipx_primary_net = intrfc;
 		if (!memcmp(idef->ipx_node, "\000\000\000\000\000\000",
@@ -934,7 +1048,7 @@ static int ipxitf_create(struct ipx_interface_definition *idef)
 	}
 
 
-	
+	/* If the network number is known, add a route */
 	rc = 0;
 	if (!intrfc->if_netnum)
 		goto out_intrfc;
@@ -997,7 +1111,7 @@ static struct ipx_interface *ipxitf_auto_create(struct net_device *dev,
 	if (!dev)
 		goto out;
 
-	
+	/* Check addresses are suitable */
 	if (dev->addr_len > IPX_NODE_LEN)
 		goto out;
 
@@ -1106,30 +1220,46 @@ static int ipxitf_ioctl(unsigned int cmd, void __user *arg)
 	return rc;
 }
 
+/*
+ *	Checksum routine for IPX
+ */
 
+/* Note: We assume ipx_tctrl==0 and htons(length)==ipx_pktsize */
+/* This functions should *not* mess with packet contents */
 
 __be16 ipx_cksum(struct ipxhdr *packet, int length)
 {
+	/*
+	 *	NOTE: sum is a net byte order quantity, which optimizes the
+	 *	loop. This only works on big and little endian machines. (I
+	 *	don't know of a machine that isn't.)
+	 */
+	/* handle the first 3 words separately; checksum should be skipped
+	 * and ipx_tctrl masked out */
 	__u16 *p = (__u16 *)packet;
 	__u32 sum = p[1] + (p[2] & (__force u16)htons(0x00ff));
-	__u32 i = (length >> 1) - 3; 
+	__u32 i = (length >> 1) - 3; /* Number of remaining complete words */
 
-	
+	/* Loop through them */
 	p += 3;
 	while (i--)
 		sum += *p++;
 
-	
+	/* Add on the last part word if it exists */
 	if (packet->ipx_pktsize & htons(1))
 		sum += (__force u16)htons(0xff00) & *p;
 
-	
+	/* Do final fixup */
 	sum = (sum & 0xffff) + (sum >> 16);
 
-	
+	/* It's a pity there's no concept of carry in C */
 	if (sum >= 0x10000)
 		sum++;
 
+	/*
+	 * Leave 0 alone; we don't want 0xffff here.  Note that we can't get
+	 * here with 0x10000, so this check is the same as ((__u16)sum)
+	 */
 	if (sum)
 		sum = ~sum;
 
@@ -1157,6 +1287,8 @@ const char *ipx_device_name(struct ipx_interface *intrfc)
 		intrfc->if_dev ? intrfc->if_dev->name : "Unknown";
 }
 
+/* Handling for system calls applied via the various interfaces to an IPX
+ * socket object. */
 
 static int ipx_setsockopt(struct socket *sock, int level, int optname,
 			  char __user *optval, unsigned int optlen)
@@ -1232,6 +1364,12 @@ static int ipx_create(struct net *net, struct socket *sock, int protocol,
 	if (!net_eq(net, &init_net))
 		return -EAFNOSUPPORT;
 
+	/*
+	 * SPX support is not anymore in the kernel sources. If you want to
+	 * ressurrect it, completing it and making it understand shared skbs,
+	 * be fully multithreaded, etc, grab the sources in an early 2.5 kernel
+	 * tree.
+	 */
 	if (sock->type != SOCK_DGRAM)
 		goto out;
 
@@ -1242,7 +1380,7 @@ static int ipx_create(struct net *net, struct socket *sock, int protocol,
 
 	sk_refcnt_debug_inc(sk);
 	sock_init_data(sock, sk);
-	sk->sk_no_check = 1;		
+	sk->sk_no_check = 1;		/* Checksum off by default */
 	sock->ops = &ipx_dgram_ops;
 	rc = 0;
 out:
@@ -1270,6 +1408,7 @@ out:
 	return 0;
 }
 
+/* caller must hold a reference to intrfc */
 
 static __be16 ipx_first_free_socketnum(struct ipx_interface *intrfc)
 {
@@ -1316,7 +1455,7 @@ static int __ipx_bind(struct socket *sock,
 			goto out_put;
 	}
 
-	
+	/* protect IPX system stuff like routing/sap */
 	rc = -EACCES;
 	if (ntohs(addr->sipx_port) < IPX_MIN_EPHEMERAL_SOCKET &&
 	    !capable(CAP_NET_ADMIN))
@@ -1326,6 +1465,10 @@ static int __ipx_bind(struct socket *sock,
 
 #ifdef CONFIG_IPX_INTERN
 	if (intrfc == ipx_internal_net) {
+		/* The source address is to be set explicitly if the
+		 * socket is to be bound on the internal network. If a
+		 * node number 0 was specified, the default is used.
+		 */
 
 		rc = -EINVAL;
 		if (!memcmp(addr->sipx_node, ipx_broadcast_node, IPX_NODE_LEN))
@@ -1344,6 +1487,10 @@ static int __ipx_bind(struct socket *sock,
 			goto out_put;
 		}
 	} else {
+		/* Source addresses are easy. It must be our
+		 * network:node pair for an interface routed to IPX
+		 * with the ipx routing ioctl()
+		 */
 
 		memcpy(ipxs->node, intrfc->if_node, IPX_NODE_LEN);
 
@@ -1356,8 +1503,10 @@ static int __ipx_bind(struct socket *sock,
 		}
 	}
 
-#else	
+#else	/* !def CONFIG_IPX_INTERN */
 
+	/* Source addresses are easy. It must be our network:node pair for
+	   an interface routed to IPX with the ipx routing ioctl() */
 
 	rc = -EADDRINUSE;
 	if (ipxitf_find_socket(intrfc, addr->sipx_port)) {
@@ -1366,7 +1515,7 @@ static int __ipx_bind(struct socket *sock,
 		goto out_put;
 	}
 
-#endif	
+#endif	/* CONFIG_IPX_INTERN */
 
 	ipxitf_insert_socket(intrfc, sk);
 	sock_reset_flag(sk, SOCK_ZAPPED);
@@ -1407,7 +1556,7 @@ static int ipx_connect(struct socket *sock, struct sockaddr *uaddr,
 		goto out;
 	addr = (struct sockaddr_ipx *)uaddr;
 
-	
+	/* put the autobinding in */
 	if (!ipxs->port) {
 		struct sockaddr_ipx uaddr;
 
@@ -1417,10 +1566,10 @@ static int ipx_connect(struct socket *sock, struct sockaddr *uaddr,
 #ifdef CONFIG_IPX_INTERN
 		rc = -ENETDOWN;
 		if (!ipxs->intrfc)
-			goto out; 
+			goto out; /* Someone zonked the iface */
 		memcpy(uaddr.sipx_node, ipxs->intrfc->if_node,
 			IPX_NODE_LEN);
-#endif	
+#endif	/* CONFIG_IPX_INTERN */
 
 		rc = __ipx_bind(sock, (struct sockaddr *)&uaddr,
 			      sizeof(struct sockaddr_ipx));
@@ -1428,6 +1577,8 @@ static int ipx_connect(struct socket *sock, struct sockaddr *uaddr,
 			goto out;
 	}
 
+	/* We can either connect to primary network or somewhere
+	 * we can route to */
 	rt = ipxrtr_lookup(addr->sipx_network);
 	rc = -ENETUNREACH;
 	if (!rt && !(!addr->sipx_network && ipx_primary_net))
@@ -1481,7 +1632,7 @@ static int ipx_getname(struct socket *sock, struct sockaddr *uaddr,
 #else
 			memcpy(sipx.sipx_node, ipxs->intrfc->if_node,
 				IPX_NODE_LEN);
-#endif	
+#endif	/* CONFIG_IPX_INTERN */
 
 		} else {
 			sipx.sipx_network = 0;
@@ -1504,7 +1655,7 @@ out:
 
 static int ipx_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_type *pt, struct net_device *orig_dev)
 {
-	
+	/* NULL here for pt means the packet was looped back */
 	struct ipx_interface *intrfc;
 	struct ipxhdr *ipx;
 	u16 ipx_pktsize;
@@ -1513,7 +1664,7 @@ static int ipx_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_ty
 	if (!net_eq(dev_net(dev), &init_net))
 		goto drop;
 
-	
+	/* Not ours */
 	if (skb->pkt_type == PACKET_OTHERHOST)
 		goto drop;
 
@@ -1525,7 +1676,7 @@ static int ipx_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_ty
 
 	ipx_pktsize = ntohs(ipx_hdr(skb)->ipx_pktsize);
 
-	
+	/* Too small or invalid header? */
 	if (ipx_pktsize < sizeof(struct ipxhdr) ||
 	    !pskb_may_pull(skb, ipx_pktsize))
 		goto drop;
@@ -1539,7 +1690,7 @@ static int ipx_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_ty
 	IPX_SKB_CB(skb)->ipx_dest_net	= ipx->ipx_dest.net;
 	IPX_SKB_CB(skb)->ipx_source_net = ipx->ipx_source.net;
 
-	
+	/* Determine what local ipx endpoint this is */
 	intrfc = ipxitf_find_using_phys(dev, pt->type);
 	if (!intrfc) {
 		if (ipxcfg_auto_create_interfaces &&
@@ -1549,8 +1700,8 @@ static int ipx_rcv(struct sk_buff *skb, struct net_device *dev, struct packet_ty
 				ipxitf_hold(intrfc);
 		}
 
-		if (!intrfc)	
-				
+		if (!intrfc)	/* Not one of ours */
+				/* or invalid packet for auto creation */
 			goto drop;
 	}
 
@@ -1574,12 +1725,13 @@ static int ipx_sendmsg(struct kiocb *iocb, struct socket *sock,
 	int flags = msg->msg_flags;
 
 	lock_sock(sk);
-	
-	
+	/* Socket gets bound below anyway */
+/*	if (sk->sk_zapped)
+		return -EIO; */	/* Socket not bound */
 	if (flags & ~(MSG_DONTWAIT|MSG_CMSG_COMPAT))
 		goto out;
 
-	
+	/* Max possible packet size limited by 16 bit pktsize in header */
 	if (len >= 65535 - sizeof(struct ipxhdr))
 		goto out;
 
@@ -1592,7 +1744,7 @@ static int ipx_sendmsg(struct kiocb *iocb, struct socket *sock,
 #ifdef CONFIG_IPX_INTERN
 			rc = -ENETDOWN;
 			if (!ipxs->intrfc)
-				goto out; 
+				goto out; /* Someone zonked the iface */
 			memcpy(uaddr.sipx_node, ipxs->intrfc->if_node,
 				IPX_NODE_LEN);
 #endif
@@ -1640,7 +1792,7 @@ static int ipx_recvmsg(struct kiocb *iocb, struct socket *sock,
 	int copied, rc;
 
 	lock_sock(sk);
-	
+	/* put the autobinding in */
 	if (!ipxs->port) {
 		struct sockaddr_ipx uaddr;
 
@@ -1650,9 +1802,9 @@ static int ipx_recvmsg(struct kiocb *iocb, struct socket *sock,
 #ifdef CONFIG_IPX_INTERN
 		rc = -ENETDOWN;
 		if (!ipxs->intrfc)
-			goto out; 
+			goto out; /* Someone zonked the iface */
 		memcpy(uaddr.sipx_node, ipxs->intrfc->if_node, IPX_NODE_LEN);
-#endif	
+#endif	/* CONFIG_IPX_INTERN */
 
 		rc = __ipx_bind(sock, (struct sockaddr *)&uaddr,
 			      sizeof(struct sockaddr_ipx));
@@ -1720,6 +1872,8 @@ static int ipx_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 		break;
 	case TIOCINQ: {
 		struct sk_buff *skb = skb_peek(&sk->sk_receive_queue);
+		/* These two are safe on a single CPU system as only
+		 * user tasks fiddle here */
 		if (skb)
 			amount = skb->len - sizeof(struct ipxhdr);
 		rc = put_user(amount, (int __user *)argp);
@@ -1744,6 +1898,10 @@ static int ipx_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 		rc = ipxcfg_get_config_data(argp);
 		break;
 	case SIOCIPXNCPCONN:
+		/*
+		 * This socket wants to take care of the NCP connection
+		 * handed to us in arg.
+		 */
 		rc = -EPERM;
 		if (!capable(CAP_NET_ADMIN))
 			break;
@@ -1776,6 +1934,12 @@ static int ipx_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 #ifdef CONFIG_COMPAT
 static int ipx_compat_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 {
+	/*
+	 * These 4 commands use same structure on 32bit and 64bit.  Rest of IPX
+	 * commands is handled by generic ioctl code.  As these commands are
+	 * SIOCPROTOPRIVATE..SIOCPROTOPRIVATE+3, they cannot be handled by generic
+	 * code.
+	 */
 	switch (cmd) {
 	case SIOCAIPXITFCRT:
 	case SIOCAIPXPRISLT:
@@ -1789,6 +1953,9 @@ static int ipx_compat_ioctl(struct socket *sock, unsigned int cmd, unsigned long
 #endif
 
 
+/*
+ * Socket family declarations
+ */
 
 static const struct net_proto_family ipx_family_ops = {
 	.family		= PF_IPX,
@@ -1811,7 +1978,7 @@ static const struct proto_ops ipx_dgram_ops = {
 	.compat_ioctl	= ipx_compat_ioctl,
 #endif
 	.listen		= sock_no_listen,
-	.shutdown	= sock_no_shutdown, 
+	.shutdown	= sock_no_shutdown, /* FIXME: support shutdown */
 	.setsockopt	= ipx_setsockopt,
 	.getsockopt	= ipx_getsockopt,
 	.sendmsg	= ipx_sendmsg,

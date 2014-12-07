@@ -18,6 +18,11 @@
 
 static volatile unsigned long * const UART = (unsigned long *)GEMINI_UART_BASE;
 
+/*
+ * The following code assumes the serial port has already been
+ * initialized by the bootloader.  If you didn't setup a port in
+ * your bootloader then nothing will appear (which might be desired).
+ */
 static inline void putc(char c)
 {
 	while (!(UART[UART_LSR] & UART_LSR_THRE))
@@ -29,8 +34,11 @@ static inline void flush(void)
 {
 }
 
+/*
+ * nothing to do
+ */
 #define arch_decomp_setup()
 
 #define arch_decomp_wdog()
 
-#endif 
+#endif /* __MACH_UNCOMPRESS_H */

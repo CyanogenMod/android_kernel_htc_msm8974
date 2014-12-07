@@ -49,6 +49,7 @@
 # undef CONFIG_EARLY_PRINTK
 #endif
 
+/* UART name and device definitions */
 #define BFIN_SERIAL_DEV_NAME	"ttyBF"
 #define BFIN_SERIAL_MAJOR	204
 #define BFIN_SERIAL_MINOR	64
@@ -65,6 +66,9 @@ static struct bfin_serial_port *bfin_serial_ports[BFIN_UART_NR_PORTS];
 static int kgdboc_port_line;
 static int kgdboc_break_enabled;
 #endif
+/*
+ * Setup for console. Argument comes from the menuconfig
+ */
 #define DMA_RX_XCOUNT		512
 #define DMA_RX_YCOUNT		(PAGE_SIZE / DMA_RX_XCOUNT)
 
@@ -86,7 +90,7 @@ static unsigned int bfin_serial_get_mctrl(struct uart_port *port)
 	if (uart->cts_pin < 0)
 		return TIOCM_CTS | TIOCM_DSR | TIOCM_CAR;
 
-	
+	/* CTS PIN is negative assertive. */
 	if (UART_GET_CTS(uart))
 		return TIOCM_CTS | TIOCM_DSR | TIOCM_CAR;
 	else
@@ -99,13 +103,16 @@ static void bfin_serial_set_mctrl(struct uart_port *port, unsigned int mctrl)
 	if (uart->rts_pin < 0)
 		return;
 
-	
+	/* RTS PIN is negative assertive. */
 	if (mctrl & TIOCM_RTS)
 		UART_ENABLE_RTS(uart);
 	else
 		UART_DISABLE_RTS(uart);
 }
 
+/*
+ * Handle any change of modem status signal.
+ */
 static irqreturn_t bfin_serial_mctrl_cts_int(int irq, void *dev_id)
 {
 	struct bfin_serial_port *uart = dev_id;
@@ -139,6 +146,9 @@ static void bfin_serial_set_mctrl(struct uart_port *port, unsigned int mctrl)
 }
 #endif
 
+/*
+ * interrupts are disabled on entry
+ */
 static void bfin_serial_stop_tx(struct uart_port *port)
 {
 	struct bfin_serial_port *uart = (struct bfin_serial_port *)port;
@@ -157,18 +167,25 @@ static void bfin_serial_stop_tx(struct uart_port *port)
 	uart->tx_done = 1;
 #else
 #ifdef CONFIG_BF54x
-	
+	/* Clear TFI bit */
 	UART_PUT_LSR(uart, TFI);
 #endif
 	UART_CLEAR_IER(uart, ETBEI);
 #endif
 }
 
+/*
+ * port is locked and interrupts are disabled
+ */
 static void bfin_serial_start_tx(struct uart_port *port)
 {
 	struct bfin_serial_port *uart = (struct bfin_serial_port *)port;
 	struct tty_struct *tty = uart->port.state->port.tty;
 
+	/*
+	 * To avoid losting RX interrupt, we reset IR function
+	 * before sending data.
+	 */
 	if (tty->termios->c_line == N_IRDA)
 		bfin_serial_reset_irda(port);
 
@@ -181,6 +198,9 @@ static void bfin_serial_start_tx(struct uart_port *port)
 #endif
 }
 
+/*
+ * Interrupts are enabled
+ */
 static void bfin_serial_stop_rx(struct uart_port *port)
 {
 	struct bfin_serial_port *uart = (struct bfin_serial_port *)port;
@@ -188,6 +208,9 @@ static void bfin_serial_stop_rx(struct uart_port *port)
 	UART_CLEAR_IER(uart, ERBFI);
 }
 
+/*
+ * Set the modem control timer to fire immediately.
+ */
 static void bfin_serial_enable_ms(struct uart_port *port)
 {
 }
@@ -218,7 +241,7 @@ static void bfin_serial_rx_chars(struct bfin_serial_port *uart)
 	defined(CONFIG_KGDB_SERIAL_CONSOLE_MODULE)
 	if (kgdb_connected && kgdboc_port_line == uart->port.line
 		&& kgdboc_break_enabled)
-		if (ch == 0x3) {
+		if (ch == 0x3) {/* Ctrl + C */
 			kgdb_breakpoint();
 			return;
 		}
@@ -229,6 +252,18 @@ static void bfin_serial_rx_chars(struct bfin_serial_port *uart)
 	tty = uart->port.state->port.tty;
 
 	if (ANOMALY_05000363) {
+		/* The BF533 (and BF561) family of processors have a nice anomaly
+		 * where they continuously generate characters for a "single" break.
+		 * We have to basically ignore this flood until the "next" valid
+		 * character comes across.  Due to the nature of the flood, it is
+		 * not possible to reliably catch bytes that are sent too quickly
+		 * after this break.  So application code talking to the Blackfin
+		 * which sends a break signal must allow at least 1.5 character
+		 * times after the end of the break for things to stabilize.  This
+		 * timeout was picked as it must absolutely be larger than 1
+		 * character time +/- some percent.  So 1.5 sounds good.  All other
+		 * Blackfin families operate properly.  Woo.
+		 */
 		if (anomaly_start.tv_sec) {
 			struct timeval curr;
 			suseconds_t usecs;
@@ -303,9 +338,14 @@ static void bfin_serial_tx_chars(struct bfin_serial_port *uart)
 
 	if (uart_circ_empty(xmit) || uart_tx_stopped(&uart->port)) {
 #ifdef CONFIG_BF54x
-		
+		/* Clear TFI bit */
 		UART_PUT_LSR(uart, TFI);
 #endif
+		/* Anomaly notes:
+		 *  05000215 -	we always clear ETBEI within last UART TX
+		 *		interrupt to end a string. It is always set
+		 *		when start a new tx.
+		 */
 		UART_CLEAR_IER(uart, ETBEI);
 		return;
 	}
@@ -445,6 +485,15 @@ void bfin_serial_rx_dma_timeout(struct bfin_serial_port *uart)
 	dma_disable_irq_nosync(uart->rx_dma_channel);
 	spin_lock_bh(&uart->rx_lock);
 
+	/* 2D DMA RX buffer ring is used. Because curr_y_count and
+	 * curr_x_count can't be read as an atomic operation,
+	 * curr_y_count should be read before curr_x_count. When
+	 * curr_x_count is read, curr_y_count may already indicate
+	 * next buffer line. But, the position calculated here is
+	 * still indicate the old line. The wrong position data may
+	 * be smaller than current buffer tail, which cause garbages
+	 * are received if it is not prohibit.
+	 */
 	uart->rx_dma_nrows = get_dma_curr_ycount(uart->rx_dma_channel);
 	x_pos = get_dma_curr_xcount(uart->rx_dma_channel);
 	uart->rx_dma_nrows = DMA_RX_YCOUNT - uart->rx_dma_nrows;
@@ -455,6 +504,9 @@ void bfin_serial_rx_dma_timeout(struct bfin_serial_port *uart)
 		x_pos = 0;
 
 	pos = uart->rx_dma_nrows * DMA_RX_XCOUNT + x_pos;
+	/* Ignore receiving data if new position is in the same line of
+	 * current buffer tail and small.
+	 */
 	if (pos > uart->rx_dma_buf.tail ||
 		uart->rx_dma_nrows < (uart->rx_dma_buf.tail/DMA_RX_XCOUNT)) {
 		uart->rx_dma_buf.head = pos;
@@ -477,6 +529,11 @@ static irqreturn_t bfin_serial_dma_tx_int(int irq, void *dev_id)
 	if (!(get_dma_curr_irqstat(uart->tx_dma_channel)&DMA_RUN)) {
 		disable_dma(uart->tx_dma_channel);
 		clear_dma_irqstat(uart->tx_dma_channel);
+		/* Anomaly notes:
+		 *  05000215 -	we always clear ETBEI within last UART TX
+		 *		interrupt to end a string. It is always set
+		 *		when start a new tx.
+		 */
 		UART_CLEAR_IER(uart, ETBEI);
 		uart->port.icount.tx += uart->tx_count;
 		if (!uart_circ_empty(xmit)) {
@@ -523,6 +580,9 @@ static irqreturn_t bfin_serial_dma_rx_int(int irq, void *dev_id)
 }
 #endif
 
+/*
+ * Return TIOCSER_TEMT when transmitter is not busy.
+ */
 static unsigned int bfin_serial_tx_empty(struct uart_port *port)
 {
 	struct bfin_serial_port *uart = (struct bfin_serial_port *)port;
@@ -612,6 +672,13 @@ static int bfin_serial_startup(struct uart_port *port)
 
 # ifdef CONFIG_BF54x
 	{
+		/*
+		 * UART2 and UART3 on BF548 share interrupt PINs and DMA
+		 * controllers with SPORT2 and SPORT3. UART rx and tx
+		 * interrupts are generated in PIO mode only when configure
+		 * their peripheral mapping registers properly, which means
+		 * request corresponding DMA channels in PIO mode as well.
+		 */
 		unsigned uart_dma_ch_rx, uart_dma_ch_tx;
 
 		switch (uart->rx_irq) {
@@ -677,7 +744,7 @@ static int bfin_serial_startup(struct uart_port *port)
 			dev_info(port->dev, "Unable to attach BlackFin UART Modem Status interrupt.\n");
 		}
 
-		
+		/* CTS RTS PINs are negative assertive. */
 		UART_PUT_MCR(uart, ACTS);
 		UART_SET_IER(uart, EDSSI);
 	}
@@ -756,6 +823,9 @@ bfin_serial_set_termios(struct uart_port *port, struct ktermios *termios,
 			__func__);
 	}
 
+	/* Anomaly notes:
+	 *  05000231 -  STOP bit is always set to 1 whatever the user is set.
+	 */
 	if (termios->c_cflag & CSTOPB) {
 		if (ANOMALY_05000231)
 			printk(KERN_WARNING "STOP bits other than 1 is not "
@@ -778,11 +848,18 @@ bfin_serial_set_termios(struct uart_port *port, struct ktermios *termios,
 	if (termios->c_iflag & (BRKINT | PARMRK))
 		port->read_status_mask |= BI;
 
+	/*
+	 * Characters to ignore
+	 */
 	port->ignore_status_mask = 0;
 	if (termios->c_iflag & IGNPAR)
 		port->ignore_status_mask |= FE | PE;
 	if (termios->c_iflag & IGNBRK) {
 		port->ignore_status_mask |= BI;
+		/*
+		 * If we're ignoring parity and break indicators,
+		 * ignore overruns too (for real raw support).
+		 */
 		if (termios->c_iflag & IGNPAR)
 			port->ignore_status_mask |= OE;
 	}
@@ -790,36 +867,36 @@ bfin_serial_set_termios(struct uart_port *port, struct ktermios *termios,
 	baud = uart_get_baud_rate(port, termios, old, 0, port->uartclk/16);
 	quot = uart_get_divisor(port, baud);
 
-	
+	/* If discipline is not IRDA, apply ANOMALY_05000230 */
 	if (termios->c_line != N_IRDA)
 		quot -= ANOMALY_05000230;
 
 	UART_SET_ANOMALY_THRESHOLD(uart, USEC_PER_SEC / baud * 15);
 
-	
+	/* Disable UART */
 	ier = UART_GET_IER(uart);
 	UART_DISABLE_INTS(uart);
 
-	
+	/* Set DLAB in LCR to Access DLL and DLH */
 	UART_SET_DLAB(uart);
 
 	UART_PUT_DLL(uart, quot & 0xFF);
 	UART_PUT_DLH(uart, (quot >> 8) & 0xFF);
 	SSYNC();
 
-	
+	/* Clear DLAB in LCR to Access THR RBR IER */
 	UART_CLEAR_DLAB(uart);
 
 	UART_PUT_LCR(uart, lcr);
 
-	
+	/* Enable UART */
 	UART_ENABLE_INTS(uart, ier);
 
 	val = UART_GET_GCTL(uart);
 	val |= UCEN;
 	UART_PUT_GCTL(uart, val);
 
-	
+	/* Port speed changed, update the per-port timeout. */
 	uart_update_timeout(port, termios->c_cflag, baud);
 
 	spin_unlock_irqrestore(&uart->port.lock, flags);
@@ -832,15 +909,24 @@ static const char *bfin_serial_type(struct uart_port *port)
 	return uart->port.type == PORT_BFIN ? "BFIN-UART" : NULL;
 }
 
+/*
+ * Release the memory region(s) being used by 'port'.
+ */
 static void bfin_serial_release_port(struct uart_port *port)
 {
 }
 
+/*
+ * Request the memory region(s) being used by 'port'.
+ */
 static int bfin_serial_request_port(struct uart_port *port)
 {
 	return 0;
 }
 
+/*
+ * Configure/autoconfigure the port.
+ */
 static void bfin_serial_config_port(struct uart_port *port, int flags)
 {
 	struct bfin_serial_port *uart = (struct bfin_serial_port *)port;
@@ -850,12 +936,21 @@ static void bfin_serial_config_port(struct uart_port *port, int flags)
 		uart->port.type = PORT_BFIN;
 }
 
+/*
+ * Verify the new serial_struct (for TIOCSSERIAL).
+ * The only change we allow are to the flags and type, and
+ * even then only between PORT_BFIN and PORT_UNKNOWN
+ */
 static int
 bfin_serial_verify_port(struct uart_port *port, struct serial_struct *ser)
 {
 	return 0;
 }
 
+/*
+ * Enable the IrDA function if tty->ldisc.num is N_IRDA.
+ * In other cases, disable IrDA function.
+ */
 static void bfin_serial_set_ldisc(struct uart_port *port, int ld)
 {
 	struct bfin_serial_port *uart = (struct bfin_serial_port *)port;
@@ -889,6 +984,10 @@ static void bfin_serial_reset_irda(struct uart_port *port)
 }
 
 #ifdef CONFIG_CONSOLE_POLL
+/* Anomaly notes:
+ *  05000099 -  Because we only use THRE in poll_put and DR in poll_get,
+ *		losing other bits of UART_LSR is not a problem here.
+ */
 static void bfin_serial_poll_put_char(struct uart_port *port, unsigned char chr)
 {
 	struct bfin_serial_port *uart = (struct bfin_serial_port *)port;
@@ -963,6 +1062,10 @@ static struct uart_ops bfin_serial_pops = {
 };
 
 #if defined(CONFIG_SERIAL_BFIN_CONSOLE) || defined(CONFIG_EARLY_PRINTK)
+/*
+ * If the port was already initialised (eg, by a boot loader),
+ * try to determine the current setup.
+ */
 static void __init
 bfin_serial_console_get_options(struct bfin_serial_port *uart, int *baud,
 			   int *parity, int *bits)
@@ -971,7 +1074,7 @@ bfin_serial_console_get_options(struct bfin_serial_port *uart, int *baud,
 
 	status = UART_GET_IER(uart) & (ERBFI | ETBEI);
 	if (status == (ERBFI | ETBEI)) {
-		
+		/* ok, the port was enabled */
 		u16 lcr, dlh, dll;
 
 		lcr = UART_GET_LCR(uart);
@@ -997,13 +1100,13 @@ bfin_serial_console_get_options(struct bfin_serial_port *uart, int *baud,
 			*bits = 8;
 			break;
 		}
-		
+		/* Set DLAB in LCR to Access DLL and DLH */
 		UART_SET_DLAB(uart);
 
 		dll = UART_GET_DLL(uart);
 		dlh = UART_GET_DLH(uart);
 
-		
+		/* Clear DLAB in LCR to Access THR RBR IER */
 		UART_CLEAR_DLAB(uart);
 
 		*baud = get_sclk() / (16*(dll | dlh << 8));
@@ -1021,10 +1124,14 @@ static void bfin_serial_console_putchar(struct uart_port *port, int ch)
 	UART_PUT_CHAR(uart, ch);
 }
 
-#endif 
+#endif /* defined (CONFIG_SERIAL_BFIN_CONSOLE) ||
+		 defined (CONFIG_EARLY_PRINTK) */
 
 #ifdef CONFIG_SERIAL_BFIN_CONSOLE
 #define CLASS_BFIN_CONSOLE	"bfin-console"
+/*
+ * Interrupts are disabled on entering
+ */
 static void
 bfin_serial_console_write(struct console *co, const char *s, unsigned int count)
 {
@@ -1051,6 +1158,11 @@ bfin_serial_console_setup(struct console *co, char *options)
 	int flow = 'n';
 # endif
 
+	/*
+	 * Check whether an invalid uart number has been specified, and
+	 * if so, search for the first available port that does have
+	 * console support.
+	 */
 	if (co->index < 0 || co->index >= BFIN_UART_NR_PORTS)
 		return -ENODEV;
 
@@ -1078,12 +1190,15 @@ static struct console bfin_serial_console = {
 #define BFIN_SERIAL_CONSOLE	(&bfin_serial_console)
 #else
 #define BFIN_SERIAL_CONSOLE	NULL
-#endif 
+#endif /* CONFIG_SERIAL_BFIN_CONSOLE */
 
 #ifdef	CONFIG_EARLY_PRINTK
 static struct bfin_serial_port bfin_earlyprintk_port;
 #define CLASS_BFIN_EARLYPRINTK	"bfin-earlyprintk"
 
+/*
+ * Interrupts are disabled on entering
+ */
 static void
 bfin_earlyprintk_console_write(struct console *co, const char *s, unsigned int count)
 {
@@ -1098,6 +1213,12 @@ bfin_earlyprintk_console_write(struct console *co, const char *s, unsigned int c
 	spin_unlock_irqrestore(&bfin_earlyprintk_port.port.lock, flags);
 }
 
+/*
+ * This should have a .setup or .early_setup in it, but then things get called
+ * without the command line options, and the baud rate gets messed up - so
+ * don't let the common infrastructure play with things. (see calls to setup
+ * & earlysetup in ./kernel/printk.c:register_console()
+ */
 static struct __initdata console bfin_early_serial_console = {
 	.name = "early_BFuart",
 	.write = bfin_earlyprintk_console_write,
@@ -1156,6 +1277,10 @@ static int bfin_serial_probe(struct platform_device *pdev)
 #ifdef CONFIG_EARLY_PRINTK
 		if (!(bfin_earlyprintk_port.port.membase
 			&& bfin_earlyprintk_port.port.line == pdev->id)) {
+			/*
+			 * If the peripheral PINs of current port is allocated
+			 * in earlyprintk probe stage, don't do it again.
+			 */
 #endif
 		ret = peripheral_request_list(
 			(unsigned short *)pdev->dev.platform_data, DRIVER_NAME);
@@ -1335,6 +1460,10 @@ console_initcall(bfin_serial_rs_console_init);
 #endif
 
 #ifdef CONFIG_EARLY_PRINTK
+/*
+ * Memory can't be allocated dynamically during earlyprink init stage.
+ * So, do individual probe for earlyprink with a static uart port variable.
+ */
 static int bfin_earlyprintk_probe(struct platform_device *pdev)
 {
 	struct resource *res;
@@ -1405,6 +1534,10 @@ struct console __init *bfin_earlyserial_init(unsigned int port,
 	if (port < 0 || port >= BFIN_UART_NR_PORTS)
 		return NULL;
 
+	/*
+	 * Only probe resource of the given port in earlyprintk boot arg.
+	 * The expected port id should be indicated in port name string.
+	 */
 	snprintf(port_name, 20, DRIVER_NAME ".%d", port);
 	early_platform_driver_register(&early_bfin_earlyprintk_driver,
 		port_name);
@@ -1414,6 +1547,10 @@ struct console __init *bfin_earlyserial_init(unsigned int port,
 		return NULL;
 
 #ifdef CONFIG_SERIAL_BFIN_CONSOLE
+	/*
+	 * If we are using early serial, don't let the normal console rewind
+	 * log buffer, since that causes things to be printed multiple times
+	 */
 	bfin_serial_console.flags &= ~CON_PRINTBUFFER;
 #endif
 
@@ -1427,7 +1564,7 @@ struct console __init *bfin_earlyserial_init(unsigned int port,
 
 	return &bfin_early_serial_console;
 }
-#endif 
+#endif /* CONFIG_EARLY_PRINTK */
 
 static int __init bfin_serial_init(void)
 {

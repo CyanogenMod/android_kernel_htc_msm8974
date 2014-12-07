@@ -92,7 +92,7 @@ static struct sys_timer iq81340sc_timer = {
 };
 
 MACHINE_START(IQ81340SC, "Intel IQ81340SC")
-	
+	/* Maintainer: Dan Williams <dan.j.williams@intel.com> */
 	.atag_offset    = 0x100,
 	.init_early     = iop13xx_init_early,
 	.map_io         = iop13xx_map_io,

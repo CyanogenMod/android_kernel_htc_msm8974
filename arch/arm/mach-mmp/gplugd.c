@@ -20,16 +20,16 @@
 #include "common.h"
 
 static unsigned long gplugd_pin_config[] __initdata = {
-	
+	/* UART3 */
 	GPIO8_UART3_TXD,
 	GPIO9_UART3_RXD,
 	GPIO1O_UART3_CTS,
 	GPIO11_UART3_RTS,
 
-	
+	/* USB OTG PEN */
 	GPIO18_GPIO,
 
-	
+	/* MMC2 */
 	GPIO28_MMC2_CMD,
 	GPIO29_MMC2_CLK,
 	GPIO30_MMC2_DAT0,
@@ -37,11 +37,11 @@ static unsigned long gplugd_pin_config[] __initdata = {
 	GPIO32_MMC2_DAT2,
 	GPIO33_MMC2_DAT3,
 
-	
+	/* LCD & HDMI clock selection GPIO: 0: 74.176MHz, 1: 74.25 MHz */
 	GPIO35_GPIO,
-	GPIO36_GPIO, 
+	GPIO36_GPIO, /* CEC Interrupt */
 
-	
+	/* MMC1 */
 	GPIO43_MMC1_CLK,
 	GPIO49_MMC1_CMD,
 	GPIO41_MMC1_DAT0,
@@ -50,7 +50,7 @@ static unsigned long gplugd_pin_config[] __initdata = {
 	GPIO51_MMC1_DAT3,
 	GPIO53_MMC1_CD,
 
-	
+	/* LCD */
 	GPIO56_LCD_FCLK_RD,
 	GPIO57_LCD_LCLK_A0,
 	GPIO58_LCD_PCLK_WR,
@@ -80,11 +80,11 @@ static unsigned long gplugd_pin_config[] __initdata = {
 	GPIO82_LCD_DD22,
 	GPIO83_LCD_DD23,
 
-	
+	/* GPIO */
 	GPIO84_GPIO,
 	GPIO85_GPIO,
 
-	
+	/* Fast-Ethernet*/
 	GPIO86_TX_CLK,
 	GPIO87_TX_EN,
 	GPIO88_TX_DQ3,
@@ -102,25 +102,25 @@ static unsigned long gplugd_pin_config[] __initdata = {
 	GPIO100_MII_MDC,
 	GPIO101_MII_MDIO,
 	GPIO103_RX_DV,
-	GPIO104_GPIO,     
+	GPIO104_GPIO,     /* Reset PHY */
 
-	
+	/* RTC interrupt */
 	GPIO102_GPIO,
 
-	
+	/* I2C */
 	GPIO105_CI2C_SDA,
 	GPIO106_CI2C_SCL,
 
-	
+	/* SPI NOR Flash on SSP2 */
 	GPIO107_SSP2_RXD,
 	GPIO108_SSP2_TXD,
-	GPIO110_GPIO,     
+	GPIO110_GPIO,     /* SPI_CSn */
 	GPIO111_SSP2_CLK,
 
-	
+	/* Select JTAG */
 	GPIO109_GPIO,
 
-	
+	/* I2S */
 	GPIO114_I2S_FRM,
 	GPIO115_I2S_BCLK,
 	GPIO116_I2S_TXD
@@ -133,6 +133,7 @@ static struct i2c_board_info gplugd_i2c_board_info[] = {
 	}
 };
 
+/* Bring PHY out of reset by setting GPIO 104 */
 static int gplugd_eth_init(void)
 {
 	if (unlikely(gpio_request(104, "ETH_RESET_N"))) {
@@ -149,13 +150,13 @@ static int gplugd_eth_init(void)
 struct pxa168_eth_platform_data gplugd_eth_platform_data = {
 	.port_number = 0,
 	.phy_addr    = 0,
-	.speed       = 0, 
+	.speed       = 0, /* Autonagotiation */
 	.init        = gplugd_eth_init,
 };
 
 static void __init select_disp_freq(void)
 {
-	
+	/* set GPIO 35 & clear GPIO 85 to set LCD External Clock to 74.25 MHz */
 	if (unlikely(gpio_request(35, "DISP_FREQ_SEL"))) {
 		printk(KERN_ERR "Can't get hold of GPIO 35 to select display "
 				"frequency\n");
@@ -179,7 +180,7 @@ static void __init gplugd_init(void)
 
 	select_disp_freq();
 
-	
+	/* on-chip devices */
 	pxa168_add_uart(3);
 	pxa168_add_ssp(1);
 	pxa168_add_twsi(0, NULL, ARRAY_AND_SIZE(gplugd_i2c_board_info));

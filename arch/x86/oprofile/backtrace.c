@@ -19,7 +19,7 @@
 
 static int backtrace_stack(void *data, char *name)
 {
-	
+	/* Yes, we want all stacks */
 	return 0;
 }
 
@@ -41,7 +41,7 @@ static struct stacktrace_ops backtrace_ops = {
 static struct stack_frame_ia32 *
 dump_user_backtrace_32(struct stack_frame_ia32 *head)
 {
-	
+	/* Also check accessibility of one struct frame_head beyond: */
 	struct stack_frame_ia32 bufhead[2];
 	struct stack_frame_ia32 *fp;
 	unsigned long bytes;
@@ -54,6 +54,8 @@ dump_user_backtrace_32(struct stack_frame_ia32 *head)
 
 	oprofile_add_trace(bufhead[0].return_address);
 
+	/* frame pointers should strictly progress back up the stack
+	* (towards higher addresses) */
 	if (head >= fp)
 		return NULL;
 
@@ -65,7 +67,7 @@ x86_backtrace_32(struct pt_regs * const regs, unsigned int depth)
 {
 	struct stack_frame_ia32 *head;
 
-	
+	/* User process is IA32 */
 	if (!current || !test_thread_flag(TIF_IA32))
 		return 0;
 
@@ -82,11 +84,11 @@ x86_backtrace_32(struct pt_regs * const regs, unsigned int depth)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_COMPAT */
 
 static struct stack_frame *dump_user_backtrace(struct stack_frame *head)
 {
-	
+	/* Also check accessibility of one struct frame_head beyond: */
 	struct stack_frame bufhead[2];
 	unsigned long bytes;
 
@@ -96,6 +98,8 @@ static struct stack_frame *dump_user_backtrace(struct stack_frame *head)
 
 	oprofile_add_trace(bufhead[0].return_address);
 
+	/* frame pointers should strictly progress back up the stack
+	 * (towards higher addresses) */
 	if (head >= bufhead[0].next_frame)
 		return NULL;
 

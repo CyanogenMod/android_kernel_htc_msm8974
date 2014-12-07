@@ -51,14 +51,14 @@ void nf_nat_proto_unique_tuple(struct nf_conntrack_tuple *tuple,
 	else
 		portptr = &tuple->dst.u.all;
 
-	
+	/* If no range specified... */
 	if (!(range->flags & NF_NAT_RANGE_PROTO_SPECIFIED)) {
-		
+		/* If it's dst rewrite, can't change port */
 		if (maniptype == NF_NAT_MANIP_DST)
 			return;
 
 		if (ntohs(*portptr) < 1024) {
-			
+			/* Loose convention: >> 512 is credential passing */
 			if (ntohs(*portptr) < 512) {
 				min = 1;
 				range_size = 511 - min + 1;

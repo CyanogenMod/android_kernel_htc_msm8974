@@ -25,6 +25,10 @@
 
 #include "atl1c.h"
 
+/*
+ * check_eeprom_exist
+ * return 1 if eeprom exist
+ */
 int atl1c_check_eeprom_exist(struct atl1c_hw *hw)
 {
 	u32 data;
@@ -42,17 +46,26 @@ int atl1c_check_eeprom_exist(struct atl1c_hw *hw)
 void atl1c_hw_set_mac_addr(struct atl1c_hw *hw)
 {
 	u32 value;
+	/*
+	 * 00-0B-6A-F6-00-DC
+	 * 0:  6AF600DC 1: 000B
+	 * low dword
+	 */
 	value = (((u32)hw->mac_addr[2]) << 24) |
 		(((u32)hw->mac_addr[3]) << 16) |
 		(((u32)hw->mac_addr[4]) << 8)  |
 		(((u32)hw->mac_addr[5])) ;
 	AT_WRITE_REG_ARRAY(hw, REG_MAC_STA_ADDR, 0, value);
-	
+	/* hight dword */
 	value = (((u32)hw->mac_addr[0]) << 8) |
 		(((u32)hw->mac_addr[1])) ;
 	AT_WRITE_REG_ARRAY(hw, REG_MAC_STA_ADDR, 1, value);
 }
 
+/*
+ * atl1c_get_permanent_address
+ * return 0 if get valid mac address,
+ */
 static int atl1c_get_permanent_address(struct atl1c_hw *hw)
 {
 	u32 addr[2];
@@ -65,12 +78,12 @@ static int atl1c_get_permanent_address(struct atl1c_hw *hw)
 	u16 phy_data;
 	bool raise_vol = false;
 
-	
+	/* init */
 	addr[0] = addr[1] = 0;
 	AT_READ_REG(hw, REG_OTP_CTRL, &otp_ctrl_data);
 	if (atl1c_check_eeprom_exist(hw)) {
 		if (hw->nic_type == athr_l1c || hw->nic_type == athr_l2c) {
-			
+			/* Enable OTP CLK */
 			if (!(otp_ctrl_data & OTP_CTRL_CLK_EN)) {
 				otp_ctrl_data |= OTP_CTRL_CLK_EN;
 				AT_WRITE_REG(hw, REG_OTP_CTRL, otp_ctrl_data);
@@ -96,12 +109,12 @@ static int atl1c_get_permanent_address(struct atl1c_hw *hw)
 			udelay(20);
 			raise_vol = true;
 		}
-		
+		/* close open bit of ReadOnly*/
 		AT_READ_REG(hw, REG_LTSSM_ID_CTRL, &ltssm_ctrl_data);
 		ltssm_ctrl_data &= ~LTSSM_ID_EN_WRO;
 		AT_WRITE_REG(hw, REG_LTSSM_ID_CTRL, ltssm_ctrl_data);
 
-		
+		/* clear any WOL settings */
 		AT_WRITE_REG(hw, REG_WOL_CTRL, 0);
 		AT_READ_REG(hw, REG_WOL_CTRL, &wol_data);
 
@@ -118,7 +131,7 @@ static int atl1c_get_permanent_address(struct atl1c_hw *hw)
 		if (i >= AT_TWSI_EEPROM_TIMEOUT)
 			return -1;
 	}
-	
+	/* Disable OTP_CLK */
 	if ((hw->nic_type == athr_l1c || hw->nic_type == athr_l2c)) {
 		otp_ctrl_data &= ~OTP_CTRL_CLK_EN;
 		AT_WRITE_REG(hw, REG_OTP_CTRL, otp_ctrl_data);
@@ -144,7 +157,7 @@ static int atl1c_get_permanent_address(struct atl1c_hw *hw)
 		}
 	}
 
-	
+	/* maybe MAC-address is from BIOS */
 	AT_READ_REG(hw, REG_MAC_STA_ADDR, &addr[0]);
 	AT_READ_REG(hw, REG_MAC_STA_ADDR + 4, &addr[1]);
 	*(u32 *) &eth_addr[2] = swab32(addr[0]);
@@ -168,7 +181,7 @@ bool atl1c_read_eeprom(struct atl1c_hw *hw, u32 offset, u32 *p_value)
 	u32 data;
 
 	if (offset & 3)
-		return ret; 
+		return ret; /* address do not align */
 
 	AT_READ_REG(hw, REG_OTP_CTRL, &otp_ctrl_data);
 	if (!(otp_ctrl_data & OTP_CTRL_CLK_EN))
@@ -197,6 +210,11 @@ bool atl1c_read_eeprom(struct atl1c_hw *hw, u32 offset, u32 *p_value)
 
 	return ret;
 }
+/*
+ * Reads the adapter's MAC address from the EEPROM
+ *
+ * hw - Struct containing variables accessed by shared code
+ */
 int atl1c_read_mac_addr(struct atl1c_hw *hw)
 {
 	int err = 0;
@@ -209,6 +227,14 @@ int atl1c_read_mac_addr(struct atl1c_hw *hw)
 	return err;
 }
 
+/*
+ * atl1c_hash_mc_addr
+ *  purpose
+ *      set hash value for a multicast address
+ *      hash calcu processing :
+ *          1. calcu 32bit CRC for multicast address
+ *          2. reverse crc with MSB to LSB
+ */
 u32 atl1c_hash_mc_addr(struct atl1c_hw *hw, u8 *mc_addr)
 {
 	u32 crc32;
@@ -222,11 +248,25 @@ u32 atl1c_hash_mc_addr(struct atl1c_hw *hw, u8 *mc_addr)
 	return value;
 }
 
+/*
+ * Sets the bit in the multicast table corresponding to the hash value.
+ * hw - Struct containing variables accessed by shared code
+ * hash_value - Multicast address hash value
+ */
 void atl1c_hash_set(struct atl1c_hw *hw, u32 hash_value)
 {
 	u32 hash_bit, hash_reg;
 	u32 mta;
 
+	/*
+	 * The HASH Table  is a register array of 2 32-bit registers.
+	 * It is treated like an array of 64 bits.  We want to set
+	 * bit BitArray[hash_value]. So we figure out what register
+	 * the bit is in, read it, OR in the new bit, then write
+	 * back the new value.  The register is determined by the
+	 * upper bit of the hash value and the bit within that
+	 * register are determined by the lower 5 bits of the value.
+	 */
 	hash_reg = (hash_value >> 31) & 0x1;
 	hash_bit = (hash_value >> 26) & 0x1F;
 
@@ -237,6 +277,11 @@ void atl1c_hash_set(struct atl1c_hw *hw, u32 hash_value)
 	AT_WRITE_REG_ARRAY(hw, REG_RX_HASH_TABLE, hash_reg, mta);
 }
 
+/*
+ * Reads the value from a PHY register
+ * hw - Struct containing variables accessed by shared code
+ * reg_addr - address of the PHY register to read
+ */
 int atl1c_read_phy_reg(struct atl1c_hw *hw, u16 reg_addr, u16 *phy_data)
 {
 	u32 val;
@@ -262,6 +307,12 @@ int atl1c_read_phy_reg(struct atl1c_hw *hw, u16 reg_addr, u16 *phy_data)
 	return -1;
 }
 
+/*
+ * Writes a value to a PHY register
+ * hw - Struct containing variables accessed by shared code
+ * reg_addr - address of the PHY register to write
+ * data - data to write to the PHY
+ */
 int atl1c_write_phy_reg(struct atl1c_hw *hw, u32 reg_addr, u16 phy_data)
 {
 	int i;
@@ -287,6 +338,11 @@ int atl1c_write_phy_reg(struct atl1c_hw *hw, u32 reg_addr, u16 phy_data)
 	return -1;
 }
 
+/*
+ * Configures PHY autoneg and flow control advertisement settings
+ *
+ * hw - Struct containing variables accessed by shared code
+ */
 static int atl1c_phy_setup_adv(struct atl1c_hw *hw)
 {
 	u16 mii_adv_data = ADVERTISE_DEFAULT_CAP & ~ADVERTISE_ALL;
@@ -490,12 +546,19 @@ int atl1c_phy_init(struct atl1c_hw *hw)
 	return 0;
 }
 
+/*
+ * Detects the current speed and duplex settings of the hardware.
+ *
+ * hw - Struct containing variables accessed by shared code
+ * speed - Speed of the connection
+ * duplex - Duplex setting of the connection
+ */
 int atl1c_get_speed_and_duplex(struct atl1c_hw *hw, u16 *speed, u16 *duplex)
 {
 	int err;
 	u16 phy_data;
 
-	
+	/* Read   PHY Specific Status Register (17) */
 	err = atl1c_read_phy_reg(hw, MII_GIGA_PSSR, &phy_data);
 	if (err)
 		return err;

@@ -6,9 +6,12 @@
 #include "orb.h"
 #include "cio.h"
 
+/*
+ * TPI info structure
+ */
 struct tpi_info {
 	struct subchannel_id schid;
-	__u32 intparm;		 
+	__u32 intparm;		 /* interruption parameter */
 	__u32 adapter_IO : 1;
 	__u32 reserved2	 : 1;
 	__u32 isc	 : 3;
@@ -18,6 +21,9 @@ struct tpi_info {
 } __attribute__ ((packed));
 
 
+/*
+ * Some S390 specific IO instructions as inline
+ */
 
 static inline int stsch_err(struct subchannel_id schid, struct schib *addr)
 {

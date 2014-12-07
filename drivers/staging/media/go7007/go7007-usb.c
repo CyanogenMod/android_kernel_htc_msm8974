@@ -36,12 +36,22 @@ module_param(assume_endura, int, 0644);
 MODULE_PARM_DESC(assume_endura, "when probing fails, "
 				"hardware is a Pelco Endura");
 
- 
+/* #define GO7007_USB_DEBUG */
+/* #define GO7007_I2C_DEBUG */ /* for debugging the EZ-USB I2C adapter */
 
 #define	HPI_STATUS_ADDR	0xFFF4
 #define	INT_PARAM_ADDR	0xFFF6
 #define	INT_INDEX_ADDR	0xFFF8
 
+/*
+ * Pipes on EZ-USB interface:
+ *	0 snd - Control
+ *	0 rcv - Control
+ *	2 snd - Download firmware (control)
+ *	4 rcv - Read Interrupt (interrupt)
+ *	6 rcv - Read Video (bulk)
+ *	8 rcv - Read Audio (bulk)
+ */
 
 #define GO7007_USB_EZUSB		(1<<0)
 #define GO7007_USB_EZUSB_I2C		(1<<1)
@@ -60,6 +70,7 @@ struct go7007_usb {
 	struct urb *intr_urb;
 };
 
+/*********************** Product specification data ***********************/
 
 static struct go7007_usb_board board_matrix_ii = {
 	.flags		= GO7007_USB_EZUSB,
@@ -141,7 +152,8 @@ static struct go7007_usb_board board_star_trek = {
 	.flags		= GO7007_USB_EZUSB | GO7007_USB_EZUSB_I2C,
 	.main_info	= {
 		.firmware	 = "go7007tv.bin",
-		.flags		 = GO7007_BOARD_HAS_AUDIO, 
+		.flags		 = GO7007_BOARD_HAS_AUDIO, /* |
+					GO7007_BOARD_HAS_TUNER, */
 		.sensor_flags	 = GO7007_SENSOR_656 |
 					GO7007_SENSOR_VALID_ENABLE |
 					GO7007_SENSOR_TV |
@@ -164,14 +176,20 @@ static struct go7007_usb_board board_star_trek = {
 		.inputs		 = {
 			{
 				.video_input	= 1,
-			
+			/*	.audio_input	= AUDIO_EXTERN, */
 				.name		= "Composite",
 			},
 			{
 				.video_input	= 8,
-			
+			/*	.audio_input	= AUDIO_EXTERN, */
 				.name		= "S-Video",
 			},
+		/*	{
+		 *		.video_input	= 3,
+		 *		.audio_input	= AUDIO_TUNER,
+		 *		.name		= "Tuner",
+		 *	},
+		 */
 		},
 	},
 };
@@ -378,7 +396,7 @@ static struct go7007_usb_board board_adlink_mpg24 = {
 			{
 				.type	= "wis_tw2804",
 				.id	= I2C_DRIVERID_WIS_TW2804,
-				.addr	= 0x00, 
+				.addr	= 0x00, /* yes, really */
 			},
 		},
 		.num_inputs	 = 1,
@@ -432,9 +450,9 @@ static const struct usb_device_id go7007_usb_id_table[] = {
 	{
 		.match_flags	= USB_DEVICE_ID_MATCH_DEVICE_AND_VERSION |
 					USB_DEVICE_ID_MATCH_INT_INFO,
-		.idVendor	= 0x0eb1,  
-		.idProduct	= 0x7007,  
-		.bcdDevice_lo	= 0x200,   
+		.idVendor	= 0x0eb1,  /* Vendor ID of WIS Technologies */
+		.idProduct	= 0x7007,  /* Product ID of GO7007SB chip */
+		.bcdDevice_lo	= 0x200,   /* Revision number of XMen */
 		.bcdDevice_hi	= 0x200,
 		.bInterfaceClass	= 255,
 		.bInterfaceSubClass	= 0,
@@ -443,26 +461,26 @@ static const struct usb_device_id go7007_usb_id_table[] = {
 	},
 	{
 		.match_flags	= USB_DEVICE_ID_MATCH_DEVICE_AND_VERSION,
-		.idVendor	= 0x0eb1,  
-		.idProduct	= 0x7007,  
-		.bcdDevice_lo	= 0x202,   
+		.idVendor	= 0x0eb1,  /* Vendor ID of WIS Technologies */
+		.idProduct	= 0x7007,  /* Product ID of GO7007SB chip */
+		.bcdDevice_lo	= 0x202,   /* Revision number of Matrix II */
 		.bcdDevice_hi	= 0x202,
 		.driver_info	= (kernel_ulong_t)GO7007_BOARDID_MATRIX_II,
 	},
 	{
 		.match_flags	= USB_DEVICE_ID_MATCH_DEVICE_AND_VERSION,
-		.idVendor	= 0x0eb1,  
-		.idProduct	= 0x7007,  
-		.bcdDevice_lo	= 0x204,   
-		.bcdDevice_hi	= 0x204,   
+		.idVendor	= 0x0eb1,  /* Vendor ID of WIS Technologies */
+		.idProduct	= 0x7007,  /* Product ID of GO7007SB chip */
+		.bcdDevice_lo	= 0x204,   /* Revision number of Matrix */
+		.bcdDevice_hi	= 0x204,   /*     Reloaded */
 		.driver_info	= (kernel_ulong_t)GO7007_BOARDID_MATRIX_RELOAD,
 	},
 	{
 		.match_flags	= USB_DEVICE_ID_MATCH_DEVICE_AND_VERSION |
 					USB_DEVICE_ID_MATCH_INT_INFO,
-		.idVendor	= 0x0eb1,  
-		.idProduct	= 0x7007,  
-		.bcdDevice_lo	= 0x205,   
+		.idVendor	= 0x0eb1,  /* Vendor ID of WIS Technologies */
+		.idProduct	= 0x7007,  /* Product ID of GO7007SB chip */
+		.bcdDevice_lo	= 0x205,   /* Revision number of XMen-II */
 		.bcdDevice_hi	= 0x205,
 		.bInterfaceClass	= 255,
 		.bInterfaceSubClass	= 0,
@@ -471,18 +489,18 @@ static const struct usb_device_id go7007_usb_id_table[] = {
 	},
 	{
 		.match_flags	= USB_DEVICE_ID_MATCH_DEVICE_AND_VERSION,
-		.idVendor	= 0x0eb1,  
-		.idProduct	= 0x7007,  
-		.bcdDevice_lo	= 0x208,   
+		.idVendor	= 0x0eb1,  /* Vendor ID of WIS Technologies */
+		.idProduct	= 0x7007,  /* Product ID of GO7007SB chip */
+		.bcdDevice_lo	= 0x208,   /* Revision number of Star Trek */
 		.bcdDevice_hi	= 0x208,
 		.driver_info	= (kernel_ulong_t)GO7007_BOARDID_STAR_TREK,
 	},
 	{
 		.match_flags	= USB_DEVICE_ID_MATCH_DEVICE_AND_VERSION |
 					USB_DEVICE_ID_MATCH_INT_INFO,
-		.idVendor	= 0x0eb1,  
-		.idProduct	= 0x7007,  
-		.bcdDevice_lo	= 0x209,   
+		.idVendor	= 0x0eb1,  /* Vendor ID of WIS Technologies */
+		.idProduct	= 0x7007,  /* Product ID of GO7007SB chip */
+		.bcdDevice_lo	= 0x209,   /* Revision number of XMen-III */
 		.bcdDevice_hi	= 0x209,
 		.bInterfaceClass	= 255,
 		.bInterfaceSubClass	= 0,
@@ -491,49 +509,50 @@ static const struct usb_device_id go7007_usb_id_table[] = {
 	},
 	{
 		.match_flags	= USB_DEVICE_ID_MATCH_DEVICE_AND_VERSION,
-		.idVendor	= 0x0eb1,  
-		.idProduct	= 0x7007,  
-		.bcdDevice_lo	= 0x210,   
-		.bcdDevice_hi	= 0x210,   
+		.idVendor	= 0x0eb1,  /* Vendor ID of WIS Technologies */
+		.idProduct	= 0x7007,  /* Product ID of GO7007SB chip */
+		.bcdDevice_lo	= 0x210,   /* Revision number of Matrix */
+		.bcdDevice_hi	= 0x210,   /*     Revolution */
 		.driver_info	= (kernel_ulong_t)GO7007_BOARDID_MATRIX_REV,
 	},
 	{
 		.match_flags	= USB_DEVICE_ID_MATCH_DEVICE_AND_VERSION,
-		.idVendor	= 0x093b,  
-		.idProduct	= 0xa102,  
-		.bcdDevice_lo	= 0x1,	   
+		.idVendor	= 0x093b,  /* Vendor ID of Plextor */
+		.idProduct	= 0xa102,  /* Product ID of M402U */
+		.bcdDevice_lo	= 0x1,	   /* revision number of Blueberry */
 		.bcdDevice_hi	= 0x1,
 		.driver_info	= (kernel_ulong_t)GO7007_BOARDID_PX_M402U,
 	},
 	{
 		.match_flags	= USB_DEVICE_ID_MATCH_DEVICE_AND_VERSION,
-		.idVendor	= 0x093b,  
-		.idProduct	= 0xa104,  
+		.idVendor	= 0x093b,  /* Vendor ID of Plextor */
+		.idProduct	= 0xa104,  /* Product ID of TV402U */
 		.bcdDevice_lo	= 0x1,
 		.bcdDevice_hi	= 0x1,
 		.driver_info	= (kernel_ulong_t)GO7007_BOARDID_PX_TV402U_ANY,
 	},
 	{
 		.match_flags	= USB_DEVICE_ID_MATCH_DEVICE_AND_VERSION,
-		.idVendor	= 0x10fd,  
-		.idProduct	= 0xde00,  
+		.idVendor	= 0x10fd,  /* Vendor ID of Anubis Electronics */
+		.idProduct	= 0xde00,  /* Product ID of Lifeview LR192 */
 		.bcdDevice_lo	= 0x1,
 		.bcdDevice_hi	= 0x1,
 		.driver_info	= (kernel_ulong_t)GO7007_BOARDID_LIFEVIEW_LR192,
 	},
 	{
 		.match_flags	= USB_DEVICE_ID_MATCH_DEVICE_AND_VERSION,
-		.idVendor	= 0x1943,  
-		.idProduct	= 0x2250,  
+		.idVendor	= 0x1943,  /* Vendor ID Sensoray */
+		.idProduct	= 0x2250,  /* Product ID of 2250/2251 */
 		.bcdDevice_lo	= 0x1,
 		.bcdDevice_hi	= 0x1,
 		.driver_info	= (kernel_ulong_t)GO7007_BOARDID_SENSORAY_2250,
 	},
-	{ }					
+	{ }					/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, go7007_usb_id_table);
 
+/********************* Driver for EZ-USB HPI interface *********************/
 
 static int go7007_usb_vendor_request(struct go7007 *go, int request,
 		int value, int index, void *transfer_buffer, int length, int in)
@@ -559,13 +578,13 @@ static int go7007_usb_interface_reset(struct go7007 *go)
 	struct go7007_usb *usb = go->hpi_context;
 	u16 intr_val, intr_data;
 
-	
+	/* Reset encoder */
 	if (go7007_write_interrupt(go, 0x0001, 0x0001) < 0)
 		return -1;
 	msleep(100);
 
 	if (usb->board->flags & GO7007_USB_EZUSB) {
-		
+		/* Reset buffer in EZ-USB */
 #ifdef GO7007_USB_DEBUG
 		printk(KERN_DEBUG "go7007-usb: resetting EZ-USB buffers\n");
 #endif
@@ -573,13 +592,13 @@ static int go7007_usb_interface_reset(struct go7007 *go)
 		    go7007_usb_vendor_request(go, 0x10, 0, 0, NULL, 0, 0) < 0)
 			return -1;
 
-		
+		/* Reset encoder again */
 		if (go7007_write_interrupt(go, 0x0001, 0x0001) < 0)
 			return -1;
 		msleep(100);
 	}
 
-	
+	/* Wait for an interrupt to indicate successful hardware reset */
 	if (go7007_read_interrupt(go, &intr_val, &intr_data) < 0 ||
 			(intr_val & ~0x1) != 0x55aa) {
 		printk(KERN_ERR
@@ -848,6 +867,7 @@ static struct go7007_hpi_ops go7007_usb_onboard_hpi_ops = {
 	.send_firmware		= go7007_usb_send_firmware,
 };
 
+/********************* Driver for EZ-USB I2C adapter *********************/
 
 static int go7007_usb_i2c_master_xfer(struct i2c_adapter *adapter,
 					struct i2c_msg msgs[], int num)
@@ -864,6 +884,9 @@ static int go7007_usb_i2c_master_xfer(struct i2c_adapter *adapter,
 	mutex_lock(&usb->i2c_lock);
 
 	for (i = 0; i < num; ++i) {
+		/* The hardware command is "write some bytes then read some
+		 * bytes", so we try to coalesce a write followed by a read
+		 * into a single USB transaction */
 		if (i + 1 < num && msgs[i].addr == msgs[i + 1].addr &&
 				!(msgs[i].flags & I2C_M_RD) &&
 				(msgs[i + 1].flags & I2C_M_RD)) {
@@ -922,6 +945,8 @@ i2c_done:
 
 static u32 go7007_usb_functionality(struct i2c_adapter *adapter)
 {
+	/* No errors are reported by the hardware, so we don't bother
+	 * supporting quick writes to avoid confusing probing */
 	return (I2C_FUNC_SMBUS_EMUL) & ~I2C_FUNC_SMBUS_QUICK;
 }
 
@@ -936,6 +961,7 @@ static struct i2c_adapter go7007_usb_adap_templ = {
 	.algo			= &go7007_usb_algo,
 };
 
+/********************* USB add/remove functions *********************/
 
 static int go7007_usb_probe(struct usb_interface *intf,
 		const struct usb_device_id *id)
@@ -1008,7 +1034,7 @@ static int go7007_usb_probe(struct usb_interface *intf,
 	if (usb == NULL)
 		return -ENOMEM;
 
-	
+	/* Allocate the URB and buffer for receiving incoming interrupts */
 	usb->intr_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if (usb->intr_urb == NULL)
 		goto allocfail;
@@ -1040,12 +1066,12 @@ static int go7007_usb_probe(struct usb_interface *intf,
 			go7007_usb_readinterrupt_complete, go, 8);
 	usb_set_intfdata(intf, &go->v4l2_dev);
 
-	
+	/* Boot the GO7007 */
 	if (go7007_boot_encoder(go, go->board_info->flags &
 					GO7007_BOARD_USE_ONBOARD_I2C) < 0)
 		goto initfail;
 
-	
+	/* Register the EZ-USB I2C adapter, if we're using it */
 	if (board->flags & GO7007_USB_EZUSB_I2C) {
 		memcpy(&go->i2c_adapter, &go7007_usb_adap_templ,
 				sizeof(go7007_usb_adap_templ));
@@ -1060,12 +1086,18 @@ static int go7007_usb_probe(struct usb_interface *intf,
 		go->i2c_adapter_online = 1;
 	}
 
+	/* Pelco and Adlink reused the XMen and XMen-III vendor and product
+	 * IDs for their own incompatible designs.  We can detect XMen boards
+	 * by probing the sensor, but there is no way to probe the sensors on
+	 * the Pelco and Adlink designs so we default to the Adlink.  If it
+	 * is actually a Pelco, the user must set the assume_endura module
+	 * parameter. */
 	if ((go->board_id == GO7007_BOARDID_XMEN ||
 				go->board_id == GO7007_BOARDID_XMEN_III) &&
 			go->i2c_adapter_online) {
 		union i2c_smbus_data data;
 
-		
+		/* Check to see if register 0x0A is 0x76 */
 		i2c_smbus_xfer(&go->i2c_adapter, 0x21, I2C_CLIENT_SCCB,
 			I2C_SMBUS_READ, 0x0A, I2C_SMBUS_BYTE_DATA, &data);
 		if (data.byte != 0x76) {
@@ -1078,10 +1110,10 @@ static int go7007_usb_probe(struct usb_interface *intf,
 			} else {
 				u16 channel;
 
-				
+				/* set GPIO5 to be an output, currently low */
 				go7007_write_addr(go, 0x3c82, 0x0000);
 				go7007_write_addr(go, 0x3c80, 0x00df);
-				
+				/* read channel number from GPIO[1:0] */
 				go7007_read_addr(go, 0x3c81, &channel);
 				channel &= 0x3;
 				go->board_id = GO7007_BOARDID_ADLINK_MPG24;
@@ -1095,11 +1127,11 @@ static int go7007_usb_probe(struct usb_interface *intf,
 		}
 	}
 
-	
+	/* Probe the tuner model on the TV402U */
 	if (go->board_id == GO7007_BOARDID_PX_TV402U_ANY) {
 		u8 data[3];
 
-		
+		/* Board strapping indicates tuner model */
 		if (go7007_usb_vendor_request(go, 0x41, 0, 0, data, 3, 1) < 0) {
 			printk(KERN_ERR "go7007-usb: GPIO read failed!\n");
 			goto initfail;
@@ -1128,6 +1160,8 @@ static int go7007_usb_probe(struct usb_interface *intf,
 						"tuner type!\n");
 			break;
 		}
+		/* Configure tuner mode selection inputs connected
+		 * to the EZ-USB GPIO output pins */
 		if (go7007_usb_vendor_request(go, 0x40, 0x7f02, 0,
 					NULL, 0, 0) < 0) {
 			printk(KERN_ERR "go7007-usb: GPIO write failed!\n");
@@ -1135,6 +1169,8 @@ static int go7007_usb_probe(struct usb_interface *intf,
 		}
 	}
 
+	/* Print a nasty message if the user attempts to use a USB2.0 device in
+	 * a USB1.1 port.  There will be silent corruption of the stream. */
 	if ((board->flags & GO7007_USB_EZUSB) &&
 			usbdev->speed != USB_SPEED_HIGH)
 		printk(KERN_ERR "go7007-usb: *** WARNING ***  This device "
@@ -1143,10 +1179,12 @@ static int go7007_usb_probe(struct usb_interface *intf,
 				"port will result in stream corruption, even "
 				"at low bitrates!\n");
 
+	/* Do any final GO7007 initialization, then register the
+	 * V4L2 and ALSA interfaces */
 	if (go7007_register_encoder(go) < 0)
 		goto initfail;
 
-	
+	/* Allocate the URBs and buffers for receiving the video stream */
 	if (board->flags & GO7007_USB_EZUSB) {
 		v_urb_len = 1024;
 		video_pipe = usb_rcvbulkpipe(usb->usbdev, 6);
@@ -1167,7 +1205,7 @@ static int go7007_usb_probe(struct usb_interface *intf,
 				go7007_usb_read_video_pipe_complete, go);
 	}
 
-	
+	/* Allocate the URBs and buffers for receiving the audio stream */
 	if ((board->flags & GO7007_USB_EZUSB) && go->audio_enabled)
 		for (i = 0; i < 8; ++i) {
 			usb->audio_urbs[i] = usb_alloc_urb(0, GFP_KERNEL);
@@ -1210,7 +1248,7 @@ static void go7007_usb_disconnect(struct usb_interface *intf)
 	go->status = STATUS_SHUTDOWN;
 	usb_kill_urb(usb->intr_urb);
 
-	
+	/* Free USB-related structs */
 	for (i = 0; i < 8; ++i) {
 		vurb = usb->video_urbs[i];
 		if (vurb) {

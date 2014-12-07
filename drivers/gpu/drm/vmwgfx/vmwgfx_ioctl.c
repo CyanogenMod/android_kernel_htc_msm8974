@@ -188,7 +188,7 @@ int vmw_present_ioctl(struct drm_device *dev, void *data,
 			      arg->dest_x, arg->dest_y,
 			      clips, num_clips);
 
-	
+	/* vmw_user_surface_lookup takes one ref so does new_fb */
 	vmw_surface_unreference(&surface);
 
 out_no_surface:
@@ -286,6 +286,15 @@ out_clips:
 }
 
 
+/**
+ * vmw_fops_poll - wrapper around the drm_poll function
+ *
+ * @filp: See the linux fops poll documentation.
+ * @wait: See the linux fops poll documentation.
+ *
+ * Wrapper around the drm_poll function that makes sure the device is
+ * processing the fifo if drm_poll decides to wait.
+ */
 unsigned int vmw_fops_poll(struct file *filp, struct poll_table_struct *wait)
 {
 	struct drm_file *file_priv = filp->private_data;
@@ -297,6 +306,17 @@ unsigned int vmw_fops_poll(struct file *filp, struct poll_table_struct *wait)
 }
 
 
+/**
+ * vmw_fops_read - wrapper around the drm_read function
+ *
+ * @filp: See the linux fops read documentation.
+ * @buffer: See the linux fops read documentation.
+ * @count: See the linux fops read documentation.
+ * offset: See the linux fops read documentation.
+ *
+ * Wrapper around the drm_read function that makes sure the device is
+ * processing the fifo if drm_read decides to wait.
+ */
 ssize_t vmw_fops_read(struct file *filp, char __user *buffer,
 		      size_t count, loff_t *offset)
 {

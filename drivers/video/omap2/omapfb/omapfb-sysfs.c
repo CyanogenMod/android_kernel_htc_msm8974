@@ -76,6 +76,10 @@ static ssize_t store_rotate_type(struct device *dev,
 
 	ofbi->rotation_type = rot_type;
 
+	/*
+	 * Since the VRAM for this FB is not allocated at the moment we don't
+	 * need to do any further parameter checking at this point.
+	 */
 put_region:
 	omapfb_put_mem_region(rg);
 out:
@@ -249,7 +253,7 @@ static ssize_t store_overlays(struct device *dev, struct device_attribute *attr,
 		}
 	}
 
-	
+	/* detach unused overlays */
 	for (i = 0; i < ofbi->num_overlays; ++i) {
 		int t, found;
 
@@ -412,7 +416,7 @@ static ssize_t store_overlays_rotate(struct device *dev,
 		if (r)
 			goto out;
 
-		
+		/* FIXME error handling? */
 	}
 
 	r = count;

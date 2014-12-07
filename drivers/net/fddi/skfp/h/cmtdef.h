@@ -15,26 +15,38 @@
 #ifndef	_CMTDEF_
 #define _CMTDEF_
 
+/* **************************************************************** */
 
-#define AMDPLC			
+/*
+ * implementation specific constants
+ * MODIIFY THE FOLLOWING THREE DEFINES
+ */
+#define AMDPLC			/* if Amd PLC chip used */
 #ifdef	CONC
-#define NUMPHYS		12	
+#define NUMPHYS		12	/* 2 for SAS or DAS, more for Concentrator */
 #else
 #ifdef	CONC_II
-#define NUMPHYS		24	
+#define NUMPHYS		24	/* 2 for SAS or DAS, more for Concentrator */
 #else
-#define NUMPHYS		2	
+#define NUMPHYS		2	/* 2 for SAS or DAS, more for Concentrator */
 #endif
 #endif
-#define NUMMACS		1	
-#define NUMPATHS	2	
+#define NUMMACS		1	/* only 1 supported at the moment */
+#define NUMPATHS	2	/* primary and secondary path supported */
 
+/*
+ * DO NOT MODIFY BEYOND THIS POINT
+ */
 
+/* **************************************************************** */
 
 #if	NUMPHYS > 2
 #define CONCENTRATOR
 #endif
 
+/*
+ * Definitions for comfortable LINT usage
+ */
 #ifdef	lint
 #define LINT_USE(x)	(x)=(x)
 #else
@@ -84,75 +96,115 @@
 #else
 #define	SK_LOC_DECL(type,var)	static type var
 #endif
+/*
+ * PHYs and PORTS
+ * Note: Don't touch the definition of PA and PB. Those might be used
+ *	by some "for" loops.
+ */
 #define PA		0
 #define PB		1
 #if	defined(SUPERNET_3) || defined(CONC_II)
-#define PS		0	
+/*
+ * The port indices have to be different,
+ * because the MAC output goes through the 2. PLC
+ * Conc II: It has to be the first port in the row.
+ */
+#define PS		0	/* Internal PLC which is the same as PA */
 #else
 #define PS		1
 #endif
-#define PM		2		
+#define PM		2		/* PM .. PA+NUM_PHYS-1 */
 
-#define TA			0	
-#define TB			1	
-#define TS			2	
-#define TM			3	
+/*
+ * PHY types - as in path descriptor 'fddiPHYType'
+ */
+#define TA			0	/* A port */
+#define TB			1	/* B port */
+#define TS			2	/* S port */
+#define TM			3	/* M port */
 #define TNONE			4
 
 
+/*
+ * indexes in MIB
+ */
 #define INDEX_MAC	1
 #define INDEX_PATH	1
 #define INDEX_PORT	1
 
 
-#define POLICY_AA	(1<<0)		
-#define POLICY_AB	(1<<1)		
-#define POLICY_AS	(1<<2)		
-#define POLICY_AM	(1<<3)		
-#define POLICY_BA	(1<<4)		
-#define POLICY_BB	(1<<5)		
-#define POLICY_BS	(1<<6)		
-#define POLICY_BM	(1<<7)		
-#define POLICY_SA	(1<<8)		
-#define POLICY_SB	(1<<9)		
-#define POLICY_SS	(1<<10)		
-#define POLICY_SM	(1<<11)		
-#define POLICY_MA	(1<<12)		
-#define POLICY_MB	(1<<13)		
-#define POLICY_MS	(1<<14)		
-#define POLICY_MM	(1<<15)		
+/*
+ * policies
+ */
+#define POLICY_AA	(1<<0)		/* reject AA */
+#define POLICY_AB	(1<<1)		/* reject AB */
+#define POLICY_AS	(1<<2)		/* reject AS */
+#define POLICY_AM	(1<<3)		/* reject AM */
+#define POLICY_BA	(1<<4)		/* reject BA */
+#define POLICY_BB	(1<<5)		/* reject BB */
+#define POLICY_BS	(1<<6)		/* reject BS */
+#define POLICY_BM	(1<<7)		/* reject BM */
+#define POLICY_SA	(1<<8)		/* reject SA */
+#define POLICY_SB	(1<<9)		/* reject SB */
+#define POLICY_SS	(1<<10)		/* reject SS */
+#define POLICY_SM	(1<<11)		/* reject SM */
+#define POLICY_MA	(1<<12)		/* reject MA */
+#define POLICY_MB	(1<<13)		/* reject MB */
+#define POLICY_MS	(1<<14)		/* reject MS */
+#define POLICY_MM	(1<<15)		/* reject MM */
 
+/*
+ * commands
+ */
 
-#define EVENT_ECM	1		
-#define EVENT_CFM	2		
-#define EVENT_RMT	3		
-#define EVENT_SMT	4		
-#define EVENT_PCM	5		
-#define EVENT_PCMA	5		
-#define EVENT_PCMB	6		
+/*
+ * EVENTS
+ * event classes
+ */
+#define EVENT_ECM	1		/* event class ECM */
+#define EVENT_CFM	2		/* event class CFM */
+#define EVENT_RMT	3		/* event class RMT */
+#define EVENT_SMT	4		/* event class SMT */
+#define EVENT_PCM	5		/* event class PCM */
+#define EVENT_PCMA	5		/* event class PCMA */
+#define EVENT_PCMB	6		/* event class PCMB */
 
+/* WARNING :
+ * EVENT_PCM* must be last in the above list
+ * if more than two ports are used, EVENT_PCM .. EVENT_PCMA+NUM_PHYS-1
+ * are used !
+ */
 
 #define EV_TOKEN(class,event)	(((u_long)(class)<<16L)|((u_long)(event)))
 #define EV_T_CLASS(token)	((int)((token)>>16)&0xffff)
 #define EV_T_EVENT(token)	((int)(token)&0xffff)
 
-#define EC_CONNECT	1		
-#define EC_DISCONNECT	2		
-#define EC_TRACE_PROP	3		
-#define EC_PATH_TEST	4		
-#define EC_TIMEOUT_TD	5		
-#define EC_TIMEOUT_TMAX	6		
-#define EC_TIMEOUT_IMAX	7		
-#define EC_TIMEOUT_INMAX 8		
-#define EC_TEST_DONE	9		
+/*
+ * ECM events
+ */
+#define EC_CONNECT	1		/* connect request */
+#define EC_DISCONNECT	2		/* disconnect request */
+#define EC_TRACE_PROP	3		/* trace propagation */
+#define EC_PATH_TEST	4		/* path test */
+#define EC_TIMEOUT_TD	5		/* timer TD_min */
+#define EC_TIMEOUT_TMAX	6		/* timer trace_max */
+#define EC_TIMEOUT_IMAX	7		/* timer I_max */
+#define EC_TIMEOUT_INMAX 8		/* timer IN_max */
+#define EC_TEST_DONE	9		/* path test done */
 
-#define CF_LOOP		1		
-#define CF_LOOP_A	1		
-#define CF_LOOP_B	2		
-#define CF_JOIN		3		
-#define CF_JOIN_A	3		
-#define CF_JOIN_B	4		
+/*
+ * CFM events
+ */
+#define CF_LOOP		1		/* cf_loop flag from PCM */
+#define CF_LOOP_A	1		/* cf_loop flag from PCM */
+#define CF_LOOP_B	2		/* cf_loop flag from PCM */
+#define CF_JOIN		3		/* cf_join flag from PCM */
+#define CF_JOIN_A	3		/* cf_join flag from PCM */
+#define CF_JOIN_B	4		/* cf_join flag from PCM */
 
+/*
+ * PCM events
+ */
 #define PC_START		1
 #define PC_STOP			2
 #define PC_LOOP			3
@@ -165,6 +217,9 @@
 #define PC_ENABLE		10
 #define PC_DISABLE		11
 
+/*
+ * must be ordered as in LineStateType
+ */
 #define PC_QLS			12
 #define PC_ILS			13
 #define PC_MLS			14
@@ -174,128 +229,188 @@
 #define LS2MIB(x)	((x)-PC_QLS)
 #define MIB2LS(x)	((x)+PC_QLS)
 
-#define PC_TIMEOUT_TB_MAX	18	
-#define PC_TIMEOUT_TB_MIN	19	
-#define PC_TIMEOUT_C_MIN	20	
-#define PC_TIMEOUT_T_OUT	21	
-#define PC_TIMEOUT_TL_MIN	22	
-#define PC_TIMEOUT_T_NEXT	23	
+#define PC_TIMEOUT_TB_MAX	18	/* timer TB_max */
+#define PC_TIMEOUT_TB_MIN	19	/* timer TB_min */
+#define PC_TIMEOUT_C_MIN	20	/* timer C_Min */
+#define PC_TIMEOUT_T_OUT	21	/* timer T_Out */
+#define PC_TIMEOUT_TL_MIN	22	/* timer TL_Min */
+#define PC_TIMEOUT_T_NEXT	23	/* timer t_next[] */
 #define PC_TIMEOUT_LCT		24
-#define PC_NSE			25	
-#define PC_LEM			26	
+#define PC_NSE			25	/* NOISE hardware timer */
+#define PC_LEM			26	/* LEM done */
 
-#define RM_RING_OP	1		
-#define RM_RING_NON_OP	2		
-#define RM_MY_BEACON	3		
-#define RM_OTHER_BEACON	4		
-#define RM_MY_CLAIM	5		
-#define RM_TRT_EXP	6		
-#define RM_VALID_CLAIM	7		
-#define RM_JOIN		8		
-#define RM_LOOP		9		
-#define RM_DUP_ADDR	10		
-#define RM_ENABLE_FLAG	11		
+/*
+ * RMT events				  meaning		from
+ */
+#define RM_RING_OP	1		/* ring operational	MAC	*/
+#define RM_RING_NON_OP	2		/* ring not operational	MAC	*/
+#define RM_MY_BEACON	3		/* recvd my beacon	MAC	*/
+#define RM_OTHER_BEACON	4		/* recvd other beacon	MAC	*/
+#define RM_MY_CLAIM	5		/* recvd my claim	MAC	*/
+#define RM_TRT_EXP	6		/* TRT exp		MAC	*/
+#define RM_VALID_CLAIM	7		/* claim from dup addr	MAC	*/
+#define RM_JOIN		8		/* signal rm_join	CFM	*/
+#define RM_LOOP		9		/* signal rm_loop	CFM	*/
+#define RM_DUP_ADDR	10		/* dup_addr_test hange	SMT-NIF	*/
+#define RM_ENABLE_FLAG	11		/* enable flag */
 
-#define RM_TIMEOUT_NON_OP	12	
-#define RM_TIMEOUT_T_STUCK	13	
-#define RM_TIMEOUT_ANNOUNCE	14	
-#define RM_TIMEOUT_T_DIRECT	15	
-#define RM_TIMEOUT_D_MAX	16	
-#define RM_TIMEOUT_POLL		17	
-#define RM_TX_STATE_CHANGE	18	
+#define RM_TIMEOUT_NON_OP	12	/* timeout T_Non_OP	*/
+#define RM_TIMEOUT_T_STUCK	13	/* timeout T_Stuck	*/
+#define RM_TIMEOUT_ANNOUNCE	14	/* timeout T_Announce	*/
+#define RM_TIMEOUT_T_DIRECT	15	/* timeout T_Direct	*/
+#define RM_TIMEOUT_D_MAX	16	/* timeout D_Max	*/
+#define RM_TIMEOUT_POLL		17	/* claim/beacon poller	*/
+#define RM_TX_STATE_CHANGE	18	/* To restart timer for D_Max */
 
-#define SM_TIMER	1		
-#define SM_FAST		2		
+/*
+ * SMT events
+ */
+#define SM_TIMER	1		/* timer */
+#define SM_FAST		2		/* smt_force_irq */
 
+/* PC modes */
 #define PM_NONE		0
 #define PM_PEER		1
 #define PM_TREE		2
 
-#define PC_WH_NONE	0		
-#define PC_WH_M_M	1		
-#define PC_WH_OTHER	2		
-#define PC_WH_PATH	3		
-#define LC_SHORT	1		
-#define LC_MEDIUM	2		
-#define LC_LONG		3		
-#define LC_EXTENDED	4		
+/*
+ * PCM withhold codes
+ * MIB PC-WithholdType ENUM
+ */
+#define PC_WH_NONE	0		/* ok */
+#define PC_WH_M_M	1		/* M to M */
+#define PC_WH_OTHER	2		/* other incompatible phys */
+#define PC_WH_PATH	3		/* path not available */
+/*
+ * LCT duration
+ */
+#define LC_SHORT	1		/* short LCT */
+#define LC_MEDIUM	2		/* medium LCT */
+#define LC_LONG		3		/* long LCT */
+#define LC_EXTENDED	4		/* extended LCT */
 
+/*
+ * path_test values
+ */
 #define PT_NONE		0
-#define PT_TESTING	1		
-#define PT_PASSED	2		
-#define PT_FAILED	3		
-#define PT_PENDING	4		
-#define PT_EXITING	5		
+#define PT_TESTING	1		/* test is running */
+#define PT_PASSED	2		/* test passed */
+#define PT_FAILED	3		/* test failed */
+#define PT_PENDING	4		/* path test follows */
+#define PT_EXITING	5		/* disconnected while in trace/leave */
 
-#define DA_NONE		0		
-#define DA_PASSED	1		
-#define DA_FAILED	2		
+/*
+ * duplicate address test
+ * MIB DupAddressTest ENUM
+ */
+#define DA_NONE		0		/* 		*/
+#define DA_PASSED	1		/* test passed */
+#define DA_FAILED	2		/* test failed */
 
 
-#define BP_DEINSERT	0		
-#define BP_INSERT	1		
+/*
+ * optical bypass
+ */
+#define BP_DEINSERT	0		/* disable bypass */
+#define BP_INSERT	1		/* enable bypass */
 
-#define PM_TRANSMIT_DISABLE	0	
-#define PM_TRANSMIT_ENABLE	1	
+/*
+ * ODL enable/disable
+ */
+#define PM_TRANSMIT_DISABLE	0	/* disable xmit */
+#define PM_TRANSMIT_ENABLE	1	/* enable xmit */
 
-#define MUX_THRUA	0		
-#define MUX_THRUB	1		
-#define MUX_WRAPA	2		
-#define MUX_WRAPB	3		
-#define MUX_ISOLATE	4		
-#define MUX_WRAPS	5		
+/*
+ * parameter for config_mux
+ * note : number is index in config_endec table !
+ */
+#define MUX_THRUA	0		/* through A */
+#define MUX_THRUB	1		/* through B */
+#define MUX_WRAPA	2		/* wrap A */
+#define MUX_WRAPB	3		/* wrap B */
+#define MUX_ISOLATE	4		/* isolated */
+#define MUX_WRAPS	5		/* SAS */
 
+/*
+ * MAC control
+ */
 #define MA_RESET	0
 #define MA_BEACON	1
 #define MA_CLAIM	2
-#define MA_DIRECTED	3		
-#define MA_TREQ		4		
-#define MA_OFFLINE	5		
+#define MA_DIRECTED	3		/* directed beacon */
+#define MA_TREQ		4		/* change T_Req */
+#define MA_OFFLINE	5		/* switch MAC to offline */
 
 
+/*
+ * trace prop
+ * bit map for trace propagation
+ */
 #define ENTITY_MAC	(NUMPHYS)
 #define ENTITY_PHY(p)	(p)
 #define ENTITY_BIT(m)	(1<<(m))
 
-#define PATH_ISO	0	
-#define PATH_PRIM	3	
-#define PATH_THRU	5	
+/*
+ * Resource Tag Types
+ */
+#define PATH_ISO	0	/* isolated */
+#define PATH_PRIM	3	/* primary path */
+#define PATH_THRU	5	/* through path */
 
-#define RES_MAC		2	
-#define RES_PORT	4	
+#define RES_MAC		2	/* resource type MAC */
+#define RES_PORT	4	/* resource type PORT */
 
 
-#define SC0_ISOLATED	0		
-#define SC1_WRAP_A	5		
-#define SC2_WRAP_B	6		
-#define SC4_THRU_A	12		
-#define SC5_THRU_B	7		
-#define SC7_WRAP_S	8		
-#define SC9_C_WRAP_A	9		
-#define SC10_C_WRAP_B	10		
-#define SC11_C_WRAP_S	11		
+/*
+ * CFM state
+ * oops: MUST MATCH CF-StateType in SMT7.2 !
+ */
+#define SC0_ISOLATED	0		/* isolated */
+#define SC1_WRAP_A	5		/* wrap A (not used) */
+#define SC2_WRAP_B	6		/* wrap B (not used) */
+#define SC4_THRU_A	12		/* through A */
+#define SC5_THRU_B	7		/* through B (used in SMT 6.2) */
+#define SC7_WRAP_S	8		/* SAS (not used) */
+#define SC9_C_WRAP_A	9		/* c wrap A */
+#define SC10_C_WRAP_B	10		/* c wrap B */
+#define SC11_C_WRAP_S	11		/* c wrap S */
 
+/*
+ * convert MIB time in units of 80nS to uS
+ */
 #define MIB2US(t)		((t)/12)
 #define SEC2MIB(s)	((s)*12500000L)
+/*
+ * SMT timer
+ */
 struct smt_timer {
-	struct smt_timer	*tm_next ;	
-	struct s_smc		*tm_smc ;	
-	u_long			tm_delta ;	
-	u_long			tm_token ;	
-	u_short			tm_active ;	
-	u_short			tm_pad ;	
+	struct smt_timer	*tm_next ;	/* linked list */
+	struct s_smc		*tm_smc ;	/* pointer to context */
+	u_long			tm_delta ;	/* delta time */
+	u_long			tm_token ;	/* token value */
+	u_short			tm_active ;	/* flag : active/inactive */
+	u_short			tm_pad ;	/* pad field */
 } ;
 
+/*
+ * communication structures
+ */
 struct mac_parameter {
-	u_long	t_neg ;		
-	u_long	t_pri ;		
+	u_long	t_neg ;		/* T_Neg parameter */
+	u_long	t_pri ;		/* T_Pri register in MAC */
 } ;
 
+/*
+ * MAC counters
+ */
 struct mac_counter {
-	u_long	mac_nobuf_counter ;	
-	u_long	mac_r_restart_counter ;	
+	u_long	mac_nobuf_counter ;	/* MAC SW counter: no buffer */
+	u_long	mac_r_restart_counter ;	/* MAC SW counter: rx restarted */
 } ;
 
+/*
+ * para struct context for SMT parameters
+ */
 struct s_pcon {
 	int	pc_len ;
 	int	pc_err ;
@@ -303,6 +418,9 @@ struct s_pcon {
 	void	*pc_p ;
 } ;
 
+/*
+ * link error monitor
+ */
 #define LEM_AVG	5
 struct lem_counter {
 #ifdef	AM29K
@@ -317,8 +435,8 @@ struct lem_counter {
 	int	lem_avg_ber[LEM_AVG] ;
 	int	lem_sum ;
 #else
-	u_short	lem_float_ber ;		
-	u_long	lem_errors ;		
+	u_short	lem_float_ber ;		/* 10E-nn bit error rate */
+	u_long	lem_errors ;		/* accumulated error count */
 	u_short	lem_on	;
 #endif
 } ;
@@ -327,41 +445,47 @@ struct lem_counter {
 
 #ifdef	AMDPLC
 
+/*
+ * PLC state table
+ */
 struct s_plc {
-	u_short	p_state ;		
-	u_short	p_bits ;		
-	u_short	p_start ;		
-	u_short	p_pad ;			
-	u_long soft_err ;		
-	u_long parity_err ;		
-	u_long ebuf_err ;		
-	u_long ebuf_cont ;		
-	u_long phyinv ;			
-	u_long vsym_ctr ;		
-	u_long mini_ctr ;		
-	u_long tpc_exp ;		
-	u_long np_err ;			
-	u_long b_pcs ;			
-	u_long b_tpc ;			
-	u_long b_tne ;			
-	u_long b_qls ;			
-	u_long b_ils ;			
-	u_long b_hls ;			
+	u_short	p_state ;		/* current state */
+	u_short	p_bits ;		/* number of bits to send */
+	u_short	p_start ;		/* first bit pos */
+	u_short	p_pad ;			/* padding for alignment */
+	u_long soft_err ;		/* error counter */
+	u_long parity_err ;		/* error counter */
+	u_long ebuf_err ;		/* error counter */
+	u_long ebuf_cont ;		/* continuous error counter */
+	u_long phyinv ;			/* error counter */
+	u_long vsym_ctr ;		/* error counter */
+	u_long mini_ctr ;		/* error counter */
+	u_long tpc_exp ;		/* error counter */
+	u_long np_err ;			/* error counter */
+	u_long b_pcs ;			/* error counter */
+	u_long b_tpc ;			/* error counter */
+	u_long b_tne ;			/* error counter */
+	u_long b_qls ;			/* error counter */
+	u_long b_ils ;			/* error counter */
+	u_long b_hls ;			/* error counter */
 } ;
 #endif
 
 #ifdef	PROTOTYP_INC
 #include "fddi/driver.pro"
-#else	
-#include "mbuf.h"	
-#include "smtstate.h"	
+#else	/* PROTOTYP_INC */
+/*
+ * function prototypes
+ */
+#include "mbuf.h"	/* Type definitions for MBUFs */
+#include "smtstate.h"	/* struct smt_state */
 
-void hwt_restart(struct s_smc *smc);	
+void hwt_restart(struct s_smc *smc);	/* hwt.c */
 SMbuf *smt_build_frame(struct s_smc *smc, int class, int type,
-		       int length);	
-SMbuf *smt_get_mbuf(struct s_smc *smc);	
+		       int length);	/* smt.c */
+SMbuf *smt_get_mbuf(struct s_smc *smc);	/* drvsr.c */
 void *sm_to_para(struct s_smc *smc, struct smt_header *sm,
-		 int para);		
+		 int para);		/* smt.c */
 
 #ifndef SK_UNUSED
 #define SK_UNUSED(var)		(void)(var)
@@ -409,7 +533,7 @@ void cfm_state_change(struct s_smc *smc, int c_state);
 void smt_panic(struct s_smc *smc, char *text);
 #else
 #define	smt_panic(smc,text)
-#endif 
+#endif /* DEBUG || !NO_SMT_PANIC */
 
 void smt_stat_counter(struct s_smc *smc, int stat);
 void smt_timer_poll(struct s_smc *smc);
@@ -425,7 +549,7 @@ void driver_get_bia(struct s_smc *smc, struct fddi_addr *bia_addr);
 
 #ifdef SUPERNET_3
 void drv_reset_indication(struct s_smc *smc);
-#endif	
+#endif	/* SUPERNET_3 */
 
 void smt_start_watchdog(struct s_smc *smc);
 void smt_event(struct s_smc *smc, int event);
@@ -521,10 +645,11 @@ char* addr_to_string(struct fddi_addr *addr);
 void dump_hex(char *p, int len);
 #endif
 
-#endif	
+#endif	/* PROTOTYP_INC */
 
+/* PNMI default defines */
 #ifndef PNMI_INIT
-#define	PNMI_INIT(smc)	
+#define	PNMI_INIT(smc)	/* Nothing */
 #endif
 #ifndef PNMI_GET_ID
 #define PNMI_GET_ID( smc, ndis_oid, buf, len, BytesWritten, BytesNeeded ) \
@@ -535,6 +660,9 @@ void dump_hex(char *p, int len);
 		set_type) ( 1 ? (-1) : (-1) )
 #endif
 
+/*
+ * SMT_PANIC defines
+ */
 #ifndef	SMT_PANIC
 #define	SMT_PANIC(smc,nr,msg)	smt_panic (smc, msg)
 #endif
@@ -625,4 +753,4 @@ void dump_hex(char *p, int len);
 #define SMT_E0137_MSG	"SMT: queue overrun"
 #define SMT_E0138	SMT_EBASE + 38
 #define SMT_E0138_MSG	"RMT: duplicate MAC address detected. Ring NOT left!"
-#endif	
+#endif	/* _CMTDEF_ */

@@ -56,13 +56,16 @@ struct iwm_udma_out_wifi_hdr {
 	__le32 meta_data;
 } __packed;
 
+/* Sequence numbering */
 #define UMAC_WIFI_SEQ_NUM_BASE		1
 #define UMAC_WIFI_SEQ_NUM_MAX		0x4000
 #define UMAC_NONWIFI_SEQ_NUM_BASE	1
 #define UMAC_NONWIFI_SEQ_NUM_MAX	0x10
 
+/* MAC address address */
 #define WICO_MAC_ADDRESS_ADDR               0x604008F8
 
+/* RA / TID */
 #define UMAC_HDI_ACT_TBL_IDX_TID_POS                  0
 #define UMAC_HDI_ACT_TBL_IDX_TID_SEED                 0xF
 
@@ -80,6 +83,7 @@ struct iwm_udma_out_wifi_hdr {
 	((UMAC_HDI_ACT_TBL_IDX_RA_UMAC << UMAC_HDI_ACT_TBL_IDX_RA_POS) |\
 	(UMAC_HDI_ACT_TBL_IDX_TID_LMAC << UMAC_HDI_ACT_TBL_IDX_TID_POS))
 
+/* STA ID and color */
 #define STA_ID_SEED                        (0x0f)
 #define STA_ID_POS                         (0)
 #define STA_ID_MSK                         (STA_ID_SEED << STA_ID_POS)
@@ -93,87 +97,116 @@ struct iwm_udma_out_wifi_hdr {
 #define STA_ID_N_COLOR_ID(id_n_color) \
 	(((id_n_color) & STA_ID_MSK) >> STA_ID_POS)
 
+/* iwm_umac_notif_alive.page_grp_state Group number -- bits [3:0] */
 #define UMAC_ALIVE_PAGE_STS_GRP_NUM_POS		0
 #define UMAC_ALIVE_PAGE_STS_GRP_NUM_SEED	0xF
 
+/* iwm_umac_notif_alive.page_grp_state Super group number -- bits [7:4] */
 #define UMAC_ALIVE_PAGE_STS_SGRP_NUM_POS	4
 #define UMAC_ALIVE_PAGE_STS_SGRP_NUM_SEED	0xF
 
+/* iwm_umac_notif_alive.page_grp_state Group min size -- bits [15:8] */
 #define UMAC_ALIVE_PAGE_STS_GRP_MIN_SIZE_POS	8
 #define UMAC_ALIVE_PAGE_STS_GRP_MIN_SIZE_SEED	0xFF
 
+/* iwm_umac_notif_alive.page_grp_state Group max size -- bits [23:16] */
 #define UMAC_ALIVE_PAGE_STS_GRP_MAX_SIZE_POS	16
 #define UMAC_ALIVE_PAGE_STS_GRP_MAX_SIZE_SEED	0xFF
 
+/* iwm_umac_notif_alive.page_grp_state Super group max size -- bits [31:24] */
 #define UMAC_ALIVE_PAGE_STS_SGRP_MAX_SIZE_POS	24
 #define UMAC_ALIVE_PAGE_STS_SGRP_MAX_SIZE_SEED	0xFF
 
+/* Barkers */
 #define UMAC_REBOOT_BARKER		0xdeadbeef
 #define UMAC_ACK_BARKER			0xfeedbabe
 #define UMAC_PAD_TERMINAL		0xadadadad
 
+/* UMAC JMP address */
 #define UMAC_MU_FW_INST_DATA_12_ADDR    0xBF0000
 
+/* iwm_umac_hdi_out_hdr.cmd OP code -- bits [3:0] */
 #define UMAC_HDI_OUT_CMD_OPCODE_POS	0
 #define UMAC_HDI_OUT_CMD_OPCODE_SEED	0xF
 
+/* iwm_umac_hdi_out_hdr.cmd End-Of-Transfer -- bits [10:10] */
 #define UMAC_HDI_OUT_CMD_EOT_POS	10
 #define UMAC_HDI_OUT_CMD_EOT_SEED	0x1
 
+/* iwm_umac_hdi_out_hdr.cmd UTFD only usage -- bits [11:11] */
 #define UMAC_HDI_OUT_CMD_UTFD_ONLY_POS	11
 #define UMAC_HDI_OUT_CMD_UTFD_ONLY_SEED	0x1
 
+/* iwm_umac_hdi_out_hdr.cmd Non-WiFi HW sequence number -- bits [12:15] */
 #define UDMA_HDI_OUT_CMD_NON_WIFI_HW_SEQ_NUM_POS   12
 #define UDMA_HDI_OUT_CMD_NON_WIFI_HW_SEQ_NUM_SEED  0xF
 
+/* iwm_umac_hdi_out_hdr.cmd Signature -- bits [31:16] */
 #define UMAC_HDI_OUT_CMD_SIGNATURE_POS	16
 #define UMAC_HDI_OUT_CMD_SIGNATURE_SEED	0xFFFF
 
+/* iwm_umac_hdi_out_hdr.meta_data Byte count -- bits [11:0] */
 #define UMAC_HDI_OUT_BYTE_COUNT_POS	0
 #define UMAC_HDI_OUT_BYTE_COUNT_SEED	0xFFF
 
+/* iwm_umac_hdi_out_hdr.meta_data Credit group -- bits [15:12] */
 #define UMAC_HDI_OUT_CREDIT_GRP_POS	12
 #define UMAC_HDI_OUT_CREDIT_GRP_SEED	0xF
 
+/* iwm_umac_hdi_out_hdr.meta_data RA/TID -- bits [23:16] */
 #define UMAC_HDI_OUT_RATID_POS		16
 #define UMAC_HDI_OUT_RATID_SEED		0xFF
 
+/* iwm_umac_hdi_out_hdr.meta_data LMAC offset -- bits [31:24] */
 #define UMAC_HDI_OUT_LMAC_OFFSET_POS	24
 #define UMAC_HDI_OUT_LMAC_OFFSET_SEED	0xFF
 
+/* Signature */
 #define UMAC_HDI_OUT_SIGNATURE		0xCBBC
 
+/* buffer alignment */
 #define UMAC_HDI_BUF_ALIGN_MSK		0xF
 
+/*  iwm_umac_hdi_in_hdr.cmd OP code -- bits [3:0] */
 #define UMAC_HDI_IN_CMD_OPCODE_POS                0
 #define UMAC_HDI_IN_CMD_OPCODE_SEED               0xF
 
+/*  iwm_umac_hdi_in_hdr.cmd Non-WiFi API response -- bits [6:4] */
 #define UMAC_HDI_IN_CMD_NON_WIFI_RESP_POS         4
 #define UMAC_HDI_IN_CMD_NON_WIFI_RESP_SEED        0x7
 
+/* iwm_umac_hdi_in_hdr.cmd WiFi API source -- bits [5:4] */
 #define UMAC_HDI_IN_CMD_SOURCE_POS                4
 #define UMAC_HDI_IN_CMD_SOURCE_SEED               0x3
 
+/* iwm_umac_hdi_in_hdr.cmd WiFi API EOT -- bits [6:6] */
 #define UMAC_HDI_IN_CMD_EOT_POS                   6
 #define UMAC_HDI_IN_CMD_EOT_SEED                  0x1
 
+/* iwm_umac_hdi_in_hdr.cmd timestamp present -- bits [7:7] */
 #define UMAC_HDI_IN_CMD_TIME_STAMP_PRESENT_POS    7
 #define UMAC_HDI_IN_CMD_TIME_STAMP_PRESENT_SEED   0x1
 
+/* iwm_umac_hdi_in_hdr.cmd WiFi Non-last AMSDU -- bits [8:8] */
 #define UMAC_HDI_IN_CMD_NON_LAST_AMSDU_POS        8
 #define UMAC_HDI_IN_CMD_NON_LAST_AMSDU_SEED       0x1
 
+/* iwm_umac_hdi_in_hdr.cmd WiFi HW sequence number -- bits [31:9] */
 #define UMAC_HDI_IN_CMD_HW_SEQ_NUM_POS            9
 #define UMAC_HDI_IN_CMD_HW_SEQ_NUM_SEED           0x7FFFFF
 
+/* iwm_umac_hdi_in_hdr.cmd Non-WiFi HW sequence number -- bits [12:15] */
 #define UDMA_HDI_IN_CMD_NON_WIFI_HW_SEQ_NUM_POS   12
 #define UDMA_HDI_IN_CMD_NON_WIFI_HW_SEQ_NUM_SEED  0xF
 
+/* iwm_umac_hdi_in_hdr.cmd Non-WiFi HW signature -- bits [16:31] */
 #define UDMA_HDI_IN_CMD_NON_WIFI_HW_SIG_POS       16
 #define UDMA_HDI_IN_CMD_NON_WIFI_HW_SIG_SEED      0xFFFF
 
+/* Fixed Non-WiFi signature */
 #define UDMA_HDI_IN_CMD_NON_WIFI_HW_SIG           0xCBBC
 
+/* IN NTFY op-codes */
 #define UMAC_NOTIFY_OPCODE_ALIVE		0xA1
 #define UMAC_NOTIFY_OPCODE_INIT_COMPLETE	0xA2
 #define UMAC_NOTIFY_OPCODE_WIFI_CORE_STATUS	0xA3
@@ -187,6 +220,7 @@ struct iwm_udma_out_wifi_hdr {
 						UMAC_NOTIFY_OPCODE_ALIVE + 1)
 #define UMAC_NOTIFY_OPCODE_FIRST		(UMAC_NOTIFY_OPCODE_ALIVE)
 
+/* HDI OUT OP CODE */
 #define UMAC_HDI_OUT_OPCODE_PING		0x0
 #define UMAC_HDI_OUT_OPCODE_READ		0x1
 #define UMAC_HDI_OUT_OPCODE_WRITE		0x2
@@ -195,9 +229,11 @@ struct iwm_udma_out_wifi_hdr {
 #define UMAC_HDI_OUT_OPCODE_WRITE_PERSISTENT	0x5
 #define UMAC_HDI_OUT_OPCODE_READ_PERSISTENT	0x6
 #define UMAC_HDI_OUT_OPCODE_READ_MODIFY_WRITE	0x7
+/* #define UMAC_HDI_OUT_OPCODE_RESERVED		0x8..0xA */
 #define UMAC_HDI_OUT_OPCODE_WRITE_AUX_REG	0xB
 #define UMAC_HDI_OUT_OPCODE_WIFI		0xF
 
+/* HDI IN OP CODE -- Non WiFi*/
 #define UMAC_HDI_IN_OPCODE_PING			0x0
 #define UMAC_HDI_IN_OPCODE_READ			0x1
 #define UMAC_HDI_IN_OPCODE_WRITE		0x2
@@ -212,11 +248,13 @@ struct iwm_udma_out_wifi_hdr {
 		(UMAC_HDI_IN_OPCODE_WRITE_AUX_REG + 1)
 #define UMAC_HDI_IN_OPCODE_WIFI			0xF
 
+/* HDI IN SOURCE */
 #define UMAC_HDI_IN_SOURCE_FHRX			0x0
 #define UMAC_HDI_IN_SOURCE_UDMA			0x1
 #define UMAC_HDI_IN_SOURCE_FW			0x2
 #define UMAC_HDI_IN_SOURCE_RESERVED		0x3
 
+/* OUT CMD op-codes */
 #define UMAC_CMD_OPCODE_ECHO                    0x01
 #define UMAC_CMD_OPCODE_HALT                    0x02
 #define UMAC_CMD_OPCODE_RESET                   0x03
@@ -246,6 +284,7 @@ struct iwm_udma_out_wifi_hdr {
 #define UMAC_CMD_OPCODE_WIFI_WRAPPER            0xFE
 #define UMAC_CMD_OPCODE_WIFI_PASS_THROUGH       0xFF
 
+/* UMAC WiFi interface op-codes */
 #define UMAC_WIFI_IF_CMD_SET_PROFILE                     0x11
 #define UMAC_WIFI_IF_CMD_INVALIDATE_PROFILE              0x12
 #define UMAC_WIFI_IF_CMD_SET_EXCLUDE_LIST                0x13
@@ -262,48 +301,63 @@ struct iwm_udma_out_wifi_hdr {
 #define UMAC_WIFI_IF_CMD_PMKID_UPDATE                    0x1F
 #define UMAC_WIFI_IF_CMD_TX_PWR_TRIGGER                  0x20
 
+/* UMAC WiFi interface ports */
 #define UMAC_WIFI_IF_FLG_PORT_DEF                        0x00
 #define UMAC_WIFI_IF_FLG_PORT_PAN                        0x01
 #define UMAC_WIFI_IF_FLG_PORT_PAN_INVALID                WIFI_IF_FLG_PORT_DEF
 
+/* UMAC WiFi interface actions */
 #define UMAC_WIFI_IF_FLG_ACT_GET                         0x10
 #define UMAC_WIFI_IF_FLG_ACT_SET                         0x20
 
+/* iwm_umac_fw_cmd_hdr.meta_data byte count -- bits [11:0] */
 #define UMAC_FW_CMD_BYTE_COUNT_POS            0
 #define UMAC_FW_CMD_BYTE_COUNT_SEED           0xFFF
 
+/* iwm_umac_fw_cmd_hdr.meta_data status -- bits [15:12] */
 #define UMAC_FW_CMD_STATUS_POS                12
 #define UMAC_FW_CMD_STATUS_SEED               0xF
 
+/* iwm_umac_fw_cmd_hdr.meta_data full TX command by Driver -- bits [16:16] */
 #define UMAC_FW_CMD_TX_DRV_FULL_CMD_POS       16
 #define UMAC_FW_CMD_TX_DRV_FULL_CMD_SEED      0x1
 
+/* iwm_umac_fw_cmd_hdr.meta_data TX command by FW -- bits [17:17] */
 #define UMAC_FW_CMD_TX_FW_CMD_POS             17
 #define UMAC_FW_CMD_TX_FW_CMD_SEED            0x1
 
+/* iwm_umac_fw_cmd_hdr.meta_data TX plaintext mode -- bits [18:18] */
 #define UMAC_FW_CMD_TX_PLAINTEXT_POS          18
 #define UMAC_FW_CMD_TX_PLAINTEXT_SEED         0x1
 
+/* iwm_umac_fw_cmd_hdr.meta_data STA color -- bits [22:20] */
 #define UMAC_FW_CMD_TX_STA_COLOR_POS          20
 #define UMAC_FW_CMD_TX_STA_COLOR_SEED         0x7
 
+/* iwm_umac_fw_cmd_hdr.meta_data TX life time (TU) -- bits [31:24] */
 #define UMAC_FW_CMD_TX_LIFETIME_TU_POS        24
 #define UMAC_FW_CMD_TX_LIFETIME_TU_SEED       0xFF
 
+/* iwm_dev_cmd_hdr.flags Response required -- bits [5:5] */
 #define UMAC_DEV_CMD_FLAGS_RESP_REQ_POS		5
 #define UMAC_DEV_CMD_FLAGS_RESP_REQ_SEED	0x1
 
+/* iwm_dev_cmd_hdr.flags Aborted command -- bits [6:6] */
 #define UMAC_DEV_CMD_FLAGS_ABORT_POS		6
 #define UMAC_DEV_CMD_FLAGS_ABORT_SEED		0x1
 
+/* iwm_dev_cmd_hdr.flags Internal command -- bits [7:7] */
 #define DEV_CMD_FLAGS_FLD_INTERNAL_POS		7
 #define DEV_CMD_FLAGS_FLD_INTERNAL_SEED		0x1
 
+/* Rx */
+/* Rx actions */
 #define IWM_RX_TICKET_DROP           0x0
 #define IWM_RX_TICKET_RELEASE        0x1
 #define IWM_RX_TICKET_SNIFFER        0x2
 #define IWM_RX_TICKET_ENQUEUE        0x3
 
+/* Rx flags */
 #define IWM_RX_TICKET_PAD_SIZE_MSK        0x2
 #define IWM_RX_TICKET_SPECIAL_SNAP_MSK    0x4
 #define IWM_RX_TICKET_AMSDU_MSK           0x8
@@ -312,23 +366,38 @@ struct iwm_udma_out_wifi_hdr {
 
 #define IWM_RX_DROP_NO_DROP                          0x0
 #define IWM_RX_DROP_BAD_CRC                          0x1
+/* L2P no address match */
 #define IWM_RX_DROP_LMAC_ADDR_FILTER                 0x2
+/* Multicast address not in list */
 #define IWM_RX_DROP_MCAST_ADDR_FILTER                0x3
+/* Control frames are not sent to the driver */
 #define IWM_RX_DROP_CTL_FRAME                        0x4
+/* Our frame is back */
 #define IWM_RX_DROP_OUR_TX                           0x5
+/* Association class filtering */
 #define IWM_RX_DROP_CLASS_FILTER                     0x6
+/* Duplicated frame */
 #define IWM_RX_DROP_DUPLICATE_FILTER                 0x7
+/* Decryption error */
 #define IWM_RX_DROP_SEC_ERR                          0x8
+/* Unencrypted frame while encryption is on */
 #define IWM_RX_DROP_SEC_NO_ENCRYPTION                0x9
+/* Replay check failure */
 #define IWM_RX_DROP_SEC_REPLAY_ERR                   0xa
+/* uCode and FW key color mismatch, check before replay */
 #define IWM_RX_DROP_SEC_KEY_COLOR_MISMATCH           0xb
 #define IWM_RX_DROP_SEC_TKIP_COUNTER_MEASURE         0xc
+/* No fragmentations Db is found */
 #define IWM_RX_DROP_FRAG_NO_RESOURCE                 0xd
+/* Fragmention Db has seqCtl mismatch Vs. non-1st frag */
 #define IWM_RX_DROP_FRAG_ERR                         0xe
 #define IWM_RX_DROP_FRAG_LOST                        0xf
 #define IWM_RX_DROP_FRAG_COMPLETE                    0x10
+/* Should be handled by UMAC */
 #define IWM_RX_DROP_MANAGEMENT                       0x11
+/* STA not found by UMAC */
 #define IWM_RX_DROP_NO_STATION                       0x12
+/* NULL or QoS NULL */
 #define IWM_RX_DROP_NULL_DATA                        0x13
 #define IWM_RX_DROP_BA_REORDER_OLD_SEQCTL            0x14
 #define IWM_RX_DROP_BA_REORDER_DUPLICATE             0x15
@@ -337,8 +406,8 @@ struct iwm_rx_ticket {
 	__le16 action;
 	__le16 id;
 	__le16 flags;
-	u8 payload_offset; 
-	u8 tail_len; 
+	u8 payload_offset; /* includes: MAC header, pad, IV */
+	u8 tail_len; /* includes: MIC, ICV, CRC (w/o STATUS) */
 } __packed;
 
 struct iwm_rx_mpdu_hdr {
@@ -346,6 +415,7 @@ struct iwm_rx_mpdu_hdr {
 	__le16 reserved;
 } __packed;
 
+/* UMAC SW WIFI API */
 
 struct iwm_dev_cmd_hdr {
 	u8 cmd;
@@ -379,6 +449,7 @@ struct iwm_umac_nonwifi_in_hdr {
 
 #define IWM_UMAC_PAGE_SIZE	0x200
 
+/* Notify structures */
 struct iwm_fw_version {
 	u8 minor;
 	u8 major;
@@ -430,6 +501,7 @@ struct iwm_fw_alive_hdr {
 #define WIFI_IF_NTFY_LINK_QUALITY_STATISTICS		0x8A
 #define WIFI_IF_NTFY_MGMT_FRAME				0x8B
 
+/* DEBUG INDICATIONS */
 #define WIFI_DBG_IF_NTFY_SCAN_SUPER_JOB_START		0xE0
 #define WIFI_DBG_IF_NTFY_SCAN_SUPER_JOB_COMPLETE	0xE1
 #define WIFI_DBG_IF_NTFY_SCAN_CHANNEL_START		0xE2
@@ -443,6 +515,7 @@ struct iwm_fw_alive_hdr {
 
 #define WIFI_IF_NTFY_MAX 0xff
 
+/* Notification structures */
 struct iwm_umac_notif_wifi_if {
 	struct iwm_umac_wifi_in_hdr hdr;
 	u8 status;
@@ -507,7 +580,7 @@ struct iwm_umac_notif_sta_info {
 	struct iwm_umac_notif_wifi_if mlme_hdr;
 	__le32 opcode;
 	u8 mac_addr[ETH_ALEN];
-	u8 sta_id; 
+	u8 sta_id; /* bits 0-3: station ID, bits 4-7: station color */
 	u8 flags;
 } __packed;
 
@@ -565,6 +638,7 @@ struct iwm_umac_notif_init_complete {
 	__le16 reserved;
 } __packed;
 
+/* error categories */
 enum {
 	UMAC_SYS_ERR_CAT_NONE = 0,
 	UMAC_SYS_ERR_CAT_BOOT,
@@ -628,18 +702,20 @@ struct iwm_umac_notif_rx_ticket {
 	struct iwm_rx_ticket tickets[1];
 } __packed;
 
+/* Tx/Rx rates window (number of max of last update window per second) */
 #define UMAC_NTF_RATE_SAMPLE_NR	4
 
+/* Max numbers of bits required to go through all antennae in bitmasks */
 #define UMAC_PHY_NUM_CHAINS     3
 
 #define IWM_UMAC_MGMT_TID	8
-#define IWM_UMAC_TID_NR		9 
+#define IWM_UMAC_TID_NR		9 /* 8 TIDs + MGMT */
 
 struct iwm_umac_notif_stats {
 	struct iwm_umac_wifi_in_hdr hdr;
 	__le32 flags;
 	__le32 timestamp;
-	__le16 tid_load[IWM_UMAC_TID_NR + 1]; 
+	__le16 tid_load[IWM_UMAC_TID_NR + 1]; /* 1 non-QoS + 1 dword align */
 	__le16 tx_rate[UMAC_NTF_RATE_SAMPLE_NR];
 	__le16 rx_rate[UMAC_NTF_RATE_SAMPLE_NR];
 	__le32 chain_energy[UMAC_PHY_NUM_CHAINS];
@@ -691,13 +767,14 @@ struct iwm_umac_notif_stats {
 
 struct iwm_umac_notif_stop_resume_tx {
 	struct iwm_umac_wifi_in_hdr hdr;
-	u8 flags; 
+	u8 flags; /* UMAC_*_TX_FLAG_* */
 	u8 sta_id;
-	__le16 stop_resume_tid_msk; 
+	__le16 stop_resume_tid_msk; /* tid bitmask */
 } __packed;
 
 #define UMAC_MAX_NUM_PMKIDS 4
 
+/* WiFi interface wrapper header */
 struct iwm_umac_wifi_if {
 	u8 oid;
 	u8 flags;

@@ -20,13 +20,16 @@
 #define nlm_stale_fh	nlm_lck_denied_nolocks
 #define nlm_failed	nlm_lck_denied_nolocks
 #endif
+/*
+ * Note: we hold the dentry use count while the file is open.
+ */
 static __be32
 nlm_fopen(struct svc_rqst *rqstp, struct nfs_fh *f, struct file **filp)
 {
 	__be32		nfserr;
 	struct svc_fh	fh;
 
-	
+	/* must initialize before using! but maxsize doesn't matter */
 	fh_init(&fh,0);
 	fh.fh_handle.fh_size = f->size;
 	memcpy((char*)&fh.fh_handle.fh_base, f->data, f->size);
@@ -34,6 +37,9 @@ nlm_fopen(struct svc_rqst *rqstp, struct nfs_fh *f, struct file **filp)
 
 	nfserr = nfsd_open(rqstp, &fh, S_IFREG, NFSD_MAY_LOCK, filp);
 	fh_put(&fh);
+ 	/* We return nlm error codes as nlm doesn't know
+	 * about nfsd, but nfsd does know about nlm..
+	 */
 	switch (nfserr) {
 	case nfs_ok:
 		return 0;
@@ -53,8 +59,8 @@ nlm_fclose(struct file *filp)
 }
 
 static struct nlmsvc_binding	nfsd_nlm_ops = {
-	.fopen		= nlm_fopen,		
-	.fclose		= nlm_fclose,		
+	.fopen		= nlm_fopen,		/* open file for locking */
+	.fclose		= nlm_fclose,		/* close file */
 };
 
 void

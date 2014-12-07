@@ -40,6 +40,7 @@
 #include "rxtx.h"
 #include "channel.h"
 
+/*---------------------  Static Definitions -------------------------*/
 static int          msglevel                = MSG_LEVEL_INFO;
 
 #pragma pack(1)
@@ -85,14 +86,18 @@ typedef struct _WLAN_FRAME_TPCREP {
 
 #pragma pack()
 
+/* action field reference ieee 802.11h Table 20e */
 #define ACTION_MSRREQ       0
 #define ACTION_MSRREP       1
 #define ACTION_TPCREQ       2
 #define ACTION_TPCREP       3
 #define ACTION_CHSW         4
 
+/*---------------------  Static Classes  ----------------------------*/
 
+/*---------------------  Static Variables  --------------------------*/
 
+/*---------------------  Static Functions  --------------------------*/
 static bool s_bRxMSRReq(PSMgmtObject pMgmt, PWLAN_FRAME_MSRREQ pMSRReq,
 		unsigned int uLength)
 {
@@ -188,13 +193,32 @@ WLAN_HDR_ADDR3_LEN;
 	if (csMgmt_xmit(pMgmt->pAdapter, pTxPacket) != CMD_STATUS_PENDING)
 		return false;
 	return true;
+/*    return (CARDbSendPacket(pMgmt->pAdapter, pFrame, PKT_TYPE_802_11_MNG,
+sizeof(WLAN_FRAME_TPCREP))); */
 
 }
 
 
+/*---------------------  Export Variables  --------------------------*/
+
+/*---------------------  Export Functions  --------------------------*/
 
 
-
+/*+
+ *
+ * Description:
+ *      Handles action management frames.
+ *
+ * Parameters:
+ *  In:
+ *      pMgmt           - Management Object structure
+ *      pRxPacket       - Received packet
+ *  Out:
+ *      none
+ *
+ * Return Value: None.
+ *
+-*/
 bool
 IEEE11hbMgrRxAction(void *pMgmtHandle, void *pRxPacket)
 {
@@ -203,7 +227,7 @@ IEEE11hbMgrRxAction(void *pMgmtHandle, void *pRxPacket)
 	unsigned int uLength = 0;
 	PWLAN_IE_CH_SW          pChannelSwitch = NULL;
 
-	
+	/* decode the frame */
 	uLength = ((PSRxMgmtPacket)pRxPacket)->cbMPDULen;
 	if (uLength > WLAN_A3FR_MAXLEN)
 		return false;
@@ -234,7 +258,7 @@ IEEE11hbMgrRxAction(void *pMgmtHandle, void *pRxPacket)
 			pChannelSwitch = (PWLAN_IE_CH_SW) (pAction->abyVars);
 			if ((pChannelSwitch->byElementID == WLAN_EID_CH_SWITCH)
 			&& (pChannelSwitch->len == 3)) {
-				
+				/* valid element id */
 				CARDbChannelSwitch(pMgmt->pAdapter,
 				pChannelSwitch->byMode,
 				get_channel_mapping(pMgmt->pAdapter,
@@ -254,6 +278,8 @@ IEEE11hbMgrRxAction(void *pMgmtHandle, void *pRxPacket)
 pAction->byCategory);
 	pAction->byCategory |= 0x80;
 
+	/*return (CARDbSendPacket(pMgmt->pAdapter, pAction, PKT_TYPE_802_11_MNG,
+uLength));*/
 	return true;
 	}
 	return true;
@@ -296,6 +322,8 @@ sizeof(STxMgmtPacket));
 	if (csMgmt_xmit(pMgmt->pAdapter, pTxPacket) != CMD_STATUS_PENDING)
 		return false;
 	return true;
+/*    return (CARDbSendPacket(pMgmt->pAdapter, pMSRRep, PKT_TYPE_802_11_MNG,
+uLength)); */
 
 }
 

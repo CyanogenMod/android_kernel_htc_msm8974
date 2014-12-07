@@ -105,6 +105,9 @@ static struct miscdevice tosh_device = {
 	&tosh_fops
 };
 
+/*
+ * Read the Fn key status
+ */
 #ifdef CONFIG_PROC_FS
 static int tosh_fn_status(void)
 {
@@ -125,6 +128,9 @@ static int tosh_fn_status(void)
 #endif
 
 
+/*
+ * For the Portage 610CT and the Tecra 700CS/700CDT emulate the HCI fan function
+ */
 static int tosh_emulate_fan(SMMRegisters *regs)
 {
 	unsigned long eax,ecx,flags;
@@ -133,11 +139,11 @@ static int tosh_emulate_fan(SMMRegisters *regs)
 	eax = regs->eax & 0xff00;
 	ecx = regs->ecx & 0xffff;
 
-	
+	/* Portage 610CT */
 
 	if (tosh_id==0xfccb) {
 		if (eax==0xfe00) {
-			
+			/* fan status */
 			local_irq_save(flags);
 			outb(0xbe, 0xe4);
 			al = inb(0xe5);
@@ -146,7 +152,7 @@ static int tosh_emulate_fan(SMMRegisters *regs)
 			regs->ecx = (unsigned int) (al & 0x01);
 		}
 		if ((eax==0xff00) && (ecx==0x0000)) {
-			
+			/* fan off */
 			local_irq_save(flags);
 			outb(0xbe, 0xe4);
 			al = inb(0xe5);
@@ -157,7 +163,7 @@ static int tosh_emulate_fan(SMMRegisters *regs)
 			regs->ecx = 0x00;
 		}
 		if ((eax==0xff00) && (ecx==0x0001)) {
-			
+			/* fan on */
 			local_irq_save(flags);
 			outb(0xbe, 0xe4);
 			al = inb(0xe5);
@@ -169,11 +175,11 @@ static int tosh_emulate_fan(SMMRegisters *regs)
 		}
 	}
 
-	
+	/* Tecra 700CS/CDT */
 
 	if (tosh_id==0xfccc) {
 		if (eax==0xfe00) {
-			
+			/* fan status */
 			local_irq_save(flags);
 			outb(0xe0, 0xe4);
 			al = inb(0xe5);
@@ -182,7 +188,7 @@ static int tosh_emulate_fan(SMMRegisters *regs)
 			regs->ecx = al & 0x01;
 		}
 		if ((eax==0xff00) && (ecx==0x0000)) {
-			
+			/* fan off */
 			local_irq_save(flags);
 			outb(0xe0, 0xe4);
 			al = inb(0xe5);
@@ -192,7 +198,7 @@ static int tosh_emulate_fan(SMMRegisters *regs)
 			regs->ecx = 0x00;
 		}
 		if ((eax==0xff00) && (ecx==0x0001)) {
-			
+			/* fan on */
 			local_irq_save(flags);
 			outb(0xe0, 0xe4);
 			al = inb(0xe5);
@@ -207,6 +213,9 @@ static int tosh_emulate_fan(SMMRegisters *regs)
 }
 
 
+/*
+ * Put the laptop into System Management Mode
+ */
 int tosh_smm(SMMRegisters *regs)
 {
 	int eax;
@@ -262,11 +271,11 @@ static long tosh_ioctl(struct file *fp, unsigned int cmd, unsigned long arg)
 		case TOSH_SMM:
 			ax = regs.eax & 0xff00;
 			bx = regs.ebx & 0xffff;
-			
+			/* block HCI calls to read/write memory & PCI devices */
 			if (((ax==0xff00) || (ax==0xfe00)) && (bx>0x0069))
 				return -EINVAL;
 
-			
+			/* do we need to emulate the fan ? */
 			mutex_lock(&tosh_mutex);
 			if (tosh_fan==1) {
 				if (((ax==0xf300) || (ax==0xf400)) && (bx==0x0004)) {
@@ -289,6 +298,9 @@ static long tosh_ioctl(struct file *fp, unsigned int cmd, unsigned long arg)
 }
 
 
+/*
+ * Print the information for /proc/toshiba
+ */
 #ifdef CONFIG_PROC_FS
 static int proc_toshiba_show(struct seq_file *m, void *v)
 {
@@ -296,6 +308,14 @@ static int proc_toshiba_show(struct seq_file *m, void *v)
 
 	key = tosh_fn_status();
 
+	/* Arguments
+	     0) Linux driver version (this will change if format changes)
+	     1) Machine ID
+	     2) SCI version
+	     3) BIOS version (major, minor)
+	     4) BIOS date (in SCI date format)
+	     5) Fn Key status
+	*/
 	seq_printf(m, "1.1 0x%04x %d.%d %d.%d 0x%04x 0x%02x\n",
 		tosh_id,
 		(tosh_sci & 0xff00)>>8,
@@ -322,6 +342,9 @@ static const struct file_operations proc_toshiba_fops = {
 #endif
 
 
+/*
+ * Determine which port to use for the Fn key status
+ */
 static void tosh_set_fn_port(void)
 {
 	switch (tosh_id) {
@@ -343,6 +366,9 @@ static void tosh_set_fn_port(void)
 }
 
 
+/*
+ * Get the machine identification number of the current model
+ */
 static int tosh_get_machine_id(void __iomem *bios)
 {
 	int id;
@@ -352,11 +378,11 @@ static int tosh_get_machine_id(void __iomem *bios)
 
 	id = (0x100*(int) readb(bios+0xfffe))+((int) readb(bios+0xfffa));
 
-	
+	/* do we have a SCTTable machine identication number on our hands */
 
 	if (id==0xfc2f) {
 
-		
+		/* start by getting a pointer into the BIOS */
 
 		regs.eax = 0xc000;
 		regs.ebx = 0x0000;
@@ -364,12 +390,17 @@ static int tosh_get_machine_id(void __iomem *bios)
 		tosh_smm(&regs);
 		bx = (unsigned short) (regs.ebx & 0xffff);
 
+		/* At this point in the Toshiba routines under MS Windows
+		   the bx register holds 0xe6f5. However my code is producing
+		   a different value! For the time being I will just fudge the
+		   value. This has been verified on a Satellite Pro 430CDT,
+		   Tecra 750CDT, Tecra 780DVD and Satellite 310CDT. */
 #if TOSH_DEBUG
 		printk("toshiba: debugging ID ebx=0x%04x\n", regs.ebx);
 #endif
 		bx = 0xe6f5;
 
-		
+		/* now twiddle with our pointer a bit */
 
 		address = bx;
 		cx = readw(bios + address);
@@ -378,7 +409,7 @@ static int tosh_get_machine_id(void __iomem *bios)
 		address = 0xa+cx;
 		cx = readw(bios + address);
 
-		
+		/* now construct our machine identification number */
 
 		id = ((cx & 0xff)<<8)+((cx & 0xff00)>>8);
 	}
@@ -387,6 +418,13 @@ static int tosh_get_machine_id(void __iomem *bios)
 }
 
 
+/*
+ * Probe for the presence of a Toshiba laptop
+ *
+ *   returns and non-zero if unable to detect the presence of a Toshiba
+ *   laptop, otherwise zero and determines the Machine ID, BIOS version and
+ *   date, and SCI version.
+ */
 static int tosh_probe(void)
 {
 	int i,major,minor,day,year,month,flag;
@@ -397,6 +435,8 @@ static int tosh_probe(void)
 	if (!bios)
 		return -ENOMEM;
 
+	/* extra sanity check for the string "TOSHIBA" in the BIOS because
+	   some machines that are not Toshiba's pass the next test */
 
 	for (i=0;i<7;i++) {
 		if (readb(bios+0xe010+i)!=signature[i]) {
@@ -406,14 +446,14 @@ static int tosh_probe(void)
 		}
 	}
 
-	
+	/* call the Toshiba SCI support check routine */
 
 	regs.eax = 0xf0f0;
 	regs.ebx = 0x0000;
 	regs.ecx = 0x0000;
 	flag = tosh_smm(&regs);
 
-	
+	/* if this is not a Toshiba laptop carry flag is set and ah=0x86 */
 
 	if ((flag==1) || ((regs.eax & 0xff00)==0x8600)) {
 		printk("toshiba: not a supported Toshiba laptop\n");
@@ -421,21 +461,21 @@ static int tosh_probe(void)
 		return -ENODEV;
 	}
 
-	
+	/* if we get this far then we are running on a Toshiba (probably)! */
 
 	tosh_sci = regs.edx & 0xffff;
 
-	
+	/* next get the machine ID of the current laptop */
 
 	tosh_id = tosh_get_machine_id(bios);
 
-	
+	/* get the BIOS version */
 
 	major = readb(bios+0xe009)-'0';
 	minor = ((readb(bios+0xe00b)-'0')*10)+(readb(bios+0xe00c)-'0');
 	tosh_bios = (major*0x100)+minor;
 
-	
+	/* get the BIOS date */
 
 	day = ((readb(bios+0xfff5)-'0')*10)+(readb(bios+0xfff6)-'0');
 	month = ((readb(bios+0xfff8)-'0')*10)+(readb(bios+0xfff9)-'0');
@@ -444,8 +484,14 @@ static int tosh_probe(void)
 		| ((day & 0x1f)<<1);
 
 
+	/* in theory we should check the ports we are going to use for the
+	   fn key detection (and the fan on the Portage 610/Tecra700), and
+	   then request them to stop other drivers using them. However as
+	   the keyboard driver grabs 0x60-0x6f and the pic driver grabs
+	   0xa0-0xbf we can't. We just have to live dangerously and use the
+	   ports anyway, oh boy! */
 
-	
+	/* do we need to emulate the fan? */
 
 	if ((tosh_id==0xfccb) || (tosh_id==0xfccc))
 		tosh_fan = 1;
@@ -458,18 +504,18 @@ static int tosh_probe(void)
 static int __init toshiba_init(void)
 {
 	int retval;
-	
+	/* are we running on a Toshiba laptop */
 
 	if (tosh_probe())
 		return -ENODEV;
 
 	printk(KERN_INFO "Toshiba System Management Mode driver v" TOSH_VERSION "\n");
 
-	
+	/* set the port to use for Fn status if not specified as a parameter */
 	if (tosh_fn==0x00)
 		tosh_set_fn_port();
 
-	
+	/* register the device file */
 	retval = misc_register(&tosh_device);
 	if (retval < 0)
 		return retval;

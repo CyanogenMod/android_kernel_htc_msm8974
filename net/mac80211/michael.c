@@ -42,6 +42,10 @@ static void michael_mic_hdr(struct michael_mic_ctx *mctx, const u8 *key,
 	mctx->l = get_unaligned_le32(key);
 	mctx->r = get_unaligned_le32(key + 4);
 
+	/*
+	 * A pseudo header (DA, SA, Priority, 0, 0, 0) is used in Michael MIC
+	 * calculation, but it is _not_ transmitted
+	 */
 	michael_block(mctx, get_unaligned_le32(da));
 	michael_block(mctx, get_unaligned_le16(&da[4]) |
 			    (get_unaligned_le16(sa) << 16));
@@ -58,13 +62,15 @@ void michael_mic(const u8 *key, struct ieee80211_hdr *hdr,
 
 	michael_mic_hdr(&mctx, key, hdr);
 
-	
+	/* Real data */
 	blocks = data_len / 4;
 	left = data_len % 4;
 
 	for (block = 0; block < blocks; block++)
 		michael_block(&mctx, get_unaligned_le32(&data[block * 4]));
 
+	/* Partial block of 0..3 bytes and padding: 0x5a + 4..7 zeros to make
+	 * total length a multiple of 4. */
 	val = 0x5a;
 	while (left > 0) {
 		val <<= 8;

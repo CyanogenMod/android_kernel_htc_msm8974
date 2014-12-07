@@ -34,19 +34,25 @@
 #include "../iio.h"
 #include "../sysfs.h"
 
+/*
+ * LPC32XX registers definitions
+ */
 #define LPC32XX_ADC_SELECT(x)	((x) + 0x04)
 #define LPC32XX_ADC_CTRL(x)	((x) + 0x08)
 #define LPC32XX_ADC_VALUE(x)	((x) + 0x48)
 
-#define AD_REFm         0x00000200 
-#define AD_REFp		0x00000080 
-#define AD_IN		0x00000010 
-				   
-#define AD_INTERNAL	0x00000004 
+/* Bit definitions for LPC32XX_ADC_SELECT: */
+#define AD_REFm         0x00000200 /* constant, always write this value! */
+#define AD_REFp		0x00000080 /* constant, always write this value! */
+#define AD_IN		0x00000010 /* multiple of this is the */
+				   /* channel number: 0, 1, 2 */
+#define AD_INTERNAL	0x00000004 /* constant, always write this value! */
 
+/* Bit definitions for LPC32XX_ADC_CTRL: */
 #define AD_STROBE	0x00000002
 #define AD_PDN_CTRL	0x00000004
 
+/* Bit definitions for LPC32XX_ADC_VALUE: */
 #define ADC_VALUE_MASK	0x000003FF
 
 #define MOD_NAME "lpc32xx-adc"
@@ -70,13 +76,13 @@ static int lpc32xx_read_raw(struct iio_dev *indio_dev,
 	if (mask == 0) {
 		mutex_lock(&indio_dev->mlock);
 		clk_enable(info->clk);
-		
+		/* Measurement setup */
 		__raw_writel(AD_INTERNAL | (chan->address) | AD_REFp | AD_REFm,
 			LPC32XX_ADC_SELECT(info->adc_base));
-		
+		/* Trigger conversion */
 		__raw_writel(AD_PDN_CTRL | AD_STROBE,
 			LPC32XX_ADC_CTRL(info->adc_base));
-		wait_for_completion(&info->completion); 
+		wait_for_completion(&info->completion); /* set by ISR */
 		clk_disable(info->clk);
 		*val = info->value;
 		mutex_unlock(&indio_dev->mlock);
@@ -110,7 +116,7 @@ static irqreturn_t lpc32xx_adc_isr(int irq, void *dev_id)
 {
 	struct lpc32xx_adc_info *info = (struct lpc32xx_adc_info *) dev_id;
 
-	
+	/* Read value and clear irq */
 	info->value = __raw_readl(LPC32XX_ADC_VALUE(info->adc_base)) &
 				ADC_VALUE_MASK;
 	complete(&info->completion);

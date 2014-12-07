@@ -67,6 +67,11 @@ int gfs2_lm_withdraw(struct gfs2_sbd *sdp, char *fmt, ...)
 	return -1;
 }
 
+/**
+ * gfs2_assert_withdraw_i - Cause the machine to withdraw if @assertion is false
+ * Returns: -1 if this call withdrew the machine,
+ *          -2 if it was already withdrawn
+ */
 
 int gfs2_assert_withdraw_i(struct gfs2_sbd *sdp, char *assertion,
 			   const char *function, char *file, unsigned int line)
@@ -81,6 +86,11 @@ int gfs2_assert_withdraw_i(struct gfs2_sbd *sdp, char *assertion,
 	return (me) ? -1 : -2;
 }
 
+/**
+ * gfs2_assert_warn_i - Print a message to the console if @assertion is false
+ * Returns: -1 if we printed something
+ *          -2 if we didn't
+ */
 
 int gfs2_assert_warn_i(struct gfs2_sbd *sdp, char *assertion,
 		       const char *function, char *file, unsigned int line)
@@ -113,6 +123,11 @@ int gfs2_assert_warn_i(struct gfs2_sbd *sdp, char *assertion,
 	return -1;
 }
 
+/**
+ * gfs2_consist_i - Flag a filesystem consistency error and withdraw
+ * Returns: -1 if this call withdrew the machine,
+ *          0 if it was already withdrawn
+ */
 
 int gfs2_consist_i(struct gfs2_sbd *sdp, int cluster_wide, const char *function,
 		   char *file, unsigned int line)
@@ -126,6 +141,11 @@ int gfs2_consist_i(struct gfs2_sbd *sdp, int cluster_wide, const char *function,
 	return rv;
 }
 
+/**
+ * gfs2_consist_inode_i - Flag an inode consistency error and withdraw
+ * Returns: -1 if this call withdrew the machine,
+ *          0 if it was already withdrawn
+ */
 
 int gfs2_consist_inode_i(struct gfs2_inode *ip, int cluster_wide,
 			 const char *function, char *file, unsigned int line)
@@ -143,6 +163,11 @@ int gfs2_consist_inode_i(struct gfs2_inode *ip, int cluster_wide,
 	return rv;
 }
 
+/**
+ * gfs2_consist_rgrpd_i - Flag a RG consistency error and withdraw
+ * Returns: -1 if this call withdrew the machine,
+ *          0 if it was already withdrawn
+ */
 
 int gfs2_consist_rgrpd_i(struct gfs2_rgrpd *rgd, int cluster_wide,
 			 const char *function, char *file, unsigned int line)
@@ -159,6 +184,11 @@ int gfs2_consist_rgrpd_i(struct gfs2_rgrpd *rgd, int cluster_wide,
 	return rv;
 }
 
+/**
+ * gfs2_meta_check_ii - Flag a magic number consistency error and withdraw
+ * Returns: -1 if this call withdrew the machine,
+ *          -2 if it was already withdrawn
+ */
 
 int gfs2_meta_check_ii(struct gfs2_sbd *sdp, struct buffer_head *bh,
 		       const char *type, const char *function, char *file,
@@ -175,6 +205,11 @@ int gfs2_meta_check_ii(struct gfs2_sbd *sdp, struct buffer_head *bh,
 	return (me) ? -1 : -2;
 }
 
+/**
+ * gfs2_metatype_check_ii - Flag a metadata type consistency error and withdraw
+ * Returns: -1 if this call withdrew the machine,
+ *          -2 if it was already withdrawn
+ */
 
 int gfs2_metatype_check_ii(struct gfs2_sbd *sdp, struct buffer_head *bh,
 			   u16 type, u16 t, const char *function,
@@ -191,6 +226,11 @@ int gfs2_metatype_check_ii(struct gfs2_sbd *sdp, struct buffer_head *bh,
 	return (me) ? -1 : -2;
 }
 
+/**
+ * gfs2_io_error_i - Flag an I/O error and withdraw
+ * Returns: -1 if this call withdrew the machine,
+ *          0 if it was already withdrawn
+ */
 
 int gfs2_io_error_i(struct gfs2_sbd *sdp, const char *function, char *file,
 		    unsigned int line)
@@ -204,6 +244,11 @@ int gfs2_io_error_i(struct gfs2_sbd *sdp, const char *function, char *file,
 	return rv;
 }
 
+/**
+ * gfs2_io_error_bh_i - Flag a buffer I/O error and withdraw
+ * Returns: -1 if this call withdrew the machine,
+ *          0 if it was already withdrawn
+ */
 
 int gfs2_io_error_bh_i(struct gfs2_sbd *sdp, struct buffer_head *bh,
 		       const char *function, char *file, unsigned int line)

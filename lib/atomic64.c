@@ -16,8 +16,18 @@
 #include <linux/export.h>
 #include <linux/atomic.h>
 
+/*
+ * We use a hashed array of spinlocks to provide exclusive access
+ * to each atomic64_t variable.  Since this is expected to used on
+ * systems with small numbers of CPUs (<= 4 or so), we use a
+ * relatively small array of 16 spinlocks to avoid wasting too much
+ * memory on the spinlock array.
+ */
 #define NR_LOCKS	16
 
+/*
+ * Ensure each lock is in a separate cacheline.
+ */
 static union {
 	raw_spinlock_t lock;
 	char pad[L1_CACHE_BYTES];

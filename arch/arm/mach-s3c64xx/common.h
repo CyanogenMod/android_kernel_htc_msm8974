@@ -51,4 +51,4 @@ extern void s3c6410_init_clocks(int xtal);
 #define s3c6410_init NULL
 #endif
 
-#endif 
+#endif /* __ARCH_ARM_MACH_S3C64XX_COMMON_H */

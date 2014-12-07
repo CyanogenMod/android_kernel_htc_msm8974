@@ -59,7 +59,7 @@ void color_parse_mem(const char *value, int value_len, const char *var,
 		return;
 	}
 
-	
+	/* [fg [bg]] [attr] */
 	while (len > 0) {
 		const char *word = ptr;
 		int val, wordlen = 0;
@@ -141,11 +141,11 @@ int perf_config_colorbool(const char *var, const char *value, int stdout_is_tty)
 			goto auto_color;
 	}
 
-	
+	/* Missing or explicit false to turn off colorization */
 	if (!perf_config_bool(var, value))
 		return 0;
 
-	
+	/* any normal truth value defaults to 'auto' */
  auto_color:
 	if (stdout_is_tty < 0)
 		stdout_is_tty = isatty(1);
@@ -172,6 +172,9 @@ static int __color_vsnprintf(char *bf, size_t size, const char *color,
 {
 	int r = 0;
 
+	/*
+	 * Auto-detect:
+	 */
 	if (perf_use_color_default < 0) {
 		if (isatty(1) || pager_in_use())
 			perf_use_color_default = 1;
@@ -194,6 +197,9 @@ static int __color_vfprintf(FILE *fp, const char *color, const char *fmt,
 {
 	int r = 0;
 
+	/*
+	 * Auto-detect:
+	 */
 	if (perf_use_color_default < 0) {
 		if (isatty(fileno(fp)) || pager_in_use())
 			perf_use_color_default = 1;
@@ -255,6 +261,11 @@ int color_fprintf_ln(FILE *fp, const char *color, const char *fmt, ...)
 	return r;
 }
 
+/*
+ * This function splits the buffer by newlines and colors the lines individually.
+ *
+ * Returns 0 on success.
+ */
 int color_fwrite_lines(FILE *fp, const char *color,
 		size_t count, const char *buf)
 {
@@ -282,6 +293,11 @@ const char *get_percent_color(double percent)
 {
 	const char *color = PERF_COLOR_NORMAL;
 
+	/*
+	 * We color high-overhead entries in red, mid-overhead
+	 * entries in green - and keep the low overhead places
+	 * normal:
+	 */
 	if (percent >= MIN_RED)
 		color = PERF_COLOR_RED;
 	else {

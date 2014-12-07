@@ -22,8 +22,8 @@
 
 #define PHISON_DEBUG
 
-#define DRV_NAME		"phison_e-box"	
-#define DRV_VERSION		"0.91"		
+#define DRV_NAME		"phison_e-box"	/* #0003 */
+#define DRV_VERSION		"0.91"		/* #0003 */
 
 #define PCI_VENDOR_ID_PHISON	0x1987
 #define PCI_DEVICE_ID_PS5000	0x5000
@@ -81,7 +81,7 @@ static struct pci_driver phison_pci_driver = {
 	.id_table	= phison_pci_tbl,
 	.probe		= phison_init_one,
 	.remove		= ata_pci_remove_one,
-#ifdef CONFIG_PM	
+#ifdef CONFIG_PM	/* haven't tested it. */
 	.suspend	= ata_pci_device_suspend,
 	.resume		= ata_pci_device_resume,
 #endif

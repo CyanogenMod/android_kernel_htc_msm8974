@@ -27,17 +27,17 @@ void arch_jump_label_transform(struct jump_entry *e,
 	union mips_instruction *insn_p =
 		(union mips_instruction *)(unsigned long)e->code;
 
-	
+	/* Jump only works within a 256MB aligned region. */
 	BUG_ON((e->target & ~J_RANGE_MASK) != (e->code & ~J_RANGE_MASK));
 
-	
+	/* Target must have 4 byte alignment. */
 	BUG_ON((e->target & 3) != 0);
 
 	if (type == JUMP_LABEL_ENABLE) {
 		insn.j_format.opcode = j_op;
 		insn.j_format.target = (e->target & J_RANGE_MASK) >> 2;
 	} else {
-		insn.word = 0; 
+		insn.word = 0; /* nop */
 	}
 
 	get_online_cpus();
@@ -51,4 +51,4 @@ void arch_jump_label_transform(struct jump_entry *e,
 	put_online_cpus();
 }
 
-#endif 
+#endif /* HAVE_JUMP_LABEL */

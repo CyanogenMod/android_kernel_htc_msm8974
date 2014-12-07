@@ -4,13 +4,14 @@
 #include <linux/types.h>
 
 #ifndef __KERNEL__
+/* Here we must cater to libcs that poke about in kernel headers.  */
 
 #define NSIG		32
 typedef unsigned long sigset_t;
 
-#endif 
+#endif /* !__KERNEL__ */
 
-#define SA_RESTORER	0x04000000 
+#define SA_RESTORER	0x04000000 /* to get struct sigaction correct */
 
 #include <asm-generic/signal.h>
 
@@ -23,6 +24,7 @@ struct old_sigaction {
 };
 
 #else
+/* Here we must cater to libcs that poke about in kernel headers.  */
 
 struct sigaction {
 	union {
@@ -37,6 +39,6 @@ struct sigaction {
 #define sa_handler	_u._sa_handler
 #define sa_sigaction	_u._sa_sigaction
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_SIGNAL_H */

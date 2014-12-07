@@ -4,6 +4,8 @@
 #include <net/netfilter/nf_conntrack.h>
 #include <net/netfilter/nf_nat.h>
 
+/* This header used to share core functionality between the standalone
+   NAT module, and the compatibility layer's use of NAT for masquerading. */
 
 extern unsigned int nf_nat_packet(struct nf_conn *ct,
 				  enum ip_conntrack_info ctinfo,
@@ -31,4 +33,4 @@ extern int
 				  enum nf_nat_manip_type manip,
 				  const struct nlattr *attr);
 
-#endif 
+#endif /* _NF_NAT_CORE_H */

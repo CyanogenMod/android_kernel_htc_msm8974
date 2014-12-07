@@ -797,6 +797,9 @@ static int debug_vid_load_detect_en(char *buf, int size)
 	return size;
 }
 
+/**************************************************
+ * 	speaker indexed by left_right
+**************************************************/
 static enum spkr_left_right debug_spkr_left_right = LEFT_SPKR;
 
 static int debug_spkr_en(char *buf, int size)
@@ -910,6 +913,9 @@ static int debug_spkr_is_mute_en(char *buf, int size)
 	return snprintf(buf, size, "%d\n", enabled);
 }
 
+/*******************************************************************
+ * debug function table
+*******************************************************************/
 
 struct	pmic_debug_desc {
 	int (*get) (char *, int);
@@ -917,89 +923,90 @@ struct	pmic_debug_desc {
 };
 
 struct pmic_debug_desc pmic_debug[] = {
-	{NULL, NULL},	
-	{NULL, NULL}, 
-	{NULL, debug_lp_mode_control}, 
-	{NULL, debug_vreg_set_level}, 
-	{NULL, debug_vreg_pull_down_switch}, 
+	{NULL, NULL},	/*LIB_NULL_PROC */
+	{NULL, NULL}, /* LIB_RPC_GLUE_CODE_INFO_REMOTE_PROC */
+	{NULL, debug_lp_mode_control}, /* LP_MODE_CONTROL_PROC */
+	{NULL, debug_vreg_set_level}, /*VREG_SET_LEVEL_PROC */
+	{NULL, debug_vreg_pull_down_switch}, /*VREG_PULL_DOWN_SWITCH_PROC */
 	{NULL, debug_secure_mpp_control_digital_output},
-				
-	
+				/* SECURE_MPP_CONFIG_DIGITAL_OUTPUT_PROC */
+	/*SECURE_MPP_CONFIG_I_SINK_PROC */
 	{NULL, debug_secure_mpp_config_i_sink},
-	{NULL, debug_rtc_start}, 
-	{NULL, debug_rtc_stop}, 
-	{debug_rtc_get_time, NULL}, 
-	{NULL, debug_rtc_enable_alarm}, 
-	{NULL , debug_rtc_disable_alarm}, 
-	{debug_rtc_get_alarm_time, NULL}, 
-	{debug_rtc_get_alarm_status, NULL}, 
-	{NULL, debug_rtc_set_time_adjust}, 
-	{debug_rtc_get_time_adjust, NULL}, 
-	{NULL, debug_set_led_intensity}, 
-	{NULL, debug_flash_led_set_current}, 
-	{NULL, debug_flash_led_set_mode}, 
-	{NULL, debug_flash_led_set_polarity}, 
-	{NULL, debug_speaker_cmd}, 
-	{NULL, debug_set_speaker_gain}, 
-	{NULL, debug_vib_mot_set_volt}, 
-	{NULL, debug_vib_mot_set_mode}, 
-	{NULL, debug_vib_mot_set_polarity}, 
-	{NULL, debug_vid_en}, 
-	{debug_vid_is_en, NULL}, 
-	{NULL, debug_vid_load_detect_en}, 
-	{NULL, debug_mic_en}, 
-	{debug_mic_is_en, NULL}, 
-	{NULL, debug_mic_set_volt}, 
-	{debug_mic_get_volt, NULL}, 
-	{NULL, debug_spkr_en_right_chan}, 
-	{debug_spkr_is_right_chan_en, NULL}, 
-	{NULL, debug_spkr_en_left_chan}, 
-	{debug_spkr_is_left_chan_en, NULL}, 
-	{NULL, debug_set_spkr_configuration}, 
-	{debug_get_spkr_configuration, NULL}, 
-	{debug_spkr_get_gain, NULL}, 
-	{debug_spkr_is_en, NULL}, 
-	{NULL, debug_spkr_en_mute}, 
-	{debug_spkr_is_mute_en, NULL}, 
-	{NULL, debug_spkr_set_delay}, 
-	{debug_spkr_get_delay, NULL}, 
-	
+	{NULL, debug_rtc_start}, /*RTC_START_PROC */
+	{NULL, debug_rtc_stop}, /* RTC_STOP_PROC */
+	{debug_rtc_get_time, NULL}, /* RTC_GET_TIME_PROC */
+	{NULL, debug_rtc_enable_alarm}, /* RTC_ENABLE_ALARM_PROC */
+	{NULL , debug_rtc_disable_alarm}, /*RTC_DISABLE_ALARM_PROC */
+	{debug_rtc_get_alarm_time, NULL}, /* RTC_GET_ALARM_TIME_PROC */
+	{debug_rtc_get_alarm_status, NULL}, /* RTC_GET_ALARM_STATUS_PROC */
+	{NULL, debug_rtc_set_time_adjust}, /* RTC_SET_TIME_ADJUST_PROC */
+	{debug_rtc_get_time_adjust, NULL}, /* RTC_GET_TIME_ADJUST_PROC */
+	{NULL, debug_set_led_intensity}, /* SET_LED_INTENSITY_PROC */
+	{NULL, debug_flash_led_set_current}, /* FLASH_LED_SET_CURRENT_PROC */
+	{NULL, debug_flash_led_set_mode}, /* FLASH_LED_SET_MODE_PROC */
+	{NULL, debug_flash_led_set_polarity}, /* FLASH_LED_SET_POLARITY_PROC */
+	{NULL, debug_speaker_cmd}, /* SPEAKER_CMD_PROC */
+	{NULL, debug_set_speaker_gain}, /* SET_SPEAKER_GAIN_PROC */
+	{NULL, debug_vib_mot_set_volt}, /* VIB_MOT_SET_VOLT_PROC */
+	{NULL, debug_vib_mot_set_mode}, /* VIB_MOT_SET_MODE_PROC */
+	{NULL, debug_vib_mot_set_polarity}, /* VIB_MOT_SET_POLARITY_PROC */
+	{NULL, debug_vid_en}, /* VID_EN_PROC */
+	{debug_vid_is_en, NULL}, /* VID_IS_EN_PROC */
+	{NULL, debug_vid_load_detect_en}, /* VID_LOAD_DETECT_EN_PROC */
+	{NULL, debug_mic_en}, /* MIC_EN_PROC */
+	{debug_mic_is_en, NULL}, /* MIC_IS_EN_PROC */
+	{NULL, debug_mic_set_volt}, /* MIC_SET_VOLT_PROC */
+	{debug_mic_get_volt, NULL}, /* MIC_GET_VOLT_PROC */
+	{NULL, debug_spkr_en_right_chan}, /* SPKR_EN_RIGHT_CHAN_PROC */
+	{debug_spkr_is_right_chan_en, NULL}, /* SPKR_IS_RIGHT_CHAN_EN_PROC */
+	{NULL, debug_spkr_en_left_chan}, /* SPKR_EN_LEFT_CHAN_PROC */
+	{debug_spkr_is_left_chan_en, NULL}, /* SPKR_IS_LEFT_CHAN_EN_PROC */
+	{NULL, debug_set_spkr_configuration}, /* SET_SPKR_CONFIGURATION_PROC */
+	{debug_get_spkr_configuration, NULL}, /* GET_SPKR_CONFIGURATION_PROC */
+	{debug_spkr_get_gain, NULL}, /* SPKR_GET_GAIN_PROC */
+	{debug_spkr_is_en, NULL}, /* SPKR_IS_EN_PROC */
+	{NULL, debug_spkr_en_mute}, /* SPKR_EN_MUTE_PROC */
+	{debug_spkr_is_mute_en, NULL}, /* SPKR_IS_MUTE_EN_PROC */
+	{NULL, debug_spkr_set_delay}, /* SPKR_SET_DELAY_PROC */
+	{debug_spkr_get_delay, NULL}, /* SPKR_GET_DELAY_PROC */
+	/* SECURE_MPP_CONFIG_DIGITAL_INPUT_PROC */
 	{NULL, debug_secure_mpp_config_digital_input},
-	{NULL, debug_set_speaker_delay}, 
-	{NULL, debug_speaker_1k6_zin_enable}, 
-	
+	{NULL, debug_set_speaker_delay}, /* SET_SPEAKER_DELAY_PROC */
+	{NULL, debug_speaker_1k6_zin_enable}, /* SPEAKER_1K6_ZIN_ENABLE_PROC */
+	/* SPKR_SET_MUX_HPF_CORNER_FREQ_PROC */
 	{NULL, debug_spkr_set_mux_hpf_corner_freq},
-	
+	/* SPKR_GET_MUX_HPF_CORNER_FREQ_PROC */
 	{debug_spkr_get_mux_hpf_corner_freq, NULL},
-	
+	/* SPKR_IS_RIGHT_LEFT_CHAN_ADDED_PROC */
 	{debug_spkr_is_right_left_chan_added, NULL},
-	{NULL, debug_spkr_en_stereo}, 
-	{debug_spkr_is_stereo_en, NULL}, 
-	 
+	{NULL, debug_spkr_en_stereo}, /* SPKR_EN_STEREO_PROC */
+	{debug_spkr_is_stereo_en, NULL}, /* SPKR_IS_STEREO_EN_PROC */
+	 /* SPKR_SELECT_USB_WITH_HPF_20HZ_PROC */
 	{NULL, debug_spkr_select_usb_with_hpf_20hz},
-	
+	/* SPKR_IS_USB_WITH_HPF_20HZ_PROC */
 	{debug_spkr_is_usb_with_hpf_20hz, NULL},
-	{NULL, debug_spkr_bypass_mux}, 
-	{debug_spkr_is_mux_bypassed, NULL}, 
-	{NULL, debug_spkr_en_hpf}, 
-	{ debug_spkr_is_hpf_en, NULL}, 
-	
+	{NULL, debug_spkr_bypass_mux}, /* SPKR_BYPASS_MUX_PROC */
+	{debug_spkr_is_mux_bypassed, NULL}, /* SPKR_IS_MUX_BYPASSED_PROC */
+	{NULL, debug_spkr_en_hpf}, /* SPKR_EN_HPF_PROC */
+	{ debug_spkr_is_hpf_en, NULL}, /* SPKR_IS_HPF_EN_PROC */
+	/* SPKR_EN_SINK_CURR_FROM_REF_VOLT_CIR_PROC */
 	{NULL, debug_spkr_en_sink_curr_from_ref_volt_cir},
-	
+	/* SPKR_IS_SINK_CURR_FROM_REF_VOLT_CIR_EN_PROC */
 	{debug_spkr_is_sink_curr_from_ref_volt_cir_en, NULL},
-	
+	/* SPKR_ADD_RIGHT_LEFT_CHAN_PROC */
 	{NULL, debug_spkr_add_right_left_chan},
-	{NULL, debug_spkr_set_gain}, 
-	{NULL , debug_spkr_en}, 
+	{NULL, debug_spkr_set_gain}, /* SPKR_SET_GAIN_PROC */
+	{NULL , debug_spkr_en}, /* SPKR_EN_PROC */
 };
 
+/***********************************************************************/
 
 #define PROC_END (sizeof(pmic_debug)/sizeof(struct pmic_debug_desc))
 
 
 #define PMIC_DEBUG_BUF	512
 
-static int	debug_proc;		
+static int	debug_proc;		/* PROC's index */
 
 static char	debug_buf[PMIC_DEBUG_BUF];
 
@@ -1030,7 +1037,7 @@ DEFINE_SIMPLE_ATTRIBUTE(
 
 static int pmic_debugfs_open(struct inode *inode, struct file *file)
 {
-	
+	/* non-seekable */
 	file->f_mode &= ~(FMODE_LSEEK | FMODE_PREAD | FMODE_PWRITE);
 	return 0;
 }
@@ -1059,7 +1066,7 @@ static ssize_t pmic_debugfs_write(
 		return -EFAULT;
 
 
-	debug_buf[count] = 0;	
+	debug_buf[count] = 0;	/* end of string */
 
 	pd = &pmic_debug[debug_proc];
 
@@ -1087,7 +1094,7 @@ static ssize_t pmic_debugfs_read(
 	pd = &pmic_debug[debug_proc];
 
 	if (*ppos)
-		return 0;	
+		return 0;	/* the end */
 
 	if (pd->get) {
 		len = pd->get(debug_buf, sizeof(debug_buf));
@@ -1104,7 +1111,7 @@ static ssize_t pmic_debugfs_read(
 	if (len < 0)
 		return 0;
 
-	*ppos += len;	
+	*ppos += len;	/* increase offset */
 
 	return len;
 }

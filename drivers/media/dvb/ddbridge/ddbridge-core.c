@@ -47,8 +47,10 @@
 
 DVB_DEFINE_MOD_OPT_ADAPTER_NR(adapter_nr);
 
+/* MSI had problems with lost interrupts, fixed but needs testing */
 #undef CONFIG_PCI_MSI
 
+/******************************************************************************/
 
 static int i2c_read(struct i2c_adapter *adapter, u8 adr, u8 *val)
 {
@@ -88,7 +90,7 @@ static int ddb_i2c_cmd(struct ddb_i2c *i2c, u32 adr, u32 cmd)
 	stat = wait_event_timeout(i2c->wq, i2c->done == 1, HZ);
 	if (stat <= 0) {
 		printk(KERN_ERR "I2C timeout\n");
-		{ 
+		{ /* MSI debugging*/
 			u32 istat = ddbreadl(INTERRUPT_STATUS);
 			printk(KERN_ERR "IRS %08x\n", istat);
 			ddbwritel(istat, INTERRUPT_ACK);
@@ -211,6 +213,9 @@ static int ddb_i2c_init(struct ddb *dev)
 }
 
 
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
 
 #if 0
 static void set_table(struct ddb *dev, u32 off,
@@ -350,7 +355,7 @@ static void ddb_input_start(struct ddb_input *input)
 	input->cbuf = 0;
 	input->coff = 0;
 
-	
+	/* reset */
 	ddbwritel(0, TS_INPUT_CONTROL(input->nr));
 	ddbwritel(2, TS_INPUT_CONTROL(input->nr));
 	ddbwritel(0, TS_INPUT_CONTROL(input->nr));
@@ -398,7 +403,7 @@ static void ddb_output_start(struct ddb_output *output)
 
 	ddbwritel(1, DMA_BASE_READ);
 	ddbwritel(3, DMA_BUFFER_CONTROL(output->nr + 8));
-	
+	/* ddbwritel(0xbd, TS_OUTPUT_CONTROL(output->nr)); */
 	ddbwritel(0x1d, TS_OUTPUT_CONTROL(output->nr));
 	output->running = 1;
 	spin_unlock_irq(&output->lock);
@@ -533,6 +538,9 @@ static ssize_t ddb_input_read(struct ddb_input *input, u8 *buf, size_t count)
 	return count;
 }
 
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
 
 #if 0
 static struct ddb_input *fe2input(struct ddb *dev, struct dvb_frontend *fe)
@@ -601,6 +609,9 @@ static int tuner_attach_tda18271(struct ddb_input *input)
 	return 0;
 }
 
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
 
 static struct stv090x_config stv0900 = {
 	.device         = STV0900,
@@ -883,6 +894,8 @@ static int dvb_input_attach(struct ddb_input *input)
 	return 0;
 }
 
+/****************************************************************************/
+/****************************************************************************/
 
 static ssize_t ts_write(struct file *file, const char *buf,
 			size_t count, loff_t *ppos)
@@ -938,6 +951,11 @@ static ssize_t ts_read(struct file *file, char *buf,
 
 static unsigned int ts_poll(struct file *file, poll_table *wait)
 {
+	/*
+	struct dvb_device *dvbdev = file->private_data;
+	struct ddb_output *output = dvbdev->priv;
+	struct ddb_input *input = output->port->input[0];
+	*/
 	unsigned int mask = 0;
 
 #if 0
@@ -970,6 +988,9 @@ static struct dvb_device dvbdev_ci = {
 	.fops    = &ci_fops,
 };
 
+/****************************************************************************/
+/****************************************************************************/
+/****************************************************************************/
 
 static void input_tasklet(unsigned long data)
 {
@@ -1116,6 +1137,8 @@ static void ddb_ports_detach(struct ddb *dev)
 	}
 }
 
+/****************************************************************************/
+/****************************************************************************/
 
 static int port_has_ci(struct ddb_port *port)
 {
@@ -1250,6 +1273,9 @@ static void ddb_ports_release(struct ddb *dev)
 	}
 }
 
+/****************************************************************************/
+/****************************************************************************/
+/****************************************************************************/
 
 static void irq_handle_i2c(struct ddb *dev, int n)
 {
@@ -1305,12 +1331,15 @@ static irqreturn_t irq_handler(int irq, void *dev_id)
 		if (s & 0x00080000)
 			tasklet_schedule(&dev->output[3].tasklet);
 
-		
+		/* if (s & 0x000f0000)	printk(KERN_DEBUG "%08x\n", istat); */
 	} while ((s = ddbreadl(INTERRUPT_STATUS)));
 
 	return IRQ_HANDLED;
 }
 
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
 
 static int flashio(struct ddb *dev, u8 *wbuf, u32 wlen, u8 *rbuf, u32 rlen)
 {
@@ -1319,7 +1348,7 @@ static int flashio(struct ddb *dev, u8 *wbuf, u32 wlen, u8 *rbuf, u32 rlen)
 	if (wlen > 4)
 		ddbwritel(1, SPI_CONTROL);
 	while (wlen > 4) {
-		
+		/* FIXME: check for big-endian */
 		data = swab32(*(u32 *)wbuf);
 		wbuf += 4;
 		wlen -= 4;
@@ -1501,6 +1530,9 @@ static void ddb_device_destroy(struct ddb *dev)
 }
 
 
+/****************************************************************************/
+/****************************************************************************/
+/****************************************************************************/
 
 static void ddb_unmap(struct ddb *dev)
 {
@@ -1613,6 +1645,9 @@ fail:
 	return -1;
 }
 
+/******************************************************************************/
+/******************************************************************************/
+/******************************************************************************/
 
 static struct ddb_info ddb_none = {
 	.type     = DDB_NONE,
@@ -1637,7 +1672,7 @@ static struct ddb_info ddb_v6 = {
 	.port_num = 3,
 };
 
-#define DDVID 0xdd01 
+#define DDVID 0xdd01 /* Digital Devices Vendor ID */
 
 #define DDB_ID(_vend, _dev, _subvend, _subdev, _driverdata) {	\
 	.vendor      = _vend,    .device    = _dev, \
@@ -1650,7 +1685,7 @@ static const struct pci_device_id ddb_id_tbl[] __devinitdata = {
 	DDB_ID(DDVID, 0x0003, DDVID, 0x0002, ddb_octopus_le),
 	DDB_ID(DDVID, 0x0003, DDVID, 0x0010, ddb_octopus),
 	DDB_ID(DDVID, 0x0003, DDVID, 0x0020, ddb_v6),
-	
+	/* in case sub-ids got deleted in flash */
 	DDB_ID(DDVID, 0x0003, PCI_ANY_ID, PCI_ANY_ID, ddb_none),
 	{0}
 };

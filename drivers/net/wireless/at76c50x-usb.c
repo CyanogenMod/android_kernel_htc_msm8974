@@ -47,45 +47,48 @@
 
 #include "at76c50x-usb.h"
 
+/* Version information */
 #define DRIVER_NAME "at76c50x-usb"
 #define DRIVER_VERSION	"0.17"
 #define DRIVER_DESC "Atmel at76x USB Wireless LAN Driver"
 
-#define DBG_PROGRESS		0x00000001	
-#define DBG_BSS_TABLE		0x00000002	
-#define DBG_IOCTL		0x00000004	
-#define DBG_MAC_STATE		0x00000008	
-#define DBG_TX_DATA		0x00000010	
-#define DBG_TX_DATA_CONTENT	0x00000020	
-#define DBG_TX_MGMT		0x00000040	
-#define DBG_RX_DATA		0x00000080	
-#define DBG_RX_DATA_CONTENT	0x00000100	
-#define DBG_RX_MGMT		0x00000200	
-#define DBG_RX_BEACON		0x00000400	
-#define DBG_RX_CTRL		0x00000800	
-#define DBG_RX_MGMT_CONTENT	0x00001000	
-#define DBG_RX_FRAGS		0x00002000	
-#define DBG_DEVSTART		0x00004000	
-#define DBG_URB			0x00008000	
-#define DBG_RX_ATMEL_HDR	0x00010000	
-#define DBG_PROC_ENTRY		0x00020000	
-#define DBG_PM			0x00040000	
-#define DBG_BSS_MATCH		0x00080000	
-#define DBG_PARAMS		0x00100000	
-#define DBG_WAIT_COMPLETE	0x00200000	
-#define DBG_RX_FRAGS_SKB	0x00400000	
-#define DBG_BSS_TABLE_RM	0x00800000	
-#define DBG_MONITOR_MODE	0x01000000	
-#define DBG_MIB			0x02000000	
-#define DBG_MGMT_TIMER		0x04000000	
-#define DBG_WE_EVENTS		0x08000000	
-#define DBG_FW			0x10000000	
-#define DBG_DFU			0x20000000	
+/* at76_debug bits */
+#define DBG_PROGRESS		0x00000001	/* authentication/accociation */
+#define DBG_BSS_TABLE		0x00000002	/* show BSS table after scans */
+#define DBG_IOCTL		0x00000004	/* ioctl calls / settings */
+#define DBG_MAC_STATE		0x00000008	/* MAC state transitions */
+#define DBG_TX_DATA		0x00000010	/* tx header */
+#define DBG_TX_DATA_CONTENT	0x00000020	/* tx content */
+#define DBG_TX_MGMT		0x00000040	/* tx management */
+#define DBG_RX_DATA		0x00000080	/* rx data header */
+#define DBG_RX_DATA_CONTENT	0x00000100	/* rx data content */
+#define DBG_RX_MGMT		0x00000200	/* rx mgmt frame headers */
+#define DBG_RX_BEACON		0x00000400	/* rx beacon */
+#define DBG_RX_CTRL		0x00000800	/* rx control */
+#define DBG_RX_MGMT_CONTENT	0x00001000	/* rx mgmt content */
+#define DBG_RX_FRAGS		0x00002000	/* rx data fragment handling */
+#define DBG_DEVSTART		0x00004000	/* fw download, device start */
+#define DBG_URB			0x00008000	/* rx urb status, ... */
+#define DBG_RX_ATMEL_HDR	0x00010000	/* Atmel-specific Rx headers */
+#define DBG_PROC_ENTRY		0x00020000	/* procedure entries/exits */
+#define DBG_PM			0x00040000	/* power management settings */
+#define DBG_BSS_MATCH		0x00080000	/* BSS match failures */
+#define DBG_PARAMS		0x00100000	/* show configured parameters */
+#define DBG_WAIT_COMPLETE	0x00200000	/* command completion */
+#define DBG_RX_FRAGS_SKB	0x00400000	/* skb header of Rx fragments */
+#define DBG_BSS_TABLE_RM	0x00800000	/* purging bss table entries */
+#define DBG_MONITOR_MODE	0x01000000	/* monitor mode */
+#define DBG_MIB			0x02000000	/* dump all MIBs on startup */
+#define DBG_MGMT_TIMER		0x04000000	/* dump mgmt_timer ops */
+#define DBG_WE_EVENTS		0x08000000	/* dump wireless events */
+#define DBG_FW			0x10000000	/* firmware download */
+#define DBG_DFU			0x20000000	/* device firmware upgrade */
 #define DBG_CMD			0x40000000
 #define DBG_MAC80211		0x80000000
 
 #define DBG_DEFAULTS		0
 
+/* Use our own dbg macro */
 #define at76_dbg(bits, format, arg...)					\
 do {									\
 	if (at76_debug & (bits))					\
@@ -102,6 +105,7 @@ do {									\
 
 static uint at76_debug = DBG_DEFAULTS;
 
+/* Protect against concurrent firmware loading and parsing */
 static struct mutex fw_mutex;
 
 static struct fwentry firmwares[] = {
@@ -127,123 +131,150 @@ MODULE_FIRMWARE("atmel_at76c505amx-rfmd.bin");
 #define USB_DEVICE_DATA(__ops)	.driver_info = (kernel_ulong_t)(__ops)
 
 static struct usb_device_id dev_table[] = {
-	
+	/*
+	 * at76c503-i3861
+	 */
+	/* Generic AT76C503/3861 device */
 	{ USB_DEVICE(0x03eb, 0x7603), USB_DEVICE_DATA(BOARD_503_ISL3861) },
-	
+	/* Linksys WUSB11 v2.1/v2.6 */
 	{ USB_DEVICE(0x066b, 0x2211), USB_DEVICE_DATA(BOARD_503_ISL3861) },
-	
+	/* Netgear MA101 rev. A */
 	{ USB_DEVICE(0x0864, 0x4100), USB_DEVICE_DATA(BOARD_503_ISL3861) },
-	
+	/* Tekram U300C / Allnet ALL0193 */
 	{ USB_DEVICE(0x0b3b, 0x1612), USB_DEVICE_DATA(BOARD_503_ISL3861) },
-	
+	/* HP HN210W J7801A */
 	{ USB_DEVICE(0x03f0, 0x011c), USB_DEVICE_DATA(BOARD_503_ISL3861) },
-	
+	/* Sitecom/Z-Com/Zyxel M4Y-750 */
 	{ USB_DEVICE(0x0cde, 0x0001), USB_DEVICE_DATA(BOARD_503_ISL3861) },
-	
+	/* Dynalink/Askey WLL013 (intersil) */
 	{ USB_DEVICE(0x069a, 0x0320), USB_DEVICE_DATA(BOARD_503_ISL3861) },
-	
+	/* EZ connect 11Mpbs Wireless USB Adapter SMC2662W v1 */
 	{ USB_DEVICE(0x0d5c, 0xa001), USB_DEVICE_DATA(BOARD_503_ISL3861) },
-	
+	/* BenQ AWL300 */
 	{ USB_DEVICE(0x04a5, 0x9000), USB_DEVICE_DATA(BOARD_503_ISL3861) },
-	
+	/* Addtron AWU-120, Compex WLU11 */
 	{ USB_DEVICE(0x05dd, 0xff31), USB_DEVICE_DATA(BOARD_503_ISL3861) },
-	
+	/* Intel AP310 AnyPoint II USB */
 	{ USB_DEVICE(0x8086, 0x0200), USB_DEVICE_DATA(BOARD_503_ISL3861) },
-	
+	/* Dynalink L11U */
 	{ USB_DEVICE(0x0d8e, 0x7100), USB_DEVICE_DATA(BOARD_503_ISL3861) },
-	
+	/* Arescom WL-210, FCC id 07J-GL2411USB */
 	{ USB_DEVICE(0x0d8e, 0x7110), USB_DEVICE_DATA(BOARD_503_ISL3861) },
-	
+	/* I-O DATA WN-B11/USB */
 	{ USB_DEVICE(0x04bb, 0x0919), USB_DEVICE_DATA(BOARD_503_ISL3861) },
-	
+	/* BT Voyager 1010 */
 	{ USB_DEVICE(0x069a, 0x0821), USB_DEVICE_DATA(BOARD_503_ISL3861) },
-	
+	/*
+	 * at76c503-i3863
+	 */
+	/* Generic AT76C503/3863 device */
 	{ USB_DEVICE(0x03eb, 0x7604), USB_DEVICE_DATA(BOARD_503_ISL3863) },
-	
+	/* Samsung SWL-2100U */
 	{ USB_DEVICE(0x055d, 0xa000), USB_DEVICE_DATA(BOARD_503_ISL3863) },
-	
+	/*
+	 * at76c503-rfmd
+	 */
+	/* Generic AT76C503/RFMD device */
 	{ USB_DEVICE(0x03eb, 0x7605), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* Dynalink/Askey WLL013 (rfmd) */
 	{ USB_DEVICE(0x069a, 0x0321), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* Linksys WUSB11 v2.6 */
 	{ USB_DEVICE(0x077b, 0x2219), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* Network Everywhere NWU11B */
 	{ USB_DEVICE(0x077b, 0x2227), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* Netgear MA101 rev. B */
 	{ USB_DEVICE(0x0864, 0x4102), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* D-Link DWL-120 rev. E */
 	{ USB_DEVICE(0x2001, 0x3200), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* Actiontec 802UAT1, HWU01150-01UK */
 	{ USB_DEVICE(0x1668, 0x7605), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* AirVast W-Buddie WN210 */
 	{ USB_DEVICE(0x03eb, 0x4102), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* Dick Smith Electronics XH1153 802.11b USB adapter */
 	{ USB_DEVICE(0x1371, 0x5743), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* CNet CNUSB611 */
 	{ USB_DEVICE(0x1371, 0x0001), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* FiberLine FL-WL200U */
 	{ USB_DEVICE(0x1371, 0x0002), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* BenQ AWL400 USB stick */
 	{ USB_DEVICE(0x04a5, 0x9001), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* 3Com 3CRSHEW696 */
 	{ USB_DEVICE(0x0506, 0x0a01), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* Siemens Santis ADSL WLAN USB adapter WLL 013 */
 	{ USB_DEVICE(0x0681, 0x001b), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* Belkin F5D6050, version 2 */
 	{ USB_DEVICE(0x050d, 0x0050), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* iBlitzz, BWU613 (not *B or *SB) */
 	{ USB_DEVICE(0x07b8, 0xb000), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* Gigabyte GN-WLBM101 */
 	{ USB_DEVICE(0x1044, 0x8003), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* Planex GW-US11S */
 	{ USB_DEVICE(0x2019, 0x3220), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* Internal WLAN adapter in h5[4,5]xx series iPAQs */
 	{ USB_DEVICE(0x049f, 0x0032), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* Corega Wireless LAN USB-11 mini */
 	{ USB_DEVICE(0x07aa, 0x0011), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* Corega Wireless LAN USB-11 mini2 */
 	{ USB_DEVICE(0x07aa, 0x0018), USB_DEVICE_DATA(BOARD_503) },
-	
+	/* Uniden PCW100 */
 	{ USB_DEVICE(0x05dd, 0xff35), USB_DEVICE_DATA(BOARD_503) },
-	
+	/*
+	 * at76c503-rfmd-acc
+	 */
+	/* SMC2664W */
 	{ USB_DEVICE(0x083a, 0x3501), USB_DEVICE_DATA(BOARD_503_ACC) },
-	
+	/* Belkin F5D6050, SMC2662W v2, SMC2662W-AR */
 	{ USB_DEVICE(0x0d5c, 0xa002), USB_DEVICE_DATA(BOARD_503_ACC) },
-	
+	/*
+	 * at76c505-rfmd
+	 */
+	/* Generic AT76C505/RFMD */
 	{ USB_DEVICE(0x03eb, 0x7606), USB_DEVICE_DATA(BOARD_505) },
-	
+	/*
+	 * at76c505-rfmd2958
+	 */
+	/* Generic AT76C505/RFMD, OvisLink WL-1130USB */
 	{ USB_DEVICE(0x03eb, 0x7613), USB_DEVICE_DATA(BOARD_505_2958) },
-	
+	/* Fiberline FL-WL240U */
 	{ USB_DEVICE(0x1371, 0x0014), USB_DEVICE_DATA(BOARD_505_2958) },
-	
+	/* CNet CNUSB-611G */
 	{ USB_DEVICE(0x1371, 0x0013), USB_DEVICE_DATA(BOARD_505_2958) },
-	
+	/* Linksys WUSB11 v2.8 */
 	{ USB_DEVICE(0x1915, 0x2233), USB_DEVICE_DATA(BOARD_505_2958) },
-	
+	/* Xterasys XN-2122B, IBlitzz BWU613B/BWU613SB */
 	{ USB_DEVICE(0x12fd, 0x1001), USB_DEVICE_DATA(BOARD_505_2958) },
-	
+	/* Corega WLAN USB Stick 11 */
 	{ USB_DEVICE(0x07aa, 0x7613), USB_DEVICE_DATA(BOARD_505_2958) },
-	
+	/* Microstar MSI Box MS6978 */
 	{ USB_DEVICE(0x0db0, 0x1020), USB_DEVICE_DATA(BOARD_505_2958) },
-	
+	/*
+	 * at76c505a-rfmd2958
+	 */
+	/* Generic AT76C505A device */
 	{ USB_DEVICE(0x03eb, 0x7614), USB_DEVICE_DATA(BOARD_505A) },
-	
+	/* Generic AT76C505AS device */
 	{ USB_DEVICE(0x03eb, 0x7617), USB_DEVICE_DATA(BOARD_505A) },
-	
+	/* Siemens Gigaset USB WLAN Adapter 11 */
 	{ USB_DEVICE(0x1690, 0x0701), USB_DEVICE_DATA(BOARD_505A) },
-	
+	/* OQO Model 01+ Internal Wi-Fi */
 	{ USB_DEVICE(0x1557, 0x0002), USB_DEVICE_DATA(BOARD_505A) },
-	
+	/*
+	 * at76c505amx-rfmd
+	 */
+	/* Generic AT76C505AMX device */
 	{ USB_DEVICE(0x03eb, 0x7615), USB_DEVICE_DATA(BOARD_505AMX) },
 	{ }
 };
 
 MODULE_DEVICE_TABLE(usb, dev_table);
 
+/* Supported rates of this hardware, bit 7 marks basic rates */
 static const u8 hw_rates[] = { 0x82, 0x84, 0x0b, 0x16 };
 
 static const char *const preambles[] = { "long", "short", "auto" };
 
+/* Firmware download */
+/* DFU states */
 #define STATE_IDLE			0x00
 #define STATE_DETACH			0x01
 #define STATE_DFU_IDLE			0x02
@@ -256,6 +287,7 @@ static const char *const preambles[] = { "long", "short", "auto" };
 #define STATE_DFU_UPLOAD_IDLE		0x09
 #define STATE_DFU_ERROR			0x0a
 
+/* DFU commands */
 #define DFU_DETACH			0
 #define DFU_DNLOAD			1
 #define DFU_UPLOAD			2
@@ -288,6 +320,7 @@ static inline int at76_is_505a(enum board_type board)
 	return (board == BOARD_505A || board == BOARD_505AMX);
 }
 
+/* Load a block of the first (internal) part of the firmware */
 static int at76_load_int_fw_block(struct usb_device *udev, int blockno,
 				  void *block, int size)
 {
@@ -319,6 +352,7 @@ static u8 at76_dfu_get_state(struct usb_device *udev, u8 *state)
 	return ret;
 }
 
+/* Convert timeout from the DFU status to jiffies */
 static inline unsigned long at76_get_timeout(struct dfu_status *s)
 {
 	return msecs_to_jiffies((s->poll_timeout[2] << 16)
@@ -326,6 +360,8 @@ static inline unsigned long at76_get_timeout(struct dfu_status *s)
 				| (s->poll_timeout[0]));
 }
 
+/* Load internal firmware from the buffer.  If manifest_sync_timeout > 0, use
+ * its value in jiffies in the MANIFEST_SYNC state.  */
 static int at76_usbdfu_download(struct usb_device *udev, u8 *buf, u32 size,
 				int manifest_sync_timeout)
 {
@@ -386,7 +422,7 @@ static int at76_usbdfu_download(struct usb_device *udev, u8 *buf, u32 size,
 
 		case STATE_DFU_DOWNLOAD_IDLE:
 			at76_dbg(DBG_DFU, "DOWNLOAD...");
-			
+			/* fall through */
 		case STATE_DFU_IDLE:
 			at76_dbg(DBG_DFU, "DFU IDLE");
 
@@ -419,6 +455,8 @@ static int at76_usbdfu_download(struct usb_device *udev, u8 *buf, u32 size,
 			dfu_timeout = at76_get_timeout(&dfu_stat_buf);
 			need_dfu_state = 0;
 
+			/* override the timeout from the status response,
+			   needed for AT76C505A */
 			if (manifest_sync_timeout > 0)
 				dfu_timeout = manifest_sync_timeout;
 
@@ -463,6 +501,7 @@ exit:
 #define HEX2STR_BUFFERS 4
 #define HEX2STR_MAX_LEN 64
 
+/* Convert binary data into hex string */
 static char *hex2str(void *buf, size_t len)
 {
 	static atomic_t a = ATOMIC_INIT(0);
@@ -489,6 +528,7 @@ exit:
 	return ret;
 }
 
+/* LED trigger */
 static int tx_activity;
 static void at76_ledtrig_tx_timerfunc(unsigned long data);
 static DEFINE_TIMER(ledtrig_tx_timer, at76_ledtrig_tx_timerfunc, 0, 0);
@@ -549,6 +589,7 @@ static int at76_get_op_mode(struct usb_device *udev)
 		return saved;
 }
 
+/* Load a block of the second ("external") part of the firmware */
 static inline int at76_load_ext_fw_block(struct usb_device *udev, int blockno,
 					 void *block, int size)
 {
@@ -567,6 +608,7 @@ static inline int at76_get_hw_cfg(struct usb_device *udev,
 			       buf, buf_size, USB_CTRL_GET_TIMEOUT);
 }
 
+/* Intersil boards use a different "value" for GetHWConfig requests */
 static inline int at76_get_hw_cfg_intersil(struct usb_device *udev,
 					   union at76_hwcfg *buf, int buf_size)
 {
@@ -576,6 +618,9 @@ static inline int at76_get_hw_cfg_intersil(struct usb_device *udev,
 			       buf, buf_size, USB_CTRL_GET_TIMEOUT);
 }
 
+/* Get the hardware configuration for the adapter and put it to the appropriate
+ * fields of 'priv' (the GetHWConfig request and interpretation of the result
+ * depends on the board type) */
 static int at76_get_hw_config(struct at76_priv *priv)
 {
 	int ret;
@@ -618,18 +663,18 @@ static struct reg_domain const *at76_get_reg_domain(u16 code)
 {
 	int i;
 	static struct reg_domain const fd_tab[] = {
-		{ 0x10, "FCC (USA)", 0x7ff },	
-		{ 0x20, "IC (Canada)", 0x7ff },	
-		{ 0x30, "ETSI (most of Europe)", 0x1fff },	
-		{ 0x31, "Spain", 0x600 },	
-		{ 0x32, "France", 0x1e00 },	
-		{ 0x40, "MKK (Japan)", 0x2000 },	
-		{ 0x41, "MKK1 (Japan)", 0x3fff },	
-		{ 0x50, "Israel", 0x3fc },	
-		{ 0x00, "<unknown>", 0xffffffff }	
+		{ 0x10, "FCC (USA)", 0x7ff },	/* ch 1-11 */
+		{ 0x20, "IC (Canada)", 0x7ff },	/* ch 1-11 */
+		{ 0x30, "ETSI (most of Europe)", 0x1fff },	/* ch 1-13 */
+		{ 0x31, "Spain", 0x600 },	/* ch 10-11 */
+		{ 0x32, "France", 0x1e00 },	/* ch 10-13 */
+		{ 0x40, "MKK (Japan)", 0x2000 },	/* ch 14 */
+		{ 0x41, "MKK1 (Japan)", 0x3fff },	/* ch 1-14 */
+		{ 0x50, "Israel", 0x3fc },	/* ch 3-9 */
+		{ 0x00, "<unknown>", 0xffffffff }	/* ch 1-32 */
 	};
 
-	
+	/* Last entry is fallback for unknown domain code */
 	for (i = 0; i < ARRAY_SIZE(fd_tab) - 1; i++)
 		if (code == fd_tab[i].code)
 			break;
@@ -651,6 +696,7 @@ static inline int at76_get_mib(struct usb_device *udev, u16 mib, void *buf,
 	return ret;
 }
 
+/* Return positive number for status, negative for an error */
 static inline int at76_get_cmd_status(struct usb_device *udev, u8 cmd)
 {
 	u8 *stat_buf;
@@ -734,6 +780,7 @@ static const char *at76_get_cmd_status_string(u8 cmd_status)
 	return "UNKNOWN";
 }
 
+/* Wait until the command is completed */
 static int at76_wait_completion(struct at76_priv *priv, int cmd)
 {
 	int status = 0;
@@ -757,7 +804,7 @@ static int at76_wait_completion(struct at76_priv *priv, int cmd)
 		    && status != CMD_STATUS_IDLE)
 			break;
 
-		schedule_timeout_interruptible(HZ / 10);	
+		schedule_timeout_interruptible(HZ / 10);	/* 100 ms */
 		if (time_after(jiffies, timeout)) {
 			wiphy_err(priv->hw->wiphy,
 				  "completion timeout for command %d\n", cmd);
@@ -790,6 +837,7 @@ static int at76_set_mib(struct at76_priv *priv, struct set_mib_buffer *buf)
 	return ret;
 }
 
+/* Return < 0 on error, == 0 if no command sent, == 1 if cmd sent */
 static int at76_set_radio(struct at76_priv *priv, int enable)
 {
 	int ret;
@@ -811,6 +859,7 @@ static int at76_set_radio(struct at76_priv *priv, int enable)
 	return ret;
 }
 
+/* Set current power save mode (AT76_PM_OFF/AT76_PM_ON/AT76_PM_SMART) */
 static int at76_set_pm_mode(struct at76_priv *priv)
 {
 	int ret = 0;
@@ -1122,6 +1171,7 @@ exit:
 	kfree(m);
 }
 
+/* Enable monitor mode */
 static int at76_start_monitor(struct at76_priv *priv)
 {
 	struct at76_req_scan scan;
@@ -1144,9 +1194,11 @@ static int at76_start_monitor(struct at76_priv *priv)
 	return ret;
 }
 
+/* Calculate padding from txbuf->wlength (which excludes the USB TX header),
+   likely to compensate a flaw in the AT76C503A USB part ... */
 static inline int at76_calc_padding(int wlen)
 {
-	
+	/* add the USB TX header */
 	wlen += AT76_TX_HDRLEN;
 
 	wlen = wlen % 64;
@@ -1215,6 +1267,7 @@ exit:
 	return ret;
 }
 
+/* Download external firmware */
 static int at76_load_external_fw(struct usb_device *udev, struct fwentry *fwe)
 {
 	int ret;
@@ -1243,7 +1296,7 @@ static int at76_load_external_fw(struct usb_device *udev, struct fwentry *fwe)
 
 	at76_dbg(DBG_DEVSTART, "downloading external firmware");
 
-	
+	/* for fw >= 0.100, the device needs an extra empty block */
 	do {
 		bsize = min_t(int, size, FW_BLOCK_SIZE);
 		memcpy(block, buf, bsize);
@@ -1275,6 +1328,7 @@ exit:
 	return ret;
 }
 
+/* Download internal firmware */
 static int at76_load_internal_fw(struct usb_device *udev, struct fwentry *fwe)
 {
 	int ret;
@@ -1291,7 +1345,7 @@ static int at76_load_internal_fw(struct usb_device *udev, struct fwentry *fwe)
 
 	at76_dbg(DBG_DEVSTART, "sending REMAP");
 
-	
+	/* no REMAP for 505A (see SF driver) */
 	if (need_remap) {
 		ret = at76_remap(udev);
 		if (ret < 0) {
@@ -1349,7 +1403,7 @@ static int at76_startup_device(struct at76_priv *priv)
 		else
 			ccfg->encryption_type = 1;
 
-		
+		/* jal: always exclude unencrypted if WEP is active */
 		ccfg->exclude_unencrypted = 1;
 	} else {
 		ccfg->exclude_unencrypted = 0;
@@ -1360,7 +1414,7 @@ static int at76_startup_device(struct at76_priv *priv)
 	ccfg->fragmentation_threshold = cpu_to_le16(priv->frag_threshold);
 
 	memcpy(ccfg->basic_rate_set, hw_rates, 4);
-	
+	/* jal: really needed, we do a set_mib for autorate later ??? */
 	ccfg->auto_rate_fallback = (priv->txrate == TX_RATE_AUTO ? 1 : 0);
 	ccfg->channel = priv->channel;
 	ccfg->privacy_invoked = priv->wep_enabled;
@@ -1384,7 +1438,7 @@ static int at76_startup_device(struct at76_priv *priv)
 
 	at76_wait_completion(priv, CMD_STARTUP);
 
-	
+	/* remove BSSID from previous run */
 	memset(priv->bssid, 0, ETH_ALEN);
 
 	if (at76_set_radio(priv, 1) == 1)
@@ -1424,6 +1478,7 @@ static int at76_startup_device(struct at76_priv *priv)
 	return 0;
 }
 
+/* Enable or disable promiscuous mode */
 static void at76_work_set_promisc(struct work_struct *work)
 {
 	struct at76_priv *priv = container_of(work, struct at76_priv,
@@ -1448,6 +1503,7 @@ static void at76_work_set_promisc(struct work_struct *work)
 	mutex_unlock(&priv->mtx);
 }
 
+/* Submit Rx urb back to the device */
 static void at76_work_submit_rx(struct work_struct *work)
 {
 	struct at76_priv *priv = container_of(work, struct at76_priv,
@@ -1504,12 +1560,13 @@ static void at76_rx_tasklet(unsigned long param)
 	memcpy(IEEE80211_SKB_RXCB(priv->rx_skb), &rx_status, sizeof(rx_status));
 	ieee80211_rx_irqsafe(priv->hw, priv->rx_skb);
 
-	
+	/* Use a new skb for the next receive */
 	priv->rx_skb = NULL;
 
 	at76_submit_rx_urb(priv);
 }
 
+/* Load firmware into kernel memory and parse it */
 static struct fwentry *at76_load_firmware(struct usb_device *udev,
 					  enum board_type board_type)
 {
@@ -1545,7 +1602,7 @@ static struct fwentry *at76_load_firmware(struct usb_device *udev,
 		goto exit;
 	}
 
-	
+	/* CRC currently not checked */
 	fwe->board_type = le32_to_cpu(fwh->board_type);
 	if (fwe->board_type != board_type) {
 		dev_printk(KERN_ERR, &udev->dev,
@@ -1646,13 +1703,13 @@ static void at76_mac80211_tx_callback(struct urb *urb)
 
 	switch (urb->status) {
 	case 0:
-		
+		/* success */
 		info->flags |= IEEE80211_TX_STAT_ACK;
 		break;
 	case -ENOENT:
 	case -ECONNRESET:
-		
-		
+		/* fail, urb has been unlinked */
+		/* FIXME: add error message */
 		break;
 	default:
 		at76_dbg(DBG_URB, "%s - nonzero tx status received: %d",
@@ -1686,6 +1743,13 @@ static void at76_mac80211_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 		return;
 	}
 
+	/* The following code lines are important when the device is going to
+	 * authenticate with a new bssid. The driver must send CMD_JOIN before
+	 * an authentication frame is transmitted. For this to succeed, the
+	 * correct bssid of the AP must be known. As mac80211 does not inform
+	 * drivers about the bssid prior to the authentication process the
+	 * following workaround is necessary. If the TX frame is an
+	 * authentication frame extract the bssid and send the CMD_JOIN. */
 	if (mgmt->frame_control & cpu_to_le16(IEEE80211_STYPE_AUTH)) {
 		if (compare_ether_addr(priv->bssid, mgmt->bssid)) {
 			memcpy(priv->bssid, mgmt->bssid, ETH_ALEN);
@@ -1697,7 +1761,7 @@ static void at76_mac80211_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 
 	ieee80211_stop_queues(hw);
 
-	at76_ledtrig_tx_activity();	
+	at76_ledtrig_tx_activity();	/* tell ledtrigger we send a packet */
 
 	WARN_ON(priv->tx_skb != NULL);
 
@@ -1705,7 +1769,7 @@ static void at76_mac80211_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 	padding = at76_calc_padding(skb->len);
 	submit_len = AT76_TX_HDRLEN + skb->len + padding;
 
-	
+	/* setup 'Atmel' header */
 	memset(tx_buffer, 0, sizeof(*tx_buffer));
 	tx_buffer->padding = padding;
 	tx_buffer->wlength = cpu_to_le16(skb->len);
@@ -1717,7 +1781,7 @@ static void at76_mac80211_tx(struct ieee80211_hw *hw, struct sk_buff *skb)
 		 wiphy_name(priv->hw->wiphy), le16_to_cpu(tx_buffer->wlength),
 		 tx_buffer->padding, tx_buffer->tx_rate);
 
-	
+	/* send stuff */
 	at76_dbg_dump(DBG_TX_DATA_CONTENT, tx_buffer, submit_len,
 		      "%s(): tx_buffer %d bytes:", __func__, submit_len);
 	usb_fill_bulk_urb(priv->tx_urb, priv->udev, priv->tx_pipe, tx_buffer,
@@ -1772,8 +1836,12 @@ static void at76_mac80211_stop(struct ieee80211_hw *hw)
 	mutex_lock(&priv->mtx);
 
 	if (!priv->device_unplugged) {
+		/* We are called by "ifconfig ethX down", not because the
+		 * device is not available anymore. */
 		at76_set_radio(priv, 0);
 
+		/* We unlink rx_urb because at76_open() re-submits it.
+		 * If unplugged, at76_delete_device() takes care of it. */
 		usb_kill_urb(priv->rx_urb);
 	}
 
@@ -1825,7 +1893,7 @@ static void at76_dwork_hw_scan(struct work_struct *work)
 	ret = at76_get_cmd_status(priv->udev, CMD_SCAN);
 	at76_dbg(DBG_MAC80211, "%s: CMD_SCAN status 0x%02x", __func__, ret);
 
-	
+	/* FIXME: add maximum time for scan to complete */
 
 	if (ret != CMD_STATUS_COMPLETE) {
 		ieee80211_queue_delayed_work(priv->hw, &priv->dwork_hw_scan,
@@ -1941,12 +2009,13 @@ static void at76_bss_info_changed(struct ieee80211_hw *hw,
 	memcpy(priv->bssid, conf->bssid, ETH_ALEN);
 
 	if (is_valid_ether_addr(priv->bssid))
-		
+		/* mac80211 is joining a bss */
 		at76_join(priv);
 
 	mutex_unlock(&priv->mtx);
 }
 
+/* must be atomic */
 static void at76_configure_filter(struct ieee80211_hw *hw,
 				  unsigned int changed_flags,
 				  unsigned int *total_flags, u64 multicast)
@@ -1961,16 +2030,19 @@ static void at76_configure_filter(struct ieee80211_hw *hw,
 	flags = changed_flags & AT76_SUPPORTED_FILTERS;
 	*total_flags = AT76_SUPPORTED_FILTERS;
 
-	
+	/* Bail out after updating flags to prevent a WARN_ON in mac80211. */
 	if (priv->device_unplugged)
 		return;
 
+	/* FIXME: access to priv->promisc should be protected with
+	 * priv->mtx, but it's impossible because this function needs to be
+	 * atomic */
 
 	if (flags && !priv->promisc) {
-		
+		/* mac80211 wants us to enable promiscuous mode */
 		priv->promisc = 1;
 	} else if (!flags && priv->promisc) {
-		
+		/* we need to disable promiscuous mode */
 		priv->promisc = 0;
 	} else
 		return;
@@ -2003,7 +2075,7 @@ static int at76_set_key(struct ieee80211_hw *hw, enum set_key_cmd cmd,
 		memcpy(priv->wep_keys[key->keyidx], key->key, key->keylen);
 		priv->wep_keys_len[key->keyidx] = key->keylen;
 
-		
+		/* FIXME: find out how to do this properly */
 		priv->wep_key_id = key->keyidx;
 
 		break;
@@ -2040,6 +2112,7 @@ static const struct ieee80211_ops at76_ops = {
 	.set_key = at76_set_key,
 };
 
+/* Allocate network device and initialize private data */
 static struct at76_priv *at76_alloc_new_device(struct usb_device *udev)
 {
 	struct ieee80211_hw *hw;
@@ -2068,7 +2141,7 @@ static struct at76_priv *at76_alloc_new_device(struct usb_device *udev)
 	priv->pm_mode = AT76_PM_OFF;
 	priv->pm_period = 0;
 
-	
+	/* unit us */
 	priv->hw->channel_change_time = 100000;
 
 	return priv;
@@ -2164,6 +2237,7 @@ static struct ieee80211_supported_band at76_supported_band = {
 	.n_bitrates = ARRAY_SIZE(at76_rates),
 };
 
+/* Register network device and initialize the hardware */
 static int at76_init_new_device(struct at76_priv *priv,
 				struct usb_interface *interface)
 {
@@ -2171,8 +2245,8 @@ static int at76_init_new_device(struct at76_priv *priv,
 	size_t len;
 	int ret;
 
-	
-	
+	/* set up the endpoint information */
+	/* check out the endpoints */
 
 	at76_dbg(DBG_DEVSTART, "USB interface: %d endpoints",
 		 interface->cur_altsetting->desc.bNumEndpoints);
@@ -2181,7 +2255,7 @@ static int at76_init_new_device(struct at76_priv *priv,
 	if (ret < 0)
 		goto exit;
 
-	
+	/* MAC address */
 	ret = at76_get_hw_config(priv);
 	if (ret < 0) {
 		dev_printk(KERN_ERR, &interface->dev,
@@ -2205,7 +2279,7 @@ static int at76_init_new_device(struct at76_priv *priv,
 	priv->scan_mode = SCAN_TYPE_ACTIVE;
 	priv->device_unplugged = 0;
 
-	
+	/* mac80211 initialisation */
 	wiphy = priv->hw->wiphy;
 	priv->hw->wiphy->max_scan_ssids = 1;
 	priv->hw->wiphy->max_scan_ie_len = 0;
@@ -2249,7 +2323,7 @@ static void at76_delete_device(struct at76_priv *priv)
 {
 	at76_dbg(DBG_PROC_ENTRY, "%s: ENTER", __func__);
 
-	
+	/* The device is gone, don't bother turning it off */
 	priv->device_unplugged = 1;
 
 	tasklet_kill(&priv->rx_tasklet);
@@ -2297,7 +2371,7 @@ static int at76_probe(struct usb_interface *interface,
 
 	udev = usb_get_dev(interface_to_usbdev(interface));
 
-	
+	/* Load firmware into kernel memory */
 	fwe = at76_load_firmware(udev, board_type);
 	if (!fwe) {
 		ret = -ENOENT;
@@ -2308,6 +2382,8 @@ static int at76_probe(struct usb_interface *interface,
 
 	at76_dbg(DBG_DEVSTART, "opmode %d", op_mode);
 
+	/* we get OPMODE_NONE with 2.4.23, SMC2662W-AR ???
+	   we get 204 with 2.4.23, Fiberline FL-WL240u (505A+RFMD2958) ??? */
 
 	if (op_mode == OPMODE_HW_CONFIG_MODE) {
 		dev_printk(KERN_ERR, &interface->dev,
@@ -2318,7 +2394,7 @@ static int at76_probe(struct usb_interface *interface,
 
 	if (op_mode != OPMODE_NORMAL_NIC_WITH_FLASH
 	    && op_mode != OPMODE_NORMAL_NIC_WITHOUT_FLASH) {
-		
+		/* download internal firmware part */
 		dev_printk(KERN_DEBUG, &interface->dev,
 			   "downloading internal firmware\n");
 		ret = at76_load_internal_fw(udev, fwe);
@@ -2332,14 +2408,21 @@ static int at76_probe(struct usb_interface *interface,
 		return ret;
 	}
 
+	/* Internal firmware already inside the device.  Get firmware
+	 * version to test if external firmware is loaded.
+	 * This works only for newer firmware, e.g. the Intersil 0.90.x
+	 * says "control timeout on ep0in" and subsequent
+	 * at76_get_op_mode() fail too :-( */
 
+	/* if version >= 0.100.x.y or device with built-in flash we can
+	 * query the device for the fw version */
 	if ((fwe->fw_version.major > 0 || fwe->fw_version.minor >= 100)
 	    || (op_mode == OPMODE_NORMAL_NIC_WITH_FLASH)) {
 		ret = at76_get_mib(udev, MIB_FW_VERSION, &fwv, sizeof(fwv));
 		if (ret < 0 || (fwv.major | fwv.minor) == 0)
 			need_ext_fw = 1;
 	} else
-		
+		/* No way to check firmware version, reload to be sure */
 		need_ext_fw = 1;
 
 	if (need_ext_fw) {
@@ -2350,7 +2433,7 @@ static int at76_probe(struct usb_interface *interface,
 		if (ret)
 			goto error;
 
-		
+		/* Re-check firmware version */
 		ret = at76_get_mib(udev, MIB_FW_VERSION, &fwv, sizeof(fwv));
 		if (ret < 0) {
 			dev_printk(KERN_ERR, &interface->dev,
@@ -2388,7 +2471,7 @@ static void at76_disconnect(struct usb_interface *interface)
 	priv = usb_get_intfdata(interface);
 	usb_set_intfdata(interface, NULL);
 
-	
+	/* Disconnect after loading internal firmware */
 	if (!priv)
 		return;
 
@@ -2397,6 +2480,7 @@ static void at76_disconnect(struct usb_interface *interface)
 	dev_printk(KERN_INFO, &interface->dev, "disconnected\n");
 }
 
+/* Structure for registering this driver with the USB subsystem */
 static struct usb_driver at76_driver = {
 	.name = DRIVER_NAME,
 	.probe = at76_probe,
@@ -2412,7 +2496,7 @@ static int __init at76_mod_init(void)
 
 	mutex_init(&fw_mutex);
 
-	
+	/* register this driver with the USB subsystem */
 	result = usb_register(&at76_driver);
 	if (result < 0)
 		printk(KERN_ERR DRIVER_NAME

@@ -91,7 +91,7 @@ static void *ipoib_mcg_seq_next(struct seq_file *file, void *iter_ptr,
 
 static void ipoib_mcg_seq_stop(struct seq_file *file, void *iter_ptr)
 {
-	
+	/* nothing for now */
 }
 
 static int ipoib_mcg_seq_show(struct seq_file *file, void *iter_ptr)
@@ -190,7 +190,7 @@ static void *ipoib_path_seq_next(struct seq_file *file, void *iter_ptr,
 
 static void ipoib_path_seq_stop(struct seq_file *file, void *iter_ptr)
 {
-	
+	/* nothing for now */
 }
 
 static int ipoib_path_seq_show(struct seq_file *file, void *iter_ptr)

@@ -42,6 +42,11 @@
 #define INTMSK(start, end) ((1 << ((end) + 1 - (start))) - 1)
 #define INTMSK_SUB(start, end) (INTMSK(start, end) << ((start - S3C2410_IRQSUB(0))))
 
+/* the s3c2412 changes the behaviour of IRQ_EINT0 through IRQ_EINT3 by
+ * having them turn up in both the INT* and the EINT* registers. Whilst
+ * both show the status, they both now need to be acked when the IRQs
+ * go off.
+*/
 
 static void
 s3c2412_irq_mask(struct irq_data *data)
@@ -106,6 +111,7 @@ static struct irq_chip s3c2412_irq_eint0t4 = {
 
 #define INTBIT(x)	(1 << ((x) - S3C2410_IRQSUB(0)))
 
+/* CF and SDI sub interrupts */
 
 static void s3c2412_irq_demux_cfsdi(unsigned int irq, struct irq_desc *desc)
 {
@@ -174,7 +180,7 @@ static int s3c2412_irq_add(struct device *dev, struct subsys_interface *sif)
 		set_irq_flags(irqno, IRQF_VALID);
 	}
 
-	
+	/* add demux support for CF/SDI */
 
 	irq_set_chained_handler(IRQ_S3C2412_CFSDI, s3c2412_irq_demux_cfsdi);
 
@@ -184,7 +190,7 @@ static int s3c2412_irq_add(struct device *dev, struct subsys_interface *sif)
 		set_irq_flags(irqno, IRQF_VALID);
 	}
 
-	
+	/* change RTC IRQ's set wake method */
 
 	s3c2412_irq_rtc_chip = s3c_irq_chip;
 	s3c2412_irq_rtc_chip.irq_set_wake = s3c2412_irq_rtc_wake;

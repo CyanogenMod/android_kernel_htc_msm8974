@@ -101,6 +101,7 @@ static struct s3c2410_uartcfg smdk6440_uartcfgs[] __initdata = {
 	},
 };
 
+/* Frame Buffer */
 static struct s3c_fb_pd_win smdk6440_fb_win0 = {
 	.win_mode = {
 		.left_margin	= 8,
@@ -123,6 +124,7 @@ static struct s3c_fb_platdata smdk6440_lcd_pdata __initdata = {
 	.setup_gpio	= s5p64x0_fb_gpio_setup_24bpp,
 };
 
+/* LCD power controller */
 static void smdk6440_lte480_reset_power(struct plat_lcd_data *pd,
 					 unsigned int power)
 {
@@ -207,9 +209,10 @@ static struct i2c_board_info smdk6440_i2c_devs0[] __initdata = {
 };
 
 static struct i2c_board_info smdk6440_i2c_devs1[] __initdata = {
-	
+	/* To be populated */
 };
 
+/* LCD Backlight data */
 static struct samsung_bl_gpio_info smdk6440_bl_gpio_info = {
 	.no = S5P6440_GPF(15),
 	.func = S3C_GPIO_SFN(2),
@@ -231,7 +234,7 @@ static void s5p6440_set_lcd_interface(void)
 {
 	unsigned int cfg;
 
-	
+	/* select TFT LCD type (RGB I/F) */
 	cfg = __raw_readl(S5P64X0_SPCON0);
 	cfg &= ~S5P64X0_SPCON0_LCD_SEL_MASK;
 	cfg |= S5P64X0_SPCON0_LCD_SEL_RGB;
@@ -262,7 +265,7 @@ static void __init smdk6440_machine_init(void)
 }
 
 MACHINE_START(SMDK6440, "SMDK6440")
-	
+	/* Maintainer: Kukjin Kim <kgene.kim@samsung.com> */
 	.atag_offset	= 0x100,
 
 	.init_irq	= s5p6440_init_irq,

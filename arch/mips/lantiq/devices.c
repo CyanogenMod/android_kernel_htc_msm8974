@@ -26,6 +26,7 @@
 
 #include "devices.h"
 
+/* nor flash */
 static struct resource ltq_nor_resource = {
 	.name	= "nor",
 	.start	= LTQ_FLASH_START,
@@ -45,6 +46,7 @@ void __init ltq_register_nor(struct physmap_flash_data *data)
 	platform_device_register(&ltq_nor);
 }
 
+/* watchdog */
 static struct resource ltq_wdt_resource = {
 	.name	= "watchdog",
 	.start  = LTQ_WDT_BASE_ADDR,
@@ -57,6 +59,7 @@ void __init ltq_register_wdt(void)
 	platform_device_register_simple("ltq_wdt", 0, &ltq_wdt_resource, 1);
 }
 
+/* asc ports */
 static struct resource ltq_asc0_resources[] = {
 	{
 		.name	= "asc0",
@@ -98,6 +101,7 @@ void __init ltq_register_asc(int port)
 }
 
 #ifdef CONFIG_PCI
+/* pci */
 static struct platform_device ltq_pci = {
 	.name		= "ltq_pci",
 	.num_resources	= 0,

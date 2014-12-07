@@ -38,19 +38,19 @@
 #include "zcrypt_error.h"
 #include "zcrypt_pcica.h"
 
-#define PCICA_MIN_MOD_SIZE	  1	
-#define PCICA_MAX_MOD_SIZE	256	
+#define PCICA_MIN_MOD_SIZE	  1	/*    8 bits	*/
+#define PCICA_MAX_MOD_SIZE	256	/* 2048 bits	*/
 
 #define PCICA_SPEED_RATING	2800
 
-#define PCICA_MAX_MESSAGE_SIZE	0x3a0	
-#define PCICA_MAX_RESPONSE_SIZE 0x110	
+#define PCICA_MAX_MESSAGE_SIZE	0x3a0	/* sizeof(struct type4_lcr)	     */
+#define PCICA_MAX_RESPONSE_SIZE 0x110	/* max outputdatalength + type80_hdr */
 
 #define PCICA_CLEANUP_TIME	(15*HZ)
 
 static struct ap_device_id zcrypt_pcica_ids[] = {
 	{ AP_DEVICE(AP_DEVICE_TYPE_PCICA) },
-	{  },
+	{ /* end of list */ },
 };
 
 MODULE_DEVICE_TABLE(ap, zcrypt_pcica_ids);
@@ -72,6 +72,15 @@ static struct ap_driver zcrypt_pcica_driver = {
 	.request_timeout = PCICA_CLEANUP_TIME,
 };
 
+/**
+ * Convert a ICAMEX message to a type4 MEX message.
+ *
+ * @zdev: crypto device pointer
+ * @zreq: crypto request pointer
+ * @mex: pointer to user input data
+ *
+ * Returns 0 on success or -EFAULT.
+ */
 static int ICAMEX_msg_to_type4MEX_msg(struct zcrypt_device *zdev,
 				      struct ap_message *ap_msg,
 				      struct ica_rsa_modexpo *mex)
@@ -112,6 +121,15 @@ static int ICAMEX_msg_to_type4MEX_msg(struct zcrypt_device *zdev,
 	return 0;
 }
 
+/**
+ * Convert a ICACRT message to a type4 CRT message.
+ *
+ * @zdev: crypto device pointer
+ * @zreq: crypto request pointer
+ * @crt: pointer to user input data
+ *
+ * Returns 0 on success or -EFAULT.
+ */
 static int ICACRT_msg_to_type4CRT_msg(struct zcrypt_device *zdev,
 				      struct ap_message *ap_msg,
 				      struct ica_rsa_modexpo_crt *crt)
@@ -163,6 +181,16 @@ static int ICACRT_msg_to_type4CRT_msg(struct zcrypt_device *zdev,
 	return 0;
 }
 
+/**
+ * Copy results from a type 84 reply message back to user space.
+ *
+ * @zdev: crypto device pointer
+ * @reply: reply AP message.
+ * @data: pointer to user output data
+ * @length: size of user output data
+ *
+ * Returns 0 on success or -EFAULT.
+ */
 static int convert_type84(struct zcrypt_device *zdev,
 			  struct ap_message *reply,
 			  char __user *outputdata,
@@ -172,9 +200,9 @@ static int convert_type84(struct zcrypt_device *zdev,
 	char *data;
 
 	if (t84h->len < sizeof(*t84h) + outputdatalength) {
-		
+		/* The result is too short, the PCICA card may not do that.. */
 		zdev->online = 0;
-		return -EAGAIN;	
+		return -EAGAIN;	/* repeat the request on a different device. */
 	}
 	BUG_ON(t84h->len > PCICA_MAX_RESPONSE_SIZE);
 	data = reply->message + t84h->len - outputdatalength;
@@ -188,7 +216,7 @@ static int convert_response(struct zcrypt_device *zdev,
 			    char __user *outputdata,
 			    unsigned int outputdatalength)
 {
-	
+	/* Response type byte is the second byte in the response. */
 	switch (((unsigned char *) reply->message)[1]) {
 	case TYPE82_RSP_CODE:
 	case TYPE88_RSP_CODE:
@@ -196,12 +224,20 @@ static int convert_response(struct zcrypt_device *zdev,
 	case TYPE84_RSP_CODE:
 		return convert_type84(zdev, reply,
 				      outputdata, outputdatalength);
-	default: 
+	default: /* Unknown response type, this should NEVER EVER happen */
 		zdev->online = 0;
-		return -EAGAIN;	
+		return -EAGAIN;	/* repeat the request on a different device. */
 	}
 }
 
+/**
+ * This function is called from the AP bus code after a crypto request
+ * "msg" has finished with the reply message "reply".
+ * It is called from tasklet context.
+ * @ap_dev: pointer to the AP device
+ * @msg: pointer to the AP message
+ * @reply: pointer to the AP reply message
+ */
 static void zcrypt_pcica_receive(struct ap_device *ap_dev,
 				 struct ap_message *msg,
 				 struct ap_message *reply)
@@ -213,7 +249,7 @@ static void zcrypt_pcica_receive(struct ap_device *ap_dev,
 	struct type84_hdr *t84h;
 	int length;
 
-	
+	/* Copy the reply message to the request message buffer. */
 	if (IS_ERR(reply)) {
 		memcpy(msg->message, &error_reply, sizeof(error_reply));
 		goto out;
@@ -230,6 +266,13 @@ out:
 
 static atomic_t zcrypt_step = ATOMIC_INIT(0);
 
+/**
+ * The request distributor calls this function if it picked the PCICA
+ * device to handle a modexpo request.
+ * @zdev: pointer to zcrypt_device structure that identifies the
+ *	  PCICA device to the request distributor
+ * @mex: pointer to the modexpo request buffer
+ */
 static long zcrypt_pcica_modexpo(struct zcrypt_device *zdev,
 				 struct ica_rsa_modexpo *mex)
 {
@@ -254,13 +297,20 @@ static long zcrypt_pcica_modexpo(struct zcrypt_device *zdev,
 		rc = convert_response(zdev, &ap_msg, mex->outputdata,
 				      mex->outputdatalength);
 	else
-		
+		/* Signal pending. */
 		ap_cancel_message(zdev->ap_dev, &ap_msg);
 out_free:
 	kfree(ap_msg.message);
 	return rc;
 }
 
+/**
+ * The request distributor calls this function if it picked the PCICA
+ * device to handle a modexpo_crt request.
+ * @zdev: pointer to zcrypt_device structure that identifies the
+ *	  PCICA device to the request distributor
+ * @crt: pointer to the modexpoc_crt request buffer
+ */
 static long zcrypt_pcica_modexpo_crt(struct zcrypt_device *zdev,
 				     struct ica_rsa_modexpo_crt *crt)
 {
@@ -285,18 +335,26 @@ static long zcrypt_pcica_modexpo_crt(struct zcrypt_device *zdev,
 		rc = convert_response(zdev, &ap_msg, crt->outputdata,
 				      crt->outputdatalength);
 	else
-		
+		/* Signal pending. */
 		ap_cancel_message(zdev->ap_dev, &ap_msg);
 out_free:
 	kfree(ap_msg.message);
 	return rc;
 }
 
+/**
+ * The crypto operations for a PCICA card.
+ */
 static struct zcrypt_ops zcrypt_pcica_ops = {
 	.rsa_modexpo = zcrypt_pcica_modexpo,
 	.rsa_modexpo_crt = zcrypt_pcica_modexpo_crt,
 };
 
+/**
+ * Probe function for PCICA cards. It always accepts the AP device
+ * since the bus_match already checked the hardware type.
+ * @ap_dev: pointer to the AP device.
+ */
 static int zcrypt_pcica_probe(struct ap_device *ap_dev)
 {
 	struct zcrypt_device *zdev;
@@ -327,6 +385,10 @@ out_free:
 	return rc;
 }
 
+/**
+ * This is called to remove the extended PCICA driver information
+ * if an AP device is removed.
+ */
 static void zcrypt_pcica_remove(struct ap_device *ap_dev)
 {
 	struct zcrypt_device *zdev = ap_dev->private;

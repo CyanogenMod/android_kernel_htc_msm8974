@@ -24,6 +24,15 @@
 #include "main.h"
 #include "wmm.h"
 
+/*
+ * This function processes the received buffer.
+ *
+ * Main responsibility of this function is to parse the RxPD to
+ * identify the correct interface this packet is headed for and
+ * forwarding it to the associated handling function, where the
+ * packet will be further processed and sent to kernel/upper layer
+ * if required.
+ */
 int mwifiex_handle_rx_packet(struct mwifiex_adapter *adapter,
 			     struct sk_buff *skb)
 {
@@ -33,7 +42,7 @@ int mwifiex_handle_rx_packet(struct mwifiex_adapter *adapter,
 	struct mwifiex_rxinfo *rx_info = MWIFIEX_SKB_RXCB(skb);
 
 	local_rx_pd = (struct rxpd *) (skb->data);
-	
+	/* Get the BSS number from rxpd, get corresponding priv */
 	priv = mwifiex_get_priv_by_id(adapter, local_rx_pd->bss_num &
 				      BSS_NUM_MASK, local_rx_pd->bss_type);
 	if (!priv)
@@ -46,6 +55,15 @@ int mwifiex_handle_rx_packet(struct mwifiex_adapter *adapter,
 }
 EXPORT_SYMBOL_GPL(mwifiex_handle_rx_packet);
 
+/*
+ * This function sends a packet to device.
+ *
+ * It processes the packet to add the TxPD, checks condition and
+ * sends the processed packet to firmware for transmission.
+ *
+ * On successful completion, the function calls the completion callback
+ * and logs the time.
+ */
 int mwifiex_process_tx(struct mwifiex_private *priv, struct sk_buff *skb,
 		       struct mwifiex_tx_param *tx_param)
 {
@@ -94,6 +112,13 @@ int mwifiex_process_tx(struct mwifiex_private *priv, struct sk_buff *skb,
 	return ret;
 }
 
+/*
+ * Packet send completion callback handler.
+ *
+ * It either frees the buffer directly or forwards it to another
+ * completion callback which checks conditions, updates statistics,
+ * wakes up stalled traffic queue if required, and then frees the buffer.
+ */
 int mwifiex_write_data_complete(struct mwifiex_adapter *adapter,
 				struct sk_buff *skb, int status)
 {

@@ -19,6 +19,11 @@
 #                             Imaging Division
 ################################################################################
 ********************************************************************************/
+/*!
+ * \file	ilp0100_customer_platform.c
+ * \brief	definition of platform specific functions
+ * \author  sheena jain
+ */
 
 #include "ilp0100_customer_platform.h"
 #include <linux/errno.h>
@@ -41,8 +46,20 @@ char gbuf[1000];
 static int fw_count = 0;
 static const struct firmware *fw[READ_FIRMWARE_COUNT];
 
+//! \defgroup	Platform_Functions
 
+/**************************************************************/
+/*	Platform Functions											  */
+/**************************************************************/
 
+/*!
+ * \fn			ilp0100_error Ilp0100_readFirmware(Ilp0100_structInitFirmware *InitFirmwareData)
+ * \brief		Ilp0100 Read firmware function.
+ * \ingroup		Platform_Functions
+ * \param[out]	InitFirmware
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_readFirmware(struct msm_sensor_ctrl_t *s_ctrl, Ilp0100_structInitFirmware *InitFirmwareData)
 {
 	ilp0100_error Ret=ILP0100_ERROR_NONE;
@@ -51,16 +68,16 @@ ilp0100_error Ilp0100_readFirmware(struct msm_sensor_ctrl_t *s_ctrl, Ilp0100_str
 	uint8_t *pFileName[3];
 #else
 	uint8_t *pFileName[READ_FIRMWARE_COUNT];
-#endif 
+#endif /*ST_SPECIFIC*/
 
 	ILP0100_LOG_FUNCTION_START((void*)&InitFirmwareData);
 
 #ifdef ST_SPECIFIC
-	
-	
+	//! Fimware Binary to be read
+	//pFileName[0]="/prj/imgsw/users/sheenaj/SB_1308/CVerifEnv/Ztrans/Csource/api/Ilp0100_Basic_IPM_Code_out.bin";
 	pFileName[0]=".\\ILP0100_IPM_Code_out.bin";
 
-	
+	//! Copy the contents of Firmware Binary in a Buffer
 	Ret=Ilp0100_readFileInBuffer(pFileName[0],&InitFirmwareData->pIlp0100Firmware, &InitFirmwareData->Ilp0100FirmwareSize );
 	if(Ret!=ILP0100_ERROR_NONE)
 	{
@@ -68,10 +85,10 @@ ilp0100_error Ilp0100_readFirmware(struct msm_sensor_ctrl_t *s_ctrl, Ilp0100_str
 		ILP0100_LOG_FUNCTION_END(Ret);
 		return Ret;
 	}
-	
+	//! Calib Data Binary to be read
 	pFileName[1]=".\\ILP0100_IPM_Data_out.bin";
 
-	
+	//! Copy the contents of Calib Data Binary in a Buffer
 	Ret=Ilp0100_readFileInBuffer(pFileName[1],&InitFirmwareData->pIlp0100SensorGenericCalibData, &InitFirmwareData->Ilp0100SensorGenericCalibDataSize );
 	if (Ret!=ILP0100_ERROR_NONE)
 	{
@@ -80,11 +97,14 @@ ilp0100_error Ilp0100_readFirmware(struct msm_sensor_ctrl_t *s_ctrl, Ilp0100_str
 		return Ret;
 	}
 
-	
-	
+	//! For part to part Calibration Data
+	/*InitFirmwareData->pIlp0100SensorRawPart2PartCalibData =0x0;
+	InitFirmwareData->Ilp0100SensorRawPart2PartCalibDataSize= 0;
+	*/
+	//! Part to Part Calib Data Binary to be read
 	pFileName[2]=".\\ILP0100_lscbuffer_out.bin";
 
-	
+	//! Copy the contents of Part to PArt Calib Data Binary in a Buffer
 	Ret=Ilp0100_readFileInBuffer(pFileName[2],&InitFirmwareData->pIlp0100SensorRawPart2PartCalibData, &InitFirmwareData->Ilp0100SensorRawPart2PartCalibDataSize );
 	if(Ret!=ILP0100_ERROR_NONE)
 	{
@@ -92,12 +112,12 @@ ilp0100_error Ilp0100_readFirmware(struct msm_sensor_ctrl_t *s_ctrl, Ilp0100_str
 		ILP0100_LOG_FUNCTION_END(Ret);
 		return Ret;
 	}
-#else 
+#else /*hTC*/
 
-	
+	/*Fimware Binary to be read*/
 	pFileName[0]="ILP0100_IPM_Code_out.bin";
 
-	
+	/*Copy the contents of Firmware Binary in a Buffer*/
 	Ret=Ilp0100_readFileInBuffer(s_ctrl, pFileName[0],
 		&InitFirmwareData->pIlp0100Firmware, 
 		&(InitFirmwareData->Ilp0100FirmwareSize));
@@ -108,10 +128,10 @@ ilp0100_error Ilp0100_readFirmware(struct msm_sensor_ctrl_t *s_ctrl, Ilp0100_str
 		return Ret;
 	}
 
-	
+	/*Calib Data Binary to be read*/
 	pFileName[1]="ILP0100_IPM_Data_out.bin";
 
-	
+	/*Copy the contents of Calib Data Binary in a Buffer*/
 	Ret=Ilp0100_readFileInBuffer(s_ctrl, pFileName[1],
 		&InitFirmwareData->pIlp0100SensorGenericCalibData,
 		&(InitFirmwareData->Ilp0100SensorGenericCalibDataSize));
@@ -124,7 +144,7 @@ ilp0100_error Ilp0100_readFirmware(struct msm_sensor_ctrl_t *s_ctrl, Ilp0100_str
 
 	pFileName[2]="lscbuffer_rev2.bin";
 
-	
+	//! Copy the contents of Part to PArt Calib Data Binary in a Buffer
 	Ret=Ilp0100_readFileInBuffer(s_ctrl, pFileName[2],&InitFirmwareData->pIlp0100SensorRawPart2PartCalibData, &InitFirmwareData->Ilp0100SensorRawPart2PartCalibDataSize );
 	if(Ret!=ILP0100_ERROR_NONE)
 	{
@@ -133,7 +153,7 @@ ilp0100_error Ilp0100_readFirmware(struct msm_sensor_ctrl_t *s_ctrl, Ilp0100_str
 		return Ret;
 	}
 
-#endif 
+#endif /*ST_SPECIFIC*/
 
 	ILP0100_LOG_FUNCTION_END(Ret);
 	return Ret;
@@ -155,6 +175,15 @@ void Ilp0100_release_firmware(void){
 	return;
 }
 
+/*!
+ * \fn			ilp0100_error Ilp0100_readFileInBuffer(uint8_t *pFileName,uint8_t **pAdd)
+ * \brief		Ilp0100 Read File In buffer function.
+ * \ingroup		Platform_Functions
+ * \param[in]	pFileName : Pointer to the filename
+ * \param[out]	pAdd : Address of the Buffer containing File Data
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 
 ilp0100_error Ilp0100_readFileInBuffer(struct msm_sensor_ctrl_t *s_ctrl, uint8_t *pFileName,uint8_t **pAdd, uint32_t* SizeOfBuffer)
 {
@@ -170,14 +199,14 @@ ilp0100_error Ilp0100_readFileInBuffer(struct msm_sensor_ctrl_t *s_ctrl, uint8_t
 	int rc = 0;
 	unsigned char *rawchipII_data_fw;
 	u32 rawchipII_fw_size;
-#endif 
+#endif /*ST_SPECIFIC*/
 
 	ILP0100_LOG_FUNCTION_START((void*)&pFileName, (void*)&pAdd);
 
 #ifdef ST_SPECIFIC
-	
+	//! Open the binary File
 	pFile = fopen ( pFileName , "rb" );
-	
+	//ILP0100_DEBUG_LOG("FileName %s",pFileName);
 	if (pFile==NULL)
 	{
 		ILP0100_ERROR_LOG("\nFile error ");
@@ -185,12 +214,12 @@ ilp0100_error Ilp0100_readFileInBuffer(struct msm_sensor_ctrl_t *s_ctrl, uint8_t
 		return ILP0100_ERROR;
 	}
 
-	
+	//! Obtain file size:
 	fseek (pFile , 0 , SEEK_END);
 	Size = ftell (pFile);
 	rewind (pFile);
 
-	
+	//! allocate buffer of file size
 	pBuffer= (uint8_t*) malloc (sizeof(uint8_t)*Size);
 	if (pBuffer == NULL)
 	{
@@ -199,14 +228,14 @@ ilp0100_error Ilp0100_readFileInBuffer(struct msm_sensor_ctrl_t *s_ctrl, uint8_t
 	   	return ILP0100_ERROR;
 	}
 
-	
+	//! Load the file in Buffer
 	Result = fread (pBuffer,1,Size,pFile);
 	if (Result != Size)
 	{
 		Ret=ILP0100_ERROR;
 		ILP0100_ERROR_LOG("\n File Reading to buffer error");
 		ILP0100_ERROR_LOG("\n Result read=%d", Result);
-		free(pBuffer); 	
+		free(pBuffer); 	//! Free the allocated buffer in case of error
 		ILP0100_LOG_FUNCTION_END(Ret);
 		return Ret;
 	}
@@ -214,8 +243,8 @@ ilp0100_error Ilp0100_readFileInBuffer(struct msm_sensor_ctrl_t *s_ctrl, uint8_t
 	*pAdd= (uint8_t*)pBuffer;
 	*SizeOfBuffer=Size;
 	fclose(pFile);
-#else
-	
+#else/*hTC*//*TODO:use request firmware*/
+	//HTC_CAM chuck add the mechanism of request FW.
 	rc = request_firmware(&fw_rawchip2, pFileName, &(s_ctrl->pdev->dev));
 	if (rc!=0) {
 		pr_info("request_firmware for error %d\n", rc);
@@ -228,12 +257,20 @@ ilp0100_error Ilp0100_readFileInBuffer(struct msm_sensor_ctrl_t *s_ctrl, uint8_t
 
 	*pAdd = (uint8_t*)rawchipII_data_fw;
 	*SizeOfBuffer = rawchipII_fw_size;
-	
-#endif 
+	//HTC_CAM_END
+#endif /*ST_SPECIFIC*/
 	ILP0100_LOG_FUNCTION_END(Ret);
 	return Ret;
 }
 
+/*!
+ * \fn 			ilp0100_error Ilp0100_interruptHandler()
+ * \brief		Ilp0100 function to handle Interrupts, Checks Status Register on both the Pins.
+ * 				Calls the Interrupt manager to service the Interrupt.
+ * \ingroup		Platform_Functions
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_interruptHandler()
 {
 	ilp0100_error Ret= ILP0100_ERROR_NONE;
@@ -242,12 +279,13 @@ ilp0100_error Ilp0100_interruptHandler()
 	bool_t Pin=INTR_PIN_0;
 	uint32_t InterruptReadStatusPin0, InterruptReadStatusPin1;
 #else
-#endif 
+/* Should contain customer's variables */
+#endif /*ST_SPECIFIC*/
 
 	ILP0100_LOG_FUNCTION_START(NULL);
 
 #ifdef ST_SPECIFIC
-	
+	//! Read the Interrupt Status Register on Pin0
 	Pin=INTR_PIN_0;
 	Ret= Ilp0100_interruptReadStatus(&InterruptReadStatusPin0, Pin);
 	if (Ret!=ILP0100_ERROR_NONE)
@@ -257,7 +295,7 @@ ilp0100_error Ilp0100_interruptHandler()
 		return Ret;
 	}
 
-	
+	//! If any Interrupt is there on Pin 0. Call Interrupt manger with Pin as Pin0.
 	if(InterruptReadStatusPin0)
 	{
 		Ret= Ilp0100_interruptManager(InterruptReadStatusPin0, Pin);
@@ -270,7 +308,7 @@ ilp0100_error Ilp0100_interruptHandler()
 	}
 
 	Pin=INTR_PIN_1;
-	
+	//! Read the Interrupt Status Register on Pin1
 	Ret= Ilp0100_interruptReadStatus(&InterruptReadStatusPin1, Pin);
 	if (Ret!=ILP0100_ERROR_NONE)
 	{
@@ -279,7 +317,7 @@ ilp0100_error Ilp0100_interruptHandler()
 		return Ret;
 	}
 
-	
+	//! If any Interrupt is there on Pin 1. Call Interrupt manger with Pin as Pin1.
 	if(InterruptReadStatusPin1)
 	{
 		Ret= Ilp0100_interruptManager(InterruptReadStatusPin1, Pin);
@@ -292,13 +330,28 @@ ilp0100_error Ilp0100_interruptHandler()
 	}
 
 #else
-#endif 
+/*  Should contain customer's implementation */
+/*  Guidelines: */
+/*  Read the interrupt status and call the interrupt manager for each identified interrupt */
+/*  in order of priority */
+#endif /*ST_SPECIFIC*/
 
 	ILP0100_LOG_FUNCTION_END(Ret);
 	return Ret;
 
 }
 
+/*!
+ * \fn			ilp0100_error Ilp0100_interruptManager(uint32_t InterruptId, bool_t Pin)
+ * \brief		Ilp0100 function manage Interrupts. It calls the ISR as per the Interrupt Id.
+ * 				Once the Interrupt is served, it calls Core function interruptClearStatus to clear
+ * 				the status.
+ * \ingroup		Platform_Functions
+ * \param[in]	InterruptId : Id of the Interrupt
+ * \param[in]	Pin : Pin Value of GPIO Pin
+ * \retval		ILP0100_ERROR_NONE : Success
+ * \retval		"Other Error Code" : Failure
+ */
 ilp0100_error Ilp0100_interruptManager(uint32_t InterruptId, bool_t Pin)
 {
 	ilp0100_error Ret=ILP0100_ERROR_NONE;
@@ -308,7 +361,7 @@ ilp0100_error Ilp0100_interruptManager(uint32_t InterruptId, bool_t Pin)
 	{
 		for(i=0;i<32;i++)
 		{
-		
+		//Switch Case for interrupt Id on Pin0
 			switch (InterruptId&(0x01<<i))
 		{
 		case INTR_LONGEXP_GLACE_STATS_READY:
@@ -329,10 +382,10 @@ ilp0100_error Ilp0100_interruptManager(uint32_t InterruptId, bool_t Pin)
 	}
 	else
 	{
-		
+		//Switch Case for interrupt Id on Pin1
 	}
 
-	
+	//! Clear the Interrupt Status
 	Ret= Ilp0100_interruptClearStatus(InterruptId, Pin);
 	if (Ret!=ILP0100_ERROR_NONE)
 	{
@@ -342,7 +395,10 @@ ilp0100_error Ilp0100_interruptManager(uint32_t InterruptId, bool_t Pin)
 	}
 
 #else
-#endif 
+/*  Should contain customer's implementation */
+/*  Guidelines: */
+/*  Serve InterruptId interrupt */
+#endif /*ST_SPECIFIC*/
 
 	ILP0100_LOG_FUNCTION_END(Ret);
 	return Ret;
@@ -356,7 +412,10 @@ ilp0100_error Ilp0100_GetTimeStamp(uint32_t *pTimeStamp)
 #ifdef ST_SPECIFIC
 	*pTimeStamp=0x00;
 #else
-#endif 
+/*  Should contain customer's implementation */
+/*  Guidelines: */
+/*  Get platform's time and return it */
+#endif /*ST_SPECIFIC*/
 
 	return Ret;
 }
@@ -375,8 +434,8 @@ ilp0100_error Ilp0100_DumpLogInFile(uint8_t *pFileName)
 		pBuffer = kmalloc(size_t size, gfp_t flags)(sizeof(uint8_t)*BufferSize);
 		Ret     = Ilp0100_loggingReadBack(pBuffer, &BufferSize);
 	}
-	
-	
+	/* Dump buffer in file */
+	/* dump_in_file is customer defined function to dump in ilp0100_log.bin file content of pBuffer */
 	if(Ret==ILP0100_ERROR_NONE){
 		pFile = fopen ( pFileName , "wb" );
 		fwrite(pBuffer, sizeof(uint8_t), BufferSize, pFile);

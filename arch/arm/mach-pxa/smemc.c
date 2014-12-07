@@ -1,3 +1,6 @@
+/*
+ * Static Memory Controller
+ */
 
 #include <linux/module.h>
 #include <linux/kernel.h>

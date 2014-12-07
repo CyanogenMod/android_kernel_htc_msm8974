@@ -17,7 +17,7 @@
 struct dm_io_region {
 	struct block_device *bdev;
 	sector_t sector;
-	sector_t count;		
+	sector_t count;		/* If this is zero the region is ignored. */
 };
 
 struct page_list {
@@ -28,10 +28,10 @@ struct page_list {
 typedef void (*io_notify_fn)(unsigned long error, void *context);
 
 enum dm_io_mem_type {
-	DM_IO_PAGE_LIST,
-	DM_IO_BVEC,	
-	DM_IO_VMA,	
-	DM_IO_KMEM,	
+	DM_IO_PAGE_LIST,/* Page list */
+	DM_IO_BVEC,	/* Bio vector */
+	DM_IO_VMA,	/* Virtual memory area */
+	DM_IO_KMEM,	/* Kernel memory */
 };
 
 struct dm_io_memory {
@@ -48,23 +48,37 @@ struct dm_io_memory {
 };
 
 struct dm_io_notify {
-	io_notify_fn fn;	
-	void *context;		
+	io_notify_fn fn;	/* Callback for asynchronous requests */
+	void *context;		/* Passed to callback */
 };
 
+/*
+ * IO request structure
+ */
 struct dm_io_client;
 struct dm_io_request {
-	int bi_rw;			
-	struct dm_io_memory mem;	
-	struct dm_io_notify notify;	
-	struct dm_io_client *client;	
+	int bi_rw;			/* READ|WRITE - not READA */
+	struct dm_io_memory mem;	/* Memory to use for io */
+	struct dm_io_notify notify;	/* Synchronous if notify.fn is NULL */
+	struct dm_io_client *client;	/* Client memory handler */
 };
 
+/*
+ * For async io calls, users can alternatively use the dm_io() function below
+ * and dm_io_client_create() to create private mempools for the client.
+ *
+ * Create/destroy may block.
+ */
 struct dm_io_client *dm_io_client_create(void);
 void dm_io_client_destroy(struct dm_io_client *client);
 
+/*
+ * IO interface using private per-client pools.
+ * Each bit in the optional 'sync_error_bits' bitset indicates whether an
+ * error occurred doing io to the corresponding region.
+ */
 int dm_io(struct dm_io_request *io_req, unsigned num_regions,
 	  struct dm_io_region *region, unsigned long *sync_error_bits);
 
-#endif	
-#endif	
+#endif	/* __KERNEL__ */
+#endif	/* _LINUX_DM_IO_H */

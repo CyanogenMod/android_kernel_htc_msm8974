@@ -3,4 +3,4 @@
 
 extern unsigned long numa_free_all_bootmem(void);
 
-#endif 
+#endif /* _ASM_X86_NUMA_64_H */

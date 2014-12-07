@@ -55,7 +55,7 @@ static void w1_send_slave(struct w1_master *dev, u64 rn)
 	struct w1_netlink_cmd *cmd = (struct w1_netlink_cmd *)(hdr + 1);
 	int avail;
 
-	
+	/* update kernel slave list */
 	w1_slave_found(dev, rn);
 
 	avail = dev->priv_size - cmd->len;
@@ -394,6 +394,9 @@ out_cont:
 		msg->len -= sizeof(struct w1_netlink_msg) + m->len;
 		m = (struct w1_netlink_msg *)(((u8 *)m) + sizeof(struct w1_netlink_msg) + m->len);
 
+		/*
+		 * Let's allow requests for nonexisting devices.
+		 */
 		if (err == -ENODEV)
 			err = 0;
 	}

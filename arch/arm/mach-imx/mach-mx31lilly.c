@@ -50,7 +50,13 @@
 
 #include "devices-imx31.h"
 
+/*
+ * This file contains module-specific initialization routines for LILLY-1131.
+ * Initialization of peripherals found on the baseboard is implemented in the
+ * appropriate baseboard support code.
+ */
 
+/* SMSC ethernet support */
 
 static struct resource smsc91x_resources[] = {
 	{
@@ -84,6 +90,7 @@ static struct platform_device smsc91x_device = {
 	}
 };
 
+/* NOR flash */
 static struct physmap_flash_data nor_flash_data = {
 	.width  = 2,
 };
@@ -104,6 +111,7 @@ static struct platform_device physmap_flash_device = {
 	.num_resources = 1,
 };
 
+/* USB */
 
 #define USB_PAD_CFG (PAD_CTL_DRV_MAX | PAD_CTL_SRE_FAST | PAD_CTL_HYS_CMOS | \
 			PAD_CTL_ODE_CMOS | PAD_CTL_100K_PU)
@@ -166,7 +174,7 @@ static int usbh2_init(struct platform_device *pdev)
 
 	mxc_iomux_set_gpr(MUX_PGP_UH2, true);
 
-	
+	/* chip select */
 	mxc_iomux_alloc_pin(IOMUX_MODE(MX31_PIN_DTR_DCE1, IOMUX_CONFIG_GPIO),
 				"USBH2_CS");
 	gpio_request(IOMUX_TO_GPIO(MX31_PIN_DTR_DCE1), "USBH2 CS");
@@ -197,6 +205,7 @@ static void __init lilly1131_usb_init(void)
 		imx31_add_mxc_ehci_hs(2, &usbh2_pdata);
 }
 
+/* SPI */
 
 static int spi_internal_chipselect[] = {
 	MXC_SPI_CS(0),
@@ -257,7 +266,7 @@ static void __init mx31lilly_board_init(void)
 
 	mxc_iomux_alloc_pin(MX31_PIN_CS4__CS4, "Ethernet CS");
 
-	
+	/* SPI */
 	mxc_iomux_alloc_pin(MX31_PIN_CSPI1_SCLK__SCLK, "SPI1_CLK");
 	mxc_iomux_alloc_pin(MX31_PIN_CSPI1_MOSI__MOSI, "SPI1_TX");
 	mxc_iomux_alloc_pin(MX31_PIN_CSPI1_MISO__MISO, "SPI1_RX");
@@ -282,7 +291,7 @@ static void __init mx31lilly_board_init(void)
 
 	platform_add_devices(devices, ARRAY_SIZE(devices));
 
-	
+	/* USB */
 	lilly1131_usb_init();
 }
 

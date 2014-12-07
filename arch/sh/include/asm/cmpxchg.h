@@ -1,6 +1,10 @@
 #ifndef __ASM_SH_CMPXCHG_H
 #define __ASM_SH_CMPXCHG_H
 
+/*
+ * Atomic operations that C can't guarantee us.  Useful for
+ * resource counting etc..
+ */
 
 #include <linux/compiler.h>
 #include <linux/types.h>
@@ -38,6 +42,8 @@ extern void __xchg_called_with_bad_pointer(void);
 #define xchg(ptr,x)	\
 	((__typeof__(*(ptr)))__xchg((ptr),(unsigned long)(x), sizeof(*(ptr))))
 
+/* This function doesn't exist, so you'll get a linker error
+ * if something tries to do an invalid cmpxchg(). */
 extern void __cmpxchg_called_with_bad_pointer(void);
 
 #define __HAVE_ARCH_CMPXCHG 1
@@ -61,4 +67,4 @@ static inline unsigned long __cmpxchg(volatile void * ptr, unsigned long old,
 				    (unsigned long)_n_, sizeof(*(ptr))); \
   })
 
-#endif 
+#endif /* __ASM_SH_CMPXCHG_H */

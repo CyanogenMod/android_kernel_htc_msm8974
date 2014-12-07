@@ -20,4 +20,4 @@ struct task_struct;
 
 #endif
 
-#endif 
+#endif /* !(_S390_CURRENT_H) */

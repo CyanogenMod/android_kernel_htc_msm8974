@@ -11,7 +11,7 @@
  * published by the Free Software Foundation.
 */
 
-struct platform_device; 
+struct platform_device; /* don't need the contents */
 
 #include <linux/gpio.h>
 #include <plat/iic.h>
@@ -21,7 +21,7 @@ struct platform_device;
 void s3c_i2c0_cfg_gpio(struct platform_device *dev)
 {
 	if (soc_is_exynos5250())
-		
+		/* will be implemented with gpio function */
 		return;
 
 	s3c_gpio_cfgall_range(EXYNOS4_GPD1(0), 2,

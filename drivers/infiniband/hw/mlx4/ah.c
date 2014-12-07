@@ -119,6 +119,9 @@ static struct ib_ah *create_iboe_ah(struct ib_pd *pd, struct ib_ah_attr *ah_attr
 			--ah->av.eth.stat_rate;
 	}
 
+	/*
+	 * HW requires multicast LID so we just choose one.
+	 */
 	if (is_mcast)
 		ah->av.ib.dlid = cpu_to_be16(0xc000);
 
@@ -141,6 +144,14 @@ struct ib_ah *mlx4_ib_create_ah(struct ib_pd *pd, struct ib_ah_attr *ah_attr)
 		if (!(ah_attr->ah_flags & IB_AH_GRH)) {
 			ret = ERR_PTR(-EINVAL);
 		} else {
+			/*
+			 * TBD: need to handle the case when we get
+			 * called in an atomic context and there we
+			 * might sleep.  We don't expect this
+			 * currently since we're working with link
+			 * local addresses which we can translate
+			 * without going to sleep.
+			 */
 			ret = create_iboe_ah(pd, ah_attr, ah);
 		}
 
@@ -149,7 +160,7 @@ struct ib_ah *mlx4_ib_create_ah(struct ib_pd *pd, struct ib_ah_attr *ah_attr)
 
 		return ret;
 	} else
-		return create_ib_ah(pd, ah_attr, ah); 
+		return create_ib_ah(pd, ah_attr, ah); /* never fails */
 }
 
 int mlx4_ib_query_ah(struct ib_ah *ibah, struct ib_ah_attr *ah_attr)

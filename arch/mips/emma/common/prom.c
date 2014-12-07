@@ -37,17 +37,18 @@ const char *get_system_type(void)
 #endif
 }
 
+/* [jsun@junsun.net] PMON passes arguments in C main() style */
 void __init prom_init(void)
 {
 	int argc = fw_arg0;
 	char **arg = (char **)fw_arg1;
 	int i;
 
-	
+	/* if user passes kernel args, ignore the default one */
 	if (argc > 1)
 		arcs_cmdline[0] = '\0';
 
-	
+	/* arg[0] is "g", the rest is boot parameters */
 	for (i = 1; i < argc; i++) {
 		if (strlen(arcs_cmdline) + strlen(arg[i]) + 1
 		    >= sizeof(arcs_cmdline))

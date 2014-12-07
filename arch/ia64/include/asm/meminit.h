@@ -8,11 +8,25 @@
  */
 
 
+/*
+ * Entries defined so far:
+ * 	- boot param structure itself
+ * 	- memory map
+ * 	- initrd (optional)
+ * 	- command line string
+ * 	- kernel code & data
+ * 	- crash dumping code reserved region
+ * 	- Kernel memory map built from EFI memory map
+ * 	- ELF core header
+ *	- xen start info if CONFIG_XEN
+ *
+ * More could be added if necessary
+ */
 #define IA64_MAX_RSVD_REGIONS 9
 
 struct rsvd_region {
-	u64 start;	
-	u64 end;	
+	u64 start;	/* virtual address of beginning of element */
+	u64 end;	/* virtual address of end of element + 1 */
 };
 
 extern struct rsvd_region rsvd_region[IA64_MAX_RSVD_REGIONS + 1];
@@ -29,6 +43,9 @@ extern int find_max_min_low_pfn (u64, u64, void *);
 extern unsigned long vmcore_find_descriptor_size(unsigned long address);
 extern int reserve_elfcorehdr(u64 *start, u64 *end);
 
+/*
+ * For rounding an address to the next IA64_GRANULE_SIZE or order
+ */
 #define GRANULEROUNDDOWN(n)	((n) & ~(IA64_GRANULE_SIZE-1))
 #define GRANULEROUNDUP(n)	(((n)+IA64_GRANULE_SIZE-1) & ~(IA64_GRANULE_SIZE-1))
 
@@ -38,12 +55,12 @@ extern int reserve_elfcorehdr(u64 *start, u64 *end);
 # define call_pernode_memory(start, len, func)	(*func)(start, len, 0)
 #endif
 
-#define IGNORE_PFN0	1	
+#define IGNORE_PFN0	1	/* XXX fix me: ignore pfn 0 until TLB miss handler is updated... */
 
 extern int register_active_ranges(u64 start, u64 len, int nid);
 
 #ifdef CONFIG_VIRTUAL_MEM_MAP
-# define LARGE_GAP	0x40000000 
+# define LARGE_GAP	0x40000000 /* Use virtual mem map if hole is > than this */
   extern unsigned long VMALLOC_END;
   extern struct page *vmem_map;
   extern int find_largest_hole(u64 start, u64 end, void *arg);
@@ -55,4 +72,4 @@ static inline int vmemmap_find_next_valid_pfn(int node, int i)
 	return i + 1;
 }
 #endif
-#endif 
+#endif /* meminit_h */

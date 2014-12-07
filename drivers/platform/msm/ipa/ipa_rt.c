@@ -22,6 +22,24 @@
 #define IPA_RT_STATUS_OF_ADD_FAILED	(-1)
 #define IPA_RT_STATUS_OF_DEL_FAILED	(-1)
 
+/**
+ * ipa_generate_rt_hw_rule() - generates the routing hardware rule
+ * @ip: the ip address family type
+ * @entry: routing entry
+ * @buf: output buffer, buf == NULL means
+ *		caller wants to know the size of the rule as seen
+ *		by HW so they did not pass a valid buffer, we will use a
+ *		scratch buffer instead.
+ *		With this scheme we are going to
+ *		generate the rule twice, once to know size using scratch
+ *		buffer and second to write the rule to the actual caller
+ *		supplied buffer which is of required size
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * caller needs to hold any needed locks to ensure integrity
+ *
+ */
 static int ipa_generate_rt_hw_rule(enum ipa_ip_type ip,
 		struct ipa_rt_entry *entry, u8 *buf)
 {
@@ -80,6 +98,18 @@ static int ipa_generate_rt_hw_rule(enum ipa_ip_type ip,
 	return 0;
 }
 
+/**
+ * ipa_get_rt_hw_tbl_size() - returns the size of HW routing table
+ * @ip: the ip address family type
+ * @hdr_sz: header size
+ * @max_rt_idx: maximal index
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * caller needs to hold any needed locks to ensure integrity
+ *
+ * the MSB set in rt_idx_bitmap indicates the size of hdr of routing tbl
+ */
 static int ipa_get_rt_hw_tbl_size(enum ipa_ip_type ip, u32 *hdr_sz,
 		int *max_rt_idx)
 {
@@ -128,9 +158,9 @@ static int ipa_get_rt_hw_tbl_size(enum ipa_ip_type ip, u32 *hdr_sz,
 			continue;
 
 		if (tbl_sz) {
-			
+			/* add the terminator */
 			total_sz += (tbl_sz + IPA_RT_TABLE_WORD_SIZE);
-			
+			/* every rule-set should start at word boundary */
 			total_sz = (total_sz + IPA_RT_ENTRY_MEMORY_ALLIGNMENT) &
 						~IPA_RT_ENTRY_MEMORY_ALLIGNMENT;
 		}
@@ -141,6 +171,13 @@ static int ipa_get_rt_hw_tbl_size(enum ipa_ip_type ip, u32 *hdr_sz,
 	return total_sz;
 }
 
+/**
+ * ipa_generate_rt_hw_tbl() - generates the routing hardware table
+ * @ip:	[in] the ip address family type
+ * @mem:	[out] buffer to put the filtering table
+ *
+ * Returns:	0 on success, negative on failure
+ */
 int ipa_generate_rt_hw_tbl(enum ipa_ip_type ip, struct ipa_mem_buffer *mem)
 {
 	struct ipa_rt_tbl *tbl;
@@ -173,11 +210,11 @@ int ipa_generate_rt_hw_tbl(enum ipa_ip_type ip, struct ipa_mem_buffer *mem)
 
 	memset(mem->base, 0, mem->size);
 
-	
+	/* build the rt tbl in the DMA buffer to submit to IPA HW */
 	base = hdr = (u8 *)mem->base;
 	body = base + hdr_sz;
 
-	
+	/* setup all indices to point to the empty sys rt tbl */
 	for (i = 0; i <= max_rt_idx; i++)
 		ipa_write_32(ipa_ctx->empty_rt_tbl_mem.phys_base,
 				hdr + (i * IPA_RT_TABLE_WORD_SIZE));
@@ -191,16 +228,16 @@ int ipa_generate_rt_hw_tbl(enum ipa_ip_type ip, struct ipa_mem_buffer *mem)
 		}
 
 		if (!tbl->in_sys) {
-			
+			/* convert offset to words from bytes */
 			offset &= ~IPA_RT_ENTRY_MEMORY_ALLIGNMENT;
-			
+			/* rule is at an offset from base */
 			offset |= IPA_RT_BIT_MASK;
 
-			
+			/* update the hdr at the right index */
 			ipa_write_32(offset, hdr +
 					(tbl->idx * IPA_RT_TABLE_WORD_SIZE));
 
-			
+			/* generate the rule-set */
 			list_for_each_entry(entry, &tbl->head_rt_rule_list,
 					link) {
 				if (ipa_generate_rt_hw_rule(ip, entry, body)) {
@@ -210,16 +247,16 @@ int ipa_generate_rt_hw_tbl(enum ipa_ip_type ip, struct ipa_mem_buffer *mem)
 				body += entry->hw_len;
 			}
 
-			
+			/* write the rule-set terminator */
 			body = ipa_write_32(0, body);
 			if ((u32)body & IPA_RT_ENTRY_MEMORY_ALLIGNMENT)
-				
+				/* advance body to next word boundary */
 				body = body + (IPA_RT_TABLE_WORD_SIZE -
 					      ((u32)body &
 					      IPA_RT_ENTRY_MEMORY_ALLIGNMENT));
 		} else {
 			WARN_ON(tbl->sz == 0);
-			
+			/* allocate memory for the RT tbl */
 			rt_tbl_mem.size = tbl->sz;
 			rt_tbl_mem.base =
 			   dma_alloc_coherent(NULL, rt_tbl_mem.size,
@@ -235,11 +272,11 @@ int ipa_generate_rt_hw_tbl(enum ipa_ip_type ip, struct ipa_mem_buffer *mem)
 					IPA_RT_ENTRY_MEMORY_ALLIGNMENT);
 			rt_tbl_mem_body = rt_tbl_mem.base;
 			memset(rt_tbl_mem.base, 0, rt_tbl_mem.size);
-			
+			/* update the hdr at the right index */
 			ipa_write_32(rt_tbl_mem.phys_base,
 					hdr + (tbl->idx *
 					IPA_RT_TABLE_WORD_SIZE));
-			
+			/* generate the rule-set */
 			list_for_each_entry(entry, &tbl->head_rt_rule_list,
 					link) {
 				if (ipa_generate_rt_hw_rule(ip, entry,
@@ -251,7 +288,7 @@ int ipa_generate_rt_hw_tbl(enum ipa_ip_type ip, struct ipa_mem_buffer *mem)
 				rt_tbl_mem_body += entry->hw_len;
 			}
 
-			
+			/* write the rule-set terminator */
 			rt_tbl_mem_body = ipa_write_32(0, rt_tbl_mem_body);
 
 			if (tbl->curr_mem.phys_base) {
@@ -389,6 +426,15 @@ fail_alloc_mem:
 	return -EPERM;
 }
 
+/**
+ * __ipa_find_rt_tbl() - find the routing table
+ *			which name is given as parameter
+ * @ip:	[in] the ip address family type of the wanted routing table
+ * @name:	[in] the name of the wanted routing table
+ *
+ * Returns: the routing table which name is given as parameter, or NULL if it
+ * doesn't exist
+ */
 struct ipa_rt_tbl *__ipa_find_rt_tbl(enum ipa_ip_type ip, const char *name)
 {
 	struct ipa_rt_tbl *entry;
@@ -423,7 +469,7 @@ static struct ipa_rt_tbl *__ipa_add_rt_tbl(enum ipa_ip_type ip,
 	}
 
 	set = &ipa_ctx->rt_tbl_set[ip];
-	
+	/* check if this table exists */
 	entry = __ipa_find_rt_tbl(ip, name);
 	if (!entry) {
 		entry = kmem_cache_zalloc(ipa_ctx->rt_tbl_cache, GFP_KERNEL);
@@ -431,7 +477,7 @@ static struct ipa_rt_tbl *__ipa_add_rt_tbl(enum ipa_ip_type ip,
 			IPAERR("failed to alloc RT tbl object\n");
 			goto error;
 		}
-		
+		/* find a routing tbl index */
 		for (i = 0; i < IPA_RT_INDEX_BITMAP_SIZE; i++) {
 			if (!test_bit(i, &ipa_ctx->rt_idx_bitmap[ip])) {
 				entry->idx = i;
@@ -515,7 +561,7 @@ static int __ipa_del_rt_tbl(struct ipa_rt_tbl *entry)
 				entry->set->tbl_cnt);
 	}
 
-	
+	/* remove the handle from the database */
 	rb_erase(&node->node, &ipa_ctx->rt_tbl_hdl_tree);
 	kmem_cache_free(ipa_ctx->tree_node_cache, node);
 
@@ -547,6 +593,10 @@ static int __ipa_add_rt_rule(enum ipa_ip_type ip, const char *name,
 		IPAERR("bad params\n");
 		goto fail_rt_tbl_sanity;
 	}
+	/*
+	 * do not allow any rules to be added at end of the "default" routing
+	 * tables
+	 */
 	if (!strncmp(tbl->name, IPA_DFLT_RT_TBL_NAME, IPA_RESOURCE_NAME_MAX) &&
 	    (tbl->rule_cnt > 0) && (at_rear != 0)) {
 		IPAERR("cannot add rule at end of tbl rule_cnt=%d at_rear=%d\n",
@@ -592,6 +642,15 @@ error:
 	return -EPERM;
 }
 
+/**
+ * ipa_add_rt_rule() - Add the specified routing rules to SW and optionally
+ * commit to IPA HW
+ * @rules:	[inout] set of routing rules to add
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_add_rt_rule(struct ipa_ioc_add_rt_rule *rules)
 {
 	int i;
@@ -657,13 +716,22 @@ int __ipa_del_rt_rule(u32 rule_hdl)
 	entry->cookie = 0;
 	kmem_cache_free(ipa_ctx->rt_rule_cache, entry);
 
-	
+	/* remove the handle from the database */
 	rb_erase(&node->node, &ipa_ctx->rt_rule_hdl_tree);
 	kmem_cache_free(ipa_ctx->tree_node_cache, node);
 
 	return 0;
 }
 
+/**
+ * ipa_del_rt_rule() - Remove the specified routing rules to SW and optionally
+ * commit to IPA HW
+ * @hdls:	[inout] set of routing rules to delete
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_del_rt_rule(struct ipa_ioc_del_rt_rule *hdls)
 {
 	int i;
@@ -697,6 +765,15 @@ bail:
 }
 EXPORT_SYMBOL(ipa_del_rt_rule);
 
+/**
+ * ipa_commit_rt_rule() - Commit the current SW routing table of specified type
+ * to IPA HW
+ * @ip:	The family of routing tables
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_commit_rt(enum ipa_ip_type ip)
 {
 	int ret;
@@ -706,6 +783,10 @@ int ipa_commit_rt(enum ipa_ip_type ip)
 		return -EINVAL;
 	}
 
+	/*
+	 * issue a commit on the filtering module of same IP type since
+	 * filtering rules point to routing tables
+	 */
 	if (ipa_commit_flt(ip))
 		return -EPERM;
 
@@ -722,6 +803,15 @@ bail:
 }
 EXPORT_SYMBOL(ipa_commit_rt);
 
+/**
+ * ipa_reset_rt() - reset the current SW routing table of specified type
+ * (does not commit to HW)
+ * @ip:	The family of routing tables
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_reset_rt(enum ipa_ip_type ip)
 {
 	struct ipa_rt_tbl *tbl;
@@ -737,6 +827,10 @@ int ipa_reset_rt(enum ipa_ip_type ip)
 		return -EINVAL;
 	}
 
+	/*
+	 * issue a reset on the filtering module of same IP type since
+	 * filtering rules point to routing tables
+	 */
 	if (ipa_reset_flt(ip))
 		IPAERR("fail to reset flt ip=%d\n", ip);
 
@@ -755,6 +849,10 @@ int ipa_reset_rt(enum ipa_ip_type ip)
 				return -EFAULT;
 			}
 
+			/*
+			 * for the "default" routing tbl, remove all but the
+			 *  last rule
+			 */
 			if (tbl->idx == 0 && tbl->rule_cnt == 1)
 				continue;
 
@@ -765,7 +863,7 @@ int ipa_reset_rt(enum ipa_ip_type ip)
 			rule->cookie = 0;
 			kmem_cache_free(ipa_ctx->rt_rule_cache, rule);
 
-			
+			/* remove the handle from the database */
 			rb_erase(&node->node, &ipa_ctx->rt_rule_hdl_tree);
 			kmem_cache_free(ipa_ctx->tree_node_cache, node);
 		}
@@ -777,7 +875,7 @@ int ipa_reset_rt(enum ipa_ip_type ip)
 			return -EFAULT;
 		}
 
-		
+		/* do not remove the "default" routing tbl which has index 0 */
 		if (tbl->idx != 0) {
 			if (!tbl->in_sys) {
 				list_del(&tbl->link);
@@ -795,7 +893,7 @@ int ipa_reset_rt(enum ipa_ip_type ip)
 				IPADBG("rst sys rt tbl_idx=%d tbl_cnt=%d\n",
 						tbl->idx, set->tbl_cnt);
 			}
-			
+			/* remove the handle from the database */
 			rb_erase(&node->node, &ipa_ctx->rt_tbl_hdl_tree);
 			kmem_cache_free(ipa_ctx->tree_node_cache, node);
 		}
@@ -806,6 +904,16 @@ int ipa_reset_rt(enum ipa_ip_type ip)
 }
 EXPORT_SYMBOL(ipa_reset_rt);
 
+/**
+ * ipa_get_rt_tbl() - lookup the specified routing table and return handle if it
+ * exists, if lookup succeeds the routing table ref cnt is increased
+ * @lookup:	[inout] routing table to lookup and its handle
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ *	Caller should call ipa_put_rt_tbl later if this function succeeds
+ */
 int ipa_get_rt_tbl(struct ipa_ioc_get_rt_tbl *lookup)
 {
 	struct ipa_rt_tbl *entry;
@@ -821,7 +929,7 @@ int ipa_get_rt_tbl(struct ipa_ioc_get_rt_tbl *lookup)
 		entry->ref_cnt++;
 		lookup->hdl = (uint32_t)entry;
 
-		
+		/* commit for get */
 		if (__ipa_commit_rt(lookup->ip))
 			IPAERR("fail to commit RT tbl\n");
 
@@ -833,6 +941,14 @@ int ipa_get_rt_tbl(struct ipa_ioc_get_rt_tbl *lookup)
 }
 EXPORT_SYMBOL(ipa_get_rt_tbl);
 
+/**
+ * ipa_put_rt_tbl() - Release the specified routing table handle
+ * @rt_tbl_hdl:	[in] the routing table handle to release
+ *
+ * Returns:	0 on success, negative on failure
+ *
+ * Note:	Should not be called from atomic context
+ */
 int ipa_put_rt_tbl(u32 rt_tbl_hdl)
 {
 	struct ipa_rt_tbl *entry = (struct ipa_rt_tbl *)rt_tbl_hdl;
@@ -866,7 +982,7 @@ int ipa_put_rt_tbl(u32 rt_tbl_hdl)
 	if (entry->ref_cnt == 0 && entry->rule_cnt == 0) {
 		if (__ipa_del_rt_tbl(entry))
 			IPAERR("fail to del RT tbl\n");
-		
+		/* commit for put */
 		if (__ipa_commit_rt(ip))
 			IPAERR("fail to commit RT tbl\n");
 	}

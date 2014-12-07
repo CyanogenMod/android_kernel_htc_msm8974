@@ -13,6 +13,7 @@
 #ifndef __ASM_ARCH_MSM_IRQS_8960_H
 #define __ASM_ARCH_MSM_IRQS_8960_H
 
+/* MSM ACPU Interrupt Numbers */
 
 #define INT_VGIC				(GIC_PPI_START + 0)
 #define INT_DEBUG_TIMER_EXP			(GIC_PPI_START + 1)
@@ -29,6 +30,7 @@
 #define SC_AVSCPUXUP				(GIC_PPI_START + 12)
 #define SC_SICCPUXACGIRPTREQ			(GIC_PPI_START + 13)
 #define SC_SICCPUXEXTFAULTIRPTREQ		(GIC_PPI_START + 14)
+/* PPI 15 is unused */
 
 #define APCC_QGICACGIRPTREQ			(GIC_SPI_START + 0)
 #define APCC_QGICL2PERFMONIRPTREQ		(GIC_SPI_START + 1)
@@ -262,10 +264,12 @@
 #define MSM8960_CSIPHY_2_2LN_IRQ		(GIC_SPI_START + 228)
 #define CSI_2_IRQ				(GIC_SPI_START + 227)
 
+/* Backwards compatible IRQ macros. */
 #define INT_ADM_AARM				ADM_0_SCSS_0_IRQ
 
-#define INT_A9_M2A_0		(GIC_SPI_START + 37) 
-#define INT_A9_M2A_5		(GIC_SPI_START + 38) 
+/* smd/smsm interrupts */
+#define INT_A9_M2A_0		(GIC_SPI_START + 37) /*MSS_TO_APPS_IRQ_0*/
+#define INT_A9_M2A_5		(GIC_SPI_START + 38) /*MSS_TO_APPS_IRQ_1*/
 #define INT_ADSP_A11		LPASS_SCSS_GP_HIGH_IRQ
 #define INT_ADSP_A11_SMSM	LPASS_SCSS_GP_MEDIUM_IRQ
 #define INT_DSPS_A11		SPS_MTI_31

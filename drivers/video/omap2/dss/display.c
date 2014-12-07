@@ -308,6 +308,9 @@ int omapdss_default_get_recommended_bpp(struct omap_dss_device *dssdev)
 }
 EXPORT_SYMBOL(omapdss_default_get_recommended_bpp);
 
+/* Checks if replication logic should be used. Only use for active matrix,
+ * when overlay is in RGB12U or RGB16 mode, and LCD interface is
+ * 18bpp or 24bpp */
 bool dss_use_replication(struct omap_dss_device *dssdev,
 		enum omap_color_mode mode)
 {
@@ -389,7 +392,7 @@ void dss_init_device(struct platform_device *pdev,
 		return;
 	}
 
-	
+	/* create device sysfs files */
 	i = 0;
 	while ((attr = display_sysfs_attrs[i++]) != NULL) {
 		r = device_create_file(&dssdev->dev, attr);
@@ -397,7 +400,7 @@ void dss_init_device(struct platform_device *pdev,
 			DSSERR("failed to create sysfs file\n");
 	}
 
-	
+	/* create display? sysfs links */
 	r = sysfs_create_link(&pdev->dev.kobj, &dssdev->dev.kobj,
 			dev_name(&dssdev->dev));
 	if (r)
@@ -451,7 +454,7 @@ int dss_suspend_all_devices(void)
 
 	r = bus_for_each_dev(bus, NULL, NULL, dss_suspend_device);
 	if (r) {
-		
+		/* resume all displays that were suspended */
 		dss_resume_all_devices();
 		return r;
 	}
@@ -511,6 +514,8 @@ void omap_dss_put_device(struct omap_dss_device *dssdev)
 }
 EXPORT_SYMBOL(omap_dss_put_device);
 
+/* ref count of the found device is incremented. ref count
+ * of from-device is decremented. */
 struct omap_dss_device *omap_dss_get_next_device(struct omap_dss_device *from)
 {
 	struct device *dev;

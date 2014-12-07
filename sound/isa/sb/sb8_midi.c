@@ -43,7 +43,7 @@ irqreturn_t snd_sb8dsp_midi_interrupt(struct snd_sb *chip)
 	
 	rmidi = chip->rmidi;
 	if (!rmidi) {
-		inb(SBP(chip, DATA_AVAIL));	
+		inb(SBP(chip, DATA_AVAIL));	/* ack interrupt */
 		return IRQ_NONE;
 	}
 
@@ -78,7 +78,7 @@ static int snd_sb8dsp_midi_input_open(struct snd_rawmidi_substream *substream)
 	chip->midi_substream_input = substream;
 	if (!(chip->open & SB_OPEN_MIDI_OUTPUT)) {
 		spin_unlock_irqrestore(&chip->open_lock, flags);
-		snd_sbdsp_reset(chip);		
+		snd_sbdsp_reset(chip);		/* reset DSP */
 		if (chip->hardware >= SB_HW_20)
 			snd_sbdsp_command(chip, SB_DSP_MIDI_UART_IRQ);
 	} else {
@@ -105,7 +105,7 @@ static int snd_sb8dsp_midi_output_open(struct snd_rawmidi_substream *substream)
 	chip->midi_substream_output = substream;
 	if (!(chip->open & SB_OPEN_MIDI_INPUT)) {
 		spin_unlock_irqrestore(&chip->open_lock, flags);
-		snd_sbdsp_reset(chip);		
+		snd_sbdsp_reset(chip);		/* reset DSP */
 		if (chip->hardware >= SB_HW_20)
 			snd_sbdsp_command(chip, SB_DSP_MIDI_UART_IRQ);
 	} else {
@@ -125,7 +125,7 @@ static int snd_sb8dsp_midi_input_close(struct snd_rawmidi_substream *substream)
 	chip->midi_substream_input = NULL;
 	if (!(chip->open & SB_OPEN_MIDI_OUTPUT)) {
 		spin_unlock_irqrestore(&chip->open_lock, flags);
-		snd_sbdsp_reset(chip);		
+		snd_sbdsp_reset(chip);		/* reset DSP */
 	} else {
 		spin_unlock_irqrestore(&chip->open_lock, flags);
 	}
@@ -143,7 +143,7 @@ static int snd_sb8dsp_midi_output_close(struct snd_rawmidi_substream *substream)
 	chip->midi_substream_output = NULL;
 	if (!(chip->open & SB_OPEN_MIDI_INPUT)) {
 		spin_unlock_irqrestore(&chip->open_lock, flags);
-		snd_sbdsp_reset(chip);		
+		snd_sbdsp_reset(chip);		/* reset DSP */
 	} else {
 		spin_unlock_irqrestore(&chip->open_lock, flags);
 	}
@@ -180,7 +180,7 @@ static void snd_sb8dsp_midi_output_write(struct snd_rawmidi_substream *substream
 	char byte;
 	int max = 32;
 
-	
+	/* how big is Tx FIFO? */
 	chip = substream->rmidi->private_data;
 	while (max-- > 0) {
 		spin_lock_irqsave(&chip->open_lock, flags);
@@ -195,7 +195,7 @@ static void snd_sb8dsp_midi_output_write(struct snd_rawmidi_substream *substream
 			while ((inb(SBP(chip, STATUS)) & 0x80) != 0 && --timeout > 0)
 				;
 			if (timeout == 0) {
-				
+				/* Tx FIFO full - try again later */
 				spin_unlock_irqrestore(&chip->open_lock, flags);
 				break;
 			}

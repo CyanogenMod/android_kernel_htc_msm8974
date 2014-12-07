@@ -25,19 +25,26 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 **************************************************************************/
 
+/*
+ * Authors:
+ *   Kevin E. Martin <kevin@precisioninsight.com>
+ */
 
+/* I/O register offsets */
 #define SRX VGA_SEQ_I
 #define GRX VGA_GFX_I
 #define ARX VGA_ATT_IW
 #define XRX 0x3D6
 #define MRX 0x3D2
 
+/* VGA Color Palette Registers */
 #define DACMASK		0x3C6
 #define DACSTATE	0x3C7
 #define DACRX		0x3C7
 #define DACWX		0x3C8
 #define DACDATA		0x3C9
 
+/* CRT Controller Registers (CRX) */
 #define START_ADDR_HI		0x0C
 #define START_ADDR_LO		0x0D
 #define VERT_SYNC_END		0x11
@@ -55,6 +62,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define INTERLACE_ENABLE	0x80
 #define INTERLACE_DISABLE	0x00
 
+/* Miscellaneous Output Register */
 #define MSR_R		0x3CC
 #define MSR_W		0x3C2
 #define IO_ADDR_SELECT	0x01
@@ -62,6 +70,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define MDA_BASE	0x3B0
 #define CGA_BASE	0x3D0
 
+/* System Configuration Extension Registers (XRX) */
 #define IO_CTNL		0x09
 #define EXTENDED_ATTR_CNTL	0x02
 #define EXTENDED_CRTC_CNTL	0x01
@@ -188,6 +197,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define PLL_MEMCLK__88889KHZ	0x02
 #define PLL_MEMCLK_100000KHZ	0x03
 
+/* Multimedia Extension Registers (MRX) */
 #define ACQ_CNTL_1	0x02
 #define ACQ_CNTL_2	0x03
 #define FRAME_CAP_MODE		0x01
@@ -197,21 +207,25 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define COL_KEY_CNTL_1		0x3C
 #define BLANK_DISP_OVERLAY	0x20
 
+/* FIFOs */
 #define LP_FIFO		0x1000
 #define HP_FIFO		0x2000
 #define INSTPNT		0x3040
 #define LP_FIFO_COUNT	0x3040
 #define HP_FIFO_COUNT	0x3041
 
+/* FIFO Commands */
 #define CLIENT		0xE0000000
 #define CLIENT_2D	0x60000000
 
+/* Command Parser Mode Register */
 #define COMPARS		0x3038
 #define TWO_D_INST_DISABLE		0x08
 #define THREE_D_INST_DISABLE		0x04
 #define STATE_VAR_UPDATE_DISABLE	0x02
 #define PAL_STIP_DISABLE		0x01
 
+/* Interrupt Control Registers */
 #define IER		0x3030
 #define IIR		0x3032
 #define IMR		0x3034
@@ -231,12 +245,14 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define CAPTURE_VSYNC		0x0002
 #define THREE_D_PIPE_FLUSHED	0x0001
 
+/* FIFO Watermark and Burst Length Control Register */
 #define FWATER_BLC	0x00006000
 #define LMI_BURST_LENGTH	0x7F000000
 #define LMI_FIFO_WATERMARK	0x003F0000
 #define AGP_BURST_LENGTH	0x00007F00
 #define AGP_FIFO_WATERMARK	0x0000003F
 
+/* BitBLT Registers */
 #define SRC_DST_PITCH	0x00040000
 #define DST_PITCH		0x1FFF0000
 #define SRC_PITCH		0x00001FFF
@@ -260,7 +276,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #define DYN_DEPTH_8BPP		0x00000000
 #define DYN_DEPTH_16BPP		0x01000000
 #define DYN_DEPTH_24BPP		0x02000000
-#define DYN_DEPTH_32BPP		0x03000000	
+#define DYN_DEPTH_32BPP		0x03000000	/* Unimplemented on the i740 */
 #define DYN_DEPTH_ENABLE	0x00800000
 #define PAT_VERT_ALIGN		0x00700000
 #define SOLID_PAT_SELECT	0x00080000

@@ -22,6 +22,11 @@
 
 #include <asm/rheap.h>
 
+/*
+ * Fixup a list_head, needed when copying lists.  If the pointers fall
+ * between s and e, apply the delta.  This assumes that
+ * sizeof(struct list_head *) == sizeof(unsigned long *).
+ */
 static inline void fixup(unsigned long s, unsigned long e, int d,
 			 struct list_head *l)
 {
@@ -36,6 +41,7 @@ static inline void fixup(unsigned long s, unsigned long e, int d,
 		*pp += d;
 }
 
+/* Grow the allocated blocks */
 static int grow(rh_info_t * info, int max_blocks)
 {
 	rh_block_t *block, *blk;
@@ -54,13 +60,13 @@ static int grow(rh_info_t * info, int max_blocks)
 
 	if (info->max_blocks > 0) {
 
-		
+		/* copy old block area */
 		memcpy(block, info->block,
 		       sizeof(rh_block_t) * info->max_blocks);
 
 		delta = (char *)block - (char *)info->block;
 
-		
+		/* and fixup list pointers */
 		blks = (unsigned long)info->block;
 		blke = (unsigned long)(info->block + info->max_blocks);
 
@@ -71,7 +77,7 @@ static int grow(rh_info_t * info, int max_blocks)
 		fixup(blks, blke, delta, &info->free_list);
 		fixup(blks, blke, delta, &info->taken_list);
 
-		
+		/* free the old allocated memory */
 		if ((info->flags & RHIF_STATIC_BLOCK) == 0)
 			kfree(info->block);
 	}
@@ -81,7 +87,7 @@ static int grow(rh_info_t * info, int max_blocks)
 	info->max_blocks = max_blocks;
 	info->flags &= ~RHIF_STATIC_BLOCK;
 
-	
+	/* add all new blocks to the free list */
 	blk = block + info->max_blocks - new_blocks;
 	for (i = 0; i < new_blocks; i++, blk++)
 		list_add(&blk->list, &info->empty_list);
@@ -89,19 +95,24 @@ static int grow(rh_info_t * info, int max_blocks)
 	return 0;
 }
 
+/*
+ * Assure at least the required amount of empty slots.  If this function
+ * causes a grow in the block area then all pointers kept to the block
+ * area are invalid!
+ */
 static int assure_empty(rh_info_t * info, int slots)
 {
 	int max_blocks;
 
-	
+	/* This function is not meant to be used to grow uncontrollably */
 	if (slots >= 4)
 		return -EINVAL;
 
-	
+	/* Enough space */
 	if (info->empty_slots >= slots)
 		return 0;
 
-	
+	/* Next 16 sized block */
 	max_blocks = ((info->max_blocks + slots) + 15) & ~15;
 
 	return grow(info, max_blocks);
@@ -111,19 +122,19 @@ static rh_block_t *get_slot(rh_info_t * info)
 {
 	rh_block_t *blk;
 
-	
-	
+	/* If no more free slots, and failure to extend. */
+	/* XXX: You should have called assure_empty before */
 	if (info->empty_slots == 0) {
 		printk(KERN_ERR "rh: out of slots; crash is imminent.\n");
 		return NULL;
 	}
 
-	
+	/* Get empty slot to use */
 	blk = list_entry(info->empty_list.next, rh_block_t, list);
 	list_del_init(&blk->list);
 	info->empty_slots--;
 
-	
+	/* Initialize */
 	blk->start = 0;
 	blk->size = 0;
 	blk->owner = NULL;
@@ -147,11 +158,13 @@ static void attach_free_block(rh_info_t * info, rh_block_t * blkn)
 	unsigned long s, e, bs, be;
 	struct list_head *l;
 
-	
+	/* We assume that they are aligned properly */
 	size = blkn->size;
 	s = blkn->start;
 	e = s + size;
 
+	/* Find the blocks immediately before and after the given one
+	 * (if any) */
 	before = NULL;
 	after = NULL;
 	next = NULL;
@@ -171,19 +184,19 @@ static void attach_free_block(rh_info_t * info, rh_block_t * blkn)
 		if (e == bs)
 			after = blk;
 
-		
+		/* If both are not null, break now */
 		if (before != NULL && after != NULL)
 			break;
 	}
 
-	
+	/* Now check if they are really adjacent */
 	if (before && s != (before->start + before->size))
 		before = NULL;
 
 	if (after && e != after->start)
 		after = NULL;
 
-	
+	/* No coalescing; list insert and return */
 	if (before == NULL && after == NULL) {
 
 		if (next != NULL)
@@ -194,23 +207,23 @@ static void attach_free_block(rh_info_t * info, rh_block_t * blkn)
 		return;
 	}
 
-	
+	/* We don't need it anymore */
 	release_slot(info, blkn);
 
-	
+	/* Grow the before block */
 	if (before != NULL && after == NULL) {
 		before->size += size;
 		return;
 	}
 
-	
+	/* Grow the after block backwards */
 	if (before == NULL && after != NULL) {
 		after->start -= size;
 		after->size += size;
 		return;
 	}
 
-	
+	/* Grow the before block, and release the after block */
 	before->size += size + after->size;
 	list_del(&after->list);
 	release_slot(info, after);
@@ -221,7 +234,7 @@ static void attach_taken_block(rh_info_t * info, rh_block_t * blkn)
 	rh_block_t *blk;
 	struct list_head *l;
 
-	
+	/* Find the block immediately before the given one (if any) */
 	list_for_each(l, &info->taken_list) {
 		blk = list_entry(l, rh_block_t, list);
 		if (blk->start > blkn->start) {
@@ -233,11 +246,15 @@ static void attach_taken_block(rh_info_t * info, rh_block_t * blkn)
 	list_add_tail(&blkn->list, &info->taken_list);
 }
 
+/*
+ * Create a remote heap dynamically.  Note that no memory for the blocks
+ * are allocated.  It will upon the first allocation
+ */
 rh_info_t *rh_create(unsigned int alignment)
 {
 	rh_info_t *info;
 
-	
+	/* Alignment must be a power of two */
 	if ((alignment & (alignment - 1)) != 0)
 		return ERR_PTR(-EINVAL);
 
@@ -247,7 +264,7 @@ rh_info_t *rh_create(unsigned int alignment)
 
 	info->alignment = alignment;
 
-	
+	/* Initially everything as empty */
 	info->block = NULL;
 	info->max_blocks = 0;
 	info->empty_slots = 0;
@@ -261,6 +278,10 @@ rh_info_t *rh_create(unsigned int alignment)
 }
 EXPORT_SYMBOL_GPL(rh_create);
 
+/*
+ * Destroy a dynamically created remote heap.  Deallocate only if the areas
+ * are not static
+ */
 void rh_destroy(rh_info_t * info)
 {
 	if ((info->flags & RHIF_STATIC_BLOCK) == 0 && info->block != NULL)
@@ -271,19 +292,24 @@ void rh_destroy(rh_info_t * info)
 }
 EXPORT_SYMBOL_GPL(rh_destroy);
 
+/*
+ * Initialize in place a remote heap info block.  This is needed to support
+ * operation very early in the startup of the kernel, when it is not yet safe
+ * to call kmalloc.
+ */
 void rh_init(rh_info_t * info, unsigned int alignment, int max_blocks,
 	     rh_block_t * block)
 {
 	int i;
 	rh_block_t *blk;
 
-	
+	/* Alignment must be a power of two */
 	if ((alignment & (alignment - 1)) != 0)
 		return;
 
 	info->alignment = alignment;
 
-	
+	/* Initially everything as empty */
 	info->block = block;
 	info->max_blocks = max_blocks;
 	info->empty_slots = max_blocks;
@@ -293,37 +319,38 @@ void rh_init(rh_info_t * info, unsigned int alignment, int max_blocks,
 	INIT_LIST_HEAD(&info->free_list);
 	INIT_LIST_HEAD(&info->taken_list);
 
-	
+	/* Add all new blocks to the free list */
 	for (i = 0, blk = block; i < max_blocks; i++, blk++)
 		list_add(&blk->list, &info->empty_list);
 }
 EXPORT_SYMBOL_GPL(rh_init);
 
+/* Attach a free memory region, coalesces regions if adjuscent */
 int rh_attach_region(rh_info_t * info, unsigned long start, int size)
 {
 	rh_block_t *blk;
 	unsigned long s, e, m;
 	int r;
 
-	
+	/* The region must be aligned */
 	s = start;
 	e = s + size;
 	m = info->alignment - 1;
 
-	
+	/* Round start up */
 	s = (s + m) & ~m;
 
-	
+	/* Round end down */
 	e = e & ~m;
 
 	if (IS_ERR_VALUE(e) || (e < s))
 		return -ERANGE;
 
-	
+	/* Take final values */
 	start = s;
 	size = e - s;
 
-	
+	/* Grow the blocks, if needed */
 	r = assure_empty(info, 1);
 	if (r < 0)
 		return r;
@@ -339,25 +366,26 @@ int rh_attach_region(rh_info_t * info, unsigned long start, int size)
 }
 EXPORT_SYMBOL_GPL(rh_attach_region);
 
+/* Detatch given address range, splits free block if needed. */
 unsigned long rh_detach_region(rh_info_t * info, unsigned long start, int size)
 {
 	struct list_head *l;
 	rh_block_t *blk, *newblk;
 	unsigned long s, e, m, bs, be;
 
-	
+	/* Validate size */
 	if (size <= 0)
 		return (unsigned long) -EINVAL;
 
-	
+	/* The region must be aligned */
 	s = start;
 	e = s + size;
 	m = info->alignment - 1;
 
-	
+	/* Round start up */
 	s = (s + m) & ~m;
 
-	
+	/* Round end down */
 	e = e & ~m;
 
 	if (assure_empty(info, 1) < 0)
@@ -366,7 +394,7 @@ unsigned long rh_detach_region(rh_info_t * info, unsigned long start, int size)
 	blk = NULL;
 	list_for_each(l, &info->free_list) {
 		blk = list_entry(l, rh_block_t, list);
-		
+		/* The range must lie entirely inside one free block */
 		bs = blk->start;
 		be = blk->start + blk->size;
 		if (s >= bs && e <= be)
@@ -377,25 +405,25 @@ unsigned long rh_detach_region(rh_info_t * info, unsigned long start, int size)
 	if (blk == NULL)
 		return (unsigned long) -ENOMEM;
 
-	
+	/* Perfect fit */
 	if (bs == s && be == e) {
-		
+		/* Delete from free list, release slot */
 		list_del(&blk->list);
 		release_slot(info, blk);
 		return s;
 	}
 
-	
+	/* blk still in free list, with updated start and/or size */
 	if (bs == s || be == e) {
 		if (bs == s)
 			blk->start += size;
 		blk->size -= size;
 
 	} else {
-		
+		/* The front free fragment */
 		blk->size = s - bs;
 
-		
+		/* the back free fragment */
 		newblk = get_slot(info);
 		newblk->start = e;
 		newblk->size = be - e;
@@ -407,6 +435,10 @@ unsigned long rh_detach_region(rh_info_t * info, unsigned long start, int size)
 }
 EXPORT_SYMBOL_GPL(rh_detach_region);
 
+/* Allocate a block of memory at the specified alignment.  The value returned
+ * is an offset into the buffer initialized by rh_init(), or a negative number
+ * if there is an error.
+ */
 unsigned long rh_alloc_align(rh_info_t * info, int size, int alignment, const char *owner)
 {
 	struct list_head *l;
@@ -414,11 +446,11 @@ unsigned long rh_alloc_align(rh_info_t * info, int size, int alignment, const ch
 	rh_block_t *newblk;
 	unsigned long start, sp_size;
 
-	
+	/* Validate size, and alignment must be power of two */
 	if (size <= 0 || (alignment & (alignment - 1)) != 0)
 		return (unsigned long) -EINVAL;
 
-	
+	/* Align to configured alignment */
 	size = (size + (info->alignment - 1)) & ~(info->alignment - 1);
 
 	if (assure_empty(info, 2) < 0)
@@ -438,14 +470,14 @@ unsigned long rh_alloc_align(rh_info_t * info, int size, int alignment, const ch
 	if (blk == NULL)
 		return (unsigned long) -ENOMEM;
 
-	
+	/* Just fits */
 	if (blk->size == size) {
-		
+		/* Move from free list to taken list */
 		list_del(&blk->list);
 		newblk = blk;
 	} else {
-		
-		
+		/* Fragment caused, split if needed */
+		/* Create block for fragment in the beginning */
 		sp_size = start - blk->start;
 		if (sp_size) {
 			rh_block_t *spblk;
@@ -453,16 +485,18 @@ unsigned long rh_alloc_align(rh_info_t * info, int size, int alignment, const ch
 			spblk = get_slot(info);
 			spblk->start = blk->start;
 			spblk->size = sp_size;
-			
+			/* add before the blk */
 			list_add(&spblk->list, blk->list.prev);
 		}
 		newblk = get_slot(info);
 		newblk->start = start;
 		newblk->size = size;
 
+		/* blk still in free list, with updated start and size
+		 * for fragment in the end */
 		blk->start = start + size;
 		blk->size -= sp_size + size;
-		
+		/* No fragment in the end, remove blk */
 		if (blk->size == 0) {
 			list_del(&blk->list);
 			release_slot(info, blk);
@@ -476,31 +510,39 @@ unsigned long rh_alloc_align(rh_info_t * info, int size, int alignment, const ch
 }
 EXPORT_SYMBOL_GPL(rh_alloc_align);
 
+/* Allocate a block of memory at the default alignment.  The value returned is
+ * an offset into the buffer initialized by rh_init(), or a negative number if
+ * there is an error.
+ */
 unsigned long rh_alloc(rh_info_t * info, int size, const char *owner)
 {
 	return rh_alloc_align(info, size, info->alignment, owner);
 }
 EXPORT_SYMBOL_GPL(rh_alloc);
 
+/* Allocate a block of memory at the given offset, rounded up to the default
+ * alignment.  The value returned is an offset into the buffer initialized by
+ * rh_init(), or a negative number if there is an error.
+ */
 unsigned long rh_alloc_fixed(rh_info_t * info, unsigned long start, int size, const char *owner)
 {
 	struct list_head *l;
 	rh_block_t *blk, *newblk1, *newblk2;
 	unsigned long s, e, m, bs = 0, be = 0;
 
-	
+	/* Validate size */
 	if (size <= 0)
 		return (unsigned long) -EINVAL;
 
-	
+	/* The region must be aligned */
 	s = start;
 	e = s + size;
 	m = info->alignment - 1;
 
-	
+	/* Round start up */
 	s = (s + m) & ~m;
 
-	
+	/* Round end down */
 	e = e & ~m;
 
 	if (assure_empty(info, 2) < 0)
@@ -509,7 +551,7 @@ unsigned long rh_alloc_fixed(rh_info_t * info, unsigned long start, int size, co
 	blk = NULL;
 	list_for_each(l, &info->free_list) {
 		blk = list_entry(l, rh_block_t, list);
-		
+		/* The range must lie entirely inside one free block */
 		bs = blk->start;
 		be = blk->start + blk->size;
 		if (s >= bs && e <= be)
@@ -520,9 +562,9 @@ unsigned long rh_alloc_fixed(rh_info_t * info, unsigned long start, int size, co
 	if (blk == NULL)
 		return (unsigned long) -ENOMEM;
 
-	
+	/* Perfect fit */
 	if (bs == s && be == e) {
-		
+		/* Move from free list to taken list */
 		list_del(&blk->list);
 		blk->owner = owner;
 
@@ -533,17 +575,17 @@ unsigned long rh_alloc_fixed(rh_info_t * info, unsigned long start, int size, co
 
 	}
 
-	
+	/* blk still in free list, with updated start and/or size */
 	if (bs == s || be == e) {
 		if (bs == s)
 			blk->start += size;
 		blk->size -= size;
 
 	} else {
-		
+		/* The front free fragment */
 		blk->size = s - bs;
 
-		
+		/* The back free fragment */
 		newblk2 = get_slot(info);
 		newblk2->start = e;
 		newblk2->size = be - e;
@@ -563,13 +605,17 @@ unsigned long rh_alloc_fixed(rh_info_t * info, unsigned long start, int size, co
 }
 EXPORT_SYMBOL_GPL(rh_alloc_fixed);
 
+/* Deallocate the memory previously allocated by one of the rh_alloc functions.
+ * The return value is the size of the deallocated block, or a negative number
+ * if there is an error.
+ */
 int rh_free(rh_info_t * info, unsigned long start)
 {
 	rh_block_t *blk, *blk2;
 	struct list_head *l;
 	int size;
 
-	
+	/* Linear search for block */
 	blk = NULL;
 	list_for_each(l, &info->taken_list) {
 		blk2 = list_entry(l, rh_block_t, list);
@@ -581,10 +627,10 @@ int rh_free(rh_info_t * info, unsigned long start)
 	if (blk == NULL || start > (blk->start + blk->size))
 		return -EINVAL;
 
-	
+	/* Remove from taken list */
 	list_del(&blk->list);
 
-	
+	/* Get size of freed block */
 	size = blk->size;
 	attach_free_block(info, blk);
 
@@ -613,7 +659,7 @@ int rh_get_stats(rh_info_t * info, int what, int max_stats, rh_stats_t * stats)
 		return -EINVAL;
 	}
 
-	
+	/* Linear search for block */
 	nr = 0;
 	list_for_each(l, h) {
 		blk = list_entry(l, rh_block_t, list);
@@ -636,7 +682,7 @@ int rh_set_owner(rh_info_t * info, unsigned long start, const char *owner)
 	struct list_head *l;
 	int size;
 
-	
+	/* Linear search for block */
 	blk = NULL;
 	list_for_each(l, &info->taken_list) {
 		blk2 = list_entry(l, rh_block_t, list);
@@ -657,7 +703,7 @@ EXPORT_SYMBOL_GPL(rh_set_owner);
 
 void rh_dump(rh_info_t * info)
 {
-	static rh_stats_t st[32];	
+	static rh_stats_t st[32];	/* XXX maximum 32 blocks */
 	int maxnr;
 	int i, nr;
 

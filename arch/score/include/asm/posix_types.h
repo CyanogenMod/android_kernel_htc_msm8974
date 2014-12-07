@@ -3,4 +3,4 @@
 
 #include <asm-generic/posix_types.h>
 
-#endif 
+#endif /* _ASM_SCORE_POSIX_TYPES_H */

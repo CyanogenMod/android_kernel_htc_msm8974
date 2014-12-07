@@ -143,6 +143,18 @@ char *dbg_get_reg(int regno, void *mem, struct pt_regs *regs)
 	return dbg_reg_def[regno].name;
 }
 
+/**
+ *	sleeping_thread_to_gdb_regs - Convert ptrace regs to GDB regs
+ *	@gdb_regs: A pointer to hold the registers in the order GDB wants.
+ *	@p: The &struct task_struct of the desired process.
+ *
+ *	Convert the register values of the sleeping process in @p to
+ *	the format that GDB expects.
+ *	This function is called when kgdb does not have access to the
+ *	&struct pt_regs and therefore it should fill the gdb registers
+ *	@gdb_regs with what has	been saved in &struct thread_struct
+ *	thread field during switch_to.
+ */
 void sleeping_thread_to_gdb_regs(unsigned long *gdb_regs, struct task_struct *p)
 {
 #ifndef CONFIG_X86_32
@@ -268,6 +280,10 @@ static int hw_break_release_slot(int breakno)
 	for_each_online_cpu(cpu) {
 		pevent = per_cpu_ptr(breakinfo[breakno].pev, cpu);
 		if (dbg_release_bp_slot(*pevent))
+			/*
+			 * The debugger is responsible for handing the retry on
+			 * remove failure.
+			 */
 			return -1;
 	}
 	return 0;
@@ -371,13 +387,21 @@ kgdb_set_hw_break(unsigned long addr, int len, enum kgdb_bptype bptype)
 	return 0;
 }
 
+/**
+ *	kgdb_disable_hw_debug - Disable hardware debugging while we in kgdb.
+ *	@regs: Current &struct pt_regs.
+ *
+ *	This function will be called if the particular architecture must
+ *	disable hardware debugging while it is processing gdb packets or
+ *	handling exception.
+ */
 static void kgdb_disable_hw_debug(struct pt_regs *regs)
 {
 	int i;
 	int cpu = raw_smp_processor_id();
 	struct perf_event *bp;
 
-	
+	/* Disable hardware debugging while we are in kgdb: */
 	set_debugreg(0UL, 7);
 	for (i = 0; i < HBP_NUM; i++) {
 		if (!breakinfo[i].enabled)
@@ -396,12 +420,44 @@ static void kgdb_disable_hw_debug(struct pt_regs *regs)
 }
 
 #ifdef CONFIG_SMP
+/**
+ *	kgdb_roundup_cpus - Get other CPUs into a holding pattern
+ *	@flags: Current IRQ state
+ *
+ *	On SMP systems, we need to get the attention of the other CPUs
+ *	and get them be in a known state.  This should do what is needed
+ *	to get the other CPUs to call kgdb_wait(). Note that on some arches,
+ *	the NMI approach is not used for rounding up all the CPUs. For example,
+ *	in case of MIPS, smp_call_function() is used to roundup CPUs. In
+ *	this case, we have to make sure that interrupts are enabled before
+ *	calling smp_call_function(). The argument to this function is
+ *	the flags that will be used when restoring the interrupts. There is
+ *	local_irq_save() call before kgdb_roundup_cpus().
+ *
+ *	On non-SMP systems, this is not called.
+ */
 void kgdb_roundup_cpus(unsigned long flags)
 {
 	apic->send_IPI_allbutself(APIC_DM_NMI);
 }
 #endif
 
+/**
+ *	kgdb_arch_handle_exception - Handle architecture specific GDB packets.
+ *	@vector: The error vector of the exception that happened.
+ *	@signo: The signal number of the exception that happened.
+ *	@err_code: The error code of the exception that happened.
+ *	@remcom_in_buffer: The buffer of the packet we have read.
+ *	@remcom_out_buffer: The buffer of %BUFMAX bytes to write a packet into.
+ *	@regs: The &struct pt_regs of the current process.
+ *
+ *	This function MUST handle the 'c' and 's' command packets,
+ *	as well packets to set / remove a hardware breakpoint, if used.
+ *	If there are additional packets which the hardware needs to handle,
+ *	they are handled here.  The code should return -1 if it wants to
+ *	process more packets, and a %0 or %1 if it wants to exit from the
+ *	kgdb callback.
+ */
 int kgdb_arch_handle_exception(int e_vector, int signo, int err_code,
 			       char *remcomInBuffer, char *remcomOutBuffer,
 			       struct pt_regs *linux_regs)
@@ -412,17 +468,17 @@ int kgdb_arch_handle_exception(int e_vector, int signo, int err_code,
 	switch (remcomInBuffer[0]) {
 	case 'c':
 	case 's':
-		
+		/* try to read optional parameter, pc unchanged if no parm */
 		ptr = &remcomInBuffer[1];
 		if (kgdb_hex2long(&ptr, &addr))
 			linux_regs->ip = addr;
 	case 'D':
 	case 'k':
-		
+		/* clear the trace bit */
 		linux_regs->flags &= ~X86_EFLAGS_TF;
 		atomic_set(&kgdb_cpu_doing_single_step, -1);
 
-		
+		/* set the trace bit if we're stepping */
 		if (remcomInBuffer[0] == 's') {
 			linux_regs->flags |= X86_EFLAGS_TF;
 			atomic_set(&kgdb_cpu_doing_single_step,
@@ -432,17 +488,25 @@ int kgdb_arch_handle_exception(int e_vector, int signo, int err_code,
 		return 0;
 	}
 
-	
+	/* this means that we do not want to exit from the handler: */
 	return -1;
 }
 
 static inline int
 single_step_cont(struct pt_regs *regs, struct die_args *args)
 {
+	/*
+	 * Single step exception from kernel space to user space so
+	 * eat the exception and continue the process:
+	 */
 	printk(KERN_ERR "KGDB: trap/step from kernel to user space, "
 			"resuming...\n");
 	kgdb_arch_handle_exception(args->trapnr, args->signr,
 				   args->err, "c", "", regs);
+	/*
+	 * Reset the BS bit in dr6 (pointed by args->err) to
+	 * denote completion of processing
+	 */
 	(*(unsigned long *)ERR_PTR(args->err)) &= ~DR_STEP;
 
 	return NOTIFY_STOP;
@@ -455,7 +519,7 @@ static int kgdb_nmi_handler(unsigned int cmd, struct pt_regs *regs)
 	switch (cmd) {
 	case NMI_LOCAL:
 		if (atomic_read(&kgdb_active) != -1) {
-			
+			/* KGDB CPU roundup */
 			kgdb_nmicallback(raw_smp_processor_id(), regs);
 			was_in_debug_nmi[raw_smp_processor_id()] = 1;
 			touch_nmi_watchdog();
@@ -470,7 +534,7 @@ static int kgdb_nmi_handler(unsigned int cmd, struct pt_regs *regs)
 		}
 		break;
 	default:
-		
+		/* do nothing */
 		break;
 	}
 	return NMI_DONE;
@@ -487,8 +551,11 @@ static int __kgdb_notify(struct die_args *args, unsigned long cmd)
 				return single_step_cont(regs, args);
 			break;
 		} else if (test_thread_flag(TIF_SINGLESTEP))
+			/* This means a user thread is single stepping
+			 * a system call which should be ignored
+			 */
 			return NOTIFY_DONE;
-		
+		/* fall through */
 	default:
 		if (user_mode(regs))
 			return NOTIFY_DONE;
@@ -497,7 +564,7 @@ static int __kgdb_notify(struct die_args *args, unsigned long cmd)
 	if (kgdb_handle_exception(args->trapnr, args->signr, cmd, regs))
 		return NOTIFY_DONE;
 
-	
+	/* Must touch watchdog before return to normal operation */
 	touch_nmi_watchdog();
 	return NOTIFY_STOP;
 }
@@ -537,6 +604,12 @@ static struct notifier_block kgdb_notifier = {
 	.notifier_call	= kgdb_notify,
 };
 
+/**
+ *	kgdb_arch_init - Perform any architecture specific initalization.
+ *
+ *	This function will handle the initalization of any architecture
+ *	specific callbacks.
+ */
 int kgdb_arch_init(void)
 {
 	int retval;
@@ -583,6 +656,11 @@ void kgdb_arch_late(void)
 	struct perf_event_attr attr;
 	struct perf_event **pevent;
 
+	/*
+	 * Pre-allocate the hw breakpoint structions in the non-atomic
+	 * portion of kgdb because this operation requires mutexs to
+	 * complete.
+	 */
 	hw_breakpoint_init(&attr);
 	attr.bp_addr = (unsigned long)kgdb_arch_init;
 	attr.bp_len = HW_BREAKPOINT_LEN_1;
@@ -611,6 +689,12 @@ void kgdb_arch_late(void)
 	}
 }
 
+/**
+ *	kgdb_arch_exit - Perform any architecture specific uninitalization.
+ *
+ *	This function will handle the uninitalization of any architecture
+ *	specific callbacks, for dynamic registration and unregistration.
+ */
 void kgdb_arch_exit(void)
 {
 	int i;
@@ -625,6 +709,19 @@ void kgdb_arch_exit(void)
 	unregister_die_notifier(&kgdb_notifier);
 }
 
+/**
+ *
+ *	kgdb_skipexception - Bail out of KGDB when we've been triggered.
+ *	@exception: Exception vector number
+ *	@regs: Current &struct pt_regs.
+ *
+ *	On some architectures we need to skip a breakpoint exception when
+ *	it occurs after a breakpoint has been removed.
+ *
+ * Skip an int3 exception when it occurs after a breakpoint has been
+ * removed. Backtrack eip by 1 since the int3 would have caused it to
+ * increment by 1.
+ */
 int kgdb_skipexception(int exception, struct pt_regs *regs)
 {
 	if (exception == 3 && kgdb_isremovedbreak(regs->ip - 1)) {
@@ -661,6 +758,10 @@ int kgdb_arch_set_breakpoint(struct kgdb_bkpt *bpt)
 #ifdef CONFIG_DEBUG_RODATA
 	if (!err)
 		return err;
+	/*
+	 * It is safe to call text_poke() because normal kernel execution
+	 * is stopped on all cores, so long as the text_mutex is not locked.
+	 */
 	if (mutex_is_locked(&text_mutex))
 		return -EBUSY;
 	text_poke((void *)bpt->bpt_addr, arch_kgdb_ops.gdb_bpt_instr,
@@ -671,7 +772,7 @@ int kgdb_arch_set_breakpoint(struct kgdb_bkpt *bpt)
 	if (memcmp(opc, arch_kgdb_ops.gdb_bpt_instr, BREAK_INSTR_SIZE))
 		return -EINVAL;
 	bpt->type = BP_POKE_BREAKPOINT;
-#endif 
+#endif /* CONFIG_DEBUG_RODATA */
 	return err;
 }
 
@@ -683,6 +784,10 @@ int kgdb_arch_remove_breakpoint(struct kgdb_bkpt *bpt)
 
 	if (bpt->type != BP_POKE_BREAKPOINT)
 		goto knl_write;
+	/*
+	 * It is safe to call text_poke() because normal kernel execution
+	 * is stopped on all cores, so long as the text_mutex is not locked.
+	 */
 	if (mutex_is_locked(&text_mutex))
 		goto knl_write;
 	text_poke((void *)bpt->bpt_addr, bpt->saved_instr, BREAK_INSTR_SIZE);
@@ -691,13 +796,13 @@ int kgdb_arch_remove_breakpoint(struct kgdb_bkpt *bpt)
 		goto knl_write;
 	return err;
 knl_write:
-#endif 
+#endif /* CONFIG_DEBUG_RODATA */
 	return probe_kernel_write((char *)bpt->bpt_addr,
 				  (char *)bpt->saved_instr, BREAK_INSTR_SIZE);
 }
 
 struct kgdb_arch arch_kgdb_ops = {
-	
+	/* Breakpoint instruction: */
 	.gdb_bpt_instr		= { 0xcc },
 	.flags			= KGDB_HW_BREAKPOINT,
 	.set_hw_breakpoint	= kgdb_set_hw_break,

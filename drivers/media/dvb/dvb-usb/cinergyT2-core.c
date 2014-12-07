@@ -30,6 +30,7 @@
 #include "cinergyT2.h"
 
 
+/* debug */
 int dvb_usb_cinergyt2_debug;
 
 module_param_named(debug, dvb_usb_cinergyt2_debug, int, 0644);
@@ -42,6 +43,7 @@ struct cinergyt2_state {
 	u8 rc_counter;
 };
 
+/* We are missing a release hook with usb_device data */
 static struct dvb_usb_device *cinergyt2_usb_device;
 
 static struct dvb_usb_device_properties cinergyt2_properties;
@@ -76,7 +78,7 @@ static int cinergyt2_frontend_attach(struct dvb_usb_adapter *adap)
 			"state info\n");
 	}
 
-	
+	/* Copy this pointer as we are gonna need it in the release phase */
 	cinergyt2_usb_device = adap->dev;
 
 	return 0;
@@ -122,6 +124,7 @@ static struct rc_map_table rc_map_cinergyt2_table[] = {
 	{ 0x045c, KEY_NEXT }
 };
 
+/* Number of keypresses to ignore before detect repeating */
 #define RC_REPEAT_DELAY 3
 
 static int repeatable_keys[] = {
@@ -145,7 +148,7 @@ static int cinergyt2_rc_query(struct dvb_usb_device *d, u32 *event, int *state)
 
 	dvb_usb_generic_rw(d, &cmd, 1, key, sizeof(key), 0);
 	if (key[4] == 0xff) {
-		
+		/* key repeat */
 		st->rc_counter++;
 		if (st->rc_counter > RC_REPEAT_DELAY) {
 			for (i = 0; i < ARRAY_SIZE(repeatable_keys); i++) {
@@ -162,7 +165,7 @@ static int cinergyt2_rc_query(struct dvb_usb_device *d, u32 *event, int *state)
 		return 0;
 	}
 
-	
+	/* hack to pass checksum on the custom field */
 	key[2] = ~key[1];
 	dvb_usb_nec_rc_key_to_event(d, key, event, state);
 	if (key[0] != 0) {
@@ -200,7 +203,7 @@ static struct dvb_usb_device_properties cinergyt2_properties = {
 			.streaming_ctrl   = cinergyt2_streaming_ctrl,
 			.frontend_attach  = cinergyt2_frontend_attach,
 
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 5,

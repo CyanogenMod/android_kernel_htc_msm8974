@@ -36,6 +36,7 @@
 #include "80211hdr.h"
 #include "bssdb.h"
 
+/*---------------------  Export Definitions -------------------------*/
 #define MAX_PMKID_CACHE         16
 
 typedef struct tagsPMKIDInfo {
@@ -49,13 +50,17 @@ typedef struct tagSPMKIDCache {
 } SPMKIDCache, *PSPMKIDCache;
 
 
+/*---------------------  Export Classes  ----------------------------*/
 
+/*---------------------  Export Variables  --------------------------*/
 
+/*---------------------  Export Types  ------------------------------*/
 
+/*---------------------  Export Functions  --------------------------*/
 
 void WPA2_ClearRSN(PKnownBSS pBSSNode);
 void WPA2vParseRSN(PKnownBSS pBSSNode, PWLAN_IE_RSN pRSN);
 
 unsigned int WPA2uSetIEs(void *pMgmtHandle, PWLAN_IE_RSN pRSNIEs);
 
-#endif 
+#endif /* __WPA2_H__ */

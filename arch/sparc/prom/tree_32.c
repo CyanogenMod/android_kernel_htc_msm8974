@@ -19,6 +19,7 @@ extern void restore_current(void);
 
 static char promlib_buf[128];
 
+/* Internal version of prom_getchild that does not alter return values. */
 static phandle __prom_getchild(phandle node)
 {
 	unsigned long flags;
@@ -32,6 +33,9 @@ static phandle __prom_getchild(phandle node)
 	return cnode;
 }
 
+/* Return the child of node 'node' or zero if no this node has no
+ * direct descendent.
+ */
 phandle prom_getchild(phandle node)
 {
 	phandle cnode;
@@ -47,6 +51,7 @@ phandle prom_getchild(phandle node)
 }
 EXPORT_SYMBOL(prom_getchild);
 
+/* Internal version of prom_getsibling that does not alter return values. */
 static phandle __prom_getsibling(phandle node)
 {
 	unsigned long flags;
@@ -60,6 +65,9 @@ static phandle __prom_getsibling(phandle node)
 	return cnode;
 }
 
+/* Return the next sibling of node 'node' or zero if no more siblings
+ * at this level of depth in the tree.
+ */
 phandle prom_getsibling(phandle node)
 {
 	phandle sibnode;
@@ -75,6 +83,9 @@ phandle prom_getsibling(phandle node)
 }
 EXPORT_SYMBOL(prom_getsibling);
 
+/* Return the length in bytes of property 'prop' at node 'node'.
+ * Return -1 on error.
+ */
 int prom_getproplen(phandle node, const char *prop)
 {
 	int ret;
@@ -91,6 +102,10 @@ int prom_getproplen(phandle node, const char *prop)
 }
 EXPORT_SYMBOL(prom_getproplen);
 
+/* Acquire a property 'prop' at node 'node' and place it in
+ * 'buffer' which has a size of 'bufsize'.  If the acquisition
+ * was successful the length will be returned, else -1 is returned.
+ */
 int prom_getproperty(phandle node, const char *prop, char *buffer, int bufsize)
 {
 	int plen, ret;
@@ -99,7 +114,7 @@ int prom_getproperty(phandle node, const char *prop, char *buffer, int bufsize)
 	plen = prom_getproplen(node, prop);
 	if((plen > bufsize) || (plen == 0) || (plen == -1))
 		return -1;
-	
+	/* Ok, things seem all right. */
 	spin_lock_irqsave(&prom_lock, flags);
 	ret = prom_nodeops->no_getprop(node, prop, buffer);
 	restore_current();
@@ -108,6 +123,9 @@ int prom_getproperty(phandle node, const char *prop, char *buffer, int bufsize)
 }
 EXPORT_SYMBOL(prom_getproperty);
 
+/* Acquire an integer property and return its value.  Returns -1
+ * on failure.
+ */
 int prom_getint(phandle node, char *prop)
 {
 	static int intprop;
@@ -119,6 +137,9 @@ int prom_getint(phandle node, char *prop)
 }
 EXPORT_SYMBOL(prom_getint);
 
+/* Acquire an integer property, upon error return the passed default
+ * integer.
+ */
 int prom_getintdefault(phandle node, char *property, int deflt)
 {
 	int retval;
@@ -130,6 +151,7 @@ int prom_getintdefault(phandle node, char *property, int deflt)
 }
 EXPORT_SYMBOL(prom_getintdefault);
 
+/* Acquire a boolean property, 1=TRUE 0=FALSE. */
 int prom_getbool(phandle node, char *prop)
 {
 	int retval;
@@ -140,6 +162,10 @@ int prom_getbool(phandle node, char *prop)
 }
 EXPORT_SYMBOL(prom_getbool);
 
+/* Acquire a property whose value is a string, returns a null
+ * string on error.  The char pointer is the user supplied string
+ * buffer.
+ */
 void prom_getstring(phandle node, char *prop, char *user_buf, int ubuf_size)
 {
 	int len;
@@ -151,6 +177,9 @@ void prom_getstring(phandle node, char *prop, char *user_buf, int ubuf_size)
 EXPORT_SYMBOL(prom_getstring);
 
 
+/* Search siblings at 'node_start' for a node with name
+ * 'nodename'.  Return node if successful, zero if not.
+ */
 phandle prom_searchsiblings(phandle node_start, char *nodename)
 {
 
@@ -161,7 +190,7 @@ phandle prom_searchsiblings(phandle node_start, char *nodename)
 	    thisnode=prom_getsibling(thisnode)) {
 		error = prom_getproperty(thisnode, "name", promlib_buf,
 					 sizeof(promlib_buf));
-		
+		/* Should this ever happen? */
 		if(error == -1) continue;
 		if(strcmp(nodename, promlib_buf)==0) return thisnode;
 	}
@@ -170,6 +199,7 @@ phandle prom_searchsiblings(phandle node_start, char *nodename)
 }
 EXPORT_SYMBOL(prom_searchsiblings);
 
+/* Interal version of nextprop that does not alter return values. */
 static char *__prom_nextprop(phandle node, char * oprop)
 {
 	unsigned long flags;
@@ -183,6 +213,10 @@ static char *__prom_nextprop(phandle node, char * oprop)
 	return prop;
 }
 
+/* Return the property type string after property type 'oprop'
+ * at node 'node' .  Returns empty string if no more
+ * property types for this node.
+ */
 char *prom_nextprop(phandle node, char *oprop, char *buffer)
 {
 	if (node == 0 || (s32)node == -1)
@@ -201,7 +235,7 @@ phandle prom_finddevice(char *name)
 	struct linux_prom_registers reg[PROMREG_MAX];
 
 	while (*s++) {
-		if (!*s) return node; 
+		if (!*s) return node; /* path '.../' is legal */
 		node = prom_getchild(node);
 
 		for (d = nbuf; *s != 0 && *s != '@' && *s != '/';)
@@ -240,6 +274,9 @@ phandle prom_finddevice(char *name)
 }
 EXPORT_SYMBOL(prom_finddevice);
 
+/* Set property 'pname' at node 'node' to value 'value' which has a length
+ * of 'size' bytes.  Return the number of bytes the prom accepted.
+ */
 int prom_setprop(phandle node, const char *pname, char *value, int size)
 {
 	unsigned long flags;

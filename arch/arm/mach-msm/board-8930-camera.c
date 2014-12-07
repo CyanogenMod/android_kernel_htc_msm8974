@@ -41,60 +41,60 @@ static struct msm_cam_expander_info cam_expander_info[] = {
 
 static struct gpiomux_setting cam_settings[] = {
 	{
-		.func = GPIOMUX_FUNC_GPIO, 
+		.func = GPIOMUX_FUNC_GPIO, /*suspend*/
 		.drv = GPIOMUX_DRV_2MA,
 		.pull = GPIOMUX_PULL_DOWN,
 	},
 
 	{
-		.func = GPIOMUX_FUNC_1, 
+		.func = GPIOMUX_FUNC_1, /*active 1*/
 		.drv = GPIOMUX_DRV_2MA,
 		.pull = GPIOMUX_PULL_NONE,
 	},
 
 	{
-		.func = GPIOMUX_FUNC_GPIO, 
+		.func = GPIOMUX_FUNC_GPIO, /*active 2*/
 		.drv = GPIOMUX_DRV_2MA,
 		.pull = GPIOMUX_PULL_NONE,
 	},
 
 	{
-		.func = GPIOMUX_FUNC_1, 
+		.func = GPIOMUX_FUNC_1, /*active 3*/
 		.drv = GPIOMUX_DRV_8MA,
 		.pull = GPIOMUX_PULL_NONE,
 	},
 
 	{
-		.func = GPIOMUX_FUNC_5, 
+		.func = GPIOMUX_FUNC_5, /*active 4*/
 		.drv = GPIOMUX_DRV_8MA,
 		.pull = GPIOMUX_PULL_UP,
 	},
 
 	{
-		.func = GPIOMUX_FUNC_6, 
+		.func = GPIOMUX_FUNC_6, /*active 5*/
 		.drv = GPIOMUX_DRV_8MA,
 		.pull = GPIOMUX_PULL_UP,
 	},
 
 	{
-		.func = GPIOMUX_FUNC_2, 
+		.func = GPIOMUX_FUNC_2, /*active 6*/
 		.drv = GPIOMUX_DRV_2MA,
 		.pull = GPIOMUX_PULL_UP,
 	},
 
 	{
-		.func = GPIOMUX_FUNC_3, 
+		.func = GPIOMUX_FUNC_3, /*active 7*/
 		.drv = GPIOMUX_DRV_8MA,
 		.pull = GPIOMUX_PULL_UP,
 	},
 
 	{
-		.func = GPIOMUX_FUNC_GPIO, 
+		.func = GPIOMUX_FUNC_GPIO, /*i2c suspend*/
 		.drv = GPIOMUX_DRV_2MA,
 		.pull = GPIOMUX_PULL_KEEPER,
 	},
 	{
-		.func = GPIOMUX_FUNC_2, 
+		.func = GPIOMUX_FUNC_2, /*active 9*/
 		.drv = GPIOMUX_DRV_2MA,
 		.pull = GPIOMUX_PULL_NONE,
 	},

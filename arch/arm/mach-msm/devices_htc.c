@@ -81,6 +81,7 @@ close:
 	msm_rpc_close(usb_ep);
 }
 
+/* adjust eye diagram, disable vbusvalid interrupts */
 static int hsusb_phy_init_seq[] = { 0x40, 0x31, 0x1D, 0x0D, 0x1D, 0x10, -1 };
 
 #ifdef CONFIG_USB_FUNCTION
@@ -96,11 +97,11 @@ static char *usb_functions[] = {
 static struct msm_hsusb_product usb_products[] = {
 	{
 		.product_id	= 0x0c01,
-		.functions	= 0x00000041, 
+		.functions	= 0x00000041, /* usb_mass_storage */
 	},
 	{
 		.product_id	= 0x0c02,
-		.functions	= 0x00000043, 
+		.functions	= 0x00000043, /* usb_mass_storage + adb */
 	},
 };
 #endif
@@ -162,7 +163,7 @@ static struct platform_device android_usb_device = {
 
 void __init msm_add_usb_devices(void (*phy_reset) (void))
 {
-	
+	/* setup */
 	if (phy_reset)
 		msm_hsusb_pdata.phy_reset = phy_reset;
 	msm_device_hsusb.dev.platform_data = &msm_hsusb_pdata;
@@ -318,6 +319,10 @@ int __init msm_add_serial_devices(unsigned num)
 #endif
 
 #define ATAG_SMI 0x4d534D71
+/* setup calls mach->fixup, then parse_tags, parse_cmdline
+ * We need to setup meminfo in mach->fixup, so this function
+ * will need to traverse each tag to find smi tag.
+ */
 int __init parse_tag_smi(const struct tag *tags)
 {
 	int smi_sz = 0, find = 0;

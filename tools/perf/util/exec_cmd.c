@@ -44,10 +44,14 @@ const char *perf_extract_argv0_path(const char *argv0)
 void perf_set_argv_exec_path(const char *exec_path)
 {
 	argv_exec_path = exec_path;
+	/*
+	 * Propagate this setting to external programs.
+	 */
 	setenv(EXEC_PATH_ENVIRONMENT, exec_path, 1);
 }
 
 
+/* Returns the highest-priority, location to look for perf programs. */
 const char *perf_exec_path(void)
 {
 	const char *env;
@@ -99,7 +103,7 @@ static const char **prepare_perf_cmd(const char **argv)
 	const char **nargv;
 
 	for (argc = 0; argv[argc]; argc++)
-		; 
+		; /* just counting */
 	nargv = malloc(sizeof(*nargv) * (argc + 2));
 
 	nargv[0] = "perf";
@@ -112,7 +116,7 @@ static const char **prepare_perf_cmd(const char **argv)
 int execv_perf_cmd(const char **argv) {
 	const char **nargv = prepare_perf_cmd(argv);
 
-	
+	/* execvp() can only ever return if it fails */
 	execvp("perf", (char **)nargv);
 
 	free(nargv);

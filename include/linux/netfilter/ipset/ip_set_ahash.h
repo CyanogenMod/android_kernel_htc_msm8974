@@ -10,10 +10,27 @@
 
 #define type_pf_next		TOKEN(TYPE, PF, _elem)
 
+/* Hashing which uses arrays to resolve clashing. The hash table is resized
+ * (doubled) when searching becomes too long.
+ * Internally jhash is used with the assumption that the size of the
+ * stored data is a multiple of sizeof(u32). If storage supports timeout,
+ * the timeout field must be the last one in the data structure - that field
+ * is ignored when computing the hash key.
+ *
+ * Readers and resizing
+ *
+ * Resizing can be triggered by userspace command only, and those
+ * are serialized by the nfnl mutex. During resizing the set is
+ * read-locked, so the only possible concurrent operations are
+ * the kernel side readers. Those must be protected by proper RCU locking.
+ */
 
+/* Number of elements to store in an initial array block */
 #define AHASH_INIT_SIZE			4
+/* Max number of elements to store in an array block */
 #define AHASH_MAX_SIZE			(3*AHASH_INIT_SIZE)
 
+/* Max number of elements can be tuned */
 #ifdef IP_SET_HASH_WITH_MULTI
 #define AHASH_MAX(h)			((h)->ahash_max)
 
@@ -26,6 +43,9 @@ tune_ahash_max(u8 curr, u32 multi)
 		return curr;
 
 	n = curr + AHASH_INIT_SIZE;
+	/* Currently, at listing one hash bucket must fit into a message.
+	 * Therefore we have a hard limit here.
+	 */
 	return n > curr && n <= 64 ? n : curr;
 }
 #define TUNE_AHASH_MAX(h, multi)	\
@@ -35,43 +55,47 @@ tune_ahash_max(u8 curr, u32 multi)
 #define TUNE_AHASH_MAX(h, multi)
 #endif
 
+/* A hash bucket */
 struct hbucket {
-	void *value;		
-	u8 size;		
-	u8 pos;			
+	void *value;		/* the array of the values */
+	u8 size;		/* size of the array */
+	u8 pos;			/* position of the first free entry */
 };
 
+/* The hash table: the table size stored here in order to make resizing easy */
 struct htable {
-	u8 htable_bits;		
-	struct hbucket bucket[0]; 
+	u8 htable_bits;		/* size of hash table == 2^htable_bits */
+	struct hbucket bucket[0]; /* hashtable buckets */
 };
 
 #define hbucket(h, i)		(&((h)->bucket[i]))
 
+/* Book-keeping of the prefixes added to the set */
 struct ip_set_hash_nets {
-	u8 cidr;		
-	u32 nets;		
+	u8 cidr;		/* the different cidr values in the set */
+	u32 nets;		/* number of elements per cidr */
 };
 
+/* The generic ip_set hash structure */
 struct ip_set_hash {
-	struct htable *table;	
-	u32 maxelem;		
-	u32 elements;		
-	u32 initval;		
-	u32 timeout;		
-	struct timer_list gc;	
-	struct type_pf_next next; 
+	struct htable *table;	/* the hash table */
+	u32 maxelem;		/* max elements in the hash */
+	u32 elements;		/* current element (vs timeout) */
+	u32 initval;		/* random jhash init value */
+	u32 timeout;		/* timeout value, if enabled */
+	struct timer_list gc;	/* garbage collection when timeout enabled */
+	struct type_pf_next next; /* temporary storage for uadd */
 #ifdef IP_SET_HASH_WITH_MULTI
-	u8 ahash_max;		
+	u8 ahash_max;		/* max elements in an array block */
 #endif
 #ifdef IP_SET_HASH_WITH_NETMASK
-	u8 netmask;		
+	u8 netmask;		/* netmask value for subnets to store */
 #endif
 #ifdef IP_SET_HASH_WITH_RBTREE
 	struct rb_root rbtree;
 #endif
 #ifdef IP_SET_HASH_WITH_NETS
-	struct ip_set_hash_nets nets[0]; 
+	struct ip_set_hash_nets nets[0]; /* book-keeping of prefixes */
 #endif
 };
 
@@ -80,7 +104,7 @@ htable_size(u8 hbits)
 {
 	size_t hsize;
 
-	
+	/* We must fit both into u32 in jhash and size_t */
 	if (hbits > 31)
 		return 0;
 	hsize = jhash_size(hbits);
@@ -91,13 +115,14 @@ htable_size(u8 hbits)
 	return hsize * sizeof(struct hbucket) + sizeof(struct htable);
 }
 
+/* Compute htable_bits from the user input parameter hashsize */
 static u8
 htable_bits(u32 hashsize)
 {
-	
+	/* Assume that hashsize == 2^htable_bits */
 	u8 bits = fls(hashsize - 1);
 	if (jhash_size(bits) != hashsize)
-		
+		/* Round up to the first 2^n value */
 		bits = fls(hashsize);
 
 	return bits;
@@ -105,6 +130,7 @@ htable_bits(u32 hashsize)
 
 #ifdef IP_SET_HASH_WITH_NETS
 #ifdef IP_SET_HASH_WITH_NETS_PACKED
+/* When cidr is packed with nomatch, cidr - 1 is stored in the entry */
 #define CIDR(cidr)	(cidr + 1)
 #else
 #define CIDR(cidr)	(cidr)
@@ -112,6 +138,8 @@ htable_bits(u32 hashsize)
 
 #define SET_HOST_MASK(family)	(family == AF_INET ? 32 : 128)
 
+/* Network cidr size book keeping when the hash stores different
+ * sized networks */
 static void
 add_cidr(struct ip_set_hash *h, u8 cidr, u8 host_mask)
 {
@@ -124,9 +152,9 @@ add_cidr(struct ip_set_hash *h, u8 cidr, u8 host_mask)
 	if (h->nets[cidr-1].nets > 1)
 		return;
 
-	
+	/* New cidr size */
 	for (i = 0; i < host_mask && h->nets[i].cidr; i++) {
-		
+		/* Add in increasing prefix order, so larger cidr first */
 		if (h->nets[i].cidr < cidr)
 			swap(h->nets[i].cidr, cidr);
 	}
@@ -146,7 +174,7 @@ del_cidr(struct ip_set_hash *h, u8 cidr, u8 host_mask)
 	if (h->nets[cidr-1].nets != 0)
 		return;
 
-	
+	/* All entries with this cidr size deleted, so cleanup h->cidr[] */
 	for (i = 0; i < host_mask - 1 && h->nets[i].cidr; i++) {
 		if (h->nets[i].cidr == cidr)
 			h->nets[i].cidr = cidr = h->nets[i+1].cidr;
@@ -155,6 +183,7 @@ del_cidr(struct ip_set_hash *h, u8 cidr, u8 host_mask)
 }
 #endif
 
+/* Destroy the hashtable part of the set */
 static void
 ahash_destroy(struct htable *t)
 {
@@ -164,13 +193,14 @@ ahash_destroy(struct htable *t)
 	for (i = 0; i < jhash_size(t->htable_bits); i++) {
 		n = hbucket(t, i);
 		if (n->size)
-			
+			/* FIXME: use slab cache */
 			kfree(n->value);
 	}
 
 	ip_set_free(t);
 }
 
+/* Calculate the actual memory size of the set data */
 static size_t
 ahash_memsize(const struct ip_set_hash *h, size_t dsize, u8 host_mask)
 {
@@ -189,6 +219,7 @@ ahash_memsize(const struct ip_set_hash *h, size_t dsize, u8 host_mask)
 	return memsize;
 }
 
+/* Flush a hash type of set: destroy all elements */
 static void
 ip_set_hash_flush(struct ip_set *set)
 {
@@ -201,7 +232,7 @@ ip_set_hash_flush(struct ip_set *set)
 		n = hbucket(t, i);
 		if (n->size) {
 			n->size = n->pos = 0;
-			
+			/* FIXME: use slab cache */
 			kfree(n->value);
 		}
 	}
@@ -212,6 +243,7 @@ ip_set_hash_flush(struct ip_set *set)
 	h->elements = 0;
 }
 
+/* Destroy a hash type of set */
 static void
 ip_set_hash_destroy(struct ip_set *set)
 {
@@ -229,7 +261,7 @@ ip_set_hash_destroy(struct ip_set *set)
 	set->data = NULL;
 }
 
-#endif 
+#endif /* _IP_SET_AHASH_H */
 
 #ifndef HKEY_DATALEN
 #define HKEY_DATALEN	sizeof(struct type_pf_elem)
@@ -242,6 +274,7 @@ ip_set_hash_destroy(struct ip_set *set)
 #define CONCAT(a, b, c)		a##b##c
 #define TOKEN(a, b, c)		CONCAT(a, b, c)
 
+/* Type/family dependent function prototypes */
 
 #define type_pf_data_equal	TOKEN(TYPE, PF, _data_equal)
 #define type_pf_data_isnull	TOKEN(TYPE, PF, _data_isnull)
@@ -293,10 +326,14 @@ ip_set_hash_destroy(struct ip_set *set)
 #define type_pf_variant		TOKEN(TYPE, PF, _variant)
 #define type_pf_tvariant	TOKEN(TYPE, PF, _tvariant)
 
+/* Flavour without timeout */
 
+/* Get the ith element from the array block n */
 #define ahash_data(n, i)	\
 	((struct type_pf_elem *)((n)->value) + (i))
 
+/* Add an element to the hash table when resizing the set:
+ * we spare the maintenance of the internal counters. */
 static int
 type_pf_elem_add(struct hbucket *n, const struct type_pf_elem *value,
 		 u8 ahash_max, u32 cadt_flags)
@@ -307,7 +344,7 @@ type_pf_elem_add(struct hbucket *n, const struct type_pf_elem *value,
 		void *tmp;
 
 		if (n->size >= ahash_max)
-			
+			/* Trigger rehashing */
 			return -EAGAIN;
 
 		tmp = kzalloc((n->size + AHASH_INIT_SIZE)
@@ -326,13 +363,16 @@ type_pf_elem_add(struct hbucket *n, const struct type_pf_elem *value,
 	data = ahash_data(n, n->pos++);
 	type_pf_data_copy(data, value);
 #ifdef IP_SET_HASH_WITH_NETS
-	
+	/* Resizing won't overwrite stored flags */
 	if (cadt_flags)
 		type_pf_data_flags(data, cadt_flags);
 #endif
 	return 0;
 }
 
+/* Resize a hash: create a new hash table with doubling the hashsize
+ * and inserting the elements to it. Repeat until we succeed or
+ * fail due to memory pressures. */
 static int
 type_pf_resize(struct ip_set *set, bool retried)
 {
@@ -350,7 +390,7 @@ retry:
 	pr_debug("attempt to resize set %s from %u to %u, t %p\n",
 		 set->name, orig->htable_bits, htable_bits, orig);
 	if (!htable_bits) {
-		
+		/* In case we have plenty of memory :-) */
 		pr_warning("Cannot increase the hashsize of set %s further\n",
 			   set->name);
 		return -IPSET_ERR_HASH_FULL;
@@ -381,7 +421,7 @@ retry:
 	rcu_assign_pointer(h->table, t);
 	read_unlock_bh(&set->lock);
 
-	
+	/* Give time to other readers of the set */
 	synchronize_rcu_bh();
 
 	pr_debug("set %s resized from %u (%p) to %u (%p)\n", set->name,
@@ -394,6 +434,8 @@ retry:
 static inline void
 type_pf_data_next(struct ip_set_hash *h, const struct type_pf_elem *d);
 
+/* Add an element to a hash and update the internal counters when succeeded,
+ * otherwise report the proper error code. */
 static int
 type_pf_add(struct ip_set *set, void *value, u32 timeout, u32 flags)
 {
@@ -420,7 +462,7 @@ type_pf_add(struct ip_set *set, void *value, u32 timeout, u32 flags)
 		if (type_pf_data_equal(ahash_data(n, i), d, &multi)) {
 #ifdef IP_SET_HASH_WITH_NETS
 			if (flags & IPSET_FLAG_EXIST)
-				
+				/* Support overwriting just the flags */
 				type_pf_data_flags(ahash_data(n, i),
 						   cadt_flags);
 #endif
@@ -444,6 +486,9 @@ out:
 	return ret;
 }
 
+/* Delete an element from the hash: swap it with the last element
+ * and free up space if possible.
+ */
 static int
 type_pf_del(struct ip_set *set, void *value, u32 timeout, u32 flags)
 {
@@ -462,7 +507,7 @@ type_pf_del(struct ip_set *set, void *value, u32 timeout, u32 flags)
 		if (!type_pf_data_equal(data, d, &multi))
 			continue;
 		if (i != n->pos - 1)
-			
+			/* Not last one */
 			type_pf_data_copy(data, ahash_data(n, n->pos - 1));
 
 		n->pos--;
@@ -490,6 +535,8 @@ type_pf_del(struct ip_set *set, void *value, u32 timeout, u32 flags)
 
 #ifdef IP_SET_HASH_WITH_NETS
 
+/* Special test function which takes into account the different network
+ * sizes added to the set */
 static int
 type_pf_test_cidrs(struct ip_set *set, struct type_pf_elem *d, u32 timeout)
 {
@@ -516,6 +563,7 @@ type_pf_test_cidrs(struct ip_set *set, struct type_pf_elem *d, u32 timeout)
 }
 #endif
 
+/* Test whether the element is added to the set */
 static int
 type_pf_test(struct ip_set *set, void *value, u32 timeout, u32 flags)
 {
@@ -528,6 +576,8 @@ type_pf_test(struct ip_set *set, void *value, u32 timeout, u32 flags)
 	u32 key, multi = 0;
 
 #ifdef IP_SET_HASH_WITH_NETS
+	/* If we test an IP address and not a network address,
+	 * try all possible network sizes */
 	if (CIDR(d->cidr) == SET_HOST_MASK(set->family))
 		return type_pf_test_cidrs(set, d, timeout);
 #endif
@@ -542,6 +592,7 @@ type_pf_test(struct ip_set *set, void *value, u32 timeout, u32 flags)
 	return 0;
 }
 
+/* Reply a HEADER request: fill out the header part of the set */
 static int
 type_pf_head(struct ip_set *set, struct sk_buff *skb)
 {
@@ -577,6 +628,7 @@ nla_put_failure:
 	return -EMSGSIZE;
 }
 
+/* Reply a LIST/SAVE request: dump the elements of the specified set */
 static int
 type_pf_list(const struct ip_set *set,
 	     struct sk_buff *skb, struct netlink_callback *cb)
@@ -587,7 +639,7 @@ type_pf_list(const struct ip_set *set,
 	const struct hbucket *n;
 	const struct type_pf_elem *data;
 	u32 first = cb->args[2];
-	
+	/* We assume that one hash bucket fills into one page */
 	void *incomplete;
 	int i;
 
@@ -617,7 +669,7 @@ type_pf_list(const struct ip_set *set,
 		}
 	}
 	ipset_nest_end(skb, atd);
-	
+	/* Set listing finished */
 	cb->args[2] = 0;
 
 	return 0;
@@ -658,6 +710,7 @@ static const struct ip_set_type_variant type_pf_variant = {
 	.same_set = type_pf_same_set,
 };
 
+/* Flavour with timeout support */
 
 #define ahash_tdata(n, i) \
 	(struct type_pf_elem *)((struct type_pf_telem *)((n)->value) + (i))
@@ -698,7 +751,7 @@ type_pf_elem_tadd(struct hbucket *n, const struct type_pf_elem *value,
 		void *tmp;
 
 		if (n->size >= ahash_max)
-			
+			/* Trigger rehashing */
 			return -EAGAIN;
 
 		tmp = kzalloc((n->size + AHASH_INIT_SIZE)
@@ -718,13 +771,14 @@ type_pf_elem_tadd(struct hbucket *n, const struct type_pf_elem *value,
 	type_pf_data_copy(data, value);
 	type_pf_data_timeout_set(data, timeout);
 #ifdef IP_SET_HASH_WITH_NETS
-	
+	/* Resizing won't overwrite stored flags */
 	if (cadt_flags)
 		type_pf_data_flags(data, cadt_flags);
 #endif
 	return 0;
 }
 
+/* Delete expired elements from the hashtable */
 static void
 type_pf_expire(struct ip_set_hash *h)
 {
@@ -744,7 +798,7 @@ type_pf_expire(struct ip_set_hash *h)
 				del_cidr(h, CIDR(data->cidr), HOST_MASK);
 #endif
 				if (j != n->pos - 1)
-					
+					/* Not last one */
 					type_pf_data_copy(data,
 						ahash_tdata(n, n->pos - 1));
 				n->pos--;
@@ -756,7 +810,7 @@ type_pf_expire(struct ip_set_hash *h)
 					    * sizeof(struct type_pf_telem),
 					    GFP_ATOMIC);
 			if (!tmp)
-				
+				/* Still try to delete expired elements */
 				continue;
 			n->size -= AHASH_INIT_SIZE;
 			memcpy(tmp, n->value,
@@ -778,7 +832,7 @@ type_pf_tresize(struct ip_set *set, bool retried)
 	u32 i, j;
 	int ret;
 
-	
+	/* Try to cleanup once */
 	if (!retried) {
 		i = h->elements;
 		write_lock_bh(&set->lock);
@@ -792,7 +846,7 @@ retry:
 	ret = 0;
 	htable_bits++;
 	if (!htable_bits) {
-		
+		/* In case we have plenty of memory :-) */
 		pr_warning("Cannot increase the hashsize of set %s further\n",
 			   set->name);
 		return -IPSET_ERR_HASH_FULL;
@@ -824,7 +878,7 @@ retry:
 	rcu_assign_pointer(h->table, t);
 	read_unlock_bh(&set->lock);
 
-	
+	/* Give time to other readers of the set */
 	synchronize_rcu_bh();
 
 	ahash_destroy(orig);
@@ -846,7 +900,7 @@ type_pf_tadd(struct ip_set *set, void *value, u32 timeout, u32 flags)
 	u32 cadt_flags = flags >> 16;
 
 	if (h->elements >= h->maxelem)
-		
+		/* FIXME: when set is full, we slow down here */
 		type_pf_expire(h);
 	if (h->elements >= h->maxelem) {
 		if (net_ratelimit())
@@ -863,7 +917,7 @@ type_pf_tadd(struct ip_set *set, void *value, u32 timeout, u32 flags)
 		data = ahash_tdata(n, i);
 		if (type_pf_data_equal(data, d, &multi)) {
 			if (type_pf_data_expired(data) || flag_exist)
-				
+				/* Just timeout value may be updated */
 				j = i;
 			else {
 				ret = -IPSET_ERR_EXIST;
@@ -923,7 +977,7 @@ type_pf_tdel(struct ip_set *set, void *value, u32 timeout, u32 flags)
 		if (type_pf_data_expired(data))
 			return -IPSET_ERR_EXIST;
 		if (i != n->pos - 1)
-			
+			/* Not last one */
 			type_pf_data_copy(data, ahash_tdata(n, n->pos - 1));
 
 		n->pos--;
@@ -1019,7 +1073,7 @@ type_pf_tlist(const struct ip_set *set,
 	const struct hbucket *n;
 	const struct type_pf_elem *data;
 	u32 first = cb->args[2];
-	
+	/* We assume that one hash bucket fills into one page */
 	void *incomplete;
 	int i;
 
@@ -1049,7 +1103,7 @@ type_pf_tlist(const struct ip_set *set,
 		}
 	}
 	ipset_nest_end(skb, atd);
-	
+	/* Set listing finished */
 	cb->args[2] = 0;
 
 	return 0;

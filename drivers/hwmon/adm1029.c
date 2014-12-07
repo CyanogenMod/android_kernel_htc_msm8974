@@ -35,11 +35,18 @@
 #include <linux/err.h>
 #include <linux/mutex.h>
 
+/*
+ * Addresses to scan
+ */
 
 static const unsigned short normal_i2c[] = { 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d,
 						0x2e, 0x2f, I2C_CLIENT_END
 };
 
+/*
+ * The ADM1029 registers
+ * Manufacturer ID is 0x41 for Analog Devices
+ */
 
 #define ADM1029_REG_MAN_ID			0x0D
 #define ADM1029_REG_CHIP_ID			0x0E
@@ -73,6 +80,7 @@ static const unsigned short normal_i2c[] = { 0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d,
 
 #define DIV_FROM_REG(val)	(1 << (((val) >> 6) - 1))
 
+/* Registers to be checked by adm1029_update_device() */
 static const u8 ADM1029_REG_TEMP[] = {
 	ADM1029_REG_LOCAL_TEMP,
 	ADM1029_REG_REMOTE1_TEMP,
@@ -97,6 +105,9 @@ static const u8 ADM1029_REG_FAN_DIV[] = {
 	ADM1029_REG_FAN2_CONFIG,
 };
 
+/*
+ * Functions declaration
+ */
 
 static int adm1029_probe(struct i2c_client *client,
 			 const struct i2c_device_id *id);
@@ -106,6 +117,9 @@ static int adm1029_remove(struct i2c_client *client);
 static struct adm1029_data *adm1029_update_device(struct device *dev);
 static int adm1029_init_client(struct i2c_client *client);
 
+/*
+ * Driver data (common to all clients)
+ */
 
 static const struct i2c_device_id adm1029_id[] = {
 	{ "adm1029", 0 },
@@ -125,19 +139,25 @@ static struct i2c_driver adm1029_driver = {
 	.address_list	= normal_i2c,
 };
 
+/*
+ * Client data (each client gets its own)
+ */
 
 struct adm1029_data {
 	struct device *hwmon_dev;
 	struct mutex update_lock;
-	char valid;		
-	unsigned long last_updated;	
+	char valid;		/* zero until following fields are valid */
+	unsigned long last_updated;	/* in jiffies */
 
-	
+	/* registers values, signed for temperature, unsigned for other stuff */
 	s8 temp[ARRAY_SIZE(ADM1029_REG_TEMP)];
 	u8 fan[ARRAY_SIZE(ADM1029_REG_FAN)];
 	u8 fan_div[ARRAY_SIZE(ADM1029_REG_FAN_DIV)];
 };
 
+/*
+ * Sysfs stuff
+ */
 
 static ssize_t
 show_temp(struct device *dev, struct device_attribute *devattr, char *buf)
@@ -188,7 +208,7 @@ static ssize_t set_fan_div(struct device *dev,
 
 	mutex_lock(&data->update_lock);
 
-	
+	/*Read actual config */
 	reg = i2c_smbus_read_byte_data(client,
 				       ADM1029_REG_FAN_DIV[attr->index]);
 
@@ -208,10 +228,10 @@ static ssize_t set_fan_div(struct device *dev,
 			"supported. Choose one of 1, 2 or 4!\n", val);
 		return -EINVAL;
 	}
-	
+	/* Update the value */
 	reg = (reg & 0x3F) | (val << 6);
 
-	
+	/* Write value */
 	i2c_smbus_write_byte_data(client,
 				  ADM1029_REG_FAN_DIV[attr->index], reg);
 	mutex_unlock(&data->update_lock);
@@ -219,6 +239,10 @@ static ssize_t set_fan_div(struct device *dev,
 	return count;
 }
 
+/*
+ * Access rights on sysfs. S_IRUGO: Is Readable by User, Group and Others
+ *			   S_IWUSR: Is Writable by User.
+ */
 static SENSOR_DEVICE_ATTR(temp1_input, S_IRUGO, show_temp, NULL, 0);
 static SENSOR_DEVICE_ATTR(temp2_input, S_IRUGO, show_temp, NULL, 1);
 static SENSOR_DEVICE_ATTR(temp3_input, S_IRUGO, show_temp, NULL, 2);
@@ -265,7 +289,11 @@ static const struct attribute_group adm1029_group = {
 	.attrs = adm1029_attributes,
 };
 
+/*
+ * Real code
+ */
 
+/* Return 0 if detection is successful, -ENODEV otherwise */
 static int adm1029_detect(struct i2c_client *client,
 			  struct i2c_board_info *info)
 {
@@ -275,6 +303,12 @@ static int adm1029_detect(struct i2c_client *client,
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -ENODEV;
 
+	/*
+	 * ADM1029 doesn't have CHIP ID, check just MAN ID
+	 * For better detection we check also ADM1029_TEMP_DEVICES_INSTALLED,
+	 * ADM1029_REG_NB_FAN_SUPPORT and compare it with possible values
+	 * documented
+	 */
 
 	man_id = i2c_smbus_read_byte_data(client, ADM1029_REG_MAN_ID);
 	chip_id = i2c_smbus_read_byte_data(client, ADM1029_REG_CHIP_ID);
@@ -282,12 +316,16 @@ static int adm1029_detect(struct i2c_client *client,
 					ADM1029_REG_TEMP_DEVICES_INSTALLED);
 	nb_fan_support = i2c_smbus_read_byte_data(client,
 						ADM1029_REG_NB_FAN_SUPPORT);
-	
+	/* 0x41 is Analog Devices */
 	if (man_id != 0x41 || (temp_devices_installed & 0xf9) != 0x01
 	    || nb_fan_support != 0x03)
 		return -ENODEV;
 
 	if ((chip_id & 0xF0) != 0x00) {
+		/*
+		 * There are no "official" CHIP ID, so actually
+		 * we use Major/Minor revision for that
+		 */
 		pr_info("adm1029: Unknown major revision %x, "
 			"please let us know\n", chip_id);
 		return -ENODEV;
@@ -313,12 +351,16 @@ static int adm1029_probe(struct i2c_client *client,
 	i2c_set_clientdata(client, data);
 	mutex_init(&data->update_lock);
 
+	/*
+	 * Initialize the ADM1029 chip
+	 * Check config register
+	 */
 	if (adm1029_init_client(client) == 0) {
 		err = -ENODEV;
 		goto exit_free;
 	}
 
-	
+	/* Register sysfs hooks */
 	err = sysfs_create_group(&client->dev.kobj, &adm1029_group);
 	if (err)
 		goto exit_free;
@@ -347,7 +389,7 @@ static int adm1029_init_client(struct i2c_client *client)
 		i2c_smbus_write_byte_data(client, ADM1029_REG_CONFIG,
 					  config | 0x10);
 	}
-	
+	/* recheck config */
 	config = i2c_smbus_read_byte_data(client, ADM1029_REG_CONFIG);
 	if ((config & 0x10) == 0) {
 		dev_err(&client->dev, "Initialization failed!\n");
@@ -367,12 +409,19 @@ static int adm1029_remove(struct i2c_client *client)
 	return 0;
 }
 
+/*
+ * function that update the status of the chips (temperature for example)
+ */
 static struct adm1029_data *adm1029_update_device(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct adm1029_data *data = i2c_get_clientdata(client);
 
 	mutex_lock(&data->update_lock);
+	/*
+	 * Use the "cache" Luke, don't recheck values
+	 * if there are already checked not a long time later
+	 */
 	if (time_after(jiffies, data->last_updated + HZ * 2)
 	 || !data->valid) {
 		int nr;

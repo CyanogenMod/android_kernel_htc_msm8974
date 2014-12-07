@@ -93,7 +93,7 @@
 struct adv7180_state {
 	struct v4l2_subdev	sd;
 	struct work_struct	work;
-	struct mutex		mutex; 
+	struct mutex		mutex; /* mutual excl. when accessing chip */
 	int			irq;
 	v4l2_std_id		curr_norm;
 	bool			autodetect;
@@ -182,7 +182,7 @@ static int adv7180_querystd(struct v4l2_subdev *sd, v4l2_std_id *std)
 	if (err)
 		return err;
 
-	
+	/* when we are interrupt driven we know the state */
 	if (!state->autodetect || state->irq > 0)
 		*std = state->curr_norm;
 	else
@@ -220,7 +220,7 @@ static int adv7180_s_std(struct v4l2_subdev *sd, v4l2_std_id std)
 	if (ret)
 		return ret;
 
-	
+	/* all standards -> autodetect */
 	if (std == V4L2_STD_ALL) {
 		ret = i2c_smbus_write_byte_data(client,
 			ADV7180_INPUT_CONTROL_REG,
@@ -275,7 +275,7 @@ static void adv7180_work(struct work_struct *work)
 	i2c_smbus_write_byte_data(client, ADV7180_ADI_CTRL_REG,
 		ADV7180_ADI_CTRL_IRQ_SPACE);
 	isr3 = i2c_smbus_read_byte_data(client, ADV7180_ISR3_ADI);
-	
+	/* clear */
 	i2c_smbus_write_byte_data(client, ADV7180_ICR3_ADI, isr3);
 	i2c_smbus_write_byte_data(client, ADV7180_ADI_CTRL_REG, 0);
 
@@ -297,6 +297,10 @@ static irqreturn_t adv7180_irq(int irq, void *devid)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Generic i2c probe
+ * concerning the addresses: i2c wants 7 bit (without the r/w bit), so '>>1'
+ */
 
 static __devinit int adv7180_probe(struct i2c_client *client,
 			const struct i2c_device_id *id)
@@ -305,7 +309,7 @@ static __devinit int adv7180_probe(struct i2c_client *client,
 	struct v4l2_subdev *sd;
 	int ret;
 
-	
+	/* Check if the adapter supports the needed features */
 	if (!i2c_check_functionality(client->adapter, I2C_FUNC_SMBUS_BYTE_DATA))
 		return -EIO;
 
@@ -325,8 +329,8 @@ static __devinit int adv7180_probe(struct i2c_client *client,
 	sd = &state->sd;
 	v4l2_i2c_subdev_init(sd, client, &adv7180_ops);
 
-	
-	
+	/* Initialize adv7180 */
+	/* Enable autodetection */
 	ret = i2c_smbus_write_byte_data(client, ADV7180_INPUT_CONTROL_REG,
 		ADV7180_INPUT_CONTROL_AD_PAL_BG_NTSC_J_SECAM);
 	if (ret < 0)
@@ -337,17 +341,17 @@ static __devinit int adv7180_probe(struct i2c_client *client,
 	if (ret < 0)
 		goto err_unreg_subdev;
 
-	
+	/* ITU-R BT.656-4 compatible */
 	ret = i2c_smbus_write_byte_data(client,
 		ADV7180_EXTENDED_OUTPUT_CONTROL_REG,
 		ADV7180_EXTENDED_OUTPUT_CONTROL_NTSCDIS);
 	if (ret < 0)
 		goto err_unreg_subdev;
 
-	
+	/* read current norm */
 	__adv7180_status(client, NULL, &state->curr_norm);
 
-	
+	/* register for interrupts */
 	if (state->irq > 0) {
 		ret = request_irq(state->irq, adv7180_irq, 0, DRIVER_NAME,
 			state);
@@ -359,7 +363,7 @@ static __devinit int adv7180_probe(struct i2c_client *client,
 		if (ret < 0)
 			goto err_unreg_subdev;
 
-		
+		/* config the Interrupt pin to be active low */
 		ret = i2c_smbus_write_byte_data(client, ADV7180_ICONF1_ADI,
 			ADV7180_ICONF1_ACTIVE_LOW | ADV7180_ICONF1_PSYNC_ONLY);
 		if (ret < 0)
@@ -373,7 +377,7 @@ static __devinit int adv7180_probe(struct i2c_client *client,
 		if (ret < 0)
 			goto err_unreg_subdev;
 
-		
+		/* enable AD change interrupts interrupts */
 		ret = i2c_smbus_write_byte_data(client, ADV7180_IMR3_ADI,
 			ADV7180_IRQ3_AD_CHANGE);
 		if (ret < 0)
@@ -408,6 +412,11 @@ static __devexit int adv7180_remove(struct i2c_client *client)
 	if (state->irq > 0) {
 		free_irq(client->irq, state);
 		if (cancel_work_sync(&state->work)) {
+			/*
+			 * Work was pending, therefore we need to enable
+			 * IRQ here to balance the disable_irq() done in the
+			 * interrupt handler.
+			 */
 			enable_irq(state->irq);
 		}
 	}

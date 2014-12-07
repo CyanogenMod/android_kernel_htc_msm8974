@@ -16,26 +16,32 @@
  * WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
  */
 
+/*  ----------------------------------- Host OS */
 #include <dspbridge/host_os.h>
 
 #include <plat/dsp.h>
 
+/*  ----------------------------------- DSP/BIOS Bridge */
 #include <dspbridge/dbdefs.h>
 #include <dspbridge/drv.h>
 #include <dspbridge/io_sm.h>
 
+/*  ----------------------------------- Platform Manager */
 #include <dspbridge/brddefs.h>
 #include <dspbridge/dev.h>
 #include <dspbridge/io.h>
 
+/* ------------------------------------ Hardware Abstraction Layer */
 #include <hw_defs.h>
 #include <hw_mmu.h>
 
 #include <dspbridge/pwr.h>
 
+/*  ----------------------------------- Bridge Driver */
 #include <dspbridge/dspdeh.h>
 #include <dspbridge/wdt.h>
 
+/*  ----------------------------------- specific to this file */
 #include "_tiomap.h"
 #include "_tiomap_pwr.h"
 #include <mach-omap2/prm-regbits-34xx.h>
@@ -43,6 +49,10 @@
 
 #define PWRSTST_TIMEOUT          200
 
+/*
+ *  ======== handle_constraints_set ========
+ *  	Sets new DSP constraint
+ */
 int handle_constraints_set(struct bridge_dev_context *dev_context,
 				  void *pargs)
 {
@@ -52,17 +62,21 @@ int handle_constraints_set(struct bridge_dev_context *dev_context,
 		omap_dspbridge_dev->dev.platform_data;
 
 	constraint_val = (u32 *) (pargs);
-	
+	/* Read the target value requested by DSP */
 	dev_dbg(bridge, "OPP: %s opp requested = 0x%x\n", __func__,
 		(u32) *(constraint_val + 1));
 
-	
+	/* Set the new opp value */
 	if (pdata->dsp_set_min_opp)
 		(*pdata->dsp_set_min_opp) ((u32) *(constraint_val + 1));
-#endif 
+#endif /* #ifdef CONFIG_TIDSPBRIDGE_DVFS */
 	return 0;
 }
 
+/*
+ *  ======== handle_hibernation_from_dsp ========
+ *  	Handle Hibernation requested from DSP
+ */
 int handle_hibernation_from_dsp(struct bridge_dev_context *dev_context)
 {
 	int status = 0;
@@ -78,7 +92,7 @@ int handle_hibernation_from_dsp(struct bridge_dev_context *dev_context)
 
 	pwr_state = (*pdata->dsp_prm_read)(OMAP3430_IVA2_MOD, OMAP2_PM_PWSTST) &
 						OMAP_POWERSTATEST_MASK;
-	
+	/* Wait for DSP to move into OFF state */
 	while ((pwr_state != PWRDM_POWER_OFF) && --timeout) {
 		if (msleep_interruptible(10)) {
 			pr_err("Waiting for DSP OFF mode interrupted\n");
@@ -93,17 +107,17 @@ int handle_hibernation_from_dsp(struct bridge_dev_context *dev_context)
 		return status;
 	} else {
 
-		
+		/* Save mailbox settings */
 		omap_mbox_save_ctx(dev_context->mbox);
 
-		
+		/* Turn off DSP Peripheral clocks and DSP Load monitor timer */
 		status = dsp_clock_disable_all(dev_context->dsp_per_clks);
 
-		
+		/* Disable wdt on hibernation. */
 		dsp_wdt_enable(false);
 
 		if (!status) {
-			
+			/* Update the Bridger Driver state */
 			dev_context->brd_state = BRD_DSP_HIBERNATION;
 #ifdef CONFIG_TIDSPBRIDGE_DVFS
 			status =
@@ -114,16 +128,24 @@ int handle_hibernation_from_dsp(struct bridge_dev_context *dev_context)
 			}
 			io_sh_msetting(hio_mgr, SHM_GETOPP, &opplevel);
 
+			/*
+			 * Set the OPP to low level before moving to OFF
+			 * mode
+			 */
 			if (pdata->dsp_set_min_opp)
 				(*pdata->dsp_set_min_opp) (VDD1_OPP1);
 			status = 0;
-#endif 
+#endif /* CONFIG_TIDSPBRIDGE_DVFS */
 		}
 	}
 #endif
 	return status;
 }
 
+/*
+ *  ======== sleep_dsp ========
+ *  	Put DSP in low power consuming state.
+ */
 int sleep_dsp(struct bridge_dev_context *dev_context, u32 dw_cmd,
 		     void *pargs)
 {
@@ -131,13 +153,13 @@ int sleep_dsp(struct bridge_dev_context *dev_context, u32 dw_cmd,
 #ifdef CONFIG_PM
 #ifdef CONFIG_TIDSPBRIDGE_NTFY_PWRERR
 	struct deh_mgr *hdeh_mgr;
-#endif 
+#endif /* CONFIG_TIDSPBRIDGE_NTFY_PWRERR */
 	u16 timeout = PWRSTST_TIMEOUT / 10;
 	u32 pwr_state, target_pwr_state;
 	struct omap_dsp_platform_data *pdata =
 		omap_dspbridge_dev->dev.platform_data;
 
-	
+	/* Check if sleep code is valid */
 	if ((dw_cmd != PWR_DEEPSLEEP) && (dw_cmd != PWR_EMERGENCYDEEPSLEEP))
 		return -EINVAL;
 
@@ -164,7 +186,7 @@ int sleep_dsp(struct bridge_dev_context *dev_context, u32 dw_cmd,
 		break;
 	case BRD_HIBERNATION:
 	case BRD_DSP_HIBERNATION:
-		
+		/* Already in Hibernation, so just return */
 		dev_dbg(bridge, "PM: %s - DSP already in hibernation\n",
 			__func__);
 		return 0;
@@ -176,11 +198,11 @@ int sleep_dsp(struct bridge_dev_context *dev_context, u32 dw_cmd,
 		return -EPERM;
 	}
 
-	
+	/* Get the PRCM DSP power domain status */
 	pwr_state = (*pdata->dsp_prm_read)(OMAP3430_IVA2_MOD, OMAP2_PM_PWSTST) &
 						OMAP_POWERSTATEST_MASK;
 
-	
+	/* Wait for DSP to move into target power state */
 	while ((pwr_state != target_pwr_state) && --timeout) {
 		if (msleep_interruptible(10)) {
 			pr_err("Waiting for DSP to Suspend interrupted\n");
@@ -196,53 +218,66 @@ int sleep_dsp(struct bridge_dev_context *dev_context, u32 dw_cmd,
 #ifdef CONFIG_TIDSPBRIDGE_NTFY_PWRERR
 		dev_get_deh_mgr(dev_context->dev_obj, &hdeh_mgr);
 		bridge_deh_notify(hdeh_mgr, DSP_PWRERROR, 0);
-#endif 
+#endif /* CONFIG_TIDSPBRIDGE_NTFY_PWRERR */
 		return -ETIMEDOUT;
 	} else {
-		
+		/* Update the Bridger Driver state */
 		if (dsp_test_sleepstate == PWRDM_POWER_OFF)
 			dev_context->brd_state = BRD_HIBERNATION;
 		else
 			dev_context->brd_state = BRD_RETENTION;
 
-		
+		/* Disable wdt on hibernation. */
 		dsp_wdt_enable(false);
 
-		
+		/* Turn off DSP Peripheral clocks */
 		status = dsp_clock_disable_all(dev_context->dsp_per_clks);
 		if (status)
 			return status;
 #ifdef CONFIG_TIDSPBRIDGE_DVFS
 		else if (target_pwr_state == PWRDM_POWER_OFF) {
+			/*
+			 * Set the OPP to low level before moving to OFF mode
+			 */
 			if (pdata->dsp_set_min_opp)
 				(*pdata->dsp_set_min_opp) (VDD1_OPP1);
 		}
-#endif 
+#endif /* CONFIG_TIDSPBRIDGE_DVFS */
 	}
-#endif 
+#endif /* CONFIG_PM */
 	return status;
 }
 
+/*
+ *  ======== wake_dsp ========
+ *  	Wake up DSP from sleep.
+ */
 int wake_dsp(struct bridge_dev_context *dev_context, void *pargs)
 {
 	int status = 0;
 #ifdef CONFIG_PM
 
-	
+	/* Check the board state, if it is not 'SLEEP' then return */
 	if (dev_context->brd_state == BRD_RUNNING ||
 	    dev_context->brd_state == BRD_STOPPED) {
+		/* The Device is in 'RET' or 'OFF' state and Bridge state is not
+		 * 'SLEEP', this means state inconsistency, so return */
 		return 0;
 	}
 
-	
+	/* Send a wakeup message to DSP */
 	sm_interrupt_dsp(dev_context, MBX_PM_DSPWAKEUP);
 
-	
+	/* Set the device state to RUNNIG */
 	dev_context->brd_state = BRD_RUNNING;
-#endif 
+#endif /* CONFIG_PM */
 	return status;
 }
 
+/*
+ *  ======== dsp_peripheral_clk_ctrl ========
+ *  	Enable/Disable the DSP peripheral clocks as needed..
+ */
 int dsp_peripheral_clk_ctrl(struct bridge_dev_context *dev_context,
 				   void *pargs)
 {
@@ -259,15 +294,17 @@ int dsp_peripheral_clk_ctrl(struct bridge_dev_context *dev_context,
 	ext_clk = (u32) *((u32 *) pargs);
 	ext_clk_id = ext_clk & MBX_PM_CLK_IDMASK;
 
-	
+	/* process the power message -- TODO, keep it in a separate function */
 	for (tmp_index = 0; tmp_index < MBX_PM_MAX_RESOURCES; tmp_index++) {
 		if (ext_clk_id == bpwr_clkid[tmp_index]) {
 			clk_id_index = tmp_index;
 			break;
 		}
 	}
+	/* TODO -- Assert may be a too hard restriction here.. May be we should
+	 * just return with failure when the CLK ID does not match */
 	if (clk_id_index == MBX_PM_MAX_RESOURCES) {
-		
+		/* return with a more meaningfull error code */
 		return -EPERM;
 	}
 	ext_clk_cmd = (ext_clk >> MBX_PM_CLK_CMDSHIFT) & MBX_PM_CLK_CMDMASK;
@@ -290,11 +327,18 @@ int dsp_peripheral_clk_ctrl(struct bridge_dev_context *dev_context,
 		break;
 	default:
 		dev_dbg(bridge, "%s: Unsupported CMD\n", __func__);
-		
+		/* unsupported cmd */
+		/* TODO -- provide support for AUTOIDLE Enable/Disable
+		 * commands */
 	}
 	return status;
 }
 
+/*
+ *  ========pre_scale_dsp========
+ *  Sends prescale notification to DSP
+ *
+ */
 int pre_scale_dsp(struct bridge_dev_context *dev_context, void *pargs)
 {
 #ifdef CONFIG_TIDSPBRIDGE_DVFS
@@ -312,17 +356,22 @@ int pre_scale_dsp(struct bridge_dev_context *dev_context, void *pargs)
 		dev_dbg(bridge, "OPP: %s IVA in sleep. No message to DSP\n");
 		return 0;
 	} else if ((dev_context->brd_state == BRD_RUNNING)) {
-		
+		/* Send a prenotificatio to DSP */
 		dev_dbg(bridge, "OPP: %s sent notification to DSP\n", __func__);
 		sm_interrupt_dsp(dev_context, MBX_PM_SETPOINT_PRENOTIFY);
 		return 0;
 	} else {
 		return -EPERM;
 	}
-#endif 
+#endif /* #ifdef CONFIG_TIDSPBRIDGE_DVFS */
 	return 0;
 }
 
+/*
+ *  ========post_scale_dsp========
+ *  Sends postscale notification to DSP
+ *
+ */
 int post_scale_dsp(struct bridge_dev_context *dev_context,
 							void *pargs)
 {
@@ -343,21 +392,21 @@ int post_scale_dsp(struct bridge_dev_context *dev_context,
 	if ((dev_context->brd_state == BRD_HIBERNATION) ||
 	    (dev_context->brd_state == BRD_RETENTION) ||
 	    (dev_context->brd_state == BRD_DSP_HIBERNATION)) {
-		
+		/* Update the OPP value in shared memory */
 		io_sh_msetting(hio_mgr, SHM_CURROPP, &level);
 		dev_dbg(bridge, "OPP: %s IVA in sleep. Wrote to shm\n",
 			__func__);
 	} else if ((dev_context->brd_state == BRD_RUNNING)) {
-		
+		/* Update the OPP value in shared memory */
 		io_sh_msetting(hio_mgr, SHM_CURROPP, &level);
-		
+		/* Send a post notification to DSP */
 		sm_interrupt_dsp(dev_context, MBX_PM_SETPOINT_POSTNOTIFY);
 		dev_dbg(bridge, "OPP: %s wrote to shm. Sent post notification "
 			"to DSP\n", __func__);
 	} else {
 		status = -EPERM;
 	}
-#endif 
+#endif /* #ifdef CONFIG_TIDSPBRIDGE_DVFS */
 	return status;
 }
 

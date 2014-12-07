@@ -62,9 +62,17 @@ irqreturn_t cx18_irq_handler(int irq, void *dev_id)
 		CX18_DEBUG_HI_IRQ("received interrupts "
 				  "SW1: %x  SW2: %x  HW2: %x\n", sw1, sw2, hw2);
 
+	/*
+	 * SW1 responses have to happen first.  The sending XPU times out the
+	 * incoming mailboxes on us rather rapidly.
+	 */
 	if (sw1)
 		epu_cmd(cx, sw1);
 
+	/* To do: interrupt-based I2C handling
+	if (hw2 & (HW2_I2C1_INT|HW2_I2C2_INT)) {
+	}
+	*/
 
 	if (sw2)
 		xpu_ack(cx, sw2);

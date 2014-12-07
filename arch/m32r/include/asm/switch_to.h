@@ -9,6 +9,12 @@
 #ifndef _ASM_M32R_SWITCH_TO_H
 #define _ASM_M32R_SWITCH_TO_H
 
+/*
+ * switch_to(prev, next) should switch from task `prev' to `next'
+ * `prev' will never be the same as `next'.
+ *
+ * `next' and `prev' should be struct task_struct, but it isn't always defined
+ */
 
 #if defined(CONFIG_FRAME_POINTER) || \
 	!defined(CONFIG_SCHED_OMIT_FRAME_POINTER)
@@ -42,4 +48,4 @@
 	); \
 } while(0)
 
-#endif 
+#endif /* _ASM_M32R_SWITCH_TO_H */

@@ -61,6 +61,13 @@
 
 struct class *ide_port_class;
 
+/**
+ * ide_device_get	-	get an additional reference to a ide_drive_t
+ * @drive:	device to get a reference to
+ *
+ * Gets a reference to the ide_drive_t and increments the use count of the
+ * underlying LLDD module.
+ */
 int ide_device_get(ide_drive_t *drive)
 {
 	struct device *host_dev;
@@ -81,6 +88,13 @@ int ide_device_get(ide_drive_t *drive)
 }
 EXPORT_SYMBOL_GPL(ide_device_get);
 
+/**
+ * ide_device_put	-	release a reference to a ide_drive_t
+ * @drive:	device to release a reference on
+ *
+ * Release a reference to the ide_drive_t and decrements the use count of
+ * the underlying LLDD module.
+ */
 void ide_device_put(ide_drive_t *drive)
 {
 #ifdef CONFIG_MODULE_UNLOAD
@@ -168,7 +182,7 @@ static int ide_set_dev_param_mask(const char *s, const struct kernel_param *kp)
 	int a, b, i, j = 1;
 	unsigned int *dev_param_mask = (unsigned int *)kp->arg;
 
-	
+	/* controller . device (0 or 1) [ : 1 (set) | 0 (clear) ] */
 	if (sscanf(s, "%d.%d:%d", &a, &b, &j) != 3 &&
 	    sscanf(s, "%d.%d", &a, &b) != 2)
 		return -EINVAL;
@@ -235,8 +249,8 @@ static int ide_set_disk_chs(const char *str, struct kernel_param *kp)
 {
 	int a, b, c = 0, h = 0, s = 0, i, j = 1;
 
-	
-	
+	/* controller . device (0 or 1) : Cylinders , Heads , Sectors */
+	/* controller . device (0 or 1) : 1 (use CHS) | 0 (ignore CHS) */
 	if (sscanf(str, "%d.%d:%d,%d,%d", &a, &b, &c, &h, &s) != 5 &&
 	    sscanf(str, "%d.%d:%d", &a, &b, &j) != 3)
 		return -EINVAL;
@@ -295,7 +309,7 @@ static void ide_dev_apply_params(ide_drive_t *drive, u8 unit)
 		printk(KERN_INFO "ide: forcing %s as a CD-ROM\n", drive->name);
 		drive->dev_flags |= IDE_DFLAG_PRESENT;
 		drive->media = ide_cdrom;
-		
+		/* an ATAPI device ignores DRDY */
 		drive->ready_stat = 0;
 	}
 	if (ide_disks & (1 << i)) {
@@ -319,8 +333,8 @@ static int ide_set_ignore_cable(const char *s, struct kernel_param *kp)
 {
 	int i, j = 1;
 
-	
-	
+	/* controller (ignore) */
+	/* controller : 1 (ignore) | 0 (use) */
 	if (sscanf(s, "%d:%d", &i, &j) != 2 && sscanf(s, "%d", &i) != 1)
 		return -EINVAL;
 
@@ -353,6 +367,9 @@ void ide_port_apply_params(ide_hwif_t *hwif)
 		ide_dev_apply_params(drive, i);
 }
 
+/*
+ * This is gets invoked once during initialization, to set *everything* up
+ */
 static int __init ide_init(void)
 {
 	int ret;

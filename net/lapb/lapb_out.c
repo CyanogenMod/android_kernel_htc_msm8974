@@ -33,6 +33,10 @@
 #include <linux/interrupt.h>
 #include <net/lapb.h>
 
+/*
+ *  This procedure is passed a buffer descriptor for an iframe. It builds
+ *  the rest of the control part of the frame and then writes it out.
+ */
 static void lapb_send_iframe(struct lapb_cb *lapb, struct sk_buff *skb, int poll_bit)
 {
 	unsigned char *frame;
@@ -77,6 +81,9 @@ void lapb_kick(struct lapb_cb *lapb)
 	    start != end && skb_peek(&lapb->write_queue)) {
 		lapb->vs = start;
 
+		/*
+		 * Dequeue the frame and copy it.
+		 */
 		skb = skb_dequeue(&lapb->write_queue);
 
 		do {
@@ -88,10 +95,16 @@ void lapb_kick(struct lapb_cb *lapb)
 			if (skb->sk)
 				skb_set_owner_w(skbn, skb->sk);
 
+			/*
+			 * Transmit the frame copy.
+			 */
 			lapb_send_iframe(lapb, skbn, LAPB_POLLOFF);
 
 			lapb->vs = (lapb->vs + 1) % modulus;
 
+			/*
+			 * Requeue the original data frame.
+			 */
 			skb_queue_tail(&lapb->ack_queue, skb);
 
 		} while (lapb->vs != end && (skb = skb_dequeue(&lapb->write_queue)) != NULL);

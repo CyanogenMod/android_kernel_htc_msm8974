@@ -20,6 +20,16 @@
 #include <linux/list.h>
 #endif
 
+/* The early_suspend structure defines suspend and resume hooks to be called
+ * when the user visible sleep state of the system changes, and a level to
+ * control the order. They can be used to turn off the screen and input
+ * devices that are not used for wakeup.
+ * Suspend handlers are called in low to high level order, resume handlers are
+ * called in the opposite order. If, when calling register_early_suspend,
+ * the suspend handlers have already been called without a matching call to the
+ * resume handlers, the suspend handler will be called directly from
+ * register_early_suspend. This direct call can violate the normal level order.
+ */
 enum {
 	EARLY_SUSPEND_LEVEL_BLANK_SCREEN = 50,
 	EARLY_SUSPEND_LEVEL_STOP_DRAWING = 100,

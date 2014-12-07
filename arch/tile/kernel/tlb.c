@@ -19,9 +19,16 @@
 #include <asm/homecache.h>
 #include <hv/hypervisor.h>
 
+/* From tlbflush.h */
 DEFINE_PER_CPU(int, current_asid);
 int min_asid, max_asid;
 
+/*
+ * Note that we flush the L1I (for VM_EXEC pages) as well as the TLB
+ * so that when we are unmapping an executable page, we also flush it.
+ * Combined with flushing the L1I at context switch time, this means
+ * we don't have to do any other icache flushes.
+ */
 
 void flush_tlb_mm(struct mm_struct *mm)
 {

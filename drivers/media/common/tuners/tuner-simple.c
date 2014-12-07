@@ -1,3 +1,9 @@
+/*
+ * i2c tv tuner chip device driver
+ * controls all those simple 4-control-bytes style tuners.
+ *
+ * This "tuner-simple" module was split apart from the original "tuner" module.
+ */
 #include <linux/delay.h>
 #include <linux/i2c.h>
 #include <linux/videodev2.h>
@@ -27,31 +33,62 @@ module_param_array(dtv_input, int, NULL, 0644);
 MODULE_PARM_DESC(atv_input, "specify atv rf input, 0 for autoselect");
 MODULE_PARM_DESC(dtv_input, "specify dtv rf input, 0 for autoselect");
 
+/* ---------------------------------------------------------------------- */
 
+/* tv standard selection for Temic 4046 FM5
+   this value takes the low bits of control byte 2
+   from datasheet Rev.01, Feb.00
+     standard     BG      I       L       L2      D
+     picture IF   38.9    38.9    38.9    33.95   38.9
+     sound 1      33.4    32.9    32.4    40.45   32.4
+     sound 2      33.16
+     NICAM        33.05   32.348  33.05           33.05
+ */
 #define TEMIC_SET_PAL_I         0x05
 #define TEMIC_SET_PAL_DK        0x09
-#define TEMIC_SET_PAL_L         0x0a 
-#define TEMIC_SET_PAL_L2        0x0b 
+#define TEMIC_SET_PAL_L         0x0a /* SECAM ? */
+#define TEMIC_SET_PAL_L2        0x0b /* change IF ! */
 #define TEMIC_SET_PAL_BG        0x0c
 
-#define PHILIPS_SET_PAL_I	0x01 
+/* tv tuner system standard selection for Philips FQ1216ME
+   this value takes the low bits of control byte 2
+   from datasheet "1999 Nov 16" (supersedes "1999 Mar 23")
+     standard 		BG	DK	I	L	L`
+     picture carrier	38.90	38.90	38.90	38.90	33.95
+     colour		34.47	34.47	34.47	34.47	38.38
+     sound 1		33.40	32.40	32.90	32.40	40.45
+     sound 2		33.16	-	-	-	-
+     NICAM		33.05	33.05	32.35	33.05	39.80
+ */
+#define PHILIPS_SET_PAL_I	0x01 /* Bit 2 always zero !*/
 #define PHILIPS_SET_PAL_BGDK	0x09
 #define PHILIPS_SET_PAL_L2	0x0a
 #define PHILIPS_SET_PAL_L	0x0b
 
-#define PHILIPS_MF_SET_STD_BG	0x01 
-#define PHILIPS_MF_SET_STD_L	0x03 
-#define PHILIPS_MF_SET_STD_LC	0x02 
+/* system switching for Philips FI1216MF MK2
+   from datasheet "1996 Jul 09",
+    standard         BG     L      L'
+    picture carrier  38.90  38.90  33.95
+    colour	     34.47  34.37  38.38
+    sound 1          33.40  32.40  40.45
+    sound 2          33.16  -      -
+    NICAM            33.05  33.05  39.80
+ */
+#define PHILIPS_MF_SET_STD_BG	0x01 /* Bit 2 must be zero, Bit 3 is system output */
+#define PHILIPS_MF_SET_STD_L	0x03 /* Used on Secam France */
+#define PHILIPS_MF_SET_STD_LC	0x02 /* Used on SECAM L' */
 
+/* Control byte */
 
-#define TUNER_RATIO_MASK        0x06 
+#define TUNER_RATIO_MASK        0x06 /* Bit cb1:cb2 */
 #define TUNER_RATIO_SELECT_50   0x00
 #define TUNER_RATIO_SELECT_32   0x02
 #define TUNER_RATIO_SELECT_166  0x04
 #define TUNER_RATIO_SELECT_62   0x06
 
-#define TUNER_CHARGE_PUMP       0x40  
+#define TUNER_CHARGE_PUMP       0x40  /* Bit cb6 */
 
+/* Status byte */
 
 #define TUNER_POR	  0x80
 #define TUNER_FL          0x40
@@ -80,6 +117,7 @@ struct tuner_simple_priv {
 	u32 bandwidth;
 };
 
+/* ---------------------------------------------------------------------- */
 
 static int tuner_read_status(struct dvb_frontend *fe)
 {
@@ -163,6 +201,7 @@ static int simple_get_rf_strength(struct dvb_frontend *fe, u16 *strength)
 	return 0;
 }
 
+/* ---------------------------------------------------------------------- */
 
 static inline char *tuner_param_name(enum param_type type)
 {
@@ -202,7 +241,7 @@ static struct tuner_params *simple_tuner_params(struct dvb_frontend *fe,
 		if (desired_type == tun->params[i].type)
 			break;
 
-	
+	/* use default tuner params if desired_type not available */
 	if (i == tun->count) {
 		tuner_dbg("desired params (%s) undefined for tuner %d\n",
 			  tuner_param_name(desired_type), priv->type);
@@ -243,6 +282,7 @@ static int simple_config_lookup(struct dvb_frontend *fe,
 	return i;
 }
 
+/* ---------------------------------------------------------------------- */
 
 static void simple_set_rf_input(struct dvb_frontend *fe,
 				u8 *config, u8 *cb, unsigned int rf)
@@ -282,19 +322,19 @@ static int simple_std_setup(struct dvb_frontend *fe,
 	struct tuner_simple_priv *priv = fe->tuner_priv;
 	int rc;
 
-	
+	/* tv norm specific stuff for multi-norm tuners */
 	switch (priv->type) {
-	case TUNER_PHILIPS_SECAM: 
-		
-		
-		
+	case TUNER_PHILIPS_SECAM: /* FI1216MF */
+		/* 0x01 -> ??? no change ??? */
+		/* 0x02 -> PAL BDGHI / SECAM L */
+		/* 0x04 -> ??? PAL others / SECAM others ??? */
 		*cb &= ~0x03;
 		if (params->std & V4L2_STD_SECAM_L)
-			
+			/* also valid for V4L2_STD_SECAM */
 			*cb |= PHILIPS_MF_SET_STD_L;
 		else if (params->std & V4L2_STD_SECAM_LC)
 			*cb |= PHILIPS_MF_SET_STD_LC;
-		else 
+		else /* V4L2_STD_B|V4L2_STD_GH */
 			*cb |= PHILIPS_MF_SET_STD_BG;
 		break;
 
@@ -332,34 +372,34 @@ static int simple_std_setup(struct dvb_frontend *fe,
 		break;
 
 	case TUNER_PHILIPS_FCV1236D:
-		
-		
-		
-		
+		/* 0x00 -> ATSC antenna input 1 */
+		/* 0x01 -> ATSC antenna input 2 */
+		/* 0x02 -> NTSC antenna input 1 */
+		/* 0x03 -> NTSC antenna input 2 */
 		*cb &= ~0x03;
 		if (!(params->std & V4L2_STD_ATSC))
 			*cb |= 2;
 		break;
 
 	case TUNER_MICROTUNE_4042FI5:
-		
+		/* Set the charge pump for fast tuning */
 		*config |= TUNER_CHARGE_PUMP;
 		break;
 
 	case TUNER_PHILIPS_TUV1236D:
 	{
 		struct tuner_i2c_props i2c = priv->i2c_props;
-		
-		
-		
-		
+		/* 0x40 -> ATSC antenna input 1 */
+		/* 0x48 -> ATSC antenna input 2 */
+		/* 0x00 -> NTSC antenna input 1 */
+		/* 0x08 -> NTSC antenna input 2 */
 		u8 buffer[4] = { 0x14, 0x00, 0x17, 0x00};
 		*cb &= ~0x40;
 		if (params->std & V4L2_STD_ATSC) {
 			*cb |= 0x40;
 			buffer[1] = 0x04;
 		}
-		
+		/* set to the correct mode (analog or digital) */
 		i2c.addr = 0x0a;
 		rc = tuner_i2c_xfer_send(&i2c, &buffer[0], 2);
 		if (2 != rc)
@@ -407,15 +447,15 @@ static int simple_post_tune(struct dvb_frontend *fe, u8 *buffer,
 		simple_set_aux_byte(fe, config, 0x20);
 		break;
 	case TUNER_PHILIPS_FQ1216LME_MK3:
-		simple_set_aux_byte(fe, config, 0x60); 
+		simple_set_aux_byte(fe, config, 0x60); /* External AGC */
 		break;
 	case TUNER_MICROTUNE_4042FI5:
 	{
-		
+		/* FIXME - this may also work for other tuners */
 		unsigned long timeout = jiffies + msecs_to_jiffies(1);
 		u8 status_byte = 0;
 
-		
+		/* Wait until the PLL locks */
 		for (;;) {
 			if (time_after(jiffies, timeout))
 				return 0;
@@ -431,7 +471,7 @@ static int simple_post_tune(struct dvb_frontend *fe, u8 *buffer,
 			udelay(10);
 		}
 
-		
+		/* Set the charge pump for optimized phase noise figure */
 		config &= ~TUNER_CHARGE_PUMP;
 		buffer[0] = (div>>8) & 0x7f;
 		buffer[1] = div      & 0xff;
@@ -486,7 +526,7 @@ static int simple_radio_bandswitch(struct dvb_frontend *fe, u8 *buffer)
 	case TUNER_PHILIPS_FQ1216LME_MK3:
 	case TUNER_PHILIPS_FQ1236_MK5:
 		tuner_err("This tuner doesn't have FM\n");
-		
+		/* Set the low band for sanity, since it covers 88-108 MHz */
 		buffer[3] = 0x01;
 		break;
 	case TUNER_MICROTUNE_4049FM5:
@@ -498,6 +538,7 @@ static int simple_radio_bandswitch(struct dvb_frontend *fe, u8 *buffer)
 	return 0;
 }
 
+/* ---------------------------------------------------------------------- */
 
 static int simple_set_tv_freq(struct dvb_frontend *fe,
 			      struct analog_parameters *params)
@@ -510,6 +551,17 @@ static int simple_set_tv_freq(struct dvb_frontend *fe,
 	enum param_type desired_type;
 	struct tuner_params *t_params;
 
+	/* IFPCoff = Video Intermediate Frequency - Vif:
+		940  =16*58.75  NTSC/J (Japan)
+		732  =16*45.75  M/N STD
+		704  =16*44     ATSC (at DVB code)
+		632  =16*39.50  I U.K.
+		622.4=16*38.90  B/G D/K I, L STD
+		592  =16*37.00  D China
+		590  =16.36.875 B Australia
+		543.2=16*33.95  L' STD
+		171.2=16*10.70  FM Radio (at set_radio_freq)
+	*/
 
 	if (params->std == V4L2_STD_NTSC_M_JP) {
 		IFPCoff      = 940;
@@ -539,7 +591,7 @@ static int simple_set_tv_freq(struct dvb_frontend *fe,
 		  IFPCoff / 16, IFPCoff % 16 * 100 / 16,
 		  offset / 16, offset % 16 * 100 / 16, div);
 
-	
+	/* tv norm specific stuff for multi-norm tuners */
 	simple_std_setup(fe, params, &config, &cb);
 
 	if (t_params->cb_first_if_lower_freq && div < priv->last_div) {
@@ -626,18 +678,18 @@ static int simple_set_radio_freq(struct dvb_frontend *fe,
 	for (j = tun->count-1; j > 0; j--)
 		if (tun->params[j].type == TUNER_PARAM_TYPE_RADIO)
 			break;
-	
+	/* default t_params (j=0) will be used if desired type wasn't found */
 	t_params = &tun->params[j];
 
-	
+	/* Select Radio 1st IF used */
 	switch (t_params->radio_if) {
-	case 0: 
+	case 0: /* 10.7 MHz */
 		freq += (unsigned int)(10.7*16000);
 		break;
-	case 1: 
+	case 1: /* 33.3 MHz */
 		freq += (unsigned int)(33.3*16000);
 		break;
-	case 2: 
+	case 2: /* 41.3 MHz */
 		freq += (unsigned int)(41.3*16000);
 		break;
 	default:
@@ -647,11 +699,14 @@ static int simple_set_radio_freq(struct dvb_frontend *fe,
 	}
 
 	buffer[2] = (t_params->ranges[0].config & ~TUNER_RATIO_MASK) |
-		    TUNER_RATIO_SELECT_50; 
+		    TUNER_RATIO_SELECT_50; /* 50 kHz step */
 
-	
+	/* Bandswitch byte */
 	simple_radio_bandswitch(fe, &buffer[0]);
 
+	/* Convert from 1/16 kHz V4L steps to 1/20 MHz (=50 kHz) PLL steps
+	   freq * (1 Mhz / 16000 V4L steps) * (20 PLL steps / 1 MHz) =
+	   freq * (1/800) */
 	div = (freq + 400) / 800;
 
 	if (t_params->cb_first_if_lower_freq && div < priv->last_div) {
@@ -683,6 +738,8 @@ static int simple_set_radio_freq(struct dvb_frontend *fe,
 			config |= TDA9887_PORT2_ACTIVE;
 		if (t_params->intercarrier_mode)
 			config |= TDA9887_INTERCARRIER;
+/*		if (t_params->port1_set_for_fm_mono)
+			config &= ~TDA9887_PORT1_ACTIVE;*/
 		if (t_params->fm_gain_normal)
 			config |= TDA9887_GAIN_NORMAL;
 		if (t_params->radio_if == 2)
@@ -694,11 +751,11 @@ static int simple_set_radio_freq(struct dvb_frontend *fe,
 	if (4 != rc)
 		tuner_warn("i2c i/o error: rc == %d (should be 4)\n", rc);
 
-	
+	/* Write AUX byte */
 	switch (priv->type) {
 	case TUNER_PHILIPS_FM1216ME_MK3:
 		buffer[2] = 0x98;
-		buffer[3] = 0x20; 
+		buffer[3] = 0x20; /* set TOP AGC */
 		rc = tuner_i2c_xfer_send(&priv->i2c_props, buffer, 4);
 		if (4 != rc)
 			tuner_warn("i2c i/o error: rc == %d (should be 4)\n", rc);
@@ -748,11 +805,11 @@ static void simple_set_dvb(struct dvb_frontend *fe, u8 *buf,
 			buf[3] |= 0x08;
 		break;
 	case TUNER_PHILIPS_TD1316:
-		
+		/* determine band */
 		buf[3] |= (frequency < 161000000) ? 1 :
 			  (frequency < 444000000) ? 2 : 4;
 
-		
+		/* setup PLL filter */
 		if (bandwidth == 8000000)
 			buf[3] |= 1 << 3;
 		break;
@@ -786,7 +843,7 @@ static u32 simple_dvb_configure(struct dvb_frontend *fe, u8 *buf,
 				const u32 freq,
 				const u32 bw)
 {
-	
+	/* This function returns the tuned frequency on success, 0 on error */
 	struct tuner_simple_priv *priv = fe->tuner_priv;
 	struct tunertype *tun = priv->tun;
 	static struct tuner_params *t_params;
@@ -796,16 +853,18 @@ static u32 simple_dvb_configure(struct dvb_frontend *fe, u8 *buf,
 	u32 frequency = freq / 62500;
 
 	if (!tun->stepsize) {
+		/* tuner-core was loaded before the digital tuner was
+		 * configured and somehow picked the wrong tuner type */
 		tuner_err("attempt to treat tuner %d (%s) as digital tuner "
 			  "without stepsize defined.\n",
 			  priv->type, priv->tun->name);
-		return 0; 
+		return 0; /* failure */
 	}
 
 	t_params = simple_tuner_params(fe, TUNER_PARAM_TYPE_DIGITAL);
 	ret = simple_config_lookup(fe, t_params, &frequency, &config, &cb);
 	if (ret < 0)
-		return 0; 
+		return 0; /* failure */
 
 	div = ((frequency + t_params->iffreq) * 62500 + offset +
 	       tun->stepsize/2) / tun->stepsize;
@@ -820,7 +879,7 @@ static u32 simple_dvb_configure(struct dvb_frontend *fe, u8 *buf,
 	tuner_dbg("%s: div=%d | buf=0x%02x,0x%02x,0x%02x,0x%02x\n",
 		  tun->name, div, buf[0], buf[1], buf[2], buf[3]);
 
-	
+	/* calculate the frequency we set it to */
 	return (div * tun->stepsize) - t_params->iffreq;
 }
 
@@ -875,20 +934,22 @@ static int simple_dvb_set_params(struct dvb_frontend *fe)
 	priv->frequency = frequency;
 	priv->bandwidth = bw;
 
-	
+	/* put analog demod in standby when tuning digital */
 	if (fe->ops.analog_ops.standby)
 		fe->ops.analog_ops.standby(fe);
 
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 1);
 
+	/* buf[0] contains the i2c address, but *
+	 * we already have it in i2c_props.addr */
 	ret = tuner_i2c_xfer_send(&priv->i2c_props, buf+1, 4);
 	if (ret != 4)
 		goto fail;
 
 	return 0;
 fail:
-	
+	/* calc_regs sets frequency and bandwidth. if we failed, unset them */
 	priv->frequency = prev_freq;
 	priv->bandwidth = prev_bw;
 
@@ -998,6 +1059,10 @@ struct dvb_frontend *simple_tuner_attach(struct dvb_frontend *fe,
 		return NULL;
 	}
 
+	/* If i2c_adap is set, check that the tuner is at the correct address.
+	 * Otherwise, if i2c_adap is NULL, the tuner will be programmed directly
+	 * by the digital demod via calc_regs.
+	 */
 	if (i2c_adap != NULL) {
 		u8 b[1];
 		struct i2c_msg msg = {
@@ -1081,3 +1146,10 @@ MODULE_DESCRIPTION("Simple 4-control-bytes style tuner driver");
 MODULE_AUTHOR("Ralph Metzler, Gerd Knorr, Gunther Mayer");
 MODULE_LICENSE("GPL");
 
+/*
+ * Overrides for Emacs so that we follow Linus's tabbing style.
+ * ---------------------------------------------------------------------------
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */

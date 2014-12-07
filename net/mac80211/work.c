@@ -33,11 +33,22 @@ enum work_action {
 };
 
 
+/* utils */
 static inline void ASSERT_WORK_MTX(struct ieee80211_local *local)
 {
 	lockdep_assert_held(&local->mtx);
 }
 
+/*
+ * We can have multiple work items (and connection probing)
+ * scheduling this timer, but we need to take care to only
+ * reschedule it when it should fire _earlier_ than it was
+ * asked for before, or if it's not pending right now. This
+ * function ensures that. Note that it then is required to
+ * run this function for all timeouts after the first one
+ * has happened -- the work that runs from this timer will
+ * do that.
+ */
 static void run_again(struct ieee80211_local *local,
 		      unsigned long timeout)
 {
@@ -56,6 +67,10 @@ void free_work(struct ieee80211_work *wk)
 static enum work_action __must_check
 ieee80211_remain_on_channel_timeout(struct ieee80211_work *wk)
 {
+	/*
+	 * First time we run, do nothing -- the generic code will
+	 * have switched to the right channel etc.
+	 */
 	if (!wk->started) {
 		wk->timeout = jiffies + msecs_to_jiffies(wk->remain.duration);
 
@@ -75,6 +90,11 @@ ieee80211_offchannel_tx(struct ieee80211_work *wk)
 	if (!wk->started) {
 		wk->timeout = jiffies + msecs_to_jiffies(wk->offchan_tx.wait);
 
+		/*
+		 * After this, offchan_tx.frame remains but now is no
+		 * longer a valid pointer -- we still need it as the
+		 * cookie for canceling this work/status matching.
+		 */
 		ieee80211_tx_skb(wk->sdata, wk->offchan_tx.frame);
 
 		return WORK_ACT_NONE;
@@ -105,6 +125,10 @@ static void ieee80211_work_work(struct work_struct *work)
 	if (local->scanning)
 		return;
 
+	/*
+	 * ieee80211_queue_work() should have picked up most cases,
+	 * here we'll pick the rest.
+	 */
 	if (WARN(local->suspended, "work scheduled while going to suspend\n"))
 		return;
 
@@ -115,7 +139,7 @@ static void ieee80211_work_work(struct work_struct *work)
 	list_for_each_entry_safe(wk, tmp, &local->work_list, list) {
 		bool started = wk->started;
 
-		
+		/* mark work as started if it's on the current off-channel */
 		if (!started && local->tmp_channel &&
 		    wk->chan == local->tmp_channel &&
 		    wk->chan_type == local->tmp_channel_type) {
@@ -135,11 +159,16 @@ static void ieee80211_work_work(struct work_struct *work)
 			wk->timeout = jiffies;
 		}
 
-		
+		/* don't try to work with items that aren't started */
 		if (!started)
 			continue;
 
 		if (time_is_after_jiffies(wk->timeout)) {
+			/*
+			 * This work item isn't supposed to be worked on
+			 * right now, but take care to adjust the timer
+			 * properly.
+			 */
 			run_again(local, wk->timeout);
 			continue;
 		}
@@ -147,7 +176,7 @@ static void ieee80211_work_work(struct work_struct *work)
 		switch (wk->type) {
 		default:
 			WARN_ON(1);
-			
+			/* nothing */
 			rma = WORK_ACT_NONE;
 			break;
 		case IEEE80211_WORK_ABORT:
@@ -165,7 +194,7 @@ static void ieee80211_work_work(struct work_struct *work)
 
 		switch (rma) {
 		case WORK_ACT_NONE:
-			
+			/* might have changed the timeout */
 			run_again(local, wk->timeout);
 			break;
 		case WORK_ACT_TIMEOUT:
@@ -193,7 +222,7 @@ static void ieee80211_work_work(struct work_struct *work)
 
 		ieee80211_offchannel_return(local, true);
 
-		
+		/* give connection some time to breathe */
 		run_again(local, jiffies + HZ/2);
 	}
 
@@ -265,7 +294,7 @@ void ieee80211_work_purge(struct ieee80211_sub_if_data *sdata)
 	}
 	mutex_unlock(&local->mtx);
 
-	
+	/* run cleanups etc. */
 	if (cleanup)
 		ieee80211_work_work(&local->work_work);
 
@@ -282,6 +311,9 @@ void ieee80211_work_purge(struct ieee80211_sub_if_data *sdata)
 static enum work_done_result ieee80211_remain_done(struct ieee80211_work *wk,
 						   struct sk_buff *skb)
 {
+	/*
+	 * We are done serving the remain-on-channel command.
+	 */
 	cfg80211_remain_on_channel_expired(wk->sdata->dev, (unsigned long) wk,
 					   wk->chan, wk->chan_type,
 					   GFP_KERNEL);

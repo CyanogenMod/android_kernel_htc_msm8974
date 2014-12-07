@@ -23,12 +23,12 @@ static const u8 asb2305_led_hex_tbl[16] = {
 };
 
 static const u32 asb2305_led_chase_tbl[6] = {
-	~0x02020202,	
-	~0x04040404,	
-	~0x08080808,	
-	~0x10101010,	
-	~0x20202020,	
-	~0x40404040,	
+	~0x02020202,	/* top		- segA */
+	~0x04040404,	/* right top	- segB */
+	~0x08080808,	/* right bottom	- segC */
+	~0x10101010,	/* bottom	- segD */
+	~0x20202020,	/* left bottom	- segE */
+	~0x40404040,	/* left top	- segF */
 };
 
 static unsigned asb2305_led_chase;

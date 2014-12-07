@@ -18,6 +18,7 @@
 
 #define mfp_to_gpio(m)	((m) % 256)
 
+/* list of all the configurable MFP pins */
 enum {
 	MFP_PIN_INVALID = -1,
 
@@ -307,7 +308,7 @@ enum {
 	MFP_PIN_MMC1_CD,
 	MFP_PIN_MMC1_WP,
 
-	
+	/* additional pins on PXA930 */
 	MFP_PIN_GSIM_UIO,
 	MFP_PIN_GSIM_UCLK,
 	MFP_PIN_GSIM_UDET,
@@ -315,7 +316,7 @@ enum {
 	MFP_PIN_PMIC_INT,
 	MFP_PIN_RDY,
 
-	
+	/* additional pins on MMP2 */
 	MFP_PIN_TWSI1_SCL,
 	MFP_PIN_TWSI1_SDA,
 	MFP_PIN_TWSI4_SCL,
@@ -325,6 +326,32 @@ enum {
 	MFP_PIN_MAX,
 };
 
+/*
+ * a possible MFP configuration is represented by a 32-bit integer
+ *
+ * bit  0.. 9 - MFP Pin Number (1024 Pins Maximum)
+ * bit 10..12 - Alternate Function Selection
+ * bit 13..15 - Drive Strength
+ * bit 16..18 - Low Power Mode State
+ * bit 19..20 - Low Power Mode Edge Detection
+ * bit 21..22 - Run Mode Pull State
+ *
+ * to facilitate the definition, the following macros are provided
+ *
+ * MFP_CFG_DEFAULT - default MFP configuration value, with
+ * 		  alternate function = 0,
+ * 		  drive strength = fast 3mA (MFP_DS03X)
+ * 		  low power mode = default
+ * 		  edge detection = none
+ *
+ * MFP_CFG	- default MFPR value with alternate function
+ * MFP_CFG_DRV	- default MFPR value with alternate function and
+ * 		  pin drive strength
+ * MFP_CFG_LPM	- default MFPR value with alternate function and
+ * 		  low power mode
+ * MFP_CFG_X	- default MFPR value with alternate function,
+ * 		  pin drive strength and low power mode
+ */
 
 typedef unsigned long mfp_cfg_t;
 
@@ -397,6 +424,24 @@ typedef unsigned long mfp_cfg_t;
 	 (MFP_PIN(MFP_PIN_##pin) | MFP_##af | MFP_##drv | MFP_LPM_##lpm))
 
 #if defined(CONFIG_PXA3xx) || defined(CONFIG_PXA95x) || defined(CONFIG_ARCH_MMP)
+/*
+ * each MFP pin will have a MFPR register, since the offset of the
+ * register varies between processors, the processor specific code
+ * should initialize the pin offsets by mfp_init()
+ *
+ * mfp_init_base() - accepts a virtual base for all MFPR registers and
+ * initialize the MFP table to a default state
+ *
+ * mfp_init_addr() - accepts a table of "mfp_addr_map" structure, which
+ * represents a range of MFP pins from "start" to "end", with the offset
+ * beginning at "offset", to define a single pin, let "end" = -1.
+ *
+ * use
+ *
+ * MFP_ADDR_X() to define a range of pins
+ * MFP_ADDR()   to define a single pin
+ * MFP_ADDR_END to signal the end of pin offset definitions
+ */
 struct mfp_addr_map {
 	unsigned int	start;
 	unsigned int	end;
@@ -414,11 +459,17 @@ struct mfp_addr_map {
 void __init mfp_init_base(void __iomem *mfpr_base);
 void __init mfp_init_addr(struct mfp_addr_map *map);
 
+/*
+ * mfp_{read, write}()	- for direct read/write access to the MFPR register
+ * mfp_config()		- for configuring a group of MFPR registers
+ * mfp_config_lpm()	- configuring all low power MFPR registers for suspend
+ * mfp_config_run()	- configuring all run time  MFPR registers after resume
+ */
 unsigned long mfp_read(int mfp);
 void mfp_write(int mfp, unsigned long mfpr_val);
 void mfp_config(unsigned long *mfp_cfgs, int num);
 void mfp_config_run(void);
 void mfp_config_lpm(void);
-#endif 
+#endif /* CONFIG_PXA3xx || CONFIG_PXA95x || CONFIG_ARCH_MMP */
 
-#endif 
+#endif /* __ASM_PLAT_MFP_H */

@@ -20,6 +20,18 @@
 struct module;
 struct uio_map;
 
+/**
+ * struct uio_mem - description of a UIO memory region
+ * @name:		name of the memory region for identification
+ * @addr:		address of the device's memory (phys_addr is used since
+ * 			addr can be logical, virtual, or physical & phys_addr_t
+ * 			should always be large enough to handle any of the
+ * 			address types)
+ * @size:		size of IO
+ * @memtype:		type of memory addr points to
+ * @internal_addr:	ioremap-ped version of addr, for driver internal use
+ * @map:		for use by the UIO core only.
+ */
 struct uio_mem {
 	const char		*name;
 	phys_addr_t		addr;
@@ -33,6 +45,14 @@ struct uio_mem {
 
 struct uio_portio;
 
+/**
+ * struct uio_port - description of a UIO port region
+ * @name:		name of the port region for identification
+ * @start:		start of port region
+ * @size:		size of port region
+ * @porttype:		type of port (see UIO_PORT_* below)
+ * @portio:		for use by the UIO core only.
+ */
 struct uio_port {
 	const char		*name;
 	unsigned long		start;
@@ -82,23 +102,27 @@ extern int __must_check
 			      struct device *parent,
 			      struct uio_info *info);
 
+/* use a define to avoid include chaining to get THIS_MODULE */
 #define uio_register_device(parent, info) \
 	__uio_register_device(THIS_MODULE, parent, info)
 
 extern void uio_unregister_device(struct uio_info *info);
 extern void uio_event_notify(struct uio_info *info);
 
+/* defines for uio_info->irq */
 #define UIO_IRQ_CUSTOM	-1
 #define UIO_IRQ_NONE	0
 
+/* defines for uio_mem->memtype */
 #define UIO_MEM_NONE	0
 #define UIO_MEM_PHYS	1
 #define UIO_MEM_LOGICAL	2
 #define UIO_MEM_VIRTUAL 3
 
+/* defines for uio_port->porttype */
 #define UIO_PORT_NONE	0
 #define UIO_PORT_X86	1
 #define UIO_PORT_GPIO	2
 #define UIO_PORT_OTHER	3
 
-#endif 
+#endif /* _LINUX_UIO_DRIVER_H_ */

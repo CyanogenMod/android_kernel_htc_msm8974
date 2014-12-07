@@ -60,6 +60,7 @@
 
 #define AC97_GPIO_PULL		0x58
 
+/* Use GPIO8 for rear speaker amplifier */
 static int rear_amp_power(struct snd_soc_codec *codec, int power)
 {
 	unsigned short reg;
@@ -87,6 +88,7 @@ static int rear_amp_event(struct snd_soc_dapm_widget *widget,
 	return rear_amp_power(codec, SND_SOC_DAPM_EVENT_ON(event));
 }
 
+/* mioa701 machine dapm widgets */
 static const struct snd_soc_dapm_widget mioa701_dapm_widgets[] = {
 	SND_SOC_DAPM_SPK("Front Speaker", NULL),
 	SND_SOC_DAPM_SPK("Rear Speaker", rear_amp_event),
@@ -98,28 +100,28 @@ static const struct snd_soc_dapm_widget mioa701_dapm_widgets[] = {
 };
 
 static const struct snd_soc_dapm_route audio_map[] = {
-	
+	/* Call Mic */
 	{"Mic Bias", NULL, "Front Mic"},
 	{"MIC1", NULL, "Mic Bias"},
 
-	
+	/* Headset Mic */
 	{"LINEL", NULL, "Headset Mic"},
 	{"LINER", NULL, "Headset Mic"},
 
-	
+	/* GSM Module */
 	{"MONOIN", NULL, "GSM Line Out"},
 	{"PCBEEP", NULL, "GSM Line Out"},
 	{"GSM Line In", NULL, "MONO"},
 
-	
+	/* headphone connected to HPL, HPR */
 	{"Headset", NULL, "HPL"},
 	{"Headset", NULL, "HPR"},
 
-	
+	/* front speaker connected to HPL, OUT3 */
 	{"Front Speaker", NULL, "HPL"},
 	{"Front Speaker", NULL, "OUT3"},
 
-	
+	/* rear speaker connected to SPKL, SPKR */
 	{"Rear Speaker", NULL, "SPKL"},
 	{"Rear Speaker", NULL, "SPKR"},
 };
@@ -130,17 +132,17 @@ static int mioa701_wm9713_init(struct snd_soc_pcm_runtime *rtd)
 	struct snd_soc_dapm_context *dapm = &codec->dapm;
 	unsigned short reg;
 
-	
+	/* Add mioa701 specific widgets */
 	snd_soc_dapm_new_controls(dapm, ARRAY_AND_SIZE(mioa701_dapm_widgets));
 
-	
+	/* Set up mioa701 specific audio path audio_mapnects */
 	snd_soc_dapm_add_routes(dapm, ARRAY_AND_SIZE(audio_map));
 
-	
+	/* Prepare GPIO8 for rear speaker amplifier */
 	reg = codec->driver->read(codec, AC97_GPIO_CFG);
 	codec->driver->write(codec, AC97_GPIO_CFG, reg | 0x0100);
 
-	
+	/* Prepare MIC input */
 	reg = codec->driver->read(codec, AC97_3D_CONTROL);
 	codec->driver->write(codec, AC97_3D_CONTROL, reg | 0xc000);
 
@@ -228,6 +230,7 @@ static struct platform_driver mioa701_wm9713_driver = {
 
 module_platform_driver(mioa701_wm9713_driver);
 
+/* Module information */
 MODULE_AUTHOR("Robert Jarzmik (rjarzmik@free.fr)");
 MODULE_DESCRIPTION("ALSA SoC WM9713 MIO A701");
 MODULE_LICENSE("GPL");

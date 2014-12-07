@@ -79,10 +79,20 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 	spinlock_t *old_ptl, *new_ptl;
 
 	if (vma->vm_file) {
+		/*
+		 * Subtle point from Rajesh Venkatasubramanian: before
+		 * moving file-based ptes, we must lock truncate_pagecache
+		 * out, since it might clean the dst vma before the src vma,
+		 * and we propagate stale pages into the dst afterward.
+		 */
 		mapping = vma->vm_file->f_mapping;
 		mutex_lock(&mapping->i_mmap_mutex);
 	}
 
+	/*
+	 * We don't have to worry about the ordering of src and dst
+	 * pte locks because exclusive mmap_sem prevents deadlock.
+	 */
 	old_pte = pte_offset_map_lock(mm, old_pmd, old_addr, &old_ptl);
 	new_pte = pte_offset_map(new_pmd, new_addr);
 	new_ptl = pte_lockptr(mm, new_pmd);
@@ -126,7 +136,7 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 	for (; old_addr < old_end; old_addr += extent, new_addr += extent) {
 		cond_resched();
 		next = (old_addr + PMD_SIZE) & PMD_MASK;
-		
+		/* even if next overflowed, extent below will be ok */
 		extent = next - old_addr;
 		if (extent > old_end - old_addr)
 			extent = old_end - old_addr;
@@ -167,7 +177,7 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 
 	mmu_notifier_invalidate_range_end(vma->vm_mm, old_end-len, old_end);
 
-	return len + old_addr - old_end;	
+	return len + old_addr - old_end;	/* how much done */
 }
 
 static unsigned long move_vma(struct vm_area_struct *vma,
@@ -184,9 +194,20 @@ static unsigned long move_vma(struct vm_area_struct *vma,
 	int split = 0;
 	int err;
 
+	/*
+	 * We'd prefer to avoid failure later on in do_munmap:
+	 * which may split one vma into three before unmapping.
+	 */
 	if (mm->map_count >= sysctl_max_map_count - 3)
 		return -ENOMEM;
 
+	/*
+	 * Advise KSM to break any KSM pages in the area to be moved:
+	 * it would be confusing if they were to turn up at the new
+	 * location, where they happen to coincide with different KSM
+	 * pages recently unmapped.  But leave vma->vm_flags as it was,
+	 * so KSM can come around to merge on vma and new_vma afterwards.
+	 */
 	err = ksm_madvise(vma, old_addr, old_addr + old_len,
 						MADV_UNMERGEABLE, &vm_flags);
 	if (err)
@@ -199,8 +220,20 @@ static unsigned long move_vma(struct vm_area_struct *vma,
 
 	moved_len = move_page_tables(vma, old_addr, new_vma, new_addr, old_len);
 	if (moved_len < old_len) {
+		/*
+		 * Before moving the page tables from the new vma to
+		 * the old vma, we need to be sure the old vma is
+		 * queued after new vma in the same_anon_vma list to
+		 * prevent SMP races with rmap_walk (that could lead
+		 * rmap_walk to miss some page table).
+		 */
 		anon_vma_moveto_tail(vma);
 
+		/*
+		 * On error, move entries back from new area to old,
+		 * which will succeed since page tables still there,
+		 * and then proceed to unmap new area instead of old.
+		 */
 		move_page_tables(new_vma, new_addr, vma, old_addr, moved_len);
 		vma = new_vma;
 		old_len = new_len;
@@ -208,7 +241,7 @@ static unsigned long move_vma(struct vm_area_struct *vma,
 		new_addr = -ENOMEM;
 	}
 
-	
+	/* Conceal VM_ACCOUNT so old reservation is not undone */
 	if (vm_flags & VM_ACCOUNT) {
 		vma->vm_flags &= ~VM_ACCOUNT;
 		excess = vma->vm_end - vma->vm_start - old_len;
@@ -217,18 +250,27 @@ static unsigned long move_vma(struct vm_area_struct *vma,
 			split = 1;
 	}
 
+	/*
+	 * If we failed to move page tables we still do total_vm increment
+	 * since do_munmap() will decrement it by old_len == new_len.
+	 *
+	 * Since total_vm is about to be raised artificially high for a
+	 * moment, we need to restore high watermark afterwards: if stats
+	 * are taken meanwhile, total_vm and hiwater_vm appear too high.
+	 * If this were a serious issue, we'd add a flag to do_munmap().
+	 */
 	hiwater_vm = mm->hiwater_vm;
 	mm->total_vm += new_len >> PAGE_SHIFT;
 	vm_stat_account(mm, vma->vm_flags, vma->vm_file, new_len>>PAGE_SHIFT);
 
 	if (do_munmap(mm, old_addr, old_len) < 0) {
-		
+		/* OOM: unable to split vma, just get accounts right */
 		vm_unacct_memory(excess >> PAGE_SHIFT);
 		excess = 0;
 	}
 	mm->hiwater_vm = hiwater_vm;
 
-	
+	/* Restore VM_ACCOUNT if one or two pieces of vma left */
 	if (excess) {
 		vma->vm_flags |= VM_ACCOUNT;
 		if (split)
@@ -257,11 +299,11 @@ static struct vm_area_struct *vma_to_resize(unsigned long addr,
 	if (is_vm_hugetlb_page(vma))
 		goto Einval;
 
-	
+	/* We can't remap across vm area boundaries */
 	if (old_len > vma->vm_end - addr)
 		goto Efault;
 
-	
+	/* Need to be careful about a growing mapping */
 	if (new_len > old_len) {
 		unsigned long pgoff;
 
@@ -294,7 +336,7 @@ static struct vm_area_struct *vma_to_resize(unsigned long addr,
 
 	return vma;
 
-Efault:	
+Efault:	/* very odd choice for most of the cases, but... */
 	return ERR_PTR(-EFAULT);
 Einval:
 	return ERR_PTR(-EINVAL);
@@ -320,6 +362,9 @@ static unsigned long mremap_to(unsigned long addr,
 	if (new_len > TASK_SIZE || new_addr > TASK_SIZE - new_len)
 		goto out;
 
+	/* Check if the location we're moving into overlaps the
+	 * old location at all, and fail if it does.
+	 */
 	if ((new_addr <= addr) && (new_addr+new_len) > addr)
 		goto out;
 
@@ -370,9 +415,9 @@ out:
 static int vma_expandable(struct vm_area_struct *vma, unsigned long delta)
 {
 	unsigned long end = vma->vm_end + delta;
-	if (end < vma->vm_end) 
+	if (end < vma->vm_end) /* overflow */
 		return 0;
-	if (vma->vm_next && vma->vm_next->vm_start < end) 
+	if (vma->vm_next && vma->vm_next->vm_start < end) /* intersection */
 		return 0;
 	if (get_unmapped_area(NULL, vma->vm_start, end - vma->vm_start,
 			      0, MAP_FIXED) & ~PAGE_MASK)
@@ -380,6 +425,13 @@ static int vma_expandable(struct vm_area_struct *vma, unsigned long delta)
 	return 1;
 }
 
+/*
+ * Expand (or shrink) an existing mapping, potentially moving it at the
+ * same time (controlled by the MREMAP_MAYMOVE flag and available VM space)
+ *
+ * MREMAP_FIXED option added 5-Dec-1999 by Benjamin LaHaise
+ * This option implies MREMAP_MAYMOVE.
+ */
 unsigned long do_mremap(unsigned long addr,
 	unsigned long old_len, unsigned long new_len,
 	unsigned long flags, unsigned long new_addr)
@@ -398,6 +450,11 @@ unsigned long do_mremap(unsigned long addr,
 	old_len = PAGE_ALIGN(old_len);
 	new_len = PAGE_ALIGN(new_len);
 
+	/*
+	 * We allow a zero old-len as a special case
+	 * for DOS-emu "duplicate shm area" thing. But
+	 * a zero new-len is nonsensical.
+	 */
 	if (!new_len)
 		goto out;
 
@@ -407,6 +464,11 @@ unsigned long do_mremap(unsigned long addr,
 		goto out;
 	}
 
+	/*
+	 * Always allow a shrinking remap: that just unmaps
+	 * the unnecessary pages..
+	 * do_munmap does all the needed commit accounting
+	 */
 	if (old_len >= new_len) {
 		ret = do_munmap(mm, addr+new_len, old_len - new_len);
 		if (ret && old_len != new_len)
@@ -415,14 +477,19 @@ unsigned long do_mremap(unsigned long addr,
 		goto out;
 	}
 
+	/*
+	 * Ok, we need to grow..
+	 */
 	vma = vma_to_resize(addr, old_len, new_len, &charged);
 	if (IS_ERR(vma)) {
 		ret = PTR_ERR(vma);
 		goto out;
 	}
 
+	/* old_len exactly to the end of the area..
+	 */
 	if (old_len == vma->vm_end - addr) {
-		
+		/* can we just expand the current mapping? */
 		if (vma_expandable(vma, new_len - old_len)) {
 			int pages = (new_len - old_len) >> PAGE_SHIFT;
 
@@ -444,6 +511,10 @@ unsigned long do_mremap(unsigned long addr,
 		}
 	}
 
+	/*
+	 * We weren't able to just expand or shrink the area,
+	 * we need to create a new one and move it..
+	 */
 	ret = -ENOMEM;
 	if (flags & MREMAP_MAYMOVE) {
 		unsigned long map_flags = 0;

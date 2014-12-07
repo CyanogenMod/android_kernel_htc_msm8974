@@ -28,9 +28,10 @@
 #define DIOLAN_OUT_EP		0x02
 #define DIOLAN_IN_EP		0x84
 
+/* commands via USB, must match command ids in the firmware */
 #define CMD_I2C_READ		0x01
 #define CMD_I2C_WRITE		0x02
-#define CMD_I2C_SCAN		0x03	
+#define CMD_I2C_SCAN		0x03	/* Returns list of detected devices */
 #define CMD_I2C_RELEASE_SDA	0x04
 #define CMD_I2C_RELEASE_SCL	0x05
 #define CMD_I2C_DROP_SDA	0x06
@@ -63,38 +64,41 @@
 #define RESP_NACK		0x07
 #define RESP_TIMEOUT		0x09
 
-#define U2C_I2C_SPEED_FAST	0	
-#define U2C_I2C_SPEED_STD	1	
-#define U2C_I2C_SPEED_2KHZ	242	
+#define U2C_I2C_SPEED_FAST	0	/* 400 kHz */
+#define U2C_I2C_SPEED_STD	1	/* 100 kHz */
+#define U2C_I2C_SPEED_2KHZ	242	/* 2 kHz, minimum speed */
 #define U2C_I2C_SPEED(f)	((DIV_ROUND_UP(1000000, (f)) - 10) / 2 + 1)
 
 #define U2C_I2C_FREQ_FAST	400000
 #define U2C_I2C_FREQ_STD	100000
 #define U2C_I2C_FREQ(s)		(1000000 / (2 * (s - 1) + 10))
 
-#define DIOLAN_USB_TIMEOUT	100	
-#define DIOLAN_SYNC_TIMEOUT	20	
+#define DIOLAN_USB_TIMEOUT	100	/* in ms */
+#define DIOLAN_SYNC_TIMEOUT	20	/* in ms */
 
 #define DIOLAN_OUTBUF_LEN	128
 #define DIOLAN_FLUSH_LEN	(DIOLAN_OUTBUF_LEN - 4)
-#define DIOLAN_INBUF_LEN	256	
+#define DIOLAN_INBUF_LEN	256	/* Maximum supported receive length */
 
+/* Structure to hold all of our device specific stuff */
 struct i2c_diolan_u2c {
-	u8 obuffer[DIOLAN_OUTBUF_LEN];	
-	u8 ibuffer[DIOLAN_INBUF_LEN];	
-	struct usb_device *usb_dev;	
-	struct usb_interface *interface;
-	struct i2c_adapter adapter;	
-	int olen;			
-	int ocount;			
+	u8 obuffer[DIOLAN_OUTBUF_LEN];	/* output buffer */
+	u8 ibuffer[DIOLAN_INBUF_LEN];	/* input buffer */
+	struct usb_device *usb_dev;	/* the usb device for this device */
+	struct usb_interface *interface;/* the interface for this device */
+	struct i2c_adapter adapter;	/* i2c related things */
+	int olen;			/* Output buffer length */
+	int ocount;			/* Number of enqueued messages */
 };
 
-static uint frequency = U2C_I2C_FREQ_STD;	
+static uint frequency = U2C_I2C_FREQ_STD;	/* I2C clock frequency in Hz */
 
 module_param(frequency, uint, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(frequency, "I2C clock frequency in hertz");
 
+/* usb layer */
 
+/* Send command to device, and get response. */
 static int diolan_usb_transfer(struct i2c_diolan_u2c *dev)
 {
 	int ret = 0;
@@ -118,19 +122,29 @@ static int diolan_usb_transfer(struct i2c_diolan_u2c *dev)
 					      dev->ibuffer,
 					      sizeof(dev->ibuffer), &actual,
 					      DIOLAN_USB_TIMEOUT);
+			/*
+			 * Stop command processing if a previous command
+			 * returned an error.
+			 * Note that we still need to retrieve all messages.
+			 */
 			if (ret < 0)
 				continue;
 			ret = tmpret;
 			if (ret == 0 && actual > 0) {
 				switch (dev->ibuffer[actual - 1]) {
 				case RESP_NACK:
+					/*
+					 * Return ENXIO if NACK was received as
+					 * response to the address phase,
+					 * EIO otherwise
+					 */
 					ret = i == 1 ? -ENXIO : -EIO;
 					break;
 				case RESP_TIMEOUT:
 					ret = -ETIMEDOUT;
 					break;
 				case RESP_OK:
-					
+					/* strip off return code */
 					ret = actual - 1;
 					break;
 				default:
@@ -152,6 +166,7 @@ static int diolan_write_cmd(struct i2c_diolan_u2c *dev, bool flush)
 	return 0;
 }
 
+/* Send command (no data) */
 static int diolan_usb_cmd(struct i2c_diolan_u2c *dev, u8 command, bool flush)
 {
 	dev->obuffer[dev->olen++] = command;
@@ -159,6 +174,7 @@ static int diolan_usb_cmd(struct i2c_diolan_u2c *dev, u8 command, bool flush)
 	return diolan_write_cmd(dev, flush);
 }
 
+/* Send command with one byte of data */
 static int diolan_usb_cmd_data(struct i2c_diolan_u2c *dev, u8 command, u8 data,
 			       bool flush)
 {
@@ -168,6 +184,7 @@ static int diolan_usb_cmd_data(struct i2c_diolan_u2c *dev, u8 command, u8 data,
 	return diolan_write_cmd(dev, flush);
 }
 
+/* Send command with two bytes of data */
 static int diolan_usb_cmd_data2(struct i2c_diolan_u2c *dev, u8 command, u8 d1,
 				u8 d2, bool flush)
 {
@@ -178,6 +195,12 @@ static int diolan_usb_cmd_data2(struct i2c_diolan_u2c *dev, u8 command, u8 d1,
 	return diolan_write_cmd(dev, flush);
 }
 
+/*
+ * Flush input queue.
+ * If we don't do this at startup and the controller has queued up
+ * messages which were not retrieved, it will stop responding
+ * at some point.
+ */
 static void diolan_flush_input(struct i2c_diolan_u2c *dev)
 {
 	int i;
@@ -236,11 +259,13 @@ static int diolan_set_speed(struct i2c_diolan_u2c *dev, u8 speed)
 	return diolan_usb_cmd_data(dev, CMD_I2C_SET_SPEED, speed, true);
 }
 
+/* Enable or disable clock synchronization (stretching) */
 static int diolan_set_clock_synch(struct i2c_diolan_u2c *dev, bool enable)
 {
 	return diolan_usb_cmd_data(dev, CMD_I2C_SET_CLK_SYNC, enable, true);
 }
 
+/* Set clock synchronization timeout in ms */
 static int diolan_set_clock_synch_timeout(struct i2c_diolan_u2c *dev, int ms)
 {
 	int to_val = ms * 10;
@@ -299,12 +324,12 @@ static int diolan_init(struct i2c_diolan_u2c *dev)
 	diolan_fw_version(dev);
 	diolan_get_serial(dev);
 
-	
+	/* Set I2C speed */
 	ret = diolan_set_speed(dev, speed);
 	if (ret < 0)
 		return ret;
 
-	
+	/* Configure I2C clock synchronization */
 	ret = diolan_set_clock_synch(dev, speed != U2C_I2C_SPEED_FAST);
 	if (ret < 0)
 		return ret;
@@ -315,6 +340,7 @@ static int diolan_init(struct i2c_diolan_u2c *dev)
 	return ret;
 }
 
+/* i2c layer */
 
 static int diolan_usb_xfer(struct i2c_adapter *adapter, struct i2c_msg *msgs,
 			   int num)
@@ -344,12 +370,19 @@ static int diolan_usb_xfer(struct i2c_adapter *adapter, struct i2c_msg *msgs,
 				u8 byte;
 				bool ack = j < pmsg->len - 1;
 
+				/*
+				 * Don't send NACK if this is the first byte
+				 * of a SMBUS_BLOCK message.
+				 */
 				if (j == 0 && (pmsg->flags & I2C_M_RECV_LEN))
 					ack = true;
 
 				ret = diolan_i2c_get_byte_ack(dev, ack, &byte);
 				if (ret < 0)
 					goto abort;
+				/*
+				 * Adjust count if first received byte is length
+				 */
 				if (j == 0 && (pmsg->flags & I2C_M_RECV_LEN)) {
 					if (byte == 0
 					    || byte > I2C_SMBUS_BLOCK_MAX) {
@@ -379,6 +412,9 @@ abort:
 	return ret;
 }
 
+/*
+ * Return list of supported functionality.
+ */
 static u32 diolan_usb_func(struct i2c_adapter *a)
 {
 	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL |
@@ -390,6 +426,7 @@ static const struct i2c_algorithm diolan_usb_algorithm = {
 	.functionality = diolan_usb_func,
 };
 
+/* device layer */
 
 static const struct usb_device_id diolan_u2c_table[] = {
 	{ USB_DEVICE(USB_VENDOR_ID_DIOLAN, USB_DEVICE_ID_DIOLAN_U2C) },
@@ -410,7 +447,7 @@ static int diolan_u2c_probe(struct usb_interface *interface,
 	struct i2c_diolan_u2c *dev;
 	int ret;
 
-	
+	/* allocate memory for our device state and initialize it */
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (dev == NULL) {
 		dev_err(&interface->dev, "no memory for device state\n");
@@ -421,10 +458,10 @@ static int diolan_u2c_probe(struct usb_interface *interface,
 	dev->usb_dev = usb_get_dev(interface_to_usbdev(interface));
 	dev->interface = interface;
 
-	
+	/* save our data pointer in this interface device */
 	usb_set_intfdata(interface, dev);
 
-	
+	/* setup i2c adapter description */
 	dev->adapter.owner = THIS_MODULE;
 	dev->adapter.class = I2C_CLASS_HWMON;
 	dev->adapter.algo = &diolan_usb_algorithm;
@@ -435,14 +472,14 @@ static int diolan_u2c_probe(struct usb_interface *interface,
 
 	dev->adapter.dev.parent = &dev->interface->dev;
 
-	
+	/* initialize diolan i2c interface */
 	ret = diolan_init(dev);
 	if (ret < 0) {
 		dev_err(&interface->dev, "failed to initialize adapter\n");
 		goto error_free;
 	}
 
-	
+	/* and finally attach to i2c layer */
 	ret = i2c_add_adapter(&dev->adapter);
 	if (ret < 0) {
 		dev_err(&interface->dev, "failed to add I2C adapter\n");

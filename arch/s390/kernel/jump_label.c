@@ -29,11 +29,11 @@ static void __jump_label_transform(struct jump_entry *entry,
 	int rc;
 
 	if (type == JUMP_LABEL_ENABLE) {
-		
+		/* brcl 15,offset */
 		insn.opcode = 0xc0f4;
 		insn.offset = (entry->target - entry->code) >> 1;
 	} else {
-		
+		/* brcl 0,0 */
 		insn.opcode = 0xc004;
 		insn.offset = 0;
 	}

@@ -16,4 +16,4 @@ extern void setup_replication_mask(void);
 extern void replicate_kernel_text(void);
 extern pfn_t node_getfirstfree(cnodeid_t);
 
-#endif 
+#endif /* __ASM_SN_SN_PRIVATE_H */

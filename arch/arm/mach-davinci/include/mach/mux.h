@@ -30,15 +30,15 @@ struct mux_config {
 };
 
 enum davinci_dm644x_index {
-	
+	/* ATA and HDDIR functions */
 	DM644X_HDIREN,
 	DM644X_ATAEN,
 	DM644X_ATAEN_DISABLE,
 
-	
+	/* HPI functions */
 	DM644X_HPIEN_DISABLE,
 
-	
+	/* AEAW functions */
 	DM644X_AEAW,
 	DM644X_AEAW0,
 	DM644X_AEAW1,
@@ -46,73 +46,73 @@ enum davinci_dm644x_index {
 	DM644X_AEAW3,
 	DM644X_AEAW4,
 
-	
+	/* Memory Stick */
 	DM644X_MSTK,
 
-	
+	/* I2C */
 	DM644X_I2C,
 
-	
+	/* ASP function */
 	DM644X_MCBSP,
 
-	
+	/* UART1 */
 	DM644X_UART1,
 
-	
+	/* UART2 */
 	DM644X_UART2,
 
-	
+	/* PWM0 */
 	DM644X_PWM0,
 
-	
+	/* PWM1 */
 	DM644X_PWM1,
 
-	
+	/* PWM2 */
 	DM644X_PWM2,
 
-	
+	/* VLYNQ function */
 	DM644X_VLYNQEN,
 	DM644X_VLSCREN,
 	DM644X_VLYNQWD,
 
-	
+	/* EMAC and MDIO function */
 	DM644X_EMACEN,
 
-	
+	/* GPIO3V[0:16] pins */
 	DM644X_GPIO3V,
 
-	
+	/* GPIO pins */
 	DM644X_GPIO0,
 	DM644X_GPIO3,
 	DM644X_GPIO43_44,
 	DM644X_GPIO46_47,
 
-	
+	/* VPBE */
 	DM644X_RGB666,
 
-	
+	/* LCD */
 	DM644X_LOEEN,
 	DM644X_LFLDEN,
 };
 
 enum davinci_dm646x_index {
-	
+	/* ATA function */
 	DM646X_ATAEN,
 
-	
+	/* AUDIO Clock */
 	DM646X_AUDCK1,
 	DM646X_AUDCK0,
 
-	
+	/* CRGEN Control */
 	DM646X_CRGMUX,
 
-	
+	/* VPIF Control */
 	DM646X_STSOMUX_DISABLE,
 	DM646X_STSIMUX_DISABLE,
 	DM646X_PTSOMUX_DISABLE,
 	DM646X_PTSIMUX_DISABLE,
 
-	
+	/* TSIF Control */
 	DM646X_STSOMUX,
 	DM646X_STSIMUX,
 	DM646X_PTSOMUX_PARALLEL,
@@ -122,10 +122,10 @@ enum davinci_dm646x_index {
 };
 
 enum davinci_dm355_index {
-	
+	/* MMC/SD 0 */
 	DM355_MMCSD0,
 
-	
+	/* MMC/SD 1 */
 	DM355_SD1_CLK,
 	DM355_SD1_CMD,
 	DM355_SD1_DATA3,
@@ -133,11 +133,11 @@ enum davinci_dm355_index {
 	DM355_SD1_DATA1,
 	DM355_SD1_DATA0,
 
-	
+	/* I2C */
 	DM355_I2C_SDA,
 	DM355_I2C_SCL,
 
-	
+	/* ASP0 function */
 	DM355_MCBSP0_BDX,
 	DM355_MCBSP0_X,
 	DM355_MCBSP0_BFSX,
@@ -145,29 +145,29 @@ enum davinci_dm355_index {
 	DM355_MCBSP0_R,
 	DM355_MCBSP0_BFSR,
 
-	
+	/* SPI0 */
 	DM355_SPI0_SDI,
 	DM355_SPI0_SDENA0,
 	DM355_SPI0_SDENA1,
 
-	
+	/* IRQ muxing */
 	DM355_INT_EDMA_CC,
 	DM355_INT_EDMA_TC0_ERR,
 	DM355_INT_EDMA_TC1_ERR,
 
-	
+	/* EDMA event muxing */
 	DM355_EVT8_ASP1_TX,
 	DM355_EVT9_ASP1_RX,
 	DM355_EVT26_MMC0_RX,
 
-	
+	/* Video Out */
 	DM355_VOUT_FIELD,
 	DM355_VOUT_FIELD_G70,
 	DM355_VOUT_HVSYNC,
 	DM355_VOUT_COUTL_EN,
 	DM355_VOUT_COUTH_EN,
 
-	
+	/* Video In Pin Mux */
 	DM355_VIN_PCLK,
 	DM355_VIN_CAM_WEN,
 	DM355_VIN_CAM_VD,
@@ -178,10 +178,10 @@ enum davinci_dm355_index {
 };
 
 enum davinci_dm365_index {
-	
+	/* MMC/SD 0 */
 	DM365_MMCSD0,
 
-	
+	/* MMC/SD 1 */
 	DM365_SD1_CLK,
 	DM365_SD1_CMD,
 	DM365_SD1_DATA3,
@@ -189,11 +189,11 @@ enum davinci_dm365_index {
 	DM365_SD1_DATA1,
 	DM365_SD1_DATA0,
 
-	
+	/* I2C */
 	DM365_I2C_SDA,
 	DM365_I2C_SCL,
 
-	
+	/* AEMIF */
 	DM365_AEMIF_AR_A14,
 	DM365_AEMIF_AR_BA0,
 	DM365_AEMIF_A3,
@@ -203,7 +203,7 @@ enum davinci_dm365_index {
 	DM365_AEMIF_CE1,
 	DM365_AEMIF_WE_OE,
 
-	
+	/* ASP0 function */
 	DM365_MCBSP0_BDX,
 	DM365_MCBSP0_X,
 	DM365_MCBSP0_BFSX,
@@ -211,14 +211,14 @@ enum davinci_dm365_index {
 	DM365_MCBSP0_R,
 	DM365_MCBSP0_BFSR,
 
-	
+	/* SPI0 */
 	DM365_SPI0_SCLK,
 	DM365_SPI0_SDI,
 	DM365_SPI0_SDO,
 	DM365_SPI0_SDENA0,
 	DM365_SPI0_SDENA1,
 
-	
+	/* UART */
 	DM365_UART0_RXD,
 	DM365_UART0_TXD,
 	DM365_UART1_RXD,
@@ -226,7 +226,7 @@ enum davinci_dm365_index {
 	DM365_UART1_RTS,
 	DM365_UART1_CTS,
 
-	
+	/* EMAC */
 	DM365_EMAC_TX_EN,
 	DM365_EMAC_TX_CLK,
 	DM365_EMAC_COL,
@@ -245,10 +245,10 @@ enum davinci_dm365_index {
 	DM365_EMAC_MDIO,
 	DM365_EMAC_MDCLK,
 
-	
+	/* Key Scan */
 	DM365_KEYSCAN,
 
-	
+	/* PWM */
 	DM365_PWM0,
 	DM365_PWM0_G23,
 	DM365_PWM1,
@@ -262,40 +262,40 @@ enum davinci_dm365_index {
 	DM365_PWM3_G85,
 	DM365_PWM3_G86,
 
-	
+	/* SPI1 */
 	DM365_SPI1_SCLK,
 	DM365_SPI1_SDO,
 	DM365_SPI1_SDI,
 	DM365_SPI1_SDENA0,
 	DM365_SPI1_SDENA1,
 
-	
+	/* SPI2 */
 	DM365_SPI2_SCLK,
 	DM365_SPI2_SDO,
 	DM365_SPI2_SDI,
 	DM365_SPI2_SDENA0,
 	DM365_SPI2_SDENA1,
 
-	
+	/* SPI3 */
 	DM365_SPI3_SCLK,
 	DM365_SPI3_SDO,
 	DM365_SPI3_SDI,
 	DM365_SPI3_SDENA0,
 	DM365_SPI3_SDENA1,
 
-	
+	/* SPI4 */
 	DM365_SPI4_SCLK,
 	DM365_SPI4_SDO,
 	DM365_SPI4_SDI,
 	DM365_SPI4_SDENA0,
 	DM365_SPI4_SDENA1,
 
-	
+	/* Clock */
 	DM365_CLKOUT0,
 	DM365_CLKOUT1,
 	DM365_CLKOUT2,
 
-	
+	/* GPIO */
 	DM365_GPIO20,
 	DM365_GPIO30,
 	DM365_GPIO31,
@@ -304,7 +304,7 @@ enum davinci_dm365_index {
 	DM365_GPIO40,
 	DM365_GPIO64_57,
 
-	
+	/* Video */
 	DM365_VOUT_FIELD,
 	DM365_VOUT_FIELD_G81,
 	DM365_VOUT_HVSYNC,
@@ -316,7 +316,7 @@ enum davinci_dm365_index {
 	DM365_VIN_YIN4_7_EN,
 	DM365_VIN_YIN0_3_EN,
 
-	
+	/* IRQ muxing */
 	DM365_INT_EDMA_CC,
 	DM365_INT_EDMA_TC0_ERR,
 	DM365_INT_EDMA_TC1_ERR,
@@ -336,7 +336,7 @@ enum davinci_dm365_index {
 	DM365_INT_NSF_ENABLE,
 	DM365_INT_NSF_DISABLE,
 
-	
+	/* EDMA event muxing */
 	DM365_EVT2_ASP_TX,
 	DM365_EVT3_ASP_RX,
 	DM365_EVT2_VC_TX,
@@ -749,33 +749,33 @@ enum da830_index {
 };
 
 enum davinci_da850_index {
-	
+	/* UART0 function */
 	DA850_NUART0_CTS,
 	DA850_NUART0_RTS,
 	DA850_UART0_RXD,
 	DA850_UART0_TXD,
 
-	
+	/* UART1 function */
 	DA850_NUART1_CTS,
 	DA850_NUART1_RTS,
 	DA850_UART1_RXD,
 	DA850_UART1_TXD,
 
-	
+	/* UART2 function */
 	DA850_NUART2_CTS,
 	DA850_NUART2_RTS,
 	DA850_UART2_RXD,
 	DA850_UART2_TXD,
 
-	
+	/* I2C1 function */
 	DA850_I2C1_SCL,
 	DA850_I2C1_SDA,
 
-	
+	/* I2C0 function */
 	DA850_I2C0_SDA,
 	DA850_I2C0_SCL,
 
-	
+	/* EMAC function */
 	DA850_MII_TXEN,
 	DA850_MII_TXCLK,
 	DA850_MII_COL,
@@ -802,7 +802,7 @@ enum davinci_da850_index {
 	DA850_RMII_RXER,
 	DA850_RMII_MHZ_50_CLK,
 
-	
+	/* McASP function */
 	DA850_ACLKR,
 	DA850_ACLKX,
 	DA850_AFSR,
@@ -827,7 +827,7 @@ enum davinci_da850_index {
 	DA850_AXR_1,
 	DA850_AXR_0,
 
-	
+	/* LCD function */
 	DA850_LCD_D_7,
 	DA850_LCD_D_6,
 	DA850_LCD_D_5,
@@ -849,7 +849,7 @@ enum davinci_da850_index {
 	DA850_LCD_VSYNC,
 	DA850_NLCD_AC_ENB_CS,
 
-	
+	/* MMC/SD0 function */
 	DA850_MMCSD0_DAT_0,
 	DA850_MMCSD0_DAT_1,
 	DA850_MMCSD0_DAT_2,
@@ -857,7 +857,7 @@ enum davinci_da850_index {
 	DA850_MMCSD0_CLK,
 	DA850_MMCSD0_CMD,
 
-	
+	/* MMC/SD1 function */
 	DA850_MMCSD1_DAT_0,
 	DA850_MMCSD1_DAT_1,
 	DA850_MMCSD1_DAT_2,
@@ -865,7 +865,7 @@ enum davinci_da850_index {
 	DA850_MMCSD1_CLK,
 	DA850_MMCSD1_CMD,
 
-	
+	/* EMIF2.5/EMIFA function */
 	DA850_EMA_D_7,
 	DA850_EMA_D_6,
 	DA850_EMA_D_5,
@@ -915,7 +915,7 @@ enum davinci_da850_index {
 	DA850_EMA_WAIT_1,
 	DA850_NEMA_CS_2,
 
-	
+	/* GPIO function */
 	DA850_GPIO2_4,
 	DA850_GPIO2_6,
 	DA850_GPIO2_8,
@@ -1202,9 +1202,11 @@ enum davinci_tnetv107x_index {
 #define PINMUX(x)		(4 * (x))
 
 #ifdef CONFIG_DAVINCI_MUX
+/* setup pin muxing */
 extern int davinci_cfg_reg(unsigned long reg_cfg);
 extern int davinci_cfg_reg_list(const short pins[]);
 #else
+/* boot loader does it all (no warnings from CONFIG_DAVINCI_MUX_WARNINGS) */
 static inline int davinci_cfg_reg(unsigned long reg_cfg) { return 0; }
 static inline int davinci_cfg_reg_list(const short pins[])
 {
@@ -1212,4 +1214,4 @@ static inline int davinci_cfg_reg_list(const short pins[])
 }
 #endif
 
-#endif 
+#endif /* __INC_MACH_MUX_H */

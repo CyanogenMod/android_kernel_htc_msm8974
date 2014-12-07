@@ -4,6 +4,11 @@
 #include <linux/types.h>
 #include <linux/init.h>
 
+/*
+ * Macro to fetch bcm63xx cpu id and revision, should be optimized at
+ * compile time if only one CPU support is enabled (idea stolen from
+ * arm mach-types)
+ */
 #define BCM6338_CPU_ID		0x6338
 #define BCM6345_CPU_ID		0x6345
 #define BCM6348_CPU_ID		0x6348
@@ -84,6 +89,10 @@ unsigned int bcm63xx_get_cpu_freq(void);
 #error "No CPU support configured"
 #endif
 
+/*
+ * While registers sets are (mostly) the same across 63xx CPU, base
+ * address of these sets do change.
+ */
 enum bcm63xx_regs_set {
 	RSET_DSL_LMEM = 0,
 	RSET_PERF,
@@ -141,6 +150,9 @@ enum bcm63xx_regs_set {
 #define RSET_XTMDMAC_SIZE(chans)	(16 * (chans))
 #define RSET_XTMDMAS_SIZE(chans)	(16 * (chans))
 
+/*
+ * 6338 register sets base address
+ */
 #define BCM_6338_DSL_LMEM_BASE		(0xfff00000)
 #define BCM_6338_PERF_BASE		(0xfffe0000)
 #define BCM_6338_BB_BASE		(0xfffe0100)
@@ -182,6 +194,9 @@ enum bcm63xx_regs_set {
 #define BCM_6338_PCMDMAC_BASE		(0xdeadbeef)
 #define BCM_6338_PCMDMAS_BASE		(0xdeadbeef)
 
+/*
+ * 6345 register sets base address
+ */
 #define BCM_6345_DSL_LMEM_BASE		(0xfff00000)
 #define BCM_6345_PERF_BASE		(0xfffe0000)
 #define BCM_6345_BB_BASE		(0xfffe0100)
@@ -223,6 +238,9 @@ enum bcm63xx_regs_set {
 #define BCM_6345_PCMDMAC_BASE		(0xdeadbeef)
 #define BCM_6345_PCMDMAS_BASE		(0xdeadbeef)
 
+/*
+ * 6348 register sets base address
+ */
 #define BCM_6348_DSL_LMEM_BASE		(0xfff00000)
 #define BCM_6348_PERF_BASE		(0xfffe0000)
 #define BCM_6348_TIMER_BASE		(0xfffe0200)
@@ -261,6 +279,9 @@ enum bcm63xx_regs_set {
 #define BCM_6348_PCMDMAC_BASE		(0xdeadbeef)
 #define BCM_6348_PCMDMAS_BASE		(0xdeadbeef)
 
+/*
+ * 6358 register sets base address
+ */
 #define BCM_6358_DSL_LMEM_BASE		(0xfff00000)
 #define BCM_6358_PERF_BASE		(0xfffe0000)
 #define BCM_6358_TIMER_BASE		(0xfffe0040)
@@ -300,6 +321,9 @@ enum bcm63xx_regs_set {
 #define BCM_6358_PCMDMAS_BASE		(0xfffe1a00)
 
 
+/*
+ * 6368 register sets base address
+ */
 #define BCM_6368_DSL_LMEM_BASE		(0xdeadbeef)
 #define BCM_6368_PERF_BASE		(0xb0000000)
 #define BCM_6368_TIMER_BASE		(0xb0000040)
@@ -445,10 +469,13 @@ static inline unsigned long bcm63xx_regset_address(enum bcm63xx_regs_set set)
 	__GEN_RSET(6368)
 #endif
 #endif
-	
+	/* unreached */
 	return 0;
 }
 
+/*
+ * IRQ number changes across CPU too
+ */
 enum bcm63xx_irq {
 	IRQ_TIMER = 0,
 	IRQ_UART0,
@@ -478,6 +505,9 @@ enum bcm63xx_irq {
 	IRQ_XTM_DMA0,
 };
 
+/*
+ * 6338 irqs
+ */
 #define BCM_6338_TIMER_IRQ		(IRQ_INTERNAL_BASE + 0)
 #define BCM_6338_UART0_IRQ		(IRQ_INTERNAL_BASE + 2)
 #define BCM_6338_UART1_IRQ		0
@@ -505,6 +535,9 @@ enum bcm63xx_irq {
 #define BCM_6338_XTM_IRQ		0
 #define BCM_6338_XTM_DMA0_IRQ		0
 
+/*
+ * 6345 irqs
+ */
 #define BCM_6345_TIMER_IRQ		(IRQ_INTERNAL_BASE + 0)
 #define BCM_6345_UART0_IRQ		(IRQ_INTERNAL_BASE + 2)
 #define BCM_6345_UART1_IRQ		0
@@ -532,6 +565,9 @@ enum bcm63xx_irq {
 #define BCM_6345_XTM_IRQ		0
 #define BCM_6345_XTM_DMA0_IRQ		0
 
+/*
+ * 6348 irqs
+ */
 #define BCM_6348_TIMER_IRQ		(IRQ_INTERNAL_BASE + 0)
 #define BCM_6348_UART0_IRQ		(IRQ_INTERNAL_BASE + 2)
 #define BCM_6348_UART1_IRQ		0
@@ -559,6 +595,9 @@ enum bcm63xx_irq {
 #define BCM_6348_XTM_IRQ		0
 #define BCM_6348_XTM_DMA0_IRQ		0
 
+/*
+ * 6358 irqs
+ */
 #define BCM_6358_TIMER_IRQ		(IRQ_INTERNAL_BASE + 0)
 #define BCM_6358_UART0_IRQ		(IRQ_INTERNAL_BASE + 2)
 #define BCM_6358_UART1_IRQ		(IRQ_INTERNAL_BASE + 3)
@@ -593,6 +632,9 @@ enum bcm63xx_irq {
 #define BCM_6358_EXT_IRQ2		(IRQ_INTERNAL_BASE + 27)
 #define BCM_6358_EXT_IRQ3		(IRQ_INTERNAL_BASE + 28)
 
+/*
+ * 6368 irqs
+ */
 #define BCM_6368_HIGH_IRQ_BASE		(IRQ_INTERNAL_BASE + 32)
 
 #define BCM_6368_TIMER_IRQ		(IRQ_INTERNAL_BASE + 0)
@@ -666,10 +708,13 @@ static inline int bcm63xx_get_irq_number(enum bcm63xx_irq irq)
 	return bcm63xx_irqs[irq];
 }
 
+/*
+ * return installed memory size
+ */
 unsigned int bcm63xx_get_memory_size(void);
 
 void bcm63xx_machine_halt(void);
 
 void bcm63xx_machine_reboot(void);
 
-#endif 
+#endif /* !BCM63XX_CPU_H_ */

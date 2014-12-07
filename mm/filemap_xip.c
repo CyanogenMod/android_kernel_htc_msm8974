@@ -21,10 +21,15 @@
 #include <asm/tlbflush.h>
 #include <asm/io.h>
 
+/*
+ * We do use our own empty page to avoid interference with other users
+ * of ZERO_PAGE(), such as /dev/zero
+ */
 static DEFINE_MUTEX(xip_sparse_mutex);
 static seqcount_t xip_sparse_seq = SEQCNT_ZERO;
 static struct page *__xip_sparse_page;
 
+/* called under xip_sparse_mutex */
 static struct page *xip_sparse_page(void)
 {
 	if (!__xip_sparse_page) {
@@ -36,6 +41,13 @@ static struct page *xip_sparse_page(void)
 	return __xip_sparse_page;
 }
 
+/*
+ * This is a file read routine for execute in place files, and uses
+ * the mapping->a_ops->get_xip_mem() function for the actual low-level
+ * stuff.
+ *
+ * Note the struct file* is not used at all.  It may be NULL.
+ */
 static ssize_t
 do_xip_mapping_read(struct address_space *mapping,
 		    struct file_ra_state *_ra,
@@ -67,7 +79,7 @@ do_xip_mapping_read(struct address_space *mapping,
 		unsigned long xip_pfn;
 		int zero = 0;
 
-		
+		/* nr is the maximum number of bytes to copy from this page */
 		nr = PAGE_CACHE_SIZE;
 		if (index >= end_index) {
 			if (index > end_index)
@@ -85,15 +97,28 @@ do_xip_mapping_read(struct address_space *mapping,
 							&xip_mem, &xip_pfn);
 		if (unlikely(error)) {
 			if (error == -ENODATA) {
-				
+				/* sparse */
 				zero = 1;
 			} else
 				goto out;
 		}
 
+		/* If users can be writing to this page using arbitrary
+		 * virtual addresses, take care about potential aliasing
+		 * before reading the page on the kernel side.
+		 */
 		if (mapping_writably_mapped(mapping))
-			 ;
+			/* address based flush */ ;
 
+		/*
+		 * Ok, we have the mem, so now we can copy it to user space...
+		 *
+		 * The actor routine returns how many bytes were actually used..
+		 * NOTE! This may not be the same as how much of a user buffer
+		 * we filled up (we may be padding etc), so we can only update
+		 * "pos" here (the actor routine has to update the user buffer
+		 * pointers and the remaining count).
+		 */
 		if (!zero)
 			left = __copy_to_user(buf+copied, xip_mem+offset, nr);
 		else
@@ -129,6 +154,13 @@ xip_file_read(struct file *filp, char __user *buf, size_t len, loff_t *ppos)
 }
 EXPORT_SYMBOL_GPL(xip_file_read);
 
+/*
+ * __xip_unmap is invoked from xip_unmap and
+ * xip_write
+ *
+ * This function walks all vmas of the address_space and unmaps the
+ * __xip_sparse_page when found at pgoff.
+ */
 static void
 __xip_unmap (struct address_space * mapping,
 		     unsigned long pgoff)
@@ -159,7 +191,7 @@ retry:
 		BUG_ON(address < vma->vm_start || address >= vma->vm_end);
 		pte = page_check_address(page, mm, address, &ptl, 1);
 		if (pte) {
-			
+			/* Nuke the page table entry. */
 			flush_cache_page(vma, address, pte_pfn(*pte));
 			pteval = ptep_clear_flush_notify(vma, address, pte);
 			page_remove_rmap(page);
@@ -180,6 +212,12 @@ retry:
 	}
 }
 
+/*
+ * xip_fault() is invoked via the vma operations vector for a
+ * mapped memory region to read in file data during a page fault.
+ *
+ * This function is derived from filemap_fault, but used for execute in place
+ */
 static int xip_file_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
 	struct file *file = vma->vm_file;
@@ -191,7 +229,7 @@ static int xip_file_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 	struct page *page;
 	int error;
 
-	
+	/* XXX: are VM_FAULT_ codes OK? */
 again:
 	size = (i_size_read(inode) + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
 	if (vmf->pgoff >= size)
@@ -204,20 +242,20 @@ again:
 	if (error != -ENODATA)
 		return VM_FAULT_OOM;
 
-	
+	/* sparse block */
 	if ((vma->vm_flags & (VM_WRITE | VM_MAYWRITE)) &&
 	    (vma->vm_flags & (VM_SHARED | VM_MAYSHARE)) &&
 	    (!(mapping->host->i_sb->s_flags & MS_RDONLY))) {
 		int err;
 
-		
+		/* maybe shared writable, allocate new block */
 		mutex_lock(&xip_sparse_mutex);
 		error = mapping->a_ops->get_xip_mem(mapping, vmf->pgoff, 1,
 							&xip_mem, &xip_pfn);
 		mutex_unlock(&xip_sparse_mutex);
 		if (error)
 			return VM_FAULT_SIGBUS;
-		
+		/* unmap sparse mappings at pgoff from all other vmas */
 		__xip_unmap(mapping, vmf->pgoff);
 
 found:
@@ -225,6 +263,10 @@ found:
 							xip_pfn);
 		if (err == -ENOMEM)
 			return VM_FAULT_OOM;
+		/*
+		 * err == -EBUSY is fine, we've raced against another thread
+		 * that faulted-in the same page
+		 */
 		if (err != -EBUSY)
 			BUG_ON(err);
 		return VM_FAULT_NOPAGE;
@@ -242,7 +284,7 @@ found:
 		}
 		if (error != -ENODATA)
 			goto out;
-		
+		/* not shared and writable, use xip_sparse_page() */
 		page = xip_sparse_page();
 		if (!page)
 			goto out;
@@ -295,7 +337,7 @@ __xip_file_write(struct file *filp, const char __user *buf,
 		void *xip_mem;
 		unsigned long xip_pfn;
 
-		offset = (pos & (PAGE_CACHE_SIZE -1)); 
+		offset = (pos & (PAGE_CACHE_SIZE -1)); /* Within page */
 		index = pos >> PAGE_CACHE_SHIFT;
 		bytes = PAGE_CACHE_SIZE - offset;
 		if (bytes > count)
@@ -304,13 +346,13 @@ __xip_file_write(struct file *filp, const char __user *buf,
 		status = a_ops->get_xip_mem(mapping, index, 0,
 						&xip_mem, &xip_pfn);
 		if (status == -ENODATA) {
-			
+			/* we allocate a new page unmap it */
 			mutex_lock(&xip_sparse_mutex);
 			status = a_ops->get_xip_mem(mapping, index, 1,
 							&xip_mem, &xip_pfn);
 			mutex_unlock(&xip_sparse_mutex);
 			if (!status)
-				
+				/* unmap page at pgoff from all other vmas */
 				__xip_unmap(mapping, index);
 		}
 
@@ -337,6 +379,10 @@ __xip_file_write(struct file *filp, const char __user *buf,
 			break;
 	} while (count);
 	*ppos = pos;
+	/*
+	 * No need to use i_size_read() here, the i_size
+	 * cannot change under us because we hold i_mutex.
+	 */
 	if (pos > inode->i_size) {
 		i_size_write(inode, pos);
 		mark_inode_dirty(inode);
@@ -367,7 +413,7 @@ xip_file_write(struct file *filp, const char __user *buf, size_t len,
 
 	vfs_check_frozen(inode->i_sb, SB_FREEZE_WRITE);
 
-	
+	/* We can write back this queue in page reclaim */
 	current->backing_dev_info = mapping->backing_dev_info;
 
 	ret = generic_write_checks(filp, &pos, &count, S_ISBLK(inode->i_mode));
@@ -392,6 +438,11 @@ xip_file_write(struct file *filp, const char __user *buf, size_t len,
 }
 EXPORT_SYMBOL_GPL(xip_file_write);
 
+/*
+ * truncate a page used for execute in place
+ * functionality is analog to block_truncate_page but does use get_xip_mem
+ * to get the page instead of page cache
+ */
 int
 xip_truncate_page(struct address_space *mapping, loff_t from)
 {
@@ -408,7 +459,7 @@ xip_truncate_page(struct address_space *mapping, loff_t from)
 	blocksize = 1 << mapping->host->i_blkbits;
 	length = offset & (blocksize - 1);
 
-	
+	/* Block boundary? Nothing to do */
 	if (!length)
 		return 0;
 
@@ -418,7 +469,7 @@ xip_truncate_page(struct address_space *mapping, loff_t from)
 						&xip_mem, &xip_pfn);
 	if (unlikely(err)) {
 		if (err == -ENODATA)
-			
+			/* Hole? No need to truncate */
 			return 0;
 		else
 			return err;

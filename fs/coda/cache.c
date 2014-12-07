@@ -1,3 +1,11 @@
+/*
+ * Cache operations for Coda.
+ * For Linux 2.1: (C) 1997 Carnegie Mellon University
+ * For Linux 2.3: (C) 2000 Carnegie Mellon University
+ *
+ * Carnegie Mellon encourages users of this code to contribute improvements
+ * to the Coda project http://www.coda.cs.cmu.edu/ <coda@cs.cmu.edu>.
+ */
 
 #include <linux/types.h>
 #include <linux/kernel.h>
@@ -18,6 +26,7 @@
 
 static atomic_t permission_epoch = ATOMIC_INIT(0);
 
+/* replace or extend an acl cache hit */
 void coda_cache_enter(struct inode *inode, int mask)
 {
 	struct coda_inode_info *cii = ITOC(inode);
@@ -32,6 +41,7 @@ void coda_cache_enter(struct inode *inode, int mask)
 	spin_unlock(&cii->c_lock);
 }
 
+/* remove cached acl from an inode */
 void coda_cache_clear_inode(struct inode *inode)
 {
 	struct coda_inode_info *cii = ITOC(inode);
@@ -40,12 +50,14 @@ void coda_cache_clear_inode(struct inode *inode)
 	spin_unlock(&cii->c_lock);
 }
 
+/* remove all acl caches */
 void coda_cache_clear_all(struct super_block *sb)
 {
 	atomic_inc(&permission_epoch);
 }
 
 
+/* check if the mask has been matched against the acl already */
 int coda_cache_check(struct inode *inode, int mask)
 {
 	struct coda_inode_info *cii = ITOC(inode);
@@ -61,7 +73,20 @@ int coda_cache_check(struct inode *inode, int mask)
 }
 
 
+/* Purging dentries and children */
+/* The following routines drop dentries which are not
+   in use and flag dentries which are in use to be 
+   zapped later.
 
+   The flags are detected by:
+   - coda_dentry_revalidate (for lookups) if the flag is C_PURGE
+   - coda_dentry_delete: to remove dentry from the cache when d_count
+     falls to zero
+   - an inode method coda_revalidate (for attributes) if the 
+     flag is C_VATTR
+*/
+
+/* this won't do any harm: just flag all children */
 static void coda_flag_children(struct dentry *parent, int flag)
 {
 	struct list_head *child;
@@ -71,7 +96,7 @@ static void coda_flag_children(struct dentry *parent, int flag)
 	list_for_each(child, &parent->d_subdirs)
 	{
 		de = list_entry(child, struct dentry, d_u.d_child);
-		
+		/* don't know what to do with negative dentries */
 		if ( ! de->d_inode ) 
 			continue;
 		coda_flag_inode(de->d_inode, flag);

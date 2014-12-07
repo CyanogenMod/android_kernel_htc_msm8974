@@ -34,12 +34,12 @@
 #include "devices-imx31.h"
 
 static unsigned int marxbot_pins[] = {
-	
+	/* SDHC2 */
 	MX31_PIN_PC_PWRON__SD2_DATA3, MX31_PIN_PC_VS1__SD2_DATA2,
 	MX31_PIN_PC_READY__SD2_DATA1, MX31_PIN_PC_WAIT_B__SD2_DATA0,
 	MX31_PIN_PC_CD2_B__SD2_CLK, MX31_PIN_PC_CD1_B__SD2_CMD,
 	MX31_PIN_ATA_DIOR__GPIO3_28, MX31_PIN_ATA_DIOW__GPIO3_29,
-	
+	/* CSI */
 	MX31_PIN_CSI_D6__CSI_D6, MX31_PIN_CSI_D7__CSI_D7,
 	MX31_PIN_CSI_D8__CSI_D8, MX31_PIN_CSI_D9__CSI_D9,
 	MX31_PIN_CSI_D10__CSI_D10, MX31_PIN_CSI_D11__CSI_D11,
@@ -50,17 +50,17 @@ static unsigned int marxbot_pins[] = {
 	MX31_PIN_CSI_D4__GPIO3_4, MX31_PIN_CSI_D5__GPIO3_5,
 	MX31_PIN_GPIO3_0__GPIO3_0, MX31_PIN_GPIO3_1__GPIO3_1,
 	MX31_PIN_TXD2__GPIO1_28,
-	
+	/* dsPIC resets */
 	MX31_PIN_STXD5__GPIO1_21, MX31_PIN_SRXD5__GPIO1_22,
-	
+	/*battery detection */
 	MX31_PIN_LCS0__GPIO3_23,
-	
+	/* USB H1 */
 	MX31_PIN_CSPI1_MISO__USBH1_RXDP, MX31_PIN_CSPI1_MOSI__USBH1_RXDM,
 	MX31_PIN_CSPI1_SS0__USBH1_TXDM, MX31_PIN_CSPI1_SS1__USBH1_TXDP,
 	MX31_PIN_CSPI1_SS2__USBH1_RCV, MX31_PIN_CSPI1_SCLK__USBH1_OEB,
 	MX31_PIN_CSPI1_SPI_RDY__USBH1_FS, MX31_PIN_SFS6__USBH1_SUSPEND,
 	MX31_PIN_NFRE_B__GPIO1_11, MX31_PIN_NFALE__GPIO1_12,
-	
+	/* SEL */
 	MX31_PIN_DTR_DCE1__GPIO2_8, MX31_PIN_DSR_DCE1__GPIO2_9,
 	MX31_PIN_RI_DCE1__GPIO2_10, MX31_PIN_DCD_DCE1__GPIO2_11,
 };
@@ -139,7 +139,7 @@ static struct spi_board_info marxbot_spi_board_info[] __initdata = {
 		.modalias = "spidev",
 		.max_speed_hz = 300000,
 		.bus_num = 1,
-		.chip_select = 1, 
+		.chip_select = 1, /* according spi1_cs[] ! */
 	},
 };
 
@@ -170,7 +170,7 @@ static struct i2c_board_info marxbot_i2c_devices[] = {
 };
 
 static struct soc_camera_link base_iclink = {
-	.bus_id		= 0,		
+	.bus_id		= 0,		/* Must match with the camera ID */
 	.power		= marxbot_basecam_power,
 	.reset		= marxbot_basecam_reset,
 	.board_info	= &marxbot_i2c_devices[0],
@@ -277,7 +277,7 @@ static int marxbot_isp1105_init(struct usb_phy *otg)
 	int ret = gpio_request(USBH1_MODE, "usbh1-mode");
 	if (ret)
 		return ret;
-	
+	/* single ended */
 	gpio_direction_output(USBH1_MODE, 0);
 
 	ret = gpio_request(USBH1_VBUSEN_B, "usbh1-vbusen");
@@ -339,6 +339,9 @@ static const struct fsl_usb2_platform_data usb_pdata __initconst = {
 	.phy_mode	= FSL_USB2_PHY_ULPI,
 };
 
+/*
+ * system init for baseboard usage. Will be called by mx31moboard init.
+ */
 void __init mx31moboard_marxbot_init(void)
 {
 	printk(KERN_INFO "Initializing mx31marxbot peripherals\n");
@@ -358,7 +361,7 @@ void __init mx31moboard_marxbot_init(void)
 	marxbot_cam_init();
 	platform_add_devices(marxbot_cameras, ARRAY_SIZE(marxbot_cameras));
 
-	
+	/* battery present pin */
 	gpio_request(IOMUX_TO_GPIO(MX31_PIN_LCS0), "bat-present");
 	gpio_direction_input(IOMUX_TO_GPIO(MX31_PIN_LCS0));
 	gpio_export(IOMUX_TO_GPIO(MX31_PIN_LCS0), false);

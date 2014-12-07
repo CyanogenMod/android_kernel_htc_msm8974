@@ -32,6 +32,16 @@ struct attribute {
 #endif
 };
 
+/**
+ *	sysfs_attr_init - initialize a dynamically allocated sysfs attribute
+ *	@attr: struct attribute to initialize
+ *
+ *	Initialize a dynamically allocated struct attribute so we can
+ *	make lockdep happy.  This is a new requirement for attributes
+ *	and initially this is only needed when lockdep is enabled.
+ *	Lockdep gives a nice error when your attribute is added to
+ *	sysfs if you don't have this.
+ */
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 #define sysfs_attr_init(attr)				\
 do {							\
@@ -52,6 +62,10 @@ struct attribute_group {
 
 
 
+/**
+ * Use these macros to make defining attributes easier. See include/linux/device.h
+ * for examples..
+ */
 
 #define __ATTR(_name,_mode,_show,_store) { \
 	.attr = {.name = __stringify(_name), .mode = _mode },	\
@@ -83,6 +97,16 @@ struct bin_attribute {
 		    struct vm_area_struct *vma);
 };
 
+/**
+ *	sysfs_bin_attr_init - initialize a dynamically allocated bin_attribute
+ *	@attr: struct bin_attribute to initialize
+ *
+ *	Initialize a dynamically allocated struct bin_attribute so we
+ *	can make lockdep happy.  This is a new requirement for
+ *	attributes and initially this is only needed when lockdep is
+ *	enabled.  Lockdep gives a nice error when your attribute is
+ *	added to sysfs if you don't have this.
+ */
 #define sysfs_bin_attr_init(bin_attr) sysfs_attr_init(&(bin_attr)->attr)
 
 struct sysfs_ops {
@@ -156,7 +180,7 @@ void sysfs_put(struct sysfs_dirent *sd);
 
 int __must_check sysfs_init(void);
 
-#else 
+#else /* CONFIG_SYSFS */
 
 static inline int sysfs_schedule_callback(struct kobject *kobj,
 		void (*func)(void *), void *data, struct module *owner)
@@ -317,6 +341,6 @@ static inline int __must_check sysfs_init(void)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_SYSFS */
 
-#endif 
+#endif /* _SYSFS_H_ */

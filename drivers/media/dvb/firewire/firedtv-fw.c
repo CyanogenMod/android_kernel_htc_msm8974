@@ -1,3 +1,6 @@
+/*
+ * FireDTV driver -- firewire I/O backend
+ */
 
 #include <linux/device.h>
 #include <linux/errno.h>
@@ -36,7 +39,7 @@ static int node_req(struct firedtv *fdtv, u64 addr, void *data, size_t len,
 	struct fw_device *device = device_of(fdtv);
 	int rcode, generation = device->generation;
 
-	smp_rmb(); 
+	smp_rmb(); /* node_id vs. generation */
 
 	rcode = fw_run_transaction(device->card, tcode, device->node_id,
 			generation, device->max_speed, addr, data, len);
@@ -64,9 +67,9 @@ int fdtv_write(struct firedtv *fdtv, u64 addr, void *data, size_t len)
 #define MPEG2_TS_HEADER_SIZE		4
 #define MPEG2_TS_SOURCE_PACKET_SIZE	(4 + 188)
 
-#define MAX_PACKET_SIZE		1024  
+#define MAX_PACKET_SIZE		1024  /* 776, rounded up to 2^n */
 #define PACKETS_PER_PAGE	(PAGE_SIZE / MAX_PACKET_SIZE)
-#define N_PACKETS		64    
+#define N_PACKETS		64    /* buffer size */
 #define N_PAGES			DIV_ROUND_UP(N_PACKETS, PACKETS_PER_PAGE)
 #define IRQ_INTERVAL		16
 
@@ -209,7 +212,7 @@ static void handle_fcp(struct fw_card *card, struct fw_request *request,
 		if (device->generation != generation)
 			continue;
 
-		smp_rmb(); 
+		smp_rmb(); /* node_id vs. generation */
 
 		if (device->card == card &&
 		    device->node_id == source &&
@@ -242,6 +245,7 @@ static const char * const model_names[] = {
 	[FIREDTV_DVB_S2]  = "FireDTV S2  ",
 };
 
+/* Adjust the template string if models with longer names appear. */
 #define MAX_MODEL_NAME_LEN sizeof("FireDTV ????")
 
 static int node_probe(struct device *dev)
@@ -337,42 +341,42 @@ static void node_update(struct fw_unit *unit)
 
 static const struct ieee1394_device_id fdtv_id_table[] = {
 	{
-		
+		/* FloppyDTV S/CI and FloppyDTV S2 */
 		.match_flags	= MATCH_FLAGS,
 		.vendor_id	= DIGITAL_EVERYWHERE_OUI,
 		.model_id	= 0x000024,
 		.specifier_id	= AVC_UNIT_SPEC_ID_ENTRY,
 		.version	= AVC_SW_VERSION_ENTRY,
 	}, {
-		
+		/* FloppyDTV T/CI */
 		.match_flags	= MATCH_FLAGS,
 		.vendor_id	= DIGITAL_EVERYWHERE_OUI,
 		.model_id	= 0x000025,
 		.specifier_id	= AVC_UNIT_SPEC_ID_ENTRY,
 		.version	= AVC_SW_VERSION_ENTRY,
 	}, {
-		
+		/* FloppyDTV C/CI */
 		.match_flags	= MATCH_FLAGS,
 		.vendor_id	= DIGITAL_EVERYWHERE_OUI,
 		.model_id	= 0x000026,
 		.specifier_id	= AVC_UNIT_SPEC_ID_ENTRY,
 		.version	= AVC_SW_VERSION_ENTRY,
 	}, {
-		
+		/* FireDTV S/CI and FloppyDTV S2 */
 		.match_flags	= MATCH_FLAGS,
 		.vendor_id	= DIGITAL_EVERYWHERE_OUI,
 		.model_id	= 0x000034,
 		.specifier_id	= AVC_UNIT_SPEC_ID_ENTRY,
 		.version	= AVC_SW_VERSION_ENTRY,
 	}, {
-		
+		/* FireDTV T/CI */
 		.match_flags	= MATCH_FLAGS,
 		.vendor_id	= DIGITAL_EVERYWHERE_OUI,
 		.model_id	= 0x000035,
 		.specifier_id	= AVC_UNIT_SPEC_ID_ENTRY,
 		.version	= AVC_SW_VERSION_ENTRY,
 	}, {
-		
+		/* FireDTV C/CI */
 		.match_flags	= MATCH_FLAGS,
 		.vendor_id	= DIGITAL_EVERYWHERE_OUI,
 		.model_id	= 0x000036,

@@ -10,6 +10,7 @@
 #include <string.h>
 #include "thread_map.h"
 
+/* Skip "." and ".." directories */
 static int filter(const struct dirent *dir)
 {
 	if (dir->d_name[0] == '.')
@@ -80,7 +81,7 @@ struct thread_map *thread_map__new_by_uid(uid_t uid)
 		struct stat st;
 		pid_t pid = strtol(dirent.d_name, &end, 10);
 
-		if (*end) 
+		if (*end) /* only interested in proper numerical dirents */
 			continue;
 
 		snprintf(path, sizeof(path), "/proc/%s", dirent.d_name);
@@ -224,7 +225,7 @@ static struct thread_map *thread_map__new_by_tid_str(const char *tid_str)
 	struct str_node *pos;
 	struct strlist *slist;
 
-	
+	/* perf-stat expects threads to be generated even if tid not given */
 	if (!tid_str) {
 		threads = malloc(sizeof(*threads) + sizeof(pid_t));
 		if (threads != NULL) {

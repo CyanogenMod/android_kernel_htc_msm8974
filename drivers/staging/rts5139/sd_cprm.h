@@ -51,4 +51,4 @@ int sd_get_cmd_rsp(struct scsi_cmnd *srb, struct rts51x_chip *chip);
 int sd_hw_rst(struct scsi_cmnd *srb, struct rts51x_chip *chip);
 #endif
 
-#endif 
+#endif /* __RTS51X_SD_CPRM_H */

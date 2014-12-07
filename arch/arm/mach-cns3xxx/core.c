@@ -69,6 +69,7 @@ void __init cns3xxx_map_io(void)
 	iotable_init(cns3xxx_io_desc, ARRAY_SIZE(cns3xxx_io_desc));
 }
 
+/* used by entry-macro.S */
 void __init cns3xxx_init_irq(void)
 {
 	gic_init(0, 29, IOMEM(CNS3XXX_TC11MP_GIC_DIST_BASE_VIRT),
@@ -84,11 +85,14 @@ void cns3xxx_power_off(void)
 
 	clkctrl = readl(pm_base + PM_SYS_CLK_CTRL_OFFSET);
 	clkctrl &= 0xfffff1ff;
-	clkctrl |= (0x5 << 9);		
+	clkctrl |= (0x5 << 9);		/* Hibernate */
 	writel(clkctrl, pm_base + PM_SYS_CLK_CTRL_OFFSET);
 
 }
 
+/*
+ * Timer
+ */
 static void __iomem *cns3xxx_tmr1;
 
 static void cns3xxx_timer_set_mode(enum clock_event_mode mode,
@@ -105,7 +109,7 @@ static void cns3xxx_timer_set_mode(enum clock_event_mode mode,
 		ctrl |= (1 << 0) | (1 << 2) | (1 << 9);
 		break;
 	case CLOCK_EVT_MODE_ONESHOT:
-		
+		/* period set, and timer enabled in 'next_event' hook */
 		ctrl |= (1 << 2) | (1 << 9);
 		break;
 	case CLOCK_EVT_MODE_UNUSED:
@@ -152,13 +156,16 @@ static void __init cns3xxx_clockevents_init(unsigned int timer_irq)
 	clockevents_register_device(&cns3xxx_tmr1_clockevent);
 }
 
+/*
+ * IRQ handler for the timer
+ */
 static irqreturn_t cns3xxx_timer_interrupt(int irq, void *dev_id)
 {
 	struct clock_event_device *evt = &cns3xxx_tmr1_clockevent;
 	u32 __iomem *stat = cns3xxx_tmr1 + TIMER1_2_INTERRUPT_STATUS_OFFSET;
 	u32 val;
 
-	
+	/* Clear the interrupt */
 	val = readl(stat);
 	writel(val & ~(1 << 2), stat);
 
@@ -173,50 +180,56 @@ static struct irqaction cns3xxx_timer_irq = {
 	.handler	= cns3xxx_timer_interrupt,
 };
 
+/*
+ * Set up the clock source and clock events devices
+ */
 static void __init __cns3xxx_timer_init(unsigned int timer_irq)
 {
 	u32 val;
 	u32 irq_mask;
 
+	/*
+	 * Initialise to a known state (all timers off)
+	 */
 
-	
+	/* disable timer1 and timer2 */
 	writel(0, cns3xxx_tmr1 + TIMER1_2_CONTROL_OFFSET);
-	
+	/* stop free running timer3 */
 	writel(0, cns3xxx_tmr1 + TIMER_FREERUN_CONTROL_OFFSET);
 
-	
+	/* timer1 */
 	writel(0x5C800, cns3xxx_tmr1 + TIMER1_COUNTER_OFFSET);
 	writel(0x5C800, cns3xxx_tmr1 + TIMER1_AUTO_RELOAD_OFFSET);
 
 	writel(0, cns3xxx_tmr1 + TIMER1_MATCH_V1_OFFSET);
 	writel(0, cns3xxx_tmr1 + TIMER1_MATCH_V2_OFFSET);
 
-	
+	/* mask irq, non-mask timer1 overflow */
 	irq_mask = readl(cns3xxx_tmr1 + TIMER1_2_INTERRUPT_MASK_OFFSET);
 	irq_mask &= ~(1 << 2);
 	irq_mask |= 0x03;
 	writel(irq_mask, cns3xxx_tmr1 + TIMER1_2_INTERRUPT_MASK_OFFSET);
 
-	
+	/* down counter */
 	val = readl(cns3xxx_tmr1 + TIMER1_2_CONTROL_OFFSET);
 	val |= (1 << 9);
 	writel(val, cns3xxx_tmr1 + TIMER1_2_CONTROL_OFFSET);
 
-	
+	/* timer2 */
 	writel(0, cns3xxx_tmr1 + TIMER2_MATCH_V1_OFFSET);
 	writel(0, cns3xxx_tmr1 + TIMER2_MATCH_V2_OFFSET);
 
-	
+	/* mask irq */
 	irq_mask = readl(cns3xxx_tmr1 + TIMER1_2_INTERRUPT_MASK_OFFSET);
 	irq_mask |= ((1 << 3) | (1 << 4) | (1 << 5));
 	writel(irq_mask, cns3xxx_tmr1 + TIMER1_2_INTERRUPT_MASK_OFFSET);
 
-	
+	/* down counter */
 	val = readl(cns3xxx_tmr1 + TIMER1_2_CONTROL_OFFSET);
 	val |= (1 << 10);
 	writel(val, cns3xxx_tmr1 + TIMER1_2_CONTROL_OFFSET);
 
-	
+	/* Make irqs happen for the system timer */
 	setup_irq(timer_irq, &cns3xxx_timer_irq);
 
 	cns3xxx_clockevents_init(timer_irq);
@@ -243,16 +256,34 @@ void __init cns3xxx_l2x0_init(void)
 	if (WARN_ON(!base))
 		return;
 
+	/*
+	 * Tag RAM Control register
+	 *
+	 * bit[10:8]	- 1 cycle of write accesses latency
+	 * bit[6:4]	- 1 cycle of read accesses latency
+	 * bit[3:0]	- 1 cycle of setup latency
+	 *
+	 * 1 cycle of latency for setup, read and write accesses
+	 */
 	val = readl(base + L2X0_TAG_LATENCY_CTRL);
 	val &= 0xfffff888;
 	writel(val, base + L2X0_TAG_LATENCY_CTRL);
 
+	/*
+	 * Data RAM Control register
+	 *
+	 * bit[10:8]	- 1 cycles of write accesses latency
+	 * bit[6:4]	- 1 cycles of read accesses latency
+	 * bit[3:0]	- 1 cycle of setup latency
+	 *
+	 * 1 cycle of latency for setup, read and write accesses
+	 */
 	val = readl(base + L2X0_DATA_LATENCY_CTRL);
 	val &= 0xfffff888;
 	writel(val, base + L2X0_DATA_LATENCY_CTRL);
 
-	
+	/* 32 KiB, 8-way, parity disable */
 	l2x0_init(base, 0x00540000, 0xfe000fff);
 }
 
-#endif 
+#endif /* CONFIG_CACHE_L2X0 */

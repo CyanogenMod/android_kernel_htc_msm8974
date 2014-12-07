@@ -1,7 +1,7 @@
 #ifndef _LINUX_KHUGEPAGED_H
 #define _LINUX_KHUGEPAGED_H
 
-#include <linux/sched.h> 
+#include <linux/sched.h> /* MMF_VM_HUGEPAGE */
 
 #ifdef CONFIG_TRANSPARENT_HUGEPAGE
 extern int __khugepaged_enter(struct mm_struct *mm);
@@ -46,7 +46,7 @@ static inline int khugepaged_enter(struct vm_area_struct *vma)
 				return -ENOMEM;
 	return 0;
 }
-#else 
+#else /* CONFIG_TRANSPARENT_HUGEPAGE */
 static inline int khugepaged_fork(struct mm_struct *mm, struct mm_struct *oldmm)
 {
 	return 0;
@@ -62,6 +62,6 @@ static inline int khugepaged_enter_vma_merge(struct vm_area_struct *vma)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_TRANSPARENT_HUGEPAGE */
 
-#endif 
+#endif /* _LINUX_KHUGEPAGED_H */

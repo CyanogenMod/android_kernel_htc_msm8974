@@ -80,6 +80,9 @@ static struct perf_event_attr default_attrs[] = {
 
 };
 
+/*
+ * Detailed stats (-d), covering the L1 and last level data caches:
+ */
 static struct perf_event_attr detailed_attrs[] = {
 
   { .type = PERF_TYPE_HW_CACHE,
@@ -107,6 +110,9 @@ static struct perf_event_attr detailed_attrs[] = {
 	(PERF_COUNT_HW_CACHE_RESULT_MISS	<< 16)				},
 };
 
+/*
+ * Very detailed stats (-d -d), covering the instruction cache and the TLB caches:
+ */
 static struct perf_event_attr very_detailed_attrs[] = {
 
   { .type = PERF_TYPE_HW_CACHE,
@@ -147,6 +153,9 @@ static struct perf_event_attr very_detailed_attrs[] = {
 
 };
 
+/*
+ * Very, very detailed stats (-d -d -d), adding prefetch events:
+ */
 static struct perf_event_attr very_very_detailed_attrs[] = {
 
   { .type = PERF_TYPE_HW_CACHE,
@@ -227,6 +236,22 @@ static double avg_stats(struct stats *stats)
 	return stats->mean;
 }
 
+/*
+ * http://en.wikipedia.org/wiki/Algorithms_for_calculating_variance
+ *
+ *       (\Sum n_i^2) - ((\Sum n_i)^2)/n
+ * s^2 = -------------------------------
+ *                  n - 1
+ *
+ * http://en.wikipedia.org/wiki/Stddev
+ *
+ * The std dev of the mean is related to the std dev by:
+ *
+ *             s
+ * s_mean = -------
+ *          sqrt(n)
+ *
+ */
 static double stddev_stats(struct stats *stats)
 {
 	double variance, variance_mean;
@@ -291,7 +316,7 @@ retry:
 					  group, group_fd);
 	if (!ret)
 		return 0;
-	
+	/* fall through */
 check_ret:
 	if (ret && errno == EINVAL) {
 		if (!exclude_guest_missing &&
@@ -305,6 +330,9 @@ check_ret:
 	return ret;
 }
 
+/*
+ * Does the counter have nsecs as a unit?
+ */
 static inline int nsec_counter(struct perf_evsel *evsel)
 {
 	if (perf_evsel__match(evsel, SOFTWARE, SW_CPU_CLOCK) ||
@@ -314,6 +342,11 @@ static inline int nsec_counter(struct perf_evsel *evsel)
 	return 0;
 }
 
+/*
+ * Update various tracking values we maintain to print
+ * more semantic information such as miss/hit ratios,
+ * instruction rates, etc:
+ */
 static void update_shadow_stats(struct perf_evsel *counter, u64 *count)
 {
 	if (perf_evsel__match(counter, SOFTWARE, SW_TASK_CLOCK))
@@ -340,6 +373,10 @@ static void update_shadow_stats(struct perf_evsel *counter, u64 *count)
 		update_stats(&runtime_itlb_cache_stats[0], count[0]);
 }
 
+/*
+ * Read out the results of a single counter:
+ * aggregate counts across CPUs in system-wide mode
+ */
 static int read_counter_aggr(struct perf_evsel *counter)
 {
 	struct perf_stat *ps = counter->priv;
@@ -358,11 +395,18 @@ static int read_counter_aggr(struct perf_evsel *counter)
 			event_name(counter), count[0], count[1], count[2]);
 	}
 
+	/*
+	 * Save the full runtime - to allow normalization during printout:
+	 */
 	update_shadow_stats(counter, count);
 
 	return 0;
 }
 
+/*
+ * Read out the results of a single counter:
+ * do not aggregate counts across CPUs in system-wide mode
+ */
 static int read_counter(struct perf_evsel *counter)
 {
 	u64 *count;
@@ -403,10 +447,21 @@ static int run_perf_stat(int argc __used, const char **argv)
 			close(go_pipe[1]);
 			fcntl(go_pipe[0], F_SETFD, FD_CLOEXEC);
 
+			/*
+			 * Do a dummy execvp to get the PLT entry resolved,
+			 * so we avoid the resolver overhead on the real
+			 * execvp call.
+			 */
 			execvp("", (char **)argv);
 
+			/*
+			 * Tell the parent we're ready to go
+			 */
 			close(child_ready_pipe[1]);
 
+			/*
+			 * Wait until the parent tells us to go.
+			 */
 			if (read(go_pipe[0], &buf, 1) == -1)
 				perror("unable to read pipe");
 
@@ -419,6 +474,9 @@ static int run_perf_stat(int argc __used, const char **argv)
 		if (!target_tid && !target_pid && !system_wide)
 			evsel_list->threads->map[0] = child_pid;
 
+		/*
+		 * Wait for the child to be ready to exec.
+		 */
 		close(child_ready_pipe[1]);
 		close(go_pipe[0]);
 		if (read(child_ready_pipe[0], &buf, 1) == -1)
@@ -430,6 +488,10 @@ static int run_perf_stat(int argc __used, const char **argv)
 
 	list_for_each_entry(counter, &evsel_list->entries, node) {
 		if (create_perf_stat_counter(counter, first) < 0) {
+			/*
+			 * PPC returns ENXIO for HW counters until 2.6.37
+			 * (behavior changed with commit b0a873e).
+			 */
 			if (errno == EINVAL || errno == ENOSYS ||
 			    errno == ENOENT || errno == EOPNOTSUPP ||
 			    errno == ENXIO) {
@@ -464,6 +526,9 @@ static int run_perf_stat(int argc __used, const char **argv)
 		return -1;
 	}
 
+	/*
+	 * Enable counters and exec the command:
+	 */
 	t0 = rdclock();
 
 	if (forks) {
@@ -545,6 +610,7 @@ static void nsec_printout(int cpu, struct perf_evsel *evsel, double avg)
 		fprintf(output, "                                   ");
 }
 
+/* used for get_ratio_color() */
 enum grc_type {
 	GRC_STALLED_CYCLES_FE,
 	GRC_STALLED_CYCLES_BE,
@@ -827,6 +893,10 @@ static void abs_printout(int cpu, struct perf_evsel *evsel, double avg)
 	}
 }
 
+/*
+ * Print out the results of a single counter:
+ * aggregated counts in system-wide mode
+ */
 static void print_counter_aggr(struct perf_evsel *counter)
 {
 	struct perf_stat *ps = counter->priv;
@@ -871,6 +941,10 @@ static void print_counter_aggr(struct perf_evsel *counter)
 	fprintf(output, "\n");
 }
 
+/*
+ * Print out the results of a single counter:
+ * does not use aggregated count in system-wide
+ */
 static void print_counter(struct perf_evsel *counter)
 {
 	u64 ena, run, val;
@@ -1045,9 +1119,13 @@ static const struct option options[] = {
 	OPT_END()
 };
 
+/*
+ * Add default attributes, if there were no attributes specified or
+ * if -d/--detailed, -d -d or -d -d -d is used:
+ */
 static int add_default_attributes(void)
 {
-	
+	/* Set attrs if no event is selected and !null_run: */
 	if (null_run)
 		return 0;
 
@@ -1056,26 +1134,26 @@ static int add_default_attributes(void)
 			return -1;
 	}
 
-	
+	/* Detailed events get appended to the event list: */
 
 	if (detailed_run <  1)
 		return 0;
 
-	
+	/* Append detailed run extra attributes: */
 	if (perf_evlist__add_attrs_array(evsel_list, detailed_attrs) < 0)
 		return -1;
 
 	if (detailed_run < 2)
 		return 0;
 
-	
+	/* Append very detailed run extra attributes: */
 	if (perf_evlist__add_attrs_array(evsel_list, very_detailed_attrs) < 0)
 		return -1;
 
 	if (detailed_run < 3)
 		return 0;
 
-	
+	/* Append very, very detailed run extra attributes: */
 	return perf_evlist__add_attrs_array(evsel_list, very_very_detailed_attrs);
 }
 
@@ -1129,14 +1207,17 @@ int cmd_stat(int argc, const char **argv, const char *prefix __used)
 	} else
 		csv_sep = DEFAULT_SEPARATOR;
 
+	/*
+	 * let the spreadsheet do the pretty-printing
+	 */
 	if (csv_output) {
-		
+		/* User explicitly passed -B? */
 		if (big_num_opt == 1) {
 			fprintf(stderr, "-B option not supported with -x\n");
 			usage_with_options(stat_usage, options);
-		} else 
+		} else /* Nope, so disable big number formatting */
 			big_num = false;
-	} else if (big_num_opt == 0) 
+	} else if (big_num_opt == 0) /* User passed --no-big-num */
 		big_num = false;
 
 	if (!argc && !target_pid && !target_tid)
@@ -1144,7 +1225,7 @@ int cmd_stat(int argc, const char **argv, const char *prefix __used)
 	if (run_count <= 0)
 		usage_with_options(stat_usage, options);
 
-	
+	/* no_aggr, cgroup are for system-wide only */
 	if ((no_aggr || nr_cgroups) && !system_wide) {
 		fprintf(stderr, "both cgroup and no-aggregation "
 			"modes only available in system-wide mode\n");
@@ -1182,6 +1263,12 @@ int cmd_stat(int argc, const char **argv, const char *prefix __used)
 			goto out_free_fd;
 	}
 
+	/*
+	 * We dont want to block the signals - that would cause
+	 * child tasks to inherit that and Ctrl-C would not work.
+	 * What we want is for Ctrl-C to work in the exec()-ed
+	 * task, but being ignored by perf stat itself:
+	 */
 	atexit(sig_atexit);
 	signal(SIGINT,  skip_signal);
 	signal(SIGALRM, skip_signal);

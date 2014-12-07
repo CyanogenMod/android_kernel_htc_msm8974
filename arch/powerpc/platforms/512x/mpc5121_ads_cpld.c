@@ -23,8 +23,16 @@
 static struct device_node *cpld_pic_node;
 static struct irq_domain *cpld_pic_host;
 
+/*
+ * Bits to ignore in the misc_status register
+ * 0x10 touch screen pendown is hard routed to irq1
+ * 0x02 pci status is read from pci status register
+ */
 #define MISC_IGNORE 0x12
 
+/*
+ * Nothing to ignore in pci status register
+ */
 #define PCI_IGNORE 0x00
 
 struct cpld_pic {
@@ -85,7 +93,7 @@ cpld_pic_get_irq(int offset, u8 ignore, u8 __iomem *statusp,
 	u8 status = in_8(statusp);
 	u8 mask = in_8(maskp);
 
-	
+	/* ignore don't cares and masked irqs */
 	status |= (ignore | mask);
 
 	if (status == 0xff)
@@ -170,9 +178,14 @@ mpc5121_ads_cpld_pic_init(void)
 	if (cascade_irq == NO_IRQ)
 		goto end;
 
+	/*
+	 * statically route touch screen pendown through 1
+	 * and ignore it here
+	 * route all others through our cascade irq
+	 */
 	out_8(&cpld_regs->route, 0xfd);
 	out_8(&cpld_regs->pci_mask, 0xff);
-	
+	/* unmask pci ints in misc mask */
 	out_8(&cpld_regs->misc_mask, ~(MISC_IGNORE));
 
 	cpld_pic_node = of_node_get(np);

@@ -36,6 +36,11 @@ int iscsi_login_rx_data(
 	iov.iov_len	= length;
 	iov.iov_base	= buf;
 
+	/*
+	 * Initial Marker-less Interval.
+	 * Add the values regardless of IFMarker/OFMarker, considering
+	 * it may not be negoitated yet.
+	 */
 	conn->of_marker += length;
 
 	rx_got = rx_data(conn, &iov, 1, length);
@@ -65,6 +70,11 @@ int iscsi_login_tx_data(
 	iov[1].iov_len		= text_length;
 	iov[1].iov_base		= text_buf;
 
+	/*
+	 * Initial Marker-less Interval.
+	 * Add the values regardless of IFMarker/OFMarker, considering
+	 * it may not be negoitated yet.
+	 */
 	conn->if_marker += length;
 
 	tx_sent = tx_data(conn, &iov[0], 2, length);
@@ -214,6 +224,7 @@ out:
 	return NULL;
 }
 
+/* #warning Add extension keys */
 int iscsi_create_default_params(struct iscsi_param_list **param_list_ptr)
 {
 	struct iscsi_param *param = NULL;
@@ -228,6 +239,17 @@ int iscsi_create_default_params(struct iscsi_param_list **param_list_ptr)
 	INIT_LIST_HEAD(&pl->param_list);
 	INIT_LIST_HEAD(&pl->extra_response_list);
 
+	/*
+	 * The format for setting the initial parameter definitions are:
+	 *
+	 * Parameter name:
+	 * Initial value:
+	 * Allowable phase:
+	 * Scope:
+	 * Allowable senders:
+	 * Typerange:
+	 * Use:
+	 */
 	param = iscsi_set_default_param(pl, AUTHMETHOD, INITIAL_AUTHMETHOD,
 			PHASE_SECURITY, SCOPE_CONNECTION_ONLY, SENDER_BOTH,
 			TYPERANGE_AUTH, USE_INITIAL_ONLY);
@@ -702,11 +724,17 @@ static int iscsi_add_notunderstood_response(
 
 static int iscsi_check_for_auth_key(char *key)
 {
+	/*
+	 * RFC 1994
+	 */
 	if (!strcmp(key, "CHAP_A") || !strcmp(key, "CHAP_I") ||
 	    !strcmp(key, "CHAP_C") || !strcmp(key, "CHAP_N") ||
 	    !strcmp(key, "CHAP_R"))
 		return 1;
 
+	/*
+	 * RFC 2945
+	 */
 	if (!strcmp(key, "SRP_U") || !strcmp(key, "SRP_N") ||
 	    !strcmp(key, "SRP_g") || !strcmp(key, "SRP_s") ||
 	    !strcmp(key, "SRP_A") || !strcmp(key, "SRP_B") ||
@@ -724,11 +752,22 @@ static void iscsi_check_proposer_for_optional_reply(struct iscsi_param *param)
 	} else if (IS_TYPE_BOOL_OR(param)) {
 		if (!strcmp(param->value, YES))
 			SET_PSTATE_REPLY_OPTIONAL(param);
+		 /*
+		  * Required for gPXE iSCSI boot client
+		  */
 		if (!strcmp(param->name, IMMEDIATEDATA))
 			SET_PSTATE_REPLY_OPTIONAL(param);
 	} else if (IS_TYPE_NUMBER(param)) {
 		if (!strcmp(param->name, MAXRECVDATASEGMENTLENGTH))
 			SET_PSTATE_REPLY_OPTIONAL(param);
+		/*
+		 * The GlobalSAN iSCSI Initiator for MacOSX does
+		 * not respond to MaxBurstLength, FirstBurstLength,
+		 * DefaultTime2Wait or DefaultTime2Retain parameter keys.
+		 * So, we set them to 'reply optional' here, and assume the
+		 * the defaults from iscsi_parameters.h if the initiator
+		 * is not RFC compliant and the keys are not negotiated.
+		 */
 		if (!strcmp(param->name, MAXBURSTLENGTH))
 			SET_PSTATE_REPLY_OPTIONAL(param);
 		if (!strcmp(param->name, FIRSTBURSTLENGTH))
@@ -737,6 +776,9 @@ static void iscsi_check_proposer_for_optional_reply(struct iscsi_param *param)
 			SET_PSTATE_REPLY_OPTIONAL(param);
 		if (!strcmp(param->name, DEFAULTTIME2RETAIN))
 			SET_PSTATE_REPLY_OPTIONAL(param);
+		/*
+		 * Required for gPXE iSCSI boot client
+		 */
 		if (!strcmp(param->name, MAXCONNECTIONS))
 			SET_PSTATE_REPLY_OPTIONAL(param);
 	} else if (IS_PHASE_DECLARATIVE(param))
@@ -761,6 +803,7 @@ static int iscsi_check_numerical_value(struct iscsi_param *param, char *value_pt
 
 	value = simple_strtoul(value_ptr, &tmpptr, 0);
 
+/* #warning FIXME: Fix this */
 #if 0
 	if (strspn(endptr, WHITE_SPACE) != strlen(endptr)) {
 		pr_err("Illegal value \"%s\" for \"%s\".\n",
@@ -871,6 +914,9 @@ static int iscsi_check_numerical_range_value(struct iscsi_param *param, char *va
 		return -1;
 	}
 
+	/*
+	 * For now,  enforce reasonable defaults for [I,O]FMarkInt.
+	 */
 	tilde_ptr = strchr(param->value, '~');
 	if (!tilde_ptr) {
 		pr_err("Unable to locate numerical range indicator"
@@ -946,6 +992,10 @@ static int iscsi_check_string_or_list_value(struct iscsi_param *param, char *val
 	return 0;
 }
 
+/*
+ *	This function is used to pick a value range number,  currently just
+ *	returns the lesser of both right values.
+ */
 static char *iscsi_get_value_from_number_range(
 	struct iscsi_param *param,
 	char *value)
@@ -1203,6 +1253,10 @@ static int iscsi_check_value(struct iscsi_param *param, char *value)
 	if (!strcmp(value, REJECT)) {
 		if (!strcmp(param->name, IFMARKINT) ||
 		    !strcmp(param->name, OFMARKINT)) {
+			/*
+			 * Reject is not fatal for [I,O]FMarkInt,  and causes
+			 * [I,O]FMarker to be reset to No. (See iSCSI v20 A.3.2)
+			 */
 			SET_PSTATE_REJECT(param);
 			return 0;
 		}
@@ -1221,6 +1275,7 @@ static int iscsi_check_value(struct iscsi_param *param, char *value)
 			return -1;
 		}
 
+/* #warning FIXME: Add check for X-ExtensionKey here */
 		pr_err("Standard iSCSI key \"%s\" cannot be answered"
 			" with \"%s\", protocol error.\n", param->name, value);
 		return -1;
@@ -1313,6 +1368,9 @@ static struct iscsi_param *iscsi_check_key(
 	struct iscsi_param_list *param_list)
 {
 	struct iscsi_param *param;
+	/*
+	 * Key name length must not exceed 63 bytes. (See iSCSI v20 5.1)
+	 */
 	if (strlen(key) > KEY_MAXLEN) {
 		pr_err("Length of key name \"%s\" exceeds %d.\n",
 			key, KEY_MAXLEN);

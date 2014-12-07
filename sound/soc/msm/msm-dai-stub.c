@@ -97,5 +97,6 @@ static void __exit msm_dai_stub_exit(void)
 }
 module_exit(msm_dai_stub_exit);
 
+/* Module information */
 MODULE_DESCRIPTION("MSM Stub DSP DAI driver");
 MODULE_LICENSE("GPL v2");

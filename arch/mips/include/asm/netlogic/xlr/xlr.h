@@ -35,12 +35,15 @@
 #ifndef _ASM_NLM_XLR_H
 #define _ASM_NLM_XLR_H
 
+/* Platform UART functions */
 struct uart_port;
 unsigned int nlm_xlr_uart_in(struct uart_port *, int);
 void nlm_xlr_uart_out(struct uart_port *, int, int);
 
+/* SMP helpers */
 void xlr_wakeup_secondary_cpus(void);
 
+/* XLS B silicon "Rook" */
 static inline unsigned int nlm_chip_is_xls_b(void)
 {
 	uint32_t prid = read_c0_prid();
@@ -48,7 +51,10 @@ static inline unsigned int nlm_chip_is_xls_b(void)
 	return ((prid & 0xf000) == 0x4000);
 }
 
- 
+/*
+ *  XLR chip types
+ */
+ /* The XLS product line has chip versions 0x[48c]? */
 static inline unsigned int nlm_chip_is_xls(void)
 {
 	uint32_t prid = read_c0_prid();
@@ -57,4 +63,4 @@ static inline unsigned int nlm_chip_is_xls(void)
 		(prid & 0xf000) == 0xc000);
 }
 
-#endif 
+#endif /* _ASM_NLM_XLR_H */

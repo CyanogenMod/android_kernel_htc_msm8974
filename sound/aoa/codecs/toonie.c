@@ -37,6 +37,9 @@ static struct snd_device_ops ops = {
 };
 
 static struct transfer_info toonie_transfers[] = {
+	/* This thing *only* has analog output,
+	 * the rates are taken from Info.plist
+	 * from Darwin. */
 	{
 		.formats = SNDRV_PCM_FMTBIT_S16_BE |
 			   SNDRV_PCM_FMTBIT_S24_BE,
@@ -59,7 +62,7 @@ static int toonie_usable(struct codec_info_item *cii,
 #ifdef CONFIG_PM
 static int toonie_suspend(struct codec_info_item *cii, pm_message_t state)
 {
-	
+	/* can we turn it off somehow? */
 	return 0;
 }
 
@@ -67,7 +70,7 @@ static int toonie_resume(struct codec_info_item *cii)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PM */
 
 static struct codec_info toonie_codec_info = {
 	.transfers = toonie_transfers,
@@ -85,7 +88,7 @@ static int toonie_init_codec(struct aoa_codec *codec)
 {
 	struct toonie *toonie = codec_to_toonie(codec);
 
-	
+	/* nothing connected? what a joke! */
 	if (toonie->codec.connected != 1)
 		return -ENOTCONN;
 

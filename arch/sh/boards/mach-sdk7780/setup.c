@@ -20,6 +20,7 @@
 
 #define GPIO_PECR        0xFFEA0008
 
+/* Heartbeat */
 static struct resource heartbeat_resource = {
 	.start  = PA_LED,
 	.end    = PA_LED,
@@ -33,6 +34,7 @@ static struct platform_device heartbeat_device = {
 	.resource       = &heartbeat_resource,
 };
 
+/* SMC91x */
 static struct resource smc91x_eth_resources[] = {
 	[0] = {
 		.name   = "smc91x-regs" ,
@@ -51,7 +53,7 @@ static struct platform_device smc91x_eth_device = {
 	.name           = "smc91x",
 	.id             = 0,
 	.dev = {
-		.dma_mask               = NULL,         
+		.dma_mask               = NULL,         /* don't use dma */
 		.coherent_dma_mask      = 0xffffffff,
 	},
 	.num_resources  = ARRAY_SIZE(smc91x_eth_resources),
@@ -82,10 +84,13 @@ static void __init sdk7780_setup(char **cmdline_p)
 			 (ver >>  4) & 0xf, ver & 0xf,
 			 dateStamp);
 
-	
+	/* Setup pin mux'ing for PCIC */
 	__raw_writew(0x0000, GPIO_PECR);
 }
 
+/*
+ * The Machine Vector
+ */
 static struct sh_machine_vector mv_se7780 __initmv = {
 	.mv_name        = "Renesas SDK7780-R3" ,
 	.mv_setup		= sdk7780_setup,

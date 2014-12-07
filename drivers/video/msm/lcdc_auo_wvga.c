@@ -57,13 +57,13 @@ static void auo_spi_write_byte(u8 data)
 	uint32 bit;
 	int bnum;
 
-	bnum = 8;			
+	bnum = 8;			/* 8 data bits */
 	bit = 0x80;
 	while (bnum--) {
-		gpio_set_value(spi_sclk, 0); 
+		gpio_set_value(spi_sclk, 0); /* clk low */
 		gpio_set_value(spi_mosi, (data & bit) ? 1 : 0);
 		udelay(1);
-		gpio_set_value(spi_sclk, 1); 
+		gpio_set_value(spi_sclk, 1); /* clk high */
 		udelay(1);
 		bit >>= 1;
 	}
@@ -76,11 +76,11 @@ static void auo_spi_read_byte(u16 cmd_16, u8 *data)
 	u8 cmd_hi = (u8)(cmd_16 >> 8);
 	u8 cmd_low = (u8)(cmd_16);
 
-	
+	/* Chip Select - low */
 	gpio_set_value(spi_cs, 0);
 	udelay(2);
 
-	
+	/* command byte first */
 	auo_spi_write_byte(0x20);
 	udelay(2);
 	auo_spi_write_byte(cmd_hi);
@@ -94,15 +94,15 @@ static void auo_spi_read_byte(u16 cmd_16, u8 *data)
 
 	gpio_direction_input(spi_mosi);
 
-	
-	bnum = 1 * 8;	
+	/* followed by data bytes */
+	bnum = 1 * 8;	/* number of bits */
 	*data = 0;
 	while (bnum) {
-		gpio_set_value(spi_sclk, 0); 
+		gpio_set_value(spi_sclk, 0); /* clk low */
 		udelay(1);
 		*data <<= 1;
 		*data |= gpio_get_value(spi_mosi) ? 1 : 0;
-		gpio_set_value(spi_sclk, 1); 
+		gpio_set_value(spi_sclk, 1); /* clk high */
 		udelay(1);
 		--bnum;
 		if ((bnum % 8) == 0)
@@ -111,7 +111,7 @@ static void auo_spi_read_byte(u16 cmd_16, u8 *data)
 
 	gpio_direction_output(spi_mosi, 0);
 
-	
+	/* Chip Select - high */
 	udelay(2);
 	gpio_set_value(spi_cs, 1);
 }
@@ -145,7 +145,7 @@ static int auo_serigo(u8 *input_data, int input_len)
 #else
 	int i;
 
-	
+	/* Chip Select - low */
 	gpio_set_value(spi_cs, 0);
 	udelay(2);
 
@@ -154,7 +154,7 @@ static int auo_serigo(u8 *input_data, int input_len)
 		udelay(2);
 	}
 
-	
+	/* Chip Select - high */
 	gpio_set_value(spi_cs, 1);
 
 	return 0;
@@ -168,11 +168,11 @@ static void auo_spi_init(void)
 	spi_cs   = *(lcdc_auo_pdata->gpio_num + 1);
 	spi_mosi = *(lcdc_auo_pdata->gpio_num + 2);
 
-	
+	/* Set the output so that we don't disturb the slave device */
 	gpio_set_value(spi_sclk, 1);
 	gpio_set_value(spi_mosi, 0);
 
-	
+	/* Set the Chip Select deasserted (active low) */
 	gpio_set_value(spi_cs, 1);
 }
 #endif
@@ -214,24 +214,24 @@ static void lcdc_auo_set_backlight(struct msm_fb_data_type *mfd)
 }
 static void auo_disp_on_delayed_work(struct work_struct *work_ptr)
 {
-	
+	/* 0x1100: Sleep Out */
 	auo_write_cmd(PANEL_CMD_SLEEP_OUT);
 
 	msleep(180);
 
-	
-	auo_write_cmd_1param(PANEL_CMD_FORMAT, 0x66); 
+	/* SET_PIXEL_FORMAT: Set how many bits per pixel are used (3A00h)*/
+	auo_write_cmd_1param(PANEL_CMD_FORMAT, 0x66); /* 18 bits */
 
-	
+	/* RGBCTRL: RGB Interface Signal Control (3B00h) */
 	auo_write_cmd_1param(PANEL_CMD_RGBCTRL, 0x2B);
 
-	
+	/* Display ON command */
 	auo_write_cmd(PANEL_CMD_DISP_ON);
 	msleep(20);
 
-	
-	auo_write_cmd_1param(PANEL_CMD_BCTRL, 0x24); 
-	auo_write_cmd_1param(PANEL_CMD_PWM_EN, 0x01); 
+	/*Backlight on */
+	auo_write_cmd_1param(PANEL_CMD_BCTRL, 0x24); /*BCTRL, BL */
+	auo_write_cmd_1param(PANEL_CMD_PWM_EN, 0x01); /*Enable PWM Level */
 
 	msleep(20);
 }
@@ -265,10 +265,10 @@ static int lcdc_auo_panel_off(struct platform_device *pdev)
 {
 	pr_info("%s\n", __func__);
 	if (auo_state.display_on) {
-		
+		/* 0x2800: Display Off */
 		auo_write_cmd(PANEL_CMD_DISP_OFF);
 		msleep(120);
-		
+		/* 0x1000: Sleep In */
 		auo_write_cmd(PANEL_CMD_SLEEP_IN);
 		msleep(120);
 
@@ -358,11 +358,11 @@ static int __init lcdc_auo_panel_init(void)
 	pinfo->bl_max = MAX_BACKLIGHT_LEVEL;
 	pinfo->bl_min = 1;
 
-	pinfo->lcdc.h_back_porch = 16-2;	
+	pinfo->lcdc.h_back_porch = 16-2;	/* HBP-HLW */
 	pinfo->lcdc.h_front_porch = 16;
 	pinfo->lcdc.h_pulse_width = 2;
 
-	pinfo->lcdc.v_back_porch = 3-2;		
+	pinfo->lcdc.v_back_porch = 3-2;		/* VBP-VLW */
 	pinfo->lcdc.v_front_porch = 28;
 	pinfo->lcdc.v_pulse_width = 2;
 

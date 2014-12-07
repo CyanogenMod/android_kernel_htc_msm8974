@@ -188,6 +188,9 @@ void __init ath79_clocks_init(void)
 		(ath79_ref_clk.rate / 1000) % 1000);
 }
 
+/*
+ * Linux clock API
+ */
 struct clk *clk_get(struct device *dev, const char *id)
 {
 	if (!strcmp(id, "ref"))

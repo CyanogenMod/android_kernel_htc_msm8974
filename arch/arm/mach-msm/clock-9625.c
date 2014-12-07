@@ -44,6 +44,7 @@ static void __iomem *virt_bases[N_BASES];
 #define APCS_REG_BASE(x) (void __iomem *)(virt_bases[APCS_BASE] + (x))
 #define APCS_PLL_REG_BASE(x) (void __iomem *)(virt_bases[APCS_PLL_BASE] + (x))
 
+/* GCC registers */
 #define GPLL0_MODE_REG                 0x0000
 #define GPLL0_L_REG                    0x0004
 #define GPLL0_M_REG                    0x0008
@@ -202,6 +203,7 @@ static void __iomem *virt_bases[N_BASES];
 #define IPA_CNOC_CBCR                            0x1A88
 #define IPA_SLEEP_CBCR                           0x1A8C
 
+/* Mux source select values */
 #define cxo_source_val	0
 #define gpll0_source_val 1
 #define gpll1_hsic_source_val 4
@@ -279,10 +281,10 @@ enum vdd_dig_levels {
 };
 
 static int vdd_corner[] = {
-	RPM_REGULATOR_CORNER_NONE,		
-	RPM_REGULATOR_CORNER_SVS_SOC,		
-	RPM_REGULATOR_CORNER_NORMAL,		
-	RPM_REGULATOR_CORNER_SUPER_TURBO,	
+	RPM_REGULATOR_CORNER_NONE,		/* VDD_DIG_NONE */
+	RPM_REGULATOR_CORNER_SVS_SOC,		/* VDD_DIG_LOW */
+	RPM_REGULATOR_CORNER_NORMAL,		/* VDD_DIG_NOMINAL */
+	RPM_REGULATOR_CORNER_SUPER_TURBO,	/* VDD_DIG_HIGH */
 };
 
 static DEFINE_VDD_REGULATORS(vdd_dig, VDD_DIG_NUM, 1, vdd_corner, NULL);
@@ -1612,6 +1614,10 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 		return -EINVAL;
 
 	spin_lock_irqsave(&local_clock_reg_lock, flags);
+	/*
+	 * Program the test vector, measurement period (sample_ticks)
+	 * and scaling multiplier.
+	 */
 	clk->sample_ticks = 0x10000;
 	clk->multiplier = 1;
 
@@ -1628,7 +1634,7 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 		regval = BVAL(5, 3, measure_mux[i].debug_mux);
 		writel_relaxed(regval, APCS_REG_BASE(APCS_CLK_DIAG_REG));
 
-		
+		/* Activate debug clock output */
 		regval |= BIT(7);
 		writel_relaxed(regval, APCS_REG_BASE(APCS_CLK_DIAG_REG));
 		break;
@@ -1637,42 +1643,47 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 		return -EINVAL;
 	}
 
-	
+	/* Set debug mux clock index */
 	regval = BVAL(8, 0, clk_sel);
 	writel_relaxed(regval, GCC_REG_BASE(GCC_DEBUG_CLK_CTL_REG));
 
-	
+	/* Activate debug clock output */
 	regval |= BIT(16);
 	writel_relaxed(regval, GCC_REG_BASE(GCC_DEBUG_CLK_CTL_REG));
 
-	
+	/* Make sure test vector is set before starting measurements. */
 	mb();
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
 
 	return 0;
 }
 
+/* Sample clock for 'ticks' reference clock ticks. */
 static u32 run_measurement(unsigned ticks)
 {
-	
+	/* Stop counters and set the XO4 counter start value. */
 	writel_relaxed(ticks, GCC_REG_BASE(CLOCK_FRQ_MEASURE_CTL_REG));
 
-	
+	/* Wait for timer to become ready. */
 	while ((readl_relaxed(GCC_REG_BASE(CLOCK_FRQ_MEASURE_STATUS_REG)) &
 			BIT(25)) != 0)
 		cpu_relax();
 
-	
+	/* Run measurement and wait for completion. */
 	writel_relaxed(BIT(20)|ticks, GCC_REG_BASE(CLOCK_FRQ_MEASURE_CTL_REG));
 	while ((readl_relaxed(GCC_REG_BASE(CLOCK_FRQ_MEASURE_STATUS_REG)) &
 			BIT(25)) == 0)
 		cpu_relax();
 
-	
+	/* Return measured ticks. */
 	return readl_relaxed(GCC_REG_BASE(CLOCK_FRQ_MEASURE_STATUS_REG)) &
 				BM(24, 0);
 }
 
+/*
+ * Perform a hardware rate measurement for a given clock.
+ * FOR DEBUG USE ONLY: Measurements take ~15 ms!
+ */
 static unsigned long measure_clk_get_rate(struct clk *c)
 {
 	unsigned long flags;
@@ -1689,23 +1700,29 @@ static unsigned long measure_clk_get_rate(struct clk *c)
 
 	spin_lock_irqsave(&local_clock_reg_lock, flags);
 
-	
+	/* Enable CXO/4 and RINGOSC branch. */
 	gcc_xo4_reg_backup = readl_relaxed(GCC_REG_BASE(GCC_XO_DIV4_CBCR_REG));
 	writel_relaxed(0x1, GCC_REG_BASE(GCC_XO_DIV4_CBCR_REG));
 
+	/*
+	 * The ring oscillator counter will not reset if the measured clock
+	 * is not running.  To detect this, run a short measurement before
+	 * the full measurement.  If the raw results of the two are the same
+	 * then the clock must be off.
+	 */
 
-	
+	/* Run a short measurement. (~1 ms) */
 	raw_count_short = run_measurement(0x1000);
-	
+	/* Run a full measurement. (~14 ms) */
 	raw_count_full = run_measurement(clk->sample_ticks);
 
 	writel_relaxed(gcc_xo4_reg_backup, GCC_REG_BASE(GCC_XO_DIV4_CBCR_REG));
 
-	
+	/* Return 0 if the clock is off. */
 	if (raw_count_full == raw_count_short) {
 		ret = 0;
 	} else {
-		
+		/* Compute rate in Hz. */
 		raw_count_full = ((raw_count_full * 10) + 15) * 4800000;
 		do_div(raw_count_full, ((clk->sample_ticks * 10) + 35));
 		ret = (raw_count_full * clk->multiplier);
@@ -1718,7 +1735,7 @@ static unsigned long measure_clk_get_rate(struct clk *c)
 
 	return ret;
 }
-#else 
+#else /* !CONFIG_DEBUG_FS */
 static int measure_clk_set_parent(struct clk *clk, struct clk *parent)
 {
 	return -EINVAL;
@@ -1728,7 +1745,7 @@ static unsigned long measure_clk_get_rate(struct clk *clk)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 
 static struct clk_ops clk_ops_measure = {
 	.set_parent = measure_clk_set_parent,
@@ -1824,7 +1841,7 @@ static struct clk_lookup msm_clocks_9625[] = {
 	CLK_LOOKUP("bus_clk", gcc_ce1_axi_clk.c, "fd400000.qcom,qcrypto"),
 	CLK_LOOKUP("core_clk_src", ce1_clk_src.c, "fd400000.qcom,qcrypto"),
 
-	
+	/* RPM and voter clocks */
 	CLK_LOOKUP("bus_clk", snoc_clk.c, ""),
 	CLK_LOOKUP("bus_clk", pnoc_clk.c, ""),
 	CLK_LOOKUP("bus_clk", cnoc_clk.c, ""),
@@ -1849,7 +1866,7 @@ static struct clk_lookup msm_clocks_9625[] = {
 
 	CLK_LOOKUP("a5_m_clk", a5_m_clk, ""),
 
-	
+	/* CoreSight clocks */
 	CLK_LOOKUP("core_clk", qdss_clk.c, "fc322000.tmc"),
 	CLK_LOOKUP("core_clk", qdss_clk.c, "fc318000.tpiu"),
 	CLK_LOOKUP("core_clk", qdss_clk.c, "fc31c000.replicator"),
@@ -1904,6 +1921,10 @@ static struct clk_lookup msm_clocks_9625[] = {
 #define PLL_AUX_OUTPUT_BIT 1
 #define PLL_AUX2_OUTPUT_BIT 2
 
+/*
+ * TODO: Need to remove this function when the v2 hardware
+ * fix the broken lock status bit.
+ */
 #define PLL_OUTCTRL BIT(0)
 #define PLL_BYPASSNL BIT(1)
 #define PLL_RESET_N BIT(2)
@@ -1919,19 +1940,19 @@ static int sr_pll_clk_enable_9625(struct clk *c)
 
 	spin_lock_irqsave(&sr_pll_reg_lock, flags);
 
-	
+	/* Disable PLL bypass mode and de-assert reset. */
 	mode = readl_relaxed(mode_reg);
 	mode |= PLL_BYPASSNL | PLL_RESET_N;
 	writel_relaxed(mode, mode_reg);
 
-	
+	/* Wait for pll to lock. */
 	udelay(100);
 
-	
+	/* Enable PLL output. */
 	mode |= PLL_OUTCTRL;
 	writel_relaxed(mode, mode_reg);
 
-	
+	/* Ensure the write above goes through before returning. */
 	mb();
 
 	spin_unlock_irqrestore(&sr_pll_reg_lock, flags);
@@ -1950,9 +1971,13 @@ static void __init reg_init(void)
 
 static void __init msm9625_clock_post_init(void)
 {
+	/*
+	 * Hold an active set vote for CXO; this is because CXO is expected
+	 * to remain on whenever CPUs aren't power collapsed.
+	 */
 	clk_prepare_enable(&cxo_a_clk_src.c);
 
-	
+	/* Set rates for single-rate clocks. */
 	clk_set_rate(&usb_hs_system_clk_src.c,
 			usb_hs_system_clk_src.freq_tbl[0].freq_hz);
 	clk_set_rate(&usb_hsic_clk_src.c,
@@ -1964,6 +1989,10 @@ static void __init msm9625_clock_post_init(void)
 	clk_set_rate(&usb_hsic_xcvr_fs_clk_src.c,
 			usb_hsic_xcvr_fs_clk_src.freq_tbl[0].freq_hz);
 	clk_set_rate(&pdm2_clk_src.c, pdm2_clk_src.freq_tbl[0].freq_hz);
+	/*
+	 * TODO: set rate on behalf of the i2c driver until the i2c driver
+	 *	 distinguish v1/v2 and call set rate accordingly.
+	 */
 	if (SOCINFO_VERSION_MAJOR(socinfo_get_version()) == 2)
 		clk_set_rate(&blsp1_qup3_i2c_apps_clk_src.c,
 			blsp1_qup3_i2c_apps_clk_src.freq_tbl[0].freq_hz);
@@ -2001,7 +2030,7 @@ static void __init msm9625_clock_pre_init(void)
 	if (!virt_bases[APCS_PLL_BASE])
 		panic("clock-9625: Unable to ioremap APCS_PLL memory!");
 
-	
+	/* The parent of each of the QUP I2C APPS clocks is an RCG on v2 */
 	if (SOCINFO_VERSION_MAJOR(socinfo_get_version()) == 2) {
 		int i, num_cores = ARRAY_SIZE(i2c_apps_clks);
 		for (i = 0; i < num_cores; i++)
@@ -2018,7 +2047,7 @@ static void __init msm9625_clock_pre_init(void)
 
 	reg_init();
 
-	
+	/* Construct measurement mux array */
 	if (SOCINFO_VERSION_MAJOR(socinfo_get_version()) == 2) {
 		memcpy(measure_mux,
 			measure_mux_v2_only, sizeof(measure_mux_v2_only));

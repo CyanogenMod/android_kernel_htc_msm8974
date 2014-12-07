@@ -38,14 +38,14 @@
 
 #define DRIVER_NAME	"ath79-wdt"
 
-#define WDT_TIMEOUT	15	
+#define WDT_TIMEOUT	15	/* seconds */
 
 #define WDOG_CTRL_LAST_RESET	BIT(31)
 #define WDOG_CTRL_ACTION_MASK	3
-#define WDOG_CTRL_ACTION_NONE	0	
-#define WDOG_CTRL_ACTION_GPI	1	
-#define WDOG_CTRL_ACTION_NMI	2	
-#define WDOG_CTRL_ACTION_FCR	3	
+#define WDOG_CTRL_ACTION_NONE	0	/* no action */
+#define WDOG_CTRL_ACTION_GPI	1	/* general purpose interrupt */
+#define WDOG_CTRL_ACTION_NMI	2	/* NMI */
+#define WDOG_CTRL_ACTION_FCR	3	/* full chip reset */
 
 static bool nowayout = WATCHDOG_NOWAYOUT;
 module_param(nowayout, bool, 0);
@@ -70,7 +70,7 @@ static int max_timeout;
 static inline void ath79_wdt_keepalive(void)
 {
 	ath79_reset_wr(AR71XX_RESET_REG_WDOG, wdt_freq * timeout);
-	
+	/* flush write */
 	ath79_reset_rr(AR71XX_RESET_REG_WDOG);
 }
 
@@ -78,14 +78,14 @@ static inline void ath79_wdt_enable(void)
 {
 	ath79_wdt_keepalive();
 	ath79_reset_wr(AR71XX_RESET_REG_WDOG_CTRL, WDOG_CTRL_ACTION_FCR);
-	
+	/* flush write */
 	ath79_reset_rr(AR71XX_RESET_REG_WDOG_CTRL);
 }
 
 static inline void ath79_wdt_disable(void)
 {
 	ath79_reset_wr(AR71XX_RESET_REG_WDOG_CTRL, WDOG_CTRL_ACTION_NONE);
-	
+	/* flush write */
 	ath79_reset_rr(AR71XX_RESET_REG_WDOG_CTRL);
 }
 
@@ -196,7 +196,7 @@ static long ath79_wdt_ioctl(struct file *file, unsigned int cmd,
 		if (err)
 			break;
 
-		
+		/* fallthrough */
 	case WDIOC_GETTIMEOUT:
 		err = put_user(timeout, p);
 		break;

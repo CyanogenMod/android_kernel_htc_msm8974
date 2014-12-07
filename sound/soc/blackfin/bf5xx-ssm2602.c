@@ -54,6 +54,13 @@ static int bf5xx_ssm2602_hw_params(struct snd_pcm_substream *substream,
 
 	pr_debug("%s rate %d format %x\n", __func__, params_rate(params),
 		params_format(params));
+	/*
+	 * If you are using a crystal source which frequency is not 12MHz
+	 * then modify the below case statement with frequency of the crystal.
+	 *
+	 * If you are using the SPORT to generate clocking then this is
+	 * where to do it.
+	 */
 
 	switch (params_rate(params)) {
 	case 8000:
@@ -79,6 +86,7 @@ static struct snd_soc_ops bf5xx_ssm2602_ops = {
 	.hw_params = bf5xx_ssm2602_hw_params,
 };
 
+/* CODEC is master for BCLK and LRC in this configuration. */
 #define BF5XX_SSM2602_DAIFMT (SND_SOC_DAIFMT_I2S | SND_SOC_DAIFMT_NB_NF | \
 				SND_SOC_DAIFMT_CBM_CFM)
 
@@ -141,6 +149,7 @@ static void __exit bf5xx_ssm2602_exit(void)
 module_init(bf5xx_ssm2602_init);
 module_exit(bf5xx_ssm2602_exit);
 
+/* Module information */
 MODULE_AUTHOR("Cliff Cai");
 MODULE_DESCRIPTION("ALSA SoC SSM2602 BF527-EZKIT");
 MODULE_LICENSE("GPL");

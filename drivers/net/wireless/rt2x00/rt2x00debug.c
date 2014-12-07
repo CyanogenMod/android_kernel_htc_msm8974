@@ -18,6 +18,10 @@
 	59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
 
+/*
+	Module: rt2x00lib
+	Abstract: rt2x00 debugfs specific routines.
+ */
 
 #include <linux/debugfs.h>
 #include <linux/kernel.h>
@@ -41,10 +45,36 @@ struct rt2x00debug_crypto {
 };
 
 struct rt2x00debug_intf {
+	/*
+	 * Pointer to driver structure where
+	 * this debugfs entry belongs to.
+	 */
 	struct rt2x00_dev *rt2x00dev;
 
+	/*
+	 * Reference to the rt2x00debug structure
+	 * which can be used to communicate with
+	 * the registers.
+	 */
 	const struct rt2x00debug *debug;
 
+	/*
+	 * Debugfs entries for:
+	 * - driver folder
+	 *   - driver file
+	 *   - chipset file
+	 *   - device state flags file
+	 *   - device capability flags file
+	 *   - register folder
+	 *     - csr offset/value files
+	 *     - eeprom offset/value files
+	 *     - bbp offset/value files
+	 *     - rf offset/value files
+	 *   - queue folder
+	 *     - frame dump file
+	 *     - queue stats file
+	 *     - crypto stats file
+	 */
 	struct dentry *driver_folder;
 	struct dentry *driver_entry;
 	struct dentry *chipset_entry;
@@ -64,17 +94,39 @@ struct rt2x00debug_intf {
 	struct dentry *queue_stats_entry;
 	struct dentry *crypto_stats_entry;
 
+	/*
+	 * The frame dump file only allows a single reader,
+	 * so we need to store the current state here.
+	 */
 	unsigned long frame_dump_flags;
 #define FRAME_DUMP_FILE_OPEN	1
 
+	/*
+	 * We queue each frame before dumping it to the user,
+	 * per read command we will pass a single skb structure
+	 * so we should be prepared to queue multiple sk buffers
+	 * before sending it to userspace.
+	 */
 	struct sk_buff_head frame_dump_skbqueue;
 	wait_queue_head_t frame_dump_waitqueue;
 
+	/*
+	 * HW crypto statistics.
+	 * All statistics are stored separately per cipher type.
+	 */
 	struct rt2x00debug_crypto crypto_stats[CIPHER_MAX];
 
+	/*
+	 * Driver and chipset files will use a data buffer
+	 * that has been created in advance. This will simplify
+	 * the code since we can use the debugfs functions.
+	 */
 	struct debugfs_blob_wrapper driver_blob;
 	struct debugfs_blob_wrapper chipset_blob;
 
+	/*
+	 * Requested offset for each register type.
+	 */
 	unsigned int offset_csr;
 	unsigned int offset_eeprom;
 	unsigned int offset_bbp;
@@ -93,7 +145,7 @@ void rt2x00debug_update_crypto(struct rt2x00_dev *rt2x00dev,
 	if (cipher == CIPHER_NONE || cipher >= CIPHER_MAX)
 		return;
 
-	
+	/* Remove CIPHER_NONE index */
 	cipher--;
 
 	intf->crypto_stats[cipher].success += (status == RX_CRYPTO_SUCCESS);
@@ -155,6 +207,9 @@ void rt2x00debug_dump_frame(struct rt2x00_dev *rt2x00dev,
 	skb_queue_tail(&intf->frame_dump_skbqueue, skbcopy);
 	wake_up_interruptible(&intf->frame_dump_waitqueue);
 
+	/*
+	 * Verify that the file has not been closed while we were working.
+	 */
 	if (!test_bit(FRAME_DUMP_FILE_OPEN, &intf->frame_dump_flags))
 		skb_queue_purge(&intf->frame_dump_skbqueue);
 }

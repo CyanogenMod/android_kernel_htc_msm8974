@@ -26,6 +26,61 @@
 #include <linux/slab.h>
 #define HISAX_STATUS_BUFSIZE 4096
 
+/*
+ * This structure array contains one entry per card. An entry looks
+ * like this:
+ *
+ * { type, protocol, p0, p1, p2, NULL }
+ *
+ * type
+ *    1 Teles 16.0       p0=irq p1=membase p2=iobase
+ *    2 Teles  8.0       p0=irq p1=membase
+ *    3 Teles 16.3       p0=irq p1=iobase
+ *    4 Creatix PNP      p0=irq p1=IO0 (ISAC)  p2=IO1 (HSCX)
+ *    5 AVM A1 (Fritz)   p0=irq p1=iobase
+ *    6 ELSA PC          [p0=iobase] or nothing (autodetect)
+ *    7 ELSA Quickstep   p0=irq p1=iobase
+ *    8 Teles PCMCIA     p0=irq p1=iobase
+ *    9 ITK ix1-micro    p0=irq p1=iobase
+ *   10 ELSA PCMCIA      p0=irq p1=iobase
+ *   11 Eicon.Diehl Diva p0=irq p1=iobase
+ *   12 Asuscom ISDNLink p0=irq p1=iobase
+ *   13 Teleint          p0=irq p1=iobase
+ *   14 Teles 16.3c      p0=irq p1=iobase
+ *   15 Sedlbauer speed  p0=irq p1=iobase
+ *   15 Sedlbauer PC/104	p0=irq p1=iobase
+ *   15 Sedlbauer speed pci	no parameter
+ *   16 USR Sportster internal  p0=irq  p1=iobase
+ *   17 MIC card                p0=irq  p1=iobase
+ *   18 ELSA Quickstep 1000PCI  no parameter
+ *   19 Compaq ISDN S0 ISA card p0=irq  p1=IO0 (HSCX)  p2=IO1 (ISAC) p3=IO2
+ *   20 Travers Technologies NETjet-S PCI card
+ *   21 TELES PCI               no parameter
+ *   22 Sedlbauer Speed Star    p0=irq p1=iobase
+ *   23 reserved
+ *   24 Dr Neuhaus Niccy PnP/PCI card p0=irq p1=IO0 p2=IO1 (PnP only)
+ *   25 Teles S0Box             p0=irq p1=iobase (from isapnp setup)
+ *   26 AVM A1 PCMCIA (Fritz)   p0=irq p1=iobase
+ *   27 AVM PnP/PCI		p0=irq p1=iobase (PCI no parameter)
+ *   28 Sedlbauer Speed Fax+	p0=irq p1=iobase (from isapnp setup)
+ *   29 Siemens I-Surf          p0=irq p1=iobase p2=memory (from isapnp setup)
+ *   30 ACER P10                p0=irq p1=iobase (from isapnp setup)
+ *   31 HST Saphir              p0=irq  p1=iobase
+ *   32 Telekom A4T             none
+ *   33 Scitel Quadro		p0=subcontroller (4*S0, subctrl 1...4)
+ *   34	Gazel ISDN cards
+ *   35 HFC 2BDS0 PCI           none
+ *   36 Winbond 6692 PCI        none
+ *   37 HFC 2BDS0 S+/SP         p0=irq p1=iobase
+ *   38 Travers Technologies NETspider-U PCI card
+ *   39 HFC 2BDS0-SP PCMCIA     p0=irq p1=iobase
+ *   40 hotplug interface
+ *   41 Formula-n enter:now ISDN PCI a/b   none
+ *
+ * protocol can be either ISDN_PTYPE_EURO or ISDN_PTYPE_1TR6 or ISDN_PTYPE_NI1
+ *
+ *
+ */
 
 const char *CardType[] = {
 	"No Card", "Teles 16.0", "Teles 8.0", "Teles 16.3",
@@ -270,6 +325,7 @@ static char HiSaxID[HISAX_IDSIZE] = { 0, };
 
 static char *HiSax_id = HiSaxID;
 #ifdef MODULE
+/* Variables for insmod */
 static int type[HISAX_MAX_CARDS] = { 0, };
 static int protocol[HISAX_MAX_CARDS] = { 0, };
 static int io[HISAX_MAX_CARDS] = { 0, };
@@ -302,7 +358,7 @@ module_param(id, charp, 0);
 module_param_array(io0, int, NULL, 0);
 module_param_array(io1, int, NULL, 0);
 #endif
-#endif 
+#endif /* MODULE */
 
 int nrcards;
 
@@ -398,7 +454,7 @@ static int __init HiSax_setup(char *line)
 }
 
 __setup("hisax=", HiSax_setup);
-#endif 
+#endif /* MODULES */
 
 #if CARD_TELES0
 extern int setup_teles0(struct IsdnCard *card);
@@ -512,6 +568,9 @@ extern int setup_netjet_u(struct IsdnCard *card);
 extern int setup_enternow_pci(struct IsdnCard *card);
 #endif
 
+/*
+ * Find card with given driverId
+ */
 static inline struct IsdnCardState *hisax_findcard(int driverid)
 {
 	int i;
@@ -523,6 +582,9 @@ static inline struct IsdnCardState *hisax_findcard(int driverid)
 	return NULL;
 }
 
+/*
+ * Find card with given card number
+ */
 #if 0
 struct IsdnCardState *hisax_get_card(int cardnr)
 {
@@ -531,7 +593,7 @@ struct IsdnCardState *hisax_get_card(int cardnr)
 			return cards[cardnr - 1].cs;
 	return NULL;
 }
-#endif  
+#endif  /*  0  */
 
 static int HiSax_readstatus(u_char __user *buf, int len, int id, int channel)
 {
@@ -600,7 +662,7 @@ static u_char tmpbuf[HISAX_STATUS_BUFSIZE];
 void VHiSax_putstatus(struct IsdnCardState *cs, char *head, char *fmt,
 		      va_list args)
 {
-	
+	/* if head == NULL the fmt contains the full info */
 
 	u_long		flags;
 	int		count, i;
@@ -694,7 +756,7 @@ static void ll_stop(struct IsdnCardState *cs)
 	ic.command = ISDN_STAT_STOP;
 	ic.driver = cs->myid;
 	cs->iif.statcallb(&ic);
-	
+	//      CallcFreeChan(cs);
 }
 
 static void ll_unload(struct IsdnCardState *cs)
@@ -734,7 +796,7 @@ static void closecard(int cardnr)
 	}
 	if (csta->cardmsg)
 		csta->cardmsg(csta, CARD_RELEASE, NULL);
-	if (csta->dbusytimer.function != NULL) 
+	if (csta->dbusytimer.function != NULL) // FIXME?
 		del_timer(&csta->dbusytimer);
 	ll_unload(csta);
 }
@@ -767,7 +829,7 @@ static int init_card(struct IsdnCardState *cs)
 	}
 	while (cnt) {
 		cs->cardmsg(cs, CARD_INIT, NULL);
-		
+		/* Timeout 10ms */
 		msleep(10);
 		printk(KERN_INFO "%s: IRQ %d count %d\n",
 		       CardType[cs->typ], cs->irq, cs->irq_cnt);
@@ -977,8 +1039,8 @@ static int hisax_cs_new(int cardnr, char *id, struct IsdnCard *card,
 	card->cs = cs;
 	spin_lock_init(&cs->statlock);
 	spin_lock_init(&cs->lock);
-	cs->chanlimit = 2;	
-	cs->logecho = 0;	
+	cs->chanlimit = 2;	/* maximum B-channel number */
+	cs->logecho = 0;	/* No echo logging */
 	cs->cardnr = cardnr;
 	cs->debug = L1_DEB_WARN;
 	cs->HW_Flags = 0;
@@ -1045,7 +1107,7 @@ static int hisax_cs_new(int cardnr, char *id, struct IsdnCard *card,
 	cs->myid = cs->iif.channels;
 
 	*cs_out = cs;
-	return 1;	
+	return 1;	/* success */
 
 outf_dlog:
 	kfree(cs->dlog);
@@ -1053,7 +1115,7 @@ outf_cs:
 	kfree(cs);
 	card->cs = NULL;
 out:
-	return 0;	
+	return 0;	/* error */
 }
 
 static int hisax_cs_setup(int cardnr, struct IsdnCard *card,
@@ -1077,8 +1139,8 @@ static int hisax_cs_setup(int cardnr, struct IsdnCard *card,
 	init_bcstate(cs, 0);
 	init_bcstate(cs, 1);
 
-	
-	
+	/* init_card only handles interrupts which are not */
+	/* used here for the loadable driver */
 	switch (card->typ) {
 	case ISDN_CTYPE_DYNAMIC:
 		ret = 0;
@@ -1097,7 +1159,7 @@ static int hisax_cs_setup(int cardnr, struct IsdnCard *card,
 		closecard(cardnr);
 		goto outf_cs;
 	}
-	
+	/* ISAR needs firmware download first */
 	if (!test_bit(HW_ISAR, &cs->HW_Flags))
 		ll_run(cs, 0);
 
@@ -1109,6 +1171,9 @@ outf_cs:
 	return 0;
 }
 
+/* Used from an exported function but calls __devinit functions.
+ * Tell modpost not to warn (__ref)
+ */
 static int __ref checkcard(int cardnr, char *id, int *busy_flag,
 			   struct module *lockowner,
 			   hisax_setup_func_t card_setup)
@@ -1188,7 +1253,7 @@ static int __init HiSax_inithardware(int *busy_flag)
 			foundcards++;
 			i++;
 		} else {
-			
+			/* make sure we don't oops the module */
 			if (cards[i].typ > 0 && cards[i].typ <= ISDN_CTYPE_COUNT) {
 				printk(KERN_WARNING
 				       "HiSax: Card %s not installed !\n",
@@ -1296,39 +1361,39 @@ static int __init HiSax_init(void)
 
 #ifdef MODULE
 	if (!type[0]) {
-		
+		/* We 'll register drivers later, but init basic functions */
 		for (i = 0; i < HISAX_MAX_CARDS; i++)
 			cards[i].typ = 0;
 		return 0;
 	}
 #ifdef CONFIG_HISAX_ELSA
 	if (type[0] == ISDN_CTYPE_ELSA_PCMCIA) {
-		
+		/* we have exported  and return in this case */
 		return 0;
 	}
 #endif
 #ifdef CONFIG_HISAX_SEDLBAUER
 	if (type[0] == ISDN_CTYPE_SEDLBAUER_PCMCIA) {
-		
+		/* we have to export  and return in this case */
 		return 0;
 	}
 #endif
 #ifdef CONFIG_HISAX_AVM_A1_PCMCIA
 	if (type[0] == ISDN_CTYPE_A1_PCMCIA) {
-		
+		/* we have to export  and return in this case */
 		return 0;
 	}
 #endif
 #ifdef CONFIG_HISAX_HFC_SX
 	if (type[0] == ISDN_CTYPE_HFC_SP_PCMCIA) {
-		
+		/* we have to export  and return in this case */
 		return 0;
 	}
 #endif
 #endif
 	nrcards = 0;
 #ifdef MODULE
-	if (id)			
+	if (id)			/* If id= string used */
 		HiSax_id = id;
 	for (i = j = 0; j < HISAX_MAX_CARDS; i++) {
 		cards[j].typ = type[i];
@@ -1411,9 +1476,9 @@ static int __init HiSax_init(void)
 			if (irq[i]) {
 				cards[j].para[0] = irq[i];
 			} else {
-				
+				/* QUADRO is a 4 BRI card */
 				cards[j++].para[0] = 1;
-				
+				/* we need to check if further cards can be added */
 				if (j < HISAX_MAX_CARDS) {
 					cards[j].typ = ISDN_CTYPE_SCT_QUADRO;
 					cards[j].protocol = protocol[i];
@@ -1451,7 +1516,7 @@ static int __init HiSax_init(void)
 	printk(KERN_DEBUG "HiSax: Total %d card%s defined\n",
 	       nrcards, (nrcards > 1) ? "s" : "");
 
-	
+	/* Install only, if at least one card found */
 	if (!HiSax_inithardware(NULL))
 		return -ENODEV;
 	return 0;
@@ -1550,7 +1615,7 @@ int hisax_register(struct hisax_d_if *hisax_d_if, struct hisax_b_if *b_if[],
 	nrcards++;
 	retval = checkcard(i, id, NULL, hisax_d_if->owner,
 			   hisax_setup_card_dynamic);
-	if (retval == 0) { 
+	if (retval == 0) { // yuck
 		cards[i].typ = 0;
 		nrcards--;
 		return -EINVAL;
@@ -1682,7 +1747,7 @@ static void hisax_b_l1l2(struct hisax_if *ifc, int pr, void *arg)
 	struct PStack *st = bcs->st;
 	struct sk_buff *skb;
 
-	
+	// FIXME use isdnl1?
 	switch (pr) {
 	case PH_ACTIVATE | INDICATION:
 		st->l1.l1l2(st, pr, NULL);
@@ -1736,7 +1801,7 @@ static void hisax_d_l2l1(struct PStack *st, int pr, void *arg)
 		if (cs->debug & DEB_DLOG_VERBOSE)
 			dlogframe(cs, skb, 0);
 		Logl2Frame(cs, skb, "PH_DATA_REQ", 0);
-		
+		// FIXME lock?
 		if (!test_and_set_bit(FLG_L1_DBUSY, &cs->HW_Flags))
 			D_L2L1(hisax_d_if, PH_DATA | REQUEST, skb);
 		else
@@ -1770,7 +1835,7 @@ static void hisax_b_l2l1(struct PStack *st, int pr, void *arg)
 		break;
 	case PH_DATA | REQUEST:
 	case PH_PULL | INDICATION:
-		
+		// FIXME lock?
 		if (!test_and_set_bit(BC_FLG_BUSY, &bcs->Flag)) {
 			B_L2L1(b_if, PH_DATA | REQUEST, arg);
 		} else {
@@ -1860,7 +1925,9 @@ static struct pci_device_id hisax_pci_tbl[] __devinitdata __used = {
 	{PCI_VDEVICE(EICON,    PCI_DEVICE_ID_EICON_DIVA20)		},
 	{PCI_VDEVICE(EICON,    PCI_DEVICE_ID_EICON_DIVA20_U)	},
 	{PCI_VDEVICE(EICON,    PCI_DEVICE_ID_EICON_DIVA201)		},
+/*##########################################################################*/
 	{PCI_VDEVICE(EICON,    PCI_DEVICE_ID_EICON_DIVA202)		},
+/*##########################################################################*/
 #endif
 #ifdef CONFIG_HISAX_ELSA
 	{PCI_VDEVICE(ELSA,     PCI_DEVICE_ID_ELSA_MICROLINK)	},
@@ -1915,11 +1982,11 @@ static struct pci_device_id hisax_pci_tbl[] __devinitdata __used = {
 	{PCI_VDEVICE(DIGI,     PCI_DEVICE_ID_DIGI_DF_M_IOM2_A)	},
 	{PCI_VDEVICE(DIGI,     PCI_DEVICE_ID_DIGI_DF_M_A)		},
 #endif
-	{ }				
+	{ }				/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(pci, hisax_pci_tbl);
-#endif 
+#endif /* CONFIG_PCI */
 
 module_init(HiSax_init);
 module_exit(HiSax_exit);

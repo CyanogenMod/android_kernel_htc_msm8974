@@ -22,8 +22,35 @@
 #include <asm/pci-bridge.h>
 
 
+/*
+ *
+ * Setting up a PCI
+ *
+ * pci_ctrl->first_busno = <first bus number (0)>
+ * pci_ctrl->last_busno = <last bus number (0xff)>
+ * pci_ctrl->ops = <PCI config operations>
+ * pci_ctrl->map_irq = <function to return the interrupt number for a device>
+ *
+ * pci_ctrl->io_space.start = <IO space start address (PCI view)>
+ * pci_ctrl->io_space.end = <IO space end address (PCI view)>
+ * pci_ctrl->io_space.base = <IO space offset: address 0 from CPU space>
+ * pci_ctrl->mem_space.start = <MEM space start address (PCI view)>
+ * pci_ctrl->mem_space.end = <MEM space end address (PCI view)>
+ * pci_ctrl->mem_space.base = <MEM space offset: address 0 from CPU space>
+ *
+ * pcibios_init_resource(&pci_ctrl->io_resource, <IO space start>,
+ * 			 <IO space end>, IORESOURCE_IO, "PCI host bridge");
+ * pcibios_init_resource(&pci_ctrl->mem_resources[0], <MEM space start>,
+ * 			 <MEM space end>, IORESOURCE_MEM, "PCI host bridge");
+ *
+ * pci_ctrl->last_busno = pciauto_bus_scan(pci_ctrl,pci_ctrl->first_busno);
+ *
+ * int __init pciauto_bus_scan(struct pci_controller *pci_ctrl, int current_bus)
+ *
+ */
 
 
+/* define DEBUG to print some debugging messages. */
 
 #undef DEBUG
 
@@ -39,7 +66,11 @@ static int pciauto_upper_memspc;
 static struct pci_dev pciauto_dev;
 static struct pci_bus pciauto_bus;
 
+/*
+ * Helper functions
+ */
 
+/* Initialize the bars of a PCI device.  */
 
 static void __init
 pciauto_setup_bars(struct pci_dev *dev, int bar_limit)
@@ -53,15 +84,15 @@ pciauto_setup_bars(struct pci_dev *dev, int bar_limit)
 	     bar <= bar_limit;
 	     bar+=4, bar_nr++)
 	{
-		
+		/* Tickle the BAR and get the size */
 		pci_write_config_dword(dev, bar, 0xffffffff);
 		pci_read_config_dword(dev, bar, &bar_size);
 
-		
+		/* If BAR is not implemented go to the next BAR */
 		if (!bar_size)
 			continue;
 
-		
+		/* Check the BAR type and set our address mask */
 		if (bar_size & PCI_BASE_ADDRESS_SPACE_IO)
 		{
 			bar_size &= PCI_BASE_ADDRESS_IO_MASK;
@@ -79,12 +110,17 @@ pciauto_setup_bars(struct pci_dev *dev, int bar_limit)
 			DBG("PCI Autoconfig: BAR %d, Mem, ", bar_nr);
 		}
 
-		
+		/* Allocate a base address (bar_size is negative!) */
 		*upper_limit = (*upper_limit + bar_size) & bar_size;
 
-		
+		/* Write it out and update our limit */
 		pci_write_config_dword(dev, bar, *upper_limit);
 
+		/*
+		 * If we are a 64-bit decoder then increment to the
+		 * upper 32 bits of the bar and force it to locate
+		 * in the lower 4GB of memory.
+		 */
 
 		if (found_mem64)
 			pci_write_config_dword(dev, (bar+=4), 0x00000000);
@@ -93,6 +129,7 @@ pciauto_setup_bars(struct pci_dev *dev, int bar_limit)
 	}
 }
 
+/* Initialize the interrupt number. */
 
 static void __init
 pciauto_setup_irq(struct pci_controller* pci_ctrl,struct pci_dev *dev,int devfn)
@@ -102,7 +139,7 @@ pciauto_setup_irq(struct pci_controller* pci_ctrl,struct pci_dev *dev,int devfn)
 
 	pci_read_config_byte(dev, PCI_INTERRUPT_PIN, &pin);
 
-	
+	/* Fix illegal pin numbers. */
 
 	if (pin == 0 || pin > 4)
 		pin = 1;
@@ -123,20 +160,20 @@ static void __init
 pciauto_prescan_setup_bridge(struct pci_dev *dev, int current_bus,
 			     int sub_bus, int *iosave, int *memsave)
 {
-	
+	/* Configure bus number registers */
 	pci_write_config_byte(dev, PCI_PRIMARY_BUS, current_bus);
 	pci_write_config_byte(dev, PCI_SECONDARY_BUS, sub_bus + 1);
 	pci_write_config_byte(dev, PCI_SUBORDINATE_BUS,	0xff);
 
-	
+	/* Round memory allocator to 1MB boundary */
 	pciauto_upper_memspc &= ~(0x100000 - 1);
 	*memsave = pciauto_upper_memspc;
 
-	
+	/* Round I/O allocator to 4KB boundary */
 	pciauto_upper_iospc &= ~(0x1000 - 1);
 	*iosave = pciauto_upper_iospc;
 
-	
+	/* Set up memory and I/O filter limits, assume 32-bit I/O space */
 	pci_write_config_word(dev, PCI_MEMORY_LIMIT,
 			      ((pciauto_upper_memspc - 1) & 0xfff00000) >> 16);
 	pci_write_config_byte(dev, PCI_IO_LIMIT,
@@ -151,16 +188,20 @@ pciauto_postscan_setup_bridge(struct pci_dev *dev, int current_bus, int sub_bus,
 {
 	int cmdstat;
 
-	
+	/* Configure bus number registers */
 	pci_write_config_byte(dev, PCI_SUBORDINATE_BUS,	sub_bus);
 
+	/*
+	 * Round memory allocator to 1MB boundary.
+	 * If no space used, allocate minimum.
+	 */
 	pciauto_upper_memspc &= ~(0x100000 - 1);
 	if (*memsave == pciauto_upper_memspc)
 		pciauto_upper_memspc -= 0x00100000;
 
 	pci_write_config_word(dev, PCI_MEMORY_BASE, pciauto_upper_memspc >> 16);
 
-	
+	/* Allocate 1MB for pre-fretch */
 	pci_write_config_word(dev, PCI_PREF_MEMORY_LIMIT,
 			      ((pciauto_upper_memspc - 1) & 0xfff00000) >> 16);
 
@@ -169,7 +210,7 @@ pciauto_postscan_setup_bridge(struct pci_dev *dev, int current_bus, int sub_bus,
 	pci_write_config_word(dev, PCI_PREF_MEMORY_BASE,
 			      pciauto_upper_memspc >> 16);
 
-	
+	/* Round I/O allocator to 4KB boundary */
 	pciauto_upper_iospc &= ~(0x1000 - 1);
 	if (*iosave == pciauto_upper_iospc)
 		pciauto_upper_iospc -= 0x1000;
@@ -179,7 +220,7 @@ pciauto_postscan_setup_bridge(struct pci_dev *dev, int current_bus, int sub_bus,
 	pci_write_config_word(dev, PCI_IO_BASE_UPPER16,
 			      pciauto_upper_iospc >> 16);
 
-	
+	/* Enable memory and I/O accesses, enable bus master */
 	pci_read_config_dword(dev, PCI_COMMAND, &cmdstat);
 	pci_write_config_dword(dev, PCI_COMMAND,
 			       cmdstat |
@@ -188,6 +229,9 @@ pciauto_postscan_setup_bridge(struct pci_dev *dev, int current_bus, int sub_bus,
 			       PCI_COMMAND_MASTER);
 }
 
+/*
+ * Scan the current PCI bus.
+ */
 
 
 int __init pciauto_bus_scan(struct pci_controller *pci_ctrl, int current_bus)
@@ -201,6 +245,10 @@ int __init pciauto_bus_scan(struct pci_controller *pci_ctrl, int current_bus)
         pciauto_dev.sysdata = pci_ctrl;
 	pciauto_bus.ops = pci_ctrl->ops;
 
+	/*
+	 * Fetch our I/O and memory space upper boundaries used
+	 * to allocated base addresses on this pci_controller.
+	 */
 
 	if (current_bus == pci_ctrl->first_busno)
 	{
@@ -212,7 +260,7 @@ int __init pciauto_bus_scan(struct pci_controller *pci_ctrl, int current_bus)
 
 	for (pci_devfn = 0; pci_devfn < 0xff; pci_devfn++)
 	{
-		
+		/* Skip our host bridge */
 		if ((current_bus == pci_ctrl->first_busno) && (pci_devfn == 0))
 			continue;
 
@@ -222,7 +270,7 @@ int __init pciauto_bus_scan(struct pci_controller *pci_ctrl, int current_bus)
 		pciauto_bus.number = current_bus;
 		pciauto_dev.devfn = pci_devfn;
 
-		
+		/* If config space read fails from this device, move on */
 		if (pci_read_config_byte(dev, PCI_HEADER_TYPE, &header_type))
 			continue;
 
@@ -244,7 +292,7 @@ int __init pciauto_bus_scan(struct pci_controller *pci_ctrl, int current_bus)
 			DBG("PCI Autoconfig: Found P2P bridge, device %d\n",
 			    PCI_SLOT(pci_devfn));
 
-			
+			/* Allocate PCI I/O and/or memory space */
 			pciauto_setup_bars(dev, PCI_BASE_ADDRESS_1);
 
 			pciauto_prescan_setup_bridge(dev, current_bus, sub_bus,
@@ -260,7 +308,7 @@ int __init pciauto_bus_scan(struct pci_controller *pci_ctrl, int current_bus)
 
 
 #if 0
-		
+		/* Skip legacy mode IDE controller */
 
 		if ((pci_class >> 16) == PCI_CLASS_STORAGE_IDE) {
 
@@ -275,6 +323,10 @@ int __init pciauto_bus_scan(struct pci_controller *pci_ctrl, int current_bus)
 		}
 #endif
 
+		/*
+		 * Found a peripheral, enable some standard
+		 * settings
+		 */
 
 		pci_read_config_dword(dev, PCI_COMMAND,	&cmdstat);
 		pci_write_config_dword(dev, PCI_COMMAND,
@@ -284,7 +336,7 @@ int __init pciauto_bus_scan(struct pci_controller *pci_ctrl, int current_bus)
 					PCI_COMMAND_MASTER);
 		pci_write_config_byte(dev, PCI_LATENCY_TIMER, 0x80);
 
-		
+		/* Allocate PCI I/O and/or memory space */
 		DBG("PCI Autoconfig: Found Bus %d, Device %d, Function %d\n",
 		    current_bus, PCI_SLOT(pci_devfn), PCI_FUNC(pci_devfn) );
 

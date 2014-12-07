@@ -89,7 +89,7 @@ atomic_t ppc_n_lost_interrupts;
 extern int tau_initialized;
 extern int tau_interrupts(int);
 #endif
-#endif 
+#endif /* CONFIG_PPC32 */
 
 #ifdef CONFIG_PPC64
 
@@ -121,28 +121,60 @@ static inline notrace int decrementer_check_overflow(void)
 	return now >= *next_tb;
 }
 
+/* This is called whenever we are re-enabling interrupts
+ * and returns either 0 (nothing to do) or 500/900 if there's
+ * either an EE or a DEC to generate.
+ *
+ * This is called in two contexts: From arch_local_irq_restore()
+ * before soft-enabling interrupts, and from the exception exit
+ * path when returning from an interrupt from a soft-disabled to
+ * a soft enabled context. In both case we have interrupts hard
+ * disabled.
+ *
+ * We take care of only clearing the bits we handled in the
+ * PACA irq_happened field since we can only re-emit one at a
+ * time and we don't want to "lose" one.
+ */
 notrace unsigned int __check_irq_replay(void)
 {
+	/*
+	 * We use local_paca rather than get_paca() to avoid all
+	 * the debug_smp_processor_id() business in this low level
+	 * function
+	 */
 	unsigned char happened = local_paca->irq_happened;
 
-	
+	/* Clear bit 0 which we wouldn't clear otherwise */
 	local_paca->irq_happened &= ~PACA_IRQ_HARD_DIS;
 
+	/*
+	 * Force the delivery of pending soft-disabled interrupts on PS3.
+	 * Any HV call will have this side effect.
+	 */
 	if (firmware_has_feature(FW_FEATURE_PS3_LV1)) {
 		u64 tmp, tmp2;
 		lv1_get_version_info(&tmp, &tmp2);
 	}
 
+	/*
+	 * We may have missed a decrementer interrupt. We check the
+	 * decrementer itself rather than the paca irq_happened field
+	 * in case we also had a rollover while hard disabled
+	 */
 	local_paca->irq_happened &= ~PACA_IRQ_DEC;
 	if (decrementer_check_overflow())
 		return 0x900;
 
-	
+	/* Finally check if an external interrupt happened */
 	local_paca->irq_happened &= ~PACA_IRQ_EE;
 	if (happened & PACA_IRQ_EE)
 		return 0x500;
 
 #ifdef CONFIG_PPC_BOOK3E
+	/* Finally check if an EPR external interrupt happened
+	 * this bit is typically set if we need to handle another
+	 * "edge" interrupt from within the MPIC "EPR" handler
+	 */
 	local_paca->irq_happened &= ~PACA_IRQ_EE_EDGE;
 	if (happened & PACA_IRQ_EE_EDGE)
 		return 0x500;
@@ -150,9 +182,9 @@ notrace unsigned int __check_irq_replay(void)
 	local_paca->irq_happened &= ~PACA_IRQ_DBELL;
 	if (happened & PACA_IRQ_DBELL)
 		return 0x280;
-#endif 
+#endif /* CONFIG_PPC_BOOK3E */
 
-	
+	/* There should be nothing left ! */
 	BUG_ON(local_paca->irq_happened != 0);
 
 	return 0;
@@ -163,40 +195,88 @@ notrace void arch_local_irq_restore(unsigned long en)
 	unsigned char irq_happened;
 	unsigned int replay;
 
-	
+	/* Write the new soft-enabled value */
 	set_soft_enabled(en);
 	if (!en)
 		return;
+	/*
+	 * From this point onward, we can take interrupts, preempt,
+	 * etc... unless we got hard-disabled. We check if an event
+	 * happened. If none happened, we know we can just return.
+	 *
+	 * We may have preempted before the check below, in which case
+	 * we are checking the "new" CPU instead of the old one. This
+	 * is only a problem if an event happened on the "old" CPU.
+	 *
+	 * External interrupt events will have caused interrupts to
+	 * be hard-disabled, so there is no problem, we
+	 * cannot have preempted.
+	 */
 	irq_happened = get_irq_happened();
 	if (!irq_happened)
 		return;
 
+	/*
+	 * We need to hard disable to get a trusted value from
+	 * __check_irq_replay(). We also need to soft-disable
+	 * again to avoid warnings in there due to the use of
+	 * per-cpu variables.
+	 *
+	 * We know that if the value in irq_happened is exactly 0x01
+	 * then we are already hard disabled (there are other less
+	 * common cases that we'll ignore for now), so we skip the
+	 * (expensive) mtmsrd.
+	 */
 	if (unlikely(irq_happened != PACA_IRQ_HARD_DIS))
 		__hard_irq_disable();
 #ifdef CONFIG_TRACE_IRQFLAG
 	else {
+		/*
+		 * We should already be hard disabled here. We had bugs
+		 * where that wasn't the case so let's dbl check it and
+		 * warn if we are wrong. Only do that when IRQ tracing
+		 * is enabled as mfmsr() can be costly.
+		 */
 		if (WARN_ON(mfmsr() & MSR_EE))
 			__hard_irq_disable();
 	}
-#endif 
+#endif /* CONFIG_TRACE_IRQFLAG */
 
 	set_soft_enabled(0);
 
+	/*
+	 * Check if anything needs to be re-emitted. We haven't
+	 * soft-enabled yet to avoid warnings in decrementer_check_overflow
+	 * accessing per-cpu variables
+	 */
 	replay = __check_irq_replay();
 
-	
+	/* We can soft-enable now */
 	set_soft_enabled(1);
 
+	/*
+	 * And replay if we have to. This will return with interrupts
+	 * hard-enabled.
+	 */
 	if (replay) {
 		__replay_interrupt(replay);
 		return;
 	}
 
-	
+	/* Finally, let's ensure we are hard enabled */
 	__hard_irq_enable();
 }
 EXPORT_SYMBOL(arch_local_irq_restore);
 
+/*
+ * This is specifically called by assembly code to re-enable interrupts
+ * if they are currently disabled. This is typically called before
+ * schedule() or do_signal() when returning to userspace. We do it
+ * in C to avoid the burden of dealing with lockdep etc...
+ *
+ * NOTE: This is called with interrupts hard disabled but not marked
+ * as such in paca->irq_happened, so we need to resync this.
+ */
 void restore_interrupts(void)
 {
 	if (irqs_disabled()) {
@@ -206,7 +286,7 @@ void restore_interrupts(void)
 		__hard_irq_enable();
 }
 
-#endif 
+#endif /* CONFIG_PPC64 */
 
 int arch_show_interrupts(struct seq_file *p, int prec)
 {
@@ -219,7 +299,7 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 			seq_printf(p, "%10u ", tau_interrupts(j));
 		seq_puts(p, "  PowerPC             Thermal Assist (cpu temp)\n");
 	}
-#endif 
+#endif /* CONFIG_PPC32 && CONFIG_TAU_INT */
 
 	seq_printf(p, "%*s: ", prec, "LOC");
 	for_each_online_cpu(j)
@@ -244,6 +324,9 @@ int arch_show_interrupts(struct seq_file *p, int prec)
 	return 0;
 }
 
+/*
+ * /proc/stat helpers
+ */
 u64 arch_irq_stat_cpu(unsigned int cpu)
 {
 	u64 sum = per_cpu(irq_stat, cpu).timer_irqs;
@@ -305,12 +388,12 @@ static inline void handle_one_irq(unsigned int irq)
 	if (!desc)
 		return;
 
-	
+	/* Switch to the irq stack to handle this */
 	curtp = current_thread_info();
 	irqtp = hardirq_ctx[smp_processor_id()];
 
 	if (curtp == irqtp) {
-		
+		/* We're already on the irq stack, just handle it */
 		desc->handle_irq(irq, desc);
 		return;
 	}
@@ -320,6 +403,8 @@ static inline void handle_one_irq(unsigned int irq)
 	irqtp->task = curtp->task;
 	irqtp->flags = 0;
 
+	/* Copy the softirq bits in preempt_count so that the
+	 * softirq checks work in the hardirq context. */
 	irqtp->preempt_count = (irqtp->preempt_count & ~SOFTIRQ_MASK) |
 			       (curtp->preempt_count & SOFTIRQ_MASK);
 
@@ -330,6 +415,9 @@ static inline void handle_one_irq(unsigned int irq)
 	current->thread.ksp_limit = saved_sp_limit;
 	irqtp->task = NULL;
 
+	/* Set any flag that may have been set on the
+	 * alternate stack
+	 */
 	if (irqtp->flags)
 		set_bits(irqtp->flags, &curtp->flags);
 }
@@ -341,7 +429,7 @@ static inline void check_stack_overflow(void)
 
 	sp = __get_SP() & (THREAD_SIZE-1);
 
-	
+	/* check for stack overflow: is there less than 2KB free? */
 	if (unlikely(sp < (sizeof(struct thread_info) + 2048))) {
 		printk("do_IRQ: stack overflow: %ld\n",
 			sp - sizeof(struct thread_info));
@@ -361,12 +449,17 @@ void do_IRQ(struct pt_regs *regs)
 
 	check_stack_overflow();
 
+	/*
+	 * Query the platform PIC for the interrupt & ack it.
+	 *
+	 * This will typically lower the interrupt line to the CPU
+	 */
 	irq = ppc_md.get_irq();
 
-	
+	/* We can hard enable interrupts now */
 	may_hard_irq_enable();
 
-	
+	/* And finally process it */
 	if (irq != NO_IRQ)
 		handle_one_irq(irq);
 	else
@@ -460,6 +553,9 @@ static inline void do_softirq_onstack(void)
 	current->thread.ksp_limit = saved_sp_limit;
 	irqtp->task = NULL;
 
+	/* Set any flag that may have been set on the
+	 * alternate stack
+	 */
 	if (irqtp->flags)
 		set_bits(irqtp->flags, &curtp->flags);
 }
@@ -496,7 +592,7 @@ int irq_choose_cpu(const struct cpumask *mask)
 		static DEFINE_RAW_SPINLOCK(irq_rover_lock);
 		unsigned long flags;
 
-		
+		/* Round-robin distribution... */
 do_round_robin:
 		raw_spin_lock_irqsave(&irq_rover_lock, flags);
 
@@ -535,4 +631,4 @@ static int __init setup_noirqdistrib(char *str)
 }
 
 __setup("noirqdistrib", setup_noirqdistrib);
-#endif 
+#endif /* CONFIG_PPC64 */

@@ -53,12 +53,14 @@
 #include "atmel.h"
 
 
+/*====================================================================*/
 
 MODULE_AUTHOR("Simon Kelley");
 MODULE_DESCRIPTION("Support for Atmel at76c50x 802.11 wireless ethernet cards.");
 MODULE_LICENSE("GPL");
 MODULE_SUPPORTED_DEVICE("Atmel at76c50x PCMCIA cards");
 
+/*====================================================================*/
 
 static int atmel_config(struct pcmcia_device *link);
 static void atmel_release(struct pcmcia_device *link);
@@ -75,7 +77,7 @@ static int atmel_probe(struct pcmcia_device *p_dev)
 
 	dev_dbg(&p_dev->dev, "atmel_attach()\n");
 
-	
+	/* Allocate space for private device-specific data */
 	local = kzalloc(sizeof(local_info_t), GFP_KERNEL);
 	if (!local) {
 		printk(KERN_ERR "atmel_cs: no memory for new device\n");
@@ -84,7 +86,7 @@ static int atmel_probe(struct pcmcia_device *p_dev)
 	p_dev->priv = local;
 
 	return atmel_config(p_dev);
-} 
+} /* atmel_attach */
 
 static void atmel_detach(struct pcmcia_device *link)
 {
@@ -95,6 +97,8 @@ static void atmel_detach(struct pcmcia_device *link)
 	kfree(link->priv);
 }
 
+/* Call-back function to interrogate PCMCIA-specific information
+   about the current existence of the card */
 static int card_present(void *arg)
 {
 	struct pcmcia_device *link = (struct pcmcia_device *)arg;
@@ -189,6 +193,8 @@ static int atmel_resume(struct pcmcia_device *link)
 	return 0;
 }
 
+/*====================================================================*/
+/* We use the driver_info field to store the correct firmware type for a card. */
 
 #define PCMCIA_DEVICE_MANF_CARD_INFO(manf, card, info) { \
 	.match_flags = PCMCIA_DEV_ID_MATCH_MANF_ID| \

@@ -22,6 +22,37 @@
  * Authors: Ben Skeggs
  */
 
+/* NVIDIA context programs handle a number of other conditions which are
+ * not implemented in our versions.  It's not clear why NVIDIA context
+ * programs have this code, nor whether it's strictly necessary for
+ * correct operation.  We'll implement additional handling if/when we
+ * discover it's necessary.
+ *
+ * - On context save, NVIDIA set 0x400314 bit 0 to 1 if the "3D state"
+ *   flag is set, this gets saved into the context.
+ * - On context save, the context program for all cards load nsource
+ *   into a flag register and check for ILLEGAL_MTHD.  If it's set,
+ *   opcode 0x60000d is called before resuming normal operation.
+ * - Some context programs check more conditions than the above.  NV44
+ *   checks: ((nsource & 0x0857) || (0x400718 & 0x0100) || (intr & 0x0001))
+ *   and calls 0x60000d before resuming normal operation.
+ * - At the very beginning of NVIDIA's context programs, flag 9 is checked
+ *   and if true 0x800001 is called with count=0, pos=0, the flag is cleared
+ *   and then the ctxprog is aborted.  It looks like a complicated NOP,
+ *   its purpose is unknown.
+ * - In the section of code that loads the per-vs state, NVIDIA check
+ *   flag 10.  If it's set, they only transfer the small 0x300 byte block
+ *   of state + the state for a single vs as opposed to the state for
+ *   all vs units.  It doesn't seem likely that it'll occur in normal
+ *   operation, especially seeing as it appears NVIDIA may have screwed
+ *   up the ctxprogs for some cards and have an invalid instruction
+ *   rather than a cp_lsr(ctx, dwords_for_1_vs_unit) instruction.
+ * - There's a number of places where context offset 0 (where we place
+ *   the PRAMIN offset of the context) is loaded into either 0x408000,
+ *   0x408004 or 0x408008.  Not sure what's up there either.
+ * - The ctxprogs for some cards save 0x400a00 again during the cleanup
+ *   path for auto-loadctx.
+ */
 
 #define CP_FLAG_CLEAR                 0
 #define CP_FLAG_SET                   1
@@ -74,14 +105,17 @@
 #define CP_NEXT_TO_CURRENT       0x00600009
 #define CP_SET_CONTEXT_POINTER   0x0060000a
 #define CP_END                   0x0060000e
-#define CP_LOAD_MAGIC_UNK01      0x00800001 
-#define CP_LOAD_MAGIC_NV44TCL    0x00800029 
-#define CP_LOAD_MAGIC_NV40TCL    0x00800041 
+#define CP_LOAD_MAGIC_UNK01      0x00800001 /* unknown */
+#define CP_LOAD_MAGIC_NV44TCL    0x00800029 /* per-vs state (0x4497) */
+#define CP_LOAD_MAGIC_NV40TCL    0x00800041 /* per-vs state (0x4097) */
 
 #include "drmP.h"
 #include "nouveau_drv.h"
 #include "nouveau_grctx.h"
 
+/* TODO:
+ *  - get vs count from 0x1540
+ */
 
 static int
 nv40_graph_vs_count(struct drm_device *dev)
@@ -315,7 +349,7 @@ nv40_graph_construct_state3d(struct nouveau_grctx *ctx)
 	cp_ctx(ctx, 0x401bc0, 9);
 	gr_def(ctx, 0x401be0, 0x00ffff00);
 	cp_ctx(ctx, 0x401c00, 192);
-	for (i = 0; i < 16; i++) { 
+	for (i = 0; i < 16; i++) { /* fragment texture units */
 		gr_def(ctx, 0x401c40 + (i * 4), 0x00018488);
 		gr_def(ctx, 0x401c80 + (i * 4), 0x00028202);
 		gr_def(ctx, 0x401d00 + (i * 4), 0x0000aae4);
@@ -323,7 +357,7 @@ nv40_graph_construct_state3d(struct nouveau_grctx *ctx)
 		gr_def(ctx, 0x401d80 + (i * 4), 0x00080008);
 		gr_def(ctx, 0x401e00 + (i * 4), 0x00100008);
 	}
-	for (i = 0; i < 4; i++) { 
+	for (i = 0; i < 4; i++) { /* vertex texture units */
 		gr_def(ctx, 0x401e90 + (i * 4), 0x0001bc80);
 		gr_def(ctx, 0x401ea0 + (i * 4), 0x00000202);
 		gr_def(ctx, 0x401ec0 + (i * 4), 0x00000008);
@@ -411,7 +445,7 @@ nv40_graph_construct_state3d_2(struct nouveau_grctx *ctx)
 		gr_def(ctx, 0x402864, 0x00001001);
 		cp_ctx(ctx, 0x402870, 3);
 		gr_def(ctx, 0x402878, 0x00000003);
-		if (dev_priv->chipset != 0x47) { 
+		if (dev_priv->chipset != 0x47) { /* belong at end!! */
 			cp_ctx(ctx, 0x402900, 1);
 			cp_ctx(ctx, 0x402940, 1);
 			cp_ctx(ctx, 0x402980, 1);
@@ -526,17 +560,17 @@ nv40_graph_construct_shader(struct nouveau_grctx *ctx)
 	vs_nr_b0 = 363;
 	vs_nr_b1 = dev_priv->chipset == 0x40 ? 128 : 64;
 	if (dev_priv->chipset == 0x40) {
-		b0_offset = 0x2200/4; 
-		b1_offset = 0x55a0/4; 
+		b0_offset = 0x2200/4; /* 33a0 */
+		b1_offset = 0x55a0/4; /* 1500 */
 		vs_len = 0x6aa0/4;
 	} else
 	if (dev_priv->chipset == 0x41 || dev_priv->chipset == 0x42) {
-		b0_offset = 0x2200/4; 
-		b1_offset = 0x4400/4; 
+		b0_offset = 0x2200/4; /* 2200 */
+		b1_offset = 0x4400/4; /* 0b00 */
 		vs_len = 0x4f00/4;
 	} else {
-		b0_offset = 0x1d40/4; 
-		b1_offset = 0x3f40/4; 
+		b0_offset = 0x1d40/4; /* 2200 */
+		b1_offset = 0x3f40/4; /* 0b00 : 0a40 */
 		vs_len = nv44_graph_class(dev) ? 0x4980/4 : 0x4a40/4;
 	}
 
@@ -564,7 +598,7 @@ nv40_graph_construct_shader(struct nouveau_grctx *ctx)
 void
 nv40_grctx_init(struct nouveau_grctx *ctx)
 {
-	
+	/* decide whether we're loading/unloading the context */
 	cp_bra (ctx, AUTO_SAVE, PENDING, cp_setup_save);
 	cp_bra (ctx, USER_SAVE, PENDING, cp_setup_save);
 
@@ -573,48 +607,48 @@ nv40_grctx_init(struct nouveau_grctx *ctx)
 	cp_bra (ctx, USER_LOAD, PENDING, cp_setup_load);
 	cp_bra (ctx, ALWAYS, TRUE, cp_exit);
 
-	
+	/* setup for context load */
 	cp_name(ctx, cp_setup_auto_load);
 	cp_wait(ctx, STATUS, IDLE);
 	cp_out (ctx, CP_NEXT_TO_SWAP);
 	cp_name(ctx, cp_setup_load);
 	cp_wait(ctx, STATUS, IDLE);
 	cp_set (ctx, SWAP_DIRECTION, LOAD);
-	cp_out (ctx, 0x00910880); 
-	cp_out (ctx, 0x00901ffe); 
-	cp_out (ctx, 0x01940000); 
+	cp_out (ctx, 0x00910880); /* ?? */
+	cp_out (ctx, 0x00901ffe); /* ?? */
+	cp_out (ctx, 0x01940000); /* ?? */
 	cp_lsr (ctx, 0x20);
-	cp_out (ctx, 0x0060000b); 
+	cp_out (ctx, 0x0060000b); /* ?? */
 	cp_wait(ctx, UNK57, CLEAR);
-	cp_out (ctx, 0x0060000c); 
+	cp_out (ctx, 0x0060000c); /* ?? */
 	cp_bra (ctx, ALWAYS, TRUE, cp_swap_state);
 
-	
+	/* setup for context save */
 	cp_name(ctx, cp_setup_save);
 	cp_set (ctx, SWAP_DIRECTION, SAVE);
 
-	
+	/* general PGRAPH state */
 	cp_name(ctx, cp_swap_state);
 	cp_pos (ctx, 0x00020/4);
 	nv40_graph_construct_general(ctx);
 	cp_wait(ctx, STATUS, IDLE);
 
-	
+	/* 3D state, block 1 */
 	cp_bra (ctx, UNK54, CLEAR, cp_prepare_exit);
 	nv40_graph_construct_state3d(ctx);
 	cp_wait(ctx, STATUS, IDLE);
 
-	
+	/* 3D state, block 2 */
 	nv40_graph_construct_state3d_2(ctx);
 
-	
+	/* Some other block of "random" state */
 	nv40_graph_construct_state3d_3(ctx);
 
-	
+	/* Per-vertex shader state */
 	cp_pos (ctx, ctx->ctxvals_pos);
 	nv40_graph_construct_shader(ctx);
 
-	
+	/* pre-exit state updates */
 	cp_name(ctx, cp_prepare_exit);
 	cp_bra (ctx, SWAP_DIRECTION, SAVE, cp_check_load);
 	cp_bra (ctx, USER_SAVE, PENDING, cp_exit);

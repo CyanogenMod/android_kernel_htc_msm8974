@@ -1,3 +1,6 @@
+/* IEEE754 floating point arithmetic
+ * single precision
+ */
 /*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.
@@ -25,7 +28,7 @@
 
 s64 ieee754sp_tlong(ieee754sp x)
 {
-	COMPXDP;		
+	COMPXDP;		/* <-- need 64-bit mantissa tmp */
 
 	CLEARCX;
 
@@ -45,13 +48,15 @@ s64 ieee754sp_tlong(ieee754sp x)
 		break;
 	}
 	if (xe >= 63) {
-		
+		/* look for valid corner case */
 		if (xe == 63 && xs && xm == SP_HIDDEN_BIT)
 			return -0x8000000000000000LL;
+		/* Set invalid. We will only use overflow for floating
+		   point overflow */
 		SETCX(IEEE754_INVALID_OPERATION);
 		return ieee754di_xcpt(ieee754di_indef(), "sp_tlong", x);
 	}
-	
+	/* oh gawd */
 	if (xe > SP_MBITS) {
 		xm <<= xe - SP_MBITS;
 	} else if (xe < SP_MBITS) {
@@ -79,17 +84,17 @@ s64 ieee754sp_tlong(ieee754sp x)
 			break;
 		case IEEE754_RZ:
 			break;
-		case IEEE754_RU:	
+		case IEEE754_RU:	/* toward +Infinity */
 			if ((round || sticky) && !xs)
 				xm++;
 			break;
-		case IEEE754_RD:	
+		case IEEE754_RD:	/* toward -Infinity */
 			if ((round || sticky) && xs)
 				xm++;
 			break;
 		}
 		if ((xm >> 63) != 0) {
-			
+			/* This can happen after rounding */
 			SETCX(IEEE754_INVALID_OPERATION);
 			return ieee754di_xcpt(ieee754di_indef(), "sp_tlong", x);
 		}
@@ -107,7 +112,7 @@ u64 ieee754sp_tulong(ieee754sp x)
 {
 	ieee754sp hb = ieee754sp_1e63();
 
-	
+	/* what if x < 0 ?? */
 	if (ieee754sp_lt(x, hb))
 		return (u64) ieee754sp_tlong(x);
 

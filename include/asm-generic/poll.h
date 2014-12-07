@@ -1,6 +1,7 @@
 #ifndef __ASM_GENERIC_POLL_H
 #define __ASM_GENERIC_POLL_H
 
+/* These are specified by iBCS2 */
 #define POLLIN		0x0001
 #define POLLPRI		0x0002
 #define POLLOUT		0x0004
@@ -8,6 +9,7 @@
 #define POLLHUP		0x0010
 #define POLLNVAL	0x0020
 
+/* The rest seem to be more-or-less nonstandard. Check them! */
 #define POLLRDNORM	0x0040
 #define POLLRDBAND	0x0080
 #ifndef POLLWRNORM
@@ -26,7 +28,7 @@
 #define POLLRDHUP       0x2000
 #endif
 
-#define POLLFREE	0x4000	
+#define POLLFREE	0x4000	/* currently only for epoll */
 
 struct pollfd {
 	int fd;
@@ -34,4 +36,4 @@ struct pollfd {
 	short revents;
 };
 
-#endif	
+#endif	/* __ASM_GENERIC_POLL_H */

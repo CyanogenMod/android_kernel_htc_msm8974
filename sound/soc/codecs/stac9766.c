@@ -30,23 +30,26 @@
 
 #define STAC9766_VERSION "0.10"
 
+/*
+ * STAC9766 register cache
+ */
 static const u16 stac9766_reg[] = {
-	0x6A90, 0x8000, 0x8000, 0x8000, 
-	0x0000, 0x0000, 0x8008, 0x8008, 
-	0x8808, 0x8808, 0x8808, 0x8808, 
-	0x8808, 0x0000, 0x8000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x000f, 
-	0x0a05, 0x0400, 0xbb80, 0x0000, 
-	0x0000, 0xbb80, 0x0000, 0x0000, 
-	0x0000, 0x2000, 0x0000, 0x0100, 
-	0x0000, 0x0000, 0x0080, 0x0000, 
-	0x0000, 0x0000, 0x0003, 0xffff, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x4000, 0x0000, 0x0000, 0x0000, 
-	0x1201, 0xFFFF, 0xFFFF, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0006, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
+	0x6A90, 0x8000, 0x8000, 0x8000, /* 6 */
+	0x0000, 0x0000, 0x8008, 0x8008, /* e */
+	0x8808, 0x8808, 0x8808, 0x8808, /* 16 */
+	0x8808, 0x0000, 0x8000, 0x0000, /* 1e */
+	0x0000, 0x0000, 0x0000, 0x000f, /* 26 */
+	0x0a05, 0x0400, 0xbb80, 0x0000, /* 2e */
+	0x0000, 0xbb80, 0x0000, 0x0000, /* 36 */
+	0x0000, 0x2000, 0x0000, 0x0100, /* 3e */
+	0x0000, 0x0000, 0x0080, 0x0000, /* 46 */
+	0x0000, 0x0000, 0x0003, 0xffff, /* 4e */
+	0x0000, 0x0000, 0x0000, 0x0000, /* 56 */
+	0x4000, 0x0000, 0x0000, 0x0000, /* 5e */
+	0x1201, 0xFFFF, 0xFFFF, 0x0000, /* 66 */
+	0x0000, 0x0000, 0x0000, 0x0000, /* 6e */
+	0x0000, 0x0000, 0x0000, 0x0006, /* 76 */
+	0x0000, 0x0000, 0x0000, 0x0000, /* 7e */
 };
 
 static const char *stac9766_record_mux[] = {"Mic", "CD", "Video", "AUX",
@@ -75,9 +78,9 @@ static const struct soc_enum stac9766_record_all_enum =
 	SOC_ENUM_SINGLE(AC97_STAC_ANALOG_SPECIAL, 12, 2,
 			stac9766_record_all_mux);
 static const struct soc_enum stac9766_boost1_enum =
-	SOC_ENUM_SINGLE(AC97_MIC, 6, 2, stac9766_boost1); 
+	SOC_ENUM_SINGLE(AC97_MIC, 6, 2, stac9766_boost1); /* 0/10dB */
 static const struct soc_enum stac9766_boost2_enum =
-	SOC_ENUM_SINGLE(AC97_STAC_ANALOG_SPECIAL, 2, 2, stac9766_boost2); 
+	SOC_ENUM_SINGLE(AC97_STAC_ANALOG_SPECIAL, 2, 2, stac9766_boost2); /* 0/20dB */
 static const struct soc_enum stac9766_stereo_mic_enum =
 	SOC_ENUM_SINGLE(AC97_STAC_STEREO_MIC, 2, 1, stac9766_stereo_mic);
 
@@ -187,8 +190,8 @@ static int ac97_analog_prepare(struct snd_pcm_substream *substream,
 
 	vra = stac9766_ac97_read(codec, AC97_EXTENDED_STATUS);
 
-	vra |= 0x1; 
-	vra &= ~0x4; 
+	vra |= 0x1; /* enable variable rate audio */
+	vra &= ~0x4; /* disable SPDIF output */
 
 	stac9766_ac97_write(codec, AC97_EXTENDED_STATUS, vra);
 
@@ -210,7 +213,7 @@ static int ac97_digital_prepare(struct snd_pcm_substream *substream,
 	stac9766_ac97_write(codec, AC97_SPDIF, 0x2002);
 
 	vra = stac9766_ac97_read(codec, AC97_EXTENDED_STATUS);
-	vra |= 0x5; 
+	vra |= 0x5; /* Enable VRA and SPDIF out */
 
 	stac9766_ac97_write(codec, AC97_EXTENDED_STATUS, vra);
 
@@ -223,13 +226,13 @@ static int stac9766_set_bias_level(struct snd_soc_codec *codec,
 				   enum snd_soc_bias_level level)
 {
 	switch (level) {
-	case SND_SOC_BIAS_ON: 
-	case SND_SOC_BIAS_PREPARE: 
-	case SND_SOC_BIAS_STANDBY: 
+	case SND_SOC_BIAS_ON: /* full On */
+	case SND_SOC_BIAS_PREPARE: /* partial On */
+	case SND_SOC_BIAS_STANDBY: /* Off, with power */
 		stac9766_ac97_write(codec, AC97_POWERDOWN, 0x0000);
 		break;
-	case SND_SOC_BIAS_OFF: 
-		
+	case SND_SOC_BIAS_OFF: /* Off, without power */
+		/* disable everything including AC link */
 		stac9766_ac97_write(codec, AC97_POWERDOWN, 0xffff);
 		break;
 	}
@@ -264,7 +267,7 @@ static int stac9766_codec_resume(struct snd_soc_codec *codec)
 	u16 id, reset;
 
 	reset = 0;
-	
+	/* give the codec an AC97 warm reset to start the link */
 reset:
 	if (reset > 5) {
 		printk(KERN_ERR "stac9766 failed to resume");
@@ -295,7 +298,7 @@ static struct snd_soc_dai_driver stac9766_dai[] = {
 	.name = "stac9766-hifi-analog",
 	.ac97_control = 1,
 
-	
+	/* stream cababilities */
 	.playback = {
 		.stream_name = "stac9766 analog",
 		.channels_min = 1,
@@ -310,14 +313,14 @@ static struct snd_soc_dai_driver stac9766_dai[] = {
 		.rates = SNDRV_PCM_RATE_8000_48000,
 		.formats = SND_SOC_STD_AC97_FMTS,
 	},
-	
+	/* alsa ops */
 	.ops = &stac9766_dai_ops_analog,
 },
 {
 	.name = "stac9766-hifi-IEC958",
 	.ac97_control = 1,
 
-	
+	/* stream cababilities */
 	.playback = {
 		.stream_name = "stac9766 IEC958",
 		.channels_min = 1,
@@ -326,7 +329,7 @@ static struct snd_soc_dai_driver stac9766_dai[] = {
 			SNDRV_PCM_RATE_44100 | SNDRV_PCM_RATE_48000,
 		.formats = SNDRV_PCM_FORMAT_IEC958_SUBFRAME_BE,
 	},
-	
+	/* alsa ops */
 	.ops = &stac9766_dai_ops_digital,
 }
 };
@@ -341,6 +344,8 @@ static int stac9766_codec_probe(struct snd_soc_codec *codec)
 	if (ret < 0)
 		goto codec_err;
 
+	/* do a cold reset for the controller and then try
+	 * a warm reset followed by an optional cold reset for codec */
 	stac9766_reset(codec, 0);
 	ret = stac9766_reset(codec, 1);
 	if (ret < 0) {

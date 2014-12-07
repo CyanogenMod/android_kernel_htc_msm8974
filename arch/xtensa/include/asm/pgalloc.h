@@ -16,6 +16,10 @@
 #include <linux/highmem.h>
 #include <linux/slab.h>
 
+/*
+ * Allocating and freeing a pmd is trivial: the 1-entry pmd is
+ * inside the pgd, so has no extra memory associated with it.
+ */
 
 #define pmd_populate_kernel(mm, pmdp, ptep)				     \
 	(pmd_val(*(pmdp)) = ((unsigned long)ptep))
@@ -34,6 +38,7 @@ static inline void pgd_free(struct mm_struct *mm, pgd_t *pgd)
 	free_page((unsigned long)pgd);
 }
 
+/* Use a slab cache for the pte pages (see also sparc64 implementation) */
 
 extern struct kmem_cache *pgtable_cache;
 
@@ -65,5 +70,5 @@ static inline void pte_free(struct mm_struct *mm, pgtable_t pte)
 }
 #define pmd_pgtable(pmd) pmd_page(pmd)
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _XTENSA_PGALLOC_H */

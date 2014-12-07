@@ -21,6 +21,10 @@
 #define VREG_CONSUMERS(_id) \
 	static struct regulator_consumer_supply vreg_consumers_##_id[]
 
+/*
+ * Consumer specific regulator names:
+ *			 regulator name		consumer dev_name
+ */
 VREG_CONSUMERS(L1) = {
 	REGULATOR_SUPPLY("8921_l1",		NULL),
 };
@@ -222,10 +226,12 @@ VREG_CONSUMERS(LVS5) = {
 	REGULATOR_SUPPLY("cam_vio",		"4-0034"),
 	REGULATOR_SUPPLY("cam_vio",		"4-0010"),
 };
+/* This mapping is used for CDP only. */
 VREG_CONSUMERS(CDP_LVS6) = {
 	REGULATOR_SUPPLY("8921_lvs6",		NULL),
 	REGULATOR_SUPPLY("vdd-io",		"spi0.0"),
 };
+/* This mapping is used for non-CDP targets only. */
 VREG_CONSUMERS(LVS6) = {
 	REGULATOR_SUPPLY("8921_lvs6",		NULL),
 	REGULATOR_SUPPLY("vdd-io",		"spi0.0"),
@@ -337,6 +343,7 @@ VREG_CONSUMERS(EXT_OTG_SW) = {
 		REGULATOR_CHANGE_VOLTAGE | REGULATOR_CHANGE_STATUS, 0, 0, \
 		_always_on, _supply_regulator, 0, _enable_time, _reg_id)
 
+/* Pin control initialization */
 #define PM8XXX_PC(_id, _name, _always_on, _pin_fn, _pin_ctrl, \
 		  _supply_regulator, _reg_id) \
 	{ \
@@ -464,6 +471,7 @@ VREG_CONSUMERS(EXT_OTG_SW) = {
 		 RPM_VREG_STATE_OFF, _sleep_selectable, _always_on, \
 		 _supply_regulator, 0)
 
+/* Pin control initialization */
 #define RPM_PC_INIT(_id, _always_on, _pin_fn, _pin_ctrl, _supply_regulator) \
 	{ \
 		.init_data = { \
@@ -481,8 +489,9 @@ VREG_CONSUMERS(EXT_OTG_SW) = {
 		.pin_ctrl = _pin_ctrl, \
 	}
 
+/* GPIO regulator constraints */
 struct gpio_regulator_platform_data msm_gpio_regulator_pdata[] __devinitdata = {
-	
+	/*        ID      vreg_name gpio_label   gpio                  supply */
 	GPIO_VREG(EXT_5V, "ext_5v", "ext_5v_en", PM8921_MPP_PM_TO_SYS(7), NULL),
 	GPIO_VREG(EXT_L2, "ext_l2", "ext_l2_en", 91, NULL),
 	GPIO_VREG(EXT_3P3V, "ext_3p3v", "ext_3p3v_en",
@@ -491,14 +500,20 @@ struct gpio_regulator_platform_data msm_gpio_regulator_pdata[] __devinitdata = {
 		PM8921_GPIO_PM_TO_SYS(42), "8921_usb_otg"),
 };
 
+/* SAW regulator constraints */
 struct regulator_init_data msm_saw_regulator_pdata_s5 =
-	
+	/*	      ID  vreg_name	       min_uV   max_uV */
 	SAW_VREG_INIT(S5, "8921_s5",	       850000, 1300000);
 struct regulator_init_data msm_saw_regulator_pdata_s6 =
 	SAW_VREG_INIT(S6, "8921_s6",	       850000, 1300000);
 
+/* PM8921 regulator constraints */
 struct pm8xxx_regulator_platform_data
 msm_pm8921_regulator_pdata[] __devinitdata = {
+	/*
+	 *		ID   name always_on pd min_uV   max_uV   en_t supply
+	 *	system_uA reg_ID
+	 */
 	PM8XXX_NLDO1200(L26, "8921_l26", 0, 1, 375000, 1050000, 200, "8921_s7",
 		0, 1),
 	PM8XXX_NLDO1200(L27, "8921_l27", 0, 1, 375000, 1050000, 200, "8921_s7",
@@ -508,14 +523,14 @@ msm_pm8921_regulator_pdata[] __devinitdata = {
 	PM8XXX_LDO(L29,      "8921_l29", 0, 1, 2050000, 2100000, 200, "8921_s8",
 		0, 4),
 
-	
+	/*	     ID        name      always_on pd en_t supply    reg_ID */
 	PM8XXX_VS300(USB_OTG,  "8921_usb_otg",  0, 1, 0,   "ext_5v", 5),
 	PM8XXX_VS300(HDMI_MVS, "8921_hdmi_mvs", 0, 1, 0,   "ext_5v", 6),
 };
 
 static struct rpm_regulator_init_data
 msm_rpm_regulator_init_data[] __devinitdata = {
-	
+	/*	ID a_on pd ss min_uV   max_uV  supply sys_uA  freq  fm  ss_fm */
 	RPM_SMPS(S1, 1, 1, 0, 1225000, 1225000, NULL, 100000, 3p20, NONE, NONE),
 	RPM_SMPS(S2, 0, 1, 0, 1300000, 1300000, NULL,      0, 1p60, NONE, NONE),
 	RPM_SMPS(S3, 0, 1, 1,  500000, 1150000, NULL, 100000, 4p80, NONE, NONE),
@@ -523,7 +538,7 @@ msm_rpm_regulator_init_data[] __devinitdata = {
 	RPM_SMPS(S7, 0, 1, 0, 1150000, 1150000, NULL, 100000, 3p20, NONE, NONE),
 	RPM_SMPS(S8, 1, 1, 1, 2050000, 2050000, NULL, 100000, 1p60, NONE, NONE),
 
-	
+	/*	ID     a_on pd ss min_uV   max_uV  supply  sys_uA init_ip */
 	RPM_LDO(L1,	 1, 1, 0, 1050000, 1050000, "8921_s4", 0, 10000),
 	RPM_LDO(L2,	 0, 1, 0, 1200000, 1200000, "8921_s4", 0, 0),
 	RPM_LDO(L3,	 0, 1, 0, 3075000, 3075000, NULL,      0, 0),
@@ -547,7 +562,7 @@ msm_rpm_regulator_init_data[] __devinitdata = {
 	RPM_LDO(L24,	 0, 1, 1,  750000, 1150000, "8921_s1", 10000, 10000),
 	RPM_LDO(L25,	 1, 1, 0, 1250000, 1250000, "8921_s1", 10000, 10000),
 
-	
+	/*	ID     a_on pd ss		    supply */
 	RPM_VS(LVS1,	 0, 1, 0,		    "8921_s4"),
 	RPM_VS(LVS2,	 0, 1, 0,		    "8921_s1"),
 	RPM_VS(LVS3,	 0, 1, 0,		    "8921_s4"),
@@ -556,7 +571,7 @@ msm_rpm_regulator_init_data[] __devinitdata = {
 	RPM_VS(LVS6,	 0, 1, 0,		    "8921_s4"),
 	RPM_VS(LVS7,	 0, 1, 0,		    "8921_s4"),
 
-	
+	/*	 ID      a_on  ss min_uV   max_uV   supply        freq */
 	RPM_NCP(NCP,	 0,    0, 1800000, 1800000, "8921_l6",    1p60),
 };
 
@@ -606,13 +621,17 @@ struct rpm_regulator_platform_data msm_rpm_regulator_pdata __devinitdata = {
 	.consumer_map_len = ARRAY_SIZE(msm_rpm_regulator_consumer_mapping),
 };
 
+/*
+ * Fix up regulator consumer data that moves to a different regulator based on
+ * the current target.
+ */
 void __init configure_msm8960_power_grid(void)
 {
 	static struct rpm_regulator_init_data *rpm_data;
 	int i;
 
 	if (machine_is_msm8960_cdp() || cpu_is_msm8960ab()) {
-		
+		/* Only modify LVS6 consumers for CDP targets. */
 		for (i = 0; i < ARRAY_SIZE(msm_rpm_regulator_init_data); i++) {
 			rpm_data = &msm_rpm_regulator_init_data[i];
 			if (machine_is_msm8960_cdp() &&

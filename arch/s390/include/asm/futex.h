@@ -48,5 +48,5 @@ static inline int futex_atomic_cmpxchg_inatomic(u32 *uval, u32 __user *uaddr,
 	return uaccess.futex_atomic_cmpxchg(uval, uaddr, oldval, newval);
 }
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _ASM_S390_FUTEX_H */

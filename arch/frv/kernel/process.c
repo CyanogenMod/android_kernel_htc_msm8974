@@ -61,12 +61,12 @@ void free_task_struct(struct task_struct *p)
 static void core_sleep_idle(void)
 {
 #ifdef LED_DEBUG_SLEEP
-	
+	/* Show that we're sleeping... */
 	__set_LEDS(0x55aa);
 #endif
 	frv_cpu_core_sleep();
 #ifdef LED_DEBUG_SLEEP
-	
+	/* ... and that we woke up */
 	__set_LEDS(0);
 #endif
 	mb();
@@ -74,9 +74,15 @@ static void core_sleep_idle(void)
 
 void (*idle)(void) = core_sleep_idle;
 
+/*
+ * The idle thread. There's no useful work to be
+ * done, so just try to conserve power and have a
+ * low exit latency (ie sit in a loop waiting for
+ * somebody to say that they'd like to reschedule)
+ */
 void cpu_idle(void)
 {
-	
+	/* endless idle loop with no priority at all */
 	while (1) {
 		while (!need_resched()) {
 			check_pgt_cache();
@@ -101,7 +107,7 @@ void machine_restart(char * __unused)
 	else
 		reset_addr = 0xfeff0500;
 
-	
+	/* Software reset. */
 	asm volatile("      dcef @(gr0,gr0),1 ! membar !"
 		     "      sti     %1,@(%0,0) !"
 		     "      nop ! nop ! nop ! nop ! nop ! "
@@ -134,7 +140,7 @@ void machine_power_off(void)
 
 void flush_thread(void)
 {
-	
+	/* nothing */
 }
 
 inline unsigned long user_stack(const struct pt_regs *regs)
@@ -147,7 +153,7 @@ inline unsigned long user_stack(const struct pt_regs *regs)
 asmlinkage int sys_fork(void)
 {
 #ifndef CONFIG_MMU
-	
+	/* fork almost works, enough to trick you into looking elsewhere:-( */
 	return -EINVAL;
 #else
 	return do_fork(SIGCHLD, user_stack(__frame), __frame, 0, NULL, NULL);
@@ -160,6 +166,11 @@ asmlinkage int sys_vfork(void)
 		       NULL, NULL);
 }
 
+/*****************************************************************************/
+/*
+ * clone a process
+ * - tlsptr is retrieved by copy_thread()
+ */
 asmlinkage int sys_clone(unsigned long clone_flags, unsigned long newsp,
 			 int __user *parent_tidptr, int __user *child_tidptr,
 			 int __user *tlsptr)
@@ -167,13 +178,22 @@ asmlinkage int sys_clone(unsigned long clone_flags, unsigned long newsp,
 	if (!newsp)
 		newsp = user_stack(__frame);
 	return do_fork(clone_flags, newsp, __frame, 0, parent_tidptr, child_tidptr);
-} 
+} /* end sys_clone() */
 
+/*****************************************************************************/
+/*
+ * This gets called before we allocate a new thread and copy
+ * the current task into it.
+ */
 void prepare_to_copy(struct task_struct *tsk)
 {
-	
-} 
+	//unlazy_fpu(tsk);
+} /* end prepare_to_copy() */
 
+/*****************************************************************************/
+/*
+ * set up the kernel stack and exception frames for a new process
+ */
 int copy_thread(unsigned long clone_flags,
 		unsigned long usp, unsigned long topstk,
 		struct task_struct *p, struct pt_regs *regs)
@@ -185,14 +205,14 @@ int copy_thread(unsigned long clone_flags,
 		(task_stack_page(p) + THREAD_SIZE - FRV_FRAME0_SIZE);
 	childregs = childregs0;
 
-	
+	/* set up the userspace frame (the only place that the USP is stored) */
 	*childregs0 = *regs0;
 
 	childregs0->gr8		= 0;
 	childregs0->sp		= usp;
 	childregs0->next_frame	= NULL;
 
-	
+	/* set up the return kernel frame if called from kernel_thread() */
 	if (regs != regs0) {
 		childregs--;
 		*childregs = *regs;
@@ -212,15 +232,18 @@ int copy_thread(unsigned long clone_flags,
 	p->thread.pc	 = (unsigned long) ret_from_fork;
 	p->thread.frame0 = childregs0;
 
-	
+	/* the new TLS pointer is passed in as arg #5 to sys_clone() */
 	if (clone_flags & CLONE_SETTLS)
 		childregs->gr29 = childregs->gr12;
 
 	save_user_regs(p->thread.user);
 
 	return 0;
-} 
+} /* end copy_thread() */
 
+/*
+ * sys_execve() executes a new program.
+ */
 asmlinkage int sys_execve(const char __user *name,
 			  const char __user *const __user *argv,
 			  const char __user *const __user *envp)
@@ -256,7 +279,7 @@ unsigned long get_wchan(struct task_struct *p)
 
 		pc = ((unsigned long *) fp)[2];
 
-		
+		/* FIXME: This depends on the order of these functions. */
 		if (!in_sched_functions(pc))
 			return pc;
 
@@ -268,7 +291,7 @@ unsigned long get_wchan(struct task_struct *p)
 
 unsigned long thread_saved_pc(struct task_struct *tsk)
 {
-	
+	/* Check whether the thread is blocked in resume() */
 	if (in_sched_functions(tsk->thread.pc))
 		return ((unsigned long *)tsk->thread.fp)[2];
 	else

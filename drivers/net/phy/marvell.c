@@ -101,7 +101,7 @@ static int marvell_ack_interrupt(struct phy_device *phydev)
 {
 	int err;
 
-	
+	/* Clear the interrupts by reading the reg */
 	err = phy_read(phydev, MII_M1011_IEVENT);
 
 	if (err < 0)
@@ -171,6 +171,11 @@ static int marvell_config_aneg(struct phy_device *phydev)
 	if (phydev->autoneg != AUTONEG_ENABLE) {
 		int bmcr;
 
+		/*
+		 * A write to speed/duplex bits (that is performed by
+		 * genphy_config_aneg() call above) must be followed by
+		 * a software reset. Otherwise, the write has no effect.
+		 */
 		bmcr = phy_read(phydev, MII_BMCR);
 		if (bmcr < 0)
 			return bmcr;
@@ -262,7 +267,7 @@ static int marvell_of_reg_init(struct phy_device *phydev)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_OF_MDIO */
 
 static int m88e1121_config_aneg(struct phy_device *phydev)
 {
@@ -348,7 +353,7 @@ static int m88e1111_config_init(struct phy_device *phydev)
 	int err;
 	int temp;
 
-	
+	/* Enable Fiber/Copper auto selection */
 	temp = phy_read(phydev, MII_M1111_PHY_EXT_SR);
 	temp &= ~MII_M1111_HWCFG_FIBER_COPPER_AUTO;
 	phy_write(phydev, MII_M1111_PHY_EXT_SR, temp);
@@ -428,7 +433,7 @@ static int m88e1111_config_init(struct phy_device *phydev)
 		if (err < 0)
 			return err;
 
-		
+		/* soft reset */
 		err = phy_write(phydev, MII_BMCR, BMCR_RESET);
 		if (err < 0)
 			return err;
@@ -478,22 +483,22 @@ static int m88e1118_config_init(struct phy_device *phydev)
 {
 	int err;
 
-	
+	/* Change address */
 	err = phy_write(phydev, MII_MARVELL_PHY_PAGE, 0x0002);
 	if (err < 0)
 		return err;
 
-	
+	/* Enable 1000 Mbit */
 	err = phy_write(phydev, 0x15, 0x1070);
 	if (err < 0)
 		return err;
 
-	
+	/* Change address */
 	err = phy_write(phydev, MII_MARVELL_PHY_PAGE, 0x0003);
 	if (err < 0)
 		return err;
 
-	
+	/* Adjust LED Control */
 	if (phydev->dev_flags & MARVELL_PHY_M1118_DNS323_LEDS)
 		err = phy_write(phydev, 0x10, 0x1100);
 	else
@@ -505,7 +510,7 @@ static int m88e1118_config_init(struct phy_device *phydev)
 	if (err < 0)
 		return err;
 
-	
+	/* Reset address */
 	err = phy_write(phydev, MII_MARVELL_PHY_PAGE, 0x0);
 	if (err < 0)
 		return err;
@@ -521,12 +526,12 @@ static int m88e1149_config_init(struct phy_device *phydev)
 {
 	int err;
 
-	
+	/* Change address */
 	err = phy_write(phydev, MII_MARVELL_PHY_PAGE, 0x0002);
 	if (err < 0)
 		return err;
 
-	
+	/* Enable 1000 Mbit */
 	err = phy_write(phydev, 0x15, 0x1048);
 	if (err < 0)
 		return err;
@@ -535,7 +540,7 @@ static int m88e1149_config_init(struct phy_device *phydev)
 	if (err < 0)
 		return err;
 
-	
+	/* Reset address */
 	err = phy_write(phydev, MII_MARVELL_PHY_PAGE, 0x0);
 	if (err < 0)
 		return err;
@@ -551,7 +556,7 @@ static int m88e1145_config_init(struct phy_device *phydev)
 {
 	int err;
 
-	
+	/* Take care of errata E0 & E1 */
 	err = phy_write(phydev, 0x1d, 0x001b);
 	if (err < 0)
 		return err;
@@ -589,8 +594,8 @@ static int m88e1145_config_init(struct phy_device *phydev)
 				return temp;
 
 			temp &= 0xf03f;
-			temp |= 2 << 9;	
-			temp |= 2 << 6;	
+			temp |= 2 << 9;	/* 36 ohm */
+			temp |= 2 << 6;	/* 39 ohm */
 
 			err = phy_write(phydev, 0x1e, temp);
 			if (err < 0)
@@ -613,6 +618,15 @@ static int m88e1145_config_init(struct phy_device *phydev)
 	return 0;
 }
 
+/* marvell_read_status
+ *
+ * Generic status code does not detect Fiber correctly!
+ * Description:
+ *   Check the link, then figure out the current state
+ *   by comparing what we advertise with what the link partner
+ *   advertises.  Start by checking the gigabit possibilities,
+ *   then move on to 10/100.
+ */
 static int marvell_read_status(struct phy_device *phydev)
 {
 	int adv;
@@ -620,6 +634,8 @@ static int marvell_read_status(struct phy_device *phydev)
 	int lpa;
 	int status = 0;
 
+	/* Update the link, but return if there
+	 * was an error */
 	err = genphy_update_link(phydev);
 	if (err)
 		return err;

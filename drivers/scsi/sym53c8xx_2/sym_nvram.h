@@ -42,23 +42,28 @@
 
 #include "sym53c8xx.h"
 
+/*
+ *	Symbios NVRAM data format
+ */
 #define SYMBIOS_NVRAM_SIZE 368
 #define SYMBIOS_NVRAM_ADDRESS 0x100
 
 struct Symbios_nvram {
-	u_short type;		
-	u_short byte_count;	
+/* Header 6 bytes */
+	u_short type;		/* 0x0000 */
+	u_short byte_count;	/* excluding header/trailer */
 	u_short checksum;
 
-	u_char	v_major;	
-	u_char	v_minor;	
+/* Controller set up 20 bytes */
+	u_char	v_major;	/* 0x00 */
+	u_char	v_minor;	/* 0x30 */
 	u32	boot_crc;
 	u_short	flags;
 #define SYMBIOS_SCAM_ENABLE	(1)
 #define SYMBIOS_PARITY_ENABLE	(1<<1)
 #define SYMBIOS_VERBOSE_MSGS	(1<<2)
 #define SYMBIOS_CHS_MAPPING	(1<<3)
-#define SYMBIOS_NO_NVRAM	(1<<3)	
+#define SYMBIOS_NO_NVRAM	(1<<3)	/* ??? */
 	u_short	flags1;
 #define SYMBIOS_SCAN_HI_LO	(1)
 	u_short	term_state;
@@ -70,25 +75,27 @@ struct Symbios_nvram {
 #define SYMBIOS_RMVBL_BOOT_DEVICE	(1)
 #define SYMBIOS_RMVBL_MEDIA_INSTALLED	(2)
 	u_char	host_id;
-	u_char	num_hba;	
-	u_char	num_devices;	
-	u_char	max_scam_devices;	
-	u_char	num_valid_scam_devices;	
+	u_char	num_hba;	/* 0x04 */
+	u_char	num_devices;	/* 0x10 */
+	u_char	max_scam_devices;	/* 0x04 */
+	u_char	num_valid_scam_devices;	/* 0x00 */
 	u_char	flags2;
 #define SYMBIOS_AVOID_BUS_RESET		(1<<2)
 
+/* Boot order 14 bytes * 4 */
 	struct Symbios_host{
-		u_short	type;		
-		u_short	device_id;	
-		u_short	vendor_id;	
-		u_char	bus_nr;		
-		u_char	device_fn;	
+		u_short	type;		/* 4:8xx / 0:nok */
+		u_short	device_id;	/* PCI device id */
+		u_short	vendor_id;	/* PCI vendor id */
+		u_char	bus_nr;		/* PCI bus number */
+		u_char	device_fn;	/* PCI device/function number << 3*/
 		u_short	word8;
 		u_short	flags;
 #define	SYMBIOS_INIT_SCAN_AT_BOOT	(1)
-		u_short	io_port;	
+		u_short	io_port;	/* PCI io_port address */
 	} host[4];
 
+/* Targets 8 bytes * 16 */
 	struct Symbios_target {
 		u_char	flags;
 #define SYMBIOS_DISCONNECT_ENABLE	(1)
@@ -96,11 +103,12 @@ struct Symbios_nvram {
 #define SYMBIOS_SCAN_LUNS		(1<<2)
 #define SYMBIOS_QUEUE_TAGS_ENABLED	(1<<3)
 		u_char	rsvd;
-		u_char	bus_width;	
+		u_char	bus_width;	/* 0x08/0x10 */
 		u_char	sync_offset;
-		u_short	sync_period;	
+		u_short	sync_period;	/* 4*period factor */
 		u_short	timeout;
 	} target[16];
+/* Scam table 8 bytes * 4 */
 	struct Symbios_scam {
 		u_short	id;
 		u_short	method;
@@ -118,13 +126,16 @@ struct Symbios_nvram {
 	} scam[4];
 
 	u_char	spare_devices[15*8];
-	u_char	trailer[6];		
+	u_char	trailer[6];		/* 0xfe 0xfe 0x00 0x00 0x00 0x00 */
 };
 typedef struct Symbios_nvram	Symbios_nvram;
 typedef struct Symbios_host	Symbios_host;
 typedef struct Symbios_target	Symbios_target;
 typedef struct Symbios_scam	Symbios_scam;
 
+/*
+ *	Tekram NvRAM data format.
+ */
 #define TEKRAM_NVRAM_SIZE 64
 #define TEKRAM_93C46_NVRAM_ADDRESS 0
 #define TEKRAM_24C16_NVRAM_ADDRESS 0x40
@@ -149,8 +160,8 @@ struct Tekram_nvram {
 #define TEKRAM_ACTIVE_NEGATION		(1<<3)
 #define TEKRAM_IMMEDIATE_SEEK		(1<<4)
 #define	TEKRAM_SCAN_LUNS		(1<<5)
-#define	TEKRAM_REMOVABLE_FLAGS		(3<<6)	
-						
+#define	TEKRAM_REMOVABLE_FLAGS		(3<<6)	/* 0: disable; */
+						/* 1: boot device; 2:all */
 	u_char	boot_delay_index;
 	u_char	max_tags_index;
 	u_short	flags1;
@@ -164,6 +175,9 @@ typedef struct Tekram_target	Tekram_target;
 struct pdc_initiator { int dummy; };
 #endif
 
+/*
+ *  Union of supported NVRAM formats.
+ */
 struct sym_nvram {
 	int type;
 #define	SYM_SYMBIOS_NVRAM	(1)
@@ -197,4 +211,4 @@ static inline char *sym_nvram_type(struct sym_nvram *nvp)
 }
 #endif
 
-#endif 
+#endif /* SYM_NVRAM_H */

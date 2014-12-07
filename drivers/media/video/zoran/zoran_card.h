@@ -38,6 +38,7 @@ extern int zr36067_debug;
 			printk(format, ##args); \
 	} while (0)
 
+/* Anybody who uses more than four? */
 #define BUZ_MAX 4
 
 extern struct video_device zoran_template;
@@ -50,4 +51,4 @@ extern void zoran_vdev_release(struct video_device *vdev);
 
 void zr36016_write(struct videocodec *codec, u16 reg, u32 val);
 
-#endif				
+#endif				/* __ZORAN_CARD_H__ */

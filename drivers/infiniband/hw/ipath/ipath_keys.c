@@ -36,6 +36,13 @@
 #include "ipath_verbs.h"
 #include "ipath_kernel.h"
 
+/**
+ * ipath_alloc_lkey - allocate an lkey
+ * @rkt: lkey table in which to allocate the lkey
+ * @mr: memory region that this lkey protects
+ *
+ * Returns 1 if successful, otherwise returns 0.
+ */
 
 int ipath_alloc_lkey(struct ipath_lkey_table *rkt, struct ipath_mregion *mr)
 {
@@ -46,7 +53,7 @@ int ipath_alloc_lkey(struct ipath_lkey_table *rkt, struct ipath_mregion *mr)
 
 	spin_lock_irqsave(&rkt->lock, flags);
 
-	
+	/* Find the next available LKEY */
 	r = n = rkt->next;
 	for (;;) {
 		if (rkt->table[r] == NULL)
@@ -60,6 +67,10 @@ int ipath_alloc_lkey(struct ipath_lkey_table *rkt, struct ipath_mregion *mr)
 		}
 	}
 	rkt->next = (r + 1) & (rkt->max - 1);
+	/*
+	 * Make sure lkey is never zero which is reserved to indicate an
+	 * unrestricted LKEY.
+	 */
 	rkt->gen++;
 	mr->lkey = (r << (32 - ib_ipath_lkey_table_size)) |
 		((((1 << (24 - ib_ipath_lkey_table_size)) - 1) & rkt->gen)
@@ -77,6 +88,11 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_free_lkey - free an lkey
+ * @rkt: table from which to free the lkey
+ * @lkey: lkey id to free
+ */
 void ipath_free_lkey(struct ipath_lkey_table *rkt, u32 lkey)
 {
 	unsigned long flags;
@@ -90,6 +106,18 @@ void ipath_free_lkey(struct ipath_lkey_table *rkt, u32 lkey)
 	spin_unlock_irqrestore(&rkt->lock, flags);
 }
 
+/**
+ * ipath_lkey_ok - check IB SGE for validity and initialize
+ * @rkt: table containing lkey to check SGE against
+ * @isge: outgoing internal SGE
+ * @sge: SGE to check
+ * @acc: access flags
+ *
+ * Return 1 if valid and successful, otherwise returns 0.
+ *
+ * Check the IB SGE for validity and initialize our internal version
+ * of it.
+ */
 int ipath_lkey_ok(struct ipath_qp *qp, struct ipath_sge *isge,
 		  struct ib_sge *sge, int acc)
 {
@@ -99,8 +127,12 @@ int ipath_lkey_ok(struct ipath_qp *qp, struct ipath_sge *isge,
 	size_t off;
 	int ret;
 
+	/*
+	 * We use LKEY == zero for kernel virtual addresses
+	 * (see ipath_get_dma_mr and ipath_dma.c).
+	 */
 	if (sge->lkey == 0) {
-		
+		/* always a kernel port, no locking needed */
 		struct ipath_pd *pd = to_ipd(qp->ibqp.pd);
 
 		if (pd->user) {
@@ -153,6 +185,17 @@ bail:
 	return ret;
 }
 
+/**
+ * ipath_rkey_ok - check the IB virtual address, length, and RKEY
+ * @dev: infiniband device
+ * @ss: SGE state
+ * @len: length of data
+ * @vaddr: virtual address to place data
+ * @rkey: rkey to check
+ * @acc: access flags
+ *
+ * Return 1 if successful, otherwise 0.
+ */
 int ipath_rkey_ok(struct ipath_qp *qp, struct ipath_sge_state *ss,
 		  u32 len, u64 vaddr, u32 rkey, int acc)
 {
@@ -164,8 +207,12 @@ int ipath_rkey_ok(struct ipath_qp *qp, struct ipath_sge_state *ss,
 	size_t off;
 	int ret;
 
+	/*
+	 * We use RKEY == zero for kernel virtual addresses
+	 * (see ipath_get_dma_mr and ipath_dma.c).
+	 */
 	if (rkey == 0) {
-		
+		/* always a kernel port, no locking needed */
 		struct ipath_pd *pd = to_ipd(qp->ibqp.pd);
 
 		if (pd->user) {

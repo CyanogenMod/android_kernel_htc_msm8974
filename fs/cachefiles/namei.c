@@ -24,6 +24,9 @@
 
 #define CACHEFILES_KEYBUF_SIZE 512
 
+/*
+ * dump debugging info about an object
+ */
 static noinline
 void __cachefiles_printk_object(struct cachefiles_object *object,
 				const char *prefix,
@@ -73,6 +76,9 @@ void __cachefiles_printk_object(struct cachefiles_object *object,
 	}
 }
 
+/*
+ * dump debugging info about a pair of objects
+ */
 static noinline void cachefiles_printk_object(struct cachefiles_object *object,
 					      struct cachefiles_object *xobject)
 {
@@ -86,6 +92,12 @@ static noinline void cachefiles_printk_object(struct cachefiles_object *object,
 	kfree(keybuf);
 }
 
+/*
+ * mark the owner of a dentry, if there is one, to indicate that that dentry
+ * has been preemptively deleted
+ * - the caller must hold the i_mutex on the dentry's parent as required to
+ *   call vfs_unlink(), vfs_rmdir() or vfs_rename()
+ */
 static void cachefiles_mark_object_buried(struct cachefiles_cache *cache,
 					  struct dentry *dentry)
 {
@@ -112,7 +124,7 @@ static void cachefiles_mark_object_buried(struct cachefiles_cache *cache,
 	_leave(" [no owner]");
 	return;
 
-	
+	/* found the dentry for  */
 found_dentry:
 	kdebug("preemptive burial: OBJ%x [%s] %p",
 	       object->fscache.debug_id,
@@ -133,6 +145,9 @@ found_dentry:
 	_leave(" [owner marked]");
 }
 
+/*
+ * record the fact that an object is now active
+ */
 static int cachefiles_mark_object_active(struct cachefiles_cache *cache,
 					 struct cachefiles_object *object)
 {
@@ -175,6 +190,8 @@ try_again:
 	_leave(" = 0");
 	return 0;
 
+	/* an old object from a previous incarnation is hogging the slot - we
+	 * need to wait for it to be destroyed */
 wait_for_old_object:
 	if (xobject->fscache.state < FSCACHE_OBJECT_DYING) {
 		printk(KERN_ERR "\n");
@@ -193,6 +210,8 @@ wait_for_old_object:
 		wait_queue_t wait;
 		bool requeue;
 
+		/* if the object we're waiting for is queued for processing,
+		 * then just put ourselves on the queue behind it */
 		if (work_pending(&xobject->fscache.work)) {
 			_debug("queue OBJ%x behind OBJ%x immediately",
 			       object->fscache.debug_id,
@@ -200,6 +219,8 @@ wait_for_old_object:
 			goto requeue;
 		}
 
+		/* otherwise we sleep until either the object we're waiting for
+		 * is done, or the fscache_object is congested */
 		wq = bit_waitqueue(&xobject->flags, CACHEFILES_OBJECT_ACTIVE);
 		init_wait(&wait);
 		requeue = false;
@@ -241,6 +262,13 @@ requeue:
 	return -ETIMEDOUT;
 }
 
+/*
+ * delete an object representation from the cache
+ * - file backed objects are unlinked
+ * - directory backed objects are stuffed into the graveyard for userspace to
+ *   delete
+ * - unlocks the directory mutex
+ */
 static int cachefiles_bury_object(struct cachefiles_cache *cache,
 				  struct dentry *dir,
 				  struct dentry *rep,
@@ -257,7 +285,7 @@ static int cachefiles_bury_object(struct cachefiles_cache *cache,
 
 	_debug("remove %p from %p", rep, dir);
 
-	
+	/* non-directories can just be unlinked */
 	if (!S_ISDIR(rep->d_inode->i_mode)) {
 		_debug("unlink stale object");
 
@@ -282,21 +310,23 @@ static int cachefiles_bury_object(struct cachefiles_cache *cache,
 		return ret;
 	}
 
-	
+	/* directories have to be moved to the graveyard */
 	_debug("move stale object to graveyard");
 	mutex_unlock(&dir->d_inode->i_mutex);
 
 try_again:
-	
+	/* first step is to make up a grave dentry in the graveyard */
 	sprintf(nbuffer, "%08x%08x",
 		(uint32_t) get_seconds(),
 		(uint32_t) atomic_inc_return(&cache->gravecounter));
 
-	
+	/* do the multiway lock magic */
 	trap = lock_rename(cache->graveyard, dir);
 
-	
+	/* do some checks before getting the grave dentry */
 	if (rep->d_parent != dir) {
+		/* the entry was probably culled when we dropped the parent dir
+		 * lock */
 		unlock_rename(cache->graveyard, dir);
 		_leave(" = 0 [culled?]");
 		return 0;
@@ -349,7 +379,7 @@ try_again:
 		return -EIO;
 	}
 
-	
+	/* target should not be an ancestor of source */
 	if (trap == grave) {
 		unlock_rename(cache->graveyard, dir);
 		dput(grave);
@@ -357,7 +387,7 @@ try_again:
 		return -EIO;
 	}
 
-	
+	/* attempt the rename */
 	path.mnt = cache->mnt;
 	path.dentry = dir;
 	path_to_graveyard.mnt = cache->mnt;
@@ -382,6 +412,9 @@ try_again:
 	return 0;
 }
 
+/*
+ * delete an object representation from the cache
+ */
 int cachefiles_delete_object(struct cachefiles_cache *cache,
 			     struct cachefiles_object *object)
 {
@@ -399,14 +432,21 @@ int cachefiles_delete_object(struct cachefiles_cache *cache,
 	mutex_lock_nested(&dir->d_inode->i_mutex, I_MUTEX_PARENT);
 
 	if (test_bit(CACHEFILES_OBJECT_BURIED, &object->flags)) {
+		/* object allocation for the same key preemptively deleted this
+		 * object's file so that it could create its own file */
 		_debug("object preemptively buried");
 		mutex_unlock(&dir->d_inode->i_mutex);
 		ret = 0;
 	} else {
+		/* we need to check that our parent is _still_ our parent - it
+		 * may have been renamed */
 		if (dir == object->dentry->d_parent) {
 			ret = cachefiles_bury_object(cache, dir,
 						     object->dentry, false);
 		} else {
+			/* it got moved, presumably by cachefilesd culling it,
+			 * so it's no longer in the key path and we can ignore
+			 * it */
 			mutex_unlock(&dir->d_inode->i_mutex);
 			ret = 0;
 		}
@@ -417,6 +457,10 @@ int cachefiles_delete_object(struct cachefiles_cache *cache,
 	return ret;
 }
 
+/*
+ * walk from the parent object to the child object through the backing
+ * filesystem, creating directories as we go
+ */
 int cachefiles_walk_to_object(struct cachefiles_object *parent,
 			      struct cachefiles_object *object,
 			      const char *key,
@@ -441,7 +485,7 @@ int cachefiles_walk_to_object(struct cachefiles_object *parent,
 	ASSERT(parent->dentry->d_inode);
 
 	if (!(S_ISDIR(parent->dentry->d_inode->i_mode))) {
-		
+		// TODO: convert file to dir
 		_leave("looking up in none directory");
 		return -ENOBUFS;
 	}
@@ -449,17 +493,17 @@ int cachefiles_walk_to_object(struct cachefiles_object *parent,
 	dir = dget(parent->dentry);
 
 advance:
-	
+	/* attempt to transit the first directory component */
 	name = key;
 	nlen = strlen(key);
 
-	
+	/* key ends in a double NUL */
 	key = key + nlen + 1;
 	if (!*key)
 		key = NULL;
 
 lookup_again:
-	
+	/* search the current directory for the element name */
 	_debug("lookup '%s'", name);
 
 	mutex_lock_nested(&dir->d_inode->i_mutex, I_MUTEX_PARENT);
@@ -475,12 +519,15 @@ lookup_again:
 	if (!key)
 		object->new = !next->d_inode;
 
+	/* if this element of the path doesn't exist, then the lookup phase
+	 * failed, and we can release any readers in the certain knowledge that
+	 * there's nothing for them to actually read */
 	if (!next->d_inode)
 		fscache_object_lookup_negative(&object->fscache);
 
-	
+	/* we need to create the object if it's negative */
 	if (key || object->type == FSCACHE_COOKIE_TYPE_INDEX) {
-		
+		/* index objects and intervening tree levels must be subdirs */
 		if (!next->d_inode) {
 			ret = cachefiles_has_space(cache, 1, 0);
 			if (ret < 0)
@@ -509,7 +556,7 @@ lookup_again:
 		}
 
 	} else {
-		
+		/* non-index objects start out life as files */
 		if (!next->d_inode) {
 			ret = cachefiles_has_space(cache, 1, 0);
 			if (ret < 0)
@@ -540,7 +587,7 @@ lookup_again:
 		}
 	}
 
-	
+	/* process the next component */
 	if (key) {
 		_debug("advance");
 		mutex_unlock(&dir->d_inode->i_mutex);
@@ -550,15 +597,19 @@ lookup_again:
 		goto advance;
 	}
 
-	
+	/* we've found the object we were looking for */
 	object->dentry = next;
 
+	/* if we've found that the terminal object exists, then we need to
+	 * check its attributes and delete it if it's out of date */
 	if (!object->new) {
 		_debug("validate '%*.*s'",
 		       next->d_name.len, next->d_name.len, next->d_name.name);
 
 		ret = cachefiles_check_object_xattr(object, auxdata);
 		if (ret == -ESTALE) {
+			/* delete the object (the deleter drops the directory
+			 * mutex) */
 			object->dentry = NULL;
 
 			ret = cachefiles_bury_object(cache, dir, next, true);
@@ -573,7 +624,7 @@ lookup_again:
 		}
 	}
 
-	
+	/* note that we're now using this object */
 	ret = cachefiles_mark_object_active(cache, object);
 
 	mutex_unlock(&dir->d_inode->i_mutex);
@@ -586,16 +637,20 @@ lookup_again:
 	_debug("=== OBTAINED_OBJECT ===");
 
 	if (object->new) {
-		
+		/* attach data to a newly constructed terminal object */
 		ret = cachefiles_set_object_xattr(object, auxdata);
 		if (ret < 0)
 			goto check_error;
 	} else {
+		/* always update the atime on an object we've just looked up
+		 * (this is used to keep track of culling, and atimes are only
+		 * updated by read, write and readdir but not lookup or
+		 * open) */
 		path.dentry = next;
 		touch_atime(&path);
 	}
 
-	
+	/* open a file interface onto a data file */
 	if (object->type != FSCACHE_COOKIE_TYPE_INDEX) {
 		if (S_ISREG(object->dentry->d_inode->i_mode)) {
 			const struct address_space_operations *aops;
@@ -607,7 +662,7 @@ lookup_again:
 
 			object->backer = object->dentry;
 		} else {
-			BUG(); 
+			BUG(); // TODO: open file in data-class subdir
 		}
 	}
 
@@ -659,6 +714,9 @@ error_out:
 	return ret;
 }
 
+/*
+ * get a subdirectory
+ */
 struct dentry *cachefiles_get_directory(struct cachefiles_cache *cache,
 					struct dentry *dir,
 					const char *dirname)
@@ -670,7 +728,7 @@ struct dentry *cachefiles_get_directory(struct cachefiles_cache *cache,
 
 	_enter(",,%s", dirname);
 
-	
+	/* search the current directory for the element name */
 	mutex_lock(&dir->d_inode->i_mutex);
 
 	start = jiffies;
@@ -685,7 +743,7 @@ struct dentry *cachefiles_get_directory(struct cachefiles_cache *cache,
 	_debug("subdir -> %p %s",
 	       subdir, subdir->d_inode ? "positive" : "negative");
 
-	
+	/* we need to create the subdir if it doesn't exist yet */
 	if (!subdir->d_inode) {
 		ret = cachefiles_has_space(cache, 1, 0);
 		if (ret < 0)
@@ -712,7 +770,7 @@ struct dentry *cachefiles_get_directory(struct cachefiles_cache *cache,
 
 	mutex_unlock(&dir->d_inode->i_mutex);
 
-	
+	/* we need to make sure the subdir is a directory */
 	ASSERT(subdir->d_inode);
 
 	if (!S_ISDIR(subdir->d_inode->i_mode)) {
@@ -759,6 +817,12 @@ nomem_d_alloc:
 	return ERR_PTR(-ENOMEM);
 }
 
+/*
+ * find out if an object is in use or not
+ * - if finds object and it's not in use:
+ *   - returns a pointer to the object and a reference on it
+ *   - returns with the directory locked
+ */
 static struct dentry *cachefiles_check_active(struct cachefiles_cache *cache,
 					      struct dentry *dir,
 					      char *filename)
@@ -769,10 +833,10 @@ static struct dentry *cachefiles_check_active(struct cachefiles_cache *cache,
 	unsigned long start;
 	int ret;
 
-	
-	
+	//_enter(",%*.*s/,%s",
+	//       dir->d_name.len, dir->d_name.len, dir->d_name.name, filename);
 
-	
+	/* look up the victim */
 	mutex_lock_nested(&dir->d_inode->i_mutex, 1);
 
 	start = jiffies;
@@ -781,9 +845,12 @@ static struct dentry *cachefiles_check_active(struct cachefiles_cache *cache,
 	if (IS_ERR(victim))
 		goto lookup_error;
 
-	
-	
+	//_debug("victim -> %p %s",
+	//       victim, victim->d_inode ? "positive" : "negative");
 
+	/* if the object is no longer there then we probably retired the object
+	 * at the netfs's request whilst the cull was in progress
+	 */
 	if (!victim->d_inode) {
 		mutex_unlock(&dir->d_inode->i_mutex);
 		dput(victim);
@@ -791,7 +858,7 @@ static struct dentry *cachefiles_check_active(struct cachefiles_cache *cache,
 		return ERR_PTR(-ENOENT);
 	}
 
-	
+	/* check to see if we're using this object */
 	read_lock(&cache->active_lock);
 
 	_n = cache->active_nodes.rb_node;
@@ -809,21 +876,21 @@ static struct dentry *cachefiles_check_active(struct cachefiles_cache *cache,
 
 	read_unlock(&cache->active_lock);
 
-	
+	//_leave(" = %p", victim);
 	return victim;
 
 object_in_use:
 	read_unlock(&cache->active_lock);
 	mutex_unlock(&dir->d_inode->i_mutex);
 	dput(victim);
-	
+	//_leave(" = -EBUSY [in use]");
 	return ERR_PTR(-EBUSY);
 
 lookup_error:
 	mutex_unlock(&dir->d_inode->i_mutex);
 	ret = PTR_ERR(victim);
 	if (ret == -ENOENT) {
-		
+		/* file or dir now absent - probably retired by netfs */
 		_leave(" = -ESTALE [absent]");
 		return ERR_PTR(-ESTALE);
 	}
@@ -839,6 +906,10 @@ lookup_error:
 	return ERR_PTR(ret);
 }
 
+/*
+ * cull an object if it's not in use
+ * - called only by cache manager daemon
+ */
 int cachefiles_cull(struct cachefiles_cache *cache, struct dentry *dir,
 		    char *filename)
 {
@@ -855,13 +926,16 @@ int cachefiles_cull(struct cachefiles_cache *cache, struct dentry *dir,
 	_debug("victim -> %p %s",
 	       victim, victim->d_inode ? "positive" : "negative");
 
+	/* okay... the victim is not being used so we can cull it
+	 * - start by marking it as stale
+	 */
 	_debug("victim is cullable");
 
 	ret = cachefiles_remove_object_xattr(cache, victim);
 	if (ret < 0)
 		goto error_unlock;
 
-	
+	/*  actually remove the victim (drops the dir mutex) */
 	_debug("bury");
 
 	ret = cachefiles_bury_object(cache, dir, victim, false);
@@ -877,7 +951,7 @@ error_unlock:
 error:
 	dput(victim);
 	if (ret == -ENOENT) {
-		
+		/* file or dir now absent - probably retired by netfs */
 		_leave(" = -ESTALE [absent]");
 		return -ESTALE;
 	}
@@ -891,13 +965,18 @@ error:
 	return ret;
 }
 
+/*
+ * find out if an object is in use or not
+ * - called only by cache manager daemon
+ * - returns -EBUSY or 0 to indicate whether an object is in use or not
+ */
 int cachefiles_check_in_use(struct cachefiles_cache *cache, struct dentry *dir,
 			    char *filename)
 {
 	struct dentry *victim;
 
-	
-	
+	//_enter(",%*.*s/,%s",
+	//       dir->d_name.len, dir->d_name.len, dir->d_name.name, filename);
 
 	victim = cachefiles_check_active(cache, dir, filename);
 	if (IS_ERR(victim))
@@ -905,6 +984,6 @@ int cachefiles_check_in_use(struct cachefiles_cache *cache, struct dentry *dir,
 
 	mutex_unlock(&dir->d_inode->i_mutex);
 	dput(victim);
-	
+	//_leave(" = 0");
 	return 0;
 }

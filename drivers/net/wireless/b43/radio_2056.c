@@ -27,11 +27,11 @@
 #include "phy_common.h"
 
 struct b2056_inittab_entry {
-	
+	/* Value to write if we use the 5GHz band. */
 	u16 ghz5;
-	
+	/* Value to write if we use the 2.4GHz band. */
 	u16 ghz2;
-	
+	/* Flags */
 	u8 flags;
 };
 #define B2056_INITTAB_ENTRY_OK	0x01
@@ -3040,6 +3040,7 @@ struct b2056_inittabs_pts b2056_inittabs[] = {
 	.phy_regs.phy_bw5	= r4,	\
 	.phy_regs.phy_bw6	= r5
 
+/* http://bcm-v4.sipsolutions.net/802.11/Radio/2056/ChannelTable */
 static const struct b43_nphy_channeltab_entry_rev3 b43_nphy_channeltab_rev3[] = {
   {	.freq			= 4920,
 	RADIOREGS3(0xff, 0x01, 0x01, 0x01, 0xec, 0x05, 0x05, 0x04,

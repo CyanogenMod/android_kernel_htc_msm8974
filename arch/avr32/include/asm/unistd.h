@@ -8,6 +8,9 @@
 #ifndef __ASM_AVR32_UNISTD_H
 #define __ASM_AVR32_UNISTD_H
 
+/*
+ * This file contains the system call numbers.
+ */
 
 #define __NR_restart_syscall      0
 #define __NR_exit		  1
@@ -85,7 +88,7 @@
 #define __NR_rt_sigsuspend	 73
 #define __NR_sethostname	 74
 #define __NR_setrlimit		 75
-#define __NR_getrlimit		 76	
+#define __NR_getrlimit		 76	/* SuS compliant getrlimit */
 #define __NR_getrusage		 77
 #define __NR_gettimeofday	 78
 #define __NR_settimeofday	 79
@@ -117,6 +120,7 @@
 #define __NR_getitimer		105
 #define __NR_swapoff		106
 #define __NR_sysinfo		107
+/* 108 was __NR_ipc for a little while */
 #define __NR_sendfile		109
 #define __NR_setdomainname	110
 #define __NR_uname		111
@@ -130,7 +134,7 @@
 #define __NR_bdflush		119
 #define __NR_sysfs		120
 #define __NR_personality	121
-#define __NR_afs_syscall	122 
+#define __NR_afs_syscall	122 /* Syscall for Andrew File System */
 #define __NR_getdents		123
 #define __NR_flock		124
 #define __NR_msync		125
@@ -231,7 +235,7 @@
 #define __NR_statfs64		219
 #define __NR_fstatfs64		220
 #define __NR_tgkill		221
-				
+				/* 222 reserved for tux */
 #define __NR_utimes		223
 #define __NR_fadvise64_64	224
 
@@ -293,21 +297,25 @@
 
 #define __NR_utimensat		278
 #define __NR_signalfd		279
+/* 280 was __NR_timerfd */
 #define __NR_eventfd		281
 #define __NR_setns		283
 
 #ifdef __KERNEL__
 #define NR_syscalls		284
 
+/* Old stuff */
 #define __IGNORE_uselib
 #define __IGNORE_mmap
 
+/* NUMA stuff */
 #define __IGNORE_mbind
 #define __IGNORE_get_mempolicy
 #define __IGNORE_set_mempolicy
 #define __IGNORE_migrate_pages
 #define __IGNORE_move_pages
 
+/* SMP stuff */
 #define __IGNORE_getcpu
 
 #define __ARCH_WANT_IPC_PARSE_VERSION
@@ -325,8 +333,14 @@
 #define __ARCH_WANT_SYS_RT_SIGACTION
 #define __ARCH_WANT_SYS_RT_SIGSUSPEND
 
+/*
+ * "Conditional" syscalls
+ *
+ * What we want is __attribute__((weak,alias("sys_ni_syscall"))),
+ * but it doesn't work on all toolchains, so we just do it by hand
+ */
 #define cond_syscall(x) asm(".weak\t" #x "\n\t.set\t" #x ",sys_ni_syscall");
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ASM_AVR32_UNISTD_H */

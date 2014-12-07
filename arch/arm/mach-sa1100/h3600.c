@@ -25,6 +25,9 @@
 
 #include "generic.h"
 
+/*
+ * helper for sa1100fb
+ */
 static void h3600_lcd_power(int enable)
 {
 	if (gpio_request(H3XXX_EGPIO_LCD_ON, "LCD power")) {
@@ -87,6 +90,9 @@ static void __init h3600_map_io(void)
 	h3xxx_map_io();
 }
 
+/*
+ * This turns the IRDA power on or off on the Compaq H3600
+ */
 static int h3600_irda_set_power(struct device *dev, unsigned int state)
 {
 	gpio_set_value(H3600_EGPIO_IR_ON, state);

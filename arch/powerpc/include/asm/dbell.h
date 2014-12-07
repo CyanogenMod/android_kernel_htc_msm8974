@@ -20,11 +20,11 @@
 #define PPC_DBELL_MSG_BRDCAST	(0x04000000)
 #define PPC_DBELL_TYPE(x)	(((x) & 0xf) << (63-36))
 enum ppc_dbell {
-	PPC_DBELL = 0,		
-	PPC_DBELL_CRIT = 1,	
-	PPC_G_DBELL = 2,	
-	PPC_G_DBELL_CRIT = 3,	
-	PPC_G_DBELL_MC = 4,	
+	PPC_DBELL = 0,		/* doorbell */
+	PPC_DBELL_CRIT = 1,	/* critical doorbell */
+	PPC_G_DBELL = 2,	/* guest doorbell */
+	PPC_G_DBELL_CRIT = 3,	/* guest critical doorbell */
+	PPC_G_DBELL_MC = 4,	/* guest mcheck doorbell */
 };
 
 extern void doorbell_cause_ipi(int cpu, unsigned long data);
@@ -39,4 +39,4 @@ static inline void ppc_msgsnd(enum ppc_dbell type, u32 flags, u32 tag)
 	__asm__ __volatile__ (PPC_MSGSND(%0) : : "r" (msg));
 }
 
-#endif 
+#endif /* _ASM_POWERPC_DBELL_H */

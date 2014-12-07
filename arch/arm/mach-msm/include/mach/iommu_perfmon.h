@@ -17,6 +17,17 @@
 #ifndef MSM_IOMMU_PERFMON_H
 #define MSM_IOMMU_PERFMON_H
 
+/**
+ * struct iommu_pmon_counter - container for a performance counter.
+ * @counter_no:          counter number within the group
+ * @absolute_counter_no: counter number within IOMMU PMU
+ * @value:               cached counter value
+ * @overflow_count:      no of times counter has overflowed
+ * @enabled:             indicates whether counter is enabled or not
+ * @current_event_class: current selected event class, -1 if none
+ * @counter_dir:         debugfs directory for this counter
+ * @cnt_group:           group this counter belongs to
+ */
 struct iommu_pmon_counter {
 	unsigned int counter_no;
 	unsigned int absolute_counter_no;
@@ -28,6 +39,14 @@ struct iommu_pmon_counter {
 	struct iommu_pmon_cnt_group *cnt_group;
 };
 
+/**
+ * struct iommu_pmon_cnt_group - container for a perf mon counter group.
+ * @grp_no:       group number
+ * @num_counters: number of counters in this group
+ * @counters:     list of counter in this group
+ * @group_dir:    debugfs directory for this group
+ * @pmon:         pointer to the iommu_pmon object this group belongs to
+ */
 struct iommu_pmon_cnt_group {
 	unsigned int grp_no;
 	unsigned int num_counters;
@@ -36,6 +55,16 @@ struct iommu_pmon_cnt_group {
 	struct iommu_pmon *pmon;
 };
 
+/**
+ * struct iommu_info - container for a perf mon iommu info.
+ * @iommu_name: name of the iommu from device tree
+ * @base:       virtual base address for this iommu
+ * @evt_irq:    irq number for event overflow interrupt
+ * @iommu_dev:  pointer to iommu device
+ * @ops:        iommu access operations pointer.
+ * @hw_ops:     iommu pm hw access operations pointer.
+ * @always_on:  1 if iommu is always on, 0 otherwise.
+ */
 struct iommu_info {
 	const char *iommu_name;
 	void *base;
@@ -46,6 +75,20 @@ struct iommu_info {
 	unsigned int always_on;
 };
 
+/**
+ * struct iommu_pmon - main container for a perf mon data.
+ * @iommu_dir:            debugfs directory for this iommu
+ * @iommu:                iommu_info instance
+ * @iommu_list:           iommu_list head
+ * @cnt_grp:              list of counter groups
+ * @num_groups:           number of counter groups
+ * @num_counters:         number of counters per group
+ * @event_cls_supported:  an array of event classes supported for this PMU
+ * @nevent_cls_supported: number of event classes supported.
+ * @enabled:              Indicates whether perf. mon is enabled or not
+ * @iommu_attached        Indicates whether iommu is attached or not.
+ * @lock:                 mutex used to synchronize access to shared data
+ */
 struct iommu_pmon {
 	struct dentry *iommu_dir;
 	struct iommu_info iommu;
@@ -60,6 +103,24 @@ struct iommu_pmon {
 	struct mutex lock;
 };
 
+/**
+ * struct iommu_hw_ops - Callbacks for accessing IOMMU HW
+ * @initialize_hw: Call to do any initialization before enabling ovf interrupts
+ * @is_hw_access_ok: Returns 1 if we can access HW, 0 otherwise
+ * @grp_enable: Call to enable a counter group
+ * @grp_disable: Call to disable a counter group
+ * @enable_pm: Call to enable PM
+ * @disable_pm: Call to disable PM
+ * @reset_counters:  Call to reset counters
+ * @check_for_overflow:  Call to check for overflow
+ * @evt_ovfl_int_handler: Overflow interrupt handler callback
+ * @counter_enable: Call to enable counters
+ * @counter_disable: Call to disable counters
+ * @ovfl_int_enable: Call to enable overflow interrupts
+ * @ovfl_int_disable: Call to disable overflow interrupts
+ * @set_event_class: Call to set event class
+ * @read_counter: Call to read a counter value
+ */
 struct iommu_pm_hw_ops {
 	void (*initialize_hw)(const struct iommu_pmon *);
 	unsigned int (*is_hw_access_OK)(const struct iommu_pmon *);
@@ -87,20 +148,49 @@ struct iommu_pm_hw_ops {
 
 #ifdef CONFIG_MSM_IOMMU_PMON
 
+/**
+ * Get pointer to PMU hardware access functions for IOMMUv0 PMU
+ */
 struct iommu_pm_hw_ops *iommu_pm_get_hw_ops_v0(void);
 
+/**
+ * Get pointer to PMU hardware access functions for IOMMUv1 PMU
+ */
 struct iommu_pm_hw_ops *iommu_pm_get_hw_ops_v1(void);
 
+/**
+ * Allocate memory for performance monitor structure. Must
+ * be called before iommu_pm_iommu_register
+ */
 struct iommu_pmon *msm_iommu_pm_alloc(struct device *iommu_dev);
 
+/**
+ * Free memory previously allocated with iommu_pm_alloc
+ */
 void msm_iommu_pm_free(struct device *iommu_dev);
 
+/**
+ * Register iommu with the performance monitor module.
+ */
 int msm_iommu_pm_iommu_register(struct iommu_pmon *info);
 
+/**
+ * Unregister iommu with the performance monitor module.
+ */
 void msm_iommu_pm_iommu_unregister(struct device *dev);
 
+/**
+ * Called by iommu driver when attaching is complete
+ * Must NOT be called with IOMMU mutexes held.
+ * @param iommu_dev IOMMU device that is attached
+  */
 void msm_iommu_attached(struct device *dev);
 
+/**
+ * Called by iommu driver before detaching.
+ * Must NOT be called with IOMMU mutexes held.
+ * @param iommu_dev IOMMU device that is going to be detached
+  */
 void msm_iommu_detached(struct device *dev);
 #else
 static inline struct iommu_pm_hw_ops *iommu_pm_get_hw_ops_v0(void)

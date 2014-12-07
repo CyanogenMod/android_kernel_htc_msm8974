@@ -53,35 +53,44 @@
 
 static void __init neocore926_init_early(void)
 {
-	
+	/* Initialize processor: 20 MHz crystal */
 	at91_initialize(20000000);
 
-	
+	/* DBGU on ttyS0. (Rx & Tx only) */
 	at91_register_uart(0, 0, 0);
 
-	
+	/* USART0 on ttyS1. (Rx, Tx, RTS, CTS) */
 	at91_register_uart(AT91SAM9263_ID_US0, 1, ATMEL_UART_CTS | ATMEL_UART_RTS);
 
-	
+	/* set serial console to ttyS0 (ie, DBGU) */
 	at91_set_serial_console(0);
 }
 
+/*
+ * USB Host port
+ */
 static struct at91_usbh_data __initdata neocore926_usbh_data = {
 	.ports		= 2,
 	.vbus_pin	= { AT91_PIN_PA24, AT91_PIN_PA21 },
 	.overcurrent_pin= {-EINVAL, -EINVAL},
 };
 
+/*
+ * USB Device port
+ */
 static struct at91_udc_data __initdata neocore926_udc_data = {
 	.vbus_pin	= AT91_PIN_PA25,
-	.pullup_pin	= -EINVAL,		
+	.pullup_pin	= -EINVAL,		/* pull-up driven by UDC */
 };
 
 
+/*
+ * ADS7846 Touchscreen
+ */
 #if defined(CONFIG_TOUCHSCREEN_ADS7846) || defined(CONFIG_TOUCHSCREEN_ADS7846_MODULE)
 static int ads7843_pendown_state(void)
 {
-	return !at91_get_gpio_value(AT91_PIN_PA15);	
+	return !at91_get_gpio_value(AT91_PIN_PA15);	/* Touchscreen PENIRQ */
 }
 
 static struct ads7846_platform_data ads_info = {
@@ -102,16 +111,19 @@ static struct ads7846_platform_data ads_info = {
 
 static void __init neocore926_add_device_ts(void)
 {
-	at91_set_B_periph(AT91_PIN_PA15, 1);	
-	at91_set_gpio_input(AT91_PIN_PC13, 1);	
+	at91_set_B_periph(AT91_PIN_PA15, 1);	/* External IRQ1, with pullup */
+	at91_set_gpio_input(AT91_PIN_PC13, 1);	/* Touchscreen BUSY signal */
 }
 #else
 static void __init neocore926_add_device_ts(void) {}
 #endif
 
+/*
+ * SPI devices.
+ */
 static struct spi_board_info neocore926_spi_devices[] = {
 #if defined(CONFIG_MTD_AT91_DATAFLASH_CARD)
-	{	
+	{	/* DataFlash card */
 		.modalias	= "mtd_dataflash",
 		.chip_select	= 0,
 		.max_speed_hz	= 15 * 1000 * 1000,
@@ -131,6 +143,9 @@ static struct spi_board_info neocore926_spi_devices[] = {
 };
 
 
+/*
+ * MCI (SD/MMC)
+ */
 static struct at91_mmc_data __initdata neocore926_mmc_data = {
 	.wire4		= 1,
 	.det_pin	= AT91_PIN_PE18,
@@ -139,25 +154,31 @@ static struct at91_mmc_data __initdata neocore926_mmc_data = {
 };
 
 
+/*
+ * MACB Ethernet device
+ */
 static struct macb_platform_data __initdata neocore926_macb_data = {
 	.phy_irq_pin	= AT91_PIN_PE31,
 	.is_rmii	= 1,
 };
 
 
+/*
+ * NAND flash
+ */
 static struct mtd_partition __initdata neocore926_nand_partition[] = {
 	{
-		.name	= "Linux Kernel",	
+		.name	= "Linux Kernel",	/* "Partition 1", */
 		.offset	= 0,
 		.size	= SZ_8M,
 	},
 	{
-		.name	= "Filesystem",		
+		.name	= "Filesystem",		/* "Partition 2", */
 		.offset	= MTDPART_OFS_NXTBLK,
 		.size	= SZ_32M,
 	},
 	{
-		.name	= "Free",		
+		.name	= "Free",		/* "Partition 3", */
 		.offset	= MTDPART_OFS_NXTBLK,
 		.size	= MTDPART_SIZ_FULL,
 	},
@@ -195,13 +216,16 @@ static struct sam9_smc_config __initdata neocore926_nand_smc_config = {
 
 static void __init neocore926_add_device_nand(void)
 {
-	
+	/* configure chip-select 3 (NAND) */
 	sam9_smc_configure(0, 3, &neocore926_nand_smc_config);
 
 	at91_add_device_nand(&neocore926_nand_data);
 }
 
 
+/*
+ * LCD Controller
+ */
 #if defined(CONFIG_FB_ATMEL) || defined(CONFIG_FB_ATMEL_MODULE)
 static struct fb_videomode at91_tft_vga_modes[] = {
 	{
@@ -240,6 +264,7 @@ static void at91_lcdc_power_control(int on)
 	at91_set_gpio_value(AT91_PIN_PA30, on);
 }
 
+/* Driver datas */
 static struct atmel_lcdfb_info __initdata neocore926_lcdc_data = {
 	.lcdcon_is_backlight		= true,
 	.default_bpp			= 16,
@@ -256,16 +281,19 @@ static struct atmel_lcdfb_info __initdata neocore926_lcdc_data;
 #endif
 
 
+/*
+ * GPIO Buttons
+ */
 #if defined(CONFIG_KEYBOARD_GPIO) || defined(CONFIG_KEYBOARD_GPIO_MODULE)
 static struct gpio_keys_button neocore926_buttons[] = {
-	{	
+	{	/* BP1, "leftclic" */
 		.code		= BTN_LEFT,
 		.gpio		= AT91_PIN_PC5,
 		.active_low	= 1,
 		.desc		= "left_click",
 		.wakeup		= 1,
 	},
-	{	
+	{	/* BP2, "rightclic" */
 		.code		= BTN_RIGHT,
 		.gpio		= AT91_PIN_PC4,
 		.active_low	= 1,
@@ -290,9 +318,9 @@ static struct platform_device neocore926_button_device = {
 
 static void __init neocore926_add_device_buttons(void)
 {
-	at91_set_GPIO_periph(AT91_PIN_PC5, 0);	
+	at91_set_GPIO_periph(AT91_PIN_PC5, 0);	/* left button */
 	at91_set_deglitch(AT91_PIN_PC5, 1);
-	at91_set_GPIO_periph(AT91_PIN_PC4, 0);	
+	at91_set_GPIO_periph(AT91_PIN_PC4, 0);	/* right button */
 	at91_set_deglitch(AT91_PIN_PC4, 1);
 
 	platform_device_register(&neocore926_button_device);
@@ -302,6 +330,9 @@ static void __init neocore926_add_device_buttons(void) {}
 #endif
 
 
+/*
+ * AC97
+ */
 static struct ac97c_platform_data neocore926_ac97_data = {
 	.reset_pin	= AT91_PIN_PA13,
 };
@@ -309,46 +340,46 @@ static struct ac97c_platform_data neocore926_ac97_data = {
 
 static void __init neocore926_board_init(void)
 {
-	
+	/* Serial */
 	at91_add_device_serial();
 
-	
+	/* USB Host */
 	at91_add_device_usbh(&neocore926_usbh_data);
 
-	
+	/* USB Device */
 	at91_add_device_udc(&neocore926_udc_data);
 
-	
-	at91_set_gpio_output(AT91_PIN_PE20, 1);		
+	/* SPI */
+	at91_set_gpio_output(AT91_PIN_PE20, 1);		/* select spi0 clock */
 	at91_add_device_spi(neocore926_spi_devices, ARRAY_SIZE(neocore926_spi_devices));
 
-	
+	/* Touchscreen */
 	neocore926_add_device_ts();
 
-	
+	/* MMC */
 	at91_add_device_mmc(1, &neocore926_mmc_data);
 
-	
+	/* Ethernet */
 	at91_add_device_eth(&neocore926_macb_data);
 
-	
+	/* NAND */
 	neocore926_add_device_nand();
 
-	
+	/* I2C */
 	at91_add_device_i2c(NULL, 0);
 
-	
+	/* LCD Controller */
 	at91_add_device_lcdc(&neocore926_lcdc_data);
 
-	
+	/* Push Buttons */
 	neocore926_add_device_buttons();
 
-	
+	/* AC97 */
 	at91_add_device_ac97(&neocore926_ac97_data);
 }
 
 MACHINE_START(NEOCORE926, "ADENEO NEOCORE 926")
-	
+	/* Maintainer: ADENEO */
 	.timer		= &at91sam926x_timer,
 	.map_io		= at91_map_io,
 	.init_early	= neocore926_init_early,

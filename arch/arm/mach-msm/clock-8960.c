@@ -40,6 +40,7 @@
 #define REG_LPA(off)	(MSM_LPASS_CLK_CTL_BASE + (off))
 #define REG_GCC(off)	(MSM_APCS_GCC_BASE + (off))
 
+/* Peripheral clock registers. */
 #define ADM0_PBUS_CLK_CTL_REG			REG(0x2208)
 #define SFAB_SATA_S_HCLK_CTL_REG		REG(0x2480)
 #define CE1_HCLK_CTL_REG			REG(0x2720)
@@ -55,6 +56,7 @@
 #define CLK_HALT_CFPB_STATEB_REG		REG(0x2FD0)
 #define CLK_HALT_CFPB_STATEC_REG		REG(0x2FD4)
 #define CLK_HALT_DFAB_STATE_REG			REG(0x2FC8)
+/* 8064 name CLK_HALT_GSS_KPSS_MISC_STATE_REG */
 #define CLK_HALT_MSS_SMPSS_MISC_STATE_REG	REG(0x2FDC)
 #define CLK_HALT_SFPB_MISC_STATE_REG		REG(0x2FD8)
 #define CLK_HALT_AFAB_SFAB_STATEB_REG		REG(0x2FC4)
@@ -68,6 +70,7 @@
 #define GSBIn_UART_APPS_MD_REG(n)		REG(0x29D0+(0x20*((n)-1)))
 #define GSBIn_UART_APPS_NS_REG(n)		REG(0x29D4+(0x20*((n)-1)))
 #define PDM_CLK_NS_REG				REG(0x2CC0)
+/* 8064 name BB_PLL_ENA_APCS_REG */
 #define BB_PLL_ENA_SC0_REG			REG(0x34C0)
 #define BB_PLL_ENA_RPM_REG			REG(0x34A0)
 #define BB_PLL0_STATUS_REG			REG(0x30D8)
@@ -160,6 +163,7 @@
 #define GPLL1_STATUS_REG			REG(0x3178)
 #define PXO_SRC_CLK_CTL_REG			REG(0x2EA0)
 
+/* Multimedia clock registers. */
 #define AHB_EN_REG				REG_MM(0x0008)
 #define AHB_EN2_REG				REG_MM(0x0038)
 #define AHB_EN3_REG				REG_MM(0x0248)
@@ -281,6 +285,7 @@
 #define VPE_CC_REG				REG_MM(0x0110)
 #define VPE_NS_REG				REG_MM(0x0118)
 
+/* Low-power Audio clock registers. */
 #define LCC_CLK_HS_DEBUG_CFG_REG		REG_LPA(0x00A4)
 #define LCC_CLK_LS_DEBUG_CFG_REG		REG_LPA(0x00A8)
 #define LCC_CODEC_I2S_MIC_MD_REG		REG_LPA(0x0064)
@@ -315,6 +320,7 @@
 
 #define GCC_APCS_CLK_DIAG			REG_GCC(0x001C)
 
+/* MUX source input identifiers. */
 #define pxo_to_bb_mux		0
 #define cxo_to_bb_mux		5
 #define pll0_to_bb_mux		2
@@ -324,12 +330,12 @@
 #define pll3_to_bb_mux		6
 #define pxo_to_mm_mux		0
 #define pll1_to_mm_mux		1
-#define pll2_to_mm_mux		1	
-#define pll8_to_mm_mux		2	
+#define pll2_to_mm_mux		1	/* or MMCC_PLL1 */
+#define pll8_to_mm_mux		2	/* or GCC_PERF */
 #define pll0_to_mm_mux		3
-#define pll15_to_mm_mux		3	
+#define pll15_to_mm_mux		3	/* or MM_PLL3 */
 #define gnd_to_mm_mux		4
-#define pll3_to_mm_mux		3	
+#define pll3_to_mm_mux		3	/* or MMCC_PLL2 */
 #define hdmi_pll_to_mm_mux	3
 #define cxo_to_xo_mux		0
 #define pxo_to_xo_mux		1
@@ -341,6 +347,7 @@
 #define pxo_to_pcie_mux		0
 #define pll3_to_pcie_mux	1
 
+/* Test Vector Macros */
 #define TEST_TYPE_PER_LS	1
 #define TEST_TYPE_PER_HS	2
 #define TEST_TYPE_MM_LS		3
@@ -515,6 +522,9 @@ static int set_vdd_sr2_hdmi_pll_8930(struct clk_vdd_class *vdd_class, int level)
 				    sr2_lreg_uv[level], sr2_lreg_uv[level], 1);
 }
 
+/*
+ * Clock Descriptions
+ */
 
 DEFINE_CLK_RPM_BRANCH(pxo_clk, pxo_a_clk, PXO, 27000000);
 DEFINE_CLK_RPM_BRANCH(cxo_clk, cxo_a_clk, CXO, 19200000);
@@ -599,6 +609,7 @@ static struct pll_clk pll15_clk = {
 	},
 };
 
+/* AXI Interfaces */
 static struct branch_clk gmem_axi_clk = {
 	.b = {
 		.ctl_reg = MAXI_EN_REG,
@@ -820,6 +831,7 @@ static struct branch_clk vcap_axi_clk = {
 	},
 };
 
+/* gfx3d_axi_clk is set as a dependency of gmem_axi_clk at runtime */
 static struct branch_clk gfx3d_axi_clk = {
 	.b = {
 		.ctl_reg = MAXI_EN5_REG,
@@ -854,6 +866,7 @@ static struct branch_clk gfx3d_axi_clk_8930 = {
 	},
 };
 
+/* AHB Interfaces */
 static struct branch_clk amp_p_clk = {
 	.b = {
 		.ctl_reg = AHB_EN_REG,
@@ -1228,6 +1241,9 @@ static struct branch_clk vcap_p_clk = {
 	},
 };
 
+/*
+ * Peripheral Clocks
+ */
 #define CLK_GP(i, n, h_r, h_b) \
 	struct rcg_clk i##_clk = { \
 		.b = { \
@@ -1873,6 +1889,7 @@ static struct branch_clk usb_fs2_sys_clk = {
 	},
 };
 
+/* Fast Peripheral Bus Clocks */
 static struct branch_clk ce1_core_clk = {
 	.b = {
 		.ctl_reg = CE1_CORE_CLK_CTL_REG,
@@ -2543,6 +2560,7 @@ static struct branch_clk sdc5_p_clk = {
 	},
 };
 
+/* HW-Voteable Clocks */
 static struct branch_clk adm0_clk = {
 	.b = {
 		.ctl_reg = SC0_U_CLK_BRANCH_ENA_VOTE_REG,
@@ -2637,6 +2655,9 @@ static struct branch_clk rpm_msg_ram_p_clk = {
 	},
 };
 
+/*
+ * Multimedia Clocks
+ */
 
 #define CLK_CAM(name, n, hb) \
 	struct rcg_clk name = { \
@@ -2910,6 +2931,14 @@ static int pix_rdi_clk_set_rate(struct clk *c, unsigned long rate)
 	struct clk **mux_map = pix_rdi_mux_map;
 	unsigned long old_rate = rdi->cur_rate;
 
+	/*
+	 * These clocks select three inputs via two muxes. One mux selects
+	 * between csi0 and csi1 and the second mux selects between that mux's
+	 * output and csi2. The source and destination selections for each
+	 * mux must be clocking for the switch to succeed so just turn on
+	 * all three sources because it's easier than figuring out what source
+	 * needs to be on at what time.
+	 */
 	for (i = 0; mux_map[i]; i++) {
 		ret = clk_prepare_enable(mux_map[i]);
 		if (ret)
@@ -2919,7 +2948,7 @@ static int pix_rdi_clk_set_rate(struct clk *c, unsigned long rate)
 		ret = -EINVAL;
 		goto err;
 	}
-	
+	/* Keep the new source on when switching inputs of an enabled clock */
 	if (rdi->prepared) {
 		ret = clk_prepare(mux_map[rate]);
 		if (ret)
@@ -2939,12 +2968,20 @@ static int pix_rdi_clk_set_rate(struct clk *c, unsigned long rate)
 	reg &= ~rdi->s2_mask;
 	reg |= rate == 2 ? rdi->s2_mask : 0;
 	writel_relaxed(reg, rdi->s2_reg);
+	/*
+	 * Wait at least 6 cycles of slowest clock
+	 * for the glitch-free MUX to fully switch sources.
+	 */
 	mb();
 	udelay(1);
 	reg = readl_relaxed(rdi->s_reg);
 	reg &= ~rdi->s_mask;
 	reg |= rate == 1 ? rdi->s_mask : 0;
 	writel_relaxed(reg, rdi->s_reg);
+	/*
+	 * Wait at least 6 cycles of slowest clock
+	 * for the glitch-free MUX to fully switch sources.
+	 */
 	mb();
 	udelay(1);
 	rdi->cur_rate = rate;
@@ -3239,6 +3276,11 @@ static struct branch_clk csi2phy_timer_clk = {
 		.freq_hz = d, \
 		.ns_val = BVAL(15, 12, (d-1)), \
 	}
+/*
+ * The DSI_BYTE/ESC clock is sourced from the DSI PHY PLL, which may change rate
+ * without this clock driver knowing.  So, overload the clk_set_rate() to set
+ * the divider (1 to 16) of the clock with respect to the PLL rate.
+ */
 static struct clk_freq_tbl clk_tbl_dsi_byte[] = {
 	F_DSI(1),  F_DSI(2),  F_DSI(3),  F_DSI(4),
 	F_DSI(5),  F_DSI(6),  F_DSI(7),  F_DSI(8),
@@ -3481,6 +3523,7 @@ static struct rcg_clk gfx2d1_clk = {
 		.ctl_val = CC_BANKED(9, 6, n), \
 	}
 
+/*Shared by 8064, and 8930*/
 static struct clk_freq_tbl clk_tbl_gfx3d[] = {
 	F_GFX3D(        0, gnd,   0,  0),
 	F_GFX3D(  1800000, pxo,   1, 15),
@@ -4088,6 +4131,7 @@ static struct clk hdmi_pll_clk = {
 		.ctl_val = CC(6, n), \
 		.extra_freq_data = (void *)p_r, \
 	}
+/* Switching TV freqs requires PLL reconfiguration. */
 static struct clk_freq_tbl clk_tbl_tv[] = {
 	F_TV_GND(    0,      gnd,         0, 1, 0, 0),
 	F_TV( 25200000, hdmi_pll,  25200000, 1, 0, 0),
@@ -4104,6 +4148,10 @@ static unsigned long fmax_tv_src_8064[VDD_DIG_NUM] = {
 	[VDD_DIG_NOMINAL] = 149000000
 };
 
+/*
+ * Unlike other clocks, the TV rate is adjusted through PLL
+ * re-programming. It is also routed through an MND divider.
+ */
 void set_rate_tv(struct rcg_clk *rcg, struct clk_freq_tbl *nf)
 {
 	unsigned long pll_rate = (unsigned long)nf->extra_freq_data;
@@ -4475,6 +4523,9 @@ static struct branch_clk csi_vfe_clk = {
 	},
 };
 
+/*
+ * Low Power Audio Clocks
+ */
 #define F_AIF_OSR(f, s, d, m, n) \
 	{ \
 		.freq_hz = f, \
@@ -4641,7 +4692,7 @@ static CLK_AIF_BIT_DIV(spare_i2s_spkr_bit, LCC_SPARE_I2S_SPKR_NS_REG,
 		.ns_val = NS(31, 16, n, m, 5, 4, 3, d, 2, 0, s##_to_lpa_mux), \
 	}
 static struct clk_freq_tbl clk_tbl_pcm_492[] = {
-	{ .ns_val = BIT(10)  },
+	{ .ns_val = BIT(10) /* external input */ },
 	F_PCM(  256000, pll4, 4, 1, 480),
 	F_PCM(  512000, pll4, 4, 1, 240),
 	F_PCM(  768000, pll4, 4, 1, 160),
@@ -4659,7 +4710,7 @@ static struct clk_freq_tbl clk_tbl_pcm_492[] = {
 };
 
 static struct clk_freq_tbl clk_tbl_pcm_393[] = {
-	{ .ns_val = BIT(10)  },
+	{ .ns_val = BIT(10) /* external input */ },
 	F_PCM(  256000, pll4, 4, 1, 384),
 	F_PCM(  512000, pll4, 4, 1, 192),
 	F_PCM(  768000, pll4, 4, 1, 128),
@@ -5050,6 +5101,10 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 
 	spin_lock_irqsave(&local_clock_reg_lock, flags);
 
+	/*
+	 * Program the test vector, measurement period (sample_ticks)
+	 * and scaling multiplier.
+	 */
 	measure->sample_ticks = 0x10000;
 	clk_sel = p->test_vector & TEST_CLK_SEL_MASK;
 	measure->multiplier = 1;
@@ -5089,7 +5144,7 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 	default:
 		ret = -EPERM;
 	}
-	
+	/* Make sure test vector is set before starting measurements. */
 	mb();
 
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
@@ -5097,28 +5152,31 @@ static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 	return ret;
 }
 
+/* Sample clock for 'ticks' reference clock ticks. */
 static u32 run_measurement(unsigned ticks)
 {
-	
+	/* Stop counters and set the XO4 counter start value. */
 	writel_relaxed(ticks, RINGOSC_TCXO_CTL_REG);
 
-	
+	/* Wait for timer to become ready. */
 	while ((readl_relaxed(RINGOSC_STATUS_REG) & BIT(25)) != 0)
 		cpu_relax();
 
-	
+	/* Run measurement and wait for completion. */
 	writel_relaxed(BIT(20)|ticks, RINGOSC_TCXO_CTL_REG);
 	while ((readl_relaxed(RINGOSC_STATUS_REG) & BIT(25)) == 0)
 		cpu_relax();
 
-	
+	/* Stop counters. */
 	writel_relaxed(0x0, RINGOSC_TCXO_CTL_REG);
 
-	
+	/* Return measured ticks. */
 	return readl_relaxed(RINGOSC_STATUS_REG) & BM(24, 0);
 }
 
 
+/* Perform a hardware rate measurement for a given clock.
+   FOR DEBUG USE ONLY: Measurements take ~15 ms! */
 static unsigned long measure_clk_get_rate(struct clk *c)
 {
 	unsigned long flags;
@@ -5135,32 +5193,38 @@ static unsigned long measure_clk_get_rate(struct clk *c)
 
 	spin_lock_irqsave(&local_clock_reg_lock, flags);
 
-	
+	/* Enable CXO/4 and RINGOSC branch and root. */
 	pdm_reg_backup = readl_relaxed(PDM_CLK_NS_REG);
 	ringosc_reg_backup = readl_relaxed(RINGOSC_NS_REG);
 	writel_relaxed(0x2898, PDM_CLK_NS_REG);
 	writel_relaxed(0xA00, RINGOSC_NS_REG);
 
+	/*
+	 * The ring oscillator counter will not reset if the measured clock
+	 * is not running.  To detect this, run a short measurement before
+	 * the full measurement.  If the raw results of the two are the same
+	 * then the clock must be off.
+	 */
 
-	
+	/* Run a short measurement. (~1 ms) */
 	raw_count_short = run_measurement(0x1000);
-	
+	/* Run a full measurement. (~14 ms) */
 	raw_count_full = run_measurement(measure->sample_ticks);
 
 	writel_relaxed(ringosc_reg_backup, RINGOSC_NS_REG);
 	writel_relaxed(pdm_reg_backup, PDM_CLK_NS_REG);
 
-	
+	/* Return 0 if the clock is off. */
 	if (raw_count_full == raw_count_short)
 		ret = 0;
 	else {
-		
+		/* Compute rate in Hz. */
 		raw_count_full = ((raw_count_full * 10) + 15) * 4800000;
 		do_div(raw_count_full, ((measure->sample_ticks * 10) + 35));
 		ret = (raw_count_full * measure->multiplier);
 	}
 
-	
+	/* Route dbg_hs_clk to PLLTEST.  300mV single-ended amplitude. */
 	writel_relaxed(0x38F8, PLLTEST_PAD_CFG_REG);
 	spin_unlock_irqrestore(&local_clock_reg_lock, flags);
 
@@ -5168,7 +5232,7 @@ static unsigned long measure_clk_get_rate(struct clk *c)
 
 	return ret;
 }
-#else 
+#else /* !CONFIG_DEBUG_FS */
 static int measure_clk_set_parent(struct clk *c, struct clk *parent)
 {
 	return -EINVAL;
@@ -5178,7 +5242,7 @@ static unsigned long measure_clk_get_rate(struct clk *c)
 {
 	return 0;
 }
-#endif 
+#endif /* CONFIG_DEBUG_FS */
 
 static struct clk_ops clk_ops_measure = {
 	.set_parent = measure_clk_set_parent,
@@ -5622,9 +5686,9 @@ static struct clk_lookup msm_clocks_8960_common[] __initdata = {
 	CLK_LOOKUP("core_clk",		gsbi5_uart_clk.c, "msm_serial_hsl.0"),
 	CLK_LOOKUP("core_clk",		gsbi6_uart_clk.c, "msm_serial_hs.0"),
 	CLK_LOOKUP("core_clk",		gsbi7_uart_clk.c,	""),
-	
+	/* used on 8960 SGLTE for console */
 	CLK_LOOKUP("core_clk",		gsbi8_uart_clk.c, "msm_serial_hsl.1"),
-	
+	/* used on 8960 standalone with Atheros Bluetooth */
 	CLK_LOOKUP("core_clk",		gsbi8_uart_clk.c, "msm_serial_hs.2"),
 	CLK_LOOKUP("core_clk",		gsbi9_uart_clk.c, "msm_serial_hs.1"),
 	CLK_LOOKUP("core_clk",		gsbi10_uart_clk.c,	""),
@@ -5677,9 +5741,9 @@ static struct clk_lookup msm_clocks_8960_common[] __initdata = {
 	CLK_LOOKUP("iface_clk",		gsbi5_p_clk.c,	"msm_serial_hsl.0"),
 	CLK_LOOKUP("iface_clk",		gsbi6_p_clk.c,  "msm_serial_hs.0"),
 	CLK_LOOKUP("iface_clk",		gsbi7_p_clk.c,		""),
-	
+	/* used on 8960 SGLTE for serial console */
 	CLK_LOOKUP("iface_clk",		gsbi8_p_clk.c,	"msm_serial_hsl.1"),
-	
+	/* used on 8960 standalone with Atheros Bluetooth */
 	CLK_LOOKUP("iface_clk",		gsbi8_p_clk.c,	"msm_serial_hs.2"),
 	CLK_LOOKUP("iface_clk",		gsbi9_p_clk.c,  "msm_serial_hs.1"),
 	CLK_LOOKUP("iface_clk",		gsbi10_p_clk.c,		"qup_i2c.10"),
@@ -6233,7 +6297,11 @@ static struct clk_lookup msm_clocks_8930[] = {
 	CLK_LOOKUP("q6fw_clk",		q6fw_clk,     ""),
 	CLK_LOOKUP("q6_func_clk",	q6_func_clk,  ""),
 };
+/*
+ * Miscellaneous clock register initializations
+ */
 
+/* Read, modify, then write-back a register. */
 static void __init rmwreg(uint32_t val, void *reg, uint32_t mask)
 {
 	uint32_t regval = readl_relaxed(reg);
@@ -6250,6 +6318,7 @@ static struct pll_config_regs pll3_regs __initdata = {
 	.mode_reg = BB_MMCC_PLL2_MODE_REG,
 };
 
+/* Program PLL3 to 880MHZ */
 static struct pll_config pll3_config __initdata = {
 	.l = (32 | BVAL(31, 7, 0x8)),
 	.m = 16,
@@ -6341,6 +6410,11 @@ static struct pll_config pll14_config __initdata = {
 
 static void __init init_mm_cc(void)
 {
+	/*
+	 * Initialize MM CC registers: Set MM FORCE_CORE_ON bits so that core
+	 * memories retain state even when not clocked. Also, set sleep and
+	 * wake-up delays to safe values.
+	 */
 	rmwreg(0x00000000, CSI0_CC_REG,       0x00000410);
 	rmwreg(0x00000000, CSI1_CC_REG,       0x00000410);
 	rmwreg(0x80FF0000, DSI1_BYTE_CC_REG,  0xE0FF0010);
@@ -6361,7 +6435,7 @@ static void __init enable_imem_clk(unsigned long phys)
 {
 	void __iomem *imem_reg;
 
-	
+	/* Enable IMEM's clk_on signal */
 	imem_reg = ioremap(phys, SZ_4);
 	if (imem_reg) {
 		writel_relaxed(0x3, imem_reg);
@@ -6371,16 +6445,23 @@ static void __init enable_imem_clk(unsigned long phys)
 
 static void __init reg_init_8930(void)
 {
-	
+	/* MM-AHB default values */
 	u32 en_reg = 0x40000000, en2_reg = 0x3C7097F9;
-	
+	/* MM-AXI default values */
 	u32 aen_reg = 0x0003AFF9, aen2_reg = 0x3A27FCFF,
 		 saen_reg = 0x00003C38;
 
 
-	
+	/* Deassert MM SW_RESET_ALL signal. */
 	writel_relaxed(0, SW_RESET_ALL_REG);
 
+	/*
+	 * Initialize MM AHB registers: Enable the FPB clock and disable HW
+	 * gating on 8627 and 8930ab for all clocks. Also set VFE_AHB's
+	 * FORCE_CORE_ON bit to prevent its memory from being collapsed when
+	 * the clock is halted. The sleep and wake-up delays are set to safe
+	 * values.
+	 */
 	if (cpu_is_msm8627() || cpu_is_msm8930ab()) {
 		en_reg  = 0x00000003;
 		en2_reg = 0x000007F9;
@@ -6388,10 +6469,15 @@ static void __init reg_init_8930(void)
 	rmwreg(en_reg, AHB_EN_REG, 0x6C000103);
 	writel_relaxed(en2_reg, AHB_EN2_REG);
 
-	
+	/* Deassert all locally-owned MM AHB resets. */
 	rmwreg(0, SW_RESET_AHB_REG, 0xFFF7DFFF);
 	rmwreg(0, SW_RESET_AHB2_REG, 0x0000000F);
 
+	/*
+	 * Initialize MM AXI registers: Enable HW gating for all clocks that
+	 * support it. Also set FORCE_CORE_ON bits, and any sleep and wake-up
+	 * delays to safe values.
+	 */
 	if (cpu_is_msm8627() || cpu_is_msm8930ab()) {
 		aen_reg = 0x000007F9;
 		aen2_reg = 0x3027FCFF;
@@ -6410,23 +6496,33 @@ static void __init reg_init_8930(void)
 	init_mm_cc();
 	rmwreg(0x80FF0000, TV_CC_REG,        0xE1FFC010);
 
+	/*
+	 * Initialize USB_HS_HCLK_FS registers: Set FORCE_C_ON bits so that
+	 * core remain active during halt state of the clk. Also, set sleep
+	 * and wake-up value to max.
+	 */
 	rmwreg(0x0000004F, USB_HS1_HCLK_FS_REG, 0x0000007F);
 
-	
+	/* De-assert MM AXI resets to all hardware blocks. */
 	writel_relaxed(0, SW_RESET_AXI_REG);
 
-	
+	/* Deassert all MM core resets. */
 	writel_relaxed(0, SW_RESET_CORE_REG);
 	writel_relaxed(0, SW_RESET_CORE2_REG);
 
-	
+	/* Enable TSSC and PDM PXO sources. */
 	writel_relaxed(BIT(11), TSSC_CLK_CTL_REG);
 	writel_relaxed(BIT(15), PDM_CLK_NS_REG);
 
-	
+	/* Source the dsi1_byte_clks/dsi1_esc_clk from the DSI PHY PLLs */
 	rmwreg(0x1, DSI1_BYTE_NS_REG, 0x7);
 	rmwreg(0x1, DSI1_ESC_NS_REG, 0x7);
 
+	/*
+	 * Change PLL15 configuration based on the SoC we're running on.
+	 *
+	 * Default pll15 l, m, n values for 8930/8930aa/8627()
+	 */
 	pll15_config.l = 0x21 | BVAL(31, 7, 0x600);
 	pll15_config.m = 0x1;
 	pll15_config.n = 0x3;
@@ -6438,7 +6534,7 @@ static void __init reg_init_8930(void)
 	}
 	configure_sr_pll(&pll15_config, &pll15_regs, 0);
 
-	
+	/* Disable AUX and BIST outputs */
 	writel_relaxed(0, MM_PLL3_TEST_CTL_REG);
 }
 
@@ -6446,17 +6542,28 @@ static void __init reg_init_8064(void)
 {
 	u32 is_pll_enabled;
 
-	
+	/* Deassert MM SW_RESET_ALL signal. */
 	writel_relaxed(0, SW_RESET_ALL_REG);
 
+	/*
+	 * Initialize MM AHB registers:
+	 * Also set VFE_AHB's FORCE_CORE_ON bit to prevent its memory
+	 * from being collapsed when the clock is halted. The sleep and
+	 * wake-up delays are set to safe values.
+	 */
 	rmwreg(0x40000000, AHB_EN_REG, 0x6C000103);
 	writel_relaxed(0x3C7097F9, AHB_EN2_REG);
 	rmwreg(0x00000000, AHB_EN3_REG, 0x00000001);
 
-	
+	/* Deassert all locally-owned MM AHB resets. */
 	rmwreg(0, SW_RESET_AHB_REG, 0xFFF7DFFF);
 	rmwreg(0, SW_RESET_AHB2_REG, 0x0000000F);
 
+	/*
+	 * Initialize MM AXI registers: Enable HW gating for all clocks that
+	 * support it. Also set FORCE_CORE_ON bits, and any sleep and wake-up
+	 * delays to safe values.
+	 */
 	rmwreg(0x0003AFF9, MAXI_EN_REG,  0x0803FFFF);
 	rmwreg(0x3A27FCFF, MAXI_EN2_REG, 0x3A3FFFFF);
 	rmwreg(0x0027FCFF, MAXI_EN3_REG, 0x003FFFFF);
@@ -6473,60 +6580,77 @@ static void __init reg_init_8064(void)
 	rmwreg(0x00000000, TV_CC_REG,         0x00004010);
 	rmwreg(0x80FF0000, VCAP_CC_REG,       0xE0FF1010);
 
+	/*
+	 * Initialize USB_HS_HCLK_FS registers: Set FORCE_C_ON bits so that
+	 * core remain active during halt state of the clk. Also, set sleep
+	 * and wake-up value to max.
+	 */
 	rmwreg(0x0000004F, USB_HS1_HCLK_FS_REG, 0x0000007F);
 	rmwreg(0x0000004F, USB_HS3_HCLK_FS_REG, 0x0000007F);
 	rmwreg(0x0000004F, USB_HS4_HCLK_FS_REG, 0x0000007F);
 
-	
+	/* De-assert MM AXI resets to all hardware blocks. */
 	writel_relaxed(0, SW_RESET_AXI_REG);
 
-	
+	/* Deassert all MM core resets. */
 	writel_relaxed(0, SW_RESET_CORE_REG);
 	writel_relaxed(0, SW_RESET_CORE2_REG);
 
-	
+	/* Enable TSSC and PDM PXO sources. */
 	writel_relaxed(BIT(11), TSSC_CLK_CTL_REG);
 	writel_relaxed(BIT(15), PDM_CLK_NS_REG);
 
-	
+	/* Source the dsi1_byte_clks/dsi1_esc_clk from the DSI PHY PLLs */
 	rmwreg(0x1, DSI1_BYTE_NS_REG, 0x7);
 	rmwreg(0x1, DSI1_ESC_NS_REG, 0x7);
 
-	
+	/* Source the dsi2_byte_clks from the DSI PHY PLLs */
 	rmwreg(0x2, DSI2_BYTE_NS_REG, 0x7);
 
+	/*
+	 * Source the sata_phy_ref_clk from PXO and set predivider of
+	 * sata_pmalive_clk to 1.
+	 */
 	rmwreg(0, SATA_PHY_REF_CLK_CTL_REG, 0x1);
 	rmwreg(0, SATA_PMALIVE_CLK_CTL_REG, 0x3);
 
+	/*
+	 * TODO: Programming below PLLs and prng_clk is temporary and
+	 *	 needs to be removed after bootloaders program them.
+	 */
 
-	
+	/* Program pxo_src_clk to source from PXO */
 	rmwreg(0x1, PXO_SRC_CLK_CTL_REG, 0x7);
 
-	
+	/* Check if PLL14 is active */
 	is_pll_enabled = readl_relaxed(BB_PLL14_STATUS_REG) & BIT(16);
 	if (!is_pll_enabled)
-		
+		/* Ref clk = 27MHz and program pll14 to 480MHz */
 		configure_sr_pll(&pll14_config, &pll14_regs, 1);
 
-	
+	/* Check if PLL4 is active */
 	is_pll_enabled = readl_relaxed(LCC_PLL0_STATUS_REG) & BIT(16);
 	if (!is_pll_enabled)
-		
+		/* Ref clk = 27MHz and program pll4 to 393.2160MHz */
 		configure_sr_pll(&pll4_config_393, &pll4_regs, 1);
 
-	
+	/* Enable PLL4 source on the LPASS Primary PLL Mux */
 	writel_relaxed(0x1, LCC_PRI_PLL_CLK_CTL_REG);
 
-	
+	/* Program prng_clk to 64MHz if it isn't configured */
 	if (!readl_relaxed(PRNG_CLK_NS_REG))
 		writel_relaxed(0x2B, PRNG_CLK_NS_REG);
 
 	if (cpu_is_apq8064ab()) {
-		
+		/* Program PLL15 to 900MHZ */
 		pll15_config.l = 0x21 | BVAL(31, 7, 0x620);
 		pll15_config.m = 0x1;
 		pll15_config.n = 0x3;
 	}
+	/*
+	 * Default Program PLL15 to 975MHz with ref clk = 27MHz
+	 * In case of apq8064ab PLL15 is set to 900MHZ
+	 */
 	configure_sr_pll(&pll15_config, &pll15_regs, 0);
 }
 
@@ -6534,16 +6658,27 @@ static void __init reg_init_8960(void)
 {
 	u32 aen_reg = 0x0003AFF9, aen2_reg = 0x3A27FCFF;
 
-	
+	/* Deassert MM SW_RESET_ALL signal. */
 	writel_relaxed(0, SW_RESET_ALL_REG);
 
+	/*
+	 * Initialize MM AHB registers:
+	 * Also set VFE_AHB's FORCE_CORE_ON bit to prevent its memory
+	 * from being collapsed when the clock is halted. The sleep and
+	 * wake-up delays are set to safe values.
+	 */
 	rmwreg(0x40000000, AHB_EN_REG, 0x6C000103);
 	writel_relaxed(0x3C7097F9, AHB_EN2_REG);
 
-	
+	/* Deassert all locally-owned MM AHB resets. */
 	rmwreg(0, SW_RESET_AHB_REG, 0xFFF7DFFF);
 	rmwreg(0, SW_RESET_AHB2_REG, 0x0000000F);
 
+	/*
+	 * Initialize MM AXI registers: Enable HW gating for all clocks that
+	 * support it. Also set FORCE_CORE_ON bits, and any sleep and wake-up
+	 * delays to safe values.
+	 */
 	if (cpu_is_msm8960() &&
 		SOCINFO_VERSION_MAJOR(socinfo_get_version()) < 3) {
 		aen_reg = 0x000007F9;
@@ -6573,27 +6708,32 @@ static void __init reg_init_8960(void)
 		rmwreg(0x80FF0000, GFX2D1_CC_REG,     0xE0FF0010);
 	}
 
+	/*
+	 * Initialize USB_HS_HCLK_FS registers: Set FORCE_C_ON bits so that
+	 * core remain active during halt state of the clk. Also, set sleep
+	 * and wake-up value to max.
+	 */
 	rmwreg(0x0000004F, USB_HS1_HCLK_FS_REG, 0x0000007F);
 
-	
+	/* De-assert MM AXI resets to all hardware blocks. */
 	writel_relaxed(0, SW_RESET_AXI_REG);
 
-	
+	/* Deassert all MM core resets. */
 	writel_relaxed(0, SW_RESET_CORE_REG);
 	writel_relaxed(0, SW_RESET_CORE2_REG);
 
-	
+	/* Enable TSSC and PDM PXO sources. */
 	writel_relaxed(BIT(11), TSSC_CLK_CTL_REG);
 	writel_relaxed(BIT(15), PDM_CLK_NS_REG);
 
-	
+	/* Source the dsi1_byte_clks/dsi1_esc_clk from the DSI PHY PLLs */
 	rmwreg(0x1, DSI1_BYTE_NS_REG, 0x7);
 	rmwreg(0x1, DSI1_ESC_NS_REG, 0x7);
 
-	
+	/* Source SLIMBus xo src from slimbus reference clock */
 	writel_relaxed(0x3, SLIMBUS_XO_SRC_CLK_CTL_REG);
 
-	
+	/* Source the dsi2_byte_clks from the DSI PHY PLLs */
 	rmwreg(0x2, DSI2_BYTE_NS_REG, 0x7);
 
 	 if (cpu_is_msm8960ab()) {
@@ -6631,10 +6771,10 @@ static void __init msm8960_clock_pre_init(void)
 	size_t clk_size;
 	struct clk_freq_tbl *tbl;
 
-	
+	/* Initialize clock registers. */
 	reg_init_8960();
 
-	
+	/* Detect PLL4 programmed for alternate 491.52MHz clock plan. */
 	if (readl_relaxed(LCC_PLL0_L_VAL_REG) == 0x12) {
 		pll4_clk.c.rate = 491520000;
 		audio_slimbus_clk.freq_tbl = clk_tbl_aif_osr_492;
@@ -6684,12 +6824,12 @@ static void __init msm8064_clock_pre_init(void)
 {
 	unsigned long *fmax = fmax_gfx3d_8064;
 
-	
+	/* Initialize clock registers. */
 	reg_init_8064();
 
 	vdd_sr2_hdmi_pll.set_vdd = set_vdd_sr2_hdmi_pll_8064;
 
-	
+	/* Detect PLL4 programmed for alternate 491.52MHz clock plan. */
 	if (readl_relaxed(LCC_PLL0_L_VAL_REG) == 0x12) {
 		pll4_clk.c.rate = 491520000;
 		audio_slimbus_clk.freq_tbl = clk_tbl_aif_osr_492;
@@ -6731,10 +6871,10 @@ static void __init __msm8930_clock_pre_init(void)
 	unsigned long rate = 900000000;
 	unsigned long *fmax = fmax_gfx3d_8930;
 
-	
+	/* Initialize clock registers. */
 	reg_init_8930();
 
-	
+	/* Detect PLL4 programmed for alternate 491.52MHz clock plan. */
 	if (readl_relaxed(LCC_PLL0_L_VAL_REG) == 0x12) {
 		pll4_clk.c.rate = 491520000;
 		audio_slimbus_clk.freq_tbl = clk_tbl_aif_osr_492;
@@ -6768,7 +6908,7 @@ static void __init __msm8930_clock_pre_init(void)
 
 static void __init msm8930_pm8917_clock_pre_init(void)
 {
-	
+	/* detect pmic8917 from board file, and call this init function */
 
 	vdd_dig.set_vdd = set_vdd_dig_8930;
 	rpm_vreg_dig_8930 = RPM_VREG_ID_PM8917_VDD_DIG_CORNER;
@@ -6787,10 +6927,10 @@ static void __init msm8930_clock_pre_init(void)
 
 static void __init common_clock_post_init(void)
 {
-	
+	/* Keep PXO on whenever APPS cpu is active */
 	clk_prepare_enable(&pxo_a_clk.c);
 
-	
+	/* Reset 3D core while clocked to ensure it resets completely. */
 	clk_set_rate(&gfx3d_clk.c, 27000000);
 	clk_prepare_enable(&gfx3d_clk.c);
 	clk_reset(&gfx3d_clk.c, CLK_RESET_ASSERT);
@@ -6798,7 +6938,7 @@ static void __init common_clock_post_init(void)
 	clk_reset(&gfx3d_clk.c, CLK_RESET_DEASSERT);
 	clk_disable_unprepare(&gfx3d_clk.c);
 
-	
+	/* Initialize rates for clocks that only support one. */
 	clk_set_rate(&pdm_clk.c, 27000000);
 	clk_set_rate(&prng_clk.c, prng_clk.freq_tbl->freq_hz);
 	clk_set_rate(&mdp_vsync_clk.c, 27000000);
@@ -6811,10 +6951,18 @@ static void __init common_clock_post_init(void)
 	clk_set_rate(&usb_hsic_hsio_cal_clk.c, 9000000);
 	clk_set_rate(&usb_hsic_system_clk.c, 60000000);
 
+	/*
+	 * Set the CSI rates to a safe default to avoid warnings when
+	 * switching csi pix and rdi clocks.
+	 */
 	clk_set_rate(&csi0_src_clk.c, 27000000);
 	clk_set_rate(&csi1_src_clk.c, 27000000);
 	clk_set_rate(&csi2_src_clk.c, 27000000);
 
+	/*
+	 * The halt status bits for these clocks may be incorrect at boot.
+	 * Toggle these clocks on and off to refresh them.
+	 */
 	clk_prepare_enable(&pdm_clk.c);
 	clk_disable_unprepare(&pdm_clk.c);
 	clk_prepare_enable(&tssc_clk.c);
@@ -6822,6 +6970,11 @@ static void __init common_clock_post_init(void)
 	clk_prepare_enable(&usb_hsic_hsic_clk.c);
 	clk_disable_unprepare(&usb_hsic_hsic_clk.c);
 
+	/*
+	 * Keep sfab floor @ 54MHz so that Krait AHB is at least 27MHz at all
+	 * times when Apps CPU is active. This ensures the timer's requirement
+	 * of Krait AHB running 4 times as fast as the timer itself.
+	 */
 	clk_set_rate(&sfab_tmr_a_clk.c, 54000000);
 	clk_prepare_enable(&sfab_tmr_a_clk.c);
 }
@@ -6845,7 +6998,7 @@ static int __init msm8960_clock_late_init(void)
 	struct clk *mmfpb_a_clk = clk_get_sys("clock-8960", "mmfpb_a_clk");
 	struct clk *cfpb_a_clk = clk_get_sys("clock-8960", "cfpb_a_clk");
 
-	
+	/* Vote for MMFPB to be on when Apps is active. */
 	if (WARN(IS_ERR(mmfpb_a_clk), "mmfpb_a_clk not found (%ld)\n",
 			PTR_ERR(mmfpb_a_clk)))
 		return PTR_ERR(mmfpb_a_clk);
@@ -6856,7 +7009,7 @@ static int __init msm8960_clock_late_init(void)
 	if (WARN(rc, "mmfpb_a_clk not enabled (%d)\n", rc))
 		return rc;
 
-	
+	/* Vote for CFPB to be on when Apps is active. */
 	if (WARN(IS_ERR(cfpb_a_clk), "cfpb_a_clk not found (%ld)\n",
 			PTR_ERR(cfpb_a_clk)))
 		return PTR_ERR(cfpb_a_clk);

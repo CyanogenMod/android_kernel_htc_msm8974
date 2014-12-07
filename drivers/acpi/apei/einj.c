@@ -38,9 +38,13 @@
 
 #define EINJ_PFX "EINJ: "
 
-#define SPIN_UNIT		100			
+#define SPIN_UNIT		100			/* 100ns */
+/* Firmware should respond within 1 milliseconds */
 #define FIRMWARE_TIMEOUT	(1 * NSEC_PER_MSEC)
 
+/*
+ * ACPI version 5 provides a SET_ERROR_TYPE_WITH_ADDRESS action.
+ */
 static int acpi5;
 
 struct set_error_type_with_address {
@@ -58,6 +62,9 @@ enum {
 	SETWA_FLAGS_PCIE_SBDF = 4,
 };
 
+/*
+ * Vendor extensions for platform specific operations
+ */
 struct vendor_error_type_extension {
 	u32	length;
 	u32	pcie_sbdf;
@@ -73,6 +80,13 @@ static u32 vendor_flags;
 static struct debugfs_blob_wrapper vendor_blob;
 static char vendor_dev[64];
 
+/*
+ * Some BIOSes allow parameters to the SET_ERROR_TYPE entries in the
+ * EINJ table through an unpublished extension. Use with caution as
+ * most will ignore the parameter and make their own choice of address
+ * for error injection.  This extension is used only if
+ * param_extension module parameter is specified.
+ */
 struct einj_parameter {
 	u64 type;
 	u64 reserved1;
@@ -120,6 +134,11 @@ static struct apei_exec_ins_type einj_ins_type[] = {
 	},
 };
 
+/*
+ * Prevent EINJ interpreter to run simultaneously, because the
+ * corresponding firmware implementation may not work properly when
+ * invoked simultaneously.
+ */
 static DEFINE_MUTEX(einj_mutex);
 
 static void *einj_param;
@@ -144,6 +163,7 @@ static int __einj_get_available_error_type(u32 *type)
 	return 0;
 }
 
+/* Get error injection capabilities of the platform */
 static int einj_get_available_error_type(u32 *type)
 {
 	int rc;
@@ -236,6 +256,7 @@ static void *einj_get_parameter_address(void)
 	return NULL;
 }
 
+/* do sanity check to trigger table */
 static int einj_check_trigger_header(struct acpi_einj_trigger *trigger_tab)
 {
 	if (trigger_tab->header_size != sizeof(struct acpi_einj_trigger))
@@ -271,6 +292,7 @@ static struct acpi_generic_address *einj_get_trigger_parameter_region(
 
 	return NULL;
 }
+/* Execute instructions in trigger error action table */
 static int __einj_error_trigger(u64 trigger_paddr, u32 type,
 				u64 param1, u64 param2)
 {
@@ -305,7 +327,7 @@ static int __einj_error_trigger(u64 trigger_paddr, u32 type,
 		goto out_rel_header;
 	}
 
-	
+	/* No action structures in the TRIGGER_ERROR table, nothing to do */
 	if (!trigger_tab->entry_count)
 		goto out_rel_header;
 
@@ -339,6 +361,12 @@ static int __einj_error_trigger(u64 trigger_paddr, u32 type,
 	rc = apei_resources_sub(&trigger_resources, &einj_resources);
 	if (rc)
 		goto out_fini;
+	/*
+	 * Some firmware will access target address specified in
+	 * param1 to trigger the error when injecting memory error.
+	 * This will cause resource conflict with regular memory.  So
+	 * remove it from trigger table resources.
+	 */
 	if (param_extension && (type & 0x0038) && param2) {
 		struct apei_resources addr_resources;
 		apei_resources_init(&addr_resources);
@@ -480,6 +508,7 @@ static int __einj_error_inject(u32 type, u64 param1, u64 param2)
 	return rc;
 }
 
+/* Inject the specified hardware error */
 static int einj_error_inject(u32 type, u64 param1, u64 param2)
 {
 	int rc;
@@ -557,10 +586,14 @@ static int error_type_set(void *data, u64 val)
 	u32 available_error_type = 0;
 	u32 tval, vendor;
 
+	/*
+	 * Vendor defined types have 0x80000000 bit set, and
+	 * are not enumerated by ACPI_EINJ_GET_ERROR_TYPE
+	 */
 	vendor = val & 0x80000000;
 	tval = val & 0x7fffffff;
 
-	
+	/* Only one error type can be specified */
 	if (tval & (tval - 1))
 		return -EINVAL;
 	if (!vendor) {

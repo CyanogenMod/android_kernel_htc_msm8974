@@ -14,9 +14,13 @@
 #define __RTC_PM8XXX_H__
 
 #define PM8XXX_RTC_DEV_NAME     "rtc-pm8xxx"
+/**
+ * struct pm8xxx_rtc_pdata - RTC driver platform data
+ * @rtc_write_enable: variable stating RTC write capability
+ */
 struct pm8xxx_rtc_platform_data {
 	bool rtc_write_enable;
 	bool rtc_alarm_powerup;
 };
 
-#endif 
+#endif /* __RTC_PM8XXX_H__ */

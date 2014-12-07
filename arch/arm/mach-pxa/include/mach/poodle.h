@@ -15,12 +15,16 @@
 #ifndef __ASM_ARCH_POODLE_H
 #define __ASM_ARCH_POODLE_H  1
 
+/*
+ * GPIOs
+ */
+/* PXA GPIOs */
 #define POODLE_GPIO_ON_KEY		(0)
 #define POODLE_GPIO_AC_IN		(1)
 #define POODLE_GPIO_CO			16
 #define POODLE_GPIO_TP_INT		(5)
 #define POODLE_GPIO_TP_CS		(24)
-#define POODLE_GPIO_WAKEUP		(11)	
+#define POODLE_GPIO_WAKEUP		(11)	/* change battery */
 #define POODLE_GPIO_GA_INT		(10)
 #define POODLE_GPIO_IR_ON		(22)
 #define POODLE_GPIO_HP_IN		(4)
@@ -40,8 +44,9 @@
 #define POODLE_GPIO_BYPASS_ON		(36)
 #define POODLE_GPIO_CHRG_ON		(38)
 #define POODLE_GPIO_CHRG_FULL		(16)
-#define POODLE_GPIO_DISCHARGE_ON        (42) 
+#define POODLE_GPIO_DISCHARGE_ON        (42) /* Enable battery discharge */
 
+/* PXA GPIOs */
 #define POODLE_IRQ_GPIO_ON_KEY		PXA_GPIO_TO_IRQ(0)
 #define POODLE_IRQ_GPIO_AC_IN		PXA_GPIO_TO_IRQ(1)
 #define POODLE_IRQ_GPIO_HP_IN		PXA_GPIO_TO_IRQ(4)
@@ -55,6 +60,7 @@
 #define POODLE_IRQ_GPIO_nSD_DETECT	PXA_GPIO_TO_IRQ(9)
 #define POODLE_IRQ_GPIO_MAIN_BAT_LOW	PXA_GPIO_TO_IRQ(13)
 
+/* SCOOP GPIOs */
 #define POODLE_SCOOP_CHARGE_ON	SCOOP_GPCR_PA11
 #define POODLE_SCOOP_CP401	SCOOP_GPCR_PA13
 #define POODLE_SCOOP_VPEN	SCOOP_GPCR_PA18
@@ -79,8 +85,8 @@
 #define POODLE_LOCOMO_GPIO_232VCC_ON   LOCOMO_GPIO(12)
 #define POODLE_LOCOMO_GPIO_JK_B        LOCOMO_GPIO(13)
 
-#define POODLE_NR_IRQS		(IRQ_BOARD_START + 4)	
+#define POODLE_NR_IRQS		(IRQ_BOARD_START + 4)	/* 4 for LoCoMo */
 
 extern struct platform_device poodle_locomo_device;
 
-#endif 
+#endif /* __ASM_ARCH_POODLE_H  */

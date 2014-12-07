@@ -24,6 +24,7 @@ static regType_t getConfigReg(u64 id)
 	return (reg);
 }
 
+/* ======================================================================= */
 
 static char *szTab[] = { "4k", "64k", "1M", "512M" };
 static char *protTab[] = { "----",
@@ -46,11 +47,13 @@ static char *protTab[] = { "----",
 #define  ITLB_BASE	0x00000000
 #define  DTLB_BASE	0x00800000
 #define  MAX_TLBs		64
+/* PTE High */
 #define  GET_VALID(pte)        ((pte) & 0x1)
 #define  GET_SHARED(pte)       ((pte) & 0x2)
 #define  GET_ASID(pte)         ((pte >> 2) & 0x0ff)
 #define  GET_EPN(pte)          ((pte) & 0xfffff000)
 
+/* PTE Low */
 #define  GET_CBEHAVIOR(pte)    ((pte) & 0x3)
 #define  GET_PAGE_SIZE(pte)    szTab[((pte >> 3) & 0x3)]
 #define  GET_PROTECTION(pte)   protTab[((pte >> 6) & 0xf)]
@@ -77,6 +80,11 @@ void print_single_tlb(unsigned long tlb, int single_print)
 	char *pSize;
 	char *pProt;
 
+	/*
+	   ** in case of single print <single_print> is true, this implies:
+	   **   1) print the TLB in any case also if NOT VALID
+	   **   2) print out the header
+	 */
 
 	pteH = getConfigReg(tlb);
 	valid = GET_VALID(pteH);

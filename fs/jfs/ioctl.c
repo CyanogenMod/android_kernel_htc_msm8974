@@ -85,18 +85,22 @@ long jfs_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (!S_ISDIR(inode->i_mode))
 			flags &= ~JFS_DIRSYNC_FL;
 
-		
+		/* Is it quota file? Do not allow user to mess with it */
 		if (IS_NOQUOTA(inode)) {
 			err = -EPERM;
 			goto setflags_out;
 		}
 
-		
+		/* Lock against other parallel changes of flags */
 		mutex_lock(&inode->i_mutex);
 
 		jfs_get_inode_flags(jfs_inode);
 		oldflags = jfs_inode->mode2;
 
+		/*
+		 * The IMMUTABLE and APPEND_ONLY flags can only be changed by
+		 * the relevant capability.
+		 */
 		if ((oldflags & JFS_IMMUTABLE_FL) ||
 			((flags ^ oldflags) &
 			(JFS_APPEND_FL | JFS_IMMUTABLE_FL))) {
@@ -127,6 +131,10 @@ setflags_out:
 #ifdef CONFIG_COMPAT
 long jfs_compat_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
+	/* While these ioctl numbers defined with 'long' and have different
+	 * numbers than the 64bit ABI,
+	 * the actual implementation only deals with ints and is compatible.
+	 */
 	switch (cmd) {
 	case JFS_IOC_GETFLAGS32:
 		cmd = JFS_IOC_GETFLAGS;

@@ -31,6 +31,7 @@
 
 #include "common.h"
 
+/* Following are default values for UCON, ULCON and UFCON UART registers */
 #define TORBRECK_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
 				 S3C2410_UCON_RXILEVEL |	\
 				 S3C2410_UCON_TXIRQMODE |	\
@@ -90,15 +91,15 @@ static struct platform_device *torbreck_devices[] __initdata = {
 };
 
 static struct i2c_board_info torbreck_i2c_devs0[] __initdata = {
-	
+	/* To Be Updated */
 };
 
 static struct i2c_board_info torbreck_i2c_devs1[] __initdata = {
-	
+	/* To Be Updated */
 };
 
 static struct i2c_board_info torbreck_i2c_devs2[] __initdata = {
-	
+	/* To Be Updated */
 };
 
 static void __init torbreck_map_io(void)
@@ -125,7 +126,7 @@ static void __init torbreck_machine_init(void)
 }
 
 MACHINE_START(TORBRECK, "TORBRECK")
-	
+	/* Maintainer: Hyunchul Ko <ghcstop@gmail.com> */
 	.atag_offset	= 0x100,
 	.init_irq	= s5pv210_init_irq,
 	.handle_irq	= vic_handle_irq,

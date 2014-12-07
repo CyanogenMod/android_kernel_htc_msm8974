@@ -53,4 +53,4 @@ int aptina_pll_calculate(struct device *dev,
 			 const struct aptina_pll_limits *limits,
 			 struct aptina_pll *pll);
 
-#endif 
+#endif /* __APTINA_PLL_H */

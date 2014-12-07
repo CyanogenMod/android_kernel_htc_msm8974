@@ -12,9 +12,13 @@
 #include <linux/i2c.h>
 #include <linux/regulator/machine.h>
 
+/*
+ * Register definitions to all subdrivers
+ */
 #define TPS6105X_REG_0			0x00
 #define TPS6105X_REG0_MODE_SHIFT	6
 #define TPS6105X_REG0_MODE_MASK		(0x03<<6)
+/* These defines for both reg0 and reg1 */
 #define TPS6105X_REG0_MODE_SHUTDOWN	0x00
 #define TPS6105X_REG0_MODE_TORCH	0x01
 #define TPS6105X_REG0_MODE_TORCH_FLASH	0x02
@@ -46,6 +50,17 @@
 #define TPS6105X_REG_2			0x02
 #define TPS6105X_REG_3			0x03
 
+/**
+ * enum tps6105x_mode - desired mode for the TPS6105x
+ * @TPS6105X_MODE_SHUTDOWN: this instance is inactive, not used for anything
+ * @TPS61905X_MODE_TORCH: this instance is used as a LED, usually a while
+ *	LED, for example as backlight or flashlight. If this is set, the
+ *	TPS6105X will register to the LED framework
+ * @TPS6105X_MODE_TORCH_FLASH: this instance is used as a flashgun, usually
+ *	in a camera
+ * @TPS6105X_MODE_VOLTAGE: this instance is used as a voltage regulator and
+ *	will register to the regulator framework
+ */
 enum tps6105x_mode {
 	TPS6105X_MODE_SHUTDOWN,
 	TPS6105X_MODE_TORCH,
@@ -53,11 +68,24 @@ enum tps6105x_mode {
 	TPS6105X_MODE_VOLTAGE,
 };
 
+/**
+ * struct tps6105x_platform_data - TPS61905x platform data
+ * @mode: what mode this instance shall be operated in,
+ *	this is not selectable at runtime
+ * @regulator_data: initialization data for the voltage
+ *	regulator if used as a voltage source
+ */
 struct tps6105x_platform_data {
 	enum tps6105x_mode mode;
 	struct regulator_init_data *regulator_data;
 };
 
+/**
+ * struct tps6105x - state holder for the TPS6105x drivers
+ * @mutex: mutex to serialize I2C accesses
+ * @i2c_client: corresponding I2C client
+ * @regulator: regulator device if used in voltage mode
+ */
 struct tps6105x {
 	struct tps6105x_platform_data *pdata;
 	struct mutex		lock;

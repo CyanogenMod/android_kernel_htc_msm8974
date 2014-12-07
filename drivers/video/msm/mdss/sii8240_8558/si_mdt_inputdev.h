@@ -14,6 +14,9 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 
 */
 
+/*
+   @file si_mdt_inputdev.h
+*/
 
 #ifndef _SI_MDT_INPUTDEV_H_
 #define _SI_MDT_INPUTDEV_H_
@@ -21,6 +24,7 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 #define HID_INPUT_REPORT		7
 #define MAX_TOUCH_CONTACTS		4
 
+/* MDT header byte bit definitions */
 #define REGISTRATION_SUCCESS	0
 #define REGISTRATION_ERROR		1
 #define KEY_PRESSED				1
@@ -29,28 +33,34 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 #define MDT_TOUCH_ACTIVE		2
 
 
+/* Common header bit definitions */
 #define MDT_HDR_IS_HID			0x80
 #define MDT_HDR_IS_PORT_B		0x40
 #define MDT_HDR_IS_KEYBOARD		0x20
 #define MDT_HDR_IS_NOT_LAST		0x10
 #define MDT_HDR_IS_NOT_MOUSE	0x08
 
+/* Keyboard event specific header bit definitions */
 #define MDT_HDR_KBD_LEFT_ALT	0x04
 #define MDT_HDR_KBD_LEFT_SHIFT	0x02
 #define MDT_HDR_KBD_LEFT_CTRL	0x01
 
+/* Mouse event specific header bit definitions */
 #define MDT_HDR_MOUSE_BUTTON_3		0x04
 #define MDT_HDR_MOUSE_BUTTON_2		0x02
 #define MDT_HDR_MOUSE_BUTTON_1		0x01
 #define MDT_HDR_MOUSE_BUTTON_MASK	0x07
 
+/* Touch pad event specific header bit definitions */
 #define MDT_HDR_TOUCH_IS_TOUCHED		0x01
 #define MDT_HDR_TOUCH_CONTACT_ID_MASK	0x06
 
+/* Game controller event specific header bit definitions */
 #define MDT_HDR_GAME_BUTTON_3	0x04
 #define MDT_HDR_GAME_BUTTON_2	0x02
 #define MDT_HDR_GAME_BUTTON_1	0x01
 
+/* MDT hot-plug prefix and event information */
 #define MDT_VERSION				1
 #define M_CHAR					'M'
 #define D_CHAR					'D'
@@ -60,6 +70,7 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 #define RESPONSE_ACK			'A'	
 #define RESPONSE_NACK			'N'
 
+/* MDT Touch screen resources and parameters */
 
 #define MDT_TOUCH_X				0
 #define MDT_TOUCH_Y				1
@@ -70,6 +81,7 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 #define MDT_TOUCH_Y_LOW			BYTE_LOW
 #define MDT_TOUCH_Y_HIGH		BYTE_HIGH
 
+/* support 11 bit absolute addressing        */
 #define X_CORNER_RIGHT_LOWER		1870	
 #define Y_CORNER_RIGHT_LOWER		1870	
 #define ICS_BeagleboardxM			1
@@ -88,7 +100,10 @@ the GNU General Public License for more details at http://www.gnu.org/licenses/g
 #define CORNER_BUTTON				1
 #define ICS_BAR						0
 #define RIGHT_MOUSE_BUTTON_IS_ESC	1
-	    
+/* requires installation of IDC file */	    
+//#define KERNEL_2_6_38_AND_LATER
+/* as of JB the IDC file is needed but, doesn't
+	guarantee acess to virtual buttons. */
 #define JB_421						0
 #if (JB_421 == 1)
 #define X_BUTTON_BAR_START			0x4F0
@@ -125,12 +140,12 @@ struct mdt_touch_history_t{
 };
 
 struct mdt_inputdevs {
-	uint8_t						keycodes_old[HID_INPUT_REPORT];		
-	uint8_t						keycodes_new[HID_INPUT_REPORT]; 	
+	uint8_t						keycodes_old[HID_INPUT_REPORT];		/* Prior HID input report */
+	uint8_t						keycodes_new[HID_INPUT_REPORT]; 	/* Current HID input report */
 	struct input_dev			*dev_keyboard;
 	struct input_dev			*dev_mouse;	
 	struct input_dev			*dev_touchscreen;	
-	uint8_t 					is_dev_registered[MDT_TYPE_COUNT]; 
+	uint8_t 					is_dev_registered[MDT_TYPE_COUNT]; /*Instance tracking variable*/
 	struct mdt_touch_history_t	prior_touch_events[MAX_TOUCH_CONTACTS];
 	unsigned char				prior_touch_button;
 	
@@ -138,7 +153,7 @@ struct mdt_inputdevs {
 	unsigned char				prior_right_button;
 	#endif
 	
-			
+	/* ser overrides to allow runtime calibration*/		
 	uint32_t					x_max, y_max;
 	uint32_t					x_screen, x_raw, x_shift;
 	uint32_t					y_screen, y_raw, y_shift;
@@ -208,4 +223,4 @@ int mdt_init(struct mhl_dev_context *dev_context);
 #endif
 void mdt_destroy(struct mhl_dev_context *dev_context);
 
-#endif 
+#endif /* #ifndef _SI_MDT_INPUTDEV_H_ */

@@ -238,7 +238,7 @@ static int mddi_on(struct platform_device *pdev)
 	pmdh_clk_enable();
 #ifdef ENABLE_FWD_LINK_SKEW_CALIBRATION
 	if (mddi_client_type < 2) {
-		
+		/* For skew calibration, clock should be less than 50MHz */
 		clk_rate = clk_round_rate(mddi_clk, 49000000);
 		if (!clk_set_rate(mddi_clk, clk_rate)) {
 			stat_reg = mddi_host_reg_in(STAT);
@@ -360,9 +360,15 @@ static int mddi_probe(struct platform_device *pdev)
 	if (!mdp_dev)
 		return -ENOMEM;
 
+	/*
+	 * link to the latest pdev
+	 */
 	mfd->pdev = mdp_dev;
 	mfd->dest = DISPLAY_LCD;
 
+	/*
+	 * alloc panel device data
+	 */
 	if (platform_device_add_data
 	    (mdp_dev, pdev->dev.platform_data,
 	     sizeof(struct msm_fb_panel_data))) {
@@ -370,11 +376,17 @@ static int mddi_probe(struct platform_device *pdev)
 		platform_device_put(mdp_dev);
 		return -ENOMEM;
 	}
+	/*
+	 * data chain
+	 */
 	pdata = mdp_dev->dev.platform_data;
 	pdata->on = mddi_on;
 	pdata->off = mddi_off;
 	pdata->next = pdev;
 	pdata->clk_func = pmdh_clk_func;
+	/*
+	 * get/set panel specific fb info
+	 */
 	mfd->panel_info = pdata->panel_info;
 
 	if (mfd->index == 0)
@@ -401,6 +413,9 @@ static int mddi_probe(struct platform_device *pdev)
 		"%s: mddi client is trying to revert back to type 1	!!!\n",
 		__func__);
 
+	/*
+	 * set driver data
+	 */
 	platform_set_drvdata(mdp_dev, mfd);
 	rc = pm_runtime_set_active(&pdev->dev);
 	if (rc < 0)
@@ -408,6 +423,9 @@ static int mddi_probe(struct platform_device *pdev)
 
 	rc = 0;
 	pm_runtime_enable(&pdev->dev);
+	/*
+	 * register in mdp driver
+	 */
 	rc = platform_device_add(mdp_dev);
 	if (rc)
 		goto mddi_probe_err;

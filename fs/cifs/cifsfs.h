@@ -24,6 +24,10 @@
 
 #define ROOT_I 2
 
+/*
+ * ino_t is 32-bits on 32-bit arch. We have to squash the 64-bit value down
+ * so that it will fit.
+ */
 static inline ino_t
 cifs_uniqueid_to_ino_t(u64 fileid)
 {
@@ -37,6 +41,7 @@ extern struct file_system_type cifs_fs_type;
 extern const struct address_space_operations cifs_addr_ops;
 extern const struct address_space_operations cifs_addr_ops_smallbuf;
 
+/* Functions related to inodes */
 extern const struct inode_operations cifs_dir_inode_ops;
 extern struct inode *cifs_root_iget(struct super_block *);
 extern int cifs_create(struct inode *, struct dentry *, umode_t,
@@ -63,10 +68,11 @@ extern const struct inode_operations cifs_symlink_inode_ops;
 extern const struct inode_operations cifs_dfs_referral_inode_operations;
 
 
+/* Functions related to files and directories */
 extern const struct file_operations cifs_file_ops;
-extern const struct file_operations cifs_file_direct_ops; 
-extern const struct file_operations cifs_file_strict_ops; 
-extern const struct file_operations cifs_file_nobrl_ops; 
+extern const struct file_operations cifs_file_direct_ops; /* if directio mnt */
+extern const struct file_operations cifs_file_strict_ops; /* if strictio mnt */
+extern const struct file_operations cifs_file_nobrl_ops; /* no brlocks */
 extern const struct file_operations cifs_file_direct_nobrl_ops;
 extern const struct file_operations cifs_file_strict_nobrl_ops;
 extern int cifs_open(struct inode *inode, struct file *file);
@@ -90,6 +96,7 @@ extern const struct file_operations cifs_dir_ops;
 extern int cifs_dir_open(struct inode *inode, struct file *file);
 extern int cifs_readdir(struct file *file, void *direntry, filldir_t filldir);
 
+/* Functions related to dir entries */
 extern const struct dentry_operations cifs_dentry_ops;
 extern const struct dentry_operations cifs_ci_dentry_ops;
 
@@ -99,6 +106,7 @@ extern struct vfsmount *cifs_dfs_d_automount(struct path *path);
 #define cifs_dfs_d_automount NULL
 #endif
 
+/* Functions related to symlinks */
 extern void *cifs_follow_link(struct dentry *direntry, struct nameidata *nd);
 extern void cifs_put_link(struct dentry *direntry,
 			  struct nameidata *nd, void *);
@@ -115,7 +123,7 @@ extern long cifs_ioctl(struct file *filep, unsigned int cmd, unsigned long arg);
 
 #ifdef CONFIG_CIFS_NFSD_EXPORT
 extern const struct export_operations cifs_export_ops;
-#endif 
+#endif /* CONFIG_CIFS_NFSD_EXPORT */
 
 #define CIFS_VERSION   "1.78"
-#endif				
+#endif				/* _CIFSFS_H */

@@ -183,7 +183,11 @@ out:
 	return error;
 }
 
+/*
+ * Utility check functions
+ */
 
+/* A check which always fails, for testing purposes only */
 static inline void check_always_fail(struct check *c, struct node *dt)
 {
 	FAIL(c, "always_fail check");
@@ -198,7 +202,7 @@ static void check_is_string(struct check *c, struct node *root,
 
 	prop = get_property(node, propname);
 	if (!prop)
-		return; 
+		return; /* Not present, assumed ok */
 
 	if (!data_is_one_string(prop->val))
 		FAIL(c, "\"%s\" property in %s is not a string",
@@ -217,7 +221,7 @@ static void check_is_cell(struct check *c, struct node *root,
 
 	prop = get_property(node, propname);
 	if (!prop)
-		return; 
+		return; /* Not present, assumed ok */
 
 	if (prop->val.len != sizeof(cell_t))
 		FAIL(c, "\"%s\" property in %s is not a single cell",
@@ -228,6 +232,9 @@ static void check_is_cell(struct check *c, struct node *root,
 #define ERROR_IF_NOT_CELL(nm, propname) \
 	ERROR(nm, NULL, check_is_cell, NULL, (propname))
 
+/*
+ * Structural check functions
+ */
 
 static void check_duplicate_node_names(struct check *c, struct node *dt,
 				       struct node *node)
@@ -374,11 +381,18 @@ static void check_explicit_phandles(struct check *c, struct node *root,
 	for_each_marker_of_type(m, REF_PHANDLE) {
 		assert(m->offset == 0);
 		if (node != get_node_by_ref(root, m->ref))
- {
+			/* "Set this node's phandle equal to some
+			 * other node's phandle".  That's nonsensical
+			 * by construction. */ {
 			FAIL(c, "%s in %s is a reference to another node",
 			     prop->name, node->fullpath);
 			return;
 		}
+		/* But setting this node's phandle equal to its own
+		 * phandle is allowed - that means allocate a unique
+		 * phandle for this node, even if it's not otherwise
+		 * referenced.  The value will be filled in later, so
+		 * no further checking for now. */
 		return;
 	}
 
@@ -417,13 +431,15 @@ static void check_name_properties(struct check *c, struct node *root,
 		}
 
 	if (!prop)
-		return; 
+		return; /* No name property, that's fine */
 
 	if ((prop->val.len != node->basenamelen+1)
 	    || (memcmp(prop->val.val, node->name, node->basenamelen) != 0)) {
 		FAIL(c, "\"name\" property in %s is incorrect (\"%s\" instead"
 		     " of base node name)", node->fullpath, prop->val.val);
 	} else {
+		/* The name property is correct, and therefore redundant.
+		 * Delete it */
 		*pp = prop->next;
 		free(prop->name);
 		data_free(prop->val);
@@ -433,6 +449,9 @@ static void check_name_properties(struct check *c, struct node *root,
 ERROR_IF_NOT_STRING(name_is_string, "name");
 NODE_ERROR(name_properties, NULL, &name_is_string);
 
+/*
+ * Reference fixup functions
+ */
 
 static void fixup_phandle_references(struct check *c, struct node *dt,
 				     struct node *node, struct property *prop)
@@ -483,6 +502,9 @@ static void fixup_path_references(struct check *c, struct node *dt,
 ERROR(path_references, NULL, NULL, fixup_path_references, NULL,
       &duplicate_node_names);
 
+/*
+ * Semantic checks
+ */
 WARNING_IF_NOT_CELL(address_cells_is_cell, "#address-cells");
 WARNING_IF_NOT_CELL(size_cells_is_cell, "#size-cells");
 WARNING_IF_NOT_CELL(interrupt_cells_is_cell, "#interrupt-cells");
@@ -523,7 +545,7 @@ static void check_reg_format(struct check *c, struct node *dt,
 
 	prop = get_property(node, "reg");
 	if (!prop)
-		return; 
+		return; /* No "reg", that's fine */
 
 	if (!node->parent) {
 		FAIL(c, "Root node has a \"reg\" property");
@@ -585,13 +607,16 @@ static void check_ranges_format(struct check *c, struct node *dt,
 }
 NODE_WARNING(ranges_format, NULL, &addr_size_cells);
 
+/*
+ * Style checks
+ */
 static void check_avoid_default_addr_size(struct check *c, struct node *dt,
 					  struct node *node)
 {
 	struct property *reg, *ranges;
 
 	if (!node->parent)
-		return; 
+		return; /* Ignore root node */
 
 	reg = get_property(node, "reg");
 	ranges = get_property(node, "ranges");
@@ -651,7 +676,7 @@ static void enable_warning_error(struct check *c, bool warn, bool error)
 {
 	int i;
 
-	
+	/* Raising level, also raise it for prereqs */
 	if ((warn && !c->warn) || (error && !c->error))
 		for (i = 0; i < c->num_prereqs; i++)
 			enable_warning_error(c->prereq[i], warn, error);
@@ -664,6 +689,8 @@ static void disable_warning_error(struct check *c, bool warn, bool error)
 {
 	int i;
 
+	/* Lowering level, also lower it for things this is the prereq
+	 * for */
 	if ((warn && c->warn) || (error && c->error)) {
 		for (i = 0; i < ARRAY_SIZE(check_table); i++) {
 			struct check *cc = check_table[i];

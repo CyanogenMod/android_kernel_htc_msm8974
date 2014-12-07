@@ -41,16 +41,42 @@ static const struct be_ethtool_stat et_stats[] = {
 	{DRVSTAT_INFO(rx_alignment_symbol_errors)},
 	{DRVSTAT_INFO(rx_pause_frames)},
 	{DRVSTAT_INFO(rx_control_frames)},
+	/* Received packets dropped when the Ethernet length field
+	 * is not equal to the actual Ethernet data length.
+	 */
 	{DRVSTAT_INFO(rx_in_range_errors)},
+	/* Received packets dropped when their length field is >= 1501 bytes
+	 * and <= 1535 bytes.
+	 */
 	{DRVSTAT_INFO(rx_out_range_errors)},
-	
+	/* Received packets dropped when they are longer than 9216 bytes */
 	{DRVSTAT_INFO(rx_frame_too_long)},
+	/* Received packets dropped when they don't pass the unicast or
+	 * multicast address filtering.
+	 */
 	{DRVSTAT_INFO(rx_address_mismatch_drops)},
+	/* Received packets dropped when IP packet length field is less than
+	 * the IP header length field.
+	 */
 	{DRVSTAT_INFO(rx_dropped_too_small)},
+	/* Received packets dropped when IP length field is greater than
+	 * the actual packet length.
+	 */
 	{DRVSTAT_INFO(rx_dropped_too_short)},
+	/* Received packets dropped when the IP header length field is less
+	 * than 5.
+	 */
 	{DRVSTAT_INFO(rx_dropped_header_too_small)},
+	/* Received packets dropped when the TCP header length field is less
+	 * than 5 or the TCP header length + IP header length is more
+	 * than IP packet length.
+	 */
 	{DRVSTAT_INFO(rx_dropped_tcp_length)},
 	{DRVSTAT_INFO(rx_dropped_runt)},
+	/* Number of received packets dropped when a fifo for descriptors going
+	 * into the packet demux block overflows. In normal operation, this
+	 * fifo must never overflow.
+	 */
 	{DRVSTAT_INFO(rxpp_fifo_overflow_drop)},
 	{DRVSTAT_INFO(rx_input_fifo_overflow_drop)},
 	{DRVSTAT_INFO(rx_ip_checksum_errs)},
@@ -59,40 +85,75 @@ static const struct be_ethtool_stat et_stats[] = {
 	{DRVSTAT_INFO(tx_pauseframes)},
 	{DRVSTAT_INFO(tx_controlframes)},
 	{DRVSTAT_INFO(rx_priority_pause_frames)},
+	/* Received packets dropped when an internal fifo going into
+	 * main packet buffer tank (PMEM) overflows.
+	 */
 	{DRVSTAT_INFO(pmem_fifo_overflow_drop)},
 	{DRVSTAT_INFO(jabber_events)},
+	/* Received packets dropped due to lack of available HW packet buffers
+	 * used to temporarily hold the received packets.
+	 */
 	{DRVSTAT_INFO(rx_drops_no_pbuf)},
+	/* Received packets dropped due to input receive buffer
+	 * descriptor fifo overflowing.
+	 */
 	{DRVSTAT_INFO(rx_drops_no_erx_descr)},
+	/* Packets dropped because the internal FIFO to the offloaded TCP
+	 * receive processing block is full. This could happen only for
+	 * offloaded iSCSI or FCoE trarffic.
+	 */
 	{DRVSTAT_INFO(rx_drops_no_tpre_descr)},
+	/* Received packets dropped when they need more than 8
+	 * receive buffers. This cannot happen as the driver configures
+	 * 2048 byte receive buffers.
+	 */
 	{DRVSTAT_INFO(rx_drops_too_many_frags)},
 	{DRVSTAT_INFO(forwarded_packets)},
+	/* Received packets dropped when the frame length
+	 * is more than 9018 bytes
+	 */
 	{DRVSTAT_INFO(rx_drops_mtu)},
-	
+	/* Number of packets dropped due to random early drop function */
 	{DRVSTAT_INFO(eth_red_drops)},
 	{DRVSTAT_INFO(be_on_die_temperature)}
 };
 #define ETHTOOL_STATS_NUM ARRAY_SIZE(et_stats)
 
+/* Stats related to multi RX queues: get_stats routine assumes bytes, pkts
+ * are first and second members respectively.
+ */
 static const struct be_ethtool_stat et_rx_stats[] = {
-	{DRVSTAT_RX_INFO(rx_bytes)},
-	{DRVSTAT_RX_INFO(rx_pkts)}, 
+	{DRVSTAT_RX_INFO(rx_bytes)},/* If moving this member see above note */
+	{DRVSTAT_RX_INFO(rx_pkts)}, /* If moving this member see above note */
 	{DRVSTAT_RX_INFO(rx_compl)},
 	{DRVSTAT_RX_INFO(rx_mcast_pkts)},
+	/* Number of page allocation failures while posting receive buffers
+	 * to HW.
+	 */
 	{DRVSTAT_RX_INFO(rx_post_fail)},
-	
+	/* Recevied packets dropped due to skb allocation failure */
 	{DRVSTAT_RX_INFO(rx_drops_no_skbs)},
+	/* Received packets dropped due to lack of available fetched buffers
+	 * posted by the driver.
+	 */
 	{DRVSTAT_RX_INFO(rx_drops_no_frags)}
 };
 #define ETHTOOL_RXSTATS_NUM (ARRAY_SIZE(et_rx_stats))
 
+/* Stats related to multi TX queues: get_stats routine assumes compl is the
+ * first member
+ */
 static const struct be_ethtool_stat et_tx_stats[] = {
-	{DRVSTAT_TX_INFO(tx_compl)}, 
+	{DRVSTAT_TX_INFO(tx_compl)}, /* If moving this member see above note */
 	{DRVSTAT_TX_INFO(tx_bytes)},
 	{DRVSTAT_TX_INFO(tx_pkts)},
-	
+	/* Number of skbs queued for trasmission by the driver */
 	{DRVSTAT_TX_INFO(tx_reqs)},
-	
+	/* Number of TX work request blocks DMAed to HW */
 	{DRVSTAT_TX_INFO(tx_wrbs)},
+	/* Number of times the TX queue was stopped due to lack
+	 * of spaces in the TXQ.
+	 */
 	{DRVSTAT_TX_INFO(tx_stops)}
 };
 #define ETHTOOL_TXSTATS_NUM (ARRAY_SIZE(et_tx_stats))
@@ -145,7 +206,7 @@ lancer_cmd_get_file_len(struct be_adapter *adapter, u8 *file_name)
 	int status;
 
 	memset(&data_len_cmd, 0, sizeof(data_len_cmd));
-	
+	/* data_offset and data_size should be 0 to get reg len */
 	status = lancer_cmd_read_object(adapter, &data_len_cmd, 0, 0,
 				file_name, &data_read, &eof, &addn_status);
 
@@ -246,6 +307,9 @@ static int be_get_coalesce(struct net_device *netdev,
 	return 0;
 }
 
+/* TX attributes are ignored. Only RX attributes are considered
+ * eqd cmd is issued in the worker thread.
+ */
 static int be_set_coalesce(struct net_device *netdev,
 			   struct ethtool_coalesce *et)
 {
@@ -384,7 +448,7 @@ static int be_get_settings(struct net_device *netdev, struct ethtool_cmd *ecmd)
 		if (!status)
 			be_link_status_update(adapter, link_status);
 
-		
+		/* link_speed is in units of 10 Mbps */
 		if (link_speed) {
 			ethtool_cmd_speed_set(ecmd, link_speed*10);
 		} else {
@@ -433,7 +497,7 @@ static int be_get_settings(struct net_device *netdev, struct ethtool_cmd *ecmd)
 			}
 		}
 
-		
+		/* Save for future use */
 		adapter->link_speed = ethtool_cmd_speed(ecmd);
 		adapter->port_type = ecmd->port;
 		adapter->transceiver = ecmd->transceiver;
@@ -516,7 +580,7 @@ be_set_phys_id(struct net_device *netdev,
 	case ETHTOOL_ID_ACTIVE:
 		be_cmd_get_beacon_state(adapter, adapter->hba_port_num,
 					&adapter->beacon_state);
-		return 1;	
+		return 1;	/* cycle on/off once per second */
 
 	case ETHTOOL_ID_ON:
 		be_cmd_set_beacon_state(adapter, adapter->hba_port_num, 0, 0,

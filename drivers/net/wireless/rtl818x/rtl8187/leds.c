@@ -24,16 +24,19 @@
 
 static void led_turn_on(struct work_struct *work)
 {
+	/* As this routine does read/write operations on the hardware, it must
+	 * be run from a work queue.
+	 */
 	u8 reg;
 	struct rtl8187_priv *priv = container_of(work, struct rtl8187_priv,
 				    led_on.work);
 	struct rtl8187_led *led = &priv->led_tx;
 
-	
+	/* Don't change the LED, when the device is down. */
 	if (!priv->vif || priv->vif->type == NL80211_IFTYPE_UNSPECIFIED)
 		return ;
 
-	
+	/* Skip if the LED is not registered. */
 	if (!led->dev)
 		return;
 	mutex_lock(&priv->conf_mutex);
@@ -59,16 +62,19 @@ static void led_turn_on(struct work_struct *work)
 
 static void led_turn_off(struct work_struct *work)
 {
+	/* As this routine does read/write operations on the hardware, it must
+	 * be run from a work queue.
+	 */
 	u8 reg;
 	struct rtl8187_priv *priv = container_of(work, struct rtl8187_priv,
 				    led_off.work);
 	struct rtl8187_led *led = &priv->led_tx;
 
-	
+	/* Don't change the LED, when the device is down. */
 	if (!priv->vif || priv->vif->type == NL80211_IFTYPE_UNSPECIFIED)
 		return ;
 
-	
+	/* Skip if the LED is not registered. */
 	if (!led->dev)
 		return;
 	mutex_lock(&priv->conf_mutex);
@@ -92,6 +98,7 @@ static void led_turn_off(struct work_struct *work)
 	mutex_unlock(&priv->conf_mutex);
 }
 
+/* Callback from the LED subsystem. */
 static void rtl8187_led_brightness_set(struct led_classdev *led_dev,
 				   enum led_brightness brightness)
 {
@@ -116,7 +123,7 @@ static void rtl8187_led_brightness_set(struct led_classdev *led_dev,
 	} else if (radio_on) {
 		if (brightness == LED_OFF) {
 			ieee80211_queue_delayed_work(hw, &priv->led_off, 0);
-			
+			/* The LED is off for 1/20 sec - it just blinks. */
 			ieee80211_queue_delayed_work(hw, &priv->led_on,
 						     HZ / 20);
 		} else
@@ -171,6 +178,9 @@ void rtl8187_leds_init(struct ieee80211_hw *dev, u16 custid)
 	u8 ledpin;
 	int err;
 
+	/* According to the vendor driver, the LED operation depends on the
+	 * customer ID encoded in the EEPROM
+	 */
 	printk(KERN_INFO "rtl8187: Customer ID is 0x%02X\n", custid);
 	switch (custid) {
 	case EEPROM_CID_RSVD0:
@@ -215,7 +225,7 @@ void rtl8187_leds_init(struct ieee80211_hw *dev, u16 custid)
 	if (!err)
 		return;
 
-	
+	/* registration of RX LED failed - unregister */
 	rtl8187_unregister_led(&priv->led_tx);
 err_tx:
 	rtl8187_unregister_led(&priv->led_radio);
@@ -231,5 +241,5 @@ void rtl8187_leds_exit(struct ieee80211_hw *dev)
 	cancel_delayed_work_sync(&priv->led_off);
 	cancel_delayed_work_sync(&priv->led_on);
 }
-#endif 
+#endif /* def CONFIG_RTL8187_LEDS */
 

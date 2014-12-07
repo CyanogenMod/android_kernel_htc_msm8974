@@ -290,6 +290,7 @@ static struct platform_device tmu5_device = {
 	.num_resources	= ARRAY_SIZE(tmu5_resources),
 };
 
+/* DMA */
 static const struct sh_dmae_channel sh7785_dmae0_channels[] = {
 	{
 		.offset = 0,
@@ -362,19 +363,19 @@ static struct sh_dmae_pdata dma1_platform_data = {
 
 static struct resource sh7785_dmae0_resources[] = {
 	[0] = {
-		
+		/* Channel registers and DMAOR */
 		.start	= 0xfc808020,
 		.end	= 0xfc80808f,
 		.flags	= IORESOURCE_MEM,
 	},
 	[1] = {
-		
+		/* DMARSx */
 		.start	= 0xfc809000,
 		.end	= 0xfc80900b,
 		.flags	= IORESOURCE_MEM,
 	},
 	{
-		
+		/* Real DMA error IRQ is 39, and channel IRQs are 33-38 */
 		.name	= "error_irq",
 		.start	= 33,
 		.end	= 33,
@@ -384,14 +385,14 @@ static struct resource sh7785_dmae0_resources[] = {
 
 static struct resource sh7785_dmae1_resources[] = {
 	[0] = {
-		
+		/* Channel registers and DMAOR */
 		.start	= 0xfcc08020,
 		.end	= 0xfcc0808f,
 		.flags	= IORESOURCE_MEM,
 	},
-	
+	/* DMAC1 has no DMARS */
 	{
-		
+		/* Real DMA error IRQ is 58, and channel IRQs are 52-57 */
 		.name	= "error_irq",
 		.start	= 52,
 		.end	= 52,
@@ -467,7 +468,7 @@ void __init plat_early_device_setup(void)
 enum {
 	UNUSED = 0,
 
-	
+	/* interrupt sources */
 
 	IRL0_LLLL, IRL0_LLLH, IRL0_LLHL, IRL0_LLHH,
 	IRL0_LHLL, IRL0_LHLH, IRL0_LHHL, IRL0_LHHH,
@@ -490,7 +491,7 @@ enum {
 	HAC0, HAC1,
 	FLCTL, GPIO,
 
-	
+	/* interrupt groups */
 
 	TMU012,	TMU345
 };
@@ -542,10 +543,10 @@ static struct intc_group groups[] __initdata = {
 };
 
 static struct intc_mask_reg mask_registers[] __initdata = {
-	{ 0xffd00044, 0xffd00064, 32, 
+	{ 0xffd00044, 0xffd00064, 32, /* INTMSK0 / INTMSKCLR0 */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 
-	{ 0xffd40080, 0xffd40084, 32, 
+	{ 0xffd40080, 0xffd40084, 32, /* INTMSK2 / INTMSKCLR2 */
 	  { IRL0_LLLL, IRL0_LLLH, IRL0_LLHL, IRL0_LLHH,
 	    IRL0_LHLL, IRL0_LHLH, IRL0_LHHL, IRL0_LHHH,
 	    IRL0_HLLL, IRL0_HLLH, IRL0_HLHL, IRL0_HLHH,
@@ -555,7 +556,7 @@ static struct intc_mask_reg mask_registers[] __initdata = {
 	    IRL4_HLLL, IRL4_HLLH, IRL4_HLHL, IRL4_HLHH,
 	    IRL4_HHLL, IRL4_HHLH, IRL4_HHHL, 0, } },
 
-	{ 0xffd40038, 0xffd4003c, 32, 
+	{ 0xffd40038, 0xffd4003c, 32, /* INT2MSKR / INT2MSKCR */
 	  { 0, 0, 0, GDTA, DU, SSI0, SSI1, GPIO,
 	    FLCTL, MMCIF, HSPI, SIOF, PCIC5, PCIINTD, PCIINTC, PCIINTB,
 	    PCIINTA, PCISERR, HAC1, HAC0, DMAC1, DMAC0, HUDI, WDT,
@@ -563,27 +564,28 @@ static struct intc_mask_reg mask_registers[] __initdata = {
 };
 
 static struct intc_prio_reg prio_registers[] __initdata = {
-	{ 0xffd00010, 0, 32, 4,    { IRQ0, IRQ1, IRQ2, IRQ3,
+	{ 0xffd00010, 0, 32, 4, /* INTPRI */   { IRQ0, IRQ1, IRQ2, IRQ3,
 						 IRQ4, IRQ5, IRQ6, IRQ7 } },
-	{ 0xffd40000, 0, 32, 8,  { TMU0, TMU1,
+	{ 0xffd40000, 0, 32, 8, /* INT2PRI0 */ { TMU0, TMU1,
 						 TMU2, TMU2_TICPI } },
-	{ 0xffd40004, 0, 32, 8,  { TMU3, TMU4, TMU5, } },
-	{ 0xffd40008, 0, 32, 8,  { SCIF0, SCIF1,
+	{ 0xffd40004, 0, 32, 8, /* INT2PRI1 */ { TMU3, TMU4, TMU5, } },
+	{ 0xffd40008, 0, 32, 8, /* INT2PRI2 */ { SCIF0, SCIF1,
 						 SCIF2, SCIF3 } },
-	{ 0xffd4000c, 0, 32, 8,  { SCIF4, SCIF5, WDT, } },
-	{ 0xffd40010, 0, 32, 8,  { HUDI, DMAC0, DMAC1, } },
-	{ 0xffd40014, 0, 32, 8,  { HAC0, HAC1,
+	{ 0xffd4000c, 0, 32, 8, /* INT2PRI3 */ { SCIF4, SCIF5, WDT, } },
+	{ 0xffd40010, 0, 32, 8, /* INT2PRI4 */ { HUDI, DMAC0, DMAC1, } },
+	{ 0xffd40014, 0, 32, 8, /* INT2PRI5 */ { HAC0, HAC1,
 						 PCISERR, PCIINTA } },
-	{ 0xffd40018, 0, 32, 8,  { PCIINTB, PCIINTC,
+	{ 0xffd40018, 0, 32, 8, /* INT2PRI6 */ { PCIINTB, PCIINTC,
 						 PCIINTD, PCIC5 } },
-	{ 0xffd4001c, 0, 32, 8,  { SIOF, HSPI, MMCIF, } },
-	{ 0xffd40020, 0, 32, 8,  { FLCTL, GPIO, SSI0, SSI1, } },
-	{ 0xffd40024, 0, 32, 8,  { DU, GDTA, } },
+	{ 0xffd4001c, 0, 32, 8, /* INT2PRI7 */ { SIOF, HSPI, MMCIF, } },
+	{ 0xffd40020, 0, 32, 8, /* INT2PRI8 */ { FLCTL, GPIO, SSI0, SSI1, } },
+	{ 0xffd40024, 0, 32, 8, /* INT2PRI9 */ { DU, GDTA, } },
 };
 
 static DECLARE_INTC_DESC(intc_desc, "sh7785", vectors, groups,
 			 mask_registers, prio_registers, NULL);
 
+/* Support for external interrupt pins in IRQ mode */
 
 static struct intc_vect vectors_irq0123[] __initdata = {
 	INTC_VECT(IRQ0, 0x240), INTC_VECT(IRQ1, 0x280),
@@ -596,12 +598,12 @@ static struct intc_vect vectors_irq4567[] __initdata = {
 };
 
 static struct intc_sense_reg sense_registers[] __initdata = {
-	{ 0xffd0001c, 32, 2,    { IRQ0, IRQ1, IRQ2, IRQ3,
+	{ 0xffd0001c, 32, 2, /* ICR1 */   { IRQ0, IRQ1, IRQ2, IRQ3,
 					    IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
 static struct intc_mask_reg ack_registers[] __initdata = {
-	{ 0xffd00024, 0, 32, 
+	{ 0xffd00024, 0, 32, /* INTREQ */
 	  { IRQ0, IRQ1, IRQ2, IRQ3, IRQ4, IRQ5, IRQ6, IRQ7 } },
 };
 
@@ -613,6 +615,7 @@ static DECLARE_INTC_DESC_ACK(intc_desc_irq4567, "sh7785-irq4567",
 			     vectors_irq4567, NULL, mask_registers,
 			     prio_registers, sense_registers, ack_registers);
 
+/* External interrupt pins in IRL mode */
 
 static struct intc_vect vectors_irl0123[] __initdata = {
 	INTC_VECT(IRL0_LLLL, 0x200), INTC_VECT(IRL0_LLLH, 0x220),
@@ -651,17 +654,17 @@ static DECLARE_INTC_DESC(intc_desc_irl4567, "sh7785-irl4567", vectors_irl4567,
 
 void __init plat_irq_setup(void)
 {
-	
+	/* disable IRQ3-0 + IRQ7-4 */
 	__raw_writel(0xff000000, INTC_INTMSK0);
 
-	
+	/* disable IRL3-0 + IRL7-4 */
 	__raw_writel(0xc0000000, INTC_INTMSK1);
 	__raw_writel(0xfffefffe, INTC_INTMSK2);
 
-	
+	/* select IRL mode for IRL3-0 + IRL7-4 */
 	__raw_writel(__raw_readl(INTC_ICR0) & ~0x00c00000, INTC_ICR0);
 
-	
+	/* disable holding function, ie enable "SH-4 Mode" */
 	__raw_writel(__raw_readl(INTC_ICR0) | 0x00200000, INTC_ICR0);
 
 	register_intc_controller(&intc_desc);
@@ -671,32 +674,32 @@ void __init plat_irq_setup_pins(int mode)
 {
 	switch (mode) {
 	case IRQ_MODE_IRQ7654:
-		
+		/* select IRQ mode for IRL7-4 */
 		__raw_writel(__raw_readl(INTC_ICR0) | 0x00400000, INTC_ICR0);
 		register_intc_controller(&intc_desc_irq4567);
 		break;
 	case IRQ_MODE_IRQ3210:
-		
+		/* select IRQ mode for IRL3-0 */
 		__raw_writel(__raw_readl(INTC_ICR0) | 0x00800000, INTC_ICR0);
 		register_intc_controller(&intc_desc_irq0123);
 		break;
 	case IRQ_MODE_IRL7654:
-		
+		/* enable IRL7-4 but don't provide any masking */
 		__raw_writel(0x40000000, INTC_INTMSKCLR1);
 		__raw_writel(0x0000fffe, INTC_INTMSKCLR2);
 		break;
 	case IRQ_MODE_IRL3210:
-		
+		/* enable IRL0-3 but don't provide any masking */
 		__raw_writel(0x80000000, INTC_INTMSKCLR1);
 		__raw_writel(0xfffe0000, INTC_INTMSKCLR2);
 		break;
 	case IRQ_MODE_IRL7654_MASK:
-		
+		/* enable IRL7-4 and mask using cpu intc controller */
 		__raw_writel(0x40000000, INTC_INTMSKCLR1);
 		register_intc_controller(&intc_desc_irl4567);
 		break;
 	case IRQ_MODE_IRL3210_MASK:
-		
+		/* enable IRL0-3 and mask using cpu intc controller */
 		__raw_writel(0x80000000, INTC_INTMSKCLR1);
 		register_intc_controller(&intc_desc_irl0123);
 		break;
@@ -707,6 +710,6 @@ void __init plat_irq_setup_pins(int mode)
 
 void __init plat_mem_setup(void)
 {
-	
+	/* Register the URAM space as Node 1 */
 	setup_bootmem_node(1, 0xe55f0000, 0xe5610000);
 }

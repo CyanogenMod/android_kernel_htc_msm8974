@@ -20,6 +20,13 @@
 
 #include "mpi-internal.h"
 
+/****************
+ * Note:  It was a bad idea to use the number of limbs to allocate
+ *	  because on a alpha the limbs are large but we normally need
+ *	  integers of n bits - So we should chnage this to bits (or bytes).
+ *
+ *	  But mpi_alloc is used in a lot of places :-)
+ */
 MPI mpi_alloc(unsigned nlimbs)
 {
 	MPI a;
@@ -72,12 +79,16 @@ void mpi_assign_limb_space(MPI a, mpi_ptr_t ap, unsigned nlimbs)
 	a->alloced = nlimbs;
 }
 
+/****************
+ * Resize the array of A to NLIMBS. the additional space is cleared
+ * (set to 0) [done by m_realloc()]
+ */
 int mpi_resize(MPI a, unsigned nlimbs)
 {
 	void *p;
 
 	if (nlimbs <= a->alloced)
-		return 0;	
+		return 0;	/* no need to do it */
 
 	if (a->d) {
 		p = kmalloc(nlimbs * sizeof(mpi_limb_t), GFP_KERNEL);
@@ -118,6 +129,10 @@ void mpi_free(MPI a)
 }
 EXPORT_SYMBOL_GPL(mpi_free);
 
+/****************
+ * Note: This copy function should not interpret the MPI
+ *	 but copy it transparently.
+ */
 int mpi_copy(MPI *copied, const MPI a)
 {
 	size_t i;

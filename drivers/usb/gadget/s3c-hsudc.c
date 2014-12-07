@@ -36,15 +36,16 @@
 
 #define S3C_HSUDC_REG(x)	(x)
 
-#define S3C_IR				S3C_HSUDC_REG(0x00) 
-#define S3C_EIR				S3C_HSUDC_REG(0x04) 
+/* Non-Indexed Registers */
+#define S3C_IR				S3C_HSUDC_REG(0x00) /* Index Register */
+#define S3C_EIR				S3C_HSUDC_REG(0x04) /* EP Intr Status */
 #define S3C_EIR_EP0			(1<<0)
-#define S3C_EIER			S3C_HSUDC_REG(0x08) 
-#define S3C_FAR				S3C_HSUDC_REG(0x0c) 
-#define S3C_FNR				S3C_HSUDC_REG(0x10) 
-#define S3C_EDR				S3C_HSUDC_REG(0x14) 
-#define S3C_TR				S3C_HSUDC_REG(0x18) 
-#define S3C_SSR				S3C_HSUDC_REG(0x1c) 
+#define S3C_EIER			S3C_HSUDC_REG(0x08) /* EP Intr Enable */
+#define S3C_FAR				S3C_HSUDC_REG(0x0c) /* Gadget Address */
+#define S3C_FNR				S3C_HSUDC_REG(0x10) /* Frame Number */
+#define S3C_EDR				S3C_HSUDC_REG(0x14) /* EP Direction */
+#define S3C_TR				S3C_HSUDC_REG(0x18) /* Test Register */
+#define S3C_SSR				S3C_HSUDC_REG(0x1c) /* System Status */
 #define S3C_SSR_DTZIEN_EN		(0xff8f)
 #define S3C_SSR_ERR			(0xff80)
 #define S3C_SSR_VBUSON			(1 << 8)
@@ -53,20 +54,21 @@
 #define S3C_SSR_RESUME			(1 << 2)
 #define S3C_SSR_SUSPEND			(1 << 1)
 #define S3C_SSR_RESET			(1 << 0)
-#define S3C_SCR				S3C_HSUDC_REG(0x20) 
+#define S3C_SCR				S3C_HSUDC_REG(0x20) /* System Control */
 #define S3C_SCR_DTZIEN_EN		(1 << 14)
 #define S3C_SCR_RRD_EN			(1 << 5)
 #define S3C_SCR_SUS_EN			(1 << 1)
 #define S3C_SCR_RST_EN			(1 << 0)
-#define S3C_EP0SR			S3C_HSUDC_REG(0x24) 
+#define S3C_EP0SR			S3C_HSUDC_REG(0x24) /* EP0 Status */
 #define S3C_EP0SR_EP0_LWO		(1 << 6)
 #define S3C_EP0SR_STALL			(1 << 4)
 #define S3C_EP0SR_TX_SUCCESS		(1 << 1)
 #define S3C_EP0SR_RX_SUCCESS		(1 << 0)
-#define S3C_EP0CR			S3C_HSUDC_REG(0x28) 
+#define S3C_EP0CR			S3C_HSUDC_REG(0x28) /* EP0 Control */
 #define S3C_BR(_x)			S3C_HSUDC_REG(0x60 + (_x * 4))
 
-#define S3C_ESR				S3C_HSUDC_REG(0x2c) 
+/* Indexed Registers */
+#define S3C_ESR				S3C_HSUDC_REG(0x2c) /* EPn Status */
 #define S3C_ESR_FLUSH			(1 << 6)
 #define S3C_ESR_STALL			(1 << 5)
 #define S3C_ESR_LWO			(1 << 4)
@@ -74,25 +76,36 @@
 #define S3C_ESR_PSIF_TWO		(2 << 2)
 #define S3C_ESR_TX_SUCCESS		(1 << 1)
 #define S3C_ESR_RX_SUCCESS		(1 << 0)
-#define S3C_ECR				S3C_HSUDC_REG(0x30) 
+#define S3C_ECR				S3C_HSUDC_REG(0x30) /* EPn Control */
 #define S3C_ECR_DUEN			(1 << 7)
 #define S3C_ECR_FLUSH			(1 << 6)
 #define S3C_ECR_STALL			(1 << 1)
 #define S3C_ECR_IEMS			(1 << 0)
-#define S3C_BRCR			S3C_HSUDC_REG(0x34) 
-#define S3C_BWCR			S3C_HSUDC_REG(0x38) 
-#define S3C_MPR				S3C_HSUDC_REG(0x3c) 
+#define S3C_BRCR			S3C_HSUDC_REG(0x34) /* Read Count */
+#define S3C_BWCR			S3C_HSUDC_REG(0x38) /* Write Count */
+#define S3C_MPR				S3C_HSUDC_REG(0x3c) /* Max Pkt Size */
 
 #define WAIT_FOR_SETUP			(0)
 #define DATA_STATE_XMIT			(1)
 #define DATA_STATE_RECV			(2)
 
 static const char * const s3c_hsudc_supply_names[] = {
-	"vdda",		
-	"vddi",		
-	"vddosc",	
+	"vdda",		/* analog phy supply, 3.3V */
+	"vddi",		/* digital phy supply, 1.2V */
+	"vddosc",	/* oscillator supply, 1.8V - 3.3V */
 };
 
+/**
+ * struct s3c_hsudc_ep - Endpoint representation used by driver.
+ * @ep: USB gadget layer representation of device endpoint.
+ * @name: Endpoint name (as required by ep autoconfiguration).
+ * @dev: Reference to the device controller to which this EP belongs.
+ * @desc: Endpoint descriptor obtained from the gadget driver.
+ * @queue: Transfer request queue for the endpoint.
+ * @stopped: Maintains state of endpoint, set if EP is halted.
+ * @bEndpointAddress: EP address (including direction bit).
+ * @fifo: Base address of EP FIFO.
+ */
 struct s3c_hsudc_ep {
 	struct usb_ep ep;
 	char name[20];
@@ -105,11 +118,29 @@ struct s3c_hsudc_ep {
 	void __iomem *fifo;
 };
 
+/**
+ * struct s3c_hsudc_req - Driver encapsulation of USB gadget transfer request.
+ * @req: Reference to USB gadget transfer request.
+ * @queue: Used for inserting this request to the endpoint request queue.
+ */
 struct s3c_hsudc_req {
 	struct usb_request req;
 	struct list_head queue;
 };
 
+/**
+ * struct s3c_hsudc - Driver's abstraction of the device controller.
+ * @gadget: Instance of usb_gadget which is referenced by gadget driver.
+ * @driver: Reference to currenty active gadget driver.
+ * @dev: The device reference used by probe function.
+ * @lock: Lock to synchronize the usage of Endpoints (EP's are indexed).
+ * @regs: Remapped base address of controller's register space.
+ * @mem_rsrc: Device memory resource used for remapping device register space.
+ * irq: IRQ number used by the controller.
+ * uclk: Reference to the controller clock.
+ * ep0state: Current state of EP0.
+ * ep: List of endpoints supported by the controller.
+ */
 struct s3c_hsudc {
 	struct usb_gadget gadget;
 	struct usb_gadget_driver *driver;
@@ -207,6 +238,12 @@ static void s3c_hsudc_uninit_phy(void)
 	writel(cfg, S3C2443_UCLKCON);
 }
 
+/**
+ * s3c_hsudc_complete_request - Complete a transfer request.
+ * @hsep: Endpoint to which the request belongs.
+ * @hsreq: Transfer request to be completed.
+ * @status: Transfer completion status for the transfer request.
+ */
 static void s3c_hsudc_complete_request(struct s3c_hsudc_ep *hsep,
 				struct s3c_hsudc_req *hsreq, int status)
 {
@@ -229,6 +266,11 @@ static void s3c_hsudc_complete_request(struct s3c_hsudc_ep *hsep,
 	hsep->stopped = stopped;
 }
 
+/**
+ * s3c_hsudc_nuke_ep - Terminate all requests queued for a endpoint.
+ * @hsep: Endpoint for which queued requests have to be terminated.
+ * @status: Transfer completion status for the transfer request.
+ */
 static void s3c_hsudc_nuke_ep(struct s3c_hsudc_ep *hsep, int status)
 {
 	struct s3c_hsudc_req *hsreq;
@@ -240,6 +282,14 @@ static void s3c_hsudc_nuke_ep(struct s3c_hsudc_ep *hsep, int status)
 	}
 }
 
+/**
+ * s3c_hsudc_stop_activity - Stop activity on all endpoints.
+ * @hsudc: Device controller for which EP activity is to be stopped.
+ * @driver: Reference to the gadget driver which is currently active.
+ *
+ * All the endpoints are stopped and any pending transfer requests if any on
+ * the endpoint are terminated.
+ */
 static void s3c_hsudc_stop_activity(struct s3c_hsudc *hsudc)
 {
 	struct s3c_hsudc_ep *hsep;
@@ -254,6 +304,14 @@ static void s3c_hsudc_stop_activity(struct s3c_hsudc *hsudc)
 	}
 }
 
+/**
+ * s3c_hsudc_read_setup_pkt - Read the received setup packet from EP0 fifo.
+ * @hsudc: Device controller from which setup packet is to be read.
+ * @buf: The buffer into which the setup packet is read.
+ *
+ * The setup packet received in the EP0 fifo is read and stored into a
+ * given buffer address.
+ */
 
 static void s3c_hsudc_read_setup_pkt(struct s3c_hsudc *hsudc, u16 *buf)
 {
@@ -365,6 +423,14 @@ static int s3c_hsudc_read_fifo(struct s3c_hsudc_ep *hsep,
 	return 0;
 }
 
+/**
+ * s3c_hsudc_epin_intr - Handle in-endpoint interrupt.
+ * @hsudc - Device controller for which the interrupt is to be handled.
+ * @ep_idx - Endpoint number on which an interrupt is pending.
+ *
+ * Handles interrupt for a in-endpoint. The interrupts that are handled are
+ * stall and data transmit complete interrupt.
+ */
 static void s3c_hsudc_epin_intr(struct s3c_hsudc *hsudc, u32 ep_idx)
 {
 	struct s3c_hsudc_ep *hsep = &hsudc->ep[ep_idx];
@@ -390,6 +456,14 @@ static void s3c_hsudc_epin_intr(struct s3c_hsudc *hsudc, u32 ep_idx)
 	}
 }
 
+/**
+ * s3c_hsudc_epout_intr - Handle out-endpoint interrupt.
+ * @hsudc - Device controller for which the interrupt is to be handled.
+ * @ep_idx - Endpoint number on which an interrupt is pending.
+ *
+ * Handles interrupt for a out-endpoint. The interrupts that are handled are
+ * stall, flush and data ready interrupt.
+ */
 static void s3c_hsudc_epout_intr(struct s3c_hsudc *hsudc, u32 ep_idx)
 {
 	struct s3c_hsudc_ep *hsep = &hsudc->ep[ep_idx];
@@ -419,6 +493,14 @@ static void s3c_hsudc_epout_intr(struct s3c_hsudc *hsudc, u32 ep_idx)
 	}
 }
 
+/** s3c_hsudc_set_halt - Set or clear a endpoint halt.
+ * @_ep: Endpoint on which halt has to be set or cleared.
+ * @value: 1 for setting halt on endpoint, 0 to clear halt.
+ *
+ * Set or clear endpoint halt. If halt is set, the endpoint is stopped.
+ * If halt is cleared, for in-endpoints, if there are any pending
+ * transfer requests, transfers are started.
+ */
 static int s3c_hsudc_set_halt(struct usb_ep *_ep, int value)
 {
 	struct s3c_hsudc_ep *hsep = our_ep(_ep);
@@ -458,6 +540,11 @@ static int s3c_hsudc_set_halt(struct usb_ep *_ep, int value)
 	return 0;
 }
 
+/** s3c_hsudc_set_wedge - Sets the halt feature with the clear requests ignored
+ * @_ep: Endpoint on which wedge has to be set.
+ *
+ * Sets the halt feature with the clear requests ignored.
+ */
 static int s3c_hsudc_set_wedge(struct usb_ep *_ep)
 {
 	struct s3c_hsudc_ep *hsep = our_ep(_ep);
@@ -469,6 +556,12 @@ static int s3c_hsudc_set_wedge(struct usb_ep *_ep)
 	return usb_ep_set_halt(_ep);
 }
 
+/** s3c_hsudc_handle_reqfeat - Handle set feature or clear feature requests.
+ * @_ep: Device controller on which the set/clear feature needs to be handled.
+ * @ctrl: Control request as received on the endpoint 0.
+ *
+ * Handle set feature or clear feature control requests on the control endpoint.
+ */
 static int s3c_hsudc_handle_reqfeat(struct s3c_hsudc *hsudc,
 					struct usb_ctrlrequest *ctrl)
 {
@@ -489,6 +582,13 @@ static int s3c_hsudc_handle_reqfeat(struct s3c_hsudc *hsudc,
 	return -ENOENT;
 }
 
+/**
+ * s3c_hsudc_process_req_status - Handle get status control request.
+ * @hsudc: Device controller on which get status request has be handled.
+ * @ctrl: Control request as received on the endpoint 0.
+ *
+ * Handle get status control request received on control endpoint.
+ */
 static void s3c_hsudc_process_req_status(struct s3c_hsudc *hsudc,
 					struct usb_ctrlrequest *ctrl)
 {
@@ -522,6 +622,13 @@ static void s3c_hsudc_process_req_status(struct s3c_hsudc *hsudc,
 	s3c_hsudc_write_fifo(hsep0, &hsreq);
 }
 
+/**
+ * s3c_hsudc_process_setup - Process control request received on endpoint 0.
+ * @hsudc: Device controller on which control request has been received.
+ *
+ * Read the control request received on endpoint 0, decode it and handle
+ * the request.
+ */
 static void s3c_hsudc_process_setup(struct s3c_hsudc *hsudc)
 {
 	struct s3c_hsudc_ep *hsep = &hsudc->ep[0];
@@ -581,6 +688,13 @@ static void s3c_hsudc_process_setup(struct s3c_hsudc *hsudc)
 	}
 }
 
+/** s3c_hsudc_handle_ep0_intr - Handle endpoint 0 interrupt.
+ * @hsudc: Device controller on which endpoint 0 interrupt has occured.
+ *
+ * Handle endpoint 0 interrupt when it occurs. EP0 interrupt could occur
+ * when a stall handshake is sent to host or data is sent/received on
+ * endpoint 0.
+ */
 static void s3c_hsudc_handle_ep0_intr(struct s3c_hsudc *hsudc)
 {
 	struct s3c_hsudc_ep *hsep = &hsudc->ep[0];
@@ -629,6 +743,15 @@ static void s3c_hsudc_handle_ep0_intr(struct s3c_hsudc *hsudc)
 	}
 }
 
+/**
+ * s3c_hsudc_ep_enable - Enable a endpoint.
+ * @_ep: The endpoint to be enabled.
+ * @desc: Endpoint descriptor.
+ *
+ * Enables a endpoint when called from the gadget driver. Endpoint stall if
+ * any is cleared, transfer type is configured and endpoint interrupt is
+ * enabled.
+ */
 static int s3c_hsudc_ep_enable(struct usb_ep *_ep,
 				const struct usb_endpoint_descriptor *desc)
 {
@@ -670,6 +793,13 @@ static int s3c_hsudc_ep_enable(struct usb_ep *_ep,
 	return 0;
 }
 
+/**
+ * s3c_hsudc_ep_disable - Disable a endpoint.
+ * @_ep: The endpoint to be disabled.
+ * @desc: Endpoint descriptor.
+ *
+ * Disables a endpoint when called from the gadget driver.
+ */
 static int s3c_hsudc_ep_disable(struct usb_ep *_ep)
 {
 	struct s3c_hsudc_ep *hsep = our_ep(_ep);
@@ -694,6 +824,13 @@ static int s3c_hsudc_ep_disable(struct usb_ep *_ep)
 	return 0;
 }
 
+/**
+ * s3c_hsudc_alloc_request - Allocate a new request.
+ * @_ep: Endpoint for which request is allocated (not used).
+ * @gfp_flags: Flags used for the allocation.
+ *
+ * Allocates a single transfer request structure when called from gadget driver.
+ */
 static struct usb_request *s3c_hsudc_alloc_request(struct usb_ep *_ep,
 						gfp_t gfp_flags)
 {
@@ -707,6 +844,13 @@ static struct usb_request *s3c_hsudc_alloc_request(struct usb_ep *_ep,
 	return &hsreq->req;
 }
 
+/**
+ * s3c_hsudc_free_request - Deallocate a request.
+ * @ep: Endpoint for which request is deallocated (not used).
+ * @_req: Request to be deallocated.
+ *
+ * Allocates a single transfer request structure when called from gadget driver.
+ */
 static void s3c_hsudc_free_request(struct usb_ep *ep, struct usb_request *_req)
 {
 	struct s3c_hsudc_req *hsreq;
@@ -716,6 +860,14 @@ static void s3c_hsudc_free_request(struct usb_ep *ep, struct usb_request *_req)
 	kfree(hsreq);
 }
 
+/**
+ * s3c_hsudc_queue - Queue a transfer request for the endpoint.
+ * @_ep: Endpoint for which the request is queued.
+ * @_req: Request to be queued.
+ * @gfp_flags: Not used.
+ *
+ * Start or enqueue a request for a endpoint when called from gadget driver.
+ */
 static int s3c_hsudc_queue(struct usb_ep *_ep, struct usb_request *_req,
 			gfp_t gfp_flags)
 {
@@ -771,6 +923,13 @@ static int s3c_hsudc_queue(struct usb_ep *_ep, struct usb_request *_req,
 	return 0;
 }
 
+/**
+ * s3c_hsudc_dequeue - Dequeue a transfer request from an endpoint.
+ * @_ep: Endpoint from which the request is dequeued.
+ * @_req: Request to be dequeued.
+ *
+ * Dequeue a request from a endpoint when called from gadget driver.
+ */
 static int s3c_hsudc_dequeue(struct usb_ep *_ep, struct usb_request *_req)
 {
 	struct s3c_hsudc_ep *hsep = our_ep(_ep);
@@ -811,6 +970,14 @@ static struct usb_ep_ops s3c_hsudc_ep_ops = {
 	.set_wedge = s3c_hsudc_set_wedge,
 };
 
+/**
+ * s3c_hsudc_initep - Initialize a endpoint to default state.
+ * @hsudc - Reference to the device controller.
+ * @hsep - Endpoint to be initialized.
+ * @epnum - Address to be assigned to the endpoint.
+ *
+ * Initialize a endpoint with default configuration.
+ */
 static void s3c_hsudc_initep(struct s3c_hsudc *hsudc,
 				struct s3c_hsudc_ep *hsep, int epnum)
 {
@@ -848,6 +1015,12 @@ static void s3c_hsudc_initep(struct s3c_hsudc *hsudc,
 	writel(hsep->ep.maxpacket, hsudc->regs + S3C_MPR);
 }
 
+/**
+ * s3c_hsudc_setup_ep - Configure all endpoints to default state.
+ * @hsudc: Reference to device controller.
+ *
+ * Configures all endpoints to default state.
+ */
 static void s3c_hsudc_setup_ep(struct s3c_hsudc *hsudc)
 {
 	int epnum;
@@ -858,6 +1031,12 @@ static void s3c_hsudc_setup_ep(struct s3c_hsudc *hsudc)
 		s3c_hsudc_initep(hsudc, &hsudc->ep[epnum], epnum);
 }
 
+/**
+ * s3c_hsudc_reconfig - Reconfigure the device controller to default state.
+ * @hsudc: Reference to device controller.
+ *
+ * Reconfigures the device controller registers to a default state.
+ */
 static void s3c_hsudc_reconfig(struct s3c_hsudc *hsudc)
 {
 	writel(0xAA, hsudc->regs + S3C_EDR);
@@ -870,6 +1049,14 @@ static void s3c_hsudc_reconfig(struct s3c_hsudc *hsudc)
 	s3c_hsudc_setup_ep(hsudc);
 }
 
+/**
+ * s3c_hsudc_irq - Interrupt handler for device controller.
+ * @irq: Not used.
+ * @_dev: Reference to the device controller.
+ *
+ * Interrupt handler for the device controller. This handler handles controller
+ * interrupts and endpoint interrupts.
+ */
 static irqreturn_t s3c_hsudc_irq(int irq, void *_dev)
 {
 	struct s3c_hsudc *hsudc = _dev;
@@ -980,7 +1167,7 @@ static int s3c_hsudc_start(struct usb_gadget *gadget,
 		goto err_supplies;
 	}
 
-	
+	/* connect to bus through transceiver */
 	if (hsudc->transceiver) {
 		ret = otg_set_peripheral(hsudc->transceiver->otg,
 					&hsudc->gadget);

@@ -101,7 +101,7 @@ static void catas_reset(struct work_struct *work)
 		struct pci_dev *pdev = priv->dev.pdev;
 
 		ret = mlx4_restart_one(priv->dev.pdev);
-		
+		/* 'priv' now is not valid */
 		if (ret)
 			pr_err("mlx4 %s: Reset failed (%d)\n",
 			       pci_name(pdev), ret);
@@ -117,7 +117,7 @@ void mlx4_start_catas_poll(struct mlx4_dev *dev)
 	struct mlx4_priv *priv = mlx4_priv(dev);
 	phys_addr_t addr;
 
-	
+	/*If we are in SRIOV the default of the module param must be 0*/
 	if (mlx4_is_mfunc(dev))
 		internal_err_reset = 0;
 

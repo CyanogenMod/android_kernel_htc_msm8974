@@ -1,3 +1,9 @@
+/* linux/arch/sparc64/kernel/sys_sparc.c
+ *
+ * This file contains various random system calls that
+ * have a non-standard calling sequence on the Linux/sparc
+ * platform.
+ */
 
 #include <linux/errno.h>
 #include <linux/types.h>
@@ -26,6 +32,7 @@
 #include "entry.h"
 #include "systbls.h"
 
+/* #define DEBUG_UNIMP_SYSCALL */
 
 asmlinkage unsigned long sys_getpagesize(void)
 {
@@ -35,6 +42,9 @@ asmlinkage unsigned long sys_getpagesize(void)
 #define VA_EXCLUDE_START (0x0000080000000000UL - (1UL << 32UL))
 #define VA_EXCLUDE_END   (0xfffff80000000000UL + (1UL << 32UL))
 
+/* Does addr --> addr+len fall within 4GB of the VA-space hole or
+ * overflow past the end of the 64-bit address space?
+ */
 static inline int invalid_64bit_range(unsigned long addr, unsigned long len)
 {
 	unsigned long va_exclude_start, va_exclude_end;
@@ -56,6 +66,7 @@ static inline int invalid_64bit_range(unsigned long addr, unsigned long len)
 	return 0;
 }
 
+/* Does start,end straddle the VA-space hole?  */
 static inline int straddles_64bit_va_hole(unsigned long start, unsigned long end)
 {
 	unsigned long va_exclude_start, va_exclude_end;
@@ -72,6 +83,14 @@ static inline int straddles_64bit_va_hole(unsigned long start, unsigned long end
 	return 1;
 }
 
+/* These functions differ from the default implementations in
+ * mm/mmap.c in two ways:
+ *
+ * 1) For file backed MAP_SHARED mmap()'s we D-cache color align,
+ *    for fixed such mappings we just validate what the user gave us.
+ * 2) For 64-bit tasks we avoid mapping anything within 4GB of
+ *    the spitfire/niagara VA-hole.
+ */
 
 static inline unsigned long COLOUR_ALIGN(unsigned long addr,
 					 unsigned long pgoff)
@@ -102,6 +121,9 @@ unsigned long arch_get_unmapped_area(struct file *filp, unsigned long addr, unsi
 	int do_color_align;
 
 	if (flags & MAP_FIXED) {
+		/* We do not accept a shared mapping if it would violate
+		 * cache aliasing constraints.
+		 */
 		if ((flags & MAP_SHARED) &&
 		    ((addr - (pgoff << PAGE_SHIFT)) & (SHMLBA - 1)))
 			return -EINVAL;
@@ -145,7 +167,7 @@ full_search:
 		addr = PAGE_ALIGN(addr);
 
 	for (vma = find_vma(mm, addr); ; vma = vma->vm_next) {
-		
+		/* At this point:  (!vma || addr < vma->vm_end). */
 		if (addr < VA_EXCLUDE_START &&
 		    (addr + len) >= VA_EXCLUDE_START) {
 			addr = VA_EXCLUDE_END;
@@ -160,6 +182,9 @@ full_search:
 			return -ENOMEM;
 		}
 		if (likely(!vma || addr + len <= vma->vm_start)) {
+			/*
+			 * Remember the place where we stopped the search:
+			 */
 			mm->free_area_cache = addr + len;
 			return addr;
 		}
@@ -183,10 +208,13 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 	unsigned long addr = addr0;
 	int do_color_align;
 
-	
+	/* This should only ever run for 32-bit processes.  */
 	BUG_ON(!test_thread_flag(TIF_32BIT));
 
 	if (flags & MAP_FIXED) {
+		/* We do not accept a shared mapping if it would violate
+		 * cache aliasing constraints.
+		 */
 		if ((flags & MAP_SHARED) &&
 		    ((addr - (pgoff << PAGE_SHIFT)) & (SHMLBA - 1)))
 			return -EINVAL;
@@ -200,7 +228,7 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 	if (filp || (flags & MAP_SHARED))
 		do_color_align = 1;
 
-	
+	/* requesting a specific address */
 	if (addr) {
 		if (do_color_align)
 			addr = COLOUR_ALIGN(addr, pgoff);
@@ -213,13 +241,13 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 			return addr;
 	}
 
-	
+	/* check if free_area_cache is useful for us */
 	if (len <= mm->cached_hole_size) {
  	        mm->cached_hole_size = 0;
  		mm->free_area_cache = mm->mmap_base;
  	}
 
-	
+	/* either no address requested or can't fit in requested address hole */
 	addr = mm->free_area_cache;
 	if (do_color_align) {
 		unsigned long base = COLOUR_ALIGN_DOWN(addr-len, pgoff);
@@ -227,11 +255,11 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 		addr = base + len;
 	}
 
-	
+	/* make sure it can fit in the remaining address space */
 	if (likely(addr > len)) {
 		vma = find_vma(mm, addr-len);
 		if (!vma || addr <= vma->vm_start) {
-			
+			/* remember the address as a hint for next time */
 			return (mm->free_area_cache = addr-len);
 		}
 	}
@@ -244,32 +272,47 @@ arch_get_unmapped_area_topdown(struct file *filp, const unsigned long addr0,
 		addr = COLOUR_ALIGN_DOWN(addr, pgoff);
 
 	do {
+		/*
+		 * Lookup failure means no vma is above this address,
+		 * else if new region fits below vma->vm_start,
+		 * return with success:
+		 */
 		vma = find_vma(mm, addr);
 		if (likely(!vma || addr+len <= vma->vm_start)) {
-			
+			/* remember the address as a hint for next time */
 			return (mm->free_area_cache = addr);
 		}
 
- 		
+ 		/* remember the largest hole we saw so far */
  		if (addr + mm->cached_hole_size < vma->vm_start)
  		        mm->cached_hole_size = vma->vm_start - addr;
 
-		
+		/* try just below the current vma->vm_start */
 		addr = vma->vm_start-len;
 		if (do_color_align)
 			addr = COLOUR_ALIGN_DOWN(addr, pgoff);
 	} while (likely(len < vma->vm_start));
 
 bottomup:
+	/*
+	 * A failed mmap() very likely causes application failure,
+	 * so fall back to the bottom-up function here. This scenario
+	 * can happen with large stack limits and large mmap()
+	 * allocations.
+	 */
 	mm->cached_hole_size = ~0UL;
   	mm->free_area_cache = TASK_UNMAPPED_BASE;
 	addr = arch_get_unmapped_area(filp, addr0, len, pgoff, flags);
+	/*
+	 * Restore the topdown base:
+	 */
 	mm->free_area_cache = mm->mmap_base;
 	mm->cached_hole_size = ~0UL;
 
 	return addr;
 }
 
+/* Try to align mapping such that we align it as much as possible. */
 unsigned long get_fb_unmapped_area(struct file *filp, unsigned long orig_addr, unsigned long len, unsigned long pgoff, unsigned long flags)
 {
 	unsigned long align_goal, addr = -ENOMEM;
@@ -279,7 +322,7 @@ unsigned long get_fb_unmapped_area(struct file *filp, unsigned long orig_addr, u
 	get_area = current->mm->get_unmapped_area;
 
 	if (flags & MAP_FIXED) {
-		
+		/* Ok, don't mess with it. */
 		return get_area(NULL, orig_addr, len, pgoff, flags);
 	}
 	flags &= ~MAP_SHARED;
@@ -307,6 +350,9 @@ unsigned long get_fb_unmapped_area(struct file *filp, unsigned long orig_addr, u
 			align_goal = PAGE_SIZE;
 	} while ((addr & ~PAGE_MASK) && align_goal > PAGE_SIZE);
 
+	/* Mapping is smaller than 64K or larger areas could not
+	 * be obtained.
+	 */
 	if (addr & ~PAGE_MASK)
 		addr = get_area(NULL, orig_addr, len, pgoff, flags);
 
@@ -314,6 +360,7 @@ unsigned long get_fb_unmapped_area(struct file *filp, unsigned long orig_addr, u
 }
 EXPORT_SYMBOL(get_fb_unmapped_area);
 
+/* Essentially the same as PowerPC.  */
 static unsigned long mmap_rnd(void)
 {
 	unsigned long rnd = 0UL;
@@ -333,6 +380,10 @@ void arch_pick_mmap_layout(struct mm_struct *mm)
 	unsigned long random_factor = mmap_rnd();
 	unsigned long gap;
 
+	/*
+	 * Fall back to the standard layout if the personality
+	 * bit is set, or if the expected stack growth is unlimited:
+	 */
 	gap = rlimit(RLIMIT_STACK);
 	if (!test_thread_flag(TIF_32BIT) ||
 	    (current->personality & ADDR_COMPAT_LAYOUT) ||
@@ -342,7 +393,7 @@ void arch_pick_mmap_layout(struct mm_struct *mm)
 		mm->get_unmapped_area = arch_get_unmapped_area;
 		mm->unmap_area = arch_unmap_area;
 	} else {
-		
+		/* We know it's 32-bit */
 		unsigned long task_size = STACK_TOP32;
 
 		if (gap < 128 * 1024 * 1024)
@@ -356,6 +407,10 @@ void arch_pick_mmap_layout(struct mm_struct *mm)
 	}
 }
 
+/*
+ * sys_pipe() is the normal C calling standard for creating
+ * a pipe. It's not the way unix traditionally does this, though.
+ */
 SYSCALL_DEFINE1(sparc_pipe_real, struct pt_regs *, regs)
 {
 	int fd[2];
@@ -370,13 +425,18 @@ out:
 	return error;
 }
 
+/*
+ * sys_ipc() is the de-multiplexer for the SysV IPC calls..
+ *
+ * This is really horribly ugly.
+ */
 
 SYSCALL_DEFINE6(sparc_ipc, unsigned int, call, int, first, unsigned long, second,
 		unsigned long, third, void __user *, ptr, long, fifth)
 {
 	long err;
 
-	
+	/* No need for backward compatibility. We can start fresh... */
 	if (call <= SEMCTL) {
 		switch (call) {
 		case SEMOP:
@@ -488,6 +548,7 @@ int sparc_mmap_check(unsigned long addr, unsigned long len)
 	return 0;
 }
 
+/* Linux version of mmap */
 SYSCALL_DEFINE6(mmap, unsigned long, addr, unsigned long, len,
 		unsigned long, prot, unsigned long, flags, unsigned long, fd,
 		unsigned long, off)
@@ -531,11 +592,12 @@ out:
 	return ret;       
 }
 
+/* we come to here via sys_nis_syscall so it can setup the regs argument */
 asmlinkage unsigned long c_sys_nis_syscall(struct pt_regs *regs)
 {
 	static int count;
 	
-	
+	/* Don't make the system unusable, if someone goes stuck */
 	if (count++ > 5)
 		return -ENOSYS;
 
@@ -547,6 +609,7 @@ asmlinkage unsigned long c_sys_nis_syscall(struct pt_regs *regs)
 	return -ENOSYS;
 }
 
+/* #define DEBUG_SPARC_BREAKPOINT */
 
 asmlinkage void sparc_breakpoint(struct pt_regs *regs)
 {
@@ -671,7 +734,7 @@ SYSCALL_DEFINE5(rt_sigaction, int, sig, const struct sigaction __user *, act,
 	struct k_sigaction new_ka, old_ka;
 	int ret;
 
-	
+	/* XXX: Don't preclude handling different sized sigset_t's.  */
 	if (sigsetsize != sizeof(sigset_t))
 		return -EINVAL;
 
@@ -691,6 +754,10 @@ SYSCALL_DEFINE5(rt_sigaction, int, sig, const struct sigaction __user *, act,
 	return ret;
 }
 
+/*
+ * Do a system call from kernel instead of calling sys_execve so we
+ * end up with proper pt_regs.
+ */
 int kernel_execve(const char *filename,
 		  const char *const argv[],
 		  const char *const envp[])

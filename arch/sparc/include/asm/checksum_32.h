@@ -18,8 +18,25 @@
 #include <linux/in6.h>
 #include <asm/uaccess.h>
 
+/* computes the checksum of a memory block at buff, length len,
+ * and adds in "sum" (32-bit)
+ *
+ * returns a 32-bit number suitable for feeding into itself
+ * or csum_tcpudp_magic
+ *
+ * this function must be called with even lengths, except
+ * for the last fragment, which may be odd
+ *
+ * it's best to have buff aligned on a 32-bit boundary
+ */
 extern __wsum csum_partial(const void *buff, int len, __wsum sum);
 
+/* the same as csum_partial, but copies from fs:src while it
+ * checksums
+ *
+ * here even more important to align src and dst on a 32-bit (or even
+ * better 64-bit) boundary
+ */
 
 extern unsigned int __csum_partial_copy_sparc_generic (const unsigned char *, unsigned char *);
 
@@ -98,10 +115,17 @@ csum_partial_copy_to_user(const void *src, void __user *dst, int len,
 #define HAVE_CSUM_COPY_USER
 #define csum_and_copy_to_user csum_partial_copy_to_user
 
+/* ihl is always 5 or greater, almost always is 5, and iph is word aligned
+ * the majority of the time.
+ */
 static inline __sum16 ip_fast_csum(const void *iph, unsigned int ihl)
 {
 	__sum16 sum;
 
+	/* Note: We must read %2 before we touch %0 for the first time,
+	 *       because GCC can legitimately use the same register for
+	 *       both operands.
+	 */
 	__asm__ __volatile__("sub\t%2, 4, %%g4\n\t"
 			     "ld\t[%1 + 0x00], %0\n\t"
 			     "ld\t[%1 + 0x04], %%g2\n\t"
@@ -130,6 +154,7 @@ static inline __sum16 ip_fast_csum(const void *iph, unsigned int ihl)
 	return sum;
 }
 
+/* Fold a partial checksum without adding pseudo headers. */
 static inline __sum16 csum_fold(__wsum sum)
 {
 	unsigned int tmp;
@@ -160,6 +185,10 @@ static inline __wsum csum_tcpudp_nofold(__be32 saddr, __be32 daddr,
 	return sum;
 }
 
+/*
+ * computes the checksum of the TCP/UDP pseudo-header
+ * returns a 16-bit checksum, already complemented
+ */
 static inline __sum16 csum_tcpudp_magic(__be32 saddr, __be32 daddr,
 						   unsigned short len,
 						   unsigned short proto,
@@ -203,9 +232,10 @@ static inline __sum16 csum_ipv6_magic(const struct in6_addr *saddr,
 	return csum_fold(sum);
 }
 
+/* this routine is used for miscellaneous IP-like checksums, mainly in icmp.c */
 static inline __sum16 ip_compute_csum(const void *buff, int len)
 {
 	return csum_fold(csum_partial(buff, len, 0));
 }
 
-#endif 
+#endif /* !(__SPARC_CHECKSUM_H) */

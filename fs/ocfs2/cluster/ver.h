@@ -28,4 +28,4 @@
 
 void cluster_print_version(void);
 
-#endif 
+#endif /* O2CLUSTER_VER_H */

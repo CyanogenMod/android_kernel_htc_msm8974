@@ -17,17 +17,17 @@
 static struct msm_panel_info pinfo;
 
 static struct mipi_dsi_phy_ctrl dsi_cmd_mode_phy_db = {
-	
-	
+	/* DSI Bit Clock at 500 MHz, 2 lane, RGB888 */
+	/* regulator */
 	{0x03, 0x01, 0x01, 0x00},
-	
+	/* timing   */
 	{0xb9, 0x8e, 0x1f, 0x00, 0x98, 0x9c, 0x22, 0x90,
 	0x18, 0x03, 0x04},
-	
+	/* phy ctrl */
 	{0x7f, 0x00, 0x00, 0x00},
-	
+	/* strength */
 	{0xbb, 0x02, 0x06, 0x00},
-	
+	/* pll control */
 	{0x01, 0xec, 0x31, 0xd2, 0x00, 0x40, 0x37, 0x62,
 	0x01, 0x0f, 0x07,
 	0x05, 0x14, 0x03, 0x0, 0x0, 0x0, 0x20, 0x0, 0x02, 0x0},
@@ -53,8 +53,8 @@ static int mipi_cmd_nt35510_wvga_pt_init(void)
 	pinfo.lcdc.v_front_porch = 20;
 	pinfo.lcdc.v_pulse_width = 1;
 
-	pinfo.lcdc.border_clr = 0;	
-	pinfo.lcdc.underflow_clr = 0xff;	
+	pinfo.lcdc.border_clr = 0;	/* blk */
+	pinfo.lcdc.underflow_clr = 0xff;	/* blue */
 	pinfo.lcdc.hsync_skew = 0;
 	pinfo.bl_max = 255;
 	pinfo.bl_min = 1;
@@ -64,7 +64,7 @@ static int mipi_cmd_nt35510_wvga_pt_init(void)
 
 	pinfo.lcd.vsync_enable = TRUE;
 	pinfo.lcd.hw_vsync_mode = TRUE;
-	pinfo.lcd.refx100 = 6000; 
+	pinfo.lcd.refx100 = 6000; /* adjust refx100 to prevent tearing */
 
 	pinfo.mipi.mode = DSI_CMD_MODE;
 	pinfo.mipi.dst_format = DSI_CMD_DST_FORMAT_RGB888;
@@ -74,10 +74,10 @@ static int mipi_cmd_nt35510_wvga_pt_init(void)
 	pinfo.mipi.data_lane1 = TRUE;
 	pinfo.mipi.t_clk_post = 0x20;
 	pinfo.mipi.t_clk_pre = 0x2F;
-	pinfo.mipi.stream = 0; 
+	pinfo.mipi.stream = 0; /* dma_p */
 	pinfo.mipi.mdp_trigger = DSI_CMD_TRIGGER_SW;
 	pinfo.mipi.dma_trigger = DSI_CMD_TRIGGER_SW;
-	pinfo.mipi.te_sel = 1; 
+	pinfo.mipi.te_sel = 1; /* TE from vsync gpio */
 	pinfo.mipi.interleave_max = 1;
 	pinfo.mipi.insert_dcs_cmd = TRUE;
 	pinfo.mipi.wr_mem_continue = 0x3c;

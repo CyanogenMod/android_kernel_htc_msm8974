@@ -10,6 +10,11 @@
  *
  * ----------------------------------------------------------------------- */
 
+/*
+ * linux/fs/isofs/compress.c
+ *
+ * Transparent decompression of files on an iso9660 filesystem
+ */
 
 #include <linux/module.h>
 #include <linux/init.h>
@@ -20,11 +25,21 @@
 #include "isofs.h"
 #include "zisofs.h"
 
+/* This should probably be global. */
 static char zisofs_sink_page[PAGE_CACHE_SIZE];
 
+/*
+ * This contains the zlib memory allocation and the mutex for the
+ * allocation; this avoids failures at block-decompression time.
+ */
 static void *zisofs_zlib_workspace;
 static DEFINE_MUTEX(zisofs_zlib_lock);
 
+/*
+ * Read data of @inode from @block_start to @block_end and uncompress
+ * to one zisofs block. Store the data in the @pages array with @pcount
+ * entries. Start storing at offset @poffset of the first page.
+ */
 static loff_t zisofs_uncompress_block(struct inode *inode, loff_t block_start,
 				      loff_t block_end, int pcount,
 				      struct page **pages, unsigned poffset,
@@ -50,7 +65,7 @@ static loff_t zisofs_uncompress_block(struct inode *inode, loff_t block_start,
 		*errp = -EIO;
 		return 0;
 	}
-	
+	/* Empty block? */
 	if (block_size == 0) {
 		for ( i = 0 ; i < pcount ; i++ ) {
 			if (!pages[i])
@@ -62,7 +77,7 @@ static loff_t zisofs_uncompress_block(struct inode *inode, loff_t block_start,
 		return ((loff_t)pcount) << PAGE_CACHE_SHIFT;
 	}
 
-	
+	/* Because zlib is not thread-safe, do all the I/O at the top. */
 	blocknum = block_start >> bufshift;
 	memset(bhs, 0, (needblocks + 1) * sizeof(struct buffer_head *));
 	haveblocks = isofs_get_blocks(inode, blocknum, bhs, needblocks);
@@ -70,6 +85,12 @@ static loff_t zisofs_uncompress_block(struct inode *inode, loff_t block_start,
 
 	curbh = 0;
 	curpage = 0;
+	/*
+	 * First block is special since it may be fractional.  We also wait for
+	 * it before grabbing the zlib mutex; odds are that the subsequent
+	 * blocks are going to come in in short order so we don't hold the zlib
+	 * mutex longer than necessary.
+	 */
 
 	if (!bhs[0])
 		goto b_eio;
@@ -129,7 +150,7 @@ static loff_t zisofs_uncompress_block(struct inode *inode, loff_t block_start,
 			if (zerr == Z_STREAM_END)
 				break;
 			if (zerr != Z_OK) {
-				
+				/* EOF, error, or trying to read beyond end of input */
 				if (zerr == Z_MEM_ERROR)
 					*errp = -ENOMEM;
 				else {
@@ -149,7 +170,7 @@ static loff_t zisofs_uncompress_block(struct inode *inode, loff_t block_start,
 		}
 
 		if (!stream.avail_out) {
-			
+			/* This page completed */
 			if (pages[curpage]) {
 				flush_dcache_page(pages[curpage]);
 				SetPageUptodate(pages[curpage]);
@@ -171,6 +192,10 @@ b_eio:
 	return stream.total_out;
 }
 
+/*
+ * Uncompress data so that pages[full_page] is fully uptodate and possibly
+ * fills in other pages if we have data for them.
+ */
 static int zisofs_fill_pages(struct inode *inode, int full_page, int pcount,
 			     struct page **pages)
 {
@@ -189,6 +214,11 @@ static int zisofs_fill_pages(struct inode *inode, int full_page, int pcount,
 
 	BUG_ON(!pages[full_page]);
 
+	/*
+	 * We want to read at least 'full_page' page. Because we have to
+	 * uncompress the whole compression block anyway, fill the surrounding
+	 * pages with the data we have anyway...
+	 */
 	start_off = page_offset(pages[full_page]);
 	end_off = min_t(loff_t, start_off + PAGE_CACHE_SIZE, inode->i_size);
 
@@ -199,9 +229,9 @@ static int zisofs_fill_pages(struct inode *inode, int full_page, int pcount,
 	WARN_ON(start_off - (full_page << PAGE_CACHE_SHIFT) !=
 		((cstart_block << zisofs_block_shift) & PAGE_CACHE_MASK));
 
-	
-	
-	
+	/* Find the pointer to this specific chunk */
+	/* Note: we're not using isonum_731() here because the data is known aligned */
+	/* Note: header_size is in 32-bit words (4 bytes) */
 	blockptr = (header_size + cstart_block) << 2;
 	bh = isofs_bread(inode, blockptr >> blkbits);
 	if (!bh)
@@ -210,9 +240,9 @@ static int zisofs_fill_pages(struct inode *inode, int full_page, int pcount,
 				(bh->b_data + (blockptr & (blksize - 1))));
 
 	while (cstart_block < cend_block && pcount > 0) {
-		
+		/* Load end of the compressed block in the file */
 		blockptr += 4;
-		
+		/* Traversed to next block? */
 		if (!(blockptr & (blksize - 1))) {
 			brelse(bh);
 
@@ -237,6 +267,10 @@ static int zisofs_fill_pages(struct inode *inode, int full_page, int pcount,
 
 		if (err) {
 			brelse(bh);
+			/*
+			 * Did we finish reading the page we really wanted
+			 * to read?
+			 */
 			if (full_page < 0)
 				return 0;
 			return err;
@@ -255,6 +289,11 @@ static int zisofs_fill_pages(struct inode *inode, int full_page, int pcount,
 	return 0;
 }
 
+/*
+ * When decompressing, we typically obtain more than one page
+ * per reference.  We inject the additional pages into the page
+ * cache as a form of readahead.
+ */
 static int zisofs_readpage(struct file *file, struct page *page)
 {
 	struct inode *inode = file->f_path.dentry->d_inode;
@@ -269,6 +308,10 @@ static int zisofs_readpage(struct file *file, struct page *page)
 	pgoff_t index = page->index, end_index;
 
 	end_index = (inode->i_size + PAGE_CACHE_SIZE - 1) >> PAGE_CACHE_SHIFT;
+	/*
+	 * If this page is wholly outside i_size we just return zero;
+	 * do_generic_file_read() will handle this for us
+	 */
 	if (index >= end_index) {
 		SetPageUptodate(page);
 		unlock_page(page);
@@ -276,6 +319,8 @@ static int zisofs_readpage(struct file *file, struct page *page)
 	}
 
 	if (PAGE_CACHE_SHIFT <= zisofs_block_shift) {
+		/* We have already been given one page, this is the one
+		   we must do. */
 		full_page = index & (zisofs_pages_per_cblock - 1);
 		pcount = min_t(int, zisofs_pages_per_cblock,
 			end_index - (index & ~(zisofs_pages_per_cblock - 1)));
@@ -297,7 +342,7 @@ static int zisofs_readpage(struct file *file, struct page *page)
 
 	err = zisofs_fill_pages(inode, full_page, pcount, pages);
 
-	
+	/* Release any residual pages, do not SetPageUptodate */
 	for (i = 0; i < pcount; i++) {
 		if (pages[i]) {
 			flush_dcache_page(pages[i]);
@@ -310,14 +355,14 @@ static int zisofs_readpage(struct file *file, struct page *page)
 		}
 	}			
 
-	
+	/* At this point, err contains 0 or -EIO depending on the "critical" page */
 	return err;
 }
 
 const struct address_space_operations zisofs_aops = {
 	.readpage = zisofs_readpage,
-	
-	
+	/* No sync_page operation supported? */
+	/* No bmap operation supported */
 };
 
 int __init zisofs_init(void)

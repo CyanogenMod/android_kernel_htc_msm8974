@@ -134,7 +134,7 @@ void __init plat_mem_setup(void)
 	picvue = &pvc_defs[lasat_type];
 #endif
 
-	
+	/* Set up panic notifier */
 	for (i = 0; i < ARRAY_SIZE(lasat_panic_block); i++)
 		atomic_notifier_chain_register(&panic_notifier_list,
 				&lasat_panic_block[i]);

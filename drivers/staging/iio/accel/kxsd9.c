@@ -43,6 +43,13 @@
 
 #define KXSD9_STATE_RX_SIZE 2
 #define KXSD9_STATE_TX_SIZE 2
+/**
+ * struct kxsd9_state - device related storage
+ * @buf_lock:	protect the rx and tx buffers.
+ * @us:		spi device
+ * @rx:		single rx buffer storage
+ * @tx:		single tx buffer storage
+ **/
 struct kxsd9_state {
 	struct mutex buf_lock;
 	struct spi_device *us;
@@ -55,6 +62,7 @@ struct kxsd9_state {
 #define KXSD9_SCALE_6G "0.035934"
 #define KXSD9_SCALE_8G "0.047853"
 
+/* reverse order */
 static const int kxsd9_micro_scales[4] = { 47853, 35934, 23927, 11978 };
 
 static int kxsd9_write_scale(struct iio_dev *indio_dev, int micro)
@@ -133,7 +141,7 @@ static int kxsd9_write_raw(struct iio_dev *indio_dev,
 	int ret = -EINVAL;
 
 	if (mask == IIO_CHAN_INFO_SCALE) {
-		
+		/* Check no integer component */
 		if (val)
 			return -EINVAL;
 		ret = kxsd9_write_scale(indio_dev, val2);

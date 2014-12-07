@@ -34,69 +34,98 @@
 #include <linux/i2c/lm8323.h>
 #include <linux/slab.h>
 
-#define LM8323_CMD_READ_ID		0x80 
-#define LM8323_CMD_WRITE_CFG		0x81 
-#define LM8323_CMD_READ_INT		0x82 
-#define LM8323_CMD_RESET		0x83 
-#define LM8323_CMD_WRITE_PORT_SEL	0x85 
-#define LM8323_CMD_WRITE_PORT_STATE	0x86 
-#define LM8323_CMD_READ_PORT_SEL	0x87 
-#define LM8323_CMD_READ_PORT_STATE	0x88 
-#define LM8323_CMD_READ_FIFO		0x89 
-#define LM8323_CMD_RPT_READ_FIFO	0x8a 
-#define LM8323_CMD_SET_ACTIVE		0x8b 
-#define LM8323_CMD_READ_ERR		0x8c 
-#define LM8323_CMD_READ_ROTATOR		0x8e 
-#define LM8323_CMD_SET_DEBOUNCE		0x8f 
-#define LM8323_CMD_SET_KEY_SIZE		0x90 
-#define LM8323_CMD_READ_KEY_SIZE	0x91 
-#define LM8323_CMD_READ_CFG		0x92 
-#define LM8323_CMD_WRITE_CLOCK		0x93 
-#define LM8323_CMD_READ_CLOCK		0x94 
-#define LM8323_CMD_PWM_WRITE		0x95 
-#define LM8323_CMD_START_PWM		0x96 
-#define LM8323_CMD_STOP_PWM		0x97 
+/* Commands to send to the chip. */
+#define LM8323_CMD_READ_ID		0x80 /* Read chip ID. */
+#define LM8323_CMD_WRITE_CFG		0x81 /* Set configuration item. */
+#define LM8323_CMD_READ_INT		0x82 /* Get interrupt status. */
+#define LM8323_CMD_RESET		0x83 /* Reset, same as external one */
+#define LM8323_CMD_WRITE_PORT_SEL	0x85 /* Set GPIO in/out. */
+#define LM8323_CMD_WRITE_PORT_STATE	0x86 /* Set GPIO pullup. */
+#define LM8323_CMD_READ_PORT_SEL	0x87 /* Get GPIO in/out. */
+#define LM8323_CMD_READ_PORT_STATE	0x88 /* Get GPIO pullup. */
+#define LM8323_CMD_READ_FIFO		0x89 /* Read byte from FIFO. */
+#define LM8323_CMD_RPT_READ_FIFO	0x8a /* Read FIFO (no increment). */
+#define LM8323_CMD_SET_ACTIVE		0x8b /* Set active time. */
+#define LM8323_CMD_READ_ERR		0x8c /* Get error status. */
+#define LM8323_CMD_READ_ROTATOR		0x8e /* Read rotator status. */
+#define LM8323_CMD_SET_DEBOUNCE		0x8f /* Set debouncing time. */
+#define LM8323_CMD_SET_KEY_SIZE		0x90 /* Set keypad size. */
+#define LM8323_CMD_READ_KEY_SIZE	0x91 /* Get keypad size. */
+#define LM8323_CMD_READ_CFG		0x92 /* Get configuration item. */
+#define LM8323_CMD_WRITE_CLOCK		0x93 /* Set clock config. */
+#define LM8323_CMD_READ_CLOCK		0x94 /* Get clock config. */
+#define LM8323_CMD_PWM_WRITE		0x95 /* Write PWM script. */
+#define LM8323_CMD_START_PWM		0x96 /* Start PWM engine. */
+#define LM8323_CMD_STOP_PWM		0x97 /* Stop PWM engine. */
 
-#define INT_KEYPAD			0x01 
-#define INT_ROTATOR			0x02 
-#define INT_ERROR			0x08 
-#define INT_NOINIT			0x10 
-#define INT_PWM1			0x20 
-#define INT_PWM2			0x40 
-#define INT_PWM3			0x80 
+/* Interrupt status. */
+#define INT_KEYPAD			0x01 /* Key event. */
+#define INT_ROTATOR			0x02 /* Rotator event. */
+#define INT_ERROR			0x08 /* Error: use CMD_READ_ERR. */
+#define INT_NOINIT			0x10 /* Lost configuration. */
+#define INT_PWM1			0x20 /* PWM1 stopped. */
+#define INT_PWM2			0x40 /* PWM2 stopped. */
+#define INT_PWM3			0x80 /* PWM3 stopped. */
 
-#define ERR_BADPAR			0x01 
-#define ERR_CMDUNK			0x02 
-#define ERR_KEYOVR			0x04 
-#define ERR_FIFOOVER			0x40 
+/* Errors (signalled by INT_ERROR, read with CMD_READ_ERR). */
+#define ERR_BADPAR			0x01 /* Bad parameter. */
+#define ERR_CMDUNK			0x02 /* Unknown command. */
+#define ERR_KEYOVR			0x04 /* Too many keys pressed. */
+#define ERR_FIFOOVER			0x40 /* FIFO overflow. */
 
-#define CFG_MUX1SEL			0x01 
-#define CFG_MUX1EN			0x02 
-#define CFG_MUX2SEL			0x04 
-#define CFG_MUX2EN			0x08 
-#define CFG_PSIZE			0x20 
-#define CFG_ROTEN			0x40 
+/* Configuration keys (CMD_{WRITE,READ}_CFG). */
+#define CFG_MUX1SEL			0x01 /* Select MUX1_OUT input. */
+#define CFG_MUX1EN			0x02 /* Enable MUX1_OUT. */
+#define CFG_MUX2SEL			0x04 /* Select MUX2_OUT input. */
+#define CFG_MUX2EN			0x08 /* Enable MUX2_OUT. */
+#define CFG_PSIZE			0x20 /* Package size (must be 0). */
+#define CFG_ROTEN			0x40 /* Enable rotator. */
 
+/* Clock settings (CMD_{WRITE,READ}_CLOCK). */
 #define CLK_RCPWM_INTERNAL		0x00
 #define CLK_RCPWM_EXTERNAL		0x03
-#define CLK_SLOWCLKEN			0x08 
-#define CLK_SLOWCLKOUT			0x40 
+#define CLK_SLOWCLKEN			0x08 /* Enable 32.768kHz clock. */
+#define CLK_SLOWCLKOUT			0x40 /* Enable slow pulse output. */
 
-#define LM8323_I2C_ADDR00		(0x84 >> 1)	
-#define LM8323_I2C_ADDR01		(0x86 >> 1)	
-#define LM8323_I2C_ADDR10		(0x88 >> 1)	
-#define LM8323_I2C_ADDR11		(0x8A >> 1)	
+/* The possible addresses corresponding to CONFIG1 and CONFIG2 pin wirings. */
+#define LM8323_I2C_ADDR00		(0x84 >> 1)	/* 1000 010x */
+#define LM8323_I2C_ADDR01		(0x86 >> 1)	/* 1000 011x */
+#define LM8323_I2C_ADDR10		(0x88 >> 1)	/* 1000 100x */
+#define LM8323_I2C_ADDR11		(0x8A >> 1)	/* 1000 101x */
 
+/* Key event fifo length */
 #define LM8323_FIFO_LEN			15
 
+/* Commands for PWM engine; feed in with PWM_WRITE. */
+/* Load ramp counter from duty cycle field (range 0 - 0xff). */
 #define PWM_SET(v)			(0x4000 | ((v) & 0xff))
+/* Go to start of script. */
 #define PWM_GOTOSTART			0x0000
+/*
+ * Stop engine (generates interrupt).  If reset is 1, clear the program
+ * counter, else leave it.
+ */
 #define PWM_END(reset)			(0xc000 | (!!(reset) << 11))
+/*
+ * Ramp.  If s is 1, divide clock by 512, else divide clock by 16.
+ * Take t clock scales (up to 63) per step, for n steps (up to 126).
+ * If u is set, ramp up, else ramp down.
+ */
 #define PWM_RAMP(s, t, n, u)		((!!(s) << 14) | ((t) & 0x3f) << 8 | \
 					 ((n) & 0x7f) | ((u) ? 0 : 0x80))
+/*
+ * Loop (i.e. jump back to pos) for a given number of iterations (up to 63).
+ * If cnt is zero, execute until PWM_END is encountered.
+ */
 #define PWM_LOOP(cnt, pos)		(0xa000 | (((cnt) & 0x3f) << 7) | \
 					 ((pos) & 0x3f))
+/*
+ * Wait for trigger.  Argument is a mask of channels, shifted by the channel
+ * number, e.g. 0xa for channels 3 and 1.  Note that channels are numbered
+ * from 1, not 0.
+ */
 #define PWM_WAIT_TRIG(chans)		(0xe000 | (((chans) & 0x7) << 6))
+/* Send trigger.  Argument is same as PWM_WAIT_TRIG. */
 #define PWM_SEND_TRIG(chans)		(0xe000 | ((chans) & 0x7))
 
 struct lm8323_pwm {
@@ -106,7 +135,7 @@ struct lm8323_pwm {
 	int			desired_brightness;
 	bool			enabled;
 	bool			running;
-	
+	/* pwm lock */
 	struct mutex		lock;
 	struct work_struct	work;
 	struct led_classdev	cdev;
@@ -114,7 +143,7 @@ struct lm8323_pwm {
 };
 
 struct lm8323_chip {
-	
+	/* device lock */
 	struct mutex		lock;
 	struct i2c_client	*client;
 	struct input_dev	*idev;
@@ -137,6 +166,11 @@ struct lm8323_chip {
 
 #define LM8323_MAX_DATA 8
 
+/*
+ * To write, we just access the chip's address in write mode, and dump the
+ * command and data out on the bus.  The command byte and data are taken as
+ * sequential u8s out of varargs, to a maximum of LM8323_MAX_DATA.
+ */
 static int lm8323_write(struct lm8323_chip *lm, int len, ...)
 {
 	int ret, i;
@@ -156,6 +190,10 @@ static int lm8323_write(struct lm8323_chip *lm, int len, ...)
 
 	va_end(ap);
 
+	/*
+	 * If the host is asleep while we send the data, we can get a NACK
+	 * back while it wakes up, so try again, once.
+	 */
 	ret = i2c_master_send(lm->client, data, len);
 	if (unlikely(ret == -EREMOTEIO))
 		ret = i2c_master_send(lm->client, data, len);
@@ -166,10 +204,18 @@ static int lm8323_write(struct lm8323_chip *lm, int len, ...)
 	return ret;
 }
 
+/*
+ * To read, we first send the command byte to the chip and end the transaction,
+ * then access the chip in read mode, at which point it will send the data.
+ */
 static int lm8323_read(struct lm8323_chip *lm, u8 cmd, u8 *buf, int len)
 {
 	int ret;
 
+	/*
+	 * If the host is asleep while we send the byte, we can get a NACK
+	 * back while it wakes up, so try again, once.
+	 */
 	ret = i2c_master_send(lm->client, &cmd, 1);
 	if (unlikely(ret == -EREMOTEIO))
 		ret = i2c_master_send(lm->client, &cmd, 1);
@@ -187,11 +233,18 @@ static int lm8323_read(struct lm8323_chip *lm, u8 cmd, u8 *buf, int len)
 	return ret;
 }
 
+/*
+ * Set the chip active time (idle time before it enters halt).
+ */
 static void lm8323_set_active_time(struct lm8323_chip *lm, int time)
 {
 	lm8323_write(lm, 2, LM8323_CMD_SET_ACTIVE, time >> 2);
 }
 
+/*
+ * The signals are AT-style: the low 7 bits are the keycode, and the top
+ * bit indicates the state (1 for down, 0 for up).
+ */
 static inline u8 lm8323_whichkey(u8 event)
 {
 	return event & 0x7f;
@@ -210,6 +263,10 @@ static void process_keys(struct lm8323_chip *lm)
 	int ret;
 	int i = 0;
 
+	/*
+	 * Read all key events from the FIFO at once. Next READ_FIFO clears the
+	 * FIFO even if we didn't read all events previously.
+	 */
 	ret = lm8323_read(lm, LM8323_CMD_READ_FIFO, key_fifo, LM8323_FIFO_LEN);
 
 	if (ret < 0) {
@@ -238,6 +295,11 @@ static void process_keys(struct lm8323_chip *lm)
 			lm->keys_down--;
 	}
 
+	/*
+	 * Errata: We need to ensure that the chip never enters halt mode
+	 * during a keypress, so set active time to 0.  When it's released,
+	 * we can enter halt again, so set the active time back to normal.
+	 */
 	if (!old_keys_down && lm->keys_down)
 		lm8323_set_active_time(lm, 0);
 	if (old_keys_down && !lm->keys_down)
@@ -264,7 +326,7 @@ static void lm8323_process_error(struct lm8323_chip *lm)
 
 static void lm8323_reset(struct lm8323_chip *lm)
 {
-	
+	/* The docs say we must pass 0xAA as the data byte. */
 	lm8323_write(lm, 2, LM8323_CMD_RESET, 0xAA);
 }
 
@@ -275,6 +337,10 @@ static int lm8323_configure(struct lm8323_chip *lm)
 	int debounce = lm->debounce_time >> 2;
 	int active = lm->active_time >> 2;
 
+	/*
+	 * Active time must be greater than the debounce time: if it's
+	 * a close-run thing, give ourselves a 12ms buffer.
+	 */
 	if (debounce >= active)
 		active = debounce + 3;
 
@@ -286,6 +352,10 @@ static int lm8323_configure(struct lm8323_chip *lm)
 	lm8323_write(lm, 3, LM8323_CMD_WRITE_PORT_STATE, 0xff, 0xff);
 	lm8323_write(lm, 3, LM8323_CMD_WRITE_PORT_SEL, 0, 0);
 
+	/*
+	 * Not much we can do about errors at this point, so just hope
+	 * for the best.
+	 */
 
 	return 0;
 }
@@ -299,6 +369,10 @@ static void pwm_done(struct lm8323_pwm *pwm)
 	mutex_unlock(&pwm->lock);
 }
 
+/*
+ * Bottom half: handle the interrupt by posting key events, or dealing with
+ * errors appropriately.
+ */
 static irqreturn_t lm8323_irq(int irq, void *_lm)
 {
 	struct lm8323_chip *lm = _lm;
@@ -311,7 +385,7 @@ static irqreturn_t lm8323_irq(int irq, void *_lm)
 		if (likely(ints & INT_KEYPAD))
 			process_keys(lm);
 		if (ints & INT_ROTATOR) {
-			
+			/* We don't currently support the rotator. */
 			dev_vdbg(&lm->client->dev, "rotator fired\n");
 		}
 		if (ints & INT_ERROR) {
@@ -337,6 +411,9 @@ static irqreturn_t lm8323_irq(int irq, void *_lm)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Read the chip ID.
+ */
 static int lm8323_read_id(struct lm8323_chip *lm, u8 *buf)
 {
 	int bytes;
@@ -354,6 +431,12 @@ static void lm8323_write_pwm_one(struct lm8323_pwm *pwm, int pos, u16 cmd)
 		     (cmd & 0xff00) >> 8, cmd & 0x00ff);
 }
 
+/*
+ * Write a script into a given PWM engine, concluding with PWM_END.
+ * If 'kill' is nonzero, the engine will be shut down at the end
+ * of the script, producing a zero output. Otherwise the engine
+ * will be kept running at the final PWM level indefinitely.
+ */
 static void lm8323_write_pwm(struct lm8323_pwm *pwm, int kill,
 			     int len, const u16 *cmds)
 {
@@ -376,6 +459,12 @@ static void lm8323_pwm_work(struct work_struct *work)
 
 	mutex_lock(&pwm->lock);
 
+	/*
+	 * Do nothing if we're already at the requested level,
+	 * or previous setting is not yet complete. In the latter
+	 * case we will be called again when the previous PWM script
+	 * finishes.
+	 */
 	if (pwm->running || pwm->desired_brightness == pwm->brightness)
 		goto out;
 
@@ -383,6 +472,10 @@ static void lm8323_pwm_work(struct work_struct *work)
 	up = (pwm->desired_brightness > pwm->brightness);
 	steps = abs(pwm->desired_brightness - pwm->brightness);
 
+	/*
+	 * Convert time (in ms) into a divisor (512 or 16 on a refclk of
+	 * 32768Hz), and number of ticks per step.
+	 */
 	if ((pwm->fade_time / steps) > (32768 / 512)) {
 		div512 = 1;
 		hz = 32768 / 512;
@@ -426,6 +519,9 @@ static void lm8323_pwm_set_brightness(struct led_classdev *led_cdev,
 	if (in_interrupt()) {
 		schedule_work(&pwm->work);
 	} else {
+		/*
+		 * Schedule PWM work as usual unless we are going into suspend
+		 */
 		mutex_lock(&lm->lock);
 		if (likely(!lm->pm_suspend))
 			schedule_work(&pwm->work);
@@ -452,7 +548,7 @@ static ssize_t lm8323_pwm_store_time(struct device *dev,
 	int ret, time;
 
 	ret = kstrtoint(buf, 10, &time);
-	
+	/* Numbers only, please. */
 	if (ret)
 		return ret;
 
@@ -577,6 +673,8 @@ static int __devinit lm8323_probe(struct i2c_client *client,
 
 	lm8323_reset(lm);
 
+	/* Nothing's set up to service the IRQ yet, so just spin for max.
+	 * 100ms until we can configure. */
 	tmo = jiffies + msecs_to_jiffies(100);
 	while (lm8323_read(lm, LM8323_CMD_READ_INT, data, 1) == 1) {
 		if (data[0] & INT_NOINIT)
@@ -593,7 +691,7 @@ static int __devinit lm8323_probe(struct i2c_client *client,
 
 	lm8323_configure(lm);
 
-	
+	/* If a true probe check the device */
 	if (lm8323_read_id(lm, data) != 0) {
 		dev_err(&client->dev, "device not found\n");
 		err = -ENODEV;
@@ -690,6 +788,10 @@ static int __devexit lm8323_remove(struct i2c_client *client)
 }
 
 #ifdef CONFIG_PM_SLEEP
+/*
+ * We don't need to explicitly suspend the chip, as it already switches off
+ * when there's no activity.
+ */
 static int lm8323_suspend(struct device *dev)
 {
 	struct i2c_client *client = to_i2c_client(dev);

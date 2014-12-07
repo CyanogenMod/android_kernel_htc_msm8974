@@ -19,6 +19,25 @@
 
 struct regulator_init_data;
 
+/**
+ * struct fixed_voltage_config - fixed_voltage_config structure
+ * @supply_name:	Name of the regulator supply
+ * @microvolts:		Output voltage of regulator
+ * @gpio:		GPIO to use for enable control
+ * 			set to -EINVAL if not used
+ * @startup_delay:	Start-up time in microseconds
+ * @enable_high:	Polarity of enable GPIO
+ *			1 = Active high, 0 = Active low
+ * @enabled_at_boot:	Whether regulator has been enabled at
+ * 			boot or not. 1 = Yes, 0 = No
+ * 			This is used to keep the regulator at
+ * 			the default state
+ * @init_data:		regulator_init_data
+ *
+ * This structure contains fixed voltage regulator configuration
+ * information that must be passed by platform code to the fixed
+ * voltage regulator driver.
+ */
 struct fixed_voltage_config {
 	const char *supply_name;
 	int microvolts;

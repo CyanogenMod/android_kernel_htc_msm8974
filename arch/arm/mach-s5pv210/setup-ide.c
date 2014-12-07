@@ -25,15 +25,15 @@ static void s5pv210_ide_cfg_gpios(unsigned int base, unsigned int nr)
 
 void s5pv210_ide_setup_gpio(void)
 {
-	
+	/* CF_Add[0 - 2], CF_IORDY, CF_INTRQ, CF_DMARQ, CF_DMARST, CF_DMACK */
 	s5pv210_ide_cfg_gpios(S5PV210_GPJ0(0), 8);
 
-	
+	/* CF_Data[0 - 7] */
 	s5pv210_ide_cfg_gpios(S5PV210_GPJ2(0), 8);
 
-	
+	/* CF_Data[8 - 15] */
 	s5pv210_ide_cfg_gpios(S5PV210_GPJ3(0), 8);
 
-	
+	/* CF_CS0, CF_CS1, CF_IORD, CF_IOWR */
 	s5pv210_ide_cfg_gpios(S5PV210_GPJ4(0), 4);
 }

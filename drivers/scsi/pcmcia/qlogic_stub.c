@@ -52,6 +52,10 @@
 #include <pcmcia/ds.h>
 #include <pcmcia/ciscode.h>
 
+/* Set the following to 2 to use normal interrupt (active high/totempole-
+ * tristate), otherwise use 0 (REQUIRED FOR PCMCIA) for active low, open
+ * drain
+ */
 #define INT_TYPE	0
 
 static char qlogic_name[] = "qlogic_cs";
@@ -72,6 +76,7 @@ static struct scsi_host_template qlogicfas_driver_template = {
 	.use_clustering		= DISABLE_CLUSTERING,
 };
 
+/*====================================================================*/
 
 typedef struct scsi_info_t {
 	struct pcmcia_device	*p_dev;
@@ -86,15 +91,15 @@ static int qlogic_config(struct pcmcia_device * link);
 static struct Scsi_Host *qlogic_detect(struct scsi_host_template *host,
 				struct pcmcia_device *link, int qbase, int qlirq)
 {
-	int qltyp;		
+	int qltyp;		/* type of chip */
 	int qinitid;
-	struct Scsi_Host *shost;	
+	struct Scsi_Host *shost;	/* registered host structure */
 	struct qlogicfas408_priv *priv;
 
 	qltyp = qlogicfas408_get_chip_type(qbase, INT_TYPE);
 	qinitid = host->this_id;
 	if (qinitid < 0)
-		qinitid = 7;	
+		qinitid = 7;	/* if no ID, use 7 */
 
 	qlogicfas408_setup(qbase, qinitid, INT_TYPE);
 
@@ -144,7 +149,7 @@ static int qlogic_probe(struct pcmcia_device *link)
 
 	dev_dbg(&link->dev, "qlogic_attach()\n");
 
-	
+	/* Create new SCSI device */
 	info = kzalloc(sizeof(*info), GFP_KERNEL);
 	if (!info)
 		return -ENOMEM;
@@ -154,8 +159,9 @@ static int qlogic_probe(struct pcmcia_device *link)
 	link->config_regs = PRESENT_OPTION;
 
 	return qlogic_config(link);
-}				
+}				/* qlogic_attach */
 
+/*====================================================================*/
 
 static void qlogic_detach(struct pcmcia_device *link)
 {
@@ -164,8 +170,9 @@ static void qlogic_detach(struct pcmcia_device *link)
 	qlogic_release(link);
 	kfree(link->priv);
 
-}				
+}				/* qlogic_detach */
 
+/*====================================================================*/
 
 static int qlogic_config_check(struct pcmcia_device *p_dev, void *priv_data)
 {
@@ -199,13 +206,13 @@ static int qlogic_config(struct pcmcia_device * link)
 		goto failed;
 
 	if ((info->manf_id == MANFID_MACNICA) || (info->manf_id == MANFID_PIONEER) || (info->manf_id == 0x0098)) {
-		
+		/* set ATAcmd */
 		outb(0xb4, link->resource[0]->start + 0xd);
 		outb(0x24, link->resource[0]->start + 0x9);
 		outb(0x04, link->resource[0]->start + 0xd);
 	}
 
-	
+	/* The KXL-810AN has a bigger IO port window */
 	if (resource_size(link->resource[0]) == 32)
 		host = qlogic_detect(&qlogicfas_driver_template, link,
 			link->resource[0]->start + 16, link->irq);
@@ -225,8 +232,9 @@ static int qlogic_config(struct pcmcia_device * link)
 failed:
 	pcmcia_disable_device(link);
 	return -ENODEV;
-}				
+}				/* qlogic_config */
 
+/*====================================================================*/
 
 static void qlogic_release(struct pcmcia_device *link)
 {
@@ -242,6 +250,7 @@ static void qlogic_release(struct pcmcia_device *link)
 	scsi_host_put(info->host);
 }
 
+/*====================================================================*/
 
 static int qlogic_resume(struct pcmcia_device *link)
 {
@@ -255,7 +264,7 @@ static int qlogic_resume(struct pcmcia_device *link)
 		outb(0x24, link->resource[0]->start + 0x9);
 		outb(0x04, link->resource[0]->start + 0xd);
 	}
-	
+	/* Ugggglllyyyy!!! */
 	qlogicfas408_bus_reset(NULL);
 
 	return 0;
@@ -276,9 +285,9 @@ static const struct pcmcia_device_id qlogic_ids[] = {
 	PCMCIA_DEVICE_PROD_ID12("RATOC System Inc.", "SCSI2 CARD 37", 0x85c10e17, 0x1a2640c1),
 	PCMCIA_DEVICE_PROD_ID12("TOSHIBA", "SCSC200A PC CARD SCSI", 0xb4585a1a, 0xa6f06ebe),
 	PCMCIA_DEVICE_PROD_ID12("TOSHIBA", "SCSC200B PC CARD SCSI-10", 0xb4585a1a, 0x0a88dea0),
-	
-	
-	
+	/* these conflict with other cards! */
+	/* PCMCIA_DEVICE_PROD_ID123("MACNICA", "MIRACLE SCSI", "mPS100", 0x20841b68, 0xf8dedaeb, 0x89f7fafb), */
+	/* PCMCIA_DEVICE_PROD_ID123("MACNICA", "MIRACLE SCSI", "mPS100", 0x20841b68, 0xf8dedaeb, 0x89f7fafb), */
 	PCMCIA_DEVICE_NULL,
 };
 MODULE_DEVICE_TABLE(pcmcia, qlogic_ids);

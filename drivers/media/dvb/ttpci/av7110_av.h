@@ -27,4 +27,4 @@ extern int av7110_av_init(struct av7110 *av7110);
 extern void av7110_av_exit(struct av7110 *av7110);
 
 
-#endif 
+#endif /* _AV7110_AV_H_ */

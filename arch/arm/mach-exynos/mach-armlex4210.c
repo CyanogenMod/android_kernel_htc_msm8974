@@ -30,6 +30,7 @@
 
 #include "common.h"
 
+/* Following are default values for UCON, ULCON and UFCON UART registers */
 #define ARMLEX4210_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
 				 S3C2410_UCON_RXILEVEL |	\
 				 S3C2410_UCON_TXIRQMODE |	\
@@ -106,15 +107,15 @@ static void __init armlex4210_sdhci_init(void)
 
 static void __init armlex4210_wlan_init(void)
 {
-	
+	/* enable */
 	s3c_gpio_cfgpin(EXYNOS4_GPX2(0), S3C_GPIO_SFN(0xf));
 	s3c_gpio_setpull(EXYNOS4_GPX2(0), S3C_GPIO_PULL_UP);
 
-	
+	/* reset */
 	s3c_gpio_cfgpin(EXYNOS4_GPX1(6), S3C_GPIO_SFN(0xf));
 	s3c_gpio_setpull(EXYNOS4_GPX1(6), S3C_GPIO_PULL_UP);
 
-	
+	/* wakeup */
 	s3c_gpio_cfgpin(EXYNOS4_GPX1(5), S3C_GPIO_SFN(0xf));
 	s3c_gpio_setpull(EXYNOS4_GPX1(5), S3C_GPIO_PULL_UP);
 }
@@ -166,7 +167,7 @@ static void __init armlex4210_smsc911x_init(void)
 {
 	u32 cs1;
 
-	
+	/* configure nCS1 width to 16 bits */
 	cs1 = __raw_readl(S5P_SROM_BW) &
 		~(S5P_SROM_BW__CS_MASK << S5P_SROM_BW__NCS1__SHIFT);
 	cs1 |= ((1 << S5P_SROM_BW__DATAWIDTH__SHIFT) |
@@ -176,7 +177,7 @@ static void __init armlex4210_smsc911x_init(void)
 		S5P_SROM_BW__NCS1__SHIFT;
 	__raw_writel(cs1, S5P_SROM_BW);
 
-	
+	/* set timing for nCS1 suitable for ethernet chip */
 	__raw_writel((0x1 << S5P_SROM_BCX__PMC__SHIFT) |
 		     (0x9 << S5P_SROM_BCX__TACP__SHIFT) |
 		     (0xc << S5P_SROM_BCX__TCAH__SHIFT) |
@@ -207,7 +208,7 @@ static void __init armlex4210_machine_init(void)
 }
 
 MACHINE_START(ARMLEX4210, "ARMLEX4210")
-	
+	/* Maintainer: Alim Akhtar <alim.akhtar@samsung.com> */
 	.atag_offset	= 0x100,
 	.init_irq	= exynos4_init_irq,
 	.map_io		= armlex4210_map_io,

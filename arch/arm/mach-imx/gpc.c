@@ -31,7 +31,7 @@ void imx_gpc_pre_suspend(void)
 	void __iomem *reg_imr1 = gpc_base + GPC_IMR1;
 	int i;
 
-	
+	/* Tell GPC to power off ARM core when suspend */
 	writel_relaxed(0x1, gpc_base + GPC_PGC_CPU_PDN);
 
 	for (i = 0; i < IMR_NUM; i++) {
@@ -45,7 +45,7 @@ void imx_gpc_post_resume(void)
 	void __iomem *reg_imr1 = gpc_base + GPC_IMR1;
 	int i;
 
-	
+	/* Keep ARM core powered on for other low-power modes */
 	writel_relaxed(0x0, gpc_base + GPC_PGC_CPU_PDN);
 
 	for (i = 0; i < IMR_NUM; i++)
@@ -57,7 +57,7 @@ static int imx_gpc_irq_set_wake(struct irq_data *d, unsigned int on)
 	unsigned int idx = d->irq / 32 - 1;
 	u32 mask;
 
-	
+	/* Sanity check for SPI irq */
 	if (d->irq < 32)
 		return -EINVAL;
 
@@ -73,7 +73,7 @@ static void imx_gpc_irq_unmask(struct irq_data *d)
 	void __iomem *reg;
 	u32 val;
 
-	
+	/* Sanity check for SPI irq */
 	if (d->irq < 32)
 		return;
 
@@ -88,7 +88,7 @@ static void imx_gpc_irq_mask(struct irq_data *d)
 	void __iomem *reg;
 	u32 val;
 
-	
+	/* Sanity check for SPI irq */
 	if (d->irq < 32)
 		return;
 
@@ -106,7 +106,7 @@ void __init imx_gpc_init(void)
 	gpc_base = of_iomap(np, 0);
 	WARN_ON(!gpc_base);
 
-	
+	/* Register GPC as the secondary interrupt controller behind GIC */
 	gic_arch_extn.irq_mask = imx_gpc_irq_mask;
 	gic_arch_extn.irq_unmask = imx_gpc_irq_unmask;
 	gic_arch_extn.irq_set_wake = imx_gpc_irq_set_wake;

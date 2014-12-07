@@ -1,3 +1,16 @@
+/*
+ *  ebt_ip
+ *
+ *	Authors:
+ *	Bart De Schuymer <bdschuym@pandora.be>
+ *
+ *  April, 2002
+ *
+ *  Changes:
+ *    added ip-sport and ip-dport
+ *    Innominate Security Technologies AG <mhopf@innominate.com>
+ *    September, 2002
+ */
 #include <linux/ip.h>
 #include <net/ip.h>
 #include <linux/in.h>

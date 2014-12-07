@@ -10,6 +10,10 @@
 #ifndef _ASM_MACH_IP27_SPACES_H
 #define _ASM_MACH_IP27_SPACES_H
 
+/*
+ * IP27 uses the R10000's uncached attribute feature.  Attribute 3 selects
+ * uncached memory addressing.
+ */
 
 #define HSPEC_BASE		0x9000000000000000
 #define IO_BASE			0x9200000000000000
@@ -23,4 +27,4 @@
 
 #include <asm/mach-generic/spaces.h>
 
-#endif 
+#endif /* _ASM_MACH_IP27_SPACES_H */

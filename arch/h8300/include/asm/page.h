@@ -1,6 +1,7 @@
 #ifndef _H8300_PAGE_H
 #define _H8300_PAGE_H
 
+/* PAGE_SHIFT determines the page size */
 
 #define PAGE_SHIFT	(12)
 #define PAGE_SIZE	(1UL << PAGE_SHIFT)
@@ -23,6 +24,9 @@
 	alloc_page_vma(GFP_HIGHUSER | __GFP_ZERO | movableflags, vma, vaddr)
 #define __HAVE_ARCH_ALLOC_ZEROED_USER_HIGHPAGE
 
+/*
+ * These are used to make use of C type-checking..
+ */
 typedef struct { unsigned long pte; } pte_t;
 typedef struct { unsigned long pmd[16]; } pmd_t;
 typedef struct { unsigned long pgd; } pgd_t;
@@ -42,7 +46,7 @@ typedef struct page *pgtable_t;
 extern unsigned long memory_start;
 extern unsigned long memory_end;
 
-#endif 
+#endif /* !__ASSEMBLY__ */
 
 #include <asm/page_offset.h>
 
@@ -66,9 +70,9 @@ extern unsigned long memory_end;
 #define	virt_addr_valid(kaddr)	(((void *)(kaddr) >= (void *)PAGE_OFFSET) && \
 				((void *)(kaddr) < (void *)memory_end))
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #include <asm-generic/memory_model.h>
 #include <asm-generic/getorder.h>
 
-#endif 
+#endif /* _H8300_PAGE_H */

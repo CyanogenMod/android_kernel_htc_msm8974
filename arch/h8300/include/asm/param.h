@@ -15,6 +15,6 @@
 #define NOGROUP		(-1)
 #endif
 
-#define MAXHOSTNAMELEN	64	
+#define MAXHOSTNAMELEN	64	/* max length of hostname */
 
-#endif 
+#endif /* _H8300_PARAM_H */

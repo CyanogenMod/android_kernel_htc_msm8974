@@ -50,8 +50,12 @@ struct gs_port {
   spinlock_t              driver_lock;
 };
 
-#endif 
+#endif /* __KERNEL__ */
 
+/* Flags */
+/* Warning: serial.h defines some ASYNC_ flags, they say they are "only"
+   used in serial.c, but they are also used in all other serial drivers. 
+   Make sure they don't clash with these here... */
 #define GS_TX_INTEN      0x00800000
 #define GS_RX_INTEN      0x00400000
 #define GS_ACTIVE        0x00200000
@@ -87,5 +91,5 @@ int  gs_init_port(struct gs_port *port);
 int  gs_setserial(struct gs_port *port, struct serial_struct __user *sp);
 int  gs_getserial(struct gs_port *port, struct serial_struct __user *sp);
 void gs_got_break(struct gs_port *port);
-#endif 
+#endif /* __KERNEL__ */
 #endif

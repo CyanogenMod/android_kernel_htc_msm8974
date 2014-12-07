@@ -184,13 +184,13 @@ static int src_commit_write(struct src *src)
 	hw = src->rsc.hw;
 	src->rsc.ops->master(&src->rsc);
 	if (src->rsc.msr > 1) {
-		
+		/* Save dirty flags for conjugate resource programming */
 		dirty = hw->src_get_dirty(src->rsc.ctrl_blk) & conj_mask;
 	}
 	hw->src_commit_write(hw, src->rsc.ops->index(&src->rsc),
 						src->rsc.ctrl_blk);
 
-	
+	/* Program conjugate parameter mixer resources */
 	if (MEMWR == src->mode)
 		return 0;
 
@@ -315,9 +315,9 @@ static int src_default_config_arcrw(struct src *src)
 	hw->src_set_ilsz(src->rsc.ctrl_blk, 0);
 	hw->src_set_cisz(src->rsc.ctrl_blk, 0x80);
 	hw->src_set_sa(src->rsc.ctrl_blk, 0x0);
-	
+	/*hw->src_set_sa(src->rsc.ctrl_blk, 0x100);*/
 	hw->src_set_la(src->rsc.ctrl_blk, 0x1000);
-	
+	/*hw->src_set_la(src->rsc.ctrl_blk, 0x03ffffe0);*/
 	hw->src_set_ca(src->rsc.ctrl_blk, 0x80);
 	hw->src_set_pitch(src->rsc.ctrl_blk, 0x1000000);
 	hw->src_set_clear_zbufs(src->rsc.ctrl_blk, 1);
@@ -370,7 +370,7 @@ src_rsc_init(struct src *src, u32 idx,
 		if (err)
 			goto error1;
 
-		
+		/* Initialize src specific rsc operations */
 		p->ops = &src_rsc_ops;
 		p->multi = (0 == i) ? desc->multi : 1;
 		p->mode = desc->mode;
@@ -378,7 +378,7 @@ src_rsc_init(struct src *src, u32 idx,
 		mgr->src_enable(mgr, p);
 		p->intlv = p + 1;
 	}
-	(--p)->intlv = NULL;	
+	(--p)->intlv = NULL;	/* Set @intlv of the last SRC to NULL */
 
 	mgr->commit_write(mgr);
 
@@ -422,7 +422,7 @@ get_src_rsc(struct src_mgr *mgr, const struct src_desc *desc, struct src **rsrc)
 
 	*rsrc = NULL;
 
-	
+	/* Check whether there are sufficient src resources to meet request. */
 	spin_lock_irqsave(&mgr->mgr_lock, flags);
 	if (MEMRD == desc->mode)
 		err = mgr_get_resource(&mgr->mgr, desc->multi, &idx);
@@ -435,7 +435,7 @@ get_src_rsc(struct src_mgr *mgr, const struct src_desc *desc, struct src **rsrc)
 		return err;
 	}
 
-	
+	/* Allocate mem for master src resource */
 	if (MEMRD == desc->mode)
 		src = kcalloc(desc->multi, sizeof(*src), GFP_KERNEL);
 	else
@@ -567,7 +567,7 @@ int src_mgr_create(void *hw, struct src_mgr **rsrc_mgr)
 	src_mgr->src_disable = src_disable;
 	src_mgr->commit_write = src_mgr_commit_write;
 
-	
+	/* Disable all SRC resources. */
 	for (i = 0; i < 256; i++)
 		((struct hw *)hw)->src_mgr_dsb_src(src_mgr->mgr.ctrl_blk, i);
 
@@ -590,6 +590,7 @@ int src_mgr_destroy(struct src_mgr *src_mgr)
 	return 0;
 }
 
+/* SRCIMP resource manager operations */
 
 static int srcimp_master(struct rsc *rsc)
 {
@@ -624,7 +625,7 @@ static int srcimp_map(struct srcimp *srcimp, struct src *src, struct rsc *input)
 	src->rsc.ops->master(&src->rsc);
 	input->ops->master(input);
 
-	
+	/* Program master and conjugate resources */
 	for (i = 0; i < srcimp->rsc.msr; i++) {
 		entry = &srcimp->imappers[i];
 		entry->slot = input->ops->output_slot(input);
@@ -647,7 +648,7 @@ static int srcimp_unmap(struct srcimp *srcimp)
 {
 	int i;
 
-	
+	/* Program master and conjugate resources */
 	for (i = 0; i < srcimp->rsc.msr; i++) {
 		if (srcimp->mapped & (0x1 << i)) {
 			srcimp->mgr->imap_delete(srcimp->mgr,
@@ -675,7 +676,7 @@ static int srcimp_rsc_init(struct srcimp *srcimp,
 	if (err)
 		return err;
 
-	
+	/* Reserve memory for imapper nodes */
 	srcimp->imappers = kzalloc(sizeof(struct imapper)*desc->msr,
 				   GFP_KERNEL);
 	if (!srcimp->imappers) {
@@ -683,7 +684,7 @@ static int srcimp_rsc_init(struct srcimp *srcimp,
 		goto error1;
 	}
 
-	
+	/* Set srcimp specific operations */
 	srcimp->rsc.ops = &srcimp_basic_rsc_ops;
 	srcimp->ops = &srcimp_ops;
 	srcimp->mgr = mgr;
@@ -721,12 +722,12 @@ static int get_srcimp_rsc(struct srcimp_mgr *mgr,
 
 	*rsrcimp = NULL;
 
-	
+	/* Allocate mem for SRCIMP resource */
 	srcimp = kzalloc(sizeof(*srcimp), GFP_KERNEL);
 	if (!srcimp)
 		return -ENOMEM;
 
-	
+	/* Check whether there are sufficient SRCIMP resources. */
 	err = 0;
 	spin_lock_irqsave(&mgr->mgr_lock, flags);
 	for (i = 0; i < desc->msr; i++) {
@@ -872,7 +873,7 @@ int srcimp_mgr_destroy(struct srcimp_mgr *srcimp_mgr)
 {
 	unsigned long flags;
 
-	
+	/* free src input mapper list */
 	spin_lock_irqsave(&srcimp_mgr->imap_lock, flags);
 	free_input_mapper_list(&srcimp_mgr->imappers);
 	spin_unlock_irqrestore(&srcimp_mgr->imap_lock, flags);

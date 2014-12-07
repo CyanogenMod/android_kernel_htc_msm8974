@@ -30,21 +30,21 @@
 #include "devices-imx31.h"
 
 static unsigned int devboard_pins[] = {
-	
+	/* UART1 */
 	MX31_PIN_CTS2__CTS2, MX31_PIN_RTS2__RTS2,
 	MX31_PIN_TXD2__TXD2, MX31_PIN_RXD2__RXD2,
-	
+	/* SDHC2 */
 	MX31_PIN_PC_PWRON__SD2_DATA3, MX31_PIN_PC_VS1__SD2_DATA2,
 	MX31_PIN_PC_READY__SD2_DATA1, MX31_PIN_PC_WAIT_B__SD2_DATA0,
 	MX31_PIN_PC_CD2_B__SD2_CLK, MX31_PIN_PC_CD1_B__SD2_CMD,
 	MX31_PIN_ATA_DIOR__GPIO3_28, MX31_PIN_ATA_DIOW__GPIO3_29,
-	
+	/* USB H1 */
 	MX31_PIN_CSPI1_MISO__USBH1_RXDP, MX31_PIN_CSPI1_MOSI__USBH1_RXDM,
 	MX31_PIN_CSPI1_SS0__USBH1_TXDM, MX31_PIN_CSPI1_SS1__USBH1_TXDP,
 	MX31_PIN_CSPI1_SS2__USBH1_RCV, MX31_PIN_CSPI1_SCLK__USBH1_OEB,
 	MX31_PIN_CSPI1_SPI_RDY__USBH1_FS, MX31_PIN_SFS6__USBH1_SUSPEND,
 	MX31_PIN_NFRE_B__GPIO1_11, MX31_PIN_NFALE__GPIO1_12,
-	
+	/* SEL */
 	MX31_PIN_DTR_DCE1__GPIO2_8, MX31_PIN_DSR_DCE1__GPIO2_9,
 	MX31_PIN_RI_DCE1__GPIO2_10, MX31_PIN_DCD_DCE1__GPIO2_11,
 };
@@ -163,7 +163,7 @@ static int devboard_isp1105_init(struct usb_phy *otg)
 	int ret = gpio_request(USBH1_MODE, "usbh1-mode");
 	if (ret)
 		return ret;
-	
+	/* single ended */
 	gpio_direction_output(USBH1_MODE, 0);
 
 	ret = gpio_request(USBH1_VBUSEN_B, "usbh1-vbusen");
@@ -226,6 +226,9 @@ static const struct fsl_usb2_platform_data usb_pdata __initconst = {
 	.phy_mode	= FSL_USB2_PHY_ULPI,
 };
 
+/*
+ * system init for baseboard usage. Will be called by mx31moboard init.
+ */
 void __init mx31moboard_devboard_init(void)
 {
 	printk(KERN_INFO "Initializing mx31devboard peripherals\n");

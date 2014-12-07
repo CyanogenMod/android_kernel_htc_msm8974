@@ -31,6 +31,7 @@
 #include "pcxhr_core.h"
 
 
+/* registers used on the PLX (port 1) */
 #define PCXHR_PLX_OFFSET_MIN	0x40
 #define PCXHR_PLX_MBOX0		0x40
 #define PCXHR_PLX_MBOX1		0x44
@@ -44,6 +45,7 @@
 #define PCXHR_PLX_IRQCS		0x68
 #define PCXHR_PLX_CHIPSC	0x6C
 
+/* registers used on the DSP (port 2) */
 #define PCXHR_DSP_ICR		0x00
 #define PCXHR_DSP_CVR		0x04
 #define PCXHR_DSP_ISR		0x08
@@ -57,6 +59,7 @@
 #define PCXHR_DSP_RESET		0x20
 #define PCXHR_DSP_OFFSET_MAX	0x20
 
+/* access to the card */
 #define PCXHR_PLX 1
 #define PCXHR_DSP 2
 
@@ -69,19 +72,24 @@
 #define PCXHR_INPL(mgr,x)	inl((mgr)->port[PCXHR_REG_TO_PORT(x)] + (x))
 #define PCXHR_OUTPB(mgr,x,data)	outb((data), (mgr)->port[PCXHR_REG_TO_PORT(x)] + (x))
 #define PCXHR_OUTPL(mgr,x,data)	outl((data), (mgr)->port[PCXHR_REG_TO_PORT(x)] + (x))
+/* attention : access the PCXHR_DSP_* registers with inb and outb only ! */
 
+/* params used with PCXHR_PLX_MBOX0 */
 #define PCXHR_MBOX0_HF5			(1 << 0)
 #define PCXHR_MBOX0_HF4			(1 << 1)
 #define PCXHR_MBOX0_BOOT_HERE		(1 << 23)
+/* params used with PCXHR_PLX_IRQCS */
 #define PCXHR_IRQCS_ENABLE_PCIIRQ	(1 << 8)
 #define PCXHR_IRQCS_ENABLE_PCIDB	(1 << 9)
 #define PCXHR_IRQCS_ACTIVE_PCIDB	(1 << 13)
+/* params used with PCXHR_PLX_CHIPSC */
 #define PCXHR_CHIPSC_INIT_VALUE		0x100D767E
 #define PCXHR_CHIPSC_RESET_XILINX	(1 << 16)
 #define PCXHR_CHIPSC_GPI_USERI		(1 << 17)
 #define PCXHR_CHIPSC_DATA_CLK		(1 << 24)
 #define PCXHR_CHIPSC_DATA_IN		(1 << 26)
 
+/* params used with PCXHR_DSP_ICR */
 #define PCXHR_ICR_HI08_RREQ		0x01
 #define PCXHR_ICR_HI08_TREQ		0x02
 #define PCXHR_ICR_HI08_HDRQ		0x04
@@ -89,7 +97,9 @@
 #define PCXHR_ICR_HI08_HF1		0x10
 #define PCXHR_ICR_HI08_HLEND		0x20
 #define PCXHR_ICR_HI08_INIT		0x80
+/* params used with PCXHR_DSP_CVR */
 #define PCXHR_CVR_HI08_HC		0x80
+/* params used with PCXHR_DSP_ISR */
 #define PCXHR_ISR_HI08_RXDF		0x01
 #define PCXHR_ISR_HI08_TXDE		0x02
 #define PCXHR_ISR_HI08_TRDY		0x04
@@ -98,10 +108,20 @@
 #define PCXHR_ISR_HI08_HREQ		0x80
 
 
+/* constants used for delay in msec */
 #define PCXHR_WAIT_DEFAULT		2
 #define PCXHR_WAIT_IT			25
 #define PCXHR_WAIT_IT_EXTRA		65
 
+/*
+ * pcxhr_check_reg_bit - wait for the specified bit is set/reset on a register
+ * @reg: register to check
+ * @mask: bit mask
+ * @bit: resultant bit to be checked
+ * @time: time-out of loop in msec
+ *
+ * returns zero if a bit matches, or a negative error code.
+ */
 static int pcxhr_check_reg_bit(struct pcxhr_mgr *mgr, unsigned int reg,
 			       unsigned char mask, unsigned char bit, int time,
 			       unsigned char* read)
@@ -125,6 +145,7 @@ static int pcxhr_check_reg_bit(struct pcxhr_mgr *mgr, unsigned int reg,
 	return -EIO;
 }
 
+/* constants used with pcxhr_check_reg_bit() */
 #define PCXHR_TIMEOUT_DSP		200
 
 
@@ -161,7 +182,7 @@ static int pcxhr_send_it_dsp(struct pcxhr_mgr *mgr,
 	unsigned char reg;
 
 	if (itdsp & PCXHR_MASK_IT_MANAGE_HF5) {
-		
+		/* clear hf5 bit */
 		PCXHR_OUTPL(mgr, PCXHR_PLX_MBOX0,
 			    PCXHR_INPL(mgr, PCXHR_PLX_MBOX0) &
 			    ~PCXHR_MBOX0_HF5);
@@ -191,7 +212,7 @@ static int pcxhr_send_it_dsp(struct pcxhr_mgr *mgr,
 		else
 			msleep(PCXHR_WAIT_IT);
 	}
-	
+	/* wait for CVR_HI08_HC == 0 */
 	err = pcxhr_check_reg_bit(mgr, PCXHR_DSP_CVR,  PCXHR_CVR_HI08_HC, 0,
 				  PCXHR_TIMEOUT_DSP, &reg);
 	if (err) {
@@ -199,7 +220,7 @@ static int pcxhr_send_it_dsp(struct pcxhr_mgr *mgr,
 		return err;
 	}
 	if (itdsp & PCXHR_MASK_IT_MANAGE_HF5) {
-		
+		/* wait for hf5 bit */
 		err = pcxhr_check_reg_bit(mgr, PCXHR_PLX_MBOX0,
 					  PCXHR_MBOX0_HF5,
 					  PCXHR_MBOX0_HF5,
@@ -211,12 +232,12 @@ static int pcxhr_send_it_dsp(struct pcxhr_mgr *mgr,
 			return err;
 		}
 	}
-	return 0; 
+	return 0; /* retry not handled here */
 }
 
 void pcxhr_reset_xilinx_com(struct pcxhr_mgr *mgr)
 {
-	
+	/* reset second xilinx */
 	PCXHR_OUTPL(mgr, PCXHR_PLX_CHIPSC,
 		    PCXHR_CHIPSC_INIT_VALUE & ~PCXHR_CHIPSC_RESET_XILINX);
 }
@@ -224,7 +245,7 @@ void pcxhr_reset_xilinx_com(struct pcxhr_mgr *mgr)
 static void pcxhr_enable_irq(struct pcxhr_mgr *mgr, int enable)
 {
 	unsigned int reg = PCXHR_INPL(mgr, PCXHR_PLX_IRQCS);
-	
+	/* enable/disable interrupts */
 	if (enable)
 		reg |=  (PCXHR_IRQCS_ENABLE_PCIIRQ | PCXHR_IRQCS_ENABLE_PCIDB);
 	else
@@ -234,25 +255,28 @@ static void pcxhr_enable_irq(struct pcxhr_mgr *mgr, int enable)
 
 void pcxhr_reset_dsp(struct pcxhr_mgr *mgr)
 {
-	
+	/* disable interrupts */
 	pcxhr_enable_irq(mgr, 0);
 
-	
+	/* let's reset the DSP */
 	PCXHR_OUTPB(mgr, PCXHR_DSP_RESET, 0);
-	msleep( PCXHR_WAIT_DEFAULT ); 
+	msleep( PCXHR_WAIT_DEFAULT ); /* wait 2 msec */
 	PCXHR_OUTPB(mgr, PCXHR_DSP_RESET, 3);
-	msleep( PCXHR_WAIT_DEFAULT ); 
+	msleep( PCXHR_WAIT_DEFAULT ); /* wait 2 msec */
 
-	
+	/* reset mailbox */
 	PCXHR_OUTPL(mgr, PCXHR_PLX_MBOX0, 0);
 }
 
 void pcxhr_enable_dsp(struct pcxhr_mgr *mgr)
 {
-	
+	/* enable interrupts */
 	pcxhr_enable_irq(mgr, 1);
 }
 
+/*
+ * load the xilinx image
+ */
 int pcxhr_load_xilinx_binary(struct pcxhr_mgr *mgr,
 			     const struct firmware *xilinx, int second)
 {
@@ -262,18 +286,21 @@ int pcxhr_load_xilinx_binary(struct pcxhr_mgr *mgr,
 	unsigned char mask;
 	const unsigned char *image;
 
-	
+	/* test first xilinx */
 	chipsc = PCXHR_INPL(mgr, PCXHR_PLX_CHIPSC);
-	
+	/* REV01 cards do not support the PCXHR_CHIPSC_GPI_USERI bit anymore */
+	/* this bit will always be 1;
+	 * no possibility to test presence of first xilinx
+	 */
 	if(second) {
 		if ((chipsc & PCXHR_CHIPSC_GPI_USERI) == 0) {
 			snd_printk(KERN_ERR "error loading first xilinx\n");
 			return -EINVAL;
 		}
-		
+		/* activate second xilinx */
 		chipsc |= PCXHR_CHIPSC_RESET_XILINX;
 		PCXHR_OUTPL(mgr, PCXHR_PLX_CHIPSC, chipsc);
-		msleep( PCXHR_WAIT_DEFAULT ); 
+		msleep( PCXHR_WAIT_DEFAULT ); /* wait 2 msec */
 	}
 	image = xilinx->data;
 	for (i = 0; i < xilinx->size; i++, image++) {
@@ -289,16 +316,19 @@ int pcxhr_load_xilinx_binary(struct pcxhr_mgr *mgr,
 			PCXHR_OUTPL(mgr, PCXHR_PLX_CHIPSC, chipsc);
 			mask >>= 1;
 		}
-		
+		/* don't take too much time in this loop... */
 		cond_resched();
 	}
 	chipsc &= ~(PCXHR_CHIPSC_DATA_CLK | PCXHR_CHIPSC_DATA_IN);
 	PCXHR_OUTPL(mgr, PCXHR_PLX_CHIPSC, chipsc);
-	
+	/* wait 2 msec (time to boot the xilinx before any access) */
 	msleep( PCXHR_WAIT_DEFAULT );
 	return 0;
 }
 
+/*
+ * send an executable file to the DSP
+ */
 static int pcxhr_download_dsp(struct pcxhr_mgr *mgr, const struct firmware *dsp)
 {
 	int err;
@@ -306,25 +336,25 @@ static int pcxhr_download_dsp(struct pcxhr_mgr *mgr, const struct firmware *dsp)
 	unsigned int len;
 	const unsigned char *data;
 	unsigned char dummy;
-	
+	/* check the length of boot image */
 	if (dsp->size <= 0)
 		return -EINVAL;
 	if (dsp->size % 3)
 		return -EINVAL;
 	if (snd_BUG_ON(!dsp->data))
 		return -EINVAL;
-	
+	/* transfert data buffer from PC to DSP */
 	for (i = 0; i < dsp->size; i += 3) {
 		data = dsp->data + i;
 		if (i == 0) {
-			
+			/* test data header consistency */
 			len = (unsigned int)((data[0]<<16) +
 					     (data[1]<<8) +
 					     data[2]);
 			if (len && (dsp->size != (len + 2) * 3))
 				return -EINVAL;
 		}
-		
+		/* wait DSP ready for new transfer */
 		err = pcxhr_check_reg_bit(mgr, PCXHR_DSP_ISR,
 					  PCXHR_ISR_HI08_TRDY,
 					  PCXHR_ISR_HI08_TRDY,
@@ -334,28 +364,34 @@ static int pcxhr_download_dsp(struct pcxhr_mgr *mgr, const struct firmware *dsp)
 				   "dsp loading error at position %d\n", i);
 			return err;
 		}
-		
+		/* send host data */
 		PCXHR_OUTPB(mgr, PCXHR_DSP_TXH, data[0]);
 		PCXHR_OUTPB(mgr, PCXHR_DSP_TXM, data[1]);
 		PCXHR_OUTPB(mgr, PCXHR_DSP_TXL, data[2]);
 
-		
+		/* don't take too much time in this loop... */
 		cond_resched();
 	}
-	
+	/* give some time to boot the DSP */
 	msleep(PCXHR_WAIT_DEFAULT);
 	return 0;
 }
 
+/*
+ * load the eeprom image
+ */
 int pcxhr_load_eeprom_binary(struct pcxhr_mgr *mgr,
 			     const struct firmware *eeprom)
 {
 	int err;
 	unsigned char reg;
 
-	
+	/* init value of the ICR register */
 	reg = PCXHR_ICR_HI08_RREQ | PCXHR_ICR_HI08_TREQ | PCXHR_ICR_HI08_HDRQ;
 	if (PCXHR_INPL(mgr, PCXHR_PLX_MBOX0) & PCXHR_MBOX0_BOOT_HERE) {
+		/* no need to load the eeprom binary,
+		 * but init the HI08 interface
+		 */
 		PCXHR_OUTPB(mgr, PCXHR_DSP_ICR, reg | PCXHR_ICR_HI08_INIT);
 		msleep(PCXHR_WAIT_DEFAULT);
 		PCXHR_OUTPB(mgr, PCXHR_DSP_ICR, reg);
@@ -368,18 +404,21 @@ int pcxhr_load_eeprom_binary(struct pcxhr_mgr *mgr,
 	err = pcxhr_download_dsp(mgr, eeprom);
 	if (err)
 		return err;
-	
+	/* wait for chk bit */
 	return pcxhr_check_reg_bit(mgr, PCXHR_DSP_ISR, PCXHR_ISR_HI08_CHK,
 				   PCXHR_ISR_HI08_CHK, PCXHR_TIMEOUT_DSP, &reg);
 }
 
+/*
+ * load the boot image
+ */
 int pcxhr_load_boot_binary(struct pcxhr_mgr *mgr, const struct firmware *boot)
 {
 	int err;
 	unsigned int physaddr = mgr->hostport.addr;
 	unsigned char dummy;
 
-	
+	/* send the hostport address to the DSP (only the upper 24 bit !) */
 	if (snd_BUG_ON(physaddr & 0xff))
 		return -EINVAL;
 	PCXHR_OUTPL(mgr, PCXHR_PLX_MBOX1, (physaddr >> 8));
@@ -387,18 +426,21 @@ int pcxhr_load_boot_binary(struct pcxhr_mgr *mgr, const struct firmware *boot)
 	err = pcxhr_send_it_dsp(mgr, PCXHR_IT_DOWNLOAD_BOOT, 0);
 	if (err)
 		return err;
-	
+	/* clear hf5 bit */
 	PCXHR_OUTPL(mgr, PCXHR_PLX_MBOX0,
 		    PCXHR_INPL(mgr, PCXHR_PLX_MBOX0) & ~PCXHR_MBOX0_HF5);
 
 	err = pcxhr_download_dsp(mgr, boot);
 	if (err)
 		return err;
-	
+	/* wait for hf5 bit */
 	return pcxhr_check_reg_bit(mgr, PCXHR_PLX_MBOX0, PCXHR_MBOX0_HF5,
 				   PCXHR_MBOX0_HF5, PCXHR_TIMEOUT_DSP, &dummy);
 }
 
+/*
+ * load the final dsp image
+ */
 int pcxhr_load_dsp_binary(struct pcxhr_mgr *mgr, const struct firmware *dsp)
 {
 	int err;
@@ -412,7 +454,7 @@ int pcxhr_load_dsp_binary(struct pcxhr_mgr *mgr, const struct firmware *dsp)
 	err = pcxhr_download_dsp(mgr, dsp);
 	if (err)
 		return err;
-	
+	/* wait for chk bit */
 	return pcxhr_check_reg_bit(mgr, PCXHR_DSP_ISR,
 				   PCXHR_ISR_HI08_CHK,
 				   PCXHR_ISR_HI08_CHK,
@@ -421,17 +463,21 @@ int pcxhr_load_dsp_binary(struct pcxhr_mgr *mgr, const struct firmware *dsp)
 
 
 struct pcxhr_cmd_info {
-	u32 opcode;		
-	u16 st_length;		
-	u16 st_type;		
+	u32 opcode;		/* command word */
+	u16 st_length;		/* status length */
+	u16 st_type;		/* status type (RMH_SSIZE_XXX) */
 };
 
+/* RMH status type */
 enum {
-	RMH_SSIZE_FIXED = 0,	
-	RMH_SSIZE_ARG = 1,	
-	RMH_SSIZE_MASK = 2,	
+	RMH_SSIZE_FIXED = 0,	/* status size fix (st_length = 0..x) */
+	RMH_SSIZE_ARG = 1,	/* status size given in the LSB byte */
+	RMH_SSIZE_MASK = 2,	/* status size given in bitmask */
 };
 
+/*
+ * Array of DSP commands
+ */
 static struct pcxhr_cmd_info pcxhr_dsp_cmds[] = {
 [CMD_VERSION] =				{ 0x010000, 1, RMH_SSIZE_FIXED },
 [CMD_SUPPORTED] =			{ 0x020000, 4, RMH_SSIZE_FIXED },
@@ -505,7 +551,7 @@ static int pcxhr_read_rmh_status(struct pcxhr_mgr *mgr, struct pcxhr_rmh *rmh)
 	else	max_stat_len = rmh->stat_len;
 
 	for (i = 0; i < rmh->stat_len; i++) {
-		
+		/* wait for receiver full */
 		err = pcxhr_check_reg_bit(mgr, PCXHR_DSP_ISR,
 					  PCXHR_ISR_HI08_RXDF,
 					  PCXHR_ISR_HI08_RXDF,
@@ -516,19 +562,19 @@ static int pcxhr_read_rmh_status(struct pcxhr_mgr *mgr, struct pcxhr_rmh *rmh)
 				   reg, i);
 			return err;
 		}
-		
+		/* read data */
 		data  = PCXHR_INPB(mgr, PCXHR_DSP_TXH) << 16;
 		data |= PCXHR_INPB(mgr, PCXHR_DSP_TXM) << 8;
 		data |= PCXHR_INPB(mgr, PCXHR_DSP_TXL);
 
-		
+		/* need to update rmh->stat_len on the fly ?? */
 		if (!i) {
 			if (rmh->dsp_stat != RMH_SSIZE_FIXED) {
 				if (rmh->dsp_stat == RMH_SSIZE_ARG) {
 					rmh->stat_len = (data & 0x0000ff) + 1;
 					data &= 0xffff00;
 				} else {
-					
+					/* rmh->dsp_stat == RMH_SSIZE_MASK */
 					rmh->stat_len = 1;
 					size_mask = data;
 					while (size_mask) {
@@ -568,16 +614,16 @@ static int pcxhr_send_msg_nolock(struct pcxhr_mgr *mgr, struct pcxhr_rmh *rmh)
 		snd_printk(KERN_ERR "pcxhr_send_message : ED_DSP_CRASHED\n");
 		return err;
 	}
-	
+	/* wait for chk bit */
 	err = pcxhr_check_reg_bit(mgr, PCXHR_DSP_ISR, PCXHR_ISR_HI08_CHK,
 				  PCXHR_ISR_HI08_CHK, PCXHR_TIMEOUT_DSP, &reg);
 	if (err)
 		return err;
-	
+	/* reset irq chk */
 	err = pcxhr_send_it_dsp(mgr, PCXHR_IT_RESET_CHK, 1);
 	if (err)
 		return err;
-	
+	/* wait for chk bit == 0*/
 	err = pcxhr_check_reg_bit(mgr, PCXHR_DSP_ISR, PCXHR_ISR_HI08_CHK, 0,
 				  PCXHR_TIMEOUT_DSP, &reg);
 	if (err)
@@ -586,9 +632,9 @@ static int pcxhr_send_msg_nolock(struct pcxhr_mgr *mgr, struct pcxhr_rmh *rmh)
 	data = rmh->cmd[0];
 
 	if (rmh->cmd_len > 1)
-		data |= 0x008000;	
+		data |= 0x008000;	/* MASK_MORE_THAN_1_WORD_COMMAND */
 	else
-		data &= 0xff7fff;	
+		data &= 0xff7fff;	/* MASK_1_WORD_COMMAND */
 #ifdef CONFIG_SND_DEBUG_VERBOSE
 	if (rmh->cmd_idx < CMD_LAST_INDEX)
 		snd_printdd("MSG cmd[0]=%x (%s)\n",
@@ -604,7 +650,7 @@ static int pcxhr_send_msg_nolock(struct pcxhr_mgr *mgr, struct pcxhr_rmh *rmh)
 	PCXHR_OUTPB(mgr, PCXHR_DSP_TXL, (data&0xFF));
 
 	if (rmh->cmd_len > 1) {
-		
+		/* send length */
 		data = rmh->cmd_len - 1;
 		err = pcxhr_check_reg_bit(mgr, PCXHR_DSP_ISR,
 					  PCXHR_ISR_HI08_TRDY,
@@ -617,7 +663,7 @@ static int pcxhr_send_msg_nolock(struct pcxhr_mgr *mgr, struct pcxhr_rmh *rmh)
 		PCXHR_OUTPB(mgr, PCXHR_DSP_TXL, (data&0xFF));
 
 		for (i=1; i < rmh->cmd_len; i++) {
-			
+			/* send other words */
 			data = rmh->cmd[i];
 #ifdef CONFIG_SND_DEBUG_VERBOSE
 			if (rmh->cmd_idx < CMD_LAST_INDEX)
@@ -634,14 +680,14 @@ static int pcxhr_send_msg_nolock(struct pcxhr_mgr *mgr, struct pcxhr_rmh *rmh)
 			PCXHR_OUTPB(mgr, PCXHR_DSP_TXL, (data&0xFF));
 		}
 	}
-	
+	/* wait for chk bit */
 	err = pcxhr_check_reg_bit(mgr, PCXHR_DSP_ISR, PCXHR_ISR_HI08_CHK,
 				  PCXHR_ISR_HI08_CHK, PCXHR_TIMEOUT_DSP, &reg);
 	if (err)
 		return err;
-	
+	/* test status ISR */
 	if (reg & PCXHR_ISR_HI08_ERR) {
-		
+		/* ERROR, wait for receiver full */
 		err = pcxhr_check_reg_bit(mgr, PCXHR_DSP_ISR,
 					  PCXHR_ISR_HI08_RXDF,
 					  PCXHR_ISR_HI08_RXDF,
@@ -650,7 +696,7 @@ static int pcxhr_send_msg_nolock(struct pcxhr_mgr *mgr, struct pcxhr_rmh *rmh)
 			snd_printk(KERN_ERR "ERROR RMH: ISR:RXDF=1 (ISR = %x)\n", reg);
 			return err;
 		}
-		
+		/* read error code */
 		data  = PCXHR_INPB(mgr, PCXHR_DSP_TXH) << 16;
 		data |= PCXHR_INPB(mgr, PCXHR_DSP_TXM) << 8;
 		data |= PCXHR_INPB(mgr, PCXHR_DSP_TXL);
@@ -658,16 +704,21 @@ static int pcxhr_send_msg_nolock(struct pcxhr_mgr *mgr, struct pcxhr_rmh *rmh)
 			   rmh->cmd_idx, data);
 		err = -EINVAL;
 	} else {
-		
+		/* read the response data */
 		err = pcxhr_read_rmh_status(mgr, rmh);
 	}
-	
+	/* reset semaphore */
 	if (pcxhr_send_it_dsp(mgr, PCXHR_IT_RESET_SEMAPHORE, 1) < 0)
 		return -EIO;
 	return err;
 }
 
 
+/**
+ * pcxhr_init_rmh - initialize the RMH instance
+ * @rmh: the rmh pointer to be initialized
+ * @cmd: the rmh command to be set
+ */
 void pcxhr_init_rmh(struct pcxhr_rmh *rmh, int cmd)
 {
 	if (snd_BUG_ON(cmd >= CMD_LAST_INDEX))
@@ -686,7 +737,7 @@ void pcxhr_set_pipe_cmd_params(struct pcxhr_rmh *rmh, int capture,
 {
 	snd_BUG_ON(param1 > MASK_FIRST_FIELD);
 	if (capture)
-		rmh->cmd[0] |= 0x800;		
+		rmh->cmd[0] |= 0x800;		/* COMMAND_RECORD_MASK */
 	if (param1)
 		rmh->cmd[0] |= (param1 << FIELD_SIZE);
 	if (param2) {
@@ -700,6 +751,12 @@ void pcxhr_set_pipe_cmd_params(struct pcxhr_rmh *rmh, int capture,
 	}
 }
 
+/*
+ * pcxhr_send_msg - send a DSP message with spinlock
+ * @rmh: the rmh record to send and receive
+ *
+ * returns 0 if successful, or a negative error code.
+ */
 int pcxhr_send_msg(struct pcxhr_mgr *mgr, struct pcxhr_rmh *rmh)
 {
 	unsigned long flags;
@@ -713,6 +770,11 @@ int pcxhr_send_msg(struct pcxhr_mgr *mgr, struct pcxhr_rmh *rmh)
 static inline int pcxhr_pipes_running(struct pcxhr_mgr *mgr)
 {
 	int start_mask = PCXHR_INPL(mgr, PCXHR_PLX_MBOX2);
+	/* least segnificant 12 bits are the pipe states
+	 * for the playback audios
+	 * next 12 bits are the pipe states for the capture audios
+	 * (PCXHR_PIPE_STATE_CAPTURE_OFFSET)
+	 */
 	start_mask &= 0xffffff;
 	snd_printdd("CMD_PIPE_STATE MBOX2=0x%06x\n", start_mask);
 	return start_mask;
@@ -733,10 +795,10 @@ static int pcxhr_prepair_pipe_start(struct pcxhr_mgr *mgr,
 		if (audio_mask & 1) {
 			pcxhr_init_rmh(&rmh, CMD_CAN_START_PIPE);
 			if (audio < PCXHR_PIPE_STATE_CAPTURE_OFFSET) {
-				
+				/* can start playback pipe */
 				pcxhr_set_pipe_cmd_params(&rmh, 0, audio, 0, 0);
 			} else {
-				
+				/* can start capture pipe */
 				pcxhr_set_pipe_cmd_params(&rmh, 1, audio -
 						PCXHR_PIPE_STATE_CAPTURE_OFFSET,
 						0, 0);
@@ -749,6 +811,9 @@ static int pcxhr_prepair_pipe_start(struct pcxhr_mgr *mgr,
 					   err);
 				return err;
 			}
+			/* if the pipe couldn't be prepaired for start,
+			 * retry it later
+			 */
 			if (rmh.stat[0] == 0)
 				*retry |= (1<<audio);
 		}
@@ -768,10 +833,10 @@ static int pcxhr_stop_pipes(struct pcxhr_mgr *mgr, int audio_mask)
 		if (audio_mask & 1) {
 			pcxhr_init_rmh(&rmh, CMD_STOP_PIPE);
 			if (audio < PCXHR_PIPE_STATE_CAPTURE_OFFSET) {
-				
+				/* stop playback pipe */
 				pcxhr_set_pipe_cmd_params(&rmh, 0, audio, 0, 0);
 			} else {
-				
+				/* stop capture pipe */
 				pcxhr_set_pipe_cmd_params(&rmh, 1, audio -
 						PCXHR_PIPE_STATE_CAPTURE_OFFSET,
 						0, 0);
@@ -816,7 +881,7 @@ static int pcxhr_toggle_pipes(struct pcxhr_mgr *mgr, int audio_mask)
 		audio_mask>>=1;
 		audio++;
 	}
-	
+	/* now fire the interrupt on the card */
 	pcxhr_init_rmh(&rmh, CMD_SEND_IRQA);
 	err = pcxhr_send_msg(mgr, &rmh);
 	if (err) {
@@ -842,12 +907,12 @@ int pcxhr_set_pipe_state(struct pcxhr_mgr *mgr, int playback_mask,
 #endif
 	audio_mask = (playback_mask |
 		      (capture_mask << PCXHR_PIPE_STATE_CAPTURE_OFFSET));
-	
+	/* current pipe state (playback + record) */
 	state = pcxhr_pipes_running(mgr);
 	snd_printdd("pcxhr_set_pipe_state %s (mask %x current %x)\n",
 		    start ? "START" : "STOP", audio_mask, state);
 	if (start) {
-		
+		/* start only pipes that are not yet started */
 		audio_mask &= ~state;
 		state = audio_mask;
 		for (i = 0; i < MAX_WAIT_FOR_DSP; i++) {
@@ -855,11 +920,11 @@ int pcxhr_set_pipe_state(struct pcxhr_mgr *mgr, int playback_mask,
 			if (err)
 				return err;
 			if (state == 0)
-				break;	
-			mdelay(1);	
+				break;	/* success, all pipes prepaired */
+			mdelay(1);	/* wait 1 millisecond and retry */
 		}
 	} else {
-		audio_mask &= state;	
+		audio_mask &= state;	/* stop only pipes that are started */
 	}
 	if (audio_mask == 0)
 		return 0;
@@ -871,14 +936,14 @@ int pcxhr_set_pipe_state(struct pcxhr_mgr *mgr, int playback_mask,
 	i = 0;
 	while (1) {
 		state = pcxhr_pipes_running(mgr);
-		
+		/* have all pipes the new state ? */
 		if ((state & audio_mask) == (start ? audio_mask : 0))
 			break;
 		if (++i >= MAX_WAIT_FOR_DSP * 100) {
 			snd_printk(KERN_ERR "error pipe start/stop\n");
 			return -EBUSY;
 		}
-		udelay(10);			
+		udelay(10);			/* wait 10 microseconds */
 	}
 	if (!start) {
 		err = pcxhr_stop_pipes(mgr, audio_mask);
@@ -907,7 +972,7 @@ int pcxhr_write_io_num_reg_cont(struct pcxhr_mgr *mgr, unsigned int mask,
 		if (changed)
 			*changed = 0;
 		spin_unlock_irqrestore(&mgr->msg_lock, flags);
-		return 0;	
+		return 0;	/* already programmed */
 	}
 	pcxhr_init_rmh(&rmh, CMD_ACCESS_IO_WRITE);
 	rmh.cmd[0] |= IO_NUM_REG_CONT;
@@ -983,7 +1048,7 @@ void pcxhr_msg_tasklet(unsigned long arg)
 	if (mgr->src_it_dsp & PCXHR_IRQ_NOTIFY)
 		snd_printdd("TASKLET : PCXHR_IRQ_NOTIFY event occurred\n");
 	if (mgr->src_it_dsp & (PCXHR_IRQ_FREQ_CHANGE | PCXHR_IRQ_TIME_CODE)) {
-		
+		/* clear events FREQ_CHANGE and TIME_CODE */
 		pcxhr_init_rmh(prmh, CMD_TEST_IT);
 		err = pcxhr_send_msg(mgr, prmh);
 		snd_printdd("CMD_TEST_IT : err=%x, stat=%x\n",
@@ -993,8 +1058,8 @@ void pcxhr_msg_tasklet(unsigned long arg)
 		snd_printdd("TASKLET : PCXHR_IRQ_ASYNC event occurred\n");
 
 		pcxhr_init_rmh(prmh, CMD_ASYNC);
-		prmh->cmd[0] |= 1;	
-		
+		prmh->cmd[0] |= 1;	/* add SEL_ASYNC_EVENTS */
+		/* this is the only one extra long response command */
 		prmh->stat_len = PCXHR_SIZE_MAX_LONG_STATUS;
 		err = pcxhr_send_msg(mgr, prmh);
 		if (err)
@@ -1010,7 +1075,7 @@ void pcxhr_msg_tasklet(unsigned long arg)
 			int is_capture = prmh->stat[i] & 0x400000;
 			u32 err2;
 
-			if (prmh->stat[i] & 0x800000) {	
+			if (prmh->stat[i] & 0x800000) {	/* if BIT_END */
 				snd_printdd("TASKLET : End%sPipe %d\n",
 					    is_capture ? "Record" : "Play",
 					    pipe);
@@ -1055,11 +1120,11 @@ static u_int64_t pcxhr_stream_read_position(struct pcxhr_mgr *mgr,
 
 	stream_mask = stream->pipe->is_capture ? 1 : 1<<stream->substream->number;
 
-	
+	/* get sample count for one stream */
 	pcxhr_init_rmh(&rmh, CMD_STREAM_SAMPLE_COUNT);
 	pcxhr_set_pipe_cmd_params(&rmh, stream->pipe->is_capture,
 				  stream->pipe->first_audio, 0, stream_mask);
-		
+	/* rmh.stat_len = 2; */	/* 2 resp data for each stream of the pipe */
 
 	err = pcxhr_send_msg(mgr, &rmh);
 	if (err)
@@ -1091,7 +1156,7 @@ static void pcxhr_update_timer_pos(struct pcxhr_mgr *mgr,
 
 		if (samples_to_add < 0) {
 			stream->timer_is_synced = 0;
-			
+			/* add default if no hardware_read possible */
 			samples_to_add = mgr->granularity;
 		}
 
@@ -1103,12 +1168,19 @@ static void pcxhr_update_timer_pos(struct pcxhr_mgr *mgr,
 				  pcxhr_stream_read_position(mgr, stream);
 				hardware_read = 1;
 				if (new_sample_count >= mgr->granularity) {
+					/* sub security offset because of
+					 * jitter and finer granularity of
+					 * dsp time (MBOX4)
+					 */
 					new_sample_count -= mgr->granularity;
 					stream->timer_is_synced = 1;
 				}
 			}
 		}
 		if (!hardware_read) {
+			/* if we didn't try to sync the position, increment it
+			 * by PCXHR_GRANULARITY every timer interrupt
+			 */
 			new_sample_count = stream->timer_abs_periods +
 				stream->timer_period_frag + samples_to_add;
 		}
@@ -1153,18 +1225,18 @@ irqreturn_t pcxhr_interrupt(int irq, void *dev_id)
 	reg = PCXHR_INPL(mgr, PCXHR_PLX_IRQCS);
 	if (! (reg & PCXHR_IRQCS_ACTIVE_PCIDB)) {
 		spin_unlock(&mgr->lock);
-		
+		/* this device did not cause the interrupt */
 		return IRQ_NONE;
 	}
 
-	
+	/* clear interrupt */
 	reg = PCXHR_INPL(mgr, PCXHR_PLX_L2PCIDB);
 	PCXHR_OUTPL(mgr, PCXHR_PLX_L2PCIDB, reg);
 
-	
+	/* timer irq occurred */
 	if (reg & PCXHR_IRQ_TIMER) {
 		int timer_toggle = reg & PCXHR_IRQ_TIMER;
-		
+		/* is a 24 bit counter */
 		int dsp_time_new =
 			PCXHR_INPL(mgr, PCXHR_PLX_MBOX4) & PCXHR_DSP_TIME_MASK;
 		int dsp_time_diff = dsp_time_new - mgr->dsp_time_last;
@@ -1212,10 +1284,13 @@ irqreturn_t pcxhr_interrupt(int irq, void *dev_id)
 						dsp_time_diff);
 		}
 	}
-	
+	/* other irq's handled in the tasklet */
 	if (reg & PCXHR_IRQ_MASK) {
 		if (reg & PCXHR_IRQ_ASYNC) {
-			
+			/* as we didn't request any async notifications,
+			 * some kind of xrun error will probably occurred
+			 */
+			/* better resynchronize all streams next interrupt : */
 			mgr->dsp_time_last = PCXHR_DSP_TIME_INVALID;
 		}
 		mgr->src_it_dsp = reg;
@@ -1226,5 +1301,5 @@ irqreturn_t pcxhr_interrupt(int irq, void *dev_id)
 		snd_printdd("FATAL DSP ERROR : %x\n", reg);
 #endif
 	spin_unlock(&mgr->lock);
-	return IRQ_HANDLED;	
+	return IRQ_HANDLED;	/* this device caused the interrupt */
 }

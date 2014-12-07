@@ -24,6 +24,7 @@
 #include <asm/dmabrg.h>
 
 
+/* registers and bits */
 #define BRGATXSAR	0x00
 #define BRGARXDAR	0x04
 #define BRGATXTCR	0x08
@@ -39,6 +40,7 @@
 #define ACR_TDS		(1 << 1)
 #define ACR_TDE		(1 << 0)
 
+/* receiver/transmitter data alignment */
 #define ACR_RAM_NONE	(0 << 24)
 #define ACR_RAM_4BYTE	(1 << 24)
 #define ACR_RAM_2WORD	(2 << 24)
@@ -48,8 +50,8 @@
 
 
 struct camelot_pcm {
-	unsigned long mmio;  
-	unsigned int txid;    
+	unsigned long mmio;  /* DMABRG audio channel control reg MMIO */
+	unsigned int txid;    /* ID of first DMABRG IRQ for this unit */
 
 	struct snd_pcm_substream *tx_ss;
 	unsigned long tx_period_size;
@@ -72,11 +74,22 @@ struct camelot_pcm {
 
 #define BRGREG(x)	(*(unsigned long *)(cam->mmio + (x)))
 
+/*
+ * set a minimum of 16kb per period, to avoid interrupt-"storm" and
+ * resulting skipping. In general, the bigger the minimum size, the
+ * better for overall system performance. (The SH7760 is a puny CPU
+ * with a slow SDRAM interface and poor internal bus bandwidth,
+ * *especially* when the LCDC is active).  The minimum for the DMAC
+ * is 8 bytes; 16kbytes are enough to get skip-free playback of a
+ * 44kHz/16bit/stereo MP3 on a lightly loaded system, and maintain
+ * reasonable responsiveness in MPlayer.
+ */
 #define DMABRG_PERIOD_MIN		16 * 1024
 #define DMABRG_PERIOD_MAX		0x03fffffc
 #define DMABRG_PREALLOC_BUFFER		32 * 1024
 #define DMABRG_PREALLOC_BUFFER_MAX	32 * 1024
 
+/* support everything the SSI supports */
 #define DMABRG_RATES	\
 	SNDRV_PCM_RATE_8000_192000
 
@@ -98,7 +111,7 @@ static struct snd_pcm_hardware camelot_pcm_hardware = {
 	.rate_min =		8000,
 	.rate_max =		192000,
 	.channels_min =		2,
-	.channels_max =		8,		
+	.channels_max =		8,		/* max of the SSI */
 	.buffer_bytes_max =	DMABRG_PERIOD_MAX,
 	.period_bytes_min =	DMABRG_PERIOD_MIN,
 	.period_bytes_max =	DMABRG_PERIOD_MAX / 2,
@@ -130,7 +143,7 @@ static int camelot_pcm_open(struct snd_pcm_substream *substream)
 
 	snd_soc_set_runtime_hwparams(substream, &camelot_pcm_hardware);
 
-	
+	/* DMABRG buffer half/full events */
 	dmairq = (recv) ? cam->txid + 2 : cam->txid;
 	if (recv) {
 		cam->rx_ss = substream;
@@ -225,28 +238,28 @@ static int camelot_prepare(struct snd_pcm_substream *substream)
 static inline void dmabrg_play_dma_start(struct camelot_pcm *cam)
 {
 	unsigned long acr = BRGREG(BRGACR) & ~(ACR_TDS | ACR_RDS);
-	
+	/* start DMABRG engine: XFER start, auto-addr-reload */
 	BRGREG(BRGACR) = acr | ACR_TDE | ACR_TAR | ACR_TAM_2WORD;
 }
 
 static inline void dmabrg_play_dma_stop(struct camelot_pcm *cam)
 {
 	unsigned long acr = BRGREG(BRGACR) & ~(ACR_TDS | ACR_RDS);
-	
+	/* forcibly terminate data transmission */
 	BRGREG(BRGACR) = acr | ACR_TDS;
 }
 
 static inline void dmabrg_rec_dma_start(struct camelot_pcm *cam)
 {
 	unsigned long acr = BRGREG(BRGACR) & ~(ACR_TDS | ACR_RDS);
-	
+	/* start DMABRG engine: recv start, auto-reload */
 	BRGREG(BRGACR) = acr | ACR_RDE | ACR_RAR | ACR_RAM_2WORD;
 }
 
 static inline void dmabrg_rec_dma_stop(struct camelot_pcm *cam)
 {
 	unsigned long acr = BRGREG(BRGACR) & ~(ACR_TDS | ACR_RDS);
-	
+	/* forcibly terminate data receiver */
 	BRGREG(BRGACR) = acr | ACR_RDS;
 }
 
@@ -284,6 +297,12 @@ static snd_pcm_uframes_t camelot_pos(struct snd_pcm_substream *substream)
 	int recv = substream->stream == SNDRV_PCM_STREAM_PLAYBACK ? 0:1;
 	unsigned long pos;
 
+	/* cannot use the DMABRG pointer register: under load, by the
+	 * time ALSA comes around to read the register, it is already
+	 * far ahead (or worse, already done with the fragment) of the
+	 * position at the time the IRQ was triggered, which results in
+	 * fast-playback sound in my test application (ScummVM)
+	 */
 	if (recv)
 		pos = cam->rx_period ? cam->rx_period_size : 0;
 	else
@@ -312,6 +331,9 @@ static int camelot_pcm_new(struct snd_soc_pcm_runtime *rtd)
 {
 	struct snd_pcm *pcm = rtd->pcm;
 
+	/* dont use SNDRV_DMA_TYPE_DEV, since it will oops the SH kernel
+	 * in MMAP mode (i.e. aplay -M)
+	 */
 	snd_pcm_lib_preallocate_pages_for_all(pcm,
 		SNDRV_DMA_TYPE_CONTINUOUS,
 		snd_dma_continuous_data(GFP_KERNEL),

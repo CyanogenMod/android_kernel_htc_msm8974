@@ -25,7 +25,7 @@
 #include <linux/mmc/card.h>
 #include <linux/suspend.h>
 #include <linux/errno.h>
-#include <linux/sched.h>	
+#include <linux/sched.h>	/* request_irq() */
 #include <linux/module.h>
 #include <net/cfg80211.h>
 
@@ -47,10 +47,11 @@
 #define SDIO_FUNC1_BLOCKSIZE		64
 #define SDIO_FUNC2_BLOCKSIZE		512
 
+/* devices we support, null terminated */
 static const struct sdio_device_id brcmf_sdmmc_ids[] = {
 	{SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_4329)},
 	{SDIO_DEVICE(SDIO_VENDOR_ID_BROADCOM, SDIO_DEVICE_ID_BROADCOM_4330)},
-	{  },
+	{ /* end: all zeroes */ },
 };
 MODULE_DEVICE_TABLE(sdio, brcmf_sdmmc_ids);
 
@@ -80,19 +81,24 @@ static inline int brcmf_sdioh_f0_write_byte(struct brcmf_sdio_dev *sdiodev,
 	struct sdio_func *sdfunc = sdiodev->func[0];
 	int err_ret;
 
+	/*
+	 * Can only directly write to some F0 registers.
+	 * Handle F2 enable/disable and Abort command
+	 * as a special case.
+	 */
 	if (regaddr == SDIO_CCCR_IOEx) {
 		sdfunc = sdiodev->func[2];
 		if (sdfunc) {
 			sdio_claim_host(sdfunc);
 			if (*byte & SDIO_FUNC_ENABLE_2) {
-				
+				/* Enable Function 2 */
 				err_ret = sdio_enable_func(sdfunc);
 				if (err_ret)
 					brcmf_dbg(ERROR,
 						  "enable F2 failed:%d\n",
 						  err_ret);
 			} else {
-				
+				/* Disable Function 2 */
 				err_ret = sdio_disable_func(sdfunc);
 				if (err_ret)
 					brcmf_dbg(ERROR,
@@ -135,11 +141,11 @@ int brcmf_sdioh_request_byte(struct brcmf_sdio_dev *sdiodev, uint rw, uint func,
 		return -EIO;
 
 	if (rw && func == 0) {
-		
+		/* handle F0 separately */
 		err_ret = brcmf_sdioh_f0_write_byte(sdiodev, regaddr, byte);
 	} else {
 		sdio_claim_host(sdiodev->func[func]);
-		if (rw) 
+		if (rw) /* CMD52 Write */
 			sdio_writeb(sdiodev->func[func], *byte, regaddr,
 				    &err_ret);
 		else if (func == 0) {
@@ -176,10 +182,10 @@ int brcmf_sdioh_request_word(struct brcmf_sdio_dev *sdiodev,
 	brcmf_pm_resume_wait(sdiodev, &sdiodev->request_word_wait);
 	if (brcmf_pm_resume_error(sdiodev))
 		return -EIO;
-	
+	/* Claim host controller */
 	sdio_claim_host(sdiodev->func[func]);
 
-	if (rw) {		
+	if (rw) {		/* CMD52 Write */
 		if (nbytes == 4)
 			sdio_writel(sdiodev->func[func], *word, addr,
 				    &err_ret);
@@ -188,7 +194,7 @@ int brcmf_sdioh_request_word(struct brcmf_sdio_dev *sdiodev,
 				    addr, &err_ret);
 		else
 			brcmf_dbg(ERROR, "Invalid nbytes: %d\n", nbytes);
-	} else {		
+	} else {		/* CMD52 Read */
 		if (nbytes == 4)
 			*word = sdio_readl(sdiodev->func[func], addr, &err_ret);
 		else if (nbytes == 2)
@@ -198,7 +204,7 @@ int brcmf_sdioh_request_word(struct brcmf_sdio_dev *sdiodev,
 			brcmf_dbg(ERROR, "Invalid nbytes: %d\n", nbytes);
 	}
 
-	
+	/* Release host controller */
 	sdio_release_host(sdiodev->func[func]);
 
 	if (err_ret)
@@ -208,6 +214,7 @@ int brcmf_sdioh_request_word(struct brcmf_sdio_dev *sdiodev,
 	return err_ret;
 }
 
+/* precondition: host controller is claimed */
 static int
 brcmf_sdioh_request_data(struct brcmf_sdio_dev *sdiodev, uint write, bool fifo,
 			 uint func, uint addr, struct sk_buff *pkt, uint pktlen)
@@ -232,6 +239,10 @@ brcmf_sdioh_request_data(struct brcmf_sdio_dev *sdiodev, uint write, bool fifo,
 	return err_ret;
 }
 
+/*
+ * This function takes a queue of packets. The packets on the queue
+ * are assumed to be properly aligned by the caller.
+ */
 int
 brcmf_sdioh_request_chain(struct brcmf_sdio_dev *sdiodev, uint fix_inc,
 			  uint write, uint func, uint addr,
@@ -249,7 +260,7 @@ brcmf_sdioh_request_chain(struct brcmf_sdio_dev *sdiodev, uint fix_inc,
 	if (brcmf_pm_resume_error(sdiodev))
 		return -EIO;
 
-	
+	/* Claim host controller */
 	sdio_claim_host(sdiodev->func[func]);
 
 	skb_queue_walk(pktq, pkt) {
@@ -274,13 +285,16 @@ brcmf_sdioh_request_chain(struct brcmf_sdio_dev *sdiodev, uint fix_inc,
 		SGCount++;
 	}
 
-	
+	/* Release host controller */
 	sdio_release_host(sdiodev->func[func]);
 
 	brcmf_dbg(TRACE, "Exit\n");
 	return err_ret;
 }
 
+/*
+ * This function takes a single DMA-able packet.
+ */
 int brcmf_sdioh_request_buffer(struct brcmf_sdio_dev *sdiodev,
 			       uint fix_inc, uint write, uint func, uint addr,
 			       struct sk_buff *pkt)
@@ -299,7 +313,7 @@ int brcmf_sdioh_request_buffer(struct brcmf_sdio_dev *sdiodev,
 	if (brcmf_pm_resume_error(sdiodev))
 		return -EIO;
 
-	
+	/* Claim host controller */
 	sdio_claim_host(sdiodev->func[func]);
 
 	pkt_len += 3;
@@ -315,12 +329,13 @@ int brcmf_sdioh_request_buffer(struct brcmf_sdio_dev *sdiodev,
 			  write ? "TX" : "RX", pkt, addr, pkt_len);
 	}
 
-	
+	/* Release host controller */
 	sdio_release_host(sdiodev->func[func]);
 
 	return status;
 }
 
+/* Read client card reg */
 static int
 brcmf_sdioh_card_regread(struct brcmf_sdio_dev *sdiodev, int func, u32 regaddr,
 			 int regsize, u32 *data)
@@ -348,7 +363,7 @@ brcmf_sdioh_card_regread(struct brcmf_sdio_dev *sdiodev, int func, u32 regaddr,
 
 static int brcmf_sdioh_get_cisaddr(struct brcmf_sdio_dev *sdiodev, u32 regaddr)
 {
-	
+	/* read 24 bits and return valid 17 bit addr */
 	int i;
 	u32 scratch, regdata;
 	__le32 scratch_le;
@@ -363,7 +378,7 @@ static int brcmf_sdioh_get_cisaddr(struct brcmf_sdio_dev *sdiodev, u32 regaddr)
 		regaddr++;
 	}
 
-	
+	/* Only the lower 17-bits are valid */
 	scratch = le32_to_cpu(scratch_le);
 	scratch &= 0x0001FFFF;
 	return scratch;
@@ -377,13 +392,13 @@ static int brcmf_sdioh_enablefuncs(struct brcmf_sdio_dev *sdiodev)
 
 	brcmf_dbg(TRACE, "\n");
 
-	
+	/* Get the Card's common CIS address */
 	sdiodev->func_cis_ptr[0] = brcmf_sdioh_get_cisaddr(sdiodev,
 							   SDIO_CCCR_CIS);
 	brcmf_dbg(INFO, "Card's Common CIS Ptr = 0x%x\n",
 		  sdiodev->func_cis_ptr[0]);
 
-	
+	/* Get the Card's function CIS (for each function) */
 	for (fbraddr = SDIO_FBR_BASE(1), func = 1;
 	     func <= sdiodev->num_funcs; func++, fbraddr += SDIOD_FBR_SIZE) {
 		sdiodev->func_cis_ptr[func] =
@@ -392,7 +407,7 @@ static int brcmf_sdioh_enablefuncs(struct brcmf_sdio_dev *sdiodev)
 			  func, sdiodev->func_cis_ptr[func]);
 	}
 
-	
+	/* Enable Function 1 */
 	sdio_claim_host(sdiodev->func[1]);
 	err_ret = sdio_enable_func(sdiodev->func[1]);
 	sdio_release_host(sdiodev->func[1]);
@@ -402,6 +417,9 @@ static int brcmf_sdioh_enablefuncs(struct brcmf_sdio_dev *sdiodev)
 	return false;
 }
 
+/*
+ *	Public entry points & extern's
+ */
 int brcmf_sdioh_attach(struct brcmf_sdio_dev *sdiodev)
 {
 	int err_ret = 0;
@@ -437,12 +455,12 @@ void brcmf_sdioh_detach(struct brcmf_sdio_dev *sdiodev)
 {
 	brcmf_dbg(TRACE, "\n");
 
-	
+	/* Disable Function 2 */
 	sdio_claim_host(sdiodev->func[2]);
 	sdio_disable_func(sdiodev->func[2]);
 	sdio_release_host(sdiodev->func[2]);
 
-	
+	/* Disable Function 1 */
 	sdio_claim_host(sdiodev->func[1]);
 	sdio_disable_func(sdiodev->func[1]);
 	sdio_release_host(sdiodev->func[1]);
@@ -571,7 +589,7 @@ static const struct dev_pm_ops brcmf_sdio_pm_ops = {
 	.suspend	= brcmf_sdio_suspend,
 	.resume		= brcmf_sdio_resume,
 };
-#endif	
+#endif	/* CONFIG_PM_SLEEP */
 
 static struct sdio_driver brcmf_sdmmc_driver = {
 	.probe = brcmf_ops_sdio_probe,
@@ -582,7 +600,7 @@ static struct sdio_driver brcmf_sdmmc_driver = {
 	.drv = {
 		.pm = &brcmf_sdio_pm_ops,
 	},
-#endif	
+#endif	/* CONFIG_PM_SLEEP */
 };
 
 void brcmf_sdio_exit(void)

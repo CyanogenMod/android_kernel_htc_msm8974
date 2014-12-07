@@ -53,44 +53,69 @@ struct ems_pci_card {
 
 #define EMS_PCI_CAN_CLOCK (16000000 / 2)
 
-#define PITA2_ICR           0x00	
-#define PITA2_ICR_INT0      0x00000002	
-#define PITA2_ICR_INT0_EN   0x00020000	
+/*
+ * Register definitions and descriptions are from LinCAN 0.3.3.
+ *
+ * PSB4610 PITA-2 bridge control registers
+ */
+#define PITA2_ICR           0x00	/* Interrupt Control Register */
+#define PITA2_ICR_INT0      0x00000002	/* [RC] INT0 Active/Clear */
+#define PITA2_ICR_INT0_EN   0x00020000	/* [RW] Enable INT0 */
 
-#define PITA2_MISC          0x1c	
-#define PITA2_MISC_CONFIG   0x04000000	
+#define PITA2_MISC          0x1c	/* Miscellaneous Register */
+#define PITA2_MISC_CONFIG   0x04000000	/* Multiplexed parallel interface */
 
-#define PLX_ICSR            0x4c   
-#define PLX_ICSR_LINTI1_ENA 0x0001 
-#define PLX_ICSR_PCIINT_ENA 0x0040 
-#define PLX_ICSR_LINTI1_CLR 0x0400 
+/*
+ * Register definitions for the PLX 9030
+ */
+#define PLX_ICSR            0x4c   /* Interrupt Control/Status register */
+#define PLX_ICSR_LINTI1_ENA 0x0001 /* LINTi1 Enable */
+#define PLX_ICSR_PCIINT_ENA 0x0040 /* PCI Interrupt Enable */
+#define PLX_ICSR_LINTI1_CLR 0x0400 /* Local Edge Triggerable Interrupt Clear */
 #define PLX_ICSR_ENA_CLR    (PLX_ICSR_LINTI1_ENA | PLX_ICSR_PCIINT_ENA | \
 			     PLX_ICSR_LINTI1_CLR)
 
+/*
+ * The board configuration is probably following:
+ * RX1 is connected to ground.
+ * TX1 is not connected.
+ * CLKO is not connected.
+ * Setting the OCR register to 0xDA is a good idea.
+ * This means normal output mode, push-pull and the correct polarity.
+ */
 #define EMS_PCI_OCR         (OCR_TX0_PUSHPULL | OCR_TX1_PUSHPULL)
 
+/*
+ * In the CDR register, you should set CBP to 1.
+ * You will probably also want to set the clock divider value to 7
+ * (meaning direct oscillator output) because the second SJA1000 chip
+ * is driven by the first one CLKOUT output.
+ */
 #define EMS_PCI_CDR             (CDR_CBP | CDR_CLKOUT_MASK)
 
 #define EMS_PCI_V1_BASE_BAR     1
-#define EMS_PCI_V1_CONF_SIZE    4096 
+#define EMS_PCI_V1_CONF_SIZE    4096 /* size of PITA control area */
 #define EMS_PCI_V2_BASE_BAR     2
-#define EMS_PCI_V2_CONF_SIZE    128 
-#define EMS_PCI_CAN_BASE_OFFSET 0x400 
-#define EMS_PCI_CAN_CTRL_SIZE   0x200 
+#define EMS_PCI_V2_CONF_SIZE    128 /* size of PLX control area */
+#define EMS_PCI_CAN_BASE_OFFSET 0x400 /* offset where the controllers starts */
+#define EMS_PCI_CAN_CTRL_SIZE   0x200 /* memory size for each controller */
 
-#define EMS_PCI_BASE_SIZE  4096 
+#define EMS_PCI_BASE_SIZE  4096 /* size of controller area */
 
 static DEFINE_PCI_DEVICE_TABLE(ems_pci_tbl) = {
-	
+	/* CPC-PCI v1 */
 	{PCI_VENDOR_ID_SIEMENS, 0x2104, PCI_ANY_ID, PCI_ANY_ID,},
-	
+	/* CPC-PCI v2 */
 	{PCI_VENDOR_ID_PLX, PCI_DEVICE_ID_PLX_9030, PCI_VENDOR_ID_PLX, 0x4000},
-	
+	/* CPC-104P v2 */
 	{PCI_VENDOR_ID_PLX, PCI_DEVICE_ID_PLX_9030, PCI_VENDOR_ID_PLX, 0x4002},
 	{0,}
 };
 MODULE_DEVICE_TABLE(pci, ems_pci_tbl);
 
+/*
+ * Helper to read internal registers from card logic (not CAN)
+ */
 static u8 ems_pci_v1_readb(struct ems_pci_card *card, unsigned int port)
 {
 	return readb(card->base_addr + (port * 4));
@@ -111,7 +136,7 @@ static void ems_pci_v1_post_irq(const struct sja1000_priv *priv)
 {
 	struct ems_pci_card *card = (struct ems_pci_card *)priv->priv;
 
-	
+	/* reset int flag of pita */
 	writel(PITA2_ICR_INT0_EN | PITA2_ICR_INT0,
 	       card->conf_addr + PITA2_ICR);
 }
@@ -134,16 +159,20 @@ static void ems_pci_v2_post_irq(const struct sja1000_priv *priv)
 	writel(PLX_ICSR_ENA_CLR, card->conf_addr + PLX_ICSR);
 }
 
+/*
+ * Check if a CAN controller is present at the specified location
+ * by trying to set 'em into the PeliCAN mode
+ */
 static inline int ems_pci_check_chan(const struct sja1000_priv *priv)
 {
 	unsigned char res;
 
-	
+	/* Make sure SJA1000 is in reset mode */
 	priv->write_reg(priv, REG_MOD, 1);
 
 	priv->write_reg(priv, REG_CDR, CDR_PELICAN);
 
-	
+	/* read reset-values */
 	res = priv->read_reg(priv, REG_CDR);
 
 	if (res == CDR_PELICAN)
@@ -183,10 +212,14 @@ static void ems_pci_del_card(struct pci_dev *pdev)
 
 static void ems_pci_card_reset(struct ems_pci_card *card)
 {
-	
+	/* Request board reset */
 	writeb(0, card->base_addr);
 }
 
+/*
+ * Probe PCI device for EMS CAN signature and register each available
+ * CAN channel to SJA1000 Socket-CAN subsystem.
+ */
 static int __devinit ems_pci_add_card(struct pci_dev *pdev,
 					const struct pci_device_id *ent)
 {
@@ -196,13 +229,13 @@ static int __devinit ems_pci_add_card(struct pci_dev *pdev,
 	int max_chan, conf_size, base_bar;
 	int err, i;
 
-	
+	/* Enabling PCI device */
 	if (pci_enable_device(pdev) < 0) {
 		dev_err(&pdev->dev, "Enabling PCI device failed\n");
 		return -ENODEV;
 	}
 
-	
+	/* Allocating card structures to hold addresses, ... */
 	card = kzalloc(sizeof(struct ems_pci_card), GFP_KERNEL);
 	if (card == NULL) {
 		dev_err(&pdev->dev, "Unable to allocate memory\n");
@@ -217,18 +250,18 @@ static int __devinit ems_pci_add_card(struct pci_dev *pdev,
 	card->channels = 0;
 
 	if (pdev->vendor == PCI_VENDOR_ID_PLX) {
-		card->version = 2; 
+		card->version = 2; /* CPC-PCI v2 */
 		max_chan = EMS_PCI_V2_MAX_CHAN;
 		base_bar = EMS_PCI_V2_BASE_BAR;
 		conf_size = EMS_PCI_V2_CONF_SIZE;
 	} else {
-		card->version = 1; 
+		card->version = 1; /* CPC-PCI v1 */
 		max_chan = EMS_PCI_V1_MAX_CHAN;
 		base_bar = EMS_PCI_V1_BASE_BAR;
 		conf_size = EMS_PCI_V1_CONF_SIZE;
 	}
 
-	
+	/* Remap configuration space and controller memory area */
 	card->conf_addr = pci_iomap(pdev, 0, conf_size);
 	if (card->conf_addr == NULL) {
 		err = -ENOMEM;
@@ -242,10 +275,10 @@ static int __devinit ems_pci_add_card(struct pci_dev *pdev,
 	}
 
 	if (card->version == 1) {
-		
+		/* Configure PITA-2 parallel interface (enable MUX) */
 		writel(PITA2_MISC_CONFIG, card->conf_addr + PITA2_MISC);
 
-		
+		/* Check for unique EMS CAN signature */
 		if (ems_pci_v1_readb(card, 0) != 0x55 ||
 		    ems_pci_v1_readb(card, 1) != 0xAA ||
 		    ems_pci_v1_readb(card, 2) != 0x01 ||
@@ -260,7 +293,7 @@ static int __devinit ems_pci_add_card(struct pci_dev *pdev,
 
 	ems_pci_card_reset(card);
 
-	
+	/* Detect available channels */
 	for (i = 0; i < max_chan; i++) {
 		dev = alloc_sja1000dev(0);
 		if (dev == NULL) {
@@ -286,7 +319,7 @@ static int __devinit ems_pci_add_card(struct pci_dev *pdev,
 			priv->post_irq  = ems_pci_v2_post_irq;
 		}
 
-		
+		/* Check if channel is present */
 		if (ems_pci_check_chan(priv)) {
 			priv->can.clock.freq = EMS_PCI_CAN_CLOCK;
 			priv->ocr = EMS_PCI_OCR;
@@ -295,15 +328,15 @@ static int __devinit ems_pci_add_card(struct pci_dev *pdev,
 			SET_NETDEV_DEV(dev, &pdev->dev);
 
 			if (card->version == 1)
-				
+				/* reset int flag of pita */
 				writel(PITA2_ICR_INT0_EN | PITA2_ICR_INT0,
 				       card->conf_addr + PITA2_ICR);
 			else
-				
+				/* enable IRQ in PLX 9030 */
 				writel(PLX_ICSR_ENA_CLR,
 				       card->conf_addr + PLX_ICSR);
 
-			
+			/* Register SJA1000 device */
 			err = register_sja1000dev(dev);
 			if (err) {
 				dev_err(&pdev->dev, "Registering device failed "

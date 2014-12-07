@@ -35,85 +35,126 @@
 #define VV6410_COLS			416
 #define VV6410_ROWS			320
 
+/* Status registers */
+/* Chip identification number including revision indicator */
 #define VV6410_DEVICEH			0x00
 #define VV6410_DEVICEL			0x01
 
+/* User can determine whether timed I2C data
+   has been consumed by interrogating flag states */
 #define VV6410_STATUS0			0x02
 
+/* Current line counter value */
 #define VV6410_LINECOUNTH		0x03
 #define VV6410_LINECOUNTL		0x04
 
+/* End x coordinate of image size */
 #define VV6410_XENDH			0x05
 #define VV6410_XENDL			0x06
 
+/* End y coordinate of image size */
 #define VV6410_YENDH			0x07
 #define VV6410_YENDL			0x08
 
+/* This is the average pixel value returned from the
+   dark line offset cancellation algorithm */
 #define VV6410_DARKAVGH			0x09
 #define VV6410_DARKAVGL			0x0a
 
+/* This is the average pixel value returned from the
+   black line offset cancellation algorithm  */
 #define VV6410_BLACKAVGH		0x0b
 #define VV6410_BLACKAVGL		0x0c
 
+/* Flags to indicate whether the x or y image coordinates have been clipped */
 #define VV6410_STATUS1			0x0d
 
+/* Setup registers */
 
+/* Low-power/sleep modes & video timing */
 #define VV6410_SETUP0			0x10
 
+/* Various parameters */
 #define VV6410_SETUP1			0x11
 
+/* Contains pixel counter reset value used by external sync */
 #define VV6410_SYNCVALUE		0x12
 
+/* Frame grabbing modes (FST, LST and QCK) */
 #define VV6410_FGMODES			0x14
 
+/* FST and QCK mapping modes. */
 #define VV6410_PINMAPPING		0x15
 
+/* Data resolution */
 #define VV6410_DATAFORMAT		0x16
 
+/* Output coding formats */
 #define VV6410_OPFORMAT			0x17
 
+/* Various mode select bits */
 #define VV6410_MODESELECT		0x18
 
+/* Exposure registers */
+/* Fine exposure. */
 #define VV6410_FINEH			0x20
 #define VV6410_FINEL			0x21
 
+/* Coarse exposure */
 #define VV6410_COARSEH			0x22
 #define VV6410_COARSEL			0x23
 
+/* Analog gain setting */
 #define VV6410_ANALOGGAIN		0x24
 
+/* Clock division */
 #define VV6410_CLKDIV			0x25
 
+/* Dark line offset cancellation value */
 #define VV6410_DARKOFFSETH		0x2c
 #define VV6410_DARKOFFSETL		0x2d
 
+/* Dark line offset cancellation enable */
 #define VV6410_DARKOFFSETSETUP		0x2e
 
+/* Video timing registers */
+/* Line Length (Pixel Clocks) */
 #define VV6410_LINELENGTHH		0x52
 #define VV6410_LINELENGTHL		0x53
 
+/* X-co-ordinate of top left corner of region of interest (x-offset) */
 #define VV6410_XOFFSETH			0x57
 #define VV6410_XOFFSETL			0x58
 
+/* Y-coordinate of top left corner of region of interest (y-offset) */
 #define VV6410_YOFFSETH			0x59
 #define VV6410_YOFFSETL			0x5a
 
+/* Field length (Lines) */
 #define VV6410_FIELDLENGTHH		0x61
 #define VV6410_FIELDLENGTHL		0x62
 
+/* System registers */
+/* Black offset cancellation default value */
 #define VV6410_BLACKOFFSETH		0x70
 #define VV6410_BLACKOFFSETL		0x71
 
+/* Black offset cancellation setup */
 #define VV6410_BLACKOFFSETSETUP		0x72
 
+/* Analog Control Register 0 */
 #define VV6410_CR0			0x75
 
+/* Analog Control Register 1 */
 #define VV6410_CR1			0x76
 
+/* ADC Setup Register */
 #define VV6410_AS0			0x77
 
+/* Analog Test Register */
 #define VV6410_AT0			0x78
 
+/* Audio Amplifier Setup Register */
 #define VV6410_AT1			0x79
 
 #define VV6410_HFLIP			(1 << 3)
@@ -141,6 +182,7 @@ static int vv6410_stop(struct sd *sd);
 static int vv6410_dump(struct sd *sd);
 static void vv6410_disconnect(struct sd *sd);
 
+/* V4L2 controls supported by the driver */
 static int vv6410_get_hflip(struct gspca_dev *gspca_dev, __s32 *val);
 static int vv6410_set_hflip(struct gspca_dev *gspca_dev, __s32 val);
 static int vv6410_get_vflip(struct gspca_dev *gspca_dev, __s32 *val);
@@ -155,6 +197,8 @@ const struct stv06xx_sensor stv06xx_sensor_vv6410 = {
 	.i2c_flush = 5,
 	.i2c_addr = 0x20,
 	.i2c_len = 1,
+	/* FIXME (see if we can lower packet_size-s, needs testing, and also
+	   adjusting framerate when the bandwidth gets lower) */
 	.min_packet_size = { 1023 },
 	.max_packet_size = { 1023 },
 	.init = vv6410_init,
@@ -165,6 +209,7 @@ const struct stv06xx_sensor stv06xx_sensor_vv6410 = {
 	.disconnect = vv6410_disconnect,
 };
 
+/* If NULL, only single value to write, stored in len */
 struct stv_init {
 	u16 addr;
 	u8 data;
@@ -190,24 +235,24 @@ static const struct stv_init stv_bridge_init[] = {
 };
 
 static const u8 vv6410_sensor_init[][2] = {
-	
+	/* Setup registers */
 	{VV6410_SETUP0,	VV6410_SOFT_RESET},
 	{VV6410_SETUP0,	VV6410_LOW_POWER_MODE},
-	
+	/* Use shuffled read-out mode */
 	{VV6410_SETUP1,	BIT(6)},
-	
+	/* All modes to 1, FST, Fast QCK, Free running QCK, Free running LST, FST will qualify visible pixels */
 	{VV6410_FGMODES, BIT(6) | BIT(4) | BIT(2) | BIT(0)},
 	{VV6410_PINMAPPING, 0x00},
-	
+	/* Pre-clock generator divide off */
 	{VV6410_DATAFORMAT, BIT(7) | BIT(0)},
 
 	{VV6410_CLKDIV,	VV6410_CLK_DIV_2},
 
-	
-	
+	/* System registers */
+	/* Enable voltage doubler */
 	{VV6410_AS0, BIT(6) | BIT(4) | BIT(3) | BIT(2) | BIT(1)},
 	{VV6410_AT0, 0x00},
-	
+	/* Power up audio, differential */
 	{VV6410_AT1, BIT(4) | BIT(0)},
 };
 

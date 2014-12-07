@@ -31,6 +31,38 @@
  * $Id: //depot/aic7xxx/aic7xxx/aic7xxx_93cx6.c#19 $
  */
 
+/*
+ *   The instruction set of the 93C66/56/46/26/06 chips are as follows:
+ *
+ *               Start  OP	    *
+ *     Function   Bit  Code  Address**  Data     Description
+ *     -------------------------------------------------------------------
+ *     READ        1    10   A5 - A0             Reads data stored in memory,
+ *                                               starting at specified address
+ *     EWEN        1    00   11XXXX              Write enable must precede
+ *                                               all programming modes
+ *     ERASE       1    11   A5 - A0             Erase register A5A4A3A2A1A0
+ *     WRITE       1    01   A5 - A0   D15 - D0  Writes register
+ *     ERAL        1    00   10XXXX              Erase all registers
+ *     WRAL        1    00   01XXXX    D15 - D0  Writes to all registers
+ *     EWDS        1    00   00XXXX              Disables all programming
+ *                                               instructions
+ *     *Note: A value of X for address is a don't care condition.
+ *    **Note: There are 8 address bits for the 93C56/66 chips unlike
+ *	      the 93C46/26/06 chips which have 6 address bits.
+ *
+ *   The 93C46 has a four wire interface: clock, chip select, data in, and
+ *   data out.  In order to perform one of the above functions, you need
+ *   to enable the chip select for a clock period (typically a minimum of
+ *   1 usec, with the clock high and low a minimum of 750 and 250 nsec
+ *   respectively).  While the chip select remains high, you can clock in
+ *   the instructions (above) starting with the start bit, followed by the
+ *   OP code, Address, and Data (if needed).  For the READ instruction, the
+ *   requested 16-bit register contents is read from the data out line but
+ *   is preceded by an initial zero (leading 0, followed by 16-bits, MSB
+ *   first).  The clock cycling from low to high initiates the next data
+ *   bit to be sent from the chip.
+ */
 
 #ifdef __linux__
 #include "aic7xxx_osm.h"
@@ -42,33 +74,46 @@
 #include <dev/aic7xxx/aic7xxx_93cx6.h>
 #endif
 
+/*
+ * Right now, we only have to read the SEEPROM.  But we make it easier to
+ * add other 93Cx6 functions.
+ */
 struct seeprom_cmd {
   	uint8_t len;
  	uint8_t bits[11];
 };
 
+/* Short opcodes for the c46 */
 static const struct seeprom_cmd seeprom_ewen = {9, {1, 0, 0, 1, 1, 0, 0, 0, 0}};
 static const struct seeprom_cmd seeprom_ewds = {9, {1, 0, 0, 0, 0, 0, 0, 0, 0}};
 
+/* Long opcodes for the C56/C66 */
 static const struct seeprom_cmd seeprom_long_ewen = {11, {1, 0, 0, 1, 1, 0, 0, 0, 0}};
 static const struct seeprom_cmd seeprom_long_ewds = {11, {1, 0, 0, 0, 0, 0, 0, 0, 0}};
 
+/* Common opcodes */
 static const struct seeprom_cmd seeprom_write = {3, {1, 0, 1}};
 static const struct seeprom_cmd seeprom_read  = {3, {1, 1, 0}};
 
+/*
+ * Wait for the SEERDY to go high; about 800 ns.
+ */
 #define CLOCK_PULSE(sd, rdy)				\
 	while ((SEEPROM_STATUS_INB(sd) & rdy) == 0) {	\
-		;  			\
+		;  /* Do nothing */			\
 	}						\
-	(void)SEEPROM_INB(sd);	
+	(void)SEEPROM_INB(sd);	/* Clear clock */
 
+/*
+ * Send a START condition and the given command
+ */
 static void
 send_seeprom_cmd(struct seeprom_descriptor *sd, const struct seeprom_cmd *cmd)
 {
 	uint8_t temp;
 	int i = 0;
 
-	
+	/* Send chip select for one clock cycle. */
 	temp = sd->sd_MS ^ sd->sd_CS;
 	SEEPROM_OUTB(sd, temp ^ sd->sd_CK);
 	CLOCK_PULSE(sd, sd->sd_RDY);
@@ -85,6 +130,9 @@ send_seeprom_cmd(struct seeprom_descriptor *sd, const struct seeprom_cmd *cmd)
 	}
 }
 
+/*
+ * Clear CS put the chip in the reset state, where it can wait for new commands.
+ */
 static void
 reset_seeprom(struct seeprom_descriptor *sd)
 {
@@ -99,6 +147,10 @@ reset_seeprom(struct seeprom_descriptor *sd)
 	CLOCK_PULSE(sd, sd->sd_RDY);
 }
 
+/*
+ * Read the serial EEPROM and returns 1 if successful and 0 if
+ * not successful.
+ */
 int
 ahc_read_seeprom(struct seeprom_descriptor *sd, uint16_t *buf,
 		 u_int start_addr, u_int count)
@@ -108,10 +160,18 @@ ahc_read_seeprom(struct seeprom_descriptor *sd, uint16_t *buf,
 	uint16_t v;
 	uint8_t temp;
 
+	/*
+	 * Read the requested registers of the seeprom.  The loop
+	 * will range from 0 to count-1.
+	 */
 	for (k = start_addr; k < count + start_addr; k++) {
+		/*
+		 * Now we're ready to send the read command followed by the
+		 * address of the 16-bit register we want to read.
+		 */
 		send_seeprom_cmd(sd, &seeprom_read);
 
-		
+		/* Send the 6 or 8 bit address (MSB first, LSB last). */
 		temp = sd->sd_MS ^ sd->sd_CS;
 		for (i = (sd->sd_chip - 1); i >= 0; i--) {
 			if ((k & (1 << i)) != 0)
@@ -124,6 +184,12 @@ ahc_read_seeprom(struct seeprom_descriptor *sd, uint16_t *buf,
 				temp ^= sd->sd_DO;
 		}
 
+		/*
+		 * Now read the 16 bit register.  An initial 0 precedes the
+		 * register contents which begins with bit 15 (MSB) and ends
+		 * with bit 0 (LSB).  The initial 0 will be shifted off the
+		 * top of our word as we let the loop run from 0 to 16.
+		 */
 		v = 0;
 		for (i = 16; i >= 0; i--) {
 			SEEPROM_OUTB(sd, temp);
@@ -137,7 +203,7 @@ ahc_read_seeprom(struct seeprom_descriptor *sd, uint16_t *buf,
 
 		buf[k - start_addr] = v;
 
-		
+		/* Reset the chip select for the next command cycle. */
 		reset_seeprom(sd);
 	}
 #ifdef AHC_DUMP_EEPROM
@@ -153,6 +219,10 @@ ahc_read_seeprom(struct seeprom_descriptor *sd, uint16_t *buf,
 	return (1);
 }
 
+/*
+ * Write the serial EEPROM and return 1 if successful and 0 if
+ * not successful.
+ */
 int
 ahc_write_seeprom(struct seeprom_descriptor *sd, uint16_t *buf,
 		  u_int start_addr, u_int count)
@@ -162,7 +232,7 @@ ahc_write_seeprom(struct seeprom_descriptor *sd, uint16_t *buf,
 	uint8_t temp;
 	int i, k;
 
-	
+	/* Place the chip into write-enable mode */
 	if (sd->sd_chip == C46) {
 		ewen = &seeprom_ewen;
 		ewds = &seeprom_ewds;
@@ -178,13 +248,13 @@ ahc_write_seeprom(struct seeprom_descriptor *sd, uint16_t *buf,
 	send_seeprom_cmd(sd, ewen);
 	reset_seeprom(sd);
 
-	
+	/* Write all requested data out to the seeprom. */
 	temp = sd->sd_MS ^ sd->sd_CS;
 	for (k = start_addr; k < count + start_addr; k++) {
-		
+		/* Send the write command */
 		send_seeprom_cmd(sd, &seeprom_write);
 
-		
+		/* Send the 6 or 8 bit address (MSB first). */
 		for (i = (sd->sd_chip - 1); i >= 0; i--) {
 			if ((k & (1 << i)) != 0)
 				temp ^= sd->sd_DO;
@@ -196,7 +266,7 @@ ahc_write_seeprom(struct seeprom_descriptor *sd, uint16_t *buf,
 				temp ^= sd->sd_DO;
 		}
 
-		
+		/* Write the 16 bit value, MSB first */
 		v = buf[k - start_addr];
 		for (i = 15; i >= 0; i--) {
 			if ((v & (1 << i)) != 0)
@@ -209,7 +279,7 @@ ahc_write_seeprom(struct seeprom_descriptor *sd, uint16_t *buf,
 				temp ^= sd->sd_DO;
 		}
 
-		
+		/* Wait for the chip to complete the write */
 		temp = sd->sd_MS;
 		SEEPROM_OUTB(sd, temp);
 		CLOCK_PULSE(sd, sd->sd_RDY);
@@ -224,7 +294,7 @@ ahc_write_seeprom(struct seeprom_descriptor *sd, uint16_t *buf,
 		reset_seeprom(sd);
 	}
 
-	
+	/* Put the chip back into write-protect mode */
 	send_seeprom_cmd(sd, ewds);
 	reset_seeprom(sd);
 

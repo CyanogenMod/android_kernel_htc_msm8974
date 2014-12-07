@@ -37,19 +37,19 @@ int mhl_i2c_reg_read(uint8_t slave_addr_index, uint8_t reg_offset)
 	pr_debug("MRR: Addr slave_addr_index=[%x]\n",
 		slave_addrs[slave_addr_index]);
 
-	
+	/* Slave addr */
 	msgs[0].addr = slave_addrs[slave_addr_index] >> 1;
 	msgs[1].addr = slave_addrs[slave_addr_index] >> 1;
 
-	
+	/* Write Command */
 	msgs[0].flags = 0;
 	msgs[1].flags = I2C_M_RD;
 
-	
+	/* Register offset for the next transaction */
 	msgs[0].buf = &reg_offset;
 	msgs[1].buf = &buffer;
 
-	
+	/* Offset is 1 Byte long */
 	msgs[0].len = 1;
 	msgs[1].len = 1;
 

@@ -56,6 +56,10 @@ static void __init gef_sbc610_init_irq(void)
 
 	mpc86xx_init_irq();
 
+	/*
+	 * There is a simple interrupt handler in the main FPGA, this needs
+	 * to be cascaded into the MPIC
+	 */
 	cascade_node = of_find_compatible_node(NULL, NULL, "gef,fpga-pic");
 	if (!cascade_node) {
 		printk(KERN_WARNING "SBC610: No FPGA PIC\n");
@@ -83,7 +87,7 @@ static void __init gef_sbc610_setup_arch(void)
 	mpc86xx_smp_init();
 #endif
 
-	
+	/* Remap basic board registers */
 	regs = of_find_compatible_node(NULL, NULL, "gef,fpga-regs");
 	if (regs) {
 		sbc610_regs = of_iomap(regs, 0);
@@ -97,6 +101,7 @@ static void __init gef_sbc610_setup_arch(void)
 #endif
 }
 
+/* Return the PCB revision */
 static unsigned int gef_sbc610_get_pcb_rev(void)
 {
 	unsigned int reg;
@@ -105,6 +110,7 @@ static unsigned int gef_sbc610_get_pcb_rev(void)
 	return (reg >> 8) & 0xff;
 }
 
+/* Return the board (software) revision */
 static unsigned int gef_sbc610_get_board_rev(void)
 {
 	unsigned int reg;
@@ -113,6 +119,7 @@ static unsigned int gef_sbc610_get_board_rev(void)
 	return (reg >> 16) & 0xff;
 }
 
+/* Return the FPGA revision */
 static unsigned int gef_sbc610_get_fpga_rev(void)
 {
 	unsigned int reg;
@@ -138,22 +145,30 @@ static void __init gef_sbc610_nec_fixup(struct pci_dev *pdev)
 {
 	unsigned int val;
 
-	
+	/* Do not do the fixup on other platforms! */
 	if (!machine_is(gef_sbc610))
 		return;
 
 	printk(KERN_INFO "Running NEC uPD720101 Fixup\n");
 
-	
+	/* Ensure ports 1, 2, 3, 4 & 5 are enabled */
 	pci_read_config_dword(pdev, 0xe0, &val);
 	pci_write_config_dword(pdev, 0xe0, (val & ~7) | 0x5);
 
-	
+	/* System clock is 48-MHz Oscillator and EHCI Enabled. */
 	pci_write_config_dword(pdev, 0xe4, 1 << 5);
 }
 DECLARE_PCI_FIXUP_HEADER(PCI_VENDOR_ID_NEC, PCI_DEVICE_ID_NEC_USB,
 	gef_sbc610_nec_fixup);
 
+/*
+ * Called very early, device-tree isn't unflattened
+ *
+ * This function is called to determine whether the BSP is compatible with the
+ * supplied device-tree, which is assumed to be the correct one for the actual
+ * board. It is expected thati, in the future, a kernel may support multiple
+ * boards.
+ */
 static int __init gef_sbc610_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();
@@ -168,7 +183,7 @@ static long __init mpc86xx_time_init(void)
 {
 	unsigned int temp;
 
-	
+	/* Set the time base to zero */
 	mtspr(SPRN_TBWL, 0);
 	mtspr(SPRN_TBWU, 0);
 

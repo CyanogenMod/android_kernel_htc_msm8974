@@ -34,7 +34,7 @@
 #include "drm.h"
 #include "i810_drm.h"
 #include "i810_drv.h"
-#include <linux/interrupt.h>	
+#include <linux/interrupt.h>	/* For task queue support */
 #include <linux/delay.h>
 #include <linux/slab.h>
 #include <linux/pagemap.h>
@@ -52,12 +52,12 @@ static struct drm_buf *i810_freelist_get(struct drm_device * dev)
 	int i;
 	int used;
 
-	
+	/* Linear search might not be the best solution */
 
 	for (i = 0; i < dma->buf_count; i++) {
 		struct drm_buf *buf = dma->buflist[i];
 		drm_i810_buf_priv_t *buf_priv = buf->dev_private;
-		
+		/* In use is already a pointer */
 		used = cmpxchg(buf_priv->in_use, I810_BUF_FREE,
 			       I810_BUF_CLIENT);
 		if (used == I810_BUF_FREE)
@@ -66,13 +66,16 @@ static struct drm_buf *i810_freelist_get(struct drm_device * dev)
 	return NULL;
 }
 
+/* This should only be called if the buffer is not sent to the hardware
+ * yet, the hardware updates in use for us once its on the ring buffer.
+ */
 
 static int i810_freelist_put(struct drm_device *dev, struct drm_buf *buf)
 {
 	drm_i810_buf_priv_t *buf_priv = buf->dev_private;
 	int used;
 
-	
+	/* In use is already a pointer */
 	used = cmpxchg(buf_priv->in_use, I810_BUF_CLIENT, I810_BUF_FREE);
 	if (used != I810_BUF_CLIENT) {
 		DRM_ERROR("Freeing buffer thats not in use : %d\n", buf->idx);
@@ -126,7 +129,7 @@ static int i810_map_buffer(struct drm_buf *buf, struct drm_file *file_priv)
 	if (buf_priv->currently_mapped == I810_BUF_MAPPED)
 		return -EINVAL;
 
-	
+	/* This is all entirely broken */
 	down_write(&current->mm->mmap_sem);
 	old_fops = file_priv->filp->f_op;
 	file_priv->filp->f_op = &i810_buffer_fops;
@@ -137,7 +140,7 @@ static int i810_map_buffer(struct drm_buf *buf, struct drm_file *file_priv)
 	dev_priv->mmap_buffer = NULL;
 	file_priv->filp->f_op = old_fops;
 	if (IS_ERR(buf_priv->virtual)) {
-		
+		/* Real error */
 		DRM_ERROR("mmap error\n");
 		retcode = PTR_ERR(buf_priv->virtual);
 		buf_priv->virtual = NULL;
@@ -198,6 +201,10 @@ static int i810_dma_cleanup(struct drm_device *dev)
 {
 	struct drm_device_dma *dma = dev->dma;
 
+	/* Make sure interrupts are disabled here because the uninstall ioctl
+	 * may not have been called from userspace and after dev_private
+	 * is freed, it's too late.
+	 */
 	if (drm_core_check_feature(dev, DRIVER_HAVE_IRQ) && dev->irq_enabled)
 		drm_irq_uninstall(dev);
 
@@ -280,7 +287,7 @@ static int i810_freelist_init(struct drm_device *dev, drm_i810_private_t *dev_pr
 	int i;
 
 	if (dma->buf_count > 1019) {
-		
+		/* Not enough space in the status page for the freelist */
 		return -EINVAL;
 	}
 
@@ -385,7 +392,7 @@ static int i810_dma_initialize(struct drm_device *dev,
 	dev_priv->back_di1 = init->back_offset | init->pitch_bits;
 	dev_priv->zi1 = init->depth_offset | init->pitch_bits;
 
-	
+	/* Program Hardware Status Page */
 	dev_priv->hw_status_page =
 	    pci_alloc_consistent(dev->pdev, PAGE_SIZE,
 				 &dev_priv->dma_status_page);
@@ -401,7 +408,7 @@ static int i810_dma_initialize(struct drm_device *dev,
 	I810_WRITE(0x02080, dev_priv->dma_status_page);
 	DRM_DEBUG("Enabled hardware status page\n");
 
-	
+	/* Now we need to init our freelist */
 	if (i810_freelist_init(dev, dev_priv) != 0) {
 		dev->dev_private = (void *)dev_priv;
 		i810_dma_cleanup(dev);
@@ -441,6 +448,12 @@ static int i810_dma_init(struct drm_device *dev, void *data,
 	return retcode;
 }
 
+/* Most efficient way to verify state for the i810 is as it is
+ * emitted.  Non-conformant state is silently dropped.
+ *
+ * Use 'volatile' & local var tmp to force the emitted values to be
+ * identical to the verified ones.
+ */
 static void i810EmitContextVerified(struct drm_device *dev,
 				    volatile unsigned int *code)
 {
@@ -505,6 +518,8 @@ static void i810EmitTexVerified(struct drm_device *dev, volatile unsigned int *c
 	ADVANCE_LP_RING();
 }
 
+/* Need to do some additional checking when setting the dest buffer.
+ */
 static void i810EmitDestVerified(struct drm_device *dev,
 				 volatile unsigned int *code)
 {
@@ -522,6 +537,8 @@ static void i810EmitDestVerified(struct drm_device *dev,
 		DRM_DEBUG("bad di1 %x (allow %x or %x)\n",
 			  tmp, dev_priv->front_di1, dev_priv->back_di1);
 
+	/* invarient:
+	 */
 	OUT_RING(CMD_OP_Z_BUFFER_INFO);
 	OUT_RING(dev_priv->zi1);
 
@@ -567,6 +584,8 @@ static void i810EmitState(struct drm_device *dev)
 	}
 }
 
+/* need to verify
+ */
 static void i810_dma_dispatch_clear(struct drm_device *dev, int flags,
 				    unsigned int clear_color,
 				    unsigned int clear_zval)
@@ -786,8 +805,11 @@ static void i810_dma_dispatch_flip(struct drm_device *dev)
 	ADVANCE_LP_RING();
 
 	BEGIN_LP_RING(I810_DEST_SETUP_SIZE + 2);
-	
-	OUT_RING(CMD_OP_FRONTBUFFER_INFO | (pitch << 5)  );
+	/* On i815 at least ASYNC is buggy */
+	/* pitch<<5 is from 11.2.8 p158,
+	   its the pitch / 8 then left shifted 8,
+	   so (pitch >> 3) << 8 */
+	OUT_RING(CMD_OP_FRONTBUFFER_INFO | (pitch << 5) /*| ASYNC_FLIP */ );
 	if (dev_priv->current_page == 0) {
 		OUT_RING(dev_priv->back_offset);
 		dev_priv->current_page = 1;
@@ -803,6 +825,10 @@ static void i810_dma_dispatch_flip(struct drm_device *dev)
 	OUT_RING(0);
 	ADVANCE_LP_RING();
 
+	/* Increment the frame counter.  The client-side 3D driver must
+	 * throttle the framerate by waiting for this value before
+	 * performing the swapbuffer ioctl.
+	 */
 	dev_priv->sarea_priv->pf_current_page = dev_priv->current_page;
 
 }
@@ -856,6 +882,7 @@ static int i810_flush_queue(struct drm_device *dev)
 	return ret;
 }
 
+/* Must be called with the lock held */
 static void i810_reclaim_buffers(struct drm_device *dev,
 				 struct drm_file *file_priv)
 {
@@ -933,7 +960,7 @@ static int i810_clear_bufs(struct drm_device *dev, void *data,
 
 	LOCK_TEST_WITH_RETURN(dev, file_priv);
 
-	
+	/* GH: Someone's doing nasty things... */
 	if (!dev->dev_private)
 		return -EINVAL;
 
@@ -992,14 +1019,14 @@ static int i810_getbuf(struct drm_device *dev, void *data,
 static int i810_copybuf(struct drm_device *dev, void *data,
 			struct drm_file *file_priv)
 {
-	
+	/* Never copy - 2.4.x doesn't need it */
 	return 0;
 }
 
 static int i810_docopy(struct drm_device *dev, void *data,
 			struct drm_file *file_priv)
 {
-	
+	/* Never copy - 2.4.x doesn't need it */
 	return 0;
 }
 
@@ -1123,12 +1150,14 @@ static int i810_ov0_flip(struct drm_device *dev, void *data,
 
 	LOCK_TEST_WITH_RETURN(dev, file_priv);
 
-	
+	/* Tell the overlay to update */
 	I810_WRITE(0x30000, dev_priv->overlay_physical | 0x80000000);
 
 	return 0;
 }
 
+/* Not sure why this isn't set all the time:
+ */
 static void i810_do_init_pageflip(struct drm_device *dev)
 {
 	drm_i810_private_t *dev_priv = dev->dev_private;
@@ -1169,7 +1198,7 @@ static int i810_flip_bufs(struct drm_device *dev, void *data,
 
 int i810_driver_load(struct drm_device *dev, unsigned long flags)
 {
-	
+	/* i810 has 4 more counters */
 	dev->counters += 4;
 	dev->types[6] = _DRM_STAT_IRQ;
 	dev->types[7] = _DRM_STAT_PRIMARY;
@@ -1227,6 +1256,17 @@ struct drm_ioctl_desc i810_ioctls[] = {
 
 int i810_max_ioctl = DRM_ARRAY_SIZE(i810_ioctls);
 
+/**
+ * Determine if the device really is AGP or not.
+ *
+ * All Intel graphics chipsets are treated as AGP, even if they are really
+ * PCI-e.
+ *
+ * \param dev   The device to be tested.
+ *
+ * \returns
+ * A value of 1 is always retured to indictate every i810 is AGP.
+ */
 int i810_driver_device_is_agp(struct drm_device *dev)
 {
 	return 1;

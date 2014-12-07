@@ -47,24 +47,24 @@ static iomux_v3_cfg_t mx53_smd_pads[] = {
 	MX53_PAD_PATA_CS_1__UART3_RXD_MUX,
 	MX53_PAD_PATA_DA_1__UART3_CTS,
 	MX53_PAD_PATA_DA_2__UART3_RTS,
-	
+	/* I2C1 */
 	MX53_PAD_CSI0_DAT8__I2C1_SDA,
 	MX53_PAD_CSI0_DAT9__I2C1_SCL,
-	
+	/* SD1 */
 	MX53_PAD_SD1_CMD__ESDHC1_CMD,
 	MX53_PAD_SD1_CLK__ESDHC1_CLK,
 	MX53_PAD_SD1_DATA0__ESDHC1_DAT0,
 	MX53_PAD_SD1_DATA1__ESDHC1_DAT1,
 	MX53_PAD_SD1_DATA2__ESDHC1_DAT2,
 	MX53_PAD_SD1_DATA3__ESDHC1_DAT3,
-	
+	/* SD2 */
 	MX53_PAD_SD2_CMD__ESDHC2_CMD,
 	MX53_PAD_SD2_CLK__ESDHC2_CLK,
 	MX53_PAD_SD2_DATA0__ESDHC2_DAT0,
 	MX53_PAD_SD2_DATA1__ESDHC2_DAT1,
 	MX53_PAD_SD2_DATA2__ESDHC2_DAT2,
 	MX53_PAD_SD2_DATA3__ESDHC2_DAT3,
-	
+	/* SD3 */
 	MX53_PAD_PATA_DATA8__ESDHC3_DAT0,
 	MX53_PAD_PATA_DATA9__ESDHC3_DAT1,
 	MX53_PAD_PATA_DATA10__ESDHC3_DAT2,
@@ -92,7 +92,7 @@ static inline void mx53_smd_fec_reset(void)
 {
 	int ret;
 
-	
+	/* reset FEC PHY */
 	ret = gpio_request(SMD_FEC_PHY_RST, "fec-phy-reset");
 	if (ret) {
 		printk(KERN_ERR"failed to get GPIO_FEC_PHY_RESET: %d\n", ret);
@@ -115,7 +115,7 @@ static inline void mx53_smd_ahci_pwr_on(void)
 {
 	int ret;
 
-	
+	/* Enable SATA PWR */
 	ret = gpio_request_one(MX53_SMD_SATA_PWR_EN,
 			GPIOF_DIR_OUT | GPIOF_INIT_HIGH, "ahci-sata-pwr");
 	if (ret) {

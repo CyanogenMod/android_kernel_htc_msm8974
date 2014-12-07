@@ -45,9 +45,11 @@ struct pmac_irq_hw {
         unsigned int    level;
 };
 
+/* Workaround flags for 32bit powermac machines */
 unsigned int of_irq_workarounds;
 struct device_node *of_irq_dflt_pic;
 
+/* Default addresses */
 static volatile struct pmac_irq_hw __iomem *pmac_irq_hw[4];
 
 static int max_irqs;
@@ -55,6 +57,7 @@ static int max_real_irqs;
 
 static DEFINE_RAW_SPINLOCK(pmac_pic_lock);
 
+/* The max irq number this driver deals with is 128; see max_irqs */
 static DECLARE_BITMAP(ppc_lost_interrupts, 128);
 static DECLARE_BITMAP(ppc_cached_irq_mask, 128);
 static int pmac_irq_cascade = -1;
@@ -87,6 +90,8 @@ static void pmac_mask_and_ack_irq(struct irq_data *d)
         out_le32(&pmac_irq_hw[i]->enable, ppc_cached_irq_mask[i]);
         out_le32(&pmac_irq_hw[i]->ack, bit);
         do {
+                /* make sure ack gets to controller before we enable
+                   interrupts */
                 mb();
         } while((in_le32(&pmac_irq_hw[i]->enable) & bit)
                 != (ppc_cached_irq_mask[i] & bit));
@@ -116,18 +121,28 @@ static void __pmac_set_irq_mask(unsigned int irq_nr, int nokicklost)
         if ((unsigned)irq_nr >= max_irqs)
                 return;
 
-        
+        /* enable unmasked interrupts */
         out_le32(&pmac_irq_hw[i]->enable, ppc_cached_irq_mask[i]);
 
         do {
+                /* make sure mask gets to controller before we
+                   return to user */
                 mb();
         } while((in_le32(&pmac_irq_hw[i]->enable) & bit)
                 != (ppc_cached_irq_mask[i] & bit));
 
+        /*
+         * Unfortunately, setting the bit in the enable register
+         * when the device interrupt is already on *doesn't* set
+         * the bit in the flag register or request another interrupt.
+         */
         if (bit & ppc_cached_irq_mask[i] & in_le32(&pmac_irq_hw[i]->level))
 		__pmac_retrigger(irq_nr);
 }
 
+/* When an irq gets requested for the first client, if it's an
+ * edge interrupt, we clear any previous one on the controller
+ */
 static unsigned int pmac_startup_irq(struct irq_data *d)
 {
 	unsigned long flags;
@@ -218,11 +233,11 @@ static unsigned int pmac_pic_get_irq(void)
 	unsigned long flags;
 
 #ifdef CONFIG_PPC_PMAC32_PSURGE
-	
+	/* IPI's are a hack on the powersurge -- Cort */
 	if (smp_processor_id() != 0) {
 		return  psurge_secondary_virq;
         }
-#endif 
+#endif /* CONFIG_PPC_PMAC32_PSURGE */
 	raw_spin_lock_irqsave(&pmac_pic_lock, flags);
 	for (irq = max_real_irqs; (irq -= 32) >= 0; ) {
 		int i = irq >> 5;
@@ -255,7 +270,7 @@ static struct irqaction gatwick_cascade_action = {
 
 static int pmac_pic_host_match(struct irq_domain *h, struct device_node *node)
 {
-	
+	/* We match all, we don't always have a node anyway */
 	return 1;
 }
 
@@ -265,6 +280,9 @@ static int pmac_pic_host_map(struct irq_domain *h, unsigned int virq,
 	if (hw >= max_irqs)
 		return -EINVAL;
 
+	/* Mark level interrupts, set delayed disable for edge ones and set
+	 * handlers
+	 */
 	irq_set_status_flags(virq, IRQ_LEVEL);
 	irq_set_chip_and_handler(virq, &pmac_pic, handle_level_irq);
 	return 0;
@@ -284,25 +302,28 @@ static void __init pmac_pic_probe_oldstyle(void)
 	u8 __iomem *addr;
 	struct resource r;
 
-	
+	/* Set our get_irq function */
 	ppc_md.get_irq = pmac_pic_get_irq;
 
+	/*
+	 * Find the interrupt controller type & node
+	 */
 
 	if ((master = of_find_node_by_name(NULL, "gc")) != NULL) {
 		max_irqs = max_real_irqs = 32;
 	} else if ((master = of_find_node_by_name(NULL, "ohare")) != NULL) {
 		max_irqs = max_real_irqs = 32;
-		
+		/* We might have a second cascaded ohare */
 		slave = of_find_node_by_name(NULL, "pci106b,7");
 		if (slave)
 			max_irqs = 64;
 	} else if ((master = of_find_node_by_name(NULL, "mac-io")) != NULL) {
 		max_irqs = max_real_irqs = 64;
 
-		
+		/* We might have a second cascaded heathrow */
 		slave = of_find_node_by_name(master, "mac-io");
 
-		
+		/* Check ordering of master & slave */
 		if (of_device_is_compatible(master, "gatwick")) {
 			struct device_node *tmp;
 			BUG_ON(slave == NULL);
@@ -311,21 +332,24 @@ static void __init pmac_pic_probe_oldstyle(void)
 			slave = tmp;
 		}
 
-		
+		/* We found a slave */
 		if (slave)
 			max_irqs = 128;
 	}
 	BUG_ON(master == NULL);
 
+	/*
+	 * Allocate an irq host
+	 */
 	pmac_pic_host = irq_domain_add_linear(master, max_irqs,
 					      &pmac_pic_host_ops, NULL);
 	BUG_ON(pmac_pic_host == NULL);
 	irq_set_default_host(pmac_pic_host);
 
-	
+	/* Get addresses of first controller if we have a node for it */
 	BUG_ON(of_address_to_resource(master, 0, &r));
 
-	
+	/* Map interrupts of primary controller */
 	addr = (u8 __iomem *) ioremap(r.start, 0x40);
 	i = 0;
 	pmac_irq_hw[i++] = (volatile struct pmac_irq_hw __iomem *)
@@ -338,7 +362,7 @@ static void __init pmac_pic_probe_oldstyle(void)
 	printk(KERN_INFO "irq: Found primary Apple PIC %s for %d irqs\n",
 	       master->full_name, max_real_irqs);
 
-	
+	/* Map interrupts of cascaded controller */
 	if (slave && !of_address_to_resource(slave, 0, &r)) {
 		addr = (u8 __iomem *)ioremap(r.start, 0x40);
 		pmac_irq_hw[i++] = (volatile struct pmac_irq_hw __iomem *)
@@ -355,11 +379,11 @@ static void __init pmac_pic_probe_oldstyle(void)
 	}
 	of_node_put(slave);
 
-	
+	/* Disable all interrupts in all controllers */
 	for (i = 0; i * 32 < max_irqs; ++i)
 		out_le32(&pmac_irq_hw[i]->enable, 0);
 
-	
+	/* Hookup cascade irq */
 	if (slave && pmac_irq_cascade != NO_IRQ)
 		setup_irq(pmac_irq_cascade, &gatwick_cascade_action);
 
@@ -375,6 +399,14 @@ int of_irq_map_oldworld(struct device_node *device, int index,
 	const u32 *ints = NULL;
 	int intlen;
 
+	/*
+	 * Old machines just have a list of interrupt numbers
+	 * and no interrupt-controller nodes. We also have dodgy
+	 * cases where the APPL,interrupts property is completely
+	 * missing behind pci-pci bridges and we have to get it
+	 * from the parent (the bridge itself, as apple just wired
+	 * everything together on these)
+	 */
 	while (device) {
 		ints = of_get_property(device, "AAPL,interrupts", &intlen);
 		if (ints != NULL)
@@ -396,7 +428,7 @@ int of_irq_map_oldworld(struct device_node *device, int index,
 
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PPC32 */
 
 static void __init pmac_pic_setup_mpic_nmi(struct mpic *mpic)
 {
@@ -413,7 +445,7 @@ static void __init pmac_pic_setup_mpic_nmi(struct mpic *mpic)
 		}
 		of_node_put(pswitch);
 	}
-#endif	
+#endif	/* defined(CONFIG_XMON) && defined(CONFIG_PPC32) */
 }
 
 static struct mpic * __init pmac_setup_one_mpic(struct device_node *np,
@@ -428,6 +460,9 @@ static struct mpic * __init pmac_setup_one_mpic(struct device_node *np,
 	if (of_get_property(np, "big-endian", NULL))
 		flags |= MPIC_BIG_ENDIAN;
 
+	/* Primary Big Endian means HT interrupts. This is quite dodgy
+	 * but works until I find a better way
+	 */
 	if (master && (flags & MPIC_BIG_ENDIAN))
 		flags |= MPIC_U3_HT_IRQS;
 
@@ -445,7 +480,7 @@ static int __init pmac_pic_probe_mpic(void)
 	struct mpic *mpic1, *mpic2;
 	struct device_node *np, *master = NULL, *slave = NULL;
 
-	
+	/* We can have up to 2 MPICs cascaded */
 	for (np = NULL; (np = of_find_node_by_type(np, "open-pic"))
 		     != NULL;) {
 		if (master == NULL &&
@@ -457,29 +492,29 @@ static int __init pmac_pic_probe_mpic(void)
 			break;
 	}
 
-	
+	/* Check for bogus setups */
 	if (master == NULL && slave != NULL) {
 		master = slave;
 		slave = NULL;
 	}
 
-	
+	/* Not found, default to good old pmac pic */
 	if (master == NULL)
 		return -ENODEV;
 
-	
+	/* Set master handler */
 	ppc_md.get_irq = mpic_get_irq;
 
-	
+	/* Setup master */
 	mpic1 = pmac_setup_one_mpic(master, 1);
 	BUG_ON(mpic1 == NULL);
 
-	
+	/* Install NMI if any */
 	pmac_pic_setup_mpic_nmi(mpic1);
 
 	of_node_put(master);
 
-	
+	/* Set up a cascaded controller, if present */
 	if (slave) {
 		mpic2 = pmac_setup_one_mpic(slave, 0);
 		if (mpic2 == NULL)
@@ -493,28 +528,43 @@ static int __init pmac_pic_probe_mpic(void)
 
 void __init pmac_pic_init(void)
 {
+	/* We configure the OF parsing based on our oldworld vs. newworld
+	 * platform type and wether we were booted by BootX.
+	 */
 #ifdef CONFIG_PPC32
 	if (!pmac_newworld)
 		of_irq_workarounds |= OF_IMAP_OLDWORLD_MAC;
 	if (of_get_property(of_chosen, "linux,bootx", NULL) != NULL)
 		of_irq_workarounds |= OF_IMAP_NO_PHANDLE;
 
+	/* If we don't have phandles on a newworld, then try to locate a
+	 * default interrupt controller (happens when booting with BootX).
+	 * We do a first match here, hopefully, that only ever happens on
+	 * machines with one controller.
+	 */
 	if (pmac_newworld && (of_irq_workarounds & OF_IMAP_NO_PHANDLE)) {
 		struct device_node *np;
 
 		for_each_node_with_property(np, "interrupt-controller") {
-			
+			/* Skip /chosen/interrupt-controller */
 			if (strcmp(np->name, "chosen") == 0)
 				continue;
+			/* It seems like at least one person wants
+			 * to use BootX on a machine with an AppleKiwi
+			 * controller which happens to pretend to be an
+			 * interrupt controller too. */
 			if (strcmp(np->name, "AppleKiwi") == 0)
 				continue;
-			
+			/* I think we found one ! */
 			of_irq_dflt_pic = np;
 			break;
 		}
 	}
-#endif 
+#endif /* CONFIG_PPC32 */
 
+	/* We first try to detect Apple's new Core99 chipset, since mac-io
+	 * is quite different on those machines and contains an IBM MPIC2.
+	 */
 	if (pmac_pic_probe_mpic() == 0)
 		return;
 
@@ -524,8 +574,18 @@ void __init pmac_pic_init(void)
 }
 
 #if defined(CONFIG_PM) && defined(CONFIG_PPC32)
+/*
+ * These procedures are used in implementing sleep on the powerbooks.
+ * sleep_save_intrs() saves the states of all interrupt enables
+ * and disables all interrupts except for the nominated one.
+ * sleep_restore_intrs() restores the states of all interrupt enables.
+ */
 unsigned long sleep_save_mask[2];
 
+/* This used to be passed by the PMU driver but that link got
+ * broken with the new driver model. We use this tweak for now...
+ * We really want to do things differently though...
+ */
 static int pmacpic_find_viaint(void)
 {
 	int viaint = -1;
@@ -541,7 +601,7 @@ static int pmacpic_find_viaint(void)
 	viaint = irq_of_parse_and_map(np, 0);
 
 not_found:
-#endif 
+#endif /* CONFIG_ADB_PMU */
 	return viaint;
 }
 
@@ -559,7 +619,7 @@ static int pmacpic_suspend(void)
 	if (max_real_irqs > 32)
 		out_le32(&pmac_irq_hw[1]->enable, ppc_cached_irq_mask[1]);
 	(void)in_le32(&pmac_irq_hw[0]->event);
-	
+	/* make sure mask gets to controller before we return to caller */
 	mb();
         (void)in_le32(&pmac_irq_hw[0]->enable);
 
@@ -593,4 +653,4 @@ static int __init init_pmacpic_syscore(void)
 
 machine_subsys_initcall(powermac, init_pmacpic_syscore);
 
-#endif 
+#endif /* CONFIG_PM && CONFIG_PPC32 */

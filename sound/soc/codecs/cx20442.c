@@ -163,6 +163,8 @@ static int cx20442_write(struct snd_soc_codec *codec, unsigned int reg,
 	if (reg >= codec->driver->reg_cache_size)
 		return -EINVAL;
 
+	/* hw_write and control_data pointers required for talking to the modem
+	 * are expected to be set by the line discipline initialization code */
 	if (!codec->hw_write || !cx20442->control_data)
 		return -EIO;
 
@@ -199,18 +201,28 @@ static int cx20442_write(struct snd_soc_codec *codec, unsigned int reg,
 }
 
 
+/*
+ * Line discpline related code
+ *
+ * Any of the callback functions below can be used in two ways:
+ * 1) registerd by a machine driver as one of line discipline operations,
+ * 2) called from a machine's provided line discipline callback function
+ *    in case when extra machine specific code must be run as well.
+ */
 
+/* Modem init: echo off, digital speaker off, quiet off, voice mode */
 static const char *v253_init = "ate0m0q0+fclass=8\r";
 
+/* Line discipline .open() */
 static int v253_open(struct tty_struct *tty)
 {
 	int ret, len = strlen(v253_init);
 
-	
+	/* Doesn't make sense without write callback */
 	if (!tty->ops->write)
 		return -EINVAL;
 
-	
+	/* Won't work if no codec pointer has been passed by a card driver */
 	if (!tty->disc_data)
 		return -ENODEV;
 
@@ -218,13 +230,14 @@ static int v253_open(struct tty_struct *tty)
 		ret = -EIO;
 		goto err;
 	}
-	
+	/* Actual setup will be performed after the modem responds. */
 	return 0;
 err:
 	tty->disc_data = NULL;
 	return ret;
 }
 
+/* Line discipline .close() */
 static void v253_close(struct tty_struct *tty)
 {
 	struct snd_soc_codec *codec = tty->disc_data;
@@ -237,18 +250,20 @@ static void v253_close(struct tty_struct *tty)
 
 	cx20442 = snd_soc_codec_get_drvdata(codec);
 
-	
+	/* Prevent the codec driver from further accessing the modem */
 	codec->hw_write = NULL;
 	cx20442->control_data = NULL;
 	codec->card->pop_time = 0;
 }
 
+/* Line discipline .hangup() */
 static int v253_hangup(struct tty_struct *tty)
 {
 	v253_close(tty);
 	return 0;
 }
 
+/* Line discipline .receive_buf() */
 static void v253_receive(struct tty_struct *tty,
 				const unsigned char *cp, char *fp, int count)
 {
@@ -261,15 +276,16 @@ static void v253_receive(struct tty_struct *tty,
 	cx20442 = snd_soc_codec_get_drvdata(codec);
 
 	if (!cx20442->control_data) {
-		
+		/* First modem response, complete setup procedure */
 
-		
+		/* Set up codec driver access to modem controls */
 		cx20442->control_data = tty;
 		codec->hw_write = (hw_write_t)tty->ops->write;
 		codec->card->pop_time = 1;
 	}
 }
 
+/* Line discipline .write_wakeup() */
 static void v253_wakeup(struct tty_struct *tty)
 {
 }
@@ -287,6 +303,9 @@ struct tty_ldisc_ops v253_ops = {
 EXPORT_SYMBOL_GPL(v253_ops);
 
 
+/*
+ * Codec DAI
+ */
 
 static struct snd_soc_dai_driver cx20442_dai = {
 	.name = "cx20442-voice",
@@ -358,6 +377,7 @@ static int cx20442_codec_probe(struct snd_soc_codec *codec)
 	return 0;
 }
 
+/* power down chip */
 static int cx20442_codec_remove(struct snd_soc_codec *codec)
 {
 	struct cx20442_priv *cx20442 = snd_soc_codec_get_drvdata(codec);
@@ -368,7 +388,7 @@ static int cx20442_codec_remove(struct snd_soc_codec *codec)
 	}
 
 	if (!IS_ERR(cx20442->por)) {
-		
+		/* should be already in STANDBY, hence disabled */
 		regulator_put(cx20442->por);
 	}
 

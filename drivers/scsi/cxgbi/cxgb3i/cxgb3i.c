@@ -101,18 +101,18 @@ static struct scsi_host_template cxgb3i_host_template = {
 static struct iscsi_transport cxgb3i_iscsi_transport = {
 	.owner		= THIS_MODULE,
 	.name		= DRV_MODULE_NAME,
-	
+	/* owner and name should be set already */
 	.caps		= CAP_RECOVERY_L0 | CAP_MULTI_R2T | CAP_HDRDGST
 				| CAP_DATADGST | CAP_DIGEST_OFFLOAD |
 				CAP_PADDING_OFFLOAD | CAP_TEXT_NEGO,
 	.attr_is_visible	= cxgbi_attr_is_visible,
 	.get_host_param	= cxgbi_get_host_param,
 	.set_host_param	= cxgbi_set_host_param,
-	
+	/* session management */
 	.create_session	= cxgbi_create_session,
 	.destroy_session	= cxgbi_destroy_session,
 	.get_session_param = iscsi_session_get_param,
-	
+	/* connection management */
 	.create_conn	= cxgbi_create_conn,
 	.bind_conn	= cxgbi_bind_conn,
 	.destroy_conn	= iscsi_tcp_conn_teardown,
@@ -121,28 +121,34 @@ static struct iscsi_transport cxgb3i_iscsi_transport = {
 	.get_conn_param	= iscsi_conn_get_param,
 	.set_param	= cxgbi_set_conn_param,
 	.get_stats	= cxgbi_get_conn_stats,
-	
+	/* pdu xmit req from user space */
 	.send_pdu	= iscsi_conn_send_pdu,
-	
+	/* task */
 	.init_task	= iscsi_tcp_task_init,
 	.xmit_task	= iscsi_tcp_task_xmit,
 	.cleanup_task	= cxgbi_cleanup_task,
-	
+	/* pdu */
 	.alloc_pdu	= cxgbi_conn_alloc_pdu,
 	.init_pdu	= cxgbi_conn_init_pdu,
 	.xmit_pdu	= cxgbi_conn_xmit_pdu,
 	.parse_pdu_itt	= cxgbi_parse_pdu_itt,
-	
+	/* TCP connect/disconnect */
 	.get_ep_param	= cxgbi_get_ep_param,
 	.ep_connect	= cxgbi_ep_connect,
 	.ep_poll	= cxgbi_ep_poll,
 	.ep_disconnect	= cxgbi_ep_disconnect,
-	
+	/* Error recovery timeout call */
 	.session_recovery_timedout = iscsi_session_recovery_timedout,
 };
 
 static struct scsi_transport_template *cxgb3i_stt;
 
+/*
+ * CPL (Chelsio Protocol Language) defines a message passing interface between
+ * the host driver and Chelsio asic.
+ * The section below implments CPLs that related to iscsi tcp connection
+ * open/close/abort and data send/receive.
+ */
 
 static int push_tx_frames(struct cxgbi_sock *csk, int req_completion);
 
@@ -182,6 +188,12 @@ static inline void act_open_arp_failure(struct t3cdev *dev, struct sk_buff *skb)
 	cxgbi_sock_act_open_req_arp_failure(NULL, skb);
 }
 
+/*
+ * CPL connection close request: host ->
+ *
+ * Close a connection by sending a CPL_CLOSE_CON_REQ message and queue it to
+ * the write queue (i.e., after any unsent txt data).
+ */
 static void send_close_req(struct cxgbi_sock *csk)
 {
 	struct sk_buff *skb = csk->cpl_close;
@@ -203,6 +215,13 @@ static void send_close_req(struct cxgbi_sock *csk)
 		push_tx_frames(csk, 1);
 }
 
+/*
+ * CPL connection abort request: host ->
+ *
+ * Send an ABORT_REQ message. Makes sure we do not send multiple ABORT_REQs
+ * for the same connection and also that we do not try to send a message
+ * after the connection has closed.
+ */
 static void abort_arp_failure(struct t3cdev *tdev, struct sk_buff *skb)
 {
 	struct cpl_abort_req *req = cplhdr(skb);
@@ -223,7 +242,7 @@ static void send_abort_req(struct cxgbi_sock *csk)
 		return;
 	cxgbi_sock_set_state(csk, CTP_ABORTING);
 	cxgbi_sock_set_flag(csk, CTPF_ABORT_RPL_PENDING);
-	
+	/* Purge the send queue so we don't send anything after an abort. */
 	cxgbi_sock_purge_write_queue(csk);
 
 	csk->cpl_abort_req = NULL;
@@ -245,6 +264,11 @@ static void send_abort_req(struct cxgbi_sock *csk)
 	l2t_send(csk->cdev->lldev, skb, csk->l2t);
 }
 
+/*
+ * CPL connection abort reply: host ->
+ *
+ * Send an ABORT_RPL message in response of the ABORT_REQ received.
+ */
 static void send_abort_rpl(struct cxgbi_sock *csk, int rst_status)
 {
 	struct sk_buff *skb = csk->cpl_abort_rpl;
@@ -263,6 +287,11 @@ static void send_abort_rpl(struct cxgbi_sock *csk, int rst_status)
 	cxgb3_ofld_send(csk->cdev->lldev, skb);
 }
 
+/*
+ * CPL connection rx data ack: host ->
+ * Send RX credits through an RX_DATA_ACK CPL message. Returns the number of
+ * credits sent.
+ */
 static u32 send_rx_credits(struct cxgbi_sock *csk, u32 credits)
 {
 	struct sk_buff *skb;
@@ -288,6 +317,14 @@ static u32 send_rx_credits(struct cxgbi_sock *csk, u32 credits)
 	return credits;
 }
 
+/*
+ * CPL connection tx data: host ->
+ *
+ * Send iscsi PDU via TX_DATA CPL message. Returns the number of
+ * credits sent.
+ * Each TX_DATA consumes work request credit (wrs), so we need to keep track of
+ * how many we've used so far and how many are pending (i.e., yet ack'ed by T3).
+ */
 
 static unsigned int wrlen __read_mostly;
 static unsigned int skb_wrs[SKB_WR_LIST_SIZE] __read_mostly;
@@ -296,7 +333,7 @@ static void init_wr_tab(unsigned int wr_len)
 {
 	int i;
 
-	if (skb_wrs[1])		
+	if (skb_wrs[1])		/* already initialized */
 		return;
 	for (i = 1; i < SKB_WR_LIST_SIZE; i++) {
 		int sgl_len = (3 * i) / 2 + (i & 1);
@@ -319,9 +356,9 @@ static inline void make_tx_data_wr(struct cxgbi_sock *csk, struct sk_buff *skb,
 	req->wr_hi = htonl(V_WR_OP(FW_WROPCODE_OFLD_TX_DATA) |
 			(req_completion ? F_WR_COMPL : 0));
 	req->wr_lo = htonl(V_WR_TID(csk->tid));
-	
+	/* len includes the length of any HW ULP additions */
 	req->len = htonl(len);
-	
+	/* V_TX_ULP_SUBMODE sets both the mode and submode */
 	req->flags = htonl(V_TX_ULP_SUBMODE(cxgbi_skcb_ulp_mode(skb)) |
 			   V_TX_SHOVE((skb_peek(&csk->write_queue) ? 0 : 1)));
 	req->sndseq = htonl(csk->snd_nxt);
@@ -330,12 +367,22 @@ static inline void make_tx_data_wr(struct cxgbi_sock *csk, struct sk_buff *skb,
 	if (!cxgbi_sock_flag(csk, CTPF_TX_DATA_SENT)) {
 		req->flags |= htonl(V_TX_ACK_PAGES(2) | F_TX_INIT |
 				    V_TX_CPU_IDX(csk->rss_qid));
-		
+		/* sendbuffer is in units of 32KB. */
 		req->param |= htonl(V_TX_SNDBUF(cxgb3i_snd_win >> 15));
 		cxgbi_sock_set_flag(csk, CTPF_TX_DATA_SENT);
 	}
 }
 
+/**
+ * push_tx_frames -- start transmit
+ * @c3cn: the offloaded connection
+ * @req_completion: request wr_ack or not
+ *
+ * Prepends TX_DATA_WR or CPL_CLOSE_CON_REQ headers to buffers waiting in a
+ * connection's send queue and sends them on to T3.  Must be called with the
+ * connection's lock held.  Returns the amount of send buffer space that was
+ * freed as a result of sending queued data to T3.
+ */
 
 static void arp_failure_skb_discard(struct t3cdev *dev, struct sk_buff *skb)
 {
@@ -356,7 +403,7 @@ static int push_tx_frames(struct cxgbi_sock *csk, int req_completion)
 	}
 
 	while (csk->wr_cred && (skb = skb_peek(&csk->write_queue)) != NULL) {
-		int len = skb->len;	
+		int len = skb->len;	/* length before skb_push */
 		int frags = skb_shinfo(skb)->nr_frags + (len != skb->data_len);
 		int wrs_needed = skb_wrs[frags];
 
@@ -375,7 +422,7 @@ static int push_tx_frames(struct cxgbi_sock *csk, int req_completion)
 
 		__skb_unlink(skb, &csk->write_queue);
 		skb->priority = CPL_PRIORITY_DATA;
-		skb->csum = wrs_needed;	
+		skb->csum = wrs_needed;	/* remember this until the WR_ACK */
 		csk->wr_cred -= wrs_needed;
 		csk->wr_una_cred += wrs_needed;
 		cxgbi_sock_enqueue_wr(csk, skb);
@@ -408,6 +455,11 @@ static int push_tx_frames(struct cxgbi_sock *csk, int req_completion)
 	return total_size;
 }
 
+/*
+ * Process a CPL_ACT_ESTABLISH message: -> host
+ * Updates connection state from an active establish CPL message.  Runs with
+ * the connection lock held.
+ */
 
 static inline void free_atid(struct cxgbi_sock *csk)
 {
@@ -424,7 +476,7 @@ static int do_act_establish(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 	struct cpl_act_establish *req = cplhdr(skb);
 	unsigned int tid = GET_TID(req);
 	unsigned int atid = G_PASS_OPEN_TID(ntohl(req->tos_tid));
-	u32 rcv_isn = ntohl(req->rcv_isn);	
+	u32 rcv_isn = ntohl(req->rcv_isn);	/* real RCV_ISN + 1 */
 
 	log_debug(1 << CXGBI_DBG_TOE | 1 << CXGBI_DBG_SOCK,
 		"atid 0x%x,tid 0x%x, csk 0x%p,%u,0x%lx, isn %u.\n",
@@ -456,7 +508,7 @@ static int do_act_establish(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 	cxgbi_sock_established(csk, ntohl(req->snd_isn), ntohs(req->tcp_opt));
 
 	if (unlikely(cxgbi_sock_flag(csk, CTPF_ACTIVE_CLOSE_NEEDED)))
-		
+		/* upper layer has requested closing */
 		send_abort_req(csk);
 	else {
 		if (skb_queue_len(&csk->write_queue))
@@ -469,6 +521,10 @@ static int do_act_establish(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 	return 0;
 }
 
+/*
+ * Process a CPL_ACT_OPEN_RPL message: -> host
+ * Handle active open failures.
+ */
 static int act_open_rpl_status_to_errno(int status)
 {
 	switch (status) {
@@ -541,6 +597,10 @@ static int do_act_open_rpl(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 	return 0;
 }
 
+/*
+ * Process PEER_CLOSE CPL messages: -> host
+ * Handle peer FIN.
+ */
 static int do_peer_close(struct t3cdev *cdev, struct sk_buff *skb, void *ctx)
 {
 	struct cxgbi_sock *csk = ctx;
@@ -554,6 +614,10 @@ static int do_peer_close(struct t3cdev *cdev, struct sk_buff *skb, void *ctx)
 	return 0;
 }
 
+/*
+ * Process CLOSE_CONN_RPL CPL message: -> host
+ * Process a peer ACK to our FIN.
+ */
 static int do_close_con_rpl(struct t3cdev *cdev, struct sk_buff *skb,
 			    void *ctx)
 {
@@ -569,12 +633,17 @@ static int do_close_con_rpl(struct t3cdev *cdev, struct sk_buff *skb,
 	return 0;
 }
 
+/*
+ * Process ABORT_REQ_RSS CPL message: -> host
+ * Process abort requests.  If we are waiting for an ABORT_RPL we ignore this
+ * request except that we need to reply to it.
+ */
 
 static int abort_status_to_errno(struct cxgbi_sock *csk, int abort_reason,
 				 int *need_rst)
 {
 	switch (abort_reason) {
-	case CPL_ERR_BAD_SYN: 
+	case CPL_ERR_BAD_SYN: /* fall through */
 	case CPL_ERR_CONN_RESET:
 		return csk->state > CTP_ESTABLISHED ? -EPIPE : -ECONNRESET;
 	case CPL_ERR_XMIT_TIMEDOUT:
@@ -627,6 +696,13 @@ done:
 	return 0;
 }
 
+/*
+ * Process ABORT_RPL_RSS CPL message: -> host
+ * Process abort replies.  We only process these messages if we anticipate
+ * them as the coordination between SW and HW in this area is somewhat lacking
+ * and sometimes we get ABORT_RPLs after we are done with the connection that
+ * originated the ABORT_REQ.
+ */
 static int do_abort_rpl(struct t3cdev *cdev, struct sk_buff *skb, void *ctx)
 {
 	struct cpl_abort_rpl_rss *rpl = cplhdr(skb);
@@ -636,8 +712,21 @@ static int do_abort_rpl(struct t3cdev *cdev, struct sk_buff *skb, void *ctx)
 		"status 0x%x, csk 0x%p, s %u, 0x%lx.\n",
 		rpl->status, csk, csk ? csk->state : 0,
 		csk ? csk->flags : 0UL);
+	/*
+	 * Ignore replies to post-close aborts indicating that the abort was
+	 * requested too late.  These connections are terminated when we get
+	 * PEER_CLOSE or CLOSE_CON_RPL and by the time the abort_rpl_rss
+	 * arrives the TID is either no longer used or it has been recycled.
+	 */
 	if (rpl->status == CPL_ERR_ABORT_FAILED)
 		goto rel_skb;
+	/*
+	 * Sometimes we've already closed the connection, e.g., a post-close
+	 * abort races with ABORT_REQ_RSS, the latter frees the connection
+	 * expecting the ABORT_REQ will fail with CPL_ERR_ABORT_FAILED,
+	 * but FW turns the ABORT_REQ into a regular one and so we get
+	 * ABORT_RPL_RSS with status 0 and no connection.
+	 */
 	if (csk)
 		cxgbi_sock_rcv_abort_rpl(csk);
 rel_skb:
@@ -645,6 +734,11 @@ rel_skb:
 	return 0;
 }
 
+/*
+ * Process RX_ISCSI_HDR CPL message: -> host
+ * Handle received PDUs, the payload could be DDP'ed. If not, the payload
+ * follow after the bhs.
+ */
 static int do_iscsi_hdr(struct t3cdev *t3dev, struct sk_buff *skb, void *ctx)
 {
 	struct cxgbi_sock *csk = ctx;
@@ -678,7 +772,7 @@ static int do_iscsi_hdr(struct t3cdev *t3dev, struct sk_buff *skb, void *ctx)
 	__skb_pull(skb, sizeof(struct cpl_iscsi_hdr));
 
 	len = hdr_len = ntohs(hdr_cpl->len);
-	
+	/* msg coalesce is off or not enough data received */
 	if (skb->len <= hdr_len) {
 		pr_err("%s: tid %u, CPL_ISCSI_HDR, skb len %u < %u.\n",
 			csk->cdev->ports[csk->port_id]->name, csk->tid,
@@ -744,6 +838,11 @@ discard:
 	return 0;
 }
 
+/*
+ * Process TX_DATA_ACK CPL messages: -> host
+ * Process an acknowledgment of WR completion.  Advance snd_una and send the
+ * next batch of work requests from the write queue.
+ */
 static int do_wr_ack(struct t3cdev *cdev, struct sk_buff *skb, void *ctx)
 {
 	struct cxgbi_sock *csk = ctx;
@@ -758,6 +857,10 @@ static int do_wr_ack(struct t3cdev *cdev, struct sk_buff *skb, void *ctx)
 	return 0;
 }
 
+/*
+ * for each connection, pre-allocate skbs needed for close/abort requests. So
+ * that we can service the request right away.
+ */
 static int alloc_cpls(struct cxgbi_sock *csk)
 {
 	csk->cpl_close = alloc_wr(sizeof(struct cpl_close_con_req), 0,
@@ -781,6 +884,11 @@ free_cpl_skbs:
 	return -ENOMEM;
 }
 
+/**
+ * release_offload_resources - release offload resource
+ * @c3cn: the offloaded iscsi tcp connection.
+ * Release resources held by an offload connection (TID, L2T entry, etc.)
+ */
 static void l2t_put(struct cxgbi_sock *csk)
 {
 	struct t3cdev *t3dev = (struct t3cdev *)csk->cdev->lldev;
@@ -912,6 +1020,10 @@ cxgb3_cpl_handler_func cxgb3i_cpl_handlers[NUM_CPL_CMDS] = {
 	[CPL_ISCSI_HDR] = do_iscsi_hdr,
 };
 
+/**
+ * cxgb3i_ofld_init - allocate and initialize resources for each adapter found
+ * @cdev:	cxgbi adapter
+ */
 int cxgb3i_ofld_init(struct cxgbi_device *cdev)
 {
 	struct t3cdev *t3dev = (struct t3cdev *)cdev->lldev;
@@ -948,6 +1060,9 @@ int cxgb3i_ofld_init(struct cxgbi_device *cdev)
 	return 0;
 }
 
+/*
+ * functions to program the pagepod in h/w
+ */
 static inline void ulp_mem_io_set_hdr(struct sk_buff *skb, unsigned int addr)
 {
 	struct ulp_mem_io *req = (struct ulp_mem_io *)skb->head;
@@ -1031,7 +1146,7 @@ static int ddp_setup_conn_pgidx(struct cxgbi_sock *csk,
 	if (!skb)
 		return -ENOMEM;
 
-	
+	/* set up ulp submode and page size */
 	req = (struct cpl_set_tcb_field *)skb->head;
 	req->wr.wr_hi = htonl(V_WR_OP(FW_WROPCODE_FORWARD));
 	OPCODE_TID(req) = htonl(MK_OPCODE_TID(CPL_SET_TCB_FIELD, tid));
@@ -1046,6 +1161,15 @@ static int ddp_setup_conn_pgidx(struct cxgbi_sock *csk,
 	return 0;
 }
 
+/**
+ * cxgb3i_setup_conn_digest - setup conn. digest setting
+ * @csk: cxgb tcp socket
+ * @tid: connection id
+ * @hcrc: header digest enabled
+ * @dcrc: data digest enabled
+ * @reply: request reply from h/w
+ * set up the iscsi digest settings for a connection identified by tid
+ */
 static int ddp_setup_conn_digest(struct cxgbi_sock *csk, unsigned int tid,
 			     int hcrc, int dcrc, int reply)
 {
@@ -1059,7 +1183,7 @@ static int ddp_setup_conn_digest(struct cxgbi_sock *csk, unsigned int tid,
 	if (!skb)
 		return -ENOMEM;
 
-	
+	/* set up ulp submode and page size */
 	req = (struct cpl_set_tcb_field *)skb->head;
 	req->wr.wr_hi = htonl(V_WR_OP(FW_WROPCODE_FORWARD));
 	OPCODE_TID(req) = htonl(MK_OPCODE_TID(CPL_SET_TCB_FIELD, tid));
@@ -1074,6 +1198,12 @@ static int ddp_setup_conn_digest(struct cxgbi_sock *csk, unsigned int tid,
 	return 0;
 }
 
+/**
+ * t3_ddp_cleanup - release the cxgb3 adapter's ddp resource
+ * @cdev: cxgb3i adapter
+ * release all the resource held by the ddp pagepod manager for a given
+ * adapter if needed
+ */
 
 static void t3_ddp_cleanup(struct cxgbi_device *cdev)
 {
@@ -1085,6 +1215,11 @@ static void t3_ddp_cleanup(struct cxgbi_device *cdev)
 	}
 }
 
+/**
+ * ddp_init - initialize the cxgb3 adapter's ddp resource
+ * @cdev: cxgb3i adapter
+ * initialize the ddp pagepod manager for a given adapter
+ */
 static int cxgb3i_ddp_init(struct cxgbi_device *cdev)
 {
 	struct t3cdev *tdev = (struct t3cdev *)cdev->lldev;
@@ -1155,6 +1290,10 @@ static void cxgb3i_dev_close(struct t3cdev *t3dev)
 	cxgbi_device_unregister(cdev);
 }
 
+/**
+ * cxgb3i_dev_open - init a t3 adapter structure and any h/w settings
+ * @t3dev: t3cdev adapter
+ */
 static void cxgb3i_dev_open(struct t3cdev *t3dev)
 {
 	struct cxgbi_device *cdev = cxgbi_device_find_by_lldev(t3dev);
@@ -1236,6 +1375,12 @@ static void cxgb3i_dev_event_handler(struct t3cdev *t3dev, u32 event, u32 port)
 	}
 }
 
+/**
+ * cxgb3i_init_module - module init entry point
+ *
+ * initialize any driver wide global data structures and register itself
+ *	with the cxgb3 module
+ */
 static int __init cxgb3i_init_module(void)
 {
 	int rc;
@@ -1250,6 +1395,12 @@ static int __init cxgb3i_init_module(void)
 	return 0;
 }
 
+/**
+ * cxgb3i_exit_module - module cleanup/exit entry point
+ *
+ * go through the driver hba list and for each hba, release any resource held.
+ *	and unregisters iscsi transport and the cxgb3 module
+ */
 static void __exit cxgb3i_exit_module(void)
 {
 	cxgb3_unregister_client(&t3_client);

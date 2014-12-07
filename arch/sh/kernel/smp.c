@@ -29,11 +29,12 @@
 #include <asm/sections.h>
 #include <asm/setup.h>
 
-int __cpu_number_map[NR_CPUS];		
-int __cpu_logical_map[NR_CPUS];		
+int __cpu_number_map[NR_CPUS];		/* Map physical to logical */
+int __cpu_logical_map[NR_CPUS];		/* Map logical to physical */
 
 struct plat_smp_ops *mp_ops = NULL;
 
+/* State of each CPU */
 DEFINE_PER_CPU(int, cpu_state) = { 0 };
 
 void __cpuinit register_smp_ops(struct plat_smp_ops *ops)
@@ -129,12 +130,26 @@ int __cpu_disable(void)
 	if (ret)
 		return ret;
 
+	/*
+	 * Take this CPU offline.  Once we clear this, we can't return,
+	 * and we must not schedule until we're ready to give up the cpu.
+	 */
 	set_cpu_online(cpu, false);
 
+	/*
+	 * OK - migrate IRQs away from this CPU
+	 */
 	migrate_irqs();
 
+	/*
+	 * Stop the local timer for this CPU.
+	 */
 	local_timer_stop(cpu);
 
+	/*
+	 * Flush user cache and TLB mappings, and then remove this CPU
+	 * from the vm mask set of all processes.
+	 */
 	flush_cache_all();
 	local_flush_tlb_all();
 
@@ -146,7 +161,7 @@ int __cpu_disable(void)
 
 	return 0;
 }
-#else 
+#else /* ... !CONFIG_HOTPLUG_CPU */
 int native_cpu_disable(unsigned int cpu)
 {
 	return -ENOSYS;
@@ -154,7 +169,7 @@ int native_cpu_disable(unsigned int cpu)
 
 void native_cpu_die(unsigned int cpu)
 {
-	
+	/* We said "no" in __cpu_disable */
 	BUG();
 }
 
@@ -184,7 +199,7 @@ asmlinkage void __cpuinit start_secondary(void)
 
 	local_irq_enable();
 
-	
+	/* Enable local timers */
 	local_timer_setup(cpu);
 	calibrate_delay();
 
@@ -223,10 +238,10 @@ int __cpuinit __cpu_up(unsigned int cpu)
 
 	per_cpu(cpu_state, cpu) = CPU_UP_PREPARE;
 
-	
+	/* Fill in data in head.S for secondary cpus */
 	stack_start.sp = tsk->thread.sp;
 	stack_start.thread_info = tsk->stack;
-	stack_start.bss_start = 0; 
+	stack_start.bss_start = 0; /* don't clear bss for secondary cpus */
 	stack_start.start_kernel_fn = start_secondary;
 
 	flush_icache_range((unsigned long)&stack_start,
@@ -324,6 +339,7 @@ void smp_message_recv(unsigned int msg)
 	}
 }
 
+/* Not really SMP stuff ... */
 int setup_profiling_timer(unsigned int multiplier)
 {
 	return 0;
@@ -344,6 +360,18 @@ static void flush_tlb_mm_ipi(void *mm)
 	local_flush_tlb_mm((struct mm_struct *)mm);
 }
 
+/*
+ * The following tlb flush calls are invoked when old translations are
+ * being torn down, or pte attributes are changing. For single threaded
+ * address spaces, a new context is obtained on the current cpu, and tlb
+ * context on other cpus are invalidated to force a new context allocation
+ * at switch_mm time, should the mm ever be used on other cpus. For
+ * multithreaded address spaces, intercpu interrupts have to be sent.
+ * Another case where intercpu interrupts are required is when the target
+ * mm might be active on another cpu (eg debuggers doing the flushes on
+ * behalf of debugees, kswapd stealing pages from another process etc).
+ * Kanoj 07/00.
+ */
 void flush_tlb_mm(struct mm_struct *mm)
 {
 	preempt_disable();

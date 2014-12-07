@@ -43,6 +43,7 @@
 #include <plat/cpu.h>
 #include <plat/pll.h>
 
+/* initialise all the clocks */
 
 void __init_or_cpufreq s3c24xx_setup_clocks(unsigned long fclk,
 					   unsigned long hclk,

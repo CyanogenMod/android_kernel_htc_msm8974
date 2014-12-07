@@ -47,31 +47,34 @@ struct if_spi_card {
 	struct lbs_private		*priv;
 	struct libertas_spi_platform_data *pdata;
 
-	
+	/* The card ID and card revision, as reported by the hardware. */
 	u16				card_id;
 	u8				card_rev;
 
-	
+	/* The last time that we initiated an SPU operation */
 	unsigned long			prev_xfer_time;
 
 	int				use_dummy_writes;
 	unsigned long			spu_port_delay;
 	unsigned long			spu_reg_delay;
 
-	
+	/* Handles all SPI communication (except for FW load) */
 	struct workqueue_struct		*workqueue;
 	struct work_struct		packet_work;
 	struct work_struct		resume_work;
 
 	u8				cmd_buffer[IF_SPI_CMD_BUF_SIZE];
 
+	/* A buffer of incoming packets from libertas core.
+	 * Since we can't sleep in hw_host_to_card, we have to buffer
+	 * them. */
 	struct list_head		cmd_packet_list;
 	struct list_head		data_packet_list;
 
-	
+	/* Protects cmd_packet_list and data_packet_list */
 	spinlock_t			buffer_lock;
 
-	
+	/* True is card suspended */
 	u8				suspended;
 };
 
@@ -117,10 +120,24 @@ MODULE_FIRMWARE("libertas/gspi8688_helper.bin");
 MODULE_FIRMWARE("libertas/gspi8688.bin");
 
 
+/*
+ * SPI Interface Unit Routines
+ *
+ * The SPU sits between the host and the WLAN module.
+ * All communication with the firmware is through SPU transactions.
+ *
+ * First we have to put a SPU register name on the bus. Then we can
+ * either read from or write to that register.
+ *
+ */
 
 static void spu_transaction_init(struct if_spi_card *card)
 {
 	if (!time_after(jiffies, card->prev_xfer_time + 1)) {
+		/* Unfortunately, the SPU requires a delay between successive
+		 * transactions. If our last transaction was more than a jiffy
+		 * ago, we have obviously already delayed enough.
+		 * If not, we have to busy-wait to be on the safe side. */
 		ndelay(400);
 	}
 }
@@ -130,6 +147,10 @@ static void spu_transaction_finish(struct if_spi_card *card)
 	card->prev_xfer_time = jiffies;
 }
 
+/*
+ * Write out a byte buffer to an SPI register,
+ * using a series of 16-bit transfers.
+ */
 static int spu_write(struct if_spi_card *card, u16 reg, const u8 *buf, int len)
 {
 	int err = 0;
@@ -142,11 +163,13 @@ static int spu_write(struct if_spi_card *card, u16 reg, const u8 *buf, int len)
 	memset(&reg_trans, 0, sizeof(reg_trans));
 	memset(&data_trans, 0, sizeof(data_trans));
 
+	/* You must give an even number of bytes to the SPU, even if it
+	 * doesn't care about the last one.  */
 	BUG_ON(len & 0x1);
 
 	spu_transaction_init(card);
 
-	
+	/* write SPU register index */
 	reg_trans.tx_buf = &reg_out;
 	reg_trans.len = sizeof(reg_out);
 
@@ -191,6 +214,10 @@ static int spu_read(struct if_spi_card *card, u16 reg, u8 *buf, int len)
 	struct spi_transfer dummy_trans;
 	struct spi_transfer data_trans;
 
+	/*
+	 * You must take an even number of bytes from the SPU, even if you
+	 * don't care about the last one.
+	 */
 	BUG_ON(len & 0x1);
 
 	spu_transaction_init(card);
@@ -200,7 +227,7 @@ static int spu_read(struct if_spi_card *card, u16 reg, u8 *buf, int len)
 	memset(&dummy_trans, 0, sizeof(dummy_trans));
 	memset(&data_trans, 0, sizeof(data_trans));
 
-	
+	/* write SPU register index */
 	reg_trans.tx_buf = &reg_out;
 	reg_trans.len = sizeof(reg_out);
 	spi_message_add_tail(&reg_trans, &m);
@@ -208,16 +235,16 @@ static int spu_read(struct if_spi_card *card, u16 reg, u8 *buf, int len)
 	delay = spu_reg_is_port_reg(reg) ? card->spu_port_delay :
 						card->spu_reg_delay;
 	if (card->use_dummy_writes) {
-		
+		/* Clock in dummy cycles while the SPU fills the FIFO */
 		dummy_trans.len = delay / 8;
 		spi_message_add_tail(&dummy_trans, &m);
 	} else {
-		
+		/* Busy-wait while the SPU fills the FIFO */
 		reg_trans.delay_usecs =
 			DIV_ROUND_UP((100 + (delay * 10)), 1000);
 	}
 
-	
+	/* read in data */
 	data_trans.rx_buf = buf;
 	data_trans.len = len;
 	spi_message_add_tail(&data_trans, &m);
@@ -227,6 +254,7 @@ static int spu_read(struct if_spi_card *card, u16 reg, u8 *buf, int len)
 	return err;
 }
 
+/* Read 16 bits from an SPI register */
 static inline int spu_read_u16(struct if_spi_card *card, u16 reg, u16 *val)
 {
 	__le16 buf;
@@ -238,6 +266,10 @@ static inline int spu_read_u16(struct if_spi_card *card, u16 reg, u16 *val)
 	return ret;
 }
 
+/*
+ * Read 32 bits from an SPI register.
+ * The low 16 bits are read first.
+ */
 static int spu_read_u32(struct if_spi_card *card, u16 reg, u32 *val)
 {
 	__le32 buf;
@@ -249,6 +281,15 @@ static int spu_read_u32(struct if_spi_card *card, u16 reg, u32 *val)
 	return err;
 }
 
+/*
+ * Keep reading 16 bits from an SPI register until you get the correct result.
+ *
+ * If mask = 0, the correct result is any non-zero number.
+ * If mask != 0, the correct result is any number where
+ * number & target_mask == target
+ *
+ * Returns -ETIMEDOUT if a second passes without the correct result.
+ */
 static int spu_wait_for_u16(struct if_spi_card *card, u16 reg,
 			u16 target_mask, u16 target)
 {
@@ -275,6 +316,10 @@ static int spu_wait_for_u16(struct if_spi_card *card, u16 reg,
 	}
 }
 
+/*
+ * Read 16 bits from an SPI register until you receive a specific value.
+ * Returns -ETIMEDOUT if a 4 tries pass without success.
+ */
 static int spu_wait_for_u32(struct if_spi_card *card, u32 reg, u32 target)
 {
 	int err, try;
@@ -296,6 +341,10 @@ static int spu_set_interrupt_mode(struct if_spi_card *card,
 {
 	int err = 0;
 
+	/*
+	 * We can suppress a host interrupt by clearing the appropriate
+	 * bit in the "host interrupt status mask" register
+	 */
 	if (suppress_host_int) {
 		err = spu_write_u16(card, IF_SPI_HOST_INT_STATUS_MASK_REG, 0);
 		if (err)
@@ -311,6 +360,12 @@ static int spu_set_interrupt_mode(struct if_spi_card *card,
 			return err;
 	}
 
+	/*
+	 * If auto-interrupts are on, the completion of certain transactions
+	 * will trigger an interrupt automatically. If auto-interrupts
+	 * are off, we need to set the "Card Interrupt Cause" register to
+	 * trigger a card interrupt.
+	 */
 	if (auto_int) {
 		err = spu_write_u16(card, IF_SPI_HOST_INT_CTRL_REG,
 				IF_SPI_HICT_TX_DOWNLOAD_OVER_AUTO |
@@ -344,11 +399,11 @@ static int spu_set_bus_mode(struct if_spi_card *card, u16 mode)
 {
 	int err = 0;
 	u16 rval;
-	
+	/* set bus mode */
 	err = spu_write_u16(card, IF_SPI_SPU_BUS_MODE_REG, mode);
 	if (err)
 		return err;
-	
+	/* Check that we were able to read back what we just wrote. */
 	err = spu_read_u16(card, IF_SPI_SPU_BUS_MODE_REG, &rval);
 	if (err)
 		return err;
@@ -364,6 +419,10 @@ static int spu_init(struct if_spi_card *card, int use_dummy_writes)
 	int err = 0;
 	u32 delay;
 
+	/*
+	 * We have to start up in timed delay mode so that we can safely
+	 * read the Delay Read Register.
+	 */
 	card->use_dummy_writes = 0;
 	err = spu_set_bus_mode(card,
 				IF_SPI_BUS_MODE_SPI_CLOCK_PHASE_RISING |
@@ -379,7 +438,7 @@ static int spu_init(struct if_spi_card *card, int use_dummy_writes)
 	card->spu_port_delay = delay & 0x0000ffff;
 	card->spu_reg_delay = (delay & 0xffff0000) >> 16;
 
-	
+	/* If dummy clock delay mode has been requested, switch to it now */
 	if (use_dummy_writes) {
 		card->use_dummy_writes = 1;
 		err = spu_set_bus_mode(card,
@@ -396,6 +455,9 @@ static int spu_init(struct if_spi_card *card, int use_dummy_writes)
 	return err;
 }
 
+/*
+ * Firmware Loading
+ */
 
 static int if_spi_prog_helper_firmware(struct if_spi_card *card,
 					const struct firmware *firmware)
@@ -414,8 +476,12 @@ static int if_spi_prog_helper_firmware(struct if_spi_card *card,
 	bytes_remaining = firmware->size;
 	fw = firmware->data;
 
-	
+	/* Load helper firmware image */
 	while (bytes_remaining > 0) {
+		/*
+		 * Scratch pad 1 should contain the number of bytes we
+		 * want to download to the firmware
+		 */
 		err = spu_write_u16(card, IF_SPI_SCRATCH_1_REG,
 					HELPER_FW_LOAD_CHUNK_SZ);
 		if (err)
@@ -427,6 +493,10 @@ static int if_spi_prog_helper_firmware(struct if_spi_card *card,
 		if (err)
 			goto out;
 
+		/*
+		 * Feed the data into the command read/write port reg
+		 * in chunks of 64 bytes
+		 */
 		memset(temp, 0, sizeof(temp));
 		memcpy(temp, fw,
 		       min(bytes_remaining, HELPER_FW_LOAD_CHUNK_SZ));
@@ -436,7 +506,7 @@ static int if_spi_prog_helper_firmware(struct if_spi_card *card,
 		if (err)
 			goto out;
 
-		
+		/* Interrupt the boot code */
 		err = spu_write_u16(card, IF_SPI_HOST_INT_STATUS_REG, 0);
 		if (err)
 			goto out;
@@ -448,6 +518,11 @@ static int if_spi_prog_helper_firmware(struct if_spi_card *card,
 		fw += HELPER_FW_LOAD_CHUNK_SZ;
 	}
 
+	/*
+	 * Once the helper / single stage firmware download is complete,
+	 * write 0 to scratch pad 1 and interrupt the
+	 * bootloader. This completes the helper download.
+	 */
 	err = spu_write_u16(card, IF_SPI_SCRATCH_1_REG, FIRMWARE_DNLD_OK);
 	if (err)
 		goto out;
@@ -463,12 +538,20 @@ out:
 	return err;
 }
 
+/*
+ * Returns the length of the next packet the firmware expects us to send.
+ * Sets crc_err if the previous transfer had a CRC error.
+ */
 static int if_spi_prog_main_firmware_check_len(struct if_spi_card *card,
 						int *crc_err)
 {
 	u16 len;
 	int err = 0;
 
+	/*
+	 * wait until the host interrupt status register indicates
+	 * that we are ready to download
+	 */
 	err = spu_wait_for_u16(card, IF_SPI_HOST_INT_STATUS_REG,
 				IF_SPI_HIST_CMD_DOWNLOAD_RDY,
 				IF_SPI_HIST_CMD_DOWNLOAD_RDY);
@@ -477,7 +560,7 @@ static int if_spi_prog_main_firmware_check_len(struct if_spi_card *card,
 		return err;
 	}
 
-	
+	/* Ask the device how many bytes of firmware it wants. */
 	err = spu_read_u16(card, IF_SPI_SCRATCH_1_REG, &len);
 	if (err)
 		return err;
@@ -530,19 +613,23 @@ static int if_spi_prog_main_firmware(struct if_spi_card *card,
 			goto out;
 		}
 		if (bytes < 0) {
+			/*
+			 * If there are no more bytes left, we would normally
+			 * expect to have terminated with len = 0
+			 */
 			netdev_err(priv->dev,
 				   "Firmware load wants more bytes than we have to offer.\n");
 			break;
 		}
 		if (crc_err) {
-			
+			/* Previous transfer failed. */
 			if (++num_crc_errs > MAX_MAIN_FW_LOAD_CRC_ERR) {
 				pr_err("Too many CRC errors encountered in firmware load.\n");
 				err = -EIO;
 				goto out;
 			}
 		} else {
-			
+			/* Previous transfer succeeded. Advance counters. */
 			bytes -= prev_len;
 			fw += prev_len;
 		}
@@ -569,7 +656,7 @@ static int if_spi_prog_main_firmware(struct if_spi_card *card,
 		pr_err("firmware load wants fewer bytes than we have to offer\n");
 	}
 
-	
+	/* Confirm firmware download */
 	err = spu_wait_for_u32(card, IF_SPI_SCRATCH_4_REG,
 					SUCCESSFUL_FW_DOWNLOAD_MAGIC);
 	if (err) {
@@ -584,7 +671,13 @@ out:
 	return err;
 }
 
+/*
+ * SPI Transfer Thread
+ *
+ * The SPI worker handles all SPI transfers, so there is no need for a lock.
+ */
 
+/* Move a command from the card to the host */
 static int if_spi_c2h_cmd(struct if_spi_card *card)
 {
 	struct lbs_private *priv = card->priv;
@@ -593,14 +686,23 @@ static int if_spi_c2h_cmd(struct if_spi_card *card)
 	u16 len;
 	u8 i;
 
+	/*
+	 * We need a buffer big enough to handle whatever people send to
+	 * hw_host_to_card
+	 */
 	BUILD_BUG_ON(IF_SPI_CMD_BUF_SIZE < LBS_CMD_BUFFER_SIZE);
 	BUILD_BUG_ON(IF_SPI_CMD_BUF_SIZE < LBS_UPLD_SIZE);
 
+	/*
+	 * It's just annoying if the buffer size isn't a multiple of 4, because
+	 * then we might have len < IF_SPI_CMD_BUF_SIZE but
+	 * ALIGN(len, 4) > IF_SPI_CMD_BUF_SIZE
+	 */
 	BUILD_BUG_ON(IF_SPI_CMD_BUF_SIZE % 4 != 0);
 
 	lbs_deb_enter(LBS_DEB_SPI);
 
-	
+	/* How many bytes are there to read? */
 	err = spu_read_u16(card, IF_SPI_SCRATCH_2_REG, &len);
 	if (err)
 		goto out;
@@ -617,7 +719,7 @@ static int if_spi_c2h_cmd(struct if_spi_card *card)
 		goto out;
 	}
 
-	
+	/* Read the data from the WLAN module into our command buffer */
 	err = spu_read(card, IF_SPI_CMD_RDWRPORT_REG,
 				card->cmd_buffer, ALIGN(len, 4));
 	if (err)
@@ -638,6 +740,7 @@ out:
 	return err;
 }
 
+/* Move data from the card to the host */
 static int if_spi_c2h_data(struct if_spi_card *card)
 {
 	struct lbs_private *priv = card->priv;
@@ -648,7 +751,7 @@ static int if_spi_c2h_data(struct if_spi_card *card)
 
 	lbs_deb_enter(LBS_DEB_SPI);
 
-	
+	/* How many bytes are there to read? */
 	err = spu_read_u16(card, IF_SPI_SCRATCH_1_REG, &len);
 	if (err)
 		goto out;
@@ -665,7 +768,7 @@ static int if_spi_c2h_data(struct if_spi_card *card)
 		goto out;
 	}
 
-	
+	/* TODO: should we allocate a smaller skb if we have less data? */
 	skb = dev_alloc_skb(MRVDRV_ETH_RX_PACKET_BUFFER_SIZE);
 	if (!skb) {
 		err = -ENOBUFS;
@@ -674,17 +777,17 @@ static int if_spi_c2h_data(struct if_spi_card *card)
 	skb_reserve(skb, IPFIELD_ALIGN_OFFSET);
 	data = skb_put(skb, len);
 
-	
+	/* Read the data from the WLAN module into our skb... */
 	err = spu_read(card, IF_SPI_DATA_RDWRPORT_REG, data, ALIGN(len, 4));
 	if (err)
 		goto free_skb;
 
-	
+	/* pass the SKB to libertas */
 	err = lbs_process_rxed_packet(card->priv, skb);
 	if (err)
 		goto free_skb;
 
-	
+	/* success */
 	goto out;
 
 free_skb:
@@ -696,6 +799,7 @@ out:
 	return err;
 }
 
+/* Move data or a command from the host to the card. */
 static void if_spi_h2c(struct if_spi_card *card,
 			struct if_spi_packet *packet, int type)
 {
@@ -719,7 +823,7 @@ static void if_spi_h2c(struct if_spi_card *card,
 		goto out;
 	}
 
-	
+	/* Write the data to the card */
 	err = spu_write(card, port_reg, packet->buffer, packet->blen);
 	if (err)
 		goto out;
@@ -731,6 +835,7 @@ out:
 		netdev_err(priv->dev, "%s: error %d\n", __func__, err);
 }
 
+/* Inform the host about a card event */
 static void if_spi_e2h(struct if_spi_card *card)
 {
 	int err = 0;
@@ -741,11 +846,11 @@ static void if_spi_e2h(struct if_spi_card *card)
 	if (err)
 		goto out;
 
-	
+	/* re-enable the card event interrupt */
 	spu_write_u16(card, IF_SPI_HOST_INT_STATUS_REG,
 			~IF_SPI_HICU_CARD_EVENT);
 
-	
+	/* generate a card interrupt */
 	spu_write_u16(card, IF_SPI_CARD_INT_CAUSE_REG, IF_SPI_CIC_HOST_EVENT);
 
 	lbs_queue_event(priv, cause & 0xff);
@@ -768,6 +873,10 @@ static void if_spi_host_to_card_worker(struct work_struct *work)
 
 	lbs_deb_enter(LBS_DEB_SPI);
 
+	/*
+	 * Read the host interrupt status register to see what we
+	 * can do.
+	 */
 	err = spu_read_u16(card, IF_SPI_HOST_INT_STATUS_REG,
 				&hiStatus);
 	if (err) {
@@ -786,12 +895,23 @@ static void if_spi_host_to_card_worker(struct work_struct *work)
 			goto err;
 	}
 
+	/*
+	 * workaround: in PS mode, the card does not set the Command
+	 * Download Ready bit, but it sets TX Download Ready.
+	 */
 	if (hiStatus & IF_SPI_HIST_CMD_DOWNLOAD_RDY ||
 	   (card->priv->psstate != PS_STATE_FULL_POWER &&
 	    (hiStatus & IF_SPI_HIST_TX_DOWNLOAD_RDY))) {
+		/*
+		 * This means two things. First of all,
+		 * if there was a previous command sent, the card has
+		 * successfully received it.
+		 * Secondly, it is now ready to download another
+		 * command.
+		 */
 		lbs_host_to_card_done(card->priv);
 
-		
+		/* Do we have any command packets from the host to send? */
 		packet = NULL;
 		spin_lock_irqsave(&card->buffer_lock, flags);
 		if (!list_empty(&card->cmd_packet_list)) {
@@ -805,7 +925,7 @@ static void if_spi_host_to_card_worker(struct work_struct *work)
 			if_spi_h2c(card, packet, MVMS_CMD);
 	}
 	if (hiStatus & IF_SPI_HIST_TX_DOWNLOAD_RDY) {
-		
+		/* Do we have any data packets from the host to send? */
 		packet = NULL;
 		spin_lock_irqsave(&card->buffer_lock, flags);
 		if (!list_empty(&card->data_packet_list)) {
@@ -828,6 +948,12 @@ err:
 	lbs_deb_leave(LBS_DEB_SPI);
 }
 
+/*
+ * Host to Card
+ *
+ * Called from Libertas to transfer some data to the WLAN device
+ * We can't sleep here.
+ */
 static int if_spi_host_to_card(struct lbs_private *priv,
 				u8 type, u8 *buf, u16 nb)
 {
@@ -876,13 +1002,19 @@ static int if_spi_host_to_card(struct lbs_private *priv,
 		break;
 	}
 
-	
+	/* Queue spi xfer work */
 	queue_work(card->workqueue, &card->packet_work);
 out:
 	lbs_deb_leave_args(LBS_DEB_SPI, "err=%d", err);
 	return err;
 }
 
+/*
+ * Host Interrupts
+ *
+ * Service incoming interrupts from the WLAN device. We can't sleep here, so
+ * don't try to talk on the SPI bus, just queue the SPI xfer work.
+ */
 static irqreturn_t if_spi_host_interrupt(int irq, void *dev_id)
 {
 	struct if_spi_card *card = dev_id;
@@ -892,6 +1024,9 @@ static irqreturn_t if_spi_host_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * SPI callbacks
+ */
 
 static int if_spi_init_card(struct if_spi_card *card)
 {
@@ -917,7 +1052,7 @@ static int if_spi_init_card(struct if_spi_card *card)
 		lbs_deb_spi("Firmware is already loaded for "
 			    "Marvell WLAN 802.11 adapter\n");
 	else {
-		
+		/* Check if we support this card */
 		for (i = 0; i < ARRAY_SIZE(fw_table); i++) {
 			if (card->card_id == fw_table[i].model)
 				break;
@@ -980,12 +1115,12 @@ static void if_spi_resume_worker(struct work_struct *work)
 		if (card->pdata->setup)
 			card->pdata->setup(card->spi);
 
-		
+		/* Init card ... */
 		if_spi_init_card(card);
 
 		enable_irq(card->spi->irq);
 
-		
+		/* And resume it ... */
 		lbs_resume(card->priv);
 
 		card->suspended = 0;
@@ -1012,7 +1147,7 @@ static int __devinit if_spi_probe(struct spi_device *spi)
 			goto out;
 	}
 
-	
+	/* Allocate card structure to represent this specific device */
 	card = kzalloc(sizeof(struct if_spi_card), GFP_KERNEL);
 	if (!card) {
 		err = -ENOMEM;
@@ -1027,13 +1162,17 @@ static int __devinit if_spi_probe(struct spi_device *spi)
 	INIT_LIST_HEAD(&card->data_packet_list);
 	spin_lock_init(&card->buffer_lock);
 
-	
+	/* Initialize the SPI Interface Unit */
 
-	
+	/* Firmware load */
 	err = if_spi_init_card(card);
 	if (err)
 		goto free_card;
 
+	/*
+	 * Register our card with libertas.
+	 * This will call alloc_etherdev.
+	 */
 	priv = lbs_add_card(card, &spi->dev);
 	if (!priv) {
 		err = -ENOMEM;
@@ -1048,7 +1187,7 @@ static int __devinit if_spi_probe(struct spi_device *spi)
 	priv->reset_deep_sleep_wakeup = NULL;
 	priv->fw_ready = 1;
 
-	
+	/* Initialize interrupt handling stuff. */
 	card->workqueue = create_workqueue("libertas_spi");
 	INIT_WORK(&card->packet_work, if_spi_host_to_card_worker);
 	INIT_WORK(&card->resume_work, if_spi_resume_worker);
@@ -1060,13 +1199,18 @@ static int __devinit if_spi_probe(struct spi_device *spi)
 		goto terminate_workqueue;
 	}
 
+	/*
+	 * Start the card.
+	 * This will call register_netdev, and we'll start
+	 * getting interrupts...
+	 */
 	err = lbs_start_card(priv);
 	if (err)
 		goto release_irq;
 
 	lbs_deb_spi("Finished initializing WLAN module.\n");
 
-	
+	/* successful exit */
 	goto out;
 
 release_irq:
@@ -1074,7 +1218,7 @@ release_irq:
 terminate_workqueue:
 	flush_workqueue(card->workqueue);
 	destroy_workqueue(card->workqueue);
-	lbs_remove_card(priv); 
+	lbs_remove_card(priv); /* will call free_netdev */
 free_card:
 	free_if_spi_card(card);
 teardown:
@@ -1096,7 +1240,7 @@ static int __devexit libertas_spi_remove(struct spi_device *spi)
 	cancel_work_sync(&card->resume_work);
 
 	lbs_stop_card(priv);
-	lbs_remove_card(priv); 
+	lbs_remove_card(priv); /* will call free_netdev */
 
 	free_irq(spi->irq, card);
 	flush_workqueue(card->workqueue);
@@ -1131,7 +1275,7 @@ static int if_spi_resume(struct device *dev)
 	struct spi_device *spi = to_spi_device(dev);
 	struct if_spi_card *card = spi_get_drvdata(spi);
 
-	
+	/* Schedule delayed work */
 	schedule_work(&card->resume_work);
 
 	return 0;
@@ -1152,6 +1296,9 @@ static struct spi_driver libertas_spi_driver = {
 	},
 };
 
+/*
+ * Module functions
+ */
 
 static int __init if_spi_init_module(void)
 {

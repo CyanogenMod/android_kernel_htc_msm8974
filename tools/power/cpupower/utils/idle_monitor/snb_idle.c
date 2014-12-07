@@ -55,6 +55,7 @@ static unsigned long long tsc_at_measure_start;
 static unsigned long long tsc_at_measure_end;
 static unsigned long long *previous_count[SNB_CSTATE_COUNT];
 static unsigned long long *current_count[SNB_CSTATE_COUNT];
+/* valid flag for all CPUs. If a MSR read failed it will be zero */
 static int *is_valid;
 
 static int snb_get_count(enum intel_snb_id id, unsigned long long *val,
@@ -183,6 +184,7 @@ struct cpuidle_monitor intel_snb_monitor = {
 	.do_register		= snb_register,
 	.unregister		= snb_unregister,
 	.needs_root		= 1,
-	.overflow_s		= 922000000 
+	.overflow_s		= 922000000 /* 922337203 seconds TSC overflow
+					       at 20GHz */
 };
-#endif 
+#endif /* defined(__i386__) || defined(__x86_64__) */

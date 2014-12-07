@@ -27,10 +27,13 @@ module_param_named(keycaps, keycaps, charp, 0);
 
 static unsigned int sapphire_col_gpios[] = { 35, 34 };
 
+/* KP_MKIN2 (GPIO40) is not used? */
 static unsigned int sapphire_row_gpios[] = { 42, 41 };
 
 #define KEYMAP_INDEX(col, row) ((col)*ARRAY_SIZE(sapphire_row_gpios) + (row))
 
+/*scan matrix key*/
+/* HOME(up) MENU (up) Back Search */
 static const unsigned short sapphire_keymap2[ARRAY_SIZE(sapphire_col_gpios) * ARRAY_SIZE(sapphire_row_gpios)] = {
 	[KEYMAP_INDEX(0, 0)] = KEY_COMPOSE,
 	[KEYMAP_INDEX(0, 1)] = KEY_BACK,
@@ -39,6 +42,7 @@ static const unsigned short sapphire_keymap2[ARRAY_SIZE(sapphire_col_gpios) * AR
 	[KEYMAP_INDEX(1, 1)] = KEY_SEND,
 };
 
+/* HOME(up) + MENU (down)*/
 static const unsigned short sapphire_keymap1[ARRAY_SIZE(sapphire_col_gpios) *
 					ARRAY_SIZE(sapphire_row_gpios)] = {
 	[KEYMAP_INDEX(0, 0)] = KEY_BACK,
@@ -48,6 +52,7 @@ static const unsigned short sapphire_keymap1[ARRAY_SIZE(sapphire_col_gpios) *
 	[KEYMAP_INDEX(1, 1)] = KEY_SEND,
 };
 
+/* MENU(up) + HOME (down)*/
 static const unsigned short sapphire_keymap0[ARRAY_SIZE(sapphire_col_gpios) *
 					ARRAY_SIZE(sapphire_row_gpios)] = {
 	[KEYMAP_INDEX(0, 0)] = KEY_BACK,
@@ -69,7 +74,7 @@ static struct gpio_event_matrix_info sapphire_keypad_matrix_info = {
 	.debounce_delay.tv.nsec = 50 * NSEC_PER_MSEC,
 	.flags = GPIOKPF_LEVEL_TRIGGERED_IRQ |
 		 GPIOKPF_REMOVE_PHANTOM_KEYS |
-		 GPIOKPF_PRINT_UNMAPPED_KEYS 
+		 GPIOKPF_PRINT_UNMAPPED_KEYS /*| GPIOKPF_PRINT_MAPPED_KEYS*/
 };
 
 static struct gpio_event_direct_entry sapphire_keypad_nav_map[] = {

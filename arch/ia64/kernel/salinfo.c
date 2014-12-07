@@ -56,11 +56,15 @@ MODULE_LICENSE("GPL");
 static int salinfo_read(char *page, char **start, off_t off, int count, int *eof, void *data);
 
 typedef struct {
-	const char		*name;		
-	unsigned long           feature;        
-	struct proc_dir_entry	*entry;		
+	const char		*name;		/* name of the proc entry */
+	unsigned long           feature;        /* feature bit */
+	struct proc_dir_entry	*entry;		/* registered entry (removal) */
 } salinfo_entry_t;
 
+/*
+ * List {name,feature} pairs for every entry in /proc/sal/<feature>
+ * that this module exports
+ */
 static salinfo_entry_t salinfo_entries[]={
 	{ "bus_lock",           IA64_SAL_PLATFORM_FEATURE_BUS_LOCK, },
 	{ "irq_redirection",	IA64_SAL_PLATFORM_FEATURE_IRQ_REDIR_HINT, },
@@ -78,11 +82,14 @@ static char *salinfo_log_name[] = {
 };
 
 static struct proc_dir_entry *salinfo_proc_entries[
-	ARRAY_SIZE(salinfo_entries) +			
-	ARRAY_SIZE(salinfo_log_name) +			
-	(2 * ARRAY_SIZE(salinfo_log_name)) +		
-	1];						
+	ARRAY_SIZE(salinfo_entries) +			/* /proc/sal/bus_lock */
+	ARRAY_SIZE(salinfo_log_name) +			/* /proc/sal/{mca,...} */
+	(2 * ARRAY_SIZE(salinfo_log_name)) +		/* /proc/sal/mca/{event,data} */
+	1];						/* /proc/sal */
 
+/* Some records we get ourselves, some are accessed as saved data in buffers
+ * that are owned by mca.c.
+ */
 struct salinfo_data_saved {
 	u8*			buffer;
 	u64			size;
@@ -90,6 +97,41 @@ struct salinfo_data_saved {
 	int			cpu;
 };
 
+/* State transitions.  Actions are :-
+ *   Write "read <cpunum>" to the data file.
+ *   Write "clear <cpunum>" to the data file.
+ *   Write "oemdata <cpunum> <offset> to the data file.
+ *   Read from the data file.
+ *   Close the data file.
+ *
+ * Start state is NO_DATA.
+ *
+ * NO_DATA
+ *    write "read <cpunum>" -> NO_DATA or LOG_RECORD.
+ *    write "clear <cpunum>" -> NO_DATA or LOG_RECORD.
+ *    write "oemdata <cpunum> <offset> -> return -EINVAL.
+ *    read data -> return EOF.
+ *    close -> unchanged.  Free record areas.
+ *
+ * LOG_RECORD
+ *    write "read <cpunum>" -> NO_DATA or LOG_RECORD.
+ *    write "clear <cpunum>" -> NO_DATA or LOG_RECORD.
+ *    write "oemdata <cpunum> <offset> -> format the oem data, goto OEMDATA.
+ *    read data -> return the INIT/MCA/CMC/CPE record.
+ *    close -> unchanged.  Keep record areas.
+ *
+ * OEMDATA
+ *    write "read <cpunum>" -> NO_DATA or LOG_RECORD.
+ *    write "clear <cpunum>" -> NO_DATA or LOG_RECORD.
+ *    write "oemdata <cpunum> <offset> -> format the oem data, goto OEMDATA.
+ *    read data -> return the formatted oemdata.
+ *    close -> unchanged.  Keep record areas.
+ *
+ * Closing the data file does not change the state.  This allows shell scripts
+ * to manipulate salinfo data, each shell redirection opens the file, does one
+ * action then closes it again.  The record areas are only freed at close when
+ * the state is NO_DATA.
+ */
 enum salinfo_state {
 	STATE_NO_DATA,
 	STATE_LOG_RECORD,
@@ -97,19 +139,19 @@ enum salinfo_state {
 };
 
 struct salinfo_data {
-	cpumask_t		cpu_event;	
+	cpumask_t		cpu_event;	/* which cpus have outstanding events */
 	struct semaphore	mutex;
 	u8			*log_buffer;
 	u64			log_size;
-	u8			*oemdata;	
+	u8			*oemdata;	/* decoded oem data */
 	u64			oemdata_size;
-	int			open;		
+	int			open;		/* single-open to prevent races */
 	u8			type;
-	u8			saved_num;	
-	enum salinfo_state	state :8;	
+	u8			saved_num;	/* using a saved record? */
+	enum salinfo_state	state :8;	/* processing state */
 	u8			padding;
-	int			cpu_check;	
-	struct salinfo_data_saved data_saved[5];
+	int			cpu_check;	/* next CPU to check */
+	struct salinfo_data_saved data_saved[5];/* save last 5 records from mca.c, must be < 255 */
 };
 
 static struct salinfo_data salinfo_data[ARRAY_SIZE(salinfo_log_name)];
@@ -117,6 +159,19 @@ static struct salinfo_data salinfo_data[ARRAY_SIZE(salinfo_log_name)];
 static DEFINE_SPINLOCK(data_lock);
 static DEFINE_SPINLOCK(data_saved_lock);
 
+/** salinfo_platform_oemdata - optional callback to decode oemdata from an error
+ * record.
+ * @sect_header: pointer to the start of the section to decode.
+ * @oemdata: returns vmalloc area containing the decoded output.
+ * @oemdata_size: returns length of decoded output (strlen).
+ *
+ * Description: If user space asks for oem data to be decoded by the kernel
+ * and/or prom and the platform has set salinfo_platform_oemdata to the address
+ * of a platform specific routine then call that routine.  salinfo_platform_oemdata
+ * vmalloc's and formats its output area, returning the address of the text
+ * and its strlen.  Returns 0 for success, -ve for error.  The callback is
+ * invoked on the cpu that generated the error record.
+ */
 int (*salinfo_platform_oemdata)(const u8 *sect_header, u8 **oemdata, u64 *oemdata_size);
 
 struct salinfo_platform_oemdata_parms {
@@ -126,6 +181,14 @@ struct salinfo_platform_oemdata_parms {
 	int ret;
 };
 
+/* Kick the mutex that tells user space that there is work to do.  Instead of
+ * trying to track the state of the mutex across multiple cpus, in user
+ * context, interrupt context, non-maskable interrupt context and hotplug cpu,
+ * it is far easier just to grab the mutex if it is free then release it.
+ *
+ * This routine must be called with data_saved_lock held, to make the down/up
+ * operation atomic.
+ */
 static void
 salinfo_work_to_do(struct salinfo_data *data)
 {
@@ -149,6 +212,17 @@ shift1_data_saved (struct salinfo_data *data, int shift)
 	       sizeof(data->data_saved[0]));
 }
 
+/* This routine is invoked in interrupt context.  Note: mca.c enables
+ * interrupts before calling this code for CMC/CPE.  MCA and INIT events are
+ * not irq safe, do not call any routines that use spinlocks, they may deadlock.
+ * MCA and INIT records are recorded, a timer event will look for any
+ * outstanding events and wake up the user space code.
+ *
+ * The buffer passed from mca.c points to the output from ia64_log_get. This is
+ * a persistent buffer but its contents can change between the interrupt and
+ * when user space processes the record.  Save the record id to identify
+ * changes.  If the buffer is NULL then just update the bitmap.
+ */
 void
 salinfo_log_wakeup(int type, u8 *buffer, u64 size, int irqsafe)
 {
@@ -188,6 +262,7 @@ salinfo_log_wakeup(int type, u8 *buffer, u64 size, int irqsafe)
 	}
 }
 
+/* Check for outstanding MCA/INIT records every minute (arbitrary) */
 #define SALINFO_TIMER_DELAY (60*HZ)
 static struct timer_list salinfo_timer;
 extern void ia64_mlogbuf_dump(void);
@@ -260,7 +335,7 @@ retry:
 
 	ia64_mlogbuf_dump();
 
-	
+	/* for next read, start checking at next CPU */
 	data->cpu_check = cpu;
 	if (++data->cpu_check == nr_cpu_ids)
 		data->cpu_check = 0;
@@ -342,7 +417,7 @@ salinfo_log_read_cpu(void *context)
 	sal_log_record_header_t *rh;
 	data->log_size = ia64_sal_get_state_info(data->type, (u64 *) data->log_buffer);
 	rh = (sal_log_record_header_t *)(data->log_buffer);
-	
+	/* Clear corrected errors as they are read from SAL */
 	if (rh->severity == sal_log_severity_corrected)
 		ia64_sal_clear_state_info(data->type);
 }
@@ -363,12 +438,12 @@ retry:
 			sal_log_record_header_t *rh = (sal_log_record_header_t *)(data_saved->buffer);
 			data->log_size = data_saved->size;
 			memcpy(data->log_buffer, rh, data->log_size);
-			barrier();	
+			barrier();	/* id check must not be moved */
 			if (rh->id == data_saved->id) {
 				data->saved_num = i+1;
 				break;
 			}
-			
+			/* saved record changed by mca.c since interrupt, discard it */
 			shift1_data_saved(data, i);
 			goto retry;
 		}
@@ -432,10 +507,10 @@ salinfo_log_clear(struct salinfo_data *data, int cpu)
 	}
 	spin_unlock_irqrestore(&data_saved_lock, flags);
 	rh = (sal_log_record_header_t *)(data->log_buffer);
-	
+	/* Corrected errors have already been cleared from SAL */
 	if (rh->severity != sal_log_severity_corrected)
 		call_on_cpu(cpu, salinfo_log_clear_cpu, data);
-	
+	/* clearing a record may make a new record visible */
 	salinfo_log_new_read(cpu, data);
 	if (data->state == STATE_LOG_RECORD) {
 		spin_lock_irqsave(&data_saved_lock, flags);
@@ -550,8 +625,8 @@ static struct notifier_block salinfo_cpu_notifier __cpuinitdata =
 static int __init
 salinfo_init(void)
 {
-	struct proc_dir_entry *salinfo_dir; 
-	struct proc_dir_entry **sdir = salinfo_proc_entries; 
+	struct proc_dir_entry *salinfo_dir; /* /proc/sal dir entry */
+	struct proc_dir_entry **sdir = salinfo_proc_entries; /* keeps track of every entry */
 	struct proc_dir_entry *dir, *entry;
 	struct salinfo_data *data;
 	int i, j;
@@ -561,7 +636,7 @@ salinfo_init(void)
 		return 0;
 
 	for (i=0; i < NR_SALINFO_ENTRIES; i++) {
-		
+		/* pass the feature bit in question as misc data */
 		*sdir++ = create_proc_read_entry (salinfo_entries[i].name, 0, salinfo_dir,
 						  salinfo_read, (void *)salinfo_entries[i].feature);
 	}
@@ -586,7 +661,7 @@ salinfo_init(void)
 			continue;
 		*sdir++ = entry;
 
-		
+		/* we missed any events before now */
 		for_each_online_cpu(j)
 			cpu_set(j, data->cpu_event);
 
@@ -605,6 +680,10 @@ salinfo_init(void)
 	return 0;
 }
 
+/*
+ * 'data' contains an integer that corresponds to the feature we're
+ * testing
+ */
 static int
 salinfo_read(char *page, char **start, off_t off, int count, int *eof, void *data)
 {

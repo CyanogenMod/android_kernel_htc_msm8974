@@ -22,7 +22,7 @@ static struct usbip_imported_device *imported_device_init(struct usbip_imported_
 	read_usb_device(sudev, &idev->udev);
 	sysfs_close_device(sudev);
 
-	
+	/* add class devices of this imported device */
 	struct usbip_class_device *cdev;
 	dlist_for_each_data(vhci_driver->cdev_list, cdev,
 			    struct usbip_class_device) {
@@ -30,7 +30,7 @@ static struct usbip_imported_device *imported_device_init(struct usbip_imported_
 			     strlen(idev->udev.path))) {
 			struct usbip_class_device *new_cdev;
 
-			
+			/* alloc and copy because dlist is linked from only one list */
 			new_cdev = calloc(1, sizeof(*new_cdev));
 			if (!new_cdev)
 				goto err;
@@ -58,7 +58,7 @@ static int parse_status(char *value)
 		memset(&vhci_driver->idev[i], 0, sizeof(vhci_driver->idev[i]));
 
 
-	
+	/* skip a header line */
 	c = strchr(value, '\n') + 1;
 
 	while (*c != '\0') {
@@ -80,7 +80,7 @@ static int parse_status(char *value)
 		dbg("socket %lx lbusid %s", socket, lbusid);
 
 
-		
+		/* if a device is connected, look at it */
 		{
 			struct usbip_imported_device *idev = &vhci_driver->idev[port];
 
@@ -108,7 +108,7 @@ static int parse_status(char *value)
 		}
 
 
-		
+		/* go to the next line */
 		c = strchr(c, '\n') + 1;
 	}
 
@@ -120,8 +120,8 @@ static int parse_status(char *value)
 
 static int check_usbip_device(struct sysfs_class_device *cdev)
 {
-	char class_path[SYSFS_PATH_MAX]; 
-	char dev_path[SYSFS_PATH_MAX];	 
+	char class_path[SYSFS_PATH_MAX]; /* /sys/class/video4linux/video0/device */
+	char dev_path[SYSFS_PATH_MAX];	 /* /sys/devices/platform/vhci_hcd/usb6/6-1:1.1 */
 	int ret;
 	struct usbip_class_device *usbip_cdev;
 
@@ -131,7 +131,7 @@ static int check_usbip_device(struct sysfs_class_device *cdev)
 	if (ret == 0) {
 		if (!strncmp(dev_path, vhci_driver->hc_device->path,
 			     strlen(vhci_driver->hc_device->path))) {
-			
+			/* found usbip device */
 			usbip_cdev = calloc(1, sizeof(*usbip_cdev));
 			if (!usbip_cdev) {
 				dbg("calloc failed");
@@ -167,7 +167,7 @@ static int search_class_for_usbip_device(char *cname)
 
 	cdev_list = sysfs_get_class_devices(class);
 	if (!cdev_list)
-		
+		/* nothing */
 		goto out;
 
 	dlist_for_each_data(cdev_list, cdev, struct sysfs_class_device) {
@@ -201,7 +201,7 @@ static int refresh_class_device_list(void)
 	snprintf(class_path, sizeof(class_path), "%s/%s", sysfs_mntpath,
 		 SYSFS_CLASS_NAME);
 
-	
+	/* search under /sys/class */
 	cname_list = sysfs_open_directory_list(class_path);
 	if (!cname_list) {
 		dbg("sysfs_open_directory failed");
@@ -218,7 +218,7 @@ static int refresh_class_device_list(void)
 
 	sysfs_close_list(cname_list);
 
-	
+	/* seach under /sys/block */
 	ret = search_class_for_usbip_device(SYSFS_BLOCK_NAME);
 	if (ret < 0)
 		return -1;
@@ -263,11 +263,11 @@ static int get_nports(void)
 	    attr_status->name, attr_status->path, attr_status->len,
 	    attr_status->method, attr_status->value);
 
-	
+	/* skip a header line */
 	c = strchr(attr_status->value, '\n') + 1;
 
 	while (*c != '\0') {
-		
+		/* go to the next line */
 		c = strchr(c, '\n') + 1;
 		nports += 1;
 	}
@@ -303,7 +303,7 @@ static int get_hc_busid(char *sysfs_mntpath, char *hc_busid)
 		goto err;
 	}
 
-	
+	/* assume only one vhci_hcd */
 	dlist_for_each_data(hc_devs, hc_dev, struct sysfs_device) {
 		strncpy(hc_busid, hc_dev->bus_id, SYSFS_BUS_ID_SIZE);
 		found = 1;
@@ -320,6 +320,7 @@ err:
 }
 
 
+/* ---------------------------------------------------------------------- */
 
 int usbip_vhci_driver_open(void)
 {
@@ -342,7 +343,7 @@ int usbip_vhci_driver_open(void)
 	if (ret < 0)
 		goto err;
 
-	
+	/* will be freed in usbip_driver_close() */
 	vhci_driver->hc_device = sysfs_open_device(USBIP_VHCI_BUS_TYPE,
 						   hc_busid);
 	if (!vhci_driver->hc_device) {
@@ -451,7 +452,7 @@ int usbip_vhci_get_free_port(void)
 int usbip_vhci_attach_device2(uint8_t port, int sockfd, uint32_t devid,
 		uint32_t speed) {
 	struct sysfs_attribute *attr_attach;
-	char buff[200]; 
+	char buff[200]; /* what size should be ? */
 	int ret;
 
 	attr_attach = sysfs_get_device_attr(vhci_driver->hc_device, "attach");
@@ -481,6 +482,7 @@ static unsigned long get_devid(uint8_t busnum, uint8_t devnum)
 	return (busnum << 16) | devnum;
 }
 
+/* will be removed */
 int usbip_vhci_attach_device(uint8_t port, int sockfd, uint8_t busnum,
 		uint8_t devnum, uint32_t speed)
 {
@@ -492,7 +494,7 @@ int usbip_vhci_attach_device(uint8_t port, int sockfd, uint8_t busnum,
 int usbip_vhci_detach_device(uint8_t port)
 {
 	struct sysfs_attribute  *attr_detach;
-	char buff[200]; 
+	char buff[200]; /* what size should be ? */
 	int ret;
 
 	attr_detach = sysfs_get_device_attr(vhci_driver->hc_device, "detach");

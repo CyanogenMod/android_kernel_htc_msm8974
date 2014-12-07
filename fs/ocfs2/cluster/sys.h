@@ -30,4 +30,4 @@
 void o2cb_sys_shutdown(void);
 int o2cb_sys_init(void);
 
-#endif 
+#endif /* O2CLUSTER_SYS_H */

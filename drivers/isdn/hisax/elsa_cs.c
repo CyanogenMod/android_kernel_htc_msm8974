@@ -55,9 +55,11 @@ MODULE_AUTHOR("Klaus Lichtenwalder");
 MODULE_LICENSE("Dual MPL/GPL");
 
 
+/*====================================================================*/
 
+/* Parameters that can be set with 'insmod' */
 
-static int protocol = 2;        
+static int protocol = 2;        /* EURO-ISDN Default */
 module_param(protocol, int, 0);
 
 static int elsa_cs_config(struct pcmcia_device *link) __devinit;
@@ -76,7 +78,7 @@ static int __devinit elsa_cs_probe(struct pcmcia_device *link)
 
 	dev_dbg(&link->dev, "elsa_cs_attach()\n");
 
-	
+	/* Allocate space for private device-specific data */
 	local = kzalloc(sizeof(local_info_t), GFP_KERNEL);
 	if (!local) return -ENOMEM;
 
@@ -86,7 +88,7 @@ static int __devinit elsa_cs_probe(struct pcmcia_device *link)
 	local->cardnr = -1;
 
 	return elsa_cs_config(link);
-} 
+} /* elsa_cs_attach */
 
 static void __devexit elsa_cs_detach(struct pcmcia_device *link)
 {
@@ -98,7 +100,7 @@ static void __devexit elsa_cs_detach(struct pcmcia_device *link)
 	elsa_cs_release(link);
 
 	kfree(info);
-} 
+} /* elsa_cs_detach */
 
 static int elsa_cs_configcheck(struct pcmcia_device *p_dev, void *priv_data)
 {
@@ -161,7 +163,7 @@ static int __devinit elsa_cs_config(struct pcmcia_device *link)
 failed:
 	elsa_cs_release(link);
 	return -ENODEV;
-} 
+} /* elsa_cs_config */
 
 static void elsa_cs_release(struct pcmcia_device *link)
 {
@@ -171,13 +173,13 @@ static void elsa_cs_release(struct pcmcia_device *link)
 
 	if (local) {
 		if (local->cardnr >= 0) {
-			
+			/* no unregister function with hisax */
 			HiSax_closecard(local->cardnr);
 		}
 	}
 
 	pcmcia_disable_device(link);
-} 
+} /* elsa_cs_release */
 
 static int elsa_suspend(struct pcmcia_device *link)
 {

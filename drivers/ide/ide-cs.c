@@ -49,12 +49,15 @@
 
 #define DRV_NAME "ide-cs"
 
+/*====================================================================*/
 
+/* Module parameters */
 
 MODULE_AUTHOR("David Hinds <dahinds@users.sourceforge.net>");
 MODULE_DESCRIPTION("PCMCIA ATA/IDE card driver");
 MODULE_LICENSE("Dual MPL/GPL");
 
+/*====================================================================*/
 
 typedef struct ide_info_t {
 	struct pcmcia_device	*p_dev;
@@ -73,7 +76,7 @@ static int ide_probe(struct pcmcia_device *link)
 
     dev_dbg(&link->dev, "ide_attach()\n");
 
-    
+    /* Create new ide device */
     info = kzalloc(sizeof(*info), GFP_KERNEL);
     if (!info)
 	return -ENOMEM;
@@ -85,7 +88,7 @@ static int ide_probe(struct pcmcia_device *link)
 	    CONF_AUTO_SET_VPP | CONF_AUTO_CHECK_VCC;
 
     return ide_config(link);
-} 
+} /* ide_attach */
 
 static void ide_detach(struct pcmcia_device *link)
 {
@@ -96,7 +99,7 @@ static void ide_detach(struct pcmcia_device *link)
     ide_release(link);
 
     kfree(info);
-} 
+} /* ide_detach */
 
 static const struct ide_port_ops idecs_port_ops = {
 	.quirkproc		= ide_undecoded_slave,
@@ -144,7 +147,7 @@ static struct ide_host *idecs_register(unsigned long io, unsigned long ctl,
     if (hwif->present)
 	return host;
 
-    
+    /* retry registration in case device is still spinning up */
     for (i = 0; i < 10; i++) {
 	msleep(100);
 	ide_port_scan(hwif);
@@ -198,7 +201,7 @@ static int ide_config(struct pcmcia_device *link)
     if (pcmcia_loop_config(link, pcmcia_check_one_config, &is_kme)) {
 	    link->config_flags &= ~CONF_AUTO_CHECK_VCC;
 	    if (pcmcia_loop_config(link, pcmcia_check_one_config, &is_kme))
-		    goto failed; 
+		    goto failed; /* No suitable config found */
     }
     io_base = link->resource[0]->start;
     if (link->resource[1]->end)
@@ -213,10 +216,10 @@ static int ide_config(struct pcmcia_device *link)
     if (ret)
 	    goto failed;
 
-    
+    /* disable drive interrupts during IDE probe */
     outb(0x02, ctl_base);
 
-    
+    /* special setup for KXLC005 card */
     if (is_kme)
 	outb(0x81, ctl_base+1);
 
@@ -241,7 +244,7 @@ static int ide_config(struct pcmcia_device *link)
 failed:
     ide_release(link);
     return -ENODEV;
-} 
+} /* ide_config */
 
 static void ide_release(struct pcmcia_device *link)
 {
@@ -265,27 +268,27 @@ static void ide_release(struct pcmcia_device *link)
     }
 
     pcmcia_disable_device(link);
-} 
+} /* ide_release */
 
 
 static const struct pcmcia_device_id ide_ids[] = {
 	PCMCIA_DEVICE_FUNC_ID(4),
-	PCMCIA_DEVICE_MANF_CARD(0x0000, 0x0000),	
-	PCMCIA_DEVICE_MANF_CARD(0x0007, 0x0000),	
-	PCMCIA_DEVICE_MANF_CARD(0x000a, 0x0000),	
-	PCMCIA_DEVICE_MANF_CARD(0x001c, 0x0001),	
+	PCMCIA_DEVICE_MANF_CARD(0x0000, 0x0000),	/* Corsair */
+	PCMCIA_DEVICE_MANF_CARD(0x0007, 0x0000),	/* Hitachi */
+	PCMCIA_DEVICE_MANF_CARD(0x000a, 0x0000),	/* I-O Data CFA */
+	PCMCIA_DEVICE_MANF_CARD(0x001c, 0x0001),	/* Mitsubishi CFA */
 	PCMCIA_DEVICE_MANF_CARD(0x0032, 0x0704),
 	PCMCIA_DEVICE_MANF_CARD(0x0032, 0x2904),
-	PCMCIA_DEVICE_MANF_CARD(0x0045, 0x0401),	
-	PCMCIA_DEVICE_MANF_CARD(0x004f, 0x0000),	
-	PCMCIA_DEVICE_MANF_CARD(0x0097, 0x1620), 	
-	PCMCIA_DEVICE_MANF_CARD(0x0098, 0x0000),	
+	PCMCIA_DEVICE_MANF_CARD(0x0045, 0x0401),	/* SanDisk CFA */
+	PCMCIA_DEVICE_MANF_CARD(0x004f, 0x0000),	/* Kingston */
+	PCMCIA_DEVICE_MANF_CARD(0x0097, 0x1620), 	/* TI emulated */
+	PCMCIA_DEVICE_MANF_CARD(0x0098, 0x0000),	/* Toshiba */
 	PCMCIA_DEVICE_MANF_CARD(0x00a4, 0x002d),
-	PCMCIA_DEVICE_MANF_CARD(0x00ce, 0x0000),	
-	PCMCIA_DEVICE_MANF_CARD(0x0319, 0x0000),	
+	PCMCIA_DEVICE_MANF_CARD(0x00ce, 0x0000),	/* Samsung */
+	PCMCIA_DEVICE_MANF_CARD(0x0319, 0x0000),	/* Hitachi */
 	PCMCIA_DEVICE_MANF_CARD(0x2080, 0x0001),
-	PCMCIA_DEVICE_MANF_CARD(0x4e01, 0x0100),	
-	PCMCIA_DEVICE_MANF_CARD(0x4e01, 0x0200),	
+	PCMCIA_DEVICE_MANF_CARD(0x4e01, 0x0100),	/* Viking CFA */
+	PCMCIA_DEVICE_MANF_CARD(0x4e01, 0x0200),	/* Lexar, Viking CFA */
 	PCMCIA_DEVICE_PROD_ID123("Caravelle", "PSC-IDE ", "PSC000", 0x8c36137c, 0xd0693ab8, 0x2768a9f0),
 	PCMCIA_DEVICE_PROD_ID123("CDROM", "IDE", "MCD-601p", 0x1b9179ca, 0xede88951, 0x0d902f74),
 	PCMCIA_DEVICE_PROD_ID123("PCMCIA", "IDE CARD", "F1", 0x281f1c5d, 0x1907960c, 0xf7fde8b9),

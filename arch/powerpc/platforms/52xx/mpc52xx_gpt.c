@@ -75,8 +75,19 @@ MODULE_DESCRIPTION("Freescale MPC52xx gpt driver");
 MODULE_AUTHOR("Sascha Hauer, Grant Likely, Albrecht Dreß");
 MODULE_LICENSE("GPL");
 
+/**
+ * struct mpc52xx_gpt - Private data structure for MPC52xx GPT driver
+ * @dev: pointer to device structure
+ * @regs: virtual address of GPT registers
+ * @lock: spinlock to coordinate between different functions.
+ * @gc: gpio_chip instance structure; used when GPIO is enabled
+ * @irqhost: Pointer to irq_domain instance; used when IRQ mode is supported
+ * @wdt_mode: only relevant for gpt0: bit 0 (MPC52xx_GPT_CAN_WDT) indicates
+ *   if the gpt may be used as wdt, bit 1 (MPC52xx_GPT_IS_WDT) indicates
+ *   if the timer is actively used as wdt which blocks gpt functions
+ */
 struct mpc52xx_gpt_priv {
-	struct list_head list;		
+	struct list_head list;		/* List of all GPT devices */
 	struct device *dev;
 	struct mpc52xx_gpt __iomem *regs;
 	spinlock_t lock;
@@ -121,6 +132,9 @@ DEFINE_MUTEX(mpc52xx_gpt_list_mutex);
 #define MPC52xx_GPT_IS_WDT		(1 << 1)
 
 
+/* ---------------------------------------------------------------------
+ * Cascaded interrupt controller hooks
+ */
 
 static void mpc52xx_gpt_irq_unmask(struct irq_data *d)
 {
@@ -216,7 +230,7 @@ static int mpc52xx_gpt_irq_xlate(struct irq_domain *h, struct device_node *ct,
 		return -EINVAL;
 	}
 
-	*out_hwirq = 0; 
+	*out_hwirq = 0; /* The GPT only has 1 IRQ line */
 	*out_flags = intspec[0];
 
 	return 0;
@@ -247,6 +261,9 @@ mpc52xx_gpt_irq_setup(struct mpc52xx_gpt_priv *gpt, struct device_node *node)
 	irq_set_handler_data(cascade_virq, gpt);
 	irq_set_chained_handler(cascade_virq, mpc52xx_gpt_irq_cascade);
 
+	/* If the GPT is currently disabled, then change it to be in Input
+	 * Capture mode.  If the mode is non-zero, then the pin could be
+	 * already in use for something. */
 	spin_lock_irqsave(&gpt->lock, flags);
 	mode = in_be32(&gpt->regs->mode);
 	if ((mode & MPC52xx_GPT_MODE_MS_MASK) == 0)
@@ -257,6 +274,9 @@ mpc52xx_gpt_irq_setup(struct mpc52xx_gpt_priv *gpt, struct device_node *node)
 }
 
 
+/* ---------------------------------------------------------------------
+ * GPIOLIB hooks
+ */
 #if defined(CONFIG_GPIOLIB)
 static inline struct mpc52xx_gpt_priv *gc_to_mpc52xx_gpt(struct gpio_chip *gc)
 {
@@ -311,6 +331,8 @@ mpc52xx_gpt_gpio_setup(struct mpc52xx_gpt_priv *gpt, struct device_node *node)
 {
 	int rc;
 
+	/* Only setup GPIO if the device tree claims the GPT is
+	 * a GPIO controller */
 	if (!of_find_property(node, "gpio-controller", NULL))
 		return;
 
@@ -328,7 +350,7 @@ mpc52xx_gpt_gpio_setup(struct mpc52xx_gpt_priv *gpt, struct device_node *node)
 	gpt->gc.base = -1;
 	gpt->gc.of_node = node;
 
-	
+	/* Setup external pin in GPIO mode */
 	clrsetbits_be32(&gpt->regs->mode, MPC52xx_GPT_MODE_MS_MASK,
 			MPC52xx_GPT_MODE_MS_GPIO);
 
@@ -338,18 +360,25 @@ mpc52xx_gpt_gpio_setup(struct mpc52xx_gpt_priv *gpt, struct device_node *node)
 
 	dev_dbg(gpt->dev, "%s() complete.\n", __func__);
 }
-#else 
+#else /* defined(CONFIG_GPIOLIB) */
 static void
 mpc52xx_gpt_gpio_setup(struct mpc52xx_gpt_priv *p, struct device_node *np) { }
-#endif 
+#endif /* defined(CONFIG_GPIOLIB) */
 
+/***********************************************************************
+ * Timer API
+ */
 
+/**
+ * mpc52xx_gpt_from_irq - Return the GPT device associated with an IRQ number
+ * @irq: irq of timer.
+ */
 struct mpc52xx_gpt_priv *mpc52xx_gpt_from_irq(int irq)
 {
 	struct mpc52xx_gpt_priv *gpt;
 	struct list_head *pos;
 
-	
+	/* Iterate over the list of timers looking for a matching device */
 	mutex_lock(&mpc52xx_gpt_list_mutex);
 	list_for_each(pos, &mpc52xx_gpt_list) {
 		gpt = container_of(pos, struct mpc52xx_gpt_priv, list);
@@ -380,13 +409,29 @@ static int mpc52xx_gpt_do_start(struct mpc52xx_gpt_priv *gpt, u64 period,
 	} else if (continuous)
 		set |= MPC52xx_GPT_MODE_CONTINUOUS;
 
+	/* Determine the number of clocks in the requested period.  64 bit
+	 * arithmatic is done here to preserve the precision until the value
+	 * is scaled back down into the u32 range.  Period is in 'ns', bus
+	 * frequency is in Hz. */
 	clocks = period * (u64)gpt->ipb_freq;
-	do_div(clocks, 1000000000); 
+	do_div(clocks, 1000000000); /* Scale it down to ns range */
 
-	
+	/* This device cannot handle a clock count greater than 32 bits */
 	if (clocks > 0xffffffff)
 		return -EINVAL;
 
+	/* Calculate the prescaler and count values from the clocks value.
+	 * 'clocks' is the number of clock ticks in the period.  The timer
+	 * has 16 bit precision and a 16 bit prescaler.  Prescaler is
+	 * calculated by integer dividing the clocks by 0x10000 (shifting
+	 * down 16 bits) to obtain the smallest possible divisor for clocks
+	 * to get a 16 bit count value.
+	 *
+	 * Note: the prescale register is '1' based, not '0' based.  ie. a
+	 * value of '1' means divide the clock by one.  0xffff divides the
+	 * clock by 0xffff.  '0x0000' does not divide by zero, but wraps
+	 * around and divides by 0x10000.  That is why prescale must be
+	 * a u32 variable, not a u16, for this calculation. */
 	prescale = (clocks >> 16) + 1;
 	do_div(clocks, prescale);
 	if (clocks > 0xffff) {
@@ -395,7 +440,7 @@ static int mpc52xx_gpt_do_start(struct mpc52xx_gpt_priv *gpt, u64 period,
 		return -EINVAL;
 	}
 
-	
+	/* Set and enable the timer, reject an attempt to use a wdt as gpt */
 	spin_lock_irqsave(&gpt->lock, flags);
 	if (as_wdt)
 		gpt->wdt_mode |= MPC52xx_GPT_IS_WDT;
@@ -410,6 +455,14 @@ static int mpc52xx_gpt_do_start(struct mpc52xx_gpt_priv *gpt, u64 period,
 	return 0;
 }
 
+/**
+ * mpc52xx_gpt_start_timer - Set and enable the GPT timer
+ * @gpt: Pointer to gpt private data structure
+ * @period: period of timer in ns; max. ~130s @ 33MHz IPB clock
+ * @continuous: set to 1 to make timer continuous free running
+ *
+ * An interrupt will be generated every time the timer fires
+ */
 int mpc52xx_gpt_start_timer(struct mpc52xx_gpt_priv *gpt, u64 period,
                             int continuous)
 {
@@ -417,11 +470,17 @@ int mpc52xx_gpt_start_timer(struct mpc52xx_gpt_priv *gpt, u64 period,
 }
 EXPORT_SYMBOL(mpc52xx_gpt_start_timer);
 
+/**
+ * mpc52xx_gpt_stop_timer - Stop a gpt
+ * @gpt: Pointer to gpt private data structure
+ *
+ * Returns an error if attempting to stop a wdt
+ */
 int mpc52xx_gpt_stop_timer(struct mpc52xx_gpt_priv *gpt)
 {
 	unsigned long flags;
 
-	
+	/* reject the operation if the timer is used as watchdog (gpt 0 only) */
 	spin_lock_irqsave(&gpt->lock, flags);
 	if ((gpt->wdt_mode & MPC52xx_GPT_IS_WDT) != 0) {
 		spin_unlock_irqrestore(&gpt->lock, flags);
@@ -434,6 +493,12 @@ int mpc52xx_gpt_stop_timer(struct mpc52xx_gpt_priv *gpt)
 }
 EXPORT_SYMBOL(mpc52xx_gpt_stop_timer);
 
+/**
+ * mpc52xx_gpt_timer_period - Read the timer period
+ * @gpt: Pointer to gpt private data structure
+ *
+ * Returns the timer period in ns
+ */
 u64 mpc52xx_gpt_timer_period(struct mpc52xx_gpt_priv *gpt)
 {
 	u64 period;
@@ -455,13 +520,19 @@ u64 mpc52xx_gpt_timer_period(struct mpc52xx_gpt_priv *gpt)
 EXPORT_SYMBOL(mpc52xx_gpt_timer_period);
 
 #if defined(CONFIG_MPC5200_WDT)
+/***********************************************************************
+ * Watchdog API for gpt0
+ */
 
 #define WDT_IDENTITY	    "mpc52xx watchdog on GPT0"
 
+/* wdt_is_active stores wether or not the /dev/watchdog device is opened */
 static unsigned long wdt_is_active;
 
+/* wdt-capable gpt */
 static struct mpc52xx_gpt_priv *mpc52xx_gpt_wdt;
 
+/* low-level wdt functions */
 static inline void mpc52xx_gpt_wdt_ping(struct mpc52xx_gpt_priv *gpt_wdt)
 {
 	unsigned long flags;
@@ -471,6 +542,7 @@ static inline void mpc52xx_gpt_wdt_ping(struct mpc52xx_gpt_priv *gpt_wdt)
 	spin_unlock_irqrestore(&gpt_wdt->lock, flags);
 }
 
+/* wdt misc device api */
 static ssize_t mpc52xx_wdt_write(struct file *file, const char __user *data,
 				 size_t len, loff_t *ppos)
 {
@@ -518,9 +590,15 @@ static long mpc52xx_wdt_ioctl(struct file *file, unsigned int cmd,
 		ret = mpc52xx_gpt_do_start(gpt_wdt, real_timeout, 0, 1);
 		if (ret)
 			break;
-		
+		/* fall through and return the timeout */
 
 	case WDIOC_GETTIMEOUT:
+		/* we need to round here as to avoid e.g. the following
+		 * situation:
+		 * - timeout requested is 1 second;
+		 * - real timeout @33MHz is 999997090ns
+		 * - the int divide by 10^9 will return 0.
+		 */
 		real_timeout =
 			mpc52xx_gpt_timer_period(gpt_wdt) + 500000000ULL;
 		do_div(real_timeout, 1000000000ULL);
@@ -538,15 +616,15 @@ static int mpc52xx_wdt_open(struct inode *inode, struct file *file)
 {
 	int ret;
 
-	
+	/* sanity check */
 	if (!mpc52xx_gpt_wdt)
 		return -ENODEV;
 
-	
+	/* /dev/watchdog can only be opened once */
 	if (test_and_set_bit(0, &wdt_is_active))
 		return -EBUSY;
 
-	
+	/* Set and activate the watchdog with 30 seconds timeout */
 	ret = mpc52xx_gpt_do_start(mpc52xx_gpt_wdt, 30ULL * 1000000000ULL,
 				   0, 1);
 	if (ret) {
@@ -560,7 +638,7 @@ static int mpc52xx_wdt_open(struct inode *inode, struct file *file)
 
 static int mpc52xx_wdt_release(struct inode *inode, struct file *file)
 {
-	
+	/* note: releasing the wdt in NOWAYOUT-mode does not stop it */
 #if !defined(CONFIG_WATCHDOG_NOWAYOUT)
 	struct mpc52xx_gpt_priv *gpt_wdt = file->private_data;
 	unsigned long flags;
@@ -595,7 +673,7 @@ static int __devinit mpc52xx_gpt_wdt_init(void)
 {
 	int err;
 
-	
+	/* try to register the watchdog misc device */
 	err = misc_register(&mpc52xx_wdt_miscdev);
 	if (err)
 		pr_err("%s: cannot register watchdog device\n", WDT_IDENTITY);
@@ -609,10 +687,10 @@ static int mpc52xx_gpt_wdt_setup(struct mpc52xx_gpt_priv *gpt,
 {
 	u64 real_timeout;
 
-	
+	/* remember the gpt for the wdt operation */
 	mpc52xx_gpt_wdt = gpt;
 
-	
+	/* configure the wdt if the device tree contained a timeout */
 	if (!period || *period == 0)
 		return 0;
 
@@ -637,8 +715,11 @@ static inline int mpc52xx_gpt_wdt_setup(struct mpc52xx_gpt_priv *gpt,
 	return 0;
 }
 
-#endif	
+#endif	/*  CONFIG_MPC5200_WDT	*/
 
+/* ---------------------------------------------------------------------
+ * of_platform bus binding code
+ */
 static int __devinit mpc52xx_gpt_probe(struct platform_device *ofdev)
 {
 	struct mpc52xx_gpt_priv *gpt;
@@ -665,7 +746,7 @@ static int __devinit mpc52xx_gpt_probe(struct platform_device *ofdev)
 	list_add(&gpt->list, &mpc52xx_gpt_list);
 	mutex_unlock(&mpc52xx_gpt_list_mutex);
 
-	
+	/* check if this device could be a watchdog */
 	if (of_get_property(ofdev->dev.of_node, "fsl,has-wdt", NULL) ||
 	    of_get_property(ofdev->dev.of_node, "has-wdt", NULL)) {
 		const u32 *on_boot_wdt;
@@ -692,7 +773,7 @@ static int mpc52xx_gpt_remove(struct platform_device *ofdev)
 static const struct of_device_id mpc52xx_gpt_match[] = {
 	{ .compatible = "fsl,mpc5200-gpt", },
 
-	
+	/* Depreciated compatible values; don't use for new dts files */
 	{ .compatible = "fsl,mpc5200-gpt-gpio", },
 	{ .compatible = "mpc5200-gpt", },
 	{}
@@ -713,5 +794,6 @@ static int __init mpc52xx_gpt_init(void)
 	return platform_driver_register(&mpc52xx_gpt_driver);
 }
 
+/* Make sure GPIOs and IRQs get set up before anyone tries to use them */
 subsys_initcall(mpc52xx_gpt_init);
 device_initcall(mpc52xx_gpt_wdt_init);

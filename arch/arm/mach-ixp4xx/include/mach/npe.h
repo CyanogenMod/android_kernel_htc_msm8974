@@ -11,7 +11,7 @@ struct npe_regs {
 	u32 watchpoint_fifo, watch_count;
 	u32 profile_count;
 	u32 messaging_status, messaging_control;
-	u32 mailbox_status,  in_out_fifo;
+	u32 mailbox_status, /*messaging_*/ in_out_fifo;
 };
 
 struct npe {
@@ -36,4 +36,4 @@ int npe_load_firmware(struct npe *npe, const char *name, struct device *dev);
 struct npe *npe_request(unsigned id);
 void npe_release(struct npe *npe);
 
-#endif 
+#endif /* __IXP4XX_NPE_H */

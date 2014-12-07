@@ -43,8 +43,19 @@ DEFINE_PER_CPU(struct cpu_hw_events, cpu_hw_events);
 
 struct power_pmu *ppmu;
 
+/*
+ * Normally, to ignore kernel events we set the FCS (freeze counters
+ * in supervisor mode) bit in MMCR0, but if the kernel runs with the
+ * hypervisor bit set in the MSR, or if we are running on a processor
+ * where the hypervisor bit is forced to 1 (as on Apple G5 processors),
+ * then we need to use the FCHV bit to ignore kernel events.
+ */
 static unsigned int freeze_events_kernel = MMCR0_FCS;
 
+/*
+ * 32-bit doesn't have MMCRA but does have an MMCR2,
+ * and a few other names are different.
+ */
 #ifdef CONFIG_PPC32
 
 #define MMCR0_FCHV		0
@@ -68,8 +79,11 @@ static inline int perf_intr_is_nmi(struct pt_regs *regs)
 	return 0;
 }
 
-#endif 
+#endif /* CONFIG_PPC32 */
 
+/*
+ * Things that are specific to 64-bit implementations.
+ */
 #ifdef CONFIG_PPC64
 
 static inline unsigned long perf_ip_adjust(struct pt_regs *regs)
@@ -84,6 +98,14 @@ static inline unsigned long perf_ip_adjust(struct pt_regs *regs)
 	return 0;
 }
 
+/*
+ * The user wants a data address recorded.
+ * If we're not doing instruction sampling, give them the SDAR
+ * (sampled data address).  If we are doing instruction sampling, then
+ * only give them the SDAR if it corresponds to the instruction
+ * pointed to by SIAR; this is indicated by the [POWER6_]MMCRA_SDSYNC
+ * bit in MMCRA.
+ */
 static inline void perf_get_data_addr(struct pt_regs *regs, u64 *addrp)
 {
 	unsigned long mmcra = regs->dsisr;
@@ -109,14 +131,24 @@ static inline u32 perf_get_misc_flags(struct pt_regs *regs)
 	unsigned long sihv = MMCRA_SIHV;
 	unsigned long sipr = MMCRA_SIPR;
 
-	
+	/* Not a PMU interrupt: Make up flags from regs->msr */
 	if (TRAP(regs) != 0xf00)
 		return perf_flags_from_msr(regs);
 
+	/*
+	 * If we don't support continuous sampling and this
+	 * is not a marked event, same deal
+	 */
 	if ((ppmu->flags & PPMU_NO_CONT_SAMPLING) &&
 	    !(mmcra & MMCRA_SAMPLE_ENABLE))
 		return perf_flags_from_msr(regs);
 
+	/*
+	 * If we don't have flags in MMCRA, rather than using
+	 * the MSR, we intuit the flags from the address in
+	 * SIAR which should give slightly more reliable
+	 * results
+	 */
 	if (ppmu->flags & PPMU_NO_SIPR) {
 		unsigned long siar = mfspr(SPRN_SIAR);
 		if (siar >= PAGE_OFFSET)
@@ -129,7 +161,7 @@ static inline u32 perf_get_misc_flags(struct pt_regs *regs)
 		sipr = POWER6_MMCRA_SIPR;
 	}
 
-	
+	/* PR has priority over HV, so order below is important */
 	if (mmcra & sipr)
 		return PERF_RECORD_MISC_USER;
 	if ((mmcra & sihv) && (freeze_events_kernel != MMCR0_FCHV))
@@ -137,17 +169,25 @@ static inline u32 perf_get_misc_flags(struct pt_regs *regs)
 	return PERF_RECORD_MISC_KERNEL;
 }
 
+/*
+ * Overload regs->dsisr to store MMCRA so we only need to read it once
+ * on each interrupt.
+ */
 static inline void perf_read_regs(struct pt_regs *regs)
 {
 	regs->dsisr = mfspr(SPRN_MMCRA);
 }
 
+/*
+ * If interrupts were soft-disabled when a PMU interrupt occurs, treat
+ * it as an NMI.
+ */
 static inline int perf_intr_is_nmi(struct pt_regs *regs)
 {
 	return !regs->softe;
 }
 
-#endif 
+#endif /* CONFIG_PPC64 */
 
 static void perf_event_interrupt(struct pt_regs *regs);
 
@@ -155,6 +195,9 @@ void perf_event_print_debug(void)
 {
 }
 
+/*
+ * Read one performance monitor counter (PMC).
+ */
 static unsigned long read_pmc(int idx)
 {
 	unsigned long val;
@@ -185,7 +228,7 @@ static unsigned long read_pmc(int idx)
 	case 8:
 		val = mfspr(SPRN_PMC8);
 		break;
-#endif 
+#endif /* CONFIG_PPC64 */
 	default:
 		printk(KERN_ERR "oops trying to read PMC%d\n", idx);
 		val = 0;
@@ -193,6 +236,9 @@ static unsigned long read_pmc(int idx)
 	return val;
 }
 
+/*
+ * Write one PMC.
+ */
 static void write_pmc(int idx, unsigned long val)
 {
 	switch (idx) {
@@ -221,12 +267,18 @@ static void write_pmc(int idx, unsigned long val)
 	case 8:
 		mtspr(SPRN_PMC8, val);
 		break;
-#endif 
+#endif /* CONFIG_PPC64 */
 	default:
 		printk(KERN_ERR "oops trying to write PMC%d\n", idx);
 	}
 }
 
+/*
+ * Check if a set of events can all go on the PMU at once.
+ * If they can't, this will look at alternative codes for the events
+ * and see if any combination of alternative codes is feasible.
+ * The feasible set is returned in event_id[].
+ */
 static int power_check_constraints(struct cpu_hw_events *cpuhw,
 				   u64 event_id[], unsigned int cflags[],
 				   int n_ev)
@@ -241,7 +293,7 @@ static int power_check_constraints(struct cpu_hw_events *cpuhw,
 	if (n_ev > ppmu->n_counter)
 		return -1;
 
-	
+	/* First see if the events will go on as-is */
 	for (i = 0; i < n_ev; ++i) {
 		if ((cflags[i] & PPMU_LIMITED_PMC_REQD)
 		    && !ppmu->limited_pmc_event(event_id[i])) {
@@ -265,9 +317,9 @@ static int power_check_constraints(struct cpu_hw_events *cpuhw,
 		mask |= cpuhw->amasks[i][0];
 	}
 	if (i == n_ev)
-		return 0;	
+		return 0;	/* all OK */
 
-	
+	/* doesn't work, gather alternatives... */
 	if (!ppmu->get_alternatives)
 		return -1;
 	for (i = 0; i < n_ev; ++i) {
@@ -280,17 +332,21 @@ static int power_check_constraints(struct cpu_hw_events *cpuhw,
 					     &cpuhw->avalues[i][j]);
 	}
 
-	
+	/* enumerate all possibilities and see if any will work */
 	i = 0;
 	j = -1;
 	value = mask = nv = 0;
 	while (i < n_ev) {
 		if (j >= 0) {
-			
+			/* we're backtracking, restore context */
 			value = svalues[i];
 			mask = smasks[i];
 			j = choice[i];
 		}
+		/*
+		 * See if any alternative k for event_id i,
+		 * where k > j, will satisfy the constraints.
+		 */
 		while (++j < n_alt[i]) {
 			nv = (value | cpuhw->avalues[i][j]) +
 				(value & cpuhw->avalues[i][j] & addf);
@@ -300,9 +356,20 @@ static int power_check_constraints(struct cpu_hw_events *cpuhw,
 				break;
 		}
 		if (j >= n_alt[i]) {
+			/*
+			 * No feasible alternative, backtrack
+			 * to event_id i-1 and continue enumerating its
+			 * alternatives from where we got up to.
+			 */
 			if (--i < 0)
 				return -1;
 		} else {
+			/*
+			 * Found a feasible alternative for event_id i,
+			 * remember where we got up to with this event_id,
+			 * go on to the next event_id, and start with
+			 * the first alternative for it.
+			 */
 			choice[i] = j;
 			svalues[i] = value;
 			smasks[i] = mask;
@@ -313,12 +380,17 @@ static int power_check_constraints(struct cpu_hw_events *cpuhw,
 		}
 	}
 
-	
+	/* OK, we have a feasible combination, tell the caller the solution */
 	for (i = 0; i < n_ev; ++i)
 		event_id[i] = cpuhw->alternatives[i][choice[i]];
 	return 0;
 }
 
+/*
+ * Check if newly-added events have consistent settings for
+ * exclude_{user,kernel,hv} with each other and any previously
+ * added events.
+ */
 static int check_excludes(struct perf_event **ctrs, unsigned int cflags[],
 			  int n_prev, int n_new)
 {
@@ -361,6 +433,15 @@ static u64 check_and_compute_delta(u64 prev, u64 val)
 {
 	u64 delta = (val - prev) & 0xfffffffful;
 
+	/*
+	 * POWER7 can roll back counter values, if the new value is smaller
+	 * than the previous value it will cause the delta and the counter to
+	 * have bogus values unless we rolled a counter over.  If a coutner is
+	 * rolled back, it will be smaller, but within 256, which is the maximum
+	 * number of events to rollback at once.  If we dectect a rollback
+	 * return 0.  This can lead to a small lack of precision in the
+	 * counters.
+	 */
 	if (prev > val && (prev - val) < 256)
 		delta = 0;
 
@@ -376,6 +457,11 @@ static void power_pmu_read(struct perf_event *event)
 
 	if (!event->hw.idx)
 		return;
+	/*
+	 * Performance monitor interrupts come even when interrupts
+	 * are soft-disabled, as long as interrupts are hard-enabled.
+	 * Therefore we treat them like NMIs.
+	 */
 	do {
 		prev = local64_read(&event->hw.prev_count);
 		barrier();
@@ -438,6 +524,17 @@ static void thaw_limited_counters(struct cpu_hw_events *cpuhw,
 	}
 }
 
+/*
+ * Since limited events don't respect the freeze conditions, we
+ * have to read them immediately after freezing or unfreezing the
+ * other events.  We try to keep the values from the limited
+ * events as consistent as possible by keeping the delay (in
+ * cycles and instructions) between freezing/unfreezing and reading
+ * the limited events as small and consistent as possible.
+ * Therefore, if any limited events are in use, we read them
+ * both, and always in the same order, to minimize variability,
+ * and do it inside the same asm that writes MMCR0.
+ */
 static void write_mmcr0(struct cpu_hw_events *cpuhw, unsigned long mmcr0)
 {
 	unsigned long pmc5, pmc6;
@@ -447,6 +544,13 @@ static void write_mmcr0(struct cpu_hw_events *cpuhw, unsigned long mmcr0)
 		return;
 	}
 
+	/*
+	 * Write MMCR0, then read PMC5 and PMC6 immediately.
+	 * To ensure we don't get a performance monitor interrupt
+	 * between writing MMCR0 and freezing/thawing the limited
+	 * events, we first write MMCR0 with the event overflow
+	 * interrupt enable bits turned off.
+	 */
 	asm volatile("mtspr %3,%2; mfspr %0,%4; mfspr %1,%5"
 		     : "=&r" (pmc5), "=&r" (pmc6)
 		     : "r" (mmcr0 & ~(MMCR0_PMC1CE | MMCR0_PMCjCE)),
@@ -458,10 +562,18 @@ static void write_mmcr0(struct cpu_hw_events *cpuhw, unsigned long mmcr0)
 	else
 		thaw_limited_counters(cpuhw, pmc5, pmc6);
 
+	/*
+	 * Write the full MMCR0 including the event overflow interrupt
+	 * enable bits, if necessary.
+	 */
 	if (mmcr0 & (MMCR0_PMC1CE | MMCR0_PMCjCE))
 		mtspr(SPRN_MMCR0, mmcr0);
 }
 
+/*
+ * Disable all events to prevent PMU interrupts and to allow
+ * events to be added or removed.
+ */
 static void power_pmu_disable(struct pmu *pmu)
 {
 	struct cpu_hw_events *cpuhw;
@@ -476,23 +588,40 @@ static void power_pmu_disable(struct pmu *pmu)
 		cpuhw->disabled = 1;
 		cpuhw->n_added = 0;
 
+		/*
+		 * Check if we ever enabled the PMU on this cpu.
+		 */
 		if (!cpuhw->pmcs_enabled) {
 			ppc_enable_pmcs();
 			cpuhw->pmcs_enabled = 1;
 		}
 
+		/*
+		 * Disable instruction sampling if it was enabled
+		 */
 		if (cpuhw->mmcr[2] & MMCRA_SAMPLE_ENABLE) {
 			mtspr(SPRN_MMCRA,
 			      cpuhw->mmcr[2] & ~MMCRA_SAMPLE_ENABLE);
 			mb();
 		}
 
+		/*
+		 * Set the 'freeze counters' bit.
+		 * The barrier is to make sure the mtspr has been
+		 * executed and the PMU has frozen the events
+		 * before we return.
+		 */
 		write_mmcr0(cpuhw, mfspr(SPRN_MMCR0) | MMCR0_FC);
 		mb();
 	}
 	local_irq_restore(flags);
 }
 
+/*
+ * Re-enable all events if disable == 0.
+ * If we were previously disabled and events were added, then
+ * put the new config on the PMU.
+ */
 static void power_pmu_enable(struct pmu *pmu)
 {
 	struct perf_event *event;
@@ -515,6 +644,12 @@ static void power_pmu_enable(struct pmu *pmu)
 	}
 	cpuhw->disabled = 0;
 
+	/*
+	 * If we didn't change anything, or only removed events,
+	 * no need to recalculate MMCR* settings and reset the PMCs.
+	 * Just reenable the PMU with the current MMCR* settings
+	 * (possibly updated for removal of events).
+	 */
 	if (!cpuhw->n_added) {
 		mtspr(SPRN_MMCRA, cpuhw->mmcr[2] & ~MMCRA_SAMPLE_ENABLE);
 		mtspr(SPRN_MMCR1, cpuhw->mmcr[1]);
@@ -523,13 +658,22 @@ static void power_pmu_enable(struct pmu *pmu)
 		goto out_enable;
 	}
 
+	/*
+	 * Compute MMCR* values for the new set of events
+	 */
 	if (ppmu->compute_mmcr(cpuhw->events, cpuhw->n_events, hwc_index,
 			       cpuhw->mmcr)) {
-		
+		/* shouldn't ever get here */
 		printk(KERN_ERR "oops compute_mmcr failed\n");
 		goto out;
 	}
 
+	/*
+	 * Add in MMCR0 freeze bits corresponding to the
+	 * attr.exclude_* bits for the first event.
+	 * We have already checked that all events have the
+	 * same values for these bits as the first event.
+	 */
 	event = cpuhw->event[0];
 	if (event->attr.exclude_user)
 		cpuhw->mmcr[0] |= MMCR0_FCP;
@@ -538,12 +682,21 @@ static void power_pmu_enable(struct pmu *pmu)
 	if (event->attr.exclude_hv)
 		cpuhw->mmcr[0] |= MMCR0_FCHV;
 
+	/*
+	 * Write the new configuration to MMCR* with the freeze
+	 * bit set and set the hardware events to their initial values.
+	 * Then unfreeze the events.
+	 */
 	ppc_set_pmu_inuse(1);
 	mtspr(SPRN_MMCRA, cpuhw->mmcr[2] & ~MMCRA_SAMPLE_ENABLE);
 	mtspr(SPRN_MMCR1, cpuhw->mmcr[1]);
 	mtspr(SPRN_MMCR0, (cpuhw->mmcr[0] & ~(MMCR0_PMC1CE | MMCR0_PMCjCE))
 				| MMCR0_FC);
 
+	/*
+	 * Read off any pre-existing events that need to move
+	 * to another PMC.
+	 */
 	for (i = 0; i < cpuhw->n_events; ++i) {
 		event = cpuhw->event[i];
 		if (event->hw.idx && event->hw.idx != hwc_index[i] + 1) {
@@ -553,6 +706,9 @@ static void power_pmu_enable(struct pmu *pmu)
 		}
 	}
 
+	/*
+	 * Initialize the PMCs for all the new and moved events.
+	 */
 	cpuhw->n_limited = n_lim = 0;
 	for (i = 0; i < cpuhw->n_events; ++i) {
 		event = cpuhw->event[i];
@@ -585,6 +741,9 @@ static void power_pmu_enable(struct pmu *pmu)
 	mb();
 	write_mmcr0(cpuhw, cpuhw->mmcr[0]);
 
+	/*
+	 * Enable instruction sampling if necessary
+	 */
 	if (cpuhw->mmcr[2] & MMCRA_SAMPLE_ENABLE) {
 		mb();
 		mtspr(SPRN_MMCRA, cpuhw->mmcr[2]);
@@ -621,6 +780,12 @@ static int collect_events(struct perf_event *group, int max_count,
 	return n;
 }
 
+/*
+ * Add a event to the PMU.
+ * If all events are not already frozen, then we disable and
+ * re-enable the PMU in order to get hw_perf_enable to do the
+ * actual work of reconfiguring the PMU.
+ */
 static int power_pmu_add(struct perf_event *event, int ef_flags)
 {
 	struct cpu_hw_events *cpuhw;
@@ -631,6 +796,10 @@ static int power_pmu_add(struct perf_event *event, int ef_flags)
 	local_irq_save(flags);
 	perf_pmu_disable(event->pmu);
 
+	/*
+	 * Add the event to the list (if there is room)
+	 * and check whether the total set is still feasible.
+	 */
 	cpuhw = &__get_cpu_var(cpu_hw_events);
 	n0 = cpuhw->n_events;
 	if (n0 >= ppmu->n_counter)
@@ -642,6 +811,11 @@ static int power_pmu_add(struct perf_event *event, int ef_flags)
 	if (!(ef_flags & PERF_EF_START))
 		event->hw.state = PERF_HES_STOPPED | PERF_HES_UPTODATE;
 
+	/*
+	 * If group events scheduling transaction was started,
+	 * skip the schedulability test here, it will be performed
+	 * at commit time(->commit_txn) as a whole
+	 */
 	if (cpuhw->group_flag & PERF_EVENT_TXN)
 		goto nocheck;
 
@@ -662,6 +836,9 @@ nocheck:
 	return ret;
 }
 
+/*
+ * Remove a event from the PMU.
+ */
 static void power_pmu_del(struct perf_event *event, int ef_flags)
 {
 	struct cpu_hw_events *cpuhw;
@@ -702,7 +879,7 @@ static void power_pmu_del(struct perf_event *event, int ef_flags)
 		--cpuhw->n_limited;
 	}
 	if (cpuhw->n_events == 0) {
-		
+		/* disable exceptions if no events are running */
 		cpuhw->mmcr[0] &= ~(MMCR0_PMXE | MMCR0_FCECE);
 	}
 
@@ -710,6 +887,10 @@ static void power_pmu_del(struct perf_event *event, int ef_flags)
 	local_irq_restore(flags);
 }
 
+/*
+ * POWER-PMU does not support disabling individual counters, hence
+ * program their cycle counter to their max value and ignore the interrupts.
+ */
 
 static void power_pmu_start(struct perf_event *event, int ef_flags)
 {
@@ -765,6 +946,11 @@ static void power_pmu_stop(struct perf_event *event, int ef_flags)
 	local_irq_restore(flags);
 }
 
+/*
+ * Start group events scheduling transaction
+ * Set the flag to make pmu::enable() not perform the
+ * schedulability test, it will be performed at commit time
+ */
 void power_pmu_start_txn(struct pmu *pmu)
 {
 	struct cpu_hw_events *cpuhw = &__get_cpu_var(cpu_hw_events);
@@ -774,6 +960,11 @@ void power_pmu_start_txn(struct pmu *pmu)
 	cpuhw->n_txn_start = cpuhw->n_events;
 }
 
+/*
+ * Stop group events scheduling transaction
+ * Clear the flag and pmu::enable() will perform the
+ * schedulability test.
+ */
 void power_pmu_cancel_txn(struct pmu *pmu)
 {
 	struct cpu_hw_events *cpuhw = &__get_cpu_var(cpu_hw_events);
@@ -782,6 +973,11 @@ void power_pmu_cancel_txn(struct pmu *pmu)
 	perf_pmu_enable(pmu);
 }
 
+/*
+ * Commit group events scheduling transaction
+ * Perform the group schedulability test as a whole
+ * Return 0 if success
+ */
 int power_pmu_commit_txn(struct pmu *pmu)
 {
 	struct cpu_hw_events *cpuhw;
@@ -805,6 +1001,13 @@ int power_pmu_commit_txn(struct pmu *pmu)
 	return 0;
 }
 
+/*
+ * Return 1 if we might be able to put event on a limited PMC,
+ * or 0 if not.
+ * A event can only go on a limited PMC if it counts something
+ * that a limited PMC can count, doesn't require interrupts, and
+ * doesn't exclude any processor mode.
+ */
 static int can_go_on_limited_pmc(struct perf_event *event, u64 ev,
 				 unsigned int flags)
 {
@@ -820,6 +1023,10 @@ static int can_go_on_limited_pmc(struct perf_event *event, u64 ev,
 	if (ppmu->limited_pmc_event(ev))
 		return 1;
 
+	/*
+	 * The requested event_id isn't on a limited PMC already;
+	 * see if any alternative code goes on a limited PMC.
+	 */
 	if (!ppmu->get_alternatives)
 		return 0;
 
@@ -829,6 +1036,11 @@ static int can_go_on_limited_pmc(struct perf_event *event, u64 ev,
 	return n > 0;
 }
 
+/*
+ * Find an alternative event_id that goes on a normal PMC, if possible,
+ * and return the event_id code, or 0 if there is no such alternative.
+ * (Note: event_id code 0 is "don't count" on all machines.)
+ */
 static u64 normal_pmc_alternative(u64 ev, unsigned long flags)
 {
 	u64 alt[MAX_EVENT_ALTERNATIVES];
@@ -841,9 +1053,14 @@ static u64 normal_pmc_alternative(u64 ev, unsigned long flags)
 	return alt[0];
 }
 
+/* Number of perf_events counting hardware events */
 static atomic_t num_events;
+/* Used to avoid races in calling reserve/release_pmc_hardware */
 static DEFINE_MUTEX(pmc_reserve_mutex);
 
+/*
+ * Release the PMU if this is the last perf_event.
+ */
 static void hw_perf_event_destroy(struct perf_event *event)
 {
 	if (!atomic_add_unless(&num_events, -1, 1)) {
@@ -854,6 +1071,9 @@ static void hw_perf_event_destroy(struct perf_event *event)
 	}
 }
 
+/*
+ * Translate a generic cache event_id config to a raw event_id code.
+ */
 static int hw_perf_cache_event(u64 config, u64 *eventp)
 {
 	unsigned long type, op, result;
@@ -862,7 +1082,7 @@ static int hw_perf_cache_event(u64 config, u64 *eventp)
 	if (!ppmu->cache_events)
 		return -EINVAL;
 
-	
+	/* unpack config */
 	type = config & 0xff;
 	op = (config >> 8) & 0xff;
 	result = (config >> 16) & 0xff;
@@ -895,7 +1115,7 @@ static int power_pmu_event_init(struct perf_event *event)
 	if (!ppmu)
 		return -ENOENT;
 
-	
+	/* does not support taken branch sampling */
 	if (has_branch_stack(event))
 		return -EOPNOTSUPP;
 
@@ -921,23 +1141,48 @@ static int power_pmu_event_init(struct perf_event *event)
 	event->hw.config_base = ev;
 	event->hw.idx = 0;
 
+	/*
+	 * If we are not running on a hypervisor, force the
+	 * exclude_hv bit to 0 so that we don't care what
+	 * the user set it to.
+	 */
 	if (!firmware_has_feature(FW_FEATURE_LPAR))
 		event->attr.exclude_hv = 0;
 
+	/*
+	 * If this is a per-task event, then we can use
+	 * PM_RUN_* events interchangeably with their non RUN_*
+	 * equivalents, e.g. PM_RUN_CYC instead of PM_CYC.
+	 * XXX we should check if the task is an idle task.
+	 */
 	flags = 0;
 	if (event->attach_state & PERF_ATTACH_TASK)
 		flags |= PPMU_ONLY_COUNT_RUN;
 
+	/*
+	 * If this machine has limited events, check whether this
+	 * event_id could go on a limited event.
+	 */
 	if (ppmu->flags & PPMU_LIMITED_PMC5_6) {
 		if (can_go_on_limited_pmc(event, ev, flags)) {
 			flags |= PPMU_LIMITED_PMC_OK;
 		} else if (ppmu->limited_pmc_event(ev)) {
+			/*
+			 * The requested event_id is on a limited PMC,
+			 * but we can't use a limited PMC; see if any
+			 * alternative goes on a normal PMC.
+			 */
 			ev = normal_pmc_alternative(ev, flags);
 			if (!ev)
 				return -EINVAL;
 		}
 	}
 
+	/*
+	 * If this is in a group, check if it can go on with all the
+	 * other hardware events in the group.  We assume the event
+	 * hasn't been linked into its leader's sibling list at this point.
+	 */
 	n = 0;
 	if (event->group_leader != event) {
 		n = collect_events(event->group_leader, ppmu->n_counter - 1,
@@ -962,6 +1207,12 @@ static int power_pmu_event_init(struct perf_event *event)
 	event->hw.last_period = event->hw.sample_period;
 	local64_set(&event->hw.period_left, event->hw.last_period);
 
+	/*
+	 * See if we need to reserve the PMU.
+	 * If no events are currently in use, then we have to take a
+	 * mutex to ensure that we don't race with another task doing
+	 * reserve_pmc_hardware or release_pmc_hardware.
+	 */
 	err = 0;
 	if (!atomic_inc_not_zero(&num_events)) {
 		mutex_lock(&pmc_reserve_mutex);
@@ -997,6 +1248,11 @@ struct pmu power_pmu = {
 	.event_idx	= power_pmu_event_idx,
 };
 
+/*
+ * A counter has overflowed; update its count and record
+ * things if requested.  Note that interrupts are hard-disabled
+ * here so there is no possibility of being interrupted.
+ */
 static void record_and_restart(struct perf_event *event, unsigned long val,
 			       struct pt_regs *regs)
 {
@@ -1009,11 +1265,15 @@ static void record_and_restart(struct perf_event *event, unsigned long val,
 		return;
 	}
 
-	
+	/* we don't have to worry about interrupts here */
 	prev = local64_read(&event->hw.prev_count);
 	delta = check_and_compute_delta(prev, val);
 	local64_add(delta, &event->count);
 
+	/*
+	 * See if the total period for this event has expired,
+	 * and update for the next period.
+	 */
 	val = 0;
 	left = local64_read(&event->hw.period_left) - delta;
 	if (period) {
@@ -1033,6 +1293,9 @@ static void record_and_restart(struct perf_event *event, unsigned long val,
 	local64_set(&event->hw.period_left, left);
 	perf_event_update_userpage(event);
 
+	/*
+	 * Finally record data if requested.
+	 */
 	if (record) {
 		struct perf_sample_data data;
 
@@ -1047,6 +1310,10 @@ static void record_and_restart(struct perf_event *event, unsigned long val,
 	}
 }
 
+/*
+ * Called from generic code to get the misc flags (i.e. processor mode)
+ * for an event_id.
+ */
 unsigned long perf_misc_flags(struct pt_regs *regs)
 {
 	u32 flags = perf_get_misc_flags(regs);
@@ -1057,15 +1324,19 @@ unsigned long perf_misc_flags(struct pt_regs *regs)
 		PERF_RECORD_MISC_KERNEL;
 }
 
+/*
+ * Called from generic code to get the instruction pointer
+ * for an event_id.
+ */
 unsigned long perf_instruction_pointer(struct pt_regs *regs)
 {
 	unsigned long mmcra = regs->dsisr;
 
-	
+	/* Not a PMU interrupt */
 	if (TRAP(regs) != 0xf00)
 		return regs->nip;
 
-	
+	/* Processor doesn't support sampling non marked events */
 	if ((ppmu->flags & PPMU_NO_CONT_SAMPLING) &&
 	    !(mmcra & MMCRA_SAMPLE_ENABLE))
 		return regs->nip;
@@ -1078,12 +1349,26 @@ static bool pmc_overflow(unsigned long val)
 	if ((int)val < 0)
 		return true;
 
+	/*
+	 * Events on POWER7 can roll back if a speculative event doesn't
+	 * eventually complete. Unfortunately in some rare cases they will
+	 * raise a performance monitor exception. We need to catch this to
+	 * ensure we reset the PMC. In all cases the PMC will be 256 or less
+	 * cycles from overflow.
+	 *
+	 * We only do this if the first pass fails to find any overflowing
+	 * PMCs because a user might set a period of less than 256 and we
+	 * don't want to mistakenly reset them.
+	 */
 	if (__is_processor(PV_POWER7) && ((0x80000000 - val) <= 256))
 		return true;
 
 	return false;
 }
 
+/*
+ * Performance monitor interrupt stuff
+ */
 static void perf_event_interrupt(struct pt_regs *regs)
 {
 	int i;
@@ -1111,12 +1396,18 @@ static void perf_event_interrupt(struct pt_regs *regs)
 			continue;
 		val = read_pmc(event->hw.idx);
 		if ((int)val < 0) {
-			
+			/* event has overflowed */
 			found = 1;
 			record_and_restart(event, val, regs);
 		}
 	}
 
+	/*
+	 * In case we didn't find and reset the event that caused
+	 * the interrupt, scan all events and reset any that are
+	 * negative, to avoid getting continual interrupts.
+	 * Any that we processed in the previous loop will not be negative.
+	 */
 	if (!found) {
 		for (i = 0; i < ppmu->n_counter; ++i) {
 			if (is_limited_pmc(i + 1))
@@ -1127,6 +1418,13 @@ static void perf_event_interrupt(struct pt_regs *regs)
 		}
 	}
 
+	/*
+	 * Reset MMCR0 to its normal value.  This will set PMXE and
+	 * clear FC (freeze counters) and PMAO (perf mon alert occurred)
+	 * and thus allow interrupts to occur again.
+	 * XXX might want to use MSR.PM to keep the events frozen until
+	 * we get back out of this interrupt.
+	 */
 	write_mmcr0(cpuhw, cpuhw->mmcr[0]);
 
 	if (nmi)
@@ -1165,16 +1463,19 @@ power_pmu_notifier(struct notifier_block *self, unsigned long action, void *hcpu
 int __cpuinit register_power_pmu(struct power_pmu *pmu)
 {
 	if (ppmu)
-		return -EBUSY;		
+		return -EBUSY;		/* something's already registered */
 
 	ppmu = pmu;
 	pr_info("%s performance monitor hardware support registered\n",
 		pmu->name);
 
 #ifdef MSR_HV
+	/*
+	 * Use FCHV to ignore kernel events if MSR.HV is set.
+	 */
 	if (mfmsr() & MSR_HV)
 		freeze_events_kernel = MMCR0_FCHV;
-#endif 
+#endif /* CONFIG_PPC64 */
 
 	perf_pmu_register(&power_pmu, "cpu", PERF_TYPE_RAW);
 	perf_cpu_notifier(power_pmu_notifier);

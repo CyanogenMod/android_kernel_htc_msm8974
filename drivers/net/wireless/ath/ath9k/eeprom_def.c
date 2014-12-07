@@ -379,7 +379,7 @@ static int ath9k_hw_def_check_eeprom(struct ath_hw *ah)
 		return -EINVAL;
 	}
 
-	
+	/* Enable fixup for AR_AN_TOP2 if necessary */
 	if ((ah->hw_version.devid == AR9280_DEVID_PCI) &&
 	    ((eep->baseEepHeader.version & 0xff) > 0x0a) &&
 	    (eep->baseEepHeader.pwdclkind == 0))
@@ -466,7 +466,7 @@ static u32 ath9k_hw_def_get_eeprom(struct ath_hw *ah,
 			return AR5416_PWR_TABLE_OFFSET_DB;
 	case EEP_ANTENNA_GAIN_2G:
 		band = 1;
-		
+		/* fall through */
 	case EEP_ANTENNA_GAIN_5G:
 		return max_t(u8, max_t(u8,
 			pModal[band].antennaGainCh[0],
@@ -765,17 +765,28 @@ static int16_t ath9k_change_gain_boundary_setting(struct ath_hw *ah,
 {
 	u16 k;
 
+	/* Prior to writing the boundaries or the pdadc vs. power table
+	 * into the chip registers the default starting point on the pdadc
+	 * vs. power table needs to be checked and the curve boundaries
+	 * adjusted accordingly
+	 */
 	if (AR_SREV_9280_20_OR_LATER(ah)) {
 		u16 gb_limit;
 
 		if (AR5416_PWR_TABLE_OFFSET_DB != pwr_table_offset) {
-			
+			/* get the difference in dB */
 			*diff = (u16)(pwr_table_offset - AR5416_PWR_TABLE_OFFSET_DB);
-			
+			/* get the number of half dB steps */
 			*diff *= 2;
+			/* change the original gain boundary settings
+			 * by the number of half dB steps
+			 */
 			for (k = 0; k < numXpdGain; k++)
 				gb[k] = (u16)(gb[k] - *diff);
 		}
+		/* Because of a hardware limitation, ensure the gain boundary
+		 * is not larger than (63 - overlap)
+		 */
 		gb_limit = (u16)(MAX_RATE_POWER - pdGainOverlap_t2);
 
 		for (k = 0; k < numXpdGain; k++)
@@ -793,14 +804,19 @@ static void ath9k_adjust_pdadc_values(struct ath_hw *ah,
 #define NUM_PDADC(diff) (AR5416_NUM_PDADC_VALUES - diff)
 	u16 k;
 
+	/* If this is a board that has a pwrTableOffset that differs from
+	 * the default AR5416_PWR_TABLE_OFFSET_DB then the start of the
+	 * pdadc vs pwr table needs to be adjusted prior to writing to the
+	 * chip.
+	 */
 	if (AR_SREV_9280_20_OR_LATER(ah)) {
 		if (AR5416_PWR_TABLE_OFFSET_DB != pwr_table_offset) {
-			
+			/* shift the table to start at the new offset */
 			for (k = 0; k < (u16)NUM_PDADC(diff); k++ ) {
 				pdadcValues[k] = pdadcValues[k + diff];
 			}
 
-			
+			/* fill the back of the table */
 			for (k = (u16)NUM_PDADC(diff); k < NUM_PDADC(0); k++) {
 				pdadcValues[k] = pdadcValues[NUM_PDADC(diff)];
 			}
@@ -975,8 +991,8 @@ static void ath9k_hw_set_def_power_per_rate_table(struct ath_hw *ah,
 						  u16 antenna_reduction,
 						  u16 powerLimit)
 {
-#define REDUCE_SCALED_POWER_BY_TWO_CHAIN     6  
-#define REDUCE_SCALED_POWER_BY_THREE_CHAIN   9 
+#define REDUCE_SCALED_POWER_BY_TWO_CHAIN     6  /* 10*log10(2)*2 */
+#define REDUCE_SCALED_POWER_BY_THREE_CHAIN   9 /* 10*log10(3)*2 */
 
 	struct ar5416_eeprom_def *pEepData = &ah->eeprom.def;
 	u16 twiceMaxEdgePower;

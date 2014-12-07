@@ -78,27 +78,43 @@ enum pending_freq_state {
 	 */
 	NO_OUTSTANDING_FREQ_CHANGE = 0,
 
+	/*
+	 * This request is set to indicate that the governor is stopped and no
+	 * more frequency change requests are accepted untill it starts again.
+	 * This is checked/used by the threads that want to change the freq
+	 */
 	STOP_FREQ_CHANGE = -1,
 
+	/*
+	 * Any other +ve value means that a freq change was requested and the
+	 * thread has not gotten around to update it
+	 *
+	 * Any other -ve value means that this is the last freq change i.e. a
+	 * freq change was requested but the thread has not run yet and
+	 * meanwhile the governor was stopped.
+	 */
 };
 
 struct dcvs_core {
 	spinlock_t	idle_state_change_lock;
+	/* 0 when not idle (busy)  1 when idle and -1 when governor starts and
+	 * we dont know whether the next call is going to be idle enter or exit
+	 */
 	int		idle_entered;
 
 	enum msm_dcvs_core_type type;
-	
+	/* this is the number in each type for example cpu 0,1,2 and gpu 0,1 */
 	int type_core_num;
 	char core_name[CORE_NAME_MAX];
 	uint32_t actual_freq;
 	uint32_t freq_change_us;
 
-	uint32_t max_time_us; 
+	uint32_t max_time_us; /* core param */
 
 	struct msm_dcvs_algo_param algo_param;
 	struct msm_dcvs_energy_curve_coeffs coeffs;
 
-	
+	/* private */
 	ktime_t time_start;
 	struct task_struct *task;
 	struct core_attribs attrib;
@@ -154,6 +170,9 @@ static void force_start_slack_timer(struct dcvs_core *core, int slack_us)
 
 	spin_lock_irqsave(&core->idle_state_change_lock, flags);
 
+	/*
+	 * only start the timer if governor is not stopped
+	 */
 	if (slack_us != 0) {
 		ret = hrtimer_start(&core->slack_timer,
 				ktime_set(0, slack_us * 1000),
@@ -172,7 +191,7 @@ static void stop_slack_timer(struct dcvs_core *core)
 	unsigned long flags;
 
 	spin_lock_irqsave(&core->idle_state_change_lock, flags);
-	
+	/* err only for cpu type's GPU's can do idle exit consecutively */
 	if (core->idle_entered == 1 && !(core->dcvs_core_id >= GPU_OFFSET))
 		__err("%s trying to reenter idle", core->core_name);
 	core->idle_entered = 1;
@@ -190,10 +209,13 @@ static void start_slack_timer(struct dcvs_core *core, int slack_us)
 
 	spin_lock_irqsave(&core->pending_freq_lock, flags1);
 
-	
+	/* err only for cpu type's GPU's can do idle enter consecutively */
 	if (core->idle_entered == 0 && !(core->dcvs_core_id >= GPU_OFFSET))
 		__err("%s trying to reexit idle", core->core_name);
 	core->idle_entered = 0;
+	/*
+	 * only start the timer if governor is not stopped
+	 */
 	if (slack_us != 0
 		&& !(core->pending_freq < NO_OUTSTANDING_FREQ_CHANGE)) {
 		ret = hrtimer_start(&core->slack_timer,
@@ -220,6 +242,10 @@ static void restart_slack_timer(struct dcvs_core *core, int slack_us)
 
 	spin_lock_irqsave(&core->pending_freq_lock, flags1);
 
+	/*
+	 * only start the timer if idle is not entered
+	 * and governor is not stopped
+	 */
 	if (slack_us != 0 && (core->idle_entered != 1)
 		&& !(core->pending_freq < NO_OUTSTANDING_FREQ_CHANGE)) {
 		ret = hrtimer_start(&core->slack_timer,
@@ -274,6 +300,8 @@ void msm_dcvs_apply_gpu_floor(unsigned long cpu_freq)
 		    gpu->set_floor_frequency) {
 			gpu->set_floor_frequency(gpu->type_core_num,
 						 gpu_floor_freq);
+			/* TZ will know about a freq change (if any)
+			 * at next idle exit. */
 			gpu->actual_freq =
 				gpu->get_frequency(gpu->type_core_num);
 		}
@@ -326,11 +354,16 @@ repeat:
 	    core->type_core_num == 0)
 		msm_dcvs_apply_gpu_floor(requested_freq);
 
+	/**
+	 * Call the frequency sink driver to change the frequency
+	 * We will need to get back the actual frequency in KHz and
+	 * the record the time taken to change it.
+	 */
 	ret = core->set_frequency(core->type_core_num, requested_freq);
 	if (ret <= 0)
 		__err("Core %s failed to set freq %u\n",
 				core->core_name, requested_freq);
-		
+		/* continue to call TZ to get updated slack timer */
 	else
 		core->actual_freq = ret;
 
@@ -344,6 +377,11 @@ repeat:
 		mutex_unlock(&param_update_mutex);
 	}
 
+	/**
+	 * Update algorithm with new freq and time taken to change
+	 * to this frequency and that will get us the new slack
+	 * timer
+	 */
 	ret = msm_dcvs_scm_event(core->dcvs_core_id,
 			MSM_DCVS_SCM_CLOCK_FREQ_UPDATE,
 			core->actual_freq, core->freq_change_us,
@@ -355,15 +393,22 @@ repeat:
 				slack_us, ret);
 	}
 
+	/* TODO confirm that we get a valid freq from SM even when the above
+	 * FREQ_UPDATE fails
+	 */
 	restart_slack_timer(core, slack_us);
 	spin_lock_irqsave(&core->pending_freq_lock, flags);
 
+	/**
+	 * By the time we are done with freq changes, we could be asked to
+	 * change again. Check before exiting.
+	 */
 	if (core->pending_freq != NO_OUTSTANDING_FREQ_CHANGE
 		&& core->pending_freq != STOP_FREQ_CHANGE) {
 		goto repeat;
 	}
 
-out:   
+out:   /* should always be jumped to with the spin_lock held */
 	spin_unlock_irqrestore(&core->pending_freq_lock, flags);
 
 	return ret;
@@ -429,6 +474,7 @@ static int msm_dcvs_do_freq(void *data)
 	return 0;
 }
 
+/* freq_pending_lock should be held */
 static void request_freq_change(struct dcvs_core *core, int new_freq)
 {
 	if (new_freq == NO_OUTSTANDING_FREQ_CHANGE) {
@@ -446,6 +492,9 @@ static void request_freq_change(struct dcvs_core *core, int new_freq)
 	}
 
 	if (core->pending_freq < 0) {
+		/* a value less than 0 means that the governor has stopped
+		 * and no more freq changes should be requested
+		 */
 		return;
 	}
 
@@ -478,6 +527,10 @@ static int msm_dcvs_update_freq(struct dcvs_core *core,
 	}
 
 	if (new_freq == 0) {
+		/*
+		 * sometimes TZ gives us a 0 freq back,
+		 * do not queue up a request
+		 */
 		goto out;
 	}
 
@@ -497,6 +550,10 @@ static enum hrtimer_restart msm_dcvs_core_slack_timer(struct hrtimer *timer)
 	uint32_t ret1;
 
 	trace_printk("dcvs: Slack timer fired for core=%s\n", core->core_name);
+	/**
+	 * Timer expired, notify TZ
+	 * Dont care about the third arg.
+	 */
 	ret = msm_dcvs_update_freq(core, MSM_DCVS_SCM_QOS_TIMER_EXPIRED, 0,
 				   &ret1);
 	if (ret)
@@ -538,6 +595,7 @@ int msm_dcvs_update_algo_params(void)
 	return ret;
 }
 
+/* Helper functions and macros for sysfs nodes for a core */
 #define CORE_FROM_ATTRIBS(attr, name) \
 	container_of(container_of(attr, struct core_attribs, name), \
 		struct dcvs_core, attrib);
@@ -644,6 +702,10 @@ static ssize_t msm_dcvs_attr_##_name##_store(struct kobject *kobj, \
 	core->attrib._name.store = msm_dcvs_attr_##_name##_store; \
 	core->attrib.attrib_group.attrs[i] = &core->attrib._name.attr;
 
+/**
+ * Function declarations for different attributes.
+ * Gets used when setting the attribute show and store parameters.
+ */
 DCVS_PARAM_SHOW(freq_change_us, (core->freq_change_us))
 
 DCVS_ALGO_PARAM(disable_pc_threshold)
@@ -683,6 +745,8 @@ static ssize_t msm_dcvs_attr_offset_tbl_show(struct kobject *kobj,
 	freq_tbl = core->info->freq_tbl;
 	*buf_idx = '\0';
 
+	/* limit the number of frequencies we will print into
+	 * the PAGE_SIZE sysfs show buffer. */
 	if (core->info->power_param.num_freq > 64)
 		return 0;
 
@@ -691,7 +755,7 @@ static ssize_t msm_dcvs_attr_offset_tbl_show(struct kobject *kobj,
 			       freq_tbl[i].freq,
 			       freq_tbl[i].active_energy_offset,
 			       freq_tbl[i].leakage_energy_offset);
-		
+		/* buf_idx always points at terminating null */
 		buf_idx += len;
 	}
 	return buf_idx - buf;
@@ -752,17 +816,19 @@ static ssize_t msm_dcvs_attr_freq_tbl_show(struct kobject *kobj,
 	freq_tbl = core->info->freq_tbl;
 	*buf_idx = '\0';
 
+	/* limit the number of frequencies we will print into
+	 * the PAGE_SIZE sysfs show buffer. */
 	if (core->info->power_param.num_freq > 64)
 		return 0;
 
 	for (i = 0; i < core->info->power_param.num_freq; i++) {
 		if (freq_tbl[i].is_trans_level) {
 			len = snprintf(buf_idx, 10, "%7d ", freq_tbl[i].freq);
-			
+			/* buf_idx always points at terminating null */
 			buf_idx += len;
 		}
 	}
-	
+	/* overwrite final trailing space with newline */
 	if (buf_idx > buf)
 		*(buf_idx - 1) = '\n';
 
@@ -896,6 +962,7 @@ static int get_core_offset(enum msm_dcvs_core_type type, int num)
 	return offset;
 }
 
+/* Return the core and initialize non platform data specific numbers in it */
 static struct dcvs_core *msm_dcvs_add_core(enum msm_dcvs_core_type type,
 								int num)
 {
@@ -923,9 +990,10 @@ static struct dcvs_core *msm_dcvs_add_core(enum msm_dcvs_core_type type,
 	return core;
 }
 
+/* Return the core if found or add to list if @add_to_list is true */
 static struct dcvs_core *msm_dcvs_get_core(int offset)
 {
-	
+	/* if the handle is still not set bug */
 	BUG_ON(core_list[offset].dcvs_core_id == -1);
 	return &core_list[offset];
 }
@@ -991,6 +1059,12 @@ int msm_dcvs_register_core(
 	memcpy(&core->coeffs, &info->energy_coeffs,
 			sizeof(struct msm_dcvs_energy_curve_coeffs));
 
+	/*
+	 * The tz expects cpu0 to represent bit 0 in the mask, however the
+	 * dcvs_core_id needs to start from 1, dcvs_core_id = 0 is used to
+	 * indicate that this request is not associated with any core.
+	 * mpdecision
+	 */
 	info->core_param.core_bitmask_id
 				= 1 << (core->dcvs_core_id - CPU_OFFSET);
 	core->sensor = sensor;
@@ -1075,7 +1149,7 @@ int msm_dcvs_freq_sink_start(int dcvs_core_id)
 	core->actual_freq = core->get_frequency(core->type_core_num);
 
 	spin_lock_irqsave(&core->pending_freq_lock, flags);
-	
+	/* mark that we are ready to accept new frequencies */
 	request_freq_change(core, NO_OUTSTANDING_FREQ_CHANGE);
 	spin_unlock_irqrestore(&core->pending_freq_lock, flags);
 
@@ -1083,7 +1157,7 @@ int msm_dcvs_freq_sink_start(int dcvs_core_id)
 	core->idle_entered = -1;
 	spin_unlock_irqrestore(&core->idle_state_change_lock, flags);
 
-	
+	/* Notify TZ to start receiving idle info for the core */
 	ret = msm_dcvs_update_freq(core, MSM_DCVS_SCM_DCVS_ENABLE, 1, &ret1);
 
 	ret = msm_dcvs_scm_event(
@@ -1134,7 +1208,7 @@ int msm_dcvs_freq_sink_stop(int dcvs_core_id)
 	cancel_delayed_work(&core->temperature_work);
 
 	core->idle_enable(core->type_core_num, MSM_DCVS_DISABLE_IDLE_PULSE);
-	
+	/* Notify TZ to stop receiving idle info for the core */
 	ret = msm_dcvs_scm_event(core->dcvs_core_id, MSM_DCVS_SCM_DCVS_ENABLE,
 				0, core->actual_freq, &freq, &ret1);
 	core->idle_enable(core->type_core_num,
@@ -1144,7 +1218,7 @@ int msm_dcvs_freq_sink_stop(int dcvs_core_id)
 		mutex_lock(&gpu_floor_mutex);
 
 	spin_lock_irqsave(&core->pending_freq_lock, flags);
-	
+	/* flush out all the pending freq changes */
 	request_freq_change(core, STOP_FREQ_CHANGE);
 	spin_unlock_irqrestore(&core->pending_freq_lock, flags);
 
@@ -1271,7 +1345,7 @@ static int __init msm_dcvs_early_init(void)
 	}
 
 
-	
+	/* Only need about 32kBytes for normal operation */
 	ret = msm_dcvs_scm_init(SZ_32K);
 	if (ret) {
 		__err("Unable to initialize DCVS err=%d\n", ret);

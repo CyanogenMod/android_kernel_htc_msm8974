@@ -31,4 +31,4 @@ struct nfsd_net {
 };
 
 extern int nfsd_net_id;
-#endif 
+#endif /* __NFSD_NETNS_H__ */

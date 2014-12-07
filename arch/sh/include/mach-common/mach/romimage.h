@@ -1,10 +1,11 @@
 #ifdef __ASSEMBLY__
 
+/* do nothing here by default */
 
-#else 
+#else /* __ASSEMBLY__ */
 
 static inline void mmcif_update_progress(int nr)
 {
 }
 
-#endif 
+#endif /* __ASSEMBLY__ */

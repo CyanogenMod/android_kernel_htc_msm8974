@@ -7,4 +7,4 @@
 #include <linux/byteorder/big_endian.h>
 #endif
 
-#endif 
+#endif /* _ASM_MICROBLAZE_BYTEORDER_H */

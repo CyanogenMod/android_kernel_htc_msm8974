@@ -11,6 +11,7 @@
 #ifndef __REGULATOR_H__
 #define __REGULATOR_H__
 
+/* Number of DB8500 regulators and regulator enumeration */
 enum db8500_regulator_id {
 	DB8500_REGULATOR_VAPE,
 	DB8500_REGULATOR_VARM,
@@ -35,6 +36,10 @@ enum db8500_regulator_id {
 	DB8500_NUM_REGULATORS
 };
 
+/*
+ * Exported interface for CPUIdle only. This function is called with all
+ * interrupts turned off.
+ */
 int power_state_active_is_enabled(void);
 
 #endif

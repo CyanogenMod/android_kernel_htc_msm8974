@@ -84,7 +84,7 @@ static int __devinit ad2s90_probe(struct spi_device *spi)
 	if (ret)
 		goto error_free_dev;
 
-	
+	/* need 600ns between CS and the first falling edge of SCLK */
 	spi->max_speed_hz = 830000;
 	spi->mode = SPI_MODE_3;
 	spi_setup(spi);

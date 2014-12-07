@@ -55,17 +55,23 @@
 #include "generic.h"
 #include "devices.h"
 
+/******************************************************************************
+ * Pin configuration
+ ******************************************************************************/
 static unsigned long balloon3_pin_config[] __initdata = {
-	
+	/* Select BTUART 'COM1/ttyS0' as IO option for pins 42/43/44/45 */
 	GPIO42_BTUART_RXD,
 	GPIO43_BTUART_TXD,
 	GPIO44_BTUART_CTS,
 	GPIO45_BTUART_RTS,
 
-	
+	/* Reset, configured as GPIO wakeup source */
 	GPIO1_GPIO | WAKEUP_ON_EDGE_BOTH,
 };
 
+/******************************************************************************
+ * Compatibility: Parameter parsing
+ ******************************************************************************/
 static unsigned long balloon3_irq_enabled;
 
 static unsigned long balloon3_features_present =
@@ -88,6 +94,9 @@ int __init parse_balloon3_features(char *arg)
 }
 early_param("balloon3_features", parse_balloon3_features);
 
+/******************************************************************************
+ * Compact Flash slot
+ ******************************************************************************/
 #if	defined(CONFIG_PCMCIA_PXA2XX) || defined(CONFIG_PCMCIA_PXA2XX_MODULE)
 static unsigned long balloon3_cf_pin_config[] __initdata = {
 	GPIO48_nPOE,
@@ -113,6 +122,9 @@ static void __init balloon3_cf_init(void)
 static inline void balloon3_cf_init(void) {}
 #endif
 
+/******************************************************************************
+ * NOR Flash
+ ******************************************************************************/
 #if defined(CONFIG_MTD_PHYSMAP) || defined(CONFIG_MTD_PHYSMAP_MODULE)
 static struct mtd_partition balloon3_nor_partitions[] = {
 	{
@@ -124,7 +136,7 @@ static struct mtd_partition balloon3_nor_partitions[] = {
 
 static struct physmap_flash_data balloon3_flash_data[] = {
 	{
-		.width		= 2,	
+		.width		= 2,	/* bankwidth in bytes */
 		.parts		= balloon3_nor_partitions,
 		.nr_parts	= ARRAY_SIZE(balloon3_nor_partitions)
 	}
@@ -153,6 +165,9 @@ static void __init balloon3_nor_init(void)
 static inline void balloon3_nor_init(void) {}
 #endif
 
+/******************************************************************************
+ * Audio and Touchscreen
+ ******************************************************************************/
 #if	defined(CONFIG_TOUCHSCREEN_UCB1400) || \
 	defined(CONFIG_TOUCHSCREEN_UCB1400_MODULE)
 static unsigned long balloon3_ac97_pin_config[] __initdata = {
@@ -190,6 +205,9 @@ static void __init balloon3_ts_init(void)
 static inline void balloon3_ts_init(void) {}
 #endif
 
+/******************************************************************************
+ * Framebuffer
+ ******************************************************************************/
 #if defined(CONFIG_FB_PXA) || defined(CONFIG_FB_PXA_MODULE)
 static unsigned long balloon3_lcd_pin_config[] __initdata = {
 	GPIOxx_LCD_TFT_16BPP,
@@ -257,6 +275,9 @@ err:
 static inline void balloon3_lcd_init(void) {}
 #endif
 
+/******************************************************************************
+ * SD/MMC card controller
+ ******************************************************************************/
 #if defined(CONFIG_MMC_PXA) || defined(CONFIG_MMC_PXA_MODULE)
 static unsigned long balloon3_mmc_pin_config[] __initdata = {
 	GPIO32_MMC_CLK,
@@ -284,6 +305,9 @@ static void __init balloon3_mmc_init(void)
 static inline void balloon3_mmc_init(void) {}
 #endif
 
+/******************************************************************************
+ * USB Gadget
+ ******************************************************************************/
 #if defined(CONFIG_USB_PXA27X)||defined(CONFIG_USB_PXA27X_MODULE)
 static void balloon3_udc_command(int cmd)
 {
@@ -313,6 +337,9 @@ static void __init balloon3_udc_init(void)
 static inline void balloon3_udc_init(void) {}
 #endif
 
+/******************************************************************************
+ * IrDA
+ ******************************************************************************/
 #if defined(CONFIG_IRDA) || defined(CONFIG_IRDA_MODULE)
 static struct pxaficp_platform_data balloon3_ficp_platform_data = {
 	.transceiver_cap	= IR_FIRMODE | IR_SIRMODE | IR_OFF,
@@ -326,6 +353,9 @@ static void __init balloon3_irda_init(void)
 static inline void balloon3_irda_init(void) {}
 #endif
 
+/******************************************************************************
+ * USB Host
+ ******************************************************************************/
 #if defined(CONFIG_USB_OHCI_HCD) || defined(CONFIG_USB_OHCI_HCD_MODULE)
 static unsigned long balloon3_uhc_pin_config[] __initdata = {
 	GPIO88_USBH1_PWR,
@@ -348,10 +378,13 @@ static void __init balloon3_uhc_init(void)
 static inline void balloon3_uhc_init(void) {}
 #endif
 
+/******************************************************************************
+ * LEDs
+ ******************************************************************************/
 #if defined(CONFIG_LEDS_GPIO) || defined(CONFIG_LEDS_GPIO_MODULE)
 static unsigned long balloon3_led_pin_config[] __initdata = {
-	GPIO9_GPIO,	
-	GPIO10_GPIO,	
+	GPIO9_GPIO,	/* NAND activity LED */
+	GPIO10_GPIO,	/* Heartbeat LED */
 };
 
 struct gpio_led balloon3_gpio_leds[] = {
@@ -440,6 +473,9 @@ static void __init balloon3_leds_init(void)
 static inline void balloon3_leds_init(void) {}
 #endif
 
+/******************************************************************************
+ * FPGA IRQ
+ ******************************************************************************/
 static void balloon3_mask_irq(struct irq_data *d)
 {
 	int balloon3_irq = (d->irq - BALLOON3_IRQ(0));
@@ -466,7 +502,7 @@ static void balloon3_irq_handler(unsigned int irq, struct irq_desc *desc)
 	unsigned long pending = __raw_readl(BALLOON3_INT_CONTROL_REG) &
 					balloon3_irq_enabled;
 	do {
-		
+		/* clear useless edge notification */
 		if (desc->irq_data.chip->irq_ack) {
 			struct irq_data *d;
 
@@ -489,7 +525,7 @@ static void __init balloon3_init_irq(void)
 	int irq;
 
 	pxa27x_init_irq();
-	
+	/* setup extra Balloon3 irqs */
 	for (irq = BALLOON3_IRQ(0); irq <= BALLOON3_IRQ(7); irq++) {
 		irq_set_chip_and_handler(irq, &balloon3_irq_chip,
 					 handle_level_irq);
@@ -503,6 +539,9 @@ static void __init balloon3_init_irq(void)
 		"enabled\n", __func__, BALLOON3_AUX_NIRQ);
 }
 
+/******************************************************************************
+ * GPIO expander
+ ******************************************************************************/
 #if defined(CONFIG_GPIO_PCF857X) || defined(CONFIG_GPIO_PCF857X_MODULE)
 static struct pcf857x_platform_data balloon3_pcf857x_pdata = {
 	.gpio_base	= BALLOON3_PCF_GPIO_BASE,
@@ -528,6 +567,9 @@ static void __init balloon3_i2c_init(void)
 static inline void balloon3_i2c_init(void) {}
 #endif
 
+/******************************************************************************
+ * NAND
+ ******************************************************************************/
 #if defined(CONFIG_MTD_NAND_PLATFORM)||defined(CONFIG_MTD_NAND_PLATFORM_MODULE)
 static void balloon3_nand_cmd_ctl(struct mtd_info *mtd, int cmd, unsigned int ctrl)
 {
@@ -563,13 +605,13 @@ static void balloon3_nand_select_chip(struct mtd_info *mtd, int chip)
 	if (chip < 0 || chip > 3)
 		return;
 
-	
+	/* Assert all nCE lines */
 	__raw_writew(
 		BALLOON3_NAND_CONTROL_FLCE0 | BALLOON3_NAND_CONTROL_FLCE1 |
 		BALLOON3_NAND_CONTROL_FLCE2 | BALLOON3_NAND_CONTROL_FLCE3,
 		BALLOON3_NAND_CONTROL_REG + BALLOON3_FPGA_SETnCLR);
 
-	
+	/* Deassert correct nCE line */
 	__raw_writew(BALLOON3_NAND_CONTROL_FLCE0 << chip,
 		BALLOON3_NAND_CONTROL_REG);
 }
@@ -592,7 +634,7 @@ static int balloon3_nand_probe(struct platform_device *pdev)
 		pr_warn("The FPGA code, version 0x%04x, is too old. "
 			"NAND support might be broken in this version!", ver);
 
-	
+	/* Power up the NAND chips */
 	ret = gpio_request(BALLOON3_GPIO_RUN_NAND, "NAND");
 	if (ret)
 		goto err1;
@@ -603,7 +645,7 @@ static int balloon3_nand_probe(struct platform_device *pdev)
 
 	gpio_set_value(BALLOON3_GPIO_RUN_NAND, 1);
 
-	
+	/* Deassert all nCE lines and write protect line */
 	__raw_writel(
 		BALLOON3_NAND_CONTROL_FLCE0 | BALLOON3_NAND_CONTROL_FLCE1 |
 		BALLOON3_NAND_CONTROL_FLCE2 | BALLOON3_NAND_CONTROL_FLCE3 |
@@ -619,7 +661,7 @@ err1:
 
 static void balloon3_nand_remove(struct platform_device *pdev)
 {
-	
+	/* Power down the NAND chips */
 	gpio_set_value(BALLOON3_GPIO_RUN_NAND, 0);
 	gpio_free(BALLOON3_GPIO_RUN_NAND);
 }
@@ -684,6 +726,9 @@ static void __init balloon3_nand_init(void)
 static inline void balloon3_nand_init(void) {}
 #endif
 
+/******************************************************************************
+ * Core power regulator
+ ******************************************************************************/
 #if defined(CONFIG_REGULATOR_MAX1586) || \
     defined(CONFIG_REGULATOR_MAX1586_MODULE)
 static struct regulator_consumer_supply balloon3_max1587a_consumers[] = {
@@ -715,7 +760,7 @@ static struct max1586_subdev_data balloon3_max1587a_subdevs[] = {
 static struct max1586_platform_data balloon3_max1587a_info = {
 	.subdevs     = balloon3_max1587a_subdevs,
 	.num_subdevs = ARRAY_SIZE(balloon3_max1587a_subdevs),
-	.v3_gain     = MAX1586_GAIN_R24_3k32, 
+	.v3_gain     = MAX1586_GAIN_R24_3k32, /* 730..1550 mV */
 };
 
 static struct i2c_board_info __initdata balloon3_pi2c_board_info[] = {
@@ -734,6 +779,9 @@ static void __init balloon3_pmic_init(void)
 static inline void balloon3_pmic_init(void) {}
 #endif
 
+/******************************************************************************
+ * Machine init
+ ******************************************************************************/
 static void __init balloon3_init(void)
 {
 	ARB_CNTRL = ARB_CORE_PARK | 0x234;
@@ -759,7 +807,7 @@ static void __init balloon3_init(void)
 }
 
 static struct map_desc balloon3_io_desc[] __initdata = {
-	{	
+	{	/* CPLD/FPGA */
 		.virtual	= (unsigned long)BALLOON3_FPGA_VIRT,
 		.pfn		= __phys_to_pfn(BALLOON3_FPGA_PHYS),
 		.length		= BALLOON3_FPGA_LENGTH,
@@ -774,7 +822,7 @@ static void __init balloon3_map_io(void)
 }
 
 MACHINE_START(BALLOON3, "Balloon3")
-	
+	/* Maintainer: Nick Bane. */
 	.map_io		= balloon3_map_io,
 	.nr_irqs	= BALLOON3_NR_IRQS,
 	.init_irq	= balloon3_init_irq,

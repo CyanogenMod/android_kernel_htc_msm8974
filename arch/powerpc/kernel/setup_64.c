@@ -79,6 +79,9 @@ int boot_cpuid = 0;
 int __initdata spinning_secondaries;
 u64 ppc64_pft_size;
 
+/* Pick defaults since we might want to patch instructions
+ * before we've read this from the device tree.
+ */
 struct ppc64_caches ppc64_caches = {
 	.dline_size = 0x40,
 	.log_dline_size = 6,
@@ -87,6 +90,10 @@ struct ppc64_caches ppc64_caches = {
 };
 EXPORT_SYMBOL_GPL(ppc64_caches);
 
+/*
+ * These are used in binfmt_elf.c to put aux entries on the stack
+ * for each elf executable being started.
+ */
 int dcache_bsize;
 int icache_bsize;
 int ucache_bsize;
@@ -95,15 +102,16 @@ int ucache_bsize;
 
 static char *smt_enabled_cmdline;
 
+/* Look for ibm,smt-enabled OF option */
 static void check_smt_enabled(void)
 {
 	struct device_node *dn;
 	const char *smt_option;
 
-	
+	/* Default to enabling all threads */
 	smt_enabled_at_boot = threads_per_core;
 
-	
+	/* Allow the command line to overrule the OF option */
 	if (smt_enabled_cmdline) {
 		if (!strcmp(smt_enabled_cmdline, "on"))
 			smt_enabled_at_boot = threads_per_core;
@@ -136,6 +144,7 @@ static void check_smt_enabled(void)
 	}
 }
 
+/* Look for smt-enabled= cmdline option */
 static int __init early_smt_enabled(char *p)
 {
 	smt_enabled_cmdline = p;
@@ -145,48 +154,76 @@ early_param("smt-enabled", early_smt_enabled);
 
 #else
 #define check_smt_enabled()
-#endif 
+#endif /* CONFIG_SMP */
 
+/*
+ * Early initialization entry point. This is called by head.S
+ * with MMU translation disabled. We rely on the "feature" of
+ * the CPU that ignores the top 2 bits of the address in real
+ * mode so we can access kernel globals normally provided we
+ * only toy with things in the RMO region. From here, we do
+ * some early parsing of the device-tree to setup out MEMBLOCK
+ * data structures, and allocate & initialize the hash table
+ * and segment tables so we can start running with translation
+ * enabled.
+ *
+ * It is this function which will call the probe() callback of
+ * the various platform types and copy the matching one to the
+ * global ppc_md structure. Your platform can eventually do
+ * some very early initializations from the probe() routine, but
+ * this is not recommended, be very careful as, for example, the
+ * device-tree is not accessible via normal means at this point.
+ */
 
 void __init early_setup(unsigned long dt_ptr)
 {
-	
+	/* -------- printk is _NOT_ safe to use here ! ------- */
 
-	
+	/* Identify CPU type */
 	identify_cpu(0, mfspr(SPRN_PVR));
 
-	
+	/* Assume we're on cpu 0 for now. Don't write to the paca yet! */
 	initialise_paca(&boot_paca, 0);
 	setup_paca(&boot_paca);
 
-	
+	/* Initialize lockdep early or else spinlocks will blow */
 	lockdep_init();
 
-	
+	/* -------- printk is now safe to use ------- */
 
-	
+	/* Enable early debugging if any specified (see udbg.h) */
 	udbg_early_init();
 
  	DBG(" -> early_setup(), dt_ptr: 0x%lx\n", dt_ptr);
 
+	/*
+	 * Do early initialization using the flattened device
+	 * tree, such as retrieving the physical memory map or
+	 * calculating/retrieving the hash table size.
+	 */
 	early_init_devtree(__va(dt_ptr));
 
-	
+	/* Now we know the logical id of our boot cpu, setup the paca. */
 	setup_paca(&paca[boot_cpuid]);
 
-	
+	/* Fix up paca fields required for the boot cpu */
 	get_paca()->cpu_start = 1;
 
-	
+	/* Probe the machine type */
 	probe_machine();
 
 	setup_kdump_trampoline();
 
 	DBG("Found, Initializing memory management...\n");
 
-	
+	/* Initialize the hash table or TLB handling */
 	early_init_mmu();
 
+	/*
+	 * Reserve any gigantic pages requested on the command line.
+	 * memblock needs to have been initialized by the time this is
+	 * called since this will reserve memory.
+	 */
 	reserve_hugetlb_gpages();
 
 	DBG(" <- early_setup()\n");
@@ -195,14 +232,14 @@ void __init early_setup(unsigned long dt_ptr)
 #ifdef CONFIG_SMP
 void early_setup_secondary(void)
 {
-	
+	/* Mark interrupts enabled in PACA */
 	get_paca()->soft_enabled = 0;
 
-	
+	/* Initialize the hash table or TLB handling */
 	early_init_mmu_secondary();
 }
 
-#endif 
+#endif /* CONFIG_SMP */
 
 #if defined(CONFIG_SMP) || defined(CONFIG_KEXEC)
 void smp_release_cpus(void)
@@ -212,12 +249,17 @@ void smp_release_cpus(void)
 
 	DBG(" -> smp_release_cpus()\n");
 
+	/* All secondary cpus are spinning on a common spinloop, release them
+	 * all now so they can start to spin on their individual paca
+	 * spinloops. For non SMP kernels, the secondary cpus never get out
+	 * of the common spinloop.
+	 */
 
 	ptr  = (unsigned long *)((unsigned long)&__secondary_hold_spinloop
 			- PHYSICAL_START);
 	*ptr = __pa(generic_secondary_smp_init);
 
-	
+	/* And wait a bit for them to catch up */
 	for (i = 0; i < 100000; i++) {
 		mb();
 		HMT_low();
@@ -229,8 +271,15 @@ void smp_release_cpus(void)
 
 	DBG(" <- smp_release_cpus()\n");
 }
-#endif 
+#endif /* CONFIG_SMP || CONFIG_KEXEC */
 
+/*
+ * Initialize some remaining members of the ppc64_caches and systemcfg
+ * structures
+ * (at least until we get rid of them completely). This is mostly some
+ * cache informations about the CPU that will be used by cache flush
+ * routines and/or provided to userland
+ */
 static void __init initialize_cache_info(void)
 {
 	struct device_node *np;
@@ -241,6 +290,10 @@ static void __init initialize_cache_info(void)
 	for_each_node_by_type(np, "cpu") {
 		num_cpus += 1;
 
+		/*
+		 * We're assuming *all* of the CPUs have the same
+		 * d-cache and i-cache sizes... -Peter
+		 */
 		if (num_cpus == 1) {
 			const u32 *sizep, *lsizep;
 			u32 size, lsize;
@@ -252,7 +305,7 @@ static void __init initialize_cache_info(void)
 				size = *sizep;
 			lsizep = of_get_property(np, "d-cache-block-size",
 						 NULL);
-			
+			/* fallback if block size missing */
 			if (lsizep == NULL)
 				lsizep = of_get_property(np,
 							 "d-cache-line-size",
@@ -296,10 +349,17 @@ static void __init initialize_cache_info(void)
 }
 
 
+/*
+ * Do some initial setup of the system.  The parameters are those which 
+ * were passed in from the bootloader.
+ */
 void __init setup_system(void)
 {
 	DBG(" -> setup_system()\n");
 
+	/* Apply the CPUs-specific and firmware specific fixups to kernel
+	 * text (nop out sections not relevant to this CPU or this firmware)
+	 */
 	do_feature_fixups(cur_cpu_spec->cpu_features,
 			  &__start___ftr_fixup, &__stop___ftr_fixup);
 	do_feature_fixups(cur_cpu_spec->mmu_features,
@@ -310,29 +370,61 @@ void __init setup_system(void)
 			 &__start___lwsync_fixup, &__stop___lwsync_fixup);
 	do_final_fixups();
 
+	/*
+	 * Unflatten the device-tree passed by prom_init or kexec
+	 */
 	unflatten_device_tree();
 
+	/*
+	 * Fill the ppc64_caches & systemcfg structures with informations
+ 	 * retrieved from the device-tree.
+	 */
 	initialize_cache_info();
 
 #ifdef CONFIG_PPC_RTAS
+	/*
+	 * Initialize RTAS if available
+	 */
 	rtas_initialize();
-#endif 
+#endif /* CONFIG_PPC_RTAS */
 
+	/*
+	 * Check if we have an initrd provided via the device-tree
+	 */
 	check_for_initrd();
 
+	/*
+	 * Do some platform specific early initializations, that includes
+	 * setting up the hash table pointers. It also sets up some interrupt-mapping
+	 * related options that will be used by finish_device_tree()
+	 */
 	if (ppc_md.init_early)
 		ppc_md.init_early();
 
+ 	/*
+	 * We can discover serial ports now since the above did setup the
+	 * hash table management for us, thus ioremap works. We do that early
+	 * so that further code can be debugged
+	 */
 	find_legacy_serial_ports();
 
+	/*
+	 * Register early console
+	 */
 	register_early_udbg_console();
 
+	/*
+	 * Initialize xmon
+	 */
 	xmon_setup();
 
 	smp_setup_cpu_maps();
 	check_smt_enabled();
 
 #ifdef CONFIG_SMP
+	/* Release secondary cpus out of their spinloops at 0x60 now that
+	 * we can map physical -> logical CPU ids
+	 */
 	smp_release_cpus();
 #endif
 
@@ -351,7 +443,7 @@ void __init setup_system(void)
 	if (htab_address)
 		printk("htab_address                  = 0x%p\n", htab_address);
 	printk("htab_hash_mask                = 0x%lx\n", htab_hash_mask);
-#endif 
+#endif /* CONFIG_PPC_STD_MMU_64 */
 	if (PHYSICAL_START > 0)
 		printk("physical_start                = 0x%llx\n",
 		       (unsigned long long)PHYSICAL_START);
@@ -360,16 +452,21 @@ void __init setup_system(void)
 	DBG(" <- setup_system()\n");
 }
 
+/* This returns the limit below which memory accesses to the linear
+ * mapping are guarnateed not to cause a TLB or SLB miss. This is
+ * used to allocate interrupt or emergency stacks for which our
+ * exception entry path doesn't deal with being interrupted.
+ */
 static u64 safe_stack_limit(void)
 {
 #ifdef CONFIG_PPC_BOOK3E
-	
+	/* Freescale BookE bolts the entire linear mapping */
 	if (mmu_has_feature(MMU_FTR_TYPE_FSL_E))
 		return linear_map_top;
-	
+	/* Other BookE, we assume the first GB is bolted */
 	return 1ul << 30;
 #else
-	
+	/* BookS, the first segment is bolted */
 	if (mmu_has_feature(MMU_FTR_1T_SEGMENT))
 		return 1UL << SID_SHIFT_1T;
 	return 1UL << SID_SHIFT;
@@ -381,6 +478,10 @@ static void __init irqstack_early_init(void)
 	u64 limit = safe_stack_limit();
 	unsigned int i;
 
+	/*
+	 * Interrupt stacks must be in the first segment since we
+	 * cannot afford to take SLB misses on them.
+	 */
 	for_each_possible_cpu(i) {
 		softirq_ctx[i] = (struct thread_info *)
 			__va(memblock_alloc_base(THREAD_SIZE,
@@ -416,11 +517,24 @@ static void __init exc_lvl_early_init(void)
 #define exc_lvl_early_init()
 #endif
 
+/*
+ * Stack space used when we detect a bad kernel stack pointer, and
+ * early in SMP boots before relocation is enabled.
+ */
 static void __init emergency_stack_init(void)
 {
 	u64 limit;
 	unsigned int i;
 
+	/*
+	 * Emergency stacks must be under 256MB, we cannot afford to take
+	 * SLB misses on them. The ABI also requires them to be 128-byte
+	 * aligned.
+	 *
+	 * Since we use these as temporary stacks during secondary CPU
+	 * bringup, we need to get at them in real mode. This means they
+	 * must also be within the RMO region.
+	 */
 	limit = min(safe_stack_limit(), ppc64_rma_size);
 
 	for_each_possible_cpu(i) {
@@ -431,16 +545,25 @@ static void __init emergency_stack_init(void)
 	}
 }
 
+/*
+ * Called into from start_kernel this initializes bootmem, which is used
+ * to manage page allocation until mem_init is called.
+ */
 void __init setup_arch(char **cmdline_p)
 {
 	ppc64_boot_msg(0x12, "Setup Arch");
 
 	*cmdline_p = cmd_line;
 
+	/*
+	 * Set cache line size based on type of cpu as a default.
+	 * Systems with OF can look in the properties on the cpu node(s)
+	 * for a possibly more accurate value.
+	 */
 	dcache_bsize = ppc64_caches.dline_size;
 	icache_bsize = ppc64_caches.iline_size;
 
-	
+	/* reboot on panic */
 	panic_timeout = 180;
 
 	if (ppc_md.panic)
@@ -458,7 +581,7 @@ void __init setup_arch(char **cmdline_p)
 #ifdef CONFIG_PPC_STD_MMU_64
 	stabs_alloc();
 #endif
-	
+	/* set up the bootmem stuff with available memory */
 	do_init_bootmem();
 	sparse_init();
 
@@ -471,7 +594,7 @@ void __init setup_arch(char **cmdline_p)
 
 	paging_init();
 
-	
+	/* Initialize the MMU context management stuff */
 	mmu_context_init();
 
 	kvm_linear_init();
@@ -480,6 +603,7 @@ void __init setup_arch(char **cmdline_p)
 }
 
 
+/* ToDo: do something useful if ppc_md is not yet setup. */
 #define PPC64_LINUX_FUNCTION 0x0f000000
 #define PPC64_IPL_MESSAGE 0xc0000000
 #define PPC64_TERM_MESSAGE 0xb0000000
@@ -496,6 +620,7 @@ static void ppc64_do_msg(unsigned int src, const char *msg)
 	}
 }
 
+/* Print a boot progress message. */
 void ppc64_boot_msg(unsigned int src, const char *msg)
 {
 	ppc64_do_msg(PPC64_LINUX_FUNCTION|PPC64_IPL_MESSAGE|src, msg);
@@ -535,6 +660,11 @@ void __init setup_per_cpu_areas(void)
 	unsigned int cpu;
 	int rc;
 
+	/*
+	 * Linear mapping is one of 4K, 1M and 16M.  For 4K, no need
+	 * to group units.  For larger mappings, use 1M atom which
+	 * should be large enough to contain a number of units.
+	 */
 	if (mmu_linear_psize == MMU_PAGE_4K)
 		atom_size = PAGE_SIZE;
 	else
@@ -557,5 +687,5 @@ void __init setup_per_cpu_areas(void)
 #ifdef CONFIG_PPC_INDIRECT_IO
 struct ppc_pci_io ppc_pci_io;
 EXPORT_SYMBOL(ppc_pci_io);
-#endif 
+#endif /* CONFIG_PPC_INDIRECT_IO */
 

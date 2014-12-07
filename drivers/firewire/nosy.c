@@ -30,7 +30,7 @@
 #include <linux/mutex.h>
 #include <linux/pci.h>
 #include <linux/poll.h>
-#include <linux/sched.h> 
+#include <linux/sched.h> /* required for linux/wait.h */
 #include <linux/slab.h>
 #include <linux/spinlock.h>
 #include <linux/timex.h>
@@ -48,6 +48,7 @@
 
 static char driver_name[] = KBUILD_MODNAME;
 
+/* this is the physical layout of a PCL, its size is 128 bytes */
 struct pcl {
 	__le32 next;
 	__le32 async_error_next;
@@ -159,7 +160,7 @@ packet_buffer_get(struct client *client, char __user *data, size_t user_length)
 	if (atomic_read(&buffer->size) == 0)
 		return -ENODEV;
 
-	
+	/* FIXME: Check length <= user_length. */
 
 	end = buffer->data + buffer->capacity;
 	length = buffer->head->length;
@@ -178,6 +179,11 @@ packet_buffer_get(struct client *client, char __user *data, size_t user_length)
 		buffer->head = (struct packet *) &buffer->data[length - split];
 	}
 
+	/*
+	 * Decrease buffer->size as the last thing, since this is what
+	 * keeps the interrupt from overwriting the packet we are
+	 * retrieving from the buffer.
+	 */
 	atomic_sub(sizeof(struct packet) + length, &buffer->size);
 
 	return length;
@@ -210,7 +216,7 @@ packet_buffer_put(struct packet_buffer *buffer, void *data, size_t length)
 		buffer->tail = (struct packet *) &buffer->data[length - split];
 	}
 
-	
+	/* Finally, adjust buffer size and wake up userspace reader. */
 
 	atomic_add(sizeof(struct packet) + length, &buffer->size);
 	wake_up_interruptible(&buffer->wait);
@@ -234,6 +240,10 @@ reg_set_bits(struct pcilynx *lynx, int offset, u32 mask)
 	reg_write(lynx, offset, (reg_read(lynx, offset) | mask));
 }
 
+/*
+ * Maybe the pcl programs could be set up to just append data instead
+ * of using a whole packet.
+ */
 static inline void
 run_pcl(struct pcilynx *lynx, dma_addr_t pcl_bus,
 			   int dmachan)
@@ -384,7 +394,7 @@ nosy_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 	default:
 		return -EINVAL;
-		
+		/* Flush buffer, configure filter. */
 	}
 }
 
@@ -397,7 +407,7 @@ static const struct file_operations nosy_ops = {
 	.release =		nosy_release,
 };
 
-#define PHY_PACKET_SIZE 12 
+#define PHY_PACKET_SIZE 12 /* 1 payload, 1 inverse, 1 ack = 3 quadlets */
 
 static void
 packet_irq_handler(struct pcilynx *lynx)
@@ -407,7 +417,7 @@ packet_irq_handler(struct pcilynx *lynx)
 	size_t length;
 	struct timeval tv;
 
-	
+	/* FIXME: Also report rcv_speed. */
 
 	length = __le32_to_cpu(lynx->rcv_pcl->pcl_status) & 0x00001fff;
 	tcode  = __le32_to_cpu(lynx->rcv_buffer[1]) >> 4 & 0xf;
@@ -455,11 +465,11 @@ irq_handler(int irq, void *device)
 	pci_int_status = reg_read(lynx, PCI_INT_STATUS);
 
 	if (pci_int_status == ~0)
-		
+		/* Card was ejected. */
 		return IRQ_NONE;
 
 	if ((pci_int_status & PCI_INT_INT_PEND) == 0)
-		
+		/* Not our interrupt, bail out quickly. */
 		return IRQ_NONE;
 
 	if ((pci_int_status & PCI_INT_P1394_INT) != 0) {
@@ -472,6 +482,9 @@ irq_handler(int irq, void *device)
 			bus_reset_irq_handler(lynx);
 	}
 
+	/* Clear the PCI_INT_STATUS register only after clearing the
+	 * LINK_INT_STATUS register; otherwise the PCI_INT_P1394 will
+	 * be set again immediately. */
 
 	reg_write(lynx, PCI_INT_STATUS, pci_int_status);
 
@@ -581,12 +594,12 @@ add_card(struct pci_dev *dev, const struct pci_device_id *unused)
 	lynx->rcv_pcl->buffer[i - 1].control |= cpu_to_le32(PCL_LAST_BUFF);
 
 	reg_set_bits(lynx, MISC_CONTROL, MISC_CONTROL_SWRESET);
-	
+	/* Fix buggy cards with autoboot pin not tied low: */
 	reg_write(lynx, DMA0_CHAN_CTRL, 0);
 	reg_write(lynx, DMA_GLOBAL_REGISTER, 0x00 << 24);
 
 #if 0
-	
+	/* now, looking for PHY register set */
 	if ((get_phy_reg(lynx, 2) & 0xe0) == 0xe0) {
 		lynx->phyic.reg_1394a = 1;
 		PRINT(KERN_INFO, lynx->id,
@@ -599,7 +612,7 @@ add_card(struct pci_dev *dev, const struct pci_device_id *unused)
 	}
 #endif
 
-	
+	/* Setup the general receive FIFO max size. */
 	reg_write(lynx, FIFO_SIZES, 255);
 
 	reg_set_bits(lynx, PCI_INT_ENABLE, PCI_INT_DMA_ALL);
@@ -611,10 +624,10 @@ add_card(struct pci_dev *dev, const struct pci_device_id *unused)
 		  LINK_INT_TC_ERR | LINK_INT_GRF_OVER_FLOW |
 		  LINK_INT_ITF_UNDER_FLOW | LINK_INT_ATF_UNDER_FLOW);
 
-	
+	/* Disable the L flag in self ID packets. */
 	set_phy_reg(lynx, 4, 0);
 
-	
+	/* Put this baby into snoop mode */
 	reg_set_bits(lynx, LINK_CONTROL, LINK_CONTROL_SNOOP_ENABLE);
 
 	run_pcl(lynx, lynx->rcv_start_pcl_bus, 0);
@@ -677,7 +690,7 @@ static struct pci_device_id pci_table[] __devinitdata = {
 		.subvendor = PCI_ANY_ID,
 		.subdevice = PCI_ANY_ID,
 	},
-	{ }	
+	{ }	/* Terminating entry */
 };
 
 static struct pci_driver lynx_pci_driver = {

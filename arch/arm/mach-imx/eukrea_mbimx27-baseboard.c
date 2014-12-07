@@ -36,31 +36,31 @@
 #include "devices-imx27.h"
 
 static const int eukrea_mbimx27_pins[] __initconst = {
-	
+	/* UART2 */
 	PE3_PF_UART2_CTS,
 	PE4_PF_UART2_RTS,
 	PE6_PF_UART2_TXD,
 	PE7_PF_UART2_RXD,
-	
+	/* UART3 */
 	PE8_PF_UART3_TXD,
 	PE9_PF_UART3_RXD,
 	PE10_PF_UART3_CTS,
 	PE11_PF_UART3_RTS,
-	
+	/* UART4 */
 #if !defined(MACH_EUKREA_CPUIMX27_USEUART4)
 	PB26_AF_UART4_RTS,
 	PB28_AF_UART4_TXD,
 	PB29_AF_UART4_CTS,
 	PB31_AF_UART4_RXD,
 #endif
-	
+	/* SDHC1*/
 	PE18_PF_SD1_D0,
 	PE19_PF_SD1_D1,
 	PE20_PF_SD1_D2,
 	PE21_PF_SD1_D3,
 	PE22_PF_SD1_CMD,
 	PE23_PF_SD1_CLK,
-	
+	/* display */
 	PA5_PF_LSCLK,
 	PA6_PF_LD0,
 	PA7_PF_LD1,
@@ -84,11 +84,11 @@ static const int eukrea_mbimx27_pins[] __initconst = {
 	PA29_PF_VSYNC,
 	PA30_PF_CONTRAST,
 	PA31_PF_OE_ACD,
-	
+	/* SPI1 */
 	PD29_PF_CSPI1_SCLK,
 	PD30_PF_CSPI1_MISO,
 	PD31_PF_CSPI1_MOSI,
-	
+	/* SSI4 */
 #if defined(CONFIG_SND_SOC_EUKREA_TLV320) \
 	|| defined(CONFIG_SND_SOC_EUKREA_TLV320_MODULE)
 	PC16_PF_SSI4_FS,
@@ -294,6 +294,12 @@ struct imx_ssi_platform_data eukrea_mbimx27_ssi_pdata __initconst = {
 	.flags = IMX_SSI_DMA | IMX_SSI_USE_I2S_SLAVE,
 };
 
+/*
+ * system init for baseboard usage. Will be called by cpuimx27 init.
+ *
+ * Add platform devices present on this baseboard and init
+ * them from CPU side as far as required to use them later on
+ */
 void __init eukrea_mbimx27_baseboard_init(void)
 {
 	mxc_gpio_setup_multiple_pins(eukrea_mbimx27_pins,
@@ -315,25 +321,25 @@ void __init eukrea_mbimx27_baseboard_init(void)
 
 #if defined(CONFIG_TOUCHSCREEN_ADS7846) \
 	|| defined(CONFIG_TOUCHSCREEN_ADS7846_MODULE)
-	
+	/* ADS7846 Touchscreen controller init */
 	mxc_gpio_mode(GPIO_PORTD | 25 | GPIO_GPIO | GPIO_IN);
 	ads7846_dev_init();
 #endif
 
-	
+	/* SPI_CS0 init */
 	mxc_gpio_mode(GPIO_PORTD | 28 | GPIO_GPIO | GPIO_OUT);
 	imx27_add_spi_imx0(&eukrea_mbimx27_spi0_data);
 	spi_register_board_info(eukrea_mbimx27_spi_board_info,
 			ARRAY_SIZE(eukrea_mbimx27_spi_board_info));
 
-	
+	/* Leds configuration */
 	mxc_gpio_mode(GPIO_PORTF | 16 | GPIO_GPIO | GPIO_OUT);
 	mxc_gpio_mode(GPIO_PORTF | 19 | GPIO_GPIO | GPIO_OUT);
-	
+	/* Backlight */
 	mxc_gpio_mode(GPIO_PORTE | 5 | GPIO_GPIO | GPIO_OUT);
 	gpio_request(GPIO_PORTE | 5, "backlight");
 	platform_device_register(&eukrea_mbimx27_bl_dev);
-	
+	/* LCD Reset */
 	mxc_gpio_mode(GPIO_PORTA | 25 | GPIO_GPIO | GPIO_OUT);
 	gpio_request(GPIO_PORTA | 25, "lcd_enable");
 	platform_device_register(&eukrea_mbimx27_lcd_powerdev);

@@ -69,6 +69,7 @@ davinci_alloc_gc(void __iomem *base, unsigned int irq_start, unsigned int num)
 			       IRQ_NOREQUEST | IRQ_NOPROBE, 0);
 }
 
+/* ARM Interrupt Controller Initialization */
 void __init davinci_irq_init(void)
 {
 	unsigned i, j;
@@ -79,23 +80,23 @@ void __init davinci_irq_init(void)
 	if (WARN_ON(!davinci_intc_base))
 		return;
 
-	
+	/* Clear all interrupt requests */
 	davinci_irq_writel(~0x0, FIQ_REG0_OFFSET);
 	davinci_irq_writel(~0x0, FIQ_REG1_OFFSET);
 	davinci_irq_writel(~0x0, IRQ_REG0_OFFSET);
 	davinci_irq_writel(~0x0, IRQ_REG1_OFFSET);
 
-	
+	/* Disable all interrupts */
 	davinci_irq_writel(0x0, IRQ_ENT_REG0_OFFSET);
 	davinci_irq_writel(0x0, IRQ_ENT_REG1_OFFSET);
 
-	
+	/* Interrupts disabled immediately, IRQ entry reflects all */
 	davinci_irq_writel(0x0, IRQ_INCTL_REG_OFFSET);
 
-	
+	/* we don't use the hardware vector table, just its entry addresses */
 	davinci_irq_writel(0, IRQ_EABASE_REG_OFFSET);
 
-	
+	/* Clear all interrupt requests */
 	davinci_irq_writel(~0x0, FIQ_REG0_OFFSET);
 	davinci_irq_writel(~0x0, FIQ_REG1_OFFSET);
 	davinci_irq_writel(~0x0, IRQ_REG0_OFFSET);

@@ -55,6 +55,15 @@ static __inline__ long local_sub_return(long i, local_t * l)
 	(cmpxchg_local(&((l)->a.counter), (o), (n)))
 #define local_xchg(l, n) (xchg_local(&((l)->a.counter), (n)))
 
+/**
+ * local_add_unless - add unless the number is a given value
+ * @l: pointer of type local_t
+ * @a: the amount to add to l...
+ * @u: ...unless l is equal to u.
+ *
+ * Atomically adds @a to @l, so long as it was not @u.
+ * Returns non-zero if @l was not @u, and zero otherwise.
+ */
 #define local_add_unless(l, a, u)				\
 ({								\
 	long c, old;						\
@@ -83,9 +92,10 @@ static __inline__ long local_sub_return(long i, local_t * l)
 
 #define local_dec_and_test(l) (local_sub_return(1, (l)) == 0)
 
+/* Verify if faster than atomic ops */
 #define __local_inc(l)		((l)->a.counter++)
 #define __local_dec(l)		((l)->a.counter++)
 #define __local_add(i,l)	((l)->a.counter+=(i))
 #define __local_sub(i,l)	((l)->a.counter-=(i))
 
-#endif 
+#endif /* _ALPHA_LOCAL_H */

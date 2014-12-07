@@ -25,9 +25,9 @@
 #include "ahci.h"
 
 enum ahci_type {
-	AHCI,		
-	IMX53_AHCI,	
-	STRICT_AHCI,	
+	AHCI,		/* standard platform ahci */
+	IMX53_AHCI,	/* ahci on i.mx53 */
+	STRICT_AHCI,	/* delayed DMA engine start */
 };
 
 static struct platform_device_id ahci_devtype[] = {
@@ -41,14 +41,14 @@ static struct platform_device_id ahci_devtype[] = {
 		.name = "strict-ahci",
 		.driver_data = STRICT_AHCI,
 	}, {
-		
+		/* sentinel */
 	}
 };
 MODULE_DEVICE_TABLE(platform, ahci_devtype);
 
 
 static const struct ata_port_info ahci_port_info[] = {
-	
+	/* by features */
 	[AHCI] = {
 		.flags		= AHCI_FLAG_COMMON,
 		.pio_mask	= ATA_PIO4,
@@ -118,6 +118,12 @@ static int __devinit ahci_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
+	/*
+	 * Some platforms might need to prepare for mmio region access,
+	 * which could be done in the following init call. So, the mmio
+	 * region shouldn't be accessed before init (if provided) has
+	 * returned successfully.
+	 */
 	if (pdata && pdata->init) {
 		rc = pdata->init(dev, hpriv->mmio);
 		if (rc)
@@ -128,7 +134,7 @@ static int __devinit ahci_probe(struct platform_device *pdev)
 		pdata ? pdata->force_port_map : 0,
 		pdata ? pdata->mask_port_map  : 0);
 
-	
+	/* prepare host */
 	if (hpriv->cap & HOST_CAP_NCQ)
 		pi.flags |= ATA_FLAG_NCQ;
 
@@ -137,6 +143,11 @@ static int __devinit ahci_probe(struct platform_device *pdev)
 
 	ahci_set_em_messages(hpriv, &pi);
 
+	/* CAP.NP sometimes indicate the index of the last enabled
+	 * port, at other times, that of the last possible port, so
+	 * determining the maximum port number requires looking at
+	 * both CAP.NP and port_map.
+	 */
 	n_ports = max(ahci_nr_ports(hpriv->cap), fls(hpriv->port_map));
 
 	host = ata_host_alloc_pinfo(dev, ppi, n_ports);
@@ -161,11 +172,11 @@ static int __devinit ahci_probe(struct platform_device *pdev)
 		ata_port_desc(ap, "mmio %pR", mem);
 		ata_port_desc(ap, "port 0x%x", 0x100 + ap->port_no * 0x80);
 
-		
+		/* set enclosure management message type */
 		if (ap->flags & ATA_FLAG_EM)
 			ap->em_message_type = hpriv->em_msg_type;
 
-		
+		/* disabled/not-implemented port */
 		if (!(hpriv->port_map & (1 << i)))
 			ap->ops = &ata_dummy_port_ops;
 	}
@@ -229,10 +240,15 @@ static int ahci_suspend(struct device *dev)
 		return -EIO;
 	}
 
+	/*
+	 * AHCI spec rev1.1 section 8.3.3:
+	 * Software must disable interrupts prior to requesting a
+	 * transition of the HBA to D3 state.
+	 */
 	ctl = readl(mmio + HOST_CTL);
 	ctl &= ~HOST_IRQ_EN;
 	writel(ctl, mmio + HOST_CTL);
-	readl(mmio + HOST_CTL); 
+	readl(mmio + HOST_CTL); /* flush */
 
 	rc = ata_host_suspend(host, PMSG_SUSPEND);
 	if (rc)

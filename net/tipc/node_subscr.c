@@ -38,6 +38,9 @@
 #include "node_subscr.h"
 #include "node.h"
 
+/**
+ * tipc_nodesub_subscribe - create "node down" subscription for specified node
+ */
 
 void tipc_nodesub_subscribe(struct tipc_node_subscr *node_sub, u32 addr,
 		       void *usr_handle, net_ev_handler handle_down)
@@ -60,6 +63,9 @@ void tipc_nodesub_subscribe(struct tipc_node_subscr *node_sub, u32 addr,
 	tipc_node_unlock(node_sub->node);
 }
 
+/**
+ * tipc_nodesub_unsubscribe - cancel "node down" subscription (if any)
+ */
 
 void tipc_nodesub_unsubscribe(struct tipc_node_subscr *node_sub)
 {
@@ -71,6 +77,11 @@ void tipc_nodesub_unsubscribe(struct tipc_node_subscr *node_sub)
 	tipc_node_unlock(node_sub->node);
 }
 
+/**
+ * tipc_nodesub_notify - notify subscribers that a node is unreachable
+ *
+ * Note: node is locked by caller
+ */
 
 void tipc_nodesub_notify(struct tipc_node *node)
 {

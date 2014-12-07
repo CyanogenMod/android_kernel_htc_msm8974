@@ -1,3 +1,4 @@
+/* Kernel module to match AH parameters. */
 
 /* (C) 2001-2002 Andras Kis-Szabo <kisza@sch.bme.hu>
  *
@@ -22,6 +23,7 @@ MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Xtables: IPv6 IPsec-AH match");
 MODULE_AUTHOR("Andras Kis-Szabo <kisza@sch.bme.hu>");
 
+/* Returns 1 if the spi is matched by the range, 0 otherwise */
 static inline bool
 spi_match(u_int32_t min, u_int32_t max, u_int32_t spi, bool invert)
 {

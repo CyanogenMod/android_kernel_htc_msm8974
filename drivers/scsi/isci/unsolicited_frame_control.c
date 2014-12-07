@@ -66,22 +66,58 @@ int sci_unsolicited_frame_control_construct(struct isci_host *ihost)
 	size_t size;
 	void *virt;
 
+	/*
+	 * Prepare all of the memory sizes for the UF headers, UF address
+	 * table, and UF buffers themselves.
+	 */
 	buf_len = SCU_MAX_UNSOLICITED_FRAMES * SCU_UNSOLICITED_FRAME_BUFFER_SIZE;
 	header_len = SCU_MAX_UNSOLICITED_FRAMES * sizeof(struct scu_unsolicited_frame_header);
 	size = buf_len + header_len + SCU_MAX_UNSOLICITED_FRAMES * sizeof(uf_control->address_table.array[0]);
 
+	/*
+	 * The Unsolicited Frame buffers are set at the start of the UF
+	 * memory descriptor entry. The headers and address table will be
+	 * placed after the buffers.
+	 */
 	virt = dmam_alloc_coherent(&ihost->pdev->dev, size, &dma, GFP_KERNEL);
 	if (!virt)
 		return -ENOMEM;
 
+	/*
+	 * Program the location of the UF header table into the SCU.
+	 * Notes:
+	 * - The address must align on a 64-byte boundary. Guaranteed to be
+	 *   on 64-byte boundary already 1KB boundary for unsolicited frames.
+	 * - Program unused header entries to overlap with the last
+	 *   unsolicited frame.  The silicon will never DMA to these unused
+	 *   headers, since we program the UF address table pointers to
+	 *   NULL.
+	 */
 	uf_control->headers.physical_address = dma + buf_len;
 	uf_control->headers.array = virt + buf_len;
 
+	/*
+	 * Program the location of the UF address table into the SCU.
+	 * Notes:
+	 * - The address must align on a 64-bit boundary. Guaranteed to be on 64
+	 *   byte boundary already due to above programming headers being on a
+	 *   64-bit boundary and headers are on a 64-bytes in size.
+	 */
 	uf_control->address_table.physical_address = dma + buf_len + header_len;
 	uf_control->address_table.array = virt + buf_len + header_len;
 	uf_control->get = 0;
 
+	/*
+	 * UF buffer requirements are:
+	 * - The last entry in the UF queue is not NULL.
+	 * - There is a power of 2 number of entries (NULL or not-NULL)
+	 *   programmed into the queue.
+	 * - Aligned on a 1KB boundary. */
 
+	/*
+	 * Program the actual used UF buffers into the UF address table and
+	 * the controller's array of UFs.
+	 */
 	for (i = 0; i < SCU_MAX_UNSOLICITED_FRAMES; i++) {
 		uf = &uf_control->buffers.array[i];
 
@@ -91,6 +127,11 @@ int sci_unsolicited_frame_control_construct(struct isci_host *ihost)
 		uf->header = &uf_control->headers.array[i];
 		uf->state  = UNSOLICITED_FRAME_EMPTY;
 
+		/*
+		 * Increment the address of the physical and virtual memory
+		 * pointers. Everything is aligned on 1k boundary with an
+		 * increment of 1k.
+		 */
 		virt += SCU_UNSOLICITED_FRAME_BUFFER_SIZE;
 		dma += SCU_UNSOLICITED_FRAME_BUFFER_SIZE;
 	}
@@ -103,6 +144,9 @@ enum sci_status sci_unsolicited_frame_control_get_header(struct sci_unsolicited_
 							 void **frame_header)
 {
 	if (frame_index < SCU_MAX_UNSOLICITED_FRAMES) {
+		/* Skip the first word in the frame since this is a controll word used
+		 * by the hardware.
+		 */
 		*frame_header = &uf_control->buffers.array[frame_index].header->data;
 
 		return SCI_SUCCESS;
@@ -133,11 +177,20 @@ bool sci_unsolicited_frame_control_release_frame(struct sci_unsolicited_frame_co
 	frame_get   = uf_control->get & (SCU_MAX_UNSOLICITED_FRAMES - 1);
 	frame_cycle = uf_control->get & SCU_MAX_UNSOLICITED_FRAMES;
 
+	/*
+	 * In the event there are NULL entries in the UF table, we need to
+	 * advance the get pointer in order to find out if this frame should
+	 * be released (i.e. update the get pointer)
+	 */
 	while (lower_32_bits(uf_control->address_table.array[frame_get]) == 0 &&
 	       upper_32_bits(uf_control->address_table.array[frame_get]) == 0 &&
 	       frame_get < SCU_MAX_UNSOLICITED_FRAMES)
 		frame_get++;
 
+	/*
+	 * The table has a NULL entry as it's last element.  This is
+	 * illegal.
+	 */
 	BUG_ON(frame_get >= SCU_MAX_UNSOLICITED_FRAMES);
 	if (frame_index >= SCU_MAX_UNSOLICITED_FRAMES)
 		return false;
@@ -145,9 +198,17 @@ bool sci_unsolicited_frame_control_release_frame(struct sci_unsolicited_frame_co
 	uf_control->buffers.array[frame_index].state = UNSOLICITED_FRAME_RELEASED;
 
 	if (frame_get != frame_index) {
+		/*
+		 * Frames remain in use until we advance the get pointer
+		 * so there is nothing we can do here
+		 */
 		return false;
 	}
 
+	/*
+	 * The frame index is equal to the current get pointer so we
+	 * can now free up all of the frame entries that
+	 */
 	while (uf_control->buffers.array[frame_get].state == UNSOLICITED_FRAME_RELEASED) {
 		uf_control->buffers.array[frame_get].state = UNSOLICITED_FRAME_EMPTY;
 

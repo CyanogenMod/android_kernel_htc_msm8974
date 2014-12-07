@@ -72,10 +72,12 @@
 #define WCD9XXX_MCLK_CLK_12P288MHZ 12288000
 #define WCD9XXX_MCLK_CLK_9P6HZ 9600000
 
+/* Only valid for 9.6 MHz mclk */
 #define WCD9XXX_DMIC_SAMPLE_RATE_2P4MHZ 2400000
 #define WCD9XXX_DMIC_SAMPLE_RATE_3P2MHZ 3200000
 #define WCD9XXX_DMIC_SAMPLE_RATE_4P8MHZ 4800000
 
+/* Only valid for 12.288 MHz mclk */
 #define WCD9XXX_DMIC_SAMPLE_RATE_3P072MHZ 3072000
 #define WCD9XXX_DMIC_SAMPLE_RATE_4P096MHZ 4096000
 #define WCD9XXX_DMIC_SAMPLE_RATE_6P144MHZ 6144000
@@ -83,18 +85,39 @@
 #define WCD9XXX_DMIC_SAMPLE_RATE_UNDEFINED 0
 
 struct wcd9xxx_amic {
+	/*legacy mode, txfe_enable and txfe_buff take 7 input
+	 * each bit represent the channel / TXFE number
+	 * and numbered as below
+	 * bit 0 = channel 1 / TXFE1_ENABLE / TXFE1_BUFF
+	 * bit 1 = channel 2 / TXFE2_ENABLE / TXFE2_BUFF
+	 * ...
+	 * bit 7 = channel 7 / TXFE7_ENABLE / TXFE7_BUFF
+	 */
 	u8 legacy_mode:MAX_AMIC_CHANNEL;
 	u8 txfe_enable:MAX_AMIC_CHANNEL;
 	u8 txfe_buff:MAX_AMIC_CHANNEL;
 	u8 use_pdata:MAX_AMIC_CHANNEL;
 };
 
+/* Each micbias can be assigned to one of three cfilters
+ * Vbatt_min >= .15V + ldoh_v
+ * ldoh_v >= .15v + cfiltx_mv
+ * If ldoh_v = 1.95 160 mv < cfiltx_mv < 1800 mv
+ * If ldoh_v = 2.35 200 mv < cfiltx_mv < 2200 mv
+ * If ldoh_v = 2.75 240 mv < cfiltx_mv < 2600 mv
+ * If ldoh_v = 2.85 250 mv < cfiltx_mv < 2700 mv
+ */
 
 struct wcd9xxx_micbias_setting {
 	u8 ldoh_v;
-	u32 cfilt1_mv; 
-	u32 cfilt2_mv; 
-	u32 cfilt3_mv; 
+	u32 cfilt1_mv; /* in mv */
+	u32 cfilt2_mv; /* in mv */
+	u32 cfilt3_mv; /* in mv */
+	/* Different WCD9xxx series codecs may not
+	 * have 4 mic biases. If a codec has fewer
+	 * mic biases, some of these properties will
+	 * not be used.
+	 */
 	u8 bias1_cfilt_sel;
 	u8 bias2_cfilt_sel;
 	u8 bias3_cfilt_sel;
@@ -107,14 +130,19 @@ struct wcd9xxx_micbias_setting {
 };
 
 struct wcd9xxx_ocp_setting {
-	unsigned int	use_pdata:1; 
-	unsigned int	num_attempts:4; 
-	unsigned int	run_time:4; 
-	unsigned int	wait_time:4; 
-	unsigned int	hph_ocp_limit:3; 
+	unsigned int	use_pdata:1; /* 0 - use sys default as recommended */
+	unsigned int	num_attempts:4; /* up to 15 attempts */
+	unsigned int	run_time:4; /* in duty cycle */
+	unsigned int	wait_time:4; /* in duty cycle */
+	unsigned int	hph_ocp_limit:3; /* Headphone OCP current limit */
 };
 
 #define WCD9XXX_MAX_REGULATOR	8
+/*
+ *      format : TABLA_<POWER_SUPPLY_PIN_NAME>_CUR_MAX
+ *
+ *      <POWER_SUPPLY_PIN_NAME> from Tabla objective spec
+*/
 
 #define  WCD9XXX_CDC_VDDA_CP_CUR_MAX      500000
 #define  WCD9XXX_CDC_VDDA_RX_CUR_MAX      20000

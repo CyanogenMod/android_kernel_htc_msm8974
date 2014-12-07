@@ -20,6 +20,11 @@ static struct resource py_mem_resource = {
 	.flags	= IORESOURCE_MEM
 };
 
+/*
+ * PMON really reserves 16MB of I/O port space but that's stupid, nothing
+ * needs that much since allocations are limited to 256 bytes per device
+ * anyway.  So we just claim 64kB here.
+ */
 #define TITAN_IO_SIZE	0x0000ffffUL
 #define TITAN_IO_BASE	0xe8000000UL
 

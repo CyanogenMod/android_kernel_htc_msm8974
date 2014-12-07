@@ -15,6 +15,11 @@
 #include "hfs_fs.h"
 #include "btree.h"
 
+/*
+ * hfs_cat_build_key()
+ *
+ * Given the ID of the parent and the name build a search key.
+ */
 void hfs_cat_build_key(struct super_block *sb, btree_key *key, u32 parent, struct qstr *name)
 {
 	key->cat.reserved = 0;
@@ -42,7 +47,7 @@ static int hfs_cat_build_record(hfs_cat_rec *rec, u32 cnid, struct inode *inode)
 		rec->dir.UsrInfo.frView = cpu_to_be16(0xff);
 		return sizeof(struct hfs_cat_dir);
 	} else {
-		
+		/* init some fields for the file record */
 		rec->type = HFS_CDR_FIL;
 		rec->file.Flags = HFS_FIL_USED | HFS_FIL_THD;
 		if (!(inode->i_mode & S_IWUSR))
@@ -68,6 +73,12 @@ static int hfs_cat_build_thread(struct super_block *sb,
 	return sizeof(struct hfs_cat_thread);
 }
 
+/*
+ * create_entry()
+ *
+ * Add a new file or directory to the catalog B-tree and
+ * return a (struct hfs_cat_entry) for it in '*result'.
+ */
 int hfs_cat_create(u32 cnid, struct inode *dir, struct qstr *str, struct inode *inode)
 {
 	struct hfs_find_data fd;
@@ -101,7 +112,7 @@ int hfs_cat_create(u32 cnid, struct inode *dir, struct qstr *str, struct inode *
 	entry_size = hfs_cat_build_record(&entry, cnid, inode);
 	err = hfs_brec_find(&fd);
 	if (err != -ENOENT) {
-		
+		/* panic? */
 		if (!err)
 			err = -EEXIST;
 		goto err1;
@@ -125,6 +136,27 @@ err2:
 	return err;
 }
 
+/*
+ * hfs_cat_compare()
+ *
+ * Description:
+ *   This is the comparison function used for the catalog B-tree.  In
+ *   comparing catalog B-tree entries, the parent id is the most
+ *   significant field (compared as unsigned ints).  The name field is
+ *   the least significant (compared in "Macintosh lexical order",
+ *   see hfs_strcmp() in string.c)
+ * Input Variable(s):
+ *   struct hfs_cat_key *key1: pointer to the first key to compare
+ *   struct hfs_cat_key *key2: pointer to the second key to compare
+ * Output Variable(s):
+ *   NONE
+ * Returns:
+ *   int: negative if key1<key2, positive if key1>key2, and 0 if key1==key2
+ * Preconditions:
+ *   key1 and key2 point to "valid" (struct hfs_cat_key)s.
+ * Postconditions:
+ *   This function has no side-effects
+ */
 int hfs_cat_keycmp(const btree_key *key1, const btree_key *key2)
 {
 	int retval;
@@ -137,6 +169,8 @@ int hfs_cat_keycmp(const btree_key *key1, const btree_key *key2)
 	return retval;
 }
 
+/* Try to get a catalog entry for given catalog id */
+// move to read_super???
 int hfs_cat_find_brec(struct super_block *sb, u32 cnid,
 		      struct hfs_find_data *fd)
 {
@@ -165,6 +199,12 @@ int hfs_cat_find_brec(struct super_block *sb, u32 cnid,
 }
 
 
+/*
+ * hfs_cat_delete()
+ *
+ * Delete the indicated file or directory.
+ * The associated thread is also removed unless ('with_thread'==0).
+ */
 int hfs_cat_delete(u32 cnid, struct inode *dir, struct qstr *str)
 {
 	struct super_block *sb;
@@ -222,6 +262,13 @@ out:
 	return res;
 }
 
+/*
+ * hfs_cat_move()
+ *
+ * Rename a file or directory, possibly to a new directory.
+ * If the destination exists it is removed and a
+ * (struct hfs_cat_entry) for it is returned in '*result'.
+ */
 int hfs_cat_move(u32 cnid, struct inode *src_dir, struct qstr *src_name,
 		 struct inode *dst_dir, struct qstr *dst_name)
 {
@@ -237,7 +284,7 @@ int hfs_cat_move(u32 cnid, struct inode *src_dir, struct qstr *src_name,
 	hfs_find_init(HFS_SB(sb)->cat_tree, &src_fd);
 	dst_fd = src_fd;
 
-	
+	/* find the old dir entry and read the data */
 	hfs_cat_build_key(sb, src_fd.search_key, src_dir->i_ino, src_name);
 	err = hfs_brec_find(&src_fd);
 	if (err)
@@ -250,7 +297,7 @@ int hfs_cat_move(u32 cnid, struct inode *src_dir, struct qstr *src_name,
 	hfs_bnode_read(src_fd.bnode, &entry, src_fd.entryoffset,
 			    src_fd.entrylength);
 
-	
+	/* create new dir entry with the data from the old entry */
 	hfs_cat_build_key(sb, dst_fd.search_key, dst_dir->i_ino, dst_name);
 	err = hfs_brec_find(&dst_fd);
 	if (err != -ENOENT) {
@@ -266,7 +313,7 @@ int hfs_cat_move(u32 cnid, struct inode *src_dir, struct qstr *src_name,
 	dst_dir->i_mtime = dst_dir->i_ctime = CURRENT_TIME_SEC;
 	mark_inode_dirty(dst_dir);
 
-	
+	/* finally remove the old entry */
 	hfs_cat_build_key(sb, src_fd.search_key, src_dir->i_ino, src_name);
 	err = hfs_brec_find(&src_fd);
 	if (err)
@@ -282,7 +329,7 @@ int hfs_cat_move(u32 cnid, struct inode *src_dir, struct qstr *src_name,
 	if (type == HFS_CDR_FIL && !(entry.file.Flags & HFS_FIL_THD))
 		goto out;
 
-	
+	/* remove old thread entry */
 	hfs_cat_build_key(sb, src_fd.search_key, cnid, NULL);
 	err = hfs_brec_find(&src_fd);
 	if (err)
@@ -291,7 +338,7 @@ int hfs_cat_move(u32 cnid, struct inode *src_dir, struct qstr *src_name,
 	if (err)
 		goto out;
 
-	
+	/* create new thread entry */
 	hfs_cat_build_key(sb, dst_fd.search_key, cnid, NULL);
 	entry_size = hfs_cat_build_thread(sb, &entry, type == HFS_CDR_FIL ? HFS_CDR_FTH : HFS_CDR_THD,
 					dst_dir->i_ino, dst_name);

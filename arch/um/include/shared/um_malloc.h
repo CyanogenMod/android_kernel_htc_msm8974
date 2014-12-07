@@ -14,6 +14,6 @@ extern void kfree(const void *ptr);
 extern void *vmalloc(unsigned long size);
 extern void vfree(void *ptr);
 
-#endif 
+#endif /* __UM_MALLOC_H__ */
 
 

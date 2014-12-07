@@ -159,9 +159,19 @@ i915_gem_object_set_to_gpu_domain(struct drm_i915_gem_object *obj,
 {
 	uint32_t invalidate_domains = 0, flush_domains = 0;
 
+	/*
+	 * If the object isn't moving to a new write domain,
+	 * let the object stay in multiple read domains
+	 */
 	if (obj->base.pending_write_domain == 0)
 		obj->base.pending_read_domains |= obj->base.read_domains;
 
+	/*
+	 * Flush the current write domain if
+	 * the new read domains don't match. Invalidate
+	 * any read domains which differ from the old
+	 * write domain
+	 */
 	if (obj->base.write_domain &&
 	    (((obj->base.write_domain != obj->base.pending_read_domains ||
 	       obj->ring != ring)) ||
@@ -170,6 +180,10 @@ i915_gem_object_set_to_gpu_domain(struct drm_i915_gem_object *obj,
 		invalidate_domains |=
 			obj->base.pending_read_domains & ~obj->base.write_domain;
 	}
+	/*
+	 * Invalidate any read caches which may have
+	 * stale data. That is, any new read domains.
+	 */
 	invalidate_domains |= obj->base.pending_read_domains & ~obj->base.read_domains;
 	if ((flush_domains | invalidate_domains) & I915_GEM_DOMAIN_CPU)
 		i915_gem_clflush_object(obj);
@@ -177,6 +191,12 @@ i915_gem_object_set_to_gpu_domain(struct drm_i915_gem_object *obj,
 	if (obj->base.pending_write_domain)
 		cd->flips |= atomic_read(&obj->pending_flip);
 
+	/* The actual obj->write_domain will be updated with
+	 * pending_write_domain after we emit the accumulated flush for all
+	 * of our domain changes in execbuffers (which clears objects'
+	 * write_domains).  So if we have a current write domain that we
+	 * aren't changing, set pending_write_domain to that.
+	 */
 	if (flush_domains == 0 && obj->base.pending_write_domain == 0)
 		obj->base.pending_write_domain = obj->base.write_domain;
 
@@ -256,20 +276,23 @@ i915_gem_execbuffer_relocate_entry(struct drm_i915_gem_object *obj,
 	uint32_t target_offset;
 	int ret = -EINVAL;
 
-	
+	/* we've already hold a reference to all valid objects */
 	target_obj = &eb_get_object(eb, reloc->target_handle)->base;
 	if (unlikely(target_obj == NULL))
 		return -ENOENT;
 
 	target_offset = to_intel_bo(target_obj)->gtt_offset;
 
+	/* The target buffer should have appeared before us in the
+	 * exec_object list, so it should have a GTT space bound by now.
+	 */
 	if (unlikely(target_offset == 0)) {
 		DRM_DEBUG("No GTT space found for object %d\n",
 			  reloc->target_handle);
 		return ret;
 	}
 
-	
+	/* Validate that the target is in a valid r/w GPU domain */
 	if (unlikely(reloc->write_domain & (reloc->write_domain - 1))) {
 		DRM_DEBUG("reloc with multiple write domains: "
 			  "obj %p target %d offset %d "
@@ -306,10 +329,13 @@ i915_gem_execbuffer_relocate_entry(struct drm_i915_gem_object *obj,
 	target_obj->pending_read_domains |= reloc->read_domains;
 	target_obj->pending_write_domain |= reloc->write_domain;
 
+	/* If the relocation already has the right value in it, no
+	 * more work needs to be done.
+	 */
 	if (target_offset == reloc->presumed_offset)
 		return 0;
 
-	
+	/* Check that the relocation address is valid... */
 	if (unlikely(reloc->offset > obj->base.size - 4)) {
 		DRM_DEBUG("Relocation beyond object bounds: "
 			  "obj %p target %d offset %d size %d.\n",
@@ -339,7 +365,7 @@ i915_gem_execbuffer_relocate_entry(struct drm_i915_gem_object *obj,
 		uint32_t __iomem *reloc_entry;
 		void __iomem *reloc_page;
 
-		
+		/* We can't wait for rendering with pagefaults disabled */
 		if (obj->active && in_atomic())
 			return -EFAULT;
 
@@ -347,7 +373,7 @@ i915_gem_execbuffer_relocate_entry(struct drm_i915_gem_object *obj,
 		if (ret)
 			return ret;
 
-		
+		/* Map the page containing the relocation we're going to perform.  */
 		reloc->offset += obj->gtt_offset;
 		reloc_page = io_mapping_map_atomic_wc(dev_priv->mm.gtt_mapping,
 						      reloc->offset & PAGE_MASK);
@@ -357,7 +383,7 @@ i915_gem_execbuffer_relocate_entry(struct drm_i915_gem_object *obj,
 		io_mapping_unmap_atomic(reloc_page);
 	}
 
-	
+	/* and update the user's relocation entry */
 	reloc->presumed_offset = target_offset;
 
 	return 0;
@@ -418,6 +444,13 @@ i915_gem_execbuffer_relocate(struct drm_device *dev,
 	struct drm_i915_gem_object *obj;
 	int ret = 0;
 
+	/* This is the fast path and we cannot handle a pagefault whilst
+	 * holding the struct mutex lest the user pass in the relocations
+	 * contained within a mmaped bo. For in such a case we, the page
+	 * fault handler would call i915_gem_fault() and we would try to
+	 * acquire the struct mutex again. Obviously this is bad and so
+	 * lockdep complains vehemently.
+	 */
 	pagefault_disable();
 	list_for_each_entry(obj, objects, exec_list) {
 		ret = i915_gem_execbuffer_relocate_object(obj, eb);
@@ -515,11 +548,23 @@ i915_gem_execbuffer_reserve(struct intel_ring_buffer *ring,
 	}
 	list_splice(&ordered_objects, objects);
 
+	/* Attempt to pin all of the buffers into the GTT.
+	 * This is done in 3 phases:
+	 *
+	 * 1a. Unbind all objects that do not match the GTT constraints for
+	 *     the execbuffer (fenceable, mappable, alignment etc).
+	 * 1b. Increment pin count for already bound objects.
+	 * 2.  Bind new objects.
+	 * 3.  Decrement pin count.
+	 *
+	 * This avoid unnecessary unbinding of later objects in order to makr
+	 * room for the earlier objects *unless* we need to defragment.
+	 */
 	retry = 0;
 	do {
 		ret = 0;
 
-		
+		/* Unbind any ill-fitting objects or pin. */
 		list_for_each_entry(obj, objects, exec_list) {
 			struct drm_i915_gem_exec_object2 *entry = obj->exec_entry;
 			bool need_fence, need_mappable;
@@ -543,7 +588,7 @@ i915_gem_execbuffer_reserve(struct intel_ring_buffer *ring,
 				goto err;
 		}
 
-		
+		/* Bind fresh objects */
 		list_for_each_entry(obj, objects, exec_list) {
 			if (obj->gtt_space)
 				continue;
@@ -552,6 +597,12 @@ i915_gem_execbuffer_reserve(struct intel_ring_buffer *ring,
 			if (ret) {
 				int ret_ignore;
 
+				/* This can potentially raise a harmless
+				 * -EINVAL if we failed to bind in the above
+				 * call. It cannot raise -EINTR since we know
+				 * that the bo is freshly bound and so will
+				 * not need to be flushed or waited upon.
+				 */
 				ret_ignore = i915_gem_object_unbind(obj);
 				(void)ret_ignore;
 				WARN_ON(obj->gtt_space);
@@ -559,7 +610,7 @@ i915_gem_execbuffer_reserve(struct intel_ring_buffer *ring,
 			}
 		}
 
-		
+		/* Decrement pin count for bound objects */
 		list_for_each_entry(obj, objects, exec_list) {
 			struct drm_i915_gem_exec_object2 *entry;
 
@@ -574,7 +625,7 @@ i915_gem_execbuffer_reserve(struct intel_ring_buffer *ring,
 
 			i915_gem_object_unpin(obj);
 
-			
+			/* ... and ensure ppgtt mapping exist if needed. */
 			if (dev_priv->mm.aliasing_ppgtt && !obj->has_aliasing_ppgtt_mapping) {
 				i915_ppgtt_bind_object(dev_priv->mm.aliasing_ppgtt,
 						       obj, obj->cache_level);
@@ -586,6 +637,9 @@ i915_gem_execbuffer_reserve(struct intel_ring_buffer *ring,
 		if (ret != -ENOSPC || retry > 1)
 			return ret;
 
+		/* First attempt, just clear anything that is purgeable.
+		 * Second attempt, clear the entire GTT.
+		 */
 		ret = i915_gem_evict_everything(ring->dev, retry == 0);
 		if (ret)
 			return ret;
@@ -626,7 +680,7 @@ i915_gem_execbuffer_relocate_slow(struct drm_device *dev,
 	int *reloc_offset;
 	int i, total, ret;
 
-	
+	/* We may process another execbuffer during the unlock... */
 	while (!list_empty(objects)) {
 		obj = list_first_entry(objects,
 				       struct drm_i915_gem_object,
@@ -673,7 +727,7 @@ i915_gem_execbuffer_relocate_slow(struct drm_device *dev,
 		goto err;
 	}
 
-	
+	/* reacquire the objects */
 	eb_reset(eb);
 	for (i = 0; i < count; i++) {
 		obj = to_intel_bo(drm_gem_object_lookup(dev, file,
@@ -703,6 +757,11 @@ i915_gem_execbuffer_relocate_slow(struct drm_device *dev,
 			goto err;
 	}
 
+	/* Leave the user relocations as are, this is the painfully slow path,
+	 * and we want to avoid the complication of dropping the lock whilst
+	 * having buffers reserved in the aperture and so causing spurious
+	 * ENOSPC for random operations.
+	 */
 
 err:
 	drm_free_large(reloc);
@@ -748,7 +807,7 @@ intel_enable_semaphores(struct drm_device *dev)
 	if (i915_semaphores >= 0)
 		return i915_semaphores;
 
-	
+	/* Disable semaphores on SNB */
 	if (INTEL_INFO(dev)->gen == 6)
 		return 0;
 
@@ -766,7 +825,7 @@ i915_gem_execbuffer_sync_rings(struct drm_i915_gem_object *obj,
 	if (from == NULL || to == from)
 		return 0;
 
-	
+	/* XXX gpu semaphores are implicated in various hard hangs on SNB */
 	if (!intel_enable_semaphores(obj->base.dev))
 		return i915_gem_object_wait_rendering(obj);
 
@@ -803,6 +862,10 @@ i915_gem_execbuffer_wait_for_flips(struct intel_ring_buffer *ring, u32 flips)
 	u32 plane, flip_mask;
 	int ret;
 
+	/* Check for any pending flips. As we only maintain a flip queue depth
+	 * of 1, we can simply insert a WAIT for the next display flip prior
+	 * to executing the batch and avoid stalling the CPU.
+	 */
 
 	for (plane = 0; flips >> plane; plane++) {
 		if (((flips >> plane) & 1) == 0)
@@ -876,9 +939,9 @@ validate_exec_list(struct drm_i915_gem_exec_object2 *exec,
 
 	for (i = 0; i < count; i++) {
 		char __user *ptr = (char __user *)(uintptr_t)exec[i].relocs_ptr;
-		int length; 
+		int length; /* limited by fault_in_pages_readable() */
 
-		
+		/* First check for malicious input causing overflow */
 		if (exec[i].relocation_count >
 		    INT_MAX / sizeof(struct drm_i915_gem_relocation_entry))
 			return -EINVAL;
@@ -888,7 +951,7 @@ validate_exec_list(struct drm_i915_gem_exec_object2 *exec,
 		if (!access_ok(VERIFY_READ, ptr, length))
 			return -EFAULT;
 
-		
+		/* we may also need to update the presumed offsets */
 		if (!access_ok(VERIFY_WRITE, ptr, length))
 			return -EFAULT;
 
@@ -936,6 +999,12 @@ i915_gem_execbuffer_retire_commands(struct drm_device *dev,
 	struct drm_i915_gem_request *request;
 	u32 invalidate;
 
+	/*
+	 * Ensure that the commands in the batch buffer are
+	 * finished before the interrupt fires.
+	 *
+	 * The sampler always gets flushed on i965 (sigh).
+	 */
 	invalidate = I915_GEM_DOMAIN_COMMAND;
 	if (INTEL_INFO(dev)->gen >= 4)
 		invalidate |= I915_GEM_DOMAIN_SAMPLER;
@@ -944,7 +1013,7 @@ i915_gem_execbuffer_retire_commands(struct drm_device *dev,
 		return;
 	}
 
-	
+	/* Add a breadcrumb for the completion of the batch buffer */
 	request = kzalloc(sizeof(*request), GFP_KERNEL);
 	if (request == NULL || i915_add_request(ring, file, request)) {
 		i915_gem_next_request_seqno(ring);
@@ -1043,7 +1112,7 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 			    mode == I915_EXEC_CONSTANTS_REL_SURFACE)
 				return -EINVAL;
 
-			
+			/* The HW changed the meaning on this bit on gen6 */
 			if (INTEL_INFO(dev)->gen >= 6)
 				mask &= ~I915_EXEC_CONSTANTS_REL_SURFACE;
 		}
@@ -1102,7 +1171,7 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 		goto pre_mutex_err;
 	}
 
-	
+	/* Look up object handles */
 	INIT_LIST_HEAD(&objects);
 	for (i = 0; i < args->buffer_count; i++) {
 		struct drm_i915_gem_object *obj;
@@ -1112,7 +1181,7 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 		if (&obj->base == NULL) {
 			DRM_DEBUG("Invalid object handle %d at index %d\n",
 				   exec[i].handle, i);
-			
+			/* prevent error path from reading uninitialized data */
 			ret = -ENOENT;
 			goto err;
 		}
@@ -1130,17 +1199,17 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 		eb_add_object(eb, obj);
 	}
 
-	
+	/* take note of the batch buffer before we might reorder the lists */
 	batch_obj = list_entry(objects.prev,
 			       struct drm_i915_gem_object,
 			       exec_list);
 
-	
+	/* Move the objects en-masse into the GTT, evicting if necessary. */
 	ret = i915_gem_execbuffer_reserve(ring, file, &objects);
 	if (ret)
 		goto err;
 
-	
+	/* The objects are in their final locations, apply the relocations. */
 	ret = i915_gem_execbuffer_relocate(dev, eb, &objects);
 	if (ret) {
 		if (ret == -EFAULT) {
@@ -1154,7 +1223,7 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 			goto err;
 	}
 
-	
+	/* Set the pending read domains for the batch buffer to COMMAND */
 	if (batch_obj->base.pending_write_domain) {
 		DRM_DEBUG("Attempting to use self-modifying batch buffer\n");
 		ret = -EINVAL;
@@ -1169,6 +1238,10 @@ i915_gem_do_execbuffer(struct drm_device *dev, void *data,
 	seqno = i915_gem_next_request_seqno(ring);
 	for (i = 0; i < ARRAY_SIZE(ring->sync_seqno); i++) {
 		if (seqno < ring->sync_seqno[i]) {
+			/* The GPU can not handle its semaphore value wrapping,
+			 * so every billion or so execbuffers, we need to stall
+			 * the GPU in order to reset the counters.
+			 */
 			ret = i915_gpu_idle(dev, true);
 			if (ret)
 				goto err;
@@ -1242,6 +1315,10 @@ pre_mutex_err:
 	return ret;
 }
 
+/*
+ * Legacy execbuffer just creates an exec2 list from the original exec object
+ * list array and passes it to the real function.
+ */
 int
 i915_gem_execbuffer(struct drm_device *dev, void *data,
 		    struct drm_file *file)
@@ -1257,7 +1334,7 @@ i915_gem_execbuffer(struct drm_device *dev, void *data,
 		return -EINVAL;
 	}
 
-	
+	/* Copy in the exec list from userland */
 	exec_list = drm_malloc_ab(sizeof(*exec_list), args->buffer_count);
 	exec2_list = drm_malloc_ab(sizeof(*exec2_list), args->buffer_count);
 	if (exec_list == NULL || exec2_list == NULL) {
@@ -1303,10 +1380,10 @@ i915_gem_execbuffer(struct drm_device *dev, void *data,
 
 	ret = i915_gem_do_execbuffer(dev, data, file, &exec2, exec2_list);
 	if (!ret) {
-		
+		/* Copy the new buffer offsets back to the user's exec list. */
 		for (i = 0; i < args->buffer_count; i++)
 			exec_list[i].offset = exec2_list[i].offset;
-		
+		/* ... and back out to userspace */
 		ret = copy_to_user((struct drm_i915_relocation_entry __user *)
 				   (uintptr_t) args->buffers_ptr,
 				   exec_list,
@@ -1361,7 +1438,7 @@ i915_gem_execbuffer2(struct drm_device *dev, void *data,
 
 	ret = i915_gem_do_execbuffer(dev, data, file, args, exec2_list);
 	if (!ret) {
-		
+		/* Copy the new buffer offsets back to the user's exec list. */
 		ret = copy_to_user((struct drm_i915_relocation_entry __user *)
 				   (uintptr_t) args->buffers_ptr,
 				   exec2_list,

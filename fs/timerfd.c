@@ -40,6 +40,11 @@ struct timerfd_ctx {
 static LIST_HEAD(cancel_list);
 static DEFINE_SPINLOCK(cancel_lock);
 
+/*
+ * This gets called when the timer event triggers. We set the "expired"
+ * flag, but we do not re-arm the timer (in case it's necessary,
+ * tintv.tv64 != 0) until the timer is accessed.
+ */
 static enum hrtimer_restart timerfd_tmrproc(struct hrtimer *htmr)
 {
 	struct timerfd_ctx *ctx = container_of(htmr, struct timerfd_ctx, tmr);
@@ -54,6 +59,12 @@ static enum hrtimer_restart timerfd_tmrproc(struct hrtimer *htmr)
 	return HRTIMER_NORESTART;
 }
 
+/*
+ * Called when the clock was set to cancel the timers in the cancel
+ * list. This will wake up processes waiting on these timers. The
+ * wake-up requires ctx->ticks to be non zero, therefore we increment
+ * it before calling wake_up_locked().
+ */
 void timerfd_clock_was_set(void)
 {
 	ktime_t moffs = ktime_get_monotonic_offset();
@@ -182,6 +193,11 @@ static ssize_t timerfd_read(struct file *file, char __user *buf, size_t count,
 	else
 		res = wait_event_interruptible_locked_irq(ctx->wqh, ctx->ticks);
 
+	/*
+	 * If clock has changed, we do not care about the
+	 * ticks and we do not rearm the timer. Userspace must
+	 * reevaluate anyway.
+	 */
 	if (timerfd_canceled(ctx)) {
 		ctx->ticks = 0;
 		ctx->expired = 0;
@@ -192,6 +208,12 @@ static ssize_t timerfd_read(struct file *file, char __user *buf, size_t count,
 		ticks = ctx->ticks;
 
 		if (ctx->expired && ctx->tintv.tv64) {
+			/*
+			 * If tintv.tv64 != 0, this is a periodic timer that
+			 * needs to be re-armed. We avoid doing it in the timer
+			 * callback to avoid DoS attacks specifying a very
+			 * short timer period.
+			 */
 			ticks += hrtimer_forward_now(&ctx->tmr,
 						     ctx->tintv) - 1;
 			hrtimer_restart(&ctx->tmr);
@@ -232,7 +254,7 @@ SYSCALL_DEFINE2(timerfd_create, int, clockid, int, flags)
 	int ufd;
 	struct timerfd_ctx *ctx;
 
-	
+	/* Check the TFD_* constants for consistency.  */
 	BUILD_BUG_ON(TFD_CLOEXEC != O_CLOEXEC);
 	BUILD_BUG_ON(TFD_NONBLOCK != O_NONBLOCK);
 
@@ -282,6 +304,10 @@ SYSCALL_DEFINE4(timerfd_settime, int, ufd, int, flags,
 
 	timerfd_setup_cancel(ctx, flags);
 
+	/*
+	 * We need to stop the existing timer before reprogramming
+	 * it to the new values.
+	 */
 	for (;;) {
 		spin_lock_irq(&ctx->wqh.lock);
 		if (hrtimer_try_to_cancel(&ctx->tmr) >= 0)
@@ -290,12 +316,21 @@ SYSCALL_DEFINE4(timerfd_settime, int, ufd, int, flags,
 		cpu_relax();
 	}
 
+	/*
+	 * If the timer is expired and it's periodic, we need to advance it
+	 * because the caller may want to know the previous expiration time.
+	 * We do not update "ticks" and "expired" since the timer will be
+	 * re-programmed again in the following timerfd_setup() call.
+	 */
 	if (ctx->expired && ctx->tintv.tv64)
 		hrtimer_forward_now(&ctx->tmr, ctx->tintv);
 
 	kotmr.it_value = ktime_to_timespec(timerfd_get_remaining(ctx));
 	kotmr.it_interval = ktime_to_timespec(ctx->tintv);
 
+	/*
+	 * Re-program the timer to the new value ...
+	 */
 	ret = timerfd_setup(ctx, flags, &ktmr);
 
 	spin_unlock_irq(&ctx->wqh.lock);

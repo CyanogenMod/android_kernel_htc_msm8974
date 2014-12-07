@@ -14,13 +14,24 @@
 #include <asm/pgtable.h>
 #include <asm/mmzone.h>
 
+/* Defined in hibernate_asm_32.S */
 extern int restore_image(void);
 
+/* References to section boundaries */
 extern const void __nosave_begin, __nosave_end;
 
+/* Pointer to the temporary resume page tables */
 pgd_t *resume_pg_dir;
 
+/* The following three functions are based on the analogous code in
+ * arch/x86/mm/init_32.c
+ */
 
+/*
+ * Create a middle page table on a resume-safe page and put a pointer to it in
+ * the given global directory entry.  This only returns the gd entry
+ * in non-PAE compilation mode, since the middle layer is folded.
+ */
 static pmd_t *resume_one_md_table_init(pgd_t *pgd)
 {
 	pud_t *pud;
@@ -43,6 +54,10 @@ static pmd_t *resume_one_md_table_init(pgd_t *pgd)
 	return pmd_table;
 }
 
+/*
+ * Create a page table on a resume-safe page and place a pointer to it in
+ * a middle page directory entry.
+ */
 static pte_t *resume_one_page_table_init(pmd_t *pmd)
 {
 	if (pmd_none(*pmd)) {
@@ -60,6 +75,11 @@ static pte_t *resume_one_page_table_init(pmd_t *pmd)
 	return pte_offset_kernel(pmd, 0);
 }
 
+/*
+ * This maps the physical memory to kernel virtual address space, a total
+ * of max_low_pfn pages, by creating page tables starting from address
+ * PAGE_OFFSET.  The page tables are allocated out of resume-safe pages.
+ */
 static int resume_physical_mapping_init(pgd_t *pgd_base)
 {
 	unsigned long pfn;
@@ -84,6 +104,10 @@ static int resume_physical_mapping_init(pgd_t *pgd_base)
 			if (pfn >= max_low_pfn)
 				break;
 
+			/* Map with big pages if possible, otherwise create
+			 * normal page tables.
+			 * NOTE: We can mark everything as executable here
+			 */
 			if (cpu_has_pse) {
 				set_pmd(pmd, pfn_pmd(pfn, PAGE_KERNEL_LARGE_EXEC));
 				pfn += PTRS_PER_PTE;
@@ -115,7 +139,7 @@ static inline void resume_init_first_level_page_table(pgd_t *pg_dir)
 #ifdef CONFIG_X86_PAE
 	int i;
 
-	
+	/* Init entries of the first-level page table to the zero page */
 	for (i = 0; i < PTRS_PER_PGD; i++)
 		set_pgd(pg_dir + i,
 			__pgd(__pa(empty_zero_page) | _PAGE_PRESENT));
@@ -135,11 +159,14 @@ int swsusp_arch_resume(void)
 	if (error)
 		return error;
 
-	
+	/* We have got enough memory and from now on we cannot recover */
 	restore_image();
 	return 0;
 }
 
+/*
+ *	pfn_is_nosave - check if given pfn is in the 'nosave' section
+ */
 
 int pfn_is_nosave(unsigned long pfn)
 {

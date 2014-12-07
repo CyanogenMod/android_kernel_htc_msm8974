@@ -20,11 +20,13 @@ int gx1_frame_buffer_size(void);
 
 extern struct geode_dc_ops gx1_dc_ops;
 
+/* GX1 configuration I/O registers */
 
 #define CONFIG_CCR3 0xc3
 #  define CONFIG_CCR3_MAPEN 0x10
 #define CONFIG_GCR  0xb8
 
+/* Memory controller registers */
 
 #define MC_BANK_CFG		0x08
 #  define MC_BCFG_DIMM0_SZ_MASK		0x00000700
@@ -34,6 +36,7 @@ extern struct geode_dc_ops gx1_dc_ops;
 #define MC_GBASE_ADD		0x14
 #  define MC_GADD_GBADD_MASK		0x000003ff
 
+/* Display controller registers */
 
 #define DC_PAL_ADDRESS		0x70
 #define DC_PAL_DATA		0x74
@@ -148,4 +151,4 @@ extern struct geode_dc_ops gx1_dc_ops;
 #define DC_DFIFO_DIAG		0x78
 #define DC_CFIFO_DIAG		0x7C
 
-#endif 
+#endif /* !__DISPLAY_GX1_H__ */

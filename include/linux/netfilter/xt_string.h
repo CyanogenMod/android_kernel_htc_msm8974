@@ -27,8 +27,8 @@ struct xt_string_info {
 		} v1;
 	} u;
 
-	
+	/* Used internally by the kernel */
 	struct ts_config __attribute__((aligned(8))) *config;
 };
 
-#endif 
+#endif /*_XT_STRING_H*/

@@ -44,4 +44,4 @@ u32  psb_get_vblank_counter(struct drm_device *dev, int pipe);
 
 int mdfld_enable_te(struct drm_device *dev, int pipe);
 void mdfld_disable_te(struct drm_device *dev, int pipe);
-#endif 
+#endif /* _SYSIRQ_H_ */

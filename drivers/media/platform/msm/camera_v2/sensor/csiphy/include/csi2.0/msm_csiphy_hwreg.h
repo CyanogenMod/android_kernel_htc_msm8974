@@ -13,6 +13,7 @@
 #ifndef MSM_CSIPHY_HWREG_H
 #define MSM_CSIPHY_HWREG_H
 
+/*MIPI CSI PHY registers*/
 #define MIPI_CSIPHY_HW_VERSION_ADDR              0x17C
 #define MIPI_CSIPHY_LNn_CFG1_ADDR                0x0
 #define MIPI_CSIPHY_LNn_CFG2_ADDR                0x4

@@ -51,6 +51,12 @@
 
 static const struct super_operations v9fs_super_ops, v9fs_super_ops_dotl;
 
+/**
+ * v9fs_set_super - set the superblock
+ * @s: super block
+ * @data: file system specific data
+ *
+ */
 
 static int v9fs_set_super(struct super_block *s, void *data)
 {
@@ -58,6 +64,13 @@ static int v9fs_set_super(struct super_block *s, void *data)
 	return set_anon_super(s, data);
 }
 
+/**
+ * v9fs_fill_super - populate superblock with info
+ * @sb: superblock
+ * @v9ses: session information
+ * @flags: flags propagated from v9fs_mount()
+ *
+ */
 
 static void
 v9fs_fill_super(struct super_block *sb, struct v9fs_session_info *v9ses,
@@ -88,6 +101,14 @@ v9fs_fill_super(struct super_block *sb, struct v9fs_session_info *v9ses,
 	save_mount_options(sb, data);
 }
 
+/**
+ * v9fs_mount - mount a superblock
+ * @fs_type: file system type
+ * @flags: mount flags
+ * @dev_name: device name that was mounted
+ * @data: mount options
+ *
+ */
 
 static struct dentry *v9fs_mount(struct file_system_type *fs_type, int flags,
 		       const char *dev_name, void *data)
@@ -109,6 +130,10 @@ static struct dentry *v9fs_mount(struct file_system_type *fs_type, int flags,
 	fid = v9fs_session_init(v9ses, dev_name, data);
 	if (IS_ERR(fid)) {
 		retval = PTR_ERR(fid);
+		/*
+		 * we need to call session_close to tear down some
+		 * of the data structure setup by session_init
+		 */
 		goto close_session;
 	}
 
@@ -176,11 +201,22 @@ close_session:
 	return ERR_PTR(retval);
 
 release_sb:
+	/*
+	 * we will do the session_close and root dentry release
+	 * in the below call. But we need to clunk fid, because we haven't
+	 * attached the fid to dentry so it won't get clunked
+	 * automatically.
+	 */
 	p9_client_clunk(fid);
 	deactivate_locked_super(sb);
 	return ERR_PTR(retval);
 }
 
+/**
+ * v9fs_kill_super - Kill Superblock
+ * @s: superblock
+ *
+ */
 
 static void v9fs_kill_super(struct super_block *s)
 {
@@ -248,6 +284,11 @@ static int v9fs_drop_inode(struct inode *inode)
 	v9ses = v9fs_inode2v9ses(inode);
 	if (v9ses->cache)
 		return generic_drop_inode(inode);
+	/*
+	 * in case of non cached mode always drop the
+	 * the inode because we want the inode attribute
+	 * to always match that on the server.
+	 */
 	return 1;
 }
 
@@ -257,6 +298,10 @@ static int v9fs_write_inode(struct inode *inode,
 	int ret;
 	struct p9_wstat wstat;
 	struct v9fs_inode *v9inode;
+	/*
+	 * send an fsync request to server irrespective of
+	 * wbc->sync_mode.
+	 */
 	p9_debug(P9_DEBUG_VFS, "%s: inode %p\n", __func__, inode);
 	v9inode = V9FS_I(inode);
 	if (!v9inode->writeback_fid)
@@ -276,6 +321,10 @@ static int v9fs_write_inode_dotl(struct inode *inode,
 {
 	int ret;
 	struct v9fs_inode *v9inode;
+	/*
+	 * send an fsync request to server irrespective of
+	 * wbc->sync_mode.
+	 */
 	p9_debug(P9_DEBUG_VFS, "%s: inode %p\n", __func__, inode);
 	v9inode = V9FS_I(inode);
 	if (!v9inode->writeback_fid)

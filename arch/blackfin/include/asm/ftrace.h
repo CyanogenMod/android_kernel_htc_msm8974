@@ -8,7 +8,7 @@
 #ifndef __ASM_BFIN_FTRACE_H__
 #define __ASM_BFIN_FTRACE_H__
 
-#define MCOUNT_INSN_SIZE	6 
+#define MCOUNT_INSN_SIZE	6 /* sizeof "[++sp] = rets; call __mcount;" */
 
 #ifndef __ASSEMBLY__
 
@@ -23,7 +23,7 @@ static inline unsigned long ftrace_call_adjust(unsigned long addr)
 }
 
 struct dyn_arch_ftrace {
-	
+	/* No extra data needed for Blackfin */
 };
 
 #endif
@@ -64,10 +64,11 @@ extern inline void *return_address(unsigned int level)
 	return NULL;
 }
 
-#endif 
+#endif /* CONFIG_FRAME_POINTER */
 
 #define HAVE_ARCH_CALLER_ADDR
 
+/* inline function or macro may lead to unexpected result */
 #define CALLER_ADDR0 ((unsigned long)__builtin_return_address(0))
 #define CALLER_ADDR1 ((unsigned long)return_address(1))
 #define CALLER_ADDR2 ((unsigned long)return_address(2))
@@ -76,6 +77,6 @@ extern inline void *return_address(unsigned int level)
 #define CALLER_ADDR5 ((unsigned long)return_address(5))
 #define CALLER_ADDR6 ((unsigned long)return_address(6))
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
 #endif

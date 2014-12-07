@@ -93,6 +93,9 @@ struct tas {
 	u8			bass, treble;
 	u8			acr;
 	int			drc_range;
+	/* protects hardware access against concurrency from
+	 * userspace when hitting controls and during
+	 * codec init/suspend/resume */
 	struct mutex		mtx;
 };
 
@@ -116,10 +119,10 @@ static void tas3004_set_drc(struct tas *tas)
 	unsigned char val[6];
 
 	if (tas->drc_enabled)
-		val[0] = 0x50; 
+		val[0] = 0x50; /* 3:1 above threshold */
 	else
-		val[0] = 0x51; 
-	val[1] = 0x02; 
+		val[0] = 0x51; /* disabled */
+	val[1] = 0x02; /* 1:1 below threshold */
 	if (tas->drc_range > 0xef)
 		val[2] = 0xef;
 	else if (tas->drc_range < 0)
@@ -164,6 +167,12 @@ static void tas_set_volume(struct tas *tas)
 	if (tas->mute_l) left = 0;
 	if (tas->mute_r) right = 0;
 
+	/* analysing the volume and mixer tables shows
+	 * that they are similar enough when we shift
+	 * the mixer table down by 4 bits. The error
+	 * is miniscule, in just one item the error
+	 * is 1, at a value of 0x07f17b (mixer table
+	 * value is 0x07f17a) */
 	tmp = tas_gaintable[left];
 	block[0] = tmp>>20;
 	block[1] = tmp>>12;
@@ -202,6 +211,7 @@ static void tas_set_mixer(struct tas *tas)
 	tas_write_reg(tas, TAS_REG_RMIX, 9, block);
 }
 
+/* alsa stuff */
 
 static int tas_dev_register(struct snd_device *dev)
 {
@@ -501,6 +511,11 @@ static int tas_snd_capture_source_put(struct snd_kcontrol *kcontrol,
 	mutex_lock(&tas->mtx);
 	oldacr = tas->acr;
 
+	/*
+	 * Despite what the data sheet says in one place, the
+	 * TAS_ACR_B_MONAUREAL bit forces mono output even when
+	 * input A (line in) is selected.
+	 */
 	tas->acr &= ~(TAS_ACR_INPUT_B | TAS_ACR_B_MONAUREAL);
 	if (ucontrol->value.enumerated.item[0])
 		tas->acr |= TAS_ACR_INPUT_B | TAS_ACR_B_MONAUREAL |
@@ -517,6 +532,17 @@ static int tas_snd_capture_source_put(struct snd_kcontrol *kcontrol,
 
 static struct snd_kcontrol_new capture_source_control = {
 	.iface = SNDRV_CTL_ELEM_IFACE_MIXER,
+	/* If we name this 'Input Source', it properly shows up in
+	 * alsamixer as a selection, * but it's shown under the
+	 * 'Playback' category.
+	 * If I name it 'Capture Source', it shows up in strange
+	 * ways (two bools of which one can be selected at a
+	 * time) but at least it's shown in the 'Capture'
+	 * category.
+	 * I was told that this was due to backward compatibility,
+	 * but I don't understand then why the mangling is *not*
+	 * done when I name it "Input Source".....
+	 */
 	.name = "Capture Source",
 	.access = SNDRV_CTL_ELEM_ACCESS_READWRITE,
 	.info = tas_snd_capture_source_info,
@@ -628,13 +654,13 @@ static struct snd_kcontrol_new bass_control = {
 
 static struct transfer_info tas_transfers[] = {
 	{
-		
+		/* input */
 		.formats = SNDRV_PCM_FMTBIT_S16_BE | SNDRV_PCM_FMTBIT_S24_BE,
 		.rates = SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_44100 | SNDRV_PCM_RATE_48000,
 		.transfer_in = 1,
 	},
 	{
-		
+		/* output */
 		.formats = SNDRV_PCM_FMTBIT_S16_BE | SNDRV_PCM_FMTBIT_S24_BE,
 		.rates = SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_44100 | SNDRV_PCM_RATE_48000,
 		.transfer_in = 0,
@@ -677,7 +703,7 @@ static int tas_reset_init(struct tas *tas)
 
 	tas3004_set_drc(tas);
 
-	
+	/* Set treble & bass to 0dB */
 	tas->treble = TAS3004_TREBLE_ZERO;
 	tas->bass = TAS3004_BASS_ZERO;
 	tas_set_treble(tas);
@@ -698,12 +724,12 @@ static int tas_switch_clock(struct codec_info_item *cii, enum clock_switch clock
 
 	switch(clock) {
 	case CLOCK_SWITCH_PREPARE_SLAVE:
-		
+		/* Clocks are going away, mute mute mute */
 		tas->codec.gpio->methods->all_amps_off(tas->codec.gpio);
 		tas->hw_enabled = 0;
 		break;
 	case CLOCK_SWITCH_SLAVE:
-		
+		/* Clocks are back, re-init the codec */
 		mutex_lock(&tas->mtx);
 		tas_reset_init(tas);
 		tas_set_volume(tas);
@@ -713,13 +739,16 @@ static int tas_switch_clock(struct codec_info_item *cii, enum clock_switch clock
 		mutex_unlock(&tas->mtx);
 		break;
 	default:
-		
+		/* doesn't happen as of now */
 		return -EINVAL;
 	}
 	return 0;
 }
 
 #ifdef CONFIG_PM
+/* we are controlled via i2c and assume that is always up
+ * If that wasn't the case, we'd have to suspend once
+ * our i2c device is suspended, and then take note of that! */
 static int tas_suspend(struct tas *tas)
 {
 	mutex_lock(&tas->mtx);
@@ -732,7 +761,7 @@ static int tas_suspend(struct tas *tas)
 
 static int tas_resume(struct tas *tas)
 {
-	
+	/* reset codec */
 	mutex_lock(&tas->mtx);
 	tas_reset_init(tas);
 	tas_set_volume(tas);
@@ -751,15 +780,18 @@ static int _tas_resume(struct codec_info_item *cii)
 {
 	return tas_resume(cii->codec_data);
 }
-#else 
+#else /* CONFIG_PM */
 #define _tas_suspend	NULL
 #define _tas_resume	NULL
-#endif 
+#endif /* CONFIG_PM */
 
 static struct codec_info tas_codec_info = {
 	.transfers = tas_transfers,
+	/* in theory, we can drive it at 512 too...
+	 * but so far the framework doesn't allow
+	 * for that and I don't see much point in it. */
 	.sysclock_factor = 256,
-	
+	/* same here, could be 32 for just one 16 bit format */
 	.bus_factor = 64,
 	.owner = THIS_MODULE,
 	.usable = tas_usable,
@@ -866,11 +898,20 @@ static int tas_create(struct i2c_adapter *adapter,
 	client = i2c_new_device(adapter, &info);
 	if (!client)
 		return -ENODEV;
+	/*
+	 * We know the driver is already loaded, so the device should be
+	 * already bound. If not it means binding failed, and then there
+	 * is no point in keeping the device instantiated.
+	 */
 	if (!client->driver) {
 		i2c_unregister_device(client);
 		return -ENODEV;
 	}
 
+	/*
+	 * Let i2c-core delete that device on driver removal.
+	 * This is safe because i2c-core holds the core_lock mutex for us.
+	 */
 	list_add_tail(&client->detected, &client->driver->clients);
 	return 0;
 }
@@ -890,7 +931,7 @@ static int tas_i2c_probe(struct i2c_client *client,
 	tas->i2c = client;
 	i2c_set_clientdata(client, tas);
 
-	
+	/* seems that half is a saner default */
 	tas->drc_range = TAS3004_DRC_MAX / 2;
 
 	strlcpy(tas->codec.name, "tas", MAX_CODEC_NAME_LEN);
@@ -931,6 +972,9 @@ static int tas_i2c_attach(struct i2c_adapter *adapter)
 				continue;
 			return tas_create(adapter, dev, ((*addr) >> 1) & 0x7f);
 		}
+		/* older machines have no 'codec' node with a 'compatible'
+		 * property that says 'tas3004', they just have a 'deq'
+		 * node without any such property... */
 		if (strcmp(dev->name, "deq") == 0) {
 			const u32 *_addr;
 			u32 addr;
@@ -939,6 +983,9 @@ static int tas_i2c_attach(struct i2c_adapter *adapter)
 			if (!_addr)
 				continue;
 			addr = ((*_addr) >> 1) & 0x7f;
+			/* now, if the address doesn't match any of the two
+			 * that a tas3004 can have, we cannot handle this.
+			 * I doubt it ever happens but hey. */
 			if (addr != 0x34 && addr != 0x35)
 				continue;
 			return tas_create(adapter, dev, addr);
@@ -955,7 +1002,7 @@ static int tas_i2c_remove(struct i2c_client *client)
 	aoa_codec_unregister(&tas->codec);
 	of_node_put(tas->codec.node);
 
-	
+	/* power down codec chip */
 	tas_write_reg(tas, TAS_REG_ACR, 1, &tmp);
 
 	mutex_destroy(&tas->mtx);

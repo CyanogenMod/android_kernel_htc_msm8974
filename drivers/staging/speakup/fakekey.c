@@ -66,13 +66,16 @@ void speakup_remove_virtual_keyboard(void)
 	}
 }
 
+/*
+	 * Send a simulated down-arrow to the application.
+	 */
 void speakup_fake_down_arrow(void)
 {
 	unsigned long flags;
 
-	
+	/* disable keyboard interrupts */
 	local_irq_save(flags);
-	
+	/* don't change CPU */
 	preempt_disable();
 
 	__this_cpu_write(reporting_keystroke, true);
@@ -80,12 +83,16 @@ void speakup_fake_down_arrow(void)
 	input_report_key(virt_keyboard, KEY_DOWN, RELEASED);
 	__this_cpu_write(reporting_keystroke, false);
 
-	
+	/* reenable preemption */
 	preempt_enable();
-	
+	/* reenable keyboard interrupts */
 	local_irq_restore(flags);
 }
 
+/*
+	 * Are we handling a simulated keypress on the current CPU?
+	 * Returns a boolean.
+	 */
 bool speakup_fake_key_pressed(void)
 {
 	return this_cpu_read(reporting_keystroke);

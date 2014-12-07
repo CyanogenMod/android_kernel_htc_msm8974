@@ -29,6 +29,7 @@ void cb710_pci_update_config_reg(struct pci_dev *pdev,
 }
 EXPORT_SYMBOL_GPL(cb710_pci_update_config_reg);
 
+/* Some magic writes based on Windows driver init code */
 static int __devinit cb710_pci_configure(struct pci_dev *pdev)
 {
 	unsigned int devfn = PCI_DEVFN(PCI_SLOT(pdev->devfn), 0);
@@ -71,7 +72,7 @@ static irqreturn_t cb710_irq_handler(int irq, void *data)
 	irqreturn_t handled = IRQ_NONE;
 	unsigned nr;
 
-	spin_lock(&chip->irq_lock); 
+	spin_lock(&chip->irq_lock); /* incl. smp_rmb() */
 
 	for (nr = chip->slots; nr; ++slot, --nr) {
 		cb710_irq_handler_t handler_func = slot->irq_handler;
@@ -90,7 +91,7 @@ static void cb710_release_slot(struct device *dev)
 	struct cb710_slot *slot = cb710_pdev_to_slot(to_platform_device(dev));
 	struct cb710_chip *chip = cb710_slot_to_chip(slot);
 
-	
+	/* slot struct can be freed now */
 	atomic_dec(&chip->slot_refs_count);
 #endif
 }
@@ -106,6 +107,8 @@ static int __devinit cb710_register_slot(struct cb710_chip *chip,
 		"register: %s.%d; slot %d; mask %d; IO offset: 0x%02X\n",
 		name, chip->platform_id, nr, slot_mask, io_offset);
 
+	/* slot->irq_handler == NULL here; this needs to be
+	 * seen before platform_device_register() */
 	++chip->slots;
 	smp_wmb();
 
@@ -122,9 +125,11 @@ static int __devinit cb710_register_slot(struct cb710_chip *chip,
 #endif
 
 	if (err) {
+		/* device_initialize() called from platform_device_register()
+		 * wants this on error path */
 		platform_device_put(&slot->pdev);
 
-		
+		/* slot->irq_handler == NULL here anyway, so no lock needed */
 		--chip->slots;
 		return err;
 	}
@@ -144,11 +149,11 @@ static void cb710_unregister_slot(struct cb710_chip *chip,
 
 	platform_device_unregister(&chip->slot[nr].pdev);
 
-	
+	/* complementary to spin_unlock() in cb710_set_irq_handler() */
 	smp_rmb();
 	BUG_ON(chip->slot[nr].irq_handler != NULL);
 
-	
+	/* slot->irq_handler == NULL here, so no lock needed */
 	--chip->slots;
 	chip->slot_mask &= ~slot_mask;
 }
@@ -194,7 +199,7 @@ static int cb710_resume(struct pci_dev *pdev)
 		cb710_irq_handler, IRQF_SHARED, KBUILD_MODNAME, chip);
 }
 
-#endif 
+#endif /* CONFIG_PM */
 
 static int __devinit cb710_probe(struct pci_dev *pdev,
 	const struct pci_device_id *ent)
@@ -209,7 +214,7 @@ static int __devinit cb710_probe(struct pci_dev *pdev,
 	if (err)
 		return err;
 
-	
+	/* this is actually magic... */
 	pci_read_config_dword(pdev, 0x48, &val);
 	if (!(val & 0x80000000)) {
 		pci_write_config_dword(pdev, 0x48, val|0x71000000);
@@ -267,21 +272,21 @@ static int __devinit cb710_probe(struct pci_dev *pdev,
 	dev_info(&pdev->dev, "id %d, IO 0x%p, IRQ %d\n",
 		chip->platform_id, chip->iobase, pdev->irq);
 
-	if (val & CB710_SLOT_MMC) {	
+	if (val & CB710_SLOT_MMC) {	/* MMC/SD slot */
 		err = cb710_register_slot(chip,
 			CB710_SLOT_MMC, 0x00, "cb710-mmc");
 		if (err)
 			return err;
 	}
 
-	if (val & CB710_SLOT_MS) {	
+	if (val & CB710_SLOT_MS) {	/* MemoryStick slot */
 		err = cb710_register_slot(chip,
 			CB710_SLOT_MS, 0x40, "cb710-ms");
 		if (err)
 			goto unreg_mmc;
 	}
 
-	if (val & CB710_SLOT_SM) {	
+	if (val & CB710_SLOT_SM) {	/* SmartMedia slot */
 		err = cb710_register_slot(chip,
 			CB710_SLOT_SM, 0x60, "cb710-sm");
 		if (err)

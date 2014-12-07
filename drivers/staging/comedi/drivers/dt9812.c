@@ -22,7 +22,26 @@
  *
  */
 
+/*
+Driver: dt9812
+Description: Data Translation DT9812 USB module
+Author: anders.blomdell@control.lth.se (Anders Blomdell)
+Status: in development
+Devices: [Data Translation] DT9812 (dt9812)
+Updated: Sun Nov 20 20:18:34 EST 2005
 
+This driver works, but bulk transfers not implemented. Might be a starting point
+for someone else. I found out too late that USB has too high latencies (>1 ms)
+for my needs.
+*/
+
+/*
+ * Nota Bene:
+ *   1. All writes to command pipe has to be 32 bytes (ISP1181B SHRTP=0 ?)
+ *   2. The DDK source (as of sep 2005) is in error regarding the
+ *      input MUX bits (example code says P4, but firmware schematics
+ *      says P1).
+ */
 
 #include <linux/kernel.h>
 #include <linux/errno.h>
@@ -39,6 +58,9 @@
 #define DT9812_MAX_WRITE_CMD_PIPE_SIZE	32
 #define DT9812_MAX_READ_CMD_PIPE_SIZE	32
 
+/*
+ * See Silican Laboratories C8051F020/1/2/3 manual
+ */
 #define F020_SFR_P4			0x84
 #define F020_SFR_P1			0x90
 #define F020_SFR_P2			0xa0
@@ -67,12 +89,12 @@
 #define F020_MASK_DACxCN_DACxEN		0x80
 
 enum {
-	
-	DT9812_DEVID_DT9812_10,	
-	DT9812_DEVID_DT9812_2PT5,	
+	/* A/D  D/A  DI  DO  CT */
+	DT9812_DEVID_DT9812_10,	/*  8    2   8   8   1  +/- 10V */
+	DT9812_DEVID_DT9812_2PT5,	/* 8    2   8   8   1  0-2.44V */
 #if 0
-	DT9812_DEVID_DT9813,	
-	DT9812_DEVID_DT9814	
+	DT9812_DEVID_DT9813,	/*  16   2   4   4   1  +/- 10V */
+	DT9812_DEVID_DT9814	/*  24   2   0   0   1  +/- 10V */
 #endif
 };
 
@@ -88,74 +110,83 @@ enum dt9812_gain {
 
 enum {
 	DT9812_LEAST_USB_FIRMWARE_CMD_CODE = 0,
-	
+	/* Write Flash memory */
 	DT9812_W_FLASH_DATA = 0,
-	
+	/* Read Flash memory misc config info */
 	DT9812_R_FLASH_DATA = 1,
 
+	/*
+	 * Register read/write commands for processor
+	 */
 
-	
+	/* Read a single byte of USB memory */
 	DT9812_R_SINGLE_BYTE_REG = 2,
-	
+	/* Write a single byte of USB memory */
 	DT9812_W_SINGLE_BYTE_REG = 3,
-	
+	/* Multiple Reads of USB memory */
 	DT9812_R_MULTI_BYTE_REG = 4,
-	
+	/* Multiple Writes of USB memory */
 	DT9812_W_MULTI_BYTE_REG = 5,
-	
+	/* Read, (AND) with mask, OR value, then write (single) */
 	DT9812_RMW_SINGLE_BYTE_REG = 6,
-	
+	/* Read, (AND) with mask, OR value, then write (multiple) */
 	DT9812_RMW_MULTI_BYTE_REG = 7,
 
+	/*
+	 * Register read/write commands for SMBus
+	 */
 
-	
+	/* Read a single byte of SMBus */
 	DT9812_R_SINGLE_BYTE_SMBUS = 8,
-	
+	/* Write a single byte of SMBus */
 	DT9812_W_SINGLE_BYTE_SMBUS = 9,
-	
+	/* Multiple Reads of SMBus */
 	DT9812_R_MULTI_BYTE_SMBUS = 10,
-	
+	/* Multiple Writes of SMBus */
 	DT9812_W_MULTI_BYTE_SMBUS = 11,
 
+	/*
+	 * Register read/write commands for a device
+	 */
 
-	
+	/* Read a single byte of a device */
 	DT9812_R_SINGLE_BYTE_DEV = 12,
-	
+	/* Write a single byte of a device */
 	DT9812_W_SINGLE_BYTE_DEV = 13,
-	
+	/* Multiple Reads of a device */
 	DT9812_R_MULTI_BYTE_DEV = 14,
-	
+	/* Multiple Writes of a device */
 	DT9812_W_MULTI_BYTE_DEV = 15,
 
-	
+	/* Not sure if we'll need this */
 	DT9812_W_DAC_THRESHOLD = 16,
 
-	
+	/* Set interrupt on change mask */
 	DT9812_W_INT_ON_CHANGE_MASK = 17,
 
-	
+	/* Write (or Clear) the CGL for the ADC */
 	DT9812_W_CGL = 18,
-	
+	/* Multiple Reads of USB memory */
 	DT9812_R_MULTI_BYTE_USBMEM = 19,
-	
+	/* Multiple Writes to USB memory */
 	DT9812_W_MULTI_BYTE_USBMEM = 20,
 
-	
+	/* Issue a start command to a given subsystem */
 	DT9812_START_SUBSYSTEM = 21,
-	
+	/* Issue a stop command to a given subsystem */
 	DT9812_STOP_SUBSYSTEM = 22,
 
-	
+	/* calibrate the board using CAL_POT_CMD */
 	DT9812_CALIBRATE_POT = 23,
-	
+	/* set the DAC FIFO size */
 	DT9812_W_DAC_FIFO_SIZE = 24,
-	
+	/* Write or Clear the CGL for the DAC */
 	DT9812_W_CGL_DAC = 25,
-	
+	/* Read a single value from a subsystem */
 	DT9812_R_SINGLE_VALUE_CMD = 26,
-	
+	/* Write a single value to a subsystem */
 	DT9812_W_SINGLE_VALUE_CMD = 27,
-	
+	/* Valid DT9812_USB_FIRMWARE_CMD_CODE's will be less than this number */
 	DT9812_MAX_USB_FIRMWARE_CMD_CODE,
 };
 
@@ -235,7 +266,7 @@ static DEFINE_SEMAPHORE(dt9812_mutex);
 
 static const struct usb_device_id dt9812_table[] = {
 	{USB_DEVICE(0x0867, 0x9812)},
-	{}			
+	{}			/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, dt9812_table);
@@ -291,6 +322,7 @@ static const struct comedi_lrange dt9812_2pt5_aout_range = { 1, {
 
 static struct slot_dt9812 dt9812[DT9812_NUM_SLOTS];
 
+/* Useful shorthand access to private data */
 #define devpriv ((struct comedi_dt9812 *)dev->private)
 
 static inline struct usb_dt9812 *to_dt9812_dev(struct kref *d)
@@ -317,7 +349,7 @@ static int dt9812_read_info(struct usb_dt9812 *dev, int offset, void *buf,
 	    cpu_to_le16(DT9812_DIAGS_BOARD_INFO_ADDR + offset);
 	cmd.u.flash_data_info.numbytes = cpu_to_le16(buf_size);
 
-	
+	/* DT9812 only responds to 32 byte writes!! */
 	count = 32;
 	retval = usb_bulk_msg(dev->udev,
 			      usb_sndbulkpipe(dev->udev,
@@ -343,7 +375,7 @@ static int dt9812_read_multiple_registers(struct usb_dt9812 *dev, int reg_count,
 	for (i = 0; i < reg_count; i++)
 		cmd.u.read_multi_info.address[i] = address[i];
 
-	
+	/* DT9812 only responds to 32 byte writes!! */
 	count = 32;
 	retval = usb_bulk_msg(dev->udev,
 			      usb_sndbulkpipe(dev->udev,
@@ -371,7 +403,7 @@ static int dt9812_write_multiple_registers(struct usb_dt9812 *dev,
 		cmd.u.write_multi_info.write[i].address = address[i];
 		cmd.u.write_multi_info.write[i].value = value[i];
 	}
-	
+	/* DT9812 only responds to 32 byte writes!! */
 	retval = usb_bulk_msg(dev->udev,
 			      usb_sndbulkpipe(dev->udev,
 					      dev->command_write.addr),
@@ -390,7 +422,7 @@ static int dt9812_rmw_multiple_registers(struct usb_dt9812 *dev, int reg_count,
 	for (i = 0; i < reg_count; i++)
 		cmd.u.rmw_multi_info.rmw[i] = rmw[i];
 
-	
+	/* DT9812 only responds to 32 byte writes!! */
 	retval = usb_bulk_msg(dev->udev,
 			      usb_sndbulkpipe(dev->udev,
 					      dev->command_write.addr),
@@ -410,7 +442,14 @@ static int dt9812_digital_in(struct slot_dt9812 *slot, u8 * bits)
 		result = dt9812_read_multiple_registers(slot->usb, 2, reg,
 							value);
 		if (result == 0) {
+			/*
+			 * bits 0-6 in F020_SFR_P3 are bits 0-6 in the digital
+			 * input port bit 3 in F020_SFR_P1 is bit 7 in the
+			 * digital input port
+			 */
 			*bits = (value[0] & 0x7f) | ((value[1] & 0x08) << 4);
+			/* printk("%2.2x, %2.2x -> %2.2x\n",
+			   value[0], value[1], *bits); */
 		}
 	}
 	up(&slot->mutex);
@@ -454,12 +493,12 @@ static void dt9812_configure_mux(struct usb_dt9812 *dev,
 				 struct dt9812_rmw_byte *rmw, int channel)
 {
 	if (dev->device == DT9812_DEVID_DT9812_10) {
-		
+		/* In the DT9812/10V MUX is selected by P1.5-7 */
 		rmw->address = F020_SFR_P1;
 		rmw->and_mask = 0xe0;
 		rmw->or_value = channel << 5;
 	} else {
-		
+		/* In the DT9812/2.5V, internal mux is selected by bits 0:2 */
 		rmw->address = F020_SFR_AMX0SL;
 		rmw->and_mask = 0xff;
 		rmw->or_value = channel & 0x07;
@@ -471,7 +510,7 @@ static void dt9812_configure_gain(struct usb_dt9812 *dev,
 				  enum dt9812_gain gain)
 {
 	if (dev->device == DT9812_DEVID_DT9812_10) {
-		
+		/* In the DT9812/10V, there is an external gain of 0.5 */
 		gain <<= 1;
 	}
 
@@ -479,6 +518,14 @@ static void dt9812_configure_gain(struct usb_dt9812 *dev,
 	rmw->and_mask = F020_MASK_ADC0CF_AMP0GN2 |
 	    F020_MASK_ADC0CF_AMP0GN1 | F020_MASK_ADC0CF_AMP0GN0;
 	switch (gain) {
+		/*
+		 * 000 -> Gain =  1
+		 * 001 -> Gain =  2
+		 * 010 -> Gain =  4
+		 * 011 -> Gain =  8
+		 * 10x -> Gain = 16
+		 * 11x -> Gain =  0.5
+		 */
 	case DT9812_GAIN_0PT5:
 		rmw->or_value = F020_MASK_ADC0CF_AMP0GN2 |
 		    F020_MASK_ADC0CF_AMP0GN1;
@@ -521,13 +568,13 @@ static int dt9812_analog_in(struct slot_dt9812 *slot, int channel, u16 * value,
 	if (!slot->usb)
 		goto exit;
 
-	
+	/* 1 select the gain */
 	dt9812_configure_gain(slot->usb, &rmw[0], gain);
 
-	
+	/* 2 set the MUX to select the channel */
 	dt9812_configure_mux(slot->usb, &rmw[1], channel);
 
-	
+	/* 3 start conversion */
 	rmw[2].address = F020_SFR_ADC0CN;
 	rmw[2].and_mask = 0xff;
 	rmw[2].or_value = F020_MASK_ADC0CN_AD0EN | F020_MASK_ADC0CN_AD0BUSY;
@@ -536,14 +583,28 @@ static int dt9812_analog_in(struct slot_dt9812 *slot, int channel, u16 * value,
 	if (result)
 		goto exit;
 
-	
+	/* read the status and ADC */
 	result = dt9812_read_multiple_registers(slot->usb, 3, reg, val);
 	if (result)
 		goto exit;
+	/*
+	 * An ADC conversion takes 16 SAR clocks cycles, i.e. about 9us.
+	 * Therefore, between the instant that AD0BUSY was set via
+	 * dt9812_rmw_multiple_registers and the read of AD0BUSY via
+	 * dt9812_read_multiple_registers, the conversion should be complete
+	 * since these two operations require two USB transactions each taking
+	 * at least a millisecond to complete.  However, lets make sure that
+	 * conversion is finished.
+	 */
 	if ((val[0] & (F020_MASK_ADC0CN_AD0INT | F020_MASK_ADC0CN_AD0BUSY)) ==
 	    F020_MASK_ADC0CN_AD0INT) {
 		switch (slot->usb->device) {
 		case DT9812_DEVID_DT9812_10:
+			/*
+			 * For DT9812-10V the personality module set the
+			 * encoding to 2's complement. Hence, convert it before
+			 * returning it
+			 */
 			*value = ((val[1] << 8) | val[2]) + 0x800;
 			break;
 		case DT9812_DEVID_DT9812_2PT5:
@@ -582,32 +643,36 @@ static int dt9812_analog_out(struct slot_dt9812 *slot, int channel, u16 value)
 
 		switch (channel) {
 		case 0:
-			
+			/* 1. Set DAC mode */
 			rmw[0].address = F020_SFR_DAC0CN;
 			rmw[0].and_mask = 0xff;
 			rmw[0].or_value = F020_MASK_DACxCN_DACxEN;
 
-			
+			/* 2 load low byte of DAC value first */
 			rmw[1].address = F020_SFR_DAC0L;
 			rmw[1].and_mask = 0xff;
 			rmw[1].or_value = value & 0xff;
 
+			/* 3 load high byte of DAC value next to latch the
+			   12-bit value */
 			rmw[2].address = F020_SFR_DAC0H;
 			rmw[2].and_mask = 0xff;
 			rmw[2].or_value = (value >> 8) & 0xf;
 			break;
 
 		case 1:
-			
+			/* 1. Set DAC mode */
 			rmw[0].address = F020_SFR_DAC1CN;
 			rmw[0].and_mask = 0xff;
 			rmw[0].or_value = F020_MASK_DACxCN_DACxEN;
 
-			
+			/* 2 load low byte of DAC value first */
 			rmw[1].address = F020_SFR_DAC1L;
 			rmw[1].and_mask = 0xff;
 			rmw[1].or_value = value & 0xff;
 
+			/* 3 load high byte of DAC value next to latch the
+			   12-bit value */
 			rmw[2].address = F020_SFR_DAC1H;
 			rmw[2].and_mask = 0xff;
 			rmw[2].or_value = (value >> 8) & 0xf;
@@ -621,6 +686,9 @@ static int dt9812_analog_out(struct slot_dt9812 *slot, int channel, u16 value)
 	return result;
 }
 
+/*
+ * USB framework functions
+ */
 
 static int dt9812_probe(struct usb_interface *interface,
 			const struct usb_device_id *id)
@@ -632,7 +700,7 @@ static int dt9812_probe(struct usb_interface *interface,
 	int i;
 	u8 fw;
 
-	
+	/* allocate memory for our device state and initialize it */
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (dev == NULL) {
 		dev_err(&interface->dev, "Out of memory\n");
@@ -643,7 +711,7 @@ static int dt9812_probe(struct usb_interface *interface,
 	dev->udev = usb_get_dev(interface_to_usbdev(interface));
 	dev->interface = interface;
 
-	
+	/* Check endpoints */
 	iface_desc = interface->cur_altsetting;
 
 	if (iface_desc->desc.bNumEndpoints != 5) {
@@ -696,6 +764,10 @@ static int dt9812_probe(struct usb_interface *interface,
 		}
 	}
 	if (dt9812_read_info(dev, 0, &fw, sizeof(fw)) != 0) {
+		/*
+		 * Seems like a configuration reset is necessary if driver is
+		 * reloaded while device is attached
+		 */
 		usb_reset_configuration(dev->udev);
 		for (i = 0; i < 10; i++) {
 			retval = dt9812_read_info(dev, 1, &fw, sizeof(fw));
@@ -745,16 +817,16 @@ static int dt9812_probe(struct usb_interface *interface,
 	}
 	dev->digital_out_shadow = 0;
 
-	
+	/* save our data pointer in this interface device */
 	usb_set_intfdata(interface, dev);
 
-	
+	/* let the user know what node this device is now attached to */
 	dev_info(&interface->dev, "USB DT9812 (%4.4x.%4.4x.%4.4x) #0x%8.8x\n",
 		 dev->vendor, dev->product, dev->device, dev->serial);
 
 	down(&dt9812_mutex);
 	{
-		
+		/* Find a slot for the USB device */
 		struct slot_dt9812 *first = NULL;
 		struct slot_dt9812 *best = NULL;
 
@@ -801,7 +873,7 @@ static void dt9812_disconnect(struct usb_interface *interface)
 	usb_set_intfdata(interface, NULL);
 	up(&dt9812_mutex);
 
-	
+	/* queue final destruction */
 	kref_put(&dev->kref, dt9812_delete);
 
 	dev_info(&interface->dev, "USB Dt9812 #%d now disconnected\n", minor);
@@ -814,6 +886,9 @@ static struct usb_driver dt9812_usb_driver = {
 	.id_table = dt9812_table,
 };
 
+/*
+ * Comedi functions
+ */
 
 static int dt9812_comedi_open(struct comedi_device *dev)
 {
@@ -821,7 +896,7 @@ static int dt9812_comedi_open(struct comedi_device *dev)
 
 	down(&devpriv->slot->mutex);
 	if (devpriv->slot->usb) {
-		
+		/* We have an attached device, fill in current range info */
 		struct comedi_subdevice *s;
 
 		s = &dev->subdevices[0];
@@ -951,15 +1026,19 @@ static int dt9812_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	if (alloc_private(dev, sizeof(struct comedi_dt9812)) < 0)
 		return -ENOMEM;
 
+	/*
+	 * Special open routine, since USB unit may be unattached at
+	 * comedi_config time, hence range can not be determined
+	 */
 	dev->open = dt9812_comedi_open;
 
 	devpriv->serial = it->options[0];
 
-	
+	/* Allocate subdevices */
 	if (alloc_subdevices(dev, 4) < 0)
 		return -ENOMEM;
 
-	
+	/* digital input subdevice */
 	s = dev->subdevices + 0;
 	s->type = COMEDI_SUBD_DI;
 	s->subdev_flags = SDF_READABLE;
@@ -968,7 +1047,7 @@ static int dt9812_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s->range_table = &range_digital;
 	s->insn_read = &dt9812_di_rinsn;
 
-	
+	/* digital output subdevice */
 	s = dev->subdevices + 1;
 	s->type = COMEDI_SUBD_DO;
 	s->subdev_flags = SDF_WRITEABLE;
@@ -977,7 +1056,7 @@ static int dt9812_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s->range_table = &range_digital;
 	s->insn_write = &dt9812_do_winsn;
 
-	
+	/* analog input subdevice */
 	s = dev->subdevices + 2;
 	s->type = COMEDI_SUBD_AI;
 	s->subdev_flags = SDF_READABLE | SDF_GROUND;
@@ -986,7 +1065,7 @@ static int dt9812_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	s->range_table = NULL;
 	s->insn_read = &dt9812_ai_rinsn;
 
-	
+	/* analog output subdevice */
 	s = dev->subdevices + 3;
 	s->type = COMEDI_SUBD_AO;
 	s->subdev_flags = SDF_WRITEABLE;
@@ -1000,19 +1079,19 @@ static int dt9812_attach(struct comedi_device *dev, struct comedi_devconfig *it)
 	       dev->minor);
 
 	down(&dt9812_mutex);
-	
+	/* Find a slot for the comedi device */
 	{
 		struct slot_dt9812 *first = NULL;
 		struct slot_dt9812 *best = NULL;
 		for (i = 0; i < DT9812_NUM_SLOTS; i++) {
 			if (!first && !dt9812[i].comedi) {
-				
+				/* First free slot from comedi side */
 				first = &dt9812[i];
 			}
 			if (!best &&
 			    dt9812[i].usb &&
 			    dt9812[i].usb->serial == devpriv->serial) {
-				
+				/* We have an attaced device with matching ID */
 				best = &dt9812[i];
 			}
 		}
@@ -1047,7 +1126,7 @@ static int __init usb_dt9812_init(void)
 {
 	int result, i;
 
-	
+	/* Initialize all driver slots */
 	for (i = 0; i < DT9812_NUM_SLOTS; i++) {
 		sema_init(&dt9812[i].mutex, 1);
 		dt9812[i].serial = 0;
@@ -1056,14 +1135,14 @@ static int __init usb_dt9812_init(void)
 	}
 	dt9812[12].serial = 0x0;
 
-	
+	/* register with the USB subsystem */
 	result = usb_register(&dt9812_usb_driver);
 	if (result) {
 		printk(KERN_ERR KBUILD_MODNAME
 		       ": usb_register failed. Error number %d\n", result);
 		return result;
 	}
-	
+	/* register with comedi */
 	result = comedi_driver_register(&dt9812_comedi_driver);
 	if (result) {
 		usb_deregister(&dt9812_usb_driver);
@@ -1075,10 +1154,10 @@ static int __init usb_dt9812_init(void)
 
 static void __exit usb_dt9812_exit(void)
 {
-	
+	/* unregister with comedi */
 	comedi_driver_unregister(&dt9812_comedi_driver);
 
-	
+	/* deregister this driver with the USB subsystem */
 	usb_deregister(&dt9812_usb_driver);
 }
 

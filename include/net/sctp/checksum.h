@@ -56,14 +56,17 @@ static inline __u32 sctp_start_cksum(__u8 *buffer, __u16 length)
 	__u32 crc = ~(__u32)0;
 	__u8  zero[sizeof(__u32)] = {0};
 
+	/* Optimize this routine to be SCTP specific, knowing how
+	 * to skip the checksum field of the SCTP header.
+	 */
 
-	
+	/* Calculate CRC up to the checksum. */
 	crc = sctp_crc32c(crc, buffer, sizeof(struct sctphdr) - sizeof(__u32));
 
-	
+	/* Skip checksum field of the header. */
 	crc = sctp_crc32c(crc, zero, sizeof(__u32));
 
-	
+	/* Calculate the rest of the CRC. */
 	crc = sctp_crc32c(crc, &buffer[sizeof(struct sctphdr)],
 			    length - sizeof(struct sctphdr));
 	return crc;

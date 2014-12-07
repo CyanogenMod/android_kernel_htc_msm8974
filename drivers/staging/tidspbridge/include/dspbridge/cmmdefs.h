@@ -20,67 +20,85 @@
 #define CMMDEFS_
 
 
+/* Cmm attributes used in cmm_create() */
 struct cmm_mgrattrs {
-	
+	/* Minimum SM allocation; default 32 bytes. */
 	u32 min_block_size;
 };
 
+/* Attributes for CMM_AllocBuf() & CMM_AllocDesc() */
 struct cmm_attrs {
-	u32 seg_id;		
-	u32 alignment;		
+	u32 seg_id;		/*  1,2... are SM segments. 0 is not. */
+	u32 alignment;		/*  0,1,2,4....min_block_size */
 };
 
+/*
+ *  DSPPa to GPPPa Conversion Factor.
+ *
+ *  For typical platforms:
+ *      converted Address = PaDSP + ( c_factor * addressToConvert).
+ */
 #define CMM_SUBFROMDSPPA	-1
 #define CMM_ADDTODSPPA		1
 
-#define CMM_ALLSEGMENTS         0xFFFFFF	
-#define CMM_MAXGPPSEGS          1	
+#define CMM_ALLSEGMENTS         0xFFFFFF	/* All SegIds */
+#define CMM_MAXGPPSEGS          1	/* Maximum # of SM segs */
 
+/*
+ *  SMSEGs are SM segments the DSP allocates from.
+ *
+ *  This info is used by the GPP to xlate DSP allocated PAs.
+ */
 
 struct cmm_seginfo {
-	u32 seg_base_pa;	
-	
+	u32 seg_base_pa;	/* Start Phys address of SM segment */
+	/* Total size in bytes of segment: DSP+GPP */
 	u32 total_seg_size;
-	u32 gpp_base_pa;	
-	u32 gpp_size;	
-	u32 dsp_base_va;	
-	u32 dsp_size;		
-	
+	u32 gpp_base_pa;	/* Start Phys addr of Gpp SM seg */
+	u32 gpp_size;	/* Size of Gpp SM seg in bytes */
+	u32 dsp_base_va;	/* DSP virt base byte address */
+	u32 dsp_size;		/* DSP seg size in bytes */
+	/* # of current GPP allocations from this segment */
 	u32 in_use_cnt;
-	u32 seg_base_va;	
+	u32 seg_base_va;	/* Start Virt address of SM seg */
 
 };
 
+/* CMM useful information */
 struct cmm_info {
-	
+	/* # of SM segments registered with this Cmm. */
 	u32 num_gppsm_segs;
-	
+	/* Total # of allocations outstanding for CMM */
 	u32 total_in_use_cnt;
-	
+	/* Min SM block size allocation from cmm_create() */
 	u32 min_block_size;
-	
+	/* Info per registered SM segment. */
 	struct cmm_seginfo seg_info[CMM_MAXGPPSEGS];
 };
 
+/* XlatorCreate attributes */
 struct cmm_xlatorattrs {
-	u32 seg_id;		
-	u32 dsp_bufs;		
-	u32 dsp_buf_size;	
-	
+	u32 seg_id;		/* segment Id used for SM allocations */
+	u32 dsp_bufs;		/* # of DSP-side bufs */
+	u32 dsp_buf_size;	/* size of DSP-side bufs in GPP bytes */
+	/* Vm base address alloc'd in client process context */
 	void *vm_base;
-	
+	/* vm_size must be >= (dwMaxNumBufs * dwMaxSize) */
 	u32 vm_size;
 };
 
+/*
+ * Cmm translation types. Use to map SM addresses to process context.
+ */
 enum cmm_xlatetype {
-	CMM_VA2PA = 0,		
-	CMM_PA2VA = 1,		
-	CMM_VA2DSPPA = 2,	
-	CMM_PA2DSPPA = 3,	
-	CMM_DSPPA2PA = 4,	
+	CMM_VA2PA = 0,		/* Virtual to GPP physical address xlation */
+	CMM_PA2VA = 1,		/* GPP Physical to virtual */
+	CMM_VA2DSPPA = 2,	/* Va to DSP Pa */
+	CMM_PA2DSPPA = 3,	/* GPP Pa to DSP Pa */
+	CMM_DSPPA2PA = 4,	/* DSP Pa to GPP Pa */
 };
 
 struct cmm_object;
 struct cmm_xlatorobject;
 
-#endif 
+#endif /* CMMDEFS_ */

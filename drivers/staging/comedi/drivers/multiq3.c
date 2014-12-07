@@ -20,6 +20,14 @@
    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 
  */
+/*
+Driver: multiq3
+Description: Quanser Consulting MultiQ-3
+Author: Anders Blomdell <anders.blomdell@control.lth.se>
+Status: works
+Devices: [Quanser Consulting] MultiQ-3 (multiq3)
+
+*/
 
 #include <linux/interrupt.h>
 #include "../comedidev.h"
@@ -28,6 +36,9 @@
 
 #define MULTIQ3_SIZE 16
 
+/*
+ * MULTIQ-3 port offsets
+ */
 #define MULTIQ3_DIGIN_PORT 0
 #define MULTIQ3_DIGOUT_PORT 0
 #define MULTIQ3_DAC_DATA 2
@@ -39,6 +50,9 @@
 #define MULTIQ3_ENC_DATA 12
 #define MULTIQ3_ENC_CONTROL 14
 
+/*
+ * flags for CONTROL register
+ */
 #define MULTIQ3_AD_MUX_EN      0x0040
 #define MULTIQ3_AD_AUTOZ       0x0080
 #define MULTIQ3_AD_AUTOCAL     0x0100
@@ -48,9 +62,15 @@
 
 #define MULTIQ3_CONTROL_MUST    0x0600
 
+/*
+ * flags for STATUS register
+ */
 #define MULTIQ3_STATUS_EOC      0x008
 #define MULTIQ3_STATUS_EOC_I    0x010
 
+/*
+ * flags for encoder control
+ */
 #define MULTIQ3_CLOCK_DATA      0x00
 #define MULTIQ3_CLOCK_SETUP     0x18
 #define MULTIQ3_INPUT_SETUP     0x41
@@ -228,6 +248,11 @@ static void encoder_reset(struct comedi_device *dev)
 	}
 }
 
+/*
+   options[0] - I/O port
+   options[1] - irq
+   options[2] - number of encoder chips installed
+ */
 
 static int multiq3_attach(struct comedi_device *dev,
 			  struct comedi_devconfig *it)
@@ -262,7 +287,7 @@ static int multiq3_attach(struct comedi_device *dev,
 		return result;
 
 	s = dev->subdevices + 0;
-	
+	/* ai subdevice */
 	s->type = COMEDI_SUBD_AI;
 	s->subdev_flags = SDF_READABLE | SDF_GROUND;
 	s->n_chan = 8;
@@ -271,7 +296,7 @@ static int multiq3_attach(struct comedi_device *dev,
 	s->range_table = &range_bipolar5;
 
 	s = dev->subdevices + 1;
-	
+	/* ao subdevice */
 	s->type = COMEDI_SUBD_AO;
 	s->subdev_flags = SDF_WRITABLE;
 	s->n_chan = 8;
@@ -281,7 +306,7 @@ static int multiq3_attach(struct comedi_device *dev,
 	s->range_table = &range_bipolar5;
 
 	s = dev->subdevices + 2;
-	
+	/* di subdevice */
 	s->type = COMEDI_SUBD_DI;
 	s->subdev_flags = SDF_READABLE;
 	s->n_chan = 16;
@@ -290,7 +315,7 @@ static int multiq3_attach(struct comedi_device *dev,
 	s->range_table = &range_digital;
 
 	s = dev->subdevices + 3;
-	
+	/* do subdevice */
 	s->type = COMEDI_SUBD_DO;
 	s->subdev_flags = SDF_WRITABLE;
 	s->n_chan = 16;
@@ -300,7 +325,7 @@ static int multiq3_attach(struct comedi_device *dev,
 	s->state = 0;
 
 	s = dev->subdevices + 4;
-	
+	/* encoder (counter) subdevice */
 	s->type = COMEDI_SUBD_COUNTER;
 	s->subdev_flags = SDF_READABLE | SDF_LSAMPL;
 	s->n_chan = it->options[2] * 2;

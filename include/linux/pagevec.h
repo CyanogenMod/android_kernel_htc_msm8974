@@ -1,7 +1,14 @@
+/*
+ * include/linux/pagevec.h
+ *
+ * In many places it is efficient to batch an operation up against multiple
+ * pages.  A pagevec is a multipage container which is used for that.
+ */
 
 #ifndef _LINUX_PAGEVEC_H
 #define _LINUX_PAGEVEC_H
 
+/* 14 pointers + two long's align the pagevec structure to a power of two */
 #define PAGEVEC_SIZE	14
 
 struct page;
@@ -42,6 +49,9 @@ static inline unsigned pagevec_space(struct pagevec *pvec)
 	return PAGEVEC_SIZE - pvec->nr;
 }
 
+/*
+ * Add a page to a pagevec.  Returns the number of slots still available.
+ */
 static inline unsigned pagevec_add(struct pagevec *pvec, struct page *page)
 {
 	pvec->pages[pvec->nr++] = page;
@@ -86,4 +96,4 @@ static inline void pagevec_lru_add_anon(struct pagevec *pvec)
 		__pagevec_lru_add_anon(pvec);
 }
 
-#endif 
+#endif /* _LINUX_PAGEVEC_H */

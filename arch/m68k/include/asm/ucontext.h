@@ -24,7 +24,7 @@ struct ucontext {
 	stack_t		  uc_stack;
 	struct mcontext	  uc_mcontext;
 	unsigned long	  uc_filler[80];
-	sigset_t	  uc_sigmask;	
+	sigset_t	  uc_sigmask;	/* mask last for extensibility */
 };
 
 #endif

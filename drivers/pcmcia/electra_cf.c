@@ -76,6 +76,7 @@ static int electra_cf_ss_init(struct pcmcia_socket *s)
 	return 0;
 }
 
+/* the timer is primarily to kick this socket's pccardd */
 static void electra_cf_timer(unsigned long _cf)
 {
 	struct electra_cf_socket *cf = (void *) _cf;
@@ -105,7 +106,7 @@ static int electra_cf_get_status(struct pcmcia_socket *s, u_int *sp)
 
 	cf = container_of(s, struct electra_cf_socket, socket);
 
-	
+	/* NOTE CF is always 3VCARD */
 	if (electra_cf_present(cf)) {
 		*sp = SS_READY | SS_DETECT | SS_POWERON | SS_3VCARD;
 
@@ -124,7 +125,7 @@ static int electra_cf_set_socket(struct pcmcia_socket *sock,
 
 	cf = container_of(sock, struct electra_cf_socket, socket);
 
-	
+	/* "reset" means no power in our case */
 	vcc = (s->flags & SS_RESET) ? 0 : s->Vcc;
 
 	switch (vcc) {
@@ -141,8 +142,8 @@ static int electra_cf_set_socket(struct pcmcia_socket *sock,
 		return -EINVAL;
 	}
 
-	gpio |= 1 << (cf->gpio_3v + 16); 
-	gpio |= 1 << (cf->gpio_5v + 16); 
+	gpio |= 1 << (cf->gpio_3v + 16); /* enwr */
+	gpio |= 1 << (cf->gpio_5v + 16); /* enwr */
 	out_le32(cf->gpio_base+0x90, gpio);
 
 	pr_debug("%s: Vcc %d, io_irq %d, flags %04x csc %04x\n",
@@ -269,7 +270,7 @@ static int __devinit electra_cf_probe(struct platform_device *ofdev)
 
 	cf->socket.io_offset = cf->io_base;
 
-	
+	/* reserve chip-select regions */
 	if (!request_mem_region(cf->mem_phys, cf->mem_size, driver_name)) {
 		status = -ENXIO;
 		dev_err(device, "Can't claim memory region\n");

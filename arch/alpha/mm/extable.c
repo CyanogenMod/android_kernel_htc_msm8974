@@ -1,3 +1,6 @@
+/*
+ * linux/arch/alpha/mm/extable.c
+ */
 
 #include <linux/module.h>
 #include <linux/sort.h>
@@ -20,11 +23,17 @@ static void swap_ex(void *a, void *b, int size)
 	ex_b->insn = (int)(addr_a - (unsigned long)&ex_b->insn);
 }
 
+/*
+ * The exception table needs to be sorted so that the binary
+ * search that we use to find entries in it works properly.
+ * This is used both for the kernel exception table and for
+ * the exception tables of modules that get loaded.
+ */
 static int cmp_ex(const void *a, const void *b)
 {
 	const struct exception_table_entry *x = a, *y = b;
 
-	
+	/* avoid overflow */
 	if (ex_to_addr(x) > ex_to_addr(y))
 		return 1;
 	if (ex_to_addr(x) < ex_to_addr(y))
@@ -40,21 +49,25 @@ void sort_extable(struct exception_table_entry *start,
 }
 
 #ifdef CONFIG_MODULES
+/*
+ * Any entry referring to the module init will be at the beginning or
+ * the end.
+ */
 void trim_init_extable(struct module *m)
 {
-	
+	/*trim the beginning*/
 	while (m->num_exentries &&
 	       within_module_init(ex_to_addr(&m->extable[0]), m)) {
 		m->extable++;
 		m->num_exentries--;
 	}
-	
+	/*trim the end*/
 	while (m->num_exentries &&
 	       within_module_init(ex_to_addr(&m->extable[m->num_exentries-1]),
 				  m))
 		m->num_exentries--;
 }
-#endif 
+#endif /* CONFIG_MODULES */
 
 const struct exception_table_entry *
 search_extable(const struct exception_table_entry *first,

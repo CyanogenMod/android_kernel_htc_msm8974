@@ -55,6 +55,7 @@ static unsigned long htcherald_panel_get_caps(struct lcd_panel *panel)
 	return 0;
 }
 
+/* Found on WIZ200 (miknix) and some HERA110 models (darkstar62) */
 struct lcd_panel htcherald_panel_1 = {
 	.name		= "lcd_herald",
 	.config		= OMAP_LCDC_PANEL_TFT |
@@ -66,7 +67,7 @@ struct lcd_panel htcherald_panel_1 = {
 	.x_res		= 240,
 	.y_res		= 320,
 	.pixel_clock	= 6093,
-	.pcd		= 0, 
+	.pcd		= 0, /* 15 */
 	.hsw		= 10,
 	.hfp		= 10,
 	.hbp		= 20,

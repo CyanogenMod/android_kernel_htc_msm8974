@@ -30,5 +30,5 @@ struct ist_info {
 
 extern struct ist_info ist_info;
 
-#endif	
-#endif 
+#endif	/* __KERNEL__ */
+#endif /* _ASM_X86_IST_H */

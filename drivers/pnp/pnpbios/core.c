@@ -33,6 +33,17 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+/* Change Log
+ *
+ * Adam Belay - <ambx1@neo.rr.com> - March 16, 2003
+ * rev 1.01	Only call pnp_bios_dev_node_info once
+ *		Added pnpbios_print_status
+ *		Added several new error messages and info messages
+ *		Added pnpbios_interface_attach_device
+ *		integrated core and proc init system
+ *		Introduced PNPMODE flags
+ *		Removed some useless includes
+ */
 
 #include <linux/types.h>
 #include <linux/module.h>
@@ -59,6 +70,11 @@
 #include "../base.h"
 #include "pnpbios.h"
 
+/*
+ *
+ * PnP BIOS INTERFACE
+ *
+ */
 
 static union pnp_bios_install_struct *pnp_bios_install = NULL;
 
@@ -69,11 +85,19 @@ int pnp_bios_present(void)
 
 struct pnp_dev_node_info node_info;
 
+/*
+ *
+ * DOCKING FUNCTIONS
+ *
+ */
 
 #ifdef CONFIG_HOTPLUG
 
 static struct completion unload_sem;
 
+/*
+ * (Much of this belongs in a shared routine somewhere)
+ */
 static int pnp_dock_event(int dock, struct pnp_docking_station_info *info)
 {
 	char *argv[3], **envp, *buf, *scratch;
@@ -86,25 +110,32 @@ static int pnp_dock_event(int dock, struct pnp_docking_station_info *info)
 		return -ENOMEM;
 	}
 
+	/* FIXME: if there are actual users of this, it should be
+	 * integrated into the driver core and use the usual infrastructure
+	 * like sysfs and uevents
+	 */
 	argv[0] = "/sbin/pnpbios";
 	argv[1] = "dock";
 	argv[2] = NULL;
 
-	
+	/* minimal command environment */
 	envp[i++] = "HOME=/";
 	envp[i++] = "PATH=/sbin:/bin:/usr/sbin:/usr/bin";
 
 #ifdef	DEBUG
-	
+	/* hint that policy agent should enter no-stdout debug mode */
 	envp[i++] = "DEBUG=kernel";
 #endif
+	/* extensible set of named bus-specific parameters,
+	 * supporting multiple driver selection algorithms.
+	 */
 	scratch = buf;
 
-	
+	/* action:  add, remove */
 	envp[i++] = scratch;
 	scratch += sprintf(scratch, "ACTION=%s", dock ? "add" : "remove") + 1;
 
-	
+	/* Report the ident for the dock */
 	envp[i++] = scratch;
 	scratch += sprintf(scratch, "DOCK=%x/%x/%x",
 			   info->location_id, info->serial, info->capabilities);
@@ -116,6 +147,9 @@ static int pnp_dock_event(int dock, struct pnp_docking_station_info *info)
 	return 0;
 }
 
+/*
+ * Poll the PnP docking at regular intervals
+ */
 static int pnp_dock_thread(void *unused)
 {
 	static struct pnp_docking_station_info now;
@@ -125,6 +159,9 @@ static int pnp_dock_thread(void *unused)
 	while (1) {
 		int status;
 
+		/*
+		 * Poll every 2 seconds
+		 */
 		msleep_interruptible(2000);
 
 		if (try_to_freeze())
@@ -133,6 +170,9 @@ static int pnp_dock_thread(void *unused)
 		status = pnp_bios_dock_station_info(&now);
 
 		switch (status) {
+			/*
+			 * No dock to manage
+			 */
 		case PNP_FUNCTION_NOT_SUPPORTED:
 			complete_and_exit(&unload_sem, 0);
 		case PNP_SYSTEM_NOT_DOCKED:
@@ -159,7 +199,7 @@ static int pnp_dock_thread(void *unused)
 	complete_and_exit(&unload_sem, 0);
 }
 
-#endif				
+#endif				/* CONFIG_HOTPLUG */
 
 static int pnpbios_get_resources(struct pnp_dev *dev)
 {
@@ -219,7 +259,7 @@ static void pnpbios_zero_data_stream(struct pnp_bios_node *node)
 	int i;
 
 	while ((char *)p < (char *)end) {
-		if (p[0] & 0x80) {	
+		if (p[0] & 0x80) {	/* large tag */
 			len = (p[2] << 8) | p[1];
 			p += 3;
 		} else {
@@ -262,6 +302,7 @@ static int pnpbios_disable_resources(struct pnp_dev *dev)
 	return ret;
 }
 
+/* PnP Layer support */
 
 struct pnp_protocol pnpbios_protocol = {
 	.name = "Plug and Play BIOS",
@@ -276,7 +317,7 @@ static int __init insert_device(struct pnp_bios_node *node)
 	struct pnp_dev *dev;
 	char id[8];
 
-	
+	/* check if the device is already added */
 	list_for_each(pos, &pnpbios_protocol.devices) {
 		dev = list_entry(pos, struct pnp_dev, protocol_list);
 		if (dev->number == node->handle)
@@ -301,7 +342,7 @@ static int __init insert_device(struct pnp_bios_node *node)
 	if (dev->flags & PNPBIOS_REMOVABLE)
 		dev->capabilities |= PNP_REMOVABLE;
 
-	
+	/* clear out the damaged flags */
 	if (!dev->active)
 		pnp_init_resources(dev);
 
@@ -324,6 +365,9 @@ static void __init build_devlist(void)
 
 	for (nodenum = 0; nodenum < 0xff;) {
 		u8 thisnodenum = nodenum;
+		/* eventually we will want to use PNPMODE_STATIC here but for now
+		 * dynamic will help us catch buggy bioses to add to the blacklist.
+		 */
 		if (!pnpbios_dont_use_current_config) {
 			if (pnp_bios_get_dev_node
 			    (&nodenum, (char)PNPMODE_DYNAMIC, node))
@@ -351,6 +395,11 @@ static void __init build_devlist(void)
 	       nodes_got, nodes_got != 1 ? "s" : "", devs);
 }
 
+/*
+ *
+ * INIT AND EXIT
+ *
+ */
 
 static int pnpbios_disabled;
 int pnpbios_dont_use_current_config;
@@ -379,6 +428,7 @@ static int __init pnpbios_setup(char *str)
 
 __setup("pnpbios=", pnpbios_setup);
 
+/* PnP BIOS signature: "$PnP" */
 #define PNP_SIGNATURE   (('$' << 0) + ('P' << 8) + ('n' << 16) + ('P' << 24))
 
 static int __init pnpbios_probe_system(void)
@@ -389,6 +439,11 @@ static int __init pnpbios_probe_system(void)
 
 	printk(KERN_INFO "PnPBIOS: Scanning system for PnP BIOS support...\n");
 
+	/*
+	 * Search the defined area (0xf0000-0xffff0) for a valid PnP BIOS
+	 * structure and, if one is found, sets up the selectors and
+	 * entry points
+	 */
 	for (check = (union pnp_bios_install_struct *)__va(0xf0000);
 	     check < (union pnp_bios_install_struct *)__va(0xffff0);
 	     check = (void *)check + 16) {
@@ -437,7 +492,7 @@ static int __init exploding_pnp_bios(const struct dmi_system_id *d)
 }
 
 static struct dmi_system_id pnpbios_dmi_table[] __initdata = {
-	{			
+	{			/* PnPBIOS GPF on boot */
 	 .callback = exploding_pnp_bios,
 	 .ident = "Higraded P14H",
 	 .matches = {
@@ -447,7 +502,7 @@ static struct dmi_system_id pnpbios_dmi_table[] __initdata = {
 		     DMI_MATCH(DMI_PRODUCT_NAME, "P14H"),
 		     },
 	 },
-	{			
+	{			/* PnPBIOS GPF on boot */
 	 .callback = exploding_pnp_bios,
 	 .ident = "ASUS P4P800",
 	 .matches = {
@@ -477,16 +532,16 @@ static int __init pnpbios_init(void)
 		printk(KERN_INFO "PnPBIOS: Disabled by ACPI PNP\n");
 		return -ENODEV;
 	}
-#endif				
+#endif				/* CONFIG_ACPI */
 
-	
+	/* scan the system for pnpbios support */
 	if (!pnpbios_probe_system())
 		return -ENODEV;
 
-	
+	/* make preparations for bios calls */
 	pnpbios_calls_init(pnp_bios_install);
 
-	
+	/* read the node info */
 	ret = pnp_bios_dev_node_info(&node_info);
 	if (ret) {
 		printk(KERN_ERR
@@ -494,7 +549,7 @@ static int __init pnpbios_init(void)
 		return ret;
 	}
 
-	
+	/* register with the pnp layer */
 	ret = pnp_register_protocol(&pnpbios_protocol);
 	if (ret) {
 		printk(KERN_ERR
@@ -502,12 +557,12 @@ static int __init pnpbios_init(void)
 		return ret;
 	}
 
-	
+	/* start the proc interface */
 	ret = pnpbios_proc_init();
 	if (ret)
 		printk(KERN_ERR "PnPBIOS: Failed to create proc interface.\n");
 
-	
+	/* scan for pnpbios devices */
 	build_devlist();
 
 	pnp_platform_devices = 1;
@@ -536,6 +591,7 @@ static int __init pnpbios_thread_init(void)
 	return 0;
 }
 
+/* Start the kernel thread later: */
 module_init(pnpbios_thread_init);
 
 EXPORT_SYMBOL(pnpbios_protocol);

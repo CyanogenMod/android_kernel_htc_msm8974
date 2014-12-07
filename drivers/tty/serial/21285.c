@@ -1,3 +1,8 @@
+/*
+ * Driver for the serial port on the 21285 StrongArm-110 core logic chip.
+ *
+ * Based on drivers/char/serial.c
+ */
 #include <linux/module.h>
 #include <linux/tty.h>
 #include <linux/ioport.h>
@@ -38,6 +43,16 @@ static const char serial21285_name[] = "Footbridge UART";
 #define tx_enabled(port)	((port)->unused[0])
 #define rx_enabled(port)	((port)->unused[1])
 
+/*
+ * The documented expression for selecting the divisor is:
+ *  BAUD_BASE / baud - 1
+ * However, typically BAUD_BASE is not divisible by baud, so
+ * we want to select the divisor that gives us the minimum
+ * error.  Therefore, we want:
+ *  int(BAUD_BASE / baud - 0.5) ->
+ *  int(BAUD_BASE / baud - (baud >> 1) / baud) ->
+ *  int((BAUD_BASE - (baud >> 1)) / baud)
+ */
 
 static void serial21285_stop_tx(struct uart_port *port)
 {
@@ -145,6 +160,7 @@ static unsigned int serial21285_tx_empty(struct uart_port *port)
 	return (*CSR_UARTFLG & 8) ? 0 : TIOCSER_TEMT;
 }
 
+/* no modem control lines */
 static unsigned int serial21285_get_mctrl(struct uart_port *port)
 {
 	return TIOCM_CAR | TIOCM_DSR | TIOCM_CTS;
@@ -201,11 +217,20 @@ serial21285_set_termios(struct uart_port *port, struct ktermios *termios,
 	unsigned long flags;
 	unsigned int baud, quot, h_lcr, b;
 
+	/*
+	 * We don't support modem control lines.
+	 */
 	termios->c_cflag &= ~(HUPCL | CRTSCTS | CMSPAR);
 	termios->c_cflag |= CLOCAL;
 
+	/*
+	 * We don't support BREAK character recognition.
+	 */
 	termios->c_iflag &= ~(IGNBRK | BRKINT);
 
+	/*
+	 * Ask the core to calculate the divisor for us.
+	 */
 	baud = uart_get_baud_rate(port, termios, old, 0, port->uartclk/16); 
 	quot = uart_get_divisor(port, baud);
 	b = port->uartclk / (16 * quot);
@@ -221,7 +246,7 @@ serial21285_set_termios(struct uart_port *port, struct ktermios *termios,
 	case CS7:
 		h_lcr = 0x40;
 		break;
-	default: 
+	default: /* CS8 */
 		h_lcr = 0x60;
 		break;
 	}
@@ -239,18 +264,30 @@ serial21285_set_termios(struct uart_port *port, struct ktermios *termios,
 
 	spin_lock_irqsave(&port->lock, flags);
 
+	/*
+	 * Update the per-port timeout.
+	 */
 	uart_update_timeout(port, termios->c_cflag, baud);
 
+	/*
+	 * Which character status flags are we interested in?
+	 */
 	port->read_status_mask = RXSTAT_OVERRUN;
 	if (termios->c_iflag & INPCK)
 		port->read_status_mask |= RXSTAT_FRAME | RXSTAT_PARITY;
 
+	/*
+	 * Which character status flags should we ignore?
+	 */
 	port->ignore_status_mask = 0;
 	if (termios->c_iflag & IGNPAR)
 		port->ignore_status_mask |= RXSTAT_FRAME | RXSTAT_PARITY;
 	if (termios->c_iflag & IGNBRK && termios->c_iflag & IGNPAR)
 		port->ignore_status_mask |= RXSTAT_OVERRUN;
 
+	/*
+	 * Ignore all characters if CREAD is not set.
+	 */
 	if ((termios->c_cflag & CREAD) == 0)
 		port->ignore_status_mask |= RXSTAT_DUMMY_READ;
 
@@ -287,6 +324,9 @@ static void serial21285_config_port(struct uart_port *port, int flags)
 		port->type = PORT_21285;
 }
 
+/*
+ * verify the new serial_struct (for TIOCSSERIAL).
+ */
 static int serial21285_verify_port(struct uart_port *port, struct serial_struct *ser)
 {
 	int ret = 0;
@@ -394,6 +434,11 @@ static int __init serial21285_console_setup(struct console *co, char *options)
 	if (machine_is_personal_server())
 		baud = 57600;
 
+	/*
+	 * Check whether an invalid uart number has been specified, and
+	 * if so, search for the first available port that does have
+	 * console support.
+	 */
 	if (options)
 		uart_parse_options(options, &baud, &parity, &bits, &flow);
 	else

@@ -24,11 +24,11 @@
 static DEFINE_MUTEX(flash_mutex);
 static DEFINE_SPINLOCK(flash_lock);
 static struct {
-	unsigned long read_base;	
-	unsigned long write_base;	
-	unsigned long read_size;	
-	unsigned long write_size;	
-	unsigned long busy;		
+	unsigned long read_base;	/* Physical read address */
+	unsigned long write_base;	/* Physical write address */
+	unsigned long read_size;	/* Size of read area */
+	unsigned long write_size;	/* Size of write area */
+	unsigned long busy;		/* In use? */
 } flash;
 
 #define FLASH_MINOR	152
@@ -146,6 +146,9 @@ flash_release(struct inode *inode, struct file *file)
 }
 
 static const struct file_operations flash_fops = {
+	/* no write to the Flash, use mmap
+	 * and play flash dependent tricks.
+	 */
 	.owner =	THIS_MODULE,
 	.llseek =	flash_llseek,
 	.read =		flash_read,

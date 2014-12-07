@@ -31,10 +31,11 @@ extern int ntfs_sysctl(int add);
 
 #else
 
+/* Just return success. */
 static inline int ntfs_sysctl(int add)
 {
 	return 0;
 }
 
-#endif 
-#endif 
+#endif /* DEBUG && CONFIG_SYSCTL */
+#endif /* _LINUX_NTFS_SYSCTL_H */

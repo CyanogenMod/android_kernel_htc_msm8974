@@ -1,3 +1,9 @@
+/*
+ * Dynamic DMA mapping support.
+ *
+ * We never have any address translations to worry about, so this
+ * is just alloc/free.
+ */
 
 #include <linux/types.h>
 #include <linux/gfp.h>
@@ -11,7 +17,7 @@ void *dma_alloc_coherent(struct device *dev, size_t size,
 			   dma_addr_t *dma_handle, gfp_t gfp)
 {
 	void *ret;
-	
+	/* ignore region specifiers */
 	gfp &= ~(__GFP_DMA | __GFP_HIGHMEM);
 
 	if (dev == NULL || (*dev->dma_mask < 0xffffffff))
@@ -39,7 +45,7 @@ void dma_sync_single_for_device(struct device *dev, dma_addr_t handle,
 		flush_dcache_range(handle, size);
 		break;
 	case DMA_FROM_DEVICE:
-		
+		/* Should be clear already */
 		break;
 	default:
 		if (printk_ratelimit())

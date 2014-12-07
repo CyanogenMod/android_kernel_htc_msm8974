@@ -72,17 +72,20 @@ static struct platform_device dockstar_leds = {
 };
 
 static unsigned int dockstar_mpp_config[] __initdata = {
-	MPP29_GPIO,	
-	MPP46_GPIO,	
-	MPP47_GPIO,	
+	MPP29_GPIO,	/* USB Power Enable */
+	MPP46_GPIO,	/* LED green */
+	MPP47_GPIO,	/* LED orange */
 	0
 };
 
 static void __init dockstar_init(void)
 {
+	/*
+	 * Basic setup. Needs to be called early.
+	 */
 	kirkwood_init();
 
-	
+	/* setup gpio pin select */
 	kirkwood_mpp_conf(dockstar_mpp_config);
 
 	kirkwood_uart0_init();

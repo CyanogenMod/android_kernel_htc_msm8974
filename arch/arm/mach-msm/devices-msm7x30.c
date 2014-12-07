@@ -46,6 +46,7 @@ struct platform_device msm7x30_device_acpuclk = {
 	.id		= -1,
 };
 
+/* EBI THERMAL DRIVER */
 static struct resource msm_ebi0_thermal_resources[] = {
 	{
 		.start  = 0xA8600000,
@@ -437,7 +438,7 @@ struct platform_device msm_device_ssbi7 = {
 	.num_resources	= ARRAY_SIZE(msm_ssbi7_resources),
 	.resource	= msm_ssbi7_resources,
 };
-#endif 
+#endif /* CONFIG_I2C_SSBI */
 
 #define MSM_HSUSB_PHYS        0xA3600000
 static struct resource resources_hsusb_otg[] = {
@@ -1116,6 +1117,7 @@ static struct platform_device tvout_msm_device = {
 };
 #endif
 
+/* TSIF begin */
 #if defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE)
 
 #define MSM_TSIF_PHYS        (0xa3400000)
@@ -1153,7 +1155,8 @@ struct platform_device msm_device_tsif = {
 		.release       = tsif_release,
 	},
 };
-#endif 
+#endif /* defined(CONFIG_TSIF) || defined(CONFIG_TSIF_MODULE) */
+/* TSIF end   */
 
 
 
@@ -1260,7 +1263,7 @@ void __init msm_camera_register_device(void *res, uint32_t num,
 struct resource kgsl_3d0_resources[] = {
 	{
 		.name  = KGSL_3D0_REG_MEMORY,
-		.start = 0xA3500000, 
+		.start = 0xA3500000, /* 3D GRP address */
 		.end = 0xA351ffff,
 		.flags = IORESOURCE_MEM,
 	},
@@ -1309,7 +1312,7 @@ struct platform_device msm_kgsl_3d0 = {
 static struct resource kgsl_2d0_resources[] = {
 	{
 		.name = KGSL_2D0_REG_MEMORY,
-		.start = 0xA3900000, 
+		.start = 0xA3900000, /* Z180 base address */
 		.end = 0xA3900FFF,
 		.flags = IORESOURCE_MEM,
 	},
@@ -1330,7 +1333,7 @@ static struct kgsl_device_platform_data kgsl_2d0_pdata = {
 	},
 	.init_level = 0,
 	.num_levels = 1,
-	
+	/* HW workaround, run Z180 SYNC @ 192 MHZ */
 	.set_grp_async = NULL,
 	.idle_timeout = HZ/10,
 	.idle_needed = true,

@@ -80,6 +80,10 @@ static inline void vcpu_cache_mmio_info(struct kvm_vcpu *vcpu,
 	vcpu->arch.mmio_gfn = gfn;
 }
 
+/*
+ * Clear the mmio cache info for the given gva,
+ * specially, if gva is ~0ul, we clear all mmio cache info.
+ */
 static inline void vcpu_clear_mmio_info(struct kvm_vcpu *vcpu, gva_t gva)
 {
 	if (gva != (~0ul) && vcpu->arch.mmio_gva != (gva & PAGE_MASK))

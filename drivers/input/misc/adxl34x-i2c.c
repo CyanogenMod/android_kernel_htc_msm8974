@@ -7,7 +7,7 @@
  * Licensed under the GPL-2 or later.
  */
 
-#include <linux/input.h>	
+#include <linux/input.h>	/* BUS_I2C */
 #include <linux/i2c.h>
 #include <linux/module.h>
 #include <linux/types.h>

@@ -40,12 +40,14 @@
 #include <linux/stringify.h>
 #include <asm/intrinsics.h>
 
+/* for binary patch */
 struct paravirt_patch_site_bundle {
 	void		*sbundle;
 	void		*ebundle;
 	unsigned long	type;
 };
 
+/* label means the beginning of new bundle */
 #define paravirt_alt_bundle(instr, privop)				\
 	"\t998:\n"							\
 	"\t" instr "\n"							\
@@ -126,7 +128,16 @@ void paravirt_patch_apply(void);
 #define paravirt_patch_apply()			do { } while (0)
 #endif
 
-#endif 
+#endif /* !__ASSEMBLEY__ */
 
-#endif 
+#endif /* __ASM_PARAVIRT_PATCH_H */
 
+/*
+ * Local variables:
+ * mode: C
+ * c-set-style: "linux"
+ * c-basic-offset: 8
+ * tab-width: 8
+ * indent-tabs-mode: t
+ * End:
+ */

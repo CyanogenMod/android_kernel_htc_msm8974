@@ -13,10 +13,14 @@
 #include <asm/fcx.h>
 #include <asm/irq.h>
 
+/* structs from asm/cio.h */
 struct irb;
 struct ccw1;
 struct ccw_dev_id;
 
+/* simplified initializers for struct ccw_device:
+ * CCW_DEVICE and CCW_DEVICE_DEVTYPE initialize one
+ * entry in your MODULE_DEVICE_TABLE and set the match_flag correctly */
 #define CCW_DEVICE(cu, cum) 						\
 	.cu_type=(cu), .cu_model=(cum),					\
 	.match_flags=(CCW_DEVICE_ID_MATCH_CU_TYPE			\
@@ -29,6 +33,11 @@ struct ccw_dev_id;
 		   | CCW_DEVICE_ID_MATCH_DEVICE_TYPE			\
 		   | ((devm) ? CCW_DEVICE_ID_MATCH_DEVICE_MODEL : 0)
 
+/* scan through an array of device ids and return the first
+ * entry that matches the device.
+ *
+ * the array must end with an entry containing zero match_flags
+ */
 static inline const struct ccw_device_id *
 ccw_device_id_match(const struct ccw_device_id *array,
 			const struct ccw_device_id *match)
@@ -58,9 +67,24 @@ ccw_device_id_match(const struct ccw_device_id *array,
 	return NULL;
 }
 
+/**
+ * struct ccw_device - channel attached device
+ * @ccwlock: pointer to device lock
+ * @id: id of this device
+ * @drv: ccw driver for this device
+ * @dev: embedded device structure
+ * @online: online status of device
+ * @handler: interrupt handler
+ *
+ * @handler is a member of the device rather than the driver since a driver
+ * can have different interrupt handlers for different ccw devices
+ * (multi-subchannel drivers).
+ */
 struct ccw_device {
 	spinlock_t *ccwlock;
-	struct ccw_device_private *private;	
+/* private: */
+	struct ccw_device_private *private;	/* cio private information */
+/* public: */
 	struct ccw_device_id id;
 	struct ccw_driver *drv;
 	struct device dev;
@@ -68,17 +92,44 @@ struct ccw_device {
 	void (*handler) (struct ccw_device *, unsigned long, struct irb *);
 };
 
+/*
+ * Possible events used by the path_event notifier.
+ */
 #define PE_NONE				0x0
-#define PE_PATH_GONE			0x1 
-#define PE_PATH_AVAILABLE		0x2 
-#define PE_PATHGROUP_ESTABLISHED	0x4 
+#define PE_PATH_GONE			0x1 /* A path is no longer available. */
+#define PE_PATH_AVAILABLE		0x2 /* A path has become available and
+					       was successfully verified. */
+#define PE_PATHGROUP_ESTABLISHED	0x4 /* A pathgroup was reset and had
+					       to be established again. */
 
+/*
+ * Possible CIO actions triggered by the unit check handler.
+ */
 enum uc_todo {
 	UC_TODO_RETRY,
 	UC_TODO_RETRY_ON_NEW_PATH,
 	UC_TODO_STOP
 };
 
+/**
+ * struct ccw driver - device driver for channel attached devices
+ * @ids: ids supported by this driver
+ * @probe: function called on probe
+ * @remove: function called on remove
+ * @set_online: called when setting device online
+ * @set_offline: called when setting device offline
+ * @notify: notify driver of device state changes
+ * @path_event: notify driver of channel path events
+ * @shutdown: called at device shutdown
+ * @prepare: prepare for pm state transition
+ * @complete: undo work done in @prepare
+ * @freeze: callback for freezing during hibernation snapshotting
+ * @thaw: undo work done in @freeze
+ * @restore: callback for restoring after hibernation
+ * @uc_handler: callback for unit check handler
+ * @driver: embedded device driver structure
+ * @int_class: interruption class to use for accounting interrupts
+ */
 struct ccw_driver {
 	struct ccw_device_id *ids;
 	int (*probe) (struct ccw_device *);
@@ -101,6 +152,9 @@ struct ccw_driver {
 extern struct ccw_device *get_ccwdev_by_busid(struct ccw_driver *cdrv,
 					      const char *bus_id);
 
+/* devices drivers call these during module load and unload.
+ * When a driver is registered, its probe method is called
+ * when new devices for its type pop up */
 extern int  ccw_driver_register   (struct ccw_driver *driver);
 extern void ccw_driver_unregister (struct ccw_driver *driver);
 
@@ -112,10 +166,15 @@ extern void ccw_device_clear_options(struct ccw_device *, unsigned long);
 int ccw_device_is_pathgroup(struct ccw_device *cdev);
 int ccw_device_is_multipath(struct ccw_device *cdev);
 
+/* Allow for i/o completion notification after primary interrupt status. */
 #define CCWDEV_EARLY_NOTIFICATION	0x0001
+/* Report all interrupt conditions. */
 #define CCWDEV_REPORT_ALL	 	0x0002
+/* Try to perform path grouping. */
 #define CCWDEV_DO_PATHGROUP             0x0004
+/* Allow forced onlining of boxed devices. */
 #define CCWDEV_ALLOW_FORCE              0x0008
+/* Try to use multipath mode. */
 #define CCWDEV_DO_MULTIPATH		0x0010
 
 extern int ccw_device_start(struct ccw_device *, struct ccw1 *,
@@ -164,7 +223,8 @@ extern int ccw_device_force_console(void);
 
 int ccw_device_siosl(struct ccw_device *);
 
+// FIXME: these have to go
 extern int _ccw_device_get_subchannel_number(struct ccw_device *);
 
 extern void *ccw_device_get_chp_desc(struct ccw_device *, int);
-#endif 
+#endif /* _S390_CCWDEV_H_ */

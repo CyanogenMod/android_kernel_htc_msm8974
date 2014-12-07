@@ -3,9 +3,10 @@
 
 #include <hwregs/intr_vect.h>
 
-#define NR_IRQS NBR_INTR_VECT 
-#define FIRST_IRQ 0x31 
-#define NR_REAL_IRQS (NBR_INTR_VECT - FIRST_IRQ) 
+/* Number of non-cpu interrupts. */
+#define NR_IRQS NBR_INTR_VECT /* Exceptions + IRQs */
+#define FIRST_IRQ 0x31 /* Exception number for first IRQ */
+#define NR_REAL_IRQS (NBR_INTR_VECT - FIRST_IRQ) /* IRQs */
 #if NR_REAL_IRQS > 32
 #define MACH_IRQS 64
 #else
@@ -13,19 +14,21 @@
 #endif
 
 #ifndef __ASSEMBLY__
+/* Global IRQ vector. */
 typedef void (*irqvectptr)(void);
 
 struct etrax_interrupt_vector {
 	irqvectptr v[256];
 };
 
-extern struct etrax_interrupt_vector *etrax_irv;	
+extern struct etrax_interrupt_vector *etrax_irv;	/* head.S */
 
 void crisv32_mask_irq(int irq);
 void crisv32_unmask_irq(int irq);
 
 void set_exception_vector(int n, irqvectptr addr);
 
+/* Save registers so that they match pt_regs. */
 #define SAVE_ALL \
 	"subq 12,$sp\n\t"	\
 	"move $erp,[$sp]\n\t"	\
@@ -52,6 +55,12 @@ void set_exception_vector(int n, irqvectptr addr);
 #define IRQ_NAME2(nr) nr##_interrupt(void)
 #define IRQ_NAME(nr) IRQ_NAME2(IRQ##nr)
 
+/*
+ * The reason for setting the S-bit when debugging the kernel is that we want
+ * hardware breakpoints to remain active while we are in an exception handler.
+ * Note that we cannot simply copy S1, since we may come here from user-space,
+ * or any context where the S-bit wasn't set.
+ */
 #ifdef CONFIG_ETRAX_KGDB
 #define KGDB_FIXUP \
 	"move $ccs, $r10\n\t"		\
@@ -61,6 +70,14 @@ void set_exception_vector(int n, irqvectptr addr);
 #define KGDB_FIXUP ""
 #endif
 
+/*
+ * Make sure the causing IRQ is blocked, then call do_IRQ. After that, unblock
+ * and jump to ret_from_intr which is found in entry.S.
+ *
+ * The reason for blocking the IRQ is to allow an sti() before the handler,
+ * which will acknowledge the interrupt, is run. The actual blocking is made
+ * by crisv32_do_IRQ.
+ */
 #define BUILD_IRQ(nr)		        \
 void IRQ_NAME(nr);			\
 __asm__ (				\
@@ -74,6 +91,21 @@ __asm__ (				\
 	"moveq 1, $r11\n\t"		\
 	"jump ret_from_intr\n\t"	\
 	"nop\n\t");
+/*
+ * This is subtle. The timer interrupt is crucial and it should not be disabled
+ * for too long. However, if it had been a normal interrupt as per BUILD_IRQ, it
+ * would have been BLOCK'ed, and then softirq's are run before we return here to
+ * UNBLOCK. If the softirq's take too much time to run, the timer irq won't run
+ * and the watchdog will kill us.
+ *
+ * Furthermore, if a lot of other irq's occur before we return here, the
+ * multiple_irq handler is run and it prioritizes the timer interrupt. However
+ * if we had BLOCK'edit here, we would not get the multiple_irq at all.
+ *
+ * The non-blocking here is based on the knowledge that the timer interrupt is
+ * registred as a fast interrupt (IRQF_DISABLED) so that we _know_ there will not
+ * be an sti() before the timer irq handler is run to acknowledge the interrupt.
+ */
 #define BUILD_TIMER_IRQ(nr, mask) 	\
 void IRQ_NAME(nr);			\
 __asm__ (				\
@@ -88,5 +120,5 @@ __asm__ (				\
 	"jump ret_from_intr\n\t"	\
 	"nop\n\t");
 
-#endif 
-#endif 
+#endif /* __ASSEMBLY__ */
+#endif /* _ASM_ARCH_IRQ_H */

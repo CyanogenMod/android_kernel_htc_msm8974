@@ -20,6 +20,29 @@
 #include <linux/slab.h>
 
 
+/* RIO uses the NatSemi Super I/O power management logical device
+ * as its' watchdog.
+ *
+ * When the watchdog triggers, it asserts a line to the BBC (Boot Bus
+ * Controller) of the machine.  The BBC can only be configured to
+ * trigger a power-on reset when the signal is asserted.  The BBC
+ * can be configured to ignore the signal entirely as well.
+ *
+ * The only Super I/O device register we care about is at index
+ * 0x05 (WDTO_INDEX) which is the watchdog time-out in minutes (1-255).
+ * If set to zero, this disables the watchdog.  When set, the system
+ * must periodically (before watchdog expires) clear (set to zero) and
+ * re-set the watchdog else it will trigger.
+ *
+ * There are two other indexed watchdog registers inside this Super I/O
+ * logical device, but they are unused.  The first, at index 0x06 is
+ * the watchdog control and can be used to make the watchdog timer re-set
+ * when the PS/2 mouse or serial lines show activity.  The second, at
+ * index 0x07 is merely a sampling of the line from the watchdog to the
+ * BBC.
+ *
+ * The watchdog device generates no interrupts.
+ */
 
 MODULE_AUTHOR("David S. Miller <davem@davemloft.net>");
 MODULE_DESCRIPTION("Hardware watchdog driver for Sun RIO");
@@ -38,7 +61,7 @@ static struct riowd *riowd_device;
 
 #define WDTO_INDEX	0x05
 
-static int riowd_timeout = 1;		
+static int riowd_timeout = 1;		/* in minutes */
 module_param(riowd_timeout, int, 0);
 MODULE_PARM_DESC(riowd_timeout, "Watchdog timeout in minutes");
 
@@ -111,7 +134,7 @@ static long riowd_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 			return -EINVAL;
 		riowd_timeout = (new_margin + 59) / 60;
 		riowd_writereg(p, riowd_timeout, WDTO_INDEX);
-		
+		/* Fall */
 
 	case WDIOC_GETTIMEOUT:
 		return put_user(riowd_timeout * 60, (int __user *)argp);
@@ -171,7 +194,7 @@ static int __devinit riowd_probe(struct platform_device *op)
 		pr_err("Cannot map registers\n");
 		goto out_free;
 	}
-	
+	/* Make miscdev useable right away */
 	riowd_device = p;
 
 	err = misc_register(&riowd_miscdev);

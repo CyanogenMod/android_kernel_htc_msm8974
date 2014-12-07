@@ -44,6 +44,11 @@ static int __devinit stmmac_probe_config_dt(struct platform_device *pdev,
 					   sizeof(struct stmmac_mdio_bus_data),
 					   GFP_KERNEL);
 
+	/*
+	 * Currently only the properties needed on SPEAr600
+	 * are provided. All other properties should be added
+	 * once needed on other platforms.
+	 */
 	if (of_device_is_compatible(np, "st,spear600-gmac")) {
 		plat->pbl = 8;
 		plat->has_gmac = 1;
@@ -59,8 +64,15 @@ static int __devinit stmmac_probe_config_dt(struct platform_device *pdev,
 {
 	return -ENOSYS;
 }
-#endif 
+#endif /* CONFIG_OF */
 
+/**
+ * stmmac_pltfr_probe
+ * @pdev: platform device pointer
+ * Description: platform_device probe function. It allocates
+ * the necessary resources and invokes the main to init
+ * the net device, register the mdio bus etc.
+ */
 static int stmmac_pltfr_probe(struct platform_device *pdev)
 {
 	int ret = 0;
@@ -107,7 +119,7 @@ static int stmmac_pltfr_probe(struct platform_device *pdev)
 		plat_dat = pdev->dev.platform_data;
 	}
 
-	
+	/* Custom initialisation (if needed)*/
 	if (plat_dat->init) {
 		ret = plat_dat->init(pdev);
 		if (unlikely(ret))
@@ -120,11 +132,11 @@ static int stmmac_pltfr_probe(struct platform_device *pdev)
 		goto out_unmap;
 	}
 
-	
+	/* Get MAC address if available (DT) */
 	if (mac)
 		memcpy(priv->dev->dev_addr, mac, ETH_ALEN);
 
-	
+	/* Get the MAC information */
 	priv->dev->irq = platform_get_irq_byname(pdev, "macirq");
 	if (priv->dev->irq == -ENXIO) {
 		pr_err("%s: ERROR: MAC IRQ configuration "
@@ -133,6 +145,14 @@ static int stmmac_pltfr_probe(struct platform_device *pdev)
 		goto out_unmap;
 	}
 
+	/*
+	 * On some platforms e.g. SPEAr the wake up irq differs from the mac irq
+	 * The external wake up irq can be passed through the platform code
+	 * named as "eth_wake_irq"
+	 *
+	 * In case the wake up interrupt is not passed from the platform
+	 * so the driver will continue to use the mac irq (ndev->irq)
+	 */
 	priv->wol_irq = platform_get_irq_byname(pdev, "eth_wake_irq");
 	if (priv->wol_irq == -ENXIO)
 		priv->wol_irq = priv->dev->irq;
@@ -153,6 +173,12 @@ out_release_region:
 	return ret;
 }
 
+/**
+ * stmmac_pltfr_remove
+ * @pdev: platform device pointer
+ * Description: this function calls the main to free the net resources
+ * and calls the platforms hook and release the resources (e.g. mem).
+ */
 static int stmmac_pltfr_remove(struct platform_device *pdev)
 {
 	struct net_device *ndev = platform_get_drvdata(pdev);
@@ -213,11 +239,11 @@ static const struct dev_pm_ops stmmac_pltfr_pm_ops = {
 };
 #else
 static const struct dev_pm_ops stmmac_pltfr_pm_ops;
-#endif 
+#endif /* CONFIG_PM */
 
 static const struct of_device_id stmmac_dt_ids[] = {
 	{ .compatible = "st,spear600-gmac", },
-	{  }
+	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, stmmac_dt_ids);
 

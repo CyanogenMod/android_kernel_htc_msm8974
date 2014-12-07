@@ -15,6 +15,8 @@
 
 #include "apr_us.h"
 
+/* ======================================================================= */
+/*  Session Level commands */
 #define USM_CMD_SHARED_MEM_MAP_REGION		0x00012728
 struct usm_cmd_memory_map_region {
 	struct apr_hdr hdr;
@@ -68,20 +70,20 @@ struct usm_stream_cmd_write {
 struct usm_stream_media_format_update {
 	struct apr_hdr hdr;
 	u32 format_id;
-	
+	/* <cfg_size> = sizeof(usm_cfg_common)+|transp_data| */
 	u32 cfg_size;
 	struct usm_cfg_common cfg_common;
-	
+	/* Transparent configuration data for specific encoder */
 	u8  transp_data[USM_MAX_CFG_DATA_SIZE];
 } __packed;
 
 struct usm_encode_cfg_blk {
 	u32 frames_per_buf;
 	u32 format_id;
-	
+	/* <cfg_size> = sizeof(usm_cfg_common)+|transp_data| */
 	u32 cfg_size;
 	struct usm_cfg_common cfg_common;
-	
+	/* Transparent configuration data for specific encoder */
 	u8  transp_data[USM_MAX_CFG_DATA_SIZE];
 } __packed;
 
@@ -91,4 +93,4 @@ struct usm_stream_cmd_encdec_cfg_blk {
 	u32 param_size;
 	struct usm_encode_cfg_blk enc_blk;
 } __packed;
-#endif 
+#endif /* __APR_US_B_H__ */

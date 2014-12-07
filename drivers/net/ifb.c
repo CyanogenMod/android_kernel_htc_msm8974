@@ -73,7 +73,7 @@ static void ri_tasklet(unsigned long dev)
 			skb_queue_splice_tail_init(&dp->rq, &dp->tq);
 			__netif_tx_unlock(txq);
 		} else {
-			
+			/* reschedule */
 			goto resched;
 		}
 	}
@@ -170,11 +170,11 @@ static const struct net_device_ops ifb_netdev_ops = {
 
 static void ifb_setup(struct net_device *dev)
 {
-	
+	/* Initialize the device structure. */
 	dev->destructor = free_netdev;
 	dev->netdev_ops = &ifb_netdev_ops;
 
-	
+	/* Fill in device structure with ethernet-generic values. */
 	ether_setup(dev);
 	dev->tx_queue_len = TX_Q_LIMIT;
 
@@ -257,6 +257,7 @@ static struct rtnl_link_ops ifb_link_ops __read_mostly = {
 	.validate	= ifb_validate,
 };
 
+/* Number of ifb devices to be set up by this module. */
 module_param(numifbs, int, 0);
 MODULE_PARM_DESC(numifbs, "Number of ifb devices");
 

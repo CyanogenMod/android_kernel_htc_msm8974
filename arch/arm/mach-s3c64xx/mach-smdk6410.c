@@ -111,7 +111,13 @@ static struct s3c2410_uartcfg smdk6410_uartcfgs[] __initdata = {
 	},
 };
 
+/* framebuffer and LCD setup. */
 
+/* GPF15 = LCD backlight control
+ * GPF13 => Panel power
+ * GPN5 = LCD nRESET signal
+ * PWM_TOUT1 => backlight brightness
+ */
 
 static void smdk6410_lcd_power_set(struct plat_lcd_data *pd,
 				   unsigned int power)
@@ -119,7 +125,7 @@ static void smdk6410_lcd_power_set(struct plat_lcd_data *pd,
 	if (power) {
 		gpio_direction_output(S3C64XX_GPF(13), 1);
 
-		
+		/* fire nRESET on power up */
 		gpio_direction_output(S3C64XX_GPN(5), 0);
 		msleep(10);
 		gpio_direction_output(S3C64XX_GPN(5), 1);
@@ -140,7 +146,7 @@ static struct platform_device smdk6410_lcd_powerdev = {
 };
 
 static struct s3c_fb_pd_win smdk6410_fb_win0 = {
-	
+	/* this is to ensure we use win0 */
 	.win_mode	= {
 		.left_margin	= 8,
 		.right_margin	= 13,
@@ -157,6 +163,7 @@ static struct s3c_fb_pd_win smdk6410_fb_win0 = {
 	.virtual_x	= 800,
 };
 
+/* 405566 clocks per frame => 60Hz refresh requires 24333960Hz clock */
 static struct s3c_fb_platdata smdk6410_lcd_pdata __initdata = {
 	.setup_gpio	= s3c64xx_fb_gpio_setup_24bpp,
 	.win[0]		= &smdk6410_fb_win0,
@@ -164,6 +171,15 @@ static struct s3c_fb_platdata smdk6410_lcd_pdata __initdata = {
 	.vidcon1	= VIDCON1_INV_HSYNC | VIDCON1_INV_VSYNC,
 };
 
+/*
+ * Configuring Ethernet on SMDK6410
+ *
+ * Both CS8900A and LAN9115 chips share one chip select mediated by CFG6.
+ * The constant address below corresponds to nCS1
+ *
+ *  1) Set CFGB2 p3 ON others off, no other CFGB selects "ethernet"
+ *  2) CFG6 needs to be switched to "LAN9115" side
+ */
 
 static struct resource smdk6410_smsc911x_resources[] = {
 	[0] = {
@@ -231,7 +247,7 @@ static struct s3c_ide_platdata smdk6410_ide_pdata __initdata = {
 };
 
 static uint32_t smdk6410_keymap[] __initdata = {
-	
+	/* KEY(row, col, keycode) */
 	KEY(0, 3, KEY_1), KEY(0, 4, KEY_2), KEY(0, 5, KEY_3),
 	KEY(0, 6, KEY_4), KEY(0, 7, KEY_5),
 	KEY(1, 3, KEY_A), KEY(1, 4, KEY_B), KEY(1, 5, KEY_C),
@@ -281,10 +297,12 @@ static struct platform_device *smdk6410_devices[] __initdata = {
 };
 
 #ifdef CONFIG_REGULATOR
+/* ARM core */
 static struct regulator_consumer_supply smdk6410_vddarm_consumers[] = {
 	REGULATOR_SUPPLY("vddarm", NULL),
 };
 
+/* VDDARM, BUCK1 on J5 */
 static struct regulator_init_data smdk6410_vddarm = {
 	.constraints = {
 		.name = "PVDD_ARM",
@@ -297,6 +315,7 @@ static struct regulator_init_data smdk6410_vddarm = {
 	.consumer_supplies = smdk6410_vddarm_consumers,
 };
 
+/* VDD_INT, BUCK2 on J5 */
 static struct regulator_init_data smdk6410_vddint = {
 	.constraints = {
 		.name = "PVDD_INT",
@@ -307,6 +326,7 @@ static struct regulator_init_data smdk6410_vddint = {
 	},
 };
 
+/* VDD_HI, LDO3 on J5 */
 static struct regulator_init_data smdk6410_vddhi = {
 	.constraints = {
 		.name = "PVDD_HI",
@@ -314,6 +334,7 @@ static struct regulator_init_data smdk6410_vddhi = {
 	},
 };
 
+/* VDD_PLL, LDO2 on J5 */
 static struct regulator_init_data smdk6410_vddpll = {
 	.constraints = {
 		.name = "PVDD_PLL",
@@ -321,6 +342,7 @@ static struct regulator_init_data smdk6410_vddpll = {
 	},
 };
 
+/* VDD_UH_MMC, LDO5 on J5 */
 static struct regulator_init_data smdk6410_vdduh_mmc = {
 	.constraints = {
 		.name = "PVDD_UH+PVDD_MMC",
@@ -328,6 +350,7 @@ static struct regulator_init_data smdk6410_vdduh_mmc = {
 	},
 };
 
+/* VCCM3BT, LDO8 on J5 */
 static struct regulator_init_data smdk6410_vccmc3bt = {
 	.constraints = {
 		.name = "PVCCM3BT",
@@ -335,6 +358,7 @@ static struct regulator_init_data smdk6410_vccmc3bt = {
 	},
 };
 
+/* VCCM2MTV, LDO11 on J5 */
 static struct regulator_init_data smdk6410_vccm2mtv = {
 	.constraints = {
 		.name = "PVCCM2MTV",
@@ -342,6 +366,7 @@ static struct regulator_init_data smdk6410_vccm2mtv = {
 	},
 };
 
+/* VDD_LCD, LDO12 on J5 */
 static struct regulator_init_data smdk6410_vddlcd = {
 	.constraints = {
 		.name = "PVDD_LCD",
@@ -349,6 +374,7 @@ static struct regulator_init_data smdk6410_vddlcd = {
 	},
 };
 
+/* VDD_OTGI, LDO9 on J5 */
 static struct regulator_init_data smdk6410_vddotgi = {
 	.constraints = {
 		.name = "PVDD_OTGI",
@@ -356,6 +382,7 @@ static struct regulator_init_data smdk6410_vddotgi = {
 	},
 };
 
+/* VDD_OTG, LDO14 on J5 */
 static struct regulator_init_data smdk6410_vddotg = {
 	.constraints = {
 		.name = "PVDD_OTG",
@@ -363,6 +390,7 @@ static struct regulator_init_data smdk6410_vddotg = {
 	},
 };
 
+/* VDD_ALIVE, LDO15 on J5 */
 static struct regulator_init_data smdk6410_vddalive = {
 	.constraints = {
 		.name = "PVDD_ALIVE",
@@ -370,6 +398,7 @@ static struct regulator_init_data smdk6410_vddalive = {
 	},
 };
 
+/* VDD_AUDIO, VLDO_AUDIO on J5 */
 static struct regulator_init_data smdk6410_vddaudio = {
 	.constraints = {
 		.name = "PVDD_AUDIO",
@@ -379,6 +408,7 @@ static struct regulator_init_data smdk6410_vddaudio = {
 #endif
 
 #ifdef CONFIG_SMDK6410_WM1190_EV1
+/* S3C64xx internal logic & PLL */
 static struct regulator_init_data wm8350_dcdc1_data = {
 	.constraints = {
 		.name = "PVDD_INT+PVDD_PLL",
@@ -389,6 +419,7 @@ static struct regulator_init_data wm8350_dcdc1_data = {
 	},
 };
 
+/* Memory */
 static struct regulator_init_data wm8350_dcdc3_data = {
 	.constraints = {
 		.name = "PVDD_MEM",
@@ -404,6 +435,7 @@ static struct regulator_init_data wm8350_dcdc3_data = {
 	},
 };
 
+/* USB, EXT, PCM, ADC/DAC, USB, MMC */
 static struct regulator_consumer_supply wm8350_dcdc4_consumers[] = {
 	REGULATOR_SUPPLY("DVDD", "0-001b"),
 };
@@ -419,6 +451,7 @@ static struct regulator_init_data wm8350_dcdc4_data = {
 	.consumer_supplies = wm8350_dcdc4_consumers,
 };
 
+/* OTGi/1190-EV1 HPVDD & AVDD */
 static struct regulator_init_data wm8350_ldo4_data = {
 	.constraints = {
 		.name = "PVDD_OTGI+HPVDD+AVDD",
@@ -447,10 +480,10 @@ static int __init smdk6410_wm8350_init(struct wm8350 *wm8350)
 {
 	int i;
 
-	
+	/* Configure the IRQ line */
 	s3c_gpio_setpull(S3C64XX_GPN(12), S3C_GPIO_PULL_UP);
 
-	
+	/* Instantiate the regulators */
 	for (i = 0; i < ARRAY_SIZE(wm1190_regulators); i++)
 		wm8350_register_regulator(wm8350,
 					  wm1190_regulators[i].regulator,
@@ -492,7 +525,7 @@ static int wm1192_pre_init(struct wm831x *wm831x)
 {
 	int ret;
 
-	
+	/* Configure the IRQ line */
 	s3c_gpio_setpull(S3C64XX_GPN(12), S3C_GPIO_PULL_UP);
 
 	ret = platform_device_register(&wm1192_pmic_led_dev);
@@ -515,7 +548,7 @@ static struct regulator_init_data wm1192_dcdc3 = {
 };
 
 static struct regulator_consumer_supply wm1192_ldo1_consumers[] = {
-	REGULATOR_SUPPLY("DVDD", "0-001b"),   
+	REGULATOR_SUPPLY("DVDD", "0-001b"),   /* WM8580 */
 };
 
 static struct regulator_init_data wm1192_ldo1 = {
@@ -541,23 +574,23 @@ static struct wm831x_pdata smdk6410_wm1192_pdata = {
 
 	.backlight = &wm1192_backlight_pdata,
 	.dcdc = {
-		&smdk6410_vddarm,  
-		&smdk6410_vddint,  
+		&smdk6410_vddarm,  /* DCDC1 */
+		&smdk6410_vddint,  /* DCDC2 */
 		&wm1192_dcdc3,
 	},
 	.gpio_base = GPIO_BOARD_START,
 	.ldo = {
-		 &wm1192_ldo1,        
-		 &smdk6410_vdduh_mmc, 
-		 NULL,                
-		 &smdk6410_vddotgi,   
-		 &smdk6410_vddotg,    
-		 &smdk6410_vddhi,     
-		 &smdk6410_vddaudio,  
-		 &smdk6410_vccm2mtv,  
-		 &smdk6410_vddpll,    
-		 &smdk6410_vccmc3bt,  
-		 &smdk6410_vddalive,  
+		 &wm1192_ldo1,        /* LDO1 */
+		 &smdk6410_vdduh_mmc, /* LDO2 */
+		 NULL,                /* LDO3 NC */
+		 &smdk6410_vddotgi,   /* LDO4 */
+		 &smdk6410_vddotg,    /* LDO5 */
+		 &smdk6410_vddhi,     /* LDO6 */
+		 &smdk6410_vddaudio,  /* LDO7 */
+		 &smdk6410_vccm2mtv,  /* LDO8 */
+		 &smdk6410_vddpll,    /* LDO9 */
+		 &smdk6410_vccmc3bt,  /* LDO10 */
+		 &smdk6410_vddalive,  /* LDO11 */
 	},
 	.status = {
 		&wm1192_led7_pdata,
@@ -586,9 +619,10 @@ static struct i2c_board_info i2c_devs0[] __initdata = {
 };
 
 static struct i2c_board_info i2c_devs1[] __initdata = {
-	{ I2C_BOARD_INFO("24c128", 0x57), },	
+	{ I2C_BOARD_INFO("24c128", 0x57), },	/* Samsung S524AD0XD1 */
 };
 
+/* LCD Backlight data */
 static struct samsung_bl_gpio_info smdk6410_bl_gpio_info = {
 	.no = S3C64XX_GPF(15),
 	.func = S3C_GPIO_SFN(2),
@@ -608,14 +642,14 @@ static void __init smdk6410_map_io(void)
 	s3c24xx_init_clocks(12000000);
 	s3c24xx_init_uarts(smdk6410_uartcfgs, ARRAY_SIZE(smdk6410_uartcfgs));
 
-	
+	/* set the LCD type */
 
 	tmp = __raw_readl(S3C64XX_SPCON);
 	tmp &= ~S3C64XX_SPCON_LCD_SEL_MASK;
 	tmp |= S3C64XX_SPCON_LCD_SEL_RGB;
 	__raw_writel(tmp, S3C64XX_SPCON);
 
-	
+	/* remove the lcd bypass */
 	tmp = __raw_readl(S3C64XX_MODEM_MIFPCON);
 	tmp &= ~MIFPCON_LCD_BYPASS;
 	__raw_writel(tmp, S3C64XX_MODEM_MIFPCON);
@@ -634,7 +668,7 @@ static void __init smdk6410_machine_init(void)
 
 	s3c24xx_ts_set_platdata(NULL);
 
-	
+	/* configure nCS1 width to 16 bits */
 
 	cs1 = __raw_readl(S3C64XX_SROM_BW) &
 		    ~(S3C64XX_SROM_BW__CS_MASK << S3C64XX_SROM_BW__NCS1__SHIFT);
@@ -644,7 +678,7 @@ static void __init smdk6410_machine_init(void)
 						   S3C64XX_SROM_BW__NCS1__SHIFT;
 	__raw_writel(cs1, S3C64XX_SROM_BW);
 
-	
+	/* set timing for nCS1 suitable for ethernet chip */
 
 	__raw_writel((0 << S3C64XX_SROM_BCX__PMC__SHIFT) |
 		     (6 << S3C64XX_SROM_BCX__TACP__SHIFT) |
@@ -668,7 +702,7 @@ static void __init smdk6410_machine_init(void)
 }
 
 MACHINE_START(SMDK6410, "SMDK6410")
-	
+	/* Maintainer: Ben Dooks <ben-linux@fluff.org> */
 	.atag_offset	= 0x100,
 
 	.init_irq	= s3c6410_init_irq,

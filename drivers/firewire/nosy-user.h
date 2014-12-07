@@ -14,5 +14,12 @@ struct nosy_stats {
 	__u32 lost_packet_count;
 };
 
+/*
+ * Format of packets returned from the kernel driver:
+ *
+ *	quadlet with timestamp		(microseconds, CPU endian)
+ *	quadlet-padded packet data...	(little endian)
+ *	quadlet with ack		(little endian)
+ */
 
-#endif 
+#endif /* __nosy_user_h */

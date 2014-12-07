@@ -37,6 +37,11 @@ MODULE_ALIAS("ip6t_LED");
 static LIST_HEAD(xt_led_triggers);
 static DEFINE_MUTEX(xt_led_mutex);
 
+/*
+ * This is declared in here (the kernel module) only, to avoid having these
+ * dependencies in userspace code.  This is what xt_led_info.internal_data
+ * points to.
+ */
 struct xt_led_info_internal {
 	struct list_head list;
 	int refcnt;
@@ -51,23 +56,27 @@ led_tg(struct sk_buff *skb, const struct xt_action_param *par)
 	const struct xt_led_info *ledinfo = par->targinfo;
 	struct xt_led_info_internal *ledinternal = ledinfo->internal_data;
 
+	/*
+	 * If "always blink" is enabled, and there's still some time until the
+	 * LED will switch off, briefly switch it off now.
+	 */
 	if ((ledinfo->delay > 0) && ledinfo->always_blink &&
 	    timer_pending(&ledinternal->timer))
 		led_trigger_event(&ledinternal->netfilter_led_trigger, LED_OFF);
 
 	led_trigger_event(&ledinternal->netfilter_led_trigger, LED_FULL);
 
-	
+	/* If there's a positive delay, start/update the timer */
 	if (ledinfo->delay > 0) {
 		mod_timer(&ledinternal->timer,
 			  jiffies + msecs_to_jiffies(ledinfo->delay));
 
-	
+	/* Otherwise if there was no delay given, blink as fast as possible */
 	} else if (ledinfo->delay == 0) {
 		led_trigger_event(&ledinternal->netfilter_led_trigger, LED_OFF);
 	}
 
-	
+	/* else the delay is negative, which means switch on and stay on */
 
 	return XT_CONTINUE;
 }
@@ -130,7 +139,7 @@ static int led_tg_check(const struct xt_tgchk_param *par)
 		goto exit_alloc;
 	}
 
-	
+	/* See if we need to set up a timer */
 	if (ledinfo->delay > 0)
 		setup_timer(&ledinternal->timer, led_timeout_callback,
 			    (unsigned long)ledinternal);

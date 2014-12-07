@@ -29,6 +29,7 @@
 
 #include "cx231xx.h"
 
+/* ----------------------------------------------------------- */
 
 static unsigned int i2c_scan;
 module_param(i2c_scan, int, 0444);
@@ -68,6 +69,9 @@ static inline bool is_tuner(struct cx231xx *dev, struct cx231xx_i2c *bus,
 	return true;
 }
 
+/*
+ * cx231xx_i2c_send_bytes()
+ */
 int cx231xx_i2c_send_bytes(struct i2c_adapter *i2c_adap,
 			   const struct i2c_msg *msg)
 {
@@ -85,24 +89,26 @@ int cx231xx_i2c_send_bytes(struct i2c_adapter *i2c_adap,
 	if (is_tuner(dev, bus, msg, TUNER_XC5000)) {
 		size = msg->len;
 
-		if (size == 2) {	
+		if (size == 2) {	/* register write sub addr */
+			/* Just writing sub address will cause problem
+			* to XC5000. So ignore the request */
 			return 0;
-		} else if (size == 4) {	
+		} else if (size == 4) {	/* register write with sub addr */
 			if (msg->len >= 2)
 				saddr = msg->buf[0] << 8 | msg->buf[1];
 			else if (msg->len == 1)
 				saddr = msg->buf[0];
 
 			switch (saddr) {
-			case 0x0000:	
+			case 0x0000:	/* start tuner calibration mode */
 				need_gpio = 1;
-				
+				/* FW Loading is done */
 				dev->xc_fw_load_done = 1;
 				break;
-			case 0x000D:	
-			case 0x0001:	
-			case 0x0002:	
-			case 0x0003:	
+			case 0x000D:	/* Set signal source */
+			case 0x0001:	/* Set TV standard - Video */
+			case 0x0002:	/* Set TV standard - Audio */
+			case 0x0003:	/* Set RF Frequency */
 				need_gpio = 1;
 				break;
 			default:
@@ -123,15 +129,15 @@ int cx231xx_i2c_send_bytes(struct i2c_adapter *i2c_adap,
 			}
 		}
 
-		
+		/* special case for Xc5000 tuner case */
 		saddr_len = 1;
 
-		
+		/* adjust the length to correct length */
 		size -= saddr_len;
 		buf_ptr = (u8 *) (msg->buf + 1);
 
 		do {
-			
+			/* prepare xfer_data struct */
 			req_data.dev_addr = msg->addr;
 			req_data.direction = msg->flags;
 			req_data.saddr_len = saddr_len;
@@ -142,7 +148,7 @@ int cx231xx_i2c_send_bytes(struct i2c_adapter *i2c_adap,
 			bus->i2c_nostop = (size > 16) ? 1 : 0;
 			bus->i2c_reserve = (loop == 0) ? 0 : 1;
 
-			
+			/* usb send command */
 			status = dev->cx231xx_send_usb_command(bus, &req_data);
 			loop++;
 
@@ -156,9 +162,9 @@ int cx231xx_i2c_send_bytes(struct i2c_adapter *i2c_adap,
 		bus->i2c_nostop = 0;
 		bus->i2c_reserve = 0;
 
-	} else {		
+	} else {		/* regular case */
 
-		
+		/* prepare xfer_data struct */
 		req_data.dev_addr = msg->addr;
 		req_data.direction = msg->flags;
 		req_data.saddr_len = 0;
@@ -166,13 +172,17 @@ int cx231xx_i2c_send_bytes(struct i2c_adapter *i2c_adap,
 		req_data.buf_size = msg->len;
 		req_data.p_buffer = msg->buf;
 
-		
+		/* usb send command */
 		status = dev->cx231xx_send_usb_command(bus, &req_data);
 	}
 
 	return status < 0 ? status : 0;
 }
 
+/*
+ * cx231xx_i2c_recv_bytes()
+ * read a byte from the i2c device
+ */
 static int cx231xx_i2c_recv_bytes(struct i2c_adapter *i2c_adap,
 				  const struct i2c_msg *msg)
 {
@@ -192,21 +202,23 @@ static int cx231xx_i2c_recv_bytes(struct i2c_adapter *i2c_adap,
 		if (dev->xc_fw_load_done) {
 
 			switch (saddr) {
-			case 0x0009:	
+			case 0x0009:	/* BUSY check */
 				dprintk1(1,
 				"GPIO R E A D: Special case BUSY check \n");
-				
+				/*Try read BUSY register, just set it to zero*/
 				msg->buf[0] = 0;
 				if (msg->len == 2)
 					msg->buf[1] = 0;
 				return 0;
-			case 0x0004:	
+			case 0x0004:	/* read Lock status */
 				need_gpio = 1;
 				break;
 
 			}
 
 			if (need_gpio) {
+				/* this is a special case to handle Xceive tuner
+				clock stretch issue with gpio based I2C */
 
 				dprintk1(1,
 				"GPIO R E A D: addr 0x%x, len %d, saddr 0x%x\n",
@@ -225,7 +237,7 @@ static int cx231xx_i2c_recv_bytes(struct i2c_adapter *i2c_adap,
 			}
 		}
 
-		
+		/* prepare xfer_data struct */
 		req_data.dev_addr = msg->addr;
 		req_data.direction = msg->flags;
 		req_data.saddr_len = msg->len;
@@ -233,12 +245,12 @@ static int cx231xx_i2c_recv_bytes(struct i2c_adapter *i2c_adap,
 		req_data.buf_size = msg->len;
 		req_data.p_buffer = msg->buf;
 
-		
+		/* usb send command */
 		status = dev->cx231xx_send_usb_command(bus, &req_data);
 
 	} else {
 
-		
+		/* prepare xfer_data struct */
 		req_data.dev_addr = msg->addr;
 		req_data.direction = msg->flags;
 		req_data.saddr_len = 0;
@@ -246,13 +258,17 @@ static int cx231xx_i2c_recv_bytes(struct i2c_adapter *i2c_adap,
 		req_data.buf_size = msg->len;
 		req_data.p_buffer = msg->buf;
 
-		
+		/* usb send command */
 		status = dev->cx231xx_send_usb_command(bus, &req_data);
 	}
 
 	return status < 0 ? status : 0;
 }
 
+/*
+ * cx231xx_i2c_recv_bytes_with_saddr()
+ * read a byte from the i2c device
+ */
 static int cx231xx_i2c_recv_bytes_with_saddr(struct i2c_adapter *i2c_adap,
 					     const struct i2c_msg *msg1,
 					     const struct i2c_msg *msg2)
@@ -277,10 +293,10 @@ static int cx231xx_i2c_recv_bytes_with_saddr(struct i2c_adapter *i2c_adap,
 			msg2->addr, msg2->len, saddr, msg1->len);
 
 			switch (saddr) {
-			case 0x0008:	
+			case 0x0008:	/* read FW load status */
 				need_gpio = 1;
 				break;
-			case 0x0004:	
+			case 0x0004:	/* read Lock status */
 				need_gpio = 1;
 				break;
 			}
@@ -299,7 +315,7 @@ static int cx231xx_i2c_recv_bytes_with_saddr(struct i2c_adapter *i2c_adap,
 		}
 	}
 
-	
+	/* prepare xfer_data struct */
 	req_data.dev_addr = msg2->addr;
 	req_data.direction = msg2->flags;
 	req_data.saddr_len = msg1->len;
@@ -307,12 +323,16 @@ static int cx231xx_i2c_recv_bytes_with_saddr(struct i2c_adapter *i2c_adap,
 	req_data.buf_size = msg2->len;
 	req_data.p_buffer = msg2->buf;
 
-	
+	/* usb send command */
 	status = dev->cx231xx_send_usb_command(bus, &req_data);
 
 	return status < 0 ? status : 0;
 }
 
+/*
+ * cx231xx_i2c_check_for_device()
+ * check if there is a i2c_device at the supplied address
+ */
 static int cx231xx_i2c_check_for_device(struct i2c_adapter *i2c_adap,
 					const struct i2c_msg *msg)
 {
@@ -321,7 +341,7 @@ static int cx231xx_i2c_check_for_device(struct i2c_adapter *i2c_adap,
 	struct cx231xx_i2c_xfer_data req_data;
 	int status = 0;
 
-	
+	/* prepare xfer_data struct */
 	req_data.dev_addr = msg->addr;
 	req_data.direction = msg->flags;
 	req_data.saddr_len = 0;
@@ -329,12 +349,16 @@ static int cx231xx_i2c_check_for_device(struct i2c_adapter *i2c_adap,
 	req_data.buf_size = 0;
 	req_data.p_buffer = NULL;
 
-	
+	/* usb send command */
 	status = dev->cx231xx_send_usb_command(bus, &req_data);
 
 	return status < 0 ? status : 0;
 }
 
+/*
+ * cx231xx_i2c_xfer()
+ * the main i2c transfer function
+ */
 static int cx231xx_i2c_xfer(struct i2c_adapter *i2c_adap,
 			    struct i2c_msg msgs[], int num)
 {
@@ -353,7 +377,7 @@ static int cx231xx_i2c_xfer(struct i2c_adapter *i2c_adap,
 			 (msgs[i].flags & I2C_M_RD) ? "read" : "write",
 			 i == num - 1 ? "stop" : "nonstop", addr, msgs[i].len);
 		if (!msgs[i].len) {
-			
+			/* no len: check only for device presence */
 			rc = cx231xx_i2c_check_for_device(i2c_adap, &msgs[i]);
 			if (rc < 0) {
 				dprintk2(2, " no device\n");
@@ -362,7 +386,7 @@ static int cx231xx_i2c_xfer(struct i2c_adapter *i2c_adap,
 			}
 
 		} else if (msgs[i].flags & I2C_M_RD) {
-			
+			/* read bytes */
 			rc = cx231xx_i2c_recv_bytes(i2c_adap, &msgs[i]);
 			if (i2c_debug >= 2) {
 				for (byte = 0; byte < msgs[i].len; byte++)
@@ -371,7 +395,7 @@ static int cx231xx_i2c_xfer(struct i2c_adapter *i2c_adap,
 		} else if (i + 1 < num && (msgs[i + 1].flags & I2C_M_RD) &&
 			   msgs[i].addr == msgs[i + 1].addr
 			   && (msgs[i].len <= 2) && (bus->nr < 3)) {
-			
+			/* read bytes */
 			rc = cx231xx_i2c_recv_bytes_with_saddr(i2c_adap,
 							       &msgs[i],
 							       &msgs[i + 1]);
@@ -381,7 +405,7 @@ static int cx231xx_i2c_xfer(struct i2c_adapter *i2c_adap,
 			}
 			i++;
 		} else {
-			
+			/* write bytes */
 			if (i2c_debug >= 2) {
 				for (byte = 0; byte < msgs[i].len; byte++)
 					printk(" %02x", msgs[i].buf[byte]);
@@ -401,7 +425,11 @@ err:
 	return rc;
 }
 
+/* ----------------------------------------------------------- */
 
+/*
+ * functionality()
+ */
 static u32 functionality(struct i2c_adapter *adap)
 {
 	return I2C_FUNC_SMBUS_EMUL | I2C_FUNC_I2C;
@@ -422,7 +450,12 @@ static struct i2c_client cx231xx_client_template = {
 	.name = "cx231xx internal",
 };
 
+/* ----------------------------------------------------------- */
 
+/*
+ * i2c_devs
+ * incomplete list of known devices
+ */
 static char *i2c_devs[128] = {
 	[0x60 >> 1] = "colibri",
 	[0x88 >> 1] = "hammerhead",
@@ -434,6 +467,10 @@ static char *i2c_devs[128] = {
 	[0xc2 >> 1] = "tuner",
 };
 
+/*
+ * cx231xx_do_i2c_scan()
+ * check i2c address range for devices
+ */
 void cx231xx_do_i2c_scan(struct cx231xx *dev, struct i2c_client *c)
 {
 	unsigned char buf;
@@ -452,6 +489,10 @@ void cx231xx_do_i2c_scan(struct cx231xx *dev, struct i2c_client *c)
 	cx231xx_info(": Completed Checking for I2C devices.\n");
 }
 
+/*
+ * cx231xx_i2c_register()
+ * register i2c bus
+ */
 int cx231xx_i2c_register(struct cx231xx_i2c *bus)
 {
 	struct cx231xx *dev = bus->dev;
@@ -484,6 +525,10 @@ int cx231xx_i2c_register(struct cx231xx_i2c *bus)
 	return bus->i2c_rc;
 }
 
+/*
+ * cx231xx_i2c_unregister()
+ * unregister i2c_bus
+ */
 int cx231xx_i2c_unregister(struct cx231xx_i2c *bus)
 {
 	i2c_del_adapter(&bus->i2c_adap);

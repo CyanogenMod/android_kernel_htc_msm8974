@@ -19,7 +19,7 @@ rdev_freq_to_chan(struct cfg80211_registered_device *rdev,
 
 	chan = ieee80211_get_channel(&rdev->wiphy, freq);
 
-	
+	/* Primary channel not allowed */
 	if (!chan || chan->flags & IEEE80211_CHAN_DISABLED)
 		return NULL;
 
@@ -67,7 +67,7 @@ int cfg80211_can_beacon_sec_chan(struct wiphy *wiphy,
 	if (!sec_chan)
 		return false;
 
-	
+	/* we'll need a DFS capability later */
 	if (sec_chan->flags & (IEEE80211_CHAN_DISABLED |
 			       IEEE80211_CHAN_PASSIVE_SCAN |
 			       IEEE80211_CHAN_NO_IBSS |
@@ -102,7 +102,7 @@ int cfg80211_set_freq(struct cfg80211_registered_device *rdev,
 	if (!chan)
 		return -EINVAL;
 
-	
+	/* Both channels should be able to initiate communication */
 	if (wdev && (wdev->iftype == NL80211_IFTYPE_ADHOC ||
 		     wdev->iftype == NL80211_IFTYPE_AP ||
 		     wdev->iftype == NL80211_IFTYPE_AP_VLAN ||

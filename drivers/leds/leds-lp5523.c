@@ -69,9 +69,9 @@
 #define LP5523_REG_PROG_PAGE_SEL	0x4f
 #define LP5523_REG_PROG_MEM		0x50
 
-#define LP5523_CMD_LOAD			0x15 
-#define LP5523_CMD_RUN			0x2a 
-#define LP5523_CMD_DISABLED		0x00 
+#define LP5523_CMD_LOAD			0x15 /* 00010101 */
+#define LP5523_CMD_RUN			0x2a /* 00101010 */
+#define LP5523_CMD_DISABLED		0x00 /* 00000000 */
 
 #define LP5523_ENABLE			0x40
 #define LP5523_AUTO_INC			0x40
@@ -85,17 +85,17 @@
 #define LP5523_EN_LEDTEST		0x80
 #define LP5523_LEDTEST_DONE		0x80
 
-#define LP5523_DEFAULT_CURRENT		50 
-#define LP5523_PROGRAM_LENGTH		32 
+#define LP5523_DEFAULT_CURRENT		50 /* microAmps */
+#define LP5523_PROGRAM_LENGTH		32 /* in bytes */
 #define LP5523_PROGRAM_PAGES		6
 #define LP5523_ADC_SHORTCIRC_LIM	80
 
 #define LP5523_LEDS			9
 #define LP5523_ENGINES			3
 
-#define LP5523_ENG_MASK_BASE		0x30 
+#define LP5523_ENG_MASK_BASE		0x30 /* 00110000 */
 
-#define LP5523_ENG_STATUS_MASK          0x07 
+#define LP5523_ENG_STATUS_MASK          0x07 /* 00000111 */
 
 #define LP5523_IRQ_FLAGS                IRQF_TRIGGER_FALLING
 
@@ -124,7 +124,7 @@ struct lp5523_led {
 };
 
 struct lp5523_chip {
-	struct mutex		lock; 
+	struct mutex		lock; /* Serialize control */
 	struct i2c_client	*client;
 	struct lp5523_engine	engines[LP5523_ENGINES];
 	struct lp5523_led	leds[LP5523_LEDS];
@@ -195,7 +195,7 @@ static int lp5523_configure(struct i2c_client *client)
 	int ret = 0;
 	u8 status;
 
-	
+	/* one pattern per engine setting led mux start and stop addresses */
 	static const u8 pattern[][LP5523_PROGRAM_LENGTH] =  {
 		{ 0x9c, 0x30, 0x9c, 0xb0, 0x9d, 0x80, 0xd8, 0x00, 0},
 		{ 0x9c, 0x40, 0x9c, 0xc0, 0x9d, 0x80, 0xd8, 0x00, 0},
@@ -203,7 +203,7 @@ static int lp5523_configure(struct i2c_client *client)
 	};
 
 	ret |= lp5523_write(client, LP5523_REG_ENABLE, LP5523_ENABLE);
-	
+	/* Chip startup time is 500 us, 1 - 2 ms gives some margin */
 	usleep_range(1000, 2000);
 
 	ret |= lp5523_write(client, LP5523_REG_CONFIG,
@@ -211,16 +211,16 @@ static int lp5523_configure(struct i2c_client *client)
 			    LP5523_CP_AUTO | LP5523_AUTO_CLK |
 			    LP5523_PWM_PWR_SAVE);
 
-	
+	/* turn on all leds */
 	ret |= lp5523_write(client, LP5523_REG_ENABLE_LEDS_MSB, 0x01);
 	ret |= lp5523_write(client, LP5523_REG_ENABLE_LEDS_LSB, 0xff);
 
-	
+	/* hardcode 32 bytes of memory for each engine from program memory */
 	ret |= lp5523_write(client, LP5523_REG_CH1_PROG_START, 0x00);
 	ret |= lp5523_write(client, LP5523_REG_CH2_PROG_START, 0x10);
 	ret |= lp5523_write(client, LP5523_REG_CH3_PROG_START, 0x20);
 
-	
+	/* write led mux address space for each channel */
 	ret |= lp5523_load_program(&chip->engines[0], pattern[0]);
 	ret |= lp5523_load_program(&chip->engines[1], pattern[1]);
 	ret |= lp5523_load_program(&chip->engines[2], pattern[2]);
@@ -230,7 +230,7 @@ static int lp5523_configure(struct i2c_client *client)
 		return -1;
 	}
 
-	
+	/* set all engines exec state and mode to run 00101010 */
 	ret |= lp5523_write(client, LP5523_REG_ENABLE,
 			    (LP5523_CMD_RUN | LP5523_ENABLE));
 
@@ -241,7 +241,7 @@ static int lp5523_configure(struct i2c_client *client)
 		return -1;
 	}
 
-	
+	/* Let the programs run for couple of ms and check the engine status */
 	usleep_range(3000, 6000);
 	lp5523_read(client, LP5523_REG_STATUS, &status);
 	status &= LP5523_ENG_STATUS_MASK;
@@ -274,7 +274,7 @@ static int lp5523_set_engine_mode(struct lp5523_engine *engine, u8 mode)
 
 	engine_state &= ~(engine->engine_mask);
 
-	
+	/* set mode only for this engine */
 	mode &= engine->engine_mask;
 
 	engine_state |= mode;
@@ -367,6 +367,9 @@ static void lp5523_mux_to_array(u16 led_mux, char *array)
 	array[pos] = '\0';
 }
 
+/*--------------------------------------------------------------*/
+/*			Sysfs interface				*/
+/*--------------------------------------------------------------*/
 
 static ssize_t show_engine_leds(struct device *dev,
 			    struct device_attribute *attr,
@@ -445,43 +448,43 @@ static ssize_t lp5523_selftest(struct device *dev,
 	if (ret < 0)
 		goto fail;
 
-	
+	/* Check that ext clock is really in use if requested */
 	if ((chip->pdata) && (chip->pdata->clock_mode == LP5523_CLOCK_EXT))
 		if  ((status & LP5523_EXT_CLK_USED) == 0)
 			goto fail;
 
-	
+	/* Measure VDD (i.e. VBAT) first (channel 16 corresponds to VDD) */
 	lp5523_write(chip->client, LP5523_REG_LED_TEST_CTRL,
 				    LP5523_EN_LEDTEST | 16);
-	usleep_range(3000, 6000); 
+	usleep_range(3000, 6000); /* ADC conversion time is typically 2.7 ms */
 	ret = lp5523_read(chip->client, LP5523_REG_STATUS, &status);
 	if (!(status & LP5523_LEDTEST_DONE))
-		usleep_range(3000, 6000); 
+		usleep_range(3000, 6000); /* Was not ready. Wait little bit */
 
 	ret |= lp5523_read(chip->client, LP5523_REG_LED_TEST_ADC, &vdd);
-	vdd--;	
+	vdd--;	/* There may be some fluctuation in measurement */
 
 	for (i = 0; i < LP5523_LEDS; i++) {
-		
+		/* Skip non-existing channels */
 		if (chip->pdata->led_config[i].led_current == 0)
 			continue;
 
-		
+		/* Set default current */
 		lp5523_write(chip->client,
 			LP5523_REG_LED_CURRENT_BASE + i,
 			chip->pdata->led_config[i].led_current);
 
 		lp5523_write(chip->client, LP5523_REG_LED_PWM_BASE + i, 0xff);
-		
+		/* let current stabilize 2 - 4ms before measurements start */
 		usleep_range(2000, 4000);
 		lp5523_write(chip->client,
 			     LP5523_REG_LED_TEST_CTRL,
 			     LP5523_EN_LEDTEST | i);
-		
+		/* ADC conversion time is 2.7 ms typically */
 		usleep_range(3000, 6000);
 		ret = lp5523_read(chip->client, LP5523_REG_STATUS, &status);
 		if (!(status & LP5523_LEDTEST_DONE))
-			usleep_range(3000, 6000);
+			usleep_range(3000, 6000);/* Was not ready. Wait. */
 		ret |= lp5523_read(chip->client, LP5523_REG_LED_TEST_ADC, &adc);
 
 		if (adc >= vdd || adc < LP5523_ADC_SHORTCIRC_LIM)
@@ -489,7 +492,7 @@ static ssize_t lp5523_selftest(struct device *dev,
 
 		lp5523_write(chip->client, LP5523_REG_LED_PWM_BASE + i, 0x00);
 
-		
+		/* Restore current */
 		lp5523_write(chip->client,
 			LP5523_REG_LED_CURRENT_BASE + i,
 			chip->leds[led].led_current);
@@ -544,7 +547,7 @@ static int lp5523_do_store_load(struct lp5523_engine *engine,
 	u8 pattern[LP5523_PROGRAM_LENGTH] = {0};
 
 	while ((offset < len - 1) && (i < LP5523_PROGRAM_LENGTH)) {
-		
+		/* separate sscanfs because length is working only for %s */
 		ret = sscanf(buf + offset, "%2s%n ", c, &nrchars);
 		ret = sscanf(c, "%2x", &cmd);
 		if (ret != 1)
@@ -555,7 +558,7 @@ static int lp5523_do_store_load(struct lp5523_engine *engine,
 		i++;
 	}
 
-	
+	/* Each instruction is 16bit long. Check that length is even */
 	if (i % 2)
 		goto fail;
 
@@ -709,6 +712,7 @@ static ssize_t store_current(struct device *dev,
 	return len;
 }
 
+/* led class device attributes */
 static DEVICE_ATTR(led_current, S_IRUGO | S_IWUSR, show_current, store_current);
 static DEVICE_ATTR(max_current, S_IRUGO , show_max_current, NULL);
 
@@ -722,6 +726,7 @@ static struct attribute_group lp5523_led_attribute_group = {
 	.attrs = lp5523_led_attributes
 };
 
+/* device attributes */
 static DEVICE_ATTR(engine1_mode, S_IRUGO | S_IWUSR,
 		   show_engine1_mode, store_engine1_mode);
 static DEVICE_ATTR(engine2_mode, S_IRUGO | S_IWUSR,
@@ -781,11 +786,14 @@ static void lp5523_unregister_sysfs(struct i2c_client *client)
 				&lp5523_led_attribute_group);
 }
 
+/*--------------------------------------------------------------*/
+/*			Set chip operating mode			*/
+/*--------------------------------------------------------------*/
 static int lp5523_set_mode(struct lp5523_engine *engine, u8 mode)
 {
 	int ret = 0;
 
-	
+	/* if in that mode already do nothing, except for run */
 	if (mode == engine->mode && mode != LP5523_CMD_RUN)
 		return 0;
 
@@ -803,6 +811,9 @@ static int lp5523_set_mode(struct lp5523_engine *engine, u8 mode)
 	return ret;
 }
 
+/*--------------------------------------------------------------*/
+/*			Probe, Attach, Remove			*/
+/*--------------------------------------------------------------*/
 static int __init lp5523_init_engine(struct lp5523_engine *engine, int id)
 {
 	if (id < 1 || id > LP5523_ENGINES)
@@ -893,20 +904,23 @@ static int __devinit lp5523_probe(struct i2c_client *client,
 
 	if (pdata->enable) {
 		pdata->enable(0);
-		usleep_range(1000, 2000); 
+		usleep_range(1000, 2000); /* Keep enable down at least 1ms */
 		pdata->enable(1);
-		usleep_range(1000, 2000); 
+		usleep_range(1000, 2000); /* 500us abs min. */
 	}
 
 	lp5523_write(client, LP5523_REG_RESET, 0xff);
-	usleep_range(10000, 20000); 
+	usleep_range(10000, 20000); /*
+				     * Exact value is not available. 10 - 20ms
+				     * appears to be enough for reset.
+				     */
 	ret = lp5523_detect(client);
 	if (ret)
 		goto fail2;
 
 	dev_info(&client->dev, "LP5523 Programmable led chip found\n");
 
-	
+	/* Initialize engines */
 	for (i = 0; i < ARRAY_SIZE(chip->engines); i++) {
 		ret = lp5523_init_engine(&chip->engines[i], i + 1);
 		if (ret) {
@@ -920,12 +934,12 @@ static int __devinit lp5523_probe(struct i2c_client *client,
 		goto fail2;
 	}
 
-	
+	/* Initialize leds */
 	chip->num_channels = pdata->num_channels;
 	chip->num_leds = 0;
 	led = 0;
 	for (i = 0; i < pdata->num_channels; i++) {
-		
+		/* Do not initialize channels that are not connected */
 		if (pdata->led_config[i].led_current == 0)
 			continue;
 
@@ -937,7 +951,7 @@ static int __devinit lp5523_probe(struct i2c_client *client,
 		chip->num_leds++;
 
 		chip->leds[led].id = led;
-		
+		/* Set LED current */
 		lp5523_write(client,
 			  LP5523_REG_LED_CURRENT_BASE + chip->leds[led].chan_nr,
 			  chip->leds[led].led_current);

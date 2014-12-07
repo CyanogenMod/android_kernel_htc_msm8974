@@ -44,7 +44,7 @@ module_param(ac97_quirk, charp, 0444);
 MODULE_PARM_DESC(ac97_quirk, "AC'97 board specific workarounds.");
 
 static struct ac97_quirk ac97_quirks[] __devinitdata = {
-#if 0 
+#if 0 /* Not yet confirmed if all 5536 boards are HP only */
 	{
 		.subvendor = PCI_VENDOR_ID_AMD, 
 		.subdevice = PCI_DEVICE_ID_AMD_CS5536_AUDIO, 
@@ -164,7 +164,7 @@ static int __devinit snd_cs5535audio_mixer(struct cs5535audio *cs5535au)
 	ac97.private_data = cs5535au;
 	ac97.pci = cs5535au->pci;
 
-	
+	/* set any OLPC-specific scaps */
 	olpc_prequirks(card, &ac97);
 
 	if ((err = snd_ac97_mixer(pbus, &ac97, &cs5535au->ac97)) < 0) {
@@ -329,7 +329,7 @@ static int __devinit snd_cs5535audio_create(struct snd_card *card,
 	*rcs5535au = cs5535au;
 	return 0;
 
-sndfail: 
+sndfail: /* leave the device alive, just kill the snd */
 	snd_cs5535audio_free(cs5535au);
 	return err;
 

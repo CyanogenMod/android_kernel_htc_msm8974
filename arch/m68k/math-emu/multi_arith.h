@@ -10,6 +10,11 @@
    the GNU General Public License, version 2, or any later version, at
    your convenience. */
 
+/* Note:
+
+   These are not general multi-precision math routines.  Rather, they
+   implement the subset of integer arithmetic that we need in order to
+   multiply, divide, and normalize 128-bit unsigned mantissae.  */
 
 #ifndef MULTI_ARITH_H
 #define MULTI_ARITH_H
@@ -78,7 +83,7 @@ static inline int fp_addmant(struct fp_ext *dest, struct fp_ext *src)
 {
 	int carry;
 
-	
+	/* we assume here, gcc only insert move and a clr instr */
 	asm volatile ("add.b %1,%0" : "=d,g" (dest->lowmant)
 		: "g,d" (src->lowmant), "0,0" (dest->lowmant));
 	asm volatile ("addx.l %1,%0" : "=d" (dest->mant.m32[1])
@@ -110,7 +115,7 @@ static inline int fp_addcarry(struct fp_ext *reg)
 static inline void fp_submant(struct fp_ext *dest, struct fp_ext *src1,
 			      struct fp_ext *src2)
 {
-	
+	/* we assume here, gcc only insert move and a clr instr */
 	asm volatile ("sub.b %1,%0" : "=d,g" (dest->lowmant)
 		: "g,d" (src2->lowmant), "0,0" (src1->lowmant));
 	asm volatile ("subx.l %1,%0" : "=d" (dest->mant.m32[1])
@@ -133,7 +138,7 @@ static inline void fp_submant(struct fp_ext *dest, struct fp_ext *src1,
 		: "d" (src1), "0" (dest1));				\
 })
 #define fp_addx96(dest, src) ({						\
-		\
+	/* we assume here, gcc only insert move and a clr instr */	\
 	asm volatile ("add.l %1,%0" : "=d,g" (dest->m32[2])		\
 		: "g,d" (temp.m32[1]), "0,0" (dest->m32[2]));		\
 	asm volatile ("addx.l %1,%0" : "=d" (dest->m32[1])		\
@@ -182,6 +187,8 @@ static inline void fp_dividemant(union fp_mant128 *dest, struct fp_ext *src,
 	unsigned long fix, rem, first, dummy;
 	int i;
 
+	/* the algorithm below requires dest to be smaller than div,
+	   but both have the high bit set */
 	if (src->mant.m64 >= div->mant.m64) {
 		fp_sub64(src->mant, div->mant);
 		*mantp = 1;
@@ -189,7 +196,15 @@ static inline void fp_dividemant(union fp_mant128 *dest, struct fp_ext *src,
 		*mantp = 0;
 	mantp++;
 
+	/* basic idea behind this algorithm: we can't divide two 64bit numbers
+	   (AB/CD) directly, but we can calculate AB/C0, but this means this
+	   quotient is off by C0/CD, so we have to multiply the first result
+	   to fix the result, after that we have nearly the correct result
+	   and only a few corrections are needed. */
 
+	/* C0/CD can be precalculated, but it's an 64bit division again, but
+	   we can make it a bit easier, by dividing first through C so we get
+	   10/1D and now only a single shift and the value fits into 32bit. */
 	fix = 0x80000000;
 	dummy = div->mant.m32[1] / div->mant.m32[0] + 1;
 	dummy = (dummy >> 1) | fix;
@@ -271,4 +286,4 @@ static inline void fp_putmant128(struct fp_ext *dest, union fp_mant128 *src,
 	}
 }
 
-#endif	
+#endif	/* MULTI_ARITH_H */

@@ -76,6 +76,7 @@ INPUT subsystem: NOTE-> output data INCLUDE the sensitivity in accelerometer,
 #define LSM330_GYR_I2C_SAD_H		((LSM330_GYR_I2C_SADROOT<<1)| \
 							LSM330_SAD0H)
 
+/* Poll Interval */
 #define LSM330_ACC_MIN_POLL_PERIOD_MS		1
 
 #define LSM330_GYR_MIN_POLL_PERIOD_MS		2
@@ -83,6 +84,7 @@ INPUT subsystem: NOTE-> output data INCLUDE the sensitivity in accelerometer,
 
 #ifdef __KERNEL__
 
+/* Interrupt */
 #define LSM330_ACC_DEFAULT_INT1_GPIO		(-EINVAL)
 #define LSM330_ACC_DEFAULT_INT2_GPIO		(-EINVAL)
 
@@ -90,12 +92,14 @@ INPUT subsystem: NOTE-> output data INCLUDE the sensitivity in accelerometer,
 #define LSM330_GYR_DEFAULT_INT2_GPIO		(-EINVAL)
 
 
+/* Accelerometer Sensor Full Scale */
 #define LSM330_ACC_G_2G				(0x00)
 #define LSM330_ACC_G_4G				(0x08)
 #define LSM330_ACC_G_6G				(0x10)
 #define LSM330_ACC_G_8G				(0x18)
 #define LSM330_ACC_G_16G			(0x20)
 
+/* Gyroscope Sensor Full Scale */
 #define LSM330_GYR_FS_250DPS			(0x00)
 #define LSM330_GYR_FS_500DPS			(0x10)
 #define LSM330_GYR_FS_2000DPS			(0x30)
@@ -103,6 +107,60 @@ INPUT subsystem: NOTE-> output data INCLUDE the sensitivity in accelerometer,
 extern unsigned int gs_kvalue;
 extern unsigned char gyro_gsensor_kvalue[37];
 
+/*
+static struct rot_matrix {
+       short matrix[3][3];
+	} rot_matrix[] = {
+		[0] = {
+				.matrix = {
+						{1, 0, 0},
+						{0, 1, 0},
+						{0, 0, 1}, }
+		},
+		[1] = {
+				.matrix = {
+						{-1, 0, 0},
+						{0, -1, 0},
+						{0, 0, 1}, }
+		},
+		[2] = {
+				.matrix = {
+						{0, 1, 0},
+						{-1, 0, 0},
+						{0, 0, 1}, }
+		},
+		[3] = {
+				.matrix = {
+						{0, -1, 0},
+						{1, 0, 0},
+						{0, 0, 1}, }
+		},
+		[4] = {
+				.matrix = {
+						{0, -1, 0},
+						{-1, 0, 0},
+						{0, 0, -1}, }
+		},
+		[5] = {
+				.matrix = {
+						{0, 1, 0},
+						{1, 0, 0},
+						{0, 0, -1}, }
+		},
+		[6] = {
+				.matrix = {
+						{1, 0, 0},
+						{0, -1, 0},
+						{0, 0, -1}, }
+		},
+		[7] = {
+				.matrix = {
+						{-1, 0, 0},
+						{0, 1, 0},
+						{0, 0, -1}, }
+		},
+};
+*/
 struct lsm330_acc_platform_data {
 	unsigned int poll_interval;
 	unsigned int min_interval;
@@ -114,6 +172,9 @@ struct lsm330_acc_platform_data {
 	int (*power_off)(void);
 	int chip_layout;
 	int gs_kvalue;
+	/* set gpio_int either to the choosen gpio pin number or to -EINVAL
+	 * if leaved unconnected
+	 */
 	int gpio_int1;
 	int gpio_int2;
 };
@@ -127,14 +188,14 @@ struct lsm330_gyr_platform_data {
 	unsigned int min_interval;
 	u8 fs_range;
 	short rot_matrix_index;
-	
+	/* fifo related */
 	u8 watermark;
 	u8 fifomode;
-	
+	/* gpio ports for interrupt pads */
 	int gpio_int1;
-	int gpio_int2;		
+	int gpio_int2;		/* int for fifo */
 	unsigned char gyro_kvalue[37];
 };
-#endif	
+#endif	/* __KERNEL__ */
 
-#endif	
+#endif	/* __LSM330_H__ */

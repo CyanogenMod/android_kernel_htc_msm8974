@@ -34,8 +34,11 @@ static int experimental_zcopytx;
 module_param(experimental_zcopytx, int, 0444);
 MODULE_PARM_DESC(experimental_zcopytx, "Enable Experimental Zero Copy TX");
 
+/* Max number of bytes transferred before requeueing the job.
+ * Using this limit prevents one virtqueue from starving others. */
 #define VHOST_NET_WEIGHT 0x80000
 
+/* MAX number of TX used buffers for outstanding zerocopy */
 #define VHOST_MAX_PEND 128
 #define VHOST_GOODCOPY_LEN 256
 
@@ -55,6 +58,9 @@ struct vhost_net {
 	struct vhost_dev dev;
 	struct vhost_virtqueue vqs[VHOST_NET_VQ_MAX];
 	struct vhost_poll poll[VHOST_NET_VQ_MAX];
+	/* Tells us whether we are polling a socket for TX.
+	 * We only do this when socket buffer fills up.
+	 * Protected by tx vq lock. */
 	enum vhost_net_poll_state tx_poll_state;
 };
 
@@ -64,6 +70,7 @@ static bool vhost_sock_zcopy(struct socket *sock)
 		sock_flag(sock->sk, SOCK_ZEROCOPY);
 }
 
+/* Pop first len bytes from iovec. Return number of segments used. */
 static int move_iovec_hdr(struct iovec *from, struct iovec *to,
 			  size_t len, int iov_count)
 {
@@ -83,6 +90,7 @@ static int move_iovec_hdr(struct iovec *from, struct iovec *to,
 	}
 	return seg;
 }
+/* Copy iovec entries for len bytes from iovec. */
 static void copy_iovec_hdr(const struct iovec *from, struct iovec *to,
 			   size_t len, int iovcount)
 {
@@ -100,6 +108,7 @@ static void copy_iovec_hdr(const struct iovec *from, struct iovec *to,
 	}
 }
 
+/* Caller must have TX VQ lock */
 static void tx_poll_stop(struct vhost_net *net)
 {
 	if (likely(net->tx_poll_state != VHOST_NET_POLL_STARTED))
@@ -108,6 +117,7 @@ static void tx_poll_stop(struct vhost_net *net)
 	net->tx_poll_state = VHOST_NET_POLL_STOPPED;
 }
 
+/* Caller must have TX VQ lock */
 static void tx_poll_start(struct vhost_net *net, struct socket *sock)
 {
 	if (unlikely(net->tx_poll_state != VHOST_NET_POLL_STOPPED))
@@ -116,6 +126,8 @@ static void tx_poll_start(struct vhost_net *net, struct socket *sock)
 	net->tx_poll_state = VHOST_NET_POLL_STARTED;
 }
 
+/* Expects to be always run from workqueue - which acts as
+ * read-size critical section for our kind of RCU. */
 static void handle_tx(struct vhost_net *net)
 {
 	struct vhost_virtqueue *vq = &net->dev.vqs[VHOST_NET_VQ_TX];
@@ -136,7 +148,7 @@ static void handle_tx(struct vhost_net *net)
 	struct vhost_ubuf_ref *uninitialized_var(ubufs);
 	bool zcopy;
 
-	
+	/* TODO: check that we are running from vhost_worker? */
 	sock = rcu_dereference_check(vq->private_data, 1);
 	if (!sock)
 		return;
@@ -158,7 +170,7 @@ static void handle_tx(struct vhost_net *net)
 	zcopy = vhost_sock_zcopy(sock);
 
 	for (;;) {
-		
+		/* Release DMAs done buffers first */
 		if (zcopy)
 			vhost_zerocopy_signal_used(vq);
 
@@ -166,10 +178,10 @@ static void handle_tx(struct vhost_net *net)
 					 ARRAY_SIZE(vq->iov),
 					 &out, &in,
 					 NULL, NULL);
-		
+		/* On error, stop handling until the next kick. */
 		if (unlikely(head < 0))
 			break;
-		
+		/* Nothing new?  Wait for eventfd to tell us they refilled. */
 		if (head == vq->num) {
 			int num_pends;
 
@@ -179,6 +191,9 @@ static void handle_tx(struct vhost_net *net)
 				set_bit(SOCK_ASYNC_NOSPACE, &sock->flags);
 				break;
 			}
+			/* If more outstanding DMAs, queue the work.
+			 * Handle upend_idx wrap around
+			 */
 			num_pends = likely(vq->upend_idx >= vq->done_idx) ?
 				    (vq->upend_idx - vq->done_idx) :
 				    (vq->upend_idx + UIO_MAXIOV - vq->done_idx);
@@ -198,22 +213,22 @@ static void handle_tx(struct vhost_net *net)
 			       "out %d, int %d\n", out, in);
 			break;
 		}
-		
+		/* Skip header. TODO: support TSO. */
 		s = move_iovec_hdr(vq->iov, vq->hdr, hdr_size, out);
 		msg.msg_iovlen = out;
 		len = iov_length(vq->iov, out);
-		
+		/* Sanity check */
 		if (!len) {
 			vq_err(vq, "Unexpected header len for TX: "
 			       "%zd expected %zd\n",
 			       iov_length(vq->hdr, s), hdr_size);
 			break;
 		}
-		
+		/* use msg_control to pass vhost zerocopy ubuf info to skb */
 		if (zcopy) {
 			vq->heads[vq->upend_idx].id = head;
 			if (len < VHOST_GOODCOPY_LEN) {
-				
+				/* copy don't need to wait for DMA done */
 				vq->heads[vq->upend_idx].len =
 							VHOST_DMA_DONE_LEN;
 				msg.msg_control = NULL;
@@ -233,7 +248,7 @@ static void handle_tx(struct vhost_net *net)
 			}
 			vq->upend_idx = (vq->upend_idx + 1) % UIO_MAXIOV;
 		}
-		
+		/* TODO: Check specific error and bomb out unless ENOBUFS? */
 		err = sock->ops->sendmsg(NULL, sock, &msg, len);
 		if (unlikely(err < 0)) {
 			if (zcopy) {
@@ -279,6 +294,16 @@ static int peek_head_len(struct sock *sk)
 	return len;
 }
 
+/* This is a multi-buffer version of vhost_get_desc, that works if
+ *	vq has read descriptors only.
+ * @vq		- the relevant virtqueue
+ * @datalen	- data length we'll be reading
+ * @iovcount	- returned count of io vectors we fill
+ * @log		- vhost log
+ * @log_num	- log offset
+ * @quota       - headcount quota, 1 for big buffer
+ *	returns number of buffer heads allocated, negative on error
+ */
 static int get_rx_bufs(struct vhost_virtqueue *vq,
 		       struct vring_used_elem *heads,
 		       int datalen,
@@ -331,6 +356,8 @@ err:
 	return r;
 }
 
+/* Expects to be always run from workqueue - which acts as
+ * read-size critical section for our kind of RCU. */
 static void handle_rx(struct vhost_net *net)
 {
 	struct vhost_virtqueue *vq = &net->dev.vqs[VHOST_NET_VQ_RX];
@@ -339,7 +366,7 @@ static void handle_rx(struct vhost_net *net)
 	struct msghdr msg = {
 		.msg_name = NULL,
 		.msg_namelen = 0,
-		.msg_control = NULL, 
+		.msg_control = NULL, /* FIXME: get and handle RX aux data. */
 		.msg_controllen = 0,
 		.msg_iov = vq->iov,
 		.msg_flags = MSG_DONTWAIT,
@@ -352,7 +379,7 @@ static void handle_rx(struct vhost_net *net)
 	int err, headcount, mergeable;
 	size_t vhost_hlen, sock_hlen;
 	size_t vhost_len, sock_len;
-	
+	/* TODO: check that we are running from vhost_worker? */
 	struct socket *sock = rcu_dereference_check(vq->private_data, 1);
 
 	if (!sock)
@@ -373,26 +400,35 @@ static void handle_rx(struct vhost_net *net)
 		headcount = get_rx_bufs(vq, vq->heads, vhost_len,
 					&in, vq_log, &log,
 					likely(mergeable) ? UIO_MAXIOV : 1);
-		
+		/* On error, stop handling until the next kick. */
 		if (unlikely(headcount < 0))
 			break;
-		
+		/* OK, now we need to know about added descriptors. */
 		if (!headcount) {
 			if (unlikely(vhost_enable_notify(&net->dev, vq))) {
+				/* They have slipped one in as we were
+				 * doing that: check again. */
 				vhost_disable_notify(&net->dev, vq);
 				continue;
 			}
+			/* Nothing new?  Wait for eventfd to tell us
+			 * they refilled. */
 			break;
 		}
-		
+		/* We don't need to be notified again. */
 		if (unlikely((vhost_hlen)))
-			
+			/* Skip header. TODO: support TSO. */
 			move_iovec_hdr(vq->iov, vq->hdr, vhost_hlen, in);
 		else
+			/* Copy the header for use in VIRTIO_NET_F_MRG_RXBUF:
+			 * needed because recvmsg can modify msg_iov. */
 			copy_iovec_hdr(vq->iov, vq->hdr, sock_hlen, in);
 		msg.msg_iovlen = in;
 		err = sock->ops->recvmsg(NULL, sock, &msg,
 					 sock_len, MSG_DONTWAIT | MSG_TRUNC);
+		/* Userspace might have consumed the packet meanwhile:
+		 * it's not supposed to do this usually, but might be hard
+		 * to prevent. Discard data we got (if any) and keep going. */
 		if (unlikely(err != sock_len)) {
 			pr_debug("Discarded rx packet: "
 				 " len %d, expected %zd\n", err, sock_len);
@@ -406,7 +442,7 @@ static void handle_rx(struct vhost_net *net)
 			       vq->iov->iov_base);
 			break;
 		}
-		
+		/* TODO: Should check and handle checksum. */
 		if (likely(mergeable) &&
 		    memcpy_toiovecend(vq->hdr, (unsigned char *)&headcount,
 				      offsetof(typeof(hdr), num_buffers),
@@ -562,6 +598,8 @@ static int vhost_net_release(struct inode *inode, struct file *f)
 		fput(tx_sock->file);
 	if (rx_sock)
 		fput(rx_sock->file);
+	/* We do an extra flush before freeing memory,
+	 * since jobs can re-queue themselves. */
 	vhost_net_flush(n);
 	kfree(n);
 	return 0;
@@ -579,7 +617,7 @@ static struct socket *get_raw_socket(int fd)
 	if (!sock)
 		return ERR_PTR(-ENOTSOCK);
 
-	
+	/* Parameter checking */
 	if (sock->sk->sk_type != SOCK_RAW) {
 		r = -ESOCKTNOSUPPORT;
 		goto err;
@@ -620,7 +658,7 @@ static struct socket *get_socket(int fd)
 {
 	struct socket *sock;
 
-	
+	/* special case to disable backend */
 	if (fd == -1)
 		return NULL;
 	sock = get_raw_socket(fd);
@@ -651,7 +689,7 @@ static long vhost_net_set_backend(struct vhost_net *n, unsigned index, int fd)
 	vq = n->vqs + index;
 	mutex_lock(&vq->mutex);
 
-	
+	/* Verify that ring has been setup correctly. */
 	if (!vhost_vq_access_ok(vq)) {
 		r = -EFAULT;
 		goto err_vq;
@@ -662,7 +700,7 @@ static long vhost_net_set_backend(struct vhost_net *n, unsigned index, int fd)
 		goto err_vq;
 	}
 
-	
+	/* start polling new socket */
 	oldsock = rcu_dereference_protected(vq->private_data,
 					    lockdep_is_held(&vq->mutex));
 	if (sock != oldsock) {
@@ -739,11 +777,11 @@ static int vhost_net_set_features(struct vhost_net *n, u64 features)
 			sizeof(struct virtio_net_hdr_mrg_rxbuf) :
 			sizeof(struct virtio_net_hdr);
 	if (features & (1 << VHOST_NET_F_VIRTIO_NET_HDR)) {
-		
+		/* vhost provides vnet_hdr */
 		vhost_hlen = hdr_len;
 		sock_hlen = 0;
 	} else {
-		
+		/* socket provides vnet_hdr */
 		vhost_hlen = 0;
 		sock_hlen = hdr_len;
 	}

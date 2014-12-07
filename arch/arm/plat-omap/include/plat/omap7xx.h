@@ -30,7 +30,13 @@
 #ifndef __ASM_ARCH_OMAP7XX_H
 #define __ASM_ARCH_OMAP7XX_H
 
+/*
+ * ----------------------------------------------------------------------------
+ * Base addresses
+ * ----------------------------------------------------------------------------
+ */
 
+/* Syntax: XX_BASE = Virtual base address, XX_START = Physical base address */
 
 #define OMAP7XX_DSP_BASE	0xE0000000
 #define OMAP7XX_DSP_SIZE	0x50000
@@ -43,6 +49,11 @@
 #define OMAP7XX_SPI1_BASE	0xfffc0800
 #define OMAP7XX_SPI2_BASE	0xfffc1000
 
+/*
+ * ----------------------------------------------------------------------------
+ * OMAP7XX specific configuration registers
+ * ----------------------------------------------------------------------------
+ */
 #define OMAP7XX_CONFIG_BASE	0xfffe1000
 #define OMAP7XX_IO_CONF_0	0xfffe1070
 #define OMAP7XX_IO_CONF_1	0xfffe1074
@@ -62,19 +73,35 @@
 #define OMAP7XX_MODE_1		0xfffe1010
 #define OMAP7XX_MODE_2		0xfffe1014
 
+/* CSMI specials: in terms of base + offset */
 #define OMAP7XX_MODE2_OFFSET	0x14
 
+/*
+ * ----------------------------------------------------------------------------
+ * OMAP7XX traffic controller configuration registers
+ * ----------------------------------------------------------------------------
+ */
 #define OMAP7XX_FLASH_CFG_0	0xfffecc10
 #define OMAP7XX_FLASH_ACFG_0	0xfffecc50
 #define OMAP7XX_FLASH_CFG_1	0xfffecc14
 #define OMAP7XX_FLASH_ACFG_1	0xfffecc54
 
+/*
+ * ----------------------------------------------------------------------------
+ * OMAP7XX DSP control registers
+ * ----------------------------------------------------------------------------
+ */
 #define OMAP7XX_ICR_BASE	0xfffbb800
 #define OMAP7XX_DSP_M_CTL	0xfffbb804
 #define OMAP7XX_DSP_MMU_BASE	0xfffed200
 
+/*
+ * ----------------------------------------------------------------------------
+ * OMAP7XX PCC_UPLD configuration registers
+ * ----------------------------------------------------------------------------
+ */
 #define OMAP7XX_PCC_UPLD_CTRL_BASE	(0xfffe0900)
 #define OMAP7XX_PCC_UPLD_CTRL		(OMAP7XX_PCC_UPLD_CTRL_BASE + 0x00)
 
-#endif 
+#endif /*  __ASM_ARCH_OMAP7XX_H */
 

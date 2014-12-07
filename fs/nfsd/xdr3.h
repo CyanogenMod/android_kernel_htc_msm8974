@@ -125,6 +125,7 @@ struct nfsd3_attrstat {
 	struct kstat            stat;
 };
 
+/* LOOKUP, CREATE, MKDIR, SYMLINK, MKNOD */
 struct nfsd3_diropres  {
 	__be32			status;
 	struct svc_fh		dirfh;
@@ -226,12 +227,16 @@ struct nfsd3_getaclres {
 	struct posix_acl	*acl_default;
 };
 
+/* dummy type for release */
 struct nfsd3_fhandle_pair {
 	__u32			dummy;
 	struct svc_fh		fh1;
 	struct svc_fh		fh2;
 };
 
+/*
+ * Storage requirements for XDR arguments and results.
+ */
 union nfsd3_xdrstore {
 	struct nfsd3_sattrargs		sattrargs;
 	struct nfsd3_diropargs		diropargs;
@@ -330,9 +335,10 @@ int nfs3svc_encode_entry(void *, const char *name,
 int nfs3svc_encode_entry_plus(void *, const char *name,
 				int namlen, loff_t offset, u64 ino,
 				unsigned int);
+/* Helper functions for NFSv3 ACL code */
 __be32 *nfs3svc_encode_post_op_attr(struct svc_rqst *rqstp, __be32 *p,
 				struct svc_fh *fhp);
 __be32 *nfs3svc_decode_fh(__be32 *p, struct svc_fh *fhp);
 
 
-#endif 
+#endif /* _LINUX_NFSD_XDR3_H */

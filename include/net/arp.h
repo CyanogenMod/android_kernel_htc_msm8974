@@ -1,3 +1,4 @@
+/* linux/net/inet/arp.h */
 #ifndef _ARP_H
 #define _ARP_H
 
@@ -55,4 +56,4 @@ extern struct sk_buff *arp_create(int type, int ptype, __be32 dest_ip,
 extern void arp_xmit(struct sk_buff *skb);
 int arp_invalidate(struct net_device *dev, __be32 ip);
 
-#endif	
+#endif	/* _ARP_H */

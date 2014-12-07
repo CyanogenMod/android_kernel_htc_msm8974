@@ -38,13 +38,13 @@ static uint32_t radeon_encoder_clones(struct drm_encoder *encoder)
 	uint32_t index_mask = 0;
 	int count;
 
-	
+	/* DIG routing gets problematic */
 	if (rdev->family >= CHIP_R600)
 		return index_mask;
-	
+	/* LVDS/TV are too wacky */
 	if (radeon_encoder->devices & ATOM_DEVICE_LCD_SUPPORT)
 		return index_mask;
-	
+	/* DVO requires 2x ppll clocks depending on tmds chip */
 	if (radeon_encoder->devices & ATOM_DEVICE_DFP2_SUPPORT)
 		return index_mask;
 
@@ -87,7 +87,7 @@ radeon_get_encoder_enum(struct drm_device *dev, uint32_t supported_device, uint8
 	case ATOM_DEVICE_CRT2_SUPPORT:
 	case ATOM_DEVICE_CV_SUPPORT:
 		switch (dac) {
-		case 1: 
+		case 1: /* dac a */
 			if ((rdev->family == CHIP_RS300) ||
 			    (rdev->family == CHIP_RS400) ||
 			    (rdev->family == CHIP_RS480))
@@ -97,14 +97,17 @@ radeon_get_encoder_enum(struct drm_device *dev, uint32_t supported_device, uint8
 			else
 				ret = ENCODER_INTERNAL_DAC1_ENUM_ID1;
 			break;
-		case 2: 
+		case 2: /* dac b */
 			if (ASIC_IS_AVIVO(rdev))
 				ret = ENCODER_INTERNAL_KLDSCP_DAC2_ENUM_ID1;
 			else {
+				/*if (rdev->family == CHIP_R200)
+				  ret = ENCODER_INTERNAL_DVO1_ENUM_ID1;
+				  else*/
 				ret = ENCODER_INTERNAL_DAC2_ENUM_ID1;
 			}
 			break;
-		case 3: 
+		case 3: /* external dac */
 			if (ASIC_IS_AVIVO(rdev))
 				ret = ENCODER_INTERNAL_KLDSCP_DVO1_ENUM_ID1;
 			else
@@ -155,7 +158,7 @@ radeon_link_encoder_connector(struct drm_device *dev)
 	struct drm_encoder *encoder;
 	struct radeon_encoder *radeon_encoder;
 
-	
+	/* walk the list and link encoders to connectors */
 	list_for_each_entry(connector, &dev->mode_config.connector_list, head) {
 		radeon_connector = to_radeon_connector(connector);
 		list_for_each_entry(encoder, &dev->mode_config.encoder_list, head) {
@@ -311,6 +314,9 @@ bool radeon_dig_monitor_is_duallink(struct drm_encoder *encoder,
 	struct radeon_connector_atom_dig *dig_connector;
 
 	connector = radeon_get_connector_for_encoder(encoder);
+	/* if we don't have an active device yet, just use one of
+	 * the connectors tied to the encoder.
+	 */
 	if (!connector)
 		connector = radeon_get_connector_for_encoder_init(encoder);
 	radeon_connector = to_radeon_connector(connector);
@@ -319,7 +325,7 @@ bool radeon_dig_monitor_is_duallink(struct drm_encoder *encoder,
 	case DRM_MODE_CONNECTOR_DVII:
 	case DRM_MODE_CONNECTOR_HDMIB:
 		if (radeon_connector->use_digital) {
-			
+			/* HDMI 1.3 supports up to 340 Mhz over single link */
 			if (ASIC_IS_DCE6(rdev) && drm_detect_hdmi_monitor(radeon_connector->edid)) {
 				if (pixel_clock > 340000)
 					return true;
@@ -341,7 +347,7 @@ bool radeon_dig_monitor_is_duallink(struct drm_encoder *encoder,
 		    (dig_connector->dp_sink_type == CONNECTOR_OBJECT_ID_eDP))
 			return false;
 		else {
-			
+			/* HDMI 1.3 supports up to 340 Mhz over single link */
 			if (ASIC_IS_DCE6(rdev) && drm_detect_hdmi_monitor(radeon_connector->edid)) {
 				if (pixel_clock > 340000)
 					return true;

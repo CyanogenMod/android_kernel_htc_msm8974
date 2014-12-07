@@ -18,12 +18,18 @@
 #include <media/msm/vidc_init.h>
 #include <linux/dvb/video.h>
 
+/*
+ * MPQ Specific Includes.
+ */
 #include "mpq_dvb_debug.h"
 #include "mpq_adapter.h"
 #include "mpq_stream_buffer.h"
 
 #define DVB_MPQ_NUM_VIDEO_DEVICES CONFIG_DVB_MPQ_NUM_VIDEO_DEVICES
 
+/*
+ * Input Buffer Requirements for Video Decoder.
+ */
 #define DVB_VID_NUM_IN_BUFFERS (2)
 #define DVB_VID_IN_BUFFER_SIZE (2*1024*1024)
 #define DVB_VID_IN_BUFFER_ALGN (8*1024)
@@ -84,4 +90,4 @@ struct mpq_dvb_video_dev {
 	void(*timer_handler)(void *);
 };
 
-#endif 
+#endif /* MPQ_DVB_VIDEO_INTERNAL_H */

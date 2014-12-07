@@ -190,7 +190,7 @@ int bridge_read(unsigned int devfn, int reg, int len, u32 *value)
 	int retval = 0;
 
 	switch (reg) {
-	
+	/* Make BARs appear to not request any memory. */
 	case PCI_BASE_ADDRESS_0:
 	case PCI_BASE_ADDRESS_0 + 1:
 	case PCI_BASE_ADDRESS_0 + 2:
@@ -198,6 +198,9 @@ int bridge_read(unsigned int devfn, int reg, int len, u32 *value)
 		*value = 0;
 		break;
 
+		/* Since subordinate bus number register is hardwired
+		 * to zero and read only, so do the simulation.
+		 */
 	case PCI_PRIMARY_BUS:
 		if (len == 4)
 			*value = 0x00010100;
@@ -209,7 +212,7 @@ int bridge_read(unsigned int devfn, int reg, int len, u32 *value)
 
 	case PCI_MEMORY_BASE:
 	case PCI_MEMORY_LIMIT:
-		
+		/* Get the A/V bridge base address. */
 		pci_direct_conf1.read(0, 0, devfn,
 				PCI_BASE_ADDRESS_0, 4, &av_bridge_base);
 
@@ -227,13 +230,16 @@ int bridge_read(unsigned int devfn, int reg, int len, u32 *value)
 		else
 			*value = (av_bridge_limit << 16) | av_bridge_base;
 		break;
+		/* Make prefetchable memory limit smaller than prefetchable
+		 * memory base, so not claim prefetchable memory space.
+		 */
 	case PCI_PREF_MEMORY_BASE:
 		*value = 0xFFF0;
 		break;
 	case PCI_PREF_MEMORY_LIMIT:
 		*value = 0x0;
 		break;
-		
+		/* Make IO limit smaller than IO base, so not claim IO space. */
 	case PCI_IO_BASE:
 		*value = 0xF0;
 		break;
@@ -290,7 +296,7 @@ static int ce4100_conf_write(unsigned int seg, unsigned int bus,
 		}
 	}
 
-	
+	/* Discard writes to A/V bridge BAR. */
 	if (bus == 0 && PCI_DEVFN(1, 0) == devfn &&
 	    ((reg & ~3) == PCI_BASE_ADDRESS_0))
 		return 0;
@@ -307,6 +313,6 @@ int __init ce4100_pci_init(void)
 {
 	init_sim_regs();
 	raw_pci_ops = &ce4100_pci_conf;
-	
+	/* Indicate caller that it should invoke pci_legacy_init() */
 	return 1;
 }

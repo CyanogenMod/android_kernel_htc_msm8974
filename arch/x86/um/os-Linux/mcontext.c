@@ -12,7 +12,7 @@ void get_regs_from_mc(struct uml_pt_regs *regs, mcontext_t *mc)
 #define COPY_SEG_CPL3(X) regs->gp[X] = (mc->gregs[REG_##X] & 0xffff) | 3;
 	COPY_SEG(GS); COPY_SEG(FS); COPY_SEG(ES); COPY_SEG(DS);
 	COPY(EDI); COPY(ESI); COPY(EBP);
-	COPY2(UESP, ESP); 
+	COPY2(UESP, ESP); /* sic */
 	COPY(EBX); COPY(EDX); COPY(ECX); COPY(EAX);
 	COPY(EIP); COPY_SEG_CPL3(CS); COPY(EFL); COPY_SEG_CPL3(SS);
 #else

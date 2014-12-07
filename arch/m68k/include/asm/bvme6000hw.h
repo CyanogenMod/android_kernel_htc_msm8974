@@ -3,6 +3,9 @@
 
 #include <asm/irq.h>
 
+/*
+ * PIT structure
+ */
 
 #define BVME_PIT_BASE	0xffa00000
 
@@ -113,6 +116,7 @@ typedef struct {
 #define BVME_IRQ_RTC		IRQ_AUTO_6
 #define BVME_IRQ_ABORT		IRQ_AUTO_7
 
+/* SCC interrupts */
 #define BVME_IRQ_SCC_BASE		IRQ_USER
 #define BVME_IRQ_SCCB_TX		IRQ_USER
 #define BVME_IRQ_SCCB_STAT		(IRQ_USER+2)
@@ -123,6 +127,7 @@ typedef struct {
 #define BVME_IRQ_SCCA_RX		(IRQ_USER+12)
 #define BVME_IRQ_SCCA_SPCOND		(IRQ_USER+14)
 
+/* Address control registers */
 
 #define BVME_ACR_A32VBA		0xff400003
 #define BVME_ACR_A32MSK		0xff410003

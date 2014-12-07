@@ -21,6 +21,7 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA
  */
 
+/* #define DEBUG */
 
 #define pr_fmt(fmt) KBUILD_BASENAME ": " fmt
 
@@ -30,6 +31,10 @@
 #include <linux/sched.h>
 #include <linux/slab.h>
 
+/*
+ * Check that the effect_id is a valid effect and whether the user
+ * is the owner
+ */
 static int check_effect_access(struct ff_device *ff, int effect_id,
 				struct file *file)
 {
@@ -43,6 +48,9 @@ static int check_effect_access(struct ff_device *ff, int effect_id,
 	return 0;
 }
 
+/*
+ * Checks whether 2 effects can be combined together
+ */
 static inline int check_effects_compatible(struct ff_effect *e1,
 					   struct ff_effect *e2)
 {
@@ -51,6 +59,9 @@ static inline int check_effects_compatible(struct ff_effect *e1,
 		e1->u.periodic.waveform == e2->u.periodic.waveform);
 }
 
+/*
+ * Convert an effect into compatible one
+ */
 static int compat_effect(struct ff_device *ff, struct ff_effect *effect)
 {
 	int magnitude;
@@ -60,6 +71,10 @@ static int compat_effect(struct ff_device *ff, struct ff_effect *effect)
 		if (!test_bit(FF_PERIODIC, ff->ffbit))
 			return -EINVAL;
 
+		/*
+		 * calculate manginude of sine wave as average of rumble's
+		 * 2/3 of strong magnitude and 1/3 of weak magnitude
+		 */
 		magnitude = effect->u.rumble.strong_magnitude / 3 +
 			    effect->u.rumble.weak_magnitude / 6;
 
@@ -77,11 +92,17 @@ static int compat_effect(struct ff_device *ff, struct ff_effect *effect)
 		return 0;
 
 	default:
-		
+		/* Let driver handle conversion */
 		return 0;
 	}
 }
 
+/**
+ * input_ff_upload() - upload effect into force-feedback device
+ * @dev: input device
+ * @effect: effect to be uploaded
+ * @file: owner of the effect
+ */
 int input_ff_upload(struct input_dev *dev, struct ff_effect *effect,
 		    struct file *file)
 {
@@ -158,6 +179,10 @@ int input_ff_upload(struct input_dev *dev, struct ff_effect *effect,
 }
 EXPORT_SYMBOL_GPL(input_ff_upload);
 
+/*
+ * Erases the effect if the requester is also the effect owner. The mutex
+ * should already be locked before calling this function.
+ */
 static int erase_effect(struct input_dev *dev, int effect_id,
 			struct file *file)
 {
@@ -187,6 +212,16 @@ static int erase_effect(struct input_dev *dev, int effect_id,
 	return 0;
 }
 
+/**
+ * input_ff_erase - erase a force-feedback effect from device
+ * @dev: input device to erase effect from
+ * @effect_id: id of the ffect to be erased
+ * @file: purported owner of the request
+ *
+ * This function erases a force-feedback effect from specified device.
+ * The effect will only be erased if it was uploaded through the same
+ * file handle that is requesting erase.
+ */
 int input_ff_erase(struct input_dev *dev, int effect_id, struct file *file)
 {
 	struct ff_device *ff = dev->ff;
@@ -203,6 +238,9 @@ int input_ff_erase(struct input_dev *dev, int effect_id, struct file *file)
 }
 EXPORT_SYMBOL_GPL(input_ff_erase);
 
+/*
+ * flush_effects - erase all effects owned by a file handle
+ */
 static int flush_effects(struct input_dev *dev, struct file *file)
 {
 	struct ff_device *ff = dev->ff;
@@ -220,6 +258,13 @@ static int flush_effects(struct input_dev *dev, struct file *file)
 	return 0;
 }
 
+/**
+ * input_ff_event() - generic handler for force-feedback events
+ * @dev: input device to send the effect to
+ * @type: event type (anything but EV_FF is ignored)
+ * @code: event code
+ * @value: event value
+ */
 int input_ff_event(struct input_dev *dev, unsigned int type,
 		   unsigned int code, int value)
 {
@@ -253,6 +298,17 @@ int input_ff_event(struct input_dev *dev, unsigned int type,
 }
 EXPORT_SYMBOL_GPL(input_ff_event);
 
+/**
+ * input_ff_create() - create force-feedback device
+ * @dev: input device supporting force-feedback
+ * @max_effects: maximum number of effects supported by the device
+ *
+ * This function allocates all necessary memory for a force feedback
+ * portion of an input device and installs all default handlers.
+ * @dev->ffbit should be already set up before calling this function.
+ * Once ff device is created you need to setup its upload, erase,
+ * playback and other handlers before registering input device
+ */
 int input_ff_create(struct input_dev *dev, unsigned int max_effects)
 {
 	struct ff_device *ff;
@@ -266,7 +322,7 @@ int input_ff_create(struct input_dev *dev, unsigned int max_effects)
 
 	ff_dev_size = sizeof(struct ff_device) +
 				max_effects * sizeof(struct file *);
-	if (ff_dev_size < max_effects) 
+	if (ff_dev_size < max_effects) /* overflow */
 		return -EINVAL;
 
 	ff = kzalloc(ff_dev_size, GFP_KERNEL);
@@ -288,12 +344,12 @@ int input_ff_create(struct input_dev *dev, unsigned int max_effects)
 	dev->event = input_ff_event;
 	__set_bit(EV_FF, dev->evbit);
 
-	
+	/* Copy "true" bits into ff device bitmap */
 	for (i = 0; i <= FF_MAX; i++)
 		if (test_bit(i, dev->ffbit))
 			__set_bit(i, ff->ffbit);
 
-	
+	/* we can emulate RUMBLE with periodic effects */
 	if (test_bit(FF_PERIODIC, ff->ffbit))
 		__set_bit(FF_RUMBLE, dev->ffbit);
 
@@ -301,6 +357,14 @@ int input_ff_create(struct input_dev *dev, unsigned int max_effects)
 }
 EXPORT_SYMBOL_GPL(input_ff_create);
 
+/**
+ * input_ff_destroy() - frees force feedback portion of input device
+ * @dev: input device supporting force feedback
+ *
+ * This function is only needed in error path as input core will
+ * automatically free force feedback structures when device is
+ * destroyed.
+ */
 void input_ff_destroy(struct input_dev *dev)
 {
 	struct ff_device *ff = dev->ff;

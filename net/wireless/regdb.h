@@ -20,4 +20,4 @@
 extern const struct ieee80211_regdomain *reg_regdb[];
 extern int reg_regdb_size;
 
-#endif 
+#endif /* __REGDB_H__ */

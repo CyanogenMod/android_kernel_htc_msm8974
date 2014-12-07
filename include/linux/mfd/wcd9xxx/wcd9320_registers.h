@@ -1320,6 +1320,7 @@
 #define TAIKO_A_CDC_MAD_BEACON_IIR_CTL_VAL			(0x3FC)
 #define TAIKO_A_CDC_MAD_BEACON_IIR_CTL_VAL__POR				(0x00)
 
+/* Taiko v2+ registers */
 #define TAIKO_A_CDC_TX_1_GAIN			(0x153)
 #define TAIKO_A_CDC_TX_1_GAIN__POR			(0x02)
 #define TAIKO_A_CDC_TX_2_GAIN			(0x155)
@@ -1369,6 +1370,7 @@
 #define TAIKO_A_CDC_SPKR_CLIPDET_B1_CTL		(0x365)
 #define TAIKO_A_CDC_SPKR_CLIPDET_B1_CTL__POR		(0x00)
 
+/* SLIMBUS Slave Registers */
 #define TAIKO_SLIM_PGD_PORT_INT_EN0                     (0x30)
 #define TAIKO_SLIM_PGD_PORT_INT_STATUS_RX_0             (0x34)
 #define TAIKO_SLIM_PGD_PORT_INT_STATUS_RX_1             (0x35)
@@ -1381,6 +1383,7 @@
 #define TAIKO_SLIM_PGD_PORT_INT_RX_SOURCE0		(0x60)
 #define TAIKO_SLIM_PGD_PORT_INT_TX_SOURCE0		(0x70)
 
+/* Macros for Packing Register Writes into a U32 */
 #define TAIKO_PACKED_REG_SIZE sizeof(u32)
 
 #define TAIKO_CODEC_PACK_ENTRY(reg, mask, val) ((val & 0xff)|\

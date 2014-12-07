@@ -17,12 +17,16 @@
 #define CCR_MASK  0x6f
 #define EXR_TRACE 0x80
 
+/* Mapping from PT_xxx to the stack offset at which the register is
+   saved.  Notice that usp has no stack-slot and needs to be treated
+   specially (see get_reg/put_reg below). */
 static const int h8300_register_offset[] = {
 	PT_REG(er1), PT_REG(er2), PT_REG(er3), PT_REG(er4),
 	PT_REG(er5), PT_REG(er6), PT_REG(er0), PT_REG(orig_er0),
 	PT_REG(ccr), PT_REG(pc),  0,           PT_REG(exr)
 };
 
+/* read register */
 long h8300_get_reg(struct task_struct *task, int regno)
 {
 	switch (regno) {
@@ -36,6 +40,7 @@ long h8300_get_reg(struct task_struct *task, int regno)
 	}
 }
 
+/* write register */
 int h8300_put_reg(struct task_struct *task, int regno, unsigned long data)
 {
 	unsigned short oldccr;
@@ -50,7 +55,7 @@ int h8300_put_reg(struct task_struct *task, int regno, unsigned long data)
 		*(unsigned short *)(task->thread.esp0 + h8300_register_offset[regno]) = data;
 		break;
 	case PT_EXR:
-		
+		/* exr modify not support */
 		return -EIO;
 	default:
 		*(unsigned long *)(task->thread.esp0 + h8300_register_offset[regno]) = data;
@@ -59,11 +64,13 @@ int h8300_put_reg(struct task_struct *task, int regno, unsigned long data)
 	return 0;
 }
 
+/* disable singlestep */
 void user_disable_single_step(struct task_struct *child)
 {
 	*(unsigned short *)(child->thread.esp0 + h8300_register_offset[PT_EXR]) &= ~EXR_TRACE;
 }
 
+/* enable singlestep */
 void user_enable_single_step(struct task_struct *child)
 {
 	*(unsigned short *)(child->thread.esp0 + h8300_register_offset[PT_EXR]) |= EXR_TRACE;

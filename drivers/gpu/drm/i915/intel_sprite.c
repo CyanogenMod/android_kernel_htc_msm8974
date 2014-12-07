@@ -52,7 +52,7 @@ ivb_update_plane(struct drm_plane *plane, struct drm_framebuffer *fb,
 
 	sprctl = I915_READ(SPRCTL(pipe));
 
-	
+	/* Mask out pixel format bits in case we change it */
 	sprctl &= ~SPRITE_PIXFORMAT_MASK;
 	sprctl &= ~SPRITE_RGB_ORDER_RGBX;
 	sprctl &= ~SPRITE_YUV_BYTE_ORDER_MASK;
@@ -92,11 +92,11 @@ ivb_update_plane(struct drm_plane *plane, struct drm_framebuffer *fb,
 	if (obj->tiling_mode != I915_TILING_NONE)
 		sprctl |= SPRITE_TILED;
 
-	
+	/* must disable */
 	sprctl |= SPRITE_TRICKLE_FEED_DISABLE;
 	sprctl |= SPRITE_ENABLE;
 
-	
+	/* Sizes are 0 based */
 	src_w--;
 	src_h--;
 	crtc_w--;
@@ -104,6 +104,11 @@ ivb_update_plane(struct drm_plane *plane, struct drm_framebuffer *fb,
 
 	intel_update_sprite_watermarks(dev, pipe, crtc_w, pixel_size);
 
+	/*
+	 * IVB workaround: must disable low power watermarks for at least
+	 * one frame before enabling scaling.  LP watermarks can be re-enabled
+	 * when scaling is disabled.
+	 */
 	if (crtc_w != src_w || crtc_h != src_h) {
 		dev_priv->sprite_scaling_enabled = true;
 		sandybridge_update_wm(dev);
@@ -111,7 +116,7 @@ ivb_update_plane(struct drm_plane *plane, struct drm_framebuffer *fb,
 		sprscale = SPRITE_SCALE_ENABLE | (src_w << 16) | src_h;
 	} else {
 		dev_priv->sprite_scaling_enabled = false;
-		
+		/* potentially re-enable LP watermarks */
 		sandybridge_update_wm(dev);
 	}
 
@@ -141,9 +146,9 @@ ivb_disable_plane(struct drm_plane *plane)
 	int pipe = intel_plane->pipe;
 
 	I915_WRITE(SPRCTL(pipe), I915_READ(SPRCTL(pipe)) & ~SPRITE_ENABLE);
-	
+	/* Can't leave the scaler enabled... */
 	I915_WRITE(SPRSCALE(pipe), 0);
-	
+	/* Activate double buffered register update */
 	I915_WRITE(SPRSURF(pipe), 0);
 	POSTING_READ(SPRSURF(pipe));
 }
@@ -217,7 +222,7 @@ snb_update_plane(struct drm_plane *plane, struct drm_framebuffer *fb,
 
 	dvscntr = I915_READ(DVSCNTR(pipe));
 
-	
+	/* Mask out pixel format bits in case we change it */
 	dvscntr &= ~DVS_PIXFORMAT_MASK;
 	dvscntr &= ~DVS_RGB_ORDER_XBGR;
 	dvscntr &= ~DVS_YUV_BYTE_ORDER_MASK;
@@ -257,11 +262,11 @@ snb_update_plane(struct drm_plane *plane, struct drm_framebuffer *fb,
 	if (obj->tiling_mode != I915_TILING_NONE)
 		dvscntr |= DVS_TILED;
 
-	
+	/* must disable */
 	dvscntr |= DVS_TRICKLE_FEED_DISABLE;
 	dvscntr |= DVS_ENABLE;
 
-	
+	/* Sizes are 0 based */
 	src_w--;
 	src_h--;
 	crtc_w--;
@@ -298,9 +303,9 @@ snb_disable_plane(struct drm_plane *plane)
 	int pipe = intel_plane->pipe;
 
 	I915_WRITE(DVSCNTR(pipe), I915_READ(DVSCNTR(pipe)) & ~DVS_ENABLE);
-	
+	/* Disable the scaler */
 	I915_WRITE(DVSSCALE(pipe), 0);
-	
+	/* Flush double buffered register updates */
 	I915_WRITE(DVSSURF(pipe), 0);
 	POSTING_READ(DVSSURF(pipe));
 }
@@ -408,22 +413,27 @@ intel_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
 	src_w = src_w >> 16;
 	src_h = src_h >> 16;
 
-	
+	/* Pipe must be running... */
 	if (!(I915_READ(PIPECONF(pipe)) & PIPECONF_ENABLE))
 		return -EINVAL;
 
 	if (crtc_x >= primary_w || crtc_y >= primary_h)
 		return -EINVAL;
 
-	
+	/* Don't modify another pipe's plane */
 	if (intel_plane->pipe != intel_crtc->pipe)
 		return -EINVAL;
 
+	/*
+	 * Clamp the width & height into the visible area.  Note we don't
+	 * try to scale the source if part of the visible region is offscreen.
+	 * The caller must handle that by adjusting source offset and size.
+	 */
 	if ((crtc_x < 0) && ((crtc_x + crtc_w) > 0)) {
 		crtc_w += crtc_x;
 		crtc_x = 0;
 	}
-	if ((crtc_x + crtc_w) <= 0) 
+	if ((crtc_x + crtc_w) <= 0) /* Nothing to display */
 		goto out;
 	if ((crtc_x + crtc_w) > primary_w)
 		crtc_w = primary_w - crtc_x;
@@ -432,17 +442,25 @@ intel_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
 		crtc_h += crtc_y;
 		crtc_y = 0;
 	}
-	if ((crtc_y + crtc_h) <= 0) 
+	if ((crtc_y + crtc_h) <= 0) /* Nothing to display */
 		goto out;
 	if (crtc_y + crtc_h > primary_h)
 		crtc_h = primary_h - crtc_y;
 
-	if (!crtc_w || !crtc_h) 
+	if (!crtc_w || !crtc_h) /* Again, nothing to display */
 		goto out;
 
+	/*
+	 * We can take a larger source and scale it down, but
+	 * only so much...  16x is the max on SNB.
+	 */
 	if (((src_w * src_h) / (crtc_w * crtc_h)) > intel_plane->max_downscale)
 		return -EINVAL;
 
+	/*
+	 * If the sprite is completely covering the primary plane,
+	 * we can disable the primary and save power.
+	 */
 	if ((crtc_x == 0) && (crtc_y == 0) &&
 	    (crtc_w == primary_w) && (crtc_h == primary_h))
 		disable_primary = true;
@@ -455,6 +473,10 @@ intel_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
 
 	intel_plane->obj = obj;
 
+	/*
+	 * Be sure to re-enable the primary before the sprite is no longer
+	 * covering it fully.
+	 */
 	if (!disable_primary && intel_plane->primary_disabled) {
 		intel_enable_primary(crtc);
 		intel_plane->primary_disabled = false;
@@ -468,8 +490,14 @@ intel_update_plane(struct drm_plane *plane, struct drm_crtc *crtc,
 		intel_plane->primary_disabled = true;
 	}
 
-	
+	/* Unpin old obj after new one is active to avoid ugliness */
 	if (old_obj) {
+		/*
+		 * It's fairly common to simply update the position of
+		 * an existing object.  In that case, we don't need to
+		 * wait for vblank to avoid ugliness, we only need to
+		 * do the pin & ref bookkeeping.
+		 */
 		if (old_obj != obj) {
 			mutex_unlock(&dev->struct_mutex);
 			intel_wait_for_vblank(dev, to_intel_crtc(crtc)->pipe);
@@ -531,7 +559,7 @@ int intel_sprite_set_colorkey(struct drm_device *dev, void *data,
 	if (!dev_priv)
 		return -EINVAL;
 
-	
+	/* Make sure we don't try to enable both src & dest simultaneously */
 	if ((set->flags & (I915_SET_COLORKEY_DESTINATION | I915_SET_COLORKEY_SOURCE)) == (I915_SET_COLORKEY_DESTINATION | I915_SET_COLORKEY_SOURCE))
 		return -EINVAL;
 

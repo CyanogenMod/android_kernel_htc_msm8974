@@ -43,6 +43,7 @@
 
 #include "common.h"
 
+/* Following are default values for UCON, ULCON and UFCON UART registers */
 #define AQUILA_UCON_DEFAULT	(S3C2410_UCON_TXILEVEL |	\
 				 S3C2410_UCON_RXILEVEL |	\
 				 S3C2410_UCON_TXIRQMODE |	\
@@ -60,6 +61,10 @@ static struct s3c2410_uartcfg aquila_uartcfgs[] __initdata = {
 		.flags		= 0,
 		.ucon		= AQUILA_UCON_DEFAULT,
 		.ulcon		= AQUILA_ULCON_DEFAULT,
+		/*
+		 * Actually UART0 can support 256 bytes fifo, but aquila board
+		 * supports 128 bytes fifo because of initial chip bug
+		 */
 		.ufcon		= AQUILA_UFCON_DEFAULT |
 			S5PV210_UFCON_TXTRIG128 | S5PV210_UFCON_RXTRIG128,
 	},
@@ -89,6 +94,7 @@ static struct s3c2410_uartcfg aquila_uartcfgs[] __initdata = {
 	},
 };
 
+/* Frame Buffer */
 static struct s3c_fb_pd_win aquila_fb_win0 = {
 	.win_mode = {
 		.left_margin = 16,
@@ -128,6 +134,7 @@ static struct s3c_fb_platdata aquila_lcd_pdata __initdata = {
 	.setup_gpio	= s5pv210_fb_gpio_setup_24bpp,
 };
 
+/* MAX8998 regulators */
 #if defined(CONFIG_REGULATOR_MAX8998) || defined(CONFIG_REGULATOR_MAX8998_MODULE)
 
 static struct regulator_init_data aquila_ldo2_data = {
@@ -291,6 +298,7 @@ static struct regulator_init_data aquila_ldo17_data = {
 	},
 };
 
+/* BUCK */
 static struct regulator_consumer_supply buck1_consumer =
 	REGULATOR_SUPPLY("vddarm", NULL);
 
@@ -464,26 +472,27 @@ static struct regulator_init_data wm8994_ldo2_data = {
 };
 
 static struct wm8994_pdata wm8994_platform_data = {
-	
+	/* configure gpio1 function: 0x0001(Logic level input/output) */
 	.gpio_defaults[0] = 0x0001,
-	
+	/* configure gpio3/4/5/7 function for AIF2 voice */
 	.gpio_defaults[2] = 0x8100,
 	.gpio_defaults[3] = 0x8100,
 	.gpio_defaults[4] = 0x8100,
 	.gpio_defaults[6] = 0x0100,
-	
+	/* configure gpio8/9/10/11 function for AIF3 BT */
 	.gpio_defaults[7] = 0x8100,
 	.gpio_defaults[8] = 0x0100,
 	.gpio_defaults[9] = 0x0100,
 	.gpio_defaults[10] = 0x0100,
-	.ldo[0]	= { S5PV210_MP03(6), &wm8994_ldo1_data },	
+	.ldo[0]	= { S5PV210_MP03(6), &wm8994_ldo1_data },	/* XM0FRNB_2 */
 	.ldo[1]	= { 0, &wm8994_ldo2_data },
 };
 
+/* GPIO I2C PMIC */
 #define AP_I2C_GPIO_PMIC_BUS_4	4
 static struct i2c_gpio_platform_data aquila_i2c_gpio_pmic_data = {
-	.sda_pin	= S5PV210_GPJ4(0),	
-	.scl_pin	= S5PV210_GPJ4(3),	
+	.sda_pin	= S5PV210_GPJ4(0),	/* XMSMCSN */
+	.scl_pin	= S5PV210_GPJ4(3),	/* XMSMIRQN */
 };
 
 static struct platform_device aquila_i2c_gpio_pmic = {
@@ -497,17 +506,18 @@ static struct platform_device aquila_i2c_gpio_pmic = {
 static struct i2c_board_info i2c_gpio_pmic_devs[] __initdata = {
 #if defined(CONFIG_REGULATOR_MAX8998) || defined(CONFIG_REGULATOR_MAX8998_MODULE)
 	{
-		
+		/* 0xCC when SRAD = 0 */
 		I2C_BOARD_INFO("max8998", 0xCC >> 1),
 		.platform_data = &aquila_max8998_pdata,
 	},
 #endif
 };
 
+/* GPIO I2C AP 1.8V */
 #define AP_I2C_GPIO_BUS_5	5
 static struct i2c_gpio_platform_data aquila_i2c_gpio5_data = {
-	.sda_pin	= S5PV210_MP05(3),	
-	.scl_pin	= S5PV210_MP05(2),	
+	.sda_pin	= S5PV210_MP05(3),	/* XM0ADDR_11 */
+	.scl_pin	= S5PV210_MP05(2),	/* XM0ADDR_10 */
 };
 
 static struct platform_device aquila_i2c_gpio5 = {
@@ -520,12 +530,13 @@ static struct platform_device aquila_i2c_gpio5 = {
 
 static struct i2c_board_info i2c_gpio5_devs[] __initdata = {
 	{
-		
+		/* CS/ADDR = low 0x34 (FYI: high = 0x36) */
 		I2C_BOARD_INFO("wm8994", 0x1a),
 		.platform_data	= &wm8994_platform_data,
 	},
 };
 
+/* PMIC Power button */
 static struct gpio_keys_button aquila_gpio_keys_table[] = {
 	{
 		.code 		= KEY_POWER,
@@ -552,26 +563,29 @@ static struct platform_device aquila_device_gpiokeys = {
 
 static void __init aquila_pmic_init(void)
 {
-	
+	/* AP_PMIC_IRQ: EINT7 */
 	s3c_gpio_cfgpin(S5PV210_GPH0(7), S3C_GPIO_SFN(0xf));
 	s3c_gpio_setpull(S5PV210_GPH0(7), S3C_GPIO_PULL_UP);
 
-	
+	/* nPower: EINT22 */
 	s3c_gpio_cfgpin(S5PV210_GPH2(6), S3C_GPIO_SFN(0xf));
 	s3c_gpio_setpull(S5PV210_GPH2(6), S3C_GPIO_PULL_UP);
 }
 
+/* MoviNAND */
 static struct s3c_sdhci_platdata aquila_hsmmc0_data __initdata = {
 	.max_width		= 4,
 	.cd_type		= S3C_SDHCI_CD_PERMANENT,
 };
 
+/* Wireless LAN */
 static struct s3c_sdhci_platdata aquila_hsmmc1_data __initdata = {
 	.max_width		= 4,
 	.cd_type		= S3C_SDHCI_CD_EXTERNAL,
-	
+	/* ext_cd_{init,cleanup} callbacks will be added later */
 };
 
+/* External Flash */
 #define AQUILA_EXT_FLASH_EN	S5PV210_MP05(4)
 #define AQUILA_EXT_FLASH_CD	S5PV210_GPH3(4)
 static struct s3c_sdhci_platdata aquila_hsmmc2_data __initdata = {
@@ -612,11 +626,21 @@ static void __init aquila_sound_init(void)
 {
 	unsigned int gpio;
 
-	gpio = S5PV210_GPH3(2);		
+	/* CODEC_XTAL_EN
+	 *
+	 * The Aquila board have a oscillator which provide main clock
+	 * to WM8994 codec. The oscillator provide 24MHz clock to WM8994
+	 * clock. Set gpio setting of "CODEC_XTAL_EN" to enable a oscillator.
+	 * */
+	gpio = S5PV210_GPH3(2);		/* XEINT_26 */
 	gpio_request(gpio, "CODEC_XTAL_EN");
 	s3c_gpio_cfgpin(gpio, S3C_GPIO_OUTPUT);
 	s3c_gpio_setpull(gpio, S3C_GPIO_PULL_NONE);
 
+	/* Ths main clock of WM8994 codec uses the output of CLKOUT pin.
+	 * The CLKOUT[9:8] set to 0x3(XUSBXTI) of 0xE010E000(OTHERS)
+	 * because it needs 24MHz clock to operate WM8994 codec.
+	 */
 	__raw_writel(__raw_readl(S5P_OTHERS) | (0x3 << 8), S5P_OTHERS);
 }
 
@@ -630,29 +654,32 @@ static void __init aquila_map_io(void)
 
 static void __init aquila_machine_init(void)
 {
-	
+	/* PMIC */
 	aquila_pmic_init();
 	i2c_register_board_info(AP_I2C_GPIO_PMIC_BUS_4, i2c_gpio_pmic_devs,
 			ARRAY_SIZE(i2c_gpio_pmic_devs));
-	
+	/* SDHCI */
 	aquila_setup_sdhci();
 
 	s3c_fimc_setname(0, "s5p-fimc");
 	s3c_fimc_setname(1, "s5p-fimc");
 	s3c_fimc_setname(2, "s5p-fimc");
 
-	
+	/* SOUND */
 	aquila_sound_init();
 	i2c_register_board_info(AP_I2C_GPIO_BUS_5, i2c_gpio5_devs,
 			ARRAY_SIZE(i2c_gpio5_devs));
 
-	
+	/* FB */
 	s3c_fb_set_platdata(&aquila_lcd_pdata);
 
 	platform_add_devices(aquila_devices, ARRAY_SIZE(aquila_devices));
 }
 
 MACHINE_START(AQUILA, "Aquila")
+	/* Maintainers:
+	   Marek Szyprowski <m.szyprowski@samsung.com>
+	   Kyungmin Park <kyungmin.park@samsung.com> */
 	.atag_offset	= 0x100,
 	.init_irq	= s5pv210_init_irq,
 	.handle_irq	= vic_handle_irq,

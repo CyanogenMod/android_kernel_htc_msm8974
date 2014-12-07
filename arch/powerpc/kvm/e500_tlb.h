@@ -20,6 +20,7 @@
 #include <asm/tlb.h>
 #include <asm/kvm_e500.h>
 
+/* This geometry is the legacy default -- can be overridden by userspace */
 #define KVM_E500_TLB0_WAY_SIZE		128
 #define KVM_E500_TLB0_WAY_NUM		2
 
@@ -52,6 +53,7 @@ extern void kvmppc_e500_tlb_uninit(struct kvmppc_vcpu_e500 *);
 extern void kvmppc_e500_tlb_setup(struct kvmppc_vcpu_e500 *);
 extern void kvmppc_e500_recalc_shadow_pid(struct kvmppc_vcpu_e500 *);
 
+/* TLB helper functions */
 static inline unsigned int
 get_tlb_size(const struct kvm_book3e_206_tlb_entry *tlbe)
 {
@@ -131,6 +133,10 @@ static inline unsigned int get_cur_sas(const struct kvm_vcpu *vcpu)
 
 static inline unsigned int get_tlb_tlbsel(const struct kvm_vcpu *vcpu)
 {
+	/*
+	 * Manual says that tlbsel has 2 bits wide.
+	 * Since we only have two TLBs, only lower bit is used.
+	 */
 	return (vcpu->arch.shared->mas0 >> 28) & 0x1;
 }
 
@@ -152,17 +158,17 @@ static inline int tlbe_is_host_safe(const struct kvm_vcpu *vcpu,
 	if (!get_tlb_v(tlbe))
 		return 0;
 
-	
-	
+	/* Does it match current guest AS? */
+	/* XXX what about IS != DS? */
 	if (get_tlb_ts(tlbe) != !!(vcpu->arch.shared->msr & MSR_IS))
 		return 0;
 
 	gpa = get_tlb_raddr(tlbe);
 	if (!gfn_to_memslot(vcpu->kvm, gpa >> PAGE_SHIFT))
-		
+		/* Mapping is not for RAM. */
 		return 0;
 
 	return 1;
 }
 
-#endif 
+#endif /* __KVM_E500_TLB_H__ */

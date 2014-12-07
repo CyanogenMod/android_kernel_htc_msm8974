@@ -66,6 +66,7 @@ struct swim {
 #define swim_write(base, reg, v) 	out_8(&(base)->write_##reg, (v))
 #define swim_read(base, reg)		in_8(&(base)->read_##reg)
 
+/* IWM registers */
 
 struct iwm {
 	REG(ph0L)
@@ -89,6 +90,7 @@ struct iwm {
 #define iwm_write(base, reg, v) 	out_8(&(base)->reg, (v))
 #define iwm_read(base, reg)		in_8(&(base)->reg)
 
+/* bits in phase register */
 
 #define SEEK_POSITIVE	0x070
 #define SEEK_NEGATIVE	0x074
@@ -105,6 +107,7 @@ struct iwm {
 
 #define CA_MASK		0x077
 
+/* Select values for swim_select and swim_readbit */
 
 #define READ_DATA_0	0x074
 #define TWOMEG_DRIVE	0x075
@@ -119,6 +122,7 @@ struct iwm {
 #define SEEK_COMPLETE	0x176
 #define ONEMEG_MEDIA	0x177
 
+/* Bits in handshake register */
 
 #define MARK_BYTE	0x01
 #define CRC_ZERO	0x02
@@ -129,6 +133,7 @@ struct iwm {
 #define DAT2BYTE	0x40
 #define DAT1BYTE	0x80
 
+/* bits in setup register */
 
 #define S_INV_WDATA	0x01
 #define S_3_5_SELECT	0x02
@@ -139,6 +144,7 @@ struct iwm {
 #define S_GCR_WRITE	0x40
 #define S_TIMEOUT	0x80
 
+/* bits in mode register */
 
 #define CLFIFO		0x01
 #define ENBL1		0x02
@@ -148,6 +154,7 @@ struct iwm {
 #define HEDSEL		0x20
 #define MOTON		0x80
 
+/*----------------------------------------------------------------------------*/
 
 enum drive_location {
 	INTERNAL_DRIVE = 0x02,
@@ -161,12 +168,12 @@ enum media_type {
 
 struct floppy_state {
 
-	
+	/* physical properties */
 
-	enum drive_location location;	
-	int		 head_number;	
+	enum drive_location location;	/* internal or external drive */
+	int		 head_number;	/* single- or double-sided drive */
 
-	
+	/* media */
 
 	int		 disk_in;
 	int		 ejected;
@@ -177,14 +184,14 @@ struct floppy_state {
 	int		 secpercyl;
 	int		 secpertrack;
 
-	
+	/* in-use information */
 
 	int		track;
 	int		ref_count;
 
 	struct gendisk *disk;
 
-	
+	/* parent controller */
 
 	struct swim_priv *swd;
 };
@@ -304,11 +311,11 @@ static inline void swim_drive(struct swim __iomem *base,
 			      enum drive_location location)
 {
 	if (location == INTERNAL_DRIVE) {
-		swim_write(base, mode0, EXTERNAL_DRIVE); 
-		swim_write(base, mode1, INTERNAL_DRIVE); 
+		swim_write(base, mode0, EXTERNAL_DRIVE); /* clear drive 1 bit */
+		swim_write(base, mode1, INTERNAL_DRIVE); /* set drive 0 bit */
 	} else if (location == EXTERNAL_DRIVE) {
-		swim_write(base, mode0, INTERNAL_DRIVE); 
-		swim_write(base, mode1, EXTERNAL_DRIVE); 
+		swim_write(base, mode0, INTERNAL_DRIVE); /* clear drive 0 bit */
+		swim_write(base, mode1, EXTERNAL_DRIVE); /* set drive 1 bit */
 	}
 }
 
@@ -351,7 +358,7 @@ static inline void swim_eject(struct swim __iomem *base)
 
 static inline void swim_head(struct swim __iomem *base, enum head head)
 {
-	
+	/* wait drive is ready */
 
 	if (head == UPPER_HEAD)
 		swim_select(base, READ_DATA_1);
@@ -469,7 +476,7 @@ static inline int swim_read_sector(struct floppy_state *fs,
 	for (i = 0; i < 36; i++) {
 		ret = swim_read_sector_header(base, &header);
 		if (!ret && (header.sector == sector)) {
-			
+			/* found */
 
 			ret = swim_read_sector_data(base, buffer);
 			break;
@@ -537,7 +544,7 @@ static void redo_fd_request(struct request_queue *q)
 
 		switch (rq_data_dir(req)) {
 		case WRITE:
-			
+			/* NOT IMPLEMENTED */
 			break;
 		case READ:
 			err = floppy_read_sectors(fs, blk_rq_pos(req),
@@ -557,10 +564,10 @@ static void do_fd_request(struct request_queue *q)
 }
 
 static struct floppy_struct floppy_type[4] = {
-	{    0,  0, 0,  0, 0, 0x00, 0x00, 0x00, 0x00, NULL }, 
-	{  720,  9, 1, 80, 0, 0x2A, 0x02, 0xDF, 0x50, NULL }, 
-	{ 1440,  9, 2, 80, 0, 0x2A, 0x02, 0xDF, 0x50, NULL }, 
-	{ 2880, 18, 2, 80, 0, 0x1B, 0x00, 0xCF, 0x6C, NULL }, 
+	{    0,  0, 0,  0, 0, 0x00, 0x00, 0x00, 0x00, NULL }, /* no testing   */
+	{  720,  9, 1, 80, 0, 0x2A, 0x02, 0xDF, 0x50, NULL }, /* 360KB SS 3.5"*/
+	{ 1440,  9, 2, 80, 0, 0x2A, 0x02, 0xDF, 0x50, NULL }, /* 720KB 3.5"   */
+	{ 2880, 18, 2, 80, 0, 0x1B, 0x00, 0xCF, 0x6C, NULL }, /* 1.44MB 3.5"  */
 };
 
 static int get_floppy_geometry(struct floppy_state *fs, int type,
@@ -571,9 +578,9 @@ static int get_floppy_geometry(struct floppy_state *fs, int type,
 
 	if (type)
 		*g = &floppy_type[type];
-	else if (fs->type == HD_MEDIA) 
+	else if (fs->type == HD_MEDIA) /* High-Density media */
 		*g = &floppy_type[3];
-	else if (fs->head_number == 2) 
+	else if (fs->head_number == 2) /* double-sided */
 		*g = &floppy_type[2];
 	else
 		*g = &floppy_type[1];
@@ -811,7 +818,7 @@ static int __devinit swim_floppy_init(struct swim_priv *swd)
 	int drive;
 	struct swim __iomem *base = swd->base;
 
-	
+	/* scan floppy drives */
 
 	swim_drive(base, INTERNAL_DRIVE);
 	if (swim_readbit(base, DRIVE_PRESENT))
@@ -820,7 +827,7 @@ static int __devinit swim_floppy_init(struct swim_priv *swd)
 	if (swim_readbit(base, DRIVE_PRESENT))
 		swim_add_floppy(swd, EXTERNAL_DRIVE);
 
-	
+	/* register floppy drives */
 
 	err = register_blkdev(FLOPPY_MAJOR, "fd");
 	if (err) {
@@ -892,7 +899,7 @@ static int __devinit swim_probe(struct platform_device *dev)
 		goto out_release_io;
 	}
 
-	
+	/* probe device */
 
 	set_swim_mode(swim_base, 1);
 	if (!get_swim_mode(swim_base)) {
@@ -901,7 +908,7 @@ static int __devinit swim_probe(struct platform_device *dev)
 		goto out_iounmap;
 	}
 
-	
+	/* set platform driver data */
 
 	swd = kzalloc(sizeof(struct swim_priv), GFP_KERNEL);
 	if (!swd) {
@@ -946,7 +953,7 @@ static int __devexit swim_remove(struct platform_device *dev)
 
 	blk_cleanup_queue(swd->queue);
 
-	
+	/* eject floppies */
 
 	for (drive = 0; drive < swd->floppy_count; drive++)
 		floppy_eject(&swd->unit[drive]);

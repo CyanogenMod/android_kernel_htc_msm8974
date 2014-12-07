@@ -3,6 +3,10 @@
 #include <asm/processor.h>
 #include "cpu.h"
 
+/*
+ * UMC chips appear to be only either 386 or 486,
+ * so no special init takes place.
+ */
 
 static const struct cpu_dev __cpuinitconst umc_cpu_dev = {
 	.c_vendor	= "UMC",

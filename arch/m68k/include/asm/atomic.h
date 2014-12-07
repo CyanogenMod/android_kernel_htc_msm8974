@@ -5,13 +5,24 @@
 #include <linux/irqflags.h>
 #include <asm/cmpxchg.h>
 
+/*
+ * Atomic operations that C can't guarantee us.  Useful for
+ * resource counting etc..
+ */
 
+/*
+ * We do not have SMP m68k systems, so we don't have to deal with that.
+ */
 
 #define ATOMIC_INIT(i)	{ (i) }
 
 #define atomic_read(v)		(*(volatile int *)&(v)->counter)
 #define atomic_set(v, i)	(((v)->counter) = i)
 
+/*
+ * The ColdFire parts cannot do some immediate to memory operations,
+ * so for them we do not specify the "i" asm constraint.
+ */
 #ifdef CONFIG_COLDFIRE
 #define	ASM_DI	"d"
 #else
@@ -95,7 +106,7 @@ static inline int atomic_sub_return(int i, atomic_t *v)
 #define atomic_cmpxchg(v, o, n) ((int)cmpxchg(&((v)->counter), (o), (n)))
 #define atomic_xchg(v, new) (xchg(&((v)->counter), new))
 
-#else 
+#else /* !CONFIG_RMW_INSNS */
 
 static inline int atomic_add_return(int i, atomic_t * v)
 {
@@ -150,7 +161,7 @@ static inline int atomic_xchg(atomic_t *v, int new)
 	return prev;
 }
 
-#endif 
+#endif /* !CONFIG_RMW_INSNS */
 
 #define atomic_dec_return(v)	atomic_sub_return(1, (v))
 #define atomic_inc_return(v)	atomic_add_return(1, (v))
@@ -199,9 +210,10 @@ static __inline__ int __atomic_add_unless(atomic_t *v, int a, int u)
 }
 
 
+/* Atomic operations are already serializing */
 #define smp_mb__before_atomic_dec()	barrier()
 #define smp_mb__after_atomic_dec()	barrier()
 #define smp_mb__before_atomic_inc()	barrier()
 #define smp_mb__after_atomic_inc()	barrier()
 
-#endif 
+#endif /* __ARCH_M68K_ATOMIC __ */

@@ -40,6 +40,9 @@ struct serport {
 	unsigned long flags;
 };
 
+/*
+ * Callback functions from the serio code.
+ */
 
 static int serport_serio_write(struct serio *serio, unsigned char data)
 {
@@ -73,6 +76,10 @@ static void serport_serio_close(struct serio *serio)
 	wake_up_interruptible(&serport->wait);
 }
 
+/*
+ * serport_ldisc_open() is the routine that is called upon setting our line
+ * discipline on a tty. It prepares the serio struct.
+ */
 
 static int serport_ldisc_open(struct tty_struct *tty)
 {
@@ -96,6 +103,9 @@ static int serport_ldisc_open(struct tty_struct *tty)
 	return 0;
 }
 
+/*
+ * serport_ldisc_close() is the opposite of serport_ldisc_open()
+ */
 
 static void serport_ldisc_close(struct tty_struct *tty)
 {
@@ -104,6 +114,11 @@ static void serport_ldisc_close(struct tty_struct *tty)
 	kfree(serport);
 }
 
+/*
+ * serport_ldisc_receive() is called by the low level tty driver when characters
+ * are ready for us. We forward the characters and flags, one by one to the
+ * 'interrupt' routine.
+ */
 
 static void serport_ldisc_receive(struct tty_struct *tty, const unsigned char *cp, char *fp, int count)
 {
@@ -139,6 +154,11 @@ out:
 	spin_unlock_irqrestore(&serport->lock, flags);
 }
 
+/*
+ * serport_ldisc_read() just waits indefinitely if everything goes well.
+ * However, when the serio driver closes the serio port, it finishes,
+ * returning 0 characters.
+ */
 
 static ssize_t serport_ldisc_read(struct tty_struct * tty, struct file * file, unsigned char __user * buf, size_t nr)
 {
@@ -176,6 +196,9 @@ static ssize_t serport_ldisc_read(struct tty_struct * tty, struct file * file, u
 	return 0;
 }
 
+/*
+ * serport_ldisc_ioctl() allows to set the port protocol, and device ID
+ */
 
 static int serport_ldisc_ioctl(struct tty_struct * tty, struct file * file, unsigned int cmd, unsigned long arg)
 {
@@ -207,6 +230,9 @@ static void serport_ldisc_write_wakeup(struct tty_struct * tty)
 	spin_unlock_irqrestore(&serport->lock, flags);
 }
 
+/*
+ * The line discipline structure.
+ */
 
 static struct tty_ldisc_ops serport_ldisc = {
 	.owner =	THIS_MODULE,
@@ -219,6 +245,9 @@ static struct tty_ldisc_ops serport_ldisc = {
 	.write_wakeup =	serport_ldisc_write_wakeup
 };
 
+/*
+ * The functions for insering/removing us as a module.
+ */
 
 static int __init serport_init(void)
 {

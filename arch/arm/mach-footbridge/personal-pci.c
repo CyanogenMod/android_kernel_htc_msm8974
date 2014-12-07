@@ -1,3 +1,10 @@
+/*
+ * linux/arch/arm/mach-footbridge/personal-pci.c
+ *
+ * PCI bios-type initialisation for PCI machines
+ *
+ * Bits taken from various places.
+ */
 #include <linux/kernel.h>
 #include <linux/pci.h>
 #include <linux/init.h>
@@ -19,9 +26,13 @@ static int __init personal_server_map_irq(const struct pci_dev *dev, u8 slot,
 	pci_read_config_byte(dev, PCI_INTERRUPT_LINE, &line);
 
 	if (line > 0x40 && line <= 0x5f) {
+		/* line corresponds to the bit controlling this interrupt
+		 * in the footbridge.  Ignore the first 8 interrupt bits,
+		 * look up the rest in the map.  IN0 is bit number 8
+		 */
 		return irqmap_personal_server[(line & 0x1f) - 8];
 	} else if (line == 0) {
-		
+		/* no interrupt */
 		return 0;
 	} else
 		return irqmap_personal_server[(line - 1) & 3];

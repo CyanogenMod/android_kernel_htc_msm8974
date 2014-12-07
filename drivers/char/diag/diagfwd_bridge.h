@@ -27,6 +27,9 @@ void diagfwd_bridge_init(int index);
 void diagfwd_bridge_exit(void);
 int diagfwd_read_complete_bridge(struct diag_request *diag_read_ptr);
 
+/* Diag-Bridge structure, n bridges can be used at same time
+ * for instance SMUX, HSIC working at same time
+ */
 struct diag_bridge_dev {
 	int id;
 	char name[20];

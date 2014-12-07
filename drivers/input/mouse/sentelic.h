@@ -22,6 +22,7 @@
 #ifndef	__SENTELIC_H
 #define	__SENTELIC_H
 
+/* Finger-sensing Pad information registers */
 #define	FSP_REG_DEVICE_ID	0x00
 #define	FSP_REG_VERSION		0x01
 #define	FSP_REG_REVISION	0x04
@@ -29,6 +30,7 @@
 #define	FSP_BIT_NO_ROTATION	BIT(3)
 #define	FSP_REG_PAGE_CTRL	0x0F
 
+/* Finger-sensing Pad control registers */
 #define	FSP_REG_SYSCTL1		0x10
 #define	FSP_BIT_EN_REG_CLK	BIT(5)
 #define	FSP_REG_TMOD_STATUS	0x20
@@ -63,13 +65,16 @@
 #define	FSP_BIT_SWC1_GST_GRP1	BIT(6)
 #define	FSP_BIT_SWC1_BX_COMPAT	BIT(7)
 
+/* Finger-sensing Pad packet formating related definitions */
 
+/* absolute packet type */
 #define	FSP_PKT_TYPE_NORMAL	(0x00)
 #define	FSP_PKT_TYPE_ABS	(0x01)
 #define	FSP_PKT_TYPE_NOTIFY	(0x02)
 #define	FSP_PKT_TYPE_NORMAL_OPC	(0x03)
 #define	FSP_PKT_TYPE_SHIFT	(6)
 
+/* bit definitions for the first byte of report packet */
 #define	FSP_PB0_LBTN		BIT(0)
 #define	FSP_PB0_RBTN		BIT(1)
 #define	FSP_PB0_MBTN		BIT(2)
@@ -78,6 +83,7 @@
 #define	FSP_PB0_PHY_BTN		BIT(4)
 #define	FSP_PB0_MFMC		BIT(5)
 
+/* hardware revisions */
 #define	FSP_VER_STL3888_A4	(0xC1)
 #define	FSP_VER_STL3888_B0	(0xD0)
 #define	FSP_VER_STL3888_B1	(0xD1)
@@ -91,18 +97,18 @@
 #ifdef __KERNEL__
 
 struct fsp_data {
-	unsigned char	ver;		
-	unsigned char	rev;		
-	unsigned int	buttons;	
+	unsigned char	ver;		/* hardware version */
+	unsigned char	rev;		/* hardware revison */
+	unsigned int	buttons;	/* Number of buttons */
 	unsigned int	flags;
-#define	FSPDRV_FLAG_EN_OPC	(0x001)	
+#define	FSPDRV_FLAG_EN_OPC	(0x001)	/* enable on-pad clicking */
 
-	bool		vscroll;	
-	bool		hscroll;	
+	bool		vscroll;	/* Vertical scroll zone enabled */
+	bool		hscroll;	/* Horizontal scroll zone enabled */
 
-	unsigned char	last_reg;	
+	unsigned char	last_reg;	/* Last register we requested read from */
 	unsigned char	last_val;
-	unsigned int	last_mt_fgr;	
+	unsigned int	last_mt_fgr;	/* Last seen finger(multitouch) */
 };
 
 #ifdef CONFIG_MOUSE_PS2_SENTELIC
@@ -119,6 +125,6 @@ inline int fsp_init(struct psmouse *psmouse)
 }
 #endif
 
-#endif	
+#endif	/* __KERNEL__ */
 
-#endif	
+#endif	/* !__SENTELIC_H */

@@ -42,6 +42,9 @@ static int ip_vs_rr_update_svc(struct ip_vs_service *svc)
 }
 
 
+/*
+ * Round-Robin Scheduling
+ */
 static struct ip_vs_dest *
 ip_vs_rr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 {
@@ -55,7 +58,7 @@ ip_vs_rr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 	p = p->next;
 	q = p;
 	do {
-		
+		/* skip list head */
 		if (q == &svc->destinations) {
 			q = q->next;
 			continue;
@@ -64,7 +67,7 @@ ip_vs_rr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 		dest = list_entry(q, struct ip_vs_dest, n_list);
 		if (!(dest->flags & IP_VS_DEST_F_OVERLOAD) &&
 		    atomic_read(&dest->weight) > 0)
-			
+			/* HIT */
 			goto out;
 		q = q->next;
 	} while (q != p);
@@ -86,7 +89,7 @@ ip_vs_rr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb)
 
 
 static struct ip_vs_scheduler ip_vs_rr_scheduler = {
-	.name =			"rr",			
+	.name =			"rr",			/* name */
 	.refcnt =		ATOMIC_INIT(0),
 	.module =		THIS_MODULE,
 	.n_list =		LIST_HEAD_INIT(ip_vs_rr_scheduler.n_list),

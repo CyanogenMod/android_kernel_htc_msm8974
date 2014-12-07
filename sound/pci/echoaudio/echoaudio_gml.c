@@ -29,14 +29,22 @@
 ****************************************************************************/
 
 
+/* These functions are common for Gina24, Layla24 and Mona cards */
 
 
+/* ASIC status check - some cards have one or two ASICs that need to be
+loaded.  Once that load is complete, this function is called to see if
+the load was successful.
+If this load fails, it does not necessarily mean that the hardware is
+defective - the external box may be disconnected or turned off. */
 static int check_asic_status(struct echoaudio *chip)
 {
 	u32 asic_status;
 
 	send_vector(chip, DSP_VC_TEST_ASIC);
 
+	/* The DSP will return a value to indicate whether or not the
+	   ASIC is currently loaded */
 	if (read_dsp(chip, &asic_status) < 0) {
 		DE_INIT(("check_asic_status: failed on read_dsp\n"));
 		chip->asic_loaded = FALSE;
@@ -49,9 +57,12 @@ static int check_asic_status(struct echoaudio *chip)
 
 
 
+/* Most configuration of Gina24, Layla24, or Mona is accomplished by writing
+the control register.  write_control_reg sends the new control register
+value to the DSP. */
 static int write_control_reg(struct echoaudio *chip, u32 value, char force)
 {
-	
+	/* Handle the digital input auto-mute */
 	if (chip->digital_in_automute)
 		value |= GML_DIGITAL_IN_AUTO_MUTE;
 	else
@@ -59,7 +70,7 @@ static int write_control_reg(struct echoaudio *chip, u32 value, char force)
 
 	DE_ACT(("write_control_reg: 0x%x\n", value));
 
-	
+	/* Write the control register */
 	value = cpu_to_le32(value);
 	if (value != chip->comm_page->control_register || force) {
 		if (wait_handshake(chip))
@@ -73,17 +84,25 @@ static int write_control_reg(struct echoaudio *chip, u32 value, char force)
 
 
 
+/* Gina24, Layla24, and Mona support digital input auto-mute.  If the digital
+input auto-mute is enabled, the DSP will only enable the digital inputs if
+the card is syncing to a valid clock on the ADAT or S/PDIF inputs.
+If the auto-mute is disabled, the digital inputs are enabled regardless of
+what the input clock is set or what is connected. */
 static int set_input_auto_mute(struct echoaudio *chip, int automute)
 {
 	DE_ACT(("set_input_auto_mute %d\n", automute));
 
 	chip->digital_in_automute = automute;
 
+	/* Re-set the input clock to the current value - indirectly causes
+	the auto-mute flag to be sent to the DSP */
 	return set_input_clock(chip, chip->input_clock);
 }
 
 
 
+/* S/PDIF coax / S/PDIF optical / ADAT - switch */
 static int set_digital_mode(struct echoaudio *chip, u8 mode)
 {
 	u8 previous_mode;
@@ -92,7 +111,7 @@ static int set_digital_mode(struct echoaudio *chip, u8 mode)
 	if (chip->bad_board)
 		return -EIO;
 
-	
+	/* All audio channels must be closed before changing the digital mode */
 	if (snd_BUG_ON(chip->pipe_alloc_mask))
 		return -EAGAIN;
 
@@ -102,6 +121,9 @@ static int set_digital_mode(struct echoaudio *chip, u8 mode)
 	previous_mode = chip->digital_mode;
 	err = dsp_set_digital_mode(chip, mode);
 
+	/* If we successfully changed the digital mode from or to ADAT,
+	   then make sure all output, input and monitor levels are
+	   updated by the DSP comm object. */
 	if (err >= 0 && previous_mode != mode &&
 	    (previous_mode == DIGITAL_MODE_ADAT || mode == DIGITAL_MODE_ADAT)) {
 		spin_lock_irq(&chip->lock);
@@ -127,20 +149,21 @@ static int set_digital_mode(struct echoaudio *chip, u8 mode)
 
 
 
+/* Set the S/PDIF output format */
 static int set_professional_spdif(struct echoaudio *chip, char prof)
 {
 	u32 control_reg;
 	int err;
 
-	
+	/* Clear the current S/PDIF flags */
 	control_reg = le32_to_cpu(chip->comm_page->control_register);
 	control_reg &= GML_SPDIF_FORMAT_CLEAR_MASK;
 
-	
+	/* Set the new S/PDIF flags depending on the mode */
 	control_reg |= GML_SPDIF_TWO_CHANNEL | GML_SPDIF_24_BIT |
 		GML_SPDIF_COPY_PERMIT;
 	if (prof) {
-		
+		/* Professional mode */
 		control_reg |= GML_SPDIF_PRO_MODE;
 
 		switch (chip->sample_rate) {
@@ -156,7 +179,7 @@ static int set_professional_spdif(struct echoaudio *chip, char prof)
 			break;
 		}
 	} else {
-		
+		/* Consumer mode */
 		switch (chip->sample_rate) {
 		case 32000:
 			control_reg |= GML_SPDIF_SAMPLE_RATE0 |

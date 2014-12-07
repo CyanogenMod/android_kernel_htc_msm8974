@@ -194,7 +194,7 @@ static int __devinit gpio_keys_polled_probe(struct platform_device *pdev)
 		goto err_free_gpio;
 	}
 
-	
+	/* report initial state of the buttons */
 	for (i = 0; i < pdata->nbuttons; i++)
 		gpio_keys_polled_check_state(input, &pdata->buttons[i],
 					 &bdev->data[i]);

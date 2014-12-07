@@ -1,7 +1,10 @@
 #ifndef __MACH_MX35_H__
 #define __MACH_MX35_H__
 
-#define MX35_IRAM_BASE_ADDR		0x10000000	
+/*
+ * IRAM
+ */
+#define MX35_IRAM_BASE_ADDR		0x10000000	/* internal ram */
 #define MX35_IRAM_SIZE			SZ_128K
 
 #define MX35_L2CC_BASE_ADDR		0x30000000
@@ -64,6 +67,11 @@
 #define MX35_IIM_BASE_ADDR			(MX35_AIPS2_BASE_ADDR + 0xf0000)
 #define MX35_USB_BASE_ADDR			(MX35_AIPS2_BASE_ADDR + 0xf4000)
 #define MX35_USB_OTG_BASE_ADDR			(MX35_USB_BASE_ADDR + 0x0000)
+/*
+ * The Reference Manual (IMX35RM, Rev. 2, 3/2009) claims an offset of 0x200 for
+ * HS.  When host support was implemented only a preliminary document was
+ * available, which told 0x400.  This works fine.
+ */
 #define MX35_USB_HS_BASE_ADDR			(MX35_USB_BASE_ADDR + 0x0400)
 
 #define MX35_ROMP_BASE_ADDR		0x60000000
@@ -72,6 +80,9 @@
 #define MX35_AVIC_BASE_ADDR		0x68000000
 #define MX35_AVIC_SIZE			SZ_1M
 
+/*
+ * Memory regions and CS
+ */
 #define MX35_IPU_MEM_BASE_ADDR		0x70000000
 #define MX35_CSD0_BASE_ADDR		0x80000000
 #define MX35_CSD1_BASE_ADDR		0x90000000
@@ -89,6 +100,9 @@
 #define MX35_CS5_BASE_ADDR_VIRT		0xf8000000
 #define MX35_CS5_SIZE			SZ_32M
 
+/*
+ * NAND, SDRAM, WEIM, M3IF, EMI controllers
+ */
 #define MX35_X_MEMC_BASE_ADDR		0xb8000000
 #define MX35_X_MEMC_SIZE		SZ_64K
 #define MX35_ESDCTL_BASE_ADDR			(MX35_X_MEMC_BASE_ADDR + 0x1000)
@@ -103,6 +117,9 @@
 #define MX35_IO_P2V(x)			IMX_IO_P2V(x)
 #define MX35_IO_ADDRESS(x)		IOMEM(MX35_IO_P2V(x))
 
+/*
+ * Interrupt numbers
+ */
 #define MX35_INT_OWIRE		2
 #define MX35_INT_I2C3		3
 #define MX35_INT_I2C2		4
@@ -167,6 +184,6 @@
 #define MX35_DMA_REQ_SSI1_RX0   28
 #define MX35_DMA_REQ_SSI1_TX0   29
 
-#define MX35_PROD_SIGNATURE		0x1	
+#define MX35_PROD_SIGNATURE		0x1	/* For MX31 */
 
-#endif 
+#endif /* ifndef __MACH_MX35_H__ */

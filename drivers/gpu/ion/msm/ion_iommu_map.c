@@ -31,6 +31,23 @@ enum {
 #define iommu_map_domain(__m)           ((__m)->domain_info[1])
 #define iommu_map_partition(__m)        ((__m)->domain_info[0])
 
+/**
+ * struct ion_iommu_map - represents a mapping of an ion buffer to an iommu
+ * @iova_addr - iommu virtual address
+ * @node - rb node to exist in the buffer's tree of iommu mappings
+ * @domain_info - contains the partition number and domain number
+ *		domain_info[1] = domain number
+ *		domain_info[0] = partition number
+ * @ref - for reference counting this mapping
+ * @mapped_size - size of the iova space mapped
+ *		(may not be the same as the buffer size)
+ * @flags - iommu domain/partition specific flags.
+ *
+ * Represents a mapping of one ion buffer to a particular iommu domain
+ * and address range. There may exist other mappings of this buffer in
+ * different domains or address ranges. All mappings will have the same
+ * cacheability and security.
+ */
 struct ion_iommu_map {
 	unsigned long iova_addr;
 	struct rb_node node;
@@ -186,6 +203,11 @@ static int ion_iommu_map_iommu(struct ion_iommu_meta *meta,
 	extra = iova_length - size;
 	table = meta->table;
 
+	/* Use the biggest alignment to allow bigger IOMMU mappings.
+	 * Use the first entry since the first entry will always be the
+	 * biggest entry. To take advantage of bigger mapping sizes both the
+	 * VA and PA addresses have to be aligned to the biggest size.
+	 */
 	if (sg_dma_len(table->sgl) > align)
 		align = sg_dma_len(table->sgl);
 
@@ -335,6 +357,9 @@ static void ion_iommu_meta_destroy(struct kref *kref)
 
 static void ion_iommu_meta_put(struct ion_iommu_meta *meta)
 {
+	/*
+	 * Need to lock here to prevent race against map/unmap
+	 */
 	mutex_lock(&msm_iommu_map_mutex);
 	kref_put(&meta->ref, ion_iommu_meta_destroy);
 	mutex_unlock(&msm_iommu_map_mutex);
@@ -378,6 +403,10 @@ int ion_map_iommu(struct ion_client *client, struct ion_handle *handle,
 		*iova = pa;
 		*buffer_size = size;
 	}
+	/*
+	 * If clients don't want a custom iova length, just use whatever
+	 * the buffer size is
+	 */
 	if (!iova_length)
 		iova_length = size;
 

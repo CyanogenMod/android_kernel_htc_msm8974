@@ -1,3 +1,10 @@
+/**
+ * \file drm_memory.h
+ * Memory management wrappers for DRM
+ *
+ * \author Rickard E. (Rik) Faith <faith@valinux.com>
+ * \author Gareth Hughes <gareth@valinux.com>
+ */
 
 /*
  * Created: Thu Feb  4 14:00:34 1999 by faith@valinux.com
@@ -30,6 +37,10 @@
 #include <linux/vmalloc.h>
 #include "drmP.h"
 
+/**
+ * Cut down version of drm_memory_debug.h, which used to be called
+ * drm_memory.h.
+ */
 
 #if __OS_HAS_AGP
 
@@ -43,6 +54,6 @@
 # endif
 #endif
 
-#else				
+#else				/* __OS_HAS_AGP */
 
 #endif

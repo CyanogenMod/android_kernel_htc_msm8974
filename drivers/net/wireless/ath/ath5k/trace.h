@@ -92,7 +92,7 @@ TRACE_EVENT(ath5k_tx_complete,
 	)
 );
 
-#endif 
+#endif /* __TRACE_ATH5K_H */
 
 #if defined(CONFIG_ATH5K_TRACER) && !defined(__CHECKER__)
 

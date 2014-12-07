@@ -1,3 +1,6 @@
+/*
+ * NFSv3 protocol definitions
+ */
 #ifndef _LINUX_NFS3_H
 #define _LINUX_NFS3_H
 
@@ -21,6 +24,7 @@
 #define NFS3MODE_SOCK		0140000
 #define NFS3MODE_FIFO		0010000
 
+/* Flags for access() call */
 #define NFS3_ACCESS_READ	0x0001
 #define NFS3_ACCESS_LOOKUP	0x0002
 #define NFS3_ACCESS_MODIFY	0x0004
@@ -29,16 +33,19 @@
 #define NFS3_ACCESS_EXECUTE	0x0020
 #define NFS3_ACCESS_FULL	0x003f
 
+/* Flags for create mode */
 enum nfs3_createmode {
 	NFS3_CREATE_UNCHECKED = 0,
 	NFS3_CREATE_GUARDED = 1,
 	NFS3_CREATE_EXCLUSIVE = 2
 };
 
+/* NFSv3 file system properties */
 #define NFS3_FSF_LINK		0x0001
 #define NFS3_FSF_SYMLINK	0x0002
 #define NFS3_FSF_HOMOGENEOUS	0x0008
 #define NFS3_FSF_CANSETTIME	0x0010
+/* Some shorthands. See fs/nfsd/nfs3proc.c */
 #define NFS3_FSF_DEFAULT	0x001B
 #define NFS3_FSF_BILLYBOY	0x0018
 #define NFS3_FSF_READONLY	0x0008
@@ -51,7 +58,7 @@ enum nfs3_ftype {
 	NF3CHR  = 4,
 	NF3LNK  = 5,
 	NF3SOCK = 6,
-	NF3FIFO = 7,	
+	NF3FIFO = 7,	/* changed from NFSv2 (was 8) */
 	NF3BAD  = 8
 };
 
@@ -89,7 +96,8 @@ struct nfs3_fh {
 
 #if defined(__KERNEL__)
 
+/* Number of 32bit words in post_op_attr */
 #define NFS3_POST_OP_ATTR_WORDS		22
 
-#endif 
-#endif 
+#endif /* __KERNEL__ */
+#endif /* _LINUX_NFS3_H */

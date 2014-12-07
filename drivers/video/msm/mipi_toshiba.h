@@ -27,4 +27,4 @@ int mipi_toshiba_device_register(struct msm_panel_info *pinfo,
 #define MIPI_TOSHIBA_PWM_DUTY_LEVEL \
 	(MIPI_TOSHIBA_PWM_PERIOD_USEC / MIPI_TOSHIBA_PWM_LEVEL)
 
-#endif  
+#endif  /* MIPI_TOSHIBA_H */

@@ -30,6 +30,9 @@
 #include "ac97_local.h"
 #include "ac97_id.h"
 
+/*
+ * proc interface
+ */
 
 static void snd_ac97_proc_read_functions(struct snd_ac97 *ac97, struct snd_info_buffer *buffer)
 {
@@ -67,38 +70,38 @@ static void snd_ac97_proc_read_functions(struct snd_ac97 *ac97, struct snd_info_
 
 static const char *snd_ac97_stereo_enhancements[] =
 {
-   "No 3D Stereo Enhancement",
-   "Analog Devices Phat Stereo",
-   "Creative Stereo Enhancement",
-   "National Semi 3D Stereo Enhancement",
-   "YAMAHA Ymersion",
-   "BBE 3D Stereo Enhancement",
-   "Crystal Semi 3D Stereo Enhancement",
-   "Qsound QXpander",
-   "Spatializer 3D Stereo Enhancement",
-   "SRS 3D Stereo Enhancement",
-   "Platform Tech 3D Stereo Enhancement",
-   "AKM 3D Audio",
-   "Aureal Stereo Enhancement",
-   "Aztech 3D Enhancement",
-   "Binaura 3D Audio Enhancement",
-   "ESS Technology Stereo Enhancement",
-   "Harman International VMAx",
-   "Nvidea/IC Ensemble/KS Waves 3D Stereo Enhancement",
-   "Philips Incredible Sound",
-   "Texas Instruments 3D Stereo Enhancement",
-   "VLSI Technology 3D Stereo Enhancement",
-   "TriTech 3D Stereo Enhancement",
-   "Realtek 3D Stereo Enhancement",
-   "Samsung 3D Stereo Enhancement",
-   "Wolfson Microelectronics 3D Enhancement",
-   "Delta Integration 3D Enhancement",
-   "SigmaTel 3D Enhancement",
-   "IC Ensemble/KS Waves",
-   "Rockwell 3D Stereo Enhancement",
-   "Reserved 29",
-   "Reserved 30",
-   "Reserved 31"
+  /*   0 */ "No 3D Stereo Enhancement",
+  /*   1 */ "Analog Devices Phat Stereo",
+  /*   2 */ "Creative Stereo Enhancement",
+  /*   3 */ "National Semi 3D Stereo Enhancement",
+  /*   4 */ "YAMAHA Ymersion",
+  /*   5 */ "BBE 3D Stereo Enhancement",
+  /*   6 */ "Crystal Semi 3D Stereo Enhancement",
+  /*   7 */ "Qsound QXpander",
+  /*   8 */ "Spatializer 3D Stereo Enhancement",
+  /*   9 */ "SRS 3D Stereo Enhancement",
+  /*  10 */ "Platform Tech 3D Stereo Enhancement",
+  /*  11 */ "AKM 3D Audio",
+  /*  12 */ "Aureal Stereo Enhancement",
+  /*  13 */ "Aztech 3D Enhancement",
+  /*  14 */ "Binaura 3D Audio Enhancement",
+  /*  15 */ "ESS Technology Stereo Enhancement",
+  /*  16 */ "Harman International VMAx",
+  /*  17 */ "Nvidea/IC Ensemble/KS Waves 3D Stereo Enhancement",
+  /*  18 */ "Philips Incredible Sound",
+  /*  19 */ "Texas Instruments 3D Stereo Enhancement",
+  /*  20 */ "VLSI Technology 3D Stereo Enhancement",
+  /*  21 */ "TriTech 3D Stereo Enhancement",
+  /*  22 */ "Realtek 3D Stereo Enhancement",
+  /*  23 */ "Samsung 3D Stereo Enhancement",
+  /*  24 */ "Wolfson Microelectronics 3D Enhancement",
+  /*  25 */ "Delta Integration 3D Enhancement",
+  /*  26 */ "SigmaTel 3D Enhancement",
+  /*  27 */ "IC Ensemble/KS Waves",
+  /*  28 */ "Rockwell 3D Stereo Enhancement",
+  /*  29 */ "Reserved 29",
+  /*  30 */ "Reserved 30",
+  /*  31 */ "Reserved 31"
 };
 
 static void snd_ac97_proc_read_main(struct snd_ac97 *ac97, struct snd_info_buffer *buffer, int subidx)
@@ -138,7 +141,7 @@ static void snd_ac97_proc_read_main(struct snd_ac97 *ac97, struct snd_info_buffe
 				     AC97_PAGE_MASK, val & AC97_PAGE_MASK);
 	}
 
-	
+	// val = snd_ac97_read(ac97, AC97_RESET);
 	val = ac97->caps;
 	snd_iprintf(buffer, "Capabilities     :%s%s%s%s%s%s\n",
 	    	    val & AC97_BC_DEDICATED_MIC ? " -dedicated MIC PCM IN channel-" : "",
@@ -215,7 +218,7 @@ static void snd_ac97_proc_read_main(struct snd_ac97 *ac97, struct snd_info_buffe
 			val & AC97_EA_SPDIF ? " SPDIF" : "",
 			val & AC97_EA_DRA ? " DRA" : "",
 			val & AC97_EA_VRA ? " VRA" : "");
-	if (ext & AC97_EI_VRA) {	
+	if (ext & AC97_EI_VRA) {	/* VRA */
 		val = snd_ac97_read(ac97, AC97_PCM_FRONT_DAC_RATE);
 		snd_iprintf(buffer, "PCM front DAC    : %iHz\n", val);
 		if (ext & AC97_EI_SDAC) {
@@ -259,7 +262,7 @@ static void snd_ac97_proc_read_main(struct snd_ac97 *ac97, struct snd_info_buffe
 			(ac97->flags & AC97_CS_SPDIF) ?
 			    (val & AC97_SC_V ? " Enabled" : "") :
 			    (val & AC97_SC_V ? " Validity" : ""));
-		
+		/* ALC650 specific*/
 		if ((ac97->id & 0xfffffff0) == 0x414c4720 &&
 		    (snd_ac97_read(ac97, AC97_ALC650_CLOCK) & 0x01)) {
 			val = snd_ac97_read(ac97, AC97_ALC650_SPDIF_INPUT_STATUS2);
@@ -342,17 +345,17 @@ static void snd_ac97_proc_read(struct snd_info_entry *entry, struct snd_info_buf
 	struct snd_ac97 *ac97 = entry->private_data;
 	
 	mutex_lock(&ac97->page_mutex);
-	if ((ac97->id & 0xffffff40) == AC97_ID_AD1881) {	
+	if ((ac97->id & 0xffffff40) == AC97_ID_AD1881) {	// Analog Devices AD1881/85/86
 		int idx;
 		for (idx = 0; idx < 3; idx++)
 			if (ac97->spec.ad18xx.id[idx]) {
-				
+				/* select single codec */
 				snd_ac97_update_bits(ac97, AC97_AD_SERIAL_CFG, 0x7000,
 						     ac97->spec.ad18xx.unchained[idx] | ac97->spec.ad18xx.chained[idx]);
 				snd_ac97_proc_read_main(ac97, buffer, idx);
 				snd_iprintf(buffer, "\n\n");
 			}
-		
+		/* select all codecs */
 		snd_ac97_update_bits(ac97, AC97_AD_SERIAL_CFG, 0x7000, 0x7000);
 		
 		snd_iprintf(buffer, "\nAD18XX configuration\n");
@@ -371,6 +374,7 @@ static void snd_ac97_proc_read(struct snd_info_entry *entry, struct snd_info_buf
 }
 
 #ifdef CONFIG_SND_DEBUG
+/* direct register write for debugging */
 static void snd_ac97_proc_regs_write(struct snd_info_entry *entry, struct snd_info_buffer *buffer)
 {
 	struct snd_ac97 *ac97 = entry->private_data;
@@ -380,7 +384,7 @@ static void snd_ac97_proc_regs_write(struct snd_info_entry *entry, struct snd_in
 	while (!snd_info_get_line(buffer, line, sizeof(line))) {
 		if (sscanf(line, "%x %x", &reg, &val) != 2)
 			continue;
-		
+		/* register must be even */
 		if (reg < 0x80 && (reg & 1) == 0 && val <= 0xffff)
 			snd_ac97_write_cache(ac97, reg, val);
 	}
@@ -404,17 +408,17 @@ static void snd_ac97_proc_regs_read(struct snd_info_entry *entry,
 	struct snd_ac97 *ac97 = entry->private_data;
 
 	mutex_lock(&ac97->page_mutex);
-	if ((ac97->id & 0xffffff40) == AC97_ID_AD1881) {	
+	if ((ac97->id & 0xffffff40) == AC97_ID_AD1881) {	// Analog Devices AD1881/85/86
 
 		int idx;
 		for (idx = 0; idx < 3; idx++)
 			if (ac97->spec.ad18xx.id[idx]) {
-				
+				/* select single codec */
 				snd_ac97_update_bits(ac97, AC97_AD_SERIAL_CFG, 0x7000,
 						     ac97->spec.ad18xx.unchained[idx] | ac97->spec.ad18xx.chained[idx]);
 				snd_ac97_proc_regs_read_main(ac97, buffer, idx);
 			}
-		
+		/* select all codecs */
 		snd_ac97_update_bits(ac97, AC97_AD_SERIAL_CFG, 0x7000, 0x7000);
 	} else {
 		snd_ac97_proc_regs_read_main(ac97, buffer, 0);

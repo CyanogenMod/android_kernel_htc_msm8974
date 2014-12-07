@@ -91,15 +91,15 @@ static int sn_hwperf_location_to_bpos(char *location,
 {
 	char type;
 
-	
+	/* first scan for an old style geoid string */
 	if (sscanf(location, "%03d%c%02d#%d",
 		rack, &type, bay, slab) == 4)
 		*slot = 0; 
-	else 
+	else /* scan for a new bladed geoid string */
 	if (sscanf(location, "%03d%c%02d^%02d#%d",
 		rack, &type, bay, slot, slab) != 5)
 		return -1; 
-	
+	/* success */
 	return 0;
 }
 
@@ -114,6 +114,10 @@ static int sn_hwperf_geoid_to_cnode(char *location)
 	if (sn_hwperf_location_to_bpos(location, &rack, &bay, &slot, &slab))
 		return -1;
 
+	/*
+	 * FIXME: replace with cleaner for_each_XXX macro which addresses
+	 * both compute and IO nodes once ACPI3.0 is available.
+	 */
 	for (cnode = 0; cnode < num_cnodes; cnode++) {
 		geoid = cnodeid_get_geoid(cnode);
 		module_id = geo_module(geoid);
@@ -155,10 +159,10 @@ static int sn_hwperf_generic_ordinal(struct sn_hwperf_object_info *obj,
 	return ordinal;
 }
 
-static const char *slabname_node =	"node"; 
-static const char *slabname_ionode =	"ionode"; 
-static const char *slabname_router =	"router"; 
-static const char *slabname_other =	"other"; 
+static const char *slabname_node =	"node"; /* SHub asic */
+static const char *slabname_ionode =	"ionode"; /* TIO asic */
+static const char *slabname_router =	"router"; /* NL3R or NL4R */
+static const char *slabname_other =	"other"; /* unknown asic */
 
 static const char *sn_hwperf_get_slabname(struct sn_hwperf_object_info *obj,
 			struct sn_hwperf_object_info *objs, int *ordinal)
@@ -253,9 +257,9 @@ static int sn_hwperf_get_nearest_node_objdata(struct sn_hwperf_object_info *objb
 	}
 
 	if (found_cpu && found_mem)
-		return 0; 
+		return 0; /* trivially successful */
 
-	
+	/* find the argument node object */
 	for (i=0, op=objbuf; i < nobj; i++, op++) {
 		if (!SN_HWPERF_IS_NODE(op) && !SN_HWPERF_IS_IONODE(op))
 			continue;
@@ -269,7 +273,7 @@ static int sn_hwperf_get_nearest_node_objdata(struct sn_hwperf_object_info *objb
 		goto err;
 	}
 
-	
+	/* get it's interconnect topology */
 	sz = op->ports * sizeof(struct sn_hwperf_port_info);
 	BUG_ON(sz > sizeof(ptdata));
 	e = ia64_sn_hwperf_op(sn_hwperf_master_nasid,
@@ -280,7 +284,7 @@ static int sn_hwperf_get_nearest_node_objdata(struct sn_hwperf_object_info *objb
 		goto err;
 	}
 
-	
+	/* find nearest node with cpus and nearest memory */
 	for (router=NULL, j=0; j < op->ports; j++) {
 		dest = sn_hwperf_findobj_id(objbuf, nobj, ptdata[j].conn_id);
 		if (dest && SN_HWPERF_IS_ROUTER(dest))
@@ -303,7 +307,7 @@ static int sn_hwperf_get_nearest_node_objdata(struct sn_hwperf_object_info *objb
 	}
 
 	if (router && (!found_cpu || !found_mem)) {
-		
+		/* search for a node connected to the same router */
 		sz = router->ports * sizeof(struct sn_hwperf_port_info);
 		BUG_ON(sz > sizeof(ptdata));
 		e = ia64_sn_hwperf_op(sn_hwperf_master_nasid,
@@ -339,7 +343,7 @@ static int sn_hwperf_get_nearest_node_objdata(struct sn_hwperf_object_info *objb
 	}
 
 	if (!found_cpu || !found_mem) {
-		
+		/* resort to _any_ node with CPUs and memory */
 		for (i=0, op=objbuf; i < nobj; i++, op++) {
 			if (SN_HWPERF_FOREIGN(op) ||
 			    SN_HWPERF_IS_IONODE(op) ||
@@ -383,8 +387,8 @@ static int sn_topology_show(struct seq_file *s, void *d)
 	struct cpuinfo_ia64 *c;
 	struct sn_hwperf_port_info *ptdata;
 	struct sn_hwperf_object_info *p;
-	struct sn_hwperf_object_info *obj = d;	
-	struct sn_hwperf_object_info *objs = s->private; 
+	struct sn_hwperf_object_info *obj = d;	/* this object */
+	struct sn_hwperf_object_info *objs = s->private; /* all objects */
 	u8 shubtype;
 	u8 system_size;
 	u8 sharing_size;
@@ -426,7 +430,7 @@ static int sn_topology_show(struct seq_file *s, void *d)
 	}
 
 	if (SN_HWPERF_FOREIGN(obj)) {
-		
+		/* private in another partition: not interesting */
 		return 0;
 	}
 
@@ -462,6 +466,9 @@ static int sn_topology_show(struct seq_file *s, void *d)
 
 		seq_putc(s, '\n');
 
+		/*
+		 * CPUs on this node, if any
+		 */
 		if (!SN_HWPERF_IS_IONODE(obj)) {
 			for_each_cpu_and(i, cpu_online_mask,
 					 cpumask_of_node(ordinal)) {
@@ -483,6 +490,9 @@ static int sn_topology_show(struct seq_file *s, void *d)
 	}
 
 	if (obj->ports) {
+		/*
+		 * numalink ports
+		 */
 		sz = obj->ports * sizeof(struct sn_hwperf_port_info);
 		if ((ptdata = kmalloc(sz, GFP_KERNEL)) == NULL)
 			return -ENOMEM;
@@ -505,22 +515,28 @@ static int sn_topology_show(struct seq_file *s, void *d)
 			    ordinal+pt, obj->location, ptdata[pt].port);
 
 			if (i >= sn_hwperf_obj_cnt) {
-				
+				/* no connection */
 				seq_puts(s, " local endpoint disconnected"
 					    ", protocol unknown\n");
 				continue;
 			}
 
 			if (obj->sn_hwp_this_part && p->sn_hwp_this_part)
-				
+				/* both ends local to this partition */
 				seq_puts(s, " local");
 			else if (SN_HWPERF_FOREIGN(p))
-				
+				/* both ends of the link in foreign partiton */
 				seq_puts(s, " foreign");
 			else
-				
+				/* link straddles a partition */
 				seq_puts(s, " shared");
 
+			/*
+			 * Unlikely, but strictly should query the LLP config
+			 * registers because an NL4R can be configured to run
+			 * NL3 protocol, even when not talking to an NL3 router.
+			 * Ditto for node-node.
+			 */
 			seq_printf(s, " endpoint %s-%d, protocol %s\n",
 				p->location, ptdata[pt].conn_port,
 				(SN_HWPERF_IS_NL3ROUTER(obj) ||
@@ -553,6 +569,9 @@ static void sn_topology_stop(struct seq_file *m, void *v)
 	return;
 }
 
+/*
+ * /proc/sgi_sn/sn_topology, read-only using seq_file
+ */
 static const struct seq_operations sn_topology_seq_ops = {
 	.start = sn_topology_start,
 	.next = sn_topology_next,
@@ -598,21 +617,21 @@ static int sn_hwperf_op_cpu(struct sn_hwperf_op_info *op_info)
 	}
 
 	if (cpu == SN_HWPERF_ARG_ANY_CPU) {
-		
+		/* don't care which cpu */
 		sn_hwperf_call_sal(op_info);
 	} else if (cpu == get_cpu()) {
-		
+		/* already on correct cpu */
 		sn_hwperf_call_sal(op_info);
 		put_cpu();
 	} else {
 		put_cpu();
 		if (use_ipi) {
-			
+			/* use an interprocessor interrupt to call SAL */
 			smp_call_function_single(cpu, sn_hwperf_call_sal,
 				op_info, 1);
 		}
 		else {
-			 
+			/* migrate the task before calling SAL */ 
 			save_allowed = current->cpus_allowed;
 			set_cpus_allowed_ptr(current, cpumask_of(cpu));
 			sn_hwperf_call_sal(op_info);
@@ -625,6 +644,7 @@ out:
 	return r;
 }
 
+/* map SAL hwperf error code to system error code */
 static int sn_hwperf_map_err(int hwperf_err)
 {
 	int e;
@@ -663,6 +683,9 @@ static int sn_hwperf_map_err(int hwperf_err)
 	return e;
 }
 
+/*
+ * ioctl for "sn_hwperf" misc device
+ */
 static long sn_hwperf_ioctl(struct file *fp, u32 op, unsigned long arg)
 {
 	struct sn_hwperf_ioctl_args a;
@@ -679,7 +702,7 @@ static long sn_hwperf_ioctl(struct file *fp, u32 op, unsigned long arg)
 	int i;
 	int j;
 
-	
+	/* only user requests are allowed here */
 	if ((op & SN_HWPERF_OP_MASK) < 10) {
 		r = -EINVAL;
 		goto error;
@@ -691,6 +714,11 @@ static long sn_hwperf_ioctl(struct file *fp, u32 op, unsigned long arg)
 		goto error;
 	}
 
+	/*
+	 * Allocate memory to hold a kernel copy of the user buffer. The
+	 * buffer contents are either copied in or out (or both) of user
+	 * space depending on the flags encoded in the requested operation.
+	 */
 	if (a.ptr) {
 		p = vmalloc(a.sz);
 		if (!p) {
@@ -710,7 +738,7 @@ static long sn_hwperf_ioctl(struct file *fp, u32 op, unsigned long arg)
 	switch (op) {
 	case SN_HWPERF_GET_CPU_INFO:
 		if (a.sz == sizeof(u64)) {
-			
+			/* special case to get size needed */
 			*(u64 *) p = (u64) num_online_cpus() *
 				sizeof(struct sn_hwperf_object_info);
 		} else
@@ -810,7 +838,7 @@ static long sn_hwperf_ioctl(struct file *fp, u32 op, unsigned long arg)
 		break;
 
 	default:
-		
+		/* all other ops are a direct SAL call */
 		r = ia64_sn_hwperf_op(sn_hwperf_master_nasid, op,
 			      a.arg, a.sz, (u64) p, 0, 0, &v0);
 		if (r) {
@@ -852,7 +880,7 @@ static int sn_hwperf_init(void)
 	int salr;
 	int e = 0;
 
-	
+	/* single threaded, once-only initialization */
 	mutex_lock(&sn_hwperf_init_mutex);
 
 	if (sn_hwperf_salheap) {
@@ -860,8 +888,16 @@ static int sn_hwperf_init(void)
 		return e;
 	}
 
+	/*
+	 * The PROM code needs a fixed reference node. For convenience the
+	 * same node as the console I/O is used.
+	 */
 	sn_hwperf_master_nasid = (nasid_t) ia64_sn_get_console_nasid();
 
+	/*
+	 * Request the needed size and install the PROM scratch area.
+	 * The PROM keeps various tracking bits in this memory area.
+	 */
 	salr = ia64_sn_hwperf_op(sn_hwperf_master_nasid,
 				 (u64) SN_HWPERF_GET_HEAPSIZE, 0,
 				 (u64) sizeof(u64), (u64) &v, 0, 0, NULL);
@@ -950,6 +986,11 @@ static int __devinit sn_hwperf_misc_register_init(void)
 
 	sn_hwperf_init();
 
+	/*
+	 * Register a dynamic misc device for hwperf ioctls. Platforms
+	 * supporting hotplug will create /dev/sn_hwperf, else user
+	 * can to look up the minor number in /proc/misc.
+	 */
 	if ((e = misc_register(&sn_hwperf_dev)) != 0) {
 		printk(KERN_ERR "sn_hwperf_misc_register_init: failed to "
 		"register misc device for \"%s\"\n", sn_hwperf_dev.name);
@@ -958,5 +999,5 @@ static int __devinit sn_hwperf_misc_register_init(void)
 	return e;
 }
 
-device_initcall(sn_hwperf_misc_register_init); 
+device_initcall(sn_hwperf_misc_register_init); /* after misc_init() */
 EXPORT_SYMBOL(sn_hwperf_get_nearest_node);

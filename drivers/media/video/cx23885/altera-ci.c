@@ -22,11 +22,42 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+/*
+ * currently cx23885 GPIO's used.
+ * GPIO-0 ~INT in
+ * GPIO-1 TMS out
+ * GPIO-2 ~reset chips out
+ * GPIO-3 to GPIO-10 data/addr for CA in/out
+ * GPIO-11 ~CS out
+ * GPIO-12 AD_RG out
+ * GPIO-13 ~WR out
+ * GPIO-14 ~RD out
+ * GPIO-15 ~RDY in
+ * GPIO-16 TCK out
+ * GPIO-17 TDO in
+ * GPIO-18 TDI out
+ */
+/*
+ *  Bit definitions for MC417_RWD and MC417_OEN registers
+ * bits 31-16
+ * +-----------+
+ * | Reserved  |
+ * +-----------+
+ *   bit 15  bit 14  bit 13 bit 12  bit 11  bit 10  bit 9   bit 8
+ * +-------+-------+-------+-------+-------+-------+-------+-------+
+ * |  TDI  |  TDO  |  TCK  |  RDY# |  #RD  |  #WR  | AD_RG |  #CS  |
+ * +-------+-------+-------+-------+-------+-------+-------+-------+
+ *  bit 7   bit 6   bit 5   bit 4   bit 3   bit 2   bit 1   bit 0
+ * +-------+-------+-------+-------+-------+-------+-------+-------+
+ * |  DATA7|  DATA6|  DATA5|  DATA4|  DATA3|  DATA2|  DATA1|  DATA0|
+ * +-------+-------+-------+-------+-------+-------+-------+-------+
+ */
 #include <media/videobuf-dma-sg.h>
 #include <media/videobuf-dvb.h>
 #include "altera-ci.h"
 #include "dvb_ca_en50221.h"
 
+/* FPGA regs */
 #define NETUP_CI_INT_CTRL	0x00
 #define NETUP_CI_BUSCTRL2	0x01
 #define NETUP_CI_ADDR0		0x04
@@ -40,6 +71,7 @@
 #define NETUP_CI_TSB_DIV	0x0d
 #define NETUP_CI_REVISION	0x0f
 
+/* const for ci op */
 #define NETUP_CI_FLG_CTL	1
 #define NETUP_CI_FLG_RD		1
 #define NETUP_CI_FLG_AD		1
@@ -73,7 +105,7 @@ struct netup_hw_pid_filter;
 
 struct fpga_internal {
 	void *dev;
-	struct mutex fpga_mutex;
+	struct mutex fpga_mutex;/* two CI's on the same fpga */
 	struct netup_hw_pid_filter *pid_filt[2];
 	struct altera_ci_state *state[2];
 	struct work_struct work;
@@ -83,6 +115,7 @@ struct fpga_internal {
 	int strt_wrk;
 };
 
+/* stores all private variables for communication with CI */
 struct altera_ci_state {
 	struct fpga_internal *internal;
 	struct dvb_ca_en50221 ca;
@@ -90,10 +123,11 @@ struct altera_ci_state {
 	int nr;
 };
 
+/* stores all private variables for hardware pid filtering */
 struct netup_hw_pid_filter {
 	struct fpga_internal *internal;
 	struct dvb_demux *demux;
-	
+	/* save old functions */
 	int (*start_feed)(struct dvb_demux_feed *feed);
 	int (*stop_feed)(struct dvb_demux_feed *feed);
 
@@ -101,14 +135,17 @@ struct netup_hw_pid_filter {
 	int nr;
 };
 
+/* internal params node */
 struct fpga_inode {
-	
+	/* pointer for internal params, one for each pair of CI's */
 	struct fpga_internal		*internal;
 	struct fpga_inode		*next_inode;
 };
 
+/* first internal params */
 static struct fpga_inode *fpga_first_inode;
 
+/* find chip by dev */
 static struct fpga_inode *find_inode(void *dev)
 {
 	struct fpga_inode *temp_chip = fpga_first_inode;
@@ -116,12 +153,16 @@ static struct fpga_inode *find_inode(void *dev)
 	if (temp_chip == NULL)
 		return temp_chip;
 
+	/*
+	 Search for the last fpga CI chip or
+	 find it by dev */
 	while ((temp_chip != NULL) &&
 				(temp_chip->internal->dev != dev))
 		temp_chip = temp_chip->next_inode;
 
 	return temp_chip;
 }
+/* check demux */
 static struct fpga_internal *check_filter(struct fpga_internal *temp_int,
 						void *demux_dev, int filt_nr)
 {
@@ -137,11 +178,16 @@ static struct fpga_internal *check_filter(struct fpga_internal *temp_int,
 	return NULL;
 }
 
+/* find chip by demux */
 static struct fpga_inode *find_dinode(void *demux_dev)
 {
 	struct fpga_inode *temp_chip = fpga_first_inode;
 	struct fpga_internal *temp_int;
 
+	/*
+	 * Search of the last fpga CI chip or
+	 * find it by demux
+	 */
 	while (temp_chip != NULL) {
 		if (temp_chip->internal != NULL) {
 			temp_int = temp_chip->internal;
@@ -157,6 +203,7 @@ static struct fpga_inode *find_dinode(void *demux_dev)
 	return temp_chip;
 }
 
+/* deallocating chip */
 static void remove_inode(struct fpga_internal *internal)
 {
 	struct fpga_inode *prev_node = fpga_first_inode;
@@ -180,6 +227,7 @@ static void remove_inode(struct fpga_internal *internal)
 	}
 }
 
+/* allocating new chip */
 static struct fpga_inode *append_internal(struct fpga_internal *internal)
 {
 	struct fpga_inode *new_node = fpga_first_inode;
@@ -214,6 +262,7 @@ static int netup_fpga_op_rw(struct fpga_internal *inter, int addr,
 	return inter->fpga_rw(inter->dev, 0, val, read);
 }
 
+/* flag - mem/io, read - read/write */
 int altera_ci_op_cam(struct dvb_ca_en50221 *en50221, int slot,
 				u8 flag, u8 read, int addr, u8 val)
 {
@@ -277,7 +326,7 @@ int altera_ci_slot_reset(struct dvb_ca_en50221 *en50221, int slot)
 {
 	struct altera_ci_state *state = en50221->data;
 	struct fpga_internal *inter = state->internal;
-	
+	/* reasonable timeout for CI reset is 10 seconds */
 	unsigned long t_out = jiffies + msecs_to_jiffies(9999);
 	int ret;
 
@@ -318,7 +367,7 @@ int altera_ci_slot_reset(struct dvb_ca_en50221 *en50221, int slot)
 
 int altera_ci_slot_shutdown(struct dvb_ca_en50221 *en50221, int slot)
 {
-	
+	/* not implemented */
 	return 0;
 }
 
@@ -344,6 +393,7 @@ int altera_ci_slot_ts_ctl(struct dvb_ca_en50221 *en50221, int slot)
 	return 0;
 }
 
+/* work handler */
 static void netup_read_ci_status(struct work_struct *work)
 {
 	struct fpga_internal *inter =
@@ -353,7 +403,7 @@ static void netup_read_ci_status(struct work_struct *work)
 	ci_dbg_print("%s\n", __func__);
 
 	mutex_lock(&inter->fpga_mutex);
-	
+	/* ack' irq */
 	ret = netup_fpga_op_rw(inter, NETUP_CI_INT_CTRL, 0, NETUP_CI_FLG_RD);
 	ret = netup_fpga_op_rw(inter, NETUP_CI_BUSCTRL, 0, NETUP_CI_FLG_RD);
 
@@ -378,6 +428,7 @@ static void netup_read_ci_status(struct work_struct *work)
 	};
 }
 
+/* CI irq handler */
 int altera_ci_irq(void *dev)
 {
 	struct fpga_inode *temp_int = NULL;
@@ -417,7 +468,7 @@ void altera_hw_filt_release(void *main_dev, int filt_nr)
 
 	if (temp_int != NULL) {
 		pid_filt = temp_int->internal->pid_filt[filt_nr - 1];
-		
+		/* stored old feed controls */
 		pid_filt->demux->start_feed = pid_filt->start_feed;
 		pid_filt->demux->stop_feed = pid_filt->stop_feed;
 
@@ -475,7 +526,7 @@ static void altera_pid_control(struct netup_hw_pid_filter *pid_filt,
 	struct fpga_internal *inter = pid_filt->internal;
 	u8 store = 0;
 
-	
+	/* pid 0-0x1f always enabled, don't touch them */
 	if ((pid == 0x2000) || (pid < 0x20))
 		return;
 
@@ -487,7 +538,7 @@ static void altera_pid_control(struct netup_hw_pid_filter *pid_filt,
 
 	store = netup_fpga_op_rw(inter, NETUP_CI_PID_DATA, 0, NETUP_CI_FLG_RD);
 
-	if (onoff)
+	if (onoff)/* 0 - on, 1 - off */
 		store |= (1 << (pid & 7));
 	else
 		store &= ~(1 << (pid & 7));
@@ -510,10 +561,10 @@ static void altera_toggle_fullts_streaming(struct netup_hw_pid_filter *pid_filt,
 	pid_dbg_print("%s: pid_filt->nr[%d]  now %s\n", __func__, pid_filt->nr,
 			onoff ? "off" : "on");
 
-	if (onoff)
-		store = 0xff;
+	if (onoff)/* 0 - on, 1 - off */
+		store = 0xff;/* ignore pid */
 	else
-		store = 0;
+		store = 0;/* enable pid */
 
 	mutex_lock(&inter->fpga_mutex);
 
@@ -522,7 +573,7 @@ static void altera_toggle_fullts_streaming(struct netup_hw_pid_filter *pid_filt,
 
 		netup_fpga_op_rw(inter, NETUP_CI_PID_ADDR1,
 				((i >> 8) & 0x03) | (pid_filt->nr << 2), 0);
-		
+		/* pid 0-0x1f always enabled */
 		netup_fpga_op_rw(inter, NETUP_CI_PID_DATA,
 				(i > 3 ? store : 0), 0);
 	}
@@ -538,7 +589,7 @@ int altera_pid_feed_control(void *demux_dev, int filt_nr,
 	struct netup_hw_pid_filter *pid_filt = inter->pid_filt[filt_nr - 1];
 
 	altera_pid_control(pid_filt, feed->pid, onoff ? 0 : 1);
-	
+	/* call old feed proc's */
 	if (onoff)
 		pid_filt->start_feed(feed);
 	else
@@ -628,10 +679,10 @@ int altera_hw_filt_init(struct altera_ci_config *config, int hw_filt_nr)
 	pid_filt->demux = config->demux;
 	pid_filt->internal = inter;
 	pid_filt->nr = hw_filt_nr - 1;
-	
+	/* store old feed controls */
 	pid_filt->start_feed = config->demux->start_feed;
 	pid_filt->stop_feed = config->demux->stop_feed;
-	
+	/* replace with new feed controls */
 	if (hw_filt_nr == 1) {
 		pid_filt->demux->start_feed = altera_ci_start_feed_1;
 		pid_filt->demux->stop_feed = altera_ci_stop_feed_1;
@@ -709,8 +760,8 @@ int altera_ci_init(struct altera_ci_config *config, int ci_nr)
 
 	ret = dvb_ca_en50221_init(config->adapter,
 				   &state->ca,
-				    0,
-				    1);
+				   /* flags */ 0,
+				   /* n_slots */ 1);
 	if (0 != ret)
 		goto err;
 
@@ -725,17 +776,17 @@ int altera_ci_init(struct altera_ci_config *config, int ci_nr)
 
 	mutex_lock(&inter->fpga_mutex);
 
-	
+	/* Enable div */
 	netup_fpga_op_rw(inter, NETUP_CI_TSA_DIV, 0x0, 0);
 	netup_fpga_op_rw(inter, NETUP_CI_TSB_DIV, 0x0, 0);
 
-	
+	/* enable TS out */
 	store = netup_fpga_op_rw(inter, NETUP_CI_BUSCTRL2, 0, NETUP_CI_FLG_RD);
 	store |= (3 << 4);
 	netup_fpga_op_rw(inter, NETUP_CI_BUSCTRL2, store, 0);
 
 	ret = netup_fpga_op_rw(inter, NETUP_CI_REVISION, 0, NETUP_CI_FLG_RD);
-	
+	/* enable irq */
 	netup_fpga_op_rw(inter, NETUP_CI_INT_CTRL, 0x44, 0);
 
 	mutex_unlock(&inter->fpga_mutex);

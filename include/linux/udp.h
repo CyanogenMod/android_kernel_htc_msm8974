@@ -26,12 +26,14 @@ struct udphdr {
 	__sum16	check;
 };
 
-#define UDP_CORK	1	
-#define UDP_ENCAP	100	
+/* UDP socket options */
+#define UDP_CORK	1	/* Never send partially complete segments */
+#define UDP_ENCAP	100	/* Set the socket to accept encapsulated packets */
 
-#define UDP_ENCAP_ESPINUDP_NON_IKE	1 
-#define UDP_ENCAP_ESPINUDP	2 
-#define UDP_ENCAP_L2TPINUDP	3 
+/* UDP encapsulation types */
+#define UDP_ENCAP_ESPINUDP_NON_IKE	1 /* draft-ietf-ipsec-nat-t-ike-00/01 */
+#define UDP_ENCAP_ESPINUDP	2 /* draft-ietf-ipsec-udp-encaps-06 */
+#define UDP_ENCAP_L2TPINUDP	3 /* rfc2661 */
 
 #ifdef __KERNEL__
 #include <net/inet_sock.h>
@@ -51,22 +53,33 @@ static inline int udp_hashfn(struct net *net, unsigned num, unsigned mask)
 }
 
 struct udp_sock {
-	
+	/* inet_sock has to be the first member */
 	struct inet_sock inet;
 #define udp_port_hash		inet.sk.__sk_common.skc_u16hashes[0]
 #define udp_portaddr_hash	inet.sk.__sk_common.skc_u16hashes[1]
 #define udp_portaddr_node	inet.sk.__sk_common.skc_portaddr_node
-	int		 pending;	
-	unsigned int	 corkflag;	
-  	__u16		 encap_type;	
-	__u16		 len;		
+	int		 pending;	/* Any pending frames ? */
+	unsigned int	 corkflag;	/* Cork is required */
+  	__u16		 encap_type;	/* Is this an Encapsulation socket? */
+	/*
+	 * Following member retains the information to create a UDP header
+	 * when the socket is uncorked.
+	 */
+	__u16		 len;		/* total length of pending frames */
+	/*
+	 * Fields specific to UDP-Lite.
+	 */
 	__u16		 pcslen;
 	__u16		 pcrlen;
-#define UDPLITE_BIT      0x1  		
-#define UDPLITE_SEND_CC  0x2  		
-#define UDPLITE_RECV_CC  0x4		
-	__u8		 pcflag;        
+/* indicator bits used by pcflag: */
+#define UDPLITE_BIT      0x1  		/* set by udplite proto init function */
+#define UDPLITE_SEND_CC  0x2  		/* set via udplite setsockopt         */
+#define UDPLITE_RECV_CC  0x4		/* set via udplite setsocktopt        */
+	__u8		 pcflag;        /* marks socket as UDP-Lite if > 0    */
 	__u8		 unused[3];
+	/*
+	 * For encapsulation sockets.
+	 */
 	int (*encap_rcv)(struct sock *sk, struct sk_buff *skb);
 };
 
@@ -85,4 +98,4 @@ static inline struct udp_sock *udp_sk(const struct sock *sk)
 
 #endif
 
-#endif	
+#endif	/* _LINUX_UDP_H */

@@ -3,4 +3,4 @@
 
 #include <asm-generic/errno.h>
 
-#endif 
+#endif /* _H8300_ERRNO_H */

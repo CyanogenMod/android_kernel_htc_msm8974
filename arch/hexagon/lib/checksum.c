@@ -18,6 +18,7 @@
  * 02110-1301, USA.
  */
 
+/*  This was derived from arch/alpha/lib/checksum.c  */
 
 
 #include <linux/module.h>
@@ -29,6 +30,7 @@
 #include <asm/intrinsics.h>
 
 
+/*  Vector value operations  */
 #define SIGN(x, y)	((0x8000ULL*x)<<y)
 #define CARRY(x, y)	((0x0002ULL*x)<<y)
 #define SELECT(x, y)	((0x0001ULL*x)<<y)
@@ -41,6 +43,7 @@
 	+ SELECT(d, 0))
 
 
+/* optimized HEXAGON V3 intrinsic version */
 static inline unsigned short from64to16(u64 x)
 {
 	u64 sum;
@@ -53,6 +56,10 @@ static inline unsigned short from64to16(u64 x)
 	return 0xFFFF & sum;
 }
 
+/*
+ * computes the checksum of the TCP/UDP pseudo-header
+ * returns a 16-bit checksum, already complemented.
+ */
 __sum16 csum_tcpudp_magic(unsigned long saddr, unsigned long daddr,
 			  unsigned short len, unsigned short proto,
 			  __wsum sum)
@@ -71,15 +78,25 @@ __wsum csum_tcpudp_nofold(unsigned long saddr, unsigned long daddr,
 	result = (__force u64)saddr + (__force u64)daddr +
 		 (__force u64)sum + ((len + proto) << 8);
 
-	
+	/* Fold down to 32-bits so we don't lose in the typedef-less
+	   network stack.  */
+	/* 64 to 33 */
 	result = (result & 0xffffffffUL) + (result >> 32);
-	
+	/* 33 to 32 */
 	result = (result & 0xffffffffUL) + (result >> 32);
 	return (__force __wsum)result;
 }
 EXPORT_SYMBOL(csum_tcpudp_nofold);
 
+/*
+ * Do a 64-bit checksum on an arbitrary memory area..
+ *
+ * This isn't a great routine, but it's not _horrible_ either. The
+ * inner loop could be unrolled a bit further, and there are better
+ * ways to do the carry, but this is reasonable.
+ */
 
+/* optimized HEXAGON intrinsic version, with over read fixed */
 unsigned int do_csum(const void *voidptr, int len)
 {
 	u64 sum0, sum1, x0, x1, *ptr8_o, *ptr8_e, *ptr8;
@@ -175,6 +192,9 @@ unsigned int do_csum(const void *voidptr, int len)
 	return 0xFFFF & sum0;
 }
 
+/*
+ * copy from ds while checksumming, otherwise like csum_partial
+ */
 __wsum
 csum_partial_copy_nocheck(const void *src, void *dst, int len, __wsum sum)
 {

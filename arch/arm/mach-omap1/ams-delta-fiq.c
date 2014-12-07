@@ -29,6 +29,14 @@ static struct fiq_handler fh = {
 	.name	= "ams-delta-fiq"
 };
 
+/*
+ * This buffer is shared between FIQ and IRQ contexts.
+ * The FIQ and IRQ isrs can both read and write it.
+ * It is structured as a header section several 32bit slots,
+ * followed by the circular buffer where the FIQ isr stores
+ * keystrokes received from the qwerty keyboard.
+ * See ams-delta-fiq.h for details of offsets.
+ */
 unsigned int fiq_buffer[1024];
 EXPORT_SYMBOL(fiq_buffer);
 
@@ -44,6 +52,10 @@ static irqreturn_t deferred_fiq(int irq, void *dev_id)
 	if (irq_desc)
 		irq_chip = irq_desc->irq_data.chip;
 
+	/*
+	 * For each handled GPIO interrupt, keep calling its interrupt handler
+	 * until the IRQ counter catches the FIQ incremented interrupt counter.
+	 */
 	for (gpio = AMS_DELTA_GPIO_PIN_KEYBRD_CLK;
 			gpio <= AMS_DELTA_GPIO_PIN_HOOK_SWITCH; gpio++) {
 		irq_num = gpio_to_irq(gpio);
@@ -53,6 +65,11 @@ static irqreturn_t deferred_fiq(int irq, void *dev_id)
 			if (gpio != AMS_DELTA_GPIO_PIN_KEYBRD_CLK) {
 				struct irq_data *d = irq_get_irq_data(irq_num);
 
+				/*
+				 * It looks like handle_edge_irq() that
+				 * OMAP GPIO edge interrupts default to,
+				 * expects interrupt already unmasked.
+				 */
 				if (irq_chip && irq_chip->irq_unmask)
 					irq_chip->irq_unmask(d);
 			}
@@ -91,12 +108,20 @@ void __init ams_delta_init_fiq(void)
 		release_fiq(&fh);
 		return;
 	}
+	/*
+	 * Since no set_type() method is provided by OMAP irq chip,
+	 * switch to edge triggered interrupt type manually.
+	 */
 	offset = IRQ_ILR0_REG_OFFSET + INT_DEFERRED_FIQ * 0x4;
 	val = omap_readl(DEFERRED_FIQ_IH_BASE + offset) & ~(1 << 1);
 	omap_writel(val, DEFERRED_FIQ_IH_BASE + offset);
 
 	set_fiq_handler(fiqhandler_start, fiqhandler_length);
 
+	/*
+	 * Initialise the buffer which is shared
+	 * between FIQ mode and IRQ mode
+	 */
 	fiq_buffer[FIQ_GPIO_INT_MASK]	= 0;
 	fiq_buffer[FIQ_MASK]		= 0;
 	fiq_buffer[FIQ_STATE]		= 0;
@@ -113,11 +138,20 @@ void __init ams_delta_init_fiq(void)
 	for (i = FIQ_CNT_INT_00; i <= FIQ_CNT_INT_15; i++)
 		fiq_buffer[i] = 0;
 
+	/*
+	 * FIQ mode r9 always points to the fiq_buffer, becauses the FIQ isr
+	 * will run in an unpredictable context. The fiq_buffer is the FIQ isr's
+	 * only means of communication with the IRQ level and other kernel
+	 * context code.
+	 */
 	FIQ_regs.ARM_r9 = (unsigned int)fiq_buffer;
 	set_fiq_regs(&FIQ_regs);
 
 	pr_info("request_fiq(): fiq_buffer = %p\n", fiq_buffer);
 
+	/*
+	 * Redirect GPIO interrupts to FIQ
+	 */
 	offset = IRQ_ILR0_REG_OFFSET + INT_GPIO_BANK1 * 0x4;
 	val = omap_readl(OMAP_IH1_BASE + offset) | 1;
 	omap_writel(val, OMAP_IH1_BASE + offset);

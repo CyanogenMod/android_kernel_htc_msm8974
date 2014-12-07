@@ -25,6 +25,9 @@
 
 struct kgsl_device;
 
+/*
+ * Tracepoint for z180 irq. Includes status info
+ */
 TRACE_EVENT(kgsl_z180_irq_status,
 
 	TP_PROTO(struct kgsl_device *device, unsigned int status),
@@ -51,6 +54,7 @@ TRACE_EVENT(kgsl_z180_irq_status,
 	)
 );
 
-#endif 
+#endif /* _Z180_TRACE_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

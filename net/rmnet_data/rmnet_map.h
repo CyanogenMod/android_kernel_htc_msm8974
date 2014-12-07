@@ -28,7 +28,7 @@ struct rmnet_map_header_s {
 	uint8_t  cd_bit:1;
 	uint8_t  reserved_bit:1;
 	uint8_t  pad_len:6;
-#endif 
+#endif /* LITTLE_ENDIAN */
 	uint8_t  mux_id;
 	uint16_t pkt_len;
 }  __aligned(1);
@@ -41,7 +41,7 @@ struct rmnet_map_control_command_s {
 #else
 	uint8_t  reserved:6;
 	uint8_t  cmd_type:2;
-#endif 
+#endif /* LITTLE_ENDIAN */
 	uint16_t reserved2;
 	uint32_t   transaction_id;
 	union {
@@ -53,7 +53,7 @@ struct rmnet_map_control_command_s {
 #else
 			uint16_t  reserved:14;
 			uint16_t  ip_family:2;
-#endif 
+#endif /* LITTLE_ENDIAN */
 			uint16_t  flow_control_seq_num;
 			uint32_t	qos_id;
 		} flow_control;
@@ -89,7 +89,7 @@ enum rmnet_map_mux_errors_e {
 	RMNET_MAP_MUX_INVALID_MUX_ID,
 	RMNET_MAP_MUX_INVALID_PAD_LENGTH,
 	RMNET_MAP_MUX_INVALID_PKT_LENGTH,
-	
+	/* This should always be the last element */
 	RMNET_MAP_MUX_ENUM_LENGTH
 };
 
@@ -102,7 +102,7 @@ enum rmnet_map_checksum_errors_e {
 	RMNET_MAP_CHECKSUM_ERROR_BAD_BUFFER,
 	RMNET_MAP_CHECKSUM_ERROR_UNKNOWN_IP_VERSION,
 	RMNET_MAP_CHECKSUM_ERROR_UNKNOWN_TRANSPORT,
-	
+	/* This should always be the last element */
 	RMNET_MAP_CHECKSUM_ENUM_LENGTH
 };
 
@@ -110,7 +110,7 @@ enum rmnet_map_commands_e {
 	RMNET_MAP_COMMAND_NONE,
 	RMNET_MAP_COMMAND_FLOW_DISABLE,
 	RMNET_MAP_COMMAND_FLOW_ENABLE,
-	
+	/* These should always be the last 2 elements */
 	RMNET_MAP_COMMAND_UNKNOWN,
 	RMNET_MAP_COMMAND_ENUM_LENGTH
 };
@@ -149,4 +149,4 @@ rx_handler_result_t rmnet_map_command(struct sk_buff *skb,
 void rmnet_map_aggregate(struct sk_buff *skb,
 			 struct rmnet_phys_ep_conf_s *config);
 
-#endif 
+#endif /* _RMNET_MAP_H_ */

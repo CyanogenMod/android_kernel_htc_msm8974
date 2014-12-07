@@ -36,6 +36,7 @@ enum xsd_sockmsg_type
 #define XS_WRITE_CREATE "CREATE"
 #define XS_WRITE_CREATE_EXCL "CREATE|EXCL"
 
+/* We hand errors as strings, for portability. */
 struct xsd_errors
 {
     int errnum;
@@ -61,12 +62,12 @@ static struct xsd_errors xsd_errors[] __attribute__((unused)) = {
 
 struct xsd_sockmsg
 {
-    uint32_t type;  
-    uint32_t req_id;
-    uint32_t tx_id; 
-    uint32_t len;   
+    uint32_t type;  /* XS_??? */
+    uint32_t req_id;/* Request identifier, echoed in daemon's response.  */
+    uint32_t tx_id; /* Transaction id (0 if not related to a transaction). */
+    uint32_t len;   /* Length of data following this. */
 
-    
+    /* Generally followed by nul-terminated string(s). */
 };
 
 enum xs_watch_type
@@ -75,16 +76,18 @@ enum xs_watch_type
     XS_WATCH_TOKEN
 };
 
+/* Inter-domain shared memory communications. */
 #define XENSTORE_RING_SIZE 1024
 typedef uint32_t XENSTORE_RING_IDX;
 #define MASK_XENSTORE_IDX(idx) ((idx) & (XENSTORE_RING_SIZE-1))
 struct xenstore_domain_interface {
-    char req[XENSTORE_RING_SIZE]; 
-    char rsp[XENSTORE_RING_SIZE]; 
+    char req[XENSTORE_RING_SIZE]; /* Requests to xenstore daemon. */
+    char rsp[XENSTORE_RING_SIZE]; /* Replies and async watch events. */
     XENSTORE_RING_IDX req_cons, req_prod;
     XENSTORE_RING_IDX rsp_cons, rsp_prod;
 };
 
+/* Violating this is very bad.  See docs/misc/xenstore.txt. */
 #define XENSTORE_PAYLOAD_MAX 4096
 
-#endif 
+#endif /* _XS_WIRE_H */

@@ -40,6 +40,7 @@
 #include "generic.h"
 #include "clock.h"
 
+/* Only e800 has 128MB RAM */
 void __init eseries_fixup(struct tag *tags, char **cmdline, struct meminfo *mi)
 {
 	mi->nr_banks=1;
@@ -71,7 +72,7 @@ struct pxaficp_platform_data e7xx_ficp_platform_data = {
 
 int eseries_tmio_enable(struct platform_device *dev)
 {
-	
+	/* Reset - bring SUSPEND high before PCLR */
 	gpio_set_value(GPIO_ESERIES_TMIO_SUSPEND, 0);
 	gpio_set_value(GPIO_ESERIES_TMIO_PCLR, 0);
 	msleep(1);
@@ -110,6 +111,7 @@ void eseries_get_tmio_gpios(void)
 	gpio_direction_output(GPIO_ESERIES_TMIO_PCLR, 0);
 }
 
+/* TMIO controller uses the same resources on all e-series machines. */
 struct resource eseries_tmio_resources[] = {
 	[0] = {
 		.start  = PXA_CS4_PHYS,
@@ -123,6 +125,7 @@ struct resource eseries_tmio_resources[] = {
 	},
 };
 
+/* Some e-series hardware cannot control the 32K clock */
 static void clk_32k_dummy(struct clk *clk)
 {
 }
@@ -147,6 +150,7 @@ static void __init eseries_register_clks(void)
 }
 
 #ifdef CONFIG_MACH_E330
+/* -------------------- e330 tc6387xb parameters -------------------- */
 
 static struct tc6387xb_platform_data e330_tc6387xb_info = {
 	.enable   = &eseries_tmio_enable,
@@ -165,6 +169,7 @@ static struct platform_device e330_tc6387xb_device = {
 	.resource      = eseries_tmio_resources,
 };
 
+/* --------------------------------------------------------------- */
 
 static struct platform_device *e330_devices[] __initdata = {
 	&e330_tc6387xb_device,
@@ -182,7 +187,7 @@ static void __init e330_init(void)
 }
 
 MACHINE_START(E330, "Toshiba e330")
-	
+	/* Maintainer: Ian Molton (spyro@f2s.com) */
 	.atag_offset	= 0x100,
 	.map_io		= pxa25x_map_io,
 	.nr_irqs	= ESERIES_NR_IRQS,
@@ -196,6 +201,7 @@ MACHINE_END
 #endif
 
 #ifdef CONFIG_MACH_E350
+/* -------------------- e350 t7l66xb parameters -------------------- */
 
 static struct t7l66xb_platform_data e350_t7l66xb_info = {
 	.irq_base               = IRQ_BOARD_START,
@@ -214,6 +220,7 @@ static struct platform_device e350_t7l66xb_device = {
 	.resource      = eseries_tmio_resources,
 };
 
+/* ---------------------------------------------------------- */
 
 static struct platform_device *e350_devices[] __initdata = {
 	&e350_t7l66xb_device,
@@ -231,7 +238,7 @@ static void __init e350_init(void)
 }
 
 MACHINE_START(E350, "Toshiba e350")
-	
+	/* Maintainer: Ian Molton (spyro@f2s.com) */
 	.atag_offset	= 0x100,
 	.map_io		= pxa25x_map_io,
 	.nr_irqs	= ESERIES_NR_IRQS,
@@ -245,6 +252,7 @@ MACHINE_END
 #endif
 
 #ifdef CONFIG_MACH_E400
+/* ------------------------ E400 LCD definitions ------------------------ */
 
 static struct pxafb_mode_info e400_pxafb_mode_info = {
 	.pixclock       = 140703,
@@ -268,28 +276,30 @@ static struct pxafb_mach_info e400_pxafb_mach_info = {
 	.pxafb_backlight_power  = NULL,
 };
 
+/* ------------------------ E400 MFP config ----------------------------- */
 
 static unsigned long e400_pin_config[] __initdata = {
-	
-	GPIO15_nCS_1,   
-	GPIO80_nCS_4,   
+	/* Chip selects */
+	GPIO15_nCS_1,   /* CS1 - Flash */
+	GPIO80_nCS_4,   /* CS4 - TMIO */
 
-	
+	/* Clocks */
 	GPIO12_32KHz,
 
-	
+	/* BTUART */
 	GPIO42_BTUART_RXD,
 	GPIO43_BTUART_TXD,
 	GPIO44_BTUART_CTS,
 
-	
-	GPIO19_GPIO, 
-	GPIO45_GPIO, 
+	/* TMIO controller */
+	GPIO19_GPIO, /* t7l66xb #PCLR */
+	GPIO45_GPIO, /* t7l66xb #SUSPEND (NOT BTUART!) */
 
-	
+	/* wakeup */
 	GPIO0_GPIO | WAKEUP_ON_EDGE_RISE,
 };
 
+/* ---------------------------------------------------------------------- */
 
 static struct mtd_partition partition_a = {
 	.name = "Internal NAND flash",
@@ -331,6 +341,7 @@ static struct platform_device e400_t7l66xb_device = {
 	.resource      = eseries_tmio_resources,
 };
 
+/* ---------------------------------------------------------- */
 
 static struct platform_device *e400_devices[] __initdata = {
 	&e400_t7l66xb_device,
@@ -343,7 +354,7 @@ static void __init e400_init(void)
 	pxa_set_ffuart_info(NULL);
 	pxa_set_btuart_info(NULL);
 	pxa_set_stuart_info(NULL);
-	
+	/* Fixme - e400 may have a switched clock */
 	eseries_register_clks();
 	eseries_get_tmio_gpios();
 	pxa_set_fb_info(NULL, &e400_pxafb_mach_info);
@@ -351,7 +362,7 @@ static void __init e400_init(void)
 }
 
 MACHINE_START(E400, "Toshiba e400")
-	
+	/* Maintainer: Ian Molton (spyro@f2s.com) */
 	.atag_offset	= 0x100,
 	.map_io		= pxa25x_map_io,
 	.nr_irqs	= ESERIES_NR_IRQS,
@@ -365,6 +376,7 @@ MACHINE_END
 #endif
 
 #ifdef CONFIG_MACH_E740
+/* ------------------------ e740 video support --------------------------- */
 
 static struct w100_gen_regs e740_lcd_regs = {
 	.lcd_format =            0x00008023,
@@ -435,52 +447,53 @@ static struct platform_device e740_fb_device = {
 	.resource       = e740_fb_resources,
 };
 
+/* --------------------------- MFP Pin config -------------------------- */
 
 static unsigned long e740_pin_config[] __initdata = {
-	
-	GPIO15_nCS_1,   
-	GPIO79_nCS_3,   
-	GPIO80_nCS_4,   
+	/* Chip selects */
+	GPIO15_nCS_1,   /* CS1 - Flash */
+	GPIO79_nCS_3,   /* CS3 - IMAGEON */
+	GPIO80_nCS_4,   /* CS4 - TMIO */
 
-	
+	/* Clocks */
 	GPIO12_32KHz,
 
-	
+	/* BTUART */
 	GPIO42_BTUART_RXD,
 	GPIO43_BTUART_TXD,
 	GPIO44_BTUART_CTS,
 
-	
-	GPIO19_GPIO, 
-	GPIO45_GPIO, 
+	/* TMIO controller */
+	GPIO19_GPIO, /* t7l66xb #PCLR */
+	GPIO45_GPIO, /* t7l66xb #SUSPEND (NOT BTUART!) */
 
-	
+	/* UDC */
 	GPIO13_GPIO,
 	GPIO3_GPIO,
 
-	
+	/* IrDA */
 	GPIO38_GPIO | MFP_LPM_DRIVE_HIGH,
 
-	
+	/* AC97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
 	GPIO31_AC97_SYNC,
 
-	
-	GPIO16_GPIO,  
-	GPIO40_GPIO,  
-	GPIO41_GPIO,  
+	/* Audio power control */
+	GPIO16_GPIO,  /* AC97 codec AVDD2 supply (analogue power) */
+	GPIO40_GPIO,  /* Mic amp power */
+	GPIO41_GPIO,  /* Headphone amp power */
 
-	
-	GPIO8_GPIO,   
-	GPIO44_GPIO,  
-	GPIO11_GPIO,  
-	GPIO6_GPIO,   
-	GPIO27_GPIO,  
-	GPIO24_GPIO,  
-	GPIO20_GPIO,  
-	GPIO23_GPIO,  
+	/* PC Card */
+	GPIO8_GPIO,   /* CD0 */
+	GPIO44_GPIO,  /* CD1 */
+	GPIO11_GPIO,  /* IRQ0 */
+	GPIO6_GPIO,   /* IRQ1 */
+	GPIO27_GPIO,  /* RST0 */
+	GPIO24_GPIO,  /* RST1 */
+	GPIO20_GPIO,  /* PWR0 */
+	GPIO23_GPIO,  /* PWR1 */
 	GPIO48_nPOE,
 	GPIO49_nPWE,
 	GPIO50_nPIOR,
@@ -492,10 +505,11 @@ static unsigned long e740_pin_config[] __initdata = {
 	GPIO56_nPWAIT,
 	GPIO57_nIOIS16,
 
-	
+	/* wakeup */
 	GPIO0_GPIO | WAKEUP_ON_EDGE_RISE,
 };
 
+/* -------------------- e740 t7l66xb parameters -------------------- */
 
 static struct t7l66xb_platform_data e740_t7l66xb_info = {
 	.irq_base 		= IRQ_BOARD_START,
@@ -519,6 +533,7 @@ static struct platform_device e740_audio_device = {
 	.id		= -1,
 };
 
+/* ----------------------------------------------------------------------- */
 
 static struct platform_device *e740_devices[] __initdata = {
 	&e740_fb_device,
@@ -543,7 +558,7 @@ static void __init e740_init(void)
 }
 
 MACHINE_START(E740, "Toshiba e740")
-	
+	/* Maintainer: Ian Molton (spyro@f2s.com) */
 	.atag_offset	= 0x100,
 	.map_io		= pxa25x_map_io,
 	.nr_irqs	= ESERIES_NR_IRQS,
@@ -557,6 +572,7 @@ MACHINE_END
 #endif
 
 #ifdef CONFIG_MACH_E750
+/* ---------------------- E750 LCD definitions -------------------- */
 
 static struct w100_gen_regs e750_lcd_regs = {
 	.lcd_format =            0x00008003,
@@ -627,52 +643,53 @@ static struct platform_device e750_fb_device = {
 	.resource       = e750_fb_resources,
 };
 
+/* -------------------- e750 MFP parameters -------------------- */
 
 static unsigned long e750_pin_config[] __initdata = {
-	
-	GPIO15_nCS_1,   
-	GPIO79_nCS_3,   
-	GPIO80_nCS_4,   
+	/* Chip selects */
+	GPIO15_nCS_1,   /* CS1 - Flash */
+	GPIO79_nCS_3,   /* CS3 - IMAGEON */
+	GPIO80_nCS_4,   /* CS4 - TMIO */
 
-	
+	/* Clocks */
 	GPIO11_3_6MHz,
 
-	
+	/* BTUART */
 	GPIO42_BTUART_RXD,
 	GPIO43_BTUART_TXD,
 	GPIO44_BTUART_CTS,
 
-	
-	GPIO19_GPIO, 
-	GPIO45_GPIO, 
+	/* TMIO controller */
+	GPIO19_GPIO, /* t7l66xb #PCLR */
+	GPIO45_GPIO, /* t7l66xb #SUSPEND (NOT BTUART!) */
 
-	
+	/* UDC */
 	GPIO13_GPIO,
 	GPIO3_GPIO,
 
-	
+	/* IrDA */
 	GPIO38_GPIO | MFP_LPM_DRIVE_HIGH,
 
-	
+	/* AC97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
 	GPIO31_AC97_SYNC,
 
-	
-	GPIO4_GPIO,  
-	GPIO7_GPIO,  
-	GPIO37_GPIO, 
+	/* Audio power control */
+	GPIO4_GPIO,  /* Headphone amp power */
+	GPIO7_GPIO,  /* Speaker amp power */
+	GPIO37_GPIO, /* Headphone detect */
 
-	
-	GPIO8_GPIO,   
-	GPIO44_GPIO,  
-	GPIO11_GPIO,  
-	GPIO6_GPIO,   
-	GPIO27_GPIO,  
-	GPIO24_GPIO,  
-	GPIO20_GPIO,  
-	GPIO23_GPIO,  
+	/* PC Card */
+	GPIO8_GPIO,   /* CD0 */
+	GPIO44_GPIO,  /* CD1 */
+	GPIO11_GPIO,  /* IRQ0 */
+	GPIO6_GPIO,   /* IRQ1 */
+	GPIO27_GPIO,  /* RST0 */
+	GPIO24_GPIO,  /* RST1 */
+	GPIO20_GPIO,  /* PWR0 */
+	GPIO23_GPIO,  /* PWR1 */
 	GPIO48_nPOE,
 	GPIO49_nPWE,
 	GPIO50_nPIOR,
@@ -684,10 +701,11 @@ static unsigned long e750_pin_config[] __initdata = {
 	GPIO56_nPWAIT,
 	GPIO57_nIOIS16,
 
-	
+	/* wakeup */
 	GPIO0_GPIO | WAKEUP_ON_EDGE_RISE,
 };
 
+/* ----------------- e750 tc6393xb parameters ------------------ */
 
 static struct tc6393xb_platform_data e750_tc6393xb_info = {
 	.irq_base       = IRQ_BOARD_START,
@@ -715,6 +733,7 @@ static struct platform_device e750_audio_device = {
 	.id		= -1,
 };
 
+/* ------------------------------------------------------------- */
 
 static struct platform_device *e750_devices[] __initdata = {
 	&e750_fb_device,
@@ -738,7 +757,7 @@ static void __init e750_init(void)
 }
 
 MACHINE_START(E750, "Toshiba e750")
-	
+	/* Maintainer: Ian Molton (spyro@f2s.com) */
 	.atag_offset	= 0x100,
 	.map_io		= pxa25x_map_io,
 	.nr_irqs	= ESERIES_NR_IRQS,
@@ -752,9 +771,10 @@ MACHINE_END
 #endif
 
 #ifdef CONFIG_MACH_E800
+/* ------------------------ e800 LCD definitions ------------------------- */
 
 static unsigned long e800_pin_config[] __initdata = {
-	
+	/* AC97 */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
@@ -811,8 +831,8 @@ static struct w100_mode e800_lcd_mode[2] = {
 		.crtc_goe        = 0x80cc0015,
 		.crtc_ps1_active = 0x00000000,
 		.pll_freq        = 100,
-		.pixclk_divider         = 6, 
-		.pixclk_divider_rotated = 6, 
+		.pixclk_divider         = 6, /* Wince uses 14 which gives a */
+		.pixclk_divider_rotated = 6, /* 7MHz Pclk. We use a 14MHz one */
 		.pixclk_src     = CLK_SRC_PLL,
 		.sysclk_divider  = 0,
 		.sysclk_src     = CLK_SRC_PLL,
@@ -881,6 +901,7 @@ static struct platform_device e800_fb_device = {
 	.resource       = e800_fb_resources,
 };
 
+/* --------------------------- UDC definitions --------------------------- */
 
 static struct gpio_vbus_mach_info e800_udc_info = {
 	.gpio_vbus   = GPIO_E800_USB_DISC,
@@ -897,6 +918,7 @@ static struct platform_device e800_gpio_vbus = {
 };
 
 
+/* ----------------- e800 tc6393xb parameters ------------------ */
 
 static struct tc6393xb_platform_data e800_tc6393xb_info = {
 	.irq_base       = IRQ_BOARD_START,
@@ -924,6 +946,7 @@ static struct platform_device e800_audio_device = {
 	.id		= -1,
 };
 
+/* ----------------------------------------------------------------------- */
 
 static struct platform_device *e800_devices[] __initdata = {
 	&e800_fb_device,
@@ -946,7 +969,7 @@ static void __init e800_init(void)
 }
 
 MACHINE_START(E800, "Toshiba e800")
-	
+	/* Maintainer: Ian Molton (spyro@f2s.com) */
 	.atag_offset	= 0x100,
 	.map_io		= pxa25x_map_io,
 	.nr_irqs	= ESERIES_NR_IRQS,

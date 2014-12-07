@@ -24,6 +24,9 @@
 
 static void __iomem *pinmux_base;
 
+/*
+ * Sets the DAVINCI MUX register based on the table
+ */
 int __init_or_module davinci_cfg_reg(const unsigned long index)
 {
 	static DEFINE_SPINLOCK(mux_spin_lock);
@@ -56,7 +59,7 @@ int __init_or_module davinci_cfg_reg(const unsigned long index)
 		return -ENODEV;
 	}
 
-	
+	/* Update the mux register in question */
 	if (cfg->mask) {
 		unsigned	tmp1, tmp2;
 

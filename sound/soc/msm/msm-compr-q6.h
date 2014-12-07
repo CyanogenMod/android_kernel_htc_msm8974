@@ -33,4 +33,4 @@ struct compr_audio {
 	uint32_t codec;
 };
 
-#endif 
+#endif /*_MSM_COMPR_H*/

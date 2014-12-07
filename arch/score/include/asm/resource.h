@@ -3,4 +3,4 @@
 
 #include <asm-generic/resource.h>
 
-#endif 
+#endif /* _ASM_SCORE_RESOURCE_H */

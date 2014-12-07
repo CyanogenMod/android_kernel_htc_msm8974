@@ -7,9 +7,12 @@
 #ifndef _CDEF_BF547_H
 #define _CDEF_BF547_H
 
+/* include cdefBF54x_base.h for the set of #defines that are common to all ADSP-BF54x bfin_read_()rocessors */
 #include "cdefBF54x_base.h"
 
+/* The following are the #defines needed by ADSP-BF547 that are not in the common header */
 
+/* Timer Registers */
 
 #define bfin_read_TIMER8_CONFIG()	bfin_read16(TIMER8_CONFIG)
 #define bfin_write_TIMER8_CONFIG(val)	bfin_write16(TIMER8_CONFIG, val)
@@ -36,6 +39,7 @@
 #define bfin_read_TIMER10_WIDTH()	bfin_read32(TIMER10_WIDTH)
 #define bfin_write_TIMER10_WIDTH(val)	bfin_write32(TIMER10_WIDTH, val)
 
+/* Timer Groubfin_read_() of 3 */
 
 #define bfin_read_TIMER_ENABLE1()	bfin_read16(TIMER_ENABLE1)
 #define bfin_write_TIMER_ENABLE1(val)	bfin_write16(TIMER_ENABLE1, val)
@@ -44,6 +48,7 @@
 #define bfin_read_TIMER_STATUS1()	bfin_read32(TIMER_STATUS1)
 #define bfin_write_TIMER_STATUS1(val)	bfin_write32(TIMER_STATUS1, val)
 
+/* SPORT0 Registers */
 
 #define bfin_read_SPORT0_TCR1()		bfin_read16(SPORT0_TCR1)
 #define bfin_write_SPORT0_TCR1(val)	bfin_write16(SPORT0_TCR1, val)
@@ -90,6 +95,7 @@
 #define bfin_read_SPORT0_MRCS3()	bfin_read32(SPORT0_MRCS3)
 #define bfin_write_SPORT0_MRCS3(val)	bfin_write32(SPORT0_MRCS3, val)
 
+/* EPPI0 Registers */
 
 #define bfin_read_EPPI0_STATUS()	bfin_read16(EPPI0_STATUS)
 #define bfin_write_EPPI0_STATUS(val)	bfin_write16(EPPI0_STATUS, val)
@@ -120,6 +126,7 @@
 #define bfin_read_EPPI0_CLIP()		bfin_read32(EPPI0_CLIP)
 #define bfin_write_EPPI0_CLIP(val)	bfin_write32(EPPI0_CLIP, val)
 
+/* UART2 Registers */
 
 #define bfin_read_UART2_DLL()		bfin_read16(UART2_DLL)
 #define bfin_write_UART2_DLL(val)	bfin_write16(UART2_DLL, val)
@@ -144,7 +151,9 @@
 #define bfin_read_UART2_RBR()		bfin_read16(UART2_RBR)
 #define bfin_write_UART2_RBR(val)	bfin_write16(UART2_RBR, val)
 
+/* Two Wire Interface Registers (TWI1) */
 
+/* SPI2  Registers */
 
 #define bfin_read_SPI2_CTL()		bfin_read16(SPI2_CTL)
 #define bfin_write_SPI2_CTL(val)	bfin_write16(SPI2_CTL, val)
@@ -161,6 +170,7 @@
 #define bfin_read_SPI2_SHADOW()		bfin_read16(SPI2_SHADOW)
 #define bfin_write_SPI2_SHADOW(val)	bfin_write16(SPI2_SHADOW, val)
 
+/* ATAPI Registers */
 
 #define bfin_read_ATAPI_CONTROL()		bfin_read16(ATAPI_CONTROL)
 #define bfin_write_ATAPI_CONTROL(val)		bfin_write16(ATAPI_CONTROL, val)
@@ -213,6 +223,7 @@
 #define bfin_read_ATAPI_ULTRA_TIM_3()		bfin_read16(ATAPI_ULTRA_TIM_3)
 #define bfin_write_ATAPI_ULTRA_TIM_3(val)	bfin_write16(ATAPI_ULTRA_TIM_3, val)
 
+/* SDH Registers */
 
 #define bfin_read_SDH_PWR_CTL()		bfin_read16(SDH_PWR_CTL)
 #define bfin_write_SDH_PWR_CTL(val)	bfin_write16(SDH_PWR_CTL, val)
@@ -277,6 +288,7 @@
 #define bfin_read_SDH_PID7()		bfin_read16(SDH_PID7)
 #define bfin_write_SDH_PID7(val)	bfin_write16(SDH_PID7, val)
 
+/* HOST Port Registers */
 
 #define bfin_read_HOST_CONTROL()	bfin_read16(HOST_CONTROL)
 #define bfin_write_HOST_CONTROL(val)	bfin_write16(HOST_CONTROL, val)
@@ -285,6 +297,7 @@
 #define bfin_read_HOST_TIMEOUT()	bfin_read16(HOST_TIMEOUT)
 #define bfin_write_HOST_TIMEOUT(val)	bfin_write16(HOST_TIMEOUT, val)
 
+/* USB Control Registers */
 
 #define bfin_read_USB_FADDR()		bfin_read16(USB_FADDR)
 #define bfin_write_USB_FADDR(val)	bfin_write16(USB_FADDR, val)
@@ -313,6 +326,7 @@
 #define bfin_read_USB_GLOBAL_CTL()	bfin_read16(USB_GLOBAL_CTL)
 #define bfin_write_USB_GLOBAL_CTL(val)		bfin_write16(USB_GLOBAL_CTL, val)
 
+/* USB Packet Control Registers */
 
 #define bfin_read_USB_TX_MAX_PACKET()		bfin_read16(USB_TX_MAX_PACKET)
 #define bfin_write_USB_TX_MAX_PACKET(val)	bfin_write16(USB_TX_MAX_PACKET, val)
@@ -341,6 +355,7 @@
 #define bfin_read_USB_TXCOUNT()		bfin_read16(USB_TXCOUNT)
 #define bfin_write_USB_TXCOUNT(val)	bfin_write16(USB_TXCOUNT, val)
 
+/* USB Endbfin_read_()oint FIFO Registers */
 
 #define bfin_read_USB_EP0_FIFO()	bfin_read16(USB_EP0_FIFO)
 #define bfin_write_USB_EP0_FIFO(val)	bfin_write16(USB_EP0_FIFO, val)
@@ -359,6 +374,7 @@
 #define bfin_read_USB_EP7_FIFO()	bfin_read16(USB_EP7_FIFO)
 #define bfin_write_USB_EP7_FIFO(val)	bfin_write16(USB_EP7_FIFO, val)
 
+/* USB OTG Control Registers */
 
 #define bfin_read_USB_OTG_DEV_CTL()		bfin_read16(USB_OTG_DEV_CTL)
 #define bfin_write_USB_OTG_DEV_CTL(val)		bfin_write16(USB_OTG_DEV_CTL, val)
@@ -367,6 +383,7 @@
 #define bfin_read_USB_OTG_VBUS_MASK()		bfin_read16(USB_OTG_VBUS_MASK)
 #define bfin_write_USB_OTG_VBUS_MASK(val)	bfin_write16(USB_OTG_VBUS_MASK, val)
 
+/* USB Phy Control Registers */
 
 #define bfin_read_USB_LINKINFO()	bfin_read16(USB_LINKINFO)
 #define bfin_write_USB_LINKINFO(val)	bfin_write16(USB_LINKINFO, val)
@@ -379,16 +396,19 @@
 #define bfin_read_USB_LS_EOF1()		bfin_read16(USB_LS_EOF1)
 #define bfin_write_USB_LS_EOF1(val)	bfin_write16(USB_LS_EOF1, val)
 
+/* (APHY_CNTRL is for ADI usage only) */
 
 #define bfin_read_USB_APHY_CNTRL()		bfin_read16(USB_APHY_CNTRL)
 #define bfin_write_USB_APHY_CNTRL(val)		bfin_write16(USB_APHY_CNTRL, val)
 
+/* (APHY_CALIB is for ADI usage only) */
 
 #define bfin_read_USB_APHY_CALIB()		bfin_read16(USB_APHY_CALIB)
 #define bfin_write_USB_APHY_CALIB(val)		bfin_write16(USB_APHY_CALIB, val)
 #define bfin_read_USB_APHY_CNTRL2()		bfin_read16(USB_APHY_CNTRL2)
 #define bfin_write_USB_APHY_CNTRL2(val)		bfin_write16(USB_APHY_CNTRL2, val)
 
+/* (PHY_TEST is for ADI usage only) */
 
 #define bfin_read_USB_PHY_TEST()		bfin_read16(USB_PHY_TEST)
 #define bfin_write_USB_PHY_TEST(val)		bfin_write16(USB_PHY_TEST, val)
@@ -397,6 +417,7 @@
 #define bfin_read_USB_SRP_CLKDIV()		bfin_read16(USB_SRP_CLKDIV)
 #define bfin_write_USB_SRP_CLKDIV(val)		bfin_write16(USB_SRP_CLKDIV, val)
 
+/* USB Endbfin_read_()oint 0 Control Registers */
 
 #define bfin_read_USB_EP_NI0_TXMAXP()		bfin_read16(USB_EP_NI0_TXMAXP)
 #define bfin_write_USB_EP_NI0_TXMAXP(val)	bfin_write16(USB_EP_NI0_TXMAXP, val)
@@ -417,6 +438,7 @@
 #define bfin_read_USB_EP_NI0_RXINTERVAL()	bfin_read16(USB_EP_NI0_RXINTERVAL)
 #define bfin_write_USB_EP_NI0_RXINTERVAL(val)	bfin_write16(USB_EP_NI0_RXINTERVAL, val)
 
+/* USB Endbfin_read_()oint 1 Control Registers */
 
 #define bfin_read_USB_EP_NI0_TXCOUNT()		bfin_read16(USB_EP_NI0_TXCOUNT)
 #define bfin_write_USB_EP_NI0_TXCOUNT(val)	bfin_write16(USB_EP_NI0_TXCOUNT, val)
@@ -439,6 +461,7 @@
 #define bfin_read_USB_EP_NI1_RXINTERVAL()	bfin_read16(USB_EP_NI1_RXINTERVAL)
 #define bfin_write_USB_EP_NI1_RXINTERVAL(val)	bfin_write16(USB_EP_NI1_RXINTERVAL, val)
 
+/* USB Endbfin_read_()oint 2 Control Registers */
 
 #define bfin_read_USB_EP_NI1_TXCOUNT()		bfin_read16(USB_EP_NI1_TXCOUNT)
 #define bfin_write_USB_EP_NI1_TXCOUNT(val)	bfin_write16(USB_EP_NI1_TXCOUNT, val)
@@ -461,6 +484,7 @@
 #define bfin_read_USB_EP_NI2_RXINTERVAL()	bfin_read16(USB_EP_NI2_RXINTERVAL)
 #define bfin_write_USB_EP_NI2_RXINTERVAL(val)	bfin_write16(USB_EP_NI2_RXINTERVAL, val)
 
+/* USB Endbfin_read_()oint 3 Control Registers */
 
 #define bfin_read_USB_EP_NI2_TXCOUNT()		bfin_read16(USB_EP_NI2_TXCOUNT)
 #define bfin_write_USB_EP_NI2_TXCOUNT(val)	bfin_write16(USB_EP_NI2_TXCOUNT, val)
@@ -483,6 +507,7 @@
 #define bfin_read_USB_EP_NI3_RXINTERVAL()	bfin_read16(USB_EP_NI3_RXINTERVAL)
 #define bfin_write_USB_EP_NI3_RXINTERVAL(val)	bfin_write16(USB_EP_NI3_RXINTERVAL, val)
 
+/* USB Endbfin_read_()oint 4 Control Registers */
 
 #define bfin_read_USB_EP_NI3_TXCOUNT()		bfin_read16(USB_EP_NI3_TXCOUNT)
 #define bfin_write_USB_EP_NI3_TXCOUNT(val)	bfin_write16(USB_EP_NI3_TXCOUNT, val)
@@ -505,6 +530,7 @@
 #define bfin_read_USB_EP_NI4_RXINTERVAL()	bfin_read16(USB_EP_NI4_RXINTERVAL)
 #define bfin_write_USB_EP_NI4_RXINTERVAL(val)	bfin_write16(USB_EP_NI4_RXINTERVAL, val)
 
+/* USB Endbfin_read_()oint 5 Control Registers */
 
 #define bfin_read_USB_EP_NI4_TXCOUNT()		bfin_read16(USB_EP_NI4_TXCOUNT)
 #define bfin_write_USB_EP_NI4_TXCOUNT(val)	bfin_write16(USB_EP_NI4_TXCOUNT, val)
@@ -527,6 +553,7 @@
 #define bfin_read_USB_EP_NI5_RXINTERVAL()	bfin_read16(USB_EP_NI5_RXINTERVAL)
 #define bfin_write_USB_EP_NI5_RXINTERVAL(val)	bfin_write16(USB_EP_NI5_RXINTERVAL, val)
 
+/* USB Endbfin_read_()oint 6 Control Registers */
 
 #define bfin_read_USB_EP_NI5_TXCOUNT()		bfin_read16(USB_EP_NI5_TXCOUNT)
 #define bfin_write_USB_EP_NI5_TXCOUNT(val)	bfin_write16(USB_EP_NI5_TXCOUNT, val)
@@ -549,6 +576,7 @@
 #define bfin_read_USB_EP_NI6_RXINTERVAL()	bfin_read16(USB_EP_NI6_RXINTERVAL)
 #define bfin_write_USB_EP_NI6_RXINTERVAL(val)	bfin_write16(USB_EP_NI6_RXINTERVAL, val)
 
+/* USB Endbfin_read_()oint 7 Control Registers */
 
 #define bfin_read_USB_EP_NI6_TXCOUNT()		bfin_read16(USB_EP_NI6_TXCOUNT)
 #define bfin_write_USB_EP_NI6_TXCOUNT(val)	bfin_write16(USB_EP_NI6_TXCOUNT, val)
@@ -575,6 +603,7 @@
 #define bfin_read_USB_DMA_INTERRUPT()		bfin_read16(USB_DMA_INTERRUPT)
 #define bfin_write_USB_DMA_INTERRUPT(val)	bfin_write16(USB_DMA_INTERRUPT, val)
 
+/* USB Channel 0 Config Registers */
 
 #define bfin_read_USB_DMA0CONTROL()		bfin_read16(USB_DMA0CONTROL)
 #define bfin_write_USB_DMA0CONTROL(val)		bfin_write16(USB_DMA0CONTROL, val)
@@ -587,6 +616,7 @@
 #define bfin_read_USB_DMA0COUNTHIGH()		bfin_read16(USB_DMA0COUNTHIGH)
 #define bfin_write_USB_DMA0COUNTHIGH(val)	bfin_write16(USB_DMA0COUNTHIGH, val)
 
+/* USB Channel 1 Config Registers */
 
 #define bfin_read_USB_DMA1CONTROL()		bfin_read16(USB_DMA1CONTROL)
 #define bfin_write_USB_DMA1CONTROL(val)		bfin_write16(USB_DMA1CONTROL, val)
@@ -599,6 +629,7 @@
 #define bfin_read_USB_DMA1COUNTHIGH()		bfin_read16(USB_DMA1COUNTHIGH)
 #define bfin_write_USB_DMA1COUNTHIGH(val)	bfin_write16(USB_DMA1COUNTHIGH, val)
 
+/* USB Channel 2 Config Registers */
 
 #define bfin_read_USB_DMA2CONTROL()		bfin_read16(USB_DMA2CONTROL)
 #define bfin_write_USB_DMA2CONTROL(val)		bfin_write16(USB_DMA2CONTROL, val)
@@ -611,6 +642,7 @@
 #define bfin_read_USB_DMA2COUNTHIGH()		bfin_read16(USB_DMA2COUNTHIGH)
 #define bfin_write_USB_DMA2COUNTHIGH(val)	bfin_write16(USB_DMA2COUNTHIGH, val)
 
+/* USB Channel 3 Config Registers */
 
 #define bfin_read_USB_DMA3CONTROL()		bfin_read16(USB_DMA3CONTROL)
 #define bfin_write_USB_DMA3CONTROL(val)		bfin_write16(USB_DMA3CONTROL, val)
@@ -623,6 +655,7 @@
 #define bfin_read_USB_DMA3COUNTHIGH()		bfin_read16(USB_DMA3COUNTHIGH)
 #define bfin_write_USB_DMA3COUNTHIGH(val)	bfin_write16(USB_DMA3COUNTHIGH, val)
 
+/* USB Channel 4 Config Registers */
 
 #define bfin_read_USB_DMA4CONTROL()		bfin_read16(USB_DMA4CONTROL)
 #define bfin_write_USB_DMA4CONTROL(val)		bfin_write16(USB_DMA4CONTROL, val)
@@ -635,6 +668,7 @@
 #define bfin_read_USB_DMA4COUNTHIGH()		bfin_read16(USB_DMA4COUNTHIGH)
 #define bfin_write_USB_DMA4COUNTHIGH(val)	bfin_write16(USB_DMA4COUNTHIGH, val)
 
+/* USB Channel 5 Config Registers */
 
 #define bfin_read_USB_DMA5CONTROL()		bfin_read16(USB_DMA5CONTROL)
 #define bfin_write_USB_DMA5CONTROL(val)		bfin_write16(USB_DMA5CONTROL, val)
@@ -647,6 +681,7 @@
 #define bfin_read_USB_DMA5COUNTHIGH()		bfin_read16(USB_DMA5COUNTHIGH)
 #define bfin_write_USB_DMA5COUNTHIGH(val)	bfin_write16(USB_DMA5COUNTHIGH, val)
 
+/* USB Channel 6 Config Registers */
 
 #define bfin_read_USB_DMA6CONTROL()		bfin_read16(USB_DMA6CONTROL)
 #define bfin_write_USB_DMA6CONTROL(val)		bfin_write16(USB_DMA6CONTROL, val)
@@ -659,6 +694,7 @@
 #define bfin_read_USB_DMA6COUNTHIGH()		bfin_read16(USB_DMA6COUNTHIGH)
 #define bfin_write_USB_DMA6COUNTHIGH(val)	bfin_write16(USB_DMA6COUNTHIGH, val)
 
+/* USB Channel 7 Config Registers */
 
 #define bfin_read_USB_DMA7CONTROL()		bfin_read16(USB_DMA7CONTROL)
 #define bfin_write_USB_DMA7CONTROL(val)		bfin_write16(USB_DMA7CONTROL, val)
@@ -671,6 +707,7 @@
 #define bfin_read_USB_DMA7COUNTHIGH()		bfin_read16(USB_DMA7COUNTHIGH)
 #define bfin_write_USB_DMA7COUNTHIGH(val)	bfin_write16(USB_DMA7COUNTHIGH, val)
 
+/* Keybfin_read_()ad Registers */
 
 #define bfin_read_KPAD_CTL()		bfin_read16(KPAD_CTL)
 #define bfin_write_KPAD_CTL(val)	bfin_write16(KPAD_CTL, val)
@@ -685,6 +722,7 @@
 #define bfin_read_KPAD_SOFTEVAL()	bfin_read16(KPAD_SOFTEVAL)
 #define bfin_write_KPAD_SOFTEVAL(val)	bfin_write16(KPAD_SOFTEVAL, val)
 
+/* Pixel Combfin_read_()ositor (PIXC) Registers */
 
 #define bfin_read_PIXC_CTL()		bfin_read16(PIXC_CTL)
 #define bfin_write_PIXC_CTL(val)	bfin_write16(PIXC_CTL, val)
@@ -725,6 +763,7 @@
 #define bfin_read_PIXC_TC()		bfin_read32(PIXC_TC)
 #define bfin_write_PIXC_TC(val)		bfin_write32(PIXC_TC, val)
 
+/* Handshake MDMA 0 Registers */
 
 #define bfin_read_HMDMA0_CONTROL()		bfin_read16(HMDMA0_CONTROL)
 #define bfin_write_HMDMA0_CONTROL(val)		bfin_write16(HMDMA0_CONTROL, val)
@@ -741,6 +780,7 @@
 #define bfin_read_HMDMA0_BCOUNT()		bfin_read16(HMDMA0_BCOUNT)
 #define bfin_write_HMDMA0_BCOUNT(val)		bfin_write16(HMDMA0_BCOUNT, val)
 
+/* Handshake MDMA 1 Registers */
 
 #define bfin_read_HMDMA1_CONTROL()		bfin_read16(HMDMA1_CONTROL)
 #define bfin_write_HMDMA1_CONTROL(val)		bfin_write16(HMDMA1_CONTROL, val)
@@ -757,4 +797,4 @@
 #define bfin_read_HMDMA1_BCOUNT()		bfin_read16(HMDMA1_BCOUNT)
 #define bfin_write_HMDMA1_BCOUNT(val)		bfin_write16(HMDMA1_BCOUNT, val)
 
-#endif 
+#endif /* _CDEF_BF547_H */

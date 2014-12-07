@@ -18,9 +18,20 @@
 
 #include "mpc5200_dma.h"
 
+/**
+ * PSC_I2S_RATES: sample rates supported by the I2S
+ *
+ * This driver currently only supports the PSC running in I2S slave mode,
+ * which means the codec determines the sample rate.  Therefore, we tell
+ * ALSA that we support all rates and let the codec driver decide what rates
+ * are really supported.
+ */
 #define PSC_I2S_RATES (SNDRV_PCM_RATE_5512 | SNDRV_PCM_RATE_8000_192000 | \
 			SNDRV_PCM_RATE_CONTINUOUS)
 
+/**
+ * PSC_I2S_FORMATS: audio formats supported by the PSC I2S mode
+ */
 #define PSC_I2S_FORMATS (SNDRV_PCM_FMTBIT_S8 | SNDRV_PCM_FMTBIT_S16_BE | \
 			 SNDRV_PCM_FMTBIT_S24_BE | SNDRV_PCM_FMTBIT_S32_BE)
 
@@ -60,6 +71,20 @@ static int psc_i2s_hw_params(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+/**
+ * psc_i2s_set_sysclk: set the clock frequency and direction
+ *
+ * This function is called by the machine driver to tell us what the clock
+ * frequency and direction are.
+ *
+ * Currently, we only support operating as a clock slave (SND_SOC_CLOCK_IN),
+ * and we don't care about the frequency.  Return an error if the direction
+ * is not SND_SOC_CLOCK_IN.
+ *
+ * @clk_id: reserved, should be zero
+ * @freq: the frequency of the given clock ID, currently ignored
+ * @dir: SND_SOC_CLOCK_IN (clock slave) or SND_SOC_CLOCK_OUT (clock master)
+ */
 static int psc_i2s_set_sysclk(struct snd_soc_dai *cpu_dai,
 			      int clk_id, unsigned int freq, int dir)
 {
@@ -69,6 +94,17 @@ static int psc_i2s_set_sysclk(struct snd_soc_dai *cpu_dai,
 	return (dir == SND_SOC_CLOCK_IN) ? 0 : -EINVAL;
 }
 
+/**
+ * psc_i2s_set_fmt: set the serial format.
+ *
+ * This function is called by the machine driver to tell us what serial
+ * format to use.
+ *
+ * This driver only supports I2S mode.  Return an error if the format is
+ * not SND_SOC_DAIFMT_I2S.
+ *
+ * @format: one of SND_SOC_DAIFMT_xxx
+ */
 static int psc_i2s_set_fmt(struct snd_soc_dai *cpu_dai, unsigned int format)
 {
 	struct psc_dma *psc_dma = snd_soc_dai_get_drvdata(cpu_dai);
@@ -77,7 +113,16 @@ static int psc_i2s_set_fmt(struct snd_soc_dai *cpu_dai, unsigned int format)
 	return (format == SND_SOC_DAIFMT_I2S) ? 0 : -EINVAL;
 }
 
+/* ---------------------------------------------------------------------
+ * ALSA SoC Bindings
+ *
+ * - Digital Audio Interface (DAI) template
+ * - create/destroy dai hooks
+ */
 
+/**
+ * psc_i2s_dai_template: template CPU Digital Audio Interface
+ */
 static const struct snd_soc_dai_ops psc_i2s_dai_ops = {
 	.hw_params	= psc_i2s_hw_params,
 	.set_sysclk	= psc_i2s_set_sysclk,
@@ -100,6 +145,11 @@ static struct snd_soc_dai_driver psc_i2s_dai[] = {{
 	.ops = &psc_i2s_dai_ops,
 } };
 
+/* ---------------------------------------------------------------------
+ * OF platform bus binding code:
+ * - Probe/remove operations
+ * - OF device match table
+ */
 static int __devinit psc_i2s_of_probe(struct platform_device *op)
 {
 	int rc;
@@ -115,24 +165,32 @@ static int __devinit psc_i2s_of_probe(struct platform_device *op)
 	psc_dma = dev_get_drvdata(&op->dev);
 	regs = psc_dma->psc_regs;
 
-	
+	/* Configure the serial interface mode; defaulting to CODEC8 mode */
 	psc_dma->sicr = MPC52xx_PSC_SICR_DTS1 | MPC52xx_PSC_SICR_I2S |
 			MPC52xx_PSC_SICR_CLKPOL;
 	out_be32(&psc_dma->psc_regs->sicr,
 		 psc_dma->sicr | MPC52xx_PSC_SICR_SIM_CODEC_8);
 
+	/* Check for the codec handle.  If it is not present then we
+	 * are done */
 	if (!of_get_property(op->dev.of_node, "codec-handle", NULL))
 		return 0;
 
+	/* Due to errata in the dma mode; need to line up enabling
+	 * the transmitter with a transition on the frame sync
+	 * line */
 
-	
+	/* first make sure it is low */
 	while ((in_8(&regs->ipcr_acr.ipcr) & 0x80) != 0)
 		;
-	
+	/* then wait for the transition to high */
 	while ((in_8(&regs->ipcr_acr.ipcr) & 0x80) == 0)
 		;
+	/* Finally, enable the PSC.
+	 * Receiver must always be enabled; even when we only want
+	 * transmit.  (see 15.3.2.3 of MPC5200B User's Guide) */
 
-	
+	/* Go */
 	out_8(&psc_dma->psc_regs->command,
 			MPC52xx_PSC_TX_ENABLE | MPC52xx_PSC_RX_ENABLE);
 
@@ -146,6 +204,7 @@ static int __devexit psc_i2s_of_remove(struct platform_device *op)
 	return 0;
 }
 
+/* Match table for of_platform binding */
 static struct of_device_id psc_i2s_match[] __devinitdata = {
 	{ .compatible = "fsl,mpc5200-psc-i2s", },
 	{ .compatible = "fsl,mpc5200b-psc-i2s", },

@@ -21,6 +21,10 @@ static long do_sys_name_to_handle(struct path *path,
 	int handle_dwords, handle_bytes;
 	struct file_handle *handle = NULL;
 
+	/*
+	 * We need t make sure wether the file system
+	 * support decoding of the file handle
+	 */
 	if (!path->dentry->d_sb->s_export_op ||
 	    !path->dentry->d_sb->s_export_op->fh_to_dentry)
 		return -EOPNOTSUPP;
@@ -36,24 +40,33 @@ static long do_sys_name_to_handle(struct path *path,
 	if (!handle)
 		return -ENOMEM;
 
-	
+	/* convert handle size to  multiple of sizeof(u32) */
 	handle_dwords = f_handle.handle_bytes >> 2;
 
-	
+	/* we ask for a non connected handle */
 	retval = exportfs_encode_fh(path->dentry,
 				    (struct fid *)handle->f_handle,
 				    &handle_dwords,  0);
 	handle->handle_type = retval;
-	
+	/* convert handle size to bytes */
 	handle_bytes = handle_dwords * sizeof(u32);
 	handle->handle_bytes = handle_bytes;
 	if ((handle->handle_bytes > f_handle.handle_bytes) ||
 	    (retval == 255) || (retval == -ENOSPC)) {
+		/* As per old exportfs_encode_fh documentation
+		 * we could return ENOSPC to indicate overflow
+		 * But file system returned 255 always. So handle
+		 * both the values
+		 */
+		/*
+		 * set the handle size to zero so we copy only
+		 * non variable part of the file_handle
+		 */
 		handle_bytes = 0;
 		retval = -EOVERFLOW;
 	} else
 		retval = 0;
-	
+	/* copy the mount id */
 	if (copy_to_user(mnt_id, &real_mount(path->mnt)->mnt_id,
 			 sizeof(*mnt_id)) ||
 	    copy_to_user(ufh, handle,
@@ -63,6 +76,19 @@ static long do_sys_name_to_handle(struct path *path,
 	return retval;
 }
 
+/**
+ * sys_name_to_handle_at: convert name to handle
+ * @dfd: directory relative to which name is interpreted if not absolute
+ * @name: name that should be converted to handle.
+ * @handle: resulting file handle
+ * @mnt_id: mount id of the file system containing the file
+ * @flag: flag value to indicate whether to follow symlink or not
+ *
+ * @handle->handle_size indicate the space available to store the
+ * variable part of the file handle in bytes. If there is not
+ * enough space, the field is updated to return the minimum
+ * value required.
+ */
 SYSCALL_DEFINE5(name_to_handle_at, int, dfd, const char __user *, name,
 		struct file_handle __user *, handle, int __user *, mnt_id,
 		int, flag)
@@ -123,7 +149,7 @@ static int do_handle_to_path(int mountdirfd, struct file_handle *handle,
 		retval = PTR_ERR(path->mnt);
 		goto out_err;
 	}
-	
+	/* change the handle size to multiple of sizeof(u32) */
 	handle_dwords = handle->handle_bytes >> 2;
 	path->dentry = exportfs_decode_fh(path->mnt,
 					  (struct fid *)handle->f_handle,
@@ -147,6 +173,11 @@ static int handle_to_path(int mountdirfd, struct file_handle __user *ufh,
 	struct file_handle f_handle;
 	struct file_handle *handle = NULL;
 
+	/*
+	 * With handle we don't look at the execute bit on the
+	 * the directory. Ideally we would like CAP_DAC_SEARCH.
+	 * But we don't have that
+	 */
 	if (!capable(CAP_DAC_READ_SEARCH)) {
 		retval = -EPERM;
 		goto out_err;
@@ -166,7 +197,7 @@ static int handle_to_path(int mountdirfd, struct file_handle __user *ufh,
 		retval = -ENOMEM;
 		goto out_err;
 	}
-	
+	/* copy the full handle */
 	if (copy_from_user(handle, ufh,
 			   sizeof(struct file_handle) +
 			   f_handle.handle_bytes)) {
@@ -212,6 +243,17 @@ long do_handle_open(int mountdirfd,
 	return retval;
 }
 
+/**
+ * sys_open_by_handle_at: Open the file handle
+ * @mountdirfd: directory file descriptor
+ * @handle: file handle to be opened
+ * @flag: open flags.
+ *
+ * @mountdirfd indicate the directory file descriptor
+ * of the mount point. file handle is decoded relative
+ * to the vfsmount pointed by the @mountdirfd. @flags
+ * value is same as the open(2) flags.
+ */
 SYSCALL_DEFINE3(open_by_handle_at, int, mountdirfd,
 		struct file_handle __user *, handle,
 		int, flags)

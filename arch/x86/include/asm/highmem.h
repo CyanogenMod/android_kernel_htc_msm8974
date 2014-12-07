@@ -27,8 +27,29 @@
 #include <asm/paravirt.h>
 #include <asm/fixmap.h>
 
+/* declarations for highmem.c */
 extern unsigned long highstart_pfn, highend_pfn;
 
+/*
+ * Right now we initialize only a single pte table. It can be extended
+ * easily, subsequent pte tables have to be allocated in one physical
+ * chunk of RAM.
+ */
+/*
+ * Ordering is:
+ *
+ * FIXADDR_TOP
+ * 			fixed_addresses
+ * FIXADDR_START
+ * 			temp fixed addresses
+ * FIXADDR_BOOT_START
+ * 			Persistent kmap area
+ * PKMAP_BASE
+ * VMALLOC_END
+ * 			Vmalloc area
+ * VMALLOC_START
+ * high_memory
+ */
 #define LAST_PKMAP_MASK (LAST_PKMAP-1)
 #define PKMAP_NR(virt)  ((virt-PKMAP_BASE) >> PAGE_SHIFT)
 #define PKMAP_ADDR(nr)  (PKMAP_BASE + ((nr) << PAGE_SHIFT))
@@ -51,6 +72,6 @@ struct page *kmap_atomic_to_page(void *ptr);
 extern void add_highpages_with_active_regions(int nid, unsigned long start_pfn,
 					unsigned long end_pfn);
 
-#endif 
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* _ASM_X86_HIGHMEM_H */

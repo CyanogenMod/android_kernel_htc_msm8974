@@ -33,7 +33,9 @@ static int debug;
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Debug level (0-1)");
 
+/* Register map definition */
 
+/* CSIS global control */
 #define S5PCSIS_CTRL			0x00
 #define S5PCSIS_CTRL_DPDN_DEFAULT	(0 << 31)
 #define S5PCSIS_CTRL_DPDN_SWAP		(1 << 31)
@@ -43,6 +45,7 @@ MODULE_PARM_DESC(debug, "Debug level (0-1)");
 #define S5PCSIS_CTRL_RESET		(1 << 4)
 #define S5PCSIS_CTRL_ENABLE		(1 << 0)
 
+/* D-PHY control */
 #define S5PCSIS_DPHYCTRL		0x04
 #define S5PCSIS_DPHYCTRL_HSS_MASK	(0x1f << 27)
 #define S5PCSIS_DPHYCTRL_ENABLE		(0x1f << 0)
@@ -52,14 +55,17 @@ MODULE_PARM_DESC(debug, "Debug level (0-1)");
 #define S5PCSIS_CFG_FMT_RAW8		(0x2a << 2)
 #define S5PCSIS_CFG_FMT_RAW10		(0x2b << 2)
 #define S5PCSIS_CFG_FMT_RAW12		(0x2c << 2)
+/* User defined formats, x = 1...4 */
 #define S5PCSIS_CFG_FMT_USER(x)		((0x30 + x - 1) << 2)
 #define S5PCSIS_CFG_FMT_MASK		(0x3f << 2)
 #define S5PCSIS_CFG_NR_LANE_MASK	3
 
+/* Interrupt mask. */
 #define S5PCSIS_INTMSK			0x10
 #define S5PCSIS_INTMSK_EN_ALL		0xf000003f
 #define S5PCSIS_INTSRC			0x14
 
+/* Pixel resolution */
 #define S5PCSIS_RESOL			0x2c
 #define CSIS_MAX_PIX_WIDTH		0xffff
 #define CSIS_MAX_PIX_HEIGHT		0xffff
@@ -76,8 +82,8 @@ static char *csi_clock_name[] = {
 #define NUM_CSIS_CLOCKS	ARRAY_SIZE(csi_clock_name)
 
 static const char * const csis_supply_name[] = {
-	"vdd11", 
-	"vdd18", 
+	"vdd11", /* 1.1V or 1.2V (s5pc100) MIPI CSI suppply */
+	"vdd18", /* VDD 1.8V and MIPI CSI PLL supply */
 };
 #define CSIS_NUM_SUPPLIES ARRAY_SIZE(csis_supply_name)
 
@@ -87,6 +93,20 @@ enum {
 	ST_SUSPENDED	= 4,
 };
 
+/**
+ * struct csis_state - the driver's internal state data structure
+ * @lock: mutex serializing the subdev and power management operations,
+ *        protecting @format and @flags members
+ * @pads: CSIS pads array
+ * @sd: v4l2_subdev associated with CSIS device instance
+ * @pdev: CSIS platform device
+ * @regs: mmaped I/O registers memory
+ * @clock: CSIS clocks
+ * @irq: requested s5p-mipi-csis irq number
+ * @flags: the state variable for power and streaming control
+ * @csis_fmt: current CSIS pixel format
+ * @format: common media bus format for the source and sink pad
+ */
 struct csis_state {
 	struct mutex lock;
 	struct media_pad pads[CSIS_PADS_NUM];
@@ -101,6 +121,13 @@ struct csis_state {
 	struct v4l2_mbus_framefmt format;
 };
 
+/**
+ * struct csis_pix_format - CSIS pixel format description
+ * @pix_width_alignment: horizontal pixel alignment, width will be
+ *                       multiple of 2^pix_width_alignment
+ * @code: corresponding media bus code
+ * @fmt_reg: S5PCSIS_CONFIG register value
+ */
 struct csis_pix_format {
 	unsigned int pix_width_alignment;
 	enum v4l2_mbus_pixelcode code;
@@ -172,6 +199,7 @@ static void s5pcsis_system_enable(struct csis_state *state, int on)
 	s5pcsis_write(state, S5PCSIS_DPHYCTRL, val);
 }
 
+/* Called with the state.lock mutex held */
 static void __s5pcsis_set_format(struct csis_state *state)
 {
 	struct v4l2_mbus_framefmt *mf = &state->format;
@@ -180,12 +208,12 @@ static void __s5pcsis_set_format(struct csis_state *state)
 	v4l2_dbg(1, debug, &state->sd, "fmt: %d, %d x %d\n",
 		 mf->code, mf->width, mf->height);
 
-	
+	/* Color format */
 	val = s5pcsis_read(state, S5PCSIS_CONFIG);
 	val = (val & ~S5PCSIS_CFG_FMT_MASK) | state->csis_fmt->fmt_reg;
 	s5pcsis_write(state, S5PCSIS_CONFIG, val);
 
-	
+	/* Pixel resolution */
 	val = (mf->width << 16) | mf->height;
 	s5pcsis_write(state, S5PCSIS_RESOL, val);
 }
@@ -213,13 +241,13 @@ static void s5pcsis_set_params(struct csis_state *state)
 	val = s5pcsis_read(state, S5PCSIS_CTRL);
 	if (pdata->alignment == 32)
 		val |= S5PCSIS_CTRL_ALIGN_32BIT;
-	else 
+	else /* 24-bits */
 		val &= ~S5PCSIS_CTRL_ALIGN_32BIT;
-	
+	/* Not using external clock. */
 	val &= ~S5PCSIS_CTRL_WCLK_EXTCLK;
 	s5pcsis_write(state, S5PCSIS_CTRL, val);
 
-	
+	/* Update the shadow register. */
 	val = s5pcsis_read(state, S5PCSIS_CTRL);
 	s5pcsis_write(state, S5PCSIS_CTRL, val | S5PCSIS_CTRL_UPDATE_SHADOW);
 }
@@ -285,6 +313,7 @@ static void s5pcsis_stop_stream(struct csis_state *state)
 	s5pcsis_system_enable(state, false);
 }
 
+/* v4l2_subdev operations */
 static int s5pcsis_s_stream(struct v4l2_subdev *sd, int enable)
 {
 	struct csis_state *state = sd_to_csis_state(sd);
@@ -448,7 +477,7 @@ static irqreturn_t s5pcsis_irq_handler(int irq, void *dev_id)
 	struct csis_state *state = dev_id;
 	u32 val;
 
-	
+	/* Just clear the interrupt pending bits. */
 	val = s5pcsis_read(state, S5PCSIS_INTSRC);
 	s5pcsis_write(state, S5PCSIS_INTSRC, val);
 
@@ -538,10 +567,10 @@ static int __devinit s5pcsis_probe(struct platform_device *pdev)
 	if (ret < 0)
 		goto e_clkput;
 
-	
+	/* This allows to retrieve the platform device id by the host driver */
 	v4l2_set_subdevdata(&state->sd, pdev);
 
-	
+	/* .. and a pointer to the subdev. */
 	platform_set_drvdata(pdev, &state->sd);
 
 	pm_runtime_enable(&pdev->dev);

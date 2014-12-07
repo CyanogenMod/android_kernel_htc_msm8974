@@ -41,6 +41,30 @@
 #define IWL_TX_CRC_SIZE 4
 #define IWL_TX_DELIMITER_SIZE 4
 
+/*
+ * mac80211 queues, ACs, hardware queues, FIFOs.
+ *
+ * Cf. http://wireless.kernel.org/en/developers/Documentation/mac80211/queues
+ *
+ * Mac80211 uses the following numbers, which we get as from it
+ * by way of skb_get_queue_mapping(skb):
+ *
+ *	VO	0
+ *	VI	1
+ *	BE	2
+ *	BK	3
+ *
+ *
+ * Regular (not A-MPDU) frames are put into hardware queues corresponding
+ * to the FIFOs, see comments in iwl-prph.h. Aggregated frames get their
+ * own queue per aggregation session (RA/TID combination), such queues are
+ * set up to map into FIFOs too, for which we need an AC->FIFO mapping. In
+ * order to map frames to the right queue, we also need an AC->hw queue
+ * mapping. This is implemented here.
+ *
+ * Due to the way hw queues are set up (by the hw specific code), the AC->hw
+ * queue mapping is the identity mapping.
+ */
 
 static const u8 tid_to_ac[] = {
 	IEEE80211_AC_BE,
@@ -54,6 +78,9 @@ static const u8 tid_to_ac[] = {
 };
 
 
+/**
+ * iwl_trans_txq_update_byte_cnt_tbl - Set up entry in Tx byte-count array
+ */
 void iwl_trans_txq_update_byte_cnt_tbl(struct iwl_trans *trans,
 					   struct iwl_tx_queue *txq,
 					   u16 byte_cnt)
@@ -98,6 +125,9 @@ void iwl_trans_txq_update_byte_cnt_tbl(struct iwl_trans *trans,
 			tfd_offset[TFD_QUEUE_SIZE_MAX + write_ptr] = bc_ent;
 }
 
+/**
+ * iwl_txq_update_write_ptr - Send new write index to hardware
+ */
 void iwl_txq_update_write_ptr(struct iwl_trans *trans, struct iwl_tx_queue *txq)
 {
 	u32 reg = 0;
@@ -107,12 +137,15 @@ void iwl_txq_update_write_ptr(struct iwl_trans *trans, struct iwl_tx_queue *txq)
 		return;
 
 	if (cfg(trans)->base_params->shadow_reg_enable) {
-		
+		/* shadow register enabled */
 		iwl_write32(trans, HBUS_TARG_WRPTR,
 			    txq->q.write_ptr | (txq_id << 8));
 	} else {
-		
+		/* if we're trying to save power */
 		if (test_bit(STATUS_POWER_PMI, &trans->shrd->status)) {
+			/* wake up nic if it's powered down ...
+			 * uCode will wake up, and interrupt us again, so next
+			 * time we'll skip this part. */
 			reg = iwl_read32(trans, CSR_UCODE_DRV_GP1);
 
 			if (reg & CSR_UCODE_DRV_GP1_BIT_MAC_SLEEP) {
@@ -127,6 +160,11 @@ void iwl_txq_update_write_ptr(struct iwl_trans *trans, struct iwl_tx_queue *txq)
 			iwl_write_direct32(trans, HBUS_TARG_WRPTR,
 				     txq->q.write_ptr | (txq_id << 8));
 
+		/*
+		 * else not in power-save mode,
+		 * uCode will never sleep when we're
+		 * trying to tx (during RFKILL, we're not trying to tx).
+		 */
 		} else
 			iwl_write32(trans, HBUS_TARG_WRPTR,
 				    txq->q.write_ptr | (txq_id << 8));
@@ -179,28 +217,38 @@ static void iwlagn_unmap_tfd(struct iwl_trans *trans, struct iwl_cmd_meta *meta,
 	int i;
 	int num_tbs;
 
-	
+	/* Sanity check on number of chunks */
 	num_tbs = iwl_tfd_get_num_tbs(tfd);
 
 	if (num_tbs >= IWL_NUM_OF_TBS) {
 		IWL_ERR(trans, "Too many chunks: %i\n", num_tbs);
-		
+		/* @todo issue fatal error, it is quite serious situation */
 		return;
 	}
 
-	
+	/* Unmap tx_cmd */
 	if (num_tbs)
 		dma_unmap_single(trans->dev,
 				dma_unmap_addr(meta, mapping),
 				dma_unmap_len(meta, len),
 				DMA_BIDIRECTIONAL);
 
-	
+	/* Unmap chunks, if any. */
 	for (i = 1; i < num_tbs; i++)
 		dma_unmap_single(trans->dev, iwl_tfd_tb_get_addr(tfd, i),
 				iwl_tfd_tb_get_len(tfd, i), dma_dir);
 }
 
+/**
+ * iwlagn_txq_free_tfd - Free all chunks referenced by TFD [txq->q.read_ptr]
+ * @trans - transport private data
+ * @txq - tx queue
+ * @index - the index of the TFD to be freed
+ *@dma_dir - the direction of the DMA mapping
+ *
+ * Does NOT advance any TFD circular buffer read/write indexes
+ * Does NOT free the TFD itself (which is within circular buffer)
+ */
 void iwlagn_txq_free_tfd(struct iwl_trans *trans, struct iwl_tx_queue *txq,
 	int index, enum dma_data_direction dma_dir)
 {
@@ -210,12 +258,16 @@ void iwlagn_txq_free_tfd(struct iwl_trans *trans, struct iwl_tx_queue *txq,
 
 	iwlagn_unmap_tfd(trans, &txq->meta[index], &tfd_tmp[index], dma_dir);
 
-	
+	/* free SKB */
 	if (txq->skbs) {
 		struct sk_buff *skb;
 
 		skb = txq->skbs[index];
 
+		/* Can be called from irqs-disabled context
+		 * If skb is not NULL, it means that the whole queue is being
+		 * freed and that the queue is not empty - free the skb
+		 */
 		if (skb) {
 			iwl_op_mode_free_skb(trans->op_mode, skb);
 			txq->skbs[index] = NULL;
@@ -241,7 +293,7 @@ int iwlagn_txq_attach_buf_to_tfd(struct iwl_trans *trans,
 
 	num_tbs = iwl_tfd_get_num_tbs(tfd);
 
-	
+	/* Each TFD can point to a maximum 20 Tx buffers */
 	if (num_tbs >= IWL_NUM_OF_TBS) {
 		IWL_ERR(trans, "Error can not send more than %d chunks\n",
 			  IWL_NUM_OF_TBS);
@@ -260,6 +312,27 @@ int iwlagn_txq_attach_buf_to_tfd(struct iwl_trans *trans,
 	return 0;
 }
 
+/*************** DMA-QUEUE-GENERAL-FUNCTIONS  *****
+ * DMA services
+ *
+ * Theory of operation
+ *
+ * A Tx or Rx queue resides in host DRAM, and is comprised of a circular buffer
+ * of buffer descriptors, each of which points to one or more data buffers for
+ * the device to read from or fill.  Driver and device exchange status of each
+ * queue via "read" and "write" pointers.  Driver keeps minimum of 2 empty
+ * entries in each circular buffer, to protect against confusing empty and full
+ * queue states.
+ *
+ * The device reads or writes the data in the queues via the device's several
+ * DMA/FIFO channels.  Each queue is mapped to a single DMA channel.
+ *
+ * For Tx queue, there are low mark and high mark limits. If, after queuing
+ * the packet for Tx, free space become < low mark, Tx queue stopped. When
+ * reclaiming packets (on 'tx done IRQ), if free space become > high mark,
+ * Tx queue resumed.
+ *
+ ***************************************************/
 
 int iwl_queue_space(const struct iwl_queue *q)
 {
@@ -270,22 +343,29 @@ int iwl_queue_space(const struct iwl_queue *q)
 
 	if (s <= 0)
 		s += q->n_window;
-	
+	/* keep some reserve to not confuse empty and full situations */
 	s -= 2;
 	if (s < 0)
 		s = 0;
 	return s;
 }
 
+/**
+ * iwl_queue_init - Initialize queue's high/low-water and read/write indexes
+ */
 int iwl_queue_init(struct iwl_queue *q, int count, int slots_num, u32 id)
 {
 	q->n_bd = count;
 	q->n_window = slots_num;
 	q->id = id;
 
+	/* count must be power-of-two size, otherwise iwl_queue_inc_wrap
+	 * and iwl_queue_dec_wrap are broken. */
 	if (WARN_ON(!is_power_of_2(count)))
 		return -EINVAL;
 
+	/* slots_num must be power-of-two size, otherwise
+	 * get_cmd_index is broken. */
 	if (WARN_ON(!is_power_of_2(slots_num)))
 		return -EINVAL;
 
@@ -357,6 +437,8 @@ static int iwlagn_tx_queue_set_q2ratid(struct iwl_trans *trans, u16 ra_tid,
 
 static void iwlagn_tx_queue_stop_scheduler(struct iwl_trans *trans, u16 txq_id)
 {
+	/* Simply stop the queue, but don't change any configuration;
+	 * the SCD_ACT_EN bit is the write-enable mask for the ACTIVE bit. */
 	iwl_write_prph(trans,
 		SCD_QUEUE_STATUS_BITS(txq_id),
 		(0 << SCD_QUEUE_STTS_REG_POS_ACTIVE)|
@@ -402,7 +484,7 @@ static inline int get_ac_from_tid(u16 tid)
 	if (likely(tid < ARRAY_SIZE(tid_to_ac)))
 		return tid_to_ac[tid];
 
-	
+	/* no support for TIDs 8-15 yet */
 	return -EINVAL;
 }
 
@@ -413,7 +495,7 @@ static inline int get_fifo_from_tid(struct iwl_trans_pcie *trans_pcie,
 	if (likely(tid < ARRAY_SIZE(tid_to_ac)))
 		return ac_to_fifo[tid_to_ac[tid]];
 
-	
+	/* no support for TIDs 8-15 yet */
 	return -EINVAL;
 }
 
@@ -461,23 +543,25 @@ void iwl_trans_pcie_tx_agg_setup(struct iwl_trans *trans,
 
 	spin_lock_irqsave(&trans_pcie->irq_lock, flags);
 
-	
+	/* Stop this Tx queue before configuring it */
 	iwlagn_tx_queue_stop_scheduler(trans, txq_id);
 
-	
+	/* Map receiver-address / traffic-ID to this queue */
 	iwlagn_tx_queue_set_q2ratid(trans, ra_tid, txq_id);
 
-	
+	/* Set this queue as a chain-building queue */
 	iwl_set_bits_prph(trans, SCD_QUEUECHAIN_SEL, (1<<txq_id));
 
-	
+	/* enable aggregations for the queue */
 	iwl_set_bits_prph(trans, SCD_AGGR_SEL, (1<<txq_id));
 
+	/* Place first TFD at index corresponding to start sequence number.
+	 * Assumes that ssn_idx is valid (!= 0xFFF) */
 	trans_pcie->txq[txq_id].q.read_ptr = (ssn & 0xff);
 	trans_pcie->txq[txq_id].q.write_ptr = (ssn & 0xff);
 	iwl_trans_set_wr_ptrs(trans, txq_id, ssn);
 
-	
+	/* Set up Tx window size and frame limit for this queue */
 	iwl_write_targ_mem(trans, trans_pcie->scd_base_addr +
 			SCD_CONTEXT_QUEUE_OFFSET(txq_id) +
 			sizeof(u32),
@@ -490,7 +574,7 @@ void iwl_trans_pcie_tx_agg_setup(struct iwl_trans *trans,
 
 	iwl_set_bits_prph(trans, SCD_INTERRUPT_MASK, (1 << txq_id));
 
-	
+	/* Set up Status area in SRAM, map to Tx DMA/FIFO, activate the queue */
 	iwl_trans_tx_queue_set_status(trans, &trans_pcie->txq[txq_id],
 					tx_fifo, 1);
 
@@ -500,6 +584,12 @@ void iwl_trans_pcie_tx_agg_setup(struct iwl_trans *trans,
 	spin_unlock_irqrestore(&trans_pcie->irq_lock, flags);
 }
 
+/*
+ * Find first available (lowest unused) Tx Queue, mark it "active".
+ * Called only when finding queue for aggregation.
+ * Should never return anything < 7, because they should already
+ * be in use as EDCA AC (0-3), Command (4), reserved (5, 6)
+ */
 static int iwlagn_txq_ctx_activate_free(struct iwl_trans *trans)
 {
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
@@ -552,7 +642,7 @@ int iwl_trans_pcie_tx_agg_disable(struct iwl_trans *trans, int sta_id, int tid)
 	trans_pcie->agg_txq[sta_id][tid] = 0;
 	trans_pcie->txq[txq_id].q.read_ptr = 0;
 	trans_pcie->txq[txq_id].q.write_ptr = 0;
-	
+	/* supposes that ssn_idx is valid (!= 0xFFF) */
 	iwl_trans_set_wr_ptrs(trans, txq_id, 0);
 
 	iwl_clear_bits_prph(trans, SCD_INTERRUPT_MASK, (1 << txq_id));
@@ -561,7 +651,17 @@ int iwl_trans_pcie_tx_agg_disable(struct iwl_trans *trans, int sta_id, int tid)
 	return 0;
 }
 
+/*************** HOST COMMAND QUEUE FUNCTIONS   *****/
 
+/**
+ * iwl_enqueue_hcmd - enqueue a uCode command
+ * @priv: device private data point
+ * @cmd: a point to the ucode command structure
+ *
+ * The function returns < 0 values to indicate the operation is
+ * failed. On success, it turns the index (> 0) of command in the
+ * command queue.
+ */
 static int iwl_enqueue_hcmd(struct iwl_trans *trans, struct iwl_host_cmd *cmd)
 {
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
@@ -589,7 +689,7 @@ static int iwl_enqueue_hcmd(struct iwl_trans *trans, struct iwl_host_cmd *cmd)
 	copy_size = sizeof(out_cmd->hdr);
 	cmd_size = sizeof(out_cmd->hdr);
 
-	
+	/* need one for the header if the first is NOCOPY */
 	BUILD_BUG_ON(IWL_MAX_CMD_TFDS > IWL_NUM_OF_TBS - 1);
 
 	for (i = 0; i < IWL_MAX_CMD_TFDS; i++) {
@@ -598,7 +698,7 @@ static int iwl_enqueue_hcmd(struct iwl_trans *trans, struct iwl_host_cmd *cmd)
 		if (cmd->dataflags[i] & IWL_HCMD_DFL_NOCOPY) {
 			had_nocopy = true;
 		} else {
-			
+			/* NOCOPY must not be followed by normal! */
 			if (WARN_ON(had_nocopy))
 				return -EINVAL;
 			copy_size += cmd->len[i];
@@ -606,6 +706,12 @@ static int iwl_enqueue_hcmd(struct iwl_trans *trans, struct iwl_host_cmd *cmd)
 		cmd_size += cmd->len[i];
 	}
 
+	/*
+	 * If any of the command structures end up being larger than
+	 * the TFD_MAX_PAYLOAD_SIZE and they aren't dynamically
+	 * allocated into separate TFDs, then we will need to
+	 * increase the size of the buffers.
+	 */
 	if (WARN_ON(copy_size > TFD_MAX_PAYLOAD_SIZE))
 		return -EINVAL;
 
@@ -623,11 +729,11 @@ static int iwl_enqueue_hcmd(struct iwl_trans *trans, struct iwl_host_cmd *cmd)
 	out_cmd = txq->cmd[idx];
 	out_meta = &txq->meta[idx];
 
-	memset(out_meta, 0, sizeof(*out_meta));	
+	memset(out_meta, 0, sizeof(*out_meta));	/* re-initialize to NULL */
 	if (cmd->flags & CMD_WANT_SKB)
 		out_meta->source = cmd;
 
-	
+	/* set up the header */
 
 	out_cmd->hdr.cmd = cmd->id;
 	out_cmd->hdr.flags = 0;
@@ -635,7 +741,7 @@ static int iwl_enqueue_hcmd(struct iwl_trans *trans, struct iwl_host_cmd *cmd)
 		cpu_to_le16(QUEUE_TO_SEQ(trans_pcie->cmd_queue) |
 					 INDEX_TO_SEQ(q->write_ptr));
 
-	
+	/* and copy the data that needs to be copied */
 
 	cmd_dest = out_cmd->payload;
 	for (i = 0; i < IWL_MAX_CMD_TFDS; i++) {
@@ -701,7 +807,7 @@ static int iwl_enqueue_hcmd(struct iwl_trans *trans, struct iwl_host_cmd *cmd)
 
 	txq->need_update = 1;
 
-	
+	/* check that tracing gets all possible blocks */
 	BUILD_BUG_ON(IWL_MAX_CMD_TFDS + 1 != 3);
 #ifdef CONFIG_IWLWIFI_DEVICE_TRACING
 	trace_iwlwifi_dev_hcmd(trans->dev, cmd->flags,
@@ -710,7 +816,7 @@ static int iwl_enqueue_hcmd(struct iwl_trans *trans, struct iwl_host_cmd *cmd)
 			       trace_bufs[2], trace_lens[2]);
 #endif
 
-	
+	/* Increment and update queue's write index */
 	q->write_ptr = iwl_queue_inc_wrap(q->write_ptr, q->n_bd);
 	iwl_txq_update_write_ptr(trans, txq);
 
@@ -719,6 +825,13 @@ static int iwl_enqueue_hcmd(struct iwl_trans *trans, struct iwl_host_cmd *cmd)
 	return idx;
 }
 
+/**
+ * iwl_hcmd_queue_reclaim - Reclaim TX command queue entries already Tx'd
+ *
+ * When FW advances 'R' index, all entries between old and new 'R' index
+ * need to be reclaimed. As result, some free space forms.  If there is
+ * enough free space (> low mark), wake the stack that feeds us.
+ */
 static void iwl_hcmd_queue_reclaim(struct iwl_trans *trans, int txq_id,
 				   int idx)
 {
@@ -748,6 +861,16 @@ static void iwl_hcmd_queue_reclaim(struct iwl_trans *trans, int txq_id,
 	}
 }
 
+/**
+ * iwl_tx_cmd_complete - Pull unused buffers off the queue and reclaim them
+ * @rxb: Rx buffer to reclaim
+ * @handler_status: return value of the handler of the command
+ *	(put in setup_rx_handlers)
+ *
+ * If an Rx buffer has an async callback associated with it the callback
+ * will be executed.  The attached skb (if present) will only be freed
+ * if the callback returns 1
+ */
 void iwl_tx_cmd_complete(struct iwl_trans *trans, struct iwl_rx_cmd_buffer *rxb,
 			 int handler_status)
 {
@@ -761,6 +884,9 @@ void iwl_tx_cmd_complete(struct iwl_trans *trans, struct iwl_rx_cmd_buffer *rxb,
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 	struct iwl_tx_queue *txq = &trans_pcie->txq[trans_pcie->cmd_queue];
 
+	/* If a Tx command is being handled and it isn't in the actual
+	 * command queue then there a command routing bug has been introduced
+	 * in the queue management code. */
 	if (WARN(txq_id != trans_pcie->cmd_queue,
 		 "wrong command queue %d (should be %d), sequence 0x%X readp=%d writep=%d\n",
 		  txq_id, trans_pcie->cmd_queue, sequence,
@@ -781,7 +907,7 @@ void iwl_tx_cmd_complete(struct iwl_trans *trans, struct iwl_rx_cmd_buffer *rxb,
 	iwlagn_unmap_tfd(trans, meta, &txq->tfds[index],
 			 DMA_BIDIRECTIONAL);
 
-	
+	/* Input error checking is done when commands are added to queue. */
 	if (meta->flags & CMD_WANT_SKB) {
 		struct page *p = rxb_steal_page(rxb);
 
@@ -816,7 +942,7 @@ static int iwl_send_cmd_async(struct iwl_trans *trans, struct iwl_host_cmd *cmd)
 {
 	int ret;
 
-	
+	/* An asynchronous command can not expect an SKB to be set. */
 	if (WARN_ON(cmd->flags & CMD_WANT_SKB))
 		return -EINVAL;
 
@@ -903,6 +1029,12 @@ static int iwl_send_cmd_sync(struct iwl_trans *trans, struct iwl_host_cmd *cmd)
 
 cancel:
 	if (cmd->flags & CMD_WANT_SKB) {
+		/*
+		 * Cancel the CMD_WANT_SKB flag for the cmd in the
+		 * TX cmd queue. Otherwise in case the cmd comes
+		 * in later, it will possibly set an invalid
+		 * address (cmd->meta.source).
+		 */
 		trans_pcie->txq[trans_pcie->cmd_queue].meta[cmd_idx].flags &=
 							~CMD_WANT_SKB;
 	}
@@ -923,6 +1055,7 @@ int iwl_trans_pcie_send_cmd(struct iwl_trans *trans, struct iwl_host_cmd *cmd)
 	return iwl_send_cmd_sync(trans, cmd);
 }
 
+/* Frees buffers until index _not_ inclusive */
 int iwl_tx_queue_reclaim(struct iwl_trans *trans, int txq_id, int index,
 			 struct sk_buff_head *skbs)
 {
@@ -932,12 +1065,14 @@ int iwl_tx_queue_reclaim(struct iwl_trans *trans, int txq_id, int index,
 	int last_to_free;
 	int freed = 0;
 
-	
+	/* This function is not meant to release cmd queue*/
 	if (WARN_ON(txq_id == trans_pcie->cmd_queue))
 		return 0;
 
 	lockdep_assert_held(&txq->lock);
 
+	/*Since we free until index _not_ inclusive, the one before index is
+	 * the last we will free. This one must be used */
 	last_to_free = iwl_queue_dec_wrap(index, q->n_bd);
 
 	if ((index >= q->n_bd) ||

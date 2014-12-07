@@ -40,11 +40,21 @@
 #define USB_HWDESC_HEADER_LEN			32
 #define CRCLENGTH				4
 
+/* Define a macro that takes a le32 word, converts it to host ordering,
+ * right shifts by a specified count, creates a mask of the specified
+ * bit count, and extracts that number of bits.
+ */
 
 #define SHIFT_AND_MASK_LE(__pdesc, __shift, __mask)		\
 	((le32_to_cpu(*(((__le32 *)(__pdesc)))) >> (__shift)) &	\
 	BIT_LEN_MASK_32(__mask))
 
+/* Define a macro that clears a bit field in an le32 word and
+ * sets the specified value into that bit field. The resulting
+ * value remains in le32 ordering; however, it is properly converted
+ * to host ordering for the clear and set operations before conversion
+ * back to le32.
+ */
 
 #define SET_BITS_OFFSET_LE(__pdesc, __shift, __len, __val)	\
 	(*(__le32 *)(__pdesc) =					\
@@ -52,6 +62,7 @@
 	(~(BIT_OFFSET_LEN_MASK_32((__shift), __len)))) |		\
 	(((u32)(__val) & BIT_LEN_MASK_32(__len)) << (__shift)))));
 
+/* macros to read/write various fields in RX or TX descriptors */
 
 #define SET_TX_DESC_PKT_SIZE(__pdesc, __val)		\
 	SET_BITS_OFFSET_LE(__pdesc, 0, 16, __val)
@@ -526,6 +537,7 @@ do {							\
 		memset((void *)__pdesc, 0, _size);	\
 } while (0);
 
+/* For 92D early mode */
 #define SET_EARLYMODE_PKTNUM(__paddr, __value)		\
 	SET_BITS_OFFSET_LE(__paddr, 0, 3, __value)
 #define SET_EARLYMODE_LEN0(__paddr, __value)		\

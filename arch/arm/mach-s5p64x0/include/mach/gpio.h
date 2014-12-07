@@ -13,6 +13,7 @@
 #ifndef __ASM_ARCH_GPIO_H
 #define __ASM_ARCH_GPIO_H __FILE__
 
+/* GPIO bank sizes */
 
 #define S5P6440_GPIO_A_NR	(6)
 #define S5P6440_GPIO_B_NR	(7)
@@ -42,7 +43,12 @@
 #define S5P6450_GPIO_R_NR	(15)
 #define S5P6450_GPIO_S_NR	(8)
 
+/* GPIO bank numbers */
 
+/* CONFIG_S3C_GPIO_SPACE allows the user to select extra
+ * space for debugging purposes so that any accidental
+ * change from one gpio bank to another can be caught.
+*/
 
 #define S5P64X0_GPIO_NEXT(__gpio) \
 	((__gpio##_START) + (__gpio##_NR) + CONFIG_S3C_GPIO_SPACE + 1)
@@ -79,6 +85,7 @@ enum s5p6450_gpio_number {
 	S5P6450_GPIO_S_START	= S5P64X0_GPIO_NEXT(S5P6450_GPIO_R),
 };
 
+/* GPIO number definitions */
 
 #define S5P6440_GPA(_nr)	(S5P6440_GPIO_A_START + (_nr))
 #define S5P6440_GPB(_nr)	(S5P6440_GPIO_B_START + (_nr))
@@ -108,6 +115,7 @@ enum s5p6450_gpio_number {
 #define S5P6450_GPR(_nr)	(S5P6450_GPIO_R_START + (_nr))
 #define S5P6450_GPS(_nr)	(S5P6450_GPIO_S_START + (_nr))
 
+/* the end of the S5P64X0 specific gpios */
 
 #define S5P6440_GPIO_END	(S5P6440_GPR(S5P6440_GPIO_R_NR) + 1)
 #define S5P6450_GPIO_END	(S5P6450_GPS(S5P6450_GPIO_S_NR) + 1)
@@ -117,7 +125,8 @@ enum s5p6450_gpio_number {
 
 #define S3C_GPIO_END		S5P64X0_GPIO_END
 
+/* define the number of gpios we need to the one after the last GPIO range */
 
 #define ARCH_NR_GPIOS		(S5P64X0_GPIO_END + CONFIG_SAMSUNG_GPIO_EXTRA)
 
-#endif 
+#endif /* __ASM_ARCH_GPIO_H */

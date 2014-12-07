@@ -20,8 +20,16 @@
 
 #include "mpi-internal.h"
 
+/****************
+ * Calculate the multiplicative inverse X of A mod N
+ * That is: Find the solution x for
+ *		1 = (a*x) mod n
+ */
 int mpi_invm(MPI x, const MPI a, const MPI n)
 {
+	/* Extended Euclid's algorithm (See TAOPC Vol II, 4.5.2, Alg X)
+	 * modified according to Michael Penk's solution for Exercice 35
+	 * with further enhancement */
 	MPI u = NULL, v = NULL;
 	MPI u1 = NULL, u2 = NULL, u3 = NULL;
 	MPI v1 = NULL, v2 = NULL, v3 = NULL;
@@ -61,11 +69,11 @@ int mpi_invm(MPI x, const MPI a, const MPI n)
 		if (!v2)
 			goto cleanup;
 		if (mpi_sub(v2, u1, u) < 0)
-			goto cleanup;	
+			goto cleanup;	/* U is used as const 1 */
 	}
 	if (mpi_copy(&v3, v) < 0)
 		goto cleanup;
-	if (mpi_test_bit(u, 0)) {	
+	if (mpi_test_bit(u, 0)) {	/* u is odd */
 		t1 = mpi_alloc_set_ui(0);
 		if (!t1)
 			goto cleanup;
@@ -94,7 +102,7 @@ int mpi_invm(MPI x, const MPI a, const MPI n)
 	do {
 		do {
 			if (!odd) {
-				if (mpi_test_bit(t1, 0) || mpi_test_bit(t2, 0)) {	
+				if (mpi_test_bit(t1, 0) || mpi_test_bit(t2, 0)) {	/* one is odd */
 					if (mpi_add(t1, t1, v) < 0)
 						goto cleanup;
 					if (mpi_sub(t2, t2, u) < 0)
@@ -117,7 +125,7 @@ int mpi_invm(MPI x, const MPI a, const MPI n)
 			}
 Y4:
 			;
-		} while (!mpi_test_bit(t3, 0));	
+		} while (!mpi_test_bit(t3, 0));	/* while t3 is even */
 
 		if (!t3->sign) {
 			if (mpi_set(u1, t1) < 0)
@@ -156,8 +164,8 @@ Y4:
 				if (mpi_sub(t2, t2, u) < 0)
 					goto cleanup;
 		}
-	} while (mpi_cmp_ui(t3, 0));	
-	
+	} while (mpi_cmp_ui(t3, 0));	/* while t3 != 0 */
+	/* mpi_lshift( u3, k ); */
 	rc = mpi_set(x, u1);
 
 cleanup:

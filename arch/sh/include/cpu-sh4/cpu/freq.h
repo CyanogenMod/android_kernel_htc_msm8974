@@ -68,5 +68,5 @@
 #define MIN_DIVISOR_NR		0
 #define MAX_DIVISOR_NR		3
 
-#endif 
+#endif /* __ASM_CPU_SH4_FREQ_H */
 

@@ -26,6 +26,9 @@
 #include <linux/slab.h>
 
 #ifdef SNDRV_EMUX_USE_RAW_EFFECT
+/*
+ * effects table
+ */
 
 #define xoffsetof(type,tag)	((long)(&((type)NULL)->tag) - (long)(NULL))
 
@@ -46,52 +49,53 @@
 #define PARM_SIGN_HI	(PARM_IS_BYTE|PARM_IS_ALIGN_HI|PARM_IS_SIGNED)
 
 static struct emux_parm_defs {
-	int type;	
-	int low, high;	
+	int type;	/* byte or word */
+	int low, high;	/* value range */
 	long offset;	/* offset in parameter record (-1 = not written) */
-	int update;	
+	int update;	/* flgas for real-time update */
 } parm_defs[EMUX_NUM_EFFECTS] = {
-	{PARM_WORD, 0, 0x8000, parm_offset(moddelay), 0},	
-	{PARM_BYTE_LO, 1, 0x80, parm_offset(modatkhld), 0},	
-	{PARM_BYTE_HI, 0, 0x7e, parm_offset(modatkhld), 0},	
-	{PARM_BYTE_LO, 1, 0x7f, parm_offset(moddcysus), 0},	
-	{PARM_BYTE_LO, 1, 0x7f, parm_offset(modrelease), 0},	
-	{PARM_BYTE_HI, 0, 0x7f, parm_offset(moddcysus), 0},	
-	{PARM_BYTE_HI, 0, 0xff, parm_offset(pefe), 0},	
-	{PARM_BYTE_LO, 0, 0xff, parm_offset(pefe), 0},	
+	{PARM_WORD, 0, 0x8000, parm_offset(moddelay), 0},	/* env1 delay */
+	{PARM_BYTE_LO, 1, 0x80, parm_offset(modatkhld), 0},	/* env1 attack */
+	{PARM_BYTE_HI, 0, 0x7e, parm_offset(modatkhld), 0},	/* env1 hold */
+	{PARM_BYTE_LO, 1, 0x7f, parm_offset(moddcysus), 0},	/* env1 decay */
+	{PARM_BYTE_LO, 1, 0x7f, parm_offset(modrelease), 0},	/* env1 release */
+	{PARM_BYTE_HI, 0, 0x7f, parm_offset(moddcysus), 0},	/* env1 sustain */
+	{PARM_BYTE_HI, 0, 0xff, parm_offset(pefe), 0},	/* env1 pitch */
+	{PARM_BYTE_LO, 0, 0xff, parm_offset(pefe), 0},	/* env1 fc */
 
-	{PARM_WORD, 0, 0x8000, parm_offset(voldelay), 0},	
-	{PARM_BYTE_LO, 1, 0x80, parm_offset(volatkhld), 0},	
-	{PARM_BYTE_HI, 0, 0x7e, parm_offset(volatkhld), 0},	
-	{PARM_BYTE_LO, 1, 0x7f, parm_offset(voldcysus), 0},	
-	{PARM_BYTE_LO, 1, 0x7f, parm_offset(volrelease), 0},	
-	{PARM_BYTE_HI, 0, 0x7f, parm_offset(voldcysus), 0},	
+	{PARM_WORD, 0, 0x8000, parm_offset(voldelay), 0},	/* env2 delay */
+	{PARM_BYTE_LO, 1, 0x80, parm_offset(volatkhld), 0},	/* env2 attack */
+	{PARM_BYTE_HI, 0, 0x7e, parm_offset(volatkhld), 0},	/* env2 hold */
+	{PARM_BYTE_LO, 1, 0x7f, parm_offset(voldcysus), 0},	/* env2 decay */
+	{PARM_BYTE_LO, 1, 0x7f, parm_offset(volrelease), 0},	/* env2 release */
+	{PARM_BYTE_HI, 0, 0x7f, parm_offset(voldcysus), 0},	/* env2 sustain */
 
-	{PARM_WORD, 0, 0x8000, parm_offset(lfo1delay), 0},	
-	{PARM_BYTE_LO, 0, 0xff, parm_offset(tremfrq), SNDRV_EMUX_UPDATE_TREMFREQ},	
-	{PARM_SIGN_HI, -128, 127, parm_offset(tremfrq), SNDRV_EMUX_UPDATE_TREMFREQ},	
-	{PARM_SIGN_HI, -128, 127, parm_offset(fmmod), SNDRV_EMUX_UPDATE_FMMOD},	
-	{PARM_BYTE_LO, 0, 0xff, parm_offset(fmmod), SNDRV_EMUX_UPDATE_FMMOD},	
+	{PARM_WORD, 0, 0x8000, parm_offset(lfo1delay), 0},	/* lfo1 delay */
+	{PARM_BYTE_LO, 0, 0xff, parm_offset(tremfrq), SNDRV_EMUX_UPDATE_TREMFREQ},	/* lfo1 freq */
+	{PARM_SIGN_HI, -128, 127, parm_offset(tremfrq), SNDRV_EMUX_UPDATE_TREMFREQ},	/* lfo1 vol */
+	{PARM_SIGN_HI, -128, 127, parm_offset(fmmod), SNDRV_EMUX_UPDATE_FMMOD},	/* lfo1 pitch */
+	{PARM_BYTE_LO, 0, 0xff, parm_offset(fmmod), SNDRV_EMUX_UPDATE_FMMOD},	/* lfo1 cutoff */
 
-	{PARM_WORD, 0, 0x8000, parm_offset(lfo2delay), 0},	
-	{PARM_BYTE_LO, 0, 0xff, parm_offset(fm2frq2), SNDRV_EMUX_UPDATE_FM2FRQ2},	
-	{PARM_SIGN_HI, -128, 127, parm_offset(fm2frq2), SNDRV_EMUX_UPDATE_FM2FRQ2},	
+	{PARM_WORD, 0, 0x8000, parm_offset(lfo2delay), 0},	/* lfo2 delay */
+	{PARM_BYTE_LO, 0, 0xff, parm_offset(fm2frq2), SNDRV_EMUX_UPDATE_FM2FRQ2},	/* lfo2 freq */
+	{PARM_SIGN_HI, -128, 127, parm_offset(fm2frq2), SNDRV_EMUX_UPDATE_FM2FRQ2},	/* lfo2 pitch */
 
-	{PARM_WORD, 0, 0xffff, -1, SNDRV_EMUX_UPDATE_PITCH},	
-	{PARM_BYTE, 0, 0xff, parm_offset(chorus), 0},	
-	{PARM_BYTE, 0, 0xff, parm_offset(reverb), 0},	
-	{PARM_BYTE, 0, 0xff, parm_offset(cutoff), SNDRV_EMUX_UPDATE_VOLUME},	
-	{PARM_BYTE, 0, 15, parm_offset(filterQ), SNDRV_EMUX_UPDATE_Q},	
+	{PARM_WORD, 0, 0xffff, -1, SNDRV_EMUX_UPDATE_PITCH},	/* initial pitch */
+	{PARM_BYTE, 0, 0xff, parm_offset(chorus), 0},	/* chorus */
+	{PARM_BYTE, 0, 0xff, parm_offset(reverb), 0},	/* reverb */
+	{PARM_BYTE, 0, 0xff, parm_offset(cutoff), SNDRV_EMUX_UPDATE_VOLUME},	/* cutoff */
+	{PARM_BYTE, 0, 15, parm_offset(filterQ), SNDRV_EMUX_UPDATE_Q},	/* resonance */
 
-	{PARM_WORD, 0, 0xffff, -1, 0},	
-	{PARM_WORD, 0, 0xffff, -1, 0},	
-	{PARM_WORD, 0, 0xffff, -1, 0},	
-	{PARM_WORD, 0, 0xffff, -1, 0},	
-	{PARM_WORD, 0, 0xffff, -1, 0},	
-	{PARM_WORD, 0, 0xffff, -1, 0},	
-	{PARM_BYTE, 0, 0xff, -1, SNDRV_EMUX_UPDATE_VOLUME},	
+	{PARM_WORD, 0, 0xffff, -1, 0},	/* sample start */
+	{PARM_WORD, 0, 0xffff, -1, 0},	/* loop start */
+	{PARM_WORD, 0, 0xffff, -1, 0},	/* loop end */
+	{PARM_WORD, 0, 0xffff, -1, 0},	/* coarse sample start */
+	{PARM_WORD, 0, 0xffff, -1, 0},	/* coarse loop start */
+	{PARM_WORD, 0, 0xffff, -1, 0},	/* coarse loop end */
+	{PARM_BYTE, 0, 0xff, -1, SNDRV_EMUX_UPDATE_VOLUME},	/* initial attenuation */
 };
 
+/* set byte effect value */
 static void
 effect_set_byte(unsigned char *valp, struct snd_midi_channel *chan, int type)
 {
@@ -112,6 +116,7 @@ effect_set_byte(unsigned char *valp, struct snd_midi_channel *chan, int type)
 	*valp = (unsigned char)effect;
 }
 
+/* set word effect value */
 static void
 effect_set_word(unsigned short *valp, struct snd_midi_channel *chan, int type)
 {
@@ -128,6 +133,7 @@ effect_set_word(unsigned short *valp, struct snd_midi_channel *chan, int type)
 	*valp = (unsigned short)effect;
 }
 
+/* address offset */
 static int
 effect_get_offset(struct snd_midi_channel *chan, int lo, int hi, int mode)
 {
@@ -145,6 +151,7 @@ effect_get_offset(struct snd_midi_channel *chan, int lo, int hi, int mode)
 }
 
 #ifdef CONFIG_SND_SEQUENCER_OSS
+/* change effects - for OSS sequencer compatibility */
 void
 snd_emux_send_effect_oss(struct snd_emux_port *port,
 			 struct snd_midi_channel *chan, int type, int val)
@@ -163,6 +170,9 @@ snd_emux_send_effect_oss(struct snd_emux_port *port,
 }
 #endif
 
+/* Modify the effect value.
+ * if update is necessary, call emu8000_control
+ */
 void
 snd_emux_send_effect(struct snd_emux_port *port, struct snd_midi_channel *chan,
 		     int type, int val, int mode)
@@ -184,7 +194,7 @@ snd_emux_send_effect(struct snd_emux_port *port, struct snd_midi_channel *chan,
 	fx->val[type] = val;
 	fx->flag[type] = mode;
 
-	
+	/* do we need to modify the register in realtime ? */
 	if (! parm_defs[type].update || (offset = parm_defs[type].offset) < 0)
 		return;
 
@@ -195,7 +205,7 @@ snd_emux_send_effect(struct snd_emux_port *port, struct snd_midi_channel *chan,
 	if (parm_defs[type].type & PARM_IS_ALIGN_LO)
 		offset++;
 #endif
-	
+	/* modify the register values */
 	spin_lock_irqsave(&emu->voice_lock, flags);
 	for (i = 0; i < emu->max_voices; i++) {
 		struct snd_emux_voice *vp = &emu->voices[i];
@@ -213,11 +223,12 @@ snd_emux_send_effect(struct snd_emux_port *port, struct snd_midi_channel *chan,
 	}
 	spin_unlock_irqrestore(&emu->voice_lock, flags);
 
-	
+	/* activate them */
 	snd_emux_update_channel(port, chan, parm_defs[type].update);
 }
 
 
+/* copy wavetable registers to voice table */
 void
 snd_emux_setup_effect(struct snd_emux_voice *vp)
 {
@@ -229,7 +240,7 @@ snd_emux_setup_effect(struct snd_emux_voice *vp)
 	if (! (fx = chan->private))
 		return;
 
-	
+	/* modify the register values via effect table */
 	for (i = 0; i < EMUX_FX_END; i++) {
 		int offset;
 		if (! fx->flag[i] || (offset = parm_defs[i].offset) < 0)
@@ -248,7 +259,7 @@ snd_emux_setup_effect(struct snd_emux_voice *vp)
 			effect_set_word((unsigned short*)srcp, chan, i);
 	}
 
-	
+	/* correct sample and loop points */
 	vp->reg.start += effect_get_offset(chan, EMUX_FX_SAMPLE_START,
 					   EMUX_FX_COARSE_SAMPLE_START,
 					   vp->reg.sample_mode);
@@ -262,6 +273,9 @@ snd_emux_setup_effect(struct snd_emux_voice *vp)
 					     vp->reg.sample_mode);
 }
 
+/*
+ * effect table
+ */
 void
 snd_emux_create_effect(struct snd_emux_port *p)
 {
@@ -293,4 +307,4 @@ snd_emux_clear_effect(struct snd_emux_port *p)
 	}
 }
 
-#endif 
+#endif /* SNDRV_EMUX_USE_RAW_EFFECT */

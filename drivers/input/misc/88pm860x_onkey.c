@@ -40,6 +40,7 @@ struct pm860x_onkey_info {
 	int			irq;
 };
 
+/* 88PM860x gives us an interrupt when ONKEY is held */
 static irqreturn_t pm860x_onkey_handler(int irq, void *data)
 {
 	struct pm860x_onkey_info *info = data;
@@ -50,7 +51,7 @@ static irqreturn_t pm860x_onkey_handler(int irq, void *data)
 	input_report_key(info->idev, KEY_POWER, ret);
 	input_sync(info->idev);
 
-	
+	/* Enable 8-second long onkey detection */
 	pm860x_set_bits(info->i2c, PM8607_WAKEUP, 3, LONG_ONKEY_EN);
 	return IRQ_HANDLED;
 }

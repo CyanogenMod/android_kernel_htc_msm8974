@@ -30,6 +30,10 @@
 #include <asm/clock.h>
 #include <asm/bl_bit.h>
 
+/*
+ * NOTE: This board has 2 physical memory maps.
+ *	 Please look at include/asm-sh/sh7785lcr.h or hardware manual.
+ */
 static struct resource heartbeat_resource = {
 	.start	= PLD_LEDCR,
 	.end	= PLD_LEDCR,
@@ -137,7 +141,7 @@ static struct resource sm501_resources[] = {
 };
 
 static struct fb_videomode sm501_default_mode_crt = {
-	.pixclock	= 35714,	
+	.pixclock	= 35714,	/* 28MHz */
 	.xres		= 640,
 	.yres		= 480,
 	.left_margin	= 105,
@@ -150,7 +154,7 @@ static struct fb_videomode sm501_default_mode_crt = {
 };
 
 static struct fb_videomode sm501_default_mode_pnl = {
-	.pixclock	= 40000,	
+	.pixclock	= 40000,	/* 25MHz */
 	.xres		= 640,
 	.yres		= 480,
 	.left_margin	= 2,
@@ -283,6 +287,7 @@ static int __init sh7785lcr_devices_setup(void)
 }
 device_initcall(sh7785lcr_devices_setup);
 
+/* Initialize IRQ setting */
 void __init init_sh7785lcr_IRQ(void)
 {
 	plat_irq_setup_pins(IRQ_MODE_IRQ7654);
@@ -319,6 +324,7 @@ static void sh7785lcr_power_off(void)
 		cpu_relax();
 }
 
+/* Initialize the board */
 static void __init sh7785lcr_setup(char **cmdline_p)
 {
 	void __iomem *sm501_reg;
@@ -327,7 +333,7 @@ static void __init sh7785lcr_setup(char **cmdline_p)
 
 	pm_power_off = sh7785lcr_power_off;
 
-	
+	/* sm501 DRAM configuration */
 	sm501_reg = ioremap_nocache(SM107_REG_ADDR, SM501_DRAM_CONTROL);
 	if (!sm501_reg) {
 		printk(KERN_ERR "%s: ioremap error.\n", __func__);
@@ -338,21 +344,29 @@ static void __init sh7785lcr_setup(char **cmdline_p)
 	iounmap(sm501_reg);
 }
 
+/* Return the board specific boot mode pin configuration */
 static int sh7785lcr_mode_pins(void)
 {
 	int value = 0;
 
-	value |= MODE_PIN4; 
-	value |= MODE_PIN5; 
-	value |= MODE_PIN6; 
-	value |= MODE_PIN7; 
-	value |= MODE_PIN8; 
-	value |= MODE_PIN9; 
-	value |= MODE_PIN14; 
+	/* These are the factory default settings of S1 and S2.
+	 * If you change these dip switches then you will need to
+	 * adjust the values below as well.
+	 */
+	value |= MODE_PIN4; /* Clock Mode 16 */
+	value |= MODE_PIN5; /* 32-bit Area0 bus width */
+	value |= MODE_PIN6; /* 32-bit Area0 bus width */
+	value |= MODE_PIN7; /* Area 0 SRAM interface [fixed] */
+	value |= MODE_PIN8; /* Little Endian */
+	value |= MODE_PIN9; /* Master Mode */
+	value |= MODE_PIN14; /* No PLL step-up */
 
 	return value;
 }
 
+/*
+ * The Machine Vector
+ */
 static struct sh_machine_vector mv_sh7785lcr __initmv = {
 	.mv_name		= "SH7785LCR",
 	.mv_setup		= sh7785lcr_setup,

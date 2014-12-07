@@ -121,6 +121,10 @@ struct htc_battery_platform_data {
 	int force_shutdown_batt_vol;
 	int overload_vol_thr_mv;
 	int overload_curr_thr_ma;
+	bool usb_temp_monitor_enable;
+	int usb_temp_overheat_increase_threshold;
+	int normal_usb_temp_threshold;
+	int usb_temp_overheat_threshold;
 	int smooth_chg_full_delay_min;
 	int decreased_batt_level_check;
 	struct htc_gauge igauge;

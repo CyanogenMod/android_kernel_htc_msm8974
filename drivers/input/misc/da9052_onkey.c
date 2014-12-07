@@ -36,11 +36,20 @@ static void da9052_onkey_query(struct da9052_onkey *onkey)
 		dev_err(onkey->da9052->dev,
 			"Failed to read onkey event %d\n", key_stat);
 	} else {
+		/*
+		 * Since interrupt for deassertion of ONKEY pin is not
+		 * generated, onkey event state determines the onkey
+		 * button state.
+		 */
 		key_stat &= DA9052_EVENTB_ENONKEY;
 		input_report_key(onkey->input, KEY_POWER, key_stat);
 		input_sync(onkey->input);
 	}
 
+	/*
+	 * Interrupt is generated only when the ONKEY pin is asserted.
+	 * Hence the deassertion of the pin is simulated through work queue.
+	 */
 	if (key_stat)
 		schedule_delayed_work(&onkey->work, msecs_to_jiffies(50));
 }

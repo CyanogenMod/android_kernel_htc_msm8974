@@ -11,10 +11,10 @@
 #define __OV7670_H
 
 struct ov7670_config {
-	int min_width;			
-	int min_height;			
-	int clock_speed;		
-	bool use_smbus;			
+	int min_width;			/* Filter out smaller sizes */
+	int min_height;			/* Filter out smaller sizes */
+	int clock_speed;		/* External clock speed (MHz) */
+	bool use_smbus;			/* Use smbus I/O instead of I2C */
 };
 
 #endif

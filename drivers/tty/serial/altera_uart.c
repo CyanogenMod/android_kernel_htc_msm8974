@@ -32,6 +32,10 @@
 #define SERIAL_ALTERA_MAJOR 204
 #define SERIAL_ALTERA_MINOR 213
 
+/*
+ * Altera UART register definitions according to the Nios UART datasheet:
+ * http://www.altera.com/literature/ds/ds_nios_uart.pdf
+ */
 
 #define ALTERA_UART_SIZE		32
 
@@ -42,40 +46,43 @@
 #define ALTERA_UART_DIVISOR_REG		16
 #define ALTERA_UART_EOP_REG		20
 
-#define ALTERA_UART_STATUS_PE_MSK	0x0001	
-#define ALTERA_UART_STATUS_FE_MSK	0x0002	
-#define ALTERA_UART_STATUS_BRK_MSK	0x0004	
-#define ALTERA_UART_STATUS_ROE_MSK	0x0008	
-#define ALTERA_UART_STATUS_TOE_MSK	0x0010	
-#define ALTERA_UART_STATUS_TMT_MSK	0x0020	
-#define ALTERA_UART_STATUS_TRDY_MSK	0x0040	
-#define ALTERA_UART_STATUS_RRDY_MSK	0x0080	
-#define ALTERA_UART_STATUS_E_MSK	0x0100	
-#define ALTERA_UART_STATUS_DCTS_MSK	0x0400	
-#define ALTERA_UART_STATUS_CTS_MSK	0x0800	
+#define ALTERA_UART_STATUS_PE_MSK	0x0001	/* parity error */
+#define ALTERA_UART_STATUS_FE_MSK	0x0002	/* framing error */
+#define ALTERA_UART_STATUS_BRK_MSK	0x0004	/* break */
+#define ALTERA_UART_STATUS_ROE_MSK	0x0008	/* RX overrun error */
+#define ALTERA_UART_STATUS_TOE_MSK	0x0010	/* TX overrun error */
+#define ALTERA_UART_STATUS_TMT_MSK	0x0020	/* TX shift register state */
+#define ALTERA_UART_STATUS_TRDY_MSK	0x0040	/* TX ready */
+#define ALTERA_UART_STATUS_RRDY_MSK	0x0080	/* RX ready */
+#define ALTERA_UART_STATUS_E_MSK	0x0100	/* exception condition */
+#define ALTERA_UART_STATUS_DCTS_MSK	0x0400	/* CTS logic-level change */
+#define ALTERA_UART_STATUS_CTS_MSK	0x0800	/* CTS logic state */
 #define ALTERA_UART_STATUS_EOP_MSK	0x1000	/* EOP written/read */
 
-						
-#define ALTERA_UART_CONTROL_PE_MSK	0x0001	
-#define ALTERA_UART_CONTROL_FE_MSK	0x0002	
-#define ALTERA_UART_CONTROL_BRK_MSK	0x0004	
-#define ALTERA_UART_CONTROL_ROE_MSK	0x0008	
-#define ALTERA_UART_CONTROL_TOE_MSK	0x0010	
-#define ALTERA_UART_CONTROL_TMT_MSK	0x0020	
-#define ALTERA_UART_CONTROL_TRDY_MSK	0x0040	
-#define ALTERA_UART_CONTROL_RRDY_MSK	0x0080	
-#define ALTERA_UART_CONTROL_E_MSK	0x0100	
+						/* Enable interrupt on... */
+#define ALTERA_UART_CONTROL_PE_MSK	0x0001	/* ...parity error */
+#define ALTERA_UART_CONTROL_FE_MSK	0x0002	/* ...framing error */
+#define ALTERA_UART_CONTROL_BRK_MSK	0x0004	/* ...break */
+#define ALTERA_UART_CONTROL_ROE_MSK	0x0008	/* ...RX overrun */
+#define ALTERA_UART_CONTROL_TOE_MSK	0x0010	/* ...TX overrun */
+#define ALTERA_UART_CONTROL_TMT_MSK	0x0020	/* ...TX shift register empty */
+#define ALTERA_UART_CONTROL_TRDY_MSK	0x0040	/* ...TX ready */
+#define ALTERA_UART_CONTROL_RRDY_MSK	0x0080	/* ...RX ready */
+#define ALTERA_UART_CONTROL_E_MSK	0x0100	/* ...exception*/
 
-#define ALTERA_UART_CONTROL_TRBK_MSK	0x0200	
-#define ALTERA_UART_CONTROL_DCTS_MSK	0x0400	
-#define ALTERA_UART_CONTROL_RTS_MSK	0x0800	
-#define ALTERA_UART_CONTROL_EOP_MSK	0x1000	
+#define ALTERA_UART_CONTROL_TRBK_MSK	0x0200	/* TX break */
+#define ALTERA_UART_CONTROL_DCTS_MSK	0x0400	/* Interrupt on CTS change */
+#define ALTERA_UART_CONTROL_RTS_MSK	0x0800	/* RTS signal */
+#define ALTERA_UART_CONTROL_EOP_MSK	0x1000	/* Interrupt on EOP */
 
+/*
+ * Local per-uart structure.
+ */
 struct altera_uart {
 	struct uart_port port;
 	struct timer_list tmr;
-	unsigned int sigs;	
-	unsigned short imr;	
+	unsigned int sigs;	/* Local copy of line sigs */
+	unsigned short imr;	/* Local IMR mirror */
 };
 
 static u32 altera_uart_readl(struct uart_port *port, int reg)
@@ -233,7 +240,7 @@ static void altera_uart_tx_chars(struct altera_uart *pp)
 	struct circ_buf *xmit = &port->state->xmit;
 
 	if (port->x_char) {
-		
+		/* Send special char - probably flow control */
 		altera_uart_writel(port, port->x_char, ALTERA_UART_TXDATA_REG);
 		port->x_char = 0;
 		port->icount.tx++;
@@ -290,9 +297,9 @@ static void altera_uart_config_port(struct uart_port *port, int flags)
 {
 	port->type = PORT_ALTERA_UART;
 
-	
+	/* Clear mask, so no surprise interrupts. */
 	altera_uart_writel(port, 0, ALTERA_UART_CONTROL_REG);
-	
+	/* Clear status register */
 	altera_uart_writel(port, 0, ALTERA_UART_STATUS_REG);
 }
 
@@ -318,7 +325,7 @@ static int altera_uart_startup(struct uart_port *port)
 
 	spin_lock_irqsave(&port->lock, flags);
 
-	
+	/* Enable RX interrupts now */
 	pp->imr = ALTERA_UART_CONTROL_RRDY_MSK;
 	writel(pp->imr, port->membase + ALTERA_UART_CONTROL_REG);
 
@@ -334,7 +341,7 @@ static void altera_uart_shutdown(struct uart_port *port)
 
 	spin_lock_irqsave(&port->lock, flags);
 
-	
+	/* Disable all interrupts now */
 	pp->imr = 0;
 	writel(pp->imr, port->membase + ALTERA_UART_CONTROL_REG);
 
@@ -353,13 +360,13 @@ static const char *altera_uart_type(struct uart_port *port)
 
 static int altera_uart_request_port(struct uart_port *port)
 {
-	
+	/* UARTs always present */
 	return 0;
 }
 
 static void altera_uart_release_port(struct uart_port *port)
 {
-	
+	/* Nothing to release... */
 }
 
 static int altera_uart_verify_port(struct uart_port *port,
@@ -390,6 +397,9 @@ static void altera_uart_poll_put_char(struct uart_port *port, unsigned char c)
 }
 #endif
 
+/*
+ *	Define the basic serial functions we support.
+ */
 static struct uart_ops altera_uart_ops = {
 	.tx_empty	= altera_uart_tx_empty,
 	.get_mctrl	= altera_uart_get_mctrl,
@@ -484,8 +494,11 @@ console_initcall(altera_uart_console_init);
 
 #define	ALTERA_UART_CONSOLE	NULL
 
-#endif 
+#endif /* CONFIG_ALTERA_UART_CONSOLE */
 
+/*
+ *	Define the altera_uart UART driver structure.
+ */
 static struct uart_driver altera_uart_driver = {
 	.owner		= THIS_MODULE,
 	.driver_name	= DRV_NAME,
@@ -517,7 +530,7 @@ static int altera_uart_get_of_uartclk(struct platform_device *pdev,
 {
 	return -ENODEV;
 }
-#endif 
+#endif /* CONFIG_OF */
 
 static int __devinit altera_uart_probe(struct platform_device *pdev)
 {
@@ -528,7 +541,7 @@ static int __devinit altera_uart_probe(struct platform_device *pdev)
 	int i = pdev->id;
 	int ret;
 
-	
+	/* if id is -1 scan for a free id and use that one */
 	if (i == -1) {
 		for (i = 0; i < CONFIG_SERIAL_ALTERA_UART_MAXPORTS; i++)
 			if (altera_uart_ports[i].port.mapbase == 0)
@@ -554,7 +567,7 @@ static int __devinit altera_uart_probe(struct platform_device *pdev)
 	else if (platp)
 		port->irq = platp->irq;
 
-	
+	/* Check platform data first so we can override device node data */
 	if (platp)
 		port->uartclk = platp->uartclk;
 	else {
@@ -604,7 +617,7 @@ static struct of_device_id altera_uart_match[] = {
 	{},
 };
 MODULE_DEVICE_TABLE(of, altera_uart_match);
-#endif 
+#endif /* CONFIG_OF */
 
 static struct platform_driver altera_uart_platform_driver = {
 	.probe	= altera_uart_probe,

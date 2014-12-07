@@ -40,11 +40,13 @@
 #include <media/videobuf-vmalloc.h>
 
 
+/* Version Information */
 #define DRIVER_VERSION "0.7.4"
 #define DRIVER_AUTHOR "Antoine Jacquet, http://royale.zerezo.com/"
 #define DRIVER_DESC "Zoran 364xx"
 
 
+/* Camera */
 #define FRAMES 1
 #define MAX_FRAME_SIZE 200000
 #define BUFFER_SIZE 0x1000
@@ -54,6 +56,7 @@
 #define ZR364XX_READ_IDLE	0
 #define ZR364XX_READ_FRAME	1
 
+/* Debug macro */
 #define DBG(fmt, args...) \
 	do { \
 		if (debug) { \
@@ -61,28 +64,35 @@
 		} \
 	} while (0)
 
+/*#define FULL_DEBUG 1*/
 #ifdef FULL_DEBUG
 #define _DBG DBG
 #else
 #define _DBG(fmt, args...)
 #endif
 
+/* Init methods, need to find nicer names for these
+ * the exact names of the chipsets would be the best if someone finds it */
 #define METHOD0 0
 #define METHOD1 1
 #define METHOD2 2
 #define METHOD3 3
 
 
+/* Module parameters */
 static int debug;
 static int mode;
 
 
+/* Module parameters interface */
 module_param(debug, int, 0644);
 MODULE_PARM_DESC(debug, "Debug level");
 module_param(mode, int, 0644);
 MODULE_PARM_DESC(mode, "0 = 320x240, 1 = 160x120, 2 = 640x480");
 
 
+/* Devices supported by this driver
+ * .driver_info contains the init method used by the camera */
 static struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x08ca, 0x0109), .driver_info = METHOD0 },
 	{USB_DEVICE(0x041e, 0x4024), .driver_info = METHOD0 },
@@ -105,25 +115,28 @@ static struct usb_device_id device_table[] = {
 	{USB_DEVICE(0x041e, 0x405d), .driver_info = METHOD2 },
 	{USB_DEVICE(0x08ca, 0x2102), .driver_info = METHOD3 },
 	{USB_DEVICE(0x06d6, 0x003d), .driver_info = METHOD0 },
-	{}			
+	{}			/* Terminating entry */
 };
 
 MODULE_DEVICE_TABLE(usb, device_table);
 
 struct zr364xx_mode {
-	u32 color;	
-	u32 brightness;	
+	u32 color;	/* output video color format */
+	u32 brightness;	/* brightness */
 };
 
+/* frame structure */
 struct zr364xx_framei {
-	unsigned long ulState;	
-	void *lpvbits;		
-	unsigned long cur_size;	
+	unsigned long ulState;	/* ulState:ZR364XX_READ_IDLE,
+					   ZR364XX_READ_FRAME */
+	void *lpvbits;		/* image data */
+	unsigned long cur_size;	/* current data copied to it */
 };
 
+/* image buffer structure */
 struct zr364xx_bufferi {
-	unsigned long dwFrames;			
-	struct zr364xx_framei frame[FRAMES];	
+	unsigned long dwFrames;			/* number of frames in buffer */
+	struct zr364xx_framei frame[FRAMES];	/* array of FRAME structures */
 };
 
 struct zr364xx_dmaqueue {
@@ -136,7 +149,7 @@ struct zr364xx_pipeinfo {
 	u8 *transfer_buffer;
 	u32 state;
 	void *stream_urb;
-	void *cam;	
+	void *cam;	/* back pointer to zr364xx_camera struct */
 	u32 err_count;
 	u32 idx;
 };
@@ -147,6 +160,7 @@ struct zr364xx_fmt {
 	int depth;
 };
 
+/* image formats.  */
 static const struct zr364xx_fmt formats[] = {
 	{
 		.name = "JPG",
@@ -155,10 +169,11 @@ static const struct zr364xx_fmt formats[] = {
 	}
 };
 
+/* Camera stuff */
 struct zr364xx_camera {
-	struct usb_device *udev;	
-	struct usb_interface *interface;
-	struct video_device *vdev;	
+	struct usb_device *udev;	/* save off the usb device pointer */
+	struct usb_interface *interface;/* the interface for this device */
+	struct video_device *vdev;	/* v4l video device */
 	int nb;
 	struct zr364xx_bufferi		buffer;
 	int skip;
@@ -186,12 +201,14 @@ struct zr364xx_camera {
 	struct zr364xx_mode	mode;
 };
 
+/* buffer for one video frame */
 struct zr364xx_buffer {
-	
+	/* common v4l buffer stuff -- must be first */
 	struct videobuf_buffer vb;
 	const struct zr364xx_fmt *fmt;
 };
 
+/* function used to send initialisation commands to the camera */
 static int send_control_msg(struct usb_device *udev, u8 request, u16 value,
 			    u16 index, unsigned char *cp, u16 size)
 {
@@ -222,12 +239,15 @@ static int send_control_msg(struct usb_device *udev, u8 request, u16 value,
 }
 
 
+/* Control messages sent to the camera to initialize it
+ * and launch the capture */
 typedef struct {
 	unsigned int value;
 	unsigned int size;
 	unsigned char *bytes;
 } message;
 
+/* method 0 */
 static unsigned char m0d1[] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 static unsigned char m0d2[] = { 0, 0, 0, 0, 0, 0 };
 static unsigned char m0d3[] = { 0, 0 };
@@ -246,6 +266,7 @@ static message m0[] = {
 	{-1, -1, NULL}
 };
 
+/* method 1 */
 static unsigned char m1d1[] = { 0xff, 0xff };
 static unsigned char m1d2[] = { 0x00, 0x00 };
 static message m1[] = {
@@ -265,6 +286,7 @@ static message m1[] = {
 	{-1, -1, NULL}
 };
 
+/* method 2 */
 static unsigned char m2d1[] = { 0xff, 0xff };
 static message m2[] = {
 	{0x1f30, 0, NULL},
@@ -278,11 +300,17 @@ static message m2[] = {
 	{-1, -1, NULL}
 };
 
+/* init table */
 static message *init[4] = { m0, m1, m2, m2 };
 
 
+/* JPEG static data in header (Huffman table, etc) */
 static unsigned char header1[] = {
 	0xFF, 0xD8,
+	/*
+	0xFF, 0xE0, 0x00, 0x10, 'J', 'F', 'I', 'F',
+	0x00, 0x01, 0x01, 0x00, 0x33, 0x8A, 0x00, 0x00, 0x33, 0x88,
+	*/
 	0xFF, 0xDB, 0x00, 0x84
 };
 static unsigned char header2[] = {
@@ -332,6 +360,9 @@ static unsigned char header2[] = {
 };
 static unsigned char header3;
 
+/* ------------------------------------------------------------------
+   Videobuf operations
+   ------------------------------------------------------------------*/
 
 static int buffer_setup(struct videobuf_queue *vq, unsigned int *count,
 			unsigned int *size)
@@ -427,6 +458,9 @@ static struct videobuf_queue_ops zr364xx_video_qops = {
 	.buf_release = buffer_release,
 };
 
+/********************/
+/* V4L2 integration */
+/********************/
 static int zr364xx_vidioc_streamon(struct file *file, void *priv,
 				   enum v4l2_buf_type type);
 
@@ -448,7 +482,7 @@ static ssize_t zr364xx_read(struct file *file, char __user *buf, size_t count,
 		DBG("%s: reading %d bytes at pos %d.\n", __func__, (int) count,
 		    (int) *ppos);
 
-		
+		/* NoMan Sux ! */
 		return videobuf_read_one(&cam->vb_vidq, buf, count, ppos,
 					file->f_flags & O_NONBLOCK);
 	}
@@ -497,7 +531,7 @@ static void zr364xx_fillbuff(struct zr364xx_camera *cam,
 	}
 	DBG("%s: Buffer 0x%08lx size= %d\n", __func__,
 		(unsigned long)vbuf, pos);
-	
+	/* tell v4l buffer was filled */
 
 	buf->vb.field_count = cam->frame_count * 2;
 	do_gettimeofday(&ts);
@@ -524,7 +558,7 @@ static int zr364xx_got_frame(struct zr364xx_camera *cam, int jpgsize)
 			 struct zr364xx_buffer, vb.queue);
 
 	if (!waitqueue_active(&buf->vb.done)) {
-		
+		/* no one active */
 		rc = -1;
 		goto unlock;
 	}
@@ -539,6 +573,11 @@ unlock:
 	return rc;
 }
 
+/* this function moves the usb stream read pipe data
+ * into the system buffers.
+ * returns 0 on success, EAGAIN if more data to process (call this
+ * function again).
+ */
 static int zr364xx_read_video_callback(struct zr364xx_camera *cam,
 					struct zr364xx_pipeinfo *pipe_info,
 					struct urb *purb)
@@ -554,16 +593,16 @@ static int zr364xx_read_video_callback(struct zr364xx_camera *cam,
 	idx = cam->cur_frame;
 	frm = &cam->buffer.frame[idx];
 
-	
+	/* swap bytes if camera needs it */
 	if (cam->method == METHOD0) {
 		u16 *buf = (u16 *)pipe_info->transfer_buffer;
 		for (i = 0; i < purb->actual_length/2; i++)
 			swab16s(buf + i);
 	}
 
-	
+	/* search done.  now find out if should be acquiring */
 	if (!cam->b_acquire) {
-		
+		/* we found a frame, but this channel is turned off */
 		frm->ulState = ZR364XX_READ_IDLE;
 		return -EINVAL;
 	}
@@ -610,17 +649,19 @@ static int zr364xx_read_video_callback(struct zr364xx_camera *cam,
 			frm->cur_size += purb->actual_length;
 		}
 	}
+	/*_DBG("cur_size %lu urb size %d\n", frm->cur_size,
+		purb->actual_length);*/
 
 	if (purb->actual_length < pipe_info->transfer_size) {
 		_DBG("****************Buffer[%d]full*************\n", idx);
 		cam->last_frame = cam->cur_frame;
 		cam->cur_frame++;
-		
+		/* end of system frame ring buffer, start at zero */
 		if (cam->cur_frame == cam->buffer.dwFrames)
 			cam->cur_frame = 0;
 
-		
-		
+		/* frame ready */
+		/* go back to find the JPEG EOI marker */
 		ptr = pdest = frm->lpvbits;
 		ptr += frm->cur_size - 2;
 		while (ptr > pdest) {
@@ -632,6 +673,8 @@ static int zr364xx_read_video_callback(struct zr364xx_camera *cam,
 		if (ptr == pdest)
 			DBG("No EOI marker\n");
 
+		/* Sometimes there is junk data in the middle of the picture,
+		 * we want to skip this bogus frames */
 		while (ptr > pdest) {
 			if (*ptr == 0xFF && *(ptr + 1) == 0xFF
 			    && *(ptr + 2) == 0xFF)
@@ -641,7 +684,7 @@ static int zr364xx_read_video_callback(struct zr364xx_camera *cam,
 		if (ptr != pdest) {
 			DBG("Bogus frame ? %d\n", ++(cam->nb));
 		} else if (cam->b_acquire) {
-			
+			/* we skip the 2 first frames which are usually buggy */
 			if (cam->skip)
 				cam->skip--;
 			else {
@@ -657,20 +700,20 @@ static int zr364xx_read_video_callback(struct zr364xx_camera *cam,
 		frm->ulState = ZR364XX_READ_IDLE;
 		frm->cur_size = 0;
 	}
-	
+	/* done successfully */
 	return 0;
 }
 
 static int res_get(struct zr364xx_camera *cam)
 {
-	
+	/* is it free? */
 	mutex_lock(&cam->lock);
 	if (cam->resources) {
-		
+		/* no, someone else uses it */
 		mutex_unlock(&cam->lock);
 		return 0;
 	}
-	
+	/* it's free, grab it */
 	cam->resources = 1;
 	_DBG("res: get\n");
 	mutex_unlock(&cam->lock);
@@ -769,7 +812,7 @@ static int zr364xx_vidioc_s_ctrl(struct file *file, void *priv,
 	switch (c->id) {
 	case V4L2_CID_BRIGHTNESS:
 		cam->mode.brightness = c->value;
-		
+		/* hardware brightness */
 		mutex_lock(&cam->lock);
 		send_control_msg(cam->udev, 1, 0x2001, 0, NULL, 0);
 		temp = (0x60 << 8) + 127 - cam->mode.brightness;
@@ -923,7 +966,7 @@ static int zr364xx_vidioc_s_fmt_vid_cap(struct file *file, void *priv,
 	m1[2].value = 0xf000 + mode;
 	m2[1].value = 0xf000 + mode;
 
-	
+	/* special case for METHOD3, the modes are different */
 	if (cam->method == METHOD3) {
 		switch (mode) {
 		case 1:
@@ -955,6 +998,9 @@ static int zr364xx_vidioc_s_fmt_vid_cap(struct file *file, void *priv,
 		}
 	}
 
+	/* Added some delay here, since opening/closing the camera quickly,
+	 * like Ekiga does during its startup, can crash the webcam
+	 */
 	mdelay(100);
 	cam->skip = 2;
 	ret = 0;
@@ -1028,7 +1074,7 @@ static void read_pipe_completion(struct urb *purb)
 		return;
 	}
 
-	
+	/* if shutting down, do not resubmit, exit immediately */
 	if (purb->status == -ESHUTDOWN) {
 		DBG("%s, err shutdown\n", __func__);
 		pipe_info->err_count++;
@@ -1055,7 +1101,7 @@ static void read_pipe_completion(struct urb *purb)
 
 	pipe = usb_rcvbulkpipe(cam->udev, cam->read_endpoint);
 
-	
+	/* reuse urb */
 	usb_fill_bulk_urb(pipe_info->stream_urb, cam->udev,
 			  pipe,
 			  pipe_info->transfer_buffer,
@@ -1089,7 +1135,7 @@ static int zr364xx_start_readpipe(struct zr364xx_camera *cam)
 		dev_err(&cam->udev->dev, "ReadStream: Unable to alloc URB\n");
 		return -ENOMEM;
 	}
-	
+	/* transfer buffer allocated in board_init */
 	usb_fill_bulk_urb(pipe_info->stream_urb, cam->udev,
 			  pipe,
 			  pipe_info->transfer_buffer,
@@ -1121,7 +1167,7 @@ static void zr364xx_stop_readpipe(struct zr364xx_camera *cam)
 			pipe_info->state = 0;
 
 		if (pipe_info->stream_urb) {
-			
+			/* cancel urb */
 			usb_kill_urb(pipe_info->stream_urb);
 			usb_free_urb(pipe_info->stream_urb);
 			pipe_info->stream_urb = NULL;
@@ -1130,6 +1176,7 @@ static void zr364xx_stop_readpipe(struct zr364xx_camera *cam)
 	return;
 }
 
+/* starts acquisition process */
 static int zr364xx_start_acquire(struct zr364xx_camera *cam)
 {
 	int j;
@@ -1215,6 +1262,7 @@ static int zr364xx_vidioc_streamoff(struct file *file, void *priv,
 }
 
 
+/* open the camera */
 static int zr364xx_open(struct file *file)
 {
 	struct video_device *vdev = video_devdata(file);
@@ -1255,6 +1303,9 @@ static int zr364xx_open(struct file *file)
 				    V4L2_FIELD_NONE,
 				    sizeof(struct zr364xx_buffer), cam, NULL);
 
+	/* Added some delay here, since opening/closing the camera quickly,
+	 * like Ekiga does during its startup, can crash the webcam
+	 */
 	mdelay(100);
 	err = 0;
 
@@ -1277,13 +1328,13 @@ static void zr364xx_destroy(struct zr364xx_camera *cam)
 		video_unregister_device(cam->vdev);
 	cam->vdev = NULL;
 
-	
+	/* stops the read pipe if it is running */
 	if (cam->b_acquire)
 		zr364xx_stop_acquire(cam);
 
 	zr364xx_stop_readpipe(cam);
 
-	
+	/* release sys buffers */
 	for (i = 0; i < FRAMES; i++) {
 		if (cam->buffer.frame[i].lpvbits) {
 			DBG("vfree %p\n", cam->buffer.frame[i].lpvbits);
@@ -1292,7 +1343,7 @@ static void zr364xx_destroy(struct zr364xx_camera *cam)
 		cam->buffer.frame[i].lpvbits = NULL;
 	}
 
-	
+	/* release transfer buffer */
 	kfree(cam->pipe->transfer_buffer);
 	cam->pipe->transfer_buffer = NULL;
 	mutex_unlock(&cam->open_lock);
@@ -1300,6 +1351,7 @@ static void zr364xx_destroy(struct zr364xx_camera *cam)
 	cam = NULL;
 }
 
+/* release the camera */
 static int zr364xx_release(struct file *file)
 {
 	struct zr364xx_camera *cam;
@@ -1315,7 +1367,7 @@ static int zr364xx_release(struct file *file)
 	mutex_lock(&cam->open_lock);
 	udev = cam->udev;
 
-	
+	/* turn off stream */
 	if (res_check(cam)) {
 		if (cam->b_acquire)
 			zr364xx_stop_acquire(cam);
@@ -1337,6 +1389,9 @@ static int zr364xx_release(struct file *file)
 		}
 	}
 
+	/* Added some delay here, since opening/closing the camera quickly,
+	 * like Ekiga does during its startup, can crash the webcam
+	 */
 	mdelay(100);
 	err = 0;
 
@@ -1418,6 +1473,9 @@ static struct video_device zr364xx_template = {
 
 
 
+/*******************/
+/* USB integration */
+/*******************/
 static int zr364xx_board_init(struct zr364xx_camera *cam)
 {
 	struct zr364xx_pipeinfo *pipe = cam->pipe;
@@ -1438,9 +1496,9 @@ static int zr364xx_board_init(struct zr364xx_camera *cam)
 	cam->b_acquire = 0;
 	cam->frame_count = 0;
 
-	
+	/*** start create system buffers ***/
 	for (i = 0; i < FRAMES; i++) {
-		
+		/* always allocate maximum size for system buffers */
 		cam->buffer.frame[i].lpvbits = vmalloc(MAX_FRAME_SIZE);
 
 		DBG("valloc %p, idx %lu, pdata %p\n",
@@ -1461,7 +1519,7 @@ static int zr364xx_board_init(struct zr364xx_camera *cam)
 	} else
 		cam->buffer.dwFrames = i;
 
-	
+	/* make sure internal states are set */
 	for (i = 0; i < FRAMES; i++) {
 		cam->buffer.frame[i].ulState = ZR364XX_READ_IDLE;
 		cam->buffer.frame[i].cur_size = 0;
@@ -1469,9 +1527,9 @@ static int zr364xx_board_init(struct zr364xx_camera *cam)
 
 	cam->cur_frame = 0;
 	cam->last_frame = -1;
-	
+	/*** end create system buffers ***/
 
-	
+	/* start read pipe */
 	zr364xx_start_readpipe(cam);
 	DBG(": board initialized\n");
 	return 0;
@@ -1499,7 +1557,7 @@ static int zr364xx_probe(struct usb_interface *intf,
 		dev_err(&udev->dev, "cam: out of memory !\n");
 		return -ENOMEM;
 	}
-	
+	/* save the init method used by this camera */
 	cam->method = id->driver_info;
 
 	cam->vdev = video_device_alloc();
@@ -1539,7 +1597,7 @@ static int zr364xx_probe(struct usb_interface *intf,
 	m1[2].value = 0xf000 + mode;
 	m2[1].value = 0xf000 + mode;
 
-	
+	/* special case for METHOD3, the modes are different */
 	if (cam->method == METHOD3) {
 		switch (mode) {
 		case 1:
@@ -1567,13 +1625,13 @@ static int zr364xx_probe(struct usb_interface *intf,
 
 	DBG("dev: %p, udev %p interface %p\n", cam, cam->udev, intf);
 
-	
+	/* set up the endpoint information  */
 	iface_desc = intf->cur_altsetting;
 	DBG("num endpoints %d\n", iface_desc->desc.bNumEndpoints);
 	for (i = 0; i < iface_desc->desc.bNumEndpoints; ++i) {
 		endpoint = &iface_desc->endpoint[i].desc;
 		if (!cam->read_endpoint && usb_endpoint_is_bulk_in(endpoint)) {
-			
+			/* we found the bulk in endpoint */
 			cam->read_endpoint = endpoint->bEndpointAddress;
 		}
 	}
@@ -1586,7 +1644,7 @@ static int zr364xx_probe(struct usb_interface *intf,
 		return -ENOMEM;
 	}
 
-	
+	/* v4l */
 	INIT_LIST_HEAD(&cam->vidq.active);
 	cam->vidq.cam = cam;
 	err = video_register_device(cam->vdev, VFL_TYPE_GRABBER, -1);
@@ -1600,7 +1658,7 @@ static int zr364xx_probe(struct usb_interface *intf,
 
 	usb_set_intfdata(intf, cam);
 
-	
+	/* load zr364xx board specific */
 	err = zr364xx_board_init(cam);
 	if (err) {
 		spin_lock_init(&cam->slock);
@@ -1626,6 +1684,9 @@ static void zr364xx_disconnect(struct usb_interface *intf)
 
 
 
+/**********************/
+/* Module integration */
+/**********************/
 
 static struct usb_driver zr364xx_driver = {
 	.name = "zr364xx",

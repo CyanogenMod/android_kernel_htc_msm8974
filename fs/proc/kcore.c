@@ -43,6 +43,7 @@ static struct proc_dir_entry *proc_root_kcore;
 #define	kc_offset_to_vaddr(o) ((o) + PAGE_OFFSET)
 #endif
 
+/* An ELF note in memory */
 struct memelfnote
 {
 	const char *name;
@@ -72,7 +73,7 @@ static size_t get_kcore_size(int *nphdr, size_t *elf_buflen)
 	size_t try, size;
 	struct kcore_list *m;
 
-	*nphdr = 1; 
+	*nphdr = 1; /* PT_NOTE */
 	size = 0;
 
 	list_for_each_entry(m, &kclist_head, list) {
@@ -101,6 +102,9 @@ static void free_kclist_ents(struct list_head *head)
 		kfree(pos);
 	}
 }
+/*
+ * Replace all KCORE_RAM/KCORE_VMEMMAP information with passed list.
+ */
 static void __kcore_update_ram(struct list_head *list)
 {
 	int nphdr;
@@ -127,6 +131,11 @@ static void __kcore_update_ram(struct list_head *list)
 
 
 #ifdef CONFIG_HIGHMEM
+/*
+ * If no highmem, we can assume [0...max_low_pfn) continuous range of memory
+ * because memory hole is not as big as !HIGHMEM case.
+ * (HIGHMEM is special because part of memory is _invisible_ from the kernel.)
+ */
 static int kcore_update_ram(void)
 {
 	LIST_HEAD(head);
@@ -144,9 +153,10 @@ static int kcore_update_ram(void)
 	return ret;
 }
 
-#else 
+#else /* !CONFIG_HIGHMEM */
 
 #ifdef CONFIG_SPARSEMEM_VMEMMAP
+/* calculate vmemmap's address from given system ram pfn and register it */
 static int
 get_sparsemem_vmemmap_info(struct kcore_list *ent, struct list_head *head)
 {
@@ -159,7 +169,7 @@ get_sparsemem_vmemmap_info(struct kcore_list *ent, struct list_head *head)
 	start = ((unsigned long)pfn_to_page(pfn)) & PAGE_MASK;
 	end = ((unsigned long)pfn_to_page(pfn + nr_pages)) - 1;
 	end = ALIGN(end, PAGE_SIZE);
-	
+	/* overlap check (because we have to align page */
 	list_for_each_entry(tmp, head, list) {
 		if (tmp->type != KCORE_VMEMMAP)
 			continue;
@@ -200,15 +210,15 @@ kclist_add_private(unsigned long pfn, unsigned long nr_pages, void *arg)
 	ent->addr = (unsigned long)__va((pfn << PAGE_SHIFT));
 	ent->size = nr_pages << PAGE_SHIFT;
 
-	
+	/* Sanity check: Can happen in 32bit arch...maybe */
 	if (ent->addr < (unsigned long) __va(0))
 		goto free_out;
 
-	
+	/* cut not-mapped area. ....from ppc-32 code. */
 	if (ULONG_MAX - ent->addr < ent->size)
 		ent->size = ULONG_MAX - ent->addr;
 
-	
+	/* cut when vmalloc() area is higher than direct-map area */
 	if (VMALLOC_START > (unsigned long)__va(0)) {
 		if (ent->addr > VMALLOC_START)
 			goto free_out;
@@ -236,8 +246,8 @@ static int kcore_update_ram(void)
 	unsigned long end_pfn;
 	LIST_HEAD(head);
 
-	
-	
+	/* Not inialized....update now */
+	/* find out "max pfn" */
 	end_pfn = 0;
 	for_each_node_state(nid, N_HIGH_MEMORY) {
 		unsigned long node_end;
@@ -246,7 +256,7 @@ static int kcore_update_ram(void)
 		if (end_pfn < node_end)
 			end_pfn = node_end;
 	}
-	
+	/* scan 0 to max_pfn */
 	ret = walk_system_ram_range(0, end_pfn, &head, kclist_add_private);
 	if (ret) {
 		free_kclist_ents(&head);
@@ -255,8 +265,12 @@ static int kcore_update_ram(void)
 	__kcore_update_ram(&head);
 	return ret;
 }
-#endif 
+#endif /* CONFIG_HIGHMEM */
 
+/*****************************************************************************/
+/*
+ * determine size of ELF note
+ */
 static int notesize(struct memelfnote *en)
 {
 	int sz;
@@ -266,8 +280,12 @@ static int notesize(struct memelfnote *en)
 	sz += roundup(en->datasz, 4);
 
 	return sz;
-} 
+} /* end notesize() */
 
+/*****************************************************************************/
+/*
+ * store a note in the header buffer
+ */
 static char *storenote(struct memelfnote *men, char *bufp)
 {
 	struct elf_note en;
@@ -281,7 +299,7 @@ static char *storenote(struct memelfnote *men, char *bufp)
 	DUMP_WRITE(&en, sizeof(en));
 	DUMP_WRITE(men->name, en.n_namesz);
 
-	
+	/* XXX - cast from long long to long to avoid need for libgcc.a */
 	bufp = (char*) roundup((unsigned long)bufp,4);
 	DUMP_WRITE(men->data, men->datasz);
 	bufp = (char*) roundup((unsigned long)bufp,4);
@@ -289,19 +307,23 @@ static char *storenote(struct memelfnote *men, char *bufp)
 #undef DUMP_WRITE
 
 	return bufp;
-} 
+} /* end storenote() */
 
+/*
+ * store an ELF coredump header in the supplied buffer
+ * nphdr is the number of elf_phdr to insert
+ */
 static void elf_kcore_store_hdr(char *bufp, int nphdr, int dataoff)
 {
-	struct elf_prstatus prstatus;	
-	struct elf_prpsinfo prpsinfo;	
+	struct elf_prstatus prstatus;	/* NT_PRSTATUS */
+	struct elf_prpsinfo prpsinfo;	/* NT_PRPSINFO */
 	struct elf_phdr *nhdr, *phdr;
 	struct elfhdr *elf;
 	struct memelfnote notes[3];
 	off_t offset = 0;
 	struct kcore_list *m;
 
-	
+	/* setup ELF header */
 	elf = (struct elfhdr *) bufp;
 	bufp += sizeof(struct elfhdr);
 	offset += sizeof(struct elfhdr);
@@ -325,7 +347,7 @@ static void elf_kcore_store_hdr(char *bufp, int nphdr, int dataoff)
 	elf->e_shnum	= 0;
 	elf->e_shstrndx	= 0;
 
-	
+	/* setup ELF PT_NOTE program header */
 	nhdr = (struct elf_phdr *) bufp;
 	bufp += sizeof(struct elf_phdr);
 	offset += sizeof(struct elf_phdr);
@@ -338,7 +360,7 @@ static void elf_kcore_store_hdr(char *bufp, int nphdr, int dataoff)
 	nhdr->p_flags	= 0;
 	nhdr->p_align	= 0;
 
-	
+	/* setup ELF PT_LOAD program header for every area */
 	list_for_each_entry(m, &kclist_head, list) {
 		phdr = (struct elf_phdr *) bufp;
 		bufp += sizeof(struct elf_phdr);
@@ -353,9 +375,13 @@ static void elf_kcore_store_hdr(char *bufp, int nphdr, int dataoff)
 		phdr->p_align	= PAGE_SIZE;
 	}
 
+	/*
+	 * Set up the notes in similar form to SVR4 core dumps made
+	 * with info from their /proc.
+	 */
 	nhdr->p_offset	= offset;
 
-	
+	/* set up the process status */
 	notes[0].name = CORE_STR;
 	notes[0].type = NT_PRSTATUS;
 	notes[0].datasz = sizeof(struct elf_prstatus);
@@ -366,7 +392,7 @@ static void elf_kcore_store_hdr(char *bufp, int nphdr, int dataoff)
 	nhdr->p_filesz	= notesize(&notes[0]);
 	bufp = storenote(&notes[0], bufp);
 
-	
+	/* set up the process info */
 	notes[1].name	= CORE_STR;
 	notes[1].type	= NT_PRPSINFO;
 	notes[1].datasz	= sizeof(struct elf_prpsinfo);
@@ -383,7 +409,7 @@ static void elf_kcore_store_hdr(char *bufp, int nphdr, int dataoff)
 	nhdr->p_filesz	+= notesize(&notes[1]);
 	bufp = storenote(&notes[1], bufp);
 
-	
+	/* set up the task structure */
 	notes[2].name	= CORE_STR;
 	notes[2].type	= NT_TASKSTRUCT;
 	notes[2].datasz	= sizeof(struct task_struct);
@@ -392,8 +418,12 @@ static void elf_kcore_store_hdr(char *bufp, int nphdr, int dataoff)
 	nhdr->p_filesz	+= notesize(&notes[2]);
 	bufp = storenote(&notes[2], bufp);
 
-} 
+} /* end elf_kcore_store_hdr() */
 
+/*****************************************************************************/
+/*
+ * read from the ELF header and then kernel memory
+ */
 static ssize_t
 read_kcore(struct file *file, char __user *buffer, size_t buflen, loff_t *fpos)
 {
@@ -411,11 +441,11 @@ read_kcore(struct file *file, char __user *buffer, size_t buflen, loff_t *fpos)
 		return 0;
 	}
 
-	
+	/* trim buflen to not go beyond EOF */
 	if (buflen > size - *fpos)
 		buflen = size - *fpos;
 
-	
+	/* construct an ELF core header if we'll need some of it */
 	if (*fpos < elf_buflen) {
 		char * elf_buf;
 
@@ -439,12 +469,16 @@ read_kcore(struct file *file, char __user *buffer, size_t buflen, loff_t *fpos)
 		buffer += tsz;
 		acc += tsz;
 
-		
+		/* leave now if filled buffer already */
 		if (buflen == 0)
 			return acc;
 	} else
 		read_unlock(&kclist_lock);
 
+	/*
+	 * Check to see if our file offset matches with any of
+	 * the addresses in the elf_phdr on our list.
+	 */
 	start = kc_offset_to_vaddr(*fpos - elf_buflen);
 	if ((tsz = (PAGE_SIZE - (start & ~PAGE_MASK))) > buflen)
 		tsz = buflen;
@@ -469,7 +503,7 @@ read_kcore(struct file *file, char __user *buffer, size_t buflen, loff_t *fpos)
 			if (!elf_buf)
 				return -ENOMEM;
 			vread(elf_buf, (char *)start, tsz);
-			
+			/* we have to zero-fill user buffer even if no read */
 			if (copy_to_user(buffer, elf_buf, tsz)) {
 				kfree(elf_buf);
 				return -EFAULT;
@@ -480,6 +514,12 @@ read_kcore(struct file *file, char __user *buffer, size_t buflen, loff_t *fpos)
 				unsigned long n;
 
 				n = copy_to_user(buffer, (char *)start, tsz);
+				/*
+				 * We cannot distinguish between fault on source
+				 * and fault on destination. When this happens
+				 * we clear too and hope it will trigger the
+				 * EFAULT again.
+				 */
 				if (n) { 
 					if (clear_user(buffer + tsz - n,
 								n))
@@ -524,6 +564,7 @@ static const struct file_operations proc_kcore_operations = {
 };
 
 #ifdef CONFIG_MEMORY_HOTPLUG
+/* just remember that we have to update kcore */
 static int __meminit kcore_callback(struct notifier_block *self,
 				    unsigned long action, void *arg)
 {
@@ -543,6 +584,10 @@ static struct kcore_list kcore_vmalloc;
 
 #ifdef CONFIG_ARCH_PROC_KCORE_TEXT
 static struct kcore_list kcore_text;
+/*
+ * If defined, special segment is used for mapping kernel text instead of
+ * direct-map area. We need to create special TEXT section.
+ */
 static void __init proc_kcore_text_init(void)
 {
 	kclist_add(&kcore_text, _text, _end - _text, KCORE_TEXT);
@@ -554,6 +599,9 @@ static void __init proc_kcore_text_init(void)
 #endif
 
 #if defined(CONFIG_MODULES) && defined(MODULES_VADDR)
+/*
+ * MODULES_VADDR has no intersection with VMALLOC_ADDR.
+ */
 struct kcore_list kcore_modules;
 static void __init add_modules_range(void)
 {
@@ -572,15 +620,15 @@ static int __init proc_kcore_init(void)
 				      &proc_kcore_operations);
 	if (!proc_root_kcore) {
 		printk(KERN_ERR "couldn't create /proc/kcore\n");
-		return 0; 
+		return 0; /* Always returns 0. */
 	}
-	
+	/* Store text area if it's special */
 	proc_kcore_text_init();
-	
+	/* Store vmalloc area */
 	kclist_add(&kcore_vmalloc, (void *)VMALLOC_START,
 		VMALLOC_END - VMALLOC_START, KCORE_VMALLOC);
 	add_modules_range();
-	
+	/* Store direct-map area from physical memory map */
 	kcore_update_ram();
 	hotplug_memory_notifier(kcore_callback, 0);
 

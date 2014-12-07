@@ -18,6 +18,27 @@
  *  To Do:
  */
 
+/* 
+ *	Technical Card Details
+ *
+ *  All access to data is done with 16/8 bit transfers.  The transfer
+ *  method really sucks. You can only read or write one location at a time.
+ *
+ *  Also, the microcode for the card must be uploaded if the card does not have
+ *  the flashrom on board.  This is a 28K bloat in the driver when compiled
+ *  as a module.
+ *
+ *  Rx is very simple, status into a ring of descriptors, dma data transfer,
+ *  interrupts to tell us when a packet is received.
+ *
+ *  Tx is a little more interesting. Similar scenario, descriptor and dma data
+ *  transfers, but we don't have to interrupt the card to tell it another packet
+ *  is ready for transmission, we are just doing simple memory writes, not io or mmio
+ *  writes.  The card can be set up to simply poll on the next
+ *  descriptor pointer and when this value is non-zero will automatically download
+ *  the next packet.  The card then interrupts us when the packet is done.
+ *
+ */
 
 #define XL_DEBUG 0
 
@@ -58,28 +79,48 @@ MODULE_AUTHOR("Mike Phillips <mikep@linuxtr.net>") ;
 MODULE_DESCRIPTION("3Com 3C359 Velocity XL Token Ring Adapter Driver\n") ;
 MODULE_FIRMWARE(FW_NAME);
 
+/* Module parameters */
 
+/* Ring Speed 0,4,16 
+ * 0 = Autosense   
+ * 4,16 = Selected speed only, no autosense
+ * This allows the card to be the first on the ring
+ * and become the active monitor.
+ *
+ * WARNING: Some hubs will allow you to insert
+ * at the wrong speed.
+ * 
+ * The adapter will _not_ fail to open if there are no
+ * active monitors on the ring, it will simply open up in 
+ * its last known ringspeed if no ringspeed is specified.
+ */
 
 static int ringspeed[XL_MAX_ADAPTERS] = {0,} ;
 
 module_param_array(ringspeed, int, NULL, 0);
 MODULE_PARM_DESC(ringspeed,"3c359: Ringspeed selection - 4,16 or 0") ;
 
+/* Packet buffer size */
 
 static int pkt_buf_sz[XL_MAX_ADAPTERS] = {0,} ;
  
 module_param_array(pkt_buf_sz, int, NULL, 0) ;
 MODULE_PARM_DESC(pkt_buf_sz,"3c359: Initial buffer size") ;
+/* Message Level */
 
 static int message_level[XL_MAX_ADAPTERS] = {0,} ;
 
 module_param_array(message_level, int, NULL, 0) ;
 MODULE_PARM_DESC(message_level, "3c359: Level of reported messages") ;
+/* 
+ *	This is a real nasty way of doing this, but otherwise you
+ *	will be stuck with 1555 lines of hex #'s in the code.
+ */
 
 static DEFINE_PCI_DEVICE_TABLE(xl_pci_tbl) =
 {
 	{PCI_VENDOR_ID_3COM,PCI_DEVICE_ID_3COM_3C359, PCI_ANY_ID, PCI_ANY_ID, },
-	{ }			
+	{ }			/* terminate list */
 };
 MODULE_DEVICE_TABLE(pci,xl_pci_tbl) ; 
 
@@ -104,9 +145,11 @@ static void xl_reset(struct net_device *dev) ;
 static void xl_freemem(struct net_device *dev) ;  
 
 
+/* EEProm Access Functions */
 static u16  xl_ee_read(struct net_device *dev, int ee_addr) ; 
 static void  xl_ee_write(struct net_device *dev, int ee_addr, u16 ee_value) ; 
 
+/* Debugging functions */
 #if XL_DEBUG
 static void print_tx_state(struct net_device *dev) ; 
 static void print_rx_state(struct net_device *dev) ; 
@@ -145,7 +188,7 @@ static void print_rx_state(struct net_device *dev)
 	printk("rx_ring_tail: %d\n", xl_priv->rx_ring_tail);
 	printk("Ring    , Address ,   FrameState  , UPNextPtr, FragAddr, Frag_Len\n");
 	for (i = 0; i < 16; i++) { 
-		
+		/* rxd = (struct xl_rx_desc *)xl_priv->rx_ring_dma_addr + (i * sizeof(struct xl_rx_desc)) ; */
 		rxd = &(xl_priv->xl_rx_ring[i]) ; 
 		printk("%d, %08lx, %08x, %08x, %08x, %08x\n", i, virt_to_bus(rxd),
 			rxd->framestatus, rxd->upnextptr, rxd->upfragaddr, rxd->upfraglen ) ; 
@@ -158,60 +201,75 @@ static void print_rx_state(struct net_device *dev)
 } 
 #endif
 
+/*
+ *	Read values from the on-board EEProm.  This looks very strange
+ *	but you have to wait for the EEProm to get/set the value before 
+ *	passing/getting the next value from the nic. As with all requests
+ *	on this nic it has to be done in two stages, a) tell the nic which
+ *	memory address you want to access and b) pass/get the value from the nic.
+ *	With the EEProm, you have to wait before and between access a) and b).
+ *	As this is only read at initialization time and the wait period is very 
+ *	small we shouldn't have to worry about scheduling issues.
+ */
 
 static u16 xl_ee_read(struct net_device *dev, int ee_addr)
 { 
 	struct xl_private *xl_priv = netdev_priv(dev);
 	u8 __iomem *xl_mmio = xl_priv->xl_mmio ; 
 
-	
+	/* Wait for EEProm to not be busy */
 	writel(IO_WORD_READ | EECONTROL, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	while ( readw(xl_mmio + MMIO_MACDATA) & EEBUSY ) ;
 
-	
+	/* Tell EEProm what we want to do and where */
 	writel(IO_WORD_WRITE | EECONTROL, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	writew(EEREAD + ee_addr, xl_mmio + MMIO_MACDATA) ; 
 
-	
+	/* Wait for EEProm to not be busy */
 	writel(IO_WORD_READ | EECONTROL, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	while ( readw(xl_mmio + MMIO_MACDATA) & EEBUSY ) ; 
 	
-	
+	/* Tell EEProm what we want to do and where */
 	writel(IO_WORD_WRITE | EECONTROL , xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	writew(EEREAD + ee_addr, xl_mmio + MMIO_MACDATA) ; 
 
-	
+	/* Finally read the value from the EEProm */
 	writel(IO_WORD_READ | EEDATA , xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	return readw(xl_mmio + MMIO_MACDATA) ; 
 }
 
+/* 
+ *	Write values to the onboard eeprom. As with eeprom read you need to 
+ *	set which location to write, wait, value to write, wait, with the 
+ *	added twist of having to enable eeprom writes as well.
+ */
 
 static void  xl_ee_write(struct net_device *dev, int ee_addr, u16 ee_value) 
 {
 	struct xl_private *xl_priv = netdev_priv(dev);
 	u8 __iomem *xl_mmio = xl_priv->xl_mmio ; 
 
-	
+	/* Wait for EEProm to not be busy */
 	writel(IO_WORD_READ | EECONTROL, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	while ( readw(xl_mmio + MMIO_MACDATA) & EEBUSY ) ;
 	
-	
+	/* Enable write/erase */
 	writel(IO_WORD_WRITE | EECONTROL, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	writew(EE_ENABLE_WRITE, xl_mmio + MMIO_MACDATA) ; 
 
-	
+	/* Wait for EEProm to not be busy */
 	writel(IO_WORD_READ | EECONTROL, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	while ( readw(xl_mmio + MMIO_MACDATA) & EEBUSY ) ;
 
-	 
+	/* Put the value we want to write into EEDATA */ 
 	writel(IO_WORD_WRITE | EEDATA, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	writew(ee_value, xl_mmio + MMIO_MACDATA) ;
 
-	
+	/* Tell EEProm to write eevalue into ee_addr */
 	writel(IO_WORD_WRITE | EECONTROL, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	writew(EEWRITE + ee_addr, xl_mmio + MMIO_MACDATA) ; 
 
-	
+	/* Wait for EEProm to not be busy, to ensure write gets done */
 	writel(IO_WORD_READ | EECONTROL, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	while ( readw(xl_mmio + MMIO_MACDATA) & EEBUSY ) ;
 	
@@ -247,6 +305,11 @@ static int __devinit xl_probe(struct pci_dev *pdev,
 		return i ; 
 	}
 
+	/* 
+	 * Allowing init_trdev to allocate the private data will align
+	 * xl_private on a 32 bytes boundary which we need for the rx/tx
+	 * descriptors
+	 */
 
 	dev = alloc_trdev(sizeof(struct xl_private)) ; 
 	if (!dev) { 
@@ -341,6 +404,10 @@ static int __devinit xl_init(struct net_device *dev)
 }
 
 
+/* 
+ *	Hardware reset.  This needs to be a separate entity as we need to reset the card
+ *	when we change the EEProm settings.
+ */
 
 static int xl_hw_reset(struct net_device *dev) 
 {
@@ -356,9 +423,17 @@ static int xl_hw_reset(struct net_device *dev)
 	if (xl_priv->fw == NULL)
 		return -EINVAL;
 
+	/*
+	 *  Reset the card.  If the card has got the microcode on board, we have 
+         *  missed the initialization interrupt, so we must always do this.
+	 */
 
 	writew( GLOBAL_RESET, xl_mmio + MMIO_COMMAND ) ; 
 
+	/* 
+	 * Must wait for cmdInProgress bit (12) to clear before continuing with
+	 * card configuration.
+	 */
 
 	t=jiffies;
 	while (readw(xl_mmio + MMIO_INTSTATUS) & INTSTAT_CMD_IN_PROGRESS) { 
@@ -369,6 +444,9 @@ static int xl_hw_reset(struct net_device *dev)
 		}
 	}
 
+	/*
+	 *  Enable pmbar by setting bit in CPAttention
+	 */
 
 	writel( (IO_BYTE_READ | CPATTENTION), xl_mmio + MMIO_MAC_ACCESS_CMD) ;
 	result_8 = readb(xl_mmio + MMIO_MACDATA) ; 
@@ -376,6 +454,10 @@ static int xl_hw_reset(struct net_device *dev)
 	writel( (IO_BYTE_WRITE | CPATTENTION), xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	writeb(result_8, xl_mmio + MMIO_MACDATA) ; 
 	
+	/*
+	 * Read cpHold bit in pmbar, if cleared we have got Flashrom on board.
+ 	 * If not, we need to upload the microcode to the card
+	 */
 
 	writel( (IO_WORD_READ | PMBAR),xl_mmio + MMIO_MAC_ACCESS_CMD);  
 
@@ -385,7 +467,7 @@ static int xl_hw_reset(struct net_device *dev)
 
 	if ( readw( (xl_mmio + MMIO_MACDATA))  & PMB_CPHOLD ) { 
 
-		
+		/* Set PmBar, privateMemoryBase bits (8:2) to 0 */
 
 		writel( (IO_WORD_READ | PMBAR),xl_mmio + MMIO_MAC_ACCESS_CMD);  
 		result_16 = readw(xl_mmio + MMIO_MACDATA) ; 
@@ -393,7 +475,7 @@ static int xl_hw_reset(struct net_device *dev)
 		writel( (IO_WORD_WRITE | PMBAR), xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 		writew(result_16,xl_mmio + MMIO_MACDATA) ; 
 	
-		
+		/* Set CPAttention, memWrEn bit */
 
 		writel( (IO_BYTE_READ | CPATTENTION), xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 		result_8 = readb(xl_mmio + MMIO_MACDATA) ; 
@@ -401,6 +483,14 @@ static int xl_hw_reset(struct net_device *dev)
 		writel( (IO_BYTE_WRITE | CPATTENTION), xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 		writeb(result_8, xl_mmio + MMIO_MACDATA) ; 
 
+		/* 
+		 * Now to write the microcode into the shared ram 
+	 	 * The microcode must finish at position 0xFFFF,
+	 	 * so we must subtract to get the start position for the code
+	 	 *
+		 * Looks strange but ensures compiler only uses
+		 * 16 bit unsigned int
+		 */
 		start = (0xFFFF - (xl_priv->fw->size) + 1) ;
 
 		printk(KERN_INFO "3C359: Uploading Microcode: "); 
@@ -421,11 +511,16 @@ static int xl_hw_reset(struct net_device *dev)
 			       xl_mmio + MMIO_MACDATA);
 		}
 
+		/*
+		 * Have to write the start address of the upload to FFF4, but
+                 * the address must be >> 4. You do not want to know how long
+                 * it took me to discover this.
+		 */
 
 		writel(MEM_WORD_WRITE | 0xDFFF4, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 		writew(start >> 4, xl_mmio + MMIO_MACDATA);
 
-		
+		/* Clear the CPAttention, memWrEn Bit */
 	
 		writel( (IO_BYTE_READ | CPATTENTION), xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 		result_8 = readb(xl_mmio + MMIO_MACDATA) ; 
@@ -433,7 +528,7 @@ static int xl_hw_reset(struct net_device *dev)
 		writel( (IO_BYTE_WRITE | CPATTENTION), xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 		writeb(result_8, xl_mmio + MMIO_MACDATA) ; 
 
-		
+		/* Clear the cpHold bit in pmbar */
 
 		writel( (IO_WORD_READ | PMBAR),xl_mmio + MMIO_MAC_ACCESS_CMD);  
 		result_16 = readw(xl_mmio + MMIO_MACDATA) ; 
@@ -442,8 +537,13 @@ static int xl_hw_reset(struct net_device *dev)
 		writew(result_16,xl_mmio + MMIO_MACDATA) ; 
 
 
-	} 
+	} /* If microcode upload required */
 
+	/* 
+	 * The card should now go though a self test procedure and get itself ready
+         * to be opened, we must wait for an srb response with the initialization
+         * information. 
+	 */
 
 #if XL_DEBUG
 	printk(KERN_INFO "%s: Microcode uploaded, must wait for the self test to complete\n", dev->name);
@@ -460,6 +560,11 @@ static int xl_hw_reset(struct net_device *dev)
 		}
 	}
 
+	/*
+	 * Write the RxBufArea with D000, RxEarlyThresh, TxStartThresh, 
+ 	 * DnPriReqThresh, read the tech docs if you want to know what
+	 * values they need to be.
+	 */
 
 	writel(MMIO_WORD_WRITE | RXBUFAREA, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	writew(0xD000, xl_mmio + MMIO_MACDATA) ; 
@@ -472,6 +577,10 @@ static int xl_hw_reset(struct net_device *dev)
 	writeb(0x04, xl_mmio + MMIO_DNBURSTTHRESH) ; 
 	writeb(0x04, xl_mmio + DNPRIREQTHRESH) ;
 
+	/*
+	 * Read WRBR to provide the location of the srb block, have to use byte reads not word reads. 
+	 * Tech docs have this wrong !!!!
+	 */
 
 	writel(MMIO_BYTE_READ | WRBR, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	xl_priv->srb = readb(xl_mmio + MMIO_MACDATA) << 8 ; 
@@ -496,7 +605,7 @@ static int xl_open(struct net_device *dev)
 	struct xl_private *xl_priv=netdev_priv(dev);
 	u8 __iomem *xl_mmio = xl_priv->xl_mmio ; 
 	u8 i ; 
-	__le16 hwaddr[3] ; 
+	__le16 hwaddr[3] ; /* Should be u8[6] but we get word return values */
 	int open_err ;
 
 	u16 switchsettings, switchsettings_eeprom  ;
@@ -504,12 +613,15 @@ static int xl_open(struct net_device *dev)
 	if (request_irq(dev->irq, xl_interrupt, IRQF_SHARED , "3c359", dev))
 		return -EAGAIN;
 
+	/* 
+	 * Read the information from the EEPROM that we need.
+	 */
 	
 	hwaddr[0] = cpu_to_le16(xl_ee_read(dev,0x10));
 	hwaddr[1] = cpu_to_le16(xl_ee_read(dev,0x11));
 	hwaddr[2] = cpu_to_le16(xl_ee_read(dev,0x12));
 
-	
+	/* Ring speed */
 
 	switchsettings_eeprom = xl_ee_read(dev,0x08) ;
 	switchsettings = switchsettings_eeprom ;  
@@ -521,10 +633,10 @@ static int xl_open(struct net_device *dev)
 			switchsettings = switchsettings & ~0x02 ; 
 	}
 
-	
+	/* Only write EEProm if there has been a change */
 	if (switchsettings != switchsettings_eeprom) { 
 		xl_ee_write(dev,0x08,switchsettings) ; 
-		
+		/* Hardware reset after changing EEProm */
 		xl_hw_reset(dev) ; 
 	}
 
@@ -532,9 +644,12 @@ static int xl_open(struct net_device *dev)
 	
 	open_err = xl_open_hw(dev) ; 
 
+	/* 
+	 * This really needs to be cleaned up with better error reporting.
+	 */
 
-	if (open_err != 0) { 
-		if (open_err & 0x07) { 
+	if (open_err != 0) { /* Something went wrong with the open command */
+		if (open_err & 0x07) { /* Wrong speed, retry at different speed */
 			printk(KERN_WARNING "%s: Open Error, retrying at different ringspeed\n", dev->name);
 			switchsettings = switchsettings ^ 2 ; 
 			xl_ee_write(dev,0x08,switchsettings) ; 
@@ -552,7 +667,10 @@ static int xl_open(struct net_device *dev)
 		}
 	}
 
-	
+	/*
+	 * Now to set up the Rx and Tx buffer structures
+	 */
+	/* These MUST be on 8 byte boundaries */
 	xl_priv->xl_tx_ring = kzalloc((sizeof(struct xl_tx_desc) * XL_TX_RING_SIZE) + 7, GFP_DMA | GFP_KERNEL);
 	if (xl_priv->xl_tx_ring == NULL) {
 		free_irq(dev->irq,dev);
@@ -565,7 +683,7 @@ static int xl_open(struct net_device *dev)
 		return -ENOMEM;
 	}
 
-	 
+	 /* Setup Rx Ring */
 	 for (i=0 ; i < XL_RX_RING_SIZE ; i++) { 
 		struct sk_buff *skb ; 
 
@@ -597,14 +715,17 @@ static int xl_open(struct net_device *dev)
 
 	writel(xl_priv->rx_ring_dma_addr, xl_mmio + MMIO_UPLISTPTR) ; 
 	
-	
+	/* Setup Tx Ring */
 	
 	xl_priv->tx_ring_dma_addr = pci_map_single(xl_priv->pdev,xl_priv->xl_tx_ring, sizeof(struct xl_tx_desc) * XL_TX_RING_SIZE,PCI_DMA_TODEVICE) ; 
 	
 	xl_priv->tx_ring_head = 1 ; 
-	xl_priv->tx_ring_tail = 255 ; 
+	xl_priv->tx_ring_tail = 255 ; /* Special marker for first packet */
 	xl_priv->free_ring_entries = XL_TX_RING_SIZE ; 
 
+	/*
+ 	 * Setup the first dummy DPD entry for polling to start working.
+	 */
 
 	xl_priv->xl_tx_ring[0].framestartheader = TXDPDEMPTY;
 	xl_priv->xl_tx_ring[0].buffer = 0 ; 
@@ -617,6 +738,9 @@ static int xl_open(struct net_device *dev)
 	writel(DNENABLE, xl_mmio + MMIO_COMMAND) ; 
 	writeb(0x40, xl_mmio + MMIO_DNPOLL) ;	
 
+	/*
+	 * Enable interrupts on the card
+	 */
 
 	writel(SETINTENABLE | INT_MASK, xl_mmio + MMIO_COMMAND) ; 
 	writel(SETINDENABLE | INT_MASK, xl_mmio + MMIO_COMMAND) ; 
@@ -636,40 +760,54 @@ static int xl_open_hw(struct net_device *dev)
 	int i ; 
 	unsigned long t ; 
 
+	/*
+	 * Okay, let's build up the Open.NIC srb command
+	 *
+	 */
 		
 	writel( (MEM_BYTE_WRITE | 0xD0000 | xl_priv->srb), xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	writeb(OPEN_NIC, xl_mmio + MMIO_MACDATA) ; 
 	
+	/*
+	 * Use this as a test byte, if it comes back with the same value, the command didn't work
+	 */
 
 	writel( (MEM_BYTE_WRITE | 0xD0000 | xl_priv->srb)+ 2, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	writeb(0xff,xl_mmio + MMIO_MACDATA) ; 
 
-	
+	/* Open options */
 	writel( (MEM_BYTE_WRITE | 0xD0000 | xl_priv->srb) + 8, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	writeb(0x00, xl_mmio + MMIO_MACDATA) ; 
 	writel( (MEM_BYTE_WRITE | 0xD0000 | xl_priv->srb) + 9, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	writeb(0x00, xl_mmio + MMIO_MACDATA) ; 
 
+	/* 
+	 * Node address, be careful here, the docs say you can just put zeros here and it will use
+	 * the hardware address, it doesn't, you must include the node address in the open command.
+	 */
 
-	if (xl_priv->xl_laa[0]) {  
+	if (xl_priv->xl_laa[0]) {  /* If using a LAA address */
 		for (i=10;i<16;i++) { 
 			writel( (MEM_BYTE_WRITE | 0xD0000 | xl_priv->srb) + i, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 			writeb(xl_priv->xl_laa[i-10],xl_mmio + MMIO_MACDATA) ;
 		}
 		memcpy(dev->dev_addr,xl_priv->xl_laa,dev->addr_len) ; 
-	} else {  
+	} else { /* Regular hardware address */ 
 		for (i=10;i<16;i++) { 
 			writel( (MEM_BYTE_WRITE | 0xD0000 | xl_priv->srb) + i, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 			writeb(dev->dev_addr[i-10], xl_mmio + MMIO_MACDATA) ; 
 		}
 	}
 
-	
+	/* Default everything else to 0 */
 	for (i = 16; i < 34; i++) {
 		writel( (MEM_BYTE_WRITE | 0xD0000 | xl_priv->srb) + i, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 		writeb(0x00,xl_mmio + MMIO_MACDATA) ; 
 	}
 	
+	/*
+	 *  Set the csrb bit in the MISR register
+	 */
 
 	xl_wait_misr_flags(dev) ; 
 	writel(MEM_BYTE_WRITE | MF_CSRB, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
@@ -677,6 +815,9 @@ static int xl_open_hw(struct net_device *dev)
 	writel(MMIO_BYTE_WRITE | MISR_SET, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	writeb(MISR_CSRB , xl_mmio + MMIO_MACDATA) ; 
 
+	/*
+	 * Now wait for the command to run
+	 */
 
 	t=jiffies;
 	while (! (readw(xl_mmio + MMIO_INTSTATUS) & INTSTAT_SRB)) { 
@@ -687,6 +828,9 @@ static int xl_open_hw(struct net_device *dev)
 		}
 	}
 
+	/*
+	 * Let's interpret the open response
+	 */
 
 	writel( (MEM_BYTE_READ | 0xD0000 | xl_priv->srb)+2, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	if (readb(xl_mmio + MMIO_MACDATA)!=0) {
@@ -708,6 +852,10 @@ static int xl_open_hw(struct net_device *dev)
 		writel( (MEM_WORD_READ | 0xD0000 | xl_priv->srb) + 14, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 		vsoff = swab16(readw(xl_mmio + MMIO_MACDATA)) ;
 
+		/* 
+		 * Interesting, sending the individual characters directly to printk was causing klogd to use
+		 * use 100% of processor time, so we build up the string and print that instead.
+	   	 */
 
 		for (i=0;i<0x20;i++) { 
 			writel( (MEM_BYTE_READ | 0xD0000 | vsoff) + i, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
@@ -717,13 +865,41 @@ static int xl_open_hw(struct net_device *dev)
 		printk(KERN_INFO "%s: Microcode version String: %s\n",dev->name,ver_str);
 	} 	
 	
+	/*
+	 * Issue the AckInterrupt
+	 */
 	writew(ACK_INTERRUPT | SRBRACK | LATCH_ACK, xl_mmio + MMIO_COMMAND) ; 
 
 	return 0 ; 
 }
 
+/*
+ *	There are two ways of implementing rx on the 359 NIC, either
+ * 	interrupt driven or polling.  We are going to uses interrupts,
+ *	it is the easier way of doing things.
+ *	
+ *	The Rx works with a ring of Rx descriptors.  At initialise time the ring
+ *	entries point to the next entry except for the last entry in the ring 
+ *	which points to 0.  The card is programmed with the location of the first
+ *	available descriptor and keeps reading the next_ptr until next_ptr is set
+ *	to 0.  Hopefully with a ring size of 16 the card will never get to read a next_ptr
+ *	of 0.  As the Rx interrupt is received we copy the frame up to the protocol layers
+ *	and then point the end of the ring to our current position and point our current
+ *	position to 0, therefore making the current position the last position on the ring.
+ *	The last position on the ring therefore loops continually loops around the rx ring.
+ *	
+ *	rx_ring_tail is the position on the ring to process next. (Think of a snake, the head 
+ *	expands as the card adds new packets and we go around eating the tail processing the
+ *	packets.)
+ *
+ *	Undoubtably it could be streamlined and improved upon, but at the moment it works 
+ *	and the fast path through the routine is fine. 
+ *	
+ *	adv_rx_ring could be inlined to increase performance, but its called a *lot* of times
+ *	in xl_rx so would increase the size of the function significantly. 
+ */
 
-static void adv_rx_ring(struct net_device *dev)  
+static void adv_rx_ring(struct net_device *dev) /* Advance rx_ring, cut down on bloat in xl_rx */ 
 {
 	struct xl_private *xl_priv=netdev_priv(dev);
 	int n = xl_priv->rx_ring_tail;
@@ -745,12 +921,19 @@ static void xl_rx(struct net_device *dev)
 	int frame_length = 0, copy_len = 0  ; 	
 	int temp_ring_loc ;  
 
- 	 
+	/*
+	 * Receive the next frame, loop around the ring until all frames
+  	 * have been received.
+	 */ 	 
 	
-	while (xl_priv->xl_rx_ring[xl_priv->rx_ring_tail].framestatus & (RXUPDCOMPLETE | RXUPDFULL) ) { 
+	while (xl_priv->xl_rx_ring[xl_priv->rx_ring_tail].framestatus & (RXUPDCOMPLETE | RXUPDFULL) ) { /* Descriptor to process */
 
-		if (xl_priv->xl_rx_ring[xl_priv->rx_ring_tail].framestatus & RXUPDFULL ) { 
+		if (xl_priv->xl_rx_ring[xl_priv->rx_ring_tail].framestatus & RXUPDFULL ) { /* UpdFull, Multiple Descriptors used for the frame */
 
+			/* 
+			 * This is a pain, you need to go through all the descriptors until the last one 
+			 * for this frame to find the framelength
+			 */
 
 			temp_ring_loc = xl_priv->rx_ring_tail ; 
 
@@ -763,12 +946,12 @@ static void xl_rx(struct net_device *dev)
 
 			skb = dev_alloc_skb(frame_length) ;
  
-			if (skb==NULL) { 
+			if (skb==NULL) { /* No memory for frame, still need to roll forward the rx ring */
 				printk(KERN_WARNING "%s: dev_alloc_skb failed - multi buffer !\n", dev->name) ; 
 				while (xl_priv->rx_ring_tail != temp_ring_loc)  
 					adv_rx_ring(dev) ; 
 				
-				adv_rx_ring(dev) ;  
+				adv_rx_ring(dev) ; /* One more time just for luck :) */ 
 				dev->stats.rx_dropped++ ; 
 
 				writel(ACK_INTERRUPT | UPCOMPACK | LATCH_ACK , xl_mmio + MMIO_COMMAND) ; 
@@ -786,22 +969,23 @@ static void xl_rx(struct net_device *dev)
 				adv_rx_ring(dev) ; 
 			} 
 
-			
+			/* Now we have found the last fragment */
 			pci_dma_sync_single_for_cpu(xl_priv->pdev,le32_to_cpu(xl_priv->xl_rx_ring[xl_priv->rx_ring_tail].upfragaddr),xl_priv->pkt_buf_sz,PCI_DMA_FROMDEVICE);
 			skb_copy_from_linear_data(xl_priv->rx_ring_skb[xl_priv->rx_ring_tail],
 				      skb_put(skb,copy_len), frame_length);
+/*			memcpy(skb_put(skb,frame_length), bus_to_virt(xl_priv->xl_rx_ring[xl_priv->rx_ring_tail].upfragaddr), frame_length) ; */
 			pci_dma_sync_single_for_device(xl_priv->pdev,le32_to_cpu(xl_priv->xl_rx_ring[xl_priv->rx_ring_tail].upfragaddr),xl_priv->pkt_buf_sz,PCI_DMA_FROMDEVICE);
 			adv_rx_ring(dev) ; 
 			skb->protocol = tr_type_trans(skb,dev) ; 
 			netif_rx(skb) ; 
 
-		} else { 
+		} else { /* Single Descriptor Used, simply swap buffers over, fast path  */
 
 			frame_length = le32_to_cpu(xl_priv->xl_rx_ring[xl_priv->rx_ring_tail].framestatus) & 0x7FFF;
 			
 			skb = dev_alloc_skb(xl_priv->pkt_buf_sz) ; 
 
-			if (skb==NULL) { 
+			if (skb==NULL) { /* Still need to fix the rx ring */
 				printk(KERN_WARNING "%s: dev_alloc_skb failed in rx, single buffer\n",dev->name);
 				adv_rx_ring(dev) ; 
 				dev->stats.rx_dropped++ ; 
@@ -822,14 +1006,18 @@ static void xl_rx(struct net_device *dev)
 			dev->stats.rx_bytes += frame_length ; 	
 
 			netif_rx(skb2) ; 		
-		 } 
-	} 
+		 } /* if multiple buffers */
+	} /* while packet to do */
 
-	
+	/* Clear the updComplete interrupt */
 	writel(ACK_INTERRUPT | UPCOMPACK | LATCH_ACK , xl_mmio + MMIO_COMMAND) ; 
 	return ; 	
 }
 
+/*
+ * This is ruthless, it doesn't care what state the card is in it will 
+ * completely reset the adapter.
+ */
 
 static void xl_reset(struct net_device *dev) 
 {
@@ -839,6 +1027,10 @@ static void xl_reset(struct net_device *dev)
 
 	writew( GLOBAL_RESET, xl_mmio + MMIO_COMMAND ) ; 
 
+	/* 
+	 * Must wait for cmdInProgress bit (12) to clear before continuing with
+	 * card configuration.
+	 */
 
 	t=jiffies;
 	while (readw(xl_mmio + MMIO_INTSTATUS) & INTSTAT_CMD_IN_PROGRESS) { 
@@ -862,7 +1054,7 @@ static void xl_freemem(struct net_device *dev)
 		xl_priv->rx_ring_tail &= XL_RX_RING_SIZE-1; 
 	} 
 
-	
+	/* unmap ring */
 	pci_unmap_single(xl_priv->pdev,xl_priv->rx_ring_dma_addr, sizeof(struct xl_rx_desc) * XL_RX_RING_SIZE, PCI_DMA_FROMDEVICE) ; 
 	
 	pci_unmap_single(xl_priv->pdev,xl_priv->tx_ring_dma_addr, sizeof(struct xl_tx_desc) * XL_TX_RING_SIZE, PCI_DMA_TODEVICE) ; 
@@ -882,17 +1074,28 @@ static irqreturn_t xl_interrupt(int irq, void *dev_id)
 
 	intstatus = readw(xl_mmio + MMIO_INTSTATUS) ;  
 
-	if (!(intstatus & 1)) 
+	if (!(intstatus & 1)) /* We didn't generate the interrupt */
 		return IRQ_NONE;
 
 	spin_lock(&xl_priv->xl_lock) ; 
 
+	/*
+	 * Process the interrupt
+	 */
+	/*
+	 * Something fishy going on here, we shouldn't get 0001 ints, not fatal though.
+	 */
 	if (intstatus == 0x0001) {  
 		writel(ACK_INTERRUPT | LATCH_ACK, xl_mmio + MMIO_COMMAND) ;
 		printk(KERN_INFO "%s: 00001 int received\n",dev->name);
 	} else {  
 		if (intstatus &	(HOSTERRINT | SRBRINT | ARBCINT | UPCOMPINT | DNCOMPINT | HARDERRINT | (1<<8) | TXUNDERRUN | ASBFINT)) { 
 			
+			/* 
+			 * Host Error.
+			 * It may be possible to recover from this, but usually it means something
+			 * is seriously fubar, so we just close the adapter.
+			 */
 
 			if (intstatus & HOSTERRINT) {
 				printk(KERN_WARNING "%s: Host Error, performing global reset, intstatus = %04x\n",dev->name,intstatus);
@@ -905,26 +1108,28 @@ static irqreturn_t xl_interrupt(int irq, void *dev_id)
 				writel(ACK_INTERRUPT | LATCH_ACK, xl_mmio + MMIO_COMMAND) ; 
 				spin_unlock(&xl_priv->xl_lock) ; 
 				return IRQ_HANDLED;
-			} 
+			} /* Host Error */
 
-			if (intstatus & SRBRINT ) {  
+			if (intstatus & SRBRINT ) {  /* Srbc interrupt */
 				writel(ACK_INTERRUPT | SRBRACK | LATCH_ACK, xl_mmio + MMIO_COMMAND) ;
 				if (xl_priv->srb_queued)
 					xl_srb_bh(dev) ; 
-			} 
+			} /* SRBR Interrupt */
 
-			if (intstatus & TXUNDERRUN) { 
+			if (intstatus & TXUNDERRUN) { /* Issue DnReset command */
 				writel(DNRESET, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
-				while (readw(xl_mmio + MMIO_INTSTATUS) & INTSTAT_CMD_IN_PROGRESS) { 
-					
+				while (readw(xl_mmio + MMIO_INTSTATUS) & INTSTAT_CMD_IN_PROGRESS) { /* Wait for command to run */
+					/* !!! FIX-ME !!!! 
+					Must put a timeout check here ! */
+					/* Empty Loop */
 				} 
 				printk(KERN_WARNING "%s: TX Underrun received\n",dev->name);
 				writel(ACK_INTERRUPT | LATCH_ACK, xl_mmio + MMIO_COMMAND) ; 
-			} 
+			} /* TxUnderRun */
 	
-			if (intstatus & ARBCINT ) { 
+			if (intstatus & ARBCINT ) { /* Arbc interrupt */
 				xl_arb_cmd(dev) ; 
-			} 
+			} /* Arbc */
 
 			if (intstatus & ASBFINT) { 
 				if (xl_priv->asb_queued == 1) {
@@ -934,15 +1139,15 @@ static irqreturn_t xl_interrupt(int irq, void *dev_id)
 				} else { 
 					writel(ACK_INTERRUPT | LATCH_ACK | ASBFACK, xl_mmio + MMIO_COMMAND) ; 
 				}  
-			} 
+			} /* Asbf */
 
-			if (intstatus & UPCOMPINT ) 
+			if (intstatus & UPCOMPINT ) /* UpComplete */
 				xl_rx(dev) ; 
 
-			if (intstatus & DNCOMPINT )  
+			if (intstatus & DNCOMPINT )  /* DnComplete */
 				xl_dn_comp(dev) ; 
 
-			if (intstatus & HARDERRINT ) { 
+			if (intstatus & HARDERRINT ) { /* Hardware error */
 				writel(MMIO_WORD_READ | MACSTATUS, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 				macstatus = readw(xl_mmio + MMIO_MACDATA) ; 
 				printk(KERN_WARNING "%s: MacStatusError, details: ", dev->name);
@@ -970,7 +1175,7 @@ static irqreturn_t xl_interrupt(int irq, void *dev_id)
 		}
 	} 
 
-	
+	/* Turn interrupts back on */
 
 	writel( SETINDENABLE | INT_MASK, xl_mmio + MMIO_COMMAND) ; 
 	writel( SETINTENABLE | INT_MASK, xl_mmio + MMIO_COMMAND) ; 
@@ -979,6 +1184,9 @@ static irqreturn_t xl_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }	
 
+/*
+ *	Tx - Polling configuration
+ */
 	
 static netdev_tx_t xl_xmit(struct sk_buff *skb, struct net_device *dev)
 {
@@ -992,6 +1200,9 @@ static netdev_tx_t xl_xmit(struct sk_buff *skb, struct net_device *dev)
 	netif_stop_queue(dev) ; 
 
 	if (xl_priv->free_ring_entries > 1 ) { 	
+		/*
+		 * Set up the descriptor for the packet 
+		 */
 		tx_head = xl_priv->tx_ring_head ; 
 		tx_tail = xl_priv->tx_ring_tail ; 
 
@@ -1004,7 +1215,10 @@ static netdev_tx_t xl_xmit(struct sk_buff *skb, struct net_device *dev)
 		dev->stats.tx_packets++ ; 
 		dev->stats.tx_bytes += skb->len ;
 
- 
+		/* 
+		 * Set the nextptr of the previous descriptor equal to this descriptor, add XL_TX_RING_SIZE -1 
+		 * to ensure no negative numbers in unsigned locations.
+		 */ 
 	
 		tx_prev = (xl_priv->tx_ring_head + XL_TX_RING_SIZE - 1) & (XL_TX_RING_SIZE - 1) ; 
 
@@ -1014,8 +1228,8 @@ static netdev_tx_t xl_xmit(struct sk_buff *skb, struct net_device *dev)
 
 		xl_priv->xl_tx_ring[tx_prev].dnnextptr = cpu_to_le32(xl_priv->tx_ring_dma_addr + (sizeof (struct xl_tx_desc) * tx_head));
 
-		
-		
+		/* Sneaky, by doing a read on DnListPtr we can force the card to poll on the DnNextPtr */
+		/* readl(xl_mmio + MMIO_DNLISTPTR) ; */
 
 		netif_wake_queue(dev) ; 
 
@@ -1029,6 +1243,11 @@ static netdev_tx_t xl_xmit(struct sk_buff *skb, struct net_device *dev)
 
 }
 	
+/* 
+ * The NIC has told us that a packet has been downloaded onto the card, we must
+ * find out which packet it has done, clear the skb and information for the packet
+ * then advance around the ring for all transmitted packets
+ */
 
 static void xl_dn_comp(struct net_device *dev) 
 {
@@ -1037,7 +1256,7 @@ static void xl_dn_comp(struct net_device *dev)
 	struct xl_tx_desc *txd ; 
 
 
-	if (xl_priv->tx_ring_tail == 255) {
+	if (xl_priv->tx_ring_tail == 255) {/* First time */
 		xl_priv->xl_tx_ring[0].framestartheader = 0 ; 
 		xl_priv->xl_tx_ring[0].dnnextptr = 0 ;  
 		xl_priv->tx_ring_tail = 1 ; 
@@ -1060,6 +1279,11 @@ static void xl_dn_comp(struct net_device *dev)
 	writel(ACK_INTERRUPT | DNCOMPACK | LATCH_ACK , xl_mmio + MMIO_COMMAND) ; 
 }
 
+/*
+ * Close the adapter properly.
+ * This srb reply cannot be handled from interrupt context as we have
+ * to free the interrupt from the driver. 
+ */
 
 static int xl_close(struct net_device *dev) 
 {
@@ -1069,6 +1293,9 @@ static int xl_close(struct net_device *dev)
 
 	netif_stop_queue(dev) ; 
 
+	/*
+	 * Close the adapter, need to stall the rx and tx queues.
+	 */
 
     	writew(DNSTALL, xl_mmio + MMIO_COMMAND) ; 
 	t=jiffies;
@@ -1098,6 +1325,9 @@ static int xl_close(struct net_device *dev)
 		}
 	}
 
+	/* Turn off interrupts, we will still get the indication though
+ 	 * so we can trap it
+	 */
 
 	writel(SETINTENABLE, xl_mmio + MMIO_COMMAND) ; 
 
@@ -1111,7 +1341,7 @@ static int xl_close(struct net_device *dev)
 			break ; 
 		}
 	}
-	
+	/* Read the srb response from the adapter */
 
 	writel(MEM_BYTE_READ | 0xd0000 | xl_priv->srb, xl_mmio + MMIO_MAC_ACCESS_CMD);
 	if (readb(xl_mmio + MMIO_MACDATA) != CLOSE_NIC) { 
@@ -1129,7 +1359,7 @@ static int xl_close(struct net_device *dev)
 		} 
 	}
 
-	
+	/* Reset the upload and download logic */
  
     	writew(UPRESET, xl_mmio + MMIO_COMMAND) ; 
 	t=jiffies;
@@ -1165,7 +1395,7 @@ static void xl_set_rx_mode(struct net_device *dev)
 	else
 		options = 0x0000 ; 
 
-	if (options ^ xl_priv->xl_copy_all_options) { 
+	if (options ^ xl_priv->xl_copy_all_options) { /* Changed, must send command */
 		xl_priv->xl_copy_all_options = options ; 
 		xl_srb_cmd(dev, SET_RECEIVE_MODE) ;
 		return ;  
@@ -1180,7 +1410,7 @@ static void xl_set_rx_mode(struct net_device *dev)
 		dev_mc_address[3] |= ha->addr[5];
         }
 
-	if (memcmp(xl_priv->xl_functional_addr,dev_mc_address,4) != 0) { 
+	if (memcmp(xl_priv->xl_functional_addr,dev_mc_address,4) != 0) { /* Options have changed, run the command */
 		memcpy(xl_priv->xl_functional_addr, dev_mc_address,4) ; 
 		xl_srb_cmd(dev, SET_FUNC_ADDRESS) ; 
 	}
@@ -1188,6 +1418,10 @@ static void xl_set_rx_mode(struct net_device *dev)
 }
 
 
+/*
+ *	We issued an srb command and now we must read
+ *	the response from the completed command.
+ */
 
 static void xl_srb_bh(struct net_device *dev) 
 { 
@@ -1201,7 +1435,7 @@ static void xl_srb_bh(struct net_device *dev)
 	writel((MEM_BYTE_READ | 0xd0000 | xl_priv->srb) +2, xl_mmio + MMIO_MAC_ACCESS_CMD) ;
 	ret_code = readb(xl_mmio + MMIO_MACDATA) ; 
 
-	
+	/* Ret_code is standard across all commands */
 
 	switch (ret_code) { 
 	case 1:
@@ -1215,11 +1449,15 @@ static void xl_srb_bh(struct net_device *dev)
 		printk(KERN_INFO "%s: Command: %d - Options Invalid for command\n",dev->name,srb_cmd);
 		break ;
 
-	case 0:  
+	case 0: /* Successful command execution */ 
 		switch (srb_cmd) { 
-		case READ_LOG: 
+		case READ_LOG: /* Returns 14 bytes of data from the NIC */
 			if(xl_priv->xl_message_level)
 				printk(KERN_INFO "%s: READ.LOG 14 bytes of data ",dev->name) ; 
+			/* 
+			 * We still have to read the log even if message_level = 0 and we don't want
+			 * to see it
+			 */
 			for (i=0;i<14;i++) { 
 				writel(MEM_BYTE_READ | 0xd0000 | xl_priv->srb | i, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 				if(xl_priv->xl_message_level) 
@@ -1248,9 +1486,9 @@ static void xl_srb_bh(struct net_device *dev)
 			}
 			break ; 
  
-		} 
+		} /* switch */
 		break ; 
-	} 
+	} /* switch */
 	return ; 	
 } 
 
@@ -1286,14 +1524,14 @@ static void xl_arb_cmd(struct net_device *dev)
 	writel( ( MEM_BYTE_READ | 0xD0000 | xl_priv->arb), xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	arb_cmd = readb(xl_mmio + MMIO_MACDATA) ; 
 	
-	if (arb_cmd == RING_STATUS_CHANGE) { 
+	if (arb_cmd == RING_STATUS_CHANGE) { /* Ring.Status.Change */
 		writel( ( (MEM_WORD_READ | 0xD0000 | xl_priv->arb) + 6), xl_mmio + MMIO_MAC_ACCESS_CMD) ;
 		 
 		printk(KERN_INFO "%s: Ring Status Change: New Status = %04x\n", dev->name, swab16(readw(xl_mmio + MMIO_MACDATA) )) ;
 
 		lan_status = swab16(readw(xl_mmio + MMIO_MACDATA));
 	
-		
+		/* Acknowledge interrupt, this tells nic we are done with the arb */
 		writel(ACK_INTERRUPT | ARBCACK | LATCH_ACK, xl_mmio + MMIO_COMMAND) ; 
 			
 		lan_status_diff = xl_priv->xl_lan_status ^ lan_status ; 
@@ -1308,14 +1546,14 @@ static void xl_arb_cmd(struct net_device *dev)
 			if (lan_status_diff & LSC_RR) 
 				printk(KERN_WARNING "%s: Force remove MAC frame received\n",dev->name);
 		
-			
+			/* Adapter has been closed by the hardware */
 
 			netif_stop_queue(dev);
 			xl_freemem(dev) ; 
 			free_irq(dev->irq,dev);
 			
 			printk(KERN_WARNING "%s: Adapter has been closed\n", dev->name);
-		} 
+		} /* If serious error */
 		
 		if (xl_priv->xl_message_level) { 
 			if (lan_status_diff & LSC_SIG_LOSS) 
@@ -1337,11 +1575,11 @@ static void xl_arb_cmd(struct net_device *dev)
 		if (lan_status_diff & LSC_CO) { 
 				if (xl_priv->xl_message_level) 
 					printk(KERN_INFO "%s: Counter Overflow\n", dev->name);
-				
+				/* Issue READ.LOG command */
 				xl_srb_cmd(dev, READ_LOG) ; 	
 		}
 
-		
+		/* There is no command in the tech docs to issue the read_sr_counters */
 		if (lan_status_diff & LSC_SR_CO) { 
 			if (xl_priv->xl_message_level)
 				printk(KERN_INFO "%s: Source routing counters overflow\n", dev->name);
@@ -1349,19 +1587,25 @@ static void xl_arb_cmd(struct net_device *dev)
 
 		xl_priv->xl_lan_status = lan_status ; 
 	
-	}  
-	else if ( arb_cmd == RECEIVE_DATA) { 
+	}  /* Lan.change.status */
+	else if ( arb_cmd == RECEIVE_DATA) { /* Received.Data */
 #if XL_DEBUG
 		printk(KERN_INFO "Received.Data\n");
 #endif 		
 		writel( ((MEM_WORD_READ | 0xD0000 | xl_priv->arb) + 6), xl_mmio + MMIO_MAC_ACCESS_CMD) ;
 		xl_priv->mac_buffer = swab16(readw(xl_mmio + MMIO_MACDATA)) ;
 		
+		/* Now we are going to be really basic here and not do anything
+		 * with the data at all. The tech docs do not give me enough
+		 * information to calculate the buffers properly so we're
+		 * just going to tell the nic that we've dealt with the frame
+		 * anyway.
+		 */
 
-		
+		/* Acknowledge interrupt, this tells nic we are done with the arb */
 		writel(ACK_INTERRUPT | ARBCACK | LATCH_ACK, xl_mmio + MMIO_COMMAND) ; 
 
-		 	
+		/* Is the ASB free ? */ 	
 			
 		xl_priv->asb_queued = 0 ; 			
 		writel( ((MEM_BYTE_READ | 0xD0000 | xl_priv->asb) + 2), xl_mmio + MMIO_MAC_ACCESS_CMD) ;
@@ -1375,7 +1619,7 @@ static void xl_arb_cmd(struct net_device *dev)
 			writel(MMIO_BYTE_WRITE | MISR_SET, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 			writeb(MISR_ASBFR, xl_mmio + MMIO_MACDATA) ; 
 			return ; 	
-			
+			/* Drop out and wait for the bottom half to be run */
 		}
 	
 		xl_asb_cmd(dev) ; 
@@ -1384,7 +1628,7 @@ static void xl_arb_cmd(struct net_device *dev)
 		printk(KERN_WARNING "%s: Received unknown arb (xl_priv) command: %02x\n",dev->name,arb_cmd);
 	}
 
-	
+	/* Acknowledge the arb interrupt */
 
 	writel(ACK_INTERRUPT | ARBCACK | LATCH_ACK , xl_mmio + MMIO_COMMAND) ; 
 
@@ -1392,6 +1636,10 @@ static void xl_arb_cmd(struct net_device *dev)
 }
 
 
+/*
+ *	There is only one asb command, but we can get called from different
+ *	places.
+ */
 
 static void xl_asb_cmd(struct net_device *dev)
 {
@@ -1420,6 +1668,10 @@ static void xl_asb_cmd(struct net_device *dev)
 	return ; 
 }
 
+/*
+ * 	This will only get called if there was an error
+ *	from the asb cmd.
+ */
 static void xl_asb_bh(struct net_device *dev) 
 {
 	struct xl_private *xl_priv = netdev_priv(dev);
@@ -1444,6 +1696,9 @@ static void xl_asb_bh(struct net_device *dev)
 	return ;  
 }
 
+/* 	
+ *	Issue srb commands to the nic 
+ */
 
 static void xl_srb_cmd(struct net_device *dev, int srb_cmd) 
 {
@@ -1480,15 +1735,15 @@ static void xl_srb_cmd(struct net_device *dev, int srb_cmd)
 		writel(MEM_BYTE_WRITE | 0xD0000 | xl_priv->srb | 9 , xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 		writeb(xl_priv->xl_functional_addr[3], xl_mmio + MMIO_MACDATA) ;
 		break ;  
-	} 
+	} /* switch */
 
 
 	xl_wait_misr_flags(dev)  ; 
 
-	
+	/* Write 0xff to the CSRB flag */
 	writel(MEM_BYTE_WRITE | MF_CSRB , xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	writeb(0xFF, xl_mmio + MMIO_MACDATA) ; 
-	
+	/* Set csrb bit in MISR register to process command */
 	writel(MMIO_BYTE_WRITE | MISR_SET, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 	writeb(MISR_CSRB, xl_mmio + MMIO_MACDATA) ; 
 	xl_priv->srb_queued = 1 ; 
@@ -1496,6 +1751,11 @@ static void xl_srb_cmd(struct net_device *dev, int srb_cmd)
 	return ; 
 }
 
+/*
+ * This is nasty, to use the MISR command you have to wait for 6 memory locations
+ * to be zero. This is the way the driver does on other OS'es so we should be ok with 
+ * the empty loop.
+ */
 
 static void xl_wait_misr_flags(struct net_device *dev) 
 {
@@ -1505,11 +1765,11 @@ static void xl_wait_misr_flags(struct net_device *dev)
 	int i  ; 
 	
 	writel(MMIO_BYTE_READ | MISR_RW, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
-	if (readb(xl_mmio + MMIO_MACDATA) != 0) {  
+	if (readb(xl_mmio + MMIO_MACDATA) != 0) {  /* Misr not clear */
 		for (i=0; i<6; i++) { 
 			writel(MEM_BYTE_READ | 0xDFFE0 | i, xl_mmio + MMIO_MAC_ACCESS_CMD) ; 
 			while (readb(xl_mmio + MMIO_MACDATA) != 0) {
-				;	
+				;	/* Empty Loop */
 			}
 		} 
 	}
@@ -1520,6 +1780,9 @@ static void xl_wait_misr_flags(struct net_device *dev)
 	return ; 
 } 
 
+/*
+ *	Change mtu size, this should work the same as olympic
+ */
 
 static int xl_change_mtu(struct net_device *dev, int mtu) 
 {

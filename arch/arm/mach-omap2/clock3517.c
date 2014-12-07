@@ -28,11 +28,27 @@
 #include "cm2xxx_3xxx.h"
 #include "cm-regbits-34xx.h"
 
+/*
+ * In AM35xx IPSS, the {ICK,FCK} enable bits for modules are exported
+ * in the same register at a bit offset of 0x8. The EN_ACK for ICK is
+ * at an offset of 4 from ICK enable bit.
+ */
 #define AM35XX_IPSS_ICK_MASK			0xF
 #define AM35XX_IPSS_ICK_EN_ACK_OFFSET 		0x4
 #define AM35XX_IPSS_ICK_FCK_OFFSET		0x8
 #define AM35XX_IPSS_CLK_IDLEST_VAL		0
 
+/**
+ * am35xx_clk_find_idlest - return clock ACK info for AM35XX IPSS
+ * @clk: struct clk * being enabled
+ * @idlest_reg: void __iomem ** to store CM_IDLEST reg address into
+ * @idlest_bit: pointer to a u8 to store the CM_IDLEST bit shift into
+ * @idlest_val: pointer to a u8 to store the CM_IDLEST indicator
+ *
+ * The interface clocks on AM35xx IPSS reflects the clock idle status
+ * in the enable register itsel at a bit offset of 4 from the enable
+ * bit. A value of 1 indicates that clock is enabled.
+ */
 static void am35xx_clk_find_idlest(struct clk *clk,
 					    void __iomem **idlest_reg,
 					    u8 *idlest_bit,
@@ -43,6 +59,20 @@ static void am35xx_clk_find_idlest(struct clk *clk,
 	*idlest_val = AM35XX_IPSS_CLK_IDLEST_VAL;
 }
 
+/**
+ * am35xx_clk_find_companion - find companion clock to @clk
+ * @clk: struct clk * to find the companion clock of
+ * @other_reg: void __iomem ** to return the companion clock CM_*CLKEN va in
+ * @other_bit: u8 ** to return the companion clock bit shift in
+ *
+ * Some clocks don't have companion clocks.  For example, modules with
+ * only an interface clock (such as HECC) don't have a companion
+ * clock.  Right now, this code relies on the hardware exporting a bit
+ * in the correct companion register that indicates that the
+ * nonexistent 'companion clock' is active.  Future patches will
+ * associate this type of code with per-module data structures to
+ * avoid this issue, and remove the casts.  No return value.
+ */
 static void am35xx_clk_find_companion(struct clk *clk, void __iomem **other_reg,
 					    u8 *other_bit)
 {
@@ -60,6 +90,17 @@ const struct clkops clkops_am35xx_ipss_module_wait = {
 	.find_companion	= am35xx_clk_find_companion,
 };
 
+/**
+ * am35xx_clk_ipss_find_idlest - return CM_IDLEST info for IPSS
+ * @clk: struct clk * being enabled
+ * @idlest_reg: void __iomem ** to store CM_IDLEST reg address into
+ * @idlest_bit: pointer to a u8 to store the CM_IDLEST bit shift into
+ * @idlest_val: pointer to a u8 to store the CM_IDLEST indicator
+ *
+ * The IPSS target CM_IDLEST bit is at a different shift from the
+ * CM_{I,F}CLKEN bit.  Pass back the correct info via @idlest_reg
+ * and @idlest_bit.  No return value.
+ */
 static void am35xx_clk_ipss_find_idlest(struct clk *clk,
 					    void __iomem **idlest_reg,
 					    u8 *idlest_bit,

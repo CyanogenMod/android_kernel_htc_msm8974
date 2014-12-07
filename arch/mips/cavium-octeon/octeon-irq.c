@@ -81,8 +81,13 @@ static void octeon_irq_core_ack(struct irq_data *data)
 	struct octeon_core_chip_data *cd = irq_data_get_irq_chip_data(data);
 	unsigned int bit = cd->bit;
 
+	/*
+	 * We don't need to disable IRQs to make these atomic since
+	 * they are already disabled earlier in the low level
+	 * interrupt code.
+	 */
 	clear_c0_status(0x100 << bit);
-	
+	/* The two user interrupts must be cleared manually. */
 	if (bit < 2)
 		clear_c0_cause(0x100 << bit);
 }
@@ -91,6 +96,11 @@ static void octeon_irq_core_eoi(struct irq_data *data)
 {
 	struct octeon_core_chip_data *cd = irq_data_get_irq_chip_data(data);
 
+	/*
+	 * We don't need to disable IRQs to make these atomic since
+	 * they are already disabled earlier in the low level
+	 * interrupt code.
+	 */
 	set_c0_status(0x100 << cd->bit);
 }
 
@@ -100,6 +110,9 @@ static void octeon_irq_core_set_enable_local(void *arg)
 	struct octeon_core_chip_data *cd = irq_data_get_irq_chip_data(data);
 	unsigned int mask = 0x100 << cd->bit;
 
+	/*
+	 * Interrupts are already disabled, so these are atomic.
+	 */
 	if (cd->desired_en)
 		set_c0_status(mask);
 	else
@@ -290,7 +303,7 @@ static void octeon_irq_ciu_disable_all(struct irq_data *data)
 	int cpu;
 	union octeon_ciu_chip_data cd;
 
-	wmb(); 
+	wmb(); /* Make sure flag changes arrive before register updates. */
 
 	cd.p = irq_data_get_irq_chip_data(data);
 
@@ -345,6 +358,10 @@ static void octeon_irq_ciu_enable_all(struct irq_data *data)
 	}
 }
 
+/*
+ * Enable the irq on the next core in the affinity set for chips that
+ * have the EN*_W1{S,C} registers.
+ */
 static void octeon_irq_ciu_enable_v2(struct irq_data *data)
 {
 	u64 mask;
@@ -354,6 +371,10 @@ static void octeon_irq_ciu_enable_v2(struct irq_data *data)
 	cd.p = irq_data_get_irq_chip_data(data);
 	mask = 1ull << (cd.s.bit);
 
+	/*
+	 * Called under the desc lock, so these should never get out
+	 * of sync.
+	 */
 	if (cd.s.line == 0) {
 		int index = octeon_coreid_for_cpu(cpu) * 2;
 		set_bit(cd.s.bit, &per_cpu(octeon_irq_ciu0_en_mirror, cpu));
@@ -365,6 +386,10 @@ static void octeon_irq_ciu_enable_v2(struct irq_data *data)
 	}
 }
 
+/*
+ * Enable the irq on the current CPU for chips that
+ * have the EN*_W1{S,C} registers.
+ */
 static void octeon_irq_ciu_enable_local_v2(struct irq_data *data)
 {
 	u64 mask;
@@ -403,6 +428,9 @@ static void octeon_irq_ciu_disable_local_v2(struct irq_data *data)
 	}
 }
 
+/*
+ * Write to the W1C bit in CVMX_CIU_INTX_SUM0 to clear the irq.
+ */
 static void octeon_irq_ciu_ack(struct irq_data *data)
 {
 	u64 mask;
@@ -419,13 +447,17 @@ static void octeon_irq_ciu_ack(struct irq_data *data)
 	}
 }
 
+/*
+ * Disable the irq on the all cores for chips that have the EN*_W1{S,C}
+ * registers.
+ */
 static void octeon_irq_ciu_disable_all_v2(struct irq_data *data)
 {
 	int cpu;
 	u64 mask;
 	union octeon_ciu_chip_data cd;
 
-	wmb(); 
+	wmb(); /* Make sure flag changes arrive before register updates. */
 
 	cd.p = data->chip_data;
 	mask = 1ull << (cd.s.bit);
@@ -445,6 +477,10 @@ static void octeon_irq_ciu_disable_all_v2(struct irq_data *data)
 	}
 }
 
+/*
+ * Enable the irq on the all cores for chips that have the EN*_W1{S,C}
+ * registers.
+ */
 static void octeon_irq_ciu_enable_all_v2(struct irq_data *data)
 {
 	int cpu;
@@ -480,10 +516,14 @@ static void octeon_irq_cpu_offline_ciu(struct irq_data *data)
 		return;
 
 	if (cpumask_weight(data->affinity) > 1) {
+		/*
+		 * It has multi CPU affinity, just remove this CPU
+		 * from the affinity set.
+		 */
 		cpumask_copy(&new_affinity, data->affinity);
 		cpumask_clear_cpu(cpu, &new_affinity);
 	} else {
-		
+		/* Otherwise, put it on lowest numbered online CPU. */
 		cpumask_clear(&new_affinity);
 		cpumask_set_cpu(cpumask_first(cpu_online_mask), &new_affinity);
 	}
@@ -500,6 +540,11 @@ static int octeon_irq_ciu_set_affinity(struct irq_data *data,
 
 	cd.p = data->chip_data;
 
+	/*
+	 * For non-v2 CIU, we will allow only single CPU affinity.
+	 * This removes the need to do locking in the .ack/.eoi
+	 * functions.
+	 */
 	if (cpumask_weight(dest) != 1)
 		return -EINVAL;
 
@@ -540,6 +585,10 @@ static int octeon_irq_ciu_set_affinity(struct irq_data *data,
 	return 0;
 }
 
+/*
+ * Set affinity for the irq for chips that have the EN*_W1{S,C}
+ * registers.
+ */
 static int octeon_irq_ciu_set_affinity_v2(struct irq_data *data,
 					  const struct cpumask *dest,
 					  bool force)
@@ -586,10 +635,17 @@ static int octeon_irq_ciu_set_affinity_v2(struct irq_data *data,
 }
 #endif
 
+/*
+ * The v1 CIU code already masks things, so supply a dummy version to
+ * the core chip code.
+ */
 static void octeon_irq_dummy_mask(struct irq_data *data)
 {
 }
 
+/*
+ * Newer octeon chips have support for lockless CIU operation.
+ */
 static struct irq_chip octeon_irq_chip_ciu_v2 = {
 	.name = "CIU",
 	.irq_enable = octeon_irq_ciu_enable_v2,
@@ -638,6 +694,7 @@ static struct irq_chip octeon_irq_chip_ciu_edge = {
 #endif
 };
 
+/* The mbox versions don't do any affinity or round-robin. */
 static struct irq_chip octeon_irq_chip_ciu_mbox_v2 = {
 	.name = "CIU-M",
 	.irq_enable = octeon_irq_ciu_enable_all_v2,
@@ -660,11 +717,15 @@ static struct irq_chip octeon_irq_chip_ciu_mbox = {
 	.flags = IRQCHIP_ONOFFLINE_ENABLED,
 };
 
+/*
+ * Watchdog interrupts are special.  They are associated with a single
+ * core, so we hardwire the affinity to that core.
+ */
 static void octeon_irq_ciu_wd_enable(struct irq_data *data)
 {
 	unsigned long flags;
 	unsigned long *pen;
-	int coreid = data->irq - OCTEON_IRQ_WDOG0;	
+	int coreid = data->irq - OCTEON_IRQ_WDOG0;	/* Bit 0-63 of EN1 */
 	int cpu = octeon_cpu_for_coreid(coreid);
 
 	raw_spin_lock_irqsave(&octeon_irq_ciu1_lock, flags);
@@ -674,6 +735,10 @@ static void octeon_irq_ciu_wd_enable(struct irq_data *data)
 	raw_spin_unlock_irqrestore(&octeon_irq_ciu1_lock, flags);
 }
 
+/*
+ * Watchdog interrupts are special.  They are associated with a single
+ * core, so we hardwire the affinity to that core.
+ */
 static void octeon_irq_ciu1_wd_enable_v2(struct irq_data *data)
 {
 	int coreid = data->irq - OCTEON_IRQ_WDOG0;
@@ -792,6 +857,11 @@ static void __cpuinit octeon_irq_percpu_enable(void)
 static void __cpuinit octeon_irq_init_ciu_percpu(void)
 {
 	int coreid = cvmx_get_core_num();
+	/*
+	 * Disable All CIU Interrupts. The ones we need will be
+	 * enabled later.  Read the SUM register so we know the write
+	 * completed.
+	 */
 	cvmx_write_csr(CVMX_CIU_INTX_EN0((coreid * 2)), 0);
 	cvmx_write_csr(CVMX_CIU_INTX_EN0((coreid * 2 + 1)), 0);
 	cvmx_write_csr(CVMX_CIU_INTX_EN1((coreid * 2)), 0);
@@ -808,7 +878,7 @@ static void __cpuinit octeon_irq_setup_secondary_ciu(void)
 	octeon_irq_init_ciu_percpu();
 	octeon_irq_percpu_enable();
 
-	
+	/* Enable the CIU lines */
 	set_c0_status(STATUSF_IP3 | STATUSF_IP2);
 	clear_c0_status(STATUSF_IP4);
 }
@@ -844,10 +914,10 @@ static void __init octeon_irq_init_ciu(void)
 	}
 	octeon_irq_ip4 = octeon_irq_ip4_mask;
 
-	
+	/* Mips internal */
 	octeon_irq_init_core();
 
-	
+	/* CIU_0 */
 	for (i = 0; i < 16; i++)
 		octeon_irq_set_ciu_mapping(i + OCTEON_IRQ_WORKQ0, 0, i + 0, chip, handle_level_irq);
 	for (i = 0; i < 16; i++)
@@ -886,7 +956,7 @@ static void __init octeon_irq_init_ciu(void)
 	octeon_irq_set_ciu_mapping(OCTEON_IRQ_MII0, 0, 62, chip, handle_level_irq);
 	octeon_irq_set_ciu_mapping(OCTEON_IRQ_BOOTDMA, 0, 63, chip, handle_level_irq);
 
-	
+	/* CIU_1 */
 	for (i = 0; i < 16; i++)
 		octeon_irq_set_ciu_mapping(i + OCTEON_IRQ_WDOG0, 1, i + 0, chip_wd, handle_level_irq);
 
@@ -925,7 +995,7 @@ static void __init octeon_irq_init_ciu(void)
 	octeon_irq_set_ciu_mapping(OCTEON_IRQ_DFM, 1, 56, chip, handle_level_irq);
 	octeon_irq_set_ciu_mapping(OCTEON_IRQ_RST, 1, 63, chip, handle_level_irq);
 
-	
+	/* Enable the CIU lines */
 	set_c0_status(STATUSF_IP3 | STATUSF_IP2);
 	clear_c0_status(STATUSF_IP4);
 }
@@ -933,7 +1003,7 @@ static void __init octeon_irq_init_ciu(void)
 void __init arch_init_irq(void)
 {
 #ifdef CONFIG_SMP
-	
+	/* Set the default affinity to the boot cpu. */
 	cpumask_clear(irq_default_affinity);
 	cpumask_set_cpu(smp_processor_id(), irq_default_affinity);
 #endif
@@ -971,4 +1041,4 @@ void fixup_irqs(void)
 	irq_cpu_offline();
 }
 
-#endif 
+#endif /* CONFIG_HOTPLUG_CPU */

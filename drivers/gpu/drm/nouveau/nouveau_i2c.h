@@ -56,4 +56,4 @@ int nouveau_i2c_identify(struct drm_device *dev, const char *what,
 
 extern const struct i2c_algorithm nouveau_dp_i2c_algo;
 
-#endif 
+#endif /* __NOUVEAU_I2C_H__ */

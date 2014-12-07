@@ -312,7 +312,6 @@ static int ov13850_read_fuseid(struct sensorb_cfg_data *cdata,
 		}
 		pr_info("%s: OTP valid layer = %d\n", __func__,  valid_layer);
 
-		ov13850_s_ctrl.driver_ic = otp[3];
 
 		rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x0100, 0x00, MSM_CAMERA_I2C_BYTE_DATA);
 		if (rc < 0)

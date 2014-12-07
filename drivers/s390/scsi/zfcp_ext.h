@@ -14,6 +14,7 @@
 #include "zfcp_def.h"
 #include "zfcp_fc.h"
 
+/* zfcp_aux.c */
 extern struct zfcp_port *zfcp_get_port_by_wwpn(struct zfcp_adapter *, u64);
 extern struct zfcp_adapter *zfcp_adapter_enqueue(struct ccw_device *);
 extern struct zfcp_port *zfcp_port_enqueue(struct zfcp_adapter *, u64, u32,
@@ -25,11 +26,13 @@ extern void zfcp_device_unregister(struct device *,
 extern void zfcp_adapter_release(struct kref *);
 extern void zfcp_adapter_unregister(struct zfcp_adapter *);
 
+/* zfcp_ccw.c */
 extern int zfcp_ccw_priv_sch(struct zfcp_adapter *);
 extern struct ccw_driver zfcp_ccw_driver;
 extern struct zfcp_adapter *zfcp_ccw_adapter_by_cdev(struct ccw_device *);
 extern void zfcp_ccw_adapter_put(struct zfcp_adapter *);
 
+/* zfcp_cfdc.c */
 extern struct miscdevice zfcp_cfdc_misc;
 extern void zfcp_cfdc_port_denied(struct zfcp_port *, union fsf_status_qual *);
 extern void zfcp_cfdc_lun_denied(struct scsi_device *, union fsf_status_qual *);
@@ -40,6 +43,7 @@ extern int zfcp_cfdc_open_lun_eval(struct scsi_device *,
 extern void zfcp_cfdc_adapter_access_changed(struct zfcp_adapter *);
 
 
+/* zfcp_dbf.c */
 extern int zfcp_dbf_adapter_register(struct zfcp_adapter *);
 extern void zfcp_dbf_adapter_unregister(struct zfcp_adapter *);
 extern void zfcp_dbf_rec_trig(char *, struct zfcp_adapter *,
@@ -55,6 +59,7 @@ extern void zfcp_dbf_san_res(char *, struct zfcp_fsf_req *);
 extern void zfcp_dbf_san_in_els(char *, struct zfcp_fsf_req *);
 extern void zfcp_dbf_scsi(char *, struct scsi_cmnd *, struct zfcp_fsf_req *);
 
+/* zfcp_erp.c */
 extern void zfcp_erp_set_adapter_status(struct zfcp_adapter *, u32);
 extern void zfcp_erp_clear_adapter_status(struct zfcp_adapter *, u32);
 extern void zfcp_erp_adapter_reopen(struct zfcp_adapter *, int, char *);
@@ -75,6 +80,7 @@ extern void zfcp_erp_wait(struct zfcp_adapter *);
 extern void zfcp_erp_notify(struct zfcp_erp_action *, unsigned long);
 extern void zfcp_erp_timeout_handler(unsigned long);
 
+/* zfcp_fc.c */
 extern struct kmem_cache *zfcp_fc_req_cache;
 extern void zfcp_fc_enqueue_event(struct zfcp_adapter *,
 				enum fc_host_event_code event_code, u32);
@@ -93,6 +99,7 @@ extern int zfcp_fc_exec_bsg_job(struct fc_bsg_job *);
 extern int zfcp_fc_timeout_bsg_job(struct fc_bsg_job *);
 extern void zfcp_fc_sym_name_update(struct work_struct *);
 
+/* zfcp_fsf.c */
 extern struct kmem_cache *zfcp_fsf_qtcb_cache;
 extern int zfcp_fsf_open_port(struct zfcp_erp_action *);
 extern int zfcp_fsf_open_wka_port(struct zfcp_fc_wka_port *);
@@ -122,6 +129,7 @@ extern struct zfcp_fsf_req *zfcp_fsf_fcp_task_mgmt(struct scsi_cmnd *, u8);
 extern struct zfcp_fsf_req *zfcp_fsf_abort_fcp_cmnd(struct scsi_cmnd *);
 extern void zfcp_fsf_reqid_check(struct zfcp_qdio *, int);
 
+/* zfcp_qdio.c */
 extern int zfcp_qdio_setup(struct zfcp_adapter *);
 extern void zfcp_qdio_destroy(struct zfcp_qdio *);
 extern int zfcp_qdio_sbal_get(struct zfcp_qdio *);
@@ -134,6 +142,7 @@ extern void zfcp_qdio_siosl(struct zfcp_adapter *);
 extern struct zfcp_fsf_req *zfcp_fsf_get_req(struct zfcp_qdio *,
 					     struct qdio_buffer *);
 
+/* zfcp_scsi.c */
 extern struct scsi_transport_template *zfcp_scsi_transport_template;
 extern int zfcp_scsi_adapter_register(struct zfcp_adapter *);
 extern void zfcp_scsi_adapter_unregister(struct zfcp_adapter *);
@@ -145,12 +154,14 @@ extern void zfcp_scsi_schedule_rports_block(struct zfcp_adapter *);
 extern void zfcp_scsi_set_prot(struct zfcp_adapter *);
 extern void zfcp_scsi_dif_sense_error(struct scsi_cmnd *, int);
 
+/* zfcp_sysfs.c */
 extern struct attribute_group zfcp_sysfs_unit_attrs;
 extern struct attribute_group zfcp_sysfs_adapter_attrs;
 extern struct attribute_group zfcp_sysfs_port_attrs;
 extern struct device_attribute *zfcp_sysfs_sdev_attrs[];
 extern struct device_attribute *zfcp_sysfs_shost_attrs[];
 
+/* zfcp_unit.c */
 extern int zfcp_unit_add(struct zfcp_port *, u64);
 extern int zfcp_unit_remove(struct zfcp_port *, u64);
 extern struct zfcp_unit *zfcp_unit_find(struct zfcp_port *, u64);
@@ -159,4 +170,4 @@ extern void zfcp_unit_scsi_scan(struct zfcp_unit *);
 extern void zfcp_unit_queue_scsi_scan(struct zfcp_port *);
 extern unsigned int zfcp_unit_sdev_status(struct zfcp_unit *);
 
-#endif	
+#endif	/* ZFCP_EXT_H */

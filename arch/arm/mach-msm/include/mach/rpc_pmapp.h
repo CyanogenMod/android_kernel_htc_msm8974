@@ -16,6 +16,7 @@
 
 #include <mach/msm_rpcrouter.h>
 
+/* Clock voting ids */
 enum {
 	PMAPP_CLOCK_ID_DO = 0,
 	PMAPP_CLOCK_ID_D1,
@@ -23,12 +24,14 @@ enum {
 	PMAPP_CLOCK_ID_A1,
 };
 
+/* Clock voting types */
 enum {
 	PMAPP_CLOCK_VOTE_OFF = 0,
 	PMAPP_CLOCK_VOTE_ON,
 	PMAPP_CLOCK_VOTE_PIN_CTRL,
 };
 
+/* vreg ids */
 enum {
 	PMAPP_VREG_LDO22 = 14,
 	PMAPP_VREG_S3 = 21,
@@ -36,12 +39,14 @@ enum {
 	PMAPP_VREG_S4 = 24,
 };
 
+/* SMPS clock voting types */
 enum {
 	PMAPP_SMPS_CLK_VOTE_DONTCARE = 0,
-	PMAPP_SMPS_CLK_VOTE_2P74,	
-	PMAPP_SMPS_CLK_VOTE_1P6,	
+	PMAPP_SMPS_CLK_VOTE_2P74,	/* 2.74 MHz */
+	PMAPP_SMPS_CLK_VOTE_1P6,	/* 1.6 MHz */
 };
 
+/* SMPS mode voting types */
 enum {
 	PMAPP_SMPS_MODE_VOTE_DONTCARE = 0,
 	PMAPP_SMPS_MODE_VOTE_PWM,

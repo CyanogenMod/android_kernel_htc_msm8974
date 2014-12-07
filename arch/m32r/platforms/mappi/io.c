@@ -24,7 +24,7 @@
 
 extern void pcc_ioread(int, unsigned long, void *, size_t, size_t, int);
 extern void pcc_iowrite(int, unsigned long, void *, size_t, size_t, int);
-#endif 
+#endif /* CONFIG_PCMCIA && CONFIG_M32R_PCC */
 
 #define PORT2ADDR(port)  _port2addr(port)
 
@@ -43,6 +43,9 @@ static inline void delay(void)
 	__asm__ __volatile__ ("push r0; \n\t pop r0;" : : :"memory");
 }
 
+/*
+ * NIC I/O function
+ */
 
 #define PORT2ADDR_NE(port)  _port2addr_ne(port)
 

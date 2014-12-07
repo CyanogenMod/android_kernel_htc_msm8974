@@ -56,7 +56,7 @@ extern bool dss_debug;
 				## __VA_ARGS__)
 #endif
 
-#else 
+#else /* DEBUG */
 #define DSSDBG(format, ...)
 #define DSSDBGF(format, ...)
 #endif
@@ -89,6 +89,8 @@ extern bool dss_debug;
 	printk(KERN_WARNING "omapdss: " format, ## __VA_ARGS__)
 #endif
 
+/* OMAP TRM gives bitfields as start:end, where start is the higher bit
+   number. For example 7:0 */
 #define FLD_MASK(start, end)	(((1 << ((start) - (end) + 1)) - 1) << (end))
 #define FLD_VAL(val, start, end) (((val) << (end)) & FLD_MASK(start, end))
 #define FLD_GET(val, start, end) (((val) & FLD_MASK(start, end)) >> (end))
@@ -112,37 +114,41 @@ enum dss_dsi_content_type {
 };
 
 struct dss_clock_info {
-	
+	/* rates that we get with dividers below */
 	unsigned long fck;
 
-	
+	/* dividers */
 	u16 fck_div;
 };
 
 struct dispc_clock_info {
-	
+	/* rates that we get with dividers below */
 	unsigned long lck;
 	unsigned long pck;
 
-	
+	/* dividers */
 	u16 lck_div;
 	u16 pck_div;
 };
 
 struct dsi_clock_info {
-	
+	/* rates that we get with dividers below */
 	unsigned long fint;
 	unsigned long clkin4ddr;
 	unsigned long clkin;
-	unsigned long dsi_pll_hsdiv_dispc_clk;	
-	unsigned long dsi_pll_hsdiv_dsi_clk;	
+	unsigned long dsi_pll_hsdiv_dispc_clk;	/* OMAP3: DSI1_PLL_CLK
+						 * OMAP4: PLLx_CLK1 */
+	unsigned long dsi_pll_hsdiv_dsi_clk;	/* OMAP3: DSI2_PLL_CLK
+						 * OMAP4: PLLx_CLK2 */
 	unsigned long lp_clk;
 
-	
+	/* dividers */
 	u16 regn;
 	u16 regm;
-	u16 regm_dispc;	
-	u16 regm_dsi;	
+	u16 regm_dispc;	/* OMAP3: REGM3
+			 * OMAP4: REGM4 */
+	u16 regm_dsi;	/* OMAP3: REGM4
+			 * OMAP4: REGM5 */
 	u16 lp_clk_div;
 
 	u8 highfreq;
@@ -152,10 +158,12 @@ struct dsi_clock_info {
 struct seq_file;
 struct platform_device;
 
+/* core */
 struct bus_type *dss_get_bus(void);
 struct regulator *dss_get_vdds_dsi(void);
 struct regulator *dss_get_vdds_sdi(void);
 
+/* apply */
 void dss_apply_init(void);
 int dss_mgr_wait_for_go(struct omap_overlay_manager *mgr);
 int dss_mgr_wait_for_go_ovl(struct omap_overlay *ovl);
@@ -183,6 +191,7 @@ int dss_ovl_set_manager(struct omap_overlay *ovl,
 		struct omap_overlay_manager *mgr);
 int dss_ovl_unset_manager(struct omap_overlay *ovl);
 
+/* display */
 int dss_suspend_all_devices(void);
 int dss_resume_all_devices(void);
 void dss_disable_all_devices(void);
@@ -194,6 +203,7 @@ void dss_uninit_device(struct platform_device *pdev,
 bool dss_use_replication(struct omap_dss_device *dssdev,
 		enum omap_color_mode mode);
 
+/* manager */
 int dss_init_overlay_managers(struct platform_device *pdev);
 void dss_uninit_overlay_managers(struct platform_device *pdev);
 int dss_mgr_simple_check(struct omap_overlay_manager *mgr,
@@ -203,6 +213,7 @@ int dss_mgr_check(struct omap_overlay_manager *mgr,
 		struct omap_overlay_manager_info *info,
 		struct omap_overlay_info **overlay_infos);
 
+/* overlay */
 void dss_init_overlays(struct platform_device *pdev);
 void dss_uninit_overlays(struct platform_device *pdev);
 void dss_overlay_setup_dispc_manager(struct omap_overlay_manager *mgr);
@@ -212,6 +223,7 @@ int dss_ovl_simple_check(struct omap_overlay *ovl,
 int dss_ovl_check(struct omap_overlay *ovl,
 		struct omap_overlay_info *info, struct omap_dss_device *dssdev);
 
+/* DSS */
 int dss_init_platform_driver(void);
 void dss_uninit_platform_driver(void);
 
@@ -252,6 +264,7 @@ int dss_calc_clock_div(bool is_tft, unsigned long req_pck,
 		struct dss_clock_info *dss_cinfo,
 		struct dispc_clock_info *dispc_cinfo);
 
+/* SDI */
 #ifdef CONFIG_OMAP2_DSS_SDI
 int sdi_init(void);
 void sdi_exit(void);
@@ -266,6 +279,7 @@ static inline void sdi_exit(void)
 }
 #endif
 
+/* DSI */
 #ifdef CONFIG_OMAP2_DSS_DSI
 
 struct dentry;
@@ -362,6 +376,7 @@ static inline struct platform_device *dsi_get_dsidev_from_id(int module)
 }
 #endif
 
+/* DPI */
 #ifdef CONFIG_OMAP2_DSS_DPI
 int dpi_init(void);
 void dpi_exit(void);
@@ -376,6 +391,7 @@ static inline void dpi_exit(void)
 }
 #endif
 
+/* DISPC */
 int dispc_init_platform_driver(void);
 void dispc_uninit_platform_driver(void);
 void dispc_dump_clocks(struct seq_file *s);
@@ -442,6 +458,7 @@ int dispc_mgr_get_clock_div(enum omap_channel channel,
 void dispc_mgr_setup(enum omap_channel channel,
 		struct omap_overlay_manager_info *info);
 
+/* VENC */
 #ifdef CONFIG_OMAP2_DSS_VENC
 int venc_init_platform_driver(void);
 void venc_uninit_platform_driver(void);
@@ -463,6 +480,7 @@ static inline unsigned long venc_get_pixel_clock(void)
 }
 #endif
 
+/* HDMI */
 #ifdef CONFIG_OMAP4_DSS_HDMI
 int hdmi_init_platform_driver(void);
 void hdmi_uninit_platform_driver(void);
@@ -497,6 +515,7 @@ bool omapdss_hdmi_detect(void);
 int hdmi_panel_init(void);
 void hdmi_panel_exit(void);
 
+/* RFBI */
 #ifdef CONFIG_OMAP2_DSS_RFBI
 int rfbi_init_platform_driver(void);
 void rfbi_uninit_platform_driver(void);

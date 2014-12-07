@@ -45,6 +45,7 @@
 static struct device_node *pixis_node;
 static unsigned char *pixis_bdcfg0, *pixis_arch;
 
+/* DIU Pixel Clock bits of the CLKDVDR Global Utilities register */
 #define CLKDVDR_PXCKEN		0x80000000
 #define CLKDVDR_PXCKINV		0x10000000
 #define CLKDVDR_PXCKDLY		0x06000000
@@ -82,26 +83,26 @@ static void __init mpc8610_suspend_init(void)
 }
 #else
 static inline void mpc8610_suspend_init(void) { }
-#endif 
+#endif /* CONFIG_SUSPEND */
 
 static struct of_device_id __initdata mpc8610_ids[] = {
 	{ .compatible = "fsl,mpc8610-immr", },
 	{ .compatible = "fsl,mpc8610-guts", },
 	{ .compatible = "simple-bus", },
-	
+	/* So that the DMA channel nodes can be probed individually: */
 	{ .compatible = "fsl,eloplus-dma", },
 	{}
 };
 
 static int __init mpc8610_declare_of_platform_devices(void)
 {
-	
+	/* Firstly, register PIXIS GPIOs. */
 	simple_gpiochip_init("fsl,fpga-pixis-gpio-bank");
 
-	
+	/* Enable wakeup on PIXIS' event IRQ. */
 	mpc8610_suspend_init();
 
-	
+	/* Without this call, the SSI device driver won't get probed. */
 	of_platform_bus_probe(NULL, mpc8610_ids, NULL);
 
 	return 0;
@@ -167,7 +168,7 @@ u32 mpc8610hpcd_get_pixel_format(enum fsl_diu_monitor_port port,
 	};
 	unsigned int arch_monitor;
 
-	
+	/* The DVI port is mis-wired on revision 1 of this board. */
 	arch_monitor =
 		((*pixis_arch == 0x01) && (port == FSL_DIU_PORT_DVI)) ? 0 : 1;
 
@@ -216,6 +217,11 @@ void mpc8610hpcd_set_monitor_port(enum fsl_diu_monitor_port port)
 	}
 }
 
+/**
+ * mpc8610hpcd_set_pixel_clock: program the DIU's clock
+ *
+ * @pixclock: the wavelength, in picoseconds, of the clock
+ */
 void mpc8610hpcd_set_pixel_clock(unsigned int pixclock)
 {
 	struct device_node *guts_np = NULL;
@@ -224,7 +230,7 @@ void mpc8610hpcd_set_pixel_clock(unsigned int pixclock)
 	u64 temp;
 	u32 pxclk;
 
-	
+	/* Map the global utilities registers. */
 	guts_np = of_find_compatible_node(NULL, NULL, "fsl,mpc8610-guts");
 	if (!guts_np) {
 		pr_err("mpc8610hpcd: missing global utilties device node\n");
@@ -238,19 +244,24 @@ void mpc8610hpcd_set_pixel_clock(unsigned int pixclock)
 		return;
 	}
 
-	
+	/* Convert pixclock from a wavelength to a frequency */
 	temp = 1000000000000ULL;
 	do_div(temp, pixclock);
 	freq = temp;
 
+	/*
+	 * 'pxclk' is the ratio of the platform clock to the pixel clock.
+	 * On the MPC8610, the value programmed into CLKDVDR is the ratio
+	 * minus one.  The valid range of values is 2-31.
+	 */
 	pxclk = DIV_ROUND_CLOSEST(fsl_get_sys_freq(), freq) - 1;
 	pxclk = clamp_t(u32, pxclk, 2, 31);
 
-	
+	/* Disable the pixel clock, and set it to non-inverted and no delay */
 	clrbits32(&guts->clkdvdr,
 		  CLKDVDR_PXCKEN | CLKDVDR_PXCKDLY | CLKDVDR_PXCLK_MASK);
 
-	
+	/* Enable the clock and set the pxclk */
 	setbits32(&guts->clkdvdr, CLKDVDR_PXCKEN | (pxclk << 16));
 
 	iounmap(guts);
@@ -312,12 +323,15 @@ static void __init mpc86xx_hpcd_setup_arch(void)
 	printk("MPC86xx HPCD board from Freescale Semiconductor\n");
 }
 
+/*
+ * Called very early, device-tree isn't unflattened
+ */
 static int __init mpc86xx_hpcd_probe(void)
 {
 	unsigned long root = of_get_flat_dt_root();
 
 	if (of_flat_dt_is_compatible(root, "fsl,MPC8610HPCD"))
-		return 1;	
+		return 1;	/* Looks good */
 
 	return 0;
 }
@@ -326,7 +340,7 @@ static long __init mpc86xx_time_init(void)
 {
 	unsigned int temp;
 
-	
+	/* Set the time base to zero */
 	mtspr(SPRN_TBWL, 0);
 	mtspr(SPRN_TBWU, 0);
 

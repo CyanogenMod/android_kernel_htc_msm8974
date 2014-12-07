@@ -125,7 +125,7 @@ static int cardu_init(unsigned int slot)
 
 	cardu_pciregs_init(socket->dev);
 
-	
+	/* CARD_SC bits are cleared by reading CARD_SC. */
 	exca_writeb(socket, GLO_CNT, 0);
 
 	socket->cap.features |= SS_CAP_PCCARD | SS_CAP_PAGE_REGS;
@@ -135,7 +135,7 @@ static int cardu_init(unsigned int slot)
 	socket->events = 0;
 	spin_lock_init(socket->event_lock);
 
-	
+	/* Enable PC Card status interrupts */
 	exca_writeb(socket, CARD_SCI, CARD_DT_EN|RDY_EN|BAT_WAR_EN|BAT_DEAD_EN);
 
 	return 0;

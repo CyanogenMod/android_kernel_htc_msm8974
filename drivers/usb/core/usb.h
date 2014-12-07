@@ -1,5 +1,6 @@
 #include <linux/pm.h>
 
+/* Functions local to drivers/usb/core/ */
 
 extern int usb_create_sysfs_dev_files(struct usb_device *dev);
 extern void usb_remove_sysfs_dev_files(struct usb_device *dev);
@@ -128,6 +129,7 @@ static inline int is_usb_endpoint(const struct device *dev)
 	return dev->type == &usb_ep_device_type;
 }
 
+/* Do the same for device drivers and interface drivers. */
 
 static inline int is_usb_device_driver(struct device_driver *drv)
 {
@@ -135,11 +137,14 @@ static inline int is_usb_device_driver(struct device_driver *drv)
 			for_devices;
 }
 
+/* for labeling diagnostics */
 extern const char *usbcore_name;
 
+/* sysfs stuff */
 extern const struct attribute_group *usb_device_groups[];
 extern const struct attribute_group *usb_interface_groups[];
 
+/* usbfs stuff */
 extern struct mutex usbfs_mutex;
 extern struct usb_driver usbfs_driver;
 extern const struct file_operations usbfs_devices_fops;
@@ -149,6 +154,7 @@ extern void usbfs_conn_disc_event(void);
 extern int usb_devio_init(void);
 extern void usb_devio_cleanup(void);
 
+/* internal notify stuff */
 extern void usb_notify_add_device(struct usb_device *udev);
 extern void usb_notify_remove_device(struct usb_device *udev);
 extern void usb_notify_config_device(struct usb_device *udev);

@@ -18,26 +18,26 @@
  * included with this package.                                     *
  *******************************************************************/
 
-#define LOG_ELS		0x00000001	
-#define LOG_DISCOVERY	0x00000002	
-#define LOG_MBOX	0x00000004	
-#define LOG_INIT	0x00000008	
-#define LOG_LINK_EVENT	0x00000010	
-#define LOG_IP		0x00000020	
-#define LOG_FCP		0x00000040	
-#define LOG_NODE	0x00000080	
-#define LOG_TEMP	0x00000100	
-#define LOG_BG		0x00000200	
-#define LOG_MISC	0x00000400	
-#define LOG_SLI		0x00000800	
-#define LOG_FCP_ERROR	0x00001000	
-#define LOG_LIBDFC	0x00002000	
-#define LOG_VPORT	0x00004000	
-#define LOG_SECURITY	0x00008000	
-#define LOG_EVENT	0x00010000	
-#define LOG_FIP		0x00020000	
-#define LOG_FCP_UNDER	0x00040000	
-#define LOG_ALL_MSG	0xffffffff	
+#define LOG_ELS		0x00000001	/* ELS events */
+#define LOG_DISCOVERY	0x00000002	/* Link discovery events */
+#define LOG_MBOX	0x00000004	/* Mailbox events */
+#define LOG_INIT	0x00000008	/* Initialization events */
+#define LOG_LINK_EVENT	0x00000010	/* Link events */
+#define LOG_IP		0x00000020	/* IP traffic history */
+#define LOG_FCP		0x00000040	/* FCP traffic history */
+#define LOG_NODE	0x00000080	/* Node table events */
+#define LOG_TEMP	0x00000100	/* Temperature sensor events */
+#define LOG_BG		0x00000200	/* BlockGuard events */
+#define LOG_MISC	0x00000400	/* Miscellaneous events */
+#define LOG_SLI		0x00000800	/* SLI events */
+#define LOG_FCP_ERROR	0x00001000	/* log errors, not underruns */
+#define LOG_LIBDFC	0x00002000	/* Libdfc events */
+#define LOG_VPORT	0x00004000	/* NPIV events */
+#define LOG_SECURITY	0x00008000	/* Security events */
+#define LOG_EVENT	0x00010000	/* CT,TEMP,DUMP, logging */
+#define LOG_FIP		0x00020000	/* FIP events */
+#define LOG_FCP_UNDER	0x00040000	/* FCP underruns errors */
+#define LOG_ALL_MSG	0xffffffff	/* LOG all messages */
 
 #define lpfc_printf_vlog(vport, level, mask, fmt, arg...) \
 do { \

@@ -44,7 +44,7 @@
 #include <rdma/ib_mad.h>
 
 enum {
-	IB_SA_CLASS_VERSION		= 2,	
+	IB_SA_CLASS_VERSION		= 2,	/* IB spec version 1.1/1.2 */
 
 	IB_SA_METHOD_GET_TABLE		= 0x12,
 	IB_SA_METHOD_GET_TABLE_RESP	= 0x92,
@@ -84,9 +84,28 @@ enum ib_sa_selector {
 	IB_SA_GT   = 0,
 	IB_SA_LT   = 1,
 	IB_SA_EQ   = 2,
+	/*
+	 * The meaning of "best" depends on the attribute: for
+	 * example, for MTU best will return the largest available
+	 * MTU, while for packet life time, best will return the
+	 * smallest available life time.
+	 */
 	IB_SA_BEST = 3
 };
 
+/*
+ * Structures for SA records are named "struct ib_sa_xxx_rec."  No
+ * attempt is made to pack structures to match the physical layout of
+ * SA records in SA MADs; all packing and unpacking is handled by the
+ * SA query code.
+ *
+ * For a record with structure ib_sa_xxx_rec, the naming convention
+ * for the component mask value for field yyy is IB_SA_XXX_REC_YYY (we
+ * never use different abbreviations or otherwise change the spelling
+ * of xxx/yyy between ib_sa_xxx_rec.yyy and IB_SA_XXX_REC_YYY).
+ *
+ * Reserved rows are indicated with comments to help maintainability.
+ */
 
 #define IB_SA_PATH_REC_SERVICE_ID		       (IB_SA_COMP_MASK( 0) |\
 							IB_SA_COMP_MASK( 1))
@@ -95,6 +114,7 @@ enum ib_sa_selector {
 #define IB_SA_PATH_REC_DLID				IB_SA_COMP_MASK( 4)
 #define IB_SA_PATH_REC_SLID				IB_SA_COMP_MASK( 5)
 #define IB_SA_PATH_REC_RAW_TRAFFIC			IB_SA_COMP_MASK( 6)
+/* reserved:								 7 */
 #define IB_SA_PATH_REC_FLOW_LABEL       		IB_SA_COMP_MASK( 8)
 #define IB_SA_PATH_REC_HOP_LIMIT			IB_SA_COMP_MASK( 9)
 #define IB_SA_PATH_REC_TRAFFIC_CLASS			IB_SA_COMP_MASK(10)
@@ -118,7 +138,7 @@ struct ib_sa_path_rec {
 	__be16       dlid;
 	__be16       slid;
 	int          raw_traffic;
-	
+	/* reserved */
 	__be32       flow_label;
 	u8           hop_limit;
 	u8           traffic_class;
@@ -176,9 +196,11 @@ struct ib_sa_mcmember_rec {
 	int          proxy_join;
 };
 
+/* Service Record Component Mask Sec 15.2.5.14 Ver 1.1	*/
 #define IB_SA_SERVICE_REC_SERVICE_ID			IB_SA_COMP_MASK( 0)
 #define IB_SA_SERVICE_REC_SERVICE_GID			IB_SA_COMP_MASK( 1)
 #define IB_SA_SERVICE_REC_SERVICE_PKEY			IB_SA_COMP_MASK( 2)
+/* reserved:								 3 */
 #define IB_SA_SERVICE_REC_SERVICE_LEASE			IB_SA_COMP_MASK( 4)
 #define IB_SA_SERVICE_REC_SERVICE_KEY			IB_SA_COMP_MASK( 5)
 #define IB_SA_SERVICE_REC_SERVICE_NAME			IB_SA_COMP_MASK( 6)
@@ -219,7 +241,7 @@ struct ib_sa_service_rec {
 	u64		id;
 	union ib_gid	gid;
 	__be16 		pkey;
-	
+	/* reserved */
 	u32		lease;
 	u8		key[16];
 	u8		name[64];
@@ -234,8 +256,15 @@ struct ib_sa_client {
 	struct completion comp;
 };
 
+/**
+ * ib_sa_register_client - Register an SA client.
+ */
 void ib_sa_register_client(struct ib_sa_client *client);
 
+/**
+ * ib_sa_unregister_client - Deregister an SA client.
+ * @client: Client object to deregister.
+ */
 void ib_sa_unregister_client(struct ib_sa_client *client);
 
 struct ib_sa_query;
@@ -273,6 +302,34 @@ struct ib_sa_multicast {
 	void			*context;
 };
 
+/**
+ * ib_sa_join_multicast - Initiates a join request to the specified multicast
+ *   group.
+ * @client: SA client
+ * @device: Device associated with the multicast group.
+ * @port_num: Port on the specified device to associate with the multicast
+ *   group.
+ * @rec: SA multicast member record specifying group attributes.
+ * @comp_mask: Component mask indicating which group attributes of %rec are
+ *   valid.
+ * @gfp_mask: GFP mask for memory allocations.
+ * @callback: User callback invoked once the join operation completes.
+ * @context: User specified context stored with the ib_sa_multicast structure.
+ *
+ * This call initiates a multicast join request with the SA for the specified
+ * multicast group.  If the join operation is started successfully, it returns
+ * an ib_sa_multicast structure that is used to track the multicast operation.
+ * Users must free this structure by calling ib_free_multicast, even if the
+ * join operation later fails.  (The callback status is non-zero.)
+ *
+ * If the join operation fails; status will be non-zero, with the following
+ * failures possible:
+ * -ETIMEDOUT: The request timed out.
+ * -EIO: An error occurred sending the query.
+ * -EINVAL: The MCMemberRecord values differed from the existing group's.
+ * -ENETRESET: Indicates that an fatal error has occurred on the multicast
+ *   group, and the user must rejoin the group to continue using it.
+ */
 struct ib_sa_multicast *ib_sa_join_multicast(struct ib_sa_client *client,
 					     struct ib_device *device, u8 port_num,
 					     struct ib_sa_mcmember_rec *rec,
@@ -282,19 +339,50 @@ struct ib_sa_multicast *ib_sa_join_multicast(struct ib_sa_client *client,
 								    *multicast),
 					     void *context);
 
+/**
+ * ib_free_multicast - Frees the multicast tracking structure, and releases
+ *    any reference on the multicast group.
+ * @multicast: Multicast tracking structure allocated by ib_join_multicast.
+ *
+ * This call blocks until the multicast identifier is destroyed.  It may
+ * not be called from within the multicast callback; however, returning a non-
+ * zero value from the callback will result in destroying the multicast
+ * tracking structure.
+ */
 void ib_sa_free_multicast(struct ib_sa_multicast *multicast);
 
+/**
+ * ib_get_mcmember_rec - Looks up a multicast member record by its MGID and
+ *   returns it if found.
+ * @device: Device associated with the multicast group.
+ * @port_num: Port on the specified device to associate with the multicast
+ *   group.
+ * @mgid: MGID of multicast group.
+ * @rec: Location to copy SA multicast member record.
+ */
 int ib_sa_get_mcmember_rec(struct ib_device *device, u8 port_num,
 			   union ib_gid *mgid, struct ib_sa_mcmember_rec *rec);
 
+/**
+ * ib_init_ah_from_mcmember - Initialize address handle attributes based on
+ * an SA multicast member record.
+ */
 int ib_init_ah_from_mcmember(struct ib_device *device, u8 port_num,
 			     struct ib_sa_mcmember_rec *rec,
 			     struct ib_ah_attr *ah_attr);
 
+/**
+ * ib_init_ah_from_path - Initialize address handle attributes based on an SA
+ *   path record.
+ */
 int ib_init_ah_from_path(struct ib_device *device, u8 port_num,
 			 struct ib_sa_path_rec *rec,
 			 struct ib_ah_attr *ah_attr);
 
+/**
+ * ib_sa_unpack_path - Convert a path record from MAD format to struct
+ * ib_sa_path_rec.
+ */
 void ib_sa_unpack_path(void *attribute, struct ib_sa_path_rec *rec);
 
-#endif 
+#endif /* IB_SA_H */

@@ -95,10 +95,10 @@ static int mantis_ca_slot_reset(struct dvb_ca_en50221 *en50221, int slot)
 	struct mantis_pci *mantis = ca->ca_priv;
 
 	dprintk(MANTIS_DEBUG, 1, "Slot(%d): Slot RESET", slot);
-	udelay(500); 
-	mmwrite(0xda, MANTIS_PCMCIA_RESET); 
+	udelay(500); /* Wait.. */
+	mmwrite(0xda, MANTIS_PCMCIA_RESET); /* Leading edge assert */
 	udelay(500);
-	mmwrite(0x00, MANTIS_PCMCIA_RESET); 
+	mmwrite(0x00, MANTIS_PCMCIA_RESET); /* Trailing edge deassert */
 	msleep(1000);
 	dvb_ca_en50221_camready_irq(&ca->en50221, 0);
 
@@ -121,7 +121,7 @@ static int mantis_ts_control(struct dvb_ca_en50221 *en50221, int slot)
 	struct mantis_pci *mantis = ca->ca_priv;
 
 	dprintk(MANTIS_DEBUG, 1, "Slot(%d): TS control", slot);
- 
+/*	mantis_set_direction(mantis, 1); */ /* Enable TS through CAM */
 
 	return 0;
 }
@@ -160,7 +160,7 @@ int mantis_ca_init(struct mantis_pci *mantis)
 	ca->ca_priv		= mantis;
 	mantis->mantis_ca	= ca;
 	ca_flags		= DVB_CA_EN50221_FLAG_IRQ_CAMCHANGE;
-	
+	/* register CA interface */
 	ca->en50221.owner		= THIS_MODULE;
 	ca->en50221.read_attribute_mem	= mantis_ca_read_attr_mem;
 	ca->en50221.write_attribute_mem	= mantis_ca_write_attr_mem;

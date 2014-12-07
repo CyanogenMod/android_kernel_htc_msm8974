@@ -35,6 +35,7 @@
 #include <platform/hardware.h>
 #include <platform/serial.h>
 
+/* Assumes s points to an 8-chr string.  No checking for NULL. */
 
 static void led_print (int f, char *s)
 {
@@ -61,6 +62,8 @@ void platform_power_off(void)
 
 void platform_restart(void)
 {
+	/* Flush and reset the mmu, simulate a processor reset, and
+	 * jump to the reset vector. */
 
 	__asm__ __volatile__ ("movi	a2, 15\n\t"
 			      "wsr	a2, " __stringify(ICOUNTLEVEL) "\n\t"
@@ -77,7 +80,7 @@ void platform_restart(void)
 			      : "a2"
 			      );
 
-	
+	/* control never gets here */
 }
 
 void __init platform_setup(char** cmdline)
@@ -85,12 +88,13 @@ void __init platform_setup(char** cmdline)
 	led_print (0, "LINUX   ");
 }
 
+/* early initialization */
 
 extern sysmem_info_t __initdata sysmem;
 
 void platform_init(bp_tag_t* first)
 {
-	
+	/* Set default memory block if not provided by the bootloader. */
 
 	if (sysmem.nr_banks == 0) {
 		sysmem.nr_banks = 1;
@@ -100,6 +104,7 @@ void platform_init(bp_tag_t* first)
 	}
 }
 
+/* Heartbeat. Let the LED blink. */
 
 void platform_heartbeat(void)
 {
@@ -113,6 +118,8 @@ void platform_heartbeat(void)
 	}
 }
 
+//#define RS_TABLE_SIZE 2
+//#define STD_COM_FLAGS (ASYNC_BOOT_AUTOCONF|ASYNC_SKIP_TEST)
 
 #define _SERIAL_PORT(_base,_irq)					\
 {									\

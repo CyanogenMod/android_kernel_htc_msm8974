@@ -17,6 +17,37 @@
 
 #include <asm/ptrace.h>
 
+/*
+ * important register numbers in GDB protocol
+ * - GR0,  GR1,  GR2,  GR3,  GR4,  GR5,  GR6,  GR7,
+ * - GR8,  GR9,  GR10, GR11, GR12, GR13, GR14, GR15,
+ * - GR16, GR17, GR18, GR19, GR20, GR21, GR22, GR23,
+ * - GR24, GR25, GR26, GR27, GR28, GR29, GR30, GR31,
+ * - GR32, GR33, GR34, GR35, GR36, GR37, GR38, GR39,
+ * - GR40, GR41, GR42, GR43, GR44, GR45, GR46, GR47,
+ * - GR48, GR49, GR50, GR51, GR52, GR53, GR54, GR55,
+ * - GR56, GR57, GR58, GR59, GR60, GR61, GR62, GR63,
+ * - FR0,  FR1,  FR2,  FR3,  FR4,  FR5,  FR6,  FR7,
+ * - FR8,  FR9,  FR10, FR11, FR12, FR13, FR14, FR15,
+ * - FR16, FR17, FR18, FR19, FR20, FR21, FR22, FR23,
+ * - FR24, FR25, FR26, FR27, FR28, FR29, FR30, FR31,
+ * - FR32, FR33, FR34, FR35, FR36, FR37, FR38, FR39,
+ * - FR40, FR41, FR42, FR43, FR44, FR45, FR46, FR47,
+ * - FR48, FR49, FR50, FR51, FR52, FR53, FR54, FR55,
+ * - FR56, FR57, FR58, FR59, FR60, FR61, FR62, FR63,
+ * - PC, PSR, CCR, CCCR,
+ * - _X132, _X133, _X134
+ * - TBR, BRR, DBAR0, DBAR1, DBAR2, DBAR3,
+ * - SCR0, SCR1, SCR2, SCR3,
+ * - LR, LCR,
+ * - IACC0H, IACC0L,
+ * - FSR0,
+ * - ACC0, ACC1, ACC2, ACC3, ACC4, ACC5, ACC6, ACC7,
+ * - ACCG0123, ACCG4567,
+ * - MSR0, MSR1,
+ * - GNER0, GNER1,
+ * - FNER0, FNER1,
+ */
 #define GDB_REG_GR(N)	(N)
 #define GDB_REG_FR(N)	(64+(N))
 #define GDB_REG_PC	128
@@ -41,6 +72,9 @@
 
 #ifndef _LANGUAGE_ASSEMBLY
 
+/*
+ * Prototypes
+ */
 extern void show_registers_only(struct pt_regs *regs);
 
 extern void gdbstub_init(void);
@@ -87,6 +121,11 @@ extern void console_set_baud(unsigned baud);
 #define gdbstub_proto(FMT,...) ({ 0; })
 #endif
 
+/*
+ * we dedicate GR31 to keeping a pointer to the gdbstub exception frame
+ * - gr31 is destroyed on entry to the gdbstub if !MMU
+ * - gr31 is saved in scr3 on entry to the gdbstub if in !MMU
+ */
 register struct frv_frame0 *__debug_frame0 asm("gr31");
 
 #define __debug_frame		(&__debug_frame0->regs)
@@ -103,5 +142,5 @@ struct frv_debug_status {
 
 extern struct frv_debug_status __debug_status;
 
-#endif 
-#endif 
+#endif /* _LANGUAGE_ASSEMBLY */
+#endif /* __ASM_GDB_STUB_H */

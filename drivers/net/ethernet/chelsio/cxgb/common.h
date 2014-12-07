@@ -135,6 +135,7 @@ enum {
 	PAUSE_AUTONEG = 1 << 2
 };
 
+/* Revisions of T1 chip */
 enum {
 	TERM_T1A   = 0,
 	TERM_T1B   = 1,
@@ -173,11 +174,12 @@ struct tp_params {
 };
 
 struct mc5_params {
-	unsigned int mode;       
-	unsigned int nservers;   
-	unsigned int nroutes;    
+	unsigned int mode;       /* selects MC5 width */
+	unsigned int nservers;   /* size of server region */
+	unsigned int nroutes;    /* size of routing region */
 };
 
+/* Default MC5 region sizes */
 #define DEFAULT_SERVER_REGION_LEN 256
 #define DEFAULT_RT_REGION_LEN 1024
 
@@ -190,7 +192,7 @@ struct adapter_params {
 	const struct board_info *brd_info;
 
 	unsigned short mtus[NMTUS];
-	unsigned int   nports;          
+	unsigned int   nports;          /* # of ethernet ports */
 	unsigned int   stats_update_period;
 	unsigned short chip_revision;
 	unsigned char  chip_version;
@@ -199,15 +201,15 @@ struct adapter_params {
 };
 
 struct link_config {
-	unsigned int   supported;        
-	unsigned int   advertising;      
-	unsigned short requested_speed;  
-	unsigned short speed;            
-	unsigned char  requested_duplex; 
-	unsigned char  duplex;           
-	unsigned char  requested_fc;     
-	unsigned char  fc;               
-	unsigned char  autoneg;          
+	unsigned int   supported;        /* link capabilities */
+	unsigned int   advertising;      /* advertised capabilities */
+	unsigned short requested_speed;  /* speed user has requested */
+	unsigned short speed;            /* actual link speed */
+	unsigned char  requested_duplex; /* duplex user has requested */
+	unsigned char  duplex;           /* actual link duplex */
+	unsigned char  requested_fc;     /* flow control user has requested */
+	unsigned char  fc;               /* actual link flow control */
+	unsigned char  autoneg;          /* autonegotiating? */
 };
 
 struct cmac;
@@ -238,7 +240,7 @@ struct adapter {
 	struct work_struct ext_intr_handler_task;
 	struct adapter_params params;
 
-	
+	/* Terminator modules. */
 	struct sge    *sge;
 	struct peespi *espi;
 	struct petp   *tp;
@@ -252,13 +254,13 @@ struct adapter {
 	spinlock_t work_lock;
 	spinlock_t mac_lock;
 
-	
+	/* guards async operations */
 	spinlock_t async_lock ____cacheline_aligned;
 	u32 slow_intr_mask;
 	int t1powersave;
 };
 
-enum {                                           
+enum {                                           /* adapter flags */
 	FULL_INIT_DONE        = 1 << 0,
 };
 
@@ -305,6 +307,7 @@ static inline int adapter_matches_type(const adapter_t *adapter,
 #define t1_is_T1B(adap) adapter_matches_type(adap, CHBT_TERM_T1, TERM_T1B)
 #define is_T2(adap)     adapter_matches_type(adap, CHBT_TERM_T2, TERM_T2)
 
+/* Returns true if an adapter supports VLAN acceleration and TSO */
 static inline int vlan_tso_capable(const adapter_t *adapter)
 {
 	return !t1_is_T1B(adapter);
@@ -347,4 +350,4 @@ extern void t1_fatal_err(adapter_t *adapter);
 extern void t1_link_changed(adapter_t *adapter, int port_id);
 extern void t1_link_negotiated(adapter_t *adapter, int port_id, int link_stat,
 			    int speed, int duplex, int pause);
-#endif 
+#endif /* _CXGB_COMMON_H_ */

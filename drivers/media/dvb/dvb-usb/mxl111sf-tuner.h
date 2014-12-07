@@ -27,22 +27,22 @@
 
 enum mxl_if_freq {
 #if 0
-	MXL_IF_LO    = 0x00, 
+	MXL_IF_LO    = 0x00, /* other IF < 9MHz */
 #endif
-	MXL_IF_4_0   = 0x01, 
-	MXL_IF_4_5   = 0x02, 
-	MXL_IF_4_57  = 0x03, 
-	MXL_IF_5_0   = 0x04, 
-	MXL_IF_5_38  = 0x05, 
-	MXL_IF_6_0   = 0x06, 
-	MXL_IF_6_28  = 0x07, 
-	MXL_IF_7_2   = 0x08, 
-	MXL_IF_35_25 = 0x09, 
-	MXL_IF_36    = 0x0a, 
-	MXL_IF_36_15 = 0x0b, 
-	MXL_IF_44    = 0x0c, 
+	MXL_IF_4_0   = 0x01, /* 4.0   MHz */
+	MXL_IF_4_5   = 0x02, /* 4.5   MHz */
+	MXL_IF_4_57  = 0x03, /* 4.57  MHz */
+	MXL_IF_5_0   = 0x04, /* 5.0   MHz */
+	MXL_IF_5_38  = 0x05, /* 5.38  MHz */
+	MXL_IF_6_0   = 0x06, /* 6.0   MHz */
+	MXL_IF_6_28  = 0x07, /* 6.28  MHz */
+	MXL_IF_7_2   = 0x08, /* 7.2   MHz */
+	MXL_IF_35_25 = 0x09, /* 35.25 MHz */
+	MXL_IF_36    = 0x0a, /* 36    MHz */
+	MXL_IF_36_15 = 0x0b, /* 36.15 MHz */
+	MXL_IF_44    = 0x0c, /* 44    MHz */
 #if 0
-	MXL_IF_HI    = 0x0f, 
+	MXL_IF_HI    = 0x0f, /* other IF > 35 MHz and < 45 MHz */
 #endif
 };
 
@@ -58,6 +58,7 @@ struct mxl111sf_tuner_config {
 	int (*ant_hunt)(struct dvb_frontend *fe);
 };
 
+/* ------------------------------------------------------------------------ */
 
 #if defined(CONFIG_DVB_USB_MXL111SF) || \
 	(defined(CONFIG_DVB_USB_MXL111SF_MODULE) && defined(MODULE))
@@ -76,6 +77,13 @@ struct dvb_frontend *mxl111sf_tuner_attach(struct dvb_frontend *fe,
 }
 #endif
 
-#endif 
+#endif /* __MXL111SF_TUNER_H__ */
 
+/*
+ * Overrides for Emacs so that we follow Linus's tabbing style.
+ * ---------------------------------------------------------------------------
+ * Local variables:
+ * c-basic-offset: 8
+ * End:
+ */
 

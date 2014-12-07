@@ -34,7 +34,7 @@ extern void pcc_iowrite_word(int, unsigned long, void *, size_t, size_t, int);
 #define UART0_IOEND		(UART0_IOSTART + UART_IOMAP_SIZE - 1)
 #define UART1_IOSTART		0x2f8
 #define UART1_IOEND		(UART1_IOSTART + UART_IOMAP_SIZE - 1)
-#endif	
+#endif	/* CONFIG_SERIAL_8250 || CONFIG_SERIAL_8250_MODULE */
 
 #define PORT2ADDR(port)	_port2addr(port)
 
@@ -45,7 +45,7 @@ static inline void *_port2addr(unsigned long port)
 		port = ((port - UART0_IOSTART) << 1) + UART0_REGSTART;
 	else if (port >= UART1_IOSTART && port <= UART1_IOEND)
 		port = ((port - UART1_IOSTART) << 1) + UART1_REGSTART;
-#endif	
+#endif	/* CONFIG_SERIAL_8250 || CONFIG_SERIAL_8250_MODULE */
 	return (void *)(port | (NONCACHE_OFFSET));
 }
 

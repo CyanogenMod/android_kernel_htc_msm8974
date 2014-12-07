@@ -16,12 +16,20 @@
  * www.brocade.com
  */
 
+/**
+ * File for interrupt macros and functions
+ */
 
 #ifndef __BNA_HW_DEFS_H__
 #define __BNA_HW_DEFS_H__
 
 #include "bfi_reg.h"
 
+/**
+ *
+ * SW imposed limits
+ *
+ */
 #define BFI_ENET_DEF_TXQ		1
 #define BFI_ENET_DEF_RXP		1
 #define BFI_ENET_DEF_UCAM		1
@@ -33,24 +41,24 @@
 
 #define BFI_IBIDX_SIZE			4
 
-#define BFI_VLAN_WORD_SHIFT		5	
+#define BFI_VLAN_WORD_SHIFT		5	/* 32 bits */
 #define BFI_VLAN_WORD_MASK		0x1F
-#define BFI_VLAN_BLOCK_SHIFT		9	
+#define BFI_VLAN_BLOCK_SHIFT		9	/* 512 bits */
 #define BFI_VLAN_BMASK_ALL		0xFF
 
-#define BFI_COALESCING_TIMER_UNIT	5	
-#define BFI_MAX_COALESCING_TIMEO	0xFF	
+#define BFI_COALESCING_TIMER_UNIT	5	/* 5us */
+#define BFI_MAX_COALESCING_TIMEO	0xFF	/* in 5us units */
 #define BFI_MAX_INTERPKT_COUNT		0xFF
-#define BFI_MAX_INTERPKT_TIMEO		0xF	
-#define BFI_TX_COALESCING_TIMEO		20	
+#define BFI_MAX_INTERPKT_TIMEO		0xF	/* in 0.5us units */
+#define BFI_TX_COALESCING_TIMEO		20	/* 20 * 5 = 100us */
 #define BFI_TX_INTERPKT_COUNT		32
-#define	BFI_RX_COALESCING_TIMEO		12	
-#define	BFI_RX_INTERPKT_COUNT		6	
-#define	BFI_RX_INTERPKT_TIMEO		3	
+#define	BFI_RX_COALESCING_TIMEO		12	/* 12 * 5 = 60us */
+#define	BFI_RX_INTERPKT_COUNT		6	/* Pkt Cnt = 6 */
+#define	BFI_RX_INTERPKT_TIMEO		3	/* 3 * 0.5 = 1.5us */
 
-#define BFI_TXQ_WI_SIZE			64	
-#define BFI_RXQ_WI_SIZE			8	
-#define BFI_CQ_WI_SIZE			16	
+#define BFI_TXQ_WI_SIZE			64	/* bytes */
+#define BFI_RXQ_WI_SIZE			8	/* bytes */
+#define BFI_CQ_WI_SIZE			16	/* bytes */
 #define BFI_TX_MAX_WRR_QUOTA		0xFFF
 
 #define BFI_TX_MAX_VECTORS_PER_WI	4
@@ -58,11 +66,17 @@
 #define BFI_TX_MAX_DATA_PER_VECTOR	0xFFFF
 #define BFI_TX_MAX_DATA_PER_PKT		0xFFFFFF
 
+/* Small Q buffer size */
 #define BFI_SMALL_RXBUF_SIZE		128
 
 #define BFI_TX_MAX_PRIO			8
 #define BFI_TX_PRIO_MAP_ALL		0xFF
 
+/*
+ *
+ * Register definitions and macros
+ *
+ */
 
 #define BNA_PCI_REG_CT_ADDRSZ		(0x40000)
 
@@ -127,6 +141,11 @@
 }
 
 #define bna_port_id_get(_bna) ((_bna)->ioceth.ioc.port_id)
+/**
+ *
+ *  Interrupt related bits, flags and macros
+ *
+ */
 
 #define IB_STATUS_BITS		0x0000ffff
 
@@ -190,22 +209,37 @@ do {									\
 	}								\
 }
 
+/*
+ * MAX ACK EVENTS : No. of acks that can be accumulated in driver,
+ * before acking to h/w. The no. of bits is 16 in the doorbell register,
+ * however we keep this limited to 15 bits.
+ * This is because around the edge of 64K boundary (16 bits), one
+ * single poll can make the accumulated ACK counter cross the 64K boundary,
+ * causing problems, when we try to ack with a value greater than 64K.
+ * 15 bits (32K) should  be large enough to accumulate, anyways, and the max.
+ * acked events to h/w can be (32K + max poll weight) (currently 64).
+ */
 #define	BNA_IB_MAX_ACK_EVENTS		(1 << 15)
 
+/* These macros build the data portion of the TxQ/RxQ doorbell */
 #define BNA_DOORBELL_Q_PRD_IDX(_pi)	(0x80000000 | (_pi))
 #define BNA_DOORBELL_Q_STOP		(0x40000000)
 
+/* These macros build the data portion of the IB doorbell */
 #define BNA_DOORBELL_IB_INT_ACK(_timeout, _events)			\
 	(0x80000000 | ((_timeout) << 16) | (_events))
 #define BNA_DOORBELL_IB_INT_DISABLE	(0x40000000)
 
+/* Set the coalescing timer for the given ib */
 #define bna_ib_coalescing_timer_set(_i_dbell, _cls_timer)		\
 	((_i_dbell)->doorbell_ack = BNA_DOORBELL_IB_INT_ACK((_cls_timer), 0));
 
+/* Acks 'events' # of events for a given ib while disabling interrupts */
 #define bna_ib_ack_disable_irq(_i_dbell, _events)			\
 	(writel(BNA_DOORBELL_IB_INT_ACK(0, (_events)), \
 		(_i_dbell)->doorbell_addr));
 
+/* Acks 'events' # of events for a given ib */
 #define bna_ib_ack(_i_dbell, _events)					\
 	(writel(((_i_dbell)->doorbell_ack | (_events)), \
 		(_i_dbell)->doorbell_addr));
@@ -246,11 +280,18 @@ do {									\
 	(writel(BNA_DOORBELL_Q_PRD_IDX((_rcb)->producer_index), \
 		(_rcb)->q_dbell));
 
+/**
+ *
+ * TxQ, RxQ, CQ related bits, offsets, macros
+ *
+ */
 
-#define BNA_TXQ_WI_SEND			(0x402)	
-#define BNA_TXQ_WI_SEND_LSO		(0x403)	
-#define BNA_TXQ_WI_EXTENSION		(0x104)	
+/* TxQ Entry Opcodes */
+#define BNA_TXQ_WI_SEND			(0x402)	/* Single Frame Transmission */
+#define BNA_TXQ_WI_SEND_LSO		(0x403)	/* Multi-Frame Transmission */
+#define BNA_TXQ_WI_EXTENSION		(0x104)	/* Extension WI */
 
+/* TxQ Entry Control Flags */
 #define BNA_TXQ_WI_CF_FCOE_CRC		(1 << 8)
 #define BNA_TXQ_WI_CF_IPID_MODE		(1 << 5)
 #define BNA_TXQ_WI_CF_INS_PRIO		(1 << 4)
@@ -262,6 +303,10 @@ do {									\
 #define BNA_TXQ_WI_L4_HDR_N_OFFSET(_hdr_size, _offset) \
 		(((_hdr_size) << 10) | ((_offset) & 0x3FF))
 
+/*
+ * Completion Q defines
+ */
+/* CQ Entry Flags */
 #define	BNA_CQ_EF_MAC_ERROR	(1 <<  0)
 #define	BNA_CQ_EF_FCS_ERROR	(1 <<  1)
 #define	BNA_CQ_EF_TOO_LONG	(1 <<  2)
@@ -289,6 +334,11 @@ do {									\
 
 #define	BNA_CQ_EF_LOCAL		(1 << 20)
 
+/**
+ *
+ * Data structures
+ *
+ */
 
 struct bna_reg_offset {
 	u32 fn_int_status;
@@ -309,6 +359,7 @@ struct bna_reg {
 	void __iomem *fn_int_mask;
 };
 
+/* TxQ Vector (a.k.a. Tx-Buffer Descriptor) */
 struct bna_dma_addr {
 	u32		msb;
 	u32		lsb;
@@ -316,40 +367,47 @@ struct bna_dma_addr {
 
 struct bna_txq_wi_vector {
 	u16		reserved;
-	u16		length;		
-	struct bna_dma_addr host_addr; 
+	u16		length;		/* Only 14 LSB are valid */
+	struct bna_dma_addr host_addr; /* Tx-Buf DMA addr */
 };
 
+/**
+ *  TxQ Entry Structure
+ *
+ *  BEWARE:  Load values into this structure with correct endianess.
+ */
 struct bna_txq_entry {
 	union {
 		struct {
 			u8 reserved;
-			u8 num_vectors;	
-			u16 opcode; 
-						    
-						    
-			u16 flags; 
+			u8 num_vectors;	/* number of vectors present */
+			u16 opcode; /* Either */
+						    /* BNA_TXQ_WI_SEND or */
+						    /* BNA_TXQ_WI_SEND_LSO */
+			u16 flags; /* OR of all the flags */
 			u16 l4_hdr_size_n_offset;
 			u16 vlan_tag;
-			u16 lso_mss;	
-			u32 frame_length;	
+			u16 lso_mss;	/* Only 14 LSB are valid */
+			u32 frame_length;	/* Only 24 LSB are valid */
 		} wi;
 
 		struct {
 			u16 reserved;
-			u16 opcode; 
-						    
-			u32 reserved2[3];	
-						
+			u16 opcode; /* Must be */
+						    /* BNA_TXQ_WI_EXTENSION */
+			u32 reserved2[3];	/* Place holder for */
+						/* removed vector (12 bytes) */
 		} wi_ext;
 	} hdr;
 	struct bna_txq_wi_vector vector[4];
 };
 
-struct bna_rxq_entry {		
-	struct bna_dma_addr host_addr; 
+/* RxQ Entry Structure */
+struct bna_rxq_entry {		/* Rx-Buffer */
+	struct bna_dma_addr host_addr; /* Rx-Buffer DMA address */
 };
 
+/* CQ Entry Structure */
 struct bna_cq_entry {
 	u32 flags;
 	u16 vlan_tag;
@@ -361,4 +419,4 @@ struct bna_cq_entry {
 	u8 rxq_id;
 };
 
-#endif 
+#endif /* __BNA_HW_DEFS_H__ */

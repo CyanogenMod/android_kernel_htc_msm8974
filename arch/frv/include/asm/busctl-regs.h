@@ -12,6 +12,7 @@
 #ifndef _ASM_BUSCTL_REGS_H
 #define _ASM_BUSCTL_REGS_H
 
+/* bus controller registers */
 #define __get_LGCR()	({ *(volatile unsigned long *)(0xfe000010); })
 #define __get_LMAICR()	({ *(volatile unsigned long *)(0xfe000030); })
 #define __get_LEMBR()	({ *(volatile unsigned long *)(0xfe000040); })
@@ -28,11 +29,13 @@
 #define __set_LSBR(R,V)	do { *(volatile unsigned long *)(0xfe000c00 + 8*(R)) = (V); } while(0)
 #define __set_LSAM(R,V)	do { *(volatile unsigned long *)(0xfe000d00 + 8*(R)) = (V); } while(0)
 
+/* FR401 SDRAM controller registers */
 #define __get_DBR(R)	({ *(volatile unsigned long *)(0xfe000e00 + 8*(R)); })
 #define __get_DAM(R)	({ *(volatile unsigned long *)(0xfe000f00 + 8*(R)); })
 
+/* FR551 SDRAM controller registers */
 #define __get_DARS(R)	({ *(volatile unsigned long *)(0xfeff0100 + 8*(R)); })
 #define __get_DAMK(R)	({ *(volatile unsigned long *)(0xfeff0110 + 8*(R)); })
 
 
-#endif 
+#endif /* _ASM_BUSCTL_REGS_H */

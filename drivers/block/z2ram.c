@@ -53,7 +53,7 @@ extern struct mem_info m68k_memory[NUM_MEMINFO];
 #define Z2MINOR_MEMLIST2      (5)
 #define Z2MINOR_MEMLIST3      (6)
 #define Z2MINOR_MEMLIST4      (7)
-#define Z2MINOR_COUNT         (8) 
+#define Z2MINOR_COUNT         (8) /* Move this down when adding a new minor */
 
 #define Z2RAM_CHUNK1024       ( Z2RAM_CHUNKSIZE >> 10 )
 
@@ -171,7 +171,7 @@ static int z2_open(struct block_device *bdev, fmode_t mode)
 	list_count = 0;
 	z2ram_size = 0;
 
-	
+	/* Use a specific list entry. */
 	if (device >= Z2MINOR_MEMLIST1 && device <= Z2MINOR_MEMLIST4) {
 		int index = device - Z2MINOR_MEMLIST1 + 1;
 		unsigned long size, paddr, vaddr;
@@ -186,7 +186,7 @@ static int z2_open(struct block_device *bdev, fmode_t mode)
 		size = m68k_memory[index].size & ~(Z2RAM_CHUNKSIZE-1);
 
 #ifdef __powerpc__
-		
+		/* FIXME: ioremap doesn't build correct memory tables. */
 		{
 			vfree(vmalloc (size));
 		}
@@ -318,6 +318,9 @@ z2_release(struct gendisk *disk, fmode_t mode)
     	return 0;
     }
     mutex_unlock(&z2ram_mutex);
+    /*
+     * FIXME: unmap memory
+     */
 
     return 0;
 }

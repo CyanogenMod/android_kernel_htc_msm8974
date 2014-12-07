@@ -13,13 +13,21 @@
 #ifndef DIAGFWD_CNTL_H
 #define DIAGFWD_CNTL_H
 
+/* Message registration commands */
 #define DIAG_CTRL_MSG_REG		1
+/* Message passing for DTR events */
 #define DIAG_CTRL_MSG_DTR		2
+/* Control Diag sleep vote, buffering etc */
 #define DIAG_CTRL_MSG_DIAGMODE		3
+/* Diag data based on "light" diag mask */
 #define DIAG_CTRL_MSG_DIAGDATA		4
+/* Send diag internal feature mask 'diag_int_feature_mask' */
 #define DIAG_CTRL_MSG_FEATURE		8
+/* Send Diag log mask for a particular equip id */
 #define DIAG_CTRL_MSG_EQUIP_LOG_MASK	9
+/* Send Diag event mask */
 #define DIAG_CTRL_MSG_EVENT_MASK_V2	10
+/* Send Diag F3 mask */
 #define DIAG_CTRL_MSG_F3_MASK_V2	11
 #define DIAG_CTRL_MSG_NUM_PRESETS	12
 #define DIAG_CTRL_MSG_SET_PRESET_ID	13
@@ -28,12 +36,19 @@
 #define DIAG_CTRL_MSG_F3_MASK_WITH_PRESET_ID	16
 #define DIAG_CTRL_MSG_LAST DIAG_CTRL_MSG_F3_MASK_WITH_PRESET_ID
 
+/* Denotes that we support sending/receiving the feature mask */
 #define F_DIAG_INT_FEATURE_MASK		0x01
+/* Denotes that we support responding to "Log on Demand" */
 #define F_DIAG_LOG_ON_DEMAND_RSP_ON_MASTER	0x04
+/*
+ * Supports dedicated main request/response on
+ * new Data Rx and DCI Rx channels
+ */
 #define F_DIAG_REQ_RSP_CHANNEL		0x10
+/* Denotes we support diag over stm */
 #define F_DIAG_OVER_STM			0x02
 
- 
+ /* Perform hdlc encoding of data coming from smd channel */
 #define F_DIAG_HDLC_ENCODE_IN_APPS_MASK	0x40
 
 #define ENABLE_SEPARATE_CMDRSP	1
@@ -69,7 +84,7 @@ struct diag_ctrl_event_mask {
 	uint8_t status;
 	uint8_t event_config;
 	uint32_t event_mask_size;
-	
+	/* Copy event mask here */
 } __packed;
 
 struct diag_ctrl_log_mask {
@@ -78,9 +93,9 @@ struct diag_ctrl_log_mask {
 	uint8_t stream_id;
 	uint8_t status;
 	uint8_t equip_id;
-	uint32_t num_items; 
-	uint32_t log_mask_size; 
-	
+	uint32_t num_items; /* Last log code for this equip_id */
+	uint32_t log_mask_size; /* Size of log mask stored in log_mask[] */
+	/* Copy log mask here */
 } __packed;
 
 struct diag_ctrl_msg_mask {
@@ -89,17 +104,17 @@ struct diag_ctrl_msg_mask {
 	uint8_t stream_id;
 	uint8_t status;
 	uint8_t msg_mode;
-	uint16_t ssid_first; 
-	uint16_t ssid_last; 
-	uint32_t msg_mask_size; 
-	
+	uint16_t ssid_first; /* Start of range of supported SSIDs */
+	uint16_t ssid_last; /* Last SSID in range */
+	uint32_t msg_mask_size; /* ssid_last - ssid_first + 1 */
+	/* Copy msg mask here */
 } __packed;
 
 struct diag_ctrl_feature_mask {
 	uint32_t ctrl_pkt_id;
 	uint32_t ctrl_pkt_data_len;
 	uint32_t feature_mask_len;
-	
+	/* Copy feature mask here */
 } __packed;
 
 struct diag_ctrl_msg_diagmode {

@@ -1,3 +1,15 @@
+/*
+ *    pata_efar.c - EFAR PIIX clone controller driver
+ *
+ *	(C) 2005 Red Hat
+ *	(C) 2009-2010 Bartlomiej Zolnierkiewicz
+ *
+ *    Some parts based on ata_piix.c by Jeff Garzik and others.
+ *
+ *    The EFAR is a PIIX4 clone with UDMA66 support. Unlike the later
+ *    Intel ICH controllers the EFAR widened the UDMA mode register bits
+ *    and doesn't require the funky clock selection.
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -13,12 +25,20 @@
 #define DRV_NAME	"pata_efar"
 #define DRV_VERSION	"0.4.5"
 
+/**
+ *	efar_pre_reset	-	Enable bits
+ *	@link: ATA link
+ *	@deadline: deadline jiffies for the operation
+ *
+ *	Perform cable detection for the EFAR ATA interface. This is
+ *	different to the PIIX arrangement
+ */
 
 static int efar_pre_reset(struct ata_link *link, unsigned long deadline)
 {
 	static const struct pci_bits efar_enable_bits[] = {
-		{ 0x41U, 1U, 0x80UL, 0x80UL },	
-		{ 0x43U, 1U, 0x80UL, 0x80UL },	
+		{ 0x41U, 1U, 0x80UL, 0x80UL },	/* port 0 */
+		{ 0x43U, 1U, 0x80UL, 0x80UL },	/* port 1 */
 	};
 	struct ata_port *ap = link->ap;
 	struct pci_dev *pdev = to_pci_dev(ap->host->dev);
@@ -29,6 +49,13 @@ static int efar_pre_reset(struct ata_link *link, unsigned long deadline)
 	return ata_sff_prereset(link, deadline);
 }
 
+/**
+ *	efar_cable_detect	-	check for 40/80 pin
+ *	@ap: Port
+ *
+ *	Perform cable detection for the EFAR ATA interface. This is
+ *	different to the PIIX arrangement
+ */
 
 static int efar_cable_detect(struct ata_port *ap)
 {
@@ -43,6 +70,16 @@ static int efar_cable_detect(struct ata_port *ap)
 
 static DEFINE_SPINLOCK(efar_lock);
 
+/**
+ *	efar_set_piomode - Initialize host controller PATA PIO timings
+ *	@ap: Port whose timings we are configuring
+ *	@adev: Device to program
+ *
+ *	Set PIO mode for device, in host controller PCI config space.
+ *
+ *	LOCKING:
+ *	None (inherited from caller).
+ */
 
 static void efar_set_piomode (struct ata_port *ap, struct ata_device *adev)
 {
@@ -54,8 +91,12 @@ static void efar_set_piomode (struct ata_port *ap, struct ata_device *adev)
 	u8 udma_enable;
 	int control = 0;
 
+	/*
+	 *	See Intel Document 298600-004 for the timing programing rules
+	 *	for PIIX/ICH. The EFAR is a clone so very similar
+	 */
 
-	static const	 
+	static const	 /* ISP  RTC */
 	u8 timings[][2]	= { { 0, 0 },
 			    { 0, 0 },
 			    { 1, 0 },
@@ -63,18 +104,18 @@ static void efar_set_piomode (struct ata_port *ap, struct ata_device *adev)
 			    { 2, 3 }, };
 
 	if (pio > 1)
-		control |= 1;	
-	if (ata_pio_need_iordy(adev))	
-		control |= 2;	
-	
+		control |= 1;	/* TIME */
+	if (ata_pio_need_iordy(adev))	/* PIO 3/4 require IORDY */
+		control |= 2;	/* IE */
+	/* Intel specifies that the prefetch/posting is for disk only */
 	if (adev->class == ATA_DEV_ATA)
-		control |= 4;	
+		control |= 4;	/* PPE */
 
 	spin_lock_irqsave(&efar_lock, flags);
 
 	pci_read_config_word(dev, master_port, &master_data);
 
-	
+	/* Set PPE, IE, and TIME as appropriate */
 	if (adev->devno == 0) {
 		master_data &= 0xCCF0;
 		master_data |= control;
@@ -87,14 +128,14 @@ static void efar_set_piomode (struct ata_port *ap, struct ata_device *adev)
 		master_data &= 0xFF0F;
 		master_data |= (control << 4);
 
-		
+		/* Slave timing in separate register */
 		pci_read_config_byte(dev, 0x44, &slave_data);
 		slave_data &= ap->port_no ? 0x0F : 0xF0;
 		slave_data |= ((timings[pio][0] << 2) | timings[pio][1]) << shift;
 		pci_write_config_byte(dev, 0x44, slave_data);
 	}
 
-	master_data |= 0x4000;	
+	master_data |= 0x4000;	/* Ensure SITRE is set */
 	pci_write_config_word(dev, master_port, master_data);
 
 	pci_read_config_byte(dev, 0x48, &udma_enable);
@@ -103,6 +144,16 @@ static void efar_set_piomode (struct ata_port *ap, struct ata_device *adev)
 	spin_unlock_irqrestore(&efar_lock, flags);
 }
 
+/**
+ *	efar_set_dmamode - Initialize host controller PATA DMA timings
+ *	@ap: Port whose timings we are configuring
+ *	@adev: Device to program
+ *
+ *	Set UDMA/MWDMA mode for device, in host controller PCI config space.
+ *
+ *	LOCKING:
+ *	None (inherited from caller).
+ */
 
 static void efar_set_dmamode (struct ata_port *ap, struct ata_device *adev)
 {
@@ -114,7 +165,7 @@ static void efar_set_dmamode (struct ata_port *ap, struct ata_device *adev)
 	unsigned long flags;
 	u8 udma_enable;
 
-	static const	 
+	static const	 /* ISP  RTC */
 	u8 timings[][2]	= { { 0, 0 },
 			    { 0, 0 },
 			    { 1, 0 },
@@ -132,12 +183,17 @@ static void efar_set_dmamode (struct ata_port *ap, struct ata_device *adev)
 
 		udma_enable |= (1 << devid);
 
-		
+		/* Load the UDMA mode number */
 		pci_read_config_word(dev, 0x4A, &udma_timing);
 		udma_timing &= ~(7 << (4 * devid));
 		udma_timing |= udma << (4 * devid);
 		pci_write_config_word(dev, 0x4A, udma_timing);
 	} else {
+		/*
+		 * MWDMA is driven by the PIO timings. We must also enable
+		 * IORDY unconditionally along with TIME1. PPE has already
+		 * been set when the PIO timing was set.
+		 */
 		unsigned int mwdma	= adev->dma_mode - XFER_MW_DMA_0;
 		unsigned int control;
 		u8 slave_data;
@@ -146,23 +202,26 @@ static void efar_set_dmamode (struct ata_port *ap, struct ata_device *adev)
 		};
 		int pio = needed_pio[mwdma] - XFER_PIO_0;
 
-		control = 3;	
+		control = 3;	/* IORDY|TIME1 */
 
+		/* If the drive MWDMA is faster than it can do PIO then
+		   we must force PIO into PIO0 */
 
 		if (adev->pio_mode < needed_pio[mwdma])
-			
-			control |= 8;	
+			/* Enable DMA timing only */
+			control |= 8;	/* PIO cycles in PIO0 */
 
-		if (adev->devno) {	
-			master_data &= 0xFF4F;  
+		if (adev->devno) {	/* Slave */
+			master_data &= 0xFF4F;  /* Mask out IORDY|TIME1|DMAONLY */
 			master_data |= control << 4;
 			pci_read_config_byte(dev, 0x44, &slave_data);
 			slave_data &= ap->port_no ? 0x0F : 0xF0;
-			
+			/* Load the matching timing */
 			slave_data |= ((timings[pio][0] << 2) | timings[pio][1]) << (ap->port_no ? 4 : 0);
 			pci_write_config_byte(dev, 0x44, slave_data);
-		} else { 	
-			master_data &= 0xCCF4;	
+		} else { 	/* Master */
+			master_data &= 0xCCF4;	/* Mask out IORDY|TIME1|DMAONLY
+						   and master timing bits */
 			master_data |= control;
 			master_data |=
 				(timings[pio][0] << 12) |
@@ -188,6 +247,19 @@ static struct ata_port_operations efar_ops = {
 };
 
 
+/**
+ *	efar_init_one - Register EFAR ATA PCI device with kernel services
+ *	@pdev: PCI device to register
+ *	@ent: Entry in efar_pci_tbl matching with @pdev
+ *
+ *	Called from kernel PCI layer.
+ *
+ *	LOCKING:
+ *	Inherited from PCI layer (may sleep).
+ *
+ *	RETURNS:
+ *	Zero on success, or -ERRNO value.
+ */
 
 static int efar_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 {
@@ -209,7 +281,7 @@ static int efar_init_one (struct pci_dev *pdev, const struct pci_device_id *ent)
 static const struct pci_device_id efar_pci_tbl[] = {
 	{ PCI_VDEVICE(EFAR, 0x9130), },
 
-	{ }	
+	{ }	/* terminate list */
 };
 
 static struct pci_driver efar_pci_driver = {

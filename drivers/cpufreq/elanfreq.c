@@ -28,17 +28,22 @@
 #include <linux/timex.h>
 #include <linux/io.h>
 
-#define REG_CSCIR 0x22		
-#define REG_CSCDR 0x23		
+#define REG_CSCIR 0x22		/* Chip Setup and Control Index Register    */
+#define REG_CSCDR 0x23		/* Chip Setup and Control Data  Register    */
 
+/* Module parameter */
 static int max_freq;
 
 struct s_elan_multiplier {
-	int clock;		
-	int val40h;		
-	int val80h;		
+	int clock;		/* frequency in kHz                         */
+	int val40h;		/* PMU Force Mode register                  */
+	int val80h;		/* CPU Clock Speed Register                 */
 };
 
+/*
+ * It is important that the frequencies
+ * are listed in ascending order here!
+ */
 static struct s_elan_multiplier elan_multiplier[] = {
 	{1000,	0x02,	0x18},
 	{2000,	0x02,	0x10},
@@ -63,10 +68,18 @@ static struct cpufreq_frequency_table elanfreq_table[] = {
 };
 
 
+/**
+ *	elanfreq_get_cpu_frequency: determine current cpu speed
+ *
+ *	Finds out at which frequency the CPU of the Elan SOC runs
+ *	at the moment. Frequencies from 1 to 33 MHz are generated
+ *	the normal way, 66 and 99 MHz are called "Hyperspeed Mode"
+ *	and have the rest of the chip running with 33 MHz.
+ */
 
 static unsigned int elanfreq_get_cpu_frequency(unsigned int cpu)
 {
-	u8 clockspeed_reg;    
+	u8 clockspeed_reg;    /* Clock Speed Register */
 
 	local_irq_disable();
 	outb_p(0x80, REG_CSCIR);
@@ -76,7 +89,7 @@ static unsigned int elanfreq_get_cpu_frequency(unsigned int cpu)
 	if ((clockspeed_reg & 0xE0) == 0xE0)
 		return 0;
 
-	
+	/* Are we in CPU clock multiplied mode (66/99 MHz)? */
 	if ((clockspeed_reg & 0xE0) == 0xC0) {
 		if ((clockspeed_reg & 0x01) == 0)
 			return 66000;
@@ -84,7 +97,7 @@ static unsigned int elanfreq_get_cpu_frequency(unsigned int cpu)
 			return 99000;
 	}
 
-	
+	/* 33 MHz is not 32 MHz... */
 	if ((clockspeed_reg & 0xE0) == 0xA0)
 		return 33000;
 
@@ -92,6 +105,17 @@ static unsigned int elanfreq_get_cpu_frequency(unsigned int cpu)
 }
 
 
+/**
+ *	elanfreq_set_cpu_frequency: Change the CPU core frequency
+ *	@cpu: cpu number
+ *	@freq: frequency in kHz
+ *
+ *	This function takes a frequency value and changes the CPU frequency
+ *	according to this. Note that the frequency has to be checked by
+ *	elanfreq_validatespeed() for correctness!
+ *
+ *	There is no return value.
+ */
 
 static void elanfreq_set_cpu_state(unsigned int state)
 {
@@ -99,7 +123,7 @@ static void elanfreq_set_cpu_state(unsigned int state)
 
 	freqs.old = elanfreq_get_cpu_frequency(0);
 	freqs.new = elan_multiplier[state].clock;
-	freqs.cpu = 0; 
+	freqs.cpu = 0; /* elanfreq.c is UP only driver */
 
 	cpufreq_notify_transition(&freqs, CPUFREQ_PRECHANGE);
 
@@ -107,21 +131,31 @@ static void elanfreq_set_cpu_state(unsigned int state)
 			elan_multiplier[state].clock);
 
 
+	/*
+	 * Access to the Elan's internal registers is indexed via
+	 * 0x22: Chip Setup & Control Register Index Register (CSCI)
+	 * 0x23: Chip Setup & Control Register Data  Register (CSCD)
+	 *
+	 */
 
+	/*
+	 * 0x40 is the Power Management Unit's Force Mode Register.
+	 * Bit 6 enables Hyperspeed Mode (66/100 MHz core frequency)
+	 */
 
 	local_irq_disable();
-	outb_p(0x40, REG_CSCIR);		
+	outb_p(0x40, REG_CSCIR);		/* Disable hyperspeed mode */
 	outb_p(0x00, REG_CSCDR);
-	local_irq_enable();		
-	udelay(1000);			
+	local_irq_enable();		/* wait till internal pipelines and */
+	udelay(1000);			/* buffers have cleaned up          */
 
 	local_irq_disable();
 
-	
+	/* now, set the CPU clock speed register (0x80) */
 	outb_p(0x80, REG_CSCIR);
 	outb_p(elan_multiplier[state].val80h, REG_CSCDR);
 
-	
+	/* now, the hyperspeed bit in PMU Force Mode Register (0x40) */
 	outb_p(0x40, REG_CSCIR);
 	outb_p(elan_multiplier[state].val40h, REG_CSCDR);
 	udelay(10000);
@@ -131,6 +165,13 @@ static void elanfreq_set_cpu_state(unsigned int state)
 };
 
 
+/**
+ *	elanfreq_validatespeed: test if frequency range is valid
+ *	@policy: the policy to validate
+ *
+ *	This function checks if a given frequency range in kHz is valid
+ *	for the hardware supported by the driver.
+ */
 
 static int elanfreq_verify(struct cpufreq_policy *policy)
 {
@@ -153,6 +194,9 @@ static int elanfreq_target(struct cpufreq_policy *policy,
 }
 
 
+/*
+ *	Module init and exit code
+ */
 
 static int elanfreq_cpu_init(struct cpufreq_policy *policy)
 {
@@ -160,22 +204,22 @@ static int elanfreq_cpu_init(struct cpufreq_policy *policy)
 	unsigned int i;
 	int result;
 
-	
+	/* capability check */
 	if ((c->x86_vendor != X86_VENDOR_AMD) ||
 	    (c->x86 != 4) || (c->x86_model != 10))
 		return -ENODEV;
 
-	
+	/* max freq */
 	if (!max_freq)
 		max_freq = elanfreq_get_cpu_frequency(0);
 
-	
+	/* table init */
 	for (i = 0; (elanfreq_table[i].frequency != CPUFREQ_TABLE_END); i++) {
 		if (elanfreq_table[i].frequency > max_freq)
 			elanfreq_table[i].frequency = CPUFREQ_ENTRY_INVALID;
 	}
 
-	
+	/* cpuinfo and default policy values */
 	policy->cpuinfo.transition_latency = CPUFREQ_ETERNAL;
 	policy->cur = elanfreq_get_cpu_frequency(0);
 
@@ -196,6 +240,17 @@ static int elanfreq_cpu_exit(struct cpufreq_policy *policy)
 
 
 #ifndef MODULE
+/**
+ * elanfreq_setup - elanfreq command line parameter parsing
+ *
+ * elanfreq command line parameter.  Use:
+ *  elanfreq=66000
+ * to set the maximum CPU frequency to 66 MHz. Note that in
+ * case you do not give this boot parameter, the maximum
+ * frequency will fall back to _current_ CPU frequency which
+ * might be lower. If you build this as a module, use the
+ * max_freq module parameter instead.
+ */
 static int __init elanfreq_setup(char *str)
 {
 	max_freq = simple_strtoul(str, &str, 0);

@@ -16,25 +16,28 @@
  * www.brocade.com
  */
 
+/*
+ * bfi_reg.h ASIC register defines for all Brocade adapter ASICs
+ */
 
 #ifndef __BFI_REG_H__
 #define __BFI_REG_H__
 
-#define HOSTFN0_INT_STATUS		0x00014000	
-#define HOSTFN1_INT_STATUS		0x00014100	
-#define HOSTFN2_INT_STATUS		0x00014300	
-#define HOSTFN3_INT_STATUS		0x00014400	
-#define HOSTFN0_INT_MSK			0x00014004	
-#define HOSTFN1_INT_MSK			0x00014104	
-#define HOSTFN2_INT_MSK			0x00014304	
-#define HOSTFN3_INT_MSK			0x00014404	
+#define HOSTFN0_INT_STATUS		0x00014000	/* cb/ct	*/
+#define HOSTFN1_INT_STATUS		0x00014100	/* cb/ct	*/
+#define HOSTFN2_INT_STATUS		0x00014300	/* ct		*/
+#define HOSTFN3_INT_STATUS		0x00014400	/* ct		*/
+#define HOSTFN0_INT_MSK			0x00014004	/* cb/ct	*/
+#define HOSTFN1_INT_MSK			0x00014104	/* cb/ct	*/
+#define HOSTFN2_INT_MSK			0x00014304	/* ct		*/
+#define HOSTFN3_INT_MSK			0x00014404	/* ct		*/
 
-#define HOST_PAGE_NUM_FN0		0x00014008	
-#define HOST_PAGE_NUM_FN1		0x00014108	
-#define HOST_PAGE_NUM_FN2		0x00014308	
-#define HOST_PAGE_NUM_FN3		0x00014408	
+#define HOST_PAGE_NUM_FN0		0x00014008	/* cb/ct	*/
+#define HOST_PAGE_NUM_FN1		0x00014108	/* cb/ct	*/
+#define HOST_PAGE_NUM_FN2		0x00014308	/* ct		*/
+#define HOST_PAGE_NUM_FN3		0x00014408	/* ct		*/
 
-#define APP_PLL_LCLK_CTL_REG		0x00014204	
+#define APP_PLL_LCLK_CTL_REG		0x00014204	/* cb/ct	*/
 #define __P_LCLK_PLL_LOCK		0x80000000
 #define __APP_PLL_LCLK_SRAM_USE_100MHZ	0x00100000
 #define __APP_PLL_LCLK_RESET_TIMER_MK	0x000e0000
@@ -60,7 +63,7 @@
 #define __APP_PLL_LCLK_BYPASS		0x00000004
 #define __APP_PLL_LCLK_LRESETN		0x00000002
 #define __APP_PLL_LCLK_ENABLE		0x00000001
-#define APP_PLL_SCLK_CTL_REG		0x00014208	
+#define APP_PLL_SCLK_CTL_REG		0x00014208	/* cb/ct	*/
 #define __P_SCLK_PLL_LOCK		0x80000000
 #define __APP_PLL_SCLK_RESET_TIMER_MK	0x000e0000
 #define __APP_PLL_SCLK_RESET_TIMER_SH	17
@@ -85,46 +88,46 @@
 #define __APP_PLL_SCLK_BYPASS		0x00000004
 #define __APP_PLL_SCLK_LRESETN		0x00000002
 #define __APP_PLL_SCLK_ENABLE		0x00000001
-#define __ENABLE_MAC_AHB_1		0x00800000	
-#define __ENABLE_MAC_AHB_0		0x00400000	
-#define __ENABLE_MAC_1			0x00200000	
-#define __ENABLE_MAC_0			0x00100000	
+#define __ENABLE_MAC_AHB_1		0x00800000	/* ct		*/
+#define __ENABLE_MAC_AHB_0		0x00400000	/* ct		*/
+#define __ENABLE_MAC_1			0x00200000	/* ct		*/
+#define __ENABLE_MAC_0			0x00100000	/* ct		*/
 
-#define HOST_SEM0_REG			0x00014230	
-#define HOST_SEM1_REG			0x00014234	
-#define HOST_SEM2_REG			0x00014238	
-#define HOST_SEM3_REG			0x0001423c	
-#define HOST_SEM4_REG			0x00014610	
-#define HOST_SEM5_REG			0x00014614	
-#define HOST_SEM6_REG			0x00014618	
-#define HOST_SEM7_REG			0x0001461c	
-#define HOST_SEM0_INFO_REG		0x00014240	
-#define HOST_SEM1_INFO_REG		0x00014244	
-#define HOST_SEM2_INFO_REG		0x00014248	
-#define HOST_SEM3_INFO_REG		0x0001424c	
-#define HOST_SEM4_INFO_REG		0x00014620	
-#define HOST_SEM5_INFO_REG		0x00014624	
-#define HOST_SEM6_INFO_REG		0x00014628	
-#define HOST_SEM7_INFO_REG		0x0001462c	
+#define HOST_SEM0_REG			0x00014230	/* cb/ct	*/
+#define HOST_SEM1_REG			0x00014234	/* cb/ct	*/
+#define HOST_SEM2_REG			0x00014238	/* cb/ct	*/
+#define HOST_SEM3_REG			0x0001423c	/* cb/ct	*/
+#define HOST_SEM4_REG			0x00014610	/* cb/ct	*/
+#define HOST_SEM5_REG			0x00014614	/* cb/ct	*/
+#define HOST_SEM6_REG			0x00014618	/* cb/ct	*/
+#define HOST_SEM7_REG			0x0001461c	/* cb/ct	*/
+#define HOST_SEM0_INFO_REG		0x00014240	/* cb/ct	*/
+#define HOST_SEM1_INFO_REG		0x00014244	/* cb/ct	*/
+#define HOST_SEM2_INFO_REG		0x00014248	/* cb/ct	*/
+#define HOST_SEM3_INFO_REG		0x0001424c	/* cb/ct	*/
+#define HOST_SEM4_INFO_REG		0x00014620	/* cb/ct	*/
+#define HOST_SEM5_INFO_REG		0x00014624	/* cb/ct	*/
+#define HOST_SEM6_INFO_REG		0x00014628	/* cb/ct	*/
+#define HOST_SEM7_INFO_REG		0x0001462c	/* cb/ct	*/
 
-#define HOSTFN0_LPU0_CMD_STAT		0x00019000	
-#define HOSTFN0_LPU1_CMD_STAT		0x00019004	
-#define HOSTFN1_LPU0_CMD_STAT		0x00019010	
-#define HOSTFN1_LPU1_CMD_STAT		0x00019014	
-#define HOSTFN2_LPU0_CMD_STAT		0x00019150	
-#define HOSTFN2_LPU1_CMD_STAT		0x00019154	
-#define HOSTFN3_LPU0_CMD_STAT		0x00019160	
-#define HOSTFN3_LPU1_CMD_STAT		0x00019164	
-#define LPU0_HOSTFN0_CMD_STAT		0x00019008	
-#define LPU1_HOSTFN0_CMD_STAT		0x0001900c	
-#define LPU0_HOSTFN1_CMD_STAT		0x00019018	
-#define LPU1_HOSTFN1_CMD_STAT		0x0001901c	
-#define LPU0_HOSTFN2_CMD_STAT		0x00019158	
-#define LPU1_HOSTFN2_CMD_STAT		0x0001915c	
-#define LPU0_HOSTFN3_CMD_STAT		0x00019168	
-#define LPU1_HOSTFN3_CMD_STAT		0x0001916c	
+#define HOSTFN0_LPU0_CMD_STAT		0x00019000	/* cb/ct	*/
+#define HOSTFN0_LPU1_CMD_STAT		0x00019004	/* cb/ct	*/
+#define HOSTFN1_LPU0_CMD_STAT		0x00019010	/* cb/ct	*/
+#define HOSTFN1_LPU1_CMD_STAT		0x00019014	/* cb/ct	*/
+#define HOSTFN2_LPU0_CMD_STAT		0x00019150	/* ct		*/
+#define HOSTFN2_LPU1_CMD_STAT		0x00019154	/* ct		*/
+#define HOSTFN3_LPU0_CMD_STAT		0x00019160	/* ct		*/
+#define HOSTFN3_LPU1_CMD_STAT		0x00019164	/* ct		*/
+#define LPU0_HOSTFN0_CMD_STAT		0x00019008	/* cb/ct	*/
+#define LPU1_HOSTFN0_CMD_STAT		0x0001900c	/* cb/ct	*/
+#define LPU0_HOSTFN1_CMD_STAT		0x00019018	/* cb/ct	*/
+#define LPU1_HOSTFN1_CMD_STAT		0x0001901c	/* cb/ct	*/
+#define LPU0_HOSTFN2_CMD_STAT		0x00019158	/* ct		*/
+#define LPU1_HOSTFN2_CMD_STAT		0x0001915c	/* ct		*/
+#define LPU0_HOSTFN3_CMD_STAT		0x00019168	/* ct		*/
+#define LPU1_HOSTFN3_CMD_STAT		0x0001916c	/* ct		*/
 
-#define PSS_CTL_REG			0x00018800	
+#define PSS_CTL_REG			0x00018800	/* cb/ct	*/
 #define __PSS_I2C_CLK_DIV_MK		0x007f0000
 #define __PSS_I2C_CLK_DIV_SH		16
 #define __PSS_I2C_CLK_DIV(_v)		((_v) << __PSS_I2C_CLK_DIV_SH)
@@ -133,38 +136,38 @@
 #define __PSS_LMEM_INIT_EN		0x00000100
 #define __PSS_LPU1_RESET		0x00000002
 #define __PSS_LPU0_RESET		0x00000001
-#define PSS_ERR_STATUS_REG		0x00018810	
-#define ERR_SET_REG			0x00018818	
-#define PSS_GPIO_OUT_REG		0x000188c0	
+#define PSS_ERR_STATUS_REG		0x00018810	/* cb/ct	*/
+#define ERR_SET_REG			0x00018818	/* cb/ct	*/
+#define PSS_GPIO_OUT_REG		0x000188c0	/* cb/ct	*/
 #define __PSS_GPIO_OUT_REG		0x00000fff
-#define PSS_GPIO_OE_REG			0x000188c8	
+#define PSS_GPIO_OE_REG			0x000188c8	/* cb/ct	*/
 #define __PSS_GPIO_OE_REG		0x000000ff
 
-#define HOSTFN0_LPU_MBOX0_0		0x00019200	
-#define HOSTFN1_LPU_MBOX0_8		0x00019260	
-#define LPU_HOSTFN0_MBOX0_0		0x00019280	
-#define LPU_HOSTFN1_MBOX0_8		0x000192e0	
-#define HOSTFN2_LPU_MBOX0_0		0x00019400	
-#define HOSTFN3_LPU_MBOX0_8		0x00019460	
-#define LPU_HOSTFN2_MBOX0_0		0x00019480	
-#define LPU_HOSTFN3_MBOX0_8		0x000194e0	
+#define HOSTFN0_LPU_MBOX0_0		0x00019200	/* cb/ct	*/
+#define HOSTFN1_LPU_MBOX0_8		0x00019260	/* cb/ct	*/
+#define LPU_HOSTFN0_MBOX0_0		0x00019280	/* cb/ct	*/
+#define LPU_HOSTFN1_MBOX0_8		0x000192e0	/* cb/ct	*/
+#define HOSTFN2_LPU_MBOX0_0		0x00019400	/* ct		*/
+#define HOSTFN3_LPU_MBOX0_8		0x00019460	/* ct		*/
+#define LPU_HOSTFN2_MBOX0_0		0x00019480	/* ct		*/
+#define LPU_HOSTFN3_MBOX0_8		0x000194e0	/* ct		*/
 
-#define HOST_MSIX_ERR_INDEX_FN0		0x0001400c	
-#define HOST_MSIX_ERR_INDEX_FN1		0x0001410c	
-#define HOST_MSIX_ERR_INDEX_FN2		0x0001430c	
-#define HOST_MSIX_ERR_INDEX_FN3		0x0001440c	
+#define HOST_MSIX_ERR_INDEX_FN0		0x0001400c	/* ct		*/
+#define HOST_MSIX_ERR_INDEX_FN1		0x0001410c	/* ct		*/
+#define HOST_MSIX_ERR_INDEX_FN2		0x0001430c	/* ct		*/
+#define HOST_MSIX_ERR_INDEX_FN3		0x0001440c	/* ct		*/
 
-#define MBIST_CTL_REG			0x00014220	
+#define MBIST_CTL_REG			0x00014220	/* ct		*/
 #define __EDRAM_BISTR_START		0x00000004
-#define MBIST_STAT_REG			0x00014224	
-#define ETH_MAC_SER_REG			0x00014288	
+#define MBIST_STAT_REG			0x00014224	/* ct		*/
+#define ETH_MAC_SER_REG			0x00014288	/* ct		*/
 #define __APP_EMS_CKBUFAMPIN		0x00000020
 #define __APP_EMS_REFCLKSEL		0x00000010
 #define __APP_EMS_CMLCKSEL		0x00000008
 #define __APP_EMS_REFCKBUFEN2		0x00000004
 #define __APP_EMS_REFCKBUFEN1		0x00000002
 #define __APP_EMS_CHANNEL_SEL		0x00000001
-#define FNC_PERS_REG			0x00014604	
+#define FNC_PERS_REG			0x00014604	/* ct		*/
 #define __F3_FUNCTION_ACTIVE		0x80000000
 #define __F3_FUNCTION_MODE		0x40000000
 #define __F3_PORT_MAP_MK		0x30000000
@@ -218,10 +221,16 @@ enum {
 #define __PMM_1T_RESET_P		0x00000001
 #define PMM_1T_RESET_REG_P1		0x00023c1c
 
+/**
+ * Brocade 1860 Adapter specific defines
+ */
 #define CT2_PCI_CPQ_BASE		0x00030000
 #define CT2_PCI_APP_BASE		0x00030100
 #define CT2_PCI_ETH_BASE		0x00030400
 
+/*
+ * APP block registers
+ */
 #define CT2_HOSTFN_INT_STATUS		(CT2_PCI_APP_BASE + 0x00)
 #define CT2_HOSTFN_INTR_MASK		(CT2_PCI_APP_BASE + 0x04)
 #define CT2_HOSTFN_PERSONALITY0		(CT2_PCI_APP_BASE + 0x08)
@@ -256,6 +265,9 @@ enum {
 #define CT2_HOSTFN_PAGE_NUM		(CT2_PCI_APP_BASE + 0x18)
 #define CT2_HOSTFN_MSIX_VT_INDEX_MBOX_ERR	(CT2_PCI_APP_BASE + 0x38)
 
+/*
+ * Brocade 1860 adapter CPQ block registers
+ */
 #define CT2_HOSTFN_LPU0_MBOX0		(CT2_PCI_CPQ_BASE + 0x00)
 #define CT2_HOSTFN_LPU1_MBOX0		(CT2_PCI_CPQ_BASE + 0x20)
 #define CT2_LPU0_HOSTFN_MBOX0		(CT2_PCI_CPQ_BASE + 0x40)
@@ -339,6 +351,9 @@ enum {
 	(CT2_CSI_MAC0_CONTROL_REG + \
 	(__n) * (CT2_CSI_MAC1_CONTROL_REG - CT2_CSI_MAC0_CONTROL_REG))
 
+/*
+ * Name semaphore registers based on usage
+ */
 #define BFA_IOC0_HBEAT_REG		HOST_SEM0_INFO_REG
 #define BFA_IOC0_STATE_REG		HOST_SEM1_INFO_REG
 #define BFA_IOC1_HBEAT_REG		HOST_SEM2_INFO_REG
@@ -346,6 +361,9 @@ enum {
 #define BFA_FW_USE_COUNT		HOST_SEM4_INFO_REG
 #define BFA_IOC_FAIL_SYNC		HOST_SEM5_INFO_REG
 
+/*
+ * CT2 semaphore register locations changed
+ */
 #define CT2_BFA_IOC0_HBEAT_REG		CT2_HOST_SEM0_INFO_REG
 #define CT2_BFA_IOC0_STATE_REG		CT2_HOST_SEM1_INFO_REG
 #define CT2_BFA_IOC1_HBEAT_REG		CT2_HOST_SEM2_INFO_REG
@@ -356,6 +374,9 @@ enum {
 #define CPE_Q_NUM(__fn, __q)	(((__fn) << 2) + (__q))
 #define RME_Q_NUM(__fn, __q)	(((__fn) << 2) + (__q))
 
+/*
+ * And corresponding host interrupt status bit field defines
+ */
 #define __HFN_INT_CPE_Q0	0x00000001U
 #define __HFN_INT_CPE_Q1	0x00000002U
 #define __HFN_INT_CPE_Q2	0x00000004U
@@ -395,6 +416,9 @@ enum {
 	 __HFN_INT_CPE_Q7 | __HFN_INT_RME_Q4 | __HFN_INT_RME_Q5 | \
 	 __HFN_INT_RME_Q6 | __HFN_INT_RME_Q7 | __HFN_INT_MBOX_LPU1)
 
+/*
+ * Host interrupt status defines for 1860
+ */
 #define __HFN_INT_MBOX_LPU0_CT2	0x00010000U
 #define __HFN_INT_MBOX_LPU1_CT2	0x00020000U
 #define __HFN_INT_ERR_PSS_CT2	0x00040000U
@@ -418,8 +442,11 @@ enum {
 	 __HFN_INT_CPE_Q7 | __HFN_INT_RME_Q4 | __HFN_INT_RME_Q5 | \
 	 __HFN_INT_RME_Q6 | __HFN_INT_RME_Q7 | __HFN_INT_MBOX_LPU1_CT2)
 
+/*
+ * asic memory map.
+ */
 #define PSS_SMEM_PAGE_START		0x8000
 #define PSS_SMEM_PGNUM(_pg0, _ma)	((_pg0) + ((_ma) >> 15))
 #define PSS_SMEM_PGOFF(_ma)		((_ma) & 0x7fff)
 
-#endif 
+#endif /* __BFI_REG_H__ */

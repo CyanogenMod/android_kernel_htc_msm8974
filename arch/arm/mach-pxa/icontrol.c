@@ -151,23 +151,23 @@ static struct platform_device *icontrol_spi_devices[] __initdata = {
 };
 
 static mfp_cfg_t mfp_can_cfg[] __initdata = {
-	
+	/* CAN CS lines */
 	GPIO15_GPIO,
 	GPIO16_GPIO,
 	GPIO17_GPIO,
 	GPIO24_GPIO,
 
-	
+	/* SPI (SSP3) lines */
 	GPIO89_SSP3_SCLK,
 	GPIO91_SSP3_TXD,
 	GPIO92_SSP3_RXD,
 
-	
+	/* SPI (SSP4) lines */
 	GPIO93_SSP4_SCLK,
 	GPIO95_SSP4_TXD,
 	GPIO96_SSP4_RXD,
 
-	
+	/* CAN nIRQ lines */
 	GPIO74_GPIO | MFP_LPM_EDGE_RISE,
 	GPIO75_GPIO | MFP_LPM_EDGE_RISE,
 	GPIO76_GPIO | MFP_LPM_EDGE_RISE,

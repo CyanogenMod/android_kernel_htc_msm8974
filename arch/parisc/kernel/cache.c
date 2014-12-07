@@ -38,6 +38,11 @@ EXPORT_SYMBOL(flush_dcache_page_asm);
 void flush_icache_page_asm(unsigned long phys_addr, unsigned long vaddr);
 
 
+/* On some machines (e.g. ones with the Merced bus), there can be
+ * only a single PxTLB broadcast at a time; this must be guaranteed
+ * by software.  We put a spinlock around all TLB flushes  to
+ * ensure this.
+ */
 DEFINE_SPINLOCK(pa_tlb_lock);
 
 struct pdc_cache_info cache_info __read_mostly;
@@ -101,7 +106,7 @@ show_cache_info(struct seq_file *m)
 	);
 		
 #ifndef CONFIG_PA20
-	
+	/* BTLB - Block TLB */
 	if (btlb_info.max_size==0) {
 		seq_printf(m, "BTLB\t\t: not supported\n" );
 	} else {
@@ -194,6 +199,12 @@ parisc_cache_init(void)
 		split_tlb = 1;
 	}
 
+	/* "New and Improved" version from Jim Hull 
+	 *	(1 << (cc_block-1)) * (cc_line << (4 + cnf.cc_shift))
+	 * The following CAFL_STRIDE is an optimized version, see
+	 * http://lists.parisc-linux.org/pipermail/parisc-linux/2004-June/023625.html
+	 * http://lists.parisc-linux.org/pipermail/parisc-linux/2004-June/023671.html
+	 */
 #define CAFL_STRIDE(cnf) (cnf.cc_line << (3 + cnf.cc_block + cnf.cc_shift))
 	dcache_stride = CAFL_STRIDE(cache_info.dc_conf);
 	icache_stride = CAFL_STRIDE(cache_info.ic_conf);
@@ -220,7 +231,7 @@ void disable_sr_hashing(void)
 	unsigned long space_bits;
 
 	switch (boot_cpu_data.cpu_type) {
-	case pcx: 
+	case pcx: /* We shouldn't get this far.  setup.c should prevent it. */
 		BUG();
 		return;
 
@@ -234,10 +245,10 @@ void disable_sr_hashing(void)
 		srhash_type = SRHASH_PCXL;
 		break;
 
-	case pcxl2: 
+	case pcxl2: /* pcxl2 doesn't support space register hashing */
 		return;
 
-	default: 
+	default: /* Currently all PA2.0 machines use the same ins. sequence */
 		srhash_type = SRHASH_PA20;
 		break;
 	}
@@ -245,7 +256,7 @@ void disable_sr_hashing(void)
 	disable_sr_hashing_asm(srhash_type);
 
 	retval = pdc_spaceid_bits(&space_bits);
-	
+	/* If this procedure isn't implemented, don't panic. */
 	if (retval < 0 && retval != PDC_BAD_OPTION)
 		panic("pdc_spaceid_bits call failed.\n");
 	if (space_bits != 0)
@@ -282,12 +293,24 @@ void flush_dcache_page(struct page *page)
 
 	pgoff = page->index << (PAGE_CACHE_SHIFT - PAGE_SHIFT);
 
+	/* We have carefully arranged in arch_get_unmapped_area() that
+	 * *any* mappings of a file are always congruently mapped (whether
+	 * declared as MAP_PRIVATE or MAP_SHARED), so we only need
+	 * to flush one address here for them all to become coherent */
 
 	flush_dcache_mmap_lock(mapping);
 	vma_prio_tree_foreach(mpnt, &iter, &mapping->i_mmap, pgoff, pgoff) {
 		offset = (pgoff - mpnt->vm_pgoff) << PAGE_SHIFT;
 		addr = mpnt->vm_start + offset;
 
+		/* The TLB is the engine of coherence on parisc: The
+		 * CPU is entitled to speculate any page with a TLB
+		 * mapping, so here we kill the mapping then flush the
+		 * page along a special flush only alias mapping.
+		 * This guarantees that the page is no-longer in the
+		 * cache for any process and nor may it be
+		 * speculatively read in (until the user or kernel
+		 * specifically accesses it, of course) */
 
 		flush_tlb_page(mpnt, addr);
 		if (old_addr == 0 || (old_addr & (SHMLBA - 1)) != (addr & (SHMLBA - 1))) {
@@ -301,6 +324,7 @@ void flush_dcache_page(struct page *page)
 }
 EXPORT_SYMBOL(flush_dcache_page);
 
+/* Defined in arch/parisc/kernel/pacache.S */
 EXPORT_SYMBOL(flush_kernel_dcache_range_asm);
 EXPORT_SYMBOL(flush_kernel_dcache_page_asm);
 EXPORT_SYMBOL(flush_data_cache_local);
@@ -309,7 +333,7 @@ EXPORT_SYMBOL(flush_kernel_icache_range_asm);
 void clear_user_page_asm(void *page, unsigned long vaddr)
 {
 	unsigned long flags;
-	
+	/* This function is implemented in assembly in pacache.S */
 	extern void __clear_user_page_asm(void *page, unsigned long vaddr);
 
 	purge_tlb_start(flags);
@@ -317,7 +341,7 @@ void clear_user_page_asm(void *page, unsigned long vaddr)
 	purge_tlb_end(flags);
 }
 
-#define FLUSH_THRESHOLD 0x80000 
+#define FLUSH_THRESHOLD 0x80000 /* 0.5MB */
 int parisc_cache_flush_threshold __read_mostly = FLUSH_THRESHOLD;
 
 void __init parisc_setup_cache_timing(void)
@@ -337,7 +361,7 @@ void __init parisc_setup_cache_timing(void)
 	printk(KERN_DEBUG "Whole cache flush %lu cycles, flushing %lu bytes %lu cycles\n",
 		alltime, size, rangetime);
 
-	
+	/* Racy, but if we see an intermediate value, it's ok too... */
 	parisc_cache_flush_threshold = size * alltime / rangetime;
 
 	parisc_cache_flush_threshold = (parisc_cache_flush_threshold + L1_CACHE_BYTES - 1) &~ (L1_CACHE_BYTES - 1); 
@@ -379,7 +403,7 @@ EXPORT_SYMBOL(flush_kernel_dcache_page_addr);
 void copy_user_page(void *vto, void *vfrom, unsigned long vaddr,
 		    struct page *pg)
 {
-	
+	/* no coherency needed (all in kmap/kunmap) */
 	copy_user_page_asm(vto, vfrom);
 	if (!parisc_requires_coherency())
 		flush_kernel_dcache_page_asm(vto);
@@ -402,7 +426,7 @@ void __flush_tlb_range(unsigned long sid, unsigned long start,
 	unsigned long npages;
 
 	npages = ((end - (start & PAGE_MASK)) + (PAGE_SIZE - 1)) >> PAGE_SHIFT;
-	if (npages >= 512)  
+	if (npages >= 512)  /* 2MB of space: arbitrary, should be tuned */
 		flush_tlb_all();
 	else {
 		unsigned long flags;

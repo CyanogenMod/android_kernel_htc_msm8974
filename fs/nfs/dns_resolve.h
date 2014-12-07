@@ -1,3 +1,6 @@
+/*
+ * Resolve DNS hostnames into valid ip addresses
+ */
 #ifndef __LINUX_FS_NFS_DNS_RESOLVE_H
 #define __LINUX_FS_NFS_DNS_RESOLVE_H
 

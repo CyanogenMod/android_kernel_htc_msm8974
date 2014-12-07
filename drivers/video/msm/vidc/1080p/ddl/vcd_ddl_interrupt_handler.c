@@ -1813,7 +1813,7 @@ static void ddl_handle_slice_done_slice_batch(struct ddl_client_context *ddl)
 	DDL_MSG_LOW(" after get no of slices = %d\n", num_slices_comp);
 	if (slice_output == NULL) {
 		DDL_MSG_ERROR(" slice_output is NULL\n");
-		return; 
+		return; /* Bail out */
 	}
 	encoder->slice_delivery_info.num_slices_enc += num_slices_comp;
 	if (vidc_msg_timing) {

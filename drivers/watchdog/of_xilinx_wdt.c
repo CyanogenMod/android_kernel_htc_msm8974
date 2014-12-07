@@ -35,16 +35,20 @@
 #include <linux/of_device.h>
 #include <linux/of_address.h>
 
-#define XWT_TWCSR0_OFFSET   0x0 
-#define XWT_TWCSR1_OFFSET   0x4 
-#define XWT_TBR_OFFSET      0x8 
+/* Register offsets for the Wdt device */
+#define XWT_TWCSR0_OFFSET   0x0 /* Control/Status Register0 */
+#define XWT_TWCSR1_OFFSET   0x4 /* Control/Status Register1 */
+#define XWT_TBR_OFFSET      0x8 /* Timebase Register Offset */
 
-#define XWT_CSR0_WRS_MASK   0x00000008 
-#define XWT_CSR0_WDS_MASK   0x00000004 
-#define XWT_CSR0_EWDT1_MASK 0x00000002 
+/* Control/Status Register Masks  */
+#define XWT_CSR0_WRS_MASK   0x00000008 /* Reset status */
+#define XWT_CSR0_WDS_MASK   0x00000004 /* Timer state  */
+#define XWT_CSR0_EWDT1_MASK 0x00000002 /* Enable bit 1 */
 
-#define XWT_CSRX_EWDT2_MASK 0x00000001 
+/* Control/Status Register 0/1 bits  */
+#define XWT_CSRX_EWDT2_MASK 0x00000001 /* Enable bit 2 */
 
+/* SelfTest constants */
 #define XWT_MAX_SELFTEST_LOOP_COUNT 0x00010000
 #define XWT_TIMER_FAILED            0xFFFFFFFF
 
@@ -73,7 +77,7 @@ static void xwdt_start(void)
 {
 	spin_lock(&spinlock);
 
-	
+	/* Clean previous status and enable the watchdog timer */
 	control_status_reg = ioread32(xdev.base + XWT_TWCSR0_OFFSET);
 	control_status_reg |= (XWT_CSR0_WRS_MASK | XWT_CSR0_WDS_MASK);
 
@@ -154,11 +158,11 @@ static u32 xwdt_selftest(void)
 
 static int xwdt_open(struct inode *inode, struct file *file)
 {
-	
+	/* Only one process can handle the wdt at a time */
 	if (test_and_set_bit(0, &driver_open))
 		return -EBUSY;
 
-	
+	/* Make sure that the module are always loaded...*/
 	if (xdev.nowayout)
 		__module_get(THIS_MODULE);
 
@@ -182,6 +186,16 @@ static int xwdt_release(struct inode *inode, struct file *file)
 	return 0;
 }
 
+/*
+ *      xwdt_write:
+ *      @file: file handle to the watchdog
+ *      @buf: buffer to write (unused as data does not matter here
+ *      @count: count of bytes
+ *      @ppos: pointer to the position to write. No seeks allowed
+ *
+ *      A write to a watchdog device is defined as a keepalive signal. Any
+ *      write of data will do, as we don't define content meaning.
+ */
 static ssize_t xwdt_write(struct file *file, const char __user *buf,
 						size_t len, loff_t *ppos)
 {
@@ -189,7 +203,7 @@ static ssize_t xwdt_write(struct file *file, const char __user *buf,
 		if (!xdev.nowayout) {
 			size_t i;
 
-			
+			/* In case it was set long ago */
 			expect_close = 0;
 
 			for (i = 0; i != len; i++) {
@@ -213,6 +227,15 @@ static const struct watchdog_info ident = {
 	.identity =	WATCHDOG_NAME,
 };
 
+/*
+ *      xwdt_ioctl:
+ *      @file: file handle to the device
+ *      @cmd: watchdog command
+ *      @arg: argument pointer
+ *
+ *      The watchdog API defines a common set of functions for all watchdogs
+ *      according to their available features.
+ */
 static long xwdt_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	int status;
@@ -304,6 +327,10 @@ static int __devinit xwdt_probe(struct platform_device *pdev)
 		xdev.nowayout = WATCHDOG_NOWAYOUT;
 	}
 
+/*
+ *  Twice of the 2^wdt_interval / freq  because the first wdt overflow is
+ *  ignored (interrupt), reset is only generated at second wdt overflow
+ */
 	if (!no_timeout)
 		timeout = 2 * ((1<<xdev.wdt_interval) / *pfreq);
 
@@ -365,6 +392,7 @@ static int __devexit xwdt_remove(struct platform_device *dev)
 	return 0;
 }
 
+/* Match table for of_platform binding */
 static struct of_device_id __devinitdata xwdt_of_match[] = {
 	{ .compatible = "xlnx,xps-timebase-wdt-1.01.a", },
 	{},

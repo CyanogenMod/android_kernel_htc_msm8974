@@ -1,3 +1,12 @@
+/*
+ * include/asm/irqflags.h
+ *
+ * IRQ flags handling
+ *
+ * This file gets included from lowlevel asm headers too, to provide
+ * wrapped versions of the local_irq_*() APIs, based on the
+ * arch_local_irq_*() functions from the lowlevel headers.
+ */
 #ifndef _ASM_IRQFLAGS_H
 #define _ASM_IRQFLAGS_H
 
@@ -21,7 +30,7 @@ static inline notrace void arch_local_irq_restore(unsigned long flags)
 {
 	__asm__ __volatile__(
 		"wrpr	%0, %%pil"
-		: 
+		: /* no output */
 		: "r" (flags)
 		: "memory"
 	);
@@ -31,7 +40,7 @@ static inline notrace void arch_local_irq_disable(void)
 {
 	__asm__ __volatile__(
 		"wrpr	%0, %%pil"
-		: 
+		: /* no outputs */
 		: "i" (PIL_NORMAL_MAX)
 		: "memory"
 	);
@@ -41,8 +50,8 @@ static inline notrace void arch_local_irq_enable(void)
 {
 	__asm__ __volatile__(
 		"wrpr	0, %%pil"
-		: 
-		: 
+		: /* no outputs */
+		: /* no inputs */
 		: "memory"
 	);
 }
@@ -61,6 +70,16 @@ static inline notrace unsigned long arch_local_irq_save(void)
 {
 	unsigned long flags, tmp;
 
+	/* Disable interrupts to PIL_NORMAL_MAX unless we already
+	 * are using PIL_NMI, in which case PIL_NMI is retained.
+	 *
+	 * The only values we ever program into the %pil are 0,
+	 * PIL_NORMAL_MAX and PIL_NMI.
+	 *
+	 * Since PIL_NMI is the largest %pil value and all bits are
+	 * set in it (0xf), it doesn't matter what PIL_NORMAL_MAX
+	 * actually is.
+	 */
 	__asm__ __volatile__(
 		"rdpr	%%pil, %0\n\t"
 		"or	%0, %2, %1\n\t"
@@ -73,6 +92,6 @@ static inline notrace unsigned long arch_local_irq_save(void)
 	return flags;
 }
 
-#endif 
+#endif /* (__ASSEMBLY__) */
 
-#endif 
+#endif /* !(_ASM_IRQFLAGS_H) */

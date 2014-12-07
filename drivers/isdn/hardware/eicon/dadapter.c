@@ -28,6 +28,9 @@
 #include "di_defs.h"
 #include "divasync.h"
 #include "dadapter.h"
+/* --------------------------------------------------------------------------
+   Adapter array change notification framework
+   -------------------------------------------------------------------------- */
 typedef struct _didd_adapter_change_notification {
 	didd_adapter_change_callback_t callback;
 	void IDI_CALL_ENTITY_T *context;
@@ -36,8 +39,15 @@ typedef struct _didd_adapter_change_notification {
 #define DIVA_DIDD_MAX_NOTIFICATIONS 256
 static didd_adapter_change_notification_t	\
 NotificationTable[DIVA_DIDD_MAX_NOTIFICATIONS];
+/* --------------------------------------------------------------------------
+   Array to held adapter information
+   -------------------------------------------------------------------------- */
 static DESCRIPTOR  HandleTable[NEW_MAX_DESCRIPTORS];
-static dword Adapters = 0; 
+static dword Adapters = 0; /* Number of adapters */
+/* --------------------------------------------------------------------------
+   Shadow IDI_DIMAINT
+   and 'shadow' debug stuff
+   -------------------------------------------------------------------------- */
 static void no_printf(unsigned char *format, ...)
 {
 #ifdef EBUG
@@ -48,31 +58,53 @@ static void no_printf(unsigned char *format, ...)
 #endif
 }
 
+/* -------------------------------------------------------------------------
+   Portable debug Library
+   ------------------------------------------------------------------------- */
 #include "debuglib.c"
 
-static DESCRIPTOR  MAdapter =  {IDI_DIMAINT, 
-				0x00,     
-				0x0000,    
+static DESCRIPTOR  MAdapter =  {IDI_DIMAINT, /* Adapter Type */
+				0x00,     /* Channels */
+				0x0000,    /* Features */
 				(IDI_CALL)no_printf};
+/* --------------------------------------------------------------------------
+   DAdapter. Only IDI clients with buffer, that is huge enough to
+   get all descriptors will receive information about DAdapter
+   { byte type, byte channels, word features, IDI_CALL request }
+   -------------------------------------------------------------------------- */
 static void IDI_CALL_LINK_T diva_dadapter_request(ENTITY IDI_CALL_ENTITY_T *);
-static DESCRIPTOR  DAdapter =  {IDI_DADAPTER, 
-				0x00,     
-				0x0000,    
+static DESCRIPTOR  DAdapter =  {IDI_DADAPTER, /* Adapter Type */
+				0x00,     /* Channels */
+				0x0000,    /* Features */
 				diva_dadapter_request };
+/* --------------------------------------------------------------------------
+   LOCALS
+   -------------------------------------------------------------------------- */
 static dword diva_register_adapter_callback(\
 	didd_adapter_change_callback_t callback,
 	void IDI_CALL_ENTITY_T *context);
 static void diva_remove_adapter_callback(dword handle);
 static void diva_notify_adapter_change(DESCRIPTOR *d, int removal);
 static diva_os_spin_lock_t didd_spin;
+/* --------------------------------------------------------------------------
+   Should be called as first step, after driver init
+   -------------------------------------------------------------------------- */
 void diva_didd_load_time_init(void) {
 	memset(&HandleTable[0], 0x00, sizeof(HandleTable));
 	memset(&NotificationTable[0], 0x00, sizeof(NotificationTable));
 	diva_os_initialize_spin_lock(&didd_spin, "didd");
 }
+/* --------------------------------------------------------------------------
+   Should be called as last step, if driver does unload
+   -------------------------------------------------------------------------- */
 void diva_didd_load_time_finit(void) {
 	diva_os_destroy_spin_lock(&didd_spin, "didd");
 }
+/* --------------------------------------------------------------------------
+   Called in order to register new adapter in adapter array
+   return adapter handle (> 0) on success
+   return -1 adapter array overflow
+   -------------------------------------------------------------------------- */
 static int diva_didd_add_descriptor(DESCRIPTOR *d) {
 	diva_os_spin_lock_magic_t      irql;
 	int i;
@@ -80,11 +112,11 @@ static int diva_didd_add_descriptor(DESCRIPTOR *d) {
 		if (d->request) {
 			MAdapter.request = d->request;
 			dprintf = (DIVA_DI_PRINTF)d->request;
-			diva_notify_adapter_change(&MAdapter, 0); 
+			diva_notify_adapter_change(&MAdapter, 0); /* Inserted */
 			DBG_TRC(("DIMAINT registered, dprintf=%08x", d->request))
 				} else {
 			DBG_TRC(("DIMAINT removed"))
-				diva_notify_adapter_change(&MAdapter, 1); 
+				diva_notify_adapter_change(&MAdapter, 1); /* About to remove */
 			MAdapter.request = (IDI_CALL)no_printf;
 			dprintf = no_printf;
 		}
@@ -96,7 +128,7 @@ static int diva_didd_add_descriptor(DESCRIPTOR *d) {
 			memcpy(&HandleTable[i], d, sizeof(*d));
 			Adapters++;
 			diva_os_leave_spin_lock(&didd_spin, &irql, "didd_add");
-			diva_notify_adapter_change(d, 0); 
+			diva_notify_adapter_change(d, 0); /* we have new adapter */
 			DBG_TRC(("Add adapter[%d], request=%08x", (i + 1), d->request))
 				return (i + 1);
 		}
@@ -105,19 +137,24 @@ static int diva_didd_add_descriptor(DESCRIPTOR *d) {
 	DBG_ERR(("Can't add adapter, out of resources"))
 		return (-1);
 }
+/* --------------------------------------------------------------------------
+   Called in order to remove one registered adapter from array
+   return adapter handle (> 0) on success
+   return 0 on success
+   -------------------------------------------------------------------------- */
 static int diva_didd_remove_descriptor(IDI_CALL request) {
 	diva_os_spin_lock_magic_t      irql;
 	int i;
 	if (request == MAdapter.request) {
 		DBG_TRC(("DIMAINT removed"))
 			dprintf = no_printf;
-		diva_notify_adapter_change(&MAdapter, 1); 
+		diva_notify_adapter_change(&MAdapter, 1); /* About to remove */
 		MAdapter.request = (IDI_CALL)no_printf;
 		return (0);
 	}
 	for (i = 0; (Adapters && (i < NEW_MAX_DESCRIPTORS)); i++) {
 		if (HandleTable[i].request == request) {
-			diva_notify_adapter_change(&HandleTable[i], 1); 
+			diva_notify_adapter_change(&HandleTable[i], 1); /* About to remove */
 			diva_os_enter_spin_lock(&didd_spin, &irql, "didd_rm");
 			memset(&HandleTable[i], 0x00, sizeof(HandleTable[0]));
 			Adapters--;
@@ -129,6 +166,10 @@ static int diva_didd_remove_descriptor(IDI_CALL request) {
 	DBG_ERR(("Invalid request=%08x, can't remove adapter", request))
 		return (-1);
 }
+/* --------------------------------------------------------------------------
+   Read adapter array
+   return 1 if not enough space to save all available adapters
+   -------------------------------------------------------------------------- */
 static int diva_didd_read_adapter_array(DESCRIPTOR *buffer, int length) {
 	diva_os_spin_lock_magic_t      irql;
 	int src, dst;
@@ -161,14 +202,22 @@ static int diva_didd_read_adapter_array(DESCRIPTOR *buffer, int length) {
 	DBG_TRC(("Read %d adapters", dst))
 		return (dst == length);
 }
+/* --------------------------------------------------------------------------
+   DAdapter request function.
+   This function does process only synchronous requests, and is used
+   for reception/registration of new interfaces
+   -------------------------------------------------------------------------- */
 static void IDI_CALL_LINK_T diva_dadapter_request(	\
 	ENTITY IDI_CALL_ENTITY_T *e) {
 	IDI_SYNC_REQ *syncReq = (IDI_SYNC_REQ *)e;
-	if (e->Req) { 
+	if (e->Req) { /* We do not process it, also return error */
 		e->Rc = OUT_OF_RESOURCES;
 		DBG_ERR(("Can't process async request, Req=%02x", e->Req))
 			return;
 	}
+	/*
+	  So, we process sync request
+	*/
 	switch (e->Rc) {
 	case IDI_SYNC_REQ_DIDD_REGISTER_ADAPTER_NOTIFY: {
 		diva_didd_adapter_notify_t *pinfo = &syncReq->didd_notify.info;
@@ -213,6 +262,9 @@ static void IDI_CALL_LINK_T diva_dadapter_request(	\
 			e->Rc = OUT_OF_RESOURCES;
 	}
 }
+/* --------------------------------------------------------------------------
+   IDI client does register his notification function
+   -------------------------------------------------------------------------- */
 static dword diva_register_adapter_callback(		\
 	didd_adapter_change_callback_t callback,
 	void IDI_CALL_ENTITY_T *context) {
@@ -233,6 +285,9 @@ static dword diva_register_adapter_callback(		\
 	DBG_ERR(("Can't register adapter notification, overflow"))
 		return (0);
 }
+/* --------------------------------------------------------------------------
+   IDI client does register his notification function
+   -------------------------------------------------------------------------- */
 static void diva_remove_adapter_callback(dword handle) {
 	diva_os_spin_lock_magic_t irql;
 	if (handle && ((--handle) < DIVA_DIDD_MAX_NOTIFICATIONS)) {
@@ -245,6 +300,12 @@ static void diva_remove_adapter_callback(dword handle) {
 	}
 	DBG_ERR(("Can't remove adapter notification, handle=%d", handle))
 		}
+/* --------------------------------------------------------------------------
+   Notify all client about adapter array change
+   Does suppose following behavior in the client side:
+   Step 1: Redister Notification
+   Step 2: Read Adapter Array
+   -------------------------------------------------------------------------- */
 static void diva_notify_adapter_change(DESCRIPTOR *d, int removal) {
 	int i, do_notify;
 	didd_adapter_change_notification_t nfy;

@@ -24,6 +24,16 @@ DECLARE_EVENT_CLASS(workqueue_work,
 	TP_printk("work struct %p", __entry->work)
 );
 
+/**
+ * workqueue_queue_work - called when a work gets queued
+ * @req_cpu:	the requested cpu
+ * @cwq:	pointer to struct cpu_workqueue_struct
+ * @work:	pointer to struct work_struct
+ *
+ * This event occurs when a work is queued immediately or once a
+ * delayed work is actually queued on a workqueue (ie: once the delay
+ * has been reached).
+ */
 TRACE_EVENT(workqueue_queue_work,
 
 	TP_PROTO(unsigned int req_cpu, struct cpu_workqueue_struct *cwq,
@@ -52,6 +62,14 @@ TRACE_EVENT(workqueue_queue_work,
 		  __entry->req_cpu, __entry->cpu)
 );
 
+/**
+ * workqueue_activate_work - called when a work gets activated
+ * @work:	pointer to struct work_struct
+ *
+ * This event occurs when a queued work is put on the active queue,
+ * which happens immediately after queueing unless @max_active limit
+ * is reached.
+ */
 DEFINE_EVENT(workqueue_work, workqueue_activate_work,
 
 	TP_PROTO(struct work_struct *work),
@@ -59,6 +77,12 @@ DEFINE_EVENT(workqueue_work, workqueue_activate_work,
 	TP_ARGS(work)
 );
 
+/**
+ * workqueue_execute_start - called immediately before the workqueue callback
+ * @work:	pointer to struct work_struct
+ *
+ * Allows to track workqueue execution.
+ */
 TRACE_EVENT(workqueue_execute_start,
 
 	TP_PROTO(struct work_struct *work),
@@ -78,6 +102,12 @@ TRACE_EVENT(workqueue_execute_start,
 	TP_printk("work struct %p: function %pf", __entry->work, __entry->function)
 );
 
+/**
+ * workqueue_execute_end - called immediately before the workqueue callback
+ * @work:	pointer to struct work_struct
+ *
+ * Allows to track workqueue execution.
+ */
 DEFINE_EVENT(workqueue_work, workqueue_execute_end,
 
 	TP_PROTO(struct work_struct *work),
@@ -85,6 +115,7 @@ DEFINE_EVENT(workqueue_work, workqueue_execute_end,
 	TP_ARGS(work)
 );
 
-#endif 
+#endif /*  _TRACE_WORKQUEUE_H */
 
+/* This part must be outside protection */
 #include <trace/define_trace.h>

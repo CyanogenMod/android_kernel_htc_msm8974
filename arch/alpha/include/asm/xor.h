@@ -837,6 +837,7 @@ static struct xor_block_template xor_block_alpha_prefetch = {
 	.do_5	= xor_alpha_prefetch_5,
 };
 
+/* For grins, also test the generic routines.  */
 #include <asm-generic/xor.h>
 
 #undef XOR_TRY_TEMPLATES
@@ -848,5 +849,7 @@ static struct xor_block_template xor_block_alpha_prefetch = {
 		xor_speed(&xor_block_alpha_prefetch);	\
 	} while (0)
 
+/* Force the use of alpha_prefetch if EV6, as it is significantly
+   faster in the cold cache case.  */
 #define XOR_SELECT_TEMPLATE(FASTEST) \
 	(implver() == IMPLVER_EV6 ? &xor_block_alpha_prefetch : FASTEST)

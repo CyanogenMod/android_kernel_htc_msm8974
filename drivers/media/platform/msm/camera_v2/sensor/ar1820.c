@@ -213,13 +213,13 @@ static int ar1820_read_fuseid(struct sensorb_cfg_data *cdata,
 
     if (first)
     {
-        
-        
+        // Initialize OTPM for reading
+        // disable streaming
         rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x301A, 0x0218, MSM_CAMERA_I2C_WORD_DATA);
         if (rc < 0)
             pr_info("[OTP]%s: i2c_write w 0x301A fail\n", __func__);
 
-        
+        // timing parameters for OTP read
         rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x3134, 0xCD95, MSM_CAMERA_I2C_WORD_DATA);
         if (rc < 0)
             pr_info("[OTP]%s: i2c_write w 0x3134 fail\n", __func__);
@@ -230,21 +230,21 @@ static int ar1820_read_fuseid(struct sensorb_cfg_data *cdata,
 
         for(j = 0; j < 3; j++)
         {
-            
+            // choose record type
             rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x304C, layer_0[j], MSM_CAMERA_I2C_WORD_DATA);
             if (rc < 0)
                 pr_info("[OTP]%s: i2c_write w 0x304C rec 0x%x fail\n", __func__, layer_0[j]);
 
-            
+            // auto read start
             rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x304A, 0x0210, MSM_CAMERA_I2C_WORD_DATA);
             if (rc < 0)
                 pr_info("[OTP]%s: i2c_write w 0x304C fail\n", __func__);
 
             OTP_ready = 0;
-            
+            //POLL 0x304A bits 5 and 6 for read end and success
             for(i = 0; i < 5; i++)
             {
-                rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(s_ctrl->sensor_i2c_client, 0x304A, &read_data, MSM_CAMERA_I2C_WORD_DATA);
+                rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(s_ctrl->sensor_i2c_client, 0x304A, &read_data, MSM_CAMERA_I2C_WORD_DATA);//0x37c2
                 if (rc < 0)
                     pr_err("[OTP]%s: (%d)i2c_read 0x304A failed\n", __func__, i);
                 else
@@ -265,10 +265,10 @@ static int ar1820_read_fuseid(struct sensorb_cfg_data *cdata,
                 continue;
             }
 
-            
+            //Read OTPM data
             for(i = 0; i < OTP_LAYER_0_SIZE; i++)
             {
-                rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(s_ctrl->sensor_i2c_client, 0x3800 + i, &read_data, MSM_CAMERA_I2C_BYTE_DATA);
+                rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(s_ctrl->sensor_i2c_client, 0x3800 + i, &read_data, MSM_CAMERA_I2C_BYTE_DATA);//0x37c2
                 if (rc < 0)
                     pr_err("[OTP]%s: (%d)i2c_read 0x%x failed\n", __func__, i, 0x3800 + i);
                 else
@@ -291,7 +291,7 @@ static int ar1820_read_fuseid(struct sensorb_cfg_data *cdata,
 
         for(j = 0; j < 3; j++)
         {
-            
+            // choose record type
             if(valid_layer != -1)
                 rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x304C, layer_1[valid_layer], MSM_CAMERA_I2C_WORD_DATA);
             else
@@ -299,16 +299,16 @@ static int ar1820_read_fuseid(struct sensorb_cfg_data *cdata,
             if (rc < 0)
                 pr_info("[OTP]%s: i2c_write w 0x304C rec 0x%x fail\n", __func__, layer_1[j]);
 
-            
+            // auto read start
             rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_write(s_ctrl->sensor_i2c_client, 0x304A, 0x0210, MSM_CAMERA_I2C_WORD_DATA);
             if (rc < 0)
                 pr_info("[OTP]%s: i2c_write w 0x304C fail\n", __func__);
 
             OTP_ready = 0;
-            
+            //POLL 0x304A bits 5 and 6 for read end and success
             for(i = 0; i < 5; i++)
             {
-                rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(s_ctrl->sensor_i2c_client, 0x304A, &read_data, MSM_CAMERA_I2C_WORD_DATA);
+                rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(s_ctrl->sensor_i2c_client, 0x304A, &read_data, MSM_CAMERA_I2C_WORD_DATA);//0x37c2
                 if (rc < 0)
                     pr_err("[OTP]%s: (%d)i2c_read 0x304A failed\n", __func__, i);
                 else
@@ -331,7 +331,7 @@ static int ar1820_read_fuseid(struct sensorb_cfg_data *cdata,
 
             for(i = 0; i < OTP_LAYER_1_SIZE; i++)
             {
-                rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(s_ctrl->sensor_i2c_client, 0x3800 + i, &read_data, MSM_CAMERA_I2C_BYTE_DATA);
+                rc = s_ctrl->sensor_i2c_client->i2c_func_tbl->i2c_read(s_ctrl->sensor_i2c_client, 0x3800 + i, &read_data, MSM_CAMERA_I2C_BYTE_DATA);//0x37c2
                 if (rc < 0)
                     pr_err("[OTP]%s: (%d)i2c_read 300%x failed\n", __func__, i, i);
                 else
@@ -352,20 +352,20 @@ static int ar1820_read_fuseid(struct sensorb_cfg_data *cdata,
             }
         }
 
-        if(otp_layer_0_data[4] == 0x41) 
+        if(otp_layer_0_data[4] == 0x41) //workaround for Optical, check VCM ID to decide MCLK frequency
         {
             pr_info("%s: modify MLCK to 19.2M\n",__func__);
             ar1820_s_ctrl.power_setting_array.power_setting = ar1820_MCLK_19M_power_setting;
         }
     }
 
-    
+    // fuseid
     cdata->cfg.fuse.fuse_id_word1 = 0;
     cdata->cfg.fuse.fuse_id_word2 = 0;
     cdata->cfg.fuse.fuse_id_word3 = 0;
     cdata->cfg.fuse.fuse_id_word4 = 0;
 
-    
+    // vcm
     cdata->af_value.VCM_BIAS = 0;
     cdata->af_value.VCM_OFFSET = 0;
     cdata->af_value.VCM_BOTTOM_MECH_MSB = 0;
@@ -406,6 +406,7 @@ static int ar1820_read_fuseid(struct sensorb_cfg_data *cdata,
     return rc;
 
 }
+/*HTC_END*/
 
 
 static int32_t ar1820_platform_probe(struct platform_device *pdev)

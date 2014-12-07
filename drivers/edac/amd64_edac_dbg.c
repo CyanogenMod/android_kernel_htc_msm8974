@@ -24,6 +24,9 @@ static ssize_t amd64_hole_show(struct mem_ctl_info *mci, char *data)
 						 hole_size);
 }
 
+/*
+ * update NUM_DBG_ATTRS in case you add new members
+ */
 struct mcidev_sysfs_attribute amd64_dbg_attrs[] = {
 
 	{

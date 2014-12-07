@@ -5,6 +5,9 @@
  *	Steffen Schwenke
  */
 
+/*
+ * TurboGraFX parallel port interface driver for Linux.
+ */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -55,7 +58,7 @@ MODULE_PARM_DESC(map2, "Describes second set of devices");
 module_param_array_named(map3, tgfx_cfg[2].args, int, &tgfx_cfg[2].nargs, 0);
 MODULE_PARM_DESC(map3, "Describes third set of devices");
 
-#define TGFX_REFRESH_TIME	HZ/100	
+#define TGFX_REFRESH_TIME	HZ/100	/* 10 ms */
 
 #define TGFX_TRIGGER		0x08
 #define TGFX_UP			0x10
@@ -81,6 +84,9 @@ static struct tgfx {
 	struct mutex sem;
 } *tgfx_base[TGFX_MAX_PORTS];
 
+/*
+ * tgfx_timer() reads and analyzes TurboGraFX joystick data.
+ */
 
 static void tgfx_timer(unsigned long private)
 {
@@ -95,7 +101,7 @@ static void tgfx_timer(unsigned long private)
 
 			parport_write_data(tgfx->pd->port, ~(1 << i));
 			data1 = parport_read_status(tgfx->pd->port) ^ 0x7f;
-			data2 = parport_read_control(tgfx->pd->port) ^ 0x04;	
+			data2 = parport_read_control(tgfx->pd->port) ^ 0x04;	/* CAVEAT parport */
 
 			input_report_abs(dev, ABS_X, !!(data1 & TGFX_RIGHT) - !!(data1 & TGFX_LEFT));
 			input_report_abs(dev, ABS_Y, !!(data1 & TGFX_DOWN ) - !!(data1 & TGFX_UP  ));
@@ -146,6 +152,9 @@ static void tgfx_close(struct input_dev *dev)
 
 
 
+/*
+ * tgfx_probe() probes for tg gamepads.
+ */
 
 static struct tgfx __init *tgfx_probe(int parport, int *n_buttons, int n_devs)
 {

@@ -38,6 +38,11 @@ static int get_mx51_srev(void)
 	}
 }
 
+/*
+ * Returns:
+ *	the silicon revision of the cpu
+ *	-EINVAL - not a mx51
+ */
 int mx51_revision(void)
 {
 	if (!cpu_is_mx51())
@@ -52,6 +57,11 @@ EXPORT_SYMBOL(mx51_revision);
 
 #ifdef CONFIG_NEON
 
+/*
+ * All versions of the silicon before Rev. 3 have broken NEON implementations.
+ * Dependent on link order - so the assumption is that vfp_init is called
+ * before us.
+ */
 static int __init mx51_neon_fixup(void)
 {
 	if (!cpu_is_mx51())
@@ -85,6 +95,11 @@ static int get_mx53_srev(void)
 	}
 }
 
+/*
+ * Returns:
+ *	the silicon revision of the cpu
+ *	-EINVAL - not a mx53
+ */
 int mx53_revision(void)
 {
 	if (!cpu_is_mx53())
@@ -118,6 +133,11 @@ static int get_mx50_srev(void)
 	return 0;
 }
 
+/*
+ * Returns:
+ *	the silicon revision of the cpu
+ *	-EINVAL - not a mx50
+ */
 int mx50_revision(void)
 {
 	if (!cpu_is_mx50())

@@ -27,6 +27,7 @@ int __iio_add_chan_devattr(const char *postfix,
 			   struct device *dev,
 			   struct list_head *attr_list);
 
+/* Event interface flags */
 #define IIO_BUSY_BIT_POS 1
 
 #ifdef CONFIG_IIO_BUFFER

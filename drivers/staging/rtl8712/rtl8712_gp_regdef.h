@@ -38,5 +38,5 @@
 #define PHY_REG_DATA		(RTL8712_GP_ + 0x14)
 
 
-#endif	
+#endif	/*__RTL8712_GP_REGDEF_H__ */
 

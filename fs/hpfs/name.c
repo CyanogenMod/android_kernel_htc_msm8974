@@ -1,3 +1,10 @@
+/*
+ *  linux/fs/hpfs/name.c
+ *
+ *  Mikulas Patocka (mikulas@artax.karlin.mff.cuni.cz), 1998-1999
+ *
+ *  operations with filenames
+ */
 
 #include "hpfs_fn.h"
 
@@ -8,7 +15,7 @@ static inline int not_allowed_char(unsigned char c)
 }
 
 static inline int no_dos_char(unsigned char c)
-{	
+{	/* Characters that are allowed in HPFS but not in DOS */
 	return c=='+' || c==',' || c==';' || c=='=' || c=='[' || c==']';
 }
 
@@ -93,6 +100,7 @@ int hpfs_is_name_long(const unsigned char *name, unsigned len)
 	return j - i > 4;
 }
 
+/* OS/2 clears dots and spaces at the end of file name, so we have to */
 
 void hpfs_adjust_length(const unsigned char *name, unsigned *len)
 {

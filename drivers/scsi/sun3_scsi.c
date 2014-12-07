@@ -1,4 +1,11 @@
 /*
+ * Sun3 SCSI stuff by Erik Verbruggen (erik@bigmama.xtdnet.nl)
+ *
+ * Sun3 DMA routines added by Sam Creasey (sammy@sammy.net)
+ *
+ * Adapted from mac_scsinew.c:
+ */
+/*
  * Generic Macintosh NCR5380 driver
  *
  * Copyright 1998, Michael Schmitz <mschmitz@lbl.gov>
@@ -26,7 +33,21 @@
  */
 
 
+/*
+ * This is from mac_scsi.h, but hey, maybe this is useful for Sun3 too! :)
+ *
+ * Options :
+ *
+ * PARITY - enable parity checking.  Not supported.
+ *
+ * SCSI2 - enable support for SCSI-II tagged queueing.  Untested.
+ *
+ * USLEEP - enable support for devices that don't disconnect.  Untested.
+ */
 
+/*
+ * $Log: sun3_NCR5380.c,v $
+ */
 
 #define AUTOSENSE
 
@@ -54,6 +75,7 @@
 #define NDEBUG_TAGS		0x00200000
 #define NDEBUG_MERGING		0x00400000
 
+/* dma on! */
 #define REAL_DMA
 
 #include "scsi.h"
@@ -63,15 +85,21 @@
 
 static void NCR5380_print(struct Scsi_Host *instance);
 
+/* #define OLDDMA */
 
 #define USE_WRAPPER
+/*#define RESET_BOOT */
 #define DRIVER_SETUP
 
+/*
+ * BUG can be used to trigger a strange code-size related hang on 2.1 kernels
+ */
 #ifdef BUG
 #undef RESET_BOOT
 #undef DRIVER_SETUP
 #endif
 
+/* #define SUPPORT_TAGS */
 
 #define	ENABLE_IRQ()	enable_irq( IRQ_SUN3_SCSI ); 
 
@@ -97,16 +125,19 @@ static struct scsi_cmnd *sun3_dma_setup_done = NULL;
 
 #define	AFTER_RESET_DELAY	(HZ/2)
 
+/* ms to wait after hitting dma regs */
 #define SUN3_DMA_DELAY 10
 
+/* dvma buffer to allocate -- 32k should hopefully be more than sufficient */
 #define SUN3_DVMA_BUFSIZE 0xe000
 
+/* minimum number of bytes to do dma on */
 #define SUN3_DMA_MINSIZE 128
 
 static volatile unsigned char *sun3_scsi_regp;
 static volatile struct sun3_dma_regs *dregs;
 #ifdef OLDDMA
-static unsigned char *dmabuf = NULL; 
+static unsigned char *dmabuf = NULL; /* dma memory buffer */
 #endif
 static struct sun3_udc_regs *udc_regs = NULL;
 static unsigned char *sun3_dma_orig_addr = NULL;
@@ -114,6 +145,9 @@ static unsigned long sun3_dma_orig_count = 0;
 static int sun3_dma_active = 0;
 static unsigned long last_residual = 0;
 
+/*
+ * NCR 5380 register access functions
+ */
 
 static inline unsigned char sun3scsi_read(int reg)
 {
@@ -125,6 +159,7 @@ static inline void sun3scsi_write(int reg, int value)
 	sun3_scsi_regp[reg] = value;
 }
 
+/* dma controller register access functions */
 
 static inline unsigned short sun3_udc_read(unsigned char reg)
 {
@@ -146,8 +181,22 @@ static inline void sun3_udc_write(unsigned short val, unsigned char reg)
 	udelay(SUN3_DMA_DELAY);
 }
 
+/*
+ * XXX: status debug
+ */
 static struct Scsi_Host *default_instance;
 
+/*
+ * Function : int sun3scsi_detect(struct scsi_host_template * tpnt)
+ *
+ * Purpose : initializes mac NCR5380 driver based on the
+ *	command line / compile time port and irq definitions.
+ *
+ * Inputs : tpnt - template for this SCSI adapter.
+ *
+ * Returns : 1 if a host adapter was found, 0 if not.
+ *
+ */
  
 int __init sun3scsi_detect(struct scsi_host_template * tpnt)
 {
@@ -155,7 +204,7 @@ int __init sun3scsi_detect(struct scsi_host_template * tpnt)
 	static int called = 0;
 	struct Scsi_Host *instance;
 
-	
+	/* check that this machine has an onboard 5380 */
 	switch(idprom->id_machtype) {
 	case SM_SUN3|SM_3_50:
 	case SM_SUN3|SM_3_60:
@@ -170,7 +219,7 @@ int __init sun3scsi_detect(struct scsi_host_template * tpnt)
 
 	tpnt->proc_name = "Sun3 5380 SCSI";
 
-	
+	/* setup variables */
 	tpnt->can_queue =
 		(setup_can_queue > 0) ? setup_can_queue : CAN_QUEUE;
 	tpnt->cmd_per_lun =
@@ -181,7 +230,7 @@ int __init sun3scsi_detect(struct scsi_host_template * tpnt)
 	if (setup_hostid >= 0)
 		tpnt->this_id = setup_hostid;
 	else {
-		
+		/* use 7 as default */
 		tpnt->this_id = 7;
 	}
 
@@ -273,6 +322,9 @@ int sun3scsi_release (struct Scsi_Host *shpnt)
 }
 
 #ifdef RESET_BOOT
+/*
+ * Our 'bus reset on boot' function
+ */
 
 static void sun3_scsi_reset_boot(struct Scsi_Host *instance)
 {
@@ -281,29 +333,35 @@ static void sun3_scsi_reset_boot(struct Scsi_Host *instance)
 	NCR5380_local_declare();
 	NCR5380_setup(instance);
 	
+	/*
+	 * Do a SCSI reset to clean up the bus during initialization. No
+	 * messing with the queues, interrupts, or locks necessary here.
+	 */
 
 	printk( "Sun3 SCSI: resetting the SCSI bus..." );
 
-	
+	/* switch off SCSI IRQ - catch an interrupt without IRQ bit set else */
+//       	sun3_disable_irq( IRQ_SUN3_SCSI );
 
-	
+	/* get in phase */
 	NCR5380_write( TARGET_COMMAND_REG,
 		      PHASE_SR_TO_TCR( NCR5380_read(STATUS_REG) ));
 
-	
+	/* assert RST */
 	NCR5380_write( INITIATOR_COMMAND_REG, ICR_BASE | ICR_ASSERT_RST );
 
-	
+	/* The min. reset hold time is 25us, so 40us should be enough */
 	udelay( 50 );
 
-	
+	/* reset RST and interrupt */
 	NCR5380_write( INITIATOR_COMMAND_REG, ICR_BASE );
 	NCR5380_read( RESET_PARITY_INTERRUPT_REG );
 
 	for( end = jiffies + AFTER_RESET_DELAY; time_before(jiffies, end); )
 		barrier();
 
-	
+	/* switch on SCSI IRQ again */
+//       	sun3_enable_irq( IRQ_SUN3_SCSI );
 
 	printk( " done\n" );
 }
@@ -313,6 +371,7 @@ const char * sun3scsi_info (struct Scsi_Host *spnt) {
     return "";
 }
 
+// safe bits for the CSR
 #define CSR_GOOD 0x060f
 
 static irqreturn_t scsi_sun3_intr(int irq, void *dummy)
@@ -339,7 +398,12 @@ static irqreturn_t scsi_sun3_intr(int irq, void *dummy)
 	return IRQ_RETVAL(handled);
 }
 
+/*
+ * Debug stuff - to be called on NMI, or sysrq key. Use at your own risk; 
+ * reentering NCR5380_print_status seems to have ugly side effects
+ */
 
+/* this doesn't seem to get used at all -- sam */
 #if 0
 void sun3_sun3_debug (void)
 {
@@ -355,6 +419,7 @@ void sun3_sun3_debug (void)
 #endif
 
 
+/* sun3scsi_dma_setup() -- initialize the dma controller for a read/write */
 static unsigned long sun3scsi_dma_setup(void *data, unsigned long count, int write_flag)
 {
 #ifdef OLDDMA
@@ -370,6 +435,7 @@ static unsigned long sun3scsi_dma_setup(void *data, unsigned long count, int wri
 	if(sun3_dma_orig_addr != NULL)
 		dvma_unmap(sun3_dma_orig_addr);
 
+//	addr = sun3_dvma_page((unsigned long)data, (unsigned long)dmabuf);
 	addr = (void *)dvma_map((unsigned long) data, count);
 		
 	sun3_dma_orig_addr = addr;
@@ -378,22 +444,22 @@ static unsigned long sun3scsi_dma_setup(void *data, unsigned long count, int wri
 	dregs->fifo_count = 0;
 	sun3_udc_write(UDC_RESET, UDC_CSR);
 	
-	
+	/* reset fifo */
 	dregs->csr &= ~CSR_FIFO;
 	dregs->csr |= CSR_FIFO;
 	
-	
+	/* set direction */
 	if(write_flag)
 		dregs->csr |= CSR_SEND;
 	else
 		dregs->csr &= ~CSR_SEND;
 	
-	
+	/* byte count for fifo */
 	dregs->fifo_count = count;
 
 	sun3_udc_write(UDC_RESET, UDC_CSR);
 	
-	
+	/* reset fifo */
 	dregs->csr &= ~CSR_FIFO;
 	dregs->csr |= CSR_FIFO;
 	
@@ -404,7 +470,7 @@ static unsigned long sun3scsi_dma_setup(void *data, unsigned long count, int wri
 		NCR5380_print(default_instance);
 	}
 
-	
+	/* setup udc */
 #ifdef OLDDMA
 	udc_regs->addr_hi = ((dvma_vtob(dmabuf) & 0xff0000) >> 8);
 	udc_regs->addr_lo = (dvma_vtob(dmabuf) & 0xffff);
@@ -412,7 +478,7 @@ static unsigned long sun3scsi_dma_setup(void *data, unsigned long count, int wri
 	udc_regs->addr_hi = (((unsigned long)(addr) & 0xff0000) >> 8);
 	udc_regs->addr_lo = ((unsigned long)(addr) & 0xffff);
 #endif
-	udc_regs->count = count/2; 
+	udc_regs->count = count/2; /* count in words */
 	udc_regs->mode_hi = UDC_MODE_HIWORD;
 	if(write_flag) {
 		if(count & 1)
@@ -424,16 +490,16 @@ static unsigned long sun3scsi_dma_setup(void *data, unsigned long count, int wri
 		udc_regs->rsel = UDC_RSEL_RECV;
 	}
 	
-	
+	/* announce location of regs block */
 	sun3_udc_write(((dvma_vtob(udc_regs) & 0xff0000) >> 8),
 		       UDC_CHN_HI); 
 
 	sun3_udc_write((dvma_vtob(udc_regs) & 0xffff), UDC_CHN_LO);
 
-	
+	/* set dma master on */
 	sun3_udc_write(0xd, UDC_MODE);
 
-	
+	/* interrupt enable */
 	sun3_udc_write(UDC_INT_ENABLE, UDC_CSR);
 	
        	return count;
@@ -476,6 +542,7 @@ static inline int sun3scsi_dma_start(unsigned long count, unsigned char *data)
     return 0;
 }
 
+/* clean up after our dma is done */
 static int sun3scsi_dma_finish(int write_flag)
 {
 	unsigned short count;
@@ -484,9 +551,9 @@ static int sun3scsi_dma_finish(int write_flag)
 	
 	sun3_dma_active = 0;
 #if 1
-	
+	// check to empty the fifo on a read
 	if(!write_flag) {
-		int tmo = 20000; 
+		int tmo = 20000; /* .2 sec */
 		
 		while(1) {
 			if(dregs->csr & CSR_FIFO_EMPTY)
@@ -505,9 +572,9 @@ static int sun3scsi_dma_finish(int write_flag)
 	count = sun3scsi_dma_count(default_instance);
 #ifdef OLDDMA
 
-	
+	/* if we've finished a read, copy out the data we read */
  	if(sun3_dma_orig_addr) {
-		
+		/* check for residual bytes after dma end */
 		if(count && (NCR5380_read(BUS_AND_STATUS_REG) &
 			     (BASR_PHASE_MATCH | BASR_ACK))) {
 			printk("scsi%d: sun3_scsi_finish: read overrun baby... ", default_instance->host_no);
@@ -515,7 +582,7 @@ static int sun3scsi_dma_finish(int write_flag)
 			ret = count;
 		}
 		
-		
+		/* copy in what we dma'd no matter what */
 		memcpy(sun3_dma_orig_addr, dmabuf, sun3_dma_orig_count);
 		sun3_dma_orig_addr = NULL;
 
@@ -525,7 +592,7 @@ static int sun3scsi_dma_finish(int write_flag)
 	fifo = dregs->fifo_count;
 	last_residual = fifo;
 
-	
+	/* empty bytes from the fifo which didn't make it */
 	if((!write_flag) && (count - fifo) == 2) {
 		unsigned short data;
 		unsigned char *vaddr;
@@ -546,7 +613,7 @@ static int sun3scsi_dma_finish(int write_flag)
 	dregs->fifo_count = 0;
 	dregs->csr &= ~CSR_SEND;
 
-	
+	/* reset fifo */
 	dregs->csr &= ~CSR_FIFO;
 	dregs->csr |= CSR_FIFO;
 	

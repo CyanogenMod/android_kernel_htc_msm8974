@@ -17,6 +17,7 @@
 #define MIPS_CPU_IRQ_BASE 0
 #endif
 
+/* 8 (MIPS) + 128 (au1300) + 16 (cpld) */
 #define NR_IRQS 152
 
-#endif 
+#endif /* __ASM_MACH_GENERIC_IRQ_H */

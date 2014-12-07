@@ -16,9 +16,14 @@
 #include <net/af_rxrpc.h>
 #include "ar-internal.h"
 
+/*
+ * set up for the ACK at the end of the receive phase when we discard the final
+ * receive phase data packet
+ * - called with softirqs disabled
+ */
 static void rxrpc_request_final_ACK(struct rxrpc_call *call)
 {
-	
+	/* the call may be aborted before we have a chance to ACK it */
 	write_lock(&call->state_lock);
 
 	switch (call->state) {
@@ -26,6 +31,8 @@ static void rxrpc_request_final_ACK(struct rxrpc_call *call)
 		call->state = RXRPC_CALL_CLIENT_FINAL_ACK;
 		_debug("request final ACK");
 
+		/* get an extra ref on the call for the final-ACK generator to
+		 * release */
 		rxrpc_get_call(call);
 		set_bit(RXRPC_CALL_ACK_FINAL, &call->events);
 		if (try_to_del_timer_sync(&call->ack_timer) >= 0)
@@ -41,6 +48,9 @@ static void rxrpc_request_final_ACK(struct rxrpc_call *call)
 	write_unlock(&call->state_lock);
 }
 
+/*
+ * drop the bottom ACK off of the call ACK window and advance the window
+ */
 static void rxrpc_hard_ACK_data(struct rxrpc_call *call,
 				struct rxrpc_skb_priv *sp)
 {
@@ -81,6 +91,12 @@ static void rxrpc_hard_ACK_data(struct rxrpc_call *call,
 	spin_unlock_bh(&call->lock);
 }
 
+/*
+ * destroy a packet that has an RxRPC control buffer
+ * - advance the hard-ACK state of the parent call (done here in case something
+ *   in the kernel bypasses recvmsg() and steals the packet directly off of the
+ *   socket receive queue)
+ */
 void rxrpc_packet_destructor(struct sk_buff *skb)
 {
 	struct rxrpc_skb_priv *sp = rxrpc_skb(skb);
@@ -89,7 +105,7 @@ void rxrpc_packet_destructor(struct sk_buff *skb)
 	_enter("%p{%p}", skb, call);
 
 	if (call) {
-		
+		/* send the final ACK on a client call */
 		if (sp->hdr.type == RXRPC_PACKET_TYPE_DATA)
 			rxrpc_hard_ACK_data(call, sp);
 		rxrpc_put_call(call);
@@ -101,6 +117,13 @@ void rxrpc_packet_destructor(struct sk_buff *skb)
 	_leave("");
 }
 
+/**
+ * rxrpc_kernel_free_skb - Free an RxRPC socket buffer
+ * @skb: The socket buffer to be freed
+ *
+ * Let RxRPC free its own socket buffer, permitting it to maintain debug
+ * accounting.
+ */
 void rxrpc_kernel_free_skb(struct sk_buff *skb)
 {
 	rxrpc_free_skb(skb);

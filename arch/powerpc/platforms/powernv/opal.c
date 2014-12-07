@@ -61,6 +61,9 @@ int __init early_init_dt_scan_opal(unsigned long node,
 		printk("OPAL V1 detected !\n");
 	}
 
+	/* Hookup some exception handlers. We use the fwnmi area at 0x7000
+	 * to provide the glue space to OPAL
+	 */
 	glue = 0x7000;
 	opal_register_exception_handler(OPAL_MACHINE_CHECK_HANDLER,
 					__pa(opal_mc_secondary_handler[0]),
@@ -101,12 +104,20 @@ int opal_put_chars(uint32_t vtermno, const char *data, int total_len)
 	if (!opal.entry)
 		return -ENODEV;
 
+	/* We want put_chars to be atomic to avoid mangling of hvsi
+	 * packets. To do that, we first test for room and return
+	 * -EAGAIN if there isn't enough.
+	 *
+	 * Unfortunately, opal_console_write_buffer_space() doesn't
+	 * appear to work on opal v1, so we just assume there is
+	 * enough room and be done with it
+	 */
 	spin_lock_irqsave(&opal_write_lock, flags);
 	if (firmware_has_feature(FW_FEATURE_OPALv2)) {
 		rc = opal_console_write_buffer_space(vtermno, &len);
 		if (rc || len < total_len) {
 			spin_unlock_irqrestore(&opal_write_lock, flags);
-			
+			/* Closed -> drop characters */
 			if (rc)
 				return total_len;
 			opal_poll_events(&evt);
@@ -114,6 +125,9 @@ int opal_put_chars(uint32_t vtermno, const char *data, int total_len)
 		}
 	}
 
+	/* We still try to handle partial completions, though they
+	 * should no longer happen.
+	 */
 	rc = OPAL_BUSY;
 	while(total_len > 0 && (rc == OPAL_BUSY ||
 				rc == OPAL_BUSY_EVENT || rc == OPAL_SUCCESS)) {
@@ -124,6 +138,11 @@ int opal_put_chars(uint32_t vtermno, const char *data, int total_len)
 			data += len;
 			written += len;
 		}
+		/* This is a bit nasty but we need that for the console to
+		 * flush when there aren't any interrupts. We will clean
+		 * things a bit later to limit that to synchronous path
+		 * such as the kernel console and xmon/udbg
+		 */
 		do
 			opal_poll_events(&evt);
 		while(rc == OPAL_SUCCESS && (evt & OPAL_EVENT_CONSOLE_OUTPUT));
@@ -160,11 +179,11 @@ int opal_machine_check(struct pt_regs *regs)
 		"Multihit",
 	};
 
-	
+	/* Copy the event structure and release the original */
 	evt = *opal_evt;
 	opal_evt->in_use = 0;
 
-	
+	/* Print things out */
 	if (evt.version != OpalMCE_V1) {
 		pr_err("Machine Check Exception, Unknown event version %d !\n",
 		       evt.version);
@@ -253,7 +272,7 @@ static irqreturn_t opal_interrupt(int irq, void *data)
 
 	opal_handle_interrupt(virq_to_hw(irq), &events);
 
-	
+	/* XXX TODO: Do something with the events */
 
 	return IRQ_HANDLED;
 }
@@ -274,7 +293,7 @@ static int __init opal_init(void)
 	else
 		consoles = of_node_get(opal_node);
 
-	
+	/* Register serial ports */
 	for_each_child_of_node(consoles, np) {
 		if (strcmp(np->name, "serial"))
 			continue;
@@ -282,7 +301,7 @@ static int __init opal_init(void)
 	}
 	of_node_put(consoles);
 
-	
+	/* Find all OPAL interrupts and request them */
 	irqs = of_get_property(opal_node, "opal-interrupts", &irqlen);
 	pr_debug("opal: Found %d interrupts reserved for OPAL\n",
 		 irqs ? (irqlen / 4) : 0);

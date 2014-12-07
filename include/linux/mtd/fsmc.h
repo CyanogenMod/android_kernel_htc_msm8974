@@ -32,8 +32,9 @@
 #define FSMC_FLASH_WIDTH8	1
 #define FSMC_FLASH_WIDTH16	2
 
+/* fsmc controller registers for NOR flash */
 #define CTRL			0x0
-	
+	/* ctrl register definitions */
 	#define BANK_ENABLE		(1 << 0)
 	#define MUXED			(1 << 1)
 	#define NOR_DEV			(2 << 2)
@@ -45,7 +46,7 @@
 	#define WAIT_ENB		(1 << 13)
 
 #define CTRL_TIM		0x4
-	
+	/* ctrl_tim register definitions */
 
 #define FSMC_NOR_BANK_SZ	0x8
 #define FSMC_NOR_REG_SIZE	0x40
@@ -54,8 +55,9 @@
 						FSMC_NOR_BANK_SZ * (bank) + \
 						reg)
 
+/* fsmc controller registers for NAND flash */
 #define PC			0x00
-	
+	/* pc register definitions */
 	#define FSMC_RESET		(1 << 0)
 	#define FSMC_WAITON		(1 << 1)
 	#define FSMC_ENABLE		(1 << 2)
@@ -72,10 +74,10 @@
 	#define FSMC_TAR_SHIFT		(13)
 	#define FSMC_TAR_MASK		(0xF)
 #define STS			0x04
-	
+	/* sts register definitions */
 	#define FSMC_CODE_RDY		(1 << 15)
 #define COMM			0x08
-	
+	/* comm register definitions */
 	#define FSMC_TSET_0		0
 	#define FSMC_TSET_SHIFT		0
 	#define FSMC_TSET_MASK		0xFF
@@ -101,6 +103,13 @@
 
 #define FSMC_BUSY_WAIT_TIMEOUT	(1 * HZ)
 
+/*
+ * There are 13 bytes of ecc for every 512 byte block in FSMC version 8
+ * and it has to be read consecutively and immediately after the 512
+ * byte data block for hardware to generate the error bit offsets
+ * Managing the ecc bytes in the following way is easier. This way is
+ * similar to oobfree structure maintained already in u-boot nand driver
+ */
 #define MAX_ECCPLACE_ENTRIES	32
 
 struct fsmc_nand_eccplace {
@@ -126,6 +135,18 @@ enum access_mode {
 	USE_WORD_ACCESS,
 };
 
+/**
+ * fsmc_nand_platform_data - platform specific NAND controller config
+ * @partitions: partition table for the platform, use a default fallback
+ * if this is NULL
+ * @nr_partitions: the number of partitions in the previous entry
+ * @options: different options for the driver
+ * @width: bus width
+ * @bank: default bank
+ * @select_bank: callback to select a certain bank, this is
+ * platform-specific. If the controller only supports one bank
+ * this may be set to NULL
+ */
 struct fsmc_nand_platform_data {
 	struct fsmc_nand_timings *nand_timings;
 	struct mtd_partition	*partitions;
@@ -134,14 +155,14 @@ struct fsmc_nand_platform_data {
 	unsigned int		width;
 	unsigned int		bank;
 
-	
+	/* CLE, ALE offsets */
 	unsigned int		cle_off;
 	unsigned int		ale_off;
 	enum access_mode	mode;
 
 	void			(*select_bank)(uint32_t bank, uint32_t busw);
 
-	
+	/* priv structures for dma accesses */
 	void			*read_dma_priv;
 	void			*write_dma_priv;
 };
@@ -152,4 +173,4 @@ extern void __init fsmc_init_board_info(struct platform_device *pdev,
 		struct mtd_partition *partitions, unsigned int nr_partitions,
 		unsigned int width);
 
-#endif 
+#endif /* __MTD_FSMC_H */

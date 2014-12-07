@@ -38,7 +38,7 @@ struct hdsp_peak_rms {
 	__u32 output_peaks[28];
 	__u64 input_rms[26];
 	__u64 playback_rms[26];
-	
+	/* These are only used for H96xx cards */
 	__u64 output_rms[26];
 };
 
@@ -73,7 +73,7 @@ struct hdsp_config_info {
 #define SNDRV_HDSP_IOCTL_GET_CONFIG_INFO _IOR('H', 0x41, struct hdsp_config_info)
 
 struct hdsp_firmware {
-	void __user *firmware_data;	
+	void __user *firmware_data;	/* 24413 x 4 bytes */
 };
 
 #define SNDRV_HDSP_IOCTL_UPLOAD_FIRMWARE _IOW('H', 0x42, struct hdsp_firmware)
@@ -98,6 +98,7 @@ struct hdsp_9632_aeb {
 
 #define SNDRV_HDSP_IOCTL_GET_9632_AEB _IOR('H', 0x45, struct hdsp_9632_aeb)
 
+/* typedefs for compatibility to user-space */
 typedef enum HDSP_IO_Type HDSP_IO_Type;
 typedef struct hdsp_peak_rms hdsp_peak_rms_t;
 typedef struct hdsp_config_info hdsp_config_info_t;
@@ -106,4 +107,4 @@ typedef struct hdsp_version hdsp_version_t;
 typedef struct hdsp_mixer hdsp_mixer_t;
 typedef struct hdsp_9632_aeb hdsp_9632_aeb_t;
 
-#endif 
+#endif /* __SOUND_HDSP_H */

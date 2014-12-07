@@ -25,6 +25,9 @@
 #define AMBA_UART_CR	(*(volatile unsigned char *)0x16000014)
 #define AMBA_UART_FR	(*(volatile unsigned char *)0x16000018)
 
+/*
+ * This does not append a newline
+ */
 static void putc(int c)
 {
 	while (AMBA_UART_FR & (1 << 5))
@@ -39,6 +42,9 @@ static inline void flush(void)
 		barrier();
 }
 
+/*
+ * nothing to do
+ */
 #define arch_decomp_setup()
 
 #define arch_decomp_wdog()

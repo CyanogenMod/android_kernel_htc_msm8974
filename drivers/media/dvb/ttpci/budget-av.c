@@ -80,7 +80,16 @@ struct budget_av {
 static int ciintf_slot_shutdown(struct dvb_ca_en50221 *ca, int slot);
 
 
+/* GPIO Connections:
+ * 0 - Vcc/Reset (Reset is controlled by capacitor). Resets the frontend *AS WELL*!
+ * 1 - CI memory select 0=>IO memory, 1=>Attribute Memory
+ * 2 - CI Card Enable (Active Low)
+ * 3 - CI Card Detect
+ */
 
+/****************************************************************************
+ * INITIALIZATION
+ ****************************************************************************/
 
 static u8 i2c_readreg(struct i2c_adapter *i2c, u8 id, u8 reg)
 {
@@ -216,18 +225,18 @@ static int ciintf_slot_reset(struct dvb_ca_en50221 *ca, int slot)
 	dprintk(1, "ciintf_slot_reset\n");
 	budget_av->slot_status = SLOTSTATUS_RESET;
 
-	saa7146_setgpio(saa, 2, SAA7146_GPIO_OUTHI); 
+	saa7146_setgpio(saa, 2, SAA7146_GPIO_OUTHI); /* disable card */
 
-	saa7146_setgpio(saa, 0, SAA7146_GPIO_OUTHI); 
+	saa7146_setgpio(saa, 0, SAA7146_GPIO_OUTHI); /* Vcc off */
 	msleep(2);
-	saa7146_setgpio(saa, 0, SAA7146_GPIO_OUTLO); 
-	msleep(20); 
+	saa7146_setgpio(saa, 0, SAA7146_GPIO_OUTLO); /* Vcc on */
+	msleep(20); /* 20 ms Vcc settling time */
 
-	saa7146_setgpio(saa, 2, SAA7146_GPIO_OUTLO); 
+	saa7146_setgpio(saa, 2, SAA7146_GPIO_OUTLO); /* enable card */
 	ttpci_budget_set_video_port(saa, BUDGET_VIDEO_PORTB);
 	msleep(20);
 
-	
+	/* reinitialise the frontend if necessary */
 	if (budget_av->reinitialise_demod)
 		dvb_frontend_reinitialise(budget_av->budget.dvb_frontend);
 
@@ -274,6 +283,8 @@ static int ciintf_poll_slot_status(struct dvb_ca_en50221 *ca, int slot, int open
 	if (slot != 0)
 		return -EINVAL;
 
+	/* test the card detect line - needs to be done carefully
+	 * since it never goes high for some CAMs on this interface (e.g. topuptv) */
 	if (budget_av->slot_status == SLOTSTATUS_NONE) {
 		saa7146_setgpio(saa, 3, SAA7146_GPIO_INPUT);
 		udelay(1);
@@ -286,6 +297,12 @@ static int ciintf_poll_slot_status(struct dvb_ca_en50221 *ca, int slot, int open
 		saa7146_setgpio(saa, 3, SAA7146_GPIO_OUTLO);
 	}
 
+	/* We also try and read from IO memory to work round the above detection bug. If
+	 * there is no CAM, we will get a timeout. Only done if there is no cam
+	 * present, since this test actually breaks some cams :(
+	 *
+	 * if the CI interface is not open, we also do the above test since we
+	 * don't care if the cam has problems - we'll be resetting it on open() anyway */
 	if ((budget_av->slot_status == SLOTSTATUS_NONE) || (!open)) {
 		saa7146_setgpio(budget_av->budget.dev, 1, SAA7146_GPIO_OUTLO);
 		result = ttpci_budget_debiread(&budget_av->budget, DEBICICAM, 0, 1, 0, 1);
@@ -301,7 +318,7 @@ static int ciintf_poll_slot_status(struct dvb_ca_en50221 *ca, int slot, int open
 		}
 	}
 
-	
+	/* read from attribute memory in reset/ready state to know when the CAM is ready */
 	if (budget_av->slot_status == SLOTSTATUS_RESET) {
 		result = ciintf_read_attribute_mem(ca, slot, 0);
 		if (result == 0x1d) {
@@ -309,7 +326,7 @@ static int ciintf_poll_slot_status(struct dvb_ca_en50221 *ca, int slot, int open
 		}
 	}
 
-	
+	/* work out correct return code */
 	if (budget_av->slot_status != SLOTSTATUS_NONE) {
 		if (budget_av->slot_status & SLOTSTATUS_READY) {
 			return DVB_CA_EN50221_POLL_CAM_PRESENT | DVB_CA_EN50221_POLL_CAM_READY;
@@ -331,10 +348,10 @@ static int ciintf_init(struct budget_av *budget_av)
 	saa7146_setgpio(saa, 2, SAA7146_GPIO_OUTLO);
 	saa7146_setgpio(saa, 3, SAA7146_GPIO_OUTLO);
 
-	
+	/* Enable DEBI pins */
 	saa7146_write(saa, MC1, MASK_27 | MASK_11);
 
-	
+	/* register CI interface */
 	budget_av->ca.owner = THIS_MODULE;
 	budget_av->ca.read_attribute_mem = ciintf_read_attribute_mem;
 	budget_av->ca.write_attribute_mem = ciintf_write_attribute_mem;
@@ -371,10 +388,10 @@ static void ciintf_deinit(struct budget_av *budget_av)
 	saa7146_setgpio(saa, 2, SAA7146_GPIO_INPUT);
 	saa7146_setgpio(saa, 3, SAA7146_GPIO_INPUT);
 
-	
+	/* release the CA device */
 	dvb_ca_en50221_release(&budget_av->ca);
 
-	
+	/* disable DEBI pins */
 	saa7146_write(saa, MC1, MASK_27);
 }
 
@@ -496,7 +513,7 @@ static int philips_su1278_ty_ci_tuner_set_params(struct dvb_frontend *fe)
 	if ((c->frequency < 950000) || (c->frequency > 2150000))
 		return -EINVAL;
 
-	div = (c->frequency + (125 - 1)) / 125;	
+	div = (c->frequency + (125 - 1)) / 125;	/* round correctly */
 	buf[0] = (div >> 8) & 0x7f;
 	buf[1] = div & 0xff;
 	buf[2] = 0x80 | ((div & 0x18000) >> 10) | 4;
@@ -525,19 +542,19 @@ static u8 typhoon_cinergy1200s_inittab[] = {
 	0x01, 0x15,
 	0x02, 0x30,
 	0x03, 0x00,
-	0x04, 0x7d,		
-	0x05, 0x35,		
-	0x06, 0x40,		
-	0x07, 0x00,		
-	0x08, 0x40,		
-	0x09, 0x00,		
-	0x0c, 0x51,		
-	0x0d, 0x82,		
-	0x0e, 0x23,		
-	0x10, 0x3f,		
+	0x04, 0x7d,		/* F22FR = 0x7d, F22 = f_VCO / 128 / 0x7d = 22 kHz */
+	0x05, 0x35,		/* I2CT = 0, SCLT = 1, SDAT = 1 */
+	0x06, 0x40,		/* DAC not used, set to high impendance mode */
+	0x07, 0x00,		/* DAC LSB */
+	0x08, 0x40,		/* DiSEqC off */
+	0x09, 0x00,		/* FIFO */
+	0x0c, 0x51,		/* OP1 ctl = Normal, OP1 val = 1 (LNB Power ON) */
+	0x0d, 0x82,		/* DC offset compensation = ON, beta_agc1 = 2 */
+	0x0e, 0x23,		/* alpha_tmg = 2, beta_tmg = 3 */
+	0x10, 0x3f,		// AGC2  0x3d
 	0x11, 0x84,
 	0x12, 0xb9,
-	0x15, 0xc9,		
+	0x15, 0xc9,		// lock detector threshold
 	0x16, 0x00,
 	0x17, 0x00,
 	0x18, 0x00,
@@ -548,17 +565,17 @@ static u8 typhoon_cinergy1200s_inittab[] = {
 	0x21, 0x00,
 	0x22, 0x00,
 	0x23, 0x00,
-	0x28, 0x00,		
-	0x29, 0x1e,		
-	0x2a, 0x14,		
-	0x2b, 0x0f,		
-	0x2c, 0x09,		
-	0x2d, 0x05,		
+	0x28, 0x00,		// out imp: normal  out type: parallel FEC mode:0
+	0x29, 0x1e,		// 1/2 threshold
+	0x2a, 0x14,		// 2/3 threshold
+	0x2b, 0x0f,		// 3/4 threshold
+	0x2c, 0x09,		// 5/6 threshold
+	0x2d, 0x05,		// 7/8 threshold
 	0x2e, 0x01,
-	0x31, 0x1f,		
-	0x32, 0x19,		
-	0x33, 0xfc,		
-	0x34, 0x93,		
+	0x31, 0x1f,		// test all FECs
+	0x32, 0x19,		// viterbi and synchro search
+	0x33, 0xfc,		// rs control
+	0x34, 0x93,		// error control
 	0x0f, 0x92,
 	0xff, 0xff
 };
@@ -626,7 +643,7 @@ static int philips_cu1216_tuner_set_params(struct dvb_frontend *fe)
 	if (i2c_transfer(&budget->i2c_adap, &msg, 1) != 1)
 		return -EIO;
 
-	
+	/* wait for the pll lock */
 	msg.flags = I2C_M_RD;
 	msg.len = 1;
 	for (i = 0; i < 20; i++) {
@@ -637,7 +654,7 @@ static int philips_cu1216_tuner_set_params(struct dvb_frontend *fe)
 		msleep(10);
 	}
 
-	
+	/* switch the charge pump to the lower current */
 	msg.flags = 0;
 	msg.len = 2;
 	msg.buf = &buf[2];
@@ -671,7 +688,7 @@ static int philips_tu1216_tuner_init(struct dvb_frontend *fe)
 	static u8 tu1216_init[] = { 0x0b, 0xf5, 0x85, 0xab };
 	struct i2c_msg tuner_msg = {.addr = 0x60,.flags = 0,.buf = tu1216_init,.len = sizeof(tu1216_init) };
 
-	
+	// setup PLL configuration
 	if (fe->ops.i2c_gate_ctrl)
 		fe->ops.i2c_gate_ctrl(fe, 1);
 	if (i2c_transfer(&budget->i2c_adap, &tuner_msg, 1) != 1)
@@ -691,7 +708,7 @@ static int philips_tu1216_tuner_set_params(struct dvb_frontend *fe)
 	int tuner_frequency = 0;
 	u8 band, cp, filter;
 
-	
+	// determine charge pump
 	tuner_frequency = c->frequency + 36166000;
 	if (tuner_frequency < 87000000)
 		return -EINVAL;
@@ -716,7 +733,7 @@ static int philips_tu1216_tuner_set_params(struct dvb_frontend *fe)
 	else
 		return -EINVAL;
 
-	
+	// determine band
 	if (c->frequency < 49000000)
 		return -EINVAL;
 	else if (c->frequency < 161000000)
@@ -728,7 +745,7 @@ static int philips_tu1216_tuner_set_params(struct dvb_frontend *fe)
 	else
 		return -EINVAL;
 
-	
+	// setup PLL filter
 	switch (c->bandwidth_hz) {
 	case 6000000:
 		filter = 0;
@@ -746,11 +763,11 @@ static int philips_tu1216_tuner_set_params(struct dvb_frontend *fe)
 		return -EINVAL;
 	}
 
-	
-	
+	// calculate divisor
+	// ((36166000+((1000000/6)/2)) + Finput)/(1000000/6)
 	tuner_frequency = (((c->frequency / 1000) * 6) + 217496) / 1000;
 
-	
+	// setup tuner buffer
 	tuner_buf[0] = (tuner_frequency >> 8) & 0x7f;
 	tuner_buf[1] = tuner_frequency & 0xff;
 	tuner_buf[2] = 0xca;
@@ -874,6 +891,7 @@ static struct stv0299_config philips_sd1878_config = {
 	.set_symbol_rate = philips_sd1878_ci_set_symbol_rate,
 };
 
+/* KNC1 DVB-S (STB0899) Inittab	*/
 static const struct stb0899_s1_reg knc1_stb0899_s1_init_1[] = {
 
 	{ STB0899_DEV_ID		, 0x81 },
@@ -903,7 +921,7 @@ static const struct stb0899_s1_reg knc1_stb0899_s1_init_1[] = {
 	{ STB0899_IRQMSK_0		, 0xff },
 	{ STB0899_IRQCFG		, 0x00 },
 	{ STB0899_I2CCFG		, 0x88 },
-	{ STB0899_I2CRPT		, 0x58 }, 
+	{ STB0899_I2CRPT		, 0x58 }, /* Repeater=8, Stop=disabled */
 	{ STB0899_IOPVALUE5		, 0x00 },
 	{ STB0899_IOPVALUE4		, 0x20 },
 	{ STB0899_IOPVALUE3		, 0xc9 },
@@ -933,9 +951,9 @@ static const struct stb0899_s1_reg knc1_stb0899_s1_init_1[] = {
 	{ STB0899_GPIO20CFG		, 0x82 },
 	{ STB0899_SDATCFG		, 0xb8 },
 	{ STB0899_SCLTCFG		, 0xba },
-	{ STB0899_AGCRFCFG		, 0x08 }, 
-	{ STB0899_GPIO22		, 0x82 }, 
-	{ STB0899_GPIO21		, 0x91 }, 
+	{ STB0899_AGCRFCFG		, 0x08 }, /* 0x1c */
+	{ STB0899_GPIO22		, 0x82 }, /* AGCBB2CFG */
+	{ STB0899_GPIO21		, 0x91 }, /* AGCBB1CFG */
 	{ STB0899_DIRCLKCFG		, 0x82 },
 	{ STB0899_CLKOUT27CFG		, 0x7e },
 	{ STB0899_STDBYCFG		, 0x82 },
@@ -950,8 +968,8 @@ static const struct stb0899_s1_reg knc1_stb0899_s1_init_1[] = {
 	{ STB0899_GPIO37CFG		, 0x82 },
 	{ STB0899_GPIO38CFG		, 0x82 },
 	{ STB0899_GPIO39CFG		, 0x82 },
-	{ STB0899_NCOARSE		, 0x15 }, 
-	{ STB0899_SYNTCTRL		, 0x02 }, 
+	{ STB0899_NCOARSE		, 0x15 }, /* 0x15 = 27 Mhz Clock, F/3 = 198MHz, F/6 = 99MHz */
+	{ STB0899_SYNTCTRL		, 0x02 }, /* 0x00 = CLK from CLKI, 0x02 = CLK from XTALI */
 	{ STB0899_FILTCTRL		, 0x00 },
 	{ STB0899_SYSCTRL		, 0x00 },
 	{ STB0899_STOPCLK1		, 0x20 },
@@ -1033,14 +1051,14 @@ static const struct stb0899_s1_reg knc1_stb0899_s1_init_3[] = {
 	{ STB0899_VTH78			, 0x38 },
 	{ STB0899_PRVIT			, 0xff },
 	{ STB0899_VITSYNC		, 0x19 },
-	{ STB0899_RSULC			, 0xb1 }, 
+	{ STB0899_RSULC			, 0xb1 }, /* DVB = 0xb1, DSS = 0xa1 */
 	{ STB0899_TSULC			, 0x42 },
 	{ STB0899_RSLLC			, 0x40 },
 	{ STB0899_TSLPL			, 0x12 },
 	{ STB0899_TSCFGH		, 0x0c },
 	{ STB0899_TSCFGM		, 0x00 },
 	{ STB0899_TSCFGL		, 0x0c },
-	{ STB0899_TSOUT			, 0x4d }, 
+	{ STB0899_TSOUT			, 0x4d }, /* 0x0d for CAM */
 	{ STB0899_RSSYNCDEL		, 0x00 },
 	{ STB0899_TSINHDELH		, 0x02 },
 	{ STB0899_TSINHDELM		, 0x00 },
@@ -1094,6 +1112,7 @@ static const struct stb0899_s1_reg knc1_stb0899_s1_init_3[] = {
 	{ 0xffff			, 0xff },
 };
 
+/* STB0899 demodulator config for the KNC1 and clones */
 static struct stb0899_config knc1_dvbs2_config = {
 	.init_dev		= knc1_stb0899_s1_init_1,
 	.init_s2_demod		= stb0899_s2_init_2,
@@ -1104,10 +1123,12 @@ static struct stb0899_config knc1_dvbs2_config = {
 	.postproc		= NULL,
 
 	.demod_address		= 0x68,
-	.block_sync_mode	= STB0899_SYNC_FORCED,	
+//	.ts_output_mode		= STB0899_OUT_PARALLEL,	/* types = SERIAL/PARALLEL	*/
+	.block_sync_mode	= STB0899_SYNC_FORCED,	/* DSS, SYNC_FORCED/UNSYNCED	*/
+//	.ts_pfbit_toggle	= STB0899_MPEG_NORMAL,	/* DirecTV, MPEG toggling seq	*/
 
 	.xtal_freq		= 27000000,
-	.inversion		= IQ_SWAP_OFF, 
+	.inversion		= IQ_SWAP_OFF, /* 1 */
 
 	.lo_clk			= 76500000,
 	.hi_clk			= 90000000,
@@ -1134,9 +1155,14 @@ static struct stb0899_config knc1_dvbs2_config = {
 	.tuner_set_rfsiggain	= NULL
 };
 
+/*
+ * SD1878/SHA tuner config
+ * 1F, Single I/P, Horizontal mount, High Sensitivity
+ */
 static const struct tda8261_config sd1878c_config = {
+//	.name		= "SD1878/SHA",
 	.addr		= 0x60,
-	.step_size	= TDA8261_STEP_1000 
+	.step_size	= TDA8261_STEP_1000 /* kHz */
 };
 
 static u8 read_pwm(struct budget_av *budget_av)
@@ -1189,13 +1215,13 @@ static void frontend_init(struct budget_av *budget_av)
 	struct saa7146_dev * saa = budget_av->budget.dev;
 	struct dvb_frontend * fe = NULL;
 
-	
+	/* Enable / PowerON Frontend */
 	saa7146_setgpio(saa, 0, SAA7146_GPIO_OUTLO);
 
-	
+	/* Wait for PowerON */
 	msleep(100);
 
-	
+	/* additional setup necessary for the PLUS cards */
 	switch (saa->pci->subsystem_device) {
 		case SUBID_DVBS_KNC1_PLUS:
 		case SUBID_DVBC_KNC1_PLUS:
@@ -1212,8 +1238,12 @@ static void frontend_init(struct budget_av *budget_av)
 	switch (saa->pci->subsystem_device) {
 
 	case SUBID_DVBS_KNC1:
+		/*
+		 * maybe that setting is needed for other dvb-s cards as well,
+		 * but so far it has been only confirmed for this type
+		 */
 		budget_av->reinitialise_demod = 1;
-		
+		/* fall through */
 	case SUBID_DVBS_KNC1_PLUS:
 	case SUBID_DVBS_EASYWATCH_1:
 		if (saa->pci->subsystem_vendor == 0x1894) {
@@ -1440,7 +1470,7 @@ static int budget_av_attach(struct saa7146_dev *dev, struct saa7146_pci_extensio
 		return err;
 	}
 
-	
+	/* knc1 initialization */
 	saa7146_write(dev, DD1_STREAM_B, 0x04000000);
 	saa7146_write(dev, DD1_INIT, 0x07000600);
 	saa7146_write(dev, MC2, MASK_09 | MASK_25 | MASK_10 | MASK_26);
@@ -1449,7 +1479,7 @@ static int budget_av_attach(struct saa7146_dev *dev, struct saa7146_pci_extensio
 		budget_av->has_saa7113 = 1;
 
 		if (0 != saa7146_vv_init(dev, &vv_data)) {
-			
+			/* fixme: proper cleanup here */
 			ERR("cannot init vv subsystem\n");
 			return err;
 		}
@@ -1458,20 +1488,20 @@ static int budget_av_attach(struct saa7146_dev *dev, struct saa7146_pci_extensio
 		vv_data.ops.vidioc_s_input = vidioc_s_input;
 
 		if ((err = saa7146_register_device(&budget_av->vd, dev, "knc1", VFL_TYPE_GRABBER))) {
-			
+			/* fixme: proper cleanup here */
 			ERR("cannot register capture v4l2 device\n");
 			saa7146_vv_release(dev);
 			return err;
 		}
 
-		
+		/* beware: this modifies dev->vv ... */
 		saa7146_set_hps_source_and_sync(dev, SAA7146_HPS_SOURCE_PORT_A,
 						SAA7146_HPS_SYNC_PORT_A);
 
 		saa7113_setinput(budget_av, 0);
 	}
 
-	
+	/* fixme: find some sane values here... */
 	saa7146_write(dev, PCI_BT_V1, 0x1c00101f);
 
 	mac = budget_av->budget.dvb_adapter.proposed_mac;
@@ -1507,7 +1537,7 @@ static struct saa7146_standard standard[] = {
 
 static struct saa7146_ext_vv vv_data = {
 	.inputs = 2,
-	.capabilities = 0,	
+	.capabilities = 0,	// perhaps later: V4L2_CAP_VBI_CAPTURE, but that need tweaking with the saa7113
 	.flags = 0,
 	.stds = &standard[0],
 	.num_stds = ARRAY_SIZE(standard),

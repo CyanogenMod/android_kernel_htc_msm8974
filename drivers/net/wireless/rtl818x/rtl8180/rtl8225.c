@@ -212,13 +212,13 @@ static const u8 rtl8225_agc[] = {
 };
 
 static const u8 rtl8225_gain[] = {
-	0x23, 0x88, 0x7c, 0xa5, 
-	0x23, 0x88, 0x7c, 0xb5, 
-	0x23, 0x88, 0x7c, 0xc5, 
-	0x33, 0x80, 0x79, 0xc5, 
-	0x43, 0x78, 0x76, 0xc5, 
-	0x53, 0x60, 0x73, 0xc5, 
-	0x63, 0x58, 0x70, 0xc5, 
+	0x23, 0x88, 0x7c, 0xa5, /* -82dbm */
+	0x23, 0x88, 0x7c, 0xb5, /* -82dbm */
+	0x23, 0x88, 0x7c, 0xc5, /* -82dbm */
+	0x33, 0x80, 0x79, 0xc5, /* -78dbm */
+	0x43, 0x78, 0x76, 0xc5, /* -74dbm */
+	0x53, 0x60, 0x73, 0xc5, /* -70dbm */
+	0x63, 0x58, 0x70, 0xc5, /* -66dbm */
 };
 
 static const u8 rtl8225_threshold[] = {
@@ -281,9 +281,9 @@ static void rtl8225_rf_set_tx_power(struct ieee80211_hw *dev, int channel)
 	for (i = 0; i < 8; i++)
 		rtl8225_write_phy_cck(dev, 0x44 + i, *tmp++);
 
-	msleep(1); 
+	msleep(1); /* FIXME: optional? */
 
-	
+	/* anaparam2 on */
 	rtl818x_iowrite8(priv, &priv->map->EEPROM_CMD, RTL818X_EEPROM_CMD_CONFIG);
 	reg = rtl818x_ioread8(priv, &priv->map->CONFIG3);
 	rtl818x_iowrite8(priv, &priv->map->CONFIG3, reg | RTL818X_CONFIG3_ANAPARAM_WRITE);
@@ -309,18 +309,18 @@ static void rtl8225_rf_init(struct ieee80211_hw *dev)
 
 	rtl8180_set_anaparam(priv, RTL8225_ANAPARAM_ON);
 
-	
+	/* host_pci_init */
 	rtl818x_iowrite16(priv, &priv->map->RFPinsOutput, 0x0480);
 	rtl818x_iowrite16(priv, &priv->map->RFPinsEnable, 0x1FFF);
 	rtl818x_iowrite16(priv, &priv->map->RFPinsSelect, 0x0488);
 	rtl818x_iowrite8(priv, &priv->map->GP_ENABLE, 0);
 	rtl818x_ioread8(priv, &priv->map->EEPROM_CMD);
-	msleep(200);	
+	msleep(200);	/* FIXME: ehh?? */
 	rtl818x_iowrite8(priv, &priv->map->GP_ENABLE, 0xFF & ~(1 << 6));
 
 	rtl818x_iowrite32(priv, &priv->map->RF_TIMING, 0x000a8008);
 
-	
+	/* TODO: check if we need really to change BRSR to do RF config */
 	rtl818x_ioread16(priv, &priv->map->BRSR);
 	rtl818x_iowrite16(priv, &priv->map->BRSR, 0xFFFF);
 	rtl818x_iowrite32(priv, &priv->map->RF_PARA, 0x00100044);
@@ -333,7 +333,7 @@ static void rtl8225_rf_init(struct ieee80211_hw *dev)
 	rtl8225_write(dev, 0x2, 0x44D);
 	rtl8225_write(dev, 0x3, 0x441);
 	rtl8225_write(dev, 0x4, 0x8BE);
-	rtl8225_write(dev, 0x5, 0xBF0);		
+	rtl8225_write(dev, 0x5, 0xBF0);		/* TODO: minipci */
 	rtl8225_write(dev, 0x6, 0xAE6);
 	rtl8225_write(dev, 0x7, rtl8225_chan[0]);
 	rtl8225_write(dev, 0x8, 0x01F);
@@ -437,22 +437,22 @@ static void rtl8225_rf_init(struct ieee80211_hw *dev)
 
 	rtl8225_rf_set_tx_power(dev, 1);
 
-	
-	rtl8225_write_phy_cck(dev, 0x10, 0x9b); msleep(1);	
-	rtl8225_write_phy_ofdm(dev, 0x26, 0x90); msleep(1);	
+	/* RX antenna default to A */
+	rtl8225_write_phy_cck(dev, 0x10, 0x9b); msleep(1);	/* B: 0xDB */
+	rtl8225_write_phy_ofdm(dev, 0x26, 0x90); msleep(1);	/* B: 0x10 */
 
-	rtl818x_iowrite8(priv, &priv->map->TX_ANTENNA, 0x03);	
+	rtl818x_iowrite8(priv, &priv->map->TX_ANTENNA, 0x03);	/* B: 0x00 */
 	msleep(1);
 	rtl818x_iowrite32(priv, (__le32 __iomem *)((void __iomem *)priv->map + 0x94), 0x15c00002);
 	rtl818x_iowrite16(priv, &priv->map->RFPinsEnable, 0x1FFF);
 
 	rtl8225_write(dev, 0x0c, 0x50);
-	
+	/* set OFDM initial gain */
 	rtl8225_write_phy_ofdm(dev, 0x0d, rtl8225_gain[4 * 4]);
 	rtl8225_write_phy_ofdm(dev, 0x23, rtl8225_gain[4 * 4 + 1]);
 	rtl8225_write_phy_ofdm(dev, 0x1b, rtl8225_gain[4 * 4 + 2]);
 	rtl8225_write_phy_ofdm(dev, 0x1d, rtl8225_gain[4 * 4 + 3]);
-	
+	/* set CCK threshold */
 	rtl8225_write_phy_cck(dev, 0x41, rtl8225_threshold[0]);
 }
 
@@ -538,18 +538,18 @@ static void rtl8225z2_rf_init(struct ieee80211_hw *dev)
 
 	rtl8180_set_anaparam(priv, RTL8225_ANAPARAM_ON);
 
-	
+	/* host_pci_init */
 	rtl818x_iowrite16(priv, &priv->map->RFPinsOutput, 0x0480);
 	rtl818x_iowrite16(priv, &priv->map->RFPinsEnable, 0x1FFF);
 	rtl818x_iowrite16(priv, &priv->map->RFPinsSelect, 0x0488);
 	rtl818x_iowrite8(priv, &priv->map->GP_ENABLE, 0);
 	rtl818x_ioread8(priv, &priv->map->EEPROM_CMD);
-	msleep(200);	
+	msleep(200);	/* FIXME: ehh?? */
 	rtl818x_iowrite8(priv, &priv->map->GP_ENABLE, 0xFF & ~(1 << 6));
 
 	rtl818x_iowrite32(priv, &priv->map->RF_TIMING, 0x00088008);
 
-	
+	/* TODO: check if we need really to change BRSR to do RF config */
 	rtl818x_ioread16(priv, &priv->map->BRSR);
 	rtl818x_iowrite16(priv, &priv->map->BRSR, 0xFFFF);
 	rtl818x_iowrite32(priv, &priv->map->RF_PARA, 0x00100044);
@@ -581,6 +581,8 @@ static void rtl8225z2_rf_init(struct ieee80211_hw *dev)
 		msleep(200);
 		rtl8225_write(dev, 0x02, 0x044D);
 		msleep(100);
+		/* TODO: readd calibration failure message when the calibration
+		   check works */
 	}
 
 	rtl8225_write(dev, 0x0, 0x1B7);
@@ -649,7 +651,7 @@ static void rtl8225z2_rf_init(struct ieee80211_hw *dev)
 	rtl8225_write_phy_ofdm(dev, 0x20, 0x1f); msleep(1);
 	rtl8225_write_phy_ofdm(dev, 0x21, 0x27); msleep(1);
 	rtl8225_write_phy_ofdm(dev, 0x22, 0x16); msleep(1);
-	rtl8225_write_phy_ofdm(dev, 0x23, 0x80); msleep(1); 
+	rtl8225_write_phy_ofdm(dev, 0x23, 0x80); msleep(1); /* FIXME: not needed? */
 	rtl8225_write_phy_ofdm(dev, 0x24, 0x46); msleep(1);
 	rtl8225_write_phy_ofdm(dev, 0x25, 0x20); msleep(1);
 	rtl8225_write_phy_ofdm(dev, 0x26, 0x90); msleep(1);
@@ -687,11 +689,11 @@ static void rtl8225z2_rf_init(struct ieee80211_hw *dev)
 
 	rtl8225z2_rf_set_tx_power(dev, 1);
 
-	
-	rtl8225_write_phy_cck(dev, 0x10, 0x9b); msleep(1);	
-	rtl8225_write_phy_ofdm(dev, 0x26, 0x90); msleep(1);	
+	/* RX antenna default to A */
+	rtl8225_write_phy_cck(dev, 0x10, 0x9b); msleep(1);	/* B: 0xDB */
+	rtl8225_write_phy_ofdm(dev, 0x26, 0x90); msleep(1);	/* B: 0x10 */
 
-	rtl818x_iowrite8(priv, &priv->map->TX_ANTENNA, 0x03);	
+	rtl818x_iowrite8(priv, &priv->map->TX_ANTENNA, 0x03);	/* B: 0x00 */
 	msleep(1);
 	rtl818x_iowrite32(priv, (__le32 __iomem *)((void __iomem *)priv->map + 0x94), 0x15c00002);
 	rtl818x_iowrite16(priv, &priv->map->RFPinsEnable, 0x1FFF);

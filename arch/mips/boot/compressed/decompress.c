@@ -16,11 +16,17 @@
 
 #include <asm/addrspace.h>
 
+/*
+ * These two variables specify the free mem region
+ * that can be used for temporary malloc area
+ */
 unsigned long free_mem_ptr;
 unsigned long free_mem_end_ptr;
 
+/* The linker tells us where the image is. */
 extern unsigned char __image_begin, __image_end;
 
+/* debug interfaces  */
 extern void puts(const char *s);
 extern void puthex(unsigned long long val);
 
@@ -31,9 +37,10 @@ void error(char *x)
 	puts("\n\n -- System halted");
 
 	while (1)
-		;	
+		;	/* Halt */
 }
 
+/* activate the code for pre-boot environment */
 #define STATIC static
 
 #ifdef CONFIG_KERNEL_GZIP
@@ -85,19 +92,19 @@ void decompress_kernel(unsigned long boot_heap_start)
 	puthex(zimage_size + zimage_start);
 	puts("\n");
 
-	
+	/* This area are prepared for mallocing when decompressing */
 	free_mem_ptr = boot_heap_start;
 	free_mem_end_ptr = boot_heap_start + BOOT_HEAP_SIZE;
 
-	
+	/* Display standard Linux/MIPS boot prompt */
 	puts("Uncompressing Linux at load address ");
 	puthex(VMLINUX_LOAD_ADDRESS_ULL);
 	puts("\n");
 
-	
+	/* Decompress the kernel with according algorithm */
 	decompress((char *)zimage_start, zimage_size, 0, 0,
 		   (void *)VMLINUX_LOAD_ADDRESS_ULL, 0, error);
 
-	
+	/* FIXME: should we flush cache here? */
 	puts("Now, booting the kernel...\n");
 }

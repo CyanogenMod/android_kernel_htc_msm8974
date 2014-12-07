@@ -90,6 +90,11 @@ static int atmel_pwm_bl_init_pwm(struct atmel_pwm_bl *pwmbl)
 			(pwmbl->pdata->pwm_frequency *
 			 pwmbl->pdata->pwm_compare_max)) - 1;
 
+	/*
+	 * Prescale must be power of two and maximum 0xf in size because of
+	 * hardware limit. PWM speed will be:
+	 *	PWM module clock speed / (2 ^ prescale).
+	 */
 	prescale = fls(prescale);
 	if (prescale > 0xf)
 		prescale = 0xf;
@@ -155,7 +160,7 @@ static int atmel_pwm_bl_probe(struct platform_device *pdev)
 			goto err_free_pwm;
 		}
 
-		
+		/* Turn display off by default. */
 		retval = gpio_direction_output(pwmbl->gpio_on,
 				0 ^ pdata->on_active_low);
 		if (retval)
@@ -176,7 +181,7 @@ static int atmel_pwm_bl_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, pwmbl);
 
-	
+	/* Power up the backlight by default at middle intesity. */
 	bldev->props.power = FB_BLANK_UNBLANK;
 	bldev->props.brightness = bldev->props.max_brightness / 2;
 
@@ -222,7 +227,7 @@ static struct platform_driver atmel_pwm_bl_driver = {
 	.driver = {
 		.name = "atmel-pwm-bl",
 	},
-	
+	/* REVISIT add suspend() and resume() */
 	.remove = __exit_p(atmel_pwm_bl_remove),
 };
 

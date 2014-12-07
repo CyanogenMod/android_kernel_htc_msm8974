@@ -44,6 +44,7 @@
 #include "isif_regs.h"
 #include "ccdc_hw_device.h"
 
+/* Defaults for module configuration parameters */
 static struct isif_config_params_raw isif_config_defaults = {
 	.linearize = {
 		.en = 0,
@@ -80,19 +81,20 @@ static struct isif_config_params_raw isif_config_defaults = {
 	},
 };
 
+/* ISIF operation configuration */
 static struct isif_oper_config {
 	struct device *dev;
 	enum vpfe_hw_if_type if_type;
 	struct isif_ycbcr_config ycbcr;
 	struct isif_params_raw bayer;
 	enum isif_data_pack data_pack;
-	
+	/* Master clock */
 	struct clk *mclk;
-	
+	/* ISIF base address */
 	void __iomem *base_addr;
-	
+	/* ISIF Linear Table 0 */
 	void __iomem *linear_tbl0_addr;
-	
+	/* ISIF Linear Table 1 */
 	void __iomem *linear_tbl1_addr;
 } isif_cfg = {
 	.ycbcr = {
@@ -140,12 +142,15 @@ static struct isif_oper_config {
 	.data_pack = ISIF_DATA_PACK8,
 };
 
+/* Raw Bayer formats */
 static const u32 isif_raw_bayer_pix_formats[] = {
 	V4L2_PIX_FMT_SBGGR8, V4L2_PIX_FMT_SBGGR16};
 
+/* Raw YUV formats */
 static const u32 isif_raw_yuv_pix_formats[] = {
 	V4L2_PIX_FMT_UYVY, V4L2_PIX_FMT_YUYV};
 
+/* register access routines */
 static inline u32 regr(u32 offset)
 {
 	return __raw_readl(isif_cfg.base_addr + offset);
@@ -156,6 +161,7 @@ static inline void regw(u32 val, u32 offset)
 	__raw_writel(val, isif_cfg.base_addr + offset);
 }
 
+/* reg_modify() - read, modify and write register */
 static inline u32 reg_modify(u32 mask, u32 val, u32 offset)
 {
 	u32 new_val = (regr(offset) & ~mask) | (val & mask);
@@ -174,22 +180,26 @@ static inline void regw_lin_tbl(u32 val, u32 offset, int i)
 
 static void isif_disable_all_modules(void)
 {
-	
+	/* disable BC */
 	regw(0, CLAMPCFG);
-	
+	/* disable vdfc */
 	regw(0, DFCCTL);
-	
+	/* disable CSC */
 	regw(0, CSCCTL);
-	
+	/* disable linearization */
 	regw(0, LINCFG0);
-	
+	/* disable other modules here as they are supported */
 }
 
 static void isif_enable(int en)
 {
 	if (!en) {
-		
+		/* Before disable isif, disable all ISIF modules */
 		isif_disable_all_modules();
+		/*
+		 * wait for next VD. Assume lowest scan rate is 12 Hz. So
+		 * 100 msec delay is good enough
+		 */
 		msleep(100);
 	}
 	reg_modify(ISIF_SYNCEN_VDHDEN_MASK, en, SYNCEN);
@@ -204,14 +214,14 @@ static void isif_config_culling(struct isif_cul *cul)
 {
 	u32 val;
 
-	
+	/* Horizontal pattern */
 	val = (cul->hcpat_even << CULL_PAT_EVEN_LINE_SHIFT) | cul->hcpat_odd;
 	regw(val, CULH);
 
-	
+	/* vertical pattern */
 	regw(cul->vcpat, CULV);
 
-	
+	/* LPF */
 	reg_modify(ISIF_LPF_MASK << ISIF_LPF_SHIFT,
 		  cul->en_lpf << ISIF_LPF_SHIFT, MODESET);
 }
@@ -256,11 +266,11 @@ static void isif_restore_defaults(void)
 
 	dev_dbg(isif_cfg.dev, "\nstarting isif_restore_defaults...");
 	isif_cfg.bayer.config_params = isif_config_defaults;
-	
+	/* Enable clock to ISIF, IPIPEIF and BL */
 	vpss_enable_clock(VPSS_CCDC_CLOCK, 1);
 	vpss_enable_clock(VPSS_IPIPEIF_CLOCK, 1);
 	vpss_enable_clock(VPSS_BL_CLOCK, 1);
-	
+	/* Set default offset and gain */
 	isif_config_gain_offset();
 	vpss_select_ccdc_source(source);
 	dev_dbg(isif_cfg.dev, "\nEnd of isif_restore_defaults...");
@@ -272,6 +282,7 @@ static int isif_open(struct device *device)
 	return 0;
 }
 
+/* This function will configure the window size to be capture in ISIF reg */
 static void isif_setwin(struct v4l2_rect *image_win,
 			enum ccdc_frmfmt frm_fmt, int ppc)
 {
@@ -280,10 +291,15 @@ static void isif_setwin(struct v4l2_rect *image_win,
 	int mid_img = 0;
 
 	dev_dbg(isif_cfg.dev, "\nStarting isif_setwin...");
+	/*
+	 * ppc - per pixel count. indicates how many pixels per cell
+	 * output to SDRAM. example, for ycbcr, it is one y and one c, so 2.
+	 * raw capture this is 1
+	 */
 	horz_start = image_win->left << (ppc - 1);
 	horz_nr_pixels = ((image_win->width) << (ppc - 1)) - 1;
 
-	
+	/* Writing the horizontal info into the registers */
 	regw(horz_start & START_PX_HOR_MASK, SPH);
 	regw(horz_nr_pixels & NUM_PX_HOR_MASK, LNH);
 	vert_start = image_win->top;
@@ -291,13 +307,13 @@ static void isif_setwin(struct v4l2_rect *image_win,
 	if (frm_fmt == CCDC_FRMFMT_INTERLACED) {
 		vert_nr_lines = (image_win->height >> 1) - 1;
 		vert_start >>= 1;
-		
+		/* To account for VD since line 0 doesn't have any data */
 		vert_start += 1;
 	} else {
-		
+		/* To account for VD since line 0 doesn't have any data */
 		vert_start += 1;
 		vert_nr_lines = image_win->height - 1;
-		
+		/* configure VDINT0 and VDINT1 */
 		mid_img = vert_start + (image_win->height / 2);
 		regw(mid_img, VDINT1);
 	}
@@ -312,17 +328,30 @@ static void isif_config_bclamp(struct isif_black_clamp *bc)
 {
 	u32 val;
 
+	/*
+	 * DC Offset is always added to image data irrespective of bc enable
+	 * status
+	 */
 	regw(bc->dc_offset, CLDCOFST);
 
 	if (bc->en) {
 		val = bc->bc_mode_color << ISIF_BC_MODE_COLOR_SHIFT;
 
-		
+		/* Enable BC and horizontal clamp caculation paramaters */
 		val = val | 1 | (bc->horz.mode << ISIF_HORZ_BC_MODE_SHIFT);
 
 		regw(val, CLAMPCFG);
 
 		if (bc->horz.mode != ISIF_HORZ_BC_DISABLE) {
+			/*
+			 * Window count for calculation
+			 * Base window selection
+			 * pixel limit
+			 * Horizontal size of window
+			 * vertical size of the window
+			 * Horizontal start position of the window
+			 * Vertical start position of the window
+			 */
 			val = bc->horz.win_count_calc |
 			      ((!!bc->horz.base_win_sel_calc) <<
 				ISIF_HORZ_BC_WIN_SEL_SHIFT) |
@@ -338,21 +367,21 @@ static void isif_config_bclamp(struct isif_black_clamp *bc)
 			regw(bc->horz.win_start_v_calc, CLHWIN2);
 		}
 
-		
+		/* vertical clamp caculation paramaters */
 
-		
+		/* Reset clamp value sel for previous line */
 		val |=
 		(bc->vert.reset_val_sel << ISIF_VERT_BC_RST_VAL_SEL_SHIFT) |
 		(bc->vert.line_ave_coef << ISIF_VERT_BC_LINE_AVE_COEF_SHIFT);
 		regw(val, CLVWIN0);
 
-		
+		/* Optical Black horizontal start position */
 		regw(bc->vert.ob_start_h, CLVWIN1);
-		
+		/* Optical Black vertical start position */
 		regw(bc->vert.ob_start_v, CLVWIN2);
-		
+		/* Optical Black vertical size for calculation */
 		regw(bc->vert.ob_v_sz_calc, CLVWIN3);
-		
+		/* Vertical start position for BC subtraction */
 		regw(bc->vert_start_sub, CLSV);
 	}
 }
@@ -366,11 +395,11 @@ static void isif_config_linearization(struct isif_linearize *linearize)
 		return;
 	}
 
-	
+	/* shift value for correction & enable linearization (set lsb) */
 	val = (linearize->corr_shft << ISIF_LIN_CORRSFT_SHIFT) | 1;
 	regw(val, LINCFG0);
 
-	
+	/* Scale factor */
 	val = ((!!linearize->scale_fact.integer) <<
 	       ISIF_LIN_SCALE_FACT_INTEG_SHIFT) |
 	       linearize->scale_fact.decimal;
@@ -386,26 +415,26 @@ static void isif_config_linearization(struct isif_linearize *linearize)
 
 static int isif_config_dfc(struct isif_dfc *vdfc)
 {
-	
+	/* initialize retries to loop for max ~ 250 usec */
 	u32 val, count, retries = loops_per_jiffy / (4000/HZ);
 	int i;
 
 	if (!vdfc->en)
 		return 0;
 
-	
+	/* Correction mode */
 	val = (vdfc->corr_mode << ISIF_VDFC_CORR_MOD_SHIFT);
 
-	
+	/* Correct whole line or partial */
 	if (vdfc->corr_whole_line)
 		val |= 1 << ISIF_VDFC_CORR_WHOLE_LN_SHIFT;
 
-	
+	/* level shift value */
 	val |= vdfc->def_level_shift << ISIF_VDFC_LEVEL_SHFT_SHIFT;
 
 	regw(val, DFCCTL);
 
-	
+	/* Defect saturation level */
 	regw(vdfc->def_sat_level, VDFSATLV);
 
 	regw(vdfc->table[0].pos_vert, DFCMEM0);
@@ -417,7 +446,7 @@ static int isif_config_dfc(struct isif_dfc *vdfc)
 		regw(vdfc->table[0].level_low_pixels, DFCMEM4);
 	}
 
-	
+	/* set DFCMARST and set DFCMWR */
 	val = regr(DFCMEMCTL) | (1 << ISIF_DFCMEMCTL_DFCMARST_SHIFT) | 1;
 	regw(val, DFCMEMCTL);
 
@@ -440,7 +469,7 @@ static int isif_config_dfc(struct isif_dfc *vdfc)
 			regw(vdfc->table[i].level_low_pixels, DFCMEM4);
 		}
 		val = regr(DFCMEMCTL);
-		
+		/* clear DFCMARST and set DFCMWR */
 		val &= ~BIT(ISIF_DFCMEMCTL_DFCMARST_SHIFT);
 		val |= 1;
 		regw(val, DFCMEMCTL);
@@ -456,13 +485,13 @@ static int isif_config_dfc(struct isif_dfc *vdfc)
 		}
 	}
 	if (vdfc->num_vdefects < ISIF_VDFC_TABLE_SIZE) {
-		
+		/* Extra cycle needed */
 		regw(0, DFCMEM0);
 		regw(0x1FFF, DFCMEM1);
 		regw(1, DFCMEMCTL);
 	}
 
-	
+	/* enable VDFC */
 	reg_modify((1 << ISIF_VDFC_EN_SHIFT), (1 << ISIF_VDFC_EN_SHIFT),
 		   DFCCTL);
 	return 0;
@@ -478,13 +507,13 @@ static void isif_config_csc(struct isif_df_csc *df_csc)
 	}
 	for (i = 0; i < ISIF_CSC_NUM_COEFF; i++) {
 		if ((i % 2) == 0) {
-			
+			/* CSCM - LSB */
 			val1 = (df_csc->csc.coeff[i].integer <<
 				ISIF_CSC_COEF_INTEG_SHIFT) |
 				df_csc->csc.coeff[i].decimal;
 		} else {
 
-			
+			/* CSCM - MSB */
 			val2 = (df_csc->csc.coeff[i].integer <<
 				ISIF_CSC_COEF_INTEG_SHIFT) |
 				df_csc->csc.coeff[i].decimal;
@@ -494,13 +523,23 @@ static void isif_config_csc(struct isif_df_csc *df_csc)
 		}
 	}
 
-	
+	/* program the active area */
 	regw(df_csc->start_pix, FMTSPH);
+	/*
+	 * one extra pixel as required for CSC. Actually number of
+	 * pixel - 1 should be configured in this register. So we
+	 * need to subtract 1 before writing to FMTSPH, but we will
+	 * not do this since csc requires one extra pixel
+	 */
 	regw(df_csc->num_pixels, FMTLNH);
 	regw(df_csc->start_line, FMTSLV);
+	/*
+	 * one extra line as required for CSC. See reason documented for
+	 * num_pixels
+	 */
 	regw(df_csc->num_lines, FMTLNV);
 
-	
+	/* Enable CSC */
 	regw(1, CSCCTL);
 }
 
@@ -515,6 +554,15 @@ static int isif_config_raw(void)
 
 	dev_dbg(isif_cfg.dev, "\nStarting isif_config_raw..\n");
 
+	/*
+	 * Configure CCDCFG register:-
+	 * Set CCD Not to swap input since input is RAW data
+	 * Set FID detection function to Latch at V-Sync
+	 * Set WENLOG - isif valid area
+	 * Set TRGSEL
+	 * Set EXTRG
+	 * Packed to 8 or 16 bits
+	 */
 
 	val = ISIF_YCINSWP_RAW | ISIF_CCDCFG_FIDMD_LATCH_VSYNC |
 		ISIF_CCDCFG_WENLOG_AND | ISIF_CCDCFG_TRGSEL_WEN |
@@ -523,6 +571,16 @@ static int isif_config_raw(void)
 	dev_dbg(isif_cfg.dev, "Writing 0x%x to ...CCDCFG \n", val);
 	regw(val, CCDCFG);
 
+	/*
+	 * Configure the vertical sync polarity(MODESET.VDPOL)
+	 * Configure the horizontal sync polarity (MODESET.HDPOL)
+	 * Configure frame id polarity (MODESET.FLDPOL)
+	 * Configure data polarity
+	 * Configure External WEN Selection
+	 * Configure frame format(progressive or interlace)
+	 * Configure pixel format (Input mode)
+	 * Configure the data shift
+	 */
 
 	val = ISIF_VDHDOUT_INPUT | (params->vd_pol << ISIF_VD_POL_SHIFT) |
 		(params->hd_pol << ISIF_HD_POL_SHIFT) |
@@ -536,16 +594,20 @@ static int isif_config_raw(void)
 	regw(val, MODESET);
 	dev_dbg(isif_cfg.dev, "Writing 0x%x to MODESET...\n", val);
 
+	/*
+	 * Configure GAMMAWD register
+	 * CFA pattern setting
+	 */
 	val = params->cfa_pat << ISIF_GAMMAWD_CFA_SHIFT;
 
-	
+	/* Gamma msb */
 	if (module_params->compress.alg == ISIF_ALAW)
 		val |= ISIF_ALAW_ENABLE;
 
 	val |= (params->data_msb << ISIF_ALAW_GAMA_WD_SHIFT);
 	regw(val, CGAMMAWD);
 
-	
+	/* Configure DPCM compression settings */
 	if (module_params->compress.alg == ISIF_DPCM) {
 		val =  BIT(ISIF_DPCM_EN_SHIFT) |
 		       (module_params->compress.pred <<
@@ -554,10 +616,10 @@ static int isif_config_raw(void)
 
 	regw(val, MISC);
 
-	
+	/* Configure Gain & Offset */
 	isif_config_gain_offset();
 
-	
+	/* Configure Color pattern */
 	val = (params->config_params.col_pat_field0.olop) |
 	      (params->config_params.col_pat_field0.olep << 2) |
 	      (params->config_params.col_pat_field0.elop << 4) |
@@ -569,10 +631,10 @@ static int isif_config_raw(void)
 	regw(val, CCOLP);
 	dev_dbg(isif_cfg.dev, "Writing %x to CCOLP ...\n", val);
 
-	
+	/* Configure HSIZE register  */
 	val = (!!params->horz_flip_en) << ISIF_HSIZE_FLIP_SHIFT;
 
-	
+	/* calculate line offset in 32 bytes based on pack value */
 	if (isif_cfg.data_pack == ISIF_PACK_8BIT)
 		val |= ((params->win.width + 31) >> 5);
 	else if (isif_cfg.data_pack == ISIF_PACK_12BIT)
@@ -582,55 +644,55 @@ static int isif_config_raw(void)
 		val |= (((params->win.width * 2) + 31) >> 5);
 	regw(val, HSIZE);
 
-	
+	/* Configure SDOFST register  */
 	if (params->frm_fmt == CCDC_FRMFMT_INTERLACED) {
 		if (params->image_invert_en) {
-			
+			/* For interlace inverse mode */
 			regw(0x4B6D, SDOFST);
 			dev_dbg(isif_cfg.dev, "Writing 0x4B6D to SDOFST...\n");
 		} else {
-			
+			/* For interlace non inverse mode */
 			regw(0x0B6D, SDOFST);
 			dev_dbg(isif_cfg.dev, "Writing 0x0B6D to SDOFST...\n");
 		}
 	} else if (params->frm_fmt == CCDC_FRMFMT_PROGRESSIVE) {
 		if (params->image_invert_en) {
-			
+			/* For progressive inverse mode */
 			regw(0x4000, SDOFST);
 			dev_dbg(isif_cfg.dev, "Writing 0x4000 to SDOFST...\n");
 		} else {
-			
+			/* For progressive non inverse mode */
 			regw(0x0000, SDOFST);
 			dev_dbg(isif_cfg.dev, "Writing 0x0000 to SDOFST...\n");
 		}
 	}
 
-	
+	/* Configure video window */
 	isif_setwin(&params->win, params->frm_fmt, 1);
 
-	
+	/* Configure Black Clamp */
 	isif_config_bclamp(&module_params->bclamp);
 
-	
+	/* Configure Vertical Defection Pixel Correction */
 	if (isif_config_dfc(&module_params->dfc) < 0)
 		return -EFAULT;
 
 	if (!module_params->df_csc.df_or_csc)
-		
+		/* Configure Color Space Conversion */
 		isif_config_csc(&module_params->df_csc);
 
 	isif_config_linearization(&module_params->linearize);
 
-	
+	/* Configure Culling */
 	isif_config_culling(&module_params->culling);
 
-	
+	/* Configure horizontal and vertical offsets(DFC,LSC,Gain) */
 	regw(module_params->horz_offset, DATAHOFST);
 	regw(module_params->vert_offset, DATAVOFST);
 
-	
+	/* Setup test pattern if enabled */
 	if (params->config_params.test_pat_gen) {
-		
+		/* Use the HD/VD pol settings from user */
 		sync.ccdpg_hdpol = params->hd_pol;
 		sync.ccdpg_vdpol = params->vd_pol;
 		dm365_vpss_set_sync_pol(sync);
@@ -793,6 +855,7 @@ static int isif_getfid(void)
 	return (regr(MODESET) >> 15) & 0x1;
 }
 
+/* misc operations */
 static void isif_setfbaddr(unsigned long addr)
 {
 	regw((addr >> 21) & 0x07ff, CADU);
@@ -826,6 +889,7 @@ static int isif_set_hw_if_params(struct vpfe_hw_if_param *params)
 	return 0;
 }
 
+/* This function will configure ISIF for YCbCr parameters. */
 static int isif_config_ycbcr(void)
 {
 	struct isif_ycbcr_config *params = &isif_cfg.ycbcr;
@@ -835,14 +899,14 @@ static int isif_config_ycbcr(void)
 
 	dev_dbg(isif_cfg.dev, "\nStarting isif_config_ycbcr...");
 
-	
+	/* configure pixel format or input mode */
 	modeset = modeset | (params->pix_fmt << ISIF_INPUT_SHIFT) |
 		  (params->frm_fmt << ISIF_FRM_FMT_SHIFT) |
 		  (params->fid_pol << ISIF_FID_POL_SHIFT) |
 		  (params->hd_pol << ISIF_HD_POL_SHIFT) |
 		  (params->vd_pol << ISIF_VD_POL_SHIFT);
 
-	
+	/* pack the data to 8-bit ISIFCFG */
 	switch (isif_cfg.if_type) {
 	case VPFE_BT656:
 		if (params->pix_fmt != CCDC_PIXFMT_YCBCR_8BIT) {
@@ -858,9 +922,9 @@ static int isif_config_ycbcr(void)
 			dev_dbg(isif_cfg.dev, "Invalid pix_fmt(input mode)\n");
 			return -EINVAL;
 		}
-		
+		/* setup BT.656, embedded sync  */
 		regw(3, REC656IF);
-		
+		/* enable 10 bit mode in ccdcfg */
 		ccdcfg = ccdcfg | ISIF_DATA_PACK8 | ISIF_YCINSWP_YCBCR |
 			ISIF_BW656_ENABLE;
 		break;
@@ -887,34 +951,39 @@ static int isif_config_ycbcr(void)
 		}
 		break;
 	default:
-		
+		/* should never come here */
 		dev_dbg(isif_cfg.dev, "Invalid interface type\n");
 		return -EINVAL;
 	}
 
 	regw(modeset, MODESET);
 
-	
+	/* Set up pix order */
 	ccdcfg |= params->pix_order << ISIF_PIX_ORDER_SHIFT;
 
 	regw(ccdcfg, CCDCFG);
 
-	
+	/* configure video window */
 	if ((isif_cfg.if_type == VPFE_BT1120) ||
 	    (isif_cfg.if_type == VPFE_YCBCR_SYNC_16))
 		isif_setwin(&params->win, params->frm_fmt, 1);
 	else
 		isif_setwin(&params->win, params->frm_fmt, 2);
 
+	/*
+	 * configure the horizontal line offset
+	 * this is done by rounding up width to a multiple of 16 pixels
+	 * and multiply by two to account for y:cb:cr 4:2:2 data
+	 */
 	regw(((((params->win.width * 2) + 31) & 0xffffffe0) >> 5), HSIZE);
 
-	
+	/* configure the memory line offset */
 	if ((params->frm_fmt == CCDC_FRMFMT_INTERLACED) &&
 	    (params->buf_type == CCDC_BUFTYPE_FLD_INTERLEAVED))
-		
+		/* two fields are interleaved in memory */
 		regw(0x00000249, SDOFST);
 
-	
+	/* Setup test pattern if enabled */
 	if (isif_cfg.bayer.config_params.test_pat_gen) {
 		sync.ccdpg_hdpol = params->hd_pol;
 		sync.ccdpg_vdpol = params->vd_pol;
@@ -933,7 +1002,7 @@ static int isif_configure(void)
 
 static int isif_close(struct device *device)
 {
-	
+	/* copy defaults to module params */
 	isif_cfg.bayer.config_params = isif_config_defaults;
 	return 0;
 }
@@ -970,11 +1039,15 @@ static int __init isif_probe(struct platform_device *pdev)
 	void *__iomem addr;
 	int status = 0, i;
 
+	/*
+	 * first try to register with vpfe. If not correct platform, then we
+	 * don't have to iomap
+	 */
 	status = vpfe_register_ccdc_device(&isif_hw_dev);
 	if (status < 0)
 		return status;
 
-	
+	/* Get and enable Master clock */
 	isif_cfg.mclk = clk_get(&pdev->dev, "master");
 	if (IS_ERR(isif_cfg.mclk)) {
 		status = PTR_ERR(isif_cfg.mclk);
@@ -985,16 +1058,20 @@ static int __init isif_probe(struct platform_device *pdev)
 		goto fail_mclk;
 	}
 
-	
+	/* Platform data holds setup_pinmux function ptr */
 	if (NULL == pdev->dev.platform_data) {
 		status = -ENODEV;
 		goto fail_mclk;
 	}
 	setup_pinmux = pdev->dev.platform_data;
+	/*
+	 * setup Mux configuration for ccdc which may be different for
+	 * different SoCs using this CCDC
+	 */
 	setup_pinmux();
 
 	i = 0;
-	
+	/* Get the ISIF base address, linearization table0 and table1 addr. */
 	while (i < 3) {
 		res = platform_get_resource(pdev, IORESOURCE_MEM, i);
 		if (!res) {
@@ -1014,15 +1091,15 @@ static int __init isif_probe(struct platform_device *pdev)
 		}
 		switch (i) {
 		case 0:
-			
+			/* ISIF base address */
 			isif_cfg.base_addr = addr;
 			break;
 		case 1:
-			
+			/* ISIF linear tbl0 address */
 			isif_cfg.linear_tbl0_addr = addr;
 			break;
 		default:
-			
+			/* ISIF linear tbl0 address */
 			isif_cfg.linear_tbl1_addr = addr;
 			break;
 		}

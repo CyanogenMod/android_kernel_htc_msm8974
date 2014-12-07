@@ -18,10 +18,10 @@
 #include <linux/errno.h>
 #include <linux/slab.h>
 
-#include <asm/setup.h>  
+#include <asm/setup.h>  /* for COMMAND_LINE_SIZE */
 #ifdef CONFIG_PPC
 #include <asm/machdep.h>
-#endif 
+#endif /* CONFIG_PPC */
 
 #include <asm/page.h>
 
@@ -31,6 +31,10 @@ char *of_fdt_get_string(struct boot_param_header *blob, u32 offset)
 		be32_to_cpu(blob->off_dt_strings) + offset;
 }
 
+/**
+ * of_fdt_get_property - Given a node in the given flat blob, return
+ * the property ptr
+ */
 void *of_fdt_get_property(struct boot_param_header *blob,
 		       unsigned long node, const char *name,
 		       unsigned long *size)
@@ -69,6 +73,16 @@ void *of_fdt_get_property(struct boot_param_header *blob,
 	} while (1);
 }
 
+/**
+ * of_fdt_is_compatible - Return true if given node from the given blob has
+ * compat in its compatible list
+ * @blob: A device tree blob
+ * @node: node to test
+ * @compat: compatible string to compare with compatible list.
+ *
+ * On match, returns a non-zero value with smaller values returned for more
+ * specific compatible values.
+ */
 int of_fdt_is_compatible(struct boot_param_header *blob,
 		      unsigned long node, const char *compat)
 {
@@ -90,6 +104,9 @@ int of_fdt_is_compatible(struct boot_param_header *blob,
 	return 0;
 }
 
+/**
+ * of_fdt_match - Return true if node matches a list of compatible values
+ */
 int of_fdt_match(struct boot_param_header *blob, unsigned long node,
                  const char *const *compat)
 {
@@ -120,6 +137,15 @@ static void *unflatten_dt_alloc(unsigned long *mem, unsigned long size,
 	return res;
 }
 
+/**
+ * unflatten_dt_node - Alloc and populate a device_node from the flat tree
+ * @blob: The parent device tree blob
+ * @mem: Memory chunk to use for allocating device nodes and properties
+ * @p: pointer to node in flat tree
+ * @dad: Parent struct device_node
+ * @allnextpp: pointer to ->allnext from last allocated device_node
+ * @fpsize: Size of the node path up at the current depth.
+ */
 static unsigned long unflatten_dt_node(struct boot_param_header *blob,
 				unsigned long mem,
 				unsigned long *p,
@@ -145,12 +171,25 @@ static unsigned long unflatten_dt_node(struct boot_param_header *blob,
 	l = allocl = strlen(pathp) + 1;
 	*p = ALIGN(*p + l, 4);
 
+	/* version 0x10 has a more compact unit name here instead of the full
+	 * path. we accumulate the full path size using "fpsize", we'll rebuild
+	 * it later. We detect this because the first character of the name is
+	 * not '/'.
+	 */
 	if ((*pathp) != '/') {
 		new_format = 1;
 		if (fpsize == 0) {
+			/* root node: special case. fpsize accounts for path
+			 * plus terminating zero. root node only has '/', so
+			 * fpsize should be 2, but we want to avoid the first
+			 * level nodes to have two '/' so we use fpsize 1 here
+			 */
 			fpsize = 1;
 			allocl = 2;
 		} else {
+			/* account for '/' and path size minus terminal 0
+			 * already in 'l'
+			 */
 			fpsize += l;
 			allocl = fpsize;
 		}
@@ -163,7 +202,7 @@ static unsigned long unflatten_dt_node(struct boot_param_header *blob,
 		np->full_name = ((char *)np) + sizeof(struct device_node);
 		if (new_format) {
 			char *fn = np->full_name;
-			
+			/* rebuild full path for new format */
 			if (dad && dad->parent) {
 				strcpy(fn, dad->full_name);
 #ifdef DEBUG
@@ -184,7 +223,7 @@ static unsigned long unflatten_dt_node(struct boot_param_header *blob,
 		*allnextpp = &np->allnext;
 		if (dad != NULL) {
 			np->parent = dad;
-			
+			/* we temporarily use the next field as `last_child'*/
 			if (dad->next == NULL)
 				dad->child = np;
 			else
@@ -193,7 +232,7 @@ static unsigned long unflatten_dt_node(struct boot_param_header *blob,
 		}
 		kref_init(&np->kref);
 	}
-	
+	/* process properties */
 	while (1) {
 		u32 sz, noff;
 		char *pname;
@@ -223,11 +262,19 @@ static unsigned long unflatten_dt_node(struct boot_param_header *blob,
 		pp = unflatten_dt_alloc(&mem, sizeof(struct property),
 					__alignof__(struct property));
 		if (allnextpp) {
+			/* We accept flattened tree phandles either in
+			 * ePAPR-style "phandle" properties, or the
+			 * legacy "linux,phandle" properties.  If both
+			 * appear and have different values, things
+			 * will get weird.  Don't do that. */
 			if ((strcmp(pname, "phandle") == 0) ||
 			    (strcmp(pname, "linux,phandle") == 0)) {
 				if (np->phandle == 0)
 					np->phandle = be32_to_cpup((__be32*)*p);
 			}
+			/* And we process the "ibm,phandle" property
+			 * used in pSeries dynamic device tree
+			 * stuff */
 			if (strcmp(pname, "ibm,phandle") == 0)
 				np->phandle = be32_to_cpup((__be32 *)*p);
 			pp->name = pname;
@@ -238,6 +285,9 @@ static unsigned long unflatten_dt_node(struct boot_param_header *blob,
 		}
 		*p = ALIGN((*p) + sz, 4);
 	}
+	/* with version 0x10 we may not have the name property, recreate
+	 * it here from the unit name if absent
+	 */
 	if (!has_name) {
 		char *p1 = pathp, *ps = pathp, *pa = NULL;
 		int sz;
@@ -292,6 +342,18 @@ static unsigned long unflatten_dt_node(struct boot_param_header *blob,
 	return mem;
 }
 
+/**
+ * __unflatten_device_tree - create tree of device_nodes from flat blob
+ *
+ * unflattens a device-tree, creating the
+ * tree of struct device_node. It also fills the "name" and "type"
+ * pointers of the nodes so the normal device-tree walking functions
+ * can be used.
+ * @blob: The blob to expand
+ * @mynodes: The device_node tree created by the call
+ * @dt_alloc: An allocator that provides a virtual address to memory
+ * for the resulting tree
+ */
 static void __unflatten_device_tree(struct boot_param_header *blob,
 			     struct device_node **mynodes,
 			     void * (*dt_alloc)(u64 size, u64 align))
@@ -316,7 +378,7 @@ static void __unflatten_device_tree(struct boot_param_header *blob,
 		return;
 	}
 
-	
+	/* First pass, scan for size */
 	start = ((unsigned long)blob) +
 		be32_to_cpu(blob->off_dt_struct);
 	size = unflatten_dt_node(blob, 0, &start, NULL, NULL, 0);
@@ -324,7 +386,7 @@ static void __unflatten_device_tree(struct boot_param_header *blob,
 
 	pr_debug("  size is %lx, allocating...\n", size);
 
-	
+	/* Allocate memory for the expanded device tree */
 	mem = (unsigned long)
 		dt_alloc(size + 4, __alignof__(struct device_node));
 
@@ -332,7 +394,7 @@ static void __unflatten_device_tree(struct boot_param_header *blob,
 
 	pr_debug("  unflattening %lx...\n", mem);
 
-	
+	/* Second pass, do actual unflattening */
 	start = ((unsigned long)blob) +
 		be32_to_cpu(blob->off_dt_struct);
 	unflatten_dt_node(blob, mem, &start, NULL, &allnextp, 0);
@@ -351,6 +413,14 @@ static void *kernel_tree_alloc(u64 size, u64 align)
 	return kzalloc(size, GFP_KERNEL);
 }
 
+/**
+ * of_fdt_unflatten_tree - create tree of device_nodes from flat blob
+ *
+ * unflattens the device-tree passed by the firmware, creating the
+ * tree of struct device_node. It also fills the "name" and "type"
+ * pointers of the nodes so the normal device-tree walking functions
+ * can be used.
+ */
 void of_fdt_unflatten_tree(unsigned long *blob,
 			struct device_node **mynodes)
 {
@@ -360,6 +430,7 @@ void of_fdt_unflatten_tree(unsigned long *blob,
 }
 EXPORT_SYMBOL_GPL(of_fdt_unflatten_tree);
 
+/* Everything below here references initial_boot_params directly. */
 int __initdata dt_root_addr_cells;
 int __initdata dt_root_size_cells;
 
@@ -367,6 +438,15 @@ struct boot_param_header *initial_boot_params;
 
 #ifdef CONFIG_OF_EARLY_FLATTREE
 
+/**
+ * of_scan_flat_dt - scan flattened tree blob and call callback on each.
+ * @it: callback function
+ * @data: context data pointer
+ *
+ * This function is used to scan the flattened device-tree, it is
+ * used to extract the memory information at boot before we can
+ * unflatten the tree
+ */
 int __init of_scan_flat_dt(int (*it)(unsigned long node,
 				     const char *uname, int depth,
 				     void *data),
@@ -422,6 +502,9 @@ int __init of_scan_flat_dt(int (*it)(unsigned long node,
 	return rc;
 }
 
+/**
+ * of_get_flat_dt_root - find the root node in the flat blob
+ */
 unsigned long __init of_get_flat_dt_root(void)
 {
 	unsigned long p = ((unsigned long)initial_boot_params) +
@@ -434,23 +517,41 @@ unsigned long __init of_get_flat_dt_root(void)
 	return ALIGN(p + strlen((char *)p) + 1, 4);
 }
 
+/**
+ * of_get_flat_dt_prop - Given a node in the flat blob, return the property ptr
+ *
+ * This function can be used within scan_flattened_dt callback to get
+ * access to properties
+ */
 void *__init of_get_flat_dt_prop(unsigned long node, const char *name,
 				 unsigned long *size)
 {
 	return of_fdt_get_property(initial_boot_params, node, name, size);
 }
 
+/**
+ * of_flat_dt_is_compatible - Return true if given node has compat in compatible list
+ * @node: node to test
+ * @compat: compatible string to compare with compatible list.
+ */
 int __init of_flat_dt_is_compatible(unsigned long node, const char *compat)
 {
 	return of_fdt_is_compatible(initial_boot_params, node, compat);
 }
 
+/**
+ * of_flat_dt_match - Return true if node matches a list of compatible values
+ */
 int __init of_flat_dt_match(unsigned long node, const char *const *compat)
 {
 	return of_fdt_match(initial_boot_params, node, compat);
 }
 
 #ifdef CONFIG_BLK_DEV_INITRD
+/**
+ * early_init_dt_check_for_initrd - Decode initrd location from flat tree
+ * @node: reference to node containing initrd location ('chosen')
+ */
 void __init early_init_dt_check_for_initrd(unsigned long node)
 {
 	unsigned long start, end, len;
@@ -475,8 +576,11 @@ void __init early_init_dt_check_for_initrd(unsigned long node)
 inline void early_init_dt_check_for_initrd(unsigned long node)
 {
 }
-#endif 
+#endif /* CONFIG_BLK_DEV_INITRD */
 
+/**
+ * early_init_dt_scan_root - fetch the top level address and size cells
+ */
 int __init early_init_dt_scan_root(unsigned long node, const char *uname,
 				   int depth, void *data)
 {
@@ -498,7 +602,7 @@ int __init early_init_dt_scan_root(unsigned long node, const char *uname,
 		dt_root_addr_cells = be32_to_cpup(prop);
 	pr_debug("dt_root_addr_cells = %x\n", dt_root_addr_cells);
 
-	
+	/* break now */
 	return 1;
 }
 
@@ -510,6 +614,9 @@ u64 __init dt_mem_next_cell(int s, __be32 **cellp)
 	return of_read_number(p, s);
 }
 
+/**
+ * early_init_dt_scan_memory - Look for an parse memory nodes
+ */
 int __init early_init_dt_scan_memory(unsigned long node, const char *uname,
 				     int depth, void *data)
 {
@@ -517,8 +624,12 @@ int __init early_init_dt_scan_memory(unsigned long node, const char *uname,
 	__be32 *reg, *endp;
 	unsigned long l;
 
-	
+	/* We are scanning "memory" nodes only */
 	if (type == NULL) {
+		/*
+		 * The longtrail doesn't have a device_type on the
+		 * /memory node, so look for the node called /memory@0.
+		 */
 		if (depth != 1 || strcmp(uname, "memory@0") != 0)
 			return 0;
 	} else if (strcmp(type, "memory") != 0)
@@ -566,31 +677,44 @@ int __init early_init_dt_scan_chosen(unsigned long node, const char *uname,
 
 	early_init_dt_check_for_initrd(node);
 
-	
+	/* Retrieve command line */
 	p = of_get_flat_dt_prop(node, "bootargs", &l);
 	if (p != NULL && l > 0)
 		strlcpy(data, p, min((int)l, COMMAND_LINE_SIZE));
 
+	/*
+	 * CONFIG_CMDLINE is meant to be a default in case nothing else
+	 * managed to set the command line, unless CONFIG_CMDLINE_FORCE
+	 * is set in which case we override whatever was found earlier.
+	 */
 #ifdef CONFIG_CMDLINE
 #ifndef CONFIG_CMDLINE_FORCE
 	if (!((char *)data)[0])
 #endif
 		strlcpy(data, CONFIG_CMDLINE, COMMAND_LINE_SIZE);
-#endif 
+#endif /* CONFIG_CMDLINE */
 
 	pr_debug("Command line is: %s\n", (char*)data);
 
-	
+	/* break now */
 	return 1;
 }
 
+/**
+ * unflatten_device_tree - create tree of device_nodes from flat blob
+ *
+ * unflattens the device-tree passed by the firmware, creating the
+ * tree of struct device_node. It also fills the "name" and "type"
+ * pointers of the nodes so the normal device-tree walking functions
+ * can be used.
+ */
 void __init unflatten_device_tree(void)
 {
 	__unflatten_device_tree(initial_boot_params, &allnodes,
 				early_init_dt_alloc_memory_arch);
 
-	
+	/* Get pointer to "/chosen" and "/aliasas" nodes for use everywhere */
 	of_alias_scan(early_init_dt_alloc_memory_arch);
 }
 
-#endif 
+#endif /* CONFIG_OF_EARLY_FLATTREE */

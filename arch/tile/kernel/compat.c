@@ -12,6 +12,7 @@
  *   more details.
  */
 
+/* Adjust unistd.h to provide 32-bit numbers and functions. */
 #define __SYSCALL_COMPAT
 
 #include <linux/compat.h>
@@ -23,6 +24,13 @@
 #include <linux/signal.h>
 #include <asm/syscalls.h>
 
+/*
+ * Syscalls that take 64-bit numbers traditionally take them in 32-bit
+ * "high" and "low" value parts on 32-bit architectures.
+ * In principle, one could imagine passing some register arguments as
+ * fully 64-bit on TILE-Gx in 32-bit mode, but it seems easier to
+ * adapt the usual convention.
+ */
 
 long compat_sys_truncate64(char __user *filename, u32 dummy, u32 low, u32 high)
 {
@@ -86,17 +94,24 @@ long compat_sys_sched_rr_get_interval(compat_pid_t pid,
 	return ret;
 }
 
+/* Provide the compat syscall number to call mapping. */
 #undef __SYSCALL
 #define __SYSCALL(nr, call) [nr] = (call),
 
+/* See comments in sys.c */
 #define compat_sys_fadvise64_64 sys32_fadvise64_64
 #define compat_sys_readahead sys32_readahead
 
+/* Call the trampolines to manage pt_regs where necessary. */
 #define compat_sys_execve _compat_sys_execve
 #define compat_sys_sigaltstack _compat_sys_sigaltstack
 #define compat_sys_rt_sigreturn _compat_sys_rt_sigreturn
 #define sys_clone _sys_clone
 
+/*
+ * Note that we can't include <linux/unistd.h> here since the header
+ * guard will defeat us; <asm/unistd.h> checks for __SYSCALL as well.
+ */
 void *compat_sys_call_table[__NR_syscalls] = {
 	[0 ... __NR_syscalls-1] = sys_ni_syscall,
 #include <asm/unistd.h>

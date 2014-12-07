@@ -25,6 +25,17 @@
 #ifndef __EVENT_H__
 #define __EVENT_H__
 
+/*
+ * Mbox events
+ *
+ * The event mechanism is based on a pair of event buffers (buffers A and
+ * B) at fixed locations in the target's memory. The host processes one
+ * buffer while the other buffer continues to collect events. If the host
+ * is not processing events, an interrupt is issued to signal that a buffer
+ * is ready. Once the host is done with processing events from one buffer,
+ * it signals the target (with an ACK interrupt) that the event buffer is
+ * free.
+ */
 
 enum {
 	RSSI_SNR_TRIGGER_0_EVENT_ID              = BIT(0),
@@ -86,29 +97,29 @@ struct event_mailbox {
 	u8 change_auto_mode_timeout;
 	u8 scheduled_scan_status;
 	u8 reserved4;
-	
+	/* tuned channel (roc) */
 	u8 roc_channel;
 
 	__le16 hlid_removed_bitmap;
 
-	
+	/* bitmap of aged stations (by HLID) */
 	__le16 sta_aging_status;
 
-	
+	/* bitmap of stations (by HLID) which exceeded max tx retries */
 	__le16 sta_tx_retry_exceeded;
 
-	
+	/* discovery completed results */
 	u8 discovery_tag;
 	u8 number_of_preq_results;
 	u8 number_of_prsp_results;
 	u8 reserved_5;
 
-	
-	u8 role_id; 
+	/* rx ba constraint */
+	u8 role_id; /* 0xFF means any role. */
 	u8 rx_ba_allowed;
 	u8 reserved_6[2];
 
-	
+	/* Channel switch results */
 
 	u8 channel_switch_role_id;
 	u8 channel_switch_status;

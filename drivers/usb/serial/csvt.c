@@ -23,9 +23,11 @@
 #include <asm/unaligned.h>
 
 
+/* output control lines*/
 #define CSVT_CTRL_DTR		0x01
 #define CSVT_CTRL_RTS		0x02
 
+/* input control lines*/
 #define CSVT_CTRL_CTS		0x01
 #define CSVT_CTRL_DSR		0x02
 #define CSVT_CTRL_RI		0x04
@@ -37,17 +39,17 @@ module_param(debug, int, S_IRUGO | S_IWUSR);
 struct csvt_ctrl_dev {
 	struct mutex		dev_lock;
 
-	
+	/* input control lines (DSR, CTS, CD, RI) */
 	unsigned int		cbits_tolocal;
 
-	
+	/* output control lines (DTR, RTS) */
 	unsigned int		cbits_tomdm;
 };
 
 static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE_AND_INTERFACE_INFO(0x05c6 , 0x904c, 0xff, 0xfe, 0xff)},
 	{ USB_DEVICE_AND_INTERFACE_INFO(0x05c6 , 0x9075, 0xff, 0xfe, 0xff)},
-	{}, 
+	{}, /* terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, id_table);
 
@@ -269,7 +271,7 @@ static void csvt_ctrl_set_termios(struct tty_struct *tty,
 
 	dev_dbg(&port->dev, "%s", __func__);
 
-	
+	/* Doesn't support option setting */
 	tty_termios_copy_hw(tty->termios, old_termios);
 
 	csvt_ctrl_write_cmd(dev, port);
@@ -286,17 +288,17 @@ static void csvt_ctrl_int_cb(struct urb *urb)
 
 	switch (urb->status) {
 	case 0:
-		
+		/*success*/
 		break;
 	case -ESHUTDOWN:
 	case -ENOENT:
 	case -ECONNRESET:
 	case -EPROTO:
-		 
+		 /* unplug */
 		 return;
 	case -EPIPE:
 		dev_err(&port->dev, "%s: stall on int endpoint\n", __func__);
-		
+		/* TBD : halt to be cleared in work */
 	case -EOVERFLOW:
 	default:
 		pr_debug_ratelimited("%s: non zero urb status = %d\n",

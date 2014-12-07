@@ -35,6 +35,18 @@ store_intc_userimask(struct device *dev,
 
 	level = simple_strtoul(buf, NULL, 10);
 
+	/*
+	 * Minimal acceptable IRQ levels are in the 2 - 16 range, but
+	 * these are chomped so as to not interfere with normal IRQs.
+	 *
+	 * Level 1 is a special case on some CPUs in that it's not
+	 * directly settable, but given that USERIMASK cuts off below a
+	 * certain level, we don't care about this limitation here.
+	 * Level 0 on the other hand equates to user masking disabled.
+	 *
+	 * We use the default priority level as a cut off so that only
+	 * special case opt-in IRQs can be mangled.
+	 */
 	if (level >= intc_get_dfl_prio_level())
 		return -EINVAL;
 

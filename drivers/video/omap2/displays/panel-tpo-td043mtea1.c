@@ -90,7 +90,7 @@ static void tpo_td043_write_gamma(struct spi_device *spi, u16 gamma[12])
 {
 	u8 i, val;
 
-	
+	/* gamma bits [9:8] */
 	for (val = i = 0; i < 4; i++)
 		val |= (gamma[i] & 0x300) >> ((i + 1) * 2);
 	tpo_td043_write(spi, 0x11, val);
@@ -103,7 +103,7 @@ static void tpo_td043_write_gamma(struct spi_device *spi, u16 gamma[12])
 		val |= (gamma[i+8] & 0x300) >> ((i + 1) * 2);
 	tpo_td043_write(spi, 0x13, val);
 
-	
+	/* gamma bits [7:0] */
 	for (val = i = 0; i < 12; i++)
 		tpo_td043_write(spi, 0x14 + i, gamma[i] & 0xff);
 }
@@ -278,7 +278,7 @@ static int tpo_td043_power_on(struct tpo_td043_device *tpo_td043)
 
 	regulator_enable(tpo_td043->vcc_reg);
 
-	
+	/* wait for regulator to stabilize */
 	msleep(160);
 
 	if (gpio_is_valid(nreset_gpio))
@@ -310,7 +310,7 @@ static void tpo_td043_power_off(struct tpo_td043_device *tpo_td043)
 	if (gpio_is_valid(nreset_gpio))
 		gpio_set_value(nreset_gpio, 0);
 
-	
+	/* wait for at least 2 vsyncs before cutting off power */
 	msleep(50);
 
 	tpo_td043_write(tpo_td043->spi, 3, TPO_R03_VAL_STANDBY);
@@ -338,6 +338,10 @@ static int tpo_td043_enable_dss(struct omap_dss_device *dssdev)
 			goto err1;
 	}
 
+	/*
+	 * If we are resuming from system suspend, SPI clocks might not be
+	 * enabled yet, so we'll program the LCD from SPI PM resume callback.
+	 */
 	if (!tpo_td043->spi_suspended) {
 		r = tpo_td043_power_on(tpo_td043);
 		if (r)

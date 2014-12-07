@@ -18,9 +18,20 @@
 
 #include "vxge-ethtool.h"
 
+/**
+ * vxge_ethtool_sset - Sets different link parameters.
+ * @dev: device pointer.
+ * @info: pointer to the structure with parameters given by ethtool to set
+ * link information.
+ *
+ * The function sets different link parameters provided by the user onto
+ * the NIC.
+ * Return value:
+ * 0 on success.
+ */
 static int vxge_ethtool_sset(struct net_device *dev, struct ethtool_cmd *info)
 {
-	
+	/* We currently only support 10Gb/FULL */
 	if ((info->autoneg == AUTONEG_ENABLE) ||
 	    (ethtool_cmd_speed(info) != SPEED_10000) ||
 	    (info->duplex != DUPLEX_FULL))
@@ -29,6 +40,16 @@ static int vxge_ethtool_sset(struct net_device *dev, struct ethtool_cmd *info)
 	return 0;
 }
 
+/**
+ * vxge_ethtool_gset - Return link specific information.
+ * @dev: device pointer.
+ * @info: pointer to the structure with parameters given by ethtool
+ * to return link information.
+ *
+ * Returns link specific information like speed, duplex etc.. to ethtool.
+ * Return value :
+ * return 0 on success.
+ */
 static int vxge_ethtool_gset(struct net_device *dev, struct ethtool_cmd *info)
 {
 	info->supported = (SUPPORTED_10000baseT_Full | SUPPORTED_FIBRE);
@@ -49,6 +70,14 @@ static int vxge_ethtool_gset(struct net_device *dev, struct ethtool_cmd *info)
 	return 0;
 }
 
+/**
+ * vxge_ethtool_gdrvinfo - Returns driver specific information.
+ * @dev: device pointer.
+ * @info: pointer to the structure with parameters given by ethtool to
+ * return driver information.
+ *
+ * Returns driver specefic information like name, version etc.. to ethtool.
+ */
 static void vxge_ethtool_gdrvinfo(struct net_device *dev,
 				  struct ethtool_drvinfo *info)
 {
@@ -63,6 +92,16 @@ static void vxge_ethtool_gdrvinfo(struct net_device *dev,
 	info->n_stats = STAT_LEN;
 }
 
+/**
+ * vxge_ethtool_gregs - dumps the entire space of Titan into the buffer.
+ * @dev: device pointer.
+ * @regs: pointer to the structure with parameters given by ethtool for
+ * dumping the registers.
+ * @reg_space: The input argumnet into which all the registers are dumped.
+ *
+ * Dumps the vpath register space of Titan NIC into the user given
+ * buffer area.
+ */
 static void vxge_ethtool_gregs(struct net_device *dev,
 			       struct ethtool_regs *regs, void *space)
 {
@@ -93,6 +132,14 @@ static void vxge_ethtool_gregs(struct net_device *dev,
 	}
 }
 
+/**
+ * vxge_ethtool_idnic - To physically identify the nic on the system.
+ * @dev : device pointer.
+ * @state : requested LED state
+ *
+ * Used to physically identify the NIC on the system.
+ * 0 on success
+ */
 static int vxge_ethtool_idnic(struct net_device *dev,
 			      enum ethtool_phys_id_state state)
 {
@@ -115,6 +162,15 @@ static int vxge_ethtool_idnic(struct net_device *dev,
 	return 0;
 }
 
+/**
+ * vxge_ethtool_getpause_data - Pause frame frame generation and reception.
+ * @dev : device pointer.
+ * @ep : pointer to the structure with pause parameters given by ethtool.
+ * Description:
+ * Returns the Pause frame generation and reception capability of the NIC.
+ * Return value:
+ *  void
+ */
 static void vxge_ethtool_getpause_data(struct net_device *dev,
 				       struct ethtool_pauseparam *ep)
 {
@@ -124,6 +180,16 @@ static void vxge_ethtool_getpause_data(struct net_device *dev,
 	vxge_hw_device_getpause_data(hldev, 0, &ep->tx_pause, &ep->rx_pause);
 }
 
+/**
+ * vxge_ethtool_setpause_data -  set/reset pause frame generation.
+ * @dev : device pointer.
+ * @ep : pointer to the structure with pause parameters given by ethtool.
+ * Description:
+ * It can be used to set or reset Pause frame generation or reception
+ * support of the NIC.
+ * Return value:
+ * int, returns 0 on Success
+ */
 static int vxge_ethtool_setpause_data(struct net_device *dev,
 				      struct ethtool_pauseparam *ep)
 {

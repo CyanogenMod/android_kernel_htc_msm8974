@@ -17,8 +17,41 @@
     Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 */
 
+/* Note: we assume there can only be one SIS5595 with one SMBus interface */
 
+/*
+   Note: all have mfr. ID 0x1039.
+   SUPPORTED		PCI ID		
+	5595		0008
 
+   Note: these chips contain a 0008 device which is incompatible with the
+         5595. We recognize these by the presence of the listed
+         "blacklist" PCI ID and refuse to load.
+
+   NOT SUPPORTED	PCI ID		BLACKLIST PCI ID	
+	 540		0008		0540
+	 550		0008		0550
+	5513		0008		5511
+	5581		0008		5597
+	5582		0008		5597
+	5597		0008		5597
+	5598		0008		5597/5598
+	 630		0008		0630
+	 645		0008		0645
+	 646		0008		0646
+	 648		0008		0648
+	 650		0008		0650
+	 651		0008		0651
+	 730		0008		0730
+	 735		0008		0735
+	 745		0008		0745
+	 746		0008		0746
+*/
+
+/* TO DO: 
+ * Add Block Transfers (ugly, but supported by the adapter)
+ * Add adapter resets
+ */
 
 #include <linux/kernel.h>
 #include <linux/module.h>
@@ -43,13 +76,17 @@ static int blacklist[] = {
 	PCI_DEVICE_ID_SI_735,
 	PCI_DEVICE_ID_SI_745,
 	PCI_DEVICE_ID_SI_746,
-	PCI_DEVICE_ID_SI_5511,	
+	PCI_DEVICE_ID_SI_5511,	/* 5513 chip has the 0008 device but that ID
+				   shows up in other chips so we use the 5511
+				   ID for recognition */
 	PCI_DEVICE_ID_SI_5597,
 	PCI_DEVICE_ID_SI_5598,
-	0,			
+	0,			/* terminates the list */
 };
 
+/* Length of ISA address segment */
 #define SIS5595_EXTENT		8
+/* SIS5595 SMBus registers */
 #define SMB_STS_LO		0x00
 #define SMB_STS_HI		0x01
 #define SMB_CTL_LO		0x02
@@ -64,13 +101,16 @@ static int blacklist[] = {
 #define SMB_DB1			0x12
 #define SMB_HAA			0x13
 
+/* PCI Address Constants */
 #define SMB_INDEX		0x38
 #define SMB_DAT			0x39
 #define SIS5595_ENABLE_REG	0x40
 #define ACPI_BASE		0x90
 
+/* Other settings */
 #define MAX_TIMEOUT		500
 
+/* SIS5595 constants */
 #define SIS5595_QUICK		0x00
 #define SIS5595_BYTE		0x02
 #define SIS5595_BYTE_DATA	0x04
@@ -78,7 +118,10 @@ static int blacklist[] = {
 #define SIS5595_PROC_CALL	0x08
 #define SIS5595_BLOCK_DATA	0x0A
 
+/* insmod parameters */
 
+/* If force_addr is set to anything different from 0, we forcibly enable
+   the device at the given address. */
 static u16 force_addr;
 module_param(force_addr, ushort, 0);
 MODULE_PARM_DESC(force_addr, "Initialize the base address of the i2c controller");
@@ -106,7 +149,7 @@ static int __devinit sis5595_setup(struct pci_dev *SIS5595_dev)
 	int *i;
 	int retval;
 
-	
+	/* Look for imposters */
 	for (i = blacklist; *i != 0; i++) {
 		struct pci_dev *dev;
 		dev = pci_get_device(PCI_VENDOR_ID_SI, *i, NULL);
@@ -117,7 +160,7 @@ static int __devinit sis5595_setup(struct pci_dev *SIS5595_dev)
 		}
 	}
 
-	
+	/* Determine the address of the SMBus areas */
 	pci_read_config_word(SIS5595_dev, ACPI_BASE, &sis5595_base);
 	if (sis5595_base == 0 && force_addr == 0) {
 		dev_err(&SIS5595_dev->dev, "ACPI base address uninitialized - upgrade BIOS or use force_addr=0xaddr\n");
@@ -128,6 +171,8 @@ static int __devinit sis5595_setup(struct pci_dev *SIS5595_dev)
 		sis5595_base = force_addr & ~(SIS5595_EXTENT - 1);
 	dev_dbg(&SIS5595_dev->dev, "ACPI Base address: %04x\n", sis5595_base);
 
+	/* NB: We grab just the two SMBus registers here, but this may still
+	 * interfere with ACPI :-(  */
 	retval = acpi_check_region(sis5595_base + SMB_INDEX, 2,
 				   sis5595_driver.name);
 	if (retval)
@@ -149,7 +194,7 @@ static int __devinit sis5595_setup(struct pci_dev *SIS5595_dev)
 		    != PCIBIOS_SUCCESSFUL)
 			goto error;
 		if ((a & ~(SIS5595_EXTENT - 1)) != sis5595_base) {
-			
+			/* doesn't work for some chips! */
 			dev_err(&SIS5595_dev->dev, "force address failed - not supported?\n");
 			goto error;
 		}
@@ -167,13 +212,13 @@ static int __devinit sis5595_setup(struct pci_dev *SIS5595_dev)
 		    != PCIBIOS_SUCCESSFUL)
 			goto error;
 		if ((val & 0x80) == 0) {
-			
+			/* doesn't work for some chips? */
 			dev_err(&SIS5595_dev->dev, "ACPI enable failed - not supported?\n");
 			goto error;
 		}
 	}
 
-	
+	/* Everything is happy */
 	return 0;
 
 error:
@@ -187,7 +232,7 @@ static int sis5595_transaction(struct i2c_adapter *adap)
 	int result = 0;
 	int timeout = 0;
 
-	
+	/* Make sure the SMBus host is ready to start transmitting */
 	temp = sis5595_read(SMB_STS_LO) + (sis5595_read(SMB_STS_HI) << 8);
 	if (temp != 0x00) {
 		dev_dbg(&adap->dev, "SMBus busy (%04x). Resetting...\n", temp);
@@ -201,16 +246,16 @@ static int sis5595_transaction(struct i2c_adapter *adap)
 		}
 	}
 
-	
+	/* start the transaction by setting bit 4 */
 	sis5595_write(SMB_CTL_LO, sis5595_read(SMB_CTL_LO) | 0x10);
 
-	
+	/* We will always wait for a fraction of a second! */
 	do {
 		msleep(1);
 		temp = sis5595_read(SMB_STS_LO);
 	} while (!(temp & 0x40) && (timeout++ < MAX_TIMEOUT));
 
-	
+	/* If the SMBus is still busy, we give up */
 	if (timeout > MAX_TIMEOUT) {
 		dev_dbg(&adap->dev, "SMBus Timeout!\n");
 		result = -ETIMEDOUT;
@@ -224,7 +269,7 @@ static int sis5595_transaction(struct i2c_adapter *adap)
 	if (temp & 0x20) {
 		dev_err(&adap->dev, "Bus collision! SMBus may be locked until "
 			"next hard reset (or not...)\n");
-		
+		/* Clock stops and slave is stuck in mid-transmission */
 		result = -EIO;
 	}
 
@@ -241,6 +286,7 @@ static int sis5595_transaction(struct i2c_adapter *adap)
 	return result;
 }
 
+/* Return negative errno on error. */
 static s32 sis5595_access(struct i2c_adapter *adap, u16 addr,
 			  unsigned short flags, char read_write,
 			  u8 command, int size, union i2c_smbus_data *data)
@@ -339,7 +385,7 @@ static int __devinit sis5595_probe(struct pci_dev *dev, const struct pci_device_
 		return -ENODEV;
 	}
 
-	
+	/* set up the sysfs linkage to our parent device */
 	sis5595_adapter.dev.parent = &dev->dev;
 
 	snprintf(sis5595_adapter.name, sizeof(sis5595_adapter.name),
@@ -350,6 +396,10 @@ static int __devinit sis5595_probe(struct pci_dev *dev, const struct pci_device_
 		return err;
 	}
 
+	/* Always return failure here.  This is to allow other drivers to bind
+	 * to this pci device.  We don't really want to have control over the
+	 * pci device, we only wanted to read as few register values from it.
+	 */
 	sis5595_pdev =  pci_dev_get(dev);
 	return -ENODEV;
 }

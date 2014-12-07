@@ -31,7 +31,10 @@ typedef unsigned char kprobe_opcode_t;
 #define MAX_INSN_SIZE 8
 #define MAX_STACK_SIZE 128
 
+/* Architecture specific copy of original instruction */
 struct arch_specific_insn {
+	/*  copy of original instruction
+	 */
 	kprobe_opcode_t insn[MAX_INSN_SIZE];
 };
 
@@ -44,4 +47,4 @@ extern int kprobe_exceptions_notify(struct notifier_block *self,
 
 extern void arch_remove_kprobe(struct kprobe *p);
 
-#endif 
+#endif /* _ASM_KPROBES_H */

@@ -13,50 +13,51 @@
 #include <media/rc-map.h>
 #include <linux/module.h>
 
+/* Matt Jesson <dvb@jesson.eclipse.co.uk */
 
 static struct rc_map_table avermedia_dvbt[] = {
-	{ 0x28, KEY_0 },		
-	{ 0x22, KEY_1 },		
-	{ 0x12, KEY_2 },		
-	{ 0x32, KEY_3 },		
-	{ 0x24, KEY_4 },		
-	{ 0x14, KEY_5 },		
-	{ 0x34, KEY_6 },		
-	{ 0x26, KEY_7 },		
-	{ 0x16, KEY_8 },		
-	{ 0x36, KEY_9 },		
+	{ 0x28, KEY_0 },		/* '0' / 'enter' */
+	{ 0x22, KEY_1 },		/* '1' */
+	{ 0x12, KEY_2 },		/* '2' / 'up arrow' */
+	{ 0x32, KEY_3 },		/* '3' */
+	{ 0x24, KEY_4 },		/* '4' / 'left arrow' */
+	{ 0x14, KEY_5 },		/* '5' */
+	{ 0x34, KEY_6 },		/* '6' / 'right arrow' */
+	{ 0x26, KEY_7 },		/* '7' */
+	{ 0x16, KEY_8 },		/* '8' / 'down arrow' */
+	{ 0x36, KEY_9 },		/* '9' */
 
-	{ 0x20, KEY_VIDEO },		
-	{ 0x10, KEY_TEXT },		
-	{ 0x00, KEY_POWER },		
-	{ 0x04, KEY_AUDIO },		
-	{ 0x06, KEY_ZOOM },		
-	{ 0x18, KEY_SWITCHVIDEOMODE },	
-	{ 0x38, KEY_SEARCH },		
-	{ 0x08, KEY_INFO },		
-	{ 0x2a, KEY_REWIND },		
-	{ 0x1a, KEY_FASTFORWARD },	
-	{ 0x3a, KEY_RECORD },		
-	{ 0x0a, KEY_MUTE },		
-	{ 0x2c, KEY_RECORD },		
-	{ 0x1c, KEY_PAUSE },		
-	{ 0x3c, KEY_STOP },		
-	{ 0x0c, KEY_PLAY },		
-	{ 0x2e, KEY_RED },		
-	{ 0x01, KEY_BLUE },		
-	{ 0x0e, KEY_YELLOW },		
-	{ 0x21, KEY_GREEN },		
-	{ 0x11, KEY_CHANNELDOWN },	
-	{ 0x31, KEY_CHANNELUP },	
-	{ 0x1e, KEY_VOLUMEDOWN },	
-	{ 0x3e, KEY_VOLUMEUP },		
+	{ 0x20, KEY_VIDEO },		/* 'source' */
+	{ 0x10, KEY_TEXT },		/* 'teletext' */
+	{ 0x00, KEY_POWER },		/* 'power' */
+	{ 0x04, KEY_AUDIO },		/* 'audio' */
+	{ 0x06, KEY_ZOOM },		/* 'full screen' */
+	{ 0x18, KEY_SWITCHVIDEOMODE },	/* 'display' */
+	{ 0x38, KEY_SEARCH },		/* 'loop' */
+	{ 0x08, KEY_INFO },		/* 'preview' */
+	{ 0x2a, KEY_REWIND },		/* 'backward <<' */
+	{ 0x1a, KEY_FASTFORWARD },	/* 'forward >>' */
+	{ 0x3a, KEY_RECORD },		/* 'capture' */
+	{ 0x0a, KEY_MUTE },		/* 'mute' */
+	{ 0x2c, KEY_RECORD },		/* 'record' */
+	{ 0x1c, KEY_PAUSE },		/* 'pause' */
+	{ 0x3c, KEY_STOP },		/* 'stop' */
+	{ 0x0c, KEY_PLAY },		/* 'play' */
+	{ 0x2e, KEY_RED },		/* 'red' */
+	{ 0x01, KEY_BLUE },		/* 'blue' / 'cancel' */
+	{ 0x0e, KEY_YELLOW },		/* 'yellow' / 'ok' */
+	{ 0x21, KEY_GREEN },		/* 'green' */
+	{ 0x11, KEY_CHANNELDOWN },	/* 'channel -' */
+	{ 0x31, KEY_CHANNELUP },	/* 'channel +' */
+	{ 0x1e, KEY_VOLUMEDOWN },	/* 'volume -' */
+	{ 0x3e, KEY_VOLUMEUP },		/* 'volume +' */
 };
 
 static struct rc_map_list avermedia_dvbt_map = {
 	.map = {
 		.scan    = avermedia_dvbt,
 		.size    = ARRAY_SIZE(avermedia_dvbt),
-		.rc_type = RC_TYPE_UNKNOWN,	
+		.rc_type = RC_TYPE_UNKNOWN,	/* Legacy IR type */
 		.name    = RC_MAP_AVERMEDIA_DVBT,
 	}
 };

@@ -13,6 +13,10 @@
 #include <linux/kernel_stat.h>
 #include <mach/htc_debug_tools.h>
 
+/* n.b.:
+ * 1. sched_clock is not irq safe
+ * 2. 32 bit: overflows every 4,294,967,296 msecs
+ */
 unsigned long htc_debug_get_sched_clock_ms(void)
 {
 	unsigned long long timestamp;
@@ -37,6 +41,10 @@ void htc_debug_watchdog_check_pet(unsigned long long timestamp)
 	if (timestamp - htc_debug_watchdog_last_pet > (unsigned long long)NSEC_PER_THRESHOLD) {
 		if (timestamp - last_pet_check > (unsigned long long)NSEC_PER_SEC) {
 			last_pet_check = timestamp;
+			/* FIXME:
+			 * the value of pet_check_counter is not necessary 'seconds'
+			 * also, we could avoid using the variable pet_check_counter
+			 */
 			pr_info("\n%s: MSM watchdog was blocked for more than %d seconds!\n",
 				__func__, pet_check_counter++);
 			pr_info("%s: Prepare to dump stack...\n",
@@ -46,7 +54,7 @@ void htc_debug_watchdog_check_pet(unsigned long long timestamp)
 			pr_info("%s: Prepare to dump pending works on global workqueue...\n",
 				__func__);
 			htc_debug_workqueue_show_pending_work_on_gcwq();
-#endif 
+#endif /* CONFIG_HTC_DEBUG_WORKQUEUE */
 			pr_info("\n ### Show Blocked State ###\n");
 			show_state_filter(TASK_UNINTERRUPTIBLE);
 		}
@@ -56,10 +64,11 @@ void htc_debug_watchdog_check_pet(unsigned long long timestamp)
 void htc_debug_watchdog_update_last_pet(unsigned long long last_pet)
 {
 	htc_debug_watchdog_last_pet = last_pet;
-	
+	/* resets the counter */
 	pet_check_counter = PET_CHECK_THRESHOLD;
 }
 
+/* TODO: support this funciton with CONFIG_SPARSE_IRQ */
 #if !defined(CONFIG_SPARSE_IRQ)
 static unsigned int last_irqs[NR_IRQS];
 void htc_debug_watchdog_dump_irqs(unsigned int dump)
@@ -83,6 +92,6 @@ void htc_debug_watchdog_dump_irqs(unsigned int dump)
 		last_irqs[n] = kstat_irqs(n);
 	}
 }
-#endif 
+#endif /* !defined(CONFIG_SPARSE_IRQ) */
 
-#endif 
+#endif /* CONFIG_HTC_DEBUG_WATCHDOG */

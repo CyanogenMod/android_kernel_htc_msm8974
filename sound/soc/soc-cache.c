@@ -62,7 +62,7 @@ static unsigned int snd_soc_get_cache_val(const void *base, unsigned int idx,
 	default:
 		BUG();
 	}
-	
+	/* unreachable */
 	return -1;
 }
 
@@ -132,8 +132,9 @@ static int snd_soc_flat_cache_init(struct snd_soc_codec *codec)
 	return 0;
 }
 
+/* an array of all supported compression types */
 static const struct snd_soc_cache_ops cache_types[] = {
-	
+	/* Flat *must* be the first entry for fallback */
 	{
 		.id = SND_SOC_FLAT_COMPRESSION,
 		.name = "flat",
@@ -153,7 +154,7 @@ int snd_soc_cache_init(struct snd_soc_codec *codec)
 		if (cache_types[i].id == codec->compress_type)
 			break;
 
-	
+	/* Fall back to flat compression */
 	if (i == ARRAY_SIZE(cache_types)) {
 		dev_warn(codec->dev, "Could not match compress type: %d\n",
 			 codec->compress_type);
@@ -172,6 +173,10 @@ int snd_soc_cache_init(struct snd_soc_codec *codec)
 	return -ENOSYS;
 }
 
+/*
+ * NOTE: keep in mind that this function might be called
+ * multiple times.
+ */
 int snd_soc_cache_exit(struct snd_soc_codec *codec)
 {
 	if (codec->cache_ops && codec->cache_ops->exit) {
@@ -183,6 +188,13 @@ int snd_soc_cache_exit(struct snd_soc_codec *codec)
 	return -ENOSYS;
 }
 
+/**
+ * snd_soc_cache_read: Fetch the value of a given register from the cache.
+ *
+ * @codec: CODEC to configure.
+ * @reg: The register index.
+ * @value: The value to be returned.
+ */
 int snd_soc_cache_read(struct snd_soc_codec *codec,
 		       unsigned int reg, unsigned int *value)
 {
@@ -201,6 +213,13 @@ int snd_soc_cache_read(struct snd_soc_codec *codec,
 }
 EXPORT_SYMBOL_GPL(snd_soc_cache_read);
 
+/**
+ * snd_soc_cache_write: Set the value of a given register in the cache.
+ *
+ * @codec: CODEC to configure.
+ * @reg: The register index.
+ * @value: The new register value.
+ */
 int snd_soc_cache_write(struct snd_soc_codec *codec,
 			unsigned int reg, unsigned int value)
 {
@@ -219,6 +238,15 @@ int snd_soc_cache_write(struct snd_soc_codec *codec,
 }
 EXPORT_SYMBOL_GPL(snd_soc_cache_write);
 
+/**
+ * snd_soc_cache_sync: Sync the register cache with the hardware.
+ *
+ * @codec: CODEC to configure.
+ *
+ * Any registers that should not be synced should be marked as
+ * volatile.  In general drivers can choose not to use the provided
+ * syncing functionality if they so require.
+ */
 int snd_soc_cache_sync(struct snd_soc_codec *codec)
 {
 	int ret;

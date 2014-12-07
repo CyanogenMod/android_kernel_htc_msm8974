@@ -31,21 +31,21 @@
 #include "common.h"
 
 static unsigned long teton_bga_pin_config[] __initdata = {
-	
+	/* UART1 */
 	GPIO107_UART1_TXD,
 	GPIO108_UART1_RXD,
 
-	
+	/* Keypad */
 	GPIO109_KP_MKIN1,
 	GPIO110_KP_MKIN0,
 	GPIO111_KP_MKOUT7,
 	GPIO112_KP_MKOUT6,
 
-	
+	/* I2C Bus */
 	GPIO105_CI2C_SDA,
 	GPIO106_CI2C_SCL,
 
-	
+	/* RTC */
 	GPIO78_GPIO,
 };
 
@@ -75,7 +75,7 @@ static void __init teton_bga_init(void)
 {
 	mfp_config(ARRAY_AND_SIZE(teton_bga_pin_config));
 
-	
+	/* on-chip devices */
 	pxa168_add_uart(1);
 	pxa168_add_keypad(&teton_bga_keypad_info);
 	pxa168_add_twsi(0, NULL, ARRAY_AND_SIZE(teton_bga_i2c_info));

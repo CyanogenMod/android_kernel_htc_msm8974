@@ -12,6 +12,7 @@ typedef int (*btree_keycmp)(const btree_key *, const btree_key *);
 
 #define NODE_HASH_SIZE  256
 
+/* A HFS BTree held in memory */
 struct hfs_btree {
 	struct super_block *sb;
 	struct inode *inode;
@@ -31,7 +32,7 @@ struct hfs_btree {
 	unsigned int max_key_len;
 	unsigned int depth;
 
-	
+	//unsigned int map1_size, map_size;
 	struct mutex tree_lock;
 
 	unsigned int pages_per_bnode;
@@ -40,6 +41,7 @@ struct hfs_btree {
 	int node_hash_cnt;
 };
 
+/* A HFS BTree node in memory */
 struct hfs_bnode {
 	struct hfs_btree *tree;
 
@@ -75,12 +77,14 @@ struct hfs_find_data {
 };
 
 
+/* btree.c */
 extern struct hfs_btree *hfs_btree_open(struct super_block *, u32, btree_keycmp);
 extern void hfs_btree_close(struct hfs_btree *);
 extern void hfs_btree_write(struct hfs_btree *);
 extern struct hfs_bnode * hfs_bmap_alloc(struct hfs_btree *);
 extern void hfs_bmap_free(struct hfs_bnode *node);
 
+/* bnode.c */
 extern void hfs_bnode_read(struct hfs_bnode *, void *, int, int);
 extern u16 hfs_bnode_read_u16(struct hfs_bnode *, int);
 extern u8 hfs_bnode_read_u8(struct hfs_bnode *, int);
@@ -102,11 +106,13 @@ extern struct hfs_bnode *hfs_bnode_create(struct hfs_btree *, u32);
 extern void hfs_bnode_get(struct hfs_bnode *);
 extern void hfs_bnode_put(struct hfs_bnode *);
 
+/* brec.c */
 extern u16 hfs_brec_lenoff(struct hfs_bnode *, u16, u16 *);
 extern u16 hfs_brec_keylen(struct hfs_bnode *, u16);
 extern int hfs_brec_insert(struct hfs_find_data *, void *, int);
 extern int hfs_brec_remove(struct hfs_find_data *);
 
+/* bfind.c */
 extern int hfs_find_init(struct hfs_btree *, struct hfs_find_data *);
 extern void hfs_find_exit(struct hfs_find_data *);
 extern int __hfs_brec_find(struct hfs_bnode *, struct hfs_find_data *);
@@ -116,39 +122,47 @@ extern int hfs_brec_goto(struct hfs_find_data *, int);
 
 
 struct hfs_bnode_desc {
-	__be32 next;		
-	__be32 prev;		
-	u8 type;		
-	u8 height;		
-	__be16 num_recs;	
+	__be32 next;		/* (V) Number of the next node at this level */
+	__be32 prev;		/* (V) Number of the prev node at this level */
+	u8 type;		/* (F) The type of node */
+	u8 height;		/* (F) The level of this node (leaves=1) */
+	__be16 num_recs;	/* (V) The number of records in this node */
 	u16 reserved;
 } __packed;
 
-#define HFS_NODE_INDEX	0x00	
-#define HFS_NODE_HEADER	0x01	
-#define HFS_NODE_MAP	0x02	
-#define HFS_NODE_LEAF	0xFF	
+#define HFS_NODE_INDEX	0x00	/* An internal (index) node */
+#define HFS_NODE_HEADER	0x01	/* The tree header node (node 0) */
+#define HFS_NODE_MAP	0x02	/* Holds part of the bitmap of used nodes */
+#define HFS_NODE_LEAF	0xFF	/* A leaf (ndNHeight==1) node */
 
 struct hfs_btree_header_rec {
-	__be16 depth;		
-	__be32 root;		
-	__be32 leaf_count;	
-	__be32 leaf_head;	
-	__be32 leaf_tail;	
-	__be16 node_size;	
-	__be16 max_key_len;	
-	__be32 node_count;	
-	__be32 free_nodes;	
+	__be16 depth;		/* (V) The number of levels in this B-tree */
+	__be32 root;		/* (V) The node number of the root node */
+	__be32 leaf_count;	/* (V) The number of leaf records */
+	__be32 leaf_head;	/* (V) The number of the first leaf node */
+	__be32 leaf_tail;	/* (V) The number of the last leaf node */
+	__be16 node_size;	/* (F) The number of bytes in a node (=512) */
+	__be16 max_key_len;	/* (F) The length of a key in an index node */
+	__be32 node_count;	/* (V) The total number of nodes */
+	__be32 free_nodes;	/* (V) The number of unused nodes */
 	u16 reserved1;
-	__be32 clump_size;	
-	u8 btree_type;		
+	__be32 clump_size;	/* (F) clump size. not usually used. */
+	u8 btree_type;		/* (F) BTree type */
 	u8 reserved2;
-	__be32 attributes;	
+	__be32 attributes;	/* (F) attributes */
 	u32 reserved3[16];
 } __packed;
 
-#define HFS_NODE_INDEX	0x00	
-#define HFS_NODE_HEADER	0x01	
-#define HFS_NODE_MAP		0x02	
-#define HFS_NODE_LEAF		0xFF	
+#define HFS_NODE_INDEX	0x00	/* An internal (index) node */
+#define HFS_NODE_HEADER	0x01	/* The tree header node (node 0) */
+#define HFS_NODE_MAP		0x02	/* Holds part of the bitmap of used nodes */
+#define HFS_NODE_LEAF		0xFF	/* A leaf (ndNHeight==1) node */
 
+#define BTREE_ATTR_BADCLOSE	0x00000001	/* b-tree not closed properly. not
+						   used by hfsplus. */
+#define HFS_TREE_BIGKEYS	0x00000002	/* key length is u16 instead of u8.
+						   used by hfsplus. */
+#define HFS_TREE_VARIDXKEYS	0x00000004	/* variable key length instead of
+						   max key length. use din catalog
+						   b-tree but not in extents
+						   b-tree (hfsplus). */

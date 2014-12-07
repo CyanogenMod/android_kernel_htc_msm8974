@@ -30,8 +30,9 @@ struct lms283gf05_seq {
 	unsigned char		delay;
 };
 
+/* Magic sequences supplied by manufacturer, for details refer to datasheet */
 static struct lms283gf05_seq disp_initseq[] = {
-	
+	/* REG, VALUE, DELAY */
 	{ 0x07, 0x0000, 0 },
 	{ 0x13, 0x0000, 10 },
 
@@ -185,7 +186,7 @@ static int __devinit lms283gf05_probe(struct spi_device *spi)
 
 	dev_set_drvdata(&spi->dev, st);
 
-	
+	/* kick in the LCD */
 	if (pdata)
 		lms283gf05_reset(pdata->reset_gpio, pdata->reset_inverted);
 	lms283gf05_toggle(spi, disp_initseq, ARRAY_SIZE(disp_initseq));

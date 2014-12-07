@@ -207,7 +207,7 @@ static int tegra_i2s_hw_params(struct snd_pcm_substream *substream,
 
 	srate = params_rate(params);
 
-	
+	/* Final "* 2" required by Tegra hardware */
 	i2sclock = srate * params_channels(params) * sample_size * 2;
 
 	ret = clk_set_rate(i2s->clk_i2s, i2sclock);

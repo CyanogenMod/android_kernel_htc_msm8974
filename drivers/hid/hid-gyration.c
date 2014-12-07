@@ -34,7 +34,7 @@ static int gyration_input_mapping(struct hid_device *hdev, struct hid_input *hi,
 
 	set_bit(EV_REP, hi->input->evbit);
 	switch (usage->hid & HID_USAGE) {
-	
+	/* Reported on Gyration MCE Remote */
 	case 0x00d: gy_map_key_clear(KEY_HOME);		break;
 	case 0x024: gy_map_key_clear(KEY_DVD);		break;
 	case 0x025: gy_map_key_clear(KEY_PVR);		break;

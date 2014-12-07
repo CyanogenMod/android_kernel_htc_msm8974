@@ -105,7 +105,7 @@
 struct rfcomm_hdr {
 	u8 addr;
 	u8 ctrl;
-	u8 len;    
+	u8 len;    /* Actual size can be 2 bytes */
 } __packed;
 
 struct rfcomm_cmd {
@@ -150,6 +150,7 @@ struct rfcomm_msc {
 	u8  v24_sig;
 } __packed;
 
+/* ---- Core structures, flags etc ---- */
 
 struct rfcomm_session {
 	struct list_head list;
@@ -160,7 +161,7 @@ struct rfcomm_session {
 	atomic_t         refcnt;
 	int              initiator;
 
-	
+	/* Default DLC parameters */
 	int    cfc;
 	uint   mtu;
 
@@ -200,6 +201,7 @@ struct rfcomm_dlc {
 	void (*modem_status)(struct rfcomm_dlc *d, u8 v24_sig);
 };
 
+/* DLC and session flags */
 #define RFCOMM_RX_THROTTLED 0
 #define RFCOMM_TX_THROTTLED 1
 #define RFCOMM_TIMED_OUT    2
@@ -210,21 +212,26 @@ struct rfcomm_dlc {
 #define RFCOMM_AUTH_REJECT  7
 #define RFCOMM_DEFER_SETUP  8
 
+/* Scheduling flags and events */
 #define RFCOMM_SCHED_WAKEUP 31
 
+/* MSC exchange flags */
 #define RFCOMM_MSCEX_TX     1
 #define RFCOMM_MSCEX_RX     2
 #define RFCOMM_MSCEX_OK     (RFCOMM_MSCEX_TX + RFCOMM_MSCEX_RX)
 
+/* CFC states */
 #define RFCOMM_CFC_UNKNOWN  -1
 #define RFCOMM_CFC_DISABLED 0
 #define RFCOMM_CFC_ENABLED  RFCOMM_MAX_CREDITS
 
+/* ---- RFCOMM SEND RPN ---- */
 int rfcomm_send_rpn(struct rfcomm_session *s, int cr, u8 dlci,
 			u8 bit_rate, u8 data_bits, u8 stop_bits,
 			u8 parity, u8 flow_ctrl_settings,
 			u8 xon_char, u8 xoff_char, u16 param_mask);
 
+/* ---- RFCOMM DLCs (channels) ---- */
 struct rfcomm_dlc *rfcomm_dlc_alloc(gfp_t prio);
 void rfcomm_dlc_free(struct rfcomm_dlc *d);
 int  rfcomm_dlc_open(struct rfcomm_dlc *d, bdaddr_t *src, bdaddr_t *dst, u8 channel);
@@ -263,6 +270,7 @@ static inline void rfcomm_dlc_unthrottle(struct rfcomm_dlc *d)
 		__rfcomm_dlc_unthrottle(d);
 }
 
+/* ---- RFCOMM sessions ---- */
 void   rfcomm_session_getaddr(struct rfcomm_session *s, bdaddr_t *src, bdaddr_t *dst);
 
 static inline void rfcomm_session_hold(struct rfcomm_session *s)
@@ -270,6 +278,7 @@ static inline void rfcomm_session_hold(struct rfcomm_session *s)
 	atomic_inc(&s->refcnt);
 }
 
+/* ---- RFCOMM sockets ---- */
 struct sockaddr_rc {
 	sa_family_t	rc_family;
 	bdaddr_t	rc_bdaddr;
@@ -305,6 +314,7 @@ void rfcomm_cleanup_sockets(void);
 
 int  rfcomm_connect_ind(struct rfcomm_session *s, u8 channel, struct rfcomm_dlc **d);
 
+/* ---- RFCOMM TTY ---- */
 #define RFCOMM_MAX_DEV  256
 
 #define RFCOMMCREATEDEV		_IOW('R', 200, int)
@@ -355,4 +365,4 @@ static inline void rfcomm_cleanup_ttys(void)
 {
 }
 #endif
-#endif 
+#endif /* __RFCOMM_H */

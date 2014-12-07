@@ -25,14 +25,38 @@ struct ion_cp_buffer {
 	atomic_t secure_cnt;
 	int is_secure;
 	int want_delayed_unsecure;
+	/*
+	 * Currently all user/kernel mapping is protected by the heap lock.
+	 * This is sufficient to protect the map count as well. The lock
+	 * should be used to protect map_cnt if the whole heap lock is
+	 * ever removed.
+	 */
 	atomic_t map_cnt;
+	/*
+	 * protects secure_cnt for securing.
+	 */
 	struct mutex lock;
 	int version;
 	void *data;
+	/*
+	 * secure is happening at allocation time, ignore version/data check
+	 */
 	bool ignore_check;
 };
 
 #if defined(CONFIG_ION_MSM)
+/*
+ * ion_cp2_protect_mem - secures memory via trustzone
+ *
+ * @chunks - physical address of the array containing the chunks to
+ *		be locked down
+ * @nchunks - number of entries in the array
+ * @chunk_size - size of each memory chunk
+ * @usage - usage hint
+ * @lock - 1 for lock, 0 for unlock
+ *
+ * return value is the result of the scm call
+ */
 int ion_cp_change_chunks_state(unsigned long chunks, unsigned int nchunks,
 			unsigned int chunk_size, enum cp_mem_usage usage,
 			int lock);

@@ -37,11 +37,12 @@
 #define NVRAM_HEADER_LEN	sizeof(struct nvram_header)
 #define NVRAM_BLOCK_LEN		NVRAM_HEADER_LEN
 
+/* If change this size, then change the size of NVNAME_LEN */
 struct nvram_header {
 	unsigned char signature;
 	unsigned char checksum;
 	unsigned short length;
-	
+	/* Terminating null required only for names < 12 chars. */
 	char name[12];
 };
 
@@ -172,7 +173,7 @@ static long dev_nvram_ioctl(struct file *file, unsigned int cmd,
 			return -EFAULT;
 		return 0;
 	}
-#endif 
+#endif /* CONFIG_PPC_PMAC */
 	default:
 		return -EINVAL;
 	}
@@ -225,17 +226,21 @@ static int __init nvram_write_header(struct nvram_partition * part)
 static unsigned char __init nvram_checksum(struct nvram_header *p)
 {
 	unsigned int c_sum, c_sum2;
-	unsigned short *sp = (unsigned short *)p->name; 
+	unsigned short *sp = (unsigned short *)p->name; /* assume 6 shorts */
 	c_sum = p->signature + p->length + sp[0] + sp[1] + sp[2] + sp[3] + sp[4] + sp[5];
 
-	
+	/* The sum may have spilled into the 3rd byte.  Fold it back. */
 	c_sum = ((c_sum & 0xffff) + (c_sum >> 16)) & 0xffff;
-	
+	/* The sum cannot exceed 2 bytes.  Fold it into a checksum */
 	c_sum2 = (c_sum >> 8) + (c_sum << 8);
 	c_sum = ((c_sum + c_sum2) >> 8) & 0xff;
 	return c_sum;
 }
 
+/*
+ * Per the criteria passed via nvram_remove_partition(), should this
+ * partition be removed?  1=remove, 0=keep
+ */
 static int nvram_can_remove_partition(struct nvram_partition *part,
 		const char *name, int sig, const char *exceptions[])
 {
@@ -254,6 +259,14 @@ static int nvram_can_remove_partition(struct nvram_partition *part,
 	return 1;
 }
 
+/**
+ * nvram_remove_partition - Remove one or more partitions in nvram
+ * @name: name of the partition to remove, or NULL for a
+ *        signature only match
+ * @sig: signature of the partition(s) to remove
+ * @exceptions: When removing all partitions with a matching signature,
+ *        leave these alone.
+ */
 
 int __init nvram_remove_partition(const char *name, int sig,
 						const char *exceptions[])
@@ -265,7 +278,7 @@ int __init nvram_remove_partition(const char *name, int sig,
 		if (!nvram_can_remove_partition(part, name, sig, exceptions))
 			continue;
 
-		
+		/* Make partition a free partition */
 		part->header.signature = NVRAM_SIG_FREE;
 		strncpy(part->header.name, "wwwwwwwwwwww", 12);
 		part->header.checksum = nvram_checksum(&part->header);
@@ -276,7 +289,7 @@ int __init nvram_remove_partition(const char *name, int sig,
 		}
 	}
 
-	
+	/* Merge contiguous ones */
 	prev = NULL;
 	list_for_each_entry_safe(part, tmp, &nvram_partitions, partition) {
 		if (part->header.signature != NVRAM_SIG_FREE) {
@@ -300,6 +313,19 @@ int __init nvram_remove_partition(const char *name, int sig,
 	return 0;
 }
 
+/**
+ * nvram_create_partition - Create a partition in nvram
+ * @name: name of the partition to create
+ * @sig: signature of the partition to create
+ * @req_size: size of data to allocate in bytes
+ * @min_size: minimum acceptable size (0 means req_size)
+ *
+ * Returns a negative error code or a positive nvram index
+ * of the beginning of the data area of the newly created
+ * partition. If you provided a min_size smaller than req_size
+ * you need to query for the actual size yourself after the
+ * call using nvram_partition_get_size().
+ */
 loff_t __init nvram_create_partition(const char *name, int sig,
 				     int req_size, int min_size)
 {
@@ -311,19 +337,24 @@ loff_t __init nvram_create_partition(const char *name, int sig,
 	long size = 0;
 	int rc;
 
-	
+	/* Convert sizes from bytes to blocks */
 	req_size = _ALIGN_UP(req_size, NVRAM_BLOCK_LEN) / NVRAM_BLOCK_LEN;
 	min_size = _ALIGN_UP(min_size, NVRAM_BLOCK_LEN) / NVRAM_BLOCK_LEN;
 
+	/* If no minimum size specified, make it the same as the
+	 * requested size
+	 */
 	if (min_size == 0)
 		min_size = req_size;
 	if (min_size > req_size)
 		return -EINVAL;
 
-	
+	/* Now add one block to each for the header */
 	req_size += 1;
 	min_size += 1;
 
+	/* Find a free partition that will give us the maximum needed size 
+	   If can't find one that will give us the minimum size needed */
 	list_for_each_entry(part, &nvram_partitions, partition) {
 		if (part->header.signature != NVRAM_SIG_FREE)
 			continue;
@@ -342,7 +373,7 @@ loff_t __init nvram_create_partition(const char *name, int sig,
 	if (!size)
 		return -ENOSPC;
 	
-	
+	/* Create our OS partition */
 	new_part = kmalloc(sizeof(*new_part), GFP_KERNEL);
 	if (!new_part) {
 		pr_err("nvram_create_os_partition: kmalloc failed\n");
@@ -363,7 +394,7 @@ loff_t __init nvram_create_partition(const char *name, int sig,
 	}
 	list_add_tail(&new_part->partition, &free_part->partition);
 
-	
+	/* Adjust or remove the partition we stole the space from */
 	if (free_part->header.length > size) {
 		free_part->index += size * NVRAM_BLOCK_LEN;
 		free_part->header.length -= size;
@@ -379,7 +410,7 @@ loff_t __init nvram_create_partition(const char *name, int sig,
 		kfree(free_part);
 	} 
 
-	
+	/* Clear the new partition */
 	for (tmp_index = new_part->index + NVRAM_HEADER_LEN;
 	     tmp_index <  ((size - 1) * NVRAM_BLOCK_LEN);
 	     tmp_index += NVRAM_BLOCK_LEN) {
@@ -393,6 +424,12 @@ loff_t __init nvram_create_partition(const char *name, int sig,
 	return new_part->index + NVRAM_HEADER_LEN;
 }
 
+/**
+ * nvram_get_partition_size - Get the data size of an nvram partition
+ * @data_index: This is the offset of the start of the data of
+ *              the partition. The same value that is returned by
+ *              nvram_create_partition().
+ */
 int nvram_get_partition_size(loff_t data_index)
 {
 	struct nvram_partition *part;
@@ -405,6 +442,12 @@ int nvram_get_partition_size(loff_t data_index)
 }
 
 
+/**
+ * nvram_find_partition - Find an nvram partition by signature and name
+ * @name: Name of the partition or NULL for any name
+ * @sig: Signature to test against
+ * @out_size: if non-NULL, returns the size of the data part of the partition
+ */
 loff_t nvram_find_partition(const char *name, int sig, int *out_size)
 {
 	struct nvram_partition *p;
@@ -450,7 +493,7 @@ int __init nvram_scan_partitions(void)
 			goto out;
 		}
 
-		cur_index -= NVRAM_HEADER_LEN; 
+		cur_index -= NVRAM_HEADER_LEN; /* nvram_read will advance us */
 
 		memcpy(&phead, header, NVRAM_HEADER_LEN);
 

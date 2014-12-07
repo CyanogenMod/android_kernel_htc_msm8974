@@ -11,6 +11,13 @@
 
 */
 
+/*
+   This is Ken's linux wrapper for the PPC library
+   Version 1.0.0 is the backpack driver for which source is not available
+   Version 2.0.0 is the first to have source released 
+   Version 2.0.1 is the "Cox-ified" source code 
+   Version 2.0.2 - fixed version string usage, and made ppc functions static 
+*/
 
 
 #define BACKPACK_VERSION "2.0.2"
@@ -26,28 +33,34 @@
 #include "ppc6lnx.c"
 #include "paride.h"
 
-static bool verbose; 
+/* PARAMETERS */
+static bool verbose; /* set this to 1 to see debugging messages and whatnot */
  
 
 #define PPCSTRUCT(pi) ((Interface *)(pi->private))
 
-#define ATAPI_DATA       0      
-#define ATAPI_ERROR      1      
-#define ATAPI_FEATURES   1      
-#define ATAPI_INT_REASON 2      
-#define ATAPI_COUNT_LOW  4      
-#define ATAPI_COUNT_HIGH 5      
-#define ATAPI_DRIVE_SEL  6      
-#define ATAPI_STATUS     7      
-#define ATAPI_COMMAND    7      
-#define ATAPI_ALT_STATUS 0x0e 
-#define ATAPI_DEVICE_CONTROL 0x0e 
+/****************************************************************/
+/*
+ ATAPI CDROM DRIVE REGISTERS
+*/
+#define ATAPI_DATA       0      /* data port                  */
+#define ATAPI_ERROR      1      /* error register (read)      */
+#define ATAPI_FEATURES   1      /* feature register (write)   */
+#define ATAPI_INT_REASON 2      /* interrupt reason register  */
+#define ATAPI_COUNT_LOW  4      /* byte count register (low)  */
+#define ATAPI_COUNT_HIGH 5      /* byte count register (high) */
+#define ATAPI_DRIVE_SEL  6      /* drive select register      */
+#define ATAPI_STATUS     7      /* status port (read)         */
+#define ATAPI_COMMAND    7      /* command port (write)       */
+#define ATAPI_ALT_STATUS 0x0e /* alternate status reg (read) */
+#define ATAPI_DEVICE_CONTROL 0x0e /* device control (write)   */
+/****************************************************************/
 
 static int bpck6_read_regr(PIA *pi, int cont, int reg)
 {
 	unsigned int out;
 
-	
+	/* check for bad settings */
 	if (reg<0 || reg>7 || cont<0 || cont>2)
 	{
 		return(-1);
@@ -58,7 +71,7 @@ static int bpck6_read_regr(PIA *pi, int cont, int reg)
 
 static void bpck6_write_regr(PIA *pi, int cont, int reg, int val)
 {
-	
+	/* check for bad settings */
 	if (reg>=0 && reg<=7 && cont>=0 && cont<=1)
 	{
 		ppc6_wr_port(PPCSTRUCT(pi),cont?reg|8:reg,(u8)val);
@@ -109,7 +122,7 @@ static void bpck6_disconnect ( PIA *pi )
 	ppc6_close(PPCSTRUCT(pi));
 }
 
-static int bpck6_test_port ( PIA *pi )   
+static int bpck6_test_port ( PIA *pi )   /* check for 8-bit port */
 {
 	if(verbose)
 	{
@@ -118,16 +131,16 @@ static int bpck6_test_port ( PIA *pi )
 			((struct pardevice *)(pi->pardev))->port->base); 
 	}
 
-	
+	/*copy over duplicate stuff.. initialize state info*/
 	PPCSTRUCT(pi)->ppc_id=pi->unit;
 	PPCSTRUCT(pi)->lpt_addr=pi->port;
 
-	
+	/* look at the parport device to see if what modes we can use */
 	if(((struct pardevice *)(pi->pardev))->port->modes & 
 		(PARPORT_MODE_EPP)
           )
 	{
-		return 5; 
+		return 5; /* Can do EPP*/
 	}
 	else if(((struct pardevice *)(pi->pardev))->port->modes & 
 			(PARPORT_MODE_TRISTATE)
@@ -135,7 +148,7 @@ static int bpck6_test_port ( PIA *pi )
 	{
 		return 2;
 	}
-	else 
+	else /*Just flat SPP*/
 	{
 		return 1;
 	}
@@ -150,10 +163,10 @@ static int bpck6_probe_unit ( PIA *pi )
 		printk(KERN_DEBUG "PROBE UNIT %x on port:%x\n",pi->unit,pi->port);
 	}
 
-	
+	/*SET PPC UNIT NUMBER*/
 	PPCSTRUCT(pi)->ppc_id=pi->unit;
 
-	
+	/*LOWER DOWN TO UNIDIRECTIONAL*/
 	PPCSTRUCT(pi)->mode=1;		
 
 	out=ppc6_open(PPCSTRUCT(pi));
@@ -217,7 +230,7 @@ static struct pi_protocol bpck6 = {
 	.owner		= THIS_MODULE,
 	.name		= "bpck6",
 	.max_mode	= 5,
-	.epp_first	= 2, 
+	.epp_first	= 2, /* 2-5 use epp (need 8 ports) */
 	.max_units	= 255,
 	.write_regr	= bpck6_write_regr,
 	.read_regr	= bpck6_read_regr,

@@ -44,6 +44,9 @@
 
 #define MAX_INTERNAL_IRQS	128
 
+/*
+ * This is for peripheral IRQs internal to the PXA chip.
+ */
 
 static int pxa_internal_irq_nr;
 
@@ -129,10 +132,10 @@ void __init pxa_init_irq(int irq_nr, int (*fn)(struct irq_data *, unsigned int))
 	for (n = 0; n < irq_nr; n += 32) {
 		void __iomem *base = irq_base(n >> 5);
 
-		__raw_writel(0, base + ICMR);	
-		__raw_writel(0, base + ICLR);	
+		__raw_writel(0, base + ICMR);	/* disable all IRQs */
+		__raw_writel(0, base + ICLR);	/* all IRQs are IRQ, not FIQ */
 		for (i = n; (i < (n + 32)) && (i < irq_nr); i++) {
-			
+			/* initialize interrupt priority */
 			if (cpu_has_ipr())
 				__raw_writel(i | IPR_VALID, IRQ_BASE + IPR(i));
 
@@ -144,7 +147,7 @@ void __init pxa_init_irq(int irq_nr, int (*fn)(struct irq_data *, unsigned int))
 		}
 	}
 
-	
+	/* only unmasked interrupts kick us out of idle */
 	__raw_writel(1, irq_base(0) + ICCR);
 
 	pxa_internal_irq_chip.irq_set_wake = fn;

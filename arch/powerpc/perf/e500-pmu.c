@@ -14,43 +14,68 @@
 #include <asm/reg.h>
 #include <asm/cputable.h>
 
+/*
+ * Map of generic hardware event types to hardware events
+ * Zero if unsupported
+ */
 static int e500_generic_events[] = {
 	[PERF_COUNT_HW_CPU_CYCLES] = 1,
 	[PERF_COUNT_HW_INSTRUCTIONS] = 2,
-	[PERF_COUNT_HW_CACHE_MISSES] = 41, 
+	[PERF_COUNT_HW_CACHE_MISSES] = 41, /* Data L1 cache reloads */
 	[PERF_COUNT_HW_BRANCH_INSTRUCTIONS] = 12,
 	[PERF_COUNT_HW_BRANCH_MISSES] = 15,
 };
 
 #define C(x)	PERF_COUNT_HW_CACHE_##x
 
+/*
+ * Table of generalized cache-related events.
+ * 0 means not supported, -1 means nonsensical, other values
+ * are event codes.
+ */
 static int e500_cache_events[C(MAX)][C(OP_MAX)][C(RESULT_MAX)] = {
-	[C(L1D)] = {		
+	/*
+	 * D-cache misses are not split into read/write/prefetch;
+	 * use raw event 41.
+	 */
+	[C(L1D)] = {		/* 	RESULT_ACCESS	RESULT_MISS */
 		[C(OP_READ)] = {	27,		0	},
 		[C(OP_WRITE)] = {	28,		0	},
 		[C(OP_PREFETCH)] = {	29,		0	},
 	},
-	[C(L1I)] = {		
+	[C(L1I)] = {		/* 	RESULT_ACCESS	RESULT_MISS */
 		[C(OP_READ)] = {	2,		60	},
 		[C(OP_WRITE)] = {	-1,		-1	},
 		[C(OP_PREFETCH)] = {	0,		0	},
 	},
-	[C(LL)] = {		
+	/*
+	 * Assuming LL means L2, it's not a good match for this model.
+	 * It allocates only on L1 castout or explicit prefetch, and
+	 * does not have separate read/write events (but it does have
+	 * separate instruction/data events).
+	 */
+	[C(LL)] = {		/* 	RESULT_ACCESS	RESULT_MISS */
 		[C(OP_READ)] = {	0,		0	},
 		[C(OP_WRITE)] = {	0,		0	},
 		[C(OP_PREFETCH)] = {	0,		0	},
 	},
-	[C(DTLB)] = {		
+	/*
+	 * There are data/instruction MMU misses, but that's a miss on
+	 * the chip's internal level-one TLB which is probably not
+	 * what the user wants.  Instead, unified level-two TLB misses
+	 * are reported here.
+	 */
+	[C(DTLB)] = {		/* 	RESULT_ACCESS	RESULT_MISS */
 		[C(OP_READ)] = {	26,		66	},
 		[C(OP_WRITE)] = {	-1,		-1	},
 		[C(OP_PREFETCH)] = {	-1,		-1	},
 	},
-	[C(BPU)] = {		
+	[C(BPU)] = {		/* 	RESULT_ACCESS	RESULT_MISS */
 		[C(OP_READ)] = {	12,		15 	},
 		[C(OP_WRITE)] = {	-1,		-1	},
 		[C(OP_PREFETCH)] = {	-1,		-1	},
 	},
-	[C(NODE)] = {		
+	[C(NODE)] = {		/* 	RESULT_ACCESS	RESULT_MISS */
 		[C(OP_READ)] = {	-1,		-1 	},
 		[C(OP_WRITE)] = {	-1,		-1	},
 		[C(OP_PREFETCH)] = {	-1,		-1	},
@@ -59,6 +84,7 @@ static int e500_cache_events[C(MAX)][C(OP_MAX)][C(RESULT_MAX)] = {
 
 static int num_events = 128;
 
+/* Upper half of event id is PMLCb, for threshold events */
 static u64 e500_xlate_event(u64 event_id)
 {
 	u32 event_low = (u32)event_id;
@@ -75,7 +101,7 @@ static u64 e500_xlate_event(u64 event_id)
 		       (FSL_EMB_EVENT_THRESHMUL | FSL_EMB_EVENT_THRESH);
 	} else if (event_id &
 	           (FSL_EMB_EVENT_THRESHMUL | FSL_EMB_EVENT_THRESH)) {
-		
+		/* Threshold requested on non-threshold event */
 		return 0;
 	}
 

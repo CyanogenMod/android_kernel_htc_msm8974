@@ -50,54 +50,66 @@
 
 static void __init cpu9krea_init_early(void)
 {
-	
+	/* Initialize processor: 18.432 MHz crystal */
 	at91_initialize(18432000);
 
-	
+	/* DGBU on ttyS0. (Rx & Tx only) */
 	at91_register_uart(0, 0, 0);
 
-	
+	/* USART0 on ttyS1. (Rx, Tx, CTS, RTS, DTR, DSR, DCD, RI) */
 	at91_register_uart(AT91SAM9260_ID_US0, 1, ATMEL_UART_CTS |
 		ATMEL_UART_RTS | ATMEL_UART_DTR | ATMEL_UART_DSR |
 		ATMEL_UART_DCD | ATMEL_UART_RI);
 
-	
+	/* USART1 on ttyS2. (Rx, Tx, RTS, CTS) */
 	at91_register_uart(AT91SAM9260_ID_US1, 2, ATMEL_UART_CTS |
 		ATMEL_UART_RTS);
 
-	
+	/* USART2 on ttyS3. (Rx, Tx, RTS, CTS) */
 	at91_register_uart(AT91SAM9260_ID_US2, 3, ATMEL_UART_CTS |
 		ATMEL_UART_RTS);
 
-	
+	/* USART3 on ttyS4. (Rx, Tx) */
 	at91_register_uart(AT91SAM9260_ID_US3, 4, 0);
 
-	
+	/* USART4 on ttyS5. (Rx, Tx) */
 	at91_register_uart(AT91SAM9260_ID_US4, 5, 0);
 
-	
+	/* USART5 on ttyS6. (Rx, Tx) */
 	at91_register_uart(AT91SAM9260_ID_US5, 6, 0);
 
-	
+	/* set serial console to ttyS0 (ie, DBGU) */
 	at91_set_serial_console(0);
 }
 
+/*
+ * USB Host port
+ */
 static struct at91_usbh_data __initdata cpu9krea_usbh_data = {
 	.ports		= 2,
 	.vbus_pin	= {-EINVAL, -EINVAL},
 	.overcurrent_pin= {-EINVAL, -EINVAL},
 };
 
+/*
+ * USB Device port
+ */
 static struct at91_udc_data __initdata cpu9krea_udc_data = {
 	.vbus_pin	= AT91_PIN_PC8,
-	.pullup_pin	= -EINVAL,		
+	.pullup_pin	= -EINVAL,		/* pull-up driven by UDC */
 };
 
+/*
+ * MACB Ethernet device
+ */
 static struct macb_platform_data __initdata cpu9krea_macb_data = {
 	.phy_irq_pin	= -EINVAL,
 	.is_rmii	= 1,
 };
 
+/*
+ * NAND flash
+ */
 static struct atmel_nand_data __initdata cpu9krea_nand_data = {
 	.ale		= 21,
 	.cle		= 22,
@@ -154,6 +166,9 @@ static void __init cpu9krea_add_device_nand(void)
 	at91_add_device_nand(&cpu9krea_nand_data);
 }
 
+/*
+ * NOR flash
+ */
 static struct physmap_flash_data cpuat9260_nor_data = {
 	.width		= 2,
 };
@@ -228,32 +243,35 @@ static __init void cpu9krea_add_device_nor(void)
 	csa = at91_matrix_read(AT91_MATRIX_EBICSA);
 	at91_matrix_write(AT91_MATRIX_EBICSA, csa | AT91_MATRIX_VDDIOMSEL_3_3V);
 
-	
+	/* configure chip-select 0 (NOR) */
 	sam9_smc_configure(0, 0, &cpu9krea_nor_smc_config);
 
 	platform_device_register(&cpu9krea_nor_flash);
 }
 
+/*
+ * LEDs
+ */
 static struct gpio_led cpu9krea_leds[] = {
-	{	
+	{	/* LED1 */
 		.name			= "LED1",
 		.gpio			= AT91_PIN_PC11,
 		.active_low		= 1,
 		.default_trigger	= "timer",
 	},
-	{	
+	{	/* LED2 */
 		.name			= "LED2",
 		.gpio			= AT91_PIN_PC12,
 		.active_low		= 1,
 		.default_trigger	= "heartbeat",
 	},
-	{	
+	{	/* LED3 */
 		.name			= "LED3",
 		.gpio			= AT91_PIN_PC7,
 		.active_low		= 1,
 		.default_trigger	= "none",
 	},
-	{	
+	{	/* LED4 */
 		.name			= "LED4",
 		.gpio			= AT91_PIN_PC9,
 		.active_low		= 1,
@@ -268,6 +286,9 @@ static struct i2c_board_info __initdata cpu9krea_i2c_devices[] = {
 	},
 };
 
+/*
+ * GPIO Buttons
+ */
 #if defined(CONFIG_KEYBOARD_GPIO) || defined(CONFIG_KEYBOARD_GPIO_MODULE)
 static struct gpio_keys_button cpu9krea_buttons[] = {
 	{
@@ -302,9 +323,9 @@ static struct platform_device cpu9krea_button_device = {
 
 static void __init cpu9krea_add_device_buttons(void)
 {
-	at91_set_gpio_input(AT91_PIN_PC3, 1);	
+	at91_set_gpio_input(AT91_PIN_PC3, 1);	/* BP1 */
 	at91_set_deglitch(AT91_PIN_PC3, 1);
-	at91_set_gpio_input(AT91_PIN_PB20, 1);	
+	at91_set_gpio_input(AT91_PIN_PB20, 1);	/* BP2 */
 	at91_set_deglitch(AT91_PIN_PB20, 1);
 
 	platform_device_register(&cpu9krea_button_device);
@@ -315,6 +336,9 @@ static void __init cpu9krea_add_device_buttons(void)
 }
 #endif
 
+/*
+ * MCI (SD/MMC)
+ */
 static struct at91_mmc_data __initdata cpu9krea_mmc_data = {
 	.slot_b		= 0,
 	.wire4		= 1,
@@ -325,26 +349,26 @@ static struct at91_mmc_data __initdata cpu9krea_mmc_data = {
 
 static void __init cpu9krea_board_init(void)
 {
-	
+	/* NOR */
 	cpu9krea_add_device_nor();
-	
+	/* Serial */
 	at91_add_device_serial();
-	
+	/* USB Host */
 	at91_add_device_usbh(&cpu9krea_usbh_data);
-	
+	/* USB Device */
 	at91_add_device_udc(&cpu9krea_udc_data);
-	
+	/* NAND */
 	cpu9krea_add_device_nand();
-	
+	/* Ethernet */
 	at91_add_device_eth(&cpu9krea_macb_data);
-	
+	/* MMC */
 	at91_add_device_mmc(0, &cpu9krea_mmc_data);
-	
+	/* I2C */
 	at91_add_device_i2c(cpu9krea_i2c_devices,
 		ARRAY_SIZE(cpu9krea_i2c_devices));
-	
+	/* LEDs */
 	at91_gpio_leds(cpu9krea_leds, ARRAY_SIZE(cpu9krea_leds));
-	
+	/* Push Buttons */
 	cpu9krea_add_device_buttons();
 }
 
@@ -353,7 +377,7 @@ MACHINE_START(CPUAT9260, "Eukrea CPU9260")
 #else
 MACHINE_START(CPUAT9G20, "Eukrea CPU9G20")
 #endif
-	
+	/* Maintainer: Eric Benard - EUKREA Electromatique */
 	.timer		= &at91sam926x_timer,
 	.map_io		= at91_map_io,
 	.init_early	= cpu9krea_init_early,

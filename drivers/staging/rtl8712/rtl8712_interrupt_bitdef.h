@@ -20,6 +20,8 @@
 #ifndef __RTL8712_INTERRUPT_BITDEF_H__
 #define __RTL8712_INTERRUPT_BITDEF_H__
 
+/*HIMR*/
+/*HISR*/
 #define	_CPUERR					BIT(29)
 #define	_ATIMEND				BIT(28)
 #define	_TXBCNOK				BIT(27)
@@ -52,5 +54,5 @@
 #define	_RXOK					BIT(0)
 
 
-#endif	
+#endif	/*__RTL8712_INTERRUPT_BITDEF_H__*/
 

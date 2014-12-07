@@ -58,6 +58,14 @@ static const struct pio_clocks cs5520_pio_clocks[]={
 	{1, 2, 1}
 };
 
+/**
+ *	cs5520_set_timings	-	program PIO timings
+ *	@ap: ATA port
+ *	@adev: ATA device
+ *
+ *	Program the PIO mode timings for the controller according to the pio
+ *	clocking table.
+ */
 
 static void cs5520_set_timings(struct ata_port *ap, struct ata_device *adev, int pio)
 {
@@ -66,21 +74,29 @@ static void cs5520_set_timings(struct ata_port *ap, struct ata_device *adev, int
 
 	pio -= XFER_PIO_0;
 
-	
+	/* Channel command timing */
 	pci_write_config_byte(pdev, 0x62 + ap->port_no,
 				(cs5520_pio_clocks[pio].recovery << 4) |
 				(cs5520_pio_clocks[pio].assert));
-	
-	
+	/* FIXME: should these use address ? */
+	/* Read command timing */
 	pci_write_config_byte(pdev, 0x64 +  4*ap->port_no + slave,
 				(cs5520_pio_clocks[pio].recovery << 4) |
 				(cs5520_pio_clocks[pio].assert));
-	
+	/* Write command timing */
 	pci_write_config_byte(pdev, 0x66 +  4*ap->port_no + slave,
 				(cs5520_pio_clocks[pio].recovery << 4) |
 				(cs5520_pio_clocks[pio].assert));
 }
 
+/**
+ *	cs5520_set_piomode	-	program PIO timings
+ *	@ap: ATA port
+ *	@adev: ATA device
+ *
+ *	Program the PIO mode timings for the controller according to the pio
+ *	clocking table.
+ */
 
 static void cs5520_set_piomode(struct ata_port *ap, struct ata_device *adev)
 {
@@ -119,10 +135,10 @@ static int __devinit cs5520_init_one(struct pci_dev *pdev, const struct pci_devi
 	if (rc)
 		return rc;
 
-	
+	/* IDE port enable bits */
 	pci_read_config_byte(pdev, 0x60, &pcicfg);
 
-	
+	/* Check if the ATA ports are enabled */
 	if ((pcicfg & 3) == 0)
 		return -ENODEV;
 
@@ -143,7 +159,7 @@ static int __devinit cs5520_init_one(struct pci_dev *pdev, const struct pci_devi
 	if (!host)
 		return -ENOMEM;
 
-	
+	/* Perform set up for DMA */
 	if (pci_enable_device_io(pdev)) {
 		printk(KERN_ERR DRV_NAME ": unable to configure BAR2.\n");
 		return -ENODEV;
@@ -158,7 +174,7 @@ static int __devinit cs5520_init_one(struct pci_dev *pdev, const struct pci_devi
 		return -ENODEV;
 	}
 
-	
+	/* Map IO ports and initialize host accordingly */
 	iomap[0] = devm_ioport_map(&pdev->dev, cmd_port[0], 8);
 	iomap[1] = devm_ioport_map(&pdev->dev, ctl_port[0], 1);
 	iomap[2] = devm_ioport_map(&pdev->dev, cmd_port[1], 8);
@@ -190,7 +206,7 @@ static int __devinit cs5520_init_one(struct pci_dev *pdev, const struct pci_devi
 		      "cmd 0x%x ctl 0x%x", cmd_port[1], ctl_port[1]);
 	ata_port_pbar_desc(host->ports[1], 4, 8, "bmdma");
 
-	
+	/* activate the host */
 	pci_set_master(pdev);
 	rc = ata_host_start(host);
 	if (rc)
@@ -215,6 +231,13 @@ static int __devinit cs5520_init_one(struct pci_dev *pdev, const struct pci_devi
 }
 
 #ifdef CONFIG_PM
+/**
+ *	cs5520_reinit_one	-	device resume
+ *	@pdev: PCI device
+ *
+ *	Do any reconfiguration work needed by a resume from RAM. We need
+ *	to restore DMA mode support on BIOSen which disabled it
+ */
 
 static int cs5520_reinit_one(struct pci_dev *pdev)
 {
@@ -234,6 +257,15 @@ static int cs5520_reinit_one(struct pci_dev *pdev)
 	return 0;
 }
 
+/**
+ *	cs5520_pci_device_suspend	-	device suspend
+ *	@pdev: PCI device
+ *
+ *	We have to cut and waste bits from the standard method because
+ *	the 5520 is a bit odd and not just a pure ATA device. As a result
+ *	we must not disable it. The needed code is short and this avoids
+ *	chip specific mess in the core code.
+ */
 
 static int cs5520_pci_device_suspend(struct pci_dev *pdev, pm_message_t mesg)
 {
@@ -247,8 +279,10 @@ static int cs5520_pci_device_suspend(struct pci_dev *pdev, pm_message_t mesg)
 	pci_save_state(pdev);
 	return 0;
 }
-#endif 
+#endif /* CONFIG_PM */
 
+/* For now keep DMA off. We can set it for all but A rev CS5510 once the
+   core ATA code can handle it */
 
 static const struct pci_device_id pata_cs5520[] = {
 	{ PCI_VDEVICE(CYRIX, PCI_DEVICE_ID_CYRIX_5510), },

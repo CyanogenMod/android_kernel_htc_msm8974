@@ -27,6 +27,16 @@ struct ltv350qv {
 	struct lcd_device	*ld;
 };
 
+/*
+ * The power-on and power-off sequences are taken from the
+ * LTV350QV-F04 data sheet from Samsung. The register definitions are
+ * taken from the S6F2002 command list also from Samsung. Both
+ * documents are distributed with the AVR32 Linux BSP CD from Atmel.
+ *
+ * There's still some voodoo going on here, but it's a lot better than
+ * in the first incarnation of the driver where all we had was the raw
+ * numbers from the initialization sequence.
+ */
 static int ltv350qv_write_reg(struct ltv350qv *lcd, u8 reg, u16 val)
 {
 	struct spi_message msg;
@@ -40,14 +50,14 @@ static int ltv350qv_write_reg(struct ltv350qv *lcd, u8 reg, u16 val)
 
 	spi_message_init(&msg);
 
-	
+	/* register index */
 	lcd->buffer[0] = LTV_OPC_INDEX;
 	lcd->buffer[1] = 0x00;
 	lcd->buffer[2] = reg & 0x7f;
 	index_xfer.tx_buf = lcd->buffer;
 	spi_message_add_tail(&index_xfer, &msg);
 
-	
+	/* register value */
 	lcd->buffer[4] = LTV_OPC_DATA;
 	lcd->buffer[5] = val >> 8;
 	lcd->buffer[6] = val;
@@ -57,22 +67,23 @@ static int ltv350qv_write_reg(struct ltv350qv *lcd, u8 reg, u16 val)
 	return spi_sync(lcd->spi, &msg);
 }
 
+/* The comments are taken straight from the data sheet */
 static int ltv350qv_power_on(struct ltv350qv *lcd)
 {
 	int ret;
 
-	
+	/* Power On Reset Display off State */
 	if (ltv350qv_write_reg(lcd, LTV_PWRCTL1, 0x0000))
 		goto err;
 	msleep(15);
 
-	
+	/* Power Setting Function 1 */
 	if (ltv350qv_write_reg(lcd, LTV_PWRCTL1, LTV_VCOM_DISABLE))
 		goto err;
 	if (ltv350qv_write_reg(lcd, LTV_PWRCTL2, LTV_VCOML_ENABLE))
 		goto err_power1;
 
-	
+	/* Power Setting Function 2 */
 	if (ltv350qv_write_reg(lcd, LTV_PWRCTL1,
 			       LTV_VCOM_DISABLE | LTV_DRIVE_CURRENT(5)
 			       | LTV_SUPPLY_CURRENT(5)))
@@ -80,7 +91,7 @@ static int ltv350qv_power_on(struct ltv350qv *lcd)
 
 	msleep(55);
 
-	
+	/* Instruction Setting */
 	ret = ltv350qv_write_reg(lcd, LTV_IFCTL,
 				 LTV_NMD | LTV_REV | LTV_NL(0x1d));
 	ret |= ltv350qv_write_reg(lcd, LTV_DATACTL,
@@ -111,10 +122,10 @@ static int ltv350qv_power_on(struct ltv350qv *lcd)
 	if (ret)
 		goto err_settings;
 
-	
+	/* Wait more than 2 frames */
 	msleep(20);
 
-	
+	/* Display On Sequence */
 	ret = ltv350qv_write_reg(lcd, LTV_PWRCTL1,
 				 LTV_VCOM_DISABLE | LTV_VCOMOUT_ENABLE
 				 | LTV_POWER_ON | LTV_DRIVE_CURRENT(5)
@@ -124,10 +135,15 @@ static int ltv350qv_power_on(struct ltv350qv *lcd)
 	if (ret)
 		goto err_disp_on;
 
-	
+	/* Display should now be ON. Phew. */
 	return 0;
 
 err_disp_on:
+	/*
+	 * Try to recover. Error handling probably isn't very useful
+	 * at this point, just make a best effort to switch the panel
+	 * off.
+	 */
 	ltv350qv_write_reg(lcd, LTV_PWRCTL1,
 			   LTV_VCOM_DISABLE | LTV_DRIVE_CURRENT(5)
 			   | LTV_SUPPLY_CURRENT(5));
@@ -147,7 +163,7 @@ static int ltv350qv_power_off(struct ltv350qv *lcd)
 {
 	int ret;
 
-	
+	/* Display Off Sequence */
 	ret = ltv350qv_write_reg(lcd, LTV_PWRCTL1,
 				 LTV_VCOM_DISABLE
 				 | LTV_DRIVE_CURRENT(5)
@@ -155,19 +171,24 @@ static int ltv350qv_power_off(struct ltv350qv *lcd)
 	ret |= ltv350qv_write_reg(lcd, LTV_GATECTL2,
 				  LTV_NW_INV_1LINE | LTV_FWI(3));
 
-	
+	/* Power down setting 1 */
 	ret |= ltv350qv_write_reg(lcd, LTV_PWRCTL2, 0x0000);
 
-	
+	/* Wait at least 1 ms */
 	msleep(1);
 
-	
+	/* Power down setting 2 */
 	ret |= ltv350qv_write_reg(lcd, LTV_PWRCTL1, LTV_VCOM_DISABLE);
 
+	/*
+	 * No point in trying to recover here. If we can't switch the
+	 * panel off, what are we supposed to do other than inform the
+	 * user about the failure?
+	 */
 	if (ret)
 		return -EIO;
 
-	
+	/* Display power should now be OFF */
 	return 0;
 }
 
@@ -278,6 +299,7 @@ static int ltv350qv_resume(struct spi_device *spi)
 #define ltv350qv_resume		NULL
 #endif
 
+/* Power down all displays on reboot, poweroff or halt */
 static void ltv350qv_shutdown(struct spi_device *spi)
 {
 	struct ltv350qv *lcd = dev_get_drvdata(&spi->dev);

@@ -32,19 +32,36 @@
 #ifndef _CXGB_SUNI1x10GEXP_REGS_H_
 #define _CXGB_SUNI1x10GEXP_REGS_H_
 
+/*
+** Space allocated for each Exact Match Filter
+**     There are 8 filter configurations
+*/
 #define SUNI1x10GEXP_REG_SIZEOF_MAC_FILTER 0x0003
 
 #define mSUNI1x10GEXP_MAC_FILTER_OFFSET(filterId)       ( (filterId) * SUNI1x10GEXP_REG_SIZEOF_MAC_FILTER )
 
+/*
+** Space allocated for VLAN-Id Filter
+**      There are 8 filter configurations
+*/
 #define SUNI1x10GEXP_REG_SIZEOF_MAC_VID_FILTER 0x0001
 
 #define mSUNI1x10GEXP_MAC_VID_FILTER_OFFSET(filterId)   ( (filterId) * SUNI1x10GEXP_REG_SIZEOF_MAC_VID_FILTER )
 
+/*
+** Space allocated for each MSTAT Counter
+*/
 #define SUNI1x10GEXP_REG_SIZEOF_MSTAT_COUNT 0x0004
 
 #define mSUNI1x10GEXP_MSTAT_COUNT_OFFSET(countId)       ( (countId) * SUNI1x10GEXP_REG_SIZEOF_MSTAT_COUNT )
 
 
+/******************************************************************************/
+/** S/UNI-1x10GE-XP REGISTER ADDRESS MAP                                     **/
+/******************************************************************************/
+/* Refer to the Register Bit Masks bellow for the naming of each register and */
+/* to the S/UNI-1x10GE-XP Data Sheet for the signification of each bit        */
+/******************************************************************************/
 
 
 #define SUNI1x10GEXP_REG_IDENTIFICATION                                  0x0000
@@ -486,9 +503,16 @@
 #define SUNI1x10GEXP_REG_PL4IDU_INTERRUPT                                0x3283
 
 
+/*----------------------------------------*/
 #define SUNI1x10GEXP_REG_MAX_OFFSET                                      0x3480
 
+/******************************************************************************/
+/*                 -- End register offset definitions --                      */
+/******************************************************************************/
 
+/******************************************************************************/
+/** SUNI-1x10GE-XP REGISTER BIT MASKS                                        **/
+/******************************************************************************/
 
 #define SUNI1x10GEXP_BITMSK_BITS_1   0x00001
 #define SUNI1x10GEXP_BITMSK_BITS_2   0x00003
@@ -527,12 +551,34 @@
 
 
 
+/*----------------------------------------------------------------------------
+ * Register 0x0001: S/UNI-1x10GE-XP Product Revision
+ *    Bit 3-0  REVISION
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_REVISION  0x000F
 
+/*----------------------------------------------------------------------------
+ * Register 0x0002: S/UNI-1x10GE-XP Configuration and Reset Control
+ *    Bit 2  XAUI_ARESETB
+ *    Bit 1  PL4_ARESETB
+ *    Bit 0  DRESETB
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_XAUI_ARESET  0x0004
 #define SUNI1x10GEXP_BITMSK_PL4_ARESET   0x0002
 #define SUNI1x10GEXP_BITMSK_DRESETB      0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x0003: S/UNI-1x10GE-XP Loop Back and Miscellaneous Control
+ *    Bit 11  PL4IO_OUTCLKSEL
+ *    Bit 9   SYSPCSLB
+ *    Bit 8   LINEPCSLB
+ *    Bit 7   MSTAT_BYPASS
+ *    Bit 6   RXXG_BYPASS
+ *    Bit 5   TXXG_BYPASS
+ *    Bit 4   SOP_PAD_EN
+ *    Bit 1   LOS_INV
+ *    Bit 0   OVERRIDE_LOS
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4IO_OUTCLKSEL  0x0800
 #define SUNI1x10GEXP_BITMSK_SYSPCSLB         0x0200
 #define SUNI1x10GEXP_BITMSK_LINEPCSLB        0x0100
@@ -543,6 +589,19 @@
 #define SUNI1x10GEXP_BITMSK_LOS_INV          0x0002
 #define SUNI1x10GEXP_BITMSK_OVERRIDE_LOS     0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x0004: S/UNI-1x10GE-XP Device Status
+ *    Bit 9 TOP_SXRA_EXPIRED
+ *    Bit 8 TOP_MDIO_BUSY
+ *    Bit 7 TOP_DTRB
+ *    Bit 6 TOP_EXPIRED
+ *    Bit 5 TOP_PAUSED
+ *    Bit 4 TOP_PL4_ID_DOOL
+ *    Bit 3 TOP_PL4_IS_DOOL
+ *    Bit 2 TOP_PL4_ID_ROOL
+ *    Bit 1 TOP_PL4_IS_ROOL
+ *    Bit 0 TOP_PL4_OUT_ROOL
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TOP_SXRA_EXPIRED  0x0200
 #define SUNI1x10GEXP_BITMSK_TOP_MDIO_BUSY     0x0100
 #define SUNI1x10GEXP_BITMSK_TOP_DTRB          0x0080
@@ -554,6 +613,19 @@
 #define SUNI1x10GEXP_BITMSK_TOP_PL4_IS_ROOL   0x0002
 #define SUNI1x10GEXP_BITMSK_TOP_PL4_OUT_ROOL  0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x0005: Global Performance Update and Clock Monitors
+ *    Bit 15 TIP
+ *    Bit 8  XAUI_REF_CLKA
+ *    Bit 7  RXLANE3CLKA
+ *    Bit 6  RXLANE2CLKA
+ *    Bit 5  RXLANE1CLKA
+ *    Bit 4  RXLANE0CLKA
+ *    Bit 3  CSUCLKA
+ *    Bit 2  TDCLKA
+ *    Bit 1  RSCLKA
+ *    Bit 0  RDCLKA
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TIP            0x8000
 #define SUNI1x10GEXP_BITMSK_XAUI_REF_CLKA  0x0100
 #define SUNI1x10GEXP_BITMSK_RXLANE3CLKA    0x0080
@@ -565,21 +637,52 @@
 #define SUNI1x10GEXP_BITMSK_RSCLKA         0x0002
 #define SUNI1x10GEXP_BITMSK_RDCLKA         0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x0006: MDIO Command
+ *    Bit 4 MDIO_RDINC
+ *    Bit 3 MDIO_RSTAT
+ *    Bit 2 MDIO_LCTLD
+ *    Bit 1 MDIO_LCTLA
+ *    Bit 0 MDIO_SPRE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_MDIO_RDINC  0x0010
 #define SUNI1x10GEXP_BITMSK_MDIO_RSTAT  0x0008
 #define SUNI1x10GEXP_BITMSK_MDIO_LCTLD  0x0004
 #define SUNI1x10GEXP_BITMSK_MDIO_LCTLA  0x0002
 #define SUNI1x10GEXP_BITMSK_MDIO_SPRE   0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x0007: MDIO Interrupt Enable
+ *    Bit 0 MDIO_BUSY_EN
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_MDIO_BUSY_EN  0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x0008: MDIO Interrupt Status
+ *    Bit 0 MDIO_BUSYI
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_MDIO_BUSYI  0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x0009: MMD PHY Address
+ *    Bit 12-8 MDIO_DEVADR
+ *    Bit 4-0 MDIO_PRTADR
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_MDIO_DEVADR  0x1F00
 #define SUNI1x10GEXP_BITOFF_MDIO_DEVADR  8
 #define SUNI1x10GEXP_BITMSK_MDIO_PRTADR  0x001F
 #define SUNI1x10GEXP_BITOFF_MDIO_PRTADR  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x000C: OAM Interface Control
+ *    Bit 6 MDO_OD_ENB
+ *    Bit 5 MDI_INV
+ *    Bit 4 MDI_SEL
+ *    Bit 3 RXOAMEN
+ *    Bit 2 RXOAMCLKEN
+ *    Bit 1 TXOAMEN
+ *    Bit 0 TXOAMCLKEN
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_MDO_OD_ENB  0x0040
 #define SUNI1x10GEXP_BITMSK_MDI_INV     0x0020
 #define SUNI1x10GEXP_BITMSK_MDI_SEL     0x0010
@@ -588,6 +691,25 @@
 #define SUNI1x10GEXP_BITMSK_TXOAMEN     0x0002
 #define SUNI1x10GEXP_BITMSK_TXOAMCLKEN  0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x000D: S/UNI-1x10GE-XP Master Interrupt Status
+ *    Bit 15 TOP_PL4IO_INT
+ *    Bit 14 TOP_IRAM_INT
+ *    Bit 13 TOP_ERAM_INT
+ *    Bit 12 TOP_XAUI_INT
+ *    Bit 11 TOP_MSTAT_INT
+ *    Bit 10 TOP_RXXG_INT
+ *    Bit 9 TOP_TXXG_INT
+ *    Bit 8 TOP_XRF_INT
+ *    Bit 7 TOP_XTEF_INT
+ *    Bit 6 TOP_MDIO_BUSY_INT
+ *    Bit 5 TOP_RXOAM_INT
+ *    Bit 4 TOP_TXOAM_INT
+ *    Bit 3 TOP_IFLX_INT
+ *    Bit 2 TOP_EFLX_INT
+ *    Bit 1 TOP_PL4ODP_INT
+ *    Bit 0 TOP_PL4IDU_INT
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TOP_PL4IO_INT      0x8000
 #define SUNI1x10GEXP_BITMSK_TOP_IRAM_INT       0x4000
 #define SUNI1x10GEXP_BITMSK_TOP_ERAM_INT       0x2000
@@ -605,22 +727,52 @@
 #define SUNI1x10GEXP_BITMSK_TOP_PL4ODP_INT     0x0002
 #define SUNI1x10GEXP_BITMSK_TOP_PL4IDU_INT     0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x000E:PM3393 Global interrupt enable
+ *    Bit 15 TOP_INTE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TOP_INTE  0x8000
 
+/*----------------------------------------------------------------------------
+ * Register 0x0010: XTEF Miscellaneous Control
+ *    Bit 7 RF_VAL
+ *    Bit 6 RF_OVERRIDE
+ *    Bit 5 LF_VAL
+ *    Bit 4 LF_OVERRIDE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RF_VAL             0x0080
 #define SUNI1x10GEXP_BITMSK_RF_OVERRIDE        0x0040
 #define SUNI1x10GEXP_BITMSK_LF_VAL             0x0020
 #define SUNI1x10GEXP_BITMSK_LF_OVERRIDE        0x0010
 #define SUNI1x10GEXP_BITMSK_LFRF_OVERRIDE_VAL  0x00F0
 
+/*----------------------------------------------------------------------------
+ * Register 0x0011: XRF Miscellaneous Control
+ *    Bit 6-4 EN_IDLE_REP
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_EN_IDLE_REP  0x0070
 
+/*----------------------------------------------------------------------------
+ * Register 0x0100: SERDES 3125 Configuration Register 1
+ *    Bit 10 RXEQB_3
+ *    Bit 8  RXEQB_2
+ *    Bit 6  RXEQB_1
+ *    Bit 4  RXEQB_0
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXEQB    0x0FF0
 #define SUNI1x10GEXP_BITOFF_RXEQB_3  10
 #define SUNI1x10GEXP_BITOFF_RXEQB_2  8
 #define SUNI1x10GEXP_BITOFF_RXEQB_1  6
 #define SUNI1x10GEXP_BITOFF_RXEQB_0  4
 
+/*----------------------------------------------------------------------------
+ * Register 0x0101: SERDES 3125 Configuration Register 2
+ *    Bit 12 YSEL
+ *    Bit  7 PRE_EMPH_3
+ *    Bit  6 PRE_EMPH_2
+ *    Bit  5 PRE_EMPH_1
+ *    Bit  4 PRE_EMPH_0
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_YSEL        0x1000
 #define SUNI1x10GEXP_BITMSK_PRE_EMPH    0x00F0
 #define SUNI1x10GEXP_BITMSK_PRE_EMPH_3  0x0080
@@ -628,25 +780,65 @@
 #define SUNI1x10GEXP_BITMSK_PRE_EMPH_1  0x0020
 #define SUNI1x10GEXP_BITMSK_PRE_EMPH_0  0x0010
 
+/*----------------------------------------------------------------------------
+ * Register 0x0102: SERDES 3125 Interrupt Enable Register
+ *    Bit 3 LASIE
+ *    Bit 2 SPLL_RAE
+ *    Bit 1 MPLL_RAE
+ *    Bit 0 PLL_LOCKE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_LASIE      0x0008
 #define SUNI1x10GEXP_BITMSK_SPLL_RAE   0x0004
 #define SUNI1x10GEXP_BITMSK_MPLL_RAE   0x0002
 #define SUNI1x10GEXP_BITMSK_PLL_LOCKE  0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x0103: SERDES 3125 Interrupt Visibility Register
+ *    Bit 3 LASIV
+ *    Bit 2 SPLL_RAV
+ *    Bit 1 MPLL_RAV
+ *    Bit 0 PLL_LOCKV
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_LASIV      0x0008
 #define SUNI1x10GEXP_BITMSK_SPLL_RAV   0x0004
 #define SUNI1x10GEXP_BITMSK_MPLL_RAV   0x0002
 #define SUNI1x10GEXP_BITMSK_PLL_LOCKV  0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x0104: SERDES 3125 Interrupt Status Register
+ *    Bit 3 LASII
+ *    Bit 2 SPLL_RAI
+ *    Bit 1 MPLL_RAI
+ *    Bit 0 PLL_LOCKI
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_LASII      0x0008
 #define SUNI1x10GEXP_BITMSK_SPLL_RAI   0x0004
 #define SUNI1x10GEXP_BITMSK_MPLL_RAI   0x0002
 #define SUNI1x10GEXP_BITMSK_PLL_LOCKI  0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x0107: SERDES 3125 Test Configuration
+ *    Bit 12 DUALTX
+ *    Bit 10 HC_1
+ *    Bit  9 HC_0
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_DUALTX  0x1000
 #define SUNI1x10GEXP_BITMSK_HC      0x0600
 #define SUNI1x10GEXP_BITOFF_HC_0    9
 
+/*----------------------------------------------------------------------------
+ * Register 0x2040: RXXG Configuration 1
+ *    Bit 15  RXXG_RXEN
+ *    Bit 14  RXXG_ROCF
+ *    Bit 13  RXXG_PAD_STRIP
+ *    Bit 10  RXXG_PUREP
+ *    Bit 9   RXXG_LONGP
+ *    Bit 8   RXXG_PARF
+ *    Bit 7   RXXG_FLCHK
+ *    Bit 5   RXXG_PASS_CTRL
+ *    Bit 3   RXXG_CRC_STRIP
+ *    Bit 2-0 RXXG_MIFG
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXXG_RXEN       0x8000
 #define SUNI1x10GEXP_BITMSK_RXXG_ROCF       0x4000
 #define SUNI1x10GEXP_BITMSK_RXXG_PAD_STRIP  0x2000
@@ -657,8 +849,22 @@
 #define SUNI1x10GEXP_BITMSK_RXXG_PASS_CTRL  0x0020
 #define SUNI1x10GEXP_BITMSK_RXXG_CRC_STRIP  0x0008
 
+/*----------------------------------------------------------------------------
+ * Register 0x02041: RXXG Configuration 2
+ *    Bit 7-0 RXXG_HDRSIZE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXXG_HDRSIZE  0x00FF
 
+/*----------------------------------------------------------------------------
+ * Register 0x2042: RXXG Configuration 3
+ *    Bit 15 RXXG_MIN_LERRE
+ *    Bit 14 RXXG_MAX_LERRE
+ *    Bit 12 RXXG_LINE_ERRE
+ *    Bit 10 RXXG_RX_OVRE
+ *    Bit 9  RXXG_ADR_FILTERE
+ *    Bit 8  RXXG_ERR_FILTERE
+ *    Bit 5  RXXG_PRMB_ERRE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXXG_MIN_LERRE     0x8000
 #define SUNI1x10GEXP_BITMSK_RXXG_MAX_LERRE     0x4000
 #define SUNI1x10GEXP_BITMSK_RXXG_LINE_ERRE     0x1000
@@ -667,6 +873,16 @@
 #define SUNI1x10GEXP_BITMSK_RXXG_ERR_FILTERRE  0x0100
 #define SUNI1x10GEXP_BITMSK_RXXG_PRMB_ERRE     0x0020
 
+/*----------------------------------------------------------------------------
+ * Register 0x2043: RXXG Interrupt
+ *    Bit 15 RXXG_MIN_LERRI
+ *    Bit 14 RXXG_MAX_LERRI
+ *    Bit 12 RXXG_LINE_ERRI
+ *    Bit 10 RXXG_RX_OVRI
+ *    Bit 9  RXXG_ADR_FILTERI
+ *    Bit 8  RXXG_ERR_FILTERI
+ *    Bit 5  RXXG_PRMB_ERRE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXXG_MIN_LERRI    0x8000
 #define SUNI1x10GEXP_BITMSK_RXXG_MAX_LERRI    0x4000
 #define SUNI1x10GEXP_BITMSK_RXXG_LINE_ERRI    0x1000
@@ -675,24 +891,56 @@
 #define SUNI1x10GEXP_BITMSK_RXXG_ERR_FILTERI  0x0100
 #define SUNI1x10GEXP_BITMSK_RXXG_PRMB_ERRE    0x0020
 
+/*----------------------------------------------------------------------------
+ * Register 0x2049: RXXG Receive FIFO Threshold
+ *    Bit 2-0 RXXG_CUT_THRU
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXXG_CUT_THRU  0x0007
 #define SUNI1x10GEXP_BITOFF_RXXG_CUT_THRU  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x2062H - 0x2069: RXXG Exact Match VID
+ *    Bit 11-0 RXXG_VID_MATCH
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXXG_VID_MATCH  0x0FFF
 #define SUNI1x10GEXP_BITOFF_RXXG_VID_MATCH  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x206EH - 0x206F: RXXG Address Filter Control
+ *    Bit 3 RXXG_FORWARD_ENABLE
+ *    Bit 2 RXXG_VLAN_ENABLE
+ *    Bit 1 RXXG_SRC_ADDR
+ *    Bit 0 RXXG_MATCH_ENABLE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXXG_FORWARD_ENABLE  0x0008
 #define SUNI1x10GEXP_BITMSK_RXXG_VLAN_ENABLE     0x0004
 #define SUNI1x10GEXP_BITMSK_RXXG_SRC_ADDR        0x0002
 #define SUNI1x10GEXP_BITMSK_RXXG_MATCH_ENABLE    0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x2070: RXXG Address Filter Control 2
+ *    Bit 1 RXXG_PMODE
+ *    Bit 0 RXXG_MHASH_EN
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXXG_PMODE     0x0002
 #define SUNI1x10GEXP_BITMSK_RXXG_MHASH_EN  0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x2081: XRF Control Register 2
+ *    Bit 6   EN_PKT_GEN
+ *    Bit 4-2 PATT
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_EN_PKT_GEN  0x0040
 #define SUNI1x10GEXP_BITMSK_PATT        0x001C
 #define SUNI1x10GEXP_BITOFF_PATT        2
 
+/*----------------------------------------------------------------------------
+ * Register 0x2088: XRF Interrupt Enable
+ *    Bit 12-9 LANE_HICERE
+ *    Bit 8-5  HS_SD_LANEE
+ *    Bit 4    ALIGN_STATUS_ERRE
+ *    Bit 3-0  LANE_SYNC_STAT_ERRE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_LANE_HICERE          0x1E00
 #define SUNI1x10GEXP_BITOFF_LANE_HICERE          9
 #define SUNI1x10GEXP_BITMSK_HS_SD_LANEE          0x01E0
@@ -701,6 +949,13 @@
 #define SUNI1x10GEXP_BITMSK_LANE_SYNC_STAT_ERRE  0x000F
 #define SUNI1x10GEXP_BITOFF_LANE_SYNC_STAT_ERRE  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x2089: XRF Interrupt Status
+ *    Bit 12-9 LANE_HICERI
+ *    Bit 8-5  HS_SD_LANEI
+ *    Bit 4    ALIGN_STATUS_ERRI
+ *    Bit 3-0  LANE_SYNC_STAT_ERRI
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_LANE_HICERI          0x1E00
 #define SUNI1x10GEXP_BITOFF_LANE_HICERI          9
 #define SUNI1x10GEXP_BITMSK_HS_SD_LANEI          0x01E0
@@ -709,6 +964,12 @@
 #define SUNI1x10GEXP_BITMSK_LANE_SYNC_STAT_ERRI  0x000F
 #define SUNI1x10GEXP_BITOFF_LANE_SYNC_STAT_ERRI  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x208A: XRF Error Status
+ *    Bit 8-5  HS_SD_LANE
+ *    Bit 4    ALIGN_STATUS_ERR
+ *    Bit 3-0  LANE_SYNC_STAT_ERR
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_HS_SD_LANE3          0x0100
 #define SUNI1x10GEXP_BITMSK_HS_SD_LANE2          0x0080
 #define SUNI1x10GEXP_BITMSK_HS_SD_LANE1          0x0040
@@ -719,16 +980,34 @@
 #define SUNI1x10GEXP_BITMSK_LANE1_SYNC_STAT_ERR  0x0002
 #define SUNI1x10GEXP_BITMSK_LANE0_SYNC_STAT_ERR  0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x208B: XRF Diagnostic Interrupt Enable
+ *    Bit 7-4 LANE_OVERRUNE
+ *    Bit 3-0 LANE_UNDERRUNE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_LANE_OVERRUNE   0x00F0
 #define SUNI1x10GEXP_BITOFF_LANE_OVERRUNE   4
 #define SUNI1x10GEXP_BITMSK_LANE_UNDERRUNE  0x000F
 #define SUNI1x10GEXP_BITOFF_LANE_UNDERRUNE  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x208C: XRF Diagnostic Interrupt Status
+ *    Bit 7-4 LANE_OVERRUNI
+ *    Bit 3-0 LANE_UNDERRUNI
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_LANE_OVERRUNI   0x00F0
 #define SUNI1x10GEXP_BITOFF_LANE_OVERRUNI   4
 #define SUNI1x10GEXP_BITMSK_LANE_UNDERRUNI  0x000F
 #define SUNI1x10GEXP_BITOFF_LANE_UNDERRUNI  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x20C0: RXOAM Configuration
+ *    Bit 15    RXOAM_BUSY
+ *    Bit 14-12 RXOAM_F2_SEL
+ *    Bit 10-8  RXOAM_F1_SEL
+ *    Bit 7-6   RXOAM_FILTER_CTRL
+ *    Bit 5-0   RXOAM_PX_EN
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXOAM_BUSY         0x8000
 #define SUNI1x10GEXP_BITMSK_RXOAM_F2_SEL       0x7000
 #define SUNI1x10GEXP_BITOFF_RXOAM_F2_SEL       12
@@ -739,22 +1018,53 @@
 #define SUNI1x10GEXP_BITMSK_RXOAM_PX_EN        0x003F
 #define SUNI1x10GEXP_BITOFF_RXOAM_PX_EN        0
 
+/*----------------------------------------------------------------------------
+ * Register 0x20C1,0x20C2: RXOAM Filter Configuration
+ *    Bit 15-8 RXOAM_FX_MASK
+ *    Bit 7-0  RXOAM_FX_VAL
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXOAM_FX_MASK  0xFF00
 #define SUNI1x10GEXP_BITOFF_RXOAM_FX_MASK  8
 #define SUNI1x10GEXP_BITMSK_RXOAM_FX_VAL   0x00FF
 #define SUNI1x10GEXP_BITOFF_RXOAM_FX_VAl   0
 
+/*----------------------------------------------------------------------------
+ * Register 0x20C3: RXOAM Configuration Register 2
+ *    Bit 13    RXOAM_REC_BYTE_VAL
+ *    Bit 11-10 RXOAM_BYPASS_MODE
+ *    Bit 5-0   RXOAM_PX_CLEAR
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXOAM_REC_BYTE_VAL  0x2000
 #define SUNI1x10GEXP_BITMSK_RXOAM_BYPASS_MODE   0x0C00
 #define SUNI1x10GEXP_BITOFF_RXOAM_BYPASS_MODE   10
 #define SUNI1x10GEXP_BITMSK_RXOAM_PX_CLEAR      0x003F
 #define SUNI1x10GEXP_BITOFF_RXOAM_PX_CLEAR      0
 
+/*----------------------------------------------------------------------------
+ * Register 0x20C4: RXOAM HEC Configuration
+ *    Bit 15-8 RXOAM_COSET
+ *    Bit 2    RXOAM_HEC_ERR_PKT
+ *    Bit 0    RXOAM_HEC_EN
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXOAM_COSET        0xFF00
 #define SUNI1x10GEXP_BITOFF_RXOAM_COSET        8
 #define SUNI1x10GEXP_BITMSK_RXOAM_HEC_ERR_PKT  0x0004
 #define SUNI1x10GEXP_BITMSK_RXOAM_HEC_EN       0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x20C7: RXOAM Interrupt Enable
+ *    Bit 10 RXOAM_FILTER_THRSHE
+ *    Bit 9  RXOAM_OAM_ERRE
+ *    Bit 8  RXOAM_HECE_THRSHE
+ *    Bit 7  RXOAM_SOPE
+ *    Bit 6  RXOAM_RFE
+ *    Bit 5  RXOAM_LFE
+ *    Bit 4  RXOAM_DV_ERRE
+ *    Bit 3  RXOAM_DATA_INVALIDE
+ *    Bit 2  RXOAM_FILTER_DROPE
+ *    Bit 1  RXOAM_HECE
+ *    Bit 0  RXOAM_OFLE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXOAM_FILTER_THRSHE  0x0400
 #define SUNI1x10GEXP_BITMSK_RXOAM_OAM_ERRE       0x0200
 #define SUNI1x10GEXP_BITMSK_RXOAM_HECE_THRSHE    0x0100
@@ -767,6 +1077,20 @@
 #define SUNI1x10GEXP_BITMSK_RXOAM_HECE           0x0002
 #define SUNI1x10GEXP_BITMSK_RXOAM_OFLE           0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x20C8: RXOAM Interrupt Status
+ *    Bit 10 RXOAM_FILTER_THRSHI
+ *    Bit 9  RXOAM_OAM_ERRI
+ *    Bit 8  RXOAM_HECE_THRSHI
+ *    Bit 7  RXOAM_SOPI
+ *    Bit 6  RXOAM_RFI
+ *    Bit 5  RXOAM_LFI
+ *    Bit 4  RXOAM_DV_ERRI
+ *    Bit 3  RXOAM_DATA_INVALIDI
+ *    Bit 2  RXOAM_FILTER_DROPI
+ *    Bit 1  RXOAM_HECI
+ *    Bit 0  RXOAM_OFLI
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXOAM_FILTER_THRSHI  0x0400
 #define SUNI1x10GEXP_BITMSK_RXOAM_OAM_ERRI       0x0200
 #define SUNI1x10GEXP_BITMSK_RXOAM_HECE_THRSHI    0x0100
@@ -779,65 +1103,150 @@
 #define SUNI1x10GEXP_BITMSK_RXOAM_HECI           0x0002
 #define SUNI1x10GEXP_BITMSK_RXOAM_OFLI           0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x20C9: RXOAM Status
+ *    Bit 10 RXOAM_FILTER_THRSHV
+ *    Bit 8  RXOAM_HECE_THRSHV
+ *    Bit 6  RXOAM_RFV
+ *    Bit 5  RXOAM_LFV
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_RXOAM_FILTER_THRSHV  0x0400
 #define SUNI1x10GEXP_BITMSK_RXOAM_HECE_THRSHV    0x0100
 #define SUNI1x10GEXP_BITMSK_RXOAM_RFV            0x0040
 #define SUNI1x10GEXP_BITMSK_RXOAM_LFV            0x0020
 
+/*----------------------------------------------------------------------------
+ * Register 0x2100: MSTAT Control
+ *    Bit 2 MSTAT_WRITE
+ *    Bit 1 MSTAT_CLEAR
+ *    Bit 0 MSTAT_SNAP
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_MSTAT_WRITE  0x0004
 #define SUNI1x10GEXP_BITMSK_MSTAT_CLEAR  0x0002
 #define SUNI1x10GEXP_BITMSK_MSTAT_SNAP   0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x2109: MSTAT Counter Write Address
+ *    Bit 5-0 MSTAT_WRITE_ADDRESS
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_MSTAT_WRITE_ADDRESS 0x003F
 #define SUNI1x10GEXP_BITOFF_MSTAT_WRITE_ADDRESS 0
 
+/*----------------------------------------------------------------------------
+ * Register 0x2200: IFLX Global Configuration Register
+ *    Bit 15   IFLX_IRCU_ENABLE
+ *    Bit 14   IFLX_IDSWT_ENABLE
+ *    Bit 13-0 IFLX_IFD_CNT
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_IFLX_IRCU_ENABLE   0x8000
 #define SUNI1x10GEXP_BITMSK_IFLX_IDSWT_ENABLE  0x4000
 #define SUNI1x10GEXP_BITMSK_IFLX_IFD_CNT       0x3FFF
 #define SUNI1x10GEXP_BITOFF_IFLX_IFD_CNT       0
 
+/*----------------------------------------------------------------------------
+ * Register 0x2209: IFLX FIFO Overflow Enable
+ *    Bit 0 IFLX_OVFE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_IFLX_OVFE 0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x220A: IFLX FIFO Overflow Interrupt
+ *    Bit 0 IFLX_OVFI
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_IFLX_OVFI 0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x220D: IFLX Indirect Channel Address
+ *    Bit 15 IFLX_BUSY
+ *    Bit 14 IFLX_RWB
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_IFLX_BUSY  0x8000
 #define SUNI1x10GEXP_BITMSK_IFLX_RWB   0x4000
 
+/*----------------------------------------------------------------------------
+ * Register 0x220E: IFLX Indirect Logical FIFO Low Limit & Provision
+ *    Bit 9-0 IFLX_LOLIM
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_IFLX_LOLIM  0x03FF
 #define SUNI1x10GEXP_BITOFF_IFLX_LOLIM  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x220F: IFLX Indirect Logical FIFO High Limit
+ *    Bit 9-0 IFLX_HILIM
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_IFLX_HILIM  0x03FF
 #define SUNI1x10GEXP_BITOFF_IFLX_HILIM  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x2210: IFLX Indirect Full/Almost Full Status & Limit
+ *    Bit 15   IFLX_FULL
+ *    Bit 14   IFLX_AFULL
+ *    Bit 13-0 IFLX_AFTH
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_IFLX_FULL   0x8000
 #define SUNI1x10GEXP_BITMSK_IFLX_AFULL  0x4000
 #define SUNI1x10GEXP_BITMSK_IFLX_AFTH   0x3FFF
 #define SUNI1x10GEXP_BITOFF_IFLX_AFTH   0
 
+/*----------------------------------------------------------------------------
+ * Register 0x2211: IFLX Indirect Empty/Almost Empty Status & Limit
+ *    Bit 15   IFLX_EMPTY
+ *    Bit 14   IFLX_AEMPTY
+ *    Bit 13-0 IFLX_AETH
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_IFLX_EMPTY   0x8000
 #define SUNI1x10GEXP_BITMSK_IFLX_AEMPTY  0x4000
 #define SUNI1x10GEXP_BITMSK_IFLX_AETH    0x3FFF
 #define SUNI1x10GEXP_BITOFF_IFLX_AETH    0
 
+/*----------------------------------------------------------------------------
+ * Register 0x2240: PL4MOS Configuration Register
+ *    Bit 3 PL4MOS_RE_INIT
+ *    Bit 2 PL4MOS_EN
+ *    Bit 1 PL4MOS_NO_STATUS
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4MOS_RE_INIT          0x0008
 #define SUNI1x10GEXP_BITMSK_PL4MOS_EN               0x0004
 #define SUNI1x10GEXP_BITMSK_PL4MOS_NO_STATUS        0x0002
 
+/*----------------------------------------------------------------------------
+ * Register 0x2243: PL4MOS MaxBurst1 Register
+ *    Bit 11-0 PL4MOS_MAX_BURST1
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4MOS_MAX_BURST1  0x0FFF
 #define SUNI1x10GEXP_BITOFF_PL4MOS_MAX_BURST1  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x2244: PL4MOS MaxBurst2 Register
+ *    Bit 11-0 PL4MOS_MAX_BURST2
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4MOS_MAX_BURST2  0x0FFF
 #define SUNI1x10GEXP_BITOFF_PL4MOS_MAX_BURST2  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x2245: PL4MOS Transfer Size Register
+ *    Bit 7-0 PL4MOS_MAX_TRANSFER
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4MOS_MAX_TRANSFER  0x00FF
 #define SUNI1x10GEXP_BITOFF_PL4MOS_MAX_TRANSFER  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x2280: PL4ODP Configuration
+ *    Bit 15-12 PL4ODP_REPEAT_T
+ *    Bit 8     PL4ODP_SOP_RULE
+ *    Bit 1     PL4ODP_EN_PORTS
+ *    Bit 0     PL4ODP_EN_DFWD
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4ODP_REPEAT_T   0xF000
 #define SUNI1x10GEXP_BITOFF_PL4ODP_REPEAT_T   12
 #define SUNI1x10GEXP_BITMSK_PL4ODP_SOP_RULE   0x0100
 #define SUNI1x10GEXP_BITMSK_PL4ODP_EN_PORTS   0x0002
 #define SUNI1x10GEXP_BITMSK_PL4ODP_EN_DFWD    0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x2282: PL4ODP Interrupt Mask
+ *    Bit 0 PL4ODP_OUT_DISE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4ODP_OUT_DISE     0x0001
 
 
@@ -849,6 +1258,10 @@
 #define SUNI1x10GEXP_BITMSK_PL4ODP_ES_OVRE      0x0002
 
 
+/*----------------------------------------------------------------------------
+ * Register 0x2283: PL4ODP Interrupt
+ *    Bit 0 PL4ODP_OUT_DISI
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4ODP_OUT_DISI     0x0001
 
 
@@ -859,6 +1272,15 @@
 #define SUNI1x10GEXP_BITMSK_PL4ODP_PPE_MSOPI    0x0004
 #define SUNI1x10GEXP_BITMSK_PL4ODP_ES_OVRI      0x0002
 
+/*----------------------------------------------------------------------------
+ * Register 0x2300:  PL4IO Lock Detect Status
+ *    Bit 15 PL4IO_OUT_ROOLV
+ *    Bit 12 PL4IO_IS_ROOLV
+ *    Bit 11 PL4IO_DIP2_ERRV
+ *    Bit 8  PL4IO_ID_ROOLV
+ *    Bit 4  PL4IO_IS_DOOLV
+ *    Bit 0  PL4IO_ID_DOOLV
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4IO_OUT_ROOLV  0x8000
 #define SUNI1x10GEXP_BITMSK_PL4IO_IS_ROOLV   0x1000
 #define SUNI1x10GEXP_BITMSK_PL4IO_DIP2_ERRV  0x0800
@@ -866,6 +1288,15 @@
 #define SUNI1x10GEXP_BITMSK_PL4IO_IS_DOOLV   0x0010
 #define SUNI1x10GEXP_BITMSK_PL4IO_ID_DOOLV   0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x2301:  PL4IO Lock Detect Change
+ *    Bit 15 PL4IO_OUT_ROOLI
+ *    Bit 12 PL4IO_IS_ROOLI
+ *    Bit 11 PL4IO_DIP2_ERRI
+ *    Bit 8  PL4IO_ID_ROOLI
+ *    Bit 4  PL4IO_IS_DOOLI
+ *    Bit 0  PL4IO_ID_DOOLI
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4IO_OUT_ROOLI  0x8000
 #define SUNI1x10GEXP_BITMSK_PL4IO_IS_ROOLI   0x1000
 #define SUNI1x10GEXP_BITMSK_PL4IO_DIP2_ERRI  0x0800
@@ -873,6 +1304,15 @@
 #define SUNI1x10GEXP_BITMSK_PL4IO_IS_DOOLI   0x0010
 #define SUNI1x10GEXP_BITMSK_PL4IO_ID_DOOLI   0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x2302:  PL4IO Lock Detect Mask
+ *    Bit 15 PL4IO_OUT_ROOLE
+ *    Bit 12 PL4IO_IS_ROOLE
+ *    Bit 11 PL4IO_DIP2_ERRE
+ *    Bit 8  PL4IO_ID_ROOLE
+ *    Bit 4  PL4IO_IS_DOOLE
+ *    Bit 0  PL4IO_ID_DOOLE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4IO_OUT_ROOLE  0x8000
 #define SUNI1x10GEXP_BITMSK_PL4IO_IS_ROOLE   0x1000
 #define SUNI1x10GEXP_BITMSK_PL4IO_DIP2_ERRE  0x0800
@@ -880,16 +1320,39 @@
 #define SUNI1x10GEXP_BITMSK_PL4IO_IS_DOOLE   0x0010
 #define SUNI1x10GEXP_BITMSK_PL4IO_ID_DOOLE   0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x2303:  PL4IO Lock Detect Limits
+ *    Bit 15-8 PL4IO_REF_LIMIT
+ *    Bit 7-0  PL4IO_TRAN_LIMIT
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4IO_REF_LIMIT   0xFF00
 #define SUNI1x10GEXP_BITOFF_PL4IO_REF_LIMIT   8
 #define SUNI1x10GEXP_BITMSK_PL4IO_TRAN_LIMIT  0x00FF
 #define SUNI1x10GEXP_BITOFF_PL4IO_TRAN_LIMIT  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x2304:  PL4IO Calendar Repetitions
+ *    Bit 15-8 PL4IO_IN_MUL
+ *    Bit 7-0  PL4IO_OUT_MUL
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4IO_IN_MUL   0xFF00
 #define SUNI1x10GEXP_BITOFF_PL4IO_IN_MUL   8
 #define SUNI1x10GEXP_BITMSK_PL4IO_OUT_MUL  0x00FF
 #define SUNI1x10GEXP_BITOFF_PL4IO_OUT_MUL  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x2305:  PL4IO Configuration
+ *    Bit 15  PL4IO_DIP2_ERR_CHK
+ *    Bit 11  PL4IO_ODAT_DIS
+ *    Bit 10  PL4IO_TRAIN_DIS
+ *    Bit 9   PL4IO_OSTAT_DIS
+ *    Bit 8   PL4IO_ISTAT_DIS
+ *    Bit 7   PL4IO_NO_ISTAT
+ *    Bit 6   PL4IO_STAT_OUTSEL
+ *    Bit 5   PL4IO_INSEL
+ *    Bit 4   PL4IO_DLSEL
+ *    Bit 1-0 PL4IO_OUTSEL
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4IO_DIP2_ERR_CHK  0x8000
 #define SUNI1x10GEXP_BITMSK_PL4IO_ODAT_DIS      0x0800
 #define SUNI1x10GEXP_BITMSK_PL4IO_TRAIN_DIS     0x0400
@@ -902,6 +1365,18 @@
 #define SUNI1x10GEXP_BITMSK_PL4IO_OUTSEL        0x0003
 #define SUNI1x10GEXP_BITOFF_PL4IO_OUTSEL        0
 
+/*----------------------------------------------------------------------------
+ * Register 0x3040: TXXG Configuration Register 1
+ *    Bit 15   TXXG_TXEN0
+ *    Bit 13   TXXG_HOSTPAUSE
+ *    Bit 12-7 TXXG_IPGT
+ *    Bit 5    TXXG_32BIT_ALIGN
+ *    Bit 4    TXXG_CRCEN
+ *    Bit 3    TXXG_FCTX
+ *    Bit 2    TXXG_FCRX
+ *    Bit 1    TXXG_PADEN
+ *    Bit 0    TXXG_SPRE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TXXG_TXEN0        0x8000
 #define SUNI1x10GEXP_BITMSK_TXXG_HOSTPAUSE    0x2000
 #define SUNI1x10GEXP_BITMSK_TXXG_IPGT         0x1F80
@@ -913,38 +1388,96 @@
 #define SUNI1x10GEXP_BITMSK_TXXG_PADEN        0x0002
 #define SUNI1x10GEXP_BITMSK_TXXG_SPRE         0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x3041: TXXG Configuration Register 2
+ *    Bit 7-0   TXXG_HDRSIZE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TXXG_HDRSIZE  0x00FF
 
+/*----------------------------------------------------------------------------
+ * Register 0x3042: TXXG Configuration Register 3
+ *    Bit 15 TXXG_FIFO_ERRE
+ *    Bit 14 TXXG_FIFO_UDRE
+ *    Bit 13 TXXG_MAX_LERRE
+ *    Bit 12 TXXG_MIN_LERRE
+ *    Bit 11 TXXG_XFERE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TXXG_FIFO_ERRE  0x8000
 #define SUNI1x10GEXP_BITMSK_TXXG_FIFO_UDRE  0x4000
 #define SUNI1x10GEXP_BITMSK_TXXG_MAX_LERRE  0x2000
 #define SUNI1x10GEXP_BITMSK_TXXG_MIN_LERRE  0x1000
 #define SUNI1x10GEXP_BITMSK_TXXG_XFERE      0x0800
 
+/*----------------------------------------------------------------------------
+ * Register 0x3043: TXXG Interrupt
+ *    Bit 15 TXXG_FIFO_ERRI
+ *    Bit 14 TXXG_FIFO_UDRI
+ *    Bit 13 TXXG_MAX_LERRI
+ *    Bit 12 TXXG_MIN_LERRI
+ *    Bit 11 TXXG_XFERI
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TXXG_FIFO_ERRI  0x8000
 #define SUNI1x10GEXP_BITMSK_TXXG_FIFO_UDRI  0x4000
 #define SUNI1x10GEXP_BITMSK_TXXG_MAX_LERRI  0x2000
 #define SUNI1x10GEXP_BITMSK_TXXG_MIN_LERRI  0x1000
 #define SUNI1x10GEXP_BITMSK_TXXG_XFERI      0x0800
 
+/*----------------------------------------------------------------------------
+ * Register 0x3044: TXXG Status Register
+ *    Bit 1 TXXG_TXACTIVE
+ *    Bit 0 TXXG_PAUSED
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TXXG_TXACTIVE  0x0002
 #define SUNI1x10GEXP_BITMSK_TXXG_PAUSED    0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x3046: TXXG TX_MINFR -  Transmit Min Frame Size Register
+ *    Bit 7-0 TXXG_TX_MINFR
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TXXG_TX_MINFR  0x00FF
 #define SUNI1x10GEXP_BITOFF_TXXG_TX_MINFR  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x3052: TXXG Pause Quantum Value Configuration Register
+ *    Bit 7-0 TXXG_FC_PAUSE_QNTM
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TXXG_FC_PAUSE_QNTM  0x00FF
 #define SUNI1x10GEXP_BITOFF_TXXG_FC_PAUSE_QNTM  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x3080: XTEF Control
+ *    Bit 3-0 XTEF_FORCE_PARITY_ERR
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_XTEF_FORCE_PARITY_ERR  0x000F
 #define SUNI1x10GEXP_BITOFF_XTEF_FORCE_PARITY_ERR  0
 
+/*----------------------------------------------------------------------------
+ * Register 0x3084: XTEF Interrupt Event Register
+ *    Bit 0 XTEF_LOST_SYNCI
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_XTEF_LOST_SYNCI  0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x3085: XTEF Interrupt Enable Register
+ *    Bit 0 XTEF_LOST_SYNCE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_XTEF_LOST_SYNCE  0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x3086: XTEF Visibility Register
+ *    Bit 0 XTEF_LOST_SYNCV
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_XTEF_LOST_SYNCV  0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x30C0: TXOAM OAM Configuration
+ *    Bit 15   TXOAM_HEC_EN
+ *    Bit 14   TXOAM_EMPTYCODE_EN
+ *    Bit 13   TXOAM_FORCE_IDLE
+ *    Bit 12   TXOAM_IGNORE_IDLE
+ *    Bit 11-6 TXOAM_PX_OVERWRITE
+ *    Bit 5-0  TXOAM_PX_SEL
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TXOAM_HEC_EN        0x8000
 #define SUNI1x10GEXP_BITMSK_TXOAM_EMPTYCODE_EN  0x4000
 #define SUNI1x10GEXP_BITMSK_TXOAM_FORCE_IDLE    0x2000
@@ -954,67 +1487,157 @@
 #define SUNI1x10GEXP_BITMSK_TXOAM_PX_SEL        0x003F
 #define SUNI1x10GEXP_BITOFF_TXOAM_PX_SEL        0
 
+/*----------------------------------------------------------------------------
+ * Register 0x30C1: TXOAM Mini-Packet Rate Configuration
+ *    Bit 15   TXOAM_MINIDIS
+ *    Bit 14   TXOAM_BUSY
+ *    Bit 13   TXOAM_TRANS_EN
+ *    Bit 10-0 TXOAM_MINIRATE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TXOAM_MINIDIS   0x8000
 #define SUNI1x10GEXP_BITMSK_TXOAM_BUSY      0x4000
 #define SUNI1x10GEXP_BITMSK_TXOAM_TRANS_EN  0x2000
 #define SUNI1x10GEXP_BITMSK_TXOAM_MINIRATE  0x07FF
 
+/*----------------------------------------------------------------------------
+ * Register 0x30C2: TXOAM Mini-Packet Gap and FIFO Configuration
+ *    Bit 13-10 TXOAM_FTHRESH
+ *    Bit 9-6   TXOAM_MINIPOST
+ *    Bit 5-0   TXOAM_MINIPRE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TXOAM_FTHRESH   0x3C00
 #define SUNI1x10GEXP_BITOFF_TXOAM_FTHRESH   10
 #define SUNI1x10GEXP_BITMSK_TXOAM_MINIPOST  0x03C0
 #define SUNI1x10GEXP_BITOFF_TXOAM_MINIPOST  6
 #define SUNI1x10GEXP_BITMSK_TXOAM_MINIPRE   0x003F
 
+/*----------------------------------------------------------------------------
+ * Register 0x30C6: TXOAM Interrupt Enable
+ *    Bit 2 TXOAM_SOP_ERRE
+ *    Bit 1 TXOAM_OFLE
+ *    Bit 0 TXOAM_ERRE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TXOAM_SOP_ERRE    0x0004
 #define SUNI1x10GEXP_BITMSK_TXOAM_OFLE        0x0002
 #define SUNI1x10GEXP_BITMSK_TXOAM_ERRE        0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x30C7: TXOAM Interrupt Status
+ *    Bit 2 TXOAM_SOP_ERRI
+ *    Bit 1 TXOAM_OFLI
+ *    Bit 0 TXOAM_ERRI
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TXOAM_SOP_ERRI    0x0004
 #define SUNI1x10GEXP_BITMSK_TXOAM_OFLI        0x0002
 #define SUNI1x10GEXP_BITMSK_TXOAM_ERRI        0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x30CF: TXOAM Coset
+ *    Bit 7-0 TXOAM_COSET
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_TXOAM_COSET  0x00FF
 
+/*----------------------------------------------------------------------------
+ * Register 0x3200: EFLX Global Configuration
+ *    Bit 15 EFLX_ERCU_EN
+ *    Bit 7  EFLX_EN_EDSWT
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_EFLX_ERCU_EN   0x8000
 #define SUNI1x10GEXP_BITMSK_EFLX_EN_EDSWT  0x0080
 
+/*----------------------------------------------------------------------------
+ * Register 0x3201: EFLX ERCU Global Status
+ *    Bit 13 EFLX_OVF_ERR
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_EFLX_OVF_ERR  0x2000
 
+/*----------------------------------------------------------------------------
+ * Register 0x3202: EFLX Indirect Channel Address
+ *    Bit 15 EFLX_BUSY
+ *    Bit 14 EFLX_RDWRB
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_EFLX_BUSY   0x8000
 #define SUNI1x10GEXP_BITMSK_EFLX_RDWRB  0x4000
 
+/*----------------------------------------------------------------------------
+ * Register 0x3203: EFLX Indirect Logical FIFO Low Limit
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_EFLX_LOLIM                    0x03FF
 #define SUNI1x10GEXP_BITOFF_EFLX_LOLIM                    0
 
+/*----------------------------------------------------------------------------
+ * Register 0x3204: EFLX Indirect Logical FIFO High Limit
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_EFLX_HILIM                    0x03FF
 #define SUNI1x10GEXP_BITOFF_EFLX_HILIM                    0
 
+/*----------------------------------------------------------------------------
+ * Register 0x3205: EFLX Indirect Full/Almost-Full Status and Limit
+ *    Bit 15   EFLX_FULL
+ *    Bit 14   EFLX_AFULL
+ *    Bit 13-0 EFLX_AFTH
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_EFLX_FULL   0x8000
 #define SUNI1x10GEXP_BITMSK_EFLX_AFULL  0x4000
 #define SUNI1x10GEXP_BITMSK_EFLX_AFTH   0x3FFF
 #define SUNI1x10GEXP_BITOFF_EFLX_AFTH   0
 
+/*----------------------------------------------------------------------------
+ * Register 0x3206: EFLX Indirect Empty/Almost-Empty Status and Limit
+ *    Bit 15   EFLX_EMPTY
+ *    Bit 14   EFLX_AEMPTY
+ *    Bit 13-0 EFLX_AETH
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_EFLX_EMPTY   0x8000
 #define SUNI1x10GEXP_BITMSK_EFLX_AEMPTY  0x4000
 #define SUNI1x10GEXP_BITMSK_EFLX_AETH    0x3FFF
 #define SUNI1x10GEXP_BITOFF_EFLX_AETH    0
 
+/*----------------------------------------------------------------------------
+ * Register 0x3207: EFLX Indirect FIFO Cut-Through Threshold
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_EFLX_CUT_THRU                 0x3FFF
 #define SUNI1x10GEXP_BITOFF_EFLX_CUT_THRU                 0
 
+/*----------------------------------------------------------------------------
+ * Register 0x320C: EFLX FIFO Overflow Error Enable
+ *    Bit 0 EFLX_OVFE
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_EFLX_OVFE  0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x320D: EFLX FIFO Overflow Error Indication
+ *    Bit 0 EFLX_OVFI
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_EFLX_OVFI  0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x3210: EFLX Channel Provision
+ *    Bit 0 EFLX_PROV
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_EFLX_PROV  0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x3280: PL4IDU Configuration
+ *    Bit 2 PL4IDU_SYNCH_ON_TRAIN
+ *    Bit 1 PL4IDU_EN_PORTS
+ *    Bit 0 PL4IDU_EN_DFWD
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4IDU_SYNCH_ON_TRAIN  0x0004
 #define SUNI1x10GEXP_BITMSK_PL4IDU_EN_PORTS        0x0002
 #define SUNI1x10GEXP_BITMSK_PL4IDU_EN_DFWD         0x0001
 
+/*----------------------------------------------------------------------------
+ * Register 0x3282: PL4IDU Interrupt Mask
+ *    Bit 1 PL4IDU_DIP4E
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4IDU_DIP4E       0x0002
 
+/*----------------------------------------------------------------------------
+ * Register 0x3283: PL4IDU Interrupt
+ *    Bit 1 PL4IDU_DIP4I
+ *----------------------------------------------------------------------------*/
 #define SUNI1x10GEXP_BITMSK_PL4IDU_DIP4I       0x0002
 
-#endif 
+#endif /* _CXGB_SUNI1x10GEXP_REGS_H_ */
 

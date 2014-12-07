@@ -29,25 +29,63 @@
 #include <ioremap.h>
 #include <mangle-port.h>
 
+/*
+ * Slowdown I/O port space accesses for antique hardware.
+ */
 #undef CONF_SLOWDOWN_IO
 
+/*
+ * Raw operations are never swapped in software.  OTOH values that raw
+ * operations are working on may or may not have been swapped by the bus
+ * hardware.  An example use would be for flash memory that's used for
+ * execute in place.
+ */
 # define __raw_ioswabb(a, x)	(x)
 # define __raw_ioswabw(a, x)	(x)
 # define __raw_ioswabl(a, x)	(x)
 # define __raw_ioswabq(a, x)	(x)
 # define ____raw_ioswabq(a, x)	(x)
 
+/* ioswab[bwlq], __mem_ioswab[bwlq] are defined in mangle-port.h */
 
 #define IO_SPACE_LIMIT 0xffff
 
+/*
+ * On MIPS I/O ports are memory mapped, so we access them using normal
+ * load/store instructions. mips_io_port_base is the virtual address to
+ * which all ports are being mapped.  For sake of efficiency some code
+ * assumes that this is an address that can be loaded with a single lui
+ * instruction, so the lower 16 bits must be zero.  Should be true on
+ * on any sane architecture; generic code does not use this assumption.
+ */
 extern const unsigned long mips_io_port_base;
 
+/*
+ * Gcc will generate code to load the value of mips_io_port_base after each
+ * function call which may be fairly wasteful in some cases.  So we don't
+ * play quite by the book.  We tell gcc mips_io_port_base is a long variable
+ * which solves the code generation issue.  Now we need to violate the
+ * aliasing rules a little to make initialization possible and finally we
+ * will need the barrier() to fight side effects of the aliasing chat.
+ * This trickery will eventually collapse under gcc's optimizer.  Oh well.
+ */
 static inline void set_io_port_base(unsigned long base)
 {
 	* (unsigned long *) &mips_io_port_base = base;
 	barrier();
 }
 
+/*
+ * Thanks to James van Artsdalen for a better timing-fix than
+ * the two short jumps: using outb's to a nonexistent port seems
+ * to guarantee better timings even on fast machines.
+ *
+ * On the other hand, I'd like to be sure of a non-existent port:
+ * I feel a bit unsafe about using 0x80 (should be safe, though)
+ *
+ *		Linus
+ *
+ */
 
 #define __SLOW_DOWN_IO \
 	__asm__ __volatile__( \
@@ -64,16 +102,43 @@ static inline void set_io_port_base(unsigned long base)
 #define SLOW_DOWN_IO
 #endif
 
+/*
+ *     virt_to_phys    -       map virtual addresses to physical
+ *     @address: address to remap
+ *
+ *     The returned physical address is the physical (CPU) mapping for
+ *     the memory address given. It is only valid to use this function on
+ *     addresses directly mapped or allocated via kmalloc.
+ *
+ *     This function does not give bus mappings for DMA transfers. In
+ *     almost all conceivable cases a device driver should not be using
+ *     this function
+ */
 static inline unsigned long virt_to_phys(volatile const void *address)
 {
 	return (unsigned long)address - PAGE_OFFSET + PHYS_OFFSET;
 }
 
+/*
+ *     phys_to_virt    -       map physical address to virtual
+ *     @address: address to remap
+ *
+ *     The returned virtual address is a current CPU mapping for
+ *     the memory address given. It is only valid to use this function on
+ *     addresses that have a kernel mapping
+ *
+ *     This function does not handle bus mappings for DMA transfers. In
+ *     almost all conceivable cases a device driver should not be using
+ *     this function
+ */
 static inline void * phys_to_virt(unsigned long address)
 {
 	return (void *)(address + PAGE_OFFSET - PHYS_OFFSET);
 }
 
+/*
+ * ISA I/O bus memory addresses are 1:1 with the physical address.
+ */
 static inline unsigned long isa_virt_to_bus(volatile void * address)
 {
 	return (unsigned long)address - PAGE_OFFSET;
@@ -86,9 +151,18 @@ static inline void * isa_bus_to_virt(unsigned long address)
 
 #define isa_page_to_bus page_to_phys
 
+/*
+ * However PCI ones are not necessarily 1:1 and therefore these interfaces
+ * are forbidden in portable PCI drivers.
+ *
+ * Allow them for x86 for legacy drivers, though.
+ */
 #define virt_to_bus virt_to_phys
 #define bus_to_virt phys_to_virt
 
+/*
+ * Change "struct page" to physical address.
+ */
 #define page_to_phys(page)	((dma_addr_t)page_to_pfn(page) << PAGE_SHIFT)
 
 extern void __iomem * __ioremap(phys_t offset, phys_t size, unsigned long flags);
@@ -107,6 +181,10 @@ static inline void __iomem * __ioremap_mode(phys_t offset, unsigned long size,
 	if (cpu_has_64bit_addresses) {
 		u64 base = UNCAC_BASE;
 
+		/*
+		 * R10000 supports a 2 bit uncached attribute therefore
+		 * UNCAC_BASE may not equal IO_BASE.
+		 */
 		if (flags == _CACHE_UNCACHED)
 			base = (u64) IO_BASE;
 		return (void __iomem *) (unsigned long) (base + offset);
@@ -116,11 +194,15 @@ static inline void __iomem * __ioremap_mode(phys_t offset, unsigned long size,
 
 		phys_addr = fixup_bigphys_addr(offset, size);
 
-		
+		/* Don't allow wraparound or zero size. */
 		last_addr = phys_addr + size - 1;
 		if (!size || last_addr < phys_addr)
 			return NULL;
 
+		/*
+		 * Map uncached objects in the low 512MB of address
+		 * space using KSEG1.
+		 */
 		if (__IS_LOW512(phys_addr) && __IS_LOW512(last_addr) &&
 		    flags == _CACHE_UNCACHED)
 			return (void __iomem *)
@@ -132,15 +214,66 @@ static inline void __iomem * __ioremap_mode(phys_t offset, unsigned long size,
 #undef __IS_LOW512
 }
 
+/*
+ * ioremap     -   map bus memory into CPU space
+ * @offset:    bus address of the memory
+ * @size:      size of the resource to map
+ *
+ * ioremap performs a platform specific sequence of operations to
+ * make bus memory CPU accessible via the readb/readw/readl/writeb/
+ * writew/writel functions and the other mmio helpers. The returned
+ * address is not guaranteed to be usable directly as a virtual
+ * address.
+ */
 #define ioremap(offset, size)						\
 	__ioremap_mode((offset), (size), _CACHE_UNCACHED)
 
+/*
+ * ioremap_nocache     -   map bus memory into CPU space
+ * @offset:    bus address of the memory
+ * @size:      size of the resource to map
+ *
+ * ioremap_nocache performs a platform specific sequence of operations to
+ * make bus memory CPU accessible via the readb/readw/readl/writeb/
+ * writew/writel functions and the other mmio helpers. The returned
+ * address is not guaranteed to be usable directly as a virtual
+ * address.
+ *
+ * This version of ioremap ensures that the memory is marked uncachable
+ * on the CPU as well as honouring existing caching rules from things like
+ * the PCI bus. Note that there are other caches and buffers on many
+ * busses. In particular driver authors should read up on PCI writes
+ *
+ * It's useful if some control registers are in such an area and
+ * write combining or read caching is not desirable:
+ */
 #define ioremap_nocache(offset, size)					\
 	__ioremap_mode((offset), (size), _CACHE_UNCACHED)
 
+/*
+ * ioremap_cachable -   map bus memory into CPU space
+ * @offset:         bus address of the memory
+ * @size:           size of the resource to map
+ *
+ * ioremap_nocache performs a platform specific sequence of operations to
+ * make bus memory CPU accessible via the readb/readw/readl/writeb/
+ * writew/writel functions and the other mmio helpers. The returned
+ * address is not guaranteed to be usable directly as a virtual
+ * address.
+ *
+ * This version of ioremap ensures that the memory is marked cachable by
+ * the CPU.  Also enables full write-combining.  Useful for some
+ * memory-like regions on I/O busses.
+ */
 #define ioremap_cachable(offset, size)					\
 	__ioremap_mode((offset), (size), _page_cachable_default)
 
+/*
+ * These two are MIPS specific ioremap variant.  ioremap_cacheable_cow
+ * requests a cachable mapping, ioremap_uncached_accelerated requests a
+ * mapping using the uncached accelerated mode which isn't supported on
+ * all processors.
+ */
 #define ioremap_cacheable_cow(offset, size)				\
 	__ioremap_mode((offset), (size), _CACHE_CACHABLE_COW)
 #define ioremap_uncached_accelerated(offset, size)			\
@@ -251,7 +384,7 @@ static inline void pfx##out##bwlq##p(type val, unsigned long port)	\
 									\
 	__val = pfx##ioswab##bwlq(__addr, val);				\
 									\
-					\
+	/* Really, we want this to be atomic */				\
 	BUILD_BUG_ON(sizeof(type) > sizeof(unsigned long));		\
 									\
 	*__addr = __val;						\
@@ -332,6 +465,9 @@ __BUILDIO(q, u64)
 #define writeq_be(val, addr)						\
 	__raw_writeq(cpu_to_be64((val)), (__force unsigned *)(addr))
 
+/*
+ * Some code tests for these symbols
+ */
 #define readq				readq
 #define writeq				writeq
 
@@ -399,6 +535,7 @@ BUILDSTRING(q, u64)
 #ifdef CONFIG_CPU_CAVIUM_OCTEON
 #define mmiowb() wmb()
 #else
+/* Depends on MIPS II instruction set */
 #define mmiowb() asm volatile ("sync" ::: "memory")
 #endif
 
@@ -445,7 +582,7 @@ extern void (*_dma_cache_inv)(unsigned long start, unsigned long size);
 #define dma_cache_wback(start, size)		_dma_cache_wback(start, size)
 #define dma_cache_inv(start, size)		_dma_cache_inv(start, size)
 
-#else 
+#else /* Sane hardware */
 
 #define dma_cache_wback_inv(start,size)	\
 	do { (void) (start); (void) (size); } while (0)
@@ -454,8 +591,13 @@ extern void (*_dma_cache_inv)(unsigned long start, unsigned long size);
 #define dma_cache_inv(start,size)	\
 	do { (void) (start); (void) (size); } while (0)
 
-#endif 
+#endif /* CONFIG_DMA_NONCOHERENT */
 
+/*
+ * Read a 32-bit register that requires a 64-bit read cycle on the bus.
+ * Avoid interrupt mucking, just adjust the address for 4-byte access.
+ * Assume the addresses are 8-byte aligned.
+ */
 #ifdef __MIPSEB__
 #define __CSR_32_ADJUST 4
 #else
@@ -465,8 +607,15 @@ extern void (*_dma_cache_inv)(unsigned long start, unsigned long size);
 #define csr_out32(v, a) (*(volatile u32 *)((unsigned long)(a) + __CSR_32_ADJUST) = (v))
 #define csr_in32(a)    (*(volatile u32 *)((unsigned long)(a) + __CSR_32_ADJUST))
 
+/*
+ * Convert a physical pointer to a virtual kernel pointer for /dev/mem
+ * access
+ */
 #define xlate_dev_mem_ptr(p)	__va(p)
 
+/*
+ * Convert a virtual cached pointer to an uncached pointer
+ */
 #define xlate_dev_kmem_ptr(p)	p
 
-#endif 
+#endif /* _ASM_IO_H */

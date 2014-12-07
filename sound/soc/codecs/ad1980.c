@@ -11,6 +11,13 @@
  *  option) any later version.
  */
 
+/*
+ * WARNING:
+ *
+ * Because Analog Devices Inc. discontinued the ad1980 sound chip since
+ * Sep. 2009, this ad1980 driver is not maintained, tested and supported
+ * by ADI now.
+ */
 
 #include <linux/init.h>
 #include <linux/slab.h>
@@ -25,23 +32,26 @@
 
 #include "ad1980.h"
 
+/*
+ * AD1980 register cache
+ */
 static const u16 ad1980_reg[] = {
-	0x0090, 0x8000, 0x8000, 0x8000, 
-	0x0000, 0x0000, 0x8008, 0x8008, 
-	0x8808, 0x8808, 0x0000, 0x8808, 
-	0x8808, 0x0000, 0x8000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x03c7, 0x0000, 0xbb80, 0xbb80, 
-	0xbb80, 0xbb80, 0x0000, 0x8080, 
-	0x8080, 0x2000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x8080, 0x0000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x0000, 0x0000, 
-	0x0000, 0x0000, 0x1001, 0x0000, 
-	0x0000, 0x0000, 0x4144, 0x5370  
+	0x0090, 0x8000, 0x8000, 0x8000, /* 0 - 6  */
+	0x0000, 0x0000, 0x8008, 0x8008, /* 8 - e  */
+	0x8808, 0x8808, 0x0000, 0x8808, /* 10 - 16 */
+	0x8808, 0x0000, 0x8000, 0x0000, /* 18 - 1e */
+	0x0000, 0x0000, 0x0000, 0x0000, /* 20 - 26 */
+	0x03c7, 0x0000, 0xbb80, 0xbb80, /* 28 - 2e */
+	0xbb80, 0xbb80, 0x0000, 0x8080, /* 30 - 36 */
+	0x8080, 0x2000, 0x0000, 0x0000, /* 38 - 3e */
+	0x0000, 0x0000, 0x0000, 0x0000, /* reserved */
+	0x0000, 0x0000, 0x0000, 0x0000, /* reserved */
+	0x0000, 0x0000, 0x0000, 0x0000, /* reserved */
+	0x0000, 0x0000, 0x0000, 0x0000, /* reserved */
+	0x8080, 0x0000, 0x0000, 0x0000, /* 60 - 66 */
+	0x0000, 0x0000, 0x0000, 0x0000, /* reserved */
+	0x0000, 0x0000, 0x1001, 0x0000, /* 70 - 76 */
+	0x0000, 0x0000, 0x4144, 0x5370  /* 78 - 7e */
 };
 
 static const char *ad1980_rec_sel[] = {"Mic", "CD", "NC", "AUX", "Line",
@@ -151,6 +161,9 @@ retry:
 	}
 
 	soc_ac97_ops.reset(codec->ac97);
+	/* Set bit 16slot in register 74h, then every slot will has only 16
+	 * bits. This command is sent out in 20bit mode, in which case the
+	 * first nibble of data is eaten by the addr. (Tag is always 16 bit)*/
 	ac97_write(codec, AC97_AD_SERIAL_CFG, 0x9900);
 
 	if (ac97_read(codec, AC97_RESET)  != 0x0090)
@@ -185,7 +198,7 @@ static int ad1980_soc_probe(struct snd_soc_codec *codec)
 		goto reset_err;
 	}
 
-	
+	/* Read out vendor ID to make sure it is ad1980 */
 	if (ac97_read(codec, AC97_VENDOR_ID1) != 0x4144) {
 		ret = -ENODEV;
 		goto reset_err;
@@ -204,14 +217,14 @@ static int ad1980_soc_probe(struct snd_soc_codec *codec)
 		}
 	}
 
-	
+	/* unmute captures and playbacks volume */
 	ac97_write(codec, AC97_MASTER, 0x0000);
 	ac97_write(codec, AC97_PCM, 0x0000);
 	ac97_write(codec, AC97_REC_GAIN, 0x0000);
 	ac97_write(codec, AC97_CENTER_LFE_MASTER, 0x0000);
 	ac97_write(codec, AC97_SURROUND_MASTER, 0x0000);
 
-	
+	/*power on LFE/CENTER/Surround DACs*/
 	ext_status = ac97_read(codec, AC97_EXTENDED_STATUS);
 	ac97_write(codec, AC97_EXTENDED_STATUS, ext_status&~0x3800);
 

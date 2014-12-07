@@ -13,7 +13,12 @@
 #ifndef __ASM_PLAT_FB_CORE_H
 #define __ASM_PLAT_FB_CORE_H __FILE__
 
+/*
+ * These functions are only for use with the core support code, such as
+ * the CPU-specific initialization code.
+ */
 
+/* Re-define device name depending on support. */
 static inline void s3c_fb_setname(char *name)
 {
 #ifdef CONFIG_S3C_DEV_FB
@@ -21,6 +26,7 @@ static inline void s3c_fb_setname(char *name)
 #endif
 }
 
+/* Re-define device name depending on support. */
 static inline void s5p_fb_setname(int id, char *name)
 {
 	switch (id) {
@@ -35,4 +41,4 @@ static inline void s5p_fb_setname(int id, char *name)
 	}
 }
 
-#endif 
+#endif /* __ASM_PLAT_FB_CORE_H */

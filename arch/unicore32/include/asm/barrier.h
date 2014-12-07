@@ -25,4 +25,4 @@
 
 #define set_mb(var, value)		do { var = value; smp_mb(); } while (0)
 
-#endif 
+#endif /* __UNICORE_BARRIER_H__ */

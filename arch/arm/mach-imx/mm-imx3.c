@@ -38,23 +38,23 @@ static void imx3_idle(void)
 	mx3_cpu_lp_set(MX3_WAIT);
 
 	__asm__ __volatile__(
-		
+		/* disable I and D cache */
 		"mrc p15, 0, %0, c1, c0, 0\n"
 		"bic %0, %0, #0x00001000\n"
 		"bic %0, %0, #0x00000004\n"
 		"mcr p15, 0, %0, c1, c0, 0\n"
-		
+		/* invalidate I cache */
 		"mov %0, #0\n"
 		"mcr p15, 0, %0, c7, c5, 0\n"
-		
+		/* clear and invalidate D cache */
 		"mov %0, #0\n"
 		"mcr p15, 0, %0, c7, c14, 0\n"
-		
+		/* WFI */
 		"mov %0, #0\n"
 		"mcr p15, 0, %0, c7, c0, 4\n"
 		"nop\n" "nop\n" "nop\n" "nop\n"
 		"nop\n" "nop\n" "nop\n"
-		
+		/* enable I and D cache */
 		"mrc p15, 0, %0, c1, c0, 0\n"
 		"orr %0, %0, #0x00001000\n"
 		"orr %0, %0, #0x00000004\n"
@@ -66,6 +66,11 @@ static void __iomem *imx3_ioremap_caller(unsigned long phys_addr, size_t size,
 					 unsigned int mtype, void *caller)
 {
 	if (mtype == MT_DEVICE) {
+		/*
+		 * Access all peripherals below 0x80000000 as nonshared device
+		 * on mx3, but leave l2cc alone.  Otherwise cache corruptions
+		 * can occur.
+		 */
 		if (phys_addr < 0x80000000 &&
 				!addr_in_module(phys_addr, MX3x_L2CC))
 			mtype = MT_DEVICE_NONSHARED;
@@ -79,6 +84,14 @@ void __init imx3_init_l2x0(void)
 	void __iomem *l2x0_base;
 	void __iomem *clkctl_base;
 
+/*
+ * First of all, we must repair broken chip settings. There are some
+ * i.MX35 CPUs in the wild, comming with bogus L2 cache settings. These
+ * misconfigured CPUs will run amok immediately when the L2 cache gets enabled.
+ * Workaraound is to setup the correct register setting prior enabling the
+ * L2 cache. This should not hurt already working CPUs, as they are using the
+ * same value.
+ */
 #define L2_MEM_VAL 0x10
 
 	clkctl_base = ioremap(MX35_CLKCTL_BASE_ADDR, 4096);
@@ -108,6 +121,11 @@ static struct map_desc mx31_io_desc[] __initdata = {
 	imx_map_entry(MX31, SPBA0, MT_DEVICE_NONSHARED),
 };
 
+/*
+ * This function initializes the memory map. It is called during the
+ * system startup to create static physical to virtual memory mappings
+ * for the IO modules.
+ */
 void __init mx31_map_io(void)
 {
 	iotable_init(mx31_io_desc, ARRAY_SIZE(mx31_io_desc));
@@ -169,7 +187,7 @@ void __init imx31_soc_init(void)
 	platform_device_register_simple("imx31-audmux", 0, imx31_audmux_res,
 					ARRAY_SIZE(imx31_audmux_res));
 }
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX31 */
 
 #ifdef CONFIG_SOC_IMX35
 static struct map_desc mx35_io_desc[] __initdata = {
@@ -244,7 +262,7 @@ void __init imx35_soc_init(void)
 
 	imx3_init_l2x0();
 
-	
+	/* i.mx35 has the i.mx31 type gpio */
 	mxc_register_gpio("imx31-gpio", 0, MX35_GPIO1_BASE_ADDR, SZ_16K, MX35_INT_GPIO1, 0);
 	mxc_register_gpio("imx31-gpio", 1, MX35_GPIO2_BASE_ADDR, SZ_16K, MX35_INT_GPIO2, 0);
 	mxc_register_gpio("imx31-gpio", 2, MX35_GPIO3_BASE_ADDR, SZ_16K, MX35_INT_GPIO3, 0);
@@ -257,12 +275,12 @@ void __init imx35_soc_init(void)
 
 	imx_add_imx_sdma("imx35-sdma", MX35_SDMA_BASE_ADDR, MX35_INT_SDMA, &imx35_sdma_pdata);
 
-	
+	/* Setup AIPS registers */
 	imx_set_aips(MX35_IO_ADDRESS(MX35_AIPS1_BASE_ADDR));
 	imx_set_aips(MX35_IO_ADDRESS(MX35_AIPS2_BASE_ADDR));
 
-	
+	/* i.mx35 has the i.mx31 type audmux */
 	platform_device_register_simple("imx31-audmux", 0, imx35_audmux_res,
 					ARRAY_SIZE(imx35_audmux_res));
 }
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX35 */

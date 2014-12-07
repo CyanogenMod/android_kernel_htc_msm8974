@@ -1,8 +1,27 @@
+/* 
+ * QNX4 file system, Linux implementation.
+ * 
+ * Version : 0.2.1
+ * 
+ * Using parts of the xiafs filesystem.
+ * 
+ * History :
+ * 
+ * 01-06-1998 by Richard Frowijn : first release.
+ * 21-06-1998 by Frank Denis : dcache support, fixed error codes.
+ * 04-07-1998 by Frank Denis : first step for rmdir/unlink.
+ */
 
 #include <linux/buffer_head.h>
 #include "qnx4.h"
 
 
+/*
+ * check if the filename is correct. For some obscure reason, qnx writes a
+ * new file twice in the directory entry, first with all possible options at 0
+ * and for a second time the way it is, they want us not to access the qnx
+ * filesystem when whe are using linux.
+ */
 static int qnx4_match(int len, const char *name,
 		      struct buffer_head *bh, unsigned long *offset)
 {
@@ -88,7 +107,7 @@ struct dentry * qnx4_lookup(struct inode *dir, struct dentry *dentry, struct nam
 
 	if (!(bh = qnx4_find_entry(len, dir, name, &de, &ino)))
 		goto out;
-	
+	/* The entry is linked, let's get the real info */
 	if ((de->di_status & QNX4_FILE_LINK) == QNX4_FILE_LINK) {
 		lnk = (struct qnx4_link_info *) de;
 		ino = (le32_to_cpu(lnk->dl_inode_blk) - 1) *

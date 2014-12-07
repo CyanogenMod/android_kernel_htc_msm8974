@@ -4,6 +4,9 @@
 #include <net/mac80211.h>
 #include "wbhal.h"
 
+//====================================
+// Interface function declare
+//====================================
 unsigned char		Wb35Rx_initial(  struct hw_data * pHwData );
 void		Wb35Rx_destroy(  struct hw_data * pHwData );
 void		Wb35Rx_stop(  struct hw_data * pHwData );

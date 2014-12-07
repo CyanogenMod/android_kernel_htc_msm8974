@@ -10,23 +10,23 @@
  * 2 of the License, or (at your option) any later version.
  */
 
-#define PROT_SAO	0x10		
+#define PROT_SAO	0x10		/* Strong Access Ordering */
 
-#define MAP_RENAME      MAP_ANONYMOUS   
-#define MAP_NORESERVE   0x40            
+#define MAP_RENAME      MAP_ANONYMOUS   /* In SunOS terminology */
+#define MAP_NORESERVE   0x40            /* don't reserve swap pages */
 #define MAP_LOCKED	0x80
 
-#define MAP_GROWSDOWN	0x0100		
-#define MAP_DENYWRITE	0x0800		
-#define MAP_EXECUTABLE	0x1000		
+#define MAP_GROWSDOWN	0x0100		/* stack-like segment */
+#define MAP_DENYWRITE	0x0800		/* ETXTBSY */
+#define MAP_EXECUTABLE	0x1000		/* mark it as an executable */
 
-#define MCL_CURRENT     0x2000          
-#define MCL_FUTURE      0x4000          
+#define MCL_CURRENT     0x2000          /* lock all currently mapped pages */
+#define MCL_FUTURE      0x4000          /* lock all additions to address space */
 
-#define MAP_POPULATE	0x8000		
-#define MAP_NONBLOCK	0x10000		
-#define MAP_STACK	0x20000		
-#define MAP_HUGETLB	0x40000		
+#define MAP_POPULATE	0x8000		/* populate (prefault) pagetables */
+#define MAP_NONBLOCK	0x10000		/* do not block on IO */
+#define MAP_STACK	0x20000		/* give out an address that is best suited for process/thread stacks */
+#define MAP_HUGETLB	0x40000		/* create a huge page mapping */
 
 #ifdef __KERNEL__
 #ifdef CONFIG_PPC64
@@ -34,6 +34,10 @@
 #include <asm/cputable.h>
 #include <linux/mm.h>
 
+/*
+ * This file is included by linux/mman.h, so we can't use cacl_vm_prot_bits()
+ * here.  How important is the optimization?
+ */
 static inline unsigned long arch_calc_vm_prot_bits(unsigned long prot)
 {
 	return (prot & PROT_SAO) ? VM_SAO : 0;
@@ -56,6 +60,6 @@ static inline int arch_validate_prot(unsigned long prot)
 }
 #define arch_validate_prot(prot) arch_validate_prot(prot)
 
-#endif 
-#endif 
-#endif	
+#endif /* CONFIG_PPC64 */
+#endif /* __KERNEL__ */
+#endif	/* _ASM_POWERPC_MMAN_H */

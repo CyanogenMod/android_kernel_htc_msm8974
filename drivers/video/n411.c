@@ -95,12 +95,19 @@ static void n411_wait_for_ack(struct hecubafb_par *par, int clear)
 static int n411_init_control(struct hecubafb_par *par)
 {
 	unsigned char tmp;
+	/* for init, we want the following setup to be set:
+	WUP = lo
+	ACK = hi
+	DS = hi
+	RW = hi
+	CD = lo
+	*/
 
-	
+	/* write WUP to lo, DS to hi, RW to hi, CD to lo */
 	ctl = HCB_WUP_BIT | HCB_RW_BIT | HCB_CD_BIT ;
 	n411_set_ctl(par, HCB_DS_BIT, 1);
 
-	
+	/* check ACK is not lo */
 	tmp = n411_get_ctl(par);
 	if (tmp & HCB_ACK_BIT) {
 		printk(KERN_ERR "Fail because ACK is already low\n");
@@ -122,10 +129,10 @@ static int n411_init_board(struct hecubafb_par *par)
 	par->send_command(par, APOLLO_INIT_DISPLAY);
 	par->send_data(par, 0x81);
 
-	
+	/* have to wait while display resets */
 	udelay(1000);
 
-	
+	/* if we were told to splash the screen, we just clear it */
 	if (!nosplash) {
 		par->send_command(par, APOLLO_ERASE_DISPLAY);
 		par->send_data(par, splashval);
@@ -151,7 +158,7 @@ static int __init n411_init(void)
 		return -EINVAL;
 	}
 
-	
+	/* request our platform independent driver */
 	request_module("hecubafb");
 
 	n411_device = platform_device_alloc("hecubafb", -1);
@@ -160,7 +167,7 @@ static int __init n411_init(void)
 
 	platform_device_add_data(n411_device, &n411_board, sizeof(n411_board));
 
-	
+	/* this _add binds hecubafb to n411. hecubafb refcounts n411 */
 	ret = platform_device_add(n411_device);
 
 	if (ret)

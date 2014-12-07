@@ -44,13 +44,17 @@
 #include "srom.h"
 #include "rf.h"
 
+/*---------------------  Static Definitions -------------------------*/
 
 
 
 
+/*---------------------  Static Classes  ----------------------------*/
 
 
 
+/*---------------------  Static Variables  --------------------------*/
+//static int          msglevel                =MSG_LEVEL_DEBUG;
 static int          msglevel                =MSG_LEVEL_INFO;
 const BYTE acbyIERate[MAX_RATE] =
 {0x02, 0x04, 0x0B, 0x16, 0x0C, 0x12, 0x18, 0x24, 0x30, 0x48, 0x60, 0x6C};
@@ -59,6 +63,7 @@ const BYTE acbyIERate[MAX_RATE] =
 #define AUTORATE_TXFAIL_CNT     0x0064
 #define AUTORATE_TIMEOUT        10
 
+/*---------------------  Static Functions  --------------------------*/
 
 void s_vResetCounter(PKnownNodeDB psNodeDBTable);
 
@@ -66,17 +71,33 @@ void s_vResetCounter(PKnownNodeDB psNodeDBTable)
 {
     BYTE            ii;
 
-    
+    // clear statistic counter for auto_rate
     for (ii = 0; ii <= MAX_RATE; ii++) {
         psNodeDBTable->uTxOk[ii] = 0;
         psNodeDBTable->uTxFail[ii] = 0;
     }
 }
 
+/*---------------------  Export Variables  --------------------------*/
 
 
+/*---------------------  Export Functions  --------------------------*/
 
 
+/*+
+ *
+ * Description:
+ *      Get RateIdx from the value in SuppRates IE or ExtSuppRates IE
+ *
+ * Parameters:
+ *  In:
+ *      BYTE    - Rate value in SuppRates IE or ExtSuppRates IE
+ *  Out:
+ *      none
+ *
+ * Return Value: RateIdx
+ *
+-*/
 BYTE
 DATARATEbyGetRateIdx (
      BYTE byRate
@@ -84,8 +105,8 @@ DATARATEbyGetRateIdx (
 {
     BYTE    ii;
 
-    
-    byRate = byRate & 0x7F;
+    //Erase basicRate flag.
+    byRate = byRate & 0x7F;//0111 1111
 
     for (ii = 0; ii < MAX_RATE; ii ++) {
         if (acbyIERate[ii] == byRate)
@@ -96,12 +117,41 @@ DATARATEbyGetRateIdx (
 
 
 
+/*+
+ *
+ * Routine Description:
+ *      Rate fallback Algorithm Implementaion
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - Pointer to the adapter
+ *      psNodeDBTable   - Pointer to Node Data Base
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+-*/
 #define AUTORATE_TXCNT_THRESHOLD        20
 #define AUTORATE_INC_THRESHOLD          30
 
 
 
 
+/*+
+ *
+ * Description:
+ *      Get RateIdx from the value in SuppRates IE or ExtSuppRates IE
+ *
+ * Parameters:
+ *  In:
+ *      BYTE    - Rate value in SuppRates IE or ExtSuppRates IE
+ *  Out:
+ *      none
+ *
+ * Return Value: RateIdx
+ *
+-*/
 WORD
 RATEwGetRateIdx(
      BYTE byRate
@@ -109,8 +159,8 @@ RATEwGetRateIdx(
 {
     WORD    ii;
 
-    
-    byRate = byRate & 0x7F;
+    //Erase basicRate flag.
+    byRate = byRate & 0x7F;//0111 1111
 
     for (ii = 0; ii < MAX_RATE; ii ++) {
         if (acbyIERate[ii] == byRate)
@@ -119,6 +169,25 @@ RATEwGetRateIdx(
     return 0;
 }
 
+/*+
+ *
+ * Description:
+ *      Parsing the highest basic & support rate in rate field of frame.
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - Pointer to the adapter
+ *      pItemRates      - Pointer to Rate field defined in 802.11 spec.
+ *      pItemExtRates      - Pointer to Extended Rate field defined in 802.11 spec.
+ *  Out:
+ *      pwMaxBasicRate  - Maximum Basic Rate
+ *      pwMaxSuppRate   - Maximum Supported Rate
+ *      pbyTopCCKRate   - Maximum Basic Rate in CCK mode
+ *      pbyTopOFDMRate  - Maximum Basic Rate in OFDM mode
+ *
+ * Return Value: none
+ *
+-*/
 void RATEvParseMaxRate(
      void *pDeviceHandler,
      PWLAN_IE_SUPP_RATES pItemRates,
@@ -158,7 +227,7 @@ unsigned int  uRateLen;
     	byRate = (BYTE)(pItemRates->abyRates[ii]);
         if (WLAN_MGMT_IS_BASICRATE(byRate) &&
             (bUpdateBasicRate == TRUE))  {
-            
+            // Add to basic rate set, update pDevice->byTopCCKBasicRate and pDevice->byTopOFDMBasicRate
 		CARDbAddBasicRate((void *)pDevice, RATEwGetRateIdx(byRate));
             DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO"ParseMaxRate AddBasicRate: %d\n", RATEwGetRateIdx(byRate));
         }
@@ -179,9 +248,9 @@ unsigned int  uRateLen;
 
         for (ii = 0; ii < uExtRateLen ; ii++) {
             byRate = (BYTE)(pItemExtRates->abyRates[ii]);
-            
+            // select highest basic rate
             if (WLAN_MGMT_IS_BASICRATE(pItemExtRates->abyRates[ii])) {
-            	
+            	// Add to basic rate set, update pDevice->byTopCCKBasicRate and pDevice->byTopOFDMBasicRate
 		    CARDbAddBasicRate((void *)pDevice, RATEwGetRateIdx(byRate));
                 DBG_PRT(MSG_LEVEL_DEBUG, KERN_INFO"ParseMaxRate AddBasicRate: %d\n", RATEwGetRateIdx(byRate));
             }
@@ -191,9 +260,9 @@ unsigned int  uRateLen;
             if (byRate > byHighSuppRate)
                 byHighSuppRate = byRate;
             *pwSuppRate |= (1<<RATEwGetRateIdx(byRate));
-            
+            //DBG_PRN_GRP09(("ParseMaxRate : HighSuppRate: %d, %X\n", RATEwGetRateIdx(byRate), byRate));
         }
-    } 
+    } //if(pItemExtRates != NULL)
 
     if ((pDevice->byPacketType == PK_TYPE_11GB)
 	&& CARDbIsOFDMinBasicRate((void *)pDevice)) {
@@ -214,6 +283,21 @@ unsigned int  uRateLen;
 }
 
 
+/*+
+ *
+ * Routine Description:
+ *      Rate fallback Algorithm Implementaion
+ *
+ * Parameters:
+ *  In:
+ *      pDevice         - Pointer to the adapter
+ *      psNodeDBTable   - Pointer to Node Data Base
+ *  Out:
+ *      none
+ *
+ * Return Value: none
+ *
+-*/
 #define AUTORATE_TXCNT_THRESHOLD        20
 #define AUTORATE_INC_THRESHOLD          30
 
@@ -234,7 +318,7 @@ WORD            wIdxUpRate = 0;
 DWORD           dwTxDiff = 0;
 
     if (pMgmt->eScanState != WMAC_NO_SCANNING) {
-        
+        // Don't do Fallback when scanning Channel
         return;
     }
     psNodeDBTable->uTimeCount ++;
@@ -291,7 +375,7 @@ DWORD           dwTxDiff = 0;
            (psNodeDBTable->uTxFail[MAX_RATE] * 4) ) {
             psNodeDBTable->wTxDataRate = wIdxUpRate;
         }
-    }else { 
+    }else { // adhoc, if uTxOk(total) =0 & uTxFail(total) = 0
         if (psNodeDBTable->uTxFail[MAX_RATE] == 0)
             psNodeDBTable->wTxDataRate = wIdxUpRate;
     }
@@ -306,6 +390,19 @@ DWORD           dwTxDiff = 0;
     return;
 }
 
+/*+
+ *
+ * Description:
+ *    This routine is used to assemble available Rate IE.
+ *
+ * Parameters:
+ *  In:
+ *    pDevice
+ *  Out:
+ *
+ * Return Value: None
+ *
+-*/
 BYTE
 RATEuSetIE (
      PWLAN_IE_SUPP_RATES pSrcRates,

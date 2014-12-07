@@ -13,6 +13,7 @@
 #ifndef _AK4641_H
 #define _AK4641_H
 
+/* AK4641 register space */
 
 #define AK4641_PM1		0x00
 #define AK4641_PM2		0x01

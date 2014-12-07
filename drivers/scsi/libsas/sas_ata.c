@@ -40,14 +40,14 @@
 
 static enum ata_completion_errors sas_to_ata_err(struct task_status_struct *ts)
 {
-	
+	/* Cheesy attempt to translate SAS errors into ATA.  Hah! */
 
-	
+	/* transport error */
 	if (ts->resp == SAS_TASK_UNDELIVERED)
 		return AC_ERR_ATA_BUS;
 
-	
-	
+	/* ts->resp == SAS_TASK_COMPLETE */
+	/* task delivered, what happened afterwards? */
 	switch (ts->stat) {
 		case SAS_DEV_NO_RESPONSE:
 			return AC_ERR_TIMEOUT;
@@ -59,6 +59,12 @@ static enum ata_completion_errors sas_to_ata_err(struct task_status_struct *ts)
 
 
 		case SAS_DATA_UNDERRUN:
+			/*
+			 * Some programs that use the taskfile interface
+			 * (smartctl in particular) can cause underrun
+			 * problems.  Ignore these errors, perhaps at our
+			 * peril.
+			 */
 			return 0;
 
 		case SAS_DATA_OVERRUN:
@@ -78,6 +84,8 @@ static enum ata_completion_errors sas_to_ata_err(struct task_status_struct *ts)
 			return AC_ERR_DEV;
 
 		case SAS_PROTO_RESPONSE:
+			/* This means the ending_fis has the error
+			 * value; return 0 here to collect it */
 			return 0;
 		default:
 			return 0;
@@ -103,7 +111,7 @@ static void sas_ata_task_done(struct sas_task *task)
 		ASSIGN_SAS_TASK(qc->scsicmd, NULL);
 	spin_unlock_irqrestore(&dev->done_lock, flags);
 
-	
+	/* check if libsas-eh got to the task before us */
 	if (unlikely(!task))
 		return;
 
@@ -114,12 +122,16 @@ static void sas_ata_task_done(struct sas_task *task)
 	link = &ap->link;
 
 	spin_lock_irqsave(ap->lock, flags);
-	
+	/* check if we lost the race with libata/sas_ata_post_internal() */
 	if (unlikely(ap->pflags & ATA_PFLAG_FROZEN)) {
 		spin_unlock_irqrestore(ap->lock, flags);
 		if (qc->scsicmd)
 			goto qc_already_gone;
 		else {
+			/* if eh is not involved and the port is frozen then the
+			 * ata internal abort process has taken responsibility
+			 * for this sas_task
+			 */
 			return;
 		}
 	}
@@ -141,7 +153,7 @@ static void sas_ata_task_done(struct sas_task *task)
 		if (ac) {
 			SAS_DPRINTK("%s: SAS error %x\n", __func__,
 				    stat->stat);
-			
+			/* We saw a SAS error. Send a vague error. */
 			if (!link->sactive) {
 				qc->err_mask = ac;
 			} else {
@@ -149,7 +161,7 @@ static void sas_ata_task_done(struct sas_task *task)
 				qc->flags |= ATA_QCFLAG_FAILED;
 			}
 
-			dev->sata_dev.tf.feature = 0x04; 
+			dev->sata_dev.tf.feature = 0x04; /* status err */
 			dev->sata_dev.tf.command = ATA_ERR;
 		}
 	}
@@ -176,10 +188,13 @@ static unsigned int sas_ata_qc_issue(struct ata_queued_cmd *qc)
 	struct Scsi_Host *host = sas_ha->core.shost;
 	struct sas_internal *i = to_sas_internal(host->transportt);
 
+	/* TODO: audit callers to ensure they are ready for qc_issue to
+	 * unconditionally re-enable interrupts
+	 */
 	local_irq_save(flags);
 	spin_unlock(ap->lock);
 
-	
+	/* If the device fell off, no sense in issuing commands */
 	if (test_bit(SAS_DEV_GONE, &dev->state))
 		goto out;
 
@@ -192,7 +207,7 @@ static unsigned int sas_ata_qc_issue(struct ata_queued_cmd *qc)
 
 	if (qc->tf.command == ATA_CMD_FPDMA_WRITE ||
 	    qc->tf.command == ATA_CMD_FPDMA_READ) {
-		
+		/* Need to zero out the tag libata assigned us */
 		qc->tf.nsect = 0;
 	}
 
@@ -219,7 +234,7 @@ static unsigned int sas_ata_qc_issue(struct ata_queued_cmd *qc)
 	switch (qc->tf.protocol) {
 	case ATA_PROT_NCQ:
 		task->ata_task.use_ncq = 1;
-		
+		/* fall through */
 	case ATAPI_PROT_DMA:
 	case ATA_PROT_DMA:
 		task->ata_task.dma_xfer = 1;
@@ -234,7 +249,7 @@ static unsigned int sas_ata_qc_issue(struct ata_queued_cmd *qc)
 	else
 		ret = sas_queue_up(task);
 
-	
+	/* Examine */
 	if (ret) {
 		SAS_DPRINTK("lldd_execute_task returned: %d\n", ret);
 
@@ -288,7 +303,7 @@ int sas_get_ata_info(struct domain_device *dev, struct ex_phy *phy)
 		}
 		memcpy(dev->frame_rcvd, &dev->sata_dev.rps_resp.rps.fis,
 		       sizeof(struct dev_to_host_fis));
-		
+		/* TODO switch to ata_dev_classify() */
 		sas_get_ata_command_set(dev);
 	}
 	return 0;
@@ -298,13 +313,16 @@ static int sas_ata_clear_pending(struct domain_device *dev, struct ex_phy *phy)
 {
 	int res;
 
-	
+	/* we weren't pending, so successfully end the reset sequence now */
 	if (dev->dev_type != SATA_PENDING)
 		return 1;
 
+	/* hmmm, if this succeeds do we need to repost the domain_device to the
+	 * lldd so it can pick up new parameters?
+	 */
 	res = sas_get_ata_info(dev, phy);
 	if (res)
-		return 0; 
+		return 0; /* retry */
 	else
 		return 1;
 }
@@ -321,6 +339,9 @@ static int smp_ata_check_ready(struct ata_link *link)
 	res = sas_ex_phy_discover(ex_dev, phy->number);
 	sas_put_local_phy(phy);
 
+	/* break the wait early if the expander is unreachable,
+	 * otherwise keep polling
+	 */
 	if (res == -ECOMM)
 		return res;
 	if (res != SMP_RESP_FUNC_ACC)
@@ -346,6 +367,10 @@ static int local_ata_check_ready(struct ata_link *link)
 	if (i->dft->lldd_ata_check_ready)
 		return i->dft->lldd_ata_check_ready(dev);
 	else {
+		/* lldd's that don't implement 'ready' checking get the
+		 * old default behavior of not coordinating reset
+		 * recovery with libata
+		 */
 		return 1;
 	}
 }
@@ -400,6 +425,10 @@ static int sas_ata_hard_reset(struct ata_link *link, unsigned int *class,
 	if (ret && ret != -EAGAIN)
 		sas_ata_printk(KERN_ERR, dev, "reset failed (errno=%d)\n", ret);
 
+	/* XXX: if the class changes during the reset the upper layer
+	 * should be informed, if the device has gone away we assume
+	 * libsas will eventually delete it
+	 */
 	switch (dev->sata_dev.command_set) {
 	case ATA_COMMAND_SET:
 		*class = ATA_DEV_ATA;
@@ -413,6 +442,10 @@ static int sas_ata_hard_reset(struct ata_link *link, unsigned int *class,
 	return ret;
 }
 
+/*
+ * notify the lldd to forget the sas_task for this internal ata command
+ * that bypasses scsi-eh
+ */
 static void sas_ata_internal_abort(struct sas_task *task)
 {
 	struct sas_internal *si = dev_to_sas_internal(task->dev);
@@ -439,6 +472,11 @@ static void sas_ata_internal_abort(struct sas_task *task)
 		goto out;
 	}
 
+	/* XXX we are not prepared to deal with ->lldd_abort_task()
+	 * failures.  TODO: lldds need to unconditionally forget about
+	 * aborted ata tasks, otherwise we (likely) leak the sas task
+	 * here
+	 */
 	SAS_DPRINTK("%s: Task %p leaked.\n", __func__, task);
 
 	if (!(task->task_state_flags & SAS_TASK_STATE_DONE))
@@ -457,6 +495,14 @@ static void sas_ata_post_internal(struct ata_queued_cmd *qc)
 		qc->err_mask |= AC_ERR_OTHER;
 
 	if (qc->err_mask) {
+		/*
+		 * Find the sas_task and kill it.  By this point, libata
+		 * has decided to kill the qc and has frozen the port.
+		 * In this state sas_ata_task_done() will no longer free
+		 * the sas_task, so we need to notify the lldd (via
+		 * ->lldd_abort_task) that the task is dead and free it
+		 *  ourselves.
+		 */
 		struct sas_task *task = qc->lldd_task;
 
 		qc->lldd_task = NULL;
@@ -537,7 +583,7 @@ void sas_ata_task_abort(struct sas_task *task)
 	struct ata_queued_cmd *qc = task->uldd_task;
 	struct completion *waiting;
 
-	
+	/* Bounce SCSI-initiated commands to the SCSI EH */
 	if (qc->scsicmd) {
 		struct request_queue *q = qc->scsicmd->device->request_queue;
 		unsigned long flags;
@@ -549,7 +595,7 @@ void sas_ata_task_abort(struct sas_task *task)
 		return;
 	}
 
-	
+	/* Internal command, fake a timeout and complete. */
 	qc->flags &= ~ATA_QCFLAG_ACTIVE;
 	qc->flags |= ATA_QCFLAG_FAILED;
 	qc->err_mask |= AC_ERR_TIMEOUT;
@@ -565,13 +611,13 @@ static void sas_get_ata_command_set(struct domain_device *dev)
 	if (dev->dev_type == SATA_PENDING)
 		return;
 
-	if ((fis->sector_count == 1 && 
+	if ((fis->sector_count == 1 && /* ATA */
 	     fis->lbal         == 1 &&
 	     fis->lbam         == 0 &&
 	     fis->lbah         == 0 &&
 	     fis->device       == 0)
 	    ||
-	    (fis->sector_count == 0 && 
+	    (fis->sector_count == 0 && /* CE-ATA (mATA) */
 	     fis->lbal         == 0 &&
 	     fis->lbam         == 0xCE &&
 	     fis->lbah         == 0xAA &&
@@ -579,7 +625,7 @@ static void sas_get_ata_command_set(struct domain_device *dev)
 
 		dev->sata_dev.command_set = ATA_COMMAND_SET;
 
-	else if ((fis->interrupt_reason == 1 &&	
+	else if ((fis->interrupt_reason == 1 &&	/* ATAPI */
 		  fis->lbal             == 1 &&
 		  fis->byte_count_low   == 0x14 &&
 		  fis->byte_count_high  == 0xEB &&
@@ -587,19 +633,19 @@ static void sas_get_ata_command_set(struct domain_device *dev)
 
 		dev->sata_dev.command_set = ATAPI_COMMAND_SET;
 
-	else if ((fis->sector_count == 1 && 
+	else if ((fis->sector_count == 1 && /* SEMB */
 		  fis->lbal         == 1 &&
 		  fis->lbam         == 0x3C &&
 		  fis->lbah         == 0xC3 &&
 		  fis->device       == 0)
 		||
-		 (fis->interrupt_reason == 1 &&	
+		 (fis->interrupt_reason == 1 &&	/* SATA PM */
 		  fis->lbal             == 1 &&
 		  fis->byte_count_low   == 0x69 &&
 		  fis->byte_count_high  == 0x96 &&
 		  (fis->device & ~0x10) == 0))
 
-		
+		/* Treat it as a superset? */
 		dev->sata_dev.command_set = ATAPI_COMMAND_SET;
 }
 
@@ -622,11 +668,22 @@ void sas_probe_sata(struct asd_sas_port *port)
 
 		sas_ata_wait_eh(dev);
 
+		/* if libata could not bring the link up, don't surface
+		 * the device
+		 */
 		if (ata_dev_disabled(sas_to_ata_dev(dev)))
 			sas_fail_probe(dev, __func__, -ENODEV);
 	}
 }
 
+/**
+ * sas_discover_sata -- discover an STP/SATA domain device
+ * @dev: pointer to struct domain_device of interest
+ *
+ * Devices directly attached to a HA port, have no parents.  All other
+ * devices do, and should have their "parent" pointer set appropriately
+ * before calling this function.
+ */
 int sas_discover_sata(struct domain_device *dev)
 {
 	int res;
@@ -651,6 +708,9 @@ static void async_sas_ata_eh(void *data, async_cookie_t cookie)
 	struct ata_port *ap = dev->sata_dev.ap;
 	struct sas_ha_struct *ha = dev->port->ha;
 
+	/* hold a reference over eh since we may be racing with final
+	 * remove once all commands are completed
+	 */
 	kref_get(&dev->kref);
 	sas_ata_printk(KERN_DEBUG, dev, "dev error handler\n");
 	ata_scsi_port_error_handler(ha->core.shost, ap);
@@ -663,6 +723,14 @@ void sas_ata_strategy_handler(struct Scsi_Host *shost)
 	ASYNC_DOMAIN_EXCLUSIVE(async);
 	int i;
 
+	/* it's ok to defer revalidation events during ata eh, these
+	 * disks are in one of three states:
+	 * 1/ present for initial domain discovery, and these
+	 *    resets will cause bcn flutters
+	 * 2/ hot removed, we'll discover that after eh fails
+	 * 3/ hot added after initial discovery, lost the race, and need
+	 *    to catch the next train.
+	 */
 	sas_disable_revalidation(sas_ha);
 
 	spin_lock_irq(&sas_ha->phy_port_lock);
@@ -711,6 +779,17 @@ void sas_ata_eh(struct Scsi_Host *shost, struct list_head *work_q,
 
 			sas_ata_printk(KERN_DEBUG, eh_dev, "cmd error handler\n");
 			ata_scsi_cmd_error_handler(shost, ap, &sata_q);
+			/*
+			 * ata's error handler may leave the cmd on the list
+			 * so make sure they don't remain on a stack list
+			 * about to go out of scope.
+			 *
+			 * This looks strange, since the commands are
+			 * now part of no list, but the next error
+			 * action will be ata_port_error_handler()
+			 * which takes no list and sweeps them up
+			 * anyway from the ata tag array.
+			 */
 			while (!list_empty(&sata_q))
 				list_del_init(sata_q.next);
 		}

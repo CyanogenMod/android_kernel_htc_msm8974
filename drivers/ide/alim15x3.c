@@ -39,6 +39,10 @@
 
 #define DRV_NAME "alim15x3"
 
+/*
+ *	ALi devices are not plug in. Otherwise these static values would
+ *	need to go. They ought to go away anyway
+ */
  
 static u8 m5229_revision;
 static u8 chip_is_1543c_e;
@@ -66,7 +70,7 @@ static void ali_program_timings(ide_hwif_t *hwif, ide_drive_t *drive,
 	u8 unit = drive->dn & 1, udma;
 	int shift = 4 * unit;
 
-	
+	/* Set up the UDMA */
 	pci_read_config_byte(dev, udmat, &udma);
 	udma &= ~(0x0F << shift);
 	udma |= ultra << shift;
@@ -87,12 +91,19 @@ static void ali_program_timings(ide_hwif_t *hwif, ide_drive_t *drive,
 			      (t->active << 4) | t->recover);
 }
 
+/**
+ *	ali_set_pio_mode	-	set host controller for PIO mode
+ *	@hwif: port
+ *	@drive: drive
+ *
+ *	Program the controller for the given PIO mode.
+ */
 
 static void ali_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
 	ide_drive_t *pair = ide_get_pair_dev(drive);
 	int bus_speed = ide_pci_clk ? ide_pci_clk : 33;
-	unsigned long T =  1000000 / bus_speed; 
+	unsigned long T =  1000000 / bus_speed; /* PCI clock based */
 	struct ide_timing t;
 
 	ide_timing_compute(drive, drive->pio_mode, &t, T, 1);
@@ -109,11 +120,25 @@ static void ali_set_pio_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 		}
 	}
 
+	/* 
+	 * PIO mode => ATA FIFO on, ATAPI FIFO off
+	 */
 	ali_fifo_control(hwif, drive, (drive->media == ide_disk) ? 0x05 : 0x00);
 
 	ali_program_timings(hwif, drive, &t, 0);
 }
 
+/**
+ *	ali_udma_filter		-	compute UDMA mask
+ *	@drive: IDE device
+ *
+ *	Return available UDMA modes.
+ *
+ *	The actual rules for the ALi are:
+ *		No UDMA on revisions <= 0x20
+ *		Disk only for revisions < 0xC2
+ *		Not WDC drives on M1543C-E (?)
+ */
 
 static u8 ali_udma_filter(ide_drive_t *drive)
 {
@@ -128,6 +153,13 @@ static u8 ali_udma_filter(ide_drive_t *drive)
 	return drive->hwif->ultra_mask;
 }
 
+/**
+ *	ali_set_dma_mode	-	set host controller for DMA mode
+ *	@hwif: port
+ *	@drive: drive
+ *
+ *	Configure the hardware for the desired IDE transfer mode.
+ */
 
 static void ali_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 {
@@ -135,7 +167,7 @@ static void ali_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	struct pci_dev *dev	= to_pci_dev(hwif->dev);
 	ide_drive_t *pair	= ide_get_pair_dev(drive);
 	int bus_speed		= ide_pci_clk ? ide_pci_clk : 33;
-	unsigned long T		=  1000000 / bus_speed; 
+	unsigned long T		=  1000000 / bus_speed; /* PCI clock based */
 	const u8 speed		= drive->dma_mode;
 	u8 tmpbyte		= 0x00;
 	struct ide_timing t;
@@ -167,16 +199,30 @@ static void ali_set_dma_mode(ide_hwif_t *hwif, ide_drive_t *drive)
 	}
 }
 
+/**
+ *	ali_dma_check	-	DMA check
+ *	@drive:	target device
+ *	@cmd: command
+ *
+ *	Returns 1 if the DMA cannot be performed, zero on success.
+ */
 
 static int ali_dma_check(ide_drive_t *drive, struct ide_cmd *cmd)
 {
 	if (m5229_revision < 0xC2 && drive->media != ide_disk) {
 		if (cmd->tf_flags & IDE_TFLAG_WRITE)
-			return 1;	
+			return 1;	/* try PIO instead of DMA */
 	}
 	return 0;
 }
 
+/**
+ *	init_chipset_ali15x3	-	Initialise an ALi IDE controller
+ *	@dev: PCI device
+ *
+ *	This function initializes the ALI IDE controller and where 
+ *	appropriate also sets up the 1533 southbridge.
+ */
 
 static int init_chipset_ali15x3(struct pci_dev *dev)
 {
@@ -191,8 +237,19 @@ static int init_chipset_ali15x3(struct pci_dev *dev)
 	local_irq_save(flags);
 
 	if (m5229_revision < 0xC2) {
+		/*
+		 * revision 0x20 (1543-E, 1543-F)
+		 * revision 0xC0, 0xC1 (1543C-C, 1543C-D, 1543C-E)
+		 * clear CD-ROM DMA write bit, m5229, 0x4b, bit 7
+		 */
 		pci_read_config_byte(dev, 0x4b, &tmpbyte);
+		/*
+		 * clear bit 7
+		 */
 		pci_write_config_byte(dev, 0x4b, tmpbyte & 0x7F);
+		/*
+		 * check m1533, 0x5e, bit 1~4 == 1001 => & 00011110 = 00010010
+		 */
 		if (m5229_revision >= 0x20 && isa_dev) {
 			pci_read_config_byte(isa_dev, 0x5e, &tmpbyte);
 			chip_is_1543c_e = ((tmpbyte & 0x1e) == 0x12) ? 1: 0;
@@ -200,25 +257,60 @@ static int init_chipset_ali15x3(struct pci_dev *dev)
 		goto out;
 	}
 
+	/*
+	 * 1543C-B?, 1535, 1535D, 1553
+	 * Note 1: not all "motherboard" support this detection
+	 * Note 2: if no udma 66 device, the detection may "error".
+	 *         but in this case, we will not set the device to
+	 *         ultra 66, the detection result is not important
+	 */
 
+	/*
+	 * enable "Cable Detection", m5229, 0x4b, bit3
+	 */
 	pci_read_config_byte(dev, 0x4b, &tmpbyte);
 	pci_write_config_byte(dev, 0x4b, tmpbyte | 0x08);
 
+	/*
+	 * We should only tune the 1533 enable if we are using an ALi
+	 * North bridge. We might have no north found on some zany
+	 * box without a device at 0:0.0. The ALi bridge will be at
+	 * 0:0.0 so if we didn't find one we know what is cooking.
+	 */
 	if (north && north->vendor != PCI_VENDOR_ID_AL)
 		goto out;
 
 	if (m5229_revision < 0xC5 && isa_dev)
 	{	
+		/*
+		 * set south-bridge's enable bit, m1533, 0x79
+		 */
 
 		pci_read_config_byte(isa_dev, 0x79, &tmpbyte);
 		if (m5229_revision == 0xC2) {
+			/*
+			 * 1543C-B0 (m1533, 0x79, bit 2)
+			 */
 			pci_write_config_byte(isa_dev, 0x79, tmpbyte | 0x04);
 		} else if (m5229_revision >= 0xC3) {
+			/*
+			 * 1553/1535 (m1533, 0x79, bit 1)
+			 */
 			pci_write_config_byte(isa_dev, 0x79, tmpbyte | 0x02);
 		}
 	}
 
 out:
+	/*
+	 * CD_ROM DMA on (m5229, 0x53, bit0)
+	 *      Enable this bit even if we want to use PIO.
+	 * PIO FIFO off (m5229, 0x53, bit1)
+	 *      The hardware will use 0x54h and 0x55h to control PIO FIFO.
+	 *	(Not on later devices it seems)
+	 *
+	 *	0x53 changes meaning on later revs - we must no touch
+	 *	bit 1 on them.  Need to check if 0x20 is the right break.
+	 */
 	if (m5229_revision >= 0x20) {
 		pci_read_config_byte(dev, 0x53, &tmpbyte);
 
@@ -237,6 +329,9 @@ out:
 	return 0;
 }
 
+/*
+ *	Cable special cases
+ */
 
 static const struct dmi_system_id cable_dmi_table[] = {
 	{
@@ -258,23 +353,30 @@ static const struct dmi_system_id cable_dmi_table[] = {
 
 static int ali_cable_override(struct pci_dev *pdev)
 {
-	
+	/* Fujitsu P2000 */
 	if (pdev->subsystem_vendor == 0x10CF &&
 	    pdev->subsystem_device == 0x10AF)
 		return 1;
 
-	
+	/* Mitac 8317 (Winbook-A) and relatives */
 	if (pdev->subsystem_vendor == 0x1071 &&
 	    pdev->subsystem_device == 0x8317)
 		return 1;
 
-	
+	/* Systems by DMI */
 	if (dmi_check_system(cable_dmi_table))
 		return 1;
 
 	return 0;
 }
 
+/**
+ *	ali_cable_detect	-	cable detection
+ *	@hwif: IDE interface
+ *
+ *	This checks if the controller and the cable are capable
+ *	of UDMA66 transfers. It doesn't check the drives.
+ */
 
 static u8 ali_cable_detect(ide_hwif_t *hwif)
 {
@@ -282,6 +384,15 @@ static u8 ali_cable_detect(ide_hwif_t *hwif)
 	u8 cbl = ATA_CBL_PATA40, tmpbyte;
 
 	if (m5229_revision >= 0xC2) {
+		/*
+		 * m5229 80-pin cable detection (from Host View)
+		 *
+		 * 0x4a bit0 is 0 => primary channel has 80-pin
+		 * 0x4a bit1 is 0 => secondary channel has 80-pin
+		 *
+		 * Certain laptops use short but suitable cables
+		 * and don't implement the detect logic.
+		 */
 		if (ali_cable_override(dev))
 			cbl = ATA_CBL_PATA40_SHORT;
 		else {
@@ -295,6 +406,14 @@ static u8 ali_cable_detect(ide_hwif_t *hwif)
 }
 
 #ifndef CONFIG_SPARC64
+/**
+ *	init_hwif_ali15x3	-	Initialize the ALI IDE x86 stuff
+ *	@hwif: interface to configure
+ *
+ *	Obtain the IRQ tables for an ALi based IDE solution on the PC
+ *	class platforms. This part of the code isn't applicable to the
+ *	Sparc systems.
+ */
 
 static void __devinit init_hwif_ali15x3 (ide_hwif_t *hwif)
 {
@@ -304,18 +423,27 @@ static void __devinit init_hwif_ali15x3 (ide_hwif_t *hwif)
 	int irq = -1;
 
 	if (isa_dev) {
+		/*
+		 * read IDE interface control
+		 */
 		pci_read_config_byte(isa_dev, 0x58, &ideic);
 
-		
+		/* bit0, bit1 */
 		ideic = ideic & 0x03;
 
-		
+		/* get IRQ for IDE Controller */
 		if ((hwif->channel && ideic == 0x03) ||
 		    (!hwif->channel && !ideic)) {
+			/*
+			 * get SIRQ1 routing table
+			 */
 			pci_read_config_byte(isa_dev, 0x44, &inmir);
 			inmir = inmir & 0x0f;
 			irq = irq_routing_table[inmir];
 		} else if (hwif->channel && !(ideic & 0x01)) {
+			/*
+			 * get SIRQ2 routing table
+			 */
 			pci_read_config_byte(isa_dev, 0x75, &inmir);
 			inmir = inmir & 0x0f;
 			irq = irq_routing_table[inmir];
@@ -326,8 +454,15 @@ static void __devinit init_hwif_ali15x3 (ide_hwif_t *hwif)
 }
 #else
 #define init_hwif_ali15x3 NULL
-#endif 
+#endif /* CONFIG_SPARC64 */
 
+/**
+ *	init_dma_ali15x3	-	set up DMA on ALi15x3
+ *	@hwif: IDE interface
+ *	@d: IDE port info
+ *
+ *	Set up the DMA functionality on the ALi 15x3.
+ */
 
 static int __devinit init_dma_ali15x3(ide_hwif_t *hwif,
 				      const struct ide_port_info *d)
@@ -389,13 +524,20 @@ static const struct ide_port_info ali15x3_chipset __devinitdata = {
 	.mwdma_mask	= ATA_MWDMA2,
 };
 
+/**
+ *	alim15x3_init_one	-	set up an ALi15x3 IDE controller
+ *	@dev: PCI device to set up
+ *
+ *	Perform the actual set up for an ALi15x3 that has been found by the
+ *	hot plug layer.
+ */
  
 static int __devinit alim15x3_init_one(struct pci_dev *dev, const struct pci_device_id *id)
 {
 	struct ide_port_info d = ali15x3_chipset;
 	u8 rev = dev->revision, idx = id->driver_data;
 
-	
+	/* don't use LBA48 DMA on ALi devices before rev 0xC5 */
 	if (rev <= 0xC4)
 		d.host_flags |= IDE_HFLAG_NO_LBA48_DMA;
 

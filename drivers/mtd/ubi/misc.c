@@ -18,9 +18,20 @@
  * Author: Artem Bityutskiy (Битюцкий Артём)
  */
 
+/* Here we keep miscellaneous functions which are used all over the UBI code */
 
 #include "ubi.h"
 
+/**
+ * calc_data_len - calculate how much real data is stored in a buffer.
+ * @ubi: UBI device description object
+ * @buf: a buffer with the contents of the physical eraseblock
+ * @length: the buffer length
+ *
+ * This function calculates how much "real data" is stored in @buf and returnes
+ * the length. Continuous 0xFF bytes at the end of the buffer are not
+ * considered as "real data".
+ */
 int ubi_calc_data_len(const struct ubi_device *ubi, const void *buf,
 		      int length)
 {
@@ -32,11 +43,21 @@ int ubi_calc_data_len(const struct ubi_device *ubi, const void *buf,
 		if (((const uint8_t *)buf)[i] != 0xFF)
 			break;
 
-	
+	/* The resulting length must be aligned to the minimum flash I/O size */
 	length = ALIGN(i + 1, ubi->min_io_size);
 	return length;
 }
 
+/**
+ * ubi_check_volume - check the contents of a static volume.
+ * @ubi: UBI device description object
+ * @vol_id: ID of the volume to check
+ *
+ * This function checks if static volume @vol_id is corrupted by fully reading
+ * it and checking data CRC. This function returns %0 if the volume is not
+ * corrupted, %1 if it is corrupted and a negative error code in case of
+ * failure. Dynamic volumes are not checked and zero is returned immediately.
+ */
 int ubi_check_volume(struct ubi_device *ubi, int vol_id)
 {
 	void *buf;
@@ -70,6 +91,11 @@ int ubi_check_volume(struct ubi_device *ubi, int vol_id)
 	return err;
 }
 
+/**
+ * ubi_calculate_rsvd_pool - calculate how many PEBs must be reserved for bad
+ * eraseblock handling.
+ * @ubi: UBI device description object
+ */
 void ubi_calculate_reserved(struct ubi_device *ubi)
 {
 	ubi->beb_rsvd_level = ubi->good_peb_count/100;
@@ -78,6 +104,15 @@ void ubi_calculate_reserved(struct ubi_device *ubi)
 		ubi->beb_rsvd_level = MIN_RESEVED_PEBS;
 }
 
+/**
+ * ubi_check_pattern - check if buffer contains only a certain byte pattern.
+ * @buf: buffer to check
+ * @patt: the pattern to check
+ * @size: buffer size in bytes
+ *
+ * This function returns %1 in there are only @patt bytes in @buf, and %0 if
+ * something else was also found.
+ */
 int ubi_check_pattern(const void *buf, uint8_t patt, int size)
 {
 	int i;

@@ -17,6 +17,13 @@
 #include <linux/mfd/wcd9xxx/core.h>
 
 
+/*
+ *  client is expected to give port ids in the range of
+ *  1-10 for pre Taiko Tx ports and 1-16 for Taiko
+ *  1-7 for pre Taiko Rx ports and 1-16 for Tako,
+ *  we need to add offset for getting the absolute slave
+ *  port id before configuring the HW
+ */
 #define TABLA_SB_PGD_MAX_NUMBER_OF_TX_SLAVE_DEV_PORTS 10
 #define TAIKO_SB_PGD_MAX_NUMBER_OF_TX_SLAVE_DEV_PORTS 16
 
@@ -43,6 +50,7 @@
 #define TABLA_SB_PGD_TX_PORT_MULTI_CHANNEL_1_END_PORT_ID 9
 #define TAIKO_SB_PGD_TX_PORT_MULTI_CHANNEL_1_END_PORT_ID 15
 
+/* below details are taken from SLIMBUS slave SWI */
 #define SB_PGD_PORT_BASE 0x000
 
 #define SB_PGD_PORT_CFG_BYTE_ADDR(offset, port_num) \
@@ -60,6 +68,9 @@
 #define SB_PGD_RX_PORT_MULTI_CHANNEL_0(offset, port_num) \
 		(SB_PGD_PORT_BASE + offset + (4 * port_num))
 
+/* slave port water mark level
+ *   (0: 6bytes, 1: 9bytes, 2: 12 bytes, 3: 15 bytes)
+ */
 #define SLAVE_PORT_WATER_MARK_6BYTES  0
 #define SLAVE_PORT_WATER_MARK_9BYTES  1
 #define SLAVE_PORT_WATER_MARK_12BYTES 2
@@ -102,4 +113,4 @@ int wcd9xxx_rx_vport_validation(u32 port_id,
 				struct list_head *codec_dai_list);
 int wcd9xxx_tx_vport_validation(u32 vtable, u32 port_id,
 				struct wcd9xxx_codec_dai_data *codec_dai);
-#endif 
+#endif /* __WCD9310_SLIMSLAVE_H_ */

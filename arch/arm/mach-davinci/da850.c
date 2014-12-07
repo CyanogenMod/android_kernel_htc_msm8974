@@ -33,6 +33,7 @@
 #include "clock.h"
 #include "mux.h"
 
+/* SoC specific clock flags */
 #define DA850_CLK_ASYNC3	BIT(16)
 
 #define DA850_PLL1_BASE		0x01e1a000
@@ -400,26 +401,32 @@ static struct clk_lookup da850_clks[] = {
 	CLK(NULL,		NULL,		NULL),
 };
 
+/*
+ * Device specific mux setup
+ *
+ *		soc	description	mux	mode	mode	mux	dbg
+ *					reg	offset	mask	mode
+ */
 static const struct mux_config da850_pins[] = {
 #ifdef CONFIG_DAVINCI_MUX
-	
+	/* UART0 function */
 	MUX_CFG(DA850, NUART0_CTS,	3,	24,	15,	2,	false)
 	MUX_CFG(DA850, NUART0_RTS,	3,	28,	15,	2,	false)
 	MUX_CFG(DA850, UART0_RXD,	3,	16,	15,	2,	false)
 	MUX_CFG(DA850, UART0_TXD,	3,	20,	15,	2,	false)
-	
+	/* UART1 function */
 	MUX_CFG(DA850, UART1_RXD,	4,	24,	15,	2,	false)
 	MUX_CFG(DA850, UART1_TXD,	4,	28,	15,	2,	false)
-	
+	/* UART2 function */
 	MUX_CFG(DA850, UART2_RXD,	4,	16,	15,	2,	false)
 	MUX_CFG(DA850, UART2_TXD,	4,	20,	15,	2,	false)
-	
+	/* I2C1 function */
 	MUX_CFG(DA850, I2C1_SCL,	4,	16,	15,	4,	false)
 	MUX_CFG(DA850, I2C1_SDA,	4,	20,	15,	4,	false)
-	
+	/* I2C0 function */
 	MUX_CFG(DA850, I2C0_SDA,	4,	12,	15,	2,	false)
 	MUX_CFG(DA850, I2C0_SCL,	4,	8,	15,	2,	false)
-	
+	/* EMAC function */
 	MUX_CFG(DA850, MII_TXEN,	2,	4,	15,	8,	false)
 	MUX_CFG(DA850, MII_TXCLK,	2,	8,	15,	8,	false)
 	MUX_CFG(DA850, MII_COL,		2,	12,	15,	8,	false)
@@ -445,7 +452,7 @@ static const struct mux_config da850_pins[] = {
 	MUX_CFG(DA850, RMII_RXD_1,	14,	20,	15,	8,	false)
 	MUX_CFG(DA850, RMII_RXER,	14,	28,	15,	8,	false)
 	MUX_CFG(DA850, RMII_MHZ_50_CLK,	15,	0,	15,	0,	false)
-	
+	/* McASP function */
 	MUX_CFG(DA850,	ACLKR,		0,	0,	15,	1,	false)
 	MUX_CFG(DA850,	ACLKX,		0,	4,	15,	1,	false)
 	MUX_CFG(DA850,	AFSR,		0,	8,	15,	1,	false)
@@ -469,7 +476,7 @@ static const struct mux_config da850_pins[] = {
 	MUX_CFG(DA850,	AXR_2,		2,	20,	15,	1,	false)
 	MUX_CFG(DA850,	AXR_1,		2,	24,	15,	1,	false)
 	MUX_CFG(DA850,	AXR_0,		2,	28,	15,	1,	false)
-	
+	/* LCD function */
 	MUX_CFG(DA850, LCD_D_7,		16,	8,	15,	2,	false)
 	MUX_CFG(DA850, LCD_D_6,		16,	12,	15,	2,	false)
 	MUX_CFG(DA850, LCD_D_5,		16,	16,	15,	2,	false)
@@ -490,21 +497,21 @@ static const struct mux_config da850_pins[] = {
 	MUX_CFG(DA850, LCD_HSYNC,	19,	0,	15,	2,	false)
 	MUX_CFG(DA850, LCD_VSYNC,	19,	4,	15,	2,	false)
 	MUX_CFG(DA850, NLCD_AC_ENB_CS,	19,	24,	15,	2,	false)
-	
+	/* MMC/SD0 function */
 	MUX_CFG(DA850, MMCSD0_DAT_0,	10,	8,	15,	2,	false)
 	MUX_CFG(DA850, MMCSD0_DAT_1,	10,	12,	15,	2,	false)
 	MUX_CFG(DA850, MMCSD0_DAT_2,	10,	16,	15,	2,	false)
 	MUX_CFG(DA850, MMCSD0_DAT_3,	10,	20,	15,	2,	false)
 	MUX_CFG(DA850, MMCSD0_CLK,	10,	0,	15,	2,	false)
 	MUX_CFG(DA850, MMCSD0_CMD,	10,	4,	15,	2,	false)
-	
+	/* MMC/SD1 function */
 	MUX_CFG(DA850, MMCSD1_DAT_0,	18,	8,	15,	2,	false)
 	MUX_CFG(DA850, MMCSD1_DAT_1,	19,	16,	15,	2,	false)
 	MUX_CFG(DA850, MMCSD1_DAT_2,	19,	12,	15,	2,	false)
 	MUX_CFG(DA850, MMCSD1_DAT_3,	19,	8,	15,	2,	false)
 	MUX_CFG(DA850, MMCSD1_CLK,	18,	12,	15,	2,	false)
 	MUX_CFG(DA850, MMCSD1_CMD,	18,	16,	15,	2,	false)
-	
+	/* EMIF2.5/EMIFA function */
 	MUX_CFG(DA850, EMA_D_7,		9,	0,	15,	1,	false)
 	MUX_CFG(DA850, EMA_D_6,		9,	4,	15,	1,	false)
 	MUX_CFG(DA850, EMA_D_5,		9,	8,	15,	1,	false)
@@ -553,7 +560,7 @@ static const struct mux_config da850_pins[] = {
 	MUX_CFG(DA850, EMA_CLK,		6,	0,	15,	1,	false)
 	MUX_CFG(DA850, EMA_WAIT_1,	6,	24,	15,	1,	false)
 	MUX_CFG(DA850, NEMA_CS_2,	7,	0,	15,	1,	false)
-	
+	/* GPIO function */
 	MUX_CFG(DA850, GPIO2_4,		6,	12,	15,	8,	false)
 	MUX_CFG(DA850, GPIO2_6,		6,	4,	15,	8,	false)
 	MUX_CFG(DA850, GPIO2_8,		5,	28,	15,	8,	false)
@@ -588,6 +595,7 @@ const short da850_lcdcntl_pins[] __initdata = {
 	-1
 };
 
+/* FIQ are pri 0-1; otherwise 2-7, with 7 lowest priority */
 static u8 da850_default_priorities[DA850_N_CP_INTC_IRQ] = {
 	[IRQ_DA8XX_COMMTX]		= 7,
 	[IRQ_DA8XX_COMMRX]		= 7,
@@ -715,18 +723,19 @@ static struct map_desc da850_io_desc[] = {
 
 static u32 da850_psc_bases[] = { DA8XX_PSC0_BASE, DA8XX_PSC1_BASE };
 
+/* Contents of JTAG ID register used to identify exact cpu type */
 static struct davinci_id da850_ids[] = {
 	{
 		.variant	= 0x0,
 		.part_no	= 0xb7d1,
-		.manufacturer	= 0x017,	
+		.manufacturer	= 0x017,	/* 0x02f >> 1 */
 		.cpu_id		= DAVINCI_CPU_ID_DA850,
 		.name		= "da850/omap-l138",
 	},
 	{
 		.variant	= 0x1,
 		.part_no	= 0xb7d1,
-		.manufacturer	= 0x017,	
+		.manufacturer	= 0x017,	/* 0x02f >> 1 */
 		.cpu_id		= DAVINCI_CPU_ID_DA850,
 		.name		= "da850/omap-l138/am18x",
 	},
@@ -755,6 +764,11 @@ static struct davinci_timer_instance da850_timer_instance[4] = {
 	},
 };
 
+/*
+ * T0_BOT: Timer 0, bottom		: Used for clock_event
+ * T0_TOP: Timer 0, top			: Used for clocksource
+ * T1_BOT, T1_TOP: Timer 1, bottom & top: Used for watchdog timer
+ */
 static struct davinci_timer_info da850_timer_info = {
 	.timers		= da850_timer_instance,
 	.clockevent_id	= T0_BOT,
@@ -786,13 +800,20 @@ static void da850_set_async3_src(int pllnum)
 }
 
 #ifdef CONFIG_CPU_FREQ
+/*
+ * Notes:
+ * According to the TRM, minimum PLLM results in maximum power savings.
+ * The OPP definitions below should keep the PLLM as low as possible.
+ *
+ * The output of the PLLM must be between 300 to 600 MHz.
+ */
 struct da850_opp {
-	unsigned int	freq;	
+	unsigned int	freq;	/* in KHz */
 	unsigned int	prediv;
 	unsigned int	mult;
 	unsigned int	postdiv;
-	unsigned int	cvdd_min; 
-	unsigned int	cvdd_max; 
+	unsigned int	cvdd_min; /* in uV */
+	unsigned int	cvdd_max; /* in uV */
 };
 
 static const struct da850_opp da850_opp_456 = {
@@ -922,7 +943,7 @@ int __init da850_register_cpufreq(char *async_clk)
 {
 	int i;
 
-	
+	/* cpufreq driver can help keep an "async" clock constant */
 	if (async_clk)
 		clk_add_alias("async", da850_cpufreq_device.name,
 							async_clk, NULL);
@@ -942,7 +963,7 @@ static int da850_round_armrate(struct clk *clk, unsigned long rate)
 	unsigned int best = (unsigned int) -1;
 	struct cpufreq_frequency_table *table = cpufreq_info.freq_table;
 
-	rate /= 1000; 
+	rate /= 1000; /* convert to kHz */
 
 	for (i = 0; table[i].frequency != CPUFREQ_TABLE_END; i++) {
 		diff = table[i].frequency - rate;
@@ -1084,14 +1105,21 @@ void __init da850_init(void)
 	if (WARN(!da8xx_syscfg1_base, "Unable to map syscfg1 module"))
 		return;
 
+	/*
+	 * Move the clock source of Async3 domain to PLL1 SYSCLK2.
+	 * This helps keeping the peripherals on this domain insulated
+	 * from CPU frequency changes caused by DVFS. The firmware sets
+	 * both PLL0 and PLL1 to the same frequency so, there should not
+	 * be any noticeable change even in non-DVFS use cases.
+	 */
 	da850_set_async3_src(1);
 
-	
+	/* Unlock writing to PLL0 registers */
 	v = __raw_readl(DA8XX_SYSCFG0_VIRT(DA8XX_CFGCHIP0_REG));
 	v &= ~CFGCHIP0_PLL_MASTER_LOCK;
 	__raw_writel(v, DA8XX_SYSCFG0_VIRT(DA8XX_CFGCHIP0_REG));
 
-	
+	/* Unlock writing to PLL1 registers */
 	v = __raw_readl(DA8XX_SYSCFG0_VIRT(DA8XX_CFGCHIP3_REG));
 	v &= ~CFGCHIP3_PLL1_MASTER_LOCK;
 	__raw_writel(v, DA8XX_SYSCFG0_VIRT(DA8XX_CFGCHIP3_REG));

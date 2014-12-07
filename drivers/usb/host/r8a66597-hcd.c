@@ -55,6 +55,7 @@ static const char hcd_name[] = "r8a66597_hcd";
 static void packet_write(struct r8a66597 *r8a66597, u16 pipenum);
 static int r8a66597_get_frame(struct usb_hcd *hcd);
 
+/* this function must be called with interrupt disabled */
 static void enable_pipe_irq(struct r8a66597 *r8a66597, u16 pipenum,
 			    unsigned long reg)
 {
@@ -66,6 +67,7 @@ static void enable_pipe_irq(struct r8a66597 *r8a66597, u16 pipenum,
 	r8a66597_write(r8a66597, tmp, INTENB0);
 }
 
+/* this function must be called with interrupt disabled */
 static void disable_pipe_irq(struct r8a66597 *r8a66597, u16 pipenum,
 			     unsigned long reg)
 {
@@ -217,14 +219,14 @@ static void disable_controller(struct r8a66597 *r8a66597)
 {
 	int port;
 
-	
+	/* disable interrupts */
 	r8a66597_write(r8a66597, 0, INTENB0);
 	r8a66597_write(r8a66597, 0, INTENB1);
 	r8a66597_write(r8a66597, 0, BRDYENB);
 	r8a66597_write(r8a66597, 0, BEMPENB);
 	r8a66597_write(r8a66597, 0, NRDYENB);
 
-	
+	/* clear status */
 	r8a66597_write(r8a66597, 0, BRDYSTS);
 	r8a66597_write(r8a66597, 0, NRDYSTS);
 	r8a66597_write(r8a66597, 0, BEMPSTS);
@@ -317,7 +319,7 @@ static void set_pipe_reg_addr(struct r8a66597_pipe *pipe, u8 dma_ch)
 	const unsigned long fifosel[] = {D0FIFOSEL, D1FIFOSEL, CFIFOSEL};
 	const unsigned long fifoctr[] = {D0FIFOCTR, D1FIFOCTR, CFIFOCTR};
 
-	if (dma_ch > R8A66597_PIPE_NO_DMA)	
+	if (dma_ch > R8A66597_PIPE_NO_DMA)	/* dma fifo not use? */
 		dma_ch = R8A66597_PIPE_NO_DMA;
 
 	pipe->fifoaddr = fifoaddr[dma_ch];
@@ -351,7 +353,7 @@ static int make_r8a66597_device(struct r8a66597 *r8a66597,
 				struct urb *urb, u8 addr)
 {
 	struct r8a66597_device *dev;
-	int usb_address = urb->setup_packet[2];	
+	int usb_address = urb->setup_packet[2];	/* urb->pipe is address 0 */
 
 	dev = kzalloc(sizeof(struct r8a66597_device), GFP_ATOMIC);
 	if (dev == NULL)
@@ -380,9 +382,10 @@ static int make_r8a66597_device(struct r8a66597 *r8a66597,
 	return 0;
 }
 
+/* this function must be called with interrupt disabled */
 static u8 alloc_usb_address(struct r8a66597 *r8a66597, struct urb *urb)
 {
-	u8 addr;	
+	u8 addr;	/* R8A66597's address */
 	struct r8a66597_device *dev;
 
 	if (is_hub_limit(urb->dev->devpath)) {
@@ -414,6 +417,7 @@ static u8 alloc_usb_address(struct r8a66597 *r8a66597, struct urb *urb)
 	return 0;
 }
 
+/* this function must be called with interrupt disabled */
 static void free_usb_address(struct r8a66597 *r8a66597,
 			     struct r8a66597_device *dev, int reset)
 {
@@ -427,6 +431,11 @@ static void free_usb_address(struct r8a66597 *r8a66597,
 	dev->state = USB_STATE_DEFAULT;
 	r8a66597->address_map &= ~(1 << dev->address);
 	dev->address = 0;
+	/*
+	 * Only when resetting USB, it is necessary to erase drvdata. When
+	 * a usb device with usb hub is disconnect, "dev->udev" is already
+	 * freed on usb_desconnect(). So we cannot access the data.
+	 */
 	if (reset)
 		dev_set_drvdata(&dev->udev->dev, NULL);
 	list_del(&dev->device_list);
@@ -457,27 +466,30 @@ static void r8a66597_reg_wait(struct r8a66597 *r8a66597, unsigned long reg,
 	} while ((tmp & mask) != loop);
 }
 
+/* this function must be called with interrupt disabled */
 static void pipe_start(struct r8a66597 *r8a66597, struct r8a66597_pipe *pipe)
 {
 	u16 tmp;
 
 	tmp = r8a66597_read(r8a66597, pipe->pipectr) & PID;
-	if ((pipe->info.pipenum != 0) & ((tmp & PID_STALL) != 0)) 
+	if ((pipe->info.pipenum != 0) & ((tmp & PID_STALL) != 0)) /* stall? */
 		r8a66597_mdfy(r8a66597, PID_NAK, PID, pipe->pipectr);
 	r8a66597_mdfy(r8a66597, PID_BUF, PID, pipe->pipectr);
 }
 
+/* this function must be called with interrupt disabled */
 static void pipe_stop(struct r8a66597 *r8a66597, struct r8a66597_pipe *pipe)
 {
 	u16 tmp;
 
 	tmp = r8a66597_read(r8a66597, pipe->pipectr) & PID;
-	if ((tmp & PID_STALL11) != PID_STALL11)	
+	if ((tmp & PID_STALL11) != PID_STALL11)	/* force stall? */
 		r8a66597_mdfy(r8a66597, PID_STALL, PID, pipe->pipectr);
 	r8a66597_mdfy(r8a66597, PID_NAK, PID, pipe->pipectr);
 	r8a66597_reg_wait(r8a66597, pipe->pipectr, PBUSY, 0);
 }
 
+/* this function must be called with interrupt disabled */
 static void clear_all_buffer(struct r8a66597 *r8a66597,
 			     struct r8a66597_pipe *pipe)
 {
@@ -494,6 +506,7 @@ static void clear_all_buffer(struct r8a66597 *r8a66597,
 	r8a66597_bclr(r8a66597, ACLRM, pipe->pipectr);
 }
 
+/* this function must be called with interrupt disabled */
 static void r8a66597_pipe_toggle(struct r8a66597 *r8a66597,
 				 struct r8a66597_pipe *pipe, int toggle)
 {
@@ -511,6 +524,7 @@ static inline unsigned short mbw_value(struct r8a66597 *r8a66597)
 		return MBW_16;
 }
 
+/* this function must be called with interrupt disabled */
 static inline void cfifo_change(struct r8a66597 *r8a66597, u16 pipenum)
 {
 	unsigned short mbw = mbw_value(r8a66597);
@@ -519,6 +533,7 @@ static inline void cfifo_change(struct r8a66597 *r8a66597, u16 pipenum)
 	r8a66597_reg_wait(r8a66597, CFIFOSEL, CURPIPE, pipenum);
 }
 
+/* this function must be called with interrupt disabled */
 static inline void fifo_change_from_pipe(struct r8a66597 *r8a66597,
 					 struct r8a66597_pipe *pipe)
 {
@@ -559,6 +574,7 @@ static unsigned short *get_toggle_pointer(struct r8a66597_device *dev,
 	return usb_pipein(urb_pipe) ? &dev->ep_in_toggle : &dev->ep_out_toggle;
 }
 
+/* this function must be called with interrupt disabled */
 static void pipe_toggle_set(struct r8a66597 *r8a66597,
 			    struct r8a66597_pipe *pipe,
 			    struct urb *urb, int set)
@@ -576,6 +592,7 @@ static void pipe_toggle_set(struct r8a66597 *r8a66597,
 		*toggle &= ~(1 << endpoint);
 }
 
+/* this function must be called with interrupt disabled */
 static void pipe_toggle_save(struct r8a66597 *r8a66597,
 			     struct r8a66597_pipe *pipe,
 			     struct urb *urb)
@@ -586,6 +603,7 @@ static void pipe_toggle_save(struct r8a66597 *r8a66597,
 		pipe_toggle_set(r8a66597, pipe, urb, 0);
 }
 
+/* this function must be called with interrupt disabled */
 static void pipe_toggle_restore(struct r8a66597 *r8a66597,
 				struct r8a66597_pipe *pipe,
 				struct urb *urb)
@@ -600,6 +618,7 @@ static void pipe_toggle_restore(struct r8a66597 *r8a66597,
 	r8a66597_pipe_toggle(r8a66597, pipe, *toggle & (1 << endpoint));
 }
 
+/* this function must be called with interrupt disabled */
 static void pipe_buffer_setting(struct r8a66597 *r8a66597,
 				struct r8a66597_pipe_info *info)
 {
@@ -625,6 +644,7 @@ static void pipe_buffer_setting(struct r8a66597 *r8a66597,
 	r8a66597_write(r8a66597, info->interval, PIPEPERI);
 }
 
+/* this function must be called with interrupt disabled */
 static void pipe_setting(struct r8a66597 *r8a66597, struct r8a66597_td *td)
 {
 	struct r8a66597_pipe_info *info;
@@ -648,6 +668,7 @@ static void pipe_setting(struct r8a66597 *r8a66597, struct r8a66597_td *td)
 	}
 }
 
+/* this function must be called with interrupt disabled */
 static u16 get_empty_pipenum(struct r8a66597 *r8a66597,
 			     struct usb_endpoint_descriptor *ep)
 {
@@ -748,6 +769,7 @@ static u16 get_buf_bsize(u16 pipenum)
 	return buf_bsize;
 }
 
+/* this function must be called with interrupt disabled */
 static void enable_r8a66597_pipe_dma(struct r8a66597 *r8a66597,
 				     struct r8a66597_device *dev,
 				     struct r8a66597_pipe *pipe,
@@ -757,7 +779,7 @@ static void enable_r8a66597_pipe_dma(struct r8a66597 *r8a66597,
 	struct r8a66597_pipe_info *info = &pipe->info;
 	unsigned short mbw = mbw_value(r8a66597);
 
-	
+	/* pipe dma is only for external controlles */
 	if (r8a66597->pdata->on_chip)
 		return;
 
@@ -789,6 +811,7 @@ static void enable_r8a66597_pipe_dma(struct r8a66597 *r8a66597,
 	}
 }
 
+/* this function must be called with interrupt disabled */
 static void enable_r8a66597_pipe(struct r8a66597 *r8a66597, struct urb *urb,
 				 struct usb_host_endpoint *hep,
 				 struct r8a66597_pipe_info *info)
@@ -826,6 +849,7 @@ __acquires(r8a66597->lock)
 	spin_lock(&r8a66597->lock);
 }
 
+/* this function must be called with interrupt disabled */
 static void force_dequeue(struct r8a66597 *r8a66597, u16 pipenum, u16 address)
 {
 	struct r8a66597_td *td, *next;
@@ -850,6 +874,7 @@ static void force_dequeue(struct r8a66597 *r8a66597, u16 pipenum, u16 address)
 	}
 }
 
+/* this function must be called with interrupt disabled */
 static void disable_r8a66597_pipe_all(struct r8a66597 *r8a66597,
 				      struct r8a66597_device *dev)
 {
@@ -893,7 +918,7 @@ static u16 get_interval(struct urb *urb, __u8 interval)
 		if (interval > 128) {
 			time = IITV;
 		} else {
-			
+			/* calculate the nearest value for PIPEPERI */
 			for (i = 0; i < 7; i++) {
 				if ((1 << i) < interval &&
 				    (1 << (i + 1) > interval))
@@ -916,7 +941,7 @@ static unsigned long get_timer_interval(struct urb *urb, __u8 interval)
 	if (get_r8a66597_usb_speed(urb->dev->speed) == HSMODE) {
 		for (i = 0; i < (interval - 1); i++)
 			time *= 2;
-		time = time * 125 / 1000;	
+		time = time * 125 / 1000;	/* uSOF -> msec */
 	} else {
 		time = interval;
 	}
@@ -924,6 +949,7 @@ static unsigned long get_timer_interval(struct urb *urb, __u8 interval)
 	return time;
 }
 
+/* this function must be called with interrupt disabled */
 static void init_pipe_info(struct r8a66597 *r8a66597, struct urb *urb,
 			   struct usb_host_endpoint *hep,
 			   struct usb_endpoint_descriptor *ep)
@@ -1000,6 +1026,7 @@ static void start_root_hub_sampling(struct r8a66597 *r8a66597, int port,
 	r8a66597_root_hub_start_polling(r8a66597);
 }
 
+/* this function must be called with interrupt disabled */
 static void r8a66597_check_syssts(struct r8a66597 *r8a66597, int port,
 					u16 syssts)
 __releases(r8a66597->lock)
@@ -1026,6 +1053,7 @@ __acquires(r8a66597->lock)
 	spin_lock(&r8a66597->lock);
 }
 
+/* this function must be called with interrupt disabled */
 static void r8a66597_usb_connect(struct r8a66597 *r8a66597, int port)
 {
 	u16 speed = get_rh_usb_speed(r8a66597, port);
@@ -1041,6 +1069,7 @@ static void r8a66597_usb_connect(struct r8a66597 *r8a66597, int port)
 	rh->port |= USB_PORT_STAT_ENABLE;
 }
 
+/* this function must be called with interrupt disabled */
 static void r8a66597_usb_disconnect(struct r8a66597 *r8a66597, int port)
 {
 	struct r8a66597_device *dev = r8a66597->root_hub[port].dev;
@@ -1051,6 +1080,7 @@ static void r8a66597_usb_disconnect(struct r8a66597 *r8a66597, int port)
 	start_root_hub_sampling(r8a66597, port, 0);
 }
 
+/* this function must be called with interrupt disabled */
 static void prepare_setup_packet(struct r8a66597 *r8a66597,
 				 struct r8a66597_td *td)
 {
@@ -1069,6 +1099,7 @@ static void prepare_setup_packet(struct r8a66597 *r8a66597,
 	r8a66597_write(r8a66597, SUREQ, DCPCTR);
 }
 
+/* this function must be called with interrupt disabled */
 static void prepare_packet_read(struct r8a66597 *r8a66597,
 				struct r8a66597_td *td)
 {
@@ -1110,6 +1141,7 @@ static void prepare_packet_read(struct r8a66597 *r8a66597,
 	}
 }
 
+/* this function must be called with interrupt disabled */
 static void prepare_packet_write(struct r8a66597 *r8a66597,
 				 struct r8a66597_td *td)
 {
@@ -1142,6 +1174,7 @@ static void prepare_packet_write(struct r8a66597 *r8a66597,
 	pipe_start(r8a66597, td->pipe);
 }
 
+/* this function must be called with interrupt disabled */
 static void prepare_status_packet(struct r8a66597 *r8a66597,
 				  struct r8a66597_td *td)
 {
@@ -1177,6 +1210,7 @@ static int is_set_address(unsigned char *setup_packet)
 		return 0;
 }
 
+/* this function must be called with interrupt disabled */
 static int start_transfer(struct r8a66597 *r8a66597, struct r8a66597_td *td)
 {
 	BUG_ON(!td);
@@ -1216,7 +1250,7 @@ static int check_transfer_finish(struct r8a66597_td *td, struct urb *urb)
 			return 1;
 	}
 
-	
+	/* control or bulk or interrupt */
 	if ((urb->transfer_buffer_length <= urb->actual_length) ||
 	    (td->short_packet) || (td->zero_packet))
 		return 1;
@@ -1224,6 +1258,7 @@ static int check_transfer_finish(struct r8a66597_td *td, struct urb *urb)
 	return 0;
 }
 
+/* this function must be called with interrupt disabled */
 static void set_td_timer(struct r8a66597 *r8a66597, struct r8a66597_td *td)
 {
 	unsigned long time;
@@ -1248,6 +1283,7 @@ static void set_td_timer(struct r8a66597 *r8a66597, struct r8a66597_td *td)
 	}
 }
 
+/* this function must be called with interrupt disabled */
 static void finish_request(struct r8a66597 *r8a66597, struct r8a66597_td *td,
 		u16 pipenum, struct urb *urb, int status)
 __releases(r8a66597->lock) __acquires(r8a66597->lock)
@@ -1310,7 +1346,7 @@ static void packet_read(struct r8a66597 *r8a66597, u16 pipenum)
 		return;
 	}
 
-	
+	/* prepare parameters */
 	rcv_len = tmp & DTLN;
 	if (usb_pipeisoc(urb->pipe)) {
 		buf = (u16 *)(urb->transfer_buffer +
@@ -1329,7 +1365,7 @@ static void packet_read(struct r8a66597 *r8a66597, u16 pipenum)
 		finish = 1;
 	}
 
-	
+	/* update parameters */
 	urb->actual_length += size;
 	if (rcv_len == 0)
 		td->zero_packet = 1;
@@ -1343,14 +1379,14 @@ static void packet_read(struct r8a66597 *r8a66597, u16 pipenum)
 		finish = 0;
 	}
 
-	
+	/* check transfer finish */
 	if (finish || check_transfer_finish(td, urb)) {
 		pipe_stop(r8a66597, td->pipe);
 		pipe_irq_disable(r8a66597, pipenum);
 		finish = 1;
 	}
 
-	
+	/* read fifo */
 	if (urb->transfer_buffer) {
 		if (size == 0)
 			r8a66597_write(r8a66597, BCLR, td->pipe->fifoctr);
@@ -1385,7 +1421,7 @@ static void packet_write(struct r8a66597 *r8a66597, u16 pipenum)
 		return;
 	}
 
-	
+	/* prepare parameters */
 	bufsize = td->maxpacket;
 	if (usb_pipeisoc(urb->pipe)) {
 		buf = (u16 *)(urb->transfer_buffer +
@@ -1398,7 +1434,7 @@ static void packet_write(struct r8a66597 *r8a66597, u16 pipenum)
 			   urb->transfer_buffer_length - urb->actual_length);
 	}
 
-	
+	/* write fifo */
 	if (pipenum > 0)
 		r8a66597_write(r8a66597, ~(1 << pipenum), BEMPSTS);
 	if (urb->transfer_buffer) {
@@ -1407,7 +1443,7 @@ static void packet_write(struct r8a66597 *r8a66597, u16 pipenum)
 			r8a66597_write(r8a66597, BVAL, td->pipe->fifoctr);
 	}
 
-	
+	/* update parameters */
 	urb->actual_length += size;
 	if (usb_pipeisoc(urb->pipe)) {
 		urb->iso_frame_desc[td->iso_cnt].actual_length = size;
@@ -1415,7 +1451,7 @@ static void packet_write(struct r8a66597 *r8a66597, u16 pipenum)
 		td->iso_cnt++;
 	}
 
-	
+	/* check transfer finish */
 	if (check_transfer_finish(td, urb)) {
 		disable_irq_ready(r8a66597, pipenum);
 		enable_irq_empty(r8a66597, pipenum);
@@ -1606,7 +1642,7 @@ static irqreturn_t r8a66597_irq(struct usb_hcd *hcd)
 			r8a66597_write(r8a66597, ~ATTCH, INTSTS2);
 			r8a66597_bclr(r8a66597, ATTCHE, INTENB2);
 
-			
+			/* start usb bus sampling */
 			start_root_hub_sampling(r8a66597, 1, 1);
 		}
 		if (mask2 & DTCH) {
@@ -1626,7 +1662,7 @@ static irqreturn_t r8a66597_irq(struct usb_hcd *hcd)
 			r8a66597_write(r8a66597, ~ATTCH, INTSTS1);
 			r8a66597_bclr(r8a66597, ATTCHE, INTENB1);
 
-			
+			/* start usb bus sampling */
 			start_root_hub_sampling(r8a66597, 0, 1);
 		}
 		if (mask1 & DTCH) {
@@ -1663,6 +1699,7 @@ static irqreturn_t r8a66597_irq(struct usb_hcd *hcd)
 	return IRQ_HANDLED;
 }
 
+/* this function must be called with interrupt disabled */
 static void r8a66597_root_hub_control(struct r8a66597 *r8a66597, int port)
 {
 	u16 tmp;
@@ -2010,6 +2047,7 @@ static void collect_usb_address_map(struct usb_device *udev, unsigned long *map)
 	}
 }
 
+/* this function must be called with interrupt disabled */
 static struct r8a66597_device *get_r8a66597_device(struct r8a66597 *r8a66597,
 						   int addr)
 {
@@ -2091,7 +2129,7 @@ static int r8a66597_hub_status_data(struct usb_hcd *hcd, char *buf)
 
 	spin_lock_irqsave(&r8a66597->lock, flags);
 
-	*buf = 0;	
+	*buf = 0;	/* initialize (no change) */
 
 	for (i = 0; i < r8a66597->max_root_hub; i++) {
 		if (r8a66597->root_hub[i].port & 0xffff0000)
@@ -2236,11 +2274,11 @@ static int r8a66597_bus_suspend(struct usb_hcd *hcd)
 			continue;
 
 		dbg("suspend port = %d", port);
-		r8a66597_bclr(r8a66597, UACT, dvstctr_reg);	
+		r8a66597_bclr(r8a66597, UACT, dvstctr_reg);	/* suspend */
 		rh->port |= USB_PORT_STAT_SUSPEND;
 
 		if (rh->dev->udev->do_remote_wakeup) {
-			msleep(3);	
+			msleep(3);	/* waiting last SOF */
 			r8a66597_bset(r8a66597, RWUPE, dvstctr_reg);
 			r8a66597_write(r8a66597, ~BCHG, get_intsts_reg(port));
 			r8a66597_bset(r8a66597, BCHGE, get_intenb_reg(port));
@@ -2287,17 +2325,29 @@ static struct hc_driver r8a66597_hc_driver = {
 	.hcd_priv_size =	sizeof(struct r8a66597),
 	.irq =			r8a66597_irq,
 
+	/*
+	 * generic hardware linkage
+	 */
 	.flags =		HCD_USB2,
 
 	.start =		r8a66597_start,
 	.stop =			r8a66597_stop,
 
+	/*
+	 * managing i/o requests and associated device resources
+	 */
 	.urb_enqueue =		r8a66597_urb_enqueue,
 	.urb_dequeue =		r8a66597_urb_dequeue,
 	.endpoint_disable =	r8a66597_endpoint_disable,
 
+	/*
+	 * periodic schedule support
+	 */
 	.get_frame_number =	r8a66597_get_frame,
 
+	/*
+	 * root hub support
+	 */
 	.hub_status_data =	r8a66597_hub_status_data,
 	.hub_control =		r8a66597_hub_control,
 	.bus_suspend =		r8a66597_bus_suspend,
@@ -2344,7 +2394,7 @@ static const struct dev_pm_ops r8a66597_dev_pm_ops = {
 };
 
 #define R8A66597_DEV_PM_OPS	(&r8a66597_dev_pm_ops)
-#else	
+#else	/* if defined(CONFIG_PM) */
 #define R8A66597_DEV_PM_OPS	NULL
 #endif
 
@@ -2418,7 +2468,7 @@ static int __devinit r8a66597_probe(struct platform_device *pdev)
 		goto clean_up;
 	}
 
-	
+	/* initialize hcd */
 	hcd = usb_create_hcd(&r8a66597_hc_driver, &pdev->dev, (char *)hcd_name);
 	if (!hcd) {
 		ret = -ENOMEM;
@@ -2452,7 +2502,7 @@ static int __devinit r8a66597_probe(struct platform_device *pdev)
 	r8a66597->rh_timer.data = (unsigned long)r8a66597;
 	r8a66597->reg = reg;
 
-	
+	/* make sure no interrupts are pending */
 	ret = r8a66597_clock_enable(r8a66597);
 	if (ret < 0)
 		goto clean_up3;

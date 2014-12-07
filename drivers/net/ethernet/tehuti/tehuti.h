@@ -34,9 +34,13 @@
 #include <linux/dma-mapping.h>
 #include <linux/slab.h>
 
+/* Compile Time Switches */
+/* start */
 #define BDX_TSO
 #define BDX_LLTX
 #define BDX_DELAY_WPTR
+/* #define BDX_MSI */
+/* end */
 
 #if !defined CONFIG_PCI_MSI
 #   undef BDX_MSI
@@ -46,9 +50,11 @@
 				NETIF_MSG_PROBE        | \
 				NETIF_MSG_LINK)
 
+/* ioctl ops */
 #define BDX_OP_READ  1
 #define BDX_OP_WRITE 2
 
+/* RX copy break size */
 #define BDX_COPYBREAK    257
 
 #define DRIVER_AUTHOR     "Tehuti Networks(R)"
@@ -64,6 +70,8 @@
 #    define BDX_MSI_STRING ""
 #endif
 
+/* netdev tx queue len for Luxor. default value is, btw, 1000
+ * ifcontig eth1 txqueuelen 3000 - to change it at runtime */
 #define BDX_NDEV_TXQ_LEN 3000
 
 #define FIFO_SIZE  4096
@@ -75,9 +83,9 @@
 #elif BITS_PER_LONG == 32
 #    define H32_64(x)  0
 #    define L32_64(x)  ((u32) (x))
-#else				
+#else				/* BITS_PER_LONG == ?? */
 #    error BITS_PER_LONG is undefined. Must be 64 or 32
-#endif				
+#endif				/* BITS_PER_LONG */
 
 #ifdef __BIG_ENDIAN
 #   define CPU_CHIP_SWAP32(x) swab32(x)
@@ -133,31 +141,32 @@ enum { IRQ_INTX, IRQ_MSI, IRQ_MSIX };
 	((coal)|((coal_rc)<<15)|((rxf_th)<<16)|((pck_th)<<20))
 
 struct fifo {
-	dma_addr_t da;		
-	char *va;		
-	u32 rptr, wptr;		
+	dma_addr_t da;		/* physical address of fifo (used by HW) */
+	char *va;		/* virtual address of fifo (used by SW) */
+	u32 rptr, wptr;		/* cached values of RPTR and WPTR registers,
+				   they're 32 bits on both 32 and 64 archs */
 	u16 reg_CFG0, reg_CFG1;
 	u16 reg_RPTR, reg_WPTR;
-	u16 memsz;		
+	u16 memsz;		/* memory size allocated for fifo */
 	u16 size_mask;
-	u16 pktsz;		
-	u16 rcvno;		
+	u16 pktsz;		/* skb packet size to allocate */
+	u16 rcvno;		/* number of buffers that come from this RXF */
 };
 
 struct txf_fifo {
-	struct fifo m;		
+	struct fifo m;		/* minimal set of variables used by all fifos */
 };
 
 struct txd_fifo {
-	struct fifo m;		
+	struct fifo m;		/* minimal set of variables used by all fifos */
 };
 
 struct rxf_fifo {
-	struct fifo m;		
+	struct fifo m;		/* minimal set of variables used by all fifos */
 };
 
 struct rxd_fifo {
-	struct fifo m;		
+	struct fifo m;		/* minimal set of variables used by all fifos */
 };
 
 struct rx_map {
@@ -177,52 +186,57 @@ union bdx_dma_addr {
 	struct sk_buff *skb;
 };
 
+/* Entry in the db.
+ * if len == 0 addr is dma
+ * if len != 0 addr is skb */
 struct tx_map {
 	union bdx_dma_addr addr;
 	int len;
 };
 
+/* tx database - implemented as circular fifo buffer*/
 struct txdb {
-	struct tx_map *start;	
-	struct tx_map *end;	
-	struct tx_map *rptr;	
-	struct tx_map *wptr;	
-	int size;		
+	struct tx_map *start;	/* points to the first element */
+	struct tx_map *end;	/* points just AFTER the last element */
+	struct tx_map *rptr;	/* points to the next element to read */
+	struct tx_map *wptr;	/* points to the next element to write */
+	int size;		/* number of elements in the db */
 };
 
+/*Internal stats structure*/
 struct bdx_stats {
-	u64 InUCast;			
-	u64 InMCast;			
-	u64 InBCast;			
-	u64 InPkts;			
-	u64 InErrors;			
-	u64 InDropped;			
-	u64 FrameTooLong;		
-	u64 FrameSequenceErrors;	
-	u64 InVLAN;			
-	u64 InDroppedDFE;		
-	u64 InDroppedIntFull;		
-	u64 InFrameAlignErrors;		
+	u64 InUCast;			/* 0x7200 */
+	u64 InMCast;			/* 0x7210 */
+	u64 InBCast;			/* 0x7220 */
+	u64 InPkts;			/* 0x7230 */
+	u64 InErrors;			/* 0x7240 */
+	u64 InDropped;			/* 0x7250 */
+	u64 FrameTooLong;		/* 0x7260 */
+	u64 FrameSequenceErrors;	/* 0x7270 */
+	u64 InVLAN;			/* 0x7280 */
+	u64 InDroppedDFE;		/* 0x7290 */
+	u64 InDroppedIntFull;		/* 0x72A0 */
+	u64 InFrameAlignErrors;		/* 0x72B0 */
 
-	
+	/* 0x72C0-0x72E0 RSRV */
 
-	u64 OutUCast;			
-	u64 OutMCast;			
-	u64 OutBCast;			
-	u64 OutPkts;			
+	u64 OutUCast;			/* 0x72F0 */
+	u64 OutMCast;			/* 0x7300 */
+	u64 OutBCast;			/* 0x7310 */
+	u64 OutPkts;			/* 0x7320 */
 
-	
+	/* 0x7330-0x7360 RSRV */
 
-	u64 OutVLAN;			
-	u64 InUCastOctects;		
-	u64 OutUCastOctects;		
+	u64 OutVLAN;			/* 0x7370 */
+	u64 InUCastOctects;		/* 0x7380 */
+	u64 OutUCastOctects;		/* 0x7390 */
 
-	
+	/* 0x73A0-0x73B0 RSRV */
 
-	u64 InBCastOctects;		
-	u64 OutBCastOctects;		
-	u64 InOctects;			
-	u64 OutOctects;			
+	u64 InBCastOctects;		/* 0x73C0 */
+	u64 OutBCastOctects;		/* 0x73D0 */
+	u64 InOctects;			/* 0x73E0 */
+	u64 OutOctects;			/* 0x73F0 */
 };
 
 struct bdx_priv {
@@ -231,13 +245,13 @@ struct bdx_priv {
 
 	struct napi_struct napi;
 
-	
+	/* RX FIFOs: 1 for data (full) descs, and 2 for free descs */
 	struct rxd_fifo rxd_fifo0;
 	struct rxf_fifo rxf_fifo0;
-	struct rxdb *rxdb;	
+	struct rxdb *rxdb;	/* rx dbs to store skb pointers */
 	int napi_stop;
 
-	
+	/* Tx FIFOs: 1 for data desc, 1 for empty (acks) desc */
 	struct txd_fifo txd_fifo0;
 	struct txf_fifo txf_fifo0;
 
@@ -247,9 +261,9 @@ struct bdx_priv {
 	int tx_update_mark;
 	int tx_noupd;
 #endif
-	spinlock_t tx_lock;	
+	spinlock_t tx_lock;	/* NETIF_F_LLTX mode */
 
-	
+	/* rarely used */
 	u8 port;
 	u32 msg_enable;
 	int stats_flag;
@@ -266,13 +280,14 @@ struct bdx_priv {
 	u32 tdintcm;
 };
 
+/* RX FREE descriptor - 64bit*/
 struct rxf_desc {
-	u32 info;		
-	u32 va_lo;		
-	u32 va_hi;		
-	u32 pa_lo;		
-	u32 pa_hi;		
-	u32 len;		
+	u32 info;		/* Buffer Count + Info - described below */
+	u32 va_lo;		/* VAdr[31:0] */
+	u32 va_hi;		/* VAdr[63:32] */
+	u32 pa_lo;		/* PAdr[31:0] */
+	u32 pa_hi;		/* PAdr[63:32] */
+	u32 len;		/* Buffer Length */
 };
 
 #define GET_RXD_BC(x)			GET_BITS_SHIFT((x), 5, 0)
@@ -296,12 +311,16 @@ struct rxd_desc {
 	u32 va_hi;
 };
 
+/* PBL describes each virtual buffer to be */
+/* transmitted from the host.*/
 struct pbl {
 	u32 pa_lo;
 	u32 pa_hi;
 	u32 len;
 };
 
+/* First word for TXD descriptor. It means: type = 3 for regular Tx packet,
+ * hw_csum = 7 for ip+udp+tcp hw checksums */
 #define TXD_W1_VAL(bc, checksum, vtag, lgsnd, vlan_id)	\
 	((bc) | ((checksum)<<5) | ((vtag)<<8) | \
 	((lgsnd)<<9) | (0x30000) | ((vlan_id)<<20))
@@ -312,11 +331,13 @@ struct txd_desc {
 	u16 length;
 	u32 va_lo;
 	u32 va_hi;
-	struct pbl pbl[0];	
+	struct pbl pbl[0];	/* Fragments */
 } __packed;
 
+/* Register region size */
 #define BDX_REGS_SIZE	  0x1000
 
+/* Registers from 0x0000-0x00fc were remapped to 0x4000-0x40fc */
 #define regTXD_CFG1_0   0x4000
 #define regRXF_CFG1_0   0x4010
 #define regRXD_CFG1_0   0x4020
@@ -335,11 +356,13 @@ struct txd_desc {
 #define regTXF_RPTR_0   0x40F0
 #define regTXF_RPTR_3   0x40FC
 
+/* hardware versioning */
 #define  FW_VER         0x5010
 #define  SROM_VER       0x5020
 #define  FPGA_VER       0x5030
 #define  FPGA_SEED      0x5040
 
+/* Registers from 0x0100-0x0150 were remapped to 0x5100-0x5150 */
 #define regISR regISR0
 #define regISR0          0x5100
 
@@ -357,7 +380,7 @@ struct txd_desc {
 #define regINIT_STATUS    0x5180
 
 #define regMAC_LNK_STAT  0x0200
-#define MAC_LINK_STAT    0x4	
+#define MAC_LINK_STAT    0x4	/* Link state */
 
 #define regGMAC_RXF_A   0x1240
 
@@ -381,6 +404,7 @@ struct txd_desc {
 
 #define regCLKPLL               0x5000
 
+/*for 10G only*/
 #define regREVISION        0x6000
 #define regSCRATCH         0x6004
 #define regCTRLST          0x6008
@@ -412,47 +436,53 @@ struct txd_desc {
 
 #define regRX_FLT   0x1400
 
-#define  TX_RX_CFG1_BASE          0xffffffff	
-#define  TX_RX_CFG0_BASE          0xfffff000	
-#define  TX_RX_CFG0_RSVD          0x0ffc	
-#define  TX_RX_CFG0_SIZE          0x0003	
+/* TXD TXF RXF RXD  CONFIG 0x0000 --- 0x007c*/
+#define  TX_RX_CFG1_BASE          0xffffffff	/*0-31 */
+#define  TX_RX_CFG0_BASE          0xfffff000	/*31:12 */
+#define  TX_RX_CFG0_RSVD          0x0ffc	/*11:2 */
+#define  TX_RX_CFG0_SIZE          0x0003	/*1:0 */
 
-#define  TXF_WPTR_WR_PTR        0x7ff8	
+/*  TXD TXF RXF RXD  WRITE 0x0080 --- 0x00BC */
+#define  TXF_WPTR_WR_PTR        0x7ff8	/*14:3 */
 
-#define  TXF_RPTR_RD_PTR        0x7ff8	
+/*  TXD TXF RXF RXD  READ  0x00CO --- 0x00FC */
+#define  TXF_RPTR_RD_PTR        0x7ff8	/*14:3 */
 
-#define TXF_WPTR_MASK 0x7ff0	
+#define TXF_WPTR_MASK 0x7ff0	/* last 4 bits are dropped
+				 * size is rounded to 16 */
 
-#define  IMR_INPROG   0x80000000	
-#define  IR_LNKCHG1   0x10000000	
-#define  IR_LNKCHG0   0x08000000	
-#define  IR_GPIO      0x04000000	
-#define  IR_RFRSH     0x02000000	
-#define  IR_RSVD      0x01000000	
-#define  IR_SWI       0x00800000	
-#define  IR_RX_FREE_3 0x00400000	
-#define  IR_RX_FREE_2 0x00200000	
-#define  IR_RX_FREE_1 0x00100000	
-#define  IR_RX_FREE_0 0x00080000	
-#define  IR_TX_FREE_3 0x00040000	
-#define  IR_TX_FREE_2 0x00020000	
-#define  IR_TX_FREE_1 0x00010000	
-#define  IR_TX_FREE_0 0x00008000	
-#define  IR_RX_DESC_3 0x00004000	
-#define  IR_RX_DESC_2 0x00002000	
-#define  IR_RX_DESC_1 0x00001000	
-#define  IR_RX_DESC_0 0x00000800	
-#define  IR_PSE       0x00000400	
-#define  IR_TMR3      0x00000200	
-#define  IR_TMR2      0x00000100	
-#define  IR_TMR1      0x00000080	
-#define  IR_TMR0      0x00000040	
-#define  IR_VNT       0x00000020	
-#define  IR_RxFL      0x00000010	
-#define  IR_SDPERR    0x00000008	
-#define  IR_TR        0x00000004	
-#define  IR_PCIE_LINK 0x00000002	
-#define  IR_PCIE_TOUT 0x00000001	
+/*  regISR 0x0100 */
+/*  regIMR 0x0110 */
+#define  IMR_INPROG   0x80000000	/*31 */
+#define  IR_LNKCHG1   0x10000000	/*28 */
+#define  IR_LNKCHG0   0x08000000	/*27 */
+#define  IR_GPIO      0x04000000	/*26 */
+#define  IR_RFRSH     0x02000000	/*25 */
+#define  IR_RSVD      0x01000000	/*24 */
+#define  IR_SWI       0x00800000	/*23 */
+#define  IR_RX_FREE_3 0x00400000	/*22 */
+#define  IR_RX_FREE_2 0x00200000	/*21 */
+#define  IR_RX_FREE_1 0x00100000	/*20 */
+#define  IR_RX_FREE_0 0x00080000	/*19 */
+#define  IR_TX_FREE_3 0x00040000	/*18 */
+#define  IR_TX_FREE_2 0x00020000	/*17 */
+#define  IR_TX_FREE_1 0x00010000	/*16 */
+#define  IR_TX_FREE_0 0x00008000	/*15 */
+#define  IR_RX_DESC_3 0x00004000	/*14 */
+#define  IR_RX_DESC_2 0x00002000	/*13 */
+#define  IR_RX_DESC_1 0x00001000	/*12 */
+#define  IR_RX_DESC_0 0x00000800	/*11 */
+#define  IR_PSE       0x00000400	/*10 */
+#define  IR_TMR3      0x00000200	/*9 */
+#define  IR_TMR2      0x00000100	/*8 */
+#define  IR_TMR1      0x00000080	/*7 */
+#define  IR_TMR0      0x00000040	/*6 */
+#define  IR_VNT       0x00000020	/*5 */
+#define  IR_RxFL      0x00000010	/*4 */
+#define  IR_SDPERR    0x00000008	/*3 */
+#define  IR_TR        0x00000004	/*2 */
+#define  IR_PCIE_LINK 0x00000002	/*1 */
+#define  IR_PCIE_TOUT 0x00000001	/*0 */
 
 #define  IR_EXTRA (IR_RX_FREE_0 | IR_LNKCHG0 | IR_PSE | \
     IR_TMR0 | IR_PCIE_LINK | IR_PCIE_TOUT)
@@ -461,33 +491,42 @@ struct txd_desc {
 
 #define  IR_LNKCHG0_ofst        27
 
-#define  GMAC_RX_FILTER_OSEN  0x1000	
-#define  GMAC_RX_FILTER_TXFC  0x0400	
-#define  GMAC_RX_FILTER_RSV0  0x0200	
-#define  GMAC_RX_FILTER_FDA   0x0100	
-#define  GMAC_RX_FILTER_AOF   0x0080	
-#define  GMAC_RX_FILTER_ACF   0x0040	
-#define  GMAC_RX_FILTER_ARUNT 0x0020	
-#define  GMAC_RX_FILTER_ACRC  0x0010	
-#define  GMAC_RX_FILTER_AM    0x0008	
-#define  GMAC_RX_FILTER_AB    0x0004	
-#define  GMAC_RX_FILTER_PRM   0x0001	
+#define  GMAC_RX_FILTER_OSEN  0x1000	/* shared OS enable */
+#define  GMAC_RX_FILTER_TXFC  0x0400	/* Tx flow control */
+#define  GMAC_RX_FILTER_RSV0  0x0200	/* reserved */
+#define  GMAC_RX_FILTER_FDA   0x0100	/* filter out direct address */
+#define  GMAC_RX_FILTER_AOF   0x0080	/* accept over run */
+#define  GMAC_RX_FILTER_ACF   0x0040	/* accept control frames */
+#define  GMAC_RX_FILTER_ARUNT 0x0020	/* accept under run */
+#define  GMAC_RX_FILTER_ACRC  0x0010	/* accept crc error */
+#define  GMAC_RX_FILTER_AM    0x0008	/* accept multicast */
+#define  GMAC_RX_FILTER_AB    0x0004	/* accept broadcast */
+#define  GMAC_RX_FILTER_PRM   0x0001	/* [0:1] promiscuous mode */
 
-#define  MAX_FRAME_AB_VAL       0x3fff	
+#define  MAX_FRAME_AB_VAL       0x3fff	/* 13:0 */
 
-#define  CLKPLL_PLLLKD          0x0200	
-#define  CLKPLL_RSTEND          0x0100	
-#define  CLKPLL_SFTRST          0x0001	
+#define  CLKPLL_PLLLKD          0x0200	/*9 */
+#define  CLKPLL_RSTEND          0x0100	/*8 */
+#define  CLKPLL_SFTRST          0x0001	/*0 */
 
 #define  CLKPLL_LKD             (CLKPLL_PLLLKD|CLKPLL_RSTEND)
 
+/*
+ * PCI-E Device Control Register (Offset 0x88)
+ * Source: Luxor Data Sheet, 7.1.3.3.3
+ */
 #define PCI_DEV_CTRL_REG 0x88
 #define GET_DEV_CTRL_MAXPL(x)           GET_BITS_SHIFT(x, 3, 5)
 #define GET_DEV_CTRL_MRRS(x)            GET_BITS_SHIFT(x, 3, 12)
 
+/*
+ * PCI-E Link Status Register (Offset 0x92)
+ * Source: Luxor Data Sheet, 7.1.3.3.7
+ */
 #define PCI_LINK_STATUS_REG 0x92
 #define GET_LINK_STATUS_LANES(x)		GET_BITS_SHIFT(x, 6, 4)
 
+/* Debugging Macros */
 
 #define DBG2(fmt, args...)					\
 	pr_err("%s:%-5d: " fmt, __func__, __LINE__, ## args)
@@ -519,4 +558,4 @@ do {						\
 } while (0)
 #endif
 
-#endif 
+#endif /* _BDX__H */

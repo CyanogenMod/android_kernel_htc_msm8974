@@ -28,6 +28,9 @@
 #include "timer.h"
 #include <linux/gameport.h>
 
+/*
+ *  Direct registers
+ */
 
 #define YMFREG(chip, reg)		(chip->port + YDSXGR_##reg)
 
@@ -151,40 +154,44 @@
 #define YDSXG_CAPTURE_VOICES		2
 #define YDSXG_EFFECT_VOICES		5
 
-#define YMFPCI_LEGACY_SBEN	(1 << 0)	
-#define YMFPCI_LEGACY_FMEN	(1 << 1)	
-#define YMFPCI_LEGACY_JPEN	(1 << 2)	
-#define YMFPCI_LEGACY_MEN	(1 << 3)	
-#define YMFPCI_LEGACY_MIEN	(1 << 4)	
-#define YMFPCI_LEGACY_IOBITS	(1 << 5)	
-#define YMFPCI_LEGACY_SDMA	(3 << 6)	
-#define YMFPCI_LEGACY_SBIRQ	(7 << 8)	
-#define YMFPCI_LEGACY_MPUIRQ	(7 << 11)	
-#define YMFPCI_LEGACY_SIEN	(1 << 14)	
-#define YMFPCI_LEGACY_LAD	(1 << 15)	
+#define YMFPCI_LEGACY_SBEN	(1 << 0)	/* soundblaster enable */
+#define YMFPCI_LEGACY_FMEN	(1 << 1)	/* OPL3 enable */
+#define YMFPCI_LEGACY_JPEN	(1 << 2)	/* joystick enable */
+#define YMFPCI_LEGACY_MEN	(1 << 3)	/* MPU401 enable */
+#define YMFPCI_LEGACY_MIEN	(1 << 4)	/* MPU RX irq enable */
+#define YMFPCI_LEGACY_IOBITS	(1 << 5)	/* i/o bits range, 0 = 16bit, 1 =10bit */
+#define YMFPCI_LEGACY_SDMA	(3 << 6)	/* SB DMA select */
+#define YMFPCI_LEGACY_SBIRQ	(7 << 8)	/* SB IRQ select */
+#define YMFPCI_LEGACY_MPUIRQ	(7 << 11)	/* MPU IRQ select */
+#define YMFPCI_LEGACY_SIEN	(1 << 14)	/* serialized IRQ */
+#define YMFPCI_LEGACY_LAD	(1 << 15)	/* legacy audio disable */
 
-#define YMFPCI_LEGACY2_FMIO	(3 << 0)	
-#define YMFPCI_LEGACY2_SBIO	(3 << 2)	
-#define YMFPCI_LEGACY2_MPUIO	(3 << 4)	
-#define YMFPCI_LEGACY2_JSIO	(3 << 6)	
-#define YMFPCI_LEGACY2_MAIM	(1 << 8)	
-#define YMFPCI_LEGACY2_SMOD	(3 << 11)	
-#define YMFPCI_LEGACY2_SBVER	(3 << 13)	
-#define YMFPCI_LEGACY2_IMOD	(1 << 15)	
+#define YMFPCI_LEGACY2_FMIO	(3 << 0)	/* OPL3 i/o address (724/740) */
+#define YMFPCI_LEGACY2_SBIO	(3 << 2)	/* SB i/o address (724/740) */
+#define YMFPCI_LEGACY2_MPUIO	(3 << 4)	/* MPU401 i/o address (724/740) */
+#define YMFPCI_LEGACY2_JSIO	(3 << 6)	/* joystick i/o address (724/740) */
+#define YMFPCI_LEGACY2_MAIM	(1 << 8)	/* MPU401 ack intr mask */
+#define YMFPCI_LEGACY2_SMOD	(3 << 11)	/* SB DMA mode */
+#define YMFPCI_LEGACY2_SBVER	(3 << 13)	/* SB version select */
+#define YMFPCI_LEGACY2_IMOD	(1 << 15)	/* legacy IRQ mode */
+/* SIEN:IMOD 0:0 = legacy irq, 0:1 = INTA, 1:0 = serialized IRQ */
 
 #if defined(CONFIG_GAMEPORT) || (defined(MODULE) && defined(CONFIG_GAMEPORT_MODULE))
 #define SUPPORT_JOYSTICK
 #endif
 
+/*
+ *
+ */
 
 struct snd_ymfpci_playback_bank {
 	u32 format;
 	u32 loop_default;
-	u32 base;			
-	u32 loop_start;			
-	u32 loop_end;			
-	u32 loop_frac;			
-	u32 delta_end;			
+	u32 base;			/* 32-bit address */
+	u32 loop_start;			/* 32-bit offset */
+	u32 loop_end;			/* 32-bit offset */
+	u32 loop_frac;			/* 8-bit fraction - loop_start */
+	u32 delta_end;			/* pitch delta end */
 	u32 lpfK_end;
 	u32 eg_gain_end;
 	u32 left_gain_end;
@@ -211,16 +218,16 @@ struct snd_ymfpci_playback_bank {
  };
 
 struct snd_ymfpci_capture_bank {
-	u32 base;			
-	u32 loop_end;			
-	u32 start;			
-	u32 num_of_loops;		
+	u32 base;			/* 32-bit address */
+	u32 loop_end;			/* 32-bit offset */
+	u32 start;			/* 32-bit offset */
+	u32 num_of_loops;		/* counter */
 };
 
 struct snd_ymfpci_effect_bank {
-	u32 base;			
-	u32 loop_end;			
-	u32 start;			
+	u32 base;			/* 32-bit address */
+	u32 loop_end;			/* 32-bit offset */
+	u32 start;			/* 32-bit offset */
 	u32 temp;
 };
 
@@ -261,15 +268,15 @@ struct snd_ymfpci_pcm {
 	struct snd_ymfpci *chip;
 	enum snd_ymfpci_pcm_type type;
 	struct snd_pcm_substream *substream;
-	struct snd_ymfpci_voice *voices[2];	
+	struct snd_ymfpci_voice *voices[2];	/* playback only */
 	unsigned int running: 1,
 		     use_441_slot: 1,
 	             output_front: 1,
 	             output_rear: 1,
 	             swap_rear: 1;
 	unsigned int update_pcm_vol;
-	u32 period_size;		
-	u32 buffer_size;		
+	u32 period_size;		/* cached from runtime->period_size */
+	u32 buffer_size;		/* cached from runtime->buffer_size */
 	u32 period_pos;
 	u32 last_pos;
 	u32 capture_bank_number;
@@ -279,8 +286,8 @@ struct snd_ymfpci_pcm {
 struct snd_ymfpci {
 	int irq;
 
-	unsigned int device_id;	
-	unsigned char rev;	
+	unsigned int device_id;	/* PCI device ID */
+	unsigned char rev;	/* PCI revision */
 	unsigned long reg_area_phys;
 	void __iomem *reg_area_virt;
 	struct resource *res_reg_area;
@@ -380,4 +387,4 @@ int snd_ymfpci_pcm_4ch(struct snd_ymfpci *chip, int device, struct snd_pcm **rpc
 int snd_ymfpci_mixer(struct snd_ymfpci *chip, int rear_switch);
 int snd_ymfpci_timer(struct snd_ymfpci *chip, int device);
 
-#endif 
+#endif /* __SOUND_YMFPCI_H */

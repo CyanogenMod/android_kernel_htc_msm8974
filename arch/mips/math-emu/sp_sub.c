@@ -1,3 +1,6 @@
+/* IEEE754 floating point arithmetic
+ * single precision
+ */
 /*
  * MIPS floating point support
  * Copyright (C) 1994-2000 Algorithmics Ltd.
@@ -65,6 +68,8 @@ ieee754sp ieee754sp_sub(ieee754sp x, ieee754sp y)
 		return x;
 
 
+		/* Infinity handling
+		 */
 
 	case CLPAIR(IEEE754_CLASS_INF, IEEE754_CLASS_INF):
 		if (xs != ys)
@@ -82,6 +87,8 @@ ieee754sp ieee754sp_sub(ieee754sp x, ieee754sp y)
 	case CLPAIR(IEEE754_CLASS_INF, IEEE754_CLASS_DNORM):
 		return x;
 
+		/* Zero handling
+		 */
 
 	case CLPAIR(IEEE754_CLASS_ZERO, IEEE754_CLASS_ZERO):
 		if (xs != ys)
@@ -96,7 +103,7 @@ ieee754sp ieee754sp_sub(ieee754sp x, ieee754sp y)
 
 	case CLPAIR(IEEE754_CLASS_ZERO, IEEE754_CLASS_NORM):
 	case CLPAIR(IEEE754_CLASS_ZERO, IEEE754_CLASS_DNORM):
-		
+		/* quick fix up */
 		DPSIGN(y) ^= 1;
 		return y;
 
@@ -114,21 +121,25 @@ ieee754sp ieee754sp_sub(ieee754sp x, ieee754sp y)
 	case CLPAIR(IEEE754_CLASS_NORM, IEEE754_CLASS_NORM):
 		break;
 	}
-	
+	/* flip sign of y and handle as add */
 	ys ^= 1;
 
 	assert(xm & SP_HIDDEN_BIT);
 	assert(ym & SP_HIDDEN_BIT);
 
 
-	
+	/* provide guard,round and stick bit space */
 	xm <<= 3;
 	ym <<= 3;
 
 	if (xe > ye) {
+		/* have to shift y fraction right to align
+		 */
 		int s = xe - ye;
 		SPXSRSYn(s);
 	} else if (ye > xe) {
+		/* have to shift x fraction right to align
+		 */
 		int s = ye - xe;
 		SPXSRSXn(s);
 	}
@@ -136,12 +147,14 @@ ieee754sp ieee754sp_sub(ieee754sp x, ieee754sp y)
 	assert(xe <= SP_EMAX);
 
 	if (xs == ys) {
+		/* generate 28 bit result of adding two 27 bit numbers
+		 */
 		xm = xm + ym;
 		xe = xe;
 		xs = xs;
 
-		if (xm >> (SP_MBITS + 1 + 3)) {	
-			SPXSRSX1();	
+		if (xm >> (SP_MBITS + 1 + 3)) {	/* carry out */
+			SPXSRSX1();	/* shift preserving sticky */
 		}
 	} else {
 		if (xm >= ym) {
@@ -155,10 +168,12 @@ ieee754sp ieee754sp_sub(ieee754sp x, ieee754sp y)
 		}
 		if (xm == 0) {
 			if (ieee754_csr.rm == IEEE754_RD)
-				return ieee754sp_zero(1);	
+				return ieee754sp_zero(1);	/* round negative inf. => sign = -1 */
 			else
-				return ieee754sp_zero(0);	
+				return ieee754sp_zero(0);	/* other round modes   => sign = 1 */
 		}
+		/* normalize to rounding precision
+		 */
 		while ((xm >> (SP_MBITS + 3)) == 0) {
 			xm <<= 1;
 			xe--;

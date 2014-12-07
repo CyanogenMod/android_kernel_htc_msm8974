@@ -69,4 +69,4 @@ static inline void vnic_set_nic_cfg(u32 *nic_cfg,
 			<< NIC_CFG_IG_VLAN_STRIP_EN_SHIFT);
 }
 
-#endif 
+#endif /* _VNIC_NIC_H_ */

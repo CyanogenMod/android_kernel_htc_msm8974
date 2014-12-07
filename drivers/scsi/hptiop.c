@@ -422,12 +422,12 @@ static void hptiop_enable_intr_mv(struct hptiop_hba *hba)
 
 static int hptiop_initialize_iop(struct hptiop_hba *hba)
 {
-	
+	/* enable interrupts */
 	hba->ops->enable_intr(hba);
 
 	hba->initialized = 1;
 
-	
+	/* start background tasks */
 	if (iop_send_sync_msg(hba,
 			IOPMU_INBOUND_MSG0_START_BACKGROUND_TASK, 5000)) {
 		printk(KERN_ERR "scsi%d: fail to start background task\n",
@@ -792,7 +792,7 @@ static int hptiop_queuecommand_lck(struct scsi_cmnd *scp,
 
 	req = _req->req_virt;
 
-	
+	/* build S/G table */
 	sg_count = hptiop_buildsgl(scp, req->sg_list);
 	if (!sg_count)
 		HPT_SCP(scp)->mapped = 0;
@@ -837,7 +837,7 @@ static int hptiop_reset_hba(struct hptiop_hba *hba)
 			atomic_read(&hba->resetting) == 0, 60 * HZ);
 
 	if (atomic_read(&hba->resetting)) {
-		
+		/* IOP is in unknown state, abort reset */
 		printk(KERN_ERR "scsi%d: reset failed\n", hba->host->host_no);
 		return -1;
 	}
@@ -977,7 +977,7 @@ static int __devinit hptiop_probe(struct pci_dev *pcidev,
 
 	pci_set_master(pcidev);
 
-	
+	/* Enable 64bit DMA if possible */
 	if (pci_set_dma_mask(pcidev, DMA_BIT_MASK(64))) {
 		if (pci_set_dma_mask(pcidev, DMA_BIT_MASK(32))) {
 			printk(KERN_ERR "hptiop: fail to set dma_mask\n");
@@ -1084,7 +1084,7 @@ static int __devinit hptiop_probe(struct pci_dev *pcidev,
 		goto unmap_pci_bar;
 	}
 
-	
+	/* Allocate request mem */
 
 	dprintk("req_size=%d, max_requests=%d\n", req_size, hba->max_requests);
 
@@ -1120,7 +1120,7 @@ static int __devinit hptiop_probe(struct pci_dev *pcidev,
 		start_phy = start_phy + hba->req_size;
 	}
 
-	
+	/* Enable Interrupt and start background task */
 	if (hptiop_initialize_iop(hba))
 		goto free_request_mem;
 
@@ -1170,12 +1170,12 @@ static void hptiop_shutdown(struct pci_dev *pcidev)
 
 	dprintk("hptiop_shutdown(%p)\n", hba);
 
-	
+	/* stop the iop */
 	if (iop_send_sync_msg(hba, IOPMU_INBOUND_MSG0_SHUTDOWN, 60000))
 		printk(KERN_ERR "scsi%d: shutdown the iop timeout\n",
 					hba->host->host_no);
 
-	
+	/* disable all outbound interrupts */
 	hba->ops->disable_intr(hba);
 }
 

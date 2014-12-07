@@ -15,6 +15,9 @@
 
 #include <asm/hwcap.h>
 
+/*
+ * ELF register definitions..
+ */
 #include <asm/ptrace.h>
 
 typedef unsigned long elf_greg_t;
@@ -33,10 +36,19 @@ typedef struct fp_state elf_fpregset_t;
 #define R_UNICORE_CALL		28
 #define R_UNICORE_JUMP24	29
 
+/*
+ * These are used to set parameters in the core dumps.
+ */
 #define ELF_CLASS	ELFCLASS32
 #define ELF_DATA	ELFDATA2LSB
 #define ELF_ARCH	EM_UNICORE
 
+/*
+ * This yields a string that ld.so will use to load implementation
+ * specific libraries for optimization.  This is more specific in
+ * intent than poking at uname or /proc/cpuinfo.
+ *
+ */
 #define ELF_PLATFORM_SIZE 8
 #define ELF_PLATFORM	(elf_platform)
 
@@ -44,6 +56,9 @@ extern char elf_platform[];
 
 struct elf32_hdr;
 
+/*
+ * This is used to ensure we don't load something for the wrong architecture.
+ */
 extern int elf_check_arch(const struct elf32_hdr *);
 #define elf_check_arch elf_check_arch
 
@@ -53,9 +68,16 @@ int dump_task_regs(struct task_struct *t, elf_gregset_t *elfregs);
 
 #define ELF_EXEC_PAGESIZE	4096
 
+/* This is the location that an ET_DYN program is loaded if exec'ed.  Typical
+   use of this is to invoke "./ld.so someprog" to test out a new version of
+   the loader.  We need to make sure that it is out of the way of the program
+   that it will "exec", and that there is sufficient room for the brk.  */
 
 #define ELF_ET_DYN_BASE	(2 * TASK_SIZE / 3)
 
+/* When the program starts, a1 contains a pointer to a function to be
+   registered with atexit, as per the SVR4 ABI.  A value of 0 means we
+   have no such handler.  */
 #define ELF_PLAT_INIT(_r, load_addr)	{(_r)->UCreg_00 = 0; }
 
 extern void elf_set_personality(const struct elf32_hdr *);

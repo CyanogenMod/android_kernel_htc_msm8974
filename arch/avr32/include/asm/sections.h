@@ -3,4 +3,4 @@
 
 #include <asm-generic/sections.h>
 
-#endif 
+#endif /* __ASM_AVR32_SECTIONS_H */

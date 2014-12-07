@@ -33,24 +33,34 @@ void amd_unregister_ecc_decoder(void (*f)(int, struct mce *))
 }
 EXPORT_SYMBOL_GPL(amd_unregister_ecc_decoder);
 
+/*
+ * string representation for the different MCA reported error types, see F3x48
+ * or MSR0000_0411.
+ */
 
+/* transaction type */
 const char * const tt_msgs[] = { "INSN", "DATA", "GEN", "RESV" };
 EXPORT_SYMBOL_GPL(tt_msgs);
 
+/* cache level */
 const char * const ll_msgs[] = { "RESV", "L1", "L2", "L3/GEN" };
 EXPORT_SYMBOL_GPL(ll_msgs);
 
+/* memory transaction type */
 const char * const rrrr_msgs[] = {
        "GEN", "RD", "WR", "DRD", "DWR", "IRD", "PRF", "EV", "SNP"
 };
 EXPORT_SYMBOL_GPL(rrrr_msgs);
 
+/* participating processor */
 const char * const pp_msgs[] = { "SRC", "RES", "OBS", "GEN" };
 EXPORT_SYMBOL_GPL(pp_msgs);
 
+/* request timeout */
 const char * const to_msgs[] = { "no timeout", "timed out" };
 EXPORT_SYMBOL_GPL(to_msgs);
 
+/* memory or i/o */
 const char * const ii_msgs[] = { "MEM", "RESV", "IO", "GEN" };
 EXPORT_SYMBOL_GPL(ii_msgs);
 
@@ -66,8 +76,8 @@ static const char * const f15h_ic_mce_desc[] = {
 	"Tag error during probe/victimization",
 	"Parity error for IC probe tag valid bit",
 	"PFB non-cacheable bit parity error",
-	"PFB valid bit parity error",			
-	"Microcode Patch Buffer",			
+	"PFB valid bit parity error",			/* xec = 0xd */
+	"Microcode Patch Buffer",			/* xec = 010 */
 	"uop queue",
 	"insn buffer",
 	"predecode buffer",
@@ -75,7 +85,7 @@ static const char * const f15h_ic_mce_desc[] = {
 };
 
 static const char * const f15h_cu_mce_desc[] = {
-	"Fill ECC error on data fills",			
+	"Fill ECC error on data fills",			/* xec = 0x4 */
 	"Fill parity error on insn fills",
 	"Prefetcher request FIFO parity error",
 	"PRQ address parity error",
@@ -84,7 +94,7 @@ static const char * const f15h_cu_mce_desc[] = {
 	"WCC Data ECC error",
 	"WCB Data parity error",
 	"VB Data ECC or parity error",
-	"L2 Tag ECC error",				
+	"L2 Tag ECC error",				/* xec = 0x10 */
 	"Hard L2 Tag ECC error",
 	"Multiple hits on L2 tag",
 	"XAB parity error",
@@ -107,7 +117,7 @@ static const char * const nb_mce_desc[] = {
 	"NB internal arrays parity error",
 	"DRAM addr/ctl signals parity error",
 	"IO link transmission error",
-	"L3 data cache ECC error",			
+	"L3 data cache ECC error",			/* xec = 0x1c */
 	"L3 cache tag error",
 	"L3 LRU parity bits error",
 	"ECC Error in the Probe Filter directory"
@@ -272,7 +282,7 @@ static void amd_decode_dc_mce(struct mce *m)
 
 	pr_emerg(HW_ERR "Data Cache Error: ");
 
-	
+	/* TLB error signatures are the same across families */
 	if (TLB_ERROR(ec)) {
 		if (TT(ec) == TT_DATA) {
 			pr_cont("%s TLB %s.\n", LL_MSG(ec),
@@ -513,9 +523,9 @@ void amd_decode_nb_mce(struct mce *m)
 	switch (xec) {
 	case 0x0 ... 0xe:
 
-		
+		/* special handling for DRAM ECCs */
 		if (xec == 0x0 || xec == 0x8) {
-			
+			/* no ECCs on F11h */
 			if (c->x86 == 0x11)
 				goto wrong_nb_mce;
 
@@ -643,10 +653,16 @@ static inline void amd_decode_err_code(u16 ec)
 	pr_cont("\n");
 }
 
+/*
+ * Filter out unwanted MCE signatures here.
+ */
 static bool amd_filter_mce(struct mce *m)
 {
 	u8 xec = (m->status >> 16) & 0x1f;
 
+	/*
+	 * NB GART TLB error reporting is disabled by default.
+	 */
 	if (m->bank == 4 && xec == 0x5 && !report_gart_errors)
 		return true;
 
@@ -675,7 +691,7 @@ int amd_decode_mce(struct notifier_block *nb, unsigned long val, void *data)
 			((m->status & BIT_64(44)) ? "Deferred" : "-"),
 			((m->status & BIT_64(43)) ? "Poison"   : "-"));
 
-	
+	/* do the two bits[14:13] together */
 	ecc = (m->status >> 45) & 0x3;
 	if (ecc)
 		pr_cont("|%sECC", ((ecc == 2) ? "C" : "U"));

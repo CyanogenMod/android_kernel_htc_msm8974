@@ -93,6 +93,9 @@ static void core_tmr_handle_tas_abort(
 		transport_cmd_finish_abort(cmd, 1);
 		return;
 	}
+	/*
+	 * TASK ABORTED status (TAS) bit support
+	*/
 	if ((tmr_nacl &&
 	     (tmr_nacl == cmd->se_sess->se_node_acl)) || tas)
 		transport_send_task_abort(cmd);
@@ -153,7 +156,14 @@ void core_tmr_abort_task(
 
 		cancel_work_sync(&se_cmd->work);
 		transport_wait_for_tasks(se_cmd);
+		/*
+		 * Now send SAM_STAT_TASK_ABORTED status for the referenced
+		 * se_cmd descriptor..
+		 */
 		transport_send_task_abort(se_cmd);
+		/*
+		 * Also deal with possible extra acknowledge reference..
+		 */
 		if (se_cmd->se_cmd_flags & SCF_ACK_KREF)
 			target_put_sess_cmd(se_sess, se_cmd);
 
@@ -181,8 +191,15 @@ static void core_tmr_drain_tmr_list(
 	struct se_tmr_req *tmr_p, *tmr_pp;
 	struct se_cmd *cmd;
 	unsigned long flags;
+	/*
+	 * Release all pending and outgoing TMRs aside from the received
+	 * LUN_RESET tmr..
+	 */
 	spin_lock_irqsave(&dev->se_tmr_lock, flags);
 	list_for_each_entry_safe(tmr_p, tmr_pp, &dev->dev_tmr_list, tmr_list) {
+		/*
+		 * Allow the received TMR to return with FUNCTION_COMPLETE.
+		 */
 		if (tmr_p == tmr)
 			continue;
 
@@ -191,6 +208,11 @@ static void core_tmr_drain_tmr_list(
 			pr_err("Unable to locate struct se_cmd for TMR\n");
 			continue;
 		}
+		/*
+		 * If this function was called with a valid pr_res_key
+		 * parameter (eg: for PROUT PREEMPT_AND_ABORT service action
+		 * skip non regisration key matching TMRs.
+		 */
 		if (target_check_cdb_and_preempt(preempt_and_abort_list, cmd))
 			continue;
 
@@ -234,6 +256,27 @@ static void core_tmr_drain_task_list(
 	struct se_task *task, *task_tmp;
 	unsigned long flags;
 	int fe_count;
+	/*
+	 * Complete outstanding struct se_task CDBs with TASK_ABORTED SAM status.
+	 * This is following sam4r17, section 5.6 Aborting commands, Table 38
+	 * for TMR LUN_RESET:
+	 *
+	 * a) "Yes" indicates that each command that is aborted on an I_T nexus
+	 * other than the one that caused the SCSI device condition is
+	 * completed with TASK ABORTED status, if the TAS bit is set to one in
+	 * the Control mode page (see SPC-4). "No" indicates that no status is
+	 * returned for aborted commands.
+	 *
+	 * d) If the logical unit reset is caused by a particular I_T nexus
+	 * (e.g., by a LOGICAL UNIT RESET task management function), then "yes"
+	 * (TASK_ABORTED status) applies.
+	 *
+	 * Otherwise (e.g., if triggered by a hard reset), "no"
+	 * (no TASK_ABORTED SAM status) applies.
+	 *
+	 * Note that this seems to be independent of TAS (Task Aborted Status)
+	 * in the Control Mode Page.
+	 */
 	spin_lock_irqsave(&dev->execute_task_lock, flags);
 	list_for_each_entry_safe(task, task_tmp, &dev->state_task_list,
 				t_state_list) {
@@ -243,13 +286,23 @@ static void core_tmr_drain_task_list(
 		}
 		cmd = task->task_se_cmd;
 
+		/*
+		 * For PREEMPT_AND_ABORT usage, only process commands
+		 * with a matching reservation key.
+		 */
 		if (target_check_cdb_and_preempt(preempt_and_abort_list, cmd))
 			continue;
+		/*
+		 * Not aborting PROUT PREEMPT_AND_ABORT CDB..
+		 */
 		if (prout_cmd == cmd)
 			continue;
 
 		list_move_tail(&task->t_state_list, &drain_task_list);
 		task->t_state_active = false;
+		/*
+		 * Remove from task execute list before processing drain_task_list
+		 */
 		if (!list_empty(&task->t_execute_list))
 			__transport_remove_task_from_execute_queue(task, dev);
 	}
@@ -279,6 +332,13 @@ static void core_tmr_drain_task_list(
 			(cmd->transport_state & CMD_T_STOP) != 0,
 			(cmd->transport_state & CMD_T_SENT) != 0);
 
+		/*
+		 * If the command may be queued onto a workqueue cancel it now.
+		 *
+		 * This is equivalent to removal from the execute queue in the
+		 * loop above, but we do it down here given that
+		 * cancel_work_sync may block.
+		 */
 		if (cmd->t_state == TRANSPORT_COMPLETE)
 			cancel_work_sync(&cmd->work);
 
@@ -324,10 +384,25 @@ static void core_tmr_drain_cmd_list(
 	struct se_queue_obj *qobj = &dev->dev_queue_obj;
 	struct se_cmd *cmd, *tcmd;
 	unsigned long flags;
+	/*
+	 * Release all commands remaining in the struct se_device cmd queue.
+	 *
+	 * This follows the same logic as above for the struct se_device
+	 * struct se_task state list, where commands are returned with
+	 * TASK_ABORTED status, if there is an outstanding $FABRIC_MOD
+	 * reference, otherwise the struct se_cmd is released.
+	 */
 	spin_lock_irqsave(&qobj->cmd_queue_lock, flags);
 	list_for_each_entry_safe(cmd, tcmd, &qobj->qobj_list, se_queue_node) {
+		/*
+		 * For PREEMPT_AND_ABORT usage, only process commands
+		 * with a matching reservation key.
+		 */
 		if (target_check_cdb_and_preempt(preempt_and_abort_list, cmd))
 			continue;
+		/*
+		 * Not aborting PROUT PREEMPT_AND_ABORT CDB..
+		 */
 		if (prout_cmd == cmd)
 			continue;
 
@@ -360,7 +435,22 @@ int core_tmr_lun_reset(
 	struct se_node_acl *tmr_nacl = NULL;
 	struct se_portal_group *tmr_tpg = NULL;
 	int tas;
+        /*
+	 * TASK_ABORTED status bit, this is configurable via ConfigFS
+	 * struct se_device attributes.  spc4r17 section 7.4.6 Control mode page
+	 *
+	 * A task aborted status (TAS) bit set to zero specifies that aborted
+	 * tasks shall be terminated by the device server without any response
+	 * to the application client. A TAS bit set to one specifies that tasks
+	 * aborted by the actions of an I_T nexus other than the I_T nexus on
+	 * which the command was received shall be completed with TASK ABORTED
+	 * status (see SAM-4).
+	 */
 	tas = dev->se_sub_dev->se_dev_attrib.emulate_tas;
+	/*
+	 * Determine if this se_tmr is coming from a $FABRIC_MOD
+	 * or struct se_device passthrough..
+	 */
 	if (tmr && tmr->task_cmd && tmr->task_cmd->se_sess) {
 		tmr_nacl = tmr->task_cmd->se_sess->se_node_acl;
 		tmr_tpg = tmr->task_cmd->se_sess->se_tpg;
@@ -380,6 +470,10 @@ int core_tmr_lun_reset(
 				preempt_and_abort_list);
 	core_tmr_drain_cmd_list(dev, prout_cmd, tmr_nacl, tas,
 				preempt_and_abort_list);
+	/*
+	 * Clear any legacy SPC-2 reservation when called during
+	 * LOGICAL UNIT RESET
+	 */
 	if (!preempt_and_abort_list &&
 	     (dev->dev_flags & DF_SPC2_RESERVATIONS)) {
 		spin_lock(&dev->dev_reservation_lock);

@@ -10,6 +10,10 @@
  * GNU General Public License for more details.
  */
 
+/*
+ * Serial Mux Control Driver -- Provides a binary serial muxed control
+ * port interface.
+ */
 
 #define DEBUG
 
@@ -770,7 +774,7 @@ static unsigned int smux_ctl_poll(struct file *file, poll_table *wait)
 	if (readable > 0) {
 		mask = POLLIN | POLLRDNORM;
 	} else if ((readable < 0) && (readable != -ERESTARTSYS)) {
-		
+		/* error case (non-signal) received */
 		pr_err(SMUX_CTL_MODULE_NAME ": %s err%d during poll for smuxctl%d\n",
 			__func__, readable, devp->id);
 		mask = POLLERR;
@@ -816,7 +820,7 @@ static int smux_ctl_probe(struct platform_device *pdev)
 	SMUXCTL_DBG(SMUX_CTL_MODULE_NAME ": %s Begins\n", __func__);
 
 	if (smux_ctl_inited) {
-		
+		/* Already loaded once - reinitialize channels */
 		for (i = 0; i < SMUX_CTL_NUM_CHANNELS; ++i) {
 			struct smux_ctl_dev *devp = smux_ctl_devp[i];
 
@@ -835,7 +839,7 @@ static int smux_ctl_probe(struct platform_device *pdev)
 		return 0;
 	}
 
-	
+	/* Create character devices */
 	for (i = 0; i < SMUX_CTL_NUM_CHANNELS; ++i) {
 		smux_ctl_devp[i] = kzalloc(sizeof(struct smux_ctl_dev),
 							GFP_KERNEL);
@@ -957,7 +961,7 @@ static int smux_ctl_remove(struct platform_device *pdev)
 		}
 		mutex_unlock(&devp->dev_lock);
 
-		
+		/* Empty RX queue */
 		mutex_lock(&devp->rx_lock);
 		while (!list_empty(&devp->rx_list)) {
 			struct smux_ctl_list_elem *list_elem;

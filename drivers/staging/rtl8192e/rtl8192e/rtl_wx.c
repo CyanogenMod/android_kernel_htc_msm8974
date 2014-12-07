@@ -356,18 +356,24 @@ static int r8192_wx_set_mode(struct net_device *dev, struct iw_request_info *a,
 }
 
 struct  iw_range_with_scan_capa {
-	
-	__u32	   throughput;     
+	/* Informative stuff (to choose between different interface) */
+	__u32	   throughput;     /* To give an idea... */
+	/* In theory this value should be the maximum benchmarked
+	 * TCP/IP throughput, because with most of these devices the
+	 * bit rate is meaningless (overhead an co) to estimate how
+	 * fast the connection will go and pick the fastest one.
+	 * I suggest people to play with Netperf or any benchmark...
+	 */
 
-	
-	__u32	   min_nwid;	
-	__u32	   max_nwid;	
+	/* NWID (or domain id) */
+	__u32	   min_nwid;	/* Minimal NWID we are able to set */
+	__u32	   max_nwid;	/* Maximal NWID we are able to set */
 
-	
+	/* Old Frequency (backward compat - moved lower ) */
 	__u16	   old_num_channels;
 	__u8	    old_num_frequency;
 
-	
+	/* Scan capabilities */
 	__u8	    scan_capa;
 };
 
@@ -383,23 +389,23 @@ static int rtl8192_wx_get_range(struct net_device *dev,
 	wrqu->data.length = sizeof(*range);
 	memset(range, 0, sizeof(*range));
 
-	
+	/* ~130 Mb/s real (802.11n) */
 	range->throughput = 130 * 1000 * 1000;
 
 	if (priv->rf_set_sens != NULL) {
-		
+		/* signal level threshold range */
 		range->sensitivity = priv->max_sens;
 	}
 
 	range->max_qual.qual = 100;
 	range->max_qual.level = 0;
 	range->max_qual.noise = 0;
-	range->max_qual.updated = 7; 
+	range->max_qual.updated = 7; /* Updated all three */
 
-	range->avg_qual.qual = 70; 
+	range->avg_qual.qual = 70; /* > 8% missed beacons is 'bad' */
 	range->avg_qual.level = 0;
 	range->avg_qual.noise = 0;
-	range->avg_qual.updated = 7; 
+	range->avg_qual.updated = 7; /* Updated all three */
 
 	range->num_bitrates = min(RATE_COUNT, IW_MAX_BITRATES);
 
@@ -438,7 +444,7 @@ static int rtl8192_wx_get_range(struct net_device *dev,
 			  IW_ENC_CAPA_CIPHER_TKIP|IW_ENC_CAPA_CIPHER_CCMP;
 	range->scan_capa = IW_SCAN_CAPA_ESSID | IW_SCAN_CAPA_TYPE;
 
-	
+	/* Event capability (kernel + driver) */
 
 	return 0;
 }
@@ -563,7 +569,7 @@ static int r8192_wx_set_essid(struct net_device *dev,
 
 	if ((rtllib_act_scanning(priv->rtllib, false)) &&
 	    !(priv->rtllib->softmac_features & IEEE_SOFTMAC_SCAN)) {
-		;	
+		;	/* TODO - get rid of if */
 	}
 	if (priv->bHwRadioOff == true) {
 		printk(KERN_INFO "=========>%s():hw radio off,or Rf state is "
@@ -620,7 +626,7 @@ static int r8192_wx_get_nick(struct net_device *dev,
 	down(&priv->wx_sem);
 	wrqu->data.length = strlen(priv->nick);
 	memcpy(extra, priv->nick, wrqu->data.length);
-	wrqu->data.flags = 1;   
+	wrqu->data.flags = 1;   /* active */
 	up(&priv->wx_sem);
 	return 0;
 }
@@ -681,7 +687,7 @@ static int r8192_wx_get_frag(struct net_device *dev,
 	struct r8192_priv *priv = rtllib_priv(dev);
 
 	wrqu->frag.value = priv->rtllib->fts;
-	wrqu->frag.fixed = 0;	
+	wrqu->frag.fixed = 0;	/* no auto select */
 	wrqu->frag.disabled = (wrqu->frag.value == DEFAULT_FRAG_THRESHOLD);
 
 	return 0;
@@ -698,7 +704,7 @@ static int r8192_wx_set_wap(struct net_device *dev,
 
 	if ((rtllib_act_scanning(priv->rtllib, false)) &&
 	    !(priv->rtllib->softmac_features & IEEE_SOFTMAC_SCAN)) {
-		;	
+		;	/* TODO - get rid of if */
 	}
 
 	if (priv->bHwRadioOff == true)
@@ -753,7 +759,7 @@ static int r8192_wx_set_enc(struct net_device *dev,
 
 	if ((rtllib_act_scanning(priv->rtllib, false)) &&
 	   !(priv->rtllib->softmac_features & IEEE_SOFTMAC_SCAN))
-		;	
+		;	/* TODO - get rid of if */
 	if (priv->bHwRadioOff == true)
 		return 0;
 
@@ -906,7 +912,7 @@ static int r8192_wx_get_retry(struct net_device *dev,
 	struct r8192_priv *priv = rtllib_priv(dev);
 
 
-	wrqu->retry.disabled = 0; 
+	wrqu->retry.disabled = 0; /* can't be disabled */
 
 	if ((wrqu->retry.flags & IW_RETRY_TYPE) ==
 	    IW_RETRY_LIFETIME)
@@ -928,7 +934,7 @@ static int r8192_wx_get_sens(struct net_device *dev,
 {
 	struct r8192_priv *priv = rtllib_priv(dev);
 	if (priv->rf_set_sens == NULL)
-		return -1; 
+		return -1; /* we have not this support for this radio */
 	wrqu->sens.value = priv->sens;
 	return 0;
 }
@@ -948,7 +954,7 @@ static int r8192_wx_set_sens(struct net_device *dev,
 
 	down(&priv->wx_sem);
 	if (priv->rf_set_sens == NULL) {
-		err = -1; 
+		err = -1; /* we have not this support for this radio */
 		goto exit;
 	}
 	if (priv->rf_set_sens(dev, wrqu->sens.value) == 0)
@@ -1206,6 +1212,11 @@ static iw_handler r8192_wx_handlers[] = {
 	IW_IOCTL(SIOCSIWENCODEEXT) = r8192_wx_set_enc_ext,
 };
 
+/*
+ * the following rule need to be follwing,
+ * Odd : get (world access),
+ * even : set (root access)
+ * */
 static const struct iw_priv_args r8192_private_args[] = {
 	{
 		SIOCIWFIRSTPRIV + 0x0,
@@ -1256,7 +1267,7 @@ static const struct iw_priv_args r8192_private_args[] = {
 };
 
 static iw_handler r8192_private_handler[] = {
-	(iw_handler)r8192_wx_set_debugflag,   
+	(iw_handler)r8192_wx_set_debugflag,   /*SIOCIWSECONDPRIV*/
 	(iw_handler)r8192_wx_set_scan_type,
 	(iw_handler)r8192_wx_set_rawtx,
 	(iw_handler)r8192_wx_force_reset,

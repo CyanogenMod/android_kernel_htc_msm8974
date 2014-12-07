@@ -136,7 +136,7 @@ int ui_browser__input_window(const char *title, const char *text, char *input,
 		}
 		SLsmg_refresh();
 
-		
+		/* XXX more graceful overflow handling needed */
 		if (len == sizeof(buf) - 1) {
 			ui_helpline__push("maximum size of symbol name reached!");
 			key = K_ENTER;

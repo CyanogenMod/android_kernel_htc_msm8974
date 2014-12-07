@@ -17,12 +17,21 @@
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
 
+/*
+ * AD7314 power mode
+ */
 #define AD7314_PD		0x2000
 
+/*
+ * AD7314 temperature masks
+ */
 #define AD7314_TEMP_SIGN		0x200
 #define AD7314_TEMP_MASK		0x7FE0
 #define AD7314_TEMP_OFFSET		5
 
+/*
+ * ADT7301 and ADT7302 temperature masks
+ */
 #define ADT7301_TEMP_SIGN		0x2000
 #define ADT7301_TEMP_MASK		0x3FFF
 
@@ -70,6 +79,11 @@ static ssize_t ad7314_show_temperature(struct device *dev,
 		return sprintf(buf, "%d\n", 250 * data);
 	case adt7301:
 	case adt7302:
+		/*
+		 * Documented as a 13 bit twos complement register
+		 * with a sign bit - which is a 14 bit 2's complement
+		 * register.  1lsb - 31.25 milli degrees centigrade
+		 */
 		data = ret & ADT7301_TEMP_MASK;
 		data = (data << 2) >> 2;
 

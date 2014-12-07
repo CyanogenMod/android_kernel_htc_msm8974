@@ -20,27 +20,33 @@
 
 #include <plat/clock.h>
 
+/* CM_CLKSEL2_PLL.CORE_CLK_SRC bits (2XXX) */
 #define CORE_CLK_SRC_32K		0x0
 #define CORE_CLK_SRC_DPLL		0x1
 #define CORE_CLK_SRC_DPLL_X2		0x2
 
+/* OMAP2xxx CM_CLKEN_PLL.EN_DPLL bits - for omap2_get_dpll_rate() */
 #define OMAP2XXX_EN_DPLL_LPBYPASS		0x1
 #define OMAP2XXX_EN_DPLL_FRBYPASS		0x2
 #define OMAP2XXX_EN_DPLL_LOCKED			0x3
 
+/* OMAP3xxx CM_CLKEN_PLL*.EN_*_DPLL bits - for omap2_get_dpll_rate() */
 #define OMAP3XXX_EN_DPLL_LPBYPASS		0x5
 #define OMAP3XXX_EN_DPLL_FRBYPASS		0x6
 #define OMAP3XXX_EN_DPLL_LOCKED			0x7
 
+/* OMAP4xxx CM_CLKMODE_DPLL*.EN_*_DPLL bits - for omap2_get_dpll_rate() */
 #define OMAP4XXX_EN_DPLL_MNBYPASS		0x4
 #define OMAP4XXX_EN_DPLL_LPBYPASS		0x5
 #define OMAP4XXX_EN_DPLL_FRBYPASS		0x6
 #define OMAP4XXX_EN_DPLL_LOCKED			0x7
 
+/* CM_CLKEN_PLL*.EN* bit values - not all are available for every DPLL */
 #define DPLL_LOW_POWER_STOP	0x1
 #define DPLL_LOW_POWER_BYPASS	0x5
 #define DPLL_LOCKED		0x7
 
+/* DPLL Type and DCO Selection Flags */
 #define DPLL_J_TYPE		0x1
 
 int omap2_clk_enable(struct clk *clk);
@@ -72,6 +78,7 @@ void omap2_clk_disable_unused(struct clk *clk);
 void omap2_init_clk_clkdm(struct clk *clk);
 void __init omap2_clk_disable_clkdm_control(void);
 
+/* clkt_clksel.c public functions */
 u32 omap2_clksel_round_rate_div(struct clk *clk, unsigned long target_rate,
 				u32 *new_div);
 void omap2_init_clksel_parent(struct clk *clk);
@@ -80,6 +87,7 @@ long omap2_clksel_round_rate(struct clk *clk, unsigned long target_rate);
 int omap2_clksel_set_rate(struct clk *clk, unsigned long rate);
 int omap2_clksel_set_parent(struct clk *clk, struct clk *new_parent);
 
+/* clkt_iclk.c public functions */
 extern void omap2_clkt_iclk_allow_idle(struct clk *clk);
 extern void omap2_clkt_iclk_deny_idle(struct clk *clk);
 

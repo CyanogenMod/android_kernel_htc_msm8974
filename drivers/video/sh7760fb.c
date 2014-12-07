@@ -34,17 +34,17 @@ struct sh7760fb_par {
 	void __iomem *base;
 	int irq;
 
-	struct sh7760fb_platdata *pd;	
+	struct sh7760fb_platdata *pd;	/* display information */
 
-	dma_addr_t fbdma;	
+	dma_addr_t fbdma;	/* physical address */
 
-	int rot;		
+	int rot;		/* rotation enabled? */
 
 	u32 pseudo_palette[16];
 
 	struct platform_device *dev;
 	struct resource *ioarea;
-	struct completion vsync;	
+	struct completion vsync;	/* vsync irq event */
 };
 
 static irqreturn_t sh7760fb_irq(int irq, void *data)
@@ -56,6 +56,7 @@ static irqreturn_t sh7760fb_irq(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+/* wait_for_lps - wait until power supply has reached a certain state. */
 static int wait_for_lps(struct sh7760fb_par *par, int val)
 {
 	int i = 100;
@@ -68,6 +69,7 @@ static int wait_for_lps(struct sh7760fb_par *par, int val)
 	return 0;
 }
 
+/* en/disable the LCDC */
 static int sh7760fb_blank(int blank, struct fb_info *info)
 {
 	struct sh7760fb_par *par = info->par;
@@ -104,7 +106,7 @@ static int sh7760_setcolreg (u_int regno,
 	if (regno >= 16)
 		return -EINVAL;
 
-	
+	/* only FB_VISUAL_TRUECOLOR supported */
 
 	red >>= 16 - info->var.red.length;
 	green >>= 16 - info->var.green.length;
@@ -170,7 +172,7 @@ static int sh7760fb_check_var(struct fb_var_screeninfo *var,
 	struct sh7760fb_par *par = info->par;
 	int ret, bpp;
 
-	
+	/* get color info from register value */
 	ret = sh7760fb_get_color_info(info->dev, par->pd->lddfr, &bpp, NULL);
 	if (ret)
 		return ret;
@@ -184,10 +186,16 @@ static int sh7760fb_check_var(struct fb_var_screeninfo *var,
 	else
 		fix->visual = FB_VISUAL_PSEUDOCOLOR;
 
-	
+	/* TODO: add some more validation here */
 	return 0;
 }
 
+/*
+ * sh7760fb_set_par - set videomode.
+ *
+ * NOTE: The rotation, grayscale and DSTN codepaths are
+ *     totally untested!
+ */
 static int sh7760fb_set_par(struct fb_info *info)
 {
 	struct sh7760fb_par *par = info->par;
@@ -200,13 +208,13 @@ static int sh7760fb_set_par(struct fb_info *info)
 
 	par->rot = par->pd->rotate;
 
-	
+	/* rotate only works with xres <= 320 */
 	if (par->rot && (vm->xres > 320)) {
 		dev_dbg(info->dev, "rotation disabled due to display size\n");
 		par->rot = 0;
 	}
 
-	
+	/* calculate LCDC reg vals from display parameters */
 	hsynp = vm->right_margin + vm->xres;
 	hsynw = vm->hsync_len;
 	htcn = vm->left_margin + hsynp + hsynw;
@@ -216,7 +224,7 @@ static int sh7760fb_set_par(struct fb_info *info)
 	vtln = vm->upper_margin + vsynp + vsynw;
 	vdln = vm->yres;
 
-	
+	/* get color info from register value */
 	ret = sh7760fb_get_color_info(info->dev, par->pd->lddfr, &bpp, &gray);
 	if (ret)
 		return ret;
@@ -238,26 +246,26 @@ static int sh7760fb_set_par(struct fb_info *info)
 	if (!(vm->sync & FB_SYNC_VERT_HIGH_ACT))
 		ldmtr |= LDMTR_FLMPOL;
 
-	
+	/* shut down LCDC before changing display parameters */
 	sh7760fb_blank(FB_BLANK_POWERDOWN, info);
 
-	iowrite16(par->pd->ldickr, par->base + LDICKR);	
-	iowrite16(ldmtr, par->base + LDMTR);	
-	iowrite16(lddfr, par->base + LDDFR);	
-	iowrite16((par->rot ? 1 << 13 : 0), par->base + LDSMR);	
-	iowrite16(par->pd->ldpmmr, par->base + LDPMMR);	
-	iowrite16(par->pd->ldpspr, par->base + LDPSPR);	
+	iowrite16(par->pd->ldickr, par->base + LDICKR);	/* pixclock */
+	iowrite16(ldmtr, par->base + LDMTR);	/* polarities */
+	iowrite16(lddfr, par->base + LDDFR);	/* color/depth */
+	iowrite16((par->rot ? 1 << 13 : 0), par->base + LDSMR);	/* rotate */
+	iowrite16(par->pd->ldpmmr, par->base + LDPMMR);	/* Power Management */
+	iowrite16(par->pd->ldpspr, par->base + LDPSPR);	/* Power Supply Ctrl */
 
-	
+	/* display resolution */
 	iowrite16(((htcn >> 3) - 1) | (((hdcn >> 3) - 1) << 8),
 		  par->base + LDHCNR);
 	iowrite16(vdln - 1, par->base + LDVDLNR);
 	iowrite16(vtln - 1, par->base + LDVTLNR);
-	
+	/* h/v sync signals */
 	iowrite16((vsynp - 1) | ((vsynw - 1) << 12), par->base + LDVSYNR);
 	iowrite16(((hsynp >> 3) - 1) | (((hsynw >> 3) - 1) << 12),
 		  par->base + LDHSYNR);
-	
+	/* AC modulation sig */
 	iowrite16(par->pd->ldaclnr, par->base + LDACLNR);
 
 	stride = (par->rot) ? vtln : hdcn;
@@ -270,10 +278,10 @@ static int sh7760fb_set_par(struct fb_info *info)
 			stride >>= 2;
 		else if (bpp == 4)
 			stride >>= 1;
-		
+		/* 6 bpp == 8 bpp */
 	}
 
-	
+	/* if rotated, stride must be power of 2 */
 	if (par->rot) {
 		unsigned long bit = 1 << 31;
 		while (bit) {
@@ -282,17 +290,22 @@ static int sh7760fb_set_par(struct fb_info *info)
 			bit >>= 1;
 		}
 		if (stride & ~bit)
-			stride = bit << 1;	
+			stride = bit << 1;	/* not P-o-2, round up */
 	}
 	iowrite16(stride, par->base + LDLAOR);
 
-	
+	/* set display mem start address */
 	sbase = (unsigned long)par->fbdma;
 	if (par->rot)
 		sbase += (hdcn - 1) * stride;
 
 	iowrite32(sbase, par->base + LDSARU);
 
+	/*
+	 * for DSTN need to set address for lower half.
+	 * I (mlau) don't know which address to set it to,
+	 * so I guessed at (stride * yres/2).
+	 */
 	if (((ldmtr & 0x003f) >= LDMTR_DSTN_MONO_8) &&
 	    ((ldmtr & 0x003f) <= LDMTR_DSTN_COLOR_16)) {
 
@@ -308,13 +321,13 @@ static int sh7760fb_set_par(struct fb_info *info)
 	} else
 		ldsarl = 0;
 
-	iowrite32(ldsarl, par->base + LDSARL);	
+	iowrite32(ldsarl, par->base + LDSARL);	/* mem for lower half of DSTN */
 
 	info->fix.line_length = stride;
 
 	sh7760fb_check_var(&info->var, info);
 
-	sh7760fb_blank(FB_BLANK_UNBLANK, info);	
+	sh7760fb_blank(FB_BLANK_UNBLANK, info);	/* panel on! */
 
 	dev_dbg(info->dev, "hdcn  : %6d htcn  : %6d\n", hdcn, htcn);
 	dev_dbg(info->dev, "hsynw : %6d hsynp : %6d\n", hsynw, hsynp);
@@ -357,6 +370,9 @@ static void sh7760fb_free_mem(struct fb_info *info)
 	info->screen_size = 0;
 }
 
+/* allocate the framebuffer memory. This memory must be in Area3,
+ * (dictated by the DMA engine) and contiguous, at a 512 byte boundary.
+ */
 static int sh7760fb_alloc_mem(struct fb_info *info)
 {
 	struct sh7760fb_par *par = info->par;
@@ -367,13 +383,15 @@ static int sh7760fb_alloc_mem(struct fb_info *info)
 	if (info->screen_base)
 		return 0;
 
-	
+	/* get color info from register value */
 	ret = sh7760fb_get_color_info(info->dev, par->pd->lddfr, &bpp, NULL);
 	if (ret) {
 		printk(KERN_ERR "colinfo\n");
 		return ret;
 	}
 
+	/* min VRAM: xres_min = 16, yres_min = 1, bpp = 1: 2byte -> 1 page
+	   max VRAM: xres_max = 1024, yres_max = 1024, bpp = 16: 2MB */
 
 	vram = info->var.xres * info->var.yres;
 	if (info->var.grayscale) {
@@ -455,7 +473,7 @@ static int __devinit sh7760fb_probe(struct platform_device *pdev)
 		goto out_res;
 	}
 
-	iowrite16(0, par->base + LDINTR);	
+	iowrite16(0, par->base + LDINTR);	/* disable vsync irq */
 	par->irq = platform_get_irq(pdev, 0);
 	if (par->irq >= 0) {
 		ret = request_irq(par->irq, sh7760fb_irq, 0,
@@ -477,7 +495,7 @@ static int __devinit sh7760fb_probe(struct platform_device *pdev)
 
 	info->pseudo_palette = par->pseudo_palette;
 
-	
+	/* fixup color register bitpositions. These are fixed by hardware */
 	info->var.red.offset = 11;
 	info->var.red.length = 5;
 	info->var.red.msb_right = 0;
@@ -496,6 +514,9 @@ static int __devinit sh7760fb_probe(struct platform_device *pdev)
 
 	strcpy(info->fix.id, "sh7760-lcdc");
 
+	/* set the DON2 bit now, before cmap allocation, as it will randomize
+	 * palette memory.
+	 */
 	iowrite16(LDCNTR_DON2, par->base + LDCNTR);
 	info->fbops = &sh7760fb_ops;
 

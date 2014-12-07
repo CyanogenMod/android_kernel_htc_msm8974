@@ -1,6 +1,9 @@
 #ifndef __ALPHA_PAL_H
 #define __ALPHA_PAL_H
 
+/*
+ * Common PAL-code
+ */
 #define PAL_halt	  0
 #define PAL_cflush	  1
 #define PAL_draina	  2
@@ -14,9 +17,15 @@
 #define PAL_gentrap	170
 #define PAL_nphalt	190
 
+/*
+ * VMS specific PAL-code
+ */
 #define PAL_swppal	10
 #define PAL_mfpr_vptb	41
 
+/*
+ * OSF specific PAL-code
+ */
 #define PAL_cserve	 9
 #define PAL_wripir	13
 #define PAL_rdmces	16
@@ -127,6 +136,9 @@ __CALL_PAL_RW2(wrperfmon, unsigned long, unsigned long, unsigned long);
 __CALL_PAL_W1(wrusp, unsigned long);
 __CALL_PAL_W1(wrvptptr, unsigned long);
 
+/*
+ * TB routines..
+ */
 #define __tbi(nr,arg,arg1...)					\
 ({								\
 	register unsigned long __r16 __asm__("$16") = (nr);	\
@@ -142,10 +154,10 @@ __CALL_PAL_W1(wrvptptr, unsigned long);
 #define tbisi(x)	__tbi(1,__r17=(x),"1" (__r17))
 #define tbisd(x)	__tbi(2,__r17=(x),"1" (__r17))
 #define tbis(x)		__tbi(3,__r17=(x),"1" (__r17))
-#define tbiap()		__tbi(-1, )
-#define tbia()		__tbi(-2, )
+#define tbiap()		__tbi(-1, /* no second argument */)
+#define tbia()		__tbi(-2, /* no second argument */)
 
-#endif 
-#endif 
+#endif /* !__ASSEMBLY__ */
+#endif /* __KERNEL__ */
 
-#endif 
+#endif /* __ALPHA_PAL_H */

@@ -5,18 +5,18 @@
 #include <linux/netfilter/nfnetlink.h>
 
 enum nfqnl_msg_types {
-	NFQNL_MSG_PACKET,		
-	NFQNL_MSG_VERDICT,		
-	NFQNL_MSG_CONFIG,		
-	NFQNL_MSG_VERDICT_BATCH,	
+	NFQNL_MSG_PACKET,		/* packet from kernel to userspace */
+	NFQNL_MSG_VERDICT,		/* verdict from userspace to kernel */
+	NFQNL_MSG_CONFIG,		/* connect to a particular queue */
+	NFQNL_MSG_VERDICT_BATCH,	/* batchv from userspace to kernel */
 
 	NFQNL_MSG_MAX
 };
 
 struct nfqnl_msg_packet_hdr {
-	__be32		packet_id;	
-	__be16		hw_protocol;	
-	__u8	hook;		
+	__be32		packet_id;	/* unique ID of packet in queue */
+	__be16		hw_protocol;	/* hw protocol (network order) */
+	__u8	hook;		/* netfilter hook */
 } __attribute__ ((packed));
 
 struct nfqnl_msg_packet_hw {
@@ -33,15 +33,15 @@ struct nfqnl_msg_packet_timestamp {
 enum nfqnl_attr_type {
 	NFQA_UNSPEC,
 	NFQA_PACKET_HDR,
-	NFQA_VERDICT_HDR,		
-	NFQA_MARK,			
-	NFQA_TIMESTAMP,			
-	NFQA_IFINDEX_INDEV,		
-	NFQA_IFINDEX_OUTDEV,		
-	NFQA_IFINDEX_PHYSINDEV,		
-	NFQA_IFINDEX_PHYSOUTDEV,	
-	NFQA_HWADDR,			
-	NFQA_PAYLOAD,			
+	NFQA_VERDICT_HDR,		/* nfqnl_msg_verdict_hrd */
+	NFQA_MARK,			/* __u32 nfmark */
+	NFQA_TIMESTAMP,			/* nfqnl_msg_packet_timestamp */
+	NFQA_IFINDEX_INDEV,		/* __u32 ifindex */
+	NFQA_IFINDEX_OUTDEV,		/* __u32 ifindex */
+	NFQA_IFINDEX_PHYSINDEV,		/* __u32 ifindex */
+	NFQA_IFINDEX_PHYSOUTDEV,	/* __u32 ifindex */
+	NFQA_HWADDR,			/* nfqnl_msg_packet_hw */
+	NFQA_PAYLOAD,			/* opaque data payload */
 
 	__NFQA_MAX
 };
@@ -62,9 +62,9 @@ enum nfqnl_msg_config_cmds {
 };
 
 struct nfqnl_msg_config_cmd {
-	__u8	command;	
+	__u8	command;	/* nfqnl_msg_config_cmds */
 	__u8	_pad;
-	__be16		pf;		
+	__be16		pf;		/* AF_xxx for PF_[UN]BIND */
 };
 
 enum nfqnl_config_mode {
@@ -75,17 +75,17 @@ enum nfqnl_config_mode {
 
 struct nfqnl_msg_config_params {
 	__be32		copy_range;
-	__u8	copy_mode;	
+	__u8	copy_mode;	/* enum nfqnl_config_mode */
 } __attribute__ ((packed));
 
 
 enum nfqnl_attr_config {
 	NFQA_CFG_UNSPEC,
-	NFQA_CFG_CMD,			
-	NFQA_CFG_PARAMS,		
-	NFQA_CFG_QUEUE_MAXLEN,		
+	NFQA_CFG_CMD,			/* nfqnl_msg_config_cmd */
+	NFQA_CFG_PARAMS,		/* nfqnl_msg_config_params */
+	NFQA_CFG_QUEUE_MAXLEN,		/* __u32 */
 	__NFQA_CFG_MAX
 };
 #define NFQA_CFG_MAX (__NFQA_CFG_MAX-1)
 
-#endif 
+#endif /* _NFNETLINK_QUEUE_H */

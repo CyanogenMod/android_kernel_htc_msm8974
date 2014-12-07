@@ -17,6 +17,15 @@
 #include <linux/export.h>
 
 
+/**
+ * xdr_skb_read_bits - copy some data bits from skb to internal buffer
+ * @desc: sk_buff copy helper
+ * @to: copy destination
+ * @len: number of bytes to copy
+ *
+ * Possibly called several times to iterate over an sk_buff and copy
+ * data out of it.
+ */
 size_t xdr_skb_read_bits(struct xdr_skb_reader *desc, void *to, size_t len)
 {
 	if (len > desc->count)
@@ -29,6 +38,14 @@ size_t xdr_skb_read_bits(struct xdr_skb_reader *desc, void *to, size_t len)
 }
 EXPORT_SYMBOL_GPL(xdr_skb_read_bits);
 
+/**
+ * xdr_skb_read_and_csum_bits - copy and checksum from skb to buffer
+ * @desc: sk_buff copy helper
+ * @to: copy destination
+ * @len: number of bytes to copy
+ *
+ * Same as skb_read_bits, but calculate a checksum at the same time.
+ */
 static size_t xdr_skb_read_and_csum_bits(struct xdr_skb_reader *desc, void *to, size_t len)
 {
 	unsigned int pos;
@@ -44,6 +61,14 @@ static size_t xdr_skb_read_and_csum_bits(struct xdr_skb_reader *desc, void *to, 
 	return len;
 }
 
+/**
+ * xdr_partial_copy_from_skb - copy data out of an skb
+ * @xdr: target XDR buffer
+ * @base: starting offset
+ * @desc: sk_buff copy helper
+ * @copy_actor: virtual method for copying data
+ *
+ */
 ssize_t xdr_partial_copy_from_skb(struct xdr_buf *xdr, unsigned int base, struct xdr_skb_reader *desc, xdr_skb_read_actor copy_actor)
 {
 	struct page	**ppage = xdr->pages;
@@ -77,6 +102,8 @@ ssize_t xdr_partial_copy_from_skb(struct xdr_buf *xdr, unsigned int base, struct
 	do {
 		char *kaddr;
 
+		/* ACL likes to be lazy in allocating pages - ACLs
+		 * are small by default but can get huge. */
 		if (unlikely(*ppage == NULL)) {
 			*ppage = alloc_page(GFP_ATOMIC);
 			if (unlikely(*ppage == NULL)) {
@@ -115,6 +142,14 @@ out:
 }
 EXPORT_SYMBOL_GPL(xdr_partial_copy_from_skb);
 
+/**
+ * csum_partial_copy_to_xdr - checksum and copy data
+ * @xdr: target XDR buffer
+ * @skb: source skb
+ *
+ * We have set things up such that we perform the checksum of the UDP
+ * packet in parallel with the copies into the RPC client iovec.  -DaveM
+ */
 int csum_partial_copy_to_xdr(struct xdr_buf *xdr, struct sk_buff *skb)
 {
 	struct xdr_skb_reader	desc;

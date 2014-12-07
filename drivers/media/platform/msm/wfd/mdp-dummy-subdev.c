@@ -151,7 +151,7 @@ static int mdp_mmap(struct v4l2_subdev *sd, void *arg)
 
 static int mdp_munmap(struct v4l2_subdev *sd, void *arg)
 {
-	
+	/* Whatever */
 	return 0;
 }
 

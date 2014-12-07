@@ -27,4 +27,4 @@ struct hexagon_vdso {
 	u32 rt_signal_trampoline[2];
 };
 
-#endif 
+#endif /* __ASM_VDSO_H */

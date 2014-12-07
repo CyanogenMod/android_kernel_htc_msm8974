@@ -8,11 +8,16 @@
 #include <linux/module.h>
 #include <asm/uaccess.h>
 
+/*
+ * Zero Userspace
+ */
 
 unsigned long __clear_user(void __user *addr, unsigned long size)
 {
 	long __d0;
 	might_fault();
+	/* no memory constraint because it doesn't change any memory gcc knows
+	   about */
 	asm volatile(
 		"	testq  %[size8],%[size8]\n"
 		"	jz     4f\n"
@@ -47,6 +52,11 @@ unsigned long clear_user(void __user *to, unsigned long n)
 }
 EXPORT_SYMBOL(clear_user);
 
+/*
+ * Return the size of a string (including the ending 0)
+ *
+ * Return 0 on exception, a value greater than N if too long
+ */
 
 long __strnlen_user(const char __user *s, long n)
 {
@@ -99,6 +109,11 @@ unsigned long copy_in_user(void __user *to, const void __user *from, unsigned le
 }
 EXPORT_SYMBOL(copy_in_user);
 
+/*
+ * Try to copy last bytes and clear the rest if needed.
+ * Since protection fault in copy_from/to_user is not a normal situation,
+ * it is not necessary to optimize tail handling.
+ */
 unsigned long
 copy_user_handle_tail(char *to, char *from, unsigned len, unsigned zerorest)
 {

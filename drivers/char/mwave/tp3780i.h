@@ -53,6 +53,7 @@
 #include "mwavepub.h"
 
 
+/* DSP abilities constants for 3780i based Thinkpads */
 #define TP_ABILITIES_INTS_PER_SEC       39160800
 #define TP_ABILITIES_DATA_SIZE          32768
 #define TP_ABILITIES_INST_SIZE          32768
@@ -60,18 +61,19 @@
 #define TP_ABILITIES_BIOSTASK_NAME      "mwbio701.dsp"
 
 
-#define TP_CFG_NumTransfers     3	
-#define TP_CFG_RerequestTimer   1	
-#define TP_CFG_MEMCS16          0	
-#define TP_CFG_IsaMemCmdWidth   3	
-#define TP_CFG_GateIOCHRDY      0	
-#define TP_CFG_EnablePwrMgmt    1	
-#define TP_CFG_HBusTimerValue 255	
-#define TP_CFG_DisableLBusTimeout 0	
-#define TP_CFG_N_Divisor       32	
-#define TP_CFG_M_Multiplier    37	
-#define TP_CFG_PllBypass        0	
-#define TP_CFG_ChipletEnable 0xFFFF	
+/* DSP configuration values for 3780i based Thinkpads */
+#define TP_CFG_NumTransfers     3	/* 16 transfers */
+#define TP_CFG_RerequestTimer   1	/* 2 usec */
+#define TP_CFG_MEMCS16          0	/* Disabled, 16-bit memory assumed */
+#define TP_CFG_IsaMemCmdWidth   3	/* 295 nsec (16-bit) */
+#define TP_CFG_GateIOCHRDY      0	/* No IOCHRDY gating */
+#define TP_CFG_EnablePwrMgmt    1	/* Enable low poser suspend/resume */
+#define TP_CFG_HBusTimerValue 255	/* HBus timer load value */
+#define TP_CFG_DisableLBusTimeout 0	/* Enable LBus timeout */
+#define TP_CFG_N_Divisor       32	/* Clock = 39.1608 Mhz */
+#define TP_CFG_M_Multiplier    37	/* " */
+#define TP_CFG_PllBypass        0	/* don't bypass */
+#define TP_CFG_ChipletEnable 0xFFFF	/* Enable all chiplets */
 
 typedef struct {
 	int bDSPEnabled;

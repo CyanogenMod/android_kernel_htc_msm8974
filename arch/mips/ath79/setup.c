@@ -18,8 +18,8 @@
 #include <linux/clk.h>
 
 #include <asm/bootinfo.h>
-#include <asm/time.h>		
-#include <asm/reboot.h>		
+#include <asm/time.h>		/* for mips_hpt_frequency */
+#include <asm/reboot.h>		/* for _machine_{restart,halt} */
 #include <asm/mips_machine.h>
 
 #include <asm/mach-ath79/ath79.h>
@@ -211,7 +211,7 @@ arch_initcall(ath79_setup);
 
 static void __init ath79_generic_init(void)
 {
-	
+	/* Nothing to do */
 }
 
 MIPS_MACHINE(ATH79_MACH_GENERIC,

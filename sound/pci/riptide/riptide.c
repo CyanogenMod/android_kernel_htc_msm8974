@@ -18,6 +18,75 @@
  *   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
  *
  */
+/*
+  History:
+   - 02/15/2004 first release
+   
+  This Driver is based on the OSS Driver version from Linuxant (riptide-0.6lnxtbeta03111100)
+  credits from the original files:
+  
+  MODULE NAME:        cnxt_rt.h                       
+  AUTHOR:             K. Lazarev  (Transcribed by KNL)
+  HISTORY:         Major Revision               Date        By
+            -----------------------------     --------     -----
+            Created                           02/1/2000     KNL
+
+  MODULE NAME:     int_mdl.c                       
+  AUTHOR:          Konstantin Lazarev    (Transcribed by KNL)
+  HISTORY:         Major Revision               Date        By
+            -----------------------------     --------     -----
+            Created                           10/01/99      KNL
+	    
+  MODULE NAME:        riptide.h                       
+  AUTHOR:             O. Druzhinin  (Transcribed by OLD)
+  HISTORY:         Major Revision               Date        By
+            -----------------------------     --------     -----
+            Created                           10/16/97      OLD
+
+  MODULE NAME:        Rp_Cmdif.cpp                       
+  AUTHOR:             O. Druzhinin  (Transcribed by OLD)
+                      K. Lazarev    (Transcribed by KNL)
+  HISTORY:         Major Revision               Date        By
+            -----------------------------     --------     -----
+            Adopted from NT4 driver            6/22/99      OLD
+            Ported to Linux                    9/01/99      KNL
+
+  MODULE NAME:        rt_hw.c                       
+  AUTHOR:             O. Druzhinin  (Transcribed by OLD)
+                      C. Lazarev    (Transcribed by CNL)
+  HISTORY:         Major Revision               Date        By
+            -----------------------------     --------     -----
+            Created                           11/18/97      OLD
+            Hardware functions for RipTide    11/24/97      CNL
+            (ES1) are coded
+            Hardware functions for RipTide    12/24/97      CNL
+            (A0) are coded
+            Hardware functions for RipTide    03/20/98      CNL
+            (A1) are coded
+            Boot loader is included           05/07/98      CNL
+            Redesigned for WDM                07/27/98      CNL
+            Redesigned for Linux              09/01/99      CNL
+
+  MODULE NAME:        rt_hw.h
+  AUTHOR:             C. Lazarev    (Transcribed by CNL)
+  HISTORY:         Major Revision               Date        By
+            -----------------------------     --------     -----
+            Created                           11/18/97      CNL
+
+  MODULE NAME:     rt_mdl.c                       
+  AUTHOR:          Konstantin Lazarev    (Transcribed by KNL)
+  HISTORY:         Major Revision               Date        By
+            -----------------------------     --------     -----
+            Created                           10/01/99      KNL
+
+  MODULE NAME:        mixer.h                        
+  AUTHOR:             K. Kenney
+  HISTORY:         Major Revision                   Date          By
+            -----------------------------          --------     -----
+            Created from MS W95 Sample             11/28/95      KRS
+            RipTide                                10/15/97      KRS
+            Adopted for Windows NT driver          01/20/98      CNL
+*/
 
 #include <linux/delay.h>
 #include <linux/init.h>
@@ -76,6 +145,8 @@ MODULE_PARM_DESC(mpu_port, "MPU401 port # for Riptide driver.");
 module_param_array(opl3_port, int, NULL, 0444);
 MODULE_PARM_DESC(opl3_port, "OPL3 port # for Riptide driver.");
 
+/*
+ */
 
 #define MPU401_HW_RIPTIDE MPU401_HW_MPU401
 #define OPL3_HW_RIPTIDE   OPL3_HW_OPL3
@@ -94,14 +165,14 @@ MODULE_PARM_DESC(opl3_port, "OPL3 port # for Riptide driver.");
 #define PCI_EXT_AsicRev     0x52
 #define PCI_EXT_Reserved3   0x53
 
-#define LEGACY_ENABLE_ALL      0x8000	
+#define LEGACY_ENABLE_ALL      0x8000	/* legacy device options */
 #define LEGACY_ENABLE_SB       0x4000
 #define LEGACY_ENABLE_FM       0x2000
 #define LEGACY_ENABLE_MPU_INT  0x1000
 #define LEGACY_ENABLE_MPU      0x0800
 #define LEGACY_ENABLE_GAMEPORT 0x0400
 
-#define MAX_WRITE_RETRY  10	
+#define MAX_WRITE_RETRY  10	/* cmd interface limits */
 #define MAX_ERROR_COUNT  10
 #define CMDIF_TIMEOUT    50000
 #define RESET_TRIES      5
@@ -115,11 +186,11 @@ MODULE_PARM_DESC(opl3_port, "OPL3 port # for Riptide driver.");
 #define MASK_AUDIO_CONTROL(p,x)   WRITE_PORT_ULONG(p->audio_control,READ_PORT_ULONG(p->audio_control)&x)
 #define READ_AUDIO_STATUS(p)      READ_PORT_ULONG(p->audio_status)
 
-#define SET_GRESET(p)     UMASK_AUDIO_CONTROL(p,0x0001)	
+#define SET_GRESET(p)     UMASK_AUDIO_CONTROL(p,0x0001)	/* global reset switch */
 #define UNSET_GRESET(p)   MASK_AUDIO_CONTROL(p,~0x0001)
-#define SET_AIE(p)        UMASK_AUDIO_CONTROL(p,0x0004)	
+#define SET_AIE(p)        UMASK_AUDIO_CONTROL(p,0x0004)	/* interrupt enable */
 #define UNSET_AIE(p)      MASK_AUDIO_CONTROL(p,~0x0004)
-#define SET_AIACK(p)      UMASK_AUDIO_CONTROL(p,0x0008)	
+#define SET_AIACK(p)      UMASK_AUDIO_CONTROL(p,0x0008)	/* interrupt acknowledge */
 #define UNSET_AIACKT(p)   MASKAUDIO_CONTROL(p,~0x0008)
 #define SET_ECMDAE(p)     UMASK_AUDIO_CONTROL(p,0x0010)
 #define UNSET_ECMDAE(p)   MASK_AUDIO_CONTROL(p,~0x0010)
@@ -133,30 +204,30 @@ MODULE_PARM_DESC(opl3_port, "OPL3 port # for Riptide driver.");
 #define UNSET_ESBIRQON(p) MASK_AUDIO_CONTROL(p,~0x0100)
 #define SET_EMPUIRQ(p)    UMASK_AUDIO_CONTROL(p,0x0200)
 #define UNSET_EMPUIRQ(p)  MASK_AUDIO_CONTROL(p,~0x0200)
-#define IS_CMDE(a)        (READ_PORT_ULONG(a->stat)&0x1)	
-#define IS_DATF(a)        (READ_PORT_ULONG(a->stat)&0x2)	
+#define IS_CMDE(a)        (READ_PORT_ULONG(a->stat)&0x1)	/* cmd empty */
+#define IS_DATF(a)        (READ_PORT_ULONG(a->stat)&0x2)	/* data filled */
 #define IS_READY(p)       (READ_AUDIO_STATUS(p)&0x0001)
 #define IS_DLREADY(p)     (READ_AUDIO_STATUS(p)&0x0002)
 #define IS_DLERR(p)       (READ_AUDIO_STATUS(p)&0x0004)
-#define IS_GERR(p)        (READ_AUDIO_STATUS(p)&0x0008)	
+#define IS_GERR(p)        (READ_AUDIO_STATUS(p)&0x0008)	/* error ! */
 #define IS_CMDAEIRQ(p)    (READ_AUDIO_STATUS(p)&0x0010)
 #define IS_CMDBEIRQ(p)    (READ_AUDIO_STATUS(p)&0x0020)
 #define IS_DATAFIRQ(p)    (READ_AUDIO_STATUS(p)&0x0040)
 #define IS_DATBFIRQ(p)    (READ_AUDIO_STATUS(p)&0x0080)
-#define IS_EOBIRQ(p)      (READ_AUDIO_STATUS(p)&0x0100)	
+#define IS_EOBIRQ(p)      (READ_AUDIO_STATUS(p)&0x0100)	/* interrupt status */
 #define IS_EOSIRQ(p)      (READ_AUDIO_STATUS(p)&0x0200)
 #define IS_EOCIRQ(p)      (READ_AUDIO_STATUS(p)&0x0400)
 #define IS_UNSLIRQ(p)     (READ_AUDIO_STATUS(p)&0x0800)
 #define IS_SBIRQ(p)       (READ_AUDIO_STATUS(p)&0x1000)
 #define IS_MPUIRQ(p)      (READ_AUDIO_STATUS(p)&0x2000)
 
-#define RESP 0x00000001		
+#define RESP 0x00000001		/* command flags */
 #define PARM 0x00000002
 #define CMDA 0x00000004
 #define CMDB 0x00000008
 #define NILL 0x00000000
 
-#define LONG0(a)   ((u32)a)	
+#define LONG0(a)   ((u32)a)	/* shifts and masks */
 #define BYTE0(a)   (LONG0(a)&0xff)
 #define BYTE1(a)   (BYTE0(a)<<8)
 #define BYTE2(a)   (BYTE0(a)<<16)
@@ -169,76 +240,76 @@ MODULE_PARM_DESC(opl3_port, "OPL3 port # for Riptide driver.");
 
 #define RET(a)     ((union cmdret *)(a))
 
-#define SEND_GETV(p,b)             sendcmd(p,RESP,GETV,0,RET(b))	
+#define SEND_GETV(p,b)             sendcmd(p,RESP,GETV,0,RET(b))	/* get version */
 #define SEND_GETC(p,b,c)           sendcmd(p,PARM|RESP,GETC,c,RET(b))
 #define SEND_GUNS(p,b)             sendcmd(p,RESP,GUNS,0,RET(b))
 #define SEND_SCID(p,b)             sendcmd(p,RESP,SCID,0,RET(b))
-#define SEND_RMEM(p,b,c,d)         sendcmd(p,PARM|RESP,RMEM|BYTE1(b),LONG0(c),RET(d))	
-#define SEND_SMEM(p,b,c)           sendcmd(p,PARM,SMEM|BYTE1(b),LONG0(c),RET(0))	
-#define SEND_WMEM(p,b,c)           sendcmd(p,PARM,WMEM|BYTE1(b),LONG0(c),RET(0))	
-#define SEND_SDTM(p,b,c)           sendcmd(p,PARM|RESP,SDTM|TRINIB1(b),0,RET(c))	
-#define SEND_GOTO(p,b)             sendcmd(p,PARM,GOTO,LONG0(b),RET(0))	
+#define SEND_RMEM(p,b,c,d)         sendcmd(p,PARM|RESP,RMEM|BYTE1(b),LONG0(c),RET(d))	/* memory access for firmware write */
+#define SEND_SMEM(p,b,c)           sendcmd(p,PARM,SMEM|BYTE1(b),LONG0(c),RET(0))	/* memory access for firmware write */
+#define SEND_WMEM(p,b,c)           sendcmd(p,PARM,WMEM|BYTE1(b),LONG0(c),RET(0))	/* memory access for firmware write */
+#define SEND_SDTM(p,b,c)           sendcmd(p,PARM|RESP,SDTM|TRINIB1(b),0,RET(c))	/* memory access for firmware write */
+#define SEND_GOTO(p,b)             sendcmd(p,PARM,GOTO,LONG0(b),RET(0))	/* memory access for firmware write */
 #define SEND_SETDPLL(p)	           sendcmd(p,0,ARM_SETDPLL,0,RET(0))
-#define SEND_SSTR(p,b,c)           sendcmd(p,PARM,SSTR|BYTE3(b),LONG0(c),RET(0))	
-#define SEND_PSTR(p,b)             sendcmd(p,PARM,PSTR,BYTE3(b),RET(0))	
-#define SEND_KSTR(p,b)             sendcmd(p,PARM,KSTR,BYTE3(b),RET(0))	
-#define SEND_KDMA(p)               sendcmd(p,0,KDMA,0,RET(0))	
-#define SEND_GPOS(p,b,c,d)         sendcmd(p,PARM|RESP,GPOS,BYTE3(c)|BYTE2(b),RET(d))	
-#define SEND_SETF(p,b,c,d,e,f,g)   sendcmd(p,PARM,SETF|WORD1(b)|BYTE3(c),d|BYTE1(e)|BYTE2(f)|BYTE3(g),RET(0))	
+#define SEND_SSTR(p,b,c)           sendcmd(p,PARM,SSTR|BYTE3(b),LONG0(c),RET(0))	/* start stream */
+#define SEND_PSTR(p,b)             sendcmd(p,PARM,PSTR,BYTE3(b),RET(0))	/* pause stream */
+#define SEND_KSTR(p,b)             sendcmd(p,PARM,KSTR,BYTE3(b),RET(0))	/* stop stream */
+#define SEND_KDMA(p)               sendcmd(p,0,KDMA,0,RET(0))	/* stop all dma */
+#define SEND_GPOS(p,b,c,d)         sendcmd(p,PARM|RESP,GPOS,BYTE3(c)|BYTE2(b),RET(d))	/* get position in dma */
+#define SEND_SETF(p,b,c,d,e,f,g)   sendcmd(p,PARM,SETF|WORD1(b)|BYTE3(c),d|BYTE1(e)|BYTE2(f)|BYTE3(g),RET(0))	/* set sample format at mixer */
 #define SEND_GSTS(p,b,c,d)         sendcmd(p,PARM|RESP,GSTS,BYTE3(c)|BYTE2(b),RET(d))
 #define SEND_NGPOS(p,b,c,d)        sendcmd(p,PARM|RESP,NGPOS,BYTE3(c)|BYTE2(b),RET(d))
-#define SEND_PSEL(p,b,c)           sendcmd(p,PARM,PSEL,BYTE2(b)|BYTE3(c),RET(0))	
-#define SEND_PCLR(p,b,c)           sendcmd(p,PARM,PCLR,BYTE2(b)|BYTE3(c),RET(0))	
+#define SEND_PSEL(p,b,c)           sendcmd(p,PARM,PSEL,BYTE2(b)|BYTE3(c),RET(0))	/* activate lbus path */
+#define SEND_PCLR(p,b,c)           sendcmd(p,PARM,PCLR,BYTE2(b)|BYTE3(c),RET(0))	/* deactivate lbus path */
 #define SEND_PLST(p,b)             sendcmd(p,PARM,PLST,BYTE3(b),RET(0))
 #define SEND_RSSV(p,b,c,d)         sendcmd(p,PARM|RESP,RSSV,BYTE2(b)|BYTE3(c),RET(d))
-#define SEND_LSEL(p,b,c,d,e,f,g,h) sendcmd(p,PARM,LSEL|BYTE1(b)|BYTE2(c)|BYTE3(d),BYTE0(e)|BYTE1(f)|BYTE2(g)|BYTE3(h),RET(0))	
-#define SEND_SSRC(p,b,c,d,e)       sendcmd(p,PARM,SSRC|BYTE1(b)|WORD2(c),WORD0(d)|WORD2(e),RET(0))	
+#define SEND_LSEL(p,b,c,d,e,f,g,h) sendcmd(p,PARM,LSEL|BYTE1(b)|BYTE2(c)|BYTE3(d),BYTE0(e)|BYTE1(f)|BYTE2(g)|BYTE3(h),RET(0))	/* select paths for internal connections */
+#define SEND_SSRC(p,b,c,d,e)       sendcmd(p,PARM,SSRC|BYTE1(b)|WORD2(c),WORD0(d)|WORD2(e),RET(0))	/* configure source */
 #define SEND_SLST(p,b)             sendcmd(p,PARM,SLST,BYTE3(b),RET(0))
-#define SEND_RSRC(p,b,c)           sendcmd(p,RESP,RSRC|BYTE1(b),0,RET(c))	
+#define SEND_RSRC(p,b,c)           sendcmd(p,RESP,RSRC|BYTE1(b),0,RET(c))	/* read source config */
 #define SEND_SSRB(p,b,c)           sendcmd(p,PARM,SSRB|BYTE1(b),WORD2(c),RET(0))
-#define SEND_SDGV(p,b,c,d,e)       sendcmd(p,PARM,SDGV|BYTE2(b)|BYTE3(c),WORD0(d)|WORD2(e),RET(0))	
-#define SEND_RDGV(p,b,c,d)         sendcmd(p,PARM|RESP,RDGV|BYTE2(b)|BYTE3(c),0,RET(d))	
+#define SEND_SDGV(p,b,c,d,e)       sendcmd(p,PARM,SDGV|BYTE2(b)|BYTE3(c),WORD0(d)|WORD2(e),RET(0))	/* set digital mixer */
+#define SEND_RDGV(p,b,c,d)         sendcmd(p,PARM|RESP,RDGV|BYTE2(b)|BYTE3(c),0,RET(d))	/* read digital mixer */
 #define SEND_DLST(p,b)             sendcmd(p,PARM,DLST,BYTE3(b),RET(0))
-#define SEND_SACR(p,b,c)           sendcmd(p,PARM,SACR,WORD0(b)|WORD2(c),RET(0))	
-#define SEND_RACR(p,b,c)           sendcmd(p,PARM|RESP,RACR,WORD2(b),RET(c))	
+#define SEND_SACR(p,b,c)           sendcmd(p,PARM,SACR,WORD0(b)|WORD2(c),RET(0))	/* set AC97 register */
+#define SEND_RACR(p,b,c)           sendcmd(p,PARM|RESP,RACR,WORD2(b),RET(c))	/* get AC97 register */
 #define SEND_ALST(p,b)             sendcmd(p,PARM,ALST,BYTE3(b),RET(0))
 #define SEND_TXAC(p,b,c,d,e,f)     sendcmd(p,PARM,TXAC|BYTE1(b)|WORD2(c),WORD0(d)|BYTE2(e)|BYTE3(f),RET(0))
 #define SEND_RXAC(p,b,c,d)         sendcmd(p,PARM|RESP,RXAC,BYTE2(b)|BYTE3(c),RET(d))
 #define SEND_SI2S(p,b)             sendcmd(p,PARM,SI2S,WORD2(b),RET(0))
 
-#define EOB_STATUS         0x80000000	
-#define EOS_STATUS         0x40000000	
-#define EOC_STATUS         0x20000000	
+#define EOB_STATUS         0x80000000	/* status flags : block boundary */
+#define EOS_STATUS         0x40000000	/*              : stoppped */
+#define EOC_STATUS         0x20000000	/*              : stream end */
 #define ERR_STATUS         0x10000000
 #define EMPTY_STATUS       0x08000000
 
-#define IEOB_ENABLE        0x1	
+#define IEOB_ENABLE        0x1	/* enable interrupts for status notification above */
 #define IEOS_ENABLE        0x2
 #define IEOC_ENABLE        0x4
 #define RDONCE             0x8
 #define DESC_MAX_MASK      0xff
 
-#define ST_PLAY  0x1		
+#define ST_PLAY  0x1		/* stream states */
 #define ST_STOP  0x2
 #define ST_PAUSE 0x4
 
-#define I2S_INTDEC     3	
+#define I2S_INTDEC     3	/* config for I2S link */
 #define I2S_MERGER     0
 #define I2S_SPLITTER   0
 #define I2S_MIXER      7
 #define I2S_RATE       44100
 
-#define MODEM_INTDEC   4	
+#define MODEM_INTDEC   4	/* config for modem link */
 #define MODEM_MERGER   3
 #define MODEM_SPLITTER 0
 #define MODEM_MIXER    11
 
-#define FM_INTDEC      3	
+#define FM_INTDEC      3	/* config for FM/OPL3 link */
 #define FM_MERGER      0
 #define FM_SPLITTER    0
 #define FM_MIXER       9
 
-#define SPLIT_PATH  0x80	
+#define SPLIT_PATH  0x80	/* path splitting flag */
 
 enum FIRMWARE {
 	DATA_REC = 0, EXT_END_OF_FILE, EXT_SEG_ADDR_REC, EXT_GOTO_CMD_REC,
@@ -310,23 +381,23 @@ struct lbuspath {
 };
 
 struct cmdport {
-	u32 data1;		
-	u32 data2;		
-	u32 stat;		
+	u32 data1;		/* cmd,param */
+	u32 data2;		/* param */
+	u32 stat;		/* status */
 	u32 pad[5];
 };
 
 struct riptideport {
-	u32 audio_control;	
+	u32 audio_control;	/* status registers */
 	u32 audio_status;
 	u32 pad[2];
-	struct cmdport port[2];	
+	struct cmdport port[2];	/* command ports */
 };
 
 struct cmdif {
 	struct riptideport *hwport;
 	spinlock_t lock;
-	unsigned int cmdcnt;	
+	unsigned int cmdcnt;	/* cmd statistics */
 	unsigned int cmdtime;
 	unsigned int cmdtimemax;
 	unsigned int cmdtimemin;
@@ -398,14 +469,14 @@ struct snd_riptide {
 #endif
 };
 
-struct sgd {			
+struct sgd {			/* scatter gather desriptor */
 	u32 dwNextLink;
 	u32 dwSegPtrPhys;
 	u32 dwSegLen;
 	u32 dwStat_Ctl;
 };
 
-struct pcmhw {			
+struct pcmhw {			/* pcm descriptor */
 	struct lbuspath paths;
 	unsigned char *lbuspath;
 	unsigned char source;
@@ -434,6 +505,8 @@ static int getsourcesink(struct cmdif *cif, unsigned char source,
 static int snd_riptide_initialize(struct snd_riptide *chip);
 static int riptide_reset(struct cmdif *cif, struct snd_riptide *chip);
 
+/*
+ */
 
 static DEFINE_PCI_DEVICE_TABLE(snd_riptide_ids) = {
 	{ PCI_DEVICE(0x127a, 0x4310) },
@@ -455,6 +528,8 @@ static DEFINE_PCI_DEVICE_TABLE(snd_riptide_joystick_ids) = {
 
 MODULE_DEVICE_TABLE(pci, snd_riptide_ids);
 
+/*
+ */
 
 static unsigned char lbusin2out[E2SINK_MAX + 1][2] = {
 	{NO_OUT, LS_NONE1}, {NO_OUT, LS_NONE2}, {NO_OUT, LS_NONE1}, {NO_OUT,
@@ -801,21 +876,21 @@ static int sendcmd(struct cmdif *cif, u32 flags, u32 cmd, u32 parm,
 	err = 0;
 	for (j = 0, time = 0; time < CMDIF_TIMEOUT; j++, time += 2) {
 		cmdport = &(hwport->port[j % 2]);
-		if (IS_DATF(cmdport)) {	
+		if (IS_DATF(cmdport)) {	/* free pending data */
 			READ_PORT_ULONG(cmdport->data1);
 			READ_PORT_ULONG(cmdport->data2);
 		}
 		if (IS_CMDE(cmdport)) {
-			if (flags & PARM)	
+			if (flags & PARM)	/* put data */
 				WRITE_PORT_ULONG(cmdport->data2, parm);
-			WRITE_PORT_ULONG(cmdport->data1, cmd);	
+			WRITE_PORT_ULONG(cmdport->data1, cmd);	/* write cmd */
 			if ((flags & RESP) && ret) {
 				while (!IS_DATF(cmdport) &&
 				       time < CMDIF_TIMEOUT) {
 					udelay(10);
 					time++;
 				}
-				if (time < CMDIF_TIMEOUT) {	
+				if (time < CMDIF_TIMEOUT) {	/* read response */
 					ret->retlongs[0] =
 					    READ_PORT_ULONG(cmdport->data1);
 					ret->retlongs[1] =
@@ -835,7 +910,7 @@ static int sendcmd(struct cmdif *cif, u32 flags, u32 cmd, u32 parm,
 	}
 	spin_unlock_irqrestore(&cif->lock, irqflags);
 
-	cif->cmdcnt++;		
+	cif->cmdcnt++;		/* update command statistics */
 	cif->cmdtime += time;
 	if (time > cif->cmdtimemax)
 		cif->cmdtimemax = time;
@@ -1155,7 +1230,7 @@ static int try_to_load_firmware(struct cmdif *cif, struct snd_riptide *chip)
 
 	for (i = 0; i < FIRMWARE_VERSIONS; i++) {
 		if (!memcmp(&firmware_versions[i], &firmware, sizeof(firmware)))
-			return 1; 
+			return 1; /* OK */
 
 	}
 
@@ -1178,7 +1253,7 @@ static int try_to_load_firmware(struct cmdif *cif, struct snd_riptide *chip)
 
 	chip->firmware = firmware;
 
-	return 1; 
+	return 1; /* OK */
 }
 
 static int riptide_reset(struct cmdif *cif, struct snd_riptide *chip)
@@ -2129,7 +2204,7 @@ static int __init alsa_card_riptide_init(void)
 		return err;
 #if defined(SUPPORT_JOYSTICK)
 	err = pci_register_driver(&joystick_driver);
-	
+	/* On failure unregister formerly registered audio driver */
 	if (err < 0)
 		pci_unregister_driver(&driver);
 #endif

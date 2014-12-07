@@ -11,11 +11,11 @@ struct dev_archdata {
 	void	*acpi_handle;
 #endif
 #ifdef CONFIG_INTEL_IOMMU
-	void *iommu; 
+	void *iommu; /* hook for IOMMU specific extension */
 #endif
 };
 
 struct pdev_archdata {
 };
 
-#endif 
+#endif /* _ASM_IA64_DEVICE_H */

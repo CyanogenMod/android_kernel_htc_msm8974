@@ -74,9 +74,9 @@ static unsigned long iommu_range_alloc(struct device *dev,
 
 	align_mask = 0xffffffffffffffffl >> (64 - align_order);
 
-	
+	/* This allocator was derived from x86_64's bit string search */
 
-	
+	/* Sanity check */
 	if (unlikely(npages == 0)) {
 		if (printk_ratelimit())
 			WARN_ON(1);
@@ -88,12 +88,16 @@ static unsigned long iommu_range_alloc(struct device *dev,
 	else
 		start = largealloc ? tbl->it_largehint : tbl->it_hint;
 
-	
+	/* Use only half of the table for small allocs (15 pages or less) */
 	limit = largealloc ? tbl->it_size : tbl->it_halfpoint;
 
 	if (largealloc && start < tbl->it_halfpoint)
 		start = tbl->it_halfpoint;
 
+	/* The case below can happen if we have a small segment appended
+	 * to a large, or when the previous alloc was at the very end of
+	 * the available space. If so, go back to the initial start.
+	 */
 	if (start >= limit)
 		start = largealloc ? tbl->it_largehint : tbl->it_hint;
 
@@ -101,6 +105,10 @@ static unsigned long iommu_range_alloc(struct device *dev,
 
 	if (limit + tbl->it_offset > mask) {
 		limit = mask - tbl->it_offset + 1;
+		/* If we're constrained on address range, first try
+		 * at the masked hint to avoid O(n) search complexity,
+		 * but on second pass, start at 0.
+		 */
 		if ((start & mask) >= limit || pass > 0)
 			start = 0;
 		else
@@ -112,36 +120,39 @@ static unsigned long iommu_range_alloc(struct device *dev,
 				      1 << IOMMU_PAGE_SHIFT);
 	else
 		boundary_size = ALIGN(1UL << 32, 1 << IOMMU_PAGE_SHIFT);
-	
+	/* 4GB boundary for iseries_hv_alloc and iseries_hv_map */
 
 	n = iommu_area_alloc(tbl->it_map, limit, start, npages,
 			     tbl->it_offset, boundary_size >> IOMMU_PAGE_SHIFT,
 			     align_mask);
 	if (n == -1) {
 		if (likely(pass < 2)) {
+			/* First failure, just rescan the half of the table.
+			 * Second failure, rescan the other half of the table.
+			 */
 			start = (largealloc ^ pass) ? tbl->it_halfpoint : 0;
 			limit = pass ? tbl->it_size : limit;
 			pass++;
 			goto again;
 		} else {
-			
+			/* Third failure, give up */
 			return DMA_ERROR_CODE;
 		}
 	}
 
 	end = n + npages;
 
-	
+	/* Bump the hint to a new block for small allocs. */
 	if (largealloc) {
-		
+		/* Don't bump to new block to avoid fragmentation */
 		tbl->it_largehint = end;
 	} else {
-		
+		/* Overflow will be taken care of at the next allocation */
 		tbl->it_hint = (end + tbl->it_blocksize - 1) &
 		                ~(tbl->it_blocksize - 1);
 	}
 
-	
+	/* Update handle for SG allocations */
 	if (handle)
 		*handle = end;
 
@@ -167,14 +178,19 @@ static dma_addr_t iommu_alloc(struct device *dev, struct iommu_table *tbl,
 		return DMA_ERROR_CODE;
 	}
 
-	entry += tbl->it_offset;	
-	ret = entry << IOMMU_PAGE_SHIFT;	
+	entry += tbl->it_offset;	/* Offset into real TCE table */
+	ret = entry << IOMMU_PAGE_SHIFT;	/* Set the return dma address */
 
-	
+	/* Put the TCEs in the HW table */
 	build_fail = ppc_md.tce_build(tbl, entry, npages,
 	                              (unsigned long)page & IOMMU_PAGE_MASK,
 	                              direction, attrs);
 
+	/* ppc_md.tce_build() only returns non-zero for transient errors.
+	 * Clean up the table bitmap in this case and return
+	 * DMA_ERROR_CODE. For all other errors the functionality is
+	 * not altered.
+	 */
 	if (unlikely(build_fail)) {
 		__iommu_free(tbl, ret, npages);
 
@@ -182,13 +198,13 @@ static dma_addr_t iommu_alloc(struct device *dev, struct iommu_table *tbl,
 		return DMA_ERROR_CODE;
 	}
 
-	
+	/* Flush/invalidate TLB caches if necessary */
 	if (ppc_md.tce_flush)
 		ppc_md.tce_flush(tbl);
 
 	spin_unlock_irqrestore(&(tbl->it_lock), flags);
 
-	
+	/* Make sure updates are seen by hardware */
 	mb();
 
 	return ret;
@@ -231,6 +247,10 @@ static void iommu_free(struct iommu_table *tbl, dma_addr_t dma_addr,
 
 	__iommu_free(tbl, dma_addr, npages);
 
+	/* Make sure TLB cache is flushed if the HW needs it. We do
+	 * not do an mb() here on purpose, it is not needed on any of
+	 * the current platforms.
+	 */
 	if (ppc_md.tce_flush)
 		ppc_md.tce_flush(tbl);
 
@@ -260,7 +280,7 @@ int iommu_map_sg(struct device *dev, struct iommu_table *tbl,
 	incount = nelems;
 	handle = 0;
 
-	
+	/* Init first segment length for backout at failure */
 	outs->dma_length = 0;
 
 	DBG("sg mapping %d elements:\n", nelems);
@@ -272,12 +292,12 @@ int iommu_map_sg(struct device *dev, struct iommu_table *tbl,
 		unsigned long vaddr, npages, entry, slen;
 
 		slen = s->length;
-		
+		/* Sanity check */
 		if (slen == 0) {
 			dma_next = 0;
 			continue;
 		}
-		
+		/* Allocate iommu entries for that segment */
 		vaddr = (unsigned long) sg_virt(s);
 		npages = iommu_num_pages(vaddr, slen, IOMMU_PAGE_SIZE);
 		align = 0;
@@ -289,7 +309,7 @@ int iommu_map_sg(struct device *dev, struct iommu_table *tbl,
 
 		DBG("  - vaddr: %lx, size: %lx\n", vaddr, slen);
 
-		
+		/* Handle failure */
 		if (unlikely(entry == DMA_ERROR_CODE)) {
 			if (printk_ratelimit())
 				dev_info(dev, "iommu_alloc failed, tbl %p "
@@ -298,7 +318,7 @@ int iommu_map_sg(struct device *dev, struct iommu_table *tbl,
 			goto failure;
 		}
 
-		
+		/* Convert entry to a dma_addr_t */
 		entry += tbl->it_offset;
 		dma_addr = entry << IOMMU_PAGE_SHIFT;
 		dma_addr |= (s->offset & ~IOMMU_PAGE_MASK);
@@ -306,19 +326,22 @@ int iommu_map_sg(struct device *dev, struct iommu_table *tbl,
 		DBG("  - %lu pages, entry: %lx, dma_addr: %lx\n",
 			    npages, entry, dma_addr);
 
-		
+		/* Insert into HW table */
 		build_fail = ppc_md.tce_build(tbl, entry, npages,
 		                              vaddr & IOMMU_PAGE_MASK,
 		                              direction, attrs);
 		if(unlikely(build_fail))
 			goto failure;
 
-		
+		/* If we are in an open segment, try merging */
 		if (segstart != s) {
 			DBG("  - trying merge...\n");
+			/* We cannot merge if:
+			 * - allocated dma_addr isn't contiguous to previous allocation
+			 */
 			if (novmerge || (dma_addr != dma_next) ||
 			    (outs->dma_length + s->length > max_seg_size)) {
-				
+				/* Can't merge: create a new segment */
 				segstart = s;
 				outcount++;
 				outs = sg_next(outs);
@@ -330,19 +353,19 @@ int iommu_map_sg(struct device *dev, struct iommu_table *tbl,
 		}
 
 		if (segstart == s) {
-			
+			/* This is a new segment, fill entries */
 			DBG("  - filling new segment.\n");
 			outs->dma_address = dma_addr;
 			outs->dma_length = slen;
 		}
 
-		
+		/* Calculate next page pointer for contiguous check */
 		dma_next = dma_addr + slen;
 
 		DBG("  - dma next is: %lx\n", dma_next);
 	}
 
-	
+	/* Flush/invalidate TLB caches if necessary */
 	if (ppc_md.tce_flush)
 		ppc_md.tce_flush(tbl);
 
@@ -350,13 +373,16 @@ int iommu_map_sg(struct device *dev, struct iommu_table *tbl,
 
 	DBG("mapped %d elements:\n", outcount);
 
+	/* For the sake of iommu_unmap_sg, we clear out the length in the
+	 * next entry of the sglist if we didn't fill the list completely
+	 */
 	if (outcount < incount) {
 		outs = sg_next(outs);
 		outs->dma_address = DMA_ERROR_CODE;
 		outs->dma_length = 0;
 	}
 
-	
+	/* Make sure updates are seen by hardware */
 	mb();
 
 	return outcount;
@@ -408,6 +434,10 @@ void iommu_unmap_sg(struct iommu_table *tbl, struct scatterlist *sglist,
 		sg = sg_next(sg);
 	}
 
+	/* Flush/invalidate TLBs if necessary. As for iommu_free(), we
+	 * do not do an mb() here, the affected platforms do not need it
+	 * when freeing.
+	 */
 	if (ppc_md.tce_flush)
 		ppc_md.tce_flush(tbl);
 
@@ -416,8 +446,13 @@ void iommu_unmap_sg(struct iommu_table *tbl, struct scatterlist *sglist,
 
 static void iommu_table_clear(struct iommu_table *tbl)
 {
+	/*
+	 * In case of firmware assisted dump system goes through clean
+	 * reboot process at the time of system crash. Hence it's safe to
+	 * clear the TCE entries if firmware assisted dump is active.
+	 */
 	if (!is_kdump_kernel() || is_fadump_active()) {
-		
+		/* Clear the table in case firmware left allocations in it */
 		ppc_md.tce_free(tbl, tbl->it_offset, tbl->it_size);
 		return;
 	}
@@ -426,9 +461,12 @@ static void iommu_table_clear(struct iommu_table *tbl)
 	if (ppc_md.tce_get) {
 		unsigned long index, tceval, tcecount = 0;
 
-		
+		/* Reserve the existing mappings left by the first kernel. */
 		for (index = 0; index < tbl->it_size; index++) {
 			tceval = ppc_md.tce_get(tbl, index + tbl->it_offset);
+			/*
+			 * Freed TCE entry contains 0x7fffffffffffffff on JS20
+			 */
 			if (tceval && (tceval != 0x7fffffffffffffffUL)) {
 				__set_bit(index, tbl->it_map);
 				tcecount++;
@@ -447,16 +485,20 @@ static void iommu_table_clear(struct iommu_table *tbl)
 #endif
 }
 
+/*
+ * Build a iommu_table structure.  This contains a bit map which
+ * is used to manage allocation of the tce space.
+ */
 struct iommu_table *iommu_init_table(struct iommu_table *tbl, int nid)
 {
 	unsigned long sz;
 	static int welcomed = 0;
 	struct page *page;
 
-	
+	/* Set aside 1/4 of the table for large allocations. */
 	tbl->it_halfpoint = tbl->it_size * 3 / 4;
 
-	
+	/* number of bytes needed for the bitmap */
 	sz = (tbl->it_size + 7) >> 3;
 
 	page = alloc_pages_node(nid, GFP_ATOMIC, get_order(sz));
@@ -465,6 +507,11 @@ struct iommu_table *iommu_init_table(struct iommu_table *tbl, int nid)
 	tbl->it_map = page_address(page);
 	memset(tbl->it_map, 0, sz);
 
+	/*
+	 * Reserve page 0 so it will not be used for any mappings.
+	 * This avoids buggy drivers that consider page 0 to be invalid
+	 * to crash the machine or even lose data.
+	 */
 	if (tbl->it_offset == 0)
 		set_bit(0, tbl->it_map);
 
@@ -494,8 +541,8 @@ void iommu_free_table(struct iommu_table *tbl, const char *node_name)
 		return;
 	}
 
-	
-	
+	/* verify that table contains no entries */
+	/* it_size is in entries, and we're examining 64 at a time */
 	for (i = 0; i < (tbl->it_size/64); i++) {
 		if (tbl->it_map[i] != 0) {
 			printk(KERN_WARNING "%s: Unexpected TCEs for %s\n",
@@ -504,17 +551,22 @@ void iommu_free_table(struct iommu_table *tbl, const char *node_name)
 		}
 	}
 
-	
+	/* calculate bitmap size in bytes */
 	bitmap_sz = (tbl->it_size + 7) / 8;
 
-	
+	/* free bitmap */
 	order = get_order(bitmap_sz);
 	free_pages((unsigned long) tbl->it_map, order);
 
-	
+	/* free table */
 	kfree(tbl);
 }
 
+/* Creates TCEs for a user provided buffer.  The user buffer must be
+ * contiguous real kernel storage (not vmalloc).  The address passed here
+ * comprises a page address and offset into that page. The dma_addr_t
+ * returned will point to the same byte within the page as was passed in.
+ */
 dma_addr_t iommu_map_page(struct device *dev, struct iommu_table *tbl,
 			  struct page *page, unsigned long offset, size_t size,
 			  unsigned long mask, enum dma_data_direction direction,
@@ -567,6 +619,10 @@ void iommu_unmap_page(struct iommu_table *tbl, dma_addr_t dma_handle,
 	}
 }
 
+/* Allocates a contiguous real buffer and creates mappings over it.
+ * Returns the virtual address of the buffer and sets dma_handle
+ * to the dma address (mapping) of the first page.
+ */
 void *iommu_alloc_coherent(struct device *dev, struct iommu_table *tbl,
 			   size_t size,	dma_addr_t *dma_handle,
 			   unsigned long mask, gfp_t flag, int node)
@@ -580,6 +636,11 @@ void *iommu_alloc_coherent(struct device *dev, struct iommu_table *tbl,
 	size = PAGE_ALIGN(size);
 	order = get_order(size);
 
+ 	/*
+	 * Client asked for way too much space.  This is checked later
+	 * anyway.  It is easier to debug here for the drivers than in
+	 * the tce tables.
+	 */
 	if (order >= IOMAP_MAX_ORDER) {
 		dev_info(dev, "iommu_alloc_consistent size too large: 0x%lx\n",
 			 size);
@@ -589,14 +650,14 @@ void *iommu_alloc_coherent(struct device *dev, struct iommu_table *tbl,
 	if (!tbl)
 		return NULL;
 
-	
+	/* Alloc enough pages (and possibly more) */
 	page = alloc_pages_node(node, flag, order);
 	if (!page)
 		return NULL;
 	ret = page_address(page);
 	memset(ret, 0, size);
 
-	
+	/* Set up tces to cover the allocated range */
 	nio_pages = size >> IOMMU_PAGE_SHIFT;
 	io_order = get_iommu_order(size);
 	mapping = iommu_alloc(dev, tbl, ret, nio_pages, DMA_BIDIRECTIONAL,

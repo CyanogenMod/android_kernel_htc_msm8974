@@ -28,7 +28,7 @@
 #define CAPIMSG_CONTROLLER(m)	(m[8] & 0x7f)
 #define CAPIMSG_CONTROL(m)	CAPIMSG_U32(m, 8)
 #define CAPIMSG_NCCI(m)		CAPIMSG_CONTROL(m)
-#define CAPIMSG_DATALEN(m)	CAPIMSG_U16(m,16) 
+#define CAPIMSG_DATALEN(m)	CAPIMSG_U16(m,16) /* DATA_B3_REQ */
 
 static inline void capimsg_setu8(void *m, int off, __u8 val)
 {
@@ -57,6 +57,7 @@ static inline void capimsg_setu32(void *m, int off, __u32 val)
 #define	CAPIMSG_SETCONTROL(m, contr)	capimsg_setu32(m, 8, contr)
 #define	CAPIMSG_SETDATALEN(m, len)	capimsg_setu16(m, 16, len)
 
+/*----- basic-type definitions -----*/
 
 typedef __u8 *_cstruct;
 
@@ -65,15 +66,22 @@ typedef enum {
 	CAPI_DEFAULT
 } _cmstruct;
 
+/*
+   The _cmsg structure contains all possible CAPI 2.0 parameter.
+   All parameters are stored here first. The function CAPI_CMSG_2_MESSAGE
+   assembles the parameter and builds CAPI2.0 conform messages.
+   CAPI_MESSAGE_2_CMSG disassembles CAPI 2.0 messages and stores the
+   parameter in the _cmsg structure
+ */
 
 typedef struct {
-	
+	/* Header */
 	__u16 ApplId;
 	__u8 Command;
 	__u8 Subcommand;
 	__u16 Messagenumber;
 
-	
+	/* Parameter */
 	union {
 		__u32 adrController;
 		__u32 adrPLCI;
@@ -125,27 +133,47 @@ typedef struct {
 	__u16 Reject;
 	_cstruct Useruserdata;
 
-	
+	/* intern */
 	unsigned l, p;
 	unsigned char *par;
 	__u8 *m;
 
-	
+	/* buffer to construct message */
 	__u8 buf[180];
 
 } _cmsg;
 
+/*
+ * capi_cmsg2message() assembles the parameter from _cmsg to a CAPI 2.0
+ * conform message
+ */
 unsigned capi_cmsg2message(_cmsg * cmsg, __u8 * msg);
 
+/*
+ *  capi_message2cmsg disassembles a CAPI message an writes the parameter
+ *  into _cmsg for easy access
+ */
 unsigned capi_message2cmsg(_cmsg * cmsg, __u8 * msg);
 
+/*
+ * capi_cmsg_header() fills the _cmsg structure with default values, so only
+ * parameter with non default values must be changed before sending the
+ * message.
+ */
 unsigned capi_cmsg_header(_cmsg * cmsg, __u16 _ApplId,
 			  __u8 _Command, __u8 _Subcommand,
 			  __u16 _Messagenumber, __u32 _Controller);
 
+/*
+ * capi_info2str generated a readable string for Capi2.0 reasons.
+ */
 char *capi_info2str(__u16 reason);
 
+/*-----------------------------------------------------------------------*/
 
+/*
+ * Debugging / Tracing functions
+ */
 
 char *capi_cmd2str(__u8 cmd, __u8 subcmd);
 
@@ -166,12 +194,14 @@ void cdebug_exit(void);
 _cdebbuf *capi_cmsg2str(_cmsg *cmsg);
 _cdebbuf *capi_message2str(__u8 *msg);
 
+/*-----------------------------------------------------------------------*/
 
 static inline void capi_cmsg_answer(_cmsg * cmsg)
 {
 	cmsg->Subcommand |= 0x01;
 }
 
+/*-----------------------------------------------------------------------*/
 
 static inline void capi_fill_CONNECT_B3_REQ(_cmsg * cmsg, __u16 ApplId, __u16 Messagenumber,
 					    __u32 adr,
@@ -488,4 +518,4 @@ static inline void capi_fill_RESET_B3_RESP(_cmsg * cmsg, __u16 ApplId, __u16 Mes
 	capi_cmsg_header(cmsg, ApplId, 0x87, 0x83, Messagenumber, adr);
 }
 
-#endif				
+#endif				/* __CAPIUTIL_H__ */

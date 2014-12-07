@@ -48,6 +48,9 @@
 	IMX_IO_P2V_MODULE(x, MX31_CS5)) ?:				\
 	MX31_IO_ADDRESS(x))
 
+/*
+ *  KZM-ARM11-01 Board Control Registers on FPGA
+ */
 #define KZM_ARM11_CTL1		(MX31_CS4_BASE_ADDR + 0x1000)
 #define KZM_ARM11_CTL2		(MX31_CS4_BASE_ADDR + 0x1001)
 #define KZM_ARM11_RSW1		(MX31_CS4_BASE_ADDR + 0x1002)
@@ -57,9 +60,15 @@
 #define KZM_ARM11_LEDS		(MX31_CS4_BASE_ADDR + 0x1020)
 #define KZM_ARM11_DIPSW2	(MX31_CS4_BASE_ADDR + 0x1003)
 
+/*
+ * External UART for touch panel on FPGA
+ */
 #define KZM_ARM11_16550		(MX31_CS4_BASE_ADDR + 0x1050)
 
 #if defined(CONFIG_SERIAL_8250) || defined(CONFIG_SERIAL_8250_MODULE)
+/*
+ * KZM-ARM11-01 has an external UART on FPGA
+ */
 static struct plat_serial8250_port serial_platform_data[] = {
 	{
 		.membase	= KZM_ARM11_IO_ADDRESS(KZM_ARM11_16550),
@@ -102,10 +111,16 @@ static int __init kzm_init_ext_uart(void)
 {
 	u8 tmp;
 
+	/*
+	 * GPIO 1-1: external UART interrupt line
+	 */
 	mxc_iomux_mode(IOMUX_MODE(MX31_PIN_GPIO1_1, IOMUX_CONFIG_GPIO));
 	gpio_request(IOMUX_TO_GPIO(MX31_PIN_GPIO1_1), "ext-uart-int");
 	gpio_direction_input(IOMUX_TO_GPIO(MX31_PIN_GPIO1_1));
 
+	/*
+	 * Unmask UART interrupt
+	 */
 	tmp = __raw_readb(KZM_ARM11_IO_ADDRESS(KZM_ARM11_CTL1));
 	tmp |= 0x2;
 	__raw_writeb(tmp, KZM_ARM11_IO_ADDRESS(KZM_ARM11_CTL1));
@@ -119,6 +134,9 @@ static inline int kzm_init_ext_uart(void)
 }
 #endif
 
+/*
+ * SMSC LAN9118
+ */
 #if defined(CONFIG_SMSC911X) || defined(CONFIG_SMSC911X_MODULE)
 static struct smsc911x_platform_config kzm_smsc9118_config = {
 	.phy_interface	= PHY_INTERFACE_MODE_MII,
@@ -157,6 +175,9 @@ static struct regulator_consumer_supply dummy_supplies[] = {
 
 static int __init kzm_init_smsc9118(void)
 {
+	/*
+	 * GPIO 1-2: SMSC9118 interrupt line
+	 */
 	mxc_iomux_mode(IOMUX_MODE(MX31_PIN_GPIO1_2, IOMUX_CONFIG_GPIO));
 	gpio_request(IOMUX_TO_GPIO(MX31_PIN_GPIO1_2), "smsc9118-int");
 	gpio_direction_input(IOMUX_TO_GPIO(MX31_PIN_GPIO1_2));
@@ -207,6 +228,9 @@ static int kzm_pins[] __initdata = {
 	MX31_PIN_DTR_DTE1__DTR_DTE2,
 };
 
+/*
+ * Board specific initialization.
+ */
 static void __init kzm_board_init(void)
 {
 	imx31_soc_init();
@@ -220,6 +244,9 @@ static void __init kzm_board_init(void)
 	pr_info("Clock input source is 26MHz\n");
 }
 
+/*
+ * This structure defines static mappings for the kzm-arm11-01 board.
+ */
 static struct map_desc kzm_io_desc[] __initdata = {
 	{
 		.virtual	= MX31_CS4_BASE_ADDR_VIRT,
@@ -235,6 +262,9 @@ static struct map_desc kzm_io_desc[] __initdata = {
 	},
 };
 
+/*
+ * Set up static virtual mappings.
+ */
 static void __init kzm_map_io(void)
 {
 	mx31_map_io();

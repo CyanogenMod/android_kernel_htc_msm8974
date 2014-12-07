@@ -35,6 +35,7 @@
 #include <linux/mfd/core.h>
 #include <linux/mfd/ti_ssp.h>
 
+/* Register Offsets */
 #define REG_REV		0x00
 #define REG_IOSEL_1	0x04
 #define REG_IOSEL_2	0x08
@@ -43,6 +44,7 @@
 #define REG_INTR_EN	0x14
 #define REG_TEST_CTRL	0x18
 
+/* Per port registers */
 #define PORT_CFG_2	0x00
 #define PORT_ADDR	0x04
 #define PORT_DATA	0x08
@@ -73,6 +75,11 @@ struct ti_ssp {
 	int			irq;
 	wait_queue_head_t	wqh;
 
+	/*
+	 * Some of the iosel2 register bits always read-back as 0, we need to
+	 * remember these values so that we don't clobber previously set
+	 * values.
+	 */
 	u32			iosel2;
 };
 
@@ -86,6 +93,7 @@ static inline int dev_to_port(struct device *dev)
 	return to_platform_device(dev)->id;
 }
 
+/* Register Access Helpers, rmw() functions need to run locked */
 static inline u32 ssp_read(struct ti_ssp *ssp, int reg)
 {
 	return __raw_readl(ssp->regs + reg);
@@ -130,6 +138,7 @@ static inline void ssp_port_set_bits(struct ti_ssp *ssp, int port, int reg,
 	ssp_port_rmw(ssp, port, reg, 0, bits);
 }
 
+/* Called to setup port clock mode, caller must hold ssp->lock */
 static int __set_mode(struct ti_ssp *ssp, int port, int mode)
 {
 	mode &= SSP_PORT_CONFIG_MASK;
@@ -152,23 +161,25 @@ int ti_ssp_set_mode(struct device *dev, int mode)
 }
 EXPORT_SYMBOL(ti_ssp_set_mode);
 
+/* Called to setup iosel2, caller must hold ssp->lock */
 static void __set_iosel2(struct ti_ssp *ssp, u32 mask, u32 val)
 {
 	ssp->iosel2 = (ssp->iosel2 & ~mask) | val;
 	ssp_write(ssp, REG_IOSEL_2, ssp->iosel2);
 }
 
+/* Called to setup port iosel, caller must hold ssp->lock */
 static void __set_iosel(struct ti_ssp *ssp, int port, u32 iosel)
 {
 	unsigned val, shift = port ? 16 : 0;
 
-	
+	/* IOSEL1 gets the least significant 16 bits */
 	val = ssp_read(ssp, REG_IOSEL_1);
 	val &= 0xffff << (port ? 0 : 16);
 	val |= (iosel & 0xffff) << (port ? 16 : 0);
 	ssp_write(ssp, REG_IOSEL_1, val);
 
-	
+	/* IOSEL2 gets the most significant 16 bits */
 	val = (iosel >> 16) & 0x7;
 	__set_iosel2(ssp, 0x7 << shift, val << shift);
 }
@@ -197,16 +208,16 @@ int ti_ssp_load(struct device *dev, int offs, u32* prog, int len)
 
 	spin_lock(&ssp->lock);
 
-	
+	/* Enable SeqRAM access */
 	ssp_port_set_bits(ssp, port, PORT_CFG_2, SSP_SEQRAM_WR_EN);
 
-	
+	/* Copy code */
 	for (i = 0; i < len; i++) {
 		__raw_writel(prog[i], ssp->regs + offs + 4*i +
 			     ssp_port_seqram[port]);
 	}
 
-	
+	/* Disable SeqRAM access */
 	ssp_port_clr_bits(ssp, port, PORT_CFG_2, SSP_SEQRAM_WR_EN);
 
 	spin_unlock(&ssp->lock);
@@ -256,20 +267,20 @@ int ti_ssp_run(struct device *dev, u32 pc, u32 input, u32 *output)
 	if (pc & ~(0x3f))
 		return -EINVAL;
 
-	
+	/* Grab ssp->lock to serialize rmw on ssp registers */
 	spin_lock(&ssp->lock);
 
 	ssp_port_write(ssp, port, PORT_ADDR, input >> 16);
 	ssp_port_write(ssp, port, PORT_DATA, input & 0xffff);
 	ssp_port_rmw(ssp, port, PORT_CFG_1, 0x3f, pc);
 
-	
+	/* grab wait queue head lock to avoid race with the isr */
 	spin_lock_irq(&ssp->wqh.lock);
 
-	
+	/* kick off sequence execution in hardware */
 	ssp_port_set_bits(ssp, port, PORT_CFG_1, SSP_START);
 
-	
+	/* drop ssp lock; no register writes beyond this */
 	spin_unlock(&ssp->lock);
 
 	ret = wait_event_interruptible_locked_irq(ssp->wqh,
@@ -284,7 +295,7 @@ int ti_ssp_run(struct device *dev, u32 pc, u32 input, u32 *output)
 			  (ssp_port_read(ssp, port, PORT_DATA) &  0xffff);
 	}
 
-	ret = ssp_port_read(ssp, port, PORT_STATE) & 0x3f; 
+	ret = ssp_port_read(ssp, port, PORT_STATE) & 0x3f; /* stop address */
 
 	return ret;
 }
@@ -367,14 +378,14 @@ static int __devinit ti_ssp_probe(struct platform_device *pdev)
 	spin_lock_init(&ssp->lock);
 	init_waitqueue_head(&ssp->wqh);
 
-	
+	/* Power on and initialize SSP */
 	error = clk_enable(ssp->clk);
 	if (error) {
 		dev_err(dev, "cannot enable device clock\n");
 		goto error_enable;
 	}
 
-	
+	/* Reset registers to a sensible known state */
 	ssp_write(ssp, REG_IOSEL_1, 0);
 	ssp_write(ssp, REG_IOSEL_2, 0);
 	ssp_write(ssp, REG_INTR_EN, 0x3);

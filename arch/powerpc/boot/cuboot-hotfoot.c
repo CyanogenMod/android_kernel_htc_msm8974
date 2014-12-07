@@ -40,7 +40,7 @@ static void hotfoot_fixups(void)
 	dt_fixup_mac_address_by_alias("ethernet0", bd.bi_enetaddr);
 	dt_fixup_mac_address_by_alias("ethernet1", bd.bi_enet1addr);
 
-	
+	/* Is this a single eth/serial board? */
 	if ((bd.bi_enet1addr[0] == 0) && 
 	    (bd.bi_enet1addr[1] == 0) &&
 	    (bd.bi_enet1addr[2] == 0) &&
@@ -64,7 +64,7 @@ static void hotfoot_fixups(void)
 
 	ibm4xx_quiesce_eth((u32 *)0xef600800, (u32 *)0xef600900);
 
-	
+	/* Fix up flash size in fdt for 4M boards. */
 	if (bd.bi_flashsize < 0x800000) {
 		u32 regs[NUM_REGS];
 		void *devp = finddevice("/plb/ebc/nor_flash@0");
@@ -73,14 +73,14 @@ static void hotfoot_fixups(void)
 
 		printf("Fixing devtree for 4M Flash\n");
 		
-		
+		/* First fix up the base addresse */
 		getprop(devp, "reg", regs, sizeof(regs));
 		regs[0] = 0;
 		regs[1] = 0xffc00000;
 		regs[2] = 0x00400000;
 		setprop(devp, "reg", regs, sizeof(regs));
 		
-		
+		/* Then the offsets */
 		devp = finddevice("/plb/ebc/nor_flash@0/partition@0");
 		if (!devp)
 			fatal("Can't find FDT node for partition@0");
@@ -123,7 +123,7 @@ static void hotfoot_fixups(void)
 		regs[0] -= 0x400000;
 		setprop(devp, "reg", regs,  2*sizeof(u32));
 
-		
+		/* Delete the FeatFS node */
 		devp = finddevice("/plb/ebc/nor_flash@0/partition@5");
 		if (!devp)
 			fatal("Can't find FDT node for partition@5");

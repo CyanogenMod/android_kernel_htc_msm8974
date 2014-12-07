@@ -209,14 +209,14 @@ int vmw_init_mem_type(struct ttm_bo_device *bdev, uint32_t type,
 {
 	switch (type) {
 	case TTM_PL_SYSTEM:
-		
+		/* System memory */
 
 		man->flags = TTM_MEMTYPE_FLAG_MAPPABLE;
 		man->available_caching = TTM_PL_FLAG_CACHED;
 		man->default_caching = TTM_PL_FLAG_CACHED;
 		break;
 	case TTM_PL_VRAM:
-		
+		/* "On-card" video ram */
 		man->func = &ttm_bo_manager_func;
 		man->gpu_offset = 0;
 		man->flags = TTM_MEMTYPE_FLAG_FIXED | TTM_MEMTYPE_FLAG_MAPPABLE;
@@ -224,6 +224,11 @@ int vmw_init_mem_type(struct ttm_bo_device *bdev, uint32_t type,
 		man->default_caching = TTM_PL_FLAG_CACHED;
 		break;
 	case VMW_PL_GMR:
+		/*
+		 * "Guest Memory Regions" is an aperture like feature with
+		 *  one slot per bo. There is an upper limit of the number of
+		 *  slots as well as the bo size.
+		 */
 		man->func = &vmw_gmrid_manager_func;
 		man->gpu_offset = 0;
 		man->flags = TTM_MEMTYPE_FLAG_CMA | TTM_MEMTYPE_FLAG_MAPPABLE;
@@ -243,6 +248,9 @@ void vmw_evict_flags(struct ttm_buffer_object *bo,
 	*placement = vmw_sys_placement;
 }
 
+/**
+ * FIXME: Proper access checks on buffers.
+ */
 
 static int vmw_verify_access(struct ttm_buffer_object *bo, struct file *filp)
 {
@@ -285,6 +293,10 @@ static int vmw_ttm_fault_reserve_notify(struct ttm_buffer_object *bo)
 	return 0;
 }
 
+/**
+ * FIXME: We're using the old vmware polling method to sync.
+ * Do this with fences instead.
+ */
 
 static void *vmw_sync_obj_ref(void *sync_obj)
 {

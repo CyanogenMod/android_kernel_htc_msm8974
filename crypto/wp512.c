@@ -43,6 +43,12 @@ struct wp512_ctx {
 	u64 hash[WP512_DIGEST_SIZE/8];
 };
 
+/*
+ * Though Whirlpool is endianness-neutral, the encryption tables are listed
+ * in BIG-ENDIAN format, which is adopted throughout this implementation
+ * (but little-endian notation would be equally suitable if consistently
+ * employed).
+ */
 
 static const u64 C0[256] = {
 	0x18186018c07830d8ULL, 0x23238c2305af4626ULL, 0xc6c63fc67ef991b8ULL,
@@ -769,12 +775,15 @@ static const u64 rc[WHIRLPOOL_ROUNDS] = {
 	0xca2dbf07ad5a8333ULL,
 };
 
+/**
+ * The core Whirlpool transform.
+ */
 
 static void wp512_process_buffer(struct wp512_ctx *wctx) {
 	int i, r;
-	u64 K[8];        
-	u64 block[8];    
-	u64 state[8];    
+	u64 K[8];        /* the round key */
+	u64 block[8];    /* mu(buffer) */
+	u64 state[8];    /* the cipher state */
 	u64 L[8];
 	const __be64 *buffer = (const __be64 *)wctx->buffer;
 
@@ -963,6 +972,9 @@ static void wp512_process_buffer(struct wp512_ctx *wctx) {
 		state[6] = L[6];
 		state[7] = L[7];
 	}
+	/*
+	* apply the Miyaguchi-Preneel compression function:
+	*/
 	wctx->hash[0] ^= state[0] ^ block[0];
 	wctx->hash[1] ^= state[1] ^ block[1];
 	wctx->hash[2] ^= state[2] ^ block[2];
@@ -993,7 +1005,7 @@ static int wp512_update(struct shash_desc *desc, const u8 *source,
 {
 	struct wp512_ctx *wctx = shash_desc_ctx(desc);
 	int sourcePos    = 0;
-	unsigned int bits_len = len * 8; 
+	unsigned int bits_len = len * 8; // convert to number of bits
 	int sourceGap    = (8 - ((int)bits_len & 7)) & 7;
 	int bufferRem    = wctx->bufferBits & 7;
 	int i;

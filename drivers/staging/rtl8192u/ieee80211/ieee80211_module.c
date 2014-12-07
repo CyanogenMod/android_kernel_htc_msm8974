@@ -31,6 +31,7 @@
 *******************************************************************************/
 
 #include <linux/compiler.h>
+//#include <linux/config.h>
 #include <linux/errno.h>
 #include <linux/if_arp.h>
 #include <linux/in6.h>
@@ -121,15 +122,15 @@ struct net_device *alloc_ieee80211(int sizeof_priv)
 	ieee80211_networks_initialize(ieee);
 
 
-	
+	/* Default fragmentation threshold is maximum payload size */
 	ieee->fts = DEFAULT_FTS;
 	ieee->scan_age = DEFAULT_MAX_SCAN_AGE;
 	ieee->open_wep = 1;
 
-	
+	/* Default to enabling full open WEP with host based encrypt/decrypt */
 	ieee->host_encrypt = 1;
 	ieee->host_decrypt = 1;
-	ieee->ieee802_1x = 1; 
+	ieee->ieee802_1x = 1; /* Default to supporting 802.1x */
 
 	INIT_LIST_HEAD(&ieee->crypt_deinit_list);
 	init_timer(&ieee->crypt_deinit_timer);
@@ -140,7 +141,7 @@ struct net_device *alloc_ieee80211(int sizeof_priv)
 	spin_lock_init(&ieee->wpax_suitlist_lock);
 	spin_lock_init(&ieee->bw_spinlock);
 	spin_lock_init(&ieee->reorder_spinlock);
-	
+	//added by WB
 	atomic_set(&(ieee->atm_chnlop), 0);
 	atomic_set(&(ieee->atm_swbw), 0);
 
@@ -151,8 +152,8 @@ struct net_device *alloc_ieee80211(int sizeof_priv)
 	ieee->privacy_invoked = 0;
 	ieee->ieee802_1x = 1;
 	ieee->raw_tx = 0;
-	
-	ieee->hwsec_active = 0; 
+	//ieee->hwsec_support = 1; //defalt support hw security. //use module_param instead.
+	ieee->hwsec_active = 0; //disable hwsec, switch it on when necessary.
 
 	ieee80211_softmac_init(ieee);
 
@@ -163,7 +164,7 @@ struct net_device *alloc_ieee80211(int sizeof_priv)
 		return NULL;
 	}
 	HTUpdateDefaultSetting(ieee);
-	HTInitializeHTInfo(ieee); 
+	HTInitializeHTInfo(ieee); //may move to other place.
 	TSInitialize(ieee);
 
 	for (i = 0; i < IEEE_IBSS_MAC_HASH_SIZE; i++)
@@ -175,6 +176,7 @@ struct net_device *alloc_ieee80211(int sizeof_priv)
 	  ieee->last_packet_time[i] = 0;
 	}
 
+//These function were added to load crypte module autoly
 	ieee80211_tkip_null();
 	ieee80211_wep_null();
 	ieee80211_ccmp_null();
@@ -193,7 +195,8 @@ void free_ieee80211(struct net_device *dev)
 {
 	struct ieee80211_device *ieee = netdev_priv(dev);
 	int i;
-	
+	//struct list_head *p, *q;
+//	del_timer_sync(&ieee->SwBwTimer);
 	kfree(ieee->pHTInfo);
 	ieee->pHTInfo = NULL;
 	RemoveAllTS(ieee);
@@ -219,22 +222,24 @@ void free_ieee80211(struct net_device *dev)
 
 u32 ieee80211_debug_level = 0;
 static int debug = \
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-			    
-	
-	
-	
-			    
-			    IEEE80211_DL_ERR	  
+	//		    IEEE80211_DL_INFO	|
+	//		    IEEE80211_DL_WX	|
+	//		    IEEE80211_DL_SCAN	|
+	//		    IEEE80211_DL_STATE	|
+	//		    IEEE80211_DL_MGMT	|
+	//		    IEEE80211_DL_FRAG	|
+	//		    IEEE80211_DL_EAP	|
+	//		    IEEE80211_DL_DROP	|
+	//		    IEEE80211_DL_TX	|
+	//		    IEEE80211_DL_RX	|
+			    //IEEE80211_DL_QOS    |
+	//		    IEEE80211_DL_HT 	|
+	//		    IEEE80211_DL_TS	|
+//			    IEEE80211_DL_BA 	|
+	//		    IEEE80211_DL_REORDER|
+//			    IEEE80211_DL_TRACE  |
+			    //IEEE80211_DL_DATA	|
+			    IEEE80211_DL_ERR	  //awayls open this flags to show error out
 			    ;
 struct proc_dir_entry *ieee80211_proc = NULL;
 

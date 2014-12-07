@@ -23,6 +23,15 @@
 #ifndef _ASM_IA64_XEN_IRQ_H
 #define _ASM_IA64_XEN_IRQ_H
 
+/*
+ * The flat IRQ space is divided into two regions:
+ *  1. A one-to-one mapping of real physical IRQs. This space is only used
+ *     if we have physical device-access privilege. This region is at the
+ *     start of the IRQ space so that existing device drivers do not need
+ *     to be modified to translate physical IRQ numbers into our IRQ space.
+ *  3. A dynamic mapping of inter-domain and Xen-sourced virtual IRQs. These
+ *     are bound using the provided bind/unbind functions.
+ */
 
 #define XEN_PIRQ_BASE		0
 #define XEN_NR_PIRQS		256
@@ -32,4 +41,4 @@
 
 #define XEN_NR_IRQS		(XEN_NR_PIRQS + XEN_NR_DYNIRQS)
 
-#endif 
+#endif /* _ASM_IA64_XEN_IRQ_H */

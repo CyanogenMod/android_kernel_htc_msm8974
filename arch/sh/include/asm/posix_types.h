@@ -10,4 +10,4 @@
 # else
 #  include "posix_types_32.h"
 # endif
-#endif 
+#endif /* __KERNEL__ */

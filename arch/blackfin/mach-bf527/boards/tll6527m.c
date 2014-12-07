@@ -32,9 +32,18 @@
 	|| defined(CONFIG_TOUCHSCREEN_AD7879_MODULE)
 #include <linux/spi/ad7879.h>
 #define LCD_BACKLIGHT_GPIO 0x40
+/* TLL6527M uses TLL7UIQ35 / ADI LCD EZ Extender. AD7879 AUX GPIO is used for
+ * LCD Backlight Enable
+ */
 #endif
 
+/*
+ * Name the Board for the /proc/cpuinfo
+ */
 const char bfin_board_name[] = "TLL6527M";
+/*
+ *  Driver needs to know address, irq and flag pin.
+ */
 
 #if defined(CONFIG_USB_MUSB_HDRC) || defined(CONFIG_USB_MUSB_HDRC_MODULE)
 static struct resource musb_resources[] = {
@@ -43,12 +52,12 @@ static struct resource musb_resources[] = {
 		.end	= 0xffc03cff,
 		.flags	= IORESOURCE_MEM,
 	},
-	[1] = {	
+	[1] = {	/* general IRQ */
 		.start	= IRQ_USB_INT0,
 		.end	= IRQ_USB_INT0,
 		.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHLEVEL,
 	},
-	[2] = {	
+	[2] = {	/* DMA IRQ */
 		.start	= IRQ_USB_DMA,
 		.end	= IRQ_USB_DMA,
 		.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHLEVEL,
@@ -62,7 +71,10 @@ static struct musb_hdrc_config musb_config = {
 	.dma		= 1,
 	.num_eps	= 8,
 	.dma_channels	= 8,
-	
+	/*.gpio_vrsel	= GPIO_PG13,*/
+	/* Some custom boards need to be active low, just set it to "0"
+	 * if it is the case.
+	 */
 	.gpio_vrsel_active	= 1,
 };
 
@@ -171,6 +183,11 @@ static struct platform_device tll6527m_flash_device = {
 #endif
 
 #if defined(CONFIG_GPIO_DECODER) || defined(CONFIG_GPIO_DECODER_MODULE)
+/* An SN74LVC138A 3:8 decoder chip has been used to generate 7 augmented
+ * outputs used as SPI CS lines for all SPI SLAVE devices on TLL6527v1-0.
+ * EXP_GPIO_SPISEL_BASE is the base number for the expanded outputs being
+ * used as SPI CS lines, this should be > MAX_BLACKFIN_GPIOS
+ */
 #include <linux/gpio-decoder.h>
 #define EXP_GPIO_SPISEL_BASE 0x64
 static unsigned gpio_addr_inputs[] = {
@@ -182,6 +199,7 @@ static struct gpio_decoder_platform_data spi_decoded_cs = {
 	.input_addrs	= gpio_addr_inputs,
 	.nr_input_addrs = ARRAY_SIZE(gpio_addr_inputs),
 	.default_output	= 0,
+/*	.default_output = (1 << ARRAY_SIZE(gpio_addr_inputs)) - 1 */
 };
 
 static struct platform_device spi_decoded_gpio = {
@@ -218,14 +236,14 @@ static const struct adxl34x_platform_data adxl345_info = {
 	.data_range = ADXL_FULL_RES,
 
 	.ev_type = EV_ABS,
-	.ev_code_x = ABS_X,		
-	.ev_code_y = ABS_Y,		
-	.ev_code_z = ABS_Z,		
+	.ev_code_x = ABS_X,		/* EV_REL */
+	.ev_code_y = ABS_Y,		/* EV_REL */
+	.ev_code_z = ABS_Z,		/* EV_REL */
 
-	.ev_code_tap = {BTN_TOUCH, BTN_TOUCH, BTN_TOUCH}, 
+	.ev_code_tap = {BTN_TOUCH, BTN_TOUCH, BTN_TOUCH}, /* EV_KEY x,y,z */
 
-		
-	.ev_code_act_inactivity = KEY_A,	
+/*	.ev_code_ff = KEY_F,*/		/* EV_KEY */
+	.ev_code_act_inactivity = KEY_A,	/* EV_KEY */
 	.use_int2 = 1,
 	.power_mode = ADXL_AUTO_SLEEP | ADXL_LINK,
 	.fifo_mode = ADXL_FIFO_STREAM,
@@ -294,8 +312,9 @@ static struct flash_platform_data bfin_spi_flash_data = {
 	.type = "m25p16",
 };
 
+/* SPI flash chip (m25p64) */
 static struct bfin5xx_spi_chip spi_flash_chip_info = {
-	.enable_dma = 0,         
+	.enable_dma = 0,         /* use dma transfer with this chip*/
 };
 #endif
 
@@ -308,18 +327,18 @@ static struct bfin5xx_spi_chip  mmc_spi_chip_info = {
 #if defined(CONFIG_TOUCHSCREEN_AD7879) \
 	|| defined(CONFIG_TOUCHSCREEN_AD7879_MODULE)
 static const struct ad7879_platform_data bfin_ad7879_ts_info = {
-	.model			= 7879,	
-	.x_plate_ohms		= 620,	
+	.model			= 7879,	/* Model = AD7879 */
+	.x_plate_ohms		= 620,	/* 620 Ohm from the touch datasheet */
 	.pressure_max		= 10000,
 	.pressure_min		= 0,
 	.first_conversion_delay = 3,
-				
-	.acquisition_time	= 1,	
-	.median			= 2,	
+				/* wait 512us before do a first conversion */
+	.acquisition_time	= 1,	/* 4us acquisition time per sample */
+	.median			= 2,	/* do 8 measurements */
 	.averaging		= 1,
-				
-	.pen_down_acc_interval	= 255,	
-	.gpio_export		= 1,	
+				/* take the average of 4 middle samples */
+	.pen_down_acc_interval	= 255,	/* 9.4 ms */
+	.gpio_export		= 1,	/* configure AUX as GPIO output*/
 	.gpio_base		= LCD_BACKLIGHT_GPIO,
 };
 #endif
@@ -328,7 +347,7 @@ static const struct ad7879_platform_data bfin_ad7879_ts_info = {
 static struct platform_device bfin_i2s = {
 	.name = "bfin-i2s",
 	.id = CONFIG_SND_BF5XX_SPORT_NUM,
-	
+	/* TODO: add platform data here */
 };
 #endif
 
@@ -348,14 +367,14 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 #if defined(CONFIG_MTD_M25P80) \
 	|| defined(CONFIG_MTD_M25P80_MODULE)
 	{
-		
-		.modalias = "m25p80", 
+		/* the modalias must be the same as spi device driver name */
+		.modalias = "m25p80", /* Name of spi_driver for this device */
 		.max_speed_hz = 25000000,
-				
-		.bus_num = 0, 
+				/* max spi clock (SCK) speed in HZ */
+		.bus_num = 0, /* Framework bus number */
 		.chip_select = EXP_GPIO_SPISEL_BASE + 0x04 + MAX_CTRL_CS,
-		
-		
+		/* Can be connected to TLL6527M GPIO connector */
+		/* Either SPI_ADC or M25P80 FLASH can be installed at a time */
 		.platform_data = &bfin_spi_flash_data,
 		.controller_data = &spi_flash_chip_info,
 		.mode = SPI_MODE_3,
@@ -365,8 +384,12 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 #if defined(CONFIG_MMC_SPI) || defined(CONFIG_MMC_SPI_MODULE)
 	{
 		.modalias = "mmc_spi",
+/*
+ * TLL6527M V1.0 does not support SD Card at SPI Clock > 10 MHz due to
+ * SPI buffer limitations
+ */
 		.max_speed_hz = 10000000,
-					
+					/* max spi clock (SCK) speed in HZ */
 		.bus_num = 0,
 		.chip_select = EXP_GPIO_SPISEL_BASE + 0x05 + MAX_CTRL_CS,
 		.controller_data = &mmc_spi_chip_info,
@@ -380,7 +403,7 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 		.platform_data = &bfin_ad7879_ts_info,
 		.irq = IRQ_PH14,
 		.max_speed_hz = 5000000,
-					
+					/* max spi clock (SCK) speed in HZ */
 		.bus_num = 0,
 		.chip_select = EXP_GPIO_SPISEL_BASE + 0x07 + MAX_CTRL_CS,
 		.mode = SPI_CPHA | SPI_CPOL,
@@ -390,7 +413,7 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 	{
 		.modalias = "spidev",
 		.max_speed_hz = 10000000,
-		
+		/* TLL6527Mv1-0 supports max spi clock (SCK) speed = 10 MHz */
 		.bus_num = 0,
 		.chip_select = EXP_GPIO_SPISEL_BASE + 0x03 + MAX_CTRL_CS,
 		.mode = SPI_CPHA | SPI_CPOL,
@@ -409,7 +432,7 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 	{
 		.modalias = "mcp23s08",
 		.platform_data = &bfin_mcp23s08_sys_gpio_info,
-		.max_speed_hz = 5000000, 
+		.max_speed_hz = 5000000, /* max spi clock (SCK) speed in HZ */
 		.bus_num = 0,
 		.chip_select = EXP_GPIO_SPISEL_BASE + 0x01 + MAX_CTRL_CS,
 		.mode = SPI_CPHA | SPI_CPOL,
@@ -417,7 +440,7 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 	{
 		.modalias = "mcp23s08",
 		.platform_data = &bfin_mcp23s08_usr_gpio_info,
-		.max_speed_hz = 5000000, 
+		.max_speed_hz = 5000000, /* max spi clock (SCK) speed in HZ */
 		.bus_num = 0,
 		.chip_select = EXP_GPIO_SPISEL_BASE + 0x02 + MAX_CTRL_CS,
 		.mode = SPI_CPHA | SPI_CPOL,
@@ -426,13 +449,15 @@ static struct spi_board_info bfin_spi_board_info[] __initdata = {
 };
 
 #if defined(CONFIG_SPI_BFIN5XX) || defined(CONFIG_SPI_BFIN5XX_MODULE)
+/* SPI controller data */
 static struct bfin5xx_spi_master bfin_spi0_info = {
 	.num_chipselect = EXP_GPIO_SPISEL_BASE + 8 + MAX_CTRL_CS,
-	
-	.enable_dma = 1,  
+	/* EXP_GPIO_SPISEL_BASE will be > MAX_BLACKFIN_GPIOS */
+	.enable_dma = 1,  /* master has the ability to do dma transfer */
 	.pin_req = {P_SPI0_SCK, P_SPI0_MISO, P_SPI0_MOSI, 0},
 };
 
+/* SPI (0) */
 static struct resource bfin_spi0_resource[] = {
 	[0] = {
 		.start = SPI0_REGBASE,
@@ -453,14 +478,14 @@ static struct resource bfin_spi0_resource[] = {
 
 static struct platform_device bfin_spi0_device = {
 	.name = "bfin-spi",
-	.id = 0, 
+	.id = 0, /* Bus number */
 	.num_resources = ARRAY_SIZE(bfin_spi0_resource),
 	.resource = bfin_spi0_resource,
 	.dev = {
-		.platform_data = &bfin_spi0_info, 
+		.platform_data = &bfin_spi0_info, /* Passed to driver */
 	},
 };
-#endif  
+#endif  /* spi master and devices */
 
 #if defined(CONFIG_SERIAL_BFIN) || defined(CONFIG_SERIAL_BFIN_MODULE)
 #ifdef CONFIG_SERIAL_BFIN_UART0
@@ -508,7 +533,7 @@ static struct platform_device bfin_uart0_device = {
 	.resource = bfin_uart0_resources,
 	.dev = {
 		.platform_data = &bfin_uart0_peripherals,
-					
+					/* Passed to driver */
 	},
 };
 #endif
@@ -545,12 +570,12 @@ static struct resource bfin_uart1_resources[] = {
 		.flags = IORESOURCE_DMA,
 	},
 #ifdef CONFIG_BFIN_UART1_CTSRTS
-	{	
+	{	/* CTS pin */
 		.start = GPIO_PF9,
 		.end = GPIO_PF9,
 		.flags = IORESOURCE_IO,
 	},
-	{	
+	{	/* RTS pin */
 		.start = GPIO_PF10,
 		.end = GPIO_PF10,
 		.flags = IORESOURCE_IO,
@@ -569,7 +594,7 @@ static struct platform_device bfin_uart1_device = {
 	.resource = bfin_uart1_resources,
 	.dev = {
 		.platform_data = &bfin_uart1_peripherals,
-						
+						/* Passed to driver */
 	},
 };
 #endif
@@ -727,7 +752,7 @@ static struct platform_device bfin_sport0_uart_device = {
 	.resource = bfin_sport0_uart_resources,
 	.dev = {
 		.platform_data = &bfin_sport0_peripherals,
-		
+		/* Passed to driver */
 	},
 };
 #endif
@@ -762,7 +787,7 @@ static struct platform_device bfin_sport1_uart_device = {
 	.resource = bfin_sport1_uart_resources,
 	.dev = {
 		.platform_data = &bfin_sport1_peripherals,
-		
+		/* Passed to driver */
 	},
 };
 #endif
@@ -779,7 +804,7 @@ static const unsigned int cclk_vlev_datasheet[] = {
 static struct bfin_dpmc_platform_data bfin_dmpc_vreg_data = {
 	.tuple_tab = cclk_vlev_datasheet,
 	.tabsize = ARRAY_SIZE(cclk_vlev_datasheet),
-	.vr_settling_time = 25 ,
+	.vr_settling_time = 25 /* us */,
 };
 
 static struct platform_device bfin_dpmc = {
@@ -901,14 +926,14 @@ void __init native_machine_early_platform_add_devices(void)
 
 void native_machine_restart(char *cmd)
 {
-	
+	/* workaround reboot hang when booting from SPI */
 	if ((bfin_read_SYSCR() & 0x7) == 0x3)
 		bfin_reset_boot_spi_cs(P_DEFAULT_BOOT_SPI_CS);
 }
 
 int bfin_get_ether_addr(char *addr)
 {
-	
+	/* the MAC is stored in OTP memory page 0xDF */
 	u32 ret;
 	u64 otp_mac;
 	u32 (*otp_read)(u32 page, u32 flags,

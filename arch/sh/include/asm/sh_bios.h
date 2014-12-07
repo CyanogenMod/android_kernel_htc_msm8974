@@ -22,6 +22,6 @@ extern void sh_bios_vbr_reload(void);
 static inline void sh_bios_vbr_init(void) { }
 static inline void sh_bios_vbr_reload(void) { }
 
-#endif 
+#endif /* CONFIG_SH_STANDARD_BIOS */
 
-#endif 
+#endif /* __ASM_SH_BIOS_H */

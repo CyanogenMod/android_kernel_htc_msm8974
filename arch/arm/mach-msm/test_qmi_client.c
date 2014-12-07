@@ -42,11 +42,14 @@ module_param_named(debug_mask, test_clnt_debug_mask,
 		pr_debug(x); \
 } while (0)
 
+/* Variable to initiate the test through debugfs interface */
 static struct dentry *test_dent;
 
+/* Test client port for IPC Router */
 static struct qmi_handle *test_clnt;
 static int test_clnt_reset;
 
+/* Reader thread to receive responses & indications */
 static void test_clnt_recv_msg(struct work_struct *work);
 static DECLARE_DELAYED_WORK(work_recv_msg, test_clnt_recv_msg);
 static void test_clnt_svc_arrive(struct work_struct *work);
@@ -55,6 +58,7 @@ static void test_clnt_svc_exit(struct work_struct *work);
 static DECLARE_DELAYED_WORK(work_svc_exit, test_clnt_svc_exit);
 static struct workqueue_struct *test_clnt_workqueue;
 
+/* Variable to hold the test result */
 static int test_res;
 
 static unsigned int callback_count;
@@ -237,7 +241,7 @@ static void test_clnt_svc_arrive(struct work_struct *work)
 
 	D("%s begins\n", __func__);
 
-	
+	/* Create a Local client port for QMI communication */
 	test_clnt = qmi_handle_create(test_clnt_notify, NULL);
 	if (!test_clnt) {
 		pr_err("%s: QMI client handle alloc failed\n", __func__);

@@ -13,28 +13,34 @@
 
 #ifndef CONFIG_64BIT
 
-#define APPLDATA_START_INTERVAL_REC	0x00	
-#define APPLDATA_STOP_REC		0x01	
+#define APPLDATA_START_INTERVAL_REC	0x00	/* Function codes for */
+#define APPLDATA_STOP_REC		0x01	/* DIAG 0xDC	      */
 #define APPLDATA_GEN_EVENT_REC		0x02
 #define APPLDATA_START_CONFIG_REC	0x03
 
+/*
+ * Parameter list for DIAGNOSE X'DC'
+ */
 struct appldata_parameter_list {
-	u16 diag;		
-	u8  function;		
-	u8  parlist_length;	
-	u32 product_id_addr;	
+	u16 diag;		/* The DIAGNOSE code X'00DC'	      */
+	u8  function;		/* The function code for the DIAGNOSE */
+	u8  parlist_length;	/* Length of the parameter list       */
+	u32 product_id_addr;	/* Address of the 16-byte product ID  */
 	u16 reserved;
-	u16 buffer_length;	
-	u32 buffer_addr;	
+	u16 buffer_length;	/* Length of the application data buffer  */
+	u32 buffer_addr;	/* Address of the application data buffer */
 } __attribute__ ((packed));
 
-#else 
+#else /* CONFIG_64BIT */
 
 #define APPLDATA_START_INTERVAL_REC	0x80
 #define APPLDATA_STOP_REC		0x81
 #define APPLDATA_GEN_EVENT_REC		0x82
 #define APPLDATA_START_CONFIG_REC	0x83
 
+/*
+ * Parameter list for DIAGNOSE X'DC'
+ */
 struct appldata_parameter_list {
 	u16 diag;
 	u8  function;
@@ -47,15 +53,15 @@ struct appldata_parameter_list {
 	u64 buffer_addr;
 } __attribute__ ((packed));
 
-#endif 
+#endif /* CONFIG_64BIT */
 
 struct appldata_product_id {
-	char prod_nr[7];	
-	u16  prod_fn;		
-	u8   record_nr; 	
-	u16  version_nr;	
-	u16  release_nr;	
-	u16  mod_lvl;		
+	char prod_nr[7];	/* product number */
+	u16  prod_fn;		/* product function */
+	u8   record_nr; 	/* record number */
+	u16  version_nr;	/* version */
+	u16  release_nr;	/* release */
+	u16  mod_lvl;		/* modification level */
 } __attribute__ ((packed));
 
 static inline int appldata_asm(struct appldata_product_id *id,
@@ -81,4 +87,4 @@ static inline int appldata_asm(struct appldata_product_id *id,
 	return ry;
 }
 
-#endif 
+#endif /* _ASM_S390_APPLDATA_H */

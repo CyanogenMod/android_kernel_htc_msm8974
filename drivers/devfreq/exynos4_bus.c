@@ -25,6 +25,7 @@
 #include <linux/regulator/consumer.h>
 #include <linux/module.h>
 
+/* Exynos4 ASV has been in the mailing list, but not upstreamed, yet. */
 #ifdef CONFIG_EXYNOS_ASV
 extern unsigned int exynos_result_of_asv;
 #endif
@@ -33,13 +34,14 @@ extern unsigned int exynos_result_of_asv;
 
 #include <plat/map-s5p.h>
 
-#define MAX_SAFEVOLT	1200000 
+#define MAX_SAFEVOLT	1200000 /* 1.2V */
 
 enum exynos4_busf_type {
 	TYPE_BUSF_EXYNOS4210,
 	TYPE_BUSF_EXYNOS4x12,
 };
 
+/* Assume that the bus is saturated if the utilization is 40% */
 #define BUS_SATURATION_RATIO	40
 
 enum ppmu_counter {
@@ -71,6 +73,11 @@ enum busclk_level_idx {
 #define EX4210_LV_NUM	(LV_2 + 1)
 #define EX4x12_LV_NUM	(LV_4 + 1)
 
+/**
+ * struct busfreq_opp_info - opp information for bus
+ * @rate:	Frequency in hertz
+ * @volt:	Voltage in microvolts corresponding to this OPP
+ */
 struct busfreq_opp_info {
 	unsigned long rate;
 	unsigned long volt;
@@ -82,15 +89,15 @@ struct busfreq_data {
 	struct devfreq *devfreq;
 	bool disabled;
 	struct regulator *vdd_int;
-	struct regulator *vdd_mif; 
+	struct regulator *vdd_mif; /* Exynos4412/4212 only */
 	struct busfreq_opp_info curr_oppinfo;
 	struct exynos4_ppmu dmc[2];
 
 	struct notifier_block pm_notifier;
 	struct mutex lock;
 
-	
-	unsigned int dmc_divtable[_LV_END]; 
+	/* Dividers calculated at boot/probe-time */
+	unsigned int dmc_divtable[_LV_END]; /* DMC0 */
 	unsigned int top_divtable[_LV_END];
 };
 
@@ -100,6 +107,7 @@ struct bus_opp_table {
 	unsigned long volt;
 };
 
+/* 4210 controls clock of mif and voltage of int */
 static struct bus_opp_table exynos4210_busclk_table[] = {
 	{LV_0, 400000, 1150000},
 	{LV_1, 267000, 1050000},
@@ -107,6 +115,10 @@ static struct bus_opp_table exynos4210_busclk_table[] = {
 	{0, 0, 0},
 };
 
+/*
+ * MIF is the main control knob clock for exynox4x12 MIF/INT
+ * clock and voltage of both mif/int are controlled.
+ */
 static struct bus_opp_table exynos4x12_mifclk_table[] = {
 	{LV_0, 400000, 1100000},
 	{LV_1, 267000, 1000000},
@@ -116,6 +128,10 @@ static struct bus_opp_table exynos4x12_mifclk_table[] = {
 	{0, 0, 0},
 };
 
+/*
+ * INT is not the control knob of 4x12. LV_x is not meant to represent
+ * the current performance. (MIF does)
+ */
 static struct bus_opp_table exynos4x12_intclk_table[] = {
 	{LV_0, 200000, 1000000},
 	{LV_1, 160000, 950000},
@@ -124,6 +140,8 @@ static struct bus_opp_table exynos4x12_intclk_table[] = {
 	{0, 0, 0},
 };
 
+/* TODO: asv volt definitions are "__initdata"? */
+/* Some chips have different operating voltages */
 static unsigned int exynos4210_asv_volt[][EX4210_LV_NUM] = {
 	{1150000, 1050000, 1050000},
 	{1125000, 1025000, 1025000},
@@ -133,46 +151,56 @@ static unsigned int exynos4210_asv_volt[][EX4210_LV_NUM] = {
 };
 
 static unsigned int exynos4x12_mif_step_50[][EX4x12_LV_NUM] = {
-	
-	{1050000, 950000, 900000, 900000, 900000}, 
-	{1050000, 950000, 900000, 900000, 900000}, 
-	{1050000, 950000, 900000, 900000, 900000}, 
-	{1050000, 900000, 900000, 900000, 900000}, 
-	{1050000, 900000, 900000, 900000, 850000}, 
-	{1050000, 900000, 900000, 850000, 850000}, 
-	{1050000, 900000, 850000, 850000, 850000}, 
-	{1050000, 900000, 850000, 850000, 850000}, 
-	{1050000, 900000, 850000, 850000, 850000}, 
+	/* 400      267     160     133     100 */
+	{1050000, 950000, 900000, 900000, 900000}, /* ASV0 */
+	{1050000, 950000, 900000, 900000, 900000}, /* ASV1 */
+	{1050000, 950000, 900000, 900000, 900000}, /* ASV2 */
+	{1050000, 900000, 900000, 900000, 900000}, /* ASV3 */
+	{1050000, 900000, 900000, 900000, 850000}, /* ASV4 */
+	{1050000, 900000, 900000, 850000, 850000}, /* ASV5 */
+	{1050000, 900000, 850000, 850000, 850000}, /* ASV6 */
+	{1050000, 900000, 850000, 850000, 850000}, /* ASV7 */
+	{1050000, 900000, 850000, 850000, 850000}, /* ASV8 */
 };
 
 static unsigned int exynos4x12_int_volt[][EX4x12_LV_NUM] = {
-	
-	{1000000, 950000, 925000, 900000}, 
-	{975000,  925000, 925000, 900000}, 
-	{950000,  925000, 900000, 875000}, 
-	{950000,  900000, 900000, 875000}, 
-	{925000,  875000, 875000, 875000}, 
-	{900000,  850000, 850000, 850000}, 
-	{900000,  850000, 850000, 850000}, 
-	{900000,  850000, 850000, 850000}, 
-	{900000,  850000, 850000, 850000}, 
+	/* 200    160      133     100 */
+	{1000000, 950000, 925000, 900000}, /* ASV0 */
+	{975000,  925000, 925000, 900000}, /* ASV1 */
+	{950000,  925000, 900000, 875000}, /* ASV2 */
+	{950000,  900000, 900000, 875000}, /* ASV3 */
+	{925000,  875000, 875000, 875000}, /* ASV4 */
+	{900000,  850000, 850000, 850000}, /* ASV5 */
+	{900000,  850000, 850000, 850000}, /* ASV6 */
+	{900000,  850000, 850000, 850000}, /* ASV7 */
+	{900000,  850000, 850000, 850000}, /* ASV8 */
 };
 
+/*** Clock Divider Data for Exynos4210 ***/
 static unsigned int exynos4210_clkdiv_dmc0[][8] = {
+	/*
+	 * Clock divider value for following
+	 * { DIVACP, DIVACP_PCLK, DIVDPHY, DIVDMC, DIVDMCD
+	 *		DIVDMCP, DIVCOPY2, DIVCORE_TIMERS }
+	 */
 
-	
+	/* DMC L0: 400MHz */
 	{ 3, 1, 1, 1, 1, 1, 3, 1 },
-	
+	/* DMC L1: 266.7MHz */
 	{ 4, 1, 1, 2, 1, 1, 3, 1 },
-	
+	/* DMC L2: 133MHz */
 	{ 5, 1, 1, 5, 1, 1, 3, 1 },
 };
 static unsigned int exynos4210_clkdiv_top[][5] = {
-	
+	/*
+	 * Clock divider value for following
+	 * { DIVACLK200, DIVACLK100, DIVACLK160, DIVACLK133, DIVONENAND }
+	 */
+	/* ACLK200 L0: 200MHz */
 	{ 3, 7, 4, 5, 1 },
-	
+	/* ACLK200 L1: 160MHz */
 	{ 4, 7, 5, 6, 1 },
-	
+	/* ACLK200 L2: 133MHz */
 	{ 5, 7, 7, 7, 1 },
 };
 static unsigned int exynos4210_clkdiv_lr_bus[][2] = {
@@ -180,51 +208,66 @@ static unsigned int exynos4210_clkdiv_lr_bus[][2] = {
 	 * Clock divider value for following
 	 * { DIVGDL/R, DIVGPL/R }
 	 */
-	
+	/* ACLK_GDL/R L1: 200MHz */
 	{ 3, 1 },
-	
+	/* ACLK_GDL/R L2: 160MHz */
 	{ 4, 1 },
-	
+	/* ACLK_GDL/R L3: 133MHz */
 	{ 5, 1 },
 };
 
+/*** Clock Divider Data for Exynos4212/4412 ***/
 static unsigned int exynos4x12_clkdiv_dmc0[][6] = {
+	/*
+	 * Clock divider value for following
+	 * { DIVACP, DIVACP_PCLK, DIVDPHY, DIVDMC, DIVDMCD
+	 *              DIVDMCP}
+	 */
 
-	
+	/* DMC L0: 400MHz */
 	{3, 1, 1, 1, 1, 1},
-	
+	/* DMC L1: 266.7MHz */
 	{4, 1, 1, 2, 1, 1},
-	
+	/* DMC L2: 160MHz */
 	{5, 1, 1, 4, 1, 1},
-	
+	/* DMC L3: 133MHz */
 	{5, 1, 1, 5, 1, 1},
-	
+	/* DMC L4: 100MHz */
 	{7, 1, 1, 7, 1, 1},
 };
 static unsigned int exynos4x12_clkdiv_dmc1[][6] = {
+	/*
+	 * Clock divider value for following
+	 * { G2DACP, DIVC2C, DIVC2C_ACLK }
+	 */
 
-	
+	/* DMC L0: 400MHz */
 	{3, 1, 1},
-	
+	/* DMC L1: 266.7MHz */
 	{4, 2, 1},
-	
+	/* DMC L2: 160MHz */
 	{5, 4, 1},
-	
+	/* DMC L3: 133MHz */
 	{5, 5, 1},
-	
+	/* DMC L4: 100MHz */
 	{7, 7, 1},
 };
 static unsigned int exynos4x12_clkdiv_top[][5] = {
+	/*
+	 * Clock divider value for following
+	 * { DIVACLK266_GPS, DIVACLK100, DIVACLK160,
+		DIVACLK133, DIVONENAND }
+	 */
 
-	
+	/* ACLK_GDL/R L0: 200MHz */
 	{2, 7, 4, 5, 1},
-	
+	/* ACLK_GDL/R L1: 200MHz */
 	{2, 7, 4, 5, 1},
-	
+	/* ACLK_GDL/R L2: 160MHz */
 	{4, 7, 5, 7, 1},
-	
+	/* ACLK_GDL/R L3: 133MHz */
 	{4, 7, 5, 7, 1},
-	
+	/* ACLK_GDL/R L4: 100MHz */
 	{7, 7, 7, 7, 1},
 };
 static unsigned int exynos4x12_clkdiv_lr_bus[][2] = {
@@ -233,28 +276,32 @@ static unsigned int exynos4x12_clkdiv_lr_bus[][2] = {
 	 * { DIVGDL/R, DIVGPL/R }
 	 */
 
-	
+	/* ACLK_GDL/R L0: 200MHz */
 	{3, 1},
-	
+	/* ACLK_GDL/R L1: 200MHz */
 	{3, 1},
-	
+	/* ACLK_GDL/R L2: 160MHz */
 	{4, 1},
-	
+	/* ACLK_GDL/R L3: 133MHz */
 	{5, 1},
-	
+	/* ACLK_GDL/R L4: 100MHz */
 	{7, 1},
 };
 static unsigned int exynos4x12_clkdiv_sclkip[][3] = {
+	/*
+	 * Clock divider value for following
+	 * { DIVMFC, DIVJPEG, DIVFIMC0~3}
+	 */
 
-	
+	/* SCLK_MFC: 200MHz */
 	{3, 3, 4},
-	
+	/* SCLK_MFC: 200MHz */
 	{3, 3, 4},
-	
+	/* SCLK_MFC: 160MHz */
 	{4, 4, 5},
-	
+	/* SCLK_MFC: 133MHz */
 	{5, 5, 5},
-	
+	/* SCLK_MFC: 100MHz */
 	{7, 7, 7},
 };
 
@@ -272,7 +319,7 @@ static int exynos4210_set_busclk(struct busfreq_data *data,
 	if (index == EX4210_LV_NUM)
 		return -EINVAL;
 
-	
+	/* Change Divider - DMC0 */
 	tmp = data->dmc_divtable[index];
 
 	__raw_writel(tmp, EXYNOS4_CLKDIV_DMC0);
@@ -281,7 +328,7 @@ static int exynos4210_set_busclk(struct busfreq_data *data,
 		tmp = __raw_readl(EXYNOS4_CLKDIV_STAT_DMC0);
 	} while (tmp & 0x11111111);
 
-	
+	/* Change Divider - TOP */
 	tmp = data->top_divtable[index];
 
 	__raw_writel(tmp, EXYNOS4_CLKDIV_TOP);
@@ -290,7 +337,7 @@ static int exynos4210_set_busclk(struct busfreq_data *data,
 		tmp = __raw_readl(EXYNOS4_CLKDIV_STAT_TOP);
 	} while (tmp & 0x11111);
 
-	
+	/* Change Divider - LEFTBUS */
 	tmp = __raw_readl(EXYNOS4_CLKDIV_LEFTBUS);
 
 	tmp &= ~(EXYNOS4_CLKDIV_BUS_GDLR_MASK | EXYNOS4_CLKDIV_BUS_GPLR_MASK);
@@ -306,7 +353,7 @@ static int exynos4210_set_busclk(struct busfreq_data *data,
 		tmp = __raw_readl(EXYNOS4_CLKDIV_STAT_LEFTBUS);
 	} while (tmp & 0x11);
 
-	
+	/* Change Divider - RIGHTBUS */
 	tmp = __raw_readl(EXYNOS4_CLKDIV_RIGHTBUS);
 
 	tmp &= ~(EXYNOS4_CLKDIV_BUS_GDLR_MASK | EXYNOS4_CLKDIV_BUS_GPLR_MASK);
@@ -338,7 +385,7 @@ static int exynos4x12_set_busclk(struct busfreq_data *data,
 	if (index == EX4x12_LV_NUM)
 		return -EINVAL;
 
-	
+	/* Change Divider - DMC0 */
 	tmp = data->dmc_divtable[index];
 
 	__raw_writel(tmp, EXYNOS4_CLKDIV_DMC0);
@@ -347,7 +394,7 @@ static int exynos4x12_set_busclk(struct busfreq_data *data,
 		tmp = __raw_readl(EXYNOS4_CLKDIV_STAT_DMC0);
 	} while (tmp & 0x11111111);
 
-	
+	/* Change Divider - DMC1 */
 	tmp = __raw_readl(EXYNOS4_CLKDIV_DMC1);
 
 	tmp &= ~(EXYNOS4_CLKDIV_DMC1_G2D_ACP_MASK |
@@ -367,7 +414,7 @@ static int exynos4x12_set_busclk(struct busfreq_data *data,
 		tmp = __raw_readl(EXYNOS4_CLKDIV_STAT_DMC1);
 	} while (tmp & 0x111111);
 
-	
+	/* Change Divider - TOP */
 	tmp = __raw_readl(EXYNOS4_CLKDIV_TOP);
 
 	tmp &= ~(EXYNOS4_CLKDIV_TOP_ACLK266_GPS_MASK |
@@ -393,7 +440,7 @@ static int exynos4x12_set_busclk(struct busfreq_data *data,
 		tmp = __raw_readl(EXYNOS4_CLKDIV_STAT_TOP);
 	} while (tmp & 0x11111);
 
-	
+	/* Change Divider - LEFTBUS */
 	tmp = __raw_readl(EXYNOS4_CLKDIV_LEFTBUS);
 
 	tmp &= ~(EXYNOS4_CLKDIV_BUS_GDLR_MASK | EXYNOS4_CLKDIV_BUS_GPLR_MASK);
@@ -409,7 +456,7 @@ static int exynos4x12_set_busclk(struct busfreq_data *data,
 		tmp = __raw_readl(EXYNOS4_CLKDIV_STAT_LEFTBUS);
 	} while (tmp & 0x11);
 
-	
+	/* Change Divider - RIGHTBUS */
 	tmp = __raw_readl(EXYNOS4_CLKDIV_RIGHTBUS);
 
 	tmp &= ~(EXYNOS4_CLKDIV_BUS_GDLR_MASK | EXYNOS4_CLKDIV_BUS_GPLR_MASK);
@@ -425,7 +472,7 @@ static int exynos4x12_set_busclk(struct busfreq_data *data,
 		tmp = __raw_readl(EXYNOS4_CLKDIV_STAT_RIGHTBUS);
 	} while (tmp & 0x11);
 
-	
+	/* Change Divider - MFC */
 	tmp = __raw_readl(EXYNOS4_CLKDIV_MFC);
 
 	tmp &= ~(EXYNOS4_CLKDIV_MFC_MASK);
@@ -439,7 +486,7 @@ static int exynos4x12_set_busclk(struct busfreq_data *data,
 		tmp = __raw_readl(EXYNOS4_CLKDIV_STAT_MFC);
 	} while (tmp & 0x1);
 
-	
+	/* Change Divider - JPEG */
 	tmp = __raw_readl(EXYNOS4_CLKDIV_CAM1);
 
 	tmp &= ~(EXYNOS4_CLKDIV_CAM1_JPEG_MASK);
@@ -453,7 +500,7 @@ static int exynos4x12_set_busclk(struct busfreq_data *data,
 		tmp = __raw_readl(EXYNOS4_CLKDIV_STAT_CAM1);
 	} while (tmp & 0x1);
 
-	
+	/* Change Divider - FIMC0~3 */
 	tmp = __raw_readl(EXYNOS4_CLKDIV_CAM);
 
 	tmp &= ~(EXYNOS4_CLKDIV_CAM_FIMC0_MASK | EXYNOS4_CLKDIV_CAM_FIMC1_MASK |
@@ -485,18 +532,18 @@ static void busfreq_mon_reset(struct busfreq_data *data)
 	for (i = 0; i < 2; i++) {
 		void __iomem *ppmu_base = data->dmc[i].hw_base;
 
-		
+		/* Reset PPMU */
 		__raw_writel(0x8000000f, ppmu_base + 0xf010);
 		__raw_writel(0x8000000f, ppmu_base + 0xf050);
 		__raw_writel(0x6, ppmu_base + 0xf000);
 		__raw_writel(0x0, ppmu_base + 0xf100);
 
-		
+		/* Set PPMU Event */
 		data->dmc[i].event = 0x6;
 		__raw_writel(((data->dmc[i].event << 12) | 0x1),
 			     ppmu_base + 0xfc);
 
-		
+		/* Start PPMU */
 		__raw_writel(0x1, ppmu_base + 0xf000);
 	}
 }
@@ -509,10 +556,10 @@ static void exynos4_read_ppmu(struct busfreq_data *data)
 		void __iomem *ppmu_base = data->dmc[i].hw_base;
 		u32 overflow;
 
-		
+		/* Stop PPMU */
 		__raw_writel(0x0, ppmu_base + 0xf000);
 
-		
+		/* Update local data from PPMU */
 		overflow = __raw_readl(ppmu_base + 0xf050);
 
 		data->dmc[i].ccnt = __raw_readl(ppmu_base + 0xf100);
@@ -550,12 +597,12 @@ static int exynos4_bus_setvolt(struct busfreq_data *data,
 
 	switch (data->type) {
 	case TYPE_BUSF_EXYNOS4210:
-		
+		/* OPP represents DMC clock + INT voltage */
 		err = regulator_set_voltage(data->vdd_int, volt,
 					    MAX_SAFEVOLT);
 		break;
 	case TYPE_BUSF_EXYNOS4x12:
-		
+		/* OPP represents MIF clock + MIF voltage */
 		err = regulator_set_voltage(data->vdd_mif, volt,
 					    MAX_SAFEVOLT);
 		if (err)
@@ -572,7 +619,7 @@ static int exynos4_bus_setvolt(struct busfreq_data *data,
 		err = regulator_set_voltage(data->vdd_int,
 					    exynos4x12_intclk_table[tmp].volt,
 					    MAX_SAFEVOLT);
-		
+		/*  Try to recover */
 		if (err)
 			regulator_set_voltage(data->vdd_mif,
 					      oldoppi->volt,
@@ -672,7 +719,7 @@ static int exynos4_bus_get_dev_status(struct device *dev,
 {
 	struct busfreq_data *data = dev_get_drvdata(dev);
 	int busier_dmc;
-	int cycles_x2 = 2; 
+	int cycles_x2 = 2; /* 2 x cycles */
 	void __iomem *addr;
 	u32 timing;
 	u32 memctrl;
@@ -686,15 +733,15 @@ static int exynos4_bus_get_dev_status(struct device *dev,
 	else
 		addr = S5P_VA_DMC0;
 
-	memctrl = __raw_readl(addr + 0x04); 
-	timing = __raw_readl(addr + 0x38); 
+	memctrl = __raw_readl(addr + 0x04); /* one of DDR2/3/LPDDR2 */
+	timing = __raw_readl(addr + 0x38); /* CL or WL/RL values */
 
 	switch ((memctrl >> 8) & 0xf) {
-	case 0x4: 
+	case 0x4: /* DDR2 */
 		cycles_x2 = ((timing >> 16) & 0xf) * 2;
 		break;
-	case 0x5: 
-	case 0x6: 
+	case 0x5: /* LPDDR2 */
+	case 0x6: /* DDR3 */
 		cycles_x2 = ((timing >> 8) & 0xf) + ((timing >> 0) & 0xf);
 		break;
 	default:
@@ -703,12 +750,12 @@ static int exynos4_bus_get_dev_status(struct device *dev,
 		return -EINVAL;
 	}
 
-	
+	/* Number of cycles spent on memory access */
 	stat->busy_time = data->dmc[busier_dmc].count[0] / 2 * (cycles_x2 + 2);
 	stat->busy_time *= 100 / BUS_SATURATION_RATIO;
 	stat->total_time = data->dmc[busier_dmc].ccnt;
 
-	
+	/* If the counters have overflown, retry */
 	if (data->dmc[busier_dmc].ccnt_overflow ||
 	    data->dmc[busier_dmc].count_overflow[0])
 		return -EAGAIN;
@@ -793,11 +840,11 @@ static int exynos4210_init_tables(struct busfreq_data *data)
 #ifdef CONFIG_EXYNOS_ASV
 	tmp = exynos4_result_of_asv;
 #else
-	tmp = 0; 
+	tmp = 0; /* Max voltages for the reliability of the unknown */
 #endif
 
 	pr_debug("ASV Group of Exynos4 is %d\n", tmp);
-	
+	/* Use merged grouping for voltage */
 	switch (tmp) {
 	case 0:
 		mgrp = 0;
@@ -844,7 +891,7 @@ static int exynos4x12_init_tables(struct busfreq_data *data)
 	unsigned int tmp;
 	int ret;
 
-	
+	/* Enable pause function for DREX2 DVFS */
 	tmp = __raw_readl(EXYNOS4_DMC_PAUSE_CTRL);
 	tmp |= EXYNOS4_DMC_PAUSE_ENABLE;
 	__raw_writel(tmp, EXYNOS4_DMC_PAUSE_CTRL);
@@ -878,7 +925,7 @@ static int exynos4x12_init_tables(struct busfreq_data *data)
 #ifdef CONFIG_EXYNOS_ASV
 	tmp = exynos4_result_of_asv;
 #else
-	tmp = 0; 
+	tmp = 0; /* Max voltages for the reliability of the unknown */
 #endif
 
 	if (tmp > 8)
@@ -916,7 +963,7 @@ static int exynos4_busfreq_pm_notifier_event(struct notifier_block *this,
 
 	switch (event) {
 	case PM_SUSPEND_PREPARE:
-		
+		/* Set Fastest and Deactivate DVFS */
 		mutex_lock(&data->lock);
 
 		data->disabled = true;
@@ -959,7 +1006,7 @@ unlock:
 		return NOTIFY_OK;
 	case PM_POST_RESTORE:
 	case PM_POST_SUSPEND:
-		
+		/* Reactivate */
 		mutex_lock(&data->lock);
 		data->disabled = false;
 		mutex_unlock(&data->lock);

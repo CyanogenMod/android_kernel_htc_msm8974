@@ -7,8 +7,8 @@
 #include <linux/videodev2.h>
 
 enum core_id {
-	MSM_VIDC_CORE_0 = 0,
-	MSM_VIDC_CORE_1,      
+	MSM_VIDC_CORE_VENUS = 0,
+	MSM_VIDC_CORE_Q6,
 	MSM_VIDC_CORES_MAX,
 };
 
@@ -18,6 +18,10 @@ enum session_type {
 	MSM_VIDC_MAX_DEVICES,
 };
 
+/* NOTE: if you change this enum you MUST update the
+ * "buffer-type-tz-usage-table" for any affected target
+ * in arch/arm/boot/dts/<arch>.dtsi
+ */
 enum hal_buffer {
 	HAL_BUFFER_INPUT = 0x1,
 	HAL_BUFFER_OUTPUT = 0x2,
@@ -51,6 +55,7 @@ enum smem_cache_ops {
 
 void *msm_vidc_open(int core_id, int session_type);
 int msm_vidc_close(void *instance);
+int msm_vidc_suspend(int core_id);
 int msm_vidc_querycap(void *instance, struct v4l2_capability *cap);
 int msm_vidc_enum_fmt(void *instance, struct v4l2_fmtdesc *f);
 int msm_vidc_s_fmt(void *instance, struct v4l2_format *f);

@@ -4,6 +4,8 @@
 #include <linux/types.h>
 #include <linux/pci.h>
 
+/* Offsets to be accessed in the southbridge PCI
+ * device configuration register */
 #define RDC321X_WDT_CTRL	0x44
 #define RDC321X_GPIO_CTRL_REG1	0x48
 #define RDC321X_GPIO_DATA_REG1	0x4c
@@ -21,4 +23,4 @@ struct rdc321x_wdt_pdata {
 	struct pci_dev *sb_pdev;
 };
 
-#endif 
+#endif /* __RDC321X_MFD_H */

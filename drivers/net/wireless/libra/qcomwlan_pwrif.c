@@ -21,6 +21,16 @@
 
 static const char *id = "WLAN";
 
+/**
+ * vos_chip_power_qrf8615() - WLAN Power Up Seq for WCN1314 rev 2.0 on QRF 8615
+ * @on - Turn WLAN ON/OFF (1 or 0)
+ *
+ * Power up/down WLAN by turning on/off various regs and asserting/deasserting
+ * Power-on-reset pin. Also, put XO A0 buffer as slave to wlan_clk_pwr_req while
+ * turning ON WLAN and vice-versa.
+ *
+ * This function returns 0 on success or a non-zero value on failure.
+ */
 int vos_chip_power_qrf8615(int on)
 {
 	static char wlan_on;
@@ -100,8 +110,12 @@ int vos_chip_power_qrf8615(int on)
 		wlan_gpio_deep_sleep = GPIO_WLAN_DEEP_SLEEP_N_DRAGON;
 		vregs_is_pin_controlled = vregs_is_pin_controlled_dragon;
 	}
-	
+	/* WLAN RESET and CLK settings */
 	if (on && !wlan_on) {
+		/*
+		 * Program U12 GPIO expander pin IO1 to de-assert (drive 0)
+		 * WLAN_EXT_POR_N to put WLAN in reset
+		 */
 		rc = gpio_request(wlan_gpio_deep_sleep, "WLAN_DEEP_SLEEP_N");
 		if (rc) {
 			pr_err("WLAN reset GPIO %d request failed\n",
@@ -116,7 +130,7 @@ int vos_chip_power_qrf8615(int on)
 			goto fail_gpio_dir_out;
 		}
 
-		
+		/* Configure TCXO to be slave to WLAN_CLK_PWR_REQ */
 		if (wlan_clock == NULL) {
 			wlan_clock = msm_xo_get(MSM_XO_TCXO_A0, id);
 			if (IS_ERR(wlan_clock)) {
@@ -139,7 +153,7 @@ int vos_chip_power_qrf8615(int on)
 		gpio_free(wlan_gpio_deep_sleep);
 	}
 
-	
+	/* WLAN VREG settings */
 	for (i = 0; i < ARRAY_SIZE(vregs_qwlan_name); i++) {
 		if (on && !wlan_on)	{
 			vregs_qwlan[i] = regulator_get(NULL,
@@ -161,7 +175,7 @@ int vos_chip_power_qrf8615(int on)
 					goto vreg_fail;
 				}
 			}
-			
+			/* vote for pin control (if needed) */
 			if (vregs_is_pin_controlled[i]) {
 				vregs_pc_qwlan[i] = regulator_get(NULL,
 							vregs_qwlan_pc_name[i]);
@@ -201,6 +215,9 @@ int vos_chip_power_qrf8615(int on)
 		} else if (!on && wlan_on) {
 
 			if (vregs_qwlan_peek_current[i]) {
+				/* For legacy reasons we pass 1mA current to
+				 * put regulator in LPM mode.
+				 */
 				rc = regulator_set_optimum_mode(vregs_qwlan[i],
 									 1000);
 				if (rc < 0)
@@ -282,6 +299,19 @@ fail:
 }
 EXPORT_SYMBOL(vos_chip_power_qrf8615);
 
+/**
+ * qcomwlan_pmic_xo_core_force_enable() - Force XO Core of PMIC to be ALWAYS ON
+ * @on - Force XO Core  ON/OFF (1 or 0)
+ *
+ * The XO_CORE controls the XO feeding the TCXO buffers (A0, A1, etc.). WLAN
+ * wants to keep the XO core on even though our buffer A0 is in pin control
+ * because it can take a long time turn the XO back on and warm up the buffers.
+ * This helps in optimizing power in BMPS (power save) mode of WLAN.
+ * The WLAN driver wrapper function takes care that this API is not called
+ * consecutively.
+ *
+ * This function returns 0 on success or a non-zero value on failure.
+ */
 int qcomwlan_pmic_xo_core_force_enable(int on)
 {
 	static struct msm_xo_voter *wlan_ps;
@@ -315,6 +345,12 @@ fail:
 EXPORT_SYMBOL(qcomwlan_pmic_xo_core_force_enable);
 
 
+/**
+ * qcomwlan_freq_change_1p3v_supply() - function to change the freq for 1.3V RF supply.
+ * @freq - freq of the 1.3V Supply
+ *
+ * This function returns 0 on success or a non-zero value on failure.
+ */
 
 int qcomwlan_freq_change_1p3v_supply(enum rpm_vreg_freq freq)
 {

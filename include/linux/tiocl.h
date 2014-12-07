@@ -1,37 +1,39 @@
 #ifndef _LINUX_TIOCL_H
 #define _LINUX_TIOCL_H
 
-#define TIOCL_SETSEL	2	
-#define 	TIOCL_SELCHAR	0	
-#define 	TIOCL_SELWORD	1	
-#define 	TIOCL_SELLINE	2	
-#define 	TIOCL_SELPOINTER	3	
-#define 	TIOCL_SELCLEAR	4	
-#define 	TIOCL_SELMOUSEREPORT	16	
-#define 	TIOCL_SELBUTTONMASK	15	
+#define TIOCL_SETSEL	2	/* set a selection */
+#define 	TIOCL_SELCHAR	0	/* select characters */
+#define 	TIOCL_SELWORD	1	/* select whole words */
+#define 	TIOCL_SELLINE	2	/* select whole lines */
+#define 	TIOCL_SELPOINTER	3	/* show the pointer */
+#define 	TIOCL_SELCLEAR	4	/* clear visibility of selection */
+#define 	TIOCL_SELMOUSEREPORT	16	/* report beginning of selection */
+#define 	TIOCL_SELBUTTONMASK	15	/* button mask for report */
+/* selection extent */
 struct tiocl_selection {
-	unsigned short xs;	
-	unsigned short ys;	
-	unsigned short xe;	
-	unsigned short ye;	
-	unsigned short sel_mode;	
+	unsigned short xs;	/* X start */
+	unsigned short ys;	/* Y start */
+	unsigned short xe;	/* X end */
+	unsigned short ye;	/* Y end */
+	unsigned short sel_mode;	/* selection mode */
 };
 
-#define TIOCL_PASTESEL	3	
-#define TIOCL_UNBLANKSCREEN	4	
+#define TIOCL_PASTESEL	3	/* paste previous selection */
+#define TIOCL_UNBLANKSCREEN	4	/* unblank screen */
 
 #define TIOCL_SELLOADLUT	5
-	
-	
+	/* set characters to be considered alphabetic when selecting */
+	/* u32[8] bit array, 4 bytes-aligned with type */
 
-#define TIOCL_GETSHIFTSTATE	6	
-#define TIOCL_GETMOUSEREPORTING	7	
-#define TIOCL_SETVESABLANK	10	
-#define TIOCL_SETKMSGREDIRECT	11	
-#define TIOCL_GETFGCONSOLE	12	
-#define TIOCL_SCROLLCONSOLE	13	
-#define TIOCL_BLANKSCREEN	14	
-#define TIOCL_BLANKEDSCREEN	15	
-#define TIOCL_GETKMSGREDIRECT	17	
+/* these two don't return a value: they write it back in the type */
+#define TIOCL_GETSHIFTSTATE	6	/* write shift state */
+#define TIOCL_GETMOUSEREPORTING	7	/* write whether mouse event are reported */
+#define TIOCL_SETVESABLANK	10	/* set vesa blanking mode */
+#define TIOCL_SETKMSGREDIRECT	11	/* restrict kernel messages to a vt */
+#define TIOCL_GETFGCONSOLE	12	/* get foreground vt */
+#define TIOCL_SCROLLCONSOLE	13	/* scroll console */
+#define TIOCL_BLANKSCREEN	14	/* keep screen blank even if a key is pressed */
+#define TIOCL_BLANKEDSCREEN	15	/* return which vt was blanked */
+#define TIOCL_GETKMSGREDIRECT	17	/* get the vt the kernel messages are restricted to */
 
-#endif 
+#endif /* _LINUX_TIOCL_H */

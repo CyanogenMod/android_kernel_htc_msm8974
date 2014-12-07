@@ -47,4 +47,4 @@ void bonding_save_primary(const struct orig_node *orig_node,
 int window_protected(struct bat_priv *bat_priv, int32_t seq_num_diff,
 		     unsigned long *last_reset);
 
-#endif 
+#endif /* _NET_BATMAN_ADV_ROUTING_H_ */

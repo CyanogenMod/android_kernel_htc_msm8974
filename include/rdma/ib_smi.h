@@ -65,6 +65,7 @@ struct ib_smp {
 
 #define IB_SMP_DIRECTION			cpu_to_be16(0x8000)
 
+/* Subnet management attributes */
 #define IB_SMP_ATTR_NOTICE			cpu_to_be16(0x0002)
 #define IB_SMP_ATTR_NODE_DESC			cpu_to_be16(0x0010)
 #define IB_SMP_ATTR_NODE_INFO			cpu_to_be16(0x0011)
@@ -94,25 +95,25 @@ struct ib_port_info {
 	u8 link_width_enabled;
 	u8 link_width_supported;
 	u8 link_width_active;
-	u8 linkspeed_portstate;			
-	u8 portphysstate_linkdown;		
-	u8 mkeyprot_resv_lmc;			
-	u8 linkspeedactive_enabled;		
-	u8 neighbormtu_mastersmsl;		
-	u8 vlcap_inittype;			
+	u8 linkspeed_portstate;			/* 4 bits, 4 bits */
+	u8 portphysstate_linkdown;		/* 4 bits, 4 bits */
+	u8 mkeyprot_resv_lmc;			/* 2 bits, 3, 3 */
+	u8 linkspeedactive_enabled;		/* 4 bits, 4 bits */
+	u8 neighbormtu_mastersmsl;		/* 4 bits, 4 bits */
+	u8 vlcap_inittype;			/* 4 bits, 4 bits */
 	u8 vl_high_limit;
 	u8 vl_arb_high_cap;
 	u8 vl_arb_low_cap;
-	u8 inittypereply_mtucap;		
-	u8 vlstallcnt_hoqlife;			
-	u8 operationalvl_pei_peo_fpi_fpo;	
+	u8 inittypereply_mtucap;		/* 4 bits, 4 bits */
+	u8 vlstallcnt_hoqlife;			/* 3 bits, 5 bits */
+	u8 operationalvl_pei_peo_fpi_fpo;	/* 4 bits, 1, 1, 1, 1 */
 	__be16 mkey_violations;
 	__be16 pkey_violations;
 	__be16 qkey_violations;
 	u8 guid_cap;
-	u8 clientrereg_resv_subnetto;		
-	u8 resv_resptimevalue;			
-	u8 localphyerrors_overrunerrors;	
+	u8 clientrereg_resv_subnetto;		/* 1 bit, 2 bits, 5 */
+	u8 resv_resptimevalue;			/* 3 bits, 5 bits */
+	u8 localphyerrors_overrunerrors;	/* 4 bits, 4 bits */
 	__be16 max_credit_hint;
 	u8 resv;
 	u8 link_roundtrip_latency[3];
@@ -124,4 +125,4 @@ ib_get_smp_direction(struct ib_smp *smp)
 	return ((smp->status & IB_SMP_DIRECTION) == IB_SMP_DIRECTION);
 }
 
-#endif 
+#endif /* IB_SMI_H */

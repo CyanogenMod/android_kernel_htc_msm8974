@@ -71,6 +71,12 @@ void iowrite32be(u32 val, void __iomem *addr)
 }
 EXPORT_SYMBOL(iowrite32be);
 
+/*
+ * These are the "repeat MMIO read/write" functions.
+ * Note the "__raw" accesses, since we don't want to
+ * convert to CPU byte order. We write in "IO byte
+ * order" (we also don't have IO barriers).
+ */
 static inline void mmio_insb(void __iomem *addr, u8 *dst, int count)
 {
 	while (--count >= 0) {

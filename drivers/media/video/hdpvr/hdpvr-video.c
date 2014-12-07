@@ -25,7 +25,7 @@
 #include <media/v4l2-ioctl.h>
 #include "hdpvr.h"
 
-#define BULK_URB_TIMEOUT   90 
+#define BULK_URB_TIMEOUT   90 /* 0.09 seconds */
 
 #define print_buffer_status() { \
 		v4l2_dbg(MSG_BUFFER, hdpvr_debug, &dev->v4l2_dev,	\
@@ -50,17 +50,22 @@ static uint list_size(struct list_head *list)
 	return count;
 }
 
+/*=========================================================================*/
+/* urb callback */
 static void hdpvr_read_bulk_callback(struct urb *urb)
 {
 	struct hdpvr_buffer *buf = (struct hdpvr_buffer *)urb->context;
 	struct hdpvr_device *dev = buf->dev;
 
-	
+	/* marking buffer as received and wake waiting */
 	buf->status = BUFSTAT_READY;
 	wake_up_interruptible(&dev->wait_data);
 }
 
+/*=========================================================================*/
+/* bufffer bits */
 
+/* function expects dev->io_mutex to be hold by caller */
 int hdpvr_cancel_queue(struct hdpvr_device *dev)
 {
 	struct hdpvr_buffer *buf;
@@ -98,6 +103,7 @@ static int hdpvr_free_queue(struct list_head *q)
 	return 0;
 }
 
+/* function expects dev->io_mutex to be hold by caller */
 int hdpvr_free_buffers(struct hdpvr_device *dev)
 {
 	hdpvr_cancel_queue(dev);
@@ -108,6 +114,7 @@ int hdpvr_free_buffers(struct hdpvr_device *dev)
 	return 0;
 }
 
+/* function expects dev->io_mutex to be hold by caller */
 int hdpvr_alloc_buffers(struct hdpvr_device *dev, uint count)
 {
 	uint i;
@@ -248,6 +255,7 @@ error:
 	dev->status = STATUS_ERROR;
 }
 
+/* function expects dev->io_mutex to be hold by caller */
 static int hdpvr_start_streaming(struct hdpvr_device *dev)
 {
 	int ret;
@@ -266,7 +274,7 @@ static int hdpvr_start_streaming(struct hdpvr_device *dev)
 			 vidinf->height, vidinf->fps);
 		kfree(vidinf);
 
-		
+		/* start streaming 2 request */
 		ret = usb_control_msg(dev->udev,
 				      usb_sndctrlpipe(dev->udev, 0),
 				      0xb8, 0x38, 0x1, 0, NULL, 0, 8000);
@@ -292,6 +300,7 @@ static int hdpvr_start_streaming(struct hdpvr_device *dev)
 }
 
 
+/* function expects dev->io_mutex to be hold by caller */
 static int hdpvr_stop_streaming(struct hdpvr_device *dev)
 {
 	int actual_length;
@@ -319,10 +328,10 @@ static int hdpvr_stop_streaming(struct hdpvr_device *dev)
 	flush_workqueue(dev->workqueue);
 
 	mutex_lock(&dev->io_mutex);
-	
+	/* kill the still outstanding urbs */
 	hdpvr_cancel_queue(dev);
 
-	
+	/* emptying the device buffer beforeshutting it down */
 	while (buf && ++c < 500 &&
 	       !usb_bulk_msg(dev->udev,
 			     usb_rcvbulkpipe(dev->udev,
@@ -343,6 +352,10 @@ static int hdpvr_stop_streaming(struct hdpvr_device *dev)
 }
 
 
+/*=======================================================================*/
+/*
+ * video 4 linux 2 file operations
+ */
 
 static int hdpvr_open(struct file *file)
 {
@@ -362,13 +375,15 @@ static int hdpvr_open(struct file *file)
 		v4l2_err(&dev->v4l2_dev, "Out of memory\n");
 		goto err;
 	}
+	/* lock the device to allow correctly handling errors
+	 * in resumption */
 	mutex_lock(&dev->io_mutex);
 	dev->open_count++;
 	mutex_unlock(&dev->io_mutex);
 
 	fh->dev = dev;
 
-	
+	/* save our object in the file's private structure */
 	file->private_data = fh;
 
 	retval = 0;
@@ -393,6 +408,10 @@ static int hdpvr_release(struct file *file)
 	return 0;
 }
 
+/*
+ * hdpvr_v4l2_read()
+ * will allocate buffers when called for the first time
+ */
 static ssize_t hdpvr_read(struct file *file, char __user *buffer, size_t count,
 			  loff_t *pos)
 {
@@ -424,7 +443,7 @@ static ssize_t hdpvr_read(struct file *file, char __user *buffer, size_t count,
 	}
 	mutex_unlock(&dev->io_mutex);
 
-	
+	/* wait for the first buffer */
 	if (!(file->f_flags & O_NONBLOCK)) {
 		if (wait_event_interruptible(dev->wait_data,
 					     hdpvr_get_next_buffer(dev)))
@@ -437,7 +456,7 @@ static ssize_t hdpvr_read(struct file *file, char __user *buffer, size_t count,
 
 		if (buf->status != BUFSTAT_READY &&
 		    dev->status != STATUS_DISCONNECTED) {
-			
+			/* return nonblocking */
 			if (file->f_flags & O_NONBLOCK) {
 				if (!ret)
 					ret = -EAGAIN;
@@ -454,7 +473,7 @@ static ssize_t hdpvr_read(struct file *file, char __user *buffer, size_t count,
 		if (buf->status != BUFSTAT_READY)
 			break;
 
-		
+		/* set remaining bytes to copy */
 		urb = buf->urb;
 		rem = urb->actual_length - buf->pos;
 		cnt = rem > count ? count : rem;
@@ -472,7 +491,7 @@ static ssize_t hdpvr_read(struct file *file, char __user *buffer, size_t count,
 		buffer += cnt;
 		ret += cnt;
 
-		
+		/* finished, take next buffer */
 		if (buf->pos == urb->actual_length) {
 			mutex_lock(&dev->io_mutex);
 			buf->pos = 0;
@@ -521,7 +540,7 @@ static unsigned int hdpvr_poll(struct file *filp, poll_table *wait)
 	mutex_unlock(&dev->io_mutex);
 
 	buf = hdpvr_get_next_buffer(dev);
-	
+	/* only wait if no data is available */
 	if (!buf || buf->status != BUFSTAT_READY) {
 		poll_wait(filp, &dev->wait_data, wait);
 		buf = hdpvr_get_next_buffer(dev);
@@ -542,6 +561,10 @@ static const struct v4l2_file_operations hdpvr_fops = {
 	.unlocked_ioctl	= video_ioctl2,
 };
 
+/*=======================================================================*/
+/*
+ * V4L2 ioctl handling
+ */
 
 static int vidioc_querycap(struct file *file, void  *priv,
 			   struct v4l2_capability *cap)
@@ -745,6 +768,8 @@ static int fill_queryctrl(struct hdpvr_options *opt, struct v4l2_queryctrl *qc,
 			V4L2_MPEG_VIDEO_ENCODING_MPEG_4_AVC, 1,
 			V4L2_MPEG_VIDEO_ENCODING_MPEG_4_AVC);
 
+/* 	case V4L2_CID_MPEG_VIDEO_? maybe keyframe interval: */
+/* 		return v4l2_ctrl_query_fill(qc, 0, 128, 128, 0); */
 	case V4L2_CID_MPEG_VIDEO_BITRATE_MODE:
 		return v4l2_ctrl_query_fill(
 			qc, V4L2_MPEG_VIDEO_BITRATE_MODE_VBR,
@@ -877,6 +902,9 @@ static int hdpvr_get_ctrl(struct hdpvr_options *opt,
 	case V4L2_CID_MPEG_VIDEO_ENCODING:
 		ctrl->value = V4L2_MPEG_VIDEO_ENCODING_MPEG_4_AVC;
 		break;
+/* 	case V4L2_CID_MPEG_VIDEO_B_FRAMES: */
+/* 		ctrl->value = (opt->gop_mode & 0x2) ? 0 : 128; */
+/* 		break; */
 	case V4L2_CID_MPEG_VIDEO_BITRATE_MODE:
 		ctrl->value = opt->bitrate_mode == HDPVR_CONSTANT
 			? V4L2_MPEG_VIDEO_BITRATE_MODE_CBR
@@ -936,6 +964,10 @@ static int hdpvr_try_ctrl(struct v4l2_ext_control *ctrl, int ac3)
 		if (ctrl->value == V4L2_MPEG_VIDEO_ENCODING_MPEG_4_AVC)
 			ret = 0;
 		break;
+/* 	case V4L2_CID_MPEG_VIDEO_B_FRAMES: */
+/* 		if (ctrl->value == 0 || ctrl->value == 128) */
+/* 			ret = 0; */
+/* 		break; */
 	case V4L2_CID_MPEG_VIDEO_BITRATE_MODE:
 		if (ctrl->value == V4L2_MPEG_VIDEO_BITRATE_MODE_CBR ||
 		    ctrl->value == V4L2_MPEG_VIDEO_BITRATE_MODE_VBR)
@@ -1006,6 +1038,18 @@ static int hdpvr_set_ctrl(struct hdpvr_device *dev,
 		break;
 	case V4L2_CID_MPEG_VIDEO_ENCODING:
 		break;
+/* 	case V4L2_CID_MPEG_VIDEO_B_FRAMES: */
+/* 		if (ctrl->value == 0 && !(opt->gop_mode & 0x2)) { */
+/* 			opt->gop_mode |= 0x2; */
+/* 			hdpvr_config_call(dev, CTRL_GOP_MODE_VALUE, */
+/* 					  opt->gop_mode); */
+/* 		} */
+/* 		if (ctrl->value == 128 && opt->gop_mode & 0x2) { */
+/* 			opt->gop_mode &= ~0x2; */
+/* 			hdpvr_config_call(dev, CTRL_GOP_MODE_VALUE, */
+/* 					  opt->gop_mode); */
+/* 		} */
+/* 		break; */
 	case V4L2_CID_MPEG_VIDEO_BITRATE_MODE:
 		if (ctrl->value == V4L2_MPEG_VIDEO_BITRATE_MODE_CBR &&
 		    opt->bitrate_mode != HDPVR_CONSTANT) {
@@ -1193,18 +1237,20 @@ static void hdpvr_device_release(struct video_device *vdev)
 
 	v4l2_device_unregister(&dev->v4l2_dev);
 
-	
+	/* deregister I2C adapter */
 #if defined(CONFIG_I2C) || (CONFIG_I2C_MODULE)
 	mutex_lock(&dev->i2c_mutex);
 	i2c_del_adapter(&dev->i2c_adapter);
 	mutex_unlock(&dev->i2c_mutex);
-#endif 
+#endif /* CONFIG_I2C */
 
 	kfree(dev->usbc_buf);
 	kfree(dev);
 }
 
 static const struct video_device hdpvr_video_template = {
+/* 	.type			= VFL_TYPE_GRABBER, */
+/* 	.type2			= VID_TYPE_CAPTURE | VID_TYPE_MPEG_ENCODER, */
 	.fops			= &hdpvr_fops,
 	.release		= hdpvr_device_release,
 	.ioctl_ops 		= &hdpvr_ioctl_ops,
@@ -1220,7 +1266,7 @@ static const struct video_device hdpvr_video_template = {
 int hdpvr_register_videodev(struct hdpvr_device *dev, struct device *parent,
 			    int devnum)
 {
-	
+	/* setup and register video device */
 	dev->video_dev = video_device_alloc();
 	if (!dev->video_dev) {
 		v4l2_err(&dev->v4l2_dev, "video_device_alloc() failed\n");

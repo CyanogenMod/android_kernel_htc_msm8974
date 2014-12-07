@@ -231,7 +231,7 @@ static int fsl_emb_cpu_setup(struct op_counter_config *ctr)
 {
 	int i;
 
-	
+	/* freeze all counters */
 	pmc_stop_ctrs();
 
 	for (i = 0;i < num_counters;i++) {
@@ -253,6 +253,11 @@ static int fsl_emb_reg_setup(struct op_counter_config *ctr,
 
 	num_counters = num_ctrs;
 
+	/* Our counters count up, and "count" refers to
+	 * how much before the next interrupt, and we interrupt
+	 * on overflow.  So we calculate the starting value
+	 * which will give us "count" until overflow.
+	 * Then we set the events on the enabled counters */
 	for (i = 0; i < num_counters; ++i)
 		reset_value[i] = 0x80000000UL - ctr[i].count;
 
@@ -268,16 +273,21 @@ static int fsl_emb_start(struct op_counter_config *ctr)
 	for (i = 0; i < num_counters; ++i) {
 		if (ctr[i].enabled) {
 			ctr_write(i, reset_value[i]);
+			/* Set each enabled counter to only
+			 * count when the Mark bit is *not* set */
 			set_pmc_marked(i, 1, 0);
 			pmc_start_ctr(i, 1);
 		} else {
 			ctr_write(i, 0);
 
-			
+			/* Set the ctr to be stopped */
 			pmc_start_ctr(i, 0);
 		}
 	}
 
+	/* Clear the freeze bit, and enable the interrupt.
+	 * The counters won't actually start until the rfi clears
+	 * the PMM bit */
 	pmc_start_ctrs(1);
 
 	oprofile_running = 1;
@@ -290,7 +300,7 @@ static int fsl_emb_start(struct op_counter_config *ctr)
 
 static void fsl_emb_stop(void)
 {
-	
+	/* freeze counters */
 	pmc_stop_ctrs();
 
 	oprofile_running = 0;
@@ -325,7 +335,13 @@ static void fsl_emb_handle_interrupt(struct pt_regs *regs,
 		}
 	}
 
-	
+	/* The freeze bit was set by the interrupt. */
+	/* Clear the freeze bit, and reenable the interrupt.  The
+	 * counters won't actually start until the rfi clears the PMM
+	 * bit.  The PMM bit should not be set until after the interrupt
+	 * is cleared to avoid it getting lost in some hypervisor
+	 * environments.
+	 */
 	mtmsr(mfmsr() | MSR_PMM);
 	pmc_start_ctrs(1);
 }

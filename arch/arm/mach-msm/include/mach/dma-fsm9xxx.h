@@ -13,6 +13,7 @@
 #ifndef __ASM_ARCH_MSM_DMA_FSM9XXX_H
 #define __ASM_ARCH_MSM_DMA_FSM9XXX_H
 
+/* DMA channels allocated to Scorpion */
 #define DMOV_GP_CHAN            4
 #define DMOV_CE1_IN_CHAN        5
 #define DMOV_CE1_OUT_CHAN       6
@@ -24,6 +25,7 @@
 #define DMOV_CE3_IN_CHAN        14
 #define DMOV_CE3_OUT_CHAN       15
 
+/* CRCIs */
 #define DMOV_CE1_IN_CRCI        1
 #define DMOV_CE1_OUT_CRCI       2
 #define DMOV_CE1_HASH_CRCI      3
@@ -44,8 +46,11 @@
 #define DMOV_CE3_OUT_CRCI       13
 #define DMOV_CE3_HASH_DONE_CRCI 14
 
+/* Following CRCIs are not defined in FSM9XXX, but these are added to keep
+ * the existing SDCC host controller driver compatible with FSM9XXX.
+ */
 #define DMOV_SDC2_CRCI         DMOV_SDC1_CRCI
 #define DMOV_SDC3_CRCI         DMOV_SDC1_CRCI
 #define DMOV_SDC4_CRCI         DMOV_SDC1_CRCI
 
-#endif 
+#endif /* __ASM_ARCH_MSM_DMA_FSM9XXX_H */

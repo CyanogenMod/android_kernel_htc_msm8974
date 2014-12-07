@@ -2798,6 +2798,10 @@ void kfree(const void *x)
 		return;
 
 	page = virt_to_head_page(x);
+	if (unlikely(!page)) {
+        kmemleak_free(x);
+		return;
+	}
 	if (unlikely(!PageSlab(page))) {
 		BUG_ON(!PageCompound(page));
 		kmemleak_free(x);

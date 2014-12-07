@@ -33,7 +33,7 @@ struct az6027_device_state {
 
 static const struct stb0899_s1_reg az6027_stb0899_s1_init_1[] = {
 
-	
+	/* 0x0000000b, SYSREG */
 	{ STB0899_DEV_ID		, 0x30 },
 	{ STB0899_DISCNTRL1		, 0x32 },
 	{ STB0899_DISCNTRL2     	, 0x80 },
@@ -43,7 +43,7 @@ static const struct stb0899_s1_reg az6027_stb0899_s1_init_1[] = {
 	{ STB0899_DISSTATUS		, 0x20 },
 	{ STB0899_DISF22        	, 0x99 },
 	{ STB0899_DISF22RX      	, 0xa8 },
-	
+	/* SYSREG ? */
 	{ STB0899_ACRPRESC      	, 0x11 },
 	{ STB0899_ACRDIV1       	, 0x0a },
 	{ STB0899_ACRDIV2       	, 0x05 },
@@ -91,9 +91,9 @@ static const struct stb0899_s1_reg az6027_stb0899_s1_init_1[] = {
 	{ STB0899_GPIO20CFG     	, 0x82 },
 	{ STB0899_SDATCFG       	, 0xb8 },
 	{ STB0899_SCLTCFG       	, 0xba },
-	{ STB0899_AGCRFCFG      	, 0x1c }, 
-	{ STB0899_GPIO22        	, 0x82 }, 
-	{ STB0899_GPIO21        	, 0x91 }, 
+	{ STB0899_AGCRFCFG      	, 0x1c }, /* 0x11 */
+	{ STB0899_GPIO22        	, 0x82 }, /* AGCBB2CFG */
+	{ STB0899_GPIO21        	, 0x91 }, /* AGCBB1CFG */
 	{ STB0899_DIRCLKCFG     	, 0x82 },
 	{ STB0899_CLKOUT27CFG   	, 0x7e },
 	{ STB0899_STDBYCFG      	, 0x82 },
@@ -108,8 +108,8 @@ static const struct stb0899_s1_reg az6027_stb0899_s1_init_1[] = {
 	{ STB0899_GPIO37CFG		, 0x82 },
 	{ STB0899_GPIO38CFG		, 0x82 },
 	{ STB0899_GPIO39CFG		, 0x82 },
-	{ STB0899_NCOARSE       	, 0x17 }, 
-	{ STB0899_SYNTCTRL      	, 0x02 }, 
+	{ STB0899_NCOARSE       	, 0x17 }, /* 0x15 = 27 Mhz Clock, F/3 = 198MHz, F/6 = 99MHz */
+	{ STB0899_SYNTCTRL      	, 0x02 }, /* 0x00 = CLK from CLKI, 0x02 = CLK from XTALI */
 	{ STB0899_FILTCTRL      	, 0x00 },
 	{ STB0899_SYSCTRL       	, 0x01 },
 	{ STB0899_STOPCLK1      	, 0x20 },
@@ -191,14 +191,14 @@ static const struct stb0899_s1_reg az6027_stb0899_s1_init_3[] = {
 	{ STB0899_VTH78         	, 0x24 },
 	{ STB0899_PRVIT         	, 0xff },
 	{ STB0899_VITSYNC       	, 0x19 },
-	{ STB0899_RSULC         	, 0xb1 }, 
+	{ STB0899_RSULC         	, 0xb1 }, /* DVB = 0xb1, DSS = 0xa1 */
 	{ STB0899_TSULC         	, 0x42 },
 	{ STB0899_RSLLC         	, 0x41 },
 	{ STB0899_TSLPL			, 0x12 },
 	{ STB0899_TSCFGH        	, 0x0c },
 	{ STB0899_TSCFGM        	, 0x00 },
 	{ STB0899_TSCFGL        	, 0x00 },
-	{ STB0899_TSOUT			, 0x69 }, 
+	{ STB0899_TSOUT			, 0x69 }, /* 0x0d for CAM */
 	{ STB0899_RSSYNCDEL     	, 0x00 },
 	{ STB0899_TSINHDELH     	, 0x02 },
 	{ STB0899_TSINHDELM		, 0x00 },
@@ -261,10 +261,10 @@ struct stb0899_config az6027_stb0899_config = {
 	.init_s2_fec		= stb0899_s2_init_4,
 	.init_tst		= stb0899_s1_init_5,
 
-	.demod_address 		= 0xd0, 
+	.demod_address 		= 0xd0, /* 0x68, 0xd0 >> 1 */
 
 	.xtal_freq		= 27000000,
-	.inversion		= IQ_SWAP_ON, 
+	.inversion		= IQ_SWAP_ON, /* 1 */
 
 	.lo_clk			= 76500000,
 	.hi_clk			= 99000000,
@@ -297,6 +297,7 @@ struct stb6100_config az6027_stb6100_config = {
 };
 
 
+/* check for mutex FIXME */
 int az6027_usb_in_op(struct dvb_usb_device *d, u8 req, u16 value, u16 index, u8 *b, int blen)
 {
 	int ret = -1;
@@ -383,16 +384,25 @@ static int az6027_streaming_ctrl(struct dvb_usb_adapter *adap, int onoff)
 	return ret;
 }
 
+/* keys for the enclosed remote control */
 static struct rc_map_table rc_map_az6027_table[] = {
 	{ 0x01, KEY_1 },
 	{ 0x02, KEY_2 },
 };
 
+/* remote control stuff (does not work with my box) */
 static int az6027_rc_query(struct dvb_usb_device *d, u32 *event, int *state)
 {
 	return 0;
 }
 
+/*
+int az6027_power_ctrl(struct dvb_usb_device *d, int onoff)
+{
+	u8 v = onoff;
+	return az6027_usb_out_op(d,0xBC,v,3,NULL,1);
+}
+*/
 
 static int az6027_ci_read_attribute_mem(struct dvb_ca_en50221 *ca,
 					int slot,
@@ -746,8 +756,8 @@ static int az6027_ci_init(struct dvb_usb_adapter *a)
 
 	ret = dvb_ca_en50221_init(&a->dvb_adap,
 				  &state->ca,
-				  0, 
-				  1);
+				  0, /* flags */
+				  1);/* n_slots */
 	if (ret != 0) {
 		err("Cannot initialize CI: Error %d.", ret);
 		memset(&state->ca, 0, sizeof(state->ca));
@@ -759,6 +769,13 @@ static int az6027_ci_init(struct dvb_usb_adapter *a)
 	return 0;
 }
 
+/*
+static int az6027_read_mac_addr(struct dvb_usb_device *d, u8 mac[6])
+{
+	az6027_usb_in_op(d, 0xb7, 6, 0, &mac[0], 6);
+	return 0;
+}
+*/
 
 static int az6027_set_voltage(struct dvb_frontend *fe, fe_sec_voltage_t voltage)
 {
@@ -773,6 +790,11 @@ static int az6027_set_voltage(struct dvb_frontend *fe, fe_sec_voltage_t voltage)
 		.len	= 1
 	};
 
+	/*
+	 * 2   --18v
+	 * 1   --13v
+	 * 0   --off
+	 */
 	switch (voltage) {
 	case SEC_VOLTAGE_13:
 		buf = 1;
@@ -805,7 +827,7 @@ static int az6027_frontend_poweron(struct dvb_usb_adapter *adap)
 	int blen;
 
 	req = 0xBC;
-	value = 1; 
+	value = 1; /* power on */
 	index = 3;
 	blen = 0;
 
@@ -823,9 +845,9 @@ static int az6027_frontend_reset(struct dvb_usb_adapter *adap)
 	u16 index;
 	int blen;
 
-	
+	/* reset demodulator */
 	req = 0xC0;
-	value = 1; 
+	value = 1; /* high */
 	index = 3;
 	blen = 0;
 
@@ -834,7 +856,7 @@ static int az6027_frontend_reset(struct dvb_usb_adapter *adap)
 		return -EIO;
 
 	req = 0xC0;
-	value = 0; 
+	value = 0; /* low */
 	index = 3;
 	blen = 0;
 	msleep_interruptible(200);
@@ -846,7 +868,7 @@ static int az6027_frontend_reset(struct dvb_usb_adapter *adap)
 	msleep_interruptible(200);
 
 	req = 0xC0;
-	value = 1; 
+	value = 1; /*high */
 	index = 3;
 	blen = 0;
 
@@ -866,7 +888,7 @@ static int az6027_frontend_tsbypass(struct dvb_usb_adapter *adap, int onoff)
 	u16 index;
 	int blen;
 
-	
+	/* TS passthrough */
 	req = 0xC7;
 	value = onoff;
 	index = 0;
@@ -925,6 +947,7 @@ static int az6027_usb_probe(struct usb_interface *intf,
 				   adapter_nr);
 }
 
+/* I2C */
 static int az6027_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msg[], int num)
 {
 	struct dvb_usb_device *d = i2c_get_adapdata(adap);
@@ -958,7 +981,7 @@ static int az6027_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msg[], int n
 		}
 
 		if (msg[i].addr == 0xd0) {
-			
+			/* write/read request */
 			if (i + 1 < num && (msg[i + 1].flags & I2C_M_RD)) {
 				req = 0xB9;
 				index = (((msg[i].buf[0] << 8) & 0xff00) | (msg[i].buf[1] & 0x00ff));
@@ -972,7 +995,7 @@ static int az6027_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msg[], int n
 				i++;
 			} else {
 
-				
+				/* demod 16bit addr */
 				req = 0xBD;
 				index = (((msg[i].buf[0] << 8) & 0xff00) | (msg[i].buf[1] & 0x00ff));
 				value = msg[i].addr + (2 << 8);
@@ -1085,7 +1108,7 @@ static struct dvb_usb_device_properties az6027_properties = {
 			.streaming_ctrl   = az6027_streaming_ctrl,
 			.frontend_attach  = az6027_frontend_attach,
 
-			
+			/* parameter for the MPEG2-data transfer */
 			.stream = {
 				.type = USB_BULK,
 				.count = 10,
@@ -1099,6 +1122,10 @@ static struct dvb_usb_device_properties az6027_properties = {
 		}},
 		}
 	},
+/*
+	.power_ctrl       = az6027_power_ctrl,
+	.read_mac_address = az6027_read_mac_addr,
+ */
 	.rc.legacy = {
 		.rc_map_table     = rc_map_az6027_table,
 		.rc_map_size      = ARRAY_SIZE(rc_map_az6027_table),
@@ -1139,6 +1166,7 @@ static struct dvb_usb_device_properties az6027_properties = {
 	}
 };
 
+/* usb specific object needed to register this driver with the usb subsystem */
 static struct usb_driver az6027_usb_driver = {
 	.name		= "dvb_usb_az6027",
 	.probe 		= az6027_usb_probe,

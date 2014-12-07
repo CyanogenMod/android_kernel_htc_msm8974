@@ -83,7 +83,7 @@ int iwch_reregister_mem(struct iwch_dev *rhp, struct iwch_pd *php,
 	u32 stag;
 	int ret;
 
-	
+	/* We could support this... */
 	if (npages > mhp->attr.pbl_size)
 		return -ENOMEM;
 
@@ -165,7 +165,7 @@ int build_phys_page_list(struct ib_phys_buf *buffer_list,
 	if (*total_size > 0xFFFFFFFFULL)
 		return -ENOMEM;
 
-	
+	/* Find largest page shift we can use to cover buffers */
 	for (*shift = PAGE_SHIFT; *shift < 27; ++(*shift))
 		if ((1ULL << *shift) & mask)
 			break;

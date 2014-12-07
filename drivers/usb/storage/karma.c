@@ -50,6 +50,9 @@ struct karma_data {
 static int rio_karma_init(struct us_data *us);
 
 
+/*
+ * The table of devices
+ */
 #define UNUSUAL_DEV(id_vendor, id_product, bcdDeviceMin, bcdDeviceMax, \
 		    vendorName, productName, useProtocol, useTransport, \
 		    initFunction, flags) \
@@ -58,12 +61,15 @@ static int rio_karma_init(struct us_data *us);
 
 static struct usb_device_id karma_usb_ids[] = {
 #	include "unusual_karma.h"
-	{ }		
+	{ }		/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, karma_usb_ids);
 
 #undef UNUSUAL_DEV
 
+/*
+ * The flags table
+ */
 #define UNUSUAL_DEV(idVendor, idProduct, bcdDeviceMin, bcdDeviceMax, \
 		    vendor_name, product_name, use_protocol, use_transport, \
 		    init_function, Flags) \
@@ -77,12 +83,22 @@ MODULE_DEVICE_TABLE(usb, karma_usb_ids);
 
 static struct us_unusual_dev karma_unusual_dev_list[] = {
 #	include "unusual_karma.h"
-	{ }		
+	{ }		/* Terminating entry */
 };
 
 #undef UNUSUAL_DEV
 
 
+/*
+ * Send commands to Rio Karma.
+ *
+ * For each command we send 40 bytes starting 'RIOP\0' followed by
+ * the command number and a sequence number, which the device will ack
+ * with a 512-byte packet with the high four bits set and everything
+ * else null.  Then we send 'RIOP\x80' followed by a zero and the
+ * sequence number, until byte 5 in the response repeats the sequence
+ * number.
+ */
 static int rio_karma_send_command(char cmd, struct us_data *us)
 {
 	int result, partial;
@@ -130,6 +146,10 @@ err:
 	return USB_STOR_TRANSPORT_FAILED;
 }
 
+/*
+ * Trap START_STOP and READ_10 to leave/re-enter storage mode.
+ * Everything else is propagated to the normal bulk layer.
+ */
 static int rio_karma_transport(struct scsi_cmnd *srb, struct us_data *us)
 {
 	int ret;

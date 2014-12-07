@@ -53,43 +53,43 @@
 #define CMD_CHAN_IF_REV 1
 
 enum {
-	
+	/* command completed successfully: */
 	CMD_STAT_OK		= 0x00,
-	
+	/* Internal error (such as a bus error) occurred while processing command: */
 	CMD_STAT_INTERNAL_ERR	= 0x01,
-	
+	/* Operation/command not supported or opcode modifier not supported: */
 	CMD_STAT_BAD_OP		= 0x02,
-	
+	/* Parameter not supported or parameter out of range: */
 	CMD_STAT_BAD_PARAM	= 0x03,
-	
+	/* System not enabled or bad system state: */
 	CMD_STAT_BAD_SYS_STATE	= 0x04,
-	
+	/* Attempt to access reserved or unallocaterd resource: */
 	CMD_STAT_BAD_RESOURCE	= 0x05,
-	
+	/* Requested resource is currently executing a command, or is otherwise busy: */
 	CMD_STAT_RESOURCE_BUSY	= 0x06,
-	
+	/* Required capability exceeds device limits: */
 	CMD_STAT_EXCEED_LIM	= 0x08,
-	
+	/* Resource is not in the appropriate state or ownership: */
 	CMD_STAT_BAD_RES_STATE	= 0x09,
-	
+	/* Index out of range: */
 	CMD_STAT_BAD_INDEX	= 0x0a,
-	
+	/* FW image corrupted: */
 	CMD_STAT_BAD_NVMEM	= 0x0b,
-	
+	/* Error in ICM mapping (e.g. not enough auxiliary ICM pages to execute command): */
 	CMD_STAT_ICM_ERROR	= 0x0c,
-	
+	/* Attempt to modify a QP/EE which is not in the presumed state: */
 	CMD_STAT_BAD_QP_STATE   = 0x10,
-	
+	/* Bad segment parameters (Address/Size): */
 	CMD_STAT_BAD_SEG_PARAM	= 0x20,
-	
+	/* Memory Region has Memory Windows bound to: */
 	CMD_STAT_REG_BOUND	= 0x21,
-	
+	/* HCA local attached memory not present: */
 	CMD_STAT_LAM_NOT_PRE	= 0x22,
-	
+	/* Bad management packet (silently discarded): */
 	CMD_STAT_BAD_PKT	= 0x30,
-	
+	/* More outstanding CQEs in CQ than new CQ size: */
 	CMD_STAT_BAD_SIZE	= 0x40,
-	
+	/* Multi Function device support required: */
 	CMD_STAT_MULTI_FUNC_REQ	= 0x50,
 };
 
@@ -200,7 +200,7 @@ static int mlx4_comm_cmd_poll(struct mlx4_dev *dev, u8 cmd, u16 param,
 	int err = 0;
 	int ret_from_pending = 0;
 
-	
+	/* First, verify that the master reports correct status */
 	if (comm_pending(dev)) {
 		mlx4_warn(dev, "Communication channel is not idle."
 			  "my toggle is %d (cmd:0x%x)\n",
@@ -208,7 +208,7 @@ static int mlx4_comm_cmd_poll(struct mlx4_dev *dev, u8 cmd, u16 param,
 		return -EAGAIN;
 	}
 
-	
+	/* Write command */
 	down(&priv->cmd.poll_sem);
 	mlx4_comm_cmd_post(dev, cmd, param);
 
@@ -217,6 +217,9 @@ static int mlx4_comm_cmd_poll(struct mlx4_dev *dev, u8 cmd, u16 param,
 		cond_resched();
 	ret_from_pending = comm_pending(dev);
 	if (ret_from_pending) {
+		/* check if the slave is trying to boot in the middle of
+		 * FLR process. The only non-zero result in the RESET command
+		 * is MLX4_DELAY_RESET_SLAVE*/
 		if ((MLX4_COMM_CMD_RESET == cmd)) {
 			mlx4_warn(dev, "Got slave FLRed from Communication"
 				  " channel (ret:0x%x)\n", ret_from_pending);
@@ -266,6 +269,10 @@ static int mlx4_comm_cmd_wait(struct mlx4_dev *dev, u8 op,
 	}
 
 out:
+	/* wait for comm channel ready
+	 * this is necessary for prevention the race
+	 * when switching between event to polling mode
+	 */
 	end = msecs_to_jiffies(timeout) + jiffies;
 	while (comm_pending(dev) && time_before(jiffies, end))
 		cond_resched();
@@ -319,6 +326,12 @@ static int mlx4_cmd_post(struct mlx4_dev *dev, u64 in_param, u64 out_param,
 		cond_resched();
 	}
 
+	/*
+	 * We use writel (instead of something like memcpy_toio)
+	 * because writes of less than 32 bits to the HCR don't work
+	 * (and some architectures such as ia64 implement memcpy_toio
+	 * in terms of writeb).
+	 */
 	__raw_writel((__force u32) cpu_to_be32(in_param >> 32),		  hcr + 0);
 	__raw_writel((__force u32) cpu_to_be32(in_param & 0xfffffffful),  hcr + 1);
 	__raw_writel((__force u32) cpu_to_be32(in_modifier),		  hcr + 2);
@@ -326,7 +339,7 @@ static int mlx4_cmd_post(struct mlx4_dev *dev, u64 in_param, u64 out_param,
 	__raw_writel((__force u32) cpu_to_be32(out_param & 0xfffffffful), hcr + 4);
 	__raw_writel((__force u32) cpu_to_be32(token << 16),		  hcr + 5);
 
-	
+	/* __raw_writel may not order writes. */
 	wmb();
 
 	__raw_writel((__force u32) cpu_to_be32((1 << HCR_GO_BIT)		|
@@ -335,6 +348,10 @@ static int mlx4_cmd_post(struct mlx4_dev *dev, u64 in_param, u64 out_param,
 					       (op_modifier << HCR_OPMOD_SHIFT) |
 					       op), hcr + 6);
 
+	/*
+	 * Make sure that our HCR writes don't get mixed in with
+	 * writes from another CPU starting a FW command.
+	 */
 	mmiowb();
 
 	cmd->toggle = cmd->toggle ^ 1;
@@ -452,7 +469,7 @@ void mlx4_cmd_event(struct mlx4_dev *dev, u16 token, u8 status, u64 out_param)
 	struct mlx4_cmd_context *context =
 		&priv->cmd.context[token & priv->cmd.token_mask];
 
-	
+	/* previously timed out command completing at long last */
 	if (token != context->token)
 		return;
 
@@ -1007,7 +1024,7 @@ static struct mlx4_cmd_info cmd_info[] = {
 		.verify = NULL,
 		.wrapper = mlx4_QUERY_IF_STAT_wrapper
 	},
-	
+	/* Native multicast commands are not available for guests */
 	{
 		.opcode = MLX4_CMD_QP_ATTACH,
 		.has_inbox = true,
@@ -1026,7 +1043,7 @@ static struct mlx4_cmd_info cmd_info[] = {
 		.verify = NULL,
 		.wrapper = mlx4_PROMISC_wrapper
 	},
-	
+	/* Ethernet specific commands */
 	{
 		.opcode = MLX4_CMD_SET_VLAN_FLTR,
 		.has_inbox = true,
@@ -1080,12 +1097,12 @@ static int mlx4_master_process_vhcr(struct mlx4_dev *dev, int slave,
 	int i;
 	int err = 0;
 
-	
+	/* Create sw representation of Virtual HCR */
 	vhcr = kzalloc(sizeof(struct mlx4_vhcr), GFP_KERNEL);
 	if (!vhcr)
 		return -ENOMEM;
 
-	
+	/* DMA in the vHCR */
 	if (!in_vhcr) {
 		ret = mlx4_ACCESS_MEM(dev, priv->mfunc.vhcr_dma, slave,
 				      priv->mfunc.master.slave_state[slave].vhcr_dma,
@@ -1099,7 +1116,7 @@ static int mlx4_master_process_vhcr(struct mlx4_dev *dev, int slave,
 		}
 	}
 
-	
+	/* Fill SW VHCR fields */
 	vhcr->in_param = be64_to_cpu(vhcr_cmd->in_param);
 	vhcr->out_param = be64_to_cpu(vhcr_cmd->out_param);
 	vhcr->in_modifier = be32_to_cpu(vhcr_cmd->in_modifier);
@@ -1108,7 +1125,7 @@ static int mlx4_master_process_vhcr(struct mlx4_dev *dev, int slave,
 	vhcr->op_modifier = (u8) (be16_to_cpu(vhcr_cmd->opcode) >> 12);
 	vhcr->e_bit = vhcr_cmd->flags & (1 << 6);
 
-	
+	/* Lookup command */
 	for (i = 0; i < ARRAY_SIZE(cmd_info); ++i) {
 		if (vhcr->op == cmd_info[i].opcode) {
 			cmd = &cmd_info[i];
@@ -1122,7 +1139,7 @@ static int mlx4_master_process_vhcr(struct mlx4_dev *dev, int slave,
 		goto out_status;
 	}
 
-	
+	/* Read inbox */
 	if (cmd->has_inbox) {
 		vhcr->in_param &= INBOX_MASK;
 		inbox = mlx4_alloc_cmd_mailbox(dev);
@@ -1142,7 +1159,7 @@ static int mlx4_master_process_vhcr(struct mlx4_dev *dev, int slave,
 		}
 	}
 
-	
+	/* Apply permission and bound checks if applicable */
 	if (cmd->verify && cmd->verify(dev, slave, vhcr, inbox)) {
 		mlx4_warn(dev, "Command:0x%x from slave: %d failed protection "
 			  "checks for resource_id:%d\n", vhcr->op, slave,
@@ -1151,7 +1168,7 @@ static int mlx4_master_process_vhcr(struct mlx4_dev *dev, int slave,
 		goto out_status;
 	}
 
-	
+	/* Allocate outbox */
 	if (cmd->has_outbox) {
 		outbox = mlx4_alloc_cmd_mailbox(dev);
 		if (IS_ERR(outbox)) {
@@ -1161,7 +1178,7 @@ static int mlx4_master_process_vhcr(struct mlx4_dev *dev, int slave,
 		}
 	}
 
-	
+	/* Execute the command! */
 	if (cmd->wrapper) {
 		err = cmd->wrapper(dev, slave, vhcr, inbox, outbox,
 				   cmd);
@@ -1193,19 +1210,22 @@ static int mlx4_master_process_vhcr(struct mlx4_dev *dev, int slave,
 	}
 
 
-	
+	/* Write outbox if command completed successfully */
 	if (cmd->has_outbox && !vhcr_cmd->status) {
 		ret = mlx4_ACCESS_MEM(dev, outbox->dma, slave,
 				      vhcr->out_param,
 				      MLX4_MAILBOX_SIZE, MLX4_CMD_WRAPPED);
 		if (ret) {
+			/* If we failed to write back the outbox after the
+			 *command was successfully executed, we must fail this
+			 * slave, as it is now in undefined state */
 			mlx4_err(dev, "%s:Failed writing outbox\n", __func__);
 			goto out;
 		}
 	}
 
 out_status:
-	
+	/* DMA back vhcr result */
 	if (!in_vhcr) {
 		ret = mlx4_ACCESS_MEM(dev, priv->mfunc.vhcr_dma, slave,
 				      priv->mfunc.master.slave_state[slave].vhcr_dma,
@@ -1252,17 +1272,19 @@ static void mlx4_master_do_cmd(struct mlx4_dev *dev, int slave, u8 cmd,
 				slave_state[slave].event_eq[i].eqn = -1;
 				slave_state[slave].event_eq[i].token = 0;
 		}
+		/*check if we are in the middle of FLR process,
+		if so return "retry" status to the slave*/
 		if (MLX4_COMM_CMD_FLR == slave_state[slave].last_cmd) {
 			slave_status = MLX4_DELAY_RESET_SLAVE;
 			goto inform_slave_state;
 		}
 
-		
+		/* write the version in the event field */
 		reply |= mlx4_comm_get_version();
 
 		goto reset_slave;
 	}
-	
+	/*command from slave in the middle of FLR*/
 	if (cmd != MLX4_COMM_CMD_RESET &&
 	    MLX4_COMM_CMD_FLR == slave_state[slave].last_cmd) {
 		mlx4_warn(dev, "slave:%d is Trying to run cmd(0x%x) "
@@ -1330,13 +1352,13 @@ static void mlx4_master_do_cmd(struct mlx4_dev *dev, int slave, u8 cmd,
 	return;
 
 reset_slave:
-	
+	/* cleanup any slave resources */
 	mlx4_delete_all_resources_for_slave(dev, slave);
 	spin_lock(&priv->mfunc.master.slave_state_lock);
 	if (!slave_state[slave].is_slave_going_down)
 		slave_state[slave].last_cmd = MLX4_COMM_CMD_RESET;
 	spin_unlock(&priv->mfunc.master.slave_state_lock);
-	
+	/*with slave in the middle of flr, no need to clean resources again.*/
 inform_slave_state:
 	memset(&slave_state[slave].event_eq, 0,
 	       sizeof(struct mlx4_slave_event_eq_info));
@@ -1345,6 +1367,7 @@ inform_slave_state:
 	wmb();
 }
 
+/* master command processing */
 void mlx4_master_comm_channel(struct work_struct *work)
 {
 	struct mlx4_mfunc_master_ctx *master =
@@ -1425,6 +1448,12 @@ static int sync_toggles(struct mlx4_dev *dev)
 		cond_resched();
 	}
 
+	/*
+	 * we could reach here if for example the previous VM using this
+	 * function misbehaved and left the channel with unsynced state. We
+	 * should fix this here and give this VM a chance to use a properly
+	 * synced channel
+	 */
 	mlx4_warn(dev, "recovering from previously mis-behaved VM\n");
 	__raw_writel((__force u32) 0, &priv->mfunc.comm->slave_read);
 	__raw_writel((__force u32) 0, &priv->mfunc.comm->slave_write);
@@ -1614,6 +1643,10 @@ void mlx4_cmd_cleanup(struct mlx4_dev *dev)
 		iounmap(priv->cmd.hcr);
 }
 
+/*
+ * Switch to using events to issue FW commands (can only be called
+ * after event queue for command events has been initialized).
+ */
 int mlx4_cmd_use_events(struct mlx4_dev *dev)
 {
 	struct mlx4_priv *priv = mlx4_priv(dev);
@@ -1640,7 +1673,7 @@ int mlx4_cmd_use_events(struct mlx4_dev *dev)
 	for (priv->cmd.token_mask = 1;
 	     priv->cmd.token_mask < priv->cmd.max_cmds;
 	     priv->cmd.token_mask <<= 1)
-		; 
+		; /* nothing */
 	--priv->cmd.token_mask;
 
 	down(&priv->cmd.poll_sem);
@@ -1649,6 +1682,9 @@ int mlx4_cmd_use_events(struct mlx4_dev *dev)
 	return err;
 }
 
+/*
+ * Switch back to polling (used when shutting down the device)
+ */
 void mlx4_cmd_use_polling(struct mlx4_dev *dev)
 {
 	struct mlx4_priv *priv = mlx4_priv(dev);

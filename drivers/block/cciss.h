@@ -38,14 +38,21 @@ typedef struct _drive_info_struct
 	int 	heads;
 	int	sectors;
 	int 	cylinders;
-	int	raid_level; 
-	int	busy_configuring; 
+	int	raid_level; /* set to -1 to indicate that
+			     * the drive is not in use/configured
+			     */
+	int	busy_configuring; /* This is set when a drive is being removed
+				   * to prevent it from being opened or it's
+				   * queue from being started.
+				   */
 	struct	device dev;
-	__u8 serial_no[16]; 
-	char vendor[VENDOR_LEN + 1]; 
-	char model[MODEL_LEN + 1];   
-	char rev[REV_LEN + 1];       
-	char device_initialized;     
+	__u8 serial_no[16]; /* from inquiry page 0x83,
+			     * not necc. null terminated.
+			     */
+	char vendor[VENDOR_LEN + 1]; /* SCSI vendor string */
+	char model[MODEL_LEN + 1];   /* SCSI model string */
+	char rev[REV_LEN + 1];       /* SCSI revision string */
+	char device_initialized;     /* indicates whether dev is initialized */
 } drive_info_struct;
 
 struct ctlr_info
@@ -53,21 +60,25 @@ struct ctlr_info
 	int	ctlr;
 	char	devname[8];
 	char    *product_name;
-	char	firm_ver[4]; 
+	char	firm_ver[4]; /* Firmware version */
 	struct pci_dev *pdev;
 	__u32	board_id;
 	void __iomem *vaddr;
 	unsigned long paddr;
-	int 	nr_cmds; 
+	int 	nr_cmds; /* Number of commands allowed on this controller */
 	CfgTable_struct __iomem *cfgtable;
 	int	interrupts_enabled;
 	int	major;
 	int 	max_commands;
 	int	commands_outstanding;
-	int 	max_outstanding;  
+	int 	max_outstanding; /* Debug */ 
 	int	num_luns;
 	int 	highest_lun;
-	int	usage_count;  
+	int	usage_count;  /* number of opens all all minor devices */
+	/* Need space for temp sg list
+	 * number of scatter/gathers supported
+	 * number of scatter/gathers in chained block
+	 */
 	struct	scatterlist **scatter_list;
 	int	maxsgentries;
 	int	chainsize;
@@ -87,12 +98,12 @@ struct ctlr_info
 	BYTE	cciss_write;
 	BYTE	cciss_read_capacity;
 
-	
+	/* information about each logical volume */
 	drive_info_struct *drv[CISS_MAX_LUN];
 
 	struct access_method access;
 
-	 
+	/* queue and queue Info */ 
 	struct list_head reqQ;
 	struct list_head cmpQ;
 	unsigned int Qdepth;
@@ -100,7 +111,7 @@ struct ctlr_info
 	unsigned int maxSG;
 	spinlock_t lock;
 
-	
+	/* pointers to command and error info pool */
 	CommandList_struct 	*cmd_pool;
 	dma_addr_t		cmd_pool_dhandle; 
 	ErrorInfo_struct 	*errinfo_pool;
@@ -113,9 +124,12 @@ struct ctlr_info
 	int			busy_scanning;
 	struct mutex		busy_shutting_down;
 
+	/* This element holds the zero based queue number of the last
+	 * queue to be started.  It is used for fairness.
+	*/
 	int			next_to_run;
 
-	
+	/* Disk structures we need to pass back */
 	struct gendisk   *gendisk[CISS_MAX_LUN];
 #ifdef CONFIG_CISS_SCSI_TAPE
 	struct cciss_scsi_adapter_data_t *scsi_ctlr;
@@ -124,11 +138,17 @@ struct ctlr_info
 	struct list_head scan_list;
 	struct completion scan_wait;
 	struct device dev;
+	/*
+	 * Performant mode tables.
+	 */
 	u32 trans_support;
 	u32 trans_offset;
 	struct TransTable_struct *transtable;
 	unsigned long transMethod;
 
+	/*
+	 * Performant mode completion buffer
+	 */
 	u64 *reply_pool;
 	dma_addr_t reply_pool_dhandle;
 	u64 *reply_pool_head;
@@ -137,6 +157,10 @@ struct ctlr_info
 	u32 *blockFetchTable;
 };
 
+/*  Defining the diffent access_methods
+ *
+ * Memory mapped FIFO interface (SMART 53xx cards)
+ */
 #define SA5_DOORBELL	0x20
 #define SA5_REQUEST_PORT_OFFSET	0x40
 #define SA5_REPLY_INTR_MASK_OFFSET	0x34
@@ -152,7 +176,8 @@ struct ctlr_info
 #define SA5_INTR_PENDING	0x08
 #define SA5B_INTR_PENDING	0x04
 #define FIFO_EMPTY		0xffffffff	
-#define CCISS_FIRMWARE_READY	0xffff0000 
+#define CCISS_FIRMWARE_READY	0xffff0000 /* value in scratchpad register */
+/* Perf. mode flags */
 #define SA5_PERF_INTR_PENDING	0x04
 #define SA5_PERF_INTR_OFF	0x05
 #define SA5_OUTDB_STATUS_PERF_BIT	0x01
@@ -168,6 +193,13 @@ struct ctlr_info
 #define CCISS_INTR_OFF	0
 
 
+/* CCISS_BOARD_READY_WAIT_SECS is how long to wait for a board
+ * to become ready, in seconds, before giving up on it.
+ * CCISS_BOARD_READY_POLL_INTERVAL_MSECS * is how long to wait
+ * between polling the board to see if it is ready, in
+ * milliseconds.  CCISS_BOARD_READY_ITERATIONS is derived
+ * the above.
+ */
 #define CCISS_BOARD_READY_WAIT_SECS (120)
 #define CCISS_BOARD_NOT_READY_WAIT_SECS (100)
 #define CCISS_BOARD_READY_POLL_INTERVAL_MSECS (100)
@@ -182,12 +214,15 @@ struct ctlr_info
 #define CCISS_POST_RESET_NOOP_RETRIES (12)
 #define CCISS_POST_RESET_NOOP_TIMEOUT_MSECS (10000)
 
+/* 
+	Send the command to the hardware 
+*/
 static void SA5_submit_command( ctlr_info_t *h, CommandList_struct *c) 
 {
 #ifdef CCISS_DEBUG
 	printk(KERN_WARNING "cciss%d: Sending %08x - down to controller\n",
 			h->ctlr, c->busaddr);
-#endif 
+#endif /* CCISS_DEBUG */
          writel(c->busaddr, h->vaddr + SA5_REQUEST_PORT_OFFSET);
 	readl(h->vaddr + SA5_SCRATCHPAD_OFFSET);
 	 h->commands_outstanding++;
@@ -195,14 +230,19 @@ static void SA5_submit_command( ctlr_info_t *h, CommandList_struct *c)
 		h->max_outstanding = h->commands_outstanding;
 }
 
+/*  
+ *  This card is the opposite of the other cards.  
+ *   0 turns interrupts on... 
+ *   0x08 turns them off... 
+ */
 static void SA5_intr_mask(ctlr_info_t *h, unsigned long val)
 {
 	if (val) 
-	{ 
+	{ /* Turn interrupts on */
 		h->interrupts_enabled = 1;
 		writel(0, h->vaddr + SA5_REPLY_INTR_MASK_OFFSET);
 		(void) readl(h->vaddr + SA5_REPLY_INTR_MASK_OFFSET);
-	} else 
+	} else /* Turn them off */
 	{
 		h->interrupts_enabled = 0;
         	writel( SA5_INTR_OFF, 
@@ -210,14 +250,19 @@ static void SA5_intr_mask(ctlr_info_t *h, unsigned long val)
 		(void) readl(h->vaddr + SA5_REPLY_INTR_MASK_OFFSET);
 	}
 }
+/*
+ *  This card is the opposite of the other cards.
+ *   0 turns interrupts on...
+ *   0x04 turns them off...
+ */
 static void SA5B_intr_mask(ctlr_info_t *h, unsigned long val)
 {
         if (val)
-        { 
+        { /* Turn interrupts on */
 		h->interrupts_enabled = 1;
                 writel(0, h->vaddr + SA5_REPLY_INTR_MASK_OFFSET);
 		(void) readl(h->vaddr + SA5_REPLY_INTR_MASK_OFFSET);
-        } else 
+        } else /* Turn them off */
         {
 		h->interrupts_enabled = 0;
                 writel( SA5B_INTR_OFF,
@@ -226,9 +271,10 @@ static void SA5B_intr_mask(ctlr_info_t *h, unsigned long val)
         }
 }
 
+/* Performant mode intr_mask */
 static void SA5_performant_intr_mask(ctlr_info_t *h, unsigned long val)
 {
-	if (val) { 
+	if (val) { /* turn on interrupts */
 		h->interrupts_enabled = 1;
 		writel(0, h->vaddr + SA5_REPLY_INTR_MASK_OFFSET);
 		(void) readl(h->vaddr + SA5_REPLY_INTR_MASK_OFFSET);
@@ -240,7 +286,10 @@ static void SA5_performant_intr_mask(ctlr_info_t *h, unsigned long val)
 	}
 }
 
- 
+/*
+ *  Returns true if fifo is full.  
+ * 
+ */ 
 static unsigned long SA5_fifo_full(ctlr_info_t *h)
 {
 	if( h->commands_outstanding >= h->max_commands)
@@ -249,7 +298,10 @@ static unsigned long SA5_fifo_full(ctlr_info_t *h)
 		return(0);
 
 }
- 
+/* 
+ *   returns value read from hardware. 
+ *     returns FIFO_EMPTY if there is nothing to read 
+ */ 
 static unsigned long SA5_completed(ctlr_info_t *h)
 {
 	unsigned long register_value 
@@ -259,7 +311,7 @@ static unsigned long SA5_completed(ctlr_info_t *h)
 		h->commands_outstanding--;
 #ifdef CCISS_DEBUG
 		printk("cciss:  Read %lx back from board\n", register_value);
-#endif  
+#endif /* CCISS_DEBUG */ 
 	} 
 #ifdef CCISS_DEBUG
 	else
@@ -271,14 +323,21 @@ static unsigned long SA5_completed(ctlr_info_t *h)
 
 }
 
+/* Performant mode command completed */
 static unsigned long SA5_performant_completed(ctlr_info_t *h)
 {
 	unsigned long register_value = FIFO_EMPTY;
 
+	/* flush the controller write of the reply queue by reading
+	 * outbound doorbell status register.
+	 */
 	register_value = readl(h->vaddr + SA5_OUTDB_STATUS);
-	
+	/* msi auto clears the interrupt pending bit. */
 	if (!(h->msi_vector || h->msix_vector)) {
 		writel(SA5_OUTDB_CLEAR_PERF_BIT, h->vaddr + SA5_OUTDB_CLEAR);
+		/* Do a read in order to flush the write to the controller
+		 * (as per spec.)
+		 */
 		register_value = readl(h->vaddr + SA5_OUTDB_STATUS);
 	}
 
@@ -289,7 +348,7 @@ static unsigned long SA5_performant_completed(ctlr_info_t *h)
 	} else {
 		register_value = FIFO_EMPTY;
 	}
-	
+	/* Check for wraparound */
 	if (h->reply_pool_head == (h->reply_pool + h->max_commands)) {
 		h->reply_pool_head = h->reply_pool;
 		h->reply_pool_wraparound ^= 1;
@@ -297,25 +356,31 @@ static unsigned long SA5_performant_completed(ctlr_info_t *h)
 
 	return register_value;
 }
+/*
+ *	Returns true if an interrupt is pending.. 
+ */
 static bool SA5_intr_pending(ctlr_info_t *h)
 {
 	unsigned long register_value  = 
 		readl(h->vaddr + SA5_INTR_STATUS);
 #ifdef CCISS_DEBUG
 	printk("cciss: intr_pending %lx\n", register_value);
-#endif  
+#endif  /* CCISS_DEBUG */
 	if( register_value &  SA5_INTR_PENDING) 
 		return  1;	
 	return 0 ;
 }
 
+/*
+ *      Returns true if an interrupt is pending..
+ */
 static bool SA5B_intr_pending(ctlr_info_t *h)
 {
         unsigned long register_value  =
                 readl(h->vaddr + SA5_INTR_STATUS);
 #ifdef CCISS_DEBUG
         printk("cciss: intr_pending %lx\n", register_value);
-#endif  
+#endif  /* CCISS_DEBUG */
         if( register_value &  SA5B_INTR_PENDING)
                 return  1;
         return 0 ;
@@ -331,7 +396,7 @@ static bool SA5_performant_intr_pending(ctlr_info_t *h)
 	if (h->msi_vector || h->msix_vector)
 		return true;
 
-	
+	/* Read outbound doorbell to flush */
 	register_value = readl(h->vaddr + SA5_OUTDB_STATUS);
 	return register_value & SA5_OUTDB_STATUS_PERF_BIT;
 }
@@ -364,7 +429,7 @@ struct board_type {
 	__u32	board_id;
 	char	*product_name;
 	struct access_method *access;
-	int nr_cmds; 
+	int nr_cmds; /* Max cmds this kind of ctlr can handle. */
 };
 
-#endif 
+#endif /* CCISS_H */

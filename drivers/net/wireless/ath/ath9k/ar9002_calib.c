@@ -33,13 +33,13 @@ static bool ar9002_hw_is_cal_supported(struct ath_hw *ah,
 	bool supported = false;
 	switch (ah->supp_cals & cal_type) {
 	case IQ_MISMATCH_CAL:
-		
+		/* Run IQ Mismatch for non-CCK only */
 		if (!IS_CHAN_B(chan))
 			supported = true;
 		break;
 	case ADC_GAIN_CAL:
 	case ADC_DC_CAL:
-		
+		/* Run ADC Gain Cal for non-CCK & non 2GHz-HT20 only */
 		if (!IS_CHAN_B(chan) &&
 		    !((IS_CHAN_2GHZ(chan) || IS_CHAN_A_FAST_CLOCK(ah, chan)) &&
 		      IS_CHAN_HT20(chan)))
@@ -377,11 +377,16 @@ static void ar9287_hw_olc_temp_compensation(struct ath_hw *ah)
 	currPDADC = MS(rddata, AR_PHY_TX_PWRCTRL_PD_AVG_OUT);
 
 	if (ah->initPDADC == 0 || currPDADC == 0) {
+		/*
+		 * Zero value indicates that no frames have been transmitted
+		 * yet, can't do temperature compensation until frames are
+		 * transmitted.
+		 */
 		return;
 	} else {
 		slope = ah->eep_ops->get_eeprom(ah, EEP_TEMPSENSE_SLOPE);
 
-		if (slope == 0) { 
+		if (slope == 0) { /* to avoid divide by zero case */
 			delta = 0;
 		} else {
 			delta = ((currPDADC - ah->initPDADC)*4) / slope;
@@ -448,43 +453,51 @@ static void ar9271_hw_pa_cal(struct ath_hw *ah, bool is_reset)
 	regVal |= (0x1 << 27);
 	REG_WRITE(ah, 0x9808, regVal);
 
-	
+	/* 786c,b23,1, pwddac=1 */
 	REG_RMW_FIELD(ah, AR9285_AN_TOP3, AR9285_AN_TOP3_PWDDAC, 1);
-	
+	/* 7854, b5,1, pdrxtxbb=1 */
 	REG_RMW_FIELD(ah, AR9285_AN_RXTXBB1, AR9285_AN_RXTXBB1_PDRXTXBB1, 1);
-	
+	/* 7854, b7,1, pdv2i=1 */
 	REG_RMW_FIELD(ah, AR9285_AN_RXTXBB1, AR9285_AN_RXTXBB1_PDV2I, 1);
-	
+	/* 7854, b8,1, pddacinterface=1 */
 	REG_RMW_FIELD(ah, AR9285_AN_RXTXBB1, AR9285_AN_RXTXBB1_PDDACIF, 1);
-	
+	/* 7824,b12,0, offcal=0 */
 	REG_RMW_FIELD(ah, AR9285_AN_RF2G2, AR9285_AN_RF2G2_OFFCAL, 0);
-	
+	/* 7838, b1,0, pwddb=0 */
 	REG_RMW_FIELD(ah, AR9285_AN_RF2G7, AR9285_AN_RF2G7_PWDDB, 0);
-	
+	/* 7820,b11,0, enpacal=0 */
 	REG_RMW_FIELD(ah, AR9285_AN_RF2G1, AR9285_AN_RF2G1_ENPACAL, 0);
-	
+	/* 7820,b25,1, pdpadrv1=0 */
 	REG_RMW_FIELD(ah, AR9285_AN_RF2G1, AR9285_AN_RF2G1_PDPADRV1, 0);
-	
+	/* 7820,b24,0, pdpadrv2=0 */
 	REG_RMW_FIELD(ah, AR9285_AN_RF2G1, AR9285_AN_RF2G1_PDPADRV2, 0);
-	
+	/* 7820,b23,0, pdpaout=0 */
 	REG_RMW_FIELD(ah, AR9285_AN_RF2G1, AR9285_AN_RF2G1_PDPAOUT, 0);
-	
+	/* 783c,b14-16,7, padrvgn2tab_0=7 */
 	REG_RMW_FIELD(ah, AR9285_AN_RF2G8, AR9285_AN_RF2G8_PADRVGN2TAB0, 7);
+	/*
+	 * 7838,b29-31,0, padrvgn1tab_0=0
+	 * does not matter since we turn it off
+	 */
 	REG_RMW_FIELD(ah, AR9285_AN_RF2G7, AR9285_AN_RF2G7_PADRVGN2TAB0, 0);
 
 	REG_RMW_FIELD(ah, AR9285_AN_RF2G3, AR9271_AN_RF2G3_CCOMP, 0xfff);
 
+	/* Set:
+	 * localmode=1,bmode=1,bmoderxtx=1,synthon=1,
+	 * txon=1,paon=1,oscon=1,synthon_force=1
+	 */
 	REG_WRITE(ah, AR9285_AN_TOP2, 0xca0358a0);
 	udelay(30);
 	REG_RMW_FIELD(ah, AR9285_AN_RF2G6, AR9271_AN_RF2G6_OFFS, 0);
 
-	
+	/* find off_6_1; */
 	for (i = 6; i > 0; i--) {
 		regVal = REG_READ(ah, 0x7834);
 		regVal |= (1 << (20 + i));
 		REG_WRITE(ah, 0x7834, regVal);
 		udelay(1);
-		
+		/* regVal = REG_READ(ah, 0x7834); */
 		regVal &= (~(0x1 << (20 + i)));
 		regVal |= (MS(REG_READ(ah, 0x7840), AR9285_AN_RXTXBB1_SPARE9)
 			    << (20 + i));
@@ -493,7 +506,7 @@ static void ar9271_hw_pa_cal(struct ath_hw *ah, bool is_reset)
 
 	regVal = (regVal >> 20) & 0x7f;
 
-	
+	/* Update PA cal info */
 	if ((!is_reset) && (ah->pacal_info.prev_offset == regVal)) {
 		if (ah->pacal_info.max_skipcount < MAX_PACAL_SKIPCOUNT)
 			ah->pacal_info.max_skipcount =
@@ -538,7 +551,7 @@ static inline void ar9285_hw_pa_cal(struct ath_hw *ah, bool is_reset)
 
 	ath_dbg(common, CALIBRATE, "Running PA Calibration\n");
 
-	
+	/* PA CAL is not needed for high power solution */
 	if (ah->eep_ops->get_eeprom(ah, EEP_TXGAIN_TYPE) ==
 	    AR5416_EEP_TXGAIN_HIGH_POWER)
 		return;
@@ -675,15 +688,25 @@ static bool ar9002_hw_calibrate(struct ath_hw *ah,
 		}
 	}
 
-	
+	/* Do NF cal only at longer intervals */
 	if (longcal || nfcal_pending) {
+		/*
+		 * Get the value from the previous NF cal and update
+		 * history buffer.
+		 */
 		if (ath9k_hw_getnf(ah, chan)) {
+			/*
+			 * Load the NF from history buffer of the current
+			 * channel.
+			 * NF is slow time-variant, so it is OK to use a
+			 * historical value.
+			 */
 			ath9k_hw_loadnf(ah, ah->curchan);
 		}
 
 		if (longcal) {
 			ath9k_hw_start_nfcal(ah, false);
-			
+			/* Do periodic PAOffset Cal */
 			ar9002_hw_pa_cal(ah, false);
 			ar9002_hw_olc_temp_compensation(ah);
 		}
@@ -692,6 +715,7 @@ static bool ar9002_hw_calibrate(struct ath_hw *ah,
 	return iscaldone;
 }
 
+/* Carrier leakage Calibration fix */
 static bool ar9285_hw_cl_cal(struct ath_hw *ah, struct ath9k_channel *chan)
 {
 	struct ath_common *common = ath9k_hw_common(ah);
@@ -807,12 +831,12 @@ static bool ar9002_hw_init_cal(struct ath_hw *ah, struct ath9k_channel *chan)
 				    AR_PHY_AGC_CONTROL_FLTR_CAL);
 		}
 
-		
+		/* Calibrate the AGC */
 		REG_WRITE(ah, AR_PHY_AGC_CONTROL,
 			  REG_READ(ah, AR_PHY_AGC_CONTROL) |
 			  AR_PHY_AGC_CONTROL_CAL);
 
-		
+		/* Poll for offset calibration complete */
 		if (!ath9k_hw_wait(ah, AR_PHY_AGC_CONTROL,
 				   AR_PHY_AGC_CONTROL_CAL,
 				   0, AH_WAIT_TIMEOUT)) {
@@ -830,7 +854,7 @@ static bool ar9002_hw_init_cal(struct ath_hw *ah, struct ath9k_channel *chan)
 		}
 	}
 
-	
+	/* Do PA Calibration */
 	ar9002_hw_pa_cal(ah, true);
 
 	if (ah->caldata)
@@ -838,7 +862,7 @@ static bool ar9002_hw_init_cal(struct ath_hw *ah, struct ath9k_channel *chan)
 
 	ah->cal_list = ah->cal_list_last = ah->cal_list_curr = NULL;
 
-	
+	/* Enable IQ, ADC Gain and ADC DC offset CALs */
 	if (AR_SREV_9100(ah) || AR_SREV_9160_10_OR_LATER(ah)) {
 		ah->supp_cals = IQ_MISMATCH_CAL;
 

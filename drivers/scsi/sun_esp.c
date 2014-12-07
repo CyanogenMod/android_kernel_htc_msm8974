@@ -32,6 +32,7 @@
 #define dma_write32(VAL, REG) \
 	sbus_writel((VAL), esp->dma_regs + (REG))
 
+/* DVMA chip revisions */
 enum dvma_rev {
 	dvmarev0,
 	dvmaesc1,
@@ -83,6 +84,9 @@ static int __devinit esp_sbus_map_regs(struct esp *esp, int hme)
 	struct platform_device *op = esp->dev;
 	struct resource *res;
 
+	/* On HME, two reg sets exist, first is DVMA,
+	 * second is ESP registers.
+	 */
 	if (hme)
 		res = &op->resource[1];
 	else
@@ -265,7 +269,7 @@ static void sbus_esp_reset_dma(struct esp *esp)
 	if (sbus_can_burst64())
 		can_do_burst64 = (esp->bursts & DMA_BURST64) != 0;
 
-	
+	/* Put the DVMA into a known state. */
 	if (esp->dmarev != dvmahme) {
 		val = dma_read32(DMA_CSR);
 		dma_write32(val | DMA_RST_SCSI, DMA_CSR);
@@ -343,7 +347,7 @@ static void sbus_esp_reset_dma(struct esp *esp)
 		break;
 	}
 
-	
+	/* Enable interrupts.  */
 	val = dma_read32(DMA_CSR);
 	dma_write32(val | DMA_INT_ENAB, DMA_CSR);
 }
@@ -387,6 +391,9 @@ static void sbus_esp_dma_invalidate(struct esp *esp)
 		dma_write32(0, DMA_CSR);
 		dma_write32(esp->prev_hme_dmacsr, DMA_CSR);
 
+		/* This is necessary to avoid having the SCSI channel
+		 * engine lock up on us.
+		 */
 		dma_write32(0, DMA_ADDR);
 	} else {
 		u32 val;
@@ -523,6 +530,10 @@ static int __devinit esp_sbus_probe_one(struct platform_device *op,
 
 	esp_sbus_get_props(esp, espdma);
 
+	/* Before we try to touch the ESP chip, ESC1 dma can
+	 * come up with the reset bit set, so make sure that
+	 * is clear first.
+	 */
 	if (esp->dmarev == dvmaesc1) {
 		u32 val = dma_read32(DMA_CSR);
 
@@ -584,7 +595,7 @@ static int __devexit esp_sbus_remove(struct platform_device *op)
 
 	scsi_esp_unregister(esp);
 
-	
+	/* Disable interrupts.  */
 	val = dma_read32(DMA_CSR);
 	dma_write32(val & ~DMA_INT_ENAB, DMA_CSR);
 

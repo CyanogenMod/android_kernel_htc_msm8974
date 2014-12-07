@@ -26,6 +26,13 @@
 #define PAGE_SECTORS_SHIFT	(PAGE_SHIFT - SECTOR_SHIFT)
 #define PAGE_SECTORS		(1 << PAGE_SECTORS_SHIFT)
 
+/*
+ * Each block ramdisk device has a radix_tree brd_pages of pages that stores
+ * the pages containing the block device's contents. A brd page's ->index is
+ * its offset in PAGE_SIZE units. This is similar to, but in no way connected
+ * with, the kernel's pagecache or buffer cache (which sit above our block
+ * device).
+ */
 struct brd_device {
 	int		brd_number;
 
@@ -33,18 +40,36 @@ struct brd_device {
 	struct gendisk		*brd_disk;
 	struct list_head	brd_list;
 
+	/*
+	 * Backing store of pages and lock to protect it. This is the contents
+	 * of the block device.
+	 */
 	spinlock_t		brd_lock;
 	struct radix_tree_root	brd_pages;
 };
 
+/*
+ * Look up and return a brd's page for a given sector.
+ */
 static DEFINE_MUTEX(brd_mutex);
 static struct page *brd_lookup_page(struct brd_device *brd, sector_t sector)
 {
 	pgoff_t idx;
 	struct page *page;
 
+	/*
+	 * The page lifetime is protected by the fact that we have opened the
+	 * device node -- brd pages will never be deleted under us, so we
+	 * don't need any further locking or refcounting.
+	 *
+	 * This is strictly true for the radix-tree nodes as well (ie. we
+	 * don't actually need the rcu_read_lock()), however that is not a
+	 * documented feature of the radix-tree API so it is better to be
+	 * safe here (we don't have total exclusion from radix tree updates
+	 * here, only deletes).
+	 */
 	rcu_read_lock();
-	idx = sector >> PAGE_SECTORS_SHIFT; 
+	idx = sector >> PAGE_SECTORS_SHIFT; /* sector to page index */
 	page = radix_tree_lookup(&brd->brd_pages, idx);
 	rcu_read_unlock();
 
@@ -53,6 +78,11 @@ static struct page *brd_lookup_page(struct brd_device *brd, sector_t sector)
 	return page;
 }
 
+/*
+ * Look up and return a brd's page for a given sector.
+ * If one does not exist, allocate an empty page, and insert that. Then
+ * return it.
+ */
 static struct page *brd_insert_page(struct brd_device *brd, sector_t sector)
 {
 	pgoff_t idx;
@@ -63,6 +93,15 @@ static struct page *brd_insert_page(struct brd_device *brd, sector_t sector)
 	if (page)
 		return page;
 
+	/*
+	 * Must use NOIO because we don't want to recurse back into the
+	 * block or filesystem layers from page reclaim.
+	 *
+	 * Cannot support XIP and highmem, because our ->direct_access
+	 * routine for XIP must return memory that is always addressable.
+	 * If XIP was reworked to use pfns and kmap throughout, this
+	 * restriction might be able to be lifted.
+	 */
 	gfp_flags = GFP_NOIO | __GFP_ZERO;
 #ifndef CONFIG_BLK_DEV_XIP
 	gfp_flags |= __GFP_HIGHMEM;
@@ -114,6 +153,10 @@ static void brd_zero_page(struct brd_device *brd, sector_t sector)
 		clear_highpage(page);
 }
 
+/*
+ * Free all backing store pages and radix tree. This must only be called when
+ * there are no other users of the device.
+ */
 #define FREE_BATCH 16
 static void brd_free_pages(struct brd_device *brd)
 {
@@ -139,9 +182,17 @@ static void brd_free_pages(struct brd_device *brd)
 
 		pos++;
 
+		/*
+		 * This assumes radix_tree_gang_lookup always returns as
+		 * many pages as possible. If the radix-tree code changes,
+		 * so will this have to.
+		 */
 	} while (nr_pages == FREE_BATCH);
 }
 
+/*
+ * copy_to_brd_setup must be called before copy_to_brd. It may sleep.
+ */
 static int copy_to_brd_setup(struct brd_device *brd, sector_t sector, size_t n)
 {
 	unsigned int offset = (sector & (PAGE_SECTORS-1)) << SECTOR_SHIFT;
@@ -162,6 +213,11 @@ static void discard_from_brd(struct brd_device *brd,
 			sector_t sector, size_t n)
 {
 	while (n >= PAGE_SIZE) {
+		/*
+		 * Don't want to actually discard pages here because
+		 * re-allocating the pages can result in writeback
+		 * deadlocks under heavy load.
+		 */
 		if (0)
 			brd_free_page(brd, sector);
 		else
@@ -171,6 +227,9 @@ static void discard_from_brd(struct brd_device *brd,
 	}
 }
 
+/*
+ * Copy n bytes from src to the brd starting at sector. Does not sleep.
+ */
 static void copy_to_brd(struct brd_device *brd, const void *src,
 			sector_t sector, size_t n)
 {
@@ -200,6 +259,9 @@ static void copy_to_brd(struct brd_device *brd, const void *src,
 	}
 }
 
+/*
+ * Copy n bytes to dst from the brd starting at sector. Does not sleep.
+ */
 static void copy_from_brd(void *dst, struct brd_device *brd,
 			sector_t sector, size_t n)
 {
@@ -231,6 +293,9 @@ static void copy_from_brd(void *dst, struct brd_device *brd,
 	}
 }
 
+/*
+ * Process a single bvec of a bio.
+ */
 static int brd_do_bvec(struct brd_device *brd, struct page *page,
 			unsigned int len, unsigned int off, int rw,
 			sector_t sector)
@@ -328,6 +393,10 @@ static int brd_ioctl(struct block_device *bdev, fmode_t mode,
 	if (cmd != BLKFLSBUF)
 		return -ENOTTY;
 
+	/*
+	 * ram device BLKFLSBUF has special semantics, we want to actually
+	 * release and destroy the ramdisk data.
+	 */
 	mutex_lock(&brd_mutex);
 	mutex_lock(&bdev->bd_mutex);
 	error = -EBUSY;
@@ -357,6 +426,9 @@ static const struct block_device_operations brd_fops = {
 #endif
 };
 
+/*
+ * And now the modules code and kernel interface.
+ */
 static int rd_nr;
 int rd_size = CONFIG_BLK_DEV_RAM_SIZE;
 static int max_part;
@@ -372,6 +444,7 @@ MODULE_ALIAS_BLOCKDEV_MAJOR(RAMDISK_MAJOR);
 MODULE_ALIAS("rd");
 
 #ifndef MODULE
+/* Legacy boot options - nonmodular */
 static int __init ramdisk_size(char *str)
 {
 	rd_size = simple_strtol(str, NULL, 0);
@@ -380,6 +453,10 @@ static int __init ramdisk_size(char *str)
 __setup("ramdisk_size=", ramdisk_size);
 #endif
 
+/*
+ * The device scheme is derived from loop.c. Keep them in synch where possible
+ * (should share code eventually).
+ */
 static LIST_HEAD(brd_devices);
 static DEFINE_MUTEX(brd_devices_mutex);
 
@@ -482,11 +559,33 @@ static int __init brd_init(void)
 	unsigned long range;
 	struct brd_device *brd, *next;
 
+	/*
+	 * brd module now has a feature to instantiate underlying device
+	 * structure on-demand, provided that there is an access dev node.
+	 * However, this will not work well with user space tool that doesn't
+	 * know about such "feature".  In order to not break any existing
+	 * tool, we do the following:
+	 *
+	 * (1) if rd_nr is specified, create that many upfront, and this
+	 *     also becomes a hard limit.
+	 * (2) if rd_nr is not specified, create CONFIG_BLK_DEV_RAM_COUNT
+	 *     (default 16) rd device on module load, user can further
+	 *     extend brd device by create dev node themselves and have
+	 *     kernel automatically instantiate actual device on-demand.
+	 */
 
 	part_shift = 0;
 	if (max_part > 0) {
 		part_shift = fls(max_part);
 
+		/*
+		 * Adjust max_part according to part_shift as it is exported
+		 * to user space so that user can decide correct minor number
+		 * if [s]he want to create more devices.
+		 *
+		 * Note that -1 is required because partition 0 is reserved
+		 * for the whole disk.
+		 */
 		max_part = (1UL << part_shift) - 1;
 	}
 
@@ -514,7 +613,7 @@ static int __init brd_init(void)
 		list_add_tail(&brd->brd_list, &brd_devices);
 	}
 
-	
+	/* point of no return */
 
 	list_for_each_entry(brd, &brd_devices, brd_list)
 		add_disk(brd->brd_disk);

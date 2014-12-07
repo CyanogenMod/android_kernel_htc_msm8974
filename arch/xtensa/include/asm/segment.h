@@ -13,4 +13,4 @@
 
 #include <asm/uaccess.h>
 
-#endif	
+#endif	/* _XTENSA_SEGEMENT_H */

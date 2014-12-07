@@ -36,6 +36,7 @@ static struct wake_lock vbus_wake_lock;
 #define BATT(x...) do {} while (0)
 #endif
 
+/* rpc related */
 #define APP_BATT_PDEV_NAME		"rs30100001"
 #define APP_BATT_PROG			0x30100001
 #define APP_BATT_VER			0
@@ -45,14 +46,17 @@ static struct wake_lock vbus_wake_lock;
 #define HTC_PROCEDURE_GET_CABLE_STATUS	3
 #define HTC_PROCEDURE_SET_BATT_DELTA	4
 
+/* module debugger */
 #define HTC_BATTERY_DEBUG		1
 #define BATTERY_PREVENTION		1
 
+/* Enable this will shut down if no battery */
 #define ENABLE_BATTERY_DETECTION	0
 
 #define GPIO_BATTERY_DETECTION		21
 #define GPIO_BATTERY_CHARGER_EN		128
 
+/* Charge current selection */
 #define GPIO_BATTERY_CHARGER_CURRENT	129
 
 typedef enum {
@@ -61,6 +65,9 @@ typedef enum {
 	ENABLE_FAST_CHG
 } batt_ctl_t;
 
+/* This order is the same as htc_power_supplies[]
+ * And it's also the same as htc_cable_status_update()
+ */
 typedef enum {
 	CHARGER_BATTERY = 0,
 	CHARGER_USB,
@@ -68,24 +75,24 @@ typedef enum {
 } charger_type_t;
 
 struct battery_info_reply {
-	u32 batt_id;		
-	u32 batt_vol;		
-	u32 batt_temp;		
-	u32 batt_current;	
-	u32 level;		
-	u32 charging_source;	
-	u32 charging_enabled;	
-	u32 full_bat;		
+	u32 batt_id;		/* Battery ID from ADC */
+	u32 batt_vol;		/* Battery voltage from ADC */
+	u32 batt_temp;		/* Battery Temperature (C) from formula and ADC */
+	u32 batt_current;	/* Battery current from ADC */
+	u32 level;		/* formula */
+	u32 charging_source;	/* 0: no cable, 1:usb, 2:AC */
+	u32 charging_enabled;	/* 0: Disable, 1: Enable */
+	u32 full_bat;		/* Full capacity of battery (mAh) */
 };
 
 struct htc_battery_info {
 	int present;
 	unsigned long update_time;
 
-	
+	/* lock to protect the battery info */
 	struct mutex lock;
 
-	
+	/* lock held while calling the arm9 to query the battery info */
 	struct mutex rpc_lock;
 	struct battery_info_reply rep;
 };
@@ -114,6 +121,7 @@ static char *supply_list[] = {
 	"battery",
 };
 
+/* HTC dedicated attributes */
 static ssize_t htc_battery_show_property(struct device *dev,
 					  struct device_attribute *attr,
 					  char *buf);
@@ -155,6 +163,7 @@ static struct power_supply htc_power_supplies[] = {
 };
 
 
+/* -------------------------------------------------------------------------- */
 
 #if defined(CONFIG_DEBUG_FS)
 int htc_battery_set_charging(batt_ctl_t ctl);
@@ -201,6 +210,11 @@ gpio_failed:
 	
 }
 
+/* 
+ *	battery_charging_ctrl - battery charing control.
+ * 	@ctl:			battery control command
+ *
+ */
 static int battery_charging_ctrl(batt_ctl_t ctl)
 {
 	int result = 0;
@@ -208,7 +222,7 @@ static int battery_charging_ctrl(batt_ctl_t ctl)
 	switch (ctl) {
 	case DISABLE:
 		BATT("charger OFF\n");
-		
+		/* 0 for enable; 1 disable */
 		result = gpio_direction_output(GPIO_BATTERY_CHARGER_EN, 1);
 		break;
 	case ENABLE_SLOW_CHG:
@@ -298,10 +312,13 @@ int htc_cable_status_update(int status)
 	if (source == CHARGER_USB) {
 		wake_lock(&vbus_wake_lock);
 	} else {
+		/* give userspace some time to see the uevent and update
+		 * LED state or whatnot...
+		 */
 		wake_lock_timeout(&vbus_wake_lock, HZ / 2);
 	}
 
-	
+	/* if the power source changes, all power supplies may change state */
 	power_supply_changed(&htc_power_supplies[CHARGER_BATTERY]);
 	power_supply_changed(&htc_power_supplies[CHARGER_USB]);
 	power_supply_changed(&htc_power_supplies[CHARGER_AC]);
@@ -368,6 +385,7 @@ static int htc_get_cable_status(void)
 }
 #endif
 
+/* -------------------------------------------------------------------------- */
 static int htc_power_get_property(struct power_supply *psy, 
 				    enum power_supply_property psp,
 				    union power_supply_propval *val)
@@ -550,9 +568,12 @@ static ssize_t htc_battery_show_property(struct device *dev,
 	int i = 0;
 	const ptrdiff_t off = attr - htc_battery_attrs;
 	
+	/* rpc lock is used to prevent two threads from calling
+	 * into the get info rpc at the same time
+	 */
 
 	mutex_lock(&htc_batt_info.rpc_lock);
-	
+	/* check cache time to decide if we need to update */
 	if (htc_batt_info.update_time &&
             time_before(jiffies, htc_batt_info.update_time +
                                 msecs_to_jiffies(cache_time)))
@@ -610,17 +631,17 @@ static int htc_battery_probe(struct platform_device *pdev)
 	if (pdev->id != (APP_BATT_VER & RPC_VERSION_MAJOR_MASK))
 		return -EINVAL;
 
-	
+	/* init battery gpio */
 	if ((rc = init_batt_gpio()) < 0) {
 		printk(KERN_ERR "%s: init battery gpio failed!\n", __FUNCTION__);
 		return rc;
 	}
 
-	
+	/* init structure data member */
 	htc_batt_info.update_time 	= jiffies;
 	htc_batt_info.present 		= gpio_get_value(GPIO_BATTERY_DETECTION);
 	
-	
+	/* init rpc */
 	endpoint = msm_rpc_connect(APP_BATT_PROG, APP_BATT_VER, 0);
 	if (IS_ERR(endpoint)) {
 		printk(KERN_ERR "%s: init rpc failed! rc = %ld\n",
@@ -628,16 +649,19 @@ static int htc_battery_probe(struct platform_device *pdev)
 		return rc;
 	}
 
-	
+	/* init power supplier framework */
 	for (i = 0; i < ARRAY_SIZE(htc_power_supplies); i++) {
 		rc = power_supply_register(&pdev->dev, &htc_power_supplies[i]);
 		if (rc)
 			printk(KERN_ERR "Failed to register power supply (%d)\n", rc);	
 	}
 
-	
+	/* create htc detail attributes */
 	htc_battery_create_attrs(htc_power_supplies[CHARGER_BATTERY].dev);
 
+	/* After battery driver gets initialized, send rpc request to inquiry
+	 * the battery status in case of we lost some info
+	 */
 	htc_battery_initial = 1;
 
 	mutex_lock(&htc_batt_info.rpc_lock);
@@ -667,6 +691,7 @@ static struct platform_driver htc_battery_driver = {
 	},
 };
 
+/* batt_mtoa server definitions */
 #define BATT_MTOA_PROG				0x30100000
 #define BATT_MTOA_VERS				0
 #define RPC_BATT_MTOA_NULL			0

@@ -38,25 +38,33 @@
 #define AS_TIMER_MS_TO_CODE(t)			(((t) - 100) / 50)
 #define AS_TIMER_CODE_TO_MS(c)			(50 * (c) + 100)
 
+/* Register definitions */
 
+/* Read-only Design info register: Reset state: xxxx 0001 */
 #define AS_DESIGN_INFO_REG			0x00
 #define AS_DESIGN_INFO_FACTORY(x)		(((x) >> 4))
 #define AS_DESIGN_INFO_MODEL(x)			((x) & 0x0f)
 
+/* Read-only Version control register: Reset state: 0000 0000
+ * for first engineering samples
+ */
 #define AS_VERSION_CONTROL_REG			0x01
 #define AS_VERSION_CONTROL_RFU(x)		(((x) >> 4))
 #define AS_VERSION_CONTROL_VERSION(x)		((x) & 0x0f)
 
+/* Read / Write	(Indicator and timer register): Reset state: 0000 1111 */
 #define AS_INDICATOR_AND_TIMER_REG		0x02
 #define AS_INDICATOR_AND_TIMER_TIMEOUT_SHIFT	0
 #define AS_INDICATOR_AND_TIMER_VREF_SHIFT	4
 #define AS_INDICATOR_AND_TIMER_INDICATOR_SHIFT	6
 
+/* Read / Write	(Current set register): Reset state: 0110 1001 */
 #define AS_CURRENT_SET_REG			0x03
 #define AS_CURRENT_ASSIST_LIGHT_SHIFT		0
 #define AS_CURRENT_LED_DET_ON			(1 << 3)
 #define AS_CURRENT_FLASH_CURRENT_SHIFT		4
 
+/* Read / Write	(Control register): Reset state: 1011 0100 */
 #define AS_CONTROL_REG				0x04
 #define AS_CONTROL_MODE_SETTING_SHIFT		0
 #define AS_CONTROL_STROBE_ON			(1 << 2)
@@ -66,6 +74,7 @@
 #define AS_CONTROL_STROBE_TYPE_LEVEL		(1 << 5)
 #define AS_CONTROL_COIL_PEAK_SHIFT		6
 
+/* Read only (D3 is read / write) (Fault and info): Reset state: 0000 x000 */
 #define AS_FAULT_INFO_REG			0x05
 #define AS_FAULT_INFO_INDUCTOR_PEAK_LIMIT	(1 << 1)
 #define AS_FAULT_INFO_INDICATOR_LED		(1 << 2)
@@ -75,10 +84,12 @@
 #define AS_FAULT_INFO_SHORT_CIRCUIT		(1 << 6)
 #define AS_FAULT_INFO_OVER_VOLTAGE		(1 << 7)
 
+/* Boost register */
 #define AS_BOOST_REG				0x0d
 #define AS_BOOST_CURRENT_DISABLE		(0 << 0)
 #define AS_BOOST_CURRENT_ENABLE			(1 << 0)
 
+/* Password register is used to unlock boost register writing */
 #define AS_PASSWORD_REG				0x0f
 #define AS_PASSWORD_UNLOCK_VALUE		0x55
 
@@ -89,6 +100,21 @@ enum as_mode {
 	AS_MODE_FLASH = 3 << AS_CONTROL_MODE_SETTING_SHIFT,
 };
 
+/*
+ * struct as3645a
+ *
+ * @subdev:		V4L2 subdev
+ * @pdata:		Flash platform data
+ * @power_lock:		Protects power_count
+ * @power_count:	Power reference count
+ * @led_mode:		V4L2 flash LED mode
+ * @timeout:		Flash timeout in microseconds
+ * @flash_current:	Flash current (0=200mA ... 15=500mA). Maximum
+ *			values are 400mA for two LEDs and 500mA for one LED.
+ * @assist_current:	Torch/Assist light current (0=20mA, 1=40mA ... 7=160mA)
+ * @indicator_current:	Indicator LED current (0=0mA, 1=2.5mA ... 4=10mA)
+ * @strobe_source:	Flash strobe source (software or external)
+ */
 struct as3645a {
 	struct v4l2_subdev subdev;
 	const struct as3645a_platform_data *pdata;
@@ -96,7 +122,7 @@ struct as3645a {
 	struct mutex power_lock;
 	int power_count;
 
-	
+	/* Controls */
 	struct v4l2_ctrl_handler ctrls;
 
 	enum v4l2_flash_led_mode led_mode;
@@ -109,6 +135,7 @@ struct as3645a {
 
 #define to_as3645a(sd) container_of(sd, struct as3645a, subdev)
 
+/* Return negative errno else zero on success */
 static int as3645a_write(struct as3645a *flash, u8 addr, u8 val)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&flash->subdev);
@@ -122,6 +149,7 @@ static int as3645a_write(struct as3645a *flash, u8 addr, u8 val)
 	return rval;
 }
 
+/* Return negative errno else a data byte received from the device. */
 static int as3645a_read(struct as3645a *flash, u8 addr)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&flash->subdev);
@@ -135,7 +163,20 @@ static int as3645a_read(struct as3645a *flash, u8 addr)
 	return rval;
 }
 
+/* -----------------------------------------------------------------------------
+ * Hardware configuration and trigger
+ */
 
+/*
+ * as3645a_set_config - Set flash configuration registers
+ * @flash: The flash
+ *
+ * Configure the hardware with flash, assist and indicator currents, as well as
+ * flash timeout.
+ *
+ * Return 0 on success, or a negative error code if an I2C communication error
+ * occurred.
+ */
 static int as3645a_set_config(struct as3645a *flash)
 {
 	int ret;
@@ -159,12 +200,23 @@ static int as3645a_set_config(struct as3645a *flash)
 	return as3645a_write(flash, AS_INDICATOR_AND_TIMER_REG, val);
 }
 
+/*
+ * as3645a_set_control - Set flash control register
+ * @flash: The flash
+ * @mode: Desired output mode
+ * @on: Desired output state
+ *
+ * Configure the hardware with output mode and state.
+ *
+ * Return 0 on success, or a negative error code if an I2C communication error
+ * occurred.
+ */
 static int
 as3645a_set_control(struct as3645a *flash, enum as_mode mode, bool on)
 {
 	u8 reg;
 
-	
+	/* Configure output parameters and operation mode. */
 	reg = (flash->pdata->peak << AS_CONTROL_COIL_PEAK_SHIFT)
 	    | (on ? AS_CONTROL_OUT_ON : 0)
 	    | mode;
@@ -178,6 +230,23 @@ as3645a_set_control(struct as3645a *flash, enum as_mode mode, bool on)
 	return as3645a_write(flash, AS_CONTROL_REG, reg);
 }
 
+/*
+ * as3645a_set_output - Configure output and operation mode
+ * @flash: Flash controller
+ * @strobe: Strobe the flash (only valid in flash mode)
+ *
+ * Turn the LEDs output on/off and set the operation mode based on the current
+ * parameters.
+ *
+ * The AS3645A can't control the indicator LED independently of the flash/torch
+ * LED. If the flash controller is in V4L2_FLASH_LED_MODE_NONE mode, set the
+ * chip to indicator mode. Otherwise set it to assist light (torch) or flash
+ * mode.
+ *
+ * In indicator and assist modes, turn the output on/off based on the indicator
+ * and torch currents. In software strobe flash mode, turn the output on/off
+ * based on the strobe parameter.
+ */
 static int as3645a_set_output(struct as3645a *flash, bool strobe)
 {
 	enum as_mode mode;
@@ -200,10 +269,13 @@ static int as3645a_set_output(struct as3645a *flash, bool strobe)
 		BUG();
 	}
 
-	
+	/* Configure output parameters and operation mode. */
 	return as3645a_set_control(flash, mode, on);
 }
 
+/* -----------------------------------------------------------------------------
+ * V4L2 controls
+ */
 
 static int as3645a_is_active(struct as3645a *flash)
 {
@@ -218,7 +290,7 @@ static int as3645a_read_fault(struct as3645a *flash)
 	struct i2c_client *client = v4l2_get_subdevdata(&flash->subdev);
 	int rval;
 
-	
+	/* NOTE: reading register clear fault status */
 	rval = as3645a_read(flash, AS_FAULT_INFO_REG);
 	if (rval < 0)
 		return rval;
@@ -305,6 +377,11 @@ static int as3645a_set_ctrl(struct v4l2_ctrl *ctrl)
 
 	dev_dbg(&client->dev, "S_CTRL %08x:%d\n", ctrl->id, ctrl->val);
 
+	/* If a control that doesn't apply to the current mode is modified,
+	 * we store the value and return immediately. The setting will be
+	 * applied when the LED mode is changed. Otherwise we apply the setting
+	 * immediately.
+	 */
 
 	switch (ctrl->id) {
 	case V4L2_CID_FLASH_LED_MODE:
@@ -321,7 +398,7 @@ static int as3645a_set_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_FLASH_STROBE_SOURCE:
 		flash->strobe_source = ctrl->val;
 
-		
+		/* Applies to flash mode only. */
 		if (flash->led_mode != V4L2_FLASH_LED_MODE_FLASH)
 			break;
 
@@ -342,7 +419,7 @@ static int as3645a_set_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_FLASH_TIMEOUT:
 		flash->timeout = ctrl->val;
 
-		
+		/* Applies to flash mode only. */
 		if (flash->led_mode != V4L2_FLASH_LED_MODE_FLASH)
 			break;
 
@@ -352,7 +429,7 @@ static int as3645a_set_ctrl(struct v4l2_ctrl *ctrl)
 		flash->flash_current = (ctrl->val - AS3645A_FLASH_INTENSITY_MIN)
 				     / AS3645A_FLASH_INTENSITY_STEP;
 
-		
+		/* Applies to flash mode only. */
 		if (flash->led_mode != V4L2_FLASH_LED_MODE_FLASH)
 			break;
 
@@ -363,7 +440,7 @@ static int as3645a_set_ctrl(struct v4l2_ctrl *ctrl)
 			(ctrl->val - AS3645A_TORCH_INTENSITY_MIN)
 			/ AS3645A_TORCH_INTENSITY_STEP;
 
-		
+		/* Applies to torch mode only. */
 		if (flash->led_mode != V4L2_FLASH_LED_MODE_TORCH)
 			break;
 
@@ -395,13 +472,17 @@ static const struct v4l2_ctrl_ops as3645a_ctrl_ops = {
 	.s_ctrl = as3645a_set_ctrl,
 };
 
+/* -----------------------------------------------------------------------------
+ * V4L2 subdev core operations
+ */
 
+/* Put device into know state. */
 static int as3645a_setup(struct as3645a *flash)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(&flash->subdev);
 	int ret;
 
-	
+	/* clear errors */
 	ret = as3645a_read(flash, AS_FAULT_INFO_REG);
 	if (ret < 0)
 		return ret;
@@ -416,7 +497,7 @@ static int as3645a_setup(struct as3645a *flash)
 	if (ret < 0)
 		return ret;
 
-	
+	/* read status */
 	ret = as3645a_read_fault(flash);
 	if (ret < 0)
 		return ret;
@@ -484,6 +565,9 @@ static int as3645a_registered(struct v4l2_subdev *sd)
 	int rval, man, model, rfu, version;
 	const char *vendor;
 
+	/* Power up the flash driver and read manufacturer ID, model ID, RFU
+	 * and version.
+	 */
 	rval = as3645a_set_power(&flash->subdev, 1);
 	if (rval < 0)
 		return rval;
@@ -502,7 +586,7 @@ static int as3645a_registered(struct v4l2_subdev *sd)
 	rfu = AS_VERSION_CONTROL_RFU(rval);
 	version = AS_VERSION_CONTROL_VERSION(rval);
 
-	
+	/* Verify the chip model and version. */
 	if (model != 0x01 || rfu != 0x00) {
 		dev_err(&client->dev, "AS3645A not detected "
 			"(model %d rfu %d)\n", model, rfu);
@@ -541,6 +625,9 @@ static int as3645a_registered(struct v4l2_subdev *sd)
 	if (rval < 0)
 		goto power_off;
 
+	/* Setup default values. This makes sure that the chip is in a known
+	 * state, in case the power rail can't be controlled.
+	 */
 	rval = as3645a_setup(flash);
 
 power_off:
@@ -573,6 +660,9 @@ static const struct v4l2_subdev_internal_ops as3645a_internal_ops = {
 	.close = as3645a_close,
 };
 
+/* -----------------------------------------------------------------------------
+ *  I2C driver
+ */
 #ifdef CONFIG_PM
 
 static int as3645a_suspend(struct device *dev)
@@ -614,8 +704,15 @@ static int as3645a_resume(struct device *dev)
 #define as3645a_suspend	NULL
 #define as3645a_resume	NULL
 
-#endif 
+#endif /* CONFIG_PM */
 
+/*
+ * as3645a_init_controls - Create controls
+ * @flash: The flash
+ *
+ * The number of LEDs reported in platform data is used to compute default
+ * limits. Parameters passed through platform data can override those limits.
+ */
 static int as3645a_init_controls(struct as3645a *flash)
 {
 	const struct as3645a_platform_data *pdata = flash->pdata;
@@ -624,12 +721,12 @@ static int as3645a_init_controls(struct as3645a *flash)
 
 	v4l2_ctrl_handler_init(&flash->ctrls, 10);
 
-	
+	/* V4L2_CID_FLASH_LED_MODE */
 	v4l2_ctrl_new_std_menu(&flash->ctrls, &as3645a_ctrl_ops,
 			       V4L2_CID_FLASH_LED_MODE, 2, ~7,
 			       V4L2_FLASH_LED_MODE_NONE);
 
-	
+	/* V4L2_CID_FLASH_STROBE_SOURCE */
 	v4l2_ctrl_new_std_menu(&flash->ctrls, &as3645a_ctrl_ops,
 			       V4L2_CID_FLASH_STROBE_SOURCE,
 			       pdata->ext_strobe ? 1 : 0,
@@ -638,21 +735,21 @@ static int as3645a_init_controls(struct as3645a *flash)
 
 	flash->strobe_source = V4L2_FLASH_STROBE_SOURCE_SOFTWARE;
 
-	
+	/* V4L2_CID_FLASH_STROBE */
 	v4l2_ctrl_new_std(&flash->ctrls, &as3645a_ctrl_ops,
 			  V4L2_CID_FLASH_STROBE, 0, 0, 0, 0);
 
-	
+	/* V4L2_CID_FLASH_STROBE_STOP */
 	v4l2_ctrl_new_std(&flash->ctrls, &as3645a_ctrl_ops,
 			  V4L2_CID_FLASH_STROBE_STOP, 0, 0, 0, 0);
 
-	
+	/* V4L2_CID_FLASH_STROBE_STATUS */
 	ctrl = v4l2_ctrl_new_std(&flash->ctrls, &as3645a_ctrl_ops,
 				 V4L2_CID_FLASH_STROBE_STATUS, 0, 1, 1, 1);
 	if (ctrl != NULL)
 		ctrl->flags |= V4L2_CTRL_FLAG_VOLATILE;
 
-	
+	/* V4L2_CID_FLASH_TIMEOUT */
 	maximum = pdata->timeout_max;
 
 	v4l2_ctrl_new_std(&flash->ctrls, &as3645a_ctrl_ops,
@@ -661,7 +758,7 @@ static int as3645a_init_controls(struct as3645a *flash)
 
 	flash->timeout = maximum;
 
-	
+	/* V4L2_CID_FLASH_INTENSITY */
 	maximum = pdata->flash_max_current;
 
 	v4l2_ctrl_new_std(&flash->ctrls, &as3645a_ctrl_ops,
@@ -671,7 +768,7 @@ static int as3645a_init_controls(struct as3645a *flash)
 	flash->flash_current = (maximum - AS3645A_FLASH_INTENSITY_MIN)
 			     / AS3645A_FLASH_INTENSITY_STEP;
 
-	
+	/* V4L2_CID_FLASH_TORCH_INTENSITY */
 	maximum = pdata->torch_max_current;
 
 	v4l2_ctrl_new_std(&flash->ctrls, &as3645a_ctrl_ops,
@@ -682,7 +779,7 @@ static int as3645a_init_controls(struct as3645a *flash)
 
 	flash->assist_current = 0;
 
-	
+	/* V4L2_CID_FLASH_INDICATOR_INTENSITY */
 	v4l2_ctrl_new_std(&flash->ctrls, &as3645a_ctrl_ops,
 			  V4L2_CID_FLASH_INDICATOR_INTENSITY,
 			  AS3645A_INDICATOR_INTENSITY_MIN,
@@ -692,7 +789,7 @@ static int as3645a_init_controls(struct as3645a *flash)
 
 	flash->indicator_current = 0;
 
-	
+	/* V4L2_CID_FLASH_FAULT */
 	ctrl = v4l2_ctrl_new_std(&flash->ctrls, &as3645a_ctrl_ops,
 				 V4L2_CID_FLASH_FAULT, 0,
 				 V4L2_FLASH_FAULT_OVER_VOLTAGE |

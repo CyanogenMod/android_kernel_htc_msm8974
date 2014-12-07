@@ -26,6 +26,7 @@
 #define SALSA20_MIN_KEY_SIZE  16U
 #define SALSA20_MAX_KEY_SIZE  32U
 
+// use the ECRYPT_* function names
 #define salsa20_keysetup        ECRYPT_keysetup
 #define salsa20_ivsetup         ECRYPT_ivsetup
 #define salsa20_encrypt_bytes   ECRYPT_encrypt_bytes

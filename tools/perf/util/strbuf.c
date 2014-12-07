@@ -10,6 +10,11 @@ int prefixcmp(const char *str, const char *prefix)
 			return (unsigned char)*prefix - (unsigned char)*str;
 }
 
+/*
+ * Used as the default ->buf value, so that people can always assume
+ * buf is non NULL and ->buf is NUL terminated even for a freshly
+ * initialized strbuf.
+ */
 char strbuf_slopbuf[1];
 
 void strbuf_init(struct strbuf *sb, ssize_t hint)

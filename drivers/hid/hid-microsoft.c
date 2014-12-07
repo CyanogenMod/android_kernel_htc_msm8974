@@ -30,6 +30,10 @@
 #define MS_NOGET		0x10
 #define MS_DUPLICATE_USAGES	0x20
 
+/*
+ * Microsoft Wireless Desktop Receiver (Model 1028) has
+ * 'Usage Min/Max' where it ought to have 'Physical Min/Max'
+ */
 static __u8 *ms_report_fixup(struct hid_device *hdev, __u8 *rdesc,
 		unsigned int *rsize)
 {
@@ -127,7 +131,7 @@ static int ms_event(struct hid_device *hdev, struct hid_field *field,
 			!usage->type)
 		return 0;
 
-	
+	/* Handling MS keyboards special buttons */
 	if (quirks & MS_ERGONOMY && usage->hid == (HID_UP_MSVENDOR | 0xff05)) {
 		struct input_dev *input = field->hidinput->input;
 		static unsigned int last_key = 0;

@@ -56,10 +56,10 @@ static void c2k_bridge_setup(u32 mem_size)
 		fatal("Error: Missing marvell,mv64360 device tree node\n\r");
 
 	enables = in_le32((u32 *)(bridge_base + MV64x60_CPU_BAR_ENABLE));
-	enables |= 0x007ffe00; 
+	enables |= 0x007ffe00; /* Disable all cpu->pci windows */
 	out_le32((u32 *)(bridge_base + MV64x60_CPU_BAR_ENABLE), enables);
 
-	
+	/* Get the cpu -> pci i/o & mem mappings from the device tree */
 	devp = NULL;
 	for (bus = 0; ; bus++) {
 		char name[] = "pci ";
@@ -82,14 +82,14 @@ static void c2k_bridge_setup(u32 mem_size)
 			fatal("Error: Can't find marvell,mv64360-pci ranges"
 				" property\n\r");
 
-		
+		/* Get the cpu -> pci i/o & mem mappings from the device tree */
 
 		for (i = 0; i < rc; i += 6) {
 			switch (v[i] & 0xff000000) {
-			case 0x01000000: 
+			case 0x01000000: /* PCI I/O Space */
 				tbl = mv64x60_cpu2pci_io;
 				break;
-			case 0x02000000: 
+			case 0x02000000: /* PCI MEM Space */
 				tbl = mv64x60_cpu2pci_mem;
 				break;
 			default:
@@ -112,7 +112,8 @@ static void c2k_bridge_setup(u32 mem_size)
 				pci_base_hi, pci_base_lo, cpu_base, size, tbl);
 		}
 
-		enables &= ~(3<<(9+bus*5)); 
+		enables &= ~(3<<(9+bus*5)); /* Enable cpu->pci<bus> i/o,
+						cpu->pci<bus> mem0 */
 		out_le32((u32 *)(bridge_base + MV64x60_CPU_BAR_ENABLE),
 			enables);
 	};
@@ -123,7 +124,7 @@ static void c2k_fixups(void)
 	u32 mem_size;
 
 	mem_size = mv64x60_get_mem_size(bridge_base);
-	c2k_bridge_setup(mem_size); 
+	c2k_bridge_setup(mem_size); /* Do necessary bridge setup */
 }
 
 #define MV64x60_MPP_CNTL_0	0xf000

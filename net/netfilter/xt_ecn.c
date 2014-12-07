@@ -33,6 +33,9 @@ static bool match_tcp(const struct sk_buff *skb, struct xt_action_param *par)
 	struct tcphdr _tcph;
 	const struct tcphdr *th;
 
+	/* In practice, TCP match does this, so can't fail.  But let's
+	 * be good citizens.
+	 */
 	th = skb_header_pointer(skb, par->thoff, sizeof(_tcph), &_tcph);
 	if (th == NULL)
 		return false;

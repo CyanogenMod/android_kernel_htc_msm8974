@@ -1,4 +1,7 @@
 
+/*
+ *	Index to functions.
+ */
 
 static int  el1_probe1(struct net_device *dev, int ioaddr);
 static int  el_open(struct net_device *dev);
@@ -14,19 +17,22 @@ static const struct ethtool_ops netdev_ethtool_ops;
 #define EL1_IO_EXTENT	16
 
 #ifndef EL_DEBUG
-#define EL_DEBUG  0	
-#endif			
+#define EL_DEBUG  0	/* use 0 for production, 1 for devel., >2 for debug */
+#endif			/* Anything above 5 is wordy death! */
 #define debug el_debug
 static int el_debug = EL_DEBUG;
 
+/*
+ *	Board-specific info in netdev_priv(dev).
+ */
 
 struct net_local
 {
-	int		tx_pkt_start;	
-	int		collisions;	
-	int		loading;	
-	int		txing;		
-	spinlock_t	lock;		
+	int		tx_pkt_start;	/* The length of the current Tx packet. */
+	int		collisions;	/* Tx collisions this packet */
+	int		loading;	/* Spot buffer load collisions */
+	int		txing;		/* True if card is in TX mode */
+	spinlock_t	lock;		/* Serializing lock */
 };
 
 
@@ -43,19 +49,22 @@ struct net_local
 #define AX_STATUS (ioaddr + 0x0E)
 #define AX_CMD	  AX_STATUS
 #define DATAPORT  (ioaddr + 0x0F)
-#define TX_RDY 0x08		
+#define TX_RDY 0x08		/* In TX_STATUS */
 
 #define EL1_DATAPTR	0x08
 #define EL1_RXPTR	0x0A
 #define EL1_SAPROM	0x0C
 #define EL1_DATAPORT 	0x0f
 
+/*
+ *	Writes to the ax command register.
+ */
 
-#define AX_OFF	0x00			
-#define AX_SYS  0x40			
-#define AX_XMIT 0x44			
-#define AX_RX	0x48			
-#define AX_LOOP	0x0C			
+#define AX_OFF	0x00			/* Irq off, buffer access on */
+#define AX_SYS  0x40			/* Load the buffer */
+#define AX_XMIT 0x44			/* Transmit a packet */
+#define AX_RX	0x48			/* Receive a packet */
+#define AX_LOOP	0x0C			/* Loopback mode */
 #define AX_RESET 0x80
 
 /*
@@ -63,17 +72,20 @@ struct net_local
  *	to avoid bogus rx lockups.
  */
 
-#define RX_NORM 0xA8		
-#define RX_PROM 0x68		
-#define RX_MULT 0xE8		
-#define TX_NORM 0x0A		
+#define RX_NORM 0xA8		/* 0x68 == all addrs, 0xA8 only to me. */
+#define RX_PROM 0x68		/* Senior Prom, uhmm promiscuous mode. */
+#define RX_MULT 0xE8		/* Accept multicast packets. */
+#define TX_NORM 0x0A		/* Interrupt on everything that might hang the chip */
 
+/*
+ *	TX_STATUS register.
+ */
 
 #define TX_COLLISION 0x02
 #define TX_16COLLISIONS 0x04
 #define TX_READY 0x08
 
 #define RX_RUNT 0x08
-#define RX_MISSED 0x01		
-#define RX_GOOD	0x30		
+#define RX_MISSED 0x01		/* Missed a packet due to 3c501 braindamage. */
+#define RX_GOOD	0x30		/* Good packet 0x20, or simple overflow 0x10. */
 

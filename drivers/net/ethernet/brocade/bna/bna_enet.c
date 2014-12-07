@@ -75,6 +75,9 @@ do {									\
 		stats_dst[i] = be64_to_cpu(stats_src[i]);		\
 } while (0)								\
 
+/*
+ * FW response handlers
+ */
 
 static void
 bna_bfi_ethport_enable_aen(struct bna_ethport *ethport,
@@ -160,6 +163,10 @@ bna_bfi_attr_get_rsp(struct bna_ioceth *ioceth,
 {
 	struct bfi_enet_attr_rsp *rsp = (struct bfi_enet_attr_rsp *)msghdr;
 
+	/**
+	 * Store only if not set earlier, since BNAD can override the HW
+	 * attributes
+	 */
 	if (!ioceth->attr.fw_query_complete) {
 		ioceth->attr.num_txq = ntohl(rsp->max_cfg);
 		ioceth->attr.num_rxp = ntohl(rsp->max_cfg);
@@ -192,7 +199,7 @@ bna_bfi_stats_get_rsp(struct bna *bna, struct bfi_msgq_mhdr *msghdr)
 
 	stats_src = (u64 *)&(bna->stats.hw_stats_kva->rxf_stats[0]);
 
-	
+	/* Copy Rxf stats to SW area, scatter them while copying */
 	for (i = 0; i < BFI_ENET_CFG_MAX; i++) {
 		stats_dst = (u64 *)&(bna->stats.hw_stats.rxf_stats[i]);
 		memset(stats_dst, 0, sizeof(struct bfi_enet_stats_rxf));
@@ -207,7 +214,7 @@ bna_bfi_stats_get_rsp(struct bna *bna, struct bfi_msgq_mhdr *msghdr)
 		}
 	}
 
-	
+	/* Copy Txf stats to SW area, scatter them while copying */
 	for (i = 0; i < BFI_ENET_CFG_MAX; i++) {
 		stats_dst = (u64 *)&(bna->stats.hw_stats.txf_stats[i]);
 		memset(stats_dst, 0, sizeof(struct bfi_enet_stats_txf));
@@ -232,7 +239,7 @@ bna_bfi_ethport_linkup_aen(struct bna_ethport *ethport,
 {
 	ethport->link_status = BNA_LINK_UP;
 
-	
+	/* Dispatch events */
 	ethport->link_cbfn(ethport->bna->bnad, ethport->link_status);
 }
 
@@ -242,7 +249,7 @@ bna_bfi_ethport_linkdown_aen(struct bna_ethport *ethport,
 {
 	ethport->link_status = BNA_LINK_DOWN;
 
-	
+	/* Dispatch events */
 	ethport->link_cbfn(ethport->bna->bnad, BNA_LINK_DOWN);
 }
 
@@ -343,7 +350,7 @@ bna_msgq_rsp_handler(void *arg, struct bfi_msgq_mhdr *msghdr)
 		break;
 
 	case BFI_ENET_I2H_STATS_CLR_RSP:
-		
+		/* No-op */
 		break;
 
 	case BFI_ENET_I2H_LINK_UP_AEN:
@@ -371,6 +378,9 @@ bna_msgq_rsp_handler(void *arg, struct bfi_msgq_mhdr *msghdr)
 	}
 }
 
+/**
+ * ETHPORT
+ */
 #define call_ethport_stop_cbfn(_ethport)				\
 do {									\
 	if ((_ethport)->stop_cbfn) {					\
@@ -514,12 +524,12 @@ bna_ethport_sm_stopped(struct bna_ethport *ethport,
 		break;
 
 	case ETHPORT_E_FAIL:
-		
+		/* No-op */
 		break;
 
 	case ETHPORT_E_DOWN:
-		
-		
+		/* This event is received due to Rx objects failing */
+		/* No-op */
 		break;
 
 	default:
@@ -590,7 +600,7 @@ bna_ethport_sm_up_resp_wait(struct bna_ethport *ethport,
 		break;
 
 	case ETHPORT_E_FWRESP_DOWN:
-		
+		/* down_resp_wait -> up_resp_wait transition on ETHPORT_E_UP */
 		bna_bfi_ethport_up(ethport);
 		break;
 
@@ -602,6 +612,11 @@ bna_ethport_sm_up_resp_wait(struct bna_ethport *ethport,
 static void
 bna_ethport_sm_down_resp_wait_entry(struct bna_ethport *ethport)
 {
+	/**
+	 * NOTE: Do not call bna_bfi_ethport_down() here. That will over step
+	 * mbox due to up_resp_wait -> down_resp_wait transition on event
+	 * ETHPORT_E_DOWN
+	 */
 }
 
 static void
@@ -622,7 +637,7 @@ bna_ethport_sm_down_resp_wait(struct bna_ethport *ethport,
 		break;
 
 	case ETHPORT_E_FWRESP_UP_OK:
-		
+		/* up_resp_wait->down_resp_wait transition on ETHPORT_E_DOWN */
 		bna_bfi_ethport_down(ethport);
 		break;
 
@@ -680,11 +695,15 @@ bna_ethport_sm_last_resp_wait(struct bna_ethport *ethport,
 		break;
 
 	case ETHPORT_E_DOWN:
-		
+		/**
+		 * This event is received due to Rx objects stopping in
+		 * parallel to ethport
+		 */
+		/* No-op */
 		break;
 
 	case ETHPORT_E_FWRESP_UP_OK:
-		
+		/* up_resp_wait->last_resp_wait transition on ETHPORT_T_STOP */
 		bna_bfi_ethport_down(ethport);
 		break;
 
@@ -746,7 +765,7 @@ bna_ethport_stop(struct bna_ethport *ethport)
 static void
 bna_ethport_fail(struct bna_ethport *ethport)
 {
-	
+	/* Reset the physical port status to enabled */
 	ethport->flags |= BNA_ETHPORT_F_PORT_ENABLED;
 
 	if (ethport->link_status != BNA_LINK_DOWN) {
@@ -756,6 +775,7 @@ bna_ethport_fail(struct bna_ethport *ethport)
 	bfa_fsm_send_event(ethport, ETHPORT_E_FAIL);
 }
 
+/* Should be called only when ethport is disabled */
 void
 bna_ethport_cb_rx_started(struct bna_ethport *ethport)
 {
@@ -784,6 +804,9 @@ bna_ethport_cb_rx_stopped(struct bna_ethport *ethport)
 	}
 }
 
+/**
+ * ENET
+ */
 #define bna_enet_chld_start(enet)					\
 do {									\
 	enum bna_tx_type tx_type =					\
@@ -913,7 +936,7 @@ bna_enet_sm_stopped(struct bna_enet *enet, enum bna_enet_event event)
 		break;
 
 	case ENET_E_FAIL:
-		
+		/* No-op */
 		break;
 
 	case ENET_E_PAUSE_CFG:
@@ -925,7 +948,11 @@ bna_enet_sm_stopped(struct bna_enet *enet, enum bna_enet_event event)
 		break;
 
 	case ENET_E_CHLD_STOPPED:
-		
+		/**
+		 * This event is received due to Ethport, Tx and Rx objects
+		 * failing
+		 */
+		/* No-op */
 		break;
 
 	default:
@@ -959,7 +986,7 @@ bna_enet_sm_pause_init_wait(struct bna_enet *enet,
 		break;
 
 	case ENET_E_MTU_CFG:
-		
+		/* No-op */
 		break;
 
 	case ENET_E_FWRESP_PAUSE:
@@ -1001,6 +1028,10 @@ bna_enet_sm_last_resp_wait(struct bna_enet *enet,
 static void
 bna_enet_sm_started_entry(struct bna_enet *enet)
 {
+	/**
+	 * NOTE: Do not call bna_enet_chld_start() here, since it will be
+	 * inadvertently called during cfg_wait->started transition as well
+	 */
 	call_enet_pause_cbfn(enet);
 	call_enet_mtu_cbfn(enet);
 }
@@ -1067,7 +1098,7 @@ bna_enet_sm_cfg_wait(struct bna_enet *enet,
 
 	case ENET_E_CHLD_STOPPED:
 		bna_enet_rx_start(enet);
-		
+		/* Fall through */
 	case ENET_E_FWRESP_PAUSE:
 		if (enet->flags & BNA_ENET_F_PAUSE_CHANGED) {
 			enet->flags &= ~BNA_ENET_F_PAUSE_CHANGED;
@@ -1297,6 +1328,9 @@ bna_enet_perm_mac_get(struct bna_enet *enet, mac_t *mac)
 	*mac = bfa_nw_ioc_get_mac(&enet->bna->ioceth.ioc);
 }
 
+/**
+ * IOCETH
+ */
 #define enable_mbox_intr(_ioceth)					\
 do {									\
 	u32 intr_status;						\
@@ -1401,6 +1435,10 @@ bna_ioceth_sm_stopped(struct bna_ioceth *ioceth,
 static void
 bna_ioceth_sm_ioc_ready_wait_entry(struct bna_ioceth *ioceth)
 {
+	/**
+	 * Do not call bfa_nw_ioc_enable() here. It must be called in the
+	 * previous state due to failed -> ioc_ready_wait transition.
+	 */
 }
 
 static void
@@ -1560,8 +1598,8 @@ bna_ioceth_sm_ioc_disable_wait(struct bna_ioceth *ioceth,
 		break;
 
 	case IOCETH_E_ENET_STOPPED:
-		
-		
+		/* This event is received due to enet failing */
+		/* No-op */
 		break;
 
 	default:
@@ -1612,6 +1650,7 @@ bna_bfi_attr_get(struct bna_ioceth *ioceth)
 	bfa_msgq_cmd_post(&ioceth->bna->msgq, &ioceth->msgq_cmd);
 }
 
+/* IOC callback functions */
 
 static void
 bna_cb_ioceth_enable(void *arg, enum bfa_status error)
@@ -1674,6 +1713,11 @@ bna_ioceth_init(struct bna_ioceth *ioceth, struct bna *bna,
 
 	ioceth->bna = bna;
 
+	/**
+	 * Attach IOC and claim:
+	 *	1. DMA memory for IOC attributes
+	 *	2. Kernel memory for FW trace
+	 */
 	bfa_nw_ioc_attach(&ioceth->ioc, ioceth, &bna_ioceth_cbfn);
 	bfa_nw_ioc_pci_init(&ioceth->ioc, &bna->pcidev, BFI_PCIFN_CLASS_ETH);
 
@@ -1685,6 +1729,10 @@ bna_ioceth_init(struct bna_ioceth *ioceth, struct bna *bna,
 	kva = res_info[BNA_RES_MEM_T_FWTRC].res_u.mem_info.mdl[0].kva;
 	bfa_nw_ioc_debug_memclaim(&ioceth->ioc, kva);
 
+	/**
+	 * Attach common modules (Diag, SFP, CEE, Port) and claim respective
+	 * DMA memory.
+	 */
 	BNA_GET_DMA_ADDR(
 		&res_info[BNA_RES_MEM_T_COM].res_u.mem_info.mdl[0].dma, dma);
 	kva = res_info[BNA_RES_MEM_T_COM].res_u.mem_info.mdl[0].kva;
@@ -1844,7 +1892,7 @@ bna_bfi_stats_get(struct bna *bna)
 void
 bna_res_req(struct bna_res_info *res_info)
 {
-	
+	/* DMA memory for COMMON_MODULE */
 	res_info[BNA_RES_MEM_T_COM].res_type = BNA_RES_T_MEM;
 	res_info[BNA_RES_MEM_T_COM].res_u.mem_info.mem_type = BNA_MEM_T_DMA;
 	res_info[BNA_RES_MEM_T_COM].res_u.mem_info.num = 1;
@@ -1853,20 +1901,20 @@ bna_res_req(struct bna_res_info *res_info)
 				 bfa_nw_flash_meminfo() +
 				 bfa_msgq_meminfo()), PAGE_SIZE);
 
-	
+	/* DMA memory for retrieving IOC attributes */
 	res_info[BNA_RES_MEM_T_ATTR].res_type = BNA_RES_T_MEM;
 	res_info[BNA_RES_MEM_T_ATTR].res_u.mem_info.mem_type = BNA_MEM_T_DMA;
 	res_info[BNA_RES_MEM_T_ATTR].res_u.mem_info.num = 1;
 	res_info[BNA_RES_MEM_T_ATTR].res_u.mem_info.len =
 				ALIGN(bfa_nw_ioc_meminfo(), PAGE_SIZE);
 
-	
+	/* Virtual memory for retreiving fw_trc */
 	res_info[BNA_RES_MEM_T_FWTRC].res_type = BNA_RES_T_MEM;
 	res_info[BNA_RES_MEM_T_FWTRC].res_u.mem_info.mem_type = BNA_MEM_T_KVA;
 	res_info[BNA_RES_MEM_T_FWTRC].res_u.mem_info.num = 1;
 	res_info[BNA_RES_MEM_T_FWTRC].res_u.mem_info.len = BNA_DBG_FWTRC_LEN;
 
-	
+	/* DMA memory for retreiving stats */
 	res_info[BNA_RES_MEM_T_STATS].res_type = BNA_RES_T_MEM;
 	res_info[BNA_RES_MEM_T_STATS].res_u.mem_info.mem_type = BNA_MEM_T_DMA;
 	res_info[BNA_RES_MEM_T_STATS].res_u.mem_info.num = 1;
@@ -1880,7 +1928,7 @@ bna_mod_res_req(struct bna *bna, struct bna_res_info *res_info)
 {
 	struct bna_attr *attr = &bna->ioceth.attr;
 
-	
+	/* Virtual memory for Tx objects - stored by Tx module */
 	res_info[BNA_MOD_RES_MEM_T_TX_ARRAY].res_type = BNA_RES_T_MEM;
 	res_info[BNA_MOD_RES_MEM_T_TX_ARRAY].res_u.mem_info.mem_type =
 		BNA_MEM_T_KVA;
@@ -1888,7 +1936,7 @@ bna_mod_res_req(struct bna *bna, struct bna_res_info *res_info)
 	res_info[BNA_MOD_RES_MEM_T_TX_ARRAY].res_u.mem_info.len =
 		attr->num_txq * sizeof(struct bna_tx);
 
-	
+	/* Virtual memory for TxQ - stored by Tx module */
 	res_info[BNA_MOD_RES_MEM_T_TXQ_ARRAY].res_type = BNA_RES_T_MEM;
 	res_info[BNA_MOD_RES_MEM_T_TXQ_ARRAY].res_u.mem_info.mem_type =
 		BNA_MEM_T_KVA;
@@ -1896,7 +1944,7 @@ bna_mod_res_req(struct bna *bna, struct bna_res_info *res_info)
 	res_info[BNA_MOD_RES_MEM_T_TXQ_ARRAY].res_u.mem_info.len =
 		attr->num_txq * sizeof(struct bna_txq);
 
-	
+	/* Virtual memory for Rx objects - stored by Rx module */
 	res_info[BNA_MOD_RES_MEM_T_RX_ARRAY].res_type = BNA_RES_T_MEM;
 	res_info[BNA_MOD_RES_MEM_T_RX_ARRAY].res_u.mem_info.mem_type =
 		BNA_MEM_T_KVA;
@@ -1904,7 +1952,7 @@ bna_mod_res_req(struct bna *bna, struct bna_res_info *res_info)
 	res_info[BNA_MOD_RES_MEM_T_RX_ARRAY].res_u.mem_info.len =
 		attr->num_rxp * sizeof(struct bna_rx);
 
-	
+	/* Virtual memory for RxPath - stored by Rx module */
 	res_info[BNA_MOD_RES_MEM_T_RXP_ARRAY].res_type = BNA_RES_T_MEM;
 	res_info[BNA_MOD_RES_MEM_T_RXP_ARRAY].res_u.mem_info.mem_type =
 		BNA_MEM_T_KVA;
@@ -1912,7 +1960,7 @@ bna_mod_res_req(struct bna *bna, struct bna_res_info *res_info)
 	res_info[BNA_MOD_RES_MEM_T_RXP_ARRAY].res_u.mem_info.len =
 		attr->num_rxp * sizeof(struct bna_rxp);
 
-	
+	/* Virtual memory for RxQ - stored by Rx module */
 	res_info[BNA_MOD_RES_MEM_T_RXQ_ARRAY].res_type = BNA_RES_T_MEM;
 	res_info[BNA_MOD_RES_MEM_T_RXQ_ARRAY].res_u.mem_info.mem_type =
 		BNA_MEM_T_KVA;
@@ -1920,7 +1968,7 @@ bna_mod_res_req(struct bna *bna, struct bna_res_info *res_info)
 	res_info[BNA_MOD_RES_MEM_T_RXQ_ARRAY].res_u.mem_info.len =
 		(attr->num_rxp * 2) * sizeof(struct bna_rxq);
 
-	
+	/* Virtual memory for Unicast MAC address - stored by ucam module */
 	res_info[BNA_MOD_RES_MEM_T_UCMAC_ARRAY].res_type = BNA_RES_T_MEM;
 	res_info[BNA_MOD_RES_MEM_T_UCMAC_ARRAY].res_u.mem_info.mem_type =
 		BNA_MEM_T_KVA;
@@ -1928,7 +1976,7 @@ bna_mod_res_req(struct bna *bna, struct bna_res_info *res_info)
 	res_info[BNA_MOD_RES_MEM_T_UCMAC_ARRAY].res_u.mem_info.len =
 		attr->num_ucmac * sizeof(struct bna_mac);
 
-	
+	/* Virtual memory for Multicast MAC address - stored by mcam module */
 	res_info[BNA_MOD_RES_MEM_T_MCMAC_ARRAY].res_type = BNA_RES_T_MEM;
 	res_info[BNA_MOD_RES_MEM_T_MCMAC_ARRAY].res_u.mem_info.mem_type =
 		BNA_MEM_T_KVA;
@@ -1936,7 +1984,7 @@ bna_mod_res_req(struct bna *bna, struct bna_res_info *res_info)
 	res_info[BNA_MOD_RES_MEM_T_MCMAC_ARRAY].res_u.mem_info.len =
 		attr->num_mcmac * sizeof(struct bna_mac);
 
-	
+	/* Virtual memory for Multicast handle - stored by mcam module */
 	res_info[BNA_MOD_RES_MEM_T_MCHANDLE_ARRAY].res_type = BNA_RES_T_MEM;
 	res_info[BNA_MOD_RES_MEM_T_MCHANDLE_ARRAY].res_u.mem_info.mem_type =
 		BNA_MEM_T_KVA;
@@ -1961,7 +2009,7 @@ bna_init(struct bna *bna, struct bnad *bnad,
 
 	bna_reg_addr_init(bna, &bna->pcidev);
 
-	
+	/* Also initializes diag, cee, sfp, phy_port, msgq */
 	bna_ioceth_init(&bna->ioceth, bna, res_info);
 
 	bna_enet_init(&bna->enet, bna);

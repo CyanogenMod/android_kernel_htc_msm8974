@@ -62,17 +62,17 @@
 #include "devices.h"
 
 static unsigned long mioa701_pin_config[] = {
-	
+	/* Mio global */
 	MIO_CFG_OUT(GPIO9_CHARGE_EN, AF0, DRIVE_LOW),
 	MIO_CFG_OUT(GPIO18_POWEROFF, AF0, DRIVE_LOW),
 	MFP_CFG_OUT(GPIO3, AF0, DRIVE_HIGH),
 	MFP_CFG_OUT(GPIO4, AF0, DRIVE_HIGH),
 	MIO_CFG_IN(GPIO80_MAYBE_CHARGE_VDROP, AF0),
 
-	
+	/* Backlight PWM 0 */
 	GPIO16_PWM0_OUT,
 
-	
+	/* MMC */
 	GPIO32_MMC_CLK,
 	GPIO92_MMC_DAT_0,
 	GPIO109_MMC_DAT_1,
@@ -83,14 +83,14 @@ static unsigned long mioa701_pin_config[] = {
 	MIO_CFG_IN(GPIO15_SDIO_INSERT, AF0),
 	MIO_CFG_OUT(GPIO91_SDIO_EN, AF0, DRIVE_LOW),
 
-	
+	/* USB */
 	MIO_CFG_IN(GPIO13_nUSB_DETECT, AF0),
 	MIO_CFG_OUT(GPIO22_USB_ENABLE, AF0, DRIVE_LOW),
 
-	
+	/* LCD */
 	GPIOxx_LCD_TFT_16BPP,
 
-	
+	/* QCI */
 	GPIO12_CIF_DD_7,
 	GPIO17_CIF_DD_6,
 	GPIO50_CIF_DD_3,
@@ -104,7 +104,7 @@ static unsigned long mioa701_pin_config[] = {
 	GPIO84_CIF_FV,
 	GPIO85_CIF_LV,
 
-	
+	/* Bluetooth */
 	MIO_CFG_IN(GPIO14_BT_nACTIVITY, AF0),
 	GPIO44_BTUART_CTS,
 	GPIO42_BTUART_RXD,
@@ -114,7 +114,7 @@ static unsigned long mioa701_pin_config[] = {
 	MIO_CFG_OUT(GPIO77_BT_UNKNOWN1, AF0, DRIVE_HIGH),
 	MIO_CFG_OUT(GPIO86_BT_MAYBE_nRESET, AF0, DRIVE_HIGH),
 
-	
+	/* GPS */
 	MIO_CFG_OUT(GPIO23_GPS_UNKNOWN1, AF0, DRIVE_LOW),
 	MIO_CFG_OUT(GPIO26_GPS_ON, AF0, DRIVE_LOW),
 	MIO_CFG_OUT(GPIO27_GPS_RESET, AF0, DRIVE_LOW),
@@ -123,7 +123,7 @@ static unsigned long mioa701_pin_config[] = {
 	GPIO46_STUART_RXD,
 	GPIO47_STUART_TXD,
 
-	
+	/* GSM */
 	MIO_CFG_OUT(GPIO24_GSM_MOD_RESET_CMD, AF0, DRIVE_LOW),
 	MIO_CFG_OUT(GPIO88_GSM_nMOD_ON_CMD, AF0, DRIVE_HIGH),
 	MIO_CFG_OUT(GPIO90_GSM_nMOD_OFF_CMD, AF0, DRIVE_HIGH),
@@ -138,7 +138,7 @@ static unsigned long mioa701_pin_config[] = {
 	GPIO40_FFUART_DTR,
 	GPIO41_FFUART_RTS,
 
-	
+	/* Sound */
 	GPIO28_AC97_BITCLK,
 	GPIO29_AC97_SDATA_IN_0,
 	GPIO30_AC97_SDATA_OUT,
@@ -146,14 +146,14 @@ static unsigned long mioa701_pin_config[] = {
 	GPIO89_AC97_SYSCLK,
 	MIO_CFG_IN(GPIO12_HPJACK_INSERT, AF0),
 
-	
+	/* Leds */
 	MIO_CFG_OUT(GPIO10_LED_nCharging, AF0, DRIVE_HIGH),
 	MIO_CFG_OUT(GPIO97_LED_nBlue, AF0, DRIVE_HIGH),
 	MIO_CFG_OUT(GPIO98_LED_nOrange, AF0, DRIVE_HIGH),
 	MIO_CFG_OUT(GPIO82_LED_nVibra, AF0, DRIVE_HIGH),
 	MIO_CFG_OUT(GPIO115_LED_nKeyboard, AF0, DRIVE_HIGH),
 
-	
+	/* Keyboard */
 	MIO_CFG_IN(GPIO0_KEY_POWER, AF0) | WAKEUP_ON_EDGE_BOTH,
 	MIO_CFG_IN(GPIO93_KEY_VOLUME_UP, AF0),
 	MIO_CFG_IN(GPIO94_KEY_VOLUME_DOWN, AF0),
@@ -164,11 +164,11 @@ static unsigned long mioa701_pin_config[] = {
 	GPIO104_KP_MKOUT_1,
 	GPIO105_KP_MKOUT_2,
 
-	
+	/* I2C */
 	GPIO117_I2C_SCL,
 	GPIO118_I2C_SDA,
 
-	
+	/* Unknown */
 	MFP_CFG_IN(GPIO20, AF0),
 	MFP_CFG_IN(GPIO21, AF0),
 	MFP_CFG_IN(GPIO33, AF0),
@@ -178,15 +178,23 @@ static unsigned long mioa701_pin_config[] = {
 	MFP_CFG_OUT(GPIO116, AF0, DRIVE_HIGH),
 };
 
+/* LCD Screen and Backlight */
 static struct platform_pwm_backlight_data mioa701_backlight_data = {
 	.pwm_id		= 0,
 	.max_brightness	= 100,
 	.dft_brightness	= 50,
-	.pwm_period_ns	= 4000 * 1024,	
+	.pwm_period_ns	= 4000 * 1024,	/* Fl = 250kHz */
 };
 
+/*
+ * LTM0305A776C LCD panel timings
+ *
+ * see:
+ *  - the LTM0305A776C datasheet,
+ *  - and the PXA27x Programmers' manual
+ */
 static struct pxafb_mode_info mioa701_ltm0305a776c = {
-	.pixclock		= 220000,	
+	.pixclock		= 220000,	/* CLK=4.545 MHz */
 	.xres			= 240,
 	.yres			= 320,
 	.bpp			= 16,
@@ -210,16 +218,19 @@ static struct pxafb_mach_info mioa701_pxafb_info = {
 	.pxafb_lcd_power	= mioa701_lcd_power,
 };
 
+/*
+ * Keyboard configuration
+ */
 static unsigned int mioa701_matrix_keys[] = {
 	KEY(0, 0, KEY_UP),
 	KEY(0, 1, KEY_RIGHT),
 	KEY(0, 2, KEY_MEDIA),
 	KEY(1, 0, KEY_DOWN),
 	KEY(1, 1, KEY_ENTER),
-	KEY(1, 2, KEY_CONNECT),	
+	KEY(1, 2, KEY_CONNECT),	/* GPS key */
 	KEY(2, 0, KEY_LEFT),
-	KEY(2, 1, KEY_PHONE),	
-	KEY(2, 2, KEY_CAMERA)	
+	KEY(2, 1, KEY_PHONE),	/* Phone Green key */
+	KEY(2, 2, KEY_CAMERA)	/* Camera key */
 };
 static struct pxa27x_keypad_platform_data mioa701_keypad_info = {
 	.matrix_key_rows = 3,
@@ -228,6 +239,9 @@ static struct pxa27x_keypad_platform_data mioa701_keypad_info = {
 	.matrix_key_map_size = ARRAY_SIZE(mioa701_matrix_keys),
 };
 
+/*
+ * GPIO Key Configuration
+ */
 #define MIO_KEY(key, _gpio, _desc, _wakeup) \
 	{ .code = (key), .gpio = (_gpio), .active_low = 0, \
 	.desc = (_desc), .type = EV_KEY, .wakeup = (_wakeup) }
@@ -243,6 +257,9 @@ static struct gpio_keys_platform_data mioa701_gpio_keys_data = {
 	.nbuttons = ARRAY_SIZE(mioa701_button_table),
 };
 
+/*
+ * Leds and vibrator
+ */
 #define ONE_LED(_gpio, _name) \
 { .gpio = (_gpio), .name = (_name), .active_low = true }
 static struct gpio_led gpio_leds[] = {
@@ -258,6 +275,19 @@ static struct gpio_led_platform_data gpio_led_info = {
 	.num_leds = ARRAY_SIZE(gpio_leds),
 };
 
+/*
+ * GSM Sagem XS200 chip
+ *
+ * GSM handling was purged from kernel. For history, this is the way to go :
+ *   - init : GPIO24_GSM_MOD_RESET_CMD = 0, GPIO114_GSM_nMOD_DTE_UART_STATE = 1
+ *            GPIO88_GSM_nMOD_ON_CMD = 1, GPIO90_GSM_nMOD_OFF_CMD = 1
+ *   - reset : GPIO24_GSM_MOD_RESET_CMD = 1, msleep(100),
+ *             GPIO24_GSM_MOD_RESET_CMD = 0
+ *   - turn on  : GPIO88_GSM_nMOD_ON_CMD = 0, msleep(1000),
+ *                GPIO88_GSM_nMOD_ON_CMD = 1
+ *   - turn off : GPIO90_GSM_nMOD_OFF_CMD = 0, msleep(1000),
+ *                GPIO90_GSM_nMOD_OFF_CMD = 1
+ */
 static int is_gsm_on(void)
 {
 	int is_on;
@@ -308,8 +338,27 @@ static void gsm_exit(void)
 	gpio_free_array(ARRAY_AND_SIZE(gsm_gpios));
 }
 
+/*
+ * Bluetooth BRF6150 chip
+ *
+ * BT handling was purged from kernel. For history, this is the way to go :
+ * - turn on  : GPIO83_BT_ON = 1
+ * - turn off : GPIO83_BT_ON = 0
+ */
 
+/*
+ * GPS Sirf Star III chip
+ *
+ * GPS handling was purged from kernel. For history, this is the way to go :
+ * - init : GPIO23_GPS_UNKNOWN1 = 1, GPIO26_GPS_ON = 0, GPIO27_GPS_RESET = 0
+ *          GPIO106_GPS_UNKNOWN2 = 0, GPIO107_GPS_UNKNOWN3 = 0
+ * - turn on  : GPIO27_GPS_RESET = 1, GPIO26_GPS_ON = 1
+ * - turn off : GPIO26_GPS_ON = 0, GPIO27_GPS_RESET = 0
+ */
 
+/*
+ * USB UDC
+ */
 static int is_usb_connected(void)
 {
 	return !gpio_get_value(GPIO13_nUSB_DETECT);
@@ -326,6 +375,13 @@ struct gpio_vbus_mach_info gpio_vbus_data = {
 	.gpio_pullup = -1,
 };
 
+/*
+ * SDIO/MMC Card controller
+ */
+/**
+ * The card detect interrupt isn't debounced so we delay it by 250ms
+ * to give the card a chance to fully insert/eject.
+ */
 static struct pxamci_platform_data mioa701_mci_info = {
 	.detect_delay_ms	= 250,
 	.ocr_mask 		= MMC_VDD_32_33 | MMC_VDD_33_34,
@@ -334,6 +390,7 @@ static struct pxamci_platform_data mioa701_mci_info = {
 	.gpio_power		= GPIO91_SDIO_EN,
 };
 
+/* FlashRAM */
 static struct resource docg3_resource = {
 	.start = PXA_CS0_PHYS,
 	.end   = PXA_CS0_PHYS + SZ_8K - 1,
@@ -350,6 +407,19 @@ static struct platform_device docg3 = {
 	},
 };
 
+/*
+ * Suspend/Resume bootstrap management
+ *
+ * MIO A701 reboot sequence is highly ROM dependent. From the one dissassembled,
+ * this sequence is as follows :
+ *   - disables interrupts
+ *   - initialize SDRAM (self refresh RAM into active RAM)
+ *   - initialize GPIOs (depends on value at 0xa020b020)
+ *   - initialize coprossessors
+ *   - if edge detect on PWR_SCL(GPIO3), then proceed to cold start
+ *   - or if value at 0xa020b000 not equal to 0x0f0f0f0f, proceed to cold start
+ *   - else do a resume, ie. jump to addr 0xa0100000
+ */
 #define RESUME_ENABLE_ADDR	0xa020b000
 #define RESUME_ENABLE_VAL	0x0f0f0f0f
 #define RESUME_BT_ADDR		0xa020b020
@@ -378,7 +448,7 @@ static int mioa701_sys_suspend(void)
 	u32 *mem_resume_bt	= phys_to_virt(RESUME_BT_ADDR);
 	u32 *mem_resume_unknown	= phys_to_virt(RESUME_UNKNOWN_ADDR);
 
-	
+	/* Devices prepare suspend */
 	is_bt_on = !!gpio_get_value(GPIO83_BT_ON);
 	pxa2xx_mfp_set_lpm(GPIO83_BT_ON,
 			   is_bt_on ? MFP_LPM_DRIVE_HIGH : MFP_LPM_DRIVE_LOW);
@@ -439,6 +509,9 @@ static void bootstrap_exit(void)
 	       "resume !!!\n");
 }
 
+/*
+ * Power Supply
+ */
 static char *supplicants[] = {
 	"mioa701_battery"
 };
@@ -504,6 +577,9 @@ static struct wm97xx_pdata mioa701_wm97xx_pdata = {
 	.batt_pdata	= &mioa701_battery_data,
 };
 
+/*
+ * Voltage regulation
+ */
 static struct regulator_consumer_supply max1586_consumers[] = {
 	{
 		.supply = "vcc_core",
@@ -530,9 +606,12 @@ static struct max1586_subdev_data max1586_subdevs[] = {
 static struct max1586_platform_data max1586_info = {
 	.subdevs = max1586_subdevs,
 	.num_subdevs = ARRAY_SIZE(max1586_subdevs),
-	.v3_gain = MAX1586_GAIN_NO_R24, 
+	.v3_gain = MAX1586_GAIN_NO_R24, /* 700..1475 mV */
 };
 
+/*
+ * Camera interface
+ */
 struct pxacamera_platform_data mioa701_pxacamera_platform_data = {
 	.flags  = PXA_CAMERA_MASTER | PXA_CAMERA_DATAWIDTH_8 |
 		PXA_CAMERA_PCLK_EN | PXA_CAMERA_MCLK_EN,
@@ -546,6 +625,7 @@ static struct i2c_board_info __initdata mioa701_pi2c_devices[] = {
 	},
 };
 
+/* Board I2C devices. */
 static struct i2c_board_info mioa701_i2c_devices[] = {
 	{
 		I2C_BOARD_INFO("mt9m111", 0x5d),
@@ -553,7 +633,7 @@ static struct i2c_board_info mioa701_i2c_devices[] = {
 };
 
 static struct soc_camera_link iclink = {
-	.bus_id		= 0, 
+	.bus_id		= 0, /* Match id in pxa27x_device_camera in device.c */
 	.board_info	= &mioa701_i2c_devices[0],
 	.i2c_adapter_id	= 0,
 };
@@ -567,7 +647,11 @@ static pxa2xx_audio_ops_t mioa701_ac97_info = {
 	.codec_pdata = { &mioa701_wm97xx_pdata, },
 };
 
+/*
+ * Mio global
+ */
 
+/* Devices */
 #define MIO_PARENT_DEV(var, strname, tparent, pdata)	\
 static struct platform_device var = {			\
 	.name		= strname,			\
@@ -627,11 +711,14 @@ static void __init mioa701_machine_init(void)
 {
 	int rc;
 
-	PSLR  = 0xff100000; 
+	PSLR  = 0xff100000; /* SYSDEL=125ms, PWRDEL=125ms, PSLR_SL_ROD=1 */
 	PCFR = PCFR_DC_EN | PCFR_GPR_EN | PCFR_OPDE;
-	RTTR = 32768 - 1; 
+	RTTR = 32768 - 1; /* Reset crazy WinCE value */
 	UP2OCR = UP2OCR_HXOE;
 
+	/*
+	 * Set up the flash memory : DiskOnChip G3 on first static memory bank
+	 */
 	__raw_writel(0x7ff02dd8, MSC0);
 	__raw_writel(0x0001c391, MCMEM0);
 	__raw_writel(0x0001c391, MCATT0);

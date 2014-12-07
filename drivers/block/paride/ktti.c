@@ -23,6 +23,9 @@
 
 #define j44(a,b)                (((a>>4)&0x0f)|(b&0xf0))
 
+/* cont = 0 - access the IDE register file 
+   cont = 1 - access the IDE command set 
+*/
 
 static int  cont_map[2] = { 0x10, 0x08 };
 

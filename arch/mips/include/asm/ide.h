@@ -10,4 +10,4 @@
 
 #include <ide.h>
 
-#endif 
+#endif /* __ASM_IDE_H */

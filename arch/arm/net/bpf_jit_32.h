@@ -46,6 +46,7 @@
 #define ARM_COND_LE		0xd
 #define ARM_COND_AL		0xe
 
+/* register shift types */
 #define SRTYPE_LSL		0
 #define SRTYPE_LSR		1
 #define SRTYPE_ASR		2
@@ -110,7 +111,9 @@
 
 #define ARM_INST_UMULL		0x00800090
 
+/* register */
 #define _AL3_R(op, rd, rn, rm)	((op ## _R) | (rd) << 12 | (rn) << 16 | (rm))
+/* immediate */
 #define _AL3_I(op, rd, rn, imm)	((op ## _I) | (rd) << 12 | (rn) << 16 | (imm))
 
 #define ARM_ADD_R(rd, rn, rm)	_AL3_R(ARM_INST_ADD, rd, rn, rm)
@@ -184,4 +187,4 @@
 #define ARM_UMULL(rd_lo, rd_hi, rn, rm)	(ARM_INST_UMULL | (rd_hi) << 16 \
 					 | (rd_lo) << 12 | (rm) << 8 | rn)
 
-#endif 
+#endif /* PFILTER_OPCODES_ARM_H */

@@ -20,6 +20,10 @@
  *
  * ----------------------------------------------------------------------- */
 
+/*
+ * Compute the desired load offset from a compressed program; outputs
+ * a small assembly wrapper with the appropriate symbols defined.
+ */
 
 #include <stdlib.h>
 #include <stdio.h>
@@ -39,7 +43,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	
+	/* Get the information for the compressed kernel image first */
 
 	f = fopen(argv[1], "r");
 	if (!f) {
@@ -61,11 +65,15 @@ int main(int argc, char *argv[])
 	olen = get_unaligned_le32(&olen);
 	fclose(f);
 
+	/*
+	 * Now we have the input (compressed) and output (uncompressed)
+	 * sizes, compute the necessary decompression offset...
+	 */
 
 	offs = (olen > ilen) ? olen - ilen : 0;
-	offs += olen >> 12;	
-	offs += 64*1024 + 128;	
-	offs = (offs+4095) & ~4095; 
+	offs += olen >> 12;	/* Add 8 bytes for each 32K block */
+	offs += 64*1024 + 128;	/* Add 64K + 128 bytes slack */
+	offs = (offs+4095) & ~4095; /* Round to a 4K boundary */
 
 	printf(".section \".rodata..compressed\",\"a\",@progbits\n");
 	printf(".globl z_input_len\n");
@@ -74,7 +82,7 @@ int main(int argc, char *argv[])
 	printf("z_output_len = %lu\n", (unsigned long)olen);
 	printf(".globl z_extract_offset\n");
 	printf("z_extract_offset = 0x%lx\n", offs);
-	
+	/* z_extract_offset_negative allows simplification of head_32.S */
 	printf(".globl z_extract_offset_negative\n");
 	printf("z_extract_offset_negative = -0x%lx\n", offs);
 

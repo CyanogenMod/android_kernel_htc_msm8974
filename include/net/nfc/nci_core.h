@@ -34,6 +34,7 @@
 #include <net/nfc/nfc.h>
 #include <net/nfc/nci.h>
 
+/* NCI device flags */
 enum nci_flag {
 	NCI_INIT,
 	NCI_UP,
@@ -41,6 +42,7 @@ enum nci_flag {
 	NCI_DATA_EXCHANGE_TO,
 };
 
+/* NCI device states */
 enum nci_state {
 	NCI_IDLE,
 	NCI_DISCOVERY,
@@ -49,6 +51,7 @@ enum nci_state {
 	NCI_POLL_ACTIVE,
 };
 
+/* NCI timeouts */
 #define NCI_RESET_TIMEOUT			5000
 #define NCI_INIT_TIMEOUT			5000
 #define NCI_RF_DISC_TIMEOUT			5000
@@ -68,6 +71,7 @@ struct nci_ops {
 #define NCI_MAX_SUPPORTED_RF_INTERFACES		4
 #define NCI_MAX_DISCOVERED_TARGETS		10
 
+/* NCI Core structures */
 struct nci_dev {
 	struct nfc_dev		*nfc_dev;
 	struct nci_ops		*ops;
@@ -110,10 +114,10 @@ struct nci_dev {
 	struct nfc_target	targets[NCI_MAX_DISCOVERED_TARGETS];
 	int			n_targets;
 
-	
+	/* received during NCI_OP_CORE_RESET_RSP */
 	__u8			nci_ver;
 
-	
+	/* received during NCI_OP_CORE_INIT_RSP */
 	__u32			nfcc_features;
 	__u8			num_supported_rf_interfaces;
 	__u8			supported_rf_interfaces
@@ -125,16 +129,17 @@ struct nci_dev {
 	__u8			manufact_id;
 	__u32			manufact_specific_info;
 
-	
+	/* received during NCI_OP_RF_INTF_ACTIVATED_NTF */
 	__u8			max_data_pkt_payload_size;
 	__u8			initial_num_credits;
 
-	
+	/* stored during nci_data_exchange */
 	data_exchange_cb_t	data_exchange_cb;
 	void			*data_exchange_cb_context;
 	struct sk_buff		*rx_data_reassembly;
 };
 
+/* ----- NCI Devices ----- */
 struct nci_dev *nci_allocate_device(struct nci_ops *ops,
 				    __u32 supported_protocols,
 				    int tx_headroom,
@@ -181,12 +186,14 @@ void nci_data_exchange_complete(struct nci_dev *ndev, struct sk_buff *skb,
 				int err);
 void nci_clear_target_list(struct nci_dev *ndev);
 
+/* ----- NCI requests ----- */
 #define NCI_REQ_DONE		0
 #define NCI_REQ_PEND		1
 #define NCI_REQ_CANCELED	2
 
 void nci_req_complete(struct nci_dev *ndev, int result);
 
+/* ----- NCI status code ----- */
 int nci_to_errno(__u8 code);
 
-#endif 
+#endif /* __NCI_CORE_H */

@@ -43,7 +43,7 @@ MODULE_AUTHOR("Corentin Chary <corentincj@iksaif.net>");
 MODULE_DESCRIPTION("Eee PC WMI Hotkey Driver");
 MODULE_LICENSE("GPL");
 
-#define EEEPC_ACPI_HID		"ASUS010" 
+#define EEEPC_ACPI_HID		"ASUS010" /* old _HID used in eeepc-laptop */
 
 #define EEEPC_WMI_EVENT_GUID	"ABBC0F72-8EA1-11D1-00A0-C90629100000"
 
@@ -57,26 +57,27 @@ MODULE_PARM_DESC(hotplug_wireless,
 		 "If your laptop needs that, please report to "
 		 "acpi4asus-user@lists.sourceforge.net.");
 
+/* Values for T101MT "Home" key */
 #define HOME_PRESS	0xe4
 #define HOME_HOLD	0xea
 #define HOME_RELEASE	0xe5
 
 static const struct key_entry eeepc_wmi_keymap[] = {
-	
+	/* Sleep already handled via generic ACPI code */
 	{ KE_KEY, 0x30, { KEY_VOLUMEUP } },
 	{ KE_KEY, 0x31, { KEY_VOLUMEDOWN } },
 	{ KE_KEY, 0x32, { KEY_MUTE } },
-	{ KE_KEY, 0x5c, { KEY_F15 } }, 
+	{ KE_KEY, 0x5c, { KEY_F15 } }, /* Power Gear key */
 	{ KE_KEY, 0x5d, { KEY_WLAN } },
-	{ KE_KEY, 0x6b, { KEY_TOUCHPAD_TOGGLE } }, 
+	{ KE_KEY, 0x6b, { KEY_TOUCHPAD_TOGGLE } }, /* Toggle Touchpad */
 	{ KE_KEY, 0x82, { KEY_CAMERA } },
 	{ KE_KEY, 0x83, { KEY_CAMERA_ZOOMIN } },
 	{ KE_KEY, 0x88, { KEY_WLAN } },
 	{ KE_KEY, 0xbd, { KEY_CAMERA } },
 	{ KE_KEY, 0xcc, { KEY_SWITCHVIDEOMODE } },
-	{ KE_KEY, 0xe0, { KEY_PROG1 } }, 
-	{ KE_KEY, 0xe1, { KEY_F14 } }, 
-	{ KE_KEY, HOME_PRESS, { KEY_CONFIG } }, 
+	{ KE_KEY, 0xe0, { KEY_PROG1 } }, /* Task Manager */
+	{ KE_KEY, 0xe1, { KEY_F14 } }, /* Change Resolution */
+	{ KE_KEY, HOME_PRESS, { KEY_CONFIG } }, /* Home/Express gate key */
 	{ KE_KEY, 0xe8, { KEY_SCREENLOCK } },
 	{ KE_KEY, 0xe9, { KEY_BRIGHTNESS_ZERO } },
 	{ KE_KEY, 0xeb, { KEY_CAMERA_ZOOMOUT } },

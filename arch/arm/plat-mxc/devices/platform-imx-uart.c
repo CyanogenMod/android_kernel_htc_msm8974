@@ -34,7 +34,7 @@ const struct imx_imx_uart_3irq_data imx1_imx_uart_data[] __initconst = {
 	imx1_imx_uart_data_entry(0, 1),
 	imx1_imx_uart_data_entry(1, 2),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX1 */
 
 #ifdef CONFIG_SOC_IMX21
 const struct imx_imx_uart_1irq_data imx21_imx_uart_data[] __initconst = {
@@ -57,7 +57,7 @@ const struct imx_imx_uart_1irq_data imx25_imx_uart_data[] __initconst = {
 	imx25_imx_uart_data_entry(3, 4),
 	imx25_imx_uart_data_entry(4, 5),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX25 */
 
 #ifdef CONFIG_SOC_IMX27
 const struct imx_imx_uart_1irq_data imx27_imx_uart_data[] __initconst = {
@@ -70,7 +70,7 @@ const struct imx_imx_uart_1irq_data imx27_imx_uart_data[] __initconst = {
 	imx27_imx_uart_data_entry(4, 5),
 	imx27_imx_uart_data_entry(5, 6),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX27 */
 
 #ifdef CONFIG_SOC_IMX31
 const struct imx_imx_uart_1irq_data imx31_imx_uart_data[] __initconst = {
@@ -82,7 +82,7 @@ const struct imx_imx_uart_1irq_data imx31_imx_uart_data[] __initconst = {
 	imx31_imx_uart_data_entry(3, 4),
 	imx31_imx_uart_data_entry(4, 5),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX31 */
 
 #ifdef CONFIG_SOC_IMX35
 const struct imx_imx_uart_1irq_data imx35_imx_uart_data[] __initconst = {
@@ -92,7 +92,7 @@ const struct imx_imx_uart_1irq_data imx35_imx_uart_data[] __initconst = {
 	imx35_imx_uart_data_entry(1, 2),
 	imx35_imx_uart_data_entry(2, 3),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX35 */
 
 #ifdef CONFIG_SOC_IMX50
 const struct imx_imx_uart_1irq_data imx50_imx_uart_data[] __initconst = {
@@ -104,7 +104,7 @@ const struct imx_imx_uart_1irq_data imx50_imx_uart_data[] __initconst = {
 	imx50_imx_uart_data_entry(3, 4),
 	imx50_imx_uart_data_entry(4, 5),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX50 */
 
 #ifdef CONFIG_SOC_IMX51
 const struct imx_imx_uart_1irq_data imx51_imx_uart_data[] __initconst = {
@@ -114,7 +114,7 @@ const struct imx_imx_uart_1irq_data imx51_imx_uart_data[] __initconst = {
 	imx51_imx_uart_data_entry(1, 2),
 	imx51_imx_uart_data_entry(2, 3),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX51 */
 
 #ifdef CONFIG_SOC_IMX53
 const struct imx_imx_uart_1irq_data imx53_imx_uart_data[] __initconst = {
@@ -126,7 +126,7 @@ const struct imx_imx_uart_1irq_data imx53_imx_uart_data[] __initconst = {
 	imx53_imx_uart_data_entry(3, 4),
 	imx53_imx_uart_data_entry(4, 5),
 };
-#endif 
+#endif /* ifdef CONFIG_SOC_IMX53 */
 
 struct platform_device *__init imx_add_imx_uart_3irq(
 		const struct imx_imx_uart_3irq_data *data,
@@ -172,7 +172,7 @@ struct platform_device *__init imx_add_imx_uart_1irq(
 		},
 	};
 
-	
+	/* i.mx21 type uart runs on all i.mx except i.mx1 */
 	return imx_add_platform_device("imx21-uart", data->id,
 			res, ARRAY_SIZE(res), pdata, sizeof(*pdata));
 }

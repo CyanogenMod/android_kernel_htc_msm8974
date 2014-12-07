@@ -48,7 +48,7 @@ int cmd_info(int argc, char **argv)
 	setlocale(LC_ALL, "");
 	textdomain(PACKAGE);
 
-	
+	/* parameter parsing */
 	while ((ret = getopt_long(argc, argv, "msb", set_opts, NULL)) != -1) {
 		switch (ret) {
 		case 'b':
@@ -74,7 +74,7 @@ int cmd_info(int argc, char **argv)
 	if (!params.params)
 		params.params = 0x7;
 
-	
+	/* Default is: show output of CPU 0 only */
 	if (bitmask_isallclear(cpus_chosen))
 		bitmask_setbit(cpus_chosen, 0);
 
@@ -82,7 +82,7 @@ int cmd_info(int argc, char **argv)
 		ret = sysfs_get_sched("mc");
 		printf(_("System's multi core scheduler setting: "));
 		if (ret < 0)
-			
+			/* if sysfs file is missing it's: errno == ENOENT */
 			printf(_("not supported\n"));
 		else
 			printf("%d\n", ret);
@@ -91,13 +91,13 @@ int cmd_info(int argc, char **argv)
 		ret = sysfs_get_sched("smt");
 		printf(_("System's thread sibling scheduler setting: "));
 		if (ret < 0)
-			
+			/* if sysfs file is missing it's: errno == ENOENT */
 			printf(_("not supported\n"));
 		else
 			printf("%d\n", ret);
 	}
 
-	
+	/* Add more per cpu options here */
 	if (!params.perf_bias)
 		return ret;
 
@@ -112,7 +112,7 @@ int cmd_info(int argc, char **argv)
 		}
 	}
 
-	
+	/* loop over CPUs */
 	for (cpu = bitmask_first(cpus_chosen);
 	     cpu <= bitmask_last(cpus_chosen); cpu++) {
 

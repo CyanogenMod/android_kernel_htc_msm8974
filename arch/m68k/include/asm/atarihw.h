@@ -32,6 +32,7 @@ extern int atari_dont_touch_floppy_select;
 
 extern int atari_SCC_reset_done;
 
+/* convenience macros for testing machine type */
 #define MACH_IS_ST	((atari_mch_cookie >> 16) == ATARI_MCH_ST)
 #define MACH_IS_STE	((atari_mch_cookie >> 16) == ATARI_MCH_STE && \
 			 (atari_mch_cookie & 0xffff) == 0)
@@ -42,6 +43,7 @@ extern int atari_SCC_reset_done;
 #define MACH_IS_MEDUSA	(atari_mch_type == ATARI_MACH_MEDUSA)
 #define MACH_IS_AB40	(atari_mch_type == ATARI_MACH_AB40)
 
+/* values for atari_switches */
 #define ATARI_SWITCH_IKBD	0x01
 #define ATARI_SWITCH_MIDI	0x02
 #define ATARI_SWITCH_SND6	0x04
@@ -53,6 +55,11 @@ extern int atari_SCC_reset_done;
 #define ATARI_SWITCH_OVSC_SND7	(ATARI_SWITCH_SND7 << ATARI_SWITCH_OVSC_SHIFT)
 #define ATARI_SWITCH_OVSC_MASK	0xffff0000
 
+/*
+ * Define several Hardware-Chips for indication so that for the ATARI we do
+ * no longer decide whether it is a Falcon or other machine . It's just
+ * important what hardware the machine uses
+ */
 
 /* ++roman 08/08/95: rewritten from ORing constants to a C bitfield */
 
@@ -61,49 +68,61 @@ extern int atari_SCC_reset_done;
 #define ATARIHW_PRESENT(name)	(atari_hw_present.name)
 
 struct atari_hw_present {
-    
-    ATARIHW_DECLARE(STND_SHIFTER);	
-    ATARIHW_DECLARE(EXTD_SHIFTER);	
-    ATARIHW_DECLARE(TT_SHIFTER);	
-    ATARIHW_DECLARE(VIDEL_SHIFTER);	
-    
-    ATARIHW_DECLARE(YM_2149);		
-    ATARIHW_DECLARE(PCM_8BIT);		
-    ATARIHW_DECLARE(CODEC);		
-    
-    ATARIHW_DECLARE(TT_SCSI);		
-    ATARIHW_DECLARE(ST_SCSI);		
-    ATARIHW_DECLARE(ACSI);		
-    ATARIHW_DECLARE(IDE);		
-    ATARIHW_DECLARE(FDCSPEED);		
-    
-    ATARIHW_DECLARE(ST_MFP);		
-    ATARIHW_DECLARE(TT_MFP);		
-    ATARIHW_DECLARE(SCC);		
-    ATARIHW_DECLARE(ST_ESCC);		
-    ATARIHW_DECLARE(ANALOG_JOY);	
-    ATARIHW_DECLARE(MICROWIRE);		
-    
-    ATARIHW_DECLARE(STND_DMA);		
-    ATARIHW_DECLARE(EXTD_DMA);		
-    ATARIHW_DECLARE(SCSI_DMA);		
-    ATARIHW_DECLARE(SCC_DMA);		
-    
-    ATARIHW_DECLARE(TT_CLK);		
-    ATARIHW_DECLARE(MSTE_CLK);		
-    
-    ATARIHW_DECLARE(SCU);		
-    ATARIHW_DECLARE(BLITTER);		
-    ATARIHW_DECLARE(VME);		
-    ATARIHW_DECLARE(DSP56K);		
+    /* video hardware */
+    ATARIHW_DECLARE(STND_SHIFTER);	/* ST-Shifter - no base low ! */
+    ATARIHW_DECLARE(EXTD_SHIFTER);	/* STe-Shifter - 24 bit address */
+    ATARIHW_DECLARE(TT_SHIFTER);	/* TT-Shifter */
+    ATARIHW_DECLARE(VIDEL_SHIFTER);	/* Falcon-Shifter */
+    /* sound hardware */
+    ATARIHW_DECLARE(YM_2149);		/* Yamaha YM 2149 */
+    ATARIHW_DECLARE(PCM_8BIT);		/* PCM-Sound in STe-ATARI */
+    ATARIHW_DECLARE(CODEC);		/* CODEC Sound (Falcon) */
+    /* disk storage interfaces */
+    ATARIHW_DECLARE(TT_SCSI);		/* Directly mapped NCR5380 */
+    ATARIHW_DECLARE(ST_SCSI);		/* NCR5380 via ST-DMA (Falcon) */
+    ATARIHW_DECLARE(ACSI);		/* Standard ACSI like in STs */
+    ATARIHW_DECLARE(IDE);		/* IDE Interface */
+    ATARIHW_DECLARE(FDCSPEED);		/* 8/16 MHz switch for FDC */
+    /* other I/O hardware */
+    ATARIHW_DECLARE(ST_MFP);		/* The ST-MFP (there should be no Atari
+					   without it... but who knows?) */
+    ATARIHW_DECLARE(TT_MFP);		/* 2nd MFP */
+    ATARIHW_DECLARE(SCC);		/* Serial Communications Contr. */
+    ATARIHW_DECLARE(ST_ESCC);		/* SCC Z83230 in an ST */
+    ATARIHW_DECLARE(ANALOG_JOY);	/* Paddle Interface for STe
+					   and Falcon */
+    ATARIHW_DECLARE(MICROWIRE);		/* Microwire Interface */
+    /* DMA */
+    ATARIHW_DECLARE(STND_DMA);		/* 24 Bit limited ST-DMA */
+    ATARIHW_DECLARE(EXTD_DMA);		/* 32 Bit ST-DMA */
+    ATARIHW_DECLARE(SCSI_DMA);		/* DMA for the NCR5380 */
+    ATARIHW_DECLARE(SCC_DMA);		/* DMA for the SCC */
+    /* real time clocks */
+    ATARIHW_DECLARE(TT_CLK);		/* TT compatible clock chip */
+    ATARIHW_DECLARE(MSTE_CLK);		/* Mega ST(E) clock chip */
+    /* supporting hardware */
+    ATARIHW_DECLARE(SCU);		/* System Control Unit */
+    ATARIHW_DECLARE(BLITTER);		/* Blitter */
+    ATARIHW_DECLARE(VME);		/* VME Bus */
+    ATARIHW_DECLARE(DSP56K);		/* DSP56k processor in Falcon */
 };
 
 extern struct atari_hw_present atari_hw_present;
 
 
+/* Reading the MFP port register gives a machine independent delay, since the
+ * MFP always has a 8 MHz clock. This avoids problems with the varying length
+ * of nops on various machines. Somebody claimed that the tstb takes 600 ns.
+ */
 #define	MFPDELAY() \
 	__asm__ __volatile__ ( "tstb %0" : : "m" (st_mfp.par_dt_reg) : "cc" );
 
+/* Do cache push/invalidate for DMA read/write. This function obeys the
+ * snooping on some machines (Medusa) and processors: The Medusa itself can
+ * snoop, but only the '040 can source data from its cache to DMA writes i.e.,
+ * reads from memory). Both '040 and '060 invalidate cache entries on snooped
+ * DMA reads (i.e., writes to memory).
+ */
 
 
 #define atari_readb   raw_inb
@@ -133,6 +152,9 @@ static inline void dma_cache_maintenance( unsigned long paddr,
 }
 
 
+/*
+** Shifter
+ */
 #define ST_LOW  0
 #define ST_MID  1
 #define ST_HIGH 2
@@ -172,29 +194,30 @@ struct SHIFTER_F030
 #define	SHF_TBAS (0xffff8200)
 struct SHIFTER_TT {
 	u_char	char_dummy0;
-	u_char	bas_hi;			
+	u_char	bas_hi;			/* video mem base addr, high and mid byte */
 	u_char	char_dummy1;
 	u_char	bas_md;
 	u_char	char_dummy2;
-	u_char	vcount_hi;		
+	u_char	vcount_hi;		/* pointer to currently displayed byte */
 	u_char	char_dummy3;
 	u_char	vcount_md;
 	u_char	char_dummy4;
 	u_char	vcount_lo;
-	u_short	st_sync;		
+	u_short	st_sync;		/* ST compatible sync mode register, unused */
 	u_char	char_dummy5;
-	u_char	bas_lo;			
+	u_char	bas_lo;			/* video mem addr, low byte */
 	u_char	char_dummy6[2+3*16];
-	
-	u_short	color_reg[16];	
-	u_char	st_shiftmode;	
+	/* $ffff8240: */
+	u_short	color_reg[16];	/* 16 color registers */
+	u_char	st_shiftmode;	/* ST compatible shift mode register, unused */
 	u_char  char_dummy7;
-	u_short tt_shiftmode;	
+	u_short tt_shiftmode;	/* TT shift mode register */
 
 
 };
 #define	shifter_tt	((*(volatile struct SHIFTER_TT *)SHF_TBAS))
 
+/* values for shifter_tt->tt_shiftmode */
 #define	TT_SHIFTER_STLOW		0x0000
 #define	TT_SHIFTER_STMID		0x0100
 #define	TT_SHIFTER_STHIGH		0x0200
@@ -206,6 +229,7 @@ struct SHIFTER_TT {
 #define	TT_SHIFTER_PALETTE_MASK	0x000f
 #define	TT_SHIFTER_GRAYMODE		0x1000
 
+/* 256 TT palette registers */
 #define	TT_PALETTE_BASE	(0xffff8400)
 #define	tt_palette	((volatile u_short *)TT_PALETTE_BASE)
 
@@ -213,6 +237,10 @@ struct SHIFTER_TT {
 #define	TT_PALETTE_GREEN_MASK	0x00f0
 #define	TT_PALETTE_BLUE_MASK	0x000f
 
+/*
+** Falcon030 VIDEL Video Controller
+** for description see File 'linux\tools\atari\hardware.txt
+ */
 #define f030_col ((u_long *)		0xffff9800)
 #define f030_xreg ((u_short*)		0xffff8282)
 #define f030_yreg ((u_short*)		0xffff82a2)
@@ -249,13 +277,16 @@ struct VIDEL {
 };
 #define	videl	((*(volatile struct VIDEL *)VIDEL_BAS))
 
+/*
+** DMA/WD1772 Disk Controller
+ */
 
 #define FWD_BAS (0xffff8604)
 struct DMA_WD
  {
   u_short fdc_acces_seccount;
   u_short dma_mode_status;
-  u_char dma_vhi;	
+  u_char dma_vhi;	/* Some extended ST-DMAs can handle 32 bit addresses */
   u_char dma_hi;
   u_char char_dummy2;
   u_char dma_md;
@@ -264,9 +295,17 @@ struct DMA_WD
   u_short fdc_speed;
  };
 # define dma_wd ((*(volatile struct DMA_WD *)FWD_BAS))
+/* alias */
 #define	st_dma dma_wd
+/* The two highest bytes of an extended DMA as a short; this is a must
+ * for the Medusa.
+ */
 #define st_dma_ext_dmahi (*((volatile unsigned short *)0xffff8608))
 
+/*
+** YM2149 Sound Chip
+** access in bytes
+ */
 
 #define YM_BAS (0xffff8800)
 struct SOUND_YM
@@ -277,6 +316,7 @@ struct SOUND_YM
  };
 #define sound_ym ((*(volatile struct SOUND_YM *)YM_BAS))
 
+/* TT SCSI DMA */
 
 #define	TT_SCSI_DMA_BAS	(0xffff8700)
 struct TT_DMA {
@@ -301,6 +341,7 @@ struct TT_DMA {
 };
 #define	tt_scsi_dma	((*(volatile struct TT_DMA *)TT_SCSI_DMA_BAS))
 
+/* TT SCSI Controller 5380 */
 
 #define	TT_5380_BAS	(0xffff8781)
 struct TT_5380 {
@@ -324,6 +365,9 @@ struct TT_5380 {
 #define	tt_scsi_regp	((volatile char *)TT_5380_BAS)
 
 
+/*
+** Falcon DMA Sound Subsystem
+ */
 
 #define MATRIX_BASE (0xffff8930)
 struct MATRIX
@@ -364,6 +408,9 @@ struct CODEC
 };
 #define falcon_codec (*(volatile struct CODEC *)CODEC_BASE)
 
+/*
+** Falcon Blitter
+*/
 
 #define BLT_BAS (0xffff8a00)
 
@@ -389,6 +436,9 @@ struct BLITTER
 # define blitter ((*(volatile struct BLITTER *)BLT_BAS))
 
 
+/*
+** SCC Z8530
+ */
 
 #define SCC_BAS (0xffff8c81)
 struct SCC
@@ -403,13 +453,18 @@ struct SCC
  };
 # define atari_scc ((*(volatile struct SCC*)SCC_BAS))
 
+/* The ESCC (Z85230) in an Atari ST. The channels are reversed! */
 # define st_escc ((*(volatile struct SCC*)0xfffffa31))
 # define st_escc_dsr ((*(volatile char *)0xfffffa39))
 
+/* TT SCC DMA Controller (same chip as SCSI DMA) */
 
 #define	TT_SCC_DMA_BAS	(0xffff8c00)
 #define	tt_scc_dma	((*(volatile struct TT_DMA *)TT_SCC_DMA_BAS))
 
+/*
+** VIDEL Palette Register
+ */
 
 #define FPL_BAS (0xffff9800)
 struct VIDEL_PALETTE
@@ -419,6 +474,9 @@ struct VIDEL_PALETTE
 # define videl_palette ((*(volatile struct VIDEL_PALETTE*)FPL_BAS))
 
 
+/*
+** Falcon DSP Host Interface
+ */
 
 #define DSP56K_HOST_INTERFACE_BASE (0xffffa200)
 struct DSP56K_HOST_INTERFACE {
@@ -454,6 +512,9 @@ struct DSP56K_HOST_INTERFACE {
 };
 #define dsp56k_host_interface ((*(volatile struct DSP56K_HOST_INTERFACE *)DSP56K_HOST_INTERFACE_BASE))
 
+/*
+** MFP 68901
+ */
 
 #define MFP_BAS (0xfffffa01)
 struct MFP
@@ -508,11 +569,13 @@ struct MFP
  };
 # define st_mfp ((*(volatile struct MFP*)MFP_BAS))
 
+/* TT's second MFP */
 
 #define	TT_MFP_BAS	(0xfffffa81)
 # define tt_mfp ((*(volatile struct MFP*)TT_MFP_BAS))
 
 
+/* TT System Control Unit */
 
 #define	TT_SCU_BAS	(0xffff8e01)
 struct TT_SCU {
@@ -534,6 +597,7 @@ struct TT_SCU {
 };
 #define	tt_scu	((*(volatile struct TT_SCU *)TT_SCU_BAS))
 
+/* TT real time clock */
 
 #define	TT_RTC_BAS	(0xffff8961)
 struct TT_RTC {
@@ -544,37 +608,46 @@ struct TT_RTC {
 #define	tt_rtc	((*(volatile struct TT_RTC *)TT_RTC_BAS))
 
 
+/*
+** ACIA 6850
+ */
+/* constants for the ACIA registers */
 
+/* baudrate selection and reset (Baudrate = clock/factor) */
 #define ACIA_DIV1  0
 #define ACIA_DIV16 1
 #define ACIA_DIV64 2
 #define ACIA_RESET 3
 
-#define ACIA_D7E2S (0<<2)	
-#define ACIA_D7O2S (1<<2)	
-#define ACIA_D7E1S (2<<2)	
-#define ACIA_D7O1S (3<<2)	
-#define ACIA_D8N2S (4<<2)	
-#define ACIA_D8N1S (5<<2)	
-#define ACIA_D8E1S (6<<2)	
-#define ACIA_D8O1S (7<<2)	
+/* character format */
+#define ACIA_D7E2S (0<<2)	/* 7 data, even parity, 2 stop */
+#define ACIA_D7O2S (1<<2)	/* 7 data, odd parity, 2 stop */
+#define ACIA_D7E1S (2<<2)	/* 7 data, even parity, 1 stop */
+#define ACIA_D7O1S (3<<2)	/* 7 data, odd parity, 1 stop */
+#define ACIA_D8N2S (4<<2)	/* 8 data, no parity, 2 stop */
+#define ACIA_D8N1S (5<<2)	/* 8 data, no parity, 1 stop */
+#define ACIA_D8E1S (6<<2)	/* 8 data, even parity, 1 stop */
+#define ACIA_D8O1S (7<<2)	/* 8 data, odd parity, 1 stop */
 
-#define ACIA_RLTID (0<<5)	
-#define ACIA_RLTIE (1<<5)	
-#define ACIA_RHTID (2<<5)	
-#define ACIA_RLTIDSB (3<<5)	
+/* transmit control */
+#define ACIA_RLTID (0<<5)	/* RTS low, TxINT disabled */
+#define ACIA_RLTIE (1<<5)	/* RTS low, TxINT enabled */
+#define ACIA_RHTID (2<<5)	/* RTS high, TxINT disabled */
+#define ACIA_RLTIDSB (3<<5)	/* RTS low, TxINT disabled, send break */
 
-#define ACIA_RID (0<<7)		
-#define ACIA_RIE (1<<7)		
+/* receive control */
+#define ACIA_RID (0<<7)		/* RxINT disabled */
+#define ACIA_RIE (1<<7)		/* RxINT enabled */
 
-#define ACIA_RDRF 1		
-#define ACIA_TDRE (1<<1)	
-#define ACIA_DCD  (1<<2)	
-#define ACIA_CTS  (1<<3)	
-#define ACIA_FE   (1<<4)	
-#define ACIA_OVRN (1<<5)	
-#define ACIA_PE   (1<<6)	
-#define ACIA_IRQ  (1<<7)	
+/* status fields of the ACIA */
+#define ACIA_RDRF 1		/* Receive Data Register Full */
+#define ACIA_TDRE (1<<1)	/* Transmit Data Register Empty */
+#define ACIA_DCD  (1<<2)	/* Data Carrier Detect */
+#define ACIA_CTS  (1<<3)	/* Clear To Send */
+#define ACIA_FE   (1<<4)	/* Framing Error */
+#define ACIA_OVRN (1<<5)	/* Receiver Overrun */
+#define ACIA_PE   (1<<6)	/* Parity Error */
+#define ACIA_IRQ  (1<<7)	/* Interrupt Request */
 
 #define ACIA_BAS (0xfffffc00)
 struct ACIA
@@ -591,7 +664,7 @@ struct ACIA
 
 #define	TT_DMASND_BAS (0xffff8900)
 struct TT_DMASND {
-	u_char	int_ctrl;	
+	u_char	int_ctrl;	/* Falcon: Interrupt control */
 	u_char	ctrl;
 	u_char	pad2;
 	u_char	bas_hi;
@@ -612,10 +685,10 @@ struct TT_DMASND {
 	u_char	pad10;
 	u_char	end_low;
 	u_char	pad11[12];
-	u_char	track_select;	
+	u_char	track_select;	/* Falcon */
 	u_char	mode;
 	u_char	pad12[14];
-	
+	/* Falcon only: */
 	u_short	cbar_src;
 	u_short cbar_dst;
 	u_char	ext_div;
@@ -644,8 +717,8 @@ struct TT_DMASND {
 #define	DMASND_MODE_MONO	  0x80
 #define	DMASND_MODE_STEREO	  0x00
 #define DMASND_MODE_8BIT	  0x00
-#define DMASND_MODE_16BIT	  0x40	
-#define	DMASND_MODE_6KHZ	  0x00	
+#define DMASND_MODE_16BIT	  0x40	/* Falcon only */
+#define	DMASND_MODE_6KHZ	  0x00	/* Falcon: mute */
 #define	DMASND_MODE_12KHZ	  0x01
 #define	DMASND_MODE_25KHZ	  0x02
 #define	DMASND_MODE_50KHZ	  0x03
@@ -732,5 +805,5 @@ struct MSTE_RTC {
 
 #define mste_rtc ((*(volatile struct MSTE_RTC *)MSTE_RTC_BAS))
 
-#endif 
+#endif /* linux/atarihw.h */
 

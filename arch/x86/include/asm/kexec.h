@@ -24,26 +24,48 @@
 #include <asm/page.h>
 #include <asm/ptrace.h>
 
+/*
+ * KEXEC_SOURCE_MEMORY_LIMIT maximum page get_free_page can return.
+ * I.e. Maximum page that is mapped directly into kernel memory,
+ * and kmap is not required.
+ *
+ * So far x86_64 is limited to 40 physical address bits.
+ */
 #ifdef CONFIG_X86_32
+/* Maximum physical address we can use pages from */
 # define KEXEC_SOURCE_MEMORY_LIMIT (-1UL)
+/* Maximum address we can reach in physical address mode */
 # define KEXEC_DESTINATION_MEMORY_LIMIT (-1UL)
+/* Maximum address we can use for the control code buffer */
 # define KEXEC_CONTROL_MEMORY_LIMIT TASK_SIZE
 
 # define KEXEC_CONTROL_PAGE_SIZE	4096
 
+/* The native architecture */
 # define KEXEC_ARCH KEXEC_ARCH_386
 
+/* We can also handle crash dumps from 64 bit kernel. */
 # define vmcore_elf_check_arch_cross(x) ((x)->e_machine == EM_X86_64)
 #else
+/* Maximum physical address we can use pages from */
 # define KEXEC_SOURCE_MEMORY_LIMIT      (0xFFFFFFFFFFUL)
+/* Maximum address we can reach in physical address mode */
 # define KEXEC_DESTINATION_MEMORY_LIMIT (0xFFFFFFFFFFUL)
+/* Maximum address we can use for the control pages */
 # define KEXEC_CONTROL_MEMORY_LIMIT     (0xFFFFFFFFFFUL)
 
+/* Allocate one page for the pdp and the second for the code */
 # define KEXEC_CONTROL_PAGE_SIZE  (4096UL + 4096UL)
 
+/* The native architecture */
 # define KEXEC_ARCH KEXEC_ARCH_X86_64
 #endif
 
+/*
+ * CPU does not save ss and sp on stack if execution is already
+ * running in kernel mode at the time of NMI occurrence. This code
+ * fixes it.
+ */
 static inline void crash_fixup_ss_esp(struct pt_regs *newregs,
 				      struct pt_regs *oldregs)
 {
@@ -55,6 +77,11 @@ static inline void crash_fixup_ss_esp(struct pt_regs *newregs,
 #endif
 }
 
+/*
+ * This function is responsible for capturing register states if coming
+ * via panic otherwise just fix up the ss and sp if coming via kernel
+ * mode exception.
+ */
 static inline void crash_setup_regs(struct pt_regs *newregs,
 				    struct pt_regs *oldregs)
 {
@@ -136,6 +163,6 @@ struct kimage_arch {
 };
 #endif
 
-#endif 
+#endif /* __ASSEMBLY__ */
 
-#endif 
+#endif /* _ASM_X86_KEXEC_H */

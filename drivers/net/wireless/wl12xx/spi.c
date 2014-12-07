@@ -47,6 +47,7 @@
 
 #define WSPI_INIT_CMD_START         0x00
 #define WSPI_INIT_CMD_TX            0x40
+/* the extra bypass bit is sampled by the TNET as '1' */
 #define WSPI_INIT_CMD_BYPASS_BIT    0x80
 #define WSPI_INIT_CMD_FIXEDBUSY_LEN 0x07
 #define WSPI_INIT_CMD_EN_FIXEDBUSY  0x80
@@ -64,6 +65,7 @@
 		((WL1271_BUSY_WORD_LEN - 4) / sizeof(u32))
 #define HW_ACCESS_WSPI_INIT_CMD_MASK  0
 
+/* HW limitation: maximum possible chunk size is 4095 bytes */
 #define WSPI_MAX_CHUNK_SIZE    4092
 
 #define WSPI_MAX_NUM_OF_CHUNKS (WL1271_AGGR_BUFFER_SIZE / WSPI_MAX_CHUNK_SIZE)
@@ -119,6 +121,10 @@ static void wl12xx_spi_init(struct device *child)
 	memset(&t, 0, sizeof(t));
 	spi_message_init(&m);
 
+	/*
+	 * Set WSPI_INIT_COMMAND
+	 * the data is being send from the MSB to LSB
+	 */
 	cmd[2] = 0xff;
 	cmd[3] = 0xff;
 	cmd[1] = WSPI_INIT_CMD_START | WSPI_INIT_CMD_TX;
@@ -163,6 +169,10 @@ static int wl12xx_spi_read_busy(struct device *child)
 	u32 *busy_buf;
 	int num_busy_bytes = 0;
 
+	/*
+	 * Read further busy words from SPI until a non-busy word is
+	 * encountered, then read the data itself into the buffer.
+	 */
 
 	num_busy_bytes = WL1271_BUSY_WORD_TIMEOUT;
 	busy_buf = wl->buffer_busyword;
@@ -180,7 +190,7 @@ static int wl12xx_spi_read_busy(struct device *child)
 			return 0;
 	}
 
-	
+	/* The SPI bus is unresponsive, the read failed. */
 	dev_err(child->parent, "SPI read busy-word timeout!\n");
 	return -ETIMEDOUT;
 }
@@ -219,7 +229,7 @@ static void wl12xx_spi_raw_read(struct device *child, int addr, void *buf,
 		t[0].cs_change = true;
 		spi_message_add_tail(&t[0], &m);
 
-		
+		/* Busy and non busy words read */
 		t[1].rx_buf = busy_buf;
 		t[1].len = WL1271_BUSY_WORD_LEN;
 		t[1].cs_change = true;
@@ -331,6 +341,8 @@ static int __devinit wl1271_probe(struct spi_device *spi)
 
 	spi_set_drvdata(spi, glue);
 
+	/* This is the only SPI value that we need to set here, the rest
+	 * comes from the board-peripherals file */
 	spi->bits_per_word = 32;
 
 	ret = spi_setup(spi);

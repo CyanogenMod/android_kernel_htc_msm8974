@@ -26,8 +26,9 @@
 
 #include "generic.h"
 
+/* PXA300/PXA310 common configurations */
 static mfp_cfg_t common_mfp_cfg[] __initdata = {
-	
+	/* LCD */
 	GPIO54_LCD_LDD_0,
 	GPIO55_LCD_LDD_1,
 	GPIO56_LCD_LDD_2,
@@ -52,37 +53,37 @@ static mfp_cfg_t common_mfp_cfg[] __initdata = {
 	GPIO75_LCD_BIAS,
 	GPIO76_LCD_VSYNC,
 	GPIO127_LCD_CS_N,
-	GPIO20_PWM3_OUT,	
+	GPIO20_PWM3_OUT,	/* backlight */
 
-	
+	/* BTUART */
 	GPIO111_UART2_RTS,
 	GPIO112_UART2_RXD | MFP_LPM_EDGE_FALL,
 	GPIO113_UART2_TXD,
 	GPIO114_UART2_CTS | MFP_LPM_EDGE_BOTH,
 
-	
+	/* STUART */
 	GPIO109_UART3_TXD,
 	GPIO110_UART3_RXD | MFP_LPM_EDGE_FALL,
 
-	
+	/* AC97 */
 	GPIO23_AC97_nACRESET,
 	GPIO24_AC97_SYSCLK,
 	GPIO29_AC97_BITCLK,
 	GPIO25_AC97_SDATA_IN_0,
 	GPIO27_AC97_SDATA_OUT,
 	GPIO28_AC97_SYNC,
-	GPIO17_GPIO,	
+	GPIO17_GPIO,	/* SDATA_IN_1 but unused - configure to GPIO */
 
-	
+	/* SSP3 */
 	GPIO91_SSP3_SCLK,
 	GPIO92_SSP3_FRM,
 	GPIO93_SSP3_TXD,
 	GPIO94_SSP3_RXD,
 
-	
+	/* WM9713 IRQ */
 	GPIO26_GPIO,
 
-	
+	/* Keypad */
 	GPIO107_KP_DKIN_0 | MFP_LPM_EDGE_BOTH,
 	GPIO108_KP_DKIN_1 | MFP_LPM_EDGE_BOTH,
 	GPIO115_KP_MKIN_0 | MFP_LPM_EDGE_BOTH,
@@ -102,16 +103,16 @@ static mfp_cfg_t common_mfp_cfg[] __initdata = {
 	GPIO5_2_KP_MKOUT_6,
 	GPIO6_2_KP_MKOUT_7,
 
-	
+	/* MMC1 */
 	GPIO3_MMC1_DAT0,
 	GPIO4_MMC1_DAT1 | MFP_LPM_EDGE_BOTH,
 	GPIO5_MMC1_DAT2,
 	GPIO6_MMC1_DAT3,
 	GPIO7_MMC1_CLK,
-	GPIO8_MMC1_CMD,	
-	GPIO15_GPIO,	
+	GPIO8_MMC1_CMD,	/* CMD0 for slot 0 */
+	GPIO15_GPIO,	/* CMD1 default as GPIO for slot 0 */
 
-	
+	/* MMC2 */
 	GPIO9_MMC2_DAT0,
 	GPIO10_MMC2_DAT1 | MFP_LPM_EDGE_BOTH,
 	GPIO11_MMC2_DAT2,
@@ -119,21 +120,21 @@ static mfp_cfg_t common_mfp_cfg[] __initdata = {
 	GPIO13_MMC2_CLK,
 	GPIO14_MMC2_CMD,
 
-	
+	/* USB Host */
 	GPIO0_2_USBH_PEN,
 	GPIO1_2_USBH_PWR,
 
-	
+	/* Standard I2C */
 	GPIO21_I2C_SCL,
 	GPIO22_I2C_SDA,
 
-	
-	GPIO18_GPIO | MFP_PULL_HIGH,	
-	GPIO19_GPIO | MFP_PULL_HIGH,	
+	/* GPIO */
+	GPIO18_GPIO | MFP_PULL_HIGH,	/* GPIO Expander #0 INT_N */
+	GPIO19_GPIO | MFP_PULL_HIGH,	/* GPIO Expander #1 INT_N */
 };
 
 static mfp_cfg_t pxa300_mfp_cfg[] __initdata = {
-	
+	/* FFUART */
 	GPIO30_UART1_RXD | MFP_LPM_EDGE_FALL,
 	GPIO31_UART1_TXD,
 	GPIO32_UART1_CTS,
@@ -143,23 +144,23 @@ static mfp_cfg_t pxa300_mfp_cfg[] __initdata = {
 	GPIO35_UART1_RI,
 	GPIO36_UART1_DTR,
 
-	
+	/* Ethernet */
 	GPIO2_nCS3,
 	GPIO99_GPIO,
 };
 
 static mfp_cfg_t pxa310_mfp_cfg[] __initdata = {
-	
+	/* FFUART */
 	GPIO99_UART1_RXD | MFP_LPM_EDGE_FALL,
 	GPIO100_UART1_TXD,
 	GPIO101_UART1_CTS,
 	GPIO106_UART1_RTS,
 
-	
+	/* Ethernet */
 	GPIO2_nCS3,
 	GPIO102_GPIO,
 
-	
+	/* MMC3 */
 	GPIO7_2_MMC3_DAT0,
 	GPIO8_2_MMC3_DAT1 | MFP_LPM_EDGE_BOTH,
 	GPIO9_2_MMC3_DAT2,
@@ -171,13 +172,13 @@ static mfp_cfg_t pxa310_mfp_cfg[] __initdata = {
 #define NUM_LCD_DETECT_PINS	7
 
 static int lcd_detect_pins[] __initdata = {
-	MFP_PIN_GPIO71,	
-	MFP_PIN_GPIO70, 
-	MFP_PIN_GPIO75, 
-	MFP_PIN_GPIO73, 
-	MFP_PIN_GPIO72, 
-	MFP_PIN_GPIO127,
-	MFP_PIN_GPIO76, 
+	MFP_PIN_GPIO71,	/* LCD_LDD_17 - ORIENT */
+	MFP_PIN_GPIO70, /* LCD_LDD_16 - LCDID[5] */
+	MFP_PIN_GPIO75, /* LCD_BIAS   - LCDID[4] */
+	MFP_PIN_GPIO73, /* LCD_LCLK   - LCDID[3] */
+	MFP_PIN_GPIO72, /* LCD_FCLK   - LCDID[2] */
+	MFP_PIN_GPIO127,/* LCD_CS_N   - LCDID[1] */
+	MFP_PIN_GPIO76, /* LCD_VSYNC  - LCDID[0] */
 };
 
 static void __init zylonite_detect_lcd_panel(void)
@@ -185,6 +186,9 @@ static void __init zylonite_detect_lcd_panel(void)
 	unsigned long mfpr_save[NUM_LCD_DETECT_PINS];
 	int i, gpio, id = 0;
 
+	/* save the original MFP settings of these pins and configure
+	 * them as GPIO Input, DS01X, Pull Neither, Edge Clear
+	 */
 	for (i = 0; i < NUM_LCD_DETECT_PINS; i++) {
 		mfpr_save[i] = pxa3xx_mfp_read(lcd_detect_pins[i]);
 		pxa3xx_mfp_write(lcd_detect_pins[i], 0x8440);
@@ -201,13 +205,13 @@ static void __init zylonite_detect_lcd_panel(void)
 		gpio_free(gpio);
 	}
 
-	
+	/* lcd id, flush out bit 1 */
 	lcd_id = id & 0x3d;
 
-	
+	/* lcd orientation, portrait or landscape */
 	lcd_orientation = (id >> 6) & 0x1;
 
-	
+	/* restore the original MFP settings */
 	for (i = 0; i < NUM_LCD_DETECT_PINS; i++)
 		pxa3xx_mfp_write(lcd_detect_pins[i], mfpr_save[i]);
 }
@@ -248,13 +252,13 @@ static inline void zylonite_init_i2c(void) {}
 void __init zylonite_pxa300_init(void)
 {
 	if (cpu_is_pxa300() || cpu_is_pxa310()) {
-		
+		/* initialize MFP */
 		pxa3xx_mfp_config(ARRAY_AND_SIZE(common_mfp_cfg));
 
-		
+		/* detect LCD panel */
 		zylonite_detect_lcd_panel();
 
-		
+		/* WM9713 IRQ */
 		wm9713_irq = mfp_to_gpio(MFP_PIN_GPIO26);
 
 		zylonite_init_i2c();
@@ -270,7 +274,7 @@ void __init zylonite_pxa300_init(void)
 		gpio_eth_irq = mfp_to_gpio(MFP_PIN_GPIO102);
 	}
 
-	
+	/* GPIOs for Debug LEDs */
 	gpio_debug_led1 = EXT_GPIO(25);
 	gpio_debug_led2 = EXT_GPIO(26);
 }

@@ -1,9 +1,12 @@
 #ifndef _INTELFBHW_H
 #define _INTELFBHW_H
 
+/* $DHD: intelfb/intelfbhw.h,v 1.5 2003/06/27 15:06:25 dawes Exp $ */
 
 
+/*** HW-specific data ***/
 
+/* Information about the 852GM/855GM variants */
 #define INTEL_85X_CAPID		0x44
 #define INTEL_85X_VARIANT_MASK		0x7
 #define INTEL_85X_VARIANT_SHIFT		5
@@ -12,11 +15,16 @@
 #define INTEL_VAR_852GME		0x2
 #define INTEL_VAR_852GM			0x5
 
+/* Information about DVO/LVDS Ports */
 #define DVOA_PORT  0x1
 #define DVOB_PORT  0x2
 #define DVOC_PORT  0x4
 #define LVDS_PORT  0x8
 
+/*
+ * The Bridge device's PCI config space has information about the
+ * fb aperture size and the amount of pre-reserved memory.
+ */
 #define INTEL_GMCH_CTRL		0x52
 #define INTEL_GMCH_ENABLED		0x4
 #define INTEL_GMCH_MEM_MASK		0x1
@@ -41,10 +49,13 @@
 #define INTEL_915G_GMCH_GMS_STOLEN_48M	(0x6 << 4)
 #define INTEL_915G_GMCH_GMS_STOLEN_64M	(0x7 << 4)
 
+/* HW registers */
 
+/* Fence registers */
 #define FENCE			0x2000
 #define FENCE_NUM			8
 
+/* Primary ring buffer */
 #define PRI_RING_TAIL		0x2030
 #define RING_TAIL_MASK			0x001ffff8
 #define RING_INUSE			0x1
@@ -66,6 +77,10 @@
 #define RING_REPORT_128K		(0x3 << 1)
 #define RING_ENABLE			0x1
 
+/*
+ * Tail can't wrap to any closer than RING_MIN_FREE bytes of the head,
+ * and the last RING_MIN_FREE bytes need to be padded with MI_NOOP
+ */
 #define RING_MIN_FREE			64
 
 #define IPEHR			0x2088
@@ -113,11 +128,12 @@
 
 #define GPIOA             0x5010
 #define GPIOB             0x5014
-#define GPIOC             0x5018 
-#define GPIOD             0x501C 
-#define GPIOE             0x5020 
+#define GPIOC             0x5018 /* this may be external DDC on i830 */
+#define GPIOD             0x501C /* this is DVO DDC */
+#define GPIOE             0x5020 /* this is DVO i2C */
 #define GPIOF             0x5024
 
+/* PLL registers */
 #define VGA0_DIVISOR		0x06000
 #define VGA1_DIVISOR		0x06004
 #define VGAPD			0x06010
@@ -156,14 +172,18 @@
 #define FP_M1_DIVISOR_SHIFT		8
 #define FP_M2_DIVISOR_SHIFT		0
 
+/* PLL parameters (these are for 852GM/855GM/865G, check earlier chips). */
+/* Clock values are in units of kHz */
 #define PLL_REFCLK		48000
 #define MIN_CLOCK		25000
 #define MAX_CLOCK		350000
 
+/* Two pipes */
 #define PIPE_A			0
 #define PIPE_B			1
 #define PIPE_MASK		1
 
+/* palette registers */
 #define PALETTE_A		0x0a000
 #define PALETTE_B		0x0a800
 #ifndef PALETTE_8_ENTRIES
@@ -177,6 +197,7 @@
 #define PALETTE_8_GREEN_SHIFT		8
 #define PALETTE_8_BLUE_SHIFT		0
 
+/* CRTC registers */
 #define HTOTAL_A		0x60000
 #define HBLANK_A		0x60004
 #define HSYNC_A			0x60008
@@ -248,7 +269,8 @@
 #define PORT_ENABLE		        (1 << 31)
 #define PORT_PIPE_SELECT_SHIFT	        30
 #define PORT_TV_FLAGS_MASK              0xFF
-#define PORT_TV_FLAGS                   0xC4	
+#define PORT_TV_FLAGS                   0xC4	/* ripped from my BIOS
+						   to understand and correct */
 
 #define DVOA_SRCDIM		0x61124
 #define DVOB_SRCDIM		0x61144
@@ -258,7 +280,7 @@
 #define PIPEB_DSL		0x71000
 #define PIPEACONF		0x70008
 #define PIPEBCONF		0x71008
-#define PIPEASTAT		0x70024 
+#define PIPEASTAT		0x70024 /* bits 0-15 are "write 1 to clear" */
 #define PIPEBSTAT		0x71024
 
 #define PIPECONF_ENABLE			(1 << 31)
@@ -274,6 +296,7 @@
 #define PIPECONF_INTERLACE_FIELD_0_ONLY		(7 << 21)
 #define PIPECONF_INTERLACE_MASK			(7 << 21)
 
+/* enable bits, write 1 to enable */
 #define PIPESTAT_FIFO_UNDERRUN		(1 << 31)
 #define PIPESTAT_CRC_ERROR_EN		(1 << 29)
 #define PIPESTAT_CRC_DONE_EN		(1 << 28)
@@ -285,6 +308,7 @@
 #define PIPESTAT_TV_HOTPLUG_EN		(1 << 18)
 #define PIPESTAT_VBLANK_EN		(1 << 17)
 #define PIPESTAT_OVL_UPDATE_EN		(1 << 16)
+/* status bits, write 1 to clear */
 #define PIPESTAT_HOTPLUG_STATE		(1 << 15)
 #define PIPESTAT_CRC_ERROR		(1 << 13)
 #define PIPESTAT_CRC_DONE		(1 << 12)
@@ -303,6 +327,7 @@
 #define DISPARB_BEND_MASK		0x3ff
 #define DISPARB_BEND_SHIFT		9
 
+/* Desktop HW cursor */
 #define CURSOR_CONTROL		0x70080
 #define CURSOR_ENABLE			(1 << 31)
 #define CURSOR_GAMMA_ENABLE		(1 << 30)
@@ -318,6 +343,7 @@
 #define CURSOR_FORMAT_ARGB		(0x4 << 24)
 #define CURSOR_FORMAT_XRGB		(0x5 << 24)
 
+/* Mobile HW cursor (and i810) */
 #define CURSOR_A_CONTROL	CURSOR_CONTROL
 #define CURSOR_B_CONTROL	0x700c0
 #define CURSOR_MODE_MASK		0x27
@@ -331,6 +357,7 @@
 #define CURSOR_MOBILE_GAMMA_ENABLE	(1 << 26)
 #define CURSOR_MEM_TYPE_LOCAL		(1 << 25)
 
+/* All platforms (desktop has no pipe B) */
 #define CURSOR_A_BASEADDR	0x70084
 #define CURSOR_B_BASEADDR	0x700c4
 #define CURSOR_BASE_MASK		0xffffff00
@@ -356,6 +383,7 @@
 #define CURSOR_BLUE_SHIFT			0
 #define CURSOR_PALETTE_MASK			0xffffff
 
+/* Desktop only */
 #define CURSOR_SIZE		0x700a0
 #define CURSOR_SIZE_MASK		0x3ff
 #define CURSOR_SIZE_H_SHIFT		0
@@ -382,6 +410,7 @@
 #define DISPPLANE_NO_LINE_DOUBLE	0
 #define DISPPLANE_STEREO_POLARITY_FIRST	0
 #define DISPPLANE_STEREO_POLARITY_SECOND (1<<18)
+/* plane B only */
 #define DISPPLANE_ALPHA_TRANS_ENABLE	(1<<15)
 #define DISPPLANE_ALPHA_TRANS_DISABLE	0
 #define DISPPLANE_SPRITE_ABOVE_DISPLAYA	0
@@ -407,6 +436,7 @@
 #define ADD_ID			0x71408
 #define ADD_ID_MASK			0xff
 
+/* BIOS scratch area registers (830M and 845G). */
 #define SWF0			0x71410
 #define SWF1			0x71414
 #define SWF2			0x71418
@@ -415,6 +445,7 @@
 #define SWF5			0x71424
 #define SWF6			0x71428
 
+/* BIOS scratch area registers (852GM, 855GM, 865G). */
 #define SWF00			0x70410
 #define SWF01			0x70414
 #define SWF02			0x70418
@@ -435,6 +466,7 @@
 #define SWF31			0x72418
 #define SWF32			0x7241c
 
+/* Memory Commands */
 #define MI_NOOP			(0x00 << 23)
 #define MI_NOOP_WRITE_ID		(1 << 22)
 #define MI_NOOP_ID_MASK			((1 << 22) - 1)
@@ -447,6 +479,7 @@
 
 #define MI_STORE_DWORD_IMM	((0x20 << 23) | 1)
 
+/* 2D Commands */
 #define COLOR_BLT_CMD		((2 << 29) | (0x40 << 22) | 3)
 #define XY_COLOR_BLT_CMD	((2 << 29) | (0x50 << 22) | 4)
 #define XY_SETUP_CLIP_BLT_CMD	((2 << 29) | (0x03 << 22) | 1)
@@ -480,10 +513,13 @@
 #define WIDTH_SHIFT			0
 #define HEIGHT_SHIFT			16
 
+/* in bytes */
 #define MAX_MONO_IMM_SIZE		128
 
 
+/*** Macros ***/
 
+/* I/O macros */
 #define INREG8(addr)	      readb((u8 __iomem *)(dinfo->mmio_base + (addr)))
 #define INREG16(addr)	      readw((u16 __iomem *)(dinfo->mmio_base + (addr)))
 #define INREG(addr)	      readl((u32 __iomem *)(dinfo->mmio_base + (addr)))
@@ -494,6 +530,7 @@
 #define OUTREG(addr, val)     writel((val),(u32 __iomem *)(dinfo->mmio_base + \
                                      (addr)))
 
+/* Ring buffer macros */
 #define OUT_RING(n)	do {						\
 	writel((n), (u32 __iomem *)(dinfo->ring.virtual + dinfo->ring_tail));\
 	dinfo->ring_tail += 4;						\
@@ -520,6 +557,7 @@
 } while (0)
 
 
+/* function protoypes */
 extern int intelfbhw_get_chipset(struct pci_dev *pdev, struct intelfb_info *dinfo);
 extern int intelfbhw_get_memory(struct pci_dev *pdev, int *aperture_size,
 				int *stolen_size);
@@ -568,4 +606,4 @@ extern void intelfbhw_disable_irq(struct intelfb_info *dinfo);
 extern int intelfbhw_wait_for_vsync(struct intelfb_info *dinfo, u32 pipe);
 extern int intelfbhw_active_pipe(const struct intelfb_hwstate *hw);
 
-#endif 
+#endif /* _INTELFBHW_H */

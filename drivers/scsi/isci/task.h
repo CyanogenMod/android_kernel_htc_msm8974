@@ -62,6 +62,12 @@
 
 struct isci_request;
 
+/**
+ * enum isci_tmf_cb_state - This enum defines the possible states in which the
+ *    TMF callback function is invoked during the TMF execution process.
+ *
+ *
+ */
 enum isci_tmf_cb_state {
 
 	isci_tmf_init_state = 0,
@@ -69,12 +75,24 @@ enum isci_tmf_cb_state {
 	isci_tmf_timed_out
 };
 
+/**
+ * enum isci_tmf_function_codes - This enum defines the possible preparations
+ *    of task management requests.
+ *
+ *
+ */
 enum isci_tmf_function_codes {
 
 	isci_tmf_func_none      = 0,
 	isci_tmf_ssp_task_abort = TMF_ABORT_TASK,
 	isci_tmf_ssp_lun_reset  = TMF_LU_RESET,
 };
+/**
+ * struct isci_tmf - This class represents the task management object which
+ *    acts as an interface to libsas for processing task management requests
+ *
+ *
+ */
 struct isci_tmf {
 
 	struct completion *complete;
@@ -89,6 +107,9 @@ struct isci_tmf {
 	enum isci_tmf_function_codes tmf_code;
 	int status;
 
+	/* The optional callback function allows the user process to
+	 * track the TMF transmit / timeout conditions.
+	 */
 	void (*cb_state_func)(
 		enum isci_tmf_cb_state,
 		struct isci_tmf *, void *);
@@ -187,13 +208,28 @@ int isci_queuecommand(
 	struct scsi_cmnd *scsi_cmd,
 	void (*donefunc)(struct scsi_cmnd *));
 
+/**
+ * enum isci_completion_selection - This enum defines the possible actions to
+ *    take with respect to a given request's notification back to libsas.
+ *
+ *
+ */
 enum isci_completion_selection {
 
-	isci_perform_normal_io_completion,      
-	isci_perform_aborted_io_completion,     
-	isci_perform_error_io_completion        
+	isci_perform_normal_io_completion,      /* Normal notify (task_done) */
+	isci_perform_aborted_io_completion,     /* No notification.   */
+	isci_perform_error_io_completion        /* Use sas_task_abort */
 };
 
+/**
+ * isci_task_set_completion_status() - This function sets the completion status
+ *    for the request.
+ * @task: This parameter is the completed request.
+ * @response: This parameter is the response code for the completed task.
+ * @status: This parameter is the status code for the completed task.
+ *
+* @return The new notification mode for the request.
+*/
 static inline enum isci_completion_selection
 isci_task_set_completion_status(
 	struct sas_task *task,
@@ -205,8 +241,11 @@ isci_task_set_completion_status(
 
 	spin_lock_irqsave(&task->task_state_lock, flags);
 
+	/* If a device reset is being indicated, make sure the I/O
+	* is in the error path.
+	*/
 	if (task->task_state_flags & SAS_TASK_NEED_DEV_RESET) {
-		
+		/* Fail the I/O to make sure it goes into the error path. */
 		response = SAS_TASK_UNDELIVERED;
 		status = SAM_STAT_TASK_ABORTED;
 
@@ -223,6 +262,9 @@ isci_task_set_completion_status(
 
 		if (task_notification_selection
 		    == isci_perform_error_io_completion) {
+			/* SATA/STP I/O has it's own means of scheduling device
+			* error handling on the normal path.
+			*/
 			task_notification_selection
 				= isci_perform_normal_io_completion;
 		}
@@ -236,19 +278,30 @@ isci_task_set_completion_status(
 	case isci_perform_error_io_completion:
 
 		if (task->task_proto == SAS_PROTOCOL_SMP) {
+			/* There is no error escalation in the SMP case.
+			 * Convert to a normal completion to avoid the
+			 * timeout in the discovery path and to let the
+			 * next action take place quickly.
+			 */
 			task_notification_selection
 				= isci_perform_normal_io_completion;
 
-			
+			/* Fall through to the normal case... */
 		} else {
-			
+			/* Use sas_task_abort */
+			/* Leave SAS_TASK_STATE_DONE clear
+			 * Leave SAS_TASK_AT_INITIATOR set.
+			 */
 			break;
 		}
 
 	case isci_perform_aborted_io_completion:
-		
+		/* This path can occur with task-managed requests as well as
+		 * requests terminated because of LUN or device resets.
+		 */
+		/* Fall through to the normal case... */
 	case isci_perform_normal_io_completion:
-		
+		/* Normal notification (task_done) */
 		task->task_state_flags |= SAS_TASK_STATE_DONE;
 		task->task_state_flags &= ~(SAS_TASK_AT_INITIATOR |
 					    SAS_TASK_STATE_PENDING);
@@ -264,4 +317,4 @@ isci_task_set_completion_status(
 	return task_notification_selection;
 
 }
-#endif 
+#endif /* !defined(_SCI_TASK_H_) */

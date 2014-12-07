@@ -27,11 +27,13 @@
 #ifndef __ASM_ARCH_IRQS_H
 #define __ASM_ARCH_IRQS_H
 
+/* Base address */
 #define DAVINCI_ARM_INTC_BASE 0x01C48000
 
 #define DAVINCI_INTC_TYPE_AINTC		0
 #define DAVINCI_INTC_TYPE_CP_INTC	1
 
+/* Interrupt lines */
 #define IRQ_VDINT0       0
 #define IRQ_VDINT1       1
 #define IRQ_VDINT2       2
@@ -100,6 +102,7 @@
 
 #define ARCH_TIMER_IRQ IRQ_TINT1_TINT34
 
+/* DaVinci DM6467-specific Interrupts */
 #define IRQ_DM646X_VP_VERTINT0  0
 #define IRQ_DM646X_VP_VERTINT1  1
 #define IRQ_DM646X_VP_VERTINT2  2
@@ -149,6 +152,7 @@
 #define IRQ_DM646X_DDRINT       59
 #define IRQ_DM646X_AEMIFINT     60
 
+/* DaVinci DM355-specific Interrupts */
 #define IRQ_DM355_CCDC_VDINT0	0
 #define IRQ_DM355_CCDC_VDINT1	1
 #define IRQ_DM355_CCDC_VDINT2	2
@@ -199,6 +203,7 @@
 #define IRQ_DM355_GPIOBNK5	59
 #define IRQ_DM355_GPIOBNK6	60
 
+/* DaVinci DM365-specific Interrupts */
 #define IRQ_DM365_INSFINT	7
 #define IRQ_DM365_IMXINT1	8
 #define IRQ_DM365_IMXINT0	10
@@ -238,6 +243,7 @@
 #define IRQ_DM365_TCERRINT3	62
 #define IRQ_DM365_EMUINT	63
 
+/* DA8XX interrupts */
 #define IRQ_DA8XX_COMMTX		0
 #define IRQ_DA8XX_COMMRX		1
 #define IRQ_DA8XX_NINT			2
@@ -311,6 +317,7 @@
 #define IRQ_DA8XX_ECAP2			71
 #define IRQ_DA8XX_ARMCLKSTOPREQ		90
 
+/* DA830 specific interrupts */
 #define IRQ_DA830_MPUERR		27
 #define IRQ_DA830_IOPUERR		27
 #define IRQ_DA830_BOOTCFGERR		27
@@ -337,6 +344,7 @@
 
 #define DA830_N_CP_INTC_IRQ		96
 
+/* DA850 speicific interrupts */
 #define IRQ_DA850_MPUADDRERR0		27
 #define IRQ_DA850_MPUPROTERR0		27
 #define IRQ_DA850_IOPUADDRERR0		27
@@ -394,6 +402,7 @@
 #define DA850_N_CP_INTC_IRQ		101
 
 
+/* TNETV107X specific interrupts */
 #define IRQ_TNETV107X_TDM1_TXDMA		0
 #define IRQ_TNETV107X_EXT_INT_0			1
 #define IRQ_TNETV107X_EXT_INT_1			2
@@ -489,7 +498,9 @@
 
 #define TNETV107X_N_CP_INTC_IRQ			96
 
+/* da850 currently has the most gpio pins (144) */
 #define DAVINCI_N_GPIO			144
+/* da850 currently has the most irqs so use DA850_N_CP_INTC_IRQ */
 #define NR_IRQS				(DA850_N_CP_INTC_IRQ + DAVINCI_N_GPIO)
 
-#endif 
+#endif /* __ASM_ARCH_IRQS_H */

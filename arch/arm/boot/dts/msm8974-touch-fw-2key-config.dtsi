@@ -25,6 +25,7 @@
 			synaptics,i2c-gpio-ulj   = <&msmgpio 104 0x00>;
 			synaptics,i2c_err_hlr    = <1>;
 			tw_pin_mask              = <0x05>;
+			hall_block_touch_time    = <1000>;
 			report_type              = <1>;
 			virtualkey0              = <&syn_vk>;
 			virtualkey1              = <&syn_vk_1>;

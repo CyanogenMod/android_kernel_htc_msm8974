@@ -21,8 +21,13 @@
 
 #ifdef CONFIG_MODULES
 
+/*
+ * modules trace_printk()'s formats are autosaved in struct trace_bprintk_fmt
+ * which are queued on trace_bprintk_fmt_list.
+ */
 static LIST_HEAD(trace_bprintk_fmt_list);
 
+/* serialize accesses to trace_bprintk_fmt_list */
 static DEFINE_MUTEX(btrace_mutex);
 
 struct trace_bprintk_fmt {
@@ -85,6 +90,26 @@ static int module_trace_bprintk_format_notify(struct notifier_block *self,
 	return 0;
 }
 
+/*
+ * The debugfs/tracing/printk_formats file maps the addresses with
+ * the ASCII formats that are used in the bprintk events in the
+ * buffer. For userspace tools to be able to decode the events from
+ * the buffer, they need to be able to map the address with the format.
+ *
+ * The addresses of the bprintk formats are in their own section
+ * __trace_printk_fmt. But for modules we copy them into a link list.
+ * The code to print the formats and their addresses passes around the
+ * address of the fmt string. If the fmt address passed into the seq
+ * functions is within the kernel core __trace_printk_fmt section, then
+ * it simply uses the next pointer in the list.
+ *
+ * When the fmt pointer is outside the kernel core __trace_printk_fmt
+ * section, then we need to read the link list pointers. The trick is
+ * we pass the address of the string to the seq function just like
+ * we do for the kernel core formats. To get back the structure that
+ * holds the format, we simply use containerof() and then go to the
+ * next format in the list.
+ */
 static const char **
 find_next_mod_format(int start_index, void *v, const char **fmt, loff_t *pos)
 {
@@ -93,19 +118,29 @@ find_next_mod_format(int start_index, void *v, const char **fmt, loff_t *pos)
 	if (list_empty(&trace_bprintk_fmt_list))
 		return NULL;
 
+	/*
+	 * v will point to the address of the fmt record from t_next
+	 * v will be NULL from t_start.
+	 * If this is the first pointer or called from start
+	 * then we need to walk the list.
+	 */
 	if (!v || start_index == *pos) {
 		struct trace_bprintk_fmt *p;
 
-		
+		/* search the module list */
 		list_for_each_entry(p, &trace_bprintk_fmt_list, list) {
 			if (start_index == *pos)
 				return &p->fmt;
 			start_index++;
 		}
-		
+		/* pos > index */
 		return NULL;
 	}
 
+	/*
+	 * v points to the address of the fmt field in the mod list
+	 * structure that holds the module print format.
+	 */
 	mod_fmt = container_of(v, typeof(*mod_fmt), fmt);
 	if (mod_fmt->list.next == &trace_bprintk_fmt_list)
 		return NULL;
@@ -125,7 +160,7 @@ static void format_mod_stop(void)
 	mutex_unlock(&btrace_mutex);
 }
 
-#else 
+#else /* !CONFIG_MODULES */
 __init static int
 module_trace_bprintk_format_notify(struct notifier_block *self,
 		unsigned long val, void *data)
@@ -139,7 +174,7 @@ find_next_mod_format(int start_index, void *v, const char **fmt, loff_t *pos)
 }
 static inline void format_mod_start(void) { }
 static inline void format_mod_stop(void) { }
-#endif 
+#endif /* CONFIG_MODULES */
 
 
 __initdata_or_module static
@@ -235,6 +270,9 @@ static int t_show(struct seq_file *m, void *v)
 
 	seq_printf(m, "0x%lx : \"", *(unsigned long *)fmt);
 
+	/*
+	 * Tabs and new lines need to be converted.
+	 */
 	for (i = 0; str[i]; i++) {
 		switch (str[i]) {
 		case '\n':
